@@ -1,0 +1,160 @@
+#!/usr/bin/env sh
+# commit-msg —— `#872` 逃生門的留痕閘(2026-08-27 `-ed` 線)
+#
+# 它守的是什麼:`.husky/migration-post-commit-gate.sh` 的逃生門
+#   `PCM_ALLOW_MIGRATION_POST_COMMIT=1`。在本檔出現之前,用了它**只在當次 stderr 留一行警告**
+#   ⇒ commit 完就沒了 ⇒ **事後從 git 歷史上分不出哪一顆 commit 是走逃生門過的。**
+#   出事那天的問句是「這支 migration 為什麼沒被那道閘擋下」,而答案會是
+#   「可能有人設了那個環境變數,查不到」—— 那不是一個答案。
+#   立案編號 `#872`(當場查:`grep -n '^### #872\.' docs/phase-1-backlog.md`
+#   —— 🔴 **刻意不寫行號**:接線那半的檔頭寫過一個,而它在四天內就差了 292 行)。
+#
+# 做法:**沒 token 就擋,有 token 就自動留痕** —— 這兩件事在這裡是同一個動作。
+#   走逃生門的那一顆,commit body 必須含 `PCM-MIGRATION-BYPASS-872:` 再接理由。
+#   日後查法(永久、精確、離線):
+#       git log --all --grep='PCM-MIGRATION-BYPASS-872'
+#
+# 🔴 為什麼 token 而不是「請寫明理由」:
+#   自由文字會沉下去,**固定 token 不會** —— 而找它的人是從那顆 commit 開始找的。
+#   📌 載體好不好,不能只看它會不會被沖走,要看【找它的人從哪裡開始找】。
+#
+# 🔴 判別句,留給下一個人反駁(不是定論):
+#   **這個機制讓「照規矩用逃生門」比 `--no-verify` 更容易嗎?**
+#   🔴 **不要用鍵擊數當錨** —— 照鍵擊數算,`--no-verify`(11 字)本來就比
+#     `export PCM_ALLOW_MIGRATION_POST_COMMIT=1`(34 字)便宜,**在本檔存在之前就是**
+#     ⇒ 用那個錨去比,會把整段推翻,而它推翻的是一個本來就不成立的宣稱。
+#   ✅ 正確的問法是:**對一個【受規則約束的 committer】,正規路便宜到不會叛逃嗎?**
+#     他剛剛才打完那個環境變數 ⇒ 再貼一行的邊際成本趨近零 ⇒ 立本檔的人認為【是】。
+#     (2026-08-27 第三輪換角度審查的判斷;原本寫的錨是鍵擊數,那個錨是錯的。)
+#   ⚠️ 若哪天答案變成「不是」,它會把人推向更暗的路(`--no-verify` 連警告都不留)
+#   ⇒ 那時該做的是**把這道閘變好用**,不是把逃生門關掉。
+#   ⇒ **不要為了「更嚴」而拿掉逃生門** —— 它存在的理由是「我這一次知道我在做什麼」。
+#
+# 🔴 爆炸半徑:`commit-msg` 幾乎每一顆 commit 都會跑 ⇒ 它壞掉的樣子是【全隊 commit 不了】。
+#   ⚠️ **「每一顆」是錯的字面**(codex 抓到,附 git `sequencer.c` 出處):
+#     一般的 `cherry-pick` / `rebase` pick 由 sequencer 直接建 commit,**不呼叫 commit-msg**。
+#     ⇒ 那條路上本閘是不在的。而那些是**重放已經被審過的 commit**,不是新繞過 ⇒ 可接受,
+#       但**不要把它讀成「每一顆都被守著」**。
+#   ⇒ 所以第一件事就是「逃生門沒設 ⇒ 立刻退」,**正常路徑連 git 都不呼叫**。
+#   那一行是控制爆炸半徑的唯一憑據 ⇒ `scripts/migration-post-commit-gate.test.ts`
+#   有一發專門證明它真的在那裡退(用 PATH 假 git 量「有沒有呼叫 git」,不是看它自己report)。
+#
+# 🔴 **已知不涵蓋的一條(寫出來,不假裝涵蓋)—— `git commit --amend`**:
+#   本 hook 看的是 `git diff --cached`(index vs HEAD)。`--amend` 時 HEAD 就是被改的那一顆
+#   ⇒ 一支【已經在 HEAD 裡】的 migration 在這裡看不到 ⇒ 那次 amend 不會被要求 token。
+#   ⚠️ 為什麼不補:`commit-msg` **收不到 amend 訊號** —— `$2`(source)/`$3`(sha)是
+#     `prepare-commit-msg` 才有的參數,commit-msg 只拿得到訊息檔路徑。硬猜會做出誤擋。
+#   📌 而它的可利用性偏低:那支 migration 第一次進 HEAD 時,
+#     要嘛逃生門有設(⇒ 當時就被要求過 token、痕跡已經留下),
+#     要嘛沒設(⇒ 它根本沒繞過那道閘)。**低不等於沒有** —— 這裡寫著就是留給下一個人。
+#
+# 除錯:`PCM_MIGRATION_BYPASS_DEBUG=1` ⇒ 每個分岔印一行 `[cm-gate] dN …`。
+#   它存在的理由很具體:**「沒設逃生門就過」與「設了但沒動 migration 就過」
+#   在畫面上【都是零輸出】** ⇒ 只比 rc 的話那兩發等於只跑了一發。
+
+set -u
+
+_dbg() { [ "${PCM_MIGRATION_BYPASS_DEBUG:-}" = "1" ] && printf '[cm-gate] %s\n' "$1" >&2; return 0; }
+
+# ── d1:逃生門沒設 ⇒ 立刻退。這是絕大多數 commit 走的路,零 git 呼叫、零輸出。──
+if [ "${PCM_ALLOW_MIGRATION_POST_COMMIT:-}" != "1" ]; then
+  _dbg 'd1 逃生門未設 ⇒ 立刻退(未呼叫 git)'
+  exit 0
+fi
+
+_dbg 'd2 逃生門已設 ⇒ 查 index 有沒有動 supabase/migrations'
+
+# 🔴 這裡 fail-closed:git 查不出來時**擋**,不是放行。
+#   射程限定在「已經設了逃生門的那些人」⇒ 不會波及正常 commit;
+#   而放行的話,一個 git 故障就會讓留痕靜靜消失。
+# 🔴 `2>/dev/null` 而不是 `2>&1`:git 成功但印任何 warning 時,`2>&1` 會把那行**併進檔名清單**
+#   ⇒ 清單非空 ⇒ 誤要求 token(code-reviewer 抓到)。stderr 另外接,只在失敗時印。
+# 🔴 `-c core.quotePath=false`:非 ASCII 檔名預設會被加引號 + 八進位轉義
+#   ⇒ 印出來的那串**人照著找不到檔**(同族解法見 `.husky/reviewer-gate.sh`)。
+# 🔴 `mktemp` 失敗時**不落回 `/dev/null`**(codex must-fix):那樣後面會 `rm -f /dev/null`
+#   —— 在 `sh -e` 下誤擋,而有權限時甚至會刪掉裝置節點。mktemp 拿不到就直接擋,理由照 fail-closed。
+if ! GIT_ERR_FILE=$(mktemp -t cmgate 2>/dev/null); then
+  printf '%s\n' '🔴 commit-msg 閘:mktemp 失敗 ⇒ 擋下(不放行、也不落回 /dev/null)' >&2
+  exit 1
+fi
+# 🔴 **不加 `--diff-filter=ACMR`**(codex must-fix):那個 filter 會排除【刪除】
+#   ⇒ 設了逃生門而把一支 migration **刪掉**的那一顆,會被判成「沒動 migration」⇒ 無 token 放行。
+#   刪除一支 migration 與新增一支同樣需要留痕。
+if ! MIGRATION_FILES=$(git -c core.quotePath=false diff --cached --name-only \
+      -- supabase/migrations 2>"$GIT_ERR_FILE"); then
+  printf '%s\n' '🔴 commit-msg 閘:讀不到 staged 檔案清單 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' "   git 回:$(cat "$GIT_ERR_FILE" 2>/dev/null)" >&2
+  rm -f "$GIT_ERR_FILE"
+  exit 1
+fi
+rm -f "$GIT_ERR_FILE"
+
+if [ -z "$MIGRATION_FILES" ]; then
+  # 設了逃生門而這一顆根本沒動 migration ⇒ 放行。
+  # 🔴 不在這裡吵 —— 逃生門常常是 export 在 shell 裡一整個 session 的,
+  #   對每一顆無關的 commit 都吼一次 = 第二個誤擋源,而人會改用 --no-verify。
+  _dbg 'd3 沒動 migration ⇒ 放行(不當第二個誤擋源)'
+  exit 0
+fi
+
+_dbg 'd4 動了 migration ⇒ 檢查 commit body 有沒有 token'
+
+MSG_FILE="${1:?commit-msg 需要 commit 訊息檔的路徑(git 會傳)}"
+# 🔴🔴 **必須先剝掉註解行,再比對 token。**(code-reviewer 端到端抓到,而它戴著一個綠勾)
+#   走**編輯器**路徑時 git 的預設 `--cleanup` 會把 `#` 開頭的行整行刪掉,
+#   而本 hook 讀到的是**刪之前**那一份 ⇒ 一個寫成 `# PCM-MIGRATION-BYPASS-872: …` 的 token
+#   會讓這裡印「✅ 已留痕」而**那一行根本不會進 commit** ⇒ `git log --grep` 零命中。
+#   ⇒ 那正是本片要消滅的狀態(事後查不到),只是它會**帶著一個成功訊息**發生。
+#   ⚠️ **用 `-m` / `-F` 測【測不出來】** —— 那兩條路不剝註解。負對照必須走編輯器路徑。
+#   `git stripspace --strip-comments` 順帶處理 `core.commentChar` 不是 `#` 的情況。
+# 🔴 剪刀線(codex must-fix):`commit.cleanup=scissors` 時,git 會把
+#   `# ------------------------ >8 ------------------------` **那一行以下整段截掉**,
+#   而 `stripspace --strip-comments` 只剝註解、**留得住剪刀線下面的非註解文字**
+#   ⇒ token 寫在剪刀線下方會通過這裡而不會進 commit ⇒ 又是一次「印成功、歷史查不到」。
+#   ⇒ 先砍剪刀線以下,再剝註解。
+#   🔴 而 pattern 要**綁那一行的形狀**,不能只找 `>8`(codex R2):
+#     `sed '/>8/,$d'` 會誤砍任何正常訊息裡含 `>8` 的行(例如「效能 >80%」不會中,
+#     但「a >8 b」會)⇒ 有效 token 寫在它後面就被忽略 ⇒ **過度擋**。
+#     git 的剪刀線長這樣:`# ------------------------ >8 ------------------------`
+#     ⇒ 要求兩側各有一串 `-`,並容許行首註解字元不是 `#`。
+# 🔴 冒號後面要有【非空白】的東西(codex R2):只打 `PCM-MIGRATION-BYPASS-872:` 而不寫理由
+#   會留下一個查得到的 token 卻沒有任何承諾 —— 那等於把「留痕」做成一個形式。
+if sed -E '/^.{0,4}-{8,} >8 -{8,}/,$d' "$MSG_FILE" \
+     | git stripspace --strip-comments \
+     | grep -Eq 'PCM-MIGRATION-BYPASS-872:[[:space:]]*[^[:space:]]'; then
+  printf '%s\n' '✅ 逃生門已留痕(PCM-MIGRATION-BYPASS-872)—— 日後查法:' >&2
+  printf '%s\n' "     git log --all --grep='PCM-MIGRATION-BYPASS-872'" >&2
+  _dbg 'd5 有 token ⇒ 過'
+  exit 0
+fi
+
+{
+  printf '%s\n' '🔴 你設了 PCM_ALLOW_MIGRATION_POST_COMMIT=1 而這一顆動到 supabase/migrations/,'
+  printf '%s\n' '   但 commit body 沒有留痕 ⇒ 擋下。'
+  printf '%s\n' ''
+  printf '%s\n' '   動到的檔:'
+  printf '%s\n' "$MIGRATION_FILES" | sed 's/^/     /'
+  printf '%s\n' ''
+  printf '%s\n' '   要過:在 commit body 加這一行(把 <理由> 換成你這次為什麼要繞過那道閘)'
+  printf '%s\n' ''
+  printf '%s\n' '     PCM-MIGRATION-BYPASS-872: <理由>'
+  printf '%s\n' ''
+  printf '%s\n' '   ⚠️ 那一行【不要用 # 開頭】—— 走編輯器時 git 會把 # 行整行刪掉。'
+  printf '%s\n' ''
+  printf '%s\n' '   為什麼要這一行:沒有它,事後查「這顆 commit 為什麼沒被那道閘擋下」查不到答案。'
+  printf '%s\n' "   有了它:git log --all --grep='PCM-MIGRATION-BYPASS-872' 列出史上每一次【有留痕的】。"
+  printf '%s\n' '   🔴 而【零命中不等於沒人用過】—— --no-verify / cherry-pick / rebase / amend'
+  printf '%s\n' '      那幾條路本閘不在,2026-08-27 之前的使用也一律沒有留痕。'
+  printf '%s\n' ''
+  # 🔴 被擋的當下要告訴他【剛剛打的字去哪了】—— 沒有這一句,人第二次遇到就會學會用 --no-verify
+  #   (code-reviewer 的判斷:少了它,這個機制其實【沒有】比 --no-verify 便宜)。
+  printf '%s\n' '   剛打的訊息沒有不見 ——【-m 與編輯器兩條路都在】這裡:'
+  printf '%s\n' '     git commit -e -F .git/COMMIT_EDITMSG'
+  printf '%s\n' '   (2026-08-27 實測:-m 被本閘擋下之後,原訊息仍在 .git/COMMIT_EDITMSG。'
+  printf '%s\n' '    第一版這裡寫「-m 那次要自己再打一遍」—— 那句是錯的,而它正好是對'
+  printf '%s\n' '    【最趕的那種人】說的,也就是最可能因此改用 --no-verify 的那個人。)'
+  printf '%s\n' ''
+  printf '%s\n' '   🔴 這道閘覺得難用 ⇒ 回報並改它,**不要改用 --no-verify**(那個連警告都不會留,'
+  printf '%s\n' '      而且它會把 pre-commit 那一整套一起關掉,不只這一道)。'
+} >&2
+exit 1

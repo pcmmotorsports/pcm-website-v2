@@ -31,7 +31,7 @@
 //   (多窗共用一棵樹;`git add` 會動到別人的暫存區)。
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync, copyFileSync, readFileSync, chmodSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync, copyFileSync, readFileSync, chmodSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -71,15 +71,43 @@ function runGate(env: NodeJS.ProcessEnv = {}) {
 
 /** 把一支 migration 寫進 scratch 並 stage(只動 scratch 的 index)。 */
 function stageMigration(name: string, body: string) {
+  // 🔴 `mkdirSync` 少不得:`git rm` 掉最後一支 migration 之後,git 會把**空目錄一起移走**
+  //   ⇒ 下一格 `writeFileSync` ENOENT。2026-08-27 加「刪除」那格時當場踩到。
+  mkdirSync(join(scratch, MIGDIR), { recursive: true });
   writeFileSync(join(scratch, MIGDIR, name), body);
   sh('git', ['add', `${MIGDIR}/${name}`]);
 }
 
 /** 清掉 scratch 裡所有 staged 的 migration(檔案與 index 都清)。 */
 function clearMigrations() {
-  const ls = sh('git', ['diff', '--cached', '--name-only', '--', `${MIGDIR}/`]);
-  for (const f of ls.out.split('\n').filter(Boolean)) sh('git', ['rm', '-q', '--cached', '--', f]);
+  // 🔴 `-z`(NUL 分隔、不加引號)少不得 —— 2026-08-27 `-ed` 實際踩到:
+  //   預設 `--name-only` 會把非 ASCII 檔名**加引號並八進位轉義**
+  //   (`"supabase/migrations/20990101000004_\344\270\255…"`),
+  //   於是 `git rm --cached` 拿那串去找檔案 ⇒ **找不到 ⇒ 清不掉,而它不報錯**。
+  //   ⇒ 本檔上面那格「非 ASCII 檔名」測完之後,那支 migration 會【留在 index 裡】
+  //     污染後面每一格。⚠️ 而在 `#872` 那組加進來之前**沒有任何一格會因此紅**
+  //     —— 它只是安靜地讓後面的測試在一個不是它們預期的世界裡跑。
+  // 🔴 用 `git reset` 而不是 `git rm --cached`(codex R2):
+  //   `git rm --cached` **清不掉一個已經 staged 的【刪除】** —— 而 2026-08-27 加的「刪除」那格
+  //   正好會留下一個 staged deletion ⇒ 它會污染後面每一格,而那些格的前置失敗時仍可能假綠。
+  //   `git reset -- <path>` 把該路徑的 index 還原成 HEAD,加/刪兩種都清得掉。
+  const hasHead = sh('git', ['rev-parse', '--verify', '--quiet', 'HEAD']).code === 0;
+  if (hasHead) {
+    const r = sh('git', ['reset', '-q', '--', `${MIGDIR}/`]);
+    if (r.code !== 0) throw new Error(`clearMigrations: git reset 失敗 rc=${r.code} ${r.out}`);
+  } else {
+    const ls = sh('git', ['diff', '--cached', '--name-only', '-z', '--', `${MIGDIR}/`]);
+    for (const f of ls.out.split('\0').filter(Boolean)) {
+      const r = sh('git', ['rm', '-q', '--cached', '--ignore-unmatch', '--', f]);
+      if (r.code !== 0) throw new Error(`clearMigrations: git rm 失敗 rc=${r.code} ${r.out}`);
+    }
+  }
   sh('bash', ['-c', `rm -f "${join(scratch, MIGDIR)}"/*.sql`]);
+  // 🔴 自證清乾淨了 —— 沒有這一行,「清不掉」會安靜地讓後面的測試在別的世界裡跑。
+  const left = sh('git', ['diff', '--cached', '--name-only', '-z', '--', `${MIGDIR}/`]);
+  if (left.out.split('\0').filter(Boolean).length !== 0) {
+    throw new Error(`clearMigrations 沒清乾淨:${left.out}`);
+  }
 }
 
 /** 把 index 裡那支守門換成 body(工作樹留原樣 —— 這正是掉包的形狀)。 */
@@ -325,5 +353,289 @@ describe('migration post-COMMIT 閘 — canary(這次要提交的那份守門是
     restoreGuard();
     stageMigration('20990101000030_clean.sql', CLEAN);
     expect(runGate().code).toBe(0);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// `#872` 逃生門留痕閘(`.husky/commit-msg`)—— 2026-08-27 `-ed` 線
+//
+// 在它出現之前:設了 `PCM_ALLOW_MIGRATION_POST_COMMIT=1` 只在**當次 stderr** 留一行警告
+// ⇒ commit 完就沒了 ⇒ 事後分不出哪一顆 commit 是走逃生門過的。
+//
+// 🔴 本段有兩格是**別的測試抓不到、而少了它們這支閘等於只跑了一發**的:
+//   ① `W1 沒設逃生門` 與 `W2 設了但沒動 migration` **兩發都是 rc=0 + 零輸出**
+//      ⇒ 只比 rc 的話它們是同一發。分辨方式:**它有沒有去呼叫 git**
+//      ⇒ 用 PATH 假 git 量,不是看它自己 report(自己 report 的東西壞掉時會一起壞)。
+//   ② 那個「逃生門沒設 ⇒ 第一行就退」是**控制爆炸半徑的唯一憑據**
+//      (`commit-msg` 每一顆 commit 都跑,壞掉的樣子是全隊 commit 不了)
+//      ⇒ 它必須有一發專門證明,而證明的內容是 **git 呼叫次數 = 0**。
+// ═════════════════════════════════════════════════════════════════════════════
+
+const CM_SRC = join(REPO, '.husky/commit-msg');
+const CM_REL = '.husky/commit-msg';
+const TOKEN = 'PCM-MIGRATION-BYPASS-872';
+
+/** 跑 commit-msg 閘,並用 PATH 假 git 記下它呼叫了幾次 git。 */
+function runCommitMsg(body: string, env: NodeJS.ProcessEnv = {}) {
+  const msgPath = join(scratch, 'COMMIT_MSG_FIXTURE');
+  writeFileSync(msgPath, body);
+  const shimDir = join(scratch, 'gitshim');
+  mkdirSync(shimDir, { recursive: true });
+  const callLog = join(scratch, 'git-calls.log');
+  writeFileSync(callLog, '');
+  // 假 git:記一行再轉呼真的。🔴 用 `command -v` 之外的絕對路徑會綁死機器 ⇒ 從 PATH 尾端找。
+  writeFileSync(
+    join(shimDir, 'git'),
+    `#!/bin/sh\nprintf 'git %s\\n' "$*" >> "${callLog}"\nexec ${realGitPath} "$@"\n`,
+  );
+  chmodSync(join(shimDir, 'git'), 0o755);
+  // 🔴 hermetic:跑這支測試的人**很可能就是會碰這片的人**,而他的 shell 裡可能正 export 著
+  //   `PCM_ALLOW_MIGRATION_POST_COMMIT=1` 或 debug 旗標 ⇒ W1/W2 會假紅。顯式清掉。
+  const r = sh('sh', ['-e', CM_REL, 'COMMIT_MSG_FIXTURE'], {
+    env: {
+      PCM_ALLOW_MIGRATION_POST_COMMIT: undefined,
+      PCM_MIGRATION_BYPASS_DEBUG: undefined,
+      ...env,
+      PATH: `${shimDir}:${process.env.PATH ?? ''}`,
+    },
+  });
+  const gitCalls = readFileSync(callLog, 'utf8').split('\n').filter(Boolean).length;
+  return { ...r, gitCalls };
+}
+
+let realGitPath = '/usr/bin/git';
+
+describe('#872 逃生門留痕閘 .husky/commit-msg', () => {
+  beforeAll(() => {
+    const which = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' });
+    if (which.stdout.trim()) realGitPath = which.stdout.trim();
+    mkdirSync(join(scratch, '.husky'), { recursive: true });
+    copyFileSync(CM_SRC, join(scratch, CM_REL));
+    chmodSync(join(scratch, CM_REL), 0o755);
+  });
+
+  it('🔴 W1 逃生門沒設 ⇒ 過、零輸出,而且【一次 git 都沒呼叫】(爆炸半徑的憑據)', () => {
+    clearMigrations();
+    restoreGuard();
+    stageMigration('20990101000040_w1.sql', CLEAN);
+    const r = runCommitMsg('feat: 一般的 commit\n');
+    expect(r.code).toBe(0);
+    expect(r.out.trim()).toBe('');
+    // 🔴 這一格才是重點:它證明「第一行就退」是真的,而不是它自己說的。
+    expect(r.gitCalls).toBe(0);
+  });
+
+  it('W2 設了逃生門但沒動 migration ⇒ 過、零輸出,而它【有】去查 git(與 W1 分得開)', () => {
+    clearMigrations();
+    const r = runCommitMsg('docs: 跟 migration 無關\n', { PCM_ALLOW_MIGRATION_POST_COMMIT: '1' });
+    expect(r.code).toBe(0);
+    expect(r.out.trim()).toBe('');
+    // W1 與 W2 的 rc 與輸出【完全相同】⇒ 沒有這一行,兩發等於只跑了一發。
+    expect(r.gitCalls).toBeGreaterThan(0);
+  });
+
+  it('🔴 W3 設了 + 動 migration + body 沒 token ⇒ 擋,並直接給出要貼的那一行', () => {
+    clearMigrations();
+    stageMigration('20990101000041_w3.sql', CLEAN);
+    const r = runCommitMsg('feat: 沒有留痕\n', { PCM_ALLOW_MIGRATION_POST_COMMIT: '1' });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain(`${TOKEN}:`);
+    expect(r.out).toContain('20990101000041_w3.sql'); // 有指名是哪一支,不是只說「有 migration」
+    expect(r.out).toContain('--no-verify'); // 明講不要改走那條(它連警告都不留)
+  });
+
+  it('W4 設了 + 動 migration + 有 token ⇒ 過,並印出日後查法', () => {
+    clearMigrations();
+    stageMigration('20990101000042_w4.sql', CLEAN);
+    const r = runCommitMsg(`feat: 有留痕\n\n${TOKEN}: 這次手動 apply 過了\n`, {
+      PCM_ALLOW_MIGRATION_POST_COMMIT: '1',
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('git log --all --grep=');
+  });
+
+  it('🔴 W5 負對照:token 拼錯(少了冒號)⇒ 仍須擋 —— 不能「有那串字就算」', () => {
+    clearMigrations();
+    stageMigration('20990101000043_w5.sql', CLEAN);
+    const r = runCommitMsg(`feat: x\n\n${TOKEN} 忘了冒號\n`, {
+      PCM_ALLOW_MIGRATION_POST_COMMIT: '1',
+    });
+    expect(r.code).toBe(1);
+  });
+
+  it('🔴 codex R2:token 有冒號但【沒寫理由】⇒ 要擋(不能把留痕做成一個形式)', () => {
+    clearMigrations();
+    stageMigration('20990101000048_empty.sql', CLEAN);
+    const r = runCommitMsg(`feat: x\n\n${TOKEN}:   \n`, { PCM_ALLOW_MIGRATION_POST_COMMIT: '1' });
+    expect(r.code).toBe(1);
+  });
+
+  it('🔴 codex R2 反向:訊息裡出現 ">8" 這兩個字元【不算】剪刀線 ⇒ 後面的 token 仍要算數', () => {
+    // 前一版 pattern 是 `/>8/,$d` ⇒ 任何含 ">8" 的行都會把後面整段砍掉 ⇒ 有效 token 被忽略 ⇒ 過度擋。
+    // 這一格是那個修法的**反向對照**:沒有它,把 pattern 改鬆改緊都不會紅。
+    clearMigrations();
+    stageMigration('20990101000049_gt8.sql', CLEAN);
+    const body = ['fix: 批次大小從 a >8 改成 a >4', '', `${TOKEN}: 這行在它後面,要算數`, ''].join(
+      '\n',
+    );
+    const r = runCommitMsg(body, { PCM_ALLOW_MIGRATION_POST_COMMIT: '1' });
+    expect(r.code).toBe(0);
+  });
+
+  it('接線:git 會不會真的呼叫它 —— 而這一格在【乾淨 checkout】上也要成立', () => {
+    // 🔴 前幾格證明「這支腳本被呼叫時會做對的事」,而**「git 到底會不會呼叫它」是另一半**。
+    // ⚠️ 而 `.husky/_` 整個目錄是 gitignore 的(`.husky/_/.gitignore` = `*`)
+    //   ⇒ 它只在**跑過 husky install** 的樹裡存在。斷言「它在」會在乾淨 CI 上假紅
+    //   ⇒ 分兩個世界斷:裝過 ⇒ 斷 shim 與 hooksPath;沒裝過 ⇒ 斷 `prepare` 會把它裝起來。
+    const installed = existsSync(join(REPO, '.husky/_/commit-msg'));
+    if (installed) {
+      const hooksPath = spawnSync('git', ['config', 'core.hooksPath'], {
+        cwd: REPO,
+        encoding: 'utf8',
+      }).stdout.trim();
+      expect(hooksPath).toBe('.husky/_');
+    } else {
+      const pkg = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as {
+        scripts?: Record<string, string>;
+      };
+      expect(pkg.scripts?.prepare ?? '').toContain('husky');
+    }
+    // 這一份【一定】要在(它是進版控的那份),不受 husky 有沒有裝影響。
+    expect(existsSync(CM_SRC)).toBe(true);
+  });
+
+  it('🔴 C1 端到端:token 寫成【註解行】⇒ 必須擋 —— 它會被 git 剝掉,而 hook 本來印 ✅', () => {
+    // 🔴 這一格是 code-reviewer 端到端抓到的,而它**戴著一個綠勾**:
+    //   走編輯器路徑時 git 預設 cleanup 會把 `#` 開頭的行整行刪掉,而 hook 讀的是刪之前那份
+    //   ⇒ 一個 `# PCM-…-872: …` 會讓 hook 印「✅ 已留痕」而那行根本不會進 commit。
+    // ⚠️ **用 -m / -F 測【測不出來】** —— 那兩條路不剝註解。所以這格必須走真的 git commit + 編輯器。
+    const e2e = mkdtempSync(join(tmpdir(), 'mpcg-e2e-'));
+    const hooksDir = join(e2e, 'hooks');
+    mkdirSync(hooksDir, { recursive: true });
+    copyFileSync(CM_SRC, join(hooksDir, 'commit-msg'));
+    chmodSync(join(hooksDir, 'commit-msg'), 0o755);
+    mkdirSync(join(e2e, MIGDIR), { recursive: true });
+    writeFileSync(join(e2e, MIGDIR, 'e2e.sql'), 'select 1;\n');
+    const run = (args: string[], env: NodeJS.ProcessEnv = {}) =>
+      spawnSync('git', args, {
+        cwd: e2e,
+        encoding: 'utf8',
+        env: { ...process.env, ...env },
+      });
+    // 🔴 前置每一步都要斷回碼(codex must-fix):不斷的話,建 repo 失敗時
+    //   最後那句「非零 = 被擋」照樣成立 ⇒ 這一格會恆綠,而它證明的東西不見了。
+    for (const args of [
+      ['init', '-q', '.'],
+      ['config', 'user.email', 't@t'],
+      ['config', 'user.name', 't'],
+      ['config', 'core.hooksPath', hooksDir],
+      ['add', `${MIGDIR}/e2e.sql`],
+    ]) {
+      expect({ args, status: run(args).status }).toEqual({ args, status: 0 });
+    }
+
+    // 編輯器把 token 寫成【註解行】—— 人很容易這樣做,因為 git 的訊息範本滿是 # 開頭的行。
+    const editor = join(e2e, 'ed.sh');
+    writeFileSync(
+      editor,
+      `#!/bin/sh\nprintf 'feat: x\\n\\n# ${TOKEN}: 我以為這樣算\\n' > "$1"\n`,
+    );
+    chmodSync(editor, 0o755);
+    const r = run(['commit'], {
+      PCM_ALLOW_MIGRATION_POST_COMMIT: '1',
+      GIT_EDITOR: editor,
+      PCM_MIGRATION_BYPASS_DEBUG: undefined,
+    });
+    const out = `${r.stdout}${r.stderr}`;
+    rmSync(e2e, { recursive: true, force: true });
+    expect(r.status).not.toBe(0); // 🔴 必須擋 —— 否則就是「印 ✅ 而查不到」那個狀態
+    // 🔴 「非零」不等於「被本閘擋」—— 斷輸出裡有本閘的字,否則任何前置爆炸都算過。
+    expect(out).toContain('commit body 沒有留痕');
+  });
+
+  it('🔴 codex must-fix:mktemp 失敗 ⇒ 擋,而且【不落回 /dev/null】(那會去 rm 裝置節點)', () => {
+    clearMigrations();
+    stageMigration('20990101000047_mk.sql', CLEAN);
+    const badDir = join(scratch, 'badmktemp');
+    mkdirSync(badDir, { recursive: true });
+    writeFileSync(join(badDir, 'mktemp'), '#!/bin/sh\nexit 1\n');
+    chmodSync(join(badDir, 'mktemp'), 0o755);
+    writeFileSync(join(scratch, 'COMMIT_MSG_FIXTURE'), 'feat: x\n');
+    const r = sh('sh', ['-e', CM_REL, 'COMMIT_MSG_FIXTURE'], {
+      env: {
+        PCM_ALLOW_MIGRATION_POST_COMMIT: '1',
+        PCM_MIGRATION_BYPASS_DEBUG: undefined,
+        PATH: `${badDir}:${process.env.PATH ?? ''}`,
+      },
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('mktemp 失敗');
+    // 🔴 這一格真正防的不是「擋」,是【不要落回 /dev/null】—— 落回去之後那句 rm -f
+    //   會拿 /dev/null 當暫存檔刪。斷言訊息裡明講「不落回 /dev/null」,拿掉那條路就會紅。
+    expect(r.out).toContain('/dev/null');
+    // 而 /dev/null 必須還在(它若被刪掉,整台機器後面都會怪)。
+    expect(existsSync('/dev/null')).toBe(true);
+  });
+
+  it('🔴 codex must-fix:設了逃生門而【刪掉】一支 migration ⇒ 一樣要擋', () => {
+    // --diff-filter=ACMR 會排除刪除 ⇒ 刪一支 migration 會被判成「沒動 migration」而放行。
+    // 刪除與新增同樣需要留痕。
+    clearMigrations();
+    stageMigration('20990101000045_del.sql', CLEAN);
+    // 🔴 前置要斷回碼(codex R2):seed commit 失敗時那支 migration 會【留在 index 當新增】
+    //   ⇒ gate 照樣擋 ⇒ 測試綠,而它根本沒測到「刪除」。
+    expect(sh('git', ['commit', '-q', '-m', 'seed for delete case', '--no-verify']).code).toBe(0);
+    expect(sh('git', ['rm', '-q', '--', `${MIGDIR}/20990101000045_del.sql`]).code).toBe(0);
+    // 自證此刻 index 裡那一筆真的是【刪除】,不是新增。
+    const staged = sh('git', ['diff', '--cached', '--name-status', '--', `${MIGDIR}/`]);
+    expect(staged.out).toMatch(/^D\s/m);
+    const r = runCommitMsg('chore: 刪掉一支\n', { PCM_ALLOW_MIGRATION_POST_COMMIT: '1' });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('20990101000045_del.sql');
+  });
+
+  it('🔴 codex must-fix:token 寫在【剪刀線以下】⇒ 要擋(git 會把那段截掉)', () => {
+    // commit.cleanup=scissors 時 `# ---- >8 ----` 以下整段會被 git 丟掉,
+    // 而 stripspace --strip-comments 留得住那段的非註解文字 ⇒ 又是一次「印成功、歷史查不到」。
+    clearMigrations();
+    stageMigration('20990101000046_sc.sql', CLEAN);
+    const body = [
+      'feat: x',
+      '',
+      '# ------------------------ >8 ------------------------',
+      '# 以下不會進 commit',
+      `${TOKEN}: 我寫在剪刀線下面`,
+      '',
+    ].join('\n');
+    const r = runCommitMsg(body, { PCM_ALLOW_MIGRATION_POST_COMMIT: '1' });
+    expect(r.code).toBe(1);
+  });
+
+  it('🔴 I2 fail-closed:git 查不出 staged 清單 ⇒ 擋(而不是靜靜放行)', () => {
+    // 這條分支我寫了三行註解說它為什麼重要,而它在測試裡本來是【死碼】——
+    // 突變「把 exit 1 改成 exit 0」原本七格全綠存活(code-reviewer 抓到)。
+    clearMigrations();
+    stageMigration('20990101000044_i2.sql', CLEAN);
+    const badDir = join(scratch, 'badgit');
+    mkdirSync(badDir, { recursive: true });
+    writeFileSync(join(badDir, 'git'), '#!/bin/sh\necho "boom" >&2\nexit 42\n');
+    chmodSync(join(badDir, 'git'), 0o755);
+    const msgPath = join(scratch, 'COMMIT_MSG_FIXTURE');
+    writeFileSync(msgPath, 'feat: x\n');
+    const r = sh('sh', ['-e', CM_REL, 'COMMIT_MSG_FIXTURE'], {
+      env: {
+        PCM_ALLOW_MIGRATION_POST_COMMIT: '1',
+        PCM_MIGRATION_BYPASS_DEBUG: undefined,
+        PATH: `${badDir}:${process.env.PATH ?? ''}`,
+      },
+    });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('讀不到 staged 檔案清單');
+  });
+
+  it('接線:逃生門那支閘的警告【直接給出要貼的那一行】,不是只說「請寫明理由」', () => {
+    // 要求要寫在他當下讀到的地方 —— 否則他做完 commit 才被 commit-msg 擋,而那時他不知道要貼什麼。
+    const gateText = readFileSync(GATE_SRC, 'utf8');
+    expect(gateText).toContain(`${TOKEN}:`);
   });
 });

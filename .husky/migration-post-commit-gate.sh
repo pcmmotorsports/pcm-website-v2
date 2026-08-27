@@ -49,7 +49,14 @@
 # 逃生門:PCM_ALLOW_MIGRATION_POST_COMMIT=1 git commit …
 #   ⚠️ **它只在當次 stderr 留一行警告,沒有任何機械驗證 commit body 真的寫了理由**(codex R1 nit)。
 #   任何能啟動 git commit 的人 / IDE / shell 設定都設得起來 ⇒ 它是**方便**不是**控制**。
-#   📌 **這一格【已經立案】:`#872`(`docs/phase-1-backlog.md`,實查該檔第 30299 行有此條目)。**
+#   ✅ **2026-08-27 已補上留痕那半**:`.husky/commit-msg` —— 走逃生門而動到 migration 的那一顆,
+#     commit body 必須含 `PCM-MIGRATION-BYPASS-872:` 否則擋;有了就永久可查
+#     (`git log --all --grep='PCM-MIGRATION-BYPASS-872'`)。
+#     ⚠️ **仍未變成完全的控制**:`--no-verify` 一樣繞得過,而那條連這一行警告都不留。
+#   📌 **立案編號 `#872`**(`docs/phase-1-backlog.md`)。
+#     🔴 **這裡刻意不寫行號** —— 原本寫「實查該檔第 30299 行」,而 2026-08-27 當場量到的是
+#       **30591**(差 292 行)。**那個數字是為了幫讀者而寫的,而它現在正在誤導讀者。**
+#       當場查:`grep -n '^### #872\.' docs/phase-1-backlog.md`
 #     ⇒ 它不是我們決定不管,是**它不在本片的範圍裡** —— 要把它變成控制得動 `commit-msg` hook,
 #       那是另一片、另一個平台設定、另一輪對抗審查。
 #   🔴 **而那條條目自己帶一個反向風險,寫在這裡免得有人「順手把它做嚴」**:
@@ -60,7 +67,16 @@
 set -uo pipefail
 
 if [ "${PCM_ALLOW_MIGRATION_POST_COMMIT:-}" = "1" ]; then
-  echo "⚠ migration post-COMMIT 守門被 PCM_ALLOW_MIGRATION_POST_COMMIT=1 略過 —— 請在 commit body 寫明理由" >&2
+  # 🔴 要求寫在他【當下讀到】的地方 —— 原本這裡只說「請寫明理由」,而沒有任何東西驗它,
+  #   人做完 commit 就走了。現在 `.husky/commit-msg` 會擋,所以這裡要**直接給他要貼的那一行**。
+  {
+    echo "⚠ migration post-COMMIT 守門被 PCM_ALLOW_MIGRATION_POST_COMMIT=1 略過。"
+    echo "   🔴 這一顆若動到 supabase/migrations/,commit body 必須有這一行,否則 commit-msg 會擋:"
+    echo ""
+    echo "     PCM-MIGRATION-BYPASS-872: <你這次為什麼要繞過>"
+    echo ""
+    echo "   (日後查法:git log --all --grep='PCM-MIGRATION-BYPASS-872')"
+  } >&2
   exit 0
 fi
 
