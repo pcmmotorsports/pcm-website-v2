@@ -487,11 +487,15 @@ date_from / date_to 在網址上是【絕對的年月日】(`:468-469` 逐字 fi
 
 ```sql
 CREATE TABLE public.admin_saved_order_views (
+  -- 🛑🛑 本草案表【三格已作廢】,以 `§14-Z` 現行設計事實表為準,不要照抄這一塊
   id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+              -- ❌ uuid 作廢 ⇒ identity(§14-13 R2-2:它是證明執行順序的唯一觀察點)
   staff_id    text        NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+              -- ⚠️ ON DELETE CASCADE 這輩子不會觸發(staff 停用走 is_active=false、不物理刪除)
   label       text        NOT NULL,
   query       text        NOT NULL,   -- 那段 query string(不含 `?`)
   sort_order  integer     NOT NULL DEFAULT 0,
+              -- ❌ 整欄作廢 ⇒ Q-檢視-10 = 丙(各人各排)⇒ 順序住不進本表, 見 §14-17
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT saved_view_label_nonempty CHECK (pg_catalog.btrim(label) <> ''),
@@ -2331,11 +2335,14 @@ forward(app-first)  推 app ⇒ 經過 C ⇒ 套 migration
 ```sql
 -- 🔴 REVOKE ALL 先行, 再白名單補回(codex R2:只撤三種 DML 會漏 TRUNCATE/REFERENCES/TRIGGER)
 REVOKE ALL ON TABLE public.admin_saved_order_views FROM PUBLIC, anon, authenticated, service_role;
-GRANT SELECT ON TABLE public.admin_saved_order_views TO service_role;   -- 讀不經 RPC
+-- 🛑🛑 作廢(§14-12-h):這一行已被撤回, 表【不 GRANT 任何權限給任何角色】
+-- GRANT SELECT ON TABLE public.admin_saved_order_views TO service_role;   -- 讀不經 RPC ❌
 -- 寫入唯一路 = 那支 RPC(SECURITY DEFINER, owner 執行)
 -- 🔴 而 EXECUTE 也要兩道 REVOKE(新函式出生自帶 PUBLIC)
-REVOKE ALL ON FUNCTION public.admin_upsert_saved_order_view(...) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.admin_upsert_saved_order_view(...) TO service_role;
+-- 🛑🛑 作廢(§14-15 換路):`admin_upsert_saved_order_view` 這支函式【不會存在】
+-- 現行是四支:list / create / update / delete ⇒ 名單以 §14-Z「現行設計事實表」為準
+-- REVOKE ALL ON FUNCTION public.admin_upsert_saved_order_view(...) FROM PUBLIC, anon, authenticated; ❌
+-- GRANT EXECUTE ON FUNCTION public.admin_upsert_saved_order_view(...) TO service_role; ❌ 同上
 -- 逐權斷言(形狀抄 admin_adjust_wallet:164-172 那組 has_*_privilege 檢查)
 ```
 ⚠️ `§7-5` 那三條表形狀(`NULLS DISTINCT` 唯一索引 / `is_shared` 與 nullable `staff_id` 缺 CHECK /
@@ -2805,11 +2812,11 @@ ACL 斷言查的是 relacl / proacl;RLS 態住在 pg_class.relrowsecurity
 ### ⑥ 🔴 而 plpgsql 函式體 **在 CREATE 時不求值** ⇒ apply 全綠而第一個員工才爆
 ```
 memory 實錘:pg_catalog.coalesce(...) 根本不存在, 而 migration 套用成功、apply 斷言全過
-⇒ 驗收條:三支 RPC 每一支, 在同一支 migration 的斷言區【真的呼叫一次】
+⇒ 驗收條:~~三支~~ 🛑 **四支**(§14-15 換路)RPC 每一支, 在同一支 migration 的斷言區【真的呼叫一次】
    例 PERFORM public.admin_list_saved_order_views(NULL);
    🔴 而那一發要包在會回滾的地方 / 或用保證無副作用的參數 —— 它是【驗語法】不是【驗行為】
 ⚠️ 而 memory 同時記著:寫下這條通則的那個人, 自己的 migration 裡零命中。
-   ⇒ 片1 收工時對自己那支 grep 一次 `PERFORM public.` ⇒ 應 = 3;負對照換假名 ⇒ 0
+   ⇒ 片1 收工時對自己那支 grep 一次 `PERFORM public.` ⇒ 應 = ~~3~~ 🛑 **4**;負對照換假名 ⇒ 0
 ```
 
 ### ⑦ 本片不動任何既有物件 ⇒ **這是【約束】,不是量出來的**
@@ -2895,7 +2902,8 @@ memory 實錘:pg_catalog.coalesce(...) 根本不存在, 而 migration 套用成�
 
 ---
 
-## 14-12-d `B-13` RPC **三支**(先定這格,B-10/B-12 才寫得出來)
+## 14-12-d `B-13` RPC ~~**三支**~~ 🛑 **已作廢 ⇒ 現行四支,見 `§14-15` 與 `§14-Z`**
+> 🔴 **不要用本節這張閘表** —— 它是 upsert 那一版的。`§14-15` 換路後建與改分家。
 
 ```
 admin_list_saved_order_views  (p_actor)                        讀
@@ -2998,7 +3006,7 @@ M1 fixture 訂正:必須是【啟用中的非管理者 × 共用檢視】(見 §
 
 ```sql
 ALTER TABLE public.admin_saved_order_views ENABLE ROW LEVEL SECURITY;
--- 不建任何 policy。讀寫唯一路 = 三支 SECURITY DEFINER RPC(owner = postgres)
+-- 不建任何 policy。讀寫唯一路 = 🛑 四支(~~三支~~, §14-15 換路)SECURITY DEFINER RPC(owner = postgres)
 ```
 🔴 **兩層各擋各的一半,寫死免得下一個人合併它們:**
 ```
@@ -3051,7 +3059,7 @@ REVOKE ALL ON TABLE public.admin_saved_order_views FROM PUBLIC, anon, authentica
 交付物(片1 收工前要在 repo 裡, 不是在對話裡):docs/runbooks/saved-views-rollback.md
 ① forward    套 migration(整支含 BEGIN;/COMMIT;)⇒ 驗 B ⇒ 推 app ⇒ 到 D
 ② 從 D 回退  推回舊 app ⇒ 停在 B。**不 drop 表、不 drop RPC。**
-③ 從 B 回退  真要 drop 才走, down-script 逐句列(先 DROP FUNCTION ×3、再 DROP TABLE)
+③ 從 B 回退  真要 drop 才走, down-script 逐句列(先 DROP FUNCTION ~~×3~~ 🛑 **×4**、再 DROP TABLE)
 ④ 資料怎麼辦 ⇒ 見下
 ```
 ### 🔴 `§14-8` B-14 點名沒答的那格,現在答:**「回 B 之後,D 期間寫入的檢視資料怎麼辦」**
@@ -3153,7 +3161,7 @@ codex 中途逐字回報:「工作樹裡這份規格正在被另一個 session �
 
 ```
 🔴 owner = 執行 CREATE 的那個角色, 除非明確改。§14-12 只有【註解宣稱】是 postgres。
-✅ 顯式寫:ALTER TABLE … OWNER TO postgres;  ALTER FUNCTION … OWNER TO postgres;  ×3
+✅ 顯式寫:ALTER TABLE … OWNER TO postgres;  ALTER FUNCTION … OWNER TO postgres;  ~~×3~~ 🛑 **×4**
 ✅ 並斷言 relowner / proowner = 'postgres'::regrole
 🔴 而更該記的是這個:**我在 §14-12-a ③ 寫了「收權斷言不得寫成 allow-list」,
    而我自己那套枚舉法【就是】一個 allow-list —— 它排除 owner。**
@@ -3243,7 +3251,7 @@ IF (p_is_shared OR v_existing.is_shared) AND NOT s.is_manager THEN RAISE <通用
 ```
 🔴 §14-1(:2109-2113)有通則, 而 §14-12-d 新定了三支 RPC 卻沒有回指它
    ⇒ 漏一支 ⇒ 那一支的 owner 權限可能解析到不受信任的同名物件
-✅ 三支各自寫死:SET search_path = public, pg_temp     (pg_temp 放最後, 官方要求)
+✅ ~~三支~~ 🛑 **四支**各自寫死:SET search_path = public, pg_temp     (pg_temp 放最後, 官方要求)
 ✅ 逐支斷言 proconfig 含該字面;負對照:拿掉一支 ⇒ 斷言必須紅
 📌 ⇒ 一條通則寫在別節, 與這三支【真的套上了】, 是兩個宣稱。
 ```
@@ -3275,7 +3283,9 @@ IF (p_is_shared OR v_existing.is_shared) AND NOT s.is_manager THEN RAISE <通用
 ✅ 而「留著不 drop」這個結論【不變】—— 它本來就有兩條夠用的理由, 我多寫了一條錯的:
    · 那是使用者設定, 不是交易資料
    · drop 不可逆, 而留著的代價是 0 ⇒ 代價不對稱時不選不可逆那邊
-⚠️ 若真的要讓它讀不到 ⇒ rollback 多一句 REVOKE EXECUTE ⇒ **而那不是預設, 要 Sean 拍。**
+⚠️ 若真的要讓它讀不到 ⇒ rollback 多一句 REVOKE EXECUTE ⇒ ~~**而那不是預設, 要 Sean 拍。**~~
+🔴 **2026-08-28 R2-10 把這一句收回了**:改成 rollback 預設就 REVOKE、**不必問他**(見 `§14-15` R2-10)。
+   📌 而收回的那一刻**沒有留下訊號** ⇒ R3 IMP-10 抓到 ⇒ **本行就是那個訊號。**
 ```
 
 ---
@@ -3698,6 +3708,39 @@ Q-檢視-13 員工離職(停用)之後, 他存的那些私人檢視怎麼辦?  �
 > ⇒ **本節是那個固定位置。前面各節的擋門敘述若與本節不一致,以本節為準。**
 > ⚠️ **而本節自己的天花板**:它靠人維護。沒有任何機制在檢查「有東西擋著而沒寫進來」。
 
+## 🔴🔴 現行設計事實表 —— **散落各節的字面與本表不一致時,一律以本表為準**
+
+> 2026-08-28 加。**成因 = R3 的 MF-1**:換路把 RPC 3→4 之後,檔內同時存在兩個分母,
+> 而**沒有任何一句說哪個是準的** ⇒ 照舊分母做 ⇒ 第四支出生自帶 PUBLIC EXECUTE、零斷言覆蓋。
+> 📌 **一份長檔裡,「舊的那個數字」不會自己消失 —— 它會安靜地當一個合理的答案坐在那裡。**
+
+| 項目 | 現行值 | 被什麼取代 |
+|---|---|---|
+| RPC 支數 | **4** | ~~3~~(`§14-15` 換路,建與改分家) |
+| RPC 名單 | `admin_list_saved_order_views` · `admin_create_saved_order_view` · `admin_update_saved_order_view` · `admin_delete_saved_order_view` | ~~`admin_upsert_saved_order_view`~~ **不存在** |
+| 寫入形狀 | `SELECT … FOR UPDATE` 鎖列 → 判斷 → 寫 | ~~`INSERT … ON CONFLICT`~~ |
+| 表主鍵 | `GENERATED ALWAYS AS IDENTITY` | ~~`uuid DEFAULT gen_random_uuid()`~~(`§14-13` R2-2) |
+| `sort_order` 欄 | **本表沒有這一欄** | `Q-檢視-10 = 丙` ⇒ 順序另開片1b(`§14-17`) |
+| 表的 GRANT | **零** —— 不 GRANT 任何權限給任何角色 | ~~`GRANT SELECT … TO service_role`~~(`§14-12-h`) |
+| owner | `postgres`(四支 + 表) | Sean `q17 = 甲`;代價註解為交付物 |
+| `search_path` | 四支各自 `public, pg_temp` + 逐支斷言 | — |
+| RLS | `ENABLE` + 零 policy | — |
+| 突變發數 | ⏳ **待重算** —— 現有 9 發建在「3 支 upsert」的形狀上(R3 IMP-11) | — |
+
+### ⚠️ 而這張表自己的天花板
+```
+· 它**不會**讓舊字面消失 —— 舊字面還在原處, 只是多了一個可以對照的地方
+· 🔴 而 2026-08-28 跑尺①(grep 三支 / upsert / uuid / GRANT SELECT)時量到:
+  **R3 給的那四個關鍵字, 涵蓋不到全部** —— 草案表裡的 `sort_order` 那一欄也是過期的,
+  而四個關鍵字**一個都沒命中它**(它是我改別的東西時順眼看到的)
+  📌 ⇒ **一把「檢查有沒有漏」的尺, 自己的字集也會比問題窄。**
+· 23 個「三支」裡只有 8 個是真的過期;其餘是歷史記錄、或**意思不同的「三支」**
+  (「同族前例三支」`:2800` 指的是三支 migration;「三支 server action」指 TS 層, 那個 3 仍然正確)
+  ⇒ 🔴 **同一個字面在同一份檔裡有三種意思** —— 只看命中數會把它們算成同一件事
+```
+
+---
+
 ## 現況(2026-08-28)
 
 | 擋門 | 擋什麼 | 狀態 | 在誰手上 |
@@ -3732,6 +3775,21 @@ Q-檢視-9 = 甲(不限制數量)× Q-檢視-10 = 丙(各人各排)
    Q-9 單獨看安全, Q-10 單獨看安全 ——
    📌 **兩個各自安全的答案, 乘起來不一定安全。**
 ⇒ 片1b 動手時把這句抄進 migration 註解(plan 會過期, 註解跟著碼走)
+```
+
+## 🛑 片1 動手前必須關掉的三格(R3 帶出來的,2026-08-28)
+```
+① **突變表整張要重算**(R3 IMP-11)—— 現有 9 發建在「3 支 upsert」的形狀上
+   ⇒ 突變只改一支而測試打另一支 ⇒ 恆綠;而 create 那條新路目前**零發突變指名它**
+   ⇒ 這不是「調整編號」, 是重新盤一次每一發打哪支、造得出什麼
+② 🔴 **殘餘風險(照 R6 不由線C 自宣接受, 主視窗要看見)**:
+   **`update` / `delete` 兩支的【執行順序】目前沒有任何測試證明得了。**
+   identity sequence 那個「熬過回滾的觀察點」只有 `create` 那支會 nextval
+   ⇒ 那兩支靠的是:position 錨(絆線, 防手滑重排)+ 人審
+   ⇒ 而我**不加**一個「為了測試而 PERFORM nextval」的東西 —— 那是為了量具改產品碼
+   📌 而 `create` 那支【是】證得了的 ⇒ **三支沒有 ≠ 四支都沒有。**
+③ ⚠️ `is_shared` 採 `GENERATED ALWAYS AS (staff_id IS NULL) STORED`(`§14-18` S-2)
+   ⇒ **能不能 index 未查** ⇒ 片1 動手前驗一發
 ```
 
 ## apply 前要重跑的(不擋批准,擋動手)
@@ -3891,4 +3949,191 @@ Q-檢視-9  ✅ 已答 = 甲(不限制)
 Q-檢視-10 ✅ 已答 = 丙 ⇒ 🔴 **從「擋表」移出** —— 它擋的是片1b, 不是片1
 Q-檢視-13 ✅ 已答 = 甲 ⇒ 讀取端加條件(停用者的私人檢視不出現), **零表格改動**
 ⇒ ⇒ **片1 的表現在只剩 B-0 與 R3 擋著。**
+```
+
+---
+
+# 🛑 §14-18 **R3(code-reviewer)FAIL** —— 而它答出了「三輪在同一層打轉」,兩把尺我自己跑
+
+> 2026-08-28。R3 = 7 must-fix / 5 important / 3 nit。全文 `~/pcm-mailbox/線C-R3-findings-codereviewer-20260828.md`。
+> 🔴 **R3 最值錢的不是那 15 條,是它答出了那一問:**
+> ```
+> 三輪打的是同一層:「這道 SQL 級的閘寫對了沒 + 這把尺量得到嗎」——【攻擊面不同, 層相同】
+> 真正在漏的兩層, 四輪一次都沒被指派過:
+>   ① 跨節一致性層 —— 🔴 這一層的洞【只有換路會製造】, 而換路正好是唯一沒被審過的動作
+>      每輪審的都是「當時那一版的機制」, 沒有人審「上一版的字面還留在檔裡沒跟上」
+>      而作者自己也審不到, 因為他讀的是他剛寫的那一節
+>   ② 語意保真層 —— 「這個設計還在做 Sean 拍板的那件事嗎」
+> ```
+> 📌 **判別句:換路修好的是【機制】,弄壞的是【一致性與語意】—— 而四輪的審查全部指向機制。**
+> **方向沒換,只有攻擊面在換。**
+> ⇒ **所以 R4 不開了。** R3 給的兩把尺是**機械的** —— 這一層不需要更聰明的審查者,需要一把尺。
+
+---
+
+## 尺① 跑完:**檔內舊字面** —— 11 處已就地標記
+
+```
+分母  grep -c 於本檔:「三支」23 · 「四支」5 · upsert 16 · uuid 3 · GRANT SELECT 8
+      負對照「三支zz」⇒ 0
+處置  逐行開檔判「是現行指示 / 是歷史記錄 / 是不同意思」⇒ 真正過期的 11 處已就地標 🛑
+```
+### 🔴 而跑這把尺**量到兩件關於尺本身的事**
+```
+① **23 個「三支」裡只有 8 個是真的過期** —— 其餘是歷史記錄, 或【意思不同的「三支」】:
+   `:2800`「同族前例三支」= 三支 migration;「三支 server action」= TS 層, 那個 3 仍然正確
+   ⇒ 🔴 **同一個字面在同一份檔裡有三種意思。只看命中數會把它們算成同一件事。**
+② 🔴 **R3 給的四個關鍵字, 涵蓋不到全部** ——
+   草案表裡 `sort_order` 那一欄也已作廢(`Q-10 = 丙`), 而**四個關鍵字一個都沒命中它**
+   (我是改別的東西時順眼看到的)
+   📌 ⇒ **一把「檢查有沒有漏」的尺, 自己的字集也會比問題窄。**
+   ⇒ 而 `sort_order` 在本檔 25 處 ⇒ **片1 動手前要再跑一次同款清查, 字集要自己補**
+```
+
+---
+
+## 尺② 跑完:**`Q-檢視-1..13` 逐格拍板字面 vs 現在的設計** ⇒ 撈到 3 條,R3 只核了 Q-6
+
+| Q | 拍板 | 現在的設計 | 判 |
+|---|---|---|---|
+| 1 | 乙 自己的 + 共用的都有 | `list` 回 `staff_id = p_actor OR is_shared` | ✅ 一致 |
+| 2 | 甲 存相對日期、**多存一欄** | 🛑 **草案表裡沒有那一欄** | ❌ **見下 S-1** |
+| 3 | 乙 共用那份**沒有主人** | 🛑 草案表 `staff_id text NOT NULL` | ❌ **見下 S-2** |
+| 4/5/7 | 只有管理者(刪/改/建) | 條件式閘 | ✅ 一致 |
+| 6 | 乙 後寫的贏 | CONFLICT ⇒ 零寫入 | 🛑 **R3 MF-4,等 Sean** |
+| 8 | 未答 | — | ⏳ |
+| 9 | 甲 不限制 | 不做 = 一致 | ✅ |
+| 10 | 丙 各人各排 | 另開片1b | ✅(`§14-17`) |
+| 11 | 不記住行距 | 表無此欄 | ✅ |
+| 12 | 未答 | — | ⏳ |
+| 13 | 甲 藏起來 | 「讀取端加條件」 | ⚠️ **R3 N-15:其實零改動** |
+
+### 🛑 S-1 `Q-2 = 甲`(存相對日期、多存一欄)⇒ **那一欄從頭到尾沒有出現在任何一版表裡**
+```
+草案表全欄:id / staff_id / label / query / sort_order / created_at / updated_at
+⇒ **零個欄位承載「絕對還是相對」** ⇒ Q-2 的答案目前沒有落點
+⚠️ 而 `:1679` 自己寫著「Q-2 = 甲 而它的前提被 ⑤ 打穿了」⇒ **這一格的狀態本來就不清楚**
+⇒ 🔴 而 Q-2 的作者是**主視窗不是 Sean**(`§6-5` 已標)⇒ **這一格要主視窗自己接, 不是端 Sean**
+```
+
+### 🛑🛑 S-2 而查 `Q-3` 時撈到**比它更基本的一條**:`is_shared` **這一欄從來沒有被決定要不要存在**
+```
+`:472` 逐字:「is_shared **或**用 staff_id IS NULL 當旗標(兩種都行, 而**要挑一種並寫下為什麼**)」
+⇒ 🔴 **那個「挑一種」從來沒有發生。**
+⇒ 而 §14-12-d / §14-15 整套授權設計, 每一道閘都寫著 `is_shared` ——
+   **它把一個【還沒決定要不要存在的欄位】當成既定事實用了 23 次。**
+📌 ⇒ 這正是 R3 說的「語意保真層」:機制寫得很細, 而它站在一個沒有地基的欄位上。
+⚠️ 連帶 Q-3 = 乙(共用沒有主人)⇒ `staff_id` 必須可為 NULL, 而草案表寫 `NOT NULL`
+   —— 而 `:466` 早就寫過「現在的 NOT NULL 不成立」, **那句話寫了, 表沒改。**
+   🔴 **又一次:規矩住在 A, 病發生在 B。**
+```
+### ✅ 而這一格**是技術選擇不是 Sean 的題** ⇒ 我挑,並寫下為什麼
+```
+❌ 案甲 加一欄 is_shared boolean + staff_id nullable
+   ⇒ 四種組合有【兩種是壞資料】(共用卻有主人 / 私人卻沒主人)⇒ 要 CHECK 擋
+❌ 案乙 純用 staff_id IS NULL 當旗標
+   ⇒ 壞狀態表達不出來, 而**每一道閘的字面都要從 is_shared 改寫** ⇒ 23 處連動
+✅ 案丙(採用)  is_shared boolean GENERATED ALWAYS AS (staff_id IS NULL) STORED
+   ⇒ · 壞狀態【表達不出來】—— 不需要 CHECK, 因為那兩種組合根本寫不進去
+     · 閘的字面**一個字都不用改** —— `is_shared` 照樣讀得到、也 index 得了
+     · 它**寫不進去** ⇒ 沒有人能直接改它 ⇒ 「變成共用」只能透過改 staff_id 這一條路
+📌 判別句:**在「加一道 CHECK 去擋壞狀態」與「讓壞狀態表達不出來」之間, 選後者** ——
+   CHECK 要有人記得寫, 而表達不出來的東西不需要有人記得。
+⚠️ 天花板:GENERATED 欄能不能被本 repo 的 Postgres 版本 index —— **未查, 片1 動手前要驗一發。**
+```
+
+---
+
+## R3 逐條處置(**`MF-4` / `MF-5` 依主視窗指示擱著等 Sean,同一格不動手**)
+
+### ✅ MF-1 三支/四支兩個分母 ⇒ **`§14-Z` 加「現行設計事實表」**,並就地標 11 處
+### ✅ MF-2 `§14-5` 那塊可直接抄的 SQL ⇒ **三行全部註解掉並標作廢**
+```
+🔴 那是最危險的一格:它是**整份檔裡最像「可以直接貼進 migration」的東西**
+   而它指名 `admin_upsert_saved_order_view` —— 換路後那支函式不存在
+⚠️ 而委託單第 17 行我寫「前面幾節的作廢處都已就地標記, 以標記為準」⇒ **那句是假的**
+   📌 **我對審查者宣稱了一件我沒有做完的事** —— 而他去查了, 所以它變成一條 finding
+   ⇒ **若他沒查, 那句話會讓他跳過整個 §14-5。**
+```
+### 🛑 MF-3 `DUPLICATE_REQUEST` 產不出來 ⇒ **與 R2-5 的 CONFLICT 同一個病,換路把它複製到隔壁**
+```
+`:2597` 承諾重播 ⇒ RETURN 'DUPLICATE_REQUEST';而換路廢掉 ON CONFLICT ⇒ create 只寫「INSERT」
+⇒ double-submit ⇒ 撞唯一鍵 ⇒ 23505 往上拋(不是業務碼)⇒ 使用者看到通用錯誤或 500
+✅ 修:create 那支包 `EXCEPTION WHEN unique_violation THEN RETURN 'DUPLICATE_REQUEST'`
+   而 idempotency 的唯一鍵照 `§14-11` B-4 的 (staff_id, idempotency_key)
+🔴 **而真正該記的是形狀**:換路時我盤了「寫入語句」, 沒有盤【回傳碼合約】
+   ⇒ 📌 **換路要重新盤的不只是碼, 是這支函式【對外承諾過的每一個回傳值】。**
+```
+### 🛑 MF-6 那個「熬過回滾的觀察點」只覆蓋 4 支裡的 1 支 ⇒ **照實承認,不發明假尺**
+```
+identity sequence 的 last_value 前後差, **只有 create 那支會 nextval**
+⇒ update / delete 把閘挪到寫入之後 ⇒ last_value 前後相同 ⇒ **那兩支恆綠**
+❌ 我不加一個「為了測試而 PERFORM nextval」的東西 —— 那是為了量具改產品碼
+✅ 照實寫成限制:**update / delete 的執行順序【目前沒有測試證明得了】**
+   ⇒ 它們靠兩樣東西:① position 錨(絆線, 防手滑重排)② 人審
+   🔴 而這是**殘餘風險** ⇒ 照 R6 **不由我自宣接受** ⇒ 列進 `§14-Z`, 片1 動手前主視窗要看見它
+📌 ⇒ 而 create 那支【是】證得了的 ⇒ **三支沒有 ≠ 四支都沒有**, 不要把它寫成整片都沒有。
+```
+### 🛑 MF-7 「寫入語句只准一句」與前例互斥 ⇒ **約束的範圍寫錯了,不是約束錯**
+```
+前例 admin_set_customer_tier:135 UPDATE + :140 INSERT INTO admin_audit_log = 兩句
+⇒ 照「算全部」⇒ 每支 v_n = 2 ⇒ **apply 直接 RAISE**
+✅ 修:約束改成「寫入【本表】的語句只准一句」——
+   數的字面逐支各自:`INTO public.admin_saved_order_views` / `UPDATE public.admin_saved_order_views`
+                    / `DELETE FROM public.admin_saved_order_views`
+   audit 那句寫的是**別的表**, 不在這個分母裡
+✅ 而 R3 點的「update 那支目前沒有錨」⇒ 補:四支各自一個錨(list 那支無寫入 ⇒ 錨改驗「零寫入」)
+```
+### 🛑 IMP-8 為了量具改資料模型,順手讓 id 可枚舉 ⇒ **修的是錯誤通道,不是退回 uuid**
+```
+identity ⇒ id 連號可猜;而 `:2582` 不存在 ⇒ NOT_FOUND、`:2578` 無權 ⇒ 通用訊息
+⇒ **兩種回應分得開 ⇒ 枚舉得出「哪些 id 存在而不是我的」**
+✅ 修:**「你看不到的」與「不存在的」一律回同一個通用拒絕**
+   ⇒ NOT_FOUND 只可能發生在【你看得見的集合裡找不到】⇒ 那時它不洩漏任何東西
+📌 ⇒ 這樣 identity 帶來的可枚舉性**不再是洩漏管道** ⇒ 不必為了安全退回 uuid、也就保住 MF-6 那個觀察點
+🔴 而 R3 那句判別要留著:**一個測試可觀察性的需求改了產品資料模型, 而那個改動的安全面沒有被評估過。**
+```
+### ✅ IMP-9 rollback 的 REVOKE 沒有配對 re-forward GRANT ⇒ 補一句
+```
+回退再上線 = 只推 app(migration 已套過)⇒ 四支全 permission denied ⇒ 功能整片死
+而**症狀是權限錯誤不是「沒部署」** ⇒ 查起來會往完全錯的方向去
+✅ forward 步驟加一句:「若曾 rollback 過 ⇒ 重新上線前先跑 GRANT EXECUTE ×4」
+🔴 R3 逐字:「修一條 finding 又推開一個新洞 —— 與 §14-15 自己記的那兩次同形。」**第三次了。**
+```
+### ✅ IMP-10 「要 Sean 拍」被自己收回而沒留訊號 ⇒ 就地標記
+```
+`:3278`「那不是預設, 要 Sean 拍」 vs `:3501`「而且不需要問 Sean」—— 後者沒有標前者
+📌 **一個曾被自己判為「要 Sean 拍」的項目, 在下一輪被自己收回去了, 而收回沒有留下訊號。**
+✅ 已在 `:3278` 就地標「⇒ 2026-08-28 R2-10 收回:改成 rollback 預設就 REVOKE, 不必問他」
+```
+### ⏳ IMP-11 突變表整張建在「3 支 upsert」的形狀上 ⇒ **待重算,已列進 `§14-Z`**
+```
+M1-M6 + M7''/M8/M9 都以「那支 upsert」為單位 ⇒ 突變只改一支而測試打另一支 ⇒ 恆綠
+而 create 那條路(授權**只依傳入的新值**, 沒有舊值可比)是**換路生出來的新程式路徑**
+⇒ **目前沒有任何一發突變指名它**
+🔴 重算突變表 = 片1 動手前的必要工作, 而它不是「調整編號」, 是**重新盤一次每一發打哪支、造得出什麼**
+```
+### ✅ N-15 `Q-13 = 甲` 其實是**零改動**,不是「讀取端加條件」⇒ 訂正
+```
+list 的內容閘 `staff_id = p_actor OR is_shared` + 身分閘要求 `is_active`
+⇒ **本來就沒有人看得到別人的私人檢視** ⇒ 停用者的私人檢視自動不出現
+🔴 而寫成「加條件」的兩個危害:① 片1 會加一個不需要的條件
+   ② **會反推出「管理者看得到別人的私人檢視」這個錯前提** —— 而那個前提是假的
+```
+
+---
+
+## §14-18-x 這一輪的帳
+
+```
+· R3 = FAIL / 7 MF + 5 IMP + 3 nit / 我駁回 0 條
+· 處置:11 條已修或已標 · 2 條(MF-4/MF-5)擱著等 Sean · 2 條(IMP-11 / MF-6 殘餘風險)列 §14-Z
+· 兩把尺我自己跑完 ⇒ 尺② 撈到 3 條 R3 沒抓到的(S-1 Q-2 那一欄不存在 / S-2 is_shared 沒挑過 / Q-3 NOT NULL)
+  🔴 而 S-2 比 R3 任何一條都基本:**整套授權設計站在一個沒有被決定要不要存在的欄位上, 用了 23 次。**
+· 🔴 而本輪我自己新增一條要記的:**我對審查者宣稱「作廢處都已就地標記」, 而那句是假的**(MF-2)
+  ⇒ 他去查了所以變成 finding;**若他沒查, 那句話會讓他跳過整個 §14-5。**
+  📌 **委託單裡的每一句「已經做過了」, 都是在替審查者縮小分母。**
+· ⏳ R4 **不開** —— R3 判為方向問題, 而兩把尺是機械的、我跑完了
+· 查重:本節的教訓多屬既有族(尺字集比宣稱窄 / 同名識別字 / 修一條推開另一條)
+  ⇒ 已於 `logs/traps-neighbours.jsonl:131` 那一發涵蓋, 本節零新教訓
 ```
