@@ -7,6 +7,7 @@ import { ACTOR_ID_FIELD, getSessionActor } from '../lib/session/actor';
 import { listActiveStaff } from '../lib/staff';
 import { loadTodaySummary, type TodaySummary } from '../lib/dashboard/today-read';
 import { TodaySummaryCards } from '../components/dashboard/today-summary';
+import { loadDataFreshness, freshnessLabel, unreadable, type DataFreshness } from '../lib/dashboard/freshness-read';
 
 // ~~M0-S1 骨架占位頁~~ + M0-S2 具名身分選人。
 // 🔴 **`#16` 今日對帳(2026-08-14,Sean 拍「批」)**:骨架說明卡下架,換成對帳數字。
@@ -30,10 +31,11 @@ export default async function AdminHomePage() {
   //    而這是每次進站都跑的首頁。
   // 🔴 用 `allSettled` 不用 `all`:`all` 會讓對帳的失敗直接吃掉另外兩支的結果 —— 那正是 MF6 要擋的事。
   //    身分與員工名單失敗**仍照舊往上拋**(它們掛了這頁本來就沒東西可看,不該假裝正常)。
-  const [actorSettled, staffSettled, todaySettled] = await Promise.allSettled([
+  const [actorSettled, staffSettled, todaySettled, freshSettled] = await Promise.allSettled([
     getSessionActor(),
     listActiveStaff(),
     loadTodaySummary(),
+    loadDataFreshness(),
   ]);
   if (actorSettled.status === 'rejected') throw actorSettled.reason;
   if (staffSettled.status === 'rejected') throw staffSettled.reason;
@@ -47,6 +49,18 @@ export default async function AdminHomePage() {
     console.error('[admin/home] 今日對帳載入失敗', todaySettled.reason);
   }
 
+  // 🔴 這一格**沒有「不顯示」這個選項**(`freshness-read.ts` 檔頭那段的理由):
+  //    儀表的價值來自它每天都在印一個值 ⇒ 讀不到也要印「量不到」。
+  //    `loadDataFreshness` 自己不拋,這裡的 rejected 分支是**最後一道**(它哪天改成會拋)。
+  let fresh: DataFreshness;
+  if (freshSettled.status === 'fulfilled') {
+    fresh = freshSettled.value;
+  } else {
+    console.error('[admin/home] 資料新鮮度載入失敗', freshSettled.reason);
+    // 🔴 走 `unreadable()` 而不是自己組一份字面量(R1 nit):「量不到長什麼樣」只有一個作者。
+    fresh = unreadable('讀取時發生例外');
+  }
+
   // 🔴 `max-w-4xl` **刻意留著,不是漏做**(`7f6d0ac1` 那次六支列表頁拿掉時逐支判過):
   //    本頁是**總覽**、沒有表格,拉滿寬只會讓幾張卡片攤在一片空白裡。
   //    規則:沒有表格 ⇒ 留 `max-w-`(長文字行過寬更難讀);有表格的列表頁一律吃滿寬
@@ -54,6 +68,21 @@ export default async function AdminHomePage() {
   return (
     <div className='mx-auto max-w-4xl space-y-4 py-10'>
       <h1 className='text-2xl font-semibold'>PCM 後台</h1>
+
+      {/* 🔴 灰字一行 = Sean 2026-08-28 拍 `q1: 甲` 的那個形狀(「後台首頁一行灰字」)。
+          舊了(> `FRESHNESS_STALE_HOURS`)或量不到 ⇒ 轉成 destructive 色,而**字一樣會出現**。
+          ⚠️ 它只蓋本 repo 這半的供應商管線 —— 報價單那半(車款搜尋)與 feed 自己停更都抓不到,
+             理由與 Sean 讀過的那句原話在 `lib/dashboard/freshness-read.ts` 檔頭。 */}
+      <p
+        data-testid='data-freshness'
+        // 🔴🔴 **判準只讀 `abnormal` 一格,不在這裡自己再組一次**(R1 must-fix)。
+        //    第一版寫 `fresh.stale || fresh.hoursAgo === null` ⇒ **漏掉未來時間戳**
+        //    ⇒ 那一行會用平靜的灰字印「時間戳在未來」,而那是唯一一個確定有東西寫錯的世界。
+        //    📌 文字層做對了、顏色層把它藏回去 —— 同一件事判兩次就會這樣。
+        className={fresh.abnormal ? 'text-destructive text-xs' : 'text-muted-foreground text-xs'}
+      >
+        {freshnessLabel(fresh)}
+      </p>
 
       {today === null ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
