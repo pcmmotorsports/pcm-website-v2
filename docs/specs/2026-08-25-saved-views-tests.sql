@@ -149,8 +149,9 @@ BEGIN
   -- ── T12 重播同一個 idempotency_key ⇒ DUPLICATE_REQUEST
   PERFORM pg_temp.expect('T12 重播',
     public.admin_create_saved_order_view('boss','重播測試','z',NULL,false,'k9',NULL), 'CREATED');
-  PERFORM pg_temp.expect('T12b 同一把鑰匙再來一次',
-    public.admin_create_saved_order_view('boss','重播測試改個名','z',NULL,false,'k9',NULL),
+  -- 用 expect_code:少了 idem 判定 ⇒ 例外會逃出來, 而 expect() 接不住 ⇒ 紅了說不出自己是誰
+  PERFORM pg_temp.expect_code('T12b 同一把鑰匙再來一次 ⇒ DUPLICATE_REQUEST',
+    $q$SELECT public.admin_create_saved_order_view('boss','重播測試改個名','z',NULL,false,'k9',NULL)$q$,
     'DUPLICATE_REQUEST');
 
   -- ── T13 兩張同名【共用】檢視 ⇒ NAME_TAKEN(不是丟例外)
@@ -177,6 +178,15 @@ BEGIN
   PERFORM pg_temp.expect_raise('T14b 停用員工 create',
     $q$SELECT public.admin_create_saved_order_view('gone','x','y',NULL,false,NULL,NULL)$q$,
     '無權執行此操作');
+
+  -- ── T20 / T21 🔴 停用員工打 update / delete —— 而這兩發是【突變表重算】逼出來的:
+  --      T14 只驗了 list 與 create 兩支 ⇒ update / delete 的身分閘**零覆蓋**
+  --      📌 一組寫著「四支都擋」的測試, 實際只餵了兩支。
+  PERFORM pg_temp.expect_raise('T20 停用員工 update',
+    $q$SELECT public.admin_update_saved_order_view('gone',1,'x',NULL,NULL,NULL,NULL)$q$,
+    '無權執行此操作');
+  PERFORM pg_temp.expect_raise('T21 停用員工 delete',
+    $q$SELECT public.admin_delete_saved_order_view('gone',1,NULL)$q$, '無權執行此操作');
 
   -- ── T15 is_shared 寫不進去(GENERATED)
   BEGIN

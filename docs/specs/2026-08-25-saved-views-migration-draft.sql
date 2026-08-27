@@ -573,6 +573,28 @@ BEGIN
     END IF;
   END LOOP;
 
+  -- 7f-2. 🔴 鎖列錨 —— update / delete 兩支必須有 `FOR UPDATE`。
+  --   ⚠️ 這一格是 2026-08-28 突變 M21 逼出來的:把 `FOR UPDATE` 整個拿掉 ⇒ **16 發突變全綠、
+  --      32 格測試全過**。因為鎖是【並發】性質, 而單一 session 的測試看不見它。
+  --   📌 **一個東西可以是這一片最重要的設計決定(§14-15 換路的核心), 而零覆蓋。**
+  --   🔴 而它只是【絆線】不是證據 —— 它防的是手滑刪掉那兩個字, 防不了「鎖了而判斷在鎖外面」。
+  --      要真的證明, 需要兩個 session 的並發測試 ⇒ 那不在本片射程, 已列 §14-Z ②。
+  FOR r IN
+    SELECT unnest(ARRAY[
+      'public.admin_update_saved_order_view(text, bigint, text, text, text, timestamptz, text)',
+      'public.admin_delete_saved_order_view(text, bigint, text)']) AS sig
+  LOOP
+    v_def := pg_get_functiondef(r.sig::regprocedure);
+    IF position('FOR UPDATE' in v_def) = 0 THEN
+      RAISE EXCEPTION '碼錨 鎖列:% 沒有 FOR UPDATE;換路的核心不見了, 拒繼續', r.sig;
+    END IF;
+    IF position('FOR UPDATE' in v_def)
+       >= position(CASE WHEN r.sig LIKE '%update%' THEN 'UPDATE public.admin_saved_order_views'
+                        ELSE 'DELETE FROM public.admin_saved_order_views' END in v_def) THEN
+      RAISE EXCEPTION '碼錨 鎖列順序:% 的 FOR UPDATE 不在寫入之前;拒繼續', r.sig;
+    END IF;
+  END LOOP;
+
   -- 7g. list 那支沒有寫入語句 ⇒ 它的錨只有身分閘那一格。
   v_def := pg_get_functiondef('public.admin_list_saved_order_views(text)'::regprocedure);
   IF position('WHERE s.id = p_actor AND s.is_active' in v_def) = 0 THEN
