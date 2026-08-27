@@ -242,9 +242,22 @@ BEGIN
        v_label, COALESCE(p_query, ''), p_date_preset, p_idempotency_key)
     RETURNING id INTO v_id;
   EXCEPTION WHEN unique_violation THEN
-    -- 只有撞【重播鍵】才算重播;撞同名索引是另一回事,不得吞掉。
+    -- 撞【重播鍵】= 同一個請求送了兩次 ⇒ 冪等回應,不是錯誤。
     IF SQLERRM LIKE '%admin_saved_order_views_idem_idx%' THEN
       RETURN 'DUPLICATE_REQUEST';
+    END IF;
+    -- 撞【同名】= 使用者取了一個已經有人用的名字。
+    -- 🔴 這是第五個碼 `NAME_TAKEN`,而它的授權強度要寫清楚:
+    --    **這是主視窗 2026-08-28 裁的,Sean 沒有看過這個碼。**
+    --    不是「他選了」,是「主視窗決定,而他沒有被問」。
+    -- 理由(主視窗逐字):一個 DB 例外冒到畫面 = 員工看到一串英文,
+    --   而【他做錯的事其實很簡單】(名字重複了)
+    --   ⇒ 那不是「還沒做錯誤處理」,是**把一個可預期的使用者行為當成系統故障**。
+    -- 📌 它與 CONFLICT 那格是同一條:回傳碼合約要涵蓋【使用者做得到的每一種事】,
+    --    而「取一個已經有人用的名字」是使用者做得到的。
+    IF SQLERRM LIKE '%admin_saved_order_views_private_label_idx%'
+       OR SQLERRM LIKE '%admin_saved_order_views_shared_label_idx%' THEN
+      RETURN 'NAME_TAKEN';
     END IF;
     RAISE;
   END;

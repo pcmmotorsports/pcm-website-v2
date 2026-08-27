@@ -29,6 +29,25 @@ EXCEPTION WHEN raise_exception THEN
   RAISE NOTICE 'ok   % (正確拒絕)', p_name;
 END; $$;
 
+-- 🔴 expect_code:與 expect 的差別是它【也接得住逃出來的例外】。
+--    expect() 收的是「函式的回傳值」⇒ 函式若 RAISE, 例外在 expect 被呼叫【之前】就炸了
+--    ⇒ 錯誤訊息裡沒有測試編號 ⇒ 看得到紅, 看不出是哪一格紅。
+--    ⚠️ 這是 2026-08-28 跑 M11 突變時量到的:它紅了, 而紅的訊息是一句原始 DB 例外。
+--    📌 **一個測試可以正確地紅, 而說不出自己是誰。**
+CREATE OR REPLACE FUNCTION pg_temp.expect_code(p_name text, p_stmt text, p_expected text)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_actual text;
+BEGIN
+  EXECUTE p_stmt INTO v_actual;
+  IF v_actual IS DISTINCT FROM p_expected THEN
+    RAISE EXCEPTION 'FAIL %: 期望 [%] 實得 [%]', p_name, p_expected, v_actual;
+  END IF;
+  RAISE NOTICE 'ok   %', p_name;
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM LIKE 'FAIL %' THEN RAISE; END IF;
+  RAISE EXCEPTION 'FAIL %: 期望回碼 [%], 而它【丟了例外】: %', p_name, p_expected, SQLERRM;
+END; $$;
+
 DO $t$
 DECLARE
   v_clerk_id bigint; v_boss_id bigint; v_shared_id bigint;
@@ -134,14 +153,23 @@ BEGIN
     public.admin_create_saved_order_view('boss','重播測試改個名','z',NULL,false,'k9',NULL),
     'DUPLICATE_REQUEST');
 
-  -- ── T13 兩張同名【共用】檢視 ⇒ 擋(NULLS DISTINCT 的坑,靠部分唯一索引擋)
-  PERFORM public.admin_create_saved_order_view('boss','同名共用','q',NULL,true,'k13',NULL);
-  BEGIN
-    PERFORM public.admin_create_saved_order_view('boss','同名共用','q',NULL,true,'k10',NULL);
-    RAISE EXCEPTION 'FAIL T13: 兩張同名共用檢視【都進去了】';
-  EXCEPTION WHEN unique_violation THEN
-    RAISE NOTICE 'ok   T13 同名共用被擋';
-  END;
+  -- ── T13 兩張同名【共用】檢視 ⇒ NAME_TAKEN(不是丟例外)
+  --      🔴 第五個碼。主視窗 2026-08-28 裁的,**Sean 沒有看過這個碼**。
+  --      理由:一個 DB 例外冒到畫面 = 員工看到一串英文,而他做錯的事其實很簡單。
+  PERFORM pg_temp.expect('T13 建同名共用',
+    public.admin_create_saved_order_view('boss','同名共用','q',NULL,true,'k13',NULL), 'CREATED');
+  PERFORM pg_temp.expect_code('T13b 再建一張同名共用 ⇒ NAME_TAKEN',
+    $q$SELECT public.admin_create_saved_order_view('boss','同名共用','q',NULL,true,'k10',NULL)$q$,
+    'NAME_TAKEN');
+  -- ── T13c 同名【私人】也要 NAME_TAKEN(兩個部分唯一索引各一發, 不要只驗一個)
+  PERFORM pg_temp.expect_code('T13c clerk 建同名私人 ⇒ NAME_TAKEN',
+    $q$SELECT public.admin_create_saved_order_view('clerk','clerk 的第二張','q',NULL,false,'k14',NULL)$q$,
+    'NAME_TAKEN');
+  -- ── T13d 🔴 而【不同人】取同一個名字要放行 —— 部分唯一索引管的是每個人自己
+  --      (少了這一發, 一個「全表 label 唯一」的錯誤索引也會讓 T13/T13c 全綠)
+  PERFORM pg_temp.expect('T13d boss 也叫「clerk 的第二張」⇒ 放行',
+    public.admin_create_saved_order_view('boss','clerk 的第二張','q',NULL,false,'k15',NULL),
+    'CREATED');
 
   -- ── T14 停用的員工 ⇒ 四支全擋
   PERFORM pg_temp.expect_raise('T14 停用員工 list',
