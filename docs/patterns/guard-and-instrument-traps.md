@@ -534,6 +534,7 @@ it.fails('退場條件:<那支 migration> apply 之後這格會紅,那時要做�
 | 「這會導致 X」 | 先證 **X 那個場景走得到** —— 查 `docs/reference/order-state-gates.md`(⑥ 配套)|
 | 「共 N 處 / 唯一一份」 | 先寫下**這東西可能有幾種形狀**,逐形狀各掃一次;命中**先分類再報數**(⑧)|
 | 「那條 finding 折好了」 | 再跑一發突變,問**紅的是我改的那一行嗎**;刪掉它還會紅 ⇒ 沒判別力(⑨)|
+| 「餵了失敗世界,守門沒觸發」 | 先證**那個世界真的存在**:注入法單獨餵一發要 rc≠0,不餵要 rc=0;層要對(shell / python / git 各一套)(⑫-c)|
 
 — 2026-08-14 · R 窗立(當天實例來自 R 與 D 兩線;D 的兩例標明未親驗)
 
@@ -1155,6 +1156,39 @@ READ COMMITTED 下它看得到 ⇒ **兩個交易被【意外】序列化了**�
 上面那格靠的是「舊 worker 的收尾走 microtask ⇒ 20ms 內必然完成」——
 **日後若那條路徑引入真的計時器（retry backoff / 動畫），這個構造會【靜默退化】成第一版那種綠。**
 
+
+### ⑫-c 注入法有效性表 —— 「餵一個失敗世界」之前,先證明那個世界存在(2026-08-27,cf / -ed;git 半邊見「一支『自帶拋棄式世界』的守門腳本」那條)
+
+> **量測:2026-08-27 16:02-16:03,macOS 14.6.1 / Darwin 23.6.0,HEAD `18d21b96`。Linux 欄【全部未量 = 答不出】。**
+> 🔴 **而 CI 跑在 Linux 上 ⇒ 下表對 CI 的注入有效性,現在沒有人知道。** 那一欄空著不是「一樣」,是「沒量」。
+
+同一個判別句(⑫:我這一輪什麼都沒壞,是東西好,還是我根本沒碰到它)的三個實例 —— **我以為我製造了失敗,而我沒有**:
+- cf:`TMPDIR=/nonexistent` 餵裸 `mktemp -d` ⇒ rc=0 退回 `/var/folders/…` ⇒ 三格守門全印「沒觸發」,那是注入失敗不是守門通過;換 PATH 替身才量到。
+- -ed:PATH 前置假 `mktemp` 攔不到 python `tempfile.mkdtemp()`。
+- 🔴 **寫這張表的人自己也餵空了一次**(所以它排第一列):`sh -c 'TMPDIR=X mktemp -d "$TMPDIR/x.XXXXXX"'` —— 前綴指派在參數展開**之後**才生效,`$TMPDIR` 展開的是舊值 ⇒ 第一版表有兩列是假的。
+
+| 族 | 寫法 | macOS 有效? | 證明那一發印了什麼 | Linux |
+|---|---|---|---|---|
+| 🔴 殼 | `sh -c 'V=X cmd "$V/…"'`(前綴指派 + 同行展開) | **無效:注入被殼吃掉** | `X=1; X=2 echo "$X"` 印 **1** | 答不出 |
+| mktemp | `TMPDIR=/nonexistent mktemp -d`(裸)/ `-t x` / `TMPDIR=<chmod 000>` | **無效** | rc=0,印 `/var/folders/…/T/tmp.…` | 答不出 |
+| mktemp | `mktemp -d /nonexistent/x.XXXXXX`(模板,字面路徑)/ `<chmod000>/x.XXXXXX` / `-p /nonexistent` | 有效 | rc=1 `mkdtemp failed on …: No such file` | 答不出 |
+| mktemp | PATH 前置假 `mktemp`(`printf '#!/bin/sh\nexit 1\n'`) | 有效,**只攔 shell 呼叫** | rc=1;不前置 ⇒ rc=0(負對照) | 答不出 |
+| python | PATH 假 mktemp + `tempfile.mkdtemp()` | **無效** | rc=0 | 答不出 |
+| python | `TMPDIR=/nonexistent` 或 chmod000 + `tempfile.mkdtemp()` | **無效** | rc=0;`gettempdir()` 自己退回印 `/tmp` | 答不出 |
+| python | `tempfile.mkdtemp(dir=/nonexistent)` / `dir=<chmod000>` | 有效 | rc=1 Traceback | 答不出 |
+| git | `GIT_DIR=A/.git git -C B …` | **工具自己在說謊** | `--show-toplevel` 印 **B**、`--git-dir` 印 A、`git -C B add f` ⇒ **A 的 index 有 f、B 沒有**(印出來的路徑與寫進去的地方不是同一個;同族全文見「自帶拋棄式世界」那條) | 答不出 |
+| git | `env -u GIT_DIR`(或剝全部 `GIT_*`) | 有效 | 兩者皆 B | 答不出 |
+| cd | `cd ""` bash / sh / zsh,含 `set -e` | **rc=0 原地不動 ×3,`-e` 不停** | 位置不變=yes | 答不出 |
+| rm | `rm -rf "${X:?}"` X 未設 | 守得住 | `parameter null or not set`,不往下走 | 答不出 |
+| rm | `rm -rf "$X"/sub` X 未設 | **守不住** | 展開成 `rm -rf /sub` | 答不出 |
+
+**動作(四條,缺一那一輪的綠不算數):**
+(a) 每個注入法**先單獨餵一發**,看到 rc≠0 或錯誤訊息,才拿去量守門。
+(b) 注入要與被測**同一層**:PATH 替身只攔 shell、`dir=`/monkeypatch 才攔 python、`env -u GIT_*` 才隔 git。
+(c) 結論旁帶 **HEAD sha + 時點 + OS** —— 時間要人去比對「那之後有沒有 commit」,sha 直接可驗(實錘:一份 14:54 全對的報告在 15:02:46 的 commit 之後變成錯的,而它自己不知道)。
+(d) 🔴 **注入法本身要有負對照**:不只「餵了會紅」,還要「不餵不會紅」—— 否則一個永遠都紅的注入法會讓每一次驗證都通過。
+
+**判別句:「沒觸發」在「守門好」與「我沒餵到」兩個世界印同一句;分開它們的唯一東西,是注入法自己那一發紅。**
 
 ---
 
@@ -21777,6 +21811,7 @@ git grep -lE 'git log' -- .husky scripts .github        ⇒ 8 支（尺真的會
 
 > 📎 **本條有兩個實例,而它們是同一夜、同一棵樹、不同的兩支檔。**
 > 第一支修好之後,**修法沒有傳到第二支上** —— 而收第一支包的人,就是三小時後手動觸發第二支的人(主視窗自述)。
+> 📎 同族的 mktemp / python / 殼前綴版(「我以為我製造了失敗,而我沒有」的注入面對照表)見 §⑫-c。
 
 ### 判別句(1b 給的第四把尺,比前三把好,理由在下面)
 
