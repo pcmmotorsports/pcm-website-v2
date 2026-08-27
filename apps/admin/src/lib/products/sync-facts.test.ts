@@ -96,9 +96,24 @@ describe('#20 片1b-2 — 詳情頁警語所依賴的事實(R3 F3)', () => {
 
   it('🔴 文案前提②「哪些欄位會被覆蓋依供應商而定」—— 每日同步的家裡至少一家旗標為 false', () => {
     // 文案逐字:「有的供應商的說明與手冊是凍結不動的」。
-    // 若哪天 14 家全部 `syncInstallResources: true` ⇒ 那句話就假了。
-    const frozen = dailyMatrix().filter((s) => !flagOf(s, 'syncInstallResources'));
-    expect({ 每日同步中凍結安裝資源的家: frozen }).toEqual({ 每日同步中凍結安裝資源的家: ['rpm'] });
+    // 若哪天每日同步的家全部 `syncInstallResources: true` ⇒ 那句話就假了。
+    // 🔴 ~~原註寫「14 家」~~ ⇒ 2026-08-27 加入 dna+gilles 後是 16 家。**家數不再寫死** ——
+    //    上一版把當下的家數寫進理由句,而 matrix 一長它就靜默變假,
+    //    而**這一格紅的時候沒有人會去看註解對不對**(本次實測:紅的是下面那行的名單, 註解照樣是舊的)。
+    // 🔴 dna+gilles 兩家 `syncInstallResources: false` 是**量到的**(pdf_urls/video_urls 兩欄來源全 0),
+    //    不是保守猜 ⇒ 它們進 matrix 之後本格期望值**必然**從 ['rpm'] 變三家。
+    //    數法:grep -n "syncInstallResources" scripts/supplier-config.ts
+    // 🔴 codex K2 nit(2026-08-27):`frozen` 直接繼承 matrix 的**排列順序** ⇒
+    //    只把 matrix 裡兩家對調(語意零改變)就會讓本格誤紅。**實際值那側 `.sort()`**, 比的是集合不是順序。
+    //    ⚠️ 期望值那側是**人寫的字面**, 它「照字典序」是我排的、不是程式保證的
+    //    ⇒ 補第四家時**要自己排進正確位置**, 否則同一種誤紅會從期望值那側回來。
+    //    (code-reviewer 2026-08-27 nit:原註寫「兩側都排序」= 不成立, 已改成實況。)
+    const frozen = dailyMatrix()
+      .filter((s) => !flagOf(s, 'syncInstallResources'))
+      .sort();
+    expect({ 每日同步中凍結安裝資源的家: frozen }).toEqual({
+      每日同步中凍結安裝資源的家: ['dna', 'gilles', 'rpm'],
+    });
   });
 
   it('🔴 文案前提③「圖片一定會被寫」—— transform 對 images 是無條件寫入,不受旗標閘控', () => {

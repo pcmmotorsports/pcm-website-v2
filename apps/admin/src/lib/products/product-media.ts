@@ -36,6 +36,17 @@ import type { ProductManual, ProductSoundClip } from '@pcm/domain';
 //    · 再扣掉 `extreme`(`rpm-sync.yml:72` 逐字「**extreme 刻意不列**…不接每日排程」、
 //      `supplier-config.ts:275` 同字面、712 列)⇒ **每日同步 14 家**。
 //    · 在那 14 家裡:`syncDescription:false` 與 `syncInstallResources:false` **都只有 `rpm` 一家**。
+//
+// 🔴 **2026-08-27 訂正(而訂正的方式本身是這一段的第三課)**:`dna` + `gilles` 進 matrix 之後,
+//    上面那四個數字**全部過期** —— 條目 16⇒18、真供應商 15⇒17、每日同步 14⇒16、
+//    `syncInstallResources:false` 從「只有 rpm」⇒ **rpm / dna / gilles 三家**。
+//    ⚠️ **而我刻意不把數字改寫成新的現值** —— 這一段已經因為「寫死當下的數」錯過兩次(R1/R2),
+//       第三次照樣寫死只是把同一天往後推。**數字留在它們自己的量測日期上, 現值當場數:**
+//         每日同步家數  grep -o 'supplier: \[[^]]*\]' .github/workflows/rpm-sync.yml | tr ',' '\n' | wc -l
+//         凍結安裝資源  grep -n 'syncInstallResources' scripts/supplier-config.ts   (再交集上面那份 matrix)
+//    ✅ 而這一格**有機制盯著**:`sync-facts.test.ts` 讀兩支真相源對帳, 本次改動讓它從綠變紅
+//       ⇒ 期望值被迫跟著改。**那支測試是這段註解的守門, 而這段註解不是。**
+//       📌 判別句:**一段【解釋事實的註解】不會在事實變的時候叫;會叫的是那支讀真相源的測試。**
 //    ⇒ 我上一輪寫「install true=13/false=3、desc true=14/false=2」是**16 條目的原始計數**,
 //      把測試靶當成一家供應商。**UI 文案的「多數/少數」結論不受影響,但字面錯。**
 //    數法:`grep -n "supplier:" .github/workflows/rpm-sync.yml` 取 matrix,
