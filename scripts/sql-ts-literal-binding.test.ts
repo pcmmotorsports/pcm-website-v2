@@ -268,7 +268,7 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
   const P6_TS = 'packages/domain/src/catalog/year-range.ts';
   const p6Live = (): string => locateLive('FUNCTION', P6_NAME).live;
 
-  it('§0 live 定位:候選=已知五支、live=20260811040000(新 migration 重定義本 RPC 時本格要紅)', () => {
+  it('§0 live 定位:候選=已知六支、live=20260827150000(新 migration 重定義本 RPC 時本格要紅)', () => {
     // 🔴 本格的期待值被打錯過兩次,歷程在檔頭 —— 20260811040000 是 DROP+CREATE(無
     //    OR REPLACE)重建的 11 參數版;之前字串 pattern 看不到它,守的是 20260719150000 死層。
     const { live, candidates } = locateLive('FUNCTION', P6_NAME);
@@ -281,8 +281,12 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
       '20260712213000_p4_catalog_rpc_split_generic_plan_replay.sql',
       '20260719150000_catalog_product_image_trim.sql',
       '20260811040000_m4b_storefront_269b_catalog_new_arrivals.sql',
+      // #950(2026-08-27)CREATE OR REPLACE 重定義本 RPC —— 但只改【排序】(recommend_sort_mid_high_price)。
+      // 逐格重核過:年份述詞與舊 live 20260811040000【逐字相同】(diff 全 year_/p_year 行 = 0 差),
+      // ∴ SQL 側字面(YS/YE 各 2 次、1 UNION)+ 真值表 + TS 側字面 三格【不變、仍綠】;本格是重定義偵測器,加這行。
+      '20260827150000_m4b_storefront_950_recommend_sort_mid_high_price.sql',
     ]);
-    expect(live).toBe('20260811040000_m4b_storefront_269b_catalog_new_arrivals.sql');
+    expect(live).toBe('20260827150000_m4b_storefront_950_recommend_sort_mid_high_price.sql');
   });
 
   it('SQL 側字面:兩個年份述詞在兩個 UNION 半【各】出現一次(只驗一半,另一半改了不紅)', () => {
