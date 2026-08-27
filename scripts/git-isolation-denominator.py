@@ -38,25 +38,23 @@
 # ============================================================================
 import subprocess, re, io, os, sys
 
-# curated git 寫入(mutating)子命令 —— 窄於 `git `、寬於 `git add`
-# 🔴 `-C <path>` 與 `-c <k>=<v>` 的【參數是下一個 token】(就是本次事故 `git -C "$dir" add` 的形狀)
-#    ⇒ flag 群要能吃「兩個 token 的 flag」,不能只認自足的 `-[^ ]+`(否則 `-C` 吃不到路徑就 fail)。
-# 🔴 err-toward-inclusion:漏一支真寫入 = 本次事故;誤收一支唯讀 = 只是多跑一次行為測。
-#    ⇒ 寧可寬。但【不能】收唯讀常用形(status/show/log/diff/branch/rev-parse/ls-files)——
-#    那會把負對照 literal-sweep(git status/show/branch)誤收進來。
-#    worktree/submodule 是本次 commit-pack-preflight 漏掉的(reviewer R1);它們也有 list/status 唯讀形,
-#    但腳本一旦出現 `git worktree`/`git submodule` 多半在操作工作樹 ⇒ 收進來、讓行為/靜態層再分。
-#    worktree/submodule 有唯讀形(list/status)⇒ 只認它們的【寫入子動作】,不然會誤收唯讀腳本
-#    (literal-sweep 有 `git worktree list` ⇒ 若整個 worktree 都收就破負對照)。
-WRITE = re.compile(
-    r'git( +(-C +\S+|-c +\S+|-[^ \n]+))* +(?:'
-    r'(?:add|rm|mv|commit|reset|restore|stash|checkout|switch|apply|update-index|update-ref|'
-    # 🔴 `merge(?!-)`:`\b` 在 e 與 - 之間 ⇒ `merge\b` 會誤中 `merge-base`(唯讀 plumbing,本 repo 到處是)。
-    #    (reviewer R2 抓到)⇒ 用 negative lookahead 擋掉 merge-base/merge-tree/merge-file。
-    r'clean|init|merge(?!-)|rebase|cherry-pick|am|revert|fetch|pull|push|gc|repack|write-tree)\b'
-    r'|worktree +(?:add|remove|move|repair|prune)\b'
-    r'|submodule +(?:update|add|deinit|set-url|set-branch|sync)\b'
-    r')')
+# ═══ 這張表是分母的【唯一來源】—— 設計文件引用它、WRITE 正則【從它生成】(b4:表與碼要同源)═══════
+#   只收【會寫 index / 工作樹 / refs】的子命令 —— 本閘防的是「主 repo 的 index/工作樹被寫」。
+#   🔴 push/fetch/gc/repack/write-tree 刻意【不收】:它們寫遠端或物件庫,不碰 index/工作樹
+#      ⇒ 不是本次事故(git add -A 把 index 全 stage 成刪除)的形狀。(b4 F2 + 主視窗裁 push 不進表)
+WRITE_VERBS = ['add', 'rm', 'mv', 'commit', 'reset', 'restore', 'stash', 'checkout', 'switch',
+               'apply', 'update-index', 'update-ref', 'clean', 'init', 'rebase', 'cherry-pick',
+               'am', 'revert', 'pull']
+# merge 但排除唯讀 plumbing merge-base/merge-tree/merge-file(reviewer R2:`\b` 在 e 與 - 之間會誤中)
+WRITE_MERGE = r'merge(?!-)'
+# 有唯讀形(list/status)的,只認其【寫入子動作】(reviewer R2:否則 `git worktree list` 破負對照)
+WRITE_SUBACTION = {'worktree': ['add', 'remove', 'move', 'repair', 'prune'],
+                   'submodule': ['update', 'add', 'deinit', 'set-url', 'set-branch', 'sync']}
+# 🔴 `-C <path>` / `-c <k>=<v>` 的參數是【下一個 token】(本次事故 `git -C "$dir" add` 的形狀,reviewer R1)
+_FLAG = r'(-C +\S+|-c +\S+|-[^ \n]+)'
+_ALTS = [rf'(?:{"|".join(WRITE_VERBS)}|{WRITE_MERGE})\b'] + \
+        [rf'{k} +(?:{"|".join(v)})\b' for k, v in WRITE_SUBACTION.items()]
+WRITE = re.compile(rf'git( +{_FLAG})* +(?:{"|".join(_ALTS)})')
 
 # 🔴 字面尺【抓不到】動態拼接的 git 命令(例 quantifier-hook.harness.js 用 `'git '+'commit'` 躲字面掃描)。
 #    ⇒ 這類【已知會躲掉字面】的,明文列進來(每條一句理由)。這【不是】豁免——是【反向的納入】。
@@ -87,13 +85,45 @@ def read_text(f):
     except OSError:
         return ''
 
-def strip_comment_lines(txt):
-    # 剝【整行註解】—— sh/py 是 #、js 是 //(reviewer R1:.js 的 // 註解裡有「git commit」字樣造成假命中)。
-    # 只剝行首,不碰行內(行內 # / // 可能在字串裡)。
-    return '\n'.join(l for l in txt.split('\n') if not re.match(r'\s*(#|//)', l))
+_HEREDOC_OPEN = re.compile(r'<<-?\s*[\'"]?(\w+)[\'"]?')
 
-def calls_git_write(txt):
-    return bool(WRITE.search(strip_comment_lines(txt)))
+# 🔴 b4 F1:19 支「無法證明隔離」裡 11 支是 printf/heredoc 裡印給人看的救援指令(echo "…git commit…"),
+#    從不執行 ⇒ 名單 58% 噪音 ⇒ 每次都叫的閘會被人學會忽略(= 今天止血令那支的下場)。
+#    ⇒ scan_lines 剝三種噪音,只留【真的會執行】的行:
+#      ① 整行註解(# / //)  ② heredoc body(僅 shell;.js 的 `<<` 是位移不是 heredoc)
+#      ③ 引號字串換佔位 Q(保留命令結構:`git -C "$d" add`→`git -C Q add` 仍命中、`echo "git push"`→`echo Q` 不命中)
+def _is_shell(f):
+    if re.search(r'\.(sh|bash)$', f):
+        return True
+    try:
+        h = io.open(f, 'rb').read(64)
+        return h[:2] == b'#!' and b'sh' in h and b'python' not in h and b'node' not in h
+    except OSError:
+        return False
+
+def scan_lines(txt, is_shell):
+    """逐行走,剝掉註解/heredoc body,引號換佔位,yield (原始行號, 原始行, 剝後行)。
+    🔴 原始行號要跟著走 —— strip 會刪行,剝後的 index 對不回原檔(evidence 印錯行的 bug 來源)。"""
+    heredoc = None
+    for i, line in enumerate(txt.split('\n')):
+        if heredoc is not None:
+            if line.strip() == heredoc:
+                heredoc = None
+            continue
+        if re.match(r'\s*(#|//)', line):
+            continue
+        if is_shell:
+            m = _HEREDOC_OPEN.search(line)
+            if m:
+                heredoc = m.group(1)
+        # ⚠️ 已知限制(code-reviewer nit,安全方向):引號換佔位不懂【跳脫引號】——
+        #    `echo "run \"git commit\" now"` 會在 `\"` 提前截斷 ⇒ 後半的 git 中和不掉 ⇒ 可能誤判 True。
+        #    是 err-toward-inclusion 方向(多報不漏報),且本 repo 現況 0 命中(2026-08-27 grep)⇒ 先不處理。
+        neutral = re.sub(r"'[^']*'", 'Q', re.sub(r'"[^"]*"', 'Q', line))
+        yield i + 1, line, neutral
+
+def calls_git_write(txt, is_shell):
+    return any(WRITE.search(n) for _, _, n in scan_lines(txt, is_shell))
 
 def build():
     denom = []          # (path, has_selftest, is_husky)
@@ -101,10 +131,20 @@ def build():
         if not is_candidate(f):
             continue
         t = read_text(f)
-        # 字面尺命中 或 明文列在 KNOWN_DYNAMIC(躲字面掃描的動態拼接)
-        if calls_git_write(t) or f in KNOWN_DYNAMIC:
+        # 字面尺命中(剝噪音後)或 明文列在 KNOWN_DYNAMIC(躲字面掃描的動態拼接)
+        if calls_git_write(t, _is_shell(f)) or f in KNOWN_DYNAMIC:
             denom.append((f, bool(SELFTEST.search(t)), f.startswith('.husky/')))
     return sorted(denom)
+
+def evidence_line(f):
+    """這支檔【第一行真的命中 git 寫入】的證據(b4 F3:逐支要有行號證據,不是只印路徑)。"""
+    is_sh = _is_shell(f)
+    for lineno, raw, neutral in scan_lines(read_text(f), is_sh):
+        if WRITE.search(neutral):
+            return f'L{lineno}: {raw.strip()[:76]}'
+    if f in KNOWN_DYNAMIC:
+        return 'KNOWN_DYNAMIC(動態拼接、regex 抓不到)'
+    return '(命中處剝噪音後消失?)'
 
 def main():
     denom = build()
@@ -112,13 +152,17 @@ def main():
     unprovable = [d for d in denom if not d[1]]
     print(f"git 寫入分母 = {len(denom)} 支  |  有 --selftest(閘可行為測)= {len(testable)}"
           f"  |  無 --selftest(閘測不到)= {len(unprovable)}")
-    print("\n🔴 無法證明隔離(無 --selftest ⇒ 現行閘看不到;逐支列,不是「多幾支」):")
+    print("\n🔴 無 --selftest ⇒ 現行閘的【行為尺測不到它們】(逐支附證據行;不是「多幾支」):")
+    print("   ⚠️ 「測不到」≠「一定不隔離」——有幾支是【刻意寫真 repo】(worktree/暫時 ref),"
+          "那是它的目的、不是事故;逐支判要分「拋棄式沒拋棄」與「本來就寫真 repo」兩族(b4 §5)。")
     for f, _sel, husky in unprovable:
-        tag = ' [.husky 真 hook?意圖寫主 repo?逐支核]' if husky else ''
-        print(f"    {f}{tag}")
+        tag = ' [.husky]' if husky else ''
+        print(f"    {f}{tag}  ⇐ {evidence_line(f)}")
     print(f"\n有 --selftest(閘已能行為測,本工具不重測): {len(testable)} 支")
+    for f, _sel, _h in testable:
+        print(f"    {f}")
     if os.environ.get('ISOLATION_GATE_ENFORCE') == '1' and unprovable:
-        print(f"\n🔴 ENFORCE:{len(unprovable)} 支無法證明隔離 ⇒ exit 1", file=sys.stderr)
+        print(f"\n🔴 ENFORCE:{len(unprovable)} 支無 --selftest ⇒ exit 1", file=sys.stderr)
         return 1
     return 0
 
@@ -140,6 +184,25 @@ def self_check():
     out = neg not in denom
     print(f"  負對照 {neg}: {'✅ 不在分母(唯讀)' if out else '🔴 誤收(尺太寬)'}")
     ok = ok and out
+    # 🔴 邊界世界(b4 F4:餵【合成字串】,不靠 tracked 檔 ⇒ 從外面也驗得到尺)
+    #    每一對 = (輸入片段, is_shell, 期望命中)。剝噪音後 WRITE 該命中的必命中、該不命中的必不命中。
+    worlds = [
+        ('git -C "$d" add -A',            True,  True),   # 事故形狀
+        ('git -c user.name=x commit -m y', True,  True),
+        ('git worktree add ../w HEAD',    True,  True),
+        ('git -C "$W" submodule update',  True,  True),
+        ('echo "復原:git checkout -- ."', True,  False),  # 字串裡的 git ⇒ 不算
+        ('printf "run git commit\\n"',    True,  False),
+        ('cat <<MSG\ngit commit -m x\nMSG', True, False),  # heredoc body ⇒ 不算
+        ('git merge-base HEAD x',         True,  False),   # 唯讀 plumbing
+        ('git worktree list',             True,  False),   # 唯讀子動作
+        ('git status --porcelain',        True,  False),
+    ]
+    for frag, sh, exp in worlds:
+        got = calls_git_write(frag, sh)
+        mark = '✅' if got == exp else '🔴'
+        print(f"  邊界 {mark} calls_git_write({frag!r}) = {got} (期望 {exp})")
+        ok = ok and (got == exp)
     print("  ⇒", "self-check PASS" if ok else "🔴 self-check FAIL")
     return 0 if ok else 1
 
