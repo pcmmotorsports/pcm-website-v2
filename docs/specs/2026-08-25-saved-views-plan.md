@@ -3808,7 +3808,14 @@ Q-檢視-9 = 甲(不限制數量)× Q-檢視-10 = 丙(各人各排)
    📌 **【永遠不會出現的提示】與【沒有人改過】在畫面上是同一件事** ⇒ 沒有人會回報
 ⑤ `CONFLICT` 這個碼**從本片合約拿掉**;新碼 `UPDATED_OVERWROTE`(語意:我寫了, 而你蓋掉了比你新的)
    🔴 不得沿用 CONFLICT —— **舊的呼叫端不會壞掉, 它只會理解錯**(以為沒寫進去而叫人重打)
+⑥ 🔴 **新增(2026-08-28 寫草稿時撞出來的, §14-21)**:`create` 撞【同名】時要回什麼?
+   §14-19 的回傳碼合約**沒有這一格** —— 它只寫了 `CREATED` 與 `DUPLICATE_REQUEST`(撞重播鍵)。
+   ⇒ 草稿現況 = RAISE unique_violation(丟例外, 不回碼)⇒ 畫面拿到的是一個 DB 錯誤不是一個碼
+   ⇒ **我不自己補第五個碼** —— 那會是我發明一個 Sean 與主視窗都沒看過的對外合約 ⇒ 端主視窗
 ```
+🔴 **而 ①-⑥ 是【動手前】要關的,不是【草稿寫完】就關的。**
+   §14-21 的草稿是在這些格仍開著的狀態下寫的 —— 那是主視窗指派的(「B-0 擋授權模型定案,
+   擋不到你把已定案的部分寫成碼」)⇒ **草稿存在 ≠ 這些格關了。**
 
 ## 📌 backlog(不擋本片,而要有名字)
 ```
@@ -4385,3 +4392,176 @@ W14 SELECT is_sharedzz FROM t  ⇒ 🔴 ERROR: column "is_sharedzz" does not exi
 · 沒有量 RLS、沒有量 ACL、沒有量 service_role(那些要 Supabase 的角色集合, 本機沒有)
   ⇒ `§14-Z` 動手前必關的另外四格, **這一輪一格都沒關**
 ```
+
+---
+
+# ✅ §14-21 **片1 migration 草稿 + 測試已寫出來,而【寫的過程本身抓到兩個真的洞】**
+
+> 2026-08-28 線C。交付物兩支,**都放 `docs/specs/`、都沒有進 `supabase/migrations/`**:
+> ```
+> docs/specs/2026-08-25-saved-views-migration-draft.sql   597 行(2026-08-28 當場 wc -l)
+> docs/specs/2026-08-25-saved-views-tests.sql             216 行 · 行為測試 29 格 + 突變表 14 發
+> ```
+> 🔴 **為什麼不進 `supabase/migrations/`**(主視窗逐字):今晚有前例 —— 一支帶著未折 findings 的
+> migration 進了版控,而任何「把 pending migration 套上去」的動作都會掃到它,**禁令只寫在註解裡**。
+> ⇒ 所以本片的禁令**不寫在註解裡,寫在檔案放在哪**;檔名也刻意不帶時間戳前綴。
+> 🔴 **B-0 仍未關** ⇒ 這是草稿,**不得 apply 到任何真庫**。
+
+## 🔴🔴 這一節最重要的事:**設計、四輪審查、斷言、碼錨全過的那份草稿,第一次真的餵它就紅了兩發**
+
+### ① `NULL` 三值邏輯 —— 一道寫得完全正確的閘,對【共用檢視】整個不生效
+```sql
+IF NOT (v_before.staff_id = p_actor OR (v_before.is_shared AND v_is_manager)) THEN
+     RETURN 'NOT_FOUND';
+```
+```
+共用檢視的 staff_id IS NULL
+⇒ `NULL = p_actor`      是 NULL, 不是 false
+⇒ `NULL OR false`       是 NULL
+⇒ `NOT NULL`            是 NULL
+⇒ **IF 不成立 ⇒ 直接放行。**
+```
+🔴 **一般員工改得動、刪得掉任何一張共用檢視** —— 而共用檢視正是 Sean 唯一要求「只有管理者」的那一種。
+📌 **它在斷言、碼錨、四輪人審(codex ×2 + code-reviewer + 我自己)底下全部是綠的。**
+   碼錨看到閘的字面在寫入之前 ⇒ ✅;斷言看到權限與 search_path ⇒ ✅;人讀那一行 ⇒ 讀起來完全正確。
+   **只有真的餵一發 clerk 去改共用檢視,它才會說話。**
+✅ 修法 `COALESCE(v_before.staff_id = p_actor, false)`。
+⚠️ 而 `list` 那支**不需要**同樣的修法 —— `WHERE` 裡 `NULL OR true` = true ⇒ 共用列照樣看得到;
+   別人的私人列是 `false OR false` ⇒ 濾掉。**同一個 NULL,在 `WHERE` 與 `IF` 裡下場不同。**
+   ⇒ 🔴 所以這不是「到處補 COALESCE」,是**兩處要補、一處補了反而是雜訊**。
+
+### ② `now()` 是交易開始時刻 ⇒ 「有人剛改過」那句提示**永遠不會出現**
+```
+touch trigger 寫 NEW.updated_at := now()
+⇒ now() 在同一個交易裡是常數 ⇒ 同一交易內改兩次, 兩次 updated_at 完全相同
+⇒ 比較恆為 false ⇒ UPDATED_OVERWROTE 這個碼**產不出來**
+📌 而 §14-19 已經寫過這一格的形狀:【永遠不會出現的提示】與【沒有人改過】在畫面上是同一件事。
+   ⇒ 換回 now() 不會有任何東西紅, 它只會安靜地從此不亮。
+✅ 改 pg_catalog.clock_timestamp()。
+🔴 而這一格有一個【差點錯過】要寫下來:
+   **若我當時把兩發改動拆成兩個交易(那是「比較真實」的測法), now() 會過。**
+   ⇒ 那個洞會留到線上, 只在「一個請求裡改兩次」時發作 —— 而那時沒有人在看。
+   📌 **一個【比較像真實情況】的測法, 在這裡是比較弱的測法。**
+```
+
+## 📋 實測(拋棄式 PG 17.10;fixture = boss 管理者 / clerk 一般員工 / gone 停用)
+```
+正對照  未突變的草稿 ⇒ apply rc=0 · 測試 rc=0 · 29 格 ok
+負對照  完全不改動的那一發 ⇒ green ✅（尺沒有把所有東西都判紅）
+突變    14 發, **每一發都紅在【指定的那一格】**, 0 發恆綠、0 發紅錯地方
+```
+| 發 | 打什麼 | 紅在 |
+|---|---|---|
+| M1 | create 的共用閘拿掉 | T2 clerk 建共用竟然通過 |
+| M2 | 身分閘不看 `is_active`(**碼錨字面仍在**)| T14b 停用員工竟然通過 |
+| MN | 拿掉 `COALESCE`(還原①那個洞)| T7 clerk 改共用 ⇒ UPDATED |
+| M7'' | update 內容閘換成恆真 | T6 |
+| M9 | delete 內容閘換成恆真 | T17 |
+| M8 | list 內容閘恆真(**碼錨字面仍在**)| T4 clerk 看到 3 張 |
+| M10 | 拿掉 touch trigger | T9-② 提示不亮(而 T9-① 內容仍進去 ⇒ **兩格缺一不可**成立)|
+| M10b | trigger 改回 `now()` | 同上 |
+| M5 | create 身分閘真的搬到 INSERT 之後 | 碼錨 順序 |
+| MA1 | 加一句 `GRANT SELECT TO service_role` | 斷言 7c-1 |
+| MA2 | 拿掉一支的 `SET search_path` | 斷言 7a(期望 5 實得 4)|
+| MA3 | create 的 INSERT 拆成兩句 | 碼錨 唯一性(出現 2 次)|
+| MA4 | 給 anon `CREATE ON SCHEMA public` | 斷言 7b |
+
+### 🔴 M2 與 M8 那兩發要單獨看:**它們保留了碼錨的字面,而閘壞了**
+```
+M2  `AND s.is_active` ⇒ `AND s.is_active IS NOT NULL`   ← 錨找的子字串仍在
+M8  `... OR v.is_shared` ⇒ `... OR v.is_shared OR true`  ← 錨找的子字串仍在
+⇒ 兩發**碼錨全綠**, 只有行為測試紅
+⇒ 📌 這是 §14-12-f 那句「錨是絆線不是證據」的**實演**, 不是重述:
+   它防的是手滑重排, 防不了有人在同一行後面多寫幾個字。
+```
+
+### 🔴 而突變表自己出過三次錯,三次都值得記
+```
+① M5 第一版是 no-op(我只加了一行註解)⇒ **恆綠, 而它看起來像跑過了**
+② M10 / M5 第二版紅在【syntax error】⇒ 紅了, 而紅的理由是「我的突變寫壞了」不是「守門抓到」
+   📌 **紅錯地方與紅對地方, 在「有沒有紅」這一格上完全相同。**
+③ 🔴 M9 第一版**打錯支了** —— 它改到 update(那段閘的字面兩支一模一樣, 我用 replace 取前兩個)
+   ⇒ 它紅了、紅在 T6、看起來完全正常, 而 **delete 那支從頭到尾沒有任何突變指名它**
+   ⇒ 回頭一看:**測試也只驗了「刪自己的」(T11)** ⇒ delete 的內容閘**零覆蓋**
+   ⇒ ✅ 補 T17 / T18 / T19(clerk 刪別人私人 / clerk 刪共用 / boss 刪共用), 並讓 M9 只打 delete
+   📌 **一發打錯支的突變, 揭出的是【測試的缺口】, 不是突變的缺口。**
+   🔴 而它能被發現, 只因為我在尺上寫了「期望紅在哪一格」——
+      **若只記錄「紅了沒」, 這一發會被算成通過, 而 delete 會裸奔上線。**
+```
+
+## ⚠️ 而這份草稿**還沒關掉的格**(不要讀成「片1 可以動手了」)
+```
+🛑 B-0        誰能設定 is_manager ⇒ 線B, 未關 ⇒ `AND s.is_manager` 那道閘的上游還沒定案
+🛑 §14-Z ①   突變表整張重算 ⇒ **本節這 14 發就是換路後的第一版**, 取代舊的 9 發;
+              而「發數與覆蓋面重新盤過」這件事**本節只做了一半** —— 我是照著寫碼的順手補的,
+              不是回頭把每一道閘列出來數過 ⇒ **仍記為未關**
+🛑 §14-Z ②   update / delete 的執行順序仍然沒有測試證明得了(create 那支有, 見 T16)
+🔴 新的一格   create 撞【同名】(不是撞重播鍵)時, §14-19 的回傳碼合約**沒有這一格**
+              ⇒ 現在的草稿是 RAISE unique_violation(不是回一個碼)
+              ⇒ 這是寫草稿時撞出來的合約缺口, **我不自己補一個第五個碼** ⇒ 端主視窗
+⚠️ 效度限制  本機 fixture 的 anon/authenticated/service_role 是我自己建的, 不是 Supabase 的真角色;
+              而 `pg_default_acl` 那套預設授權**本機沒有** ⇒ 斷言 7c 在本機比在正式庫【容易過】
+              ⇒ 🔴 那三條 REVOKE 的必要性, 本機這一發**證不到**(它靠的是 2026-08-14 的正式庫實測)
+```
+
+## 🔴 §14-21-b 我先寫死的那組收據,**19 格裡有 6 格對不上 —— 而 6 格全是【尺寫錯】,不是草稿寫錯**
+
+> 存檔點寫收據時我立了一條規矩:**實跑不合 ⇒ 是期望寫錯或草稿寫錯兩種,不准直接改期望值把它抹平。**
+> 這一節就是那條規矩的執行紀錄。
+
+| 尺 | 期望 | 實得 | 診斷 |
+|---|---|---|---|
+| `CREATE OR REPLACE FUNCTION` | 4 | **5** | 期望寫錯 —— 我漏數了 `touch_updated_at` 那支。而它是 MF-5 指定的**功能交付物**,不是附屬品 |
+| `SET search_path` | 4 | **5** | 同上(trigger 那支也要有) |
+| `FOR UPDATE` | 2 | **3** | 尺寫錯 —— 第 3 個命中在**註解**裡(`:145` 寫著抄哪一支前例) |
+| `ENABLE ROW LEVEL SECURITY` | 1 | **2** | 尺寫錯 —— 第 2 個命中在**那段強制註解自己**(`:129`「不要以為 ENABLE ROW LEVEL SECURITY 就…」) |
+| `ON CONFLICT` | 0 | **1** | 🔴 尺數到**自己的禁令**(`:149`「❌ 作廢:… ON CONFLICT … 不得復活」) |
+| `GRANT` | 0 | **10** | 🔴🔴 尺量錯東西(見下) |
+
+### 🔴 `GRANT` 那一格是這裡最值得記的:**我把兩個不同的東西讀成同一個**
+```
+§14-Z 事實表寫的是「**表**的 GRANT = 零」
+而我把它翻譯成 `grep -c "GRANT"` ⇒ 0
+⇒ 但四支 RPC **必須** GRANT EXECUTE 給 service_role —— 沒有它, app 會全 permission denied
+   (§14-12-i rollback 那節自己就寫著「重新上線前先跑 GRANT EXECUTE ×4」)
+⇒ 📌 **同一個字面 `GRANT`,在這份檔裡有兩種意思,而我的尺把它們算成同一件事。**
+✅ 尺改成分兩把,各自有判準:
+   grep -c '^GRANT .* ON TABLE'        ⇒ **0**  ← 表級,一個都不能有
+   grep -c '^GRANT EXECUTE ON FUNCTION'⇒ **4**  ← 函式級,少一個 app 就開不起來
+🔴 而**兩把都要**:只留第一把 ⇒ 忘了 GRANT EXECUTE 不會有人發現(直到上線全紅);
+   只留第二把 ⇒ 偷加一句表級 GRANT 不會有人發現(而那把私有性交給 app 的 where 去守)。
+```
+
+### 🔴 而 `ON CONFLICT` 與 `ENABLE ROW LEVEL SECURITY` 那兩格是同一族
+```
+兩把尺都數到了【寫著這把尺在防什麼的那段文字】——
+· ON CONFLICT 的 1 = 我寫的「不得復活」禁令本身
+· ENABLE RLS 的第 2 個 = 主視窗指定要寫進註解的那句警告本身
+📌 **一段「記錄我們在防什麼」的註解, 會被「偵測那件事有沒有發生」的尺數進去。**
+   ⇒ 而它印出來的是一個**看起來像出事了**的數字 ⇒ 下一個人會去修一個不存在的問題。
+✅ 尺改成只看【真的會執行的那一行】:加 `^` 錨定行首、或先濾掉 `^\s*--`。
+⚠️ 而這一族**既有 memory 已經寫過**(「記錄缺口的註解會被偵測缺口的量具數進去而回報零缺口」)
+   ⇒ 本節不是新教訓, 是那一族在本片的落點。而**我讀過那一條, 今天照樣踩了。**
+```
+
+### ✅ 訂正後的收據(當場跑,2026-08-28)
+```bash
+D=docs/specs/2026-08-25-saved-views-migration-draft.sql
+CODE() { grep -v '^[[:space:]]*--' "$D"; }          # 先把註解濾掉, 再量
+CODE | grep -c "^BEGIN;"                             # 1
+CODE | grep -c "^COMMIT;"                            # 1
+CODE | grep -c "CREATE OR REPLACE FUNCTION"          # 5   四支 RPC + touch trigger
+CODE | grep -c "SET search_path = public, pg_temp"   # 5
+CODE | grep -c "FOR UPDATE"                          # 2   update + delete
+CODE | grep -c "ENABLE ROW LEVEL SECURITY"           # 1
+CODE | grep -c "ON CONFLICT"                         # 0   ← 換路後不得復活
+CODE | grep -c "^GRANT .* ON TABLE"                  # 0   ← 表級零 GRANT
+CODE | grep -c "^GRANT EXECUTE ON FUNCTION"          # 4   ← 少一個 app 全紅
+CODE | grep -c "REVOKE ALL"                          # 6   表 1 + 函式 5
+CODE | grep -c "zzz-負對照-不存在的字面"              # 0   ← 負對照
+grep -c "BYPASSRLS" "$D"                             # 1   ← 這一格【故意】不濾註解:它就是註解
+grep -c "整個 repo 一起承擔" "$D"                     # 1   ← 同上, q17 代價那段
+ls supabase/migrations/ | grep -c "saved.*view"      # 0   ← 沒有偷跑進版控
+```
+📌 **最後兩把尺【故意】不濾註解 —— 因為它們要驗的東西本來就住在註解裡。**
+   ⇒ 一份收據裡的每一把尺,濾不濾註解要由**它在驗什麼**決定,不是統一套一個規矩。
