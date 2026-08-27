@@ -260,11 +260,47 @@ export class SupabaseProductAdapter implements IProductRepository {
   async listAllProducts(options?: {
     limit?: number;
     orderBy?: 'id_asc' | 'created_desc';
+    /**
+     * 排除「大類第一段 = 這個字」的商品(新品區排除維修零件;Sean 2026-08-27 拍【甲】)。
+     *
+     * 🔴 **顯式選項, 預設不排除** —— 本方法是共用的:`id_asc` 全量列表也走它。
+     *   把排除塞進預設行為 = 改一個共用方法去修一個畫面, 而測試只會測那個畫面。
+     * 🔴 **排除下推到 DB, 不在拿到列之後才濾** —— 濾完會少於 limit 筆,
+     *   而畫面上「少了幾格」與「就是只有這麼多新品」長得一樣。
+     */
+    excludeCategoryFirstSegment?: string;
   }): Promise<Product[]> {
     const limit = options?.limit;
     if (limit !== undefined && (!Number.isInteger(limit) || limit <= 0)) {
       throw new Error(`SupabaseProductAdapter.listAllProducts: limit 須為正整數、收到 ${limit}`);
     }
+
+    // ── 排除大類:對【已經 embed 的 categories】過濾, 不另外查一輪 ──────────────
+    // 🔴 `PRODUCT_SELECT_DETAIL` 的尾巴本來就有 `categories(raw_path, segments)`(:69)
+    //   ⇒ `raw_path` 這一手上本來就有 ⇒ 不需要先查一輪 category_id 集合再 `not.in`。
+    //   📌 我第一版就是那樣寫的, 而它【會動、會對】—— 只是多做了一件已經有人做過的事。
+    //      那種多餘最不會被抓到:過三綠、過審查、過驗收, 只是多一次查詢。(cf 2026-08-27 指出)
+    // 🔴 **`!inner` 少不得**:PostgREST 對 embed 欄過濾, 不加 `!inner` 只會把不符的 embed 變成 null,
+    //   而【那一列照樣回來】⇒ 排除完全失效, 而畫面上與「沒有那麼多新品」長得一樣。
+    // 🔴 **兩條條件, 不是一條**:大類本身(單段 `維修零件`)與它的子類(`維修零件 · X`)。
+    //   只寫 `not.like '維修零件%'` 會多殺一個假想的「維修零件座」根類(現值 87 個分類裡沒有 —— cf 量的,
+    //   而「今天沒有」不是「不會有」)。這與 RPC `:143` 自己那兩個分支同形。
+    // ⚠️ **代價**:`!inner` 會讓 `category_id IS NULL` 的商品【整列消失】, 不是「不排除」。
+    //   🔴 codex nit 訂正:上一版把它寫成【現存風險】—— 而 `products.category_id` 是 `NOT NULL`
+    //     (`20260507222633:6`, 全 migrations 掃不到 `DROP NOT NULL`)⇒ **那個世界今天進不了門。**
+    //     ⇒ 它要成為風險, 得先有人另做一支 schema migration 把 NOT NULL 拿掉。
+    // 🔴 而【真正現存】的那個代價是另一個:`!inner` 的 embed 讀 `categories` 要過 RLS。
+    //   政策若被收窄 ⇒ 整排新品【安靜消失】, 而那與「它們被排除了」在畫面上是同一句話。
+    //   ⇒ migration 的斷言⑥ 盯這件事(而它只在 apply 當下燒一次 —— 天花板寫在那裡)。
+    const excludeSeg = options?.excludeCategoryFirstSegment;
+    // 🔴 用 replace 生出 `!inner` 版, **不複製那串 20 欄的投影** —— 複製一份就會漂。
+    const selectCols = excludeSeg
+      ? PRODUCT_SELECT_DETAIL_VIEW.replace('categories(', 'categories!inner(')
+      : PRODUCT_SELECT_DETAIL_VIEW;
+    const applyExclude = <T extends { not: (c: string, o: string, v: string) => T }>(q: T): T =>
+      excludeSeg
+        ? q.not('categories.raw_path', 'eq', excludeSeg).not('categories.raw_path', 'like', `${excludeSeg} · %`)
+        : q;
 
     // 排序(前菜 D):'id_asc'=既有全站預設(單次 .order('id' 升冪)、byte 等價舊行為);
     //   'created_desc'=最新商品(created_at 遞減 + id 遞減 tie-break 保定序、防 created_at 撞值漂移)。
@@ -272,23 +308,28 @@ export class SupabaseProductAdapter implements IProductRepository {
     const orderDesc = options?.orderBy === 'created_desc';
 
     if (limit !== undefined && limit <= 1000) {
-      const base = this.supabase.from('products_public').select(PRODUCT_SELECT_DETAIL_VIEW);
+      const base = this.supabase.from('products_public').select(selectCols);
+      const filtered = applyExclude(base);
       const ordered = orderDesc
-        ? base.order('created_at', { ascending: false }).order('id', { ascending: false })
-        : base.order('id', { ascending: true });
+        ? filtered.order('created_at', { ascending: false }).order('id', { ascending: false })
+        : filtered.order('id', { ascending: true });
       const { data, error } = await ordered.limit(limit);
       if (error) {
         throw error;
       }
-      return ((data ?? []) as SupabaseProductRow[]).map(mapSupabaseProductToDomain);
+      // 🔴 `as unknown as`:`selectCols` 是【動態組出來的字串】(為了那個 `!inner`)⇒
+      //   supabase-js 只對【字面量】做欄位型別推導, 拿到 string 就退化成 GenericStringError[]。
+      //   這一步不是「型別亂關」—— 執行期形狀與原本逐字相同, 差的只有 embed 的 `!inner`。
+      return ((data ?? []) as unknown as SupabaseProductRow[]).map(mapSupabaseProductToDomain);
     }
 
     const rows = (await fetchAllPaginated(
       (from, to) => {
-        const base = this.supabase.from('products_public').select(PRODUCT_SELECT_DETAIL_VIEW);
+        const base = this.supabase.from('products_public').select(selectCols);
+        const filtered = applyExclude(base);
         const ordered = orderDesc
-          ? base.order('created_at', { ascending: false }).order('id', { ascending: false })
-          : base.order('id', { ascending: true });
+          ? filtered.order('created_at', { ascending: false }).order('id', { ascending: false })
+          : filtered.order('id', { ascending: true });
         return ordered.range(from, to);
       },
       'SupabaseProductAdapter.listAllProducts',

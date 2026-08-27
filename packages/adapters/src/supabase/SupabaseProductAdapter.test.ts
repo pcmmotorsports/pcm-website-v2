@@ -883,3 +883,92 @@ describe('SupabaseProductAdapter.searchByKeyword — 分頁穩定序(2026-08-17 
     expect(captured.orders).toEqual([]);
   });
 });
+
+// ── 新品區排除「維修零件」大類(Sean 2026-08-27 拍【甲】= 照大類切)──
+//   🔴 作法:對【已經 embed 的 categories】過濾, 不另外查一輪 category_id。
+//      `PRODUCT_SELECT_DETAIL` 的尾巴本來就有 `categories(raw_path, segments)`(:69)。
+//   審查點:①select 換成 `categories!inner`(不加的話只會把 embed 變 null、列照回 ⇒ 排除完全失效)
+//          ②兩條條件(大類本身 + 子類), 不是一條 `like '維修零件%'`(那會多殺「維修零件座」根類)
+//          ③預設不排除、也不換 select(共用方法不得被改預設行為)
+//          ④不複製那串 20 欄投影(複製一份就會漂)
+function makeInnerClient(rows: SupabaseProductRow[]) {
+  const calls: { select: string[]; not: Array<[string, string, string]> } = { select: [], not: [] };
+  const products = {
+    select(cols: string) { calls.select.push(cols); return products; },
+    not(col: string, op: string, val: string) { calls.not.push([col, op, val]); return products; },
+    order() { return products; },
+    limit(n: number) { return Promise.resolve({ data: rows.slice(0, n), error: null }); },
+    range(from: number, to: number) { return Promise.resolve({ data: rows.slice(from, to + 1), error: null }); },
+  };
+  const client = {
+    from: (t: string) => {
+      if (t === 'categories') throw new Error('不該再查一輪 categories —— raw_path 已在 embed 裡');
+      return products;
+    },
+  };
+  return { client: client as unknown as SupabaseClient, calls };
+}
+
+describe('SupabaseProductAdapter.listAllProducts — 排除大類(新品區排維修零件)', () => {
+  it('排除時:select 換成 categories!inner, 並疊【兩條】not(大類本身 + 子類)', async () => {
+    const { client, calls } = makeInnerClient(Array.from({ length: 10 }, (_, i) => makeRow(i)));
+    const adapter = new SupabaseProductAdapter(client);
+
+    await adapter.listAllProducts({ limit: 10, orderBy: 'created_desc', excludeCategoryFirstSegment: '維修零件' });
+
+    // ① 不加 !inner 的話 PostgREST 只會把不符的 embed 變 null、那一列照樣回來 ⇒ 排除失效
+    expect(calls.select[0]).toContain('categories!inner(raw_path, segments)');
+    // ④ 沒有複製投影:其餘欄位逐字還在
+    expect(calls.select[0]).toContain('sound_clips');
+    expect(calls.select[0]).toContain('product_variants_public(id)');
+    // ② 兩條, 不是一條 —— 單段大類與子類各一
+    expect(calls.not).toEqual([
+      ['categories.raw_path', 'eq', '維修零件'],
+      ['categories.raw_path', 'like', '維修零件 · %'],
+    ]);
+  });
+
+  // 🔴 這一格釘判準本身:只寫 `like '維修零件%'` 會把假想的「維修零件座」根類一起殺掉,
+  //    而那個誤殺在畫面上只是「新品少了幾件」—— 與「本來就沒那麼多新品」長得一樣。
+  it('子類那條用 `維修零件 · %`(帶分隔符), 不是裸前綴 `維修零件%`', async () => {
+    const { client, calls } = makeInnerClient([makeRow(0)]);
+    const adapter = new SupabaseProductAdapter(client);
+
+    await adapter.listAllProducts({ limit: 1, excludeCategoryFirstSegment: '維修零件' });
+
+    const likes = calls.not.filter(([, op]) => op === 'like').map(([, , v]) => v);
+    expect(likes).toEqual(['維修零件 · %']);
+    expect(likes).not.toContain('維修零件%');
+  });
+
+  // 🔴 共用方法:不傳選項 ⇒ select 不得變、也不得疊 not。
+  it('不傳選項 → select 維持原樣(無 !inner)、不疊 not', async () => {
+    const { client, calls } = makeInnerClient([makeRow(0)]);
+    const adapter = new SupabaseProductAdapter(client);
+
+    await adapter.listAllProducts({ limit: 1, orderBy: 'created_desc' });
+
+    expect(calls.select[0]).toContain('categories(raw_path, segments)');
+    expect(calls.select[0]).not.toContain('!inner');
+    expect(calls.not).toHaveLength(0);
+  });
+
+  // 🔴 codex nit 訂正:上一版這格寫「排除後仍回滿 10 筆 ⇒ 證明濾在 DB 那側」——
+  //   **而 mock 的 `not()` 根本不會過濾資料** ⇒ 就算排除完全失效, 它也照樣回 10 筆
+  //   ⇒ 那一格是【恆綠】的, 它證不了它宣稱的東西。
+  //   ⇒ 改成釘真正可測的那條性質:**adapter 不得在拿到列之後自己再濾一輪**。
+  //     DB 那側回什麼它就回什麼 —— 因為在真的 DB 上, 事後才濾會讓列數少於 limit,
+  //     而畫面上「少了幾格」與「就是只有這麼多新品」長得一樣。
+  //   📌 而「排除真的有效」那件事, 是在【真 PostgREST】上量的, 不在這支 mock 裡:
+  //     108 件(其中維修零件 4)⇒ 不加 !inner 回 108(全失效)/ 加了回 104 ⇒ 108−104=4。
+  it('adapter 不得事後再濾:DB 回幾筆就回幾筆', async () => {
+    const { client } = makeInnerClient(Array.from({ length: 10 }, (_, i) => makeRow(i)));
+    const adapter = new SupabaseProductAdapter(client);
+
+    const result = await adapter.listAllProducts({ limit: 10, excludeCategoryFirstSegment: '維修零件' });
+
+    // 🔴 這一格會紅的世界:有人在 adapter 裡補一行 `.filter(...)` 想「保險再濾一次」
+    //    ⇒ mock 回的 10 筆會被砍 ⇒ 這裡就不是 10 了。
+    expect(result).toHaveLength(10);
+  });
+});

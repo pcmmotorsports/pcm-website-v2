@@ -298,11 +298,38 @@ export type FeaturedResult = {
  */
 export const FEATURED_LIMIT = 10;
 
+/**
+ * 新品區排除的大類(Sean 2026-08-27 拍【甲】= 照大類切, 以後多出子類一起排除)。
+ *
+ * 🔴 **這個字串在【三個地方】各有一份, 而它們必須一致**:
+ *   ① 這裡(首頁那排)
+ *   ② `supabase/migrations/20260827180000_m4b_storefront_new_arrivals_exclude_repair_parts.sql`
+ *      的 `c_new_arrivals_excluded_category`(新品頁那半)
+ *   ③ 本檔旁邊的測試
+ *   ⇒ 改它要三處一起改。**沒有機制在對帳這三份** —— 這句話寫在這裡是為了讓下一個人知道。
+ * ⚠️ 精品螺絲與螺帽(1652 件)**留著** —— 排除它是另一個決定, 本片不碰。
+ */
+export const NEW_ARRIVALS_EXCLUDED_CATEGORY = '維修零件';
+
 const getFeaturedUIProductsCached = unstable_cache(
   async (): Promise<MockProduct[]> => {
     const client = createSupabaseAnonClient();
     const adapter = new SupabaseProductAdapter(client);
-    const products = await adapter.listAllProducts({ limit: FEATURED_LIMIT, orderBy: 'created_desc' });
+    // 🔴🔴 **這一行與 RPC 那半必須同一顆 commit** ——
+    //   「新品區」有兩個落點:這裡(首頁那排, 完全不走 RPC)與新品頁(走 RPC)。
+    //   只改一邊 = 首頁與新品頁又不同步, 而那正是 Sean 今天抱怨的另一件事
+    //   ⇒ **這片若只做一半, 它會製造出它要修的那個症狀。**
+    //   RPC 那半在 `supabase/migrations/20260827180000_m4b_storefront_new_arrivals_exclude_repair_parts.sql`,
+    //   兩邊判準【同義但不同形】(codex nit 訂正:上一版寫成「逐字同形」, 那是錯的):
+    //     SQL 取第一段  `split_part(category_raw,' · ',1) <> '維修零件'`
+    //     TS  兩條否定  `not.eq '維修零件'` + `not.like '維修零件 · %'`
+    //   ⇒ 今天結果相同(codex 對正式庫 117 個分類 / 22,772 筆逐列比過, 差異 0), 而它們不是同一個寫法
+    //   ⇒ 改任一邊要回頭核另一邊 —— `products-new-arrivals-exclude.test.ts` 就是那個對帳。
+    const products = await adapter.listAllProducts({
+      limit: FEATURED_LIMIT,
+      orderBy: 'created_desc',
+      excludeCategoryFirstSegment: NEW_ARRIVALS_EXCLUDED_CATEGORY,
+    });
     return products.map((p) => toUIProduct(p, 'general'));
   },
   // 🔴 cache key 換版:上一版快取的是 4 筆,不換 key 的話舊快取會讓提高後的筆數**在 1 分鐘內看不到**。
