@@ -32,6 +32,23 @@ const redirectMock = vi.fn((url: string) => {
   throw new Error(`REDIRECT:${url}`);
 });
 vi.mock('next/navigation', () => ({ redirect: (u: string) => redirectMock(u) }));
+// 🔴 **`Header` / `HomeFooter` 2026-08-27 起由本頁渲染**(在那之前這一頁只有一個裸 `<main>`)。
+//    它們是 client 元件、內含 `useCart` / `useRouter` ⇒ 不 mock 的話整支檔 9 格紅,
+//    而紅的理由是「假件缺出口」與「缺 Provider」—— **與本檔任何一條斷言無關**。
+//    ⚠️ **這是換掉殼, 不是動斷言** —— 斷言一個字都沒改。
+//    形狀照 `apps/storefront/src/app/page.test.tsx:19`(整個 mock 掉 Header)——
+//    repo 另有一種做法是拿 `CartProvider` 包起來(`not-found.test.tsx:21`);
+//    這裡選前者, 因為**本檔測的是這一頁自己的邏輯**(授權 / 查無 / 狀態字), 不是站台殼。
+//    🔴 而假件**不回 `null`, 回一個看得見的標記** —— 形狀照 `page.test.tsx:19-23`:
+//    回 `null` 的話「頁首在」與「頁首不見了」在 DOM 上是同一件事, 而這一片的整個重點就是它不見了。
+vi.mock('@/components/Header', () => ({
+  Header: ({ currentPage }: { currentPage?: string }) => (
+    <div data-stub="site-header" data-current-page={currentPage} />
+  ),
+}));
+vi.mock('@/components/HomeFooter', () => ({
+  HomeFooter: () => <div data-stub="site-footer" />,
+}));
 
 let currentUser: { id: string } | null = { id: 'owner-1' };
 vi.mock('@/lib/supabase/server', () => ({
@@ -206,5 +223,20 @@ describe('/account/orders/[displayId] 路由', () => {
   it('🔴 歸屬:repo 一定被帶著【登入者本人的 id】呼叫(應用層縱深)', async () => {
     await renderRoute('B3XA91');
     expect(findOrderDetailForCustomer).toHaveBeenCalledWith('B3XA91', 'owner-1');
+  });
+
+  it('🔴 站台頁首與頁尾都在(2026-08-27 前這一頁只有一個裸 <main>, 客人走不回商店)', async () => {
+    const html = await renderRoute('B3XA91');
+    expect(html, '頁首不見了').toContain('data-stub="site-header"');
+    expect(html, '頁尾不見了').toContain('data-stub="site-footer"');
+    // 🔴 順便釘住那個 prop —— `currentPage` 決定導覽哪一格反白;
+    //    抄自 `AccountView.tsx:175` 的 `currentPage="account"`, 不自創。
+    expect(html, 'currentPage 不是 account ⇒ 導覽反白會落在別頁').toContain('data-current-page="account"');
+  });
+
+  it('🔴 負對照:查無那條路【也要】有頁首頁尾(不然客人卡在一個沒有出口的空畫面)', async () => {
+    const html = await renderRoute('NOPE-404');
+    expect(html).toContain('查無此訂單');
+    expect(html, '查無畫面沒有頁首 ⇒ 那才是最需要出口的一頁').toContain('data-stub="site-header"');
   });
 });
