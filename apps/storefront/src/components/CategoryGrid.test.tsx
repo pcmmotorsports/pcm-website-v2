@@ -297,7 +297,7 @@ describe('CategoryGrid · 12 格磚面(D5c/H3)', () => {
 
   it('🔴 #799:兩顆都要在排除清單上 —— extreme 那 123 群不會被搬走,舊名字不能拿掉', () => {
     // 🔴 這格守的是「改名式思考」:有人會以為新名字取代舊名字 ⇒ 把「服務與其他」刪掉。
-    //    而 .github/workflows/rpm-sync.yml:73 的 matrix **沒有 extreme** ⇒ 那 123 群留在舊分類。
+    //    而 .github/workflows/rpm-sync.yml（grep 「extreme 刻意不列」） 的 matrix **沒有 extreme** ⇒ 那 123 群留在舊分類。
     // 🔴 **用 toContain 兩發、不用 toEqual**(W3 2026-08-20 MF-2):
     //    本格自陳守的是「**少了一顆**」,而 `toEqual` 在【多一顆】與【換順序】時也會紅
     //    ⇒ 未來合法新增第三顆排除會**誤紅**。而誤報的代價已量過:它會把人趕出守門的視野

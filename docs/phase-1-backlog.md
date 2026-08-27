@@ -26649,7 +26649,7 @@ done
   報價單側把 `products.major_category_v2_zh` 從「服務與其他」改成「維修零件」之後,我方 820 群要跟著搬到新分類。
 - **🔴 為什麼它需要一個獨立編號(而不是 plan 裡的一句待辦):**
   ```
-  820 群裡有 123 群是 extreme,而 .github/workflows/rpm-sync.yml:73 的 matrix 【沒有 extreme】
+  820 群裡有 123 群是 extreme,而 .github/workflows/rpm-sync.yml（grep 「extreme 刻意不列」） 的 matrix 【沒有 extreme】
   ⇒ 每日排程會搬走 697 群(bonamici 691 / evotech 5 / lightech 1)
   ⇒ extreme 那 123 群【沒有任何自動動作會搬它們】
   ⇒ 要搬 = 有人手動跑一次 `pnpm exec tsx scripts/rpm-import.ts --confirm-write --supplier=extreme`
@@ -26686,7 +26686,7 @@ done
 - **若最後裁定「就不搬」:** 那是**一次裁定,要寫進 W1-104**,不是默默把 A10 劃掉。
   🔴 **把 A10 劃掉與 A10 通過,在收帳表上長得一模一樣。**
 - **相關:** `~/pcm-mailbox/W1-104-plan-件二-維修零件大類-加法-20260820.md` §0 / §3-c / §6-b / §8-A10 / §8-完;
-  `.github/workflows/rpm-sync.yml:73`;`scripts/supplier-config.ts:274-286`;
+  `.github/workflows/rpm-sync.yml（grep 「extreme 刻意不列」）`;`scripts/supplier-config.ts:274-286`;
   `docs/patterns/guard-and-instrument-traps.md`(「沒有東西會紅」那一族)。
 - **估時:** dry-run 3 分 / 存檔 + 寫入 10 分 / A10 驗收 5 分 ⇒ **約 20 分**,而**卡的是授權不是工時**。
 - **🔴🔴 2026-08-21 W4 對正式庫實測 —— 本條有一句是錯的,而它正好是最有說服力的那一句**

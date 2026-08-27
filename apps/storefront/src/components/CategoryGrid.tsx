@@ -241,7 +241,7 @@ function warnMissingIcon(missing: MockCategory[]): void {
  * ⚠️ 字面必須與 `categories.name` 的頂層名逐字相同。而那個值**不是手打的** —— migration 由既有
  *   `服務與其他 · 維修零件` 的 raw_path 右半 derive(UTF-8 hex `e7b6ade4bfaee99bb6e4bbb6`,同日唯讀實測)。
  * 🔴 **舊的那顆不能拿掉**:加法之下舊子類仍在,而 `extreme` 那 123 群**不在每日同步 matrix 裡**
- *   (`.github/workflows/rpm-sync.yml:73`)⇒ 它們會留在「服務與其他」底下 ⇒ **兩顆都要繼續排除**。
+ *   (`.github/workflows/rpm-sync.yml（grep 「extreme 刻意不列」）`)⇒ 它們會留在「服務與其他」底下 ⇒ **兩顆都要繼續排除**。
  *   處置 = backlog `#799`。
  */
 export const HOME_WALL_EXCLUDED: readonly string[] = ['服務與其他', '維修零件'];
