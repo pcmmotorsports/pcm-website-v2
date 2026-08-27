@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ci-self-contained: yes
 # admin-customer-list-view-birthday-probe.sh
 #
 # 證人:20260826140000_m4b_admin_customer_list_view_birthday.sql 的 DO 區塊【有沒有判別力】。

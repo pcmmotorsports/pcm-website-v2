@@ -1,4 +1,5 @@
 #!/usr/bin/env sh
+# ci-self-contained: no — 一次性負載觀測探針(量特定機器某夜的 run-queue);在 CI runner 上跑量到的是別台機器、無判別力。乙′受控介入版已設計未執行、且需人確認機器沒人用。
 # transform-vs-runq-probe.sh —— 把「vitest 的 transform 慢」與「當下機器多忙」配對量。
 #
 # 要答的題(T 線 2026-08-18 自己指出、主視窗指定去做的那一個):
