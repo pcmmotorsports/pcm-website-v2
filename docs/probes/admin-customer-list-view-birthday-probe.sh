@@ -15,6 +15,13 @@
 # 🔴 base 與 DO 區塊都是【從 migration 檔本身切出來的】, 不是抄一份 ——
 #    抄一份會漂, 而漂了之後這支 probe 仍然全綠。
 #
+# 天花板/範圍: 只驗【這一支】migration(20260826140000 birthday)DO 區塊的斷言【有沒有判別力】;
+#   不驗別支 migration、不驗 view 在正式資料上的行為、不驗權限/RLS/效能。
+#   這份清單是我想得到的那些, 而我最可能漏掉的是「base 與 DO 的【切法】本身切錯 —— 切錯了突變會落在 base、被 REVOKE 清掉,而它仍全綠(那正是它要防的假綠,套回它自己)」。
+# 天花板/量具: 突變集是作者想得到的那幾種(N8b 只加 JOIN 不加 GROUP BY…);突變【集合以外】的錯,它不會叫。
+#   拋棄式 PG 的 world 是最小形狀,量不到真表才有的欄位互動 / 資料量。
+#   這份清單是我想得到的那些, 而我最可能漏掉的是「一個作者沒突變到的形狀 —— 它的沉默不代表那個形狀安全」。
+#
 # 用法:bash docs/probes/admin-customer-list-view-birthday-probe.sh
 # 環境:拋棄式 Postgres(docs/runbooks/throwaway-postgres-for-migration-verification.md)
 set -uo pipefail
