@@ -2,6 +2,17 @@
 //
 // WalletTab — #202 解凍第一片(Sean 2026-08-26「甲 只顯示餘額和明細」)。
 //
+// 🔴🔴 **本檔證不出【上游有沒有改名】。** 這一句放在第一段, 不放在「已知限制」那一節 ——
+//    因為它決定的是你讀完本檔之後【還相不相信自己知道稿長什麼樣】。
+//    本檔買的是【反恆真】(A):證明「我們刻意不渲染 X」不是一句空話 ⇒ 一份 fixture 就夠。
+//    **抓漂移**(B, 證明 design 上游沒把 X 改名)是**另一件事, 而它【不做成 CI 格】** ——
+//    🔴 **不是「沒做」** —— B 那一格就在本檔下面, 而它在**有稿的地方(主樹)每次都跑**;
+//       它 `skipIf` 的是**沒有稿的地方**(CI / 新 worktree / 收包沙箱)。
+//       (審查點名我原本寫「沒有做」⇒ 照那個字面讀, 下一個人會把 B 當死碼刪掉或再造一份。)
+//    決策與理由:`docs/specs/2026-08-27-945-submodule-in-sandbox-and-ci-plan.md` `§13-8`(裁決落在那裡;`§13-7b` 只有題目, 沒有答案)
+//    (主視窗 2026-08-27 裁 A;B 不做成 CI 格, 理由抄自 `scripts/od-drift-check.py` 檔頭:
+//     稿住在 repo 外面 ⇒ CI 上那個檔不存在 ⇒ **紅在環境不是紅在漂移, 那種紅會被學會忽略**)。
+//
 // 🔴 **本檔守的不是「畫得出來」,是【四個會靜默說謊的地方】**:
 //   ① 讀取失敗 vs 真的沒交易 —— 合成一種顯示就是在對客人說謊
 //   ② 金額正負 —— 讀 `amount` 的正負, 不由 `entryType` 再推一次
@@ -20,8 +31,18 @@ import type { WalletLedgerEntry } from '@pcm/domain';
 import { WalletTab } from './WalletTab';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-/** design 原稿 —— 「刻意不做」那三個字面的**正對照量具**(見 `DELIBERATELY_OMITTED`)。 */
+/**
+ * design 原稿 —— **漂移(B)那一格的量具**。
+ * ⚠️ 它**不再是正對照** —— 正對照(反恆真)搬到下面那份 fixture 上了(審查 F9)。
+ */
 const DESIGN_WALLET_JSX = resolve(HERE, '../../../../../../design-reference/components/WalletTab.jsx');
+/**
+ * 🔴 **反恆真那一半的量具 —— 它在【每一台機器、每一個沙箱、CI 上】都存在。**
+ * 內容是從 design 原稿**機械抄**出來的三行(抄法與版本 sha 寫在檔內), 不是我打的字。
+ * ⇒ 它證「那三個字面在 design 上真的存在」⇒「沒有立即儲值鈕、沒有等級卡、沒有當時餘額」那格不是恆真。
+ * ⚠️ 它是一份 **snapshot** ⇒ **上游改名它不會知道**。那一半見檔頭第一段。
+ */
+const DESIGN_CONTRACT_FIXTURE = resolve(HERE, 'wallet-design-contract.fixture.txt');
 /**
  * 🔴 **`design-reference` 是 git submodule** —— 新 worktree / 未跑過
  * `git submodule update --init` 的 checkout 上,那個目錄是**空的**。
@@ -172,7 +193,8 @@ describe('WalletTab — 🔴 金額的正負由 amount 決定,不由 entryType �
  *
  * 🔴 分開寫的話,斷言那半打錯字(`.wal-tier-crd`)就變成**恆真**:
  *    `querySelector` 找不到一個不存在的 class,而它回 `null` —— 與「我們真的沒渲染」一模一樣。
- *    ⇒ 下面那格正對照拿【design 原稿】當量具:打錯的字在原稿裡也找不到 ⇒ 正對照先紅。
+ *    ⇒ 反恆真那格拿【repo 內的 design 契約 snapshot】當量具:打錯的字在 snapshot 裡也找不到 ⇒ 它先紅。
+ *      ⚠️ **原句寫「下面那格正對照拿 design 原稿當量具」** —— 拆成兩格之後那句就漂了(審查 F3)。
  */
 const DELIBERATELY_OMITTED = {
   /** design `WalletTab.jsx` 的等級卡容器(Q2=乙 不放)。 */
@@ -183,31 +205,146 @@ const DELIBERATELY_OMITTED = {
   depositButtonLabel: '立即儲值',
 } as const;
 
-describe('WalletTab — 🔴 拍板刻意不做的東西不得偷偷出現', () => {
-  it.skipIf(!HAS_DESIGN_SUBMODULE)(
-    '🔴 正對照:這三個字面在 design 原稿上【真的找得到】(否則下面那格是恆真的)',
-    () => {
-    // 🔴 這一格量的不是我們的元件,是**我的量具有沒有接上**。
-    //    `queryBy…(X) === null` 在【我們沒渲染 X】與【X 這個字根本不存在】兩個世界印同一句話,
-    //    而後者就是打錯字。⇒ 拿 design 原稿當第三方:打錯的字在那裡也不存在 ⇒ 這一格先紅。
-    const designJsx = readFileSync(DESIGN_WALLET_JSX, 'utf8');
+/**
+ * 🔴 **class token 的尺 —— 而它是【第二版】。**
+ * 第一版用 `\b`, 而審查用一發實測打穿它:JS 的 `\b` 靠 `\w`(ASCII 字母數字底線)判邊界,
+ * 而 **`-` 不是 `\w`** ⇒ `/\bwal-tier-card\b/` 對字串 `"wal-tier-card-v2"` 回 **true**。
+ * ⇒ 上游把 class 加後綴改名時, 那把尺**照樣綠**;而我的註解逐字寫著它「改名成 -v2 時會紅」。
+ * 📌 **那句註解與那把尺, 講的是兩件事, 而它們寫在同一行的上下。**
+ * ⇒ 第二版把連字號一起算進邊界。四個世界實測(2026-08-27):
+ *     `wal-tier-card` 對 `className="wal-tier-card"`  ⇒ true   (該中的中了)
+ *     `wal-tier-card` 對 `"wal-tier-card-v2"`         ⇒ false  (改名抓得到)
+ *     截斷字 `wal-tier` 對 `"wal-tier-card"`          ⇒ false  (打錯字抓得到)
+ *     舊尺 `\b` 在後兩個世界都回 true                 ⇒ 兩種錯它都放行
+ */
+/** 🔴 token 是資料, 不是 regex ⇒ 進 `RegExp` 前要跳脫(審查 F5:`wal.tier` 會命中 `walXtier` 而靜靜過)。 */
+const escapeRe = (raw: string) => raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const TOKEN_RULER = (token: string) => new RegExp(`(?<![\\w-])${escapeRe(token)}(?![\\w-])`);
+/** 🔴 CJK 標籤的尺:`\b` 對它無效(見上)⇒ 釘「自成一行的文字節點」。 */
+const LABEL_RULER = (label: string) => new RegExp(`^\\s*${escapeRe(label)}\\s*$`, 'm');
 
-    // 🔴 **比【完整 token】不比子字串**(R1 nit):`toContain('wal-tier-card')` 在原稿改名成
-    //    `wal-tier-card-v2` 時仍然綠,而 `querySelector('.wal-tier-card')` 那側已經量不到東西了
-    //    ⇒ 正對照會替一把已經斷掉的尺背書。
-    // 🔴🔴 **而 class 與中文標籤不能用同一把尺** —— JS 的 `\b` 靠 `\w`(ASCII)判邊界,
-    //    中文字元不是 `\w` ⇒ `/\b立即儲值\b/` **永遠不匹配**,而它印出來的是「找不到」
-    //    = 與「這個字面打錯了」一模一樣的失敗訊息。(我第一版就是這樣紅的。)
-    //    ⇒ class 走 `\b`;中文標籤釘「自成一行的文字節點」(design 那顆鈕的字面就是這個形狀)。
-    for (const cls of [DELIBERATELY_OMITTED.tierCard, DELIBERATELY_OMITTED.txBalance]) {
-      expect(designJsx, `class token「${cls}」在 design 原稿上找不到 ⇒ 打錯或已改名`).toMatch(
-        new RegExp(`\\b${cls}\\b`),
+/**
+ * 🔴 **從 `DELIBERATELY_OMITTED` 推, 不要手打清單**(審查點名):
+ * 原本兩處都硬寫 `[tierCard, txBalance]` ⇒ 日後新增第 4 個「刻意不做」的東西,
+ * 下面會多一條 `queryBy(...)===null`, 而**正對照那邊零新增、零紅** ⇒ 恆真悄悄回來一格。
+ * 📌 **保護的分母與被保護的分母, 沒有理由相等 —— 而它們長得一樣, 都印一個綠。**
+ */
+const ALL_OMITTED = Object.values(DELIBERATELY_OMITTED);
+/** ASCII-only ⇒ 當 class token 量;含非 ASCII ⇒ 當文字標籤量。**由內容分堆, 不由 key 名。** */
+const CLASS_TOKENS = ALL_OMITTED.filter((v) => /^[\x20-\x7e]+$/.test(v));
+const LABEL_TOKENS = ALL_OMITTED.filter((v) => !/^[\x20-\x7e]+$/.test(v));
+
+/**
+ * 🔴 fixture 的檔頭是**我們手打的** ⇒ 拿整份檔去比, 等於讓檔頭也能餵綠那把尺
+ * (「重抄時順手在檔頭寫上新 class 名」就過了)。⇒ 只比分隔線【以下】那幾行。
+ */
+const CONTRACT_SEPARATOR = /^# -{10,}$/m;
+function contractBody(raw: string): string {
+  const m = CONTRACT_SEPARATOR.exec(raw);
+  expect(m, 'design 契約 fixture 找不到分隔線 ⇒ 檔壞了或格式被改, 不得繼續').not.toBeNull();
+  return raw.slice((m as RegExpExecArray).index + (m as RegExpExecArray)[0].length);
+}
+
+describe('WalletTab — 🔴 拍板刻意不做的東西不得偷偷出現', () => {
+  // ══════════════════════════════════════════════════════════════════════════
+  // 🔴 反恆真(A)—— **這一格【不 skip】, 每一台機器 / 每一個沙箱 / CI 上都跑。**
+  //    它是 `#945` 決策的產物:原本這件事掛在 submodule 上 ⇒ 沒有稿的地方就 skip
+  //    ⇒ 而那正是「恆真」最會發生的地方。⇒ 改掛在一份 repo 內的 snapshot 上。
+  //    決策與理由:`docs/specs/2026-08-27-945-submodule-in-sandbox-and-ci-plan.md` `§13-8`(裁決落在那裡;`§13-7b` 只有題目, 沒有答案)
+  // ══════════════════════════════════════════════════════════════════════════
+  it('🔴 反恆真:這三個字面在 design 契約 snapshot 上【真的找得到】(否則「沒有立即儲值鈕…」那格是恆真的)', () => {
+    const contract = contractBody(readFileSync(DESIGN_CONTRACT_FIXTURE, 'utf8'));
+
+    // 🔴 **兩把不同的尺, 而它們不能互換**(這一段與下面的漂移格用同一套, 刻意的):
+    //    · class token 走 `TOKEN_RULER`(它的四世界實測寫在它自己的 docstring)
+    //      🔴 **不要換回 `\b`** —— `-` 不是 `\w` ⇒ `\b` 對 `wal-tier-card-v2` 回 true
+    //    · 🔴 中文標籤**不能走 `\b`** —— JS 的 `\b` 靠 `\w`(ASCII)判邊界, 中文不是 `\w`
+    //      ⇒ `/\b立即儲值\b/` 對 `">立即儲值<"` 這種**真實會出現的形狀**不匹配,
+    //        而它印的是「找不到」= 與「打錯字」同一句話。
+    //      ⚠️ 我原本寫「**永遠**不匹配」—— 那個量級沒量過, 而實測 `"a立即儲值b"` ⇒ **true**。
+    //        (結論不變:CJK 別用 `\b`。變的是我不該把「這裡不管用」講成「永遠不管用」。)
+    for (const cls of CLASS_TOKENS) {
+      expect(contract, `class token「${cls}」在 design 契約 snapshot 上找不到 ⇒ 打錯, 或 snapshot 該重抄`).toMatch(
+        TOKEN_RULER(cls),
       );
     }
-    expect(
-      designJsx,
-      `「${DELIBERATELY_OMITTED.depositButtonLabel}」在 design 原稿上不是一個獨立的文字節點 ⇒ 打錯或已改字`,
-    ).toMatch(new RegExp(`^\\s*${DELIBERATELY_OMITTED.depositButtonLabel}\\s*$`, 'm'));
+    for (const label of LABEL_TOKENS) {
+      expect(
+        contract,
+        `「${label}」在 snapshot 上不是一個獨立的文字節點 ⇒ 打錯, 或 snapshot 該重抄`,
+      ).toMatch(LABEL_RULER(label));
+    }
+    expect(CLASS_TOKENS.length + LABEL_TOKENS.length, '有東西沒有被分進任何一堆 ⇒ 分堆的尺漏了').toBe(
+      ALL_OMITTED.length,
+    );
+  });
+
+  it.skipIf(!HAS_DESIGN_SUBMODULE)(
+    '🔴 漂移(B, 有稿才跑):這三個字面在【活的 design 原稿】上仍然找得到',
+    () => {
+    // 🔴 **這一格與上面那格【不是同一件事】, 不要合起來看**:
+    //   上面(A, 恆跑)= snapshot ⇒ 答「那三個字面【曾經】在稿上」⇒ 反恆真
+    //   這一格(B, 有稿才跑)= 活的稿 ⇒ 答「它們【現在】還在」⇒ 抓上游改名
+    // 🔴 而它 `skipIf` ⇒ **沒有稿的地方(CI / 新 worktree)它不跑, 而那是刻意的**:
+    //   稿住在 submodule 裡 ⇒ 做成必跑的 CI 格會【紅在環境】而不是【紅在漂移】,
+    //   那種紅會被學會忽略(論證抄自 `scripts/od-drift-check.py` 檔頭)。
+    // ⚠️ ⇒ **這一格的覆蓋率是「有稿的人」, 不是「每個人」。** 上面那格才是每個人都有的。
+    const designJsx = readFileSync(DESIGN_WALLET_JSX, 'utf8');
+
+    // 🔴 **比【完整 token】不比子字串**(R1 nit), 而**第一版那把尺是壞的**:
+    //    我寫「`toContain('wal-tier-card')` 在改名成 `-v2` 時仍然綠 ⇒ 所以改用 `\b`」——
+    //    而 `\b` **在同一個世界也綠**(實測 true)⇒ 那次的修法沒有解決我描述的那個問題,
+    //    而**當時的突變複驗只演了「改我方常數」那個方向, 沒演「稿被改名」那個方向。**
+    //    📌 **量具只演一個世界 ⇒ 它會替另一個世界的壞掉背書。** 現在兩處共用 `TOKEN_RULER`。
+    //    ⚠️ 這兩行原本是上一版段落的下半, 而主詞在改寫時被換掉了 ⇒ 讀起來像在講新尺(審查 F2)。
+    //       補回主詞:**舊的 `\b` 尺**對 `wal-tier-card-v2` 仍然綠, 而 `querySelector('.wal-tier-card')`
+    //       那側已經量不到東西 ⇒ **正對照會替一把已經斷掉的尺背書。** 新尺(`TOKEN_RULER`)沒有這個病。
+    // 🔴🔴 **而 class 與中文標籤不能用同一把尺** —— JS 的 `\b` 靠 `\w`(ASCII)判邊界,
+    //    中文字元不是 `\w` ⇒ `/\b立即儲值\b/` 對 `">立即儲值<"` 不匹配,而它印出來的是「找不到」
+    //    ⚠️(「**永遠**不匹配」是我原本的字面, 而實測 `"a立即儲值b"` ⇒ true ⇒ 那個量級沒量過)
+    //    = 與「這個字面打錯了」一模一樣的失敗訊息。(我第一版就是這樣紅的。)
+    //    ⇒ class 走 `TOKEN_RULER`;中文標籤走 `LABEL_RULER`(釘「自成一行的文字節點」)。
+    //    🔴 **不要換回 `\b`** —— 它對 `wal-tier-card-v2` 回 true(見 `TOKEN_RULER` 的 docstring)。
+    //    ⚠️ 原本這一行逐字寫著「class 走 `\b`」, 而同一格上面剛寫完「不要換回 `\b`」
+    //       ⇒ **一支檔裡兩條互相矛盾的指示, 而壞的那條是祈使句**(審查 F1)。
+    for (const cls of CLASS_TOKENS) {
+      expect(designJsx, `class token「${cls}」在 design 原稿上找不到 ⇒ 打錯或已改名`).toMatch(
+        TOKEN_RULER(cls),
+      );
+    }
+    for (const label of LABEL_TOKENS) {
+      expect(
+        designJsx,
+        `「${label}」在 design 原稿上不是一個獨立的文字節點 ⇒ 打錯或已改字`,
+      ).toMatch(LABEL_RULER(label));
+    }
+
+    // 🔴 **把 snapshot 繫回活的稿** —— 這一格關掉兩個洞, 而兩個都是審查點名的:
+    //   ① fixture 宣稱「機械抄」, 而**沒有任何一行碼在驗它**
+    //      ⇒ 有人手打一行含那三個字面的東西進去, A 會綠、B 也會綠(token 確實在活稿上)
+    //   ② fixture 檔頭記的 design commit sha **沒有任何一行碼讀它** ⇒ 純裝飾
+    //      ⇒ submodule 指標被 bump 之後, snapshot 靜靜過期,
+    //        而**過期的那個世界正好是 A 唯一生效的世界**(CI / 沙箱, 那裡沒有活稿可比)
+    // ⚠️ 而它只在【有稿】的地方跑 ⇒ **繫繩本身也是 skipIf 的。** 這是這個設計的天花板:
+    //    沒有稿的地方, 我們只能相信 snapshot 是對的, 而**沒有辦法當場證明**。
+    for (const line of contractBody(readFileSync(DESIGN_CONTRACT_FIXTURE, 'utf8')).split('\n')) {
+      const trimmed = line.trim();
+      // 🔴 審查 F7:只跳空行不夠 —— fixture 日後重抄若帶進 `  }` 這種短行, 那一行對任何 JSX 恆真。
+      //    ⇒ 下限:**這一行要含至少一個被守的字面**。含了就不可能對任意 JSX 恆真。
+      // ⚠️ 我第一版還加了「長度 >= 8」, 而它**當場把 `            立即儲值` 判紅** ——
+      //    那一行 trim 完只有 4 個字元, 因為 **CJK 一個字就是一個 char**。
+      //    📌 **一個用字元數表達的「夠長」, 對中文與對英文不是同一個門檻。**
+      //    ⇒ 拿掉長度那一半:它想擋的是「不含任何字面的短行」, 而那件事 `guarded` 自己就答完了。
+      if (trimmed === '') continue;
+      expect(
+        ALL_OMITTED.some((t) => line.includes(t)),
+        `契約 snapshot 有一行不含任何被守的字面 ⇒ 它對任何原稿都恆真, 不得留在 body 裡:\n${line}`,
+      ).toBe(true);
+      expect(
+        designJsx,
+        `契約 snapshot 有一行在活的 design 原稿上逐字找不到 ⇒ snapshot 過期或被手改:\n${line}`,
+      ).toContain(line);
+    }
     },
   );
 
@@ -215,6 +352,7 @@ describe('WalletTab — 🔴 拍板刻意不做的東西不得偷偷出現', () 
     const { container } = render(
       <WalletTab balance={27600} entries={[entry(), entry({ id: 'b', amount: -2400, entryType: 'use' })]} />,
     );
+
     // q5=乙:鈕拿掉
     expect(screen.queryByText(DELIBERATELY_OMITTED.depositButtonLabel)).toBeNull();
     expect(container.querySelector('button')).toBeNull();

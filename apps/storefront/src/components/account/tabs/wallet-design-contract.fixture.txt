@@ -1,0 +1,16 @@
+# design 契約 snapshot —— 這不是我打的字, 是【機械抄】出來的
+#
+# 來源  design-reference/components/WalletTab.jsx
+# 版本  a14fdcf9387d0cf0727aa29f276c61a424411d24
+# 抄法  sed -n '54p;64p;108p' <來源>   (2026-08-27)
+#
+# 🔴 它證的是【反恆真】:下面那三個字面在 design 上【真的存在】
+#    ⇒ 所以「我們的元件沒有渲染它們」這個斷言不是一句空話。
+# 🔴 它【證不出】上游有沒有改名 —— 那是另一件事, 見測試檔檔頭第一段。
+#
+# 重抄:  sed -n '54p;64p;108p' design-reference/components/WalletTab.jsx
+# 核對:  比對本檔與上面那行的輸出, 逐字相同
+# ---------------------------------------------------------------------------
+            立即儲值
+      <div className="wal-tier-card">
+                <div className="wal-tx-bal">餘額 NT$ {tx.balance.toLocaleString()}</div>
