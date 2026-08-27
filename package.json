@@ -36,6 +36,7 @@
     "scripts/citation-rot-check.py": "python3 scripts/citation-rot-check.py --selftest",
     "scripts/view-apply-before-wire-gate.py": "python3 scripts/view-apply-before-wire-gate.py --selftest",
     "scripts/rls-service-role-policy-gate.py": "python3 scripts/rls-service-role-policy-gate.py --selftest",
+    "scripts/acl-drift-gate.py": "python3 scripts/acl-drift-gate.py --selftest",
     "scripts/selftest-git-isolation-gate.sh": "sh scripts/selftest-git-isolation-gate.sh --selftest",
     "scripts/brand-degenerate-samples.py": "python3 scripts/brand-degenerate-samples.py --selftest",
     "scripts/mobile-dual-write-inventory.py": "python3 scripts/mobile-dual-write-inventory.py --selftest",

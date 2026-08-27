@@ -70,6 +70,15 @@ else
   printf '%s\n' '   復原:git checkout -- .husky/rls-service-role-policy-gate.sh' >&2
   exit 1
 fi
+if [ -f .husky/acl-drift-gate.sh ]; then
+  sh .husky/acl-drift-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/acl-drift-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   與 rls-service-role-policy-gate 同款 fail-closed:刪掉這支殼正是關掉它最省事的方法,' >&2
+  printf '%s\n' '   而本閘防的正是「新 migration 打開 apply 之後沒人再量的 ACL」(路①④;路⑤ dashboard 它本來就看不到)。' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/acl-drift-gate.sh' >&2
+  exit 2
+fi
 if [ -f .husky/view-apply-gate.sh ]; then
   sh .husky/view-apply-gate.sh || exit $?
 else
