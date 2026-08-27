@@ -166,11 +166,30 @@ REVOKE ALL ON TABLE public.admin_saved_order_views
 --      而它們現在沒有任何東西把彼此綁著。
 --    📌 這一行就是那條繩子。拆欄的人搜 ⟦b4-MGR0-SEM⟧ 才找得到兩邊。
 --
--- ⚠️ 而這四支讀到的 `is_manager`,**不保證是經過線B 那道閘寫進去的**:
---    Sean `Q15 = 甲`「不鎖 DB 層」⇒ `staff_table.sql:72` 的
---    `GRANT UPDATE (label, is_manager, is_active) ... TO service_role` **留著**
---    ⇒ 任何人寫一支腳本仍改得動那一欄。**他讀過這個代價後選擇不鎖。**
---    ⇒ 對本片的意義:我們的授權**上限**就是那一欄的可信度, 而它不是我們控制的。
+-- ⚠️🔴 這四支讀到的 `is_manager`,**不保證是經過線B 那道閘寫進去的** ——
+--    而它有【兩條互相獨立的路】, 不是一條(2026-08-28 逐條查證):
+--
+--    路一(DB 層沒鎖)  Sean `Q15 = 甲`「不鎖 DB 層」⇒
+--      `20260726120000_m4b_e8a1_staff_table.sql:72` 的
+--      `GRANT UPDATE (label, is_manager, is_active) ... TO service_role` **留著**
+--      ⇒ 任何人寫一支腳本仍改得動那一欄。**他讀過這個代價後選擇不鎖。**
+--      【量到】我自己開那支 migration 讀的。
+--
+--    路二(閘的效力綁在一顆旗標上)  線B 那道 `authorizeManagerMutation` 的效力
+--      綁在 `ADMIN_REQUIRE_REAL_IDENTITY=1` 上:
+--      `apps/admin/src/lib/session/actor.ts:95-99` 逐字 ——
+--        `if (requireRealIdentity()) return null;`
+--        `return await resolveStaff(store.get(ACTOR_COOKIE)?.value);`
+--      ⇒ **旗標關著時, actor 來自使用者自己從下拉挑的那個 cookie**
+--      ⇒ 任何登入者把 cookie 設成某個【啟用中管理者】的 id ⇒ 那道閘查的是他自陳的 id ⇒ 放行
+--      【量到】我自己開 `actor.ts` 讀的那兩行。
+--      ⚠️ 而「正式站現在 =1」【讀來】(線B 轉述:Sean 親口 + 登出再登入的行為驗證, 2026-08-25 起)
+--      🔴 而那顆 env 的值**物理上沒有人讀得到**(Vercel Type=Secret)
+--         ⇒ 所以這一格**永遠停在「讀來」**, 沒有人能把它升成「量到」。
+--
+--    ⇒ 📌 **一道閘的正確性, 與它讀到的東西的可信度, 是兩個宣稱。**
+--       而後者在這裡是**兩個上游條件的 AND**, 其中一個【原理上量不到】。
+--    ⇒ 🔴 本片**不加任何 Sean 沒要的鎖** —— 這一段只負責讓上限被看見, 不負責把它抬高。
 --
 -- 🔴 update / delete 兩支的【執行順序】目前沒有任何測試證明得了(§14-Z 殘餘風險 ②)——
 --    identity sequence 那個熬過回滾的觀察點,只有 create 那支會 nextval。
