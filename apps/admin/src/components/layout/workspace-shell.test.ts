@@ -35,6 +35,45 @@ const SHELL_RAW = read('./workspace-shell.tsx');
 const SHELL = stripComments(SHELL_RAW);
 const GLOBALS_RAW = read('../../app/globals.css');
 const GLOBALS = stripComments(GLOBALS_RAW);
+
+/**
+ * ⚠️ **只認三種字面形狀**:`className='…'` / `"…"` / `` {`…`} ``。
+ *    實測 `className={cn('workspace-row', x)}` / `clsx(...)` / 三元 / `styles.x` **全部 false**
+ *    ⇒ 日後把這支 TSX 改寫成 `cn()` ⇒ **假紅**(方向安全, 而紅的訊息會說「class 不見了」,
+ *      而它其實還在)⇒ **撞到時是來這裡加形狀, 不是刪掉這道守門。**
+ *    今天 `workspace-shell.tsx` 那四處全是單引號字面 ⇒ 現在不會誤報。
+ */
+const classTokensOf = (src: string): Set<string> => {
+  const out = new Set<string>();
+  for (const m of src.matchAll(/className=(?:'([^']*)'|"([^"]*)"|\{`([^`]*)`\})/g)) {
+    for (const t of (m[1] ?? m[2] ?? m[3] ?? '').split(/[\s]+/)) if (t) out.add(t);
+  }
+  return out;
+};
+/**
+ * 🔴 **守門與自檢【一定要走這一個函式】**(審查 must-fix 2):
+ * 我第一版讓自檢驗 `classTokensOf`, 而守門那格自己又寫一次比對
+ * ⇒ **自檢完全沒有碰到守門的輸入** ⇒ 有人把守門那行改回 `\b`、或把 `SHELL` 換成 `SHELL_RAW`
+ *   (連註解掉的 className 都會被算進去), **自檢照樣全綠**。
+ * 📌 **一個驗「工具好不好」的自檢, 證不出「有沒有人在用那個工具」。**
+ * ⚠️ 天花板:**它證得出這把尺會分辨, 證不出【呼叫點真的呼叫了它】。**
+ * 🔴 **我原本在這裡寫「要關上那一格【只能】靠呼叫點薄 + 這段字」—— 那句是假的**,
+ *    審查當場給了反例:**把負半寫進守門那格自己的 body、吃守門自己的輸入** ⇒ 換回 `\b` 當場紅。
+ * ✅ 已照做, **而第一版沒有成功**:我讓正半走 `tsxHasClass`、負半自己再呼叫一次同一個函式
+ *    ⇒ 把守門那行換回 `\b` ⇒ **27 格全綠**(實測)。
+ *    📌 **兩半各自呼叫同一個函式, 不等於兩半綁在一起。**
+ *    ⇒ 第二版把尺收成 `it.each` body 裡的一個本地 `has` / `hasCss`, 正負兩半吃同一個它
+ *      ⇒ 換回 `\b` 或 `includes` **各自實測都是 3 紅**。
+ * 🔴 而我在測之前就已經在這裡寫了「已照做」—— **那是我今天第二次先寫結論再驗。**
+ *    📌 **「只能」是一個反例就推翻的字, 而我沒有數過就寫了它。**
+ */
+const tsxHasClass = (src: string, cls: string) => classTokensOf(stripComments(src)).has(cls);
+/**
+ * CSS 那半的尺:`.name` 而**右邊**不得再接 class 可用字元(`\w` 或 `-`)。
+ * ⚠️ **沒有左界** ⇒ `content: ".workspace-row"` 這種**寫在字串裡**的也算「在」。
+ *    今天 `globals.css` 沒有這種寫法 ⇒ 不會假綠;**而這是現況不是保證。**
+ */
+const CSS_CLASS_RULER = (cls: string) => new RegExp(`\\.${cls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`);
 const PANEL_DEFAULT_PATH = fileURLToPath(new URL('../../app/@panel/default.tsx', import.meta.url));
 
 describe('#350b 平行路由槽的接線', () => {
@@ -75,17 +114,100 @@ describe('#350b TSX 的 class 名 × CSS 的 `:has()` 選擇器 —— 兩個接
   //    第四形狀:兩端各有測試、中間透傳一跳無人守):
   //    原本只斷言「CSS 檔裡有那兩條選擇器」+「TSX 裡有 role='separator'」——
   //    把 TSX 的 `workspace-panel` / `workspace-row` / `workspace-handle` 任一個改名或刪掉,
-  //    `:has()` 規則就永遠不匹配 ⇒ **每一頁都常駐一條孤零零的可拖拉線 + 一塊空欄,而測試全綠。**
+  //    `:has()` 規則就永遠不匹配 ⇒ **每一頁都常駐一條孤零零的可拖拉線 + 一塊空欄。**
+  // 🔴🔴 **而這段註解寫下之後, 那個災難【18 天沒有被守住】, 直到 2026-08-27。**
+  //    數法:`git log --format='%h %ad' --date=short --diff-filter=A -- <本檔>` ⇒ `08e56014` **2026-08-09**
+  //    🔴 **我上一版的數法是 `git log -S'而測試全綠' ⇒ 唯一命中`, 而【寫下它這件事本身會讓它變假】**:
+  //       這段註解自己就含著那根針 ⇒ commit 之後 pickaxe 會多列出這一顆(1 處 → 2 處也算變更)
+  //       ⇒ **一道數法, 被記錄它的那個動作弄髒了。**(審查 R2 實測 1→2 的變更確實會被 `-S` 列出。)
+  //    ⚠️ **我第一版寫「2026-08-19 寫下…有一年多沒被守住」—— 兩個字面都是我掰的**, 審查用上面那條
+  //       git 指令當場打掉。📌 **這支檔本身就是「字面 vs 事實」的紀念碑, 而我在它上面寫了一個假數字。**
+  //    原句結尾是「**而測試全綠**」—— 那不是一句警語, 那是一句**當時就成立的事實描述**,
+  //    而它下面那兩道尺(`\b` 與 `includes`)在那個世界裡**一起是綠的**。
+  //    實測(2026-08-27, 逐一改 TSX 的 className):
+  //      workspace-row / workspace-handle 改成 `-v2` ⇒ **全綠 26 passed**
+  //      workspace-panel 改成 `-v2` ⇒ 紅, 而紅的是**隔壁那格「直接子代」** —— 不是這兩道尺
+  //    📌 **它寫下了那個世界, 建了兩道守門, 而兩道在那個世界裡一起變綠。**
+  //       兩道看起來是【互相獨立的第二意見】, 而它們**共用同一個盲區**(都是子字串式的邊界)。
+  // ✅ **現在守得住了** —— 而憑證不是「我換了更嚴的比對」, 是下面那格【尺自檢】:
+  //    它每次都拿【改名後的樣本】餵這兩把尺, 而它們必須說「不在」。
+  //    ⚠️ 射程(逐條, 審查 nit 5 補的那層):
+  //       · 守的是**這三個 class 名在 TSX 與 CSS 兩邊各自存在**
+  //       · 🔴 **它問的是「全檔某個 className 裡有這個 token」, 不是「在【對的元素】上」**
+  //         ⇒ 把 `workspace-handle` 搬到別的 div 上、再刪掉把手元素 ⇒ **這格仍綠**
+  //           (`role='separator'` 那格另外擋住一半, 而那是別人的守門不是這一格的)
+  //       · 它**證不出**「CSS 那條 `:has()` 在真瀏覽器裡真的收合了」—— 那要量畫面, 不在本檔
+  //       · 🔴 而**它證不出「呼叫點真的用了這把尺」** —— 見 `tsxHasClass` 的 docstring
   const PREFIX = '.workspace-row:not(:has(.workspace-panel > *:not(template)))';
+
+  // 🔴🔴 **這把尺 2026-08-27 換過, 而換掉的理由是它【在它自己上面那段註解描述的世界裡是綠的】。**
+  //    舊寫法 `new RegExp(\`\\b${cls}\\b\`).test(SHELL)` —— 三個 token **全都含連字號**,
+  //    而 JS 的 `\b` 靠 `\w`(ASCII 字母數字底線)判邊界 ⇒ **`-` 不是 `\w`**
+  //    ⇒ `/\bworkspace-row\b/` 對 `className='workspace-row-v2'` 回 **true**。
+  //    🔴 **修前實測(2026-08-27, 逐一改 TSX 的 className)**:
+  //         workspace-row    改成 `-v2` ⇒ **全綠 26 passed**
+  //         workspace-handle 改成 `-v2` ⇒ **全綠 26 passed**
+  //         workspace-panel  改成 `-v2` ⇒ 紅, **而紅的是隔壁那格「直接子代」** —— 不是這一格
+  //    ⇒ **三個裡有兩個可以無聲改名, 而那兩個正是 `:has()` 選擇器指的那兩個。**
+  //    ⚠️ 還有第二個更寬的洞:`workspace-shell.tsx:247` 有一個 CSS 變數 `--workspace-panel-width`
+  //       ⇒ `/\bworkspace-panel\b/` **光靠那個變數就會 true** ⇒ className 整個刪掉也一樣綠。
+  //    📌 母題:**一個「比較好的工具」的真正成本, 是它買到的那份安心。**
+  //       `includes` 誰都知道會誤配 ⇒ 大家會另外想辦法;`\b` 讓人覺得已經處理過了。
+  //
+  // ⇒ 改成**精確 token 比對**:把 TSX 裡每一個 className 字面拆成 token 集合, 問「這個 token 在不在」。
+  //    它對「加後綴」與「只剩 CSS 變數」兩個世界都會說不在(下面那格自檢會表演給你看)。
+
+  // 🔴🔴 **尺自檢 —— 這一格才是這次修法的重點, 不是那個更嚴的比對。**
+  //    上面那把舊尺之所以能活著, 不是因為沒有人想過改名 —— **它上面那段註解就寫著改名這件事** ——
+  //    是因為**從來沒有一發東西【製造過那個世界】**。
+  //    ⇒ 所以修法不是換一把更好的尺, 是把「那個世界」變成一格**每次都會跑**的斷言。
+  //    📌 通用形狀:**一把尺宣稱擋 X ⇒ 就要有一格拿【X 的樣本】餵它, 而它必須說不。**
+  it('🔴 尺自檢:同一把尺對【改名後】與【只剩 CSS 變數】兩個樣本, 必須說「不在」', () => {
+    const varOnly = `<div style={{ '--workspace-panel-width': w }} />`;
+    // 🔴 走的是守門那格【同一個】`tsxHasClass`, 不是另外複製一份比對邏輯。
+    expect({
+      改名後: tsxHasClass(`<div className='workspace-row-v2 flex' />`, 'workspace-row'),
+      只剩變數: tsxHasClass(varOnly, 'workspace-panel'),
+      被註解掉: tsxHasClass(`{/* <div className='workspace-row' /> */}`, 'workspace-row'),
+      正常世界: tsxHasClass(`<div className='workspace-row flex' />`, 'workspace-row'),
+    }).toEqual({ 改名後: false, 只剩變數: false, 被註解掉: false, 正常世界: true });
+    // 🔴 舊尺在同樣樣本上的答案(留著當對照, 它證明這次換尺不是換個寫法而已)。
+    // ⚠️ **這兩格【故意恆真】** —— `\b` 對 `-` 的行為是 JS 規範, 不會變 ⇒ 它們**是說明不是守門**。
+    //    標出來, 免得下一個稽核的人把它當成一格失效的斷言重新推一次。
+    expect({
+      舊尺_改名後: /\bworkspace-row\b/.test(`<div className='workspace-row-v2 flex' />`),
+      舊尺_只剩變數: /\bworkspace-panel\b/.test(varOnly),
+    }).toEqual({ 舊尺_改名後: true, 舊尺_只剩變數: true });
+    // CSS 那半的同一組表演(舊寫法是 `includes`)
+    const cssRenamed = '.workspace-row-v2:not(:has(.workspace-panel > *)) { }';
+    expect({
+      新尺_CSS改名後: CSS_CLASS_RULER('workspace-row').test(cssRenamed),
+      新尺_CSS正常: CSS_CLASS_RULER('workspace-row').test('.workspace-row:not(:has(x)) { }'),
+      舊尺_CSS改名後: cssRenamed.includes('.workspace-row'),
+    }).toEqual({ 新尺_CSS改名後: false, 新尺_CSS正常: true, 舊尺_CSS改名後: true });
+  });
 
   it.each(['workspace-row', 'workspace-panel', 'workspace-handle'])(
     '🔴 class `%s` 在 TSX 與 CSS **兩邊都在**',
     (cls) => {
-      // 🔴 用詞邊界找,不要求它是 className 的第一個 token(R2 nit:換順序會假紅)。
-      expect({ [`tsx:${cls}`]: new RegExp(`\\b${cls}\\b`).test(SHELL) }).toEqual({
-        [`tsx:${cls}`]: true,
-      });
-      expect({ [`css:${cls}`]: GLOBALS.includes(`.${cls}`) }).toEqual({ [`css:${cls}`]: true });
+      // 🔴🔴 **正半與負半【必須由同一個表達式產生】** —— 這是本片最貴的一課, 而我付了兩次:
+      //    第一版:守門用 `tsxHasClass`, 而負半自己另外呼叫一次 ⇒ **把守門那行換回 `\b`,
+      //    27 格全綠**(我實測過, 而我在測之前已經在註解裡寫了「已照做」)。
+      //    📌 **兩半各自呼叫同一個函式, 不等於兩半綁在一起。** 綁在一起的是【同一個 `has`】。
+      //    ⇒ 現在把尺收成一個本地 `has`:換掉它, 正負兩半一起動 ⇒ 負半當場紅。
+      const has = (src: string) => tsxHasClass(src, cls);
+      expect({
+        [`tsx:${cls}`]: has(SHELL_RAW),
+        [`tsx改名後:${cls}`]: has(SHELL_RAW.replaceAll(cls, `${cls}-v2`)),
+      }).toEqual({ [`tsx:${cls}`]: true, [`tsx改名後:${cls}`]: false });
+      // 🔴 CSS 那半**也有同一個病**:`GLOBALS.includes('.workspace-row')` 是子字串
+      //    ⇒ CSS 那邊改名成 `.workspace-row-v2` 它照樣 true。⇒ 釘 class 選擇器的右邊界。
+      //    (下面自檢那格連這一半一起表演。)
+      const hasCss = (src: string) => CSS_CLASS_RULER(cls).test(src);
+      expect({
+        [`css:${cls}`]: hasCss(GLOBALS),
+        [`css改名後:${cls}`]: hasCss(GLOBALS.replaceAll(`.${cls}`, `.${cls}-v2`)),
+      }).toEqual({ [`css:${cls}`]: true, [`css改名後:${cls}`]: false });
     },
   );
 
@@ -115,15 +237,29 @@ describe('#350b TSX 的 class 名 × CSS 的 `:has()` 選擇器 —— 兩個接
 //    〔`http://localhost:3021`〕驗過兩個世界:清 cookie 後開訂單面板 ⇒
 //    `--workspace-panel-width` 算出 720px;清 cookie 後開一個沒有 marker 的槽〔`/orders` 無
 //    `panel` 參數〕⇒ 算出 600px = 1200 視窗的一半,兩個世界印不同的值,量法有判別力)。
-const PANEL_ROUTE = stripComments(read('../../app/@panel/orders/page.tsx'));
+const PANEL_ROUTE_RAW = read('../../app/@panel/orders/page.tsx');
+const PANEL_ROUTE = stripComments(PANEL_ROUTE_RAW);
 
 describe('片1 訂單編輯面板預設 520px、可拖寬', () => {
   // ⚠️ **射程**:本組只讀 `app/@panel/orders/page.tsx` 這一支 route。
   //    `@panel` 槽底下其餘兩支(`default.tsx` / `[...catchAll]/page.tsx`)**一律回 `null`、不渲染面板**
   //    ⇒ 今天不會有第二個產生點。日後若有人新增會渲染內容的槽路由,**本組看不到它**。
   it('🔴 標記 class `panel-width-locked` 在**面板路由**與 `workspace-shell.tsx` 兩邊都在(對不上 = 安靜地退回視窗一半)', () => {
-    expect({ tsx: /\bpanel-width-locked\b/.test(PANEL_ROUTE) }).toEqual({ tsx: true });
-    expect({ shell: SHELL.includes('panel-width-locked') }).toEqual({ shell: true });
+    // 🔴 **同一個病, 同一支檔**(審查 nit 3):`panel-width-locked` 也含連字號
+    //    ⇒ 舊寫法 `/\bpanel-width-locked\b/` 對 `panel-width-locked-v2` 回 true、
+    //      `SHELL.includes(...)` 更寬。⇒ 兩邊都換成上面那組尺。
+    //    📌 **上面那格寫「現在守得住了」, 而它當時只涵蓋一個 describe** ——
+    //       一句範圍是「這一格」的話, 讀起來像範圍是「這支檔」。
+    expect({ tsx: tsxHasClass(PANEL_ROUTE_RAW, 'panel-width-locked') }).toEqual({ tsx: true });
+    // shell 那半它不是 className, 是 `querySelector('.panel-width-locked')` 裡的字串
+    // ⇒ 用 CSS 那把尺釘右邊界。
+    // ⚠️ **而這一半實測【被下面那格整句字面釘死的斷言完全涵蓋】**(審查 nit):
+    //    沒有「只有這一半紅」的世界 ⇒ 它是那一格的弱化重複, 留著當可讀性, **不要當成主要防線**。
+    //    🔴 **這裡刻意不寫那一格的行號** —— 我上一版寫「見 `:230`」而它其實在別處,
+    //       而 `:230` 是另一件事(數 `@container` 出現兩次)⇒ **指到一個存在、相關、但不是它的行。**
+    //       ⇒ 改用字面錨:grep `querySelector` + `panel-width-locked`。
+    // ⚠️ 失效世界:`classList.contains('panel-width-locked')` 這種**無點**寫法 ⇒ 這把尺回 false = 假紅。
+    expect({ shell: CSS_CLASS_RULER('panel-width-locked').test(SHELL) }).toEqual({ shell: true });
   });
 
   // 🔴 客人卡那條 return 少了標記的話,點「客人明細」面板會從 520 跳回視窗一半、
