@@ -32,9 +32,9 @@ PRUNE_RE='(^|/)(node_modules|\.next|dist|build|coverage|\.git|\.claude/worktrees
 
 # ── 明文豁免清單(每一條【必須】旁邊一句為什麼)──────────────────────────────
 #   🔴 空的豁免清單比一個裝滿的好;偷偷擴充豁免比缺口更糟。
-#   格式:每行 "相對路徑<TAB>理由"。目前【刻意留空】—— 先讓守門把現有的紅出來,
-#   由主視窗逐支決定「豁免 or 搬進分母」,不預先塞。
-EXEMPT_LIST=""
+#   格式:每行 "相對路徑<TAB>理由"。每一條旁邊【必須】有一句為什麼。
+#   🔴 只放【逐支查證過、且理由是「刻意不進分母」】的 —— 沒人管 / 只是還沒處理的【不放】,讓它紅著。
+EXEMPT_LIST="scripts/fixtures/authz-bare-redirect.fixture.ts	authz-failure-visibility.sh 的正向對照測資(那支 .sh 掃它、期望恆為 1);刻意引用未定義符號=放進 typecheck 永遠紅;檔頭明文「不可放 apps/、完全不被 typecheck 覆蓋是刻意的」(2026-08-18 突變證+本輪 Q3 實跑紅 2 錯確認)"
 
 # ── 分母規則(鏡射 2026-08-27 量到的三綠分母;新增有 tsconfig+typecheck 的 workspace 要同步這裡)──
 #   apps/admin, apps/storefront   tsconfig include **/*.ts(x)   ⇒ 全收
