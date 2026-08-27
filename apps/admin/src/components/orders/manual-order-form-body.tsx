@@ -1,5 +1,9 @@
 import {
+  MANUAL_CUSTOMER_NEW_NAME_FIELD,
+  MANUAL_CUSTOMER_NEW_PHONE_FIELD,
   MANUAL_ORDER_CUSTOMER_FIELD,
+  MANUAL_ORDER_IN_PANEL_FIELD,
+  MANUAL_ORDER_IN_PANEL_VALUE,
   MANUAL_ORDER_INVOICE_CARRIER_FIELD,
   MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD,
   MANUAL_ORDER_INVOICE_TAX_ID_FIELD,
@@ -14,7 +18,14 @@ import {
   MANUAL_ORDER_SHIP_TO_PHONE_FIELD,
   MANUAL_ORDER_SOURCE_FIELD,
 } from '@/lib/orders/manual-order-form';
+import {
+  MANUAL_ORDER_PANEL_VALUE,
+  manualOrderBasePath,
+  manualOrderCustomerHref,
+} from '@/lib/orders/manual-order-action-state';
+import { ORDER_PANEL_PARAM } from '@/lib/orders/order-return-to';
 import type { ManualCustomerCandidate } from '@/lib/customers/manual-customer';
+import { createManualCustomerAction } from '@/lib/customers/manual-customer-actions';
 import { createManualOrderAction } from '@/lib/orders/manual-order-actions';
 import { ManualOrderLines } from './manual-order-lines';
 
@@ -63,6 +74,14 @@ export type ManualOrderFormBodyProps = {
   lookupFailed: boolean;
   /** 員工名單讀不到。🔴 讀不到時**不出**「還沒有建立員工」那一句(頁面那層會說「讀不到」)。 */
   staffLoadFailed: boolean;
+  /**
+   * 這張表單此刻長在**右側面板**裡(`/orders?panel=new`)還是**整頁**裡(`/orders/new`)。
+   *
+   * 🔴 **它只決定「送出之後回到哪裡」,一格欄位都不動** —— 兩邊是同一張表單。
+   *    少了它,在面板裡按「找客人」會**跳出面板、整頁換掉**,
+   *    而那正是 Sean 2026-08-27 抱怨的「一塊一塊、跑來跑去」。
+   */
+  inPanel?: boolean;
 };
 
 export function ManualOrderFormBody({
@@ -74,8 +93,15 @@ export function ManualOrderFormBody({
   selectedCustomer,
   lookupFailed,
   staffLoadFailed,
+  inPanel = false,
 }: ManualOrderFormBodyProps) {
   const noStaff = activeStaff.length === 0;
+  // 🔴 **GET 表單的 `action` 上帶 query 是無效的** —— 瀏覽器送出時會把 `?…` 整段丟掉,
+  //    所以面板版的 `panel=new` 必須走**隱藏欄位**,不能寫在 `action` 裡。
+  //    (POST 那兩張沒有這個問題;它們用隱藏旗標 `in_panel`。)
+  const searchAction = inPanel ? '/orders' : '/orders/new';
+  const base = manualOrderBasePath(inPanel);
+  const baseSep = base.includes('?') ? '&' : '?';
   // 🔴 **那句指路只在【真的沒有員工】時出** —— 名單讀不到時由頁面那層說話,
   //    兩句同時在畫面上會互相矛盾(codex R1 nit),而它們的下一步相反。
   const showNoStaffNotice = noStaff && !staffLoadFailed;
@@ -104,7 +130,8 @@ export function ManualOrderFormBody({
           搜尋框留在畫面上 ⇒ 員工填完地址與運費再按一次「找客人」⇒ 值照樣全部消失。
           ⇒ 要換人請走表單裡那個「換一位」(它會回到還沒填東西的狀態)。 */}
       {selectedCustomer === null && (
-      <form method='get' action='/orders/new' className='flex gap-2'>
+      <form method='get' action={searchAction} className='flex gap-2'>
+        {inPanel && <input type='hidden' name={ORDER_PANEL_PARAM} value={MANUAL_ORDER_PANEL_VALUE} />}
         <input type='hidden' name='mrid' value={manualRequestId} />
         <label className='sr-only' htmlFor='manual-order-phone'>
           客人電話
@@ -127,10 +154,59 @@ export function ManualOrderFormBody({
           符合的帳號太多,下面只列出前面幾個。請把電話打完整一點再找一次。
         </p>
       )}
+      {/* 🔴🔴 **這裡原本印的是一條死路**(2026-08-28 線A 量到,原句逐字):
+          「這支電話找不到客人。請先到【客人】頁建立這位客人,再回來建單。」
+          —— 而**客人頁沒有新增客人的按鈕**(那一頁與 `components/customers/*` 的 `<form>` 共 5 個:
+          篩選 / 關鍵字搜尋 / 改資料 / 改等級 / 儲值金,零個是建立;負對照同尺:本檔 `<form>` ⇒ 2)。
+          ⇒ 那句話叫員工去一個**做不到那件事**的地方 ⇒ 找不到客人 = 這張單建不出來。
+          ⇒ Sean 2026-08-27 逐字「沒有直接新增」講的就是這一格。
+          ✅ 改成**就地建**:`createManualCustomer`(`manual-customer.ts:324`)早就寫好審過、零呼叫端。
+
+          🔴 **它是獨立一張 `<form>`,不與建單表單巢狀**(HTML 不允許)——
+             而且此刻建單表單**還沒出現**(兩段式),所以送出它不會清掉任何已填的值。 */}
       {phoneQuery !== '' && candidates.length === 0 && !lookupFailed && (
-        <p role='status' className='text-muted-foreground text-sm'>
-          這支電話找不到客人。請先到【客人】頁建立這位客人,再回來建單。
-        </p>
+        <form
+          action={createManualCustomerAction}
+          className='space-y-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3'
+          data-testid='manual-order-new-customer'
+        >
+          <p role='status' className='text-sm text-amber-700'>
+            這支電話找不到客人。<strong>直接在這裡建一位</strong>,建好就會自動選好他、可以往下建單。
+          </p>
+          {/* 冪等鍵照原樣帶著走 —— 建客人這一步不該換掉建單那顆鍵。 */}
+          <input type='hidden' name={MANUAL_ORDER_REQUEST_ID_FIELD} value={manualRequestId} />
+          {inPanel && (
+            <input type='hidden' name={MANUAL_ORDER_IN_PANEL_FIELD} value={MANUAL_ORDER_IN_PANEL_VALUE} />
+          )}
+          <div className='grid grid-cols-2 gap-2'>
+            <label className='block text-sm'>
+              客人姓名
+              <input
+                name={MANUAL_CUSTOMER_NEW_NAME_FIELD}
+                required
+                className='mt-1 block w-full rounded-md border px-2 py-1'
+              />
+            </label>
+            <label className='block text-sm'>
+              電話
+              {/* 🔴 預填他剛剛搜的那支 —— 叫他把同一支電話再打一次,正是這一片要拿掉的動作。 */}
+              <input
+                name={MANUAL_CUSTOMER_NEW_PHONE_FIELD}
+                defaultValue={phoneQuery}
+                required
+                className='mt-1 block w-full rounded-md border px-2 py-1'
+              />
+            </label>
+          </div>
+          <button type='submit' className='rounded-md border px-3 py-1 text-sm'>
+            建立這位客人
+          </button>
+          {/* ⚠️ 地址**不在這裡** —— 客人檔案沒有地址欄(`ManualCustomerInput` 只有 name/phone),
+              地址住在訂單上的「收件資料」那一區。這裡多開一格會建出沒有人會讀的值。 */}
+          <p className='text-muted-foreground text-xs'>
+            地址等一下在下面的「收件資料」填就好,這裡不用。
+          </p>
+        </form>
       )}
 
       {selectedCustomer === null && candidates.length > 0 && (
@@ -143,7 +219,14 @@ export function ManualOrderFormBody({
                 //    頁面是靠「這次查回來的候選」去核 `customer` 的,少了 `phone`
                 //    ⇒ 重載後候選是空的 ⇒ `customer` 被判無效 ⇒ **點誰都選不上**。
                 //    ⚠️ 我的測試原本只斷言 href 含 `mrid` 與 `customer` ⇒ 這一格是我的盲區。
-                href={`/orders/new?mrid=${manualRequestId}&phone=${encodeURIComponent(phoneQuery)}&customer=${encodeURIComponent(c.userId)}`}
+                //    ✅ 2026-08-28:改用 `manualOrderCustomerHref` —— 剛建好客人之後的導頁用的是同一支,
+                //       兩邊各拼一次的話,漏掉 `phone` 的那一份會靜默失效。
+                href={manualOrderCustomerHref({
+                  manualRequestId,
+                  phone: phoneQuery,
+                  customerId: c.userId,
+                  inPanel,
+                })}
               >
                 {c.name}({c.phone ?? '沒有電話'}){c.isManual ? ' · 後台開的帳號' : ''}
               </a>
@@ -160,6 +243,9 @@ export function ManualOrderFormBody({
       <form action={createManualOrderAction} className='space-y-4'>
         {/* 🔴 冪等鍵。**同一張表單重按送出要送同一顆** —— 它由頁面決定、表單只是帶著走。 */}
         <input type='hidden' name={MANUAL_ORDER_REQUEST_ID_FIELD} value={manualRequestId} />
+        {inPanel && (
+          <input type='hidden' name={MANUAL_ORDER_IN_PANEL_FIELD} value={MANUAL_ORDER_IN_PANEL_VALUE} />
+        )}
 
         <fieldset disabled={noStaff} className='space-y-4'>
           {/* 🔴 客人是**已經選定**的,不是表單上的一個下拉:兩段式之後這一格只剩「帶著走」。
@@ -167,7 +253,7 @@ export function ManualOrderFormBody({
           <input type='hidden' name={MANUAL_ORDER_CUSTOMER_FIELD} value={selectedCustomer!.userId} />
           <p className='text-sm'>
             客人:{selectedCustomer!.name}({selectedCustomer!.phone ?? '沒有電話'})
-            <a className='ml-2 underline' href={`/orders/new?mrid=${manualRequestId}`}>
+            <a className='ml-2 underline' href={`${base}${baseSep}mrid=${manualRequestId}`}>
               換一位
             </a>
           </p>

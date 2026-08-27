@@ -1,5 +1,12 @@
 import 'server-only';
 import { SYNTHETIC_EMAIL_BASE_DOMAIN } from '@pcm/schemas';
+// 🔴 GoTrue 錯誤碼的判別**走共用那一支**,不在本檔再寫一份(2026-08-28 R3 F5)——
+//    而那正是本檔 `:3-5` 自己寫下的紀律:「兩份的那天,寬的那份會…」
+//    ⚠️ 我在同一份 diff 裡寫下那條規矩、然後違反了它。共用版取**窄**的,理由在該檔。
+import { isEmailExistsError } from '@pcm/adapters';
+// 🔴 冪等鍵的形狀檢查走**既有那一支**,不在本檔再寫一條 uuid regex:
+//    兩份 regex 的那天,寬的那份會讓一個「不是 uuid 的鍵」變成佔位信箱的一部分。
+import { isUuid } from '../orders/note-action-state';
 
 // manual-customer.ts — `#858` 片0-b:替「打電話來訂貨的散客」開一個後台用的客人檔案。
 //
@@ -76,7 +83,22 @@ export const MANUAL_SYNTHETIC_EMAIL_DOMAIN = `manual.${SYNTHETIC_EMAIL_BASE_DOMA
 /** 身分鍵:蓋在 `app_metadata`(**只有 service_role 寫得到**、公開 signup 偽造不出來)。 */
 export const MANUAL_PROVIDER = 'manual';
 
-export type ManualCustomerInput = { name: string; phone: string };
+export type ManualCustomerInput = {
+  name: string;
+  phone: string;
+  /**
+   * 這一張建單表單的**冪等鍵**(`manual_request_id`,合法 uuid)。
+   *
+   * 🔴🔴 **它不是紀錄用的,它是這條路上唯一的冪等機制**(codex R1 must-fix,2026-08-28):
+   *    佔位信箱的 local-part **由它決定** ⇒ 同一張表單重送 / 雙擊 ⇒ 第二發撞 `auth.users`
+   *    的 email 唯一約束 ⇒ **建不出第二個帳號**。
+   * 🔴 **而它刻意【不是】用電話當鍵** —— Sean 2026-08-24 `Q2=甲` 逐字拍板
+   *    「一支電話**不設硬上限**,超過 2 個才警告」(見下方 {@link DUPLICATE_ACCOUNT_WARN_THRESHOLD})。
+   *    用電話當鍵 = 推翻那道拍板;用表單鍵 ⇒ **不同表單(真的要開第二個)照樣建得出來**。
+   * ⚠️ 仍然滿足「不可枚舉」那條(見 {@link newPlaceholderEmail}):它是隨機 uuid,不是手機號。
+   */
+  requestId: string;
+};
 
 /** 候選:同一支電話上找到的人。🔴 **本模組不挑,挑的人是員工。** */
 export type ManualCustomerCandidate = {
@@ -111,14 +133,31 @@ export function normalizeManualPhone(raw: string): string {
 }
 
 /**
- * 產生散客佔位信箱 —— local-part **由本模組自己產**,不收外面給的值。
+ * 散客佔位信箱 —— local-part = 這張表單的**冪等鍵**。
  *
- * 🔴🔴 **E4(codex R1)**:舊版收 caller 給的 `randomId` ⇒ 空值、固定值、**手機號**都合法
- *    ⇒ 「不可枚舉」只是一句註解。現在它是**程式契約**:`crypto.randomUUID()` 在模組內呼叫。
+ * 🔴🔴 **E4(codex R1)**:更早的版本收 caller 給的 `randomId` ⇒ 空值、固定值、**手機號**都合法
+ *    ⇒ 「不可枚舉」只是一句註解。
+ *    ⇒ 上一版改成模組內 `crypto.randomUUID()`;**而那讓這條路沒有任何冪等**
+ *      (codex R1 must-fix,2026-08-28:雙擊 ⇒ 兩個真 auth user)。
+ * ✅ **現在的形狀同時滿足兩件事**:值由 caller 給,**而 caller 只能給合法 uuid**
+ *    (下面那道閘 + `ManualCustomerInput.requestId` 的型別)⇒
+ *    · 不可枚舉:uuid 不是手機號,照號碼段搶註不成立
+ *    · 冪等:同一張表單重送 ⇒ 同一個信箱 ⇒ 撞 `auth.users` 的 email 唯一約束
  * 🔴 **為什麼不可枚舉**:手機號可枚舉 ⇒ 有人能照號碼段**批次搶註** ⇒ 我們每建一張散客單都撞號。
  */
-function newPlaceholderEmail(): string {
-  return `manual_${crypto.randomUUID()}@${MANUAL_SYNTHETIC_EMAIL_DOMAIN}`;
+function placeholderEmailFor(requestId: string): string {
+  // 🔴🔴 **`.toLowerCase()` 是承重的,不是整潔**(R3 F6;2026-08-28 對正式庫唯讀量過):
+  //    `auth.users` 那道唯一索引是
+  //      `CREATE UNIQUE INDEX users_email_partial_key ON auth.users USING btree (email) WHERE (is_sso_user = false)`
+  //    ⇒ 它比的是 **email 的原字串**,不是 `lower(email)`
+  //      (同表另有 `users_instance_id_email_idx` 是 `lower(email)`,而那支**不是 unique**)。
+  //    而 `mrid` 那道形狀檢查 `note-action-state.ts` 的 `UUID_RE` 帶 `/i` ⇒ **收大寫 hex**
+  //    ⇒ 不小寫化的話,`?mrid=ABC…` 與 `?mrid=abc…` 會是**兩個不同的信箱** ⇒ 冪等直接失效,
+  //      而畫面上完全看不出來(`newManualRequestId()` 產小寫 ⇒ 要手改網址才踩得到)。
+  // ⚠️ **未確認**:GoTrue 自己會不會在寫入前把 email 小寫化。
+  //    量法(還沒有人做):拿一組大寫 `mrid` 打一發 `admin.createUser`,看 `auth.users.email` 存成什麼。
+  //    ⇒ 本行**不依賴那個答案** —— 我們自己先小寫,兩種情況下都對。
+  return `manual_${requestId.toLowerCase()}@${MANUAL_SYNTHETIC_EMAIL_DOMAIN}`;
 }
 
 /** 本模組需要的 client 形狀(注入用;真身是 `createSupabaseServiceClient()`)。 */
@@ -144,6 +183,11 @@ export type ManualCustomerClient = {
   from(table: 'customers'): {
     select(cols: 'user_id,name,email,phone'): {
       in(col: 'user_id', ids: string[]): Promise<{
+        data: Array<{ user_id: string; name: string; email: string; phone: string | null }> | null;
+        error: { message?: string } | null;
+      }>;
+      /** 🔴 只給 `email` 一個欄:它是本模組**自己產**的佔位信箱,不是使用者輸入。 */
+      eq(col: 'email', value: string): Promise<{
         data: Array<{ user_id: string; name: string; email: string; phone: string | null }> | null;
         error: { message?: string } | null;
       }>;
@@ -281,7 +325,17 @@ export async function createManualCustomer(
   client: ManualCustomerClient,
   input: ManualCustomerInput,
 ): Promise<
-  { ok: true; userId: string } | { ok: false; reason: 'invalid_phone' | 'invalid_name'; message: string }
+  | {
+      ok: true;
+      userId: string;
+      /** `true` = 這張表單**先前已經建過**這位客人(撞了佔位信箱的唯一鍵),這一發沒有新建任何東西。 */
+      idempotent?: boolean;
+    }
+  | {
+      ok: false;
+      reason: 'invalid_phone' | 'invalid_name' | 'invalid_request_id';
+      message: string;
+    }
 > {
   // 🔴🔴 **信任邊界的輸入驗證(codex R4 D1)**:原本只擋「零個數字」
   //    ⇒ **空姓名、`phone='1'` 都能建出一個【正式的 auth user】**,而且那種帳號刪不掉、還會
@@ -300,7 +354,17 @@ export async function createManualCustomer(
     };
   }
 
-  const email = newPlaceholderEmail();
+  // 🔴🔴 **冪等鍵的形狀在這裡擋死**(codex R1 must-fix,2026-08-28):
+  //    它會變成佔位信箱的一部分 ⇒ 收一個爛值進來,等於把一個可預測 / 可撞的字串
+  //    放進**帳號的唯一鍵**裡。⚠️ 這是信任邊界,不是內部斷言 —— 呼叫端讀的是表單。
+  if (!isUuid(input.requestId)) {
+    return {
+      ok: false,
+      reason: 'invalid_request_id',
+      message: '這張表單的編號不見了或壞掉了。請重新整理建單畫面再建一次(不要直接改網址)。',
+    };
+  }
+  const email = placeholderEmailFor(input.requestId);
   const created = await client.auth.admin.createUser({
     email,
     email_confirm: true,
@@ -309,7 +373,66 @@ export async function createManualCustomer(
     // trigger 從這裡取 name / phone 寫進 customers(`20260523034911:283-285`)。
     user_metadata: { name, phone },
   });
-  if (created.error) throw created.error;
+  if (created.error) {
+    // 🔴🔴 **這裡是那道冪等真正生效的地方**(codex R1 must-fix,2026-08-28)。
+    //    同一張表單重送 / 雙擊 ⇒ 同一個佔位信箱 ⇒ `auth.users` 的 email 唯一約束擋下第二發。
+    //    ⇒ 那**不是失敗**:第一發已經把這位客人建出來了。把它讀成失敗,員工會看到一句錯誤、
+    //      然後很可能換一張表單再建一次 ⇒ **同一位客人兩個帳號,而那個帳號刪不掉。**
+    //
+    // 🔴🔴🔴 **而這條回收路徑本身被 codex R2 擊破過一次,兩格,兩格都要在**:
+    //    R2 逐字:「任何 `createUser` 錯誤都會撈第一筆同信箱客戶,未限定唯一鍵錯誤、
+    //    未驗 `app_metadata`、姓名或電話;**搶註者會被當成這張表單的既有客人**。」
+    //    攻擊路徑(本檔頭 `:60-75` 那個威脅模型的延伸):`mrid` 出現在後台網址上
+    //    ⇒ 它一旦外洩(Referer / 共享畫面 / log),信箱就**算得出來**
+    //    ⇒ 對方去公開 signup 先搶註那個信箱 ⇒ 我方 createUser 撞鍵
+    //    ⇒ **舊版會把【對方的帳號】當成這位客人回傳,而訂單就掛到對方頭上。**
+    //    ⇒ 兩道一起補,缺一道這條路就不成立:
+    //      ① **只認「這個信箱已經有人用了」那一種錯**,不是任何錯都去撈
+    //      ② 撈回來的那一位**必須是我們自己建的** —— 判準走 `app_metadata`,
+    //         **那一欄只有 service_role 寫得到、公開 signup 偽造不出來**(本檔 `:74-75` 逐字)。
+    //         而且電話也要對得上:同一張表單的第二發,電話一定與第一發相同。
+    //    ⚠️ **殘餘風險,明寫**:拿到 `mrid` 的人仍然可以**先搶註那個信箱**把這張表單卡住
+    //       (我方永遠撞鍵、而撈回來的那位過不了下面的驗證 ⇒ 拋)。
+    //       那是**阻擋**,不是**冒名** —— 而員工重新整理就會拿到一顆新的 `mrid`。
+    //       ⇒ 兩者代價差一個數量級,本片接受前者、擋掉後者。
+    if (!isEmailExistsError(created.error)) throw created.error;
+
+    const prior = await client.from('customers').select('user_id,name,email,phone').eq('email', email);
+    if (prior.error) throw prior.error;
+    const priorRow = (prior.data ?? [])[0];
+    if (!priorRow) {
+      // 撞了鍵而 `customers` 那列不在 ⇒ **不得當成功**(trigger 沒寫進去,或那是別人的 auth 帳號)。
+      throw new Error(
+        `createManualCustomer:這張表單的信箱已經有人用了,但找不到對應的客人資料(${email})——` +
+          '請找工程確認,不要重送。',
+      );
+    }
+    const priorUser = await client.auth.admin.getUserById(priorRow.user_id);
+    if (priorUser.error) throw priorUser.error;
+    const meta = priorUser.data.user?.app_metadata ?? {};
+    // 🔴🔴 **姓名也要對**(R3 F1,2026-08-28)。理由**不是**多一道保險:
+    //    · 電話**不 identify 一個人** —— `DUPLICATE_ACCOUNT_WARN_THRESHOLD` 那段記著
+    //      Sean 明文「一支電話**不設硬上限**」⇒ 拿它當第二把鑰匙,等於用一把公用鑰匙開私人的門。
+    //      (對照 `apps/storefront/src/lib/auth/line-admin.ts` 的第二把鑰匙是 `pcm_line_user_id`
+    //       === 那個人的 `sub` —— **那真的 identify 那個人**。)
+    //    · 而**建立路徑本來就在驗三欄**(下面那道 `row.email/name/phone` 回核)
+    //      ⇒ 回收路徑只驗兩欄是**同一支檔內的不對稱**,而那個不對稱本身就是下一個人的陷阱。
+    if (
+      meta.pcm_provider !== MANUAL_PROVIDER ||
+      meta.pcm_manual_phone !== phone ||
+      priorRow.name !== name
+    ) {
+      // 🔴 **這就是搶註的那個世界。** 不回成功、不回那個 userId —— 一個字都不要洩漏給畫面。
+      // 🔴 **文案不得寫成「不是我們建的帳號」**(R3 F8):最常見的到達路徑是
+      //    **同一顆鍵配到不同的人**(自己人),而那句話會叫員工把一個流程問題當成攻擊處理。
+      //    ⇒ 講**他該做什麼**,不講我們猜的成因。
+      throw new Error(
+        'createManualCustomer:這張表單的編號已經被用過了,而它配到的不是這位客人。' +
+          '請重新整理建單畫面拿一個新的編號,再建一次;一直這樣請找工程。',
+      );
+    }
+    return { ok: true, userId: priorRow.user_id, idempotent: true };
+  }
   const id = created.data.user?.id;
   if (!id) {
     throw new Error('createManualCustomer:createUser 成功但沒有回 user.id');

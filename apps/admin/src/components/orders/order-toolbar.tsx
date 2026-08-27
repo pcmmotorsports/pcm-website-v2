@@ -5,7 +5,7 @@ import {
   type OrderListDisplayState,
   type OrderPanelTarget,
 } from '../../lib/orders/order-list-view';
-import { MANUAL_ORDER_PATH } from '../../lib/orders/manual-order-action-state';
+import { MANUAL_ORDER_PANEL_PATH } from '../../lib/orders/manual-order-action-state';
 import { OrderFilterChips } from './order-filter-chips';
 
 // order-toolbar.tsx — 訂單列表最上面那一列(標題 + 快速篩選 chip + 密度 + 共 N 筆)。
@@ -154,8 +154,19 @@ export function OrderToolbar({
               ⇒ 這一格不會有測試紅, 只會有員工覺得「這顆鈕比較慢」。
             · 路徑改用 `MANUAL_ORDER_PATH` 常數:原本這裡寫死字串, 而測試比的是常數
               ⇒ 常數改名時**元件與 `manual-order-actions.ts:50` 的失敗導頁會分岔**, 各自都綠。 */}
+        {/* 🔴🔴 **2026-08-28 線A:改成開【右側面板】,不再整頁換掉**
+            (Sean 2026-08-27 逐字「一樣是側邊欄位」「直接跳出一個視窗」)。
+            🔴🔴 **codex R1 must-fix:上一版走 `buildOrderListHref` 把篩選帶進來 —— 那是【半套】。**
+               開的時候帶著,而按下「找客人」那一發是 GET 導頁、只送 `panel/mrid/phone`
+               ⇒ **篩選在中途無聲消失**,而員工是在填單填到一半時失去它的。
+               ⇒ 兩種一致的做法只有:全程帶著(要一整套導頁參數驗證 = 另一片),
+                 或**從一開始就不帶**。這裡選後者:代價可見、可預期、發生在他還沒填東西的時候。
+            ⚠️ **代價明寫**:按下「新增訂單」⇒ 列表回到預設(篩選與分頁不保留)。
+               這一格已列為要問 Sean 的題;在他答之前**不要只修一半**。
+            ⚠️ **整頁版 `/orders/new` 沒有被拿掉**,舊書籤照樣進得去;
+               兩邊是同一份表單(`components/orders/manual-order-view.tsx`)。 */}
         <Link
-          href={MANUAL_ORDER_PATH}
+          href={MANUAL_ORDER_PANEL_PATH}
           className='inline-flex h-8 items-center rounded-md bg-primary px-4 text-sm text-primary-foreground'
         >
           新增訂單

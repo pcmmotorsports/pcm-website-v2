@@ -31,6 +31,10 @@
 import 'server-only';
 // eslint-disable-next-line no-restricted-imports -- 受控例外(Sean 2026-05-25 Q1=A 拍板、ADR-0005 §8):LINE OAuth Admin API 無 anon 替代、service_role 只在本 server-only 檔之內使用(不宣稱它是 storefront 唯一一道,數量見檔頭那條命令)、僅 callback route 引用、不入 client bundle。
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
+// 🔴 「email 已存在」的判別**走共用那一支**(2026-08-28 R3 F5):本檔原本自己有一份,
+//    而後台建客人那片又寫了第二份、且**出生就比這份寬**。兩邊「認太寬」的後果方向相同(誤指一個帳號)
+//    ⇒ 共用版取窄的,理由與射程在 `packages/adapters/src/supabase/auth-errors.ts`。
+import { isEmailExistsError } from '@pcm/adapters';
 import { isValidLineUserId, lineSyntheticEmail, type LineIdentity } from './line';
 
 // service_role client 型別由 factory 推得(storefront 不直接依賴 @supabase/supabase-js)。
@@ -40,10 +44,6 @@ export type LineAuthResult =
   | { ok: true; hashedToken: string }
   | { ok: false; reason: 'invalid_sub' | 'collision_not_line' };
 
-/** createUser 失敗是否為「email 已存在」(回頭用戶或撞號)。精確比對 error code、避免誤判成「不存在」而令 generateLink 誤建無 metadata user。 */
-function isEmailExistsError(error: { code?: string; message?: string }): boolean {
-  return error.code === 'email_exists' || error.code === 'user_already_exists';
-}
 
 /** generateLink(magiclink)拿 hashed_token + 既有 user(email 已存在故不會誤建)。 */
 async function generateMagicLink(admin: AdminClient, email: string) {

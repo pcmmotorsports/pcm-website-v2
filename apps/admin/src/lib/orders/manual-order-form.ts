@@ -51,6 +51,31 @@ export const MANUAL_ORDER_INVOICE_CARRIER_FIELD = 'invoice_carrier';
 export const MANUAL_ORDER_INVOICE_TITLE_FIELD = 'invoice_title';
 export const MANUAL_ORDER_INVOICE_TAX_ID_FIELD = 'invoice_tax_id';
 export const MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD = 'invoice_donate_code';
+
+// ── 面板裡「直接新增這位客人」那一小張表單的兩欄(`createManualCustomerAction` 專用)──────
+// 🔴 **它們不進 `parseManualOrderForm()`** —— 那是**另一張 form**(HTML 不允許 form 巢狀,
+//    而且它送去的是另一支 action)。放在這裡只是為了與其他欄名同一個定義處,
+//    不得因為住在同一支檔就以為建單解析器讀得到它們。
+// 🔴 **只有姓名與電話,沒有地址**:`createManualCustomer`
+//    的 `ManualCustomerInput`(`lib/customers/manual-customer.ts:82`)**沒有地址那一格**。
+//    ⚠️ 2026-08-28 訂正:上一版寫「就只有 `{ name, phone }`」——**而同一份 diff 剛給它加了第三個欄位
+//    `requestId`** ⇒ 那不是行號漂移,是**我描述了一個我自己剛改掉的東西**(R3 F7)。
+//    地址住在**訂單**上(`ship_to_*` 三欄),
+//    不住在客人檔案上 ⇒ 這裡多開一個地址欄會建出一個**沒有人會去讀**的值。
+export const MANUAL_CUSTOMER_NEW_NAME_FIELD = 'new_customer_name';
+export const MANUAL_CUSTOMER_NEW_PHONE_FIELD = 'new_customer_phone';
+
+/**
+ * 「這張表單此刻長在面板裡」的旗標(值恆為 `'1'`;沒送 = 整頁版)。
+ *
+ * 🔴 **它是【兩個值的封閉集】,不是導頁網址** —— 兩個 action 拿它去挑導頁基底,
+ *    而一個只有兩個成員的集合構造不出第三個目標(理由全文在
+ *    `manual-order-action-state.ts` 的 `manualOrderBasePath` 那一段)。
+ * 🔴 **它不進 `parseManualOrderForm()`**:那支產的是「RPC 收得下的形狀」,
+ *    而這個旗標一個字都不該送進資料庫。
+ */
+export const MANUAL_ORDER_IN_PANEL_FIELD = 'in_panel';
+export const MANUAL_ORDER_IN_PANEL_VALUE = '1';
 // ── 品項:**六個平行的可重複原生欄位**(A3-c;主視窗 2026-08-24 裁「丙」)────────────
 // 🔴🔴 **為什麼不是一個 JSON 欄**(原本是,`~~manual_order_line~~` 已退場):
 //    `cancel-form-body.tsx` 的**不變式 (i)** 逐字:

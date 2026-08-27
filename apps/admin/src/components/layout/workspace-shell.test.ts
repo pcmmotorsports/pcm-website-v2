@@ -267,8 +267,11 @@ describe('片1 訂單編輯面板預設 520px、可拖寬', () => {
   // 🔴 **不要只數出現次數** —— 那把尺會被「有人在註解裡提到這個 class」推歪
   //    (本片自己就差點踩到:原始碼裡連註解共 3 次、剝註解後才是 2 次)。
   //    改成**釘在它該出現的位置**:標記必須緊貼在 `@container` 之後,那是兩個 return 的 div 各一。
-  it('🔴 面板路由的**兩個** return 都帶標記(客人卡是蓋在同一塊面板上,不是獨立視圖)', () => {
-    expect(PANEL_ROUTE.match(/@container panel-width-locked/g)?.length).toBe(2);
+  // 🔴 **2026-08-28 線A:2 ⇒ 3** —— 多了手動建單面板(`?panel=new`)。
+  //    它一樣要帶標記,否則從列表按「新增訂單」開出來的面板會是**視窗的一半**、
+  //    而點訂單開的是 520 ⇒ 同一塊面板兩種寬度,在畫面上長得像抖動。
+  it('🔴 面板路由的**三個** return 都帶標記(客人卡與建單都是蓋在同一塊面板上,不是獨立視圖)', () => {
+    expect(PANEL_ROUTE.match(/@container panel-width-locked/g)?.length).toBe(3);
   });
 
   // 🔴🔴 **這一格是本片核心**:沒有 cookie 偏好時,shell 要用 JS 查 DOM 有沒有 marker,

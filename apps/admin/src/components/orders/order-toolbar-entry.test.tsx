@@ -3,7 +3,11 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { OrderToolbar } from './order-toolbar';
 import { ORDER_DENSITY_DEFAULT, PANEL_CLOSED } from '../../lib/orders/order-list-view';
-import { MANUAL_ORDER_PATH } from '../../lib/orders/manual-order-action-state';
+import {
+  MANUAL_ORDER_PANEL_PATH,
+  MANUAL_ORDER_PANEL_VALUE,
+  MANUAL_ORDER_PATH,
+} from '../../lib/orders/manual-order-action-state';
 
 // order-toolbar-entry.test.tsx — `#858` 片4:**手動建單那一頁有沒有入口**。
 //
@@ -30,11 +34,24 @@ const BASE = {
   panelTarget: PANEL_CLOSED,
 } as const;
 
+// 🔴🔴 **2026-08-28 線A:入口改成開【右側面板】** —— Sean 2026-08-27 逐字「一樣是側邊欄位」。
+//    🔴 codex R1 must-fix 之後改成**不帶篩選的固定路徑**:帶著篩選開、而搜尋那一發又把它洗掉,
+//    是半套(理由全文在 `order-toolbar.tsx` 那顆鈕上面)。**代價已列為要問 Sean 的題。**
+const ENTRY_HREF = MANUAL_ORDER_PANEL_PATH;
+
 describe('訂單列表工具列 · 手動建單入口', () => {
-  it('有一顆連到 MANUAL_ORDER_PATH 的入口', () => {
+  it('有一顆入口, 而它開的是【右側面板】', () => {
     const html = renderToStaticMarkup(<OrderToolbar {...BASE} loadFailed={false} />);
-    expect(html).toContain(`href="${MANUAL_ORDER_PATH}"`);
+    expect(html).toContain(`href="${ENTRY_HREF}"`);
     expect(html).toContain('新增訂單');
+    // 🔴 字面那一發:證明它真的指向面板槽,不只是「與那支函式算的一樣」。
+    expect(ENTRY_HREF).toContain(`panel=${MANUAL_ORDER_PANEL_VALUE}`);
+    expect(html).toContain(`panel=${MANUAL_ORDER_PANEL_VALUE}`);
+  });
+
+  // 🔴 **整頁版沒有被拿掉**(舊書籤與失敗導頁仍用它)—— 這一格釘住「改的是入口, 不是路由」。
+  it('🔴 整頁版路徑仍然存在(改的是入口指向, 不是把那一頁拆掉)', () => {
+    expect(MANUAL_ORDER_PATH).toBe('/orders/new');
   });
 
   // 🔴 **對照組:這把尺要能印紅。** 沒有這一格,上面那兩個 `toContain` 在
@@ -128,7 +145,7 @@ describe('訂單列表工具列 · 手動建單入口', () => {
     //       不是「只要 HTML 裡有 `orders/` 就算」
     //    ③ 原本那一發留著(它擋的是「畫了一條不該存在的路徑」)
     expect(html.length).toBeGreaterThan(0);
-    expect(html).not.toContain(`href="${MANUAL_ORDER_PATH}x"`);
+    expect(html).not.toContain(`href="${ENTRY_HREF}x"`);
     expect(html).not.toContain('href="/orders/definitely-not-here"');
   });
 
@@ -138,7 +155,7 @@ describe('訂單列表工具列 · 手動建單入口', () => {
   //    `loadFailed` 這個 prop 有被讀,它可能只是**兩個世界都印同一份 HTML**。
   it('列表讀失敗時入口仍在,而共 N 筆消失', () => {
     const html = renderToStaticMarkup(<OrderToolbar {...BASE} loadFailed={true} />);
-    expect(html).toContain(`href="${MANUAL_ORDER_PATH}"`);
+    expect(html).toContain(`href="${ENTRY_HREF}"`);
     expect(html).not.toContain('共 13 筆');
   });
 });

@@ -9,6 +9,7 @@ import {
   findCustomerCandidatesByPhone,
   normalizeManualPhone,
   type ManualCustomerClient,
+  MANUAL_PROVIDER,
 } from './manual-customer';
 import { isSyntheticEmailDomain } from '@pcm/schemas';
 
@@ -23,6 +24,8 @@ function makeClient(opts: {
   verifyRows?: Row[];
   /** 確認查詢自己失敗(nit:原本 mock 永遠 error:null,沒覆蓋這條)。 */
   selectError?: { message?: string };
+  /** 冪等那條路:這個佔位信箱**先前已經有人用了**(= 同一張表單送過第二次)。 */
+  priorByEmail?: Record<string, Row>;
 }) {
   const createArgs: Array<Record<string, unknown>> = [];
   const rpcArgs: Array<{ p_query: string; p_limit: number }> = [];
@@ -45,6 +48,14 @@ function makeClient(opts: {
     },
     from: () => ({
       select: () => ({
+        // 🔴 2026-08-28:冪等那條路會用 `.eq('email', …)` 去撈「先前那一發建的人」。
+        //    預設回空 = 「這個信箱沒有人用過」;`priorByEmail` 給了才回,那就是撞鍵的世界。
+        eq: async (_col: string, value: string) => {
+          if (opts.priorByEmail && opts.priorByEmail[value]) {
+            return { data: [opts.priorByEmail[value]], error: null };
+          }
+          return { data: [], error: null };
+        },
         in: async () => {
           if (opts.selectError) return { data: null, error: opts.selectError };
           if (opts.verifyRows) return { data: opts.verifyRows, error: null };
@@ -64,34 +75,60 @@ function makeClient(opts: {
   return { client, createArgs, rpcArgs };
 }
 
-describe('佔位信箱(E4:不可枚舉是程式契約,不是一句話)', () => {
-  it('🔴🔴 隨機源【真的在模組內】—— spy `crypto.randomUUID`,證它被呼叫到', async () => {
-    // 🔴 codex R3:原本那格只比「兩次結果不同」,把實作換成 `let seq=0; ++seq` **照樣全綠**
-    //    ⇒ 它證不了「隨機源在模組內」。這一格直接盯那支 API。
-    const spy = vi.spyOn(crypto, 'randomUUID');
-    const c = makeClient({});
-    await createManualCustomer(c.client, { name: '王小明', phone: '0912345678' });
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(c.createArgs[0]!.email).toContain(spy.mock.results[0]!.value as string);
-    spy.mockRestore();
+/** 一張建單表單的冪等鍵。🔴 **它現在決定佔位信箱**(codex R1 must-fix,2026-08-28)。 */
+const REQ = '11111111-1111-4111-8111-111111111111';
+const REQ2 = '22222222-2222-4222-8222-222222222222';
+
+describe('佔位信箱(E4:不可枚舉 + 冪等,兩條都是程式契約)', () => {
+  // 🔴🔴 **2026-08-28:這一族的契約換了一次,而換掉的理由要留著。**
+  //    ~~舊契約:local-part = 模組內 `crypto.randomUUID()`,「每次都不同」是它的斷言。~~
+  //    ⇒ 那讓這條路**沒有任何冪等**:雙擊 ⇒ 兩個真 auth user(codex R1 must-fix)。
+  //    ✅ 新契約:local-part = **這張表單的冪等鍵**(caller 給,而只收合法 uuid)。
+  //    兩件事同時成立:①不可枚舉(uuid 不是手機號)②同一張表單重送 ⇒ 同一個信箱 ⇒ 撞唯一鍵。
+  //    🔴 而「不同表單要建得出第二個帳號」**也是要求**(Sean 08-24 `Q2=甲`:一支電話不設硬上限)
+  //       ⇒ 下面那格用兩個不同的 REQ 釘住它。
+  it('🔴 信箱由冪等鍵決定 —— 同一張表單 ⇒ 同一個信箱', async () => {
+    const a = makeClient({});
+    await createManualCustomer(a.client, { name: '王小明', phone: '0912-345-678', requestId: REQ });
+    const b = makeClient({});
+    await createManualCustomer(b.client, { name: '別人', phone: '0987654321', requestId: REQ });
+    expect(a.createArgs[0]!.email).toBe(b.createArgs[0]!.email);
   });
 
-  it('🔴 建出來的信箱不含手機號,而且每次都不同', async () => {
-    const a = makeClient({ verifyRows: undefined });
-    await createManualCustomer(a.client, { name: '王小明', phone: '0912-345-678' });
-    const b = makeClient({ verifyRows: undefined });
-    await createManualCustomer(b.client, { name: '王小明', phone: '0912-345-678' });
+  it('🔴 負對照:【不同】表單 ⇒ 不同信箱(不然一支電話就開不出第二個帳號了)', async () => {
+    const a = makeClient({});
+    await createManualCustomer(a.client, { name: '王小明', phone: '0912345678', requestId: REQ });
+    const b = makeClient({});
+    await createManualCustomer(b.client, { name: '王小明', phone: '0912345678', requestId: REQ2 });
+    expect(a.createArgs[0]!.email).not.toBe(b.createArgs[0]!.email);
+  });
 
-    const emailA = a.createArgs[0]!.email as string;
-    const emailB = b.createArgs[0]!.email as string;
-    expect(emailA).not.toContain('0912345678');
-    expect(emailA).not.toBe(emailB); // 🔴 同樣的輸入 ⇒ 不同的信箱(隨機源在模組內)
-    expect(emailA.endsWith(`@${MANUAL_SYNTHETIC_EMAIL_DOMAIN}`)).toBe(true);
+  it('🔴 信箱不含手機號(不可枚舉:照號碼段批次搶註不成立)', async () => {
+    const a = makeClient({});
+    await createManualCustomer(a.client, { name: '王小明', phone: '0912-345-678', requestId: REQ });
+    const email = a.createArgs[0]!.email as string;
+    expect(email).not.toContain('0912345678');
+    expect(email).not.toContain('0912-345-678');
+    expect(email.endsWith(`@${MANUAL_SYNTHETIC_EMAIL_DOMAIN}`)).toBe(true);
+  });
+
+  it('🔴 冪等鍵不是合法 uuid ⇒ 直接拒,不得把爛字串放進帳號的唯一鍵', async () => {
+    const c = makeClient({});
+    for (const bad of ['', 'abc', '../../x', '0912345678']) {
+      const r = await createManualCustomer(c.client, {
+        name: '王小明',
+        phone: '0912345678',
+        requestId: bad,
+      });
+      expect(r, `requestId=${bad} 應該被拒`).toMatchObject({ ok: false, reason: 'invalid_request_id' });
+    }
+    // 🔴 一發都不准送到 createUser。
+    expect(c.createArgs.length).toBe(0);
   });
 
   it('🔴 佔位信箱必須被片0-a 那道判斷式認出來(否則它會被真的寄出去)', async () => {
     const c = makeClient({ verifyRows: undefined });
-    await createManualCustomer(c.client, { name: '王小明', phone: '0912345678' });
+    await createManualCustomer(c.client, { name: '王小明', phone: '0912345678', requestId: REQ });
     expect(isSyntheticEmailDomain(c.createArgs[0]!.email as string)).toBe(true);
   });
 
@@ -164,7 +201,7 @@ describe('createManualCustomer(永遠建新的,永不自動重用)', () => {
     const { client, createArgs } = makeClient({
       
     });
-    const r = await createManualCustomer(client, { name: '王小明', phone: '0912-345-678' });
+    const r = await createManualCustomer(client, { name: '王小明', phone: '0912-345-678', requestId: REQ });
     expect(r).toEqual({ ok: true, userId: 'new-user' });
     expect(createArgs[0]!.app_metadata).toEqual({ pcm_provider: 'manual', pcm_manual_phone: '0912345678' });
     expect(createArgs[0]!.user_metadata).toEqual({ name: '王小明', phone: '0912345678' });
@@ -172,7 +209,7 @@ describe('createManualCustomer(永遠建新的,永不自動重用)', () => {
 
   it('🔴🔴 E5 該紅會紅:trigger 沒把 customers 那列建出來 ⇒ 必須失敗,不得回 ok', async () => {
     const { client } = makeClient({ verifyRows: [] }); // ← 模擬 trigger 不在
-    await expect(createManualCustomer(client, { name: '王小明', phone: '0912345678' })).rejects.toThrow(
+    await expect(createManualCustomer(client, { name: '王小明', phone: '0912345678', requestId: REQ })).rejects.toThrow(
       /customers 那一列沒有出現/,
     );
   });
@@ -182,21 +219,21 @@ describe('createManualCustomer(永遠建新的,永不自動重用)', () => {
       // 列出現了,但 name 不是我們送進去的那個
       verifyRows: [{ user_id: 'new-user', name: '別人', email: 'whatever@x', phone: '0912345678' }],
     });
-    await expect(createManualCustomer(client, { name: '王小明', phone: '0912345678' })).rejects.toThrow(
+    await expect(createManualCustomer(client, { name: '王小明', phone: '0912345678', requestId: REQ })).rejects.toThrow(
       /內容對不上/,
     );
   });
 
   it('🔴 確認查詢自己失敗 ⇒ 拋,不得當成成功(nit:原本 mock 從不回 error)', async () => {
     const { client } = makeClient({ selectError: { message: 'connection reset' } });
-    await expect(createManualCustomer(client, { name: '王小明', phone: '0912345678' })).rejects.toMatchObject({
+    await expect(createManualCustomer(client, { name: '王小明', phone: '0912345678', requestId: REQ })).rejects.toMatchObject({
       message: 'connection reset',
     });
   });
 
   it('🔴 沒有電話 ⇒ 拒絕、連建都不建', async () => {
     const { client, createArgs } = makeClient({});
-    const r = await createManualCustomer(client, { name: '王小明', phone: '  -  ' });
+    const r = await createManualCustomer(client, { name: '王小明', phone: '  -  ', requestId: REQ });
     expect(r).toMatchObject({ ok: false, reason: 'invalid_phone' });
     expect(createArgs).toHaveLength(0);
   });
@@ -204,26 +241,26 @@ describe('createManualCustomer(永遠建新的,永不自動重用)', () => {
   // ── 🔴 codex R4 D1:信任邊界。這些會建出【真的 auth user】,不因為「今天沒呼叫端」而可省 ──
   it('🔴 空姓名 ⇒ 拒絕(原本建得出來,而訂單列表會認不出那張單是誰的)', async () => {
     const { client, createArgs } = makeClient({});
-    const r = await createManualCustomer(client, { name: '   ', phone: '0912345678' });
+    const r = await createManualCustomer(client, { name: '   ', phone: '0912345678', requestId: REQ });
     expect(r).toMatchObject({ ok: false, reason: 'invalid_name' });
     expect(createArgs).toHaveLength(0);
   });
 
   it('🔴 電話只有 1 個數字 ⇒ 拒絕(原本建得出來,而 `1` 幾乎命中所有人)', async () => {
     const { client, createArgs } = makeClient({});
-    const r = await createManualCustomer(client, { name: '王小明', phone: 'abc1' });
+    const r = await createManualCustomer(client, { name: '王小明', phone: 'abc1', requestId: REQ });
     expect(r).toMatchObject({ ok: false, reason: 'invalid_phone' });
     expect(createArgs).toHaveLength(0);
   });
 
   it('🔴 邊界:剛好 8 個數字 ⇒ 過(對齊既有註冊規則 packages/schemas/src/index.ts:46 的 {8,})', async () => {
     const { client } = makeClient({});
-    expect(await createManualCustomer(client, { name: '王小明', phone: '1234-5678' })).toMatchObject({ ok: true });
+    expect(await createManualCustomer(client, { name: '王小明', phone: '1234-5678', requestId: REQ })).toMatchObject({ ok: true });
   });
 
   it('🔴 邊界:7 個數字 ⇒ 拒(證上面那格不是恆真)', async () => {
     const { client } = makeClient({});
-    expect(await createManualCustomer(client, { name: '王小明', phone: '1234567' })).toMatchObject({
+    expect(await createManualCustomer(client, { name: '王小明', phone: '1234567', requestId: REQ })).toMatchObject({
       ok: false,
       reason: 'invalid_phone',
     });
@@ -231,14 +268,14 @@ describe('createManualCustomer(永遠建新的,永不自動重用)', () => {
 
   it('🔴 createUser 出錯 ⇒ 直接拋,不得吞', async () => {
     const { client } = makeClient({ createResult: { data: { user: null }, error: { code: 'weak_password' } } });
-    await expect(createManualCustomer(client, { name: '王', phone: '0912345678' })).rejects.toMatchObject({
+    await expect(createManualCustomer(client, { name: '王', phone: '0912345678', requestId: REQ })).rejects.toMatchObject({
       code: 'weak_password',
     });
   });
 
   it('🔴 建成功卻沒回 user.id ⇒ 拋,不得當成成功', async () => {
     const { client } = makeClient({ createResult: { data: { user: null }, error: null } });
-    await expect(createManualCustomer(client, { name: '王', phone: '0912345678' })).rejects.toThrow(/沒有回 user\.id/);
+    await expect(createManualCustomer(client, { name: '王', phone: '0912345678', requestId: REQ })).rejects.toThrow(/沒有回 user\.id/);
   });
 
   it('電話正規化:不同寫法算同一支(它現在只是搜尋提示,不是身分鍵)', () => {
@@ -320,7 +357,208 @@ describe('重複帳號警告(是警告,不是擋)', () => {
 
   it('🔴 警告【不擋】建帳號 —— Sean 明講不設硬上限', async () => {
     const { client } = makeClient({});
-    const r = await createManualCustomer(client, { name: '王小明', phone: '0912345678' });
+    const r = await createManualCustomer(client, { name: '王小明', phone: '0912345678', requestId: REQ });
     expect(r).toMatchObject({ ok: true }); // 本模組沒有任何「太多了就拒絕」的路徑
+  });
+});
+
+// ── 🔴🔴 codex R2 must-fix(2026-08-28):**上一版的「造病」是假的** ────────────────────
+//  R2 逐字:「『造病』用了**互不共享狀態的 client**;兩發都被 mock 成成功,
+//  **沒有模擬 email 唯一約束**,也**沒斷言持久化帳號數最後為 1**。」
+//  ⇒ 那一版量的是「我餵 email_exists 進去它會怎樣」,不是「重送真的會不會建出第二個帳號」。
+//  ⇒ 這一族改成一個**有狀態的假世界**:它自己維護 auth 帳號表、**自己執行 email 唯一約束**,
+//    然後**數最後剩幾個帳號**。那個數字在「有冪等」與「沒冪等」兩個世界不同。
+type FakeUser = { id: string; email: string; app_metadata: Record<string, unknown> };
+
+/** 一個會自己擋唯一鍵的假世界。`seed` = 這個信箱**先前已經被別人註冊了**(搶註)。 */
+type FakeSeed = FakeUser & { customerName?: string; customerPhone?: string };
+
+function makeWorld(seed: FakeSeed[] = []) {
+  const users: FakeUser[] = seed.map(({ id, email, app_metadata }) => ({ id, email, app_metadata }));
+  // 🔴 種子的 `customers` 那一列**要能指定姓名** —— 否則「姓名一律不同」會把
+  //    provider / phone 兩道的判別力整個蓋掉(R3 F3 的同一個病:一個種子同時違反多個條件,
+  //    ⇒ 拿掉其中任一道,測試照樣綠)。**每一道鑰匙要有一格只違反它自己。**
+  const customers: Row[] = seed.map((u) => ({
+    user_id: u.id,
+    name: u.customerName ?? '不是我們建的',
+    email: u.email,
+    phone: u.customerPhone ?? '0900000000',
+  }));
+  let seq = 0;
+  const client = {
+    rpc: async () => ({ data: { ids: [], truncated: false }, error: null }),
+    auth: {
+      admin: {
+        createUser: async (attrs: Record<string, unknown>) => {
+          const email = attrs.email as string;
+          // 🔴 **這就是那道唯一約束** —— 假世界自己執行它,不是測試餵一個 `email_exists` 進去。
+          if (users.some((u) => u.email === email)) {
+            return { data: { user: null }, error: { code: 'email_exists' } };
+          }
+          seq += 1;
+          const id = `user-${seq}`;
+          users.push({ id, email, app_metadata: (attrs.app_metadata ?? {}) as Record<string, unknown> });
+          const meta = attrs.user_metadata as { name: string; phone: string };
+          customers.push({ user_id: id, name: meta.name, email, phone: meta.phone });
+          return { data: { user: { id } }, error: null };
+        },
+        getUserById: async (id: string) => ({
+          data: { user: users.find((u) => u.id === id) ?? null },
+          error: null,
+        }),
+      },
+    },
+    from: () => ({
+      select: () => ({
+        eq: async (_c: string, value: string) => ({
+          data: customers.filter((r) => r.email === value),
+          error: null,
+        }),
+        in: async (_c: string, ids: string[]) => ({
+          data: customers.filter((r) => ids.includes(r.user_id)),
+          error: null,
+        }),
+      }),
+    }),
+  } as unknown as ManualCustomerClient;
+  return { client, users, customers };
+}
+
+describe('🔴🔴 同一張表單重送 ⇒ 不得建出第二個帳號(在會擋唯一鍵的假世界裡量)', () => {
+  it('送兩發 ⇒ 兩發都成功、指同一個人, 而世界上【只有一個帳號】', async () => {
+    const w = makeWorld();
+    const input = { name: '王小明', phone: '0912345678', requestId: REQ };
+    const first = await createManualCustomer(w.client, input);
+    const second = await createManualCustomer(w.client, input);
+
+    expect(first).toMatchObject({ ok: true });
+    expect(second).toMatchObject({ ok: true, idempotent: true });
+    expect((second as { userId: string }).userId).toBe((first as { userId: string }).userId);
+    // 🔴 **這一格才是病的量具**:沒有冪等的世界這裡會是 2。
+    expect(w.users.length, '重送建出了第二個真帳號 —— 那正是 codex R1 抓到的病').toBe(1);
+  });
+
+  it('🔴 負對照:【不同表單】送兩發 ⇒ 真的建出兩個(Sean「一支電話不設硬上限」那道拍板)', async () => {
+    const w = makeWorld();
+    await createManualCustomer(w.client, { name: '王小明', phone: '0912345678', requestId: REQ });
+    await createManualCustomer(w.client, { name: '王小明', phone: '0912345678', requestId: REQ2 });
+    expect(w.users.length).toBe(2);
+  });
+
+  // ── 🔴🔴 codex R2 must-fix:**搶註那個世界** ────────────────────────────────────
+  //  `mrid` 出現在後台網址上 ⇒ 外洩之後信箱算得出來 ⇒ 對方可以先去公開 signup 佔住它。
+  //  舊版:我方撞鍵 ⇒ 撈第一筆同信箱 ⇒ **把對方的帳號當成這位客人** ⇒ 訂單掛到對方頭上。
+  it('🔴🔴 信箱被【別人】先註冊走 ⇒ 必須拋, 不得把對方的帳號當成這位客人', async () => {
+    const squatted = `manual_${REQ}@${MANUAL_SYNTHETIC_EMAIL_DOMAIN}`;
+    // 🔴 攻擊者走的是公開 signup ⇒ 他**寫不到 `app_metadata`**(service_role only)⇒ 那裡是空的。
+    const w = makeWorld([{ id: 'attacker', email: squatted, app_metadata: {} }]);
+    await expect(
+      createManualCustomer(w.client, { name: '王小明', phone: '0912345678', requestId: REQ }),
+    ).rejects.toThrow(/已經被用過/);
+    // 🔴 一個字都不得洩漏給畫面 —— 而且不准新增任何東西。
+    expect(w.users.length).toBe(1);
+  });
+
+  it('🔴 同信箱、有身分鍵但【電話不同】⇒ 也要拋(身分鍵不是唯一的判準)', async () => {
+    const squatted = `manual_${REQ}@${MANUAL_SYNTHETIC_EMAIL_DOMAIN}`;
+    // 🔴 讓**其他兩道全部通過**(provider 對、姓名對)—— 只有這樣這一格才證得了 phone 那道在做事。
+    //    第一版沒有 `customerName` ⇒ 姓名那道也違反 ⇒ 突變「刪掉 phone clause」時它照樣綠。
+    const w = makeWorld([
+      {
+        id: 'other-manual',
+        email: squatted,
+        app_metadata: { pcm_provider: MANUAL_PROVIDER, pcm_manual_phone: '0988888888' },
+        customerName: '王小明',
+      },
+    ]);
+    await expect(
+      createManualCustomer(w.client, { name: '王小明', phone: '0912345678', requestId: REQ }),
+    ).rejects.toThrow(/已經被用過/);
+  });
+
+  it('🔴 不是撞鍵的錯 ⇒ 原樣拋, 不得走回收路徑', async () => {
+    const c = makeClient({ createResult: { data: { user: null }, error: { code: 'boom' } } });
+    await expect(
+      createManualCustomer(c.client, { name: '王小明', phone: '0912345678', requestId: REQ }),
+    ).rejects.toMatchObject({ code: 'boom' });
+  });
+});
+
+// ── 🔴 R3 補的四格:每一格都對著一個【上一版恆綠】的世界 ────────────────────────────
+describe('🔴 R3:回收路徑的三把鑰匙, 每一把都要有自己的負測', () => {
+  const EMAIL = `manual_${REQ}@${MANUAL_SYNTHETIC_EMAIL_DOMAIN}`;
+
+  // F3:上一版的 squatter 種子 `app_metadata: {}` **同時**過不了 provider 與 phone 兩道
+  //     ⇒ 把 provider 那道刪掉,兩格照樣綠。這一格只讓 provider 那道有判別力。
+  it('🔴 F3:電話對、姓名也對、【只差沒有身分鍵】⇒ 仍要拋', async () => {
+    // 🔴 這一格刻意讓**其他兩道全部通過** —— 只有這樣才證得了 provider 那道在做事。
+    //    (第一版三道一起違反 ⇒ 把 provider 那道整段刪掉, 測試照樣綠。實測過:
+    //     突變「刪掉 provider clause」⇒ 190 格全綠。**那就是恆綠。**)
+    const w = makeWorld([
+      {
+        id: 'no-provider',
+        email: EMAIL,
+        app_metadata: { pcm_manual_phone: '0912345678' },
+        customerName: '王小明',
+        customerPhone: '0912345678',
+      },
+    ]);
+    await expect(
+      createManualCustomer(w.client, { name: '王小明', phone: '0912345678', requestId: REQ }),
+    ).rejects.toThrow(/已經被用過/);
+  });
+
+  // F1:這是 R3 唯一一條 must-fix 的量具。**上一版 51 格裡沒有一格餵過這組輸入。**
+  it('🔴🔴 F1:同鍵、同電話、【不同姓名】⇒ 必須拋, 不得靜默回第一位的 userId', async () => {
+    const w = makeWorld([
+      {
+        id: 'someone-else',
+        email: EMAIL,
+        app_metadata: { pcm_provider: MANUAL_PROVIDER, pcm_manual_phone: '0912345678' },
+        customerName: '王小明',
+        customerPhone: '0912345678',
+      },
+    ]);
+    // 🔴 電話刻意**相同** —— 那正是 Sean 明文允許共用的那一欄。
+    //    上一版兩把鑰匙(provider + phone)在這裡**全部通過**,然後把別人交出去。
+    await expect(
+      createManualCustomer(w.client, { name: '另一個人', phone: '0912345678', requestId: REQ }),
+    ).rejects.toThrow(/已經被用過/);
+  });
+
+  it('🔴 負對照:三欄全對 ⇒ 才回 idempotent(證明上面兩格不是「一律拋」)', async () => {
+    const w = makeWorld();
+    const first = await createManualCustomer(w.client, {
+      name: '王小明',
+      phone: '0912345678',
+      requestId: REQ,
+    });
+    const second = await createManualCustomer(w.client, {
+      name: '王小明',
+      phone: '0912345678',
+      requestId: REQ,
+    });
+    expect(second).toMatchObject({ ok: true, idempotent: true });
+    expect((second as { userId: string }).userId).toBe((first as { userId: string }).userId);
+  });
+
+  // F6:`auth.users` 那道唯一索引比的是 **email 原字串**(2026-08-28 對正式庫唯讀量過:
+  //     `users_email_partial_key ... btree (email) WHERE (is_sso_user = false)`)
+  //     ⇒ 大小寫不同的 mrid 若不折平,就是兩個不同的信箱 ⇒ 冪等直接失效。
+  it('🔴 F6:大寫的 mrid 與小寫的 mrid ⇒ 必須算出【同一個】信箱', async () => {
+    // 🔴🔴 **這顆鍵必須帶英文字母。** 第一版用了 `REQ`(全是數字)⇒ `toUpperCase()` 等於它自己
+    //    ⇒ 突變「拿掉 `.toLowerCase()`」時這一格**照樣綠**。實測過:190 格全綠。
+    //    📌 **一個大小寫測試,餵了一個沒有大小寫的值。**
+    const HEX = 'abcdef01-abcd-4abc-8abc-abcdefabcdef';
+    const a = makeWorld();
+    await createManualCustomer(a.client, {
+      name: '王小明',
+      phone: '0912345678',
+      requestId: HEX.toUpperCase(),
+    });
+    const b = makeWorld();
+    await createManualCustomer(b.client, { name: '王小明', phone: '0912345678', requestId: HEX });
+    expect(a.users[0]!.email).toBe(b.users[0]!.email);
+    expect(a.users[0]!.email).toBe(`manual_${HEX}@${MANUAL_SYNTHETIC_EMAIL_DOMAIN}`);
   });
 });

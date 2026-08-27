@@ -28,6 +28,7 @@ import {
   ShippingSelectionProvider,
   ShippingSelectionBar,
 } from '../../components/orders/shipping-selection';
+import { isManualOrderPanel } from '../../lib/orders/manual-order-action-state';
 import { ResultBanner } from '../../components/orders/result-banner';
 import { ListPagination } from '../../components/shared/list-pagination';
 
@@ -150,7 +151,10 @@ export default async function OrdersPage({
         自己看 `rawSearchParams.panel` 在不在會與槽頁不一致。**選中色塊也吃這個一致性** ——
         `?panel=not-a-uuid` 時面板不開,而列表**也不該有任何一組亮著**。 */
   const panelOrderId = readOpenPanelOrderId(rawSearchParams);
-  const panelOpen = panelOrderId !== null;
+  // 🔴🔴 **codex R1 nit(2026-08-28):`panel=new`(手動建單面板)也算「面板開著」。**
+  //    少了它,`?panel=new&r=manual_customer_error` 會**由列表與面板各畫一次同一條橫幅**。
+  //    ⚠️ 判準走 `isManualOrderPanel` = **槽頁決定開不開的同一支**(理由同上面那段)。
+  const panelOpen = panelOrderId !== null || isManualOrderPanel(rawSearchParams);
   const offset = (page - 1) * ORDERS_PAGE_SIZE;
 
   // 🔴 防禦:讀取失敗(env 未設 / DB 錯 / migration 未 apply)→ 顯錯誤態、頁面仍 200(不 500);

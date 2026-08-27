@@ -5,6 +5,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 vi.mock('server-only', () => ({}));
 // action 只是 `<form action={...}>` 的值 ⇒ 換成一個假的,避免把 'use server' 那條鏈拉進來。
 vi.mock('@/lib/orders/manual-order-actions', () => ({ createManualOrderAction: vi.fn() }));
+vi.mock('@/lib/customers/manual-customer-actions', () => ({ createManualCustomerAction: vi.fn() }));
 
 import { ManualOrderFormBody } from './manual-order-form-body';
 import type { ManualCustomerCandidate } from '@/lib/customers/manual-customer';
@@ -247,5 +248,109 @@ describe('🔴 表單送不出 actor —— 那一格在型別與 DOM 上都不�
     const { container } = renderForm();
     expect(container.querySelector('[name="acting_staff_display"]')).toBeNull();
     expect(screen.queryByText(/經手人/)).toBeNull();
+  });
+});
+
+// ── 🔴🔴 查無客人 ⇒ **就地建**,不再把人趕去別頁(2026-08-28 線A)────────────────────
+//  這一族守的是 Sean 2026-08-27 抱怨的那一格。原本這裡印的是逐字
+//  「這支電話找不到客人。請先到【客人】頁建立這位客人,再回來建單。」
+//  —— 而**客人頁沒有新增客人的按鈕** ⇒ 那句話指向一個做不到的地方 ⇒ 這張單建不出來。
+describe('🔴🔴 查無客人 ⇒ 面板裡直接建(不再指去客人頁)', () => {
+  it('搜過了而查無 ⇒ 出現「建立這位客人」那張表單', () => {
+    renderForm({ selectedCustomer: null, candidates: [], phoneQuery: '0912345678' });
+    expect(screen.getByTestId('manual-order-new-customer')).toBeTruthy();
+  });
+
+  it('🔴 電話**預填**他剛剛搜的那支 —— 叫他再打一次正是這一片要拿掉的動作', () => {
+    const { container } = renderForm({
+      selectedCustomer: null,
+      candidates: [],
+      phoneQuery: '0912345678',
+    });
+    const phone = container.querySelector('input[name="new_customer_phone"]');
+    expect(phone?.getAttribute('value')).toBe('0912345678');
+  });
+
+  it('🔴 那句死路的文案不得再出現(它指向一個做不到的地方)', () => {
+    renderForm({ selectedCustomer: null, candidates: [], phoneQuery: '0912345678' });
+    expect(screen.queryByText(/請先到【客人】頁建立這位客人/)).toBeNull();
+  });
+
+  it('🔴 查【壞】了不算查無 ⇒ 不出這張表單(他建再多客人都沒用)', () => {
+    renderForm({
+      selectedCustomer: null,
+      candidates: [],
+      phoneQuery: '0912345678',
+      lookupFailed: true,
+    });
+    expect(screen.queryByTestId('manual-order-new-customer')).toBeNull();
+  });
+
+  it('🔴 還沒搜過 / 有候選 ⇒ 都不出這張表單(負對照:上面那格不是恆真)', () => {
+    renderForm({ selectedCustomer: null, candidates: [], phoneQuery: '' });
+    expect(screen.queryByTestId('manual-order-new-customer')).toBeNull();
+    cleanup();
+    renderForm({ selectedCustomer: null, candidates: [candidate()], phoneQuery: '09' });
+    expect(screen.queryByTestId('manual-order-new-customer')).toBeNull();
+  });
+});
+
+// ── 🔴🔴 codex R1 must-fix(2026-08-28):`inPanel` 這條路一格都沒被量到 ──────────────
+//  沒有這一族,把 `inPanel` 整個從元件裡拿掉 ⇒ 32 格全綠(它們全部走預設的整頁版)。
+describe('🔴 inPanel:同一份表單長在面板裡時, 所有出口都要留在面板裡', () => {
+  it('搜尋是 GET ⇒ `panel=new` 必須走【隱藏欄位】(GET 表單的 action 上帶 query 會被瀏覽器丟掉)', () => {
+    const { container } = renderForm({ selectedCustomer: null, phoneQuery: '', inPanel: true });
+    const search = container.querySelector('form[method="get"]');
+    expect(search?.getAttribute('action')).toBe('/orders');
+    expect(search?.querySelector('input[name="panel"]')?.getAttribute('value')).toBe('new');
+  });
+
+  it('兩張 POST 表單都要帶 in_panel 旗標', () => {
+    const picked = renderForm({ selectedCustomer: candidate(), inPanel: true });
+    expect(
+      picked.container.querySelector('input[name="in_panel"]')?.getAttribute('value'),
+    ).toBe('1');
+    cleanup();
+    const noneFound = renderForm({
+      selectedCustomer: null,
+      candidates: [],
+      phoneQuery: '0912345678',
+      inPanel: true,
+    });
+    expect(
+      noneFound.container.querySelector('input[name="in_panel"]')?.getAttribute('value'),
+    ).toBe('1');
+  });
+
+  it('候選連結與「換一位」都指回面板', () => {
+    const { container } = renderForm({
+      selectedCustomer: null,
+      candidates: [candidate()],
+      phoneQuery: '09',
+      inPanel: true,
+    });
+    const link = container.querySelector('[data-testid="manual-order-candidates"] a');
+    expect(link?.getAttribute('href')).toContain('/orders?panel=new');
+    cleanup();
+    const picked = renderForm({ selectedCustomer: candidate(), inPanel: true });
+    const swap = Array.from(picked.container.querySelectorAll('a')).find(
+      (a) => a.textContent === '換一位',
+    );
+    expect(swap?.getAttribute('href')).toContain('/orders?panel=new');
+  });
+
+  it('🔴 負對照:整頁版(預設)一格 in_panel 都不得出現, 連結也指整頁', () => {
+    const { container } = renderForm({
+      selectedCustomer: null,
+      candidates: [candidate()],
+      phoneQuery: '09',
+    });
+    expect(container.querySelector('input[name="in_panel"]')).toBeNull();
+    expect(container.querySelector('form[method="get"]')?.getAttribute('action')).toBe(
+      '/orders/new',
+    );
+    expect(
+      container.querySelector('[data-testid="manual-order-candidates"] a')?.getAttribute('href'),
+    ).toContain('/orders/new?');
   });
 });

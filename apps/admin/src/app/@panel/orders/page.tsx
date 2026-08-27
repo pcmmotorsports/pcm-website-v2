@@ -9,6 +9,8 @@ import {
 import { loadCustomerDetail } from '../../../lib/customers/load-customer-detail';
 import { CustomerPanel } from '../../../components/customers/customer-panel';
 import { OrderDetailRoute } from '../../../components/orders/order-detail-route';
+import { ManualOrderView } from '../../../components/orders/manual-order-view';
+import { isManualOrderPanel } from '../../../lib/orders/manual-order-action-state';
 import {
   CANCEL_REQUEST_TOKEN_PARAM,
   CANCEL_RESULT_PARAM,
@@ -45,6 +47,24 @@ export default async function OrderPanelPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const raw = await searchParams;
+
+  // 🔴🔴 **手動建單的面板版**(2026-08-28 線A;Sean 2026-08-27 逐字「一樣是側邊欄位」)。
+  //    必須排在下面 `readOpenPanelOrderId` **之前**:`new` 不是 uuid ⇒ 那支會回 `null`
+  //    ⇒ 整個槽回 `null` ⇒ **面板永遠打不開**,而畫面上什麼錯都不會出現。
+  //    ⇒ 這一格由 `panel-manual-order.test.ts` 釘住(拿掉它 ⇒ 紅)。
+  if (isManualOrderPanel(raw)) {
+    // 🔴🔴 **codex R1 must-fix(2026-08-28):容器 class 逐字照抄下面客人卡那一個。**
+    //    上一版回的是**裸元件** ⇒ 沒有 `sticky` / `max-h` / `overflow-y-auto`
+    //    ⇒ 建單表單很長(客人 + 來源 + 收件 + 發票 + 品項)⇒ **它會把整頁的捲動模型換掉**,
+    //      而不是像既有面板那樣自己捲。那件事在畫面上長得像「面板變得很奇怪」,不像一個 bug。
+    //    ⚠️ `max-h-[calc(100svh-3.5rem)]` 那個 `3.5rem` 的來源與量測寫在本檔 `:144-160`,
+    //       **不要在這裡另外訂一個數字**。
+    return (
+      <div className='@container panel-width-locked sticky top-0 max-h-[calc(100svh-3.5rem)] space-y-4 overflow-y-auto border-l p-4'>
+        <ManualOrderView raw={raw} inPanel />
+      </div>
+    );
+  }
 
   // 🔴 兩種情況都回 `null` = 「這個 URL 沒有面板要開」,殼那邊靠 CSS `:has()` 把面板欄與把手一起收起來:
   //    ① 沒帶 `panel` ⇒ 這就是關閉面板的機制本身;

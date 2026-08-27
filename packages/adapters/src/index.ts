@@ -13,6 +13,9 @@
 // 注:Public API 範圍限 storefront 直接需要的字面(adapter + anon factory)。
 // 未來 Sheets / TapPay adapter 落地時順手擴(對齊 ADR-0002 §4.1 + backlog #48 trigger)。
 
+// 🔴 GoTrue 錯誤碼判別的**唯一**處(2026-08-28 R3 F5:原本 storefront 與 admin 各一份,
+//    而後者出生就比前者寬)。純函式、零 server-only ⇒ 放 root。
+export { isEmailExistsError } from './supabase/auth-errors';
 export { SupabaseProductAdapter } from './supabase/SupabaseProductAdapter';
 // M-1-14d:會員系統 3 個 Supabase adapter(單一 authenticated client、RLS 守自己 row)。
 export { SupabaseCustomerAdapter } from './supabase/SupabaseCustomerAdapter';

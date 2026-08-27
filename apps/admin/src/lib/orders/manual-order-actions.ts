@@ -7,10 +7,20 @@ import { appendResultQuery } from './order-return-to';
 import { revalidateOrderViews } from './order-revalidate';
 import { readSingleString } from '../forms/single-value';
 import { isUuid } from './note-action-state';
-import { MANUAL_ORDER_REQUEST_ID_FIELD, parseManualOrderForm } from './manual-order-form';
+import {
+  MANUAL_ORDER_IN_PANEL_FIELD,
+  MANUAL_ORDER_IN_PANEL_VALUE,
+  MANUAL_ORDER_REQUEST_ID_FIELD,
+  parseManualOrderForm,
+} from './manual-order-form';
 import { createManualOrder } from './manual-order-repository';
 // 🔴 常數住在隔壁那支檔, 因為 `'use server'` 檔【只能匯出 async 函式】(該檔頭有實測紀錄)。
-import { MANUAL_ORDER_PATH, manualOrderResultQuery } from './manual-order-action-state';
+import {
+  MANUAL_ORDER_PATH,
+  ORDER_PANEL_PARAM_FOR_MANUAL,
+  manualOrderBasePath,
+  manualOrderResultQuery,
+} from './manual-order-action-state';
 
 // manual-order-actions.ts — M12-A2:後台手動建單 server action(`#858`)。
 //
@@ -46,8 +56,8 @@ import { MANUAL_ORDER_PATH, manualOrderResultQuery } from './manual-order-action
  *    帶著結果碼的網址,按上一頁會重播一個早就不成立的畫面。
  * 🔴 回傳 `never`:`redirect()` 用拋例外實作 ⇒ 呼叫點後面的 code 不會執行。
  */
-function failRedirect(query: string): never {
-  redirect(appendResultQuery(MANUAL_ORDER_PATH, query), RedirectType.replace);
+function failRedirect(basePath: string, query: string): never {
+  redirect(appendResultQuery(basePath, query), RedirectType.replace);
 }
 
 /**
@@ -74,7 +84,14 @@ export async function createManualOrderAction(formData: FormData): Promise<void>
   // ① 授權閘。🔴 **絕對第一,連讀一個欄位都在它之後** ——
   //    未授權者送爛表單要拿到 `denied` 而不是 `invalid`,否則等於對未授權者洩漏表單規則。
   const authorization = await authorizeAdminMutation();
-  if (!authorization) failRedirect(manualOrderResultQuery('denied'));
+  // 🔴 `denied` **刻意一律導整頁版**:那條路上一個表單欄位都還沒讀(閘絕對第一)。
+  if (!authorization) failRedirect(MANUAL_ORDER_PATH, manualOrderResultQuery('denied'));
+
+  // 🔴 這一格在閘**之後**才讀,而且只有兩個值(在面板 / 不在)⇒ 不影響任何驗證分支。
+  //    它決定「送出之後回到哪裡」:面板裡送出要留在面板裡,不然畫面會整頁跳掉。
+  const inPanel =
+    readSingleString(formData, MANUAL_ORDER_IN_PANEL_FIELD) === MANUAL_ORDER_IN_PANEL_VALUE;
+  const basePath = manualOrderBasePath(inPanel);
 
   // ② 表單形狀。錯在哪只進 log、不進 URL(理由見檔頭那段)。
   const parsed = parseManualOrderForm(formData);
@@ -93,6 +110,7 @@ export async function createManualOrderAction(formData: FormData): Promise<void>
     //    ⚠️ 只帶【看起來是 uuid】的那顆:它來自表單、可能是任何字串,而 RPC 對非 uuid 一律拒。
     const rawKey = readSingleString(formData, MANUAL_ORDER_REQUEST_ID_FIELD);
     failRedirect(
+      basePath,
       manualOrderResultQuery('invalid', rawKey !== null && isUuid(rawKey) ? rawKey : undefined),
     );
   }
@@ -131,7 +149,7 @@ export async function createManualOrderAction(formData: FormData): Promise<void>
     );
     // 🔴 把冪等鍵帶回表單頁 —— 否則下一次 render 會鑄一顆新的,
     //    而 `concurrent`「再按一次送出」就會建出**第二張真訂單**(見 action-state 那段)。
-    failRedirect(manualOrderResultQuery(outcome.code, parsed.values.manualRequestId));
+    failRedirect(basePath, manualOrderResultQuery(outcome.code, parsed.values.manualRequestId));
   }
 
   // ④ 成功(含 `idempotent: true` 那條路)⇒ 導去那張單。
@@ -140,9 +158,16 @@ export async function createManualOrderAction(formData: FormData): Promise<void>
   //    分成兩種訊息只會讓他懷疑自己是不是建了兩張 —— 而他沒有。
   revalidateOrderViews({
     orderId: outcome.orderId,
-    returnTo: MANUAL_ORDER_PATH,
+    returnTo: basePath,
     scope: 'manual-order',
     requestId,
   });
-  redirect(`/orders/${outcome.orderId}`, RedirectType.replace);
+  // 🔴 建好之後**留在原來那個容器**:面板裡建的單就在面板裡打開它
+  //    (`/orders?panel=<uuid>` 正是既有訂單面板認的形狀,`@panel/orders/page.tsx:44-56`)。
+  redirect(
+    inPanel
+      ? `/orders?${ORDER_PANEL_PARAM_FOR_MANUAL}=${outcome.orderId}`
+      : `/orders/${outcome.orderId}`,
+    RedirectType.replace,
+  );
 }

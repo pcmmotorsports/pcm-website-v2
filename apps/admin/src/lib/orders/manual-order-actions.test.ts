@@ -79,6 +79,9 @@ const REQUEST_ID = '11111111-1111-4111-8111-111111111111';
 describe('🔴 本 action 必須有呼叫端(A3-c)', () => {
   const FORM_BODY = join(__dirname, '../../components/orders/manual-order-form-body.tsx');
   const PAGE = join(__dirname, '../../app/orders/new/page.tsx');
+  // 🔴 2026-08-28 線A:表單內容搬進 View(整頁與面板共用一份)⇒ 呼叫鏈多了一段,
+  //    而**每一段都要驗**:少驗中間那段,任何一環變成死碼時上面那格會恆綠。
+  const VIEW = join(__dirname, '../../components/orders/manual-order-view.tsx');
   const src = readFileSync(FORM_BODY, 'utf8');
   const pageSrc = readFileSync(PAGE, 'utf8');
   /**
@@ -102,9 +105,19 @@ describe('🔴 本 action 必須有呼叫端(A3-c)', () => {
 
   // 🔴🔴 codex R1 #7:只掃元件**還是恆綠的** —— 頁面把 `<ManualOrderFormBody>` 拿掉之後,
   //    那個元件變成沒有人 render 的死碼,而上面那格照樣過。**呼叫鏈要一路驗到頁面。**
-  it('🔴 而且頁面真的 render 了那個元件(不然元件是死碼, 上面那格會恆綠)', () => {
-    expect(pageCode).toContain('ManualOrderFormBody');
-    expect(pageCode).toMatch(/<ManualOrderFormBody/);
+  it('🔴 而且呼叫鏈一路通到頁面(不然元件是死碼, 上面那格會恆綠)', () => {
+    const viewCode = strip(readFileSync(VIEW, 'utf8'));
+    // View render 表單本體
+    expect(viewCode).toMatch(/<ManualOrderFormBody/);
+    // 整頁那一頁 render View
+    expect(pageCode).toMatch(/<ManualOrderView/);
+  });
+
+  it('🔴 面板槽也 render 了同一份 View(不然面板那半是死碼)', () => {
+    const panelCode = strip(
+      readFileSync(join(__dirname, '../../app/@panel/orders/page.tsx'), 'utf8'),
+    );
+    expect(panelCode).toMatch(/<ManualOrderView/);
   });
 
   it('🔴 正對照:頁面那把尺量得到東西', () => {
