@@ -24,12 +24,9 @@
 #   ③ curated 寫入子命令表(不是 `git ` 太寬、不是 `git add` 太窄)
 #   🔴 不再用「隔離關鍵字(mktemp/git init)」往下縮 —— 實測那樣會漏掉沒帶那些字的成員(同 --selftest 洞)
 #
-# ⚠️ 已知限制(err-toward-inclusion ⇒ 這些是【安全方向】的假陽,寧可多測一次;reviewer R2 抓到):
-#   字面尺【分不出】真執行的 git 與【印在 heredoc/printf 字串裡教人怎麼跑】的 git ——
-#   e.g. `.husky/status-owner-gate.sh` / `acl-drift-gate.sh` / `view-apply-gate.sh` / `a7c-preflight.sh`
-#   的執行碼其實【零 git 寫入】,是它們印給人看的救援指令裡有「git commit / git restore」字樣被收進來。
-#   ⇒ 「無法證明隔離」清單裡有幾支是這種【指令字串假陽】,逐支核時會被排除(不是真風險)。
-#   後續要更準 ⇒ 剝 heredoc/字串字面(較難、需狀態解析),本輪先接受這個安全方向的過度納入。
+# ✅ 「指令字串假陽」已解(b4 F1 折):早先版本把 heredoc/printf 裡印給人看的「git commit」救援指令
+#    當成執行(status-owner-gate / acl-drift-gate 等 11 支噪音,名單 58% 假陽)。scan_lines 現在剝
+#    註解 + heredoc body + 引號字串 ⇒ 那 11 支出去、只留真執行的行。(acl-drift 等現在在名單是因為【真的】subprocess.run,不是散文)
 #
 # 用法:
 #   python3 scripts/git-isolation-denominator.py            # 報告(exit 0,只標不擋)
@@ -67,8 +64,13 @@ WRITE = re.compile(rf'git( +{_FLAG})* +(?:{"|".join(_ALTS)})')
 #   ③ exec-string 內含跳脫引號(run("echo \\"x\\" && git commit"))被非貪婪配對提前截斷 ⇒ 漏(同 shell 那條 nit)。
 #   ④ f-string 動態插入動詞(run(f"git {verb}", shell=True))抓不到 —— 靜態尺的固有盲區。(以上 ③④ code-reviewer R3 抓、repo 現況 0)
 _PYJS_VERBS = '|'.join(WRITE_VERBS) + '|' + WRITE_MERGE   # 純寫入動詞(不含 worktree/submodule)
-# 清單形 subprocess.run(['git', … ,'add']):git 為首、某元素是寫入動詞
-_PYJS_LIST = re.compile(rf'''\[\s*['"]git['"]\s*,[^\]]*?['"](?:{_PYJS_VERBS})['"]''')
+# 清單/元組形 run(['git',…,'add']) / check_call(('git','commit')):git 為首、某元素是寫入動詞
+#    🔴 `[` 或 `(` 都收(b4 R3-1:Python tuple `('git','commit')` 對 subprocess 與 list 等價)。
+_PYJS_LIST = re.compile(rf'''[\[(]\s*['"]git['"]\s*,[^\])]*?['"](?:{_PYJS_VERBS})['"]''')
+# 🔴 Node 分離參數形 execFileSync('git', ['add','-A']) / spawnSync('git', ['commit']):
+#    git 是【第一個字串參數】、寫入動詞在【第二個陣列】裡(b4 R3-2:Node 叫 git 最標準、不經 shell 的寫法)。
+_PYJS_NODE = re.compile(
+    rf'''(?:execFile|execFileSync|spawn|spawnSync|execa)\s*\(\s*['"]git['"]\s*,\s*\[[^\]]*?['"](?:{_PYJS_VERBS})['"]''')
 # 動態拼接 'git ' + 'commit'(quantifier-hook 躲字面掃描的形;b4 R2-2:不再靠硬編名字,靠通則抓)
 _PYJS_CONCAT = re.compile(r'''['"]git\s*['"]\s*\+|\+\s*['"](?:commit|add|rm|reset|checkout|init|worktree|submodule)['"]''')
 # 🔴 exec-string 必須是【傳給 exec 函式的字串】,不是【當測資/訊息的字串】——
@@ -92,7 +94,7 @@ def _pyjs_exec_string_cmds(s):
 
 def pyjs_calls_git_write(txt):
     s = _strip_pyjs(txt)
-    if _PYJS_LIST.search(s) or _PYJS_CONCAT.search(s):
+    if _PYJS_LIST.search(s) or _PYJS_NODE.search(s) or _PYJS_CONCAT.search(s):
         return True
     return any(WRITE.search(c) for c in _pyjs_exec_string_cmds(s))   # exec-string = shell 語法,重用 WRITE(含子動作閘)
 
@@ -194,7 +196,7 @@ def evidence_line(f):
         for i, raw in enumerate(txt.split('\n')):
             if re.match(r'\s*(#|//)', raw):
                 continue
-            if _PYJS_LIST.search(raw) or _PYJS_CONCAT.search(raw) \
+            if _PYJS_LIST.search(raw) or _PYJS_NODE.search(raw) or _PYJS_CONCAT.search(raw) \
                or any(WRITE.search(c) for c in _pyjs_exec_string_cmds(raw)):
                 return f'L{i + 1}: {raw.strip()[:76]}'
         return 'py/js 執行形(subprocess/exec 清單或字串;跨行,單行對不到)'
@@ -269,6 +271,10 @@ def self_check():
         ("execSync('git add -A')",                         True),   # js
         ("GC = 'git ' + 'commit'",                         True),   # 動態拼接(不靠硬編)
         ("GC = 'git ' + 'status'",                         True),   # 🔴 拼接【刻意不分動詞】:動態建命令看不到動詞 ⇒ 一律收(安全方向,code-reviewer R3)
+        ("subprocess.check_call(('git','commit','-m','x'))", True),  # 🔴 b4 R3-1:Python tuple 形(對 subprocess 等價 list)
+        ("execFileSync('git', ['add', '-A'])",             True),   # 🔴 b4 R3-2:Node 分離參數形(叫 git 最標準、不經 shell)
+        ("spawnSync('git', ['commit','-m','x'])",          True),
+        ("execFileSync('git', ['status'])",                False),  # Node 分離參數【唯讀】⇒ 不收(尺不是只看到 git 就叫)
         ("subprocess.run(['git','status'])",               False),  # 清單形唯讀
         ("subprocess.run(['git','ls-files'])",             False),
         ('msg = "手動跑 git commit 一次"',                  False),  # 訊息字串 ≠ 命令
