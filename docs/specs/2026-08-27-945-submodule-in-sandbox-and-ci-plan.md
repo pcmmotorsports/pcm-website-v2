@@ -651,3 +651,251 @@ R1 說「別用 rc」⇒ 我換成 ls ⇒ R2 說「ls 也會假綠」⇒ 我換�
    · design repo 明天被改名或撤權時誰先撞到 —— **未推演**(而條件化之後受害面只剩「動那支測試的人」)
    · 稿在上游被改名/搬檔 ⇒ 閘說 ok 而測試靜靜 skip ⇒ **靠 `Tests` 那行的 skip 數看見, 不靠閘**
 ```
+
+---
+---
+
+# §13 `Q-945-3` fork PR / Dependabot 那一格 —— 寫成選項
+
+> 主視窗 `-5b` 2026-08-27 指派(來源屬性=**讀來**)。它同時裁了 `Q-945-1` = **甲 deploy key**,
+> 而**刻意先不端 Sean 要鑰匙** —— 理由逐字:「他做了兩步、以為解決了,然後 CI 紅,
+> 而紅的理由跟他做的那件事無關 ⇒ 一個人做完一件事之後看到紅,他會先懷疑自己剛做的那件。」
+
+## 13-0 🔴🔴 先看這格:**本 repo 是 PUBLIC**,而我今天才量到
+
+```
+不帶憑證打 GitHub API(2026-08-27 當場跑):
+  pcmmotorsports/pcm-website-v2         ⇒ 200   ← **公開可讀**
+  正對照 actions/checkout               ⇒ 200
+  負對照 pcmmotorsports/no-such-repo-xyz ⇒ 404
+gh repo view ⇒ {"isPrivate":false,"visibility":"PUBLIC","forkCount":0,"isFork":false}
+```
+🔴 **而 `design-reference` 那個 repo 是【不具公開讀取權】的**(`§0-a`)
+⇒ 片B 要做的事, 精確講是:**把一把能讀「非公開 repo」的鑰匙, 放進一個【公開】repo 的 Actions secret。**
+📌 **這句話與「放個 secret」是同一件事, 而它們讀起來完全不同。** Sean 決定前該看到的是前者。
+
+⚠️ **這樣做本身是 GitHub 的標準做法、不是漏洞** —— secret 不會給 fork PR, 也不會印進 log。
+   而**它成立的前提有兩條, 兩條今天都在**(逐條量過, 不是引述常識):
+```
+① repo 裡沒有 `pull_request_target`(那個觸發【會】把 secret 給 fork 的程式碼)
+   數法 `grep -rn 'pull_request_target' .github/workflows/` ⇒ **1 命中, 而它是 rpm-sync.yml 的一句註解**
+        (逐字「不掛 pull_request/pull_request_target、secret 不給 fork PR」)⇒ **真正的觸發是 0 個**
+   負對照 `pull_request_target_nosuch` ⇒ 0
+② 現有 workflow 沒有把 secret echo 到 log 的形狀(rpm-sync 檔頭自己寫著「絕不 echo」)
+```
+③ 🔴 **有 push 權的人 = 讀得到這把鑰匙的人。**(審查點名, 我原本漏了, 而它是最大的一格)
+   `ci.yml` 的 `on:` 是**無限定的 `pull_request:`**, 而同 repo PR 的 workflow 檔取自 PR 的 head
+   ⇒ **任何有寫入權的人加一個 step 就能把 secret 印走** —— 包含每一個共用 `pcmmotorsports` 身分的施工窗。
+   今天 collaborators = **1**(複量), 而這一條沒被寫下來就不會有人守。
+④ 🔴 **鑰匙在 job 執行期間躺在 runner 磁碟上**(checkout 寫 temp 檔 + `.git/config` 指過去)
+   ⇒ **同一個 job 後面每一個 step 都讀得到**。而 `ci.yml` 用了 4 支第三方 action,
+   **全部釘在可變的 major tag**(`actions/checkout@v6` / `pnpm/action-setup@v6` /
+   `actions/setup-node@v6` / `actions/setup-python@v7`)⇒ 供應鏈那一格也在前提裡。
+
+🔴 **這四條是【今天的狀態】, 不是保證。**
+⚠️ **而絆線比危害窄**(審查點名):`pull_request_target` **不是唯一**會把 secret 交給外來內容的觸發 ——
+   `workflow_run` / `issue_comment` / `issues` 同族(今天皆 **0** 個)。
+   ⇒ 只盯 `pull_request_target` 這一個字, 有人加 `workflow_run` 時**警語不會響**。
+
+🔴🔴 **而更重要的一句, 是審查逼出來的 reframe**:
+```
+本 repo 現在【已經】放著 6 個 secret, 含 `SUPABASE_SECRET_KEY` 與 `QUOTE_DEALER_DB_URL`。
+⇒ 一把【唯讀、只開一個 repo】的 deploy key, 邊際風險遠低於那兩個。
+📌 所以真正的結論不是「這次要小心」, 而是:
+   **那四條前提早就在替更貴的東西擔保, 而沒有人替它們裝任何絆線。**
+⇒ 提案(機制優先律, 不屬本片):在 `.husky/pre-commit` 加一道閘, grep
+   `pull_request_target|workflow_run|issue_comment` 出現在 `.github/workflows/*.yml` 的 `on:` 區塊就擋。
+   既有 pre-commit 已掛 8 道閘 ⇒ 加這一道是幾行的事。**而我現在不動它**:
+   那條鏈八個窗每次 commit 都在跑, 夜跑中途動它的爆炸半徑不屬本片 ⇒ 列為獨立片, 回報主視窗。
+```
+
+## 13-1 這件事今天的實際規模(量到的, 不是想像的)
+
+```
+forkCount                       ⇒ 0
+PR 總數(gh pr list --state all)⇒ 0        ← 這個 repo 從來沒有開過 PR
+來自 fork 的 PR                 ⇒ 0
+dependabot 開的 PR              ⇒ 0
+.github/dependabot.yml          ⇒ 不存在
+`gh api …/vulnerability-alerts` ⇒ HTTP 404
+   ⚠️ 那個 404 **未確認**:它在「沒開啟」與「我的 token 沒權限讀」印同一個碼 ⇒ 標未確認, 不當結論。
+```
+⇒ **fork PR 這一格今天的實例數 = 0。** 而 repo 是公開的 ⇒ **明天不保證是 0**, 而那不需要任何人同意。
+
+## 13-2 🔴 **第二版。R2 證明我第一版的三個選項【機制上是錯的】**
+
+```
+R2 打穿的那一格(我複量過, 它對):
+  `actions/checkout` 的 `ssh-key` **同時用於主 repo 的 clone**
+  ⇒ 拿一把只掛在 design repo 上的 deploy key 放進去 ⇒ **主 repo 自己就 clone 不動了**
+  ⇒ 我第一版三個選項全都建立在「改那個 checkout」上 ⇒ **三個都不可執行。**
+📌 我在比較三個選項的優劣, 而它們共用一個不成立的前提。**比較本身看起來很認真。**
+```
+✅ **正確的形狀 = 獨立一個 step,不動 checkout**(片B 實作時的骨架,現在只是規格):
+```yaml
+- name: Fetch design-reference submodule
+  if: <守門條件, 見下>
+  run: |
+    mkdir -p ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts
+    printf '%s\n' "${{ secrets.DESIGN_REFERENCE_DEPLOY_KEY }}" > ~/.ssh/dk && chmod 600 ~/.ssh/dk
+    GIT_SSH_COMMAND='ssh -i ~/.ssh/dk -o IdentitiesOnly=yes' \
+      git submodule update --init design-reference
+```
+🔴 `IdentitiesOnly=yes` **不可省** —— 少了它 ssh 會拿本機既有的金鑰去試,
+   在開發者的機器上會**用他自己的鑰匙過關 = 假綠**(R2 點名, 而它同時是下面驗證步驟的關鍵)。
+
+## 13-2b 選項(重寫;都建立在上面那個獨立 step 上)
+
+```
+甲 不守門, 拉不到就硬紅
+   fork PR / Dependabot PR 拿不到 secret ⇒ **那些 PR 硬紅**, 而紅的理由與作者的改動無關。
+   今天實例 = 0(fork 0 / PR 0), 而 allow_forking=true ⇒ 明天不保證。
+   🔴 而我們**自己看不到那個紅**(它紅在對方的 PR 上)。
+
+乙 守門:`if: github.event_name != 'pull_request'
+        || github.event.pull_request.head.repo.full_name == github.repository`
+        **且** `github.actor != 'dependabot[bot]'`        ← ✅ 我推薦
+   字面來源 = `.github/workflows/e2e-prod.yml:45`(**現成的**;⚠️ 我第一版寫 `:44`, 那是註解行,
+   `if:` 在 `:45` —— 而 `ci.yml:99-102` 自己就寫著「不要寫指向別人檔案的行號」)。
+   🔴 **Dependabot 那半是我第一版寫錯的**:Dependabot 的 PR head repo **就是本 repo**
+      ⇒ 只判 fork 的話那個條件為真 ⇒ 步驟會跑, 而它拿不到 secret ⇒ **硬紅**。
+      (`docs/phase-1-backlog.md:8531` 早就逐字寫過「會固定紅」—— 又一次重新發現。)
+      ⇒ 所以守門條件是**兩條 and**, 不是一條。
+   代價(要用對的詞):被 `if` 跳過的 step ⇒ GitHub 回報 **Success**。
+   🔴 **所以乙不是「不紅」, 是「綠而少跑一格」** —— 同一條 backlog:8531 寫著
+      「即使設為 required check 也不擋 merge」。**我第一版用的詞是「不紅」, 那個詞掩蓋了代價。**
+
+丙 不做片B(**不需要鑰匙**)
+   少掉的 = 那支測試的正對照在 CI 上繼續不跑 ⇒ 有人把 `wal-tier-card` 打錯字時 CI 不會紅。
+   ⚠️ 覆蓋率的真話見 §13-5(比我第一版寫的窄一層)。
+```
+⚠️ **不需要鑰匙的第四條路, 記在這裡免得下一個人以為評估過**:
+```
+丁 把 design repo 轉成公開 ⇒ 完全不需要鑰匙。
+   **這不是我們能決定的**(設計稿公不公開是商業決定)⇒ 不列入選項, 而列在這裡當分母。
+```
+
+## 13-3 我推薦 **乙**,而我要先撤回**兩次**推薦
+
+```
+🔴 第一次:我推薦「continue-on-error」⇒ 對我們自己也 fail-open ⇒ 撤回。
+🔴 第二次:我改推「抄 e2e-prod 那個 if」⇒ **只跟前一版比, 沒跟甲比** ——
+   而那正是我當時剛寫下的錯法(「一致性只有在你數過一共有幾種之後才站得住」)**的第二次**。
+   📌 **我把一條教訓寫下來, 然後在同一節的下一段犯了它。**
+      ⇒ 動作版:寫下「我改推 X」之後, **強制列出 X 與【每一個】其他選項的差**, 不只與被撤回的那個。
+
+現在逐一比(甲 vs 乙, 丙 是「不做」不參與機制比較):
+· 對我們自己的推送:甲乙**完全相同**(都硬紅)⇒ 這一軸沒有差
+· 對 fork / Dependabot:甲 = 硬紅且我們看不到;乙 = 綠而少跑一格
+· 改動大小:乙多一個 `if` ⇒ 差一行
+⇒ 選乙的理由**只剩一條**:不把別人的 CI 弄紅, 而那個紅我們自己看不見、修不了。
+   而它的代價(綠而少跑一格)**只落在不受信任的來源上**, 我們自己的每一次推送都照跑。
+```
+
+## 13-4 🔴 `Q-945-3` 與 `Q-945-1` **不獨立**,兩步紙現在不該端出去
+
+```
+丙 = 不做片B = **不需要鑰匙**。
+⇒ 現在把兩步紙端給 Sean, 若 Q-945-3 落到丙, 他貼的是一把
+   **永遠不會被用到、而躺在一個公開 repo 裡**的 secret。
+⇒ 正確順序:**先關 Q-945-3, 再要鑰匙。**
+📌 主視窗擋的是「貼了還會紅」, 而更前面一格是「**可能根本不用貼**」。
+```
+操作紙 `docs/runbooks/2026-08-27-945-deploy-key-two-steps.md` 檔頭已寫上這個前置條件。
+## 13-5 我第一版把「丙(不做片B)」的代價**寫寬了**
+
+```
+我寫:「片A 已經讓它在收包沙箱裡跑了 ⇒ 走 preflight 的人有守到」
+🔴 審查點名它被**兩層條件收窄, 而兩層我都沒寫**:
+  ① `scripts/commit-pack-preflight.sh` 只在**包內有 `.test.ts(x)` 且內容含 `design-reference`**
+     時才拉 submodule, 而它的 vitest **只跑包內測試檔**
+     ⇒ **改壞 `WalletTab.tsx` 而沒把 `WalletTab.test.tsx` 收進同一包 ⇒ 那格根本不跑。**
+  ② `commit-pack-preflight.sh` **沒有掛進任何 hook**(`.husky/` 全掃、零命中)⇒ **純自願。**
+⇒ 真實覆蓋率 = 「有跑 preflight **且把那支測試檔一起收包**的人」, 比我寫的**窄一層**。
+📌 而這正是片A 自己的設計換來的:**條件化省下的 6 秒, 代價是覆蓋率變成有條件的。**
+   兩者都是真的, 而我只寫了省下來那一半。
+```
+
+## 13-6 一條**機制**,而它不屬本片 —— 立成獨立條目,不要留在 spec 裡
+
+```
+🔴 §13-0 那四條安全前提是**散文**:repo 裡沒有任何東西會在有人加 `pull_request_target`
+   (或 `workflow_run` / `issue_comment`)時開火。而本 repo 的機制優先律逐字:
+   「發現 AI 犯錯/踩坑, 第一選擇 = 把防護做成機制, 機制做不到才寫規則文字。」
+⇒ 提案:`.husky/pre-commit` 加一道閘, grep `.github/workflows/*.yml` 的 `on:` 區塊,
+   命中 `pull_request_target|workflow_run|issue_comment` 就擋(既有 pre-commit 已掛 8 道閘)。
+⚠️ **我現在不動它**:那條鏈八個窗每次 commit 都在跑, 夜跑中途動它的爆炸半徑不屬本片。
+🔴 **而「寫進 spec 就算交辦了」是假的**(審查點名):我 grep 過, `pull_request_target` 在
+   `docs/phase-1-backlog.md` / `docs/launch-todo.md` / `STATUS.md` 三個**會被人讀的**檔裡,
+   只命中 backlog 一條 2026-07 的舊條目 ⇒ **這個提案寫在一份沒有人會回頭讀的 spec 裡。**
+   ⇒ 依轉述契約②:**說「我會請人落」的當下就要發出去** ⇒ 已回報主視窗, 由它決定落哪張板。
+   (在它落板之前, 這一條的狀態是「**已提出、未指派**」, 不是「已交辦」。)
+```
+
+---
+
+# 🛑 §13-7 R3(codex,換引擎)= **FAIL**,而它問的是「**片B 是不是在解錯的問題**」
+
+> ⇒ **我在這裡停手, 不寫第四版。** 依 `00-work-rules §5` 輪次紀律:
+> 「某輪的 finding 開始重複前輪、**或都在同一層打轉 = 方向問題**,整理決策題給 Sean 而非繼續折衝。」
+> 三輪的 finding **沒有重複**, 而**範圍每一輪都在擴大** —— 那也是方向問題的一種形狀。
+
+## 13-7a 🔴 它的頭條:**那三個字面【已經在我們自己的公開 repo 裡了】**
+
+```
+`apps/storefront/src/components/account/tabs/WalletTab.test.tsx` 的 DELIBERATELY_OMITTED:
+  tierCard            'wal-tier-card'
+  txBalance           'wal-tx-bal'
+  depositButtonLabel  '立即儲值'
+⇒ 而本 repo 是 PUBLIC ⇒ **這三個字面早就是公開的。**
+```
+🔴 **所以「不用鑰匙的路只有『把 design repo 轉公開』」這個分母是假的。**
+   codex 指出第三條:**把契約收成一份最小 fixture**(那三個字面 + 它們在稿上的位置),
+   在 CI 上驗「我方沒有渲染它們」而**不需要讀整份設計稿、也不需要公開設計稿**。
+
+## 13-7b 而這逼出一個我三輪都沒有分開的區別 —— **這一格才是真正的決策題**
+
+```
+那格正對照其實在做【兩件事】, 而我一直當成一件:
+  A 反恆真   證明「我們刻意不渲染 X」這個斷言不是空的(X 得真的存在於某處)
+            ⇒ **fixture 就夠。不需要鑰匙, 而且在每個人的機器 / 沙箱 / CI 上都成立。**
+  B 抓漂移   證明「design 上游沒有把 X 改名」
+            ⇒ **這一件才需要讀活的稿。**
+🔴 而 B 這件事, 本 repo 已經有一個【刻意不做成 CI 測試】的先例:
+   `scripts/od-drift-check.py` 檔頭逐字:
+     「**它不是 CI 測試, 也不該是。** OD 稿住在 repo 外面 ⇒ 別人的機器與 CI 上那個檔不存在
+       ⇒ 做成 vitest 會【紅在環境】而不是【紅在漂移】, **那種紅會被學會忽略。**」
+   ⚠️ 那支檔查的是 OD 稿、不是 design-reference(`grep -c design-reference` ⇒ 0)
+      ⇒ 它不是現成答案, 而**它的論證形狀正對著片B。**
+📌 ⇒ 決策題:**片B 要買的是 A 還是 B?**
+   · 若是 A ⇒ **不需要鑰匙、不需要碰 `.github/`, 而且片A 那半也可以簡化。**
+   · 若是 B ⇒ 才需要鑰匙, 而要先回答「一個會因為環境而紅的 CI 格, 會不會被學會忽略」。
+```
+
+## 13-7c R3 其他 must-fix(逐條記,不逐條修 —— 因為上面那格可能讓它們整批消失)
+
+```
+· 三個檢查驗不到「Actions secret 裡實際貼進去的是哪一把」 —— 剪貼簿若剛好是另一把合法私鑰, 全綠
+· 「①②③全過就可以刪本機鑰匙」不成立:真正的驗證是那個 workflow 成功 clone 一次
+· `pbcopy` 的 prefix 檢查:舊剪貼簿若剛好也是合法公鑰 ⇒ 檢查會綠, 而**授權給錯的人**
+· 步驟 4 先刪檔再清剪貼簿 ⇒ 清失敗時檔沒了而私鑰還在剪貼簿
+· 「把舊的刪掉」沒說要同時撤 design 的 deploy key 與 Actions secret ⇒ 會留下孤兒授權
+· `ssh-keyscan` 的輸出沒跟 GitHub 官方 fingerprint 比 ⇒ 等於信任當下網路回的東西
+· clone 完沒有立刻刪 runner 上的私鑰 ⇒ 後面每一支 major-tag action 都讀得到
+· 「secret 不會印進 log」與「加一個 step 就能印走」**互斥**;掃 `echo` 不是有效的威脅模型
+· Dependabot 有**自己的一組 secret**(`dependabot` scope)⇒ 不必與 fork 綁成同一處置
+· 「fork PR 的紅我們看不到」**不實** —— maintainer 看得到, 而那句是我推薦乙的唯一理由
+· husky 的本機 grep 擋不到「在 GitHub UI 上直接編輯 workflow」⇒ §13-6 那道閘的射程比我寫的窄
+· 「6 個 secret 要變 7 個」在多窗同時加 secret 時會**假紅** ⇒ 判準應只看指定名稱在不在
+```
+⚠️ **而 R3 自陳它的環境連不到 `api.github.com`** ⇒ 它沒有獨立複驗 collaborators / fork / key 數
+   ⇒ 那幾個數字仍然只有我方 2026-08-27 那一次量測撐著。**標清楚, 不要當成兩方都驗過。**
+
+## 13-7d 我停手的狀態(交接用)
+
+```
+✅ 片A 已 commit(abed08dd), 與本節無關, 不受影響。
+🛑 片B:**不要動 `.github/`, 不要端兩步紙。** 兩份文件都留著, 而兩份都標了「不該端出去」。
+🛑 `Q-945-3`(fork 處置)**先不要裁** —— 它建立在「片B 要做」之上, 而那一格現在自己成了問題。
+📌 要先關的是 §13-7b 那一題(A 還是 B), 而它是**取捨題不是事實題** ⇒ 主視窗或 Sean 拍。
+```
