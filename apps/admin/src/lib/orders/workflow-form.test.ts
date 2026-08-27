@@ -28,28 +28,93 @@ function form(entries: Record<string, string>): FormLike {
 
 describe('isAllowedOrigin — fail-closed', () => {
   it('缺 Origin(null/空)→ 拒', () => {
-    expect(isAllowedOrigin(null, { devBypass: false })).toBe(false);
-    expect(isAllowedOrigin('', { devBypass: true })).toBe(false);
-    expect(isAllowedOrigin(undefined, { devBypass: true })).toBe(false);
+    expect(isAllowedOrigin(null, { devBypass: false, host: null })).toBe(false);
+    expect(isAllowedOrigin('', { devBypass: true, host: 'localhost:3011' })).toBe(false);
+    expect(isAllowedOrigin(undefined, { devBypass: true, host: 'localhost:3011' })).toBe(false);
   });
 
   it('prod 精確等值 admin 網域;近似值/子網域/host 不放行', () => {
-    expect(isAllowedOrigin('https://admin.pcmmotorsports.com', { devBypass: false })).toBe(true);
+    expect(
+      isAllowedOrigin('https://admin.pcmmotorsports.com', { devBypass: false, host: null }),
+    ).toBe(true);
     for (const bad of [
       'https://admin.pcmmotorsports.com.evil.com',
       'https://quote.pcmmotorsports.com',
       'http://admin.pcmmotorsports.com',
       'https://admin.pcmmotorsports.com/',
     ]) {
-      expect(isAllowedOrigin(bad, { devBypass: false })).toBe(false);
+      expect(isAllowedOrigin(bad, { devBypass: false, host: null })).toBe(false);
     }
   });
 
   it('dev bypass 允許 localhost;非 bypass 不允許', () => {
-    expect(isAllowedOrigin('http://localhost:3213', { devBypass: true })).toBe(true);
-    expect(isAllowedOrigin('http://127.0.0.1:3000', { devBypass: true })).toBe(true);
-    expect(isAllowedOrigin('http://localhost:3213', { devBypass: false })).toBe(false);
-    expect(isAllowedOrigin('http://evil.localhost.com', { devBypass: true })).toBe(false);
+    // 🔴 **這四格的期望值一個都沒改**(`#948`,2026-08-27)—— 改的是**呼叫的形狀**:
+    //    多帶一個 `host`,而 `host` 對得上時,`localhost:3213` 仍然放行。
+    //    ⚠️ **舊的寫法為什麼是錯的**:原本這一行逐字是
+    //      `isAllowedOrigin('http://localhost:3213', { devBypass: true })` ⇒ `true`
+    //    而 **3213 在本 repo 裡除了這支測試檔以外查無**(`grep -rn 3213` 排除 node_modules ⇒ 5 行,
+    //    全在本檔;正對照 `3001` ⇒ 92 行)⇒ 它不是任何一個**被設定過**的 dev 埠。
+    //    ⚠️ **而這不是一個永久成立的宣稱**(codex 對抗審查 2026-08-27 訂正我原本那句
+    //       「3213 不是任何一個 dev 埠」):有人跑 `next dev -p 3213` 它當場就變假。
+    //       ⇒ 這一格真正證明的是「**Host 與 Origin 對得上就放行**」,不是「3213 很特別」。
+    //    舊寫法斷言的其實是「**任何埠都放行**」——
+    //    也就是 `#948` 那個洞本身,**被一格測試釘成了期望行為**。
+    //    📌 一個洞如果有測試在保護它,修它就會讓測試變紅 ⇒ **那個紅看起來像退步。**
+    //       所以這裡刻意保留原本的埠與期望值,只補上 `host` —— 讓「什麼變了」看得出來。
+    expect(isAllowedOrigin('http://localhost:3213', { devBypass: true, host: 'localhost:3213' })).toBe(
+      true,
+    );
+    expect(isAllowedOrigin('http://127.0.0.1:3000', { devBypass: true, host: '127.0.0.1:3000' })).toBe(
+      true,
+    );
+    expect(
+      isAllowedOrigin('http://localhost:3213', { devBypass: false, host: 'localhost:3213' }),
+    ).toBe(false);
+    expect(
+      isAllowedOrigin('http://evil.localhost.com', { devBypass: true, host: 'evil.localhost.com' }),
+    ).toBe(false);
+  });
+
+  it('🔴 `#948` dev 跨埠必拒:Origin 的埠與本伺服器的 host 不同 ⇒ 不放行', () => {
+    // 正對照(該通的要通):同一個埠 ⇒ 放行。沒有這一格,下面全紅也看起來「很安全」。
+    expect(isAllowedOrigin('http://localhost:3011', { devBypass: true, host: 'localhost:3011' })).toBe(
+      true,
+    );
+    // 🔴 本體:敵意頁在別的埠。瀏覽器會把 Host 設成【被打的那台】⇒ 兩者不等 ⇒ 擋掉。
+    for (const [origin, host] of [
+      ['http://localhost:4001', 'localhost:3011'],
+      ['http://localhost:3011', 'localhost:4001'],
+      ['http://127.0.0.1:4001', '127.0.0.1:3011'],
+      // 同一台但寫法不同(localhost vs 127.0.0.1)也不算同源 —— 兩者在瀏覽器眼中是不同 origin。
+      ['http://localhost:3011', '127.0.0.1:3011'],
+      ['http://127.0.0.1:3011', 'localhost:3011'],
+    ] as const) {
+      expect(isAllowedOrigin(origin, { devBypass: true, host }), `${origin} vs ${host}`).toBe(false);
+    }
+  });
+
+  it('🔴 `#948` fail-closed:沒給 host ⇒ dev 分支拒(而 prod 那條不受影響)', () => {
+    for (const host of [null, undefined, '']) {
+      expect(isAllowedOrigin('http://localhost:3011', { devBypass: true, host }), `host=${host}`).toBe(
+        false,
+      );
+    }
+    // 而 prod 白名單那條在 host 缺席時照樣成立 —— 它從來不比 host。
+    expect(
+      isAllowedOrigin('https://admin.pcmmotorsports.com', { devBypass: true, host: null }),
+    ).toBe(true);
+  });
+
+  it('🔴 `#948` host 被偽造也不會把別人的 origin 放行(威脅模型的邊界,明寫)', () => {
+    // 能偽造 Host 的客戶端**沒有受害者的 cookie** ⇒ 它偽造成功也拿不到身分。
+    // 這一格釘住的是:偽造 Host 只能讓【它自己那個 origin】通過,不能讓別的 origin 通過。
+    expect(isAllowedOrigin('http://localhost:4001', { devBypass: true, host: 'bogus.example:9999' })).toBe(
+      false,
+    );
+    // 而非 localhost 形狀的 origin,即使 host 完全吻合也不放行(形狀閘在比對之前)。
+    expect(isAllowedOrigin('http://evil.example.com', { devBypass: true, host: 'evil.example.com' })).toBe(
+      false,
+    );
   });
 });
 

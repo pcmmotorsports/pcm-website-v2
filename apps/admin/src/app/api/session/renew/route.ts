@@ -77,7 +77,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //       (`https://admin.pcmmotorsports.com`)已經是正式站每一次改單都在跑的承重件
   //       ⇒ 它若是錯的,後台早就整片壞了。**重用把「配錯」這個風險降到既有水位,自己寫一份會新開一個。**
   const devBypass = process.env.NODE_ENV !== 'production' && process.env.ADMIN_DEV_BYPASS === '1';
-  if (!isAllowedOrigin(req.headers.get('origin'), { devBypass })) {
+  //    🔴 `#948`(2026-08-27):dev 分支現在要比對【本伺服器自己的 host】。
+  //       **只讀 `host`,不讀 `x-forwarded-host`** —— 實測兩個會一起被假 Host 騙
+  //       (射程:本 repo 現行 dev、無反代;有反代時會反過來 —— 見 `workflow-form.ts` docstring)。
+  //       🔴 **而這支是 `#948` 唯一【真正可達】的那條路**:Next 對 server action 自己有一道
+  //          Origin vs Host,對 route handler 沒有。`authorize.ts` 那道是縱深。
+  if (
+    !isAllowedOrigin(req.headers.get('origin'), { devBypass, host: req.headers.get('host') })
+  ) {
     return json('bad-origin', 403, requestId);
   }
 

@@ -35,20 +35,83 @@ export const INVOICE_STATUS_FIELD = 'invoice_status';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const DEV_LOCALHOST_ORIGIN_RE = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
 /**
  * Origin 白名單(must-fix 3 fail-closed):
  * - 缺 Origin(null/空)→ **拒**(不放行);
  * - prod:精確等值 `https://admin.pcmmotorsports.com`(不比 Host、不 suffix match);
- * - dev(devBypass=true):額外允許 localhost origin(http://localhost:*、http://127.0.0.1:*)。
+ * - dev(devBypass=true):只允許**這台伺服器自己的** localhost origin(見下方 `#948`)。
+ *   ⚠️ 「這台伺服器自己的」比碼**寬**(code-reviewer nit):形狀閘只認 `http://localhost` 與
+ *   `http://127.0.0.1`(可帶埠)⇒ `http://[::1]:3011` 與 `https://localhost:3011`
+ *   (`next dev --experimental-https`)**一律拒**。那是**修前就有的行為,本片零回歸**,只是字面讀起來比碼寬。
+ *
+ * 🔴 **`#948`(2026-08-27,Sean 拍甲):dev 分支原本吃【任何埠】** ——
+ *    `^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$` 的 `(:\d+)?` 對埠零約束。
+ *    後果:開發者本機只要同時開著一個**別的埠**的敵意頁,它就能帶著 cookie 對後台發 mutation。
+ *    🔴 **而「後台」這兩個字要縮射程(code-reviewer 2026-08-27 nit,我開 `node_modules` 複驗過)**:
+ *       Next 16.3 的 **server action** handler 自己就會比 Origin vs Host 並 abort
+ *       (`next/dist/server/app-render/action-handler.js:446` ⇒ `!host || originHost !== host.value`,
+ *        而 `originHost = new URL(origin).host` **含埠**)⇒ 走 `authorize.ts` 的那一整排 server action
+ *       **在修之前其實已經被框架擋住了**。
+ *       ⇒ **真正可達的洞只有 `/api/session/renew` 這支 route handler** —— Next 不對 route handler 做這道檢查。
+ *       (那也正是 2026-08-27 實測 401/403 的那支。)
+ *    ⇒ 那修 `authorize.ts` 是不是白做?**不是**:框架那道可以被 `serverActions.allowedOrigins` 放寬,
+ *       而我們這道是自己的縱深。但**宣稱要照事實寫**:不得說「所有後台 mutation 本來都可被打」。
+ *    ⚠️ `SameSite=Lax` 在這裡**不保護** —— `localhost:4001` 與 `localhost:3011` 是**同站**
+ *       (同 registrable domain,埠不算)⇒ Lax 照樣送 cookie。
+ *    ⚠️ CORS 擋的是「敵意頁**讀不到回應**」,不是「請求沒執行」—— 對**改狀態**的端點,
+ *       攻擊者不需要讀回應,那個動作已經發生了。
+ *       🔴 **而這裡【不要】舉退款/儲值/改 tier 當例子**(codex 對抗審查 2026-08-27 must-fix):
+ *          那幾個走的是 server action,而 server action 修前就被 Next 那道擋著(見下一段)。
+ *          ⇒ 本片真正可達的是 `/api/session/renew`(它會發一張新的認證 cookie)。
+ *          📌 **前一輪已經改過一次射程,而這句沒被一起清掉** —— 一個宣稱在檔案裡有好幾個副本,
+ *             改對其中一個之後,剩下的那些看起來就更可信了。
+ *    ⚠️ 射程:**僅 dev**。`devBypass=false` 時 localhost 那條整段短路,prod 不受影響。
+ *
+ * 🔴🔴 **修法為什麼是「比對 `host`」,而它的安全性【不是】來自信任那個 header**:
+ *    瀏覽器**改不了** `Host`(敵意頁打 `localhost:3011`,`Host` 就是 `localhost:3011`,
+ *    而 `Origin` 才是 `localhost:4001`)⇒ 兩者不等 ⇒ 擋掉。
+ *    而**能偽造 `Host` 的非瀏覽器客戶端,通常沒有受害者的 cookie** —— 它偽造成功也拿不到身分。
+ *    ⚠️ **「沒有」要改成「通常沒有」**(codex 對抗審查訂正):**cookie 已經外洩**的非瀏覽器客戶端
+ *       可以把 `Origin` 與 `Host` 同時設成 `localhost:4001` ⇒ 這道閘會放行。
+ *       ⇒ 那**不構成 CSRF 繞過**(它本來就已經有身分了),而**原句是不實的**。
+ *       📌 這道閘擋的是「借用受害者瀏覽器」,不是「已經偷到票的人」。後者要靠別的東西擋。
+ *    ⇒ **這道閘靠的是「攻擊者控制不了 `Host`」,不是「`Host` 是可信的」。這兩句差很多:**
+ *      前者只在**瀏覽器驅動**的威脅模型下成立,後者會讓下一個人在別處也去信任一個 header。
+ *    ⚠️ **不要改讀 `x-forwarded-host` —— 而這句有射程,照抄不放寬**:
+ *       2026-08-27 實測,餵 `Host: bogus.example:9999` 進去,`host` 與 `x-forwarded-host`
+ *       **兩個一起變成 bogus** ⇒ 在**本 repo 現行 dev(瀏覽器直連 `next dev`、無反向代理)**下,
+ *       forwarded 那支不比 `host` 可信,兩個一起被騙。
+ *       🔴 **而【有反向代理時它會反過來】**(code-reviewer nit):那時 `host` 是內部 upstream、
+ *       `x-forwarded-host` 才是瀏覽器面 ⇒ 只讀 `host` 會 fail-closed,而 Next 自己那道是
+ *       **`x-forwarded-host` 優先**(`action-handler.js:351` `parseHostHeader`)
+ *       ⇒ **兩道閘會判不一樣**:server action 過,而 `/api/session/renew` 一律 403 bad-origin。
+ *       今天不可達(`scripts/admin-probe/proxy.py` 只代 `/rest/v1` 給 PostgREST,不是瀏覽器面反代)
+ *       ⇒ 這是**未來風險不是現在的紅**。裝反代的那天,要一起看的是這三個地方,不是只改這一行。
+ *
+ * 🔴 `host` 是**必填鍵**(可為 `null`)而不是選填。
+ *    ⚠️ **理由不是「選填會退回舊行為」**(codex 對抗審查訂正我原本那句):選填而忘了傳的話,
+ *       `opts.host` 是 `undefined` ⇒ 這個函式**回 `false`、端點 403** —— 那是 fail-closed,不是放行。
+ *    ⇒ 必填防的是**靜默的可用性故障**:漏傳的症狀會是「dev 全部進不去」,而那很難從 403 反推回
+ *      「有人少傳一個參數」。必填讓它變成一個 **typecheck 紅**,在跑起來之前就講清楚是誰漏了。
  */
 export function isAllowedOrigin(
   origin: string | null | undefined,
-  opts: { devBypass: boolean },
+  opts: { devBypass: boolean; host: string | null | undefined },
 ): boolean {
   if (typeof origin !== 'string' || origin === '') return false;
   if (origin === 'https://admin.pcmmotorsports.com') return true;
-  if (opts.devBypass && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
-  return false;
+  if (!opts.devBypass) return false;
+  if (!DEV_LOCALHOST_ORIGIN_RE.test(origin)) return false;
+  // 沒有 Host 可比 ⇒ 拒。
+  // ⚠️ **這兩行在今天的碼裡【行為上不可達】**(code-reviewer 2026-08-27 nit,誠實標註):
+  //    origin 已先過形狀閘 ⇒ 最短是 `http://localhost`,而 `http://null` / `http://undefined` /
+  //    `http://` 都不可能等於它 ⇒ **刪掉它,「沒給 host」那格測試照樣全綠。**
+  //    ⇒ 留著的理由是**縱深**:有人哪天放寬 `DEV_LOCALHOST_ORIGIN_RE`(例如允許空 host)時它才生效。
+  //    🔴 **而它現在【沒有任何測試分得出它在不在】** —— 所以這行字是它唯一的說明,不要把它讀成「有守門」。
+  if (typeof opts.host !== 'string' || opts.host === '') return false;
+  return origin === `http://${opts.host}`;
 }
 
 /**

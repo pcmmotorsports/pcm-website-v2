@@ -71,6 +71,39 @@ describe('authorizeAdminMutation — 三層閘任一失敗都必須 fail-closed'
     );
   });
 
+  // 🔴 **哨兵值(codex 對抗審查 must-fix,2026-08-27)**:原本 mock 與期望都寫 `'localhost:3011'`
+  //    ⇒ **把碼改成寫死 `host: 'localhost:3011'`(不讀 header)那格照樣綠**
+  //    ⇒ 「真的讀 header」與「寫死一個常見的 dev 埠」兩個世界印同一個綠。
+  //    真伺服器跑在 3000 時,那個寫死會把**同源**的 mutation 錯拒。
+  //    ⇒ 用一個沒有人會寫死的埠。
+  const DEV_SENTINEL_HOST = 'localhost:59087';
+
+  it('🔴 `#948` 也真的把 host header 交下去(不是讀 x-forwarded-host、不是漏傳)', async () => {
+    // 為什麼要單獨一格:上面那格用 objectContaining 只釘 `devBypass` ⇒ **把 `host:` 整個拿掉,
+    // 上面那格照樣綠**。而 `host` 缺席時 `isAllowedOrigin` 的 dev 分支是 fail-closed ——
+    // 真實後果是「dev 全部進不去」,那會很吵;**吵的錯不可怕,可怕的是有人為了不吵而把它改回選填**。
+    headerGet.mockImplementation((name: string) =>
+      name === 'host' ? DEV_SENTINEL_HOST : 'https://admin.example',
+    );
+    await authorizeAdminMutation();
+    expect(headerGet, '沒去讀 host ⇒ 跨埠比對沒有第二個運算元').toHaveBeenCalledWith('host');
+    expect(isAllowedOrigin, '讀到的 host 沒交給檢查').toHaveBeenCalledWith(
+      'https://admin.example',
+      expect.objectContaining({ host: DEV_SENTINEL_HOST }),
+    );
+    // 🔴 **這裡原本有一行「負對照」,已刪除 —— 而刪它的過程比它本身有用,所以記下來:**
+    //    ① code-reviewer(2026-08-27)判它 **must-fix:恆真**。它比的是 `'localhost:4001'`,
+    //       而那個字串在本檔的 mock 值域裡**根本不存在** ⇒ 把 `host:` 整鍵刪掉、改讀
+    //       `x-forwarded-host`、傳 `undefined`,它照樣綠。**而它上面逐字寫著「確認本格分得出兩個世界」。**
+    //    ② 我改成比對一個**真的會流過**的值(origin 那個),然後**去突變驗它**:
+    //       在拋棄式 worktree 把 `host: headerStore.get('host')` 接成 `('origin')` ⇒ 紅了。
+    //    ③ 🔴 **而我再把負對照改回舊的恆真版、突變留著 ⇒ 它【還是紅的】**
+    //       ⇒ 抓到突變的是**上面那句正對照**,不是負對照。**我的「修好版」只是從恆真變成多餘。**
+    //    📌 **一個永遠不會單獨紅的負對照,不是對照,是裝飾** ⇒ 刪掉。
+    //       上面那句 `toHaveBeenCalledWith(..., objectContaining({ host: 'localhost:3011' }))`
+    //       已經釘住「讀到的 host 有交下去」,而它有判別力(②證過)。
+  });
+
   it('🔴 cookie 完全不存在時,交給驗證函式的是 undefined(不是空字串或別的東西)', async () => {
     // ⚠️ 這格**不能**斷言「回 null」—— `verifySessionDetailed` 在本檔是 mock,它無條件回成功,
     //    所以那樣寫等於在測 mock。本格守的是**契約**:沒有 cookie 時傳下去的值長什麼樣。

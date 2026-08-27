@@ -266,6 +266,64 @@ describe('片二 · /api/session/renew 的每一種結果都必須分得開', ()
     expect(await res.json()).toEqual({ outcome: 'bad-origin' });
   });
 
+  // 🔴🔴 `#948`(codex 對抗審查 must-fix,2026-08-27):**這支 route handler 是那個洞唯一真正可達的入口。**
+  //    Next 16.3 對 **server action** 自己會比 Origin vs Host(`action-handler.js:446`),
+  //    但**對 route handler 不做這道檢查** ⇒ `authorize.ts` 那條是縱深,這一支才是本體。
+  //    而在補這兩格之前,**這支入口對「有沒有把 host 接進去」零覆蓋**:
+  //    有人把它寫死成 `host: 'localhost:3011'`,既有測試全綠,而伺服器跑在別的埠時就會放行跨埠。
+  //    🔴 **埠刻意用 59087 這種【沒有人會寫死的數字】** —— 用 3001/3011 的話,
+  //       「真的讀 header」與「寫死一個常見埠」兩個世界會印同一個綠。
+  const DEV_SENTINEL_HOST = 'localhost:59087';
+
+  it('[R10c] 🔴 `#948` dev:同源(Origin 的 authority = 本機 host)⇒ 過得了 Origin 閘', async () => {
+    const prevBypass = process.env.ADMIN_DEV_BYPASS;
+    const prevNodeEnv = process.env.NODE_ENV;
+    process.env.ADMIN_DEV_BYPASS = '1';
+    // @ts-expect-error 測試裡刻意覆寫 NODE_ENV(唯一能讓 devBypass 成立的方式)
+    process.env.NODE_ENV = 'development';
+    try {
+      const res = await POST(
+        new NextRequest(`http://${DEV_SENTINEL_HOST}/api/session/renew`, {
+          method: 'POST',
+          headers: { origin: `http://${DEV_SENTINEL_HOST}`, host: DEV_SENTINEL_HOST },
+        }),
+      );
+      // 沒帶 cookie ⇒ 停在 401 not-active。**而那正是「Origin 閘放行了」的證據** ——
+      // 被 Origin 閘擋下的話會是 403 bad-origin。兩個世界印不同的東西。
+      expect(res.status, '同源卻被 403 ⇒ dev 進不去(fail-closed 太緊)').toBe(401);
+      expect(await res.json()).toEqual({ outcome: 'not-active' });
+    } finally {
+      if (prevBypass === undefined) delete process.env.ADMIN_DEV_BYPASS;
+      else process.env.ADMIN_DEV_BYPASS = prevBypass;
+      // @ts-expect-error 還原
+      process.env.NODE_ENV = prevNodeEnv;
+    }
+  });
+
+  it('[R10d] 🔴 `#948` dev 跨埠:敵意頁在別的埠 ⇒ 403 bad-origin(修前這裡是 401)', async () => {
+    const prevBypass = process.env.ADMIN_DEV_BYPASS;
+    const prevNodeEnv = process.env.NODE_ENV;
+    process.env.ADMIN_DEV_BYPASS = '1';
+    // @ts-expect-error 同上
+    process.env.NODE_ENV = 'development';
+    try {
+      const res = await POST(
+        new NextRequest(`http://${DEV_SENTINEL_HOST}/api/session/renew`, {
+          method: 'POST',
+          // Origin 是敵意頁的埠;Host 仍然是【被打的那台】—— 瀏覽器就是這樣送的。
+          headers: { origin: 'http://localhost:4001', host: DEV_SENTINEL_HOST },
+        }),
+      );
+      expect(res.status, '跨埠沒被擋 ⇒ #948 那個洞還在').toBe(403);
+      expect(await res.json()).toEqual({ outcome: 'bad-origin' });
+    } finally {
+      if (prevBypass === undefined) delete process.env.ADMIN_DEV_BYPASS;
+      else process.env.ADMIN_DEV_BYPASS = prevBypass;
+      // @ts-expect-error 還原
+      process.env.NODE_ENV = prevNodeEnv;
+    }
+  });
+
   it('[R6] 沒有票 ⇒ not-active(401),不得 500 也不得導向', async () => {
     const res = await POST(
       new NextRequest('http://localhost:3001/api/session/renew', {

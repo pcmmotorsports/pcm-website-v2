@@ -36,7 +36,19 @@ export async function authorizeAdminMutation(): Promise<{
     return null;
   }
   const session = verified.payload;
-  if (!isAllowedOrigin(headerStore.get('origin'), { devBypass: DEV_BYPASS })) return null;
+  // 🔴 `#948`:dev 分支要比對【這台伺服器自己的 host】——**只讀 `host`,不讀 `x-forwarded-host`**
+  //    (2026-08-27 實測:餵一個假 Host 進去,兩個一起變成假的 ⇒ forwarded 那支不比 `host` 可信。
+  //     🔴 **射程 = 本 repo 現行 dev、瀏覽器直連、無反向代理** —— 有反代時會反過來,
+  //     完整說明在 `workflow-form.ts` 的 docstring,不要只讀這一行。)
+  //    這道閘靠的是「瀏覽器改不了 Host」,不是「Host 可信」—— 理由全文在 `workflow-form.ts` 的 docstring。
+  if (
+    !isAllowedOrigin(headerStore.get('origin'), {
+      devBypass: DEV_BYPASS,
+      host: headerStore.get('host'),
+    })
+  ) {
+    return null;
+  }
   const actor = await getSessionActor();
   if (!actor) return null;
   return { sid: session.sid, actorId: actor.id };
