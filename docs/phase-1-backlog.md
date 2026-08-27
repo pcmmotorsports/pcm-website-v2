@@ -34905,6 +34905,59 @@ grep -rn "單一 authenticated client" --include="*.ts" . | grep -v node_modules
 (v1 原檔保留不動 —— -de 退過它一次「原地覆蓋」)
 ```
 
+## 🔴🔴 2026-08-27 追記之二:**那 42 張裡有 9 張是【刻意關的】—— 補了 = 打開別人刻意關的門**
+
+**來源**:cf 逐張追 `REVOKE` 的出處。分母 **9 張 / 7 支 migration / 7 顆 commit**;
+逐張 `檔:行` + commit + **逐字理由**在 `~/pcm-mailbox/cf-九張零SELECT-GRANT表的REVOKE出處-v1-20260827.md` §1
+(**檔內註解 7/9、commit body 6/9** —— 也就是說**每一張都留得下作者自己寫的理由**)。
+
+**四型,每一型的理由都是原作者自己寫的**
+```
+PII 隔離   order_legal_consents:70   逐字「IP/UA PII 最大隔離」
+           anomaly 兩張:128          逐字「service_role 亦撤、不開直讀」
+錢帳       order_payments:404        逐字「唯一擋得住 service_role 的是 ACL 與金鑰保密, 不是 RLS」
+           refund 兩張:146           逐字「初版曾 GRANT 給 payment_confirmer + zero-policy = 靜默死表」
+ACL 主鎖   pcm_b2:204
+等有路徑再開 customer_favorites(body:18 逐字「今天沒有 server 端路徑碰這張表;要用再顯式加」)
+           + legal_terms_versions(已有公開讀政策)
+```
+
+## ⇒ 這一格直接縮小 42 張的範圍
+```
+🔴 這 9 張【本來就不靠 BYPASSRLS】—— 它們靠的是「零 GRANT + SECURITY DEFINER」
+⇒ Q15 對它們【零影響】⇒ 不動
+⇒ 補了 = 打開別人刻意關的門
+唯一例外:customer_favorites ——「有路徑那天, GRANT 與政策同片」
+```
+
+## 📌 而這一格的形狀,是本條母題的一個新面
+> **「這張表沒有政策」與「這張表被刻意鎖起來」,在分母上長得一樣。**
+
+而分辨它們的是一個**不在分母裡**的事實:
+```
+scripts/d1-supabase-shim.sql:50(主視窗當場複核,逐字)
+  ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+    GRANT ALL ON TABLES TO anon, authenticated, service_role;
+  負對照(同法查一個不存在的字面)⇒ 0
+```
+🔴 **新表出生就帶 GRANT ⇒ 零 GRANT 一定是有人動手拿掉的。**
+**那個動作有作者、有理由,而它不在任何一張「缺什麼」的清單裡。**
+⇒ **判別動作**:看到「零 X」時,**先問「X 是預設有的嗎」** —— 是 ⇒ **那個零是一個【動作的結果】,去找那個動作。**
+
+## 🔴 一格排片會直接撞到的
+```
+order_payments 有一道斷言 pcm_op1_acl_not_zero(commit 61d9e5b1 的 body:47 突變 ④)
+它擋的就是「給 service_role SELECT」
+⇒ 任何補法碰它 ⇒ migration 自己會紅, 要先動那道斷言
+```
+📌 **那不是 bug,是有人先裝了一道【擋住未來的自己】的閘。** 碰它要知情。
+
+## ⚠️ cf 明說沒答的兩格(不要讀寬)
+```
+· 線上是不是也零 SELECT GRANT ⇒ 它量的是【重播庫】, 要 Sean 跑序 1 探針的 1-5 才知道
+· 各 SECURITY DEFINER 函式的 owner 沒有逐一查
+```
+
 ## 🔴 2026-08-27 深夜追記:**這 42 張的補片,與 `Q15` 之間有一個【不能混】的順序**
 
 **來源**:cf 的 reviewer 打在 `-de` 的段A 設計上(MF3),`-de` 轉、主視窗落檔。
