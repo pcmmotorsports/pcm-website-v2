@@ -56,12 +56,49 @@ _ALTS = [rf'(?:{"|".join(WRITE_VERBS)}|{WRITE_MERGE})\b'] + \
         [rf'{k} +(?:{"|".join(v)})\b' for k, v in WRITE_SUBACTION.items()]
 WRITE = re.compile(rf'git( +{_FLAG})* +(?:{"|".join(_ALTS)})')
 
-# 🔴 字面尺【抓不到】動態拼接的 git 命令(例 quantifier-hook.harness.js 用 `'git '+'commit'` 躲字面掃描)。
-#    ⇒ 這類【已知會躲掉字面】的,明文列進來(每條一句理由)。這【不是】豁免——是【反向的納入】。
-KNOWN_DYNAMIC = {
-    'scripts/quantifier-hook.harness.js':
-        "刻意用字串拼接 GC='git '+'commit' 建 git 命令躲字面掃描 ⇒ regex 抓不到,明文納入(reviewer R1 抓到)",
-}
+# ═══ 非 shell(.py/.js)的 git 執行【跟 shell 相反】(b4 R2 must-fix:board-state-consistency.py 是真假陰)═══
+#   shell:git 在【字串裡】= 印給人看的噪音(echo "git…");git【裸命令】= 執行。
+#   py/js:git 在【傳給 exec 的字串/清單裡】= 執行;git 在【註解/docstring】= 噪音。
+#   ⇒ 兩者剝的東西【相反】,不能用同一把尺(否則散文中、執行不中 = R1 那 11 支的鏡像)。
+# ⚠️ 兩個已知限制(err-toward-inclusion 之外的【漏報】方向,均 repo 現況 0 命中、標明不假裝):
+#   ① shell 的 `sh -c 'git add -A'` / `eval "git …"`:字串被 shell scan_lines 換佔位 ⇒ 漏(b4 R2-3 should)。
+#   ② py/js 清單形的 worktree/submodule 寫入(subprocess.run(['git','worktree','add']))不抓 —— 清單只認純動詞;
+#      但 exec-string 形(run('git worktree add'))會抓(重用 WRITE 的子動作閘)。
+#   ③ exec-string 內含跳脫引號(run("echo \\"x\\" && git commit"))被非貪婪配對提前截斷 ⇒ 漏(同 shell 那條 nit)。
+#   ④ f-string 動態插入動詞(run(f"git {verb}", shell=True))抓不到 —— 靜態尺的固有盲區。(以上 ③④ code-reviewer R3 抓、repo 現況 0)
+_PYJS_VERBS = '|'.join(WRITE_VERBS) + '|' + WRITE_MERGE   # 純寫入動詞(不含 worktree/submodule)
+# 清單形 subprocess.run(['git', … ,'add']):git 為首、某元素是寫入動詞
+_PYJS_LIST = re.compile(rf'''\[\s*['"]git['"]\s*,[^\]]*?['"](?:{_PYJS_VERBS})['"]''')
+# 動態拼接 'git ' + 'commit'(quantifier-hook 躲字面掃描的形;b4 R2-2:不再靠硬編名字,靠通則抓)
+_PYJS_CONCAT = re.compile(r'''['"]git\s*['"]\s*\+|\+\s*['"](?:commit|add|rm|reset|checkout|init|worktree|submodule)['"]''')
+# 🔴 exec-string 必須是【傳給 exec 函式的字串】,不是【當測資/訊息的字串】——
+#    否則本工具自己的 self-check 世界 `('git -C "$d" add -A', True)` 會誤中(那是測資不是執行)。
+#    exec sink:subprocess.run/Popen/call/check_*、os.system/popen、execSync/execFileSync、spawn* 等。
+_EXEC_SINK = re.compile(
+    r'''(?:subprocess\.\w+|check_output|check_call|Popen|\brun|os\.system|os\.popen|\bsystem|\bpopen'''
+    r'''|exec\w*|execSync|execFileSync|spawn\w*|spawnSync)\s*\(\s*[frbu]*(['"])(.*?)\1''')
+
+def _strip_pyjs(txt):
+    """剝 py/js 的【註解 + docstring】,但【不剝一般字串】(exec-string 裡住著命令)。"""
+    txt = re.sub(r'"""[\s\S]*?"""', '', txt)
+    txt = re.sub(r"'''[\s\S]*?'''", '', txt)
+    txt = re.sub(r'/\*[\s\S]*?\*/', '', txt)             # /* */
+    return '\n'.join(l for l in txt.split('\n') if not re.match(r'\s*(#|//)', l))
+
+def _pyjs_exec_string_cmds(s):
+    """yield 每個【傳給 exec 函式的字串內容】(給 shell 的 WRITE 尺重用 ⇒ 連 worktree/submodule 子動作閘一起繼承)。"""
+    for m in _EXEC_SINK.finditer(s):
+        yield m.group(2)
+
+def pyjs_calls_git_write(txt):
+    s = _strip_pyjs(txt)
+    if _PYJS_LIST.search(s) or _PYJS_CONCAT.search(s):
+        return True
+    return any(WRITE.search(c) for c in _pyjs_exec_string_cmds(s))   # exec-string = shell 語法,重用 WRITE(含子動作閘)
+
+# 🔴 KNOWN_DYNAMIC 現在【空的】——b4 R2-2:quantifier-hook.harness.js 原本靠硬編名字進來、下一支 .js 進不來。
+#    改成靠 _PYJS_CONCAT 通則(`'git '+'commit'`)自動抓 ⇒ 不再需要硬編。保留 dict 當逃生口,目前無成員。
+KNOWN_DYNAMIC = {}
 SELFTEST = re.compile(r'--selftest')
 CAND_EXT = re.compile(r'\.(sh|bash|py|js|mjs|cjs)$')
 
@@ -125,26 +162,43 @@ def scan_lines(txt, is_shell):
 def calls_git_write(txt, is_shell):
     return any(WRITE.search(n) for _, _, n in scan_lines(txt, is_shell))
 
+def file_calls_git_write(f, txt):
+    """依檔種選尺:shell 用 scan_lines+WRITE;py/js 用 pyjs_calls_git_write(執行形,不是散文)。"""
+    return calls_git_write(txt, True) if _is_shell(f) else pyjs_calls_git_write(txt)
+
+# 🔴 本工具【自我排除】:它是 git-write 的偵測器 ⇒ 檔內含大量 git 命令【測資】(self-check 的邊界世界、
+#    _PYJS_CONCAT 的 `'git '+'commit'` 樣本)⇒ 會誤中自己。而它【只 `git ls-files`(讀)】、不執行任何寫入。
+#    這【不是】b4 批的「靠硬編名字【納入】」(那讓下一支進不來);這是【排除唯一必然含對抗測資的那支=偵測器自己】。
+#    ⚠️ 若本工具哪天真的加了 git 寫入 ⇒ 拿掉這行(它就該進自己的分母)。
+SELF = 'scripts/git-isolation-denominator.py'
+
 def build():
     denom = []          # (path, has_selftest, is_husky)
     for f in tracked_files():
-        if not is_candidate(f):
+        if not is_candidate(f) or f == SELF:
             continue
         t = read_text(f)
-        # 字面尺命中(剝噪音後)或 明文列在 KNOWN_DYNAMIC(躲字面掃描的動態拼接)
-        if calls_git_write(t, _is_shell(f)) or f in KNOWN_DYNAMIC:
+        if file_calls_git_write(f, t) or f in KNOWN_DYNAMIC:
             denom.append((f, bool(SELFTEST.search(t)), f.startswith('.husky/')))
     return sorted(denom)
 
 def evidence_line(f):
     """這支檔【第一行真的命中 git 寫入】的證據(b4 F3:逐支要有行號證據,不是只印路徑)。"""
-    is_sh = _is_shell(f)
-    for lineno, raw, neutral in scan_lines(read_text(f), is_sh):
-        if WRITE.search(neutral):
-            return f'L{lineno}: {raw.strip()[:76]}'
-    if f in KNOWN_DYNAMIC:
-        return 'KNOWN_DYNAMIC(動態拼接、regex 抓不到)'
-    return '(命中處剝噪音後消失?)'
+    txt = read_text(f)
+    if _is_shell(f):
+        for lineno, raw, neutral in scan_lines(txt, True):
+            if WRITE.search(neutral):
+                return f'L{lineno}: {raw.strip()[:76]}'
+    else:
+        # py/js:掃【原始行】(保留行號),跳過整行註解;命中 list/concat/exec-string 常見形即回。
+        for i, raw in enumerate(txt.split('\n')):
+            if re.match(r'\s*(#|//)', raw):
+                continue
+            if _PYJS_LIST.search(raw) or _PYJS_CONCAT.search(raw) \
+               or any(WRITE.search(c) for c in _pyjs_exec_string_cmds(raw)):
+                return f'L{i + 1}: {raw.strip()[:76]}'
+        return 'py/js 執行形(subprocess/exec 清單或字串;跨行,單行對不到)'
+    return '(命中處剝噪音後消失?)'   # 僅 shell-no-match 走到這;KNOWN_DYNAMIC 已空,不再另列
 
 def main():
     denom = build()
@@ -170,12 +224,16 @@ def self_check():
     denom = {d[0] for d in build()}
     ok = True
     # 正對照:已知漏網必須在分母裡
-    #   前三支 = 最初的漏網;後兩支 = reviewer R1 抓到的 `git -C`/worktree/submodule 漏網(鎖住回歸)
+    #   前三支 = 最初的漏網;中兩支 = reviewer R1 的 `git -C`/worktree/submodule;
+    #   🔴 board-state-consistency.py = b4 R2 抓的【py 清單形真假陰】(止血令那支)⇒ 現在必須自己在名單。
+    #   🔴 quantifier-hook.harness.js:KNOWN_DYNAMIC 已【空】⇒ 它在,證明靠 _PYJS_CONCAT 通則、不靠硬編(b4 R2-2)。
+    assert not KNOWN_DYNAMIC, "KNOWN_DYNAMIC 應為空 —— quantifier 靠通則抓,不靠硬編"
     for want in ['scripts/deploy-order-gate-verify.sh',
                  'scripts/state-gates-freshness.harness.sh',
                  'scripts/quantifier-hook.harness.js',
                  'scripts/unreported-work-scan.sh',
-                 'scripts/commit-pack-preflight.sh']:
+                 'scripts/commit-pack-preflight.sh',
+                 'scripts/board-state-consistency.py']:
         hit = want in denom
         print(f"  正對照 {want}: {'✅ 在分母' if hit else '🔴 漏(尺壞)'}")
         ok = ok and hit
@@ -201,7 +259,25 @@ def self_check():
     for frag, sh, exp in worlds:
         got = calls_git_write(frag, sh)
         mark = '✅' if got == exp else '🔴'
-        print(f"  邊界 {mark} calls_git_write({frag!r}) = {got} (期望 {exp})")
+        print(f"  邊界(shell) {mark} calls_git_write({frag!r}) = {got} (期望 {exp})")
+        ok = ok and (got == exp)
+    # 🔴 py/js 邊界世界(b4 R2-4:上一輪 10 世界全 shell,證不了 py/js 那半活著)——執行形 vs 散文
+    pyjs_worlds = [
+        ("subprocess.run(['git','add','-A'])",             True),   # 清單形 = 執行
+        ("subprocess.run(['git','-C',d,'commit'])",        True),
+        ("subprocess.run('cd x && git init', shell=True)", True),   # exec-string
+        ("execSync('git add -A')",                         True),   # js
+        ("GC = 'git ' + 'commit'",                         True),   # 動態拼接(不靠硬編)
+        ("GC = 'git ' + 'status'",                         True),   # 🔴 拼接【刻意不分動詞】:動態建命令看不到動詞 ⇒ 一律收(安全方向,code-reviewer R3)
+        ("subprocess.run(['git','status'])",               False),  # 清單形唯讀
+        ("subprocess.run(['git','ls-files'])",             False),
+        ('msg = "手動跑 git commit 一次"',                  False),  # 訊息字串 ≠ 命令
+        ('log("see git commit history")',                  False),
+    ]
+    for frag, exp in pyjs_worlds:
+        got = pyjs_calls_git_write(frag)
+        mark = '✅' if got == exp else '🔴'
+        print(f"  邊界(py/js) {mark} pyjs_calls_git_write({frag!r}) = {got} (期望 {exp})")
         ok = ok and (got == exp)
     print("  ⇒", "self-check PASS" if ok else "🔴 self-check FAIL")
     return 0 if ok else 1
