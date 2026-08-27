@@ -172,11 +172,12 @@ describe('BrandShowcase 覆蓋率 vs. 已開放寫入(writeAllowed)的供應商'
       expect(writeAllowedSlugs.has(slug), `${slug} 同時出現在兩邊 = 分類自相矛盾`).toBe(false);
     }
 
-    // gilles 今晚是「已登記 + 未開寫 + case 已備齊」⇒ Sean 翻 true 的那一刻主閘要能直接綠。
+    // ✅ 2026-08-27 Sean 批首灌 ⇒ gilles 已開寫,不再屬於「已登記但未開寫」那一群。
+    //    改由主閘負責它(主閘分母 = writeAllowed=true),而下面這條確認交接沒有落空:
+    //    它必須【已開寫】而且【case 在】—— 兩者缺一,客人就會點進一個沒有品牌形象區的商品頁。
     expect(
-      registeredNotWriteAllowed.includes('gilles') && caseSlug.has('gilles'),
-      'gilles 應該是「還沒開寫、但 showcase case 已經備好」的狀態;' +
-        '若它已開寫,請把本斷言連同上面的註解一起更新(那代表首灌已經發生)。',
+      !registeredNotWriteAllowed.includes('gilles') && caseSlug.has('gilles'),
+      'gilles 首灌後應為「已開寫 + case 在」;若它掉回未開寫,或 case 不見了,這裡要紅。',
     ).toBe(true);
   });
 });

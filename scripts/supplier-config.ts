@@ -368,20 +368,14 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     //   ⚠️ 交接文件寫「221 群多變體」= 差 1。本窗 2026-08-27 19:20 UTC 實量:
     //   1,545 群 = 單變體 1,323 + 多變體 **222**;1,817 列 = 1,545 + 超出群數的 272。
     //   (差 1 的成因未查;數字以實量為準,不沿用交接。)
-    // 🔴 fail-closed:今夜不翻。首灌 = 寫進正式顧客站、不可逆,需 Sean 明確點頭(runbook §4)。
-    //    翻 true 之前先確認:①乾跑五關全綠(--expect-groups **當場重量**,這家每天更新、群數會動)
-    //    ②`GillesShowcase.tsx` 已存在且 `BrandShowcase.tsx` 有 case(2026-08-27 已補齊)。
-    //
-    // 🔴🔴 **翻 true 的同一個 commit 要一起改的,只有下面【兩條】,而它們會紅、那是預期的**
-    //   (2026-08-27 本窗實測:暫翻 true 跑一次量出來的,不是推測;跑完已還原零留痕):
-    //     1. `scripts/supplier-config.test.ts` → it('gilles:過夜 fail-closed …')
-    //     2. `apps/storefront/src/components/brand-showcase-coverage.test.ts` → it('負對照 ②:已登記但 writeAllowed=false …')
-    //   **主閘(『每一家 writeAllowed=true 的品牌都要有對應 case』)那條【不會】紅** —— case 已備齊。
-    //   ⇒ 看到這兩條紅 = 流程正常前進的摩擦,**不是缺陷**,照各該條的訊息改掉即可。
-    //   📌 這段話存在的理由:本片修掉過一顆同族的雷 —— 舊的負對照名單會在翻 true 的那一刻紅,
-    //      而它的訊息說「gilles 從未被登記進 supplier-config.ts」= 假的 ⇒ 讀的人會去找一個不存在的 bug。
-    //      **紅本身不是問題,訊息把人指去錯的地方才是。**
-    writeAllowed: false,
+    // ✅ 2026-08-27 Sean 逐字「灌」批首灌後開寫。翻 true 當下的前置狀態(當場重量、非沿用):
+    //    1,817 列 / 1,545 群、缺中文名 0 / 缺價 0 / 缺 v2 分類 0(2026-08-27 01:43 UTC 實查)。
+    //    乾跑四格有判別力的關卡全綠(分類 0 未對上 / handle 批內唯一 / pv_spec 批內撞鍵 0 /
+    //    新品驗價 M1 逐筆相符);`GillesShowcase.tsx` 與 `BrandShowcase.tsx` 的 case 已於同日備妥。
+    // 🔴 而「乾跑五關全綠」這句話要打折:首灌時 target=0 ⇒ 價格離群與來源消失對賬【恆綠】、
+    //    handle 與 pv_spec 對 target 那半無分母、分群數只印不擋;`--expect-groups` 在乾跑【不驗】
+    //    (:214 `isWrite: !DRY_RUN`,餵 9999 實測印 ALERT 而 rc=0)⇒ 那四格才是真的證據。
+    writeAllowed: true,
   },
   // 🔴 永久 guard 測試靶(非真供應商、Sean 2026-07-24 拍板放行):所有真品牌已 writeAllowed=true
   //   → rpm-import CLI 的 writeAllowed 硬鎖守衛失去「真實未授權樣本」;保留此永久 false 樣本讓

@@ -109,8 +109,10 @@ describe('getSupplierConfig', () => {
   //   rpm-import-cli 的授權對照組是寫死的 ['rpm','akrapovic']。
   //   而「writeAllowed=false」正是本片最吃重的宣稱(它擋的是寫進正式顧客站、不可逆的 1,817 列)。
   //   ⇒ 釘住它。Sean 批首灌時**本來就要改這裡**,那時這條紅 = 正確的摩擦,不是誤報。
-  it('gilles:過夜 fail-closed —— writeAllowed 必須是 false(Sean 批首灌後才改這裡與本條)', () => {
-    expect(getSupplierConfig('gilles').writeAllowed).toBe(false);
+  // ✅ 2026-08-27 Sean 逐字「灌」批首灌 ⇒ 本條由 false 改 true。**這正是這條斷言存在的用途**:
+  //    翻開關的人被迫回到這裡、看見上面那段因果,而不是靜靜地把一個 fail-closed 旗標打開。
+  it('gilles:已開放寫入 prod(2026-08-27 Sean 批首灌)', () => {
+    expect(getSupplierConfig('gilles').writeAllowed).toBe(true);
   });
 
   // 逐值釘死(同 rpm/gbracing/bonamici/akrapovic 等家的慣例):值皆 2026-08-27 報價單庫實查。
