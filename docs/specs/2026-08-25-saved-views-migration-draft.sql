@@ -648,3 +648,37 @@ END;
 $assert$;
 
 COMMIT;
+
+-- ============================================================================
+-- Rollback(Supabase forward-only、僅供參考、手動執行)
+-- ============================================================================
+-- 🔴 **而本片這一段與 repo 其餘 100 支不同:它被【真的執行過】。**
+--    2026-08-28 線C 量到:222 支 migration 裡檔名帶 down/rollback/revert 的 = **0**;
+--    而 137 支帶 `DROP` 的裡面, **100 支的 DROP 只出現在註解裡** —— 那是刻意的慣例
+--    (逐字「Rollback(Supabase forward-only、僅供參考、手動執行)」)。
+--    📌 ⇒ **回退是以【文字】的形式存在的, 而文字沒有人執行過。**
+--       forward 這一側跑過幾十次, down 這一側【零次】。
+--    ✅ 本段有一支跑得起來的驗收:`docs/specs/2026-08-25-saved-views-rollback-test.sh`
+--       它比三個 schema 快照(before / after-up / after-down):
+--       **before 必須 = after-down;而 after-up 必須與它們不同**
+--       (少了後面那道 ⇒ 一支根本沒生效的 up 會讓「回得去」印一個很好看的綠)
+--    ✅ 三發突變實跑過:漏 DROP TABLE / 漏 touch 函式 / up 換成 no-op ⇒ 各紅在指定那一格
+--
+-- ⚠️ 順序有意義:先函式、再 trigger、再 trigger 用的函式、最後才是表。
+--    (RB2 實測:漏掉 touch 那支 ⇒ 表沒了而**函式留在庫裡**, 一個沒有主人的孤兒物件。)
+-- BEGIN;
+--   DROP FUNCTION IF EXISTS public.admin_list_saved_order_views(text);
+--   DROP FUNCTION IF EXISTS public.admin_create_saved_order_view(text, text, text, text, boolean, text, text);
+--   DROP FUNCTION IF EXISTS public.admin_update_saved_order_view(text, bigint, text, text, text, timestamptz, text);
+--   DROP FUNCTION IF EXISTS public.admin_delete_saved_order_view(text, bigint, text);
+--   DROP TRIGGER  IF EXISTS admin_saved_order_views_set_updated_at ON public.admin_saved_order_views;
+--   DROP FUNCTION IF EXISTS public.admin_saved_order_views_touch_updated_at();
+--   DROP TABLE    IF EXISTS public.admin_saved_order_views;
+-- COMMIT;
+--
+-- 🔴 而**資料是不可逆的那一半**:上面這段刪表 = 所有已存的檢視一起沒了。
+--    §14-12-i 的分階段:從 D 回退【只推回舊 app、不 drop】;真要 drop 才走這一段。
+--    ⇒ **「入口關掉」與「資料刪掉」是兩題, 一題可逆一題不可逆, 不要綁在一起。**
+--    僅關入口(可逆):REVOKE EXECUTE ON FUNCTION <四支> FROM service_role;
+--    ⚠️ 而重新上線前要記得 `GRANT EXECUTE` ×4 ——
+--       漏了的症狀是【四支全 permission denied】, 那看起來像權限設錯, **不像「沒部署」**。

@@ -5030,3 +5030,75 @@ apps/admin/src/lib/staff.ts:194          row?.is_active === true && row.is_manag
 📌 上位:**一條寫下來而只套在咬過我的那幾格上的規則, 比沒有規則更危險 ——
    它讓那一族看起來已經處理過了。**
 ```
+
+---
+
+# ✅ §14-28 第六層量具:**rollback —— forward 跑過幾十次,down 這一側零次**
+
+> 2026-08-28 02:0x(當場 `date`)。主視窗准:這件不命中鐵則 8(量測與偵察,不是實作)。
+> 交付 `docs/specs/2026-08-25-saved-views-rollback-test.sh`
+
+## ① 分母(當場量,02:0x)
+```
+migration 總支數                                   222
+檔名帶 down / rollback / revert                    **0**       (負對照 zzz 字面 ⇒ 0)
+帶 `DROP` 的支數                                    146
+  ├─ DROP【只出現在註解裡】                        **100**
+  ├─ 只在會執行的碼裡                                 9
+  ├─ 兩邊都有                                        37
+  └─ 完全沒有 DROP                                   76        (四者合計 222 ✅)
+```
+🔴 **而那 100 支不是疏漏,是刻意的慣例** —— 開檔讀到的逐字:
+```
+-- Rollback(forward-only、僅供參考勿執行):
+-- Rollback(Supabase forward-only、僅供參考、手動執行):
+```
+📌 ⇒ **回退是以【文字】的形式存在的,而文字沒有人執行過。**
+🔴 而我第一把尺差點把這件事讀反:`grep -l "DROP "` ⇒ 146 ⇒ 看起來「大多數都有回退」。
+   **拆開才發現最大的那一族是註解**(`--   DROP FUNCTION IF EXISTS` 光這一種就 58 次)。
+   ⇒ 又是同一族:**尺數到「寫著這件事的文字」,而不是「這件事本身」。今晚第四次。**
+
+## ② 我這片的 down **真的跑了一次**(拋棄式 PG 17.10,絕不碰正式庫)
+```
+ok   up  套上去了
+ok   down 跑完 rc=0
+ok   對照:up 真的改變了 schema(before ≠ after-up)
+ok   down 真的回到了 before(逐字相同)
+```
+🔴 **而驗收條的形狀是重點,不是那四個 ok**:
+```
+比三個 schema 快照(表/欄/索引/函式/觸發器/表級 ACL/函式級 ACL/RLS 態):
+   before / after-up / after-down
+✅ 該相同的是 **before 與 after-down**
+🔴 而 **after-up 必須與它們【不同】** —— 少了這一道,
+   一支【根本沒生效的 up】會讓「回得去」印一個很好看的綠(三者全同 ⇒ 全部 ok)
+⇒ 那正是 RB3 那一發:把 up 換成 `SELECT 1;` ⇒ 這道對照必須紅 ⇒ 實跑紅了
+```
+| 突變 | 打什麼 | 紅在 | 它留下了什麼 |
+|---|---|---|---|
+| RB1 | down 漏掉 `DROP TABLE` | before ≠ after-down | 整張表 + 五欄留在庫裡 |
+| RB2 | down 漏掉 touch 那支函式 | before ≠ after-down | 🔴 **一個沒有主人的孤兒函式**(`postgres=X/postgres`)—— 表沒了而它還在 |
+| RB3 | up 換成 `SELECT 1;` | before = after-up | (對照組:證明「回得去」不是因為根本沒去過)|
+
+## 🔴 ③ 而做這件事的時候,這支測試腳本自己踩了 CLAUDE.md 記過的坑
+```
+`HERE=$(cd "$(dirname "$0")" && pwd)` ⇒ **路徑從腳本自己的位置推**
+⇒ 我把它 sed 成三份突變放進 scratchpad ⇒ **三份全紅在「up 沒套上去」**
+⇒ 而那不是突變抓到東西, 是**複製品找不到 UP 檔**
+📌 CLAUDE.md 同族逐字:`storefront-probe/up.sh` 寫死 REPO ⇒ 從 worktree 呼叫它會跑去主樹
+✅ 留一個 `RBHERE` 環境變數讓突變版指回原處 ——
+   🔴 **否則這支腳本沒辦法被突變殺, 而一支殺不了的尺與一支在守著的尺, 都印 ok。**
+```
+
+## 📋 撈到的缺口 ⇒ **列出來,不順手修**(主視窗指示)
+```
+G1 全 repo:222 支 migration 的 rollback 全部是【沒有人執行過的文字】
+   ⇒ 這不是「該補 down 檔」(Supabase forward-only 是刻意的)
+   ⇒ 而是【那些文字有沒有跑得起來, 沒有人知道】
+   ⇒ 建議 backlog 標題:**「我們的回退方案是 222 段從來沒有人執行過的註解」**
+   🔴 標題要這樣寫的理由同 §14-Z backlog 那條:**標題是唯一會被掃到的部分。**
+G2 本片:`docs/runbooks/saved-views-rollback.md` 是 `§14-12-i` 宣告的交付物, **它不存在**
+   ⇒ 而本節這支 .sh 只驗了 down 跑不跑得起來, **沒有覆蓋 §14-12-i 的分階段流程**
+     (從 D 回退只推回舊 app / 從 B 回退才 drop / D 期間寫入的資料怎麼辦)
+   ⇒ **兩件事, 而我只做了小的那件。**
+```
