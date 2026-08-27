@@ -202,6 +202,18 @@ four_greens() {
     triage_vitest_log "$(logdir_for "$MODE")/vitest.full.log"
     echo "vite 快取 mtime: $(vite_cache_age)"
   } > "$(logdir_for "$MODE")/TRIAGE" 2>/dev/null || true
+  # 🔴🔴 **零收集要上螢幕,不能只落進 TRIAGE**(code-reviewer 2026-08-28 M1)。
+  #   `TRIAGE` 這個檔在全 repo **零讀者**(只有上面這一處寫入 + 一句註解)
+  #   ⇒ 判詞寫得再準, **沒有任何一條判準會因為它存在而停** ——
+  #      而那句話是本檔自己在 DRIFT 那一段下的(見下方 `dr` 那個分支), 逐字適用於它自己。
+  #   📌 **我這一片修的是「印綠而涵蓋不到」, 而它自己原本就是那個形狀。**
+  #   ⇒ 照 DRIFT 的前例:**讓它出聲**。這裡只出聲(1 行), 不改 exit code ——
+  #     可達的那個世界(`No test files found`)vitest 自己已經 rc=1、總表也會印 `vitest rc=1`,
+  #     再疊一個 rc 只會蓋掉那個更準的訊號。**出聲買的是「人看得到它」, 不是再擋一次。**
+  _tri_line="$(triage_vitest_log "$(logdir_for "$MODE")/vitest.full.log" | head -1)"
+  case "$_tri_line" in
+    *零收集*) echo "🔴 $_tri_line ⇒ 這一發【一支測試檔都沒跑到】, 那不是綠。先查是不是跑錯目錄或參數太多。" ;;
+  esac
 
   echo
   echo "════════ 總表(這四個 rc 各屬各自的命令)════════"
@@ -368,16 +380,47 @@ triage_vitest_log() {
   _cs="$(grep -c 'createSupabaseServiceClient' "$_log" 2>/dev/null || true)"
   _to="$(grep -c 'Test timed out in 5000ms' "$_log" 2>/dev/null || true)"
   _red="$(grep -cE 'Test Files.*failed' "$_log" 2>/dev/null || true)"
+  # 🔴 **零收集**(線E 2026-08-28,板子 B 節 ⟦b4-M1⟧ ③):
+  #   vitest 收不到任何測試檔時【一行 `Test Files` 都不會印】⇒ 上面那個 `_red` 是 0
+  #   ⇒ 在本函式修好之前, 它與「全綠」落進同一個 else ⇒ **判「綠」**。
+  #   實測(修之前, 三份構造 log 各餵一發):
+  #     `No test files found, exiting with code 1`      ⇒ 分診: 綠
+  #     `Test Files  0 passed (0)`                       ⇒ 分診: 綠
+  #     `Test Files  514 passed (514)`                   ⇒ 分診: 綠
+  #   ⇒ **三個世界印同一句話。**
+  # 🔴 而它救不救得回來只靠 vitest 自己的 `rc=1` —— 而 `CLAUDE.md` 記著那個坑的下半:
+  #   「濾掉那句之後畫面全空, 與『零失敗』長得一樣」⇒ 只要有人 `grep -E "Tests"` 就沒了。
+  # ⚠️ 兩種成因都要抓, 而它們印不同的字:
+  #   ① 在錯的目錄跑(CLAUDE.md 記的那種)⇒ `No test files found`
+  #   ② **參數太多也會**(`-21` 2026-08-27 量:38 支路徑逐支 `test -e` 全存在, 一起餵 ⇒ 同一句話;
+  #      拆成 2 支就會跑)⇒ 同樣是 `No test files found`
+  #   ③ 收集到 0 支而仍印總結行 ⇒ `Test Files  0 passed (0)`
+  _nofiles="$(grep -c 'No test files found' "$_log" 2>/dev/null || true)"
+  _zero="$(grep -cE 'Test Files +0 (passed|failed)' "$_log" 2>/dev/null || true)"
   # 最集中的那支失敗檔與其格數(可導出的那一半)
   _top="$(grep -oE 'FAIL +\|[a-z]+\| [^ ]+\.test\.tsx?' "$_log" 2>/dev/null \
           | sed 's/.*| //' | sort | uniq -c | sort -rn | head -1 | sed 's/^ *//' || true)"
-  if [ "$_ns" -gt 0 ] || [ "$_cs" -gt 0 ]; then _k='🔴症狀B候選(module mock 失效)'
+  # 🔴 **零收集排在最前面**:它是「什麼都沒跑」, 而下面每一個分支都預設「跑過了」。
+  #    排在後面的話, 一份零收集又剛好含 'not set' 字樣的 log 會被判成症狀B ⇒ 去修一個沒跑到的東西。
+  if [ "$_nofiles" -gt 0 ] || [ "$_zero" -gt 0 ]; then _k='🔴零收集(一支測試檔都沒跑到 —— 這不是綠)'
+  elif [ "$_ns" -gt 0 ] || [ "$_cs" -gt 0 ]; then _k='🔴症狀B候選(module mock 失效)'
   elif [ "$_to" -gt 0 ];  then _k='症狀A(逾時)'
   elif [ "$_red" -gt 0 ]; then _k='🔴紅但兩類皆不符(新形狀,值得看)'
   else _k='綠'
   fi
+  # 🔴 **加新判詞之前,先看下面自檢那七格的 matcher**(線E 2026-08-28;code-reviewer M2/M3)。
+  #   ~~本檔曾在此放一把「判詞兩兩包含」的 python 尺~~ **已淨刪除**,兩個理由都是實跑打出來的:
+  #     ① **分母寫錯**:註解宣稱「不含兩個判詞」, 而實跑捕到 **6 項** —— `症狀A(逾時)` 其實在裡面
+  #        (那是全形括號、正規式吃得下), 而第 6 項是**尺捕到自己註解裡那段 regex**
+  #        ⇒ **印出的分母 6, 而判詞只有 5 個。** 📌 那段註解寫的正是「不假裝分母是全部」。
+  #     ② **量錯軸**:它比「判詞 ⊂ 判詞」, 而真正會讓格子失去判別力的是
+  #        「**matcher 樣式 ⊂ 某個非目標判詞**」——兩者不是同一件事。
+  #        反例:新增 `_k='🔴症狀B候選但零收集'` ⇒ 那把尺回 **0 組**,
+  #        而 27-c 與 30-a/b/d **同時誤命中**。
+  #   ⇒ **不留一把量錯軸的尺**(它會讓下一個人以為這件事有人在看)。
+  #     替代 = 自檢那七格全部收成 `| head -1` + **整行相等**, 子字串比對一處不留。
   echo "分診: $_k"
-  echo "marker: not_set=$_ns service_client=$_cs timeout=$_to"
+  echo "marker: not_set=$_ns service_client=$_cs timeout=$_to no_test_files=$_nofiles zero_collected=$_zero"
   echo "最集中的失敗檔: ${_top:-無}"
 }
 
@@ -1058,19 +1101,64 @@ selftest() {
     > "$tri_tmp/symB.log"
   printf 'FAIL  |admin| a/b.test.ts\nAssertionError: nope\nTest Files  1 failed | 2 passed\n' \
     > "$tri_tmp/other.log"
-  case "$(triage_vitest_log "$tri_tmp/green.log")" in *綠*) r=ok ;; *) r=bad ;; esac
-  ck "格27-a 全綠 log ⇒ 判綠" "$r" "ok"
-  case "$(triage_vitest_log "$tri_tmp/symA.log")" in *'症狀A(逾時)'*) r=ok ;; *) r=bad ;; esac
+  # 🔴 **比對收緊成整行,不用 `*綠*`**(線E 2026-08-28 收緊,理由是量到的):
+  #   我新增的判詞「🔴零收集(一支測試檔都沒跑到 —— **這不是綠**)」**裡面含「綠」這個字**
+  #   ⇒ 舊的 `*綠*` 在【恆回零收集】那個突變之下 **照樣 PASS**(N2 實測:27-b/c/d 與 30-c 都紅了,
+  #      而 27-a 沒有)⇒ 那一格當時沒有判別力。
+  #   📌 **一個子字串比對, 會被【未來新增的判詞】從外面弄壞, 而弄壞它的人不會收到訊號。**
+  #   ⇒ 改成整行相等。負對照 = 格30-c(它證明「真的全綠不會被判成零收集」)。
+  case "$(triage_vitest_log "$tri_tmp/green.log" | head -1)" in '分診: 綠') r=ok ;; *) r=bad ;; esac
+  ck "格27-a 全綠 log ⇒ 判綠(整行相等, 不是含有「綠」)" "$r" "ok"
+  case "$(triage_vitest_log "$tri_tmp/symA.log" | head -1)" in '分診: 症狀A(逾時)') r=ok ;; *) r=bad ;; esac
   ck "格27-b 只有逾時 ⇒ 判症狀A" "$r" "ok"
-  case "$(triage_vitest_log "$tri_tmp/symB.log")" in *'症狀B候選'*) r=ok ;; *) r=bad ;; esac
+  case "$(triage_vitest_log "$tri_tmp/symB.log" | head -1)" in '分診: 🔴症狀B候選(module mock 失效)') r=ok ;; *) r=bad ;; esac
   ck "格27-c 有 not set / createSupabaseServiceClient ⇒ 判症狀B候選" "$r" "ok"
   # 🔴 格27-d 是【新形狀】那一格:紅、但兩類 marker 都不符 ⇒ 不得被靜默歸進 A 或綠。
   #    沒有這一格,一種沒見過的紅會被塞進最近的那個桶,而分診表看起來完整。
-  case "$(triage_vitest_log "$tri_tmp/other.log")" in *'兩類皆不符'*) r=ok ;; *) r=bad ;; esac
+  case "$(triage_vitest_log "$tri_tmp/other.log" | head -1)" in '分診: 🔴紅但兩類皆不符(新形狀,值得看)') r=ok ;; *) r=bad ;; esac
   ck "格27-d 紅但兩類 marker 皆不符 ⇒ 要明說是新形狀,不得塞進既有桶" "$r" "ok"
   # 格27-e:log 不存在時明說,不得靜默判綠(那會讓「沒量到」長得像「量到綠」)。
-  case "$(triage_vitest_log "$tri_tmp/nope.log")" in *'log 不存在'*) r=ok ;; *) r=bad ;; esac
+  case "$(triage_vitest_log "$tri_tmp/nope.log" | head -1)" in '分診: log 不存在') r=ok ;; *) r=bad ;; esac
   ck "格27-e log 不存在 ⇒ 明說,不得靜默判綠" "$r" "ok"
+  # ── 格30-a/b/c/d:**零收集**(線E 2026-08-28,板子 B 節 ⟦b4-M1⟧ ③)──────────────
+  #   🔴 加它的理由是量到的, 不是想到的:在補這幾格之前, 下面三份 log **全部判「綠」**
+  #      —— 兩份是「一支測試都沒跑到」, 一份是真的全綠。**三個世界印同一句話。**
+  #   而它救不救得回來只靠 vitest 自己的 rc=1, 而 `CLAUDE.md` 記著那個坑的下半:
+  #   「濾掉那句之後畫面全空, 與『零失敗』長得一樣」。
+  printf 'RUN  v4.1.5\n\nNo test files found, exiting with code 1\n\nfilter: src/lib/foo.test.ts\n' \
+    > "$tri_tmp/nofiles.log"
+  printf 'Test Files  0 passed (0)\n      Tests  0 passed (0)\n' > "$tri_tmp/zerocollect.log"
+  case "$(triage_vitest_log "$tri_tmp/nofiles.log" | head -1)" in '分診: 🔴零收集(一支測試檔都沒跑到 —— 這不是綠)') r=ok ;; *) r=bad ;; esac
+  ck "格30-a No test files found ⇒ 判零收集,不得判綠" "$r" "ok"
+  case "$(triage_vitest_log "$tri_tmp/zerocollect.log" | head -1)" in '分診: 🔴零收集(一支測試檔都沒跑到 —— 這不是綠)') r=ok ;; *) r=bad ;; esac
+  ck "格30-b Test Files 0 passed (0) ⇒ 判零收集,不得判綠" "$r" "ok"
+  # 🔴 **這一格的理由被我自己在同一顆 commit 內推翻了, 而我留下它並改寫理由**
+  #    (code-reviewer 2026-08-28 N1)。
+  #    ~~原本寫:「少了它, 把分診改成【恆回零收集】⇒ a 與 b 照樣 PASS」~~ **不成立** ——
+  #    我在同一顆 commit 裡把 27-a 收緊成整行相等 ⇒ 那個突變之下 **27-a 自己就會紅**
+  #    (審查者實測那一發紅 5 格:27-a/b/c/d + 30-c)。
+  #    ✅ **現在的理由**:它是【零收集這條分支】的專屬反向格 —— 27-a 守的是「綠要判成綠」,
+  #       這一格守的是「綠**不得被判成零收集**」。兩者在【只有一條分支壞掉】時分得開。
+  #    📌 **格子冗餘無害, 而一個錯的理由會誤導下一個人去刪它。**
+  case "$(triage_vitest_log "$tri_tmp/green.log" | head -1)" in '分診: 綠') r=ok ;; *) r=bad ;; esac
+  ck "格30-c 真的全綠 ⇒ 不得被誤判成零收集(否則上兩格可能只是恆回零收集)" "$r" "ok"
+  # 🔴 格30-d:**排序**。零收集必須排在症狀B 之前 —— 一份「什麼都沒跑」而剛好含 not set
+  #    字樣的 log, 若先被判成症狀B, 人會去修一個【根本沒跑到】的東西。
+  printf 'No test files found, exiting with code 1\nNEXT_PUBLIC_SUPABASE_URL not set\n' \
+    > "$tri_tmp/zero_and_notset.log"
+  case "$(triage_vitest_log "$tri_tmp/zero_and_notset.log" | head -1)" in '分診: 🔴零收集(一支測試檔都沒跑到 —— 這不是綠)') r=ok ;; *) r=bad ;; esac
+  ck "格30-d 零收集 + not set 同時出現 ⇒ 判零收集(排序),不得判症狀B" "$r" "ok"
+  # 🔴 格30-e:**那段「上螢幕」的碼真的掛在 four_greens() 裡**(射程=原始碼行)。
+  #   加它的理由是 code-reviewer M1:判詞落進 `TRIAGE` 檔 = **零讀者** ⇒ 什麼都買不到。
+  #   而修法(echo 到 stdout)本身**也需要一個守門** —— 否則有人把那三行刪掉,
+  #   分診照樣正確、四格照樣 PASS、**而它又變回沒有人看得到**。
+  #   📌 **一個「讓它被看見」的修法, 自己也會安靜地被拿掉。**
+  r=$(printf '%s\n' "$fg_body" | grep -c '零收集\*) echo' || true)
+  ck "格30-e 零收集判詞真的 echo 到 stdout(不是只落 TRIAGE 檔;射程=原始碼行)" "$r" "1"
+  # 🔴 格30-f [負向]:上面那格只證「有這行」, 證不了它**只在零收集時**出聲。
+  #   而一個無條件 echo 會讓每一發四綠都印那句紅字 ⇒ 狼來了。
+  r=$(printf '%s\n' "$fg_body" | grep -c 'case "\$_tri_line" in' || true)
+  ck "格30-f 那段 echo 是【條件式】不是無條件(射程=原始碼行)" "$r" "1"
   rm -rf "$tri_tmp"
   # ── 格28 系列:load average 解析器的三個世界(純函式,餵構造好的字串)──────
   #   🔴 **刻意【不】做「造負載看它動」那一格**,而理由是量過的:
