@@ -16,7 +16,8 @@ set -uo pipefail
 # fixture 數與 check 數以 --selftest 自己印的 N/N 為準,不在這裡寫死(寫死的數字會漂)。
 if [ "${1:-}" = "--selftest" ]; then
   SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-  FX="$(mktemp -d)"; trap 'rm -rf "$FX"' EXIT
+  FX="$(mktemp -d)" || { echo "🔴 建不出暫存目錄(mktemp)⇒ 這不是量測結果, 也不是「乾淨」 ⇒ exit 9" >&2; exit 9; }
+  trap 'rm -rf "$FX"' EXIT
   # 基底(更早檔):foo 裸 CREATE / view v / trigger trg ON a / pcm_cron.foo2 / 以及一支【只在 dollar-quote
   # 字串裡】提到 CREATE FUNCTION public.ghost 的檔(那不是定義,是 DO block 自檢的字串常數)。
   printf 'CREATE FUNCTION public.foo() RETURNS void LANGUAGE sql AS $f$ SELECT 1 $f$;\nCREATE VIEW public.v AS SELECT 1;\nCREATE TRIGGER trg BEFORE INSERT ON public.a FOR EACH ROW EXECUTE FUNCTION public.foo();\nCREATE FUNCTION pcm_cron.foo2() RETURNS void LANGUAGE sql AS $f$ SELECT 1 $f$;\n' > "$FX/20200101000000_base.sql"
@@ -110,9 +111,29 @@ fi
 #    這在今天是無害的(沒有呼叫端會餵多支),但只要有人把它掛進 lint-staged 就會變成承重的 ——
 #    lint-staged 把【所有命中的檔】一次接在命令後面。⇒ 先修,不要等它變成事故。
 if [ "$#" -gt 1 ]; then
+  # 🔴 codex R1 must-fix(2026-08-27):`|| multi_rc=1` 會把 9(量不到)塌成 1(有違規)——
+  #    而【這一層有真的讀者】:migration-new-file-static-checks.sh 的迴圈就在 case 9 上分流。
+  #    塌掉之後那個分流永遠不會命中 ⇒ 它會說「這支違規」, 而事實是「我沒檢查」。
   multi_rc=0
+  _idx=0
   for one in "$@"; do
-    bash "$0" "$one" || multi_rc=1
+    _idx=$((_idx + 1))
+    bash "$0" "$one"; _one_rc=$?
+    case "$_one_rc" in
+      0) ;;
+      9) echo "🔴 $one:量不到(暫存目錄建不出來)⇒ 多檔這一發【沒有檢查完】,exit 9" >&2
+         # 🔴 code-reviewer nit:入口那支修了這條, 這一半沒修 —— 而上面的註解自己寫著
+         #    這條路遲早會被掛進 lint-staged。「擋住了」與「檢查過了」是兩件事。
+         # 🔴 codex R2 + code-reviewer nit(兩把獨立的尺撞同一格):用【檔名】判斷「我走到哪了」
+         #    在重複參數時會把已檢查過的那次誤列成未檢查 ⇒ 改用【位置】, 名字重複也不影響。
+         _j=0
+         for _rest in "$@"; do
+           _j=$((_j + 1))
+           [ "$_j" -gt "$_idx" ] && echo "   · 未檢查:$_rest" >&2
+         done
+         exit 9 ;;
+      *) multi_rc=1 ;;
+    esac
   done
   exit "$multi_rc"
 fi
@@ -200,10 +221,15 @@ join_create() {
     END { if (pending != "") print pending }
   '
 }
-STRIPPED="$(mktemp)"
-JOINED="$(mktemp)"
-EARLIER_CACHE="$(mktemp -d)"
-trap 'rm -rf "$STRIPPED" "$JOINED" "$EARLIER_CACHE"' EXIT
+# 🔴 這三個原本沒守(2026-08-27 本窗掃出來)—— 而它們的失效方向是【假紅】不是【假綠】:
+#    2026-08-27 實測 3 個逐個失敗 ⇒ 違規檔 3/3 仍判 rc=1(擋住), 而乾淨檔第 1 次會誤判 rc=1。
+#    ⇒ 不是漏擋, 是**擋錯人而畫面上說不出為什麼** ⇒ 這裡只補一句話, 不改判定。
+STRIPPED="$(mktemp)" || { echo "🔴 建不出暫存目錄(mktemp)⇒ 這不是量測結果, 也不是「乾淨」 ⇒ exit 9" >&2; exit 9; }
+# 🔴 codex R2 nit:trap 原本裝在三個都建完之後 ⇒ 第 2/3 個失敗時前面那個【殘留】。
+#    先裝, 用 ${VAR:-} 讓還沒建的那些展開成空並跳過。
+trap 'for _t in "${STRIPPED:-}" "${JOINED:-}" "${EARLIER_CACHE:-}"; do [ -n "$_t" ] && rm -rf "$_t"; done' EXIT
+JOINED="$(mktemp)" || { echo "🔴 建不出暫存目錄(mktemp)⇒ 這不是量測結果, 也不是「乾淨」 ⇒ exit 9" >&2; exit 9; }
+EARLIER_CACHE="$(mktemp -d)" || { echo "🔴 建不出暫存目錄(mktemp)⇒ 這不是量測結果, 也不是「乾淨」 ⇒ exit 9" >&2; exit 9; }
 strip_sql "$F" > "$STRIPPED"
 join_create < "$STRIPPED" > "$JOINED"
 

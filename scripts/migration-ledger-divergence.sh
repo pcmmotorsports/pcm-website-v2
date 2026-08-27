@@ -40,6 +40,16 @@
 # ── 用法 ────────────────────────────────────────────────
 #   sh scripts/migration-ledger-divergence.sh              對正式庫實查(需 supabase CLI 已 link)
 #   sh scripts/migration-ledger-divergence.sh --selftest   雙向表演(該紅/該綠各餵一發),不連網
+#
+# ── ⚠️ 本片只改「失敗長什麼樣子」, 沒有改「它停不停」(2026-08-27, 主視窗裁乙)───────
+#   🔴 codex R1 nit 訂正:上一版寫「沒有讓它停下來」是**錯的字面** ——
+#     mktemp 失敗本來就會讓 compare 回非 0、讓 pre-push 的 `&&` 串停住, 修前修後都一樣。
+#     ⇒ 正確的宣稱是【停不停沒變】, 不是【不會停】。
+#   建不出暫存目錄現在回 **9**(而不是與「量具壞了」共用的 1)⇒ 自檢那五格會亮紅並說出原因。
+#   🔴 而主流程沒動:pre-push 走的是 `&&` 串, 9 與 1 一樣是非 0 ⇒ **擋不擋 push 完全沒變。**
+#   要讓它【當場停下來】(把 return 換成 exit)= 動控制流 = 動 `.husky/pre-push:66` 這條全隊的路
+#   ⇒ 那是**另一片**, 不在本片範圍。理由:selftest 可能本來就依賴那個 return 跑完後面的格,
+#     而我們還沒量過那件事 —— **不拿全隊的 push 去換一個還沒完全理解的控制流。**
 #   sh scripts/migration-ledger-divergence.sh --fixture D  用假帳本跑(D/migrations, D/applied.tsv, D/platform.txt)
 #   … --if-pushing-main   由 .husky/pre-push 呼叫:讀 git 餵的 ref,只在推 refs/heads/main 時實查
 #
@@ -118,7 +128,13 @@ fi
 # 🔴 codex R1:comm 不在或行為不同時,空的差集檔照樣被建立
 #    ⇒「沒有危險」與「工具壞了」是同一個畫面。這裡餵一組已知答案,答錯就當量具壞掉。
 probe_tools() {
-  _p=$(mktemp -d) || return 1
+  # 🔴 9 =【建不出暫存目錄】, 刻意與下面 comm 答錯的 1 分開(2026-08-27 本窗實測)——
+  #    29 次 mktemp 逐個失敗掃過去, 其中 **10 次**(D/E/H/L/M 五格各兩次)輸出與乾淨那發
+  #    【逐字相同、rc 也相同】⇒ 那五格宣稱的是「量具壞了 ⇒ 1」, 而 mktemp 失敗**也**回 1
+  #    ⇒ **格子通過了, 而理由是錯的。**
+  #    📌 病不是「少了 `||`」—— 這四個 mktemp 全都有守。是【守門的回答與另一種失敗共用同一個數字】
+  #       ⇒ 打開檔案看得到 `|| return 1`, 而看到它的人會結論「這支有處理」。
+  _p=$(mktemp -d) || return 9
   printf 'a\nb\n' > "$_p/x"; printf 'b\nc\n' > "$_p/y"
   _both=$(comm -12 "$_p/x" "$_p/y" 2>/dev/null | tr -d '\n')
   _only=$(comm -23 "$_p/x" "$_p/y" 2>/dev/null | tr -d '\n')
@@ -161,8 +177,13 @@ read_H() { # $1=rev(空=工作樹) $2=tsv 路徑
 # $1=migrations 目錄  $2=APPLIED.tsv  $3=平台輸出檔  $4=rev(可空)
 compare() {
   MIGDIR="$1"; TSV="$2"; PLATF="$3"; REV="${4:-}"
-  probe_tools || { echo "🔴 量具自檢 FAIL:comm 的行為與預期不符 ⇒ 差集不可信,exit 1" >&2; return 1; }
-  W=$(mktemp -d) || { echo "🔴 mktemp 失敗 ⇒ exit 1" >&2; return 1; }
+  probe_tools; _pt=$?
+  if [ "$_pt" = "9" ]; then
+    echo "🔴 建不出暫存目錄(mktemp)⇒ 這不是量測結果, exit 9" >&2; return 9
+  elif [ "$_pt" != "0" ]; then
+    echo "🔴 量具自檢 FAIL:comm 的行為與預期不符 ⇒ 差集不可信,exit 1" >&2; return 1
+  fi
+  W=$(mktemp -d) || { echo "🔴 建不出暫存目錄(mktemp)⇒ 這不是量測結果, exit 9" >&2; return 9; }
 
   if [ -z "$REV" ]; then
     if [ ! -d "$MIGDIR" ]; then
@@ -326,12 +347,20 @@ if [ "$MODE" = "selftest" ]; then
   #      ⇒ **整批 commit 失敗,而錯誤訊息指著一個那個 repo 裡根本不存在的檔。**
   #    ⇒ 這不是 fixture 的問題,是「自檢從 hook 裡跑」時的真實副作用。
   unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR GIT_PREFIX 2>/dev/null || true
-  T=$(mktemp -d) || exit 1
+  T=$(mktemp -d) || { echo "🔴 建不出暫存目錄(mktemp)⇒ 這不是量測結果, 也不是「乾淨」 ⇒ exit 9" >&2; exit 9; }
   trap 'rm -rf "$T"' EXIT
   pass=0; fail=0
   ck() {
     if [ "$2" = "$3" ]; then echo "  PASS $1 (=$2)"; pass=$((pass+1))
-    else echo "  🔴 FAIL $1 (=$2, 該是 $3)"; fail=$((fail+1)); fi
+    else
+      echo "  🔴 FAIL $1 (=$2, 該是 $3)"; fail=$((fail+1))
+      # 🔴 只印「=9」不夠 —— 數字變了而沒說為什麼, 下一個人會去查一個不存在的邏輯錯。
+      #    compare 的 stderr 被 run() 收進 $T/out 了 ⇒ 那句話讀的人看不到 ⇒ 在這裡補回。
+      # 🔴 code-reviewer nit:`[ … ] && echo` 是 else 的尾命令 ⇒ 非 9 的 FAIL 會讓 ck() 回 1
+      #    (舊版尾命令是 `fail=$((fail+1))` 恆 0)。今天無害(本檔只有 set -u), 而哪天有人
+      #    加 `set -e` 就會在第一個 FAIL 當場斷 ⇒ 補 `|| true` 把尾命令釘回 0。
+      [ "$2" = "9" ] && echo "     ↳ 9 =【這一格的暫存目錄建不出來(mktemp 失敗)】,不是判定邏輯錯 ⇒ 查磁碟空間 / TMPDIR 權限,別查測試" || true
+    fi
   }
   mk() {
     d="$T/$1"; mkdir -p "$d/migrations"
@@ -528,7 +557,7 @@ if [ "$LINKED" != "$PROD_REF" ]; then
 fi
 echo "ledger-gate: 平台帳本來源 project=$LINKED" >&2
 
-PL=$(mktemp) || exit 1
+PL=$(mktemp) || { echo "🔴 建不出暫存目錄(mktemp)⇒ 這不是量測結果, 也不是「乾淨」 ⇒ exit 9" >&2; exit 9; }
 trap 'rm -f "$PL"' EXIT
 if ! supabase migration list --linked < /dev/null > "$PL" 2>/dev/null; then
   echo "🔴 supabase migration list --linked 失敗(未 link / 未登入 / 連不上)" >&2

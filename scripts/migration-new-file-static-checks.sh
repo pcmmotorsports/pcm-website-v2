@@ -36,7 +36,9 @@ is_added() { # $1=path → 0=這次 commit 新增
 if [ "${1:-}" = "--selftest" ]; then
   # 🔴 自檢要在**拋棄式 repo** 裡跑:A 與 M 的差別只有真的 git index 才造得出來,
   #    而在本 repo 裡動 index = 動別人正在準備的那次 commit。
-  W=$(mktemp -d) || exit 2
+  # 🔴 codex R1 must-fix(2026-08-27):這裡原本回 2 —— 而下面「自檢 fixture 建置失敗」也回 2
+  #    ⇒ **我在別處拆開的那個病, 自己家門口留了一個。**
+  W=$(mktemp -d) || { echo "🔴 建不出暫存目錄(mktemp)⇒ 這不是量測結果, 也不是「乾淨」 ⇒ exit 9" >&2; exit 9; }
   trap 'rm -rf "$W"' EXIT
   # 繼承來的 git env 會讓底下的 git add 寫進【外層那次 commit 的 index】(mutation-harness-restore.md §4e)。
   unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR GIT_PREFIX 2>/dev/null || true
@@ -83,13 +85,34 @@ fi
 rc=0
 checked=0
 skipped_list=""
+_idx=0
 for f in "$@"; do
+  _idx=$((_idx + 1))
   if ! is_added "$f"; then
     skipped_list="$skipped_list $f"
     continue
   fi
   checked=$((checked + 1))
-  bash "$CHECKS" "$f" || rc=1
+  # 🔴 `|| rc=1` 會把【每一種】非 0 都塌成「這支違規」(2026-08-27 本窗實測)——
+  #    而 9 =「暫存目錄建不出來 ⇒ 我根本沒檢查」。塌成 1 之後畫面說的是「有違規」,
+  #    ⇒ 擋是擋住了, **而它擋人的理由是編的** ⇒ 下一個人會去改一支沒問題的 SQL。
+  #    📌 同一個病的第三層:守門答對了, 而【答案在往上傳的路上被換成別的意思】。
+  bash "$CHECKS" "$f"; _c=$?
+  case "$_c" in
+    0) ;;
+    9) echo "🔴 $f:量不到(暫存目錄建不出來)⇒ 這一發【沒有檢查過】,不是「有違規」,exit 9" >&2
+       # 🔴 codex R1 nit:提早跳出 ⇒ 後面的檔【真的沒跑】。本檔自己寫著 no silent caps,
+       #    而「擋住了」與「檢查過了」是兩件事 ⇒ 把沒跑到的逐一列出來。
+       # 🔴 codex R2 + code-reviewer nit(兩把獨立的尺撞同一格):用【檔名】判斷「我走到哪了」
+       #    在重複參數時會把已檢查過的那次誤列成未檢查 ⇒ 改用【位置】, 名字重複也不影響。
+       _j=0
+       for _rest in "$@"; do
+         _j=$((_j + 1))
+         if [ "$_j" -gt "$_idx" ]; then echo "   · 未檢查:$_rest" >&2; fi
+       done
+       exit 9 ;;
+    *) rc=1 ;;
+  esac
 done
 
 # 🔴 跳過了什麼一律講出來(no silent caps):不講,下一個人會以為這一發把所有 .sql 都看過了。

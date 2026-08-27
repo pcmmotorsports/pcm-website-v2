@@ -86,7 +86,9 @@
 #      🔴 `file -b` 對上面每一支都印 `ASCII text` ⇒ **純 ASCII, 與編碼無關**, ① 的判別法看不到這一族。
 #      **安全做法**:要數數就用 `/usr/bin/grep` 或 `awk` 或 `python3`, **不要用 `grep -vc`**。
 #      📌 **本閘不用 `grep -v`, 所以本閘不中。** 寫在這裡是因為 `scripts/` 底下有別支在用:
-#         `migration-ledger-divergence.sh:192-193` 的 `n_odd_R` / `n_odd_H` 自檢(走 **pre-push**),
+#         `migration-ledger-divergence.sh` 的 `n_odd_R` / `n_odd_H` 自檢(走 **pre-push**;
+#         查法 `grep -n 'n_odd_R=' scripts/migration-ledger-divergence.sh` ——
+#         🔴 這裡原本寫 `:192-193`, 2026-08-27 那支加了註解就漂到別處了),
 #         而那道自檢正上方的註解寫著它是為了抓「形狀對不上的列會靜默消失」。
 #         2026-08-25 夜實測:`supabase/APPLIED.tsv` 與重現出的 `R.raw`/`H.raw` **都以 `0a` 結尾**,
 #         兩把 grep 給的 `n_odd` 皆 **0**, 餵進 214 列吐出 214 列 ⇒ **條件不成立, 不是事故**。
