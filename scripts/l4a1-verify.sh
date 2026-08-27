@@ -4,6 +4,31 @@
 #
 #   PORT=54372 bash scripts/l4a1-verify.sh /tmp/p2-l4-work
 #
+# ══ 🔴 `mktemp` 那一行:我【量到什麼】與【缺哪一道檢查】(2026-08-27,線1)══════════
+#    改動:`mktemp -t <prefix>`(BSD 方言)⇒ `mktemp "${TMPDIR:-/tmp}/<prefix>.XXXXXX"`(模板形)。
+#    形狀與 `.husky/commit-msg:84` 逐字同款(那顆是 `7efbe93d`,CI 實證修好的那一個)。
+#
+#    ✅ **我量到的(macOS,2026-08-27)**
+#      · 新舊兩形都產出一個【檔案】(不是目錄)—— 本檔靠這一點(沒有 `-d`)
+#      · 連開三次 ⇒ 三個不同名字
+#      · `bash -n` rc=0
+#      · 本檔整支跑修前 / 修後各一發 ⇒ **輸出逐字相同(`diff` 0 行)**,rc 兩發皆相同
+#
+#    🔴 **我【量不到】的那一道,而它正是這次要修的那一半:**
+#      這個坑只在 **GNU coreutils** 上發作(GNU 要求模板含 ≥3 個 `X`;`-t` 在 GNU 是 deprecated)。
+#      **而這台機器是 macOS/BSD** ⇒ 我在這裡跑幾發都證不到 GNU 那一側。
+#      ⚠️ **實錘:我做的負對照自己證明了這件事** —— 我餵一個【故意寫壞】的模板(`zzz.XX`,只有兩個 X),
+#         期望它失敗來證明尺有判別力,而 **BSD 照樣成功回 rc=0**。
+#         ⇒ 那條「≥3 個 X」的規則在這台機器上**根本不生效**,我測不出好模板與壞模板的差別。
+#      ⇒ **缺的那道檢查:在一台 Linux 上跑一次這支 harness。沒有人做過,我也沒做。**
+#      ⇒ 在那之前,本段**不得**被讀成「已驗證跨平台」——它只證了「macOS 上行為未變」。
+#
+#    ⚠️ **而本檔在 HEAD 上就是紅的,與本次改動無關**(修前那一發同樣紅、同一個位置):
+#      `🔴 migration 失敗:supabase/migrations/20260818190000_m4b_admin_sso_login_events.sql`
+#      ⇒ 那是**既有狀態**,不是我改出來的。**未查、未修、不在本片射程。**
+#      📌 而它讓上面那個「逐字相同」的射程變窄:兩發都在同一個早期位置停住
+#         ⇒ 它證得了「`mktemp` 那一行仍然work」(不然會死在更前面),**證不到後面那些格子。**
+#
 # 兩層,缺一層都證不完:
 #   【matrix】10 格行為矩陣 —— 對「現行定義」跑,證明它**做了什麼**。
 #   【mutations】9 發突變 —— 每發改壞 per-user 閘的一條述詞,分兩軸各自斷言:
@@ -231,7 +256,12 @@ mutations() {
   local m expr tmp out
   for m in M1 M2 M3 M4 M5 M6 M7 M8 M9; do
     expr="$(mutate_sed "$m")"
-    tmp="$(mktemp -t l4a1mut)"
+    # 🔴 **`mktemp -t <prefix>` 是 BSD 方言 —— 在 GNU coreutils 上【必炸】**
+    #    (GNU 要求模板含 ≥3 個 `X`;`-t` 在 GNU 是 deprecated 且語意不同)。
+    #    2026-08-27 實例:`.husky/commit-msg:76` 同款寫法讓 CI 紅了 7 格(修在 `7efbe93d`)。
+    #    ⇒ 改成兩邊都認得的模板形。**語意不變:仍然是一個【檔案】不是目錄(沒有 `-d`)。**
+    #    ⚠️ **而本檔【沒有人在 Linux 上跑過】** —— 見檔頭「缺哪一道檢查」那節。
+    tmp="$(mktemp "${TMPDIR:-/tmp}/l4a1mut.XXXXXX")"
     perl -0777 -pe "$expr" "$MIG" > "$tmp"
     if cmp -s "$tmp" "$MIG"; then bad "$m 突變沒套上(perl 表達式沒命中)—— 這一發的結論全部無效"; rm -f "$tmp"; continue; fi
 
