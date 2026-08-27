@@ -145,6 +145,45 @@ SELECT * FROM (
                   '(最近 6h 零筆非 2xx)'),
          '🔴 若它是 email-sweep ⇒ 那是 skipped_bad_cutoff 或 failed, 兩者都要修'
 
+
+  -- ── 區 4 · enqScanned=0 到底是哪個世界(丙:探針自己分得開「沒訂單」與「全被濾掉」)──────
+  --   🔴 enqScanned 只有一個 0,而它在【沒有符合的訂單】與【有訂單而全被 cutoff 濾掉】印同一個 0。
+  --   這一區直接數 public.orders(= scanner 的篩子【減去 cutoff 那一半】,probe 不知道 cutoff 值),
+  --   讓那個 0 從此有判別力 —— 不需要有人記得「第一張真實訂單進來後要重跑」。
+  --   scanner 篩子權威:packages/adapters/src/email/SupabasePaidOrderScannerAdapter.ts:190-202。
+  UNION ALL
+  SELECT '4 訂單分母', 40, '總訂單數(所有列)',
+         (SELECT count(*)::text FROM public.orders),
+         '=0 ⇒ enqScanned=0 是【真的沒訂單】; >0 ⇒ 看序 42'
+
+  UNION ALL
+  SELECT '4 訂單分母', 41, '有效已付款(payment_status=paid 且 cancelled_at 為空)',
+         (SELECT count(*)::text FROM public.orders
+           WHERE payment_status = 'paid' AND cancelled_at IS NULL),
+         '序 42 的上界;它 >0 而序 42 =0 ⇒ 那些單都已排過建立信'
+
+  UNION ALL
+  SELECT '4 訂單分母', 42,
+         '🔴 已付款未取消【且沒排過 order_created】(= scanner 篩子減去 cutoff 那一半)',
+         (SELECT count(*)::text FROM public.orders o
+           WHERE o.payment_status = 'paid' AND o.cancelled_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM public.email_outbox e
+                              WHERE e.order_id = o.id AND e.event_type = 'order_created')),
+         '🔴 這一格 >0 而 body 的 enqScanned=0 ⇒ 它們【只差 cutoff 這一刀】⇒ 去對 B4_DEPLOY_CUTOFF'
+
+  UNION ALL
+  SELECT '4 訂單分母', 43, '🔴 判定:enqScanned=0 是哪個世界',
+         (SELECT CASE
+             WHEN (SELECT count(*) FROM public.orders) = 0
+                  THEN '✅ 沒訂單 —— enqScanned=0 是預期(STATUS 前提:目前零真實訂單)'
+             WHEN (SELECT count(*) FROM public.orders o
+                    WHERE o.payment_status = 'paid' AND o.cancelled_at IS NULL
+                      AND NOT EXISTS (SELECT 1 FROM public.email_outbox e
+                                       WHERE e.order_id = o.id AND e.event_type = 'order_created')) > 0
+                  THEN '🔴🔴 有【已付款未寄】的單而 enqScanned=0 ⇒ 被 cutoff 濾掉 ⇒ 不再是預期, 去對 cutoff'
+             ELSE '✅ 有訂單但都沒付款/都排過信 —— enqScanned=0 仍是預期' END),
+         '🔴 把「第一張真實訂單進來後 0 才有判別力」焊進探針 —— 兩個世界從此印不同的字'
+
 ) t ORDER BY 區, 序, 對象;
 
 ROLLBACK;
