@@ -1,0 +1,11 @@
+-- Production history compatibility marker.
+--
+-- The Supabase migration API applied the P4 generic-plan RPC fix at version 20260712142722.
+-- That timestamp is earlier than the already-applied P4/S4 source migrations (183000/193000),
+-- so this source entry must stay a no-op for a fresh database replay. The definitive, replay-safe
+-- function replacement is 20260712213000_p4_catalog_rpc_split_generic_plan_replay.sql, which runs
+-- after all prerequisite list-view and S4 fitments migrations.
+--
+-- Production already has the equivalent function body from the API application; the later migration
+-- is intentionally idempotent and records the same final definition in chronological source order.
+SELECT 1;

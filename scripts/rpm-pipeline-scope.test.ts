@@ -1,0 +1,104 @@
+// rpm-pipeline-scope.test.ts — P0-A-2 供應商 scope 參數化的隔離證明(不變式 1)
+//
+// 管線每支 helper 都須把呼叫端傳入的 supplierSlug 貫穿成 .eq('supplier_slug', slug),
+// 絕不跨供應商合併(否則 A 家的下架/對賬會誤動 B 家)。本測試用 recording mock client
+// 攔截 .eq('supplier_slug', …) 呼叫,證明:
+//   - 傳 'gbracing' → scope gbracing(參數化真的生效)
+//   - 🔴 傳 'rpm' → scope rpm(byte 等價錨點,不變式 3:改多家不動 RPM 現況)
+// 不連真 DB(mock resolve 空集合);焦點 = source fetch / active-read / delist-write 三條 scope。
+
+import { describe, it, expect } from 'vitest';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { fetchAllSupplierProducts } from './rpm-fetch';
+import { computeSourceMissing, markSourceMissing, clearSourceMissing } from './rpm-reconcile';
+import { computeDelta, preflightSpecUnique } from './rpm-delta';
+import type { ProductRow } from './rpm-transform';
+
+/** 可鏈式 recording mock:任何 builder 方法回自身、await 時 resolve {data:[],error:null};
+ *  記錄所有 .eq('supplier_slug', X) 呼叫供斷言。 */
+function makeRecordingClient(): { client: SupabaseClient; supplierScopes: unknown[] } {
+  const supplierScopes: unknown[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const builder: any = new Proxy(function () {}, {
+    get(_t, prop) {
+      if (prop === 'then') {
+        return (onFulfilled: (v: unknown) => unknown) =>
+          Promise.resolve({ data: [], error: null }).then(onFulfilled);
+      }
+      return (...args: unknown[]) => {
+        if (prop === 'eq' && args[0] === 'supplier_slug') supplierScopes.push(args[1]);
+        return builder;
+      };
+    },
+  });
+  const client = { from: () => builder } as unknown as SupabaseClient;
+  return { client, supplierScopes };
+}
+
+describe('pipeline supplier scope isolation (P0-A-2)', () => {
+  it('fetchAllSupplierProducts scopes the source view by the given supplierSlug', async () => {
+    const gb = makeRecordingClient();
+    await fetchAllSupplierProducts(gb.client, 'gbracing');
+    expect(gb.supplierScopes).toContain('gbracing');
+
+    const rpm = makeRecordingClient(); // 🔴 byte 等價錨點
+    await fetchAllSupplierProducts(rpm.client, 'rpm');
+    expect(rpm.supplierScopes).toEqual(['rpm']);
+  });
+
+  it('computeSourceMissing scopes the active-read by the given supplierSlug (不越界對賬)', async () => {
+    const gb = makeRecordingClient();
+    await computeSourceMissing(gb.client, 'gbracing', new Set(['SEED']));
+    expect(gb.supplierScopes).toContain('gbracing');
+    expect(gb.supplierScopes).not.toContain('rpm'); // 絕不摻入別家 scope
+
+    const rpm = makeRecordingClient();
+    await computeSourceMissing(rpm.client, 'rpm', new Set(['SEED']));
+    expect(rpm.supplierScopes).toEqual(['rpm']);
+  });
+
+  // 🔴 #20 片2b:原本兩格叫 applyDelist(寫 delisted_at)。行為已改成標記 source_missing_at、
+  //    並新增反向的 clearSourceMissing ⇒ **兩支都要有 scope 護欄**,不是只搬名字。
+  it('🔴 markSourceMissing scopes the UPDATE by the given supplierSlug (不變式 1 護欄)', async () => {
+    const gb = makeRecordingClient();
+    await markSourceMissing(gb.client, 'gbracing', ['EXT-1'], '2026-07-03T00:00:00Z');
+    expect(gb.supplierScopes).toEqual(['gbracing']); // 標記只能動自己那家
+
+    const rpm = makeRecordingClient();
+    await markSourceMissing(rpm.client, 'rpm', ['EXT-1'], '2026-07-03T00:00:00Z');
+    expect(rpm.supplierScopes).toEqual(['rpm']);
+  });
+
+  it('🔴 clearSourceMissing 也受同一條 scope 護欄(反向清除同樣會跨家污染)', async () => {
+    const gb = makeRecordingClient();
+    await clearSourceMissing(gb.client, 'gbracing', ['EXT-1']);
+    expect(gb.supplierScopes).toEqual(['gbracing']);
+
+    const rpm = makeRecordingClient();
+    await clearSourceMissing(rpm.client, 'rpm', ['EXT-1']);
+    expect(rpm.supplierScopes).toEqual(['rpm']);
+  });
+
+  // F1(Fable 對抗審):delta/preflight 兩條 .eq scope 補測,防未來重構回退 hardcode 'rpm' 而 CI 仍綠。
+  const MINI_PRODUCT: ProductRow = {
+    supplier_slug: 'x', external_id: 'EXT-1', handle: 'x-ext-1', title: 't', subtitle: 's',
+    price_general: 100, price_store: null, price_by_tier: {}, fitments: [], images: [],
+    availability: 'in-stock', brand_id: 'b', category_id: 'c', metadata: {},
+    // 🔴 `#20` 片2b 起 `ProductRow` 沒有 `delisted_at`(同步不再寫下架)。
+    updated_at: '2026-07-03T00:00:00Z',
+  };
+
+  it('computeDelta scopes the existing-price read by the given supplierSlug', async () => {
+    const gb = makeRecordingClient();
+    await computeDelta(gb.client, 'gbracing', [MINI_PRODUCT], []);
+    expect(gb.supplierScopes).toContain('gbracing');
+    expect(gb.supplierScopes).not.toContain('rpm');
+  });
+
+  it('preflightSpecUnique scopes the products lookup by the given supplierSlug', async () => {
+    const gb = makeRecordingClient();
+    await preflightSpecUnique(gb.client, 'gbracing', new Map([['EXT-1', []]]));
+    expect(gb.supplierScopes).toContain('gbracing');
+    expect(gb.supplierScopes).not.toContain('rpm');
+  });
+});
