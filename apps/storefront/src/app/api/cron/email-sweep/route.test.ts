@@ -19,7 +19,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-const { sweepSpy, getDepsSpy, enqueueSpy, getEnqueueDepsSpy } = vi.hoisted(() => ({
+const { sweepSpy, getDepsSpy, enqueueSpy, getEnqueueDepsSpy , hbOkSpy, hbFailSpy } = vi.hoisted(() => ({
+  hbOkSpy: vi.fn(),
+  hbFailSpy: vi.fn(),
   sweepSpy: vi.fn(),
   getDepsSpy: vi.fn(),
   // 🔴 B-5:enqueue 那半有**自己的** use-case 與**自己的** deps factory(plan §3.1)。
@@ -34,6 +36,13 @@ vi.mock('@pcm/use-cases', () => ({
 vi.mock('@/lib/email/composition', () => ({
   getSweepEmailOutboxDeps: getDepsSpy,
   getEnqueueOrderCreatedDeps: getEnqueueDepsSpy,
+}));
+
+// b4-CRON6 片1:心跳寫入端。mock 掉的是 IO,不是判斷 —— 判斷(哪一條路寫)在 route 裡。
+vi.mock('@/lib/cron/heartbeat', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  recordHeartbeatSuccess: hbOkSpy,
+  recordHeartbeatFailure: hbFailSpy,
 }));
 
 import * as route from './route';
@@ -495,5 +504,35 @@ describe('GET email-sweep — 🔴 B-5 enqueue 接線', () => {
     expect(ROUTE_SOURCE.indexOf(enqueueCallSite)).toBeLessThan(ROUTE_SOURCE.indexOf(sweepCallSite));
     expect(ROUTE_SOURCE).toContain('function pickEnqueueCounts');
     expect(ROUTE_SOURCE).not.toContain('...enqueueResult');
+  });
+});
+
+// ══ 心跳三態（b4-CRON6 爇1，R1 I2 補）══
+// 🔴 本檔本次 diff 之前【零】心跳斷言 ⇒ 把那行心跳刪掉，這支檔照樣全綠。
+//    那正是在 settle-sweep 上量到的形狀（139 全綠 ⇒ 刪掉一行 ⇒ 還是 139 全綠）。
+describe('GET email-sweep — 心跳三態', () => {
+  it('🟢 200 + ok:true ⇒ 寫成功心跳、不寫失敗', async () => {
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    expect(hbOkSpy).toHaveBeenCalledWith('pcm-email-sweep');
+    expect(hbFailSpy).not.toHaveBeenCalled();
+  });
+
+  it('🔴 errors>0 ⇒ 503 ⇒ 寫失敗心跳、不寫成功', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT, errors: 2 });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    expect(hbFailSpy).toHaveBeenCalledWith('pcm-email-sweep');
+    expect(hbOkSpy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('🔴 401 ⇒ 一格都不寫', async () => {
+    const res = await GET(makeReq(bearer('b'.repeat(48))));
+    expect(res.status).toBe(401);
+    expect(hbOkSpy).not.toHaveBeenCalled();
+    expect(hbFailSpy).not.toHaveBeenCalled();
   });
 });

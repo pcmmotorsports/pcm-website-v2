@@ -45,6 +45,7 @@ import {
 //    disabled 200 no-op 靜默回歸要 DB env。改 @/lib/payment/composition 前必守此 lazy 契約。
 import { getSettleChargeDeps, getWebhookInbox } from '@/lib/payment/composition';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
+import { CRON_JOB_NAME, recordHeartbeatSuccess, recordHeartbeatFailure } from '@/lib/cron/heartbeat';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -256,10 +257,19 @@ export async function GET(request: Request): Promise<Response> {
         ...result,
         reconfirm,
       });
+      await recordHeartbeatFailure(CRON_JOB_NAME.settleSweep);
       return Response.json({ ok: false, enabled: true, ...result, reconfirm }, { status: 503 });
     }
 
     // 5. 認證過 + enabled + 無錯 → 200 + 計數摘要(零 PII counts)。
+    // 🔴🔴 **心跳的「成功」比 `ok:true` 嚴格**(codex R1 finding 2):
+    //    `reconfirmExpiredOrphans` **永久卡住**時走的是 `skipped:'timeout'`,而 `errors` 仍是 0
+    //    ⇒ 沿用 `ok:true` 當判準 ⇒ **重查可以長期停擺,而心跳持續綠燈**。
+    //    ⚠️ `skipped:'budget'` **不算**失敗 —— 那是主 sweep 吃掉預算的**正常讓路**,
+    //      而 `'timeout'` 是「跑了、而它沒回來」。**兩者不同,不要合成一格。**
+    //    ⚠️ 本次不改回應(200 是既有契約),只讓心跳說實話。
+    if (reconfirm.skipped === 'timeout') await recordHeartbeatFailure(CRON_JOB_NAME.settleSweep);
+    else await recordHeartbeatSuccess(CRON_JOB_NAME.settleSweep);
     return Response.json({ ok: true, enabled: true, ...result, reconfirm }, { status: 200 });
   } catch {
     // deps/env 缺(factory requireEnv throw)或非預期 throw → 503 fail-closed(不偽 200)。
@@ -269,6 +279,7 @@ export async function GET(request: Request): Promise<Response> {
     console.error('[settle-sweep] 🔴 sweeper 無法執行(deps/env 缺或非預期 throw、回 503;不吞 200 偽裝成功)', {
       reason: 'deps_or_unexpected_throw',
     });
+    await recordHeartbeatFailure(CRON_JOB_NAME.settleSweep);
     return new Response(null, { status: 503 });
   }
 }

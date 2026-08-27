@@ -39,6 +39,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { applyOrderIneligibleGate, type ApplyOrderIneligibleGateDeps } from '@pcm/use-cases';
 import { getApplyOrderIneligibleGateDeps } from '@/lib/email/composition';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
+import { CRON_JOB_NAME, recordHeartbeatSuccess, recordHeartbeatFailure } from '@/lib/cron/heartbeat';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -109,15 +110,18 @@ export async function GET(request: Request): Promise<Response> {
     //    「安全」,見檔頭殘留 race 說明;重試解決不了 race、只會製造噪音,故不 503,但數字必進 counts)。
     if (result.errors > 0) {
       console.error('[order-ineligible-gate] 🔴 本輪有失敗(回 503;不吞成 200 偽裝成功)', counts);
+      await recordHeartbeatFailure(CRON_JOB_NAME.orderIneligibleGate);
       return Response.json({ ok: false, ...counts }, { status: 503 });
     }
 
     // 4. 認證過 + 無錯 → 200 + 計數摘要。
+    await recordHeartbeatSuccess(CRON_JOB_NAME.orderIneligibleGate);
     return Response.json({ ok: true, ...counts }, { status: 200 });
   } catch {
     console.error('[order-ineligible-gate] 🔴 gate 無法執行(deps 缺或非預期 throw、回 503;不吞 200 偽裝成功)', {
       reason: 'deps_or_unexpected_throw',
     });
+    await recordHeartbeatFailure(CRON_JOB_NAME.orderIneligibleGate);
     return new Response(null, { status: 503 });
   }
 }

@@ -27,6 +27,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { recheckCaptureState } from '@pcm/use-cases';
 import { getSettleChargeDeps } from '@/lib/payment/composition';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
+import { CRON_JOB_NAME, recordHeartbeatSuccess, recordHeartbeatFailure } from '@/lib/cron/heartbeat';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -130,9 +131,19 @@ export async function GET(request: Request): Promise<Response> {
       cutoffDays,
       limit: RECHECK_LIMIT,
     });
+    // 🔴🔴 **心跳的「成功」比這支 route 的 `ok:true` 嚴格**(codex R1 finding 1)。
+    //    `recheckCaptureState` 對**單列**的查詢/寫回失敗是**計數不拋**
+    //    (`recordFailures` / `writeFailures`,見該 use-case 檔頭)⇒ route 照樣回 200。
+    //    ⇒ 沿用 `ok:true` 當心跳判準 ⇒ **每一輪都在失敗、而儀表恆綠**。
+    //    ⚠️ **本次【不改回應】** —— 200 是這支 route 既有的契約,動它是另一片。
+    //      這裡只讓心跳說實話:有任何一列失敗 ⇒ 這一輪不算乾淨。
+    const clean = result.recordFailures === 0 && result.writeFailures === 0;
+    if (clean) await recordHeartbeatSuccess(CRON_JOB_NAME.captureRecheck);
+    else await recordHeartbeatFailure(CRON_JOB_NAME.captureRecheck);
     return Response.json({ ok: true, enabled: true, cutoffDays, limit: RECHECK_LIMIT, ...result }, { status: 200 });
   } catch {
     // 🔴 不回 200 —— 「跑壞了」與「本來就沒東西」不得在回應上長得一樣。
+    await recordHeartbeatFailure(CRON_JOB_NAME.captureRecheck);
     return new Response(null, { status: 503 });
   }
 }

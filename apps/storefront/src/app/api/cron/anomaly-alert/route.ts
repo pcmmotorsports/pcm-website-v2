@@ -129,6 +129,7 @@ import { checkAnomalyAlerts, type CheckAnomalyAlertsDeps } from '@pcm/use-cases'
 import { getAnomalyAlertDeps } from '@/lib/payment/composition';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
 import { safeErrorName } from '@/lib/safe-log';
+import { CRON_JOB_NAME, recordHeartbeatSuccess, recordHeartbeatFailure } from '@/lib/cron/heartbeat';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -220,6 +221,7 @@ export async function GET(request: Request): Promise<Response> {
     //    counts only 零 PII(route 本就無 order/rec/amount 等可洩欄)。
     if (result.errors > 0) {
       console.error('[anomaly-alert] 🔴 本輪告警管道推播有失敗(回 503;不吞成 200 偽裝成功)', { ...result });
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
       return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
     }
 
@@ -235,10 +237,12 @@ export async function GET(request: Request): Promise<Response> {
         '[anomaly-alert] 🔴 get_order_refunds_stuck_summary 尚未 apply ⇒ 退款卡住那一類今天是【查不到】不是【0】(回 503)',
         { ...result },
       );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
       return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
     }
 
     // 5. 認證過 + enabled + 無錯 → 200 + 計數摘要(零 PII counts)。
+    await recordHeartbeatSuccess(CRON_JOB_NAME.anomalyAlert);
     return Response.json({ ok: true, enabled: true, ...result }, { status: 200 });
   } catch (err) {
     // deps/env 缺(factory requireEnv throw / enabled 但零管道)或非預期 throw(reader throw)→ 503 fail-closed(不偽 200)。
@@ -257,6 +261,7 @@ export async function GET(request: Request): Promise<Response> {
       reason: 'deps_or_unexpected_throw',
       errorName,
     });
+    await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
     return new Response(null, { status: 503 });
   }
 }

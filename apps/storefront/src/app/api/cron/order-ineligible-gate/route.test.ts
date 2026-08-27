@@ -12,13 +12,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-const { applySpy, getDepsSpy } = vi.hoisted(() => ({
+const { applySpy, getDepsSpy , hbOkSpy, hbFailSpy } = vi.hoisted(() => ({
+  hbOkSpy: vi.fn(),
+  hbFailSpy: vi.fn(),
   applySpy: vi.fn(),
   getDepsSpy: vi.fn(),
 }));
 
 vi.mock('@pcm/use-cases', () => ({ applyOrderIneligibleGate: applySpy }));
 vi.mock('@/lib/email/composition', () => ({ getApplyOrderIneligibleGateDeps: getDepsSpy }));
+
+// b4-CRON6 片1:心跳寫入端。mock 掉的是 IO,不是判斷 —— 判斷(哪一條路寫)在 route 裡。
+vi.mock('@/lib/cron/heartbeat', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  recordHeartbeatSuccess: hbOkSpy,
+  recordHeartbeatFailure: hbFailSpy,
+}));
 
 import * as route from './route';
 import { CRON_RATE_MAX_HITS, resetCronRateLimit } from '@/lib/cron/rate-limit';
@@ -182,5 +191,35 @@ describe('GET order-ineligible-gate — 應用層限流(縱深 hardening)', () =
     expect(limited.status).toBe(429);
     expect(getDepsSpy).not.toHaveBeenCalled();
     expect(applySpy).not.toHaveBeenCalled();
+  });
+});
+
+// ══ 心跳三態（b4-CRON6 爇1，R1 I2 補）══
+// 🔴 本檔本次 diff 之前【零】心跳斷言 ⇒ 把那行心跳刪掉，這支檔照樣全綠。
+//    那正是在 settle-sweep 上量到的形狀（139 全綠 ⇒ 刪掉一行 ⇒ 還是 139 全綠）。
+describe('GET order-ineligible-gate — 心跳三態', () => {
+  it('🟢 200 + ok:true ⇒ 寫成功心跳、不寫失敗', async () => {
+    applySpy.mockResolvedValue({ ...CLEAN_RESULT });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    expect(hbOkSpy).toHaveBeenCalledWith('pcm-order-ineligible-gate');
+    expect(hbFailSpy).not.toHaveBeenCalled();
+  });
+
+  it('🔴 errors>0 ⇒ 503 ⇒ 寫失敗心跳、不寫成功', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    applySpy.mockResolvedValue({ ...CLEAN_RESULT, errors: 1 });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    expect(hbFailSpy).toHaveBeenCalledWith('pcm-order-ineligible-gate');
+    expect(hbOkSpy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('🔴 401 ⇒ 一格都不寫', async () => {
+    const res = await GET(makeReq(bearer('b'.repeat(48))));
+    expect(res.status).toBe(401);
+    expect(hbOkSpy).not.toHaveBeenCalled();
+    expect(hbFailSpy).not.toHaveBeenCalled();
   });
 });

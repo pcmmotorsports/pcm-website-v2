@@ -13,14 +13,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-const { sweepSpy, getDepsSpy, getInboxSpy, reconfirmSpy } = vi.hoisted(() => ({
+const { sweepSpy, getDepsSpy, getInboxSpy, reconfirmSpy, hbOkSpy, hbFailSpy } = vi.hoisted(() => ({
   sweepSpy: vi.fn(),
   getDepsSpy: vi.fn(),
   getInboxSpy: vi.fn(),
   reconfirmSpy: vi.fn(),
+  hbOkSpy: vi.fn(),
+  hbFailSpy: vi.fn(),
 }));
 
 vi.mock('@pcm/use-cases', () => ({ sweepSettlements: sweepSpy, reconfirmExpiredOrphans: reconfirmSpy }));
+// ⟦b4-CRON6⟧ 片1:心跳寫入端。**mock 掉的是 IO,不是判斷** —— 判斷(哪一條路寫、哪一條不寫)在 route 裡。
+vi.mock('@/lib/cron/heartbeat', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  recordHeartbeatSuccess: hbOkSpy,
+  recordHeartbeatFailure: hbFailSpy,
+}));
 vi.mock('@/lib/payment/composition', () => ({
   getSettleChargeDeps: getDepsSpy,
   getWebhookInbox: getInboxSpy,
@@ -171,6 +179,84 @@ describe('GET settle-sweep — CRON_SWEEPER_ENABLED sequencing gate', () => {
       expect(sweepSpy).not.toHaveBeenCalled();
     },
   );
+});
+
+// ══ ⟦b4-CRON6⟧ 片1:心跳的三態 ═══════════════════════════════════════════════
+//
+// 🔴 **這一組的存在理由是一發突變**:接完五支 route 之後,把本支成功那一發心跳**整行刪掉**,
+//    既有的 139 格 **全部照樣綠**(`Test Files 4 passed / Tests 139 passed`,與未刪時逐字相同)。
+//    ⇒ **那 139 格對這條接線零判別力** —— 寫入端全程 catch,壞了不會冒出來。
+//    ⇒ 沒有這一組,「心跳接上了」這句話在 repo 裡**沒有任何東西在守**。
+describe('GET settle-sweep — 心跳三態(⟦b4-CRON6⟧ 片1)', () => {
+  it('🟢 真的做完一輪(200 + enabled:true)⇒ 寫成功心跳、不寫失敗', async () => {
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    expect(hbOkSpy).toHaveBeenCalledWith('pcm-settle-sweep');
+    expect(hbFailSpy).not.toHaveBeenCalled();
+  });
+
+  it('🔴 errors>0 ⇒ 503 ⇒ 寫失敗心跳、不寫成功', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT, errors: 3 });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    expect(hbFailSpy).toHaveBeenCalledWith('pcm-settle-sweep');
+    expect(hbOkSpy).not.toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it("🔴🔴 旗標關著(200 + enabled:false)⇒ **三欄都不寫** —— 兩支心跳都不得被呼叫", async () => {
+    // 寫成功 ⇒ 旗標關掉的期間心跳恆綠 ⇒「被關掉」與「健康」同色 = 本片要修的病換一層皮。
+    // 寫失敗 ⇒ 告警天天叫 ⇒ 而天天叫的告警等於沒有告警。
+    delete process.env.CRON_SWEEPER_ENABLED;
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ enabled: false });
+    expect(hbOkSpy).not.toHaveBeenCalled();
+    expect(hbFailSpy).not.toHaveBeenCalled();
+  });
+
+  // ══ 🔴 codex R1 finding 2:reconfirm 永久卡住 ⇒ skipped:'timeout' 而 errors 仍是 0 ══
+  //    沿用 ok:true 當心跳判準 ⇒ 重查可以長期停擺,而心跳持續綠燈。
+  it("🔴 reconfirm 卡住(skipped:'timeout')⇒ 心跳寫【失敗】,即使 route 仍回 200", async () => {
+    vi.useFakeTimers();
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT });
+    reconfirmSpy.mockReturnValue(new Promise(() => {})); // 永遠不 resolve
+    const p = GET(makeReq(bearer()));
+    await vi.advanceTimersByTimeAsync(60_000);
+    const res = await p;
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ reconfirm: { skipped: 'timeout' } });
+    expect(hbFailSpy).toHaveBeenCalledWith('pcm-settle-sweep');
+    expect(hbOkSpy).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("🔴 對照:skipped:'budget' 【不算】失敗 —— 那是主 sweep 吃掉預算的正常讓路", async () => {
+    // 沒有這一格,上面那格可以靠「任何 skipped 都當失敗」通過,而那會讓正常讓路天天叫。
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT });
+    reconfirmSpy.mockResolvedValue({ ...CLEAN_RECONFIRM });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    expect(hbOkSpy).toHaveBeenCalledWith('pcm-settle-sweep');
+    expect(hbFailSpy).not.toHaveBeenCalled();
+  });
+
+  it('🔴 401(未通過認證)⇒ 一格都不寫 —— 否則路人可以灌爆失敗計數、把告警吵到沒人看', async () => {
+    const res = await GET(makeReq('Bearer wrong-secret-wrong-secret-wrong'));
+    expect(res.status).toBe(401);
+    expect(hbOkSpy).not.toHaveBeenCalled();
+    expect(hbFailSpy).not.toHaveBeenCalled();
+  });
+
+  it('🔴 500(CRON_SECRET 未設)⇒ 一格都不寫 —— 那條路在【認證之前】,未認證的人也走得到', async () => {
+    delete process.env.CRON_SECRET;
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(500);
+    expect(hbOkSpy).not.toHaveBeenCalled();
+    expect(hbFailSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe('GET settle-sweep — enabled 執行 + 結果映射', () => {

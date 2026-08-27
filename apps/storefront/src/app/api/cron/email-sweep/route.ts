@@ -49,6 +49,7 @@ import { getEnqueueOrderCreatedDeps, getSweepEmailOutboxDeps } from '@/lib/email
 // eslint-disable-next-line no-restricted-imports -- 受控例外:只取型別守衛用的錯誤類別(不建任何 adapter);它只帶 stage/code 兩個固定欄、零 PII。
 import { ScanQueryError } from '@pcm/adapters/server';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
+import { CRON_JOB_NAME, recordHeartbeatSuccess, recordHeartbeatFailure } from '@/lib/cron/heartbeat';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -329,10 +330,12 @@ export async function GET(request: Request): Promise<Response> {
         ...counts,
         ...enqueueSection,
       });
+      await recordHeartbeatFailure(CRON_JOB_NAME.emailSweep);
       return Response.json({ ok: false, ...counts, ...enqueueSection }, { status: 503 });
     }
 
     // 4. 認證過 + 無錯 → 200 + 計數摘要(零 PII counts;含 deferred 供調參可見度)。
+    await recordHeartbeatSuccess(CRON_JOB_NAME.emailSweep);
     return Response.json({ ok: true, ...counts, ...enqueueSection }, { status: 200 });
   } catch {
     // deps/env 缺(requireEnv throw)或非預期 throw(如 lease 下界違反)→ 503 fail-closed(不偽 200)。
@@ -340,6 +343,7 @@ export async function GET(request: Request): Promise<Response> {
     console.error('[email-sweep] 🔴 sweeper 無法執行(deps/env 缺或非預期 throw、回 503;不吞 200 偽裝成功)', {
       reason: 'deps_or_unexpected_throw',
     });
+    await recordHeartbeatFailure(CRON_JOB_NAME.emailSweep);
     return new Response(null, { status: 503 });
   }
 }
