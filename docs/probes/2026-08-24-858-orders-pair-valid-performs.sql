@@ -1,3 +1,4 @@
+-- ci-self-contained: no — 需外部 provision 的庫、psql -f 對 $DSN 手動跑(見檔頭跑法),非 CI 自給自足。
 -- 2026-08-24-858-orders-pair-valid-performs.sql
 -- `orders_manual_request_pair_valid` 的【行為】斷言 —— 補窗B 2026-08-24 的 must-fix。
 --

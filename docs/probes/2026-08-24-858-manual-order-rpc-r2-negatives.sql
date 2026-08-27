@@ -1,3 +1,4 @@
+-- ci-self-contained: no — 需外部 provision 的庫、psql -f 對 $DSN 手動跑(見檔頭跑法),非 CI 自給自足。
 \set QUIET on
 \pset pager off
 SET client_min_messages = warning;

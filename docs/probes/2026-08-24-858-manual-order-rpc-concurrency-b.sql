@@ -1,3 +1,4 @@
+-- ci-self-contained: no — 需外部 provision 的庫、psql -f 對 $DSN 手動跑(見檔頭跑法),非 CI 自給自足。
 DO $$
 DECLARE r jsonb; v_state text; v_con text;
 BEGIN

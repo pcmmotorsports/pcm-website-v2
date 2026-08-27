@@ -1,3 +1,4 @@
+-- ci-self-contained: no — 手動貼 Supabase SQL Editor 對線上庫跑(讀 net._http_response / email_outbox 等實資料),非 CI 自給自足。
 -- 2026-08-26-q15-rls-service-role-audit.sql
 -- Q15 · 【可重跑的全庫體檢】—— 後台的可見性到底靠什麼撐著, 現在就問資料庫本人。
 --
