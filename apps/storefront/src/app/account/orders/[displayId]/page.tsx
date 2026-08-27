@@ -68,16 +68,30 @@ export default async function OrderDetailRoute({ params }: Props) {
 
   return (
     // 🔴🔴 **站台頁首/頁尾 2026-08-27 補上 —— 在此之前這一頁【只有一個裸 <main>】。**
-    //    客人打開自己的訂單明細, 畫面上**沒有導覽、沒有 logo、走不回商店**。
+    //    🔴 **而「沒有導覽、走不回商店」這句我第一版寫得太滿, 它在【手機上是假的】**(審查抓到):
+    //    `app/layout.tsx` 全站渲染 `<MobileTabBar />`, 而它的 `hidden` 條件只涵蓋
+    //    `/products/[slug]` / `/coming-soon` / `/checkout*` ⇒ **這條 route 在 <1080px 一直有 5 顆 tab。**
+    //    ⇒ 準確的說法:**桌機**沒有導覽、沒有 logo;logo 那半兩個裝置都成立。
+    //    📌 而我為什麼會寫錯:**我的改前截圖是桌機寬度的全頁圖** ——
+    //       **我的量具看不到那個會推翻我的東西, 而它印出來的畫面完全合理。**
+    //    ⚠️ 那句沒有裝置限定的字面**也寫進了 `3b79eafb` 的 commit body**, 而 commit body 改不了
+    //       ⇒ 更正只能住在這裡。
     //    📏 分母是量的不是抽樣的:`find apps/storefront/src/app/account -name page.tsx` ⇒ **2 頁**,
     //       中間層 `layout.tsx` ⇒ **0** ⇒ 沒有共用殼, 每頁自己帶。
     //       · `/account`                    → `AccountView.tsx:175` `<Header currentPage="account" />`
     //                                         + `:247` `<HomeFooter />`  ⇒ **兩個都有**
     //       · `/account/orders/[displayId]`  → `OrderDetailView` 兩個都 **0** ⇒ **只有這一頁沒有**
-    //    ⇒ **所以這是漏了, 不是一個架構決定**(全站 `<Header>` 29 支 / `<HomeFooter>` 27 支)。
+    //    ⇒ **所以這是漏了, 不是一個架構決定**。
+    //       📏 全站 `<Header>` **29 支** / `<HomeFooter>` **27 支** —— 數法(換尺就換數字):
+    //          非測試 `.tsx`、**排除 `dev-preview/`**、數「檔案有沒有出現該標籤」不是出現幾次。
+    //          含 `dev-preview` ⇒ 33/31;含測試檔 ⇒ 37/37;改數渲染行 ⇒ 31/32。
     //    ⇒ 稿那一側也有:`order-detail-page.html:29` `<header class="pcm-header">` / `:70` `<footer class="ed-footer">`
     //    ⚠️ 外層 `.ap-page` 與 `currentPage="account"` **照抄 `AccountView` 那一份**, 不自創。
-    <div data-screen-label="OrderDetail" className="ap-page">
+    // 🔴 `data-screen-label` **用稿的字面**(`order-detail-page.html:27` 逐字 `data-screen-label="Order detail"`)——
+    //    我第一版寫 `OrderDetail`, 而那是我照 `AccountView` 的風格自創的;
+    //    **這一頁自己有稿, 而真權威就在我已經引用的那支檔的上面兩行**(我引了 `:29` 與 `:70`, 跳過了 `:27`)。
+    //    📌 **「照隔壁那份抄」在隔壁那份【不是這一頁的稿】時, 是一個看起來很守規矩的錯。**
+    <div data-screen-label="Order detail" className="ap-page">
       <Header currentPage="account" />
       <main className="acc-main" data-od-id="order-detail-main">
         {order === null ? (

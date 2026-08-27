@@ -238,5 +238,9 @@ describe('/account/orders/[displayId] 路由', () => {
     const html = await renderRoute('NOPE-404');
     expect(html).toContain('查無此訂單');
     expect(html, '查無畫面沒有頁首 ⇒ 那才是最需要出口的一頁').toContain('data-stub="site-header"');
+    // 🔴 頁尾這一行是 2026-08-27 補的 —— **上一版的標題寫「頁首頁尾」而只斷言了頁首**。
+    //    ⇒ 拿掉 `<HomeFooter>` 時只紅 1 格, 而我把那個 1 讀成「設計如此」——
+    //      它其實是**少一格**。📌 **標題比斷言寬, 而突變的格數會照著標題被誤讀。**
+    expect(html, '查無畫面沒有頁尾').toContain('data-stub="site-footer"');
   });
 });
