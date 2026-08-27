@@ -9,6 +9,13 @@
 #
 # 環境 = 拋棄式 Postgres(照 docs/runbooks/throwaway-postgres-for-migration-verification.md)。
 # ⚠️ 效度邊界:造的 orders / order_items / summary 是**最小形狀**(只含本 view 用到的欄)。
+#
+# 天花板/範圍: 只驗貨品軸 SQL 側對 goods-axis-cases.json 那份人寫 oracle 的一致性;不驗 TS 側
+#   (那是 goods-axis-cases.test.ts 的事)、不驗兩邊【互相】一致(#522 的病正是兩邊一起錯、互比會通過)。
+#   這份清單是我想得到的那些, 而我最可能漏掉的是「oracle 那份 json 本身寫錯的格 —— 兩側都對它比、它錯了兩側一起錯」。
+# 天花板/量具: 拋棄式 PG 的最小形狀,量不到「真表才有的欄位互動 / 併發 / 巨量列」;它比的是 SQL 對 oracle 的值,
+#   量不到 view 定義以外的行為(權限、RLS、效能)。
+#   這份清單是我想得到的那些, 而我最可能漏掉的是「最小形狀下不出現、但真表上會出現的欄位組合」。
 set -euo pipefail
 export LC_ALL=C LANG=C
 D=/tmp/pgaxis; PORT=55531
