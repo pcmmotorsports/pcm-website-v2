@@ -1,0 +1,324 @@
+/* order-detail.css — 訂單明細頁(/account/orders/<displayId>)
+ *
+ * 🔴 **本檔 = 從 OD 稿【逐字搬】的一整段, 一個字元都沒改**(鐵則 1:直接搬、不翻譯)。
+ *   來源  OD 專案 `pcm-home-redesign` / `pcm-account.css` 第 1166-1420 行(255 行)
+ *   版本  該檔 sha256 = 4a20b50bfdfbe2c795f3ef4905410e6e86f8696a1e71c438444ee59b165c490c
+ *   重抄  sed -n '1166,1420p' "<OD>/pcm-home-redesign/pcm-account.css"
+ *   核對  diff <(上面那行) <(sed -n '<本檔第一條規則起>,$p' 本檔)  ⇒ 應為空
+ *   🔴 **sha256 對不上 ⇒ 上面那個行號區間全部作廢, 要重新找。**
+ *
+ * ⚠️ **為什麼另開一支檔, 而稿自己說「放在本檔而不是另開 pcm-order.css」**(那句就在下面第一段註解裡):
+ *   ① 稿那句的理由是「拆檔會讓兩邊漂移」—— 那是**稿自己的檔案組織**問題。
+ *      我方是**抄過來**、不是在兩邊各自維護 ⇒ 那個理由對我們不成立。
+ *   ② 我方**本來就有把一支稿拆成多檔的既有做法**:`auth.css:39` 逐字「account.css L326-476」。
+ *      ⚠️ 我上一版寫「`auth.css:11`」而那一行的字面是「account.css **L5-16**」⇒ **行號錯**(審查抓到)。
+ *      ⚠️ 也不是「同一支稿」:`auth.css` 的來源是 `design-reference/styles/account.css`,
+ *         本檔來源是 OD 的 `pcm-home-redesign/pcm-account.css` —— **兩支不同的檔**。
+ *         論點不受影響(拆檔這個做法我方本來就有), 而措辭要準。
+ *   ③ 🔴 **決定性的那一條**:`account.css` 有一道守門(`auth-account.test.ts` 的 M4)——
+ *      「平板段之後不得再出現 `@media (max-width: 1079px)`」。而這 255 行**尾巴就有一個**
+ *      ⇒ 直接接在 `account.css` 後面 **當場打紅那道守門**(實測 1 failed | 48 passed)。
+ *      兩條就地解法都不能走:拆散這 255 行 ⇒ 毀掉「逐字」這個唯一可複驗的性質;
+ *      改那道守門的 regex ⇒ **那是動驗證本身**(`00-work-rules` R4 立即停止訊號)。
+ *      ⇒ 另開一支檔**兩邊都不用動**, 而它是我方既有的做法(`wallet.css` 同形)。
+ *   ⚠️ **代價寫下來, 而它有【兩半】**(我上一版只寫了第一半, 審查點名):
+ *      ①本檔內的 media 順序沒有任何東西在守。內部順序與稿相同(手機段在平板段之前),
+ *        而那是**抄來的**, 不是被守著的。
+ *      ②🔴 **更該寫的是這一半**:本檔在 `layout.tsx` 排在 `account.css` **之後**, 而檔尾就是一個
+ *        `@media (max-width: 1079px)` ⇒ **下一個要為這一頁補 `.acc-*` 手機覆寫的人,
+ *        眼前有一個 M4 守門看不到的合法落點** —— 而那正是 M4 當初被寫出來要擋的病。
+ *        📏 今天 **0 處**(本檔剝註解後 60 條選擇器, `.acc-*` 與 `.auth-*` 各 0 條)⇒ 不是活的缺陷。
+ *        ⇒ **要在本檔補 `.acc-*` 的人:停下, 那條規則屬於 `account.css`。**
+ *
+ * 🔴 **這一頁在此之前【整頁沒有樣式】** —— 而它一路過了三綠、測試、lint、CI。
+ *    ⚠️ 「然後上線」我**沒有從 repo 驗到**(production 狀態這裡量不出來)⇒ 準確的說法是
+ *       **它已經合進 `dev`**;而 `dev` 是 pcm-admin 的 production 分支。標未確認, 不寫成事實。
+ *    ⚠️ 而「過了 lint」這一格要附一句:`apps/storefront/package.json` 的 lint = `eslint .`,
+ *       **沒有 stylelint** ⇒ **純 CSS 檔在 lint 那一格恆綠** ⇒ 三綠對本片幾乎零判別力。
+ *       真正有判別力的是 vitest 那幾道 CSS 守門 —— 而它們今天抓到了本片一個真的問題(見下)。
+ *    📌 **那不是漏掉一道檢查, 是【沒有任何一道檢查在看畫面】。**
+ *
+ * 📏 **改前的缺口(數字旁邊寫數法 —— 審查用四種數法得到四組不同的值, 而那四組都對)**:
+ *    數法:讀 `OrderDetailView.tsx` → 剝掉 `//` 與 `/* *\/` 註解 → 抽 `className` 的三種字面
+ *         (`'…'` / `"…"` / `` {`…`} ``)→ 只留 `od-` / `acc-` / `is-` 前綴
+ *         → 補上模板裡的動態基底 `od-step` 與模板內出現的 `is-*`
+ *         → 拿 `git show HEAD:…/account.css` + 其餘 storefront CSS 當「改前」的分母
+ *    結果:**用到 31 · 改前已有 6 · 改前缺 25**;負對照 `.od-nosuch` ⇒ False
+ *    ⚠️ **換一把尺就換一組數字**:審查用別的尺得到 33/5/28、31/5/26、31/7/24 ——
+ *       差別在「算不算 `page.tsx` 的 `acc-main`/`acc-empty`」與「算哪幾個 `is-*`」。
+ *       📌 **兩個數都對, 差的是尺。所以尺要寫在數字旁邊, 不然下一個人複現不出來。**
+ *
+ * ⚠️ **本檔沒有補的**(量到的, 不是印象):稿上有而我方 markup 沒有節點的 6 個 class ——
+ *    `od-head-eta` / `od-head-actions` / `od-track` / `od-trace` / `od-trace-t` / `od-trace-d`
+ *    (預計到貨、查詢物流鈕、出貨軌跡)⇒ **上完樣式之後這一頁仍然缺稿上那幾塊內容。**
+ *    另:這一頁**沒有 `<Header>` / `<Footer>`**(我方各頁自渲染、不是 layout;稿
+ *    `order-detail-page.html:29` 有 `<header class="pcm-header">`)⇒ 客人走不回商店。
+ *    ⇒ 兩件都不屬本片(要動 route TSX), 已回報主視窗掛板。
+ */
+
+/* ============================================================
+   訂單詳情(/account/orders/<id>)—— order-detail-page.html
+   ------------------------------------------------------------
+   🔴 2026-08-07 新增。這一頁**原本完全沒有稿**,所以會員中心的「查看詳情 →」
+   一直是一顆沒有 onClick 也沒有 href 的死鈕(交接單自己也寫「現在接等於做出一顆會壞的鈕」)。
+   稿補上之後那顆鈕才接得起來。
+
+   放在本檔而不是另開 pcm-order.css:訂單詳情是會員中心的下一層,
+   共用 .acc-main / .acc-section-head / .acc-empty / .pcard 這幾套,拆檔只會讓兩邊漂移。
+
+   收據頁的取捨:**全頁只有一顆實心主鈕**,而且只在「已出貨」時出現(查詢物流)。
+   已完成的訂單沒有待辦動作,不該再擺一顆搶眼的鈕逼客人點。
+   ============================================================ */
+.od-back {
+  display: inline-flex; align-items: center; gap: 8px;
+  min-height: 44px;                      /* 觸控目標 */
+  font-size: 13px; color: var(--c-text-2);
+  margin-bottom: 4px;
+}
+.od-back:hover { color: var(--c-text); }
+
+.od-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 24px; flex-wrap: wrap;
+  padding-bottom: 28px; margin-bottom: 36px;
+  border-bottom: 1px solid var(--c-border);
+}
+.od-head h1 {
+  font-size: 32px; font-weight: 600; line-height: 1.2;
+  letter-spacing: -0.02em; margin: 6px 0 0;
+  font-family: var(--f-mono);            /* 訂單編號是識別碼,走 mono 才不會被讀成一般標題 */
+}
+.od-head-meta { font-size: 13px; color: var(--c-text-3); margin-top: 10px; }
+/* 預計送達日:Baymard 調查裡客人最想知道的第一名,所以放在編號正下方、比 meta 重 */
+.od-head-eta { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; margin-top: 12px; }
+.od-head-eta span { font-size: 13px; font-weight: 400; color: var(--c-text-3); margin-left: 10px; }
+/* 主鈕與次要鈕同一列。次要鈕永遠是 ghost —— 一頁只有一顆實心。 */
+.od-head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: 0 0 auto; }
+/* 徽章三檔與訂單記錄的 .acc-order-status 同一套(action 熔橘 / progress 墨黑 / done 中性) */
+.od-status {
+  display: inline-flex; align-items: center;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+  padding: 5px 12px;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border-strong);
+  color: var(--c-text-2);
+}
+.od-status.is-action   { background: var(--c-red-soft); border-color: var(--c-red); color: var(--c-red-dark); }
+/* 🔴🔴 **本檔【唯一】一處偏離逐字** —— 而它不是我的判斷, 是在套用一條既有拍板。
+ *    稿原文(`pcm-account.css:1214`)逐字:`… border-color: var(--c-text); color: #fff; }`
+ *    ⇒ 打紅 `apps/storefront/src/styles/color-tokens.test.ts` 那道守門, 它的訊息逐字寫著:
+ *      「底色是 `var(--c-text)`(會隨主題翻)字色卻寫死 `#fff` ⇒ 深色模式上線那天白底白字。
+ *       這是 token 表裡**唯一**的反相配對, 答案是客觀的 …(2026-08-09 `Q4=B` 已把當時的 7 處
+ *       全部改過, **這條是防止它們被改回去**。)」
+ *    ⇒ 只把 `#fff` 換成 `var(--c-text-inverse)`, **其餘一個字元都沒動**。
+ *    ⚠️ 而它**不是死碼**:`OrderDetailView.tsx:153` 是 `` `od-status is-${tone}` ``、`:64` `paid: 'progress'`
+ *       ⇒ **每一張已付款的單都吃到這一條。**
+ *    📌 這與「改守門的 regex」不同:那是動驗證本身(R4 停止訊號);這是**照著一條已經拍過的板做**。
+ */
+.od-status.is-progress { background: var(--c-text); border-color: var(--c-text); color: var(--c-text-inverse); }
+.od-status.is-done     { background: var(--c-bg); border-color: var(--c-border-strong); color: var(--c-text-2); }
+
+/* 全頁唯一的實心主鈕,字面刻意不與頁內其他出口重複。
+   配色走站上既有的主 CTA 慣例(Sean 2026-08-05 cart B 拍板):熔橘 → hover 深熔橘,
+   與 .auth-submit / .ed-finder-go 同一套。hover 只降背景明度、前景維持白,對比只升不降。
+   ⚠️ 這裡刻意**不**自創更深的主鈕色 —— 一頁一個特例就是下一次「站稿不一致」的來源。 */
+.od-track {
+  display: inline-flex; align-items: center; gap: 10px;
+  min-height: 46px; padding: 0 22px;
+  background: var(--c-red); color: #fff;
+  font-size: 14px; font-weight: 600;
+  transition: background 0.15s;
+}
+.od-track:hover { background: var(--c-red-dark); }
+.od-track:focus-visible { outline: 2px solid var(--c-text); outline-offset: 2px; }
+
+/* ---- 進度軸 ----
+   🔴 2026-08-07 R3 Sean:「這樣表現太佔網頁位置,縮減或者換一個呈現方式」。
+   原本是 4 個等寬方格(桌機一排、平板 2×2),每格 18–20px 內距 + 三行字
+   ⇒ 平板下整塊吃掉約 400px 高,只為了講四個詞;而正下方的「物流歷程」
+   本來就把同樣的事講得更細。**同一件事在同一頁佔兩塊大版位。**
+
+   改成一條 ~64px 的細軸:圓點 + 連接線在同一列,標籤與時間掛在點下面。
+   高度砍掉約 85%,「走到哪一階」反而更好讀 —— 因為四個點在一條線上可以直接比較,
+   四個方格要靠頂線的有無去推。 */
+.od-steps {
+  display: flex;
+  margin-bottom: 40px;
+}
+.od-step {
+  flex: 1 1 0;
+  min-width: 0;
+  position: relative;
+  padding-top: 20px;
+  text-align: center;
+}
+/* 連接線:畫在圓點的垂直中心上,左右各延伸半格,首尾兩段裁掉不外露 */
+.od-step::before {
+  content: "";
+  position: absolute;
+  top: 5px; left: -50%; right: 50%;
+  height: 1px;
+  background: var(--c-border-strong);
+}
+.od-step:first-child::before { display: none; }
+.od-step::after {
+  content: "";
+  position: absolute;
+  top: 0; left: 50%;
+  transform: translateX(-50%);
+  width: 11px; height: 11px;
+  border-radius: 50%;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border-strong);
+}
+.od-step.is-done::after { background: var(--c-text); border-color: var(--c-text); }
+.od-step.is-done::before { background: var(--c-text); }
+/* 目前這一階:實心點外再加一圈,不用動畫也看得出「現在在這」 */
+.od-step.is-now::after { box-shadow: 0 0 0 4px var(--c-red-soft); border-color: var(--c-red); background: var(--c-red); }
+.od-step-t {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--c-text-3);
+  line-height: 1.4;
+}
+.od-step.is-done .od-step-t { color: var(--c-text); font-weight: 600; }
+.od-step-d {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--c-text-3);
+  margin-top: 4px;
+  min-height: 1.4em;
+}
+
+/* ---- 完整物流歷程 ----
+   Baymard 物流六要素的第 5 項。四步進度條回答「走到哪一階段」,
+   歷程回答「這兩天實際發生什麼事」—— 客人在等貨的時候看的是後者。
+   由新到舊排,最新那筆給實心點與深色字,其餘退成灰,一眼看得出哪一行是現在。 */
+.od-trace { list-style: none; margin: 0; padding: 0; }
+.od-trace li {
+  position: relative;
+  padding: 0 0 18px 26px;
+  border-left: 1px solid var(--c-border);
+  margin-left: 4px;
+}
+.od-trace li:last-child { padding-bottom: 0; border-left-color: transparent; }
+.od-trace li::before {
+  content: "";
+  position: absolute;
+  left: -4.5px; top: 4px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border-strong);
+}
+.od-trace li:first-child::before { background: var(--c-text); border-color: var(--c-text); }
+.od-trace-t {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--c-text-3);
+  letter-spacing: 0.02em;
+  margin-bottom: 3px;
+}
+.od-trace-d { font-size: 14px; line-height: 1.5; color: var(--c-text-2); }
+.od-trace li:first-child .od-trace-d { color: var(--c-text); font-weight: 500; }
+.od-trace li:first-child .od-trace-t { color: var(--c-text-2); }
+
+/* ---- 商品明細 ---- */
+.od-line {
+  display: grid; grid-template-columns: 84px minmax(0, 1fr) auto;
+  gap: 20px; align-items: center;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--c-border);
+}
+.od-line:last-child { border-bottom: 0; }
+.od-line-img {
+  width: 84px; aspect-ratio: 1/1;
+  background: #fff; border: 1px solid var(--c-border);   /* 商品卡圖區慣例:白底 + 1px 框 */
+  overflow: hidden;
+}
+.od-line-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.od-line-brand {
+  font-family: var(--f-mono); font-size: 10px; font-weight: 600;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--c-text-2); margin-bottom: 4px;
+}
+.od-line-name { font-size: 15px; font-weight: 500; line-height: 1.4; }
+.od-line-fits { font-size: 12px; color: var(--c-text-3); margin-top: 4px; }
+.od-line-r { text-align: right; white-space: nowrap; }
+.od-line-unit { font-size: 12px; color: var(--c-text-3); font-variant-numeric: tabular-nums; }
+.od-line-sum {
+  font-size: 16px; font-weight: 600; letter-spacing: -0.01em;
+  margin-top: 4px; font-variant-numeric: tabular-nums;
+}
+
+/* ---- 金額 ---- */
+.od-sums { margin-top: 8px; margin-left: auto; max-width: 360px; }
+.od-sum {
+  display: flex; justify-content: space-between; gap: 24px;
+  font-size: 14px; color: var(--c-text-2);
+  padding: 9px 0;
+}
+.od-sum b { font-weight: 400; color: var(--c-text); font-variant-numeric: tabular-nums; }
+.od-sum-off b { color: var(--c-red-dark); }
+.od-sum-total {
+  border-top: 1px solid var(--c-border-strong);
+  margin-top: 8px; padding-top: 16px;
+  font-size: 15px; font-weight: 600; color: var(--c-text);
+}
+.od-sum-total b {
+  font-size: 22px; font-weight: 700; letter-spacing: -0.01em;
+  color: var(--c-red-dark);
+}
+
+/* ---- 收件 / 付款 ---- */
+.od-info { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--c-border); border: 1px solid var(--c-border); }
+.od-info > div { background: var(--c-surface); padding: 22px 24px 24px; }
+.od-info h3 {
+  font-family: var(--f-mono); font-size: 10px; font-weight: 500;
+  letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--c-text-3); margin: 0 0 14px;
+}
+.od-info dl { margin: 0; display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 8px 16px; }
+.od-info dt { font-size: 12px; color: var(--c-text-3); }
+.od-info dd { font-size: 14px; line-height: 1.6; color: var(--c-text); margin: 0; }
+
+/* ---- 協助出口 ---- */
+.od-help {
+  margin-top: 44px; padding: 24px;
+  border: 1px solid var(--c-border); background: var(--c-surface-2);
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 20px; flex-wrap: wrap;
+}
+.od-help-t { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+.od-help-d { font-size: 13px; line-height: 1.7; color: var(--c-text-2); max-width: 52ch; }
+
+@media (max-width: 1079px) {
+  .od-head { padding-bottom: 20px; margin-bottom: 24px; }
+  .od-head h1 { font-size: 22px; word-break: break-all; }
+  .od-track { width: 100%; justify-content: center; }
+  /* 四步橫排在 390px 下每格只剩 ~85px,「訂單成立」四個字就滿了、日期一定被截。改直式。 */
+  /* 進度軸在 390px 仍然橫排 —— 四個標籤各 3–4 字,一格約 82px 放得下。
+     原本這裡是「改成直式一格一列」,那是方格版的補丁;細軸不需要,
+     直式反而又把高度長回來。只縮字級與上下留白。 */
+  .od-steps { margin-bottom: 28px; }
+  .od-step-t { font-size: 12px; }
+  .od-step-d { font-size: 10px; }
+  .od-line { grid-template-columns: 64px minmax(0, 1fr); gap: 14px; }
+  .od-line-img { width: 64px; }
+  .od-line-r { grid-column: 2; text-align: left; margin-top: 2px; }
+  .od-line-sum { display: inline; margin-left: 10px; font-size: 15px; }
+  .od-sums { max-width: none; }
+  .od-info { grid-template-columns: 1fr; }
+  .od-help { flex-direction: column; align-items: flex-start; }
+}
+
+@media (min-width: 600px) and (max-width: 1079px) {
+  .od-head h1 { font-size: 28px; }
+  .od-step-t { font-size: 13px; }
+  .od-step-d { font-size: 11px; }
+  .od-track { width: auto; }
+  .od-line { grid-template-columns: 84px minmax(0, 1fr) auto; gap: 20px; }
+  .od-line-img { width: 84px; }
+  .od-line-r { grid-column: auto; text-align: right; margin-top: 0; }
+  .od-line-sum { display: block; margin-left: 0; font-size: 16px; }
+  .od-info { grid-template-columns: 1fr 1fr; }
+}
