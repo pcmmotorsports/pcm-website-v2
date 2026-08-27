@@ -32,6 +32,7 @@
     "scripts/stale-commit-msgs.py": "python3 scripts/stale-commit-msgs.py --selftest",
     "scripts/suite-reproducibility.py": "python3 scripts/suite-reproducibility.py --selftest",
     "scripts/traps-neighbours.py": "python3 scripts/traps-neighbours.py --selftest",
+    "scripts/git-isolation-denominator.py": "python3 scripts/git-isolation-denominator.py --self-check",
     "scripts/grep-claim-recheck.py": "python3 scripts/grep-claim-recheck.py --selftest",
     "scripts/citation-rot-check.py": "python3 scripts/citation-rot-check.py --selftest",
     "scripts/view-apply-before-wire-gate.py": "python3 scripts/view-apply-before-wire-gate.py --selftest",
