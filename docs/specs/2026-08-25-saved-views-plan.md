@@ -1,7 +1,8 @@
 # Plan · 可存的自訂檢視(`#1` 看今天要處理什麼 · ⓒ 階)
 
-> # 📋 **要批的是 `§13`(檔尾)** —— 前面 `§0`-`§12` 是【怎麼走到那裡的】。
-> ⚠️ `§12` 是**上一版定稿, 沒過 codex(FAIL 13 條)** ⇒ 原文留著, 而**不要照它做**。
+> # 📋 **要批的是 `§14`(檔尾)** —— 前面 `§0`-`§13` 是【怎麼走到那裡的】。
+> ⚠️ `§12` 沒過 codex(**13 條**)·`§13` 沒過 codex(**25 條**)⇒ 兩份原文都留著, 而**不要照它們做**。
+> 🔴 `§14` 換的不是措辭, 是**產生方式**:先產【逐列帶 `檔:行號` 的量測表】, 再從表寫規格。
 > 五題 2026-08-27 全部拍完;`§12` 是折完之後的定稿版(要改什麼 / 影響面 / rollback / 片型)。
 > ⚠️ 而 `§12-6` 那兩件是**擋上線、不擋定稿** —— **不要讀成「要先查完才能批」。**
 
@@ -1494,7 +1495,7 @@ Q-檢視-11  存起來的檢視, 要不要連「一行多高」也一起記住?
 
 > **2026-08-27 codex 關卡1 第二輪對著本節跑 ⇒ `FAIL`,13 must-fix + 1 nit。**
 > 而它 **FAIL 在地基**:`§12` 有兩格建在**今天不存在的東西**上,一格 rollback 的具體情境是錯的。
-> ⇒ **要批的是 `§13`。** 本節原文一字不刪 —— 它記著「我當時為什麼覺得那樣是對的」。
+> ⇒ ~~要批的是 `§13`~~ ⇒ **`§13` 也沒過 codex(25 條)⇒ 要批的是 `§14`。** 本節原文一字不刪 —— 它記著「我當時為什麼覺得那樣是對的」。
 > 📌 逐條 findings 與處置在 `§13-0`。
 
 # 📋 §12(原文,已作廢)定稿版 plan —— 五題拍完之後,這一片長這樣
@@ -1603,9 +1604,10 @@ Q-檢視-11 = 乙 不記住行距                    ⇒ `den` **不在**可存�
 ---
 ---
 
-# 📋 §13 **定稿版 plan(第二版;`§12` 沒過 codex,這一版是重寫的)**
+# 🛑 §13 **(已被 `§14` 取代 —— 這一版也沒過 codex,原文留著不刪)**
 
-> 2026-08-27。**要批的是本節。** `§13-0` 是 13 條 findings 的逐條處置,`§13-1` 起是新的設計。
+> 2026-08-27。~~要批的是本節~~ ⇒ **本節 codex 第三輪 `FAIL`(25 條)⇒ 要批的是 `§14`。**
+> 🔴 而 `§14` 換的不是措辭, 是**產生方式**:先產量測表(逐列帶 `檔:行號`), 再從表寫規格。 `§13-0` 是 13 條 findings 的逐條處置,`§13-1` 起是新的設計。
 > 🔴 而本節與 `§12` 的差別**不是補洞,是換形狀** —— 換的那一格寫在 `§13-2`。
 
 ## 13-0 codex 關卡1 第二輪 = **FAIL(13 must-fix + 1 nit)** —— 逐條處置
@@ -1907,4 +1909,1139 @@ Q-檢視-10 `sort_order` 誰可以動                          ⇒ 擋 **表(片
 · ~~`§13-8` 的鐵則 12① …若主視窗判我的異議成立, 那一格可以縮~~
   🔴 **這句已經作廢**:主視窗 2026-08-27 已裁【不縮】, 而 `§13-8` 記了那個裁決。
   📌 **同一版裡同時把一題標成【已決】與【未決】** —— 成因是我加了新段而沒回頭改舊段。
+```
+
+# 📋 §14 **第三版 plan** —— 從【量測表】寫出來的,不是從推導寫出來的
+
+> 🔴 **要批的是本節。**`§12` 沒過 codex(13 條)、`§13` 沒過 codex(25 條)。
+> **這一版換的不是措辭,是【產生方式】**:主視窗裁甲 ——
+> 「**去量。量完給我表,不要給我 `§14`。**」⇒ 先產表,再從表寫本節。
+> 📌 **成因是我自己診斷的**:`§12`/`§13` 我在寫【關於程式碼的規格】,**而我沒有打開那些程式碼**。
+> 量測表兩份(逐列帶 `檔:行號`):
+> `~/pcm-mailbox/線4-檢視片地面量測表-20260827.md`(v1)· `…-v2-20260827.md`(v2)
+> ⚠️ **那兩份在信箱、不在 repo** ⇒ 本節引用時把行號抄進來,不要只寫「見量測表」。
+
+> ## 🛑 **這一版【不叫定稿】** —— 而改名這件事本身是 codex 打出來的
+> ```
+> ~~定稿版 plan(第三版)~~ ⇒ **第三版 plan**
+> 🔴 codex R2 逐字:「仍有拒權 audit、衝突/NO_CHANGE/重播 audit、ROW_COUNT、冪等鍵四項未定,
+>    卻標【定稿版／要批】;執行者仍須自行發明安全與資料語意。」
+> ⇒ **它對。** 一份還要人自己發明語意的東西, 叫它定稿是【字面 vs 事實】的偏離。
+> ⇒ ⇒ 未決的四格 + rollback 順序 = **approval blocker**, 列在 `§14-8`。
+> ```
+
+> ## §14 自己跑過 codex 兩輪 —— **R1 FAIL 27 條 · R2 FAIL 14 條**
+> **而三個版本 FAIL 的方式【各不相同】,那個差別本身是進度:**
+> ```
+> §12 / §13  FAIL 在【地基】—— 建在今天不存在的東西上
+> §14 R1     FAIL 在【誇大】—— 量測是真的, 而句子宣稱得比量測多
+> §14 R2     FAIL 在【深度】—— 句子不誇大了, 而防線只想到第一層
+>            (例:P2 只想到 INSERT/UPDATE/DELETE, 沒想到 TRUNCATE / REFERENCES / TRIGGER)
+> 🔴 ⇒ 每一輪都往下一層, **沒有一輪在重複前一輪** ⇒ 照鐵則「還在抓到真 finding 就繼續」
+> ```
+> 逐條處置在 `§14-7`。
+
+---
+
+---
+
+# 🛑🛑 §14-BLOCKER **循環授權:這道閘站在一個【被閘的人自己改得動】的欄位上**
+
+> **R3 換角度換模型抓到的(codex 三輪沒抓到)。我當場開檔查證,`確認成立`。**
+> 🔴 **它不是「還缺一條」,它讓 `§14-1` 整節的閘變成裝飾。**
+
+## 證據(逐行,我自己跑的)
+```
+apps/admin/src/lib/staff-actions.ts:135  export async function updateStaffProfileAction(
+                                    :139  const authorization = await authorizeAdminMutation();
+                                    :174  is_manager: parsed.profile.isManager,   ← **寫入那一欄**
+apps/admin/src/lib/session/authorize.ts:52-54
+     const actor = await getSessionActor();
+     if (!actor) return null;
+     return { sid: session.sid, actorId: actor.id };
+🔴 而那支檔自己的註解逐字寫著(`authorize.ts:15`):
+     「actor 只標【我是誰】、**非授權**,授權在 ①」
+   而 ① = session 自驗(`:30`)⇒ **只證明「有登入」, 不證明「是誰」、更不證明「是管理者」**
+```
+
+## ⇒ 所以攻擊路徑是三步,而每一步都不需要任何權限
+```
+1. 用任何方式登入後台(含共用密碼 fallback)
+2. 呼叫 updateStaffProfileAction 把【自己】的 is_manager 設成 true
+3. 呼叫本片的 RPC ⇒ `AND s.is_manager` **通過**
+🔴 而六發突變(§14-6)全綠、A1-A3 碼錨全綠、audit 也乖乖記一筆
+⇒ ⇒ **因為每一道檢查都正確運作了 —— 它們檢查的那個事實, 是攻擊者自己寫進去的。**
+```
+
+## 📌 而這一條為什麼三輪 codex 沒抓到,值得記
+```
+前三輪都在問「**怎麼正確地檢查 is_manager**」
+而這一輪問的是「**誰能設定 is_manager**」
+🔴 ⇒ 那是框架外的問題 —— 在框架內, 前三輪的每一條 finding 都是對的
+📌 ⇒ 這正是鐵則「第三輪起換模型」的理由逐字:
+   「同模型再審傾向在同一框架內找更細的問題;**換模型才會質疑框架本身**」
+```
+
+## ⇒ 這格怎麼關(**兩條路,而我不自己選**)
+```
+甲 先把 `is_manager` 的**寫入路**閘起來(updateStaffProfileAction / createStaffAction 加管理者檢查)
+   代價:🔴 **它自己也踩同一個循環** —— 第一個管理者從哪來?要 bootstrap 路徑
+   而它動到既有的員工設定頁 ⇒ **超出本片範圍**, 是另一片
+乙 本片**不用 `is_manager`**, 改用一個非管理者改不動的東西當判準
+   代價:那個東西今天不存在 ⇒ 也是另一片
+🔴 ⇒ 兩條都指向【本片不能單獨上線】。而這一格要端給 Sean, 因為它推翻的是他 08-27 拍的三題的前提。
+⚠️ **他拍「只有管理者」的時候, 沒有人告訴他「管理者這個身分, 現在任何人都給得起自己」。**
+```
+
+---
+
+## 14-0 🔴 端給 Sean 的那一句話,要先改 —— 而理由是量到的
+
+他拍三題「只有管理者」時知道的是「`is_manager` **第一次承重**」。
+**而它是【兩層同時】第一次承重,他不知道那半。**
+
+### 量法(先寫尺,再寫數;三個對照都跑了)
+```
+尺A(SQL 層)  grep 'is_manager' supabase/migrations/*.sql                    分母 221 支
+尺B(TS 層)  grep -E '(if \(|&&|\|\||\? ).*(is_manager|isManager)'
+             apps/admin/src packages/adapters/src --include=*.ts,*.tsx 扣 *.test.*
+🔴 尺B 正對照 = 同一把尺換 is_active ⇒ **5 命中** ⇒ 它有判別力(不是尺壞掉印 0)
+🔴 尺B 負對照 = isManagerZZ / is_activeZZ ⇒ **0**
+```
+
+| 層 | 出現 | **做授權判斷的分支** | 依據(檔:行號) |
+|---|---|---|---|
+| SQL(migration) | **3 支** | **0** | 欄定義 `…20260726120000_m4b_e8a1_staff_table.sql:15` · 種子 `:32` · `GRANT :72` · `op3:329` · `op4:75` |
+| TS(非測試) | **24 行** | **0** | 顯示/表單/型別:`staff-edit-row.tsx:33` `defaultChecked` · `staff-table.tsx:38` 顯示「是/否」· `staff-actions.ts:109` `:174` 寫入欄位 · `staff-repository.ts:7` 型別 |
+| **正對照** `is_active` | — | SQL **17 支** / TS **5 行** | TS 樣本 `staff-actions.ts:222` `:241` `:252` |
+| **負對照** | **0** | **0** | `is_managerzz`(SQL)/ `is_activeZZ`(TS) |
+
+🔴 **這是【查無】不是【未完成】**:尺跑了、**正對照跑了**、負對照跑了、分母寫了。
+📌 ⇒ 這一句要進**叫他決定的那段話裡**,不是附件(`working-style.md` §2.1a)。
+
+### 🔴🔴 而複量窗用**第二把尺**(資料流,不是識別字 grep)把這個 0 **升級了一級**
+> 交件 `~/pcm-mailbox/複量-9e-is_manager承重0-資料流尺-20260827.md`(HEAD `9f50dd5f`)。
+> ⚠️ **以下引它的字面,不引主視窗那則轉述。**
+
+```
+值【真的被拉進來】:`staff-repository.ts:22`
+  STAFF_COLUMNS = 'id, label, is_manager, is_active'  ⇒ 不是沒 select
+🔴 而它在 row → actor 的**兩個轉換點被丟掉**:
+  `staff.ts:60`  listActiveStaff ⇒ .map(({ id, label }) => ({ id, label }))
+  `staff.ts:145` getStaffRowById ⇒ return { id: row.id, label: row.label }
+  型別 `StaffActor` 只有 { id, label }(`staff.ts:37-40`)
+⇒ ⇒ 整條 authorizeAdminMutation → getSessionActor → resolveStaff 上,
+   **actor 物件裡根本沒有這個屬性**
+```
+📌 **⇒ 兩種不同的 0:我那個是「沒有人在用它」,這個是【型別上做不到】。**
+🔴 **⇒ 日後有人寫 `if (actor.is_manager)` 會【當場 TS 紅】** ⇒ **後者才承得起重。**
+
+### ⚠️ 而它訂正我一個字面 —— **我照收**
+```
+❌ 「零讀取」  ⇒ 下一個人 grep 一次會撞到稽核那幾處, 然後判我寫錯
+✅ 「**授權判斷分支 0**」
+🔴 因為稽核路徑**是真的讀它**:`audit-field-label.ts:150` 映成「是不是管理者」、
+   `audit-diff` 記 before/after ⇒ 編輯員工時那個值**確實流進稽核列**
+⇒ 那是【記錄改了什麼】不是【授權判斷】⇒ 歸類非承重, **而它不是字面 0**
+```
+
+### 🔴 ⇒ 所以這片不是「加一個判斷」,是**接線** —— 而工程量要照這個估
+```
+兩層【各要新增讀取路徑】:
+  .ts 側  把 is_manager 帶進 StaffActor ⇒ 改**型別** + 改**兩個 map 點**
+  SQL 側  RPC 的 actor 閘從 `WHERE s.is_active` 加 `AND s.is_manager`
+🔴 而【改 StaffActor 的形狀】會動到**所有拿 actor 的地方** ⇒ 爆炸半徑進 `§14-9` 影響面
+📌 ⇒ 上一版把它當成「翻一個旗標」⇒ **工程量會估錯**:那條路上現在連那個值都不存在。
+```
+⚠️ 兩把尺**共同的盲區只剩一個**(複量窗自標):**執行期組出來的欄名**
+   (`row[buildColName()]`)—— 兩把尺都看不見 ⇒ **那一格不算複驗**。
+
+---
+
+## 14-1 🔴 授權形狀:採用形狀 ③ —— 而**它今天買到的東西比看起來少**
+
+repo 現有 **三種**處理「呼叫端可能謊報身分」的形狀(v2 C-2,分母 221、候選 31、負對照 0):
+
+| | 代表 | 檔:行號 | 做法 | 本片 |
+|---|---|---|---|---|
+| ① 不收 | `confirm_order_payment` | `…20260611120000…:117` 簽名 · `:139-143` 自己 `FOR UPDATE` 重讀 | 參數無 actor | ❌ 不採 |
+| ② 收但只當標籤 | `admin_adjust_wallet` | `:42` 參數 · `:70` 非空檢查 · `:134` 進 audit · **`:154` REVOKE / `:156` GRANT** | 授權在 ACL 層 | ⚠️ ACL 那一半照做 |
+| ③ 收而且回表驗它 | `admin_cancel_order` | **`:194` `IF NOT EXISTS (…s.id = p_actor AND s.is_active)` / `:195` `RAISE`** | 回 `staff` 表驗 | ✅ 採用 |
+
+> ⚠️ `:164-172` 不是 REVOKE/GRANT,**那是 ACL 自我斷言**(codex R1 指正)。
+> ⚠️ `:194` 只有 `IF` 條件,`RAISE` 在 `:195`(同上)。
+
+### ❌ 為什麼 ① 不採 —— **而我第一版寫的理由是錯的**
+~~「那三件事沒有一件寫在 `admin_saved_order_views` 那一列上」~~ **作廢。**
+🔴 codex 對:「共用還是私人」**就寫在那一列上**(nullable `staff_id`,`§13-3`)。
+✅ 正確理由只有一條:
+```
+① 能不收 actor, 是因為它要判的東西寫在【被改的那一列】上
+而本片要判的是「**這個操作者**是不是管理者」—— 那寫在 `staff` 那一列上
+⇒ ⇒ ① 在本片不是不能走, 是走了還要再查一次 staff ⇒ 那就等於 ③
+```
+
+### ⚠️ ② 的 ACL 買到什麼、**不**買到什麼
+```
+量法  grep 'createSupabaseServiceClient|createSupabaseAnonClient' apps/admin/src(扣測試)
+     ⇒ service **103** 處 / anon **0** 處   定義 `packages/adapters/src/supabase/client.ts:60` `:63`
+     別的連線方式 `from 'pg'|@prisma/client|postgres(` ⇒ **6 支**, 全在 `packages/adapters/src/payment/Pg*.ts`
+     ⇒ 金流機器軌, **而我沒有逐支開檔驗證這句** ⇒ 標【未驗】。負對照 `from 'pgzzz'` ⇒ 0
+```
+⇒ ✅ `EXECUTE 僅 service_role` 切開「**後台 app**」與「**顧客瀏覽器**」(anon / authenticated)。
+⇒ ❌ 它**切不開**「管理者」與「其他員工」—— 兩種人共用同一把 `SUPABASE_SERVICE_ROLE_KEY`。
+🔴 **而 codex R2 指出:那個「切開」只涵蓋【直接 ACL】。三條間接路徑 ⇒ ✅ 2026-08-27 已量(原 B-7)**
+
+| # | 間接路徑 | 量法 | 結果 |
+|---|---|---|---|
+| 1 | anon/authenticated 可 `SET ROLE` | `GRANT <角色> TO anon\|authenticated`(排除物件權限動詞) | **0** |
+| 2 | 公開可呼叫的 SECDEF wrapper 內部再呼叫 | 先撈 `GRANT EXECUTE ON FUNCTION … TO anon\|authenticated` ⇒ **17 支**;再看那 17 支有沒有碰 `public.admin_*` | **0 支碰到** |
+| 3 | 函式 owner 的權限 | `OWNER TO` | **18 次,全是 `postgres`** |
+
+```
+🔴 對照(尺有沒有判別力):
+  #1 正對照 任何 `GRANT … TO anon` ⇒ **52** 命中 ⇒ 尺看得見 anon;負對照 `TO anonzzz` ⇒ 0
+  #2 正對照 同尺對 admin_adjust_wallet ⇒ **9** 命中 `public.admin_*` ⇒ 尺看得見 admin 表
+```
+
+**⇒ #1 #2 今天不成立;而 #3 量出來的東西反而是一條【要寫進設計的約束】:**
+```
+🔴 `OWNER TO postgres` ⇒ SECURITY DEFINER 的函式體**以 postgres 執行**
+   ⇒ 它繞 RLS、對所有表有權 ⇒ **函式體內那道閘是【唯一】的閘,外面沒有第二層接住**
+⇒ ⇒ 所以 `SET search_path = ''`(或鎖 `public, pg_temp`)**不是形式**:
+   沒有它, 攻擊者只要在 search_path 前面放一個同名物件, 就能讓 postgres 去執行他的東西
+✅ 本片照抄 `admin_adjust_wallet:48` 的 `SET search_path = public, pg_temp`
+```
+
+### ⚠️ 而這三發**共同的天花板**,要寫在結果旁邊
+```
+🔴 **分母是【migration 檔】,不是【線上那台 DB 的實際狀態】。**
+   角色成員資格可以在 Supabase dashboard 直接授予, **那不會留在 repo 裡**
+⇒ ⇒ 這與「migration 套了而平台帳本沒登記」是**同一族的病, 方向相反**:
+   那次是「檔案有而帳本沒有」, 這次是「帳本可能有而檔案沒有」
+⇒ 要真的關掉 #1, 要在**線上**跑一發 `\du` 或 `pg_auth_members` 查詢 —— **本節沒跑** ⇒ 那一格仍【未量】
+```
+⚠️ 第一版寫「**那道閘只能是 ③**」⇒ **過頭了**(codex R1)。
+   正確說法:**在不改鑰匙架構的前提下**,③ 是本 repo 已有前例、且最短的一條。
+   未評估的替代路:專用 manager DB role / 走已驗 JWT + RLS。
+
+### ⇒ 本片的閘(形狀抄 `…20260804180000…:194-196`,多一個條件)
+```sql
+IF NOT EXISTS (
+  SELECT 1 FROM public.staff s
+   WHERE s.id = p_actor AND s.is_active AND s.is_manager
+) THEN
+  RAISE EXCEPTION '%', v_generic_msg;   -- 單一通用訊息, 不洩內部狀態
+END IF;
+```
+
+### 🔴🔴 而這道閘**今天擋不住冒名** —— 兩輪 codex 都打在這裡,我照收
+```
+`apps/admin/src/lib/session/actor.ts:98`  旗標關 ⇒ resolveStaff(cookie) ⇒ **使用者自己從下拉挑的**
+`apps/admin/src/lib/shipping/shipment-actions.ts:266` 逐字:「**系統不驗證**」
+⇒ 那道閘驗的是「**他宣稱的那個人**是不是管理者」
+⇒ ⇒ **挑一個管理者就放行, 而 audit 記的是【被冒名者】。**
+```
+
+### ⇒ 上線硬前置條件 —— **寫在這裡,自足;不指去 `§13-6`**(`§13` 已標 FAIL)
+```
+🔴 P1  `ADMIN_REQUIRE_REAL_IDENTITY=1` 在 production 生效
+   ⚠️ **而 codex R2 對:P1 一條不夠, 它只證「舊票會回 null」** ⇒ 拆成三格:
+   P1-a  旗標在 production 真的生效
+        ⇒ 🔴 量法不是看設定檔, 是讓那個環境**印出兩個世界會不同的東西**
+        ⇒ ⚠️ 而「Sean 2026-08-25 已手動設上並重新部署」是**外部狀態宣稱, 不是本節量到的**
+           ⇒ ⇒ **上線前要當場重量一次**, 不得引用 08-25 那次
+   P1-b  三支 server action 的 `p_actor` **只能來自 `getSessionActor()`**
+        ⇒ ✅ 依據:`actor.ts:65-77` 全部從 cookie / 已驗票取, **函式簽名不吃任何外部參數**
+        ⇒ 🔴 而規格要**明文禁止**:action **不得**從 form / body / query 讀 actor
+           (否則 env=1 也擋不住 —— codex R2 那條)
+   P1-c  `resolveStaff` 拿到的 staff_id 與票上的 `sub.staff_id` 是同一個
+        ⇒ `actor.ts:71` `case 'user': return await resolveStaff(session.sub.staff_id)` ✅
+
+🔴 P2  收掉 `admin_saved_order_views` 的直接寫入路徑
+   ⚠️ 第一版只寫「撤 INSERT/UPDATE/DELETE」⇒ **不夠**(codex R2):
+      新表 default privilege 還可能留 **TRUNCATE / REFERENCES / TRIGGER**
+   ⇒ ✅ 正確寫法 = **先 `REVOKE ALL`,再白名單補回,然後逐權斷言**
+      (形狀照 `revoking-function-execute-in-supabase.md` 的兩道 REVOKE)
+   ⇒ 只補回 `GRANT SELECT`(讀不經 RPC);寫入唯一路 = 那支 RPC
+   ⇒ 🔴 **TRUNCATE 不受 RLS 管** —— 那份文件自己寫的, 不要漏
+```
+🔴 **⇒ 所以本片的授權強度 = P1-a 那個 env 值 + P1-b 那條規格紀律。兩者任一破,閘退化成標籤。**
+
+---
+
+## 14-2 ✅ **採用「碼錨斷言」** —— 而本片要寫**自己的**錨,不是引用別人的
+
+`…20260804180000_m4b_e10_a8a1_admin_cancel_order.sql:305` 是**存在錨**:
+```sql
+IF position('WHERE s.id = p_actor AND s.is_active' in v_def) = 0 THEN
+  RAISE EXCEPTION 'A8a1 碼錨:actor is_active 守門字面缺失;拒繼續';
+```
+`:345-361` 是**順序錨**。⚠️ ~~十個字面的全序~~ 作廢 —— 當場數:
+`position(` **16** 次 · **相異錨字面 9 個** · **相鄰比較 8 段**(codex R1 指正)。
+
+📌 **兩種錨擋兩件不同的事:**
+```
+存在錨 ⇒ 擋「守門【被刪掉】」        順序錨 ⇒ 擋「守門還在, 而**被挪到閘後面**」
+🔴 我第一版寫「它擋的不是有沒有寫」是錯的 —— :305 就是在擋有沒有寫(codex R1)
+```
+
+### 🔴 而 codex R2 打對了一條:**上面全是【別人那支】的錨,本片自己的還沒寫**
+⇒ 本片 migration **必須自帶**下列三發(否則 `§14-6` 的 M4 沒有可驗收的斷言):
+```
+A1 存在錨  position('WHERE s.id = p_actor AND s.is_active AND s.is_manager' in v_def) = 0 ⇒ RAISE
+A2 寫入錨  position('INSERT INTO public.admin_audit_log' in v_def) = 0 ⇒ RAISE
+A3 順序錨  position(A1 的字面) < position('UPDATE public.admin_saved_order_views')
+           且 < position(A2 的字面)          ⇒ 否則 RAISE「順序錨:閘被挪到寫入之後」
+```
+
+### 天花板(五條;3-5 是 codex 打出來的)
+```
+1. 它比對【字面】⇒ 改變數名就失效
+   ⚠️ 而「migration 會紅」**只在【改那支尚未套用的 migration】時成立**(codex R2 指正射程)
+2. 同一個人同時改函式與改錨 ⇒ 兩邊一起改 ⇒ 照樣過
+   ⇒ 擋的是【後來的人不小心搬動】, 擋不了【當下的人有意繞開】
+🔴 3. 保留字面而後面接 `OR true`, 或把錨字面放進**死分支 / 註解 / 字串**
+     ⇒ `position()` 找得到, 而授權已失效 ⇒ **恆綠**
+🔴 4. 錨**只在那支 migration 套用的當下跑一次**
+     ⇒ 之後任一支 migration `CREATE OR REPLACE FUNCTION` 改壞函式, **舊錨不會再跑**
+     ⇒ ⇒ 它保護【出生那一刻】, 不是【往後每一天】
+🔴 5. ⇒ 所以 3 與 4 合起來 = **它不是一道閘, 是一張出生證明**。突變測試不因為有它而省。
+```
+
+---
+
+## 14-3 🔴 audit:同交易寫,形狀照既有的 —— 而**四格未定,它們是 blocker**
+
+```
+尺 = INSERT INTO (public.)?admin_audit_log ⇒ **24** 支 migration · 負對照 admin_audit_zzz ⇒ 0
+```
+| 樣本 | 檔:行號 |
+|---|---|
+| `admin_adjust_wallet` | `…20260716210000…:134` |
+| `admin_set_customer_tier` | `…20260717010000…:140` |
+| `admin_update_order_workflow` | `…20260714130000…:223` |
+| `refund_write_rpcs` | `…20260803150000…:579` |
+
+「同交易」不是推的 —— `…20260717010000…:157` 的 `COMMENT` 逐字:
+> 「鎖列讀 before → 同值回 `NO_CHANGE` 零寫入 → `UPDATE` 僅 `SET tier` 單欄 →
+> **同交易寫 `admin_audit_log`**」
+
+⚠️ **射程**:「這 24 支都是同交易」是**那 2 支的 `COMMENT`** 說的 ⇒ 本片只宣稱那 2 支。
+
+### 🔴 codex R1 打掉我兩句,兩句都對
+```
+① ~~before / after 兩份快照~~ ⇒ **建立時 before 必為 NULL、刪除時 after 必為 NULL**
+   ⇒ 欄位必須 nullable, 不得寫成「一律兩份」
+② ~~request_id 必填 ⇒ 冪等鍵~~ ⇒ **錯。它是【關聯 id】, 不是防偽章也不是冪等鍵**
+   ⇒ `admin_audit_log.request_id` **沒有 UNIQUE**, 沒有重播判定
+   ⇒ 📌 而這條 memory 早記過(`request_id是關聯id不是防偽章`)—— **我重犯了一次**
+```
+
+### 🛑 四格未定 —— **它們是 approval blocker,不是註腳**(`§14-8`)
+```
+B-1 拒權(不是管理者)要不要留 audit
+    🔴 而 `RAISE` 會**回滾同交易** ⇒ 「在同一交易裡記下拒絕」物理上做不到
+    ⇒ 要嘛不 RAISE 改回錯誤碼, 要嘛拒絕紀錄走另一條路 ⇒ **未決**
+B-2 樂觀鎖衝突 / NO_CHANGE / 重播 各自要不要留 audit ⇒ **未決**
+B-3 audit INSERT 要不要 ROW_COUNT 守門
+    (BEFORE INSERT trigger 回 NULL ⇒ 資料改了而 audit 零列)⇒ **未決**
+B-4 冪等鍵怎麼定(不能用 request_id)⇒ **未決,而它是新設計題不是抄來的**
+```
+
+---
+
+## 14-4 🔴 rollback:**四個世界 + 三個中間態**,而順序寫成【條件式】
+
+v1 E 節量到(逐發):
+```
+vercel.json:3 framework / :5 regions              ⇒ **沒有部署時間資訊**
+.github/workflows/ci.yml 裡 `vercel` 命中 **0**   ⇒ 部署不由 CI 觸發
+workflows 裡 `migration` 命中 **0**               ⇒ migration 不由 CI 套
+```
+📌 **⇒ 部署與 migration 是【兩條不同步的路】。**
+⚠️ ~~所以三個世界都會真的出現~~ 作廢(codex R1):不同步只證明**可能**出現。
+
+| 世界 | 狀態 | 本節怎麼說 |
+|---|---|---|
+| A 舊 app × 舊 DB | 現況 | — |
+| B 舊 app × 新 DB | 表與 RPC 建了、沒人呼叫 | ⚠️ **未量**:新表 default privilege / trigger / 名稱碰撞都沒查 |
+| C 新 app × 舊 DB | app 呼叫不存在的 RPC | ⚠️ **未量**:~~會炸~~ 是假設;新 app 也可能捕捉 missing-RPC 而降級 |
+| D 新 app × 新 DB | 成功終態 | ✅ codex R1 指正補上 |
+
+🔴 **而 codex R2 再指正:D 不是唯一的 rollback 起點。真實事故入口有四個:**
+```
+· 從 D 回退(功能上線後才發現問題)
+· 從 B 回退(migration 成功、app deploy 失敗)
+· 從 C 回退(app-first 而 migration 失敗)
+· 從**中間態**回退(SQL Editor 貼到一半)
+```
+
+### 🔴🔴 三個中間態 —— 第三個是 codex R2 找到的,而它**最危險**
+```
+M-1 滾動部署 ⇒ **新舊 app 同時在線** ⇒ 兩種呼叫同時打同一個 DB
+M-2 SQL Editor 部分套用 ⇒ 表建了而 RPC 沒建(或反過來)
+🔴 M-3 表與 RPC **都建了, 而 REVOKE/GRANT 與斷言【還沒貼】**
+    ⇒ 新物件出生自帶 PUBLIC EXECUTE(`revoking-function-execute-in-supabase.md`)
+    ⇒ ⇒ 那是一個**裸寫窗口**, 而它比 M-2 危險 —— M-2 會壞掉、M-3 **會正常運作**
+    ⚠️ 而我**沒有量過**那個窗口有多長, 也沒量 Sean 是不是整支一次貼(那樣就沒有窗口)⇒ 【未量】
+```
+🔴 **而 R3 指出:M-3 不該去【量】,該用設計讓它【不存在】** —— 我照收。
+```
+✅ 正解 = CREATE + REVOKE + 斷言**寫在同一支 migration、同一個交易裡**
+   ⇒ 前例就在手上:`admin_adjust_wallet.sql` 就是這樣寫的
+     (`:134` 寫入 → `:154` REVOKE → `:160` 起 ACL 斷言, 同一支檔)
+   ⇒ ⇒ SQL Editor 整支一次貼 ⇒ **窗口 = 0**, 不需要量它有多長
+📌 **⇒ 而我把一個【可以用設計關掉的洞】寫成了一道【要量的題】。**
+🔴 ⇒ 判別句:**量測驅動也會用過頭 —— 一個關得掉的洞, 不需要一把尺。**
+   (2026-08-27 跑過查重:`traps-neighbours.py` 八名 + 標題行 grep,
+    正本 `① 恆綠格` / `⑪` 那幾族講的都是【尺壞掉】, 這條講的是【不該有尺】⇒ 判不同族)
+⚠️ 而「Sean 是不是整支一次貼」仍要問(主視窗已排進下一批)——
+   那不再是為了量窗口, 是為了確認**這個設計的前提**(整支貼)成立。
+```
+
+### ⇒ 順序:**寫成條件式,兩條路都寫** —— 而這推翻我上一版的「等 Sean 回答」
+```
+🔴 codex R2 逐字:「不應把 DB-first/app-first 這個相容性技術判斷丟給 Sean;
+   應先量 B/C, 再寫條件式 forward/rollback choreography。」⇒ **它對, 我照改。**
+📌 而理由我認得出來:那是一個【技術可驗證】的問題, 我卻把它包裝成【他要拍的板】
+   ⇒ ⇒ 那與「我把已做完的事端成待辦」是同一族的病。
+
+forward(DB-first)   套 migration ⇒ 驗 B 無害 ⇒ 推 app ⇒ 到 D
+  rollback           推回舊 app(回 B)⇒ B 若無害就停在 B, 不急著 drop
+forward(app-first)  推 app ⇒ 經過 C ⇒ 套 migration
+  rollback           推回舊 app(回 A)
+🔴 選哪一條的判準 = **B 與 C 哪一個比較無害** ⇒ 而那**兩格都還沒量** ⇒ 見 `§14-8`
+```
+
+### ⏳ 未量的,明寫要問誰 / 要跑什麼
+```
+① Vercel 是不是 atomic swap / rollback 多久生效 ⇒ **要看 Vercel 面板**
+② 世界 B 實際無不無害(default privilege / trigger / 名稱碰撞)⇒ **要在拋棄式 PG 上跑**
+③ 世界 C 實際炸在哪一頁、錯誤長什麼樣          ⇒ **要實跑**
+```
+✅ 已知:migration 由 Sean 手動在 SQL Editor 套(**來源 = memory,本 repo 內無檔可引** ⇒ 照 codex R1 標明)
+⇒ 🔴 **而「套了」與「平台帳本知道」是兩件事**(主視窗 2026-08-27 量到 `#950` 已跑而帳本沒登記)
+⇒ ⇒ **相容矩陣的座標用【真的套了沒】,不是帳本。**
+
+---
+
+## 14-5 表與權限 —— **取代 `§13-3`**
+
+```sql
+-- 🔴 REVOKE ALL 先行, 再白名單補回(codex R2:只撤三種 DML 會漏 TRUNCATE/REFERENCES/TRIGGER)
+REVOKE ALL ON TABLE public.admin_saved_order_views FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON TABLE public.admin_saved_order_views TO service_role;   -- 讀不經 RPC
+-- 寫入唯一路 = 那支 RPC(SECURITY DEFINER, owner 執行)
+-- 🔴 而 EXECUTE 也要兩道 REVOKE(新函式出生自帶 PUBLIC)
+REVOKE ALL ON FUNCTION public.admin_upsert_saved_order_view(...) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_upsert_saved_order_view(...) TO service_role;
+-- 逐權斷言(形狀抄 admin_adjust_wallet:164-172 那組 has_*_privilege 檢查)
+```
+⚠️ `§7-5` 那三條表形狀(`NULLS DISTINCT` 唯一索引 / `is_shared` 與 nullable `staff_id` 缺 CHECK /
+   缺 `updated_at` trigger)**仍要折**,屬片1 動手前,本節不重複。
+🔴 收工條件(本片造成的,本片修):`…staff_table.sql:28-29` 的 `COMMENT` 與
+   `apps/admin/src/lib/staff-form.ts:37-40` 上線後仍會宣稱 `is_manager`「不是權限旗標」
+   ⇒ **本片讓那句話變成假的** ⇒ 由本片訂正。
+
+---
+
+## 14-6 授權測試:**六發突變,每一發【單獨】要紅**
+
+```
+正向  管理者 ⇒ 建 / 改 / 刪 皆成功
+🔴 fixture 要隔離(codex R2):M1 需【啟用中的非管理者】, M2 需【停用的管理者】
+   —— 拿同一個人跑兩發, 兩發都紅, 而你分不出是哪一條在擋
+
+M1 拿掉 `AND s.is_manager`         ⇒ 啟用非管理者應被擋而沒被擋      ⇒ 紅
+M2 拿掉 `AND s.is_active`          ⇒ 停用管理者應被擋而沒被擋        ⇒ 紅
+🔴 M3 拿掉 `s.id = p_actor`(只留 is_active AND is_manager)
+   ⇒ **庫內只要存在任一啟用管理者, 任意 actor 都通過** ⇒ 紅
+   📌 這一發是 codex R2 找的 —— **而它正是「收了 scope 卻沒真的驗」那個病本身**
+M4 把整個 IF NOT EXISTS 註解掉      ⇒ 全放行                          ⇒ 紅
+M5 把 IF 挪到寫入【之後】           ⇒ `§14-2` A3 順序錨應該要紅        ⇒ 紅
+   🔴 而它必須**突變原 migration 後 fresh apply**(codex R2):
+      若在套完之後 `CREATE OR REPLACE` 搬閘, **舊錨不會再跑**;
+      而寫後 `RAISE` 又會整筆回滾 ⇒ **行為測試會綠** ⇒ 那一發就是假綠
+   ⇒ 驗收字面 = 預期看到 A3 那句錨訊息, 不是「有沒有紅」
+🔴 M6 把 `§14-1` P2 撤回(service_role 恢復裸 DML)
+   ⇒ repository 直接 `.from(...).delete()` 應成功 ⇒ **守門測試要紅**
+   ⇒ 沒有 M6, P2 這條規格【從來沒有被驗過】
+
+⚠️ 而六發**都殺不掉「冒名」那個洞**(`§14-1` P1-a/b)—— 那個洞在 app 層
+   ⇒ 🔴 **不要把「六發全紅」讀成「授權沒問題」。**
+```
+⚠️ 要跑真的 DB ⇒ `docs/runbooks/throwaway-postgres-for-migration-verification.md`。
+
+### 🔴 而還有一種紅,**這六發與單元測試都量不到** —— RSC 邊界(2026-08-27 線1 當天實錘)
+```
+本片會有 server action + client 元件(存 / 改 / 刪的按鈕在 client, 呼叫在 server)
+⇒ 而同一天線1 在 `account-nav.ts` 撞到的就是這條邊界:
+   從 server component import 一支帶 'use client' 的模組的普通 export
+   ⇒ 拿到的**不是那個值, 是 React 的 client reference**
+   ⇒ 執行期炸(`.includes is not a function`), **頁面 500**
+🔴 而**單元測試全綠** —— vitest 直接 import 那支模組, **它的世界裡沒有 RSC 邊界**
+📌 ⇒ 那把尺量得到邏輯, 量不到「這段碼會跑在哪一側」。**而畫面壞在後者。**
+⇒ ⇒ **驗收條**:本片凡跨 server / client 邊界的 import,
+   **必須用真瀏覽器走一遍**(`docs/runbooks/local-admin-with-real-data-probe.md`)
+   ⇒ 🔴 **單元測試對這一類零判別力 —— 它不是「比較弱」, 是【方向不對】。**
+   ⇒ ⇒ 🔴 **而零判別力的理由要跟著這條驗收條一起寫,不要只寫在上面那段:**
+        **「vitest 直接 import 那支模組, 它的世界裡沒有 RSC 邊界」**
+        📌 **否則下一個人會以為「多寫幾個單元測試就補得起來」** —— 而補不起來:
+           **再多發同一把尺, 也還是那把量不到這件事的尺。**
+```
+
+---
+
+## 14-7 codex 兩輪處置 —— **而「逐條」這個詞我收回**
+
+🔴 上一版標題寫「**27 條逐條處置**」而正文只可追蹤 6 條,其餘用「20 餘條」帶過
+⇒ **codex R2 直接點名這件事** ⇒ **它對,那是我自己的字面 vs 事實偏離。**
+⇒ 改成如實:**下面是【可追蹤的】,不宣稱涵蓋全部。**
+
+### R1 照改(我錯,codex 對)
+```
+· 「三件事都不在那一列上」⇒ staff_id 就在那列        ⇒ §14-1 理由重寫
+· `:164-172` 是 ACL 斷言不是 GRANT                   ⇒ 改 `:154` / `:156`
+· 「十個字面全序」⇒ 當場重數 9 錨 / 8 段比較         ⇒ §14-2 改
+· 「request_id = 冪等鍵」⇒ 它是關聯 id               ⇒ §14-3 改 + 列 B-4
+· 「那道閘只能是③」/「三個世界都會出現」/「每一列都引得回檔」⇒ 三句都過頭 ⇒ 各自加限定
+· 補:第四世界 D · before/after nullable · 天花板 3、4
+```
+### R2 照改(全數)
+```
+· ACL 只涵蓋直接路徑(SET ROLE / SECDEF wrapper / owner)      ⇒ §14-1 標未量
+· P1 一條不夠                                                  ⇒ 拆 P1-a/b/c
+· P2 只撤三種 DML                                              ⇒ 改 REVOKE ALL + 白名單(§14-5)
+· 只有別人的錨、本片沒有自己的                                 ⇒ §14-2 補 A1/A2/A3
+· 天花板 1 的射程沒對齊                                        ⇒ 加限定
+· 「定稿版」名不符實                                           ⇒ 改名 + §14-8
+· D 不是唯一 rollback 起點                                     ⇒ 列四個入口
+· 中間態漏 M-3(REVOKE 未貼的裸寫窗口)                        ⇒ 補, 並標未量
+· M1/M2 fixture 未隔離 · 缺 M3 · 缺 M6 · M5 未寫死 fresh apply ⇒ §14-6 六發重寫
+· 「27 條逐條處置」名不符實                                    ⇒ 本節收回那個詞
+```
+### 🔴 我保留異議一條(上一版兩條,codex R2 駁回一條而**它駁得對**)
+```
+✅ 撤回:「rollback 順序等 Sean」⇒ codex 對 —— 那是技術可驗證的, 不該包裝成他要拍的板
+                                ⇒ 已改成條件式兩條路(§14-4)
+🔴 保留:「突變測試不放 §14-3 而另開一節」
+   codex R1 說我「指向不存在的內容」⇒ 事實對, 而修法我不同意:
+   突變測試是**授權**的事, 塞進 audit 章是錯的歸屬 ⇒ 我開了獨立的 `§14-6`
+```
+
+---
+
+## 14-8 🛑 **approval blocker** —— 這些沒關掉之前,本節不該被批准
+
+## 🔴🔴 而 B-0 已經有答案了 —— **Sean 2026-08-27 拍【甲】,而它產生一條【依賴】**
+
+```
+甲 = **先把 is_manager 的寫入路閘起來, 再做這片**
+🔴 而它【不是風險, 是依賴】—— 差別要寫死:
+   **風險可以被接受;依賴不能 —— 它要嘛做了要嘛沒做。**
+⇒ 本片的上線前置條件因此多一條:
+   🛑 P0  「誰能設定 is_manager」那道閘**已經上線**
+       ⇒ 而那是【另一片】, 不在本 `§14` 的射程裡(它要動員工設定頁, 且自帶一個雞生蛋:
+          第一個管理者從哪來)⇒ 主視窗另派
+   ⚠️ 🔴 **本片不得順手做它** —— 兩片混在一起, 那個雞生蛋會被塞進 saved-views 的 plan 裡
+```
+📌 **而 Q-檢視-4/5/7 三題的答案【本身不變】(仍是「只有管理者」)** —— 它們現在多了一個前置片。
+⚠️ 而端那三題時漏掉的下半句(「那個身分誰都給得起自己」)是**端題的人的漏,不是他判斷錯**。
+⚠️ 過程有一格照實記:**他先打了丙(照原樣做)、自己中斷、改成甲。**
+   🔴 而「他不要一道看起來是閘而其實不是的東西」這句是**從他的動作推的,不是他講的** ——
+   他沒有說明為什麼改。**引用時要標成【推的】。**
+   ⇒ 落檔 `memory/project_0827-manager-gate-circular-sean-picks-jia.md`(主視窗寫的)
+
+---
+
+```
+~~B-0~~ ✅ **Sean 拍甲**(見上)⇒ 轉成 **P0 依賴**, 不再是待答題
+~~B-1~~ ✅ **已決**(`§14-11`):走 RAISE + 通用訊息, **不寫 audit** —— 前例有兩條拒絕通道
+~~B-2~~ ✅ **已決**(`§14-11`):NO_CHANGE / CONFLICT / DUPLICATE_REQUEST 三種都 RETURN 碼,
+        **零寫入零稽核** —— 逐字抄 `admin_set_customer_tier_rpc.sql:128`
+~~B-3~~ ✅ **已決**(`§14-11`):要做,前例 **51** 支;`v_n <> 1 ⇒ RAISE`
+        (寧可整筆回滾, 也不要留下一個沒有紀錄的變更)
+~~B-4~~ ✅ **已決**(`§14-11`):`(staff_id, idempotency_key)` 複合唯一
+        ⚠️ 而它與 `§7-5` 的 `NULLS DISTINCT` **是同一格, 不是兩格**
+~~B-5  世界 B 無不無害~~  ✅ **2026-08-28 關掉(`§14-12-a`)** —— 而它是**設計**關的不是量的
+     🔴 而本節第一版寫反過(說新表出生安全)⇒ 正式庫實查推翻 ⇒ 訂正留在 `§14-12-a ②`
+~~B-6  世界 C 炸在哪~~   ✅ **2026-08-28 關掉(`§14-12-b`)** —— 走 DB-first ⇒ **C 不在路上, 不用量**
+     ⇒ ✅ `§14-4` 那條 forward 路徑因此定了:**DB-first**
+~~B-7  ACL 那三條間接路徑~~ ⇒ ✅ **2026-08-27 已量,結果在 `§14-1`** —— 而它**只關掉一半**:
+     · #1 SET ROLE ⇒ migration 裡 **0**(數法見 `§14-1` 表;正對照 52 / 負對照 0)
+       🔴 **而線上 dashboard 授予的角色不在這個分母裡** ⇒ **仍需線上一發** `pg_auth_members` ⇒ 未量
+     · #2 公開 SECDEF wrapper ⇒ **17** 支公開函式,其中碰 `public.admin_*` 的 = **0**
+       (數法 `grep -rlE 'GRANT +EXECUTE +ON +FUNCTION.*TO .*(anon|authenticated)' *.sql` 再逐支
+        `grep -qE 'public\.admin_[a-z_]+'`;正對照 `admin_adjust_wallet` ⇒ 9)⇒ 關掉
+     · #3 owner ⇒ `grep -rhoE 'OWNER TO +[a-z_]+' *.sql | sort -u` ⇒ **只有 `postgres` 一種,18 次**
+       ⇒ **不是「沒問題」,是【函式體內那道閘,外面沒有第二層接住】** ⇒ 變成設計約束
+B-8  Vercel 是不是 atomic swap / rollback 多久生效  ⇒ **要看面板**(只有 Sean / 主視窗做得到)
+```
+### 🔴 R3(換角度換模型)追加 —— **而 B-0 是 BLOCKER 中的 BLOCKER**
+```
+🛑 B-0  循環授權:`is_manager` 由被閘的人自己改得動(見 `§14-BLOCKER`)
+        ⇒ **它推翻 Sean 08-27 三題的前提** ⇒ 必須端他, 兩條路他選
+~~B-9~~ ✅ **已決(`§14-12-e`)**:**只做一道閘(RPC)**, UI 層不判斷 ⇒ 整題消失
+~~B-10~~ ✅ **已決(`§14-12-f`)** —— 逐支各一個錨 + 「寫入語句只准一句」硬約束。原文:A3 順序錨的字面**現在寫不出來** —— 函式體是 `INSERT … ON CONFLICT` 還是分支三句還沒定
+     ⇒ 🔴 錨字面必須對齊**實際寫入語句的全集**;只錨 UPDATE 一句
+        ⇒ 閘挪到 INSERT 或 DELETE 之後**照樣綠**;而寫成 ON CONFLICT ⇒ 錨字面根本不存在 ⇒ 一裝就紅
+~~B-11~~ ✅ **已決(`§14-12-g`)**:ENABLE RLS + 零 policy;M6 加前置驗收。原文:新表的 **RLS 態一個字沒寫**(要不要 ENABLE / 有沒有 policy /
+     M6 在拋棄式 PG 的效度 —— runbook 明列 service_role 需顯式 BYPASSRLS 那個坑)
+~~B-12~~ ✅ **已決(`§14-12-h`)**:讀也走 RPC, 撤回 `§14-5` 那行 GRANT SELECT;補 M8。原文:**讀取路徑零授權設計**:私人檢視誰讀得到?六發突變全打寫入, 私有性零覆蓋
+~~B-13~~ ✅ **已決(`§14-12-d`)**:**三支**(list / upsert / delete), 閘是條件式的。原文:**RPC 到底幾支**:`§14-5` 只寫 upsert 一支的 ACL, 而 `§14-6` 正向是「建/改/刪皆成功」
+     ⇒ 刪除若是另一支, 它的閘/錨/ACL/audit 全部空白
+~~B-14~~ ✅ **已決(`§14-12-i`)**:交付物 + 四段骨架;「D 期間的資料」= 留著。原文:rollback **runbook 要列為片1 交付物**:`§14-4` 是一棵有空格的決策樹,
+     零具體指令、零 down-script、沒寫「回 B 之後 D 期間寫入的檢視資料怎麼辦」
+~~B-15~~ ✅ **已決(`§14-12-j`)**:三句驗收條含負對照。原文:M5 突變原 migration 要引 `docs/patterns/mutation-harness-restore.md`
+     🔴 本 repo 有實錘:**被突變的 migration 被 commit 進正式分支**(`02dd510e`)
+     ⇒ 那份 pattern 的存在理由逐字是「用一個會殺掉還原的方式跑它, 不是提醒能防的」
+```
+⚠️ **而 R3 訂正 `§14-2` 一條, 我照收 —— 它是【既有坑集裡已經有的那一族】,不是新發現:**
+```
+A1 存在錨對 **M4(把閘註解掉)恆綠** —— `pg_get_functiondef` 保留 PL/pgSQL 註解
+⇒ `position()` 照樣找得到那個字面 ⇒ **M4 的紅只能來自行為測試, 不能來自錨**
+🔴 而我在 M4 旁邊寫反了(寫成「否則 M4 沒有可驗收的斷言」)
+📌 正本早有這一族:`docs/patterns/guard-and-instrument-traps.md:9311`
+   逐字「尺量的是【字元】, 而宣稱量的是【結構】—— **註解裡的字和 code 長得一模一樣**」
+⇒ ⇒ 而 `§14-9` 那發恆綠的突變同樣屬正本 `① 恆綠格`(`:227`)那一族
+   ⇒ **兩條都不是我發現的, 是我又踩了一次。**(2026-08-27 查重確認)
+```
+
+📌 ~~B-1..B-4 是我要做的設計~~ ⇒ ✅ **四格 2026-08-27 全做完(`§14-11`), 而四格都有前例、我沒有發明語意。**
+📌 ~~B-5..B-7 是我要跑的量測~~ ⇒ ✅ **B-5/B-6/B-7 全關(`§14-12`)**;**只剩 B-8** 需要別人(Vercel 面板)。
+📌 ✅ **B-9..B-15 七格 2026-08-28 全部從空白變成規格**(`§14-12-d` ~ `§14-12-j`)。
+🛑 **⇒ 現在擋著本節被批准的,只剩兩格:`B-0`(依賴線B, 別人做)與 `B-8`(要看面板)。**
+⏳ 另有一發**不擋批准**的線上查證:`SELECT to_regclass('public.admin_saved_order_views');` 應回 `NULL`。
+🛑 ~~而 B-0 兩者皆非~~ ⇒ ✅ **已拍甲** ⇒ 它現在是 **P0 依賴**,而那一片由別人做。
+🔴 **⇒ 而上一版把「等別人」寫得比實際多 —— 那會讓一份【我還沒做完】的東西看起來像【卡在別人身上】。**
+
+---
+
+## 14-9 影響面:**改 `StaffActor` 的形狀會動到哪** —— 當場量的
+
+```
+量法(非測試檔)  grep 'StaffActor'    apps/admin/src packages ⇒ **12** 處
+                grep 'getSessionActor' apps/admin/src        ⇒ **14** 處
+                負對照 StaffActorZZ ⇒ **0**
+```
+| 落點 | 檔:行號 | 是什麼 |
+|---|---|---|
+| 型別本體 | `apps/admin/src/lib/staff.ts:37` | `export interface StaffActor` —— **要加欄的就是這裡** |
+| 🔴 轉換點 1 | `staff.ts:60` | `.map(({ id, label }) => ({ id, label }))` |
+| 🔴 轉換點 2 | `staff.ts:145` | `return { id: row.id, label: row.label }` |
+| 消費端 | `audit/audit-list-view.ts:107` `:172` | 稽核列顯示 actor 名字 |
+| 消費端 | `session/actor.ts:64` | `getSessionActor(): Promise<StaffActor \| null>` |
+| 下游 | 14 處 `getSessionActor` 呼叫端 | 寫入閘 / server action |
+
+### 🔴 而上一版寫在這裡的驗收條是【恆綠的】—— R3 抓到,我照收
+```
+❌ 作廢:「兩個轉換點各一發突變(拿掉一個 ⇒ 管理者被擋 ⇒ 紅)」
+🔴 理由:形狀 ③ 的授權**在 RPC 裡**, app 只傳 `p_actor` 這個 id 進去
+   ⇒ 拿掉 `staff.ts:60` 或 `:145` 的欄位 ⇒ **RPC 的行為零改變** ⇒ **那一發不會紅**
+📌 ⇒ 這是「突變殺不掉而我以為它會」那一族 —— 而它比沒寫驗收條更糟:
+   **一發恆綠的突變, 會被讀成「這一格驗過了」。**
+```
+
+### ⇒ 所以正確的結論是:**採形狀 ③ 的話,TS 側【根本不需要】把 `is_manager` 帶進 `StaffActor`**
+```
+✅ 那就不必動 `staff.ts:37` / `:60` / `:145`, 12 處消費端一處都不用碰
+   ⇒ 🔴 **本片的爆炸半徑因此【比上一版寫的小很多】** —— 上一版把它估大了
+⚠️ **除非**要做第二道 UI 層閘(非管理者看不到那些鈕 / action 先擋一次)
+   ⇒ 那才需要 TS 側拿得到 is_manager
+   ⇒ 🔴 而那時會有**兩道閘**, 而「哪一道是權威、兩道不一致時信誰」**本節完全沒設計**
+   ⇒ ⇒ 進 `§14-8`(B-9)。**二選一, 而兩種都還沒選。**
+```
+
+---
+
+## 14-11 ✅ **B-1..B-4 已決** —— 而四格**全部有前例**,我沒有發明任何語意
+
+> 主視窗裁「乙先、甲同時」⇒ B-0 它端 Sean,我做設計那幾格。
+> 🔴 **做法照這幾天換的那條路:先量前例,再決定。四格的答案全部從既有 migration 讀出來。**
+
+### 前例掃描(先寫尺與分母)
+```
+分母 supabase/migrations/*.sql ⇒ **221** 支
+· 用【回傳碼】表達業務拒絕的檔  ⇒ **11** 支;碼的字面分佈當場數:
+  DUPLICATE_REQUEST 9 · NOOP 8 · CONFLICT 8 · NO_CHANGE 7 · UPDATED 6 · NOT_FOUND 4 · INVALID_INPUT 4 …
+· 用 `v_generic_msg`(單一通用拒絕訊息)的檔 ⇒ **24** 支
+· `GET DIAGNOSTICS … ROW_COUNT` ⇒ **51** 支
+· `idempotency_key` ⇒ **18** 支;負對照 `idempotency_keyzzz` ⇒ **0**
+```
+
+### 🔴 B-1 拒權要不要留 audit ⇒ **不留,而理由是這個 repo 有【兩條拒絕通道】**
+```
+安全性拒絕(不是管理者 / actor 不存在)⇒ **RAISE + 單一通用訊息**
+   前例 `…a8a1_admin_cancel_order.sql:195` `RAISE EXCEPTION '%', v_generic_msg`
+   當場數:那支檔 RAISE **45** 次、RETURN 碼 **0** 次 ⇒ 它整支走 RAISE 這條通道
+業務狀態(沒變 / 找不到 / 撞了)⇒ **RETURN 一個碼**
+   前例 `…admin_set_customer_tier_rpc.sql:125` `RETURN 'NOT_FOUND'` / `:130` `RETURN 'NO_CHANGE'`
+🔴 ⇒ 所以「RAISE 會回滾 audit」不是**問題**, 是**這條通道的設計**:
+   ⇒ ⇒ **安全性拒絕本來就不該讓呼叫端有能力寫進 audit** —— 否則它變成一個免驗證的寫入面。
+✅ 決定:本片的 is_manager 閘走 **RAISE + 通用訊息**, **不寫 audit**。
+⚠️ 而代價要寫下來:**「有人試圖越權」這件事因此不會留下紀錄。**
+   ⇒ 要留的話得走另一條路(例如 app 層在收到那個通用錯誤時自己記一筆)⇒ **本片不做, 列入 backlog**
+```
+
+### ✅ B-2 NO_CHANGE / 衝突 / 重播的 audit ⇒ **不寫,而這是逐字抄前例**
+`…20260717010000_m4a_admin_set_customer_tier_rpc.sql:128` 註解逐字:
+> 「同值冪等:零寫入零稽核(double-submit 第二發 no-op、**audit 無噪音列**)」
+
+```
+✅ 本片照抄:同值 ⇒ RETURN 'NO_CHANGE' ⇒ 零寫入、零 audit
+✅ 樂觀鎖衝突 ⇒ RETURN 'CONFLICT'(碼字面已在 repo 用過 8 次)⇒ 零寫入、零 audit
+✅ 重播(同 idempotency_key)⇒ RETURN 'DUPLICATE_REQUEST'(用過 9 次)⇒ 零寫入、零 audit
+📌 判準:**audit 記【狀態真的變了】那些;沒變的不記** —— 否則稽核列被 double-submit 灌滿。
+```
+
+### ✅ B-3 audit INSERT 的 ROW_COUNT 守門 ⇒ **要做,而前例 51 支**
+```
+前例 `…20260611120000_m3_s2c_confirm_payment_rpc.sql:187` `GET DIAGNOSTICS v_n = ROW_COUNT;`
+✅ 本片:audit INSERT 之後立刻 `GET DIAGNOSTICS v_n = ROW_COUNT; IF v_n <> 1 THEN RAISE …`
+🔴 它擋的正是 codex R2 那條:BEFORE INSERT trigger 回 NULL ⇒ **資料改成功而 audit 零列**
+   ⇒ 而 RAISE 在這裡是對的:**寧可整筆回滾, 也不要留下一個沒有紀錄的變更。**
+```
+
+### ✅ B-4 冪等鍵 ⇒ **用 `idempotency_key` + 表上的 UNIQUE,不是 `request_id`**
+```
+🔴 前例兩支, 兩種形狀:
+   `…20260730130000_m4b_e10_a7_order_cancellations.sql:119`  UNIQUE (order_id, idempotency_key)
+   `…20260810140000_m4b_lifecycle_l5b_refund_ledger.sql:118` CREATE UNIQUE INDEX pr_idem_key_uniq …
+✅ 本片取**第一種**(複合唯一)—— 理由:檢視是掛在人或全店底下的,
+   而全域唯一會讓兩個人各自的「同一個動作」互撞。
+⇒ 鍵 = `(staff_id, idempotency_key)`;而 `staff_id IS NULL`(共用檢視)那一半
+   🔴 **踩到 `NULLS DISTINCT` 那個坑** —— `§7-5` 已經標了它, **兩處要一起折, 不要各折各的**
+📌 而 `request_id` 維持它原本的角色:**關聯 id, 進 audit 那一欄, 不做冪等判定。**
+```
+
+### ✅ B-3 的前例 **2026-08-27 實跑驗過了** —— 而我驗的**不是**主視窗建議的那一發
+
+> 主視窗建議:「只驗一支,挑最承重的 ⇒ B-3;驗法 = 造一發讓那支前例 `ROW_COUNT ≠ 1`」。
+> 🔴 **而我開檔之後改了題目,理由要寫下來:**
+```
+前例守的是 **UPDATE**(註解逐字:「防 FORCE RLS 靜默 0 列=收錢沒翻單」)
+而本片守的是 **INSERT into admin_audit_log**(codex R2 的情境:BEFORE INSERT trigger 回 NULL)
+⇒ 🔴 **兩者是不同的敘述型別、不同的抑制機制** ——
+   驗「UPDATE 被 RLS 擋掉時 ROW_COUNT 會不會是 0」,**答不出「INSERT 被 trigger 吃掉時會不會」**
+⇒ ⇒ 所以我兩發都跑了, 而**第二發才是決定本片守門有沒有用的那一發**。
+```
+
+**四個世界,拋棄式 Postgres 17.10,跑完即拆(HEAD `9f50dd5f`,2026-08-27 18:3x)**
+
+| 世界 | 造什麼 | `ROW_COUNT` | 判 |
+|---|---|---|---|
+| A 正對照 | BEFORE INSERT trigger 回 `NEW` | **1** | 尺會動 |
+| 🔴 B | BEFORE INSERT trigger 回 `NULL` | **0** | ✅ **本片的守門有效** |
+| C 正對照 | 無 RLS 的 UPDATE | **1** | 尺會動 |
+| D | `FORCE ROW LEVEL SECURITY` + policy 擋掉 | **0** | ✅ 前例的守門也有效 |
+
+```
+🔴 而 B 那格多驗了一件事:**表裡的列數沒有增加**(A 之後 1 列, B 之後仍是 1 列)
+   ⇒ 也就是「ROW_COUNT 印 0」與「真的沒寫進去」**兩件事同時成立**, 不是只有計數器歸零
+✅ ⇒ **B-3 抄的那個形狀不是裝飾。** 而它擋的正是 codex R2 說的那條路。
+⚠️ 效度限制:本機 PG 17.10 · 空白 schema · 沒有 Supabase 的 `service_role`/BYPASSRLS 設定
+   ⇒ 證的是 **PostgreSQL 的語意**, 不是「我們線上那台會這樣」—— 後者要在真環境再走一次
+⚠️ 拆乾淨已驗:process `pgrep` 0 · 資料目錄與 socket 目錄 `test -e` 皆不存在 · repo 零改動
+```
+
+### ⚠️ 而**另外三格我沒驗**,這是誠實的天花板,不是欠帳
+```
+· B-1 / B-2 / B-4 都是【抄前例】⇒ 前例錯的話, 本片一起錯 —— 而我沒有去驗那三支前例本身
+  🔴 判準(主視窗給的, 我採用):**只驗【前例錯 = 本片守門直接失效】的那一格**
+     ⇒ B-1 錯 ⇒ 語意不漂亮 · B-2 錯 ⇒ 稽核有噪音 · B-4 錯 ⇒ 冪等鍵撞
+     ⇒ **而 B-3 錯 ⇒ 資料改了而 audit 零列** ⇒ 只有它是「守門直接失效」
+· B-1 的代價(越權嘗試不留痕)是**我判的**, 不是前例判的 ⇒ 它可以被推翻
+· B-4 那個 `NULLS DISTINCT` 交互作用**還沒折** ⇒ 它與 `§7-5` 是同一格, 不是兩格
+```
+
+---
+
+## 14-10 本節自己的射程(逐條,不藏)
+
+```
+· C-2 開了 **4 支 / 31 支候選** ⇒ 能說「這三種形狀都存在」, **不能說「只有這三種」**
+· §14-1 那 6 支 `Pg*.ts` 沒逐支開檔 ⇒ 「不在後台請求路徑上」標【未驗】
+· §14-1 ACL 三條間接路徑 ⇒ 【未量】(B-7)
+· §14-3 那 24 支只有 2 支開過 ⇒ 見該節射程宣告
+· §14-4 世界 B / C / M-3 窗口長度 ⇒ 三格【未量】
+· 讀取鏈(v1 B)只涵蓋 `/orders` 那一頁 ⇒ **客戶列表那頁沒量**
+· ⚠️ 第一版寫「本節每一列都引得回一個開過的檔」⇒ **那句話是假的**(codex R1):
+  `is_manager` 的 TS 側原本只引 memory ⇒ 已在 `§14-0` 補成可重跑的尺 + 三個對照;
+  而 `§14-4` 的「Sean 手動套 migration」**仍然只有 memory** ⇒ 本 repo 內無檔可引, 照實標
+· 🔴 而本節**已經改名為「第三版」不叫定稿** —— 理由在檔頭那格
+```
+
+---
+
+# 📋 §14-12 **剩餘 blocker 全部處置** —— B-5/B-6 收掉、B-9..B-15 設計定案
+
+> 2026-08-28 線C(昨天叫線4)。**本節只做兩件事:把 B-5/B-6 關掉,把 B-9..B-15 從空白變成規格。**
+> 🔴 **而本節寫到一半被【查重】擋下來一次,而它擋對了** —— 我原本那張「新表出生拿不拿得到」的表
+> **方向寫反**,`14-12-a` 記著原文與更正。查重跑在 `logs/traps-neighbours.jsonl:128`。
+
+---
+
+## 14-12-a `B-5` 世界 B(舊 app × 新 DB)⇒ **無害,而三個理由沒有一個是「量出來就沒事」**
+
+### ① 名稱碰撞 ⇒ 量了(而它只涵蓋 repo,不涵蓋線上)
+```
+分母  supabase/migrations/*.sql ⇒ 221 支
+尺    grep -rl "admin_saved_order_views" *.sql          ⇒ 0
+正對照 grep -rl "admin_audit_log"        *.sql          ⇒ 43
+負對照 grep -rl "admin_saved_order_views_zzznope" *.sql ⇒ 0
+```
+🔴 **這把尺量的是【repo 裡的 migration 檔】,不是【線上那顆 DB】。**
+⇒ ⏳ 缺線上一發:`SELECT to_regclass('public.admin_saved_order_views');` 應回 `NULL`
+   (Sean 在 SQL Editor 貼一行,不需要拋棄式 PG)⇒ 列待辦、不列 blocker:
+   若非 NULL,片1 **改名**即可,不改設計。
+⚠️ **兩個天花板要跟著這個 0 走:**
+```
+· 🔴 這是一把【用我猜的名字造出來的尺】—— 片1 若最後不叫這個名字, 這一發【作廢要重跑】
+  (同族:memory `feedback_ruler-named-by-guess-was-never-connected`)
+· 🔴 grep 的命中是【子字串】—— 若庫裡有 admin_saved_order_views_history 這種前綴延伸名,
+  它會被算成同一個命中(正本 `:735` 那條:加了前綴的識別字在 grep 上與本體是同一個命中)
+  ⇒ 線上那一發要用 to_regclass 精準比對, 不要用 LIKE
+```
+
+### ② 🔴🔴 新物件出生自帶什麼權限 ⇒ **我原本寫反了。更正如下,原文留著不刪。**
+
+> ❌ **作廢(本節第一版寫的)**:「新**表**出生 anon/authenticated 拿不到,因為 e683 那兩行
+> `ALTER DEFAULT PRIVILEGES … REVOKE ALL ON TABLES`;表那道 REVOKE 只是第二層。」
+>
+> 🔴 **推翻它的是【正式庫實查】**(memory `reference_supabase-new-table-service-role-full-default-acl`,
+> 2026-08-14 主視窗對正式庫跑 `pg_default_acl`),`public` schema 的 table 那列逐字:
+> ```
+> postgres=arwdDxtm/postgres, anon=arwdDxtm/postgres,
+> authenticated=arwdDxtm/postgres, service_role=arwdDxtm/postgres
+> ```
+> ⇒ **新表預設對 anon / authenticated / service_role 三個角色全套八項全開。**
+>
+> **而我那個結論怎麼來的**:我只 grep 了 repo 裡的 `ALTER DEFAULT PRIVILEGES`,
+> 讀到 `e683_1` 那兩行 REVOKE ⇒ 就當成「現況」。
+> 📌 **⇒ 那正是這份 memory 記載的三層錯認鏈裡的第 3 步**:
+> **拿 repo 裡一句人寫的東西,去推翻一次對 DB 的實測。**
+> **⇒ 而我甚至不是「拿註解」,我是拿一支【不知道套了沒】的 migration。**
+
+**更正後的事實表(而每一格都標來源等級):**
+
+| 新物件 | anon / authenticated | service_role | 來源等級 |
+|---|---|---|---|
+| **表** | 🔴 **預設全套八項** | 🔴 **預設全套八項** | ✅ 正式庫實查(2026-08-14) |
+| **函式** | 🔴 **預設 EXECUTE** | 🔴 **預設 EXECUTE(直接授予,不經 PUBLIC)** | ✅ MCP 實測(memory `reference_supabase-service-role-execute-default-grant`) |
+
+**而 `e683_1` 那支【就算套了也只補一半】** —— 逐字讀它:
+```
+20260817060000_e683_1_public_default_privileges_revoke.sql:44  FOR ROLE postgres … FROM anon;
+                                                        :45  FOR ROLE postgres … FROM authenticated;
+它【不碰】的三格:
+  · service_role                 —— 兩行都沒提
+  · FUNCTIONS                    —— 兩行都只寫 ON TABLES
+  · 來源 supabase_admin 那一組    —— memory 逐字「另有一組來源 supabase_admin 內容相同」
+⚠️ 而它【線上套了沒】未量(pending-questions 裡「E683 第二片」還在排隊 ⇒ 第一片狀態不明)
+```
+### ⇒ ⇒ **設計結論:本片一格都不依賴 defacl 的現況**
+```
+🔴 判別句:一個「別人可能已經幫我收好了」的保護, 與一個「沒有人收過」的保護,
+   在我這一支 migration 的三綠底下【印同一個綠】。
+⇒ 所以照 memory 給的最穩寫法:**動態枚舉,不假設 defacl 長什麼樣**
+   —— 逐一 REVOKE ALL 掉 relacl / proacl 裡所有非 owner 的 grantee,再 GRANT 真正要給的那一個
+⇒ ⇒ 這樣「e683 套了沒」這題【對本片不再重要】。而它仍要問,只是不再擋本片。
+```
+
+### ③ 🔴 而收權斷言 **不得寫成 allow-list** —— 正本 `⑱` 有一模一樣的實例
+```
+❌ 禁止形狀   AND a.grantee::regrole::text NOT IN ('service_role', current_user)
+   ⇒ 正本 `guard-and-instrument-traps.md:1497` ⑱「豁免誰, 就對誰盲」
+     實例逐字:2026-08-16 B 窗 admin_user_staff_map 就是這樣寫的
+     ⇒ 「表出生就帶 UPDATE / DELETE / TRUNCATE」而斷言全綠
+✅ 本片形狀   斷言【逐角色逐權限窮舉】, 三個角色各自要什麼寫死:
+     anon         ⇒ 表 0 權 · 函式 EXECUTE=false
+     authenticated⇒ 表 0 權 · 函式 EXECUTE=false
+     service_role ⇒ 表 0 權 · 函式 EXECUTE=true   ← 它是唯一被允許的呼叫者
+🔴 而「表 0 權」這一格,service_role 也在裡面 —— 見 `§14-12-h`(讀也走 RPC)
+```
+### ④ 🔴 而斷言**不准看 `relacl` 那一格**(NULL 讀起來像通過)
+```
+memory 逐字:「不要看 relacl 那一格 —— NULL 印出來是空白,
+             而『只准出現 X』對空白恆真 ⇒ 假通過」
+✅ 用 aclexplode 逐列印出「角色 + 權限」, 而判準要加一句:
+   🔴 **一列都沒有也要停** —— 零列與「權限乾淨」在字面上是同一件事
+⇒ 而 has_function_privilege 那半照 memory 用矩陣式 fail-closed 斷言
+  (它涵蓋「直接授予 + 經 role membership 繼承」兩條路)
+```
+### ⑤ 🔴 而 `ENABLE ROW LEVEL SECURITY` **是另一層,ACL 斷言看不到它**
+```
+ACL 斷言查的是 relacl / proacl;RLS 態住在 pg_class.relrowsecurity
+⇒ **要各自斷言一次。** 同族前例三支:
+   order_refunds  20260725130100:318
+   admin_audit_log 20260712210000:82
+   payment_refunds 20260810140000:150
+```
+### ⑥ 🔴 而 plpgsql 函式體 **在 CREATE 時不求值** ⇒ apply 全綠而第一個員工才爆
+```
+memory 實錘:pg_catalog.coalesce(...) 根本不存在, 而 migration 套用成功、apply 斷言全過
+⇒ 驗收條:三支 RPC 每一支, 在同一支 migration 的斷言區【真的呼叫一次】
+   例 PERFORM public.admin_list_saved_order_views(NULL);
+   🔴 而那一發要包在會回滾的地方 / 或用保證無副作用的參數 —— 它是【驗語法】不是【驗行為】
+⚠️ 而 memory 同時記著:寫下這條通則的那個人, 自己的 migration 裡零命中。
+   ⇒ 片1 收工時對自己那支 grep 一次 `PERFORM public.` ⇒ 應 = 3;負對照換假名 ⇒ 0
+```
+
+### ⑦ 本片不動任何既有物件 ⇒ **這是【約束】,不是量出來的**
+```
+片1 的 migration 必須是【純新增】:不 ALTER 既有表 · 不在既有表加 trigger ·
+  不 CREATE OR REPLACE 既有函式 · 不 DROP 任何東西
+驗收(對片1 自己那支跑):
+  grep -cE "^[[:space:]]*(ALTER TABLE|DROP |TRUNCATE )" <本片migration>  ⇒ 0
+  🔴 正對照:同尺對 20260801140000_…_s1a_suppliers.sql ⇒ 應 > 0
+     沒有正對照的話,「0」與「尺打錯字」印同一個數。
+```
+
+### ⇒ **B-5 結論:世界 B 無害 —— 而它是被【設計】成無害的,不是被【量】成無害的**
+```
+舊 app 不認得新表名 ⇒ 零呼叫              (⑦ 純新增那條約束保證)
+新表/新函式 出生全開 ⇒ 由本片自己動態枚舉 REVOKE 收乾淨, 不依賴 defacl 現況  (②)
+裸寫窗口 ⇒ 由 14-12-c 的交易包裹關掉
+⇒ ⇒ 🔴 **不需要拋棄式 PG 那一發。** 上一版把它寫成「要量」, 是同一個過度量測的病。
+```
+
+---
+
+## 14-12-b `B-6` 世界 C(新 app × 舊 DB)⇒ **整格用設計關掉,一發都不用跑**
+
+```
+🔴 判別句:我不需要知道 C 怎麼炸 —— 我需要的是【永遠不進 C】。
+⇒ 選 DB-first ⇒ 正向路 A → B → D, C 不在路上
+⇒ rollback 從 D 推回舊 app ⇒ 回到 B(B 已由設計保證無害)⇒ C 也不在退路上
+⇒ 滾動部署中間態 M-1(新舊 app 同時在線)⇒ 兩邊看到的都是新 DB ⇒ B 與 D, 不是 C
+```
+📌 **⇒ `§14-4` 那個「B 與 C 哪個比較無害」的條件式,現在有答案了:**
+**B 無害而 C 根本不會發生 ⇒ 走 DB-first。而那不是比較出來的,是設計挑掉的。**
+
+### ⚠️ 而 C 仍有一個入口:**順序搞錯**(先推 app、後套 migration)
+```
+🔴 而對這個入口, 正解也不是「量它怎麼炸」, 是【讓它炸不到別人】:
+   設計約束:檢視清單讀取失敗, **不得讓 /orders 整頁掛掉**
+   (讀不到 ⇒ 那一區顯示空列 + 一行灰字, 訂單表照常渲染)
+   驗收:片1 要有一發「RPC 不存在」的測試 ⇒ 訂單表仍然渲染得出來
+   🔴 而那一發要**真的讓 RPC 缺席**(拋棄式 PG 不套那支 migration),
+      不是 mock 一個 throw —— mock 出來的錯與 Postgres 回的 42883 不是同一個東西
+```
+⚠️ **天花板**:「炸不到別人」只涵蓋 `/orders` 那一頁。本片若在別頁也放檢視入口,那一頁要各自再驗。
+   **現在沒有別頁,而那是【現在】。**
+
+---
+
+## 14-12-c 🔴🔴 **`§14-4` 引的那支前例,自己沒有包交易**
+
+`§14-4` 逐字寫著:
+> 「正解 = CREATE + REVOKE + 斷言**寫在同一支 migration、同一個交易裡** ⇒ 前例就在手上:`admin_adjust_wallet.sql` 就是這樣寫的」
+
+**而它不是。**
+```
+量法  grep -n "^[[:space:]]*BEGIN;\|^[[:space:]]*COMMIT;" 20260716210000_m4a_admin_adjust_wallet_rpc.sql
+     ⇒ 0 行
+分母  全 221 支裡有 ^BEGIN; 的 ⇒ 115 支    負對照 ^BEGINZZ; ⇒ 0
+```
+📌 **⇒ 「同一支檔」與「同一個交易」是兩個宣稱,而上一版把它們合併了。**
+🔴 那支前例的「窗口 = 0」靠的是 Supabase SQL Editor 怎麼跑整份腳本 —— **而那沒有人量過。**
+⇒ **⇒ 而這正是今天那句話**:每一道檢查都正確運作了(檔案是同一支、REVOKE 真的在那裡),
+   **而它們檢查的那個事實(同一個交易)是錯的。**
+🔴 **而它通過了四輪審查(codex ×3 + Fable ×1)** —— 不是他們沒看,
+   **是那兩句話在自然語言裡本來就會塌成一句。**
+
+### ⇒ 修法:**本片自己寫死 `BEGIN;` / `COMMIT;`** —— 窗口 = 0 **不依賴編輯器行為**
+```
+換前例 20260801140000_m4b_e10_s1a_suppliers.sql —— 它是完整形狀:
+  :19  BEGIN;
+  :30  CREATE TABLE public.suppliers (
+  :77  REVOKE ALL ON FUNCTION …_touch_updated_at() FROM PUBLIC;
+  :112 REVOKE ALL ON FUNCTION …_block_delete()     FROM PUBLIC;
+  :129 REVOKE ALL ON TABLE public.suppliers FROM PUBLIC, anon, authenticated, service_role;
+  :133 GRANT SELECT ON TABLE public.suppliers TO service_role;
+  :256 COMMIT;
+⇒ 片1 照這個形狀,ACL / RLS 斷言放 COMMIT; 之前。
+⇒ 🔴 而「Sean 是不是整支一次貼」那題 **現在不用問了** ——
+   包了交易 ⇒ 貼一半沒 COMMIT ⇒ 整份回滾 ⇒ 中間態 M-2 / M-3 兩個一起消失。
+   📌 **用一行 BEGIN; 換掉一題要端他的題, 划算。**
+```
+
+---
+
+## 14-12-d `B-13` RPC **三支**(先定這格,B-10/B-12 才寫得出來)
+
+```
+admin_list_saved_order_views  (p_actor)                        讀
+admin_upsert_saved_order_view (p_actor, …, p_idempotency_key)  建 + 改(ON CONFLICT)
+admin_delete_saved_order_view (p_actor, p_view_id)             刪
+```
+🔴 **而三支的閘【不一樣】,因為 Sean 拍的「只有管理者」只管【共用檢視】** ——
+`§9` 逐字:Q-檢視-4 誰可以刪 / Q-檢視-5 誰可以改 / Q-檢視-7 誰可以建立,三題主詞都是**共用檢視**。
+⇒ **私人檢視是每個員工自己的,不歸管理者管。**
+
+| RPC | 身分閘(誰能呼叫) | 內容閘(能碰哪幾列) |
+|---|---|---|
+| `list` | `s.id = p_actor AND s.is_active` | `staff_id = p_actor OR is_shared` |
+| `upsert` | `s.id = p_actor AND s.is_active`;**且** `is_shared = true` 時再加 `AND s.is_manager` | 改既有列時 `staff_id = p_actor OR (is_shared AND s.is_manager)` |
+| `delete` | 同 `upsert` | 同 `upsert` |
+
+📌 **⇒ `§14-1` 那個「單一形狀 ③」不夠用 —— 閘是【條件式】的,條件是 `is_shared`。**
+🔴 **⇒ 而那改了 `§14-6` 的突變表**:M1(拿掉 `AND s.is_manager`)只有在【共用】那條路上才紅。
+```
+⇒ M1 的 fixture 必須是「啟用中的非管理者 × 對一份【共用】檢視動手」
+  拿私人檢視跑 M1 ⇒ **它本來就該通過** ⇒ 那一發恆綠, 而它看起來像驗過了
+```
+
+---
+
+## 14-12-e `B-9` 兩道閘誰是權威 ⇒ **只做一道。UI 層不做授權閘。**
+
+```
+決定:授權只住在 RPC 裡(形狀 ③)。UI 層【不判斷 is_manager】。
+⇒ B-9 整題消失 —— 沒有第二道閘, 就沒有「誰是權威」這題
+⇒ 而 §14-9 已量到:採形狀 ③ ⇒ TS 側不需要把 is_manager 帶進 StaffActor
+   ⇒ staff.ts:37 / :60 / :145 一處都不用動, 12 處消費端零改動
+```
+⚠️ **代價寫明,不藏**:非管理者**看得到**那幾顆鈕,按下去被擋、看到通用拒絕訊息。
+```
+· 那是 UX 債, 不是安全洞 ⇒ 記進 backlog, 不擋上線
+· 🔴 而它有一個好處要一起記:**看得到而按不動 ⇒ 使用者會回報**
+  一顆藏起來的鈕, 壞了沒有人知道
+```
+🔴 日後若有人加 UI 層閘,它**不得**變成第二個權威 —— 只能是「先擋一次省一趟往返」,
+   **RPC 那道照樣要跑**。這句寫進片1 的碼註解。
+
+---
+
+## 14-12-f `B-10` A3 順序錨的字面 ⇒ **現在寫得出來了,而是【逐支】各一個**
+
+`B-10` 卡住的理由是「函式體形狀未定」⇒ `§14-12-d` 定完了,解開。
+```
+upsert 那支:寫入語句全集 = 1 句
+  錨 A  'WHERE s.id = p_actor AND s.is_active'
+  錨 B  'INSERT INTO public.admin_saved_order_views'
+  斷言  position(A) > 0 AND position(B) > 0 AND position(A) < position(B)
+        否則 RAISE '本片順序錨:授權閘不在寫入之前;拒繼續'
+delete 那支:錨 B' = 'DELETE FROM public.admin_saved_order_views',斷言同上
+```
+🔴 **而 `§14-8` B-10 那句警告照收:錨字面必須對齊【實際寫入語句的全集】。**
+```
+⇒ 硬約束:**每支 RPC 的函式體裡, 寫入語句只准一句**
+  · upsert 用 INSERT … ON CONFLICT DO UPDATE(一句)
+    ⇒ 不准拆成 IF EXISTS THEN UPDATE ELSE INSERT ⇒ 拆了錨只蓋得住一句,
+      閘挪到另一句之後【照樣綠】
+⇒ 驗收:對函式體數寫入語句出現幾次, v_n <> 1 ⇒ RAISE
+  🔴 而這一格要負對照:故意寫兩句 ⇒ 它必須紅。**沒表演過的斷言不算裝上。**
+```
+⚠️ A1「存在錨」對 M4(把閘註解掉)恆綠 —— `§14-8` 已記,不重複;M4 的紅只能來自行為測試。
+
+### 🔴 `§14-6` 突變表 **6 發 ⇒ 8 發**(兩發都不是新想到的,是把閘拆成兩層之後才浮出來)
+```
+M1 fixture 訂正:必須是【啟用中的非管理者 × 共用檢視】(見 §14-12-d)
+🔴 M7 新增:拿掉 upsert 裡 `is_shared = true` 那個條件判斷
+   ⇒ 非管理者去改【別人的私人檢視】應被擋而沒被擋 ⇒ 紅
+🔴 M8 新增:拿掉 list 那支的內容閘 `staff_id = p_actor OR is_shared`
+   ⇒ 甲員工看得到乙員工的私人檢視 ⇒ 紅
+📌 ⇒ 上一版六發**全打身分閘** ⇒ **內容閘那一整層, 六發一發都沒碰到。**
+   而 §14-8 B-12 寫的「私有性零覆蓋」, 若只補讀取路徑而不補 M8, **還是零覆蓋 —— 只是換了個地方零。**
+```
+
+---
+
+## 14-12-g `B-11` 新表的 RLS 態 ⇒ **ENABLE,零 policy(deny-all)**
+
+```sql
+ALTER TABLE public.admin_saved_order_views ENABLE ROW LEVEL SECURITY;
+-- 不建任何 policy。讀寫唯一路 = 三支 SECURITY DEFINER RPC(owner = postgres)
+```
+🔴 **兩層各擋各的一半,寫死免得下一個人合併它們:**
+```
+RLS  擋【直連 DB 的 anon / authenticated】
+GRANT 擋【service_role】—— 它有 BYPASSRLS ⇒ **RLS 對它零判別力**
+⇒ 不要以為 ENABLE RLS 就把 service_role 也擋住了。
+📌 一道閘可以正確運作, 而把流量推向自己的盲區。
+```
+### ⚠️ 拋棄式 PG 的效度限制 ⇒ **變成 M6 的前置驗收**
+```
+M6(撤回 P2、service_role 恢復裸 DML ⇒ 守門測試要紅)在本機跑之前先驗:
+   SELECT rolbypassrls FROM pg_roles WHERE rolname = 'service_role';   ⇒ 必須 true
+🔴 若本機那個 role 沒有 BYPASSRLS ⇒ M6 會紅, **而它紅的理由是錯的** ⇒ 那一發作廢
+📌 同族已有 memory:`feedback_finding-right-reason-wrong`(判對而理由錯, 照著理由改會改錯)
+   ⇒ 本條**不是新教訓**, 是那一族在本片的落點。
+```
+
+---
+
+## 14-12-h `B-12` 讀取路徑授權 ⇒ **讀也走 RPC,而這推翻 `§14-5` 一行**
+
+```
+🔴 §14-5 原文:「GRANT SELECT ON TABLE public.admin_saved_order_views TO service_role;  -- 讀不經 RPC」
+   ⇒ ❌ **撤回。**
+理由:給了 service_role 裸 SELECT ⇒ 誰讀得到別人的私人檢視,
+     由【app 記不記得加 where】決定 ⇒ **那不是閘, 是過濾**
+     而過濾漏一次私有性就沒了, **而畫面不會告訴任何人**
+```
+```sql
+REVOKE ALL ON TABLE public.admin_saved_order_views FROM PUBLIC, anon, authenticated, service_role;
+-- 不 GRANT 任何表權限給任何角色。讀取唯一路 = admin_list_saved_order_views
+```
+⚠️ **代價**:後台任何地方要讀檢視,都得經過那支 RPC ⇒ 多一層。
+   **接受** —— 私有性是 trust boundary,不簡化。
+
+---
+
+## 14-12-i `B-14` rollback ⇒ **列為片1 交付物,而現在給出骨架**
+
+```
+交付物(片1 收工前要在 repo 裡, 不是在對話裡):docs/runbooks/saved-views-rollback.md
+① forward    套 migration(整支含 BEGIN;/COMMIT;)⇒ 驗 B ⇒ 推 app ⇒ 到 D
+② 從 D 回退  推回舊 app ⇒ 停在 B。**不 drop 表、不 drop RPC。**
+③ 從 B 回退  真要 drop 才走, down-script 逐句列(先 DROP FUNCTION ×3、再 DROP TABLE)
+④ 資料怎麼辦 ⇒ 見下
+```
+### 🔴 `§14-8` B-14 點名沒答的那格,現在答:**「回 B 之後,D 期間寫入的檢視資料怎麼辦」**
+```
+答:**留著, 什麼都不做。** 三個理由:
+ · 回 B 之後舊 app 不呼叫那三支 RPC ⇒ 那些列【沒有任何人讀得到】(表零授權)
+ · 那是使用者設定不是交易資料 ⇒ 留著, 重新上線時它們還在
+ · 🔴 drop 不可逆, 而「留著」的代價是 0 ⇒ **兩邊代價不對稱時, 不選不可逆那邊**
+⚠️ ③ 若真要 drop ⇒ 命中 R3(不可逆)⇒ **停下問 Sean, 不由片1 自己決定。**
+```
+
+---
+
+## 14-12-j `B-15` M5 突變原 migration ⇒ **引 `docs/patterns/mutation-harness-restore.md`**
+
+```
+M5 = 突變【原 migration】後 fresh apply ⇒ 命中那份 pattern 的射程
+🔴 本 repo 實錘:被突變的 migration 被 commit 進正式分支(02dd510e, 修在 e37fbea5)
+   pattern 逐字:「病灶不是忘了還原, 是用一個【會殺掉還原】的方式跑它」
+⇒ M5 驗收條三句:
+   · 突變在【拋棄式副本】上做, 不在工作樹那支 migration 上
+   · 跑完 git status --porcelain <該檔> ⇒ 必須空
+   · 🔴 而那一發要負對照:故意留一個突變 ⇒ 上面那句必須非空
+     **沒表演過的還原檢查, 與沒有還原檢查, 印同一個空字串。**
+```
+
+---
+
+## 14-12-k 本節自己的天花板(逐條,不藏)
+
+```
+· 🔴 本節第一版把「新表出生的權限」**寫反了**, 是【查重】擋下來的, 不是我自己發現的
+  ⇒ 而我當時已經跑過正對照與負對照, **兩發都正確運作** —— 錯的是我拿來當事實的那個來源
+  ⇒ ⇒ 這一格就是今天那句話的第 N 次:**檢查沒問題, 被檢查的那個事實有問題**
+· B-5 的「名稱碰撞 0」只涵蓋 repo 的 221 支, 不涵蓋線上 DB ⇒ 缺一發 to_regclass(待辦, 非 blocker)
+  ⇒ 且它是【猜名字造的尺】⇒ 片1 改名要重跑
+· e683 那支【線上套了沒】仍未量 —— 而本節的設計(動態枚舉 REVOKE)在「套了」與「沒套」
+  兩個世界都成立 ⇒ **它不再擋本片**, 但它仍是一題(留在 pending-questions)
+· B-6 的「C 不在路上」是**設計保證**不是量測 ——
+  🔴 前提是【真的走 DB-first】。有人先推 app ⇒ 前提破, 而破的時候沒有訊號
+  ⇒ 那條靠 runbook 的順序寫死, 而 **runbook 不是機制** ⇒ 照實寫成「未機制化」
+· 突變 6 ⇒ 8 發, 而那兩發是把閘拆成【身分閘 + 內容閘】之後才浮出來的
+· 本節**沒有跑過 codex** ⇒ 與前面各節同樣未過關卡1
+· 查重跑過:`logs/traps-neighbours.jsonl:128`。開了 4 條候選
+  (memory 新表 defacl / memory 函式 EXECUTE 預設 / 正本 ⑱ 白名單盲區 / memory 判對理由錯)
+  ⇒ **四條全部判【同族】, 本節零新教訓** —— 它們是既有教訓在本片的落點, 不是我發現的
 ```
