@@ -8,6 +8,11 @@ import { listActiveStaff } from '../lib/staff';
 import { loadTodaySummary, type TodaySummary } from '../lib/dashboard/today-read';
 import { TodaySummaryCards } from '../components/dashboard/today-summary';
 import { loadDataFreshness, freshnessLabel, unreadable, type DataFreshness } from '../lib/dashboard/freshness-read';
+import {
+  loadCronHeartbeats,
+  unreadableReport,
+  type CronHeartbeatReport,
+} from '../lib/dashboard/cron-heartbeat-read';
 
 // ~~M0-S1 骨架占位頁~~ + M0-S2 具名身分選人。
 // 🔴 **`#16` 今日對帳(2026-08-14,Sean 拍「批」)**:骨架說明卡下架,換成對帳數字。
@@ -31,12 +36,14 @@ export default async function AdminHomePage() {
   //    而這是每次進站都跑的首頁。
   // 🔴 用 `allSettled` 不用 `all`:`all` 會讓對帳的失敗直接吃掉另外兩支的結果 —— 那正是 MF6 要擋的事。
   //    身分與員工名單失敗**仍照舊往上拋**(它們掛了這頁本來就沒東西可看,不該假裝正常)。
-  const [actorSettled, staffSettled, todaySettled, freshSettled] = await Promise.allSettled([
-    getSessionActor(),
-    listActiveStaff(),
-    loadTodaySummary(),
-    loadDataFreshness(),
-  ]);
+  const [actorSettled, staffSettled, todaySettled, freshSettled, cronSettled] =
+    await Promise.allSettled([
+      getSessionActor(),
+      listActiveStaff(),
+      loadTodaySummary(),
+      loadDataFreshness(),
+      loadCronHeartbeats(),
+    ]);
   if (actorSettled.status === 'rejected') throw actorSettled.reason;
   if (staffSettled.status === 'rejected') throw staffSettled.reason;
   const actor = actorSettled.value;
@@ -61,6 +68,15 @@ export default async function AdminHomePage() {
     fresh = unreadable('讀取時發生例外');
   }
 
+  // 排程心跳(3a)。同一條理由:讀不到也要印,不留白。
+  let cron: CronHeartbeatReport;
+  if (cronSettled.status === 'fulfilled') {
+    cron = cronSettled.value;
+  } else {
+    console.error('[admin/home] 排程心跳載入失敗', cronSettled.reason);
+    cron = unreadableReport('讀取時發生例外');
+  }
+
   // 🔴 `max-w-4xl` **刻意留著,不是漏做**(`7f6d0ac1` 那次六支列表頁拿掉時逐支判過):
   //    本頁是**總覽**、沒有表格,拉滿寬只會讓幾張卡片攤在一片空白裡。
   //    規則:沒有表格 ⇒ 留 `max-w-`(長文字行過寬更難讀);有表格的列表頁一律吃滿寬
@@ -83,6 +99,43 @@ export default async function AdminHomePage() {
       >
         {freshnessLabel(fresh)}
       </p>
+
+      {/* 🔴🔴 這一區**不是「監控做好了」,它是「有一個地方看得到」** —— 沒人登入後台就沒人看見。
+          主動會叫的告警是 3b,而 3b 卡在一個結構問題(它自己會變成第 7 支排程 ⇒ ⟦b4-CRON6b⟧)。
+          ⚠️ 而它也答不出「有排程在跑而沒有人在看」:真排程那份(`cron.job`)後台讀不到,
+             原因是**三道權限**不是我們沒去讀 —— 三道逐條在 `lib/dashboard/cron-heartbeat-read.ts` 檔頭。 */}
+      <section data-testid='cron-health' className='rounded-lg border p-4'>
+        <p className='text-sm font-medium'>排程心跳</p>
+        {cron.unreadableReason !== null ? (
+          <p className='text-destructive mt-2 text-xs'>量不到({cron.unreadableReason})</p>
+        ) : (
+          <ul className='mt-2 space-y-1'>
+            {cron.jobs.map((j) => (
+              <li
+                key={j.jobName}
+                data-testid={`cron-job-${j.jobName}`}
+                // 判準只讀 `abnormal` 一格 —— 同 `freshness-read` 被 R1 抓到的那條:
+                // 文字層與顏色層各判一次同一件事,它們一定會漂開。
+                className={j.abnormal ? 'text-destructive text-xs' : 'text-muted-foreground text-xs'}
+              >
+                {j.label}:{j.note}
+              </li>
+            ))}
+          </ul>
+        )}
+        {/* 🔴 兩種漂移印**不同的句子**,而且各自附「該怎麼辦」——
+            一個不附該怎麼辦的告警,看到的人會先花五分鐘重新推導一次。 */}
+        {cron.neverBeat.length > 0 && (
+          <p className='text-destructive mt-2 text-xs'>
+            這幾支從來沒寫過心跳:{cron.neverBeat.join('、')} —— 去看它們接線了沒。
+          </p>
+        )}
+        {cron.unknownJobs.length > 0 && (
+          <p className='text-destructive mt-2 text-xs'>
+            有東西在寫我們沒在看的心跳:{cron.unknownJobs.join('、')} —— 白名單過期了,補進去。
+          </p>
+        )}
+      </section>
 
       {today === null ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>

@@ -1,0 +1,301 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// cron-heartbeat-read.test.ts — 3a 讀取端的守門。
+//
+// 🔴 每一格都要在**兩個世界印不同的東西**;只證「有值」的斷言不算。
+// 🔴 本檔**不 mock** `loadCronHeartbeats` 本體的判斷邏輯 —— 只換掉 supabase client 那一層,
+//    否則就變成在驗我自己寫的假字串。
+
+vi.mock('server-only', () => ({}));
+
+const mocks = vi.hoisted(() => ({ from: vi.fn() }));
+vi.mock('@pcm/adapters/server', () => ({
+  createSupabaseServiceClient: () => ({ from: mocks.from }),
+}));
+
+import {
+  CRON_JOB_WHITELIST,
+  FAILURE_COUNT_MEANINGLESS,
+  loadCronHeartbeats,
+  unreadableReport,
+} from './cron-heartbeat-read';
+
+type Row = Record<string, unknown>;
+
+/** 讓 `.from(...).select(...)` 這條鏈 resolve 成一份假資料。 */
+function withRows(rows: Row[] | null, error: unknown = null) {
+  mocks.from.mockReturnValue({
+    select: () => Promise.resolve({ data: rows, error }),
+  });
+}
+/** transport 層真的 reject(網路斷 / DNS)—— 那不會進 `{ error }`。 */
+function withReject(err: unknown) {
+  mocks.from.mockReturnValue({ select: () => Promise.reject(err) });
+}
+
+const NOW = new Date('2026-08-28T12:00:00.000Z');
+/** n 分鐘前的 ISO 字串。 */
+const ago = (n: number) => new Date(NOW.getTime() - n * 60_000).toISOString();
+
+/** 六支全部剛剛成功過的一份完整資料(正向對照的地基)。 */
+const ALL_HEALTHY: Row[] = CRON_JOB_WHITELIST.map((w) => ({
+  job_name: w.jobName,
+  last_success_at: ago(1),
+  consecutive_failures: 0,
+}));
+
+beforeEach(() => vi.clearAllMocks());
+afterEach(() => vi.restoreAllMocks());
+
+describe('白名單這張表本身', () => {
+  // 🔴🔴 R1 I4:下面那兩格迴圈式守門的**分母是白名單自己** ——
+  //    `for (const w of CRON_JOB_WHITELIST)` 與 `new Set(names).size === names.length`
+  //    **在空陣列上全過**,而【打錯名字】更是一個字都不會紅
+  //    (三支在別處只被索引引用、沒有字面)⇒ 名字漂掉 ⇒ 三綠全綠,
+  //      而線上那一支永遠報「從來沒寫過心跳」,沒有人知道是名字打錯。
+  //    ⇒ 這一格把六個名字與長度**釘成字面**:分母改成【我在檔案外面寫死的那份】。
+  it('🔴 六支的名字與數量釘死(改名/多一支/少一支都要紅)', () => {
+    expect(CRON_JOB_WHITELIST.map((w) => w.jobName)).toEqual([
+      'pcm-anomaly-alert',
+      'pcm-capture-recheck',
+      'pcm-email-sweep',
+      'pcm-expire-unpaid-orders',
+      'pcm-order-ineligible-gate',
+      'pcm-settle-sweep',
+    ]);
+    expect(CRON_JOB_WHITELIST).toHaveLength(6);
+    // 🔴 而這六個名字必須與**正式庫 cron.job 實際排的**一致(2026-08-28 唯讀撈、總數 6、非抽樣)。
+    //    ⚠️ 而本測試**驗不到那一側** —— 它只釘住「碼裡這份沒有被偷偷改掉」。
+    //    真排程漂掉這一格由 ⟦b4-CRON6c⟧ 記著(後台讀不到 `cron.job`,三道權限)。
+  });
+
+  // 🔴 主視窗 2026-08-28 指定的守門:新增第七支排程時,它會安靜地沒有門檻。
+  it('🔴 每一支都要有門檻、有標籤、有接線落點 —— 少一格就紅', () => {
+    for (const w of CRON_JOB_WHITELIST) {
+      expect(typeof w.staleMinutes, `${w.jobName} 的 staleMinutes`).toBe('number');
+      expect(w.staleMinutes, `${w.jobName} 的門檻要是正數`).toBeGreaterThan(0);
+      expect(w.label.length, `${w.jobName} 要有中文標籤`).toBeGreaterThan(0);
+      expect(w.wiredAt.length, `${w.jobName} 要寫得出接線落點`).toBeGreaterThan(0);
+    }
+  });
+
+  it('job 名字不得重複(重複 ⇒ 後面那支會蓋掉前面,而畫面上少一列沒有人會發現)', () => {
+    const names = CRON_JOB_WHITELIST.map((w) => w.jobName);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it('🔴 逾期取消那一支必須在「失敗計數沒有意義」名單裡(片2 的物理限制)', () => {
+    expect(FAILURE_COUNT_MEANINGLESS.has('pcm-expire-unpaid-orders')).toBe(true);
+    // 負對照:別支不在裡面 ⇒ 這個集合不是「全部都算」。
+    expect(FAILURE_COUNT_MEANINGLESS.has('pcm-settle-sweep')).toBe(false);
+  });
+});
+
+describe('loadCronHeartbeats', () => {
+  it('正向對照:六支都健康 ⇒ 零異常、零漂移(證明下面每一格的斷言真的看得到東西)', async () => {
+    withRows(ALL_HEALTHY);
+    const r = await loadCronHeartbeats(NOW);
+    expect(r.unreadableReason).toBeNull();
+    expect(r.jobs).toHaveLength(CRON_JOB_WHITELIST.length);
+    expect(r.jobs.filter((j) => j.abnormal)).toEqual([]);
+    expect(r.neverBeat).toEqual([]);
+    expect(r.unknownJobs).toEqual([]);
+  });
+
+  it('🔴 某一支太久沒成功 ⇒ 只有它 abnormal,而句子裡有分鐘數與門檻', async () => {
+    const target = CRON_JOB_WHITELIST[5]; // settle-sweep,門檻 6 分
+    withRows(
+      ALL_HEALTHY.map((r) =>
+        r.job_name === target.jobName ? { ...r, last_success_at: ago(target.staleMinutes + 5) } : r,
+      ),
+    );
+    const r = await loadCronHeartbeats(NOW);
+    const bad = r.jobs.filter((j) => j.abnormal);
+    expect(bad.map((j) => j.jobName)).toEqual([target.jobName]);
+    expect(bad[0]?.note).toContain('沒成功');
+    expect(bad[0]?.note).toContain(String(target.staleMinutes));
+  });
+
+  it('🔴 差一分鐘不到門檻 ⇒ 不得亮(邊界的另一側,否則上一格可能是「永遠都紅」)', async () => {
+    const target = CRON_JOB_WHITELIST[5];
+    withRows(
+      ALL_HEALTHY.map((r) =>
+        r.job_name === target.jobName ? { ...r, last_success_at: ago(target.staleMinutes - 1) } : r,
+      ),
+    );
+    const r = await loadCronHeartbeats(NOW);
+    expect(r.jobs.filter((j) => j.abnormal)).toEqual([]);
+  });
+
+  it('🔴 剛好等於門檻 ⇒ 不亮(判準是 > 不是 >=;R1 N2 邊界正中央)', async () => {
+    const target = CRON_JOB_WHITELIST[5];
+    withRows(
+      ALL_HEALTHY.map((r) =>
+        r.job_name === target.jobName ? { ...r, last_success_at: ago(target.staleMinutes) } : r,
+      ),
+    );
+    const r = await loadCronHeartbeats(NOW);
+    expect(r.jobs.filter((j) => j.abnormal)).toEqual([]);
+  });
+
+  it('🔴 最後成功時間在未來 ⇒ 也要亮,而它【不是】太久沒跑 —— 句子要不一樣', async () => {
+    const target = CRON_JOB_WHITELIST[2];
+    withRows(
+      ALL_HEALTHY.map((r) =>
+        r.job_name === target.jobName ? { ...r, last_success_at: ago(-30) } : r,
+      ),
+    );
+    const r = await loadCronHeartbeats(NOW);
+    const bad = r.jobs.find((j) => j.jobName === target.jobName);
+    expect(bad?.abnormal).toBe(true);
+    expect(bad?.note).toContain('未來');
+    expect(bad?.note).not.toContain('沒成功');
+    // 負數照實印、不夾成 0 —— 夾掉它會把「有東西寫錯了」藏起來。
+    expect(bad?.minutesAgo).toBeLessThan(0);
+  });
+
+  it('🔴 連續失敗 > 0 ⇒ 亮(即使剛剛才「成功」過)', async () => {
+    const target = CRON_JOB_WHITELIST[1];
+    withRows(
+      ALL_HEALTHY.map((r) =>
+        r.job_name === target.jobName ? { ...r, consecutive_failures: 3 } : r,
+      ),
+    );
+    const r = await loadCronHeartbeats(NOW);
+    const bad = r.jobs.find((j) => j.jobName === target.jobName);
+    expect(bad?.abnormal).toBe(true);
+    expect(bad?.consecutiveFailures).toBe(3);
+  });
+
+  it('🔴🔴 逾期取消那一支:失敗計數【不參與判斷】,而且不對外報一個假的 0', async () => {
+    // 這一格是片2 那個物理限制的守門:它的失敗計數永遠是 0,
+    // 而「永遠是 0」與「一直很健康」長得一樣 ⇒ 這一支只准看 staleness。
+    withRows(
+      ALL_HEALTHY.map((r) =>
+        r.job_name === 'pcm-expire-unpaid-orders' ? { ...r, consecutive_failures: 9 } : r,
+      ),
+    );
+    const r = await loadCronHeartbeats(NOW);
+    const j = r.jobs.find((x) => x.jobName === 'pcm-expire-unpaid-orders');
+    expect(j?.consecutiveFailures).toBeNull(); // 不是 0 也不是 9 —— 它沒有意義
+    expect(j?.abnormal).toBe(false); // 剛成功過 ⇒ 那個 9 不得讓它亮
+    // ⚠️ R1 N1 誠實標註:下面這一行**重跑的是同一發 mock**,它是上面那一發的【複印】,
+    //    不是第二個獨立證據(突變驗過它確實有判別力:把六支全塞進 FAILURE_COUNT_MEANINGLESS
+    //    ⇒ 這行的 `toBe(0)` 會變成 `null` 而轉紅 ⇒ 不是恆真格)。
+    //    真正的獨立對照在上面那格「連續失敗 > 0 ⇒ 亮」。
+    const other = await loadCronHeartbeats(NOW);
+    expect(other.jobs.find((x) => x.jobName === 'pcm-settle-sweep')?.consecutiveFailures).toBe(0);
+  });
+
+  // ══ R1 I1:有這一列、而從來沒有成功過 ══════════════════════════════════
+  // `recordHeartbeatFailure` 刻意不碰 `last_success_at` ⇒ 上線第一輪就失敗 ⇒ 那一欄是 NULL。
+  // 🔴 修之前這個世界印的是「最後成功時間讀不出來」⇒ **47 次連續失敗被印成一句型別問題**。
+  it('🔴🔴 last_success_at 是 NULL 而連續失敗 N 次 ⇒ 句子要說【失敗】,不得說「讀不出來」', async () => {
+    withRows(
+      ALL_HEALTHY.map((r) =>
+        r.job_name === 'pcm-settle-sweep'
+          ? { ...r, last_success_at: null, consecutive_failures: 47 }
+          : r,
+      ),
+    );
+    const r = await loadCronHeartbeats(NOW);
+    const j = r.jobs.find((x) => x.jobName === 'pcm-settle-sweep');
+    expect(j?.abnormal).toBe(true);
+    expect(j?.note).toContain('從來沒有成功過');
+    expect(j?.note).toContain('47');
+    expect(j?.note).not.toContain('讀不出來'); // 指錯方向的紅字 = 叫人去查一個不存在的問題
+    expect(j?.minutesAgo).toBeNull();
+    expect(r.neverBeat).toEqual([]); // 有列 ⇒ 不是「從來沒寫過心跳」,那是另一種病
+  });
+
+  it('🔴 NULL 而失敗計數是 0 ⇒ 仍要亮,而句子不得假裝它失敗過(對照上一格)', async () => {
+    withRows(
+      ALL_HEALTHY.map((r) =>
+        r.job_name === 'pcm-settle-sweep' ? { ...r, last_success_at: null } : r,
+      ),
+    );
+    const r = await loadCronHeartbeats(NOW);
+    const j = r.jobs.find((x) => x.jobName === 'pcm-settle-sweep');
+    expect(j?.abnormal).toBe(true);
+    expect(j?.note).toContain('從來沒有成功過');
+    expect(j?.note).not.toContain('連續失敗');
+  });
+
+  // ══ R1 I2:失敗計數讀到的不是數字 ⇒ 要亮,不得靜靜變健康 ═════════════
+  it('🔴🔴 consecutive_failures 不是數字 ⇒ 亮,而且與「沒有意義」分得開', async () => {
+    withRows(
+      ALL_HEALTHY.map((r) =>
+        r.job_name === 'pcm-email-sweep' ? { ...r, consecutive_failures: '9' } : r,
+      ),
+    );
+    const r = await loadCronHeartbeats(NOW);
+    const j = r.jobs.find((x) => x.jobName === 'pcm-email-sweep');
+    expect(j?.abnormal).toBe(true); // 修之前這裡是 false ——「靜靜變健康」
+    expect(j?.consecutiveFailuresUnreadable).toBe(true);
+    expect(j?.consecutiveFailures).toBeNull();
+    expect(j?.note).toContain('失敗計數讀不出來');
+    // 🔴 對照:逾期取消那一支的 null 是【設計上沒有意義】,不得被標成讀不出來
+    const expire = r.jobs.find((x) => x.jobName === 'pcm-expire-unpaid-orders');
+    expect(expire?.consecutiveFailures).toBeNull();
+    expect(expire?.consecutiveFailuresUnreadable).toBe(false);
+    expect(expire?.abnormal).toBe(false);
+  });
+
+  it('🔴 白名單有、表裡沒有 ⇒ 進 neverBeat,而句子說「從來沒寫過」不是「太久沒跑」', async () => {
+    withRows(ALL_HEALTHY.filter((r) => r.job_name !== 'pcm-expire-unpaid-orders'));
+    const r = await loadCronHeartbeats(NOW);
+    expect(r.neverBeat).toEqual(['pcm-expire-unpaid-orders']); // 印名字,不是印計數
+    const j = r.jobs.find((x) => x.jobName === 'pcm-expire-unpaid-orders');
+    expect(j?.abnormal).toBe(true);
+    expect(j?.note).toContain('從來沒寫過心跳');
+    expect(j?.minutesAgo).toBeNull(); // 🔴 絕不得兜成 0
+  });
+
+  it('🔴 表裡有、白名單沒有 ⇒ 進 unknownJobs(白名單過期),而不是被靜靜忽略', async () => {
+    withRows([...ALL_HEALTHY, { job_name: 'pcm-brand-new-job', last_success_at: ago(1), consecutive_failures: 0 }]);
+    const r = await loadCronHeartbeats(NOW);
+    expect(r.unknownJobs).toEqual(['pcm-brand-new-job']);
+    expect(r.neverBeat).toEqual([]); // 兩種漂移是兩格,不得互相污染
+  });
+
+  it('🔴 有那一列而時間戳解不出來 ⇒ 亮,句子與「從來沒寫過」不同', async () => {
+    withRows(
+      ALL_HEALTHY.map((r) =>
+        r.job_name === 'pcm-email-sweep' ? { ...r, last_success_at: '不是時間' } : r,
+      ),
+    );
+    const r = await loadCronHeartbeats(NOW);
+    const j = r.jobs.find((x) => x.jobName === 'pcm-email-sweep');
+    expect(j?.abnormal).toBe(true);
+    expect(j?.minutesAgo).toBeNull();
+    expect(j?.note).toContain('讀不出來');
+    expect(j?.note).not.toContain('從來沒寫過');
+    expect(r.neverBeat).toEqual([]); // 有列,只是值壞 ⇒ 不算 neverBeat
+  });
+
+  it('🔴 查詢回 error ⇒ 印「量不到」的原因,不留白;而且【不拋】', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    withRows(null, new Error('boom'));
+    const r = await loadCronHeartbeats(NOW);
+    expect(r.unreadableReason).toBe('查詢失敗');
+    expect(r.jobs).toEqual([]);
+    expect(spy).toHaveBeenCalled(); // 靜默吞掉的話線上永遠不知道這格壞了
+  });
+
+  it('🔴 transport 層真的 reject(網路斷)⇒ 一樣接成值,不得把首頁帶走', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    withReject(new Error('ECONNRESET'));
+    const r = await loadCronHeartbeats(NOW);
+    expect(r.unreadableReason).toBe('查詢失敗');
+    expect(spy).toHaveBeenCalled();
+  });
+
+  it('unreadableReport 是「量不到」的唯一作者(呼叫端不得自己組一份同形狀的)', () => {
+    expect(unreadableReport('測試原因')).toEqual({
+      jobs: [],
+      neverBeat: [],
+      unknownJobs: [],
+      unreadableReason: '測試原因',
+    });
+  });
+});

@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   listActiveStaff: vi.fn(),
   loadTodaySummary: vi.fn(),
   loadDataFreshness: vi.fn(),
+  loadCronHeartbeats: vi.fn(),
 }));
 vi.mock('../lib/session/actor-actions', () => ({ selectActorAction: vi.fn() }));
 vi.mock('../lib/session/actor', () => ({
@@ -33,6 +34,11 @@ vi.mock('../lib/dashboard/today-read', () => ({ loadTodaySummary: mocks.loadToda
 vi.mock('../lib/dashboard/freshness-read', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   loadDataFreshness: mocks.loadDataFreshness,
+}));
+// 同上:`unreadableReport` **刻意不 mock** —— 它是「量不到長什麼樣」的唯一作者。
+vi.mock('../lib/dashboard/cron-heartbeat-read', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  loadCronHeartbeats: mocks.loadCronHeartbeats,
 }));
 
 import AdminHomePage from './page';
@@ -52,6 +58,14 @@ beforeEach(() => {
   mocks.listActiveStaff.mockResolvedValue([{ id: 's1', label: '小陳' }]);
   mocks.loadTodaySummary.mockResolvedValue(SUMMARY);
   mocks.loadDataFreshness.mockResolvedValue({ hoursAgo: 3, stale: false, abnormal: false, unreadableReason: null });
+  mocks.loadCronHeartbeats.mockResolvedValue({
+    jobs: [
+      { jobName: 'pcm-settle-sweep', label: '結帳掃描', minutesAgo: 1, consecutiveFailures: 0, abnormal: false, note: '1 分前成功' },
+    ],
+    neverBeat: [],
+    unknownJobs: [],
+    unreadableReason: null,
+  });
 });
 afterEach(cleanup);
 
@@ -110,6 +124,60 @@ describe('AdminHomePage', () => {
     // 這一格掛掉不得把對帳與身分帶走
     expect(container.textContent).toContain('今日實收');
     expect(container.querySelector('select#actor_id')).not.toBeNull();
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  // ══ 排程心跳那一區(3a)══════════════════════════════════════════════════
+  it('🔴 正常時那一區就在畫面上(常亮的值,不是只有出事才出現)', async () => {
+    const { container } = render(await AdminHomePage());
+    expect(container.querySelector('[data-testid="cron-health"]')).not.toBeNull();
+    const row = container.querySelector('[data-testid="cron-job-pcm-settle-sweep"]');
+    expect(row?.textContent).toContain('結帳掃描');
+    expect(row?.className).toContain('text-muted-foreground');
+  });
+
+  it('🔴 某一支異常 ⇒ 那一列轉 destructive 色(而字照樣在)', async () => {
+    mocks.loadCronHeartbeats.mockResolvedValue({
+      jobs: [
+        { jobName: 'pcm-settle-sweep', label: '結帳掃描', minutesAgo: 99, consecutiveFailures: 0, abnormal: true, note: '已經 99 分沒成功(門檻 6 分)' },
+      ],
+      neverBeat: [],
+      unknownJobs: [],
+      unreadableReason: null,
+    });
+    const { container } = render(await AdminHomePage());
+    const row = container.querySelector('[data-testid="cron-job-pcm-settle-sweep"]');
+    expect(row?.textContent).toContain('99 分沒成功');
+    expect(row?.className).toContain('text-destructive');
+    expect(row?.className).not.toContain('text-muted-foreground');
+  });
+
+  it('🔴 兩種漂移印【不同的句子】,而且各自附「該怎麼辦」', async () => {
+    mocks.loadCronHeartbeats.mockResolvedValue({
+      jobs: [],
+      neverBeat: ['pcm-expire-unpaid-orders'],
+      unknownJobs: ['pcm-brand-new-job'],
+      unreadableReason: null,
+    });
+    const { container } = render(await AdminHomePage());
+    const t = container.querySelector('[data-testid="cron-health"]')?.textContent ?? '';
+    expect(t).toContain('從來沒寫過心跳');
+    expect(t).toContain('pcm-expire-unpaid-orders');
+    expect(t).toContain('接線了沒');            // 該怎麼辦①
+    expect(t).toContain('沒在看的心跳');
+    expect(t).toContain('pcm-brand-new-job');
+    expect(t).toContain('白名單過期');          // 該怎麼辦②
+  });
+
+  it('🔴 心跳讀取拋錯 ⇒ 印「量不到」,不得留白,而其他區照舊', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.loadCronHeartbeats.mockRejectedValue(new Error('boom'));
+    const { container } = render(await AdminHomePage());
+    const box = container.querySelector('[data-testid="cron-health"]');
+    expect(box?.textContent).toContain('量不到');
+    expect(box?.textContent?.trim()).not.toBe('');
+    expect(container.textContent).toContain('今日實收'); // 沒有把別區帶走
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
   });
