@@ -73,7 +73,15 @@ _dbg 'd2 逃生門已設 ⇒ 查 index 有沒有動 supabase/migrations'
 #   ⇒ 印出來的那串**人照著找不到檔**(同族解法見 `.husky/reviewer-gate.sh`)。
 # 🔴 `mktemp` 失敗時**不落回 `/dev/null`**(codex must-fix):那樣後面會 `rm -f /dev/null`
 #   —— 在 `sh -e` 下誤擋,而有權限時甚至會刪掉裝置節點。mktemp 拿不到就直接擋,理由照 fail-closed。
-if ! GIT_ERR_FILE=$(mktemp -t cmgate 2>/dev/null); then
+# 🔴 **`mktemp -t <前綴>` 是 BSD 寫法, 在 GNU coreutils 上【必炸】**(2026-08-27 CI 實證):
+#    BSD(macOS)`-t cmgate` ⇒ 產生 `/var/folders/…/cmgate.XXXXXXXX`, rc=0
+#    GNU(Linux / CI)`-t` 要的是【含 XXXXXX 的模板】, 只給前綴 ⇒ `too few X's` ⇒ rc≠0
+#    ⇒ 而本閘是 fail-closed ⇒ **在 CI 上擋下每一顆 commit**, 而本機一路綠。
+#    證據不是推的:run 33050916350 的 `migration-post-commit-gate.test.ts` 7 格全印
+#    「🔴 commit-msg 閘:mktemp 失敗 ⇒ 擋下」, 而同一支測試在 macOS 兩發 32/32 綠。
+# 📌 **一個只在【另一個作業系統】上壞掉的守門, 在本機的所有驗證裡都是綠的。**
+# ⇒ 改用【顯式模板】—— 兩邊都認, 不依賴 -t 的方言。
+if ! GIT_ERR_FILE=$(mktemp "${TMPDIR:-/tmp}/cmgate.XXXXXX" 2>/dev/null); then
   printf '%s\n' '🔴 commit-msg 閘:mktemp 失敗 ⇒ 擋下(不放行、也不落回 /dev/null)' >&2
   exit 1
 fi
