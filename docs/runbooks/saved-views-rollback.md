@@ -40,7 +40,8 @@ service_role 有 EXECUTE   ⇒ 4
 | ✅ 涵蓋 | 四個階段的判斷樹 · 每一步可貼的完整指令 · down-script 逐句 · 重新上線時最容易漏的那一步 |
 | ✅ 涵蓋 | 「D 期間寫入的資料怎麼辦」的答案與**它的理由**(其中一條理由曾經是假的,見下) |
 | 🛑 **不涵蓋** | **正式庫上的任何一次實跑。** `§14-28` 那支 `.sh` 驗的是「down 跑不跑得起來」,**不是這份分階段流程** |
-| 🛑 **不涵蓋** | 有資料之後的 rollback。實跑是在**空表**上做的 ⇒ 「有 500 列檢視時 drop 要多久 / 會不會鎖住別人」**未量** |
+| ✅ 涵蓋(2026-08-28 02:21 補量)| 有資料之後的 down:**0 / 1,000 / 100,000 列三格都量過**,耗時 18/22/19ms **持平**(DROP TABLE 不掃列)⇒ 而**碼錶自己有正對照**(同樣資料量的 `DELETE FROM` = 15ms vs 54ms ⇒ 證明碼錶會動,持平不是碼錶壞了)|
+| 🛑 **不涵蓋** | **正式庫**上帶資料的 rollback。上面那三格在拋棄式 PG、本機磁碟、無其他負載 ⇒ **不是正式環境的數字** |
 | 🛑 **不涵蓋** | 前台/後台 app 那一側的回退(那是 Vercel 的事,見 `§14-14`;而該節的「1-2 分鐘」是**印象值不是量測**)|
 
 ---
@@ -111,6 +112,22 @@ psql "$DATABASE_URL" -Atc "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON
 
 ---
 
+## 🔴🔴 ②-b 走 ④ 之前必看:**有人正在用後台,`DROP TABLE` 會卡住**
+
+```
+2026-08-28 02:21 實測(拋棄式 PG):
+  一個連線開著交易在讀那張表 ⇒ 另一個連線跑 down ⇒ **DROP TABLE 拿不到 ACCESS EXCLUSIVE ⇒ 擋在那裡**
+  ✅ 而被擋下來之後【表還在】—— 整支交易回滾, 沒有做一半
+  ✅ 負對照:沒有人在讀的時候, 同一發 down 過得去(⇒ 這不是「什麼都擋」)
+```
+🔴 **維運上的意思**:半夜沒人用的時候跑,它 20ms 就結束;而**上班時間有人開著後台,它會掛在那裡**。
+⇒ 而 `psql` 預設**沒有 `lock_timeout`** ⇒ 它會**無限等**,畫面上就是一個不動的游標。
+✅ **一律先設上限,不要裸跑**:
+```sql
+SET lock_timeout = '5s';   -- 貼在 ④ 那段 BEGIN; 之前
+```
+⇒ 逾時的訊息會明說是鎖的問題;**沒設的話你只會看到它不動,而分不出「很慢」與「卡住」。**
+
 ## 🔴 ③ 重新上線時最容易漏的那一步(它會偷走你半小時)
 
 ```
@@ -133,6 +150,7 @@ GRANT EXECUTE ON FUNCTION public.admin_delete_saved_order_view(text, bigint, tex
 🛑 **命中鐵則 R3(不可逆)⇒ 停下問 Sean,不由施工窗自己決定。**
 
 ```sql
+SET lock_timeout = '5s';   -- ⚠️ 見 ②-b:有人在用後台時 DROP TABLE 會卡住, 而裸跑會無限等
 BEGIN;
   DROP FUNCTION IF EXISTS public.admin_list_saved_order_views(text);
   DROP FUNCTION IF EXISTS public.admin_create_saved_order_view(text, text, text, text, boolean, text, text);
