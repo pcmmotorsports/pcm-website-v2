@@ -34905,6 +34905,43 @@ grep -rn "單一 authenticated client" --include="*.ts" . | grep -v node_modules
 (v1 原檔保留不動 —— -de 退過它一次「原地覆蓋」)
 ```
 
+## 🔴 2026-08-27 深夜追記:**這 42 張的補片,與 `Q15` 之間有一個【不能混】的順序**
+
+**來源**:cf 的 reviewer 打在 `-de` 的段A 設計上(MF3),`-de` 轉、主視窗落檔。
+
+```
+片3a 段A 的前提斷言要求:service_role.rolbypassrls = true, 或它是 owner 且未 FORCE
+🔴 而 Q15 拿掉 BYPASSRLS 之後, 那兩個充分條件【都不成立】
+⇒ 照這形狀寫的每一支新 migration, 都會被【自己的段A】擋下
+   只剩檔內那條出路 (a):把檔頭宣稱改寫成「恢復讀取」再送
+```
+
+**⇒ 對排片的實際約束(這才是要記的)**
+```
+· 42 張的補片【全部排在 Q15 之前】 ⇒ 沒問題(那時 rolbypassrls 還是 true)
+· 🔴 任何一片排在【Q15 之後】     ⇒ 它會被自己的段A 擋下 ⇒ 那條排法要先改段A
+· 而片2 / 片3a 自己也帶著這個前提 ⇒ Q15 之後【重放】它們也會炸
+```
+🔴 **「先補完 42 張再動 `Q15`」與「`Q15` 之後再補剩下的」是兩條不能混的路。排的時候要選一條。**
+
+📌 **而這一格是怎麼被發現的,比結論值錢**:`-de` **自己在片3a 檔裡寫過這個代價** ——
+而它寫的是「**`Q15` 落地之後這一格會擋住【本片】**」,而 cf 指出它其實是「**擋住【每一支照這形狀寫的片】**」。
+> **它把一個【設計層的代價】寫成了【單片的代價】。**
+> 🔴 **一句只講自己那一片的射程聲明,會讓下一個抄這個形狀的人以為那不關他的事。**
+
+## ⚠️ 而 cf 同時推翻了它自己先前兩條(兩條都是「結論對而理由錯」)
+```
+🔴 它先前寫「零 GRANT 的表補政策零效果 ⇒ 不補」——【錯了兩層】
+   ① 政策先建、事後 GRANT ⇒ 立刻生效(**延遲生效不是零效果**)
+   ② scripts/d1-supabase-shim.sql:50 有 ALTER DEFAULT PRIVILEGES … GRANT ALL ON TABLES TO service_role
+      ⇒ 新表【出生就帶 GRANT】⇒ 零 GRANT 的表是【被明文 REVOKE 過】的, 不是天生沒有
+   ⇒ 改成「GRANT 與政策同片決定, 並寫下誰 GRANT 誰補政策」
+🔴 它先前寫「anon 不受影響, 因為政策只套到 service_role」——【理由錯, 結論對】
+   政策套到【任何 INHERIT service_role 的角色】;實測 GRANT service_role TO anon ⇒ anon 從 2 列變 5 列
+   ⇒ 對的理由是「anon 【未繼承】, 而段A 的 USAGE 閘量的就是這一格」
+```
+📌 **又是同一族:結論對而理由錯 —— 而照著錯理由去推廣的人會踩。**
+
 **不修未來會痛在哪**
 - **可追蹤性**:靜默的 `UPDATE 0` 不會進任何 log、不會讓 job 紅、不會有告警
   ⇒ **發現它的方式只有「有人回頭去查那張表為什麼沒變」**,而那通常是幾週之後。
@@ -35038,11 +35075,29 @@ apps/admin/src/lib/orders/workflow-form.ts:50
 ⇒ 開發者本機若同時跑著一個敵意頁(任何埠), 它可以帶著 cookie 對後台發 mutation
 ```
 
-**⚠️ 射程(`-6e` 自標,照抄不放寬)**
-- **僅 dev**,而且要**開發者本機正在跑敵意頁**。
-- 🔴 **「我沒有構造攻擊,讀碼得到的。」** ⇒ 本條是**讀碼判的**,不是**量到的**。
-- 🔴 **這一格填起來之前,擋住的是**:任何「這是真的可利用漏洞」或「這是理論問題不用管」的**兩端**斷言。
-  ⇒ 要往任一端走,**先在本機構造一次**(起一個別的埠的頁、帶 cookie 發一發 mutation、看它過不過)。
+**✅ 已構造(2026-08-27 `-6e`;那一格填了 —— 它是【真的】,但僅 dev)**
+起真後台探針(`ADMIN_DEV_BYPASS=1`)+ 一個【別的埠】的敵意頁(`localhost:4001`)+ 一張自簽的
+受害者 session cookie,敵意頁 `fetch('http://localhost:3011/api/session/renew', {credentials:'include'})`:
+```
+量測面(伺服器 log 的狀態碼, 不是敵意頁的視角 —— 那兩個【不一樣】):
+  Origin: http://localhost:3011  (同源, 對照)  ⇒ 200 renewed
+  Origin: http://localhost:4001  (敵意頁)       ⇒ 200 renewed   🔴 過了
+  Origin: http://evil.example.com               ⇒ 403 bad-origin
+  無 Origin                                      ⇒ 403 bad-origin
+瀏覽器真的發一次(從 4001 敵意頁):
+  敵意頁自己的視角  ⇒ cors 模式 "Failed to fetch"(CORS 擋【讀回應】)
+  伺服器的視角     ⇒ renew 請求數 9 → 13, 【全部 200】⇒ 請求送到了、cookie 帶到了、續期【真的執行了】
+```
+🔴 **關鍵:CORS 擋的是「敵意頁讀不到回應」, 不是「請求沒執行」** —— 對**改狀態**的 mutation
+(退款/儲值/改 tier),攻擊者不需要讀回應, 那筆退款已經發生了。
+🔴 **SameSite=Lax 在這裡【不保護】** —— `localhost:4001` 與 `localhost:3011` 是**同站**(同 registrable domain,
+埠不算),所以 Lax 照樣送 cookie。量到的 200 就是證據。
+
+**⚠️ 射程(照抄不放寬)**
+- 🔴 **僅 dev。production 安全**:`workflow-form.ts:49-51`,`devBypass=false` 時 localhost 那條 if 短路掉
+  ⇒ 只認 `https://admin.pcmmotorsports.com` ⇒ `localhost:4001` 回 bad-origin。**已讀碼確認, 未在 prod 實測**(我沒有 prod 存取)。
+- 攻擊要三件同時到位:①開發者本機開著 `ADMIN_DEV_BYPASS=1` ②有一張有效 session ③造訪敵意頁。
+- **受害者 cookie 是我自簽的, 不是真登入** —— 而機制相同(真開發者帶 devBypass 會有真 cookie)。
 
 **不修未來會痛在哪**
 - **可追蹤性**:它只在 dev 生效 ⇒ **永遠不會在 production 的任何 log 裡出現** ⇒ 發現它的唯一方式是讀碼。
