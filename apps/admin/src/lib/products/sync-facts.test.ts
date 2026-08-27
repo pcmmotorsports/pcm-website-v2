@@ -76,6 +76,53 @@ function flagOf(slug: string, flag: string): boolean {
   return captured === 'true';
 }
 
+
+/**
+ * `scripts/supplier-config.ts` 逐家的**區塊**(含它上方的前導註解),以物件鍵為錨。
+ *
+ * 🔴 **為什麼不用 `supplierSlug:` 當錨**(2026-08-27 當場量到、差點寫錯):
+ *    每一家的前導註解寫在 `supplierSlug:` 的**上面**,而「這家不接每日排程」這種宣告
+ *    就住在那段註解裡 ⇒ 以 `supplierSlug:` 切段會把**下一家的註解算進上一家**。
+ *    實測:`不接每日排程` 唯一命中在 `:275`,那是 `extreme` 的前導註解 ——
+ *    以 `supplierSlug:` 切會判成 **akrapovic 豁免、extreme 不豁免**,兩家都判反。
+ *    📌 同族前科就在本檔 `flagOf` 的 `R4 n4`:**固定視窗會靜默抓到隔壁家的值。**
+ *       這次不是視窗大小,是**錨點選錯邊**,而兩者印出來的東西同樣合理。
+ *
+ * ⚠️ **只認【前導】註解 —— 尾註會歸給下一家**(code-reviewer nit,實測:
+ *    把「(extreme 不接每日排程)」放在 extreme 的 `},` 之後 ⇒ 豁免掉的是 `kspeed`)。
+ *    上一版的 JSDoc 只講了錯配的一個方向, 讀起來像「錨選對了就沒事」。
+ *
+ * 🔴 **起點不是檔頭**(code-reviewer must-fix):原本 `prevEnd = 0` ⇒ 第一家(`rpm`)的區塊
+ *    涵蓋整個檔頭 JSDoc 與 `SupplierConfig` 介面註解 ⇒ **任何人在檔頭寫下「不接每日排程」
+ *    這句話, `rpm` 就會被判豁免, 而把 rpm 移出 matrix 之後【全綠】。**
+ *    而檔頭正是下一個人記錄這條慣例最自然的位置。⇒ 起點錨在 `SUPPLIER_CONFIGS` 上。
+ *
+ * ⚠️ **鍵可能帶引號**:任何含 hyphen 的 slug(`'new-co'`)在 TS 裡**必須**加引號。
+ *    上一版的 regex 只吃裸識別字 ⇒ 那一家會被**整段併進下一家**, 而紅會出現在下一家身上,
+ *    **真正漏的那家從頭到尾沒被提過**。下面另有一格交叉尺(區塊數 vs slug 數)當第二道。
+ */
+function configBlocks(): { key: string; block: string }[] {
+  const src = read(SUPPLIER_CONFIG);
+  // 裸識別字 `rpm: {` 與帶引號 `'new-co': {` 兩種都要吃。
+  const keys = [...src.matchAll(/^ {2}'?([A-Za-z_][A-Za-z0-9_-]*)'?:\s*\{/gm)];
+  const out: { key: string; block: string }[] = [];
+  // 🔴 起點錨在登記表本身,不是檔案開頭(見上方 JSDoc 的 must-fix 那段)。
+  const tableAt = src.indexOf('SUPPLIER_CONFIGS');
+  expect({ '登記表錨點找得到': tableAt >= 0 }).toEqual({ '登記表錨點找得到': true });
+  let prevEnd = tableAt;
+  for (const m of keys) {
+    const at = m.index ?? -1;
+    const close = src.indexOf('\n  },', at);
+    // 🔴 前提斷言:每一家都找得到自己的收尾。找不到就切出一段亂七八糟的東西,而下面每一格照樣跑。
+    expect({ [`${m[1]} 區塊收尾`]: at >= 0 && close > at }).toEqual({
+      [`${m[1]} 區塊收尾`]: true,
+    });
+    out.push({ key: m[1] as string, block: src.slice(prevEnd, close) });
+    prevEnd = close + 5;
+  }
+  return out;
+}
+
 describe('#20 片1b-2 — 詳情頁警語所依賴的事實(R3 F3)', () => {
   it('🔴 前提斷言:三個真相源都讀得到,而且解析器真的吐得出東西', () => {
     // 🔴 沒有這格,「事實沒漂」與「解析器根本沒解到東西」長得一模一樣
@@ -128,6 +175,79 @@ describe('#20 片1b-2 — 詳情頁警語所依賴的事實(R3 F3)', () => {
     // 無條件展開(`images: [repImage],`)而不是 `...(ctx.xxx ? { images } : {})`。
     expect(src).toContain('images: [repImage],');
     expect(src).not.toMatch(/\.\.\.\([^)]*\?\s*\{\s*images\b/);
+  });
+
+  it('🔴 #q2:每一家【活的】供應商都要在每日同步 matrix 裡,除非它自己明文說不接', () => {
+    // 🔴 **這一格的來由是一次真的漏**(2026-08-27):`dna` 自 08-21 首灌、`gilles` 自 08-27 首灌,
+    //    兩家都沒被加進 matrix ⇒ 顧客站價格與庫存凍在首灌快照,而來源每天更新。
+    //    `dna` 因此凍了六天,而**沒有任何東西會叫** —— 兩支檔之間零對帳。
+    //    ⚠️ 而病灶不是「沒人決定」:`supplier-config.ts` 那句「這家 2026-08-27 起排入每日班」
+    //       寫在【解釋它的檔】,而沒有寫進【執行它的檔】。Sean 2026-08-27 拍板補這道對帳。
+    //
+    // 🔴 **分母不寫死**(否則第 18 家加進來它照樣綠 = 記錄現況而不是機制):
+    //    · 「活的供應商」= 區塊裡 `writeAllowed: true`(`__gated_canary__` 是 false ⇒ 自動排除)
+    //    · 「明文豁免」  = 區塊裡出現 `不接每日排程`(現行唯一一家:`extreme`,靜態一次性 fixture)
+    //    ⇒ **豁免名單也不寫死** —— 下次有人刻意排除第二家,他在 config 寫那句話就好,
+    //      **不必改這支測試**。📌 一道「每加一家就要改測試」的閘,會先被改成永遠通過。
+    //
+    // ⚠️ **兩個殘餘限制, 寫下來免得下一個人把這道閘讀得比實際強**(code-reviewer):
+    //   ① 豁免判準是**中文子字串**, 而散文可以否定它 —— 實測把 extreme 那句改成
+    //      「~~不接每日排程~~ 2026-09 起已改為接」而 matrix 不動 ⇒ **仍然全綠**。
+    //      真正的解是在 `SupplierConfig` 加一個 `dailySync: false` 欄位(動型別 ⇒ 另一片)。
+    //   ② 「第二家豁免不必改測試」成立, 而**取消 extreme 的豁免仍要改**下方
+    //      `文案前提①` 的 `toContain('extreme')` ⇒ **這道機制的不寫死程度被隔壁那格封頂。**
+    const blocks = configBlocks();
+    // 🔴 **錨在欄位上**(code-reviewer important):原式 `/writeAllowed:\s*true/` 連**註解**都算 ——
+    //    `__gated_canary__` 的前導註解現在寫的是 `writeAllowed=true`, **只差一個等號**;
+    //    有人把它改成冒號(純註解編輯)⇒ canary 被判活 ⇒ 紅在 `['__gated_canary__']`,
+    //    而它的註解逐字寫著「永不開寫、不入 rpm-sync.yml matrix」
+    //    ⇒ **那是一個 finding 對而理由錯的紅, 照著改會把安全回歸靶弄壞。**
+    const live = blocks.filter((b) => /^ {4}writeAllowed: true/m.test(b.block)).map((b) => b.key);
+    const exempt = live.filter((k) => {
+      const b = blocks.find((x) => x.key === k);
+      return b !== undefined && b.block.includes('不接每日排程');
+    });
+
+    // 🔴 前提斷言三格 —— 沒有它們,「解析器什麼都沒抓到」與「完全對得上」印同一個綠。
+    //    (`feedback_absence-read-as-verified`:什麼都沒有 ≠ 檢查過了。)
+    // 🔴 **第二把尺**(code-reviewer important):區塊數要等於 `supplierSlug` 數。
+    //    帶引號的鍵若被跳過, 那一家會整段併進下一家 ⇒ 兩數就會差開。
+    //    ⚠️ 而每一塊還要**含著自己的 slug** —— 只比數量的話, 兩邊同時錯一格照樣相等。
+    const slugCount = configuredSlugs().length;
+    const 錯配 = blocks.filter((b) => !b.block.includes(`supplierSlug: '${b.key}'`)).map((b) => b.key);
+    // ⚠️ **帶空白的鍵一律加引號** —— 本片今天在同一個坑踩了兩次。
+    //    裸寫的失敗形狀是 `Test Files 1 failed` + `Tests  no tests`:
+    //    **整支檔沒載進來, 而大家引用的 `Tests` 那行沒有任何紅。**
+    expect({
+      '解析到的家數夠多': blocks.length >= 15,
+      '區塊數等於 slug 數': blocks.length === slugCount,
+      '每塊都含自己的 slug': 錯配,
+      '活的供應商非空': live.length > 0,
+      '至少一家明文豁免': exempt.length > 0,
+    }).toEqual({
+      '解析到的家數夠多': true,
+      '區塊數等於 slug 數': true,
+      '每塊都含自己的 slug': [],
+      '活的供應商非空': true,
+      '至少一家明文豁免': true,
+    });
+
+    const expected = live.filter((k) => !exempt.includes(k)).sort();
+    const actual = dailyMatrix().slice().sort();
+
+    // 兩向差集都要空。分開列,因為兩個方向的意思完全不同:
+    //   缺席 = 有一家在跑而沒人同步它的價格(客人看到舊價)
+    //   多餘 = matrix 排了一家 config 裡不存在或不該跑的(job 會直接爆或白跑)
+    // ⚠️ 鍵名帶空白 ⇒ 必須加引號。裸寫會 parse error, 而那個紅的形狀是
+    //    `Test Files 1 failed` + `Tests  no tests` ——【檔紅而 0 格紅】,
+    //    正是 CLAUDE.md 鐵則 11 記過的那一族:大家引用的 `Tests` 那行沒有任何紅。
+    expect({
+      '該在 rpm-sync.yml matrix 而不在': expected.filter((k) => !actual.includes(k)),
+      '在 rpm-sync.yml matrix 而不該在': actual.filter((k) => !expected.includes(k)),
+    }).toEqual({
+      '該在 rpm-sync.yml matrix 而不在': [],
+      '在 rpm-sync.yml matrix 而不該在': [],
+    });
   });
 
   it('🔴 F4:placeholder 字面兩份必須一致(transform 改路徑 ⇒ 這格紅,不是靜默失效)', () => {
