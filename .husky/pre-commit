@@ -94,6 +94,15 @@ else
   printf '%s\n' '   復原:git checkout -- .husky/acl-drift-gate.sh' >&2
   exit 2
 fi
+if [ -f .husky/zsh-shebang-gate.sh ]; then
+  sh .husky/zsh-shebang-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/zsh-shebang-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   它守的是:repo 裡 55 處 `for X in $VAR` 現在是對的, 靠「沒有一支被 zsh 跑」' >&2
+  printf '%s\n' '   ⇒ 第一支 zsh shebang 出現的那天, 55 處會同時只跑一次而沒有東西會紅' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/zsh-shebang-gate.sh' >&2
+  exit 2
+fi
 if [ -f .husky/view-apply-gate.sh ]; then
   sh .husky/view-apply-gate.sh || exit $?
 else
