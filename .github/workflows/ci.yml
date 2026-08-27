@@ -268,11 +268,67 @@ jobs:
             echo "  $F"
             head -5 "$F" | grep '^# ci-self-contained: no' | sed 's/^/      /'
           done
-          # ⚠️ 兩張清單都沒有的 = 前 5 行沒有任何標記,它們從來沒被納入過
-          echo "docs/probes/ 底下【前 5 行沒有標記】的:"
-          for F in docs/probes/*.sh; do
-            head -5 "$F" | grep -q '^# ci-self-contained:' || echo "  $F"
-          done
+          # 🔴 **這一段以前只【印】沒有標記的檔而 `rc=0`** ⇒ 它是一個報告,不是一道閘。
+          #    2026-08-27 接上 `scripts/probe-marker-guard.sh`(`-6e` 寫、五個世界演過、本窗獨立複跑)。
+          #    ⚠️ **兩種紅要分得開**:`rc=2` = 守門自己壞了(找不到目錄)、`rc=1` = 真的有檔缺標記。
+          #       兩者都紅沒關係, 而**訊息不同**——否則下一個人看到紅會先去找一個不存在的缺口。
+          set +e
+          bash scripts/probe-marker-guard.sh
+          GRC=$?
+          set -e
+          if [ "$GRC" = 2 ]; then
+            echo "::error::probe-marker-guard 自己壞了(rc=2)——【不是】探針缺標記。先看它印的目錄路徑對不對。"
+            exit 1
+          elif [ "$GRC" = 1 ]; then
+            echo "::error::docs/probes/ 有探針前 5 行沒有 ci-self-contained 標記(rc=1)⇒ 它永遠不會被本步驟認領。"
+            exit 1
+          elif [ "$GRC" != 0 ]; then
+            # 🔴 兩個審查各自獨立抓到:原寫法 `elif [ "$GRC" != 0 ]` 會把 rc=127(腳本被改名)
+            #    歸類成「探針缺標記」⇒ 下一個人去找一個不存在的缺口。
+            #    📌 而那正是上面註解自己承諾要避免的事 —— 承諾寫在註解裡, 而分類寫在 code 裡。
+            echo "::error::probe-marker-guard returned unexpected rc=$GRC (not 0/1/2). This is a tooling-layer failure, not a missing marker; rc=127 usually means the script or its interpreter was not found."
+            exit 1
+          fi
+
+          # 🔴 **`.sql` 為什麼【不】加進上面那個 `find . -name '*.sh'`**(2026-08-27 本窗判斷;
+          #    刻意不寫行號 —— 行號會漂, 而漂掉的引用與活的長得一樣)。
+          #    那個 find 餵的是本步驟最後的執行迴圈, 而那個迴圈是 `bash "$P"` ——
+          #    把 `.sql` 放進去會被 bash 當腳本執行;標記語法也不同(`--` vs `#`),
+          #    上面的 `case` 比對不到 ⇒ `.sql` 會兩張清單都不進、靜默消失, 比現狀更糟。
+          #
+          # ⚠️ **射程寫窄**(code-reviewer must-fix:原文「.sql 的分母由 guard 顧」宣稱大於實際):
+          #    `probe-marker-guard.sh` 只掃 `docs/probes/` 一層 ⇒ 它顧的是**那個目錄底下的** `.sql`。
+          #    `scripts/` 底下另有 `.sql` 不在它的分母裡, 也不在下面這一格的缺標記判斷裡 ——
+          #    下面這一格只擋一種假承諾:**任何地方標了 `yes` 的 `.sql`**(沒有東西會去跑它)。
+          #
+          # 🔴 **只看前 5 行**(codex must-fix):原寫法 `grep -rl` 吃整個檔案 ⇒ 一支在第 50 行
+          #    只是【提到】這個字串的 `.sql` 會被誤判成標記。與上面 `.sh` 那半的規矩對齊。
+          # 🔴 **零命中與掃描器自壞要分得開**(兩個審查各自抓到):原寫法 `2>/dev/null || true`
+          #    把兩者收斂成同一個空字串 ⇒ 恆綠。改成逐檔 `head -5` + `case`, 讀不到就當場紅。
+          SQLYES=''; SQLSEEN=0; SQLMARKED=0
+          while IFS= read -r F; do
+            [ -n "$F" ] || continue
+            SQLSEEN=$((SQLSEEN+1))
+            SQLHDR="$(head -5 "$F")" || { echo "::error::cannot read $F -- this is a scanner-side failure, not a missing marker."; exit 1; }
+            case "$SQLHDR" in *'-- ci-self-contained: '*) SQLMARKED=$((SQLMARKED+1));; esac
+            case "$SQLHDR" in *'-- ci-self-contained: yes'*) SQLYES="$SQLYES$F"$'\n';; esac
+          done <<EOF
+          $(find . -name '*.sql' -not -path './node_modules/*' -not -path './.git/*' -not -path './.claude/*' | sed 's|^\./||' | sort)
+          EOF
+
+          # 🔴 **正向對照**(與上面 `.sh` 那半的 CANARY 同一個理由):沒有這一格,
+          #    「掃描器活著而沒有 yes」與「掃描器根本沒認出任何標記」印同一個結果 —— 都是空字串。
+          echo "  .sql scan: seen=$SQLSEEN marked=$SQLMARKED"
+          if [ "$SQLSEEN" = 0 ] || [ "$SQLMARKED" = 0 ]; then
+            echo "::error::the .sql marker scan recognised no markers at all (seen=$SQLSEEN marked=$SQLMARKED). A broken scanner and a genuine absence of yes-marked .sql files both yield an empty result, which is why this branch exists."
+            exit 1
+          fi
+          if [ -n "$SQLYES" ]; then
+            echo "::error::有 .sql 前 5 行標了 ci-self-contained: yes, 而本步驟的執行迴圈只 bash 跑 .sh ⇒ 那個標記不會被兌現："
+            printf '%s\n' "$SQLYES" | sed 's/^/  /'
+            echo "  ⇒ 要嘛改標 no（附理由）, 要嘛在這一步明白地加上跑 .sql 的路徑。"
+            exit 1
+          fi
 
           printf '%s' "$RUN" | while IFS= read -r P; do
             [ -n "$P" ] || continue
