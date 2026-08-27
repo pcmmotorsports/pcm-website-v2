@@ -97,12 +97,127 @@ done
 set -- ${_ARGS[@]+"${_ARGS[@]}"}
 [ "$#" -gt 0 ] || { echo "🔴 正規化之後一個參數都不剩 ⇒ 沒有東西可以檢查(不得當成通過)" >&2; exit 2; }
 W=$(mktemp -d "${TMPDIR:-/tmp}/pack-check.XXXXXX")/wt
-trap 'git -C "$ROOT" worktree remove --force "$W" >/dev/null 2>&1; rm -rf "$(dirname "$W")"' EXIT
+# ⚠️ trap 裡的 `worktree prune` 防的是【trap 沒跑到】的那些次(SIGKILL / 斷電):那時會留下一棵孤兒樹,
+#    而現在孤兒裡還多帶一份 25M 的 submodule clone。下一次跑本腳本時順手清掉。
+#    🔴 實測(審查 n2)`prune` **只清 prunable, 對別條線正在用的十幾棵 worktree 零影響** ——
+#      這句要寫下來, 因為「順手 prune」在共用樹上聽起來就像會誤刪別人的東西。
+trap 'git -C "$ROOT" worktree remove --force "$W" >/dev/null 2>&1; git -C "$ROOT" worktree prune >/dev/null 2>&1; rm -rf "$(dirname "$W")"' EXIT
 
 HEAD_SHA=$(git rev-parse --short HEAD)
 echo "repo=$ROOT  HEAD=$HEAD_SHA  包內檔數=$#"
 
 git worktree add --detach "$W" HEAD >/dev/null 2>&1 || { echo "🔴 建 worktree 失敗" >&2; exit 1; }
+
+# ════════════════════════════════════════════════════════════════════════════
+# 🔴 `design-reference` 是 git submodule ⇒ 新 worktree 裡那個目錄是【空的】。(`#945` 片A)
+#    2026-08-27 實錘:一包六支檔印「站不住 ⇒ 多半漏收了一支」, 而**真相不是漏收**,
+#    是沙箱裡沒有 submodule ⇒ 讀 design 原稿的那格正對照硬紅。
+#    當下處置 = 該測試自己 `it.skipIf(existsSync(...))`, 而那是一個 fail-open:
+#    **它在這個沙箱裡從來沒有跑過, 而本腳本照樣印 ✅。** 這一段把它拉起來。
+#
+# ⚠️ **拉不到時不 exit 1**(`Q-945-2` 甲;**線4 2026-08-27 自己決定的, 不是 Sean 拍的** —— 它可逆、
+#    不改任何人的 rc, 而「要不要改成紅」仍然開著, 見 plan `§12-2`)。理由:
+#    本腳本是每個窗每次收包都要跑的東西 ⇒ 把它變成「網路不通就不能 commit」, 大家會開始繞過它,
+#    而**一個被繞過的守門比沒有守門更糟 —— 它還在名單上, 讓人以為有在守。**
+# 🔴 **而「不 exit 1」不等於「當作沒事」**:拉不到時, 檔尾那個 ✅ 會被加註射程。
+#    改的是【那個綠宣稱了什麼】, 不是【綠不綠】。
+# 🔴 **本段只把 fail-open 縮小並顯影, 沒有【收掉】它** —— 不要讀成收掉了:
+#      改動前 = 沙箱裡那格【永遠】skip, 而沒有任何一行字提到它
+#      改動後 = 沙箱裡那格**在「有網路 + SSH 憑證可用」時會跑**, 而拉不到的那幾次會印出來
+#              (⚠️ 原字面「通常會跑」是**頻率副詞、沒量過** —— 審查 N5 點名, 已改寫成它依賴什麼)
+#    真正收掉要 CI 那一半, 卡 `Q-945-1`(哪一種鑰匙 —— 只有 Sean 放得了 secret)。
+#    plan: docs/specs/2026-08-27-945-submodule-in-sandbox-and-ci-plan.md
+#
+# 🔴🔴 **判別掛在 `git submodule status` 的首字元, 而它是【第二版】** —— 這一格值三條命:
+#    R1 說「別掛在 git 的 rc」:實測 `-c submodule.…update=none` ⇒ **rc=0 而目錄是空的** ⇒ rc 會假綠。
+#    我改成 `ls -A` 判目錄有沒有東西。**而 R2 用一發實測打穿它**:
+#      remote 缺被釘住的那顆 SHA ⇒ `rc=128` + `did not contain <sha>`,
+#      而目錄裡**留下一個 `.git`** ⇒ `ls -A` = **1** ⇒ 新閘照樣說 ok, 而稿根本不在。
+#    ⇒ **我不是修好了 M1, 我是把假綠從 rc 搬到 ls。**
+#    📌 母題:**每一把新尺都自帶一組它看不見的世界, 而「我剛修好一個坑」是最不會回頭再量的時刻。**
+#    ⇒ 第三版 = `git submodule status` 首字元, 三個世界一把尺分得開(2026-08-27 逐一實測):
+#         " " = 在釘住的 SHA(唯一放行)  ·  "+" = 在別的 SHA  ·  "-" = 沒初始化
+#    ⚠️ **它仍有一個看不見的世界**:clone 全成功、SHA 也對, 而**稿在上游被改名/搬檔**
+#       ⇒ status 說 " "、閘說 ok, 而測試那端 `existsSync` 是 false ⇒ 靜靜 skip。
+#       **那一格靠的是下面 C1 印出來的 skip 數, 不是這道閘。**
+#       📌 閘的謂語(submodule 在正確的 SHA)與消費端的謂語(那支 .jsx 檔在)**不是同一句話。**
+#
+# ⚠️ **不得讓它卡住**(審查 M2):URL 是 SSH(`.gitmodules` `git@github.com:`), 兩條 stream 原本都導掉
+#    ⇒ 連線卡住時本腳本會**零輸出地停住**, 而 git 自己還會 `Retry scheduled` 再來一次 ⇒ 等待 ×2。
+#    ⇒ `</dev/null` + `GIT_TERMINAL_PROMPT=0` + ssh `BatchMode=yes` `ConnectTimeout=10`
+#      `ServerAliveInterval=10` `ServerAliveCountMax=3`。
+#    🔴 **而 `ConnectTimeout` 結構上擋不到「已連上但傳到一半失速」** —— `man ssh_config` 逐字:
+#       它 "applied both to establishing the connection and to performing the initial SSH protocol
+#       handshake and key exchange" ⇒ **交握之後就不管了**。擋那一段的是 `ServerAlive*` 那兩顆。
+#       ⇒ 這不是「未實測」, 是 **`ConnectTimeout` 不涵蓋**(審查 M2-b 點名我把兩者混為一談)。
+#    ⚠️ 而使用者自己已經設了 `GIT_SSH_COMMAND` 時, **先出現的選項贏**(`man ssh_config`)
+#       ⇒ 他若已帶 `-o ConnectTimeout=600`, 我們附在後面的 10 **不生效** ⇒ 這道保護對他失效。
+#       (實測 `ssh -o ConnectTimeout=600 -o ConnectTimeout=10 -G github.com` ⇒ `connecttimeout 600`。)
+#
+# ⚠️ 射程:每一棵新 worktree 都是一次**全新 clone**(log 第一行 `Cloning into`), 不是從本機
+#    `.git/modules` link 過去 ⇒ **每次都走網路 + SSH 憑證**;`.git/modules/design-reference` = 25M,
+#    而**這一步加了多少時間沒有人量過**(審查 N6)⇒ 標未量, 不要寫「應該很快」。
+#    離線時它會走 missing 分支 —— **吻合但未證實**(量到的只有 `/bin/false` 那一發, 不是真的離線)。
+# ⚠️ **評估過而不做**(審查 N8), **而理由只剩一條**:改用本機路徑當 url + `protocol.file.allow=always`
+#    可以完全不走網路 —— 代價 = **重新打開 file transport**(CVE-2022-39253 那顆旋鈕)。
+#    🔴 我原本還寫了第二條「主樹沒 fetch 到新 SHA 時會用一個看起來成功的舊物件」——
+#       **審查實測它是假的**:那個世界給的是 `rc=128` + `did not contain <sha>`, **大聲失敗**,
+#       而網路那條路在同一世界給一模一樣的結果。⇒ **我用一個不成立的代價去否決一個更短的路。**
+#       📌 兩條理由的否決句與一條理由的否決句**讀起來一樣有說服力**, 而只有一條是真的。
+#    ⇒ 仍然不做:那顆旋鈕的安全取捨不是我能替 Sean 收的。**而它是片B 定案後值得回來重看的一格。**
+# ⚠️ 這一段刻意放在下面那道「新樹必須 0 dirty」自檢【之前】—— 拉了一半的 submodule 會讓工作樹髒,
+#    而那道自檢本來就是在擋髒基準 ⇒ 不另外造一道新閘。
+#    🔴 而**「clone 失敗一定留下空目錄」是假的**(審查 M2-a):`/bin/false` 那種**瞬間失敗**留空目錄、
+#       porcelain=0;而**缺 SHA** 那種留下 `.git` ⇒ porcelain = ` M design-reference` ⇒ **那道閘會開火**,
+#       印「新樹 dirty=1 ⇒ 本次量測作廢」, 而那句話會叫人去找一支根本不存在的多餘檔案。
+#       ⇒ **這是一個理由錯的紅, 已知、未修**(修它要動那道既有的閘, 不屬片A)⇒ 撞到時看這裡。
+# 🔴🔴 **只在【這一包用得到】的時候才拉**(審查 R3 / codex 的頭條, 而它換的是角度不是細節):
+#    原版無條件拉 ⇒ **一支 Wallet 測試, 讓八個窗的每一次收包都連一次私有遠端**, 即使包裡毫無相關。
+#    ⇒ 而這裡有一個決定性的事實:**本腳本的 vitest 只跑【包內的】測試檔**(下面 `TESTS` 陣列)
+#      ⇒ 包裡沒有那支測試 ⇒ 它在這個沙箱裡本來就不會跑 ⇒ **拉了 100% 是浪費。**
+#    📏 而「除了那支測試, 沒有別的東西在 build 期讀 design-reference」是**量到的**(2026-08-27):
+#      源碼(排除 `.next` / `node_modules` / 測試檔)含 `design-reference` 的行 **79**,
+#      逐行看 ⇒ **全是註解**;非註解的 2 行是 JSX 註解與字串。設定檔(next/vitest/tsconfig)⇒ **0**。
+#      ⚠️ 負對照那一發**印 1 不是 0** —— 命中的是 `WalletTab.test.tsx` 裡**在講負對照的那句話**
+#         ⇒ 又一次「尺撞到談論自己的文本」。源碼目錄的真值是 0。
+#      ⚠️ 天花板:**間接相依**(某支包內測試 import 了別的模組, 而那個模組讀稿)今天不存在,
+#         而這把尺答的是「有沒有人寫這個字串」, 不是「有沒有人讀那個目錄」。要真的答後者得跑 trace。
+# ⚠️ **只看包裡的【測試檔】** —— 沙箱只跑包內測試檔, 而 build 期沒有東西讀稿(上面量過)
+#    ⇒ 一份**談論** design-reference 的 .md 不該觸發一次 clone。(第一版就是這樣多拉了一次。)
+NEEDS_DESIGN=no
+for f in "$@"; do
+  case "$f" in *.test.ts|*.test.tsx) ;; *) continue;; esac
+  [ -f "$f" ] || continue
+  if grep -q "design-reference" "$f" 2>/dev/null; then NEEDS_DESIGN=yes; break; fi
+done
+if [ "$NEEDS_DESIGN" = no ]; then
+  SUBMOD=notneeded
+  printf "%s\n" "submodule design-reference: 這一包沒有【讀稿的測試檔】⇒ 不拉(省一次約 6 秒 / 25M clone)"
+else
+  SUB_LOG="$(dirname "$W")/.submodule.log"
+  GIT_TERMINAL_PROMPT=0 \
+  GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh} -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3" \
+    git -C "$W" submodule update --init design-reference > "$SUB_LOG" 2>&1 </dev/null
+  # 判別掛在 `git submodule status` 的**首字元**(2026-08-27 四世界實測):
+  #   " " = 已初始化且在釘住的 SHA(唯一放行) · "+" = 在別的 SHA · "-" = 沒初始化
+  SUB_STATUS=$(git -C "$W" submodule status design-reference 2>/dev/null | cut -c1)
+  if [ "$SUB_STATUS" = " " ]; then
+    SUBMOD=ok
+    printf "%s\n" "submodule design-reference: 已帶進沙箱(status=在釘住的 SHA)✅"
+  else
+    SUBMOD=missing
+    printf "%s %s\n" "⚠️" "submodule design-reference 沒進來(submodule status 首字元=[${SUB_STATUS:-空}])"
+    printf "   ⇒ %s\n" "讀 design 原稿的那類測試會 skip。git 自己說的最後一行:"
+    printf "     %s\n" "$(tail -1 "$SUB_LOG" 2>/dev/null)"
+    # 🔴 失敗的 clone 會留下 `.git` 殘骸 ⇒ 下面那道「新樹必須 0 dirty」會開火,
+    #    而它印的是「量測作廢, 多了一支檔」—— **一個理由完全錯的紅**(審查 M2-a / R3 都點名)。
+    #    ⇒ `deinit -f` 清乾淨再往下走。實測:清完 porcelain 空、`ls -A` = 0。
+    git -C "$W" submodule deinit -f design-reference >/dev/null 2>&1 || true
+    printf "   ⇒ %s\n" "這不是錯誤;而本次結果不涵蓋那類測試(檔尾會再印一次)。"
+  fi
+fi
+# ════════════════════════════════════════════════════════════════════════════
+
 
 # 🔴 基準自檢:新樹必須是 0 dirty。不是就作廢 —— 髒的基準量出來的綠沒有意義。
 BASE=$(git -C "$W" status --porcelain | wc -l | tr -d ' ')
@@ -226,7 +341,21 @@ done
 VE=0
 if [ "${#TESTS[@]}" -gt 0 ]; then
   ( cd "$W" && npx vitest run "${TESTS[@]}" > "$W/.vt.log" 2>&1 ); VE=$?
+  # 🔴🔴 審查 C1(R2):原本只印 `Test Files` 那行, 而 **`skipIf` 造成的 skip 只出現在 `Tests` 那行**。
+  #    實測 `Test Files  1 passed (1)` / `Tests  6 passed | 10 skipped (16)`
+  #    ⇒ 舊寫法把 **10 格 skip 印成一個乾淨的 passed**, 而 `$W/.vt.log` 被 trap 刪掉 ⇒ 事後也查不到。
+  #    📌 這正是本檔頭 `#884` 那一族:**綠得比較小聲, 而沒有人聽得見。**
+  #    ⇒ 兩行都印。(檔頭那句「腳本做不到, 要人做」因此**只剩一半為真** —— 格數現在印得出來,
+  #      而**與基準比對**仍然要人做。)
   echo "vitest(包內測試檔)=$VE  $(grep -E 'Test Files' "$W/.vt.log" | tail -1)"
+  # 🔴 審查 R3:這兩行是**解析 vitest 給人看的摘要** ⇒ reporter / 格式 / 色碼一改就抓不到,
+  #    而抓不到時它會印一個**空行**, 而空行與「沒有 skip」長得一樣。⇒ 抓不到要自己叫。
+  _tests_line=$(grep -E '^ *Tests +' "$W/.vt.log" | tail -1)
+  if [ -n "$_tests_line" ]; then
+    printf "  %s\n" "$_tests_line"
+  else
+    printf "   %s\n" "🔴 抓不到 vitest 的 Tests 那一行(格式變了?)⇒ 本次【看不到 skip 幾格】, 不要把上面那行當成全跑了"
+  fi
   [ "$VE" -eq 0 ] || { echo "--- vitest 錯 ---"; grep -E "FAIL|AssertionError" "$W/.vt.log" | head -10; }
 else
   echo "vitest: 包內無測試檔 ⇒ 略過(而這【不是】一個綠, 是沒量)"
@@ -254,6 +383,13 @@ if [ "$IE" -eq 0 ] && [ "$TE" -eq 0 ] && [ "$LE" -eq 0 ] && [ "$BE" -eq 0 ] && [
   echo "✅ 這一包在乾淨 dev 上站得住(而這是必要條件, 不是充分條件 —— 見檔頭)"
   echo "   ⚠️ 射程:本工具跑的是【HEAD + 你這包】。包裡的測試若斷言的性質 HEAD 本來就滿足,"
   echo "      那麼【漏收一支原始檔】不會讓它紅 ——「複製後 dirty 數」只答得出幾支, 答不出哪幾支。"
+  if [ "$SUBMOD" = missing ]; then
+    # 🔴 審查 M3:這行對【包內容】零條件 ⇒ 包裡沒有那種測試時它會印一句假話,
+    #    而八個窗每次離線收包都會看到它。⇒ 改成條件句 + 指出分母住在哪。
+    echo "   ⚠️ 而 design-reference 沒帶進沙箱 ⇒ 【若這一包裡有讀 design 原稿的測試, 它 skip 掉了】,"
+    echo "      這個 ✅ 不涵蓋它。(這種測試現在有幾支、數法與分母:見"
+    echo "      apps/storefront/src/components/account/tabs/WalletTab.test.tsx 的 HAS_DESIGN_SUBMODULE docstring)"
+  fi
   exit 0
 fi
 echo "🔴 這一包在乾淨 dev 上站不住 ⇒ 多半漏收了一支它需要的檔"

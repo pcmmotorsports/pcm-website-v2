@@ -60,10 +60,31 @@ const DESIGN_WALLET_JSX = resolve(HERE, '../../../../../../design-reference/comp
  *
  * 🔴 **取捨(ponytail:寫下天花板)**:沒有 submodule 時 **skip 而不是紅**。
  *    · 代價 = **它在乾淨沙箱與 CI 上不生效** —— 那是一個 fail-open,我不假裝它不是。
- *    · 但 skip **會出現在 vitest 摘要的 skipped 欄**,不是靜靜地綠 ⇒ 看得到。
+ *    · skip **會出現在 vitest 摘要的 `Tests` 那一行**, 不是靜靜地綠 ⇒ 看得到。
+ *      🔴 **而這句話 2026-08-27 之前對【沙箱】是假的**(審查 R2 的 C1):`commit-pack-preflight.sh`
+ *      當時只印 `Test Files` 那一行, 而 skip **只出現在 `Tests` 那一行** ——
+ *      實測 `Test Files 1 passed (1)` / `Tests 6 passed | 10 skipped (16)` ⇒ **10 格 skip 零訊號**。
+ *      ✅ 已改成兩行都印。📌 **我拿【主樹手動跑】的經驗替【沙箱】背書, 而那是兩個介面。**
  *    · 而它在**主樹**(我與 Sean 實際工作、submodule 在的地方)照常跑;
  *      2026-08-27 突變複驗:把 `tierCard` 改名成 `wal-tier-card-v2` ⇒ 這一格紅。
- *    · 要拿掉這個 fail-open,只能讓沙箱/CI 也帶 submodule ⇒ 不屬本片範圍,已回報主視窗。
+ *    · 🔴 **沙箱那一半 2026-08-27 已做**(`#945` 片A):`scripts/commit-pack-preflight.sh` 建完
+ *      乾淨 worktree 之後會 `git submodule update --init design-reference` ⇒ **這一格在沙箱裡會真的跑**。
+ *      沒進來時(離線 / 沒金鑰 / `update=none`)它**不 fail**, 而最後那個 ✅ 會被加註
+ *      「若這一包裡有讀 design 原稿的測試, 這個 ✅ 不涵蓋它」⇒ **綠的射程會縮**。
+ *      🔴 那道判別掛在 **`git submodule status` 的首字元**(" "=在釘住的 SHA 才放行),
+ *      **不掛在 git 的 rc、也不掛在「目錄裡有沒有東西」** —— 那兩把尺各自被打穿過一次:
+ *      `update=none` ⇒ rc=0 而目錄空;缺 SHA ⇒ 目錄留下一個 `.git` ⇒ `ls -A`=1。
+ *      📌 **每一把新尺都自帶一組它看不見的世界, 而「我剛修好一個坑」是最不會回頭再量的時刻。**
+ *      ⚠️ 而它**只在包裡有【讀稿的測試檔】時才拉** —— 沙箱只跑包內測試, 且 build 期無人讀稿
+ *      (2026-08-27 量:源碼含該字串 79 行、逐行看全是註解;設定檔 0)⇒ 不拉是省, 不是漏。
+ *      ⚠️ 所以這個 fail-open 是被**縮小並顯影**, 不是被收掉 —— 不要讀成收掉了。
+ *    · **CI 那一半還沒做**:`.github/workflows/ci.yml` 的 checkout 仍是 `submodules: false`
+ *      🔴 **這裡刻意不寫行號**(審查 N3;而 2026-08-27 當天 `rpm-sync.yml` 就差點因為別人在檔案
+ *      中間插註解而讓一份 spec 的行號漂掉 —— 行號是一支檔的公共介面)。當場重量:
+ *      `grep -rn 'submodules' .github/workflows/` ⇒ 4 行;負對照 `submodules-nosuch` ⇒ 0。
+ *      而**跑 `pnpm test` 的只有 `ci.yml`** ⇒ `grep -n 'run: pnpm test' .github/workflows/ci.yml`。
+ *      ⇒ 這一格在 CI 上**目前仍然從來沒有跑過**。卡 `Q-945-1`(要放 deploy key 還是 PAT ——
+ *      只有 Sean 放得了 secret);plan `docs/specs/2026-08-27-945-submodule-in-sandbox-and-ci-plan.md`。
  */
 const HAS_DESIGN_SUBMODULE = existsSync(DESIGN_WALLET_JSX);
 
