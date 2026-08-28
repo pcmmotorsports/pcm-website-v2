@@ -1151,3 +1151,95 @@ describe('chargePaymentAction — #241 同意條款 server 驗(codex 關卡1 B3:
     expect(placeOrderInput.clientUserAgent).toBeNull(); // user-agent 缺 → null
   });
 });
+
+// ─────────────────────────────────────────────────────────────
+// 🔴 **無條件守門:祕密不得從【任何一條】log 路徑出去(2026-08-29 線D)**
+//
+// **為什麼是「無條件」,而那三個字是這道守門的全部價值**:
+//   它**不需要有人記得把新的呼叫點加進某張清單** —— 它攔的是 `console` 本身。
+//   ⇒ 下一個人加第七個 `safeLog` 呼叫點、把整包 row 丟進去 ⇒ **這裡會紅**,
+//     而不需要任何人先想到要去更新一張白名單。
+//   📌 **對照**:`safeErrorName` 是「只允許」形狀(白名單),它守的是**錯誤名**那一格;
+//      而**沒有任何東西守 `fields`** —— `safeLog` 的本體逐字就三行:
+//      `try { console[level](message, fields); } catch {}` ⇒ **它原樣交給 console,不清洗。**
+//      ⇒ `safeLog` 這個名字保證的是「**印不出來時不改變控制流**」,不是「印出來的東西是安全的」。
+//      🔴 **而那個名字出現在每一個呼叫點,而呼叫它的人不會去讀它的本體。**
+//
+// 🔴 **這道守門的天花板,明寫**(它比它聽起來窄):
+//   ① 它只攔得住**本測試真的走過的那幾條路** —— 沒被執行到的分支,它看不到。
+//   ② 它只找得到**本測試親手種進去的那幾個哨兵值** —— 一個從別處冒出來的祕密,它不認得。
+//   ⇒ **「這一格綠」= 「這幾條路上、這幾個值沒有外洩」,不等於「沒有外洩」。**
+//   📌 而這正是它要防的那個誤讀:**一道無條件的守門,仍然有一個有條件的分母。**
+describe('🔴 祕密不得出現在任何 console 輸出裡(無條件:攔 console,不是列白名單)', () => {
+  /** 攔下所有 console 管道,回傳「全部輸出攤平成一個字串」的取值函式。 */
+  function captureConsole() {
+    const seen: string[] = [];
+    const push = (...args: unknown[]) => {
+      for (const a of args) {
+        try {
+          seen.push(typeof a === 'string' ? a : JSON.stringify(a));
+        } catch {
+          seen.push(String(a)); // 循環參照之類:退回 String,寧可多收不要漏收
+        }
+      }
+    };
+    const spies = (['log', 'info', 'warn', 'error', 'debug'] as const).map((k) =>
+      vi.spyOn(console, k).mockImplementation(push),
+    );
+    return { all: () => seen.join('\n'), restore: () => spies.forEach((s) => s.mockRestore()) };
+  }
+
+  it('[L1] 正對照:這把尺【真的攔得到】—— 故意把 prime 印出去 ⇒ 必須看得見', () => {
+    const cap = captureConsole();
+    // 🔴 這一格排在下一格【之前】,而它是活性對照:
+    //    沒有它,一個「什麼都沒攔到」的 captureConsole 也會讓 L2 全綠。
+    //    📌 一把沒接上的尺,與一個沒有外洩的世界,印同一個空字串。
+    console.error('[test] 故意洩漏', { prime: 'prime_abc' });
+    const out = cap.all();
+    cap.restore();
+    expect(out).toContain('prime_abc');
+  });
+
+  it('[L2] 走【真的會 log 的那幾條路】⇒ 所有 console 輸出不含任何哨兵值', async () => {
+    // 🔴🔴 **這一格的第一版是【恆真】的,而我的 L1 沒有抓到它。**
+    //    第一版跑的是「addressId 壞掉」與「happy path」⇒ **那兩條路一行 log 都沒有**
+    //    ⇒ 捕捉到的字串長度實測 = **0** ⇒ 它斷言的是「空字串不含祕密」= 恆真。
+    //    📌 **而 L1 當時是綠的** —— 因為 L1 用自己的 `console.error` 證明「攔截器會動」,
+    //       **而攔截器有沒有【對準被測的東西】是另一件事。**
+    //    🔴 **「量具會動」與「量具對準了」是兩個宣稱,而一個綠的活性對照只證明前者。**
+    //    ⇒ 修法兩件:①下面先斷言**捕捉到的東西非空**(對準檢查)
+    //              ②驅動**真的會 log 的路**(照本檔 `#900` 那格的做法:throttle 擋下 / settle 拋錯)
+    // `IN_FLIGHT` 那個 fixture 住在別的 describe 的區域裡 ⇒ 這裡自己造一份同形狀的。
+    const inFlight = {
+      kind: 'locked',
+      reason: 'user_in_flight',
+      inFlight: { orderId: 'order-in-flight-9' },
+    };
+    const cap = captureConsole();
+    const action = await getAction();
+
+    // 世界①:throttle 擋下 ⇒ 走 info 那條 log
+    mockClaimPollSettle.mockResolvedValue(false);
+    mockConfirmPayment.mockResolvedValue(inFlight);
+    await action(validInput());
+    // 世界②:settle 拋錯 ⇒ 走 error 那條 log
+    mockClaimPollSettle.mockResolvedValue(true);
+    mockSettleCharge.mockRejectedValue(new Error('boom'));
+    await action(validInput());
+
+    const out = cap.all();
+    cap.restore();
+
+    // 🔴 **對準檢查,排在斷言【之前】** —— 沒有它,上面那兩條路哪天不再 log,
+    //    這一格會安靜地退化成恆真,而**顏色不會變**。
+    expect(out.length, '一行 log 都沒捕捉到 ⇒ 這把尺沒有對準被測的東西,不是「沒有外洩」').toBeGreaterThan(0);
+
+    // 🔴 怎麼會紅:任何一個【這幾條路上的】log 呼叫點把整包 input / row / error 丟進去 ⇒ 這裡紅。
+    //    而它不需要那個呼叫點被列在任何白名單裡。
+    for (const secret of ['prime_abc', 'D-REC-EXIST', CART_SESSION]) {
+      expect(out, `祕密 ${secret} 出現在 console 輸出裡 —— 有人把它餵進了某個 log`).not.toContain(
+        secret,
+      );
+    }
+  });
+});
