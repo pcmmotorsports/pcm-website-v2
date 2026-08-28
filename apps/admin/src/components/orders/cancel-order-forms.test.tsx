@@ -191,6 +191,8 @@ describe('D4 驗收② 部分那支沒有任何能變成 full 的控制項', () 
   //    ⇒ 員工以為送部分取消、實際送整單取消。v3 的解法是「形狀上不存在那條路」。
   it('零 radio', () => {
     const { container } = render(<PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} />);
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:表單空渲染時這條 `toHaveLength(0)` 照樣過。
+    expect(container.querySelector('form'), '整張表單沒渲染 ⇒ 下面那條恆真').not.toBeNull();
     expect(container.querySelectorAll('input[type="radio"]')).toHaveLength(0);
   });
 
@@ -237,11 +239,15 @@ describe('D4 原因下拉的七碼完整性', () => {
 describe('D4 驗收③ 整單那支零品項欄', () => {
   it('沒有 cancel_item 欄', () => {
     const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} />);
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:表單空渲染時這條 `toHaveLength(0)` 照樣過。
+    expect(container.querySelector('form'), '整張表單沒渲染 ⇒ 下面那條恆真').not.toBeNull();
     expect(container.querySelectorAll('[name="cancel_item"]')).toHaveLength(0);
   });
 
   it('也沒有任何 checkbox', () => {
     const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} />);
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:表單空渲染時這條 `toHaveLength(0)` 照樣過。
+    expect(container.querySelector('form'), '整張表單沒渲染 ⇒ 下面那條恆真').not.toBeNull();
     expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
   });
 });
@@ -351,6 +357,18 @@ describe('D4 品項欄的形狀與過濾(片C:邏輯搬到 PartialCancelItemCont
   });
 
   it('勾不動的品項:PartialCancelItemControl 自己不渲染任何東西', () => {
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:`PartialCancelItemControl` 整支空渲染時
+    //    這條也是 0 ⇒「它判定不給勾」與「它壞了什麼都不畫」印同一個綠。
+    //    ⇒ 分母不可能放在同一次渲染裡(那次本來就該是空的)——
+    //      先跑一次**活性對照**:餵一筆勾得動的, 它必須畫得出 checkbox。
+    const live = render(
+      <PartialCancelItemControl orderId={ORDER_ID} item={itemView({ maxCancellable: 3 })} />,
+    ).container;
+    expect(
+      live.querySelectorAll('input[name="cancel_item"]').length,
+      '連勾得動的品項都畫不出 checkbox ⇒ 元件壞了, 下面那些 0 不算數',
+    ).toBeGreaterThan(0);
+    cleanup();
     for (const item of [
       itemView({ orderItemId: ITEM_A, maxCancellable: null }),
       itemView({ orderItemId: ITEM_B, maxCancellable: 0 }),
@@ -400,6 +418,18 @@ describe('D4 品項欄的形狀與過濾(片C:邏輯搬到 PartialCancelItemCont
     //    加了守門沒加測試 = 守門沒有被證明過(同族 memory `feedback_guard-checks-existence-not-effect`)。
     // 失敗情境:`1.5` 通得過 `> 0` ⇒ 表單組出 `<uuid>:1.5` ⇒ 解析器的 `/^[0-9]+$/` 必拒
     //    ⇒ 整份 `{ok:false}`、原因欄不保留要重填。
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:`PartialCancelItemControl` 整支空渲染時
+    //    這條也是 0 ⇒「它判定不給勾」與「它壞了什麼都不畫」印同一個綠。
+    //    ⇒ 分母不可能放在同一次渲染裡(那次本來就該是空的)——
+    //      先跑一次**活性對照**:餵一筆勾得動的, 它必須畫得出 checkbox。
+    const live = render(
+      <PartialCancelItemControl orderId={ORDER_ID} item={itemView({ maxCancellable: 3 })} />,
+    ).container;
+    expect(
+      live.querySelectorAll('input[name="cancel_item"]').length,
+      '連勾得動的品項都畫不出 checkbox ⇒ 元件壞了, 下面那些 0 不算數',
+    ).toBeGreaterThan(0);
+    cleanup();
     for (const item of [
       itemView({ orderItemId: ITEM_A, maxCancellable: 1.5 }),
       itemView({ orderItemId: ITEM_B, maxCancellable: Number.POSITIVE_INFINITY }),
