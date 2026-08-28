@@ -71,7 +71,10 @@ export async function authorizeAdminMutation(): Promise<{
  * 🔴 天花板與代價寫在 `isActiveManager` 的 docstring,不在這裡重複一份
  *    ——【兩份會漂】,而漂掉的那天沒有任何東西會紅。
  *
- * 🔴🔴 **這道閘的效力【綁在 `ADMIN_REQUIRE_REAL_IDENTITY=1` 上】**(codex 關卡2 must-fix,2026-08-28):
+ * 🔴🔴 **路二(兩條天花板之一;路一在 `isActiveManager` 的 docstring)——
+ *    這道閘的效力【綁在 `ADMIN_REQUIRE_REAL_IDENTITY=1` 上】**(codex 關卡2 must-fix,2026-08-28):
+ *    ⚠️ **兩條互相獨立、任一條成立就夠** —— 補了路一(DB 層 REVOKE)對這一條**零效果**,反之亦然。
+ *       (線C 2026-08-28 更正:我原本把它寫成「路一的更深一層」,而那是錯的軸。)
  *    旗標關著時,`getSessionActor` 會走到第 3 層 = 讀那顆**使用者自選的 picker cookie**
  *    (`session/actor.ts`)⇒ 任何登入者把 cookie 設成某個啟用中管理者的 id,
  *    本閘查的就是【他自陳的那個 id】⇒ **它會放行,而每一道檢查都正確運作了。**

@@ -173,7 +173,15 @@ export async function resolveActiveStaffById(
  * ⚠️ 而「DB 失敗」與「不是管理者」在回傳值上同為 false —— 那是刻意複製既有歧義,
  *    **而兩者在 log 上分得開**:只有前者留 error。
  *
- * 🔴 **天花板 —— 這段【不得】被讀成「這個洞已經關閉」**:
+ * 🔴🔴 **天花板有【兩條,而且互相獨立】**(線C 2026-08-28 更正我的框架 —— 我原本把第二條
+ *    寫成「第一條的更深一層」,而那是錯的軸:**任一條成立就夠,補了其中一條另一條完全不受影響**):
+ * ```
+ * 路一 DB 層沒鎖(下面這段)      ⇒ 有人寫腳本直接改那一欄
+ * 路二 閘綁 ADMIN_REQUIRE_REAL_IDENTITY(見 authorize.ts 的 authorizeManagerMutation)
+ *                                ⇒ 旗標關著時 actor 是自選的 ⇒ 冒名管理者過得了閘
+ * ```
+ *
+ * 🔴 **路一 —— 這段【不得】被讀成「這個洞已經關閉」**:
  *    這道閘住在【應用層】。持 `service_role` 的程式(= 我們自己寫的下一支腳本)
  *    仍然直接寫得動 `staff.is_manager` —— 建表 migration
  *    `20260726120000_m4b_e8a1_staff_table.sql:72` 給的是【欄級】UPDATE 權

@@ -187,8 +187,9 @@ describe('🔴🔴 「操作人」未經驗證的警語(釘字面 + 三種狀態
   //
   // ⚠️ 空白正規化:JSX 把跨行文字接成單一空白,而**空白是排版不是內容** ⇒ 兩邊都抽掉再比。
   const COPY =
-    '「操作人」是操作的人自己在畫面上選的,系統還沒有驗證他是誰 —— 這個名字未經驗證。' +
-    '這裡的紀錄可以當線索,不能當「誰做的」的唯一憑據。要讓它可信,請通知系統維護接上個人帳號登入。';
+    '2026-08-25 起的紀錄:「操作人」來自登入時發的身分票,不是自己在畫面上挑的 —— ' +
+    '這個名字是驗證過的。在那之前的紀錄:操作人是自己挑的、系統沒有驗證他是誰 —— ' +
+    '那些只能當線索,不能當「誰做的」的唯一憑據。';
   const strip = (text: string) => text.replace(/\s+/g, '');
 
   beforeEach(() => {
@@ -228,7 +229,10 @@ describe('🔴🔴 「操作人」未經驗證的警語(釘字面 + 三種狀態
     const { container } = render(await AuditLogPage());
     const visible = Array.from(container.querySelectorAll('p'))
       .map((el) => strip(el.textContent ?? ''))
-      .filter((t) => t.includes(strip('這個名字未經驗證')));
+      // 🔴 認人用的字面挑【兩個時期都在】的那半 —— 挑「未經驗證」那半的話,
+      //    ⟦b4-MGR0⟧ 把橫幅拆成兩個時期時這一格會紅, 而紅的原因與本格要守的事無關
+      //    (2026-08-28 實際撞過一次:改完文案這格 AssertionError expected [] to have length 1)。
+      .filter((t) => t.includes(strip('不能當「誰做的」的唯一憑據')));
     expect(visible).toHaveLength(1);
   });
 });
