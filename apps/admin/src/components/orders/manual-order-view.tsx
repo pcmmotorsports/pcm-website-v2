@@ -1,11 +1,5 @@
-import { createSupabaseServiceClient } from '@pcm/adapters/server';
 import { ResultBanner } from '@/components/orders/result-banner';
 import { ManualOrderFormBody } from '@/components/orders/manual-order-form-body';
-import {
-  findCustomerCandidatesByPhone,
-  type ManualCustomerCandidate,
-  type ManualCustomerClient,
-} from '@/lib/customers/manual-customer';
 import { MANUAL_ORDER_REQUEST_ID_PARAM } from '@/lib/orders/manual-order-action-state';
 import { newManualRequestId } from '@/lib/orders/manual-order-form';
 import { isUuid } from '@/lib/orders/note-action-state';
@@ -38,8 +32,10 @@ export async function ManualOrderView({
   inPanel?: boolean;
 }) {
   const resultCode = readOne(raw, 'r') || undefined;
-  const phoneQuery = readOne(raw, 'phone');
-  const chosenCustomerId = readOne(raw, 'customer');
+  // 🔴🔴 **2026-08-28:客人不再由本層載** —— 搜尋與建檔都改成就地(不導頁),
+  //    所以 `?phone=` / `?customer=` 這兩個參數**整組退場**。
+  //    ⇒ 連帶關掉一個板子上的洞:電話不再進網址(⟦b4-PII2⟧)。
+  //    ⚠️ 而那一格要**跑證據**才算關,不是因為改了架構就算(逐條驗表 #4)。
 
   // 🔴 冪等鍵:失敗導回時**沿用 URL 帶回來的那顆**,否則鑄新的。
   //    少了「沿用」這一半,`concurrent` 的文案「再按一次送出」會讓他建出**第二張真訂單**
@@ -68,28 +64,10 @@ export async function ManualOrderView({
     staffLoadFailed = true;
   }
 
-  let candidates: ManualCustomerCandidate[] = [];
-  let candidatesTruncated = false;
-  let customerLookupFailed = false;
-  if (phoneQuery !== '') {
-    try {
-      const res = await findCustomerCandidatesByPhone(
-        createSupabaseServiceClient() as unknown as ManualCustomerClient,
-        phoneQuery,
-      );
-      candidates = res.candidates;
-      candidatesTruncated = res.truncated;
-    } catch (error) {
-      console.error('[admin/orders/new] 客人查詢失敗', error);
-      customerLookupFailed = true;
-    }
-  }
-
-  // 🔴 選定的客人必須來自**這次查回來的候選**,不是直接信 URL 上那個 id ——
-  //    否則 `?customer=<任意 uuid>` 會讓畫面顯示一個沒被查證過的對象。
-  //    (RPC 的 `G3` 仍會再擋一次;這裡擋的是「畫面上說得像真的」。)
-  const selectedCustomer =
-    chosenCustomerId === '' ? null : (candidates.find((c) => c.userId === chosenCustomerId) ?? null);
+  // 🔴 建客人那一步的冪等鍵 —— **與建單那顆是兩顆不同的鍵**,每次 render 各鑄一顆。
+  //    同一份畫面連按兩次「建立這位客人」⇒ 同一顆 ⇒ 建不出第二個帳號;
+  //    重新載入 ⇒ 換一顆 ⇒ 真的要開第二個帳號時做得到(Sean 08-24「一支電話不設硬上限」)。
+  const customerRequestId = newManualRequestId();
 
   return (
     <div className='mx-auto space-y-4'>
@@ -109,12 +87,6 @@ export async function ManualOrderView({
           員工名單現在讀不到,所以先不讓你建單(不是沒有員工)。請重新整理,一直這樣就找人看一下。
         </div>
       )}
-      {customerLookupFailed && (
-        <div role='status' className='rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive'>
-          客人查詢現在讀不到(不是查不到這位客人)。請重新整理再找一次。
-        </div>
-      )}
-
       {/* 🔴 **這張表單的編號要看得見**(codex R1 must-fix):
           `error` 那句文案逐字說「編號不變,不會建成兩張」——
           而員工若把網址上的 `mrid` 刪掉再整理,頁面會**靜默鑄一顆新的**,那句話就變成假的。
@@ -138,13 +110,9 @@ export async function ManualOrderView({
 
       <ManualOrderFormBody
         manualRequestId={manualRequestId}
+        customerRequestId={customerRequestId}
         activeStaff={staffLoadFailed ? [] : activeStaff}
         staffLoadFailed={staffLoadFailed}
-        candidates={candidates}
-        candidatesTruncated={candidatesTruncated}
-        phoneQuery={phoneQuery}
-        selectedCustomer={selectedCustomer}
-        lookupFailed={customerLookupFailed}
         inPanel={inPanel}
       />
     </div>

@@ -423,7 +423,11 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
 
   const customerUserId = readSingleString(form, MANUAL_ORDER_CUSTOMER_FIELD);
   if (customerUserId === null || !UUID_RE.test(customerUserId)) {
-    return { ok: false, error: '沒有選客人。請先挑一位客人,沒有的話要先去客戶頁建立。' };
+    // 🔴 ~~原字面:「沒有的話要先去客戶頁建立」~~ —— **那是第三個把員工指到死路的地方**
+    //    (客人頁沒有「新增」那顆鈕;前兩處已於 2026-08-28 改掉)。
+    //    ⚠️ 而這一句本身現在**幾乎印不出來**:送出鈕沒選客人時是灰的(`manual-order-submit.tsx`)。
+    //    ⇒ 留著它是 fail-safe(繞過 JS 直接 POST 也要有話說),**但它不得再說謊。**
+    return { ok: false, error: '沒有選客人。請回建單畫面挑一位客人,找不到就在那裡直接建一位。' };
   }
 
   const orderSource = readSingleString(form, MANUAL_ORDER_SOURCE_FIELD);

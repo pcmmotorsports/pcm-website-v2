@@ -33,7 +33,7 @@ import {
   ORDER_AMOUNT_REJECTED_RESULT_CODE,
 } from '../../lib/orders/amount-action-state';
 
-import { manualCustomerResultCode, manualOrderResultCode } from '@/lib/orders/manual-order-action-state';
+import { manualOrderResultCode } from '@/lib/orders/manual-order-action-state';
 
 // result-banner.tsx — 改單 PRG 結果提示(M-4a Slice C;server action redirect 帶 ?r=<code> 後顯示)。
 // server-render;code 由頁面從 searchParams.r 讀入。未知/缺 → 不顯示。
@@ -95,24 +95,6 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   },
   [manualOrderResultCode('error')]: {
     text: '建單可能已經寫進去了,也可能沒有。請先去訂單列表找一下這位客人的新單:有就不要再按;沒有再送一次(編號不變,不會建成兩張)。',
-    tone: 'error',
-  },
-  // ── 建單畫面上「直接新增這位客人」兩顆(2026-08-28 線A)────────────────────────────
-  // 🔴 授權失敗**共用** `manual_order_denied`,不另開一顆:兩條路的下一步逐字相同。
-  [manualCustomerResultCode('invalid')]: {
-    text: '客人沒有建出來:姓名要填,電話至少要有 8 個數字。補好之後再按一次「建立這位客人」。',
-    tone: 'warn',
-  },
-  [manualCustomerResultCode('error')]: {
-    // 🔴🔴 **不得寫成「失敗了,再建一次」**:`createManualCustomer:429-436` 自陳建帳號與回頭確認
-    //    **不在同一個交易**裡 ⇒ 帳號可能已經建出來了而那一發自己斷線。
-    //    叫他直接重建 = 同一位客人開出兩個帳號,而那正是這條線一直在防的分裂。
-    //    ⇒ 文案叫他**先找一次**(那個動作在兩個世界都是對的)。
-    // 🔴🔴 **codex R1 must-fix(2026-08-28)**:上一版逐字寫「真的找不到再建一次」——
-    //    而**「找不到」正是那個壞掉的世界的樣子**:auth user 已經建出來、`customers` 那一列沒進去
-    //    ⇒ 電話搜尋比的是 `customers.phone` ⇒ **必然找不到** ⇒ 那句話會叫他再建一個孤兒帳號。
-    //    ⇒ 這條路一律**停手 + 找人**,不得給他一個「再試一次」的出口。
-    text: '這位客人沒有建成功,而且系統裡可能已經留下一筆壞掉的資料。請【先不要再按一次】—— 再按會多出一個重複的客人。請找人看一下這支電話,處理完再回來建單。',
     tone: 'error',
   },
   saved: { text: '已儲存變更。', tone: 'ok' },

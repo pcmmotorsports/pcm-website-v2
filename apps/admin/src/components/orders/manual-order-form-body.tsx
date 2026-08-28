@@ -1,7 +1,4 @@
 import {
-  MANUAL_CUSTOMER_NEW_NAME_FIELD,
-  MANUAL_CUSTOMER_NEW_PHONE_FIELD,
-  MANUAL_ORDER_CUSTOMER_FIELD,
   MANUAL_ORDER_IN_PANEL_FIELD,
   MANUAL_ORDER_IN_PANEL_VALUE,
   MANUAL_ORDER_INVOICE_CARRIER_FIELD,
@@ -18,14 +15,8 @@ import {
   MANUAL_ORDER_SHIP_TO_PHONE_FIELD,
   MANUAL_ORDER_SOURCE_FIELD,
 } from '@/lib/orders/manual-order-form';
-import {
-  MANUAL_ORDER_PANEL_VALUE,
-  manualOrderBasePath,
-  manualOrderCustomerHref,
-} from '@/lib/orders/manual-order-action-state';
-import { ORDER_PANEL_PARAM } from '@/lib/orders/order-return-to';
-import type { ManualCustomerCandidate } from '@/lib/customers/manual-customer';
-import { createManualCustomerAction } from '@/lib/customers/manual-customer-actions';
+import { ManualCustomerPicker } from './manual-customer-picker';
+import { ManualOrderSubmit } from './manual-order-submit';
 import { createManualOrderAction } from '@/lib/orders/manual-order-actions';
 import { ManualOrderLines } from './manual-order-lines';
 
@@ -46,11 +37,13 @@ import { ManualOrderLines } from './manual-order-lines';
 //    它**只持有「有幾列」這一個 state,一個值都不碰** —— 形狀逐字比照取消線的
 //    `cancel-form-body.tsx`(漸進增強層),那條路是被審過的,不是我新發明的。
 //
-// 🔴🔴 **兩段式,而那是 codex R1 must-fix 逼出來的形狀**:
-//    原本搜尋框與建單表單同時在畫面上 ⇒ 員工填好運費 150 與地址之後按「找客人」
-//    ⇒ GET 導頁 ⇒ **整份表單重建,運費無聲回到 0** ⇒ 他補完必填欄就**少收 150**。
-//    ⇒ 改成:**選到客人之前不出建單表單**。搜尋不可能清掉還沒開始填的東西
-//      —— 這不是「小心一點」,是把那個時間窗**拿掉**。
+// ⛔ ~~🔴🔴 **兩段式,而那是 codex R1 must-fix 逼出來的形狀**:選到客人之前不出建單表單。~~
+// 🔴🔴 **2026-08-28:兩段式已經沒有了,而這一段在它消失之後還留在這裡三輪**(codex R6 nit)。
+//    它當初的存在理由:搜尋是 GET 導頁 ⇒ 整份表單重建 ⇒ 運費無聲回到 0 ⇒ 員工少收 150。
+//    ⇒ 現在搜尋**不導頁**(事件處理器 + client action)⇒ **那個時間窗本身不存在**
+//      ⇒ 兩段式不是被拆掉的,是**成因被拿掉之後它沒有存在理由**。
+//    📌 而這段舊描述沒有害到功能,它害的是**下一個讀這支檔的人** ——
+//       檔頭說「現在是兩段式」,而下面二十行的碼說不是。**兩句都在檔案裡,而只有一句是真的。**
 
 /** 這一頁的表單值。**沒有 actor 這一格,而那是承重的**(見 `manual-order-actions.ts`)。 */
 export type ManualOrderFormBodyProps = {
@@ -58,20 +51,14 @@ export type ManualOrderFormBodyProps = {
   manualRequestId: string;
   /** 啟用中的員工。**空陣列 = 整張表單停用**。 */
   activeStaff: ReadonlyArray<{ id: string; label: string }>;
-  /** 依電話查到的客人候選(可空)。 */
-  candidates: ReadonlyArray<ManualCustomerCandidate>;
-  /** 查回來的候選被上限截斷 ⇒ 畫面必須說出來(靜默截斷讓員工以為就這幾個)。 */
-  candidatesTruncated: boolean;
-  /** 員工這次搜的電話原字面(回填搜尋框)。 */
-  phoneQuery: string;
-  /** 已經選定的客人。🔴 `null` = **不出建單表單**(兩段式,見檔頭)。 */
-  selectedCustomer: ManualCustomerCandidate | null;
   /**
-   * 客人查詢是不是壞掉了。
-   * 🔴 **「查壞了」與「查無」不得印同一個畫面**(codex R1 must-fix):
-   *    後者要他去建客人(做得到),前者要他找人 —— 他建再多客人都沒用。
+   * 建客人那一步的冪等鍵(合法 uuid,server 每次 render 給一顆)。
+   * 🔴 **與建單那顆 `manualRequestId` 是【兩顆不同的鍵】**,而那是刻意的:
+   *    `mrid` 是「這張**訂單**」的鍵,舊形狀把它同時拿來當「這位**客人**」的唯一鍵
+   *    —— 而那是因為它要跨一次導頁。導頁沒了,那顆鍵就不必跨任何東西
+   *    (R3 2026-08-28 指出的根)。
    */
-  lookupFailed: boolean;
+  customerRequestId: string;
   /** 員工名單讀不到。🔴 讀不到時**不出**「還沒有建立員工」那一句(頁面那層會說「讀不到」)。 */
   staffLoadFailed: boolean;
   /**
@@ -87,21 +74,11 @@ export type ManualOrderFormBodyProps = {
 export function ManualOrderFormBody({
   manualRequestId,
   activeStaff,
-  candidates,
-  candidatesTruncated,
-  phoneQuery,
-  selectedCustomer,
-  lookupFailed,
+  customerRequestId,
   staffLoadFailed,
   inPanel = false,
 }: ManualOrderFormBodyProps) {
   const noStaff = activeStaff.length === 0;
-  // 🔴 **GET 表單的 `action` 上帶 query 是無效的** —— 瀏覽器送出時會把 `?…` 整段丟掉,
-  //    所以面板版的 `panel=new` 必須走**隱藏欄位**,不能寫在 `action` 裡。
-  //    (POST 那兩張沒有這個問題;它們用隱藏旗標 `in_panel`。)
-  const searchAction = inPanel ? '/orders' : '/orders/new';
-  const base = manualOrderBasePath(inPanel);
-  const baseSep = base.includes('?') ? '&' : '?';
   // 🔴 **那句指路只在【真的沒有員工】時出** —— 名單讀不到時由頁面那層說話,
   //    兩句同時在畫面上會互相矛盾(codex R1 nit),而它們的下一步相反。
   const showNoStaffNotice = noStaff && !staffLoadFailed;
@@ -124,122 +101,12 @@ export function ManualOrderFormBody({
         </div>
       )}
 
-      {/* 客人查詢:獨立 GET 表單,不與建單表單巢狀(HTML 不允許 form 巢狀)。
-          🔴🔴 **選定客人之後就不出它**(codex R2 新發現 must-fix):
-          我原本以為「兩段式」已經把清值那條路拿掉了 —— **沒有**。
-          搜尋框留在畫面上 ⇒ 員工填完地址與運費再按一次「找客人」⇒ 值照樣全部消失。
-          ⇒ 要換人請走表單裡那個「換一位」(它會回到還沒填東西的狀態)。 */}
-      {selectedCustomer === null && (
-      <form method='get' action={searchAction} className='flex gap-2'>
-        {inPanel && <input type='hidden' name={ORDER_PANEL_PARAM} value={MANUAL_ORDER_PANEL_VALUE} />}
-        <input type='hidden' name='mrid' value={manualRequestId} />
-        <label className='sr-only' htmlFor='manual-order-phone'>
-          客人電話
-        </label>
-        <input
-          id='manual-order-phone'
-          name='phone'
-          defaultValue={phoneQuery}
-          placeholder='用電話找客人'
-          className='w-56 rounded-md border px-2 py-1 text-sm'
-        />
-        <button type='submit' className='rounded-md border px-3 py-1 text-sm'>
-          找客人
-        </button>
-      </form>
-      )}
-
-      {candidatesTruncated && (
-        <p role='status' className='text-sm text-amber-700'>
-          符合的帳號太多,下面只列出前面幾個。請把電話打完整一點再找一次。
-        </p>
-      )}
-      {/* 🔴🔴 **這裡原本印的是一條死路**(2026-08-28 線A 量到,原句逐字):
-          「這支電話找不到客人。請先到【客人】頁建立這位客人,再回來建單。」
-          —— 而**客人頁沒有新增客人的按鈕**(那一頁與 `components/customers/*` 的 `<form>` 共 5 個:
-          篩選 / 關鍵字搜尋 / 改資料 / 改等級 / 儲值金,零個是建立;負對照同尺:本檔 `<form>` ⇒ 2)。
-          ⇒ 那句話叫員工去一個**做不到那件事**的地方 ⇒ 找不到客人 = 這張單建不出來。
-          ⇒ Sean 2026-08-27 逐字「沒有直接新增」講的就是這一格。
-          ✅ 改成**就地建**:`createManualCustomer`(`manual-customer.ts:324`)早就寫好審過、零呼叫端。
-
-          🔴 **它是獨立一張 `<form>`,不與建單表單巢狀**(HTML 不允許)——
-             而且此刻建單表單**還沒出現**(兩段式),所以送出它不會清掉任何已填的值。 */}
-      {phoneQuery !== '' && candidates.length === 0 && !lookupFailed && (
-        <form
-          action={createManualCustomerAction}
-          className='space-y-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3'
-          data-testid='manual-order-new-customer'
-        >
-          <p role='status' className='text-sm text-amber-700'>
-            這支電話找不到客人。<strong>直接在這裡建一位</strong>,建好就會自動選好他、可以往下建單。
-          </p>
-          {/* 冪等鍵照原樣帶著走 —— 建客人這一步不該換掉建單那顆鍵。 */}
-          <input type='hidden' name={MANUAL_ORDER_REQUEST_ID_FIELD} value={manualRequestId} />
-          {inPanel && (
-            <input type='hidden' name={MANUAL_ORDER_IN_PANEL_FIELD} value={MANUAL_ORDER_IN_PANEL_VALUE} />
-          )}
-          <div className='grid grid-cols-2 gap-2'>
-            <label className='block text-sm'>
-              客人姓名
-              <input
-                name={MANUAL_CUSTOMER_NEW_NAME_FIELD}
-                required
-                className='mt-1 block w-full rounded-md border px-2 py-1'
-              />
-            </label>
-            <label className='block text-sm'>
-              電話
-              {/* 🔴 預填他剛剛搜的那支 —— 叫他把同一支電話再打一次,正是這一片要拿掉的動作。 */}
-              <input
-                name={MANUAL_CUSTOMER_NEW_PHONE_FIELD}
-                defaultValue={phoneQuery}
-                required
-                className='mt-1 block w-full rounded-md border px-2 py-1'
-              />
-            </label>
-          </div>
-          <button type='submit' className='rounded-md border px-3 py-1 text-sm'>
-            建立這位客人
-          </button>
-          {/* ⚠️ 地址**不在這裡** —— 客人檔案沒有地址欄(`ManualCustomerInput` 只有 name/phone),
-              地址住在訂單上的「收件資料」那一區。這裡多開一格會建出沒有人會讀的值。 */}
-          <p className='text-muted-foreground text-xs'>
-            地址等一下在下面的「收件資料」填就好,這裡不用。
-          </p>
-        </form>
-      )}
-
-      {selectedCustomer === null && candidates.length > 0 && (
-        <ul className='space-y-1' data-testid='manual-order-candidates'>
-          {candidates.map((c) => (
-            <li key={c.userId}>
-              <a
-                className='underline'
-                // 🔴 **`phone` 一定要帶**(codex R2 新發現 must-fix):
-                //    頁面是靠「這次查回來的候選」去核 `customer` 的,少了 `phone`
-                //    ⇒ 重載後候選是空的 ⇒ `customer` 被判無效 ⇒ **點誰都選不上**。
-                //    ⚠️ 我的測試原本只斷言 href 含 `mrid` 與 `customer` ⇒ 這一格是我的盲區。
-                //    ✅ 2026-08-28:改用 `manualOrderCustomerHref` —— 剛建好客人之後的導頁用的是同一支,
-                //       兩邊各拼一次的話,漏掉 `phone` 的那一份會靜默失效。
-                href={manualOrderCustomerHref({
-                  manualRequestId,
-                  phone: phoneQuery,
-                  customerId: c.userId,
-                  inPanel,
-                })}
-              >
-                {c.name}({c.phone ?? '沒有電話'}){c.isManual ? ' · 後台開的帳號' : ''}
-              </a>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {selectedCustomer === null ? (
-        <p className='text-muted-foreground text-sm' data-testid='manual-order-pick-first'>
-          先選一位客人,才會出現建單表單。
-        </p>
-      ) : (
+      {/* 🔴🔴 **2026-08-28:客人那一塊整個換成【就地】的**(Sean 逐字「一個頁面搞定」)。
+          ~~舊形狀:GET 導頁搜尋 + 兩段式(選到客人之前不出建單表單)+ 獨立一張 POST 表單建客人~~
+          🔴 **兩段式不是被拆掉的,是【成因被拿掉之後它沒有存在理由】** ——
+             它當初是為了擋「搜尋導頁會把已填的運費與地址清光」(codex R1 must-fix)。
+             搜尋不再導頁 ⇒ 那個時間窗不存在 ⇒ 兩段式自然消失。
+          ⇒ 細節與不變式在 `manual-customer-picker.tsx` 檔頭。 */}
       <form action={createManualOrderAction} className='space-y-4'>
         {/* 🔴 冪等鍵。**同一張表單重按送出要送同一顆** —— 它由頁面決定、表單只是帶著走。 */}
         <input type='hidden' name={MANUAL_ORDER_REQUEST_ID_FIELD} value={manualRequestId} />
@@ -248,15 +115,15 @@ export function ManualOrderFormBody({
         )}
 
         <fieldset disabled={noStaff} className='space-y-4'>
-          {/* 🔴 客人是**已經選定**的,不是表單上的一個下拉:兩段式之後這一格只剩「帶著走」。
-              值仍然逐字送出去(RPC 的 G3 會再驗一次這位客人存不存在)。 */}
-          <input type='hidden' name={MANUAL_ORDER_CUSTOMER_FIELD} value={selectedCustomer!.userId} />
-          <p className='text-sm'>
-            客人:{selectedCustomer!.name}({selectedCustomer!.phone ?? '沒有電話'})
-            <a className='ml-2 underline' href={`${base}${baseSep}mrid=${manualRequestId}`}>
-              換一位
-            </a>
-          </p>
+          {/* 🔴 客人那一格 = 一顆 radio ——**員工看到的那個 DOM 節點就是送出去的值**。
+              值仍然逐字送出去(RPC 的 G3 會再驗一次這位客人存不存在)。
+
+              🔴🔴 **它必須長在這個 `disabled` fieldset 【裡面】**(codex R4 must-fix):
+              放在外面的話,「沒有員工 ⇒ 整張表單停用」這個契約只擋住了下半張 ——
+              **員工名單掛掉的那一刻,這一塊仍然可以搜尋客人、而且可以【建出一個真的 auth 帳號】。**
+              📌 那個停用態在畫面上看起來完全正確:整張表灰掉、一句話指路;
+                 而它上面那一塊照常運作,**沒有任何訊號說「這裡不算在停用範圍內」**。 */}
+          <ManualCustomerPicker customerRequestId={customerRequestId} />
 
           {/* 🔴 **這裡刻意【沒有】經手人下拉**(codex R1 must-fix)。
               原本擺了一個 disabled 的下拉顯示 `activeStaff[0]` —— 而真正寫進稽核的 actor
@@ -346,12 +213,11 @@ export function ManualOrderFormBody({
               ⚠️ 這一格沒有稿可以對(OD 那份是訂單【明細】不是【建單】)⇒ 這是我的判斷,不是照稿。 */}
           <ManualOrderLines />
 
-          <button type='submit' className='rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground'>
-            建立訂單
-          </button>
+          {/* 🔴 送出鈕是一支 client component:**沒選客人時它是灰的**。
+              理由與「原生 required 只擋得住其中一半」寫在 `manual-order-submit.tsx` 檔頭。 */}
+          <ManualOrderSubmit />
         </fieldset>
       </form>
-      )}
     </div>
   );
 }

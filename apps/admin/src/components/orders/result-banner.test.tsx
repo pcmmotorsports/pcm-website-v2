@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { LISTING_NOOP_NOTE_DROPPED_RESULT_CODE } from '../../lib/products/product-listing-form';
-import { manualCustomerResultCode, manualOrderResultCode } from '../../lib/orders/manual-order-action-state';
+import { manualOrderResultCode } from '../../lib/orders/manual-order-action-state';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { MESSAGES, ResultBanner } from './result-banner';
@@ -406,9 +406,6 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       manualOrderResultCode('bug'),
       manualOrderResultCode('rejected'),
       manualOrderResultCode('error'),
-      // 🔴 2026-08-28 線A:建單畫面上「直接新增這位客人」兩顆。同樣逐顆列、不用迴圈。
-      manualCustomerResultCode('invalid'),
-      manualCustomerResultCode('error'),
     ];
 
     // ① 表裡沒有第三種鍵(新增未歸類的碼 → 紅)

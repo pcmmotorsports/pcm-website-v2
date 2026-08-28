@@ -152,7 +152,10 @@ export default async function OrdersPage({
         `?panel=not-a-uuid` 時面板不開,而列表**也不該有任何一組亮著**。 */
   const panelOrderId = readOpenPanelOrderId(rawSearchParams);
   // 🔴🔴 **codex R1 nit(2026-08-28):`panel=new`(手動建單面板)也算「面板開著」。**
-  //    少了它,`?panel=new&r=manual_customer_error` 會**由列表與面板各畫一次同一條橫幅**。
+  //    少了它,`?panel=new&r=manual_order_error` 會**由列表與面板各畫一次同一條橫幅**。
+  //    ⚠️ ~~原例子寫 `manual_customer_error`~~ —— **那顆碼 2026-08-28 已經連同它的導頁一起刪掉了**
+  //       (建客人改成就地回傳,不再導頁)⇒ 拿一個已經不存在的碼當現行例子,
+  //       會讓下一個人以為那條路還在。**註解裡的例子也是一個宣稱。**
   //    ⚠️ 判準走 `isManualOrderPanel` = **槽頁決定開不開的同一支**(理由同上面那段)。
   const panelOpen = panelOrderId !== null || isManualOrderPanel(rawSearchParams);
   const offset = (page - 1) * ORDERS_PAGE_SIZE;

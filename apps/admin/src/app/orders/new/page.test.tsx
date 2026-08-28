@@ -83,7 +83,17 @@ describe('🔴🔴 冪等鍵的 page 層合約(codex R3 must-fix:這一層原本
   it('網址帶合法 mrid ⇒ **沿用它**,不鑄新的', async () => {
     await renderPage({ mrid: CARRIED });
     expect(lastProps().manualRequestId).toBe(CARRIED);
-    expect(mocks.newId).not.toHaveBeenCalled();
+    // 🔴🔴 **2026-08-28:這裡從「一次都不鑄」改成「只鑄一次」,而那不是放寬。**
+    //    建客人現在有**它自己那顆鍵**(`customerRequestId`),每次 render 各鑄一顆
+    //    ⇒ 這一發本來就會呼叫 `newManualRequestId` 一次。
+    //    ⇒ 而「**建單那顆沒有被重鑄**」這個性質仍然釘著:上一行比的是它的值。
+    expect(mocks.newId).toHaveBeenCalledTimes(1);
+    expect(lastProps().customerRequestId).toBe(MINTED);
+  });
+
+  it('🔴🔴 兩顆鍵不得是同一顆(共用一顆正是 R3 那條 must-fix 的根)', async () => {
+    await renderPage({ mrid: CARRIED });
+    expect(lastProps().customerRequestId).not.toBe(lastProps().manualRequestId);
   });
 
   it('🔴 負對照:沒帶 ⇒ 鑄新的(少了這格,「永遠沿用」也會全綠)', async () => {
@@ -118,23 +128,15 @@ describe('🔴🔴 冪等鍵的 page 層合約(codex R3 must-fix:這一層原本
   });
 });
 
-describe('🔴🔴 選定客人必須來自【這次查回來的候選】(codex R3 must-fix)', () => {
-  it('customer 在候選裡 ⇒ 選定', async () => {
-    await renderPage({ phone: '0912345678', customer: CUSTOMER });
-    expect((lastProps().selectedCustomer as { userId: string } | null)?.userId).toBe(CUSTOMER);
-  });
-
-  it('🔴 customer 不在候選裡 ⇒ **null**(不得直接信 URL 上那個 id)', async () => {
-    await renderPage({ phone: '0912345678', customer: '33333333-3333-4333-8333-333333333333' });
-    expect(lastProps().selectedCustomer).toBeNull();
-  });
-
-  it('🔴 沒搜過就帶 customer ⇒ null(候選是空的, 沒有東西可以核)', async () => {
-    await renderPage({ customer: CUSTOMER });
-    expect(lastProps().selectedCustomer).toBeNull();
-    expect(mocks.findCandidates).not.toHaveBeenCalled();
-  });
-});
+// ⛔ ~~describe('選定客人必須來自【這次查回來的候選】')~~ **2026-08-28 整組退場。**
+//    那個合約存在的理由是「客人是靠 `?customer=` 從網址帶回來的」——
+//    而 Sean 08-28 拍「一個頁面搞定」之後**搜尋不再導頁** ⇒ `?phone=` / `?customer=` 兩個參數
+//    整組不存在了 ⇒ **那條路沒有了,不是那道檢查被放寬了。**
+//    🔴 而「畫面上說得像真的」那個風險換了守門:客人現在是一顆 radio,
+//      **員工看到的那個 DOM 節點就是送出去的值**(`manual-customer-picker.tsx`);
+//      而 RPC 的 `G3` 仍然會再擋一次「這位客人存不存在」。
+//    ⚠️ **本檔不再有任何一格在量客人** —— 那一層的量具在 `manual-customer-picker.test.tsx`
+//      與 `manual-customer-actions.test.ts`。**兩件事不得互相冒充。**
 
 describe('🔴 兩種「沒有」不得印同一個畫面', () => {
   it('員工名單讀不到 ⇒ activeStaff 空 **且** staffLoadFailed=true', async () => {
@@ -151,20 +153,10 @@ describe('🔴 兩種「沒有」不得印同一個畫面', () => {
     expect(lastProps().staffLoadFailed).toBe(false);
   });
 
-  it('客人查詢壞掉 ⇒ lookupFailed=true 而候選空', async () => {
-    mocks.findCandidates.mockRejectedValue(new Error('boom'));
-    await renderPage({ phone: '09' });
-    expect(lastProps().lookupFailed).toBe(true);
-    expect(lastProps().candidates).toEqual([]);
-  });
-
-  it('🔴 負對照:真的查無 ⇒ lookupFailed=false', async () => {
-    mocks.findCandidates.mockResolvedValue({
-      candidates: [], truncated: false, samePhoneCount: 0, shouldWarnDuplicates: false,
-    });
-    await renderPage({ phone: '09' });
-    expect(lastProps().lookupFailed).toBe(false);
-  });
+  // ⛔ ~~「客人查詢壞掉 ⇒ lookupFailed」兩格~~ **2026-08-28 退場**:本層不再查客人。
+  //    「查壞了 ≠ 查無」那個性質**沒有消失**,它搬到 `searchManualCustomersAction`
+  //    (`error` 與空候選是兩個不同的回傳)+ picker 的畫面訊息。
+  //    🔴 **搬走的合約要指出新家,否則下一個人會以為它被刪掉了。**
 
   it('停用中的員工不得進下拉(過濾的是 is_active, 不是筆數)', async () => {
     mocks.listStaffRows.mockResolvedValue([

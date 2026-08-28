@@ -132,64 +132,9 @@ export function manualOrderResultQuery(
     : `${base}&${MANUAL_ORDER_REQUEST_ID_PARAM}=${encodeURIComponent(manualRequestId)}`;
 }
 
-// ── 面板裡「直接新增這位客人」那條路(`createManualCustomerAction`)────────────────────
-//
-// 🔴 **為什麼它的結果碼住在【建單】這支檔**:它導回的就是建單那一頁(`MANUAL_ORDER_PATH`),
-//    而 `?r=` 是同一顆共用參數。分兩支檔會讓「零碰撞」那道守門要同時讀兩個地方,
-//    而漏讀一邊的那天不會有東西紅。
-// 🔴 **授權失敗刻意【共用】`manual_order_denied`**,不另開一顆:兩條路的下一步逐字相同
-//    (重新登入再來一次),而多一顆碼就多一句要維護的文案。
-
-/** 沒建成客人的兩支。 */
-export const MANUAL_CUSTOMER_CODES = Object.freeze(['invalid', 'error'] as const);
-export type ManualCustomerResultCode = (typeof MANUAL_CUSTOMER_CODES)[number];
-
-export function manualCustomerResultCode(code: ManualCustomerResultCode): string {
-  return `manual_customer_${code}`;
-}
-
-/**
- * 建客人失敗時導回建單頁的 query。
- *
- * 🔴 **冪等鍵要帶回去**,理由與 {@link manualOrderResultQuery} 那一段逐字相同:
- *    這一頁每次 render 都會鑄新鍵,而員工可能已經在另一個分頁用舊鍵送出過。
- * 🔴 **電話也要帶回去**:少了它,他填的那支電話會消失、候選清單變空
- *    ⇒ 他得從頭再打一次電話 —— 而「重打一次」正是這一片要拿掉的動作。
- */
-export function manualCustomerResultQuery(
-  code: ManualCustomerResultCode,
-  manualRequestId?: string,
-  phone?: string,
-): string {
-  const parts = [`${MANUAL_ORDER_RESULT_PARAM}=${manualCustomerResultCode(code)}`];
-  if (manualRequestId !== undefined) {
-    parts.push(`${MANUAL_ORDER_REQUEST_ID_PARAM}=${encodeURIComponent(manualRequestId)}`);
-  }
-  if (phone !== undefined && phone !== '') parts.push(`phone=${encodeURIComponent(phone)}`);
-  return parts.join('&');
-}
-
-/**
- * 「這支電話 + 選定這位客人」的建單頁網址 —— **唯一產生處**。
- *
- * 🔴 **三個地方會用到它,而它們必須逐字相同**:候選清單上的連結、剛建好客人之後的導頁、
- *    以及測試。各自拼一次的話,漏掉 `phone` 的那一份會**靜默失效** ——
- *    頁面是拿「這次查回來的候選」去核 `customer` 的(`components/orders/manual-order-view.tsx:92`),
- *    少了 `phone` ⇒ 候選是空的 ⇒ `customer` 被判無效 ⇒ **點誰都選不上**。
- *    (那正是 codex R2 在 `manual-order-form-body.tsx:142-145` 抓到的那一格。)
- */
-export function manualOrderCustomerHref(args: {
-  manualRequestId: string;
-  phone: string;
-  customerId: string;
-  /** 在面板裡 ⇒ 連結要留在面板裡(預設整頁版)。 */
-  inPanel?: boolean;
-}): string {
-  const base = manualOrderBasePath(args.inPanel === true);
-  const sep = base.includes('?') ? '&' : '?';
-  return (
-    `${base}${sep}${MANUAL_ORDER_REQUEST_ID_PARAM}=${encodeURIComponent(args.manualRequestId)}` +
-    `&phone=${encodeURIComponent(args.phone)}` +
-    `&customer=${encodeURIComponent(args.customerId)}`
-  );
-}
+// 🔴🔴 **2026-08-28:這裡曾經住著【建客人失敗導頁】那一整套**(結果碼 `manual_customer_*`、
+//    `manualCustomerResultQuery`、`manualOrderCustomerHref`)—— 全部刪掉,因為**導頁本身沒了**:
+//    建客人改成事件處理器就地回傳(`manual-customer-actions.ts`),它不再導頁 ⇒ 沒有 `?r=` 可以帶。
+//    ⚠️ 而那些碼與那兩支函式在刪掉之前**零呼叫端、三綠全綠、測試全過** ——
+//    📌 **一段沒有人用的碼,與一段正在用的碼,在 CI 上印同一個綠。**
+//    ⇒ 那兩句文案現在住在 `manual-customer-picker.tsx` 的 `setNotice` 裡(就地顯示,不換頁)。
