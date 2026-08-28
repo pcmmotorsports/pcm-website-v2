@@ -223,6 +223,13 @@ describe('片2 標頭列 · render 層', () => {
     );
     // ⚠️ 射程:子元件全被 mock 成 null ⇒ 這一格量的確實只有標頭那一列,
     //    不會因為下方發票卡也印「未開立」而假綠。
+    // 🔴 **分母守門(2026-08-28 量到這一格是恆綠的)**:子元件全被 mock 成 null,
+    //    標頭自己再空渲染的話 `textContent` = `''` ⇒「標頭不畫發票狀態」與「標頭整列不見」
+    //    印同一個綠。數的是標題節點(結構),不是任何一句文案。
+    expect(
+      container.querySelectorAll('h1, h2').length,
+      '標頭一個標題節點都沒有 ⇒ 標頭根本沒渲染 ⇒ 本格恆真',
+    ).toBeGreaterThan(0);
     expect(container.textContent).not.toContain('未開立');
   });
 });

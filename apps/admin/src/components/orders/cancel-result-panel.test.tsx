@@ -234,6 +234,23 @@ describe('D5 驗收③ 看過即清除:網址上的 r/rt 被抹掉', () => {
     const spy = vi.spyOn(window.history, 'replaceState');
     render(<CancelResultUrlCleanup />);
     expect(spy).not.toHaveBeenCalled();
+
+    // 🔴 **分母守門(2026-08-28 量到這一格是恆綠的)**:元件整個不動作時也是「零次呼叫」
+    //    ⇒「它正確地判斷不用清」與「它根本沒跑」印同一個綠。
+    //    ⇒ 分母不可能放在同一次渲染裡(那次本來就該是零次)——
+    //      改成**同一格裡再跑一次活性對照**:換成有 r/rt 的網址,它必須清一次。
+    cleanup();
+    setUrl(`?r=${SENT_CODE}&rt=${TOKEN}`);
+    // 🔴🔴 **這裡要先記次數再渲染** —— `setUrl` 自己就呼叫 `replaceState`
+    //    ⇒ 直接寫 `expect(spy).toHaveBeenCalled()` 會**被我自己的 setUrl 餵綠**,
+    //      而那個錨在「元件完全不跑」的世界照樣過(2026-08-28 我第一版就是這樣, 當場量到)。
+    //    📌 一個活性對照如果會被【佈置現場的那一步】滿足, 它量的是我不是它。
+    const before = spy.mock.calls.length;
+    render(<CancelResultUrlCleanup />);
+    expect(
+      spy.mock.calls.length,
+      '連該清的時候都沒清 ⇒ 元件沒在跑, 上面那個零次不算數',
+    ).toBeGreaterThan(before);
     spy.mockRestore();
   });
 

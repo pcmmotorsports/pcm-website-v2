@@ -54,6 +54,10 @@ describe('匯出鈕:可以匯出時', () => {
     const html = renderToStaticMarkup(
       <OrderExportButton csv={CSV} filename='x.csv' blockedReason={null} />,
     );
+    // 🔴 **分母守門(2026-08-28 量到這一格是恆綠的)**:元件空渲染時 `html` 幾乎是空字串
+    //    ⇒ `not.toContain` 恆真 ⇒「沒帶訂單資料」與「整顆鈕沒渲染」印同一個綠。
+    //    釘的是**有一顆鈕**(結構),不是鈕上的字。
+    expect(html, '連一顆 button 都沒渲染 ⇒ 下面那條恆真').toContain('<button');
     expect(html).not.toContain('PCM-0001');
   });
 });
@@ -76,6 +80,10 @@ describe('🔴🔴 匯出鈕:資料是半份的時候【不給匯出】, 而且�
     const html = renderToStaticMarkup(
       <OrderExportButton csv={CSV} filename='x.csv' blockedReason={null} />,
     );
+    // 🔴 **分母守門**:同上。⚠️ 這一格的標題自稱「負對照,證上面那格不是恆真」——
+    //    **而它自己在「元件沒渲染」那個世界也印綠** ⇒ 一個對照組在兩個世界印同一個東西,
+    //    它沒有在對照。(2026-08-28 量到。)
+    expect(html, '連一顆 button 都沒渲染 ⇒ 下面那條恆真').toContain('<button');
     expect(html).not.toContain('不要拿這份檔對帳');
   });
 });

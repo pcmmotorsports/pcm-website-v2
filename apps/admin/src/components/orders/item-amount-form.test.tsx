@@ -73,6 +73,9 @@ describe('ItemAmountForm — 送出去的欄位', () => {
 describe('🔴 零元:原因欄與二次確認', () => {
   it('非零元時,原因欄與確認框都不出現(不要求員工做無關的事)', () => {
     const { container } = setup(1200);
+    // 🔴 **分母守門(2026-08-28 量到這一格是恆綠的)**:整張表單空渲染時
+    //    兩條 `toBeNull()` 都會過 ⇒「非零元不出現原因欄」與「表單整個沒渲染」印同一個綠。
+    expect(container.querySelector('form'), '整張表單沒渲染 ⇒ 下面兩條恆真').not.toBeNull();
     expect(hidden(container, AMOUNT_ZERO_PRICE_REASON_FIELD)).toBeNull();
     expect(container.querySelector('input[type="checkbox"]')).toBeNull();
   });

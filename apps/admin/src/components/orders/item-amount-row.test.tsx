@@ -157,6 +157,11 @@ describe('🗑 【不變量遷移】「展開列 colSpan == 表頭欄數」那�
     //    受測檔裡還有兩處 **JSDoc 區塊註解**提到 `<th>`(`:178` / `:186`,片5 留下的舊敘述)。
     //    ⚠️ 那兩句現在是**過期字面**(它們描述的 `ITEMS_TABLE_COLSPAN`/表頭 `<th>` 數已不存在)
     //       —— 但**那是受測檔的散文,屬線主**,我只在這裡標記,不代改。
+    // 🔴 **分母守門**:讀空(檔改名 / 剝過頭)⇒ `not.toContain` 恆真。
+    //    釘該檔的**結構性字面**(它的 export),不釘任何一句散文。
+    expect(stripComments(src), '讀到的內容裡連元件都不在 ⇒ 下面那條什麼都沒證明').toContain(
+      'export',
+    );
     expect(stripComments(src)).not.toContain('<th');
   });
 

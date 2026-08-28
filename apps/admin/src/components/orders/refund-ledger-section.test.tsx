@@ -282,6 +282,13 @@ describe('RefundLedgerSection — RW3', () => {
         nowMs={NOW}
       />,
     );
+    // 🔴 **分母守門(2026-08-28 量到這一族是恆綠的)**:整區空渲染時
+    //    `querySelectorAll(...)` 是 0、`textContent` 是 `''`
+    //    ⇒「這幾列不掛徽章」與「整區根本沒出來」印同一個綠。數的是列數(結構),不是文案。
+    expect(
+      container.querySelectorAll('tbody tr').length,
+      '退款紀錄一列都沒渲染 ⇒ 整區沒出來 ⇒ 本格的負向斷言恆真',
+    ).toBeGreaterThan(0);
     expect(container.querySelectorAll('a[href="/orders/refund-exceptions"]')).toHaveLength(0);
   });
 
@@ -289,6 +296,13 @@ describe('RefundLedgerSection — RW3', () => {
     const { container } = render(
       <RefundLedgerSection rows={[stuckRow()]} unregisteredAmount={500} nowMs={NOW} />,
     );
+    // 🔴 **分母守門(2026-08-28 量到這一族是恆綠的)**:整區空渲染時
+    //    `querySelectorAll(...)` 是 0、`textContent` 是 `''`
+    //    ⇒「這幾列不掛徽章」與「整區根本沒出來」印同一個綠。數的是列數(結構),不是文案。
+    expect(
+      container.querySelectorAll('tbody tr').length,
+      '退款紀錄一列都沒渲染 ⇒ 整區沒出來 ⇒ 本格的負向斷言恆真',
+    ).toBeGreaterThan(0);
     const text = container.textContent ?? '';
     expect(text).not.toContain('待對帳處理');
     expect(text).not.toContain('勿重複發起');
@@ -309,6 +323,13 @@ describe('RefundLedgerSection — RW3', () => {
         nowMs={NOW}
       />,
     );
+    // 🔴 **分母守門(2026-08-28 量到這一族是恆綠的)**:整區空渲染時
+    //    `querySelectorAll(...)` 是 0、`textContent` 是 `''`
+    //    ⇒「這幾列不掛徽章」與「整區根本沒出來」印同一個綠。數的是列數(結構),不是文案。
+    expect(
+      container.querySelectorAll('tbody tr').length,
+      '退款紀錄一列都沒渲染 ⇒ 整區沒出來 ⇒ 本格的負向斷言恆真',
+    ).toBeGreaterThan(0);
     expect(container.querySelectorAll('a[href="/orders/refund-exceptions"]')).toHaveLength(0);
   });
 
