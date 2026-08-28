@@ -136,7 +136,16 @@ describe('CancelReviewSection — 文案紀律(表格驅動)', () => {
     Object.keys(BLOCK_REASON_TEXT) as (keyof typeof BLOCK_REASON_TEXT)[]
   ).filter((code) => !EXEMPT_FROM_MAINTENANCE_HINT.includes(code));
 
+  // 🔴 **分母守門**(2026-08-28 量到本格恆綠):`NEEDS_MAINTENANCE` 是從
+  //    `Object.keys(BLOCK_REASON_TEXT)` 推出來的 ⇒ **拒因表整張不見時它是空陣列,
+  //    下面那個迴圈跑 0 次, 這一格照樣綠**(實測:把 `BLOCK_REASON_TEXT` 清成 `{}`
+  //    ⇒ 本檔 27 格裡 17 紅, 而這一格是那 10 綠之一)。
+  //    ⚠️ 錨釘在 `NEEDS_MAINTENANCE` 而不是整張表 —— **那才是這一條斷言自己的分母。**
   it('讀不全/異常那批一定叫他通知系統維護', () => {
+    expect(
+      NEEDS_MAINTENANCE.length,
+      '需要「通知系統維護」的拒因一個都沒有 ⇒ 下面的迴圈跑 0 次 ⇒ 這一格恆真',
+    ).toBeGreaterThan(0);
     for (const code of NEEDS_MAINTENANCE) {
       expect(BLOCK_REASON_TEXT[code].hint, code).toContain('通知系統維護');
     }
@@ -186,6 +195,11 @@ describe('CancelReviewSection — 文案紀律(表格驅動)', () => {
   it('🔴 沒有一句拒因把員工推向一個【畫面上不存在的流程名】', () => {
     // 這三個詞都不是畫面上任何東西的名字 ⇒ 讀到它的人不知道下一步點哪裡。
     const NOT_A_PLACE = ['人工退款流程', '人工流程', '退款流程'] as const;
+    // 🔴 **分母守門**(2026-08-28 量到本格恆綠):拒因表清成 `{}` ⇒ 下面兩層迴圈跑 0 次 ⇒ 恆真。
+    expect(
+      Object.keys(BLOCK_REASON_TEXT).length,
+      '拒因表是空的 ⇒ 下面的迴圈跑 0 次 ⇒ 這一格恆真',
+    ).toBeGreaterThan(0);
     for (const code of Object.keys(BLOCK_REASON_TEXT) as (keyof typeof BLOCK_REASON_TEXT)[]) {
       const { title, hint } = BLOCK_REASON_TEXT[code];
       for (const word of NOT_A_PLACE) {
@@ -212,7 +226,14 @@ describe('CancelReviewSection — 文案紀律(表格驅動)', () => {
     }
   });
 
+  // 🔴 **分母守門**(2026-08-28 量到本格恆綠):它擋得住「有一條壞掉」,
+  //    **擋不住「整張表不見了」** —— 清成 `{}` 時 `Object.entries` 回 `[]`, 迴圈跑 0 次。
+  //    📌 **一格守得住【一條壞掉】而守不住【全部消失】—— 兩者都是「這張表出問題了」。**
   it('每條都有非空 title 與 hint,且 hint 不得等於 title', () => {
+    expect(
+      Object.entries(BLOCK_REASON_TEXT).length,
+      '拒因表是空的 ⇒ 下面的迴圈跑 0 次 ⇒ 這一格恆真',
+    ).toBeGreaterThan(0);
     for (const [code, text] of Object.entries(BLOCK_REASON_TEXT)) {
       expect(text.title.length, code).toBeGreaterThan(0);
       expect(text.hint.length, code).toBeGreaterThan(text.title.length);
@@ -483,9 +504,16 @@ describe('CancelReviewSection — 取消紀錄三態', () => {
     expect(container.textContent).not.toContain('共 2 件');
   });
 
+  // 🔴 **分母守門**(2026-08-28 量到本格恆綠):`.not.toThrow()` 在
+  //    【日期格式化沒炸】與【那一列根本沒渲染】兩個世界都成立
+  //    —— 元件整個空掉時它照樣綠,而那時那段格式化的碼**一次都沒跑到**。
+  //    ⇒ 下面補一句:那一列真的畫出來了(結構列數,不碰任何文案)。
   it('🔴 壞掉的 createdAt 不得讓整頁炸(R2 nit:換回 Intl 會丟 RangeError = server render 500)', () => {
+    // 🔴 用物件包一層而不是裸 `let` —— TS 的控制流分析會把「只在 callback 裡被指派」的
+    //    區域變數收窄成 `never`(實測 TS2339);物件屬性不會被那樣收窄。
+    const box: { el: HTMLElement | null } = { el: null };
     expect(() =>
-      render(
+      void (box.el = render(
         <CancelReviewSection payments={PAY_UNREADABLE}
           detail={detail({
             cancellations: [
@@ -502,8 +530,12 @@ describe('CancelReviewSection — 取消紀錄三態', () => {
             ],
           } as unknown as Partial<AdminOrderDetail>)}
         />,
-      ),
+      ).container),
     ).not.toThrow();
+    expect(
+      box.el?.querySelectorAll('tbody tr').length ?? 0,
+      '取消紀錄一列都沒渲染 ⇒ 那個壞掉的 createdAt 根本沒被格式化過 ⇒ 這一格恆真',
+    ).toBeGreaterThan(0);
   });
 
   it('有內容 ⇒ 畫原因中文與件數;逐列 items=null 要說「沒有讀到」', () => {
