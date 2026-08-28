@@ -12,9 +12,9 @@
 // E2a-b 的邊界、需要 Sean 拍板(尚未問;見 STATUS.md 或 W3-G 交接)。**不得宣稱本片堵住了這個洞。**
 //
 // 🔴 **為什麼是獨立 route,不掛進 email-sweep**(2026-08-20 W3-G 教訓):plan
-// `docs/specs/2026-07-16-m4a-email-notify-plan.md:362` 把 ineligible gate 歸給 E2a-2、不是
-// E2a-b(sweepEmailOutbox);`sweep-email-outbox.test.ts:53` 的預設 mock 對
-// `markSkippedOrderIneligible` 寫死 reject——那是邊界的證人,本片刻意不碰那支檔案。
+// `docs/specs/2026-07-16-m4a-email-notify-plan.md`(錨在字面 `E2a-2`)把 ineligible gate 歸給 E2a-2、不是
+// E2a-b(sweepEmailOutbox);`sweep-email-outbox.test.ts` 裡那個對
+// `markSkippedOrderIneligible` 寫死 reject 的預設 mock——那是邊界的證人,本片刻意不碰那支檔案。
 //
 // 🔴 鐵則 12(cron 端點 + 威脅模型;鏡像 email-sweep / anomaly-alert route):
 //   1. 認證 = CRON_SECRET Bearer 硬驗 + timingSafeEqual:env 未設/弱 → 500 fail-closed;Bearer

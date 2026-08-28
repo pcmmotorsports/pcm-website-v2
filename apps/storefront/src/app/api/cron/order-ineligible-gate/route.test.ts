@@ -8,6 +8,7 @@
 //     ③ errors=0→200 計數、errors>0→503 不偽 200、raceLost>0 不算錯誤 ④ deps/use-case throw→503
 //     ⑤ options 注入(limit=50)⑥ 零 PII(log counts only)⑦ 應用層限流。
 
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
@@ -221,5 +222,31 @@ describe('GET order-ineligible-gate — 心跳三態', () => {
     expect(res.status).toBe(401);
     expect(hbOkSpy).not.toHaveBeenCalled();
     expect(hbFailSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴 檔頭的跨檔引用 — 錨在字面、不在行號
+//
+// **複製自 `anomaly-alert/route.test.ts`,不是新發明。**
+// 2026-08-28 量到:全 repo 五支 cron route 裡,**只有 anomaly-alert 有這道守門** ——
+// 而**沒有守門的那三支,兩支各帶 2 個違規**(本支即其一),
+// `capture-recheck` 在裝上它的當下更是一次抓到 **8** 個。
+// 📌 **不是巧合:沒有守門的那一支,就是會累積違規的那一支。**
+//    ⇒ 而推論比它本身重:**你不能用「那支檔看起來還好」決定要不要裝守門** ——
+//      **它看起來還好,正是因為沒有東西在看它。**
+// ⚠️ pattern 逐字抄那一支(它換過三版才收斂:不列舉副檔名,判準是【token 裡有沒有一個點】)。
+// ══════════════════════════════════════════════════════════════════════════
+const ROUTE_SOURCE_FOR_ANCHOR_GUARD = readFileSync(new URL('./route.ts', import.meta.url), 'utf8');
+
+describe('route.ts 檔頭的跨檔引用 — 錨在字面、不在行號', () => {
+  it('全檔零「檔案:行號」引用 —— 行號會漂,而漂掉時沒有訊號', () => {
+    const hits = ROUTE_SOURCE_FOR_ANCHOR_GUARD.match(/[\w./-]*\.[\w-]+:L?\d+/g) ?? [];
+    expect(hits).toEqual([]);
+  });
+
+  it('全檔零反引號裸行號(`:123` / `:123-125`)—— 同一個病,換一種寫法', () => {
+    const hits = ROUTE_SOURCE_FOR_ANCHOR_GUARD.match(/`:L?\d+(?:-\d+)?`/g) ?? [];
+    expect(hits).toEqual([]);
   });
 });

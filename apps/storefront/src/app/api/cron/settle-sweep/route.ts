@@ -82,14 +82,17 @@ const SWEEP_CONCURRENCY = 1;
  * 🔴 M-4a 人工待確認佇列的重查(B1b、`reconfirmExpiredOrphans`)—— **本輪加掛在既有 sweeper 之後**。
  *
  * 為什麼掛這裡而不是新蓋一條:B1a(`claim_expired_pending_attempts`)**本來就**不濾 `needs_manual_review`、
- * 繞 ceiling、有自己的 6h throttle(`supabase/migrations/20260627120000_…`:**SQL 在 `:94`**
- * `a.last_expired_settle_at < now() - interval '6 hours'`;設計說明在 `:22` / `:30-32`,COMMENT 在 `:69`),
- * 而 `ReconfirmExpiredOrphansDeps` **就是** `SettleChargeDeps`(`packages/use-cases/src/reconfirm-expired-orphans.ts:37`)
+ * 繞 ceiling、有自己的 6h throttle —— **錨在字面**:
+ * `supabase/migrations/20260627120000_m3_3ds_b1a_claim_expired_pending_attempts.sql` 裡那行
+ * `a.last_expired_settle_at < now() - interval '6 hours'`(設計說明與 `COMMENT ON` 都在同檔)),
+ * 而 `ReconfirmExpiredOrphansDeps` **就是** `SettleChargeDeps`
+ * (錨在字面:`packages/use-cases/src/reconfirm-expired-orphans.ts` 裡 `ReconfirmExpiredOrphansDeps` 那個宣告)
  * ⇒ 本 route 既有的 `getSettleChargeDeps()` 直接餵得動,零新欄、零新 RPC、零新認領路徑。
  *
  * 🔴🔴 **射程限定(讀這段 code 的人要當場知道,不要去翻 plan)**:
- *   B1a 的年齡閘是**硬寫的 12 小時** —— **SQL 在同檔 `:92`**
- *   (`a.created_at < pg_catalog.now() - interval '12 hours'`;`:13` 是根因散文、不是那行 SQL),
+ *   B1a 的年齡閘是**硬寫的 12 小時** —— **錨在字面**:同檔那行
+ *   `a.created_at < pg_catalog.now() - interval '12 hours'`
+ *   (該檔檔頭另有一段根因散文,那**不是**這行 SQL,別抓錯),
  *   而它的簽章只吃 `p_limit` ⇒ **調不了**。
  *   而一列大約 **1 小時**就會進人工佇列(8 次退避、封頂 16min)。
  *   ⇒ **未滿 12 小時的列,這條路一列都不收。**
@@ -246,7 +249,8 @@ export async function GET(request: Request): Promise<Response> {
     // 🔴 **回應體只加鍵、不改既有鍵**:reconfirm 的計數**巢狀**在 `reconfirm` 底下,不展開 ——
     //    ~~它與 sweep 的 result 有同名鍵(errors / pending)~~ 🔴 **真正相撞的只有 `errors`**
     //    (fable 關卡2:`SweepSettlementsResult` 逐欄核過**沒有 `pending` 鍵**,
-    //     `packages/use-cases/src/sweep-settlements.ts:55-77`;而測試裡 `expect(body.pending).toBeUndefined()`
+    //     錨在字面:`packages/use-cases/src/sweep-settlements.ts` 的 `SweepSettlementsResult` 那個型別;
+    //     而測試裡 `expect(body.pending).toBeUndefined()`
     //     正是那個證據)。**巢狀這個決定不變,而理由要寫對。**
     //    展開會**靜默覆蓋既有鍵**,
     //    而既有消費者讀到的 errors 會變成別人的數字。
