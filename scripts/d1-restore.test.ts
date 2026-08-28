@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 import { describe, expect, it } from 'vitest';
 
@@ -8,6 +9,7 @@ import {
   buildRehearsalSeedScript,
   buildRestoredVerifySql,
   buildRestoreScript,
+  readCsvHeaders,
 } from './d1-restore';
 
 const DIR = '/tmp/d1';
@@ -510,5 +512,87 @@ describe('d1-rehearsal.sh(一鍵演練)', () => {
     expect(sh).toContain('PGDATABASE="$D1_DB_URL"');
     expect(sh).toContain('PGSSLMODE=verify-full');
     expect(sh).not.toMatch(/psql "\$D1_DB_URL"/);
+  });
+});
+
+// ── #958:B1 加欄之後,舊備份還原不回來 ──────────────────────────────────────
+// 🔴 上面 53 格【全部只測舊路徑】(它們呼叫 buildRestoreScript 時不傳 headers)
+//    ⇒ 新加的三段在它們底下是零覆蓋,而它們照樣全綠。
+//    📌「既有測試沒紅」與「新東西被測到」是兩個宣稱。
+describe('#958 顯式欄位清單路徑', () => {
+  const HDRS = new Map([['orders', ['id', 'display_id', 'total']]]);
+  const withH = buildRestoreScript('pre-n3c', 'production', DIR, HDRS);
+  const orderLoad = lines(withH).filter((l) => l.includes('d1r_orders'));
+
+  it('🔴 LIKE 要帶 INCLUDING DEFAULTS —— 少了它,NOT NULL DEFAULT 的新欄會變成「必填而沒人填」', () => {
+    expect(withH).toContain('CREATE TEMP TABLE d1r_orders (LIKE public.orders INCLUDING DEFAULTS);');
+  });
+
+  it('🔴 orders 那份改用顯式欄位清單,不再用 HEADER MATCH', () => {
+    const copy = orderLoad.find((l) => l.startsWith('\\copy'))!;
+    expect(copy).toContain('\\copy d1r_orders ("id", "display_id", "total") FROM');
+    expect(copy).not.toContain('HEADER MATCH');
+    expect(copy).toContain('FORMAT csv, HEADER,');
+  });
+
+  it('🔴 欄位集合比對【兩個方向都要在】,而【多欄那邊必須是 EXCEPTION 不是 NOTICE】', () => {
+    // codex 抓的:原本只找訊息字串 ⇒ 把 RAISE EXCEPTION 改成 NOTICE 這格照樣綠
+    expect(withH).toMatch(/RAISE EXCEPTION '🔴 orders: 備份有而目標表沒有的欄位/);
+    // 少欄那一邊必須是 NOTICE 不是 EXCEPTION:舊備份【必然】少欄,自動擋掉等於把備份判死
+    expect(withH).toMatch(/RAISE NOTICE '⚠️ orders: 備份【沒有】這些欄/);
+  });
+
+  it('🔴🔴 保序檢查要在,而且是 EXCEPTION —— 表頭單獨錯位會讓值寫進錯的欄', () => {
+    // 實測:同一份 CSV 只換兩個表頭欄名 ⇒ 舊 HEADER MATCH 擋、集合比對放行且印 ✅
+    expect(withH).toMatch(/RAISE EXCEPTION '🔴 orders: 備份表頭的欄位【順序被打亂】/);
+    expect(withH).toContain('lag(ic.ordinal_position) OVER (ORDER BY c.ord)');
+    expect(withH).toContain('x.pos < x.prev');
+    // 🔴 上面三條都只證明「那些字在」。把 IF shuffled 換成 IF false ⇒ 字還在,而閘死了
+    //    (2026-08-29 突變實測:那一發【零紅】)⇒ 要釘住【條件本身】。
+    expect(withH).toContain('IF shuffled IS NOT NULL THEN');
+    expect(withH).not.toMatch(/IF\s+(false|true)\s+THEN/);
+  });
+
+  it('缺欄訊息不得宣稱「都會走 DEFAULT」—— 三種結果不同', () => {
+    expect(withH).toContain('可空的整欄變 NULL');
+    expect(withH).toContain('NOT NULL 的下一步會直接失敗');
+  });
+
+  it('🔴 沒給 headers 的那條路要【自己說出來】—— fail-open 的病是「退回時沒有聲音」', () => {
+    const noH = buildRestoreScript('pre-n3c', 'production', DIR);
+    expect(noH).toContain('走的是 HEADER MATCH 舊路徑');
+    expect(noH).toContain('HEADER MATCH');
+    expect(noH).not.toContain('INCLUDING DEFAULTS');
+  });
+
+  it('🔴 只有拿到 headers 的表走新路;沒拿到的表仍走舊路(混用時兩條都要說得出自己是哪條)', () => {
+    expect(withH).toContain('LIKE public.orders INCLUDING DEFAULTS');
+    expect(withH).toContain('走的是 HEADER MATCH 舊路徑'); // 其餘 14 張表沒給 headers
+  });
+
+  it('欄名有雙引號時要跳脫(擋 SQL 識別字注入)', () => {
+    const evil = buildRestoreScript('pre-n3c', 'production', DIR, new Map([['orders', ['a"b']]]));
+    expect(evil).toContain('\\copy d1r_orders ("a""b") FROM');
+  });
+
+  it("🔴 欄名有單引號時, SQL literal 那側也要跳脫(codex 抓的:原本只打雙引號)", () => {
+    const evil = buildRestoreScript('pre-n3c', 'production', DIR, new Map([['orders', ["a'b"]]]));
+    expect(evil).toContain("ARRAY['a''b']");
+  });
+});
+
+describe('#958 readCsvHeaders 讀不到就 throw', () => {
+  it('🔴 檔案不存在 ⇒ throw,不得回 undefined(回 undefined 會靜靜退回會斷的舊路徑)', () => {
+    expect(() => readCsvHeaders('/tmp/d1-no-such-dir-20260829', ['orders'])).toThrow(/讀不到備份表頭/);
+  });
+
+  it('🔴 空檔 / 空欄名也要 throw(codex 抓的:原本只測「檔案不存在」)', () => {
+    const dir = mkdtempSync(`${tmpdir()}/d1t-`);
+
+    writeFileSync(`${dir}/orders.csv`, '');
+    expect(() => readCsvHeaders(dir, ['orders'])).toThrow(/第一行是空的/);
+
+    writeFileSync(`${dir}/orders.csv`, 'id,,total\n');
+    expect(() => readCsvHeaders(dir, ['orders'])).toThrow(/表頭有空欄名/);
   });
 });

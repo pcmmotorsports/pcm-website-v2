@@ -378,10 +378,106 @@ END $$;`,
   ].join('\n');
 }
 
+/**
+ * 還原前的欄位【集合】比對 —— `HEADER MATCH` 的替身。
+ *
+ * 🔴 兩個方向要分開處置,理由相反:
+ *   · CSV 有而表沒有 ⇒ **擋**。備份與 schema 不同源, 再往下走沒有意義。
+ *   · 表有而 CSV 沒有 ⇒ **列出來給人看, 然後放行**。舊備份【必然】少欄, 那是正常的
+ *     —— 自動擋掉它, 等於在災難當天把唯一的備份判死。
+ *
+ * 📌 判準:**災難當天, 那個人要看得見【他還原回來的東西少了什麼】。**
+ *    這一格擋的不是「多欄少欄」, 是**「少了而沒有人知道」** ——
+ *    少一個【可空】的欄不會違反任何 constraint, 它會安靜地整欄變 NULL,
+ *    而還原「成功」了。那是「整排錯位靜默寫入」的近親。
+ */
+export function buildColumnSetCheckSql(table: string, csvCols: readonly string[]): string {
+  const arr = csvCols.map((c) => `'${c.replace(/'/g, "''")}'`).join(', ');
+
+  return [
+    'DO $d1cols$',
+    'DECLARE extra text; missing text; shuffled text;',
+    'BEGIN',
+    `  SELECT string_agg(c, ', ' ORDER BY c) INTO extra FROM unnest(ARRAY[${arr}]) AS c`,
+    '   WHERE c NOT IN (SELECT column_name FROM information_schema.columns',
+    `                    WHERE table_schema = 'public' AND table_name = '${table}');`,
+    '  IF extra IS NOT NULL THEN',
+    `    RAISE EXCEPTION '🔴 ${table}: 備份有而目標表沒有的欄位: % —— 這包備份與現在的 schema 不同源, 拒繼續', extra;`,
+    '  END IF;',
+    "  SELECT string_agg(column_name, ', ' ORDER BY column_name) INTO missing",
+    '    FROM information_schema.columns',
+    `   WHERE table_schema = 'public' AND table_name = '${table}'`,
+    `     AND column_name <> ALL (ARRAY[${arr}]);`,
+    // 🔴🔴 **保序檢查 —— 這一格是 2026-08-29 codex 抓的,而它抓的是我【拿掉的東西】。**
+    //    我原本寫「顯式欄名之下順序不重要」,而**那句話只在【表頭與資料列一起重排】時成立**。
+    //    危險的世界是**表頭單獨錯位**:欄名集合一模一樣、資料列不動 ⇒ 值寫進錯的欄。
+    //    實測(同一份 CSV,只交換兩個表頭欄名):
+    //      舊 HEADER MATCH ⇒ ERROR: column name mismatch in header line field 13
+    //      我的集合比對    ⇒ COPY 1, 而且印「✅ 欄位集合與備份完全相同」← **假的安心訊號**
+    //    📌 **我跑的那發突變, 從來沒有造出我宣稱排除掉的那個世界。**
+    //    ✅ 而修法**不是**退回 `HEADER MATCH`(那樣舊備份還是還原不回來):
+    //       要求 CSV 欄名依序是表欄位順序的**保序子序列** ——
+    //       合法的舊備份是「後來的欄還沒出生」⇒ 相對順序不變 ⇒ 過;
+    //       被重排過的表頭 ⇒ 相對順序被打亂 ⇒ 擋。
+    "  SELECT string_agg(x.name, ' → ' ORDER BY x.ord) INTO shuffled",
+    '    FROM (SELECT c.name, c.ord, ic.ordinal_position AS pos,',
+    '                 lag(ic.ordinal_position) OVER (ORDER BY c.ord) AS prev',
+    `            FROM unnest(ARRAY[${arr}]) WITH ORDINALITY AS c(name, ord)`,
+    '            JOIN information_schema.columns ic',
+    `              ON ic.table_schema = 'public' AND ic.table_name = '${table}'`,
+    '             AND ic.column_name = c.name) x',
+    '   WHERE x.prev IS NOT NULL AND x.pos < x.prev;',
+    '  IF shuffled IS NOT NULL THEN',
+    `    RAISE EXCEPTION '🔴 ${table}: 備份表頭的欄位【順序被打亂】(在這幾欄之後倒退: %) —— 合法的舊備份只會【少後來才有的欄】, 相對順序不會變。表頭單獨錯位會讓值寫進錯的欄, 拒繼續', shuffled;`,
+    '  END IF;',
+    '  IF missing IS NOT NULL THEN',
+    // ⚠️ 訊息字面要準(codex 抓的):**不是每一個缺欄都「走 DEFAULT」** ——
+    //    有 DEFAULT ⇒ 走 DEFAULT;可空而無 DEFAULT ⇒ 整欄 NULL;NOT NULL 而無 DEFAULT ⇒ `\copy` 直接失敗。
+    `    RAISE NOTICE '⚠️ ${table}: 備份【沒有】這些欄(有 DEFAULT 的走 DEFAULT / 可空的整欄變 NULL / NOT NULL 的下一步會直接失敗): %', missing;`,
+    '  ELSE',
+    `    RAISE NOTICE '✅ ${table}: 欄位集合與備份完全相同, 沒有欄位走 DEFAULT';`,
+    '  END IF;',
+    'END',
+    '$d1cols$;',
+  ].join('\n');
+}
+
+/**
+ * 讀每一份備份 CSV 的表頭。**讀不到就 throw** —— 不回 `undefined`。
+ *
+ * 🔴 理由:`buildRestoreScript` 收到 `undefined` 會**靜靜退回 `HEADER MATCH` 舊路徑**,
+ *    而舊備份走那條會斷。**fail-open 的病不是「退回舊路」, 是【退回時沒有聲音】。**
+ *    (同族:`.husky` 那道閘壞掉時自動放行。)
+ */
+export function readCsvHeaders(inDir: string, tables: readonly string[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+
+  for (const table of tables) {
+    const path = `${inDir}/${table}.csv`;
+
+    if (!existsSync(path)) throw new Error(`D1:讀不到備份表頭 —— ${path} 不存在;拒繼續`);
+
+    const first = readFileSync(path, 'utf8').split('\n')[0]?.trim() ?? '';
+
+    if (first === '') throw new Error(`D1:${path} 的第一行是空的(不是表頭);拒繼續`);
+
+    const cols = splitCsvLine(first);
+
+    if (cols.length === 0 || cols.some((c) => c === '')) {
+      throw new Error(`D1:${path} 的表頭有空欄名(讀到 ${cols.length} 欄);拒繼續`);
+    }
+
+    out.set(table, cols);
+  }
+
+  return out;
+}
+
 export function buildRestoreScript(
   mode: RestoreMode,
   target: RestoreTarget,
   inDir: string,
+  headers?: ReadonlyMap<string, string[]>,
 ): string {
   const cohortIds = D1_DELETE_COHORT.map(({ id }) => id);
   const tables = buildCohortSelectors(cohortIds, (table) => `d1r_${table}`);
@@ -402,11 +498,54 @@ export function buildRestoreScript(
   // 🔴 `HEADER MATCH`(PG 16+;production 實查 17.6):逐欄比對 CSV 表頭與目標欄位名。
   //    備份要保存 180 天,期間 schema 極可能改;沒有它的話,中間插一欄會讓資料整排錯位
   //    **靜默寫入**——還原「成功」了,內容全錯。
-  const load = (table: string) => [
-    `\\echo -- ${table}`,
-    `CREATE TEMP TABLE d1r_${table} (LIKE public.${table});`,
-    `\\copy d1r_${table} FROM '${inDir}/${table}.csv' WITH (FORMAT csv, HEADER MATCH, NULL '\\N')`,
-  ];
+  // 🔴 兩條路,而**災難當天的人必須看得出自己在哪一條**(2026-08-29,`#958`)。
+  //    背景:B1(`20260828100000`)給 orders 加了兩欄 ⇒ 39 欄。而 180 天內的既有備份是 37 欄。
+  //    `HEADER MATCH` 逐欄比對表頭 ⇒ **當場失敗**(實測逐字):
+  //      ERROR: wrong number of fields in header line: got 37, expected 39
+  //    負對照(同形同序的 39 欄 CSV)⇒ `COPY 1` ⇒ 兩個世界印不同的東西,那一發驗得到。
+  //    ⚠️ 而 `HEADER MATCH` **是對的** —— 它擋的是「整排錯位靜默寫入」。它不是被弄壞的,
+  //       是**照設計吵出來的**;缺的是【被觸發那天】的程序,不是那道閘。
+  const load = (table: string) => {
+    const cols = headers?.get(table);
+
+    if (!cols) {
+      // 舊路徑:保留給既有測試(`d1-restore.test.ts` 把 DIR 釘成一個空路徑 ⇒ 產腳本不得碰檔案系統)。
+      // 🔴 而它**不是**「一樣安全的另一個選項」—— 舊備份走這條會斷。所以它要**自己說出來**:
+      //    fail-open 的病不是「退回舊路」,是【退回時沒有聲音】。
+      return [
+        `\\echo -- ${table}`,
+        `\\echo 🔴 ${table}: 走的是 HEADER MATCH 舊路徑(沒有拿到 CSV 表頭)—— 欄數不合會直接失敗`,
+        `CREATE TEMP TABLE d1r_${table} (LIKE public.${table});`,
+        `\\copy d1r_${table} FROM '${inDir}/${table}.csv' WITH (FORMAT csv, HEADER MATCH, NULL '\\N')`,
+      ];
+    }
+
+    // 新路徑:顯式欄位清單。
+    // 🔴 `INCLUDING DEFAULTS` 少不得 —— `LIKE` 帶 `NOT NULL` 而**不帶 `DEFAULT`**
+    //    ⇒ 沒有它,`tax_total` 這種「NOT NULL DEFAULT 0」的新欄會變成【必填而沒人填】,
+    //      實測逐字 `ERROR: null value in column "tax_total" … violates not-null constraint`。
+    //    📌 這一格是我推的、不是量的,實跑才發現。
+    // ⛔🔴🔴 ~~欄名帶著值走 ⇒ CSV 的欄位順序不重要;不要為此加一道「順序必須相同」的閘;
+    //    保護不是「還要擋」, 是「不再需要擋」。~~ **2026-08-29 全部作廢(codex 對抗審查抓的)。**
+    //    那句話**只在【表頭與資料列一起重排】時成立**。而危險的世界是**表頭單獨錯位**:
+    //    欄名集合一模一樣、資料列不動 ⇒ 值寫進錯的欄。實測同一份 CSV 只換兩個表頭欄名:
+    //      舊 `HEADER MATCH` ⇒ `ERROR: column name mismatch in header line field 13`
+    //      我的集合比對      ⇒ `COPY 1`, 而且印「✅ 欄位集合與備份完全相同」← **假的安心訊號**
+    //    🔴 **我當時跑的那發突變, 把表頭與資料一起換了 —— 它從來沒有造出我宣稱排除掉的那個世界。**
+    //    ⇒ 保序檢查(見 `buildColumnSetCheckSql`)把那道保護補了回來, **而它不是退回 HEADER MATCH**:
+    //      要求「保序子序列」⇒ 舊備份(只少後來才有的欄)過, 被重排過的表頭擋。
+    //    ⚠️ 代價明寫:**表頭與資料【一起】重排的合法檔也會被擋** —— 我們分不出它與錯位檔。
+    //       ⇒ 這是刻意選的:災難當天,「誤擋一個罕見的合法檔」比「安靜寫進錯的欄」便宜。
+    const list = cols.map((c) => `"${c.replace(/"/g, '""')}"`).join(', ');
+
+    return [
+      `\\echo -- ${table}`,
+      `CREATE TEMP TABLE d1r_${table} (LIKE public.${table} INCLUDING DEFAULTS);`,
+      // 欄位集合比對。這才是 `HEADER MATCH` 的替身 —— 它比的是**集合**,不是位置。
+      buildColumnSetCheckSql(table, cols),
+      `\\copy d1r_${table} (${list}) FROM '${inDir}/${table}.csv' WITH (FORMAT csv, HEADER, NULL '\\N')`,
+    ];
+  };
 
   return [
     `\\echo D1${mode === 'pre-n3c' ? 'a4' : 'a5'} 還原(${mode}):26 張訂單 / ${tables.length} 張表`,
@@ -598,5 +737,14 @@ if (process.argv[1]?.endsWith('d1-restore.ts')) {
     process.exit(1);
   }
 
-  console.log(buildRestoreScript(mode === 'pre' ? 'pre-n3c' : 'post-n3c', target, inDir));
+  // 🔴 表頭在**這裡**讀 —— `buildRestoreScript` 不碰檔案系統(既有測試把 DIR 釘成空路徑)。
+  //    `readCsvHeaders` 讀不到就 throw ⇒ **不會安靜地退回 HEADER MATCH 舊路徑。**
+  const headers = readCsvHeaders(
+    inDir,
+    buildCohortSelectors([], () => '').map(([table]) => table),
+  );
+
+  console.log(
+    buildRestoreScript(mode === 'pre' ? 'pre-n3c' : 'post-n3c', target, inDir, headers),
+  );
 }
