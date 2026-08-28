@@ -216,6 +216,22 @@ function expectPageRendered(container: HTMLElement) {
   expect(container.textContent).toContain('ABC123');
 }
 
+/**
+ * 🔴 **取消區【本身】有沒有渲染** —— 2026-08-29 量到 `expectPageRendered` 對本檔那一族不夠:
+ * 把整個 `OrderCancelBlock` 改成 `return null` ⇒ 全檔 29 格中 11 紅,
+ * **而那 9 格「不給表單 / 不給 checkbox / 面板不出現」全部照樣綠**(訂單編號還在)。
+ * 📌 **錨釘的是頁面, 而洩漏面是頁面裡的那一區。**
+ *
+ * 釘 `#cancel`:那是**跨檔契約**(`order-cancel-block.tsx:73-76` 逐字 —— 訂單列表操作欄的連結是
+ * `…#cancel`), 而那支元件**沒有任何 early return** ⇒ 任何合法世界它都在 ⇒ 不會做出假紅。
+ */
+function expectCancelBlockRendered(container: HTMLElement) {
+  expect(
+    container.querySelector('#cancel'),
+    '取消區整塊沒渲染 ⇒ 「不給表單 / 不給 checkbox」那些負向斷言恆真',
+  ).not.toBeNull();
+}
+
 function cancelFormCount(container: HTMLElement): number {
   return container.querySelectorAll('[name="cancel_mode"]').length;
 }
@@ -240,6 +256,7 @@ describe('D6-a 驗收④ 表單由結果頁閘住(整條 URL → 頁層 → 表�
   it('canonical 網址(沒有結果碼)⇒ 取消表單出現', async () => {
     const { container } = await renderPage();
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     expect(cancelFormCount(container)).toBeGreaterThan(0);
   });
 
@@ -248,12 +265,14 @@ describe('D6-a 驗收④ 表單由結果頁閘住(整條 URL → 頁層 → 表�
     //    —— 重送 = 第二筆刪不掉的取消。他要先重新整理(網址回 canonical)才拿得回表單。
     const { container } = await renderPage({ r: toOrderCancelResultCode('retry'), rt: TOKEN });
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     expect(cancelFormCount(container)).toBe(0);
   });
 
   it('🔴 成功結果頁 ⇒ 也不給表單', async () => {
     const { container } = await renderPage({ r: ORDER_CANCELLED_RESULT_CODE, rt: TOKEN });
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     expect(cancelFormCount(container)).toBe(0);
   });
 
@@ -261,6 +280,7 @@ describe('D6-a 驗收④ 表單由結果頁閘住(整條 URL → 頁層 → 表�
     // 🔴 這格擋的是**過度封鎖**:什麼都沒送出去卻把表單收起來,員工只能重整、白繞一圈。
     const { container } = await renderPage({ r: toOrderCancelResultCode('invalid') });
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     expect(cancelFormCount(container)).toBeGreaterThan(0);
   });
 
@@ -271,6 +291,7 @@ describe('D6-a 驗收④ 表單由結果頁閘住(整條 URL → 頁層 → 表�
     mocks.findAdminOrderDetail.mockResolvedValue(detail({ paymentStatus: 'paid' }));
     const { container } = await renderPage();
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     expect(cancelFormCount(container)).toBe(0);
     // 正向對照:複核區塊仍在(不受 canCancel 影響)⇒ 證明不是整段沒渲染。
     expect(container.textContent).toContain('取消訂單');
@@ -285,6 +306,7 @@ describe('D6-a 驗收④ 表單由結果頁閘住(整條 URL → 頁層 → 表�
     );
     const { container } = await renderPage();
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     expect(cancelFormCount(container)).toBe(0);
     expect(container.textContent).toContain('取消訂單');
   });
@@ -292,6 +314,7 @@ describe('D6-a 驗收④ 表單由結果頁閘住(整條 URL → 頁層 → 表�
   it('🔴 重複 query key(`?r=a&r=b`)⇒ 不給表單(看不懂就不放行)', async () => {
     const { container } = await renderPage({ r: [toOrderCancelResultCode('retry'), 'x'] });
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     expect(cancelFormCount(container)).toBe(0);
   });
 });
@@ -304,6 +327,7 @@ describe('片14(2026-08-20):退款/取消版面改上下堆疊,不再左右並�
   it('退款、取消各自是一個可摺疊的 <details>,不是共用同一個 flex-row 容器', async () => {
     const { container } = await renderPage();
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     // 🔴 舊版面的識別字面(flex-row 容器)不得再出現——這是本格的負向斷言。
     expect(container.querySelector('.justify-between.gap-3')).toBeNull();
     // 兩塊各自是獨立的 <details>,且都套上新的卡片樣式(group + bg-card + rounded-lg border)。
@@ -373,6 +397,7 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
     mocks.findAdminOrderDetail.mockResolvedValue(withoutFlag as unknown as AdminOrderDetail);
     return renderPage({ r: toOrderCancelResultCode('retry'), rt: TOKEN }).then(({ container }) => {
       expectPageRendered(container);
+    expectCancelBlockRendered(container);
       expect(container.textContent).toContain('無法斷定');
       expect(container.textContent).not.toContain('目前查不到這筆取消');
     });
@@ -404,6 +429,7 @@ describe('D6-a 驗收① 關單之後面板仍在(掛在資格閘之外)', () =>
     );
     const { container } = await renderPage({ r: ORDER_CANCELLED_RESULT_CODE, rt: TOKEN });
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     expect(container.textContent).toContain('取消已完成');
     // 同一次渲染:面板在、表單不在。
     expect(cancelFormCount(container)).toBe(0);
@@ -413,6 +439,7 @@ describe('D6-a 驗收① 關單之後面板仍在(掛在資格閘之外)', () =>
     mocks.findAdminOrderDetail.mockResolvedValue(detail({ cancellations: null }));
     const { container } = await renderPage({ r: toOrderCancelResultCode('bug'), rt: TOKEN });
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     expect(container.textContent).toContain('查不到取消紀錄');
     expect(container.textContent).toContain('不代表沒有送出');
   });
@@ -427,6 +454,7 @@ describe('D6-a 驗收① 關單之後面板仍在(掛在資格閘之外)', () =>
     );
     const { container } = await renderPage({ r: ORDER_CANCELLED_RESULT_CODE, rt: TOKEN });
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     expect(container.textContent).not.toContain('取消已完成');
     expect(container.textContent).toContain('認不出你是誰');
   });
@@ -434,6 +462,7 @@ describe('D6-a 驗收① 關單之後面板仍在(掛在資格閘之外)', () =>
   it('沒有結果碼時面板整個不出現(平常看單不受干擾)', async () => {
     const { container } = await renderPage();
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     expect(container.textContent).not.toContain('查不到取消紀錄');
     expect(container.textContent).not.toContain('取消已完成');
   });
@@ -447,6 +476,7 @@ describe('片C 驗收:商品卡的取消 checkbox 與危險區的表單共用同
   it('canonical 網址 ⇒ 商品卡上也出現取消 checkbox(不只是危險區的表單)', async () => {
     const { container } = await renderPage();
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     expect(cancelFormCount(container)).toBeGreaterThan(0);
     expect(cancelItemCheckboxCount(container)).toBeGreaterThan(0);
   });
@@ -454,6 +484,7 @@ describe('片C 驗收:商品卡的取消 checkbox 與危險區的表單共用同
   it('🔴 B 類失敗結果頁(表單被閘住)⇒ 商品卡上的 checkbox 也一起消失', async () => {
     const { container } = await renderPage({ r: toOrderCancelResultCode('retry'), rt: TOKEN });
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     expect(cancelFormCount(container)).toBe(0);
     expect(cancelItemCheckboxCount(container)).toBe(0);
   });
@@ -462,6 +493,7 @@ describe('片C 驗收:商品卡的取消 checkbox 與危險區的表單共用同
     mocks.findAdminOrderDetail.mockResolvedValue(detail({ paymentStatus: 'paid' }));
     const { container } = await renderPage();
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     expect(cancelItemCheckboxCount(container)).toBe(0);
   });
 
@@ -541,6 +573,7 @@ describe("#808 gate='stuck' 的單,員工在畫面上讀得到「系統已經停
     const { container } = await renderPage();
     // 🔴 正向對照先跑:沒有它,下面那條 `toContain` 若因整頁沒渲染而空,會長得像另一種紅。
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     expect(container.textContent).toContain(STUCK_LINE);
     // 而它要說出員工今天唯一做得到的那件事。
     expect(container.textContent).toContain('TapPay');
@@ -550,6 +583,7 @@ describe("#808 gate='stuck' 的單,員工在畫面上讀得到「系統已經停
     mocks.findAdminOrderDetail.mockResolvedValue(detail({ chargeAttemptGate: 'in_flight' }));
     const { container } = await renderPage();
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     expect(container.textContent).not.toContain(STUCK_LINE);
     // 🔴 而【該在的那句仍要在】—— 少了這一格,「把兩碼一起刪掉」的突變會讓上一行全綠。
     expect(container.textContent).toContain(IN_FLIGHT_LINE);
@@ -559,6 +593,7 @@ describe("#808 gate='stuck' 的單,員工在畫面上讀得到「系統已經停
     mocks.findAdminOrderDetail.mockResolvedValue(detail({ chargeAttemptGate: 'clear' }));
     const { container } = await renderPage();
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     expect(container.textContent).not.toContain(STUCK_LINE);
     expect(container.textContent).not.toContain(IN_FLIGHT_LINE);
   });
@@ -570,6 +605,7 @@ describe("#808 gate='stuck' 的單,員工在畫面上讀得到「系統已經停
     mocks.findAdminOrderDetail.mockResolvedValue(detail({ chargeAttemptGate: 'stuck' }));
     const { container } = await renderPage();
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     expect(cancelFormCount(container)).toBe(0);
     expect(cancelItemCheckboxCount(container)).toBe(0);
     expect(container.textContent).toContain(STUCK_LINE);
@@ -581,6 +617,7 @@ describe("#808 gate='stuck' 的單,員工在畫面上讀得到「系統已經停
     );
     const { container } = await renderPage();
     expectPageRendered(container);
+    expectCancelBlockRendered(container);
     expect(container.textContent).not.toContain(STUCK_LINE);
   });
 });
