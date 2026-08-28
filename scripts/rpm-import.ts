@@ -36,6 +36,7 @@ if (existsSync('.env.local')) loadEnvFile('.env.local');
 
 import { createClient } from '@supabase/supabase-js';
 import { getSupplierConfig } from './supplier-config';
+import { runAtomicGroups } from './rpm-partial-report';
 import { applyTitleGateSkip, runTitleShapeGate } from './title-shape-gate';
 import { fetchAllSupplierProducts, type SourceProductRow } from './rpm-fetch';
 import {
@@ -650,7 +651,24 @@ async function main(): Promise<void> {
   }
   await upsertBatched(target, 'product_variants', regularVariantRowsWithProduct, 'supplier_slug,sku');
 
-  for (const group of variantWork.atomicGroups) {
+  // ── 🔴 純觀測:失敗時留下「停在哪裡」——【零行為改動】(⟦b4-PARTIAL1⟧ 第一版)────────────
+  //   為什麼要這一段:這個迴圈失敗時留下的是**半寫入的中間態**,不是「整批回捲」——
+  //     失敗點【之前】已經 commit(:651 的 upsertBatched 每 500 列各自一個交易)、
+  //     失敗那一群整群沒進去、失敗點【之後】的**從來沒有被送出去**。
+  //   2026-08-28 Gilles 那次,三方(對方 repo / Sean / 主視窗)都把它讀成「整批回捲」,
+  //     而沒有人答得出「1,817 裡實際進去幾筆」——
+  //     🔴 **那不是因為沒人查,是因為那個數字從來沒有被產生過。**
+  //
+  //   🔴 **本段只記錄、不改行為**:catch 之後**原封 re-throw**(`throw e`,不包裝)。
+  //     「留下痕跡」與「改變失敗行為」是兩件事;寫進同一顆 commit,
+  //     之後出事時沒有人分得出是哪一半造成的。「跳過並繼續」= 第二版,要另外拍板。
+  //
+  //   ⚠️ **本段「行為沒變」這個宣稱只在單元層成立**(Sean 未拍、主視窗 2026-08-28 選乙):
+  //     我們證的是「餵一個會 throw 的假 syncFn 時,流程與修前相同」,
+  //     **沒有證「真的連 DB 跑一次時相同」** —— 缺的檢查 = 起拋棄式 PG 實跑一次。
+  //   🔴 迴圈本體抽到 `rpm-partial-report.ts` 的唯一理由 = **可測**:
+  //     本檔檔尾直接 `main()`(無 `import.meta` 守衛)⇒ 一被 import 就會把整個匯入跑起來。
+  await runAtomicGroups(variantWork.atomicGroups, config.supplierSlug, async (group) => {
     const synced = await syncVariantGroupAtomic(
       target,
       config.supplierSlug,
@@ -659,7 +677,7 @@ async function main(): Promise<void> {
       group.orphanSkus,
     );
     console.log(`  product_variants atomic:${group.externalId} ${synced}/${group.variants.length}`);
-  }
+  });
   console.log(
     `[rpm-import] WRITE 完成:${productRows.length} 商品 / ${variantRows.length} 變體` +
       `(一般 ${regularVariantRowsWithProduct.length} / atomic ${variantWork.atomicGroups.length} 群)`,
