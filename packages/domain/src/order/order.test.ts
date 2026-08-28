@@ -436,7 +436,10 @@ describe('createOrder canonicalize 收尾(round3:封隱藏 toJSON/getter 序列�
     //    🔴 這一格守的是**鐵則 12 的紅線**:hand-built 物件藏隱藏 `toJSON` 把 price_store /
     //      price_by_tier / cost 夾帶進序列化 —— 而序列化的東西會離開 server。
     //    釘的是 json 真的有內容(結構), 不釘任何一個欄名。
-    expect(json.length, '根本沒組出 order ⇒ 下面整族恆真').toBeGreaterThan(2);
+    // 🔴 **錨要釘【帶毒的那一項】, 不是整包非空**(2026-08-29 code-reviewer R1):
+    //    `json.length > 2` 只證 order 不是 `{}` —— 把 `items` 清成 `[]` 它照樣過,
+    //    而經銷價的洩漏面就在 items 裡 ⇒ 錨過而斷言恆真。
+    expect(JSON.parse(json).items, '序列化出來的 order 裡一個品項都沒有 ⇒ 下面整族恆真').toHaveLength(1);
     expect(json).not.toContain('price_store');
     expect(json).not.toContain('price_by_tier');
     expect(json).not.toContain('cost');
@@ -460,7 +463,10 @@ describe('createOrder canonicalize 收尾(round3:封隱藏 toJSON/getter 序列�
     //    🔴 這一格守的是**鐵則 12 的紅線**:hand-built 物件藏隱藏 `toJSON` 把 price_store /
     //      price_by_tier / cost 夾帶進序列化 —— 而序列化的東西會離開 server。
     //    釘的是 json 真的有內容(結構), 不釘任何一個欄名。
-    expect(json.length, '根本沒組出 order ⇒ 下面整族恆真').toBeGreaterThan(2);
+    // 🔴 **錨要釘【帶毒的那一項】, 不是整包非空**(2026-08-29 code-reviewer R1):
+    //    `json.length > 2` 只證 order 不是 `{}` —— 把 `items` 清成 `[]` 它照樣過,
+    //    而經銷價的洩漏面就在 items 裡 ⇒ 錨過而斷言恆真。
+    expect(JSON.parse(json).items, '序列化出來的 order 裡一個品項都沒有 ⇒ 下面整族恆真').toHaveLength(1);
     expect(json).not.toContain('price_store');
     expect(json).not.toContain('777');
   });
@@ -484,7 +490,9 @@ describe('createOrder canonicalize 收尾(round3:封隱藏 toJSON/getter 序列�
     // 🔴 **分母守門(2026-08-29 突變量到本格恆綠)**:`createOrder` 回 `{}` 時
     //    `JSON.stringify(order)` = `'{}'` ⇒ 下面那條 `not.toContain` 恆真。
     //    🔴 守的是鐵則 12 紅線:hand-built `shippingFee` 藏隱藏 `toJSON` 夾帶 `cost` 進序列化。
-    expect(json.length, '根本沒組出 order ⇒ 下面那條恆真').toBeGreaterThan(2);
+    // 🔴 **錨要釘【帶毒的那一項】**(2026-08-29 code-reviewer R1):本格的洩漏面是 `shippingFee`,
+    //    而 `json.length` 對「canonicalize 不輸出 shippingFee」那個世界照樣過。
+    expect(JSON.parse(json).shippingFee, '序列化出來的 order 沒有 shippingFee ⇒ 下面那條恆真').toBeTruthy();
     expect(json).not.toContain('cost');
     expect(json).not.toContain('888');
   });

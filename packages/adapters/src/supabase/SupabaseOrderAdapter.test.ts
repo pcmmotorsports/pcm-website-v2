@@ -1818,7 +1818,7 @@ describe('🔴 M-4b 生命週期 L6 — 後台列表預設隱藏「刷卡未付�
   });
 
   it('L6-A2 includeUnpaidCardOrders=true → 不套用(員工要看得到)', async () => {
-    const { client, or , select } = makeAdminListClient({ data: [], error: null, count: 0 });
+    const { client, or, range } = makeAdminListClient({ data: [], error: null, count: 0 });
     await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
       { includeUnpaidCardOrders: true },
       listArgs,
@@ -1827,7 +1827,11 @@ describe('🔴 M-4b 生命週期 L6 — 後台列表預設隱藏「刷卡未付�
     //    這些 mock 一次都沒被呼叫 ⇒ `not.toHaveBeenCalled*` 全部恆真
     //    ⇒「這個條件正確地沒有下推」與「整支查詢根本沒跑」印同一個綠。
     //    釘的是**查詢真的建起來了**(`select` 被呼叫過), 不是任何一個篩選條件。
-    expect(select, '查詢從來沒有建起來 ⇒ 下面的負向斷言恆真').toHaveBeenCalled();
+    // 🔴 **錨要釘【斷言之後才發生的事】**(2026-08-29 code-reviewer R1):
+    //    `select` 在查詢建構的**第一行**就被呼叫, 而被斷言的篩選條件全部在它【之後】
+    //    ⇒ 在 select 之後、篩選之前插一個 early return, 錨照樣過而六格全部恆真。
+    //    ⇒ 改釘 `range`(awaited 的終端)—— 它在整條查詢鏈的最後, 嚴格更強。
+    expect(range, '查詢從來沒有跑到終端 ⇒ 下面的負向斷言恆真').toHaveBeenCalled();
     expect(or).not.toHaveBeenCalledWith(HIDE);
   });
 
@@ -1860,7 +1864,7 @@ describe('#484a A2:貨品軸', () => {
   });
 
   it('goodsAxes 空陣列 ⇒ 視為不限、同樣不下推', async () => {
-    const { client, in: inFn , select } = makeAdminListClient({ data: [], error: null, count: 0 });
+    const { client, in: inFn, range } = makeAdminListClient({ data: [], error: null, count: 0 });
     await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
       { goodsAxes: [] },
       axisListArgs,
@@ -1869,7 +1873,11 @@ describe('#484a A2:貨品軸', () => {
     //    這些 mock 一次都沒被呼叫 ⇒ `not.toHaveBeenCalled*` 全部恆真
     //    ⇒「這個條件正確地沒有下推」與「整支查詢根本沒跑」印同一個綠。
     //    釘的是**查詢真的建起來了**(`select` 被呼叫過), 不是任何一個篩選條件。
-    expect(select, '查詢從來沒有建起來 ⇒ 下面的負向斷言恆真').toHaveBeenCalled();
+    // 🔴 **錨要釘【斷言之後才發生的事】**(2026-08-29 code-reviewer R1):
+    //    `select` 在查詢建構的**第一行**就被呼叫, 而被斷言的篩選條件全部在它【之後】
+    //    ⇒ 在 select 之後、篩選之前插一個 early return, 錨照樣過而六格全部恆真。
+    //    ⇒ 改釘 `range`(awaited 的終端)—— 它在整條查詢鏈的最後, 嚴格更強。
+    expect(range, '查詢從來沒有跑到終端 ⇒ 下面的負向斷言恆真').toHaveBeenCalled();
     expect(inFn).not.toHaveBeenCalledWith('goods_axis', expect.anything());
   });
 
@@ -1890,13 +1898,17 @@ describe('#484a A2:貨品軸', () => {
   //    列表本來就要看得到已取消的單;把它做成全域條件是另一件事,而且沒有人拍板過。
   //    (少了這一格,「把 `.is` 提到 `if` 外面」這個突變不會有任何測試紅。)
   it('🔴 未選貨品軸 ⇒ 不得排除已取消單(不是全域條件)', async () => {
-    const { client, is , select } = makeAdminListClient({ data: [], error: null, count: 0 });
+    const { client, is, range } = makeAdminListClient({ data: [], error: null, count: 0 });
     await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, axisListArgs);
     // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:整支 `listOrderSummariesForAdmin` 早退時
     //    這些 mock 一次都沒被呼叫 ⇒ `not.toHaveBeenCalled*` 全部恆真
     //    ⇒「這個條件正確地沒有下推」與「整支查詢根本沒跑」印同一個綠。
     //    釘的是**查詢真的建起來了**(`select` 被呼叫過), 不是任何一個篩選條件。
-    expect(select, '查詢從來沒有建起來 ⇒ 下面的負向斷言恆真').toHaveBeenCalled();
+    // 🔴 **錨要釘【斷言之後才發生的事】**(2026-08-29 code-reviewer R1):
+    //    `select` 在查詢建構的**第一行**就被呼叫, 而被斷言的篩選條件全部在它【之後】
+    //    ⇒ 在 select 之後、篩選之前插一個 early return, 錨照樣過而六格全部恆真。
+    //    ⇒ 改釘 `range`(awaited 的終端)—— 它在整條查詢鏈的最後, 嚴格更強。
+    expect(range, '查詢從來沒有跑到終端 ⇒ 下面的負向斷言恆真').toHaveBeenCalled();
     expect(is).not.toHaveBeenCalledWith('cancelled_at', null);
   });
 
@@ -2178,7 +2190,11 @@ describe('#347-2a 關鍵字 × L6 隱藏規則(豁免綁精準鍵)', () => {
     //    這些 mock 一次都沒被呼叫 ⇒ `not.toHaveBeenCalled*` 全部恆真
     //    ⇒「這個條件正確地沒有下推」與「整支查詢根本沒跑」印同一個綠。
     //    釘的是**查詢真的建起來了**(`select` 被呼叫過), 不是任何一個篩選條件。
-    expect(h.listSelect, '查詢從來沒有建起來 ⇒ 下面那條恆真').toHaveBeenCalled();
+    // 🔴 **錨要釘【斷言之後才發生的事】**(2026-08-29 code-reviewer R1):
+    //    `select` 在查詢建構的**第一行**就被呼叫, 而被斷言的篩選條件全部在它【之後】
+    //    ⇒ 在 select 之後、篩選之前插一個 early return, 錨照樣過而六格全部恆真。
+    //    ⇒ 改釘 `range`(awaited 的終端)—— 它在整條查詢鏈的最後, 嚴格更強。
+    expect(h.range, '查詢從來沒有跑到終端 ⇒ 下面那條恆真').toHaveBeenCalled();
     expect(h.or).not.toHaveBeenCalled();
   });
 });
@@ -2242,7 +2258,11 @@ describe('SupabaseOrderAdapter — #347-3b 建立日期範圍', () => {
     //    這些 mock 一次都沒被呼叫 ⇒ `not.toHaveBeenCalled*` 全部恆真
     //    ⇒「這個條件正確地沒有下推」與「整支查詢根本沒跑」印同一個綠。
     //    釘的是**查詢真的建起來了**(`select` 被呼叫過), 不是任何一個篩選條件。
-    expect(h.select, '查詢從來沒有建起來 ⇒ 下面的負向斷言恆真').toHaveBeenCalled();
+    // 🔴 **錨要釘【斷言之後才發生的事】**(2026-08-29 code-reviewer R1):
+    //    `select` 在查詢建構的**第一行**就被呼叫, 而被斷言的篩選條件全部在它【之後】
+    //    ⇒ 在 select 之後、篩選之前插一個 early return, 錨照樣過而六格全部恆真。
+    //    ⇒ 改釘 `range`(awaited 的終端)—— 它在整條查詢鏈的最後, 嚴格更強。
+    expect(h.range, '查詢從來沒有跑到終端 ⇒ 下面的負向斷言恆真').toHaveBeenCalled();
     expect(h.gte).not.toHaveBeenCalled();
     expect(h.lt).not.toHaveBeenCalled();
   });
@@ -2376,14 +2396,18 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — 待處理(#1 片1)
   it('🔴 沒按待處理 ⇒ 不下推那道 OR、也不下推 cancelled_at 守門(正向對照)', async () => {
     // 少了這格,把 `if (filter.pendingOnly)` 拿掉、變成無條件下推也會讓上面兩格全綠 ——
     // 而那會讓**每一次列表查詢**都藏掉已取消的單,那是沒有人拍板過的行為。
-    const { client, or, is , select } = makeAdminListClient({ data: [], error: null, count: 0 });
+    const { client, or, is, range } = makeAdminListClient({ data: [], error: null, count: 0 });
     await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, { limit: 20, offset: 0 });
 
     // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:整支 `listOrderSummariesForAdmin` 早退時
     //    這些 mock 一次都沒被呼叫 ⇒ `not.toHaveBeenCalled*` 全部恆真
     //    ⇒「這個條件正確地沒有下推」與「整支查詢根本沒跑」印同一個綠。
     //    釘的是**查詢真的建起來了**(`select` 被呼叫過), 不是任何一個篩選條件。
-    expect(select, '查詢從來沒有建起來 ⇒ 下面的負向斷言恆真').toHaveBeenCalled();
+    // 🔴 **錨要釘【斷言之後才發生的事】**(2026-08-29 code-reviewer R1):
+    //    `select` 在查詢建構的**第一行**就被呼叫, 而被斷言的篩選條件全部在它【之後】
+    //    ⇒ 在 select 之後、篩選之前插一個 early return, 錨照樣過而六格全部恆真。
+    //    ⇒ 改釘 `range`(awaited 的終端)—— 它在整條查詢鏈的最後, 嚴格更強。
+    expect(range, '查詢從來沒有跑到終端 ⇒ 下面的負向斷言恆真').toHaveBeenCalled();
     expect(or.mock.calls.some(([arg]) => String(arg).includes('goods_axis.eq.none'))).toBe(false);
     expect(is).not.toHaveBeenCalledWith('cancelled_at', null);
   });
