@@ -35,8 +35,16 @@ export async function authorizeAdminMutation(): Promise<{
   const [cookieStore, headerStore] = await Promise.all([cookies(), headers()]);
   const verified = await verifySessionDetailed(cookieStore.get(ADMIN_SESS_COOKIE)?.value);
   if (!verified.ok) {
-    // 🔴 同 proxy.ts:只記分類、不記內容、不影響回傳(照舊 null),而【只記 no_key】。
-    //    規則與 proxy 一致比較不會有人只改一邊。
+    // 🔴 同 proxy.ts:只記分類、不記內容、不影響回傳(照舊 null)。
+    //    ⛔ ~~而【只記 no_key】~~ **2026-08-29 起【不只】**:`version_rejected` 也進了名單
+    //    (`aeb81481`)。**現行名單以 `session.ts` 的 `ALARM_REASONS` 為準,不以本註解為準。**
+    //
+    // 🔴🔴 **「規則與 proxy 一致比較不會有人只改一邊」—— 這句是預測,而 2026-08-29 它應驗了。**
+    //    那天有人(線G)改了 `ALARM_REASONS`,而**這兩支呼叫端的註解一句都沒動** ——
+    //    直到 codex 對抗審查 R2 才抓到(`proxy.ts:47` / 本行)。
+    //    📌 **⇒ 一句預測性的註解如果沒有被實現的紀錄,下一個人會以為它是多慮的。**
+    //    ⚠️ 而它**沒有擋住那次** —— 註解擋不住任何事,它只讓事後看得懂。
+    //    ⇒ 真要擋,得讓「改 `ALARM_REASONS` 而沒動這兩處」變成一個會紅的東西;**那還沒有做。**
     if (consumeAlarmSlot(verified.reason)) {
       console.warn(JSON.stringify({ evt: 'admin.session.reject', at: 'authorize', reason: verified.reason }));
     }

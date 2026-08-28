@@ -44,7 +44,11 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       // 🔴 **綁環境之後,這裡是唯一的早期警報。**
       //    若 production 讀不到 VERCEL_ENV ⇒ 金鑰簽不出來 ⇒ 每個人都被導去 /start,
       //    而在此之前 verifySession 的【每一種】拒絕都完全靜默 ⇒ 症狀 = 全員登不進去 + 零 log。
-      // 🔴 **只記 `no_key`**(codex 關卡2 M3):未認證的人送一顆壞 cookie 就能無限觸發這一行
+      // ⛔ ~~🔴 **只記 `no_key`**~~ **2026-08-29 起【不只】** —— `version_rejected` 也進了
+      //    `ALARM_REASONS`(`aeb81481`;它有兩種來源、處置相反,而不記就分辨不出來)。
+      //    🔴 **原句留著不刪**:它是「為什麼要挑」這個決定的紀錄,而挑的判準沒有變 ——
+      //    變的是名單。**現行名單以 `session.ts` 的 `ALARM_REASONS` 為準,不以本註解為準。**
+      // 🔴 下面那段的原始理由(codex 關卡2 M3,仍然成立):未認證的人送一顆壞 cookie 就能無限觸發這一行
       //    ⇒ 逐次記會放大 log 量,而**真警報會被自己的噪音淹掉** = 這道警報在最需要它的那天失效。
       //    · `absent` 是【每個未登入請求的正常狀態】,一律不記
       // 🔴 而【只挑 no_* 還不夠】(codex 關卡2 M2):那一類發生時整站都在失敗,
