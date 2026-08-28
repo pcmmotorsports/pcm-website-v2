@@ -170,6 +170,12 @@ describe('mapPlaceOrderToCreateOrderArgs', () => {
     const args = mapPlaceOrderToCreateOrderArgs(
       input({ lines: [{ supplierSlug: 'rpm', sku: 'DCC01-G-F', quantity: 1 }] }),
     );
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:`mapPlaceOrderToCreateOrderArgs` 回空物件時
+    //    `JSON.stringify({})` = `'{}'` ⇒ `not.toMatch` 恆真
+    //    ⇒「args 裡沒有經銷價/會員等級」與「根本沒組出 args」印同一個綠。
+    //    🔴 而這一格守的是**鐵則 12 的紅線**:那些鍵一旦進了 wire, 成本與 tier 就到了 server 之外。
+    //    釘的是 args 真的有內容(結構), 不是任何一個鍵的字面。
+    expect(Object.keys(args).length, '根本沒組出 args ⇒ 下面那條恆真').toBeGreaterThan(0);
     expect(JSON.stringify(args)).not.toMatch(/price|tier|cost|user_?id/i);
   });
 });

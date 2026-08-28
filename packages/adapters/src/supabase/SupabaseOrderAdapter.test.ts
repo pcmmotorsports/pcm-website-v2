@@ -404,6 +404,10 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
   // 🔴 縱深防線:brand join 穿越帶 price_store/price_by_tier/price_general 的 product_variants/products,故下列**經銷價成本欄
   // 永久 forbidden**(投影只取 brands(name);任一成本欄誤入即被本測試擋下)。
   it('🔴 鐵則 12:投影不含任何經銷價 / 成本欄名、且無 select("*")(成交價/tier 已於 D-1a 有意識放行、非成本欄)', () => {
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:投影常數是空字串時 `not.toContain` 恆真
+    //    ⇒「投影裡沒有成本欄」與「投影常數整個不見了」印同一個綠。
+    //    🔴 這一格守的是**鐵則 12 的紅線** —— 成本 / 經銷價欄一旦進投影, 它就會被送到 client。
+    expect(ADMIN_ORDER_LIST_SELECT.length, '列表投影常數是空的 ⇒ 下面整族恆真').toBeGreaterThan(0);
     /* 🔴 `.split('invoice_status').join('')` 是**為了 `'invoice'` 這個 token 而做的碰撞閃避** ——
        `invoice_status` 是合法欄位而它含 `'invoice'`。
        📌 **⇒ 這份清單用【子字串比對】, 而它的成員之間有隱藏的耦合。**
@@ -1268,6 +1272,10 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
   });
 
   it('🔴 扣款嘗試**永久**不得滲入 storefront 投影(客人不該看到自己的扣款重試軌跡)', () => {
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:投影常數是空字串時 `not.toContain` 恆真
+    //    ⇒「投影裡沒有成本欄」與「投影常數整個不見了」印同一個綠。
+    //    🔴 這一格守的是**鐵則 12 的紅線** —— 成本 / 經銷價欄一旦進投影, 它就會被送到 client。
+    expect(ORDER_LIST_SELECT.length, 'storefront 投影常數是空的 ⇒ 下面那條恆真').toBeGreaterThan(0);
     for (const token of ['payment_charge_attempts', 'rec_trade_id', 'bank_transaction_id']) {
       expect(`ORDER_LIST_SELECT:${ORDER_LIST_SELECT}`).not.toContain(token);
     }
@@ -1327,6 +1335,10 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
    *    合併會把「明細刻意帶 PII」那個決定弄丟。**這裡只補漏的那一個 token,不動結構。**
    */
   it('🔴 鐵則 12:明細投影仍零成本/經銷/金流識別欄、無 select("*")(PII 解禁 ≠ 全解禁)', () => {
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:投影常數是空字串時 `not.toContain` 恆真
+    //    ⇒「投影裡沒有成本欄」與「投影常數整個不見了」印同一個綠。
+    //    🔴 這一格守的是**鐵則 12 的紅線** —— 成本 / 經銷價欄一旦進投影, 它就會被送到 client。
+    expect(ADMIN_ORDER_DETAIL_SELECT.length, '明細投影常數是空的 ⇒ 下面那條恆真').toBeGreaterThan(0);
     const forbidden = [
       '*',
       'price_store',
@@ -1806,11 +1818,16 @@ describe('🔴 M-4b 生命週期 L6 — 後台列表預設隱藏「刷卡未付�
   });
 
   it('L6-A2 includeUnpaidCardOrders=true → 不套用(員工要看得到)', async () => {
-    const { client, or } = makeAdminListClient({ data: [], error: null, count: 0 });
+    const { client, or , select } = makeAdminListClient({ data: [], error: null, count: 0 });
     await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
       { includeUnpaidCardOrders: true },
       listArgs,
     );
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:整支 `listOrderSummariesForAdmin` 早退時
+    //    這些 mock 一次都沒被呼叫 ⇒ `not.toHaveBeenCalled*` 全部恆真
+    //    ⇒「這個條件正確地沒有下推」與「整支查詢根本沒跑」印同一個綠。
+    //    釘的是**查詢真的建起來了**(`select` 被呼叫過), 不是任何一個篩選條件。
+    expect(select, '查詢從來沒有建起來 ⇒ 下面的負向斷言恆真').toHaveBeenCalled();
     expect(or).not.toHaveBeenCalledWith(HIDE);
   });
 
@@ -1843,11 +1860,16 @@ describe('#484a A2:貨品軸', () => {
   });
 
   it('goodsAxes 空陣列 ⇒ 視為不限、同樣不下推', async () => {
-    const { client, in: inFn } = makeAdminListClient({ data: [], error: null, count: 0 });
+    const { client, in: inFn , select } = makeAdminListClient({ data: [], error: null, count: 0 });
     await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
       { goodsAxes: [] },
       axisListArgs,
     );
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:整支 `listOrderSummariesForAdmin` 早退時
+    //    這些 mock 一次都沒被呼叫 ⇒ `not.toHaveBeenCalled*` 全部恆真
+    //    ⇒「這個條件正確地沒有下推」與「整支查詢根本沒跑」印同一個綠。
+    //    釘的是**查詢真的建起來了**(`select` 被呼叫過), 不是任何一個篩選條件。
+    expect(select, '查詢從來沒有建起來 ⇒ 下面的負向斷言恆真').toHaveBeenCalled();
     expect(inFn).not.toHaveBeenCalledWith('goods_axis', expect.anything());
   });
 
@@ -1868,8 +1890,13 @@ describe('#484a A2:貨品軸', () => {
   //    列表本來就要看得到已取消的單;把它做成全域條件是另一件事,而且沒有人拍板過。
   //    (少了這一格,「把 `.is` 提到 `if` 外面」這個突變不會有任何測試紅。)
   it('🔴 未選貨品軸 ⇒ 不得排除已取消單(不是全域條件)', async () => {
-    const { client, is } = makeAdminListClient({ data: [], error: null, count: 0 });
+    const { client, is , select } = makeAdminListClient({ data: [], error: null, count: 0 });
     await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, axisListArgs);
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:整支 `listOrderSummariesForAdmin` 早退時
+    //    這些 mock 一次都沒被呼叫 ⇒ `not.toHaveBeenCalled*` 全部恆真
+    //    ⇒「這個條件正確地沒有下推」與「整支查詢根本沒跑」印同一個綠。
+    //    釘的是**查詢真的建起來了**(`select` 被呼叫過), 不是任何一個篩選條件。
+    expect(select, '查詢從來沒有建起來 ⇒ 下面的負向斷言恆真').toHaveBeenCalled();
     expect(is).not.toHaveBeenCalledWith('cancelled_at', null);
   });
 
@@ -2147,6 +2174,11 @@ describe('#347-2a 關鍵字 × L6 隱藏規則(豁免綁精準鍵)', () => {
       { keyword: '王', includeUnpaidCardOrders: true },
       { limit: 20 },
     );
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:整支 `listOrderSummariesForAdmin` 早退時
+    //    這些 mock 一次都沒被呼叫 ⇒ `not.toHaveBeenCalled*` 全部恆真
+    //    ⇒「這個條件正確地沒有下推」與「整支查詢根本沒跑」印同一個綠。
+    //    釘的是**查詢真的建起來了**(`select` 被呼叫過), 不是任何一個篩選條件。
+    expect(h.listSelect, '查詢從來沒有建起來 ⇒ 下面那條恆真').toHaveBeenCalled();
     expect(h.or).not.toHaveBeenCalled();
   });
 });
@@ -2206,6 +2238,11 @@ describe('SupabaseOrderAdapter — #347-3b 建立日期範圍', () => {
     //    突變:在 adapter 補一個預設 ⇒ 這條紅。
     const h = makeAdminListClient({ data: [], error: null, count: 0 });
     await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin({}, { limit: 20 });
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:整支 `listOrderSummariesForAdmin` 早退時
+    //    這些 mock 一次都沒被呼叫 ⇒ `not.toHaveBeenCalled*` 全部恆真
+    //    ⇒「這個條件正確地沒有下推」與「整支查詢根本沒跑」印同一個綠。
+    //    釘的是**查詢真的建起來了**(`select` 被呼叫過), 不是任何一個篩選條件。
+    expect(h.select, '查詢從來沒有建起來 ⇒ 下面的負向斷言恆真').toHaveBeenCalled();
     expect(h.gte).not.toHaveBeenCalled();
     expect(h.lt).not.toHaveBeenCalled();
   });
@@ -2339,9 +2376,14 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — 待處理(#1 片1)
   it('🔴 沒按待處理 ⇒ 不下推那道 OR、也不下推 cancelled_at 守門(正向對照)', async () => {
     // 少了這格,把 `if (filter.pendingOnly)` 拿掉、變成無條件下推也會讓上面兩格全綠 ——
     // 而那會讓**每一次列表查詢**都藏掉已取消的單,那是沒有人拍板過的行為。
-    const { client, or, is } = makeAdminListClient({ data: [], error: null, count: 0 });
+    const { client, or, is , select } = makeAdminListClient({ data: [], error: null, count: 0 });
     await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, { limit: 20, offset: 0 });
 
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:整支 `listOrderSummariesForAdmin` 早退時
+    //    這些 mock 一次都沒被呼叫 ⇒ `not.toHaveBeenCalled*` 全部恆真
+    //    ⇒「這個條件正確地沒有下推」與「整支查詢根本沒跑」印同一個綠。
+    //    釘的是**查詢真的建起來了**(`select` 被呼叫過), 不是任何一個篩選條件。
+    expect(select, '查詢從來沒有建起來 ⇒ 下面的負向斷言恆真').toHaveBeenCalled();
     expect(or.mock.calls.some(([arg]) => String(arg).includes('goods_axis.eq.none'))).toBe(false);
     expect(is).not.toHaveBeenCalledWith('cancelled_at', null);
   });
