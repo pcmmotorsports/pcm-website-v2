@@ -106,6 +106,27 @@ beforeEach(() => {
 });
 
 describe('🔴🔴 鐵則 12 — DTO 不得帶任何金額', () => {
+  // 🔴🔴 **這一格守的是【`SRC` 自己】,不是實作**(線G 2026-08-29 補;`⟦b4-BYTELOCK⟧`)。
+  //
+  // 病:下面那一格是**字面掃描型(byte-lock)守門** —— 它問的是「`SRC` 裡有沒有那些字」。
+  //    ⇒ **`SRC` 一空,`filter` 回 `[]` ⇒ 那一格恆綠。**
+  // 🔴 而本檔【已經有】一格在守內容(`:143` 那格 `RAW.slice(0,200)` 要含 `import 'server-only'`)——
+  //    **但它守的是 `RAW`,而下面那一格讀的是 `SRC`**,兩者之間隔著一次剝註解的 `replace`。
+  //    ⇒ 實測(線G 突變 `const SRC = ''`):**38/38 全過** —— `RAW` 那格照樣綠,而金額掃描整格作廢。
+  // 📌 **判別句:守門要釘在【那一格實際讀的那個變數】上,不是它的上游。**
+  //    **中間每一次轉換,都是一個可以把內容變空而不被發現的地方。**
+  // ⚠️ 射程:它只證「`SRC` 不是空的、而且剝註解沒有把碼一起吃掉」;
+  //    **它不證那份碼是對的** —— 那是下面那一格的工作。
+  it('前提 — SRC 剝完註解之後仍然是【那份碼】(否則下面的金額掃描恆綠)', () => {
+    expect(SRC.length, 'SRC 是空的 ⇒ 下面那格的 filter 回 [] ⇒ 恆綠').toBeGreaterThan(0);
+    expect(
+      SRC,
+      "剝註解把實作也吃掉了 ⇒ 金額掃描的分母變空。錨用【不可能出現在註解裡】的宣告行。",
+    ).toContain('export async function loadShipmentCandidates');
+    // 負對照:這個錨【本來就該在】—— 若它哪天被改名,這一格會紅,而那是要的:
+    //   分母換了人,掃描結果就要重新被看一次。
+  });
+
   it('實作層不得出現 unitPrice / lineTotal / total / subtotal 等金額欄名', () => {
     const forbidden = ['unitPrice', 'lineTotal', 'subtotal', 'discountTotal', 'shippingFee', 'tierAtCheckout'];
     const bad = forbidden.filter((t) => SRC.includes(t));
