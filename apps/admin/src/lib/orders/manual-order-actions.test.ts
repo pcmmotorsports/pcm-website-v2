@@ -233,6 +233,17 @@ describe('🔴 授權閘絕對第一', () => {
   it('🔴 未授權 ⇒ 解析器**一次都沒被呼叫**(不是「呼叫了但結果沒用」)', async () => {
     mocks.authorizeAdminMutation.mockResolvedValue(null);
     await run(base());
+    // 🔴 **分母守門(2026-08-29 突變量到本格恆綠)**:整支 action 早退時
+    //    解析器當然一次都沒被呼叫 ⇒「閘擋住了」與「這支 action 根本沒跑」印同一個綠。
+    //    實測:在函式簽章的下一行插 `if (true) return;` ⇒ 全檔 44 格中 36 紅,
+    //    **而本格是那一族裡【唯一】活著的一格。**
+    //    🔴 它守的是權限:未授權者的輸入**連解析器都碰不到**
+    //      —— 少了它, 未授權者送爛表單會拿到 `invalid` 而不是 `denied`, 等於洩漏表單規則。
+    //    ⇒ 釘兩件, 因為它們證的是不同的事:
+    //      ① 閘【真的被呼叫過】(執行有走到那裡)
+    //      ② 拒絕路徑【真的走完了】(有導轉)—— 只釘 ① 的話, 閘後面整段被拿掉本格仍恆真
+    expect(mocks.authorizeAdminMutation, '授權閘一次都沒被呼叫 ⇒ 這支 action 根本沒跑').toHaveBeenCalled();
+    expect(mocks.redirect, '沒有任何導轉 ⇒ 拒絕路徑沒走完 ⇒ 下面那條恆真').toHaveBeenCalled();
     expect(mocks.parseManualOrderForm).not.toHaveBeenCalled();
   });
 
