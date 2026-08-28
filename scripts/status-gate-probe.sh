@@ -20,26 +20,70 @@
 
 set -e
 REPO=$(git rev-parse --show-toplevel); cd "$REPO"
-TMP=$(mktemp -d); WT="$TMP/probe"; BR="status-gate-probe-$$"
-BASELINE="$TMP/baseline.sh"; cp "$REPO/.husky/status-owner-gate.sh" "$BASELINE"
-HOOK="$BASELINE"          # 當前受測版本(突變層會換掉它)
-PASS=0; FAIL=0
-
+# 🔴 這兩處補的**不是「一道擋」—— `set -e`(上一行)本來就會停**。補的是【它說得出自己在擋什麼】。
+#   量到的(2026-08-28 線E,PATH 替身,兩處各一發 + 負對照):
+#     mktemp 替身(壞得像真工具:rc=1 + stderr 84 bytes)⇒ 舊行為把 rc=1 原樣傳出、零訊息
+#     git 替身讓 worktree add 失敗 ⇒ rc=1 · 輸出【完全空白】
+#     負對照(同 harness、命令改成 exit 0)⇒ rc=0 且往下走 ⇒ 尺是活的
+#   ⇒ **兩種完全不同的失敗, 印同一個 rc 和同一片空白。**
+#   而它們的下游動作【相反】:一個要重跑(這一發不算數), 一個要去修(這一發算數而它是紅的)
+#   ⇒ `set -e` 那種擋在 CI 上只留一個赤裸的 rc=1, **沒有人查得出是哪一步。**
+#
+# 🔴 rc 的分法**抄同 repo 既有慣例、不自創** —— `.husky/state-gates-freshness-gate.sh:26` 逐字:
+#   「2 = 量具自壞(產生器缺席、自身守門紅、空輸出、git 管線失敗)—— **輸出作廢**,不是『表新鮮』」
+#   ⇒ 本檔照它:**rc=2 = 量具自壞 ⇒ 這一發不算數**;**rc=1 = 有格沒過 ⇒ 這一發算數而它是紅的**
+#   🔴 **而【兩道守門都用 2】** —— mktemp 與 worktree add 都是「連場地都沒有」。
+#      分辨它們的是【訊息】, 不是 rc。⇒ 真正被分開的是「量具自壞」與「有格沒過」那一對,
+#      而那正是舊行為壞掉的地方:mktemp 失敗經 `set -e` 傳出 **rc=1**, 與「有格沒過」同碼。
+#   ⚠️ 那個 2 不是隨手挑的數字 —— 理由跟著抄過來, 否則下一個人會以為它是。
+TMP=$(mktemp -d) || { echo "🔴 rc=2 量具自壞:mktemp -d 失敗, 連暫存目錄都建不出來 ⇒ 這一發【不算數】, 不是『沒過』。重跑。" >&2; exit 2; }
+WT="$TMP/probe"; BR="status-gate-probe-$$"
 cleanup() {
   git -C "$WT" merge --abort 2>/dev/null || true
   git worktree remove --force "$WT" 2>/dev/null || true
   git branch -D "$BR" 2>/dev/null || true
   rm -rf "$TMP"
 }
+
+# 🔴 `trap` 必須緊接在 `mktemp` 之後(code-reviewer R2 #3, 實測洩漏 delta=1):
+#   原本 trap 裝在 `cleanup()` 之後、而 `cp` 在它之前 ⇒ **cp 失敗時 `$TMP` 沒有人收** ⇒ 孤兒 temp dir。
+# 🔴🔴 而 `cleanup()` 的定義**必須排在 `trap` 之前** —— 我第一版只把 trap 往前搬而沒搬函式,
+#   實測(拋棄式):早退時 sh 找不到 `cleanup` ⇒ 印 `cleanup: command not found`、
+#   **rc 從 2 變成 127**、而 temp dir **照樣洩漏**。
+#   📌 **一個為了「早退時也收得乾淨」的修法, 自己製造了一個新的碼碰撞(127)而且沒有收乾淨。**
 trap cleanup EXIT
+# 🔴 `cp` 也要 rc=2:抄不到基準版 = 連受測對象都沒有 = 量具自壞, 不是「有格沒過」。
+#   而它原本經 `set -e` 傳出 **rc=1** ⇒ 與收尾那個 `[ "$FAIL" = "0" ]` 的真紅撞在一起
+#   —— 與 mktemp 那一格同病。🔴 **這裡刻意不寫行號**(R3 F3:我上一版寫 `:237`, 而那實測是一行
+#      註解, 真紅在別處)—— 而寫下「用錨」那條診斷的正是我自己, 卻只把它套在被指名的那一處。
+#      📌 **寫下一條正確診斷, 與套用它, 是兩個動作。**
+BASELINE="$TMP/baseline.sh"
+cp "$REPO/.husky/status-owner-gate.sh" "$BASELINE" || { echo "🔴 rc=2 量具自壞:抄不到 $REPO/.husky/status-owner-gate.sh ⇒ 連受測對象都沒有, 這一發【不算數】。重跑。" >&2; exit 2; }
+HOOK="$BASELINE"          # 當前受測版本(突變層會換掉它)
+PASS=0; FAIL=0
+
+# (trap 已在 mktemp 之後就裝好, 見上方)
 
 # 🔴 基底不能用 origin/dev —— dev == origin/dev 時 `merge dev` 帶不進任何 STATUS 差異,
 #    cell2 會走到「根本沒偵測到 STATUS」而 rc 照樣 0 ⇒ 假通過(v1 第一跑實際撞到)。
-PROBE_BASE=$(git rev-parse "$(git log -1 --format=%H -- STATUS.md)^")
+# 🔴 R3 F7:解不出基底 = 連場地都沒有 ⇒ 同樣 rc=2(未補之前它經 `set -e` 傳出 128, 契約沒涵蓋)
+PROBE_BASE=$(git rev-parse "$(git log -1 --format=%H -- STATUS.md)^") || { echo "🔴 rc=2 量具自壞:解不出 PROBE_BASE(STATUS.md 的歷史不足?)⇒ 這一發【不算數】。重跑。" >&2; exit 2; }
 [ "$(git diff --no-ext-diff "$PROBE_BASE" dev -- STATUS.md | wc -l | tr -d ' ')" = "0" ] && {
-  echo "SETUP-FAIL: 基底與 dev 的 STATUS 無差異,cell2 會假通過,中止" >&2; exit 8; }
+  # 🔴 R3 F8:這是教科書級的【量具自壞】(場地不成立、輸出作廢), 而它原本回 8
+  #   ⇒ **同一顆 commit 宣告了 rc 契約, 又留了一個違反它的出口。** 改成 2。
+  echo "🔴 rc=2 量具自壞:基底與 dev 的 STATUS 無差異, cell2 會假通過 ⇒ 這一發【不算數】。中止。" >&2; exit 2; }
 
-git worktree add -q -b "$BR" "$WT" "$PROBE_BASE"
+# 🔴 **rc=2(不是 1)—— 這是 code-reviewer R1 的 MF1+MF3 改過來的, 我原本寫 1 是錯的**:
+#   ① `.husky/state-gates-freshness-gate.sh:26` 把「**git 管線失敗**」歸在 **2 = 量具自壞**
+#      ⇒ 建不起 worktree = 連場地都沒有 = 量具自壞, **不是「有格沒過」**
+#   ② 而寫 1 是**回歸**:真 `git worktree add` 失敗回的是 128 或 255(不穩定, 隨失敗原因變)
+#      ⇒ 壓成 1 會與本檔收尾那個 `[ "$FAIL" = "0" ]` 的 1 **撞在一起**
+#        🔴 **這裡刻意不寫行號** —— 同一個引用今晚漂了三次(:229 → :237 → :249),
+#           而每次都是【我自己改這支檔】造成的。⇒ 用錨(那行碼本身), `grep -n` 當場找。
+#           📌 一個會被自己的下一次編輯弄假的引用, 不值得寫進碼裡。
+#      📌 **我要消滅的歧義, 在另一對之間被製造出來了。**
+#   ⇒ 兩道守門【都是 rc=2】, 而分辨它們的是**訊息**不是 rc。rc 只負責與「有格沒過」分開。
+git worktree add -q -b "$BR" "$WT" "$PROBE_BASE" || { echo "🔴 rc=2 量具自壞:建拋棄式 worktree 失敗(BR=$BR WT=$WT BASE=$PROBE_BASE)⇒ 連場地都沒有, 這一發【不算數】。重跑。" >&2; exit 2; }
 git -C "$WT" config user.email probe@local
 git -C "$WT" config user.name probe
 
@@ -59,7 +103,10 @@ enter_merge() {                       # 造出「側分支 merge dev、STATUS �
 # run <期望rc> <期望分支 allow|block|bypass|none> <名稱>
 run() {
   want_rc=$1; want_br=$2; name=$3
-  cp "$HOOK" "$WT/.husky/status-owner-gate.sh"
+  # 🔴 R3 F2:這個 cp 是上面那個 cp 的【親兄弟】, 而我上一版只補了被指名的那一處。
+  #   本檔 `:8-9` 逐字寫著這個病的名字:「作者修好 cell2、漏掉隔壁的 cell4」——
+  #   **而我在同一支檔上又犯了一次。**
+  cp "$HOOK" "$WT/.husky/status-owner-gate.sh" || { echo "🔴 rc=2 量具自壞:抄不到受測版本($HOOK)⇒ 這一發【不算數】。重跑。" >&2; exit 2; }
   out=$( (cd "$WT" && ${ENVPREFIX:-} sh .husky/status-owner-gate.sh) 2>&1 ) && rc=0 || rc=$?
   br=other
   case "$out" in
