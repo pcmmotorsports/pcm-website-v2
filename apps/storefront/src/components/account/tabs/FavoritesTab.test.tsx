@@ -99,6 +99,13 @@ describe('FavoritesTab(M-4b #191)', () => {
 
   it('🔴 priceGeneral 是 null 就不渲價格列(不印「NT$ null」)', () => {
     const { container } = render(<FavoritesTab favorites={[item({ priceGeneral: null })]} />);
+    // 🔴 **正向同伴**(`⟦b4-MONEY4⟧` ② 那一批,2026-08-29 線G)。下面兩條都是**負向**的 ——
+    //    「沒有價格列 + 沒有 NT$」在**整張卡根本沒渲染**的世界裡**一樣成立**。
+    //    ⇒ 先釘住那張卡真的畫出來了,那兩條才是在說「價格列被刻意省掉」。
+    expect(
+      container.textContent,
+      '卡片標題都沒渲染 ⇒ 下面兩條的「沒有」只是「什麼都沒有」',
+    ).toContain('測試零件一號');
     expect(container.querySelector('.acc-fav-price')).toBeNull();
     expect(container.textContent).not.toContain('NT$');
   });

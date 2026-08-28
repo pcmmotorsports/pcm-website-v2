@@ -190,6 +190,15 @@ describe('resolveCartLines(M-3-S2-b2-d 購物車 line 解析)', () => {
     ]);
     // 全跳 → 不回任何行(若退化成群價會回 3 行 unitPrice=14600〔群內最低〕= 錯價洩漏)。
     expect(res.length).toBe(0);
+    // 🔴 **正向同伴**(`⟦b4-MONEY4⟧` ② 那一批,2026-08-29 線G)。上面那個 0 是**負向**的 ——
+    //    「三行都被擋掉」與「這個函式今天什麼都不做」**回同一個 0**。
+    //    ⇒ 同一顆 mock、同一個函式,餵一行**合法**的 variantId:它必須回得來。
+    //      回不來 ⇒ 上面那個 0 不是「擋住了」,只是「沒跑」。
+    const ok = first(await resolveCartLines([{ productId: 'rpm-1', variantId: 'v1' }]));
+    expect(ok, '合法那一行也回不來 ⇒ 上面那個 length=0 不算「擋掉」').toMatchObject({
+      found: true,
+      unitPrice: 15200,
+    });
   });
 
   it('🔴 round3:有變體商品 + line 無有效 variantId(省略/空/空白)→ found:false(不退化群價)', async () => {
