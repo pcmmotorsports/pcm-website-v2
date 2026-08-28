@@ -113,7 +113,18 @@ function detail(over: Over = {}): AdminOrderDetail {
 
 async function renderPage(id = ORDER) {
   const ui = await OrderPickingPrintPage({ params: Promise.resolve({ id }) });
-  return render(ui);
+  const result = render(ui);
+  // 🔴 **分母守門(2026-08-28 突變量到本檔八格是恆綠的)**:本檔大量斷言的形狀是
+  //    「紙上**不得**出現某個字面」/「沒有列印鈕」/「沒有警告」——
+  //    而**整頁沒渲染時它們全部成立** ⇒「那東西正確地沒印」與「這張紙根本沒印出來」
+  //    印同一個綠。放進共用的 renderPage:一道蓋住全檔, 新加的格自動有分母。
+  //    ⚠️ 被擋的世界也算「有渲染」(它印一張只有 <Alert> 的紙)⇒ 錨要涵蓋 role="alert"。
+  //    釘節點數(結構), 不釘任何一句文案。
+  expect(
+    result.container.querySelectorAll('h1, h2, [role="alert"]').length,
+    '整張紙一個標題節點、一則 alert 都沒有 ⇒ 頁面根本沒渲染 ⇒ 本格的負向斷言恆真',
+  ).toBeGreaterThan(0);
+  return result;
 }
 const textOf = (c: HTMLElement) => c.textContent ?? '';
 

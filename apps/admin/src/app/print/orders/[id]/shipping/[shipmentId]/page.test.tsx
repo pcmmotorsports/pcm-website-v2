@@ -138,7 +138,18 @@ function setDetail(d: AdminOrderDetail) {
 }
 
 async function renderPage(id = ORDER, shipmentId = SHIPMENT) {
-  return render(await OrderShippingPrintPage({ params: Promise.resolve({ id, shipmentId }) }));
+  const result = render(await OrderShippingPrintPage({ params: Promise.resolve({ id, shipmentId }) }));
+  // 🔴 **分母守門(2026-08-28 突變量到本檔五格是恆綠的)**:本檔大量斷言的形狀是
+  //    「紙上**不得**出現某句話」/「某一區整個不出現」—— 而**整頁沒渲染時它們全部成立**。
+  //    ⇒ 「那一區正確地沒出現」與「這張紙根本沒印出來」印同一個綠。
+  //    放進共用的 renderPage:一道蓋住全檔, 新加的格自動有分母。
+  //    ⚠️ 被擋的世界也算「有渲染」—— 它印的是一張只有 <Alert> 的紙 ⇒ 錨要涵蓋 role="alert"。
+  //    釘節點數(結構), 不釘任何一句文案。
+  expect(
+    result.container.querySelectorAll('h1, h2, [role="alert"]').length,
+    '整張紙一個標題節點、一則 alert 都沒有 ⇒ 頁面根本沒渲染 ⇒ 本格的負向斷言恆真',
+  ).toBeGreaterThan(0);
+  return result;
 }
 
 /**
@@ -183,6 +194,14 @@ const infoValue = (container: HTMLElement, key: string): string | undefined =>
 
 describe('🔴 #10 片2b — 八種「不該印」的狀態', () => {
   it('正向:一切正常時可以印(否則下面六格全部恆綠)', () => {
+    // 🔴🔴 **這一格自己曾經是恆綠的(2026-08-28 量到)**:把 `shippingDocBlocker` 改成
+    //    `if (true) return null;`(它對任何輸入都不擋)⇒ **本格與下面那六格【全部】照樣綠**。
+    //    ⇒ 標題那句「否則下面六格全部恆綠」是對的, **而它自己也在那個名單裡**。
+    //    ⇒ 先證這把閘是活的:一個已知該擋的世界必須真的擋。
+    expect(
+      block({ detail: { cancelledAt: '2026-08-05T02:00:00+00:00' } }),
+      '連已取消的單都不擋 ⇒ 這把閘整支沒在跑, 下面那個 null 不算數',
+    ).not.toBeNull();
     expect(block({})).toBeNull();
   });
 
@@ -213,6 +232,11 @@ describe('🔴 #10 片2b — 八種「不該印」的狀態', () => {
     // 這一格是 `Q-C18` 甲的**存在理由**:一張 200 品項的真實訂單會讓 `detail.itemsTruncated`
     // 為 true,而我們拿到的品項清單是完整的 ⇒ **紙照印**。
     // 沒有這一格的話,把判準改回 `detail.itemsTruncated` 不會有任何東西紅。
+    // 🔴 **分母守門**:同 `:185` —— 閘整支回 null 時本格也綠。
+    expect(
+      block({ detail: { cancelledAt: '2026-08-05T02:00:00+00:00' } }),
+      '連已取消的單都不擋 ⇒ 這把閘整支沒在跑, 下面那個 null 不算數',
+    ).not.toBeNull();
     expect(block({ detail: { itemsTruncated: true } })).toBeNull();
   });
 
