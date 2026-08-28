@@ -84,6 +84,27 @@ const POLICY_BY_CODE: Record<EmailSendErrorCode, BackoffPolicy> = {
 };
 
 /**
+ * **這個碼代表「額度用盡」嗎** —— 分母**由 `POLICY_BY_CODE` 推導,不另抄一份**。
+ *
+ * 🔴 **為什麼不寫成 `code === 'quota_daily_exceeded' || code === 'quota_monthly_exceeded'`**
+ * (2026-08-29 線D 第一版就是那樣寫的,code-reviewer F1/F2 換來的):
+ * ① **漏了 `http_429`** —— `IEmailOutbox.ts` 的 `http_429` JSDoc 逐字寫「若實際不含 `name`
+ *    → **所有 429 都落本格**」(兩個官方 SDK 對 429 的形狀不一致、標為未確認)
+ *    ⇒ **在那個世界裡,日/月額度用盡回的就是 `http_429`** ⇒ 手寫的兩碼判斷會漏掉它,
+ *    而漏掉的後果正是這個判斷要防的那件事(回 200、監控說一切正常)。
+ * ② **手寫的分母不會跟著長** —— `POLICY_BY_CODE` 是 `Record<EmailSendErrorCode, …>`:
+ *    provider 日後多一個 `quota_*` 碼而漏配政策 ⇒ **typecheck 必紅**。
+ *    抄一份出去的話,退避那邊編不過、告警這邊**靜靜地算 0、三綠全綠**。
+ * 📌 **兩把尺量同一件事時,讓後來的那把去問前面那把,不要各自維護一份名單。**
+ *
+ * ⚠️ **射程**:`rate_limited`(短暫節流、退避 `rate_limited_short`)**不算**額度用盡 ——
+ * 它會自己好,而額度用盡不會。
+ */
+export function isQuotaExhaustionCode(errorCode: EmailSendErrorCode): boolean {
+  return POLICY_BY_CODE[errorCode] === 'quota_24h';
+}
+
+/**
  * 算下次重試時間(= `markFailed` 的 `nextRetryAt`)。
  *
  * @param errorCode sender 回報的失敗碼(union 成員;runtime allowlist 由 adapter 把關)。

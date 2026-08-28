@@ -26,7 +26,7 @@
 //      (result.errors>0)→ 503 + 結構化 counts log(零 PII)、**不可吞成 200 偽裝成功**(壞掉的 sweeper 靜默不寄
 //      = 客人永遠收不到信、無人知)。🔴 result.deferred>0 = 時間預算調參訊號、**非錯誤**、不 503。
 //   3. 不採信任何外部輸入:無 client 參數 / 無 query / 無 body;claimLimit/lease 皆 route 端常數。回應 **counts-only
-//      allowlist**(顯式挑 7 個數值欄、不 blind spread ...result;recipient_email 只進 sender.send 的 to、物理擋 PII)。
+//      allowlist**(顯式挑 8 個數值欄、不 blind spread ...result;recipient_email 只進 sender.send 的 to、物理擋 PII)。
 //   4. 🔴 **零告警**(Sean Q13=A;plan §3.6):五訊號全歸 E2a-2 獨立管道 —— sweeper 不可自我監看(死時告警一起死)。
 //      本 route 只回 counts、零告警管道注入,判讀交給獨立 cron。
 //
@@ -176,7 +176,7 @@ function requireCronSecret(): string {
 }
 
 /**
- * 🔴 counts allowlist(codex 關卡2 must-fix:route 邊界**顯式挑** SweepEmailOutboxResult 的 7 個數值欄,
+ * 🔴 counts allowlist(codex 關卡2 must-fix:route 邊界**顯式挑** SweepEmailOutboxResult 的 8 個數值欄,
  * **不 blind spread `...result`** → use-case 日後誤增 recipient_email 等診斷/PII 欄時,blind spread 會靜默洩進
  * log / HTTP 回應;顯式挑欄 = 物理擋、非約定。全欄皆數值 counts、零 PII)。
  */
@@ -188,6 +188,7 @@ function pickCounts(result: {
   deferred: number;
   staleMarks: number;
   errors: number;
+  quotaFailed: number;
 }) {
   return {
     reclaimed: result.reclaimed,
@@ -197,6 +198,7 @@ function pickCounts(result: {
     deferred: result.deferred,
     staleMarks: result.staleMarks,
     errors: result.errors,
+    quotaFailed: result.quotaFailed,
   };
 }
 
@@ -320,8 +322,47 @@ export async function GET(request: Request): Promise<Response> {
     //    調參訊號(claimLimit 相對 maxRunSeconds 太大)、**非錯誤、不 503**。counts only 零 PII。
     // 🔴 B-5:enqueue 那半的失敗**同樣不可吞成 200**(單筆 errors 或整段 throw 都算)。
     // 🔴 `skipped_bad_cutoff` 也算失敗:env 填錯了而沒有人會發現,正是本片要防的那種安靜壞掉。
+    // 🔴 **`quotaFailed > 0` 也算失敗**(2026-08-29 線D;主視窗批准「乙」)。
+    //    **為什麼不是拿 `result.failed > 0`**:`failed` 混了**單封偶發**的失敗(某一封收件地址壞掉),
+    //    那種天天都會有 ⇒ 拿它翻紅 = 告警天天叫 = **等於沒有告警**。
+    //    額度用盡不同:它撞的是**帳號層的牆** ⇒ 這一輪剩下的每一封也都會失敗。
+    //    ⚠️ 而**迴圈不會 break** —— 剩下的每一封照樣各打一次 Resend、各燒掉一次 `attempts`。
+    //       (不是本行造成的、也不在本片修;寫出來是因為「一封都寄不出去」聽起來像它會停下來。)
+    // 🔴 **在本行之前發生的事(量到的,不是推的)**:額度爆 ⇒ `failed` 一直爬而 `errors` 恆 0
+    //    ⇒ 這個條件不成立 ⇒ 回 **200 `ok:true`** ⇒ `recordHeartbeatSuccess` 前進
+    //    ⇒ **一輪一封都沒寄出去,而它回報自己成功。** 本行改掉的就是那一句謊。
+    //
+    // 🔴🔴 **本行【不會讓任何東西主動叫】—— 這句話要寫在這裡,不要讓下一個人以為告警接上了。**
+    //    三個消費端逐一核過(code-reviewer F3 換來的;第一版寫成「遲到的第一格」是講得太滿):
+    //    ① 外部死人開關**刻意不打 `/fail`**(`heartbeat.ts` 的「刻意不做的」那段逐字)
+    //       ⇒ 本行只讓這一輪**不送成功 ping**,要等 grace 過完才掉。
+    //    ② 而下一輪(5 分鐘後)那批已經吃了 +24h 退避 ⇒ **沒有 due 列 ⇒ 回 200**
+    //       ⇒ `recordHeartbeatSuccess` 把 `consecutive_failures` 寫回 **0**。
+    //    ③ 後台儀表 `pcm-email-sweep` 的門檻是 `staleMinutes: 15`、`abnormal = stale || failing`。
+    //    **⇒ 實際產物 = 一次約 5 分鐘的紅點,在一個沒有人一定在看的頁面上,外加 Vercel log 一筆。**
+    //    📌 **「不再說謊」與「有人會被通知」是兩件事,本行只做到前者。**
+    //    ⇒ 會主動叫的那一格,處方記在 `docs/launch-todo.md`(錨:`叫既有告警系統多看一格` 那條)——
+    //       走既有的 LINE 推播、**不走 Resend**(額度爆掉時拿 Resend 發告警等於沒發)。
+    //    ⚠️ 因此本行**不違反** Q13=A(「本 use-case 零告警、sweeper 不可自我監看」):
+    //       它沒有注入任何告警管道,只是不再把失敗回報成成功。
+    //
+    // ⚠️ **與 plan §5 訊號 5 不是同一個述詞,不要互相頂替**:
+    //    訊號 5 = `status='failed' AND last_error_code IN (額度碼)` = **持久狀態**(爆掉之後每天都成立);
+    //    `quotaFailed` = **本輪的嘗試數**(爆完就被 +24h 退避帶走)⇒ **兩者可見窗差一個量級。**
+    //
+    // ⚠️ **本行只解掉第一格,剩下兩格仍然開著**:額度持續爆 ⇒ 每天重試燒 `attempts`
+    //    ⇒ **第 5 天永久死信**,而**目前無死信重送工具**(`IEmailOutbox.ts` 逐字、backlog `#286`)。
+    //    ⇒ 那兩格是另一片,題目在 `~/pcm-mailbox/等Sean決策-20260829.md` 的 `Q-死信怎麼辦`。
+    // 🔴 而 Sean 2026-07-17 拍 `Q9=A` 的**理由句**裡寫著「5 天緩衝(**每日告警**)」
+    //    (`IEmailOutbox.ts` 逐字,錨在字面「5 天緩衝」)—— **那個「每日告警」查無實作**。
+    //    數法(寫出來才複現得了;第一版寫「15 處」複現不出來 = code-reviewer F5):
+    //      正對照(要會命中)`grep -c quota apps/storefront/src/app/api/cron/anomaly-alert/route.ts` ⇒ **1**
+    //        —— 而那 1 筆講的是「密鑰外洩會消耗額度」,**不是對額度發告警**。
+    //      真正的空集合 `grep -cE "quota|email|outbox" packages/use-cases/src/check-anomaly-alerts.ts` ⇒ **0**(rc=1)
+    //        —— 告警判讀的本體裡,**寄信這條線完全沒有述詞**。
     if (
       result.errors > 0 ||
+      result.quotaFailed > 0 ||
       enqueueStatus === 'failed' ||
       enqueueStatus === 'skipped_bad_cutoff' ||
       (enqueueCounts?.enqErrors ?? 0) > 0

@@ -3,6 +3,7 @@ import {
   computeEmailBackoff,
   LEASE_RECLAIM_RETRY_DELAY_MS,
   type EmailBackoffRandom,
+  isQuotaExhaustionCode,
 } from './email-backoff';
 
 /**
@@ -98,6 +99,31 @@ export type SweepEmailOutboxResult = {
   staleMarks: number;
   /** 單封 throw / 段級(回收、claim)throw 計數(fail-closed 不中斷整批;>0 → route 503)。 */
   errors: number;
+  /**
+   * 🔴 **本輪有幾封是撞到【額度用盡】而失敗的。**
+   *
+   * **分母 = `isQuotaExhaustionCode`(由 `email-backoff.ts` 的 `POLICY_BY_CODE` 推導)**,
+   * 今天等於 `quota_daily_exceeded` / `quota_monthly_exceeded` / **`http_429`** 三碼 ——
+   * 🔴 `http_429` **不是順手加的**:`IEmailOutbox.ts` 的 `http_429` JSDoc 逐字寫著
+   * 「若實際不含 `name` → **所有 429 都落本格**」⇒ **在那個世界裡額度爆掉長的就是 `http_429`**,
+   * 而第一版手寫兩碼會漏掉它(code-reviewer F1)。**這裡不重抄碼名,免得兩份名單分岔。**
+   *
+   * **為什麼要與 `failed` 分開**(2026-08-29 線D):`failed` 混了**單封偶發**的失敗
+   * (某一封的收件地址壞掉之類)—— 而額度用盡是**整批性**的:**這一輪一封都寄不出去**。
+   * ⇒ 若拿 `failed > 0` 去翻紅,偶發失敗會讓告警天天叫,而
+   *   **一個天天叫的告警等於沒有告警**(同族字面見 `heartbeat.ts` 檔頭與 `#296`)。
+   *
+   * 🔴 **它存在的直接理由**:在本欄之前,額度爆掉時 `failed` 一直爬而 `errors` 恆 0
+   * ⇒ route 的 503 條件(只看 `errors`)不成立 ⇒ **回 200 `ok:true`** ⇒ 心跳前進
+   * ⇒ **一封信都沒寄出去,而所有監控都說一切正常。**
+   * 📌 那不是「監控沒接上」,是**監控接上了而它量錯東西** ——
+   *    外部死人開關問的是「這一輪有沒有跑」,而**額度爆掉的那一輪【真的跑了】**。
+   *
+   * ⚠️ **本欄【只解掉第一格】** —— 額度持續爆 ⇒ 每日重試、燒 5 次 `attempts` ⇒
+   *    **第 5 天永久死信**,而**目前無死信重送工具**(`IEmailOutbox.ts` 逐字、backlog `#286`)。
+   *    那一格是另一片,見 `~/pcm-mailbox/等Sean決策-20260829.md` 的 `Q-死信怎麼辦`。
+   */
+  quotaFailed: number;
 };
 
 /** lease 硬下界(秒)= plan §3.5-4「lease ≥ 1 小時」字面(物理擋、非約定)。 */
@@ -190,6 +216,7 @@ export async function sweepEmailOutbox(
     deferred: 0,
     staleMarks: 0,
     errors: 0,
+    quotaFailed: 0,
   };
 
   // 🔴 單一時鐘快照:staleBefore / nextRetryAt / 時間預算基準皆由此導出(兩次 now() 之間的
@@ -241,6 +268,10 @@ export async function sweepEmailOutbox(
         if (!owned) result.staleMarks++; // 柵欄 no-op:所有權已失、不得覆寫(非錯誤)
       } else {
         result.failed++;
+        // 🔴 額度用盡與單封偶發失敗分開計 —— 理由見型別上的 JSDoc。
+        //    **分母問 `isQuotaExhaustionCode`,不在這裡手寫碼名** —— 手寫會漏掉 `http_429`,
+        //    而 provider 日後新增的 quota 碼也不會自動進來(code-reviewer F1/F2 換來的)。
+        if (isQuotaExhaustionCode(outcome.errorCode)) result.quotaFailed++;
         const failedAt = now();
         const owned = await outbox.markFailed(
           job.id,

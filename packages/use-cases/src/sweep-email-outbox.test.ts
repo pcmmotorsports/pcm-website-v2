@@ -169,7 +169,10 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     expect(sentText).toBe(EXPECTED_ORDER_CREATED_BODY);
     expect(outbox.markSent).toHaveBeenCalledExactlyOnceWith('outbox-1', 3);
     expect(outbox.markFailed).not.toHaveBeenCalled();
-    expect(res).toEqual({ reclaimed: 0, claimed: 1, sent: 1, failed: 0, deferred: 0, staleMarks: 0, errors: 0 });
+    expect(res).toEqual({
+      reclaimed: 0, claimed: 1, sent: 1, failed: 0,
+      deferred: 0, staleMarks: 0, errors: 0, quotaFailed: 0,
+    });
   });
 
   it('failed → markFailed(errorCode + email-backoff 算的 nextRetryAt)', async () => {
@@ -186,6 +189,39 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     expect(outbox.markSent).not.toHaveBeenCalled();
     expect(res.failed).toBe(1);
     expect(res.errors).toBe(0);
+  });
+
+  // 🔴 **`quotaFailed` 的兩格必須並排讀**(2026-08-29 線D)——
+  //    只有正對照的話,一個「每次 failed 都 ++」的實作也會全綠,而那正是我們**不要**的「甲」。
+  it('🔴 額度用盡的碼 ⇒ quotaFailed 跟著 ++(與 failed 分開計)', async () => {
+    const outbox = outboxFake([job({ attempts: 1 })]);
+    const sender = senderFake([{ kind: 'failed', errorCode: 'quota_monthly_exceeded' }]);
+    const res = await sweepEmailOutbox({ outbox, sender }, OPTS);
+    // 🔴 怎麼會紅:拿掉 use-case 裡那個 errorCode 判斷 ⇒ 這裡 1 變 0。
+    expect(res.quotaFailed).toBe(1);
+    expect(res.failed).toBe(1);
+  });
+
+  it('🔴 F1:`http_429` 也算額度用盡(分母由 POLICY_BY_CODE 推導,不是手寫兩碼)', async () => {
+    const outbox = outboxFake([job({ attempts: 1 })]);
+    const sender = senderFake([{ kind: 'failed', errorCode: 'http_429' }]);
+    const res = await sweepEmailOutbox({ outbox, sender }, OPTS);
+    // 🔴 怎麼會紅:改回手寫 `=== 'quota_daily_exceeded' || === 'quota_monthly_exceeded'` ⇒ 1 變 0。
+    // 📌 這一格釘的是【有意納入】,不是巧合 —— 沒有它,「納入」與「忘了排除」在測試上長一樣。
+    //    理由:`IEmailOutbox.ts` 的 `http_429` JSDoc 逐字「若實際不含 `name` → 所有 429 都落本格」
+    //    ⇒ 那個世界裡額度爆掉就是回這個碼。
+    expect(res.quotaFailed).toBe(1);
+  });
+
+  it('🔴 [負對照] 一般失敗碼 ⇒ failed++ 而 quotaFailed 保持 0', async () => {
+    const outbox = outboxFake([job({ attempts: 1 })]);
+    const sender = senderFake([{ kind: 'failed', errorCode: 'http_500' }]);
+    const res = await sweepEmailOutbox({ outbox, sender }, OPTS);
+    // 🔴 怎麼會紅:改成無條件 `result.quotaFailed++` ⇒ 這裡 0 變 1。
+    //    📌 沒有這一格,新欄位就只是 `failed` 的複本,而 route 的判定會退回「甲」的行為。
+    // ⚠️ 而 `rate_limited`(短暫節流)同樣**不算**額度用盡 —— 它會自己好,額度用盡不會。
+    expect(res.quotaFailed, 'quotaFailed 變成 failed 的複本 ⇒ 告警天天叫').toBe(0);
+    expect(res.failed).toBe(1);
   });
 
   it('failed(指數碼)→ nextRetryAt 隨 attempts 翻倍(鎖 attempts→退避 wiring;R1 must-fix 2)', async () => {
@@ -336,13 +372,14 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
 });
 
 describe('sweepEmailOutbox — 結果形狀(零 PII 合約)', () => {
-  it('result 鍵恰為 counts 七欄(堵日後多塞 recipient/payload 等 PII 欄)', async () => {
+  it('result 鍵恰為 counts 八欄(堵日後多塞 recipient/payload 等 PII 欄)', async () => {
     const res = await sweepEmailOutbox({ outbox: outboxFake([]), sender: senderFake([]) }, OPTS);
     expect(Object.keys(res).sort()).toEqual([
       'claimed',
       'deferred',
       'errors',
       'failed',
+      'quotaFailed',
       'reclaimed',
       'sent',
       'staleMarks',

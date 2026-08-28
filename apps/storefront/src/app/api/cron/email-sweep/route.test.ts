@@ -52,7 +52,7 @@ const { GET } = route;
 
 const SECRET = 'a'.repeat(48); // ≥32
 
-/** 乾淨結果(errors=0、零待處理;Phase I 無流量的常態;鏡像 SweepEmailOutboxResult 全 7 欄)。 */
+/** 乾淨結果(errors=0、零待處理;Phase I 無流量的常態;鏡像 SweepEmailOutboxResult 全 8 欄)。 */
 const CLEAN_RESULT = {
   reclaimed: 0,
   claimed: 0,
@@ -61,6 +61,7 @@ const CLEAN_RESULT = {
   deferred: 0,
   staleMarks: 0,
   errors: 0,
+  quotaFailed: 0,
 };
 
 const DEPS = { outbox: {}, sender: {} };
@@ -205,9 +206,42 @@ describe('GET email-sweep — 執行 + 結果映射', () => {
   });
 });
 
+describe('GET email-sweep — 🔴 額度用盡要翻紅(2026-08-29 線D;主視窗批准「乙」)', () => {
+  // 🔴 **這一組的兩格必須【並排讀】** —— 單看正對照,一個「`failed > 0` 就翻紅」的實作(甲)也會全綠。
+  //    **負對照才是選「乙」的全部理由**:單封偶發失敗天天有,拿它翻紅 = 告警天天叫 = 等於沒有告警。
+  // 🔴 **在這一組之前發生的事(量到的)**:額度爆 ⇒ `failed` 一直爬而 `errors` 恆 0
+  //    ⇒ route 回 200 `ok:true` ⇒ 心跳前進 ⇒ 外部死人開關維持 up
+  //    ⇒ **一封信都沒寄出去,而所有監控都說一切正常。**
+  // ⚠️ **本組只守第一格**:額度持續爆仍會每天燒 `attempts`、**第 5 天永久死信**,
+  //    而目前無死信重送工具(`IEmailOutbox.ts` 逐字、backlog `#286`)⇒ 那是 `Q-死信怎麼辦`,不在本片。
+
+  it('[正對照] quotaFailed > 0 ⇒ 503,而且心跳【不得】前進', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT, claimed: 3, failed: 3, quotaFailed: 3 });
+    const res = await GET(makeReq(bearer()));
+    // 🔴 怎麼會紅:把 route 那行 `result.quotaFailed > 0 ||` 拿掉 ⇒ 這裡 503 變 200。
+    expect(res.status, '額度爆掉而 route 回 200 ⇒ 監控會說一切正常').toBe(503);
+    expect(await res.json()).toMatchObject({ ok: false, quotaFailed: 3 });
+    // 🔴 這一格是本片的目的:心跳前進 = 外部死人開關維持 up = 沒有人會知道。
+    expect(hbOkSpy, '心跳前進了 ⇒ 死人開關維持 up').toHaveBeenCalledTimes(0);
+    expect(hbFailSpy).toHaveBeenCalledTimes(1);
+    errSpy.mockRestore();
+  });
+
+  it('🔴 [負對照] 單封偶發失敗(failed>0 而 quotaFailed=0)⇒ 照樣 200,心跳照常前進', async () => {
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT, claimed: 5, sent: 4, failed: 1, quotaFailed: 0 });
+    const res = await GET(makeReq(bearer()));
+    // 🔴 怎麼會紅:改成拿 `result.failed > 0` 翻紅(＝「甲」)⇒ 這裡 200 變 503。
+    //    📌 沒有這一格,「乙」與「甲」在所有其他測試上長得一模一樣。
+    expect(res.status, '單封偶發失敗就翻紅 ⇒ 告警天天叫 ⇒ 等於沒有告警').toBe(200);
+    expect(hbOkSpy).toHaveBeenCalledTimes(1);
+    expect(hbFailSpy).toHaveBeenCalledTimes(0);
+  });
+});
+
 describe('GET email-sweep — 🔴 counts allowlist(不 blind spread ...result、PII 物理擋)', () => {
-  // codex 關卡2 must-fix:若 use-case 日後誤增 recipient_email 等診斷/PII 欄,route 顯式挑 7 欄 → 不會洩進回應/log。
-  it('sweep result 混入 PII sentinel 欄 → 200 回應**不含**該欄(只 7 counts)', async () => {
+  // codex 關卡2 must-fix:若 use-case 日後誤增 recipient_email 等診斷/PII 欄,route 顯式挑 8 欄 → 不會洩進回應/log。
+  it('sweep result 混入 PII sentinel 欄 → 200 回應**不含**該欄(只 8 counts)', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     sweepSpy.mockResolvedValue({
       ...CLEAN_RESULT,
@@ -227,7 +261,7 @@ describe('GET email-sweep — 🔴 counts allowlist(不 blind spread ...result�
     expect(Object.keys(body).sort()).toEqual(
       [
         'claimed', 'deferred', 'enqueueStatus', 'errors', 'failed',
-        'ok', 'reclaimed', 'sent', 'staleMarks',
+        'ok', 'quotaFailed', 'reclaimed', 'sent', 'staleMarks',
       ].sort(),
     );
     errSpy.mockRestore();
