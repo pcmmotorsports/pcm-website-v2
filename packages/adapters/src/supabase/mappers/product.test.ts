@@ -1,4 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { computeEffectivePrice } from '@pcm/domain';
 import {
   mapDomainProductToSupabase,
   mapSupabaseProductToDomain,
@@ -90,6 +92,99 @@ describe('mapVariantRow', () => {
     // 確認 dummy 不是把 general 灌進去(若誤把 price_general 當經銷價會等於 8400)
     expect(v.priceByTier.store.amount).not.toBe(8400);
     expect(v.priceByTier.premiumStore.amount).not.toBe(8400);
+  });
+
+  // ────────────────────────────────────────────────────────────
+  // 🔴 D-4 引信(2026-08-29 線D;主視窗指定「只裝引信、不改行為」)
+  //
+  // **上面那格守的是「今天不洩經銷價」。這一組守的是【接通的那一天】。**
+  // 📌 差別:上面那格在有人接上真價的那天會紅,**而最自然的修法是把 `0` 改成真值** ——
+  //    改完它就綠了,**而畫面上仍然顯示 0,沒有任何東西會再紅一次。**
+  //
+  // 🔴 **為什麼「顯示 0」比「不顯示」危險**:一個顯示 0 的價格**看起來像免費**。
+  //
+  // 🔴🔴 **這道引信的天花板 —— 先讀這段,不然你會高估它**(code-reviewer 2026-08-29 C3):
+  //    `product.ts` 的 TODO 逐字寫著真價要「改走 **server-side pricing endpoint**
+  //    (讀 base 表 `price_store` / `price_by_tier`)、本 dummy 退場」
+  //    ⇒ **照那條路接通的話,新碼根本不會落在這兩支 mapper 裡 ⇒ 本引信全程綠。**
+  //    📌 **⇒ 它守的是【這支檔這條路】,不是「有沒有人接上經銷價」。**
+  //       這一格綠 **不等於** 沒有人接 —— 而那兩句話讀起來幾乎一樣。
+  //    ⇒ 真正的覆蓋要在 D-1/D-2 那兩片各自裝,見 `~/pcm-mailbox/線D-plan-經銷價接過來-v2-20260829.md`。
+  //
+  // ⚠️ **這一組【不改任何行為】** —— 只是讓「有人走這條路接上了」發得出聲音。
+  //    真正的修法(顯示路徑)是 D-4 那片,而那片動的是價格 ⇒ 鐵則 12 ①,不在這裡順手做。
+  describe('🔴 D-4 引信:有人【從這兩支 mapper】接上經銷價時要發得出聲音', () => {
+    const SRC = readFileSync(new URL('./product.ts', import.meta.url), 'utf8');
+
+    /**
+     * 🔴 **只取【讀取方向】兩支函式的本體,而且剝掉整行註解。**
+     *
+     * 第一版的尺是 `SRC.includes('price_store')` ⇒ **一裝就紅**,而紅的理由全是假的:
+     * 它咬到 ①`SupabaseVariantRow` 的型別欄宣告(`product.ts:98`)②**八處**講
+     * 「view 物理排除 price_store」之類的註解 ③`mapDomainProductToSupabase` 的**寫入**方向
+     * (`:398`)。📌 **尺的射程比它的宣稱寬 —— 而寬的那一版看起來更嚴格,所以不會有人懷疑它。**
+     *
+     * 🔴 **`i < 0` 一定要 throw**(code-reviewer C1):`indexOf` 找不到會回 `-1`,
+     * 而 `SRC.slice(-1, j)` 回**空字串** ⇒ **F1 安靜地變成半盲而且照樣綠**。
+     * 觸發條件很日常:改名,或改寫成 `export const mapVariantRow = (...) =>`。
+     * 📌 **一把切歪的尺與一把沒東西可咬的尺,印出來的是同一個綠。**
+     */
+    const sliceOf = (fn: string) => {
+      const i = SRC.indexOf(`export function ${fn}`);
+      if (i < 0) throw new Error(`切不到 ${fn} —— 函式改名或改寫成 const 了,這把尺已失效`);
+      const j = SRC.indexOf('\nexport ', i + 1);
+      return SRC.slice(i, j === -1 ? undefined : j)
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^[ \t]*\/\/[^\n]*$/gm, ''); // 🔴 只剝【整行】註解:行尾的 `//`(例如網址)不吃
+    };
+    const readPaths = [sliceOf('mapSupabaseProductToDomain'), sliceOf('mapVariantRow')].join('\n');
+
+    /** 🔴 禁字集含 `price_by_tier` —— 上面天花板那段點名的第二個來源(實測今天讀取切片內 0 命中)。 */
+    const BANNED = ['price_store', 'price_by_tier'] as const;
+
+    it('[F1] 讀取方向今天【讀 price_general、不碰經銷價欄】—— 接上的那天這格必紅', () => {
+      // 🔴 正對照先跑:證明我切出來的是一段【非空、而且真的是那兩支】的碼,
+      //    不是在對空字串下斷言(「排除」形狀的守門在清單空掉時恆真 ——
+      //    `docs/patterns/guard-and-instrument-traps.md`)。
+      expect(readPaths).toContain('price_general');
+      expect(readPaths).toContain('priceByTier');
+      // 🔴 負對照:剝註解真的有效。
+      //    ⚠️ 第一版用 `view 物理排除` ⇒ **恆真格** —— 那兩處(`product.ts:119`/`:132`)
+      //    都在切片起點(`:178`)【之前】,本來就不在切片裡(code-reviewer C2 實測:
+      //    把 strip 換成恆等函式,那格照樣通過)。改用**切片內真的有的**那句。
+      expect(SRC).toContain('本 dummy 退場'); // 那句註解確實存在於檔內
+      expect(readPaths, '剝註解沒生效 ⇒ F1 會被註解裡的 price_store 誤觸').not.toContain(
+        '本 dummy 退場',
+      );
+      for (const w of BANNED) {
+        // 🔴 怎麼會紅:有人把經銷價欄接進讀取方向 ⇒ 這裡紅。
+        //    **那正是我們要的** —— 它會把人帶到上面那段天花板,而那段會告訴他顯示路徑還沒做。
+        expect(
+          readPaths.includes(w),
+          `有人把 ${w} 接進讀取方向了 ⇒ 顯示路徑(D-4)必須同時做,否則畫面會顯示 0 而它看起來像免費`,
+        ).toBe(false);
+      }
+    });
+
+    it('[F2] premiumStore 的折數公式今天【算得對,而它算的是 0】—— 真而空', () => {
+      // 🔴 **這一格的敘事被 code-reviewer C4 改過,原版指錯了病灶。**
+      //    `product.ts` 那句「真值由 computeEffectivePrice 在 storefront dispatch 時覆蓋」
+      //    **掛在 `premiumStore` 上,不是 `store` 上**,而 `computeEffectivePrice` 對 premiumStore
+      //    **確實有算**(`round(store × (1 - pct/100))`)⇒ **那句註解不是假的,它是【真而空】** ——
+      //    公式沒壞,壞的是餵給它的輸入(`store` 是硬寫的 0)。
+      // 📌 **這個分別很貴**:寫成「註解是假的」會讓下一個人去修 `computeEffectivePrice`,
+      //    **而那支沒壞。** 要修的是輸入,不是公式。
+      const p = mapSupabaseProductToDomain({ ...baseProductRow, price_general: 8400 });
+      // 🔴 用一個【非 0 的折數】,不然 store=0 與 pct=0 兩個原因都會印 0,分不出是哪個。
+      const withPct = { ...p, brand: { ...p.brand, premium_extra_pct: 20 } };
+      expect(computeEffectivePrice(withPct, 'premiumStore').amount).toBe(0);
+      // 🔴 正對照:同一條公式餵一個【非 0 的 store】⇒ 它會真的打折 ⇒ 證明公式是活的、
+      //    上面那個 0 是輸入造成的,不是公式壞了。怎麼會紅:把折數公式拿掉 ⇒ 這裡變 8400。
+      const wired = { ...withPct, priceByTier: { ...withPct.priceByTier, store: { amount: 8400 as never, currency: 'TWD' as const } } };
+      expect(computeEffectivePrice(wired, 'premiumStore').amount).toBe(6720);
+      // 🔴 而 general 那條路不是 0 ⇒ 這把尺量得到差別,不是三格都印 0。
+      expect(computeEffectivePrice(p, 'general').amount).not.toBe(0);
+    });
   });
 
   it('special 第三維 spec 還原(weave × finish × special)', () => {
