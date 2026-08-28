@@ -285,10 +285,19 @@ describe('#841 甲:收到錢了而那張單仍被預設隱藏 ⇒ 面板要講',
     expect(container.textContent ?? '').toContain('收款');
   });
 
+  // 🔴🔴 **下面這兩格 2026-08-28 量到是恆綠的** —— 它們唯一那條斷言是
+  //    `hiddenNotice(container)).toBeNull()`,而 `hiddenNotice` 找不到就回 `null`
+  //    ⇒ **整頁沒渲染時它們照樣綠**(實測:`app/orders/[id]/page.tsx:98` 插空渲染
+  //    ⇒ 本檔 13 格裡 11 格紅,而這兩格是那 2 格綠)。
+  // ⚠️ **同族的其他格早就有錨了** —— 上一格帶著「正對照:這一發真的渲染了付款卡」那一行,
+  //    `#841 乙` 那一族五格都呼叫 `expectPageRendered`。**缺的只有這兩格。**
+  //    📌 一族裡大部分有錨、少數沒有 ⇒ 整族讀起來像已經處理過了。
+  // ⇒ 補的是**本檔既有的** `expectPageRendered`,不另外發明第三種寫法。
   it('🔴 tappay + unpaid + 【零收款】⇒ 不講(那種單被藏是刻意的,講了是噪音)', async () => {
     mocks.findAdminOrderDetail.mockResolvedValue({ ...detail(), paymentStatus: 'unpaid' });
     mocks.listOrderPayments.mockResolvedValue([]);
     const { container } = await renderPage();
+    expectPageRendered(container);
     expect(hiddenNotice(container)).toBeNull();
   });
 
@@ -296,6 +305,7 @@ describe('#841 甲:收到錢了而那張單仍被預設隱藏 ⇒ 面板要講',
     mocks.findAdminOrderDetail.mockResolvedValue({ ...detail(), paymentStatus: 'unpaid' });
     mocks.listOrderPayments.mockRejectedValue(new Error('boom'));
     const { container } = await renderPage();
+    expectPageRendered(container);
     expect(hiddenNotice(container)).toBeNull();
   });
 
