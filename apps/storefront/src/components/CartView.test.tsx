@@ -193,7 +193,9 @@ describe('CartView(M-3-S2-b2-d)', () => {
     expect(pushMock).toHaveBeenCalledWith('/products');
   });
 
-  it('🔴 經銷零洩漏:階段① general-only、不顯「經銷」/ price_store', async () => {
+  // 🔴 本格自 2026-08-29 起同時是【本類的正向錨】—— 格名跟著改, 否則金額格式壞掉時
+  //    CI 印的是「經銷零洩漏」失敗, 診斷會指向錯的方向。
+  it('🔴 經銷零洩漏:階段① general-only、不顯「經銷」/ price_store + 正向金額仍在', async () => {
     setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 2 }]);
     resolveMock.mockResolvedValue([
       resolvedLine({ productId: 'rpm-1', variantId: 'v1', unitPrice: 15200 }),
@@ -205,6 +207,27 @@ describe('CartView(M-3-S2-b2-d)', () => {
     expect(container.textContent).not.toContain('priceByTier');
     // 無劃線價 <s>
     expect(container.querySelector('s')).toBeNull();
+    // 🔴🔴 正向的同伴(2026-08-29 線C 補;⟦b4-MONEY4⟧ 分母體檢逼出來的)
+    //    上面那四行【全部是負向的】—— 它們守的是「不該出現的東西」,
+    //    而沒有一行證明「該出現的出現了」⇒ **實作渲染空的時候, 那四行會同時變綠。**
+    //    ✅ 已實測(本檔, 2026-08-29):把 `CartView.tsx` 的 `cart-item-price-main`
+    //       改成渲染空的 ⇒ **本格紅在下面這一行**, 而它前面那四行【先跑過了】
+    //       ⇒ 同一發同時證了「新行有效」與「那四行在空世界仍綠」。實作已逐字還原。
+    //    ⚠️ 而「空 keys / 空投影 / 空 JSON / 空清單」那組數字**不是在本檔量的** ——
+    //       它量在 ⟦b4-MONEY4⟧ 的 adapters 那批(落點 `~/pcm-mailbox/線C-⟦b4-MONEY4⟧分母體檢-20260829.md`)。
+    //       📌 **本檔是 jsdom render, 沒有 JSON 也沒有投影層** ⇒ 數字要帶著它的量測範圍走。
+    // 🔴 **一類補一格就夠** —— 上面那四行沒有壞, 刻意不動它們。
+    //    判準只有一句:**在「實作渲染空的」那個世界, 這一行會不會紅?**
+    //    ⇒ 用【精確相等】不用 `toContain`:`toContain('NT$')` 會被 **`NT$ 0`** 滿足
+    //      ⇒ 一個把價格算成 0 的實作照樣過。(不是「別處的 NT$」—— 這裡的查詢範圍
+    //       已經收到單一元素裡了, 那個理由不成立;真正的弱點是它**接受錯的金額**。)
+    // ⚠️ **誠實邊界**:下面兩行與本檔 `:143` / `:145` 是同一組斷言、同一份 fixture
+    //    ⇒ 🔴 **它們沒有新增任何一個原本無人守的世界**。
+    //    它們新增的是:**這一格自己站得住** —— 一個只讀「經銷零洩漏」這一格的人,
+    //    看得到正向錨就在同一格裡, 而不是隔壁那一格(而隔壁那一格顯然沒有阻止這個病)。
+    expect(container.querySelector('.cart-item-price-main')?.textContent).toBe('NT$ 30,400');
+    // qty>1 才渲染(CartView.tsx:202)—— 本格 fixture qty=2;誰把它改成 1, 這一行會紅而訊息不提 qty
+    expect(container.querySelector('.cart-item-price-unit')?.textContent).toBe('單價 NT$ 15,200');
   });
 
   it('V-2h/MF-5:登入唯一/主車 → 首載預填未填列(source:garage)、不覆蓋 search 帶入列', async () => {
