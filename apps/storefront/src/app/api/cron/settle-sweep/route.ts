@@ -1,6 +1,10 @@
 // app/api/cron/settle-sweep/route.ts — 3DS 對帳兜底 sweeper cron route(M-3 3DS-4c;master plan v5 §2;plan §5.3)
 //
-// Vercel cron(3DS-4d vercel.json crons、**本片不含**)週期觸發 → 跑 sweepSettlements(3DS-4b-2 use-case):
+// **Supabase pg_cron**(job `pcm-settle-sweep`、`*/2 * * * *`)經 `pcm_cron.invoke_cron_route` 以 `pg_net`
+// 打進來 → 跑 sweepSettlements(3DS-4b-2 use-case):
+// 🔴 ~~Vercel cron(3DS-4d vercel.json crons、**本片不含**)週期觸發~~ **這句是假的。**
+//    排程 2026-07-24 已搬 Supabase pg_cron(commit `a5d76192`);兩支 `vercel.json` 皆無 `crons` 段。
+//    (舊字面留刪除線不刪 —— 它曾經被相信過。)
 // 掃 webhook inbox(processed=false 退避)+ stuck unsettled attempt(pending+charged-unpaid)兩來源 → 共呼
 // settleCharge(Record API 唯一權威),callback(3DS-3)/ webhook(3DS-2)漏接的「最終一致保證」。
 //

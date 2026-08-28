@@ -1,6 +1,14 @@
 // app/api/cron/anomaly-alert/route.ts — 雙扣 anomaly 主動告警 cron route(M-3 #250)
 //
-// Vercel cron(vercel.json crons)週期觸發 → 跑 checkAnomalyAlerts(use-case):讀 anomaly + 死卡列計數 **與訂單單號** →
+// **Supabase pg_cron**(job `pcm-anomaly-alert`、`0 1 * * *` = UTC 01:00 = 台北 09:00)經
+// `pcm_cron.invoke_cron_route` 以 `pg_net` 打進來 → 跑 checkAnomalyAlerts(use-case):讀 anomaly + 死卡列計數 **與訂單單號** →
+// 🔴 ~~Vercel cron(vercel.json crons)週期觸發~~ **這句是假的,而它是本檔第一行、最容易被讀到的那一句。**
+//    排程 2026-07-24 已搬 Supabase pg_cron(commit `a5d76192`);`vercel.json` 與 `apps/admin/vercel.json`
+//    **皆無 `crons` 段(不是漏掉)** —— 同一件事本檔下方那段「**兩個前置今日皆已不成立**」
+//    早就寫對了,而**沒有人改第一行**。
+//    (錨在字面不在行號:本檔有一道守門會擋掉裸行號 —— 我剛剛就是被它擋下才改成這樣。)
+//    📌 一份檔案裡兩句相反的話,危險的永遠是【比較容易被讀到】的那一句。
+//    (舊字面留刪除線不刪:讓下一個人看得出它曾經被相信過 —— 2026-08-28 我自己就是照它去找 `vercel.json` 的 `crons` 的。)
 // 任一門檻踩(open 雙扣候選 / refunding 卡逾時 / pending 孤兒 / released 死卡)→ 對所有已設定管道(LINE/Email)
 // 推播固定格式告警。把雙扣偵測從 pull(W1 報表有空才查)→ push(發生即主動通知)、杜絕沉默故障 + 錯過客訴黃金期。
 //
