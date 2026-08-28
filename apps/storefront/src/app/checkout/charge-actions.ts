@@ -203,8 +203,24 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
       //   「修好了(沒人被擋)」與「大家被擋在更前面,只是不再產生證據」在觀測上**長得一模一樣**。
       //   🔴 PII(#16):只記 reason 與 userId,**email 值絕不入 log**。
       // 🔴 `safeLog` 而非裸 `console.error`(#900 R1 finding 2 的同族, 既有非本片新增):
-      //    這一行在外層 try 裡 ⇒ 它自己拋會被 :340 那個 catch 收成 `MSG.generic`
+      //    這一行在外層 try 裡 ⇒ 它自己拋會被外層那個 catch 收成 `MSG.generic`
       //    ⇒ 客人拿到的是通用字面而不是「持卡人資料」那句。零扣款, 但診斷全丟。
+      //    (~~原句寫 `:340`~~ ⇒ 那個 catch 現在在 `:343`, 行號會漂 ⇒ 改成不引行號。)
+      //
+      // 🔴🔴 **而換成 `safeLog` 的那顆 commit 宣稱「行為零改動」—— 那句話是假的**
+      //    (codex 對抗審查 2026-08-29,`⟦b4-B07⟧` must-fix ①;線G 唯讀複驗)。
+      //    上面那段已經寫出差別了,這裡把它接成一句完整的話:
+      //    ```
+      //    console 自己拋時：
+      //      舊（裸 console.error）⇒ 逃進外層 catch ⇒ MSG.generic（通用字面）
+      //      新（safeLog 吞掉）    ⇒ 繼續 ⇒ mapCardholderFail(reason)（具體那一句）
+      //    🔴 兩條路【都是零扣款】—— 差別只在客人看到哪一句話，而【方向是變好】
+      //    ```
+      //    ⚠️ **所以要改的不是這段碼**(它是對的,而且比舊的好)——
+      //    **假的是那顆 commit 的 message,而 commit body 改不了** ⇒ 訂正留在這裡。
+      // 📌 **而那句「行為零改動」正是它【跳過審查】的理由** ——
+      //    ⇒ 一個誠實的跳審理由與一個編的,在那道閘底下印同一個綠。
+      //    ⚠️ 而抓到它的是 codex,**不是我們的任何一道閘**。
       safeLog('error', '[checkout] cardholder blocked', { reason: built.reason, userId: user.id });
       return mapCardholderFail(built.reason);
     }
