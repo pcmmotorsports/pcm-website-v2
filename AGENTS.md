@@ -64,7 +64,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 - **SSH only**:`git@github.com:pcmmotorsports/pcm-website-v2.git`。絕不在對話貼 ghp_ token;credential 命令加 `grep -v ghp_`;`cat .env` 不在對話跑(Sean 自驗)。
 - **Branch**:`main`←production(Sean 手動 merge)/ `dev`←主開發(slice 都在 dev、線性、暫不開 feature branch)。
 - **Commit 訊息**:`type(scope): subject [milestone]`。type=feat/fix/refactor/docs/chore/test/perf;scope=storefront/medusa/ui/schemas/docs/config;subject=繁中祈使句≤72 字元。
-- **Add 必精準**:`git add <精確路徑>`;**禁 `git add .` / `git add -A`**。
+- **Add 必精準**:`git add <精確路徑>`;**禁 `git add .` / `git add -A`**。🔴 **本行是短版, 而缺的那半會咬你**:八窗共用一棵樹 ⇒ **你要 commit 的那支檔, 工作樹裡若有別人未 commit 的行, 帶不帶 pathspec 兩種形狀【都不安全】**(一種帶走別人的檔、一種帶走別人在同檔裡的行), **而兩邊都沒有東西會紅**。🛑 **⇒ 遇到那個形狀時預設【停下協調、等對方先 commit】**;完整版在 `CLAUDE.md` 同段(該段以 `CLAUDE.md` 為準 —— 檔頭重複段主從), 協調不到時的五步在 `docs/runbooks/multi-window-command-workflow.md` §v6。⚠️ **本行刻意不同步、`CLAUDE.md` 無【逐字】對應句, 機械對齊時不要當歧異刪掉**;**以上是摘要非全部**。這個長短歧異**先於 2026-08-29**, 本次是把它寫明、不是新造。
 - **不自動 push**:commit + busboy-end 後**不 push**、Sean 手動推=review checkpoint。
 - **Submodule**:初始化 `git submodule update --init --recursive`;同步 design `git submodule update --remote design-reference/` → `git add design-reference` commit。
 
