@@ -183,22 +183,23 @@ describe('resolveCartLines(M-3-S2-b2-d 購物車 line 解析)', () => {
   it('🔴 非-string variantId(竄改:number/object/null)→ 整行 fail-closed 跳、不退化成群價(審查側 finding)', async () => {
     // 有變體商品(群價 product.price=14600);三行 variantId 皆竄改成非-string。
     fetchMock.mockResolvedValue(makeProduct());
+    // 🔴 **好料與壞料【同一批】餵進去**(2026-08-29:線G 先寫成兩次獨立呼叫,線F 用突變打穿、線G 複驗)。
+    //    三行竄改 + 一行合法,而合法那行**放在最後** —— 前面的壞料不得把它一起毒掉。
     const res = await resolveCartLines([
       { productId: 'rpm-1', variantId: 123 }, // number
       { productId: 'rpm-1', variantId: { id: 'v1' } }, // object
       { productId: 'rpm-1', variantId: null }, // null
+      { productId: 'rpm-1', variantId: 'v1' }, // ✅ 合法:它必須活著回來
     ]);
-    // 全跳 → 不回任何行(若退化成群價會回 3 行 unitPrice=14600〔群內最低〕= 錯價洩漏)。
-    expect(res.length).toBe(0);
-    // 🔴 **正向同伴**(`⟦b4-MONEY4⟧` ② 那一批,2026-08-29 線G)。上面那個 0 是**負向**的 ——
-    //    「三行都被擋掉」與「這個函式今天什麼都不做」**回同一個 0**。
-    //    ⇒ 同一顆 mock、同一個函式,餵一行**合法**的 variantId:它必須回得來。
-    //      回不來 ⇒ 上面那個 0 不是「擋住了」,只是「沒跑」。
-    const ok = first(await resolveCartLines([{ productId: 'rpm-1', variantId: 'v1' }]));
-    expect(ok, '合法那一行也回不來 ⇒ 上面那個 length=0 不算「擋掉」').toMatchObject({
-      found: true,
-      unitPrice: 15200,
-    });
+    // 三行竄改被跳掉、合法那行留下 ⇒ 恰好 1 行。
+    // (若退化成群價會回 4 行 unitPrice=14600〔群內最低〕= 錯價洩漏。)
+    expect(res.length, '不是 1 ⇒ 要嘛壞料沒被擋、要嘛好料被一起毒掉').toBe(1);
+    expect(first(res)).toMatchObject({ found: true, unitPrice: 15200 });
+    // 🔴 **為什麼不是「三行竄改 ⇒ 0」加一次獨立的合法呼叫**(那是本行的上一版,已被打穿):
+    //    分開餵時,「一顆壞的毒死整鍋」在第一批印 0(看起來對)、在第二批根本不觸發
+    //    ⇒ **兩邊都綠**。實測靶 `apps/storefront/src/app/cart/actions.ts:112`
+    //    的 `continue` 改成 `return []` ⇒ 分開餵那版 13/13 全過,混合批這版必紅。
+    //    📌 **把好料與壞料分開餵,量不到「一顆壞的會不會毀掉整鍋」。**
   });
 
   it('🔴 round3:有變體商品 + line 無有效 variantId(省略/空/空白)→ found:false(不退化群價)', async () => {
