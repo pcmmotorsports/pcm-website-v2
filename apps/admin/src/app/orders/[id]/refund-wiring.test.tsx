@@ -170,12 +170,30 @@ afterEach(() => {
   }
 });
 
+/**
+ * 🔴 **分母守門** —— 本檔有一整族斷言是「畫面上【不得】出現 X」
+ * (`hasRefundEntry(...)).toBe(false)` / `not.toContain(...)` / `toBeNull()`),
+ * 而它們在**整頁沒渲染**時**全部恆真**。
+ *
+ * 2026-08-28 實測(`app/orders/[id]/page.tsx:98` 插一發空渲染)⇒ 47 格裡 **10 格照樣綠**,
+ * 其中 **7 格**是這一族 —— 包括**四格「退款入口不渲染」**,而那四格守的是**錢**。
+ * 📌 它們在【入口正確地關著】與【整頁根本沒渲染】兩個世界**印同一個綠**。
+ *
+ * ⇒ 錨放在 `renderPage()` 裡:**本檔每一格的分母都是「這一頁渲染出來了」,所以錨只需要一道。**
+ * ⚠️ 用**結構數量**(標題節點數)不用文案字面 —— 文案改一個字不該讓全檔紅。
+ * ⚠️ 它只回答「有沒有東西可以量」,**不替任何一格守它自己那條斷言**。
+ */
 async function renderPage() {
   const ui = await OrderDetailPage({
     params: Promise.resolve({ id: ORDER }),
     searchParams: Promise.resolve({}),
   });
-  return render(ui);
+  const result = render(ui);
+  expect(
+    result.container.querySelectorAll('h1, h2').length,
+    '整頁一個標題節點都沒有 ⇒ 訂單明細頁根本沒渲染 ⇒ 本格的負向斷言恆真',
+  ).toBeGreaterThan(0);
+  return result;
 }
 
 /** 入口存在判準 = 退款表單的 kind radio(比標題文字穩;字面待 Sean 定稿會動)。 */
