@@ -127,12 +127,21 @@ if [ "${1:-}" = "--selftest" ]; then
   fi
   st_cleanup() {
     for f in "${ST_FILES[@]}"; do rm -f "$f"; done
+    rm -f "${SKIP_PROBE:-}" 2>/dev/null || true
     local leftover; leftover=$(git status --porcelain 2>/dev/null | grep -F "_litsweep_selftest_ZQX9" || true)
     if [ -n "$leftover" ]; then
       echo "🔴🔴 selftest 清理失敗,這些合成檔還在(不要 commit):" >&2
       echo "$leftover" >&2
     fi
   }
+  # 🔴 R3:限度 2 說「跳過的目錄」—— 而整段錨只凍住那句【文字】。
+  #    行為那半(:275 那行 walk 過濾)被改掉/刪掉時，文字不變、變數不變 ⇒ 今天沒有東西會叫。
+  #    ⇒ 種一支帶 MK 的合成檔在【被跳過的目錄】裡，斷言它【不在】輸出。
+  #    七支正對照已證明掃描活著 ⇒ 這個「缺席」有判別力。
+  # ⚠️ 用 coverage/ 不用 node_modules/:這一格的【突變】要把該目錄從 SKIP_DIRS 拿掉,
+  #    而拿掉 node_modules 會讓那一發掃到逾時(-c8 2026-08-29 實測:2 分鐘沒跑完)。
+  #    coverage/ 現在不存在 ⇒ 建一支檔進去最便宜, 而它照樣在 SKIP_DIRS 裡。
+  SKIP_PROBE="coverage/_litsweep_selftest_ZQX9_skip.txt"
   trap st_cleanup EXIT INT TERM HUP
   # 🔴 開跑先清【上一次被 SIGKILL 殺掉沒清乾淨】的合成檔(trap 對 kill -9 無效,reviewer 抓)——
   #    否則一支 _litsweep_selftest_*.sql 會留在 supabase/migrations,被 glob *.sql 的 migration 工具撿走。
@@ -141,6 +150,7 @@ if [ "${1:-}" = "--selftest" ]; then
     echo "⚠ 清掉上一次被殺掉沒清乾淨的合成檔:" >&2; echo "$stale" >&2
     echo "$stale" | while IFS= read -r sf; do [ -n "$sf" ] && rm -f "$sf"; done
   fi
+  mkdir -p "$(dirname "$SKIP_PROBE")" && printf -- '%s\n' "$MK" > "$SKIP_PROBE"
   for f in "${ST_FILES[@]}"; do
     mkdir -p "$(dirname "$f")"
     # 🔴 內容用註解形(-- / //)⇒ 就算 SIGKILL 窗內被 migration 工具撿走也是【惰性】、不會執行出東西。
@@ -158,6 +168,13 @@ if [ "${1:-}" = "--selftest" ]; then
   # ── 世界①:命中該落在自己那一類。抓每一類 header 之後、下一個 header 之前的區塊,
   #    驗那一類的合成檔【在】、且不在別類(路由不串)。
   OUT_HIT="$("$0" "$MK")"
+  # 🔴 R3 的行為探針:被跳過的目錄裡那一支【必須不在】輸出裡。
+  #    這一格與整段錨是【兩個不同的世界】:錨管那句話的字面, 這一格管 :275 那行過濾還在不在。
+  if printf '%s' "$OUT_HIT" | grep -qF "$SKIP_PROBE"; then
+    fail "🔴 限度 2 的行為沒了:$SKIP_PROBE 在被跳過的目錄裡, 而它出現在輸出裡 ⇒ walk 過濾被改掉了"
+  else
+    pass "限度 2 的行為仍在:被跳過目錄裡的合成檔沒有出現在輸出($SKIP_PROBE)"
+  fi
   i=0
   for f in "${ST_FILES[@]}"; do
     cat="${ST_CAT[$i]}"
@@ -167,8 +184,15 @@ if [ "${1:-}" = "--selftest" ]; then
       seg_cat="$(printf '%s' "$OUT_HIT" | awk -v needle="$f" '
         /^── / { curcat=$0 }
         index($0, needle) { print curcat; exit }')"
-      if printf '%s' "$seg_cat" | grep -qF "$cat"; then
-        pass "世界①-$cat 合成檔落在自己那一類($f)"
+      # 🔴 R3(Fable, 2026-08-29):上面那個 awk 是 index 命中就 exit ⇒ 只看【第一次出現】
+      #    ⇒ 一支檔重複落兩類、而第一次落對 ⇒ 今天就 PASS。
+      #    而 :157 那句註解逐字寫著「且不在別類(路由不串)」—— **註解宣稱的, code 沒做。**
+      #    實測(-c8 2026-08-29):把 hits 改成落進【每一個】符合的類 ⇒ rc=0、0 FAIL、世界① 全印 PASS。
+      occ="$(printf '%s' "$OUT_HIT" | grep -cF "$f" || true)"
+      if printf '%s' "$seg_cat" | grep -qF "$cat" && [ "$occ" -eq 1 ]; then
+        pass "世界①-$cat 合成檔落在自己那一類且只出現一次($f)"
+      elif [ "$occ" -ne 1 ]; then
+        fail "🔴 世界①-$cat 路由串了:$f 在輸出裡出現 $occ 次(期望 1)—— 註解說的『不在別類』沒有被驗過"
       else
         fail "世界①-$cat 合成檔跑到別類了(期望 $cat,實得段落標題:$seg_cat)"
       fi
