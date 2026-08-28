@@ -14,7 +14,10 @@ SOCK=/tmp/pgVA; DATA=${TMPDIR:-/tmp}/pgVA-data
 HERE=${VAHERE:-$(cd "$(dirname "$0")" && pwd)}
 # 🔴 可指定另一支 SQL(給突變用)。沒有這個, 這支腳本【沒辦法被突變殺】——
 #    而一支殺不了的尺與一支在守著的尺, 都印 ok。
-D="${VADRAFT:-$HERE/2026-08-25-saved-views-migration-draft.sql}"
+D="${VADRAFT:-$HERE/../../supabase/migrations/20260828080000_m4b_b4views1_saved_order_views.sql}"
+# 🔴 片1a(修 request_id 的那支)——【兩支都要套】, 順序不可換。
+#    可用 VAFIX="" 關掉它(給突變用:拿掉這道閘 ⇒ 39 格必須掛回第 1 格)。
+FIX="${VAFIX-$HERE/../../supabase/migrations/20260828090000_m4b_b4views1a_request_id_gate.sql}"
 T="$HERE/2026-08-25-saved-views-tests.sql"
 FAILED=0
 Q() { "$PGBIN/psql" -h "$SOCK" -U postgres -d postgres -Atq "$@"; }
@@ -26,24 +29,17 @@ rm -rf "$SOCK" "$DATA"; mkdir -p "$SOCK"
 "$PGBIN/initdb" -D "$DATA" -U postgres --encoding=UTF8 --locale=C > /dev/null 2>&1 || { echo "initdb 失敗"; exit 1; }
 "$PGBIN/pg_ctl" -D "$DATA" -o "-k $SOCK -h ''" -l "$DATA/pg.log" start > /dev/null 2>&1 || { echo "pg_ctl 失敗"; exit 1; }
 for i in 1 2 3 4 5 6 7 8 9 10; do Q -c "select 1" > /dev/null 2>&1 && break; done
-Q > /dev/null <<'BOOT'
-CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN;
-CREATE ROLE service_role NOLOGIN BYPASSRLS;
-GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
-REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-CREATE TABLE public.staff (id text PRIMARY KEY, label text NOT NULL,
-  is_manager boolean NOT NULL DEFAULT false, is_active boolean NOT NULL DEFAULT true,
-  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
-CREATE TABLE public.admin_audit_log (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  actor text, action text, target text, before jsonb, after jsonb, reason text,
-  request_id text, source_app text, created_at timestamptz NOT NULL DEFAULT now());
-INSERT INTO public.staff (id,label,is_manager) VALUES ('boss','boss',true),('clerk','clerk',false),('gone','gone',false);
-UPDATE public.staff SET is_active=false WHERE id='gone';
-BOOT
+# 🔴 共用 fixture(照真表逐字抄)—— 各自手寫的那幾份比真表【寬】,
+#    而寬的 fixture 會讓所有「防止髒東西」的守門同時恆綠(2026-08-28 實錘)。
+"$PGBIN/psql" -h "$SOCK" -U postgres -d postgres -q -f "$HERE/2026-08-25-saved-views-fixture.sql" > /dev/null 2>&1
 
 echo "── ① apply(草稿 $(wc -l < "$D" | tr -d ' ') 行)──"
 "$PGBIN/psql" -h "$SOCK" -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f "$D" > "$DATA/up.log" 2>&1
 RC=$?
+if [ $RC -eq 0 ] && [ -n "$FIX" ]; then
+  "$PGBIN/psql" -h "$SOCK" -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f "$FIX" >> "$DATA/up.log" 2>&1
+  RC=$?
+fi
 # 🔴 失敗時要印出【是哪一道斷言】—— 第一版只印 rc, 而 rc 只答得出「哪一層紅」,
 #    答不出「哪一格紅」。而突變測試的整個價值就在後面那個。
 #    📌 一支把多層收成一個總結的腳本, 會把「紅在哪一格」壓成「哪一層紅」。
@@ -62,7 +58,12 @@ chk "🔴 負對照 不存在的表" "SELECT coalesce(to_regclass('public.zzz_ne
 echo "── ③ 34 格行為測試 ──"
 "$PGBIN/psql" -h "$SOCK" -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f "$T" > "$DATA/t.log" 2>&1
 RC=$?; N=$(grep -c "NOTICE:  ok" "$DATA/t.log")
-if [ $RC -eq 0 ]; then say "行為測試 rc=0 · ok 格數" "$N ✅"
+# 🔴 **只印不比 = 沒有比**(code-reviewer 2026-08-28)。一發讓 DO 區塊提早結束的世界
+#    ⇒ rc=0 + 少印幾行 ok ⇒ 判成 ✅。對齊鐵則 11:要比【測項總數】, 不是只比「有沒有紅」。
+EXPECT_OK=41
+if [ $RC -eq 0 ] && [ "$N" != "$EXPECT_OK" ]; then
+  say "行為測試 rc=0 而 ok 格數" "$N ≠ 期望 $EXPECT_OK 🔴 少跑了幾格"; FAILED=1
+elif [ $RC -eq 0 ]; then say "行為測試 rc=0 · ok 格數" "$N ✅"
 else say "行為測試 rc=$RC · ok" "$N 🔴"
      grep -m1 "ERROR:" "$DATA/t.log" | sed 's/^/    /'      # ← 哪一格紅, 不是哪一層紅
      FAILED=1; fi
@@ -88,6 +89,31 @@ DOWN
 RC=$?; [ $RC -eq 0 ] && say "down(帶 $GOT 列 · lock_timeout 5s)" "rc=0 ✅" || { say "down" "rc=$RC 🔴"; tail -2 "$DATA/down.log"; FAILED=1; }
 chk "down 後 to_regclass" "SELECT coalesce(to_regclass('public.admin_saved_order_views')::text,'不存在');" "不存在"
 chk "down 後 函式支數" "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname LIKE 'admin_%saved_order_view%';" "0"
+
+echo "── ⑤ 🔴 撞名世界:先放一個同名的孤兒 sequence, 再 apply(codex 複審 R2-1)──"
+# 我原本寫死 `admin_saved_order_views_id_seq`。若 schema 裡已有同名孤兒,
+# PostgreSQL 會給 identity 那支【帶尾碼的新名字】⇒ 寫死的版本會去查錯的那個物件。
+# ⇒ 本段造出那個世界, 並驗:真正掛在 id 上的那支【真的被 REVOKE 到了】。
+cleanup; rm -rf "$SOCK" "$DATA"; mkdir -p "$SOCK"
+"$PGBIN/initdb" -D "$DATA" -U postgres --encoding=UTF8 --locale=C > /dev/null 2>&1
+"$PGBIN/pg_ctl" -D "$DATA" -o "-k $SOCK -h ''" -l "$DATA/pg.log" start > /dev/null 2>&1
+for i in 1 2 3 4 5 6 7 8 9 10; do Q -c "select 1" > /dev/null 2>&1 && break; done
+# 🔴 共用 fixture(照真表逐字抄)—— 各自手寫的那幾份比真表【寬】,
+#    而寬的 fixture 會讓所有「防止髒東西」的守門同時恆綠(2026-08-28 實錘)。
+"$PGBIN/psql" -h "$SOCK" -U postgres -d postgres -q -f "$HERE/2026-08-25-saved-views-fixture.sql" > /dev/null 2>&1
+# 孤兒, 佔住那個名字, 而且【給 anon 權限】⇒ 查錯物件的版本會在這裡露餡
+Q -c "CREATE SEQUENCE public.admin_saved_order_views_id_seq; GRANT USAGE ON SEQUENCE public.admin_saved_order_views_id_seq TO anon;" > /dev/null
+"$PGBIN/psql" -h "$SOCK" -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f "$D" > "$DATA/up2.log" 2>&1
+RC=$?
+REAL=$(Q -c "SELECT pg_get_serial_sequence('public.admin_saved_order_views','id');")
+if [ $RC -ne 0 ]; then say "撞名世界 apply" "rc=$RC 🔴"; grep -m1 "ERROR:" "$DATA/up2.log" | sed 's/^/    /'; FAILED=1
+else say "撞名世界 apply(真正那支 = $REAL)" "rc=0 ✅"; fi
+# 🔴 判別力在這裡:孤兒【有】 anon USAGE, 而真正那支必須【沒有】
+A_ORPH=$(Q -c "SELECT has_sequence_privilege('anon','public.admin_saved_order_views_id_seq','USAGE');")
+A_REAL=$(Q -c "SELECT has_sequence_privilege('anon','$REAL','USAGE');" 2>/dev/null)
+[ "$A_ORPH" = "t" ] && say "  孤兒仍有 anon USAGE(正對照: 這個世界真的造出來了)" "t ✅" || { say "  孤兒的 anon USAGE" "$A_ORPH 🔴 這個世界沒造出來"; FAILED=1; }
+[ "$A_REAL" = "f" ] && say "  真正那支 anon USAGE" "f ✅ REVOKE 打對了物件" || { say "  真正那支 anon USAGE" "$A_REAL 🔴 REVOKE 打錯物件"; FAILED=1; }
+[ "$REAL" = "public.admin_saved_order_views_id_seq" ] && { say "  🔴 名字沒有被改" "撞名沒發生 ⇒ 這一段零判別力"; FAILED=1; } || say "  名字確實被改掉了" "$REAL ✅"
 
 # 🔴 這支腳本【只跑三層】:apply+斷言 / 34 格行為 / 帶資料的 down。
 #    另外三層要各自跑, 不在本檔:

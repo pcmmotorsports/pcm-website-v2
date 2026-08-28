@@ -1,10 +1,24 @@
 -- ============================================================================
--- 🛑🛑 這是【草稿】,不是 migration。**不要移進 supabase/migrations/。**
+-- M-4b 片1:後台訂單「儲存的檢視」—— 建表 + 四支 SECURITY DEFINER RPC
 -- ============================================================================
--- 檔名刻意不帶時間戳前綴 ⇒ 任何「把 pending migration 套上去」的動作掃不到它。
--- 🔴 理由(2026-08-28 主視窗逐字):今晚有前例 —— 一支帶著未折 findings 的 migration
---    進了版控,而任何「把 pending migration 套上去」的動作都會掃到它,**禁令只寫在註解裡**。
---    ⇒ 所以本片的禁令不寫在註解裡,寫在【檔案放在哪】。註解只是說明。
+-- 🛑🛑 **本支【尚未 apply 到正式庫】,而那是刻意的。**
+--    Sean 2026-08-28 `q5 = 甲` 逐字:「先放進去,而【先不套】—— 等他有空自己在 SQL Editor 跑」
+--    ⇒ **apply 是他的手。任何窗都不得替他跑。**
+--    ⇒ 套了之後要照慣例補一列進 `supabase/APPLIED.tsv`(含證據等級,不是只寫「套了」)。
+--
+-- ⚠️ **而「檔案進了 repo」不等於「這一片可以繼續往下做」** ——
+--    TS 那一層仍然做不完:`packages/adapters/src/supabase/database.types.ts` 的 RPC 名稱
+--    union 是從【正式庫】生成的 ⇒ 這四支不在裡面 ⇒ `typecheck` 紅。
+--    ⇒ 📌 **q5 = 甲 解掉的是「檔案放哪」,沒有解掉「型別從哪來」。兩件事。**
+--    ⇒ 順序:本支 apply ⇒ 重新生成型別 ⇒ TS 那層才做得完(全文見 `§14-32`)。
+--
+-- 🔴 **一次只貼一支**(APPLIED.tsv 既有紀錄逐字):Supabase SQL Editor 會把整批包成一個交易
+--    ⇒ 本檔的 `COMMIT;` 會提交那個交易 ⇒ **同批後面的會失去保護**。
+--
+-- static-checks:applied-before-commit 本支 2026-08-28 11:1x 由 Sean 在 SQL Editor 貼上正式庫, 而 commit 被四道 pre-commit 連擋 ⇒ 對 git 是新檔, 對資料庫已是歷史。改成裸 CREATE 會讓 repo 這份不再是跑過的那一份, 且重跑必紅。
+-- static-checks:evidence 2026-08-28 12:0x 正式庫唯讀量:五支函式 OID 62444/62446/62448/62450/62452、表 62420、sequence 62419 —— 連號一批;而一支很舊的 admin_adjust_wallet OID=38171(差約 24,000)。判別力:CREATE OR REPLACE 若蓋掉既有物件, 該物件會【保留舊 OID】⇒ 會落在 38171 那個量級。同名數各 1(無多載), 負對照 zzz_never_a_function_20260828 ⇒ 0。⇒ 量到:沒有蓋掉任何人。數法可重跑:SELECT proname, oid FROM pg_proc JOIN pg_namespace ... WHERE proname LIKE 'admin_%saved_order_view%'。
+-- ⚠️ 上面兩行 2026-08-28 於 apply 之後補;下方 SQL 逐字未動。
+-- 🔴 而那道豁免【證不了】那個證據是真的 —— 它只保證有人寫下了它。請自己重跑那個數法。
 --
 -- 來源規格 docs/specs/2026-08-25-saved-views-plan.md
 --   權威 = 該檔 §14-Z「現行設計事實表」。本檔任何一格與它不合 ⇒ **以它為準,回來改本檔**。
@@ -134,6 +148,15 @@ ALTER TABLE public.admin_saved_order_views ENABLE ROW LEVEL SECURITY;
 --    ⇒ 不要以為 ENABLE ROW LEVEL SECURITY 就把 service_role 也擋住了。
 --    📌 一道閘可以正確運作,而把流量推向自己的盲區。
 -- 不建任何 policy(deny-all)。讀寫唯一路 = 下面四支 SECURITY DEFINER RPC。
+--
+-- RLS-GATE-EXEMPT: admin_saved_order_views -- service_role 對本表【零表權限】(下方 REVOKE ALL 且不 GRANT),
+--   它連 SELECT 都叫不動 ⇒ 補一條 service_role 的 SELECT 政策沒有任何人會用到它。
+--   讀的人是四支 SECURITY DEFINER RPC, 它們以 owner(postgres)身分跑, 不經 RLS 也不經 service_role 的權限。
+--   🔴 而那道閘警告的世界(拿掉 BYPASSRLS ⇒ 後台讀到空的)在本表【構造不出來】——
+--      因為今天就沒有任何一條路是靠 BYPASSRLS 讀它的。
+--   ⚠️ **本行 2026-08-28 於 apply 之後補;下方 SQL 逐字未動。** ——
+--      它不改任何 SQL 行為, 而它表示【repo 這份與 Sean 貼進去的那份不再逐字相同】。
+--      📌 那個差是一行註解, 而下一個拿檔案去比對的人要知道它存在。
 
 -- ── 4. 表權限:零 GRANT ──────────────────────────────────────────────────────
 -- ⚠️ 新物件出生就自帶 anon / authenticated / service_role 的完整預設權限
@@ -141,6 +164,33 @@ ALTER TABLE public.admin_saved_order_views ENABLE ROW LEVEL SECURITY;
 --    ⇒ repo 內零 GRANT 字面可掃、三綠不會紅 ⇒ **REVOKE 是必要的,不是保險。**
 REVOKE ALL ON TABLE public.admin_saved_order_views
   FROM PUBLIC, anon, authenticated, service_role;
+-- 🔴 **identity 欄自動建的那支 sequence 是【另一個物件】, 它有自己的 ACL。**
+--    (codex 關卡2 F1, 2026-08-28)撤表不會連帶撤它 ⇒ 沒撤的話那三個角色仍叫得動 `nextval`
+--    ⇒ ①流水號外洩 ②可被耗盡 ③🔴 **它會弄壞本片唯一那個「證明 INSERT 有沒有跑過」的觀察點**
+--       (T16 比的是被拒的呼叫前後 `last_value` 差 —— 別人能推它, 那個差就不是我造成的)
+--    📌 **一個「跟著表一起被建出來」的物件, 不會跟著表一起被撤權。**
+-- 🔴 **不寫死那支 sequence 的名字**(codex 複審 R2-1, 2026-08-28)——
+--    我原本寫 `admin_saved_order_views_id_seq`。而若 schema 裡已經有【同名的孤兒 sequence】,
+--    PostgreSQL 會給 identity 那支一個【帶尾碼的新名字】
+--    ⇒ REVOKE 與斷言都去查那個舊的 ⇒ 舊的本來就沒權限 ⇒ **全綠**,
+--      而真正掛在 `id` 上的那支**保留預設 ACL**。
+--    📌 **我驗過的是「名字打錯會怎樣」(大聲報錯), 而它問的是「名字沒錯而指到別的東西」。**
+--       兩個不同的世界, 而我當時以為我答完了。
+DO $seq$
+DECLARE v_seq text;
+BEGIN
+  v_seq := pg_get_serial_sequence('public.admin_saved_order_views', 'id');
+  IF v_seq IS NULL THEN
+    RAISE EXCEPTION 'identity sequence 找不到 —— id 欄可能不是 identity;拒繼續';
+  END IF;
+  EXECUTE format('REVOKE ALL ON SEQUENCE %s FROM PUBLIC, anon, authenticated, service_role', v_seq);
+END;
+$seq$;
+-- static-checks:no-grant-needed 本表刻意零 GRANT —— 讀寫唯一路是四支 SECURITY DEFINER RPC(以 owner 身分跑),
+--   service_role 連 SELECT 都不給。理由見下一段。正式庫 2026-08-28 唯讀量到 relacl = `postgres=arwdDxtm/postgres`
+--   ⇒ 除 owner 外零授權, 設計在庫上成立。
+-- ⚠️ **本行 2026-08-28 於 apply 之後補;下方 SQL 逐字未動。**
+--    (判別句:改的是【它說了什麼】還是【它做了什麼】—— 註解只動前者。)
 -- 🔴 這裡【不 GRANT 任何表權限給任何角色】,連 service_role 的 SELECT 都不給(§14-12-h)。
 --    理由:給了裸 SELECT ⇒ 誰讀得到別人的私人檢視由【app 記不記得加 where】決定
 --         ⇒ **那不是閘,是過濾** —— 而過濾漏一次私有性就沒了,**而畫面不會告訴任何人**。
@@ -191,6 +241,14 @@ REVOKE ALL ON TABLE public.admin_saved_order_views
 --       而後者在這裡是**兩個上游條件的 AND**, 其中一個【原理上量不到】。
 --    ⇒ 🔴 本片**不加任何 Sean 沒要的鎖** —— 這一段只負責讓上限被看見, 不負責把它抬高。
 --
+-- 🔴🔴 **`FOR SHARE` 鎖住 staff 那一列, 而它不是防禦性寫法**(codex 關卡2 F4, 2026-08-28):
+--    授權讀的是 `staff`, 而寫的是 `admin_saved_order_views` —— **兩張表**。
+--    只鎖後者 ⇒ 一個管理者卡在檢視列的鎖上等待時, 另一個交易可以先把他降級或停用
+--    ⇒ 他拿到鎖之後仍然帶著【舊的】`v_is_manager = true` 去改共用檢視。
+--    📌 **鎖住「要改的那一列」不等於鎖住「准你改的那個理由」。**
+-- ⚠️ **鎖的順序三支一致:先 `staff`(FOR SHARE)再 `admin_saved_order_views`(FOR UPDATE)** ——
+--    順序不一致就會有死結, 而死結只在並發下才出現。改動任何一支時要一起看。
+--
 -- 🔴 update / delete 兩支的【執行順序】目前沒有任何測試證明得了(§14-Z 殘餘風險 ②)——
 --    identity sequence 那個熬過回滾的觀察點,只有 create 那支會 nextval。
 --    那兩支靠的是:position 碼錨(絆線,防手滑重排)+ 人審。
@@ -211,9 +269,16 @@ SET search_path = public, pg_temp
 AS $$
 BEGIN
   -- 身分閘。通用拒絕訊息:不區分「沒這個人」與「停用了」,兩者印同一句。
-  IF NOT EXISTS (
-    SELECT 1 FROM public.staff s WHERE s.id = p_actor AND s.is_active
-  ) THEN
+  -- 🔴 **`list` 也要 `FOR SHARE`**(codex 複審 R2-2, 2026-08-28)——
+  --    我修 F4 時只修了三支【有寫入】的, 想的是「有寫入才有 TOCTOU」。**而讀也會**:
+  --    READ COMMITTED 下, 它先看到員工是 active ⇒ 另一交易把他停用並提交
+  --    ⇒ 下面那個 `RETURN QUERY` 拿的是**新的 snapshot**
+  --    ⇒ **仍然把私人與共用檢視回傳給一個已經被停用的員工。**
+  --    📌 又一次「規則只套在我想到的那幾格上」—— 而這一次漏的那一格是【唯一一支唯讀的】。
+  -- ⚠️ 鎖順序仍是 staff-first(與三支寫入一致)⇒ 不會與它們形成反向鎖死。
+  PERFORM 1 FROM public.staff s WHERE s.id = p_actor AND s.is_active
+     FOR SHARE;
+  IF NOT FOUND THEN
     RAISE EXCEPTION '無權執行此操作';
   END IF;
 
@@ -251,10 +316,12 @@ DECLARE
   v_is_manager boolean;
   v_label      text;
   v_id         bigint;
+  v_constraint text;
 BEGIN
   -- 身分閘(碼錨 A 的字面就是下面這一句 WHERE)。
   SELECT s.is_manager INTO v_is_manager
-    FROM public.staff s WHERE s.id = p_actor AND s.is_active;
+    FROM public.staff s WHERE s.id = p_actor AND s.is_active
+     FOR SHARE;
   IF NOT FOUND THEN
     RAISE EXCEPTION '無權執行此操作';
   END IF;
@@ -279,8 +346,15 @@ BEGIN
        v_label, COALESCE(p_query, ''), p_date_preset, p_idempotency_key)
     RETURNING id INTO v_id;
   EXCEPTION WHEN unique_violation THEN
-    -- 撞【重播鍵】= 同一個請求送了兩次 ⇒ 冪等回應,不是錯誤。
-    IF SQLERRM LIKE '%admin_saved_order_views_idem_idx%' THEN
+    -- 🔴 **不靠「哪一個索引先報」**(codex 關卡2 F2, 2026-08-28)——
+    --    一發重播可以【同時】違反重播鍵與同名索引(同一個請求送兩次, 名字當然也一樣),
+    --    而 PostgreSQL 先報哪一個**不保證** ⇒ 舊寫法(比對 SQLERRM 字面)會在那時回 `NAME_TAKEN`
+    --    ⇒ 📌 **一發正常的重播, 被回報成「名字重複」** —— 而使用者會去改名字, 然後真的建出第二張。
+    --    ✅ 改成【回頭查】:那把鑰匙已經有列了嗎? 有 ⇒ 就是重播, 與哪個索引先報無關。
+    IF p_idempotency_key IS NOT NULL AND EXISTS (
+      SELECT 1 FROM public.admin_saved_order_views
+       WHERE idempotency_key = p_idempotency_key
+    ) THEN
       RETURN 'DUPLICATE_REQUEST';
     END IF;
     -- 撞【同名】= 使用者取了一個已經有人用的名字。
@@ -292,8 +366,11 @@ BEGIN
     --   ⇒ 那不是「還沒做錯誤處理」,是**把一個可預期的使用者行為當成系統故障**。
     -- 📌 它與 CONFLICT 那格是同一條:回傳碼合約要涵蓋【使用者做得到的每一種事】,
     --    而「取一個已經有人用的名字」是使用者做得到的。
-    IF SQLERRM LIKE '%admin_saved_order_views_private_label_idx%'
-       OR SQLERRM LIKE '%admin_saved_order_views_shared_label_idx%' THEN
+    -- 🔴 用 `CONSTRAINT_NAME` 不用 `SQLERRM` 字面 —— 錯誤訊息會隨 PG 版本與語系變,
+    --    而約束名是我們自己取的。(同族:不要拿【給人看的字串】當【給機器判的依據】。)
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint IN ('admin_saved_order_views_private_label_idx',
+                        'admin_saved_order_views_shared_label_idx') THEN
       RETURN 'NAME_TAKEN';
     END IF;
     RAISE;
@@ -334,10 +411,12 @@ DECLARE
   v_before     public.admin_saved_order_views%ROWTYPE;
   v_label      text;
   v_code       text;
+  v_constraint text;
 BEGIN
   -- 身分閘(碼錨 A)。
   SELECT s.is_manager INTO v_is_manager
-    FROM public.staff s WHERE s.id = p_actor AND s.is_active;
+    FROM public.staff s WHERE s.id = p_actor AND s.is_active
+     FOR SHARE;
   IF NOT FOUND THEN
     RAISE EXCEPTION '無權執行此操作';
   END IF;
@@ -390,11 +469,25 @@ BEGIN
     v_code := 'UPDATED';
   END IF;
 
-  UPDATE public.admin_saved_order_views
-     SET label       = v_label,
-         query       = COALESCE(p_query, query),
-         date_preset = COALESCE(p_date_preset, date_preset)
-   WHERE id = p_view_id;
+  -- 🔴 改名可能撞到同擁有者(或共用區)已存在的名字(codex 關卡2 F3, 2026-08-28)。
+  --    舊寫法 ⇒ 唯一索引的例外**直接冒到畫面** ⇒ 員工看到一串英文,
+  --    而他做錯的事其實很簡單(名字重複了)—— 與 `create` 那一格同一條理由。
+  --    ⇒ 📌 **`NAME_TAKEN` 原本【只有 create 產得出來】, 而 update 也做得到那件事。**
+  --       回傳碼合約要涵蓋【使用者做得到的每一種事】, 而不是【我寫到哪一支時想到的】。
+  BEGIN
+    UPDATE public.admin_saved_order_views
+       SET label       = v_label,
+           query       = COALESCE(p_query, query),
+           date_preset = COALESCE(p_date_preset, date_preset)
+     WHERE id = p_view_id;
+  EXCEPTION WHEN unique_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint IN ('admin_saved_order_views_private_label_idx',
+                        'admin_saved_order_views_shared_label_idx') THEN
+      RETURN 'NAME_TAKEN';
+    END IF;
+    RAISE;   -- 其餘唯一違規 = 真故障, 不吞
+  END;
 
   INSERT INTO public.admin_audit_log
     (actor, action, target, before, after, reason, request_id, source_app)
@@ -428,7 +521,8 @@ DECLARE
   v_before     public.admin_saved_order_views%ROWTYPE;
 BEGIN
   SELECT s.is_manager INTO v_is_manager
-    FROM public.staff s WHERE s.id = p_actor AND s.is_active;
+    FROM public.staff s WHERE s.id = p_actor AND s.is_active
+     FOR SHARE;
   IF NOT FOUND THEN
     RAISE EXCEPTION '無權執行此操作';
   END IF;
@@ -507,6 +601,7 @@ DECLARE
   v_n     integer;
   v_sig   text;
   v_write text;
+  v_seq   text;
   r       record;
 BEGIN
   -- 7a. search_path:四支 + trigger 各自都要有,§14-1 的通則不會自動套上(F7)。
@@ -543,6 +638,22 @@ BEGIN
        OR has_any_column_privilege(r.role, 'public.admin_saved_order_views', 'INSERT')
        OR has_any_column_privilege(r.role, 'public.admin_saved_order_views', 'UPDATE') THEN
       RAISE EXCEPTION '斷言 7c-2:% 對本表有欄級權限', r.role;
+    END IF;
+  END LOOP;
+
+  -- 7c-3. 🔴 identity 那支 sequence 的權限也要是零(codex 關卡2 F1)。
+  --   `has_table_privilege` **看不到 sequence** —— 它是另一種物件, 要用 `has_sequence_privilege`。
+  --   📌 而漏掉它的後果不只是權限:那三個角色叫得動 `nextval`
+  --      ⇒ **T16 那個「被拒的呼叫有沒有動到 sequence」的觀察點就不再是我造成的差。**
+  v_seq := pg_get_serial_sequence('public.admin_saved_order_views', 'id');
+  IF v_seq IS NULL THEN
+    RAISE EXCEPTION '斷言 7c-3:找不到 identity sequence(id 欄不是 identity?)';
+  END IF;
+  FOR r IN SELECT unnest(ARRAY['anon','authenticated','service_role']) AS role LOOP
+    IF has_sequence_privilege(r.role, v_seq, 'USAGE')
+       OR has_sequence_privilege(r.role, v_seq, 'SELECT')
+       OR has_sequence_privilege(r.role, v_seq, 'UPDATE') THEN
+      RAISE EXCEPTION '斷言 7c-3:% 對 identity sequence(%)有權限', r.role, v_seq;
     END IF;
   END LOOP;
 

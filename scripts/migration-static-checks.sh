@@ -239,6 +239,42 @@ EARLIER_CACHE="$(mktemp -d)" || { echo "🔴 建不出暫存目錄(mktemp)⇒ �
 strip_sql "$F" > "$STRIPPED"
 join_create < "$STRIPPED" > "$JOINED"
 
+# ── 豁免:`applied-before-commit`(2026-08-28 線C 加;主視窗裁 乙′)────────────
+# 🔴 **它只涵蓋一格**:一支【已經 apply 到正式庫、而從未進過版控】的 migration。
+#    那是本規則的註解自己記過的那一族的變形 ——
+#    原文逐字:「紅在已上線的舊檔 = 規則變準了, 不代表要回頭改那支檔(已 apply 的 migration 不動);
+#    本工具只在新檔手跑, 歷史檔不會被它擋住任何人。」
+#    ⇒ 而它沒預期的那一格是:**對 git 而言是新檔, 對資料庫而言已經是歷史。**
+#
+# 用法(**兩行缺一不可**, 都要在同一支 .sql 裡):
+#    -- static-checks:applied-before-commit <理由>
+#    -- static-checks:evidence <數法與數字>
+#
+# 🔴🔴 **這道豁免【證不了】什麼 —— 寫在這裡, 不要讓它變成免責貼紙**:
+#    它只檢查「有沒有寫下理由與證據」, **它不驗證那個證據是真的, 也不驗證那支檔真的 apply 過**。
+#    ⇒ 📌 **它把一個靜默的通過, 換成一個【留下名字與數字的通過】** —— 只有這樣而已。
+#    ⇒ 而下一個人要做的是:去讀那兩行, 自己重跑那個數法。
+#
+# ⚠️ 而它【不放行別的東西】:沒有這兩行的檔, ① 與 ③ 照樣紅(2026-08-28 造假檔實測, 見自檢)。
+APPLIED_EXEMPT=$(grep -iE -- '^--[[:space:]]*static-checks:applied-before-commit[[:space:]]+.+' "$F" | head -1 || true)
+APPLIED_EVID=$(grep -iE -- '^--[[:space:]]*static-checks:evidence[[:space:]]+.+' "$F" | head -1 || true)
+if [ -n "$APPLIED_EXEMPT" ] && [ -z "$APPLIED_EVID" ]; then
+  echo "🔴 本檔宣告了 applied-before-commit, 而【沒有 evidence 那一行】⇒ 豁免不成立"
+  echo "   ⇒ 理由可以用寫的, 證據不行。要一行 -- static-checks:evidence <數法與數字>"
+  # 🔴 **這裡要硬紅, 不是清掉變數就算** —— 2026-08-28 自檢抓到:
+  #    第一版只把 APPLIED_EXEMPT 清空, 而那支假檔剛好沒有觸發別的條 ⇒ 整支 rc=0
+  #    ⇒ 📌 **一個「宣告了豁免而沒附證據」的檔, 會安靜地通過。**
+  #       而那正是這道豁免最該擋的那一格 —— 有人想要出口, 而不想附代價。
+  APPLIED_EXEMPT=""
+  RC=1
+fi
+if [ -n "$APPLIED_EXEMPT" ]; then
+  echo "⚠️ 本檔宣告【已 apply 而未進版控】豁免 —— ① 與 ③ 轉為警告。兩行逐字印出來給人看:"
+  echo "     $APPLIED_EXEMPT"
+  echo "     $APPLIED_EVID"
+  echo "   🔴 本工具**不驗證**那個證據是真的 —— 它只保證有人寫下了它。請自己重跑那個數法。"
+fi
+
 echo "── ① CREATE … IF NOT EXISTS 一律禁;OR REPLACE 只准【重定義既有物件】──"
 # 🔴 三次誤報的修法都在這一段:
 #    原版 ①:沒剝行註解 ⇒ 抓到【檔頭那段解釋這條規則的註解】
@@ -360,7 +396,7 @@ if [ -n "$OR_HITS" ]; then
       echo "🔴 :$LNO CREATE OR REPLACE ${OTYPE} ${ONAME}${OTARGET:+ ON $OTARGET} —— 同身分在更早的 migration 查無定義 ⇒ 它是【新物件】"
       echo "   ⇒ 新物件一律裸 CREATE:撞名要當場紅。OR REPLACE 會把撞名靜靜蓋掉,"
       echo "      而你的 REVOKE 與斷言照樣綠 —— 拿到綠燈,卻蓋掉了一個你不知道存在的東西。"
-      RC=1; R1_OK=0
+      if [ -n "$APPLIED_EXEMPT" ]; then echo "   ⚠️ 已宣告 applied-before-commit ⇒ 本條轉警告"; else RC=1; R1_OK=0; fi
     fi
   done <<EOF_OR
 $OR_HITS
@@ -438,7 +474,7 @@ LST=$(awk '
 if [ "$OBJ" != "$LST" ]; then
   echo "🔴 可授權物件 $OBJ 個,斷言清單列了 $LST 個 ⇒ 有漏列"
   echo "   ⇒ 收權斷言【只檢查你列出來的物件】:它防「忘記收權」,不防「忘記列」。"
-  RC=1
+  if [ -n "$APPLIED_EXEMPT" ]; then echo "   ⚠️ 已宣告 applied-before-commit ⇒ 本條轉警告"; else RC=1; fi
 else
   echo "✅ 兩邊都是 $OBJ 個"
 fi

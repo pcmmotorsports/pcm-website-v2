@@ -1,5 +1,5 @@
 -- ============================================================================
--- 片1 行為測試(配 2026-08-25-saved-views-migration-draft.sql)
+-- 片1 行為測試(配 20260828080000_m4b_b4views1_saved_order_views.sql)
 -- 🛑 草稿的測試,不是 migration 的一部分。跑法見檔尾。
 -- ============================================================================
 -- 🔴 每一發都要問:「這個檢查在【成立】與【不成立】兩個世界,會印不同的東西嗎?」
@@ -67,19 +67,19 @@ DECLARE
 BEGIN
   -- ── T1 一般員工建【私人】檢視 ⇒ CREATED
   PERFORM pg_temp.expect_code('T1 clerk 建私人',
-      $q$SELECT public.admin_create_saved_order_view('clerk','我的待出貨','status=pending',NULL,false,'k1',NULL)$q$, 'CREATED');
+      $q$SELECT public.admin_create_saved_order_view('clerk','我的待出貨','status=pending',NULL,false,'k1','req-test-001')$q$, 'CREATED');
 
   -- ── T2 一般員工建【共用】檢視 ⇒ 被擋(Q-檢視-7「只有管理者」)
   PERFORM pg_temp.expect_raise('T2 clerk 建共用',
-    $q$SELECT public.admin_create_saved_order_view('clerk','大家的','x',NULL,true,'k2',NULL)$q$,
+    $q$SELECT public.admin_create_saved_order_view('clerk','大家的','x',NULL,true,'k2','req-test-001')$q$,
     '無權執行此操作');
 
   -- ── T3 管理者建共用 ⇒ CREATED
   PERFORM pg_temp.expect_code('T3 boss 建共用',
-      $q$SELECT public.admin_create_saved_order_view('boss','大家的','x',NULL,true,'k3',NULL)$q$, 'CREATED');
+      $q$SELECT public.admin_create_saved_order_view('boss','大家的','x',NULL,true,'k3','req-test-001')$q$, 'CREATED');
 
   -- ── T4 boss 建自己的私人 ⇒ clerk 看不到它
-  PERFORM public.admin_create_saved_order_view('boss','老闆私房','y',NULL,false,'k4',NULL);
+  PERFORM public.admin_create_saved_order_view('boss','老闆私房','y',NULL,false,'k4','req-test-001');
   SELECT count(*) INTO v_n FROM public.admin_list_saved_order_views('clerk');
   PERFORM pg_temp.expect('T4 clerk 看得到幾張(自己1 + 共用1)', v_n::text, '2');
   SELECT count(*) INTO v_n FROM public.admin_list_saved_order_views('clerk') WHERE label='老闆私房';
@@ -93,103 +93,144 @@ BEGIN
 
   -- ── T5 改自己的 ⇒ UPDATED
   PERFORM pg_temp.expect_code('T5 clerk 改自己的',
-      $q$SELECT public.admin_update_saved_order_view('clerk',$1,'我的待出貨2',NULL,NULL,NULL,NULL)$q$, 'UPDATED', v_clerk_id);
+      $q$SELECT public.admin_update_saved_order_view('clerk',$1,'我的待出貨2',NULL,NULL,NULL,'req-test-001')$q$, 'UPDATED', v_clerk_id);
 
   -- ── T6 改別人的私人 ⇒ NOT_FOUND(而不是「無權」⇒ 不洩漏它存不存在)
   PERFORM pg_temp.expect_code('T6 clerk 改 boss 私人',
-      $q$SELECT public.admin_update_saved_order_view('clerk',$1,'偷改',NULL,NULL,NULL,NULL)$q$, 'NOT_FOUND', v_boss_id);
+      $q$SELECT public.admin_update_saved_order_view('clerk',$1,'偷改',NULL,NULL,NULL,'req-test-001')$q$, 'NOT_FOUND', v_boss_id);
   SELECT label INTO v_txt FROM public.admin_saved_order_views WHERE id=v_boss_id;
   PERFORM pg_temp.expect('T6b 而且真的沒被改到', v_txt, '老闆私房');
 
   -- ── T7 非管理者改共用 ⇒ NOT_FOUND
   PERFORM pg_temp.expect_code('T7 clerk 改共用',
-      $q$SELECT public.admin_update_saved_order_view('clerk',$1,'亂改',NULL,NULL,NULL,NULL)$q$, 'NOT_FOUND', v_shared_id);
+      $q$SELECT public.admin_update_saved_order_view('clerk',$1,'亂改',NULL,NULL,NULL,'req-test-001')$q$, 'NOT_FOUND', v_shared_id);
   SELECT label INTO v_txt FROM public.admin_saved_order_views WHERE id=v_shared_id;
   PERFORM pg_temp.expect('T7b 而且真的沒被改到', v_txt, '大家的');
 
   -- ── T8 管理者改共用 ⇒ UPDATED
   PERFORM pg_temp.expect_code('T8 boss 改共用',
-      $q$SELECT public.admin_update_saved_order_view('boss',$1,'大家的v2',NULL,NULL,NULL,NULL)$q$, 'UPDATED', v_shared_id);
+      $q$SELECT public.admin_update_saved_order_view('boss',$1,'大家的v2',NULL,NULL,NULL,'req-test-001')$q$, 'UPDATED', v_shared_id);
 
   -- ── T9 🔴 q31=甲「後改的贏」⇒ 兩格缺一不可
   --      ① B 的內容真的進去了   ② B 看到那句提示(回傳碼)
   --      只驗 ① ⇒ 提示從來不亮也全綠;只驗 ② ⇒ 內容沒寫進去也可能全綠
   SELECT updated_at INTO v_ts FROM public.admin_saved_order_views WHERE id=v_shared_id;
   PERFORM pg_catalog.pg_sleep(0.01);
-  PERFORM public.admin_update_saved_order_view('boss',v_shared_id,'A 改的',NULL,NULL,v_ts,NULL);
+  PERFORM public.admin_update_saved_order_view('boss',v_shared_id,'A 改的',NULL,NULL,v_ts,'req-test-001');
   -- 現在拿【過期的】 v_ts 再改一次 = B 沒看到 A 剛改過
   PERFORM pg_temp.expect_code('T9-② B 看到提示',
-      $q$SELECT public.admin_update_saved_order_view('boss',$1,'B 改的',NULL,NULL,$2,NULL)$q$,
+      $q$SELECT public.admin_update_saved_order_view('boss',$1,'B 改的',NULL,NULL,$2,'req-test-001')$q$,
       'UPDATED_OVERWROTE', v_shared_id, v_ts);
   SELECT label INTO v_txt FROM public.admin_saved_order_views WHERE id=v_shared_id;
   PERFORM pg_temp.expect('T9-① B 的內容真的進去了', v_txt, 'B 改的');
 
   -- ── T10 同值 ⇒ NO_CHANGE(零寫入)
   PERFORM pg_temp.expect_code('T10 同值',
-      $q$SELECT public.admin_update_saved_order_view('boss',$1,'B 改的',NULL,NULL,NULL,NULL)$q$, 'NO_CHANGE', v_shared_id);
+      $q$SELECT public.admin_update_saved_order_view('boss',$1,'B 改的',NULL,NULL,NULL,'req-test-001')$q$, 'NO_CHANGE', v_shared_id);
 
   -- ── T11 刪自己的 ⇒ DELETED;再刪一次 ⇒ NOT_FOUND
   PERFORM pg_temp.expect_code('T11 clerk 刪自己的',
-      $q$SELECT public.admin_delete_saved_order_view('clerk',$1,NULL)$q$, 'DELETED', v_clerk_id);
+      $q$SELECT public.admin_delete_saved_order_view('clerk',$1,'req-test-001')$q$, 'DELETED', v_clerk_id);
   PERFORM pg_temp.expect_code('T11b 再刪一次',
-      $q$SELECT public.admin_delete_saved_order_view('clerk',$1,NULL)$q$, 'NOT_FOUND', v_clerk_id);
+      $q$SELECT public.admin_delete_saved_order_view('clerk',$1,'req-test-001')$q$, 'NOT_FOUND', v_clerk_id);
 
   -- ── T17 🔴 delete 的內容閘 —— 而它是【突變表逼出來的】:
   --      2026-08-28 跑 M9 時發現我原本寫的那一發改到了 update, delete 那支從頭到尾沒有突變指名它
   --      ⇒ 回頭一看, 測試也只驗了「刪自己的」(T11) ⇒ **delete 的內容閘零覆蓋。**
   --      📌 一發打錯支的突變, 揭出的是【測試的缺口】不是突變的缺口。
-  PERFORM public.admin_create_saved_order_view('clerk','clerk 的第二張','q2',NULL,false,'k12',NULL);
+  PERFORM public.admin_create_saved_order_view('clerk','clerk 的第二張','q2',NULL,false,'k12','req-test-001');
   PERFORM pg_temp.expect_code('T17 clerk 刪 boss 的私人',
-      $q$SELECT public.admin_delete_saved_order_view('clerk',$1,NULL)$q$, 'NOT_FOUND', v_boss_id);
+      $q$SELECT public.admin_delete_saved_order_view('clerk',$1,'req-test-001')$q$, 'NOT_FOUND', v_boss_id);
   SELECT count(*) INTO v_n FROM public.admin_saved_order_views WHERE id=v_boss_id;
   PERFORM pg_temp.expect('T17b 而且它真的還在', v_n::text, '1');
   PERFORM pg_temp.expect_code('T18 clerk 刪共用(非管理者)',
-      $q$SELECT public.admin_delete_saved_order_view('clerk',$1,NULL)$q$, 'NOT_FOUND', v_shared_id);
+      $q$SELECT public.admin_delete_saved_order_view('clerk',$1,'req-test-001')$q$, 'NOT_FOUND', v_shared_id);
   SELECT count(*) INTO v_n FROM public.admin_saved_order_views WHERE id=v_shared_id;
   PERFORM pg_temp.expect('T18b 而且它真的還在', v_n::text, '1');
   PERFORM pg_temp.expect_code('T19 boss 刪共用(管理者)',
-      $q$SELECT public.admin_delete_saved_order_view('boss',$1,NULL)$q$, 'DELETED', v_shared_id);
+      $q$SELECT public.admin_delete_saved_order_view('boss',$1,'req-test-001')$q$, 'DELETED', v_shared_id);
 
   -- ── T12 重播同一個 idempotency_key ⇒ DUPLICATE_REQUEST
   PERFORM pg_temp.expect_code('T12 重播',
-      $q$SELECT public.admin_create_saved_order_view('boss','重播測試','z',NULL,false,'k9',NULL)$q$, 'CREATED');
+      $q$SELECT public.admin_create_saved_order_view('boss','重播測試','z',NULL,false,'k9','req-test-001')$q$, 'CREATED');
   -- 用 expect_code:少了 idem 判定 ⇒ 例外會逃出來, 而 expect() 接不住 ⇒ 紅了說不出自己是誰
   PERFORM pg_temp.expect_code('T12b 同一把鑰匙再來一次 ⇒ DUPLICATE_REQUEST',
-    $q$SELECT public.admin_create_saved_order_view('boss','重播測試改個名','z',NULL,false,'k9',NULL)$q$,
+    $q$SELECT public.admin_create_saved_order_view('boss','重播測試改個名','z',NULL,false,'k9','req-test-001')$q$,
     'DUPLICATE_REQUEST');
 
   -- ── T13 兩張同名【共用】檢視 ⇒ NAME_TAKEN(不是丟例外)
   --      🔴 第五個碼。主視窗 2026-08-28 裁的,**Sean 沒有看過這個碼**。
   --      理由:一個 DB 例外冒到畫面 = 員工看到一串英文,而他做錯的事其實很簡單。
   PERFORM pg_temp.expect_code('T13 建同名共用',
-      $q$SELECT public.admin_create_saved_order_view('boss','同名共用','q',NULL,true,'k13',NULL)$q$, 'CREATED');
+      $q$SELECT public.admin_create_saved_order_view('boss','同名共用','q',NULL,true,'k13','req-test-001')$q$, 'CREATED');
   PERFORM pg_temp.expect_code('T13b 再建一張同名共用 ⇒ NAME_TAKEN',
-    $q$SELECT public.admin_create_saved_order_view('boss','同名共用','q',NULL,true,'k10',NULL)$q$,
+    $q$SELECT public.admin_create_saved_order_view('boss','同名共用','q',NULL,true,'k10','req-test-001')$q$,
     'NAME_TAKEN');
   -- ── T13c 同名【私人】也要 NAME_TAKEN(兩個部分唯一索引各一發, 不要只驗一個)
   PERFORM pg_temp.expect_code('T13c clerk 建同名私人 ⇒ NAME_TAKEN',
-    $q$SELECT public.admin_create_saved_order_view('clerk','clerk 的第二張','q',NULL,false,'k14',NULL)$q$,
+    $q$SELECT public.admin_create_saved_order_view('clerk','clerk 的第二張','q',NULL,false,'k14','req-test-001')$q$,
     'NAME_TAKEN');
   -- ── T13d 🔴 而【不同人】取同一個名字要放行 —— 部分唯一索引管的是每個人自己
   --      (少了這一發, 一個「全表 label 唯一」的錯誤索引也會讓 T13/T13c 全綠)
   PERFORM pg_temp.expect_code('T13d boss 也叫「clerk 的第二張」⇒ 放行',
-      $q$SELECT public.admin_create_saved_order_view('boss','clerk 的第二張','q',NULL,false,'k15',NULL)$q$, 'CREATED');
+      $q$SELECT public.admin_create_saved_order_view('boss','clerk 的第二張','q',NULL,false,'k15','req-test-001')$q$, 'CREATED');
+
+  -- ── T22 🔴 update 改名撞到已存在的名字 ⇒ NAME_TAKEN(codex 關卡2 F3)
+  --      舊寫法會讓唯一索引的例外直接冒到畫面。
+  --      📌 NAME_TAKEN 原本【只有 create 產得出來】, 而 update 也做得到那件事。
+  PERFORM pg_temp.expect_code('T22a clerk 建第三張',
+    $q$SELECT public.admin_create_saved_order_view('clerk','clerk 第三張','q',NULL,false,'k20','req-test-001')$q$,
+    'CREATED');
+  PERFORM pg_temp.expect_code('T22b 把它改成跟自己另一張同名 ⇒ NAME_TAKEN',
+    $q$SELECT public.admin_update_saved_order_view('clerk',
+        (SELECT id FROM public.admin_saved_order_views WHERE label='clerk 第三張'),
+        'clerk 的第二張',NULL,NULL,NULL,'req-test-001')$q$,
+    'NAME_TAKEN');
+  -- ── T22c 而【不同人】同名仍要放行(少了這發, 一個全表唯一的錯索引也讓 T22b 全綠)
+  PERFORM pg_temp.expect_code('T22c boss 改成 clerk 也有的名字 ⇒ 放行',
+    $q$SELECT public.admin_update_saved_order_view('boss',
+        (SELECT id FROM public.admin_saved_order_views WHERE label='老闆私房'),
+        'clerk 第三張',NULL,NULL,NULL,'req-test-001')$q$,
+    'UPDATED');
+
+  -- ── T23 🔴 重播【同時】撞重播鍵與同名索引 ⇒ 必須是 DUPLICATE_REQUEST(codex 關卡2 F2)
+  --      一發重播本來就名字也一樣 ⇒ 兩個唯一索引同時被違反,
+  --      而 PostgreSQL 先報哪一個**不保證** ⇒ 舊寫法(比對錯誤訊息字面)會回 NAME_TAKEN
+  --      ⇒ 📌 **一發正常的重播被回報成「名字重複」** —— 而使用者會去改名字, 然後真的建出第二張。
+  PERFORM pg_temp.expect_code('T23a 建一張',
+    $q$SELECT public.admin_create_saved_order_view('boss','重播又同名','q',NULL,false,'k21','req-test-001')$q$,
+    'CREATED');
+  PERFORM pg_temp.expect_code('T23b 同鑰匙【且】同名再送一次 ⇒ DUPLICATE_REQUEST',
+    $q$SELECT public.admin_create_saved_order_view('boss','重播又同名','q',NULL,false,'k21','req-test-001')$q$,
+    'DUPLICATE_REQUEST');
+
+  -- ── T24 🔴 `p_request_id` 閘(片1a;上一支缺這道而 39 格全綠 —— fixture 比真表寬)
+  --      這兩格證的是【呼叫端沒傳】會大聲失敗, 而不是安靜寫進一列壞資料。
+  PERFORM pg_temp.expect_raise('T24a request_id = NULL ⇒ 擋',
+    $q$SELECT public.admin_create_saved_order_view('clerk','r1','q',NULL,false,NULL,NULL)$q$,
+    'admin_create_saved_order_view: p_request_id 不可為 NULL(稽核 correlation 需要)');
+  -- 🔴 全形空白 + 零寬 —— 它【不是空字串】, DB 的 CHECK (<> '') 擋不住它
+  --    ⇒ 沒有 btrim 那半的話, 一列 request_id 是「看不見的字」的稽核會寫進去
+  PERFORM pg_temp.expect_raise('T24b request_id 全是看不見的字 ⇒ 擋',
+    $q$SELECT public.admin_create_saved_order_view('clerk','r2','q',NULL,false,NULL,
+        U&'\3000' || U&'\200B')$q$,
+    'admin_create_saved_order_view: p_request_id 去空白後為空(稽核 correlation 需要)');
 
   -- ── T14 停用的員工 ⇒ 四支全擋
   PERFORM pg_temp.expect_raise('T14 停用員工 list',
     $q$SELECT * FROM public.admin_list_saved_order_views('gone')$q$, '無權執行此操作');
   PERFORM pg_temp.expect_raise('T14b 停用員工 create',
-    $q$SELECT public.admin_create_saved_order_view('gone','x','y',NULL,false,NULL,NULL)$q$,
+    $q$SELECT public.admin_create_saved_order_view('gone','x','y',NULL,false,NULL,'req-test-001')$q$,
     '無權執行此操作');
 
   -- ── T20 / T21 🔴 停用員工打 update / delete —— 而這兩發是【突變表重算】逼出來的:
   --      T14 只驗了 list 與 create 兩支 ⇒ update / delete 的身分閘**零覆蓋**
   --      📌 一組寫著「四支都擋」的測試, 實際只餵了兩支。
   PERFORM pg_temp.expect_raise('T20 停用員工 update',
-    $q$SELECT public.admin_update_saved_order_view('gone',1,'x',NULL,NULL,NULL,NULL)$q$,
+    $q$SELECT public.admin_update_saved_order_view('gone',1,'x',NULL,NULL,NULL,'req-test-001')$q$,
     '無權執行此操作');
   PERFORM pg_temp.expect_raise('T21 停用員工 delete',
-    $q$SELECT public.admin_delete_saved_order_view('gone',1,NULL)$q$, '無權執行此操作');
+    $q$SELECT public.admin_delete_saved_order_view('gone',1,'req-test-001')$q$, '無權執行此操作');
 
   -- ── T15 is_shared 寫不進去(GENERATED)
   BEGIN
@@ -210,7 +251,7 @@ BEGIN
   SELECT last_value INTO v_seq_before
     FROM pg_sequences WHERE schemaname='public' AND sequencename LIKE 'admin_saved_order_views_id_%';
   BEGIN
-    PERFORM public.admin_create_saved_order_view('clerk','越權共用','q',NULL,true,'k11',NULL);
+    PERFORM public.admin_create_saved_order_view('clerk','越權共用','q',NULL,true,'k11','req-test-001');
   EXCEPTION WHEN raise_exception THEN NULL;
   END;
   SELECT last_value INTO v_seq_after
@@ -252,6 +293,6 @@ $t$;
 --
 -- 跑法:
 --   1. 起拋棄式 PG、建 anon/authenticated/service_role + staff + admin_audit_log fixture
---   2. psql -f 2026-08-25-saved-views-migration-draft.sql
+--   2. psql -f 20260828080000_m4b_b4views1_saved_order_views.sql
 --   3. psql -f 本檔                       ⇒ 應全過
 --   4. 每一發突變:改草稿一處 → 重建庫 → 重跑 2 與 3 ⇒ **必須看到指定的那一格紅**

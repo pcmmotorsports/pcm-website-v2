@@ -25,7 +25,7 @@ import io, os, re, sys
 # 可指定另一個目錄(給突變用)。🔴 沒有這個參數 ⇒ 這把尺【沒辦法被突變殺】,
 #    而一把殺不了的尺與一把在守著的尺, 都印 ok。
 HERE = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.abspath(__file__))
-SQL  = os.path.join(HERE, '2026-08-25-saved-views-migration-draft.sql')
+SQL  = os.path.join(HERE, '..', '..', 'supabase/migrations/20260828080000_m4b_b4views1_saved_order_views.sql')
 TEST = os.path.join(HERE, '2026-08-25-saved-views-tests.sql')
 
 # 合約 = §14-19 那張表。🔴 手抄進來, 而【手抄本身是一個弱點】——
@@ -33,7 +33,7 @@ TEST = os.path.join(HERE, '2026-08-25-saved-views-tests.sql')
 #   ⇒ 所以下面第三道檢查回頭去 plan 裡數一次, 對不上就紅。
 CONTRACT = {
     'admin_create_saved_order_view': {'CREATED', 'DUPLICATE_REQUEST', 'NAME_TAKEN'},
-    'admin_update_saved_order_view': {'UPDATED', 'UPDATED_OVERWROTE', 'NO_CHANGE', 'NOT_FOUND'},
+    'admin_update_saved_order_view': {'UPDATED', 'UPDATED_OVERWROTE', 'NO_CHANGE', 'NOT_FOUND', 'NAME_TAKEN'},
     'admin_delete_saved_order_view': {'DELETED', 'NOT_FOUND'},
 }
 # 這些全大寫字面出現在函式體裡, 而它們【不是回傳碼】⇒ 白名單, 而白名單要有理由

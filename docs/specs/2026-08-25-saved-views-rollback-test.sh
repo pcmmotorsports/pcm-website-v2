@@ -26,7 +26,7 @@ SOCK=/tmp/pgRB; DATA=${TMPDIR:-/tmp}/pgRB-data
 #    📌 CLAUDE.md 記過同族(`storefront-probe/up.sh` 寫死 REPO ⇒ 從 worktree 呼叫它會跑去主樹)。
 #    ✅ 留一個 `RBHERE` 讓突變版指回原處 —— **否則這支腳本【沒辦法被突變殺】。**
 HERE=${RBHERE:-$(cd "$(dirname "$0")" && pwd)}
-UP="$HERE/2026-08-25-saved-views-migration-draft.sql"
+UP="$HERE/../../supabase/migrations/20260828080000_m4b_b4views1_saved_order_views.sql"
 FAILED=0
 psqlq() { "$PGBIN/psql" -h "$SOCK" -U postgres -d postgres -Atq "$@"; }
 cleanup() { "$PGBIN/pg_ctl" -D "$DATA" stop -m immediate > /dev/null 2>&1; rm -rf "$SOCK" "$DATA" ; }
@@ -36,19 +36,7 @@ rm -rf "$SOCK" "$DATA"; mkdir -p "$SOCK"
 "$PGBIN/initdb" -D "$DATA" -U postgres --encoding=UTF8 --locale=C > /dev/null 2>&1 || { echo "initdb 失敗"; exit 1; }
 "$PGBIN/pg_ctl" -D "$DATA" -o "-k $SOCK -h ''" -l "$DATA/pg.log" start > /dev/null 2>&1 || { echo "pg_ctl 失敗"; exit 1; }
 for i in 1 2 3 4 5 6 7 8 9 10; do psqlq -c "select 1" > /dev/null 2>&1 && break; done
-psqlq > /dev/null <<'BOOT'
-CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN;
-CREATE ROLE service_role NOLOGIN BYPASSRLS;
-GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
-REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-CREATE TABLE public.staff (id text PRIMARY KEY, label text NOT NULL,
-  is_manager boolean NOT NULL DEFAULT false, is_active boolean NOT NULL DEFAULT true,
-  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
-CREATE TABLE public.admin_audit_log (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  actor text, action text, target text, before jsonb, after jsonb, reason text,
-  request_id text, source_app text, created_at timestamptz NOT NULL DEFAULT now());
-INSERT INTO public.staff (id,label,is_manager) VALUES ('boss','boss',true),('clerk','clerk',false);
-BOOT
+"$PGBIN/psql" -h "$SOCK" -U postgres -d postgres -q -f "$HERE/2026-08-25-saved-views-fixture.sql" > /dev/null 2>&1
 
 # schema 快照:表 / 欄 / 索引 / 函式 / 觸發器 / 表級 ACL / 函式級 ACL / RLS 態
 snap() {

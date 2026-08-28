@@ -21,8 +21,8 @@
 """
 import io, os, sys
 
-SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                   '2026-08-25-saved-views-migration-draft.sql')
+SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..',
+                   'supabase/migrations/20260828080000_m4b_b4views1_saved_order_views.sql')
 OUT = sys.argv[1] if len(sys.argv) > 1 else '/tmp'
 LOCK = """  SELECT * INTO v_before
     FROM public.admin_saved_order_views
@@ -53,11 +53,19 @@ def unlocked_read(s, start, end, write_stmt):
 
 U = ("admin_update_saved_order_view(\n  p_actor", "-- ── 5d.")
 D = ("admin_delete_saved_order_view(\n  p_actor", "-- ── 6.")
-UW = "  UPDATE public.admin_saved_order_views\n     SET label       = v_label,"
+# 🔴 縮排變了 —— F3 把 UPDATE 包進子區塊(2026-08-28)。
+#    📌 **一個以【字面 + 縮排】當錨的東西, 會被一個純結構的重構弄壞, 而重構本身完全正確。**
+UW = "    UPDATE public.admin_saved_order_views\n       SET label       = v_label,"
 DW = "  DELETE FROM public.admin_saved_order_views\n   WHERE id = p_view_id;"
 
 base = io.open(SRC, encoding='utf-8').read()
-plan = [("NC1", lambda s: skip_locked(s, *U),          "W1"),
+def no_list_share(s):
+    old = "  PERFORM 1 FROM public.staff s WHERE s.id = p_actor AND s.is_active\n     FOR SHARE;"
+    assert s.count(old) == 1
+    return s.replace(old, "  PERFORM 1 FROM public.staff s WHERE s.id = p_actor AND s.is_active;", 1)
+
+plan = [("NC5", no_list_share,                        "W6"),
+        ("NC1", lambda s: skip_locked(s, *U),          "W1"),
         ("NC2", lambda s: unlocked_read(s, *U, UW),    "W2"),
         ("NC3", lambda s: skip_locked(s, *D),          "W4"),
         ("NC4", lambda s: unlocked_read(s, *D, DW),    "W5")]

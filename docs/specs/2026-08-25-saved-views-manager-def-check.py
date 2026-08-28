@@ -26,7 +26,7 @@ import io, os, re, sys
 ROOT = sys.argv[1] if len(sys.argv) > 1 else os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 TS  = os.path.join(ROOT, 'apps/admin/src/lib/staff.ts')
-SQL = os.path.join(ROOT, 'docs/specs/2026-08-25-saved-views-migration-draft.sql')
+SQL = os.path.join(ROOT, 'supabase/migrations/20260828080000_m4b_b4views1_saved_order_views.sql')
 fail = 0
 
 def read(p):

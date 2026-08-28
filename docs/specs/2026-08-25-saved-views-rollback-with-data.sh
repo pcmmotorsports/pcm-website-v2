@@ -24,7 +24,7 @@ export LC_ALL=C LANG=C
 PGBIN=${PGBIN:-/opt/homebrew/opt/postgresql@17/bin}
 SOCK=/tmp/pgRD; DATA=${TMPDIR:-/tmp}/pgRD-data
 HERE=${RDHERE:-$(cd "$(dirname "$0")" && pwd)}
-UP="$HERE/2026-08-25-saved-views-migration-draft.sql"
+UP="$HERE/../../supabase/migrations/20260828080000_m4b_b4views1_saved_order_views.sql"
 FAILED=0
 Q() { "$PGBIN/psql" -h "$SOCK" -U postgres -d postgres -Atq "$@"; }
 cleanup() { "$PGBIN/pg_ctl" -D "$DATA" stop -m immediate > /dev/null 2>&1; rm -rf "$SOCK" "$DATA"; }
@@ -36,24 +36,15 @@ rm -rf "$SOCK" "$DATA"; mkdir -p "$SOCK"
 for i in 1 2 3 4 5 6 7 8 9 10; do Q -c "select 1" > /dev/null 2>&1 && break; done
 
 bootstrap() {
-  Q > /dev/null <<'BOOT'
-DROP TABLE IF EXISTS public.admin_saved_order_views CASCADE;
-DROP TABLE IF EXISTS public.staff CASCADE;
-DROP TABLE IF EXISTS public.admin_audit_log CASCADE;
-DROP FUNCTION IF EXISTS public.admin_saved_order_views_touch_updated_at() CASCADE;
-CREATE TABLE public.staff (id text PRIMARY KEY, label text NOT NULL,
-  is_manager boolean NOT NULL DEFAULT false, is_active boolean NOT NULL DEFAULT true,
-  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
-CREATE TABLE public.admin_audit_log (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  actor text, action text, target text, before jsonb, after jsonb, reason text,
-  request_id text, source_app text, created_at timestamptz NOT NULL DEFAULT now());
-INSERT INTO public.staff (id,label,is_manager) VALUES ('boss','boss',true),('clerk','clerk',false);
-BOOT
+  # 🔴 共用 fixture(照真表逐字抄)—— 各自手寫的那幾份比真表【寬】,
+#    而寬的 fixture 會讓所有「防止髒東西」的守門同時恆綠(2026-08-28 實錘)。
+"$PGBIN/psql" -h "$SOCK" -U postgres -d postgres -q -f "$HERE/2026-08-25-saved-views-fixture.sql" > /dev/null 2>&1
   Q -c "CREATE ROLE anon NOLOGIN" > /dev/null 2>&1
   Q -c "CREATE ROLE authenticated NOLOGIN" > /dev/null 2>&1
   Q -c "CREATE ROLE service_role NOLOGIN BYPASSRLS" > /dev/null 2>&1
   Q -c "GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role; REVOKE CREATE ON SCHEMA public FROM PUBLIC;" > /dev/null 2>&1
   "$PGBIN/psql" -h "$SOCK" -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f "$UP" > "$DATA/up.log" 2>&1
+  "$PGBIN/psql" -h "$SOCK" -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f "$HERE/../../supabase/migrations/20260828090000_m4b_b4views1a_request_id_gate.sql" > /dev/null 2>&1
   [ $? -eq 0 ] || { echo "FAIL up 套不上去(這一發的紅不是 rollback 的事)"; tail -2 "$DATA/up.log"; exit 2; }
 }
 
