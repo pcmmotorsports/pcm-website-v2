@@ -191,3 +191,64 @@ describe('🔴 表單送不出 actor —— 那一格在型別與 DOM 上都不�
     expect(names.some((n) => n?.includes('actor') || n?.includes('staff'))).toBe(false);
   });
 });
+
+// ── 🔴🔴 autofill:這一族守的是【分母】,不是「我改了幾格」──────────────────────────────
+//  成因(2026-08-28):R3-nit3 說「無條件渲染之後瀏覽器 autofill 填得進去」,
+//  並點名了 `picker` 與 `ship-to` 的行號 —— **而我把它舉的例子當成了範圍。**
+//  那道渲染閘拿掉之後,**整張表單**都一直在畫面上,不只那兩塊。
+//  實際缺口:該守 20 格、當時只守了 6 格。
+//  📌 **我照著 finding 的【例子】修, 而 finding 講的是【類】** —— 這一片同一個形狀的第三次。
+//
+//  ⇒ 所以這一格量的是**兩個數相等**,不是「某幾格有」:
+//     它在「有人新增一個欄位而忘了加」時會紅,而那正是這個缺口回來的方式。
+describe('🔴 建單表單的每一個文字類控制項都要擋 autofill(量分母, 不量我改了幾格)', () => {
+  const FILES = [
+    'manual-order-form-body.tsx',
+    'manual-order-lines.tsx',
+    'manual-customer-picker.tsx',
+    'manual-order-ship-to.tsx',
+  ];
+
+  /** 剝註解 ⇒ 抓 `<input>` / `<select>` ⇒ 跳過 hidden/radio/checkbox(瀏覽器不會 autofill 它們)。 */
+  async function countTags(file: string) {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(__dirname, file), 'utf8')
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('//'))
+      .join('\n');
+    // 🔴 `(?:…)` 非捕獲 —— 用 `(input|select)` 的話 `matchAll` 只會回群組,
+    //    而「已守」那一欄會全部印 0 而「該守」看起來完全合理(2026-08-28 我真的踩了)。
+    const tags = [...src.matchAll(/<(?:input|select)\b[^>]*?\/?>/gs)].map((m) => m[0]);
+    let need = 0;
+    let have = 0;
+    for (const t of tags) {
+      if (/type=['"]?(hidden|radio|checkbox)/.test(t)) continue;
+      need += 1;
+      if (t.includes("autoComplete='off'")) have += 1;
+    }
+    return { need, have, tags: tags.length };
+  }
+
+  it('每一支檔:該守的數量 == 已守的數量', async () => {
+    for (const f of FILES) {
+      const { need, have } = await countTags(f);
+      expect({ file: f, need, have }).toEqual({ file: f, need, have: need });
+    }
+  });
+
+  it('🔴 這把尺是活的:分母不得是 0(否則上面那格在「一個控制項都沒抓到」時也全綠)', async () => {
+    for (const f of FILES) {
+      const { need } = await countTags(f);
+      expect(need).toBeGreaterThan(0);
+    }
+  });
+
+  it('🔴 負對照:它抓得到【沒有守】的那一種(拿一段沒加 autoComplete 的 JSX 餵同一把尺)', () => {
+    const fake = `<input name='x' className='y' />`;
+    expect(/type=['"]?(hidden|radio|checkbox)/.test(fake)).toBe(false);
+    expect(fake.includes("autoComplete='off'")).toBe(false);
+  });
+});

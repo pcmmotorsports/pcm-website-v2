@@ -79,6 +79,7 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
           <label className='col-span-2 text-sm'>
             <span className='sr-only'>第 {index + 1} 列料號</span>
             <input
+              autoComplete='off'
               name={manualOrderLineField(MANUAL_ORDER_LINE_SKU_BASE, index)}
               placeholder='料號'
               className='block w-full rounded-md border px-2 py-1'
@@ -87,6 +88,7 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
           <label className='col-span-4 text-sm'>
             <span className='sr-only'>第 {index + 1} 列品名</span>
             <input
+              autoComplete='off'
               name={manualOrderLineField(MANUAL_ORDER_LINE_TITLE_BASE, index)}
               placeholder='品名'
               className='block w-full rounded-md border px-2 py-1'
@@ -95,6 +97,7 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
           <label className='col-span-1 text-sm'>
             <span className='sr-only'>第 {index + 1} 列數量</span>
             <input
+              autoComplete='off'
               name={manualOrderLineField(MANUAL_ORDER_LINE_QTY_BASE, index)}
               inputMode='numeric'
               placeholder='數量'
@@ -104,6 +107,7 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
           <label className='col-span-2 text-sm'>
             <span className='sr-only'>第 {index + 1} 列單價</span>
             <input
+              autoComplete='off'
               name={manualOrderLineField(MANUAL_ORDER_LINE_UNIT_PRICE_BASE, index)}
               inputMode='numeric'
               placeholder='單價'
@@ -113,6 +117,7 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
           <label className='col-span-2 text-sm'>
             <span className='sr-only'>第 {index + 1} 列商品編號(代購留白)</span>
             <input
+              autoComplete='off'
               name={manualOrderLineField(MANUAL_ORDER_LINE_VARIANT_BASE, index)}
               placeholder='商品編號'
               className='block w-full rounded-md border px-2 py-1'

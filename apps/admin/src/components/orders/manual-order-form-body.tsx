@@ -134,7 +134,9 @@ export function ManualOrderFormBody({
           <div className='grid grid-cols-2 gap-3'>
             <label className='block text-sm'>
               訂單來源
-              <select name={MANUAL_ORDER_SOURCE_FIELD} className='mt-1 block w-full rounded-md border px-2 py-1'>
+              <select
+                autoComplete='off'
+                name={MANUAL_ORDER_SOURCE_FIELD} className='mt-1 block w-full rounded-md border px-2 py-1'>
                 <option value='manual_phone'>電話</option>
                 <option value='manual_line'>LINE</option>
                 <option value='manual_other'>其他</option>
@@ -143,6 +145,7 @@ export function ManualOrderFormBody({
             <label className='block text-sm'>
               付款方式
               <select
+                autoComplete='off'
                 name={MANUAL_ORDER_PAYMENT_CHANNEL_FIELD}
                 className='mt-1 block w-full rounded-md border px-2 py-1'
               >
@@ -153,6 +156,7 @@ export function ManualOrderFormBody({
             <label className='block text-sm'>
               取貨方式
               <select
+                autoComplete='off'
                 name={MANUAL_ORDER_SHIPPING_METHOD_FIELD}
                 className='mt-1 block w-full rounded-md border px-2 py-1'
               >
@@ -163,6 +167,7 @@ export function ManualOrderFormBody({
             <label className='block text-sm'>
               運費
               <input
+                autoComplete='off'
                 name={MANUAL_ORDER_SHIPPING_FEE_FIELD}
                 inputMode='numeric'
                 defaultValue='0'
@@ -181,6 +186,7 @@ export function ManualOrderFormBody({
           <fieldset className='space-y-2 rounded-md border p-3'>
             <legend className='px-1 text-sm'>發票</legend>
             <select
+              autoComplete='off'
               name={MANUAL_ORDER_INVOICE_TYPE_FIELD}
               className='block w-full rounded-md border px-2 py-1'
             >
@@ -188,10 +194,18 @@ export function ManualOrderFormBody({
               <option value='company'>公司</option>
               <option value='donate'>捐贈</option>
             </select>
-            <input name={MANUAL_ORDER_INVOICE_CARRIER_FIELD} placeholder='載具(選填)' className='block w-full rounded-md border px-2 py-1' />
-            <input name={MANUAL_ORDER_INVOICE_TITLE_FIELD} placeholder='抬頭(公司才填)' className='block w-full rounded-md border px-2 py-1' />
-            <input name={MANUAL_ORDER_INVOICE_TAX_ID_FIELD} placeholder='統編(公司才填)' className='block w-full rounded-md border px-2 py-1' />
-            <input name={MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD} placeholder='愛心碼(捐贈才填)' className='block w-full rounded-md border px-2 py-1' />
+            <input
+            autoComplete='off'
+            name={MANUAL_ORDER_INVOICE_CARRIER_FIELD} placeholder='載具(選填)' className='block w-full rounded-md border px-2 py-1' />
+            <input
+            autoComplete='off'
+            name={MANUAL_ORDER_INVOICE_TITLE_FIELD} placeholder='抬頭(公司才填)' className='block w-full rounded-md border px-2 py-1' />
+            <input
+            autoComplete='off'
+            name={MANUAL_ORDER_INVOICE_TAX_ID_FIELD} placeholder='統編(公司才填)' className='block w-full rounded-md border px-2 py-1' />
+            <input
+          autoComplete='off'
+          name={MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD} placeholder='愛心碼(捐贈才填)' className='block w-full rounded-md border px-2 py-1' />
           </fieldset>
 
           {/* 🔴 品項在收件與發票**之後** —— 員工的動線是「先確認是誰、寄到哪」再逐項打單。
