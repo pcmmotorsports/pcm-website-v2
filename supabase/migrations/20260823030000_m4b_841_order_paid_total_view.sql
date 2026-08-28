@@ -214,9 +214,31 @@ GRANT SELECT ON public.order_paid_totals_v TO service_role;
 --    **原樣抽出**再插入新欄的(不是重打)。`goods_axis` 的 CASE 順序與 `cancelled_quantity`
 --    三處扣減都必須逐字對齊 `orderGoodsAxis()`,§7 的斷言 ②③ 承接 `#522` 的守門原樣再跑一次。
 -- ⚠️ `CREATE OR REPLACE VIEW` 只准在**尾端**加欄 ⇒ `paid_total` 排在 `goods_axis` 之後。
---    (已查:`20260816050000` 之後**沒有**任何 migration `ALTER TABLE public.orders`
---     ⇒ `o.*` 的展開穩定,不會把新欄插到 `goods_axis` 前面而讓 REPLACE 炸掉。
---     最後一支動 orders 的是 `20260729010000`。)
+--
+-- ⛔🔴🔴 ~~(已查:`20260816050000` 之後**沒有**任何 migration `ALTER TABLE public.orders`
+--    ⇒ `o.*` 的展開穩定,不會把新欄插到 `goods_axis` 前面而讓 REPLACE 炸掉。
+--    最後一支動 orders 的是 `20260729010000`。)~~ **這段自 2026-08-24 起為假 —— 見 `#957`。**
+--
+--    🔴 **本檔在【已經套用過 `20260824020000` 的 schema 上】重跑就會炸**
+--       (2026-08-29 線A 拋棄式 PG 17.10 實測,逐字):
+--      ERROR:  cannot change name of view column "goods_axis" to "manual_request_id"
+--      HINT:   Use ALTER VIEW ... RENAME COLUMN ... to change name of view column instead.
+--    ⚠️ **前提要寫在句子裡**(R1 抓的):乾淨庫照檔名序從頭跑,本檔跑在 `manual_request_id`
+--       **出生之前** ⇒ 那一發**不會炸**。⇒ 會炸的是【線上那種已經長好的 schema】,
+--       也就是**真正會發生的那一種**。
+--    成因:`20260824020000_m4b_858_admin_create_manual_order.sql` 的
+--         `ALTER TABLE public.orders` **真陳述式 3 句**(`:142` / `:147` / `:165`),
+--         其中 `:142` 加了 `manual_request_id`
+--         ⇒ `o.*` 展開後它排在 `goods_axis` 之前 ⇒ REPLACE 變成「插欄進中間」。
+--    ⛔ ~~原稿寫「6 句」~~ 作廢 —— **那是 `grep -c` 的原始命中,含註解裡的 grep 指令與
+--       被註解掉的 rollback。** 濾註解的數法寫在 `#957`。
+--    🔴 **負對照(它證明這與後來的 B1 無關)**:在一個**完全沒有 B1** 的 schema 上跑,
+--       印的是**一字不差的同一句** ⇒ **不是 B1 造成的,B1 只是第二個。**
+--
+--    📌 **為什麼要就地劃掉而不是只開 backlog**:上面那句是【當時】正確的,
+--       而**它不會知道自己過期了**。留著它比沒有它更糟 ——
+--       🔴 **它會關掉下一個人的懷疑**:讀到「已查」兩個字,就不會再去數一次。
+--    ⇒ 要動這支 view ⇒ 改 `DROP VIEW` + `CREATE VIEW`,或改寫成不用 `o.*`。
 CREATE OR REPLACE VIEW public.admin_order_list_v
   WITH (security_invoker = true) AS
 SELECT
