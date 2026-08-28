@@ -14,6 +14,8 @@
 //    那一格由片 0 的探針在 production 上量掉了(2026-08-19,值 = `production`,Sean 開頁截圖)。
 import { beforeEach, describe, expect, it, afterEach } from 'vitest';
 import {
+  ALARM_REASONS,
+  type SessionRejectReason,
   __resetAlarmThrottleForTests,
   consumeAlarmSlot,
   signSession,
@@ -135,6 +137,25 @@ describe('票綁環境(片 1)', () => {
 // ── 🔴 codex 關卡2 M3 折入:**分類與告警本身沒有任何一格在釘它** ──
 //    把 `no_env` 誤回成 `absent`,上面每一格都照樣綠,而【唯一的早期警報永久消失】。
 //    ⇒ 這一組釘的不是「會不會拒」,是「拒的時候【說得出是哪一種】」。
+// 🔴 **這張表被抽成具名常數,是為了讓下面那格守門讀得到它**(線G 2026-08-29)。
+//    在此之前它是 `it.each([...])` 的匿名字面 ⇒ 沒有東西能檢查它「有沒有跟上 `ALARM_REASONS`」。
+// 🔴 **型別是 `SessionRejectReason` 不是 `string`**(codex must-fix,2026-08-29):
+//    寫 `string` 的話,把 `'expired'` 打成 `'expierd'` ⇒ 型別收下、`consumeAlarmSlot` 回 false、
+//    下面那格同步守門只看 `true` 列 ⇒ **整條靜靜通過**。改成聯集型別 ⇒ 打錯字直接編譯紅。
+const ALARM_TABLE: ReadonlyArray<readonly [SessionRejectReason, boolean]> = [
+  ['no_secret', true],
+  ['no_env', true],
+  // 🔴 2026-08-29:`version_rejected` 從【不告警】翻成【告警】。
+  //    🔴 理由**不是**「rollout 結束了」—— 那句話我編過一次,codex 抓到,已撤(全文在 session.ts 那格)。
+  //    真正的理由:這個 reason 有【兩種來源、處置相反】(舊票還在流通 vs 有東西在發舊票),
+  //    而它一列都不記 ⇒ **我們沒有任何方法分辨它們**。記下來,那個分辨才變成可能。
+  ['version_rejected', true],
+  ['absent', false],
+  ['sig_invalid', false],
+  ['shape', false],
+  ['expired', false],
+];
+
 describe('拒絕分類與告警(唯一的早期警報)', () => {
   const s0 = process.env.ADMIN_SESSION_SECRET;
   const v0 = process.env.VERCEL_ENV;
@@ -174,21 +195,64 @@ describe('拒絕分類與告警(唯一的早期警報)', () => {
     expect((r as { reason: string }).reason).toBe('absent');
   });
 
-  it.each([
-    ['no_secret', true],
-    ['no_env', true],
-    ['absent', false],
-    ['sig_invalid', false],
-    ['shape', false],
-    ['expired', false],
-  ])('🔴 只有 no_* 會告警:%s ⇒ %s', (reason, expected) => {
+  it.each(ALARM_TABLE)('🔴 告警名單:%s ⇒ %s', (reason, expected) => {
     expect(consumeAlarmSlot(reason as never, 1_000_000)).toBe(expected);
+  });
+
+  // 🔴 **這一格守的是【上面那張表自己】,不是 consumeAlarmSlot**(線G 2026-08-29)。
+  //    病:上面那張表是**手寫列舉**的 —— 有人往 `ALARM_REASONS` 加一個成員而忘了加進表,
+  //    **不會有任何一格紅**(我加 `version_rejected` 之前,它就不在表上,而 6 格全綠)。
+  //    ⇒ 這一格讓那個漏法【會紅】。
+  // ⚠️ 射程明寫:它只擋「加進 ALARM_REASONS 而沒進表」那個方向。
+  //    反方向(**該告警的 reason 沒被加進 ALARM_REASONS**)機器判不出來 —— 那是判斷,不是列舉。
+  it('🔴 告警名單與上面那張表必須同步(防「加了成員而表沒跟上」)', () => {
+    const tabled = new Set(
+      ALARM_TABLE.filter(([, expected]) => expected === true).map(([reason]) => reason),
+    );
+    // 🔴🔴 **先釘住迴圈【真的跑過】**(codex must-fix,2026-08-29):
+    //    下面那個 `for...of` 在 `ALARM_REASONS` 被清空時**跑 0 次 ⇒ 恆綠** ——
+    //    也就是說「把整套告警刪光」這個世界,原本的寫法**一格都不會紅**。
+    //    ⇒ 這兩行讓那個世界紅。(而它正是本 repo 一直在記的那種裸格,我自己也寫出來了。)
+    expect(ALARM_REASONS.size, 'ALARM_REASONS 被清空 ⇒ 下面那個迴圈會跑 0 次而恆綠').toBeGreaterThan(0);
+    expect(
+      ALARM_REASONS.size,
+      '告警名單與表上標 true 的列數對不上 ⇒ 有一邊被單方面改過',
+    ).toBe(tabled.size);
+    for (const reason of ALARM_REASONS) {
+      expect(tabled.has(reason), `ALARM_REASONS 有 ${reason} 而上面那張表沒有它`).toBe(true);
+    }
+    // 負對照:`absent` 在表上而標 false ⇒ 它不該進 tabled(證明 tabled 不是「把整張表照收」)
+    expect(tabled.has('absent'), 'absent 不該在告警名單裡').toBe(false);
   });
 
   it('🔴 有界去重:同一個 reason 在視窗內只叫一次,而視窗過了會再叫', () => {
     expect(consumeAlarmSlot('no_env', 1_000_000)).toBe(true);
     expect(consumeAlarmSlot('no_env', 1_000_000 + 59_999), '視窗內第二次不該叫').toBe(false);
     expect(consumeAlarmSlot('no_env', 1_000_000 + 60_001), '視窗過了要再叫 —— 否則它只叫一次就永遠啞了').toBe(true);
+  });
+
+  // 🔴 **這一格守的是【逐 reason 的節流窗】**(2026-08-29,codex R2-1 那條的實作)。
+  //    沒有它,`ALARM_INTERVAL_OVERRIDE_MS` 是一段【沒有任何測試碰過】的碼 ——
+  //    有人把它刪掉、或把 1 小時打成 1 分鐘,**三綠全綠**。
+  it('🔴 version_rejected 用【一小時】的窗,而不是照舊的一分鐘', () => {
+    const T = 5_000_000;
+    expect(consumeAlarmSlot('version_rejected', T), '第一則要叫得出來').toBe(true);
+    // 🔴 這一格是關鍵:**舊的 60 秒窗在這裡會回 true** ⇒ 它證明 override 真的接上了
+    expect(
+      consumeAlarmSlot('version_rejected', T + 60_001),
+      '過了 60 秒就又叫 ⇒ override 沒接上（那正是 codex R2-1 指的洪水面）',
+    ).toBe(false);
+    expect(consumeAlarmSlot('version_rejected', T + 3_599_999), '59 分 59 秒仍在窗內').toBe(false);
+    expect(consumeAlarmSlot('version_rejected', T + 3_600_001), '一小時過了要再叫得出來').toBe(true);
+  });
+
+  it('🔴 負對照:override 只作用在它列的那一個 —— no_env 仍然是一分鐘', () => {
+    const T = 7_000_000;
+    expect(consumeAlarmSlot('no_env', T)).toBe(true);
+    expect(
+      consumeAlarmSlot('no_env', T + 60_001),
+      'no_env 被拉長成一小時 ⇒ 設定壞掉那天的警報會晚一小時才叫',
+    ).toBe(true);
   });
 
   it('🔴 而去重是【每個 reason 各自】的:no_secret 被節流時 no_env 仍叫得出來', () => {

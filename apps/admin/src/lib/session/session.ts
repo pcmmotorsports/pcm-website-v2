@@ -119,7 +119,9 @@ export const IS_PROD = process.env.NODE_ENV === 'production';
  * `ADMIN_REQUIRE_REAL_IDENTITY` —— **B5 那條線的總開關**(§B5-3 (3) / §B5-5 第 2·3 層)。
  *
  * ```
- * 關(預設,今天):v:1 與 v:2 都收;actor.ts 拿不到 v:2 時【維持現行行為】= 讀那顆自選 cookie
+ * 關(**這份 code 的預設值**,即 env 沒設時):v:1 與 v:2 都收;actor.ts 拿不到 v:2 時【維持現行行為】= 讀那顆自選 cookie
+ *   🔴 **「預設」講的是 code,不是正式站** —— ~~原句寫「關(預設,今天)」~~ 而那個「今天」
+ *   會被讀成「線上現在是關的」。正式站 2026-08-25 起是 `=1`(見 `authorize.ts` 錨 `正式站 2026-08-25 起`)。
  * 開:            v:1 一律拒;    actor.ts 拿不到 v:2 時回 null,【不得回退去讀 cookie】
  * ```
  * 🔴🔴 **2026-08-24 更正(codex B1-2)—— 這個旗標【不是】身分路徑的總開關。**
@@ -130,8 +132,11 @@ export const IS_PROD = process.env.NODE_ENV === 'production';
  *              ↑ 旗標關著, 新身分路徑照樣生效
  * ```
  *    ⇒ **旗標只管「拿不到 v:2 時怎麼辦」,不管「拿到 v:2 時要不要用它」。**
- *    ⇒ 🔴 **這一片今天是暗的,靠的是【上游還沒送 `sub`】,不是靠這個旗標。**
- *       上游一開始送,身分路徑就生效 —— **旗標關著也一樣**。
+ *    ⇒ ⛔ ~~🔴 **這一片今天是暗的,靠的是【上游還沒送 `sub`】,不是靠這個旗標。**~~
+ *       **2026-08-29 訂正:上游【已經在送】了**(2026-08-25 Sean 登出再登入成功
+ *       ⇒ 通過 `sso/callback/route.ts:156` 的 `requireRealIdentity() && !result.sub`)
+ *       ⇒ **這一片今天是【亮的】,不是暗的。** 原句留著:它記著這一片出廠時的狀態。
+ *       上游一開始送,身分路徑就生效 —— **旗標關著也一樣**(這半句仍然成立)。
  *       ⚠️ 所以它**不是 kill switch**:出事時把旗標關掉**不會**讓身分路徑停下來。
  *
  * 🔴🔴 **rollback 的紙上約束 —— 讀者是【做 revert 的人】,不是翻旗標的人。**
@@ -553,7 +558,27 @@ export type SessionRejectReason =
    *    「大家的 cookie 都壞了」。而這兩件的處置完全相反 ——
    *    前者是**把旗標關掉**,後者是去查簽章與 secret。
    *    📌 本檔既有的同款判準逐字寫在 `no_secret` / `no_env` 那兩格旁邊。
-   * ⚠️ **不進 `ALARM_REASONS`**:rollout 期間它是**預期會發生**的,而不是「我們自己壞了」。
+   * ⛔ ~~**不進 `ALARM_REASONS`**:rollout 期間它是**預期會發生**的,而不是「我們自己壞了」。~~
+   *    **2026-08-29 起改為【會告警】,而上面那句留著不刪 —— 它是那個決定的唯一紀錄。**
+   * 🔴 **翻它的理由:那句話自己寫著有效期(「rollout 期間」),而【期間有沒有結束沒有人量過】。**
+   *    ⚠️🔴 **而我一開始把這裡寫成「rollout 已結束」—— 那是我編的**(codex 對抗審查 must-fix 抓到):
+   *    我手上只有「`ADMIN_REQUIRE_REAL_IDENTITY` 這顆變數 2026-08-25 被建立」
+   *    (`vercel env ls production --project pcm-admin` ⇒ `created 4d ago`),而那**證不了**
+   *    ①舊 `v:1` 票都過期了 ②沒有節點還在發 `v:1`。⇒ **原句已刪,改成下面這個寫得出來的版本。**
+   *
+   * **翻它的真正理由(不需要「rollout 結束」這個前提)**:
+   *    這個 reason 的**兩種來源處置相反** —— 「舊票還在流通(良性)」與「有東西在發舊票(不良性)」
+   *    ⇒ **而我們現在沒有任何方法分辨它們**,因為它一列都不記。
+   *    ⇒ 記下來之後,**那個分辨才變成可能的**(看它的頻率與時間分布)。
+   *    📌 **不是「現在該告警了」,是「不記就永遠不知道該不該告警」。**
+   *
+   * ⚠️ **本改動【不會】立刻產生任何一列 log** —— 它只在真的有 `v:1` 票撞上來時才叫。
+   *    ⇒ **不是「拿到證據」,是「以後有事的時候會出聲」。** 別讀成前者。
+   * 🔴 **已知天花板(codex must-fix,照實留)**:`lastAlarmAt` 是**模組層 Map**
+   *    ⇒ 節流是【每個 serverless instance 各自 60 秒】,**不是全站 60 秒**。
+   *    N 個 instance ⇒ 最壞 N 倍。⚠️ 這**不是本改動引入的**(`no_secret`/`no_env` 同款),
+   *    而本改動**把一個可能高頻的 reason 放進了那個天花板底下** ⇒ 風險等級不同,寫出來。
+   *    ⇒ **要真的擋洪水得換共享節流(KV/Redis),那是另一片,本片不做。**
    */
   | 'version_rejected';
 
@@ -564,6 +589,12 @@ export type SessionRejectReason =
 export const ALARM_REASONS: ReadonlySet<SessionRejectReason> = new Set<SessionRejectReason>([
   'no_secret',
   'no_env',
+  // 🔴 2026-08-29 加入(理由全文在 `version_rejected` 那格的訃聞段)。
+  //    ⚠️ 它與上面兩個**不同族**:上面兩個是「我們自己壞了」,這一個是
+  //    「外面送進來一張不該還在的票」。
+  //    🔴 **而我【不宣稱】那已經不是預期** —— 那要「rollout 結束」當前提,而我沒有那個證據。
+  //    加它的理由只有一個:**不記就分辨不出那兩種來源。**
+  'version_rejected',
 ]);
 
 // ── 告警的【有界去重】(codex 關卡2 M2) ──────────────────────────────────────
@@ -572,10 +603,32 @@ export const ALARM_REASONS: ReadonlySet<SessionRejectReason> = new Set<SessionRe
 //    ① Vercel log 量與費用被放大成一個 DoS 面(攻擊者只要打壞 cookie 就能放大)
 //    ② 🔴 而更糟的是:**真訊號被自己的洪水淹掉** —— 這道警報在最需要它的那一分鐘失效
 //    ③ 而只有這一類會多做一次 I/O ⇒ **延遲與其他拒絕不同 = 一個時間側通道**
-// ⇒ 每個 reason 每 `ALARM_MIN_INTERVAL_MS` 最多一則。
+// ⇒ 每個 reason 每 `ALARM_MIN_INTERVAL_MS` 最多一則,**而個別 reason 可以更長**
+//    (見下方 `ALARM_INTERVAL_OVERRIDE_MS`;2026-08-29 起 `version_rejected` = 1 小時)。
 // ⚠️ 誠實界線:serverless 每個 instance 各有自己的計時器 ⇒ 這是**上界不是精確節流**;
 //    它擋的是「單一 instance 的洪水」,不是「全域剛好一則」。
 const ALARM_MIN_INTERVAL_MS = 60_000;
+
+/**
+ * 🔴 **逐 reason 的節流窗**(2026-08-29,codex 對抗審查 R2-1)。沒列的用 `ALARM_MIN_INTERVAL_MS`。
+ *
+ * 為什麼 `version_rejected` 要一個【一小時】的窗,而不是照舊的一分鐘:
+ * ```
+ * no_secret / no_env = 設定壞了 ⇒ 每個請求都撞，而【那件事本身就該吵】
+ * version_rejected   = 一張 v:1 票 ⇒ 🔴 一個人重整頁面就能每分鐘產一則，
+ *                      而【他不需要有惡意】—— 一個舊分頁自己就會做到
+ * ```
+ * ⚠️ **新的天花板是什麼,寫清楚**:每個 instance 每小時最多 1 則
+ * ⇒ N 個 instance ⇒ **最壞 N 則/小時**(舊值是最壞 `N × 60` 則/小時)。
+ * 🔴 **而它【仍然不是】全站上限** —— `lastAlarmAt` 是模組層 Map,
+ *    每個 serverless instance 各有一份,**沒有任何跨 instance 的協調**。
+ *    ⇒ 真正的全站上限要共享節流(KV / Redis),**那是另一片,已進池子**。
+ * 📌 **不要把這一格讀成「已節流」** —— 它降了一個量級,而它沒有把那個面關掉。
+ */
+const ALARM_INTERVAL_OVERRIDE_MS: ReadonlyMap<SessionRejectReason, number> = new Map([
+  ['version_rejected', 3_600_000],
+]);
+
 const lastAlarmAt = new Map<SessionRejectReason, number>();
 
 /**
@@ -590,7 +643,8 @@ const lastAlarmAt = new Map<SessionRejectReason, number>();
 export function consumeAlarmSlot(reason: SessionRejectReason, now: number = Date.now()): boolean {
   if (!ALARM_REASONS.has(reason)) return false;
   const prev = lastAlarmAt.get(reason);
-  if (prev !== undefined && now - prev < ALARM_MIN_INTERVAL_MS) return false;
+  const minInterval = ALARM_INTERVAL_OVERRIDE_MS.get(reason) ?? ALARM_MIN_INTERVAL_MS;
+  if (prev !== undefined && now - prev < minInterval) return false;
   lastAlarmAt.set(reason, now);
   return true;
 }
