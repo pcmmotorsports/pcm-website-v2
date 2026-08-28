@@ -31,7 +31,14 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 //    `select updated_at from product_variants order by updated_at desc limit 1`
 //    ⇒ **Seq Scan 54,036 列 / Execution Time 23.8ms**(`updated_at` 上沒有索引)。
 //    ⚠️ 這一發**只在首頁跑**(不像退款那支被側欄接走、變成每個整頁載入都跑),
-//    且與首頁另外三支查詢**併發**、不串行 ⇒ 判為可接受。
+//    且與首頁其他查詢**併發**、不串行 ⇒ 判為可接受。
+//    🔴 **併發支數:原記【另外三支】(`85599ee1` 之前);2026-08-28 起是【另外四支】**
+//       (`actor` / `staff` / `today` / 本支 / `cronHeartbeats`,同一個 `Promise.allSettled`)
+//       —— **兩個值之下,Seq Scan 23.8ms 的判定都成立 ⇒ 本段結論不受影響。**
+//       (形狀抄 `today-read.ts` 那段「當時記載 1000、2026-08-18 起實測 2000,兩個值之下都成立」。)
+//    🔴🔴 **而這一格本身是一個紀錄,不要刪**:下面那句天花板寫的是「哪天…就要回來加索引」,
+//       而**觸發它的人就是寫下它的那個人**(我,2026-08-28 把第五支併發加進去)——
+//       **而我沒有回頭看。** 📌 他當時想的是「哪天有人」,而他自己動它的那天不覺得自己是「有人」。
 //    ⇒ **天花板寫在這裡**:哪天它被接進 layout/側欄,或列數再長一個量級,
 //      就要回來加一條 `updated_at` 索引(那是 migration = 鐵則 12③,不是順手改)。
 

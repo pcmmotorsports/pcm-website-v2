@@ -12,6 +12,7 @@
 //    📌 我先前對主視窗說「五支 route 都有 `*_ENABLED` 旗標」——**那句是錯的**,而錯的原因正是
 //       我拿一支的形狀外推成五支,**而中間那支剛好印得一樣**。這支檔就是那個外推的解藥。
 
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
@@ -132,5 +133,34 @@ describe('GET capture-recheck — 心跳三態(⟦b4-CRON6⟧ 片1)', () => {
     expect(res.status).toBe(500);
     expect(hbOkSpy).not.toHaveBeenCalled();
     expect(hbFailSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴 檔頭的跨檔引用 — 錨在字面、不在行號
+//
+// **這一組是【複製】來的,不是新發明**:`anomaly-alert/route.test.ts` 與
+// `settle-sweep/route.test.ts` 早就有同樣兩格,而**本支一直沒有** ——
+// 而 2026-08-28 量到:**唯一違規的正好就是本支**(檔頭引用 `settle-sweep/route.ts:65`,
+// 而那句話實際在第 70 行 ⇒ 行號漂了 5 行、內容還在、零訊號)。
+// 📌 **一道有效的守門沒有被複製到隔壁,而隔壁正好就違規了。**
+//    ⇒ 那不是巧合:**沒有守門的那一支,就是會累積違規的那一支。**
+// ⚠️ pattern 逐字抄那兩支(含它們踩過三版才收斂的理由)—— 不自己再猜一次字集。
+// ══════════════════════════════════════════════════════════════════════════
+const ROUTE_SOURCE = readFileSync(new URL('./route.ts', import.meta.url), 'utf8');
+
+describe('route.ts 檔頭的跨檔引用 — 錨在字面、不在行號', () => {
+  it('全檔零「檔案:行號」引用 —— 行號會漂,而漂掉時沒有訊號', () => {
+    // pattern 來由(抄 anomaly-alert 那支,它換過三次):不列舉副檔名,
+    // 判準是【那個 token 裡有沒有一個點】—— 點不會過期,而副檔名的字集會。
+    const hits = ROUTE_SOURCE.match(/[\w./-]*\.[\w-]+:L?\d+/g) ?? [];
+    expect(hits).toEqual([]);
+  });
+
+  it('全檔零反引號裸行號(`:123` / `:123-125`)—— 同一個病,換一種寫法', () => {
+    // 只認【反引號包住】的形式;裸寫那一種明寫在射程外、交給人
+    // (那兩支自陳:硬做會與時刻 `21:20`、JSON `"errors":0` 互撞,誤報比漏掉貴)。
+    const hits = ROUTE_SOURCE.match(/`:L?\d+(?:-\d+)?`/g) ?? [];
+    expect(hits).toEqual([]);
   });
 });

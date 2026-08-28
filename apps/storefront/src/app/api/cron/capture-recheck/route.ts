@@ -3,12 +3,12 @@
  *
  * ## 這條路存在的理由
  * `capture_state` 只在**授權當下**被寫一次,而銀行是 21 小時後才請款
- * ⇒ 沒有任何路徑會再寫它(`settle-charge.ts:70` 的 paid 短路在 Record 查詢**之前** return)。
+ * ⇒ 沒有任何路徑會再寫它(`settle-charge.ts` 裡那道 `paid` 短路在 Record 查詢**之前** return)。
  * ⇒ 🔴 **本路徑不動那個短路** —— 它是新造的一條路,不是掛在既有 sweeper 上。
  *
  * ## 🔴 「上膛」的動作是設 env,不是部署、也不是排程
  * `CAPTURE_RECHECK_CUTOFF_DAYS` 未設 ⇒ **整段不跑、一發 Record 都不打**,回 200 + `skipped_no_cutoff`。
- * 形狀照 `api/cron/email-sweep/route.ts:18-20` 逐字(「真正的『上膛』動作是設 `B4_DEPLOY_CUTOFF`,不是排程」)。
+ * 形狀照 `api/cron/email-sweep/route.ts` 檔頭那句逐字(「真正的『上膛』動作是設 `B4_DEPLOY_CUTOFF`,不是排程」)。
  *
  * ⚠️ **而那個數字沒有被 Sean 逐字確認**:主視窗 2026-08-20 端給他的建議是「每 10 分鐘、只問最近 3 天」,
  * 他回「要」—— 沒有推翻,也沒有明確採納。⇒ **主視窗暫定,Sean 未逐字確認。**
@@ -20,7 +20,7 @@
  *
  * ## 🔴 回應一定帶 recordCalls / recordFailures
  * 「既有 sweeper 的量沒撞到 TapPay rate limit」目前是**推的、沒量過**
- * (`docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md:234` 逐字只給「綠界類比」,沒有 TapPay 的數字)。
+ * (`docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md` 裡那段逐字只給「綠界類比」,沒有 TapPay 的數字)。
  * ⇒ 這兩欄讓下一個人有**分母**,而不是再推一次。
  */
 import { timingSafeEqual } from 'node:crypto';
@@ -41,8 +41,13 @@ const BEARER_PREFIX = 'Bearer ';
 /**
  * 單輪上限(節流)。**寫在這裡而不是靠「集合天然小」** —— 集合大小是資料決定的,不是我們決定的。
  *
- * 25 的來源:既有 `settle-sweep` 每 2 分鐘最多 100 發 Record(`settle-sweep/route.ts:65` 逐字
- * 「單輪最壞 =(inbox 50 + stuck 50)× ~500ms ≈ 50s」)⇒ 每小時 ≤3000。
+ * 25 的來源:既有 `settle-sweep` 每 2 分鐘最多 100 發 Record —— 錨在**字面**:
+ * 該檔檔頭那句「單輪最壞 = (inbox 50 + stuck 50) × ~500ms ≈ 50s」,
+ * 而那兩個 50 是它的 `INBOX_LIMIT` / `STUCK_LIMIT` ⇒ 每小時 ≤3000。
+ * 🔴 ~~原本這裡引的是 `settle-sweep` 那支檔的一個【裸行號】~~ **2026-08-28 量到它已經漂了 5 行**
+ *   (原指的那一行現在是 `const BEARER_PREFIX`,而那句話實際搬到後面五行)——
+ *   **內容還在、只有指標壞了**,而指標壞掉的時候沒有任何訊號。
+ *   ⇒ 改成錨在字面;並把 anomaly-alert / settle-sweep 早就有的那道守門複製進本支的 route.test.ts。
  * 本路徑每 10 分鐘 25 發 ⇒ **每小時新增 ≤150 發**。
  * ⚠️ **刻意不寫成「既有量的 5%」**(W5 R1 MF-2):3000/hr 是 **settle-sweep 自己的預算**,
  * 不是 TapPay 給的上限 ⇒ 對一個不是上限的東西取百分比,會讓人以為有餘裕被量過。
@@ -51,10 +56,10 @@ const BEARER_PREFIX = 'Bearer ';
  * ## 🔴 那個「5%」的分母,2026-08-20 查過了 —— 兩條路確實在同一個桶裡
  * 這一段原本是**假設**(「兩條路是不是打同一個端點、吃同一份額度,我沒查」),現在是量到的:
  * - **同一個端點**:兩條路都走 `ITapPayAdapter.recordQuery`
- *   ⇒ `TapPayChargeAdapter.ts:512` fetch `config.recordQueryUrl`
- *   ⇒ `endpoints.ts:33` = `${host}/tpc/transaction/query`。**一支方法、一個 URL,沒有第二條。**
- * - **同一組商戶憑證**:兩條路的 deps 都來自 `composition.ts:125`(`tappay: getTapPayAdapter()`),
- *   而 `getTapPayAdapter()`(`composition.ts:69-79`)只讀**一組** `TAPPAY_PARTNER_KEY` /
+ *   ⇒ `TapPayChargeAdapter.ts` 裡 fetch `config.recordQueryUrl` 那一發
+ *   ⇒ `endpoints.ts` 的 `${host}/tpc/transaction/query`。**一支方法、一個 URL,沒有第二條。**
+ * - **同一組商戶憑證**:兩條路的 deps 都來自 `composition.ts` 的 `tappay: getTapPayAdapter()`,
+ *   而 `getTapPayAdapter()`(同檔)只讀**一組** `TAPPAY_PARTNER_KEY` /
  *   `TAPPAY_MERCHANT_ID` —— repo 內零第二組憑證路徑(負對照掃不存在的設定名 ⇒ 0)。
  * ⇒ ⇒ **同端點 + 同商戶** ⇒ 不論 TapPay 的額度是「每端點」還是「每商戶」算,
  *   兩條路都切在**同一份額度**上 ⇒ **5% 這個比例成立。**
