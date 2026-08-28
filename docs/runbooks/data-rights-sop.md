@@ -337,6 +337,29 @@ Sean「就是公司」= 誰承擔責任。
 > ⚠️ 被排除的四個誤收:`brands.name` / `categories.name` / `order_items.line_total` /
 > `sweeper_heartbeat.job_name` —— **寫出來是因為「25 命中」這個數字本身會誤導。**
 
+> 🔴 **本節量法的一個已知限制(2026-08-29 線D 實測;起因是線A 的一個提醒,而那個提醒的原版是錯的)**
+>
+> 這個 repo 的 PII **欄名混用兩種寫法**,而只掃一種會漏掉另一半:
+> ```
+> 住在常數裡   apps/admin/src/lib/customers/profile-form.ts:26-27
+>              PROFILE_NAME_FIELD = 'name' · PROFILE_PHONE_FIELD = 'phone'
+>              apps/admin/src/lib/orders/manual-order-form.ts:46-47,74-75
+>              MANUAL_ORDER_SHIP_TO_{NAME,PHONE}_FIELD · MANUAL_CUSTOMER_NEW_{NAME,PHONE}_FIELD
+> 裸字面       apps/admin/src/components/orders/manual-customer-picker.tsx:331
+>              name='customer_phone_lookup'
+> ```
+> ⇒ **只 grep JSX 的 `name='...'` 會漏掉常數那一半;只 grep 常數定義處會漏掉裸字面那一半。**
+> **兩邊都要掃。**
+>
+> ⚠️ **而【不要】把這一條讀成「grep 欄位名字面這個量法會騙你」** ——
+> 那個更寬的說法**是假的**:線D 2026-08-29 雙向量過,
+> `git grep -c "name='phone'"` 在洞開著的世界(`227acc19`)印 **1**、修好之後印 **0**
+> ⇒ **那把尺是活的。**
+> 📌 **寫下這段警告的理由本身值得記**:原版是一句「我們的量法有盲區」的**自白**,
+> 而**一句自白讀起來像謹慎,沒有人會回頭去驗它** ——
+> **它是最不會被查、因此最容易長住下來的一種假話。**
+> ⇒ 這裡留的是**收窄過、逐格複量過**的那一版。
+
 ### 4-a 可以直接處理的
 | 表 | 欄位 |
 |---|---|
