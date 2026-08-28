@@ -10,15 +10,15 @@ import {
   MANUAL_ORDER_REQUEST_ID_FIELD,
   MANUAL_ORDER_SHIPPING_FEE_FIELD,
   MANUAL_ORDER_SHIPPING_METHOD_FIELD,
-  MANUAL_ORDER_SHIP_TO_LINE_FIELD,
-  MANUAL_ORDER_SHIP_TO_NAME_FIELD,
-  MANUAL_ORDER_SHIP_TO_PHONE_FIELD,
   MANUAL_ORDER_SOURCE_FIELD,
 } from '@/lib/orders/manual-order-form';
 import { ManualCustomerPicker } from './manual-customer-picker';
 import { ManualOrderSubmit } from './manual-order-submit';
 import { createManualOrderAction } from '@/lib/orders/manual-order-actions';
 import { ManualOrderLines } from './manual-order-lines';
+// 🔴 三個 `MANUAL_ORDER_SHIP_TO_*` 常數 2026-08-28 從本檔的 import 移除 ——
+//    它們現在由 `./manual-order-ship-to` 自己 import。**欄名一個字都沒改**,只是換了誰在用。
+import { ManualOrderShipTo } from './manual-order-ship-to';
 
 // manual-order-form-body.tsx — M12-A3-b:手動建單表單本體(客人 / 經手人 / 收件 / 發票 / 運費)。
 // ⛔ ~~🔴 **品項那一列不在本片**(A3-c)。本片先讓「一張沒有品項的單」在畫面上成立…~~
@@ -171,27 +171,12 @@ export function ManualOrderFormBody({
             </label>
           </div>
 
-          <fieldset className='space-y-2 rounded-md border p-3'>
-            <legend className='px-1 text-sm'>收件資料</legend>
-            <input
-              name={MANUAL_ORDER_SHIP_TO_NAME_FIELD}
-              placeholder='收件人'
-              required
-              className='block w-full rounded-md border px-2 py-1'
-            />
-            <input
-              name={MANUAL_ORDER_SHIP_TO_PHONE_FIELD}
-              placeholder='電話'
-              required
-              className='block w-full rounded-md border px-2 py-1'
-            />
-            <input
-              name={MANUAL_ORDER_SHIP_TO_LINE_FIELD}
-              placeholder='地址'
-              required
-              className='block w-full rounded-md border px-2 py-1'
-            />
-          </fieldset>
+          {/* 🔴 收件那三格 2026-08-28 搬進 `./manual-order-ship-to`(client 子元件)——
+              成因是那顆「同上」要 state,而**本檔是 server component**(檔頭那段)。
+              ⇒ 形狀比照 `./manual-order-lines`,**不把本檔改成 client**。
+              ⚠️ 三個 `name=` 一個字都沒改(`ship_to_name` / `ship_to_phone` / `ship_to_line`)
+                 ⇒ `parseManualOrderForm()` 與 RPC 那一側**零改動**。 */}
+          <ManualOrderShipTo />
 
           <fieldset className='space-y-2 rounded-md border p-3'>
             <legend className='px-1 text-sm'>發票</legend>
