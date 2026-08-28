@@ -24042,6 +24042,34 @@ find apps packages supabase -type f -name '*.test.ts*' -not -path '*/node_module
 ```
 🔴 **連帶**:那道守門今天只裝在那 5 支,而同族(原始碼檔內含裸行號引用)= **323** 支 ⇒ ⟦b4-GUARD1⟧。
 
+#### 🔴 同一天第二個實例:猜的不是變數名,是**指令長相**(2026-08-28 線B 量、`-c8` 推翻、線D 複驗)
+
+```
+線B 寫:grep -c 'git diff --cached' .husky/reviewer-gate.sh  ⇒ 0
+      結論「它從不看 staged 清單」
+-c8 開檔推翻 —— reviewer-gate.sh:37 逐字:
+  staged=$(git -c core.quotePath=false diff --cached --name-only)
+:39 拿它去比受審面白名單
+⇒ 那個 0 是【真的】, 而結論是錯的。成因:`-c core.quotePath=false` 卡在 git 與 diff 中間
+線D 當場複量:
+  grep -cF 'git diff --cached'        .husky/reviewer-gate.sh ⇒ 0   ← 猜長相
+  grep -cF 'diff --cached --name-only' .husky/reviewer-gate.sh ⇒ 1   ← 錨在行為
+  負對照(現生)⇒ 0
+⇒ 同一支檔、同一件事,兩把尺印 0 與 1。
+```
+**判別句(與上面那句並列)**
+> **一把猜【指令長什麼樣子】的尺,在【沒做這件事】與【做了但中間多兩個字】之間印同一個 0。**
+
+**🔴 而這一格把 ⑩-a 的射程放大了 —— 通則要改寫**
+```
+早上那發  猜的是【變數名】 ROUTE_SOURCE vs ROUTE_SOURCE_FOR_ANCHOR_GUARD
+這一發    猜的是【指令的字面順序】 —— 而 shell 允許在任何位置插旗標
+```
+> **不要錨在【字面長相】—— 識別字會改名,指令會插旗標,而兩者都不改變行為。**
+> **要錨在【行為】或【它產生的效果】。**
+📌 **而最硬的證據是這個組合**:**同一天、兩個不同的窗、兩個不同的字集、同一個病** ——
+兩個獨立實例各自可以推說是粗心;**同日撞兩次,那是尺的設計方式有問題,不是人。**
+
 ### ⑩-b `--` 之後的 `--include` 變成路徑 —— 過濾器靜靜失效,分母悄悄變大(2026-08-28 線D,當場)
 
 **當天發生的事**
