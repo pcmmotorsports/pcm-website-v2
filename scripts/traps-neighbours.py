@@ -60,12 +60,13 @@
 用法
   python3 scripts/traps-neighbours.py <草稿檔>
   cat 草稿 | python3 scripts/traps-neighbours.py
-  python3 scripts/traps-neighbours.py --selftest      # 六個世界都要表演(--selfcheck 同義)
+  python3 scripts/traps-neighbours.py --selftest      # 七個世界都要表演(--selfcheck 同義)
 """
 import io
 import math
 import os
 import re
+import unicodedata
 import sys
 from collections import Counter
 
@@ -78,13 +79,21 @@ INBOX = 'docs/patterns/traps-inbox'      # 🔴 暫存區也算母體 —— 它
 #       推不出來就【出聲】,不要用兩個抽屜安靜地跑完。
 MEMORY_ENV = 'PCM_MEMORY_DIR'            # 手動覆蓋用
 TOP_N = 8
+# 🔴 寬尺的實測地板(2026-08-28 當場量到 49);見 selftest 世界七 M2 那段註解。
+WIDE_FLOOR = 40
 BODY_CHARS = 4000          # 每條只取前 N 字元,避免長條目靠體積贏
 _STRIP = re.compile(r'[*`~#>|\-—【】「」()()\s]')
 
 
 def load_sections(path, source):
     """以 ^'## ' 切條。回傳 [{line, title, text, source}]。source 是給人看的來源標籤。"""
-    lines = io.open(path, encoding='utf-8').read().split('\n')
+    # 🔴 nit(R3):非 UTF-8 的檔會噴一個【不含肇事檔名】的裸 traceback ——
+    #    大聲, 而不可診斷。⇒ 錯誤訊息一定要帶那支檔的路徑。
+    try:
+        lines = io.open(path, encoding='utf-8').read().split('\n')
+    except UnicodeDecodeError as e:
+        sys.exit('🔴 讀不動(不是 UTF-8):%s\n   %s\n'
+                 '   ⇒ 那支檔對本工具是【整支隱形】的, 不是「沒有命中」。' % (path, e))
     secs, cur = [], None
     for i, l in enumerate(lines, 1):
         if l.startswith('## '):
@@ -333,6 +342,44 @@ def cosine(a, b):
     return num / (na * nb) if na and nb else 0.0
 
 
+# 🔴 丙(2026-08-28 `-c8`):編號母題系列 —— 兄弟關係住在【檔案結構】,不住在詞彙裡。
+#    成因是量到的:APPLYSHADOW1 那發,工具把 `:377`(③)送進第 5 名而我讀到了,
+#    但同一串的 `:227`(①)排在第 451 名 ⇒ 相似度尺撈不到它。
+#    ⚠️ 而「改成只吃標題行」實測【更糟】:`:227` 從第 451 掉到第 1340 名。
+#    ⇒ 所以這裡不加第二把【詞彙】尺,改用一個不需要任何詞彙的關係:同一串編號。
+NUMBERED = re.compile('^## [\u2460-\u2473\u3251-\u325f\u32b1-\u32bf]')
+
+
+def _numberish(ch):
+    """一把【比 NUMBERED 寬】的尺,只給自檢當對照用(MF2)。
+
+    🔴 它刻意寬:寬尺誤報的成本是「開檔看一眼」,漏報的成本是【整串兄弟安靜消失】。
+    """
+    try:
+        name = unicodedata.name(ch)
+    except ValueError:
+        return False
+    return any(k in name for k in ('CIRCLED', 'PARENTHESIZED', 'FULLWIDTH DIGIT',
+                                   'DINGBAT', 'IDEOGRAPHIC NUMBER'))
+
+
+def numbered_family(secs):
+    """正本裡的編號母題系列(①②③…)。回空 = 這份正本沒有編號條目, 呼叫端要出聲。"""
+    return [s for s in secs if s['source'] == '正本' and NUMBERED.match(s['title'])]
+
+
+def family_siblings(ranked, secs):
+    """命中若有任何一條落在編號母題系列上 ⇒ 回傳【整串】(含命中那條);沒落在 ⇒ 回空。
+
+    🔴 判別力來源:它不看分數、不看詞彙 —— 只看「命中那條是不是這一串的成員」。
+       ⇒ 一個排在第 451 名的兄弟,只要它哥哥進了前八,它就會被印出來。
+    ⚠️ 天花板:它只涵蓋【有編號的】那一串。沒編號的母題級通則(例:正本 :12156)
+       仍然撈不到 —— 見輸出裡的失效 ⑦。"""
+    if not any(s['source'] == '正本' and NUMBERED.match(s['title']) for _, s in ranked):
+        return []
+    return numbered_family(secs)
+
+
 def rank(query, secs, n=TOP_N):
     qb = bigrams(query)
     scored = [(cosine(qb, s['bg']), s) for s in secs]
@@ -432,8 +479,78 @@ def selfcheck(secs):
           % (SELF_SCORE, '是' if scr_d else '否',
              '是' if not scr_c else '否 —— 恆真, 沒判別力'))
 
-    ok = hit_a and not hit_b and hit_c and hit_d and hit_e and hit_f
-    print('⇒ 自檢 %s' % ('PASS(六個世界印出不同答案)' if ok else 'FAIL(尺沒有判別力)'))
+    # ---- 世界七:編號母題兄弟(丙,2026-08-28 `-c8`)。兩個世界都要表演 ----
+    # 🔴 只驗「該印的印了」是恆真格:一個無條件 return 整串的假實作也會過。
+    #    所以配一發【母體裡沒有編號條目】的反向對照 —— 那一發必須【不印】。
+    fam_all = numbered_family(secs)
+    if len(fam_all) < 2:
+        print('世界七 FAIL:正本裡編號母題條目只有 %d 條 ⇒ 這道功能【沒有靶】'
+              '(有人改了編號的寫法?)' % len(fam_all))
+        return 1
+    # 拿【最後一條】當靶:它不是第一條 ⇒「印整串」與「只印它自己」分得開
+    tgt_g = fam_all[-1]
+    w7 = rank(tgt_g['text'], secs, TOP_N)
+    fam_pos = family_siblings(w7, secs)
+    wide_seen = [x for x in secs
+                 if x['source'] == '正本' and len(x['title']) > 3
+                 and _numberish(x['title'][3])]
+    wide = [x for x in wide_seen if not NUMBERED.match(x['title'])]
+    # 🔴 M2(R3):上一版的 wide_alive 靠【寫在同一支檔裡的三個探針字】⇒ 實作可以把它們背下來
+    #    (R3 實測:_numberish 改成只認 ① 與 ㊿ 兩個字 + 上界砍掉 ㊱-㊿
+    #     ⇒ 13 條真條目安靜消失, 而畫面印「看到 1 條 / 看不到 0 條」、rc=0)。
+    #    📌 **我補的守門本身, 就是它下一發突變的靶。**
+    #    ⇒ 承重的改成【與語料掛鉤的量】:寬尺看到的必須 ⊇ 窄尺, 而且不得低於一個實測地板。
+    #    WIDE_FLOOR=40 的依據:2026-08-28 當場量到 49 條, 而這一串只會長不會縮;
+    #    真的掉到 40 以下 ⇒ 那份正本已經大改, 那時要來看的是這一行, 不是繞過它。
+    wide_alive = (not _numberish('尺')
+                  and len(wide_seen) >= WIDE_FLOOR
+                  and len(wide_seen) >= len(fam_all))
+    range_ok = wide_alive and not wide
+    # 🔴 M1(R3 Fable,2026-08-28):上一版拿 `fam_pos` 與 `fam_all` 互比 ——
+    #    而它們是【同一個函式的同一次呼叫結果】⇒ 把 numbered_family 截成 [:2]
+    #    ⇒ 自檢印「整串 2 條」照樣 PASS、rc=0(當天實測),而排 451 名那個兄弟不再被印。
+    #    ⇒ 期望值必須來自【另一個述詞】:寬尺走 unicodedata 的名字, 窄尺走 regex 範圍。
+    #    ⚠️ 它們仍共用同一份 `secs` ⇒ 語料被動手腳時兩邊一起錯(見檔頭〈自檢的天花板〉)。
+    pos_ok = (len(fam_pos) == len(wide_seen)
+              and all(any(x is y for y in wide_seen) for x in fam_pos)
+              and any(x is fam_all[0] for x in fam_pos))
+    # 🔴 M3(R3):觸發條件是「前 N 名【任一】落在編號條上」,而上一版的靶自撞排第 1
+    #    ⇒「任一」這個語意從來沒有在 >1 名的位置被演過:把觸發改成只看第 1 名, 自檢照樣 PASS。
+    #    ⇒ 這裡直接構造一個【編號條排第 2】的命中清單, 它必須照樣觸發。
+    non_num_first = next((x for x in secs
+                          if not (x['source'] == '正本' and NUMBERED.match(x['title']))), None)
+    rank2_ok = (non_num_first is not None
+                and family_siblings([(0.9, non_num_first), (0.5, fam_all[0])], secs) != [])
+    # 🔴 MF1(R5,2026-08-28):負對照【不可以】把編號條從母體抽掉 ——
+    #    那一刀同時拿走【觸發條件】與【回傳內容】⇒ 一個無條件 `return numbered_family(secs)`
+    #    的假實作也會回 []，自檢照樣 PASS(當天實測:改成假實作 ⇒ 仍 PASS、rc=0)。
+    #    正確做法:母體【不動】,只讓【命中清單】裡沒有編號條 ⇒ 假實作會回整串 ⇒ 這一格才會紅。
+    ranked_no_num = [(sc, x) for sc, x in rank(tgt_g['text'], secs, TOP_N * 4)
+                     if not (x['source'] == '正本' and NUMBERED.match(x['title']))][:TOP_N]
+    neg_ok = family_siblings(ranked_no_num, secs) == []
+    # 🔴 MF2(R5):範圍退化沒有守門 —— 把上界從 ㊿ 縮小,世界七印「整串 38 條」而照樣 PASS。
+    #    ⇒ 用一把【比自己寬】的尺當對照:任何 Unicode 名稱含這些關鍵字的字元都算編號候選。
+    #    寬尺看得到而 NUMBERED 看不到 ⇒ 出聲(偏向多報,照板上〈寧可偏向多報〉那條)。
+    # 🔴 R2(2026-08-28)抓到:上一版只數「寬尺看得到而 NUMBERED 看不到」的差集 ——
+    #    而把 `_numberish` 改成 `return False`(寬尺死掉)⇒ 差集必然是 0 ⇒ 自檢 PASS。
+    #    再疊上「上界縮到 ㉚」(真漏 18 條)⇒ **仍 PASS**。當天兩發都實測過。
+    #    📌 **畫面上「= 0」與「這把尺死了」是同一句話** —— 與 MF1 同一個形狀, 只是高一層。
+    #    ⇒ 三件一起要:①寬尺對【已知的正負靶】表演 ②印出它自己的分母 ③差集才有意義。
+    hit_g = pos_ok and neg_ok and range_ok and rank2_ok
+    print('世界七 編號母題兄弟(丙)   ⇒ 命中編號條【印整串 %d 條, 且含第一條】%s / '
+          '命中清單裡沒有編號條【不印】%s'
+          % (len(fam_all), '是' if pos_ok else '否',
+             '是' if neg_ok else '否 —— 恆印, 沒判別力'))
+    # 🔴 那個 0 要【帶著分母走】:單獨一個 0 分不出「沒漏」與「尺死了」。
+    print('       ↳ 觸發語意「前 %d 名任一」在【第 2 名】的位置 ⇒ 照樣觸發嗎? %s'
+          % (TOP_N, '是' if rank2_ok else '否 —— 那個「任一」從來沒被演過'))
+    print('       ↳ 範圍退化守門  ⇒ 寬尺自身正負靶 %s · 寬尺看得到 %d 條 · 其中 NUMBERED 看不到 %d 條 %s'
+          % ('通過' if wide_alive else '🔴 死了(①/㊿ 認不出, 或把「尺」當成編號)',
+             len(wide_seen), len(wide), '' if range_ok else
+             '🔴 漏了:' + ' / '.join(':%d %s' % (x['line'], x['title'][3:24]) for x in wide[:4])))
+
+    ok = hit_a and not hit_b and hit_c and hit_d and hit_e and hit_f and hit_g
+    print('⇒ 自檢 %s' % ('PASS(七個世界印出不同答案)' if ok else 'FAIL(尺沒有判別力)'))
     return 0 if ok else 1
 
 
@@ -450,7 +567,14 @@ def main():
 
     draft_path = None
     if args:
-        query = io.open(args[0], encoding='utf-8').read()
+        # 🔴 nit(R3):路徑打錯 ⇒ 裸 FileNotFoundError, 而讀的人要從 traceback 裡撿檔名。
+        try:
+            query = io.open(args[0], encoding='utf-8').read()
+        except OSError as e:
+            sys.exit('🔴 草稿讀不到:%s\n   %s\n'
+                     '   ⇒ 這是【路徑錯】不是【查無近親】—— 兩者的下一步完全不同。' % (args[0], e))
+        except UnicodeDecodeError as e:
+            sys.exit('🔴 草稿不是 UTF-8:%s\n   %s' % (args[0], e))
         draft_path = args[0]
     elif not sys.stdin.isatty():
         query = sys.stdin.read()
@@ -476,7 +600,7 @@ def main():
     print('   【memory】有 ⇒ 它是跨專案的行為教訓(`feedback_*` 那一族主要住這裡)')
     # 🔴 這份清單要印在【終端機】,不能只寫在檔頭 —— 跑工具的人讀的是輸出,不是原始碼。
     #    (2026-08-22:⑥ 一度只活在 docstring 裡,而那等於沒有人看得到它。)
-    print('⚠️ 這是【候選】不是【判定】。本工具已知的六種失效(全部是量到的,2026-08-22):')
+    print('⚠️ 這是【候選】不是【判定】。本工具已知的【七】種失效(①-⑥ 量於 2026-08-22、⑦ 量於 2026-08-28):')
     print('   ① 排名低到會被放行(真正撞車的排第 5 名、分數低快三倍)')
     print('      ⤷ 2026-08-22 `-86`:真正同族的是【正本表格裡的一列】(:202,一格文字),')
     print('        它太短 ⇒ bigram 撈不到、八名之內零命中。**表格的一列天生比段落難被查到。**')
@@ -489,6 +613,11 @@ def main():
     print('      外觀是【滿滿八列、分數還特別高】—— 前五種讓你知道自己在賭,')
     print('      這一種讓你【以為你查過了】;而越照規矩做越會踩到(先寫成檔再跑檢查)。')
     print('      ✅ 給檔路徑時已自動排除;⚠️ 走 stdin 排不掉 —— 兩道後衛的漏報/誤報側見檔頭。')
+    print('   ⑦ 🔴 **母題級通則撈不到, 而那是 bigram 的結構性盲區、不是參數沒調好**')
+    print('      (2026-08-28 `-c8` 量:正本 `:227` 第 451 名 / `:12156` 第 921 名 —— 兩條都是真同族)。')
+    print('      成因:那種條目的正文講的是 `refund-repository.ts` / `COALESCE` / `git add -N`,')
+    print('      與你的草稿【字面重疊接近零, 而概念完全同族】⇒ 換成只吃標題行更糟(:227 掉到第 1340)。')
+    print('      ⇒ 下面那串【編號母題兄弟】接住其中一類;沒編號的那一類, 目前只有【讀了才知道】。')
     print('🔴 ⇒ 除了讀下面這 8 條,再拿【你那條的機制關鍵字】自己 grep 一次標題行。\n')
     ranked = rank(query, secs)
     for i, (score, s) in enumerate(ranked, 1):
@@ -496,6 +625,67 @@ def main():
     # 🔴 事後偵測(第六種失效的【後衛】):不管它是怎麼混進來的 —— stdin、symlink、
     #    日後有人改壞 exclude_self —— 這兩道都還會叫。
     #    ⚠️ 它們【不是】排除的替代品,是排除失效時唯一還會叫的東西。
+    # 🔴 丙:命中落在編號母題系列上 ⇒ 把整串印出來(不需要任何人想對關鍵字)
+    fam = family_siblings(ranked, secs)
+    if fam:
+        print('\n🔴 前 %d 名裡有條目落在【編號母題系列】上 ⇒ 整串 %d 條列在這裡'
+              '(兄弟關係是檔案結構,不是相似度):' % (TOP_N, len(fam)))
+        for s in fam:
+            print('    :%-6d %s' % (s['line'], s['title'][3:88]))
+        print('    ⇒ 這一串【沒有分數】—— 它們不是被算出來的, 是被【命中那條的位置】帶出來的。')
+        # 🔴 Q4(R3):殘留限制只活在原始碼註解 ⇒ 違反本檔自己 :562 那句
+        #    「跑工具的人讀的是輸出, 不是原始碼」⇒ 改成常駐印出來。
+        print('    ⚠️ 這一串【可能混了不只一串】—— 偵測只接得住「第二串重新起頭」那半;'
+              '兩串接得上時(①-⑤ 與 ⑥-⑩)它看不見。串的邊界【行距 / `# ` 章節可判, 而本版沒做】。')
+        # 🔴 編號會重複:正本裡不只一串用同一組符號(2026-08-28 量到標題為「尺自己壞掉,而它印出一個乾淨的數字」那一條
+        #    (🔴 **認標題字串, 不要認行號**:同一個位置 08-28 一天內量到 24015 ⇒ 24024 ⇒ 24054,
+        #     三次都是本 repo 自己的 commit 推的。行號由輸出當場算, 不寫死在註解裡)(⚠️ 原寫 `:24015`, 而【推翻它的那顆 commit `0eef771a` 是同一個人推的】——
+        #    那次加了三段交叉指標共 9 行, 把它往下推 9 行。行號會漂 ⇒ 認標題字串) 的 ⑩
+        #    屬於另一串)。不靜靜合併 —— 合併過的清單看起來與「一串」一模一樣。
+        syms = [s['title'][3] for s in fam]
+        dup = [k for k, c in Counter(syms).items() if c > 1]
+        if dup:
+            print('    ⚠️ 其中 %s 出現不只一次 ⇒ 這裡【不只一串】, 是同一組符號被兩串各用了一次。'
+                  % '/'.join(sorted(dup)))
+        # 🔴 nit(R5,2026-08-28):只抓「同符號重複」會漏掉【兩串符號不重疊】的情況
+        #    (例如一串 ①-⑤、另一串 ⑥-⑩ ⇒ 零重複, 而它們是兩串)⇒ 那正是上面那段註解自己在防的形狀。
+        #    改用【單調遞增】當判準:一串正常的編號碼點是遞增的;第二串重新起頭會讓它掉下來。
+        # 🔴🔴 殘留限制(2026-08-28 折 R5 那條 nit 時當場兩側測出來的, **不要讀成已修好**):
+        #      該叫  第二串【重新起頭】(①-⑤ 之後又出現 ①-③)⇒ 掉下來 ⇒ 會叫（實測 1 筆）
+        #      該不叫 一串正常遞增                              ⇒ 0 筆（實測）
+        #    ⚠️ 而 R5 點名的那一種【它看不見】:兩串符號【不重疊而且接得上】
+        #      (①-⑤ 是一串、⑥-⑩ 是另一串)⇒ 碼點仍然一路遞增 ⇒ 0 筆。
+        #    ⇒ **這一條只把「重新起頭」那半接住了, 另一半仍然安靜。**
+        #    ~~修它需要「串的邊界」這個資訊, 而檔案裡沒有任何東西標它~~
+        #    🔴 **上面那句是假的, R2 去量了(2026-08-28)**:串的邊界【標在行距裡】——
+        #      49 條的行距中位數 **40**, 而那顆外來的 ⑩ 與前一條差 **21,212 行(530 倍)**。
+        #      另外 `## ` 上層的 `# ` 章節也標得出來(`load_sections` 目前沒記而已)。
+        #    ⇒ **行距 / 章節可判, 而本版沒做。** 這是【還沒做】, 不是【做不到】——
+        #      📌 而我原本那句會【關掉下一個人的尋找動作】, 那種句子要能被證明。
+        drops = [(syms[i - 1], syms[i]) for i in range(1, len(syms))
+                 if ord(syms[i]) <= ord(syms[i - 1])]
+        if drops and not dup:
+            print('    ⚠️ 編號沒有一路遞增(%s)⇒ 這裡很可能【不只一串】, 而它們的符號不重疊。'
+                  % ' / '.join('%s→%s' % d for d in drops[:3]))
+        # 🔴 nit(R5):天花板 —— 序列已經走到哪裡, 離範圍上界還剩幾格
+        # 🔴 nit(R2):序列長度不可以用 len(fam) —— 那把【外來的那一串】也算進去了(實測差 1)。
+        #    要數的是【單調遞增那一段】,它在第二串重新起頭的地方自己停下來。
+        run = 1
+        for _i in range(1, len(syms)):
+            if ord(syms[_i]) > ord(syms[_i - 1]):
+                run += 1
+            else:
+                break
+        last = ord(syms[run - 1])
+        left = 0x32bf - last
+        if left <= 4:
+            print('    🔴 序列已到 %s, 而 NUMBERED 的上界是 ㊿ ⇒ 【只剩 %d 格】。'
+                  '第 %d 條之後沒有對應的圓圈字 —— 那時要換編法, 不是把範圍再往上開。'
+                  % (chr(last), left, run + left + 1))
+    else:
+        print('\n(前 %d 名沒有任何一條落在編號母題系列上 ⇒ 不印兄弟清單。'
+              '這一行證明它有在判,不是恆印。)' % TOP_N)
+
     warns = collision_warnings(ranked, n_self)
     for w in warns:
         print('\n' + w)
