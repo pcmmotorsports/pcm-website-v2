@@ -55,6 +55,27 @@ const TABLE = strip(readFileSync(resolve(HERE, 'orders-table.tsx'), 'utf8'));
 const TABLE_RAW = readFileSync(resolve(HERE, 'orders-table.tsx'), 'utf8');
 const ISLAND = strip(readFileSync(resolve(HERE, 'shipping-selection.tsx'), 'utf8'));
 const LAUNCHER = strip(readFileSync(resolve(HERE, 'shipment-launcher.tsx'), 'utf8'));
+
+/**
+ * 🔴 **分母守門(2026-08-28 量到本檔五格是恆綠的)**:本檔一整族守門的形狀是
+ * 「讀進來的原始碼裡**不得**出現某個字面」——`not.toMatch` / `filter(...).toEqual([])`
+ * 對**空字串**恆真 ⇒ **檔改名 / 讀空 / 剝過頭時,整族安靜地全部通過**,
+ * 而它們守的是「經銷價與會員等級不得進 client bundle」這條紅線。
+ * 釘的是**結構**(那支檔一定有 `import`),不是任何一個欄名 —— 欄名改了不該讓這裡紅。
+ */
+function expectRead(src: string, name: string) {
+  expect(src, `${name} 讀起來是空的(或剝過頭)⇒ 下面的原始碼掃描什麼都沒證明`).toContain('import');
+}
+
+/**
+ * 檔首切片版:**不能用 `toContain('import')`** —— 有些檔的前 400 字整段是檔頭註解,
+ * 那樣會變成一條**假紅**(2026-08-28 當場撞到:`shipment-section.tsx` 的檔首 400 字沒有 import)。
+ * 這裡只證「真的讀到東西了」,分母就夠了。
+ */
+function expectReadHead(src: string, name: string) {
+  expect(src.length, `${name} 讀起來是空的 ⇒ 下面的原始碼掃描什麼都沒證明`).toBeGreaterThan(100);
+}
+
 const SECTION = strip(readFileSync(resolve(HERE, 'shipment-section.tsx'), 'utf8'));
 
 // 🔴 跨測試殘留的 DOM 會讓 getAllByRole 撈到上一個測試的框(數量對不上、或斷言打到別人的節點)。
@@ -98,6 +119,7 @@ describe('驗收字面① — 勾選欄(L2 收斂後:單一 markup ⇒ 掛一次
   it('🔴 第二份 markup 不得復活:`OrderCard` 已刪除、且沒有第二個列表容器', () => {
     // 這條接手了原本「兩處分別落在 OrderCard 前後」那格的角色 —— 方向反過來:
     // 從「證明兩份都在」變成「證明只剩一份」。
+    expectRead(TABLE, 'orders-table.tsx');
     expect(TABLE, 'OrderCard(收斂前的手機卡片)復活了 ⇒ #447 白做').not.toMatch(/function OrderCard\b/);
     // 收斂前手機那份是 `<ul className='… md:hidden'>`;整支刪除後這個形狀不該再出現。
     expect(TABLE).not.toMatch(/<ul className='[^']*md:hidden/);
@@ -119,6 +141,7 @@ describe('驗收字面① — 勾選欄(L2 收斂後:單一 markup ⇒ 掛一次
 
 describe('🔴🔴 驗收字面② — 鐵則 12:整包 summary 不得進 client props', () => {
   it('island 的 props 只有 orderId / customerUserId 兩個純量', () => {
+    expectRead(ISLAND, 'shipping-selection.tsx');
     const forbidden = ['AdminOrderSummary', 'AdminOrderLine', 'order:', 'summary:', 'total', 'tierAtCheckout'];
     const bad = forbidden.filter((t) => ISLAND.includes(t));
     expect(
@@ -144,6 +167,7 @@ describe('🔴🔴 驗收字面② — 鐵則 12:整包 summary 不得進 client
   });
 
   it('前提 — `orders-table.tsx` 本體仍是 server component(沒有整支轉 client)', () => {
+    expectReadHead(TABLE_RAW.slice(0, 400), 'orders-table.tsx 的檔首 400 字');
     expect(
       TABLE_RAW.slice(0, 400),
       "orders-table.tsx 檔首出現了 'use client' ⇒ 整支被轉成 client,金額與會員等級會整批進 bundle。" +
@@ -438,6 +462,7 @@ describe('🔴 建箱動線只有一份實作(兩個入口、同一個彈窗)', 
 
 describe('🔴🔴 鐵則 12 — launcher 同樣不得收整包訂單', () => {
   it('launcher 的原始碼不得出現金額/等級欄名或讀模型型別', () => {
+    expectRead(LAUNCHER, 'shipment-launcher.tsx');
     const forbidden = ['AdminOrderSummary', 'AdminOrderDetail', 'order:', 'summary:', 'total', 'tierAtCheckout'];
     const bad = forbidden.filter((t) => LAUNCHER.includes(t));
     expect(
@@ -460,6 +485,7 @@ describe('🔴🔴 鐵則 12 — launcher 同樣不得收整包訂單', () => {
 
   it('前提 — 出貨卡本體仍是 server component(沒有整支轉 client)', () => {
     const raw = readFileSync(resolve(HERE, 'shipment-section.tsx'), 'utf8');
+    expectReadHead(raw.slice(0, 400), 'shipment-section.tsx 的檔首 400 字');
     expect(
       raw.slice(0, 400),
       "shipment-section.tsx 檔首出現了 'use client' ⇒ 整支被轉成 client," +

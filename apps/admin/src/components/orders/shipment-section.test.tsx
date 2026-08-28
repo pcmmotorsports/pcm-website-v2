@@ -107,7 +107,14 @@ describe('#351④ 空箱區', () => {
   });
 
   it('🔴 沒有空箱時整區不出現(常態是沒有,長期掛一句話會讓真的出現時不顯眼)', async () => {
-    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    const { container } = render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:整區沒渲染時 `queryByText` 也是 `null`
+    //    ⇒「沒有空箱所以不掛那一區」與「整個出貨區沒出來」印同一個綠。
+    //    釘 `<h2>` 數(骨架, 見 `:183` 同款), 不釘任何文案。
+    expect(
+      container.querySelectorAll('h2').length,
+      '出貨區塊一個 h2 都沒有 ⇒ 整區沒渲染 ⇒ 下面那條負向斷言恆真',
+    ).toBeGreaterThan(0);
     expect(screen.queryByText(/未收尾的空箱/), '沒有空箱卻掛著空箱區').toBeNull();
   });
 
@@ -147,7 +154,12 @@ describe('#351④ 空箱區', () => {
 
     it('🔴 不列任何箱 —— 寧可不列,也不要列一份少了東西的清單', async () => {
       loadOrderShipments.mockResolvedValue(null);
-      render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+      const { container } = render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+      // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:整區沒渲染時這條也會過。
+      expect(
+        container.querySelectorAll('h2').length,
+        '出貨區塊一個 h2 都沒有 ⇒ 整區沒渲染 ⇒ 下面那條負向斷言恆真',
+      ).toBeGreaterThan(0);
       // 底下那句「這裡只列這張訂單…」是清單存在時才該出現的
       expect(screen.queryByText(/這裡只列/)).toBeNull();
     });
@@ -355,7 +367,12 @@ describe('🔴🔴 片11 兩顆 chip:【加上去】不是換掉,而作廢的箱
   it('🔴 只做兩顆 —— 「已送達」不得出現(U7 拍板沒有 delivered,沒有資料可以餵)', async () => {
     // `20260805170000_…s1a1_shipments.sql:128-131`:有這個值會讓後台顯示一個永遠不會變綠的狀態。
     loadOrderShipments.mockResolvedValue([activeGroup()]);
-    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    const { container } = render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:整區沒渲染時「已送達」當然也不在。
+    expect(
+      container.querySelectorAll('h2').length,
+      '出貨區塊一個 h2 都沒有 ⇒ 整區沒渲染 ⇒ 下面那條負向斷言恆真',
+    ).toBeGreaterThan(0);
     expect(screen.queryByText('已送達')).toBeNull();
   });
 
