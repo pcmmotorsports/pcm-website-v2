@@ -49,6 +49,16 @@ const WRITER_RE =
  * 語法換成 SQL 版本 —— 不重寫技巧,只換掉要剝的註解記號:
  * `--` 行註解 / `/* *\/` 區塊註解 / 單引號字串(`''` 為跳脫,不是關閉)。
  * 不處理 `$$`/`$tag$` 美元字串邊界本身 —— 那些邊界內的 SQL 字面就是我們要掃的目標,不需要特殊處理。
+ *
+ * 🔴 2026-08-29 折入(線F,CI 紅追因):單引號字串**原本只被追蹤、內容照樣輸出**
+ *    ⇒ 掃描器看得到字串字面裡的字。實錘:`20260828100000`(B1 稅務片)被判成第 14 個寫入者,
+ *    而它對 subtotal/line_total **一個寫入都沒有** —— 唯一命中是 `COMMENT ON COLUMN` 字串裡的
+ *    一句中文散文,內容是「排除註解行之後 14 處具名 `INSERT INTO public.orders`」。
+ *    📌 **一句在講「我很小心地排除了註解」的話,被一把【排除註解但不排除字串】的尺當成了 INSERT。**
+ *    ⇒ 改法:字串內容以空白替換(換行保留,行號不漂),開閉引號留著避免左右 token 黏成一個字。
+ *    ⚠️ **`$$`/`$tag$` 那一格刻意沒動** —— 動它的誤傷方向是**漏檢**,那是最壞的方向。
+ *    ⚠️ 代價寫明:單引號一旦落單(奇數個),之後的真 SQL 會被當字串抹掉 ⇒ **漏檢**。
+ *       本檔的驗收本身擋得住:抹掉任何一個真寫入者 ⇒ 清單掉到 12 ⇒ 本格紅。
  */
 function stripSqlComments(src: string): string {
   let out = '';
@@ -56,15 +66,16 @@ function stripSqlComments(src: string): string {
   for (let i = 0; i < src.length; i += 1) {
     const c = src[i];
     if (inSingle) {
-      out += c;
       if (c === "'") {
         if (src[i + 1] === "'") {
-          out += src[i + 1];
           i += 1;
           continue;
         }
         inSingle = false;
+        out += c;
+        continue;
       }
+      out += c === '\n' ? '\n' : ' ';
       continue;
     }
     if (c === "'") {
@@ -117,6 +128,14 @@ const ALLOWLIST = [
   //    另一支檔的 `INSERT INTO public.orders` 字面(舊 WRITER_RE 不剝註解,連註解都算命中)。
   //    本檔實際唯一的 UPDATE 是 `SET shipping_method_at_checkout = shipping_method`,不在
   //    三欄之列。剝註解 + 錨定真正的 `UPDATE ... SET` 後不再命中,是修對而不是漏登記。
+  //
+  //    🔴 2026-08-29 追記:上面那筆是**同一個 bug 的一半**。08-21 修掉的是「字面住在**註解**裡」,
+  //       而「字面住在**單引號字串**裡」同族未查 ⇒ 08-29 由 `20260828100000` 原樣復發
+  //       (成因與改法見 `stripSqlComments` 上方那段)。
+  //    📌 **⇒ 一個 bug 被修好【一半】之後,那筆修復紀錄會讓下一個人以為整族都處理過了 ——**
+  //       **因為紀錄寫的是「已修」,而不是「已修 A,而 B 同族未查」。**
+  //    ⇒ 立此為例:修完一個誤報來源,記錄要寫出**這一族還有哪些載體沒查**,
+  //       不然那筆紀錄的作用會從「留痕」變成「關掉下一個人的懷疑」。
   '20260730120100_m4b_e10_n3b_create_order_new_display_id.sql',
   '20260815040000_m4b_e10_13_slice1_admin_update_order_item_amount.sql',
   // 🔴 `#518`(2026-08-16 登錄):它是**同一支函式的 CREATE OR REPLACE**,函式本體逐行照抄
