@@ -149,6 +149,17 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   label: '名稱',
   is_manager: '是不是管理者',
   is_active: '是否啟用中',
+  // ── 儲存的檢視(`saved_order_views`)────────────────────────
+  // 🔴 **這三個欄位【已經在線上】而字典缺中文** —— 員工在稽核紀錄裡看到的是三個英文字。
+  //    來源 `supabase/migrations/20260828080000_m4b_b4views1_saved_order_views.sql`
+  //    (`query` `:68` / `date_preset` `:74` / `is_shared` `:65`)。
+  // 🔴 **用字由線C 選(2026-08-29),Sean 一個字就能改** —— 文案是他的板,
+  //    而【螢幕上留三個英文字】比【一個他可能想改的中文】糟 ⇒ 不等他拍,先補。
+  query: '篩選條件',
+  // `:70` 逐字「存 preset 的 key(例 'this_week'),讀回來當天重算」⇒ 它是【相對】區間不是固定日期。
+  date_preset: '日期區間',
+  // `:65` `GENERATED ALWAYS AS (staff_id IS NULL)` ⇒ 沒有主人 = 共用;算出來的,寫不進去。
+  is_shared: '是不是共用檢視',
   // ── 跨欄 ──────────────────────────────────────────────────
   request_id: '這次操作的請求編號',
 };
