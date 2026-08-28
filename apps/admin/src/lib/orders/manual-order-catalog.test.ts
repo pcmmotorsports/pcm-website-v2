@@ -80,6 +80,10 @@ describe('🔴🔴 防洩漏:select 逐欄指名,零經銷價 / 成本 / metadat
       // 🔴 **一定要剝註解** —— 本檔頭那段【逐字寫著】price_store 三次(在講為什麼不讀它)
       //    ⇒ 不剝的話這格會被自己的說明文字命中 = 假紅, 而修法會是「把說明刪掉」。
       const code = stripComments(readFileSync(SRC_FILE, 'utf8'));
+      // 🔴 **分母守門(2026-08-28 量到本格恆綠)**:剝完註解是空的(檔改名 / 剝過頭)
+      //    ⇒ `not.toContain` 恆真。⚠️ `:61` 有一格在守「檔案長度 > 500」, **而那是【隔壁格】** ——
+      //    刪掉它時本格會安靜地變恆真, 所以這裡自己再釘一次結構。
+      expect(code, '剝完註解的內容裡連 export 都不在 ⇒ 下面那條什麼都沒證明').toContain('export');
       expect(code).not.toContain(token);
     },
   );

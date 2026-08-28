@@ -97,6 +97,9 @@ describe('殼細節守門 · 檔案本身沒壞', () => {
     //    (`products-mobile.css:435` 現成就有一個,實測 25 個 `/*` 對 24 個 `*/`、檔案完全合法)。
     //    改成掃一遍記狀態:已在註解內的 `/*` 忽略、每個 `*/` 前面必須有一個沒閉的 `/*`、掃完不得還開著。
     const src = RAW[f];
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:`src` 是空字串時迴圈不執行、
+    //    `open` 保持 false ⇒ 「註解成對」與「這個檔根本沒讀到」印同一個綠。
+    expect(src.length, `${f} 讀起來是空的 ⇒ 下面整個掃描什麼都沒證明`).toBeGreaterThan(0);
     let open = false;
     for (let i = 0; i < src.length - 1; i++) {
       if (!open && src[i] === '/' && src[i + 1] === '*') { open = true; i++; }
@@ -255,6 +258,11 @@ describe('頁首高度單一來源 --shell-header-h(0b:40→44 的連動)', () =
     // 只掃 `top:` 與 `calc(100vh …)` 這兩種用途,避免誤傷跟頁首無關的 64px(如 TabBar 高)。
     // 🔴 已經吃了 token 的宣告要放行:`calc(var(--shell-header-h) + 64px)` 裡的 64
     //    是**那條 bar 自己的高度**、不是頁首高 —— 一律當違規會逼人把對的寫法改掉。
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:下面是 `for (const d of suspects)`,
+    //    而 `suspects` 空集合時迴圈不執行 ⇒ 本格恆真。
+    //    ⚠️ **錨不能釘 `suspects.length > 0`** —— 一個檔沒有 `top:` 也沒有 `calc(100vh` 是
+    //       **合法的世界**, 那樣會做出一整族假紅。要釘的是【這個檔真的讀到了】。
+    expect(CSS[f].length, `${f} 讀起來是空的 ⇒ 下面那個迴圈恆真`).toBeGreaterThan(0);
     const suspects = [
       ...(CSS[f].match(/top:\s*[^;]+;/g) ?? []),
       ...(CSS[f].match(/height:\s*calc\(100vh[^;]*;/g) ?? []),

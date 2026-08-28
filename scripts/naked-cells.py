@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """掃出「裸的負向斷言」格 —— 一個 it()/test() 區塊裡負向斷言 >=1 而正向斷言 = 0。
 
-用法:naked-cells.py <檔> [<檔> ...]   ·   --help 印本說明
+用法:naked-cells.py <檔> [<檔> ...]  ·  --selftest 只跑自檢  ·  --matchers <檔...> 列未分類的斷言  ·  --help
 
 ════════ 版本 2(2026-08-28 夜,code-reviewer R5 FAIL 之後重寫)════════
 v1 自檢通過, 而 reviewer 寫得出五發突變讓它繼續印綠。**根因只有一個**:
@@ -24,6 +24,13 @@ v1 的五個病(全部由 R5 實跑證明, 逐條修在下面):
       正向斷言, 本尺一律看不到 ⇒ 會把【有錨的】報成裸的(誤報)。
    Ⓑ **字集是人寫的** —— 不在 NEG 也不在 POS 的斷言會被算成 unknown;
       整格只有 unknown 的格子本尺**不判**, 另行列出給人看(這是 ① 的殘留面)。
+      ⇒ 2026-08-28 起用 `--matchers` 把這一格變成**列得出來的集合**(見下)。
+   🔴 Ⓒ **本尺只認【`expect` 型】的錨** —— `if (x !== 'failed') throw new Error(…)`
+      這種**用擲錯當守門**的寫法, 它連看都看不到。
+      ⚠️ 這與Ⓐ**不是同一件事**:Ⓐ 的錨【是 expect】只是不在這一格;
+        Ⓒ 的錨**根本不長那個樣子** ⇒ 一把靠「找 expect」認錨的尺對它**天生失明**,
+        **不是漏掉, 是不在射程裡** ⇒ 而 `--matchers` 也接不到(它掃的是 expect 敘述)。
+      實例:`apps/admin/src/lib/orders/receipt-actions.test.ts:286`(2026-08-28 第三批)。
    ⇒ **每一筆命中都要開檔核。**
 """
 import re, sys, io
@@ -86,10 +93,23 @@ NEG = [r'not\.toContain', r'not\.toHaveBeenCalled', r'not\.toMatch',
        #      我原本要記成「v1 誤報」, 開檔才發現是**我的新少報**。
        #      📌 一次改寫可以同時修好四個病、而長出第五個, 而總數看起來是進步的。
        r'\.every\([^;]*\)\.toBe\(\s*true\s*\)', r'\.some\([^;]*\)\.toBe\(\s*false\s*\)']
-POS_RE = (r'\.(toBe|toEqual|toContain|toHaveBeenCalled|toMatch|toBeGreaterThan|'
+# 🔴 **`toHaveBeenCalledTimes` 這一族是 2026-08-28 第二批核出來的**:原本只寫
+#    `toHaveBeenCalled\b` —— 而那個 `\b` 讓 `toHaveBeenCalledTimes` / `…With` **不匹配**
+#    ⇒ 整格只有那種正向斷言時, 它落進 unknown ⇒ **該格被報成裸的(誤報)**。
+#    量到的影響面:補上之後【不再報】的格 = **84 格**(母體 1454, 2026-08-28 21:0x)。
+#    ⚠️ 而 `\b` 靜默不匹配這個形狀, **memory 的 grep 量具族早就記過** —— 這是一次重新發現:
+#      **寫這支新工具的人不知道它存在, 而它在索引上。**
+POS_RE = (r'\.(toBe|toEqual|toContain|toHaveBeenCalledTimes|toHaveBeenCalledWith|'
+          r'toHaveBeenCalled|toMatch|toBeGreaterThan|'
           r'toBeGreaterThanOrEqual|toBeTruthy|toBeInTheDocument|toHaveLength|toThrow|'
           r'toStrictEqual|toBeDefined|toBeLessThan|toBeCloseTo|toHaveAttribute|'
-          r'toHaveClass|toBeVisible|toBeChecked)\b')
+          r'toHaveClass|toBeVisible|toBeChecked|toBeNaN|toBeInstanceOf|'
+          # 🔴 第二批(2026-08-28 21:0x)又補一輪 —— 而**重點不是這幾個名字**:
+          #    兩批各撞到一次字集缺口 ⇒ **「再想久一點」不會收斂**, 所以同時加了 `--matchers`
+          #    (見下), 把「字集有沒有缺口」從【踩到才知道】變成【一行指令印得出來】。
+          r'toMatchObject|toHaveProperty|toContainEqual|toHaveBeenCalledOnce|'
+          r'toHaveBeenCalledExactlyOnceWith|toHaveBeenLastCalledWith|toHaveBeenNthCalledWith|'
+          r'toBeLessThanOrEqual|toBeTypeOf|toThrowError|toSatisfy)\b')
 
 def kind(st: str) -> str:
     """'neg' / 'pos' / 'unknown' / ''(不是斷言)"""
@@ -120,8 +140,12 @@ def cells(masked: str):
        只配對第一組的話, 終點切在 `.each(…)` 的右括號上,
        ⇒ **真正的本體(第二組裡的箭頭函式)從來沒被掃過。**
        實測(R2 全 repo 691 支):`cells()` 切出 10,037 格、其中 **365 格不含 `=>`**
-       = 切在本體之前;補好之後**多報出 66 格真裸格 / 40 支檔**。
-       ⚠️ 而那 66 格**不在 naked、也不在 unknown** ⇒ 它們在輸出上**完全沒有形狀**。
+       = 切在本體之前;補好之後多報出的格:
+         **66 格 / 40 支檔**(2026-08-28 20:39, 字集補洞【之前】)
+         ⇒ **58 格 / 34 支檔**(20:54, 補完 `toHaveBeenCalledTimes` 那四種【之後】)
+       🔴 **兩個數留著並排** —— 只留新的看不出那把尺變準了多少;
+          而少掉的 8 格**不是消失的問題, 是本來就有錨的假紅**。
+       ⚠️ 而這些格**不在 naked、也不在 unknown** ⇒ 它們在補洞前的輸出上**完全沒有形狀**。
        📌 這與 v1 的 ①② 是同一個病的第三次:**掃描範圍比宣稱窄, 而自檢裡沒有那個世界。**
     """
     out = []
@@ -360,6 +384,22 @@ describe('m', () => {
 });
 """, [10], []),
 
+    # 🔴 2026-08-28 第二批核出來的字集缺口:`toHaveBeenCalled\\b` 讓 …Times / …With 不匹配
+    #    ⇒ 整格只有那種正向斷言時被報成裸的。全 repo 補完之後少報 84 格假紅(1454 ⇒ 1370)。
+    ('W11 toHaveBeenCalledTimes 這一族算正向', """import { it, expect } from 'vitest';
+
+describe('n', () => {
+  it('s', () => {
+    expect(state).toBeUndefined();
+    expect(mocks.doIt).toHaveBeenCalledTimes(1);
+  });
+
+  it('t', () => {
+    expect(state).toBeUndefined();
+  });
+});
+""", [9], []),
+
     # 負對照:沒有任何斷言 / 只有本尺不認得的斷言
     ('W7 零斷言不報;只有 unknown 的另列一堆', '''import { it, expect } from 'vitest';
 
@@ -492,6 +532,29 @@ if __name__ == '__main__':
     #      寫 `true` 一樣過得了 ⇒ **那一格靠人**, 而這裡就是那個人。)
     selftest_only = args[0] == '--selftest'
     if selftest_only: args = []
+    # 🔴 `--matchers <檔...>` = 把盲區Ⓑ 變成【可以列出來的集合】。
+    #    成因:2026-08-28 一個晚上撞到【兩次】字集缺口
+    #    (第一次 toHaveBeenCalledTimes ⇒ 84 格假紅;第二次 toMatchObject ⇒ repo 有 419 次)。
+    #    ⇒ 補名字是治那一次;**這一格是讓下一次【被看見】**:
+    #      它印出「出現在 expect 敘述裡、而 NEG/POS 都沒分類」的 matcher 與次數。
+    #    ⚠️ 它**不會**告訴你那些該算正向還是負向 —— 那要人判。
+    #      它只保證:**你不會因為不知道它存在而漏掉它。**
+    if args and args[0] == '--matchers':
+        from collections import Counter
+        known = set(re.findall(r'to[A-Z]\w*', POS_RE)) | set(re.findall(r'to[A-Z]\w*', ' '.join(NEG))) | {'toBeNull'}
+        c = Counter()
+        for f in args[1:]:
+            for st in statements(mask(io.open(f, encoding='utf-8').read())):
+                if 'expect' not in st: continue
+                for mt in re.finditer(r'\.(to[A-Z]\w*)\s*\(', st): c[mt.group(1)] += 1
+        rest = [(n, k) for k, n in c.most_common() if k not in known]
+        print(f'字集已涵蓋 {len(known & set(c))} 種 · 出現而未分類 {len(rest)} 種')
+        for n, k in rest: print(f'{n:6d}  {k}')
+        print('🔴 未分類的會落進 unknown, 而 unknown 不算 pos ⇒ 只有那種斷言的格會被報成【裸的】')
+        print('⚠️ 而清單裡會混進【不是 matcher 的方法】(toISOString / toUpperCase / toString …)')
+        print('   —— 它們出現在 `expect(d.toISOString()).toBe(…)` 這種句子裡。')
+        print('   📌 這一格本工具**分不出來**, 要人看一眼:名字像 matcher 的才要補進字集。')
+        sys.exit(0)
     print('=== 自檢(每個世界的期望值是一串行號, 不是 [] vs []) ===')
     if not selftest():
         print('🔴 自檢沒過 ⇒ 本次結果作廢'); sys.exit(1)
@@ -501,6 +564,13 @@ if __name__ == '__main__':
     if selftest_only:
         print('=== --selftest:自檢與探針全過 ==='); sys.exit(0)
     print('=== 已知盲區:Ⓐ抽成具名函式的錨看不見(誤報) Ⓑ字集是人寫的, unknown 另列 ===')
+    # 🔴 把盲區Ⓑ 從「檔頭的一句話」變成【每一次輸出都會看到的東西】。
+    #    數字跟著走:2026-08-28 補四種正向斷言 ⇒ 全 repo 少報 84 格假紅(母體 1454)。
+    print(f'=== 字集規模:NEG {len(NEG) + 3} 條 · POS {POS_RE.count("|") + 1} 條 · 最後更新 2026-08-28 ===')
+    print('=== 🔴 不在字集裡的斷言會落進 unknown, 而【unknown 不算 pos】⇒ 那一格會被報成裸的 ===')
+    print('=== ⇒ 看到某格被報, 第一個念頭是【去看它的斷言在不在字集裡】(上次補漏 = 84 格假紅) ===')
+    print('=== 🔴 Ⓒ 本尺只認【expect 型】的錨:`if (…) throw new Error(…)` 這種擲錯型守門看不見 ===')
+    print('===    (它與Ⓐ不同:Ⓐ 的錨是 expect 只是不在這格;Ⓒ 的錨根本不長那個樣子, --matchers 也接不到)===')
     print('=== ⇒ 每一筆命中都要開檔核。本尺【不宣稱】不少報。 ===')
     tot = tu = tmix = 0
     for f in args:

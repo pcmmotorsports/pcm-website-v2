@@ -82,6 +82,10 @@ describe('0c 守門 · 檔案本身沒壞', () => {
   it.each(FILES)('%s 的註解符號成對且順序正確', (f) => {
     // CSS 註解不巢狀 ⇒ 註解內文裡的 `/*` 只是文字,只比數量會誤判(products-mobile.css 現成有一個)。
     const src = RAW(f);
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:`src` 是空字串時整個迴圈不執行、
+    //    `open` 保持 false ⇒ 「註解成對」與「這個檔根本沒讀到」印同一個綠。
+    //    實測:把 `RAW` 換成回空字串 ⇒ 137 格中 58 紅, **而本格照樣過**。
+    expect(src.length, `${f} 讀起來是空的 ⇒ 下面整個掃描什麼都沒證明`).toBeGreaterThan(0);
     let open = false;
     for (let i = 0; i < src.length - 1; i++) {
       if (!open && src[i] === '/' && src[i + 1] === '*') { open = true; i++; }
@@ -242,6 +246,8 @@ describe('0c · 反面 — 舊緋紅與第三顆紅都不得殘留', () => {
     //   ① 原本要求 `rgba(` ⇒ 無 alpha 的 `rgb(220, 38, 38)` 繞得過。
     //   ② 原本**逐行** filter ⇒ 宣告換行寫成 `box-shadow: 0 2px 10px\n  rgba(220, 38, 38, .3);`
     //      也繞得過。改成先把 `--c-tier-premium` 那一條宣告整段挖掉、再對**全文**比對。
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:讀空時兩條 `not.toMatch` 恆真。
+    expect(CSS(f).length, `${f} 讀起來是空的 ⇒ 下面兩條恆真`).toBeGreaterThan(0);
     const src = CSS(f).replace(/--c-tier-premium\s*:[^;]*;/g, '');
     expect(src, `${f} 殘留寫死的緋紅`).not.toMatch(/#dc2626/i);
     expect(src, `${f} 殘留寫死的緋紅 rgb(a)`).not.toMatch(/rgba?\(\s*220\s*,\s*38\s*,\s*38/i);

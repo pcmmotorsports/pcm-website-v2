@@ -92,6 +92,9 @@ describe('第3批 · 半像素併整數(DESIGN-HANDOFF §4-3「字級只用整�
     ['filter-top.css', strip(read('filter-top.css'))],
     ['pricing.css', strip(read('pricing.css'))],
   ])('%s 不再有半像素字級', (_f, src) => {
+    // 🔴 **分母守門(2026-08-28 量到本格恆綠)**:`src` 是空字串時 `not.toMatch` 恆真
+    //    ⇒「沒有半像素字級」與「這個檔根本沒讀到」印同一個綠。
+    expect(src.length, `${_f} 讀起來是空的 ⇒ 下面那條恆真`).toBeGreaterThan(0);
     expect(src, '仍有 .5px 的字級').not.toMatch(/font-size:\s*\d+\.\d+px/);
   });
 

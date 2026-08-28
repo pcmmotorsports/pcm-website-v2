@@ -1070,6 +1070,15 @@ describe('OD 片 3b 守門:標題列的客人入口(fail-closed)', () => {
     ['非 UUID 亂碼', 'not-a-uuid-at-all'],
   ])('🔴 客人 id 是 %s ⇒ 入口**不渲染**,且畫面上沒有 undefined/null 的網址', async (_l, value) => {
     const container = await renderPanel({ customerUserId: value });
+    // 🔴 **分母守門(2026-08-28 量到本格恆綠)**:面板整個沒渲染時 `container` 是空的
+    //    ⇒ `hrefs` = `[]` ⇒ `.some(...).toBe(false)` 恆真、下面那個 `for` 迴圈不執行
+    //    ⇒「入口正確地不渲染」與「整個面板沒出來」印同一個綠。
+    //    ⚠️ 錨【不能】釘 `hrefs.length > 0` —— 一個面板沒有任何連結是**合法的世界**;
+    //       釘的是「面板真的渲染出東西了」。
+    expect(
+      container.querySelectorAll('*').length,
+      '面板一個節點都沒渲染 ⇒ 下面兩條恆真',
+    ).toBeGreaterThan(0);
     const hrefs = [...container.querySelectorAll('a')].map((a) => a.getAttribute('href') ?? '');
     expect(hrefs.some((h) => h.includes(CUSTOMER_PANEL_PARAM))).toBe(false);
     for (const h of hrefs) {
