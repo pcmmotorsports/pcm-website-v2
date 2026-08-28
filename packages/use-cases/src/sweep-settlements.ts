@@ -5,7 +5,11 @@ import { settleCharge, type SettleChargeDeps } from './settle-charge';
 /**
  * sweepSettlements:3DS 對帳兜底 sweeper use-case(M-3 3DS-4b-2;master plan v5 §2;plan §5.2)。
  *
- * callback(3DS-3)/ webhook(3DS-2)漏接的「最終一致保證」。週期 cron(3DS-4c route、Vercel cron)
+ * callback(3DS-3)/ webhook(3DS-2)漏接的「最終一致保證」。
+ * 週期觸發(3DS-4c route ← pg_cron job `pcm-settle-sweep` 每 2 分鐘;🔴 **不走 Vercel cron**)
+ * ⇒ ~~週期 cron(3DS-4c route、Vercel cron)~~ **那句是假的**:排程 2026-07-24 已搬 Supabase pg_cron
+ *   (commit `a5d76192`);`vercel.json` 與 `apps/admin/vercel.json` **皆無 `crons` 段(不是漏掉)**。
+ *   (形狀抄同族的 `sweep-email-outbox.ts` 檔頭「🔴 不走 Vercel cron」,不自創措辭。)
  * 觸發 → 掃兩來源 → 共呼 settleCharge(Record API 唯一權威):
  * ```
  * ① 前置守衛(每輪無條件、claim 前必呼;plan §5.2③ 不變式):
