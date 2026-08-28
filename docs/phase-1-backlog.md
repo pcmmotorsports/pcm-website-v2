@@ -6284,6 +6284,28 @@ order by n desc, 1;
   員工在客戶明細頁選錯一格下拉選單 = 那個客人立刻看到經銷價,而畫面上沒有任何東西攔他。
   ⚠️ **不修會痛在**:這條連動**只寫在 backlog**,`tier-edit-form.tsx` 那支檔裡沒有任何一行指著 `#215`
   ⇒ 真正動 `#215` 的人不會經過那支檔。(⇒ 動本條的第一個動作 = 去 `#297` §②-b 對一次。)
+  - 🔴 **觸發訊號要換一個(2026-08-28 線D 補;上面那句「本條 apply 之前」現在指不到東西了)**
+    ```
+    上面寫「本條 apply 之前」⇒ 它把補確認這件事掛在【#215 上線】這個事件上。
+    而 #215 的【認證化那一半】2026-08-23 已經完成（218ae7a4，見本條狀態欄）
+    ⇒ 那個事件【已經發生過了】，而補確認【沒有跟著發生】
+    ⇒ 🔴 一個掛在已發生事件上的觸發條件，與一個永遠不會觸發的條件，在板子上長一樣。
+    ```
+    **真正的訊號不是本條,是【經銷價開始有值】那一刻**,而它可以被機械地量:
+    ```
+    products.price_store / product_variants.price_store 出現【非 null 且 > 0】的列
+    2026-08-28 當場量(線D，唯讀)：products 22,786 筆中 1 筆 · product_variants 54,036 筆中 1 筆
+      （那 1 筆是「補差額用賣場」，一般價 1 / 經銷價 1，不是真的定價）
+    ⇒ 這個數字【從 1 開始長】的那一天，就是那顆鈕從【改標籤】變成【改價】的那一天
+    ```
+    ⚠️ **而沒有任何東西在那天會叫人** —— 擋著經銷價的三層(報價單 view 物理無欄 /
+    `rpm-transform.ts:378`,`:419` 寫死 null / 我方 public view 排除 + `mappers/product.ts:220` 硬寫 0)
+    **住在三個 repo 的三次改動裡**,沒有一層會通知後台那顆鈕。
+    📌 **「等某某」是一個標籤,而標籤不會自己去驗它指的那件事還成不成立**
+    (memory `feedback_the-blocked-label-outlives-the-blocker`;本格就是那條的一個實例)。
+    ⇒ **這一格【不另開條目】**:查重兩把尺跑過 —— 標題行 grep 撈到 `#297`(tier 那面實查零機制)
+    與本條;`traps-neighbours.py` 最高分 0.2442 且無關(⇒ 它的已知失效 ④「排名撈不到而 grep 撈得到」)。
+    **再開一條 = 同一件事的第三份副本。**
 - **優先級:** 🔴 高(**M-2-08〔server-side tier-aware pricing〕開工前硬前置、blocker**)
 - **問題:**
   - `apps/storefront/src/lib/tier.ts:resolveTierFromRequest` 的 tier 來源 = `?tier=`(僅 `PCM_DEV_TIER_OVERRIDE=1` 生效)> cookie `pcm-tier` > `'general'`,只驗字面合法性(general|store|premium_store)、**不向 DB `customers.tier` 查證身分**。全 repo grep 無任何 `cookieStore.set('pcm-tier')` / 從 session 派生 tier → **任何匿名訪客可 `document.cookie='pcm-tier=store'` 把自己當經銷會員**。違反 CLAUDE.md「會員等級驗證必在 server 端重新檢查、不信任 client」。
