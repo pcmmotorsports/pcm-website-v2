@@ -16,6 +16,23 @@ vi.mock('./manual-customer-picker', () => ({
 
 import { ManualOrderFormBody } from './manual-order-form-body';
 
+/**
+ * 🔴 **分母守門** —— 本檔有一族斷言是「畫面上【不得】出現 X」,
+ * 而 `queryBy*` / `querySelector` 零命中都回 `null` ⇒ **整張表單沒渲染時它們全部恆真**
+ * (2026-08-28 實測:元件插一發空渲染 ⇒ 16 格裡 4 格照樣綠,那 4 格全是這一族)。
+ *
+ * ⚠️ **用【結構數量】不用文案字面**:`<form>` 是本元件的固定骨架(停用態也照樣渲染,
+ *    見「讀不到也不該讓他送出」那格拿得到「建立訂單」鈕)⇒ 文案改一個字不該讓這幾格紅。
+ * ⚠️ 這裡刻意用 `toBeGreaterThan(0)` 而不是 `toBe(1)` —— 「恰好一張 form」是**另一格**在守的
+ *    不變式(「整張畫面只有【一張】form」),分母守門不該偷偷替它再守一次:
+ *    那樣兩格會一起紅,而下一個人分不出壞的是哪一件。
+ */
+const expectFormRendered = (c: HTMLElement) =>
+  expect(
+    c.querySelectorAll('form').length,
+    '整張表單一個 form 都沒有 ⇒ 根本沒渲染 ⇒ 下面的負向斷言恆真',
+  ).toBeGreaterThan(0);
+
 const REQUEST_ID = '11111111-1111-4111-8111-111111111111';
 const CUSTOMER_KEY = '33333333-3333-4333-8333-333333333333';
 const STAFF = [{ id: 'alice', label: '小愛' }];
@@ -60,7 +77,8 @@ describe('🔴🔴 沒有啟用中的員工 ⇒ 表單停用 + 一句話指路(S
 
 describe('🔴 名單讀不到 ≠ 沒有員工(codex R1 nit)', () => {
   it('讀不到 ⇒ **不出**「還沒有建立員工」那一句(兩句同時在畫面上會互相矛盾)', () => {
-    renderForm({ activeStaff: [], staffLoadFailed: true });
+    const { container } = renderForm({ activeStaff: [], staffLoadFailed: true });
+    expectFormRendered(container);
     expect(screen.queryByTestId('manual-order-no-staff')).toBeNull();
   });
 
@@ -102,13 +120,15 @@ describe('🔴🔴 兩段式【已經結束】—— 建單表單一開始就在
   });
 
   it('🔴 那句「先選一位客人,才會出現建單表單」不得再出現', () => {
-    renderForm();
+    const { container } = renderForm();
+    expectFormRendered(container);
     expect(screen.queryByTestId('manual-order-pick-first')).toBeNull();
     expect(screen.queryByText(/先選一位客人/)).toBeNull();
   });
 
   it('🔴 而那條死路的文案也不得再出現(它指到一個沒有那顆按鈕的頁面)', () => {
-    renderForm();
+    const { container } = renderForm();
+    expectFormRendered(container);
     expect(screen.queryByText(/請先到【客人】頁建立這位客人/)).toBeNull();
   });
 
@@ -132,6 +152,7 @@ describe('🔴 inPanel:同一份表單長在面板裡時, 送出之後要留在�
 
   it('🔴 負對照:整頁版(預設)一格 in_panel 都不得出現', () => {
     const { container } = renderForm();
+    expectFormRendered(container);
     expect(container.querySelector('input[name="in_panel"]')).toBeNull();
   });
 });
