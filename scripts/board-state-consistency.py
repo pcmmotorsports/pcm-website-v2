@@ -354,6 +354,42 @@ def rule1_closed_set(rows):
     return [r for r in rows if r['state'] not in CLOSED]
 
 
+PARKED_PREFIXES = ('等#', '等人:', '等時機:')
+
+
+def rule4_parked_has_prefix(rows):
+    """④ 態=parked 的列, 必須有一個機讀的「等什麼」前綴。
+
+    🔴 **本檢查驗的是「有沒有前綴」, 不是「前綴填得對不對」。**
+       一個填錯的前綴與一個填對的, 在它底下印同一個東西。
+       ⇒ 不要把它讀成「這些列的等待對象已經被驗過了」。
+
+    為什麼是前綴而不是新開一個態(2026-08-29 `-c8` 量、主視窗裁):
+       2026-08-29 `-c8` 量(當時 11 個 parked, 其中一列同片改判 `open` ⇒ 現值 **以本工具輸出為準**):
+       9-10 種不同的「等」, 而**在等 Sean 回答的是 0 列**
+       ⇒ 開 `waiting-sean` 會有零個成員。真正的病是
+       **一列 parked 進去之後, 沒有機制會告訴你它可以出來了** ——
+       而前綴讓「**在等什麼**」變成一發 grep。
+       ⚠️ ~~原寫「讓『前置關了沒』變成一發 grep」~~ **降級**:R1 用板面反證 ——
+       同一個 `等#` 底下現在有**三套互不相通的編號**(backlog `#958`、同板列號 `#①`、
+       `#17` 那列自己逐字寫著「指哪套編號未確認, 所以這個前綴現在回答不了」)
+       ⇒ **指涉的編號屬於哪套仍未收斂。**
+
+    ⚠️ 天花板:它**掃整列的任何一格**, 不驗前綴的位置。
+       理由:板子的列**內容裡有 `|`** ⇒ 按位置解析會讀到別欄而靜靜地錯。
+       📏 數法與分母(2026-08-29 R1 複量, 我原寫的「欄數 5 到 18」四種數法都複現不出來):
+         全板 214 條 pipe 列 ⇒ `len(l.split('|'))` = **4..18**(內容格 2..16)—— **方向成立**;
+         🔴 **而本規則的分母只有那 10 個 parked 列, 它們的欄數是 6 或 7,
+            前綴 10/10 全在 `f[4]`, 零例外** ⇒ **位置解析的風險在這群列上一格都沒發生過。**
+       🔴 **代價(這一半原本沒寫進檔, R1 抓到)**:前綴若出現在**別的欄**
+         (例:關鍵事實欄引用另一列的 `等#123`)⇒ **這道閘假綠**。
+         2026-08-29 實測風險池:非 parked 列命中前綴 **0** 列、parked 前綴在 `f[4]` 以外 **0** 列。
+    """
+    return [r for r in rows
+            if r['state'] == 'parked'
+            and not any(x in c for c in r['f'] for x in PARKED_PREFIXES)]
+
+
 def _negated_or_questioned(cell, at):
     """那個詞的**前 CONTEXT_BACK 字**裡有沒有否定/疑問標記。
        🔴 只看【前面】—— 「已完成嗎」那種後置疑問抓不到, 明寫在 NEGATORS 上面的天花板裡。"""
@@ -463,6 +499,19 @@ def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None, sta
             '處置是把示範列的態欄字樣改掉, 不是把本檢查關掉。')
     else:
         say(f'  ✅ ①b 板子的數法印 {grep_n} = 資料列 {len(rows)}(兩個各自量到的數)')
+
+    noprefix = rule4_parked_has_prefix(rows)
+    if noprefix:
+        bad = 1
+        say(f'  🔴 ④ 態=parked 而沒有「等什麼」前綴的有 {len(noprefix)} 列'
+            f'(前綴 = {"/".join(PARKED_PREFIXES)})')
+        for r in noprefix:
+            say(f'     {r["sec"]} 節 :{r["line"]}  {r["f"][3][:44] if len(r["f"]) > 3 else ""}')
+        say('     ⚠️ 本檢查只驗【有沒有前綴】, 不驗【填得對不對】')
+    else:
+        n_parked = len([r for r in rows if r['state'] == 'parked'])
+        say(f'  ✅ ④ {n_parked} 個 parked 列都有「等什麼」前綴'
+            f'(⚠️ 只驗有沒有, 不驗對不對)')
 
     contra = rule2_self_contradiction(rows)
     if contra:
@@ -588,6 +637,14 @@ def selftest():
         ('⑦該綠必綠 · ✅ 離那四個詞太遠 ⇒ 不算判決句(LOOKBACK 的上界證人)',
          _pad('| open | — | 一件事 | — | ✅ 這裡先講一段很長的別的事情所以距離拉開了非常非常遠了喔 已做完 |\n'),
          GREEN_SPEC, 0),
+        ('④a該紅必紅 · 態=parked 而沒有「等什麼」前綴',
+         _pad('| parked | — | 一件停著的事 | 等某個東西 | x |\n'), GREEN_SPEC, 1),
+        ('④b該綠必綠 · 態=parked 而有前綴 ⇒ 不得恆紅',
+         _pad('| parked | — | 一件停著的事 | **等#123** 前置 | x |\n'), GREEN_SPEC, 0),
+        # ⚠️ ④c 是**意圖記錄**, 不是唯一證人:R1 突變實測它在 M1/M2 都不紅,
+        #    因為 `_pad()` 本體已產 60 列同形的 `| open |…| 待派 |` ⇒ 案例 ① 就涵蓋它。
+        ('④c該綠必綠(意圖記錄) · 態【不是】parked 而沒有前綴 ⇒ 不得咬到不該咬的',
+         _pad('| open | — | 一件沒在等的事 | 待派 | x |\n'), GREEN_SPEC, 0),
         ('⑧該紅必紅 · 🟡 坐在 ✅ 表裡', GREEN_BOARD, _spec('| 9 | 坐錯表的 | 🟡 | 量過 |\n'), 1),
         ('⑨該紅必紅 · 🔴 半邊(標記欄兩半)', GREEN_BOARD,
          _spec('| 9 | 半殘的 | ✅ **記得下來** / 🔴 **提醒不了他** | 量過 |\n'), 1),
@@ -648,7 +705,7 @@ def selftest():
          GREEN_SPEC, 1),
         # ── codex NO-GO 那一輪補的九格(F1-F6, F12)────────────────────────
         ('㉕該綠必綠 · doing / parked 是封閉集成員(拿掉任一個成員這格就誤擋)',
-         _pad('| doing | — | 在做的 | — | x |\n| parked | — | 擱著的 | — | 在等外部事件 |\n'),
+         _pad('| doing | — | 在做的 | — | x |\n| parked | — | 擱著的 | — | **等時機:**在等外部事件 |\n'),
          GREEN_SPEC, 0),
         ('㉖該紅必紅 · 事欄寫「已關掉」(字集第 3 個詞的證人)',
          _pad('| open | — | 這件**已關掉**了 | — | x |\n'), GREEN_SPEC, 1),
@@ -657,7 +714,7 @@ def selftest():
         ('㉘該紅必紅 · 態=doing 而自稱做完(規則② 的 doing 分支證人)',
          _pad('| doing | — | 這件**已完成** | — | x |\n'), GREEN_SPEC, 1),
         ('㉙該綠必綠 · 態=parked 而寫「已完成」⇒ 不得抓(規則② 的邊界)',
-         _pad('| parked | — | 這件**已完成** | — | 在等外部事件 |\n'), GREEN_SPEC, 0),
+         _pad('| parked | — | 這件**已完成** | — | **等時機:**在等外部事件 |\n'), GREEN_SPEC, 0),
         # ── 欠帳 7:否定 / 疑問語境(主視窗 2026-08-25 明令【分開各餵一發】,
         #    因為那兩種不是同一件事:否定是「它不成立」, 疑問是「還不知道成不成立」)──
         ('㊀該綠必綠 · 否定語境「不是已完成」⇒ 不得抓',
