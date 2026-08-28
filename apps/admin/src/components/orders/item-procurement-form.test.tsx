@@ -589,6 +589,19 @@ describe('ItemProcurementForm — bfcache 還原要重取(關卡2 finding 3)', (
     Object.defineProperty(event, 'persisted', { value: false });
     window.dispatchEvent(event);
     expect(routerRefresh).not.toHaveBeenCalled();
+
+    // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:元件**根本沒掛那個監聽器**時
+    //    也是「零次呼叫」⇒「它正確地判斷不用重取」與「它根本沒在聽」印同一個綠。
+    //    ⇒ 分母不可能放在同一次事件裡(那一次本來就該是零次)——
+    //      同一格再送一發 `persisted=true`, 它**必須**重取。
+    //    ⚠️ 先確認基準是 0(上面 `mockClear` 過)—— 這裡的活性對照不可以被佈置現場那一步餵綠。
+    const back = new Event('pageshow') as PageTransitionEvent;
+    Object.defineProperty(back, 'persisted', { value: true });
+    window.dispatchEvent(back);
+    expect(
+      routerRefresh,
+      '連上一頁回來(persisted=true)都不重取 ⇒ 這個監聽器根本沒掛上, 上面那個零次不算數',
+    ).toHaveBeenCalled();
   });
 });
 
