@@ -430,6 +430,13 @@ describe('createOrder canonicalize 收尾(round3:封隱藏 toJSON/getter 序列�
     });
     const order = makeOrderWithItems([handBuiltItem({ productSnapshot: sneaky })]);
     const json = JSON.stringify(order);
+    // 🔴 **分母守門(2026-08-29 突變量到本格恆綠)**:`createOrder` 回 `{}` 時
+    //    `JSON.stringify(order)` = `'{}'` ⇒ 下面所有 `not.toContain` 恆真
+    //    ⇒「序列化裡沒有經銷價」與「根本沒組出 order」印同一個綠。
+    //    🔴 這一格守的是**鐵則 12 的紅線**:hand-built 物件藏隱藏 `toJSON` 把 price_store /
+    //      price_by_tier / cost 夾帶進序列化 —— 而序列化的東西會離開 server。
+    //    釘的是 json 真的有內容(結構), 不釘任何一個欄名。
+    expect(json.length, '根本沒組出 order ⇒ 下面整族恆真').toBeGreaterThan(2);
     expect(json).not.toContain('price_store');
     expect(json).not.toContain('price_by_tier');
     expect(json).not.toContain('cost');
@@ -447,6 +454,13 @@ describe('createOrder canonicalize 收尾(round3:封隱藏 toJSON/getter 序列�
       handBuiltItem({ unitPrice: sneakyPrice, lineTotal: TWD(2000) }),
     ]);
     const json = JSON.stringify(order);
+    // 🔴 **分母守門(2026-08-29 突變量到本格恆綠)**:`createOrder` 回 `{}` 時
+    //    `JSON.stringify(order)` = `'{}'` ⇒ 下面所有 `not.toContain` 恆真
+    //    ⇒「序列化裡沒有經銷價」與「根本沒組出 order」印同一個綠。
+    //    🔴 這一格守的是**鐵則 12 的紅線**:hand-built 物件藏隱藏 `toJSON` 把 price_store /
+    //      price_by_tier / cost 夾帶進序列化 —— 而序列化的東西會離開 server。
+    //    釘的是 json 真的有內容(結構), 不釘任何一個欄名。
+    expect(json.length, '根本沒組出 order ⇒ 下面整族恆真').toBeGreaterThan(2);
     expect(json).not.toContain('price_store');
     expect(json).not.toContain('777');
   });
@@ -467,6 +481,10 @@ describe('createOrder canonicalize 收尾(round3:封隱藏 toJSON/getter 序列�
       discountTotal: TWD(0),
     });
     const json = JSON.stringify(order);
+    // 🔴 **分母守門(2026-08-29 突變量到本格恆綠)**:`createOrder` 回 `{}` 時
+    //    `JSON.stringify(order)` = `'{}'` ⇒ 下面那條 `not.toContain` 恆真。
+    //    🔴 守的是鐵則 12 紅線:hand-built `shippingFee` 藏隱藏 `toJSON` 夾帶 `cost` 進序列化。
+    expect(json.length, '根本沒組出 order ⇒ 下面那條恆真').toBeGreaterThan(2);
     expect(json).not.toContain('cost');
     expect(json).not.toContain('888');
   });

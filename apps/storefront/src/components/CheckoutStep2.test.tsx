@@ -259,6 +259,13 @@ describe('CheckoutStep2 付款(U2b)', () => {
 
   it('🔴 假卡欄已絕跡:付款區零 <input> 收卡資料、無 disabled input', () => {
     const { container } = render(<Harness />);
+    // 🔴 **分母守門(2026-08-29 突變量到本格恆綠)**:元件空渲染時付款區當然一個 input 都沒有
+    //    ⇒「假卡欄已絕跡」與「整個結帳第二步沒渲染」印同一個綠。
+    //    🔴 而這一格守的是**收卡資料的欄位不得復活**(卡資料一律在 iframe 內)。
+    // ⚠️ 錨【不能】釘 `querySelectorAll('*')` —— 突變體自己就是一個節點, 那樣的錨不會咬
+    //    (2026-08-29 當場量到:元件早退回一個 <div>, 而 `*` 的錨照樣過)。
+    //    ⇒ 釘【只有這個畫面才會有的殼】:付款動作列 `.co-actions`。
+    expect(container.querySelectorAll('.co-actions').length, '結帳第二步的殼沒渲染 ⇒ 下面四條恆真').toBeGreaterThan(0);
     const payInputs = Array.from(container.querySelectorAll('.co-pay-body input'));
     // 只剩選項自己的 radio(卡資料一律在 iframe 內)
     expect(payInputs.length).toBe(0);
@@ -301,6 +308,15 @@ describe('CheckoutStep2 商品與條款(U2b)', () => {
 
   it('🔴 經銷零洩漏:無「經銷」/ price_store / priceByTier / 劃線價', () => {
     const { container } = render(<Harness over={{ invoice: { ...EMPTY_INVOICE, type: 'company' } }} />);
+    // 🔴 **分母守門(2026-08-29 突變量到本格恆綠)**:元件空渲染時 `container.textContent` 是空的
+    //    ⇒ 所有 `not.toContain` 與 `querySelector(...)).toBeNull()` 全部恆真
+    //    ⇒「經銷價沒有洩漏」與「這個畫面根本沒渲染」印同一個綠。
+    //    🔴 這一格守的是**鐵則 12 的紅線**:經銷價 / price_store / 劃線價**不得進客人的瀏覽器**。
+    //    釘的是節點數(結構), 不釘任何一句文案。
+    // ⚠️ 錨【不能】釘 `querySelectorAll('*')` —— 突變體自己就是一個節點, 那樣的錨不會咬
+    //    (2026-08-29 當場量到:元件早退回一個 <div>, 而 `*` 的錨照樣過)。
+    //    ⇒ 釘【只有這個畫面才會有的殼】:付款動作列 `.co-actions`。
+    expect(container.querySelectorAll('.co-actions').length, '結帳第二步的殼沒渲染 ⇒ 下面四條恆真').toBeGreaterThan(0);
     expect(container.textContent).not.toContain('經銷');
     expect(container.textContent).not.toContain('price_store');
     expect(container.textContent).not.toContain('priceByTier');

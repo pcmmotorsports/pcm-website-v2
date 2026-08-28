@@ -244,6 +244,10 @@ describe('listProcurementChoices — 欄位白名單', () => {
   });
 
   it('🔴 回傳形狀不含價格類欄名', () => {
+    // 🔴 **分母守門(2026-08-29 突變量到本格恆綠)**:`RAW` 讀空時 `filter` 回 `[]`
+    //    ⇒ `toEqual([])` 恆真 ⇒「檔裡沒有價格欄名」與「這個檔根本沒讀到」印同一個綠。
+    //    🔴 這一格守的是**收據 repository 的回傳形狀不得帶價格欄** —— 帶了就會流到畫面上。
+    expect(RAW, '讀到的內容裡連 export 都不在 ⇒ 下面那條什麼都沒證明').toContain('export');
     const banned = ['unit_price', 'line_total', 'price', 'cost', 'amount'];
     const hit = banned.filter((w) => RAW.includes(w));
     expect(hit, `receipt-repository.ts 出現價格欄名:${hit.join(', ')}`).toEqual([]);

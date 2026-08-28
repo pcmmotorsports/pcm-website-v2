@@ -232,6 +232,14 @@ describe('CheckoutOrderReview(U2a)', () => {
     const { container } = renderOrderReview({
       lines: [line({ productId: 'rpm-1', unitPrice: 15200 }, 2, 30400)],
     });
+    // 🔴 **分母守門(2026-08-29 突變量到本格恆綠)**:元件空渲染時 `container.textContent` 是空的
+    //    ⇒ 所有 `not.toContain` 與 `querySelector(...)).toBeNull()` 全部恆真
+    //    ⇒「經銷價沒有洩漏」與「這個畫面根本沒渲染」印同一個綠。
+    //    🔴 這一格守的是**鐵則 12 的紅線**:經銷價 / price_store / 劃線價**不得進客人的瀏覽器**。
+    //    釘的是節點數(結構), 不釘任何一句文案。
+    // ⚠️ 錨【不能】釘 `querySelectorAll('*')` —— 突變體自己就是一個節點(同日實測)。
+    //    ⇒ 釘【只有這個區塊才會有的殼】:`.co-review-block`。
+    expect(container.querySelectorAll('.co-review-block').length, '訂單回顧區的殼沒渲染 ⇒ 下面四條恆真').toBeGreaterThan(0);
     expect(container.textContent).not.toContain('經銷');
     expect(container.textContent).not.toContain('price_store');
     expect(container.textContent).not.toContain('priceByTier');
