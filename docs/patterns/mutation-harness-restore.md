@@ -90,6 +90,44 @@ restore () {
 
 ---
 
+## 2b. 🔴 `trap` 結構上接不到 **SIGKILL** ⇒ 還要一道【開場自檢】(2026-08-29 線D 量)
+
+```
+SIGTERM / SIGINT / 正常結束 / die  ⇒ trap 接得到     ✅（§2 那道就夠）
+🔴 SIGKILL（kill -9 / OOM killer / exit 137）⇒ trap 接不到
+   —— 那是核心直接終止，行程【沒有機會跑任何東西】
+```
+⚠️ **§2 沒有涵蓋這一種,而讀「把 trap 寫好就行」的人會以為涵蓋了。**
+⇒ 最後一道防線只能放在**下一發啟動的時候**:
+
+```bash
+# ① 開場自檢：上一發有沒有留下殘留（SIGKILL 連 trap 都殺得掉 ⇒ 這一道才是最後一層）
+if [ -f "$BAK" ] && ! cmp -s "$TARGET" "$BAK"; then
+  echo "🔴 開場自檢紅：$TARGET 與 $BAK 不同 ⇒ 上一發【留下了突變】，拒絕繼續" >&2; exit 3
+fi
+cp "$TARGET" "$BAK"
+trap 'cp "$BAK" "$TARGET"' EXIT INT TERM     # ② §2 那道，照舊
+```
+
+**三個世界量過(乙是負對照;沒有它,甲證不了東西)**:
+```
+甲 有 trap + kill -TERM  ⇒ sha 與突變前【相同】 ✅
+乙 無 trap + 同一發 kill  ⇒ sha 【不同】(真的留在突變狀態) ✅
+丙 手動造殘留現場 ⇒ 下一發開場自檢 rc=3 拒絕繼續 ✅ ／ 無殘留時 rc=0 放行 ✅
+```
+⚠️ 平台:macOS `/bin/bash` 量的,**Linux / CI 未驗**(同 §2 平台邊界)。
+⚠️ **它擋不住**:開場自檢只在**下一發啟動時**叫 —— 那之間若有人 `git add` 了那支檔,
+**一個被突變的檔就進正式分支**,這一道完全來不及 ⇒ 靠 commit 前 `git diff --cached` 回核。
+
+🔴 **而這一節的來歷要寫出來**:本檔 §2 與 memory
+`feedback_mutation-harness-needs-both-pre-and-post-checks`(那裡逐字寫「harness 開始時要先掃殘留」)
+**兩處都早就寫過修法,而 2026-08-29 那一發【一個都沒用】** ——
+harness 是「迴圈末尾 `cp` 回去」,被 kill 之後檔案留在突變狀態(逐字面複驗才發現)。
+📌 **⇒ 這一格證明的不是「要寫 trap」,是【寫下來的機制不會自己被用上】。**
+**完整事故與五個實例在那支 memory,本節只放可複製的形狀。**
+
+---
+
 ## 3. 可複製的範本
 
 ```bash
