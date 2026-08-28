@@ -72,6 +72,21 @@ function ItemProcurementSection({
   );
 }
 
+/**
+ * 🔴 **分母守門** —— 本檔有一整族斷言是「畫面上【不得】出現 X」,
+ * 而 `queryBy*` 零命中回 `null`、`querySelectorAll` 零命中回 `[]`、`[].some()` 回 `false`
+ * ⇒ **整個區塊沒渲染時,那些斷言全部恆真**(2026-08-28 實測:兩個匯出各插一發空渲染
+ * ⇒ 51 格裡 11 格照樣綠,其中 8 格是這一族)。
+ *
+ * ⚠️ **用【結構數量】不用文案字面**:`<h3>` 是 `ItemProcurementBlock` 的固定骨架,
+ *    文案改一個字不該讓這些格子紅 —— 那是另一個方向的過頭,而過頭那一側沒有回饋路徑。
+ */
+const expectSectionRendered = (c: HTMLElement) =>
+  expect(
+    c.querySelectorAll('h3').length,
+    '採購區塊一個 h3 都沒有 ⇒ 整區根本沒渲染 ⇒ 下面的負向斷言恆真',
+  ).toBeGreaterThan(0);
+
 const SUP_A = '33333333-3333-4333-8333-333333333333';
 const SUP_B = '44444444-4444-4444-8444-444444444444';
 
@@ -208,6 +223,7 @@ describe('ItemProcurementSection — 採購列顯示', () => {
     const { container, queryByText } = render(
       <ItemProcurementSection returnTo={RETURN_TO} detail={d} suppliers={[]} suppliersFailed={false} />,
     );
+    expectSectionRendered(container);
     expect(queryByText(/還沒跟任何供應商訂/)).toBeNull();
     expect(container.querySelector('details')).toBeNull();
   });
@@ -229,6 +245,7 @@ describe('ItemProcurementSection — 採購列顯示', () => {
     const { container, queryByText } = render(
       <ItemProcurementSection returnTo={RETURN_TO} detail={d} suppliers={[]} suppliersFailed={false} />,
     );
+    expectSectionRendered(container);
     expect(queryByText(/還沒跟任何供應商訂/)).toBeNull();
     expect(container.querySelector('details')).toBeNull();
   });
@@ -403,6 +420,7 @@ describe('ItemProcurementSection — 兩個截斷旗標都要接', () => {
       const { container } = render(
         <ItemProcurementSection returnTo={RETURN_TO} detail={unreadable(false)} suppliers={[]} suppliersFailed={false} />,
       );
+      expectSectionRendered(container);
       const t = container.textContent ?? '';
       expect(t, '「沒撈到」被講成「沒有」——這正是 `#646` 要修的病').not.toContain('還沒跟任何供應商訂');
     });
@@ -420,9 +438,10 @@ describe('ItemProcurementSection — 兩個截斷旗標都要接', () => {
     });
 
     it('🔴 正向對照:讀得到 + 沒截斷 ⇒ 一則警告都不該出現(否則上面四格可能是恆真的)', () => {
-      const { queryByRole } = render(
+      const { container, queryByRole } = render(
         <ItemProcurementSection returnTo={RETURN_TO} detail={detail()} suppliers={[]} suppliersFailed={false} />,
       );
+      expectSectionRendered(container);
       expect(queryByRole('alert')).toBeNull();
     });
   });
@@ -460,9 +479,10 @@ describe('ItemProcurementSection — 兩個截斷旗標都要接', () => {
   });
 
   it('負向對照:兩個旗標都 false ⇒ **完全沒有** alert(⇒ 上面四格不是恆真)', () => {
-    const { queryByRole } = render(
+    const { container, queryByRole } = render(
       <ItemProcurementSection returnTo={RETURN_TO} detail={detail()} suppliers={[]} suppliersFailed={false} />,
     );
+    expectSectionRendered(container);
     expect(queryByRole('alert')).toBeNull();
   });
 
@@ -515,7 +535,7 @@ describe('ItemProcurementSection — 供應商清單', () => {
   });
 
   it('截斷 → 「登錄到貨」入口收起來(與警告文案「不能編輯採購」同一條不變式)', () => {
-    const { queryByText } = render(
+    const { container, queryByText } = render(
       <ItemProcurementSection
         returnTo={RETURN_TO}
         detail={detail({ itemsTruncated: true })}
@@ -523,6 +543,7 @@ describe('ItemProcurementSection — 供應商清單', () => {
         suppliersFailed={false}
       />,
     );
+    expectSectionRendered(container);
     expect(queryByText('登錄到貨')).toBeNull();
   });
 });
@@ -918,6 +939,7 @@ describe('🔴 #476 片3:作廢的採購列要看得出來,而且不給到貨入
     const { container } = render(
       <ItemProcurementSection returnTo={RETURN_TO} detail={onlyVoided} suppliers={[]} suppliersFailed={false} />,
     );
+    expectSectionRendered(container);
     const options = [...container.querySelectorAll('option')].map((o) => o.textContent ?? '');
     expect(options.some((t) => t.includes('Webike JP'))).toBe(false);
   });
@@ -969,7 +991,7 @@ describe('ItemProcurementSection — #352-b-2 衍生指標「還有 N 件沒有�
   });
 
   it('全部都有來源 → 不出現任何提示(不製造雜訊)', () => {
-    const { queryByRole, queryByText } = render(
+    const { container, queryByRole, queryByText } = render(
       <ItemProcurementSection
         returnTo={RETURN_TO}
         detail={withSummary({
@@ -983,6 +1005,7 @@ describe('ItemProcurementSection — #352-b-2 衍生指標「還有 N 件沒有�
         suppliersFailed={false}
       />,
     );
+    expectSectionRendered(container);
     expect(queryByRole('status')).toBeNull();
     expect(queryByText(/沒有登記來源/)).toBeNull();
   });
