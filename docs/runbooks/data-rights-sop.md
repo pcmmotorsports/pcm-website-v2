@@ -301,8 +301,19 @@ Sean「就是公司」= 誰承擔責任。
 ## §4 客人的個資實際在哪(這是查詢/複本/刪除都要用的清單)
 
 > 量法:掃 `packages/adapters/src/supabase/database.types.ts` 的 `Row` 定義,
-> 分母 **58 個表/view**,字集 `email|phone|name|address|recipient|birth|tax_id|user_agent|note`
+> 分母 **58 個表/view**,字集 `email|phone|name|address|recipient|birth|tax_id|user_agent|note|line`
 > ⇒ 命中 25,**逐個開來判之後**留下的是下表。
+>
+> 🔴 **`line` 這個詞 2026-08-29 才被補回來,而它一直都在跑過的那條命令裡** ——
+> 原本寫下來的字集**漏抄了它**:照文件字面重跑 ⇒ **22**,補回 `line` ⇒ **25**。
+> 多出來的三張恰好是 `order_items` / `order_refund_items` / `order_refund_job_items`(欄名 `line_total` / `line_amount`)。
+> 📌 **化石就在本節下面那行**:「被排除的四個誤收」列著 `order_items.line_total` ——
+> **而文件寫下的字集裡,沒有任何一個詞匹配得到它。**
+> ⇒ 那行自己證明了當初跑的字集含 `line`。
+> 🔴 **判別句**:**寫下來的配方,與真正跑過的那一次,是兩個東西** ——
+> 三把獨立實作的尺(線D 兩把 + R3 一把)全部印 22,**而它們量的都是【配方】**;
+> 25 量的是**【跑過的那一次】**。⇒ **「三把尺一致」在這裡不是效度,是它們讀同一份錯的配方。**
+> ⚠️ 所以引用本節的數字前:**字集那一行就是可執行的東西,不是說明文字。**
 > ⚠️ 被排除的四個誤收:`brands.name` / `categories.name` / `order_items.line_total` /
 > `sweeper_heartbeat.job_name` —— **寫出來是因為「25 命中」這個數字本身會誤導。**
 
@@ -332,12 +343,20 @@ Sean「就是公司」= 誰承擔責任。
 >   join pg_catalog.pg_attribute a on a.attrelid=c.oid
 >  where n.nspname='public' and c.relkind in ('r','v','m')
 >    and a.attnum>0 and not a.attisdropped
->    and a.attname ~* 'email|phone|address|name|user_id|recipient|ip_|user_agent|carrier|tax_id|birth'
+>    and a.attname ~* 'email|phone|address|name|user_id|recipient|ip_|user_agent|carrier|tax_id|birth|note|line'
 >  group by c.relname order by c.relname;
 > ```
 > ⚠️ **那一發會撈到誤命中**(`brands.name` / `categories.name` / `sweeper_heartbeat.job_name`
 > / `shipments.carrier_code` / `customer_vehicles.dict_model_name`)⇒ **逐張判,不要全收。**
 > 🔴 而**寧可撈到再判掉,也不要把字集縮窄** —— 窄字集會回一個乾淨的零,而那個零長得像「沒有」。
+>
+> 🔴 **2026-08-29 補 `note|line`,而補它的理由就是上面那一句** —— 這份檔裡**有兩個字集**:
+> §4 開頭掃型別檔那個,與本節這個掃活庫的。它們**本來就不完全相同**(本節多 `user_id|ip_|carrier`),
+> 而**兩個都漏了 `note` 與 `line`**。`note` ⇒ §4-c 整節講的就是自由文字欄;
+> `line` ⇒ `order_items.line_total` / `order_refund_items.line_amount`。
+> ⚠️ **本節這一發我沒有實跑**(施工窗無正式庫 access)⇒ 補上的兩個詞**未經一次真跑驗證**,
+> 缺的那道檢查 = **在有 access 的環境跑一次,看它多撈到哪幾張**。
+> 📌 **一份檔裡有兩張清單而它們不相等時,問題不是「哪張對」,是【沒有人負責讓它們一致】。**
 
 ### 4-b 🔴 **「刪除」這個字在這裡不成立的三格**
 > 📢 **要對客人講這三格 ⇒ 不要唸本節,唸 §6 的 `B-2`。** 本節是依據,那節才是講給客人聽的字。
