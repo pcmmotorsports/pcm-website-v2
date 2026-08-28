@@ -44,6 +44,26 @@ const CANDIDATES: ShipmentCandidateItem[] = [
 
 const noop = () => {};
 
+/**
+ * 🔴 **分母守門** —— 本檔有一族斷言全部是負向的(`queryByText(...).toBeNull()` /
+ * `queryByTestId(...).toBeNull()`),而它們在**候選清單一列都沒渲染**時**全部恆真**。
+ *
+ * 2026-08-28 實測(`shipment-dialog.tsx` 主 `return` 前插一發空渲染):
+ * 59 格裡 9 格照樣綠,其中 **3 格**是這一族 —— 它們在
+ * 【那一列正確地不顯示那句話】與【那一列根本沒渲染】兩個世界**印同一個綠**。
+ *
+ * ⚠️ **這三格的分母【是同一個集合】(候選列),所以它們共用同一道錨、印同一句訊息** ——
+ *    這是**判斷**不是偷懶:錨要釘在「那條斷言自己的分母」上,而它們的分母真的一樣。
+ *    (對照:`orders-table.test.tsx` 的 `colSpan` 那格分母是 `thead th`,就**不能**共用。)
+ * ⚠️ 用 `input[aria-label$='要出的數量']` 當骨架:那是本檔既有格子就在用的 DOM 把手
+ *    (`shipment-dialog.tsx:422` 產生它),不是畫面上給人看的文案。
+ */
+const expectCandidateRowsRendered = (c: HTMLElement) =>
+  expect(
+    c.querySelectorAll("input[aria-label$='要出的數量']").length,
+    '候選清單一列都沒渲染 ⇒ 下面的負向斷言恆真',
+  ).toBeGreaterThan(0);
+
 function open(over: Partial<Parameters<typeof ShipmentDialog>[0]> = {}) {
   return render(
     <ShipmentDialog
@@ -486,7 +506,8 @@ describe('#351② 出不了的品項:留在清單裡 + 標出原因 + 不可選'
   });
 
   it('🔴 出不了的品項不顯示「還能出 0」(那是 #351 抱怨的那種看不懂的畫面)', () => {
-    open({ candidates: blocked('not_arrived') });
+    const { container } = open({ candidates: blocked('not_arrived') });
+    expectCandidateRowsRendered(container);
     expect(screen.queryByText('還能出 0'), '顯示「還能出 0」⇒ 員工只知道不能出、不知道為什麼').toBeNull();
   });
 
@@ -548,7 +569,8 @@ describe('ShipmentDialog — #352-b-2 入口 2「貨到了」', () => {
   });
 
   it('可以出的品項不出現「貨到了」', () => {
-    const { queryByText } = open([{ ...NOT_ARRIVED, remaining: 2, blockedReason: null }]);
+    const { container, queryByText } = open([{ ...NOT_ARRIVED, remaining: 2, blockedReason: null }]);
+    expectCandidateRowsRendered(container);
     expect(queryByText('貨到了')).toBeNull();
   });
 
@@ -763,7 +785,12 @@ describe('ShipmentDialog — 手動填 0 不被自動補回(N2)', () => {
   it('🔴 #905 負對照:出不了的品項(remaining=0)【不得】印那個說明 —— 那是假話', () => {
     // 它不是「決定不出」, 是「出不了」。少了這一格, 把條件寫成 `qty===0` 也會綠。
     const blocked: ShipmentCandidateItem = { ...ITEM, remaining: 0, blockedReason: 'not_arrived' };
-    view([blocked]);
+    // 🔴 **這一格自己曾經是恆綠的(2026-08-28 量)** —— 它叫「負對照」,存在的理由是
+    //    證明上一格不是把條件寫成 `qty===0`,而**它自己在候選列沒渲染時照樣綠**。
+    //    下面那道錨是它的分母守門。不留這句的話,下一個人看到一組完整的正負對照,
+    //    又會以為它被想過了。
+    const { container } = view([blocked]);
+    expectCandidateRowsRendered(container);
     expect(screen.queryByTestId('ship-qty-zero-note')).toBeNull();
   });
 
