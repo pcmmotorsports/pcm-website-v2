@@ -149,7 +149,18 @@ describe('#10 片1 揀貨單列印頁', () => {
   });
 
   it('②🔴 揀貨單上不得有**任何**金額欄位,也不得有收件電話 / 地址', async () => {
-    const t = textOf((await renderPage()).container);
+    const { container } = await renderPage();
+    // 🔴 **分母守門(2026-08-29 量到:本檔 `renderPage()` 那道錨【對這一格不夠】)**
+    //    那道錨釘的是「整張紙有沒有標題節點」;而本格的洩漏面是**品項列**。
+    //    實測:把 `picking-doc.tsx` 的 `detail.items.map(...)` 換成空陣列
+    //    ⇒ 全檔 44 格中只有 7 紅, **而本格是綠的**(紙的其餘部分還在, 品項列整組不見了)。
+    //    📌 **錨要釘【洩漏面本身】, 不是它的外殼。** 同夜第 N 次同一個形狀。
+    //    ⇒ 釘品項列的列數(結構), 不釘任何一個欄位的字面。
+    expect(
+      container.querySelectorAll('tbody tr').length,
+      '一列品項都沒渲染 ⇒ 下面那整組「不得出現金額 / 電話 / 地址」的斷言恆真',
+    ).toBeGreaterThan(0);
+    const t = textOf(container);
     // 六個金額欄整組掃,不是只掃我想得到的那兩個(must-fix 5 的修法)。
     for (const v of MONEY_VALUES) {
       expect(t).not.toContain(String(v));
