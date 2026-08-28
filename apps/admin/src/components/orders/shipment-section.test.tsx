@@ -169,9 +169,20 @@ describe('#351④ 空箱區', () => {
       expect(screen.queryByText(/箱號記下來/)).not.toBeNull();
     });
 
+    // 🔴🔴 **這一格自己曾經是恆綠的(2026-08-28 量)** —— 它唯一那條斷言是負向的
+    //    (`queryByText('空箱')).toBeNull()`),而**整個區塊沒渲染時它照樣綠**
+    //    ⇒ 它在【正確地不列箱】與【區塊根本沒渲染】兩個世界印同一個綠。
+    // ⚠️ **補錨【不是】放寬它**:標題那句「fail-closed 的行為本身不可放寬」原封不動,
+    //    下面那條 `toBeNull()` 一個字沒改。新加的那道只回答「有沒有東西可以量」。
+    //    (`<h2>` 是本區塊的固定骨架 —— `shipment-section.tsx:186` 的「出貨」標題;
+    //     用結構數量不用文案字面。)
     it('🔴 **不得**畫出任何箱子(fail-closed 的行為本身不可放寬)', async () => {
       loadEmptyShipments.mockResolvedValue(null);
-      render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+      const { container } = render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+      expect(
+        container.querySelectorAll('h2').length,
+        '出貨區塊一個 h2 都沒有 ⇒ 整區沒渲染 ⇒ 下面那條負向斷言恆真',
+      ).toBeGreaterThan(0);
       expect(
         screen.queryByText('空箱'),
         '算不出來卻照樣列箱 ⇒ 可能指著一個其實裝著貨的箱叫員工作廢,比不列更糟。',

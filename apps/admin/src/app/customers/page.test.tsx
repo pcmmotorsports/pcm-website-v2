@@ -61,8 +61,19 @@ describe('/customers 結果橫幅(#365)', () => {
   });
 
   // 🔴 負向對照:沒有這一格,上面兩條對「橫幅恆亮」也會是綠的 ⇒ 證不出 `?r=` 真的在驅動它。
+  //
+  // 🔴🔴 **而這一格自己曾經是恆綠的(2026-08-28 量)** —— 它是本檔唯一的負向對照,
+  //    而它唯一那條斷言是 `queryByRole('status')).toBeNull()`:**整頁沒渲染時它照樣綠。**
+  //    ⇒ 它在【橫幅正確地不出現】與【整頁根本沒渲染】兩個世界印同一個綠,
+  //      而**它上面那句註解讀起來像是有人已經想過恆綠這件事了**。
+  //    下面那道 `expect(container.querySelectorAll('h1').length)` 是它的分母守門:
+  //    用**結構數量**不用文案字面(頁標題改字不該讓這一格紅)。
   it('沒有 r 參數 → 不渲染橫幅(證明橫幅不是恆亮)', async () => {
-    const { queryByRole } = await renderPage();
+    const { container, queryByRole } = await renderPage();
+    expect(
+      container.querySelectorAll('h1').length,
+      '整頁一個 h1 都沒有 ⇒ 頁面根本沒渲染 ⇒ 下面那條負向斷言恆真',
+    ).toBeGreaterThan(0);
     expect(queryByRole('status')).toBeNull();
   });
 
