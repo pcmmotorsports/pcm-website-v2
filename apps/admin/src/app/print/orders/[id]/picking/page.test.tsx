@@ -494,7 +494,14 @@ describe('#10 片1 本次應揀合計', () => {
     mocks.findAdminOrderDetail.mockResolvedValue(
       detail({ items: MIXED } as unknown as Partial<AdminOrderDetail>),
     );
-    const t = textOf((await renderPage()).container);
+    const { container } = await renderPage();
+    // 🔴 **分母守門(2026-08-29 補審抓到:與本檔 :151 同款、同一支檔、同一發突變下恆綠)**
+    //    洩漏面同樣是 `<tbody>` 的品項列 —— 而 renderPage() 那道錨只釘「整張紙有標題」。
+    expect(
+      container.querySelectorAll('tbody tr').length,
+      '一列品項都沒渲染 ⇒ 下面兩條「那段標記整段不在」恆真',
+    ).toBeGreaterThan(0);
+    const t = textOf(container);
     expect(t).not.toContain('未載入的品項');
     expect(t).not.toContain('這張表沒有結尾');
   });

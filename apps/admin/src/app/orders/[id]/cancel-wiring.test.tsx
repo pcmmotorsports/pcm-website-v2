@@ -225,6 +225,25 @@ function expectPageRendered(container: HTMLElement) {
  * 釘 `#cancel`:那是**跨檔契約**(`order-cancel-block.tsx:73-76` 逐字 —— 訂單列表操作欄的連結是
  * `…#cancel`), 而那支元件**沒有任何 early return** ⇒ 任何合法世界它都在 ⇒ 不會做出假紅。
  */
+/**
+ * 🔴 **商品卡【本身】有沒有渲染** —— 2026-08-29 補審(code-reviewer)抓到:
+ * `expectCancelBlockRendered` 對「商品卡上的 checkbox」那幾格**零判別力** ——
+ * checkbox 由 `order-detail-items-table.tsx` 渲染, 而 `#cancel` 在**另一條分支**
+ * (`order-detail.tsx:351` → money-tab → danger-zone)。
+ * 實測:把 `ItemsTable` 改成 `return null` ⇒ 全檔 29 格中只有 **2 紅**,
+ * **而三格「商品卡上不給 checkbox」全部照樣綠** —— 而它們正是我上一顆宣稱修好的那幾格。
+ * 📌 **⇒ 我修了門, 而 checkbox 住在隔壁那棟。**
+ *
+ * 釘 `.ihead`(品項卡的表頭):`order-detail-items-table-shape.test.tsx` 用
+ * `<div className='ihead'>…</div>\s*<ItemAmountRowGroup>` 抓表頭 ⇒ 它是**結構契約**, 不是裝飾。
+ */
+function expectItemsTableRendered(container: HTMLElement) {
+  expect(
+    container.querySelector('.ihead'),
+    '商品卡整塊沒渲染 ⇒ 「商品卡上不給 checkbox」那些負向斷言恆真',
+  ).not.toBeNull();
+}
+
 function expectCancelBlockRendered(container: HTMLElement) {
   expect(
     container.querySelector('#cancel'),
@@ -368,6 +387,9 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
     );
     // 正向對照:證明元件真的畫出來了(否則「零表單」是恆真)。
     expect(container.textContent).toContain('ABC123');
+    // 🔴 補審(2026-08-29)抓到:這幾格【不走 renderPage()】⇒ 沒有拿到那 21 個呼叫點的錨,
+    //    而 `toContain('ABC123')` 是**頁面層** ⇒ 對區塊層的洩漏零判別力。
+    expectCancelBlockRendered(container);
     expect(cancelFormCount(container)).toBe(0);
   });
 
@@ -413,6 +435,9 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
       />,
     );
     expect(container.textContent).toContain('ABC123');
+    // 🔴 補審(2026-08-29)抓到:這幾格【不走 renderPage()】⇒ 沒有拿到那 21 個呼叫點的錨,
+    //    而 `toContain('ABC123')` 是**頁面層** ⇒ 對區塊層的洩漏零判別力。
+    expectCancelBlockRendered(container);
     expect(cancelFormCount(container)).toBeGreaterThan(0);
   });
 });
@@ -486,6 +511,7 @@ describe('片C 驗收:商品卡的取消 checkbox 與危險區的表單共用同
     expectPageRendered(container);
     expectCancelBlockRendered(container);
     expect(cancelFormCount(container)).toBe(0);
+    expectItemsTableRendered(container);
     expect(cancelItemCheckboxCount(container)).toBe(0);
   });
 
@@ -494,6 +520,7 @@ describe('片C 驗收:商品卡的取消 checkbox 與危險區的表單共用同
     const { container } = await renderPage();
     expectPageRendered(container);
     expectCancelBlockRendered(container);
+    expectItemsTableRendered(container);
     expect(cancelItemCheckboxCount(container)).toBe(0);
   });
 
@@ -502,6 +529,10 @@ describe('片C 驗收:商品卡的取消 checkbox 與危險區的表單共用同
       <OrderDetail refundsTruncated={false} detail={detail()} returnTo='/orders/ord-1' payments={{ status: 'ok', rows: [] }} />,
     );
     expect(container.textContent).toContain('ABC123');
+    // 🔴 補審(2026-08-29)抓到:這幾格【不走 renderPage()】⇒ 沒有拿到那 21 個呼叫點的錨,
+    //    而 `toContain('ABC123')` 是**頁面層** ⇒ 對區塊層的洩漏零判別力。
+    expectCancelBlockRendered(container);
+    expectItemsTableRendered(container);
     expect(cancelItemCheckboxCount(container)).toBe(0);
   });
 
@@ -607,6 +638,7 @@ describe("#808 gate='stuck' 的單,員工在畫面上讀得到「系統已經停
     expectPageRendered(container);
     expectCancelBlockRendered(container);
     expect(cancelFormCount(container)).toBe(0);
+    expectItemsTableRendered(container);
     expect(cancelItemCheckboxCount(container)).toBe(0);
     expect(container.textContent).toContain(STUCK_LINE);
   });

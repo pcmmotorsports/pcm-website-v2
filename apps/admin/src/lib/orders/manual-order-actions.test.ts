@@ -354,6 +354,10 @@ describe('🔴 六個失敗碼各自導頁,而前綴讓它們不與取消片撞�
       logMessage: 'x',
     });
     await run(base());
+    // 🔴 **分母守門(2026-08-29 補審抓到:與 :233 同款、同一發突變下同樣恆綠)**
+    //    整支 action 早退時 revalidate 當然沒被呼叫 ⇒「失敗路徑不 revalidate」與
+    //    「這支 action 根本沒跑」印同一個綠。
+    expect(mocks.createManualOrder, 'RPC 一次都沒被呼叫 ⇒ 這支 action 根本沒跑到那裡').toHaveBeenCalled();
     expect(mocks.revalidateOrderViews).not.toHaveBeenCalled();
   });
 });
