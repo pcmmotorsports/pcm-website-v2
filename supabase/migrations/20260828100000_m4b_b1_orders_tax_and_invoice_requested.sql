@@ -1,0 +1,474 @@
+-- ============================================================
+-- M-4b 片 B1:orders 稅欄與「要不要開發票」欄的【地基】—— 純加欄 + 換一條 CHECK,金額零改變
+-- ============================================================
+-- plan:`~/pcm-mailbox/線A-plan-片B1-發票欄與稅欄地基-20260828.md`
+-- 批准:Sean 2026-08-28 `Q-B1 ⇒ 批`(鐵則 8:schema 改動須 Sean 批准)。
+-- 依賴:20260604120000(orders 表 + orders_total_balances CHECK)、
+--       20260714120000(orders 既有的 invoice_number / invoice_amount / invoice_status 三欄)。
+-- 鐵則 12③(schema + CHECK 置換)⇒ codex 對抗審查不降級, 且須在 must-fix 修完之後才跑。
+-- 鐵則 12②(權限)實查結論見下方「② 權限」那段 —— **不構成違反, 而理由要留檔。**
+--
+-- 🔴🔴 **本片的定義:任何一張單的【金額】都不會變。**
+--    ⚠️ **而「零行為改變」是過度宣稱**(codex R2 nit):兩個新欄會**立即**進入
+--       `authenticated` 的 `SELECT *` 與 PostgREST 的回應形狀 ⇒ **API 回傳的物件多了兩個鍵。**
+--       ⇒ 準確的說法是:**金額零改變、寫入路徑零改變, 而讀取形狀變了。**
+--    ⇒ 驗收就是量這件事(見檔尾斷言清單), 而**不是**量「新欄位建出來了沒」。
+--    📌 「欄位建成了」與「沒有一張單被動到」是兩個宣稱, 而只有後者是這一片的承諾。
+--
+--    🔴🔴🔴 **而「寫入路徑零改變」也是過度宣稱**(2026-08-29 codex must-fix #1, 我複核確認):
+--       **本檔落地之後, 現有的 180 天備份【還原不回來】。** 見 `#958`。
+--       `scripts/d1-restore.ts:405-407` 逐字:
+--         CREATE TEMP TABLE d1r_orders (LIKE public.orders);
+--         \copy d1r_orders FROM '…/orders.csv' WITH (FORMAT csv, HEADER MATCH, NULL '\N')
+--       ⇒ `LIKE public.orders` 拿的是**新的 39 欄**;而舊 CSV 的表頭是 **37 欄**
+--         ⇒ `HEADER MATCH`(逐欄比對表頭)**當場失敗** ⇒ 那 26 張訂單的唯一還原路徑斷掉。
+--       ✅ **而 `HEADER MATCH` 是【對的】** —— 同檔 `:402-404` 的註解逐字寫著它存在的理由:
+--          「備份要保存 180 天, 期間 schema 極可能改;沒有它的話, 中間插一欄會讓資料整排錯位
+--            **靜默寫入** —— 還原『成功』了, 內容全錯。」
+--       🔴 **⇒ 它不是被我弄壞的, 它是【照設計吵出來的】。**
+--          📌 **這一格的正確讀法**:那道閘正在做它該做的事, 而**沒有人替它準備好被觸發那天的程序**。
+--          ⚠️ **而它會在【最壞的時刻】被發現** —— 要還原, 就是已經出事了。
+--       ⇒ **apply 前置(`#955`)要多一格:先有還原程序, 再 apply。** 程序寫在 `#958`。
+--
+-- 🔴 為什麼從片B 拆出來(主視窗 2026-08-28 裁「甲」):
+--    換 `orders_total_balances` 會**驗證每一列既有資料** ⇒ 它自己就該是一次獨立、可單獨回捲的變更。
+--    ⛔ ~~原稿寫「這一整條線裡【唯一】一個會驗證每一列既有資料的動作」~~ **作廢**(R1 MF4):
+--    🔴 **本檔有【兩次】全表驗證** —— 換 CHECK 那一次, 加上 `tax_total` 的非負 CHECK 那一次。
+--       本檔把後者**併進 ADD COLUMN 同一句**(見 §1), 而 ⚠️ **併進去是否真的省掉一次掃描 = 未確認**
+--       —— 沒有量過, 不寫成「省掉了」。它至少省掉一次獨立的 `ALTER TABLE` 陳述式。
+--
+-- ⛔ **本片不做**(寫下來, 免得下一個人以為漏了):
+--    · 不改任何 RPC —— 建單那支仍然算不含稅的 total(B2 才改)
+--    · 不改表單、不改顯示、不改列印/匯出
+--    · 不動 `invoice_type` enum(personal/company/donate)——
+--      動 enum ⇒ 所有讀它的地方都要重新窮舉, **而漏一處不會紅**
+--    · 🔴🔴 **不動 `admin_order_list_v`(`20260823030000:224`)—— 而【本檔會把它的一個前提弄假】**
+--      (codex R2 must-fix, 2026-08-28)。那支 view 的定義是 `SELECT o.*, … paid_total`,
+--      而它的註解 `:217-219` 逐字寫著:
+--        「已查:`20260816050000` 之後**沒有**任何 migration `ALTER TABLE public.orders`
+--         ⇒ `o.*` 的展開穩定, 不會把新欄插到 `goods_axis` 前面而讓 REPLACE 炸掉。」
+--      ⛔ ~~**本檔就是那個「之後的 ALTER TABLE」**~~ **作廢**(2026-08-29 線A 實測;正本 `#957`):
+--      🔴🔴 **本檔【不是】第一個 —— 那句註解在 2026-08-24 就已經假了, 早於本檔四天。**
+--         `20260824020000_m4b_858_admin_create_manual_order.sql` 的
+--         `ALTER TABLE public.orders` **真陳述式 3 句**(`:142` / `:147` / `:165`),
+--         其中 `:142` 加了 `manual_request_id`。
+--         ⛔ ~~原稿「6 句」~~ 作廢(R1 抓的)—— 那是 `grep -c` 的原始命中,含註解。
+--      🔴 **負對照(它是這一格的關鍵)**:在一個**完全沒有本檔**的 schema 上跑那句
+--         `CREATE OR REPLACE VIEW` ⇒ **一字不差的同一句 ERROR**:
+--           cannot change name of view column "goods_axis" to "manual_request_id"
+--         ⇒ **那支 view 今天重跑就會炸, 與本檔無關。**
+--      ✅ 而本檔**確實也會**造成同一種失敗(拋棄式 PG 乾淨實驗:先讓 view 追上現況 ⇒ REPLACE rc=0,
+--         只套用本檔 ⇒ REPLACE rc=3 `… to "tax_total"`)—— **只是它排第二, 不排第一。**
+--      ⚠️ **B1 不需要動它, 而 B2 一定會撞到** ⇒ B2 的做法要改成 `DROP VIEW` + `CREATE VIEW`,
+--         或改寫 view 不用 `o.*`。🔴 **而修那支 view 的工不記在 B2 名下** —— 它在 B2 之前就壞了。
+--      📌 **形狀:那句「已查…沒有任何 migration」是【當時】正確的, 而它不會知道自己過期了。**
+--      🔴 **而我第一版把成因寫成「讓它過期的是我」—— 那也是錯的, 而它錯得【看起來像在認錯】**
+--         ⇒ 一個把責任攬到自己身上的句子, 讀起來像誠實, 而它同樣關掉了「還有沒有別人」這個問題。
+--         **真兇是 08-24 那一支, 而只有負對照問得出這件事。**
+--    · 不重生 `database.types.ts` —— B1 只加欄不加 RPC ⇒ typecheck 不會紅
+--      (RPC 名稱 union 才是紅的來源, `20260828080000:10-11` 逐字)。順序照 `20260828080000:13`:
+--      apply ⇒ 重生型別 ⇒ TS 那層。**B1 可放行, B2 之前必補。**
+--
+-- 🔴🔴 **B2 之前的地雷已落檔:`docs/phase-1-backlog.md` #953**
+--    同一條金額等式住在**五個地方**:本檔換的這條 CHECK + 建單 RPC
+--    + `20260815040000:432` + `20260816040000:157`
+--    + 🔴 **TS runtime `packages/domain/src/order/order.ts:340-348` 的 `assertOrderInvariant`**
+--      —— 它是唯一一份會**丟例外**的拷貝(`throw OrderError('total_mismatch')`),
+--      而 `packages/ports/src/IOrderRepository.ts:32` 把它寫成 repository 讀取合約。
+--      目前無 adapter 呼叫 ⇒ **對 B1 無害、對 B2 是地雷。**
+--
+--    ⛔ ~~原稿寫「B2 之後那兩支 RPC 會把稅【靜靜抹掉】, 三邊一起同意一個錯的總額」~~ **作廢**(R1 MF7):
+--    🔴 **本檔裝上新 CHECK 之後那句就不成立** —— 那兩支算不含稅的 `v_total`,
+--       而新 CHECK 要求含稅 ⇒ 它們的 `UPDATE orders` 會**直接 check_violation 失敗**。
+--       ⇒ **B2 的真風險不是「數字變小」, 是【後台改品項金額】在有稅的單上【整個功能壞掉】。**
+--       📌 而那比抹掉更該寫:抹掉是安靜的, 壞掉是吵的 —— 但**吵在員工那裡, 不吵在我們這裡**。
+--
+-- ── ② 權限(鐵則 12②, R1 important 11:結論要留檔, 不要讓下一個人重推一次)──────────
+--    本檔零 `GRANT` / `REVOKE`。而**新欄承襲表級 ACL**:`orders` 走表級授權
+--    (`20260604120000:188-193` —— ⛔ ~~原稿引 `20260611120000:239`~~ **作廢**:那一支實際是
+--     撤銷 service_role 寫權, 不是 authenticated 表級 SELECT 的證據。codex R2 nit 指出、線A 複驗);
+--    欄位級 `GRANT SELECT (…)` 模型只用在 products / product_variants
+--    (`20260519031049:40`、`20260602135934:54-56`)。
+--    ⇒ 兩個新欄對 `authenticated` **立即可見**(RLS own-row), 而兩欄皆無敏感值
+--      (稅額與一個布林)⇒ **②不構成違反。**
+--    ⚠️ 這是**推出來的**(讀 ACL 模型), 不是在正式庫上量到的 —— 標明來源, 不寫成「已驗」。
+--
+-- ── 冪等(R1 nit 12)──────────────────────────────────────────────────────────
+--    本檔三段皆**無** `IF NOT EXISTS` / `IF EXISTS`, 而那是**刻意的**:
+--    整檔在一個交易裡 ⇒ 重跑會整體失敗、不留半套。
+--    ⚠️ 而它與 `20260725120000:37`「每段皆 idempotent」的半套用 SOP **不一致** ——
+--    選擇不一致的理由:那條 SOP 服務的是「可以半套」的檔, 而本檔的定義是**全有或全無**。
+--
+-- 動手前真 DB 交易模擬:**⏳ PENDING —— 尚未執行、尚未 apply。**
+-- 🔴🔴 **而這四個字【擋不住任何東西】, 所以真正的閘不在這裡**(主視窗 2026-08-28 裁):
+--    實查:`20260712203000` / `20260712210000` / `20260717020000` 三支
+--    **檔裡現在仍然寫著 `⏳ PENDING`, 而 `APPLIED.tsv` 裡都有**(3/3, 當場數)
+--    ⇒ 它們是【被 apply 了, 而模擬從來沒跑過, 而這個標記還掛在那裡】。
+--    📌 **一個從來沒有阻止過任何事的標記, 它的存在讓人以為那件事被擋著。**
+-- ⇒ **本片的 apply 前置寫在 `docs/phase-1-backlog.md` #955, 而它綁在【那份要端給 Sean 的 apply SQL】上**:
+--   🔴 **那份 SQL 在交易模擬跑完之前不得產出、不得端** —— apply 只會經過那一份, 那是唯一擋得住的位置。
+--   🔴 **本檔目前【只有靜態證據】:沒有任何一條斷言在真的資料庫上跑過。**
+--   而 R1 的結語比這句更重, 原封留著:
+--   **「即使照現在的斷言清單跑一遍, 它也證不了它想證的事」** —— 那是【修正前】的版本;
+--   本次已折 R1 的 7 條 must-fix, 而**折完仍然不等於跑過**。
+-- ============================================================
+
+BEGIN;
+
+-- ── 0. 🔴🔴 鎖的上限(codex R2 must-fix, 2026-08-28)────────────────────────────
+--    第 1/2 節的 `ADD COLUMN` 與第 3 節的 `ADD CONSTRAINT` 都會對 `orders` 取
+--    **ACCESS EXCLUSIVE**。而**沒有上限的話它會【無限等】** ——
+--    ⇒ 在正式庫上, 一筆還沒結束的線上訂單交易就足以讓這支 migration 卡住,
+--      而**它卡住的同時, 後面每一個要碰 orders 的請求都排在它後面** ⇒ 顧客站結帳一起停。
+--    📌 **這不是「跑比較久」, 是【我用一支 migration 把線上訂單擋住】** ——
+--       而畫面上它只是「還在跑」。
+--    ⇒ 兩個都設:`lock_timeout` 管**等鎖**, `statement_timeout` 管**拿到鎖之後跑太久**。
+--      兩者管的是不同的東西, 只設一個會在另一種世界裡無限等。
+--    ⚠️ 而 `SET LOCAL` **只在這個交易內有效** ⇒ 不會污染 session、不會留痕。
+--    ⚠️ 數值是**保守值, 不是量出來的** —— 沒有人量過這張表上 ALTER 要多久。
+--       超時就是失敗 ⇒ 整個交易回捲 ⇒ **失敗比卡住好, 而那正是設它的理由。**
+--
+--    🔴🔴 **而 `60s` 【不是整支 migration 的鎖上限】**(2026-08-29 codex must-fix #2):
+--       `statement_timeout` 是**逐陳述式**計時, `lock_timeout` 只管**每一次等鎖**。
+--       ⇒ 本檔有**兩次全表掃描**(新 CHECK 一次 + `tax_total` 非負 CHECK 一次)。
+--         第一次掃 59 秒、第二次再掃 59 秒 ⇒ **兩次都沒有超時, 而顧客站被擋了 118 秒以上。**
+--       🔴 **而第一次取得的 `ACCESS EXCLUSIVE` 是【持有到 COMMIT】的** ——
+--          不是「掃完就放」⇒ 中間所有的等待也算在客人那一邊。
+--       📌 **形狀:兩個都設好了、兩個都沒紅, 而我想擋的那件事發生了。**
+--          「每一步都有上限」與「整件事有上限」是兩個宣稱, 而只有前者被設定了。
+--       ⚠️ **本檔不改數值** —— 改成多少要量過才知道(而本機表是空的, 量不到)。
+--          ⇒ **apply 前置(`#955`)要多一格:在正式庫的離峰時段跑, 並事先量過表列數。**
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '60s';
+
+-- ── 1. tax_total:這張單的稅額(元位整數)──────────────────────────────────
+-- 🔴 `DEFAULT 0` 不是「隨手給新欄一個值」—— **它是【讓第 3 節那條 ALTER 過得去】的那一格。**
+--    既有每一張單都沒有稅 ⇒ `tax_total = 0` ⇒ 新的 total 等式退化成舊式子
+--    ⇒ 舊列自動成立 ⇒ `ADD CONSTRAINT` 的全表驗證才過得了。
+-- 🔴 而「拿掉這個 DEFAULT 會怎樣」——**我原本寫錯了方向, codex R2 訂正**:
+--    ⛔ ~~「拿掉它 ⇒ 下一次動這條 CHECK 會炸在【全表驗證】上」~~ **作廢**
+--       ——【落地之後】拿掉 DEFAULT **不會回頭改既有列的 0**, 全表驗證那一格不受影響。
+--    ✅ 真正會出事的是**【新插入的列】**:欄位是 `NOT NULL` 而沒有 default
+--       ⇒ **任何沒有明列 `tax_total` 的 `INSERT INTO orders` 會直接失敗**。
+--    🔴 **而「有幾處」這個數, 今晚出現過三個**:R1 說 15、codex 說 14、我第一次 grep 說 18。
+--       ⇒ 我重數並把**數法寫在數字旁邊**:
+--         `grep -rn 'INSERT INTO public\.orders' supabase/migrations/*.sql`
+--           ⇒ 18(**含註解行**)
+--         再 `| grep -vE ':\s*--'`(排除註解)且排除本檔自己 ⇒ **14**(2026-08-28 21:xx 當場數)
+--       ⇒ **14** 是「非註解行上的 INSERT 陳述式」那個數;18 是「這個字串出現幾次」。
+--       🔴 而 **14 ≠「14 個現行 writer」**(codex R2 nit):那 14 處**多數住在已經套用的歷史 migration
+--          或一次性測試裡**, 不是現在還在跑的寫入路徑。
+--       📌 **兩個數都不是錯的, 錯的是把它們當成同一個問題的答案 —— 而我差點用它回答第三個問題。**
+--    📌 **我把一個【對新資料】的風險, 寫成了一個【對既有資料】的風險** ——
+--       兩者都會讓人「不要拿掉它」, 而只有一個說得出**拿掉之後哪一行會先爆**。
+--    ⛔ ~~「而在本檔落地之前就沒有 DEFAULT ⇒ 第 3 節的 ADD CONSTRAINT 會炸在全表驗證上」~~
+--       **也作廢**(codex R2 nit):非空表的話, **它更早就死了** ——
+--       第 1 節的 `ADD COLUMN … NOT NULL` 沒有 DEFAULT 就填不了既有列 ⇒ **當場失敗**,
+--       根本走不到第 3 節。
+--       📌 **我連「它會在哪一行爆」都推錯了兩次** —— 而兩次的結論都是「不要拿掉它」,
+--          所以兩次都沒有人發現理由是錯的。
+--    📌 他不會覺得自己在做危險的事, 他覺得自己在清理。
+-- 🔴 非負 CHECK **併進同一句**(R1 MF4):獨立的 `ALTER TABLE … ADD CONSTRAINT` 是**第二次全表掃描**。
+--    ⚠️ 而併進去**是否真的省掉那次掃描 = 未確認**(沒量過);它確定省掉的是一個獨立陳述式。
+ALTER TABLE public.orders
+  ADD COLUMN tax_total integer NOT NULL DEFAULT 0
+  CONSTRAINT orders_tax_total_nonneg CHECK (tax_total >= 0);
+
+COMMENT ON COLUMN public.orders.tax_total IS
+  '這張單的稅額(整數元位, 對齊 orders 金額家族;禁浮點)。B1 只建欄、恆為 0;B2 才開始寫值。'
+  '🔴 DEFAULT 0 是【讓 orders_total_balances 的置換能通過全表驗證】的那一格 —— '
+  '既有單都沒有稅 ⇒ 0 ⇒ 新等式退化成舊等式 ⇒ 舊列自動成立。'
+  '🔴 而【落地之後拿掉這個 DEFAULT】的後果不是「既有列會出事」—— 既有列的 0 已經在那裡, 不會被回頭改。'
+  '真正會出事的是【新插入的列】:欄位是 NOT NULL 而沒有 default '
+  '⇒ 任何沒有明列 tax_total 的 INSERT INTO orders 會直接失敗 '
+  '(2026-08-28 當場數:排除註解行之後 14 處具名 INSERT INTO public.orders, 而它們都沒列這一欄)。';
+
+-- ⚠️ **而「B1 之後 `tax_total` 恆為 0」不是 SQL 保證**(2026-08-29 codex consider #8):
+--    非負 CHECK 只擋負數。**任何有 `UPDATE` 權限的路徑寫 `tax_total = 5` 都會被接受** ——
+--    現在成立的理由只是「目前所有 writer 都不碰它」。
+--    📌 **「沒有人在寫它」與「它不能被寫」是兩件事**, 而在這一版的 schema 上它們印同一個 0。
+
+-- ── 2. invoice_requested:這張單【要不要】開發票 ───────────────────────────
+-- 🔴🔴 **`orders` 上已經有兩層 invoice 語意, 而這是第三層** ——
+--    ① `invoice` jsonb                = 客人結帳的開票**需求**(抬頭/統編/載具)
+--    ② `invoice_number/amount/status` = 實際的開票**紀錄**(`20260714120000:106-108`);
+--       `invoice_status` 封閉集 `('not_issued','issued','voided')`(`:117`), 語意是**我們開了沒**
+--    ③ **本欄** = 下單當下的決定:**這張單要不要開發票**。**兩層都不是。**
+--    ⚠️ 那支 migration 的註解**自己就先講過一次 ①/② 的區分**(`:105` 逐字「與既有 invoice jsonb…語意不同」)
+--       —— 而寫這一片的 plan 時我沒有回去讀它, 差一點把本欄取名 `invoice_issued`,
+--       與 `invoice_status = 'issued'` **在同一張表上撞字**。
+--       📌 **一份寫對了區分的註解, 擋不住下一個人在旁邊加第三個同名家族的東西。**
+--
+-- 🔴 欄名歸屬(**不要讀成「Sean 拍甲」, 那是兩件事**):
+--    Sean 2026-08-28 對欄名那題**沒有直接選**, 他反問「還是分成 開或者不開兩種?」
+--    ⇒ 主視窗判他問的是**語意**, 回覆「對, 而欄名取 invoice_requested」並明說「你不同意就跟我講」。
+--    ⇒ **欄名是主視窗在他反問語意而未直接選之下判的;他知情、未反對。**
+--
+-- 🔴🔴 `DEFAULT true` 的理由 —— **我寫過兩個, 兩個都被打掉了。現在這裡是第三個, 而它不是「證據」。**
+--    ⛔ ~~① 「既有的單全部都是【有開發票】的」~~ 作廢(R1)——那是**紀錄層**的詞, 而本欄是意圖層;
+--         紀錄層那欄的 default 是 `'not_issued'`(`20260714120000:108`)⇒ **照字面讀反而支持 false。**
+--    ⛔ ~~② 「orders.invoice 是 NOT NULL 且 type 限三值 ⇒ 每張舊單都帶著開票需求」~~ **也作廢**
+--         (codex R2 must-fix)—— `apps/storefront/src/components/CheckoutStep2.tsx:147-153` 逐字:
+--         發票整段**已被隱藏**(Sean 2026-08-08 拍板), 而「`invoice` state 與送出的 payload
+--         **完全不動** —— 隱藏期間值一律停在 `DEFAULT_INVOICE`(個人發票)」
+--         ⇒ 🔴 **那份 invoice JSON 是【系統塞的】, 不是客人要的。**
+--         📌 **「欄位有值」與「他要求了」是兩件事, 而在 NOT NULL 欄上它們印同一個東西。**
+--
+--    ✅ **所以現在這一格【不是從資料推出來的, 是一個決定】, 而它要被讀成決定:**
+--       既有的單**沒有這個欄位的語意** —— 這個概念在它們被建立時不存在
+--       ⇒ **任何預設值都是我們【替它們決定】的, 沒有一個是「還原事實」。**
+--       選 `true` 的理由是**業務面**(PCM 目前開發票是常態), 不是資料面。
+--    🔴🔴 **2026-08-29 存證:這一格一度被宣告為「已拍板」, 而那是假的。**
+--       當天有一封訊息寫「Sean 已回 ⇒ DEFAULT true」, 理由「他說現在其實都有開」。
+--       ⛔ **他沒有說過那句話** —— 主視窗當天自行訂正。他的逐字只有:
+--         「要不要開發票在網站(顧客站)都是要預設開發票」
+--       ⇒ 🔴 **那是【顧客站政策】, 不是【既有訂單怎麼回填】。** 中間那一句是轉述時加上去的。
+--       ⇒ 已重開為 `Q-發票既有單`, 排在 `~/pcm-mailbox/等Sean決策-20260829.md` 第一條。
+--    📌 **形狀:一個【真的拍板】被延伸成一個【沒被問過的問題的答案】** ——
+--       而延伸出來的那半, 讀起來與被拍的那半一樣有授權。
+--    🔴 **而擋住它的不是任何人的警覺, 是這行註解本身** —— 它比那封訊息早寫,
+--       而它們矛盾時, **檔案贏**。
+--    ⚠️🔴 **而【同一天稍晚, 他真的拍了】(見下一段)** —— 所以這一段要讀成:
+--       **「那次宣告是假的」與「後來他真的拍了」兩件事都成立, 而它們【不是同一件】。**
+--       ⛔ ~~原本這裡寫「下面這句永遠不要刪, 就算又有人說拍過了」~~ **作廢** ——
+--       📌 **那句話把「假的宣告」與「真的拍板」寫成同一種東西, 而它們的差別正是本段的主題。**
+--          一道為了擋假授權而立的規矩, 如果連真授權也擋, 它會在真的來的那天被整個拆掉 ——
+--          **而拆掉的人不會只拆那一句。**
+--       ✅ 正確的判別式(留著):**看他有沒有【貼回選項字面】。**
+--          08-29 稍早那次沒有(是轉述時延伸的);08-29 稍晚那次有(他貼「甲 = 全部填『要開』」)。
+--
+--    ✅ **2026-08-29 Sean 拍板:貼回選項字面「甲 = 全部填『要開』」** ——
+--       不是「依照建議」, 是他自己貼的那四個字。⇒ `DEFAULT true` 就是他要的。
+--       (落檔 memory `project_0829-eight-rulings`。)
+--    🔴 **而【拍板的理由仍然不是資料】** —— 他答的是「既有訂單要填什麼」這個問題本身,
+--       不是「資料顯示它們都有開」。⇒ **落檔時仍然不得寫成「有資料支持」。**
+--
+--    ⛔ ~~🔴 **而這一格【沒有經過 Sean】** —— 他批的是 B1 這一片, 不是這個預設值;
+--       欄名那題他反問語意時也沒有碰到它。~~ **2026-08-29 起作廢 —— 他拍了。**
+--       📌 **這句話【曾經是對的】, 而它現在是假的** ⇒ 留字劃掉, 不刪
+--          (刪掉的話, 下一個人看不出「它擋住過一次」)。
+--    ⚠️ 而兩個方向都有代價, 兩邊都寫出來:
+--       `true`  ⇒ 舊單被當成「都要開發票」—— 而其中可能有客人根本沒要求
+--       `false` ⇒ 舊單一夜之間全變成「沒開發票」, **而沒有任何東西會紅**
+ALTER TABLE public.orders ADD COLUMN invoice_requested boolean NOT NULL DEFAULT true;
+
+COMMENT ON COLUMN public.orders.invoice_requested IS
+  '這張單【要不要】開發票 —— 下單當下的決定。'
+  '🔴 與同表兩層 invoice 語意不同, 三者不可互相取代:'
+  'invoice jsonb = 客人的開票【需求】(抬頭/統編/載具);'
+  'invoice_status = 實際的開票【紀錄】(not_issued/issued/voided, 我們開了沒);'
+  '本欄 = 他要不要。'
+  '🔴 DEFAULT true 是一個【決定】, 不是從資料推出來的:既有單沒有這個欄位的語意 '
+  '⇒ 任何預設值都是替它們決定的。選 true 的理由是業務面(開發票是常態), 不是資料面。'
+  '⚠️ 不要拿 orders.invoice 是 NOT NULL 當證據 —— 結帳頁的發票段已被隱藏而 payload 仍塞 personal 預設 '
+  '(CheckoutStep2.tsx), 所以「欄位有值」不等於「客人要求了」。';
+
+-- ── 3. 🔴 換掉 orders_total_balances ──────────────────────────────────────
+-- 舊式子(`20260604120000:112`)逐字:
+--   CHECK (total = subtotal + shipping_fee - discount_total)
+-- ⇒ B2 要寫的含稅 total 會被它擋在 INSERT 那一刻 ⇒ 本片先把它換掉。
+--
+-- 🔴 **舊列全部自動成立**:`tax_total = 0` ⇒ 新式子退化成舊式子 ⇒ **這就是 B1 敢做的原因。**
+--    (R1 複核成立:四欄皆 `integer NOT NULL`、舊 CHECK 建表時就 validated
+--     ⇒ NULL / 負數 / 型別三路都封死, 不存在會失敗的既有列。)
+-- ⚠️ 而 `ADD CONSTRAINT` **會鎖表做全表驗證** ⇒ 屬「不可逆 / 大量資料」那一類(鐵則 12③)。
+ALTER TABLE public.orders DROP CONSTRAINT orders_total_balances;
+ALTER TABLE public.orders
+  ADD CONSTRAINT orders_total_balances
+  CHECK (total = subtotal + shipping_fee - discount_total + tax_total);
+
+COMMIT;
+
+-- ============================================================
+-- 交易模擬斷言清單
+-- ============================================================
+-- 🔴🔴 **套用模擬之前, 先把本檔的 `BEGIN;` 與 `COMMIT;` 兩行拿掉**(R1 MF1)。
+--    不拿掉的話:Supabase SQL Editor 會把整批包成一個交易, 而**本檔自己的 `COMMIT;` 會提交它**
+--    ⇒ DDL 永久落地、下面 ⑤ 的正對照**假單真的留在正式庫**, 最後那個 ROLLBACK 無事可回。
+--    (同 repo `20260828080000:15-16` 逐字寫過這個坑。)
+--    ⇒ 模擬的形狀:`BEGIN;` → 貼【拿掉那兩行的本檔】→ 逐條斷言 → `ROLLBACK;`
+--
+-- 🔴 本片的驗收是【任何一張單的金額都不會變】, 所以 ① 才是主體。
+--
+-- ① 套用前後, orders 全表逐列相同 —— 🔴 **雜湊與分母【兩個都要】**(R1 important 9)。
+--    🔴🔴 而基線要**存在交易裡的暫存表**, 不是「人眼記住上一次的輸出」(codex R2 must-fix:
+--       原稿只寫了查詢、沒有保存, 而「套用前那一發」在你貼完 migration 之後就只剩在畫面上)。
+--
+--    【第 0 步 · 套用 migration 之【前】就要跑】
+--      CREATE TEMP TABLE b1_baseline AS
+--        SELECT count(*) AS n,
+--               md5(string_agg(id::text||':'||total||':'||subtotal||':'||shipping_fee||':'||discount_total,
+--                              ',' ORDER BY id)) AS h
+--          FROM public.orders;
+--
+--    【套用之後】
+--      DO $$
+--      DECLARE b record; a record;
+--      BEGIN
+--        SELECT * INTO b FROM b1_baseline;
+--        SELECT count(*) AS n,
+--               md5(string_agg(id::text||':'||total||':'||subtotal||':'||shipping_fee||':'||discount_total,
+--                              ',' ORDER BY id)) AS h
+--          INTO a FROM public.orders;
+--        RAISE NOTICE '① before n=% h=% / after n=% h=%', b.n, b.h, a.n, a.h;
+--        IF b.n IS DISTINCT FROM a.n OR b.h IS DISTINCT FROM a.h THEN
+--          RAISE EXCEPTION '🔴 ① 失守:有列被動到了';
+--        END IF;
+--      END $$;
+--    ⚠️ 只比 `h` 的話:表為空 / `string_agg` 回 NULL 時**兩側都是 NULL**, 人眼會判「相同」
+--       ⇒ ① 這條驗收主體在最壞的世界裡是**恆綠的**。⇒ 所以 `n` 一定要一起印、一起比。
+--    ⚠️ 用 `IS DISTINCT FROM` 不是 `<>` —— 後者遇到 NULL 回 NULL, **而 `IF NULL THEN` 不會進去**
+--       ⇒ 兩側都 NULL 時它會安靜地通過。
+--
+-- ② SELECT count(*) FROM public.orders WHERE tax_total <> 0;                 ⇒ 必須 0
+-- ③ SELECT count(*) FROM public.orders WHERE invoice_requested IS NOT TRUE;  ⇒ 必須 0
+--
+-- 🔴🔴 **②③⑥⑦ 【不是會紅的斷言】**(2026-08-29 codex must-fix #3)——
+--    它們是 `SELECT`。**期望值不成立時, 它們照樣成功回傳, 整批照樣是綠的。**
+--    ⇒ 它們**全部依賴【操作者用眼睛讀那個數字】**。
+--    📌 **而這一片的讀者是 Sean, 他不讀 SQL** ⇒ 「請他看一下是不是 0」不是一道閘。
+--    ✅ **改法(照做, 不要只讀)**:每一條都包成會 `RAISE EXCEPTION` 的形狀, 例:
+--       DO $$ DECLARE n bigint; BEGIN
+--         SELECT count(*) INTO n FROM public.orders WHERE tax_total <> 0;
+--         IF n <> 0 THEN RAISE EXCEPTION '② 失敗: tax_total 非 0 的有 % 列', n; END IF;
+--       END $$;
+--    🔴 **不要用 ASSERT**(同 ④ 的理由:`plpgsql.check_asserts` 關得掉)。
+--    ⚠️ 而**改成會紅之後要各餵一發突變證明它真的會紅** —— 一道從沒紅過的閘, 與一道不存在的閘, 在綠色上長一樣。
+--
+-- ④ 🔴 **負對照(不可省)**:一列 total 不等於新式子的 INSERT ⇒ 必須被
+--    **`orders_total_balances`** 擋下 —— 🔴 **要斷言 constraint 名稱, 不是只看錯誤類別**(R1 MF2):
+--    `orders` 上至少還有 `orders_display_id_format`(`20260604120000:114`)、
+--    `orders_invoice_whitelist`(`:118`)、`orders_ship_addr_whitelist`(`:125`)
+--    **全都是 CHECK ⇒ 同一個 SQLSTATE 23514** ⇒ 只看類別會「綠而理由錯」。
+--
+--    🔴 **而 INSERT 要列滿六個 NOT NULL 無 default 欄**(R1 MF3;少列會因 not-null/FK 先失敗
+--       ⇒ ④ 假綠、⑤ 假紅 —— **那個更早的失敗理由會讓這一格印出「通過」**):
+--       display_id / customer_user_id / shipping_address_snapshot / tier_at_checkout
+--       / shipping_method / invoice(另加 subtotal / shipping_fee / total)
+--    ⚠️ `display_id` **手填**一個符合 `^PCM-[0-9]{4}-[0-9]{4,}$` 的假號,
+--       **不要用 `pcm_generate_display_id()`** —— `nextval` 不受 ROLLBACK 管 ⇒ 會燒號,
+--       而 ⑥ 的「零留痕」量不到那一格(R1 nit 15)。
+--    ⚠️ `customer_user_id` 要填一個**真的存在的** customers.user_id(FK), 否則同樣是更早的失敗理由。
+--
+--      DO $$
+--      DECLARE v_cust uuid; v_state text; v_con text;
+--      BEGIN
+--        SELECT user_id INTO v_cust FROM public.customers LIMIT 1;
+--        BEGIN
+--          INSERT INTO public.orders
+--            (display_id, customer_user_id, shipping_address_snapshot, tier_at_checkout,
+--             shipping_method, invoice, subtotal, shipping_fee, discount_total, tax_total, total)
+--          VALUES
+--            ('PCM-2999-9001', v_cust, '{"name":"a","phone":"b","line":"c"}'::jsonb, 'general',
+--             'home', '{"type":"personal"}'::jsonb, 100, 0, 0, 5, 100);   -- 正確值應為 105
+--          RAISE EXCEPTION 'NEG-CONTROL-DID-NOT-FIRE';
+--        EXCEPTION WHEN check_violation THEN
+--          GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_con = CONSTRAINT_NAME;
+--          RAISE NOTICE 'neg ok: state=% constraint=%', v_state, v_con;
+--          🔴 **不要用 ASSERT**(codex R2 must-fix, 推翻 R1 那一條):
+--             `plpgsql.check_asserts` 可以被設成 `off` ⇒ **ASSERT 整句被跳過**
+--             ⇒ 紅錯 constraint 的世界仍然「成功結束」。官方文件明列它可關。
+--             📌 一道可以被組態關掉的斷言, 與一道不存在的斷言, 在輸出上長一樣。
+--          🔴🔴 **下面這行有 NULL 假綠**(2026-08-29 codex must-fix #5):
+--             `CONSTRAINT_NAME` **可能是 NULL** —— trigger 或別的程式丟 SQLSTATE `23514`
+--             而沒有附 constraint 名稱時, `NULL <> '…'` 回 **NULL** ⇒ `IF` 不進去
+--             ⇒ **④ 在「紅錯地方」的世界裡安靜通過。**
+--             📌 **與上面 ① 那格是同一個病** —— 我在 ① 特別寫了「用 `IS DISTINCT FROM` 不是 `<>`」,
+--                **然後在 ④ 用了 `<>`。** 一條寫對了的規矩, 擋不住同一份檔案的下一段。
+--          ✅ 照這個寫(NULL-safe, 且 NULL 要當成失敗):
+--             IF v_con IS DISTINCT FROM 'orders_total_balances' THEN
+--               RAISE EXCEPTION '🔴 紅錯地方了: constraint=%(期望 orders_total_balances)',
+--                               COALESCE(v_con, '<NULL:沒有附 constraint 名稱>');
+--             END IF;
+--          ⛔ ~~IF v_con <> 'orders_total_balances' THEN~~  **作廢, 留字不刪。**
+--        END;
+--      END $$;
+--
+-- ⑤ **正對照**:同一份 INSERT 但 `total = 105`(= 100 + 0 - 0 + 5)⇒ **必須成功**。
+--    ⇒ 少了它, ④ 在「新 CHECK 擋掉所有東西」的世界也會通過。
+--      DO $$
+--      DECLARE v_cust uuid;
+--      BEGIN
+--        SELECT user_id INTO v_cust FROM public.customers LIMIT 1;
+--        IF v_cust IS NULL THEN RAISE EXCEPTION '🔴 前置不成立:customers 是空的, ④⑤ 都跑不了'; END IF;
+--        🔴 **假號不得已經存在**(codex R2 must-fix):正式庫若已撞號 ⇒
+--           ⑤ 會死在 `display_id` 的 UNIQUE 上(而不是我要驗的那件事),
+--           而 ⑦ 的「假單零殘留」那一格**分不出【既有的那張單】與【模擬留下的】**。
+--        IF EXISTS (SELECT 1 FROM public.orders
+--                    WHERE display_id IN ('PCM-2999-9001','PCM-2999-9002')) THEN
+--          RAISE EXCEPTION '🔴 前置不成立:PCM-2999-9001/9002 已經存在, 換兩個沒被用過的號';
+--        END IF;
+--        INSERT INTO public.orders
+--          (display_id, customer_user_id, shipping_address_snapshot, tier_at_checkout,
+--           shipping_method, invoice, subtotal, shipping_fee, discount_total, tax_total, total)
+--        VALUES
+--          ('PCM-2999-9002', v_cust, '{"name":"a","phone":"b","line":"c"}'::jsonb, 'general',
+--           'home', '{"type":"personal"}'::jsonb, 100, 0, 0, 5, 105);
+--        RAISE NOTICE '⑤ pos ok: 有稅的列插得進去';
+--      END $$;
+--    ⚠️ **前置斷言不可省**(codex R2 nit):`customers` 空表 ⇒ `v_cust` 是 NULL ⇒ FK 先失敗
+--       ⇒ ④ 會**假綠**(它以為是 CHECK 擋的)。所以 ④⑤ 都要先驗這一格。
+--    ⛔🔴 **而上面那句「會假綠」是【錯的】**(2026-08-29 codex consider #7, 我複核同意):
+--       `customer_user_id = NULL` ⇒ `not_null_violation`;客戶不存在 ⇒ `foreign_key_violation`
+--       ⇒ **兩者都不會被 `WHEN check_violation` 接住** ⇒ 它們**直接紅**, 不是假綠。
+--       📌 **我把一個【會吵的錯】寫成了【安靜的錯】** —— 而那兩種要的處置相反:
+--          安靜的錯要加閘;吵的錯只要看得懂那句話。
+--       ✅ **前置斷言仍然要跑**(空的 `customers` 會讓 ④⑤ 根本執行不到), 只是理由不是「假綠」。
+--    ⚠️ `display_id` 兩發用不同的假號(9001 / 9002), 而它們**手填**、不呼叫
+--       `pcm_generate_display_id()` —— `nextval` 不受 ROLLBACK 管 ⇒ 會燒號。
+--
+-- ⑥ 逐字驗新 CHECK 的定義, **不是驗它存在**(R1 nit 14)——
+--    🔴 而要**鎖住是哪一張表的、而且已驗證**(codex R2 must-fix):
+--      SELECT pg_catalog.pg_get_constraintdef(c.oid) AS def, c.convalidated
+--        FROM pg_catalog.pg_constraint c
+--        JOIN pg_catalog.pg_class t ON t.oid = c.conrelid
+--        JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
+--       WHERE c.conname = 'orders_total_balances'
+--         AND n.nspname = 'public' AND t.relname = 'orders';
+--    套用後:`def` 要含 `tax_total`, **而 `convalidated` 要是 `t`**;
+--    ROLLBACK 之後:回到**不含** `tax_total` 的舊式子。
+--    ⚠️ 只用 `conname` 的話:**同名但在別張表上**的 constraint 會被撈到 ⇒ 人眼判綠;
+--       而不驗 `convalidated` 的話:一條 `NOT VALID` 的 constraint 定義也長得一模一樣,
+--       **而它沒有驗證過任何一列既有資料** —— 那正是本片最想證的那件事。
+--    (前例:`20260725120000:180` 用 `pg_get_constraintdef` + `convalidated`。)
+--
+-- ⑦ ROLLBACK 之後複查(**在同一個連線、ROLLBACK 之後跑**)⇒ 三格都要 0:
+--      SELECT count(*) FROM information_schema.columns
+--       WHERE table_schema='public' AND table_name='orders'
+--         AND column_name IN ('tax_total','invoice_requested');            -- ⇒ 0
+--      SELECT count(*) FROM pg_catalog.pg_constraint c
+--        JOIN pg_catalog.pg_class t ON t.oid=c.conrelid
+--       WHERE t.relname='orders' AND c.conname='orders_tax_total_nonneg';  -- ⇒ 0
+--      SELECT count(*) FROM public.orders WHERE display_id IN ('PCM-2999-9001','PCM-2999-9002');  -- ⇒ 0
+--    ⚠️ 第三格是**假單有沒有留下**那一格 —— 前兩格全綠而它非 0, 就是 ROLLBACK 沒有生效。
+--    🔴 而它**只在你照第一行把 BEGIN;/COMMIT; 拿掉時才有意義** —— 沒拿掉的話, 那張假單已經被提交了。
+--
+-- ============================================================
+-- Rollback(Supabase forward-only, 僅供參考)
+-- ============================================================
+-- 🔴 **整段用交易包起來**(R1 MF6):逐句貼而第二句失敗 ⇒
+--    orders 會停在**「沒有任何 total 等式」**的狀態, 而畫面上不會有任何錯誤。
+--    (同 repo `20260828080000:799-807` 的 rollback 也是包起來的。)
+--
+--   BEGIN;
+--     ALTER TABLE public.orders DROP CONSTRAINT orders_total_balances;
+--     ALTER TABLE public.orders ADD CONSTRAINT orders_total_balances
+--       CHECK (total = subtotal + shipping_fee - discount_total);
+--     ALTER TABLE public.orders DROP COLUMN invoice_requested;
+--     ALTER TABLE public.orders DROP COLUMN tax_total;   -- 連帶刪掉 orders_tax_total_nonneg
+--   COMMIT;
+--
+-- 🔴 **順序:先換回舊 CHECK, 再刪欄。而理由不是原稿寫的那個**(R1 MF5 訂正):
+--    ⛔ ~~「先刪欄會留下一條引用不存在欄位的 CHECK」~~ **作廢** ——
+--       PG 文件逐字「Indexes and table constraints involving the column will be automatically dropped」
+--       ⇒ 先刪欄**不會**留下那種 CHECK。
+--    ✅ 真正的危險是相反的那一面:**先刪 `tax_total` ⇒ 新 CHECK 被【靜靜連帶刪掉】**
+--       ⇒ `orders` 進入**零金額等式守門**的狀態, 而**畫面上不會有任何錯誤**;
+--         B2 之後更會炸在有稅的列上。
+--    📌 **照錯的理由推論的人會誤判** —— 結論一樣, 而他下一次遇到別的欄會推錯。
+--    ⚠️ 上面那句 PG 行為**取自官方文件字面, 未在本機拋棄式 PG 上實測**
+--       (要量的話照 `docs/runbooks/throwaway-postgres-for-migration-verification.md`)。
+--
+-- ✅ 資料面零殘留:兩欄都是新加的、全表皆預設值 ⇒ 刪掉不影響任何既有數字。
+-- ⚠️ **而 B2 不同**:B2 一旦寫出有稅的單, 那些 `tax_total > 0` 的列**回捲不掉** ——
+--    這句要寫在 B2 的 plan **第一行**, 不是第五節。
