@@ -162,7 +162,70 @@ A mode 用既有 `docs/specs/M-1-13H-automode-protocol.md` 模板、Cowork 為�
 
 - **寫審分離:** Claude Code 寫 plan + code;Codex 審。不同模型 = 無共同盲點、比 Claude 審 Claude 對抗。
 - **Claude `code-reviewer`(階段 C)保留** 作 diff 的快速 PCM 鐵則第一道(免費先篩)、Codex 關卡2 再深審。
-- **執行紀律(硬性):** 只 main session 跑(subagent 的 `dangerouslyDisableSandbox` 被 classifier 擋、2026-05-23 實測)/ 只唯讀(skill 強制 `-s read-only` + settings.json deny `codex fix·apply·a`〔含無參數形式〕+ 跑前後 `git status --porcelain` 比對一致、審 staged 時看「有無新增變動」非「空」)/ findings 自修 ≤2 輪再 raise Sean。deny 無法精準只擋非唯讀 exec → 唯讀靠紀律 + baseline 比對、非全 hard deny。
+### 🔴 零留痕檢查(codex 唯讀審查跑完之後)
+
+⚠️ ~~舊字面「跑前後 `git status --porcelain` 比對一致」~~ **2026-08-28 作廢** ——
+八窗共用一棵樹時它量到的是「**誰在動**」不是「**codex 動了什麼**」
+(同族已記:memory `feedback_git-status-has-no-owner-column`;本節答的是它的下一題 ——
+**換成雜湊之後付出什麼代價**)。
+
+**照這個順序做,順序本身是判準的一部分:**
+```
+第 0 步  驗 codex【真的跑了】:輸出檔非空 + 含 findings 段
+         沒過 ⇒ 判「沒跑」不是「零 findings」(本檔既有那句,錨 `空輸出/單行錯誤`)
+第 1 步  `git rev-parse HEAD` 跑前跑後。**只是資訊,不得拿它作廢任何東西。**
+         (夜跑時 HEAD 幾乎必然動 ⇒「動了就作廢」= 從來不會生效)
+第 2 步  【主判準】跑前跑後兩份逐字相同:
+         git ls-files -z -- <本片 pathspec> | while IFS= read -r -d '' f; do \
+           printf '%s %s\n' "$(md5 -q "$f")" "$f"; done | sort
+         git ls-files --others -- <同一組 pathspec> | sort
+         🔴 吃 pathspec, 不是全樹
+第 3 步  `git stash list | wc -l` —— 不是判準, 是「變了就去看一眼」(共用資源, 不可歸因)
+```
+
+**量到之後做什麼**
+```
+第 2 步多出東西 ⇒ **停下回報 Sean**(Codex 異常動手), 不要自己判斷是不是無害
+第 0 步沒過     ⇒ 判「沒跑」, 重跑
+第 3 步變了     ⇒ 去看一眼, 不得據此宣告紅或綠
+```
+
+**正負對照(每次都跑)**
+```
+負對照:pathspec 內【改一個位元組】(`printf 'X' >> <檔>`)⇒ 第 2 步必須不同
+        🔴 不可用 `touch`(只動 mtime, md5 相同 ⇒ 恆等式)
+        🔴 改完【必須還原】—— 八窗共用主樹、`git add <單檔>` 帶走整支 diff
+           ⇒ 還原照 `docs/patterns/mutation-harness-restore.md`, 不自創
+正對照:拿一個你確定在清單裡的檔名比對 ⇒ 必須命中(回 0 有兩種:真的沒有 / 你打錯字)
+```
+
+🔴 **價目表(換來歸屬,換掉這四類;2026-08-28 逐項實測)**
+```
+① `chmod +x`             md5 相同(舊尺印 1 行)⇒ 新尺比舊尺瞎
+② symlink 換同內容實體檔  md5 相同(舊尺印 ` T`)⇒ 同上
+③ submodule / gitlink    `md5 -q design-reference` ⇒ `Is a directory`
+                         ⚠️ 不是少一格 —— 那一列變成【空雜湊 + 檔名】浮在最前面而 rc=0,
+                            看起來像正常的一列
+④ 新增檔粒度             `git ls-files --others -- apps/admin` ⇒ 4257 行
+                         (加 `--exclude-standard` ⇒ 2)⇒ 兩種讀法都恆紅
+                         ⇒ **本節不給判準, 明寫待解**;在有人給出可用粒度之前只當線索
+```
+⇒ **片內含 submodule、或會動權限位元/symlink ⇒ 另跑一發舊尺 `git status --porcelain -- <pathspec>` 當補充訊號。**
+📌 舊尺的失效是**假警報**,新尺的失效是**靜默漏看** ⇒ 舊尺留著當補充,不是被取代。
+
+⚠️ **偽陽是常態路徑**:codex 跑十幾分鐘,而你在那段時間本來就在改 pathspec 內的檔
+⇒ **跑 codex 期間不要動 pathspec 內的檔**(2026-08-28 隊規「交出去審就凍結」;**本檔是它目前唯一的落點**)。
+
+⚠️ **准許句**:過了這四步只能寫「codex 對【我的檔】零留痕」,**不得寫「零留痕 ✅」** —— 上面四類不在射程裡。
+
+✅ **判準來源**:Sean 2026-08-28 拍 `Q-零留痕判準 = 甲`。
+🔴 **強度**:他回一個字,讀的是主視窗端的摘要 —— **不是他讀了本節**。
+落檔字面 =「**依主視窗摘要批准**」,**不得寫成「Sean 審過本節」**;他批准的是**方向**,
+不是本節每一行做法 ⇒ 具體做法日後被推翻,**不得引用這次拍板當背書**。
+
+📎 這個坑先前已寫過兩次(本節只是把它接進 codex 那條實際會被跑的路,不是發現它):
+`docs/patterns/guard-and-instrument-traps.md`(錨 `我宣稱動過的那幾個路徑`)·
+`docs/patterns/traps-inbox/V-20260818.md`(錨 `V-4 共用樹的`)。
 - **觸發範圍(控成本):** **預設不跑 codex、例行前台 slice(form/tab/CSS/型別/docs)只走 code-reviewer。** 關卡1 = 高風險片 plan(鐵則 12 六類;2026-07-22 拍板 C);關卡2 = 鐵則 12 六類 + milestone 收尾總審。**每 slice codex 硬上限 2 輪(初審 + 1 複審)、round2 仍 FAIL raise Sean、不加輪**(2026-05-29 Sean 拍 E+B)。**成本實況(2026-05-29 校正):codex exec 是 agent 翻 repo、實測 ~0.5M–1.4M input token/次(非舊註 28k)、gpt-5.5 API key 計費約 $0.8–2/次。**
 - **`/codex-review` skill(產 packet 給人手動貼 web Codex)已非預設**(2026-07-21 拍板:鐵則 12 一律直呼 codex CLI、不產書面 Packet;僅 Sean 明確要書面 Packet 時用)。CLI 即時審(本 §8)= 現行唯一預設。
 
