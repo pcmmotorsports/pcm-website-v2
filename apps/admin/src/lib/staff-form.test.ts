@@ -211,4 +211,46 @@ describe('staff-form — #365 單值欄位恰一筆', () => {
     d.set(IS_MANAGER_FIELD, new File(['on'], 'on.txt'));
     expect(parseStaffCreateForm(d).ok).toBe(false);
   });
+
+  // ── ⟦b4-MGR0-PARSE⟧ 2026-08-28:顯式值,不是「有出現就算」──────────────
+  //
+  // 🔴 **兩側都要有測**, 而不是只測「擋掉壞的」:
+  //    太鬆 = 寫 false 卻拿到權限(本片要修的病)
+  //    過頭 = 某個【該有權限的人】送了一個我沒想到的值而被擋掉
+  //    📌 而過頭那一側的回饋路徑很弱:那個人只會看到一個錯誤訊息, 然後手動繞過去,
+  //      **我們永遠不會知道這條規則擋掉了誰。** 所以放行那半要逐個釘住現行呼叫端真的會送的值。
+
+  it('🔴 送 "false" / "off" / "" ⇒ 整份拒(不是靜默當成勾了, 也不是靜默當成沒勾)', () => {
+    // 舊行為:這三個【全部讀成 true】⇒ 一個寫著 false 的欄位會授予管理者權限。
+    for (const bad of ['false', 'off', '', '0', 'FALSE', 'no']) {
+      const d = form({ ...VALID_CREATE, [IS_MANAGER_FIELD]: bad });
+      expect(parseStaffCreateForm(d).ok, `create 放行了 is_manager=${JSON.stringify(bad)}`).toBe(false);
+      const e = form({ ...VALID_CREATE, [IS_MANAGER_FIELD]: bad });
+      expect(parseStaffProfileForm(e).ok, `profile 放行了 is_manager=${JSON.stringify(bad)}`).toBe(false);
+    }
+  });
+
+  it('🔴 而「該放行的」必須放行 —— 現行呼叫端真的會送的兩種形狀(逐支開檔量過, 不是想像)', () => {
+    // 2026-08-28 量:staff-create-form.tsx / staff-edit-row.tsx 兩個 checkbox
+    // 都【沒有 value 屬性】⇒ 瀏覽器勾了送 'on'、沒勾【整個欄位不送】。
+    // 少了這一格, 把解析寫成「一律拒」也會全綠, 而後台會變成沒有人能設管理者。
+    const checked = form({ ...VALID_CREATE, [IS_MANAGER_FIELD]: 'on' });
+    const a = parseStaffCreateForm(checked);
+    expect(a.ok && a.input.isManager, "送 'on'(勾了)被擋掉 ⇒ 沒有人設得了管理者").toBe(true);
+
+    const unchecked = form({ [STAFF_ID_FIELD]: 'staff_3', [STAFF_LABEL_FIELD]: '員工 3' });
+    const b = parseStaffCreateForm(unchecked);
+    expect(b.ok, '沒送(未勾)被擋掉 ⇒ 連改個顯示名都會失敗').toBe(true);
+    expect(b.ok && b.input.isManager).toBe(false);
+  });
+
+  it('🔴 profile 那條路也要同樣兩側(它與 create 是兩個入口,不是同一個)', () => {
+    const checked = form({ ...VALID_CREATE, [IS_MANAGER_FIELD]: 'on' });
+    const a = parseStaffProfileForm(checked);
+    expect(a.ok && a.profile.isManager).toBe(true);
+
+    const unchecked = form({ [STAFF_ID_FIELD]: 'staff_3', [STAFF_LABEL_FIELD]: '員工 3' });
+    const b = parseStaffProfileForm(unchecked);
+    expect(b.ok && b.profile.isManager).toBe(false);
+  });
 });
