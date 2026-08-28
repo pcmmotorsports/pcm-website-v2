@@ -240,8 +240,172 @@ LOOP_HEAD = re.compile(
 #    📌 **一把新尺的第一個使用者是它自己的自檢。**
 LOOP_LITERAL = re.compile(r'\bfor\s*\([^)]*\bof\s*\[[^\]]|\[[^\]]+\]\s*(?:as\s+const\s*)?\)\s*\.\s*(?:forEach|map)\s*\(')
 
-def _in_loop(body: str, pos: int) -> bool:
-    """從 pos 往回走, 找第一層【還沒關上的 {】, 看它的開頭是不是迴圈頭(且不是字面陣列)。"""
+# ── v2(2026-08-29):字面陣列【存進變數】那一族 ─────────────────────────────
+# 🔴 **來源不是我發現的, 是抽樣打出來的**:我自己抽 10 格判「真裸 6」,
+#    R3 用【另一把尺】重判 ⇒ 6 格裡有 4 格是同一個病:
+#      `const cases = [ … ]` 先存進變數, 再 `for (const c of cases)`
+#    而 v1 的字面排除【只看迴圈頭】⇒ 看不穿一個變數裡裝的是字面。
+# 🔴 **而真正的收穫是判準本身換了一層**:
+#      v1(語法層)  「斷言只活在迴圈裡嗎」
+#      v2(行為層)  「零次迭代那個世界, **不改測試檔本身**搆不搆得到」
+#                   ⇒ 跑生產衍生的東西 = 真裸;跑測試自己寫死的清單 = 誤報
+#    📌 一份寫死在測試裡的清單**永遠不會自己變空** ⇒ 它不屬於這一族。
+#    ⚠️ 它另有一個真缺陷(清單會過期、新增一軸不會被守)——
+#       那是 **stale-pin 族**, 不是零迭代族, **不要收進這裡**。
+#
+# 🔴 **選擇(明寫, 連同代價)**:宣告【全檔追】, 不限同一個 `it()` 之內。
+#    理由是量到的(🔴 **兩個比例的分母不同, R1 點名要寫清楚**):
+#      **24% = 33/135**(全分母:v1 那 135 格裡, 字面宣告在【同一格內】的)
+#      **40% = 4/10** (抽樣分母:我抽的 10 格裡, 這個病造成的誤報)
+#    ⇒ 差額住在【宣告在 `it()` 外面】那些 ⇒ 所以要全檔追。
+#    ⚠️ 檔內另有一處寫 v1 產出是「136 格」、一處寫「135 格」—— 兩個都是 v1 的量,
+#      🔴 **R2 已歸因:135 是對的、136 是錯的** —— R2 獨立重跑 v1 的 HEAD blob ⇒ **135 格 / 87 支檔**,
+#      而支檔數 87 與舊 banner 一致 ⇒ 那個 136 是當時數錯了, 不是稿變動。
+#    🔴 **另一個歸因(同族, 而成因完全不同)**:我一度量到分母 **689** 支、R2 量到 **690**。
+#      成因 = **另一個窗在我量的中途 commit 了一支新測試檔**(`cad1b37c` 06:04
+#      新增 `scripts/placeholder-copy-guard.test.ts`)⇒ **分母自己在動。**
+#      📌 **八窗共用一棵樹時, 分母是一個【時刻】的函數, 不是一個常數。**
+#    ⚠️ **代價**:兩個不同作用域用同名變數時會【過度排除】⇒ 少報。
+#       ⇒ ~~這把尺的偏誤方向是**保守**(寧可漏報, 不做假紅), 而那是刻意選的。~~
+#       🔴🔴 **撤(R4)。這句話我寫過兩次, 兩次都被實跑證偽:**
+#         R1 證偽第一次:`const rows = []` 與 `[...a,...b]` 被排除 ⇒ 漏掉的是**最確定**的那一族
+#         R4 證偽第二次:`mask()` 的白名單缺口讓判定**兩個方向都動**(見下方 `mask()` 那條)
+#       📌 **⇒ 這把尺的偏誤方向【未知, 未量】。**
+#       📌 **而值得記的不是「我寫錯了」, 是【我寫的那句話本身沒有被任何東西驗過】** ——
+#          自檢驗的是「它抓不抓得到那幾種形狀」, **沒有一格在驗「它錯的時候往哪邊錯」**。
+#          ⇒ 一個關於量具偏誤方向的宣稱, 需要它自己的量測, 而它長得像一句設計說明。
+# ⚠️ **它還會漏什麼**(選了全檔追之後仍然看不見的):
+#    · 字面經由 helper 產生 —— `const cases = mk()` 而 `mk()` 回傳字面 ⇒ 判成真裸(假紅)
+#    · ~~字面被 `.filter()` 過 ⇒ 判成真裸(假紅)~~ 🔴 **R2 撤:那不是漏, 那是對的** ——
+#      `.filter()` 回得了空 ⇒ 它【就是】真裸(論證在 `_iterable_root` 的 docstring)。
+#      📌 **同一支檔裡一處把它記成缺陷、一處記成修法** —— 而兩處都讀得通。
+#    · import 進來的常數陣列 —— 它在【生產側】⇒ 判成真裸, **而那是對的**(生產改了它會變空)
+#    · 🔴 **迴圈頭超過 200 字元 ⇒ 該格靜默不報**(`_in_loop` 的 `body[max(0,i-200):i]` 窗)
+#      R1 實跑:for-index 頭塞 336 字元 ⇒ 得 `[]`(應命中)。**v1 既有、非本次引入**,
+#      而它原本【不在這份自稱完整的盲區清單裡】—— 📌 **一份盲區清單自己的盲區, 沒有人在量。**
+#    · 🔴 **`mask()` 不遮正則字面裡的 `{`** ⇒ 那個 `{` 被當成區塊開頭, head 往回取到
+#      `gridRules.filter((r) => /(^|[;` ⇒ `LOOP_HEAD` 命中 ⇒ **假紅**。
+#      實例 `apps/admin/src/app/design-tokens.test.ts:1518`(R2 開檔核出來的:三個 `expect`
+#      其實一個都不在迴圈裡)。**v1 既有的盲區, 而它是拿掉過度排除【之後】才浮出來的** ——
+#      📌 **一個洞被另一個洞蓋著, 補了上面那個, 下面那個才第一次見光。**
+#      🔴🔴 **R4 撤掉我上面那句「偏誤方向是多報」—— 它是錯的, 而這是【第二次】。**
+#      真正的觸發不是「正則裡的 `{`」, 是 `mask()` 的 `prev_sig` 白名單**缺 `>`(`=>` 後)與識別字尾
+#      (`return` 後)**⇒ 那些位置的正則**整段沒遮**。corpus 有 **22 處**這種正則含 `{}()`/引號。
+#      R4 把白名單補上重跑 ⇒ **5 支檔判定改變, 而【兩個方向都有】**:
+#        `design-tokens.test.ts:1518` 的已知假紅**消失**(證實成因就在這裡)
+#        `site-config-wiring.test.ts:177` **從沒報變成報** —— 正則裡的 `['"`]` 起了一個假字串、
+#          把大段碼刷白 ⇒ 那一格是**靜默少報**
+#      📌 **⇒ 這把尺的偏誤方向【未知】。我宣稱過兩次(R1 一次、R4 一次), 兩次都被證偽。**
+#         **⇒ 本檔不再寫任何「它只會多報 / 只會少報」的句子。**
+#      ⇒ 本輪不動 `mask()`:改它會同時搬動兩個方向的判定, 那是另一件事、要自己的驗收。
+#
+# 🔴 **另一個【已知、已量、刻意不修】的少報(R4 must-fix #1)—— 它比上面那條確定**
+#    `_in_loop` 只看【最內層】那個 `{` ⇒ **內層跑字面的迴圈, 會把外層跑生產的迴圈整個蓋掉**
+#    ⇒ 那一格**靜默消失**。R4 開檔核出兩格真的:
+#      `apps/storefront/src/styles/brand-directory.test.ts:98`
+#         內 `for (const bare of BARE)` 字面 / 外 `for (const r of rules)`, 而 `rules` 是解析 CSS 來的
+#         ⇒ **解析出 0 條時整格全綠**
+#      `apps/storefront/src/components/brand/BrandPageCategories.test.tsx:197`
+#         內 `['<','>','&']` 字面 / 外 `BRAND_CONTENT`
+#    ⚠️ **而修法【不是】「任一層是非字面迴圈就算」** —— R4 實跑:那樣會讓
+#      `packages/domain/src/order/refund.test.ts:761` 變成**新的假紅**(它外層 `scenarios` 是測試寫死的)。
+#    📌 **⇒ 這一格要的是【設計】不是一行修改, 而我在第四輪審查上, 不在這裡發明它。**
+#    ⇒ 交給下一個人:上面兩個 `檔案:行號` 就是現成的重現。
+#
+# 🔴 **LOOP_HEAD 認不得的兩種迴圈(R4 nit, 靜默少報)**:`for await (const c of gen())` 與
+#    `do { … } while (…)` ⇒ 兩者皆不匹配 ⇒ 該格不會進分母。**本清單原本沒有它們。**
+# 🔴 **R1 抓到的四條 must-fix, 全部同一個方向:我的尺往【少報】錯。**
+#    而檔頭原本寫「保守 = 只漏報不假紅」—— **那句在下面兩格上不成立**,
+#    因為漏掉的正是【零迭代最確定】的那一族:
+#      · `const rows = []`      ⇒ 空字面, 它保證零次迭代 ⇒ **最該報的, 被我排除了**
+#      · `const x = [...a,...b]` ⇒ 展開生產陣列, 它可以是空的 ⇒ 同上
+#    ⇒ 兩處都要求【中括號裡有東西, 而且第一個字不是 `.`】—— 與 `LOOP_LITERAL` 對稱。
+#    📌 **兩道守同一件事的門, 形狀不一樣的那一刻就有一邊是錯的。**
+LITERAL_VAR = re.compile(
+    r'\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;\n]*?)?=\s*\[\s*(?!\s*\])(?!\.\.\.)[^\]\s]')
+# ~~`_ITER_OF` / `_ITER_DOT`~~ **v3 之後已無呼叫點, 已刪**(R4 nit:留著會讓下一個人以為它們還在跑)。
+# 括號內文(已經配對過)裡的 `of NAME` —— 尾端不再有 `)`
+_ITER_OF_INNER = re.compile(r'\bof\s+([A-Za-z_$][\w$]*)\s*$')
+# 呼叫左括號【前面】那一段的尾巴:必須是【裸識別字 . 方法名】, 前綴不准是 `)` `]` `.`
+_FN_KEYWORD = re.compile(r'\bfunction(\s+[A-Za-z_$][\w$]*)?\s*$')
+_RECEIVER = re.compile(
+    r'(?:^|[^\w$.)\]])([A-Za-z_$][\w$]*)\s*\??\s*\.\s*(?:forEach|map|filter|some|every|flatMap)\s*$')
+# 🔴 只認【裸識別字直接掛方法】—— 前面不准是 `)` `]` `.`(那代表它是一條鏈的結果)
+
+def _iterable_root_at(body: str, i: int):
+    """i = 那個 `{` 的位置。從它【往回配對括號】找出真正被跑的東西;抽不出來回 None。
+
+    🔴 **R3 打死了兩個 regex 版本, 而它們錯在同一件事:拿【頭附近出現過的識別字】當【被跑的那個】。**
+      v2-a `_ITER_DOT.findall` 取最後一個 ⇒ 抓到內層 callback 裡的名字
+      v2-b `LOOP_HEAD.search(h)` 判種類 ⇒ 🔴 **它回的是【最左邊】那個 match**
+           (pattern 尾巴 `[^{]*$` 會一路吃到底)⇒ for 之前先有一條 `.map(` 鏈就走錯分支
+      實錘:那一版讓 corpus 81 ⇒ 83, 而**多出來的 2 格兩格都是假紅**
+           (`brand-showcase-coverage.test.ts:143` 跑同格字面 `zeroProductBrands`;
+            `BrandPageBrandWall.test.tsx:128` 根被抽成 `BRAND_CONTENT` —— **完全不是被跑的那個**)
+      而它**同時**新開了少報的方向:`const n = zzqcases.map(x=>x).length; for (const c of prodRows)`
+      ⇒ 抽到 `zzqcases` ⇒ 排除掉。📌 **一個「修正」可以在兩個方向同時變差, 而總數只動了 2。**
+    ⇒ 正解不是換一個 regex, 是**不用 regex 找位置**:從 `{` 往回配對, 拿到真正的那一組括號。
+    """
+    j = i - 1
+    while j >= 0 and body[j].isspace():
+        j -= 1
+    if j >= 0 and body[j] == ')':
+        # `for (…) {` / `while (…) {` —— 往回配對到它自己的 `(`
+        d, k = 0, j
+        while k >= 0:
+            if body[k] == ')':
+                d += 1
+            elif body[k] == '(':
+                d -= 1
+                if d == 0:
+                    break
+            k -= 1
+        if k < 0:
+            return None
+        kw = re.search(r'([A-Za-z_$][\w$]*)\s*$', body[:k])
+        name = kw.group(1) if kw else ''
+        if name in ('for', 'while'):
+            m = _ITER_OF_INNER.search(body[k + 1:j].rstrip())
+            return (True, m.group(1) if m else None)
+        if not _FN_KEYWORD.search(body[:k]):
+            # 🔴 **R4 must-fix**:`if (…) {` / `switch (…) {` / `catch (…) {` 也是「`{` 前面是 `)`」。
+            #    ~~舊碼回 None~~ ⇒ 上層讀成「這是迴圈, 只是抽不出根」⇒ **不排除 ⇒ 假紅**。
+            #    實錘構造:`const n = rows.map(f).length; if (n) { expect(n).toBe(1); }`
+            #    ⇒ `LOOP_HEAD` 咬到那條 `.map(` 鏈 ⇒ 整格被報成零迭代格, **而它根本不是迴圈**。
+            #    📌 **「不是迴圈」與「是迴圈但抽不出根」用同一個回傳值 ⇒ 上層分不出來。**
+            #    ⚠️ 而它**全 corpus 零命中** —— 潛伏的洞不會叫, 是 R4 構造出來的。
+            return (False, None)
+        # `function (p) {` 的 `(` 是【參數列】不是呼叫 ⇒ 落到下面往外再找一層
+        k -= 1
+    else:
+        k = i - 1
+    # callback(`… => {` 或 `function (…) {`)—— 往回找【還沒關上的 `(`】= 那個呼叫的左括號
+    while True:
+        d = 0
+        while k >= 0:
+            c = body[k]
+            if c == ')':
+                d += 1
+            elif c == '(':
+                if d == 0:
+                    break
+                d -= 1
+            k -= 1
+        if k < 0:
+            return (True, None)
+        m = _RECEIVER.search(body[:k])
+        if m:
+            return (True, m.group(1))
+        if _FN_KEYWORD.search(body[:k]):
+            # 🔴 **R4 must-fix**:`zzqcases.forEach(function (p) { … })` —— 舊碼從 `{` 往回只找到
+            #    `function (p)` 那組括號就停了 ⇒ 抽不到 receiver ⇒ **字面變數的排除被 `function` 繞過**。
+            #    📌 **箭頭函式與 function 關鍵字在【行為上】一模一樣, 而在【括號結構上】差一層。**
+            k -= 1
+            continue
+        return (True, None)
+
+def _in_loop(body: str, pos: int, litvars=frozenset()) -> bool:
+    """從 pos 往回走, 找第一層【還沒關上的 {】, 看它的開頭是不是迴圈頭(且跑的不是字面)。"""
     d = 0; i = pos
     while i > 0:
         i -= 1; c = body[i]
@@ -249,24 +413,32 @@ def _in_loop(body: str, pos: int) -> bool:
         elif c == '{':
             if d == 0:
                 head = body[max(0, i - 200):i]
-                if LOOP_HEAD.search(head):
-                    return not LOOP_LITERAL.search(head)
-                return False
+                if not LOOP_HEAD.search(head):
+                    return False
+                if LOOP_LITERAL.search(head):
+                    return False
+                is_loop, root = _iterable_root_at(body, i)
+                return is_loop and root not in litvars
             d -= 1
     return False
 
 def loop_only_cells(src: str):
     """格內至少一個 expect, 而【全部】都在(非字面的)迴圈裡 ⇒ 回傳那些格的行號。"""
     m = mask(src); out = []
+    litvars = frozenset(LITERAL_VAR.findall(m))          # 🔴 全檔, 不限本格
     for a, b in cells(m):
         body = body_of(m[a:b])
         hits = [x.start() for x in re.finditer(r'\bexpect\s*\(', body)]
-        if hits and all(_in_loop(body, h) for h in hits):
+        if hits and all(_in_loop(body, h, litvars) for h in hits):
             out.append(m.count('\n', 0, a) + 1)
     return out
 
 # 🔴 自檢:九種形狀 + 兩個【不該命中】的。一把沒有自檢的尺, 與一把壞掉的尺印一樣的東西。
 LOOP_WORLD = """import {it,expect} from 'vitest';
+import { ZZQ_FROM_PROD } from './prod';
+const zzqcases = [1, 2];
+const zzqempty = [];
+const zzqspread = [...zzqa, ...zzqb];
 describe('d',()=>{
   it('A for-of',()=>{ for (const p of r) { expect(p).toBe(1); } });
   it('B for-index',()=>{ for (let i=1;i<r.length;i++) { expect(r[i]).toBe(1); } });
@@ -279,17 +451,66 @@ describe('d',()=>{
   it('I 不該命中:迴圈外也有斷言',()=>{ expect(r).toHaveLength(3); for (const p of r) { expect(p).toBe(1); } });
   it('J 不該命中:根本沒有迴圈',()=>{ expect(r).toBe(1); });
   it('K 不該命中:跑的是字面陣列',()=>{ for (const m of ['a','b']) { expect(m).toBe(1); } });
+  it('L 不該命中:字面陣列存進變數(v2 補的那一族)',()=>{ for (const c of zzqcases) { expect(c).toBe(1); } });
+  it('M 不該命中:字面變數 forEach',()=>{ zzqcases.forEach((c)=>{ expect(c).toBe(1); }); });
+  it('N 該命中:跑的是生產函式回傳(負對照 —— 它與 L 只差【誰產的】)',()=>{ for (const c of zzqbuild(1)) { expect(c).toBe(1); } });
+  it('O 該命中:跑的是 import 進來的常數(生產側會變空)',()=>{ for (const c of ZZQ_FROM_PROD) { expect(c).toBe(1); } });
+  it('P 該命中:空字面陣列(R1 must-fix —— 它保證零迭代, 最該報)',()=>{ for (const c of zzqempty) { expect(c).toBe(1); } });
+  it('Q 該命中:展開生產陣列(R1 must-fix —— 展開的結果可以是空的)',()=>{ for (const c of zzqspread) { expect(c).toBe(1); } });
+  it('R 該命中:字面被 filter 過(R1 must-fix —— filter 回得了空)',()=>{ for (const c of zzqcases.filter(f)) { expect(c).toBe(1); } });
+  it('S 該命中:鏈的結果 forEach(R1 must-fix —— 舊碼抽到內層 callback 的 zzqcases)',()=>{ zzqprod.filter((x)=>zzqcases.some((c)=>c===x)).forEach((p)=>{ expect(p).toBe(1); }); });
+  it('T 不該命中:for 之前先有一條 .map 鏈, 而跑的是字面(R3 —— 前一版在這裡假紅)',()=>{ const q = zzqcases.map((x)=>x); for (const c of zzqcases) { expect(c).toBe(q.length); } });
+  it('U 該命中:for 之前先有一條 .map 鏈, 而跑的是生產(R3 —— 前一版在這裡少報)',()=>{ const n = zzqcases.map((x)=>x).length; for (const c of zzqprod) { expect(c).toBe(n); } });
+  it('V 不該命中:根本不是迴圈是 if(R4 —— 前一版被 LOOP_HEAD 咬到 .map 鏈而假紅)',()=>{ const n = zzqprod.map((x)=>x).length; if (n) { expect(n).toBe(1); } });
+  it('W 不該命中:function 回呼跑字面(R4 —— 前一版被 function 那層括號繞過)',()=>{ zzqcases.forEach(function (p) { expect(p).toBe(1); }); });
+  it('X 該命中:function 回呼跑生產(W 的對照 —— 只差【誰產的】)',()=>{ zzqprod.forEach(function (p) { expect(p).toBe(1); }); });
 });
 """
 
+def _want_loop():
+    """期望值【從世界裡的標籤推】, 不手維護 —— 手維護的清單在加一格時會安靜地爛掉。"""
+    return [i for i, ln in enumerate(LOOP_WORLD.split('\n'), 1)
+            if "it('" in ln and '不該命中' not in ln]
+
 def selftest_loop(verbose=True):
     got = loop_only_cells(LOOP_WORLD)
-    want = [3, 4, 5, 6, 7, 8, 9, 10]        # A-H 命中 · I/J/K 不得命中
+    want = _want_loop()
     ok = got == want
     if verbose:
         print('  Ⓓ 偵測器自檢:期望 %s · 實得 %s ⇒ %s' % (want, got, 'PASS' if ok else '🔴 FAIL'))
         if not ok:
-            print('  🔴 I/J/K 是負對照(迴圈外有斷言 / 沒有迴圈 / 跑字面陣列)—— 它們命中就是尺太寬')
+            print('  🔴 標【不該命中】的是負對照 —— 它們命中 = 尺太寬')
+            print('  🔴 而 N/O 是【反向負對照】—— 它們不命中 = 尺被 v2 的排除吃掉太多')
+    return ok
+
+def selftest_loop_directions(verbose=True):
+    """🔴 **兩發方向探針** —— 證的不是「排除會叫」, 是【排除會停】。
+
+    R1 點名:這兩發原本只活在 commit body 裡 ⇒ **下一次改寫就沒了**。
+    📌 **單方向的負對照只證明它會叫, 不證明它會停** —— 而一個恆真的排除也會叫。
+    """
+    # 🔴 **期望值【從世界推】, 不手寫** —— 上一版寫死 `== 2` / `== 1`, 而我一加兩格它就紅了。
+    #    📌 **那正是本檔自己剛立的那條:手維護的期望值在加一格時會爛。**
+    #       而它這次是**大聲**爛的(紅)—— 下一次可能是安靜的。
+    lines = LOOP_WORLD.split('\n')
+    exp1 = {i for i, l in enumerate(lines, 1)
+            if "it('" in l and '不該命中' in l and 'zzqcases' in l}   # 靠 zzqcases 被排除的那些
+    exp2 = {i for i, l in enumerate(lines, 1) if "it('N " in l}        # 只有 N 該消失
+    base = set(loop_only_cells(LOOP_WORLD))
+    # ① 拿掉那個字面宣告 ⇒ 靠它被排除的格必須【全部變成命中】(否則排除與宣告無關 = 恆真)
+    w1 = LOOP_WORLD.replace('const zzqcases = [1, 2];', 'const zzqcases = zzqmake();')
+    got1 = set(loop_only_cells(w1)) - base
+    # ② 把 N 的來源從生產函式換成字面變數 ⇒ N 必須【消失】, 而【只有 N】(否則排除沒在看來源)
+    w2 = LOOP_WORLD.replace('for (const c of zzqbuild(1))', 'for (const c of zzqcases)')
+    got2 = base - set(loop_only_cells(w2))
+    ok = (got1 == exp1) and (got2 == exp2) and bool(exp1) and bool(exp2)
+    if verbose:
+        print('  方向① 拿掉字面宣告 ⇒ 期望 %s · 實得 %s ⇒ %s'
+              % (sorted(exp1), sorted(got1), 'ok' if got1 == exp1 else '🔴'))
+        print('  方向② 換成字面來源 ⇒ 期望 %s · 實得 %s ⇒ %s'
+              % (sorted(exp2), sorted(got2), 'ok' if got2 == exp2 else '🔴'))
+        if not exp1 or not exp2:
+            print('  🔴 期望集合是空的 ⇒ 那個相等【恆真】, 探針已失效')
     return ok
 
 def naked_cells(src: str):
@@ -650,6 +871,9 @@ if __name__ == '__main__':
     print('=== Ⓓ 偵測器自檢(九種形狀 + 三個負對照)===')
     if not selftest_loop():
         print('🔴 Ⓓ 自檢沒過 ⇒ 本次結果作廢'); sys.exit(1)
+    print('=== Ⓓ 排除的【兩個方向】(單方向只證明它會叫, 不證明它會停)===')
+    if not selftest_loop_directions():
+        print('🔴 Ⓓ 排除不是雙向的 ⇒ 本次結果作廢'); sys.exit(1)
     print('=== 自檢的自檢(對自檢打兩發突變, 它【必須】紅)===')
     if not selfcheck_of_selfcheck():
         print('🔴 自檢自己沒有判別力 ⇒ 本次結果作廢'); sys.exit(1)
@@ -664,22 +888,45 @@ if __name__ == '__main__':
     print('=== 🔴 Ⓒ 本尺只認【expect 型】的錨:`if (…) throw new Error(…)` 這種擲錯型守門看不見 ===')
     print('=== 🔴 Ⓓ `for (const x of xs) expect(x)…`:空集合零次迭代 ⇒ 零斷言 ⇒ 綠(少報)===')
     print('===    2026-08-29 起【另列】(見下方 Ⓓ 那一節)—— 🔴 **不是修好, 是縮窄** ===')
-    print('===    縮窄的量:全分母 689 支上, 新列出 136 格 / 87 支檔(其中 97 格本來就被判為裸格)===')
+    # 🔴 **R1 must-fix(鐵則 11 字面 vs 事實)**:這一行原本寫死「136 格 / 87 支檔」,
+    #    而那是 2026-08-28 v1 的產出 —— **改完尺之後它就是死數, 而印它的是工具自己。**
+    #    📌 **一個由工具印出來的過期數字, 比寫在文件裡的更危險 —— 讀的人以為那是這一次量到的。**
+    #    ⇒ 不寫死。要現值就跑那行命令, **讓它自己印**。
+    print('===    縮窄了多少 ⇒ 不寫死, 而是【本次執行的最後一行】當場印(見輸出結尾的 Ⓓ 合計)===')
     print('===    🔴 而它仍然看不見:①`if (…) expect(…)`(刻意不收:空世界是「條件不成立」, 收了會假紅)===')
     print('===    ②抽成具名 helper 的迴圈 ③字面陣列以外「不可能為空」的來源(它會誤報那些)===')
     print('===    (同一件事寫成 `every(...).toBe(true)` 本尺抓得到 ⇒ **同病兩種寫法, 只認一種**)===')
     print('===    (它與Ⓐ不同:Ⓐ 的錨是 expect 只是不在這格;Ⓒ 的錨根本不長那個樣子, --matchers 也接不到)===')
     print('=== ⇒ 每一筆命中都要開檔核。本尺【不宣稱】不少報。 ===')
-    tot = tu = tmix = 0
+    # 🔴 **R3 nit**:重複路徑會讓合計與事實不符(實跑同一支檔餵兩次 ⇒ 印「8 格 / 2 支檔」
+    #    而事實是 4 格 / 1 支)。📌 **那個數字是當場算的, 而它算的是【我餵了幾條】不是【有幾支檔】。**
+    seen = set(); args = [f for f in args if not (f in seen or seen.add(f))]
+    tot = tu = tmix = td = tdf = 0
+    dmix = 0
     for f in args:
         src = io.open(f, encoding='utf-8').read()
         n, u = naked_cells(src)
         mix = cells_with_unknown(src)
+        d = loop_only_cells(src)                      # 🔴 R2 must-fix:本行以前【不存在】
         tot += len(n); tu += len(u); tmix += len(set(n) & set(mix))
+        td += len(d); tdf += (1 if d else 0); dmix += len(set(d) & set(n))
         if n: print(f"{len(n):3d}  {f}  {[str(x) for x in n]}")
         if u: print(f"  ?  {f}  只有 unknown 斷言的格:{[str(x) for x in u]}")
+        if d: print(f"  Ⓓ  {f}  零迭代就綠的格:{[str(x) for x in d]}")
     # 🔴 合計拆兩個數(R2 nit):一個「裸」如果格內【還有 unknown 斷言】,
     #    那個裸是**靠「unknown 不算 pos」撐出來的** —— 它的信心度與「格內只有負向」不同。
     #    合成一個數字的話, 兩種信心度混在同一格而讀的人分不出來。
     print(f'=== 裸格合計 {tot}(其中 {tmix} 格【格內還有 unknown】⇒ 信心度較低)'
           f' · 只有 unknown 的格 {tu} ===')
+    # 🔴🔴 **R2 must-fix ——【這一段以前根本不存在】**
+    #    `loop_only_cells()` 在本檔寫好了、有自檢、有雙向負對照, 而它**從來沒有被掃檔迴圈呼叫過**
+    #    ⇒ Ⓓ 那一族的數字**從來沒有被這支工具印出來過**, 只活在人手動 import 它的時候。
+    #    🔴 而 R1 那一輪我「修好」的方式是:把 banner 的死數換成一行【叫人自己跑】的命令 ——
+    #      而那行命令 `| grep -c Ⓓ` 當時會印 **6**, 那 6 行全是 banner 與自檢自己的輸出, **零筆是格**。
+    #    📌 **⇒ 我把「一個過期的真數字」換成了「一個當場算出來的假數字」** ——
+    #       而後者更糟:**它長得像剛量的**, 正是那行註解自己要防的形狀。
+    #    ⇒ 真正的修法不是改那行字, 是**把尺接上**。
+    # 🔴 **R3 nit**:舊 banner 有「其中 N 格本來就被判為裸格」而新的漏了 ⇒ 讀的人會把兩個合計相加。
+    print(f'=== Ⓓ 零迭代就綠的格 {td} 格 / {tdf} 支檔(分母 {len(args)} 支去重後)'
+          f' · 其中 {dmix} 格【本來就在上面的裸格合計裡】⇒ 🔴 兩個數不可以相加 ===')
+    print('===    🔴 這個數是【本次執行當場算的】, 不是寫死的 ===')
