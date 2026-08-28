@@ -72,6 +72,11 @@ describe('#347-2b 守門 1:cookie 壞值一律當作沒搜尋', () => {
     expect(readOrderKeywordCookie('%E0%A4%A')).toBeNull();
   });
 
+  // 🔴🔴 **刪我之前先看 `:70` 與 `:83`(壞編碼 → null / 空字串 → null)。**
+  //    那兩格【整格都是負向斷言】⇒ 在「`readOrderKeywordCookie` 永遠回 null」那個世界它們印綠。
+  //    它們的判別力**整個靠這一格的正向對照**(`atLimit ⇒ toBe(atLimit)`)——
+  //    這一格一走,那兩格會**安靜地**變成恆綠,而不會有任何東西紅。
+  //    (2026-08-28 突變實測;當時刻意不在那兩格各抄一份正對照 —— 副本會漂。)
   it('🔴 超長值 → null(剛好越界,不自己猜數字)', () => {
     const tooLong = 'a'.repeat(MAX_ORDER_KEYWORD_LENGTH + 1);
     expect(readOrderKeywordCookie(encodeOrderKeywordCookie(tooLong))).toBeNull();
@@ -247,6 +252,13 @@ describe('#347-2b 守門 3:搜尋狀態必須看得見、關得掉', () => {
 
   it('沒搜尋詞 → 不顯示 chip(不要在沒搜的時候掛一個空殼)', async () => {
     const { container } = await renderSearch(null);
+    // 🔴 **分母守門(2026-08-28 量到這一格是恆綠的)**:整支元件空渲染時 `textContent` = `''`
+    //    ⇒ 兩條 `not.toContain` 恆真 ⇒「沒掛空殼」與「搜尋框整個不見了」印同一個綠。
+    //    釘的是**搜尋框本身還在**(沒搜尋詞時它仍該出現),不是任何一句文案。
+    expect(
+      container.querySelector('input[type="search"], input[name]'),
+      '連搜尋框都沒渲染 ⇒ 下面兩條恆真',
+    ).not.toBeNull();
     expect(container.textContent).not.toContain('目前搜尋');
     expect(container.textContent).not.toContain('清除搜尋');
   });
@@ -375,6 +387,14 @@ describe('#347-2b 守門 4:搜尋詞真的進查詢、而且**翻頁帶得走、
 
   it('keywordTruncated=false ⇒ 不出現截斷提示(正向對照,證明上一格不是恆真)', async () => {
     const { container } = await renderPage({ keywordTruncated: false });
+    // 🔴 **分母守門(2026-08-28 量到這一格是恆綠的)**:整頁空渲染時 `textContent` = `''`
+    //    ⇒「沒有截斷提示」與「整頁沒渲染」印同一個綠。
+    //    ⚠️ 這一格的標題自稱「正向對照,證明上一格不是恆真」——
+    //       **而它自己就是恆真的**:一個對照組如果在兩個世界印同一個東西,它沒有在對照。
+    expect(
+      container.querySelectorAll('h1, h2').length,
+      '整頁一個標題節點都沒有 ⇒ 訂單列表頁根本沒渲染 ⇒ 本格恆真',
+    ).toBeGreaterThan(0);
     expect(container.textContent).not.toContain('超過 100 筆');
   });
 });

@@ -88,7 +88,18 @@ const ONE_ORDER = {
 
 async function renderPage(params: Record<string, string | string[] | undefined>) {
   const ui = await OrdersPage({ searchParams: Promise.resolve(params) });
-  return render(ui);
+  const result = render(ui);
+  // 🔴 **分母守門(2026-08-28 量到本檔有 4 格是恆綠的)**:本檔多數斷言的形狀是
+  //    「`container.textContent` 裡**不得**出現某句話」/「某個節點是 `null`」——
+  //    而整頁沒渲染時 `textContent` = `''`、任何 `querySelector` 都是 `null`
+  //    ⇒ **「頁面正確地沒顯示那句提示」與「頁面整個沒出來」印同一個綠。**
+  //    放在共用的 render helper 裡:一道蓋住全檔,新加的格自動有分母。
+  //    釘**標題節點的數量**(結構),不釘任何一句文案 —— 文案改字不該讓這裡紅。
+  expect(
+    result.container.querySelectorAll('h1, h2').length,
+    '整頁一個標題節點都沒有 ⇒ 訂單列表頁根本沒渲染 ⇒ 本格的負向斷言恆真',
+  ).toBeGreaterThan(0);
+  return result;
 }
 
 // ── #347-B(Sean 拍板 Q-347-B1=B / Q-347-B5=C):本檔原本整支在測 A10c2 供應商單號的

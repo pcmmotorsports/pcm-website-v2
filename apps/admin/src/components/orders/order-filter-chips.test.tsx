@@ -84,6 +84,10 @@ describe('#484 B-1 — 快速篩選 chip', () => {
   //    少了這一格,「未到貨」在任何有值的狀態下亮起來都不會被抓到。
   it('🔴 篩單一值(例如已出貨)⇒ 兩顆都不亮', () => {
     const { container } = renderChips({ goodsAxes: ['shipped'] });
+    // 🔴 **分母守門(2026-08-28 量到這一格是恆綠的)**:`for...of` 走空集合時整個迴圈不執行
+    //    ⇒ 「兩顆都不亮」與「一顆都沒渲染」印同一個綠。實測:元件空渲染 ⇒ 本格照樣過。
+    //    用**數量**不用文案:chip 改名不該讓這格紅(那是另一個方向的過頭)。
+    expect(chips(container).length, '一顆 chip 都沒渲染 ⇒ 下面那個迴圈不會執行 ⇒ 本格恆真').toBeGreaterThan(0);
     for (const a of chips(container)) expect(a.getAttribute('aria-current')).toBeNull();
   });
 
@@ -102,6 +106,11 @@ describe('#484 B-1 — 快速篩選 chip', () => {
   //    `'use client'` 一旦混進來,整排就會變成 client bundle 的一部分,而那是安靜的。
   it("🔴 元件檔不得有 'use client'", () => {
     const src = readFileSync(join(__dirname, 'order-filter-chips.tsx'), 'utf8');
+    // 🔴 **分母守門**:`not.toContain` 對空字串恆真 ⇒ 讀到空內容(檔被改名/清空)也會綠。
+    //    釘的是**結構**(元件的 export 還在),不是任何一句文案。
+    expect(src, '讀到的內容裡連元件本身都不在 ⇒ 下面那條什麼都沒證明').toContain(
+      'export function OrderFilterChips',
+    );
     expect(src).not.toContain("'use client'");
   });
 });
@@ -231,10 +240,15 @@ describe('#484 B-1 — `.fchip` 樣式逐字對 OD', () => {
   //    當場紅,因為**我自己的註解裡就有這個字**(解釋為什麼不用它)。
   //    「解釋為什麼不做 X」與「做了 X」在純字串掃描下長得一樣,這是本檔的第一個實例。
   it('🔴 不得留下綁 aria-pressed 的選擇器(掃選擇器,不掃註解)', () => {
+    // 🔴 **分母守門**:`walkRules` 走 0 條規則時 `bad` 必為 `[]` ⇒ CSS 沒讀到也會綠。
+    //    實測(2026-08-28):把 `CSS` 換成空字串 ⇒ 本格照樣過。
+    let seen = 0;
     const bad: string[] = [];
     ROOT.walkRules((rule) => {
+      seen += 1;
       if (rule.selector.includes('aria-pressed')) bad.push(norm(rule.selector));
     });
+    expect(seen, 'globals.css 一條規則都沒走到 ⇒ 下面那條恆真').toBeGreaterThan(0);
     expect(bad, 'CSS 裡有選擇器綁 aria-pressed ⇒ 對我們的 <a> 永遠不會命中').toEqual([]);
   });
 });
@@ -256,6 +270,9 @@ describe('#484 B-1 — filter → 篩選列的映射不得折平(原始碼掃描
   });
 
   it('🔴 不得對 goodsAxes 取單值或切片', () => {
+    // 🔴 **分母守門**:兩條 `not.toMatch` 的主詞都是 `goodsAxes` ——
+    //    那個字整個從檔裡消失(改名/檔讀空)時,兩條都會過而**映射早就壞了**。
+    expect(SRC, '讀到的內容裡沒有 goodsAxes ⇒ 下面兩條恆真').toContain('goodsAxes');
     expect(SRC).not.toMatch(/goodsAxes\?*\.\[0\]/);
     expect(SRC).not.toMatch(/goodsAxes\?*\.slice\(/);
   });
@@ -613,6 +630,13 @@ describe('`#742` — chip 與密度鈕都要把開著的面板帶著走', () => 
     //       **鈕沒了 ⇒ 那個風險消失 ⇒ 這一格改成守【鈕真的沒了】。**
     //    🔴 為什麼不是整格刪掉:刪掉的話「有人把密度鈕加回來、而且忘了帶 panel」
     //       **不會有任何東西紅** —— 那正是這一格原本存在的理由。
+    // 🔴 **分母守門(2026-08-28 量到這一格是恆綠的)**:整支 `OrderToolbar` 空渲染時
+    //    `densityHrefs` 也是 `[]` ⇒ 「密度鈕沒了」與「整條工具列沒了」印同一個綠。
+    //    釘**任一連結存在**(分頁鈕),不釘任何文案。
+    expect(
+      [...html.matchAll(/href="/g)].length,
+      '整條工具列一個連結都沒有 ⇒ 工具列根本沒渲染 ⇒ 下面那條恆真',
+    ).toBeGreaterThan(0);
     const densityHrefs = [...html.matchAll(/href="([^"]*den=[^"]*)"/g)].map((m) => m[1] ?? '');
     expect(
       densityHrefs,

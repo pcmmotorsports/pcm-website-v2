@@ -210,6 +210,10 @@ describe('D4 驗收② 部分那支沒有任何能變成 full 的控制項', () 
     const values = Array.from(
       container.querySelectorAll('input, select, option, textarea, button'),
     ).map((el) => el.getAttribute('value'));
+    // 🔴 **分母守門(2026-08-28 量到這一格是恆綠的)**:兩支元件空渲染時 `values` = `[]`
+    //    ⇒ `not.toContain` 恆真 ⇒「沒有 full」與「一個控制項都沒渲染」印同一個綠。
+    //    數的是**控制項數量**,不是任何一個 value 的字面。
+    expect(values.length, '一個控制項都沒渲染 ⇒ 下面那條恆真').toBeGreaterThan(0);
     expect(values).not.toContain('full');
   });
 });
@@ -323,6 +327,11 @@ describe('D4 驗收⑥ token 每次 render 都是新鑄的一顆合法 uuid', ()
     const stripComments = (s: string) =>
       s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     const code = stripComments(readFileSync(join(__dirname, 'cancel-order-forms.tsx'), 'utf8'));
+    // 🔴 **分母守門**:剝完註解如果是空的(檔改名/清空/剝過頭),下面整套掃描恆真。
+    //    實測(2026-08-28):把 `code` 換成空字串 ⇒ 本檔 41 格【全過】。
+    expect(code, '剝完註解的內容裡連元件都不在 ⇒ 下面的掃描什麼都沒證明').toContain(
+      'export function PartialCancelForm',
+    );
     expect(code).not.toMatch(/\bcache\b/i);
     expect(code).not.toMatch(/next\/cache/);
   });
@@ -367,6 +376,20 @@ describe('D4 品項欄的形狀與過濾(片C:邏輯搬到 PartialCancelItemCont
         ]}
       />,
     );
+    // 🔴 **這一格是 fail-closed(斷言「不該出現」)⇒ 元件整支壞掉時它照樣綠。**
+    //    2026-08-28 實測:`PartialCancelForm` 空渲染 ⇒ 本格過。
+    //    ⇒ 分母不能放在同一次渲染裡(那次本來就該是空的),要放在**同一支元件的正對照**:
+    //      餵一筆勾得動的品項,它必須畫得出 `<form>` ——
+    //      證明「上面那次的 null 是它判出來的,不是它壞了」。
+    const ok = render(
+      <PartialCancelForm
+        returnTo={RETURN_TO}
+        orderId={ORDER_ID}
+        items={[itemView({ orderItemId: ITEM_A, maxCancellable: 3 })]}
+      />,
+    ).container;
+    expect(ok.querySelector('form'), '連勾得動的情況都畫不出表單 ⇒ 元件壞了, 上面那個 null 不算數').not.toBeNull();
+
     expect(container.querySelector('form')).toBeNull();
     expect(container.querySelector('button[type="submit"]')).toBeNull();
   });
@@ -500,6 +523,12 @@ describe('A13b E1 ①挑數量', () => {
 
   it('🔴 可取消量 === 1 ⇒ **沒有**數量欄(不是渲染一個永遠填 1 的欄位)', () => {
     const { container } = renderPartialWithItem(itemView({ maxCancellable: 1 }));
+    // 🔴 **分母守門(2026-08-28 量到這一格是恆綠的)**:品項控制項整支空渲染時
+    //    數量欄當然也是 `null` ⇒「沒有數量欄」與「連 checkbox 都沒有」印同一個綠。
+    expect(
+      container.querySelector('input[name="cancel_item"]'),
+      '連 checkbox 都沒渲染 ⇒ 下面那條恆真',
+    ).not.toBeNull();
     expect(
       container.querySelector(`input[name="${cancelItemQtyField(itemView().orderItemId)}"]`),
     ).toBeNull();
@@ -748,6 +777,9 @@ describe('#363 token 守門:機制層接手 import 面,本層改守 **inline 產
       'utf8',
     );
     const code = clientSafe.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    // 🔴 **分母守門**:讀空(或剝過頭)⇒ 下面那條 `not.toMatch` 恆真。
+    //    釘該檔一定有的**結構**(它是一包常數 export),不釘任何一個常數名。
+    expect(code, 'client-safe 檔讀起來是空的 ⇒ 下面那條什麼都沒證明').toContain('export const');
     // ⚠️ 剝註解是**必要**的:該檔的註解**刻意**提到 `cancel-request-token`(指路用)⇒
     //    不剝的話這條恆紅,而且是紅在正確的字面上 = 最難查的那種假紅。
     expect(code, 'client-safe 檔不得碰產生器模組(會把 server-only 拉回 client 圖)').not.toMatch(
