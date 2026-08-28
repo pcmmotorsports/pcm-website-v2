@@ -2825,6 +2825,7 @@ memory 實錘:pg_catalog.coalesce(...) 根本不存在, 而 migration 套用成�
   不 CREATE OR REPLACE 既有函式 · 不 DROP 任何東西
 驗收(對片1 自己那支跑):
   grep -cE "^[[:space:]]*(ALTER TABLE|DROP |TRUNCATE )" <本片migration>  ⇒ 0
+ 🔧 **現值 2(2026-08-28 09:44 當場量)** —— 🔴 **不是過期,是期望與設計互相矛盾**:那兩行是本片必要的 `ALTER TABLE … ENABLE ROW LEVEL SECURITY` 與 `… OWNER TO postgres`;這條量法寫在草稿還不存在的時候,**而沒有人跑過它**
   🔴 正對照:同尺對 20260801140000_…_s1a_suppliers.sql ⇒ 應 > 0
      沒有正對照的話,「0」與「尺打錯字」印同一個數。
 ```
@@ -3609,6 +3610,7 @@ R2-5 WHERE 漏版本條件 ⇒ 鎖列之後比 updated_at:
 ```
 成因:我把負對照那一行【寫進了這個檔】⇒ 那把尺現在撈得到【它自己的紀錄】
 ⇒ 重跑 grep -c "Q-檢視-zz" <本檔> ⇒ **1**(命中的就是上面那一行)
+ 🔧 **現值 2(2026-08-28 09:44 當場量)** —— 我把這件事又寫了一次 ⇒ **這把尺會隨著我談論它而繼續長**
 📌 ⇒ **一把尺被寫進它要量的那份材料裡, 它就開始量到自己。**
 🔴 而危險的不是這一格(負對照回 1 很顯眼)—— 是【正尺】那一半:
    我若在本檔寫下「Q-檢視-14 這個編號還沒有人用」, 那句話本身
@@ -4027,6 +4029,7 @@ Q-檢視-13 ✅ 已答 = 甲 ⇒ 讀取端加條件(停用者的私人檢視不�
 
 ```
 分母  grep -c 於本檔:「三支」23 · 「四支」5 · upsert 16 · uuid 3 · GRANT SELECT 8
+ 🔧 **現值 三支 40 · 四支 32 · upsert 27 · uuid 9 · GRANT SELECT 12(2026-08-28 09:44 當場量)** —— 🔴 **我一直在談論這兩個數,而談論本身推高了它** ⇒ 活文件裡的裸數,誤差方向是**單向往上**
       負對照「三支zz」⇒ 0
 處置  逐行開檔判「是現行指示 / 是歷史記錄 / 是不同意思」⇒ 真正過期的 11 處已就地標 🛑
 ```
@@ -4418,6 +4421,7 @@ W14 SELECT is_sharedzz FROM t  ⇒ 🔴 ERROR: column "is_sharedzz" does not exi
 > 2026-08-28 線C。交付物兩支,**都放 `docs/specs/`、都沒有進 `supabase/migrations/`**:
 > ```
 > docs/specs/2026-08-25-saved-views-migration-draft.sql   597 行(2026-08-28 當場 wc -l)
+ 🔧 **現值 703 行(2026-08-28 09:44 當場量)** —— 檔長大了(加了鎖列碼錨與 rollback 段)
 > docs/specs/2026-08-25-saved-views-tests.sql             216 行 · 行為測試 29 格 + 突變表 14 發
 > ```
 > 🔴 **為什麼不進 `supabase/migrations/`**(主視窗逐字):今晚有前例 —— 一支帶著未折 findings 的
@@ -4521,6 +4525,7 @@ M8  `... OR v.is_shared` ⇒ `... OR v.is_shared OR true`  ← 錨找的子字�
                 (線B 給的是 `:1201` —— 那是「他的原字面(逐字):」那行,**值在 `:1203`**)
               量法(我自己跑過, 不是聽轉述):
                 grep -c 'authorizeManagerMutation' apps/admin/src/lib/session/authorize.ts ⇒ **0**
+ 🔧 **現值 2(2026-08-28 09:44 當場量)** —— B-0 已落地(`§14-26`);而 2 裡有 **1 個是註解** ⇒ 有判別力的是 `^export async function …` ⇒ 1
                 負對照 'authorizeZZZ' ⇒ 0 · 那支檔存在(不是「檔沒有所以 0」)
               ⇒ 🔴 **我原本寫「上游還沒定案」—— 那個字面已經不對了**:定案了, 卡的是批准與落地
 🛑 §14-Z ①   突變表整張重算 ⇒ **本節這 14 發就是換路後的第一版**, 取代舊的 9 發;
@@ -4584,6 +4589,11 @@ CODE | grep -c "^COMMIT;"                            # 1
 CODE | grep -c "CREATE OR REPLACE FUNCTION"          # 5   四支 RPC + touch trigger
 CODE | grep -c "SET search_path = public, pg_temp"   # 5
 CODE | grep -c "FOR UPDATE"                          # 2   update + delete
+🔧 **現值 6(2026-08-28 09:44 當場量)** —— 🔴🔴 **而這一格是【我裝的守門把我的尺變成恆真】**:
+   多出來的 4 個是我後來加的「碼錨 鎖列」,而**它的工作就是檢查 `FOR UPDATE` 在不在**。
+   ⇒ 把兩支真的鎖列全部拿掉 ⇒ 這把尺仍然印 **4**,而 4 ≠ 0 ⇒ **看起來還在。**
+   ⇒ ✅ 正解是分開數:`grep -c '     FOR UPDATE;'`(帶縮排的語句)⇒ 2;碼錨那幾行另計。
+   📌 **一道守門,把它自己寫進了它要檢查的那個字集裡 —— 而它裝得越完整,那個假的餘額就越大。**
 CODE | grep -c "ENABLE ROW LEVEL SECURITY"           # 1
 CODE | grep -c "ON CONFLICT"                         # 0   ← 換路後不得復活
 CODE | grep -c "^GRANT .* ON TABLE"                  # 0   ← 表級零 GRANT
@@ -4718,6 +4728,7 @@ M11 紅了 —— 而紅的訊息是一句**原始 DB 例外**, 裡面沒有測�
 ① 怎麼算關掉  = 三發 grep 全中(當場跑, 2026-08-28):
    grep -c "CREATE TRIGGER admin_saved_order_views_set_updated_at" <草稿> ⇒ 1
    grep -c "clock_timestamp"                                       <草稿> ⇒ 1
+ 🔧 **現值 2(2026-08-28 09:44 當場量)** —— 第 2 個命中是我後來加的**解釋註解**自己含那個字
    grep -c "T9-①\|T9-②"                                          <測試> ⇒ 3
 ② 卡在什麼    = 沒有卡 ⇒ §14-21 寫草稿時就做掉了
 ③ 不關掉會怎樣 = 「有人剛改過」永遠不亮, 而它與「沒有人改過」在畫面上是同一件事
@@ -4836,6 +4847,7 @@ code 落地  ❌  一行都沒動
 ```bash
 test -f apps/admin/src/lib/session/authorize.ts                              # 檔存在
 grep -c 'authorizeManagerMutation' apps/admin/src/lib/session/authorize.ts   # 0 ⇒ 未落地
+ 🔧 **現值 2 ⇒ 已落地(2026-08-28 09:44 當場量)** —— 同上
 grep -c 'authorizeZZZ'             apps/admin/src/lib/session/authorize.ts   # 0 ⇒ 負對照
 ```
 🔴 **而我原本在 `§14-Z` 寫「上游還沒定案」—— 那個字面已經不對了。** 定案了,卡的是**批准與落地**。
@@ -4932,6 +4944,7 @@ Sean `Q15 = 甲`「不鎖 DB 層」⇒ `20260726120000_m4b_e8a1_staff_table.sql:
 ✅ 有判別力的三把(我當場跑的):
    grep -c '^export async function authorizeManagerMutation' …/authorize.ts        ⇒ 1
    grep -rn 'authorizeManagerMutation' apps/admin/src --include='*.ts' | 排除定義檔  ⇒ 3 個呼叫端
+ 🔧 **現值 31 行(2026-08-28 09:44 當場量)** —— 🔴 **命令與它旁邊的數字不是同一次量測**:那個 3 來自一條更窄的命令(只掃 `staff-actions.ts`)⇒ 下一個人跑這條會拿到 31 而以為東西壞了
    grep -rn 'is_manager === true' apps/admin/src --include='*.ts'                   ⇒ 1
    負對照 authorizeZZZ ⇒ 0
 🔴 **「函式存在」與「它被接上去了」是兩個宣稱** —— 第一把只答得出前者。
