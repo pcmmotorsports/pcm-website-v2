@@ -353,6 +353,25 @@ describe('WalletTab — 🔴 拍板刻意不做的東西不得偷偷出現', () 
       <WalletTab balance={27600} entries={[entry(), entry({ id: 'b', amount: -2400, entryType: 'use' })]} />,
     );
 
+    // 🔴 **分母守門(2026-08-29 突變量到本格恆綠)**:整支 WalletTab 空渲染時
+    //    下面五條(queryByText 為 null / querySelector 為 null / textContent 不含)**全部恆真**
+    //    ⇒「這三樣刻意沒放」與「整個錢包頁沒渲染」印同一個綠。
+    //    🔴 而這一格守的是**錢**:假了 = 一顆不會動的儲值鈕出現在客人面前,
+    //      或每一列印出錯的「當時餘額」(Q3=乙 刻意不放的那一欄)。
+    //    ⚠️ 錨【不能】釘「有沒有節點」—— 突變體自己 `return <div>` 就是一個節點(同夜實測踩過)。
+    //      ⇒ 釘【只有真的 WalletTab 才會產生的兩個結構】, 而且兩個都釘。
+    //
+    // 🔴 **這三樣東西的家, 逐一對過 design(2026-08-29 code-reviewer R1 訂正我原本寫錯的兩句)**:
+    //    儲值鈕    `design-reference/components/WalletTab.jsx:50-59` ⇒ 住在 `.wal-balance-r`(餘額卡【內】)
+    //    等級卡    同檔 `:64` 的 `.wal-tier-card` ⇒ **是餘額卡的【兄弟】, 直接掛在 `.wal-tab` 根底下**
+    //    當時餘額  同檔 `:108` 的 `.wal-tx-bal` ⇒ 住在 `:104` 的 `.wal-tx-r`, **不是 `.wal-tx-l`**
+    //    ⚠️ 我第一版把前兩個都寫成「餘額卡的所在地」、第三個寫成 `.wal-tx-l` —— **兩句都錯**。
+    //      斷言當時仍非恆真(錨到餘額卡 = 證明根渲染了, 等級卡那條是【傳遞來的】非直接),
+    //      🔴 **而錯的是那句話** ⇒ 下一個要加第三個錨的人會照它去找錯地方。
+    //    ⇒ 第二個錨同時升級成 `.wal-tx-r`(洩漏面本身, 同成本、順帶罩住 `.wal-tx-amt`)。
+    //      📌 原本釘 `.wal-tx-l` 的失敗情境:`.wal-tx-r` 整塊消失時 `.wal-tx-l` 仍 = 2 ⇒ 那一條又恆真。
+    expect(container.querySelectorAll('.wal-balance-card').length, '餘額卡沒渲染 ⇒ 下面關於鈕與等級卡的斷言恆真').toBe(1);
+    expect(container.querySelectorAll('.wal-tx-r').length, '交易列的右半沒渲染 ⇒ 下面關於「當時餘額」的斷言恆真').toBe(2);
     // q5=乙:鈕拿掉
     expect(screen.queryByText(DELIBERATELY_OMITTED.depositButtonLabel)).toBeNull();
     expect(container.querySelector('button')).toBeNull();
