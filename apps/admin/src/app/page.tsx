@@ -3,7 +3,7 @@
 //    姊妹頁 `app/orders/page.tsx` 為了同一個理由做過同一件事(`orders/page.test.tsx:15-17` 有記)。
 // ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 import { selectActorAction } from '../lib/session/actor-actions';
-import { ACTOR_ID_FIELD, getSessionActor } from '../lib/session/actor';
+import { ACTOR_ID_FIELD, getSessionActorWithSource, type ActorSource } from '../lib/session/actor';
 import { listActiveStaff } from '../lib/staff';
 import { loadTodaySummary, type TodaySummary } from '../lib/dashboard/today-read';
 import { TodaySummaryCards } from '../components/dashboard/today-summary';
@@ -29,6 +29,84 @@ import {
 //    具名身分是這頁原本唯一在用的功能,對帳掛掉不該讓員工連身分都切不了。
 //    做法逐字抄同 repo 既有形狀:`app/settings/staff/page.tsx:24-31,47-53`(try/catch +
 //    `console.error` + 失敗卡),不自創第二種寫法。
+// 🔴🔴 **`:247`(⟦b4-MGR0-COPY⟧)三個世界,三句話 —— 而在此之前它們印同一句**(2026-08-29 線F)。
+//
+// **改之前**:下面那句「這個身分是你自己選的、系統並未驗證」是**無條件印的**,
+// 而 `apps/admin/src/app/settings/audit/page.tsx`(錨 `那句話 2026-08-25 就已經假了`)
+// 早就寫著它假了 —— **兩支檔各自為真,而讀者一次只讀得到一支。**
+//
+// 🔴 **決定要印哪一句的是【那張票】,不是 `ADMIN_REQUIRE_REAL_IDENTITY` 那顆旗標。**
+//    這一格極容易寫反,而**寫反了畫面看起來完全正常**:
+//    存在「旗標**關**而票已經是 `v:2`」的世界 ⇒ 身分是驗證過的,而照旗標分岔會在那裡印「你自己選的」。
+//    ⇒ 三層與順序在 `lib/session/actor.ts` 的 `getSessionActorWithSource`,**本檔不複述一次**
+//      (板子上這一列的由來,正是「同一件事被三支檔各講一遍而三句不一樣」)。
+//
+// ⚠️ **本片放棄了什麼,寫在這裡不寫在報告裡**:
+//    ① `'none'` 的兩個世界(v:2 票但 fallback/bootstrap 登入 / 旗標開而票非 v:2)裡,
+//       下面那顆選單**選了不會生效**(那條路不讀 `ACTOR_COOKIE`)—— 本片**只把話說對,沒有停用那顆鈕**。
+//       停用它是 UI 行為改動 ⇒ Sean 的地盤,已進累積表。
+//    ② 這三句話的正確性現在綁在**票的解讀**上 ⇒ `verifySession` 哪天放寬,這裡會跟著錯,
+//       而**測試釘的是三層各走到哪一句,不是那些字**(`page.test.tsx`)。
+//
+// 🔴🔴 **`source` 一個人不夠 —— 還要問 `actor` 是不是 null**(codex 關卡2 must-fix,2026-08-29)。
+//    `source==='ticket'` **不保證票上那個人還在**:`lib/staff.ts:71-76` 的 `resolveStaff`
+//    對「不在啟用名單」回 `null`(員工被停用、查無、DB 逾時)⇒ 到得了 `{ticket, actor:null}`。
+//    ⇒ 少了那一格,那個人會看到「**尚未選擇** … 這個身分來自你登入時那張票」——
+//    **兩個半句互相矛盾,而畫面不會有任何其他徵兆**,他也不知道自己的寫入為什麼被擋。
+//
+// 🔴🔴 **第五個世界**(codex 關卡2 R2 must-fix):`self-selected` 而 `actor` 是 null =
+//    **還沒選人**。舊字面在這裡也是壞的 —— 畫面會連著印
+//    「目前身分:**尚未選擇**。稽核 log 會把**這個身分**記成操作者」⇒ **哪個身分?**
+//    ⚠️ **這一格不是本次改動造成的**(舊版無條件印同一句),而它就是板子那一列說的「假文案」
+//    ⇒ 一併修,而**修的理由要記著**:它不是回歸,是本來就在的第五句假話。
+//
+// ⚠️🔴 **這六個 key 是【畫面狀態】,不是【真實原因】**(codex 關卡2 R3 角度C,收下為 nit):
+//    型別會擋住「新增一個沒處理的 `ActorSource`」,**擋不住**「日後有人在 `actor.ts` 加第四層、
+//    而沿用一個既有的 source」—— 那會安靜地套上一句對它而言是錯的話,**沒有東西會紅**。
+//    📌 寫在這裡,是因為**下一個加層的人會先讀 `actor.ts`,而那邊也有一句指回這裡。**
+type CopyKey = ActorSource | 'ticket-unresolved' | 'self-selected-unset';
+
+const ACTOR_SOURCE_COPY: Readonly<Record<CopyKey, string>> = {
+  // 第 1 層:票是 v:2 且 kind='user',而那個人也還在啟用名單裡。線D 2026-08-29 備好的 A 版,逐字採用。
+  ticket:
+    '。稽核 log 會把這個身分記成操作者。這個身分來自你登入時那張經過簽章驗證的票,不是你自己選的。',
+  // 第 1 層而 `resolveStaff` 回 null ⇒ 票上有人,而那個人現在不是啟用中的員工。
+  // 🔴 這一句與 `none` **不可以合併**:兩者「選了都不會生效」,而**員工要做的事完全不同** ——
+  //    這一句要他去找管理員把帳號開回來,`none` 那句要他改用個人帳號登入。
+  // 🔴 **這句話【不得斷言原因】**(codex 關卡2 R2 must-fix):同一個 `{ticket, actor:null}`
+  //    可以來自「被停用」「查無」**或「名單這一趟沒讀到」**(`lib/staff.ts` 那支有逾時上界)——
+  //    ⇒ 寫成「你的帳號被停用了」會在**第三種**世界誤導人,而那個人的帳號其實好好的。
+  //    📌 **我們量得到的是「現在對不到」,量不到的是「為什麼」。**
+  'ticket-unresolved':
+    '。你登入的那張票上有一個身分,而系統現在對不到那個人(可能是被停用、查無,或員工名單這一趟沒讀到)。這個狀態下需要具名操作者的動作會被擋下 —— 請重新整理一次,還是這樣就找管理員。',
+  // 第 3 層:讀自選 cookie。線D 的 B 版 = **一個字都不改**,這個世界裡原句是對的。
+  // ⚠️ `actor` 為 null 時這句仍然對 —— 那是「還沒選」,而下面那顆選單是**活的**。
+  // 第 3 層而還沒選人 ⇒ **不能說「會把這個身分記成操作者」,因為沒有那個身分。**
+  //    而這一格與 `none` 的差別是**下面那顆選單是活的** ⇒ 話要講成一個可以照做的動作。
+  'self-selected-unset':
+    '。你還沒有選具名身分,請先在下面選一個 —— 在那之前,需要具名操作者的動作(改訂單、記收款…)會被擋下。',
+  'self-selected':
+    '。稽核 log 會把這個身分記成操作者。🔴 這個身分是你自己選的、系統並未驗證 —— 目前登入只確認「有人通過認證」,不確認「是誰」。真實帳號驗證待報價單端建立個人帳號後接上。',
+  // 第 1 層 fallback/bootstrap,或第 2 層 ⇒ 這次 request 不讀 `ACTOR_COOKIE`。
+  // 🔴 **「需要具名操作者的動作」這幾個字是收窄過的**(codex 關卡2 nit):
+  //    ~~「需要寫入的動作會被擋下」~~ **過度概括** —— 下面那顆選單的 server action
+  //    (`lib/session/actor-actions.ts:27-36`)**照樣會把 cookie 寫進去**,只是沒有人會去讀它。
+  //    被擋下的是走 `authorizeAdminMutation` 的那些(`lib/session/authorize.ts` 逐字
+  //    `const actor = await getSessionActor(); if (!actor) return null;`)。
+  none: '。這次登入沒有帶具名身分(共用密碼或首次建置登入),而下面那顆選單在這個狀態下選了不會生效 —— 需要具名操作者的動作(改訂單、記收款…)會被擋下。請改用個人帳號登入。',
+  // 🔴 **這一句與 `none` 分開,是因為【員工該做的事不同】**(codex 關卡2 R3「災難當天」角度):
+  //    第 2 層 = 旗標開著而你手上是**舊票**。
+  //
+  // 🔴🔴 **而它【不能】叫他直接登出重登**(codex 關卡2 R4 must-fix,我開檔複驗過):
+  //    `app/api/sso/callback/route.ts:156-163` 逐字 `if (requireRealIdentity() && !result.sub)`
+  //    ⇒ 記一筆 `flag-on-without-upstream-sub` 然後 **`return configError()`(顯式 500,不發新票)**。
+  //    ⇒ **上游還沒開始送 `sub` 時,他登出就【回不來了】** —— 而他現在這張舊票**還讀得到東西**。
+  //    📌 **一句「請登出重登」在一半的世界裡是修復步驟,在另一半是把他鎖在門外** ——
+  //    而**畫面分不出他在哪一半**(那取決於上游,不在本站)。⇒ 話要寫成「先別登出,先去確認」。
+  'stale-ticket':
+    '。你手上這張登入票是舊版的,還沒帶具名身分,而下面那顆選單在這個狀態下選了不會生效 —— 需要具名操作者的動作(改訂單、記收款…)會被擋下。🔴 請先不要登出:要等你的個人帳號在報價單端接上之後,重新登入才會拿到新票。先找管理員確認,確認了再登出重登。',
+};
+
 export const dynamic = 'force-dynamic';
 
 export default async function AdminHomePage() {
@@ -38,7 +116,7 @@ export default async function AdminHomePage() {
   //    身分與員工名單失敗**仍照舊往上拋**(它們掛了這頁本來就沒東西可看,不該假裝正常)。
   const [actorSettled, staffSettled, todaySettled, freshSettled, cronSettled] =
     await Promise.allSettled([
-      getSessionActor(),
+      getSessionActorWithSource(),
       listActiveStaff(),
       loadTodaySummary(),
       loadDataFreshness(),
@@ -46,7 +124,16 @@ export default async function AdminHomePage() {
     ]);
   if (actorSettled.status === 'rejected') throw actorSettled.reason;
   if (staffSettled.status === 'rejected') throw staffSettled.reason;
-  const actor = actorSettled.value;
+  const { actor, source: actorSource } = actorSettled.value;
+  // 🔴 見 `ACTOR_SOURCE_COPY` 上方那段:`ticket` 而 `actor` 為 null = 票上那個人已不在啟用名單。
+  // 🔴 五個世界,而分岔的第二個輸入是 `actor === null` ——
+  //    `source` 一個人答不出「這句話對不對」(codex 關卡2 R1+R2 各抓到一個漏網世界)。
+  const copyKey: CopyKey =
+    actor !== null || actorSource === 'none' || actorSource === 'stale-ticket'
+      ? actorSource
+      : actorSource === 'ticket'
+        ? 'ticket-unresolved'
+        : 'self-selected-unset';
   const staff = staffSettled.value;
 
   let today: TodaySummary | null = null;
@@ -153,9 +240,7 @@ export default async function AdminHomePage() {
           <span className='text-foreground font-medium'>
             {actor ? actor.label : '尚未選擇'}
           </span>
-          {
-            '。稽核 log 會把這個身分記成操作者。🔴 這個身分是你自己選的、系統並未驗證 —— 目前登入只確認「有人通過認證」,不確認「是誰」。真實帳號驗證待報價單端建立個人帳號後接上。'
-          }
+          {ACTOR_SOURCE_COPY[copyKey]}
         </p>
         <form action={selectActorAction} className='mt-4 flex items-center gap-2'>
           {/* #388:欄名走共用常數 —— 三處都吃同一顆(`htmlFor`/`id` 綁 a11y、`name` 是 wire 契約)。 */}

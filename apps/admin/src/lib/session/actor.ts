@@ -62,6 +62,47 @@ export const ACTOR_ID_FIELD = 'actorId';
  *    **不靠本函式回 `null` 順便擋住**(§B5-5 第 3 條)。
  */
 export async function getSessionActor(): Promise<StaffActor | null> {
+  return (await getSessionActorWithSource()).actor;
+}
+
+/**
+ * 同一段三層,而**多回一格「身分是打哪來的」**(`:247` 後台首頁假文案片,2026-08-29 線F)。
+ *
+ * 🔴 **為什麼要有這個函式**:首頁那句「這個身分是你自己選的、系統並未驗證」
+ *    **是無條件印的** —— 三個世界印同一句,而其中兩個世界它是假的。
+ *    而要印對那句話所需要的事實,**這段程式每一次 request 都已經算出來了,只是沒有回傳出去**。
+ *
+ * 🔴🔴 **決定文案的是【那張票】,不是那顆旗標** —— 這一格很容易寫反,寫反了測試也不會紅:
+ *    存在「旗標**關**而票已經是 `v:2`」的世界 ⇒ 身分是**驗證過的**,
+ *    ⇒ 照旗標分岔會在那裡印「你自己選的」。**旗標只在第 2 層有話講,第 1 層它一個字都不算數。**
+ *
+ * 🔴 **`'none'` / `'stale-ticket'` 都不是「沒選人」** —— 它們的意思是**這次 request 根本不會去讀
+ *    `ACTOR_COOKIE`**(前者=第 1 層 fallback/bootstrap,後者=第 2 層)
+ *    ⇒ **首頁那顆選單在這兩個世界裡選了不會生效**,而**兩者的復原步驟不同**(見下面型別上的說明)。
+ *    ⚠️ 而「選了沒生效」與「還沒選」在畫面上長得一樣(兩者都印「尚未選擇」)——
+ *    **停用那顆選單是 UI 行為改動 ⇒ Sean 的地盤,本片只把話說對、不動那顆鈕**(已進累積表)。
+ *    ⇒ 對照:`'self-selected'` + `actor === null` 才是真的「還沒選」,那顆選單是**活的**。
+ */
+export type ActorSource =
+  /** 第 1 層:票是 `v:2` 且 `sub.kind='user'` ⇒ 身分來自簽章驗證過的票。 */
+  | 'ticket'
+  /** 第 3 層:讀 `ACTOR_COOKIE` ⇒ 使用者自選、未驗證(`actor` 為 null = 還沒選)。 */
+  | 'self-selected'
+  /** 第 1 層 fallback/bootstrap ⇒ 這次登入**沒有**具名操作者,而**重登也不會變**。 */
+  | 'none'
+  /**
+   * 第 2 層:旗標開著而票上沒身分(= 舊的 `v:1` 票)。
+   *
+   * 🔴 **它與 `none` 分開,是因為【員工該做的事不同】**(codex 關卡2 R3「災難當天」角度):
+   *    這一種**登出再登入一次就會拿到新票**;`none` 那一種(共用密碼 / 首次建置)重登沒有用。
+   *    ⇒ 合併成一個值,首頁就只能講一句對其中一半是錯的復原步驟。
+   */
+  | 'stale-ticket';
+
+export async function getSessionActorWithSource(): Promise<{
+  readonly actor: StaffActor | null;
+  readonly source: ActorSource;
+}> {
   const store = await cookies();
 
   // ── 第 1 層:票上帶了身分 ⇒ 只認它 ──────────────────────────────────────
@@ -69,13 +110,13 @@ export async function getSessionActor(): Promise<StaffActor | null> {
   if (session?.v === 2) {
     switch (session.sub.kind) {
       case 'user':
-        return await resolveStaff(session.sub.staff_id);
+        return { actor: await resolveStaff(session.sub.staff_id), source: 'ticket' };
       case 'fallback':
         // 共用密碼備援登入 = **一種明確的身分,而它沒有具名操作者**。不是「未登入」。
-        return null;
+        return { actor: null, source: 'none' };
       case 'bootstrap':
         // 首次建置(SETUP_SECRET)—— 它**沒有** staff_id(`session.ts` 的 AdminSessionSub 逐字)。
-        return null;
+        return { actor: null, source: 'none' };
       default: {
         // 🔴 **exhaustive check,不是防禦性編程**:日後 `AdminSessionSub` 加第四種變體時,
         //    **這一行會編譯紅** —— 而規格點名的病正是「寫成 if (kind==='fallback') 之後,
@@ -85,15 +126,18 @@ export async function getSessionActor(): Promise<StaffActor | null> {
         //    讓它 500 等於把一個型別問題變成全站故障。
         const _exhaustive: never = session.sub;
         void _exhaustive;
-        return null;
+        return { actor: null, source: 'none' };
       }
     }
   }
 
   // ── 第 2 層:旗標開著而票上沒身分 ⇒ 不得回退 ───────────────────────────
   // 🔴 這一行就是「不再信任使用者自己挑的那個人」那句話的實體。
-  if (requireRealIdentity()) return null;
+  if (requireRealIdentity()) return { actor: null, source: 'stale-ticket' };
 
   // ── 第 3 層:旗標關著(今天)⇒ 與改動前逐字相同 ─────────────────────────
-  return await resolveStaff(store.get(ACTOR_COOKIE)?.value);
+  return {
+    actor: await resolveStaff(store.get(ACTOR_COOKIE)?.value),
+    source: 'self-selected',
+  };
 }

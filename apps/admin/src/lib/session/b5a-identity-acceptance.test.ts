@@ -57,7 +57,7 @@ vi.mock('next/headers', () => ({
 
 vi.mock('../staff-repository', () => ({ listStaffRows }));
 
-import { getSessionActor, ACTOR_COOKIE } from './actor';
+import { getSessionActor, getSessionActorWithSource, ACTOR_COOKIE } from './actor';
 import {
   ADMIN_SESS_COOKIE,
   buildAdminSession,
@@ -311,5 +311,118 @@ describe('B5-a §C · getSessionActor 的三層', () => {
 
   it('[17b] 回歸格續:完全沒有票、沒有 actor cookie ⇒ null(今天的訪客)', async () => {
     expect(await getSessionActor()).toBeNull();
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// §C-2 `source` —— 四個世界各自回哪一個值(`:247` 後台首頁文案的地基,2026-08-29 線F)
+//
+// 🔴 **為什麼這一節不能省**:首頁那三句話全部掛在 `source` 上,而 §C 既有的每一格
+//    驗的都是 **actor 是誰**。`source` 標錯時 **actor 仍然完全正確** ⇒ §C 全綠。
+//    ⇒ 「回對了人」與「說對了那個人打哪來」是**兩個宣稱**,而 §C 只量得到第一個。
+//
+// ⚠️ **本節的天花板**:它驗的是 `getSessionActorWithSource` 這一層。
+//    文案有沒有接對 `source`,由 `app/page.test.tsx` 那五格顧;**兩層都要綠才算數。**
+// ════════════════════════════════════════════════════════════════════════════
+describe('B5-a §C-2 · source 標對了沒(文案的地基)', () => {
+  it('[18] v:2 + user ⇒ ticket(而 actor 同時要是票上那個人)', async () => {
+    await issueTicket({ kind: 'user', staff_id: 'sean' });
+    cookieStore.set(ACTOR_COOKIE, 'staff_2');
+    expect(await getSessionActorWithSource()).toEqual({
+      actor: { id: 'sean', label: 'Sean(老闆)' },
+      source: 'ticket',
+    });
+  });
+
+  // 🔴🔴 **這一格就是【我原本准的那個改法會印錯】的那個世界。**
+  //    旗標關著,而身分【是驗證過的】⇒ source 必須是 ticket、不得是 self-selected。
+  //    它紅 = 有人把 source 改成照旗標算 ⇒ 首頁會對這個人說「這個身分是你自己選的」,而那是假的。
+  it('[19] 🔴 旗標【關】+ v:2 票 ⇒ 仍是 ticket(source 不是旗標的函數)', async () => {
+    vi.stubEnv('ADMIN_REQUIRE_REAL_IDENTITY', '');
+    await issueTicket({ kind: 'user', staff_id: 'staff_2' });
+    const r = await getSessionActorWithSource();
+    expect(r.source).toBe('ticket');
+    expect(r.actor).toEqual({ id: 'staff_2', label: '小明' });
+  });
+
+  it('[20] v:2 + fallback ⇒ none(共用密碼 = 有身分而無具名操作者,不是「未登入」)', async () => {
+    await issueTicket({ kind: 'fallback' });
+    cookieStore.set(ACTOR_COOKIE, 'sean');
+    expect(await getSessionActorWithSource()).toEqual({ actor: null, source: 'none' });
+  });
+
+  it('[20b] v:2 + bootstrap ⇒ none', async () => {
+    await issueTicket({ kind: 'bootstrap' });
+    expect((await getSessionActorWithSource()).source).toBe('none');
+  });
+
+  // 🔴 **`stale-ticket` 不是 `none`**(codex 關卡2 R3「災難當天」):這個人**重登就會拿到新票**,
+  //    而 `none`(共用密碼 / 首次建置)重登沒有用 ⇒ 首頁要對兩邊講不同的復原步驟。
+  //    翻面條件:有人把第 2 層改回 `none` ⇒ 紅,而**畫面上只會少一句正確的指示,不會壞掉** ——
+  //    那正是為什麼它需要一格測試而不是一句註解。
+  it('[21] 無 v:2 + 旗標【開】⇒ stale-ticket(不是 none:這個人重登會拿到新票)', async () => {
+    await issueTicket(); // v:1
+    cookieStore.set(ACTOR_COOKIE, 'sean');
+    vi.stubEnv('ADMIN_REQUIRE_REAL_IDENTITY', '1');
+    expect(await getSessionActorWithSource()).toEqual({ actor: null, source: 'stale-ticket' });
+  });
+
+  // 🔴🔴 **codex 關卡2 R3 角度B 抓到的兩個漏網葉世界** —— 它們原本只在 `page.test.tsx` 裡
+  //    **被 mock 出來**,而 mock 出來的世界不證明**真的接線**會產生它。
+  //    📌 判別句:**「首頁在那個世界印對了話」與「那個世界真的到得了」是兩個宣稱。**
+  it('[24] 🔴 v:2 + user 而那個人不在啟用名單(停用/查無)⇒ { actor:null, source:ticket }', async () => {
+    listStaffRows.mockResolvedValue([{ id: 'sean', label: 'Sean(老闆)', is_active: true }]);
+    await issueTicket({ kind: 'user', staff_id: 'staff_2' }); // staff_2 不在名單裡
+    // 這個組合就是首頁 `ticket-unresolved` 那句話的來源 —— 它到得了,不是理論上的。
+    expect(await getSessionActorWithSource()).toEqual({ actor: null, source: 'ticket' });
+  });
+
+  it('[25] 🔴 第 3 層【真的選到人】⇒ { actor:那個人, source:self-selected }', async () => {
+    cookieStore.set(ACTOR_COOKIE, 'staff_2');
+    // 對照 [22](沒有 cookie ⇒ actor null):兩格合起來才分得開
+    //「還沒選」與「選了而選到人」—— 而首頁對這兩者印**不同**的話。
+    expect(await getSessionActorWithSource()).toEqual({
+      actor: { id: 'staff_2', label: '小明' },
+      source: 'self-selected',
+    });
+  });
+
+  // 🔴 **`none` 與 `self-selected` 的分界,是首頁那兩句話唯一的判準** ——
+  //    兩者的 `actor` 都可以是 `null`,而它們該說的話**完全不同**:
+  //    這一格是「還沒選,那顆選單是活的」;上一格是「選了不會生效」。
+  //    ⇒ 少了這一格,把 `none` 全寫成 `self-selected` 也照樣綠。
+  it('[22] 🔴 無票 + 旗標關 + 沒有 actor cookie ⇒ self-selected 而 actor=null(是「還沒選」,不是「選了沒用」)', async () => {
+    expect(await getSessionActorWithSource()).toEqual({ actor: null, source: 'self-selected' });
+  });
+
+  // 🔴🔴 **codex 關卡2 must-fix:原本這一格只比【兩次獨立呼叫的回傳值】** ——
+  //    而薄殼若多讀一次 cookie、多驗一次票、或把某條路走兩遍,**回傳值一模一樣 ⇒ 它照樣綠**。
+  //    ⇒ 補一個**副作用**判準:同一個世界裡,薄殼讀 `ACTOR_COOKIE` 的次數必須與底層【相同】。
+  //    ⚠️ **天花板照實寫(codex R2 nit 指出我原本說得太寬)**:它守的**只有 `ACTOR_COOKIE` 的讀取次數**。
+  //    **守不到**:① microtask 層的時序差(薄殼比舊版晚一個 `await` settle,裁決見 commit body)
+  //    ② 多驗一次票 / 多呼叫底層一次 —— **那些路徑上 `ACTOR_COOKIE` 兩邊都是 0,這把尺不會動。**
+  //    📌 **一把只數一種副作用的尺,對別種副作用回的 0 是「不在射程裡」,不是「沒發生」。**
+  it('[23] 回歸格:薄殼與底層回傳相同,而且【副作用次數也相同】', async () => {
+    await issueTicket({ kind: 'user', staff_id: 'sean' });
+    const viaShell = await getSessionActor();
+    const shellReads = actorCookieReads.n;
+
+    actorCookieReads.n = 0;
+    const viaCore = await getSessionActorWithSource();
+    const coreReads = actorCookieReads.n;
+
+    expect(viaShell).toEqual(viaCore.actor);
+    expect(shellReads, '薄殼比底層多走了一趟 cookie').toBe(coreReads);
+  });
+
+  // ✅ **正對照:上面那把「次數」尺真的會動** —— 否則 `0 === 0` 讓它恆綠。
+  //    ⚠️ **它證明的只有「計數器在會讀 cookie 的那條路上會動」**(codex R2 nit:別讀得更大)——
+  //    **不證明** [23] 那個世界(v:2 票)裡它也會動;那個世界兩邊本來就是 0,
+  //    ⇒ [23] 在那裡守的是「**沒有多出來的讀取**」,而那是一個比較弱、但仍然為真的宣稱。
+  it('[23b] ✅ 正對照:次數這把尺在會讀 cookie 的世界裡不是 0', async () => {
+    cookieStore.set(ACTOR_COOKIE, 'staff_2');
+    actorCookieReads.n = 0;
+    await getSessionActor();
+    expect(actorCookieReads.n).toBeGreaterThan(0);
   });
 });
