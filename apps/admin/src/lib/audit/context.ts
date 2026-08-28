@@ -27,7 +27,16 @@ export async function buildAuditContext(): Promise<AuditContext> {
   const actor = await getSessionActor();
   if (!actor) {
     throw new Error(
-      '稽核情境缺 actor — 尚未選具名身分(M0-S2 自選身分;真實身分驗證待個人帳號接上)',
+      // 🔴 2026-08-29 訂正(線F 量到, `-c8` 複驗 `getSessionActorWithSource`):
+      //    ~~原句「尚未選具名身分(…真實身分驗證待個人帳號接上)」~~ **兩半都不準**:
+      //    ① 「尚未選」只是【五個成因裡的一個】, 而且只在旗標【關著】時才可能;
+      //    ② 「待個人帳號接上」是一句沒有限定詞的平述 —— 那道閘的機制【已經在碼上】,
+      //       它的效力綁在執行期旗標 `ADMIN_REQUIRE_REAL_IDENTITY` 上,
+      //       而**線上那個值從 repo 讀不到** ⇒ 不可以斷言「還沒接上」。
+      //    ⚠️ 本次【只改這句訊息】, 不改呼叫端(改成讀 `source` 會動到身分路徑, 那是另一片)。
+      '稽核情境缺 actor —— 五種成因都會走到這裡:共用密碼備援登入 / 首次建置票 / ' +
+        '票上的身分變體不認得 / 旗標開著而票上沒身分 / 旗標關著而未選具名身分。' +
+        '要分辨是哪一種, 讀 getSessionActorWithSource() 回的 source。',
     );
   }
   return {
