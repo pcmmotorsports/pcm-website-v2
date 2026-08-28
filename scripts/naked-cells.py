@@ -212,6 +212,86 @@ def statements(seg: str):
     outs.append(''.join(buf))
     return [re.sub(r'\s+', ' ', x) for x in outs]
 
+# ── Ⓓ 那一族:「零次迭代也算過」──────────────────────────────────────────────
+# 🔴 **這是【純新增】的偵測器 —— 它不改變任何一格既有的 naked/unknown 判定。**
+#    那是刻意的:線B 2026-08-29 提醒「加一個 pattern 之後另一族靜默消失」是它踩過的最壞形狀
+#    (v1→v2 重寫時把 `.every(...).toBe(true)` 從 NEG 刪掉而毫無察覺, 自檢 11 世界全過)
+#    ⇒ 做成純新增 ⇒ 「會不會擠掉某一族」這一題的答案是**零風險**, 而不是「我覺得不會」。
+#
+# 這一族長什麼樣:格內【所有】的 expect 都在迴圈裡 ⇒ **集合是空的時候零次迭代 ⇒ 零斷言 ⇒ 綠**。
+#   實例① `sortProducts price-asc` 的 for-index(code-reviewer 2026-08-29 撈的)
+#   實例② `product-jsonld.test.ts:180` —— **標題叫「正向白名單」而它是裸的**(線G 撈的)
+#          📌 它住在最尷尬的位置:就在兩個裸格的同一個 describe 裡, **標題會讓人以為錨已經在了**
+# 🔴 **而這一族到目前為止, 每一格都是【別人撈給我的】。**
+#    那不是自責, 是**這把尺的盲區形狀的證據**:它漏掉的東西, **只有換一雙眼睛才看得到**。
+#
+# ⚠️ **刻意【不收】`if (…) expect(…)`**(線B 判的):它的空世界是「條件不成立」不是「集合是空的」,
+#    而那可能是刻意的(某些格就是在測「不成立時不做事」)⇒ 收它會做出假紅。
+# ⚠️ **刻意【排除字面陣列】** —— `for (const m of ['a','b'])` 不可能是空的 ⇒ 不是這一族。
+#    🔴 這一條是量出來的:第一版沒排除字面 ⇒ 報 278 格, 而**手抽 3 格 3 格全是誤報**
+#      (refund.test.ts:293 · brand-content.test.ts:49 · result-banner.test.tsx:208 全在跑字面陣列)
+#      ⇒ 收緊後 **136 格**。📌 **那個 278 看起來像一個發現, 而它是一把太寬的尺。**
+LOOP_HEAD = re.compile(
+    r'(?:\bfor\s*\(|\bwhile\s*\(|[.?]\s*\.?\s*(?:forEach|map|filter|some|every|flatMap)\s*\()[^{]*$')
+# 🔴 兩處都要求【中括號裡有東西】—— 少了那個要求, `(r ?? []).forEach(...)` 會被誤殺,
+#    而那是線B 點名「最該被抓、而最像已經處理過的」三種之一:
+#    `?? []` 是一個 **fallback**, 不是被跑的字面 —— 它明說了「這東西可能不在」。
+#    ✅ 這一格是【自檢當場抓到的】:第一版裝進來時形狀 H 掉了, 而九種形狀的自檢立刻紅。
+#    📌 **一把新尺的第一個使用者是它自己的自檢。**
+LOOP_LITERAL = re.compile(r'\bfor\s*\([^)]*\bof\s*\[[^\]]|\[[^\]]+\]\s*(?:as\s+const\s*)?\)\s*\.\s*(?:forEach|map)\s*\(')
+
+def _in_loop(body: str, pos: int) -> bool:
+    """從 pos 往回走, 找第一層【還沒關上的 {】, 看它的開頭是不是迴圈頭(且不是字面陣列)。"""
+    d = 0; i = pos
+    while i > 0:
+        i -= 1; c = body[i]
+        if c == '}': d += 1
+        elif c == '{':
+            if d == 0:
+                head = body[max(0, i - 200):i]
+                if LOOP_HEAD.search(head):
+                    return not LOOP_LITERAL.search(head)
+                return False
+            d -= 1
+    return False
+
+def loop_only_cells(src: str):
+    """格內至少一個 expect, 而【全部】都在(非字面的)迴圈裡 ⇒ 回傳那些格的行號。"""
+    m = mask(src); out = []
+    for a, b in cells(m):
+        body = body_of(m[a:b])
+        hits = [x.start() for x in re.finditer(r'\bexpect\s*\(', body)]
+        if hits and all(_in_loop(body, h) for h in hits):
+            out.append(m.count('\n', 0, a) + 1)
+    return out
+
+# 🔴 自檢:九種形狀 + 兩個【不該命中】的。一把沒有自檢的尺, 與一把壞掉的尺印一樣的東西。
+LOOP_WORLD = """import {it,expect} from 'vitest';
+describe('d',()=>{
+  it('A for-of',()=>{ for (const p of r) { expect(p).toBe(1); } });
+  it('B for-index',()=>{ for (let i=1;i<r.length;i++) { expect(r[i]).toBe(1); } });
+  it('C forEach',()=>{ r.forEach((p)=>{ expect(p).toBe(1); }); });
+  it('D map-forEach',()=>{ r.map(f).forEach((v)=>{ expect(v).toBe(1); }); });
+  it('E while',()=>{ while (q.length) { expect(q.pop()).toBe(1); } });
+  it('F optional forEach',()=>{ r?.forEach((p)=>{ expect(p).toBe(1); }); });
+  it('G for-in',()=>{ for (const k in obj) { expect(obj[k]).toBe(1); } });
+  it('H nullish forEach',()=>{ (r ?? []).forEach((p)=>{ expect(p).toBe(1); }); });
+  it('I 不該命中:迴圈外也有斷言',()=>{ expect(r).toHaveLength(3); for (const p of r) { expect(p).toBe(1); } });
+  it('J 不該命中:根本沒有迴圈',()=>{ expect(r).toBe(1); });
+  it('K 不該命中:跑的是字面陣列',()=>{ for (const m of ['a','b']) { expect(m).toBe(1); } });
+});
+"""
+
+def selftest_loop(verbose=True):
+    got = loop_only_cells(LOOP_WORLD)
+    want = [3, 4, 5, 6, 7, 8, 9, 10]        # A-H 命中 · I/J/K 不得命中
+    ok = got == want
+    if verbose:
+        print('  Ⓓ 偵測器自檢:期望 %s · 實得 %s ⇒ %s' % (want, got, 'PASS' if ok else '🔴 FAIL'))
+        if not ok:
+            print('  🔴 I/J/K 是負對照(迴圈外有斷言 / 沒有迴圈 / 跑字面陣列)—— 它們命中就是尺太寬')
+    return ok
+
 def naked_cells(src: str):
     """回傳 (裸格行號 list, 只有 unknown 斷言的格行號 list)"""
     m = mask(src)
@@ -567,6 +647,9 @@ if __name__ == '__main__':
     print('=== 自檢(每個世界的期望值是一串行號, 不是 [] vs []) ===')
     if not selftest():
         print('🔴 自檢沒過 ⇒ 本次結果作廢'); sys.exit(1)
+    print('=== Ⓓ 偵測器自檢(九種形狀 + 三個負對照)===')
+    if not selftest_loop():
+        print('🔴 Ⓓ 自檢沒過 ⇒ 本次結果作廢'); sys.exit(1)
     print('=== 自檢的自檢(對自檢打兩發突變, 它【必須】紅)===')
     if not selfcheck_of_selfcheck():
         print('🔴 自檢自己沒有判別力 ⇒ 本次結果作廢'); sys.exit(1)
@@ -579,7 +662,11 @@ if __name__ == '__main__':
     print('=== 🔴 不在字集裡的斷言會落進 unknown, 而【unknown 不算 pos】⇒ 那一格會被報成裸的 ===')
     print('=== ⇒ 看到某格被報, 第一個念頭是【去看它的斷言在不在字集裡】(上次補漏 = 84 格假紅) ===')
     print('=== 🔴 Ⓒ 本尺只認【expect 型】的錨:`if (…) throw new Error(…)` 這種擲錯型守門看不見 ===')
-    print('=== 🔴 Ⓓ `for (const x of xs) expect(x)…` 看不見:空集合零次迭代 ⇒ 零斷言 ⇒ 綠(少報)===')
+    print('=== 🔴 Ⓓ `for (const x of xs) expect(x)…`:空集合零次迭代 ⇒ 零斷言 ⇒ 綠(少報)===')
+    print('===    2026-08-29 起【另列】(見下方 Ⓓ 那一節)—— 🔴 **不是修好, 是縮窄** ===')
+    print('===    縮窄的量:全分母 689 支上, 新列出 136 格 / 87 支檔(其中 97 格本來就被判為裸格)===')
+    print('===    🔴 而它仍然看不見:①`if (…) expect(…)`(刻意不收:空世界是「條件不成立」, 收了會假紅)===')
+    print('===    ②抽成具名 helper 的迴圈 ③字面陣列以外「不可能為空」的來源(它會誤報那些)===')
     print('===    (同一件事寫成 `every(...).toBe(true)` 本尺抓得到 ⇒ **同病兩種寫法, 只認一種**)===')
     print('===    (它與Ⓐ不同:Ⓐ 的錨是 expect 只是不在這格;Ⓒ 的錨根本不長那個樣子, --matchers 也接不到)===')
     print('=== ⇒ 每一筆命中都要開檔核。本尺【不宣稱】不少報。 ===')
