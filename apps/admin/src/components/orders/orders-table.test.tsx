@@ -33,6 +33,26 @@ import { CELL, OrdersTable } from './orders-table';
 // `order-panel-wiring.test.ts`(那支才有判別力,本行只是讓既有這些格子能繼續 render)。
 const panelHref = (orderId: string) => `/orders?panel=${orderId}`;
 
+/**
+ * 🔴 **分母守門** —— 本檔有一族斷言全部是負向的(`not.toContain` / `toBeNull` /
+ * `querySelectorAll(...).length).toBe(0)` / `[].every(...)`),而它們在**整張表沒渲染**時**全部恆真**。
+ *
+ * 2026-08-28 實測(在 `orders-table.tsx` 的主 `return` 前插一發空渲染):
+ * 103 格裡 **24 格照樣綠**,其中 **7 格**是這一族 —— 它們在
+ * 【表格正確地不顯示那個東西】與【整張表根本沒渲染】兩個世界**印同一個綠**。
+ *
+ * ⚠️ **用【結構數量】不用文案字面**:`tbody tr` 是這張表的骨架,
+ *    文案改一個字不該讓這些格子紅 —— 那是另一個方向的過頭,而過頭那一側沒有回饋路徑。
+ * ⚠️ 這裡只證明「**有東西可以量**」,**不證明「量出來是對的」** ——
+ *    後者是各格自己那條斷言的職務,分母守門不要順手接過來
+ *    (接了就會兩格一起紅,而下一個人分不出壞的是哪一件)。
+ */
+const expectRowsRendered = (c: HTMLElement) =>
+  expect(
+    c.querySelectorAll('tbody tr').length,
+    '一列都沒渲染 ⇒ 整張表沒出來 ⇒ 下面的負向斷言恆真',
+  ).toBeGreaterThan(0);
+
 import {
   PAYMENT_STATUS_LABEL,
   ORDER_DENSITY_DEFAULT,
@@ -266,6 +286,7 @@ describe('V2 — 九碼零殘留', () => {
   it('表頭無「商品狀態」與「來源 · 管道」;DOM 內無狀態下拉、無 item_id 隱藏欄、無「存」鈕', () => {
     const lines = [line('l1', 1, 12000), line('l2', 2, 16000)];
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines })]} />);
+    expectRowsRendered(container);
     const html = container.innerHTML;
 
     expect(html).not.toContain('商品狀態');
@@ -288,6 +309,7 @@ describe('V3 — 訂單層欄只在該單第一列出值,其餘列是**真的空
     // 🔴 為什麼拆:`rowSpan` 是 `<table>` 專屬的跨列合併,而手機卡片模式把 `<tr>` 攤成
     //    `display:flex` 縱向卡片 ⇒ 合併格語意不存在。收斂前 = 19 個 rowSpan、OD 成品 = 0。
     //    有人「順手把 rowSpan 加回來優化桌機」時這條會紅,並會連帶弄壞手機那一面。
+    expectRowsRendered(container);
     expect(container.querySelectorAll('[rowspan]').length).toBe(0);
   });
 
@@ -857,6 +879,7 @@ describe('V11b — Q2b=A:列表**不顯示**載具別', () => {
     // 🔴 這條的判別力邊界要講清楚:`AdminOrderSummary` **型別上就沒有** carrier/載具欄
     //    (A9c 沒把 `orders.invoice` jsonb 放進列表投影)⇒ 真正擋住它的是型別層與投影白名單,
     //    本條只是把「Q2b=A 的拍板結果」釘成可讀的驗收字面。要動它得先動 A9c 的投影。
+    expectRowsRendered(container);
     for (const token of ['載具', 'carrier', '統編', '抬頭']) {
       expect(container.textContent).not.toContain(token);
     }
@@ -1488,6 +1511,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
 
   it('未取消單:**不得**出現「已取消」(上一格的負向對照)', () => {
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    expectRowsRendered(container);
     expect(container.textContent).not.toContain('已取消');
   });
 
@@ -1961,6 +1985,10 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
     const { container } = render(
       <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: false })]} />,
     );
+    // 🔴 **這一格自己曾經是恆綠的(2026-08-28 量)** —— 它叫「正向對照」,存在的理由是
+    //    證明上一格不是恆真,而**它自己在整張表沒渲染時照樣綠**。下面那道錨是它的分母守門。
+    //    ⇒ 沒有這句註解的話,下一個人看到一組完整的正負對照,又會以為它被想過了。
+    expectRowsRendered(container);
     for (const s of ['固定限制', '不能拿來判斷', '負責人']) {
       expect(container.textContent, `非截斷時不該出現「${s}」`).not.toContain(s);
     }
@@ -2198,6 +2226,9 @@ describe('V-07 補 — 收合不得碰到算式;欄數推法不得漂', () => {
     const spans = [...container.querySelectorAll('thead th')].map(
       (th) => (th as HTMLTableCellElement).colSpan,
     );
+    // 🔴 `[].every()` 回 `true` 是 JS 規格 ⇒ 表頭一個 `th` 都沒有時下面那條恆真。
+    //    **這一格的分母是 `spans` 自己,不是 `tbody tr`** ⇒ 錨要釘在它真正跑迴圈的那個集合上。
+    expect(spans.length, '表頭一個 th 都沒有 ⇒ `[].every()` 恆真, 下面那條什麼都沒證明').toBeGreaterThan(0);
     expect(spans.every((n) => n === 1)).toBe(true);
   });
 
@@ -2247,6 +2278,10 @@ describe('🔴 空狀態必須回答三件事(設計規範 §6.5.5)', () => {
   it('🔴 對照組:有訂單時這三句一句都不准出現', () => {
     // 少了這格,把那三句無條件印在表格上方也會讓上面全綠。
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    // 🔴 **這一格自己曾經是恆綠的(2026-08-28 量)** —— 它叫「對照組」,上一行註解寫著
+    //    「少了這格…也會讓上面全綠」,而**它自己在整張表沒渲染時照樣綠**。下面那道錨是它的分母守門。
+    //    ⇒ 沒有這句註解的話,下一個人看到一組完整的正負對照,又會以為它被想過了。
+    expectRowsRendered(container);
     const t = (container.textContent ?? '').replace(/\s+/g, '');
     expect(t).not.toContain('被上面的篩選條件濾掉了');
     expect(t).not.toContain('放寬日期範圍');
