@@ -67,7 +67,26 @@ describe('filterProducts', () => {
       { ...makeInitialExtraFilters(), price: 'NT$ 0 – 3,000' },
       MOCK_BRANDS,
     );
-    expect(result.every((p) => p.price >= 0 && p.price <= 3000)).toBe(true);
+    // 🔴🔴 **`every()` 對空陣列恆真**(2026-08-29 線C;⟦b4-MONEY4⟧ 分母體檢逼出來的)
+    //    ~~原本這一格只有 `every(p => 0 <= p.price <= 3000).toBe(true)`~~
+    //    ⇒ **篩選回傳 `[]` 時它照樣綠**, 而那是使用者看得到的功能壞掉。
+    //    實測(把 `filterProducts` 改成 `return []`):舊版那一格【沒有被列為失敗】,
+    //    改完之後紅在這裡 ⇒ 剛好一格從過變紅。
+    //
+    // 🔴🔴 **而我第一版的修法只堵了【端點】, 沒堵【中間帶】**(code-reviewer 2026-08-29 抓到):
+    //    我原本加的是 `expect(result.length).toBeGreaterThan(0)` ——
+    //    它只擋「回傳全空」。而**回傳一個【錯的真子集】照樣全綠**:
+    //      · 把價格表那格改成 [0, 2500] ⇒ 回傳 2 支 ⇒ length>0 ✅ 且 every(<=3000) ✅ ⇒ 綠
+    //      · `<= hi` 改成 `< hi` ⇒ 沒有商品剛好 3000 ⇒ 兩端邊界零判別力
+    //      · 誤加一道 inStock 過濾 ⇒ 這三支的 inStock 全是 true ⇒ 結果一字不變
+    //    📌 **「兩個方向都堵了」這句話, 列完的只有兩個端點 —— 中間那一整段無人守。**
+    // 🔴 而 reviewer 直說了我為什麼選那個較弱的:**因為它貼著隔壁 `:59` 抄比較好寫**,
+    //    不是因為它比較對。而隔壁那一格用它是合理的(inStock 沒有天然的「應該剩哪幾支」),
+    //    **這一格有** —— 本檔已有六格(`:49`/`:130`/`:135`/`:140`/`:146`/`:155`)是這個做法。
+    // ⚠️ **代價明寫**:釘死 id 清單會與 MOCK_PRODUCTS 的內容耦合 ——
+    //    新增一支 <=3000 的 mock 就會紅。而**那時本來就該回來看這一格**;
+    //    本檔 `:27` 也已經是這種耦合, 不是本次引入的新負擔。
+    expect(result.map((p) => p.id).sort((a, b) => a - b)).toEqual([11, 14, 16]);
   });
 });
 
@@ -147,6 +166,12 @@ describe('filterProducts — category(兩層階層 rollup、#212 子類)', () =>
 describe('sortProducts', () => {
   it('should sort by price ascending', () => {
     const result = sortProducts(MOCK_PRODUCTS, 'price-asc');
+    // 🔴 同一族的第二個形狀, 而它【不是 every()】(code-reviewer 2026-08-29 掃到, 我沒掃到):
+    //    下面是一個 for 迴圈 ⇒ **`result` 是 [] 或掉了商品時, 迴圈零次迭代 ⇒ 零斷言 ⇒ 綠。**
+    //    📌 我這一輪掃的字集是 `every(`, 而**它的病不長那個樣子** ——
+    //       「零次迭代也算過」與「空集合恆真」是同一件事的兩種寫法。
+    //    ⚠️ 而下面 `:176` 那格的 toEqual 擋不到它 —— 那是**另一個 case 分支**(recommend)。
+    expect(result).toHaveLength(MOCK_PRODUCTS.length);
     for (let i = 1; i < result.length; i++) {
       expect(result[i]!.price).toBeGreaterThanOrEqual(result[i - 1]!.price);
     }
