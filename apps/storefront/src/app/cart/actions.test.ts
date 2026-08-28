@@ -213,6 +213,59 @@ describe('resolveCartLines(M-3-S2-b2-d 購物車 line 解析)', () => {
     expect(first(await resolveCartLines([{ productId: 'rpm-1' }])).unitPrice).toBe(0);
   });
 
+  // 🔴🔴 **`0` 是【合法價格】,不是「沒有價格」**(Sean 2026-08-25 拍板 —— 逐字紀錄在
+  //    `components/account/tabs/FavoritesTab.test.tsx` 錨 `0 是合法價格`;
+  //    落地證據 `supabase/migrations/20260825120000_m4b_zero_price_allowed_in_variant_sync.sql`
+  //    與 `20260825130000_m4b_zero_price_checkout_and_cart_total_gate.sql` 兩支)。
+  //
+  // 🔴 **這一格是量出來的, 不是想出來的**(2026-08-29 線F,接線G 交的問句「做錯的另外四種」):
+  //    對 `cart/actions.ts` 的單價路徑跑四種「做錯」突變, 本檔基準 13/13:
+  //      少算 `variant.price - 1`            ⇒ 3 紅  ✅ 擋得住
+  //      多算 `variant.price + 1`            ⇒ 3 紅  ✅ 擋得住
+  //      順序 `.find(...)` ⇒ `[0]`(拿錯變體)⇒ 1 紅  ✅ 擋得住
+  //      🔴 邊界 `variant.price || product.price` ⇒ **13/13 全過** ⇒ **完全擋不住**
+  //    成因:**fixture 裡一個 0 元都沒有** ⇒ 那條 `||` 永遠不觸發。
+  //    🔴 **那個數要綁 baseline**(codex 關卡2 R1 nit):`grep -c 'price: 0' <本檔>`
+  //    **在本片之前** ⇒ **0**;**本片之後同一條命令 ⇒ 3**(兩個 fixture + **這一段註解自己**)。
+  //    ⚠️ 不標 baseline 的話,下一個人重跑會得到相反的數,然後以為這段註解在說謊。
+  //
+  // 🔴🔴 **而「3 不是 2」這一格值得留下來,它比前面那句更尖**(codex 關卡2 R2 nit 抓的):
+  //    我第一次寫「本片之後 ⇒ 2」—— 我數的是**我加的兩個 fixture**,
+  //    而那條命令數的是**檔案裡的命中次數**,**而我這段解釋自己就含著那個字面。**
+  //    📌 **一段【解釋某個數怎麼來】的註解,把那個數改掉了。**
+  //    ⇒ 本片作者今天在同一個形狀上踩了**四次**(:247 的 `requireRealIdentity ⇒ 0`、
+  //      `995204ab` 的墓碑行被自己的 grep 命中、這裡的 0⇒3,以及兩次行號憑印象)——
+  //      **四次的共同點都是:我報的是【我心裡那份清單】,而命令數的是【檔案裡的命中】。**
+  //
+  // 📌 **而它不是「少守一種」, 它是【最貴的那一種】**:`||` 把 0 當成 falsy ⇒ 退化成群代表價
+  //    ⇒ **一件贈品 / 買一送一的「送」/ 試用品, 會被算成 14600 跟客人收。**
+  //    ⚠️ 而少算多算那兩種**改的是數字**、這一種**改的是「哪個值算數」** ——
+  //    前三種在 diff 上看得出來是在動價格, 而 `|| product.price` 讀起來像一句防呆。
+  it('🔴 0 元是合法價格:變體價 0 ⇒ unitPrice 0(不得退化成群代表價)', async () => {
+    fetchMock.mockResolvedValue(
+      makeProduct({
+        variants: [
+          // 🔴 **`v0` 刻意【不放第一個】**(codex 關卡2 must-fix):放第一個的話,
+          //    「`.find()` 只用來確認存在、取價卻誤拿 `variants[0].price`」那種做錯
+          //    在本格會是**綠的** —— 而那正是會跟客人收錯錢的其中一種。
+          { id: 'v2', sku: 'DCC01-P', spec: { weave: 'Plain' }, price: 14600, images: [] },
+          { id: 'v0', sku: 'GIFT-01', spec: { weave: 'Forged' }, price: 0, images: [] },
+        ],
+      }),
+    );
+    const line = first(await resolveCartLines([{ productId: 'rpm-1', variantId: 'v0' }]));
+    // 正向同伴先跑:這張卡真的解析出來了(否則下面那個 0 只是「什麼都沒有」)。
+    expect(line.found, '這一行根本沒解析出來 ⇒ 下面那個 0 不算「守住了」').toBe(true);
+    expect(line.unitPrice, '0 被當成 falsy ⇒ 退化成群價 = 跟客人多收一整件的錢').toBe(0);
+  });
+
+  it('🔴 0 元是合法價格:無變體商品群價 0 ⇒ unitPrice 0(同一個 falsy 坑的另一半)', async () => {
+    fetchMock.mockResolvedValue(makeProduct({ price: 0, variants: [] }));
+    const line = first(await resolveCartLines([{ productId: 'rpm-1' }]));
+    expect(line.found).toBe(true);
+    expect(line.unitPrice).toBe(0);
+  });
+
   it('round3 防回歸:genuine 無變體商品(variants 空)+ 無 variantId → 仍回群代表價', async () => {
     fetchMock.mockResolvedValue(makeProduct({ variants: [] }));
     const line = first(await resolveCartLines([{ productId: 'rpm-1' }]));
