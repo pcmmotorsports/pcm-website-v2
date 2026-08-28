@@ -5296,3 +5296,84 @@ N=100000   down rc=0  19ms   之後表=不存在   ⇒ **完全持平**
 · 那 38 行以外的量法(敘述式的「開檔看」「逐條核」)**沒有掃** ——
   🔴 而它們可能更多。**我不把「38 格掃完」寫成「本節的量法都體檢過了」。**
 ```
+
+---
+
+# 🛑 §14-32 **TS 那層做到一半停下 —— 而卡住的原因不在 TS**
+
+> 2026-08-28 10:2x(當場 `date`)。Sean `Q-檢視-批准 = 甲` ⇒ 可以動手;
+> `Q-檢視-上庫`(檔案什麼時候進 `supabase/migrations/`)**尚未回**。
+
+## 🔴🔴 **給下一個接手的人的第一句**
+```
+**TS 那層在 migration apply 到正式庫【並重新生成型別】之前, 做不完。**
+```
+理由(當場量到的,不是推的):
+```
+packages/adapters/src/supabase/database.types.ts 的 RPC 名稱 union 是從【正式庫】生成的
+⇒ 那四支不在裡面 ⇒ typecheck 紅:
+   error TS2345: '"admin_list_saved_order_views"' is not assignable to
+     '"admin_add_shipment_items" | ... 76 more ...'
+   (四行, 分別在 repository.ts 的 :63 :82 :112 :133)
+📌 **TypeScript 在說實話:那四支現在不存在。**
+```
+🔴 **而排序的隱藏依賴要寫下來**:主視窗開的順序是「① SQL 在拋棄式 PG apply ⇒ ② TS 就有真東西可打」,
+   而 **TS 的型別不是從那顆拋棄式 PG 來的**。主視窗自陳的判別句:
+   **一條指令裡的每一個「所以」,都是一個沒有被查的依賴。**
+
+## 已經做完的兩支(**未 commit** —— typecheck 紅不得 commit,鐵則 11)
+```
+apps/admin/src/lib/orders/saved-views-repository.ts        142 行
+apps/admin/src/lib/orders/saved-views-repository.test.ts    17 格
+備份(工作樹會在收攤/壓縮時消失, 而 mailbox 不會):
+  ~/pcm-mailbox/線C-片1-saved-views-repository-20260828.ts.bak        6,062 bytes
+  ~/pcm-mailbox/線C-片1-saved-views-repository-test-20260828.ts.bak   6,439 bytes
+  (逐字相同已驗;今晚有前例 —— 我把 24 發突變 harness 留在 /tmp 然後自己 rm 掉了)
+```
+形狀**抄 `apps/admin/src/lib/customers/customer-repository.ts` 的 `setCustomerTier`**,沒發明。
+
+## 三個判別分開驗 + 四發突變(實跑)
+| 突變 | 結果 |
+|---|---|
+| MT1 拿掉 `narrow()` 白名單 | **3 格紅**(合約那族)|
+| MT2 `p_is_shared` 參數名打錯 | **1 格紅**(接線)|
+| MT3 update 打到 delete 那支 RPC | **1 格紅**(接線)|
+| 🔴 **MT4 只改註解(2 行)** | **17/17 全綠** |
+```
+✅ MT4 把「diff 非零不是判準」從一個論證變成一個實測, 而它印在我自己的測試上。
+🔴 而量 MT4 時撞到:`git diff --numstat` 對那兩支**永遠印空** —— 它們是【未追蹤的新檔】。
+   📌 **一把「證明我真的改了」的尺, 對新檔失明** ——
+      而那正是「剛寫好、還沒 commit」的那一刻, **也就是最需要那把尺的時刻。**
+   ✅ 改用 `diff <備份>` 才量得到(2 行)。
+```
+
+## ⚠️ 而我停下來的**理由當時判錯了一半** —— 主視窗切精確,照收
+```
+我寫的:「改一道會擋我的守門 = 立即停止訊號」
+🔴 而那支守門(`database-types-apply-state.test.ts`)數的是【條目總數】
+   ⇒ 加一條合法條目就要更新期望數 ⇒ **那是它設計上的維護動作, 不是繞過它**
+📌 分辨句(主視窗給的, 逐字):
+   **改期望值之後, 那道守門【還擋得住原本擋得住的東西嗎】?**
+   擋得住 ⇒ 維護;擋不住 ⇒ 繞過。
+⇒ 所以「手動補型別」那條路**在紀律上是合法的**, 它被否掉是因為**成本**:
+   · 手改生成檔是【一定會被下一次生成蓋掉】的工
+   · 🔴 而它的第二次不是「再改一次」, 是**被自動蓋掉** ——
+     **而蓋掉的時候, 沒有人會知道那一手改過什麼。**
+⚠️ 這一格要講清楚, 否則下次有人遇到同樣的守門會以為「碰不得」而繞更遠的路。
+```
+
+## ✅ 三條繞法列出來而**沒有做**
+```
+`@ts-expect-error` / `as never` 轉型 / 自己包一層鬆散介面
+📌 共同形狀:**都讓 typecheck 變綠, 而那四支 RPC 仍然不存在**
+   ⇒ **綠了之後, 「它不存在」這件事就沒有任何地方會說了。**
+```
+
+## ⇒ 接手的人要做什麼
+```
+1. 等 `Q-檢視-上庫` ⇒ migration 進 supabase/migrations/ ⇒ apply ⇒ **重新生成型別**
+2. 從上面兩支 .bak 還原(或直接用工作樹那兩支, 若它還在)
+3. 重跑:typecheck(應轉綠)· 那 17 格 · 四發突變(MT4 必須維持全綠)
+4. 才 commit
+🛑 而在那之前:`ls supabase/migrations/ | grep -c "saved.*view"` **保持 0**(10:22 量 ⇒ 0)
+```
