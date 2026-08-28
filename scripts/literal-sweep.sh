@@ -105,7 +105,26 @@ if [ "${1:-}" = "--selftest" ]; then
     "docs/handoff/_litsweep_selftest_ZQX9.md"            # ⑥
     "scripts/_litsweep_selftest_ZQX9.txt"                # ⑦
   )
-  declare -a ST_CAT=("①" "②" "③" "④" "⑤" "⑥" "⑦")
+  # 🔴 2026-08-29:期望值改從【獨立答案卷】讀 —— 見 scripts/literal-sweep.expects.txt 檔頭。
+  #    原本 ST_CAT 與 BUCKETS 的類別符號【同檔逐字相同】⇒ 全域換符號兩處一起改 ⇒ 自檢仍 rc=0（實測）。
+  # 🔴 M3(R1):不可用 $(dirname "$0") —— 本檔 :80 已經 cd 到 repo 根,
+  #    再拿 $0 相對新 cwd 解析一次 ⇒ 用相對路徑呼叫時會指到不存在的地方,
+  #    而錯誤訊息會說「答案卷不見」(fail-closed 但成因是假的)。
+  EXPECTS="scripts/literal-sweep.expects.txt"
+  if [ ! -s "$EXPECTS" ]; then
+    echo "🔴 selftest 無法進行:答案卷不見或是空的 ⇒ $EXPECTS" >&2
+    echo "   (這一格【不 fail-open】—— 沒有答案卷就沒有獨立的期望值, 全綠沒有意義。)" >&2
+    exit 1
+  fi
+  declare -a ST_CAT=()
+  while IFS= read -r _c; do ST_CAT+=("$_c"); done < <(grep '^cat:' "$EXPECTS" | sed 's/^cat://')
+  EXPECT_BLOCK="$(sed -n 's/^limitblock://p' "$EXPECTS")"
+  # 🔴 M1(R1):兩把尺要對稱 —— 舊版 cat 用「精確 7」而 limit 只要 >=1,
+  #    ⇒ 答案卷縮成 1 條就能讓 6 條限度被刪掉而全綠(實測 rc=0)。整段錨之後改數行數。
+  if [ "${#ST_CAT[@]}" -ne 7 ] || [ "$(printf '%s\n' "$EXPECT_BLOCK" | grep -c .)" -lt 20 ]; then
+        echo "🔴 答案卷內容不對:cat ${#ST_CAT[@]} 條(期望 7)、限度整段行數不足 20" >&2
+    exit 1
+  fi
   st_cleanup() {
     for f in "${ST_FILES[@]}"; do rm -f "$f"; done
     local leftover; leftover=$(git status --porcelain 2>/dev/null | grep -F "_litsweep_selftest_ZQX9" || true)
@@ -171,20 +190,15 @@ if [ "${1:-}" = "--selftest" ]; then
   # ── 限度那幾行必須全印(刪一條就紅)。2026-08-18 merge dev 後補上限度 5、6(C 窗 24f2429f)。
   #    🔴 教訓(同 traps「兩個來源要同一時點」):我先前查 dev 只有 1-4 是【對的】,但 dev 隨後
   #    動過 ⇒ 用【多個時點】的來源會得到互相矛盾的結論。落 selftest 前重量了一次 dev 現況=6 條。
-  for probe in \
-    "1. 只掃**檔案裡的字面**" \
-    "2. 跳過的目錄" \
-    "3. 一個檔只歸一類" \
-    "4. 它告訴你" \
-    "分不出「還沒改」與「已改但留痕」" \
-    "某個 checkout 在某個時點" \
-    "它【不剝任何 markdown 標記】"; do
-    if printf '%s' "$OUT_MISS" | grep -qF "$probe"; then
-      pass "限度行仍在:$probe"
-    else
-      fail "🔴 限度行被靜默刪掉了:$probe"
-    fi
-  done
+  # 🔴 R1 §0:改成【整段逐字比對】—— 子字串錨擋不住「逐字保留那句話而把內容掏空」。
+  #    實例(reviewer 構造):print("  2. 跳過的目錄 —— 本條已作廢, 不必理會") ⇒ 舊版 rc=0 全綠。
+  GOT_BLOCK="$(printf '%s' "$OUT_MISS" | sed -n '/掃描限度/,$p')"
+  if [ "$EXPECT_BLOCK" = "$GOT_BLOCK" ]; then
+    pass "限度整段與答案卷逐字相符($(printf '%s\n' "$GOT_BLOCK" | grep -c .) 行)"
+  else
+    fail "🔴 限度整段與答案卷不符 —— 差異如下(< 期望 / > 實得):"
+    diff <(printf '%s\n' "$EXPECT_BLOCK") <(printf '%s\n' "$GOT_BLOCK") >&2 || true
+  fi
 
   st_cleanup
   trap - EXIT INT TERM HUP
