@@ -184,6 +184,18 @@ describe('SupplierSettingsPage — ?r= 結果提示', () => {
     const everyMessage = Object.values(SUPPLIER_RESULT_MESSAGES).map(
       (message) => message.text,
     );
+    // 🔴🔴 **正對照:先證明這一頁真的渲染出來了**(⟦b4-FAKEGUARD1⟧ 2026-08-28)。
+    //    下面兩條都是【負向斷言】,而「不包含」對**空字串恆真** ——
+    //    2026-08-28 實測:在 page.tsx 開頭插一行 `if (true) return <div>ZZQQ</div>;`
+    //    讓整頁什麼都不渲染 ⇒ 這一支檔 17 格裡 15 格紅,**而本格與下面那格照樣綠**。
+    //    📌 它們在【頁面正確地不顯示橫幅】與【頁面整個沒渲染】兩個世界印同一個綠。
+    //    ⚠️ 用 `tableRowCount`(結構)而不是文案字面:文案改一個字不該讓本格紅 ——
+    //       那是另一個方向的過頭,而過頭那一側沒有回饋路徑。
+    expect(
+      tableRowCount(container),
+      '頁面根本沒渲染 ⇒ 下面兩條負向斷言對空字串恆真, 它們的綠什麼都沒證明',
+    ).toBe(ROWS.length);
+
     expect(
       everyMessage.filter((text) => container.textContent?.includes(text)),
     ).toEqual([]);
@@ -225,6 +237,14 @@ describe('SupplierSettingsPage — ?q= 定位', () => {
     // 上一條守「提示區塊」,這條守「其餘任何角落」——
     // 用一個不可能出現在名單裡的標記字串,涵蓋「把 q 印在別處」的退化。
     const { container } = await renderPage({ r: 'duplicate', q: 'ZZQMARKERZZ' });
+
+    // 🔴 正對照:同上一格的理由 —— 這一格【兩條都是負向】,而整頁不渲染時它們都恆真。
+    //    ⚠️ 這裡用 ROWS.length 而不是別的數:`q` 定不到任何一列時本頁**退回完整名單**
+    //       (那是隔壁那格 `should fall back to the full list` 守的行為)⇒ 兩格用同一個期待值。
+    expect(
+      tableRowCount(container),
+      '頁面根本沒渲染 ⇒ 下面兩條負向斷言恆真, 它們的綠什麼都沒證明',
+    ).toBe(ROWS.length);
 
     expect(container.textContent).not.toContain('ZZQMARKERZZ');
     expect(container.innerHTML).not.toContain('ZZQMARKERZZ');
