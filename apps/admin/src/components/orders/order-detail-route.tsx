@@ -130,8 +130,27 @@ export async function OrderDetailRoute({
   let manualRefundsFailed = false;
   let manualRefundsTruncated = false;
   // 🔴 A13b D6-a:取消面板要拿它比對「這筆是不是你送的」。
-  //    ⚠️ **不是授權邊界**(`session/actor.ts:6-7` 自陳:cookie 承載、使用者自選、未驗證)——
-  //    只做顯示層比對;`null`(尚未選人)時 D3 會 fail-closed 走 `match_other_actor`。
+  //    ⚠️ **不是授權邊界** —— 只做顯示層比對,不拿它擋任何東西。
+  //
+  // 🔴 **⟦b4-MGR0-COPY⟧ 2026-08-29 線F:上面這句的【出處】與【`null` 的意思】都要更新。**
+  //    ~~原本寫「`session/actor.ts:6-7` 自陳:cookie 承載、使用者自選、未驗證」~~ **作廢** ——
+  //    那個座標現在是一段 `⛔ ~~刪節線~~` 的墓碑(B5-a 之後那段被劃掉了)。
+  //    📌 **順著那個行號過去的人,會落在一句【被標成已撤銷】的話上** ——
+  //    要嘛以為這個立場已經不成立,要嘛沒看到刪節線而把一句退役的話當「逐字」引用。
+  //    ⇒ 改引**錨字串**:`session/actor.ts` 的 `getSessionActorWithSource` docstring
+  //      與它的三層說明。**行號會漂,而漂掉的時候零訊號。**
+  //
+  // 🔴🔴 **而更重要的是:`null` 已經不只是「尚未選人」了。**
+  //    `getSessionActorWithSource()` 回的 `source` 有四個值,其中三個都會讓 `actor` 是 `null`:
+  //      · `self-selected` + null ⇒ **真的還沒選**(右上角那顆選單是活的,選了就有)
+  //      · `none`(共用密碼 / 首次建置登入)⇒ **選單選了不會生效**
+  //      · `stale-ticket`(真實身分閘開著而票是舊的)⇒ 同上,選了也不會生效
+  //      · `ticket` + null ⇒ 票上有人, 而那個人現在不在啟用名單裡
+  //    ⇒ D3 對這四種**一律** fail-closed 走 `match_other_actor`,**那是對的、不要改**
+  //      (`lib/orders/cancel-ledger-classifier.ts` 錨 `一律走 match_other_actor`)。
+  //    ⚠️ 而**下游的文案有一格因此變窄**:`cancel-result-panel.tsx` 的 `match_other_actor`
+  //      逐字「也可能是你還沒在右上角選人」—— 在後三種世界裡,**照它做是做白工**。
+  //      🔴 **本片不改那句**:它長在取消/退款動線上(鐵則 12 ①)⇒ 另一片工,已回報。
   const actor = await getSessionActor();
   const [
     detailSettled,

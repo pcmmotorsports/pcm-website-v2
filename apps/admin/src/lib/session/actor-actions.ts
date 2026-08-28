@@ -10,6 +10,19 @@ import { ACTOR_COOKIE, ACTOR_ID_FIELD } from './actor';
 
 // M-4a M0-S2「選人」server action(PRD §6.1 最小具名身分)。
 // 🔴 使用者自行選擇 / 非授權邊界(見 session/actor.ts);真實身分驗證接上後退場。
+//
+// 🔴🔴 **⟦b4-MGR0-COPY⟧ 2026-08-29 線F:上面那句今天仍然為真,而它【不再是全部】。**
+//    B5-a 之後身分**依票而定**(`session/actor.ts` 錨 `getSessionActorWithSource` 的三層)——
+//    這支 action 本身沒變(它永遠只寫那顆自選 cookie),**變的是【有沒有人會去讀它】**。
+//
+// 🔴 **而這裡有一個【寫得成功而完全沒有效果】的世界,值得寫在本檔而不是只寫在讀取端**:
+//    `source` 是 `none`(共用密碼 / 首次建置登入)或 `stale-ticket`(真實身分閘開著而票是舊的)時,
+//    讀取端在**更上游**就回 `null` 了 ⇒ **`ACTOR_COOKIE` 一個字都不會被讀。**
+//    ⇒ 而下面這支照樣 `store.set(...)` + `revalidatePath('/')` ⇒ **回傳成功、畫面照刷新**
+//      ⇒ 📌 **員工按下去看起來就像成功了, 而他的身分一個字都沒變。**
+//    ⚠️ **本片刻意【不在這裡擋】** —— 在 action 裡擋等於改行為(而且要它自己再算一次三層);
+//      首頁那兩個世界的文案已經明說「選了不會生效」(`app/page.tsx` 錨 `ACTOR_SOURCE_COPY`)。
+//      **要不要把那顆選單停用是 UI 決策 ⇒ Sean 的地盤**,已進累積表 `Q-PICKER-DEAD`。
 
 /**
  * 選具名身分並寫進 session cookie。
