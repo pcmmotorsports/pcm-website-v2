@@ -84,7 +84,12 @@ export const CRON_JOB_WHITELIST = [
   { jobName: 'pcm-anomaly-alert', label: '異常告警', schedule: '0 1 * * *', staleMinutes: 26 * 60, wiredAt: '片1' },
   { jobName: 'pcm-capture-recheck', label: '請款重查', schedule: '*/10 * * * *', staleMinutes: 30, wiredAt: '片1' },
   { jobName: 'pcm-email-sweep', label: '寄信佇列', schedule: '*/5 * * * *', staleMinutes: 15, wiredAt: '片1' },
-  { jobName: 'pcm-expire-unpaid-orders', label: '逾期未付款自動取消', schedule: '0 * * * *', staleMinutes: 180, wiredAt: '片2(未落地)' },
+  // 🔴 `wiredAt` 帶【憑證】不帶【狀態形容詞】——「已落地」與「未落地」都會過期,而 commit hash 不會。
+  //    自己數:`git merge-base --is-ancestor 02c30044 origin/dev`(rc=0 ⇒ 在遠端分支上)
+  //    ⚠️ 而「在 dev 上」≠「已 apply 到正式庫」:後者查 `supabase/APPLIED.tsv`,
+  //       而那本帳 2026-08-25 起停更 ⇒ **缺一列讀不出是「還沒 apply」還是「帳停更」**
+  //       (兩個世界印同一個空格;見 `docs/patterns/guard-and-instrument-traps.md` ⑩-l)
+  { jobName: 'pcm-expire-unpaid-orders', label: '逾期未付款自動取消', schedule: '0 * * * *', staleMinutes: 180, wiredAt: '片2 02c30044 / 20260828060000_m4b_b4cron6_expire_unpaid_orders_heartbeat.sql' },
   { jobName: 'pcm-order-ineligible-gate', label: '訂單不可售閘', schedule: '*/2 * * * *', staleMinutes: 6, wiredAt: '片1' },
   { jobName: 'pcm-settle-sweep', label: '結帳掃描', schedule: '*/2 * * * *', staleMinutes: 6, wiredAt: '片1' },
 ] as const;
@@ -99,6 +104,16 @@ export const CRON_JOB_WHITELIST = [
  * 📌 **而一個永遠是 0 的失敗計數,在儀表上跟「一直很健康」長得一模一樣**,
  *    而它正好是唯一一支**碰錢**(訂單自動取消)的。
  * (完整論證與被否決的兩條替代路:`~/pcm-mailbox/線D-plan-片2-expire心跳-20260828.md` §3。)
+ *
+ * 🔴 **而「拋錯」不是唯一那條路,還有一條連 plpgsql 都攔不住的**:
+ * `EXCEPTION WHEN OTHERS` **抓不到 `57014`(查詢被取消 / statement_timeout)** ——
+ * 那不是一個可以被 handler 接住的例外,它直接中止整個交易。
+ * ⇒ 所以就算把心跳寫進 `EXCEPTION` 區塊,逾時那條路一樣寫不出東西。
+ *
+ * ⇒ ⇒ **這一支的判別力只剩一個方向:它只會因為【太久沒成功】紅,不會因為【失敗】紅。**
+ *    對外報 `null`(見 {@link FAILURE_COUNT_MEANINGLESS})而不是 0 ——
+ *    📌 **報 0 等於宣稱「量過了,零失敗」;報 `null` 是宣稱「這一格我量不到」。**
+ *    這兩句在畫面上必須長不一樣,否則儀表會替一個量不到的世界背書。
  */
 export const FAILURE_COUNT_MEANINGLESS: ReadonlySet<string> = new Set(['pcm-expire-unpaid-orders']);
 
