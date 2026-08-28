@@ -78,13 +78,14 @@ import { getHeartbeatStore, type HeartbeatStore } from './composition';
 //
 // 🔴🔴 **而「catch 住」擋不住【平台把整個函式砍掉】那一種**(R1 I1)。
 //    五支 route 的預算是滿的:`email-sweep/route.ts` 把 `maxRunSeconds: maxDuration`(60)**整份**
-//    交給 sweep;`settle-sweep/route.ts:66` 自陳「單輪最壞 ≈50s / 真餘量 ~10s」。
+//    交給 sweep;`settle-sweep/route.ts:69-71` 自陳「單輪最壞 ≈50s / 真餘量 ~10s」
+//    (⚠️ 原本寫 `:66` —— codex R2 實查那一行是空的,行號錯,已改)。
 //    ⇒ 心跳排在**最後一步**,而**平台 kill 不可 catch**
 //    ⇒ **一輪真的做完了、而心跳沒寫進去** ⇒ 讀取端報「沒心跳」⇒ **假陽性告警**。
 //    📌 那正是 `#231` migration 檔頭稱為**「自我擊敗」**的那一格:一個為了消除假陰性而建的東西,
 //       變成假陽性的來源。**今晚已經擋掉它的一種形態(預設參數),這是第二種。**
 //    ⇒ 處置:{@link HEARTBEAT_MAX_MS} 硬上界(形狀抄 `settle-sweep/route.ts:216-233` 的
-//      `Promise.race` + budget,不自創第二種寫法)。
+//      `Promise.race` + budget,不自創第二種寫法;⚠️ 原寫 `:216-233`,而 timer 那段到 `:237` 才結束)。
 //    ⚠️ **上界只縮小窗口,不消滅它** —— route 在心跳【開始之前】就被 kill 的那一段,本檔照樣看不到。
 //      **這句不得在下游被讀成「已解決」。**
 // ✅ **而靜默 catch 在這裡是可以接受的,理由要寫出來**:寫不進去 ⇒ 那一列不會前進
@@ -114,6 +115,24 @@ import { getHeartbeatStore, type HeartbeatStore } from './composition';
  *    也自陳是估的。要改先去量一次 upsert 的真實耗時,不要憑感覺調。
  */
 export const HEARTBEAT_MAX_MS = 2_000;
+
+/**
+ * 🔴🔴 **DB 與外部訊號【各自的】預算,加起來仍是 `HEARTBEAT_MAX_MS`**
+ * (2026-08-28 R1 code-reviewer MF1 —— 它讓這一片失去了存在的理由,所以這段寫長)。
+ *
+ * **原本兩發共用同一個 `deadlineAt`。實測**:`store.write` 永不 resolve
+ * ⇒ 逾時之後 ping 拿到 `ms = 0` ⇒ **被那道「預算用完就不送」整發跳過**。
+ * 🔴 **⇒ 而「我們自己的 DB 掛了」正是外部這一側【唯一真正要工作】的那個世界**
+ *    ⇒ **它在那一天是啞的。**
+ * 📌 **一個為了不吃掉別人預算而做的共用,讓兩個訊號在同一個世界裡一起沉默** ——
+ *    而共用的**收益**(最壞不變兩倍)當時寫進了註解,**代價沒有**(R1 nit 7)。
+ *
+ * ⚠️ **兩個數字都沒有量測依據**(`HEARTBEAT_MAX_MS` 檔頭自陳如此,本刀只是把它切開):
+ *    DB 那半是同區一發 upsert;ping 那半是**到境外 `hc-ping.com` 的 HTTPS 來回**,
+ *    **而那個 round trip 沒有人量過**(R1 nit 11)。要調先去量,不要憑感覺。
+ */
+export const HEARTBEAT_DB_MS = 1_200;
+export const HEARTBEAT_PING_MS = HEARTBEAT_MAX_MS - HEARTBEAT_DB_MS; // 800
 
 /**
  * 給一個 promise 套硬上界。逾時回 `'timeout'`,而**底下那發並不會被取消**(JS 沒有那個東西)。
@@ -157,18 +176,158 @@ export const CRON_JOB_NAME = {
 
 export type CronJobName = (typeof CRON_JOB_NAME)[keyof typeof CRON_JOB_NAME];
 
+// ══ 🔴 外部存活訊號(healthchecks.io)—— ⟦b4-CRON6⟧ 片3 ══
+//
+// **為什麼要有第二個地方**:`sweeper_heartbeat` 是**寫進我們自己的 DB**,
+// ⇒ 它答得出「這一輪跑完了」,**答不出「整個站掛了」** —— 站掛了的時候,沒有人去讀那張表。
+// ⇒ healthchecks 那一側是**死人開關**(dead man's switch):**它靠的是我們【不再說話】**。
+//
+// 🔴 **這一片的設計判準:失敗要有一個【人看得到的落點】,而那個落點不在 code 裡。**
+// ```
+// env 沒設 / URL 打錯 / 網路不通 ⇒ 那支 check 停在 'new'
+// 而 'new' 【不會告警】（線D 2026-08-28 用 canary1 量到：從沒被 ping 的 check 永遠不掉下去）
+// ⇒ 【監控沒接上】與【剛建好還沒開始】印同一個字
+// ```
+// ⇒ **所以落點是【上線後的驗收】,不是一行 console.error**:
+//    **部署完當場量五支的 `status`,五支都要從 `'new'` 翻成 `'up'`。**
+// 🔴 **而那道驗收只需要做一次** —— 第一發 ping 成功之後,任何**後來**的失聯
+//    (env 被刪、這一行被拿掉、route 壞掉)都會讓 check 從 `'up'` 掉成 `'down'` ⇒ **它自己會叫**。
+//    ⇒ **唯一的盲窗是「建好」到「第一發 ping」之間,而那一段正好是那道驗收蓋住的。**
+// 📌 **⇒ 一個「還沒開始」的監控與一個「壞掉」的監控,只有在第一發訊號之前分不開。**
+//
+// ⚠️ **刻意不做的**:失敗時打 `/fail` 端點。理由:route 若一直失敗,成功 ping 就不會送出
+//    ⇒ check 照樣會在 grace 之後掉下去 ⇒ **`/fail` 只讓它【更快】,不讓它【變得可能】。**
+//    ⇒ 收益是分鐘級的提前,代價是多一條路要維護 ⇒ 本片不做,明寫在這裡。
+
+/**
+ * 那支 job 的 ping URL:**環境變數名(字面)** 與**當下的值**。
+ *
+ * 🔴🔴 **為什麼是一個字面 `switch`,而不是 `process.env[推導出來的名字]`**
+ *    (2026-08-28:第一版就是動態索引,`pnpm lint` 當場紅 `no-restricted-syntax`):
+ *    ⚠️ **那道規則自己的 message 講的是另一件事**(`eslint.config.js:120-128`:Next 不 inline
+ *       ⇒ client bundle 拿到 `undefined` ⇒ runtime throw)—— **結論相同、理由不同**,
+ *       而下一個人會引這段註解、不會去讀規則(R1 nit 8)⇒ 兩個理由都寫出來。
+ *    **本檔採用的理由**是「**靜態掃描看不出到底讀了哪些 env**」——
+ *    ⇒ 而「哪些 env 是必要的」正是這一片要交給 Sean 的那張清單。
+ *    📌 **那道規則與本片的產出是同一件事的兩面:它逼我把 env 名字寫成字面,
+ *       而寫成字面之後,【那張清單自己就長在這裡】。**
+ *    ⚠️ 明文不繞過(不 `eslint-disable`)—— 繞過的話清單就回到「散在推導裡」那個狀態。
+ *
+ * 🔴 **`switch` 而不是物件字面**:`CronJobName` 是 union ⇒ 少寫一支**編不過**(exhaustive check)。
+ *    物件字面漏一支只會是 `undefined` ⇒ **靜默跳過 ⇒ 那支永遠停在 `'new'`**。
+ *    ⇒ 這一格把一個【靜默的漏】換成一個【編譯期的紅】。
+ *
+ * ⚠️ **在函式裡讀 `process.env`,不是模組層** —— 模組層會在 import 當下定死,
+ *    測試的 `vi.stubEnv` 就改不動它了(而那會讓下面那些格子失去對象)。
+ */
+export function pingTarget(jobName: CronJobName): {
+  envName: string;
+  url: string | undefined;
+  /** 🔴 這一支**設計上就沒有** ping(純 SQL)—— 與「忘了設 env」是兩件事,不可印同一句話(R1 nit 6)。 */
+  notApplicable?: true;
+} {
+  switch (jobName) {
+    case 'pcm-anomaly-alert':
+      return { envName: 'HEALTHCHECKS_PING_URL_PCM_ANOMALY_ALERT', url: process.env.HEALTHCHECKS_PING_URL_PCM_ANOMALY_ALERT };
+    case 'pcm-capture-recheck':
+      return { envName: 'HEALTHCHECKS_PING_URL_PCM_CAPTURE_RECHECK', url: process.env.HEALTHCHECKS_PING_URL_PCM_CAPTURE_RECHECK };
+    case 'pcm-email-sweep':
+      return { envName: 'HEALTHCHECKS_PING_URL_PCM_EMAIL_SWEEP', url: process.env.HEALTHCHECKS_PING_URL_PCM_EMAIL_SWEEP };
+    case 'pcm-order-ineligible-gate':
+      return { envName: 'HEALTHCHECKS_PING_URL_PCM_ORDER_INELIGIBLE_GATE', url: process.env.HEALTHCHECKS_PING_URL_PCM_ORDER_INELIGIBLE_GATE };
+    case 'pcm-settle-sweep':
+      return { envName: 'HEALTHCHECKS_PING_URL_PCM_SETTLE_SWEEP', url: process.env.HEALTHCHECKS_PING_URL_PCM_SETTLE_SWEEP };
+    case 'pcm-expire-unpaid-orders':
+      // 🔴 這一支**不走本檔**(純 SQL,見 `CRON_JOB_NAME` 那段)⇒ 沒有 env,也不該有。
+      // ⛔ ~~「它的 ping 要走 `pcm_cron.invoke_cron_route` 那個形狀」~~ **已作廢**(codex 2026-08-28):
+      //    那支 job 的 migration 逐字寫「本 job 是純 SQL、不經 HTTP ⇒ **不需要**
+      //    `pcm_cron.invoke_cron_route` 那層 wrapper、也不依賴 Vault secret」
+      //    (`20260809170000_m4b_lifecycle_l3b_expire_unpaid_orders_schedule.sql:17`)
+      //    ⇒ **我那句與 repo 事實直接相反**,而它是一句【下一個人會照著做】的設計處方。
+      //    ⇒ 只留事實:**這一支現在不 ping,而它要不要 ping 是另一片的題目。**
+      return { envName: '(不適用:純 SQL job)', url: undefined, notApplicable: true };
+  }
+}
+
+/** ping URL 只接受這個前綴。**env 是可以被改的東西,而這一行讓它改不成「叫我方伺服器去打任意網址」。** */
+const PING_URL_PREFIX = 'https://hc-ping.com/';
+
+/**
+ * 送一發「我還活著」。**永不拋、永不讓 route 紅** —— 它是監控,不是工作。
+ *
+ * 🔴 吃**同一個** `deadlineAt`(不是另外給 2 秒)⇒ 整支 `recordHeartbeatSuccess` 的最壞
+ *    仍然是 `HEARTBEAT_MAX_MS`,不是它的倍數。理由同 `withCap` 那段(codex R1 finding 3)。
+ * ⚠️ ping URL 是**那支 check 的寫入憑證** —— 拿到的人可以送假的「我還活著」,而面板上看不出差別
+ *    ⇒ 只進 env、**不進 log、不進 commit body、不進任何訊息**(下面只印變數名,不印值)。
+ */
+export async function pingExternalHeartbeat(
+  jobName: CronJobName,
+  deadlineAt: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  try {
+    const { envName, url, notApplicable } = pingTarget(jobName);
+    if (notApplicable) {
+      // 🔴 **不出聲** —— 這一支本來就不該有 ping。印「未設」會是一句**永遠為假的告警**(R1 nit 6),
+      //    而一句永遠為假的告警會讓下一個人去「補上」那個 env ⇒ 做出一支永遠不會說話的 check。
+      return;
+    }
+    if (!url) {
+      // 🔴 只印【變數名】不印值;而這一行不是那個「落點」—— 落點是上線後那道驗收(見上)。
+      console.error(`[heartbeat] ${jobName} 外部存活訊號未接上:${envName} 未設 ⇒ 該 check 會停在 new`);
+      return;
+    }
+    if (!url.startsWith(PING_URL_PREFIX)) {
+      console.error(`[heartbeat] ${jobName} 的 ${envName} 不是 ${PING_URL_PREFIX} 開頭 ⇒ 拒送出`);
+      return;
+    }
+    const ms = Math.max(0, deadlineAt - Date.now());
+    if (ms === 0) {
+      console.error(`[heartbeat] ${jobName} 外部存活訊號:預算已用完,這一輪不送`);
+      return;
+    }
+    const res = await fetchImpl(url, { method: 'GET', signal: AbortSignal.timeout(ms) });
+    // 🔴 **非 2xx 也要出聲** —— 否則「送出去了」與「送到一個 404」印同一個安靜。
+    if (!res.ok) console.error(`[heartbeat] ${jobName} 外部存活訊號回 ${res.status}`);
+  } catch (err) {
+    // 逾時 / DNS / 網路 —— 全部吃掉。**監控不得把被監控的弄死。**
+    // 🔴🔴 **不得把原始 `err` 交出去**(codex 2026-08-28 must-fix):`fetch` 拋的錯
+    //    **可能在 message / cause 裡夾帶完整的 request URL**,而那個 URL 就是那支 check 的
+    //    **寫入憑證**(拿到的人可以送假的「我還活著」)。
+    //    ⇒ `console.error(msg, err)` 是把整顆物件交給平台序列化 ⇒ 憑證進 log。
+    //    📌 **一個為了好除錯而印出來的錯誤物件,與一次憑證外洩,長得一模一樣。**
+    //    ⇒ 只印**分類名**(`err.name`),不印 message、不印 cause、不印整顆物件。
+    const kind = err instanceof Error ? err.name : typeof err;
+    console.error(`[heartbeat] ${jobName} 外部存活訊號送出失敗(${kind})`);
+  }
+}
+
 /** 這一輪真的做完了。`last_success_at` 前進、失敗計數歸零。 */
 export async function recordHeartbeatSuccess(
   jobName: CronJobName,
   store?: HeartbeatStore,
+  pingImpl: typeof pingExternalHeartbeat = pingExternalHeartbeat,
 ): Promise<void> {
+  // 🔴🔴 **整支函式的起點,而它是【總預算】的錨**(codex R2 must-fix 3):
+  //    上一版把 ping 的截止寫成 `Date.now() + HEARTBEAT_PING_MS`(在 DB 之後才算)
+  //    ⇒ **註解說「最壞仍 2000ms」而實作不保證** —— timer 延遲時整支的 wall-clock 會超過。
+  //    ⇒ 改成 `min(startedAt + 總預算, 現在 + ping 預算)`:**兩個上界同時成立**。
+  const startedAt = Date.now();
+
+  // ══ 🔴🔴 DB 那一半【自己一個 try】—— 它的任何失敗都不得跳過下面那發 ping ══
+  //    (codex R2 must-fix 1):上一版兩件事在同一個 try 裡,而 `store.write()` **直接 reject**
+  //    (DNS / 連線中斷)⇒ `await` 往外拋 ⇒ **跳過 ping** ⇒ **DB 與外部監控同時沉默**。
+  //    📌 那與 R1 MF1 是**同一個病的第二條路**:R1 那條是【逾時】,這條是【立刻 reject】——
+  //       而我上一版只把逾時那條修好了,**因為我補的測試只餵了不 resolve 的那種**。
+  //    ⇒ **控制流隔離**才是修法,不是再補一個 catch。
   try {
     // 🔴 `new Date().toISOString()` **在 try 裡面**(codex R1 finding 6):它會拋
     //    (`RangeError: Invalid time value`,或有人替換掉 `Date`)⇒ 放在外面就繞過了本函式的 catch
     //    ⇒ 例外冒到 route ⇒ 又是一次「監控把被監控的弄死」。
     const nowIso = new Date().toISOString();
-    // 🔴 **整支函式共用一個截止時刻**(finding 3):不是每一發各給 HEARTBEAT_MAX_MS。
-    const deadlineAt = Date.now() + HEARTBEAT_MAX_MS;
+    // 🔴 DB 那發吃【自己的】預算(R1 MF1)。
+    //    ⚠️ 失敗那一支(`recordHeartbeatFailure`)【不動】—— 它不 ping,沒有理由縮它的預算。
+    const deadlineAt = startedAt + HEARTBEAT_DB_MS;
     // 🔴🔴 **`getHeartbeatStore()` 必須在 try 【裡面】呼叫,不能寫成預設參數。**
     //    預設參數在**函式本體之前**求值 ⇒ 它拋的時候 **`catch` 接不到** ⇒ 例外冒到 route,
     //    而那幾支 route 的 catch 會把它變成 **503** ⇒ **一輪明明做完了的 sweeper 被心跳弄成失敗。**
@@ -182,11 +341,27 @@ export async function recordHeartbeatSuccess(
       deadlineAt,
       (e) => console.error(`[heartbeat] ${jobName} 成功心跳逾時後才失敗`, e),
     );
-    if (r === 'timeout') console.error(`[heartbeat] ${jobName} 成功心跳寫入逾時(${HEARTBEAT_MAX_MS}ms)`);
+    // 🔴 印的是【DB 那一半的預算】不是總預算(codex nit):印 2000 會讓事故判讀誤認 DB 吃光了整體。
+    if (r === 'timeout') console.error(`[heartbeat] ${jobName} 成功心跳寫入逾時(${HEARTBEAT_DB_MS}ms)`);
     else if (r.error) console.error(`[heartbeat] ${jobName} 成功心跳寫入失敗`, r.error);
   } catch (err) {
     // transport 層 reject(網路斷 / DNS)也吃掉 —— 見檔頭「不往上拋」。
     console.error(`[heartbeat] ${jobName} 成功心跳寫入拋錯`, err);
+  }
+
+  // ══ 🔴🔴 外部訊號:**不管上面發生什麼都會跑到這裡** ══
+  //    DB 那一發答「這一輪的結果有沒有記下來」;這一發答「這一輪有沒有跑」。
+  //    ⇒ DB 掛掉而 route 有跑 ⇒ 兩邊會**不一致**,而那個不一致本身就是資訊,不是要被抹平的東西。
+  //    ⚠️ 三種 DB 結局(成功 / 回錯 / 逾時)**加上第四種:直接 reject** —— 四種都會走到這裡。
+  //       上一版把它放在同一個 try 的末行 ⇒ 第四種會跳過它(codex R2)。
+  try {
+    // 🔴 **兩個上界同時成立**:總預算不得超過 `HEARTBEAT_MAX_MS`,
+    //    而 ping 自己也不吃超過 `HEARTBEAT_PING_MS`(DB 快的時候不因此變寬)。
+    await pingImpl(jobName, Math.min(startedAt + HEARTBEAT_MAX_MS, Date.now() + HEARTBEAT_PING_MS));
+  } catch (err) {
+    // `pingExternalHeartbeat` 自己永不拋;但**注入的替身可能拋** ⇒ 這一層是給測試與未來的呼叫端的。
+    const kind = err instanceof Error ? err.name : typeof err;
+    console.error(`[heartbeat] ${jobName} 外部存活訊號那一層自己拋了(${kind})`);
   }
 }
 
