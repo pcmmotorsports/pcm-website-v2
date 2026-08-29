@@ -51,7 +51,13 @@
   closed_table 不 GRANT               ⇒ HTTP 401，且內容沒有洩出
   zzz_never_exists（負對照）           ⇒ HTTP 404（不是 200）
 
-✅ 連跑兩發：PASS=9 FAIL=0 / PASS=9 FAIL=0，兩發 HTTP 碼完全相同
+🔵 第三個世界（2026-08-30 加，-b4 指出我把推論寫成量測之後補的）：
+  rls_table    GRANT SELECT TO anon + RLS 開著且無 policy ⇒ 200 而【零列】
+               關掉 RLS ⇒ 資料出來了，而【ACL 一格都沒有動】
+  ⇒ ⇒ 這一發實證了「用目錄推論可達性」那八條反例的其中一條（1/8）
+  🛑 其餘 7 條仍是【機制推論，未逐條餵給它看】
+
+✅ 連跑兩發：PASS=11 FAIL=0，兩發 HTTP 碼完全相同
 🔴 突變（在【複本】上把那行 GRANT 拿掉）⇒ PASS=7 FAIL=2 ⇒ 它【真的會紅】
 ✅ 突變後原檔未被動到（GRANT 那行仍在，命中 1）
 ```

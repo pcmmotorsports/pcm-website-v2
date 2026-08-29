@@ -70,6 +70,15 @@ INSERT INTO public.open_table   VALUES (1, 'visible');
 INSERT INTO public.closed_table VALUES (1, 'must-not-leak');
 GRANT USAGE ON SCHEMA public TO anon;
 GRANT SELECT ON public.open_table TO anon;
+
+-- 🔴 第三個世界:【ACL 一格不動,而可達性會變】的那一族
+--    rls_table 有 GRANT SELECT TO anon,而 RLS 開著且【沒有任何 policy】
+--    ⇒ 200 但零列。之後關掉 RLS ⇒ 同一個 ACL,而資料出來了。
+--    ⇒ ⇒ 這一發就是「用目錄推論可達性」那八條反例的其中一條，實測版。
+CREATE TABLE public.rls_table (id int primary key, payload text);
+INSERT INTO public.rls_table VALUES (1, 'rls-guarded-row');
+GRANT SELECT ON public.rls_table TO anon;
+ALTER TABLE public.rls_table ENABLE ROW LEVEL SECURITY;
 SQL
 RC=$?
 [ "$RC" -eq 0 ] || { say "🔴 seed rc=$RC ⇒ ENV-FAIL;log 在 $S/seed.log"; KEEP=1; exit 2; }
@@ -100,6 +109,29 @@ if [ "$CLOSED_CODE" = "200" ]; then bad "沒開的表卻回 200 ⇒ 這把尺【
 say '══ 5. 內容也要比，不能只比狀態碼'
 if grep -q '"id"' "$S/open.json" 2>/dev/null; then ok "open_table 真的回了資料列"; else bad "open_table 回 200 而沒有資料 ⇒ 200 不等於讀得到"; fi
 if grep -q 'must-not-leak' "$S/closed.json" 2>/dev/null; then bad "🔴🔴 closed_table 的內容外洩了"; else ok "closed_table 沒有洩出內容"; fi
+
+say '══ 6.5 🔴 ACL 一格不動，而可達性變了（八條反例的實測版 1/8）'
+RLS_ON_CODE=$(curl -s -o "$S/rls_on.json" -w '%{http_code}' "http://127.0.0.1:$PR/rls_table?select=id" 2>/dev/null)
+RLS_ON_ROWS=$(grep -c '"id"' "$S/rls_on.json" 2>/dev/null)
+say "  RLS 開著   HTTP $RLS_ON_CODE，資料列 $RLS_ON_ROWS"
+if [ "$RLS_ON_CODE" = "200" ] && [ "$RLS_ON_ROWS" = "0" ]; then
+  ok "RLS 開著 ⇒ 200 而【零列】(這一態不得併進「安全」，表本身是可達的)"
+else
+  bad "RLS 開著時期待 200+0 列，實得 $RLS_ON_CODE + $RLS_ON_ROWS 列"
+fi
+
+psql -h /tmp -p "$PG" -U postgres -d postgres -v ON_ERROR_STOP=1 \
+  -c 'ALTER TABLE public.rls_table DISABLE ROW LEVEL SECURITY;' > "$S/rlsoff.log" 2>&1
+RC=$?
+[ "$RC" -eq 0 ] || { say "🔴 關 RLS 失敗 rc=$RC ⇒ ENV-FAIL"; KEEP=1; exit 2; }
+
+RLS_OFF_CODE=$(curl -s -o "$S/rls_off.json" -w '%{http_code}' "http://127.0.0.1:$PR/rls_table?select=id,payload" 2>/dev/null)
+say "  RLS 關掉後 HTTP $RLS_OFF_CODE"
+if grep -q 'rls-guarded-row' "$S/rls_off.json" 2>/dev/null; then
+  ok "🔴 關掉 RLS 之後【資料真的出來了】—— 而 ACL 一格都沒有動"
+else
+  bad "關掉 RLS 之後仍讀不到 ⇒ 這一發沒有演出那個世界，本格結論作廢"
+fi
 
 say '══ 6. 負對照：一張【根本不存在】的表'
 GHOST=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PR/zzz_never_exists_e9?select=id" 2>/dev/null)
