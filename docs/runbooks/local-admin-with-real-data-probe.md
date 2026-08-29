@@ -962,6 +962,60 @@ const els = [...document.querySelectorAll('input,button')];
 `feedback_assertion-measures-the-wrong-thing`(我量的不是我以為的那個東西)。
 ---
 
+### 9-d 🔴 後台 console 每隔一陣子噴 `401 /api/session/renew` —— **那是這條鏈的必然,不是缺陷**
+
+> **來源:2026-08-29。線I 在後台 console 看到並標「未查」,線D 查完。兩個窗接力,沒有人下錯結論。**
+
+#### 症狀
+
+後台開著,`console` 每隔一陣子出現一條 `401 (Unauthorized) /api/session/renew`。
+⚠️ 它與「session 真的續不了、員工做到一半被登出」**長得一模一樣** —— 而後者正是
+Sean 的後台北極星(員工能獨立跑完一天)最直接的反面 ⇒ 所以它看起來很嚴重。
+
+#### 🔴 判別法(先做這個,再決定要不要查下去)
+
+**看 `401` 之後有沒有【成功的那一發】。**
+
+```
+· 每一次都 401，而 body 都是 {"outcome":"not-active"}  ⇒ 本鏈的必然，見下
+· 401 之後緊接著一個 200                                ⇒ token 輪替，正常
+· 出現 {"outcome":"chain-expired"}，或 401 之後接不上任何 200 ⇒ 【那才要查】
+```
+量法(在後台任一頁的 console)：
+```js
+for (let i=0;i<3;i++){ const r=await fetch('/api/session/renew',{method:'POST'});
+  console.log(r.status, await r.text()); await new Promise(x=>setTimeout(x,800)); }
+```
+⚠️ `GET` 那條會回 `405`(它只收 `POST`)—— 別把 405 讀成壞掉。
+
+#### 成因(碼在哪,當場可核)
+
+```
+apps/admin/src/app/api/session/renew/route.ts:79   devBypass 只放行【origin 檢查】那一格
+apps/admin/src/app/api/session/renew/route.ts:91   payload = verifySession(cookie)
+apps/admin/src/app/api/session/renew/route.ts:98   if (!payload) return json('not-active', 401)
+```
+⇒ **`ADMIN_DEV_BYPASS=1` 讓你【不用登入就進得去後台】,而它【不發票】。**
+⇒ 續期那條路拿不到票 ⇒ 每一次都 `not-active`。
+
+#### ✅ 而正式站走不到這一格(所以那個後果不成立)
+
+該檔自己的註解逐字:「**實務上走不太到這裡:proxy 的登入閘會先把它 303 掉。留著它是因為
+『今天走不到』與『這裡有處理』是兩件事**」。
+⇒ 正式站:沒登入 ⇒ proxy 先 303;有登入 ⇒ 有票 ⇒ `payload` 存在 ⇒ 不會 401。
+
+#### ⚠️ 而【不要用 `document.cookie` 去驗那張票在不在】
+
+那張票是 `httpOnly`(名字見 `lib/session/session.ts:181`,prod 還帶 `__Host-` 前綴)
+⇒ **`document.cookie` 永遠讀不到它** ⇒ 「沒有」與「有而我看不到」在那把尺上是**同一個輸出**。
+
+🔴 **而這一格 2026-08-29 真的騙過一次,連【正對照】都沒擋住**:
+當時我寫了一個測試 cookie 進去、讀得回來 ⇒ 正對照綠 ⇒ 那把尺看起來是活的。
+📌 **正對照只證明【這把尺在某個對象上會叫】,不證明【它看得到我要找的那個對象】。**
+⇒ **正對照要用【與目標同類】的東西** —— 要驗 httpOnly 的票,正對照也得是一個 httpOnly cookie。
+✅ **真正該用的證據是伺服器自己的判決**(`outcome` 那個字串)——
+   那個判斷在 server 端做,**不受我看不看得到影響**。
+
 ## §10 🔴🔴 要證「某個入口有沒有被閘擋住」⇒ **負向對照是【拿掉閘】,不是【換個輸入】**
 
 > 來源:2026-08-18 G6。題目是「一個**沒有登入**的請求,打不打得到 admin 的 server action
