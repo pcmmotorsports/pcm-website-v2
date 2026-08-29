@@ -48,11 +48,23 @@ describe('print-assets:常數必須等於磁碟上的 png', () => {
   });
 
   // ⚠️ 正對照:證明上面那把尺【看得到差異】, 而不是恆真。
-  //    (沒有這一格的話,「兩個常數都對」與「比較根本沒執行」印同一個綠。)
-  it('正對照:把常數改一個字元 ⇒ 上面那個比較必須不相等', () => {
+  // ⛔ ~~原版寫成 `expect(tampered).not.toBe(real)`~~ 🛑 **2026-08-29 code-reviewer 抓到:**
+  //    **那一格從頭到尾沒有引用 `LOGO_DATA_URI`, 也沒有跑任何比較 —— 它在測 `String.slice`。**
+  //    📌 而它上面那句註解宣稱「沒有這一格的話,『兩個常數都對』與『比較根本沒執行』印同一個綠」
+  //       ⇒ **那句話不成立**:它對「比較根本沒執行」一樣失明。
+  //    ✅ 改法:把 tampered 餵進【與真斷言同一個形狀的比較】, 而且左邊必須是【那個常數本身】。
+  // ⚠️ 另一格 reviewer 抓到的:原本的 tampered 是動最後一個字元,
+  //    而 base64 結尾是 `A=` / `BA` 這類組合時它會【等於 real】⇒ 換一張圖之後可能無故紅。
+  //    ⇒ 改成動一個固定的中間位置, 並當場斷言它真的不同。
+  it('正對照:拿一個【改過的】base64 去餵同一個比較 ⇒ 必須不相等', () => {
     const raw = readFileSync(join(PUBLIC_PRINT, 'logo-p2-bicolor.png'));
     const real = raw.toString('base64');
-    const tampered = `${real.slice(0, -2)}${real.slice(-1) === 'A' ? 'B' : 'A'}${real.slice(-1)}`;
-    expect(tampered).not.toBe(real);
+    const i = 10;
+    const tampered = `${real.slice(0, i)}${real[i] === 'A' ? 'B' : 'A'}${real.slice(i + 1)}`;
+    expect(tampered, '突變沒改到東西 ⇒ 本格作廢').not.toBe(real);
+    // 🔴 這一行才是正對照的本體:左邊是【真的常數】, 比較是【與上面那格同一個】。
+    expect(LOGO_DATA_URI.slice(PREFIX.length)).not.toBe(tampered);
+    // 而反面:沒改過的必須相等 —— 兩句一起才說得出「這把尺分得出 same/diff 兩個世界」。
+    expect(LOGO_DATA_URI.slice(PREFIX.length)).toBe(real);
   });
 });

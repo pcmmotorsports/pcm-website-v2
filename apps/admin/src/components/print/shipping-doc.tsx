@@ -1043,8 +1043,13 @@ export function ShippingDoc({
           <div className='pd-bottom'>
             <div className='pd-foot'>
               <section className='pd-contact'>
-                {/* 🔴 同 LOGO 那段:伺服器渲染路上這張 QR 也是 100% 被 303(`proxy.ts:80`)。
-                    ⚠️ 而 QR 缺了比 LOGO 貴:客人**掃不到**就聯絡不上,而紙上看起來只是少一塊。 */}
+                {/* ⛔ ~~🔴 同 LOGO 那段:伺服器渲染路上這張 QR 也是 100% 被 303(`proxy.ts:80`)。~~
+                    ✅ **2026-08-29 已修(線A):`src` 改成 `QR_DATA_URI`** ⇒ 上面那句不再成立。
+                    🔴 **而劃線不刪的是【後果那半】, 它沒有過期**:
+                    ⚠️ **QR 缺了比 LOGO 貴:客人掃不到就聯絡不上, 而紙上看起來只是少一塊。**
+                    ⇒ 那句話說明的是「為什麼這一格值得裝守門」, 而守門在 `page.test.tsx`。
+                    ⚠️ 而原句裡的 `proxy.ts:80` **行號已漂到 `:84`**(該檔 85 行)——
+                    ⇒ 這正是「同一支檔裡引別的檔的行號也會漂」的實例, 已交下手窗排 backlog。 */}
                 {/* 🔴 `src` 是內嵌常數, 不是 `/print/line-qr.png` —— 那個網址走 `proxy.ts`
                     的登入閘, 沒有 cookie 的請求(伺服器渲染出圖)會被 303, 而症狀是
                     【圖不見了, 不是錯誤】。否決過的三案與理由見 `./print-assets.ts` 檔頭。 */}

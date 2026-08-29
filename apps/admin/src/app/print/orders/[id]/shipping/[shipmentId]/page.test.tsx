@@ -582,8 +582,12 @@ describe('#10 片2b — 版面', () => {
     //       正本 `docs/patterns/guard-and-instrument-traps.md`「偵測字串自命中」。
     // 🔴 2026-08-29 A3-1'a:LOGO 那顆 `<img>` 搬到 `components/print/print-masthead.tsx`
     //    ⇒ 只讀 shipping-doc 的話,這道守門對 LOGO 【失明而印綠】
-    //      (正對照 `src='/print/line-qr.png'` 仍在 shipping-doc ⇒ 它會繼續證明「檔沒讀空」,
-    //       而那個綠已經與 LOGO 無關)。⇒ 兩支一起讀。
+    // ⛔ ~~(正對照 `src='/print/line-qr.png'` 仍在 shipping-doc ⇒ 它會繼續證明「檔沒讀空」)~~
+    //    🛑 **2026-08-29 code-reviewer 抓到:那個字面已經不在了** ——
+    //       本片把它換成 `src={QR_DATA_URI}`, 而舊字面只剩註解、又被同格的 `strip()` 剝掉。
+    //    ✅ 現行正對照的字面是 `src={QR_DATA_URI}` / `src={LOGO_DATA_URI}`(見下),
+    //       **性質不變**:仍各自證明那一支檔真的被讀進來了。
+    //    📌 ⇒ 改了字面而沒改描述它的那句話 = 這支檔開始對自己說謊。⇒ 兩支一起讀。
     const strip = (f: string) =>
       readFileSync(join(SRC, f), 'utf8')
         .replace(/\/\*[\s\S]*?\*\//g, '')

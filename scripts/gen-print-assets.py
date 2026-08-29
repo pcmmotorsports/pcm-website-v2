@@ -38,6 +38,19 @@ HEADER = """// 🔴🔴 **這支檔是【產生出來的】—— 不要手改�
 //   那個請求【沒有任何人的 cookie】⇒ 必然拿不到。
 // 🔴 而症狀是【圖不見了, 不是錯誤】—— 不報錯、三綠全綠(那兩顆 `<img>` 的 onError ⇒ 0)。
 //
+// ⚠️ **來源標記(2026-08-29 code-reviewer 抓到, §6-b「量到 vs 推出」)**:
+//   · **量到的**:那兩顆 `<img>` 的 `onError` 命中 **0**(負對照 `className` ⇒ 144)
+//     ⇒ 它證的是【拿不到圖時不會有東西叫】, **不是**【圖真的被 303 了】。
+//   · **推出的(未複量)**:「沒有 cookie 的請求會被 303 / 必然拿不到」——
+//     來源是下手窗 `-c8` 的一發量測 + 我讀 `proxy.ts` 的 matcher 與登入閘。
+//     🔴 我自己那一發【沒跑成】:dev server 被 dev-db-guard 擋住, 五個路徑全印 `HTTP 000`
+//        (連對照組也是)⇒ 那一發整個作廢, 不是證據。
+//   · **缺哪一道檢查**:在一個【沒有 cookie 的請求】上實際拿到 303 —— 走
+//     `scripts/admin-probe/up.sh`。⚠️ 而那支 probe 用 `ADMIN_DEV_BYPASS=1` ⇒ 登入閘是關的
+//     ⇒ **它量不到這一格**;要量得換一條不 bypass 的路。
+//   ✅ **而這一格【不改變本片的結論】**:圖改成內嵌常數之後, 它不再發出任何請求
+//     ⇒ 303 成不成立都與它無關。⇒ 這是「修法比病因更確定」的一種。
+//
 // ⛔ **考慮過而【否決】的三案, 留著免得下一個人重新發明**:
 //   · 在 `proxy.ts` matcher 排除 `print/`
 //     🛑 而【列印頁本身的網址也是 /print/…】(`/print/orders/<id>/shipping/<sid>`)
@@ -51,6 +64,8 @@ HEADER = """// 🔴🔴 **這支檔是【產生出來的】—— 不要手改�
 //   · server component 用 `fs.readFileSync` 讀 `public/`
 //     🛑 它靠 Vercel 的 file tracing 把那兩個 png 追進容器 ⇒ **而本機永遠量不到那一格**
 //        (本機 `public/` 一定在)⇒ 那是同一個母題:【本機有的東西, 容器沒有】。
+//        ⚠️ 「本機永遠量不到」是**推的**:我沒有構造出一個本機缺檔的世界去證明它。
+//        而它成立的理由是結構性的(本機跑的就是這棵樹), 不是量出來的。
 //     📌 D 在它自己的層次上是對的(消掉了 HTTP 那一格), 而**病搬家了** ——
 //        搬到一個更不容易量的地方。
 //
@@ -98,7 +113,23 @@ def self_check() -> None:
         SRC[:] = saved
         raise SystemExit('🛑 負對照失敗:來源不存在竟然產得出來 ⇒ 本腳本不可信')
     SRC[:] = saved
-    print('  ✅ 自檢兩格都過')
+
+    # 🔴 第三格(2026-08-29 code-reviewer 抓到的缺口):
+    #    前兩格從頭到尾【沒有讀過 OUT】⇒ 「產生器改了而 .ts 沒重產」沒有任何人會叫。
+    #    (而 package.json 那行白名單的 key 是這支 .py ⇒ 只有動這支才跑 ——
+    #     換 png 不會觸發它, 那一格由 print-assets.test.ts 守, 不是由這裡守。)
+    try:
+        on_disk = io.open(OUT, encoding='utf-8').read()
+    except FileNotFoundError:
+        raise SystemExit(f'🛑 {OUT} 不存在 ⇒ 跑 python3 scripts/gen-print-assets.py 產生它')
+    if on_disk != ok:
+        raise SystemExit(
+            '🛑 磁碟上的 print-assets.ts 與本腳本現在會產出的【不一樣】\n'
+            f'   磁碟 {len(on_disk)} 字元 · 現在會產 {len(ok)} 字元\n'
+            '   ⇒ 改法:python3 scripts/gen-print-assets.py(然後把它一起 commit)'
+        )
+    print(f'  ✅ 第三格:磁碟上的 .ts 與本腳本產出逐字相同({len(ok)} 字元)')
+    print('  ✅ 自檢三格都過')
 
 
 if __name__ == '__main__':
