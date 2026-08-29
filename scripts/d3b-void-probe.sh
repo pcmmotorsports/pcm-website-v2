@@ -33,12 +33,22 @@ U="postgresql://postgres@127.0.0.1:$P/postgres"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MIG_A="$ROOT/supabase/migrations/20260820090000_m4b_e10_d3a_manual_refund_void_columns.sql"
 MIG_B="$ROOT/supabase/migrations/20260820100000_m4b_e10_d3b_void_manual_refund.sql"
+# 🔴🔴 **2026-08-30 線A `-e9` 加(D3-d 帳不塗改;R3 對抗審查 F2)**:
+#    D3-d 在 `order_manual_refunds` 掛了一支 BEFORE UPDATE trigger(帳體九欄不可變 / 作廢是終態),
+#    而**這支 RPC 是全 repo 唯一會 UPDATE 那張表的呼叫端**。
+#    ⇒ 在此之前,**「真 RPC × 新 trigger」這一格是空的**:
+#      · 本檔套了真 RPC 而**沒有** D3-d ⇒ 它量不到 trigger 會不會擋它
+#      · `scripts/d3d-immutable-verify.sh` 有 D3-d 而作廢那一發是**手打的替身 SQL** ⇒ 量的不是真 RPC
+#    📌 **兩支各自全綠, 而它們的分母【加起來】仍然漏掉中間那一格。**
+#      失敗情境:日後有人在 `20260820100000:358-362` 的 SET 清單多加一欄(例如 updated_at)
+#      ⇒ 正式庫的作廢當場 P2B45 全滅, 而**兩支 harness 都不會紅**。
+MIG_D3D="$ROOT/supabase/migrations/20260830050000_m4b_e10_d3d_manual_refund_immutable.sql"
 q(){ psql "$U" -tAX -c "$1" 2>&1; }
 PASS=0; FAIL=0
 ok(){ PASS=$((PASS+1)); printf '  ok    %s\n' "$1"; }
 bad(){ FAIL=$((FAIL+1)); printf '  FAIL  %s\n' "$1"; }
 
-for m in "$MIG_A" "$MIG_B"; do
+for m in "$MIG_A" "$MIG_B" "$MIG_D3D"; do
   test -f "$m" || { echo "🔴 找不到 $m;拒跑"; exit 1; }
 done
 
@@ -54,6 +64,13 @@ q "DO \$\$ BEGIN
      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role; END IF;
      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon; END IF;
      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF;
+     -- 2026-08-30 線A -e9 補:D3-d 的 REVOKE 點名了 authenticator(照 op2b 家法),
+     --    而本檔原本沒建它 ⇒ 套 D3-d 當場報 role authenticator does not exist。
+     --    正式庫有這個角色 —— 少的是本檔的合成前置, 不是 migration 寫錯。
+     --    🔴 這三行刻意不用反引號:整個 DO 區塊住在一個【雙引號 shell 字串】裡,
+     --       反引號會被 bash 當命令替換吃掉(我第一版就是這樣, 畫面上跳出
+     --       'line 71: -e9: command not found' 三行, 而 SQL 仍然跑掉了一部分)。
+     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticator') THEN CREATE ROLE authenticator; END IF;
    END \$\$;" >/dev/null
 q "CREATE FUNCTION public.pcm_b2_is_blank(t text) RETURNS boolean LANGUAGE sql IMMUTABLE
    SET search_path = pg_catalog AS \$fn\$ SELECT pg_catalog.btrim(pg_catalog.translate(COALESCE(t,''),
@@ -100,8 +117,8 @@ q "CREATE FUNCTION public.pcm_order_refundable_remaining(p_order_id uuid) RETURN
        FROM public.orders o
       WHERE o.id = p_order_id \$fn\$;" >/dev/null
 
-echo "── 套用兩支 migration(真檔,不是複製品)──"
-for m in "$MIG_A" "$MIG_B"; do
+echo "── 套用三支 migration(真檔,不是複製品;D3-d 必須排最後 —— 它的欄位分母守門要先有 MIG_A 的三個作廢欄)──"
+for m in "$MIG_A" "$MIG_B" "$MIG_D3D"; do
   if psql "$U" -v ON_ERROR_STOP=1 -f "$m" >$W/apply.txt 2>&1; then
     ok "apply $(basename $m)"
   else bad "apply $(basename $m)"; tail -6 $W/apply.txt; fi

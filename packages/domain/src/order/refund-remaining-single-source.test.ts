@@ -294,6 +294,66 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
       '2026-08-24 R2 抓到的 `UPDATE OF refund_amount` 漏掉復活路徑那個洞，' +
       '本 gate 全綠、三綠也全綠,**唯一叫的是 scripts/866-rail-cap-verify.sh 的 M4**。動這支請跑它。',
   },
+  // ── 2026-08-30 線A `-e9` 補(片 D3-d 帳不塗改;Sean 拍板 Q4=甲、主視窗 `-48` 裁範圍乙)──
+  // 🔴 **這一筆的成因,上一筆的盲點那段【已經預言過了】**:
+  //    它逐字寫著「2026-08-24 R2 抓到的 `UPDATE OF refund_amount` 漏掉**復活路徑**那個洞」——
+  //    而 D3-d 就是去把那條復活路徑關掉的那一片。⇒ 本筆不是新問題,是那句話的下游。
+  '20260830050000_m4b_e10_d3d_manual_refund_immutable.sql': {
+    count: 5,
+    why:
+      // why 要答的是「gate 為什麼對【正確的東西】報紅」,不是「這一筆無害」(照同表體例)。
+      // 本 gate 是文字比對啟發式:它掃 `refund_amount` 這個**欄位字面**,
+      // 而那個字面在**兩張不同的表**上都存在 ——
+      //   `order_refunds.refund_amount`(卡片退款帳本 = 本 gate 要保護的那一張)
+      //   `order_manual_refunds.refund_amount`(現金/匯款登記 = 本片唯一碰的那一張)
+      // ⇒ **報紅的原因是分母裡冒出一支新 migration 提到那個字面,不是有人另算一份餘額。**
+      '片 D3-d:在 order_manual_refunds 掛 BEFORE UPDATE trigger,讓帳體九欄不可變、作廢成終態。' +
+      // ✅ 反面證據(可機械複驗,量法附在括號裡):
+      //    · `order_refunds`  ⇒ **0 次**(本片從頭到尾沒有提過本 gate 要保護的那張表)
+      //    · `SUM(`           ⇒ **0 次**
+      //    · `refundable` / `remaining` / 「已退」/「可退」 ⇒ 各 **0 次**
+      //    ⇒ 本片沒有、也無處自己算一份「已退 / 還能退」。
+      '反面證據(量法 grep -o … | wc -l):order_refunds ⇒ 0、SUM( ⇒ 0、' +
+      'refundable/remaining/已退/可退 ⇒ 各 0 ⇒ 本片零自算餘額,也沒提過本 gate 保護的那張表。' +
+      // 五處分三種(刻意不寫行號 —— 行號會漂,「分三種」這個形狀不會):
+      //   ① 欄位分母陣列裡的一個**字串常量**('refund_amount')
+      //   ② trigger 內的 `NEW.refund_amount IS DISTINCT FROM OLD.refund_amount`(**兩次出現在同一行**)
+      //   ③ COMMENT ON FUNCTION 裡的一段**說明文字**
+      // ⚠️ codex R2 nit #8 更正:那三個不是「三道比較」,是**同一道** `IS DISTINCT FROM` 比較裡的
+      //    三個 token(`NEW.refund_amount` / `OLD.refund_amount` / 回傳的欄名字串)。
+      '五處分三種:欄位分母的字串常量 ×1 / **同一道** IS DISTINCT FROM 比較裡的三個 token / COMMENT 說明 ×1。' +
+      // 🔴 方向:本片對這個欄的作用是**讓它改不動**,與「繞過那支唯一該算它的函式」方向相反。
+      '🔴 方向相反:本片對 refund_amount 的唯一作用是【讓它不可變】(改它 ⇒ P2B45),不是寫它、更不是重算它。' +
+      // 🔴 可證偽(而且限定範圍,不寫成假的可證偽性):
+      //    本片若哪天自己寫 SUM 或引入 order_refunds,count 會離開 5 ⇒ 本 gate 當場紅(逐檔數比對)。
+      //    ⚠️ **而它不涵蓋**「換一個名字自己算一份」的寫法 —— 那族本 gate 本來就掃不到。
+      // 🔴 **codex R2 nit #7 更正:上一版寫「一旦寫 SUM 或引入 order_refunds,count 就離開 5」——**
+      //    **那句話證不到。** 它給的反例可執行:加一行 `SELECT SUM(1) FROM public.order_refunds;`
+      //    ⇒ `refund_amount` 的 count **仍然是 5** ⇒ 本 gate 維持綠。
+      //    ⇒ 本 gate 數的是 `refund_amount` 這個字面, **它與「有沒有 SUM」「有沒有 order_refunds」無關**。
+      '🔴 可證偽(收窄後):本片一旦**多提或少提一次 refund_amount**,count 就不再是 5 ⇒ 本 gate 當場紅。' +
+      '⚠️ 而它**不涵蓋**:寫 SUM、引入 order_refunds、換個名字自己算一份 —— 那三族本 gate 都掃不到' +
+      '(前兩族是 codex R2 給的可執行反例,不是我推測的)。' +
+      // ⚠️ 一格誠實更正:我第一版想寫「零算術符號」,而機械量到 1 —— 那是 COMMENT 裡
+      //    `refund_amount/reason` 的**斜線分隔**,不是除法。⇒ 寫成「零算術」會是一句我證不到的話。
+      '⚠️ 「refund_amount 後接運算子」機械量到 1 處,實查是 COMMENT 裡 `refund_amount/reason` 的斜線分隔、非除法。' +
+      // ⚠️ 盲點(照同表體例寫出來,免得這一筆讀起來像「已審過所以安全」):
+      '⚠️ 盲點:本 gate 不驗行為 —— 「D3-d 的 trigger 觸發面對不對」它答不出來。' +
+      '那一半的證人是 scripts/d3d-immutable-verify.sh(拋棄式 PG,**36 格**含逐欄突變、TRUNCATE 突變、' +
+      '欄位分母突變與量具自檢),而它**不在 CI**。' +
+      // ⚠️ codex R2 nit #9:上一版寫「25 格」—— 那是加 TRUNCATE 節與逐欄突變之前的數字。
+      //    📌 **一個寫死在別的檔裡的格數, 它的失效方式是【我把測試補得更完整】。**
+      '⚠️ 這個格數會隨 harness 增修而過期 —— 以那支自己印的 `結果:PASS=` 為準。' +
+      // 🔴 結構性成因(同表 :169-172 已記):純 .sql 片的三綠不跑 vitest ⇒ 本 gate 對它隱形。
+      // 🔴 **codex R2 nit #10 更正**:上一版寫「本片是純 .sql + .sh」——
+      //    **而我正在改的這支就是 `.ts`** ⇒ 那句話在寫下它的當下就不成立了。
+      //    ✅ 正確的說法是:**觸發本 gate 的那兩支是 .sql + .sh** ⇒ 若我沒有回來補這一筆,
+      //       三綠(typecheck/lint)不跑 vitest ⇒ 這道紅會**在 CI 之外被發現**, 或根本沒被發現。
+      //    📌 而這一次它是**被別的窗跑 greenlight --tests 撈到的**, 不是我自己的三綠叫的。
+      '🔴 觸發本 gate 的那兩支是 .sql + .sh ⇒ 若不回來補這一筆, 三綠(typecheck/lint)不跑 vitest、' +
+      '這道紅不會在本片的三綠裡出現(同表 :169-172 已記的結構性成因, 本片再次示範);' +
+      '本次是別的窗跑 greenlight --tests 撈到的。',
+  },
 };
 
 /** TS 側「自己聚合退款金額」的字樣(啟發式,見檔頭上限 ②)。 */
@@ -462,6 +522,21 @@ describe('「還能退多少」單一算式 gate(#473b-1 機制 2️⃣)', () =>
         `\n若這是刻意的(例如整片被回退),請同步改本 gate,**不要**只把這格刪掉。`,
     ).toBe(true);
 
+    // 🔴🔴 **這裡的 `JOIN`(INNER)是【對的】—— 不要照 view 的 COMMENT 把它改成 LEFT JOIN。**
+    //   `order_refund_effective_verdict` 的 COMMENT 逐字寫著(20260814190000 的 `COMMENT ON VIEW`,
+    //   錨 = 「消費端用 LEFT JOIN、不要用 INNER」):沒有更正過的 refund **不會出現在本 view**
+    //   ⇒ 消費端用 LEFT JOIN、不要用 INNER。
+    //   ✅ 那句話**是對的**,而它是給【要列出全部退款】的消費端的。
+    //   🔴 **而這一段不是那種消費端** —— 它只想加總「**被更正成 `money_moved`**」的那些列,
+    //      本來就該把沒更正過的濾掉 ⇒ **INNER 正是它要的語意。**
+    //   ⇒ 改成 LEFT JOIN 並把述詞搬進 `ON`,沒更正過的列會一起進來 ⇒ **算出來的「還能退」會變小**
+    //     ⇒ 而那是一個【錢】的缺陷,`CHECK` 不會叫、三綠不會紅。
+    //   📌 **一條正確的通則,套在錯的位置上會製造缺陷 —— 而 diff 上它看起來像在遵守規範。**
+    //   ⚠️ 這段警語**刻意寫在這裡、不寫在那支 view 的 COMMENT 旁邊**:那支 migration 已 apply,
+    //     而 `supabase/APPLIED.tsv` 記著它的 sha256 ⇒ **改它會讓那本帳對不上**。
+    //     ⇒ 落點選【會被改動者讀到、而且改得動】的地方(2026-08-30 `-48` 指定要貼在碼旁邊,
+    //       原話是貼在 COMMENT 旁 —— 我沒照字面做,理由就是上面這一格)。
+    //
     // 🔴 只驗 view 名字會讓「`FROM … v` 但沒用到 v」也綠 ⇒ 連述詞一起釘(codex 關卡2)。
     expect(body!, '本體缺「只扣被更正成 money_moved 的那些」述詞').toContain("v.corrected_to = 'money_moved'");
     expect(body!, '本體缺「只吃 failed 列」述詞 ⇒ 可能與第一段 SUM 重複扣').toContain("r.status = 'failed'");

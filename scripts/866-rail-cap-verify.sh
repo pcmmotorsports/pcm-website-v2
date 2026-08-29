@@ -131,6 +131,25 @@ for f in sorted(glob.glob(os.path.join(sys.argv[1], '*.sql'))):
     src = re.sub(r'--[^\n]*', '', src)        # 註解裡的不算
     for m in tgt.finditer(src):
         stmt = m.group(0)
+        # 🔴🔴 **2026-08-30 線A `-e9` 補(是我把這支弄紅的, 由我修)**:
+        #    D3-d(`20260830050000`)加了兩句 `ALTER TABLE … ENABLE ALWAYS TRIGGER …`,
+        #    而本掃描把它們原樣接進 `schema.sql` ⇒ **trigger 還不存在** ⇒ 整份 schema 套不起來
+        #    (`ERROR: trigger "order_manual_refunds_immutable_bu" … does not exist`)。
+        #    ⇒ 本掃描的用途是【重建表的形狀】, 不是重播 trigger 接線 ⇒ 佈線語句要排除。
+        #    📌 **而這一格最值得記的是它的來源**:上面那段註解自誇
+        #      「之後誰再加一支 ALTER, 本檔**自動**跟上, 不必有人記得回來改」——
+        #      而**正是那個自動跟上, 讓一支完全合法的新 ALTER 把它弄紅了**。
+        #      一個為了「不必有人記得」而做的機制, 它的失效方式是【它記得太多】。
+        #    🔴🔴 **而第一版的過濾器【太寬】(codex R2 must-fix #4)**:
+        #      `ALTER TABLE x ADD COLUMN c text, ENABLE TRIGGER foo;` 是合法的一句兩動作,
+        #      舊寫法會把它整句丟掉 ⇒ **連那個欄一起漏, 而 schema 照樣印綠。**
+        #    ⇒ 改成:動作清單每一項都是 ENABLE/DISABLE … TRIGGER 才跳過。
+        _m = re.match(r'\s*ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?\S+\s+(.*);\s*$',
+                      stmt, re.I | re.S)
+        if _m:
+            _acts = [a.strip() for a in _m.group(1).split(',')]
+            if _acts and all(re.match(r'(EN|DIS)ABLE\b.*\bTRIGGER\b', a, re.I) for a in _acts):
+                continue
         # 🔴 RLS 在本 harness 沒有意義(跑的人是 owner),而**留著它才是原文** ——
         #    它不改變任何一格的答案,拿掉它反而是我在替 schema 做判斷。
         print(f"-- from {os.path.basename(f)}")
