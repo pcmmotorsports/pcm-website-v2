@@ -146,6 +146,55 @@ say '══ 6. 負對照：一張【根本不存在】的表'
 GHOST=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PR/zzz_never_exists_e9?select=id" 2>/dev/null)
 if [ "$GHOST" = "200" ]; then bad "不存在的表回 200 ⇒ 這把尺什麼都說看得到"; else ok "不存在的表回 $GHOST（不是 200）"; fi
 
+say '══ 7. 🔴 分母:清單怎麼產生，以及【我餵幾條 vs 它試幾張】'
+# plan §2 那發 SQL —— 機械來源，不是「我們想得到的那幾張」
+LIST=$(psql -h /tmp -p "$PG" -U postgres -d postgres -tA -c \
+  "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+   WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f') ORDER BY 1;" 2>"$S/list.err")
+RC=$?
+if [ "$RC" -ne 0 ]; then say "🔴 分母 SQL rc=$RC ⇒ ENV-FAIL;err 在 $S/list.err"; KEEP=1; exit 2; fi
+
+FED=$(printf '%s\n' "$LIST" | grep -c .)
+say "  清單（我餵幾條）= $FED"
+printf '%s\n' "$LIST" | sed 's/^/    · /'
+
+TRIED=0
+while IFS= read -r t; do
+  [ -n "$t" ] || continue
+  code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PR/$t?select=*&limit=1" 2>/dev/null)
+  crc=$?
+  # 🔴 curl 自己失敗（rc≠0 或 000）⇒ 那不是「試過了」，是「沒試成」⇒ 不計入 TRIED
+  if [ "$crc" -eq 0 ] && [ "$code" != "000" ]; then
+    TRIED=$((TRIED+1))
+    say "    $t ⇒ HTTP $code"
+  else
+    say "    $t ⇒ 🔴 沒試成（curl rc=$crc code=$code）"
+  fi
+done <<< "$LIST"
+
+say "  試過幾張 = $TRIED"
+if [ "$FED" -eq "$TRIED" ]; then ok "餵 $FED 條 = 試 $TRIED 張（鐵則 11 的第四個數）"; else bad "餵 $FED 條而只試 $TRIED 張 ⇒ 少跑了 $((FED-TRIED)) 張，而總數不會告訴你"; fi
+
+say '══ 8. 🔴 突變:餵一條【不存在的表】，它必須【叫】，不准安靜跳過'
+GHOST_LIST=$(printf '%s\nzz_not_a_real_table_e9\n' "$LIST")
+GFED=$(printf '%s\n' "$GHOST_LIST" | grep -c .)
+GTRIED=0; GHOST_SEEN=0
+while IFS= read -r t; do
+  [ -n "$t" ] || continue
+  code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PR/$t?select=*&limit=1" 2>/dev/null)
+  crc=$?
+  if [ "$crc" -eq 0 ] && [ "$code" != "000" ]; then
+    GTRIED=$((GTRIED+1))
+    [ "$code" = "404" ] && GHOST_SEEN=$((GHOST_SEEN+1))
+  fi
+done <<< "$GHOST_LIST"
+say "  餵 $GFED 條（含一條假的）· 試 $GTRIED 張 · 其中 404 有 $GHOST_SEEN 張"
+if [ "$GHOST_SEEN" -ge 1 ]; then
+  ok "假的那條【被試了而且回 404】⇒ 它不會安靜消失（鐵則 11 那個 vitest 的病，這裡不成立）"
+else
+  bad "假的那條沒有留下形狀 ⇒ 少跑一張而總計行看不出來"
+fi
+
 say ''
 say "── 結果: PASS=$PASS FAIL=$FAIL"
 say '🛑 射程: 本檔在【拋棄式本機庫】跑 —— 它證明「當客人去讀」這個做法【叫得出來也不亂叫】,'
