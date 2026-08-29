@@ -47,6 +47,7 @@ type OutboxFake = IEmailOutbox & {
   markSent: ReturnType<typeof vi.fn>;
   markFailed: ReturnType<typeof vi.fn>;
   markSkippedOrderIneligible: ReturnType<typeof vi.fn>;
+  markSkippedShipmentVoided: ReturnType<typeof vi.fn>;
 };
 
 function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEmailOutbox, unknown>> = {}): OutboxFake {
@@ -63,6 +64,9 @@ function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEm
     //    「**在沒有明講不合格的那些測項裡**,呼到它就是錯的」⇒ 呼到會大聲炸,不會安靜地過。
     //    要測「不合格 ⇒ 有呼」的那一格自己 `mockResolvedValue(true)`(見下面那一格)。
     markSkippedOrderIneligible: vi.fn().mockRejectedValue(new Error('未預期地呼叫了 markSkippedOrderIneligible(本測項的世界是【全部合格】)')),
+    // 🔴 M-4b E4 片3a 新增。預設 reject 同上:在沒有明講「箱被作廢」的測項裡呼到它就是錯的
+    //    ⇒ 大聲炸, 不會安靜地過。要測那條路的測項自己 mockResolvedValue(true)。
+    markSkippedShipmentVoided: vi.fn().mockRejectedValue(new Error('未預期地呼叫了 markSkippedShipmentVoided(本測項的世界沒有作廢的箱)')),
     ...(overrides as object),
   } as OutboxFake;
 }

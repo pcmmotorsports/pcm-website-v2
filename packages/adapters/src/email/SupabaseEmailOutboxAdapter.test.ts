@@ -483,6 +483,29 @@ describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA
     ]);
   });
 
+  // 🔴 codex R1 must-fix(8/8):新 mark 出口原本【零正向測試】——
+  //    我只在 use-case 那側的 fake 加了「呼到就 reject」, 而那守不住這一層的四件事:
+  //    落哪個 status / 稽核碼寫了沒 / claimed_at 有沒有清 / 世代柵欄 CAS 帶對了沒。
+  it('markSkippedShipmentVoided:落 skipped_shipment_voided + 🔴 稽核碼 shipment_voided + 清 claimed_at + 世代柵欄', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-9' }], error: null });
+    expect(await adapter(makeClient(b)).markSkippedShipmentVoided('outbox-9', 3)).toBe(true);
+    const vals = argsOf(b, 'update')[0]![0] as Record<string, unknown>;
+    expect(vals.status).toBe('skipped_shipment_voided');
+    // 🔴 與 order_ineligible 分開是承重的:合併之後稽核會得到一個【錯而合理】的答案
+    expect(vals.last_error_code).toBe('shipment_voided');
+    expect(vals.claimed_at).toBeNull();
+    expect(argsOf(b, 'eq')).toEqual([
+      ['id', 'outbox-9'],
+      ['status', 'sending'],
+      ['attempts', 3],
+    ]);
+  });
+
+  it('🔴 對照:同一支出口, 所有權已失(0 列)⇒ false 且不覆寫(證明上一格的 true 是資料造成的)', async () => {
+    const b = makeBuilder({ data: [], error: null });
+    expect(await adapter(makeClient(b)).markSkippedShipmentVoided('outbox-9', 3)).toBe(false);
+  });
+
   it('所有權已失(lease 被回收、0 列)→ false 不覆寫', async () => {
     const b = makeBuilder({ data: [], error: null });
     expect(await adapter(makeClient(b)).markSent('outbox-1', 1)).toBe(false);

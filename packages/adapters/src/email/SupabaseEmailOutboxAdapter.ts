@@ -448,6 +448,20 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     });
   }
 
+  async markSkippedShipmentVoided(id: string, claimedAttempts: number): Promise<boolean> {
+    // 🔴 M-4b E4 片3a。**可翻轉態(與 skipped_no_real_email 同類), 不是不可翻轉終態**
+    //    —— 箱可被 admin_unvoid_shipment 用同一個 id 復原, 而掃描 view 的 anti-join 不分 status
+    //    ⇒ 這一列會永久擋住重新 enqueue(合約全文與反例在 port)。稽核碼由本層寫死、不經
+    //    `EmailSendErrorCode` union —— 它不是一次「寄送失敗」,而是一個【正常業務動作】。
+    // ⚠️ **與 `order_ineligible` 分開是承重的**:那一態是「訂單已退款/取消」,
+    //    本態是「這一箱被作廢,而訂單好好的」。合併之後稽核會得到一個錯的答案,
+    //    而那個答案讀起來完全合理。
+    return this.leaveSending(id, claimedAttempts, {
+      status: 'skipped_shipment_voided',
+      last_error_code: 'shipment_voided',
+    });
+  }
+
   /**
    * lease 回收(port JSDoc 為合約全文)。**不能走 `leaveSending`**:那支硬帶
    * `.eq('attempts', claimedAttempts)` 世代柵欄,而回收器不是持有者、無此值。
@@ -496,7 +510,8 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     id: string,
     claimedAttempts: number,
     // 🔴 #415 code-reviewer MF4:原本是 `Record<string, unknown>` ⇒ index signature 把欄名檢查整個吃掉,
-    //    mark* 三出口寫的 `status` / `sent_at` / `last_error_code` / `next_retry_at` **打錯完全不紅**
+    //    mark* 四出口(2026-08-30 由三變四:加了 markSkippedShipmentVoided)寫的
+    //    `status` / `sent_at` / `last_error_code` / `next_retry_at` **打錯完全不紅**
     //    (實測 `sent_at_TYPO` tsc 0 error)。改用生成型別的 Update 形狀 ⇒ 欄名這一層才真的有人守。
     values: Database['public']['Tables']['email_outbox']['Update'],
   ): Promise<boolean> {

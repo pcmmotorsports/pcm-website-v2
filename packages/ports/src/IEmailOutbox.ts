@@ -18,7 +18,8 @@
  *   (雙向 CHECK `(status='sending') = (claimed_at IS NOT NULL)`)。
  * - 🔴 **離開 `sending` 有兩條路,所有權判定方式不同(E2a-a 更正:前版寫「每一句…必帶世代柵欄」,
  *   在 `reclaimStaleLeases` 落地後即成假 —— 它也離開 sending、卻不可能帶柵欄)**:
- *   · **持有者路徑**(markSent / markFailed / markSkippedOrderIneligible)= **必帶本次認領的
+ *   · **持有者路徑**(markSent / markFailed / markSkippedOrderIneligible /
+ *     **markSkippedShipmentVoided**(2026-08-30 E4 片3a 新增))= **必帶本次認領的
  *     `claimedAttempts` 世代柵欄**;否則 lease 回收 + 他人再認領後,舊持有者延遲到達的標記會覆寫
  *     別人的在途列(ABA;codex 關卡2 R1 must-fix)。
  *   · **回收器路徑**(`reclaimStaleLeases`)= 非持有者、**無柵欄可帶**,改以 CAS 述詞
@@ -35,10 +36,13 @@ export type EmailOutboxEventType = 'order_created' | 'order_shipped';
  * 新增碼 = 改本 union + adapter 映射表與 runtime allowlist,不得動態產生。
  *
  * ⚠️ **本 union ≠ `last_error_code` 欄的完整值域**(前版此字面已作廢):該欄另有 **adapter 內部寫死、
- * 刻意不入本 union 的稽核碼** —— `order_ineligible`(S3=A 抑制終態)與 `lease_reclaimed`(E2a-a
- * 回收;見 `reclaimStaleLeases`)。兩者描述的都**不是「Resend 寄送失敗」**,故不經本 union 與
+ * 刻意不入本 union 的稽核碼** —— `order_ineligible`(S3=A 抑制終態)、`lease_reclaimed`(E2a-a
+ * 回收;見 `reclaimStaleLeases`)與 **`shipment_voided`**(2026-08-30 E4 片3a;箱被作廢)。
+ * 三者描述的都**不是「Resend 寄送失敗」**,故不經本 union 與
  * `markFailed`(會被其 runtime allowlist 改寫成 `provider_error`)。欄的真實值域 =
- * 本 union ∪ {`order_ineligible`, `lease_reclaimed`};DB 只以 regex 約束格式、不列舉。
+ * 本 union ∪ {`order_ineligible`, `lease_reclaimed`, `shipment_voided`};DB 只以 regex 約束格式、不列舉。
+ * 🔴 **這一行漏掉新碼會怎樣**(codex R2 抓到我漏了):它是唯一一份寫得出「這個欄可能有什麼」的清單
+ * ⇒ 漏一個 ⇒ 下一個做稽核報表的人會把那些列當成髒資料。
  *
  * 🔴 **命名 provider 中立**(E1c;關卡1 codex+Fable 兩審皆判「對的抽象」):port 是抽象層、不綁
  * Resend 字面(provider 專屬 enum 只活在 adapter 映射表=正確位置);未來 provider 語意不等價時
@@ -300,6 +304,65 @@ export interface IEmailOutbox {
    * (migration §⑧);「哪些訂單狀態算 ineligible」= E2a-2 定案、gate 正確性是該片的責任。
    */
   markSkippedOrderIneligible(id: string, claimedAttempts: number): Promise<boolean>;
+
+  /**
+   * `sending → skipped_shipment_voided`(M-4b E4 片3a:出貨通知信在寄送當下去主表撈脈絡,
+   * 發現**這一箱已被作廢**)。
+   *
+   * 🔴 **`voided` 是【正常業務動作】,不是錯誤** —— 裝箱**數量**打錯的唯一補救就是整箱作廢重開
+   * (`20260805170200` COMMENT、Sean `Q-a`=C)⇒ 不罕見。
+   * ⇒ 呼叫端:**不寄、落這一態當痕跡、不計 error**。
+   * ⚠️ 計成 error 的話,`errors>0` ⇒ route 回 503 ⇒ 燒 attempts 進死信 ⇒ 訊號 2 每日告警
+   * ⇒ **有人半夜起來查一件正常的業務動作**(`IShippedEmailContext` 檔頭的失敗鏈全文)。
+   *
+   * 🔴 **為何是新方法、不是複用 `markSkippedOrderIneligible`(= 擴充 port,不是繞過 port)**:
+   * 那一態的意思是「**訂單**已退款/取消」,而本態是「**這一箱**被作廢,訂單好好的」。
+   * 合併之後,稽核時「這封為什麼沒寄」會得到一個**錯的答案**,而那個答案讀起來完全合理。
+   * ⚠️ 而它也不能塞進 `markFailed`:那支的 runtime allowlist 會把碼改寫成 `provider_error`
+   * ⇒ 稽核碼被靜默吃掉(同 `lease_reclaimed` 的理由,見下)。
+   *
+   * 必寫 `last_error_code='shipment_voided'` 供稽核(碼由 adapter 內部寫死,
+   * 不經 `EmailSendErrorCode` union —— 它不是一次「寄送失敗」)。
+   * 🔴 **不進 due、不被任何 dead-man 訊號命中 = 預期內的正確靜默**(五訊號皆正向列舉
+   * `pending`/`failed`/`sending`,2026-08-30 實查;覆蓋驗證見
+   * `scripts/email-outbox-state-coverage.sh`)。
+   *
+   * ── 🔴🔴 **它是【可翻轉態】,不是不可翻轉終態 —— 而這句是被 codex 打掉重寫的** ──────
+   * ~~原文:「🔴 不可翻轉終態」+「⚠️ 它不影響同一張訂單的其他箱:dedup_key =
+   * `{shipment_id}:{order_id}` ⇒ 作廢後重開的新箱是新的 shipment_id = 新的一列」~~
+   * ⇒ **那兩句【各自都是真的】,而它們合起來支持的那個結論是假的。**
+   *
+   * **反例(2026-08-30 codex 抓、作者逐格複核)**:
+   * ```
+   * ① 20260807210000_..._unvoid_shipment.sql:151-152 逐字
+   *      UPDATE public.shipments SET deleted_at = NULL, void_reason = NULL
+   *    ⇒ 作廢是【可以復原的】, 而復原的是**同一列、同一個 shipment_id** ⇒ 同一個 dedup_key
+   * ② 20260822010000_..._shipped_email_scan_view.sql:260 逐字(那支檔自己寫的)
+   *      「🔴🔴 這個 anti-join 只看『那一列存不存在』, 【不分 status】」
+   *      :290「一列 failed 也會讓那個 (箱,單) 被永久排除」
+   * ⇒ 箱作廢 → 落這一列 → 員工復原箱 → **那一列永遠擋著 enqueue**
+   *   ⇒ 那位客人【永遠收不到出貨信, 而沒有任何一格會紅】
+   * ```
+   * 📌 **而原文那句「不影響同一張訂單的其他箱」是對的 —— 它回答的是【別的箱】;
+   *    真正會出事的是【同一箱被復原】,而作者沒有問那個問題。**
+   * 🔴 **這一次的形狀更毒**:那段話**讀起來像是作者已經考慮過鄰近風險了**
+   *    ⇒ **它會讓下一個審查的人跳過那一格。**
+   *
+   * ⇒ **正確的分類:可翻轉態,與 `skipped_no_real_email` 同一類。** 而 repo 裡**早就有一份答案**,
+   *   住在那個相鄰的態上(`email_outbox.status` 的 COMMENT 逐字):
+   *   「它佔住唯一鍵…須以**受控 UPDATE 原地翻回 pending**、不可新 INSERT(會撞唯一鍵 =
+   *   **該 cohort 永久漏信**);且不得自動回灌。」
+   *
+   * 🛑🛑 **而【誰去翻它】今天沒有人做 ⇒ 這是一個【已知的漏信面】,不是留白**:
+   *   `admin_unvoid_shipment` 那條路今天**完全不碰 `email_outbox`**(跨邊界)。
+   *   ⇒ 在那條路接上之前:**箱被作廢過再復原的那一批,出貨信不會補寄。**
+   *   ⇒ 那一格要**單獨開一列**追蹤,不吞進本片(本片只負責讓這個狀態【有地方落】)。
+   *   🔴 **而那一列【今天還不在板上】**(codex R2 抓到:搜 `STATUS.md` 與全部 `docs/` 找不到它)——
+   *     擬好的字面已交 `-b9`(板子的單一寫者):`~/pcm-mailbox/線D-給b9-新增一列-unvoid補寄-20260830.md`。
+   *   📌 **在它真的上板之前,這裡不得寫成「已追蹤」** —— 那句話的作用是**關掉下一個人的尋找動作**,
+   *     而現在能被找到的只有那份交件檔。(同族:本片作者今天已經在「已列進待決」上犯過一次。)
+   */
+  markSkippedShipmentVoided(id: string, claimedAttempts: number): Promise<boolean>;
 
   /**
    * lease 回收:把「認領後程序才死」而卡在 `sending` 的列翻回**可重試的 `failed`**
