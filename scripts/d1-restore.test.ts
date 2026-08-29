@@ -942,3 +942,117 @@ describe('#958 readCsvHeaders 讀不到就 throw', () => {
     expect(() => readCsvHeaders(dir, ['orders'])).toThrow(/表頭有空欄名/);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴 mode_matches_data 的六個世界 —— 主視窗 2026-08-30 指派補的那一格。
+//
+// 為什麼要補:這一格的判定是「①留痕寫在 COMMIT 之後 + ②用資料回頭驗 mode」那個
+// 設計被批准的【整個理由】,而我當時是對真 DB 手跑六個世界驗的 —— 那份證據隨對話
+// 沒了。碼在 repo 裡,而【證明它有判別力的那一發不在】。
+// 📌 下一個人動這一段時,他會看到一整排綠,而沒有一個告訴他那排綠會不會恆綠。
+//
+// 🛑 而【這一發的射程要先講】:本 repo 466 支 .test.ts 裡,依賴 PG 的 = 0、用 skip
+//    躲開缺 DB 的 = 0(實測)⇒ 塞一支要 PG 的測試會違反這個規範,而唯一的替代是
+//    skip —— 那正是「假綠」。⇒ 這裡改成:把產生出來的 SQL 裡那段 CASE 解析出來,
+//    用它自己寫的判準去跑六個世界。
+//    ⇒ 它證明的是【那段 CASE 編碼的決策表是對的】,**不是**「Postgres 真的這樣算」。
+//    後者只有真 DB 量得到,而那一發我跑過、證據沒了 —— 這一支不冒充那一發。
+type World = { mode: string; total: number; renumbered: number };
+
+/**
+ * 只看得懂【現在這一種】CASE 形狀。看不懂就 throw ——
+ * 🔴 這是刻意的:有人把它改回等號寫法時,這裡會【解析不出來而 throw】,
+ *    而 throw 就是紅,且紅在這一格。「看不懂 ⇒ 當作過」才是那個病。
+ */
+function parseModeMatches(sql: string): (w: World) => boolean {
+  const block = /SELECT CASE :'d1_mode'([\s\S]*?)END\n\s*FROM public\.orders/.exec(sql);
+  if (!block) throw new Error('解析不到 mode_matches_data 的 CASE 區塊');
+  const body = block[1]!;
+  const branches = new Map<string, { total: number; renumbered: number }>();
+  const re =
+    /WHEN '(\w+)'\s+THEN count\(\*\) = (\d+)\s+AND count\(\*\) FILTER \(WHERE legacy_display_id IS NOT NULL\) = (\d+)/g;
+  for (let m = re.exec(body); m; m = re.exec(body)) {
+    branches.set(m[1]!, { total: Number(m[2]), renumbered: Number(m[3]) });
+  }
+  if (branches.size !== 2) throw new Error('CASE 分支數不是 2,是 ' + String(branches.size));
+  if (!/\bELSE false\b/.test(body)) throw new Error('CASE 缺 ELSE false');
+  return (w) => {
+    const b = branches.get(w.mode);
+    if (!b) return false; // ELSE false:未知 mode 不是「不知道所以算它過」
+    return w.total === b.total && w.renumbered === b.renumbered;
+  };
+}
+
+describe('mode_matches_data 的決策表（六個世界)', () => {
+  // ✅ 自檢(採用 -b4 2026-08-30 那條:每發突變要附一個已知該綠的正常案例)。
+  //    這一格紅 ⇒ 是 harness 壞了(產生器改了 / 解析器過期),**下面每一格作廢**,
+  //    不是「守門抓到東西」。
+  it('正對照:未突變的產物解析得出 2 個分支,且 post/26/26 為 true', () => {
+    const f = parseModeMatches(post);
+    expect(f({ mode: 'post', total: 26, renumbered: 26 })).toBe(true);
+  });
+
+  it.each([
+    // mode  total renumbered  期望   為什麼
+    ['post', 26, 26, true, '正常的 post 還原:26 張全在、全部改過號'],
+    ['post', 26, 0, false, 'post 卻一張都沒改號 ⇒ 還原成了 pre 的資料'],
+    ['pre', 26, 0, true, '正常的 pre 還原:26 張全在、一張都沒改號'],
+    ['pre', 26, 26, false, 'pre 卻全改過號 ⇒ 還原成了 post 的資料'],
+    // 🔴🔴 這一個世界是抓到等號 bug 的那一個 —— 主視窗指名它一定要在。
+    //    舊寫法 (:'d1_mode' = 'post') = (改號數 = 26):
+    //    pre ⇒ 左邊 false;13 ≠ 26 ⇒ 右邊 false;false = false ⇒ **它記成 true**。
+    //    📌「兩個都不對」與「兩個都對」在等號底下長得一樣。
+    ['pre', 26, 13, false, '🔴 部分改號(13/26)⇒ 壞掉的世界,舊寫法會記成一致'],
+    ['post', 13, 13, false, '少單(13 張)⇒ 只看 FILTER 會拿到漂亮的數字'],
+    ['nonsense', 26, 26, false, '未知 mode ⇒ ELSE false,不是「不知道所以算它過」'],
+  ])('%s / total=%i / 改號=%i ⇒ %s（%s)', (mode, total, renumbered, want) => {
+    expect(parseModeMatches(post)({ mode: String(mode), total: Number(total), renumbered: Number(renumbered) })).toBe(
+      want,
+    );
+  });
+
+  it('pre 版與 post 版產出的決策表逐格相同（判定不隨 target 變)', () => {
+    const a = parseModeMatches(pre);
+    const b = parseModeMatches(post);
+    const worlds: World[] = [
+      { mode: 'post', total: 26, renumbered: 26 },
+      { mode: 'pre', total: 26, renumbered: 0 },
+      { mode: 'pre', total: 26, renumbered: 13 },
+    ];
+    expect(worlds.map(a)).toEqual(worlds.map(b));
+  });
+
+  // 🔴 主視櫃指派 ③:把判定改回我當初那個等號寫法 ⇒ 必須紅,而且【紅在這一格】。
+  it('突變:改回 (:d1_mode = post) = (改號數 = 26) 的等號寫法 ⇒ 解析器必須 throw', () => {
+    const mutated = post.replace(
+      /SELECT CASE :'d1_mode'[\s\S]*?END\n(\s*)FROM public\.orders/,
+      "SELECT (:'d1_mode' = 'post') = (count(*) FILTER (WHERE legacy_display_id IS NOT NULL) = 26)\n$1FROM public.orders",
+    );
+    // ✅ 自檢:突變真的改到東西了(不是 regex 沒命中而原文照抄)
+    expect(mutated).not.toBe(post);
+    expect(() => parseModeMatches(mutated)).toThrow(/解析不到|分支數/);
+  });
+
+  // ── 接續同一個 describe ──
+
+  // 🔴🔴 而上面那一發突變只證明「解析器看不懂新形狀」—— 它【沒有】證明那六個世界
+  //     裡有任何一個真的分得開兩種寫法。這一格補那個缺口。
+  //     🛑 刻意【不】去改 scripts/d1-restore.ts 本體來做這件事:八個窗共用同一棵
+  //        工作樹,把產生器暫時改壞會讓別的窗的三綠無故變紅,而那個紅【看起來像
+  //        他們自己弄的】。改法照 docs/patterns/mutation-harness-restore.md 的精神:
+  //        突變在記憶體裡做完就結束,不落到任何人會讀到的檔案上。
+  it('世界 pre/26/13 真的分得開兩種寫法（舊寫法在這一格會說 true)', () => {
+    const 現行 = parseModeMatches(post);
+    // 我 2026-08-29 的第一版寫法,逐字重建:
+    const 舊寫法 = (w: World) => (w.mode === 'post') === (w.renumbered === 26);
+
+    const 壞掉的世界: World = { mode: 'pre', total: 26, renumbered: 13 };
+    expect(現行(壞掉的世界)).toBe(false); // 現行:壞掉就是壞掉
+    expect(舊寫法(壞掉的世界)).toBe(true); // 🔴 舊寫法:把壞掉的世界記成一致
+
+    // ✅ 自檢(-b4 那條):兩種寫法必須在【某個世界】給相同答案,否則代表我這個
+    //    「舊寫法」重建錯了 —— 它若在每一格都不同,那就不是同一題的兩個答案。
+    const 正常世界: World = { mode: 'post', total: 26, renumbered: 26 };
+    expect(現行(正常世界)).toBe(舊寫法(正常世界));
+  });
+});
