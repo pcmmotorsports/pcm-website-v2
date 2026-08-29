@@ -20,10 +20,36 @@
 | `pcm-order-ineligible-gate` | `*/2 * * * *` | 約 2 分鐘 |
 | `pcm-email-sweep` | `*/5 * * * *` | 約 5 分鐘 |
 | `pcm-capture-recheck` | `*/10 * * * *` | 約 10 分鐘 |
-| 🔴 `pcm-anomaly-alert` | `0 1 * * *` | **每天凌晨一點才跑** ⇒ 最久要等近 **24 小時** |
+| 🔴 `pcm-anomaly-alert` | `0 1 * * *`(**UTC**)| 🔴 **那是【台北早上 09:00】,不是凌晨一點** ⇒ 最久要等近 **24 小時**。⚠️ **原句寫「每天凌晨一點才跑」是錯的**(2026-08-29 訂正):`pg_cron` 吃的是 UTC,而 `anomaly-alert/route.ts` 自己的註解逐字寫著 `cron.schedule('pcm-anomaly-alert', '0 1 * * *') = UTC 01:00 = 台北 09:00`。📌 **而錯的方向剛好讓人在錯的時間去看** —— 半夜等它翻,而它早上九點才跑。 |
 
 ⚠️ **用同一個時限去驗五支,最後那一支會被判成失敗** —— 而它只是還沒到時間。
 📌 **那個誤判會讓人去修一個沒有壞的東西。**
+
+## 🔴 怎麼量 —— **不要用「看畫面」,那在兩個世界會給同一句話**
+
+**問題**:請人「打開 healthchecks 看它是不是綠的」⇒ 拿回來的是一個**判斷**。
+而照 `~/.claude/rules/00-work-rules.md` §6-b:**人也是量具** ——
+要他回報的是**兩個世界會不同的值**,不是「它看起來 OK」。
+
+**⇒ 用這一行,它印的是 `status` 的原字面**(要一把 management API key;
+🔴 **金鑰由執行的人自己帶,不寫進本檔、不貼進對話**):
+```bash
+curl -s -H "X-Api-Key: $HC_API_KEY" https://healthchecks.io/api/v3/checks/   | python3 -c 'import sys,json; d=json.load(sys.stdin)["checks"]; [print(c["name"], c["status"]) for c in sorted(d, key=lambda x: x["name"])]'
+```
+**它會印每一支的名字 + `status` 原字面**(`new` / `up` / `down` / `grace` / `paused`)。
+
+🔴 **而最容易讀錯的是 `new`**:
+```
+一支【從來沒有被 ping 過】的 check，status 是 new
+⇒ 它【永遠不會告警】—— 它不是「還沒到期」，是「它不知道自己該多久被 ping 一次」
+📌 而在畫面上，new 與 up 都不是紅的
+⇒ 所以驗收要看的是【字面】，不是【顏色】
+```
+✅ **驗收通過的定義(寫死,不靠判斷)**:五支的 `status` 原字面**都不是 `new`**,
+且各自在上表的等待時間之後變成 `up`。
+
+⚠️ **而本節【沒有實跑過】** —— 那五個 env 還沒設,沒有東西可以打。
+⇒ 它是「設完之後照著跑」的,**不是一份已驗證的指令**。第一個跑它的人,請回來把實際輸出貼進下面那張表。
 
 ## 驗收紀錄(做完請填,一行一支,連同 commit)
 
