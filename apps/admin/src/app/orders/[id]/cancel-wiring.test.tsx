@@ -241,6 +241,11 @@ function expectPageRendered(container: HTMLElement) {
  *   ⇒ 改成【表頭 + 至少一張品項卡】兩件都要:`.icard` 是 map 裡面每一列的殼
  *   (`item-amount-row.tsx:329`)⇒ 它與 `detail.items` 有真的因果。
  * 📌 **判別句:錨要釘在【被斷言那件事的產生者】上,不是釘在它旁邊那個一定會在的東西上。**
+ *
+ * ⚠️ **R2 nit:零品項的單【不要】用這支** —— `cancel-view.ts:747` 有合法的 `no_items` 世界
+ *   (表頭會畫、零張 `.icard`)⇒ 那種單拿來跑這支會紅,**而那不是 bug、是它沒有分母**。
+ *   🔴 寫在這裡是因為:下一個人撞到那個紅,最省事的處置是**把錨刪掉**,而檔內 :530 已經
+ *   警告過同一種行為模式。**要嘛換 fixture,要嘛那格自己不呼叫這支 —— 不要刪錨。**
  */
 function expectItemsTableRendered(container: HTMLElement) {
   expect(
@@ -257,7 +262,9 @@ function expectItemsTableRendered(container: HTMLElement) {
 function expectCancelBlockRendered(container: HTMLElement) {
   expect(
     container.querySelector('#cancel'),
-    '取消區整塊沒渲染 ⇒ 「不給表單 / 不給 checkbox」那些負向斷言恆真',
+    // 🔴 R2 抓到:原字面含「/ 不給 checkbox」—— 而同檔 :229-231 自己量到本錨對 checkbox 那幾格**零判別力**。
+    //    ⇒ 那句話會讓下一個人以為 `#cancel` 蓋得住 checkbox,**而刪掉 `expectItemsTableRendered` 的正是會讀那句話的人**。
+    '取消區整塊沒渲染 ⇒ 「不給表單」那些負向斷言恆真(🔴 **本錨不涵蓋 checkbox** ⇒ 那幾格看 `expectItemsTableRendered`)',
   ).not.toBeNull();
 }
 
