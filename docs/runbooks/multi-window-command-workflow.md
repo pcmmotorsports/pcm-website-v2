@@ -1454,6 +1454,30 @@ G6 這一步「index 裡有別人 ⇒ 不要 add」        = 【提前一步】�
   (`-1c` 補完 §G-4 的檔名之後,又開檔核了它指到的是對的那一節)
 ```
 
+### §G-5c 🔴 **端給 Sean 的 migration,必須先在拋棄式 PG 上【真的跑起來】**(2026-08-30 實錘)
+
+```
+-e4 的第七態 migration 寫完、migration-static-checks 全綠、codex R1 八條 must-fix 全折完
+🔴 而它【從來沒跑起來過】：`pg_catalog.position('x' in y)` 在 PL/pgSQL 不合法
+   （position 的 IN 是特殊語法）
+⇒ 靜態檢查全綠，因為它【掃字面、不 parse SQL】
+⇒ ⇒ 而 codex 兩輪也沒抓到 —— **它讀碼，沒有跑**
+```
+📌 **⇒ 抓到它的是「去真的跑一遍」這個動作本身,不是任何一道檢查、也不是任何一輪審查。**
+🔴 **而後果落在【他】身上**:那支檔會在 Sean 的 SQL Editor 上炸,
+錯誤訊息是 `syntax error at or near "v_def"` ——
+**他看不懂,而他會以為是他貼錯了。**
+⇒ ⇒ **一個我們的語法錯,會被他讀成他自己的操作失誤。**
+
+**⇒ 規矩(端之前,不是 commit 之前)**:
+```
+· 任何要請 Sean 貼進 SQL Editor 的 migration ⇒ 先在拋棄式 PG 上【apply 成功】
+  做法見 docs/runbooks/throwaway-postgres-for-migration-verification.md
+· 🔴 而「apply 成功」只是第一格 —— 那支 runbook 自己就寫著「apply 成功 ≠ 斷言通過」
+· 三個世界各跑一次:正常 / 重跑(冪等) / 一個刻意的壞世界(閘必須擋並印出實際 vs 預期)
+· 端給他的訊息裡寫明【它在拋棄式 PG 上跑過】—— 那句話是他決定要不要現在貼的依據
+```
+
 ## §G-6 這一天**沒有**跑順的地方(留著,不要只記成功的那半)
 
 ```
