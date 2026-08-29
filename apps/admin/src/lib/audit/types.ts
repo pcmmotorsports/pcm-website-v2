@@ -7,7 +7,14 @@
  */
 export type AdminAuditAction = string;
 
-/** 來源 app(對應 migration CHECK source_app IN ('admin','quote'))。 */
+/**
+ * 來源 app。
+ * 🔴 **DB 那道 CHECK 現在是【三值】** —— `('admin','quote','ops')`
+ *    (`20260829190000_m4b_d1restore_audit_source_ops.sql`;~~原本兩值~~,codex 2026-08-29 R1 指正本註解過期)。
+ * ⚠️ **而本型別刻意只留兩值** —— `'ops'` 那一格由 `scripts/d1-restore.ts` 直接以 psql 寫入,
+ *    **不經過 app 層**;把它加進來會讓「app 寫得出 ops」變成型別上合法的事。
+ *    ⇒ 這裡的窄是【寫入邊界】,不是【DB 現況】。讀取端拿到 `'ops'` 走的是 `string` 那條路。
+ */
 export type AuditSourceApp = 'admin' | 'quote';
 
 /** 一筆稽核意圖(呼叫端提供的「發生了什麼」)。 */

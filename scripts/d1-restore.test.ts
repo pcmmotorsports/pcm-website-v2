@@ -13,9 +13,14 @@ import {
 } from './d1-restore';
 
 const DIR = '/tmp/d1';
+// 🔴 D1_OPERATOR 必填(Sean 2026-08-29 拍甲)⇒ 產生器沒有它會 throw ⇒ 這裡先設,
+//    而【它缺席時該 throw】另有一格單測在下面驗,不是靠這一行。
+process.env.D1_OPERATOR = 'tester';
 const pre = buildRestoreScript('pre-n3c', 'production', DIR);
 const post = buildRestoreScript('post-n3c', 'production', DIR);
 const rehearsal = buildRestoreScript('pre-n3c', 'rehearsal', DIR);
+// 🔴 第四個交叉世界(codex R1 MF7):原本只建三個,而『四個版本逐字相同』那條就是這樣過的。
+const rehearsalPost = buildRestoreScript('post-n3c', 'rehearsal', DIR);
 
 const lines = (script: string) => script.split('\n');
 const copyLines = (script: string) => lines(script).filter((l) => l.startsWith('\\copy '));
@@ -72,7 +77,13 @@ describe('buildRestoreScript — 兩版共通', () => {
     ['post', post],
   ])('%s:寫回用的篩選子查詢指向暫存表、不指向已被刪空的 public.*', (_mode, script) => {
     // 只看 INSERT 那幾行。驗證區段本來就要查 public.*(那是還原後的對照側)。
-    const inserts = lines(script).filter((l) => l.startsWith('INSERT INTO public.'));
+    const allInserts = lines(script).filter((l) => l.startsWith('INSERT INTO public.'));
+    // 🔴 **留痕那一筆刻意排除,而排除要具名** —— 它不是還原的寫入,它跑在 COMMIT 之後
+    //    (R3 2026-08-29 的結構改動)。⇒ 而排除【不能是靜默的】:下一行釘死它恰好 1 筆,
+    //    否則「排除掉不是還原的那些」會變成一個可以塞任何東西進去的洞。
+    const auditInserts = allInserts.filter((l) => l.includes('admin_audit_log'));
+    expect(auditInserts).toHaveLength(1);
+    const inserts = allInserts.filter((l) => !l.includes('admin_audit_log'));
 
     // 5 張父表 + orders + 9 張子表
     expect(inserts).toHaveLength(15);
@@ -313,18 +324,330 @@ describe('buildRestoreScript — 兩版共通', () => {
     expect(l).toContain('\\set ON_ERROR_STOP on');
     expect(l.indexOf('\\set ON_ERROR_STOP on')).toBeLessThan(begin);
     expect(commit).toBeGreaterThan(begin);
+    // 🔴 留痕那一筆刻意跑在 COMMIT 之後(R3 2026-08-29 結構改動)——
+    //    前兩輪對抗審查都咬在「它在交易內」造成的 fail-open handler 上,
+    //    移出去之後那些問題一起消失。⇒ 所以這裡的例外要【具名、恰好一筆】。
+    //
+    // 🛑🛑 **射程 —— 這一段【取代】原本那句「比原本更難繞過」。那句話是【錯的】,已刪。**
+    //    (不是改軟:一個錯的句子改軟之後它還在,只是不容易被抓到。)
+    //    codex R4 逐條打掉了它。這幾道**是字串比對,不是 SQL 剖析**,
+    //    而下面這五種形狀它們**看不到**:
+    //      ① 大小寫或縮排不同的寫入(只認固定大小寫、零縮排的 INSERT 與 copy 那兩種)
+    //      ② 交易【前】的 UPDATE / DELETE / ALTER / CALL / 有副作用的 SELECT
+    //      ③ 同一行塞多個語句
+    //      ④ 字串常數或 dollar-quote 裡的分號(下面那個「掃到行尾分號」會誤切)
+    //      ⑤ 終止行加註解 ⇒ 區段吞到下一個分號
+    //      🔴 ⑥ (codex R5 補的,而它比前五種寬):**其他寫入語句根本不在字集裡** ——
+    //         SQL 的 COPY / MERGE / TRUNCATE / CREATE / DROP / GRANT / REVOKE,
+    //         以及 psql 的 i / ir / gexec / ! 那幾個反斜線指令
+    //         ⇒ **一個都不會被上面那幾條看到**。
+    //         📌 ⇒ 前五種是「同一個東西換個寫法」,而第六種是【整族沒進分母】。
+    //    ⚠️ 而 psql 的 echo **不是純顯示** —— 它會展開反引號裡的 shell 命令。
+    //
+    // 🔴🔴 **而【威脅模型】要講清楚,那不是「太難所以不做」**:
+    //    **這幾道防的是【誤改】不是【惡意改】** —— 一個惡意的人本來就改得動
+    //    AUDIT_SQL 本身,**這幾道從來沒有防過他**。要防他得換一層(簽章 / review),
+    //    ⚠️ 而 codex R5 補了一格限定:**「review」只有在【獨立、且不能被同一作者繞過】時
+    //       才算防線** —— 一個作者自己 approve 自己的 review,與沒有 review 相同。
+    //    不是把字串比對寫得更聰明。
+    const AUDIT_LINE = 'INSERT INTO public.admin_audit_log';
+    // 🔴🔴 **形狀是【兩個交易】**(codex R5 之後):第一個是還原,第二個【只裝那一筆留痕】。
+    //    R4 我把留痕移到交易外 ⇒ R5 指出那是三個獨立 autocommit 語句,
+    //    transaction pooler 下可以落到三個不同 backend ⇒ 那兩個 SET 白設。
+    //    ✅ 綁進自己的交易 ⇒ pooler 在交易期間綁住同一個 backend
+    //       ⇒ 把「它落在哪個 backend」從【運氣】變成【約束】。
     l.forEach((line, i) => {
+      if (line.startsWith(AUDIT_LINE)) {
+        expect(i).toBeGreaterThan(commit);
+        return;
+      }
       if (line.startsWith('INSERT INTO public.') || line.startsWith('\\copy ')) {
         expect(i).toBeGreaterThan(begin);
         expect(i).toBeLessThan(commit);
       }
     });
-    // 🔴 Fable R3-F4:驗證區塊的位置也要釘。原本只釘 INSERT 與 \copy ⇒ 把 COMMIT 搬到
-    //    所有 assert 之前照樣全綠,而「assert 不成立就整批 ROLLBACK」這個核心保證會靜默蒸發。
-    l.forEach((line, i) => {
-      if (line.startsWith('DO $$')) expect(i).toBeLessThan(commit);
-    });
-    expect(l.slice(commit + 1).every((line) => line.startsWith('\\echo'))).toBe(true);
+    expect(l.filter((x) => x.startsWith(AUDIT_LINE))).toHaveLength(1);
+
+    // COMMIT 之後的形狀:恰好一個 BEGIN、恰好一個 COMMIT,而那筆留痕在它們【中間】。
+    const after = l.slice(commit + 1);
+    expect(after.filter((x) => x === 'BEGIN;')).toHaveLength(1);
+    expect(after.filter((x) => x === 'COMMIT;')).toHaveLength(1);
+    const aBegin = after.indexOf('BEGIN;');
+    const aCommit = after.indexOf('COMMIT;');
+    const aIdx = after.findIndex((x) => x.startsWith(AUDIT_LINE));
+    expect(aBegin).toBeLessThan(aIdx);
+    expect(aIdx).toBeLessThan(aCommit);
+
+    // 🔴 **那兩個 SET 要【逐字釘死】,不是「允許任何 SET」**(codex R5 must-fix):
+    //    上一版白名單放行任意 `SET ` ⇒ 有人在正確兩行【之後】再加
+    //    `SET statement_timeout = 0;` ⇒ 測試仍然全綠,而逾時保護消失。
+    const sets = after.slice(aBegin + 1, aIdx).filter((x) => x.startsWith('SET'));
+    expect(sets).toEqual(["SET LOCAL statement_timeout = '60s';", "SET LOCAL lock_timeout = '5s';"]);
+    // 🔴🔴 **~~上一版:除了那個交易的四行,其餘只能是 echo~~ 已作廢** ——
+    //    那道閘同時【太窄】(擋掉一致性閘那幾行合法的 SELECT / if / DO)
+    //    與【太寬】(它只看行首字元,而 echo 開頭的行可以是任何東西)。
+    //    ✅ 改成釘【實質】:**留痕的 COMMIT 之後不得有任何寫入**。
+    const tail = after.slice(aCommit + 1);
+    for (const line of tail) {
+      expect(line).not.toMatch(/^\s*(INSERT|UPDATE|DELETE|TRUNCATE|ALTER|DROP|CREATE|GRANT|REVOKE|COPY)\b/i);
+    }
+    // 而那道一致性閘要真的在(不是「允許」而已)。
+    expect(tail.some((x) => x.includes('d1_mismatch'))).toBe(true);
+    expect(tail.some((x) => x.includes('RAISE EXCEPTION'))).toBe(true);
+  });
+});
+
+describe('還原留痕(⟦災難還原四件⟧ 2026-08-29)', () => {
+  // 🔴 本片之前這支腳本【零留痕】:跑完 26 張訂單 + 2 個客戶進正式庫,
+  //    而沒有一筆紀錄說是誰、什麼時候、為什麼。而它的門檻是 postgres 超級使用者
+  //    ⇒ **能做任何事的人,正是最需要留下紀錄的那個。**
+
+  it.each([
+    ['pre', pre],
+    ['post', post],
+    ['rehearsal', rehearsal],
+    ['rehearsal-post', rehearsalPost],
+  ])('%s:留痕在 COMMIT【之後】,而且是最後一段', (_v, script) => {
+    const audit = script.indexOf("'ops.d1.restore'");
+    const commit = script.indexOf('\nCOMMIT;');
+    expect(audit).toBeGreaterThan(-1);
+    expect(commit).toBeGreaterThan(-1);
+    // 🔴🔴 **這一格從「COMMIT 之前」翻成「COMMIT 之後」—— 那是 R3 逼出來的結構改動。**
+    //    前兩輪(R1 MF1 / R2 MF1)都咬在交易【內】那個 fail-open handler 上;
+    //    移出交易之後那些問題【一起消失】,而不是被修好。
+    //    ⇒ 這條擋的是「有人把它搬回交易裡」—— 搬回去就會把那三個問題一起帶回來。
+    expect(audit).toBeGreaterThan(commit);
+  });
+
+  it.each([
+    ['pre', pre],
+    ['post', post],
+    ['rehearsal', rehearsal],
+    ['rehearsal-post', rehearsalPost],
+  ])('%s:留痕之前先講清楚「還原已經 COMMIT 完成」', (_v, script) => {
+    // 🔴 為什麼非有不可:post-COMMIT 落敗 ⇒ psql `rc≠0` ⇒ 而【還原其實已經成功了】
+    //    ⇒ 災難當下容易被讀成「還原失敗」⇒ 想重跑。
+    //    ⇒ 這一行讓那個非零退出碼【讀得懂它在講哪一段】。
+    const echo = script.indexOf('還原【已經 COMMIT 完成】');
+    const audit = script.indexOf("'ops.d1.restore'");
+    expect(echo).toBeGreaterThan(-1);
+    expect(echo).toBeLessThan(audit);
+  });
+
+  it('🔴 actor 記的是 session_user,不是自填的人名', () => {
+    // 自填的那一格記的是「有人自稱做了這件事」;session_user 是 DB 自己講的,偽造不了。
+    // ⚠️ 這一格擋的是「有人為了好看把它改成一個具名字串」—— 而那在 diff 上長得像改善。
+    // 🔴🔴 **釘的是【位置】不是【出現過】** —— 第一版我寫 `block.slice(0,400)` 含
+    //    `session_user` 就算過,而那一發**突變全綠**:`'db_session_user', session_user`
+    //    就在那 400 字裡 ⇒ actor 被改成 `'sean'` 之後,那個字還在。
+    //    📌 **一個字在那一段裡出現過,與它出現在【那一格】,是兩個宣稱。**
+    expect(pre).toContain("VALUES (\n  session_user,\n  'ops.d1.restore',");
+    expect(pre).toContain("'db_current_user', current_user");
+  });
+
+  it('🔴 D1_OPERATOR 缺席 ⇒ 產生器 throw(在任何破壞性動作之前就停)', () => {
+    const saved = process.env.D1_OPERATOR;
+    try {
+      delete process.env.D1_OPERATOR;
+      expect(() => buildRestoreScript('pre-n3c', 'production', DIR)).toThrow(/D1_OPERATOR/);
+      // 🔴 空白【也算缺】—— 否則 `export D1_OPERATOR=' '` 會過,而那一欄等於沒填。
+      process.env.D1_OPERATOR = '   ';
+      expect(() => buildRestoreScript('pre-n3c', 'production', DIR)).toThrow(/D1_OPERATOR/);
+    } finally {
+      process.env.D1_OPERATOR = saved;
+    }
+  });
+
+  it.each([
+    ['pre', pre],
+    ['post', post],
+    ['rehearsal', rehearsal],
+    ['rehearsal-post', rehearsalPost],
+  ])('%s:requested_mode 是【psql 佔位符】,不是內插的字面', (_v, script) => {
+    // 🔴🔴 這一格擋的是「有人為了少一個變數,把 mode 直接內插進 SQL」——
+    //    而那一刀會同時:①破壞「兩版逐字相同」②讓交叉核對變成恆真
+    //    (值與版本來自同一個產生器 ⇒ 它們永遠一致 ⇒ 證不了任何事)。
+    expect(script).toContain("'requested_mode', :'d1_mode'");
+    expect(script).not.toContain("'requested_mode', 'pre-n3c'");
+    expect(script).not.toContain("'requested_mode', 'post-n3c'");
+  });
+
+  it.each([
+    ['pre', pre],
+    ['post', post],
+    ['rehearsal', rehearsal],
+    ['rehearsal-post', rehearsalPost],
+  ])('%s:交叉核對的【結果】也要記下來,不是留給人事後自己看', (_v, script) => {
+    // 🔴 codex R7 must-fix:原本只記兩個值 ⇒ 「它們對不對得上」沒有任何訊號。
+    expect(script).toContain("'mode_matches_data'");
+    // 而判準要用【資料】(legacy_display_id 有沒有值),不是單號格式 —— 格式會改,關係不會。
+    // 🔴🔴 **逐個模式明寫,不得寫成「兩邊相等」**(codex 確認輪 must-fix):
+    //    第一版寫 (:'d1_mode' = 'post') = (改號數 = 26)
+    //    ⇒ pre 模式遇到【部分改號】(例如 13/26)時,左邊 false、右邊也 false
+    //    ⇒ 兩個 false 相等 ⇒ **它記成 true** —— 一個壞掉的世界被記成一致。
+    //    📌 「兩個都不對」與「兩個都對」在等號底下長得一樣。
+    expect(script).toContain("SELECT CASE :'d1_mode'");
+    expect(script).toContain("WHEN 'post' THEN count(*) = 26");
+    expect(script).toContain("WHEN 'pre'  THEN count(*) = 26");
+    expect(script).toContain('ELSE false');
+    // 🛑 而那個【等號寫法】不得回來 —— 而這一格【只看碼,不看註解】。
+    // 🔴🔴 這是同一族第四次:我那句【解釋舊 bug 的 SQL 註解】裡就含有那個字面
+    //    ⇒ 第一版直接對整份 script 做 not.toContain ⇒ 當場紅,而碼是對的。
+    //    📌 一個負向斷言的乾草堆若含註解,【解釋這條規則的那句話會違反這條規則】。
+    const codeOnly = script
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('--'))
+      .join('\n');
+    expect(codeOnly).not.toContain("(:'d1_mode' = 'post') = (");
+    // ✅ 而這個濾法自己要有正對照:那個字面【在註解裡】確實存在,而濾完就沒了。
+    expect(script).toContain("(:'d1_mode' = 'post') = (");
+  });
+
+  it.each([
+    ['pre', pre],
+    ['post', post],
+    ['rehearsal', rehearsal],
+    ['rehearsal-post', rehearsalPost],
+  ])('%s:不一致時要【大聲失敗】,而那道閘排在留痕 COMMIT【之後】', (_v, script) => {
+    // 🔴 codex 確認輪:上一版只把結果【存起來】⇒ 而「存起來」與「有人會看」是兩件事。
+    //    ✅ 而它排在 audit 的 COMMIT 之後 ⇒ **那筆紀錄先保住** ——
+    //       在最需要有紀錄的那一刻(狀態不對),不會因為要報警而把紀錄一起丟掉。
+    //    📌 順序就是這一格的全部:先落地,再叫。
+    const audit = script.indexOf("'ops.d1.restore',");
+    // 🔴🔴 **fail-closed 預設要在留痕【之前】**(codex R9 must-fix):
+    //    未定義變數進 \if ⇒ psql 只印一句錯誤而【rc=0 且走 else】⇒ 靜默放行(2026-08-29 實測)。
+    //    ⇒ 先設成 true,任何「沒被覆蓋到」的世界都落在【會叫】那一邊。
+    const preset = script.indexOf('\\set d1_mismatch true');
+    expect(preset).toBeGreaterThan(-1);
+    expect(preset).toBeLessThan(audit);
+    // ✅ 而值由那一筆 INSERT 自己的 RETURNING 給 —— 不是事後 SELECT 撈的某一列
+    //    (原本 ORDER BY created_at DESC LIMIT 1 ⇒ 同秒多筆/並行時可能撈到別次)。
+    expect(script).toContain("RETURNING NOT (after->>'mode_matches_data')::boolean AS d1_mismatch");
+    expect(script).not.toContain('ORDER BY created_at DESC');
+    // 🔴 而那道 \if 閘要排在留痕的 COMMIT【之後】—— 紀錄先保住,再叫。
+    const gate = script.indexOf('\\if :d1_mismatch');
+    expect(gate).toBeGreaterThan(audit);
+    expect(script.indexOf('COMMIT;', audit)).toBeLessThan(gate);
+    expect(script).toContain('RAISE EXCEPTION');
+    expect(script).toContain('不要重跑');
+  });
+
+  it('🔴 四個版本的差異【沒有因為 requested_mode 變多】', () => {
+    // 2026-08-29 當場量的基線:守門段 4 行、改號段 86 行。
+    // 而佔位符在四份裡逐字相同 ⇒ 它不進差集。
+    const d = (a: string, b: string) => {
+      const la = lines(a);
+      const lb = lines(b);
+      let head = 0;
+      while (head < la.length && la[head] === lb[head]) head++;
+      return head;
+    };
+    // 兩兩比:第一個不同的行,必須落在守門段或改號段,而不是留痕段。
+    for (const [x, y] of [[pre, rehearsal], [post, rehearsalPost], [pre, post]] as const) {
+      const firstDiff = d(x, y);
+      expect(x.split('\n')[firstDiff]).not.toContain('requested_mode');
+    }
+  });
+
+  it('🔴 操作人進 after,而【不覆蓋 actor】', () => {
+    // actor 的語意已經寫死成 session_user;兩個混在一起,
+    // 下一個人會以為 actor 是驗證過的。
+    expect(pre).toContain("'operator_self_reported', 'tester'");
+    expect(pre).toContain("VALUES (\n  session_user,\n  'ops.d1.restore',");
+    expect(pre).not.toContain("VALUES (\n  'tester'");
+  });
+
+  it('🔴 諺文填充那四個字元要被擋(它們是 \\p{L},而畫出來是空白)', () => {
+    // 🔴🔴 codex R6 must-fix:上一版只測「缺值」與 ASCII 空白
+    //    ⇒ **把那四個字元的剔除邏輯刪掉,測試仍然全綠** ⇒ 那道剔除沒有人守。
+    //    ⚠️ 而它們不是隨便挑的:codex 查證「U+115F / U+1160 / U+3164 / U+FFA0 是
+    //       Unicode 17 裡【全部】同時屬於 Default_Ignorable 與 L/N 的字元」——
+    //       ⇒ 沒有第五個同型的空白字母/數字。**這一格因此是【完整的】,不是抽樣。**
+    const saved = process.env.D1_OPERATOR;
+    try {
+      for (const ch of ['\u115F', '\u1160', '\u3164', '\uFFA0']) {
+        process.env.D1_OPERATOR = ch;
+        expect(() => buildRestoreScript('pre-n3c', 'production', DIR)).toThrow(/D1_OPERATOR/);
+        // 而它與正常的字【混在一起】時要放行 —— 否則會誤擋含這些字元的合法輸入。
+        process.env.D1_OPERATOR = ch + '線D';
+        expect(() => buildRestoreScript('pre-n3c', 'production', DIR)).not.toThrow();
+      }
+      // ✅ 正對照:一個【是字母而畫得出來】的字必須過(證明這道尺不是無條件擋)。
+      process.env.D1_OPERATOR = 'ㅎ';
+      expect(() => buildRestoreScript('pre-n3c', 'production', DIR)).not.toThrow();
+    } finally {
+      process.env.D1_OPERATOR = saved;
+    }
+  });
+
+  it('🔴 操作人姓名裡的單引號要跳脫(自填欄位是注入面)', () => {
+    const saved = process.env.D1_OPERATOR;
+    try {
+      process.env.D1_OPERATOR = "O'Brien";
+      const sql = buildRestoreScript('pre-n3c', 'production', DIR);
+      expect(sql).toContain("'operator_self_reported', 'O''Brien'");
+      // 負對照:沒跳脫的形狀不得出現(那會提早關掉字串)。
+      expect(sql).not.toContain("'operator_self_reported', 'O'Brien'");
+    } finally {
+      process.env.D1_OPERATOR = saved;
+    }
+  });
+
+  it.each([
+    ['pre', pre],
+    ['post', post],
+    ['rehearsal', rehearsal],
+    ['rehearsal-post', rehearsalPost],
+  ])('%s:legacy_display_id 存在斷言在【交易內】(post 模式的還原自己要寫那一欄)', (_v, script) => {
+    const l = lines(script);
+    const assertIdx = l.findIndex((x) => x.includes("attname = 'legacy_display_id'"));
+    expect(assertIdx).toBeGreaterThan(-1);
+    // 🔴 必須在 COMMIT 之前,而且在任何寫入之前 —— 否則會在中段拋一個
+    //    「column 不存在」的錯,而訊息說不出缺的是哪一支 migration。
+    expect(assertIdx).toBeLessThan(l.indexOf('COMMIT;'));
+    // ⚠️ ~~原本這裡還斷言「留痕用那一欄判 mode」~~ **那個理由已作廢**
+    //    (R5 之後留痕改記 sample_display_id,不再推論 mode)。
+    //    ✅ 而斷言留著,因為它的真正理由更硬:post 模式的 REMAP_SQL 會
+    //       `SET legacy_display_id = t.display_id` 再寫回 public.orders
+    //       ⇒ 沒有那一欄,post 模式的還原【本身】跑不完。
+    //    📌 一道守門的理由變了而它仍然該留 ⇒ 那時要改的是【註解與測試名】,不是【碼】。
+  });
+
+  it('🔴 post 版真的會寫 legacy_display_id(上面那道斷言不是無主的)', () => {
+    // 沒有這一格的話,上面那條會變成「為一個沒有人用的東西站崗」。
+    expect(post).toContain('SET legacy_display_id = t.display_id');
+  });
+
+  it('🔴 留痕【沒有】fail-open handler —— 它移出交易之後就不該再有', () => {
+    // R1/R2/R3 三輪都咬在那個 handler 上。移出交易之後我們【要】失敗被看見(rc≠0),
+    // 所以任何 EXCEPTION 區塊都是把那三個問題請回來。
+    const i = pre.indexOf('INSERT INTO public.admin_audit_log');
+    const block = pre.slice(i, i + 900);
+    expect(block).not.toMatch(/exception/i);
+    expect(block).not.toMatch(/query_canceled/i);
+    expect(pre).not.toContain('SET LOCAL statement_timeout = 0;');
+  });
+
+  it('🔴 留痕段不得依賴 mode/target(四版本取出來必須逐字相同)', () => {
+    // ⚠️ **它證的是什麼,要寫清楚**(R3 2026-08-29 nit):`buildAuditSql` 是一個
+    //    只吃 operator 的函式,而四個版本傳同一個 operator ⇒ **相同是構造上必然的**。
+    //    ⇒ 這一格【不是】在跑四發比對確認它們碰巧一樣;
+    //      它擋的是【有人把 mode / target 內插進去】—— 那一刀會讓它們立刻不同。
+    //    📌 一條測試讀起來像做了什麼,與它實際擋住什麼,是兩個宣稱。
+    // 那些值改成執行期由 DB 自己講(cluster_id / sample_display_id 都是查出來的),
+    // 正是為了不破壞「兩版逐字相同」那個刻意的不變式(見 :142 與 :334)。
+    const grab = (s: string) => {
+      const i = s.indexOf('INSERT INTO public.admin_audit_log');
+      // ⚠️ 那筆 INSERT 現在以 RETURNING … \gset 收尾(不是 `);`)⇒ 抓到那一行為止。
+      return s.slice(i, s.indexOf('AS d1_mismatch', i));
+    };
+    // 🔴 codex R1 MF7:原本只比三個,而標題寫「四個版本」⇒ rehearsal-post 這個
+    //    交叉世界【一次都沒被建出來】。**一條測試的名字比它的分母寬,是最便宜的假綠。**
+    expect(grab(post)).toBe(grab(pre));
+    expect(grab(rehearsal)).toBe(grab(pre));
+    expect(grab(rehearsalPost)).toBe(grab(pre));
+    // 負對照:確定真的抓到東西,不是兩個空字串相等。
+    expect(grab(pre).length).toBeGreaterThan(200);
   });
 });
 
@@ -349,7 +672,15 @@ describe('buildRestoreScript — 兩版差異', () => {
     for (const { restoreDisplayId } of D1_DELETE_COHORT) {
       expect(pre).not.toContain(restoreDisplayId);
     }
-    expect(pre).not.toContain('legacy_display_id');
+    // 🔴 **這一條收窄了,而我要寫清楚為什麼它仍然守得住原本那件事。**
+    //    ~~原本:`expect(pre).not.toContain('legacy_display_id')`~~
+    //    ⇒ 留痕現在要【讀】那一欄來判 mode(codex R4:不能用 TEMP TABLE,它綁 session),
+    //      而讀不是改 ⇒ 那個粗代理現在會誤傷。
+    //    ✅ 換成釘【寫入】那個動作 —— 而「pre 版不改號」逐字就是這個意思。
+    //    ⚠️ 而**上面那一圈斷言(26 個 `restoreDisplayId` 一個都不得出現)完全沒動** ——
+    //       那是這一條的實質守門,而它比字串代理強:改號一定會帶進新號。
+    expect(pre).not.toContain('SET legacy_display_id');
+    expect(pre).not.toContain('d1r_remap');
   });
 
   it('post 版 26 組映射逐組入 script,舊號進 legacy_display_id', () => {
@@ -389,11 +720,26 @@ describe('d1-restore.sh(執行器)', () => {
   const sh = readFileSync(new URL('./d1-restore.sh', import.meta.url), 'utf8');
 
   it('五個步驟齊全且順序正確:preflight → 校驗碼 → CA → 產 SQL → 執行', () => {
-    const order = ['--preflight', 'shasum -a 256 -c checksums.txt', '--write-ca', 'test -s', 'psql -f'];
+    // ⚠️ 執行那一步的 needle 從 `psql -f` 改成 `-f "$WORK/restore.sql"`
+    //    (2026-08-29:psql 那行加了 `-v d1_mode=` ⇒ 原本的字面不再連續)。
+    //    🔴 而它【不是弱化】:那個 needle 仍然只出現在執行那一步,而順序斷言一格沒動。
+    //    ✅ 而新加的那個參數另有一格單獨釘死(下一條),不靠這裡。
+    const order = ['--preflight', 'shasum -a 256 -c checksums.txt', '--write-ca', 'test -s', '-f "$WORK/restore.sql"'];
     const positions = order.map((needle) => sh.indexOf(needle));
 
     expect(positions).not.toContain(-1);
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+  });
+
+  it('🔴 psql 要把 wrapper 選的那一版傳進去(-v d1_mode)', () => {
+    // 沒有它 ⇒ 留痕那句 :'d1_mode' 展不開 ⇒ psql 語法錯 ⇒ rc=3
+    //   (2026-08-29 實測:**不是**安靜變成空字串 —— 那一格是 fail-closed 的)。
+    expect(sh).toContain('psql -v d1_mode="$MODE"');
+    // 🔴 **釘住它傳的是【原始的 $MODE】,不是在 shell 裡再轉一次** ——
+    //    轉成 pre-n3c / post-n3c 的映射只活在產生器裡(`mode === 'pre' ? …`);
+    //    在 wrapper 裡也轉一份 ⇒ 那份映射就有兩份,而它們漂掉的那天沒有東西會紅。
+    expect(sh).not.toContain('d1_mode="${MODE}-n3c"');
+    expect(sh).not.toContain('d1_mode="$MODE-n3c"');
   });
 
   it('校驗碼在備份目錄裡驗(checksums.txt 記的是相對檔名)', () => {

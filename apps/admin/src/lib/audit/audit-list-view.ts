@@ -31,6 +31,11 @@ import { formatOrderDateTime } from '../orders/order-detail-view';
  *   - **app 層**:`apps/admin/src/lib/staff-actions.ts` —— `:124` `create` / `:189` `update` /
  *     `:274-275` `deactivate`+`reactivate`(**四個都在同一支檔**)。
  *   ⚠️ **只掃 `supabase/migrations/` 會漏掉 app 層那四個** —— 分母要含 `apps/admin/src`。
+ *   - 🔴 **`scripts/`(2026-08-29 線D 補的【第三個分母】)**:`scripts/d1-restore.ts` 的
+ *     `AUDIT_SQL` 也寫一個 dotted 字面(`ops.d1.restore`)。
+ *     📌 **而它不在上面那兩個分母裡** —— 上一行那句「分母要含 `apps/admin/src`」寫的時候,
+ *     `scripts/` 底下還沒有人寫稽核 ⇒ **那句話當時是對的,而它沒有辦法知道自己過期了。**
+ *     ⇒ **重數這張字典要掃三處。**
  *   ⚠️ **本清單抄自 plan §1,而那份是 2026-08-14 數的** ⇒ **分母是那天的樹**;
  *      `deactivate`/`reactivate` 就是這樣漏的(E 窗 R1 must-fix 補回)。
  *      🔴 **重掃時要掃兩個分母**:主樹 `dev` **與** 各窗分支的聯集 —— 新 migration 可能還沒進 dev。
@@ -71,6 +76,11 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   //    而我抄 plan §1 的清單時漏了。⚠️ 那份清單是 **08-14 數的**,而**分母是那天的樹**。
   'settings.staff.deactivate': '停用員工',
   'settings.staff.reactivate': '啟用員工',
+  // 🔴 **這一個來自【第三個分母】** —— 上面檔頭那段只列了兩個(`supabase/migrations/`
+  //    與 `apps/admin/src`),而這個字面住在 `scripts/d1-restore.ts` 的 `buildAuditSql`。
+  //    ⇒ 📌 **下次重數這張字典時要掃三處,而 `scripts/` 不在任何一份既有清單上。**
+  //    (2026-08-29 線D;那支腳本本片之前零留痕,`source_app='ops'` 由 `20260829190000_*` 開放。)
+  'ops.d1.restore': '災難還原(D1 訂單 cohort)',
 };
 
 /**

@@ -58,6 +58,9 @@ describe('formatAuditAction — 未知代碼', () => {
   it.each([
     ['settings.staff.deactivate', '停用員工'],
     ['settings.staff.reactivate', '啟用員工'],
+    // 🔴 codex 2026-08-29 R1 nit:新代碼沒有直接命中的單測 ⇒ key 或中文標籤打錯仍會全綠
+    //    (未知代碼會 fallback 印原字,畫面不會壞 ⇒ **錯了沒有任何症狀**)。
+    ['ops.d1.restore', '災難還原(D1 訂單 cohort)'],
   ])('%s ⇒ %s(補漏)', (code, label) => {
     expect(formatAuditAction(code)).toBe(label);
   });

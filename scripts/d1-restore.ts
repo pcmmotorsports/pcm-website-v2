@@ -297,6 +297,203 @@ BEGIN
 END $$;`,
 ];
 
+/**
+ * 還原留痕(2026-08-29 線D)。**本片之前這支腳本零留痕** —— 跑完會有 26 張訂單 +
+ * 2 個客戶出現在正式庫,而沒有任何一筆紀錄說是誰、什麼時候、為什麼。
+ *
+ * 🔴 **記的是 `session_user`,不是自填的 actor**:自填的那一格記的是「有人自稱做了這件事」,
+ *    而 `session_user` 是 **DB 自己講的**,偽造不了(`SET ROLE` 改得動 `current_user`、
+ *    改不動 `session_user` —— 所以兩個都記,兩者不一致本身就是證據)。
+ *    ⚠️ `request_id` 是**關聯 id 不是防偽章**,不要讀成驗證。
+ *
+ * 🔴🔴 **`mode` 從【資料】判,不從 session 狀態判**(codex R4 must-fix):
+ *    ~~原本:看 `pg_temp.d1r_remap` 這張 TEMP TABLE 在不在~~ **已作廢** ——
+ *    TEMP TABLE 綁 session,而 **rehearsal 那條路沒有禁 transaction pooler**
+ *    (`buildD1PgConfig` 只在 `target === 'production'` 時跑)
+ *    ⇒ `COMMIT` 後換 backend ⇒ `to_regclass` 回 NULL ⇒ **安靜把 post 記成 pre**。
+ *    📌 而「安靜判錯」比「報錯」難發現一個量級 —— 一般斷線會報錯,換 backend 不會。
+ *    ✅ 改看【還原出來的那 26 張單有沒有 `legacy_display_id`】—— 那是 post 才會寫的,
+ *       而它是**資料庫裡的事實**,換 backend、斷線重連都不受影響。
+ *    ⚠️ 而它**只讀不寫**那一欄 ⇒ 「pre 版不改號」那條守門因此從
+ *       「字串不出現」收窄成「不出現 `SET legacy_display_id`」(見 test 檔那段註解)。
+ *
+ * 🔴🔴 **它跑在 `COMMIT` 之【後】,而那是三輪對抗審查逼出來的**(R3 2026-08-29):
+ *    ~~原設計:放在交易【內】,用 PL/pgSQL 的 `EXCEPTION` 區塊做 fail-open~~ **已作廢** ——
+ *    R1 抓到 `WHEN OTHERS` 抓不到 `query_canceled`;R2 抓到具名去抓它會【吞掉操作者的 Ctrl-C】;
+ *    R3 抓到為了避開逾時而 `SET LOCAL statement_timeout = 0` 開了一個【無限卡死】的窗
+ *    (撞鎖時整個還原交易掛住)。
+ *    📌 **三輪咬同一塊碼 ⇒ 那不是修得不夠仔細,是【那塊碼不該在那裡】。**
+ *    ✅ 移出交易之後,上面三條**一起消失** —— 而消失的原因是**那塊碼不見了**,不是被修好。
+ *
+ *    **移出來為什麼不損失任何東西**:
+ *    · 原子性 —— fail-open 本來就沒買到原子性 ⇒ post-COMMIT 沒有「有紀錄而無還原」的世界
+ *      (還原先落地,留痕才跑)。
+ *    · 可見度 —— `\set ON_ERROR_STOP on` 之下,這一段落敗會讓 psql `rc≠0`
+ *      ⇒ **看得見**,比一行沒人看的 `WARNING` 好。
+ *    ⚠️ **而 `rc≠0` 的代價要一起講**:還原【已經成功】而退出碼非零,災難當下容易被讀成
+ *      「還原失敗」⇒ 想重跑。⇒ 呼叫端在它之前印一行 `\echo` 講清楚它在講哪一段。
+ *      (重跑不會二次破壞:`INSERT INTO public.orders` 沒有 `ON CONFLICT` ⇒ 撞主鍵直接失敗。)
+ *
+ * ⚠️ `source_app='ops'` 需要 `20260829190000_*` 已 apply;沒 apply ⇒ CHECK 擋下
+ *    ⇒ **這一段失敗,而還原早已 COMMIT ⇒ 資料是安全的,只是沒留痕**(psql 會 `rc≠0`)。
+ *
+ * 🔴🔴 **這段 SQL 在四個版本(pre/post × production/rehearsal)【逐字相同】—— 那是被守門釘住的**
+ *    (`d1-restore.test.ts:142` 與 `:334`:兩版只能差守門那段與改號那塊)。
+ *    ⚠️ **我第一版把 `mode` 與 `target` 寫成字面內插,那兩條測試當場紅** ——
+ *       而它們紅得對:檔頭逐字寫著「兩版**唯一的差別是改號段落**…避免『演練過 pre、
+ *       真正要用的是 post』這種只有災難當下才會發現的分歧」。
+ *    ✅ **改法是根因不是繞過**:那兩個值改成**執行期由 DB 自己講**——
+ *       · `cluster_id` = `pg_control_system()` ⇒ 比一個宣稱 'production' 的字面**更可信**
+ *       · ~~`mode` = 看 `pg_temp.d1r_remap` 在不在~~ **已作廢兩次,不要再發明回來**:
+ *         R4 指出它綁 session(pooler 換 backend 會安靜判錯),R5 指出改看資料之後
+ *         `EXISTS` 仍然分不出「真 pre」與「post 被並行清空」⇒ **它一直是個【推論】。**
+ *         ✅ 現在記的是 `sample_display_id` —— **一個抄下來的事實**,讀的人從單號格式
+ *         自己看得出 pre 還是 post,而且看得到那張單現在的號。
+ *         📌 **與其把推論做得更準,不如記下那個推論想指向的事實。**
+ *         ⚠️ **而它是 NULL 的話,那本身是一個訊號**:代表 cohort 第一張單
+ *            **不在 `public.orders` 裡** —— 而在一次成功的還原之後那是不可能的
+ *            (還原自己有逐列逐欄比對與筆數斷言)。
+ *            ⇒ 所以看到 NULL,要去查的是【還原】不是【留痕】。
+ *            (2026-08-29 實測:拋棄式庫沒有那張單 ⇒ 它就印 NULL,而 INSERT 照樣成功。)
+ *         ⚠️ **這一格與 `REMAP_SQL` 的表名耦合** —— 改名那張表,這裡會安靜地永遠回 'pre-n3c'
+ *    📌 **⇒ 一個為了「記錄得更完整」而內插的字面,破壞了一個比它重要的不變式。**
+ */
+/** 操作人姓名 —— Sean 2026-08-29 拍甲(他在【知道它可以被填假的】之下選的)。
+ *
+ * 🔴 **`D1_OPERATOR` 是操作者自己打的字 —— 它是【線索】不是【憑據】。**
+ *    偽造不了的那一格是 DB 自己記的 `session_user`,而 guard 強制它是 `postgres`
+ *    ⇒ **所以那一欄對每一筆都一樣** ⇒ 這一欄是唯一能區分「這次是誰跑的」的東西,
+ *    而它區分得出來的前提是【填的人誠實】。
+ * ⚠️ 所以它**進 `after` 的 JSON**,**不覆蓋 `actor`** ——
+ *    `actor` 的語意已經寫死成 `session_user`;兩個混在一起,
+ *    下一個人會以為 `actor` 是驗證過的。
+ */
+function operatorFromEnv(): string {
+  const raw = process.env.D1_OPERATOR ?? '';
+  const v = raw.trim();
+  // 🔴🔴 **判準是「有沒有【真的字】」,不是「有沒有不可見字元」**(codex R5 must-fix)。
+  //    ⚠️ ~~上一版:拒 `\p{Cc}\p{Cf}` + 要求 `replace(/[\p{C}\p{Z}]/gu,'') !== ''`~~
+  //       **那是黑名單偽裝成白名單,而它【兩個方向都錯】**:
+  //       · 該擋沒擋:`U+034F`(combining grapheme joiner)、variation selector、
+  //         `U+3164`(諺文填充)⇒ 它們不在 C/Z 類 ⇒ 過,而看起來是空白。
+  //       · 該過擋了:波斯文等合法姓名可能需要 ZWNJ / ZWJ(`\p{Cf}`)⇒ 被我拒掉。
+  //    ✅ 真白名單:**至少要有一個字母或數字**。其他東西(空白、標點、ZWNJ)
+  //       可以在名字【裡面】,只要它不是整個名字。
+  //    📌 **「不是不可見類」是黑名單;「是字母或數字」才是白名單。**
+  // 🔴 而 `\p{L}` **不等於「畫得出來」** —— 諺文填充那一小塊(U+115F / U+1160 /
+  //    U+3164 / U+FFA0)在 Unicode 裡是 **Lo(其他字母)**,而它們**渲染成空白**。
+  //    ⇒ 實測:`/[\p{L}\p{N}]/u.test('\u3164')` ⇒ **true** ⇒ 光靠上面那條會過。
+  //    ⇒ 所以這裡把那一小塊【具名剔除】再判。
+  const visible = v.replace(/[\u115F\u1160\u3164\uFFA0]/g, '');
+  if (!/[\p{L}\p{N}]/u.test(visible)) {
+    throw new Error(
+      'D1_OPERATOR 裡沒有任何字母或數字 —— 請填這次實際操作的人的名字' +
+        '(只有空白 / 零寬字元 / 標點 / 填充字元不算)。',
+    );
+  }
+  // 🛑🛑 **射程(明寫,而它不是疏漏)**:**沒有任何 Unicode 類別規則能表達「看得見」** ——
+  //    「可見」是**渲染**的性質,不是字元的性質。上面那一小塊是**已知**的空白字母,
+  //    而 Unicode 每個版本都可能加入新的。
+  //    ⇒ **射程是【三分】不是二分**(codex 2026-08-29 R6 指正:我原本把中間那一塊歸錯邊):
+  //      ① **誤填**(空白 / tab / 零寬 / 標點 / 那四個填充字母)⇒ **擋得住**。
+  //      ② **誤貼**(合法姓名遇到缺字型;或不小心貼到希臘 / 西里爾 / 數學字母等易混字元)
+  //         ⇒ 🔴 **擋不住,而它【不是惡意】** —— 它是意外,而這道閘看不到它。
+  //         ⇒ 而後果是:稽核上那個名字看起來對,而它不是那個人的名字。
+  //      ③ **惡意**(刻意找一個畫不出來的字母)⇒ 擋不住,而惡意的人本來就改得動這支腳本本身。
+  //    📌 **⇒ 我原本寫「擋誤填不擋惡意」,而那句話把整個②吃掉了** ——
+  //       二分法會讓中間那一塊【無處可歸】,而它是最可能真的發生的那一塊。
+  if (!v) {
+    // 🔴 這道閘的價值在【它在任何破壞性動作之前就停】—— 對稱於 wrapper 的 `D1_DB_URL`。
+    //    而 wrapper 也擋一次:兩道都在,因為檔頭明寫「可以直接跑產生器」那條路。
+    throw new Error(
+      '缺 D1_OPERATOR:請設成【這次實際操作的人】的名字(export D1_OPERATOR=\'你的名字\')。' +
+        '它會寫進稽核的 after 欄,而它是自填的線索不是憑據。',
+    );
+  }
+  return v;
+}
+
+/** 留痕落地【之後】的一致性閘 —— 而它刻意排在 audit 的 COMMIT 後面。
+ *
+ * 🔴 為什麼(codex 確認輪 must-fix):上一版只把核對結果【存起來】,
+ *    而「存起來」與「有人會看」是兩件事 —— 不一致時腳本照樣 COMMIT、rc=0、一聲不吭。
+ * ✅ 而它排在 audit COMMIT 之後,所以【那筆紀錄先保住】——
+ *    在最需要有紀錄的那一刻(狀態不對),我們不會因為要報警而把紀錄一起丟掉。
+ * 📌 順序就是這一格的全部:先落地,再叫。
+ *
+ * ⚠️ psql 的 \gset + \if 對 boolean 的行為是【量過的】,不是假設的
+ *    (2026-08-29 實測:false 走 else、true 走 if,而 RAISE 讓 psql rc=3)。
+ */
+const AUDIT_VERDICT_SQL = `\\if :d1_mismatch
+\\echo 🔴🔴 留痕記到【要求的版本與資料對不上】—— 而還原本身已經 COMMIT,資料在。
+\\echo    照 docs/runbooks/2026-07-29-d1-restore.md 的 4-a 那節排查,不要重跑。
+DO $$
+BEGIN
+  RAISE EXCEPTION 'D1:requested_mode 與這批單的實際狀態不一致;還原【已經 COMMIT】,照 runbook 4-a 查,不要重跑';
+END $$;
+\\endif`;
+
+const buildAuditSql = (operator: string) => `BEGIN;
+SET LOCAL statement_timeout = '60s';
+SET LOCAL lock_timeout = '5s';
+INSERT INTO public.admin_audit_log
+  (actor, action, target, after, reason, request_id, source_app)
+VALUES (
+  session_user,
+  'ops.d1.restore',
+  'restore:d1-cohort',
+  jsonb_build_object(
+    'db_session_user', session_user,
+    'db_current_user', current_user,
+    'operator_self_reported', '${operator.replace(/'/g, "''")}',
+    -- 🔴🔴 **requested_mode 由【wrapper 在呼叫 psql 時給】,不是產生器內插的**
+    --    (主視窗 2026-08-29 指出的第三條路,而它比我原本的兩難好):
+    --    · 四個版本的 SQL 文字裡寫的都是同一個佔位符 ⇒ **「兩版逐字相同」那個不變式不破**。
+    --    · 而值來自 d1-restore.sh -v d1_mode=… ⇒ **另一個來源**。
+    --    📌 **⇒ 那才叫交叉核對**:requested_mode = wrapper 說它要跑什麼;
+    --       sample_display_id = 資料上實際發生什麼。兩者【不同源】。
+    --    🔴 而若把 mode 內插進 SQL(我原本以為的唯一做法)⇒ 值與版本來自【同一個產生器】
+    --       ⇒ 它們永遠一致 ⇒ **那個「核對」是恆真的,證不了任何事。**
+    --    ✅ 缺值 ⇒ psql 語法錯 ⇒ rc=3(2026-08-29 實測,**不是**安靜變空字串)。
+    --    ⚠️ **它記的值是 pre / post(操作者在命令列打的那個字),不是 pre-n3c / post-n3c**
+    --       —— wrapper 把同一個 $MODE 同時餵給產生器與 psql,而【轉換發生在產生器裡】。
+    --       🔴 而這是刻意的:要在 wrapper 裡也轉一次的話,那份映射就有【兩份】,
+    --          而它們漂掉的那天沒有任何東西會紅。
+    --       ⇒ 對照表:pre ⇒ 舊格式單號(PCM-2026-0001)/ post ⇒ 六碼新號(例 A1B2C3)。
+    'requested_mode', :'d1_mode',
+    -- 🔴 **把交叉核對的【結果】也記進去**(codex R7 must-fix):
+    --    原本只記兩個值,而「它們對不對得上」要人事後自己看 ⇒ 沒有任何訊號。
+    --    這一欄把那個判斷【當場算完存下來】,讓事後查詢一眼看得到。
+    --    ⚠️ 判準用【資料】不用單號格式:post ⇒ 那 26 張都該有 legacy_display_id;
+    --       pre ⇒ 都不該有。(格式會改,而這個關係不會。)
+    --    🔴🔴 **而它要【逐個模式明寫】,不能寫成「兩邊相等」**(codex 確認輪 must-fix):
+    --       我第一版寫 (:'d1_mode' = 'post') = (改號數 = 26)
+    --       ⇒ pre 模式遇到【部分改號或缺單】(例如 13/26)時,左邊 false、右邊也 false
+    --       ⇒ 兩個 false 相等 ⇒ **它記成 true** —— 一個壞掉的世界被記成一致。
+    --       📌 「兩個都不對」與「兩個都對」在等號底下長得一樣。
+    --    ✅ 而總數也要驗(count(*) = 26)—— 少單時上面那個 FILTER 一樣會給出漂亮的數字。
+    --    ✅ 而未知的 mode ⇒ false(不是「不知道所以算它過」)。
+    'mode_matches_data', (
+      SELECT CASE :'d1_mode'
+               WHEN 'post' THEN count(*) = 26
+                             AND count(*) FILTER (WHERE legacy_display_id IS NOT NULL) = 26
+               WHEN 'pre'  THEN count(*) = 26
+                             AND count(*) FILTER (WHERE legacy_display_id IS NOT NULL) = 0
+               ELSE false
+             END
+        FROM public.orders WHERE id IN (${DELETE_IDS})
+    ),
+    'cluster_id', (SELECT system_identifier FROM pg_control_system())::text,
+    'sample_display_id', (SELECT display_id FROM public.orders WHERE id = '${D1_DELETE_COHORT[0]!.id}'),
+    'expected_rows', '${JSON.stringify(EXPECTED_ROWS).replace(/'/g, "''")}'::jsonb
+  ),
+  'D1 災難還原:cohort 26 張訂單與相依資料寫回',
+  gen_random_uuid()::text,
+  'ops'
+)
+RETURNING NOT (after->>'mode_matches_data')::boolean AS d1_mismatch \\gset
+COMMIT;`;
+
 /** 父表 = cohort 指向的東西,不是 cohort 的一部分;順序即 FK 家長優先。 */
 const PARENT_TABLES = [
   'customers',
@@ -552,10 +749,38 @@ export function buildRestoreScript(
     // 錯誤即停。不靠操作者記得下 -v ON_ERROR_STOP=1 —— 忘了的話,交易中途出錯後
     // 後續語句照跑、最後那句 COMMIT 才變成 ROLLBACK,畫面上卻是一片「成功」。
     '\\set ON_ERROR_STOP on',
+    // 🔴 **釘住它,不要依賴預設**(codex R4 must-fix):我原本的分析是
+    //    「反斜線安全,因為 `standard_conforming_strings` 預設 on」——
+    //    📌 **結論對,而理由是一個我沒有驗過的前提。**設成 `off` 時反斜線加引號
+    //    破壞得了字串邊界,而我們把使用者自填的 `D1_OPERATOR` 寫進一個字串常數。
+    "SET standard_conforming_strings = on;",
     'BEGIN;',
     "SET LOCAL lock_timeout = '5s';",
     "SET LOCAL statement_timeout = '60s';",
     buildGuardSql(target),
+    // 🔴🔴 **確認 public.orders 有 legacy_display_id**(線D 2026-08-29)。
+    //    ⚠️ ~~原本的理由是「留痕靠它判 mode」~~ **那個理由已作廢**(R5 之後留痕改記
+    //    `sample_display_id`,不再推論 mode)。**而這道斷言留著,因為它的真正理由更硬**:
+    //    🔴 **post-n3c 模式的還原【自己】要寫那一欄**(`REMAP_SQL` 的
+    //       `SET legacy_display_id = t.display_id`,再 `INSERT INTO public.orders`)
+    //       ⇒ 沒有那一欄,post 模式的還原【本身】就跑不完。
+    //    ✅ 而放在這裡(交易內、寫入之前)⇒ 訊息說得出缺的是哪一支 migration,
+    //       而不是在中段拋一個 column 不存在的錯。
+    //    📌 **⇒ 一道守門的理由變了,而它仍然該留 —— 那時要改的是【註解】不是【碼】。**
+    //    ⚠️ 而它不是假設:那一欄由 `20260729010000_..._display_id_expand.sql` 加,
+    //       而**那支在乾淨 PG 上會失敗**(`#907`)⇒ 一個「schema 看起來對」的演練環境
+    //       可能就是缺這一欄的那種。
+    `DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_attribute
+     WHERE attrelid = 'public.orders'::regclass
+       AND attname = 'legacy_display_id'
+       AND NOT attisdropped
+  ) THEN
+    RAISE EXCEPTION 'D1:public.orders 缺 legacy_display_id ⇒ post 模式的還原寫不進去;拒繼續(缺的是 20260729010000 那支 migration)';
+  END IF;
+END $$;`,
     // 🔴 **全部先載入,才開始寫回**。父表的 selector 要查 `d1r_orders` / `d1r_order_items`,
     //    而父表必須先於 orders 寫回(FK)⇒ 載入與寫回不能交錯,否則順序無解。
     '\\echo == 載入備份 ==',
@@ -586,6 +811,42 @@ export function buildRestoreScript(
     ]),
     'COMMIT;',
     '\\echo 還原完成:26 張訂單與相依資料已寫回。',
+    // 🔴🔴 **留痕在 COMMIT【之後】,而它是獨立語句**(R3 2026-08-29;這是 plan 層改法)。
+    //    ⚠️ 前兩輪對抗審查(R1 MF1 / R2 MF1)都咬在同一塊碼上 —— 那塊碼是交易【之內】的
+    //    fail-open handler。**三次咬同一處,代表那塊碼不該在那裡,不是我修得不夠好。**
+    //    移出來之後,下面這些問題【一起消失】,不是被修好:
+    //      · `WHEN OTHERS` 抓不到 `query_canceled` ⇒ 沒有 handler 了
+    //      · 為了避開逾時而 `SET LOCAL statement_timeout = 0` ⇒ 沒有那個窗了
+    //        (那一行本身開了一個【無限卡死】的可能:撞鎖時整個還原交易掛住)
+    //      · WARNING 措辭要不要說「已完成」⇒ 此刻它【真的已經 COMMIT 了】
+    //    🔴 而原子性【一格都沒損失】:fail-open 本來就沒買到原子性
+    //       ⇒ post-COMMIT 沒有「有紀錄而無還原」那個世界(還原先落地)。
+    //    ✅ 而落敗是 `rc≠0`(`ON_ERROR_STOP on`)⇒ **看得見**,比一行沒人看的 WARNING 好。
+    //    ⚠️ **而 `rc≠0` 的代價要先講**:還原【已經成功】而退出碼非零 ⇒ 災難當下容易被讀成
+    //       「還原失敗」⇒ 想重跑。所以下面那行 `\\echo` 先講清楚它在講哪一段。
+    //       (重跑不會二次破壞:`INSERT INTO public.orders` 沒有 `ON CONFLICT` ⇒ 撞主鍵直接失敗。)
+    '\\echo == 以下是留痕。還原【已經 COMMIT 完成】—— 這一段失敗不影響它,但請手動記錄。==',
+    // 🔴🔴 **預設【當成不一致】,再讓那一筆 INSERT 的 RETURNING 覆蓋它**(codex R9 must-fix):
+    //    ~~原本:留痕 COMMIT 之後再 SELECT 一次,ORDER BY created_at DESC LIMIT 1~~ **已作廢**,
+    //    它有兩個洞:①同秒多筆 / 並行時可能撈到【別次】的紀錄
+    //    🔴 ②查詢回【零列】時 psql 的 \\gset **不改變數** ⇒ 未定義值進 \\if
+    //       ⇒ 它只印一句 warning 而當成 false ⇒ **rc=0 靜默放行** —— 那正是我要避開的 fail-open。
+    //    ✅ 修法兩件一起:
+    //       · 先 \\set 成 true ⇒ 任何「沒被覆蓋到」的世界都落在【會叫】那一邊
+    //       · 而值改由那一筆 INSERT 自己的 RETURNING 給 ⇒ 拿的是【剛寫的那一列】,
+    //         不是事後撈的某一列 ⇒ 並行與同秒多筆的問題一起消失。
+    "\\set d1_mismatch true",
+    // 🔴🔴 **留痕跑在【它自己的交易】裡** —— 而這是同一個病的第三次搬家
+    //    (交易內 → 交易外 → 自己的交易),codex R4→R5 各推一步:
+    //    · R4:COMMIT 會清掉交易內的 SET LOCAL ⇒ 移出去之後那筆留痕【沒有任何逾時】
+    //      ⇒ 撞表鎖可無限等,而那時既沒有非零 rc 也沒有完成狀態。
+    //    · R5:那我在交易外補兩個非 LOCAL 的 SET 呢? ⇒ **不行** —— 那是三個獨立的
+    //      autocommit 語句,transaction pooler 下可以落到【三個不同的 backend】
+    //      ⇒ SET 設在 A、INSERT 跑在 B ⇒ 它仍然沒有逾時。
+    //    ✅ 正解:BEGIN…COMMIT 把它們綁成一個交易 ⇒ pooler 在交易期間綁住同一個 backend
+    //       ⇒ **把「它會落在哪個 backend」從【運氣】變成【約束】**,而 SET LOCAL 的語意也回來了。
+    buildAuditSql(operatorFromEnv()),
+    AUDIT_VERDICT_SQL,
   ].join('\n');
 }
 
