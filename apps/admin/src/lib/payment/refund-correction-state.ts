@@ -46,6 +46,19 @@ export const CORRECTION_RESULT_CODES = [
 
 export type CorrectionResultCode = (typeof CORRECTION_RESULT_CODES)[number];
 
+// 🔴 具名常數(給 `result-banner.tsx` 用)—— **不讓那一側再打一次字串字面**。
+//    打錯一個字母 ⇒ 那一則文案永遠不會顯示,而 banner 對未知碼是**靜靜地不顯示**
+//    ⇒ 員工按完什麼都沒發生,而畫面看起來很正常。
+export const CORRECTION_DONE_RESULT_CODE = 'correction_done' satisfies CorrectionResultCode;
+export const CORRECTION_DUPLICATE_RESULT_CODE =
+  'correction_duplicate' satisfies CorrectionResultCode;
+export const CORRECTION_STALE_RESULT_CODE = 'correction_stale' satisfies CorrectionResultCode;
+export const CORRECTION_NOT_APPLICABLE_RESULT_CODE =
+  'correction_not_applicable' satisfies CorrectionResultCode;
+export const CORRECTION_INVALID_RESULT_CODE = 'correction_invalid' satisfies CorrectionResultCode;
+export const CORRECTION_DENIED_RESULT_CODE = 'correction_denied' satisfies CorrectionResultCode;
+export const CORRECTION_BUG_RESULT_CODE = 'correction_bug' satisfies CorrectionResultCode;
+
 /**
  * 🔴 **文案的分工**(這一段是規格,不是註解):
  * `correction_stale` 與 `correction_bug` **絕對不能共用一句話** ——

@@ -11,6 +11,7 @@ vi.mock('@pcm/adapters/server', () => ({
 }));
 
 import {
+  CORRECTION_P2B44_MARKERS,
   CORRECTION_REQUEST_ID_UNIQUE,
   CORRECTION_RPC_RAISE_CODES,
   CorrectionCallerBugError,
@@ -103,6 +104,18 @@ describe('🔴 跨側:我的碼表 vs migration 裡【真的 RAISE 出來】的�
     // 而「單純 toContain 會被註解餵綠」這件事本身也釘一格:那個字面確實出現不只一次。
     expect(sql.split(CORRECTION_REQUEST_ID_UNIQUE).length - 1).toBeGreaterThan(1);
   });
+
+  it('🔴 P2B44 的三句話,逐句都要在 migration 裡找得到(它們是我分辨三種的唯一依據)', () => {
+    // 🔴 `error.code` 只有 SQLSTATE、沒有 CONSTRAINT 名 ⇒ 只能靠訊息裡的字面分辨。
+    //    ⇒ 那是字面尺，它會因為 RPC 改字而斷 ⇒ 這一格是它斷掉時唯一會叫的東西。
+    for (const [key, phrase] of Object.entries(CORRECTION_P2B44_MARKERS)) {
+      expect(sql, `${key} 的那句話不在 migration 裡了`).toContain(phrase);
+    }
+  });
+
+  it('🔴 負對照:一句編出來的話比不到(證明上一格不是「什麼都算有」)', () => {
+    expect(sql).not.toContain('本支只更正人工判定zzq6641');
+  });
 });
 
 describe('成功的兩條路(而它們的欄位不一樣)', () => {
@@ -176,6 +189,41 @@ describe('🔴 三族錯誤必須分得開', () => {
       },
     });
     await expect(correctRefundVerdict(input())).resolves.toEqual({ result: 'REQUEST_ID_COLLISION' });
+  });
+
+  it('🔴 P2B44 + 「冪等鍵全域唯一」⇒ 也是 collision(那是同一件事的前置檢查版)', async () => {
+    // codex 2026-08-29 must-fix 3:把它當業務錯 ⇒ 員工會看到一句他無法處理的話。
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: { code: 'P2B44', message: `x ${CORRECTION_P2B44_MARKERS.requestIdReused} y` },
+    });
+    await expect(correctRefundVerdict(input())).resolves.toEqual({ result: 'REQUEST_ID_COLLISION' });
+  });
+
+  it('🔴🔴 訊息很長(request_id 佔滿 64 字)時仍要命中 —— **截斷不得吃掉比對**', async () => {
+    // codex R3 抓到:給人看的訊息截 200 字，而這句 marker 在訊息**後段** ——
+    // 拿截斷後的字串去 includes() ⇒ 比不到 ⇒ 那一發會落回「業務錯」，
+    // 而員工會看到一句他無法處理的話，**而系統本來只要換一把 token 重送就好**。
+    const longToken = 'x'.repeat(64);
+    const realShape =
+      `admin_correct_order_refund_verdict:request_id [${longToken}] 已被退款 ` +
+      `${'a'.repeat(36)} 用過,不能再用於退款 ${'b'.repeat(36)} ⇒ 拒絕` +
+      `(${CORRECTION_P2B44_MARKERS.requestIdReused};請換一把新的)`;
+    expect(realShape.length, '這一格要打的就是「超過 200 字」那個世界').toBeGreaterThan(200);
+    expect(
+      realShape.slice(0, 200).includes(CORRECTION_P2B44_MARKERS.requestIdReused),
+      '截斷之後應該比不到 —— 這是本格存在的理由',
+    ).toBe(false);
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: 'P2B44', message: realShape } });
+    await expect(correctRefundVerdict(input())).resolves.toEqual({ result: 'REQUEST_ID_COLLISION' });
+  });
+
+  it('🔴 對照:P2B44 但**不是**那句話 ⇒ 仍是 CorrectionRejectedError(證明上一格不是「一律 collision」)', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: { code: 'P2B44', message: CORRECTION_P2B44_MARKERS.casMismatch },
+    });
+    await expect(correctRefundVerdict(input())).rejects.toBeInstanceOf(CorrectionRejectedError);
   });
 
   it('🔴 對照:23505 但**不是**那個索引 ⇒ 不得吞成 collision,要原樣拋', async () => {

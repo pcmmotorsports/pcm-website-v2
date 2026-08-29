@@ -26,6 +26,15 @@ import {
   REFUND_RECOVERED_RESULT_CODE,
 } from '../../lib/payment/refund-recovery-state';
 import {
+  CORRECTION_BUG_RESULT_CODE,
+  CORRECTION_DENIED_RESULT_CODE,
+  CORRECTION_DONE_RESULT_CODE,
+  CORRECTION_DUPLICATE_RESULT_CODE,
+  CORRECTION_INVALID_RESULT_CODE,
+  CORRECTION_NOT_APPLICABLE_RESULT_CODE,
+  CORRECTION_STALE_RESULT_CODE,
+} from '../../lib/payment/refund-correction-state';
+import {
   CANCEL_NOT_SENT_CODES,
   CANCEL_SENT_CODES,
   FAILURE_MESSAGES,
@@ -406,6 +415,18 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       manualOrderResultCode('bug'),
       manualOrderResultCode('rejected'),
       manualOrderResultCode('error'),
+      // 🔴 `#890` 人工判定更正線七顆(片2c)。**本格在我把它們加進 MESSAGES 的當下真的紅過**
+      //    (2026-08-29 實跑,`1 failed | 39 passed (40)`,訊息逐字
+      //     `expected [ 'conflict', 'correction_bug', …(38) ] to deeply equal [ Array(33) ]`)
+      //    —— 那是它有判別力的證據,不是推的。
+      //    ⚠️ 同上:**逐顆列出、不用迴圈展開** —— 迴圈會讓「有人偷偷多加一顆 correction_xxx」也自動歸類。
+      CORRECTION_DONE_RESULT_CODE,
+      CORRECTION_DUPLICATE_RESULT_CODE,
+      CORRECTION_STALE_RESULT_CODE,
+      CORRECTION_NOT_APPLICABLE_RESULT_CODE,
+      CORRECTION_INVALID_RESULT_CODE,
+      CORRECTION_DENIED_RESULT_CODE,
+      CORRECTION_BUG_RESULT_CODE,
     ];
 
     // ① 表裡沒有第三種鍵(新增未歸類的碼 → 紅)

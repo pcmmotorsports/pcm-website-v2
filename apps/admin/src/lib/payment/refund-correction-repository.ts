@@ -58,6 +58,25 @@ export const CORRECTION_CALLER_BUG_CODES = ['22P02'] as const;
 /** `request_id` 撞全域 UNIQUE 時的索引名(RPC 檔頭 `:311` 逐字)。 */
 export const CORRECTION_REQUEST_ID_UNIQUE = 'order_refund_manual_corrections_request_id_key';
 
+/**
+ * 🔴🔴 **`P2B44` 底下有三個 CONSTRAINT,而它們要員工做【三件不同的事】**
+ * (codex 2026-08-29 must-fix 3;我原本把三個合併成一句「重看一次現況」)。
+ * ```
+ * pcm_rmc_cas_mismatch              :325  有人在你之前改過   ⇒ 重看一次現況 ✅ 那句對
+ * pcm_rmc_target_not_manual_failed  :280  那一列根本不是人工判定失敗 ⇒ **重看一次也沒用**
+ * pcm_rmc_request_id_reused         :304  token 撞到別筆     ⇒ **換一把重送**,員工不必知道
+ * ```
+ * 🔴 而 `error.code` **只有 SQLSTATE,沒有 CONSTRAINT 名** ⇒ 只能靠訊息裡的字面分辨。
+ * ⚠️ **那是字面尺,它會因為 RPC 改字而斷** —— 所以配一發跨側測試釘住這三句還在。
+ * 📌 而它斷掉的方向是 **fail-safe**:認不出來 ⇒ 落回 `cas_mismatch` 那句(叫他重看一次),
+ *    那是三者裡最無害的一句 —— 它不會叫員工去做一件會出事的事。
+ */
+export const CORRECTION_P2B44_MARKERS = {
+  targetNotManualFailed: '本支只更正人工判定',
+  requestIdReused: '冪等鍵全域唯一',
+  casMismatch: '期間有人改過',
+} as const;
+
 /** 協定漂移 = **我們的 bug**,不是業務錯。呼叫端不得把它映成「請重試」。 */
 export class CorrectionCallerBugError extends Error {
   constructor(message: string) {
@@ -100,9 +119,28 @@ function errCode(error: unknown): string | null {
   return typeof code === 'string' ? code : null;
 }
 
+/**
+ * 給**人看**的訊息(截 200 字,免得把一整段 SQL 錯誤塞進畫面)。
+ * 🛑 **不要拿它去比對字面** —— 見 `errRaw()`。
+ */
 function errText(error: unknown): string {
+  return errRaw(error).slice(0, 200);
+}
+
+/**
+ * 🔴🔴 **比對字面一律用這一支,不用 `errText`**(codex 2026-08-29 R3 抓到)。
+ *
+ * `errText` 截到 200 字,而 `pcm_rmc_request_id_reused` 那句的關鍵字面在訊息**後段**:
+ * `request_id` 最長 64 字(`20260814190000:88`)⇒ 那句話會被推到第 200 字之後
+ * ⇒ **截斷之後 `includes()` 比不到** ⇒ 那一發會落回「業務錯」那一族
+ * ⇒ 而員工會看到一句他無法處理的話,**而系統本來只要換一把 token 重送就好**。
+ *
+ * 📌 **形狀值得記**:我自己寫的截斷,把我自己寫的比對**靜靜地關掉了** ——
+ *    而兩邊各自都是對的:截斷是為了畫面,比對是為了分流。
+ */
+function errRaw(error: unknown): string {
   if (typeof error !== 'object' || error === null) return String(error);
-  return String((error as { message?: unknown }).message ?? '').slice(0, 200);
+  return String((error as { message?: unknown }).message ?? '');
 }
 
 /**
@@ -139,7 +177,12 @@ export async function correctRefundVerdict(input: CorrectionInput): Promise<Corr
   if (error) {
     const code = errCode(error);
     // 🔴 23505 先判:它**不帶** CONSTRAINT、不在上面那個碼表裡,而它有專屬處置。
-    if (code === '23505' && errText(error).includes(CORRECTION_REQUEST_ID_UNIQUE)) {
+    if (code === '23505' && errRaw(error).includes(CORRECTION_REQUEST_ID_UNIQUE)) {
+      return { result: 'REQUEST_ID_COLLISION' };
+    }
+    // 🔴 P2B44 的「token 撞到別筆」與 23505 是**同一件事的兩個時機**(前置檢查 vs 索引)
+    //    ⇒ 走同一條路:換一把新 token 重送。把它當業務錯 ⇒ 員工會看到一句他無法處理的話。
+    if (code === 'P2B44' && errRaw(error).includes(CORRECTION_P2B44_MARKERS.requestIdReused)) {
       return { result: 'REQUEST_ID_COLLISION' };
     }
     if (code !== null && (CORRECTION_RPC_RAISE_CODES as readonly string[]).includes(code)) {

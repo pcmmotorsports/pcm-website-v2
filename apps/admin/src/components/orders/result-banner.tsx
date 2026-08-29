@@ -23,6 +23,15 @@ import {
   REFUND_RECOVERED_RESULT_CODE,
 } from '../../lib/payment/refund-recovery-state';
 import {
+  CORRECTION_BUG_RESULT_CODE,
+  CORRECTION_DENIED_RESULT_CODE,
+  CORRECTION_DONE_RESULT_CODE,
+  CORRECTION_DUPLICATE_RESULT_CODE,
+  CORRECTION_INVALID_RESULT_CODE,
+  CORRECTION_NOT_APPLICABLE_RESULT_CODE,
+  CORRECTION_STALE_RESULT_CODE,
+} from '../../lib/payment/refund-correction-state';
+import {
   FAILURE_MESSAGES as CANCEL_FAILURE_MESSAGES,
   toOrderCancelResultCode,
 } from '../../lib/orders/cancel-action-state';
@@ -170,6 +179,45 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   [REFUND_RECOVERED_RESULT_CODE]: {
     text: '已恢復結案:這筆退款以 Portal 退款編號登記為完成,訂單付款狀態已同步。',
     tone: 'ok',
+  },
+  // 🔴 `#890` 人工判定更正(片2c)。**只有成功走 redirect,失敗全回 action state** ——
+  //    而失敗那幾碼**也登錄在這裡**,理由見下面 `correction_bug` 那一則。
+  //    🔴🔴 全部帶 `correction_` 前綴:`denied` / `invalid` 這兩個字面已被改單線用掉,
+  //         而**兩條線的下一步不一樣** ⇒ 撞號在畫面上長得像「訊息偶爾會不對」。
+  [CORRECTION_DONE_RESULT_CODE]: {
+    text: '已更正這筆退款的人工判定。舊的判定紀錄留著(它是「我們曾經判錯」的證據),而現在生效的是新的這一筆。',
+    tone: 'ok',
+  },
+  // ⚠️ 這一則**不是**成功的另一種說法:員工按了兩次,而系統只做了一次。
+  //    不告訴他 ⇒ 他會以為兩次都寫進去了。
+  [CORRECTION_DUPLICATE_RESULT_CODE]: {
+    text: '這一筆更正剛剛已經送出過了,系統沒有重複寫入。畫面上顯示的就是現況。',
+    tone: 'warn',
+  },
+  // 🔴🔴 **這一則與 `correction_bug` 必須讓員工做出【相反】的動作,不得共用、不得互換**:
+  //    這裡「重看一次再決定」是因為**有人真的在你之前改過**,現況已經不是你按下去時看到的那個;
+  //    而 bug 那則要他**停手找工程師** —— 再按幾次都一樣。
+  [CORRECTION_STALE_RESULT_CODE]: {
+    text: '沒有改到 —— 這一筆的判定在你送出之前已經被人改過了。請重新整理看現在的判定是什麼,再決定要不要改。',
+    tone: 'warn',
+  },
+  [CORRECTION_NOT_APPLICABLE_RESULT_CODE]: {
+    text: '這一筆不是「人工判定失敗」的列,這個入口改不了它。',
+    tone: 'warn',
+  },
+  [CORRECTION_INVALID_RESULT_CODE]: {
+    text: '沒有送出 —— 填的內容不合規(理由必填、不能只有空白,且不超過 500 字)。改一下再送。',
+    tone: 'warn',
+  },
+  [CORRECTION_DENIED_RESULT_CODE]: {
+    text: '沒有權限做這個動作。',
+    tone: 'error',
+  },
+  // 🔴 **不得寫「請稍後再試」** —— 這一族是我們這一側出事,重試不會好。
+  //    寫成可重試 ⇒ 員工會對著一個 bug 一直按,而每一次都拿到同一句話。
+  [CORRECTION_BUG_RESULT_CODE]: {
+    text: '沒有改到,而這不是你填錯 —— 系統這一側出了問題。請不要重試,直接聯絡工程師處理。',
+    tone: 'error',
   },
   // 🔴 M-4b E10 A10b:採購同樣**只有成功**會走 redirect(失敗回 action state、保留輸入)。
   //    三個成功碼**刻意不共用一則** —— 員工要看得出「這次到底有沒有改到東西」:
