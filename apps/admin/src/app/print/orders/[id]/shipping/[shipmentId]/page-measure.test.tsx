@@ -56,6 +56,15 @@ import type { AdminOrderDetail } from '@pcm/domain';
 // ✅ 而 `scripts/pagecount.sh` **留著**:它是第二把尺(系統 Chrome + CLI),
 //    而本檔那一發與它在真檔上四格對照過(1 項 1/1、12 項 2/2)。
 //
+// ── 🛑🛑 **這道守門【證不到什麼】(2026-08-29 補;寫成事實, 不是謙虛)**───────────
+//   **它量的是 271mm 的 CSS 框內。而真印表機的可印區【比它小】。**
+//   🔴 線A(`-e9`)2026-08-29 量到:**可印區改成 269mm 時, 連只用 68% 的那張也變成兩頁。**
+//   ⇒ 而 Sean 看到的正是那個形狀:**第 2 張紙幾乎全白, 只有一行 14px 的「列印時間」。**
+//   📌 **⇒ 所以本守門全綠【不代表】那張紙在他那台印表機上印得完。**
+//      它擋的是「版面自己長高到跨頁」;它擋不掉「可印區比我們以為的小 1px」。
+//   ⚠️ 而本檔量到的餘裕現在是 **6px**(2 項那張,99.4%)⇒ **那個 6px 在真紙上可能已經是負的。**
+//   🔴 **要修那一半, 不是改這道守門 —— 是【留餘量】或【量真的印表機】。而兩件都不在本檔射程內。**
+//
 // **怎麼用(兩步)**:
 // ```
 // TURBO_FORCE=1 pnpm build                 # 🔴 【每次動過樣式之後】都要先 build，見下方那一格
@@ -550,14 +559,46 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
           expect(pdf.length).toBeGreaterThan(1000);
           // PDF 裡數 `/Type /Page`(不含 `/Pages`)—— 與 `scripts/pagecount.sh` 同一個數法。
           const pages = (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length;
-          return { pages, used };
+          // 🔴 `html` 也回出去 —— 世界活錨要對著**這一發量到的那份**斷言,
+          //    而不是去讀 `/tmp` 裡某一份(那份可能是別的測試寫的)。
+          return { pages, used, html };
         } finally {
           await page.close();
         }
       };
 
-      const one = await measure(await emit(1, 'shipping-1item'));
-      const many = await measure(await emit(12, 'shipping-12item'));
+      // 🔴🔴 **點要收在【門檻上】, 而 v1 選的 1 與 12 都離門檻很遠(2026-08-29 補)**
+      //    v1:1 項(923px)與 12 項(1973px)⇒ 而門檻在 **2 與 3 之間**
+      //    ⇒ 📌 **一個「多加 50px」的回歸會讓 2 項翻頁, 而 1 與 12 那兩格【都不會動】**
+      //      (1 項離上界還有 101px;12 項早就是 2 頁了,再長高還是 2 頁)
+      //    🔴 **而今天真正發生的回歸, 形狀正是「往前挪一格」—— 不是整個崩掉。**
+      //
+      //    **門檻從哪來(交叉驗證, 不是我挑的)**:
+      //      線A(`-e9`)在**它自己的 fixture** 上量到本形狀(兩張表一起長)= `828 + 95.5N`
+      //      ⇒ N=2 ⇒ 1019px(≤1024 ⇒ 1 頁)· N=3 ⇒ 1114.5px(⇒ 2 頁)
+      //      ✅ 而**本檔的 fixture 不是它那份**(品名 20 字 / 地址 17 字 / 單價六位數),
+      //        而本檔實量 N=1 ⇒ **923px**(模型 923.5)、N=12 ⇒ **1973px**(模型 1974.0)
+      //        ⇒ **兩份不同的 fixture 落在同一條線上, 差 <1px** ⇒ 那是收斂,不是同一份數字複印兩次。
+      const one = await measure(await emit(2, 'shipping-2item'));
+      const many = await measure(await emit(3, 'shipping-3item'));
+
+      // 🔴 **世界活錨:這一發要說得出它站在哪一條分支上。**
+      //    出貨單有兩條(`shipping-doc.tsx` 的 `outstandingRows.length === 0 ? 一行字 : 整張表`),
+      //    而決定者是 `item.quantitySummary` —— 本檔 fixture 給的是 `null`
+      //    ⇒ `outstandingQuantity` 逐字 `if (s === null) return null`,而過濾條件收 `qty === null`
+      //    ⇒ **null 一定會被列出來** ⇒ 本檔**恆走「有未出貨表」那條**。
+      //    🔴 **而 v1 沒有說這件事** ⇒ 它沉默地選了一個世界,而讀的人會以為它涵蓋兩條。
+      //    📌 **而線A 今天在同一個地方跌過一次**(它餵 `null`、以為在量另一條,八點全在這一條)
+      //       ⇒ **兩個窗、兩把不同的尺、同一個分支, 各被騙一次 ⇒ 它需要活錨, 不是需要小心。**
+      for (const [label, html] of [
+        ['2 項', one.html],
+        ['3 項', many.html],
+      ] as const) {
+        expect(html, `${label}:本檔應恆走「有未出貨表」那條`).toContain('尚未出貨');
+        expect(html, `${label}:不應走「無未出貨」那條(那條的門檻是 5⇒6, 不是 2⇒3)`).not.toContain(
+          '這張訂單沒有還欠客人的品項',
+        );
+      }
 
       // 🔴 餘裕:**只印, 不斷言**。而 `used` 為 null 代表 `.print-sheet` 不見了 ⇒ 那要紅。
       expect(one.used).not.toBeNull();
@@ -577,13 +618,19 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
       // 🔴 reviewer nit:寫檔要在兩個 `expect` **之前** ——
       //    寫在後面的話,**守門紅掉的那一次正好拿不到餘裕數字**,而那是唯一想看它的時刻。
       writeFileSync(
-        join(OUT_DIR, 'shipping-1item.slack.txt'),
-        `出貨單 1 項:內容 ${content}px / 可印 ${floor}px = ` +
+        join(OUT_DIR, 'shipping-pagecount.slack.txt'),
+        `出貨單 2 項(門檻上、仍 1 頁):內容 ${content}px / 可印 ${floor}px = ` +
           `${((content / floor) * 100).toFixed(1)}%,剩 ${floor - content}px\n` +
-          // 🔴 reviewer nit:12 項那張離「第 3 頁」還剩多少,**比 1 項那張更會先撞線**。
-          `出貨單 12 項:內容 ${many1.content}px(已跨頁,可印 ${many1.floor}px/頁)\n` +
+          // 🔴 這一格才是有用的餘裕:**2 項是【最後一個還能一頁】的點**
+          //    ⇒ 它剩多少,就是「再加多少東西會翻頁」。
+          //    (v1 印的是 1 項的 101px —— 而 1 項離門檻還有一整項的距離。)
+          `出貨單 3 項(已跨頁):內容 ${many1.content}px(可印 ${many1.floor}px/頁)\n` +
           '🔴 這一格【沒有門檻】—— 那個數字該多少沒有人知道,發明一個門檻等於發明一個判準。\n' +
-          '   它存在的理由是:改版面的人會看到它從 90% 變成 97%。\n',
+          '   它存在的理由是:改版面的人會看到那個餘裕從幾 px 變成 0。\n' +
+          '\n' +
+          '🛑 而這個數字要跟著它的範圍讀:它量的是【271mm 的 CSS 框內】。\n' +
+          '   真印表機的可印區【比它小】—— 線A 2026-08-29 量到 269mm 時,\n' +
+          '   連只用 68% 的那張也變成兩頁。⇒ 上面那個「剩 N px」在真紙上可能已經是負的。\n',
         'utf8',
       );
 
