@@ -1,4 +1,17 @@
 'use client';
+//
+// 🔴 **`co-ship-body` 這個 class 在 storefront 的 CSS 裡【沒有任何規則】, 而【沒有人看過它】。**
+//    2026-08-30 線G 開真瀏覽器分了那 14 個「死 class」——14 個裡我實測 7 個(全是假警報),
+//    而這一個【走不到】:`/checkout` 在 probe 上回 307（要先有購物車資料） ⇒ 標【未驗】。
+//
+// ⇒ **下一次有人為了任何理由走到這條動線時, 請順手看一眼它。**
+//    🔴 「沒有規則」有四種解釋, 而只有第一種是問題:
+//    ① 真的沒寫 CSS(可能真壞) ② 兄弟 class 撐著 ③ 完全沒有 CSS、靠父層版面
+//    ④ 走 inline style ⇒ 它根本不需要 CSS 規則(而掃描器看不到 inline style)
+//
+// 🛑 **這句話刻意寫在這裡, 不是寫在一份清單裡** —— 一份「沒有人看過」的清單
+//    若沒有人回頭讀它, 它會安靜地變成永久的。而你現在正在讀這支檔。
+//    📎 兩份清單與判準見 `~/pcm-mailbox/線G-規格-死class守門兩份清單-20260830.md`。
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
