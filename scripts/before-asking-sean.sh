@@ -142,7 +142,8 @@ selftest() {
   P="$(grep -o '零命中' "$T1" | wc -l | tr -d ' ')"
   N="$(grep -o '零命中' "$T2" | wc -l | tr -d ' ')"
   printf '  正對照「不用改名」  ⇒ 五段裡零命中的段數 = %s (期望 < 5)\n' "$P"
-  printf '  負對照 ZZQ6641…     ⇒ 五段裡零命中的段數 = %s (期望 = 5)\n' "$N"
+  # 🔴 印【真的用了哪一個】—— 舊版印死字面,而實際用的已經是現造的。
+  printf '  負對照 %s ⇒ 五段裡零命中的段數 = %s (期望 = 5)\n' "$NEG" "$N"
 
   if [ "$P" -lt 5 ]; then printf '  ✅ 正對照:它真的撈得到東西\n'; else printf '  🔴 正對照全零 ⇒ 本 script 是死的\n'; RC=1; fi
   if [ "$N" -eq 5 ]; then printf '  ✅ 負對照:現造字面五段全零\n'; else printf '  🔴 負對照有命中 ⇒ 它在亂撈\n'; RC=1; fi
