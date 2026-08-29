@@ -17,7 +17,7 @@
 #   這份清單是我想得到的那些, 而我最可能漏掉的是「字面過關、但 apply 時才炸的語意錯」。
 set -uo pipefail
 
-# ── --selftest:規則①的證人(2026-08-23 修閘時一併立;#854 同母題:一道閘要有東西看著它自己)──
+# ── --selftest:規則①②③的證人(2026-08-23 修閘時一併立;#854 同母題:一道閘要有東西看著它自己)──
 # 拋棄式 fixture 只驗規則①的字面輸出(fixture 沒 COMMIT ⇒ 規則②必紅 ⇒ 不能拿總 RC 當判準);
 # fixture 數與 check 數以 --selftest 自己印的 N/N 為準,不在這裡寫死(寫死的數字會漂)。
 if [ "${1:-}" = "--selftest" ]; then
@@ -97,6 +97,21 @@ if [ "${1:-}" = "--selftest" ]; then
   check 20210109000000_r2_doubled_quote.sql        '恰好 1 次' '🔴' "SQL 的 '' 跳脫 ⇒ 字串要收在正確位置,不得往後吃"
   check 20210110000000_r2_no_begin.sql          '這道不適用'  ''  '規則②:沒寫 BEGIN ⇒ 不適用(現行慣例一半的檔長這樣, 擋它們=噪音)'
   check 20210111000000_r2_begin_but_broken.sql  '命中 2 次'   ''  '規則②:開了交易卻中途結束 ⇒ 照樣紅(收斂沒有把真缺陷放走)'
+  # ── 規則③的證人(2026-08-29 線G 加;🔴 **在此之前規則③一格證人都沒有** ——
+  #    而它正是靠「沒有人看著它」活下來的:88 支 migration 在它底下印綠而它沒有檢查)──
+  printf 'BEGIN;\nCREATE OR REPLACE VIEW public.r3v AS SELECT 1;\nCOMMIT;\n' > "$FX/20220101000000_r3_orreplace_noassert.sql"
+  # 🔴 清單那一行必須【自己一行】—— 取清單的 awk 是 `^[[:space:]]*v_(relations|functions)…`
+  #    我第一版把它寫在 `DO $d$ DECLARE` 同一行 ⇒ awk 看不到 ⇒ 這一格自己先紅了。
+  #    (而那正是這一格存在的意義:它抓到了我造它時犯的錯。)
+  # 🔴 這一格【重定義基底檔就有的 public.v】, 不是新物件 —— 否則規則①會為了「新物件用 OR REPLACE」
+  #    而印 🔴, 而那個 🔴 與規則③無關 ⇒ 這一格就分不出「規則③綠了沒」。
+  #    (我第一版就是這樣, 而它先絆倒的是我自己。)
+  printf 'BEGIN;\nCREATE OR REPLACE VIEW public.v AS SELECT 2;\nDO $d$\nDECLARE\n  v_relations text[] := ARRAY[%s]::text[];\nBEGIN NULL; END $d$;\nCOMMIT;\n' "'public.v'" > "$FX/20220102000000_r3_orreplace_withassert.sql"
+  printf 'BEGIN;\nCREATE VIEW public.r3v3 AS SELECT 1;\nCOMMIT;\n' > "$FX/20220103000000_r3_plain_noassert.sql"
+  check 20220101000000_r3_orreplace_noassert.sql  '斷言清單列了 0 個' '兩邊都是 0 個' '規則③:CREATE OR REPLACE VIEW 沒有斷言清單 ⇒ 必須紅(舊版在這裡印綠)'
+  check 20220102000000_r3_orreplace_withassert.sql '兩邊都是 1 個'    '🔴'             '規則③:CREATE OR REPLACE VIEW + 清單列了 1 個 ⇒ 綠(證明沒有一律擋)'
+  check 20220103000000_r3_plain_noassert.sql       '斷言清單列了 0 個' '兩邊都是 0 個' '規則③:裸 CREATE VIEW 沒清單 ⇒ 本來就該紅(證明這一改沒動到原有判別力)'
+
   # ── 多檔那段的證人:一乾淨 + 一違規,順序【違規在後】(被忽略的就是後面那些)──
   n=$((n+1))
   if bash "$SELF" "$FX/20210101000000_r2_clean.sql" "$FX/20210104000000_r2_midcommit.sql" >/dev/null 2>&1; then
@@ -106,7 +121,7 @@ if [ "${1:-}" = "--selftest" ]; then
   if ! bash "$SELF" "$FX/20210101000000_r2_clean.sql" "$FX/20210102000000_r2_trailing_comment.sql" >/dev/null 2>&1; then
     echo "❌ 多檔:兩支都乾淨卻回非 0 ⇒ 該綠沒綠"; fail=1
   fi
-  [ "$fail" = "0" ] && echo "✅ migration-static-checks --selftest $n/$n(規則①雙向 + 規則②雙向 + 多檔雙向)"
+  [ "$fail" = "0" ] && echo "✅ migration-static-checks --selftest $n/$n(規則①雙向 + 規則②雙向 + 規則③雙向 + 多檔雙向)"
   exit "$fail"
 fi
 
@@ -461,7 +476,16 @@ fi
 echo "── ③ 可授權物件數 vs 收權斷言清單長度 ────────────────────────────"
 # 🔴 原版把 CREATE TRIGGER 也數進去 ⇒ 在合格檔上 3 vs 2 誤報漏列。
 #    trigger 沒有 ACL,列進斷言清單反而會 to_regclass 找不到而紅。
-OBJ=$(sed 's/--.*$//' "$F" | grep -cE '^CREATE (TABLE|VIEW|MATERIALIZED VIEW|FUNCTION)' || true)
+# 🔴 **`OR REPLACE` 這一格是 2026-08-29 線G 補的, 而它補之前這道檢查對【110 支】migration
+#    當中的 88 支是【恆真】的** —— 舊 regex 不匹配 `CREATE OR REPLACE VIEW|FUNCTION`
+#    ⇒ 可授權物件數 = 0、斷言清單長度 = 0 ⇒ 印「✅ 兩邊都是 0 個」= 綠, 而它什麼都沒檢查。
+#    📌 **一個寫錯的關鍵字, 讓一道守門變成一格永遠會過的檢查。**
+#    ⚠️ 量法(當場可複跑):對每支 migration 各自重算 OBJ/LST, 再拿本腳本【本尊】對三個方向驗
+#       (預測恆真的一支 / 預測會紅的一支 / 一支已知合格的正對照)。
+#    ⚠️ `TABLE` 沒有 `OR REPLACE` 語法, 放進括號裡不會多抓。
+#    🛑 **那 88 支【本片不補】** —— 見 docs/phase-1-backlog.md。而本檢查不回溯跑,
+#       只跑到當下改的那幾支 ⇒ 修這一行不會讓它們立刻紅, 只有【下次有人動到】才會叫。
+OBJ=$(sed 's/--.*$//' "$F" | grep -cE '^CREATE (OR REPLACE )?(TABLE|VIEW|MATERIALIZED VIEW|FUNCTION)' || true)
 # 🔴 必須支援【跨行的 ARRAY[...]】。原版只抓 `v_xxx text[] :=` 那一行,
 #    而清單一旦換行(元素多了自然會換行),後面幾行就數不到
 #    ⇒ 在一個【清單其實是對的】檔上誤報「有漏列」。2026-08-16 實際發生過。
