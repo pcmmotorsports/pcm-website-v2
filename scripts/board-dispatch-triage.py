@@ -58,9 +58,22 @@ def main(path):
     blocked, ready, marked = triage(rs)
 
     print(f'掃過的資料列 = {len(rs)}   內文帶標記的列 = {marked}')
-    print(f'字集 = {" / ".join(MARKERS)}   板子 = {path}\n')
+    print(f'字集 = {" / ".join(MARKERS)}   板子 = {path}')
+    # 🔴 射程印在【結論之前】, 不印在最後(2026-08-30 線D -e4 的觀察, 線G 就地套用):
+    #    人拿到結論的那一刻, 問題已經在他腦裡答完了
+    #    ⇒ 印在最後那段不是「沒被讀到」, 是【讀的時候已經不需要它了】。
+    print("""
+🛑 先讀這段, 它決定下面兩堆能不能當結論 —— 這把尺看不到的:
+   · 別的 session 的對話（標記還沒寫上板的那段時間差）
+   · 內文用了別的字說「我在做」（字集只有上面那兩個）
+   · 第 4 欄根本不在寫「誰」的那些列（例 `要面板 + 要 code`）
+     ⇒ 那種列【兩堆都不會收】—— 它連矛盾都構不成
+""")
 
     print(f'🛑 不要派 —— 第4欄說「待派」而內文說有人在做 ({len(blocked)} 列)')
+    if not blocked:
+        # 🔴 這一句貼在數字旁邊是刻意的:0 與「沒有派重」是兩個宣稱。
+        print('   ⚠️ 0 列被抓【不等於】沒有派重 —— 上面第三格那種形狀它是盲的')
     if not blocked:
         print('   （無）')
     for i, who, what in blocked:
@@ -80,12 +93,7 @@ def main(path):
     for v, n in collections.Counter(w for _, _, _, w, _ in rs if w).most_common(12):
         print(f'   {n:4d}  [{v[:72]}]')
 
-    print(f"""
-⚠️ 射程 —— 這把尺看不到的:
-   · 別的 session 的對話(標記還沒寫上板的那段時間差)
-   · 內文用了別的字說「我在做」(字集只有上面那兩個)
-   · 第 4 欄根本不在寫「誰」的那些列(例 `要面板 + 要 code`)
-     ⇒ 那種列【不會】進上面任何一堆 —— 它連矛盾都構不成""")
+    print('\n📎 射程在最上面那段（刻意不放這裡 —— 放這裡等於沒放）')
     return 0
 
 
