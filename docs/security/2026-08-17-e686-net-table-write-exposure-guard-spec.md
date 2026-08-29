@@ -210,18 +210,59 @@ rc：   0 全格通過 / 3 有格 FAIL（真發現）/ 2 用法錯 / 1 工具自
 ```
 🔴 **`rc` 三態分得開是硬要件**(對齊 `scripts/where-is.sh` 的既有形狀):**「探針壞了」與「真的曝露了」必須是不同的 exit code** —— 兩者合流的話,CI 綠燈會同時代表兩件相反的事。
 
-### 每個庫要跑的四格(**缺一不可,順序不可調**)
+### 每個庫要跑的 ~~四格~~ **五格**(**缺一不可,順序不可調**)
+
+> 🔴 **2026-08-30 就地訂正(線A `-e9` 寫、`-0b` 開檔核過;舊字面 `四格` 留著劃掉)**:
+> 小標寫「四格」而下面那張表列的是 **A-E 五格**,交辦單是對的、小標是舊數。
 
 | 格 | 打什麼 | 期望 | 沒有它會怎樣 |
 |---|---|---|---|
 | **A 正向對照** | site: `/rest/v1/products_public?select=id&limit=0`<br>quote: `/rest/v1/storefront_catalog_v?select=id&limit=0` | **200** | 沒有它,**斷網 / key 過期 / 專案睡著**都會讓 C 格「通過」 |
 | **B 庫別對照** | 拿**另一個庫的 key** 打同一個 A 端點 | **401** | 沒有它,**兩把 key 同前綴同長度、拿錯不會報錯**,會量到另一個庫的答案 |
 | **C 判別力對照** | `/rest/v1/customers?select=id&limit=0`(site) | **401** | 沒有它,C' 的 `404` 可能只是「打錯路徑的通用回應」 |
-| **D 主張** | `/rest/v1/_http_response` 與 `/rest/v1/http_request_queue` | **404** | — |
+| **D 主張** | ~~`/rest/v1/_http_response` 與 `/rest/v1/http_request_queue`~~ ⇒ **改**:對每個不該曝露的 schema 各發一次 `Accept-Profile: <schema>`(`net` `cron` `vault` `extensions` `auth`) | ~~**404**~~ ⇒ **body 含 `PGRST106`** | 🔴 見下方 2026-08-30 訂正節 —— 舊形狀是**恆綠格** |
 | **E 白名單自曝** | 任一端點加 `-H "Accept-Profile: net"` | body 含 `PGRST106` **且** `hint` 為 `Only the following schemas are exposed: public, graphql_public` | **最強的一格**:讓被測物**自己把邊界講出來**,不靠外部推論 |
 
 🔴 **A–E 必須同一次執行內全部通過才算綠。** 只有 D 綠 = 恆綠格。
 🔴 **E 格斷言要比對【完整字串】,不是只檢查含不含 `net`** —— 「`net` 不在裡面」在「清單是 `public, graphql_public`」與「清單是空的 / PostgREST 掛了」兩個世界一樣。
+
+### 🔴🔴 2026-08-30 就地訂正:**D 格的舊形狀在兩個世界印同一個答案**
+
+> 線A `-e9` 實作探針片時發現、`-0b`(本規格作者)獨立核過推理層後確認成立。
+> **舊字面全部留著劃掉**,讓照舊版做過的人認得出自己看到的是哪一句。
+
+~~D 格打 `/rest/v1/_http_response`、`/rest/v1/http_request_queue`,期望 404~~
+~~§3.4:「探針的 C 格建議一次列 `cron.job` / `vault.secrets` / `pg_stat_statements`」~~
+
+🔴 **那些路徑都【不帶 `Accept-Profile`】。**
+PostgREST 沒有 profile 時用**預設 schema**(`db-schemas` 的第一項 = `public`),查表**只在該 profile 的 schema 內**
+⇒ `/rest/v1/job` 找的是 `public.job` ⇒ 404,**不論 `cron` 在不在曝露清單裡**。
+
+🔴 **而這同樣適用於 `net` 那兩張表** —— 把 `net` 加進曝露清單**並不會讓它變成預設 schema**
+⇒ `/rest/v1/_http_response` 照樣 404。
+
+📌 **⇒ D 格在「安全」與「已曝露」兩個世界印同一個 404 ⇒ 它是恆綠格。**
+📌 **⇒ 真正在偵測 `net` 的是 E 格(`Accept-Profile` 自曝),不是 D 格。**
+⇒ 本表原本把 D 標成「**主張**」、E 標成「順帶最強的一格」—— **那兩個標籤反了。**
+
+**改法**:D 改成【每個 schema 各發一次 `Accept-Profile: <schema>`,斷言 body 含 `PGRST106`】。
+
+⚠️⚠️ **這一整條是【依 PostgREST 的 profile 語義推出來的】,不是【量到的】** ——
+發現它的那個窗**打不了正式站**(權限模式擋下拿存放憑證打正式 Supabase;
+逐字「the user never named this production target; assigned only by a peer session」
+⇒ 同僚視窗授權不了,只有 Sean 本人可以)。
+⇒ **待第一發真跑校準。** 校準方法:對一個**確定沒被曝露**的 schema 發 `Accept-Profile` ⇒ 應得 `PGRST106`(那就是負對照)。
+
+🔴 **而改成 profile 版之後有一個新的恆綠風險,已在實作裡補掉(`-0b` must-fix)**:
+D 與 E 的錯誤碼斷言變成**同一把尺**(都是 `PGRST106`)
+⇒ 一個「**帶 Accept-Profile 的請求一律回 PGRST106**」的壞世界會讓兩格全綠,
+而 A 格**不帶 profile header、蓋不到那個世界**。
+⇒ 補一格 **A2**:拿 `Accept-Profile: public` 打 A 端點、斷言 **200**,證明 profile 機制活著。
+📌 **一把尺說「這個 schema 沒被曝露」,與它說「我對任何 profile 都這樣講」,單獨看是同一個字。**
+
+**落地** `scripts/probe-schema-exposure.sh`(🛑 **從未對正式站跑過**,見該檔檔頭常駐橫幅)。
+
+---
 
 ### 順帶守的(邊際成本接近零)
 

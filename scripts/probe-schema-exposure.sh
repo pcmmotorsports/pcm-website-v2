@@ -30,7 +30,7 @@
 #      塞進去會做出時好時壞的測試,而**假紅比沒有守門更糟**(團隊會學會忽略它)。
 #
 # ══ 🛑🛑 本檔【從來沒有對正式站跑過】(2026-08-30 線A `-e9` 寫的時候)══════
-# 已驗:`--selftest` 離線 **29 格全過**(當場數的:標「突變」4 格 / 標「【對照】」4 格 /
+# 已驗:`--selftest` 離線 **31 格全過**(當場數的:標「突變」4 格 / 標「【對照】」4 格 /
 #       現造負對照 1 格;其餘為正路徑與拆解)、
 #       `sh -n` 語法過、**rc 四態都分得開**:
 #         0 (--help 實跑) / 1 (HOME 指空目錄讀不到憑證, 實跑) / 2 (用法錯, 實跑)
@@ -305,6 +305,14 @@ run_db() {  # run_db <site|quote>
 
   # A 正向對照:沒有它,斷網 / key 過期 / 專案睡著都會讓主張「通過」
   emit "$1 A.正向對照" "200" "$(http_code "$base" "$key" "$a_path")"
+  # 🔴🔴 **A2 profile 機制正對照(`-0b` 2026-08-30 must-fix,規格作者自己抓的)**
+  #    成因:改成 profile 版之後,**D 格與 E 格的錯誤碼斷言用的是同一把尺(PGRST106)**。
+  #    ⇒ 一個「**帶 Accept-Profile 的請求一律回 PGRST106**」的壞世界(PostgREST 錯置)
+  #      會讓 D 與 E 的錯誤碼那一半**全綠**,而 **A 格不帶 profile header、蓋不到這個世界**。
+  #    ⇒ 這一格拿一個**應該要成功**的 profile 打 A 端點:profile 機制活著就該回 200。
+  #    📌 判別句:**一把尺說「這個 schema 沒被曝露」,與它說「我對任何 profile 都這樣講」,
+  #       在單獨看的時候是同一個字。**
+  emit "$1 A2.profile 機制正對照" "200" "$(http_code "$base" "$key" "$a_path" 'Accept-Profile: public')"
   # B 庫別對照:兩把 key 同前綴同長度,拿錯不會報錯 ⇒ 這格證明我打的是這個庫
   emit "$1 B.庫別對照(另一庫的 key)" "401" "$(http_code "$base" "$other_key" "$a_path")"
   # C 判別力對照:證明 404 不是「打錯路徑的通用回應」
@@ -408,6 +416,16 @@ selftest() {
   FAILS=0
   emit '自測.D 幾格(突變:清單空掉)' "$D_EXPECTED_N" "$(count_schemas '')" > /dev/null
   ck '格3c 清單空掉 ⇒ 必須翻紅' "$FAILS" '1'
+
+  # 格3d 🔴 A2 那一格:演「PostgREST 對任何 profile 都回 PGRST106」的壞世界。
+  #     PostgREST 的 PGRST106 走 406 ⇒ A2 期望 200 而實得 406 ⇒ 必須翻紅。
+  #     沒有這一格的話,那個壞世界會讓 D 與 E 的錯誤碼斷言全綠。
+  FAILS=0; CHECKS=0
+  emit '自測.A2(正常世界)' '200' '200' > /dev/null
+  ck '格3d 正常 ⇒ A2 綠' "$FAILS" '0'
+  FAILS=0
+  emit '自測.A2(壞世界:任何 profile 都 PGRST106)' '200' '406' > /dev/null
+  ck '格3e 壞世界 ⇒ A2 必須翻紅' "$FAILS" '1'
 
   # 格4 rc 三態互不相等(它們合流的話,一個綠燈會代表兩件相反的事)
   ck '格4a OK != FAIL'     "$([ "$RC_OK" != "$RC_FAIL" ] && printf y || printf n)" 'y'
