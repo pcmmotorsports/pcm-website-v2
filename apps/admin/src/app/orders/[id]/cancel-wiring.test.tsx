@@ -234,14 +234,24 @@ function expectPageRendered(container: HTMLElement) {
  * **而三格「商品卡上不給 checkbox」全部照樣綠** —— 而它們正是我上一顆宣稱修好的那幾格。
  * 📌 **⇒ 我修了門, 而 checkbox 住在隔壁那棟。**
  *
- * 釘 `.ihead`(品項卡的表頭):`order-detail-items-table-shape.test.tsx` 用
- * `<div className='ihead'>…</div>\s*<ItemAmountRowGroup>` 抓表頭 ⇒ 它是**結構契約**, 不是裝飾。
+ * 🔴🔴 **2026-08-29 補審 C1:原本只釘 `.ihead`(表頭)—— 那是【第五次】把錨釘在外殼上。**
+ *   `order-detail-items-table.tsx:188` 的 `.ihead` 在 `detail.items.map`(:204)**外面**,
+ *   兩者之間沒有任何因果 ⇒ 實測 `detail.items.slice(1).map(` ⇒
+ *   **`.ihead` 照畫、一列品項都沒有、三格負向斷言全綠。**
+ *   ⇒ 改成【表頭 + 至少一張品項卡】兩件都要:`.icard` 是 map 裡面每一列的殼
+ *   (`item-amount-row.tsx:329`)⇒ 它與 `detail.items` 有真的因果。
+ * 📌 **判別句:錨要釘在【被斷言那件事的產生者】上,不是釘在它旁邊那個一定會在的東西上。**
  */
 function expectItemsTableRendered(container: HTMLElement) {
   expect(
     container.querySelector('.ihead'),
-    '商品卡整塊沒渲染 ⇒ 「商品卡上不給 checkbox」那些負向斷言恆真',
+    '商品卡表頭沒渲染 ⇒ 「商品卡上不給 checkbox」那些負向斷言恆真',
   ).not.toBeNull();
+  // 🔴 表頭在【而一列品項都沒有】也會讓那些負向斷言恆真 —— 這一格才是它們真正的分母。
+  expect(
+    container.querySelectorAll('.icard').length,
+    '商品卡零品項列 ⇒ 「商品卡上不給 checkbox」那些負向斷言恆真(表頭在不算數)',
+  ).toBeGreaterThan(0);
 }
 
 function expectCancelBlockRendered(container: HTMLElement) {
@@ -500,14 +510,22 @@ describe('D6-a 驗收① 關單之後面板仍在(掛在資格閘之外)', () =>
 describe('片C 驗收:商品卡的取消 checkbox 與危險區的表單共用同一道 cancelFormsAllowed 閘', () => {
   // 🔴🔴 **這一組的守門是【兩棒接力】,而兩棒各自只擋得住一半 —— 2026-08-29 兩發突變量到。**
   //
-  //   第一棒 `expectItemsTableRendered`(`.ihead`)  擋【商品卡整塊沒渲染】
-  //     ⇒ 突變 `ItemsTable` 進入點 return null ⇒ 下面三格負向斷言**全紅**,錨的訊息印出來 ✅
+  //   🔴 **補審 C2 訂正:原本這裡寫「擋【商品卡整塊沒渲染】」—— 那句話比量到的寬。**
+  //     實際是【三個世界,不是兩個】,而第一棒只擋得住其中一個:
   //
-  //   🔴 第二棒 = **下面第一格那個正向對照本身**(`checkbox > 0`)
-  //     ⇒ 突變 `PartialCancelItemControl` return null(表格照畫、只有 checkbox 不見)
-  //       ⇒ **三格負向斷言全部照樣綠**、只有那一格正向紅。
+  //   世界甲  ItemsTable 進入點 return null(表頭與品項卡都不見)
+  //     ⇒ 第一棒 `.ihead` 那格紅 ✅
+  //   世界乙  detail.items.slice(1).map(...)(表頭照畫、零品項卡)
+  //     ⇒ 🔴 舊版第一棒【全綠】—— `.ihead` 在 map 外面,與品項一列因果都沒有
+  //     ⇒ 已於同一顆 commit 補上 `.icard > 0`,現在這一格紅
   //
-  // 📌 **⇒ 錨擋不住第二種世界 —— 而那正是「取消勾選功能默默失效」最像的那一種。**
+  //   世界丙  PartialCancelItemControl return null(表頭在、品項卡也在、只有 checkbox 不見)
+  //     ⇒ 🔴 **兩棒【都綠】** —— 三格負向斷言全部照樣綠
+  //     ⇒ 唯一紅的是下面第一格那個正向對照(`checkbox > 0`)= **第二棒**
+  //
+  // 📌 **⇒ 三個世界都是「checkbox 不見了」,而錨只擋得住前兩個。**
+  // 🔴 **⇒ 世界丙正是「取消勾選功能默默失效」最像的那一種** ——
+  //    甲乙員工一眼看得出來(整塊或整列不見);丙他只會以為這張單本來就不能勾。
   // 🔴 **⇒ 所以【第一格不是可有可無的 happy path】,它是下面三格唯一的分母。**
   //    刪掉它 ⇒ 下面三格對「checkbox 消失」這件事變成**完全恆真**,而且零訊號。
   //    ⚠️ 而它讀起來最像可以刪的那一格(名字最平淡、沒有 🔴)—— 這句話就是寫給那個人看的。

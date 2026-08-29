@@ -358,6 +358,11 @@ describe('🔴 六個失敗碼各自導頁,而前綴讓它們不與取消片撞�
     //    整支 action 早退時 revalidate 當然沒被呼叫 ⇒「失敗路徑不 revalidate」與
     //    「這支 action 根本沒跑」印同一個綠。
     expect(mocks.createManualOrder, 'RPC 一次都沒被呼叫 ⇒ 這支 action 根本沒跑到那裡').toHaveBeenCalled();
+    // 🔴 **補審 C3:只釘 ① 不夠 —— :233 那格自己寫著這句話,而我沒有套到這裡來。**
+    //    只釘「RPC 被呼叫」的話,在 RPC 回 `!ok` 之後、`revalidateOrderViews` 之前插一行
+    //    `return;` ⇒ 錨綠、下面那條也綠 ⇒ 本格對「失敗路徑有沒有走完」零判別力。
+    //    ⇒ 失敗路徑的終點是 `failRedirect`(`manual-order-actions.ts:152`)⇒ 釘它。
+    expect(mocks.redirect, '失敗導頁沒發生 ⇒ 失敗路徑根本沒走完 ⇒ 下面那條恆真').toHaveBeenCalled();
     expect(mocks.revalidateOrderViews).not.toHaveBeenCalled();
   });
 });
