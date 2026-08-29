@@ -99,19 +99,75 @@ SELECT
       AND r.reverted_at IS NULL)                        AS used_count
 FROM public.coupons c;
 
--- ⏸️ **還沒放進來的一欄:衍生狀態(可用/已過期/已用完/已停用)**
---    🔴 `is_active = true` **不等於**「啟用中」—— 券可能已過期或已用完, 而旗標還是 true。
---    ⇒ 而「狀態欄要顯示行政旗標還是衍生狀態」**是 Sean 的產品題, 2026-08-29 已端出、未答**。
---    ⚠️ 而它**連動篩選**:spec §3-1 的篩選是「全部/啟用中/已停用」= 照 `is_active` 篩;
---       走衍生狀態的話, 一張 badge 寫「已過期」的券會被篩進「啟用中」⇒ 畫面自己打架。
---    ⇒ 所以那一欄**留白等他**;本 view 先把**算得出它所需要的原料全部備齊**
---       (`is_active` / `ends_on` / `max_redemptions` / `used_count`)
---       ⇒ 他答哪一邊, 都只是**加一顆衍生欄 + 改 WHERE**, 不是重寫這支 view。
+-- ══ 4b. 衍生狀態欄(Sean 2026-08-29 `Q1 = 甲`)══════════════════════════════
+--
+-- 🔴 `is_active = true` **不等於「可用」** —— 券可能已過期或已用完, 而旗標還是 true。
+--    Sean 拍甲 = 顯示【自己算出來的狀態】,而**篩選也跟著改**(spec §3-1 那三個選項作廢)。
+--
+-- 🔴🔴 **而一張券可以【同時】停用 + 過期 + 用完 ⇒ 那不是三個狀態, 是一個要挑的顯示規則。**
+--    **Sean 沒有拍過這個順序 ⇒ 下面這個順序是【我挑的】, 而挑法寫在這裡不讓下一個人猜:**
+--      ① disabled  已停用   ← `is_active = false`
+--      ② expired   已過期   ← `ends_on` 早於今天
+--      ③ exhausted 已用完   ← `used_count >= max_redemptions`
+--      ④ available 可用
+--    **挑法的理由**:員工看這一欄是要答「客人現在能不能用、而我能做什麼」
+--      ⇒ 由【最容易人為改回來的】排到【最難的】:
+--         停用 ⇒ 按一下就開回來 / 過期 ⇒ 改結束日 / 用完 ⇒ 要提高總量上限。
+--    ⇒ **要換順序就改下面 CASE 的排列, 那是一個地方。**
+--
+-- 🔴 **「今天」用 `Asia/Taipei`, 不用 `current_date`** ——
+--    `current_date` 跟著 session 的 TimeZone 走(Supabase 上常態是 UTC)
+--    ⇒ 台灣時間的最後一天會提早 8 小時變成「已過期」, 而**畫面上看不出來**。
+--    ✅ 而這不是我發明的:本 repo migration 裡 `timezone('Asia/Taipei', …)` 用了 12 次、
+--       `current_date` 只有 1 次 ⇒ 家法是明寫時區。
+--
+-- ⚠️ **為什麼包一層 sub-select 而不是照鄰居的扁平寫法**:
+--    `status` 要用到 `used_count`, 而同一層 SELECT 裡引用不到自己的別名
+--    ⇒ 扁平寫法就得**把那個 count 子查詢再抄一次**
+--    ⇒ 🔴 而片1 檔內警告過:**每一個數次數的地方都要帶 `reverted_at IS NULL`**,
+--       漏掉任一處 ⇒ 券看起來已用完而客人明明退過貨, 不報錯、不轉紅。
+--    ⇒ **抄第二份 = 製造第二個會漏掉那一格的地方** ⇒ 所以包一層, 讓它只有一份。
+CREATE VIEW public.admin_coupon_list_status_v AS
+SELECT
+  -- 🔴 **逐欄列出, 不用 `b.*`**(關卡2 nit)—— `b.*` 在建 view 當下就凍結了欄位清單
+  --    ⇒ 內層 view 日後加欄, 外層【不會】自動拿到, 而那正是本檔 §3 剛避免掉的同一個陷阱。
+  --    ⇒ 逐欄列出讓「兩支必須同批重建」變成一件看得見的事。
+  b.id, b.code, b.description, b.discount_type, b.discount_value,
+  b.ends_on, b.max_redemptions, b.max_per_account, b.min_spend,
+  b.stacks_with_tier, b.is_active, b.created_at, b.created_by,
+  b.creator_label, b.used_count,
+  CASE
+    WHEN NOT b.is_active                                              THEN 'disabled'
+    WHEN b.ends_on IS NOT NULL
+     AND b.ends_on < (timezone('Asia/Taipei', now()))::date           THEN 'expired'
+    WHEN b.max_redemptions IS NOT NULL
+     AND b.used_count >= b.max_redemptions                            THEN 'exhausted'
+    -- 🔴🔴 **`available` 的意思是【這張券本身還有效】, 不是【這個客人現在用得了】**(關卡2 must-fix)。
+    --    它**答不出**三件事, 而那三件都要有【客人 + 購物車】才算得出來:
+    --      · `max_per_account` 每人上限 —— 要知道是誰
+    --      · `min_spend` 最低消費     —— 要知道這一車多少錢
+    --      · `stacks_with_tier` 會員價衝突 —— 要知道他的等級
+    --    ⇒ 本 view 是**券的清單**, 它手上沒有客人 ⇒ 這三格**結構上算不出來**, 不是漏做。
+    --    ⚠️ **⇒ 而畫面上寫「可用」會超出這個意思** —— 那是 2b-2 的文案題:
+    --       建議寫成「有效」或「無限制」, 而**那要 Sean 的品味決定**, 我不自己定。
+    ELSE 'available'
+  END AS status
+FROM public.admin_coupon_list_v b;
 
+-- ✅ **狀態欄已放進來(見上面 §4b)** —— Sean 2026-08-29 `Q1 = 甲` 已答。
+--    ⚠️ 這裡原本寫著「還沒放進來 / Sean 未答」,而**那段話在他答完之後留了下來**
+--    ⇒ codex 關卡2 抓到:**apply 之後資料庫的說明會與實際的 view 相反。**
+--    📌 一段「等待中」的註解, 在等待結束之後不會有任何東西提醒它該改。
+--
 -- ══ 5. 權限(逐字抄鄰居 :99-105)═══════════════════════════════════════════════
 -- 🔴 **絕不 GRANT 給 `anon` / `authenticated`**。
 -- ⚠️ view 建立者的授權是**給具名角色的授權、不是 PUBLIC** ⇒ `REVOKE … FROM PUBLIC`
 --    **收不掉它** ⇒ 必須**逐角色**再收一次(這一段的教訓來自鄰居 :101-102, 不是我推的)。
+REVOKE ALL ON public.admin_coupon_list_status_v FROM PUBLIC;
+REVOKE ALL ON public.admin_coupon_list_status_v FROM anon, authenticated;
+REVOKE ALL ON public.admin_coupon_list_status_v FROM service_role;
+GRANT SELECT ON public.admin_coupon_list_status_v TO service_role;
+
 REVOKE ALL ON public.admin_coupon_list_v FROM PUBLIC;
 REVOKE ALL ON public.admin_coupon_list_v FROM anon, authenticated;
 -- 🔴🔴 **`service_role` 也要先 REVOKE ALL 再 GRANT SELECT**(關卡2 must-fix)——
@@ -144,12 +200,16 @@ COMMENT ON VIEW public.admin_coupon_list_v IS
 DO $$
 DECLARE
   -- 家法要求的收權斷言清單(migration-static-checks.sh:461 會比對它與 CREATE 的支數)
-  v_relations text[] := ARRAY['public.admin_coupon_list_v']::text[];
+  v_relations text[] := ARRAY[
+    'public.admin_coupon_list_v',
+    'public.admin_coupon_list_status_v'
+  ]::text[];
   v_functions text[] := ARRAY[]::text[];
   -- 🔴 迴圈變數【不叫 r】—— 6e 那段的表別名就是 r,撞名會讓 plpgsql 把別名解析成變數
   --    ⇒ 實跑 rc=3(我第一版就是這樣壞的,守門 rc=0 而 apply 紅 ⇒ 兩把尺又一次)
   v_rel_name text;
   v_view    oid;
+  v_base    text;
   v_owner   name;
   v_opts    text[];
   v_extra   text;
@@ -160,7 +220,11 @@ BEGIN
       RAISE EXCEPTION '片2b-1 fail-closed:% 沒建成', v_rel_name;
     END IF;
   END LOOP;
-  v_view := pg_catalog.to_regclass(v_relations[1]);
+  -- 🔴🔴 **6b / 6d-6h 全部走【每一個 view 各跑一次】** —— 加第二支 view(狀態欄)那一刻,
+  --    原版只看 `v_relations[1]` ⇒ **新加的那支一格都沒被檢查, 而守門照樣綠。**
+  --    📌 一個清單長出第二個元素時, 用 `[1]` 取值的那幾格會安靜地只守第一個。
+  FOREACH v_rel_name IN ARRAY v_relations LOOP
+  v_view := pg_catalog.to_regclass(v_rel_name);
 
   -- 6b. 🔴 **本片偏離的那一格, 用機器釘住** —— reloptions 裡不得出現 security_invoker=true
   SELECT c.reloptions INTO v_opts FROM pg_catalog.pg_class c WHERE c.oid = v_view;
@@ -175,10 +239,12 @@ BEGIN
     FROM pg_catalog.pg_class c WHERE c.oid = v_view;
   -- 🔴 **三張底表, 不是兩張**(關卡2 must-fix):`creator_label` 那顆純量子查詢讀的是 `staff`
   --    ⇒ 原版只查兩張券表 ⇒ owner 讀得到券、讀不到 staff ⇒ **斷言全綠而實際查 view 會報錯**。
-  FOREACH v_rel_name IN ARRAY ARRAY['public.coupons','public.coupon_redemptions','public.staff'] LOOP
-    IF NOT pg_catalog.has_table_privilege(v_owner, v_rel_name, 'SELECT') THEN
+  -- ⚠️ 內層迴圈變數【不能也叫 v_rel_name】—— 外層現在正在用它, 內層會把它蓋掉
+  --    ⇒ 外層第二圈會拿到 'public.staff' 當 view 名。(我第一版就是這樣。)
+  FOREACH v_base IN ARRAY ARRAY['public.coupons','public.coupon_redemptions','public.staff'] LOOP
+    IF NOT pg_catalog.has_table_privilege(v_owner, v_base, 'SELECT') THEN
       RAISE EXCEPTION
-        '片2b-1 fail-closed:view owner(%) 讀不到底表 % ⇒ 本 view 會 permission denied', v_owner, v_rel_name;
+        '片2b-1 fail-closed:view owner(%) 讀不到底表 % ⇒ 本 view 會 permission denied', v_owner, v_base;
     END IF;
   END LOOP;
 
@@ -190,16 +256,16 @@ BEGIN
   --       而真正會靜默回零列的是這一格。⇒ 所以它要有自己的斷言。
   --    ⇒ 判準:view owner 必須就是那三張底表的 owner(表 owner 天然繞過 RLS),
   --      且底表不得開 `FORCE ROW LEVEL SECURITY`(開了連 owner 也要守 policy ⇒ 零 policy = 零列)。
-  FOREACH v_rel_name IN ARRAY ARRAY['public.coupons','public.coupon_redemptions','public.staff'] LOOP
+  FOREACH v_base IN ARRAY ARRAY['public.coupons','public.coupon_redemptions','public.staff'] LOOP
     IF pg_catalog.pg_get_userbyid(
-         (SELECT c.relowner FROM pg_catalog.pg_class c WHERE c.oid = v_rel_name::regclass)
+         (SELECT c.relowner FROM pg_catalog.pg_class c WHERE c.oid = v_base::regclass)
        ) <> v_owner THEN
       RAISE EXCEPTION
-        '片2b-1 fail-closed:view owner(%) 不是底表 % 的 owner ⇒ RLS 會把它擋成【零列】而不報錯', v_owner, v_rel_name;
+        '片2b-1 fail-closed:view owner(%) 不是底表 % 的 owner ⇒ RLS 會把它擋成【零列】而不報錯', v_owner, v_base;
     END IF;
-    IF (SELECT c.relforcerowsecurity FROM pg_catalog.pg_class c WHERE c.oid = v_rel_name::regclass) THEN
+    IF (SELECT c.relforcerowsecurity FROM pg_catalog.pg_class c WHERE c.oid = v_base::regclass) THEN
       RAISE EXCEPTION
-        '片2b-1 fail-closed:底表 % 開了 FORCE ROW LEVEL SECURITY ⇒ 連 owner 也要守 policy, 而它零 policy ⇒ 零列', v_rel_name;
+        '片2b-1 fail-closed:底表 % 開了 FORCE ROW LEVEL SECURITY ⇒ 連 owner 也要守 policy, 而它零 policy ⇒ 零列', v_base;
     END IF;
   END LOOP;
 
@@ -254,9 +320,15 @@ BEGIN
   --      而底表 `coupons` 對 service_role 是【零表權限】——
   --      因為本 view 跑在 owner 權限下, 而簡單 view 是自動可更新的。
   --   📌 **⇒ 一個唯讀頁面的 view, 在權限上不是天生唯讀的;而「唯讀」也不會有人回頭驗。**
+  -- 🔴 **而只查表級是不夠的**(關卡2 must-fix):`GRANT UPDATE (description) ON <view> TO service_role`
+  --    住在 `pg_attribute.attacl` ⇒ `has_table_privilege` 看不到它, 而 6g 的閉世界又把
+  --    service_role 當【預期內的名字】排除 ⇒ **兩關全綠, 而它照樣能透過可更新 view 寫底表。**
+  --    ⇒ 用 `has_any_column_privilege`:它把表級與欄級一起算進去。
   SELECT pg_catalog.string_agg(p, ', ') INTO v_extra
     FROM unnest(ARRAY['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p
-   WHERE pg_catalog.has_table_privilege('service_role', v_view, p);
+   WHERE pg_catalog.has_table_privilege('service_role', v_view, p)
+      OR (p IN ('INSERT','UPDATE','REFERENCES')
+          AND pg_catalog.has_any_column_privilege('service_role', v_view, p));
   IF v_extra IS NOT NULL THEN
     RAISE EXCEPTION
       '片2b-1 fail-closed:service_role 對本 view 只能有 SELECT, 而它還有 ⇒ %(可更新 view + owner 權限 = 寫得穿零權限底表)', v_extra;
@@ -269,12 +341,13 @@ BEGIN
   --     📌 **⇒ 它分得開【permission denied】與【零列】, 而那正是本片最怕搞混的兩件事。**
   BEGIN
     SET LOCAL ROLE service_role;
-    PERFORM count(*) FROM public.admin_coupon_list_v;
+    EXECUTE format('SELECT count(*) FROM %s', v_rel_name);
     RESET ROLE;
   EXCEPTION WHEN OTHERS THEN
     RESET ROLE;
     RAISE EXCEPTION '片2b-1 fail-closed:service_role 實跑本 view 被擋 ⇒ %', SQLERRM;
   END;
+  END LOOP;
 END $$;
 
 COMMIT;
