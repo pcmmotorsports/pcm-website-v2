@@ -345,7 +345,18 @@ function RailCell({
             而 Sean 2026-08-21 拍板最小字 13px ⇒ 縮字那條路本來就不能走。)
       */}
       {qualifier !== undefined && count !== null && (
-        <span className='text-muted-foreground block text-center text-[13px] leading-tight'>
+        /* 🔴 `aria-hidden`(2026-08-29 線D 真瀏覽器量到):少了它,限定詞會被唸【兩次】——
+           一次來自本 span、一次來自下面那句 sr-only。三格全中,當場量到的字面:
+             /orders                   ⇒「訂單未訂貨未訂貨 7 筆」
+             /orders/refund-exceptions ⇒「退款異常卡住卡住 筆」
+             /products                 ⇒「商品缺貨缺貨 1 筆」
+           ⚠️ 而下面那段註解【本來就寫著】「視覺那兩塊維持 aria-hidden」——
+              數字那塊掛上了,這塊漏了 ⇒ **實作沒跟上它自己的註解**,不是規格題。
+           📌 而它只有【聽】得出來:看的人完全正常 ⇒ 沒有人會在畫面上撞到它。 */
+        <span
+          aria-hidden='true'
+          className='text-muted-foreground block text-center text-[13px] leading-tight'
+        >
           {qualifier}
         </span>
       )}
@@ -359,7 +370,16 @@ function RailCell({
         ⇒ 補一句**完整的話**,而視覺那兩塊維持 `aria-hidden`(它們是同一份資訊的視覺版)。
            `railCountText` 會把 >99 變成 `99+`,這裡用同一支 ⇒ 唸出來與看到的一致。
       */}
-      {qualifier !== undefined && count !== null && (
+      {/* 🔴 `railCountText(...) !== ''` 這一條是 2026-08-29 線D 加的,而它不是新規格,是**跟上既有規格**:
+             `formatNavCount` 對 `0` 回空字串(稿 `:287` 逐字「0 不是資訊,只有非 0 才是」)
+             ⇒ 少了這一條,`0` 會唸成一句沒有數字的話:實測「卡住　　筆」(中間兩個空格)。
+          ⚠️ 而 `count === null`(讀取失敗)本來就被上面那個條件擋掉 ⇒ **只有 `0` 那個世界漏了**。
+          🔴 **而分辨 0 與讀取失敗的訊號在軌底那一行**(稿 `:288`:「留白會跟『資料還沒載入』長得一樣」)
+             ⇒ 當場量過:那個 `<div>` **沒有 `aria-hidden`** ⇒ 螢幕閱讀器讀得到 ⇒ 兩邊拿得到同一個訊號。
+          ⚠️ **而代價照實寫,不藏**:視覺使用者那行一直在畫面上、眼睛掃一下就到;
+             螢幕閱讀器它在軌的**最底下**,用連結導覽的人不會自動走到那裡。
+             ⇒ 兩邊【拿得到】同一個訊號,而【拿到的成本不一樣】—— 那是本改動的殘餘代價。 */}
+      {qualifier !== undefined && count !== null && railCountText(count, truncated) !== '' && (
         <span className='sr-only'>
           {`${qualifier} ${railCountText(count, truncated)} 筆`}
         </span>

@@ -315,6 +315,56 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
     expect(sr?.textContent).not.toContain('55');
   });
 
+  // 🔴 **限定詞被唸兩次**(2026-08-29 線D 真瀏覽器量到,三格全中):
+  //    視覺那塊限定詞 `<span>` 少了 `aria-hidden` ⇒ 它與下面那句 sr-only 各唸一次。
+  //    當場量到的字面(admin-probe 3051、`72aa7146` 之後):
+  //      /orders                   ⇒「訂單未訂貨未訂貨 7 筆」
+  //      /orders/refund-exceptions ⇒「退款異常卡住卡住 筆」
+  //      /products                 ⇒「商品缺貨缺貨 1 筆」
+  //    ⚠️ 而這【不是規格題】—— 元件註解本來就寫著「視覺那兩塊維持 aria-hidden」,
+  //       數字那塊掛上了、限定詞那塊漏了 ⇒ **實作沒跟上它自己的註解**。
+  //    📌 它只有【聽】得出來 ⇒ 看的人完全正常 ⇒ 沒有人會在畫面上撞到它。
+  it('限定詞只被唸一次 —— 視覺那塊要 aria-hidden,否則與旁白重複', () => {
+    mount(true, {
+      unorderedOrderCount: 12,
+      refundExceptionCount: 3,
+      refundExceptionTruncated: false,
+      outOfStockProductCount: 5,
+      syncedAt: SYNCED_COUNTS.syncedAt,
+    });
+    for (const [label, qualifier] of [
+      ['訂單', '未訂貨'],
+      ['退款異常', '卡住'],
+      ['商品', '缺貨'],
+    ] as const) {
+      const cell = railCellFor(label).cloneNode(true) as HTMLElement;
+      // 螢幕閱讀器聽到的 = 全部文字扣掉 aria-hidden 的那些
+      cell.querySelectorAll('[aria-hidden="true"]').forEach((n) => n.remove());
+      const heard = cell.textContent ?? '';
+      const times = heard.split(qualifier).length - 1;
+      expect(times, `${label}:「${qualifier}」被唸 ${times} 次,聽到的是「${heard.trim()}」`).toBe(1);
+    }
+  });
+
+  // 🔴 **`0` 那個世界**(同日同一發量到):`formatNavCount(0)` 回空字串是**規格**
+  //    (稿 `:287` 逐字「0 不是資訊,只有非 0 才是」),而 sr-only 沿用同一支
+  //    ⇒ 唸出來會是「卡住　　筆」——**一句沒有數字的話**。
+  //    ⚠️ 而 `null`(讀取失敗)本來就被既有條件擋掉 ⇒ **只有 `0` 漏了**。
+  //    🔴 分辨 0 與讀取失敗的訊號在**軌底同步行**(當場量過:那個 `<div>` 沒有 `aria-hidden`
+  //       ⇒ 螢幕閱讀器讀得到)⇒ 所以 0 時整段不唸,與視覺一致。
+  it('count 為 0 ⇒ 旁白整段不唸,不唸出一句沒有數字的話', () => {
+    mount(true, {
+      unorderedOrderCount: 12,
+      refundExceptionCount: 0,
+      refundExceptionTruncated: false,
+      outOfStockProductCount: 5,
+      syncedAt: SYNCED_COUNTS.syncedAt,
+    });
+    expect(railCellFor('退款異常').querySelector('.sr-only')).toBeNull();
+    // 正向對照:同一發裡非 0 的那格【要】唸得出來 —— 少了它,把 sr-only 整個拿掉也會綠
+    expect(railCellFor('訂單').querySelector('.sr-only')?.textContent?.trim()).toBe('未訂貨 12 筆');
+  });
+
   // 🔴 負向對照:沒有這一條的話,上面那條在「每一格都無條件印限定詞」時照樣綠。
   it('沒有數字的格【不】印限定詞(否則九格會為了三格一起長高)', () => {
     mount(true, {
