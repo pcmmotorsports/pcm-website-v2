@@ -288,7 +288,7 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                   // 🔴 `data-slot` 是給守門用的【結構契約】, 不是樣式:`page.test.tsx` 要數
                   //    【品項列】, 而這個 `<tbody>`(:284-413)裡還住著截斷列(:389 / :405)
                   //    ⇒ `tbody tr` 數的是兩種的和, 而截斷列是合法的 ⇒ 會假紅。
-                  //    沿用本檔既有慣例(:401 那列已經在用 `data-slot`)。
+                  //    沿用本檔既有慣例(:405 那列已經在用 `data-slot`)。
                   return (
                     <tr key={item.id} data-slot='picking-item' className='border-b'>
                       {/* 真的要用筆勾的框。`print-color-adjust` 不碰 —— 空心框在單色印表機上照樣看得見。
