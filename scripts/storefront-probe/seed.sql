@@ -176,13 +176,23 @@ WHERE p.handle LIKE 'probe-%-3'
 INSERT INTO orders (
   display_id, customer_user_id, shipping_address_snapshot, tier_at_checkout,
   payment_status, fulfillment_status, subtotal, shipping_fee, discount_total, total,
-  shipping_method, invoice, paid_at, cancelled_at, cancelled_reason
+  shipping_method, invoice, paid_at, payment_method, cancelled_at, cancelled_reason
 )
 SELECT o.display_id, c.user_id,
   '{"name":"探針測試客人(假資料)","phone":"0900-000-000","line":"測試市測試區測試路 000 號(假地址)"}'::jsonb,
   'general'::member_tier, o.pay::payment_status, o.ful::fulfillment_status,
   o.sub, o.ship, o.disc, o.sub + o.ship - o.disc,
-  'home', '{"type":"personal"}'::jsonb, o.paid_at, o.cancelled_at, o.cancelled_reason
+  -- 🔴 `payment_method` 跟著 `paid_at` 走,不是每張都填:
+  --    元件註解逐字寫著「`paymentMethod` 為 null = 尚無成功請款(**不是**「資料缺失」)
+  --    ⇒ 仍印 `—`,這一格空著是**看得出來比較好**的那種空」
+  --    (`OrderDetailView.tsx:229-230`)
+  -- ⇒ 所以【未付款那張 9004 刻意留 null】,那不是漏種,是那一格的正解。
+  -- ⇒ 已付款的填 'tappay' —— 正式路徑的字面(`20260611120000_..._confirm_payment_rpc.sql:181` 寫死)。
+  -- 📌 這樣同一份種子同時演得出【有值】與【該空】兩個世界;全填的話,
+  --    「空著是對的」那條路在這台鑽機上就構造不出來了。
+  'home', '{"type":"personal"}'::jsonb, o.paid_at,
+  CASE WHEN o.paid_at IS NULL THEN NULL ELSE 'tappay' END,
+  o.cancelled_at, o.cancelled_reason
 FROM customers c
 CROSS JOIN (VALUES
   ('PCM-2026-9001', 'paid',   'shipped',    5400, 160,   0, now() - interval '9 days', NULL::timestamptz, NULL::text),
@@ -224,13 +234,13 @@ JOIN (VALUES
 INSERT INTO orders (
   display_id, customer_user_id, shipping_address_snapshot, tier_at_checkout,
   payment_status, fulfillment_status, subtotal, shipping_fee, discount_total, total,
-  shipping_method, invoice, paid_at
+  shipping_method, invoice, paid_at, payment_method
 )
 SELECT 'PCM-2026-9006', c.user_id,
   '{"name":"探針測試客人(假資料)","phone":"0900-000-000","line":"測試市測試區測試路 000 號(假地址)"}'::jsonb,
   'general'::member_tier, 'paid'::payment_status, 'ordered'::fulfillment_status,
   500 * 100, 160, 0, 500 * 100 + 160,
-  'home', '{"type":"personal"}'::jsonb, now() - interval '3 days'
+  'home', '{"type":"personal"}'::jsonb, now() - interval '3 days', 'tappay'
 FROM customers c WHERE c.email = 'probe@example.com'
 ;
 INSERT INTO order_items (order_id, variant_sku, product_snapshot, quantity, unit_price, line_total)
