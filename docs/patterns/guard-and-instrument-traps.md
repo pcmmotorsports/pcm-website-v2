@@ -25875,3 +25875,72 @@ codex 因此花掉一條 must-fix 在別人的改動上,並指控範圍宣稱不
 📌 **⇒ 那解釋了為什麼「再看一次」對這一族完全無效:重讀不會換掉你心裡問的那個問題。
    而換掉那個問題的唯一方法是換一個腦。**
 (`date` 原始輸出 = `Sat Aug 29 13:01:32 CST 2026` · HEAD = 354e0773)
+
+---
+
+## 🔴🔴 一道守門【用完額度之後】,與它判定你合格長得一模一樣(2026-08-29 線I 實測)
+
+對象:`~/.claude/hooks/quantifier-assertion.js`(全稱句守門,13,680 bytes,mtime 2026-08-20 19:14)。
+**它是「今晚真正擋下人的四道 hook」之一** ⇒ 它被拿來當「機制優於文字」那個論證的證據。
+量法:**直接餵 JSON 給它、看它自己吐什麼**,不經過 git、不產生任何 commit,每發用全新 `session_id`。
+```bash
+H=~/.claude/hooks/quantifier-assertion.js
+node -e 'process.stdout.write(JSON.stringify({hook_event_name:"PreToolUse",tool_name:"Bash",
+  session_id:process.argv[1],tool_input:{command:process.argv[2]}}))' "<新sid>" '<git commit 指令>' | node $H
+```
+判讀:輸出含 `"deny"` ⇒ 擋下;含「這一發我沒有檢查到」⇒ 印提醒但**放行**;**完全沒有輸出** ⇒ 靜默放行。
+
+### 它有【三種】放行,而第三種沒有聲音
+| 世界 | 結果 |
+|---|---|
+| `-m` 單行、全稱句無數法 | **deny** ✅ |
+| `-F /絕對路徑`(前一發寫好的檔) | **deny** ✅ |
+| 同一發 heredoc 寫檔 + `commit -F` | **deny** ✅ |
+| 同句 **加了數法** | 完全靜默 ✅ **正對照 —— 尺分得出兩個世界** |
+| 命令裡沒有 `git commit`(`echo hello`) | 完全靜默 ✅ **負對照 —— 不逢人就吠** |
+| 🔴 `-F $D/msg.txt`(**路徑含 shell 變數**) | 印提醒、**放行** |
+| 🔴 `-m` **多行**(標題+空行+內文) | 印提醒、**放行** |
+| 🔴 同一 `session_id` 連餵 **7** 發同一句 | 1-5 發 deny,**第 6、7 發完全沒有輸出** |
+| 換全新 `session_id` 再餵同一句 | **deny** ✅ 負對照 ⇒ 那個靜默是**預算**,不是句子變合法 |
+
+**成因(碼上的行,不是推的)**:
+```
+:193  segment.match(/-F\s+(\S+)/)      ← 取【命令字串裡的原始字元】，不展開 shell 變數
+      ⇒ readFileSync("$D/msg.txt") 必然 ENOENT
+:227  scan.split(/(?=;|&&|\|\||\n)/)   ← 用【換行】切 segment
+:209  segment.match(/-m\s+(['"])([\s\S]*?)\1/)  ⇒ 多行訊息的收尾引號落在下一段 ⇒ 配不出成對引號
+:47   MAX_PER_SESSION = { PostToolUse: 3, PreToolUse: 5, Stop: 2 }
+:239  if (!takeBudget(...)) return;    ← 預算滿 ⇒ 直接 return，不 deny、不印任何東西
+      計數落在 os.tmpdir()/.claude-quantifier-<md5(sessionId+event)前12碼>
+```
+
+### 🔴 而三件值得記住的
+1. **量它的那個 session 自己就是滿的** —— 當場查 `24cef979-…` ⇒ `PreToolUse: 5`(上限 5)、`Stop: 2`(上限 2)。
+   ⇒ **那個窗從那一刻起,commit 訊息的全稱句一律不被擋、也沒有提醒,而它是在量它的時候才發現的。**
+2. 📌 **觸發第三種的條件是「這個窗已經被它擋過 5 次」**
+   ⇒ **一個越常寫全稱句的窗,越早失去這道保護 ⇒ 它的保護強度與使用者的需要成【反比】。**
+3. 📌 **「它擋下 N 次」不等於「它看過 N+M 次」** —— 三種放行裡只有兩種會說話。
+   ⇒ 拿擋下次數論證覆蓋率,**分母不成立**。
+
+### ⇒ 現在就用得上的兩句
+```
+① commit 用 -F 時給【絕對路徑】，不要 -F $VAR/檔（前者實測 deny、後者放行）
+② 你被它擋過 5 次之後它對你就停了，而你不會收到通知
+   查自己用掉多少：$TMPDIR/.claude-quantifier-<md5(sessionId+event)前12碼>
+```
+
+⚠️ **射程**:**沒有動那支 hook 一個字**(它在 Sean 的機器設定裡,不在 repo)。
+只測 `PreToolUse` 這一掛;`PostToolUse`(上限 3)與 `Stop`(上限 2)是同族而**未實測**。
+分母:`ls ~/.claude/hooks/*.js ~/.claude/hooks/*.py | wc -l` ⇒ **19**(含 `.bak` ⇒ **0**);
+`settings.json` 實際掛著的呼叫 ⇒ **21** 個(PreToolUse 9 / PostToolUse 4 / Stop 3 / UserPromptSubmit 2 /
+SubagentStart 1 / SubagentStop 1 / PreCompact 1)⇒ **本節只測了 21 個之中的 1 個,不要外推。**
+效度限制:結論來自餵 JSON,不是從真實 commit 觀察;而 `-F $VAR` 與多行 `-m` 兩格的輸出
+與同日三發真實 commit 收到的提醒**逐字相同** ⇒ 這兩格有旁證。
+
+🔴 **而作者要自曝一筆,它就發生在這份量測的第一版裡**:上面那個「19 / 0」,
+第一版寫的是「**16(含 3 支 `.bak-`)**」—— **兩個數字都是沒量就寫的**
+(`.bak-20260820` 這種結尾根本不匹配 `*.js`)。
+📌 **在一份專門講「守門會安靜失效」的檔案裡,作者自己寫了一個沒有來源的數字。**
+⇒ **而抓到它的不是那道 hook**(那個 session 的預算早就滿了,見上)**,是順手跑了一次 `wc -l`。
+   那是運氣,不是機制。**
+(`date` 原始輸出 = `Sat Aug 29 13:03:02 CST 2026` · HEAD = 2d98b721 · 工作樹:本節寫入時 traps 檔僅本窗在動)
