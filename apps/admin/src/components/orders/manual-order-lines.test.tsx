@@ -215,3 +215,28 @@ describe('上限', () => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 });
+
+describe('🔴 含稅安全標籤(⟦b4-PURCHTAX1⟧ 甲;2026-08-29)', () => {
+  // 🔴 這一族守的不是排版,是【那句話還在不在】——
+  //    代購單價全程只被驗「是不是非負整數」(`manual-order-form.ts:219` /^\d+$/),
+  //    而未稅 1000 與含稅 1050 **兩個世界一起通過** ⇒ 今天擋這件事的只有這行字。
+  //    ⇒ 它被刪掉 / 被改軟 ⇒ 這幾格要紅,而不是靜靜地通過。
+  it('🔴 「含稅」兩個字在畫面上(不是只在註解裡)', () => {
+    render(<ManualOrderLines />);
+    // getByText 讀的是**渲染後的文字**,註解不會進 DOM ⇒ 這一格分得出「寫在碼裡」與「員工看得到」。
+    expect(screen.getByText(/含稅/)).toBeTruthy();
+  });
+
+  it('🔴🔴 而它要說得出【填錯會怎樣】—— 只說「請填含稅」的標籤,員工會憑印象填', () => {
+    render(<ManualOrderLines />);
+    const el = screen.getByText(/少收/);
+    expect(el.textContent).toContain('5%');
+    expect(el.textContent).toContain('未稅');
+  });
+
+  it('🔴 負對照:這把尺量得到「不在」—— 換一句沒寫過的話 ⇒ 必須查無', () => {
+    render(<ManualOrderLines />);
+    // 缺這一格 ⇒ 上面兩格「有找到」與「getByText 對任何東西都回真」印同一個綠。
+    expect(screen.queryByText(/請填零稅率金額/)).toBeNull();
+  });
+});

@@ -73,6 +73,41 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
       <p className='text-muted-foreground text-sm'>
         網站上沒有的東西(代購)就把「商品編號」留白,品名跟金額自己打。
       </p>
+      {/*
+        🔴 這一行是【安全標籤】,不是說明文字 —— 而它今天是這件事唯一的保護。
+
+        事實(2026-08-29 線C 量,唯讀):
+          · 代購品項的單價**員工手打**,一路到 DB。
+          · 全程對它的檢查只有「是不是非負整數」——
+            `manual-order-form.ts:219` 逐字 `const NON_NEG_INT_RE = /^\d+$/;`
+            + RPC 側 `20260824020000:362-363` 的 `< 0` 一格。
+          · 🔴 實演過:未稅 1000(少收 5%) 與 含稅 1050(正確)**兩個世界一起通過**;
+            而負對照 `-1` / `10.5` / 空字串都擋下 ⇒ **尺是活的, 它只是對這個問題沒有判別力。**
+          · 🔴 而「含稅/未稅」這個資訊**全 repo 沒有任何欄位存它**
+            (`tax_inclusive` / `taxInclusive` / `is_tax_included` / `price_includes_tax` ⇒ **四個字面全 0**;
+             正對照 `tax_total` ⇒ 2 檔, 而那兩檔都是 migration 且**都還沒 apply**)。
+
+        依據(Sean 2026-08-29 拍板;落點是註解, 不是欄位):
+          `packages/domain/src/catalog/types.ts:167-169` —— general = 含稅 / store = 未稅。
+          ⚠️ 同處 `:169` 標著「premiumStore 那格是**推的, 不是拍板的**」⇒ 引用時不要連它一起讀成拍板。
+          `packages/domain/src/catalog/pricing.ts:35-36` 逐字:
+            「回傳值的【單位隨 tier 而變】,而型別不變…三者都是 `Money`,**呼叫端分不出來**。」
+
+        🛑 而這個標籤【沒有解決問題】—— 它把責任**指定給員工**。
+        ✅ **可以推翻的形狀**:等「乙(讓價格在型別/欄位層說得出自己含不含稅)」做完,
+           這一行就不再是唯一的保護, 那時可以降級成一般說明。
+           **在那之前刪掉它 = 拿掉這條路上唯一的東西。**
+      */}
+      {/*
+        ⚠️ 文案的精確度(code-reviewer 2026-08-29 nit,已改):
+        原句「填成未稅會少收 5%」—— 那個 5% 是**加在未稅金額上的稅率**,
+        而它讀起來像「正確金額的 5%」(1050 裡少了 50 ⇒ 其實是 4.76%)。
+        ⇒ 改成**給一組實際數字**:比一個百分比不容易讀錯,而且不必解釋是誰的 5%。
+      */}
+      <p className='text-sm font-medium text-amber-700 dark:text-amber-500'>
+        代購品項請填<strong>含稅</strong>金額 —— 未稅 1,000 要填 1,050。
+        填成未稅就少收那 5% 的稅,而系統看不出來、不會擋。
+      </p>
 
       {rows.map((id, index) => (
         <div key={id} className='grid grid-cols-12 gap-2' data-testid='manual-order-line-row'>
