@@ -252,6 +252,24 @@ function composeEvent(input: EnqueueEmailInput): {
       };
     }
     default:
+      // 🔴🔴 **這一行【就是】那條「模板不可後行」規矩的機制**(2026-08-30 線D 量到並突變驗過)。
+      //    `20260822010000_..._shipped_email_scan_view.sql:260` 那段註解寫著
+      //    「這一條【沒有機制在守】—— 它是一句規矩」⇒ **那句話錯了一半。**
+      //    ✅ 加了新的 eventType 而沒加 case ⇒ 這一行編不過(突變實測:拿掉
+      //       `case 'order_shipped'` ⇒ typecheck rc=2,TS2739 + TS1360)。
+      //    ⇒ **所以「模板不存在」那一半不需要規矩,它已經是一個編譯錯誤。**
+      //
+      // 🔴 **而那條註解【對的那一半】在別的地方**:模板【存在】而在執行期 throw
+      //    (`order-email-assembly.ts:89-95` 的 `requireNonEmptyString`:
+      //     `shipment_reference` / `shipped_at` 為空 ⇒ throw)——
+      //    型別看不到它(空字串也是 string),而後果是**永久的**:
+      //    燒完 attempts ⇒ `status='failed'` ⇒ 而那個 view 的 anti-join 不分 status
+      //    ⇒ 那一封信再也不會被排進來。
+      //    ⚠️ 那一半**還沒有機制**,已登記上板(修法在 view 的 WHERE,要 migration ⇒ 另一片)。
+      //
+      // ⚠️ **而那段註解為什麼不就地更正**:那支 migration 已 apply,
+      //    而 `APPLIED.tsv` 記的是**它的內容 hash**(當場比對 ⇒ 相同)
+      //    ⇒ **改一個字都會讓帳本分岔** ⇒ 所以更正寫在這裡,不寫在那裡。
       return input satisfies never;
   }
 }
