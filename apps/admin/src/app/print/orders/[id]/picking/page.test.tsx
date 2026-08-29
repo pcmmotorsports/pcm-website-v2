@@ -160,7 +160,10 @@ describe('#10 片1 揀貨單列印頁', () => {
     const { container } = await renderPage();
     const imgs = [...container.querySelectorAll('img')].map((i) => i.getAttribute('src'));
     // 分母:綁【抬頭那顆 LOGO 在不在】, 不是綁「這張紙上有圖」。
-    // ⛔ ~~原本寫 `expect(imgs.length).toBeGreaterThan(0)`~~ 🛑 2026-08-29 code-reviewer:
+    // 🔴 這裡是【新增一道錨】, **不是取代** —— 下面那行 `toBeGreaterThan(0)` 保留著。
+    //    (2026-08-29 R2 抓到:原句寫成 `⛔ ~~原本寫 …~~`, 而被劃掉的那一行就活在兩行之下
+    //     ⇒ **這支檔在對自己說謊**, 與它上一顆修掉的那個病同族、方向相反。)
+    //    理由 2026-08-29 code-reviewer:
     //    今天 picking-doc 只有 1 顆 `<img>`(唯一來源 = `PrintMasthead`)⇒ 那個分母今天守得住;
     //    **而日後任何人加第二張 data-URI 圖 ⇒ masthead 掉了它照樣綠。**
     //    📌 一個「今天剛好等價」的分母, 會在別人加東西的那天安靜失效, 而沒有訊號。

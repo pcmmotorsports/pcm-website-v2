@@ -26673,6 +26673,10 @@ expect(names.size, '一個 pd-* 都沒掃到 ⇒ 本格恆真').toBeGreaterThan(
 page.test.tsx 的 background-image 守門 readFileSync 只讀 shipping-doc.tsx
 ⇒ 它守的那顆 <img> 搬走了 ⇒ 對 LOGO 【失明】
 🔴 而它的正對照 src='/print/line-qr.png' 仍在 shipping-doc ⇒ 它會繼續印綠
+   ⛔ **2026-08-29 起上面那句不成立**(線A `a9d21dc1`):那顆已改成 `src={QR_DATA_URI}`,
+   舊字面在 `shipping-doc.tsx` 只剩註解、又被同格的 `strip()` 剝掉 ⇒ 現行正對照的字面是 `src={QR_DATA_URI}`。
+   ✅ **性質不變**(仍證明那支檔真的被讀進來了)⇒ **換字面不是降級, 前提是性質保住。**
+   📌 而這一句是被 R2 抓到的 —— **改了字面而沒改描述它的那句話, 這支檔就開始對自己說謊。**
 📌 ⇒ 正對照證明了「檔沒讀空」，而那個綠已經與它要守的東西無關
 ```
 ✅ 修法與驗證:改讀兩支 + **加第二個正對照**(證明 masthead 那半真的被讀進來);
