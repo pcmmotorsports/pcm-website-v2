@@ -183,6 +183,13 @@ cat <<'SCOPE'
    · `.sql` / `.json` / `.sh` / `.css` 對 typecheck 與 lint 恆綠、零判別力
    · 不含 CI 那一層（playwright、真 postgres 的 SQL 探針）—— 那層只有 CI 有
    · 未加 --tests 時，tests=skip 的意思是【沒跑】，不是【綠】
+   · 🔴 用 `pnpm --filter <app> build` 跑的那一發【拿不到 `Cached:` 那一行】——
+     而它跑起來一樣綠 ⇒ 它不是「壞掉」,是「證不出來」⇒ **不得宣稱「真跑」,要寫「未證」**
+     ⚠️ 而理由要補完整(2026-08-29 線-b4 量到、我先前只寫了一半):
+        `apps/admin` 的 build 是 `bash ../../scripts/build-with-stamp.sh admin`
+        ⇒ **那條路根本不走 turbo** ⇒ 沒有 turbo 就沒有快取可以 replay
+        ⇒ 📌 **所以它不只是「拿不到那一行」,是【那一行對它沒有意義】** ——
+           要證那一發真跑, 看的是 `rc` 與 `BUILD_OK` 戳記, 不是 `Cached:`。
 SCOPE
 # 🔴 **非綠時【不要刪 log】** —— 上面每一道紅都印了 log 路徑,
 #    而第一版在這裡 `rm -rf "$D"` ⇒ **它指的那個檔在它印完的下一刻就不存在了。**
