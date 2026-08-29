@@ -11,9 +11,11 @@
 #    量測與限定見 runbook §9。
 #
 # 🔴🔴 **本鏈【不是】零 secret 的,而 runbook 檔頭那句「不需要任何 secret」對它不成立。**
-#    ⚠️ **而「換去施工窗工作樹」對這一支【沒有用】** —— `REPO` 在下面是**寫死的**
-#       (`REPO=/Users/sean_1/pcm-website-v2`),`next dev` 一律從**主樹**的 `apps/storefront` 起
-#       ⇒ 不管你人在哪一棵樹呼叫它,**載入的都是主樹那份 `.env.local`**。
+#    ⚠️ ~~**而「換去施工窗工作樹」對這一支【沒有用】** —— `REPO` 在下面是**寫死的**~~
+#       ~~(`REPO=/Users/sean_1/pcm-website-v2`),`next dev` 一律從**主樹**的 `apps/storefront` 起~~
+#       ~~⇒ 不管你人在哪一棵樹呼叫它,**載入的都是主樹那份 `.env.local`**。~~
+#    🔵 **2026-08-29 線I 改掉了**:`REPO` 現在從腳本位置推 ⇒ **換樹有用了**,
+#       在哪棵樹呼叫就用哪棵樹。⇒ 而那也表示**載入的是那棵樹的 `.env.local`**(worktree 通常沒有)。
 #    ⇒ 本腳本只把 Supabase 與 TapPay 那幾個變數用 inline 值蓋掉(指向拋棄式鑽機);
 #      **`.env.local` 裡的其他東西,在那個 dev server 行程裡是活的。**
 #    ⇒ 🔴 **所以不要對這條鏈打任何「會用到外部金鑰」的路徑** ——
@@ -25,7 +27,12 @@
 #
 # 🔴 效度限制照 runbook §5 / §8-f,一條都不放寬。最容易忘的兩條:
 #    · GRANT 與 BYPASSRLS 是這支腳本自己下的 ⇒ **證不了正式站的權限設定**
-#    · `/auth/v1` 是替身、**不驗密碼**,任何字串都登得進去 ⇒ 不要拿它驗「擋不擋得住」
+#    · ~~`/auth/v1` 是替身、**不驗密碼**,任何字串都登得進去~~
+#      🔵 **2026-08-29 線D 實測推翻**:`proxy.py:5` 只認 **`auth.users` 裡已存在的 email**;
+#      不存在 ⇒ `400 invalid_grant`(它實測:不存在的 email ⇒ 400、`probe@example.com` ⇒ 200 拿到 token)。
+#      ⚠️ **來源屬性:線D 量的,線I 未複驗** ⇒ 引用前自己再跑那兩發。
+#      🔴 而線D 自陳**它被上面那句舊註解騙過** ⇒ 這不是文件瑕疵,是真的把人帶偏過。
+#      ⇒ 仍然成立的那半:**不要拿它驗「擋不擋得住」** —— 它不是真的認證。
 #
 # 🔴 27 支 migration 套不上是常態(判準是「你要用的表在不在」,不是全綠)。
 #    已知受害者:`vehicle_taxonomy_public` ⇒ **車款選擇那條路這套鑽機進不去。**
@@ -40,7 +47,16 @@ set -euo pipefail
 # 🔴 export，不是只給 initdb 加前綴：postmaster 啟動時也要看到它，
 #    否則 FATAL: postmaster became multithreaded during startup（2026-08-18 實際踩到）
 export LC_ALL=C
-REPO=/Users/sean_1/pcm-website-v2
+# 🔴 從【腳本自己的位置】推,不是寫死主樹(照 `admin-probe/up.sh` 的寫法)。
+#    ~~`REPO=/Users/sean_1/pcm-website-v2`~~ 2026-08-29 線I 改。
+#    成因:寫死主樹 ⇒ 從施工窗的 worktree 呼叫它,它會【安靜地】跑去主樹,
+#    而畫面上完全正常 —— 那與「我在這棵樹上跑」長得一模一樣。
+REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+# ⚠️ **它跟的是【這支腳本檔在哪】,不是【你 cd 到哪】**(2026-08-29 線I 隔離實測):
+#    cd <worktree> && bash /Users/sean_1/pcm-website-v2/scripts/storefront-probe/up.sh
+#    ⇒ 仍然用**主樹**。⇒ 要用哪棵樹,就呼叫【那棵樹裡的這支檔】。
+#    實測(把同一行放進三個位置各跑一次):假樹 ⇒ 假樹路徑 / /tmp/mainlike ⇒ /tmp/mainlike /
+#    現造第三個位置 ⇒ 那個位置。而**寫死版在同樣三個位置都印主樹**(那是本次要修的東西)。
 # 🔴 路徑可覆寫:多窗平行時各自帶一個 `STOREFRONT_PROBE_DIR`(down.sh 讀同一個變數)。
 #    預設值仍是固定路徑 —— 那是為了讓 `up.sh` / `down.sh` 這一對在【不傳任何東西】時仍然配得上;
 #    而固定路徑的代價由下面那道前置閘擋住,不是靠使用者記得。
@@ -123,6 +139,8 @@ rm -rf "$S" && mkdir -p "$S"   # 🔴 引號:`${STOREFRONT_PROBE_DIR:-…}` 只�
   echo "shell  : pid $$  tty $(tty 2>/dev/null || echo '?')"
   echo "datadir: $S"
   echo "埠     : web $WEB / proxy $PROXY / prest $PREST / cors $CORS / pg $PG"
+  echo "REPO   : $REPO"
+  echo "HEAD   : $(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 } > $S/owner.txt
 initdb -D $S/pg -U postgres --auth=trust --encoding=UTF8 --locale=C > $S/initdb.log 2>&1
 pg_ctl -D $S/pg -o "-p $PG -k /tmp" -l $S/pg.log start > $S/pgctl.log 2>&1
@@ -146,7 +164,7 @@ CREATE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$
 SQL
 
 ok=0; fail=0
-for f in $REPO/supabase/migrations/*.sql; do
+for f in "$REPO"/supabase/migrations/*.sql; do   # 🔴 引號包在 glob 外:包住 `*` 會讓它不展開
   if psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q -f "$f" >> $S/apply.log 2>&1
   then ok=$((ok+1)); else fail=$((fail+1)); echo "FAIL $f" >> $S/apply.log; fi
 done
@@ -273,7 +291,7 @@ nohup python3 "$SP/cors-server.py" "$CORS" > $S/cors.log 2>&1 &
 sleep 2
 
 A=$(grep ANON= $S/jwts.txt | cut -d= -f2-); SR=$(grep SERVICE= $S/jwts.txt | cut -d= -f2-)
-cd $REPO/apps/storefront
+cd "$REPO/apps/storefront"   # 🔴 加引號:worktree 路徑是誰建的就長什麼樣,可能含空白
 # 🔴🔴 **不走 `npx`**(2026-08-21 `-04` SP-1 第二輪;本機實測,不是推的)。
 #   `npx` 就是 `npm exec`,而 **`npm exec` 型的行程會把【整包環境變數】印進 `pgrep -fl` 的那一行** ——
 #   一般行程只印 argv、乾淨;只有這一種會連環境一起印。
@@ -366,7 +384,9 @@ if [ "${WEB_CODE:-000}" = "000" ]; then
     {
       echo "🔴 web 回 000,而 next.log 裡有那道閘的訊息 ⇒ dev server 【被停掉了】,不是還沒暖機。"
       echo "     tail -20 $S/next.log"
-      echo "   那道閘擋得對:REPO 寫死主樹 ⇒ next dev 一定載入主樹 .env.local ⇒ 裡面有指向正式庫的變數。"
+      echo "   ~~那道閘擋得對:REPO 寫死主樹 ⇒ next dev 一定載入主樹 .env.local~~"
+      echo "   🔵 2026-08-29 線I 改:REPO 已改成從腳本位置推 ⇒ 載入的是【你這棵樹】的 .env.local。"
+      echo "      ⇒ 在【主樹】跑仍會撞到這道閘(主樹有 .env.local);在沒有 .env* 的 worktree 跑就不會。"
       echo "   正解(把 web 那一層搬到一棵沒有 .env* 的工作樹跑,前面幾層照用這一份):"
       echo "     docs/runbooks/local-admin-with-real-data-probe.md §8-g"
       echo "   🔴 不要用 PCM_ALLOW_PROD_DB_DEV=1、不要動任何 .env*(那是共用工作樹,別的窗在用)。"
@@ -381,4 +401,33 @@ if [ "${WEB_CODE:-000}" = "000" ]; then
       echo "        🔴 不要用 PCM_ALLOW_PROD_DB_DEV=1、不要動任何 .env*。"
     } >&2
   fi
+fi
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 🔴 起站樹與主樹的 HEAD 比對(線D 2026-08-29 規格,線I 落地)。
+#    ⚠️ **這一條與 owner.txt 裡那行 `HEAD:` 防的【不是同一件事】**(線D 自己標的):
+#      · owner.txt 那行 ⇒ 擋「一開始就拿舊樹起站」
+#      · 本段        ⇒ 擋「站起來之後世界前進了」
+#    ⇒ 兩條都要。**不要讓其中一條看起來像解。**
+#    🔴 印在【最後一行】:前面那一大段輸出會把它捲掉,而這是要人看到的。
+MAIN_WT="$(git -C "$REPO" worktree list --porcelain 2>/dev/null | sed -n "1s/^worktree //p")"
+HEAD_HERE="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+HEAD_MAIN="$(git -C "${MAIN_WT:-$REPO}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+# 🔴 線D 2026-08-29 追加的第三格:**印起站時刻**。
+#    理由(它的原話):真正咬人的不是「起站時就舊」,是【起站之後主樹前進了】
+#    ⇒ 一份交件帶著 hash + 時刻,讀的人才判得出「這份量測涵蓋到哪一顆」。
+#    ⚠️ 而 owner.txt 已經有「起於」那一行 —— 這裡再印一次,是因為**這一段是印在螢幕最後一行的**,
+#       而 owner.txt 要有人去開才看得到。**兩個載體,不是重複。**
+STARTED_AT="$(date "+%Y-%m-%d %H:%M:%S")"
+if [ "$HEAD_HERE" != "$HEAD_MAIN" ]; then
+  {
+    echo "🔴 本次起站的樹與主樹【HEAD 不同】——"
+    echo "     這棵($REPO)      = $HEAD_HERE"
+    echo "     主樹(${MAIN_WT:-$REPO}) = $HEAD_MAIN"
+    echo "   ⇒ 你量到的東西是【這棵樹】的,不是主樹的。要拿去下結論前先確認你要的是哪一棵。"
+    echo "   起站時刻:$STARTED_AT —— 這之後主樹若前進,本次量測不涵蓋。"
+  } >&2
+else
+  echo "✅ 起站樹與主樹 HEAD 相同($HEAD_HERE)—— 這一格【有比過】,不是沒印就沒事。起站時刻:$STARTED_AT" >&2
 fi
