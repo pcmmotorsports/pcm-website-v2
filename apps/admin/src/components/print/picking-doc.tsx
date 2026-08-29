@@ -3,6 +3,7 @@ import type { AdminOrderDetail, AdminOrderDetailItem } from '@pcm/domain';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import { BlockedSheet } from './blocked-sheet';
 import { PrintButton } from './print-button';
+import { PrintMasthead } from './print-masthead';
 
 // #10 片1:揀貨單(給倉庫的人拿在手上、對著箱子勾的那張紙)。
 //
@@ -119,15 +120,49 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
        讓紙面邊界**只由** `@page{margin:12mm 12mm 14mm 12mm}` 決定,不然會內縮兩次。
        ⚠️ 改名要同步那支 CSS;改名後的症狀是**紙印出來邊距不對**,三綠與單測都不會紅。
        📎 Sean 逐字「出貨單都是 A4」⇒ **揀貨單一起吃**,兩張紙同一套版面。 */
-    <div data-slot='picking-doc' className='print-sheet mx-auto max-w-3xl space-y-4 p-6 print:max-w-none'>
-      <div className='flex flex-wrap items-center gap-3'>
+    <div data-slot='picking-doc' className='print-sheet mx-auto max-w-3xl space-y-4 p-6 print:max-w-none pd-sheet'>
+      {/* 🔴 A3-2'(2026-08-29):這張紙改吃【與出貨單同一套】的抬頭 ——
+          Sean 2026-08-23 拍板(壓縮轉述, 原話見 memory `project_0823-sean-shipping-doc-server-render.md:19-20`)
+          「原揀貨單鈕改成訂單明細…**格式跟出貨單一樣**」。
+          ⚠️ **`pd-sheet` 不是裝飾** —— `app/print/print-a4.css:236` 起它定義了整組 `--pd-*` 變數
+             與 `display:flex; flex-direction:column` ⇒ **加上它才吃得到那套版面**;
+             不加的話下面所有 `pd-*` 子類都會落在沒有變數的世界裡。 */}
+      <PrintMasthead />
+      {/* 🔴 A3-2':版面骨架換成稿的 `.pd-doctitle`(與出貨單同一個 class)。
+          `print-a4.css:335-350` 定義:`display:flex; align-items:baseline; gap:5mm`
+          + `border-top` + `h1` 的字級字距 ⇒ **原本的 Tailwind `text-2xl` 由 CSS 接管**。
+          🛑 ~~稿裡的 `.pd-en` 與 `.pd-use` 本片刻意不加 —— 沒有人拍過板 ⇒ 不發明~~
+             🔴 **2026-08-29 code-reviewer R1 Critical 1:那句是錯的, 而且它有害。**
+             **稿裡【有】那些字面**(`-c8` 開檔複驗, 兩個獨立來源):
+             · OD `pcm-524f/patch-orders-ui.py:3316-3318` 的 `fix49_order_doc`
+               (進入條件就是這張紙)逐字 `'訂單明細', 'Order Detail', '這張訂單的完整明細',
+               '涵蓋本訂單全部品項;本單不描述出貨進度'`
+             · 渲染結果在同專案 `預覽-訂單明細.html`
+             📌 **⇒ 我沒有 grep 稿就寫下「沒有人拍過板」—— 那句會【關掉下一個人的尋找動作】**
+                (常載 §6-b 第 4 條點名的句形)。**鐵則 1 違反, 記在這裡。**
+             ✅ **本片採用 `.pd-en` = `Order Detail`**(照稿)。
+             🛑 **而 `.pd-use` 那兩行本片【仍然不加】, 而這次理由是量到的**:
+                稿的用途標語逐字寫「**本單不描述出貨進度**」, 而**這張紙上現在還有勾選框**
+                (`data-slot='picking-checkbox'`)與「應揀數量」⇒ **印上去會是一句紙上自相矛盾的話。**
+                ⇒ 勾選框拿掉那一片(A3-3')落地之後再補, 不是現在。 */}
+      <div className='pd-doctitle'>
         {/* 🔴 `#240`/Q1-A1(2026-08-23):抬頭由 ~~「揀貨單」~~ 改為「訂單明細」——
             Sean 拍板②逐字「那原本的揀貨單 按鈕改成 -> **訂單明細**」。
             ⚠️ **鈕改了而這裡沒改, 比不改更糟**:他在後台看到新名字, 列印出來還是舊的
                (code-reviewer R1 must-fix 3 抓到)。
             📌 而**這張紙的【內容】本片沒動** —— 版面同出貨單、無出貨狀態字眼、無勾選欄
                那些屬 A3(從 ShippingDoc 衍生 variant + PickingDoc 退役)。 */}
-        <h1 className='text-2xl font-semibold'>訂單明細</h1>
+        <h1>訂單明細</h1>
+        <div className='pd-en'>Order Detail</div>
+        {/* 🛑 A3-2' 刻意【還沒搬】:出貨單那張把 `displayId` 移進了下面的 `.pd-info` 右欄
+            (`shipping-doc.tsx` 該處註解逐字:「稿把它們移到 `.pd-info`…每個值前面都有 `.k` 欄名
+             ⇒ 仍然不是裸印」)。本張紙還沒有 `.pd-info` 區 ⇒ 現在搬會變成裸印。
+            🔴 而 `-c8` 第一版在這裡寫了一個 `print-a4.css` 裡不存在的 class ⇒ 會 render 成無樣式。
+               ⚠️ ~~而 typecheck 與所有測試都不會紅~~ 🛑 **2026-08-29 R1 Critical 2:那句是錯的。**
+               **有守門, 而且它會紅**:`app/print/print-a4-css.test.ts:255-263` 的反方向掃描格
+               把本檔併進 `names`, 而一個 CSS 無規則、又不在 `HOOK_ONLY` 的名字會落進 `orphan`
+               ⇒ `toEqual([])` 失敗。📌 **⇒ 我那句的危害不是記錯, 是它告訴下一個人「這一格沒有人在守」。**
+               ✅ 還原成原本的 Tailwind。 */}
         <span className='text-xl font-semibold tabular-nums'>{detail.displayId}</span>
         {/* 🔴 **擋住內容卻沒擋住列印鈕 = 守門裝在沒有事的那條路上**(2026-08-17;
             與 `shipping-doc.tsx` 同批,那邊 code-reviewer R2 F3 點名這裡一個字沒改)。
