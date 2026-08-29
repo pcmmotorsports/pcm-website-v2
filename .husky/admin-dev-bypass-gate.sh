@@ -1,4 +1,10 @@
-#!/bin/sh
+#!/usr/bin/env bash
+# 🔴 shebang 從 `#!/bin/sh` 改成 bash(codex R3 must-fix,2026-08-29):
+#    本檔是 executable。`.husky/pre-commit` 已改成用 `bash` 呼叫它,但那只管【那一條路】——
+#    有人直接執行它(`./.husky/admin-dev-bypass-gate.sh`)時走的是 shebang,
+#    而在 /bin/sh 是 dash 的機器上,`read -r -d ''` 會 `Illegal option -d` ⇒ 迴圈跑 0 次 ⇒ rc=0
+#    ⇒ 危險行【靜默放行】。⇒ 兩條路都要指向 bash,少一條就留一個洞。
+#    ⚠️ 不違反 zsh-shebang-gate:那道擋的是 `zsh`,而 `migration-post-commit-gate.sh` 早就是 env bash。
 # 免登入後台指令守門(2026-08-20 立;機制優先律)
 #
 # 背景:`next dev` 預設綁【所有網路介面】,不是 localhost;疊上 ADMIN_DEV_BYPASS=1(免登入)
@@ -135,7 +141,30 @@ DEV_CMD_RE='(next[[:space:]]+dev|(pnpm|npm|yarn)([[:space:]]+(-{1,2}[^[:space:]]
 }
 
 HITS=""
-for f in $(git diff --cached --name-only --diff-filter=ACM); do
+# 🔴 兩處修正(Sean 2026-08-29 拍 Q-ACMR=甲；線A 實測、線G 複驗五個世界)：
+#   ① ACM ⇒ ACMR：rename 原本整個被排除 ⇒「把檔案改個名字」就繞過本閘
+#      ⚠️ 本閘用 --name-only ⇒ 輸出【不含狀態欄】⇒ 舊註解顧慮的「R 的雙欄輸出」不會發生
+#   ② for f in $(…) ⇒ -z + while read：未加引號會詞分割 ⇒ 含空白的檔名被切成兩段而漏掉
+#      成因與 ① 無關，ACMR 解不掉它，兩個要分開修
+#   🔴 導檔而不是管線：HITS 要留在本 shell，管線會讓 while 跑在子 shell ⇒ HITS 出不來 ⇒ 恆放行
+#   🔴 而【用 NUL 分隔 + bash】——不是 POSIX 的 tr(codex R1/R2 兩輪 must-fix,2026-08-29):
+#      R1:`read -d ''` 是 bashism,而本檔原本由 `sh` 執行 ⇒ dash 實測 `read: Illegal option -d`
+#         ⇒ 迴圈跑 0 次 ⇒ rc=0 ⇒ 危險行【靜默放行】。
+#      R2:改成 POSIX 的 `tr` 之後,【檔名含換行】會被切成兩個不存在的路徑
+#         ⇒ 兩次 cat-file 都跳過 ⇒ 【一樣靜默放行】。⇒ 換一個洞,不是修好。
+#      ⇒ 結論:改【呼叫殼】不改判準 —— `.husky/pre-commit` 已改成 `bash` 執行本檔
+#         (與 `migration-post-commit-gate` 同款)。NUL 分隔是唯一精確的形狀。
+#   🔴 暫存檔用 mktemp(codex R2 nit:可預測路徑的 `>` 會跟隨預先建立的 symlink)
+#   🔴 trap 要【自己 exit 1】—— 只清檔不 exit,收到 TERM 後 shell 會繼續往下跑而 rc=0
+#      (codex R2 must-fix)。本閘的預設方向永遠是【擋】。
+_LIST1="$(mktemp "${TMPDIR:-/tmp}/adbg-XXXXXX")" || {
+  echo "🔴 admin-dev-bypass-gate:mktemp 失敗 ⇒ 擋下(不放行)" >&2; exit 1; }
+trap 'rm -f "$_LIST1"' EXIT
+trap 'rm -f "$_LIST1"; echo "🔴 admin-dev-bypass-gate:被中斷 ⇒ 擋下(不放行)" >&2; exit 1' HUP INT TERM
+git diff --cached --name-only --diff-filter=ACMR -z > "$_LIST1" || {
+  echo "🔴 admin-dev-bypass-gate:git diff --cached 失敗 ⇒ 擋下(不放行)" >&2
+  exit 1; }
+while IFS= read -r -d '' f; do
   # 本檔自己會在註解/程式碼裡字面提到這兩個字串(它就是在檢查它們)⇒ 排除自己,不然會擋自己
   [ "$f" = ".husky/admin-dev-bypass-gate.sh" ] && continue
   # 只看仍存在於 index 的文字檔;二進位/已刪檔跳過
@@ -165,7 +194,7 @@ for f in $(git diff --cached --name-only --diff-filter=ACM); do
   [ -n "$LINES" ] && HITS="$HITS
 $f:
 $LINES"
-done
+done < "$_LIST1"
 
 [ -z "$HITS" ] && exit 0
 
@@ -175,7 +204,8 @@ done
 LOG_HEAD=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LOG_TS=$(date -u +%FT%TZ 2>/dev/null || echo unknown)
 {
-  for f in $(git diff --cached --name-only --diff-filter=ACM); do
+  # 同上兩處修正；本迴圈只寫 log、不設外層變數 ⇒ 子 shell 無妨
+  git diff --cached --name-only --diff-filter=ACMR -z 2>/dev/null | while IFS= read -r -d '' f; do
     [ "$f" = ".husky/admin-dev-bypass-gate.sh" ] && continue
     git cat-file -e ":$f" 2>/dev/null || continue
     git diff --cached -U0 --no-ext-diff --no-textconv -- "$f" | awk -v ts="$LOG_TS" -v gate="admin-dev-bypass-gate" -v file="$f" -v head="$LOG_HEAD" -v devre="$DEV_CMD_RE" '

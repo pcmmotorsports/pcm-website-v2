@@ -27,22 +27,57 @@
 if [ -f .husky/reviewer-gate.sh ]; then
   sh .husky/reviewer-gate.sh || exit $?
 else
-  echo '⚠ .husky/reviewer-gate.sh 不見了、reviewer gate 未執行(照樣放行、留此痕跡)' >&2
+  printf '%s\n' '🔴 .husky/reviewer-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   ~~原本這一道是「照樣放行、留此痕跡」~~ ⇒ 2026-08-29 Sean 拍 Q-PRECOMMIT-FAILOPEN=甲 改成擋。' >&2
+  printf '%s\n' '   理由與 scripts-whitelist-gate 那道相同:同一顆 commit 刪掉本閘、再做本閘要防的那件事,' >&2
+  printf '%s\n' '   fail-open 會讓這一片的守門【被它自己要防的那個動作關掉】。' >&2
+  printf '%s\n' '   而這四道都在 .husky/ ⇒ 跟著 repo 走,任何一次乾淨下載都會帶著它們' >&2
+  printf '%s\n' '   ⇒ 改成擋不會讓 CI 或新電腦每次都紅。' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/reviewer-gate.sh' >&2
+  exit 1
 fi
 if [ -f .husky/status-owner-gate.sh ]; then
   sh .husky/status-owner-gate.sh || exit $?
 else
-  echo '⚠ .husky/status-owner-gate.sh 不見了、STATUS 收帳權守門未執行(照樣放行、留此痕跡)' >&2
+  printf '%s\n' '🔴 .husky/status-owner-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   ~~原本這一道是「照樣放行、留此痕跡」~~ ⇒ 2026-08-29 改成擋。' >&2
+  printf '%s\n' '   理由與 scripts-whitelist-gate 那道相同:同一顆 commit 刪掉本閘、再做本閘要防的那件事,' >&2
+  printf '%s\n' '   fail-open 會讓這一片的守門【被它自己要防的那個動作關掉】。' >&2
+  printf '%s\n' '   而這四道都在 .husky/ ⇒ 跟著 repo 走,任何一次乾淨下載都會帶著它們' >&2
+  printf '%s\n' '   ⇒ 改成擋不會讓 CI 或新電腦每次都紅。' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/status-owner-gate.sh' >&2
+  exit 1
 fi
 if [ -f .husky/admin-dev-bypass-gate.sh ]; then
-  sh .husky/admin-dev-bypass-gate.sh || exit $?
+  # 🔴 用 bash 不是 sh(2026-08-29 codex R1/R2 must-fix;`migration-post-commit-gate` 早就是這樣):
+  #    本閘要逐檔處理【檔名可能含空白或換行】的清單,而唯一精確的形狀是 NUL 分隔
+  #    (`-z` + `read -r -d ''`)—— 那是 bashism。
+  #    用 sh 跑:macOS 的 /bin/sh 是 bash ⇒ 過;而 dash 實測 `read: Illegal option -d`
+  #    ⇒ 迴圈跑 0 次 ⇒ rc=0 ⇒ 危險行【靜默放行】。
+  #    ⚠️ 而 POSIX 的替代形狀(`tr '\0' '\n'`)會在【檔名含換行】時把一個路徑切成兩個
+  #       ⇒ 兩次 cat-file 都跳過 ⇒ 同樣靜默放行。⇒ 兩害相權:改呼叫殼,不改判準。
+  bash .husky/admin-dev-bypass-gate.sh || exit $?
 else
-  echo '⚠ .husky/admin-dev-bypass-gate.sh 不見了、免登入後台指令守門未執行(照樣放行、留此痕跡)' >&2
+  printf '%s\n' '🔴 .husky/admin-dev-bypass-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   ~~原本這一道是「照樣放行、留此痕跡」~~ ⇒ 2026-08-29 改成擋。' >&2
+  printf '%s\n' '   理由與 scripts-whitelist-gate 那道相同:同一顆 commit 刪掉本閘、再做本閘要防的那件事,' >&2
+  printf '%s\n' '   fail-open 會讓這一片的守門【被它自己要防的那個動作關掉】。' >&2
+  printf '%s\n' '   而這四道都在 .husky/ ⇒ 跟著 repo 走,任何一次乾淨下載都會帶著它們' >&2
+  printf '%s\n' '   ⇒ 改成擋不會讓 CI 或新電腦每次都紅。' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/admin-dev-bypass-gate.sh' >&2
+  exit 1
 fi
 if [ -f .husky/migration-ts-gate.sh ]; then
   sh .husky/migration-ts-gate.sh || exit $?
 else
-  echo '⚠ .husky/migration-ts-gate.sh 不見了、migration 時間戳撞號守門未執行(照樣放行、留此痕跡)' >&2
+  printf '%s\n' '🔴 .husky/migration-ts-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   ~~原本這一道是「照樣放行、留此痕跡」~~ ⇒ 2026-08-29 改成擋。' >&2
+  printf '%s\n' '   理由與 scripts-whitelist-gate 那道相同:同一顆 commit 刪掉本閘、再做本閘要防的那件事,' >&2
+  printf '%s\n' '   fail-open 會讓這一片的守門【被它自己要防的那個動作關掉】。' >&2
+  printf '%s\n' '   而這四道都在 .husky/ ⇒ 跟著 repo 走,任何一次乾淨下載都會帶著它們' >&2
+  printf '%s\n' '   ⇒ 改成擋不會讓 CI 或新電腦每次都紅。' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/migration-ts-gate.sh' >&2
+  exit 1
 fi
 if [ -f .husky/scripts-whitelist-gate.sh ]; then
   sh .husky/scripts-whitelist-gate.sh || exit $?
