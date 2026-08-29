@@ -58,12 +58,17 @@ describe('CartQtyInput —— 清空輸入框不得把數量吃掉', () => {
   //   兩個都是有限數 ⇒ **走不到 else**;而它們的期望值剛好是 `1` 與 `99`。
   //   ⇒ 對「else 回 1 還是回 qty」零判別力。本段把 qty 推到 **8** 就是為了讓兩個世界印不同的東西。
 
-  it('🔴 qty=8 ⇒ 清空 ⇒ 失焦 ⇒ onCommit 收到 8, 不得是 1', () => {
+  // 🔴 **2026-08-29 契約換了一次, 而【換的是宣稱不是期望值】**(Sean 拍甲, 逐字
+  //    「什麼都不送,件數維持原樣」;選項字面是我們寫的, 他只打了甲):
+  //    ⛔ ~~舊契約:`onCommit` 收到 8(不得是 1)~~ ⇒ 那已經達成「件數維持原樣」,
+  //    🔴 而它仍然【送出去了】—— 而 `CartContext.updateQty` 值一樣也會產生新陣列 + 新物件
+  //       ⇒ 重繪 + 寫 localStorage ⇒ **calls=1 與 calls=0 是觀察得到的兩件事**。
+  //    ✅ 新契約:**一次都不呼叫**, 而框上的字仍然回到 `8`(客人看到的沒變)。
+  it('🔴 qty=8 ⇒ 清空 ⇒ 失焦 ⇒ onCommit【一次都不呼叫】, 而框回到 8', () => {
     const { onCommit, input } = setup(8);
     clearThenBlur(input);
-    expect(onCommit).toHaveBeenCalledWith(8);
-    expect(onCommit).not.toHaveBeenCalledWith(1);
-    expect(input.value).toBe('8'); // 框裡的字也要收斂回去, 不能留空
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(input.value).toBe('8'); // 框裡的字仍要收斂回去, 不能留空
   });
 
   it('🔴 同族的其他「不是數字」也一樣', () => {
@@ -73,7 +78,8 @@ describe('CartQtyInput —— 清空輸入框不得把數量吃掉', () => {
     const { onCommit, input } = setup(6);
     fireEvent.change(input, { target: { value: '   ' } }); // 濾完仍是空
     fireEvent.blur(input);
-    expect(onCommit).toHaveBeenCalledWith(6);
+    expect(onCommit).not.toHaveBeenCalled(); // ⛔ ~~toHaveBeenCalledWith(6)~~ 同上, 契約換了
+    expect(input.value).toBe('6');
   });
 
   it('負對照:既有夾值行為一個字沒變(0 ⇒ 1、超上限 ⇒ 夾到上限 + 提示)', () => {

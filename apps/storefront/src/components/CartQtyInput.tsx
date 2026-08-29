@@ -66,8 +66,20 @@ export function CartQtyInput({ qty, onCommit }: { qty: number; onCommit: (qty: n
     //     ⇒ **「多開幾個 vitest 併行」不是觸發條件, 或至少不足以觸發** —— 這是負面資訊, 留著省下一輪。
     //   ⏳ **怎麼修還沒拍板**(它動購物車數量⇒金額 = 鐵則 12 ①, 要 plan + codex):
     //     四個選項與推薦在 `~/pcm-mailbox/線F-交件-886結案是r4不是r3-20260829.md` 檔尾。**本片只落事實, 不改行為。**
-    const clamped = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), MAX_QTY) : qty;
-    if (Number.isFinite(parsed) && parsed > MAX_QTY) {
+    // 🔴 **框是空的(或不是數字)⇒【什麼都不送】**(2026-08-29 Sean 拍甲, 逐字:
+    //    「什麼都不送,件數維持原樣」;選項字面是我們寫的, 他只打了甲)。
+    //    ⛔ ~~前一版走 `: qty` ⇒ 仍然呼叫 `onCommit(qty)`~~ —— 那已經達成「件數維持原樣」,
+    //    🔴 而它【不是空操作】:`CartContext.updateQty` 是
+    //       `prev.map((p) => (sameLine(p, key) ? { ...p, qty: safeQty } : p))`
+    //       ⇒ 值一樣也產生【新陣列 + 新物件】⇒ state 變 ⇒ 重繪 + 寫 localStorage。
+    //    ⇒ 觀察得到的差別是 **calls=1 vs calls=0**, 不是措辭。
+    //    ✅ 框上的字仍然同步回 `String(qty)` ⇒ **客人看到的與之前一樣**, 少的只有那一次送出。
+    if (!Number.isFinite(parsed)) {
+      setQtyText(String(qty));
+      return;
+    }
+    const clamped = Math.min(Math.max(parsed, 1), MAX_QTY);
+    if (parsed > MAX_QTY) {
       setNotice(QTY_CAP_NOTICE); // nit:字面住共用層,與 ProductInfo 的數量框唸同一句
       if (noticeTimer.current) clearTimeout(noticeTimer.current);
       noticeTimer.current = setTimeout(() => setNotice(null), 2500);

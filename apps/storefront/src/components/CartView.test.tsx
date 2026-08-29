@@ -289,8 +289,13 @@ describe('CartView(M-3-S2-b2-d)', () => {
     );
   });
 
+  // 🔴 **fixture 的 `qty` 從 1 改成 3**(2026-08-29 Sean 順手指定, 而那句比它聽起來硬):
+  //    這一格原本用 `qty: 1` ⇒ 而 `#886` 的錯誤行為送出的**也是 1**
+  //    ⇒ **對的行為與錯的行為印同一個數字** ⇒ 這一格對那個 bug【恆綠】。
+  //    ✅ 改成 3 ⇒ 兩個世界從此分得開。
+  //    📌 而他是憑「1 看起來怪」講的 —— 那個直覺撞到的是一個量得出來的恆綠格。
   it('數量輸入框:打 >99 失焦 → 夾到 99 並顯示提示,updateQty 收到 99', async () => {
-    const item: CartItem = { productId: 'rpm-1', variantId: 'v1', qty: 1 };
+    const item: CartItem = { productId: 'rpm-1', variantId: 'v1', qty: 3 };
     const { updateQty } = setCart([item]);
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
     render(<CartView />);
