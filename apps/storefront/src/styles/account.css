@@ -329,8 +329,11 @@
    唯一來源是 `orderStatusTone()`,不是這行註解。 */
 .acc-order-status.is-progress {
   background: var(--c-text);
+  /* 🔴 2026-08-29:~~`color: #fff`~~ ⇒ **執行 Sean 2026-08-09 `Q4=B`**(既有拍板,不是新決定)。
+     底色 `var(--c-text)` **會跟著主題翻**(淺 #121214 / 深 #fafafa)⇒ 白字寫死 = 深色模式白底白字。
+     ✅ **值抄自我方【已經修好的那一份】`order-detail.css:118`**(同一顆「進行中」徽章),不是自己發明。 */
   border-color: var(--c-text);
-  color: #fff;
+  color: var(--c-text-inverse);
 }
 /* 🔴 已取消 / 已逾期 / 已退款 / 已退部分:已結束 → 退成中性。
    **已取消絕不能落在 .is-action** —— 那是熔橘、是叫人動作的顏色,
