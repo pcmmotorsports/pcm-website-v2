@@ -47,6 +47,24 @@ jobs:
       - name: Install Playwright chromium
         run: pnpm --filter @pcm/admin exec playwright install --with-deps chromium
 
+      # 🔴 出貨明細單【分支B】的兩道版面守門(`page-measure.test.tsx` 的「分支B」那一區)
+      #    把那張紙真的印成 PDF、再用 `gs -sDEVICE=txtwrite` **逐頁抽字**,
+      #    才答得出「訂單金額印在哪一頁」「那一頁上有沒有品項」。
+      #    ⇒ chromium 那一步只給了「印得出 PDF」,**抽字那一半靠 ghostscript**。
+      #
+      # 🛑 **不改成「裝不到就跳過」** —— 照本 repo 既有慣例
+      #    (`print-doc-cascade-browser.test.tsx:38` 逐字「找不到就紅不 skip」):
+      #    **「沒有 gs 所以跳過」與「版面正常所以通過」在報表上長得一樣。**
+      #    ⇒ 少了這一步 CI 會紅在 `execFileSync('gs', …)`,而**那個紅是對的**。
+      #
+      # ⏱️ 代價(本機量的,**CI 上未量**):三份 fixture 整鏈 **8.5 秒**,
+      #    而 CI 中位 **336 秒**(`gh run list` n=8、範圍 275-347)⇒ 本機約 **2.5%**。
+      #    🔴 而那是 macOS + 系統 Chrome + brew gs 量的;這裡是 ubuntu + apt gs
+      #    ⇒ **三個環境都不一樣 ⇒ 「CI 上多幾 %」現在是【推的】。**
+      #    ⇒ **這一行裝上之後的第一發 CI 就是那個量測** —— 屆時把真實秒數回填到這裡。
+      - name: Install ghostscript (列印分頁守門要逐頁抽字)
+        run: sudo apt-get update && sudo apt-get install -y ghostscript
+
       # 🔴 `apps/admin` 有數支測試量的是【編譯後產物】(`.next/static/chunks` 與編譯後 CSS)。
       #    它們在缺產物時**刻意 throw 而不是 skip** —— skip 會把「有守門」變成「有宣稱」。
       #    ⇒ 少了這一步,CI 恆紅;而恆紅與恆綠一樣沒有判別力。

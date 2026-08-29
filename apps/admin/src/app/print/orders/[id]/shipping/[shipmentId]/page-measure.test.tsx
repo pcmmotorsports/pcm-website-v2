@@ -1,7 +1,17 @@
 // @vitest-environment jsdom
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { chromium } from 'playwright';
+
+import {
+  assertAnchorsAlive,
+  blankPages,
+  moneyPagesWithoutItems,
+  type PageAnchors,
+} from '@/lib/print/page-invariants';
 import { render } from '@testing-library/react';
 import type { AdminOrderDetail } from '@pcm/domain';
 // M2:build 戳記的讀取端(三態;見 `apps/admin/src/lib/build-stamp.ts` 檔頭)。
@@ -786,4 +796,123 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     expect(normal).toContain('<table');
     expect(normal).toContain('SKU-0000-LONG');
   });
+});
+
+/**
+ * 🔴🔴 **出貨明細單【分支B】的兩道版面守門 —— 真的印成 PDF、真的逐頁抽字。**
+ *
+ * 規格 `~/pcm-mailbox/線G-規格-出貨單分支B守門-20260829.md`;主視窗 2026-08-29 裁「甲」(放進 vitest)。
+ * 判定邏輯在 `@/lib/print/page-invariants`(它有自己的 11 格單測);本區只負責**把真的那份餵給它**。
+ *
+ * ── 🔴 為什麼分支B 需要另一道守門 ──────────────────────────────────
+ * `3ca0999d` 那道頁數守門走的是 `emit()`,而 `emit()` 的 fixture `quantitySummary` 恆為 `null`
+ * ⇒ 每一列都會進 `outstandingRows` ⇒ **它恆走分支A**(見本檔 `emitNoOutstanding` 的說明)。
+ * 而 Sean 那張 `PCM-2026-0104` 走的是分支B(截圖上「尚未出貨:無」)⇒ **他印的是零守門的那一條**。
+ *
+ * ── 🔴 為什麼只跑 5 / 6 / 7 三份, 而不是 1..7 ─────────────────────
+ * 2026-08-29 逐份量到的三個世界:
+ * ```
+ *   5 項 ⇒ 1 頁                        兩道都綠（正對照：好的世界不誤報）
+ *   6 項 ⇒ 2 頁，p2 全空                 🔴 守門一紅 ／ 守門二綠
+ *   7 項 ⇒ 2 頁，p2 = 訂單金額 + QR 頁尾  守門一綠 ／ 🔴 守門二紅
+ * ```
+ * **1/2/3/4 那四份全部落在同一個世界**(1 頁、兩道都綠)⇒ 多跑它們是把同一個證據複印四份。
+ * 📌 **覆蓋率的單位是【世界】不是【檔數】。**(主視窗 2026-08-29 逐字)
+ *
+ * ── ⏱️ 耗時(本機量的, **CI 上未量**)────────────────────────────
+ * 三份整鏈 **8.5 秒**(七份 20.4 秒);CI 中位 **336 秒**(`gh run list` n=8,範圍 275-347)
+ * ⇒ 本機約 **2.5%**。🛑 **而那是 macOS + 系統 Chrome + brew gs 量的,CI 是 ubuntu + apt gs**
+ * ⇒ **三個環境都不一樣 ⇒ 「CI 上多幾 %」目前是【推的】** ——
+ *   ⚠️ **裝上去之後第一發 CI 就是那個量測**,屆時回填真實秒數。**在那之前不得寫「CI 上只多 2.5%」。**
+ *
+ * ── 🛑 缺工具就紅、不 skip ──────────────────────────────────────
+ * 照本 repo 既有慣例(`print-doc-cascade-browser.test.tsx:38` 逐字「找不到就紅不 skip」):
+ * **「沒有 gs 所以跳過」與「版面正常所以通過」在報表上長得一樣。**
+ * CI 那一行在 `.github/workflows/ci.yml`(與 chromium 那步相鄰)。
+ */
+describe('🔴 出貨明細單 · 分支B 的兩道版面守門(真 PDF + 逐頁抽字)', () => {
+  const ANCHORS: PageAnchors = { item: 'SKU-', money: '訂單金額' };
+
+  /** 把一份 HTML 印成 PDF、再抽出**每一頁的字**。 */
+  async function pagesOf(html: string): Promise<string[]> {
+    const dir = mkdtempSync(join(tmpdir(), 'pcm-pageguard-'));
+    const pdf = join(dir, 'x.pdf');
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage();
+      await page.goto(`file://${html}`, { waitUntil: 'networkidle' });
+      await page.pdf({ path: pdf, format: 'A4', printBackground: true });
+    } finally {
+      await browser.close();
+    }
+    // 🛑 gs 不在 ⇒ execFileSync 會 throw ⇒ 本格【紅】。那是刻意的,見本區檔頭。
+    execFileSync('gs', ['-sDEVICE=txtwrite', '-dNOPAUSE', '-dBATCH', '-o', join(dir, 'p%d.txt'), pdf], {
+      stdio: 'ignore',
+    });
+    const files = readdirSync(dir)
+      .filter((f) => /^p\d+\.txt$/.test(f))
+      .sort((a, b) => Number(a.match(/\d+/)![0]) - Number(b.match(/\d+/)![0]));
+    // 🔴 正對照:gs 沒吐出任何一頁 ⇒ 下面兩道會在【空陣列】上全過(forEach 不跑)⇒ 假綠。
+    expect(files.length, 'gs 抽出來的頁數(0 ⇒ 這把尺沒接上,不是「版面正常」)').toBeGreaterThan(0);
+    return files.map((f) => readFileSync(join(dir, f), 'utf8'));
+  }
+
+  /**
+   * 🛑🛑 **這一格【把現況釘死】, 而現況是【壞的】—— 讀之前先讀這一段。**
+   *
+   * 兩道守門一裝上就紅(2026-08-29 實測:6 項 ⇒ `blankPages` 回 `[2]`)。
+   * 🔴 **而我沒有把它留成紅的** —— 八個窗共用一棵樹,一格常紅會讓每個人的三綠失去判別力,
+   *    而「天天叫的告警等於沒有告警」這句話本 repo 已經記過。
+   * 🛑 **我也沒有順手修那兩個病** —— 主視窗指令:這一輪只裝尺
+   *    (**尺先裝上, 才知道修法有沒有效;反過來做, 修完你不知道它修好了沒**)。
+   *
+   * ⇒ 所以下面三格寫的是**今天量到的那個值**,而不是 `[]`:
+   * ```
+   *   5 項 ⇒ [] / []      ← 真的乾淨。這一格是【正對照】：好的世界不誤報
+   *   6 項 ⇒ [2] / []     ← 🔴 第 2 頁是白紙（只有頁首時戳與「第 2 頁 / 共 2 頁」）
+   *   7 項 ⇒ [] / [2]     ← 🔴 訂單金額 + QR 印在第 2 頁，而那一頁沒有任何品項
+   * ```
+   * 🔴🔴 **而這個形狀是刻意選的:版面被修好的那一天, 這一格會【紅】** ——
+   *    因為 `[2]` 會變成 `[]`。⇒ 修的人被強迫回來把它改成 `[]`,
+   *    而那一刻這一格就從「記錄缺陷」變成「守門」。
+   *    ⇒ **一個記錄缺陷的斷言, 若不會在缺陷消失時叫, 它就只是一段註解。**
+   *
+   * ⚠️ **而它擋不到什麼**:6 與 7 這兩個數字**會隨品名長度漂**
+   *    (fixture 品名是我們發明的固定長度)⇒ 真實品名下門檻會移動。
+   *    本格盯的是**形狀**(哪一頁違規),而那個 `[2]` 是**當前 fixture 下的頁碼**,不是通則。
+   */
+  it('🔴 5/6/7 項 —— 5 乾淨(正對照);而 6 多一張白紙、7 讓錢跟品項分家(現況, 修好會紅)', async () => {
+    type Verdict = { blank: number[]; split: number[] };
+    const seen = new Map<number, Verdict>();
+    for (const n of [5, 6, 7]) {
+      await emitNoOutstanding(n, `shipB-guard-${n}item`);
+      const pages = await pagesOf(join(OUT_DIR, `shipB-guard-${n}item.html`));
+
+      // 🔴 錨的正對照要在兩道之前 —— 錨死掉時,守門一會【全紅】而守門二會【全綠】,
+      //    而看到全綠的人不會去查 ⇒ 一個壞掉的共用輸入會讓一半的守門變成沉默的共犯。
+      expect(assertAnchorsAlive(pages, ANCHORS), `${n} 項:錨還活著嗎`).toEqual([]);
+
+      seen.set(n, { blank: blankPages(pages, ANCHORS), split: moneyPagesWithoutItems(pages, ANCHORS) });
+    }
+
+    // 5 項 = 正對照。這兩格若紅,代表尺誤報,下面兩格的紅就不可信。
+    expect(seen.get(5), '5 項應該完全乾淨(正對照:好的世界不誤報)').toEqual({ blank: [], split: [] });
+
+    // 🔴 現況,不是期望。修好之後這兩行的 `[2]` 要改成 `[]`。
+    expect(seen.get(6), '🔴 現況:6 項的第 2 頁是白紙(修好之後這裡要改成 blank: [])').toEqual({
+      blank: [2],
+      split: [],
+    });
+    expect(seen.get(7), '🔴 現況:7 項的訂單金額與品項分家在第 2 頁(修好之後這裡要改成 split: [])').toEqual({
+      blank: [],
+      split: [2],
+    });
+
+    // 🔴 而【兩道各抓一個病】這件事本身也釘住:少裝一道就會漏掉一個真的病。
+    //    `!` 不是偷懶 —— 上面三個 toEqual 已經逐一斷言過這三格的內容,走到這裡它們必然存在。
+    const w6 = seen.get(6)!;
+    const w7 = seen.get(7)!;
+    expect(w6.blank.length > 0 && w6.split.length === 0, '6 項只有守門一抓得到').toBe(true);
+    expect(w7.split.length > 0 && w7.blank.length === 0, '7 項只有守門二抓得到').toBe(true);
+  }, 120_000);
 });
