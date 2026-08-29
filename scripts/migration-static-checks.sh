@@ -109,8 +109,18 @@ if [ "${1:-}" = "--selftest" ]; then
   printf 'BEGIN;\nCREATE OR REPLACE VIEW public.v AS SELECT 2;\nDO $d$\nDECLARE\n  v_relations text[] := ARRAY[%s]::text[];\nBEGIN NULL; END $d$;\nCOMMIT;\n' "'public.v'" > "$FX/20220102000000_r3_orreplace_withassert.sql"
   printf 'BEGIN;\nCREATE VIEW public.r3v3 AS SELECT 1;\nCOMMIT;\n' > "$FX/20220103000000_r3_plain_noassert.sql"
   check 20220101000000_r3_orreplace_noassert.sql  '斷言清單列了 0 個' '兩邊都是 0 個' '規則③:CREATE OR REPLACE VIEW 沒有斷言清單 ⇒ 必須紅(舊版在這裡印綠)'
-  check 20220102000000_r3_orreplace_withassert.sql '兩邊都是 1 個'    '🔴'             '規則③:CREATE OR REPLACE VIEW + 清單列了 1 個 ⇒ 綠(證明沒有一律擋)'
+  # 🔴 這一格的【期望值改過一次】, 而理由要留著:收窄之後 OBJ 只數新物件
+  #    ⇒ 這支(重定義 + 順手也列了清單)變成 OBJ=0 / LST=1 ⇒ 走「列得比要求多」那條分支。
+  #    ⚠️ 而改期望值是停止訊號 —— 所以寫明:改的不是「它該不該綠」(它一直該綠),
+  #       是【它綠在哪一條分支】。它從「兩邊都是 1 個」變成「沒有漏列(列得比要求多)」。
+  check 20220102000000_r3_orreplace_withassert.sql '沒有漏列' '🔴' '規則③:重定義 + 清單列了 1 個 ⇒ 綠(列得比要求多, 不擋 —— 不處罰做得更多的人)'
   check 20220103000000_r3_plain_noassert.sql       '斷言清單列了 0 個' '兩邊都是 0 個' '規則③:裸 CREATE VIEW 沒清單 ⇒ 本來就該紅(證明這一改沒動到原有判別力)'
+  # 🔴 收窄那一刀的直接證人(2026-08-29 第二輪加):**純重定義且無清單 ⇒ 必須綠**。
+  #    它與上面「新物件無清單 ⇒ 必須紅」那格【必須同時存在】——
+  #    只有那一格, 證得出「它會叫」;只有這一格, 證得出「它不亂叫」。
+  #    📌 兩格一起, 才畫得出這條界線在哪。
+  printf 'BEGIN;\nCREATE OR REPLACE VIEW public.v AS SELECT 4;\nCOMMIT;\n' > "$FX/20220104000000_r3_redef_noassert.sql"
+  check 20220104000000_r3_redef_noassert.sql       '兩邊都是 0 個' '有漏列' '規則③:純重定義(ACL 繼承)且無清單 ⇒ 必須綠 —— 收窄那一刀的證人'
 
   # ── 多檔那段的證人:一乾淨 + 一違規,順序【違規在後】(被忽略的就是後面那些)──
   n=$((n+1))
@@ -337,6 +347,9 @@ echo "── ① CREATE … IF NOT EXISTS 一律禁;OR REPLACE 只准【重定�
 #    歷史上「新函式用 OR REPLACE」是常態寫法,不是 1 筆意外 —— 本規則從此紅的是【新檔】,舊檔照 ④ 的處置。
 INE_HITS=$(grep -niE '^[[:space:]]*create[[:space:]].*if[[:space:]]+not[[:space:]]+exists' "$STRIPPED" || true)
 R1_OK=1
+# 🔴 規則③要用的:規則①【已經在算】哪些 OR REPLACE 是新物件 ⇒ 直接數它, 不另外發明一套判斷。
+#    (2026-08-29 線G 收窄第③格時加。為什麼要收窄, 見第③格那一段。)
+R1_NEWOBJ=0
 if [ -n "$INE_HITS" ]; then
   echo "🔴 IF NOT EXISTS 命中(剝註解後):"; echo "$INE_HITS" | sed 's/^/     /'
   echo "   ⇒ 撞名要當場紅,不要靜靜跳過。跳過之後,你的 REVOKE 與斷言會對著那個既有物件跑"
@@ -412,6 +425,10 @@ if [ -n "$OR_HITS" ]; then
       echo "   ⇒ 新物件一律裸 CREATE:撞名要當場紅。OR REPLACE 會把撞名靜靜蓋掉,"
       echo "      而你的 REVOKE 與斷言照樣綠 —— 拿到綠燈,卻蓋掉了一個你不知道存在的東西。"
       if [ -n "$APPLIED_EXEMPT" ]; then echo "   ⚠️ 已宣告 applied-before-commit ⇒ 本條轉警告"; else RC=1; R1_OK=0; fi
+      # 🔴 只數【可授權】那四種(trigger 沒有 ACL, 列進斷言清單反而會 to_regclass 找不到而紅)。
+      case "$(printf '%s' "$OTYPE" | tr 'A-Z' 'a-z')" in
+        function|view|'materialized view'|table) R1_NEWOBJ=$((R1_NEWOBJ+1)) ;;
+      esac
     fi
   done <<EOF_OR
 $OR_HITS
@@ -482,10 +499,25 @@ echo "── ③ 可授權物件數 vs 收權斷言清單長度 ─────�
 #    📌 **一個寫錯的關鍵字, 讓一道守門變成一格永遠會過的檢查。**
 #    ⚠️ 量法(當場可複跑):對每支 migration 各自重算 OBJ/LST, 再拿本腳本【本尊】對三個方向驗
 #       (預測恆真的一支 / 預測會紅的一支 / 一支已知合格的正對照)。
-#    ⚠️ `TABLE` 沒有 `OR REPLACE` 語法, 放進括號裡不會多抓。
-#    🛑 **那 88 支【本片不補】** —— 見 docs/phase-1-backlog.md。而本檢查不回溯跑,
-#       只跑到當下改的那幾支 ⇒ 修這一行不會讓它們立刻紅, 只有【下次有人動到】才會叫。
-OBJ=$(sed 's/--.*$//' "$F" | grep -cE '^CREATE (OR REPLACE )?(TABLE|VIEW|MATERIALIZED VIEW|FUNCTION)' || true)
+#    🛑 **那些既有的檔【本片不補】** —— 見 docs/phase-1-backlog.md `#961`。本檢查不回溯跑,
+#       只跑到當下改的那幾支 ⇒ 只有【下次有人動到】才會叫。
+#
+# 🔴🔴 **而那個補法【第一版過寬了】, 同日收窄(線G 自己量到的)**:
+#    實測(拋棄式 PG 17.0010, 含負對照):
+#      `grant execute to anon` → `CREATE OR REPLACE FUNCTION` → 仍然 `t`
+#      `grant select to anon`  → `CREATE OR REPLACE VIEW`     → 仍然 `t`
+#      🔴 負對照 `DROP` + `CREATE`(不是 OR REPLACE)→ `f` ⇒ 尺是活的
+#    ⇒ **`CREATE OR REPLACE` 保留既有 ACL ⇒ 一支【純重定義】的 migration,
+#      它的權限是繼承來的 ⇒ 它本來就不需要重收一次權。**
+#    ⇒ 若一律要求它附斷言清單 ⇒ 那是噪音, 不是安全。
+#    📌 **而一道會對【沒有風險的東西】叫的守門, 不是比較嚴格 ——**
+#       **它在訓練大家忽略它, 而它被忽略的那一天, 對【真的該叫的那一種】也一起失效, 且沒有訊號。**
+#
+# ⇒ 所以 OBJ = 【裸 CREATE】+ 【規則①判定為新物件的那幾筆 OR REPLACE】。
+#   ✅ 那個「是不是新物件」的判斷**不是新發明的** —— 規則①現在就在算它(`R1_NEWOBJ`)。
+#   ⚠️ 而**不能單純退回舊 regex**:規則①有 `applied-before-commit` 這個轉警告的出口
+#      ⇒ 真新物件可能通過規則①而仍然是新物件 ⇒ 那一種要照樣被第③格數到。
+OBJ=$(( $(sed 's/--.*$//' "$F" | grep -cE '^CREATE (TABLE|VIEW|MATERIALIZED VIEW|FUNCTION)' || true) + R1_NEWOBJ ))
 # 🔴 必須支援【跨行的 ARRAY[...]】。原版只抓 `v_xxx text[] :=` 那一行,
 #    而清單一旦換行(元素多了自然會換行),後面幾行就數不到
 #    ⇒ 在一個【清單其實是對的】檔上誤報「有漏列」。2026-08-16 實際發生過。
@@ -495,10 +527,18 @@ LST=$(awk '
   inlist { print }
   inlist && /\]::text\[\]/ { inlist=0 }
 ' "$F" | grep -oE "'[^']+'" | wc -l | tr -d ' ')
-if [ "$OBJ" != "$LST" ]; then
+# 🔴 **判準是「有沒有【漏列】」, 不是「兩邊要一樣多」**(2026-08-29 線G 收窄時改)——
+#    舊版寫 `!=` ⇒ 對稱。而收窄之後 `OBJ` 只數新物件 ⇒ 一支【重定義 + 順手也斷言了 ACL】的檔
+#    會變成 `OBJ=0 / LST=1` ⇒ 舊版判它紅。
+#    📌 **那是在處罰一個【比要求做得更多】的人** —— 而這道檢查自己那句話寫著它防的是「忘記收權」。
+#    ⚠️ 這一格是本檔的 selftest 抓到的, 不是我看出來的:我改完 OBJ 的算法之後,
+#       那格「重定義 + 有清單 ⇒ 必須綠」的證人當場紅了。
+if [ "$OBJ" -gt "$LST" ]; then
   echo "🔴 可授權物件 $OBJ 個,斷言清單列了 $LST 個 ⇒ 有漏列"
   echo "   ⇒ 收權斷言【只檢查你列出來的物件】:它防「忘記收權」,不防「忘記列」。"
   if [ -n "$APPLIED_EXEMPT" ]; then echo "   ⚠️ 已宣告 applied-before-commit ⇒ 本條轉警告"; else RC=1; fi
+elif [ "$OBJ" != "$LST" ]; then
+  echo "✅ 可授權物件 $OBJ 個,斷言清單列了 $LST 個 ⇒ 沒有漏列(列得比要求多, 不擋)"
 else
   echo "✅ 兩邊都是 $OBJ 個"
 fi
