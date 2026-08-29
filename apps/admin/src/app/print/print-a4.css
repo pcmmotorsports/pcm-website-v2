@@ -292,11 +292,63 @@ tr {
   min-height: 100%;
 }
 
-/* 紙本身:**只有版面行為**,沒有尺寸。 */
+/* 紙本身:**只有版面行為**,沒有尺寸。
+   🔴 **2026-08-30 丁:`display:flex` 搬到 `.pd-flow`** —— `.pd-sheet` 現在唯一的子元素是
+      `<table class="pd-run">`(跨頁頁首頁尾),而 `.pd-bottom{margin-top:auto}` 要的是
+      **它自己的父層**是 flex 直欄。留在這裡的話中間隔了一層 table ⇒ **不貼底而不會紅**。 */
 .pd-sheet {
   box-sizing: border-box;
+}
+.pd-flow {
   display: flex;
   flex-direction: column;
+}
+
+/* ── 丁:跨頁頁首與頁尾(Sean 2026-08-30)────────────────────────────────
+   🔴 **機制是 `<table>` 的 `thead`/`tfoot` 自動重複, 不是 `position:fixed`** ——
+      兩條都量過(量法與正負對照寫在 `shipping-doc.tsx` 那段 JSX 註解裡):
+      `fixed` **會重複但不佔位** ⇒ 第 2 頁的內容從紙頂開始、被頁首蓋住;
+      把 `fixed` 塞進 `@page` 的邊界帶(負 `top` + 加大 `margin`)⇒ **它就不重複了**。
+   ⇒ **「會重複」與「有留位子」是兩個宣稱, 只有 table 兩個都成立。**
+   ⚠️ **本檔上面那條 `tr{break-inside:avoid}`(搬自稿)會套到外層那一列** ——
+      而那一列裝著**整份單據** ⇒ 等於叫瀏覽器「整份不要斷」。
+      Chrome 目前對「比一頁還高」會照斷,**但那是它的容錯, 不是我們的宣告**
+      ⇒ 這裡明寫 `auto` 把它關掉, 不靠瀏覽器好心。 */
+.pd-run {
+  width: 100%;
+  border-collapse: collapse;
+}
+.pd-run > tbody > tr {
+  break-inside: auto;
+  page-break-inside: auto;
+}
+.pd-run > tbody > tr > td {
+  padding: 0;
+  vertical-align: top;
+}
+/* 螢幕上沒有「頁」⇒ 頁首是純噪音(它會在抬頭正上方再寫一次單據名)。
+   🔴 而 `.pd-runfoot` **不藏** —— 那一行「列印時間」在螢幕上本來就看得到,
+      藏掉會是一個沒有人要求的行為改變。 */
+.pd-runhead {
+  display: none;
+}
+.pd-runhead > tr > td {
+  padding: 0 0 2mm;
+  border-bottom: var(--pd-r2) solid var(--pd-hair);
+}
+.pd-rh-title {
+  font-family: var(--pd-disp);
+  font-size: 8.5pt;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.pd-rh-meta {
+  margin-left: 4mm;
+  font-size: 7.5pt;
+  color: var(--pd-sub);
+}
+.pd-runfoot > tr > td {
+  padding-top: 3mm;
 }
 
 /* 🔴 **紙的尺寸與陰影只在 `.pd-stage` 裡面才成立** —— 那是 OD 預覽的「灰桌面上放一張紙」情境,
@@ -873,8 +925,13 @@ tr.pd-wait .pd-state {
    🔴 **靠右**:它是這張紙的簽收欄位之外唯一的「機器資訊」,靠右可以讓它不與左下的聯絡區搶讀順序。
    ⚠️ **`margin-top` 用 3mm 而不是 auto** —— `.pd-bottom` 自己已經吃掉 `margin-top:auto`
       (見本檔錨點「`margin-top:auto` 掛在 `.pd-bottom`」),再給一次會把整組推爆版面。 */
-.pd-bottom .pd-printed {
-  margin: 3mm 0 0;
+/* 🔴 **2026-08-30 丁:選擇器從 `.pd-bottom .pd-printed` 改成 `.pd-runfoot .pd-printed`** ——
+   那一行搬進 `<tfoot>` 了(元件那段註解記著為什麼)。**選擇器沒跟著搬 = 那行字在紙上會變成
+   預設 16px 黑字、靠左** ⇒ 螢幕上看不出來、三綠不會紅,只有紙上不對(本檔已吃過三次同族)。
+   ⚠️ `margin-top` 從 3mm 改成 0:原本那 3mm 是要跟 `.pd-bottom` 上面那組隔開,
+      而現在它自己是一格 `<td>`,間距由 `.pd-runfoot > tr > td` 的 `padding-top` 給。 */
+.pd-runfoot .pd-printed {
+  margin: 0;
   font-size: 7.5pt;
   line-height: 1.4;
   color: var(--pd-sub);
@@ -908,10 +965,26 @@ tr.pd-wait .pd-state {
      **改 `@page` 的 margin 要同步改這裡。** */
   .pd-sheet {
     width: auto;
-    min-height: 250mm;
     margin: 0;
     padding: 0;
     box-shadow: none;
+  }
+
+  /* 🔴 **2026-08-30 丁:`min-height` 從 `.pd-sheet` 搬到 `.pd-flow`, 而數字從 250 降到 240** ——
+     它的工作只有一個:給 `.pd-bottom{margin-top:auto}` 一些可以推的空間(FIX-55/64 貼紙底)。
+     ⇒ 掛在 `.pd-sheet` 上時它推不到東西了(中間隔了一層 table)。
+     ⚠️ **240 不是算出來的, 是量出來的**:頁首 + 頁尾這兩列自己要吃掉高度,
+        留 250 會讓**本來一頁的單變成兩頁**。量法與四格數字見
+        `page-measure.test.tsx` 的分支B 那一區。
+     🔴 **而這個數字與 `@page{margin}` 一樣, 是【沒有東西會替它報錯】的那種** ——
+        改它、或改頁首頁尾的高度, 都要回去把那四格重跑一次。 */
+  .pd-flow {
+    min-height: 240mm;
+  }
+
+  /* 頁首只在紙上出現。`table-header-group` = 瀏覽器每頁重印它的那個值。 */
+  .pd-runhead {
+    display: table-header-group;
   }
 
   /* OD 那份螢幕上是灰桌面,列印時壓白。我們沿用。 */

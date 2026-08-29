@@ -5,14 +5,23 @@ import {
   blankPages,
   hasAnchor,
   moneyPagesWithoutItems,
+  pagesMissingRunningChrome,
   type PageAnchors,
+  type RunningChrome,
 } from './page-invariants';
 
 const A: PageAnchors = { item: 'SKU-', money: '訂單金額' };
+const C: RunningChrome = { head: '訂單編號', foot: '列印時間' };
 
 // 🔴 三個世界都是 2026-08-29 線G 在真的 PDF 上量到的形狀,不是編出來的:
 //    5 項 ⇒ 1 頁 ／ 6 項 ⇒ p2 全空 ／ 7 項 ⇒ p2 只有金額 + QR。
-const CHROME = '出貨明細單  2026/8/29  第 N 頁 / 共 M 頁';
+// 🔴 **2026-08-30 丁:這個字串改了, 而理由不是「補得更像」** ——
+//    它現在要**同時**當守門三的輸入。原本的 `出貨明細單 … 第 N 頁` 裡
+//    **沒有「訂單編號」也沒有「列印時間」** ⇒ 拿它去餵守門三會【每一頁都紅】,
+//    而那個紅是 fixture 的,不是版面的。⇒ 照真的頁首頁尾補上那兩個錨。
+//    ⚠️ 而下面 `W_NOCHROME` 是**刻意留著沒有它們**的那一份 —— 沒有那一份的話,
+//       守門三的每一格都在同一個世界裡,**它就只證明得了「它會回空陣列」**。
+const CHROME = '出貨明細單 訂單編號 PCM-2026-0104 箱號 BOX-1  列印時間 2026/8/29 01:23  第 N 頁 / 共 M 頁';
 const W5 = [`${CHROME} SKU-0000 SKU-0001 SKU-0004 訂單金額 1,558,454`];
 const W6 = [`${CHROME} SKU-0000 SKU-0005 訂單金額 445,098`, `${CHROME}`];
 const W7 = [`${CHROME} SKU-0000 SKU-0006`, `${CHROME} 加入官方 LINE 訂單金額 1,558,454`];
@@ -70,6 +79,28 @@ describe('守門二 · 錢不可以跟品項分家', () => {
   it('🔴 6 項那個世界【它抓不到】—— 同上,兩道各抓一個病', () => {
     // 金額與品項都在 p1 ⇒ 它認為沒分家。而 p2 是一張白紙,那是守門一的事。
     expect(moneyPagesWithoutItems(W6, A)).toEqual([]);
+  });
+});
+
+describe('守門三 · 每一頁都要有頁首與頁尾(丁,Sean 2026-08-30)', () => {
+  // 🔴 負對照的世界:第 2 頁【沒有】頁首頁尾 —— 那正是 2026-08-29 Sean 看到的那張紙。
+  const W_NOCHROME = [`${CHROME} SKU-0000`, '訂單⾦額 1,558,454'];
+
+  it('🔴 續頁缺頁首頁尾 ⇒ 指名第幾頁、缺哪一邊', () => {
+    const bad = pagesMissingRunningChrome(W_NOCHROME, C);
+    expect(bad).toHaveLength(1);
+    expect(bad[0]).toBe('第 2 頁缺 頁首 與 頁尾');
+  });
+
+  it('兩頁都有 ⇒ 不誤報(正對照)', () => {
+    expect(pagesMissingRunningChrome(W7, C)).toEqual([]);
+    expect(pagesMissingRunningChrome(W5, C)).toEqual([]);
+  });
+
+  it('🔴 它與守門一【互相抓不到對方】—— 一張只有頁首頁尾的白紙, 守門三是綠的', () => {
+    // W6 的第 2 頁只有 CHROME ⇒ 頁首頁尾齊全 ⇒ 守門三綠;而它仍然是一張白紙 ⇒ 守門一紅。
+    expect(pagesMissingRunningChrome(W6, C)).toEqual([]);
+    expect(blankPages(W6, A)).toEqual([2]);
   });
 });
 

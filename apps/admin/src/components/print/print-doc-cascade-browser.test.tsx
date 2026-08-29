@@ -264,7 +264,9 @@ async function sweep(extraCss = '', media: 'print' | 'screen' = 'print'): Promis
           cls: th.className,
           align: getComputedStyle(th).textAlign,
         })),
-        rows: [...sec.querySelectorAll('tbody tr')].map((tr) => ({
+        // 🔴 `:scope >` —— 理由同 `page.test.tsx` 那段(丁把整張紙包進外層 `<table><tbody>`
+        //    ⇒ `'tbody tr'` 的祖先比對會撈到品項表 `<thead>` 裡的列)。
+        rows: [...sec.querySelectorAll(':scope > table > tbody > tr')].map((tr) => ({
           rowCls: tr.className,
           // 🔴 **數量格由元件用 `data-slot="qty"` 宣告**(R3 MF7)——
           //    改前是「每一列的最後一格」= 位置假設,而片5 在數量後面加一欄就會靜默換掉分母。

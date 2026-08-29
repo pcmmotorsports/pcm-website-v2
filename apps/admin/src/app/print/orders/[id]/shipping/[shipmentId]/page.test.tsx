@@ -478,7 +478,12 @@ describe('#10 片2b — 版面', () => {
     mocks.listOrderItemsForDetail.mockResolvedValue({ items: detail().items, reportedTotal: 5 });
     const { container } = await renderPage();
     expect(container.querySelector('[role="alert"]')).not.toBeNull();
-    expect(container.querySelector('table')).toBeNull();
+    // 🔴🔴 **2026-08-30 丁:`'table'` ⇒ `'.pd-items'`** —— 丁在每一張紙外面包了一層
+    //    `<table class="pd-run">`(跨頁頁首頁尾)⇒ `querySelector('table')` 從此**恆有** ⇒ 本格會永遠紅。
+    //    ⚠️ 而要記住的是它的反面:**這一格今天紅了, 是它做對了事。**
+    //       若當初寫的是一個「只在對的時候紅」的錨,我這次的改動會讓它**安靜地失去判別力**。
+    //    ⇒ 換成品項區自己的類名 —— 那才是「不印品項表」這句話講的東西。
+    expect(container.querySelector('.pd-items')).toBeNull();
     expect(container.textContent).not.toContain('LTC-BK-XL');
   });
 
@@ -868,7 +873,14 @@ describe('#10 片2b — 三區(Sean 2026-08-16 逐字:本次出貨 / 尚未出�
     mocks.loadOrderShipments.mockResolvedValue([{ shipment: shipment(), lines }]);
     const { container } = await renderPage();
     const moneyCells = (name: string) =>
-      [...(sectionTable(container, name)?.querySelectorAll('tbody tr') ?? [])].map((tr) =>
+      // 🔴🔴 **`:scope >` 不是潔癖, 它是 2026-08-30 丁當場咬到的一個真的坑**:
+      //    `el.querySelectorAll('tbody tr')` 的祖先是**對整份文件**比的, 搜尋根只限制「回傳誰」。
+      //    ⇒ 丁把整張紙包進 `<table class="pd-run"><tbody>` 之後,
+      //      **品項表 `<thead>` 裡的那兩列也有了一個 `tbody` 祖先(外層那個)** ⇒ 它們被收進來,
+      //      而它們沒有 `<td>` ⇒ 這一格收到 `[undefined, undefined, '148,366', '148,366']`。
+      //    📌 **⇒ 一個【在別的檔案裡】的結構改動, 讓這裡的選擇器安靜地變寬。**
+      //    ⇒ 用 `:scope > tbody > tr` 綁死「這張表自己的 tbody 的直接子列」。
+      [...(sectionTable(container, name)?.querySelectorAll(':scope > tbody > tr') ?? [])].map((tr) =>
         [...tr.querySelectorAll('td')].at(-1)?.textContent?.trim(),
       );
     // 每一區:第一列是品項的金額,最後一列是「本區合計」那一列的值。

@@ -10,7 +10,9 @@ import {
   assertAnchorsAlive,
   blankPages,
   moneyPagesWithoutItems,
+  pagesMissingRunningChrome,
   type PageAnchors,
+  type RunningChrome,
 } from '@/lib/print/page-invariants';
 import { render } from '@testing-library/react';
 import type { AdminOrderDetail } from '@pcm/domain';
@@ -672,8 +674,17 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
       //      ✅ 而**本檔的 fixture 不是它那份**(品名 20 字 / 地址 17 字 / 單價六位數),
       //        而本檔實量 N=1 ⇒ **923px**(模型 923.5)、N=12 ⇒ **1973px**(模型 1974.0)
       //        ⇒ **兩份不同的 fixture 落在同一條線上, 差 <1px** ⇒ 那是收斂,不是同一份數字複印兩次。
-      const one = await measure(await emit(2, 'shipping-2item'));
-      const many = await measure(await emit(3, 'shipping-3item'));
+      // 🔴🔴 **2026-08-30 丁:這兩個數字從 `2 / 3` 降成 `1 / 2`, 而【降的不是標準, 是門檻】。**
+      //    跨頁頁首頁尾(`.pd-runhead` / `.pd-runfoot`)在**每一頁**吃掉兩行字 ≈ **26px**,
+      //    而分支A 的 2 項本來就只剩 **6px** 餘裕(本檔那份 slack 檔上一版逐字寫著「剩 -73px…」
+      //    修好後是 1018/1024)⇒ **加任何東西它都會翻頁**, 不是這個做法特別重。
+      //    ⇒ 實測:1 項 ⇒ 1 頁 / 2 項 ⇒ 2 頁 ⇒ **門檻從 2⇒3 搬到 1⇒2**。
+      //    📎 而分支B 的門檻(5⇒6)**沒有動** —— 兩條分支的餘裕本來就不同,
+      //       ⇒ **不要從其中一條外推到另一條**(本檔上面那段「兩個窗各被騙一次」就是這個病)。
+      //    🛑 **這是 Sean 2026-08-30 拍板的代價, 不是回歸**:他要的是「第二頁看起來完整」,
+      //       而他逐字說了「變成第二張也沒關係」。**但代價要寫在這裡, 不是只寫在交件報告裡。**
+      const one = await measure(await emit(1, 'shipping-1item'));
+      const many = await measure(await emit(2, 'shipping-2item'));
 
       // 🔴 SHIPBRANCH1(2026-08-29 `-b9`):【尚未出貨:無】那一條分支 —— 它零守門, 而 Sean 印的是它。
       //    門檻是 `-b9` 在【本 repo 的 fixture 上】實測探點來的(1..7 逐點), 不是從線A 的數字抄的:
@@ -691,8 +702,8 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
       //    📌 **而線A 今天在同一個地方跌過一次**(它餵 `null`、以為在量另一條,八點全在這一條)
       //       ⇒ **兩個窗、兩把不同的尺、同一個分支, 各被騙一次 ⇒ 它需要活錨, 不是需要小心。**
       for (const [label, html] of [
-        ['2 項', one.html],
-        ['3 項', many.html],
+        ['1 項', one.html],
+        ['2 項', many.html],
       ] as const) {
         expect(html, `${label}:本檔應恆走「有未出貨表」那條`).toContain('尚未出貨');
         expect(html, `${label}:不應走「無未出貨」那條(那條的門檻是 5⇒6, 不是 2⇒3)`).not.toContain(
@@ -755,8 +766,9 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
           `2026-08-29 起兩者不相等)\n` +
           // 🔴 這一格才是有用的餘裕:**2 項是【最後一個還能一頁】的點**
           //    ⇒ 它剩多少,就是「再加多少東西會翻頁」。
-          //    (v1 印的是 1 項的 101px —— 而 1 項離門檻還有一整項的距離。)
-          `出貨單 3 項(已跨頁):內容 ${many1.content}px(可印 ${PRINTABLE_PX}px/頁;min-height ${many1.floor}px)\n` +
+          //    ⚠️ **2026-08-30 丁:門檻搬到 1⇒2 了**(成因見上面 `emit(1,…)` 那段)
+          //       ⇒ 「最後一個還能一頁」現在是 **1 項**。這一行的用途沒變,指的點變了。
+          `出貨單 2 項(已跨頁):內容 ${many1.content}px(可印 ${PRINTABLE_PX}px/頁;min-height ${many1.floor}px)\n` +
           '🔴 這一格【沒有門檻】—— 那個數字該多少沒有人知道,發明一個門檻等於發明一個判準。\n' +
           '   它存在的理由是:改版面的人會看到那個餘裕從幾 px 變成 0。\n' +
           '\n' +
@@ -788,12 +800,22 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     expect(blocked).toContain('shipping-blocked');
     // 🔴 負向對照兩發,證明這份**真的是阻印態**而不是我多產了一份正常頁:
     //    ① 品項表整個不在 ② 料號一個都不在
-    expect(blocked).not.toContain('<table');
+    // 🔴🔴 **2026-08-30 丁:錨從 `<table` 改成 `pd-items`, 而**這不是換個寫法**:
+    //    丁在**每一張**紙外面包了一層 `<table class="pd-run">`(跨頁頁首頁尾)
+    //    ⇒ `<table` 從此**每一份都有** ⇒ 這一格會【永遠紅】。
+    //    ⚠️ 而它的反面才是真正要記住的:如果當初寫的是 `not.toContain('SKU-')` 這種**只在對的時候紅**
+    //       的錨, 我這次的改動會**安靜地讓它失去判別力**而不是紅給我看。
+    //    📌 **⇒ 這一格今天紅了, 是它做對了事。** 換成品項區自己的類名 `pd-items`(那才是「品項表」)。
+    //    ⚠️ **而錨要帶 `class="`** —— 光寫 `pd-items` 會**每一份都命中**:
+    //       這些 fixture 把**整份建好的 CSS 內嵌進 HTML**, 而 CSS 裡就有 `.pd-items{…}`。
+    //       ⇒ 一個看起來更精準的錨, 反而**兩個世界都回真** ⇒ 這一格會永遠紅。
+    //       (實測:`grep -c 'class="pd-items'` ⇒ 正常份 1 / 阻印份 0。)
+    expect(blocked).not.toContain('class="pd-items');
     expect(blocked).not.toContain('SKU-0000-LONG');
     // 🔴 正向對照:同一支 `emit` 不帶 blocked 時,上面那兩個「不在」必須【在】——
     //    沒有這一格,`not.toContain` 在「emit 整個壞掉、回空字串」的世界裡也會過。
     const normal = await emit(1, 'shipping-1item');
-    expect(normal).toContain('<table');
+    expect(normal).toContain('class="pd-items');
     expect(normal).toContain('SKU-0000-LONG');
   });
 });
@@ -832,6 +854,14 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
  */
 describe('🔴 出貨明細單 · 分支B 的兩道版面守門(真 PDF + 逐頁抽字)', () => {
   const ANCHORS: PageAnchors = { item: 'SKU-', money: '訂單金額' };
+  /* 丁(2026-08-30):跨頁頁首 `.pd-runhead` / 頁尾 `.pd-runfoot`。
+     🔴🔴 **頭那個錨是【複合】的, 而那是一發突變改出來的**:
+        第一版寫 `head: '訂單編號'` ⇒ 把 `.pd-runhead` 關掉(`display:block`)重 build 之後
+        **它照樣全綠** —— 因為第 2 頁的客服說明裡就有那四個字
+        (逐字「並提供本單上的訂單編號」)⇒ **錨在兩個世界印同一個答案。**
+        ⇒ 只有「出貨明細單」與「訂單編號」**相鄰**這件事是頁首獨有的。
+     📌 **⇒ 一個錨看起來對不對, 要用【關掉它要量的東西】來問, 不是用讀的。** */
+  const CHROME: RunningChrome = { head: '出貨明細單 訂單編號', foot: '列印時間' };
 
   /** 把一份 HTML 印成 PDF、再抽出**每一頁的字**。 */
   async function pagesOf(html: string): Promise<string[]> {
@@ -858,61 +888,90 @@ describe('🔴 出貨明細單 · 分支B 的兩道版面守門(真 PDF + 逐頁
   }
 
   /**
-   * 🛑🛑 **這一格【把現況釘死】, 而現況是【壞的】—— 讀之前先讀這一段。**
+   * 🔴🔴 **這一格從【記錄缺陷】變成【守門】了 —— 2026-08-30 丁落地。**
    *
-   * 兩道守門一裝上就紅(2026-08-29 實測:6 項 ⇒ `blankPages` 回 `[2]`)。
-   * 🔴 **而我沒有把它留成紅的** —— 八個窗共用一棵樹,一格常紅會讓每個人的三綠失去判別力,
-   *    而「天天叫的告警等於沒有告警」這句話本 repo 已經記過。
-   * 🛑 **我也沒有順手修那兩個病** —— 主視窗指令:這一輪只裝尺
-   *    (**尺先裝上, 才知道修法有沒有效;反過來做, 修完你不知道它修好了沒**)。
+   * ⛔ ~~上一版寫的是「兩道守門一裝上就紅」,把 `6 ⇒ blank:[2]` / `7 ⇒ split:[2]` 釘成現況。~~
+   * ✅ 而那個設計是**對的**:它逐字寫著「版面被修好的那一天, 這一格會【紅】」——
+   *    **今天它真的紅了, 而紅的理由正是它預言的那一個。** 那一段留在 git 歷史裡。
    *
-   * ⇒ 所以下面三格寫的是**今天量到的那個值**,而不是 `[]`:
+   * ── 🔴 Sean 2026-08-30 逐字(這決定了下面每一格的期望值)────────────────
    * ```
-   *   5 項 ⇒ [] / []      ← 真的乾淨。這一格是【正對照】：好的世界不誤報
-   *   6 項 ⇒ [2] / []     ← 🔴 第 2 頁是白紙（只有頁首時戳與「第 2 頁 / 共 2 頁」）
-   *   7 項 ⇒ [] / [2]     ← 🔴 訂單金額 + QR 印在第 2 頁，而那一頁沒有任何品項
+   *   「我們有設計頁首頁尾的話，第七項變成第二張也沒關係，只要看起來好看就好，
+   *     因為第二頁理論上會有跟第一頁一樣的重複上方欄位，
+   *     那第二頁就會變成空的訂單內容，但是有頁尾就好也可以」
    * ```
-   * 🔴🔴 **而這個形狀是刻意選的:版面被修好的那一天, 這一格會【紅】** ——
-   *    因為 `[2]` 會變成 `[]`。⇒ 修的人被強迫回來把它改成 `[]`,
-   *    而那一刻這一格就從「記錄缺陷」變成「守門」。
-   *    ⇒ **一個記錄缺陷的斷言, 若不會在缺陷消失時叫, 它就只是一段註解。**
+   * ⇒ **他要的不是「回到一頁」** ⇒ 所以下面 7 項那一格的 `split: [2]` **不再是缺陷**,
+   *   它是**被接受的形狀**;真正承重的是新的守門三:**每一頁都要有頁首與頁尾**。
    *
-   * ⚠️ **而它擋不到什麼**:6 與 7 這兩個數字**會隨品名長度漂**
-   *    (fixture 品名是我們發明的固定長度)⇒ 真實品名下門檻會移動。
-   *    本格盯的是**形狀**(哪一頁違規),而那個 `[2]` 是**當前 fixture 下的頁碼**,不是通則。
+   * ── 今天量到的三格(真 PDF、逐頁抽字;`node` 複量四欄的結果貼在下面)───────
+   * ```
+   *   5 項 ⇒ 1 頁   頁首✅ 頁尾✅ 品項✅ 金額✅
+   *   6 項 ⇒ 2 頁   p1 頁首✅頁尾✅品項✅金額❌ ／ p2 頁首✅頁尾✅品項❌金額✅  ← 白紙不見了
+   *   7 項 ⇒ 2 頁   同上
+   * ```
+   * 🔴 **6 項的第 2 頁從【白紙】變成【金額區 + 頁首 + 頁尾】** —— 那就是丁要的東西:
+   *    頁數沒少,而那一頁現在自己看起來是一張完整的紙。
+   *
+   * 🛑🛑 **而這裡有一個我自己踩到的坑, 留著給下一個人(它差點讓我交出一份假的成功)**:
+   *    我第一次量完得到「5/6/7 **全部一頁**」, 而那正是我想看到的結果 ⇒ 差點就收工了。
+   *    🔴 真相是:**這道守門吃的是 `.next` 裡【建好】的 CSS(`builtCss()`), 不是我工作樹的檔。**
+   *    ⇒ 那一發量的是**還沒帶我的 CSS 的舊建置**。`requireFreshBuild()` 比的是**戳記的 HEAD**,
+   *      而我還沒 commit ⇒ HEAD 沒動 ⇒ **它不會叫**。
+   *    📌 **⇒ 改 `print-a4.css` 之後【一定要重 build 再量】** ——
+   *      而那個假結果**比真結果更好看**, 所以它不會引起懷疑。
+   *    ⚠️ 這一格沒有機制擋(戳記按 HEAD 判、不按檔案內容)⇒ **只有這段字擋得到。**
+   *
+   * ⚠️ **而這一格擋不到什麼(照舊)**:6 與 7 這兩個數字會隨品名長度漂;
+   *    本格盯的是**形狀**(哪一頁違規、每頁有沒有頁首頁尾),不是那兩個數字。
    */
-  it('🔴 5/6/7 項 —— 5 乾淨(正對照);而 6 多一張白紙、7 讓錢跟品項分家(現況, 修好會紅)', async () => {
-    type Verdict = { blank: number[]; split: number[] };
+  it('🔴 5/6/7 項 —— 每一頁都要有頁首與頁尾(丁);而 7 項的第 2 頁是【Sean 接受的】那個兩頁', async () => {
+    type Verdict = { pages: number; blank: number[]; split: number[]; noChrome: string[] };
     const seen = new Map<number, Verdict>();
     for (const n of [5, 6, 7]) {
       await emitNoOutstanding(n, `shipB-guard-${n}item`);
       const pages = await pagesOf(join(OUT_DIR, `shipB-guard-${n}item.html`));
 
-      // 🔴 錨的正對照要在兩道之前 —— 錨死掉時,守門一會【全紅】而守門二會【全綠】,
+      // 🔴 錨的正對照要在三道之前 —— 錨死掉時,守門一會【全紅】而守門二會【全綠】,
       //    而看到全綠的人不會去查 ⇒ 一個壞掉的共用輸入會讓一半的守門變成沉默的共犯。
       expect(assertAnchorsAlive(pages, ANCHORS), `${n} 項:錨還活著嗎`).toEqual([]);
 
-      seen.set(n, { blank: blankPages(pages, ANCHORS), split: moneyPagesWithoutItems(pages, ANCHORS) });
+      seen.set(n, {
+        pages: pages.length,
+        blank: blankPages(pages, ANCHORS),
+        split: moneyPagesWithoutItems(pages, ANCHORS),
+        noChrome: pagesMissingRunningChrome(pages, CHROME),
+      });
     }
 
-    // 5 項 = 正對照。這兩格若紅,代表尺誤報,下面兩格的紅就不可信。
-    expect(seen.get(5), '5 項應該完全乾淨(正對照:好的世界不誤報)').toEqual({ blank: [], split: [] });
+    // ── 🔴🔴 守門三:這是丁真正交付的東西。三個世界【每一頁】都要有頁首與頁尾。
+    //    它紅 = 跨頁重複的機制斷了(有人把 `.pd-runhead` 改成 `display:block`、
+    //    或把那層 `<table>` 換成 div 排版)⇒ 螢幕上一模一樣、三綠全綠,只有紙上少一行。
+    for (const n of [5, 6, 7]) {
+      expect(seen.get(n)?.noChrome, `${n} 項:每一頁都要有頁首與頁尾`).toEqual([]);
+    }
 
-    // 🔴 現況,不是期望。修好之後這兩行的 `[2]` 要改成 `[]`。
-    expect(seen.get(6), '🔴 現況:6 項的第 2 頁是白紙(修好之後這裡要改成 blank: [])').toEqual({
-      blank: [2],
+    // 🔴 **而上面那個 `[]` 需要一個【它真的看得到第 2 頁】的證明** ——
+    //    5 與 6 只有一頁 ⇒ 它們就算全對也沒有摸到「續頁」這件事。
+    //    ⇒ 這一格釘住:7 項確實是兩頁, 而守門三是在【兩頁】上回的空陣列。
+    expect(seen.get(7)?.pages, '🔴 7 項必須是兩頁 —— 否則上面那個守門三沒有摸到續頁').toBe(2);
+
+    // 5 項 = 正對照。這兩格若紅,代表尺誤報,下面的紅就不可信。
+    expect(seen.get(5), '5 項應該完全乾淨(正對照:好的世界不誤報)').toMatchObject({
+      pages: 1,
+      blank: [],
       split: [],
     });
-    expect(seen.get(7), '🔴 現況:7 項的訂單金額與品項分家在第 2 頁(修好之後這裡要改成 split: [])').toEqual({
+
+    // 🔴 6 項:**白紙那一張不見了** —— 它仍然是兩頁, 而第 2 頁現在裝著金額區 + 頁首 + 頁尾。
+    //    ⇒ `blank: []` 是這一格真正的內容;而 `split: [2]` 與 7 項同形, 見下面那一段。
+    expect(seen.get(6), '6 項:第 2 頁不再是白紙').toMatchObject({ blank: [], split: [2] });
+
+    // 🔴🔴 **7 項的 `split: [2]` 是【被接受的】, 不是還沒修** —— Sean 2026-08-30 拍板。
+    //    ⇒ 這一格在這裡的作用不是報警, 是**釘住那個形狀不要再漂**:
+    //      它若變成 `[]`(錢跑回第 1 頁)或 `[2,3]`(又多一頁), 都代表版面動了而沒有人知道。
+    expect(seen.get(7), '🔴 7 項:錢在第 2 頁 —— Sean 接受的形狀,而它有頁首頁尾').toMatchObject({
       blank: [],
       split: [2],
     });
-
-    // 🔴 而【兩道各抓一個病】這件事本身也釘住:少裝一道就會漏掉一個真的病。
-    //    `!` 不是偷懶 —— 上面三個 toEqual 已經逐一斷言過這三格的內容,走到這裡它們必然存在。
-    const w6 = seen.get(6)!;
-    const w7 = seen.get(7)!;
-    expect(w6.blank.length > 0 && w6.split.length === 0, '6 項只有守門一抓得到').toBe(true);
-    expect(w7.split.length > 0 && w7.blank.length === 0, '7 項只有守門二抓得到').toBe(true);
   }, 120_000);
 });

@@ -24,9 +24,20 @@
 //      **而它綠得非常乾淨:沒有錯誤、沒有警告、rc=0。**
 //    ⇒ 所以 {@link hasAnchor} 一律走 NFKC,而呼叫端**必須**跑 {@link assertAnchorsAlive}。
 
-/** 兩邊都 NFKC 之後再比 —— 理由見檔頭那段碼位。 */
+/**
+ * 兩邊都 NFKC + **把連續空白壓成一個空格**之後再比。
+ *
+ * 🔴 **空白那一半是 2026-08-30 被一發突變逼出來的, 不是想到的**:
+ *    丁的跨頁頁首印的是「出貨明細單 訂單編號 … · 箱號 …」,而**單獨的「訂單編號」四個字
+ *    在第 2 頁的客服說明裡就有**(逐字「並提供本單上的訂單編號」)
+ *    ⇒ 用「訂單編號」當錨 ⇒ **把 `.pd-runhead` 整個關掉, 守門照樣全綠。**
+ *    📌 **⇒ 那個錨【在對的世界與錯的世界印同一個答案】** —— 而它看起來非常合理。
+ *    ⇒ 改用**複合錨**(兩個詞相鄰,只有頁首那裡相鄰);而 PDF 抽字會在中間塞換行
+ *      ⇒ 沒有這道壓縮的話,複合錨會**每一頁都不命中**(那是另一個方向的假答案)。
+ */
 export function hasAnchor(pageText: string, anchor: string): boolean {
-  return pageText.normalize('NFKC').includes(anchor.normalize('NFKC'));
+  const squash = (t: string) => t.normalize('NFKC').replace(/\s+/g, ' ');
+  return squash(pageText).includes(squash(anchor));
 }
 
 export interface PageAnchors {
@@ -74,6 +85,45 @@ export function moneyPagesWithoutItems(pages: readonly string[], a: PageAnchors)
   const bad: number[] = [];
   pages.forEach((t, i) => {
     if (hasAnchor(t, a.money) && !hasAnchor(t, a.item)) bad.push(i + 1);
+  });
+  return bad;
+}
+
+/** 跨頁頁首 / 頁尾的錨(丁,Sean 2026-08-30)。 */
+export interface RunningChrome {
+  /** 頁首上一定會有的字(續頁靠它認出「這是哪一張單」)。 */
+  readonly head: string;
+  /** 頁尾上一定會有的字。 */
+  readonly foot: string;
+}
+
+/**
+ * 守門三 · **每一頁都要有頁首與頁尾**(丁,Sean 2026-08-30 逐字:
+ * 「第七項變成第二張也沒關係,只要看起來好看就好,因為第二頁理論上會有跟第一頁一樣的
+ * 重複上方欄位…但是有頁尾就好也可以」)。
+ *
+ * 🔴 **它為什麼與守門一、二【不同族】**:那兩道問的是「內容有沒有掉到不該在的頁」,
+ *    而這一道問的是「**這一頁自己看起來是不是一張完整的紙**」。
+ *    ⇒ Sean 要的不是「回到一頁」,是「第二頁不要看起來像印壞了」。
+ *
+ * 🔴🔴 **它盯的機制【沒有任何別的東西會替它報錯】** —— 跨頁重複靠的是
+ *    `<thead>` / `<tfoot>` 的預設 `table-header-group` / `table-footer-group`。
+ *    有人把 `.pd-runhead` 改成 `display:block`(或把那層 `<table>` 換成 div 排版),
+ *    **螢幕上一模一樣、三綠全綠、單測全過**,只有第 2 頁的紙上少了那一行。
+ *    ⇒ 而少的那一行正是「這是哪一張單」——**員工手上會有一張認不出來源的紙。**
+ *
+ * @returns 違規的頁碼(1-based),每頁附缺哪一邊。
+ */
+export function pagesMissingRunningChrome(
+  pages: readonly string[],
+  c: RunningChrome,
+): string[] {
+  const bad: string[] = [];
+  pages.forEach((t, i) => {
+    const missing: string[] = [];
+    if (!hasAnchor(t, c.head)) missing.push('頁首');
+    if (!hasAnchor(t, c.foot)) missing.push('頁尾');
+    if (missing.length > 0) bad.push(`第 ${i + 1} 頁缺 ${missing.join(' 與 ')}`);
   });
   return bad;
 }

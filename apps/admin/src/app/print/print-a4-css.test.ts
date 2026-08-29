@@ -72,9 +72,25 @@ describe('A4 版面第 2 條 —— 跨頁表格', () => {
     // 依據:`picking-doc.tsx`(錨點 `跨頁表頭:已實測會自動重複`)2026-08-15 真瀏覽器量測
     // 含負向對照(注入 `display:table-row-group !important` ⇒ 第 2 頁欄名整排消失)。
     // ⇒ 搬過來會是一條永遠不會失效的字面。有人「順手補齊樣張」時,這格會紅並把他帶去讀那段。
-    expect(CSS_RULES).not.toContain('table-header-group');
-    // 正向對照:證明上面那個 0 是「規則層真的沒有」,不是 `CSS_RULES` 被剝成空字串。
+    // 🔴🔴 **2026-08-30 丁:這一格從「整份檔零命中」收窄成「不得掛在裸 `thead` 上」。**
+    //    ⛔ ~~`expect(CSS_RULES).not.toContain('table-header-group')`~~
+    //    ⇒ 丁新增了 `.pd-runhead{display:table-header-group}`,而**那與本格要擋的不是同一件事**:
+    //      · 本格擋的是**裸 `thead{…}`** —— 它等於 UA 預設 ⇒ 一條**永遠不會失效**的字面。
+    //      · 而 `.pd-runhead` 在螢幕上是 `display:none`(頁首只該出現在紙上)
+    //        ⇒ 列印時**必須**有人把它變回 `table-header-group`,**它不是預設值, 拿掉就會壞**。
+    //    📌 **⇒ 同一個字串, 一個是廢話一個是承重 —— 差別在【選擇器】, 不在那個值。**
+    expect(CSS_RULES, '不得把 `table-header-group` 掛回裸 `thead`(那等於 UA 預設)').not.toMatch(
+      /(^|[};{])\s*thead\s*\{[^}]*table-header-group/,
+    );
+    // 🔴 正對照要兩發, 而它們證的是不同的事:
+    //    ① 剝註解沒有把檔案剝成空字串
     expect(CSS_RULES).toContain('@page');
+    //    ② **上面那個 `not.toMatch` 的尺真的看得到 `table-header-group`** ——
+    //       少了這一發,把 `.pd-runhead` 那條整個刪掉時本格仍然全綠,
+    //       而症狀是【第 2 頁沒有頁首】,螢幕上一模一樣。
+    expect(CSS_RULES, '`.pd-runhead` 的 table-header-group 不見了 ⇒ 續頁沒有頁首').toMatch(
+      /\.pd-runhead\s*\{[^}]*table-header-group/,
+    );
     expect(PICKING).toContain('跨頁表頭:已實測會自動重複');
   });
 });
