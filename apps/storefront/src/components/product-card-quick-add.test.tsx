@@ -238,7 +238,7 @@ describe('ProductCard 快速加購', () => {
 // ── 全站連動:手機底欄徽章(Sean 2026-08-08 逐字「購物車的數字也要全站連動」)──────────
 // 桌機 Header 的數字早就接了(`Header.tsx:58,170,219`);手機底欄這顆從來沒有徽章 = 唯一缺口。
 // (`next/navigation` 的 mock 在檔頭、對整檔生效,見上方說明。)
-// eslint-disable-next-line import/first -- 本 import 依賴檔頭那個被 hoist 的 vi.mock
+// 本 import 依賴檔頭那個被 hoist 的 vi.mock  ⟵ 原為 eslint-disable(那條規則本 repo 沒在跑)⇒ 指令拆掉、理由留著
 import { MobileTabBar } from './MobileTabBar';
 
 describe('MobileTabBar 購物車件數徽章', () => {

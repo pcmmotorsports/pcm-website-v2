@@ -94,7 +94,6 @@ describe('assertDisplayId', () => {
   });
 
   it('🔴 String wrapper 被 typeof 擋下(RegExp.test 會把它轉字串而誤判合法)', () => {
-    // eslint-disable-next-line no-new-wrappers
     const wrapper = new String('K7MTQ3') as unknown as string;
     expect(() => assertDisplayId(wrapper)).toThrow(OrderError);
   });

@@ -18,7 +18,6 @@ import type { ProductRow } from './rpm-transform';
  *  記錄所有 .eq('supplier_slug', X) 呼叫供斷言。 */
 function makeRecordingClient(): { client: SupabaseClient; supplierScopes: unknown[] } {
   const supplierScopes: unknown[] = [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const builder: any = new Proxy(function () {}, {
     get(_t, prop) {
       if (prop === 'then') {

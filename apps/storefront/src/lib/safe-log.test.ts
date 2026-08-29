@@ -72,7 +72,7 @@ describe('safeErrorName — 白名單而不是「類別名」', () => {
     //   而假綠與真綠長得一模一樣。**正對照要用你要量的那把尺打一個你知道答案的東西。**
     const orig = Array.prototype.includes;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 蓄意汙染 prototype, finally 還原
+      // 蓄意汙染 prototype, finally 還原  ⟵ 原為 eslint-disable(那條規則本 repo 沒在跑)⇒ 指令拆掉、理由留著
       (Array.prototype as any).includes = () => true;
       expect(['a', 'b'].includes('這個字根本不在陣列裡')).toBe(true); // ← 覆寫確實生效
     } finally {
@@ -84,7 +84,7 @@ describe('safeErrorName — 白名單而不是「類別名」', () => {
   it('🔴 R2 finding 1:`Array.prototype.includes` 被換成永遠回 true ⇒ 仍然【不得】放行', () => {
     const orig = Array.prototype.includes;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 蓄意汙染 prototype, finally 還原
+      // 蓄意汙染 prototype, finally 還原  ⟵ 原為 eslint-disable(那條規則本 repo 沒在跑)⇒ 指令拆掉、理由留著
       (Array.prototype as any).includes = () => true;
       const e = new Error('safe');
       e.name = 'prime=SECRET';
@@ -104,11 +104,10 @@ describe('safeErrorName — 白名單而不是「類別名」', () => {
     const os = Array.prototype.some;
     const oh = Object.prototype.hasOwnProperty;
     try {
-      /* eslint-disable @typescript-eslint/no-explicit-any -- 蓄意汙染, finally 還原 */
+      // 蓄意汙染, finally 還原  ⟵ 原為一對 eslint-disable/enable(那條規則本 repo 沒在跑)⇒ 指令拆掉、理由留著
       (Array.prototype as any).indexOf = () => 0;
       (Array.prototype as any).some = () => true;
       (Object.prototype as any).hasOwnProperty = () => true;
-      /* eslint-enable @typescript-eslint/no-explicit-any */
       const e = new Error('safe');
       e.name = 'rec_trade_id=SECRET';
       expect(safeErrorName(e)).toBe('other');

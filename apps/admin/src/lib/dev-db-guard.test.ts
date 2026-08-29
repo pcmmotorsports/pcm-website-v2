@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD } from 'next/constants';
+// 測自己這個 app 的根 `next.config`。
+// 🔴 **2026-08-29 codex must-fix:我原本寫的理由是錯的,而它用實跑證明。**
+//    ~~「`boundaries/elements` 沒有一型涵蓋 app 根 config ⇒ 被當成無型別」~~
+//    ⇒ 拿掉 inline config 重跑,錯誤訊息逐字是
+//      「no rule allowing dependencies from elements of type "apps" and app "admin"
+//        to elements of type "apps" and app "admin"」
+//    ⇒ **真正的成因是「apps → 【同一個 app】」本身就沒有一條規則允許**,與型別無關。
+// 🔴 **重判的時機(照真成因寫)**:哪一天 `eslint.config.js` 的 `boundaries/dependencies`
+//    多了一條允許「app 讀自己」⇒ **下面那行 disable 就該刪**(unused-directive 會替你叫)。
+// eslint-disable-next-line boundaries/dependencies
 import nextConfig from '../../next.config';
 import {
   DB_KEY_PATTERN,

@@ -1,6 +1,25 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD } from 'next/constants';
+// 測自己這個 app 的根 `next.config`(同 admin 那支)。
+// 🔴 **2026-08-29 codex must-fix:原寫的理由是錯的** —— 實跑訊息逐字是
+//    「apps/storefront → apps/storefront 沒有一條規則允許」⇒ **成因是「app 讀自己」,不是型別。**
+// 🔴 **重判時機**:`boundaries/dependencies` 多一條允許「app 讀自己」⇒ 下面那行 disable 就該刪。
+// eslint-disable-next-line boundaries/dependencies
 import nextConfig from './next.config';
+// 🔴 **這是真的跨 app import,而它是刻意的。**
+// 下面那段註解(接線測試 MAIN-127 ④)逐字說明為什麼:**判定層的測試在 `apps/admin/src/lib/`,
+// 這裡只驗「真的裝在路上」** —— storefront 是量到「實際打過正式庫」痕跡的那個入口。
+// 🔴 **重判的時機(這是一把尺,不是一句「請相信我」)**:
+// 哪一天 `DB_KEY_PATTERN` 不再住在 `apps/admin/src/lib/dev-db-guard`(判定層搬家 / 抽進
+// `packages/`)⇒ **下面那行 disable 與這個 import 都要重判**,而那時正確的做法多半是
+// 把它抽成共用,不是繼續跨過來拿。
+// 🔴🔴 **2026-08-29 codex 對【這一行豁免本身】投了 FAIL,而我保留它 —— 理由要寫下來**:
+//    codex 逐字:「這是真正的跨 app 匯入,卻把新啟用的 `boundaries/dependencies` 警報壓掉…
+//    修法:將 `DB_KEY_PATTERN`/guard 抽到共用 `packages/`,兩個 app 分別匯入,並刪除豁免。」
+//    ✅ **它是對的,而那是一個【搬碼】的改動** —— 本片的界是「讓 lint 掃測試檔」,
+//    而不給豁免的代價是**全隊 `pnpm lint` 立刻紅**,那道閘會被關掉(今晚量過那個下場)。
+//    ⇒ **保留豁免 = 刻意的技術債,不是判它沒問題。** 已登記進工作池。
+// eslint-disable-next-line boundaries/dependencies
 import { DB_KEY_PATTERN } from '../admin/src/lib/dev-db-guard';
 
 // 🔴 **接線測試(MAIN-127 ④,與 admin 的同型)**:storefront 是量到「實際打過正式庫」痕跡的

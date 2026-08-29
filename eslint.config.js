@@ -32,16 +32,25 @@ module.exports = [
       '**/.next/**',
       '**/build/**',
       '**/coverage/**',
+      // 🔴 **Playwright 的產生物**(`git check-ignore` rc=0、`git ls-files` 命中 0)——
+      //    與上面 dist / .next / coverage 同族。**它原本不必列**,因為測試檔整族都在 ignores 裡;
+      //    測試檔拿出來之後它才第一次露出來。⇒ 全隊 `pnpm lint` 紅在
+      //    `apps/admin/test-results/make-sheets.test.tsx`(產生出來的檔,不是人寫的)。
+      //    📌 **而我的分母漏了它**:我用 `git ls-files` 列 696 支 ⇒ **未追蹤的檔不在裡面**,
+      //    而各 package 的 `eslint .` 掃得到 ⇒ **我的 0 與真的閘不是同一把尺。**
+      '**/test-results/**',
       '**/.turbo/**',
       'design-reference/**',
       '**/*.config.js',
       '**/*.config.mjs',
       '**/*.config.cjs',
       '**/*.config.ts',
-      '**/*.test.ts',
-      '**/*.test.tsx',
-      '**/*.spec.ts',
-      '**/*.spec.tsx',
+      // 🔴 **`Q-LINTBLIND-1` = 甲(Sean 2026-08-29 拍板):測試檔【拿出 ignores】,讓 lint 真的掃它們。**
+      //    ~~'**/*.test.ts' / '**/*.test.tsx' / '**/*.spec.ts' / '**/*.spec.tsx'~~ 已移除。
+      //    **為什麼**:三綠的 lint 對測試檔實際上是空的,而很多片【只動測試檔】
+      //    ⇒ 那些片的「lint 全綠」**零判別力**。
+      //    **先量再改**:納入後全 repo 696 支測試檔實跑 ⇒ **45 條**(不是「紅一堆」),
+      //    而其中 32 條是下方那條 env 規則(它對測試檔本來就不成立,見該處註解)。
     ],
   },
   {
@@ -113,9 +122,29 @@ module.exports = [
   // - server-only 檔確需動態 requireEnv(adapters/supabase/client.ts、storefront lib/payment/composition.ts)
   //   以受控 inline eslint-disable + 意圖註解放行(server 不進 client bundle、無 inlining 風險;
   //   #179 item 4 requireEnv dedup 追蹤)。
-  // - test / spec 已在全域 ignores(L41-44)豁免(測試需動態存取 env 做 setup/teardown)。
+  // - ~~test / spec 已在全域 ignores(L41-44)豁免~~ 🔴 **2026-08-29 改**:測試檔已從 ignores 拿出來
+  //   (`Q-LINTBLIND-1` = 甲),而**這一條規則對它們的豁免改成明文寫在下方那個 override**。
+  //   ⚠️ **豁免的理由與原設計相同,不是新發明的** —— 原句逐字就是
+  //   「測試需動態存取 env 做 setup/teardown」;而機制上的理由更硬:
+  //   **本規則的成立前提是「client bundle 取 undefined」,而測試檔不進 client bundle**
+  //   ⇒ **它對測試檔本來就不成立。**(納入時實測:45 條裡 32 條是這一條。)
   {
     files: ['packages/**/*.ts', 'packages/**/*.tsx', 'apps/**/*.ts', 'apps/**/*.tsx'],
+    // 🔴 **codex 2026-08-29 must-fix**:~~原本用一個 override 把整條 `no-restricted-syntax`
+    //    對測試檔設成 `off`~~ ⇒ **那關掉的是【整條規則】,不只目前這個 env selector。**
+    //    ⇒ 哪一天有人往這條規則加第二個 selector,**測試檔會無聲地全部跳過它。**
+    //    ⇒ 改成在【這一個 flat-config 物件】上 `ignores` 測試檔。
+    // 🔴🔴 **而 codex R2 又抓到我一次,是【我的宣稱】錯不是機制錯**:
+    //    ~~「豁免的射程就綁在這個 selector 上」~~ **假的。**
+    //    `ignores` 是**整個 flat-config 物件**層級,不是 selector 層級 ⇒ 正確的講法是:
+    //    **豁免的射程 = 這個物件裡的【所有】規則。**
+    // ⚠️ **⇒ 所以這個物件必須保持【只有這一條規則、只有這一個 selector】。**
+    //    往這個物件加第二條規則、或往 `no-restricted-syntax` 加第二個 selector
+    //    ⇒ **測試檔會【無聲地】連帶被豁免。**
+    //    ⇒ 要新增別的限制,**另開一個沒有這個 `ignores` 的物件**,不要加在這裡。
+    // ✅ 而「別的區塊新增的規則照樣對測試檔生效」這半是**真的**
+    //    (codex R2 用 `--print-config` 驗過:`no-restricted-imports` 仍套用在測試檔上)。
+    ignores: ['**/*.test.ts', '**/*.test.tsx', '**/*.spec.ts', '**/*.spec.tsx'],
     rules: {
       'no-restricted-syntax': [
         'error',
@@ -187,4 +216,5 @@ module.exports = [
       },
     },
   },
+
 ];

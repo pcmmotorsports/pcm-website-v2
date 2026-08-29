@@ -365,7 +365,6 @@ describe('🔴 14 欄在 Sean 的真實視窗下裝不裝得下真值(同尺量�
     async () => {
     const cols = await measureColumns(1728);
     expect(cols.length, '一欄都沒量到 ⇒ 恆綠').toBeGreaterThanOrEqual(13);
-    // eslint-disable-next-line no-console
     console.log(
       '\n量測(viewport 1728、真編譯 CSS、真元件、同一次量測):\n' +
         cols

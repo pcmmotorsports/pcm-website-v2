@@ -90,7 +90,6 @@ describe('V1 classifyVariantOrphans(孤兒變體差集 + 安全 gate)', () => {
 function makeUpdateRecorder(error: { code?: string; message?: string } | null = null) {
   const updates: Record<string, unknown>[] = [];
   const calls: unknown[][] = [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const builder: any = new Proxy(function () {}, {
     get(_t, prop) {
       if (prop === 'then') {

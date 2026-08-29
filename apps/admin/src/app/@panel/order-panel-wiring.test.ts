@@ -315,7 +315,7 @@ describe('#350c 守門 3:只有桌機走面板,手機仍是整頁', () => {
   });
 
   it('手機卡片仍是字面 /orders/${order.id}(突變:改成 panel href ⇒ 紅)', () => {
-    // eslint-disable-next-line no-template-curly-in-string -- 這裡要比對的就是原始碼裡的字面樣板字串
+    // 這裡要比對的就是原始碼裡的字面樣板字串  ⟵ 原為 eslint-disable(那條規則本 repo 沒在跑)⇒ 指令拆掉、理由留著
     expect(table).toContain('href={`/orders/${order.id}`}');
   });
 
