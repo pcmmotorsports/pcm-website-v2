@@ -216,21 +216,26 @@ export function couponEndsOnDisplay(endsOn: string | null): string {
 }
 
 /**
- * ⏸️ **佔位:券這一層「擋住的理由」怎麼顯示。**
+ * 券這一層「擋住的理由」怎麼顯示。**Sean 2026-08-29 拍【乙】(逐字 `B`)。**
  *
- * 🛑🛑 **本函式是【刻意做得醜的佔位】, 不是定案。**
- *    一個好看的佔位會被當成定案, 而這一格 **Sean 沒有拍過**(`#963`)。
+ * 乙 = **一顆標籤 + 「+N」** ——「只顯示一個, 其餘用數字帶過」。
+ * 他是看**三張實體截圖**挑的(甲 三顆並排 / 乙 一顆 +N / 丙 一句話),不是看文字選項。
+ * 🛑 **甲與丙作廢**;而**原本那句「刻意做醜的佔位」不再成立** —— 這一格現在是定案。
  *
- * 資料層已經回一組原因(`admin_coupon_list_blocks_v.coupon_level_blocks`,`text[]`,
- * 值域 `disabled` / `expired` / `exhausted`;空陣列 = 券這一層沒有擋住的理由)。
+ * 🔴 **他選乙的代價要留著**(demo 檔逐字):員工**要再做一個動作**才知道另外幾個是什麼。
+ *    ⇒ 而第一版「單一狀態」被駁倒的理由是**答不出「還差幾關」** ——
+ *      乙 用那個 `+N` 答那一格:數字在, 只是名字不在。
  *
- * ⚠️ **空陣列這裡【故意不寫「可用」】** —— 那超出那個值答得出的範圍:
- *    它答不出 `max_per_account` / `min_spend` / `stacks_with_tier`(要客人 + 購物車才算得出來)。
- *    ⇒ 空陣列顯示什麼字, 同屬 `#963`, Sean 未拍 ⇒ 這裡回 `'—'`。
+ * 🔴 **順序不是我挑的, 是 view 定的**:`admin_coupon_list_blocks_v` 用
+ *    `array_remove(ARRAY[disabled, expired, exhausted], NULL)` 組出來
+ *    ⇒ 順序在 SQL 那一層就固定了 ⇒ **這裡照陣列原序取第一個, 不重排。**
+ *    ⚠️ 改那個順序要改 view, 不是改這裡 —— 兩邊都排一次會漂。
  *
- * 🔴 **而畫面上那一組長什麼樣(三顆標籤? 「已停用 +2」? hover 看全部?)也在 `#963`** ——
- *    家法:品味題**要給實體版本, 不給文字選項** ⇒ 而現在沒有實體版本可以給他
- *    ⇒ **所以這裡先用頓號串起來, 等 2b-2 有畫面之後由 Design session 產 demo 再問。**
+ * ⚠️ **空陣列仍然回 `null`(畫面印 `'—'`)、【故意不寫「可用」】** ——
+ *    那超出這個值答得出的範圍:它答不出 `max_per_account` / `min_spend` /
+ *    `stacks_with_tier`(要客人 + 購物車才算得出來)。
+ *    🔴 **空陣列要顯示什麼字, Sean 這一輪【沒有拍】** —— 他拍的是那三張圖的格式。
+ *    ⇒ 所以 `'—'` 留著, 不要順手改成「有效」。
  */
 export const BLOCK_LABEL: Record<string, string> = {
   disabled: '已停用',
@@ -238,7 +243,18 @@ export const BLOCK_LABEL: Record<string, string> = {
   exhausted: '已用完',
 };
 
-export function couponBlocksPlaceholder(blocks: readonly string[]): string {
-  if (blocks.length === 0) return '—';
-  return blocks.map((b) => BLOCK_LABEL[b] ?? b).join('、');
+/**
+ * `null` = 這張券在這一層沒有擋住的理由(畫面自己決定印什麼,現況 `'—'`)。
+ * `more` = **還有幾個沒顯示**,0 代表只有一個原因、不印 `+N`。
+ *
+ * 🔴 回**結構**不回字串:字串會逼畫面端去拆它才做得出「標籤 + 灰字」兩種樣式,
+ *    而拆字串就是把格式決定藏進 `split()` 裡。
+ */
+export function couponBlocksDisplay(
+  blocks: readonly string[],
+): { label: string; more: number } | null {
+  if (blocks.length === 0) return null;
+  const first = blocks[0] ?? '';
+  return { label: BLOCK_LABEL[first] ?? first, more: blocks.length - 1 };
 }
+

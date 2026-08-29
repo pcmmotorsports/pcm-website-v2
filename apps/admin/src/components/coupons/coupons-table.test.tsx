@@ -108,9 +108,18 @@ describe('建立者 —— 顯示名字不是 slug', () => {
   });
 });
 
-describe('⏸️ 擋住的理由 —— 佔位（#963，Sean 未拍）', () => {
-  it('一組原因 ⇒ 全部都在，不是只顯示第一個', () => {
-    // 只顯示第一個 ⇒ 員工解掉它、券還是不能用 ⇒ 那正是 codex 駁倒單一狀態的理由
+describe('擋住的理由 —— Sean 2026-08-29 拍【乙】：一顆標籤 +「+N」', () => {
+  /**
+   * 🛑 **這一組斷言【推翻了它自己的前一版】，而前一版是對的。**
+   *
+   * 舊斷言逐字：「一組原因 ⇒ 全部都在，不是只顯示第一個」——
+   * 理由是：只顯示第一個 ⇒ 員工解掉它、券還是不能用（那正是 codex 駁倒「單一狀態」的理由）。
+   * 🔴 **那個理由沒有錯，而 Sean 選了另一個解法**：
+   *    乙 顯示第一個 **+ 一個數字** ⇒ 「還差幾關」由 `+N` 回答，不是由名字回答。
+   * ⇒ 所以下面那一格盯的是 **`+N` 在不在**，而不只是「第一個標籤在不在」——
+   *    🔴 少了 `+N`，這一版就退回成被駁倒的那一版，而畫面上只差兩個字元。
+   */
+  it('🔴 兩個原因 ⇒ 顯示第一個標籤【而且】要有「+1」', () => {
     render(
       <CouponsTable
         coupons={[row({ coupon_level_blocks: ['disabled', 'expired'] })]}
@@ -118,7 +127,24 @@ describe('⏸️ 擋住的理由 —— 佔位（#963，Sean 未拍）', () => {
         sort={undefined}
       />,
     );
-    expect(screen.getAllByText('已停用、已過期').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('已停用').length).toBeGreaterThan(0);
+    // 🔴 這一格是本組的重點：沒有它，「只顯示第一個」就是被駁倒的那個設計
+    expect(screen.getAllByText('+1').length).toBeGreaterThan(0);
+    // 而第二個原因的【名字】刻意不印 —— 那正是乙 的取捨
+    expect(screen.queryByText('已過期')).toBeNull();
+  });
+
+  it('🔴 只有一個原因 ⇒ 不得出現「+0」', () => {
+    // +0 會讓那個 0 看起來像一個原因，而它是「沒有其他原因」。
+    render(
+      <CouponsTable
+        coupons={[row({ coupon_level_blocks: ['exhausted'] })]}
+        statusParam='all'
+        sort={undefined}
+      />,
+    );
+    expect(screen.getAllByText('已用完').length).toBeGreaterThan(0);
+    expect(screen.queryByText('+0')).toBeNull();
   });
 
   it('🔴 空陣列不得顯示「可用」', () => {

@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import {
   COUPONS_PAGE_SIZE,
   STATUS_VALUES,
-  couponBlocksPlaceholder,
+  couponBlocksDisplay,
   couponDiscountDisplay,
   couponEndsOnDisplay,
   couponUsageDisplay,
@@ -135,21 +135,37 @@ describe('NULL 一律不留白 — 留白與載入失敗長得一樣', () => {
   });
 });
 
-describe('⏸️ 擋住的理由 —— 這是佔位，不是定案（#963）', () => {
-  it('一組原因 ⇒ 頓號串起來（而那正是「醜得看得出來是佔位」的形狀）', () => {
-    expect(couponBlocksPlaceholder(['disabled', 'expired'])).toBe('已停用、已過期');
-    expect(couponBlocksPlaceholder(['exhausted'])).toBe('已用完');
+describe('擋住的理由 —— Sean 2026-08-29 拍【乙】：一顆標籤 + 「+N」', () => {
+  it('多個原因 ⇒ 只回第一個的標籤，其餘進 more', () => {
+    expect(couponBlocksDisplay(['disabled', 'expired'])).toEqual({ label: '已停用', more: 1 });
+    expect(couponBlocksDisplay(['disabled', 'expired', 'exhausted'])).toEqual({
+      label: '已停用',
+      more: 2,
+    });
   });
 
-  it('🔴 空陣列【不得】顯示「可用」—— 那超出資料答得出的範圍', () => {
-    // 它答不出 max_per_account / min_spend / stacks_with_tier（要客人 + 購物車）
-    const s = couponBlocksPlaceholder([]);
-    expect(s).toBe('—');
-    expect(s).not.toContain('可用');
+  it('🔴 只有一個原因 ⇒ more 必須是 0（畫面才不會印「+0」）', () => {
+    // +0 會讓那個 0 看起來像一個原因，而它是「沒有其他原因」。
+    expect(couponBlocksDisplay(['exhausted'])).toEqual({ label: '已用完', more: 0 });
+  });
+
+  it('🔴 順序【照陣列原序】，不在這一層重排', () => {
+    // 順序由 view 的 array_remove(ARRAY[disabled, expired, exhausted], NULL) 定；
+    // 這裡再排一次就會有兩個真相源。餵一個反序的陣列 ⇒ 它必須照餵進去的順序取第一個。
+    expect(couponBlocksDisplay(['exhausted', 'disabled'])?.label).toBe('已用完');
+  });
+
+  it('🔴 空陣列 ⇒ null，而畫面印「—」；【不得】顯示「可用」', () => {
+    // 它答不出 max_per_account / min_spend / stacks_with_tier（要客人 + 購物車）。
+    // ⚠️ 空陣列要顯示什麼字 Sean 這一輪【沒有拍】—— 拍的是那三張圖的格式。
+    expect(couponBlocksDisplay([])).toBeNull();
   });
 
   it('未知的原因值 ⇒ 原樣印出來，不是吞掉', () => {
-    // 吞掉的話，DB 加了第四種原因時畫面會少一格而不會有東西紅
-    expect(couponBlocksPlaceholder(['zzz_new_reason'])).toBe('zzz_new_reason');
+    // 吞掉的話，DB 加了第四種原因時畫面會少一格而不會有東西紅。
+    expect(couponBlocksDisplay(['zzz_new_reason'])).toEqual({
+      label: 'zzz_new_reason',
+      more: 0,
+    });
   });
 });

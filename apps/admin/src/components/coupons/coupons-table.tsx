@@ -4,7 +4,7 @@ import type { SupabaseAdminCouponRow } from '@pcm/adapters';
 import { AdminDataTable, type AdminColumn } from '../shared/admin-data-table';
 import {
   buildCouponListHref,
-  couponBlocksPlaceholder,
+  couponBlocksDisplay,
   couponDiscountDisplay,
   couponEndsOnDisplay,
   couponUsageDisplay,
@@ -79,7 +79,14 @@ const columns = (
     key: 'discount',
     header: '折抵',
     mobile: 'meta',
-    className: 'text-right tabular-nums',
+    // 🔴 Sean 2026-08-29 逐字「然後文字都要對齊標題左側,不要一下左一下右」
+    //    ⇒ 拿掉 `text-right`。**`tabular-nums` 留著** —— 它管的是【數字等寬】,
+    //    與靠哪邊無關;拿掉它會讓上下兩列的數字對不齊,而那不是他要求的。
+    // ⚠️ 成因不是共用元件:`admin-data-table.tsx:147` 的表頭只吃 `col.alignRight`,
+    //    `:165` 的內容格才吃 `col.className` ⇒ 用 className 給 `text-right`
+    //    只會移動【內容】,標題留在原地 ⇒ 一欄之內兩邊不同側。
+    //    ⇒ 真要靠右, 正確寫法是 `alignRight: true`(它兩邊一起移)。
+    className: 'tabular-nums',
     // 🔴 **不能一律用金額格式** —— 券有 fixed 與 percent 兩種, `10%` 會被印成 `NT$10`
     //    (關卡2 must-fix, 2026-08-29)。
     cell: (c) => couponDiscountDisplay(c.discount_type, c.discount_value),
@@ -102,7 +109,14 @@ const columns = (
     header: (
       <SortableHeader label='已用/總量' sortKey='usedCount' statusParam={statusParam} sort={sort} />
     ),
-    className: 'text-right tabular-nums',
+    // 🔴 Sean 2026-08-29 逐字「然後文字都要對齊標題左側,不要一下左一下右」
+    //    ⇒ 拿掉 `text-right`。**`tabular-nums` 留著** —— 它管的是【數字等寬】,
+    //    與靠哪邊無關;拿掉它會讓上下兩列的數字對不齊,而那不是他要求的。
+    // ⚠️ 成因不是共用元件:`admin-data-table.tsx:147` 的表頭只吃 `col.alignRight`,
+    //    `:165` 的內容格才吃 `col.className` ⇒ 用 className 給 `text-right`
+    //    只會移動【內容】,標題留在原地 ⇒ 一欄之內兩邊不同側。
+    //    ⇒ 真要靠右, 正確寫法是 `alignRight: true`(它兩邊一起移)。
+    className: 'tabular-nums',
     mobile: 'meta',
     // 🔴 總量 NULL = 不限 ⇒ 同樣不得留白。
     cell: (c) => couponUsageDisplay(c.used_count, c.max_redemptions),
@@ -112,19 +126,34 @@ const columns = (
     header: '狀態',
     mobile: 'trailing',
     /**
-     * ⏸️🛑 **這一格是【刻意做醜的佔位】, 不是定案。**
+     * **Sean 2026-08-29 拍【乙】(逐字 `B`):一顆標籤 + 「+N」。**
+     * 他是看三張實體截圖挑的(甲 三顆並排 / 乙 一顆 +N / 丙 一句話)⇒ 甲丙作廢。
      *
-     * Sean 2026-08-29 `Q1 = 甲`:狀態要顯示【自己算出來的】(可用/已過期/已用完/已停用)。
-     * 資料層已經回一組原因(`coupon_level_blocks`)——
-     * 🔴 **而畫面上那一組長什麼樣(三顆標籤? 「已停用 +2」? hover 看全部?)他沒有拍過(`#963`)。**
-     * 📌 **一個好看的佔位會被當成定案** ⇒ 所以這裡是純文字、頓號串起來、沒有 badge 樣式。
-     * ⇒ `#963` 要**給他看實體版本**(視覺 demo 由 Design session 產), 而不是文字選項。
+     * 🔴 **`+N` 那個數字不是裝飾** —— 第一版「單一狀態」被駁倒的理由是
+     *    **答不出「還差幾關」**(同時停用+過期的券只顯示「已停用」⇒ 員工按了啟用它還是不能用)。
+     *    ⇒ 乙 用 `+N` 答那一格:**數量在, 只是名字不在。**
+     *    ⇒ ⚠️ 所以 `+N` **不得省略**, 也不得在只有一個原因時印 `+0`(那會讓 0 看起來像一個原因)。
+     *
+     * 🔴 標籤樣式沿用本後台既有先例(`customers-table.tsx:110` 的會員等級),
+     *    **不自創第二種小標籤**。
      */
-    cell: (c) => (
-      <span className='text-muted-foreground text-xs'>
-        {couponBlocksPlaceholder(c.coupon_level_blocks)}
-      </span>
-    ),
+    cell: (c) => {
+      const b = couponBlocksDisplay(c.coupon_level_blocks);
+      // 🔴 沒有擋住的理由 ⇒ `'—'`,**不要寫「可用」** ——
+      //    這一頁手上沒有客人與購物車,答不出每人上限 / 最低消費 / 會員價衝突。
+      //    ⚠️ 空陣列要顯示什麼字 Sean 這一輪【沒有拍】,不要順手改。
+      if (b === null) return <span className='text-muted-foreground text-xs'>—</span>;
+      return (
+        <span className='inline-flex items-center gap-1'>
+          <span className='bg-secondary text-secondary-foreground inline-flex rounded-full px-2 py-0.5 text-xs'>
+            {b.label}
+          </span>
+          {b.more > 0 && (
+            <span className='text-muted-foreground text-xs tabular-nums'>+{b.more}</span>
+          )}
+        </span>
+      );
+    },
   },
   {
     key: 'creator',
