@@ -80,6 +80,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 ## 終端機 / Bash 紀律(Sean zsh 環境)
 
 - **zsh 禁忌**:命令內**禁 `#` 註解**(報 command not found)、**禁全形標點「」():;**(報 unknown file attribute);註解寫 prose、不寫進命令。
+- 🔴 **`echo` 遇到 `\c` 會【停止輸出】而 `rc=0`**(2026-08-29 實測 `/bin/zsh`,主視窗複驗):`echo "\copy …"` ⇒ **整行一個字都沒有**;`printf '%s\n' "\copy …"` ⇒ 正常。⚠️ `\copy` 是 psql 最常用的 meta-command ⇒ 專打【產生 SQL 腳本】:少掉那行沒跑,psql 照樣 `rc=0`。⇒ **含反斜線的字寫進檔案一律 `printf '%s\n'`**;餵 psql 前先數(`grep -c '^\\copy' <檔>` vs 期望條數)。詳 `CLAUDE.md` 同節。
 - **多步驟用 `&&` 串接**(任一步失敗自動停)、**禁裸換行 batch 多命令**。
 - **「產生新檔→驗證→覆蓋」**:`cat > /tmp/x <<'EOF'` → `test -s /tmp/x || exit 1` → `mv /tmp/x target`。
 - **不假設非 macOS CLI 已裝**:`jq`/`yq` 用前 `command -v` 確認、或改 Python 內建。
