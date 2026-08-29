@@ -69,8 +69,26 @@ export type CheckAnomalyAlertsResult = {
   orderRefundsStuckUnknown: boolean;
   /**
    * 🔴 M-4a:寄信那支 RPC 是不是【讀不到】(尚未 apply / 權限問題)。
-   * route 依它回 **503** —— 那是「五格刻意不進 `shouldAlert`」這個決定的**另一半**:
-   * 不進告警只有在【另一條路存在】時才成立,而這個欄位就是那條路的入口。
+   * route 依它回 **503**,而不是寄一封「尚未啟用」的信(部署問題走部署管道)。
+   *
+   * 🛑🛑 **2026-08-29 訂正:這一段原本寫「那是【五格刻意不進 `shouldAlert`】這個決定的另一半」——
+   *    而那句話【與碼不符】。** 五格現在**確實進了** `shouldAlert`(本檔 `:801-805` 的 OR)。
+   *    ⇒ 抓到它的是 `adversarial-reviewer`(2026-08-29),而 codex 那一輪**沒有抓到** ——
+   *      codex 審的是那支 SQL,它審的是**那支 SQL 接上之後的世界**。
+   *
+   * 🔴 **歷史留著,因為「要不要改回去」是另一題**:
+   *    「不進 `shouldAlert`」是**曾經打算**的設計(對齊上面 `orderRefundsManualFailedCount`
+   *    那一格的 Sean 2026-08-24 拍甲),而它**沒有落到碼上**。
+   *    ⇒ 主視窗 2026-08-29 裁:**改註解、不改碼** ——
+   *      改碼等於改變一個【正在運作的】告警行為,那是 Sean 的題,不是修文件的順手。
+   *    ⇒ 那一題已開列(見 `docs/launch-todo.md` ⟦b4-EMAILSHOULD⟧)。
+   *
+   * ⚠️ **而「進了 `shouldAlert`」現在的具體後果,寫在這裡免得下一個人自己去推**:
+   *    死信那一格(訊號 2)的清理 job 是 backlog `#281`,**未實作**
+   *    ⇒ 它一旦 `> 0` 就是 `> 0` 到永遠;而本支告警是 `0 1 * * *` **每天一封**、
+   *      **冷卻/靜音鈕本片沒有做** ⇒ **正式庫只要有 1 列死信,就會每天寄,直到有人動它。**
+   *    📌 而 `20260717020000_m4a_email_outbox.sql` §⑦ 自己就警告過這個形狀:
+   *      「永久告警噪音,把真正的 pg_cron 靜默死亡淹掉」。
    */
   emailOutboxUnknown: boolean;
   emailOverdueCount: number | null;
