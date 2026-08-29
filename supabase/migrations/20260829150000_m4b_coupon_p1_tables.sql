@@ -1,8 +1,38 @@
 -- M-4b 優惠券 片1:兩張新表(coupons / coupon_redemptions)+ 拒絕理由 enum
 --
+-- ═══ ✅ 2026-08-29 16:03 Sean 把下面那三題全答了(主視窗轉述,決策檔已落)═══
+--
+-- 🔴 **括號裡的字是我們寫的,不是他寫的** —— 他答的是甲/乙,選項字面是我們出的。
+--
+-- **Q「用掉一次」什麼時候算 ⇒ 乙:付款成功才算**
+--   ⚠️ **而他是看過代價才選的** —— 選項裡逐字寫著「限量券沒辦法先保留,兩個人同時結帳可能都成功」
+--   ⇒ **超賣是他知情接受的**,不是我們沒想到。
+--   ⇒ 連帶:規格裡那個 `SKIP LOCKED` 併發設計【不再是關鍵路徑】,而**不要因此拿掉它**。
+--   ⇒ 片2 落點:寫 redemption 的時機綁付款成功那一步,不綁建單。
+--
+-- **Q 退貨時那次券要退回去嗎 ⇒ 甲:只有整筆退才退回券**
+--   🔴 **而這條規則今天【不會被觸發】** —— 「部分退」現在做不到(退刷線 RF2b 起未實作)
+--   ⇒ **今天只有整筆退這一種,所以這條規則現在不區分任何東西。**
+--   ⚠️ 寫在這裡是免得下一個人以為有一道判斷在跑 —— 沒有,只有一種情況。
+--
+-- **Q「券為什麼不能用」要不要留紀錄 ⇒ 甲:不留**
+--   🔴 **這是【撤掉一個承諾】,不是默默不做** —— 規格
+--      `docs/specs/2026-08-26-coupon-schema-plan.md:168` 逐字承諾「失敗記進 redemptions 供事後查」
+--   ⇒ 該句已在那份規格標作廢(同一顆 commit)。理由:那張表裝不下
+--      (打錯券碼時根本沒有券可以指,而 coupon_id 是 NOT NULL)。
+--   ⇒ **不標作廢就默默不做 ⇒ 那份規格會變成「寫著要做而沒做,而沒有人知道它被撤了」。**
+--
+-- ⇒ 所以第 5 節那個 enum 仍然留著:它是 RPC 回給前端的【當下原因】,不是要存進表的稽核紀錄。
+--
+-- ═══════════════════════════════════════════════════════════════════
+--
 -- 🛑🛑 **這支【現在還不要貼進正式庫】,而理由不是它有 bug** ——
 --    codex R3 換角度審(不看欄位、質疑框架)抓到:**這張表的「計次」語意根本還沒定**,
---    而 schema 一旦上線就把還沒定的東西凍住了。三個要先答的(全部是 Sean 的,不是我的):
+--    而 schema 一旦上線就把還沒定的東西凍住了。
+-- ✅ **這三題 Sean 已於 2026-08-29 16:03 全答**(答案在本檔最上面那一節)⇒ 語意不再是空的。
+-- 🛑 **而「現在不要 apply」這句【維持】** —— 撤掉它要 Sean 自己說一句,
+--    不是「問題答完了所以應該可以貼」。這兩件事不是同一件。
+--    (下面三題留著當上下文,它們是那三個答案在回答什麼。)
 --
 --    ① **一次「使用」是在【建單】算,還是【付款】算?**
 --       PCM 是先建 unpaid 訂單、一天沒付會自動失效(20260828060000_...expire_unpaid_orders:153)
@@ -71,9 +101,14 @@ CREATE TABLE public.coupons (
   --    ⇒ `E'\tSAVE10\t'` 在 DB 這關【過】,而 JS `String.trim()` 會把它剝成 `SAVE10`
   --    ⇒ 同一張券會存成兩列,而兩列在畫面上【看起來一模一樣】。
   --    ⇒ 改成【整個字串不准有任何空白字元】—— 這比「剝掉頭尾」嚴格,而它同時關掉中段的 tab。
-  -- ⚠️ **`[A-Z0-9_-]` 這個字集是我補的,不是 Sean 拍的**(spec 只說 trim+upper 後唯一)。
-  --    理由:券碼是【客人用鍵盤打進來的】⇒ 全形空白 / 零寬字元會做出兩張長得一樣的券。
-  --    ⇒ 要放寬的話改這一行的字集。
+  -- 🔴🔴 **這裡曾經有一句【描述了一個不存在的約束】的註解**(codex 第四輪抓到):
+  --    R2 我原本寫成 `code ~ '^[A-Z0-9][A-Z0-9_-]*$'`,而 codex R2 說那是【未經 Sean 批准的字集政策】
+  --    ⇒ 我把碼改成只擋空白,**而描述它的那段字沒有跟著改** ⇒ 註解與 commit body 都還在講字集。
+  --    📌 **而三綠、28 格驗收、migration 守門【全部照樣綠】** —— 它們量的是碼,
+  --       沒有任何一把尺在量「描述它的那句話對不對」。
+  -- ⇒ **現況照實寫**:只擋「大小寫沒正規化」與「含任何空白字元」兩件事,**沒有字集限制**
+  --    ⇒ `SAVE!10`、emoji、標點都寫得進去。
+  --    ⚠️ 而那不是疏漏,是【沒有人拍過字集】⇒ 要限制的話是一個新的決定,不是補一個洞。
   code            text NOT NULL UNIQUE
                     CHECK (code = upper(code) AND code <> '' AND code !~ '[[:space:]]'),
   description     text NOT NULL DEFAULT '',        -- 給員工看
@@ -235,7 +270,12 @@ BEGIN
       END IF;
     END LOOP;
 
-    -- 5c. 欄級 ACL(REVOKE ALL ON TABLE 不會動已存在的欄級授權 ⇒ 這一格不是重複)
+    -- 5c. 欄級【有效】權限
+    --  🔴 **這一格的理由原本寫錯了**(codex 第四輪 nit,我實測確認它對):
+    --     舊註解說「REVOKE ALL ON TABLE 不會動已存在的欄級授權」⇒ **實測是反的**:
+    --     `grant select (a)` ⇒ has_column_privilege=t;`revoke all on table` 之後 ⇒ **f,且 attacl 變空**。
+    --  ⇒ 所以這一格【不是】在補 REVOKE 的漏,它守的是:
+    --     在 REVOKE 之後才出現的欄級授權、以及角色繼承來的有效路徑。
     FOR col IN
       SELECT a.attname FROM pg_catalog.pg_attribute a
       WHERE a.attrelid = v_rel AND a.attnum > 0 AND NOT a.attisdropped
@@ -260,7 +300,23 @@ BEGIN
      WHERE g.grantee <> pg_catalog.pg_get_userbyid(
              (SELECT c2.relowner FROM pg_catalog.pg_class c2 WHERE c2.oid = v_rel));
     IF v_extra IS NOT NULL THEN
-      RAISE EXCEPTION '片1 fail-closed:% 上還有非 owner 的授權對象 ⇒ %', r, v_extra;
+      RAISE EXCEPTION '片1 fail-closed:% 上還有非 owner 的【表級】授權對象 ⇒ %', r, v_extra;
+    END IF;
+
+    -- 5d-2. 🔴 **閉世界原本只關了一格**(codex 第四輪 must-fix):5d 只掃 `relacl`
+    --       ⇒ 第四個角色如果拿到的是【欄級】授權,它住在 `pg_attribute.attacl` ⇒ 上面整段全綠。
+    --       📌 一個宣稱「閉世界」的檢查,它的世界比它宣稱的窄。
+    SELECT pg_catalog.string_agg(DISTINCT g.grantee, ', ') INTO v_extra
+      FROM (
+        SELECT pg_catalog.pg_get_userbyid((pg_catalog.aclexplode(a.attacl)).grantee) AS grantee
+          FROM pg_catalog.pg_attribute a
+         WHERE a.attrelid = v_rel AND a.attnum > 0
+           AND NOT a.attisdropped AND a.attacl IS NOT NULL
+      ) g
+     WHERE g.grantee <> pg_catalog.pg_get_userbyid(
+             (SELECT c2.relowner FROM pg_catalog.pg_class c2 WHERE c2.oid = v_rel));
+    IF v_extra IS NOT NULL THEN
+      RAISE EXCEPTION '片1 fail-closed:% 上還有非 owner 的【欄級】授權對象 ⇒ %', r, v_extra;
     END IF;
   END LOOP;
 
@@ -270,6 +326,21 @@ BEGIN
      OR pg_catalog.has_type_privilege('authenticated', 'public.coupon_reject_reason', 'USAGE')
      OR pg_catalog.has_type_privilege('service_role', 'public.coupon_reject_reason', 'USAGE') THEN
     RAISE EXCEPTION '片1 fail-closed:coupon_reject_reason 型別的 USAGE 還開著';
+  END IF;
+
+  -- 5e-2. 🔴 同一個病的第三格(codex 第四輪 must-fix):上面 5e 也是【點名式】=黑名單。
+  --       第四個角色拿到型別 USAGE ⇒ 它住在 `pg_type.typacl` ⇒ 那四個 has_type_privilege 全綠。
+  SELECT pg_catalog.string_agg(DISTINCT g.grantee, ', ') INTO v_extra
+    FROM (
+      SELECT pg_catalog.pg_get_userbyid((pg_catalog.aclexplode(t.typacl)).grantee) AS grantee
+        FROM pg_catalog.pg_type t
+       WHERE t.oid = 'public.coupon_reject_reason'::regtype AND t.typacl IS NOT NULL
+    ) g
+   WHERE g.grantee <> pg_catalog.pg_get_userbyid(
+           (SELECT t2.typowner FROM pg_catalog.pg_type t2
+             WHERE t2.oid = 'public.coupon_reject_reason'::regtype));
+  IF v_extra IS NOT NULL THEN
+    RAISE EXCEPTION '片1 fail-closed:coupon_reject_reason 型別上還有非 owner 的授權對象 ⇒ %', v_extra;
   END IF;
 END $$;
 
