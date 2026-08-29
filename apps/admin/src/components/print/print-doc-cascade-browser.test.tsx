@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 // 同 `orders-column-fit-browser.test.tsx`:真元件間接載入 `server-only` ⇒ 逐檔 mock。
 vi.mock('server-only', () => ({}));
 import { renderToStaticMarkup } from 'react-dom/server';
+import { requireFreshBuild } from '@/lib/build-stamp';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createServer, type Server } from 'node:http';
@@ -75,6 +76,11 @@ function findCompiledCss(): string {
       }
     }
   };
+  // 🔴 **M2(2026-08-29):先問戳記,再走 `.next`。**
+  //    `next build` 可以 **rc=1 而照樣寫出產物**(實測 28 個 chunk,時間戳為當次)
+  //    ⇒ 「產物存在」在【成功】與【失敗但寫了一半】兩個世界印同一個綠。
+  //    ⇒ 戳記分三態:無 / HEAD 不同(兩個 hash 都印)/ 相同。不 skip,只 throw。
+  requireFreshBuild();
   walk(join(__dirname, '../../../.next'), 0);
   if (hits.size === 0) {
     throw new Error(

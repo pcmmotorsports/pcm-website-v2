@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import type { AdminOrderDetail } from '@pcm/domain';
+// M2:build 戳記的讀取端(三態;見 `apps/admin/src/lib/build-stamp.ts` 檔頭)。
+import { requireFreshBuild } from '@/lib/build-stamp';
 
 // ══════════════════════════════════════════════════════════════════════
 // 出貨明細單的【列印量測管線】—— 產出可以拿去數頁數的 HTML。
@@ -161,6 +163,13 @@ const NEXT_DIR = join(__dirname, '..', '..', '..', '..', '..', '..', '..', '.nex
  *    ⇒ 找不到就**大聲失敗**,不要靜靜產出沒樣式的東西。
  */
 function builtCss(): { css: string; files: string[] } {
+  // 🔴🔴 **M2(2026-08-29):先問戳記,再看產物。**
+  //    成因是量到的:`next build` **rc=1 而 `.next/static/chunks` 仍被寫出 28 個檔**
+  //    ⇒ **「產物存在」在【成功】與【失敗但寫了一半】兩個世界印同一個綠**,
+  //      而本函式底下那一整格版面量測,就是建在那個綠上面。
+  //    ⇒ `requireFreshBuild()` 分三態:無戳記 / 戳記的 HEAD 與現在不同(兩個 hash 都印)/ 相同。
+  //    ⚠️ 它不 skip,只 throw —— skip 會把「有守門」變成「有宣稱」。
+  requireFreshBuild();
   const dir = join(NEXT_DIR, 'static', 'chunks');
   if (!existsSync(dir)) {
     throw new Error(

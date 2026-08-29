@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 // 同 `orders-status-visibility-browser.test.tsx`:真元件間接載入 `server-only` ⇒ 逐檔 mock。
 vi.mock('server-only', () => ({}));
 import { renderToStaticMarkup } from 'react-dom/server';
+import { requireFreshBuild } from '@/lib/build-stamp';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createServer, type Server } from 'node:http';
@@ -35,6 +36,11 @@ function findCompiledCss(): string {
   // 🔴 `.next/static` 在 `.next` 底下 ⇒ 兩個 root 會把同一支檔【走兩次】, 而 hits 是陣列不去重。
   //    修掉之後「撈到幾份」才可信 —— 舊寫法的 2 在【真有兩份】與【同一份數兩次】印同一個數字。
   //    深度預算 6 仍夠: 目標 CSS 距 `.next` 深度 3, 全樹 css 最深 4(2026-08-25 量)。
+  // 🔴 **M2(2026-08-29):先問戳記,再走 `.next`。**
+  //    `next build` 可以 **rc=1 而照樣寫出產物**(實測 28 個 chunk,時間戳為當次)
+  //    ⇒ 「產物存在」在【成功】與【失敗但寫了一半】兩個世界印同一個綠。
+  //    ⇒ 戳記分三態:無 / HEAD 不同(兩個 hash 都印)/ 相同。不 skip,只 throw。
+  requireFreshBuild();
   const roots = [join(__dirname, '../../../.next')];
   const hits: string[] = [];
   const walk = (dir: string, depth: number): void => {
