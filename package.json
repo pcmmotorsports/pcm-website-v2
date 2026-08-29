@@ -51,6 +51,7 @@
     "scripts/brand-degenerate-samples.py": "python3 scripts/brand-degenerate-samples.py --selftest",
     "scripts/mobile-dual-write-inventory.py": "python3 scripts/mobile-dual-write-inventory.py --selftest",
     "scripts/board-state-consistency.py": "python3 scripts/board-state-consistency.py --selftest",
+    "scripts/board-dispatch-triage.py": "python3 scripts/board-dispatch-triage.py --selftest",
     "scripts/od-drift-check.py": "python3 scripts/od-drift-check.py --selftest",
     "scripts/gen-print-assets.py": "python3 scripts/gen-print-assets.py --self-check",
     "scripts/spec-1a-recheck.sh": "bash scripts/spec-1a-recheck.sh --selftest",
