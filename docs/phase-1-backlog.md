@@ -36377,3 +36377,38 @@ grep -c '\.sh"' package.json(lint-staged 裡逐字列名的 .sh)        ⇒ 12
 
 - **相關:** 片2b-1 `supabase/migrations/20260829170000_m4b_2b1_admin_coupon_list_view.sql`
   · 形狀來源 `20260816030000_m4b_admin_customer_list_view.sql`
+
+---
+
+### #962 「lint 從此真的掃測試檔」是真的,而它在 apps/admin 交付的是【一條規則】
+
+- **狀態:** open · **來源:** 2026-08-29 線G 複核 `7d1884a1` 時量到(該顆本身正確, 本條不是它的缺陷)
+- **標題為什麼逐字含那句 commit 標題:** 讓拿那句話去搜的人**同一發撞到這一列**。
+  `7d1884a1` 標題逐字:`fix(config): lint 從此真的掃測試檔 —— 而「先量再改」讓它從 45 條收到 0 條 [M-4b]`
+
+- **量到什麼(問 eslint 本人, 不是讀設定):**
+  ```
+  npx eslint --print-config <一支 .test.tsx>
+    apps/admin      測試檔 ⇒ 1 條（boundaries/dependencies）
+                    非測試檔 ⇒ 2 條（+ no-restricted-syntax）
+    apps/storefront 測試檔 ⇒ 2 條（+ no-restricted-imports）
+  🔴 負對照：對一支真的被 ignore 的檔 ⇒ undefined ⇒ 這把尺分得開
+  ```
+  ⇒ **`no-restricted-syntax` 對測試檔的豁免是【刻意且有理由的】**(它的成立前提是
+  「client bundle 取 undefined」, 而測試檔不進 client bundle)——**本條不是要撤那個豁免。**
+
+- **本條在講什麼:** 🔴 **那句 commit 標題讀起來是「測試檔現在有 lint 在看」,
+  而在 `apps/admin` 它的實體是【一條 `boundaries/dependencies`】。**
+  📌 **⇒ 而下一個人會依賴前者** —— 例如「這片只動測試檔, 而 lint 綠 ⇒ 有守門看過」。
+  ⇒ 那句話**不是假的**, 它只是**比它交付的寬**。
+
+- **不修未來會痛在哪(鐵則 10):**
+  - **bug 可追蹤性:** 一片只動測試檔、三綠全過 ⇒ 讀的人以為 lint 覆蓋過它
+    ⇒ 而在 admin 那一發只驗了模組邊界, **沒有驗任何別的東西**。
+  - **可維護性:** `apps/admin` 整個 flat config 就 **2 條規則** ⇒ 這不是「測試檔被排除」造成的,
+    是**這個 app 的 lint 本來就薄**。⇒ 要它厚, 是另一件事(加規則), 不是改 ignores。
+
+- **邊界:** **本條不含實作。** 「要不要幫 admin 加規則」是一個獨立的題,
+  而**加規則會讓現有檔冒紅** ⇒ 那要先量再談(照 `7d1884a1` 自己示範的順序:先量再改)。
+
+- **相關:** `7d1884a1` · `eslint.config.js:147`(那個物件的 `ignores`)· `#961`
