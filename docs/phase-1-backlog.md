@@ -6679,7 +6679,7 @@ order by n desc, 1;
   | ① Q4-B 跨路徑 skip | 🔴 **未實作** | `git grep -ln 'last_settle_attempt_at'` ⇒ **3 檔,而三檔【全部是文件】**(本檔 + 兩支 plan)⇒ **零 code、零 migration** |
   | ② 真 alert channel | ✅ **已實作** | `apps/storefront/src/app/api/cron/anomaly-alert/route.ts` 有 LINE / Email 兩管道。⚠️ 而**它要不要真的送**取決於 `ANOMALY_ALERT_ENABLED` 與管道密鑰 —— **Sean 2026-08-17 回報該 flag 為 `true`**,🔴 **那是【他回報】不是我方看 Vercel 面板量的**(該檔 `:26` 自己也寫著「那是別人量的,我沒看 Vercel 設定畫面」) |
   | ③ cron 靜默死偵測 heartbeat | 🟡 **code 已落地,正式庫未生效** | 見下方 ③ 那一行 |
-  | ④ 轉人工結案流程 / 後台 UI | 🔴 **未實作** | `git grep -ln 'needs_manual_review' -- apps/admin` ⇒ **0**(全樹 57 命中都在別處)⇒ **admin 端沒有任何 UI** |
+  | ④ 轉人工結案流程 / 後台 UI | 🔴 **仍未實作** | 🔵 **新尺(`-e9` 2026-08-30 立、`-b9` 獨立複量, 2026-08-30 06:29)——【兩種拼法都問, 只數非註解】**:`needs_manual_review` ⇒ **非註解 0** / `needsManualReview` ⇒ **非註解 0**(`apps/admin` 分母:**4 檔 5 命中, 5 個【全部是註解】**;負對照現造字面 ⇒ 0)<br> 🛑 **舊尺留著不刪**:~~`git grep -ln 'needs_manual_review' -- apps/admin` ⇒ **0**(全樹 57 命中都在別處)~~ —— **那把尺 2026-08-17 印 0, 而 2026-08-30 印 4**;而**那 4 檔 5 個命中全部是註解**, 其中 `apps/admin/src/components/orders/cancel-review-section.tsx:159` 逐字寫著「**不濾 `needs_manual_review`**」。<br> 🔴 **⇒ 留舊尺的理由**:**一把被刪掉的壞尺, 與一把從來不存在的尺, 在檔案上長得一樣** ⇒ **下一個人會用同樣的直覺, 發明回同一把。**<br> 🛑 **⇒ 而這一格的形狀值得單獨記(`-48` 指出)**:`0 → 4` 讀起來是【有人動工了】, **而真相是【有人寫了註解說我沒動這個】** ⇒ **錯的方向是【往好的走】—— 而往好的走的數字, 沒有人會回頭查。**<br> 📌 **⇒ 一句誠實的「我沒做」, 被一把誠實的尺, 數成了「有人做了」。兩端都沒有錯, 而合起來是一個假的進度。** |
 
   ⇒ 🔴 **`#231` 整條【不能關】** —— ① 與 ④ 零實作。本次只把 ③ 那一格的狀態講準。
 - **優先級:** 🟠 中(Phase I 零真流量 benign;Phase II 開 prod 真刷卡前升為硬前置)
