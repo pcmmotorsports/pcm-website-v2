@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // cron-heartbeat-read.test.ts — 3a 讀取端的守門。
@@ -82,6 +84,54 @@ describe('白名單這張表本身', () => {
   it('job 名字不得重複(重複 ⇒ 後面那支會蓋掉前面,而畫面上少一列沒有人會發現)', () => {
     const names = CRON_JOB_WHITELIST.map((w) => w.jobName);
     expect(new Set(names).size).toBe(names.length);
+  });
+
+  /**
+   * 🔴 **本格補的是【上面那一格自己說它驗不到】的那一側。**
+   *    它逐字寫著「而本測試**驗不到那一側** —— 它只釘住『碼裡這份沒有被偷偷改掉』」。
+   *    ⇒ 這裡把分母換成 `supabase/migrations/*.sql` 裡真的呼叫過的 `cron.schedule('<名字>'`。
+   *
+   * 🛑🛑 **而這一格【擋不到只在 SQL Editor 排的排程】, 這句話必須跟著它走。**
+   *    Sean 只用 SQL Editor 手貼(`CLAUDE.md` 記著他不用 `db push`)⇒
+   *    一支【只在 SQL Editor 排過、沒有進 repo】的 cron:本格看不見它、白名單不會有它,
+   *    而**儀表上不會少一列** —— 它從頭到尾就沒有那一列。
+   *    📌 **缺席的東西不會在任何一張表上留下一個空格。**
+   *    ⇒ 所以本格綠的時候, 正確的讀法是
+   *      **「repo 裡那兩份手寫的東西還一致」**, 不是「白名單沒有漏掉任何真的在跑的排程」。
+   *      🔴 後者【沒有任何人量得到】:後台讀不到 `cron.job`(三道權限,見本檔對應說明)。
+   *
+   * 🔴 **為什麼要剝註解**:第一發不剝時撈到 20 行, 其中 8 行是**註解裡提到** `cron.schedule`
+   *    (例如逐字「`cron.schedule` 兩 job:pcm-settle-sweep…」)⇒ 分母會被灌水。
+   * ✅ 而**動態組出來的 job 名**(`format(...)` / `||` / 變數)實測**零命中**
+   *    (2026-08-29 當場量, 同一把尺的正對照撈得到字面常數形狀 ⇒ 它不是恆零)。
+   *    ⚠️ 若哪天有人用動態名排 cron, **本格會漏掉它而印綠** —— 那是本格的第二個盲區。
+   */
+  it('🔴 白名單 == migrations 裡真的排過的那幾支(兩個方向都比)', () => {
+    const dir = resolve(__dirname, '../../../../../supabase/migrations');
+    const names = new Set<string>();
+    for (const f of readdirSync(dir).filter((x) => x.endsWith('.sql'))) {
+      // 剝掉 `--` 行註解再找 —— 否則「註解裡提到 cron.schedule」會被算進分母。
+      const sql = readFileSync(join(dir, f), 'utf8').replace(/--[^\n]*/g, ' ');
+      for (const m of sql.matchAll(/cron\.schedule\(\s*'([^']+)'/g)) names.add(m[1]!);
+    }
+    const inMigrations = [...names].sort();
+    // 🔴 顯式放寬成 string[]:`jobName` 是字面聯集型別,而這裡要拿【任意字串】
+    //    (從 migrations 撈到的)去比 ⇒ 不放寬的話 `includes` 連編譯都過不了。
+    //    ⚠️ 而放寬本身有代價:型別不再幫我擋「比錯欄位」⇒ 那一格由上面那道正對照擋。
+    const inWhitelist: string[] = CRON_JOB_WHITELIST.map((w) => w.jobName as string).sort();
+
+    // 🔴 正對照先跑:分母不得是空的。空目錄 / 樣式打錯 ⇒ 下面兩個 toEqual 會在
+    //    「兩邊都空」時全過, 而那正是這種對帳最常見的假綠。
+    expect(inMigrations.length, 'migrations 裡撈到的排程數(0 ⇒ 這把尺沒接上)').toBeGreaterThan(0);
+
+    expect(
+      inWhitelist.filter((n) => !names.has(n)),
+      '白名單有、而 migrations 沒排 ⇒ 白名單有過期條目',
+    ).toEqual([]);
+    expect(
+      inMigrations.filter((n) => !inWhitelist.includes(n)),
+      '🔴 migrations 排了、而白名單沒有 ⇒ 有排程沒有人在看它的心跳',
+    ).toEqual([]);
   });
 
   it('🔴 逾期取消那一支必須在「失敗計數沒有意義」名單裡(片2 的物理限制)', () => {
