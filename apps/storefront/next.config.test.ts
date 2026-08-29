@@ -18,7 +18,14 @@ import nextConfig from './next.config';
 //    修法:將 `DB_KEY_PATTERN`/guard 抽到共用 `packages/`,兩個 app 分別匯入,並刪除豁免。」
 //    ✅ **它是對的,而那是一個【搬碼】的改動** —— 本片的界是「讓 lint 掃測試檔」,
 //    而不給豁免的代價是**全隊 `pnpm lint` 立刻紅**,那道閘會被關掉(今晚量過那個下場)。
-//    ⇒ **保留豁免 = 刻意的技術債,不是判它沒問題。** 已登記進工作池。
+//    ⇒ **保留豁免 = 刻意的技術債,不是判它沒問題。** 已登記進工作池
+//      (`Sat Aug 29 12:01:07 CST 2026`,獨立一件,不需要 Sean)。
+// 🔴 **什麼時候該還** —— 「已登記」會讓下一個人以為**有人在追**,而工作池是一份會被
+//    清空的檔 ⇒ 那筆債會跟著消失。**所以還款的觸發條件寫在這裡,不是只寫在池子上**:
+//    **① 下一次有人要動 `apps/admin/src/lib/dev-db-guard.*` 的介面 ⇒ 當場還**
+//       (那正是 codex 指的失敗情境:admin 重構連帶弄壞 storefront,而 lint 不會攔)
+//    **② 或 `packages/` 底下開始有共用的 env / DB 判定 ⇒ 那時搬過去幾乎零成本**
+//    📌 **一筆沒有還款觸發條件的債,與一個永遠不會被想起的決定,在 code 上長得一樣。**
 // eslint-disable-next-line boundaries/dependencies
 import { DB_KEY_PATTERN } from '../admin/src/lib/dev-db-guard';
 
