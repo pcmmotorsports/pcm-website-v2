@@ -19,6 +19,21 @@ export { isEmailExistsError } from './supabase/auth-errors';
 export { SupabaseProductAdapter } from './supabase/SupabaseProductAdapter';
 // M-1-14d:會員系統 3 個 Supabase adapter(單一 authenticated client、RLS 守自己 row)。
 export { SupabaseCustomerAdapter } from './supabase/SupabaseCustomerAdapter';
+// 🔴 進 root export 的理由**照本檔 :47-50 那條界線判的, 不是照「會不會寫入」**:
+//    真正的界線是「ctor 要不要【強制】一個 service_role client」。
+//    `SupabaseCouponAdapter` 的 ctor 收一個普通的 `SupabaseClient<Database>` ⇒ 不強制
+//    ⇒ 與同一行的 `SupabaseCustomerAdapter` 同款(那支也是 admin 列表要 service_role 才讀得到)。
+//    ⚠️ 而它**只讀不寫** —— 券的寫入唯一路是之後那幾片的 SECURITY DEFINER RPC。
+export {
+  SupabaseCouponAdapter,
+  ADMIN_COUPON_LIST_SELECT,
+  ADMIN_COUPON_LIST_VIEW,
+} from './supabase/SupabaseCouponAdapter';
+export type {
+  SupabaseAdminCouponRow,
+  AdminCouponFilter,
+  AdminCouponSort,
+} from './supabase/SupabaseCouponAdapter';
 export { SupabaseAddressAdapter } from './supabase/SupabaseAddressAdapter';
 export { SupabaseVehicleAdapter } from './supabase/SupabaseVehicleAdapter';
 // M-3-S2-b2:SupabaseOrderAdapter 建單走 create_order SECURITY DEFINER RPC、**零 service_role**
