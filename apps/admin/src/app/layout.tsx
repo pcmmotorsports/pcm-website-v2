@@ -54,6 +54,52 @@ export default async function RootLayout({
   const sidebarCounts = await getSidebarCounts();
   return (
     <html lang='zh-Hant' suppressHydrationWarning>
+      {/* 🔴🔴 **後台的中文字型**(`Q-FONT2`,Sean 2026-08-29 逐字答「甲 後台接上顧客站已經在用的那條」)
+          ⚠️ **他重答過** —— 原答是「把字型檔放進來」(= 那次的乙),引用時不要只引後面那次。
+
+          ## 為什麼要載:字型堆疊【一直都寫著】它,而沒有人把它載進來
+          `globals.css:244-246` 的 `--font-sans` 第 6 順位是 `'Noto Sans TC'`;
+          🔴 而**列印那支的第一順位就是它**:`app/print/print-a4.css:244`
+          `--pd-body: 'Noto Sans TC', 'PingFang TC', …` ⇒ **第一順位是一個 no-op**。
+          ⇒ macOS 上落到 `'PingFang TC'` ⇒ **看起來完全正常**;
+            而 Vercel 是 Linux 容器、預設映像通常一個 CJK 字型都沒有 ⇒ **豆腐字**。
+          📌 **⇒ 失敗形狀:開發的人在 macOS 看到正確中文, 只有正式站是壞的**
+            ⇒ **所有本機驗證、三綠、截圖對這一格【零判別力】。**
+
+          ## 為什麼放在【root layout】而不是 print 那一層
+          `app/print/layout.tsx` 逐字「本檔刻意不畫任何東西(直接回 `children`)」
+          ⇒ 它是**巢狀** layout, root 仍然包著它 ⇒ 放這裡涵蓋列印路徑。
+          🔴 而用 `<link>` 而**不用 `next/font`** 是刻意的:
+            `next/font` 把字型綁在它被 import 的那一層的 class 上
+            ⇒ 那正是「接上了而列印時仍然沒生效」的形狀。
+
+          ## 🔴 而這三行是【從 storefront 機械抽出來的】, 不是手打
+          來源 `apps/storefront/src/app/layout.tsx` 的 `<head>`。
+          ⚠️ **兩處要一致** —— `layout-font-link.test.tsx` 逐字比對兩邊的 URL, **分歧就紅**。
+          ## ⚠️ 兩個代價(code-reviewer 2026-08-29 點名,寫下來而不是修掉)
+          🔴 **① `<link rel=stylesheet>` 是 render-blocking**:`fonts.googleapis.com` 不可達時
+             (內網 / 擋外連), 後台首屏會**等到瀏覽器逾時才畫**。
+             ⚠️ `display=swap` **管不到這一段** —— 它只管字型檔, 不管這張樣式表。
+             ⇒ storefront 已經接受這個代價, 而**後台是員工工具、網路環境不一定同一種**。
+             ⇒ 目前照 Sean 的拍板「接上顧客站那條」⇒ 不另外做非同步載入(那會與顧客站分歧)。
+          🔴 **② 全 repo 今天【零 CSP】**(`apps/admin/vercel.json` 只有 framework+regions;
+             `next.config.ts` 無 `headers()`)⇒ 今天不會被擋。
+             **而日後誰加 CSP, `style-src` 要放 `fonts.googleapis.com`、
+             `font-src` 要放 `fonts.gstatic.com`** —— **漏掉的症狀就是豆腐字, 而它不會報錯。**
+          ⚠️ **③ Next 內建的 `global-error` 會自己畫 `<html>/<body>`** ⇒ **崩潰頁吃不到這顆 link**。
+             (repo 內今天無自訂 `global-error.tsx` ⇒ 不修, 而寫下來。)
+
+          ⚠️ **未確認(不要讀得比它大)**:「Vercel 預設映像沒有 CJK 字型」是**讀來的**,
+             沒有人在正式站上量過;「Windows 員工現在看到別的字型」是由列印頁測試的
+             射程宣告**推出**的。⇒ 兩格都要在真的量得到的時候補。 */}
+      <head>
+        <link rel='preconnect' href='https://fonts.googleapis.com' />
+        <link rel='preconnect' href='https://fonts.gstatic.com' crossOrigin='anonymous' />
+        <link
+          rel='stylesheet'
+          href='https://fonts.googleapis.com/css2?family=Antonio:ital,wght@0,500;0,700;1,500;1,700&family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Serif+TC:ital,wght@0,400;0,500;1,400&family=Cormorant+Garamond:ital,wght@0,500;1,400;1,500&family=JetBrains+Mono:wght@400;500&display=swap'
+        />
+      </head>
       <body className='bg-background text-foreground font-sans antialiased'>
         {/* 🔴🔴 `forcedTheme='light'` = **深色模式關閉的真正機制**(2026-08-16 Sean 拍板「不要深色模式」)。
             ⚠️ **`defaultTheme` 擋不住** —— `next-themes` 的 `setTheme` **無條件**把選擇寫進 localStorage
