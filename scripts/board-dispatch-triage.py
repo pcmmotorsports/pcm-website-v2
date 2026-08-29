@@ -35,7 +35,39 @@ def rows(path):
         c = l.split('|')
         if len(c) < 6:
             continue
-        out.append((i, c[1].strip(), c[3].strip(), c[4].strip(), '|'.join(c[5:])))
+        out.append((i, c[1].strip(), c[3].strip(), c[4].strip(), '|'.join(c[5:]), c[2].strip()))
+    return out
+
+
+ANCHOR = re.compile(r'⟦([^⟧]{2,40})⟧')
+
+
+def anchors(rs):
+    """回 {行號: 顯示用座標}。id 只認【第 2 欄(編號欄)】。
+
+    🔴 為什麼不掃整列(2026-08-30 線G 實測, 這把尺我先做錯了一次):
+       一列裡的 ⟦…⟧ 有兩種, 而【它們語法完全相同】——
+       ① 這一列自己的編號  ② 這一列提到的別的列
+       實例:⟦b4-M1b⟧ 那一列裡有 10 個錨, 依序
+       b4-M1 ×5 / b4-M1b ×2 / b4-BOARD1 ×2 / b9-2DOCS1 / b9-STATBLIND
+       ⇒ 【列尾】那個是 b9-STATBLIND —— 那是它【提到】的別的列, 不是它自己。
+       📌 ⇒ 「取列尾」與「取第一個」都會拿到別人的門牌, 而輸出看起來完全正常。
+
+    ⇒ 所以只認編號欄。實量:225 列裡 75 列有、150 列沒有。
+    ⇒ 沒有的那些用【標題前 12 字 + 行號】當座標(兩個座標, 有一個穩就救得回)。
+    """
+    cnt = collections.Counter(
+        ANCHOR.search(idc).group(1) for _i, _s, _w, _o, _b, idc in rs if ANCHOR.search(idc))
+    out = {}
+    for i, _st, w, _who, _b, idc in rs:
+        m = ANCHOR.search(idc)
+        if not m:
+            t = re.sub(r'[`*~🔴🔵🛑⚠️📌✅⇒—\s]+', '', w)[:12]
+            out[i] = f'⛔無錨「{t}」:{i}'
+        elif cnt[m.group(1)] > 1:
+            out[i] = f'⟦{m.group(1)}⟧⚠️編號欄撞名 :{i}'
+        else:
+            out[i] = f'⟦{m.group(1)}⟧ :{i}'
     return out
 
 
@@ -43,7 +75,7 @@ def triage(rs):
     """待派 x 有沒有標記 ⇒ 兩堆。判準是【逐字子字串】, 不是分類器。"""
     blocked, ready, notopen = [], [], []
     marked = 0
-    for i, state, what, who, body in rs:
+    for i, state, what, who, body, _idcol in rs:
         has_mark = any(m in body for m in MARKERS)
         if has_mark:
             marked += 1
@@ -64,6 +96,7 @@ def triage(rs):
 def main(path):
     rs = rows(path)
     blocked, ready, notopen, marked = triage(rs)
+    AK = anchors(rs)
 
     print(f'掃過的資料列 = {len(rs)}   內文帶標記的列 = {marked}')
     print(f'字集 = {" / ".join(MARKERS)}   板子 = {path}')
@@ -76,6 +109,10 @@ def main(path):
    · 內文用了別的字說「我在做」（字集只有上面那兩個）
    · 第 4 欄根本不在寫「誰」的那些列（例 `要面板 + 要 code`）
      ⇒ 那種列【兩堆都不會收】—— 它連矛盾都構不成
+🔴 座標讀法:⟦錨⟧ 只認【第 2 欄】, :行號 是輔助
+   ⚠️ 內文裡的 ⟦…⟧ 有一半是【提到別的列】, 與自己的編號語法相同
+   板子一天漂 287 行 ⇒ 【引用時只寫行號, 隔天指到別人那一列】
+   ⛔無錨 = 那一列沒有穩定座標，引用它要連標題前 12 字一起寫
 """)
 
     print(f'🛑 不要派 —— 第4欄說「待派」而內文說有人在做 ({len(blocked)} 列)')
@@ -85,26 +122,26 @@ def main(path):
     if not blocked:
         print('   （無）')
     for i, who, what in blocked:
-        print(f'   :{i}  第4欄=[{who[:70]}]')
+        print(f'   {AK[i]}  第4欄=[{who[:70]}]')
         print(f'        {what[:78]}')
 
     print(f'\n✅ 拿了就能派 —— 第4欄說「待派」而內文乾淨 ({len(ready)} 列)')
     if not ready:
         print('   （無）')
     for i, who, what in ready:
-        print(f'   :{i}  {what[:78]}')
+        print(f'   {AK[i]}  {what[:78]}')
 
     # ③ 只描述, 不分類 —— 逐字印第 4 欄長什麼樣, 不替它歸類。
     # 🔴 理由: 做這件事的第一版用 `"線" in w` 抓窗名, 把「上【線】前」算了進去。
     #    一份壞掉的分類與一份對的分類, 都會印出一張看起來很整齊的表。
     print(f'\n📌 第 4 欄逐字長相(只描述、不分類;出現最多的 12 種)')
-    for v, n in collections.Counter(w for _, _, _, w, _ in rs if w).most_common(12):
+    for v, n in collections.Counter(w for _, _, _, w, _, _ in rs if w).most_common(12):
         print(f'   {n:4d}  [{v[:72]}]')
 
     print(f'\n⛔ 誰欄寫「待派」而態【不是 open】({len(notopen)} 列) —— 不進可派名單')
     print('   （態 = done 的列，誰欄不是權威；判「還要不要做」看態、不看誰欄）')
     for i2, st, what in notopen:
-        print(f'   :{i2}  態={st:8s} {what[:66]}')
+        print(f'   {AK[i2]}  態={st:8s} {what[:60]}')
 
     print('\n📎 射程在最上面那段（刻意不放這裡 —— 放這裡等於沒放）')
     return 0
