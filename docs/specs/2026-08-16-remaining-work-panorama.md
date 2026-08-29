@@ -168,6 +168,9 @@ docs/specs/2026-07-25-admin-backend-rebuild-spec.md
 搜尋線主體        Sean 拍 Q-SEARCH-0=乙：M-4b 之後
                   ⚠️ 但「死掉的搜尋框」那半不排隊
 M-3 TapPay 正式化 S3 起、退刷線 RF2b 起   —— STATUS 標「暫緩非作廢」
+   🔴 2026-08-29 更正:「RF2b 起」作廢 —— RF2b 已 apply(20260803150000),
+      且它是**用別的名字**落的(admin_initiate_order_refund / admin_finalize_order_refund)。
+      真前緣 = 地圖 `2g`,權威 docs/specs/2026-08-11-refund-line-map.md
 M-4a 通知線 B-4                            —— 同上
 會計線整條                                  spec §0a 逐字「Sean 2026-07-25/26 拍板：整條延後」
 9 大藍圖 schema                             不在 Phase 1（NORTHSTAR）

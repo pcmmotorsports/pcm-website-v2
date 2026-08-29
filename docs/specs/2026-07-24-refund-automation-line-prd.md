@@ -1,5 +1,32 @@
 # PRD — 後台「取消訂單 = 自動退款」線(2026-07-24 草稿)
 
+> 🛑🛑 **本檔的【拆片表】已被 `docs/specs/2026-08-11-refund-line-map.md` 取代(2026-08-29 線C 逐格查證)。**
+>
+> **§4 的 RF1-RF8 不是還沒做的清單** —— 逐格量測(檔名 + `supabase/APPLIED.tsv`,負對照 `29990101000000` ⇒ 0):
+> ```
+> RF1  ✅ packages/domain/src/order/refund.ts（含 calculateShippingFee 的 rule 參數，shipping.ts:87-91）
+> RF2a-0 ✅ 20260725120000_rf2a0_orders_freeze_shipping_rule.sql        applied=1
+> RF2a   ✅ 20260725130000（enum）/ 20260725130100（帳本）                applied=1
+> RF2b   ✅ 20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql             applied=1
+> RF3    ✅ TapPayChargeAdapter.refund() 已實作（見 §2 的 2026-08-20 校正框）
+> RF4    ✅ apps/admin/src/lib/payment/composition.ts:134 getTapPayAdapter()
+> RF6    ✅ apps/admin 底下 59 支 refund 檔（refund-section / refund-ledger-section / refund-exceptions…）
+> ```
+>
+> 🔴 **而 RF2b 是【用別的名字】落的,這一格最會騙人**:
+> ```
+> 本檔寫的名字   admin_refund_order_items   ⇒ 全 repo 只命中【一行註解】（20260725130100:36）
+> 實際落地的名字 admin_initiate_order_refund   （20260803150000:423）
+>                admin_finalize_order_refund   （20260803150000:612）
+> ```
+> 📌 **⇒ 拿本檔的片名去 grep 會得到一個【查無】,而那個查無的意思是「改名了」,不是「沒做」。**
+> 🔴 **⇒ 判別句:一個名字查無,先問【這個名字是誰給的、什麼時候給的】** ——
+> **PRD 上的名字是「計畫時的名字」,而實作時改名不會有人回來改 PRD。**
+>
+> ⚠️ **原文一字未刪** —— 拍板脈絡(§0/§0b/§0c 的 D1-D5、Q1-Q6)仍然有效,**過期的只有 §4 的拆片與 §2 的現況**。
+> ⚠️ **前緣現況(2026-08-29)**:地圖的 `2g`(補償寫入 RPC)—— 三種命名變體掃 migrations 皆查無。
+> 🔴 **那是「我的檢查沒看到」,不是「它不存在」**(可能以第四種名字存在)。
+
 > ⚠️ **Claude 過夜自主起草;Sean 2026-07-24 拍 Q4=B 授權方向(退款線提前啟動第二段、真 1 元刷測)。**
 > 這是**一條線、非一片**(估 5-7 片),命中**鐵則 12 錢+權限+DB**、每片需 plan + codex 對抗審 + 交易模擬。
 > **只規劃,未實作**;每片實作前需 Sean ①批 plan ②db push(新 RPC)③設 admin Vercel TapPay env。
