@@ -498,6 +498,19 @@ describe('D6-a 驗收① 關單之後面板仍在(掛在資格閘之外)', () =>
 //    本組驗的正是「兩邊真的接的是同一顆值,不是各自算出剛好一樣的兩份」——
 //    只測 `cancel_mode`(表單本身)測不到這件事,商品卡上的 checkbox 要單獨量。
 describe('片C 驗收:商品卡的取消 checkbox 與危險區的表單共用同一道 cancelFormsAllowed 閘', () => {
+  // 🔴🔴 **這一組的守門是【兩棒接力】,而兩棒各自只擋得住一半 —— 2026-08-29 兩發突變量到。**
+  //
+  //   第一棒 `expectItemsTableRendered`(`.ihead`)  擋【商品卡整塊沒渲染】
+  //     ⇒ 突變 `ItemsTable` 進入點 return null ⇒ 下面三格負向斷言**全紅**,錨的訊息印出來 ✅
+  //
+  //   🔴 第二棒 = **下面第一格那個正向對照本身**(`checkbox > 0`)
+  //     ⇒ 突變 `PartialCancelItemControl` return null(表格照畫、只有 checkbox 不見)
+  //       ⇒ **三格負向斷言全部照樣綠**、只有那一格正向紅。
+  //
+  // 📌 **⇒ 錨擋不住第二種世界 —— 而那正是「取消勾選功能默默失效」最像的那一種。**
+  // 🔴 **⇒ 所以【第一格不是可有可無的 happy path】,它是下面三格唯一的分母。**
+  //    刪掉它 ⇒ 下面三格對「checkbox 消失」這件事變成**完全恆真**,而且零訊號。
+  //    ⚠️ 而它讀起來最像可以刪的那一格(名字最平淡、沒有 🔴)—— 這句話就是寫給那個人看的。
   it('canonical 網址 ⇒ 商品卡上也出現取消 checkbox(不只是危險區的表單)', async () => {
     const { container } = await renderPage();
     expectPageRendered(container);
