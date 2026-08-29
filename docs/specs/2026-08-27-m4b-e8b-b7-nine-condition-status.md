@@ -13,15 +13,46 @@
 > 分母 = 母 plan `docs/specs/2026-08-16-m4b-e8b-real-auth-line-plan-v4.md` §6(負向清單)。
 > 母 plan 逐字:「正向『三個帳號各登一次』不算驗收」「每一項都要有一格【會紅】的測試,不是『應該會擋』」。
 
-## admin 側 59 格綠(可重跑,不只給數字)
+## admin 側 ~~59~~ **83** 格綠(可重跑,不只給數字)
+
+> 🔴 **2026-08-29 線I 重跑訂正 —— 兩件事,而第一件會讓你以為這份表在說謊。**
+
+### ① 上面原本那條指令,照抄會失敗
 ```
+~~npx vitest run --project admin \~~
+~~  src/lib/session/b5a-identity-acceptance.test.ts \~~
+~~  src/lib/session/read-gate.test.ts \~~
+~~  src/lib/session/authorize.test.ts \~~
+~~  src/lib/staff.test.ts~~
+```
+在 `apps/admin/` 底下照抄 ⇒ `No test files found, exiting with code 1`(2026-08-29 實跑)。
+成因:vitest 的 `include` 是 `apps/admin/**/*.{test,spec}.{ts,tsx}`
+⇒ 🔴 **要在 repo 根跑,而且路徑要帶 `apps/admin/` 前綴。**
+⚠️ 它**至少 rc=1**、不是全綠而沉默 —— 但畫面上只有一句話,
+   而下一個人最可能的反應是「**那就是還沒做**」,**而那正是這份表存在要擋掉的誤讀**。
+
+### ⇒ 可跑的形狀(2026-08-29 實跑 rc=0)
+```
+cd /Users/sean_1/pcm-website-v2
 npx vitest run --project admin \
-  src/lib/session/b5a-identity-acceptance.test.ts \
-  src/lib/session/read-gate.test.ts \
-  src/lib/session/authorize.test.ts \
-  src/lib/staff.test.ts
-⇒ 4 檔 / 59 passed / 0 failed(2026-08-27 11:3x 實跑 rc=0)
+  apps/admin/src/lib/session/b5a-identity-acceptance.test.ts \
+  apps/admin/src/lib/session/read-gate.test.ts \
+  apps/admin/src/lib/session/authorize.test.ts \
+  apps/admin/src/lib/staff.test.ts
 ```
+
+### ② 而 `59` 這個數字腐爛了
+```
+2026-08-27 11:3x 原量  ⇒ 4 檔 / 59 passed / 0 failed / rc=0
+2026-08-29 重量 第一發 ⇒ 4 檔 / 83 passed / 0 failed / rc=0
+2026-08-29 重量 第二發 ⇒ 4 檔 / 83 passed / 0 failed / rc=0   (連跑兩發相同)
+餵幾條 vs 跑幾支      ⇒ 我餵 4 條、它跑 4 支                  (兩個數相等)
+正對照(只餵 1 條)    ⇒ 1 檔 / 22 passed / rc=0               (尺會隨輸入變,非恆綠)
+```
+🟡 **方向是好的**(測項從 59 長到 83),**而引用 `59` 的人會拿到一個對不上的數,
+   並且它不會叫** —— 兩發都綠、兩發都 4 檔,只有總格數不同。
+⚠️ **本次未做突變測試** ⇒ 「83 格都在守對的東西」我**沒有驗**,只驗了「尺會隨輸入改變」。
+   原表 2026-08-27 那一輪的逐條正對照(下表「正對照(防恆綠)」欄)**本次沒有重跑**。
 
 ## 九條逐條
 
