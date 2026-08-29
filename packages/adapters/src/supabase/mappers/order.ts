@@ -165,7 +165,16 @@ export function mapPlaceOrderToCreateOrderArgs(input: PlaceOrderInput): CreateOr
  * 只取 `ORDER_LIST_SELECT`(SupabaseOrderAdapter)投影的欄 + 內嵌 `order_items(quantity)`(to-many array)。
  * `payment_status` / `fulfillment_status` 生成 enum 型別字面與 domain `PaymentStatus`/`FulfillmentStatus`
  * 完全一致(直送、無需轉換);`total` integer 元位 → Money 走 `toMoneyAmount`。
- * 🔴 鐵則 12:**不含** unit_price / line_total / product_snapshot / 經銷價 / PII —— 投影白名單外的欄不在此型別。
+ * 🔴 鐵則 12:**不含** 經銷價 / cost / tier / PII —— 投影白名單外的欄不在此型別。
+ *   ⚠️ ~~原句寫「不含 unit_price / line_total / product_snapshot」~~ ⇒ **2026-08-29 起那半是假的**:
+ *   Sean 拍板訂單記錄卡片要列出每件商品(有圖有品名)⇒ `line_total` / `product_snapshot` /
+ *   `product_variants(images, products(images, brands(name)))` 進了投影(`unit_price` **仍然不取**:
+ *   稿印的是小計 ⇒ 取 `line_total` 就夠,最小權限)。
+ *   **放行理由逐欄在 `SupabaseOrderAdapter.ts` 的 `ORDER_LIST_SELECT` docstring**;一句話版:
+ *   `product_snapshot` 的安全性是 **DB CHECK 保證**(exact key set + 價格鍵 blacklist),
+ *   而巢狀那段與 `MEMBER_ORDER_DETAIL_SELECT`(`#240` 已審、已上線)**逐字相同**。
+ *   🔴 **留原句在這裡是刻意的** —— 掃「這一面沒有 product_snapshot」的人會撞到它,
+ *      而它現在自己說得出【我什麼時候、為什麼不再成立】。
  */
 export type SupabaseOrderListRow = Pick<
   Database['public']['Tables']['orders']['Row'],
@@ -180,8 +189,22 @@ export type SupabaseOrderListRow = Pick<
   | 'cancelled_at'
   | 'cancelled_reason'
 > & {
-  /** 內嵌 order_items(quantity)、to-many 非 null array(FK order_items_order_id_fkey、isOneToOne:false)。 */
-  order_items: { quantity: number }[];
+  /**
+   * 內嵌 `order_items`、to-many 非 null array(FK order_items_order_id_fkey、isOneToOne:false)。
+   * 🔴 2026-08-29 起多帶三樣(卡片商品列):`line_total` / `product_snapshot` /
+   *    `product_variants(images, products(images, brands(name)))`。
+   * ⚠️ 巢狀那段的**型別形狀刻意與明細側同款**(`images: unknown` + 一路可 null)——
+   *    join 任一層缺就是 `null`,而那是**合法的**(變體被刪 `ON DELETE SET NULL`)、不是錯誤。
+   */
+  order_items: {
+    quantity: number;
+    line_total: number;
+    product_snapshot: unknown; // jsonb;DB CHECK 保證 exact key set {title,sku,spec} 且 spec 無價格鍵
+    product_variants: {
+      images: unknown;
+      products: { images: unknown; brands: { name: string } | null } | null;
+    } | null;
+  }[];
 };
 
 /**
@@ -214,6 +237,23 @@ export function mapSupabaseOrderRowToListItem(row: SupabaseOrderListRow): OrderL
     //    ⇒ 客人看到「3 件」而實際訂了 600 件 —— **他不會知道,也不會回報**(他沒有第二個來源可以對)。
     //    判法逐字沿用另外兩處:**要 N 筆、拿回剛好 N 筆就當作可能被切了**。
     itemCountTruncated: row.order_items.length >= ORDER_LIST_ITEMS_EMBED_LIMIT,
+    // 🔴 卡片商品列(2026-08-29,Sean 拍板「列出每件商品,有圖有品名」)。
+    //    ⚠️ **與 `itemCount` 是兩個不同的東西,不要用 `items.length` 取代它**:
+    //       `itemCount` = Σquantity(Q4=B 總數量),而 `items.length` = 列數。
+    //       一張「同一個品項買 3 個」的單:itemCount=3、items.length=1。
+    //    🔴 **而 `itemCountTruncated` 為真時 `items` 也是被切過的** —— 兩者同一個成因
+    //       (內嵌上限),所以顯示端印「?」的那張卡,商品列也不完整。
+    //       ⇒ 顯示端要嘛一起處理、要嘛明說只列出部分,不得讓客人以為那就是全部。
+    items: row.order_items.map((item) => ({
+      title: pickString(item.product_snapshot, 'title'),
+      // brand / image 走 variant→product 兩段 fallback,**與明細側逐字同款**(不自己另寫一套)。
+      brand: item.product_variants?.products?.brands?.name ?? null,
+      imageUrl:
+        pickFirstImage(item.product_variants?.images) ??
+        pickFirstImage(item.product_variants?.products?.images),
+      quantity: item.quantity,
+      lineTotal: { amount: toMoneyAmount(item.line_total), currency: 'TWD' as const },
+    })),
   };
 }
 

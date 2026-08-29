@@ -51,6 +51,7 @@ const SAMPLE_RECENT: OrderListItem[] = [
     cancelledAt: null,
     cancelKind: 'none' as const,
     itemCountTruncated: false,
+    items: [],
   },
 ];
 

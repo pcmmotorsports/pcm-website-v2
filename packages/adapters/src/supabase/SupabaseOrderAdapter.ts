@@ -61,8 +61,14 @@ import {
 /**
  * orders 摘要投影白名單(account OrdersTab / Overview 最近訂單)。
  *
- * 🔴 鐵則 12:**只**摘要欄 + 內嵌 `order_items(quantity)`(只算件數);**禁** unit_price / line_total /
- * product_snapshot / 經銷價 / PII(shipping_address_snapshot / invoice / tappay_rec_trade_id / tier_at_checkout)。
+ * 🔴 鐵則 12:摘要欄 + 內嵌 `order_items`;**禁** 經銷價 / cost / tier / PII
+ * (shipping_address_snapshot / invoice / tappay_rec_trade_id / tier_at_checkout)。
+ * ⚠️ ~~原句:「**只** 內嵌 `order_items(quantity)`(只算件數);**禁** unit_price / line_total /
+ *    product_snapshot」~~ ⇒ **2026-08-29 起那半不成立**(卡片商品列;逐欄理由見下方常數的 docstring)。
+ *    🔴 **這是本檔【第三處】說同一句話的地方**(另兩處:那個常數本身、`mappers/order.ts` 的 row 型別)——
+ *    而我第一次改的時候**漏了這一處**,是 codex R2 抓到的。
+ *    📌 **⇒ 同一個事實寫在三個地方,改的人只會想起他正在看的那一個。**
+ *       (`unit_price` 仍然不取 —— 那半原句還成立,不要一起劃掉。)
  * module-level `export const` → SupabaseOrderAdapter.test.ts byte-equal + spy 守門(codex C1/N2)。
  *
  * 🔴🔴 **2026-08-24 `#249` 加了兩欄:`cancelled_at` / `cancelled_reason`。**
@@ -94,9 +100,52 @@ import {
  *   守門在 `mappers/order.test.ts` 的「客人端投影不得夾帶 cancelled_reason 原文」那兩格
  *   (含一發打得中的突變:把原文放回投影 ⇒ 該格紅)。
  * ⚠️ 判別式只准用**等於**、不得用「包含」——理由與守門在 `order-cancel-reason.ts` / `.test.ts`。
+ *
+ * ══════════════════════════════════════════════════════════════
+ * 🔴🔴 2026-08-29 擴欄(Sean 拍「訂單記錄卡片要列出每件商品,有圖有品名」)
+ * ══════════════════════════════════════════════════════════════
+ * 照 `#249` 立下的程序:**這一格的 byte-equal 守門會為任何擴欄而紅,而放行理由逐欄寫在這裡。**
+ *
+ * - `line_total` = **這位客人自己這張單、這一列的小計**(整數 TWD)。
+ *   🔴 **不是** `unit_price`:稿的商品列印的是 `price × qty` 的結果 ⇒ 直接取那個結果就夠,
+ *      **少投影一欄**。(最小權限:不需要的欄不投影,即使它同樣無害。)
+ *   ⚠️ 它與經銷價無關:`order_items` 是**歷史凍結快照**,存的是結帳當下這位客人付的價,
+ *      而 `price_by_tier` / `price_store` / `cost` **不在這張表上**(建表語句
+ *      `20260604120000_m3_s2a_orders_order_items.sql:140-167` 就是分母)。
+ *
+ * - `product_snapshot` = 品名的來源(`title`)。
+ *   🔴🔴 **這一欄的安全性是【DB 保證】不是【我們小心】**:同一支 migration 的
+ *      `order_items_snapshot_whitelist` CHECK 逐字要求
+ *      「exact key set = {title, sku, spec}」+「spec 每值皆 string」+
+ *      **`NOT (spec ?| array['price_store','price_by_tier','cost'])`**
+ *      ⇒ 任何經銷價 / cost / 藏進 spec 的價格鍵**寫不進去**,不是靠讀取端過濾。
+ *   ⚠️ 而它**已經**在客人面被投影過:`MEMBER_ORDER_DETAIL_SELECT`(`#240`)同一欄同一用途,
+ *      而那條路的鐵則 12 審查 2026-08-23 過了。本次是**同一形狀延伸到列表**,不是新路徑。
+ *
+ * - `product_variants(images, products(images, brands(name)))` = 縮圖與品牌。
+ *   🔴 **與 `MEMBER_ORDER_DETAIL_SELECT` 逐字相同的巢狀形狀** —— 刻意抄同一份,
+ *      而不是自己另寫一個:兩處若形狀分岔,下一次收放會只改到一邊。
+ *   ⚠️ 三層都**只取 images / name**,沒有任何價格欄;`products` 那層不取 `price_*`。
+ *
+ * 🔴🔴 **這道驗證證不到什麼 —— 而它有【還款觸發條件】,不是一句「未確認」**
+ *   ```
+ *   證到的：我們【沒有向 DB 要】那些欄（投影字串層）
+ *   證不到：DB 不會【自己多給】
+ *          ⇒ 那靠的是「PostgREST 只回 select 指名的欄」,而那個前提是【讀來的、沒有實測】
+ *   ```
+ *   ⇒ **命中下列任一事件,上面那個前提就失效,要補一發真的打出去看回應的實測:**
+ *     · 有人把會員訂單查詢從 **PostgREST 直查**改成 **view 或 RPC**
+ *       (那一刻欄位就不再由這串決定,而這串會【看起來仍然正確】)
+ *     · 有人在 `MEMBER_ORDER_DETAIL_SELECT` 或本常數加入**任何價格相關欄名**
+ *   📌 **寫成事件而不是日期**:一筆沒有還款觸發條件的債,
+ *      與一個永遠不會被想起的決定,在 code 上長得一樣。
+ *
+ * 🔴 **而擴欄的代價要寫出來,不要只寫安全**:列表是 N 張單 × M 列商品,
+ *    而明細是 1 張單 ⇒ **回應體積量級不同**。`listSummariesByCustomer` 已有的
+ *    `order_items` 內嵌上限那段註解(見下方查詢處)同樣適用於這幾欄。
  */
 export const ORDER_LIST_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, total, cancelled_at, cancelled_reason, order_items(quantity)';
+  'id, display_id, created_at, payment_status, fulfillment_status, total, cancelled_at, cancelled_reason, order_items(quantity, line_total, product_snapshot, product_variants(images, products(images, brands(name))))';
 
 /**
  * **會員訂單明細**投影白名單(`#240`;/account/orders/<displayId>、RLS own-only)。

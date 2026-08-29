@@ -71,6 +71,7 @@ const SAMPLE_ORDERS: OrderListItem[] = [
     cancelledAt: null,
     cancelKind: 'none' as const,
     itemCountTruncated: false,
+    items: [],
   },
 ];
 

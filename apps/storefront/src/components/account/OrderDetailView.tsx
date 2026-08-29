@@ -21,7 +21,7 @@
 import Link from 'next/link';
 import type { MemberOrderDetail, MemberOrderDetailItem, OrderItemVehicleSnapshot, PaymentStatus } from '@pcm/domain';
 import { ProductImage } from '@/components/ProductImage';
-import { formatOrderDate, orderStatusLabel } from '@/lib/orders/order-display';
+import { formatOrderDate, orderStatusLabel, orderStatusTone } from '@/lib/orders/order-display';
 import { ORDER_DETAIL_ITEMS_TRUNCATED_NOTE } from '@/lib/account-order-copy';
 
 /**
@@ -56,13 +56,10 @@ const AMOUNT_LABEL: Record<PaymentStatus, string> = {
   partiallyRefunded: '訂單金額',
 };
 
-const STATUS_TONE: Record<PaymentStatus, 'action' | 'progress' | 'done'> = {
-  refunded: 'done',
-  partiallyRefunded: 'done',
-  unpaid: 'action',
-  partiallyPaid: 'action',
-  paid: 'progress',
-};
+// 🔴 ~~這裡原本有一份自己的 `STATUS_TONE`~~ ⇒ **2026-08-29 刪除**(codex 對抗審查 must-fix):
+//    它與 `OrdersTab` 那份【對 `partiallyPaid` 給出不同答案】⇒ 同一個客人在列表與明細
+//    看到同一張單的兩種顏色。⇒ 改吃 `orderStatusTone()` 這個唯一來源。
+//    📌 修法不是把兩份對齊 —— 對齊過的兩份下次還會再分岔一次。
 
 /** 金額字面(整數 Money → `NT$ 1,234`);與 OrdersTab 的既有寫法一致。 */
 function nt(amount: number): string {
@@ -125,7 +122,7 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
   //    📌 形狀:**拆掉一道濾網,等於把它背後所有沒被走過的路一次點亮 —— 而那些路沒有人驗過。**
   const cancelKind = order.cancelKind;
   const cancelled = cancelKind !== 'none';
-  const tone = cancelled ? 'done' : STATUS_TONE[order.paymentStatus];
+  const tone = orderStatusTone(order.paymentStatus, order.fulfillmentStatus, cancelKind);
   // 稿的四階進度軸。前兩階有來源;後兩階在第 1 批一律未完成(見檔頭)。
   const steps = [
     { t: '訂單成立', d: formatOrderDate(order.createdAt), ok: true },

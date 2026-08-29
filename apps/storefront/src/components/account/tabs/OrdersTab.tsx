@@ -1,8 +1,14 @@
 // OrdersTab.tsx — 會員中心「訂單記錄」分頁(M-3:接真訂單摘要清單,取代 g-2 空狀態)
 //
-// 直接搬 design AccountPages.jsx orders tab(L538-557).acc-order.acc-order-full 字面:
-//   左欄 .acc-order-l(.ap-mono.acc-order-id + .acc-order-meta「{日期} · {件數} 件商品」)
-//   右欄 .acc-order-r(.acc-order-total「NT$ {total}」+ .acc-order-status + button.acc-order-detail「查看詳情 →」)
+// 🔴 **2026-08-29 重蓋**(Sean 拍板):版面權威從 **design-reference 舊權威**換成
+//   **OD 稿 `pcm-home-redesign/account-page.html`**(sha256 前 12 = 88f9b3085d16 · 841 行 · 08-07)。
+//   兩者是**兩個世界**,不是「稿比較新」——舊版照的是 `AccountPages.jsx` L538-557。
+//   現在的形狀 = 稿的三段式卡:
+//     .acc-order-top   灰抬頭四欄(訂單日期 / 訂單金額 / 訂單編號 / 狀態徽章)
+//     .acc-order-body  件數、`#639` 那段說明、每件商品一列(.acc-order-item)
+//     .acc-order-foot  動作列 —— **這一輪只有「查看詳情 →」**(理由寫在那一段)
+// ~~舊版:左欄 .acc-order-l + 右欄 .acc-order-r~~ ⇒ 那兩個 class 現在**只剩 OverviewTab 在用**
+//   (它有自己一份 JSX,尚未跟著換;稿本身是統一的,而統一是另一片)。
 // 資料來自 page.tsx getOrderRepo→listSummariesByCustomer(RLS own-only)、forward 經 AccountView。
 //
 // - 0 筆 → 保留 g-2 business override 空狀態(design 無 orders 空狀態);≥1 筆 → 渲染清單。
@@ -15,8 +21,13 @@
 
 import Link from 'next/link';
 import type { OrderListItem } from '@pcm/domain';
-import { formatOrderDate, orderStatusLabel } from '@/lib/orders/order-display';
-import { ORDER_ITEM_COUNT_TRUNCATED_NOTE } from '@/lib/account-order-copy';
+import { formatOrderDate, orderStatusLabel, orderStatusTone } from '@/lib/orders/order-display';
+import {
+  ORDER_ITEM_COUNT_TRUNCATED_NOTE,
+  // 🔴 沿用【明細頁那一句】,不另造一句：兩頁講的是同一件事(內嵌上限把品項切了),
+  //    而兩份各自維護的文案，下次只會改到一邊。
+  ORDER_DETAIL_ITEMS_TRUNCATED_NOTE,
+} from '@/lib/account-order-copy';
 
 export type OrdersTabProps = {
   orders: OrderListItem[];
@@ -36,9 +47,46 @@ export function OrdersTab({ orders }: OrdersTabProps) {
       ) : (
         <div className="acc-orders">
           {orders.map((o) => (
-            <div key={o.id} className="acc-order acc-order-full">
-              <div className="acc-order-l">
-                <div className="ap-mono acc-order-id">{o.displayId}</div>
+            <div key={o.id} className="acc-order">
+              {/* 🔴 灰色抬頭列 —— 稿 `account-page.html:266-281` 的四欄,字面直接搬。
+                  稿的註解逐字:「捲動時區分訂單靠的就是這條灰帶 —— 手機也不能拿掉,
+                  只把四欄折成兩列。四個欄位是掃描用的:日期找時間、總額對帳、
+                  編號報客服、徽章看狀態。」⇒ 欄位順序與標題字面照搬,不重排。 */}
+              <div className="acc-order-top">
+                <div className="acc-order-field">
+                  <div className="acc-order-field-k">訂單日期</div>
+                  <div className="acc-order-field-v">{formatOrderDate(o.createdAt)}</div>
+                </div>
+                <div className="acc-order-field">
+                  <div className="acc-order-field-k">訂單金額</div>
+                  <div className="acc-order-field-v acc-order-total">
+                    NT$ {o.total.amount.toLocaleString()}
+                  </div>
+                </div>
+                <div className="acc-order-field">
+                  <div className="acc-order-field-k">訂單編號</div>
+                  <div className="acc-order-field-v acc-order-id">{o.displayId}</div>
+                </div>
+                {/* 🔴 `#249`(2026-08-24):狀態字第三個參數帶取消軸。**取消不動 `payment_status`**
+                    ⇒ 少了它,一張已作廢的單在這一格會印「待付款」,而客人會去付它。
+                    🔴🔴 而**顏色是同一條拍板的另一半**:`orderStatusTone` 讓已取消/已逾期
+                       走 `is-done`(中性),**不是** `is-action`(熔橘 = 全站叫人動作的顏色)。
+                       ⇒ 少了顏色那半,字寫著「已取消」而整顆徽章在喊「來付款」。
+                    ⚠️ 這張卡上**沒有任何付款入口**(唯一的連結是下面那顆「查看詳情」)
+                       ⇒ Sean 那句「不能點去付款」在這一頁成立。
+                       🔴 而那是**現況不是保證**:誰日後要在這張卡加付款鈕,先讀 `#249`
+                       (memory `project_0824-sean-cancelled-orders-visible-and-notfound-copy`)。 */}
+                <span
+                  className={`acc-order-status is-${orderStatusTone(o.paymentStatus, o.fulfillmentStatus, o.cancelKind)}`}
+                >
+                  {orderStatusLabel(o.paymentStatus, o.fulfillmentStatus, o.cancelKind)}
+                </span>
+              </div>
+              {/* 卡身。稿的卡身放 ETA / 物流條 / 商品列,而那三塊這一片都不做
+                  (ETA 與物流歷程 Sean 2026-08-29 拍「先不做」;「查詢物流」他拍【要】,
+                   而各家物流的網址格式查無 ⇒ 不接一顆連到空網址的鈕)。
+                  ⇒ 這一輪卡身放的是【件數】與【那段說明】。 */}
+              <div className="acc-order-body">
                 <div className="acc-order-meta">
                   {/* 🔴 **`itemCountTruncated` ⇒ 件數不可信,改印「?」**(2026-08-16,`Q-EMBED-1`)。
                     ⚠️ **這裡【不能】照後台那條印「未知」蓋掉整格** —— 那一格印的是**一個算出來的狀態**,
@@ -47,7 +95,9 @@ export function OrdersTab({ orders }: OrdersTabProps) {
                     🔴 **不印 0、不留空** —— 兩者都會被讀成「這單沒東西」。
                        印 `?` 是「我們也不確定」,而下一步寫在下面那段**看得見的**說明裡
                        (~~原本寫「它旁邊的 title 給得出下一步」~~ —— `#639` 甲之後那句已不成立)。 */}
-                  {formatOrderDate(o.createdAt)} ·{' '}
+                  {/* 🔴 日期已經搬到上面的灰抬頭(稿的四欄之一)⇒ 這裡不再重複印它,
+                      只留件數。~~原字面「{日期} · {件數} 件商品」~~ 是舊的兩欄版式,
+                      而在三段式卡片裡重印一次日期會與抬頭那格打架。 */}
                   {o.itemCountTruncated ? (
                     <span>? 件商品</span>
                   ) : (
@@ -67,18 +117,66 @@ export function OrdersTab({ orders }: OrdersTabProps) {
                 {o.itemCountTruncated && (
                   <p className="acc-order-note">{ORDER_ITEM_COUNT_TRUNCATED_NOTE}</p>
                 )}
-              </div>
-              <div className="acc-order-r">
-                <div className="acc-order-total">NT$ {o.total.amount.toLocaleString()}</div>
-                {/* 🔴 `#249`(2026-08-24):第三個參數帶取消軸。**取消不動 `payment_status`**
-                    ⇒ 少了它,一張已作廢的單在這一格會印「待付款」,而客人會去付它。
-                    ⚠️ 這張卡上**沒有任何付款入口**(唯一的連結是下面那顆「查看詳情」)——
-                       所以 Sean 那句「不能點去付款」在這一頁**本來就成立**,不需要停用什麼。
-                       ⚠️ 而「本來就成立」是**現況**不是保證:誰日後在這張卡加付款鈕,
-                       要先讀 `#249` 那一板(memory `project_0824-sean-cancelled-orders-visible-and-notfound-copy`)。 */}
-                <div className="acc-order-status">
-                  {orderStatusLabel(o.paymentStatus, o.fulfillmentStatus, o.cancelKind)}
-                </div>
+                {/* 🔴 商品列(Sean 2026-08-29 拍板「卡片裡列出每件商品,有圖有品名」)。
+                    結構與 class 逐字搬自稿 `account-page.html:296-305`。
+                    🔴 **null 有兩種,而它們的成因【不同】**(codex 對抗審查訂正,2026-08-29):
+                       · `brand` / `imageUrl` ⇒ **合法的 null**:`order_items.variant_id` 是
+                         `ON DELETE SET NULL`(訂單是歷史,不隨商品目錄變動)⇒ 變體刪掉 join 就斷。
+                       · `title` ⇒ **理論上不會 null**:`product_snapshot` 是 NOT NULL 且 DB CHECK
+                         要求 `?& array['title','sku','spec']` 且 title 必為 string
+                         ⇒ 它為 null 表示**那個 CHECK 沒擋住的東西進來了**。
+                       ⚠️ ~~我原本把三者一起講成「變體被刪就會這樣」~~ —— **那句對 title 是錯的。**
+                       ⇒ 仍然要防:退成一句看得懂的話,而不是空白 —— 但那是**防禦性退路**,
+                         不是預期路徑。真的看到它,該去查的是資料不是這裡。
+                    ⚠️ **缺欄時【不得整列消失】** —— 那會讓客人以為他沒買過那個東西。
+                       ⇒ 圖沒有就留空框(版位不塌)、品牌沒有就不印那一行、品名沒有就退成料號那句。 */}
+                {/* 🔴 件數不可信時,商品列**也是被切過的**(同一個成因:內嵌上限)。
+                    codex 對抗審查 must-fix(2026-08-29):原本只有件數那句說明,
+                    而客人看到一份**看起來完整**的商品列 ⇒ 他會以為那就是全部。
+                    ⇒ 這一行明說「下面列出的可能不是全部」。 */}
+                {o.itemCountTruncated && o.items.length > 0 && (
+                  <p className="acc-order-note">{ORDER_DETAIL_ITEMS_TRUNCATED_NOTE}</p>
+                )}
+                {o.items.length > 0 && (
+                  <div className="acc-order-items">
+                    {o.items.map((it, i) => (
+                      <div className="acc-order-item" key={`${o.id}-${i}`}>
+                        <div className="acc-order-thumb">
+                          {it.imageUrl ? (
+                            // 🔴 用原生 `<img>` 不用 `next/image`:訂單歷史圖是外部 URL、
+                            //    尺寸固定 46px,不需要最佳化;而本 repo storefront 這樣用是慣例
+                            //    (`BonamiciShowcase.tsx` 等多處)。
+                            // ⚠️ ~~我原本在這裡加了 `eslint-disable-next-line @next/next/no-img-element`~~
+                            //    ⇒ **那條規則這個 repo 沒有裝** ⇒ lint 直接報
+                            //    「Definition for rule … was not found」而**紅掉**。
+                            //    🔴 而那正是我今晚稍早盤點到的那一族(8 個死 disable、其中 5 個指向
+                            //       從未安裝的規則)—— **我差一點寫下第 9 個**。
+                            <img src={it.imageUrl} alt={it.title ?? ''} loading="lazy" />
+                          ) : null}
+                        </div>
+                        <div>
+                          {it.brand ? <div className="acc-order-item-b">{it.brand}</div> : null}
+                          <div className="acc-order-item-n">{it.title ?? '(此品項已無資料)'}</div>
+                        </div>
+                        <div className="acc-order-item-q">
+                          × {it.quantity}
+                          <b>NT$ {it.lineTotal.amount.toLocaleString()}</b>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* 🔴 動作列 —— 稿 `account-page.html:312-320` 是三個:再買一次 / 下載訂單 PDF / 查看詳情。
+                    **這一輪只放「查看詳情」**,而兩顆不放的理由各自不同,不要合併成一句:
+                      · 「再買一次」⇒ Sean 2026-08-29 明寫**不做**(它不是純 UI,要「把舊單商品加回購物車」
+                        的後端路徑:缺貨/下架/改價三個世界都要有形狀)
+                      · 「下載訂單 PDF」⇒ **已拍板未實作**(2026-08-07 逐字「= 訂單明細/對帳單,不是發票」)
+                        ⇒ 它**沒有後端**。照 Sean 自己那句「一顆連到空網址的按鈕比沒有按鈕糟」⇒ 不放。
+                        🔴 要放的話那是**另一片**,不在這一顆順手加。
+                    ⚠️ 而稿的註解逐字:「三個都是文字連結、**沒有實心底** —— 一筆訂單沒有『唯一該做的事』,
+                       給它主鈕等於幫客人決定,而清單上十筆就會有十顆搶眼的鈕。」
+                       ⇒ 只剩一顆時**更不要**把它升級成實心鈕。 */}
+                <div className="acc-order-foot">
                 {/* 🔴 `#240`(2026-08-23):**這裡原本是一顆沒有 onClick 也沒有 href 的 `<button>`** ——
                     design-reference `AccountPages.jsx:551` 自己就是一顆死鈕,我們忠實照搬了它。
                     而 OD 稿 `account-page.html:319` 給的是 `<a href>`:
@@ -92,6 +190,7 @@ export function OrdersTab({ orders }: OrdersTabProps) {
                 >
                   查看詳情 →
                 </Link>
+                </div>
               </div>
             </div>
           ))}

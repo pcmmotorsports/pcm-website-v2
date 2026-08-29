@@ -164,8 +164,13 @@ export type Order = {
  * OrderListItem: 會員訂單摘要投影(member order summary、泛用 read-model)。
  *
  * 用途:account OrdersTab 列表 / Overview「最近訂單」preview / 未來月結等只讀清單。
- * 刻意**不含** `items[]`:order_items 表無 `product_id`(backlog #217)、無法忠實重建
- * `OrderItem.productId`;列表只需摘要,故繞過 #217。
+ * ~~刻意**不含** `items[]`:order_items 表無 `product_id`(backlog #217)、無法忠實重建
+ * `OrderItem.productId`;列表只需摘要,故繞過 #217。~~
+ * 🔴 **2026-08-29 起這段不成立了**(Sean 拍板:訂單記錄卡片要列出每件商品,有圖有品名)。
+ *   ⚠️ 而**繞過 `#217` 的那個理由仍然成立** —— 解法與明細頁同一招:
+ *   下面的 `items[]` 是**唯讀顯示投影**(title / brand / imageUrl / quantity / lineTotal),
+ *   **沒有 `productId`** ⇒ 不需要解 `#217`,也不是 `OrderItem`。
+ *   📌 後台的 `AdminOrderDetailItem` 早就是這樣做的(它也沒有 `productId`,而後台明細一直是好的)。
  * 🔴 ~~「明細頁未來 slice 才需完整 Order + 解 #217」~~ —— **那句話 2026-08-18 起是假的**(`#217` 裁定 D):
  * 明細頁**也**走唯讀投影,不解 `#217`。後台的 `AdminOrderDetailItem` 就是這樣做的
  * (它沒有 `productId`,而後台明細頁一直是好的)⇒ 不要照舊句去改 domain 型別。
@@ -218,6 +223,41 @@ export type OrderListItem = {
    * 🔴 顯示端**不得印 0、不得留空**;`itemCount` 那個數字本身**在旗標為真時不可信**。
    */
   itemCountTruncated: boolean;
+  /**
+   * 卡片上的商品列(2026-08-29;Sean 拍板「訂單記錄卡片要列出每件商品,有圖有品名」)。
+   *
+   * 🔴 **唯讀顯示投影,不是 `OrderItem`** —— 沒有 `productId`、沒有 `variantId`、沒有 `unitPrice`。
+   *   ⇒ 因此**不需要解 `#217`**(order_items 無 `product_id`),與後台 `AdminOrderDetailItem` 同招。
+   * 🔴 **鐵則 12**:`lineTotal` 是**這位客人自己這張單這一列的小計**(歷史凍結快照),
+   *   與經銷價無關;`title` 來自 `order_items.product_snapshot`,而那一欄有 **DB CHECK**
+   *   保證 exact key set `{title,sku,spec}` 且 `spec` 不得含 `price_store`/`price_by_tier`/`cost`。
+   * ⚠️ **`items.length` ≠ `itemCount`**:後者是 Σquantity(Q4=B)。
+   *   同一品項買 3 個 ⇒ `itemCount` 3、`items.length` 1。**不要拿其中一個算另一個。**
+   * 🔴 **`itemCountTruncated` 為真時,`items` 也是被切過的** —— 同一個成因(內嵌上限)。
+   *   ⇒ 顯示端不得讓客人以為那就是全部。
+   */
+  items: OrderListLine[];
+};
+
+/**
+ * `OrderListItem.items[]` 的一列。**純顯示用**:任一欄缺就是缺,顯示端自己決定怎麼退。
+ *
+ * `brand` / `imageUrl` 走 `order_items.variant_id → product_variants → products` 兩段 join,
+ * 🔴 **null 是合法的**:變體被刪時 FK 是 `ON DELETE SET NULL`(訂單是歷史,不隨商品目錄變動)
+ * ⇒ 顯示端要能在「沒有圖 / 沒有品牌」時仍然印得出這一列,**不得整列消失**
+ * (那會讓客人以為他沒買過那個東西)。
+ */
+export type OrderListLine = {
+  /** 品名。來自 `product_snapshot.title`(結帳當下的快照,非目前商品名)。 */
+  title: string | null;
+  /** 品牌名。join 任一層缺 → null。 */
+  brand: string | null;
+  /** 縮圖。variant images → product images 兩段 fallback;都沒有 → null。 */
+  imageUrl: string | null;
+  /** 這一列的數量。 */
+  quantity: number;
+  /** 這一列的小計(整數 TWD;= 結帳當下 unit_price × quantity 的凍結值)。 */
+  lineTotal: Money;
 };
 
 // ── M-4a 訂單線:後台管理讀模型(order_source / payment_channel / admin 篩選 + 摘要)──

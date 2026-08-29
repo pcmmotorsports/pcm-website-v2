@@ -100,6 +100,59 @@ export function orderStatusLabel(
 }
 
 /**
+ * orderStatusTone:狀態徽章的三檔色調。**這是我方加的,稿上沒有可搬的實作。**
+ *
+ * OD 稿 `pcm-account.css:395-427` 定了三個 class 與它們的意思(逐字):
+ *   `.is-action`   要你動作 → 熔橘(全站的動作色)
+ *   `.is-progress` 進行中   → 墨黑實心,最顯眼但不搶動作色
+ *   `.is-done`     已結束   → 退成中性,不需要再吸引注意
+ * 而稿的 `statusOf()` 是 **mock**(`account-page.html`)⇒ 對應規則要我方自己定。
+ *
+ * 🔴🔴 **`已取消` / `已逾期` 一定是 `is-done`,絕不是 `is-action`。**
+ *    `is-action` 是熔橘、是全站叫人去做事的顏色 ⇒ 把作廢單染成它,
+ *    等於用顏色喊「來付款」，而那正是 `#249`(Sean 2026-08-24 拍甲)要防的那件事。
+ *    ⇒ 這一條與 `orderStatusLabel` 的取消軸是**同一條拍板的兩半**:
+ *      一半管字、一半管顏色，少一半客人一樣會被誤導。
+ *
+ * 🔴 **為什麼不從 label 字串反推**:那會讓文案改字時顏色**安靜地**跟著錯
+ *    (例如「待付款」改成「等待付款」)。⇒ 兩者都吃**同一組原始輸入**。
+ *
+ * 🔴🔴 **這支函式是【唯一】的 tone 來源,訂單詳情頁也用它**(codex 對抗審查 must-fix,2026-08-29):
+ *    ~~原本 `OrderDetailView.tsx:59` 有自己一份 `STATUS_TONE`~~ ——
+ *    而兩份**對 `partiallyPaid` 給出不同答案**(它 `action`、我第一版寫 `progress`)
+ *    ⇒ **同一個客人在列表與明細看到同一張單的兩種顏色。**
+ *    ✅ 正確值是 `action`:「已收訂金」= 他**還欠錢**,那正是需要他動作的狀態。
+ *    📌 ⇒ 修法不是把兩份對齊,是**刪掉一份** —— 對齊過的兩份下次還會再分岔一次。
+ *
+ * 回傳**不帶 `is-` 前綴**(與 `OrderDetailView` 既有的 `od-status is-${tone}` 寫法一致);
+ * 顯示端自己加前綴。
+ */
+export type OrderStatusTone = 'action' | 'progress' | 'done';
+
+export function orderStatusTone(
+  payment: PaymentStatus,
+  _fulfillment: FulfillmentStatus,
+  cancelKind: OrderCancelKind,
+): OrderStatusTone {
+  // 取消軸壓過付款軸 —— 與 orderStatusLabel 同一個順序,不可分岔。
+  if (cancelKind === 'expired' || cancelKind === 'cancelled') return 'done';
+  switch (payment) {
+    case 'unpaid':
+    case 'partiallyPaid':
+      return 'action'; // 待付款 / 已收訂金 —— 兩者客人都還欠錢
+    case 'paid':
+      return 'progress'; // 處理中
+    case 'refunded':
+    case 'partiallyRefunded':
+      return 'done';
+    default: {
+      const _exhaustive: never = payment;
+      return _exhaustive;
+    }
+  }
+}
+
+/**
  * formatOrderDate:ISO timestamptz → `YYYY-MM-DD`(對齊 design 訂單 meta 顯示)。
  *
  * 用 `en-CA` locale(其日期格式即 `YYYY-MM-DD`)+ `timeZone: 'Asia/Taipei'`:DB created_at 為 UTC

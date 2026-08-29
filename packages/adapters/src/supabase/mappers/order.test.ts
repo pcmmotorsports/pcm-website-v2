@@ -194,9 +194,24 @@ function listRow(over: Partial<SupabaseOrderListRow> = {}): SupabaseOrderListRow
     // `#249`:預設是一張**沒有取消**的單;要造取消單的那幾格自己 override。
     cancelled_at: null,
     cancelled_reason: null,
-    order_items: [{ quantity: 1 }],
+    order_items: [li({ quantity: 1 })],
     ...over,
   };
+}
+
+/**
+ * `order_items` 內嵌 row 的最小工廠(2026-08-29 卡片商品列擴欄後才需要)。
+ * 🔴 預設把三個新欄設成【最不友善】的合法值:`product_snapshot` 無 title、join 全 null
+ *    ⇒ 這樣「品名 / 品牌 / 圖都拿不到」那條路徑在每一格既有測試裡都被順便走過,
+ *      而不是只有我新寫的那幾格才碰得到它。
+ */
+function li(over: { quantity: number } & Record<string, unknown>) {
+  return {
+    line_total: 100,
+    product_snapshot: {},
+    product_variants: null,
+    ...over,
+  } as SupabaseOrderListRow['order_items'][number];
 }
 
 describe('mapSupabaseOrderRowToListItem(讀路徑摘要投影)', () => {
@@ -211,12 +226,12 @@ describe('mapSupabaseOrderRowToListItem(讀路徑摘要投影)', () => {
   });
 
   it('codex C2:單一品項 quantity=3 → itemCount=3(Σqty、非 distinct 列數)', () => {
-    expect(mapSupabaseOrderRowToListItem(listRow({ order_items: [{ quantity: 3 }] })).itemCount).toBe(3);
+    expect(mapSupabaseOrderRowToListItem(listRow({ order_items: [li({ quantity: 3 })] })).itemCount).toBe(3);
   });
 
   it('多品項 [{2},{1}] → itemCount=3(Σquantity)', () => {
     expect(
-      mapSupabaseOrderRowToListItem(listRow({ order_items: [{ quantity: 2 }, { quantity: 1 }] }))
+      mapSupabaseOrderRowToListItem(listRow({ order_items: [li({ quantity: 2 }), li({ quantity: 1 })] }))
         .itemCount,
     ).toBe(3);
   });

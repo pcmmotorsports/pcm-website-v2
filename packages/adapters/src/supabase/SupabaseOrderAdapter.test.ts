@@ -205,9 +205,51 @@ describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守�
     //    `SupabaseOrderAdapter.ts` 的 `ORDER_LIST_SELECT` docstring(對客欄、非價格非 PII、
     //    客人明細投影早已投影 `cancelled_reason`)。
     //    ⚠️ **這一格的價值就在它會為了任何一次擴欄而紅** —— 不要把它弱化成 `toContain`。
+    //
+    // 🔴🔴 **2026-08-29:這一格又紅了一次,而那同樣是它該做的。**
+    //    加的是 `line_total` / `product_snapshot` / `product_variants(images, products(images, brands(name)))`,
+    //    起因:Sean 拍板訂單記錄卡片要列出每件商品(有圖有品名)。
+    //    **放行理由逐欄寫在 `SupabaseOrderAdapter.ts` 的 `ORDER_LIST_SELECT` docstring**,
+    //    重點三句:①`line_total` 而不是 `unit_price`(稿印的就是小計 ⇒ 少投影一欄)
+    //             ②`product_snapshot` 的安全性是 **DB CHECK 保證**(exact key set + 價格鍵 blacklist)
+    //             ③巢狀那段與 `MEMBER_ORDER_DETAIL_SELECT` **逐字相同**(#240 已審過的同一形狀)
     expect(ORDER_LIST_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, total, cancelled_at, cancelled_reason, order_items(quantity)',
+      'id, display_id, created_at, payment_status, fulfillment_status, total, cancelled_at, cancelled_reason, order_items(quantity, line_total, product_snapshot, product_variants(images, products(images, brands(name))))',
     );
+  });
+
+  // 🔴🔴 而 byte-equal 那一格只證明「它等於我寫下的那串」——
+  //    它**證不了**那串裡沒有經銷價(我可以把 price_by_tier 一起寫進期望值,那一格照樣綠)。
+  //    ⇒ 這一格獨立問另一個問題:**那串裡有沒有任何一個敏感欄名**。
+  //
+  // ⚠️🔴 **兩格【不可合併】,而理由是一個具體的人,不是一條原則:**
+  //    合併之後,任何擴欄只會紅【一次】。而下一個維護者看到那一次紅,
+  //    最自然、最省事、而且在多數情況下**正確**的反應是:**把期望值更新成現值**。
+  //    ⇒ 那一步會讓洩漏【連同守門一起】變成綠的。
+  //    🔴 **實測(2026-08-29,三個世界):**
+  //      B 只把 price_by_tier 加進 select            ⇒ 兩格都紅
+  //      C 加進 select【並且把期望值一起改】         ⇒ 🔴 只剩這一格紅,byte-equal 那格【綠了】
+  //    📌 **⇒ 這道守門要防的不是攻擊者 —— 沒有人會惡意加經銷價。**
+  //       **它防的是一個順手更新了紅掉期望值的同事,而那是我們每個人都會做的事。**
+  it('🔴 錢:storefront 列表投影不得出現任何經銷價 / 成本 / tier 欄名(擴欄時這一格獨立把關)', () => {
+    for (const token of ['price_by_tier', 'price_store', 'cost', 'tier_at_checkout', 'supplier']) {
+      expect(
+        ORDER_LIST_SELECT,
+        `ORDER_LIST_SELECT 出現 ${token} ⇒ 一般會員的訂單列表回應會帶出它。` +
+          `這是鐵則 12 ①錢,不是樣式問題。`,
+      ).not.toContain(token);
+    }
+    // 🔴🔴 ~~原本這裡是 `expect(`${ORDER_LIST_SELECT}, price_by_tier`).toContain('price_by_tier')`~~
+    //    ⇒ **那是一個恆真格**(codex R2 nit,2026-08-29):我自己把字串接上去、再確認它在那裡,
+    //      **與被測程式無關** —— 把 `ORDER_LIST_SELECT` 換成空字串,那一行照樣綠。
+    //    📌 **我在一段講「守門要有正對照」的註解底下,寫了一個假的正對照。**
+    //    ✅ 真正的正對照要問【同一把尺對一個【真的有那個欄】的常數會不會叫】:
+    //      `ADMIN_ORDER_LIST_SELECT` 是後台投影,它**本來就該**含 tier / 成交價
+    //      ⇒ 同一組 token 餵它必須命中,否則這把尺是瞎的。
+    expect(
+      ADMIN_ORDER_LIST_SELECT,
+      '後台投影裡也找不到 tier_at_checkout ⇒ 這把尺看不見它要找的東西 ⇒ 上面五格全部失去判別力',
+    ).toContain('tier_at_checkout');
   });
 
   it('查詢鏈 orders / select(ORDER_LIST_SELECT) / eq(customer_user_id) / order(created_at desc);row → OrderListItem', async () => {
@@ -224,7 +266,21 @@ describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守�
           //    判成 `'cancelled'`(那個方向是刻意的,見該函式)⇒ 這一格會紅、而它該紅。
           cancelled_at: null,
           cancelled_reason: null,
-          order_items: [{ quantity: 2 }, { quantity: 1 }],
+          // 🔴 2026-08-29 擴欄後,內嵌多帶三樣(卡片商品列)。
+          //    這裡刻意讓兩列【一列有 join、一列 join 全斷】——
+          //    後者是變體被刪掉(ON DELETE SET NULL)的合法狀態,而 mapper 必須撐得住。
+          order_items: [
+            {
+              quantity: 2,
+              line_total: 24000,
+              product_snapshot: { title: 'A 排氣管', sku: 'AK-1', spec: {} },
+              product_variants: {
+                images: ['https://example.test/v.jpg'],
+                products: { images: null, brands: { name: 'AKRAPOVIC' } },
+              },
+            },
+            { quantity: 1, line_total: 980, product_snapshot: {}, product_variants: null },
+          ],
         },
       ],
       error: null,
@@ -253,6 +309,26 @@ describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守�
         itemCount: 3,
         // 🔴 2026-08-16 `Q-EMBED-1`:2 筆 << 上限 500 ⇒ false。
         itemCountTruncated: false, // Σquantity 2+1
+        // 🔴 2026-08-29 卡片商品列。這一格用 `toEqual` 釘【整包形狀】,所以新欄一定要寫進來 ——
+        //    而那正是它的價值:任何一次擴欄都會在這裡紅一次,逼人回來看投影是不是該擴。
+        //    ⚠️ 第二列是【join 全斷】的合法狀態(變體被刪 ON DELETE SET NULL)
+        //       ⇒ title/brand/imageUrl 皆 null,而它**仍然是一列**,不是被丟掉。
+        items: [
+          {
+            title: 'A 排氣管',
+            brand: 'AKRAPOVIC',
+            imageUrl: 'https://example.test/v.jpg',
+            quantity: 2,
+            lineTotal: { amount: 24000, currency: 'TWD' },
+          },
+          {
+            title: null,
+            brand: null,
+            imageUrl: null,
+            quantity: 1,
+            lineTotal: { amount: 980, currency: 'TWD' },
+          },
+        ],
       },
     ]);
   });

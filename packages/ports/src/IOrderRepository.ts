@@ -70,8 +70,15 @@ export interface IOrderRepository {
   /**
    * 列出某會員訂單「摘要」(account OrdersTab / Overview 最近訂單;RLS own-only、created_at desc)。
    *
-   * 回 `OrderListItem[]`(摘要投影、不含 items[]):繞過 #217(order_items 無 product_id 無法重建
-   * 完整 `Order.items[]`)、列表只需單號 / 日期 / 件數 / 金額 / 狀態。M-3 Sean 拍 Q6=A:與完整
+   * 回 `OrderListItem[]`(摘要投影)。
+   * ⚠️ ~~「不含 items[]…列表只需單號 / 日期 / 件數 / 金額 / 狀態」~~ ⇒ **2026-08-29 起不成立**
+   *   (Sean 拍板:訂單記錄卡片要列出每件商品,有圖有品名)。
+   *   🔴 **而繞過 `#217` 的理由仍然成立** —— `OrderListItem.items[]` 是**唯讀顯示投影**
+   *   (title / brand / imageUrl / quantity / lineTotal),**沒有 `productId`** ⇒ 不必重建 `Order.items[]`。
+   *   📌 **這是同一個事實的第四個落點**(另三處:`ORDER_LIST_SELECT` 的 docstring、
+   *   adapter 檔頭那段、`mappers/order.ts` 的 row 型別)—— 而我改前三處時漏了這一處,
+   *   是 codex R2 抓到的。⇒ **同一個事實寫在四個地方,改的人只會想起他正在看的那一個。**
+   * M-3 Sean 拍 Q6=A:與完整
    * `listByCustomer` 分離,後者維持 deferred(2026-08-18 `#217` 裁定 D ⇒ **刻意不提供**,見 `findById` 的註解)。
    */
   listSummariesByCustomer(customerId: CustomerId): Promise<OrderListItem[]>;

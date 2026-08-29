@@ -34,6 +34,7 @@ const CANCELLED_ORDER: OrderListItem = {
   cancelKind: 'cancelled',
   itemCount: 1,
   itemCountTruncated: false,
+  items: [],
 };
 
 const ORDERS: OrderListItem[] = [
@@ -48,6 +49,7 @@ const ORDERS: OrderListItem[] = [
     cancelledAt: null,
     cancelKind: 'none' as const,
     itemCountTruncated: false,
+    items: [],
   },
   {
     id: 'ord-2',
@@ -60,6 +62,7 @@ const ORDERS: OrderListItem[] = [
     cancelledAt: null,
     cancelKind: 'none' as const,
     itemCountTruncated: false,
+    items: [],
   },
 ];
 
@@ -80,16 +83,31 @@ describe('OrdersTab(M-3 真訂單清單)', () => {
     expect(container.querySelector('.acc-orders')).toBeNull();
   });
 
-  it('多單 → 渲染 displayId / 日期 / 件數 / 金額 / 狀態中文 + .acc-order-full', () => {
+  // 🔴 2026-08-29 重蓋成 OD 稿的三段式卡(Sean 拍甲)。~~原本斷言 `.acc-order.acc-order-full`~~
+  //    ⇒ `.acc-order-full` **稿自己在 2026-08-07 刪掉了**(稿內註解:總覽與訂單記錄共用同一顆卡)
+  //    ⇒ 這裡改釘**三段式的三個區塊**,那比一個 class 名更接近「版面對不對」。
+  //    ⚠️ 而日期與件數**不再同一行**:日期進了灰抬頭那四欄之一,件數留在卡身。
+  //       原本那句 `2099-04-15 · 3 件商品` 因此必然失敗 —— 那是版面改了,不是功能掉了。
+  it('多單 → 三段式卡:抬頭四欄 / 卡身件數 / 動作列,且 displayId 日期 金額 狀態都在', () => {
     const { container } = render(<OrdersTab orders={ORDERS} />);
-    // 列數 = 訂單數
-    expect(container.querySelectorAll('.acc-order.acc-order-full')).toHaveLength(2);
+    // 列數 = 訂單數,而三個區塊每張卡各一個
+    expect(container.querySelectorAll('.acc-order')).toHaveLength(2);
+    expect(container.querySelectorAll('.acc-order-top')).toHaveLength(2);
+    expect(container.querySelectorAll('.acc-order-body')).toHaveLength(2);
+    expect(container.querySelectorAll('.acc-order-foot')).toHaveLength(2);
+    // 🔴 灰抬頭的四個欄位標題 —— 稿的字面,順序照搬(日期找時間 / 總額對帳 / 編號報客服 / 徽章看狀態)
+    expect(container.querySelectorAll('.acc-order-field')).toHaveLength(6); // 2 張卡 × 3 欄
+    expect(screen.getAllByText('訂單日期')).toHaveLength(2);
+    expect(screen.getAllByText('訂單金額')).toHaveLength(2);
+    expect(screen.getAllByText('訂單編號')).toHaveLength(2);
     // displayId(訂單號)
     expect(screen.getByText('PCM-2099-0007')).toBeTruthy();
     expect(screen.getByText('PCM-2099-0003')).toBeTruthy();
-    // 日期(formatOrderDate YYYY-MM-DD)+ 件數(Σquantity 件商品)
-    expect(screen.getByText('2099-04-15 · 3 件商品')).toBeTruthy();
-    expect(screen.getByText('2099-03-28 · 1 件商品')).toBeTruthy();
+    // 日期(formatOrderDate YYYY-MM-DD)進抬頭;件數(Σquantity)留卡身,兩者不再同一行
+    expect(screen.getByText('2099-04-15')).toBeTruthy();
+    expect(screen.getByText('2099-03-28')).toBeTruthy();
+    expect(screen.getByText('3 件商品')).toBeTruthy();
+    expect(screen.getByText('1 件商品')).toBeTruthy();
     // 金額(整數 Money toLocaleString)
     expect(screen.getByText('NT$ 12,345')).toBeTruthy();
     expect(screen.getByText('NT$ 980')).toBeTruthy();
@@ -144,6 +162,100 @@ describe('OrdersTab(M-3 真訂單清單)', () => {
       a.getAttribute('href'),
     );
     expect(hrefs).toEqual(['/account/orders/B3XA91', '/account/orders/PCM-2099-0007']);
+  });
+
+  // 🔴 商品列(Sean 2026-08-29 拍板「卡片裡列出每件商品,有圖有品名」)。
+  describe('卡片商品列', () => {
+    const LINE = {
+      title: 'Akrapovič 排氣管尾段',
+      brand: 'AKRAPOVIČ',
+      imageUrl: 'https://example.test/a.jpg',
+      quantity: 2,
+      lineTotal: { amount: toMoneyAmount(24000), currency: 'TWD' as const },
+    };
+
+    it('有商品 → 每件一列:縮圖 / 品牌 / 品名 / ×數量 / 小計', () => {
+      const { container } = render(
+        <OrdersTab orders={[{ ...ORDERS[0]!, items: [LINE] }]} />,
+      );
+      expect(container.querySelectorAll('.acc-order-item')).toHaveLength(1);
+      expect(screen.getByText('Akrapovič 排氣管尾段')).toBeTruthy();
+      expect(screen.getByText('AKRAPOVIČ')).toBeTruthy();
+      expect(screen.getByText('NT$ 24,000')).toBeTruthy();
+      // 🔴 codex R2 must-fix:~~測試名寫著驗「×數量」而下面【沒有斷言它】~~
+      //    ⇒ 把實作的 `× {it.quantity}` 整段刪掉,這一格照樣全綠。
+      //    📌 **測試名是一句宣稱,而它不會被執行。**
+      expect(container.querySelector('.acc-order-item-q')?.textContent).toContain('× 2');
+      const img = container.querySelector('.acc-order-thumb img') as HTMLImageElement;
+      expect(img.getAttribute('src')).toBe('https://example.test/a.jpg');
+    });
+
+    // 🔴🔴 這一格才是這一片真正的邊界:`order_items.variant_id` 是 `ON DELETE SET NULL`
+    //    ⇒ 變體被刪掉之後 brand / imageUrl 就是 null,而那是**合法狀態**、不是壞資料。
+    //    ⚠️ **整列消失會讓客人以為他沒買過那個東西** ⇒ 缺欄要退,不能整列不見。
+    //
+    // ⚠️ **而 `title: null` 與那兩個【不同源】**(codex 對抗審查訂正,2026-08-29):
+    //    `product_snapshot` 是 NOT NULL + DB CHECK 要求 title 必存在且為 string
+    //    ⇒ 變體被刪【不會】讓 title 消失。這裡一起造成 null 是在守**防禦性退路**,
+    //      不是在宣稱「變體刪掉就長這樣」。~~原本的測試名把三者講成同一件事~~ ⇒ 已改。
+    it('🔴 brand/image 的 join 斷掉(且 title 走防禦性退路)⇒ 那一列【仍然印出來】,各欄各自退', () => {
+      const broken = { ...LINE, title: null, brand: null, imageUrl: null };
+      const { container } = render(
+        <OrdersTab orders={[{ ...ORDERS[0]!, items: [broken] }]} />,
+      );
+      // 列還在
+      expect(container.querySelectorAll('.acc-order-item')).toHaveLength(1);
+      // 圖框還在(版位不塌),但沒有 <img>
+      expect(container.querySelector('.acc-order-thumb')).toBeTruthy();
+      expect(container.querySelector('.acc-order-thumb img')).toBeNull();
+      // 品牌那行不印;品名退成一句看得懂的話,不是空白
+      expect(container.querySelector('.acc-order-item-b')).toBeNull();
+      expect(container.querySelector('.acc-order-item-n')?.textContent).toBe('(此品項已無資料)');
+      // 數量與小計不受 join 影響(它們是訂單自己的凍結值)
+      expect(screen.getByText('NT$ 24,000')).toBeTruthy();
+    });
+
+    // 🔴🔴 codex R2 must-fix:件數被切時,商品列**也是被切過的**,而畫面要說出來。
+    //    ~~原本我加了實作(第 137-139 行那段 `itemCountTruncated && items.length > 0`)而【沒有測試】~~
+    //    ⇒ 把那段實作整個刪掉,所有既有測試仍然全綠 ⇒ 那道提示等於沒有守門。
+    //    📌 **一個我自己剛加的守護,自己沒有守門 —— 而它在 diff 上看起來很負責。**
+    it('🔴 件數被切 + 有商品列 ⇒ 必須印出「可能不是全部」那段(刪掉實作要紅)', () => {
+      const { container } = render(
+        <OrdersTab orders={[{ ...ORDERS[0]!, itemCountTruncated: true, items: [LINE] }]} />,
+      );
+      const notes = Array.from(container.querySelectorAll('.acc-order-note')).map(
+        (n) => n.textContent ?? '',
+      );
+      // 兩段都要在:件數那段(#639)+ 商品列那段
+      expect(notes.some((t) => t.includes('下面看到的商品可能不是全部'))).toBe(true);
+      expect(notes.length, '兩段說明應各印一次').toBe(2);
+    });
+
+    // 正對照:件數沒被切時,那一段【不出現】⇒ 上面那格不是「永遠印兩段」。
+    it('正對照:件數沒被切 ⇒ 商品列那段說明不出現(⇒ 上面那格不是恆真)', () => {
+      const { container } = render(
+        <OrdersTab orders={[{ ...ORDERS[0]!, itemCountTruncated: false, items: [LINE] }]} />,
+      );
+      expect(container.querySelectorAll('.acc-order-note')).toHaveLength(0);
+    });
+
+    // 正對照:沒有這一格的話,一個「items 永遠不渲染」的實作也會讓上面兩格以外的測試全綠。
+    it('正對照:items 為空 ⇒ 商品列容器【不出現】(⇒ 上面兩格不是恆真)', () => {
+      const { container } = render(<OrdersTab orders={[{ ...ORDERS[0]!, items: [] }]} />);
+      expect(container.querySelector('.acc-order-items')).toBeNull();
+      expect(container.querySelectorAll('.acc-order-item')).toHaveLength(0);
+    });
+
+    // 🔴 `items.length` ≠ `itemCount` —— 同一品項買 3 個:itemCount 3、列數 1。
+    //    這一格擋的是「有人拿 items.length 去算件數」那個很自然的簡化。
+    it('🔴 一個品項買 3 個 ⇒ 件數印 3,而商品列只有 1 列', () => {
+      const three = { ...LINE, quantity: 3 };
+      const { container } = render(
+        <OrdersTab orders={[{ ...ORDERS[0]!, itemCount: 3, items: [three] }]} />,
+      );
+      expect(screen.getByText('3 件商品')).toBeTruthy();
+      expect(container.querySelectorAll('.acc-order-item')).toHaveLength(1);
+    });
   });
 
   it('反洩 guard:空渲染不含 design mock 字面(證元件無 hardcode mock 訂單)', () => {
@@ -242,5 +354,37 @@ describe('`#249` 已取消的單:清單上不得印「待付款」', () => {
     expect(links).toHaveLength(1);
     expect(links[0]?.textContent).toContain('查看詳情');
     expect(container.querySelectorAll('button')).toHaveLength(0);
+  });
+
+  // 🔴🔴 2026-08-29 新版才有的那一半:**顏色**。
+  //    `#249` 的字面是「標清楚已取消 / 不能點去付款」,而三段式卡的狀態徽章有三檔色調,
+  //    其中 `.is-action` 是**熔橘 = 全站叫人動作的顏色**(稿 pcm-account.css 逐字:「要你動作」)。
+  //    ⇒ 一張已取消的單若落在 `.is-action`,字寫著「已取消」而**整顆徽章在喊「來付款」**。
+  //    ⇒ 那是同一條拍板的另一半,而它在【字】那半全綠的情況下照樣會壞。
+  it('🔴🔴 已取消 / 已逾期的徽章色調是 is-done —— 絕不是 is-action(熔橘=叫人動作)', () => {
+    for (const [order, label] of [
+      [CANCELLED_ORDER, '已取消'],
+      [{ ...CANCELLED_ORDER, cancelKind: 'expired' as const }, '已逾期'],
+    ] as const) {
+      const { container } = render(<OrdersTab orders={[order]} />);
+      const badge = container.querySelector('.acc-order-status');
+      expect(badge?.textContent, `${label} 的字面不對 ⇒ 這一格的前提就垮了`).toBe(label);
+      expect(
+        badge?.classList.contains('is-action'),
+        `${label} 落在 .is-action ⇒ 熔橘徽章 = 用顏色叫客人去付一張作廢的單(#249 要防的正是這個)`,
+      ).toBe(false);
+      expect(badge?.classList.contains('is-done'), `${label} 應為 is-done(已結束、中性)`).toBe(true);
+    }
+  });
+
+  // 正對照:沒有這一格的話,上面那條在「所有徽章都拿不到 is-action」的實作下也會綠。
+  it('正對照:待付款【必須】是 is-action ⇒ 上面那條不是恆真', () => {
+    const { container } = render(<OrdersTab orders={[ORDERS[1]!]} />);
+    const badge = container.querySelector('.acc-order-status');
+    expect(badge?.textContent).toBe('待付款');
+    expect(
+      badge?.classList.contains('is-action'),
+      '待付款拿不到 is-action ⇒ 色調函式整個沒接上,而「已取消不是 is-action」那條會恆綠',
+    ).toBe(true);
   });
 });

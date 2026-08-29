@@ -248,9 +248,33 @@ describe('第4批 · /account R1 比例(⚠️ 這頁本 worktree 無法渲染,�
   });
 
   it('🔴 訂單狀態標有可見框線(純灰底在近似灰的頁面上讀不出是狀態標)', () => {
+    // 🔴 2026-08-29:值從 `--c-border` 換成 `--c-border-strong`(OD 稿三段式卡的徽章)。
+    //    ~~原本釘死 `var(--c-border)`~~ ⇒ 那是**舊兩欄版式**的值。
+    //    ⚠️ 這不是把守門放寬:`--c-border-strong` 比 `--c-border` **更深**
+    //       ⇒ 本格的意圖(「在近似灰的頁面上讀得出是狀態標」)**更成立**,不是更不成立。
+    //    ⇒ 仍然釘【具體的值】,不退成 `toContain('border')` —— 那樣連 `border: 0` 都會過。
     expect(block(ACCOUNT, 'account.css', '.acc-order-status {'), '狀態標沒有框線').toMatch(
-      /border:\s*1px solid var\(--c-border\)/,
+      /border:\s*1px solid var\(--c-border-strong\)/,
     );
+  });
+
+  // 🔴 而稿的徽章有三檔色調,而其中 `.is-action` 是熔橘(全站叫人動作的顏色)。
+  //    這一格守的是**顏色那一半的 `#249`**:已取消的單若染上動作色,
+  //    等於用顏色喊「來付款」—— 而字那半(orderStatusLabel)全綠時它照樣會壞。
+  //    ⇒ 三檔都要存在,而 `.is-done` 必須是**中性**的(不吃紅色系變數)。
+  it('🔴 狀態徽章三檔色調都在,而 is-done 不得吃到動作色(紅/熔橘)', () => {
+    for (const tone of ['is-action', 'is-progress', 'is-done']) {
+      expect(ACCOUNT, `account.css 找不到 .acc-order-status.${tone}`).toMatch(
+        new RegExp(`\\.acc-order-status\\.${tone}\\s*\\{`),
+      );
+    }
+    const done = block(ACCOUNT, 'account.css', '.acc-order-status.is-done {');
+    expect(done, 'is-done 吃到紅色系變數 ⇒ 已取消的單會染上動作色').not.toMatch(/--c-red/);
+    // 正對照:is-action【應該】吃得到紅色系 ⇒ 上面那條不是恆真(不是「這檔沒有紅色變數」)
+    expect(
+      block(ACCOUNT, 'account.css', '.acc-order-status.is-action {'),
+      'is-action 沒有動作色 ⇒ 上面那格的對照失效',
+    ).toMatch(/--c-red/);
   });
 
   it('🔴 全檔零半像素字級(§4-3;含手機段與 [data-mobile] 兜底那兩處)', () => {

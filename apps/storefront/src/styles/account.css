@@ -246,28 +246,221 @@
 }
 .acc-link-btn:hover { color: var(--c-text); }
 
+/* ══ 訂單卡 ══════════════════════════════════════════════
+   🔴 2026-08-29:整組換成 OD 稿 `pcm-home-redesign/pcm-account.css:358-427` 的三段式卡
+   (稿 sha256 前 12 = 88f9b3085d16 · 841 行 · mtime 2026-08-07 11:28,動工前複對相符)。
+   ~~原本是兩欄橫列(.acc-order-l / .acc-order-r / .acc-order-full)~~ —— 那一版照的是
+   **舊權威** design-reference `AccountPages.jsx` L538-557,不是這份稿。兩者是兩個世界。
+   ⚠️ 稿的 `.acc-order-full` 自己在 2026-08-07 刪掉了(稿內註解逐字:「總覽與訂單記錄
+      改用同一顆 orderCardHTML(),不需要一個只在訂單記錄加高 2px 的變體」)⇒ 我方跟著刪。
+   ⚠️ 本輪**不做**稿的:商品縮圖列 / 再買一次 / 下載 PDF / 預計送達 / 物流條 / 搜尋 / 年份
+      ⇒ 那幾條的 CSS **不搬進來**(搬了就是死規則,而死規則不會有任何測試轉紅)。 */
+/* 🔴 `gap` 掛在【卡片版式】上,不掛在 `.acc-orders` 上(codex 對抗審查 must-fix,2026-08-29):
+   `.acc-orders` 是**兩個分頁共用的容器** —— OverviewTab 也用它。
+   ⚠️ 我原本把 `gap: 16px` 寫在這裡,並在下面宣稱「總覽一個像素都不動」——
+      **那句話是假的**:舊的兩欄列靠 `border-bottom` 分隔、列與列之間沒有間距,
+      加了 gap 之後總覽那份會整個鬆開。
+   📌 **⇒ 一個宣稱「我沒有動到你」的註解,自己就住在動到對方的那一行上面。** */
 .acc-orders {
   display: flex;
   flex-direction: column;
 }
+/* 三段式卡之間的間距 —— 只給有灰抬頭的那種卡(= 訂單記錄那一頁) */
+.acc-orders:has(> .acc-order > .acc-order-top) { gap: 16px; }
 .acc-order {
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+}
+
+/* ---- 灰色抬頭列:掃描用的四個欄位 ----
+   稿註解逐字:「捲動時區分訂單靠的就是這條灰帶 —— 手機也不能拿掉,只把四欄折成兩列。」 */
+.acc-order-top {
+  display: flex;
+  align-items: center;
+  gap: 12px 32px;
+  flex-wrap: wrap;
+  padding: 14px 20px;
+  background: var(--c-surface-2);
+  border-bottom: 1px solid var(--c-border);
+}
+.acc-order-field { min-width: 0; }
+.acc-order-field-k {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--c-text-3);
+  margin-bottom: 4px;
+}
+.acc-order-field-v {
+  font-size: 14px;
+  color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+}
+.acc-order-id { font-family: var(--f-mono); letter-spacing: 0.02em; }
+.acc-order-total { font-weight: 600; letter-spacing: -0.01em; }
+
+/* 狀態徽章推到最右。稿註解逐字:「這是捲動時第二快的辨識點(第一快是灰帶),
+   所以它是唯一帶顏色的元素,而且顏色只分三檔:要你動作 / 進行中 / 已結束。」
+   ⚠️ 稿也逐字寫著顏色不能亂加:後台那 9 個處理狀態各有自己的 hex,那是內部作業配色,
+      搬到對客頁面會把商店的克制配色整個炸掉。
+   🔴 而哪一個狀態對到哪一檔,是**我方定的**(稿的 statusOf() 是 mock)⇒ `orderStatusTone`。 */
+.acc-order-status {
+  margin-left: auto;
+  flex: 0 0 auto;
+  align-self: center;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 5px 12px;
+  border: 1px solid var(--c-border-strong);
+  background: var(--c-bg);
+  color: var(--c-text-2);
+}
+/* 待付款:需要客人動作 → 熔橘(全站的動作色) */
+.acc-order-status.is-action {
+  background: var(--c-red-soft);
+  border-color: var(--c-red);
+  color: var(--c-red-dark);
+}
+/* 處理中(paid):進行中 → 墨黑實心,最顯眼但不搶動作色。
+   ⚠️ ~~原句寫「已收訂金 / 處理中」~~ ⇒ **2026-08-29 訂正**(codex R2 nit):
+   `partiallyPaid`(已收訂金)現在走 `is-action` —— 他**還欠錢**,那是需要客人動作的狀態。
+   唯一來源是 `orderStatusTone()`,不是這行註解。 */
+.acc-order-status.is-progress {
+  background: var(--c-text);
+  border-color: var(--c-text);
+  color: #fff;
+}
+/* 🔴 已取消 / 已逾期 / 已退款 / 已退部分:已結束 → 退成中性。
+   **已取消絕不能落在 .is-action** —— 那是熔橘、是叫人動作的顏色,
+   而 `#249` 要防的正是「客人去付一張已作廢的單」。 */
+.acc-order-status.is-done {
+  background: var(--c-bg);
+  border-color: var(--c-border-strong);
+  color: var(--c-text-2);
+}
+
+/* ---- 卡身 ---- */
+.acc-order-body { padding: 18px 20px 20px; }
+.acc-order-meta {
+  font-size: 13px;
+  color: var(--c-text-3);
+}
+
+/* ---- 卡內商品列 ---- 逐字搬自稿 `pcm-account.css:497-533`(sha 88f9b3085d16 複對相符) */
+.acc-order-items {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+.acc-order-item {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+}
+/* 商品圖區慣例:白底 + 1px 框(同 `.pcard-img-wrap`)。
+   🔴 **沒有圖時這個框仍然在** —— join 斷掉(變體被刪)是合法狀態,而空框讓版位不塌;
+      整列消失會讓客人以為他沒買過那個東西。 */
+.acc-order-thumb {
+  width: 46px; aspect-ratio: 1/1;
+  background: #fff;
+  border: 1px solid var(--c-border);
+  overflow: hidden;
+}
+.acc-order-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.acc-order-item-b {
+  font-family: var(--f-mono);
+  font-size: 10px; font-weight: 600;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--c-text-3);
+  margin-bottom: 3px;
+}
+.acc-order-item-n {
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--c-text);
+}
+.acc-order-item-q {
+  font-size: 12px;
+  color: var(--c-text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: right;
+}
+.acc-order-item-q b {
+  display: block;
+  font-size: 13px; font-weight: 500;
+  color: var(--c-text-2);
+  margin-top: 3px;
+}
+
+/* ---- 每筆訂單的動作列 ----
+   稿註解逐字:「三個都是文字連結、沒有實心底 —— 一筆訂單沒有『唯一該做的事』,
+   給它主鈕等於幫客人決定,而清單上十筆就會有十顆搶眼的鈕。」
+   ⚠️ 本輪只有一顆(查看詳情)⇒ **更不要**因為只剩一顆就把它升級成實心鈕。 */
+.acc-order-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--c-border);
+}
+.acc-order-detail {
+  font-size: 12px;
+  color: var(--c-text-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  background: transparent;
+  position: relative;
+  display: inline-block;
+}
+/* 命中區補到 44px。稿註解逐字:「用 ::after 撐開 —— 直接加 padding 會把右對齊的那一欄整個推歪。」 */
+.acc-order-detail::after {
+  content: "";
+  position: absolute; left: -8px; right: -8px; top: -13px; bottom: -13px;
+}
+.acc-order-detail:hover { color: var(--c-text); }
+.acc-order-detail:focus-visible { outline: 2px solid var(--c-text); outline-offset: 3px; }
+
+/* ══ OverviewTab 的訂單預覽:【仍是舊的兩欄版式】════════════════════
+   🔴 2026-08-29:本片(Sean 拍甲)只重蓋**訂單記錄**那一頁。而 `OverviewTab.tsx:131-171`
+   有**自己一份 JSX**,同樣用 `.acc-order`,裡面是 `.acc-order-l` / `.acc-order-r`。
+   ⇒ 上面那組三段式規則若不隔開,總覽那張預覽卡會**當場散掉**(兩個子層沒有任何規則)。
+   🔴 而那正是 `OverviewTab.tsx:166` 自己寫下的警告:
+      「這一頁常常是漏掉的那一頁 —— 兩處各有一份 JSX ⇒ 只改一邊,另一邊會安靜地…」
+      ⇒ **我差一步就示範了那句話。**
+   ⇒ 所以這一組是**還原**,不是新增:讓總覽維持本片之前的樣子,一個像素都不動。
+   ⚠️ 而 OD 稿自己是**統一**的(稿內註解逐字:「總覽與訂單記錄改用同一顆 orderCardHTML()」)
+      ⇒ 兩頁最後應該長一樣,而那是**另一片**,不在 Sean 這次批的範圍裡。 */
+.acc-order:has(> .acc-order-l) {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 18px 0; /* 🔶 R1 9-3:列高與新字級同比 */
+  padding: 18px 0;
   gap: 24px;
+  border: 0;
   border-bottom: 1px solid var(--c-border);
+  background: transparent;
 }
-.acc-order:last-child { border-bottom: 0; }
-.acc-order-id {
-  font-size: 13px; /* 🔶 R1 9-3:訂單編號是識別碼,相對右側總額原本太弱 */
-  color: var(--c-text);
-}
-.acc-order-meta {
-  font-size: 13px; /* 🔶 R1 9-3 */
-  color: var(--c-text-3);
-  margin-top: 5px;
-}
+.acc-order:has(> .acc-order-l):last-child { border-bottom: 0; }
+/* 🔴🔴 這一條逐字等於 `git show HEAD:` 裡的舊 `.acc-order-id`(只有 font-size 與 color)。
+   ⚠️ ~~我原本還寫了 `font-family: inherit; letter-spacing: normal`~~ ——
+      **那兩個屬性舊版本沒有**,是我為了「不被新的 `.acc-order-id` 影響」自己加的,
+      而 OverviewTab 的 markup 是 `<div className="ap-mono acc-order-id">`
+      ⇒ 我那兩行**把 `.ap-mono` 蓋掉了**,總覽的訂單編號會失去等寬字。
+   🔴 **那是「總覽一個像素都不動」這句話【第三次】被證明是假的**(codex R3 抓到)——
+      而這一次它發生在【我正在還原】的動作裡:
+      📌 **一個「還原」如果多加了屬性,它就不是還原。**
+      ⇒ 判別動作:還原一條規則時,拿 `git show HEAD:<檔>` 把舊的那幾行**逐字比**,
+        不要憑「我記得它長什麼樣」重寫一條。 */
+.acc-order-l .acc-order-id { font-size: 13px; color: var(--c-text); }
+.acc-order-l .acc-order-meta { font-size: 13px; color: var(--c-text-3); margin-top: 5px; }
 .acc-order-r {
   text-align: right;
   display: flex;
@@ -275,30 +468,19 @@
   align-items: flex-end;
   gap: 2px;
 }
-.acc-order-total {
-  font-size: 16px; /* 🔶 R1 9-3 */
-  letter-spacing: -0.01em;
-  font-weight: 600;
-}
-.acc-order-status {
+.acc-order-r .acc-order-total { font-size: 16px; letter-spacing: -0.01em; font-weight: 600; }
+/* 總覽的狀態標維持舊外觀(它沒有 tone class,不吃上面那三檔顏色) */
+.acc-order-r .acc-order-status {
+  margin-left: 0;
+  align-self: flex-end;
   font-size: 11px;
-  /* 🔶 R1 9-3:純 `--c-surface-2` 底在近似灰的頁面上讀不出是狀態標 ⇒ 補框線。 */
+  font-weight: 400;
+  letter-spacing: normal;
   padding: 3px 9px;
   border: 1px solid var(--c-border);
   background: var(--c-surface-2);
   color: var(--c-text-2);
-  margin-top: 6px; /* 🔶 R1 9-3(R1 抓到我漏改) */
-}
-.acc-order-detail {
-  font-size: 12px;
-  color: var(--c-text-2);
-  text-decoration: underline;
-  text-underline-offset: 3px;
   margin-top: 6px;
-  background: transparent;
-}
-.acc-order-full {
-  padding: 20px 0;
 }
 
 /* 🔴 2026-08-06(Sean 拍板 Q1=A):`.acc-rec-item` / `.acc-rec-img` / `.acc-rec-name`
@@ -928,8 +1110,31 @@
   [data-mobile] .acc-stat-v, .acc-stat-v { font-size: 28px; margin: 10px 0 auto; padding-bottom: 10px; } /* 手機值 26px;三欄回來 ⇒ 貼底規則跟著回來 */
   .acc-stat-sub { font-size: 13px; }
   .acc-section-head h2 { font-size: 19px; }
-  .acc-order-id, .acc-order-meta { font-size: 14px; }
-  .acc-order-total { font-size: 17px; }
+  /* 🔴 2026-08-29 三段式卡的手機規則 —— 搬自 OD 稿 `pcm-account.css:1077-1085`。
+     稿註解逐字:「390px 放不下四欄橫排。改成 第一列 = 訂單日期 + 總額(兩欄各半)、
+     第二列 = 訂單編號 + 狀態徽章(徽章仍靠右)。灰底整條保留 —— **那條灰帶就是捲動時
+     區分訂單的主要依據,絕對不能在手機拿掉**。」
+     ⚠️ ~~原本這裡是 `.acc-order-id, .acc-order-meta { font-size: 14px }` 與 `.acc-order-total { 17px }`~~
+        —— 那兩條是**兩欄版式**的字級微調,三段式卡不需要它們。
+     🔴🔴 **而我把它們整條刪掉是錯的**(codex R2 must-fix,2026-08-29):
+        `.acc-order-id` / `.acc-order-meta` / `.acc-order-total` **OverviewTab 也在用**
+        ⇒ 刪掉之後總覽的手機字級從 14/17px 掉回 13/16px。
+        ⇒ 我那句「總覽一個像素都不動」**第二次被證明是假的**(第一次是 `.acc-orders` 的 gap)。
+        📌 **同一句宣稱錯兩次,而兩次的成因不同** —— 第一次是我多加了東西,這次是我少留了東西。
+        ⇒ 所以下面把那兩條**還原**,並且**限定在總覽那份卡**(`.acc-order-l` / `.acc-order-r` 底下)。 */
+  .acc-order-l .acc-order-id, .acc-order-l .acc-order-meta { font-size: 14px; }
+  .acc-order-r .acc-order-total { font-size: 17px; }
+  .acc-order-top { padding: 12px 14px; gap: 10px 20px; }
+  .acc-order-field { flex: 0 0 calc(50% - 10px); }
+  .acc-order-field:nth-child(3) { flex: 1 1 auto; }     /* 訂單編號那格與徽章同列 */
+  .acc-order-status { margin-left: auto; font-size: 11px; padding: 4px 10px; }
+  .acc-order-body { padding: 14px 14px 16px; }
+  /* 商品列在 390px 下:小計換到第二欄下方(稿 :1086-1087) */
+  .acc-order-item { grid-template-columns: 46px minmax(0, 1fr); gap: 12px; }
+  .acc-order-item-q { grid-column: 2; text-align: left; margin-top: -2px; }
+  .acc-order-item-q b { display: inline; margin: 0 0 0 10px; }
+  /* 動作列在 390px 下右對齊很難點 → 改左對齊、拉開間距(稿 :1088) */
+  .acc-order-foot { justify-content: flex-start; gap: 18px 22px; }
   /* 🔴 2026-08-06:`.acc-rec-name` / `.acc-rec-price` 兩條斷點覆寫跟著本體一起刪
      (卡片改吃 `.pcard*`,字級由 `product-card.css` 統一管)。留著的話是**指向不存在元素的死規則**
      —— 而死規則不會有任何測試轉紅,只會讓下一個人以為這裡還有一套自刻卡。 */
@@ -945,10 +1150,12 @@
 /* 🔴 `#639` 甲(Sean 2026-08-18 拍板):件數算不出來時,那段說明**整段印在畫面上**。
    原本它住在 `<span title={…}>` 裡 —— `title` 是 hover-only,**觸控裝置沒有 hover**
    ⇒ 手機客人四段一段都拿不到(W4 實測 0/4)。這條就是那段字現在的家。
-   🔴 **掛在 `.acc-order-l`(左欄)裡面,不是 `.acc-order` 的第三個子元素** ——
-      後者要動到既有的 `display:flex; justify-content:space-between`(加 `flex-wrap`),
-      那會改到**每一張訂單卡**的排版;掛在左欄裡只影響有這段字的那一張。
-   ⚠️ 這段字很長(79 字)⇒ 那張卡會明顯變高。**那是拍板時就講明的代價,不是意外。** */
+   🔴 ~~**掛在 `.acc-order-l`(左欄)裡面,不是 `.acc-order` 的第三個子元素**~~
+      ⇒ **2026-08-29 作廢**:`.acc-order-l` 隨兩欄版式一起刪了。那段理由講的是
+      「不要動到 `.acc-order` 的 flex 排版」,而三段式卡的 `.acc-order` 已經不是 flex 容器
+      ⇒ 現在它住在 `.acc-order-body` 裡(件數那行的下面),那一格本來就是垂直堆疊。
+   ⚠️ 這段字很長(112 字元)⇒ 那張卡會明顯變高。**那是拍板時就講明的代價,不是意外。**
+      (~~拍板當時估「79 字」~~ ⇒ 現行常數實量 112,兩個數字都在原 artifact 上更正過。) */
 .acc-order-note {
   margin: 8px 0 0;
   padding: 8px 10px;
