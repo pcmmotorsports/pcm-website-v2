@@ -21,7 +21,7 @@
 | 函式 | 代數 | 各代 (檔:行) | 🔴 live 那代 |
 |---|---|---|---|
 | `admin_add_shipment_items` | **4** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:119<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:631<br>20260807180000_m4b_e10_b2_w3b2_add_shipment_items.sql:83<br>20260807230000_m4b_e10_b2_w4b_impl_extract_and_no_batch.sql:294 | `20260807230000_m4b_e10_b2_w4b_impl_extract_and_no_batch.sql:294` |
-| `admin_cancel_order` | **3** | 20260804180000_m4b_e10_a8a1_admin_cancel_order.sql:83<br>20260805100000_m4b_e10_a8a2_partial_cancel.sql:80<br>20260820030000_m4b_e10_a8a3_cancel_gate_noncard.sql:253 | `20260820030000_m4b_e10_a8a3_cancel_gate_noncard.sql:253` |
+| `admin_cancel_order` | **4** | 20260804180000_m4b_e10_a8a1_admin_cancel_order.sql:83<br>20260805100000_m4b_e10_a8a2_partial_cancel.sql:80<br>20260820030000_m4b_e10_a8a3_cancel_gate_noncard.sql:253<br>20260830020000_m4b_e10_cancel_reason_neutral.sql:115 | `20260830020000_m4b_e10_cancel_reason_neutral.sql:115` |
 | `admin_compute_order_settlement` | **2** | 20260811030000_m4b_e10_op6a_compute_order_settlement.sql:50<br>20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356 | `20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356` |
 | `admin_create_manual_order` | **2** | 20260824020000_m4b_858_admin_create_manual_order.sql:186<br>20260829140000_m4b_b2c_manual_order_explicit_tax_total.sql:97 | `20260829140000_m4b_b2c_manual_order_explicit_tax_total.sql:97` |
 | `admin_create_saved_order_view` | **2** | 20260828080000_m4b_b4views1_saved_order_views.sql:301<br>20260828090000_m4b_b4views1a_request_id_gate.sql:52 | `20260828090000_m4b_b4views1a_request_id_gate.sql:52` |
@@ -222,6 +222,16 @@
 **允許集合(逐字)**
 
 `:379` WHERE o.payment_status = 'unpaid'::public.payment_status<br>`:380` AND o.cancelled_at IS NULL<br>`:385` AND a.status <> 'failed'
+
+### `admin_cancel_order`  ·  `20260830020000_m4b_e10_cancel_reason_neutral.sql`
+
+**改什麼狀態**
+
+`:497` INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)<br>`:502` INSERT INTO public.order_cancellation_items (cancellation_id, order_id, order_item_id, cancelled_quantity)<br>`:507` INSERT INTO public.order_cancellation_items (cancellation_id, order_id, order_item_id, cancelled_quantity)<br>`:533` SET cancelled_at = pg_catalog.now(),
+
+**允許集合(逐字)**
+
+`:237` FROM public.order_cancellations<br>`:258` IF (v_order.cancelled_at IS NOT NULL) <> (NOT EXISTS (<br>`:265` IF v_order.cancelled_at IS NULL THEN<br>`:290` JOIN public.order_cancellations c ON c.id = (g.after->>'cancellation_id')::uuid<br>`:327` IF (v_order.payment_status <> 'unpaid'::public.payment_status<br>`:328` AND NOT (v_order.payment_status = 'paid'::public.payment_status<br>`:334` WHERE pa.order_id = p_order_id AND pa.status <> 'failed') THEN<br>`:363` OR v_audit.before->>'payment_status' NOT IN ('unpaid', 'paid')<br>`:387` IF v_closed AND v_order.cancelled_at IS NULL THEN<br>`:395` IF v_order.cancelled_at IS NOT NULL THEN<br>`:403` OR EXISTS (SELECT 1 FROM public.order_cancellations c<br>`:424` IF (v_order.payment_status <> 'unpaid'::public.payment_status<br>`:425` AND NOT (v_order.payment_status = 'paid'::public.payment_status<br>`:431` WHERE a.order_id = p_order_id AND a.status <> 'failed') THEN<br>`:497` INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)<br>`:569` COMMENT ON COLUMN public.order_cancellations.reason_code IS
 
 ---
 

@@ -119,7 +119,7 @@ vector 36 格(v4)= S×4 + I×10 + R×17 + C9×2 + PC×3;G1/CC1/CC2/M2 示範=非
 source_app、after.cancellation_id=回傳 id(v3)**+**回傳 cancellation_id=真 header id(v3)**+
 摘要 cancelled=quantity)/S2 other→detail 逐字(**含內部多空格原文保留**)/S3 七值映射逐字。
 冪等:I1 同鍵重放(產物完整)→ idempotent:true 零新列(**含 audit 恰 1**);I2 同鍵異 code
-(**v3:用 customer_request→price_change 同映射對,hash 與 header 欄位不變式都抓得到**)→RAISE;
+(**v3:用【同映射對】,hash 與 header 欄位不變式都抓得到** —— 🔴 **2026-08-30 起同映射對改成 `price_change→internal_error`**;~~原本用 `customer_request→price_change`~~ **已失效**:Sean 拍「2 乙」把 `price_change` 改成「訂單已取消,詳情請洽客服」⇒ 它與 `customer_request` 不再同文字 ⇒ 那一對會被【文字比對】順手抓到,而這一格要測的是 hash 與不變式,**用不同文字的一對 = 這格失去判別力而仍然綠**)→RAISE;
 **I2b(v3)竄改 payload_hash 欄+輸入不變→RAISE(hash 比對的專屬判別格)**;I3 同鍵異 actor→
 RAISE;I5 病理重放 paid→RAISE;I6 產物殘缺(刪一列 item)重放→RAISE;**I7(v3)取消後合成
 pending attempt→重放 RAISE**;**I8(v3)竄改 header reason_code→重放 RAISE**;**I9(v3)刪

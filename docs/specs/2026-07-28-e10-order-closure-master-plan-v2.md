@@ -542,12 +542,14 @@ schema 片與 RPC 片**一律不宣稱任何項變綠**,綠燈落在**同時具�
 | `customer_request` | 依您要求取消 |
 | `out_of_stock` | 商品供貨中斷,已為您取消 |
 | `long_leadtime` | 交期無法配合,已為您取消 |
-| `price_change` | 依您要求取消 |
+| `price_change` | 訂單已取消,詳情請洽客服(🔴 **2026-08-30 Sean 拍「2 乙」改** ⇒ ~~依您要求取消~~ 作廢;落點 `20260830020000`) |
 | `duplicate_order` | 重複訂單,已為您取消 |
-| `internal_error` | 依您要求取消(🔴 **刻意不對客揭露我方疏失** —— Sean 知情核准) |
+| `internal_error` | 訂單已取消,詳情請洽客服(🔴 **2026-08-30 Sean 拍「2 乙」改** ⇒ ~~依您要求取消(刻意不對客揭露我方疏失 —— Sean 知情核准)~~ **已被他本人推翻**,他選的選項逐字是「不說是你要求的 — 不對客人說不實的話」;落點 `20260830020000`) |
 | `other` | **手寫必填**(RPC 驗非空白;內部與對客同文字) |
 
 映射表是**可測合約**:A7 的 CHECK 收斂 `reason_code` 到這 7 值;A8a1 依表產對客文字、未知 code `RAISE` fail-closed;測試逐 code 驗映射。
+🔴 **而這張表在 code 裡有【兩份】,不是一份**(2026-08-30 量到):`admin_cancel_order` 的 ①寫入端(步2 輸入驗)與 ②冪等回放端(步4,把 `orders.cancelled_reason` 拿去跟重算的映射比)。**只改一份不是「少改一半文案」,是製造一個會爆的不一致** —— 冪等重入時兩邊對不上 ⇒ `RAISE` 通用訊息。守門 `scripts/cancel-reason-neutral-contract.test.ts` 逐格數形狀(不數總量:總量在「把新句搬去 `other`」那個壞世界裡照樣對)。
+⚠️ **已知未解**:apply 之前用那兩個 code 取消的舊單,庫裡仍是舊字面 ⇒ 冪等重入會撞上②。要不要回頭改既有那幾張單的 `cancelled_reason` = 改歷史對客資料 = **Sean 的板**。✅ **題目已寫進等待表**(`~/pcm-mailbox/等Sean決策-20260829.md`,錨 `Q-舊取消單改字`,2026-08-30 02:4x)。
 🔴 **`other` 的手寫文字落點 = `order_cancellations.reason_detail`**(R7 抓:原合約無處存放;部分取消不寫 `orders.cancelled_reason`,沒有這欄文字就遺失):CHECK 鎖 `other` 必填非空白、其餘 code 必 NULL;整單取消時 A8a1 把它映射為對客文字。
 
 #### 5.1a 版面規格(repo 內可驗字面,取代 artifact)
