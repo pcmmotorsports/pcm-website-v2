@@ -45,7 +45,14 @@ sweep() {
 
   # ③ 那個字面現在還在碼裡嗎 —— 它在不在,與板子怎麼寫是兩件事
   section "③ 那個字面現在還在碼裡嗎" "git grep -n <關鍵字> -- apps packages supabase scripts"
+  # 🔴 **排除本檔自己** —— 否則它會撈到自己的回音。
+  #    2026-08-29 實錘:`--selftest` 的負對照字面【就寫在本檔裡】,
+  #    而本檔一被 commit(= 從 untracked 變 tracked),`git grep` 就看得到它
+  #    ⇒ **負對照當場從「五段全零」變成「四段」,而【邏輯一個字都沒改】。**
+  #    📌 那個「以前會過」不是它以前是對的,是它以前【看不到自己】。
+  #    (成例:`scripts/traps-neighbours.py` 給檔路徑時會自動排除草稿本身。)
   git -C "$REPO" grep -n -- "$KW" -- apps packages supabase scripts 2>/dev/null \
+    | grep -v '^scripts/is-this-still-true\.sh:' \
     | cut -c1-200 | head -25 > "$TMP"
   report "apps + packages + supabase + scripts" "$TMP"
 
@@ -118,6 +125,11 @@ if [ "$#" -eq 0 ]; then
   printf '用法: bash scripts/is-this-still-true.sh "<那一列的錨或關鍵字>"\n'
   printf '      bash scripts/is-this-still-true.sh --selftest\n\n'
   printf '🔴 接一件工作【之前】跑它 —— 而不是做完之後。\n'
+  printf '🔴 而【板列的錨、與他的原話,要各跑一次】。\n'
+  printf '   2026-08-29 我拿本工具檢查自己的交件時量到:同一件事,兩個識別字結果相反 ——\n'
+  printf '   錨那一發說「還開著」,而用他的原話那一發,當場撈到他已經答過的那份決策檔。\n'
+  printf '   ⇒ 工具沒壞,是【輸入】的問題:我們用編號,而他答的時候不會用編號。\n'
+  printf '   (同一句紀律 scripts/before-asking-sean.sh 檔頭就有 —— 我在那支寫了,這支忘了套。)\n'
   printf '   2026-08-29 一夜,「板子描述一個已經不存在的世界」發生第五次,\n'
   printf '   其中一次是一條被派下去的 P0,而那個洞兩小時前已經被補好了。\n'
   exit 2
