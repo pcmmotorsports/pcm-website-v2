@@ -149,8 +149,13 @@ export async function OrderDetailRoute({
   //    ⇒ D3 對這四種**一律** fail-closed 走 `match_other_actor`,**那是對的、不要改**
   //      (`lib/orders/cancel-ledger-classifier.ts` 錨 `一律走 match_other_actor`)。
   //    ⚠️ 而**下游的文案有一格因此變窄**:`cancel-result-panel.tsx` 的 `match_other_actor`
-  //      逐字「也可能是你還沒在右上角選人」—— 在後三種世界裡,**照它做是做白工**。
-  //      🔴 **本片不改那句**:它長在取消/退款動線上(鐵則 12 ①)⇒ 另一片工,已回報。
+  //      ~~逐字「也可能是你還沒在右上角選人」—— 在後三種世界裡,**照它做是做白工**。~~
+  //      ~~🔴 **本片不改那句**:它長在取消/退款動線上(鐵則 12 ①)⇒ 另一片工,已回報。~~
+  //      ✅ **2026-08-29 那一片做完了**(`Q-CANCELHINT` = 甲):那句仍然提到那顆選單,而改口徑成
+  //      「不一定選了就生效」(codex R2 nit 更正我原本寫的「不再指那顆選單」—— **那句話是假的**),
+  //      並把員工送去首頁「具名身分」卡(那裡分得出四種世界)。**不得在任一處叫他登出重登**
+  //      —— 理由見 `app/page.tsx:100-104`(codex 關卡2 R4 must-fix),在取消頁一字不變地成立。
+  //      現行字面釘在 `cancel-result-panel.test.tsx`(整句斷言,改一個字就紅)。
   const actor = await getSessionActor();
   const [
     detailSettled,

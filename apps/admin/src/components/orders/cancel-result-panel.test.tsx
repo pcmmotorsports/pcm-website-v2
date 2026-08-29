@@ -124,6 +124,59 @@ describe('D5 驗收① 五分類各自的文案', () => {
     });
     expect(container.textContent).toContain('認不出你是誰');
   });
+
+  it('🔴 match_other_actor 的文案逐字等於核准過的那句(Q-CANCELHINT 裁甲)', () => {
+    // 🔴 **為什麼釘【整句】而不是禁幾個詞**:同檔 miss_complete 那格已經寫過理由 ——
+    //    危險的說法有無限多種寫法,枚舉禁詞永遠追不完;釘住核准過的那一句才有邊界。
+    //
+    // 🔴 **這一句在防的兩件事,兩件都是【改一個字就恢復】的**:
+    //    ① ~~「也可能是你還沒在右上角選人」~~ —— 線上到得了這句話的世界裡,那半句全是白工
+    //       (`actor === null` 有四種來源,只有 `self-selected` 那種選了才有用,
+    //        而它要求 `ADMIN_REQUIRE_REAL_IDENTITY` 是關的 —— 那顆旗標 2026-08-25 已設為 1)。
+    //    ② 🔴 **不得叫他登出重登** —— `app/page.tsx:100-104` codex 關卡2 R4 must-fix:
+    //       上游還沒送 `sub` 時他登出就回不來,而舊票還讀得到東西。
+    //       (而這個後台目前**沒有登出入口**:`grep -rlEi 'logout|signout|sign-out'
+    //        apps/admin/src/app` ⇒ 0 檔;正對照 `login|sso` ⇒ 64 檔。)
+    //
+    // 🔴 **翻面條件(寫出來,免得它變成一格恆綠)**:
+    //    · 有人把那半句改回去指那顆選單 ⇒ 整句斷言紅
+    //    · 有人「順手統一文案」把句子改軟 ⇒ 整句斷言紅
+    //    · 有人加一句「請登出後重新登入」⇒ 下面那條 not.toContain 紅
+    //    ⚠️ 而【本測試不驗】那句話說得對不對 —— 它只保證這句話不會在沒有人看見的情況下被改掉。
+    //       文案調性是 Sean 的板;用字是線I 挑的,他一個字就能改(改了記得同步這裡)。
+    const { container } = panel({
+      actor: null,
+      cancellations: [{ actor: ACTOR, idempotencyKey: TOKEN }],
+    });
+    // 🔴 **codex R1 must-fix 3+4 之後改成 `toBe`,不是 `toContain`** —— 兩條同一個根:
+    //    · `toContain` 之下,**在核准句後面【加】一句危險的話照樣全綠**
+    //      (codex 的反例:加「請退出帳號再重新登入」—— 它避開了「登出」兩個字)。
+    //    · ~~`not.toContain('登出')`~~ **已刪**:它守錯邊界 —— 正確的警語「請先不要登出」
+    //      會被它誤紅,而上面那句危險的同義句它抓不到。**`toBe` 把兩邊一起解掉。**
+    const hint = container.querySelector('p.text-xs');
+    expect(hint?.textContent).toBe(
+      '可能是同事同時在處理,也可能是系統這次認不出你是誰。請先與同事確認,不要直接再送一次;而右上角那顆選單【不一定】選了就生效 —— 要知道你這次是哪一種情況、該做什麼,看後台首頁「具名身分」那張卡。',
+    );
+    // 🔴 **tone 也要釘**(codex R1 must-fix 4 的另一半):字串一字不改、把 `tone` 改成 `ok`
+    //    ⇒ 面板變綠色「看起來成功了」而文字照舊 ⇒ 上面那條 `toBe` 全綠。
+    // 🔴 **codex R2 must-fix 1**:~~只釘 hint~~ ⇒ **標題不釘的話,把標題改成
+    //    「這筆沒有送出,可以直接再送一次」而 hint / tone 一字不動 ⇒ 全綠,而畫面自相矛盾。**
+    const title = container.querySelector('p.font-medium');
+    expect(title?.textContent).toBe('找到相符的取消紀錄,但登記人不是你(或系統認不出你是誰)');
+    // 🔴 **codex R2 must-fix 2**:~~`toContain('amber')` + `not.toContain('emerald')`~~ **太鬆** ——
+    //    改成 `border-amber-300 bg-sky-50 text-sky-900` ⇒ 畫面主色變藍,而那兩條照樣全綠。
+    //    ⇒ 釘**整串** warn 的 class(`TONE_CLASS.warn` 逐字)。
+    const section = container.querySelector('section');
+    expect(section?.className).toContain('border-amber-300 bg-amber-50 text-amber-900');
+    //
+    // ⚠️ **這一格【沒有】驗到的**(明寫,不要讓下一個人以為它守得比實際寬):
+    //    · 提示被 CSS 隱藏 / 字級縮到看不見 ⇒ `textContent` 一樣回這串,**測不出來**
+    //    · 🔴 **可近用性**(codex R2 nit):替 hint 加 `aria-hidden`、或拿掉 section 的
+    //      `role='status'` ⇒ 螢幕閱讀器收不到,而本測試三條全綠。**這一格沒有人在守。**
+    //    · 🔴 **選擇器不穩**(codex R2 nit):`p.text-xs` / `p.font-medium` 目前各自唯一,
+    //      而**純樣式重構(換 class)會讓這格【假紅】** —— 假紅可以排隊,假綠不能,故接受。
+    //    · 這句話說得【對不對】⇒ 那是 Sean 的板,不是這條測試的事
+  });
 });
 
 describe('D5 驗收② fail-closed:結果頁上不准就地重送', () => {
