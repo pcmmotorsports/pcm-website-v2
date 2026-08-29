@@ -52,7 +52,7 @@ import type { AdminOrderDetail } from '@pcm/domain';
 //   picking-cancelled / picking-no-items  是哪一種阻印（A 種 / C 種）
 //   shipping-blocked                      出貨明細單那一幅
 //   picking-truncated-notice / -band      B 態（頁首那幅 / 表身標記帶）
-//   picking-qty-unknown                   「數量不知道」那一格
+//   ~~picking-qty-unknown~~ ⇒ A3-3'(2026-08-29)已移除;「數量不知道」現在只在頁首 Alert
 //   picking-checkbox / picking-total      勾選框 / 合計
 // ```
 //   🔴 **文案的所有權【只在】`page.test.tsx`** ——
@@ -392,7 +392,8 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     // 🔴 **這一份與 A / C 的差別就是這兩格**:表在、而且真的有框可以勾。
     //    沒有這兩格,一份「表被擋掉」的產出也會通過上面三格,而那是另一種紙。
     expect(truncated).toContain('<table');
-    expect(truncated).toContain('picking-checkbox');
+    // 🔴 A3-3':~~expect(truncated).toContain('picking-checkbox')~~ ⇒ 勾選框已拿掉
+    expect(truncated).not.toContain('picking-checkbox');
     expect(truncated).toContain('SKU-0011-LONG');
 
     // 🔴 **負向對照(同樣 12 項、只差旗標)**:上面那三個字面必須【消失】,
@@ -401,12 +402,25 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     const normal = await emitPicking(12, 'picking-12item', {}, true);
     expect(normal).not.toContain('picking-truncated-notice');
     expect(normal).not.toContain('picking-truncated-band');
-    expect(normal).toContain('picking-checkbox');
+    // 🔴 A3-3':~~expect(normal).toContain('picking-checkbox')~~ ⇒ 勾選框已拿掉
+    expect(normal).not.toContain('picking-checkbox');
     // 🔴 再一發:`withQuantity` 沒生效的世界裡,上面那個 `picking-checkbox` 會消失
     //    而其他格照樣全過 ⇒ 這一格釘的是「勾選框是我餵的數量帶出來的」。
     const noQty = await emitPicking(12, 'picking-12item-noqty');
+    // 🔴 A3-3'(2026-08-29):~~原本這裡守『withQuantity 沒生效時不該有框』~~
+    //    ⇒ 勾選框整欄拿掉了 ⇒ 這個斷言【現在恆真】, 而恆真的守門比沒有守門糟。
+    //    ✅ 換成守現在真正成立的:兩種世界【都】不得有框。
     expect(noQty).not.toContain('picking-checkbox');
-    expect(noQty).toContain('picking-qty-unknown');
+    // 🔴 R1 MF8:上面三個 not.toContain 現在【全部不可證偽】(該字串已全 repo 零命中)
+    //    ⇒ `withQuantity` 的判別力整個消失了 —— 而它原本守的是「數量資料有沒有帶進來」。
+    //    ✅ 換一個【還活著】的錨:`picking-qty-unknown` 只在數量不知道時出現。
+    //    量到(2026-08-29):picking-12item ⇒ 0 · picking-12item-noqty ⇒ 12 ⇒ 兩個世界分得開。
+    // 🔴 A3-3' 第二輪:~~`picking-qty-unknown` 當活錨~~ ⇒ **我自己在同一片裡把它拆了**
+    //    （codex R2 must-fix 1 的修法把那個 span 整個拿掉, 數量欄改印訂購量）。
+    //    📌 **⇒ 我選了一個錨, 然後在同一片的後面把它移除 —— 而兩件事之間隔了六個修正。**
+    //    ✅ 換成【現在真的還活著】的錨:頁首 Alert 的字面（當場量:noqty=1 · normal=0）。
+    expect(noQty).toContain('數量資料尚未就緒');
+    expect(normal).not.toContain('數量資料尚未就緒');
 
     // 🔴🔴 **真尺寸那一份**:`B` 態的觸發條件是**剛好載到 200 筆**
     //    (`ORDER_ITEMS_EMBED_LIMIT = 200`,`packages/adapters/src/supabase/mappers/order.ts:407`,

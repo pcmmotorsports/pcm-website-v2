@@ -1061,6 +1061,14 @@ export function ShippingDoc({
                       收斂點同樣是 `#248`(登記資料進後台),在那之前它住在這裡。
                       ⚠️ 它與抬頭那行的 `LINE @pcmmoto` **是兩種東西**(邀請連結 vs 帳號 ID),
                          不是重複、也不能互相取代。 */}
+                  {/* 🔴 2026-08-29 Sean 逐字回主視窗:**「同一個, 不用改」** ——
+                      指的是這張紙上的 LINE 邀請連結與顧客站那顆按鈕**是同一個官方帳號**。
+                      ⚠️ **而兩邊的【字面不一樣】, 這一格 `-c8` 當場量過**:
+                         紙上 `lin.ee/egsf1Jy` · 顧客站 `apps/storefront/src/components/ComingSoon.tsx:58`
+                         `LINE_URL = 'https://lin.ee/R6QZUH2'`(另見 `lib/line-cta.ts:20` 同值)。
+                      🔴 **「同一個帳號的兩張邀請卡」是 Sean 說的, 不是我們量到的** ——
+                         我們沒有打開任何一個連結去確認它們指向同一個帳號(那要對外請求)。
+                      📌 **⇒ 寫在這裡是為了讓下一個人【不要再問第三次】**, 而不是為了宣稱它已驗證。 */}
                   <div className='pd-cu'>lin.ee/egsf1Jy</div>
                   <div className='pd-cp'>
                     收到商品後有任何問題(缺件、外觀損傷、規格不符),請掃描左方 QR Code

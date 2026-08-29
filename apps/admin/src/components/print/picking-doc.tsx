@@ -84,18 +84,11 @@ function Alert({ children, slot }: { children: React.ReactNode; slot?: string })
   );
 }
 
-/**
- * 這一列**這次要不要動手揀**。
- *
- * 🔴 收成一支的理由:它有**兩個**消費端 —— 那一列的勾選框、與底下的「本次應揀合計」。
- *    各寫一份的話會出現「紙上有 9 個框、合計說 8 項」,而**那張紙印得出來、沒有任何東西會紅**。
- *    (同一個病 2026-08-16 在 `order-status-axes.ts` 真的發生過:軸與小字兩個分母各自漂走。)
- * ⚠️ `null`(不知道)算 **false** —— 不知道就不要叫人去揀。
- *    但**它不可以就這樣消失**:合計旁邊要把「不知道」那幾項單獨講出來,見 `PickingDoc` 底下那段。
- */
-function needsPicking(pickable: number | null): boolean {
-  return pickable !== null && pickable > 0;
-}
+// 🔴 A3-3'(2026-08-29):~~`needsPicking()` 與它的 docstring~~ **拿掉** ——
+//    它的唯一消費端是 `pickableCount`, 而那是已被拿掉的「本次應揀合計」的來源。
+//    ⚠️ 它的 docstring 逐字寫著「它有**兩個**消費端 —— 那一列的勾選框、與底下的『本次應揀合計』」
+//       ⇒ **兩個都不存在了** ⇒ 留著會讓下一個人以為這張紙還有勾選邏輯。
+//    🔴 而 `eslint`/`tsc` 對它【零輸出】—— 死碼在這個設定下沒有任何機制看得見。
 
 export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
   // 🔴 面1:整單已取消 ⇒ **不印品項表**。
@@ -112,7 +105,9 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
   //    ⚠️ 所以判斷收成 `needsPicking` 一支、算一次存成 `pickables` 一份,
   //      勾選框與合計【都讀它】—— 不是「兩邊寫得一樣」,是**兩邊沒有各自的版本可以漂走**。
   const pickables = detail.items.map((item) => pickableQuantity(item));
-  const pickableCount = pickables.filter(needsPicking).length;
+  // 🔴 A3-3'(2026-08-29):~~const pickableCount = pickables.filter(needsPicking).length;~~
+  //    **拿掉** —— reviewer R1 MF9:它零讀取(唯一消費端是已被拿掉的「本次應揀合計」),
+  //    而 `eslint` 對它 rc=0 零輸出 ⇒ **死碼而 lint 看不見**。
   const unknownCount = pickables.filter((q) => q === null).length;
 
   return (
@@ -224,7 +219,7 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
               放在頁首而不是合計旁邊的理由見下面合計那段(跨頁會把它切掉)。 */}
           {unknownCount > 0 && (
             <Alert>
-              有 {unknownCount} 項的數量資料尚未就緒(下面標「這一項不要揀」的那幾列)
+              有 {unknownCount} 項的數量資料尚未就緒
               {/* 🔴 截斷時這個數也只是【已載入子集】裡的數量(codex R2)——
                   與「品項:N 項」同一個病,不能只修被指名的那一處。 */}
               {detail.itemsTruncated && '(而且清單沒載完,未載入的列裡可能還有)'}。
@@ -232,7 +227,7 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
               {/* 🔴 **這句原本中間是一個 `⇒`** —— 那是我們寫註解用的**邏輯符號(蘊含)**,
                   2026-08-18 紙上文字審查掃出來的第二則(掃渲染產物的邏輯/裝飾符號 ⇒ 只命中它,2 處)。
                   ⚠️ **揀貨的人不讀邏輯符號。** 換成「所以」——**句意一個字都沒改,只是用人話接。** */}
-              那幾項沒有算進「本次應揀合計」。所以就算勾完合計那個數字,這張單仍然不算處理完,請回報。
+              那幾項的數量【還不知道】。所以這張單仍然不算處理完,請回報。
             </Alert>
           )}
 
@@ -302,7 +297,7 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                        而那六個字沒被藏)寫在 `shipping-doc.tsx` 的同一段註解裡,不重複貼。 */}
                 <tr className='contbar'>
                   <th
-                    colSpan={4}
+                    colSpan={3} /* 🔴 A3-3':勾選欄拿掉 ⇒ 從 4 改 3。少改這裡 ⇒ 跨欄列會多撐一欄 */
                     className='text-muted-foreground px-2 pt-2 pb-1 text-left text-xs font-bold tracking-[0.16em] uppercase'
                   >
                     品項明細　訂單{' '}
@@ -310,10 +305,20 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                   </th>
                 </tr>
                 <tr className='border-b'>
-                  <th className='w-10 px-2 py-2 text-left text-xs font-medium'>✓</th>
+                  {/* 🔴 A3-3'(2026-08-29):~~勾選欄 `✓`~~ **拿掉** ——
+                      Sean 2026-08-23「訂單明細**不需要**勾選框(它不是拿去揀的)」
+                      + 2026-08-29 `Q-PICKORDER` 拍**甲**(倉庫**先建出貨單** → 印那張 → 拿去勾)
+                      ⇒ 勾選框在出貨單那張紙上, 落檔 `memory/project_0829-sean-warehouse-picks-after-shipment-created.md`。
+                      ⚠️ **而那個拍板附帶一格沒有人量過的**:沒有人知道有沒有人真的在用這張紙去勾
+                         (列印次數零紀錄)⇒ **拿掉之後若有人不方便, 我們不會知道。** 他知情地選了甲。 */}
                   <th className='px-2 py-2 text-left text-xs font-medium'>料號</th>
                   <th className='px-2 py-2 text-left text-xs font-medium'>品名 / 規格</th>
-                  <th className='px-2 py-2 text-right text-xs font-medium'>應揀數量</th>
+                  {/* 🔴 A3-3':~~「應揀數量」~~ ⇒ **「數量」** —— 照稿逐字
+                      (OD `pcm-524f/預覽-訂單明細.html` 表頭:`料號 | 品名 / 規格 | 狀態 | 數量 | 單價 | 小計`)。
+                      🛑 **而稿的六欄本片只做到三欄** —— `狀態` / `單價` / `小計` 還沒有,
+                         那三欄屬下一片(`單價`/`小計` 要等 `Q-DETAIL-MONEY` 那條落地, Sean 已拍**甲 要印**)。
+                      📌 **⇒ 本片刻意留在中間狀態, 而【中間狀態要寫出來】** —— 不寫的話下一個人會以為對齊完了。 */}
+                  <th className='px-2 py-2 text-right text-xs font-medium'>數量</th>
                 </tr>
               </thead>
               <tbody>
@@ -326,18 +331,12 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                   //    沿用本檔既有慣例(:405 那列已經在用 `data-slot`)。
                   return (
                     <tr key={item.id} data-slot='picking-item' className='border-b'>
-                      {/* 真的要用筆勾的框。`print-color-adjust` 不碰 —— 空心框在單色印表機上照樣看得見。
-                          🔴 R2 nit-4 同一條:**不用揀 / 不該揀的列不給框**。
-                             給了框就是在問「要不要打勾」,而那正是這格的歧義來源;
-                             沒有框 = 這一列不需要你做任何動作,一眼就看得出來。 */}
-                      <td className='px-2 py-3 align-top'>
-                        {needsPicking(pickable) && (
-                          <span
-                            data-slot='picking-checkbox'
-                            className='border-foreground block size-5 rounded-sm border-2'
-                          />
-                        )}
-                      </td>
+                      {/* 🔴 A3-3'(2026-08-29):~~勾選格~~ 拿掉 ——
+                          原註解逐字保留在下面, 因為它解釋的判斷【本身沒有過期】:
+                          「R2 nit-4:**不用揀 / 不該揀的列不給框**。給了框就是在問
+                           『要不要打勾』, 而那正是這格的問題;沒有框 = 這一列不需要你做任何動作」
+                          ⇒ 那個判斷現在被【整欄拿掉】取代:**這張紙上沒有任何一列要打勾。**
+                          🔴 而它仍然值得留著 —— 出貨單那張紙**還有勾選欄**, 那條紀律在那裡照樣成立。 */}
                       <td className='px-2 py-3 align-top font-mono text-sm whitespace-nowrap'>
                         {item.variantSku}
                       </td>
@@ -351,41 +350,18 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                           </div>
                         )}
                       </td>
+                      {/* 🔴 A3-3'(2026-08-29, codex R2 must-fix 1):這一欄的【欄名】改成「數量」了,
+                          ~~而它印的還是【應揀量】= 已到貨 − 已出貨~~ ⇒ **欄名與數字說不同的話。**
+                          codex 的實例逐字:「訂購 53、到貨 41、已出貨 15 ⇒ 訂單明細會把數量印成 26」。
+                          ✅ 稿(OD `pcm-524f/預覽-訂單明細.html`)那一欄印的是【訂購數量】——
+                             第一列逐字 `料號 | 品名/規格 | 未到貨 1 | 1 | 1,400 | 1,400`, 數量欄 = 1。
+                          ⇒ 改印 `item.quantity`(客人訂了多少)。
+                          🛑 而原本三個分支的【揀貨語言】(「這一項不要揀」/「這次不用揀」)一併拿掉 ——
+                             那是 codex must-fix 2:守門宣稱「不得再有任何揀貨用的東西」而它們還在。
+                          ⚠️ **而「數量資料尚未就緒」那個資訊沒有消失** —— 它在頁首那顆 Alert 裡,
+                             而稿把它放在【狀態】欄(第三欄)⇒ **那一欄是下一片**, 不是本片漏掉。 */}
                       <td className='px-2 py-3 text-right align-top'>
-                        {pickable === null ? (
-                          // 🔴 面5:不知道就明說,**不印下單量、不補 0**(契約見 `pickableQuantity` docstring)。
-                          <span
-                            data-slot='picking-qty-unknown'
-                            className='text-sm font-medium text-amber-800'
-                          >
-                            數量資料尚未就緒
-                            <br />
-                            這一項不要揀
-                          </span>
-                        ) : pickable === 0 ? (
-                          // 🔴 R2 nit-4:**「這次不用揀」要用字說,不能只印一個放大的 `0`。**
-                          //    `pickable === 0` 是 PCM 代購模式**最常見**的狀態(貨還沒從供應商到)——
-                          //    而放大的 `0` 配一顆打勾框,語意是模糊的:要打勾嗎?這項算不算揀完了?
-                          //    ⚠️ 病根是**標準不對稱**:面5(不知道)我給了文字,面「知道就是 0」反而只給數字。
-                          //    「或」是誠實的:兩個成因在這張紙上分不出來,但**哪一個都不用揀**。
-                          <span className='text-muted-foreground text-sm font-medium'>
-                            這次不用揀
-                            <br />
-                            <span className='text-xs'>(未到貨或已出貨)</span>
-                          </span>
-                        ) : (
-                          <>
-                            {/* 揀錯數量是這張紙唯一真的會出錯的地方 ⇒ 放大的一定要是**應揀量**。 */}
-                            <div className='text-xl font-semibold tabular-nums'>{pickable}</div>
-                            {pickable !== item.quantity && (
-                              // 差額的成因(未到貨 / 已出貨 / 已取消)在這張紙上分不出來,也不需要 ——
-                              // 揀貨的人只要知道「客人買的比這次要揀的多」,有疑問去看後台。
-                              <div className='text-muted-foreground mt-0.5 text-xs'>
-                                客人買 <span className='tabular-nums'>{item.quantity}</span>
-                              </div>
-                            )}
-                          </>
-                        )}
+                        <div className='text-xl font-semibold tabular-nums'>{item.quantity}</div>
                       </td>
                     </tr>
                   );
@@ -422,7 +398,7 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                   <>
                     {[0, 1, 2].map((i) => (
                       <tr key={`truncated-${i}`} className='border-b bg-amber-500/10'>
-                        <td className='px-2 py-3 align-top' />
+                        {/* 🔴 A3-3':~~原勾選欄那一格空 `<td />`~~ 拿掉 —— 留著整列會位移一欄 */}
                         <td className='px-2 py-3 align-top font-mono text-sm whitespace-nowrap text-amber-800'>
                           ? ? ? ?
                         </td>
@@ -438,7 +414,7 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                       </tr>
                     ))}
                     <tr data-slot='picking-truncated-band' className='border-b bg-amber-500/10'>
-                      <td className='px-2 py-3 align-top' />
+                        {/* 🔴 A3-3':~~原勾選欄那一格空 `<td />`~~ 拿掉 —— 留著整列會位移一欄 */}
                       <td className='px-2 py-3 align-top text-sm font-medium text-amber-800' colSpan={3}>
                         以上不是全部。還缺幾列 —— 系統也不知道,所以這張表沒有結尾。
                       </td>
@@ -449,81 +425,20 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
             </table>
           )}
 
-          {/* ── 本次應揀合計(Sean 2026-08-16 答「幾項」)──
-              🔴 **它守的是「漏揀一整列」,而那件事在這張紙上【原本零症狀】** ——
-                 揀貨的人一列一列往下勾,勾到最後沒有任何東西告訴他「你應該勾滿幾個」。
-                 少勾一整列 ⇒ 紙看起來就是勾完了。合計是這張紙唯一的自我對帳手段。
-              ⚠️ **上面表頭那行「品項:N 項」不能拿來當這個數** —— 它是**表格列數**,
-                 而這裡要的是**要動手的列數**。兩者會不會差、差多少,**我沒有量過**
-                 (本檔上面那句「`pickable === 0` 是最常見的狀態」也是**沒有分母的頻率宣稱**,
-                  是先前的窗寫的,我一併標記而不是照抄背書)。
-                 ⚠️ **而這一片不依賴那個頻率** —— 只要**有可能**不同,寫成同一個數就是錯的。
-                 **把它們寫成同一個數,就是叫人去勾一個他勾不滿的數。** */}
-          {detail.items.length > 0 && (
-            <div className='border-t pt-3'>
-              <div className='flex flex-wrap items-baseline gap-x-3'>
-                <span className='text-sm font-semibold'>本次應揀合計</span>
-                <span data-slot='picking-total' className='text-xl font-semibold tabular-nums'>
-                  {pickableCount} 項
-                </span>
-                {/* 🔴🔴 **清單沒載完的時候,這句話會【說謊】,而它說的正是本片要防的那件事。**
-                    (codex 對抗審查 2026-08-16 抓的,我第一版真的印了它。)
-                    `itemsTruncated` 代表**有幾列根本沒被載進來** ⇒ 它們不在 `pickableCount` 裡
-                    ⇒ 「全部勾完才算揀完」變成「勾完這 3 項就結束了」,而缺的那幾列沒有人知道。
-                    ⚠️ **這比沒有合計更糟** —— 沒有合計時他至少不會覺得自己完成了;
-                    有一個【看起來精確的數字】反而給了他一個假的完成條件。 */}
-                {/* 🔴🔴 **`pickableCount === 0` 那一格原本印的是一句【恆真的完成條件】**
-                    (2026-08-18,**在真伺服器 + 真資料上看到的**,六份 fixture 一份都沒照出來):
-                    真單 `PCM-2026-0102` 只有 1 個品項、`quantitySummary` 為 `null`
-                    ⇒ 頁首說「有 1 項的數量資料尚未就緒…這張單仍然不算處理完」,
-                    而頁尾同時印「**勾選欄共 0 項,全部勾完才算揀完。**」
-                    ⇒ **「把 0 個框全部勾完」是一個【不做任何事就成立】的條件**
-                       —— 拿著這張紙的人在頁尾讀到的是「這張單沒事」。
-                    ⚠️ 頁首那段警告**有**講清楚,而**兩句話互相矛盾時,人會信離簽名欄近的那一句**。
-                    ⇒ 三分支:截斷 / 零項 / 正常。**零項不給完成條件,只說發生了什麼。**
-                    🔴 **這一格 fixture 照不出來的原因值得留**:`page-measure.test.tsx` 的
-                       `withQuantity` 要嘛全給數量(每列都有框)、要嘛全 `null`(走「品項:0」那條),
-                       **而真資料是「有品項、但數量不知道」** —— 那是 fixture 沒有的第三種。 */}
-                {detail.itemsTruncated ? (
-                  <span className='text-sm font-medium text-amber-800'>
-                    {/* 🔴 **這句原本開頭帶一個 `🔴`,而那是【我們寫註解用的內部符號漏到紙上】**
-                        (2026-08-18 文字審查掃出來的:掃渲染輸出的表情符號 ⇒ 3 種,
-                        `✓` 是欄名合理,`🔴` 兩份 fixture 命中、都在 B 態)。
-                        ⚠️ 倉庫是**單色印表機** ⇒ 它印出來是**一顆沒有意義的黑點**;
-                        而本檔的字型是系統堆疊(見 `page-measure.test.tsx` 檔頭)
-                        ⇒ **換一台機器可能是一個缺字框**。兩種都不傳達任何東西給揀貨的人。
-                        ⇒ 拿掉。**句子本身一個字都沒改。** */}
-                    清單沒載完 —— 這個數字不是全部,不要拿它當揀完的依據。
-                  </span>
-                ) : pickableCount === 0 ? (
-                  <span className='text-sm font-medium text-amber-800'>
-                    這張單這次沒有任何一項要揀 —— 這不等於「已經揀完」,不要在這裡簽名收工。
-                  </span>
-                ) : (
-                  <span className='text-muted-foreground text-xs'>
-                    勾選欄共 {pickableCount} 項,全部勾完才算揀完。
-                  </span>
-                )}
-              </div>
-              {/* 🔴 **「不知道」的列不能靜靜地從合計裡消失。**
-                  它們沒有勾選框(上面那段)⇒ 不算進應揀項數是對的;
-                  **但只算不說,揀貨的人勾滿 N 項就會認為這張單處理完了**,
-                  而那幾列其實可能還欠貨。⇒ 算式外的那幾項要當場講出來。
-                  ⚠️ 這是 `pickableQuantity` docstring 那條「`null` 是不知道、不是 0」的**同一條規則
-                     在合計這一層的延伸** —— 補 0 與「從分母裡拿掉且不說」是同一個錯的兩種形狀。 */}
-              {/* 🔴🔴 **「不知道」的警告【不在這裡】,它在頁首的 Alert 區 —— 那是刻意的。**
-                  第一版我放在這裡,codex 第二輪指出:這一塊**不在 `<table>` 裡**、跨頁時
-                  「合計」可能留在頁尾而警告掉到下一頁 ⇒ **當頁讀起來就是「沒有不知道的」**
-                  —— 而那正是本檔說最貴的那種錯(把「不知道」印成「沒有」)。
-                  🔴 **我沒有量過分頁行為,而本檔的立場是「不加沒量過的 CSS 字面」**
-                  (上面拒絕 `print:table-header-group` 用的是同一把尺)
-                  ⇒ **所以不是加 `break-inside` 賭它,是把那句話搬到【結構上不會被切掉】的地方。**
-                  ⚠️ 頁首 Alert 在第 1 頁、而且是揀貨的人動手前會先看到的位置 —— 兩個理由都成立。 */}
-            </div>
-          )}
+          {/* 🔴 A3-3'(2026-08-29):~~「本次應揀合計」整區~~ **拿掉** ——
+              它是【勾選】的合計(Sean 2026-08-16 答「幾項」), 而這張紙上已經沒有勾選框。
+              📌 **⇒ 留著它會印出「應揀合計 N 項」而紙上沒有任何一格可以勾** —— 那比拿掉更糟。
+              🔴 而它原本帶著兩段很好的推理, 逐字搬進出貨單那張的責任【不在本片】:
+                 ①「清單沒載完的時候, 這句話會說謊」②「把它們寫成同一個數,
+                   就是叫人去勾一個他勾不滿的數」
+                 ⇒ 那兩段講的是【勾選合計】這個東西的固有陷阱, 而勾選合計現在只存在於出貨單那張。
+                 ⚠️ **出貨單那張有沒有同款保護, 本片沒有查** —— 標為未確認, 不是已處理。 */}
 
           <div className='text-muted-foreground flex gap-8 pt-6 text-sm'>
-            <span>揀貨人:________________</span>
+            {/* 🔴 A3-3'(codex R2 must-fix 2):~~`揀貨人:____`~~ 拿掉 ——
+                這張紙不是拿去揀的(Sean 08-23), 而簽名欄在【出貨單】那張。
+                📌 留著它, 就是在紙上要求一個【這張紙不負責的動作】。
+                ⚠️ 而「日期」那格保留 —— 它對「這張明細什麼時候印的」仍然成立。 */}
             <span>日期:________________</span>
           </div>
         </>
