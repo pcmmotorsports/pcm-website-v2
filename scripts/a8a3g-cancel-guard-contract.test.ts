@@ -33,14 +33,23 @@ import { describe, expect, it } from 'vitest';
 const MIGRATIONS = new URL('../supabase/migrations/', import.meta.url).pathname;
 
 /**
- * 🔴 剝掉整行註解 —— 這一步是必要的,不是潔癖:
+ * 🔴 剝掉註解 —— 這一步是必要的,不是潔癖:
  *    `grep` 不會渲染刪除線,`-- ~~已作廢~~` 與生效的碼在輸出裡長得一模一樣。
- *    (實錘:我今天量 2f 的 `strpos` 報 10,剝掉註解之後是 7 —— 灌水 30%。)
+ *    (實錘:我 2026-08-30 量 2f 的 `strpos` 報 10,剝掉註解之後是 7 —— 灌水 30%。)
+ *
+ * 🔴 而【剝到哪】是這支檔改過一次的地方,理由留著:
+ *    我第一版寫的是「丟掉整行註解」(`^\s*--`)⇒ 而那漏掉【行尾註解】:
+ *      WHERE o.customer_user_id = x  -- o.cancelled_at IS NULL
+ *    那一行在我第一版底下是【生效行】,而它含那個字串 ⇒ 守門會綠。
+ *    ✅ 答案早就在 repo 裡:`20260812170000:747` 十八天前就寫了
+ *       `regexp_replace(v_src, '--[^\n]*', '', 'g')` —— 剝【任何位置】的 -- 到行尾。
+ *    📌 而我是為了寫這支守門去讀那支檔,才撞到它的 —— 不是查到的。
+ *    ⚠️ 過度剝除(例如字串常值裡的 --)只會讓守門【更容易紅】⇒ 失敗方向是安全的。
  */
 const liveText = (file: string): string =>
   readFileSync(join(MIGRATIONS, file), 'utf8')
+    .replace(/--[^\n]*/g, '')
     .split('\n')
-    .filter((l) => !/^\s*--/.test(l))
     .join('\n');
 
 /** 檔名開頭是時間戳 ⇒ 字典序即時間序。回最後那一支。 */
@@ -78,7 +87,7 @@ describe('A8a3-G:已取消的單不得被判成「重複單」', () => {
   // 🔴 突變:一支「未來的 migration」重新定義了函式而漏掉那個條件 ⇒ 必須被抓到。
   //    自檢照 -b4 那條:同一發要附一個已知該過的正常案例,它也紅 ⇒ 本發作廢。
   it('突變:未來的 migration 漏掉那個條件 ⇒ 檢查必須紅（附同形狀的正常案例當自檢)', () => {
-    const check = (sql: string) => sql.split('\n').filter((l) => !/^\s*--/.test(l)).join('\n').includes(CLAUSE);
+    const check = (sql: string) => sql.replace(/--[^\n]*/g, '').includes(CLAUSE);
 
     const 漏掉的 = ['CREATE OR REPLACE FUNCTION public.begin_charge_attempt(p uuid)', 'WHERE o.customer_user_id = x'].join('\n');
     const 正常的 = ['CREATE OR REPLACE FUNCTION public.begin_charge_attempt(p uuid)', 'WHERE o.customer_user_id = x AND ' + CLAUSE].join('\n');
@@ -89,5 +98,13 @@ describe('A8a3-G:已取消的單不得被判成「重複單」', () => {
     // 🔴 而【只把那個條件搬進註解】也要抓到 —— 那正是今天灌水 30% 的那個形狀。
     const 藏進註解的 = ['CREATE OR REPLACE FUNCTION public.begin_charge_attempt(p uuid)', '-- 舊版有 ' + CLAUSE, 'WHERE o.customer_user_id = x'].join('\n');
     expect(check(藏進註解的)).toBe(false);
+
+    // 🔴 而【行尾註解】是我第一版漏掉的那個形狀 —— 這一格就是那次修補的證據。
+    //    第一版用「丟掉整行註解」⇒ 下面這一行是【生效行】而它含那個字串 ⇒ 會綠。
+    const 行尾註解的 = [
+      'CREATE OR REPLACE FUNCTION public.begin_charge_attempt(p uuid)',
+      'WHERE o.customer_user_id = x  -- ' + CLAUSE,
+    ].join('\n');
+    expect(check(行尾註解的)).toBe(false);
   });
 });
