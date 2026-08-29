@@ -163,11 +163,14 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
              渲染結果見同專案 `預覽-訂單明細.html`)。
             🛑 **A3-2' 當時刻意不加, 而理由是量到的**:那時紙上還有勾選框,
                而標語逐字寫「**本單不描述出貨進度**」⇒ 印上去會是一句紙上自相矛盾的話。
-            ✅ **A3-3' 把勾選框拿掉之後那句話成立了** ⇒ 現在補上。 */}
-        <div className='pd-use'>
-          這張訂單的完整明細
-          <span>涵蓋本訂單全部品項；本單不描述出貨進度</span>
-        </div>
+        {/* 🛑 A3-4' 訂正(2026-08-29 Sean 逐字):~~`.pd-use` 兩行用途標語~~ **拿掉** ——
+            他的原話:「這張訂單的完整明細 / 涵蓋本訂單全部品項;本單不描述出貨進度
+            **這個不要寫**」+「**太多標語了, 真的很奇怪**」。
+            🔴 **而他指出的是真的**:同一張紙上這句話講了【三次】——
+               `.pd-use`(兩行)· `.pd-multi`「本單是這張訂單的完整明細。」
+               · `.pd-dim`「本單列出這張訂單的全部品項。」
+            📌 **⇒ 而三句都是【逐字照稿】搬過來的 —— 稿上本來就是三句。**
+            ⇒ **對標稿【不等於】照抄稿的每一個字**;稿是一個人畫的, 而重複只有在紙上並排時才看得見。 */}
         {/* 🛑 A3-2' 刻意【還沒搬】:出貨單那張把 `displayId` 移進了下面的 `.pd-info` 右欄
             (`shipping-doc.tsx` 該處註解逐字:「稿把它們移到 `.pd-info`…每個值前面都有 `.k` 欄名
              ⇒ 仍然不是裸印」)。本張紙還沒有 `.pd-info` 區 ⇒ 現在搬會變成裸印。
@@ -306,7 +309,9 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                 <div className='k'>訂單金額</div>
                 <div className='v big code'>{formatOrderAmount(detail.total.amount)}</div>
               </div>
-              <div className='pd-multi'>本單是這張訂單的完整明細。</div>
+              {/* 🛑 A3-4' 訂正(Sean 2026-08-29 拍甲):~~`.pd-multi`「本單是這張訂單的完整明細。」~~ 拿掉。
+                  與下面 `.pd-dim` 那句、以及已拿掉的 `.pd-use` 兩行, **三句在講同一件事**。
+                  他的理由(逐字):「那張紙的名字就叫『訂單明細』, 不用再解釋一次」。 */}
             </div>
           </section>
 
@@ -450,7 +455,11 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                 <div className='n'>
                   共 {detail.items.length} 項　／　{waitingCount} 項未到貨
                 </div>
-                <div className='pd-dim'>本單列出這張訂單的全部品項。</div>
+                {/* 🛑 A3-4' 訂正(Sean 2026-08-29 拍甲):~~`.pd-dim`「本單列出這張訂單的全部品項。」~~ 拿掉。
+                  📌 **這三句全部是逐字照稿搬過來的 —— 稿上本來就是三句。**
+                  🔴 **⇒ 對標稿【不等於】照抄稿的每一個字。**
+                     稿是一個人畫的, 而**重複只有在紙上並排時才看得見** ——
+                     而看見它的是 Sean, 不是我, 也不是任何一道守門。 */}
               </div>
             </div>
 
