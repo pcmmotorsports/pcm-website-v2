@@ -1611,11 +1611,34 @@ describe('BMW M:摘要卡髮絲線格(片4a)', () => {
     // OD `:251-253` 的髮絲線是「格線縫隙透出容器底色」:
     //   只有 gap-px ⇒ 四格緊貼、完全沒有線;只有 bg-border 而 gap=0 ⇒ 底色被格子蓋住、看不到。
     // 🔴 兩者拆開來看都像「無害的樣式類別」,所以要把它們釘在同一格,理由才跟著走。
+    // 🔴🔴 **2026-08-30:`exec(src)?.[0]` ⇒ `matchAll` + 每一個都要合格。**
+    //    ⛔ ~~`const grid = /className='grid[^']*'/.exec(src)?.[0]`~~
+    //    `exec` 只回**第一個**命中 ⇒ 這道守門的分母是「**檔案裡的第一個 grid**」
+    //    —— 那是一個**位置**,不是一個**對象**。
+    //    ⇒ 2026-08-27 `-21` 實測(當時該檔有兩個 grid、class 字串一模一樣):
+    //      只破壞第 2 個 ⇒ **54 passed 全綠**;只破壞第 1 個 ⇒ 紅。
+    //      **⇒ 搬動一段碼就換掉了它在守誰, 而那個換手沒有任何訊號。**
+    //
+    // 🛑🛑 **而 2026-08-30 去核的時候, 它【看起來是對的】—— 這一段是為那一刻寫的**:
+    //    那支檔今天剝註解後只剩 **1 個** `className='grid…'`
+    //    ⇒ 沒有第二個對象可以被換手 ⇒ **它守的就是唯一那個** ⇒ 一個正確運作的守門。
+    //    🔴 **它不是「已修」, 是【暫時沒有第二個對象】。**
+    //       病灶被搬走了, 而**尺原封不動地等在那裡** ——
+    //       ⇒ **下一個在這支檔加 grid 的人, 會在零訊號之下讓它退回原病。**
+    //    📌 **⇒ 而這一格會通過每一次複核, 因為複核的人看到的是一個正確運作的守門。**
+    //
+    // ✅ 修法的兩個世界(2026-08-30 用該檔真正的字面實演過):
+    //    世界一 只有一個 grid、它是好的            ⇒ 舊尺綠 · 新尺綠
+    //    世界二 有人新增第二個 grid 而它少 gap-px  ⇒ 🔴 **舊尺【也綠】** · 新尺紅
+    //    負對照 第二個也寫對                       ⇒ 兩把都綠(新尺不誤報)
     const src = cards();
-    const grid = /className='grid[^']*'/.exec(src)?.[0];
-    expect(grid, '找不到摘要卡的 grid 容器').toBeDefined();
-    expect(String(grid), '髮絲線格少了 gap-px').toContain('gap-px');
-    expect(String(grid), '髮絲線格少了 bg-border(縫隙沒有底色可透)').toContain('bg-border');
+    const grids = [...src.matchAll(/className='grid[^']*'/g)].map((m) => m[0]);
+    // 🔴 分母要自己出聲:0 個 ⇒ 下面的 `every` 在空陣列上**恆真** ⇒ 一個沒接上的尺會印綠。
+    expect(grids.length, '找不到摘要卡的 grid 容器(0 ⇒ 這把尺沒接上,不是「版面正常」)').toBeGreaterThan(0);
+    for (const [i, grid] of grids.entries()) {
+      expect(grid, `第 ${i + 1} 個 grid 少了 gap-px`).toContain('gap-px');
+      expect(grid, `第 ${i + 1} 個 grid 少了 bg-border(縫隙沒有底色可透)`).toContain('bg-border');
+    }
   });
 
   it('🔴 每一格要有自己的底色 —— 否則整塊都是 border 色', () => {
