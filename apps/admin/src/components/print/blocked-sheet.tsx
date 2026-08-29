@@ -66,7 +66,8 @@ export function BlockedSheet({
       data-blocked-kind={kind}
       /* 🔴 `flex-1` 是**「佔滿這個位置」那句話的落點**,不是裝飾。
          它撐滿的是**紙面剩下的高度**,而剩多少由 `app/print/print-a4.css` 的
-         `@media print { .print-sheet { display:flex; flex-direction:column; min-height:271mm } }` 給。
+         `@media print { .print-sheet { display:flex; flex-direction:column; min-height:250mm } }` 給。
+         (~~`271mm`~~ ⇒ **2026-08-29 改成 `250mm`** —— 實體印表機的可印高比宣告值小;理由見 `print-a4.css` 那一段。)
          **兩邊是一對** —— 少了任何一邊,這一幅就縮回內容高度。
 
          🔴 **原本是固定值 `min-h-[170mm]`,而它壞在哪(留痕,不要改回去)**:

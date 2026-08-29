@@ -291,6 +291,55 @@ async function emit(itemCount: number, name: string, blocked = false): Promise<s
 }
 
 /**
+ * 🔴 SHIPBRANCH1(2026-08-29 `-b9`):產出【尚未出貨:無】那一條分支的紙。
+ *
+ * 為什麼要另開一支:`emit()` 的 fixture `quantitySummary` 恆為 `null`,
+ * 而 `lib/shipping/shipping-doc-quantities.ts:84` 逐字 `if (s === null) return null;`、
+ * 過濾又收 `qty === null` ⇒ **`null` 一定會被列出來** ⇒ `emit()` **恆走「有未出貨表」那條**。
+ * ⇒ 所以 `3ca0999d` 那道頁數守門, **結構上只守得到兩條分支裡的一條**。
+ *
+ * 🔴 而 Sean 那張(`PCM-2026-0104`)走的正是【另一條】—— 他的截圖上「尚未出貨:無」。
+ *
+ * 走另一條的填法(線A `-e9` 給、`-b9` 實測):每項 `quantity:1` 且已到貨 1、這箱出 1
+ * ⇒ `max(0, 1 − 0 − 0 − 1)` = 0 ⇒ 沒有任何一列進 `outstandingRows` ⇒ 走一行字那條。
+ */
+async function emitNoOutstanding(itemCount: number, name: string): Promise<string> {
+  const d = detail(itemCount, true);
+  d.items.forEach((it) => {
+    (it as { quantity: number }).quantity = 1;
+    (it as { quantitySummary: Record<string, number> }).quantitySummary = {
+      quantity: 1,
+      orderedQuantity: 1,
+      instockQuantity: 1,
+      cancelledQuantity: 0,
+      shippedQuantity: 0,
+    };
+  });
+  mocks.findAdminOrderDetail.mockResolvedValue(d);
+  mocks.listOrderItemsForDetail.mockResolvedValue({ items: d.items, reportedTotal: d.items.length });
+  mocks.loadOrderShipments.mockResolvedValue([
+    {
+      shipment: { ...SHIPMENT_ROW, shippedAt: null },
+      lines: d.items.map((it) => ({ orderItemId: it.id, title: it.title, quantity: 1 })),
+    },
+  ]);
+
+  const { container } = render(
+    await OrderShippingPrintPage({ params: Promise.resolve({ id: ORDER, shipmentId: SHIPMENT }) }),
+  );
+  const { css, files } = builtCss();
+  const html = `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
+<title>${name}</title>
+<!-- 樣式來源(建置產物,非原始碼): ${files.join(' + ')} -->
+<style>${css}</style>
+</head><body>${container.innerHTML}</body></html>`;
+
+  mkdirSync(OUT_DIR, { recursive: true });
+  writeFileSync(join(OUT_DIR, `${name}.html`), html, 'utf8');
+  return html;
+}
+
+/**
  * 揀貨單版的 `emit`。**只需要 `findAdminOrderDetail`** —— 揀貨單頁沒有箱的概念
  * (`picking/page.tsx:48` 只呼叫那一支),所以上面那個 `order-repository` mock 就夠了。
  *
@@ -371,6 +420,27 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     //    沒有它,兩份產出可能一模一樣,而後面數頁數會得到兩個【一樣正常】的數字。
     expect(many.length).toBeGreaterThan(one.length);
     expect(many).toContain('SKU-0011-LONG');
+  });
+
+  // 🔴 SHIPBRANCH1(2026-08-29):量【尚未出貨:無】那一條分支 —— 它零守門, 而 Sean 印的是它。
+  it("🔴 SHIPBRANCH1:探點 —— 「尚未出貨:無」那條分支的頁數門檻在哪", async () => {
+    // ✅ 世界活錨:先證明我真的走到【另一條】分支, 否則下面整組量測都是量錯世界。
+    //    🔴 兩行都要 —— 只有 not.toContain 的話, 一個空頁面也會過。
+    const one = await emitNoOutstanding(1, 'shipB-1item');
+    expect(one).toContain('這張訂單沒有還欠客人的品項');
+    // 🛑 ~~原本要寫 `not.toContain('尚未出貨')`~~ ⇒ **那個錨是壞的, 而它一裝就紅。**
+    //    成因:**兩條分支都印「尚未出貨」四個字** —— 差別在它後面那句:
+    //      無  ⇒「尚未出貨:無 —— 這張訂單沒有還欠客人的品項。」
+    //      有  ⇒「尚未出貨   這張訂單還欠客人的東西(不含這一箱要寄的)」
+    //    ⇒ 真正分得開兩個世界的是【那句話】, 不是那四個字。
+    expect(one).not.toContain('這張訂單還欠客人的東西');
+    // ✅ 負向對照:同一個斷言餵【有未出貨表】那條 ⇒ 必須是反過來的
+    const other = await emit(1, 'shipping-1item');
+    expect(other).not.toContain('這張訂單沒有還欠客人的品項');
+    expect(other).toContain('這張訂單還欠客人的東西');
+    for (const n of [2, 3, 4, 5, 6, 7]) {
+      await emitNoOutstanding(n, `shipB-${n}item`);
+    }
   });
 
   it('🔴 揀貨單三種 ⇒ 產出 picking-*.html(`#601` 的 A / C 兩幅要真的印出來看)', async () => {
@@ -507,7 +577,9 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
    *      **⇒ 那是「讓它有形狀」, 不是「讓它會紅」—— 而今天壞的正是【它沒有形狀】。**
    *
    *   🔴🔴 **而量餘裕要多一個動作, 否則它印的是一個【常數】**:
-   *   `.print-sheet` 有 `min-height: 1024.25px`(= 可印區)⇒ **直接量 1 項那張會得到 1024**,
+   *   `.print-sheet` 有 `min-height`(⛔ ~~`1024.25px`(= 可印區)~~ ⇒ **2026-08-29 起 944.882px = 250mm**;
+ *   🔴 **而它【不再等於可印區】** —— 可印區仍是 271mm/1024px, 兩者從此是兩個數字)
+ *   ⇒ **直接量 1 項那張會得到那個地板值**,
    *   而那是**地板**不是內容 ⇒ **在「還沒破頁」的整個範圍裡它永遠印 1024** ⇒ 零判別力。
    *   ⇒ 所以要**把 min-height 暫時設 0、量、再還原**(一次只改一個變因)。
    *   ✅ 而那條路量到 **923**,與線A 用**不同解除手法**得到的數字**逐字相同**
@@ -542,7 +614,9 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
           // 🔴🔴 **`margin` 必須明寫 —— 而這是 reviewer must-fix**:
           //    `page.pdf({format:'A4'})` 的 margin 預設是 **0**
           //    ⇒ 它量的可印高是 **297mm(1123px)**,而版面設計的是 **271mm(1024px)**
-          //      (`print-a4.css` 的 `@page margin:12mm 12mm 14mm 12mm` + `.print-sheet{min-height:271mm}`)
+          //      (`print-a4.css` 的 `@page margin:12mm 12mm 14mm 12mm`;
+          //       而 `.print-sheet{min-height}` ⛔ ~~271mm~~ ⇒ **2026-08-29 起 250mm**
+          //       ⇒ 🔴 **可印區與 min-height 從此【不是同一個數】**)
           //    ⇒ 📌 **多出約 98px 的假餘裕** ⇒ 一張在真紙上溢出 98px 的單子,這一發照樣印 1、照樣綠
           //      —— 而那正是今天 Sean 撞到的那一種。
           //    ✅ **而加上它【今天不改變答案】** —— 我三種幾何各量一發(2026-08-29):
@@ -617,20 +691,35 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
       //    ⇒ 所以改成寫進**與那三份 HTML 同一個目錄**的檔:人要看那張紙時就會看到它。
       // 🔴 reviewer nit:寫檔要在兩個 `expect` **之前** ——
       //    寫在後面的話,**守門紅掉的那一次正好拿不到餘裕數字**,而那是唯一想看它的時刻。
+      // 🔴🔴 **2026-08-29 修:這把儀器【說謊了, 而測試全綠】**(code-reviewer 抓到, 線A 折)。
+      //    成因:它拿 `floor`(= `min-height`)當【可印區】—— 而那兩個以前【剛好相等】(都是 271mm)。
+      //    ⇒ 而 `min-height` 2026-08-29 改成 250mm(945px)之後, 可印區仍是 271mm(1024px)
+      //      ⇒ 它印出「內容 1018px / 可印 945px = 107.7%,剩 -73px」**而那張紙真的是 1 頁**。
+      //    📌 **⇒ 兩個數字合而為一的那段日子結束了, 而合併它們的那行 code 不會自己知道。**
+      //    ✅ 修法:**分開報**。餘裕算的是【可印區 − 內容】, 而 `min-height` 是另一件事。
+      //    ⚠️ 而 `PRINTABLE_PX` 這裡寫死 —— 它來自 `@page margin:12mm 12mm 14mm`(297−12−14=271mm),
+      //       而那組 margin 由 `print-a4-css.test.ts` 釘死 ⇒ 改它會在那支檔紅, 不會安靜漂走。
+      const PRINTABLE_PX = Math.round((271 / 25.4) * 96); // 1024
       writeFileSync(
         join(OUT_DIR, 'shipping-pagecount.slack.txt'),
-        `出貨單 2 項(門檻上、仍 1 頁):內容 ${content}px / 可印 ${floor}px = ` +
-          `${((content / floor) * 100).toFixed(1)}%,剩 ${floor - content}px\n` +
+        `出貨單 2 項(門檻上、仍 1 頁):內容 ${content}px / 可印 ${PRINTABLE_PX}px = ` +
+          `${((content / PRINTABLE_PX) * 100).toFixed(1)}%,剩 ${PRINTABLE_PX - content}px\n` +
+          `  (而 .print-sheet 的 min-height 是 ${floor}px —— 🔴 它【不是】可印區, ` +
+          `2026-08-29 起兩者不相等)\n` +
           // 🔴 這一格才是有用的餘裕:**2 項是【最後一個還能一頁】的點**
           //    ⇒ 它剩多少,就是「再加多少東西會翻頁」。
           //    (v1 印的是 1 項的 101px —— 而 1 項離門檻還有一整項的距離。)
-          `出貨單 3 項(已跨頁):內容 ${many1.content}px(可印 ${many1.floor}px/頁)\n` +
+          `出貨單 3 項(已跨頁):內容 ${many1.content}px(可印 ${PRINTABLE_PX}px/頁;min-height ${many1.floor}px)\n` +
           '🔴 這一格【沒有門檻】—— 那個數字該多少沒有人知道,發明一個門檻等於發明一個判準。\n' +
           '   它存在的理由是:改版面的人會看到那個餘裕從幾 px 變成 0。\n' +
           '\n' +
           '🛑 而這個數字要跟著它的範圍讀:它量的是【271mm 的 CSS 框內】。\n' +
-          '   真印表機的可印區【比它小】—— 線A 2026-08-29 量到 269mm 時,\n' +
-          '   連只用 68% 的那張也變成兩頁。⇒ 上面那個「剩 N px」在真紙上可能已經是負的。\n',
+          '   真印表機的可印區【比它小】—— Sean 那台 HP 在他那組設定下約 252mm\n' +
+          '   (2026-08-29 他實測:列印預覽縮放 98% 仍兩張、93% 才一張 ⇒ 271×0.93)。\n' +
+          '   ⇒ 上面那個「剩 N px」在真紙上會少掉約 72px(271−252mm)。\n' +
+          '🔴 而版面的 min-height 已於 2026-08-29 從 271mm 降到 250mm 以留出那段差 ——\n' +
+          '   ⚠️ 但那【沒有修掉機制】:頁尾仍被 margin-top:auto 釘在框底 ⇒ 餘裕仍然是零,\n' +
+          '   只是懸崖從 271mm 搬到 250mm。可印區低於 250mm 的裝置上, 同一件事會再發生。\n',
         'utf8',
       );
 
