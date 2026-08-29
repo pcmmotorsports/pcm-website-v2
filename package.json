@@ -22,6 +22,7 @@
     "*.{[sS][hH],[yY][aA][mM][lL],[yY][mM][lL],[sS][qQ][lL],[pP][yY]}": "tsx scripts/check-syntax-nonts.ts",
     "scripts/pagecount.sh": "sh scripts/pagecount.sh --selftest",
     "scripts/naked-cells.py": "python3 scripts/naked-cells.py --selftest",
+    "scripts/text-layer-tests.py": "python3 scripts/text-layer-tests.py --selftest",
     "scripts/dev-four-greens.sh": "sh scripts/dev-four-greens.sh --selftest",
     "scripts/migration-ledger-divergence.sh": "sh scripts/migration-ledger-divergence.sh --selftest",
     "{scripts/scripts-whitelist-gate.harness.sh,.husky/scripts-whitelist-gate.sh}": "sh scripts/scripts-whitelist-gate.harness.sh",
