@@ -57,6 +57,49 @@ function renderPage(oauthError?: string, next?: string) {
 
 // 🔴 codex 關卡2 N4:helper 原本傳不了 next ⇒ 新增的兩個傳遞【只驗得到 fallback 那一半】。
 //    fixture 永遠落在「沒有 next」那一邊 = 兩個公式在那一區相等 ⇒ 守門沒有判別力(同 W11 今天量到的形狀)。
+describe('LoginPage · 副標依 next 換句(2026-08-29 Sean 拍「依情況換一句」)', () => {
+  // 🔴 三個世界, 而第三個是【刻意不涵蓋】那一格 —— 它釘的是「我不是忘了它」。
+  const DEFAULT_SUB = '登入您的 PCM 帳號，查看訂單與收藏。';
+  const CHECKOUT_SUB = '結帳前請先登入，購物車會幫您留著。';
+
+  it('①next=/checkout ⇒ 換成結帳那一句(而原句必須不在畫面上)', () => {
+    renderPage(undefined, '/checkout');
+    expect(screen.getByText(CHECKOUT_SUB)).toBeDefined();
+    // 🔴 反面同格:只驗「新句在」的話, 兩句都印出來也會綠。
+    expect(screen.queryByText(DEFAULT_SUB)).toBeNull();
+  });
+
+  it('②沒有 next ⇒ 維持原句(而結帳那句必須不在畫面上)', () => {
+    renderPage();
+    expect(screen.getByText(DEFAULT_SUB)).toBeDefined();
+    expect(screen.queryByText(CHECKOUT_SUB)).toBeNull();
+  });
+
+  it('③🔴 next=/checkout/callback ⇒ 【必須是原句】—— 它是刻意不涵蓋的, 不是漏掉的', () => {
+    // 那是【付款完回來】的路(`checkout/callback/page.tsx`), 不是【要去結帳】的路。
+    // ⇒ 對一個已經付完錢的人講「購物車會幫您留著」是錯的。
+    // 🔴 而這一格會在有人把判斷改成 `startsWith('/checkout')` 時【紅】——
+    //    那正是它存在的理由:startsWith 讀起來比較「完整」, 而它是錯的。
+    renderPage(undefined, '/checkout/callback?order=00000000-0000-4000-8000-000000000000');
+    expect(screen.getByText(DEFAULT_SUB)).toBeDefined();
+    expect(screen.queryByText(CHECKOUT_SUB)).toBeNull();
+  });
+
+  it('④next 是不安全的值 ⇒ sanitize 後落回 fallback ⇒ 原句', () => {
+    // safeNext = sanitizeNextParam(next) ⇒ '//evil.example' 會被擋成 POST_AUTH_REDIRECT('/')
+    // 🔴 而這一格順帶釘住:那個值【一個字都不會印到畫面上】。
+    renderPage(undefined, '//evil.example/checkout');
+    expect(screen.getByText(DEFAULT_SUB)).toBeDefined();
+    expect(screen.queryByText(CHECKOUT_SUB)).toBeNull();
+    // ⚠️ **這一行是【恆真的】, 而我留著並標明**(2026-08-29 code-reviewer 抓到):
+    //    沒有任何路徑會把 `next` render 成【文字】, 而 `queryByText` 看不到屬性
+    //    ⇒ 真正的洩漏形狀(值進了 `href`)這一行【量不到】。
+    //    ✅ 守 `href` 那一格是既有的那兩發(`getAttribute` + `not.toContain('evil')`), 不是這裡。
+    //    🔴 留著它的理由是【讀起來像在守而其實沒有】—— 標出來比刪掉有用。
+    expect(screen.queryByText(/evil\.example/)).toBeNull();
+  });
+});
+
 describe('LoginPage · #190 next 往下游傳遞', () => {
   it('有 next → 建立帳號 / 忘記密碼兩個連結都帶著它(且經過編碼)', () => {
     renderPage(undefined, '/checkout');
@@ -90,6 +133,8 @@ describe('LoginPage', () => {
     renderPage();
     expect(screen.getByText('歡迎回來')).toBeDefined();
     expect(screen.getByText('登入您的 PCM 帳號，查看訂單與收藏。')).toBeDefined();
+    // 🔴 上面那格是【沒有 next】的世界。而副標 2026-08-29 起會依 next 換句
+    //    ⇒ 只驗這一個世界的話, 兩個公式在這一區相等 ⇒ 守門沒有判別力。下面補另外兩個世界。
     expect(screen.getByText('N°01 · Sign in')).toBeDefined();
     expect(screen.getByRole('button', { name: '登入' })).toBeDefined();
   });

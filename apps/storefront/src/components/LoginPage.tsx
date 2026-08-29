@@ -49,8 +49,29 @@ function oauthErrorCopy(code?: string): string | null {
   return GENERIC_OAUTH_ERROR_COPY;
 }
 
+// 登入頁副標的兩句。抽成常數只是為了讓上面那個三元式讀得懂, **不是為了共用** ——
+// 它們各自只有一個使用者。
+// ⚠️ `AUTH_SUB_DEFAULT` 的字面與 `app/login/page.tsx` 的 `metadata.description` 相同,
+//    ⛔ ~~而那是巧合~~ 🔴 **2026-08-29 code-reviewer 訂正:不是巧合, 是【同源】** ——
+//    兩者都出自 `design-reference/components/AccountPages.jsx` 的 `.auth-sub`
+//    (原句用「你」;「你 ⇒ 您」是 Sean 既有的稱謂拍板)。
+//    📌 **寫成「巧合」會讓下一個人不知道回哪對稿** ⇒ 正確的說法是【同源, 而各自演化】。
+//    🛑 **仍然不要把兩者收斂成一個來源** —— 理由不是它們無關, 是它們的【讀者不同】:
+//       一個給爬蟲、一個給站在這裡的人 ⇒ 詳見該檔那一行上方的註解。
+const AUTH_SUB_DEFAULT = '登入您的 PCM 帳號，查看訂單與收藏。';
+const AUTH_SUB_CHECKOUT = '結帳前請先登入，購物車會幫您留著。';
+
 export function LoginPage({ oauthError, next }: { oauthError?: string; next?: string }) {
   // #190:client 端先 sanitize 一次(縱深、不送 garbage 給 Google/LINE);server action / OAuth callback 為權威白名單。
+  // 🔴 **而在【副標換句】那一格上, 用 `safeNext` 與用 `next` 的行為【完全相同】**
+  //    (2026-08-29 code-reviewer 抓到, 我實跑確認):
+  //    `sanitizeNextParam` 只回「`next` 本身」或「fallback `/`」, 而 `/` 也 `!== '/checkout'`
+  //    ⇒ `safeNext === '/checkout'` ⟺ `next === '/checkout'`。
+  //    ⛔ ~~我原本宣稱「改用原始 next ⇒ 突變紅」~~ —— **那一發紅的是我同時改掉的 `===`, 不是 `next`**。
+  //    純粹只換 `safeNext ⇒ next` ⇒ **23 格全綠, 殺不掉。**
+  //    📌 **⇒ 所以這裡寫 `safeNext` 是【縱深與一致性】, 不是行為需要 ——**
+  //       **而那代表【沒有任何測試守得住它】: 有人改回 `next` 不會有東西紅。**
+  //    ⇒ 那不是缺陷, 是這一格的天花板;寫下來免得下一個人以為有守門在看。
   const safeNext = sanitizeNextParam(next);
   const [form, setForm] = useState({ email: '', password: '', remember: true });
   // 雙通道(#181 釘死 2):fieldErrors=逐欄驗證錯、formError=帳號層級錯(頂部);互不取代。
@@ -130,7 +151,22 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
         <div className="auth-card">
           <div className="ap-mono">N°01 · Sign in</div>
           <h1>歡迎回來</h1>
-          <p className="auth-sub">登入您的 PCM 帳號，查看訂單與收藏。</p>
+          {/* 🔴 副標依【他為什麼被帶來這裡】換一句(2026-08-29 Sean 拍甲「依情況換一句」)。
+              病:客人在購物車按「前往結帳」⇒ `checkout/page.tsx:52` 把他導來這裡,
+                 而畫面上給他的理由是「查看訂單與收藏」—— **那不是他的理由**。
+                 ⇒ 不只是沒解釋, 是給了一個【別人的】理由。
+              ⚠️ **下面那句新文案的【字面是我們寫的】** —— Sean 選的是「依情況換」這個方向,
+                 括號裡那個例句是我們寫在選項裡的提案。**他一個字就能改, 不必問我們。**
+              🔴 **為什麼是完全相等而不是 `startsWith('/checkout')`**:
+                 另有一條 `/checkout/callback?order=…`(`checkout/callback/page.tsx`)——
+                 那是【付款完回來】的路, 不是【要去結帳】的路 ⇒ **兩種處境不同**。
+                 ⇒ 用 `startsWith` 會把那句「購物車會幫您留著」講給一個【已經付完錢】的人聽。
+                 ⇒ 下面那格守門釘的就是這件事:callback 那條【必須拿到原句】。
+              🛑 **而 `next` 的值一個字都不印到畫面上** —— 它是使用者可控的參數;
+                 這裡只拿 `safeNext`(已過 `sanitizeNextParam` 白名單)做【相等比較】。 */}
+          <p className="auth-sub">
+            {safeNext === '/checkout' ? AUTH_SUB_CHECKOUT : AUTH_SUB_DEFAULT}
+          </p>
 
           <form onSubmit={submit}>
             {/* 頂部:帳號層級錯(Email 或密碼錯誤 / OAuth 失敗);逐欄驗證錯顯示在各欄下方(釘死 2 雙通道) */}
