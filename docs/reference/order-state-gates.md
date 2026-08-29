@@ -217,9 +217,11 @@
 
 **改什麼狀態**
 
-`:225` SET cancelled_at     = pg_catalog.now(),
+`:234` SET cancelled_at     = pg_catalog.now(),
 
-**允許集合** — 🔴 **本函式體內零命中**(字面比對)⇒ 要嘛它沒有狀態閘、要嘛閘的寫法本腳本抓不到。**開檔確認,不要當成「沒有閘」。**
+**允許集合(逐字)**
+
+`:371` WHERE o.payment_status = 'unpaid'::public.payment_status<br>`:372` AND o.cancelled_at IS NULL<br>`:377` AND a.status <> 'failed'
 
 ---
 

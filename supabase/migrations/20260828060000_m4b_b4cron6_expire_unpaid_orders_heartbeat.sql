@@ -161,6 +161,15 @@ BEGIN
              --    🔴 而那支自檢【自己帶正對照】(拿 L3a 的已知值驗抽法)——
              --      少了它,一把壞掉的抽法與對的答案會印同一個綠。
              -- ⚠️ **改動這支檔的函式體之後,先跑那支自檢再 commit。**
+             -- 🔴 **而「函式體」的邊界寫成【錨】不是行號**(行號會漂 —— 2026-08-29
+             --    我搬一段註解就漂了 30 行,而那正是自指那個病的同一個來源):
+             --      起 = `AS $fn$`(那支函式的那一個)   止 = 下一個 `$fn$`
+             --    ⇒ **改那兩個錨【之間】任何一個字(連註解、連空白)⇒ 這兩個 md5 就過期。**
+             --    ⇒ 而改那兩個錨【之外】的東西(檔頭說明 / §3 斷言段 / probe)⇒ md5 不動。
+             -- 📌 2026-08-29 實例:折 BLOCKER②(改 probe 那一行與誠實邊界那段)
+             --    與補 ③ 的斷言 —— **三處全在體外** ⇒ 自檢跑完 rc=0 ⇒ md5 沒動。
+             --    而若當時「從源頭修」去動 `IF p_limit <= 0 THEN p_limit := 1`(**在體內**)
+             --    ⇒ md5 當場再過期一次。⇒ **那也是不動它的第二個理由。**
            )
   ) THEN
     RAISE EXCEPTION 'b4-CRON6-片2:函式體不是 L3a 那版、也還沒接過心跳 —— 有人動過它。'
@@ -275,7 +284,7 @@ REVOKE ALL ON FUNCTION pcm_cron.expire_unpaid_orders(integer)
   FROM PUBLIC, anon, authenticated, service_role, payment_confirmer;
 
 
--- ── 2. 心跳表 COMMENT 補上「這一支的失敗計數永遠是 0」──────────────────────────
+-- ── 2. 心跳表 COMMENT 補上「這一支寫不出失敗心跳」那一段(含它【不是】資料庫保證)──────────────────────────
 -- 🔴 三個落點之一(migration 檔頭 / 本 COMMENT / 片3 規格)。三個都要,而三個各有一發 grep 驗收。
 --    📌 「寫了三個地方」與「以為寫了三個地方」長得一樣,只有三發 grep 分得開。
 COMMENT ON TABLE public.sweeper_heartbeat IS
@@ -298,6 +307,7 @@ DO $$
 DECLARE v_def text;
         v_probe_ok boolean := false;
         v_probe_err text;
+        v_candidates bigint;
 BEGIN
   v_def := pg_get_functiondef('pcm_cron.expire_unpaid_orders(integer)'::regprocedure);
 
@@ -326,6 +336,19 @@ BEGIN
     RAISE EXCEPTION 'b4-CRON6-片2:心跳的 EXCEPTION handler 不見了 —— 監控會把被監控的弄死;拒繼續';
   END IF;
 
+  -- 3c-ter. 🔴 **`clock_timestamp()` 那一格要有一道【會紅的尺】**(R3 ③,2026-08-29 `-b4`)。
+  --   我折 R2③ 時補的是【證據】(檔外實測兩個時鐘分岔),而**那不是守門** ——
+  --   §3 斷言段整段 `grep clock_timestamp` ⇒ **0 命中**
+  --   ⇒ 有人把 `clock_timestamp()` 改回 `now()`,**首次 apply 一路綠到 COMMIT**。
+  --   📌 而我自己在檔頭那段訂正裡就寫著「把 clock_timestamp 改回 now(),那一發照樣會過」
+  --      ⇒ **那句話在我補完證據之後【仍然成立】** —— 因為我補的東西不會叫。
+  -- ⚠️ 而它與 3c 同族:**字面尺**。它擋的是「有人整個換掉」,擋不住「有人另外寫一個
+  --    叫 clock_timestamp 的東西」—— 而後者不在本片的威脅模型裡。
+  IF position('clock_timestamp' in v_def) = 0 THEN
+    RAISE EXCEPTION 'b4-CRON6-片2:心跳寫入沒有用 clock_timestamp() —— '
+                    'now() 是交易起始時間,慢交易會用舊時刻蓋掉新心跳 ⇒ last_success_at 倒退;拒繼續';
+  END IF;
+
   -- 3c-bis. 🔴🔴 **行為負測(R2 must-fix ⑥,2026-08-29 `-b4`)** ——
   --   上面那兩個 `position()` **仍然是字面尺**,而 R2 逐字指出它還是會假綠:
   --   那兩串可以只存在【註解】裡、可以在一個【無關的子區塊】裡、
@@ -335,12 +358,42 @@ BEGIN
   --    📌 兩道在不同的時刻量不同的東西,不要把前者當成後者的保險。
   -- ✅ 所以這一格改成問【行為】:**把心跳表換掉,讓 upsert 必然失敗,而取消流程必須照樣成功。**
   --    那是唯一能分開「handler 在」與「handler 只是字串在」的做法。
+  -- 🔴🔴 **R3 BLOCKER ②(2026-08-29 `-b4`):先數候選,再決定要不要跑那一發。**
+  --    成因:`:196-198` 有 `IF p_limit IS NULL OR p_limit <= 0 THEN p_limit := 1`
+  --    ⇒ 我傳的 `0` **被吞成 1** ⇒ 那一發實際以 limit=1 跑。
+  --    🔴 而回捲的只有 `RENAME`(DDL 在交易內)—— **`orders` 那筆 UPDATE 跟著整檔 COMMIT,不回捲**
+  --    ⇒ apply 當下若正好有一張過期未付款單,**它會被真的取消**(鐵則 12 ① 碰錢)。
+  --    📌 而這一格的形狀值得留著:我在 `:358` 那段【誠實邊界】裡寫「不動任何一張訂單」——
+  --      **那是我以為的行為,不是它的行為。⇒ 一個誠實邊界節本身可以是錯的,
+  --      而它的形式會讓人不回頭查它。**
+  SELECT pg_catalog.count(*) INTO v_candidates
+    FROM public.orders o
+   WHERE o.payment_status = 'unpaid'::public.payment_status
+     AND o.cancelled_at IS NULL
+     AND o.created_at < pg_catalog.now() - interval '1 day'
+     AND NOT EXISTS (
+           SELECT 1 FROM public.payment_charge_attempts a
+            WHERE a.order_id = o.id
+              AND a.status <> 'failed'
+         );
+  -- 🔴 **把數字印出來**(不是只在有問題時才說話):兩個世界都要留下痕跡。
+  RAISE NOTICE 'b4-CRON6-片2:handler 行為負測前,過期未付款候選 = % 筆', v_candidates;
+  IF v_candidates > 0 THEN
+    RAISE EXCEPTION 'b4-CRON6-片2:現在有 % 筆過期未付款單,而 handler 負測會【真的取消掉其中一筆】'
+                    '(p_limit=0 被 :196-198 吞成 1,而 orders 的 UPDATE 不隨本檔回捲);拒繼續。'
+                    ' ⇒ 等那幾筆被正常的排程處理掉、或先確認它們該被取消,再貼這一支。', v_candidates;
+  END IF;
+
   BEGIN
     -- 造一個必然失敗的世界:把心跳表暫時改名(同一交易內,結束就回捲)
+    -- ⚠️ `RENAME` 拿 ACCESS EXCLUSIVE,而 :349 改回來**不釋鎖** ⇒ 押到整檔 COMMIT
+    --    ⇒ 期間並發的心跳寫入會排隊。而取單那段走 `SKIP LOCKED` ⇒ 不成環 ⇒ **只等不死鎖**
+    --    ⇒ **可接受,而它之前沒有寫在檔裡**(R3 ⑥ 指出)。
     EXECUTE 'ALTER TABLE public.sweeper_heartbeat RENAME TO sweeper_heartbeat__b4cron6_probe';
     BEGIN
       -- 🔴 這一發【必須成功】:心跳寫不出去,而取消流程不受影響
       PERFORM pcm_cron.expire_unpaid_orders(0);
+      -- ⚠️ 上面那個 `0` **不代表「不動任何訂單」**(R3 BLOCKER ② —— 見 :364 起那段訂正)。
       v_probe_ok := true;
     EXCEPTION WHEN OTHERS THEN
       v_probe_ok := false;
@@ -355,8 +408,13 @@ BEGIN
   -- ⚠️ **這一發證什麼、不證什麼**(照家法寫死,不放寬):
   --   ✅ 證到:心跳 upsert 失敗時,`expire_unpaid_orders` **不拋** ⇒ handler 真的在承重
   --   ❌ 不證:handler 有沒有把錯誤【記下來】(它刻意只吞不記,見檔頭那條物理限制)
-  --   ❌ 不證:`p_limit > 0` 那條路 —— 這一發用 `0` 是刻意的:**不動任何一張訂單**
-  --      ⇒ 而那表示「有訂單要取消時也不受影響」**沒有被這一發證到**
+  --   🛑🛑 **訂正(R3 BLOCKER ②,2026-08-29)**:這裡原本寫「這一發用 `0` 是刻意的:
+  --      **不動任何一張訂單**」—— **那句話是假的。**
+  --      `:196-198` 把 `p_limit <= 0` 吞成 `1` ⇒ 這一發實際以 limit=1 跑,
+  --      而 `orders` 的 UPDATE **不隨本檔回捲** ⇒ 它會真的取消一張單。
+  --      ✅ 已加前置閘:apply 前先數候選,`> 0` 就拒絕(見上),並把數字 RAISE NOTICE 出來。
+  --   ❌ 不證:`p_limit > 0` 那條路 —— 這一發跑的是 limit=1 而候選為 0 的那個世界
+  --      ⇒ 「有訂單要取消時心跳失敗也不受影響」**沒有被這一發證到**
   -- 🔴 **而【該綠的綠】不算數,要看它會不會紅**:把上面那段 RENAME 拿掉 ⇒ 心跳寫得出去
   --    ⇒ 這一格就永遠是綠的 ⇒ **它會退化成一個恆真守門**。
   --    ⇒ 改動這一段的人,請先餵一發「handler 改成 RAISE」確認它真的會紅。
