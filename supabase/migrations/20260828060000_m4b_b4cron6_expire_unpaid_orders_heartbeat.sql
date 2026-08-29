@@ -113,8 +113,25 @@ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_proc p
      WHERE p.oid = 'pcm_cron.expire_unpaid_orders(integer)'::regprocedure
-       AND ( md5(p.prosrc) = '456db40fd5f959b9d1b96af7cfc8d4d2'   -- L3a 那版,2026-08-28 正式庫與 repo 逐 byte 相同
-          OR position('sweeper_heartbeat' in p.prosrc) > 0 )      -- 本片已套用 ⇒ 重跑放行
+       -- 🔴🔴 **R2 must-fix ①(2026-08-29 `-b4`)**:這裡原本第二條是
+       --    `OR position('sweeper_heartbeat' in p.prosrc) > 0`,而**那正是 md5 要關掉的那個洞**
+       --    ——它從旁邊的 OR 走回來了:**任何含該字串的熱修版都放行**,
+       --    有人加了一條 AND、改了 LIMIT、動了 status 集合,只要那個字串還在,這道閘照樣通過。
+       --    ⇒ 改成**兩個 md5 的精確 allowlist**,移除 substring 出口。
+       -- 🔴 而第二個值是【本片完成版】的 md5,它從 repo 這支檔自己的函式體算出來
+       --    (`AS $fn$` 與 `$fn$` 之間那段 = PG 存進 `prosrc` 的東西)。
+       --    ✅ **抽法先驗過**:同一支腳本抽 L3a(`20260809160000_…`)⇒ 長度 **2370**、
+       --       md5 **456db40f…** ⇒ 與本檔 `:39` 記的已知值**逐字相符** ⇒ 抽法是對的。
+       --    ✅ 完成版:長度 **4105** / md5 `40001d5610ebab595784d628ce6a3ac4`
+       --       (含 `sweeper_heartbeat` 與 `clock_timestamp` ⇒ 抽到的確實是接了心跳、修過 R1③ 的那一版)
+       --    🔴 負對照:同一段末尾加一個空白 ⇒ md5 變 `ba5abecd…` ⇒ **這把尺會動**。
+       -- ⚠️ **代價照實寫**:改一個字(連註解、連空白)⇒ 這道閘就擋下,而訊息會說「錨點不符」。
+       --    ⇒ **那是刻意的** —— 這支要蓋掉的是一個【碰錢】的函式(orders 自動取消),
+       --      而「差一點點」在這裡沒有安全的讀法。改動它的人要同時更新這兩個 md5。
+       AND md5(p.prosrc) IN (
+             '456db40fd5f959b9d1b96af7cfc8d4d2',  -- L3a 那版(尚未接心跳),2026-08-28 正式庫與 repo 逐 byte 相同
+             '40001d5610ebab595784d628ce6a3ac4'   -- 本片完成版(已接心跳)⇒ 重跑冪等放行
+           )
   ) THEN
     RAISE EXCEPTION 'b4-CRON6-片2:函式體不是 L3a 那版、也還沒接過心跳 —— 有人動過它。'
                     '拒絕覆蓋(覆蓋會靜靜刪掉那個改動);拒繼續';
@@ -204,6 +221,23 @@ BEGIN
   -- 🔴 只寫成功那三欄;**失敗那一欄一個字都不碰**(理由見檔頭:寫不出去,不是懶得寫)。
   --    ⚠️ 這句刻意不寫出那個欄名 —— 見檔頭「3d 這把尺分不出碼與註解」那段。
   -- 🔴 用 `clock_timestamp()` 不用 `now()`(codex R1 must-fix ③):
+  --
+  -- 🔴🔴 **R2 must-fix ③(2026-08-29 `-b4`)**:原本的驗收是「餵一個未來時間戳,它沒被蓋回現在」——
+  --    而那**只驗到 `GREATEST`**,沒有演出「兩個時鐘在同一交易內分岔」那個世界
+  --    ⇒ 也就是說:把 `clock_timestamp()` 改回 `now()`,那一發**照樣會過**。
+  -- ✅ 補的那一發(2026-08-29 19:33,拋棄式 PG,`BEGIN … pg_sleep(1.2) … ROLLBACK`):
+  --      now()            第一次 19:33:46.299306  第二次 19:33:46.299306   ⇒ **一動也不動**
+  --      clock_timestamp  第一次 19:33:46.306749  第二次 19:33:47.513562   ⇒ **走了 1.2 秒**
+  --      而 `now() <> now()` ⇒ 恆 **false**(交易內固定)
+  --    ⇒ 📌 **那就是這條 must-fix 講的病**:pg_cron 把整輪跑在一個交易裡,
+  --      而一個慢交易用【交易起始時刻】去寫心跳 ⇒ **它會蓋掉一個比它新的成功心跳**
+  --      ⇒ `last_success_at` 倒退 ⇒ 儀表上看起來像「它 N 分鐘前就沒動了」。
+  -- ⚠️ **而這一發證什麼、不證什麼**:
+  --    ✅ 證到:兩個時鐘在同一交易內【真的會分岔】⇒ 這個病構造得出來、不是理論
+  --    ❌ 不證:本函式在正式庫的那一輪【真的跑得夠久到分岔】——
+  --       那要看真實執行時間,而 `p_limit` 預設 500 ⇒ 我沒有量過它跑多久
+  --    ⇒ 所以修法的理由是「這個病可達」,不是「它已經發生過」。
+
   --    `now()` 是**交易起始時間** ⇒ 一個 10:00 開始而跑很久的交易,會用 10:00 蓋掉
   --    另一個 10:05 已經寫好的心跳 ⇒ **`last_success_at` 會倒退**,而畫面上只是「比較舊」。
   --    心跳要的是**觀測時刻**,不是交易時刻。
@@ -238,14 +272,18 @@ COMMENT ON TABLE public.sweeper_heartbeat IS
   '無歷史（刻意）：只答「它還活著嗎」，不答趨勢。'
   ' 🔴 例外一支（⟦b4-CRON6⟧ 片2，2026-08-28）：job_name=''pcm-expire-unpaid-orders'' 走純 SQL，'
   'pg_cron 把它跑在自己一個交易裡 ⇒ 函式拋錯則同一交易寫的失敗心跳一起被回捲 '
-  '⇒ 它的 last_failure_at 永遠是 NULL、consecutive_failures 永遠是 0。'
-  '而一個永遠是 0 的失敗計數，在儀表上跟「一直很健康」長得一模一樣 '
+  '⇒ 【本片這條路】寫不出失敗心跳：它的 last_failure_at 會留在 NULL、consecutive_failures 留在 0。'
+  '⚠️ 而那不是資料庫保證：那兩欄是普通欄位，任何有寫入權的路徑都寫得進去 '
+  '（例如日後有人補一支別的 job、或手動 UPDATE）⇒ 不要把它讀成「這兩欄不可能有值」。'
+  '而一個停在 0 的失敗計數，在儀表上跟「一直很健康」長得一模一樣 '
   '⇒ 讀取端對這一支只准用 staleness 判，不得讀它的失敗計數。';
 
 
 -- ── 3. fail-closed 斷言(任一異常 → 整檔 ROLLBACK)────────────────────────────
 DO $$
 DECLARE v_def text;
+        v_probe_ok boolean := false;
+        v_probe_err text;
 BEGIN
   v_def := pg_get_functiondef('pcm_cron.expire_unpaid_orders(integer)'::regprocedure);
 
@@ -273,6 +311,41 @@ BEGIN
      OR position('EXCEPTION WHEN OTHERS THEN' in v_def) = 0 THEN
     RAISE EXCEPTION 'b4-CRON6-片2:心跳的 EXCEPTION handler 不見了 —— 監控會把被監控的弄死;拒繼續';
   END IF;
+
+  -- 3c-bis. 🔴🔴 **行為負測(R2 must-fix ⑥,2026-08-29 `-b4`)** ——
+  --   上面那兩個 `position()` **仍然是字面尺**,而 R2 逐字指出它還是會假綠:
+  --   那兩串可以只存在【註解】裡、可以在一個【無關的子區塊】裡、
+  --   handler 本身也可以只寫 `NULL;` ⇒ **兩個 substring 全部命中,而 handler 什麼都不做。**
+  -- 🔴 而 §0 那道 md5 閘**涵蓋不到這一格** —— 它跑在 `CREATE OR REPLACE` 【之前】(:113),
+  --    量的是【舊版】;這一格跑在【之後】(:269 取 `pg_get_functiondef`),量的是【新版】。
+  --    📌 兩道在不同的時刻量不同的東西,不要把前者當成後者的保險。
+  -- ✅ 所以這一格改成問【行為】:**把心跳表換掉,讓 upsert 必然失敗,而取消流程必須照樣成功。**
+  --    那是唯一能分開「handler 在」與「handler 只是字串在」的做法。
+  BEGIN
+    -- 造一個必然失敗的世界:把心跳表暫時改名(同一交易內,結束就回捲)
+    EXECUTE 'ALTER TABLE public.sweeper_heartbeat RENAME TO sweeper_heartbeat__b4cron6_probe';
+    BEGIN
+      -- 🔴 這一發【必須成功】:心跳寫不出去,而取消流程不受影響
+      PERFORM pcm_cron.expire_unpaid_orders(0);
+      v_probe_ok := true;
+    EXCEPTION WHEN OTHERS THEN
+      v_probe_ok := false;
+      v_probe_err := SQLERRM;
+    END;
+    EXECUTE 'ALTER TABLE public.sweeper_heartbeat__b4cron6_probe RENAME TO sweeper_heartbeat';
+  END;
+
+  IF NOT v_probe_ok THEN
+    RAISE EXCEPTION 'b4-CRON6-片2:心跳寫不出去時,取消流程【跟著死了】(%) —— 監控把被監控的弄死;拒繼續', v_probe_err;
+  END IF;
+  -- ⚠️ **這一發證什麼、不證什麼**(照家法寫死,不放寬):
+  --   ✅ 證到:心跳 upsert 失敗時,`expire_unpaid_orders` **不拋** ⇒ handler 真的在承重
+  --   ❌ 不證:handler 有沒有把錯誤【記下來】(它刻意只吞不記,見檔頭那條物理限制)
+  --   ❌ 不證:`p_limit > 0` 那條路 —— 這一發用 `0` 是刻意的:**不動任何一張訂單**
+  --      ⇒ 而那表示「有訂單要取消時也不受影響」**沒有被這一發證到**
+  -- 🔴 **而【該綠的綠】不算數,要看它會不會紅**:把上面那段 RENAME 拿掉 ⇒ 心跳寫得出去
+  --    ⇒ 這一格就永遠是綠的 ⇒ **它會退化成一個恆真守門**。
+  --    ⇒ 改動這一段的人,請先餵一發「handler 改成 RAISE」確認它真的會紅。
 
   -- 3d. 🔴 **不得碰 last_failure_at**(檔頭那條物理限制的機械守門:
   --     有人「順手補上」的話,它會寫進一個永遠回捲的交易裡,而畫面上多一個永遠不動的時間戳)。
@@ -303,8 +376,13 @@ BEGIN
   --     ⚠️ **射程講準**(codex R1 nit ③):上面第 2 節在**同一個交易裡**剛寫過那段 COMMENT
   --     ⇒ 這一格**只擋「我改 COMMENT 時把那句刪掉了」**,它**不證明那句話在資料模型上為真**。
   --     那句話的真假由 §「永遠是 NULL/0」那段的限定條件負責,不由這一格負責。
-  IF position('永遠是 0' in obj_description('public.sweeper_heartbeat'::regclass)) = 0 THEN
-    RAISE EXCEPTION 'b4-CRON6-片2:心跳表 COMMENT 缺「永遠是 0」那句;拒繼續';
+  -- 🔴 **R2 must-fix ④(2026-08-29)**:上面那句原本寫「永遠是 NULL / 永遠是 0」,
+  --    而它與檔頭 :17 自己承認的「不是資料庫保證」**直接矛盾** —— 我當時只改了被點名的那一處。
+  --    ⇒ 而這道斷言在數的就是那五個字 ⇒ **正文改了而它沒改的話,apply 當場炸**。
+  --    📌 順手 grep 過全檔:「永遠是 NULL / 永遠是 0」共 8 處,其中 `:258` 是**會印進資料庫的正文**
+  --       ⇒ 那一處才是別人讀得到的。改字面時要連【數它的那道斷言】一起改。
+  IF position('留在 0' in obj_description('public.sweeper_heartbeat'::regclass)) = 0 THEN
+    RAISE EXCEPTION 'b4-CRON6-片2:心跳表 COMMENT 缺「留在 0」那句;拒繼續';
   END IF;
 
   -- 3g. 排程那一列**沒有被本片動到**(本片不碰排程;動到就是我寫錯了)。
