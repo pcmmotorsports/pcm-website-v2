@@ -133,7 +133,42 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         if (probe.rows[0]?.missing !== true) throw err;
       }
 
-      return parseAlertSummary(counts.rows, ids, refundRows);
+      /**
+       * 🔴 **M-4a 第四支 RPC:寄信死人開關的五個計數(分母 `email_outbox`)。**
+       *
+       * 為什麼是另一支函式:`email_outbox` 的 `SELECT` **只授權 `service_role`**
+       * (`20260717020000` 的 GRANT),而本 adapter 跑在 `payment_confirmer`(對該表零表權)
+       * ⇒ **直接查表 = 42501**。唯一的路 = owner-defined SECDEF 受控窗。
+       *
+       * ⚠️ **兩個秒數參數必須明確傳**(該簽章**無 `DEFAULT`**,省略 = 找不到相符簽章):
+       *   · `p_stale_sending_seconds` = sweeper 的 lease。真值在 `sweep-email-outbox.ts`
+       *     的 `MIN_LEASE_SECONDS`(3600)⇒ 🔴 **這裡不抄一份會漂,而 SQL 端 clamp 下限也是 3600**
+       *     ⇒ 兩邊同時往下漂才會出事,而那需要有人同時改兩處。
+       *   · `p_signal1_grace_seconds` = 訊號 1 的寬限。🔴 **它在 sweeper 那側【沒有真值】**
+       *     (codex R2 抓到)⇒ 這裡用 3600,而**那是一個未決的營運參數,不是量出來的**。
+       *     SQL 端 clamp 下限 300(= 一個 排程週期(五分鐘一輪)),擋掉「合法等下一輪」被誤報成排程死。
+       *
+       * 降級**逐字沿用上面兩條**(不是新發明的):`42883` → `to_regprocedure` 複查 →
+       * 真的不存在 ⇒ unknown(部署窗口);oid 回得出來 ⇒ 原封上拋;`42501` ⇒ 原封上拋。
+       * 🔴 而 unknown **不寫成 0** —— **「讀不到」與「一切正常」在一個裸數字上長得一模一樣。**
+       */
+      let emailRows: Array<Record<string, unknown>> = [];
+      try {
+        const res = await client.query(
+          'SELECT public.get_email_outbox_deadman_counts($1::integer, $2::integer) AS result',
+          [EMAIL_STALE_SENDING_SECONDS, EMAIL_SIGNAL1_GRACE_SECONDS],
+        );
+        emailRows = res.rows;
+      } catch (err) {
+        if ((err as { code?: unknown } | null)?.code !== UNDEFINED_FUNCTION) throw err;
+        const probe = await client.query(
+          "SELECT to_regprocedure('public.get_email_outbox_deadman_counts(integer,integer)') IS NULL AS missing",
+          [],
+        );
+        if (probe.rows[0]?.missing !== true) throw err;
+      }
+
+      return parseAlertSummary(counts.rows, ids, refundRows, emailRows);
     });
   }
 
@@ -159,7 +194,29 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
 }
 
 /** F-004 那支 RPC 的名字(錯誤訊息要指對地方 —— 見 `parseCount` 的 `fn`)。 */
+/**
+ * 🔴 餵給寄信計數 RPC 的兩個秒數。**它們不是同一種東西,不要合併成一個常數。**
+ * · lease:**有真值**,對齊 `sweep-email-outbox.ts` 的 `MIN_LEASE_SECONDS`(3600)
+ * · grace:🔴 **沒有真值** —— sweeper 那側不存在這個參數(codex R2)。
+ *   3600 是一個**未決的營運參數**,不是量出來的。要改它要有人先決定它該是多少。
+ *
+ * 🔴 **codex 2026-08-29 抓到兩件,兩件都寫進來**:
+ * ① **明確傳 3600 ⇒ SQL 端那個 clamp 下限 300 【永遠不會贏】** ——
+ *    那個 clamp 只在「呼叫端傳了更小的值」時有意義,而這裡沒有。
+ *    ⇒ **不要把「SQL 端有 clamp」讀成一道對這條路生效的保護,它對這條路是死的。**
+ * ② **grace 目前【等於】lease,而 plan 要的是 grace 大於 lease** ——
+ *    🔴 這是一個**已知的偏離**,不是巧合:我沒有一個能決定 grace 的來源,
+ *    而 3600 是抄 lease 抄來的。**它會不會誤報,取決於 sweeper 一輪的實際耗時,而我沒有量過。**
+ *    ⇒ 這一格**明文留給下一個人**:要嘛量出 sweeper 單輪耗時上界、要嘛請 Sean 定一個。
+ * 🔴 ③ 而檔內原本寫「兩邊同時往下漂才會出事」—— **也是假的**(codex nit):
+ *    sweeper 的 lease **單獨升到 7200** 而這裡還是 3600 ⇒ 就會把**合法執行中**的工作報成卡死。
+ *    ⇒ **單邊漂就夠。** 原句給了一種不存在的安全感。
+ */
+const EMAIL_STALE_SENDING_SECONDS = 3600;
+const EMAIL_SIGNAL1_GRACE_SECONDS = 3600;
+
 const REFUNDS_FN = 'get_order_refunds_stuck_summary';
+const EMAIL_FN = 'get_email_outbox_deadman_counts';
 
 /**
  * 非負整數解析(count 欄;非有限/負 → throw fail-closed)。
@@ -222,6 +279,7 @@ function parseAlertSummary(
   rows: Array<Record<string, unknown>>,
   idRows: Array<Record<string, unknown>>,
   refundRows: Array<Record<string, unknown>>,
+  emailRows: Array<Record<string, unknown>>,
 ): AnomalyAlertSummary {
   const r = rows[0]?.result as Record<string, unknown> | undefined;
   if (!r || typeof r !== 'object') {
@@ -263,7 +321,30 @@ function parseAlertSummary(
     throw new AnomalyAlertReaderParseError(`${REFUNDS_FN} 回應格式異常(函式存在但回了 NULL 或非物件)`);
   }
 
+  /**
+   * 🔴 **M-4a 寄信計數:形狀【逐字沿用】上面 F-004 那一組,包括那個 `undefined` vs `null` 的分別。**
+   * ```
+   * emailRows = []   ⇒ em === undefined ⇒ 根本沒拿到那一列 = 函式不存在（部署窗口）
+   * { result: null } ⇒ em === null      ⇒ 函式【存在而且跑了】，只是回了 SQL NULL ⇒ 必須吵
+   * ```
+   * ⚠️ **那個分別不是我想到的** —— 是 F-004 那組被 code-reviewer 抓過一次才有的,
+   * 而合成一個的後果逐字寫在上面:**紅在對的時候、指向錯的地方。**
+   */
+  const em = emailRows[0]?.result as Record<string, unknown> | null | undefined;
+  const emailOutboxUnknown = em === undefined;
+  if (!emailOutboxUnknown && (em === null || typeof em !== 'object')) {
+    throw new AnomalyAlertReaderParseError(`${EMAIL_FN} 回應格式異常(函式存在但回了 NULL 或非物件)`);
+  }
+  const emailCount = (key: string): number | null =>
+    emailOutboxUnknown ? null : parseCount(em![key], key, EMAIL_FN);
+
   return {
+    emailOverdueCount: emailCount('signal1_overdue_count'),
+    emailDeadLetterCount: emailCount('signal2_dead_letter_count'),
+    emailStuckSendingCount: emailCount('signal3_stuck_sending_count'),
+    emailQuotaConfirmedCount: emailCount('signal5_quota_confirmed_count'),
+    emailQuotaSuspectedCount: emailCount('signal5_quota_suspected_count'),
+    emailOutboxUnknown,
     openCount: parseCount(r.open_count, 'open_count'),
     refundingCount: parseCount(r.refunding_count, 'refunding_count'),
     refundingStuckCount: parseCount(r.refunding_stuck_count, 'refunding_stuck_count'),

@@ -96,6 +96,53 @@ export type AnomalyAlertSummary = {
   pendingDoubleChargeCandidateCount: number;
 
   /**
+   * 🔴 **寄信這條線的五個死人開關計數**(M-4a;Sean 2026-08-29 拍 `Q-EMAIL-ALERT` = 甲「現在做」)。
+   *
+   * **為什麼它們要掛在【付款告警】這支上,而不是自己開一條路**:
+   * `check-anomaly-alerts` 是**唯一一支已經每天跑、而且真的推得到 LINE** 的路
+   * (`0 1 * * *` UTC = **台北早上九點**,不是凌晨一點)。
+   * 🔴 而**必須走 LINE 不能走 Resend** —— `20260717020000` 頭註 §⑨ 逐字:
+   * 「**Resend 額度用完時,走 Resend 的告警信自己也送不出去**」。
+   *
+   * **在它們之前發生的事**:額度爆掉 ⇒ 每封信失敗而 sweeper 回報「這一輪成功」
+   * ⇒ 心跳前進 ⇒ **一封信都沒寄出去而所有監控都說正常**。
+   * 那一半已修(`97864730`:那一輪現在會回 503)—— **而【會主動叫的那一格】直到本片才有。**
+   *
+   * 🔴 **`null` = 那支 RPC 尚未 apply**(`20260829010000_m4a_email_deadman_alert_counts.sql`
+   * 已 commit 而**未 apply**;數法 `grep -c 20260829010000 supabase/APPLIED.tsv` ⇒ 2026-08-29 量到 **0**)
+   * ⇒ 照 F-004 那組的成例:**`null` 與 `0` 必須分得開** ——
+   * **「讀不到」與「一切正常」在一個裸數字上長得一模一樣。**
+   *
+   * ⚠️ **訊號 4(訂單已 paid 而 outbox 列根本沒建)刻意【不在】這裡** ——
+   * 它的失敗形狀是**資料不存在**,而上面每一個 count 都只數存在的東西 ⇒ 對它永遠印 0。
+   * 那一格另立一列(`docs/launch-todo.md` ⟦b4-EMAIL-SIG4⟧),要拿 `orders` 當分母做 anti-join。
+   */
+  /** 訊號 1:該重試而沒有人重試(已到 `next_retry_at` 且逾寬限)。 */
+  emailOverdueCount: number | null;
+  /** 訊號 2:死信(`attempts >= max_attempts`)⇒ 那幾封信**永遠不會再寄**。 */
+  emailDeadLetterCount: number | null;
+  /** 訊號 3:認領後程序死 ⇒ 永久卡在 `sending`(訊號 1/2 都不命中的那個盲區)。 */
+  emailStuckSendingCount: number | null;
+  /** 訊號 5-a:**確診**額度耗盡(`quota_daily_exceeded` / `quota_monthly_exceeded`)。 */
+  emailQuotaConfirmedCount: number | null;
+  /**
+   * 訊號 5-b:**疑似**額度(`http_429`)。
+   * 🔴 **與 5-a 分開,不是分類癖**:`http_429` 可能只是**瞬時限流** ——
+   * 併進去 = 用「額度用盡、請升級」的文案報一個**未知原因**。
+   * 📌 **一個報錯原因的告警,會把人送去修錯的東西 —— 那比不叫更糟。**
+   */
+  emailQuotaSuspectedCount: number | null;
+  /**
+   * 🔴 上面五個是不是**讀不到**。
+   * ⚠️ **它只代表【函式不存在】(部署窗口),不代表權限問題**(codex 2026-08-29 nit:
+   *    原句寫「RPC 尚未 apply / 權限問題」是錯的)—— `42501` 在 adapter 是**原封上拋**,
+   *    不會變成 unknown。**「讀不到」與「不准讀」走不同的路,而只有前者會走到這個旗標。**
+   * ⚠️ **它刻意【不】進 `shouldAlert`** —— 照 F-004 那組的成例(codex R2 定的):
+   * **部署問題走部署管道**,route 依它回 503(監控看得到),不變成一封每天寄的信。
+   */
+  emailOutboxUnknown: boolean;
+
+  /**
    * 🔴 五個單號陣列(2026-08-19 Sean 拍板打開;理由與代價見本檔檔頭)。
    *
    * **它們與上面的計數不是同一個東西,不要拿長度當計數**:

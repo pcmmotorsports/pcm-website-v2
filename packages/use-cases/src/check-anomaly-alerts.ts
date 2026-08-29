@@ -67,6 +67,17 @@ export type CheckAnomalyAlertsResult = {
   /** ②終態半(只進信尾那一行,**不進 `shouldAlert`**;Sean 2026-08-24 拍甲)。 */
   orderRefundsManualFailedCount: number | null;
   orderRefundsStuckUnknown: boolean;
+  /**
+   * 🔴 M-4a:寄信那支 RPC 是不是【讀不到】(尚未 apply / 權限問題)。
+   * route 依它回 **503** —— 那是「五格刻意不進 `shouldAlert`」這個決定的**另一半**:
+   * 不進告警只有在【另一條路存在】時才成立,而這個欄位就是那條路的入口。
+   */
+  emailOutboxUnknown: boolean;
+  emailOverdueCount: number | null;
+  emailDeadLetterCount: number | null;
+  emailStuckSendingCount: number | null;
+  emailQuotaConfirmedCount: number | null;
+  emailQuotaSuspectedCount: number | null;
   /** 最舊 open anomaly 年齡秒數(排序訊號、非 PII;無 open → null)。 */
   oldestOpenAgeSeconds: number | null;
   /** 本輪嘗試推播的管道數(shouldAlert=false 時為 0)。 */
@@ -495,12 +506,63 @@ export function buildAnomalyAlertMessage(
     ...shownIds(summary.releasedStuckDisplayIds, summary.releasedStuckCount),
     ...shownPairs.flat(),
   ]);
-  const subject =
-    !truncated && distinctOrders.size > 0
-      ? `⚠️ PCM 付款有 ${distinctOrders.size} 張單要你看`
-      : '⚠️ PCM 付款有事要你看';
+  /**
+   * 🔴🔴 **寄信這條線的區塊。它與上面那些【不是同一種東西】,所以它有自己的標題與收尾。**
+   *
+   * **為什麼不能只加兩行進去**(codex 2026-08-29 抓到,而它是本片最重的那一格):
+   * 這封信的主旨寫死「PCM **付款**有事要你看」、footer 叫人**去看訂單**
+   * ⇒ 一封**只有寄信異常**的告警,會用付款的主旨、叫他去動錢。
+   * 📌 **一個內容正確而標題錯誤的告警,比不叫更糟 —— 它把人送去錯的地方。**
+   *
+   * ⚠️ **文案的【字面】沒有經過 Sean 拍板** —— 板上的規矩是文案歸他。
+   * 這裡寫的是**事實正確的最小版本**,不是成品:要改字面,改這一段就好,不動任何判定。
+   * ⇒ 而我**刻意不加「暫定文案」那種前綴** —— 這是一封他早上九點會收到的 LINE,
+   *   前綴在那裡是雜訊;而在後台畫面上(`tier-edit-submit.tsx`)前綴是對的。**載體不同。**
+   */
+  const emailLines: string[] = [];
+  const emailPush = (n: number | null, label: string) => {
+    if ((n ?? 0) > 0) emailLines.push(`· ${label}:${n} 封`);
+  };
+  emailPush(summary.emailDeadLetterCount, '🔴 已經放棄、【永遠不會再寄】的信');
+  emailPush(summary.emailQuotaConfirmedCount, '🔴 撞到寄信額度上限(確定)');
+  // 🔴 疑似那格用【不同的字】—— `http_429` 可能只是瞬時限流。
+  //    寫成「額度用盡、請升級」= 把未知報成確診,而那會把人送去買一個他可能不需要的方案。
+  emailPush(summary.emailQuotaSuspectedCount, '⚠️ 大量被擋(可能是額度,也可能只是一時被限流)');
+  emailPush(summary.emailOverdueCount, '該重試而沒有人重試的信');
+  emailPush(summary.emailStuckSendingCount, '卡在「寄送中」出不來的信');
+  const emailBlock: string[] =
+    emailLines.length > 0
+      ? ['【寄信】', ...emailLines, '⇒ 這一段與訂單無關,不用去後台退款或改單。']
+      : [];
+  const hasEmail = emailLines.length > 0;
+  const hasPayment =
+    summary.openCount > 0 ||
+    summary.refundingStuckCount > 0 ||
+    summary.attemptManualReviewCount > 0 ||
+    summary.releasedStuckCount > 0 ||
+    summary.pendingDoubleChargeCandidateCount > 0 ||
+    (summary.orderRefundsStuckCount ?? 0) > 0;
 
-  const body = blocks.filter((b) => b.length > 0).flatMap((b) => [...b, '']);
+  /**
+   * 🔴 **主旨要分得出三個世界**:純付款 / 純寄信 / 兩者都有。
+   * 而**只有純付款那個世界維持原字面** —— 其餘兩個原本都會被寫成「付款有事」。
+   */
+  const subject = !hasPayment && hasEmail
+    ? '⚠️ PCM 寄信有事要你看(與付款無關)'
+    : hasPayment && hasEmail
+      ? '⚠️ PCM 付款與寄信都有事要你看'
+      : !truncated && distinctOrders.size > 0
+        ? `⚠️ PCM 付款有 ${distinctOrders.size} 張單要你看`
+        : '⚠️ PCM 付款有事要你看';
+
+  /**
+   * 🔴 **寄信那一段放在【最前面】,而這是刻意的**:
+   * 上面那段註解逐字寫著截斷是「從尾端整行 pop」⇒ **放尾端的東西最先被丟掉**。
+   * 而「有幾封信永遠不會再寄」是這封信裡**唯一一個不可逆的事實**(單號可以再查,信寄不出去就沒了)
+   * ⇒ 它不該是第一個被截掉的。
+   * ⚠️ 而**這不等於它不會被截** —— 它只是排在後面那些單號之前。真正不可截的只有 `footer`。
+   */
+  const body = [emailBlock, ...blocks].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
 
   /**
    * 🔴🔴 **結尾三行是【不可截的】,而這不是排版偏好。**
@@ -702,7 +764,45 @@ export async function checkAnomalyAlerts(
     summary.attemptManualReviewCount > 0 ||
     summary.releasedStuckCount > 0 ||
     summary.pendingDoubleChargeCandidateCount > 0 ||
-    (summary.orderRefundsStuckCount ?? 0) > 0;
+    (summary.orderRefundsStuckCount ?? 0) > 0 ||
+    /**
+     * 🔴 **寄信這條線的五格**(M-4a;Sean 2026-08-29 拍 `Q-EMAIL-ALERT` = 甲)。
+     * `?? 0` 的意思 = **讀不到就不叫** —— 照上面 `orderRefundsStuckUnknown` 那條的成例:
+     * 部署問題走部署管道(route 回 503),不變成一封每天寄的信。
+     * ⚠️ 而 **`emailQuotaSuspectedCount`(疑似額度 `http_429`)【也】進這道閘。**
+     *
+     * 🔴 **而我第一版寫的理由是【假的】,codex 2026-08-29 抓到,這裡改成真的**:
+     * ~~「漏報的代價是信永久消失」~~ —— **不對。** `IEmailOutbox.ts` 的 `http_429` JSDoc 逐字:
+     * 「若該 429 實際只是**瞬時限流**…該封信**白等約 24h** 才重試(**信仍會寄出、不會消失**)」
+     * ⇒ **瞬時限流的代價是【延遲】,不是【消失】。** 拿「會消失」當理由 = 用一個更嚇人的
+     *   後果去支持一個對的決定,**而下一個人會照那個假前提去做別的判斷。**
+     *
+     * ✅ **真正的理由(而它仍然足夠)**:同一份 JSDoc 逐字寫著 429 body 是否含 `name`
+     * **兩官方 SDK 不一致、標為未確認** ⇒ **在那個世界裡,真正的額度耗盡就長成 `http_429`**。
+     * ⇒ 也就是說:它不是「可能只是限流」,是**「可能就是確診,只是碼認不出來」**。
+     * ⇒ 而誤報的代價 = 一封本來就會寄的信上多一行「可能是額度」。**取寬的。**
+     * 📌 **而它在信上用的是【不同的文案】,不與確診混講** —— 那一格才是防「把未知報成確診」的。
+     *
+     * 🔴🔴 **未解:`§⑨` 要求的「冷卻/去重」【本片沒有做】,而我不假裝它被解掉了。**
+     * (codex 2026-08-29 判 must-fix,而我同意它未解,只是把**曝險量出來**。)
+     * ```
+     * 排程   pcm-anomaly-alert = `0 1 * * *`（一天一次）
+     *        ⇒ 一個【持續存在】的額度問題，每天會叫一次，直到有人處理
+     * ⚠️ 而「一天一次」不是硬上限：這支 route 持有 CRON_SECRET 的人可以手動重打，
+     *    而 `checkCronRateLimit` 自己的註解逐字寫著它是 **per-instance best-effort、非全域硬上限**
+     * ```
+     * 📌 **⇒ 曝險的正確說法是:【排程】一天一次,而【這支 route】不是一天只能被打一次。**
+     * 🔴 **而我不在這裡加一個冷卻** —— 理由不是它不重要,是**「該不該冷卻、冷卻多久」是營運決定**:
+     *    一個持續一整個月的月額度耗盡,每天提醒一次**可能正是對的**(它還沒被處理);
+     *    而把述詞改窄會讓它在**問題還在**的時候安靜下來。
+     *    ⇒ 要的是一顆「我知道了、N 天內別再說」的**靜音鈕**,而那顆鈕的存在與天數**是 Sean 的**。
+     * ⇒ 這一格已列在 `~/pcm-mailbox/等Sean決策-20260829.md`,**本片刻意留白,不自行決定。**
+     */
+    (summary.emailOverdueCount ?? 0) > 0 ||
+    (summary.emailDeadLetterCount ?? 0) > 0 ||
+    (summary.emailStuckSendingCount ?? 0) > 0 ||
+    (summary.emailQuotaConfirmedCount ?? 0) > 0 ||
+    (summary.emailQuotaSuspectedCount ?? 0) > 0;
 
   let notifiersTotal = 0;
   let notifiersFailed = 0;
@@ -757,6 +857,20 @@ export async function checkAnomalyAlerts(
     orderRefundsStuckOvernightCount: summary.orderRefundsStuckOvernightCount,
     orderRefundsManualFailedCount: summary.orderRefundsManualFailedCount,
     orderRefundsStuckUnknown: summary.orderRefundsStuckUnknown,
+    /**
+     * 🔴 **這一行是本片【最重要】的一行,而我差點沒寫。**
+     * 上面把五格排除在 `shouldAlert` 之外,理由是「部署問題走部署管道」——
+     * **而那個管道要真的存在。** 退款那組有(route 依 `orderRefundsStuckUnknown` 回 503),
+     * 而我第一版**沒有把這個旗標帶出來** ⇒ route 讀不到 ⇒
+     * 🔴 **RPC 一直沒 apply ⇒ 這片完全沉默,而沒有任何人知道** —— 正是它要治的那個病。
+     * 📌 **「我把它排除在告警之外」與「我把它交給了另一條路」是兩件事,而只有後者需要那條路存在。**
+     */
+    emailOutboxUnknown: summary.emailOutboxUnknown,
+    emailOverdueCount: summary.emailOverdueCount,
+    emailDeadLetterCount: summary.emailDeadLetterCount,
+    emailStuckSendingCount: summary.emailStuckSendingCount,
+    emailQuotaConfirmedCount: summary.emailQuotaConfirmedCount,
+    emailQuotaSuspectedCount: summary.emailQuotaSuspectedCount,
     oldestOpenAgeSeconds: summary.oldestOpenAgeSeconds,
     notifiersTotal,
     notifiersFailed,

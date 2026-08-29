@@ -21,6 +21,14 @@ const ZERO: AnomalyAlertSummary = {
   orderRefundsStuckOvernightCount: 0,
   orderRefundsManualFailedCount: 0,
   orderRefundsStuckUnknown: false,
+  // 🔴 M-4a 寄信五格：同一個道理 —— `0` = 查得到而且是 0 封；`null` + unknown=true 是【另一個世界】
+  //    （那支 RPC 尚未 apply）。ZERO 是「一切正常且沒事」的基準。
+  emailOverdueCount: 0,
+  emailDeadLetterCount: 0,
+  emailStuckSendingCount: 0,
+  emailQuotaConfirmedCount: 0,
+  emailQuotaSuspectedCount: 0,
+  emailOutboxUnknown: false,
   openDisplayIds: [],
   refundingStuckDisplayIds: [],
   attemptManualReviewDisplayIds: [],
@@ -913,5 +921,135 @@ describe('F-004 · ②終態半只出現在信尾那一行', () => {
     );
     // 只有①可處理半(永遠沒單號)才讓主旨不寫數字;②終態半只是信尾一行。
     expect(msg.subject).toContain('1 張單');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 🔴 M-4a:寄信這條線壞掉,要有人被通知(Sean 2026-08-29 拍 `Q-EMAIL-ALERT` = 甲)
+//
+// **在這幾格之前發生的事**:額度爆掉 ⇒ 每封信失敗,而 sweeper 回報「這一輪成功」
+// ⇒ 心跳前進 ⇒ **一封信都沒寄出去,而所有監控都說正常。**
+// 那一半已修(`97864730`)—— **而【會主動叫的那一格】直到本片才有。**
+describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
+  const withEmail = (over: Partial<AnomalyAlertSummary>): AnomalyAlertSummary => ({
+    ...ZERO,
+    ...over,
+  });
+
+  it('[E1] 只有寄信異常 ⇒ 會叫,而且主旨【不能】說是付款的事', async () => {
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    const res = await checkAnomalyAlerts({
+      reader: { getAlertSummary: async () => withEmail({ emailDeadLetterCount: 3 }) },
+      notifiers: [notifier],
+    }, OPTS);
+    // 🔴 怎麼會紅:把那五格從 shouldAlert 拿掉 ⇒ alerted 變 false。
+    expect(res.alerted, '只有寄信異常時它不叫 ⇒ 那正是本片要修的那個沉默').toBe(true);
+    const msg = notifier.notify.mock.calls[0]![0] as { subject: string; text: string };
+    // 🔴 怎麼會紅:主旨不分三個世界 ⇒ 這裡會拿到「PCM 付款有事要你看」。
+    //    📌 一個內容正確而標題錯誤的告警，比不叫更糟 —— 它把人送去錯的地方。
+    expect(msg.subject, '一封只有寄信異常的信，卻用付款的主旨').toContain('寄信');
+    expect(msg.subject).not.toContain('付款有');
+    expect(msg.text).toContain('永遠不會再寄');
+    // 🔴 而信裡要明講「不用去動訂單」—— footer 原本就是叫人去看訂單的。
+    expect(msg.text).toContain('不用去後台退款或改單');
+  });
+
+  it('[E2] 🔴 確診與疑似用【不同的字】—— 把未知報成確診會把人送去買方案', async () => {
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    await checkAnomalyAlerts({
+      reader: { getAlertSummary: async () => withEmail({ emailQuotaSuspectedCount: 7 }) },
+      notifiers: [notifier],
+    }, OPTS);
+    const body = (notifier.notify.mock.calls[0]![0] as { text: string }).text;
+    // 🔴 怎麼會紅:把 5-b 併進 5-a 的文案 ⇒ 這裡會出現「確定」。
+    //    `http_429` 可能只是瞬時限流 —— 而「額度用盡、請升級」是一個【確診】。
+    expect(body).toContain('可能是額度');
+    expect(body).not.toContain('撞到寄信額度上限(確定)');
+  });
+
+  it('[E3] 🔴 負對照:五格都是 0 ⇒ 不叫(它不是恆叫)', async () => {
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    const res = await checkAnomalyAlerts({
+      reader: { getAlertSummary: async () => ZERO },
+      notifiers: [notifier],
+    }, OPTS);
+    // 🔴 沒有這一格,一個「永遠 alerted」的實作也會讓上面兩格全綠。
+    expect(res.alerted).toBe(false);
+    expect(notifier.notify).not.toHaveBeenCalled();
+  });
+
+  it('[E4] 🔴 讀不到(RPC 尚未 apply)⇒ 【不叫】—— 部署問題走部署管道', async () => {
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    const res = await checkAnomalyAlerts({
+      reader: {
+        getAlertSummary: async () =>
+          withEmail({
+            emailOverdueCount: null,
+            emailDeadLetterCount: null,
+            emailStuckSendingCount: null,
+            emailQuotaConfirmedCount: null,
+            emailQuotaSuspectedCount: null,
+            emailOutboxUnknown: true,
+          }),
+      },
+      notifiers: [notifier],
+    }, OPTS);
+    // 🔴 怎麼會紅:把 `?? 0` 改成把 unknown 當成有事 ⇒ 這裡 false 變 true。
+    //    📌 DB 一直沒 apply ⇒ 每天寄一封「尚未啟用」⇒ 久了變例行雜訊
+    //       = 把沉默換成無限重寄，同一個病的另一面（照 orderRefundsStuckUnknown 的成例）。
+    expect(res.alerted, 'unknown 進了 shouldAlert ⇒ 部署問題會變成一封每天寄的信').toBe(false);
+  });
+
+  it('[E6] 🔴 訊息超長時,寄信那段【不能】是先被截掉的那一段', async () => {
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    // 造一封【真的會超過預算】的信:大量付款單號 + 一段寄信異常。
+    // 🔴 **單號【數量】撐不破預算** —— `shownIds` 每類上限 30 ⇒ 200 個只印得出 30 個。
+    //    第一版用 200 個短單號 ⇒ 實測整封信 **986 字元**,而預算約 4570 ⇒ **它根本沒截**
+    //    ⇒ 那一格是恆真的,而突變(把 emailBlock 移到尾端)**殺不掉它**。
+    //    📌 又是「量具沒有對準被測的東西」—— 今晚第二次,而第一次是那個 console 攔截器。
+    // ⇒ 改用【很長的單號】把長度撐上去,並且下面加一道**對準檢查**。
+    const many = Array.from(
+      { length: 200 },
+      (_, i) => `PCM-VERY-LONG-DISPLAY-ID-FOR-BUDGET-TEST-${String(i).padStart(6, '0')}-${'X'.repeat(120)}`,
+    );
+    await checkAnomalyAlerts(
+      {
+        reader: {
+          getAlertSummary: async () =>
+            withEmail({
+              openCount: many.length,
+              openDisplayIds: many,
+              emailDeadLetterCount: 5,
+            }),
+        },
+        notifiers: [notifier],
+      },
+      OPTS,
+    );
+    const text = (notifier.notify.mock.calls[0]![0] as { text: string }).text;
+    // 🔴🔴 **對準檢查,排在斷言【之前】** —— 沒有它,這一格會在「訊息其實沒超長」時
+    //    安靜地退化成恆真,而**顏色不會變**。(第一版就是那樣,實測 986 字元、根本沒截。)
+    expect(text.length, '訊息沒有超過預算 ⇒ 這一格沒有在測截斷,不是「沒被截掉」').toBeGreaterThan(
+      3000,
+    );
+    expect(text, '沒有出現截斷註記 ⇒ 這一發根本沒觸發截斷').toContain('單號太多');
+    // 🔴 怎麼會紅:把 emailBlock 從 body 最前面移到最後面 ⇒ 截斷從尾端 pop ⇒ 這裡就沒了。
+    //    📌 而【上面那五格全部是短訊息】—— 移到尾端它們照樣全綠,
+    //       所以沒有這一格的話,「放最前面」那個決定沒有任何東西守著。
+    expect(text, '寄信那段在長訊息裡被截掉了 ⇒ 而那是這封信裡唯一不可逆的事實').toContain(
+      '永遠不會再寄',
+    );
+  });
+
+  it('[E5] 付款與寄信【同時】有事 ⇒ 主旨要說兩件,不能只說一件', async () => {
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    await checkAnomalyAlerts({
+      reader: { getAlertSummary: async () => withEmail({ openCount: 1, emailDeadLetterCount: 2 }) },
+      notifiers: [notifier],
+    }, OPTS);
+    const subject = (notifier.notify.mock.calls[0]![0] as { subject: string }).subject;
+    // 🔴 怎麼會紅:主旨只判其中一邊 ⇒ 會漏講另一件,而收信人只會去查它講的那件。
+    expect(subject).toContain('付款');
+    expect(subject).toContain('寄信');
   });
 });

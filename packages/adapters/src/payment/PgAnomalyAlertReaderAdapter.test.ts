@@ -44,19 +44,40 @@ function twoQueryClient(
    */
   refunds?: unknown,
   refundsProbeMissing = true,
+  /**
+   * M-4a 第四支:同樣預設 `undefined` = **那支 RPC 尚未 apply**(部署窗口)⇒ 模擬 `42883`。
+   * 🔴 而這不只是照抄慣例 —— 它現在是**正式庫的真實狀態**:
+   *    `20260829010000_m4a_email_deadman_alert_counts.sql` 已 commit 而**未 apply**
+   *    (`grep -c 20260829010000 supabase/APPLIED.tsv` ⇒ 2026-08-29 量到 **0**)
+   *    ⇒ 預設值讓既有那些格子繼續測【今天線上真的是那個世界】。
+   */
+  email?: unknown,
+  emailProbeMissing = true,
 ) {
   return makeClient({
     query: async (text: string) => {
       // 🔴 `to_regprocedure` 那一發是**錯誤路徑的第二問**:42883 之後再確認函式到底在不在。
       //    `probeMissing=false` = 函式在 ⇒ 那個 42883 來自函式【內部】⇒ 必須上拋。
-      // 🔴 兩支函式各有自己的探測,**必須依函式名分流** —— 共用一個旗標的話,
-      //    「單號那支不在」與「退款那支不在」在測試上不可分辨。
+      // 🔴 **三支**函式各有自己的探測,**必須依函式名分流** —— 共用一個旗標的話,
+      //    「哪一支不在」在測試上不可分辨。(這句警告本檔原本就有,第三支是 2026-08-29 接上的。)
       if (text.includes('to_regprocedure')) {
         return {
           rows: [
-            { missing: text.includes('get_order_refunds_stuck_summary') ? refundsProbeMissing : probeMissing },
+            {
+              missing: text.includes('get_order_refunds_stuck_summary')
+                ? refundsProbeMissing
+                : text.includes('get_email_outbox_deadman_counts')
+                  ? emailProbeMissing
+                  : probeMissing,
+            },
           ],
         };
+      }
+      if (text.includes('get_email_outbox_deadman_counts')) {
+        if (email === undefined) {
+          throw Object.assign(new Error('function does not exist'), { code: '42883' });
+        }
+        return resultRows(email);
       }
       if (text.includes('get_order_refunds_stuck_summary')) {
         if (refunds === undefined) {
@@ -98,6 +119,14 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
     const { client, query, connect, end } = twoQueryClient(FULL);
     const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600);
     expect(res).toEqual({
+      // 🔴 M-4a 五格:這一格的世界是「那支 RPC 尚未 apply」⇒ 全 `null` + unknown=true
+      //    —— 而 `null` 不是 `0`：後者是「查得到而且沒事」。
+      emailOverdueCount: null,
+      emailDeadLetterCount: null,
+      emailStuckSendingCount: null,
+      emailQuotaConfirmedCount: null,
+      emailQuotaSuspectedCount: null,
+      emailOutboxUnknown: true,
       openCount: 2,
       refundingCount: 3,
       refundingStuckCount: 1,
@@ -148,7 +177,13 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
     const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600);
     // 🔴 三支函式**都要被呼叫到** —— 少了這一格,「只打了計數那支」與「其餘全空」在觀察上一樣。
     //    (F-004 起是三支:計數 / 單號 / 退款卡住計數。)
-    expect(query).toHaveBeenCalledTimes(3);
+    /**
+     * 🔴 **3 → 5,而那兩發【不是常態成本】** —— 這一格的世界是「寄信那支 RPC 尚未 apply」:
+     *   +1 = 打那支 RPC(它 throw 42883)· +1 = `to_regprocedure` 複查它到底在不在
+     * ⇒ **apply 之後只會多 1 發**,不是 2 發。
+     * 📌 寫出來是因為:一個「多兩發查詢」的數字,會被讀成這片的固定代價,而它是**部署窗口的代價**。
+     */
+    expect(query).toHaveBeenCalledTimes(5);
     expect(query.mock.calls[1]![0]).toContain('get_payment_anomaly_alert_display_ids');
     expect(query.mock.calls[2]![0]).toContain('get_order_refunds_stuck_summary');
     expect(res.openDisplayIds).toEqual(['PCM-2026-0104']);
@@ -357,5 +392,79 @@ describe('F-004 get_order_refunds_stuck_summary(第三支 RPC)', () => {
     await expect(
       new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600),
     ).rejects.toThrow(/get_order_refunds_stuck_summary/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 🔴 M-4a:寄信那支 RPC【真的 apply 之後】那條路
+//
+// **為什麼要單獨一組**(codex 2026-08-29 抓到,而它是本片最大的覆蓋缺口):
+// 上面每一格的 `email` 都預設 `undefined` = **那支 RPC 不存在** ——
+// 那是今天線上的真實狀態,所以那個預設是對的。
+// 🔴 **而它的副作用是:apply 之後才會走的那條路【一格都沒有被測過】。**
+// 📌 **一個「今天不會走到」的分支,與一個「永遠不會走到」的分支,在覆蓋率上長得一樣** ——
+//    而前者會在【某個人按下 apply 的那一刻】變成主要路徑。
+describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply 那一刻就是主路徑)', () => {
+  const OK = {
+    signal1_overdue_count: 4,
+    signal2_dead_letter_count: 3,
+    signal3_stuck_sending_count: 1,
+    signal5_quota_confirmed_count: 2,
+    signal5_quota_suspected_count: 1,
+    total_count: 12,
+  };
+
+  it('[A1] 五個鍵都解析得出來,而且不是 unknown(正向對照:先證明這條路搬得動東西)', async () => {
+    const c = twoQueryClient(FULL, undefined, true, undefined, true, OK, false);
+    const r = await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600);
+    // 🔴 怎麼會紅:adapter 沒把那五個鍵接上、或鍵名打錯 ⇒ 這裡拿到 null。
+    //    📌 而鍵名打錯【不會 typecheck 紅】—— 兩邊都是合法字串。
+    expect(r.emailOutboxUnknown).toBe(false);
+    expect(r.emailOverdueCount).toBe(4);
+    expect(r.emailDeadLetterCount).toBe(3);
+    expect(r.emailStuckSendingCount).toBe(1);
+    expect(r.emailQuotaConfirmedCount).toBe(2);
+    expect(r.emailQuotaSuspectedCount).toBe(1);
+  });
+
+  it('[A2] 🔴 缺鍵 ⇒ fail-closed 上拋,【不】當成 unknown', async () => {
+    const { signal2_dead_letter_count: _drop, ...missing } = OK;
+    const c = twoQueryClient(FULL, undefined, true, undefined, true, missing, false);
+    // 🔴 怎麼會紅:把缺鍵也當成 unknown ⇒ 這裡不會拋,而信上會印「查不到」
+    //    ⇒ 「函式不在」與「函式回了垃圾」是兩件事,後者必須吵。
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600),
+    ).rejects.toThrow();
+  });
+
+  it('[A3] 🔴 函式【存在】而回 SQL NULL ⇒ 也要上拋,不得讀成「尚未 apply」', async () => {
+    const c = twoQueryClient(FULL, undefined, true, undefined, true, null, false);
+    // 🔴 這一格守的是 `undefined` 與 `null` 的分別(F-004 那組被 code-reviewer 抓過一次的那格)：
+    //    讀成「尚未 apply」⇒ 值班的人跑去查 migration，而它 apply 了
+    //    ⇒ 紅在對的時候、指向錯的地方。
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600),
+    ).rejects.toThrow();
+  });
+
+  it('[A4] 🔴 42883 而探針說函式【在】⇒ 原封上拋(函式體壞了,必須吵)', async () => {
+    // email=undefined ⇒ 丟 42883；emailProbeMissing=false ⇒ 探針說它在
+    const c = twoQueryClient(FULL, undefined, true, undefined, true, undefined, false);
+    // 🔴 怎麼會紅:照碼降級(不做 to_regprocedure 複查)⇒ 這裡不拋,而一支壞掉的函式
+    //    會被安靜地讀成「今天沒事」,而它不會自己好。
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600),
+    ).rejects.toThrow();
+  });
+
+  it('[A5] 傳給 RPC 的兩個秒數參數真的送出去了(而它們沒有 DEFAULT,漏傳 = 找不到簽章)', async () => {
+    const c = twoQueryClient(FULL, undefined, true, undefined, true, OK, false);
+    await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600);
+    const call = (c.query as ReturnType<typeof vi.fn>).mock.calls.find((x) =>
+      String(x[0]).includes('get_email_outbox_deadman_counts'),
+    );
+    // 🔴 怎麼會紅:少傳一個參數、或傳錯順序 ⇒ 這裡紅。
+    //    而在正式庫上那個症狀是「找不到相符的函式簽章」，不是一個看得懂的錯。
+    expect(call?.[1]).toEqual([3600, 3600]);
   });
 });

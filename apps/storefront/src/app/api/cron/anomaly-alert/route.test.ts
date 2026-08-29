@@ -548,3 +548,35 @@ describe('GET anomaly-alert — 心跳三態', () => {
     expect(hbFailSpy).not.toHaveBeenCalled();
   });
 });
+
+// ─────────────────────────────────────────────────────────────
+// 🔴 M-4a:寄信那支 RPC 沒 apply ⇒ 必須有人知道
+//
+// **這一格是本片最重要的一格,而它差點不存在。**
+// 五格刻意不進 `shouldAlert`（不進的理由：DB 沒 apply 就每天寄一封「尚未啟用」＝把沉默換成無限重寄）
+// 🔴 **而「不進告警」只有在【另一條路存在】時才成立** ——
+//    我第一版沒有把旗標從 use-case 帶出來 ⇒ route 讀不到
+//    ⇒ RPC 一直沒 apply ⇒ **這片完全沉默,而那正是它要治的病。**
+// 📌 **「我把它排除在告警之外」與「我把它交給了另一條路」是兩件事,
+//    而只有後者需要那條路真的存在。**
+describe('🔴 寄信計數讀不到 ⇒ route 回 503(部署管道)', () => {
+  it('[U1] emailOutboxUnknown=true ⇒ 503,而且心跳記失敗', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    checkSpy.mockResolvedValue({ ...CLEAN_RESULT, emailOutboxUnknown: true });
+    const res = await GET(makeReq(bearer()));
+    // 🔴 怎麼會紅:把 route 那段第四種 503 拿掉 ⇒ 這裡 503 變 200
+    //    ⇒ 而 200 的意思是「今天一切正常」,那是假的。
+    expect(res.status, 'RPC 沒 apply 而 route 回 200 ⇒ 這片完全沉默').toBe(503);
+    expect(hbFailSpy).toHaveBeenCalledTimes(1);
+    expect(hbOkSpy).not.toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it('[U2] 🔴 負對照:讀得到而且是 0 ⇒ 200(它不是恆 503)', async () => {
+    checkSpy.mockResolvedValue({ ...CLEAN_RESULT, emailOutboxUnknown: false });
+    const res = await GET(makeReq(bearer()));
+    // 🔴 沒有這一格,一個「永遠 503」的實作也會讓 U1 全綠。
+    //    📌 而「讀得到而且是 0」與「讀不到」正是這一片存在的全部理由。
+    expect(res.status).toBe(200);
+  });
+});

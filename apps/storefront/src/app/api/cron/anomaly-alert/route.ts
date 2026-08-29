@@ -249,6 +249,23 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
     }
 
+    /**
+     * 🔴 **第四種 503(M-4a,2026-08-29):`result.emailOutboxUnknown`** ——
+     * 形狀**逐字沿用**上面第三種,而理由也一樣:寄信那五格**刻意不進 `shouldAlert`**
+     * (不進的理由:DB 沒 apply 就每天寄一封「尚未啟用」= 把沉默換成無限重寄)。
+     * 🔴 **而「不進告警」只有在【另一條路存在】時才成立** ——
+     *    沒有這一段,RPC 一直沒 apply ⇒ **這片完全沉默,而那正是它要治的病。**
+     * ⚠️ 它同樣**不擋信**:該寄的照寄,只是這一輪回 503 讓看 cron 的人知道少查了一類。
+     */
+    if (result.emailOutboxUnknown) {
+      console.error(
+        '[anomaly-alert] 🔴 get_email_outbox_deadman_counts 尚未 apply ⇒ 寄信那五類今天是【查不到】,不是【沒事】',
+        { ...result },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+
     // 5. 認證過 + enabled + 無錯 → 200 + 計數摘要(零 PII counts)。
     await recordHeartbeatSuccess(CRON_JOB_NAME.anomalyAlert);
     return Response.json({ ok: true, enabled: true, ...result }, { status: 200 });
