@@ -7,7 +7,8 @@ import { PickingDoc } from '../../../../../components/print/picking-doc';
 // 這一頁**完全沒辦法被單測載入**。同 `app/orders/[id]/page.tsx:1` 的既有慣例。
 // ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 //
-// #10 片1:揀貨單列印頁(server component、唯讀)。
+// #10 片1:⛔ ~~揀貨單~~ **訂單明細**列印頁(server component、唯讀)。
+//    🔴 2026-08-23 Sean 拍板改成「訂單明細」(紙上抬頭已是「訂單明細 / ORDER DETAIL」)。
 //
 // 🔴 **登入**:本路由**不需要**自己做任何事 —— `apps/admin/src/proxy.ts:39-50` 是 fail-closed
 //    的全站登入閘,matcher(`:64` 逐字 `'/((?!_next/static|_next/image|favicon.ico).*)'`)
@@ -16,8 +17,17 @@ import { PickingDoc } from '../../../../../components/print/picking-doc';
 //    SSO 白名單各釘一行,改窄了會當場紅。
 //    ⚠️ **那兩格只證設定字面,沒有呼叫過 `proxy()` 本體** —— redirect 的實際行為未驗(誠實揭示)。
 //
-// 🔴 **PII**:本頁只印客人**姓名**,不印電話與地址(`picking-doc.tsx` 檔頭寫了為什麼)。
-//    投影仍是明細專用白名單(含 PII)⇒ 少印不等於少讀,但少印就少一個外洩面。
+// ⛔🔴 ~~**PII**:本頁只印客人**姓名**,不印電話與地址(`picking-doc.tsx` 檔頭寫了為什麼)。~~
+//    ~~投影仍是明細專用白名單(含 PII)⇒ 少印不等於少讀,但少印就少一個外洩面。~~
+//
+// 🔴🔴 **上面那條自 2026-08-29 起為假 —— 本頁【現在要印】姓名 / 電話 / 地址三格。**
+//    Sean 2026-08-29 拍【甲 要(照稿)】⇒ **直接推翻本行原本那條紀律**。
+//    原句與代價:`memory/project_0829-sean-order-detail-prints-full-pii.md`;
+//    斷言落點:`page.test.tsx:189` 的 `②'`(它現在斷言那三格**必須在**)。
+//    🛑 **而舊那條當時是對的** —— 它的前提是【這張紙是揀貨單】,而 Sean 08-23 換掉了對象。
+//    ⚠️ 「少印不等於少讀」那句仍然成立(投影一直是含 PII 的白名單),
+//       而**「少印就少一個外洩面」這個取捨已經被拍板推翻** ——
+//       現在的取捨是:這張紙要給客人存查,而一張沒有收件資訊的明細對他沒有用。
 export const dynamic = 'force-dynamic';
 
 // nit-13:紙頭(瀏覽器列印頁首)預設會印 root layout 的 `PCM 後台` ⇒ 每張揀貨單的頁首都一樣。
