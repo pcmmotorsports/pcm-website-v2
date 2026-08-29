@@ -32,6 +32,26 @@
 //     ⇒ 兩支都紅,而訊息不同:那支說「授權閘破了」,本支說「這家沒有品牌頁」。**都不是安靜的。**
 //
 // ═══════════════════════════════════════════
+// 🔴🔴 這道閘紅了以後,**不要去 `brand-content.ts` 加一筆** —— 那是鐵則 1 禁止的動作
+// ═══════════════════════════════════════════
+//   `data/brand-content.ts:1` 逐字:「品牌介紹頁內容資料(21 家)**【機器產生,不要手改】**」
+//   來源 = Open Design `pcm-home-redesign/brand-content-data.js`;
+//   **Sean 2026-08-03 拍 Q1=B:本線真權威在 Open Design**(鐵則 1 的明文例外)。
+//   重產指令寫在該檔 `:7` 起的「重新產生(來源改動後)」那段。
+//
+//   ⇒ **正確順序**:①先在 OD 的 `brand-content-data.js` 補這家的內容
+//                 ②再照 `brand-content.ts` 檔頭那條指令**重新產生本檔**
+//                 ③產生後**必跑** `brand-content.test.ts`(它守 D2/D3 依賴的結構不變量)
+//
+//   🔴 **為什麼這一段非寫不可**:這道閘紅的時候,讀它的人第一個念頭是「去 brand-content.ts 加一筆」
+//      —— **而那正好是鐵則 1 禁止的動作**,且手加的條目下次重產就會被蓋掉、零訊號。
+//      📌 **一支會把人導向違規修法的測試,比沒有那支測試糟。**
+//
+//   ⚠️ 連帶:`notFound()` 在這個設計下**是正確行為**,不是 bug ——
+//      一家品牌在 Sean 還沒寫它的文案之前,那一頁**本來就不該存在**(fallback 只會給客人一頁空殼)。
+//      ⇒ 本閘要的不是「讓它顯示出來」,是**讓那個缺口出聲**。
+//
+// ═══════════════════════════════════════════
 // ⚠️ 它守不到什麼(照隔壁那支的規格,先寫這一段)
 // ═══════════════════════════════════════════
 //   · **只看 `BRAND_CONTENT` 有沒有這個 slug** ⇒ 條目**內容**是不是填好的(band/facts/about…)它不看。
@@ -78,13 +98,19 @@ describe('品牌介紹頁內容覆蓋(上架了而客人點進去 404)', () => {
     ).toBeGreaterThan(0);
   });
 
+  // 🔴 2026-08-30 線C `-b4` 更正失敗訊息的指路(舊字面留著,不刪):
+  //   ~~「補條目的做法見 docs/runbooks/supplier-storefront-onboarding.md」~~
+  //   ⇒ **那份 runbook 的 `:12-13` 逐字寫著「本份【不管】品牌內容…是另一條線」**
+  //   ⇒ 📌 紅的時候照它走的人,會打開一份【自己聲明不涵蓋這件事】的文件。
   it('🔴 主閘:每一家 writeAllowed=true 的供應商品牌,都要在 BRAND_CONTENT 裡有條目', () => {
     const missing = brandsMissingContent(suppliers, contentSlugs);
     expect(
       missing,
       `這些品牌已開放寫入正式庫(有真商品),而 apps/storefront/src/data/brand-content.ts 裡沒有它們` +
         ` ⇒ 客人點 /brands/<slug> 會走到 page.tsx 的 notFound()。` +
-        ` 補條目的做法見 docs/runbooks/supplier-storefront-onboarding.md。`,
+        ` 🔴 修法【不是】在 brand-content.ts 手加一筆(它是機器產生的,見本檔檔頭)——` +
+        ` 先在 Open Design pcm-home-redesign/brand-content-data.js 補內容,再照` +
+        ` brand-content.ts 檔頭那條指令重產。品牌頁內容那條線見 ~/.claude/skills/pcm-brand-page/SKILL.md。`,
     ).toEqual([]);
   });
 
