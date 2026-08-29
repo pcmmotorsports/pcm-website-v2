@@ -1,5 +1,37 @@
 # #445 超退閘 — slice plan **v8**
 
+> # 🛑 寫 `445b` 的人:**有一條 apply 順序約束, 而它原本住在一支你不會開的 `.ts` 裡**
+>
+> **原文在 `apps/admin/src/lib/payment/refund-repository.ts:19-24`(逐字, 2026-08-29 線C 搬進來, 原文留在原地)**:
+> > 🔴 第 9 碼 `REFUND_EXCEEDS_REMAINING` = **#445 步 6b 超退閘**,由 **445b** 建立 ——
+> > **今天庫裡那支 RPC 還不會吐它**,本片刻意先接。理由是**反向窗口**:
+> > **445b 一 apply 而本片還沒 deploy**,下面的窮盡收斂會判未知碼丟 `RefundCallerBugError`
+> > ⇒ **每一筆被擋下的超退在員工眼裡變成「系統呼叫異常」**。
+> > ⇒ **445a 必須先 deploy, 才准 apply 445b**(**順序要寫進 445b migration 檔頭**)。
+>
+> ## ✅ 而那個順序條件【2026-08-29 已經滿足】—— 量到的, 不是推的
+> ```
+> git show HEAD:apps/admin/src/lib/payment/refund-repository.ts | grep -c 'REFUND_EXCEEDS_REMAINING'
+>   ⇒ **7**（那個碼在 INITIATE_RESULT_CODES 的封閉集裡）⇒ **445a 已在 dev 上**
+> 而 445b 本身：git grep -l 'REFUND_EXCEEDS_REMAINING' -- supabase/migrations ⇒ **rc=1，零命中**
+>   正對照 `REFUND_NOTHING_LEFT` 同法 ⇒ **2 支**（尺是活的）／負對照 `REFUND_ZZQ6641` ⇒ 0
+> ```
+> 🔴 **⇒ 所以 445b 不是「排隊等 apply」—— 它【連 SQL 都還沒有人寫】。**
+> ✅ **⇒ 而順序那格不擋你:445a 已 deploy ⇒ 445b 寫好隨時可 apply。**
+>
+> ## ⚠️ 而它會在一個世界裡活過來 —— 寫下來, 免得下一個人以為它作廢了
+> **若有人先 revert / rollback 445a(把那個碼從封閉集拿掉)而 445b 仍在庫**
+> ⇒ **反向窗口當場成立** ⇒ 每一筆被擋下的超退變成「系統呼叫異常」。
+> ⇒ **所以 445a 的回退, 必須先撤 445b。**
+>
+> ## 🔴 而為什麼這段搬到這裡
+> 「順序要寫進 **445b migration 檔頭**」—— 而**那個檔頭不存在**(445b 還沒被寫出來)
+> ⇒ 📌 **一條指示, 住在一個【還沒被創造出來的檔案】裡。**
+> ⇒ 而**寫 445b 的人一定會開這份 plan**, 而他不一定會開那支 `.ts`。
+> ⇒ **⇒ 搬到會被開的地方, 原文留在原地雙向指。**
+>
+> ---
+>
 > # 🔴🔴 先讀這一段:**v7 的 BLOCKER 是假的,取消減項不要實作**
 >
 > **2026-08-14 · R 窗自我推翻(主視窗質疑後追查,兩邊獨立收斂)。**
