@@ -71,7 +71,7 @@
 用法
   python3 scripts/traps-neighbours.py <草稿檔>
   cat 草稿 | python3 scripts/traps-neighbours.py
-  python3 scripts/traps-neighbours.py --selftest      # 八個世界都要表演(--selfcheck 同義)
+  python3 scripts/traps-neighbours.py --selftest      # 九個世界都要表演(--selfcheck 同義)
 """
 import io
 import math
@@ -336,6 +336,36 @@ def write_log(root, query_src, counts, n_self, ranked, warned):
     except OSError as e:
         print('⚠️ 紀錄沒落成(%s)⇒ 這一發【查不回來】,但結果本身有效。' % e, file=sys.stderr)
         return None
+
+
+def top_concentration(ranked):
+    """前 N 名裡,【同一支檔】最多占了幾名 —— 回傳 (檔名, 名額數, 真候選從第幾名起)。
+
+    🔴 為什麼加這一格(2026-08-29 線D 實測,`exclude_self` 的【射程外】那一種):
+       `exclude_self` 擋的是「草稿路徑 == 母體裡那支檔」;
+       而我當天的形狀是 **內容住在 A,而我餵的是抽出來的 B** ——
+       條目早就落在 `traps-inbox/D-*.md`,我把其中四條抽到一個 scratch 檔再餵它
+       ⇒ realpath 不同 ⇒ **排除放行** ⇒ 前四名全是我自己那支檔。
+    🔴 而它的外觀【比第六種失效更好】:名單上全是自己的檔名
+       ⇒ 誠實的人會想「都是我剛寫的,所以沒撞車」—— **而那個推論是錯的**:
+         它只證明我那幾條互相像,完全沒回答「跟既有的母體有沒有撞」。
+    📌 **⇒ 所以這裡不去猜「哪支是你的」(工具猜不到),改成量【集中度】** ——
+       同一支檔占掉多個名額這件事本身就該被看見,不論它是誰的。
+
+    ⚠️ **正本刻意不算**:它是一支檔裝著五百多條,集中在它身上是正常的,
+       把它算進來會讓這道訊號每一發都叫 ⇒ 而每一發都叫等於沒有訊號。
+    """
+    from collections import Counter as _C
+    c = _C(x['source'] for _, x in ranked if x['source'] != '正本')
+    if not c:
+        return (None, 0, 1)
+    src, n = c.most_common(1)[0]
+    if n < 2:
+        return (None, 1, 1)
+    # 真候選從「該檔最後一個名次」之後起算 —— 用名次而不是 n,
+    # 因為它占的名額不一定連續。
+    last = max(i for i, (_, x) in enumerate(ranked, 1) if x['source'] == src)
+    return (src, n, last + 1)
 
 
 def bigrams(s):
@@ -650,9 +680,48 @@ def selfcheck(secs):
           '私有區字元(U+E000+)抽不到 %s / 每個關鍵字在【正本】標題裡真的找得到 %s'
           % ('是' if h8a else '否', '是' if h8b else '否', '是' if h8c else '否'))
 
+    # ---- 世界九:集中度(2026-08-29 線D)。兩個世界【必須印不同的字】 ----
+    # 🔴 為什麼加:`exclude_self` 擋的是「路徑相同」,而當天的形狀是
+    #    **內容住在 A、我餵的是抽出來的 B** ⇒ 排除放行 ⇒ 前四名全是同一支 inbox 檔。
+    #    ⚠️ 而那一發**看起來乾淨** —— 名單上全是自己的檔名。
+    # ① 該叫:人工造一份【同一支檔占多名】的 ranked ⇒ 必須回 (檔名, >=2, 起算名次)
+    _one = [x for x in secs if x['source'].startswith('inbox/')]
+    if len(_one) < 2:
+        print('世界九 FAIL:母體裡 inbox 條目不足 2 則 ⇒ 這一格沒有靶')
+        return 1
+    _same = [x for x in _one if x['source'] == _one[0]['source']][:3]
+    if len(_same) < 2:
+        print('世界九 FAIL:找不到同一支 inbox 檔的兩則 ⇒ 沒有靶')
+        return 1
+    _dirty = [(0.9 - i * 0.01, x) for i, x in enumerate(_same)]
+    d_src, d_n, d_from = top_concentration(_dirty)
+    h9a = (d_src == _same[0]['source'] and d_n == len(_same) and d_from == len(_same) + 1)
+    # ② 該【不叫】:每一名來自不同檔 ⇒ 必須回 (None, 1, 1)
+    _seen, _diff = set(), []
+    for x in _one:
+        if x['source'] not in _seen:
+            _seen.add(x['source'])
+            _diff.append(x)
+        if len(_diff) >= 3:
+            break
+    if len(_diff) < 2:
+        print('世界九 FAIL:湊不出兩支【不同】的 inbox 檔 ⇒ 「不該叫」那一半沒有靶')
+        return 1
+    c_src, c_n, c_from = top_concentration([(0.9 - i * 0.01, x) for i, x in enumerate(_diff)])
+    h9b = (c_src is None and c_from == 1)
+    # ③ 🔴 正本【刻意不算】—— 全部來自正本時必須不叫,否則這道訊號每一發都響
+    _canon = [x for x in secs if x['source'] == '正本'][:3]
+    h9c = (len(_canon) >= 2
+           and top_concentration([(0.9 - i * 0.01, x) for i, x in enumerate(_canon)])[0] is None)
+    hit_i = h9a and h9b and h9c
+    print('世界九 集中度                ⇒ 髒的會叫 %s(%s 占 %s 名, 真候選從第 %s 起)'
+          ' / 乾淨的【不叫】%s / 全正本【不叫】%s'
+          % ('是' if h9a else '否', d_src, d_n, d_from,
+             '是' if h9b else '否', '是' if h9c else '否'))
+
     ok = (hit_a and not hit_b and hit_c and hit_d and hit_e and hit_f and hit_g
-          and hit_h)
-    print('⇒ 自檢 %s' % ('PASS(八個世界印出不同答案)' if ok else 'FAIL(尺沒有判別力)'))
+          and hit_h and hit_i)
+    print('⇒ 自檢 %s' % ('PASS(九個世界印出不同答案)' if ok else 'FAIL(尺沒有判別力)'))
     return 0 if ok else 1
 
 
@@ -761,6 +830,18 @@ def main():
     ranked = rank(query, secs)
     for i, (score, s) in enumerate(ranked, 1):
         print('%2d. %.4f  [%s] :%-6d %s' % (i, score, s['source'], s['line'], s['title'][:76]))
+    # 🔴 集中度(2026-08-29 線D):讓「名單被同一支檔占滿」有形狀,
+    #    而不是靠人記得去數。兩個世界【印不同的字】—— 那是它能當量具的前提。
+    _csrc, _cn, _cfrom = top_concentration(ranked)
+    if _csrc:
+        print('\n🔴 前 %d 名裡,【同一支檔】占了 %d 名:%s'
+              % (TOP_N, _cn, _csrc))
+        print('   ⇒ 那 %d 個名額被吃掉了 ⇒ **真候選從第 %d 名才開始**。'
+              % (_cn, _cfrom))
+        print('   ⚠️ 若那支是你自己剛寫的 ⇒ 「名單全是我」不等於「沒有撞車」——'
+              '它只證明你那幾條互相像。')
+    else:
+        print('\n✅ 前 %d 名沒有單一檔案占掉 2 名以上(正本不計)⇒ 名額沒有被吃掉。' % TOP_N)
     # 🔴 事後偵測(第六種失效的【後衛】):不管它是怎麼混進來的 —— stdin、symlink、
     #    日後有人改壞 exclude_self —— 這兩道都還會叫。
     #    ⚠️ 它們【不是】排除的替代品,是排除失效時唯一還會叫的東西。
