@@ -52,7 +52,7 @@ const { GET } = route;
 
 const SECRET = 'a'.repeat(48); // ≥32
 
-/** 乾淨結果(errors=0、零待處理;Phase I 無流量的常態;鏡像 SweepEmailOutboxResult 全 8 欄)。 */
+/** 乾淨結果(errors=0、零待處理;Phase I 無流量的常態;鏡像 SweepEmailOutboxResult 全 10 欄)。 */
 const CLEAN_RESULT = {
   reclaimed: 0,
   claimed: 0,
@@ -61,10 +61,13 @@ const CLEAN_RESULT = {
   deferred: 0,
   staleMarks: 0,
   errors: 0,
+  // Sean 2026-08-30「Q2 取消信縫 = 甲 搬」新增兩欄(確定不合格 / 讀不到合格性,兩個世界)
+  skippedIneligible: 0,
+  eligibilityUnknown: 0,
   quotaFailed: 0,
 };
 
-const DEPS = { outbox: {}, sender: {} };
+const DEPS = { outbox: {}, sender: {}, ineligibleScanner: {} };
 
 /** route.ts 原始碼(source-contract 斷言用:鎖住無法由「結果相等」測到的實作契約)。 */
 const ROUTE_SOURCE = readFileSync(new URL('./route.ts', import.meta.url), 'utf8');
@@ -240,8 +243,9 @@ describe('GET email-sweep — 🔴 額度用盡要翻紅(2026-08-29 線D;主視�
 });
 
 describe('GET email-sweep — 🔴 counts allowlist(不 blind spread ...result、PII 物理擋)', () => {
-  // codex 關卡2 must-fix:若 use-case 日後誤增 recipient_email 等診斷/PII 欄,route 顯式挑 8 欄 → 不會洩進回應/log。
-  it('sweep result 混入 PII sentinel 欄 → 200 回應**不含**該欄(只 8 counts)', async () => {
+  // codex 關卡2 must-fix:若 use-case 日後誤增 recipient_email 等診斷/PII 欄,route 顯式挑欄 → 不會洩進回應/log。
+  // ⚠️ 欄數會長(2026-08-30 從 8 → 10 counts),所以標題與註解不寫死數字 —— 期望值那張清單才是權威。
+  it('sweep result 混入 PII sentinel 欄 → 200 回應**不含**該欄(只 counts allowlist)', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     sweepSpy.mockResolvedValue({
       ...CLEAN_RESULT,
@@ -260,8 +264,8 @@ describe('GET email-sweep — 🔴 counts allowlist(不 blind spread ...result�
     //    env 沒設 ⇒ `skipped_no_cutoff`。「跳過了」「格式錯」「跑完了」「爆掉了」必須分得開。
     expect(Object.keys(body).sort()).toEqual(
       [
-        'claimed', 'deferred', 'enqueueStatus', 'errors', 'failed',
-        'ok', 'quotaFailed', 'reclaimed', 'sent', 'staleMarks',
+        'claimed', 'deferred', 'eligibilityUnknown', 'enqueueStatus', 'errors', 'failed',
+        'ok', 'quotaFailed', 'reclaimed', 'sent', 'skippedIneligible', 'staleMarks',
       ].sort(),
     );
     errSpy.mockRestore();
@@ -308,11 +312,18 @@ describe('GET email-sweep — options/deps 注入(不採信外部輸入)', () =>
     });
   });
 
-  it('deps = getSweepEmailOutboxDeps()(outbox + sender)', async () => {
+  // 🔴 codex R2 nit:原本只驗 outbox + sender ⇒ **`ineligibleScanner` 沒進來也會綠**。
+  //    而那道閘是「不該寄的別寄」——它沒接上時,這一層是**全綠**的
+  //    (use-case 被 mock ⇒ 型別的必填在這一層不會叫)。⇒ 三個都要驗。
+  it('deps = getSweepEmailOutboxDeps()(outbox + sender + ineligibleScanner)', async () => {
     await GET(makeReq(bearer()));
     expect(getDepsSpy).toHaveBeenCalledTimes(1);
     const depsArg = sweepSpy.mock.calls[0]![0];
-    expect(depsArg).toMatchObject({ outbox: expect.anything(), sender: expect.anything() });
+    expect(depsArg).toMatchObject({
+      outbox: expect.anything(),
+      sender: expect.anything(),
+      ineligibleScanner: expect.anything(),
+    });
   });
 });
 

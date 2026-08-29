@@ -84,20 +84,33 @@ export class SupabaseIneligibleOrderEmailScannerAdapter implements IIneligibleOr
     }
 
     const orderIds = [...new Set(candidates.map((row) => row.order_id))];
-    const { data: ineligibleOrders, error: orderError } = await this.client
-      .from('orders')
-      .select('id')
-      .in('id', orderIds)
-      .or(INELIGIBLE_ORDER_FILTER);
-    if (orderError) {
-      throw new Error(`ineligible gate:orders 合格性查詢失敗(${orderError.code ?? 'unknown'})`);
-    }
-
-    const ineligibleOrderIds = new Set((ineligibleOrders ?? []).map((row) => (row as { id: string }).id));
+    const ineligibleOrderIds = new Set(await this.listIneligibleAmong(orderIds));
     const result = candidates
       .filter((row) => ineligibleOrderIds.has(row.order_id))
       .slice(0, limit)
       .map((row) => ({ id: row.id, orderId: row.order_id }));
     return result;
+  }
+
+  /**
+   * 🔴 述詞只有這一份 —— `listDueIneligible` 現在也是呼叫它,不是自己再寫一次 `.or()`。
+   *    兩份述詞會分岔,而分岔時沒有任何一格會紅(2026-08-30 Sean 拍「甲 搬」時一併收的)。
+   */
+  async listIneligibleAmong(orderIds: readonly string[]): Promise<string[]> {
+    // 空進空出、不打 DB。🔴 而它不是效能優化:PostgREST 的 `.in('id', [])` 會生出
+    //    `id=in.()`,那條路的行為不是我們該去賭的,而「賭錯」在這裡等於【放行一封不該寄的信】。
+    if (orderIds.length === 0) {
+      return [];
+    }
+    const { data, error } = await this.client
+      .from('orders')
+      .select('id')
+      .in('id', [...orderIds])
+      .or(INELIGIBLE_ORDER_FILTER);
+    if (error) {
+      // fail-loud:呼叫端(sweeper)必須把這一輪判成錯誤而不是「都合格」。
+      throw new Error(`ineligible gate:orders 合格性查詢失敗(${error.code ?? 'unknown'})`);
+    }
+    return (data ?? []).map((row) => (row as { id: string }).id);
   }
 }

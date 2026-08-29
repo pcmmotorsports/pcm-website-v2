@@ -1,4 +1,10 @@
-import type { ClaimedEmailJob, IEmailOutbox, IEmailSender, IShippedEmailContext } from '@pcm/ports';
+import type {
+  ClaimedEmailJob,
+  IEmailOutbox,
+  IEmailSender,
+  IIneligibleOrderEmailScanner,
+  IShippedEmailContext,
+} from '@pcm/ports';
 import {
   computeEmailBackoff,
   LEASE_RECLAIM_RETRY_DELAY_MS,
@@ -55,6 +61,22 @@ export type SweepEmailOutboxDeps = {
    * 而**信寄出去收不回來**。⇒ 寄送當下才查主表。
    */
   shippedContext?: IShippedEmailContext;
+  /**
+   * 🔴🔴 **寄送前的合格性讀取(Sean 2026-08-30 拍「Q2 取消信縫 = 甲 搬」)。**
+   *
+   * **為什麼是必填、不是選用**:這是一道「不該寄的別寄」的閘。選用 ⇒ 忘了注入時
+   * 它會**安靜地全部放行**,而那個世界與「全部都合格」在 counts 上長得一模一樣。
+   * ⇒ 一道 fail-open 的閘,比沒有閘更糟:它會讓人以為裝上了。
+   *
+   * **它取代了什麼**:`applyOrderIneligibleGate` 那支獨立 cron 只**縮小**窗口、沒有關閉它
+   * (那支 route 的檔頭自己逐字寫著「不得宣稱本片堵住了這個洞」)——
+   * 兩支各自獨立的排程之間沒有誰先誰後的保證。
+   * ⇒ 搬進來之後,讀合格性與寄送在**同一個 process、同一輪迴圈**裡。
+   *
+   * ⚠️ **而它把窗口關到毫秒級,不是關到零**:讀完到 `sender.send` 之間仍有間隔。
+   *    ⇒ 不得宣稱「這個洞補起來了」。那支獨立 cron **留著**(它擋的是還沒被認領的列)。
+   */
+  ineligibleScanner: IIneligibleOrderEmailScanner;
 };
 
 /**
@@ -97,8 +119,29 @@ export type SweepEmailOutboxResult = {
    * 僅供「DB 實寫 < 裁決計數」可見度(鏡像 `sweepSettlements.staleMarks`)。
    */
   staleMarks: number;
-  /** 單封 throw / 段級(回收、claim)throw 計數(fail-closed 不中斷整批;>0 → route 503)。 */
+  /** 單封 throw / 段級(回收、claim、合格性讀取)throw 計數(fail-closed 不中斷整批;>0 → route 503)。 */
   errors: number;
+  /**
+   * 🔴 **本輪有幾封是因為【訂單已不合格】而沒寄**(已退款 / 已取消;Sean 2026-08-30 拍「甲 搬」)。
+   *
+   * 它與 `failed` 分開,理由與 `quotaFailed` 同族:**這不是失敗,是正確地不寄**。
+   * 混進 `failed` ⇒ 一個運作正常的系統會讓失敗計數天天不為零 ⇒ 那個數字就沒有人看了。
+   *
+   * ⚠️ **>0 不代表有問題,=0 也不代表閘有裝上** —— 「沒有人取消訂單」與「閘沒接線」
+   * 在這個數字上長得一樣。閘有沒有裝上由型別擋(這支 dep 是必填),不由這個數字證明。
+   */
+  skippedIneligible: number;
+  /**
+   * 🔴 **合格性【讀不到】而沒寄的封數**(codex 2026-08-30 must-fix 換來的獨立欄)。
+   *
+   * ⚠️ **不併進 `deferred`**:`deferred` 的定義是「時間預算耗盡」,借用它會讓營運端
+   * **判讀出錯誤的原因** —— 看到 `deferred` 的人會去調 `claimLimit`,而真正的病在 DB。
+   * ⚠️ **也不併進 `skippedIneligible`**:那一欄的意思是「**確定不合格**所以正確地不寄」,
+   * 而這一欄是「**不知道合不合格**所以保守地不寄」。**確定與不知道是兩個世界。**
+   *
+   * 同一封同時計 `errors`(⇒ route 回 503,因為 DB 真的有問題要有人看)。
+   */
+  eligibilityUnknown: number;
   /**
    * 🔴 **本輪有幾封是撞到【額度用盡】而失敗的。**
    *
@@ -194,7 +237,7 @@ export async function sweepEmailOutbox(
   deps: SweepEmailOutboxDeps,
   opts: SweepEmailOutboxOptions,
 ): Promise<SweepEmailOutboxResult> {
-  const { outbox, sender } = deps;
+  const { outbox, sender, ineligibleScanner } = deps;
   // 🔴 lease 下界物理擋(fail-closed 大聲炸,不靜默降級:太短的 lease = 系統性重複寄信)。
   if (!Number.isFinite(opts.maxRunSeconds) || opts.maxRunSeconds < 1) {
     throw new Error(`sweepEmailOutbox:maxRunSeconds 必須是 ≥1 的有限數(收到 ${opts.maxRunSeconds})`);
@@ -216,6 +259,8 @@ export async function sweepEmailOutbox(
     deferred: 0,
     staleMarks: 0,
     errors: 0,
+    skippedIneligible: 0,
+    eligibilityUnknown: 0,
     quotaFailed: 0,
   };
 
@@ -244,15 +289,63 @@ export async function sweepEmailOutbox(
   }
   result.claimed = jobs.length;
 
+  /** 時間預算已用盡?(單一來源;迴圈頭與合格性讀取【之後】各問一次)。 */
+  const outOfBudget = (): boolean =>
+    now().getTime() - sweepStartedAt.getTime() >= opts.maxRunSeconds * 1000;
+
   // ── ③ 逐封順序寄送 → mark(世代柵欄 = job.attempts 原樣帶回)─────────────────────
   for (let i = 0; i < jobs.length; i++) {
     // 時間預算(縱深、擋不住單一 await 懸掛=檔頭誠實揭示):超過申告上界即停寄,
     // 剩餘已認領列留 sending 交下輪 ① 回收。
-    if (now().getTime() - sweepStartedAt.getTime() >= opts.maxRunSeconds * 1000) {
+    if (outOfBudget()) {
       result.deferred = jobs.length - i;
       break;
     }
     const job = jobs[i]!;
+
+    // ── 寄送前合格性閘(Sean 2026-08-30 拍「Q2 取消信縫 = 甲 搬」)────────────────
+    // 🔴 **逐封讀,不在迴圈前讀一次批次快照**(codex 2026-08-30 must-fix):
+    //    批次快照的話,第 50 封寄出去時那份快照已經是 49 封之前的 ——
+    //    ⇒ 窗口是【單輪的長度】(claimLimit=50、順序寄送 ⇒ 最多約 60 秒),不是毫秒級。
+    //    📌 而註解當時寫的是「毫秒級」⇒ **那句話會讓下一個人以為這個洞比實際上小一個量級。**
+    //    ⇒ 改成逐封:量級是每日 10-30 封、單輪上限 50 ⇒ 最多 50 次小查詢,成本可忽略,
+    //      而它把窗口真的收到【這一封的讀取與 send 之間】。
+    let ineligible: boolean;
+    try {
+      ineligible = (await ineligibleScanner.listIneligibleAmong([job.orderId])).length > 0;
+    } catch {
+      // 🔴 **讀不到 ⇒ 這一封不寄(fail-closed)**,而不是「當作合格」:
+      //    這道閘唯一的用途就是攔住不該寄的信 —— 讀失敗時放行,等於它在最需要它的那一刻消失。
+      //    ⚠️ **而爆炸半徑只有這一封**(先前的批次寫法會讓一次抖動把整輪 50 列全留在 sending)。
+      //    列留 sending ⇒ 下輪 ① 回收。⚠️ **已知邊界(codex 抓、不藏)**:若這一列此刻
+      //    `attempts` 已達上限,回收會讓它直接進死信 —— **一封從未交給 provider 的信就這樣死掉**。
+      //    ⇒ 那是既有回收機制的性質,不是本閘造成的;而本閘讓它多了一條抵達路徑,所以寫出來。
+      result.errors++;
+      result.eligibilityUnknown++;
+      continue;
+    }
+
+    // 🔴 codex R2 must-fix:**合格性那一發 `await` 本身會穿越 deadline** ——
+    //    它可能在 59.9 秒開始、60 秒之後才回來,而迴圈頭那一問是【它開始之前】問的。
+    //    ⇒ 讀完之後【再問一次】才呼叫 Resend。少了這一格:平台在 send 途中 kill
+    //      ⇒ 列留 sending、白燒一次 attempt,而**外觀與正常的 deferred 分不出來**。
+    //    📌 判別句:**每一個會等的 await,都可能讓它前面那一次時間檢查過期。**
+    if (outOfBudget()) {
+      result.deferred = jobs.length - i;
+      break;
+    }
+
+    // 不合格 ⇒ 不寄,標 skipped(CAS 世代柵欄;柵欄沒對上 = 別人接手了,非錯誤)。
+    if (ineligible) {
+      try {
+        const owned = await outbox.markSkippedOrderIneligible(job.id, job.attempts);
+        if (owned) result.skippedIneligible++;
+        else result.staleMarks++;
+      } catch {
+        result.errors++;
+      }
+      continue;
+    }
     try {
       const outcome = await sender.send({
         to: job.recipientEmail,

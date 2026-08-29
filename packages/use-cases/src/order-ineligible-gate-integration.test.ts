@@ -117,6 +117,24 @@ class InMemoryOutbox
   }
 }
 
+/** 兩列(order-1 / order-2),用來演「寄第 1 封的期間第 2 張單被取消」。 */
+function seedTwoRows(): Map<string, Row> {
+  const mk = (n: number): [string, Row] => [
+    `outbox-${n}`,
+    {
+      id: `outbox-${n}`,
+      orderId: `order-${n}`,
+      status: 'pending',
+      attempts: 0,
+      maxAttempts: 5,
+      claimedAt: null,
+      nextRetryAt: '2020-01-01T00:00:00.000Z',
+      lastErrorCode: null,
+    },
+  ];
+  return new Map([mk(1), mk(2)]);
+}
+
 function seedRow(): Map<string, Row> {
   return new Map([
     [
@@ -138,16 +156,118 @@ function seedRow(): Map<string, Row> {
 const SWEEP_OPTS: SweepEmailOutboxOptions = { claimLimit: 10, maxRunSeconds: 60, leaseSeconds: 3600 };
 
 describe('E2a-2 ineligible gate — 紅綠雙向組合證明', () => {
-  it('🔴 紅:沒有 gate 時,訂單已被取消,sweepEmailOutbox 單獨跑仍會真的把信寄出去', async () => {
+  /**
+   * 🔴 **這一節在 2026-08-30 被改寫過,而【原本那個測項是紅的證人】,所以改寫的理由要留著:**
+   *    原本第一格逐字是「🔴 紅:沒有 gate 時,訂單已被取消,sweepEmailOutbox 單獨跑仍會真的
+   *    把信寄出去」—— 它證的是**那個洞當時真的在**(它 assert `send` 被呼叫了 1 次)。
+   *    Sean 2026-08-30 拍「Q2 取消信縫 = 甲 搬」⇒ 合格性檢查搬進 sweeper 自己 ⇒
+   *    **那個世界不存在了**:同樣的輸入現在一封都不會寄。
+   *    ⇒ 所以它改成證【現在會擋】,而不是刪掉 —— 刪掉的話,下一個人不會知道這裡曾經漏過。
+   */
+  it('✅ 綠(取代原本那個紅的證人):訂單已不合格 ⇒ sweeper 自己就不寄,不必靠另一支排程先跑', async () => {
     const store = new InMemoryOutbox(seedRow());
     const send = vi.fn(async (): Promise<SendEmailResult> => ({ kind: 'sent' }));
     const sender: IEmailSender = { send };
 
-    const result = await sweepEmailOutbox({ outbox: store as unknown as IEmailOutbox, sender }, SWEEP_OPTS);
+    const result = await sweepEmailOutbox(
+      {
+        outbox: store as unknown as IEmailOutbox,
+        sender,
+        ineligibleScanner: {
+          listDueIneligible: async () => [],
+          listIneligibleAmong: async () => ['order-1'],
+        },
+      },
+      SWEEP_OPTS,
+    );
 
-    expect(send).toHaveBeenCalledTimes(1); // 🔴 這就是那個洞:訂單已取消,信照樣寄出去了
+    expect(send).not.toHaveBeenCalled();
+    expect(result.sent).toBe(0);
+    expect(result.skippedIneligible).toBe(1);
+    expect(store.rows.get('outbox-1')!.status).toBe('skipped_order_ineligible');
+  });
+
+  it('🔴 對照:同一份輸入,只把 scanner 換成「都合格」⇒ 信會寄出去(證明擋住它的是那道閘,不是別的)', async () => {
+    const store = new InMemoryOutbox(seedRow());
+    const send = vi.fn(async (): Promise<SendEmailResult> => ({ kind: 'sent' }));
+    const sender: IEmailSender = { send };
+
+    const result = await sweepEmailOutbox(
+      {
+        outbox: store as unknown as IEmailOutbox,
+        sender,
+        ineligibleScanner: { listDueIneligible: async () => [], listIneligibleAmong: async () => [] },
+      },
+      SWEEP_OPTS,
+    );
+
+    expect(send).toHaveBeenCalledTimes(1);
     expect(result.sent).toBe(1);
-    expect(store.rows.get('outbox-1')!.status).toBe('sent');
+  });
+
+  /**
+   * 🔴🔴 **codex 2026-08-30 must-fix 換來的一格:快照老化。**
+   *    第一版是在迴圈【前】讀一次批次快照 ⇒ 寄第 50 封時那份快照已經是 49 封之前的
+   *    ⇒ 窗口是【單輪的長度】(最多約 60 秒),不是註解宣稱的毫秒級。
+   *    ⇒ 改成逐封讀之後,這一格才有辦法紅/綠 —— 而它演的正是那個世界:
+   *      **第 2 張單是在第 1 封【正在寄】的時候才被取消的。**
+   *    📌 這一格若拿掉逐封讀就會紅 ⇒ 它是那個修法的證人,不是裝飾。
+   */
+  it('🔴 快照老化:第 2 張單在第 1 封寄送【期間】才被取消 ⇒ 第 2 封必須不寄', async () => {
+    const store = new InMemoryOutbox(seedTwoRows());
+    const cancelled = new Set<string>();
+    const send = vi.fn(async (): Promise<SendEmailResult> => {
+      // 第 1 封寄出去的那一刻,order-2 才被取消(這就是那個縫)
+      cancelled.add('order-2');
+      return { kind: 'sent' };
+    });
+    const sender: IEmailSender = { send };
+
+    const result = await sweepEmailOutbox(
+      {
+        outbox: store as unknown as IEmailOutbox,
+        sender,
+        ineligibleScanner: {
+          listDueIneligible: async () => [],
+          listIneligibleAmong: async (ids) => ids.filter((id) => cancelled.has(id)),
+        },
+      },
+      SWEEP_OPTS,
+    );
+
+    expect(send).toHaveBeenCalledTimes(1); // ✅ 第 1 封照寄(它那時還合格)
+    expect(result.sent).toBe(1);
+    expect(result.skippedIneligible).toBe(1); // 🔴 第 2 封被攔下
+    expect(store.rows.get('outbox-2')!.status).toBe('skipped_order_ineligible');
+  });
+
+  it('🛑 fail-closed:合格性讀不到(scanner throw)⇒ 這一輪一封都不寄、列留 sending 給下輪回收', async () => {
+    const store = new InMemoryOutbox(seedRow());
+    const send = vi.fn(async (): Promise<SendEmailResult> => ({ kind: 'sent' }));
+    const sender: IEmailSender = { send };
+
+    const result = await sweepEmailOutbox(
+      {
+        outbox: store as unknown as IEmailOutbox,
+        sender,
+        ineligibleScanner: {
+          listDueIneligible: async () => [],
+          listIneligibleAmong: async () => {
+            throw new Error('boom');
+          },
+        },
+      },
+      SWEEP_OPTS,
+    );
+
+    // 讀不到就不寄 —— 放行才是那道閘在最需要它的那一刻自動消失
+    expect(send).not.toHaveBeenCalled();
+    expect(result.errors).toBe(1);
+    // 🔴 codex must-fix:不再借用 `deferred`(它的定義是「時間預算耗盡」,借用會讓營運端
+    //    去調 claimLimit 而真正的病在 DB)⇒ 獨立一欄。
+    expect(result.eligibilityUnknown).toBe(1);
+    expect(result.deferred).toBe(0);
+    expect(store.rows.get('outbox-1')!.status).toBe('sending');
   });
 
   it('✅ 綠:gate 先跑一輪標記 ineligible,sweepEmailOutbox 再跑就找不到那一列、不會寄', async () => {
@@ -155,6 +275,7 @@ describe('E2a-2 ineligible gate — 紅綠雙向組合證明', () => {
     const scanner: IIneligibleOrderEmailScanner = {
       // 模擬 W5/W3-G 的失敗情境:掃描器看到的是「outbox-1 對應的訂單已不合格」。
       listDueIneligible: vi.fn(async () => [{ id: 'outbox-1', orderId: 'order-1' }]),
+      listIneligibleAmong: async () => ['order-1'],
     };
 
     const gateResult = await applyOrderIneligibleGate({ outbox: store as unknown as IEmailOutbox, scanner }, { limit: 30 });
@@ -164,7 +285,10 @@ describe('E2a-2 ineligible gate — 紅綠雙向組合證明', () => {
 
     const send = vi.fn(async (): Promise<SendEmailResult> => ({ kind: 'sent' }));
     const sender: IEmailSender = { send };
-    const sweepResult = await sweepEmailOutbox({ outbox: store as unknown as IEmailOutbox, sender }, SWEEP_OPTS);
+    const sweepResult = await sweepEmailOutbox(
+      { outbox: store as unknown as IEmailOutbox, sender, ineligibleScanner: scanner },
+      SWEEP_OPTS,
+    );
 
     expect(send).not.toHaveBeenCalled(); // ✅ 那一列已經不是 pending/failed 了,claimDue 撈不到它
     expect(sweepResult.claimed).toBe(0);

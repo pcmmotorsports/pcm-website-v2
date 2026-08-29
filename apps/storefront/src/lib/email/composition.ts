@@ -78,7 +78,13 @@ export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
   // 🔴 service_role 的第三個用途:它讀 shipments / shipment_items / order_items / orders,
   //    其中 `orders` 含 PII。回傳只進信件內文,不進 log / result(adapter 檔頭明文)。
   const shippedContext = new SupabaseShippedEmailContextAdapter(serviceClient);
-  return { outbox, sender, shippedContext };
+  // 🔴 **寄送前合格性閘(Sean 2026-08-30 拍「Q2 取消信縫 = 甲 搬」)。**
+  //    共用同一個 serviceClient(見上方那條「不要再開一條連線」的註解)。
+  //    ⚠️ 這一行與 `shippedContext` 那一行**性質相反**:那一行接上去也不會寄出任何東西,
+  //       這一行接上去會**開始擋東西**。⇒ 它是必填 dep,漏掉的話 typecheck 就紅,
+  //       而那正是它必填的理由:一道 fail-open 的閘比沒有閘更糟。
+  const ineligibleScanner = new SupabaseIneligibleOrderEmailScannerAdapter(serviceClient);
+  return { outbox, sender, shippedContext, ineligibleScanner };
 }
 
 /**

@@ -26,7 +26,8 @@
 //      (result.errors>0)→ 503 + 結構化 counts log(零 PII)、**不可吞成 200 偽裝成功**(壞掉的 sweeper 靜默不寄
 //      = 客人永遠收不到信、無人知)。🔴 result.deferred>0 = 時間預算調參訊號、**非錯誤**、不 503。
 //   3. 不採信任何外部輸入:無 client 參數 / 無 query / 無 body;claimLimit/lease 皆 route 端常數。回應 **counts-only
-//      allowlist**(顯式挑 8 個數值欄、不 blind spread ...result;recipient_email 只進 sender.send 的 to、物理擋 PII)。
+//      allowlist**(顯式挑欄、不 blind spread ...result;recipient_email 只進 sender.send 的 to、物理擋 PII)。
+//      ⚠️ **欄數不寫死**(2026-08-30 由 8 → 10;寫死的數字會在下一次加欄時安靜地變假)—— `pickCounts` 那張清單才是權威。
 //   4. 🔴 **零告警**(Sean Q13=A;plan §3.6):五訊號全歸 E2a-2 獨立管道 —— sweeper 不可自我監看(死時告警一起死)。
 //      本 route 只回 counts、零告警管道注入,判讀交給獨立 cron。
 //
@@ -176,7 +177,7 @@ function requireCronSecret(): string {
 }
 
 /**
- * 🔴 counts allowlist(codex 關卡2 must-fix:route 邊界**顯式挑** SweepEmailOutboxResult 的 8 個數值欄,
+ * 🔴 counts allowlist(codex 關卡2 must-fix:route 邊界**顯式挑** SweepEmailOutboxResult 的數值欄(**欄數不寫死**),
  * **不 blind spread `...result`** → use-case 日後誤增 recipient_email 等診斷/PII 欄時,blind spread 會靜默洩進
  * log / HTTP 回應;顯式挑欄 = 物理擋、非約定。全欄皆數值 counts、零 PII)。
  */
@@ -188,6 +189,13 @@ function pickCounts(result: {
   deferred: number;
   staleMarks: number;
   errors: number;
+  /** 訂單已不合格而正確地沒寄(Sean 2026-08-30「甲 搬」)。非錯誤 ⇒ 不進 503 條件。 */
+  skippedIneligible: number;
+  /**
+   * 合格性【讀不到】而保守地沒寄。⚠️ 與上面那欄是兩個世界:上面是「確定不合格」,
+   * 這欄是「不知道」。它同時計 `errors` ⇒ **503 那一格由 `errors` 帶,不必在這裡重複判**。
+   */
+  eligibilityUnknown: number;
   quotaFailed: number;
 }) {
   return {
@@ -198,6 +206,8 @@ function pickCounts(result: {
     deferred: result.deferred,
     staleMarks: result.staleMarks,
     errors: result.errors,
+    skippedIneligible: result.skippedIneligible,
+    eligibilityUnknown: result.eligibilityUnknown,
     quotaFailed: result.quotaFailed,
   };
 }

@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ClaimedEmailJob, IEmailOutbox, IEmailSender, SendEmailResult } from '@pcm/ports';
+import type {
+  ClaimedEmailJob,
+  IEmailOutbox,
+  IEmailSender,
+  IIneligibleOrderEmailScanner,
+  SendEmailResult,
+} from '@pcm/ports';
 import { computeEmailBackoff, LEASE_RECLAIM_RETRY_DELAY_MS } from './email-backoff';
 import { sweepEmailOutbox, type SweepEmailOutboxOptions } from './sweep-email-outbox';
 
@@ -40,6 +46,7 @@ type OutboxFake = IEmailOutbox & {
   claimDue: ReturnType<typeof vi.fn>;
   markSent: ReturnType<typeof vi.fn>;
   markFailed: ReturnType<typeof vi.fn>;
+  markSkippedOrderIneligible: ReturnType<typeof vi.fn>;
 };
 
 function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEmailOutbox, unknown>> = {}): OutboxFake {
@@ -50,7 +57,12 @@ function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEm
     claimDue: vi.fn().mockResolvedValue(jobs),
     markSent: vi.fn().mockResolvedValue(true),
     markFailed: vi.fn().mockResolvedValue(true),
-    markSkippedOrderIneligible: vi.fn().mockRejectedValue(new Error('ineligible gate = E2a-2、本片不呼')),
+    // 🔴 **預設 reject 是刻意的,而它的理由在 2026-08-30 換了一個**:
+    //    ~~原本:「ineligible gate = E2a-2、本片不呼」~~ —— Sean 拍「Q2 取消信縫 = 甲 搬」之後
+    //    sweeper **會**呼它(不合格時)。⇒ 預設 reject 現在的意思是
+    //    「**在沒有明講不合格的那些測項裡**,呼到它就是錯的」⇒ 呼到會大聲炸,不會安靜地過。
+    //    要測「不合格 ⇒ 有呼」的那一格自己 `mockResolvedValue(true)`(見下面那一格)。
+    markSkippedOrderIneligible: vi.fn().mockRejectedValue(new Error('未預期地呼叫了 markSkippedOrderIneligible(本測項的世界是【全部合格】)')),
     ...(overrides as object),
   } as OutboxFake;
 }
@@ -61,13 +73,22 @@ function senderFake(results: SendEmailResult[]): IEmailSender & { send: ReturnTy
   return { send };
 }
 
+/**
+ * 合格性 scanner 的預設替身 = **全部合格**(回空陣列)。
+ * 🔴 而「全部合格」是一個【世界】,不是一個中性預設 —— 底下絕大多數測項跑的都是那個世界,
+ *    所以另一個世界(有單被取消)必須有專屬的一節,否則這道閘在測試層等於沒有被量過。
+ */
+function eligibleAll(): IIneligibleOrderEmailScanner {
+  return { listDueIneligible: async () => [], listIneligibleAmong: async () => [] };
+}
+
 describe('sweepEmailOutbox — lease/maxRunSeconds 物理擋', () => {
   it.each([[3599], [0], [-1], [Number.NaN], [Number.POSITIVE_INFINITY]])(
     'leaseSeconds=%s(< 3600 或非有限)→ throw、零副作用',
     async (leaseSeconds) => {
       const outbox = outboxFake([]);
       await expect(
-        sweepEmailOutbox({ outbox, sender: senderFake([]) }, { ...OPTS, leaseSeconds: leaseSeconds as number }),
+        sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]) }, { ...OPTS, leaseSeconds: leaseSeconds as number }),
       ).rejects.toThrow(/leaseSeconds/);
       expect(outbox.reclaimStaleLeases).not.toHaveBeenCalled();
       expect(outbox.claimDue).not.toHaveBeenCalled();
@@ -79,7 +100,7 @@ describe('sweepEmailOutbox — lease/maxRunSeconds 物理擋', () => {
     async (maxRunSeconds) => {
       const outbox = outboxFake([]);
       await expect(
-        sweepEmailOutbox({ outbox, sender: senderFake([]) }, { ...OPTS, maxRunSeconds: maxRunSeconds as number }),
+        sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]) }, { ...OPTS, maxRunSeconds: maxRunSeconds as number }),
       ).rejects.toThrow(/maxRunSeconds/);
       expect(outbox.reclaimStaleLeases).not.toHaveBeenCalled();
     },
@@ -88,10 +109,10 @@ describe('sweepEmailOutbox — lease/maxRunSeconds 物理擋', () => {
   it('lease 必須 ≥ maxRunSeconds + 偏差餘裕 300:maxRunSeconds=3500、lease=3600 → throw(3600 < 3800)', async () => {
     const outbox = outboxFake([]);
     await expect(
-      sweepEmailOutbox({ outbox, sender: senderFake([]) }, { ...OPTS, maxRunSeconds: 3500, leaseSeconds: 3600 }),
+      sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]) }, { ...OPTS, maxRunSeconds: 3500, leaseSeconds: 3600 }),
     ).rejects.toThrow(/leaseSeconds/);
     await expect(
-      sweepEmailOutbox({ outbox, sender: senderFake([]) }, { ...OPTS, maxRunSeconds: 3500, leaseSeconds: 3800 }),
+      sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]) }, { ...OPTS, maxRunSeconds: 3500, leaseSeconds: 3800 }),
     ).resolves.toBeDefined();
   });
 });
@@ -100,7 +121,7 @@ describe('sweepEmailOutbox — ① lease 回收', () => {
   it('claim 前必呼、staleBefore = now - lease、nextRetryAt = now + 5min(§⑩)', async () => {
     const outbox = outboxFake([]);
     outbox.reclaimStaleLeases.mockResolvedValue(2);
-    const res = await sweepEmailOutbox({ outbox, sender: senderFake([]) }, OPTS);
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]) }, OPTS);
     expect(outbox.reclaimStaleLeases).toHaveBeenCalledExactlyOnceWith(
       new Date(NOW.getTime() - 3600 * 1000),
       new Date(NOW.getTime() + LEASE_RECLAIM_RETRY_DELAY_MS),
@@ -116,7 +137,7 @@ describe('sweepEmailOutbox — ① lease 回收', () => {
     const outbox = outboxFake([job()]);
     outbox.reclaimStaleLeases.mockRejectedValue(new Error('db down'));
     const sender = senderFake([{ kind: 'sent' }]);
-    const res = await sweepEmailOutbox({ outbox, sender }, OPTS);
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
     expect(res.errors).toBe(1);
     expect(res.reclaimed).toBe(0);
     expect(sender.send).toHaveBeenCalledTimes(1);
@@ -129,7 +150,7 @@ describe('sweepEmailOutbox — ② claim', () => {
     const outbox = outboxFake([]);
     outbox.claimDue.mockRejectedValue(new Error('db down'));
     const sender = senderFake([]);
-    const res = await sweepEmailOutbox({ outbox, sender }, OPTS);
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
     expect(outbox.claimDue).toHaveBeenCalledExactlyOnceWith(20);
     expect(res.errors).toBe(1);
     expect(res.claimed).toBe(0);
@@ -142,7 +163,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     const j = job({ attempts: 3 });
     const outbox = outboxFake([j]);
     const sender = senderFake([{ kind: 'sent' }]);
-    const res = await sweepEmailOutbox({ outbox, sender }, OPTS);
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
     expect(sender.send).toHaveBeenCalledExactlyOnceWith({
       to: 'customer@example.com',
       subject: j.subject,
@@ -171,7 +192,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     expect(outbox.markFailed).not.toHaveBeenCalled();
     expect(res).toEqual({
       reclaimed: 0, claimed: 1, sent: 1, failed: 0,
-      deferred: 0, staleMarks: 0, errors: 0, quotaFailed: 0,
+      deferred: 0, staleMarks: 0, errors: 0, skippedIneligible: 0, eligibilityUnknown: 0, quotaFailed: 0,
     });
   });
 
@@ -179,7 +200,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     const j = job({ attempts: 2 });
     const outbox = outboxFake([j]);
     const sender = senderFake([{ kind: 'failed', errorCode: 'quota_daily_exceeded' }]);
-    const res = await sweepEmailOutbox({ outbox, sender }, OPTS);
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
     expect(outbox.markFailed).toHaveBeenCalledExactlyOnceWith(
       'outbox-1',
       2,
@@ -196,7 +217,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
   it('🔴 額度用盡的碼 ⇒ quotaFailed 跟著 ++(與 failed 分開計)', async () => {
     const outbox = outboxFake([job({ attempts: 1 })]);
     const sender = senderFake([{ kind: 'failed', errorCode: 'quota_monthly_exceeded' }]);
-    const res = await sweepEmailOutbox({ outbox, sender }, OPTS);
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
     // 🔴 怎麼會紅:拿掉 use-case 裡那個 errorCode 判斷 ⇒ 這裡 1 變 0。
     expect(res.quotaFailed).toBe(1);
     expect(res.failed).toBe(1);
@@ -205,7 +226,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
   it('🔴 F1:`http_429` 也算額度用盡(分母由 POLICY_BY_CODE 推導,不是手寫兩碼)', async () => {
     const outbox = outboxFake([job({ attempts: 1 })]);
     const sender = senderFake([{ kind: 'failed', errorCode: 'http_429' }]);
-    const res = await sweepEmailOutbox({ outbox, sender }, OPTS);
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
     // 🔴 怎麼會紅:改回手寫 `=== 'quota_daily_exceeded' || === 'quota_monthly_exceeded'` ⇒ 1 變 0。
     // 📌 這一格釘的是【有意納入】,不是巧合 —— 沒有它,「納入」與「忘了排除」在測試上長一樣。
     //    理由:`IEmailOutbox.ts` 的 `http_429` JSDoc 逐字「若實際不含 `name` → 所有 429 都落本格」
@@ -216,7 +237,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
   it('🔴 [負對照] 一般失敗碼 ⇒ failed++ 而 quotaFailed 保持 0', async () => {
     const outbox = outboxFake([job({ attempts: 1 })]);
     const sender = senderFake([{ kind: 'failed', errorCode: 'http_500' }]);
-    const res = await sweepEmailOutbox({ outbox, sender }, OPTS);
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
     // 🔴 怎麼會紅:改成無條件 `result.quotaFailed++` ⇒ 這裡 0 變 1。
     //    📌 沒有這一格,新欄位就只是 `failed` 的複本,而 route 的判定會退回「甲」的行為。
     // ⚠️ 而 `rate_limited`(短暫節流)同樣**不算**額度用盡 —— 它會自己好,額度用盡不會。
@@ -228,7 +249,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     const j = job({ attempts: 3 });
     const outbox = outboxFake([j]);
     const sender = senderFake([{ kind: 'failed', errorCode: 'http_500' }]);
-    await sweepEmailOutbox({ outbox, sender }, OPTS);
+    await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
     // attempts=3 → 5min×2^2 = 20min;sweeper 若寫死 attempts(如恆 1 → 5min)此斷言必紅
     expect(outbox.markFailed).toHaveBeenCalledExactlyOnceWith(
       'outbox-1',
@@ -241,7 +262,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
   it('markSent 回 false(所有權已失)→ staleMarks+1、非 error、不重標', async () => {
     const outbox = outboxFake([job()]);
     outbox.markSent.mockResolvedValue(false);
-    const res = await sweepEmailOutbox({ outbox, sender: senderFake([{ kind: 'sent' }]) }, OPTS);
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender: senderFake([{ kind: 'sent' }]) }, OPTS);
     expect(res.staleMarks).toBe(1);
     expect(res.sent).toBe(1);
     expect(res.errors).toBe(0);
@@ -252,7 +273,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     const outbox = outboxFake([job()]);
     outbox.markFailed.mockResolvedValue(false);
     const res = await sweepEmailOutbox(
-      { outbox, sender: senderFake([{ kind: 'failed', errorCode: 'http_500' }]) },
+      { ineligibleScanner: eligibleAll(), outbox, sender: senderFake([{ kind: 'failed', errorCode: 'http_500' }]) },
       OPTS,
     );
     expect(res.staleMarks).toBe(1);
@@ -265,7 +286,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     const j2 = job({ id: 'outbox-2', dedupKey: 'order-2', orderId: 'order-2' });
     const outbox = outboxFake([j1, j2]);
     const sender = { send: vi.fn().mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce({ kind: 'sent' }) };
-    const res = await sweepEmailOutbox({ outbox, sender }, OPTS);
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
     expect(res.errors).toBe(1);
     expect(outbox.markSent).toHaveBeenCalledExactlyOnceWith('outbox-2', 1);
     expect(outbox.markFailed).not.toHaveBeenCalled();
@@ -277,7 +298,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     const j2 = job({ id: 'outbox-2' });
     const outbox = outboxFake([j1, j2]);
     outbox.markSent.mockRejectedValueOnce(new Error('db down')).mockResolvedValueOnce(true);
-    const res = await sweepEmailOutbox({ outbox, sender: senderFake([{ kind: 'sent' }, { kind: 'sent' }]) }, OPTS);
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender: senderFake([{ kind: 'sent' }, { kind: 'sent' }]) }, OPTS);
     expect(res.errors).toBe(1);
     expect(res.sent).toBe(2);
     expect(outbox.markSent).toHaveBeenCalledTimes(2);
@@ -287,7 +308,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     const outbox = outboxFake([job()]);
     outbox.markFailed.mockRejectedValue(new Error('db down'));
     const res = await sweepEmailOutbox(
-      { outbox, sender: senderFake([{ kind: 'failed', errorCode: 'http_500' }]) },
+      { ineligibleScanner: eligibleAll(), outbox, sender: senderFake([{ kind: 'failed', errorCode: 'http_500' }]) },
       OPTS,
     );
     expect(res.errors).toBe(1);
@@ -297,12 +318,34 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
   it('order_shipped 列(DB 合法可造)→ 寄送前 fail-closed:sender 零呼叫、errors+1、零 mark(codex R1 must-fix 2)', async () => {
     const outbox = outboxFake([job({ eventType: 'order_shipped', dedupKey: 'order-1/batch-1' })]);
     const sender = senderFake([{ kind: 'sent' }]);
-    const res = await sweepEmailOutbox({ outbox, sender }, OPTS);
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
     expect(sender.send).not.toHaveBeenCalled();
     expect(outbox.markSent).not.toHaveBeenCalled();
     expect(outbox.markFailed).not.toHaveBeenCalled();
     expect(res.errors).toBe(1);
     expect(res.sent).toBe(0);
+  });
+
+  /**
+   * 🔴 codex R2 must-fix 的證人:**合格性那一發 `await` 自己會穿越 deadline。**
+   *    迴圈頭問預算時還沒到 60 秒,而那一發 DB 讀在 59.9 秒開始、60 秒之後才回來
+   *    ⇒ 舊寫法會在**已經超時**的情況下呼叫 Resend ⇒ 平台 kill 在 send 途中
+   *    ⇒ 列留 sending + 白燒一次 attempt,而**外觀與正常的 deferred 分不出來**。
+   * 📌 判別句:**每一個會等的 await,都可能讓它前面那一次時間檢查過期。**
+   * ⚠️ 這一格若把「讀完再問一次」拿掉就會紅 —— 它是那個修法的證人,不是裝飾。
+   */
+  it('🔴 合格性讀取【穿越】deadline ⇒ 這一封不得寄出(不是「已經檢查過了」)', async () => {
+    const outbox = outboxFake([job({ id: 'outbox-1' }), job({ id: 'outbox-2' })]);
+    const sender = senderFake([{ kind: 'sent' }, { kind: 'sent' }]);
+    const res = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender },
+      // ①t0 ②job1 迴圈頭 t0+1s(過)③job1 讀完之後 t0+61s(超)⇒ 一封都不寄
+      { ...OPTS, now: tickingClock([0, 1000, 61_000]) },
+    );
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(res.sent).toBe(0);
+    expect(res.deferred).toBe(2);
+    expect(res.errors).toBe(0); // 逾時不是錯誤
   });
 
   it('時間預算耗盡 → 停寄、剩餘列計 deferred(codex R1 must-fix 1 縱深)', async () => {
@@ -311,10 +354,16 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     const j3 = job({ id: 'outbox-3' });
     const outbox = outboxFake([j1, j2, j3]);
     const sender = senderFake([{ kind: 'sent' }, { kind: 'sent' }, { kind: 'sent' }]);
-    // now 呼叫序:①sweepStartedAt t0 ②job1 預算檢查 t0+1s(過)③job2 預算檢查 t0+61s(超 60s 停)
+    // 🔴 now 呼叫序在 2026-08-30 變了(codex R2 must-fix:合格性讀取【之後】要再問一次預算)——
+    //    每一封現在問兩次:迴圈頭一次、`listIneligibleAmong` 回來之後一次。
+    //    ①sweepStartedAt t0
+    //    ②job1 迴圈頭 t0+1s(過)③job1 讀完之後 t0+1s(過)⇒ job1 寄出
+    //    ④job2 迴圈頭 t0+61s(超 60s)⇒ 停,剩 2 封計 deferred
+    //    📌 這個 fixture 是【硬編碼的呼叫序】⇒ 迴圈裡多一次 now() 就會位移。
+    //       它紅過一次,而那個紅是【對的】—— 它在說「你改變了時間被問幾次」。
     const res = await sweepEmailOutbox(
-      { outbox, sender },
-      { ...OPTS, now: tickingClock([0, 1000, 61_000]) },
+      { ineligibleScanner: eligibleAll(), outbox, sender },
+      { ...OPTS, now: tickingClock([0, 1000, 1000, 61_000]) },
     );
     expect(sender.send).toHaveBeenCalledTimes(1);
     expect(res.deferred).toBe(2);
@@ -326,7 +375,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
   it('回收參數出自單一時鐘快照:前進時鐘下 nextRetryAt-staleBefore 恆 = lease+5min(codex R1 must-fix 4)', async () => {
     const outbox = outboxFake([]);
     await sweepEmailOutbox(
-      { outbox, sender: senderFake([]) },
+      { ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]) },
       { ...OPTS, now: tickingClock([0, 1000, 2000, 3000]) },
     );
     const [staleBefore, nextRetryAt] = outbox.reclaimStaleLeases.mock.calls[0]! as [Date, Date];
@@ -337,7 +386,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     const outbox = outboxFake([job()]);
     const sender = senderFake([{ kind: 'failed', errorCode: 'quota_daily_exceeded' }]);
     const before = Date.now();
-    const res = await sweepEmailOutbox({ outbox, sender }, { claimLimit: 20, maxRunSeconds: 60, leaseSeconds: 3600 });
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, { claimLimit: 20, maxRunSeconds: 60, leaseSeconds: 3600 });
     const after = Date.now();
     const [staleBefore, nextRetryAt] = outbox.reclaimStaleLeases.mock.calls[0]! as [Date, Date];
     expect(nextRetryAt.getTime() - staleBefore.getTime()).toBe(3600 * 1000 + LEASE_RECLAIM_RETRY_DELAY_MS);
@@ -355,7 +404,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     const j2 = job({ id: 'outbox-2' });
     const outbox = outboxFake([j1, j2]);
     const sender = senderFake([{ kind: 'sent' }, { kind: 'sent' }]);
-    await sweepEmailOutbox({ outbox, sender }, OPTS);
+    await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
     const firstMark = outbox.markSent.mock.invocationCallOrder[0]!;
     const secondSend = sender.send.mock.invocationCallOrder[1]!;
     expect(firstMark).toBeLessThan(secondSend);
@@ -364,7 +413,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
   it('payload 形狀異常 → 仍寄(通用文案、不含編號)、不因文案缺欄擋信', async () => {
     const outbox = outboxFake([job({ payload: 'not-an-object' })]);
     const sender = senderFake([{ kind: 'sent' }]);
-    const res = await sweepEmailOutbox({ outbox, sender }, OPTS);
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
     const text = (sender.send.mock.calls[0]![0] as { text: string }).text;
     expect(text).toContain('已付款成功');
     expect(res.sent).toBe(1);
@@ -372,26 +421,54 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
 });
 
 describe('sweepEmailOutbox — 結果形狀(零 PII 合約)', () => {
-  it('result 鍵恰為 counts 八欄(堵日後多塞 recipient/payload 等 PII 欄)', async () => {
-    const res = await sweepEmailOutbox({ outbox: outboxFake([]), sender: senderFake([]) }, OPTS);
+  it('result 鍵恰為 counts allowlist(堵日後多塞 recipient/payload 等 PII 欄;欄數會長 ⇒ 標題不寫死數字)', async () => {
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox: outboxFake([]), sender: senderFake([]) }, OPTS);
     expect(Object.keys(res).sort()).toEqual([
       'claimed',
       'deferred',
+      'eligibilityUnknown',
       'errors',
       'failed',
       'quotaFailed',
       'reclaimed',
       'sent',
+      'skippedIneligible',
       'staleMarks',
     ]);
   });
 
-  it('本 use-case 零告警(Q13=A):不呼 enqueue/claimById/markSkippedOrderIneligible、無 notifier 依賴', async () => {
+  /**
+   * 🔴 **這一格的宣稱在 2026-08-30 縮窄了,而縮窄的理由要寫在這裡不是寫在 commit 裡:**
+   *    原標題逐字「不呼 enqueue/claimById/**markSkippedOrderIneligible**」。
+   *    Sean 拍「Q2 取消信縫 = 甲 搬」之後,sweeper **會**呼 `markSkippedOrderIneligible`
+   *    —— 但只在【訂單真的不合格】的那條路上。
+   *    ⚠️ 而底下這一發餵的是「全部合格」的世界 ⇒ 它照樣綠。
+   *       **⇒ 所以只改斷言不改標題的話,這一格會變成一句過期的宣稱而永遠不紅。**
+   *    ⇒ 標題改成它現在真正證得到的東西;「不合格時會呼」由另一組(整合測試)證。
+   */
+  it('本 use-case 零告警(Q13=A):不呼 enqueue/claimById、無 notifier 依賴;【全部合格】時也不呼 markSkippedOrderIneligible', async () => {
     const outbox = outboxFake([job()]);
-    await sweepEmailOutbox({ outbox, sender: senderFake([{ kind: 'sent' }]) }, OPTS);
+    await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender: senderFake([{ kind: 'sent' }]) }, OPTS);
     expect(outbox.enqueue).not.toHaveBeenCalled();
     expect(outbox.claimById).not.toHaveBeenCalled();
     expect(outbox.markSkippedOrderIneligible).not.toHaveBeenCalled();
+  });
+
+  it('🔴 對照:同一份輸入,scanner 說那張單不合格 ⇒ 這一格必須翻(證明上一格的綠是輸入造成的,不是碼裡沒那條路)', async () => {
+    const outbox = outboxFake([job()]);
+    // 柵欄回 true = 這一列仍是我的(fake 預設回 undefined ⇒ 會走 staleMarks 那條)
+    outbox.markSkippedOrderIneligible.mockResolvedValue(true);
+    const res = await sweepEmailOutbox(
+      {
+        ineligibleScanner: { listDueIneligible: async () => [], listIneligibleAmong: async () => ['order-1'] },
+        outbox,
+        sender: senderFake([{ kind: 'sent' }]),
+      },
+      OPTS,
+    );
+    expect(outbox.markSkippedOrderIneligible).toHaveBeenCalledTimes(1);
+    expect(res.skippedIneligible).toBe(1);
+    expect(res.sent).toBe(0);
   });
 });
 
@@ -417,7 +494,7 @@ describe('sweepEmailOutbox — 🔴 order_shipped 仍然 fail-closed(M-4b E4-b �
     const outbox = outboxFake([shippedJob()]);
     const sender = senderFake([]);
 
-    const r = await sweepEmailOutbox({ outbox, sender }, OPTS);
+    const r = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
 
     // ⬇️ 這一行是「零對外」的真正證據 —— 不是 counts,是那支 spy。
     expect(sender.send).not.toHaveBeenCalled();
@@ -434,7 +511,7 @@ describe('sweepEmailOutbox — 🔴 order_shipped 仍然 fail-closed(M-4b E4-b �
     const sender = senderFake([]);
     const loadShippedContext = vi.fn();
 
-    const r = await sweepEmailOutbox({ outbox, sender, shippedContext: { loadShippedContext } }, OPTS);
+    const r = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender, shippedContext: { loadShippedContext } }, OPTS);
 
     expect(sender.send).not.toHaveBeenCalled();
     // 連讀都還沒開始讀 —— 模板不存在,根本走不到需要脈絡的那一步。
@@ -455,7 +532,7 @@ describe('sweepEmailOutbox — 🔴 order_shipped 仍然 fail-closed(M-4b E4-b �
     const outbox = outboxFake([rogue as never]);
     const sender = senderFake([]);
 
-    const r = await sweepEmailOutbox({ outbox, sender }, OPTS);
+    const r = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
 
     expect(sender.send).not.toHaveBeenCalled();
     expect(r.sent).toBe(0);
@@ -466,7 +543,7 @@ describe('sweepEmailOutbox — 🔴 order_shipped 仍然 fail-closed(M-4b E4-b �
     const outbox = outboxFake([job(), shippedJob()]);
     const sender = senderFake([{ kind: 'sent' }]);
 
-    const r = await sweepEmailOutbox({ outbox, sender }, OPTS);
+    const r = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
 
     expect(sender.send).toHaveBeenCalledTimes(1); // 只有 order_created 那一封
     expect(r.sent).toBe(1);

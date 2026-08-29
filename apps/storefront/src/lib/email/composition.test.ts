@@ -91,7 +91,7 @@ describe('getSweepEmailOutboxDeps — lazy(module-top 零副作用)', () => {
 });
 
 describe('getSweepEmailOutboxDeps — 呼叫後建 deps', () => {
-  it('🔴 回傳鍵精確 = {outbox, sender, shippedContext}(零告警管道、Q13=A)', () => {
+  it('🔴 回傳鍵精確 = {outbox, sender, shippedContext, ineligibleScanner}(零告警管道、Q13=A)', () => {
     // 🔴 **2026-08-22(E4-b)這一格的期望值改過,而改動本身要被讀到**:
     //    ~~`['outbox', 'sender']`~~ ⇒ 多了 `shippedContext`(出貨信的寄送時讀取)。
     //
@@ -100,10 +100,31 @@ describe('getSweepEmailOutboxDeps — 呼叫後建 deps', () => {
     //    `shippedContext` 是**讀取**不是**發送**,不觸犯那條;
     //    而下面兩行對 `notifiers` / `alertNotifier` 的斷言**一個字都沒動** —— 那才是這格的本體。
     // 🔴 判別句:改期望值之前先問「這格原本在擋什麼」。擋的東西沒變 ⇒ 可以改;變了 ⇒ 不可以。
+    //
+    // 🔴 **2026-08-30(Sean 拍「Q2 取消信縫 = 甲 搬」)第二次改期望值,照上面那句判過再改**:
+    //    ~~`['outbox', 'sender', 'shippedContext']`~~ ⇒ 多了 `ineligibleScanner`。
+    //    ⚠️ 判別:它是**讀取**(查那張單現在合不合格),**不是發送管道**
+    //    ⇒ 這格原本擋的東西(告警管道被注進 sweeper)**一個字都沒變**,
+    //      下面兩行對 `notifiers` / `alertNotifier` 的斷言照舊 —— 那才是本體。
     const deps = getSweepEmailOutboxDeps() as Record<string, unknown>;
-    expect(Object.keys(deps).sort()).toEqual(['outbox', 'sender', 'shippedContext']);
+    expect(Object.keys(deps).sort()).toEqual(['ineligibleScanner', 'outbox', 'sender', 'shippedContext']);
     expect(deps.notifiers).toBeUndefined();
     expect(deps.alertNotifier).toBeUndefined();
+  });
+
+  /**
+   * 🔴 codex 2026-08-30 must-fix:**只補鍵名不夠**。
+   *    `Object.keys` 那一格只證得了「有這一把鑰匙」,證不了「它接到對的孔」——
+   *    接成錯的 client、或接成一個恆回空的 fail-open scanner,那一格照樣綠。
+   *    ⇒ 而這道閘的全部價值就在「它真的查得到那張單」上 ⇒ 這一格必須存在。
+   */
+  it('🔴 ineligibleScanner = SupabaseIneligibleOrderEmailScannerAdapter,注入【同一個】 service_role client', () => {
+    getSweepEmailOutboxDeps();
+    expect(ineligibleScannerCtor).toHaveBeenCalledTimes(1);
+    expect(ineligibleScannerCtor).toHaveBeenCalledWith(SERVICE_CLIENT);
+    // 🔴 而「同一個」是承重的:本 factory 有一格既有測試釘住 createSupabaseServiceClient
+    //    在這裡【只被呼叫一次】(不偷偷多開一條連線)⇒ 這一行與那一格互相支撐。
+    expect(serviceClientSpy).toHaveBeenCalledTimes(1);
   });
 
   it('🔴 shippedContext = SupabaseShippedEmailContextAdapter,注入 service_role client', () => {

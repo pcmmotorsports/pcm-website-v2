@@ -30,4 +30,27 @@ export interface IIneligibleOrderEmailScanner {
    * limit = 單輪掃描上限(route 端常數、零 client 輸入)。
    */
   listDueIneligible(limit: number): Promise<DueIneligibleEmailJob[]>;
+
+  /**
+   * 給【已經認領走】的那批 outbox 列用:這些 orderId 裡,現在哪些已不合格?
+   *
+   * 🔴 **為什麼不能用 `listDueIneligible`**:那支的分母是 `status IN (pending, failed)` 的
+   *    **due** 列。而 sweeper 一旦 `claimDue`,那些列就變成 `sending` ⇒ **掉出 due 的分母**
+   *    ⇒ 拿它去問「我手上這批合不合格」會恆回空,而那個空與「全部都合格」長得一樣。
+   *
+   * 🔴 **為什麼放在同一支 port**(Sean 2026-08-30 拍「甲 搬」):述詞
+   *    `payment_status='refunded' OR cancelled_at IS NOT NULL` 只准有**一份**。
+   *    開第二支 port = 開第二份述詞,而兩份述詞會分岔,分岔時沒有任何一格會紅。
+   *    (同族實錘:同一天量到 `admin_cancel_order` 的七值映射表在函式裡有兩份。)
+   *
+   * 🔴 **唯讀、不 claim、不寫**:回傳「這些之中不合格的 id」。空陣列進 ⇒ 空陣列出
+   *    (不打 DB)。呼叫端拿它決定「跳過不寄」,而跳過的標記仍走
+   *    `outbox.markSkippedOrderIneligible`(CAS 世代柵欄)。
+   *
+   * ⚠️ **它把窗口關到【同一個 process 內】,不是關到零**:讀合格性與 `sender.send`
+   *    之間仍有毫秒級的間隔,一張在那之間才被取消的單仍會收到信。
+   *    ⇒ 這是**真正的下界**(除非把取消與寄信放進同一個交易,而寄信在交易外)。
+   *    ⇒ 不得宣稱「這個洞補起來了」,只能說「從兩支排程的分鐘級縮到同 process 的毫秒級」。
+   */
+  listIneligibleAmong(orderIds: readonly string[]): Promise<string[]>;
 }
