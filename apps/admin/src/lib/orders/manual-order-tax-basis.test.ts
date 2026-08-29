@@ -218,6 +218,12 @@ describe('⟦b4-PURCHTAX1⟧ ② 我們讀的那一版, 與正式庫在跑的那
     // ⛔ ~~上一版用 `expect({newest,live}).toEqual({newest,live})` 印它們~~
     //    **codex R1 must-fix ①:那是自己等於自己, 而 vitest 通過時不印任何東西**
     //    ⇒ 它宣稱的「讓兩個名字可見」**從來沒有發生過**。已刪。
+    // 🔴🔴 **這一句貼在這裡, 不放檔頭射程節** —— 理由是線C `-b4` 2026-08-30 交的:
+    //    **寫在射程節裡的句子是最不會被回頭驗的那一種** ⇒ 承重的話要貼在它修飾的那一行旁邊。
+    //    ⇒ **本格答的是【帳本】, 不是正式庫。**
+    //      「`APPLIED.tsv` 上寫著 apply 了」與「正式庫裡那支函式真的是那一版」
+    //      **是兩個宣稱** —— 而本檔不連 DB, 答不出後者。
+    //      (同族正本錨:`guard-and-instrument-traps.md` 的「帳本有那一列 ≠ 那件事被觀察過」。)
     const migs = definingMigrations();
     const applied = appliedVersions();
     const live = migs.filter((f) => applied.has(f.split('_')[0] ?? ''));
