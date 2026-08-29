@@ -145,6 +145,47 @@ export class TapPayRefundNotSentError extends Error {
 }
 
 /**
+ * `TapPayRefundUnknownStateError`:refund **已送出**而結果未知(`#906`,2026-08-29)。
+ *
+ * 🔴🔴 **它存在的唯一理由是 `refundId` 這個欄位**,不是為了多一個型別:
+ *    TapPay 在「未實證回應碼」與「受理但形狀異常」兩態**仍然會給 `refund_id`** ——
+ *    而在本型別之前,那顆編號的命運是:
+ *    ```
+ *    log 裡     ⇒ 看得到（adapter 自己印的）
+ *    錯誤訊息裡 ⇒ 有時看得到（accepted_malformed 的字面有；unknown 連字面都沒有）
+ *    🔴 而程式  ⇒ **拿不到**
+ *    ```
+ *    📌 **⇒ 而那正是它不能用「parse 錯誤訊息字串」解決的原因** ——
+ *      四個分支裡只有一個把它寫進字面,而那一個的格式沒有任何東西釘著。
+ *
+ * ⚠️ **語意與 `TapPayRefundNotSentError` 相反,不得互換**:
+ *    NotSent = **確定零接觸**,可修正輸入後安全重試;
+ *    本型別 = **已送出、狀態未知** ⇒ **絕不得自動重發**(換鍵重發 = 同一筆錢退兩次)。
+ *
+ * 🔴🔴 而 `refundId` **可以是 `null`** —— 而**下游分不出那個 null 是哪一種**
+ *    (codex 2026-08-29 R1 點名,而我原本這一段寫成「那表示 TapPay 沒給」——**那是過度宣稱**):
+ *    ```
+ *    甲 TapPay 這一次真的沒給
+ *    乙 我們這一側的接線又壞了（例如日後有人動了 wire 解析）
+ *    🔴 而 audit 那一側會把 undefined 與 null 正規化成同一個 null
+ *       ⇒ 兩者在下游【長得一模一樣】
+ *    ```
+ *    ⚠️ **後果寫出來**:看到 null 的人會**先去 TapPay 後台人工查**,
+ *    而正確的第一步可能是**先查程式接線有沒有斷**。
+ *    ✅ 判別動作:那一態的 adapter log 有 `refundId` 欄 —— **先看 log 再決定去哪裡找**。
+ *    ⇒ 而要在型別層分開這兩種,得再加一個 discriminator;**本片沒有做**,它是另一片。
+ */
+export class TapPayRefundUnknownStateError extends Error {
+  /** TapPay 這一次回的 `refund_id`;`null` = **它沒給**(不是我們弄丟)。 */
+  readonly refundId: string | null;
+  constructor(message: string, refundId: string | null) {
+    super(message);
+    this.name = 'TapPayRefundUnknownStateError';
+    this.refundId = refundId;
+  }
+}
+
+/**
  * TapPayRefundPayload: refund 輸入(discriminated union)。
  *
  * 🔴 全額退必須顯式 `kind:'full'` —— 「漏帶 amount 滑成全額退」的路徑在型別層即不存在
@@ -198,6 +239,15 @@ export type TapPayRefundResult =
   | {
       status: 'deferred';
       wireStatus: typeof TAPPAY_REFUND_STATUS.NOT_CAPTURED_PARTIAL;
+      /**
+       * TapPay 這一次回的 `refund_id`(`#906`)。
+       * 🔴🔴 **TapPay 在這一態帶不帶它,【沒有人量過】** ——
+       *    ⇒ 拿到 `null` **不代表壞掉**,不要去修一個不存在的東西。
+       *    ⇒ 要確認,唯一的辦法是**打一發 TapPay sandbox 造出 10024**,看 wire 帶不帶 `refund_id`
+       *      (那要真的打 TapPay ⇒ 是 Sean 的手,不是碼裡量得到的)。
+       * ✅ 而先接它的理由:**帶了會拿到、沒帶就是 null,兩種都比現在(硬寫 null)好。**
+       */
+      refundId: string | null;
       msg: string;
       /** wire `bank_result_code`(銀行端結果碼、非自由文字)。 */
       bankResultCode?: string;
@@ -206,6 +256,8 @@ export type TapPayRefundResult =
   | {
       status: 'rejected';
       wireStatus: typeof TAPPAY_REFUND_STATUS.OUT_OF_RANGE_AMOUNT;
+      /** 同 `deferred` 那一欄:**TapPay 在這一態帶不帶它沒有人量過**,`null` 不代表壞掉。 */
+      refundId: string | null;
       msg: string;
       bankResultCode?: string;
       rawResponse: unknown;

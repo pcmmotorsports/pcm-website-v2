@@ -36,7 +36,12 @@ import type {
   TapPayRecordResult,
   TapPayTradeRecord,
 } from '@pcm/domain';
-import { toMoneyAmount, TAPPAY_REFUND_STATUS, TapPayRefundNotSentError } from '@pcm/domain';
+import {
+  toMoneyAmount,
+  TAPPAY_REFUND_STATUS,
+  TapPayRefundNotSentError,
+  TapPayRefundUnknownStateError,
+} from '@pcm/domain';
 import {
   parseTapPayResponse,
   parseTapPayRecordResponse,
@@ -307,6 +312,8 @@ export class TapPayChargeAdapter implements ITapPayAdapter {
       recTradeId: transactionId,
       outcome: 'attempt_started',
       wireStatus: null,
+      // ⚠️ 這一個 null 是**對的**,不是 `#906` 漏改的:這一筆 log 落在 **fetch 之前**
+      //    ⇒ 那一刻編號還不存在。(其餘四處硬寫 null 已於 `#906` 改成照實記。)
       refundId: null,
       bankRefundId,
       bankResultCode: null,
@@ -419,8 +426,9 @@ export class TapPayChargeAdapter implements ITapPayAdapter {
           kind,
           requestedAmount,
         });
-        throw new Error(
+        throw new TapPayRefundUnknownStateError(
           `TapPay refund 受理回應格式異常(refund_id ${refundId ?? '缺'} / refund_amount ${wire.refundAmount ?? '缺'};狀態未知、不得自動重發;rec ${transactionId} / bank_refund ${bankRefundId})`,
+          refundId ?? null,
         );
       }
       return {
@@ -438,7 +446,9 @@ export class TapPayChargeAdapter implements ITapPayAdapter {
         recTradeId: transactionId,
         outcome: 'deferred',
         wireStatus: wire.status,
-        refundId: null,
+        // 🔴 `#906`:原本這裡**硬寫 null** ⇒ 就算 TapPay 給了也看不到。
+        //    改成照實記；而它是 null 時，那是**它沒給**，不是我們丟了。
+        refundId: wire.refundId ?? null,
         bankRefundId,
         bankResultCode: wire.bankResultCode ?? null,
         kind,
@@ -447,6 +457,7 @@ export class TapPayChargeAdapter implements ITapPayAdapter {
       return {
         status: 'deferred',
         wireStatus: TAPPAY_REFUND_STATUS.NOT_CAPTURED_PARTIAL,
+        refundId: wire.refundId ?? null,
         msg: wire.msg,
         bankResultCode: wire.bankResultCode,
         rawResponse: raw,
@@ -457,7 +468,8 @@ export class TapPayChargeAdapter implements ITapPayAdapter {
         recTradeId: transactionId,
         outcome: 'rejected',
         wireStatus: wire.status,
-        refundId: null,
+        // 🔴 `#906`:同上 —— 原本硬寫 null。
+        refundId: wire.refundId ?? null,
         bankRefundId,
         bankResultCode: wire.bankResultCode ?? null,
         kind,
@@ -466,6 +478,7 @@ export class TapPayChargeAdapter implements ITapPayAdapter {
       return {
         status: 'rejected',
         wireStatus: TAPPAY_REFUND_STATUS.OUT_OF_RANGE_AMOUNT,
+        refundId: wire.refundId ?? null,
         msg: wire.msg,
         bankResultCode: wire.bankResultCode,
         rawResponse: raw,
@@ -483,8 +496,9 @@ export class TapPayChargeAdapter implements ITapPayAdapter {
       kind,
       requestedAmount,
     });
-    throw new Error(
+    throw new TapPayRefundUnknownStateError(
       `TapPay refund 未實證回應碼 ${wire.status}(kind ${kind};狀態未知、不得自動重發;rec ${transactionId} / bank_refund ${bankRefundId})`,
+      wire.refundId ?? null,
     );
   }
 

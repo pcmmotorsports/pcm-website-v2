@@ -1,7 +1,11 @@
 'use server';
 
 import { redirect } from 'next/navigation';
-import { TapPayRefundNotSentError, toMoneyAmount } from '@pcm/domain';
+import {
+  TapPayRefundNotSentError,
+  TapPayRefundUnknownStateError,
+  toMoneyAmount,
+} from '@pcm/domain';
 import type { TapPayRefundPayload, TapPayRefundResult } from '@pcm/domain';
 import { getRequestId } from '../audit/context';
 import { readSingleString } from '../forms/single-value';
@@ -384,6 +388,18 @@ export async function initiateRefundAction(
         orderId: parsed.orderId,
         refundId: initiated.refundId,
         bankRefundId: initiated.bankRefundId,
+        // 🔴🔴 `#906`:這一欄**在此之前恆為 null** —— 而那不是因為 TapPay 沒給。
+        //    那顆編號在 adapter 那一刻**還在 wire 裡**,而它只進了 log 與錯誤訊息的字面,
+        //    **型別層沒有任何東西帶它出來** ⇒ 這裡伸手要,而上游給不出。
+        //    ⇒ 正式庫 08-22 實測:`key_present=true / value=null` —— 欄位在、值恆空。
+        //    ✅ 改法是在 adapter 那一側新增 `TapPayRefundUnknownStateError.refundId`,
+        //      **不是在這裡 parse 錯誤訊息的字串** —— 四個分支裡只有一個把它寫進字面,
+        //      而那一個的格式沒有任何東西釘著。
+        //    ⚠️ 而它仍然**可以是 null**:那表示 TapPay 這一次沒給,不是我們弄丟。
+        //    ⚠️ 本段刻意不含小括號與大括號 —— refund-unknown-state-audit.test.ts 的切段器
+        //      不解析註解,它有一格明文擋「註解裡出現括號」。那不是龜毛,是它切錯段會靜靜地放行。
+        tappayRefundId:
+          error instanceof TapPayRefundUnknownStateError ? error.refundId : null,
         error,
         actor: authorization.actorId,
         requestId: parsed.requestToken,

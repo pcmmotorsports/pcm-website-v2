@@ -144,10 +144,29 @@ describe('🔴 接線(逐呼叫 oracle):三個出口各自要對', () => {
     }
   });
 
-  it('🔴 tappayRefundId 只出現在錢已受理那一格', () => {
+  it('🔴 tappayRefundId 出現在【恰好兩格】,而且是哪兩格說得出來', () => {
+    // ⛔ ~~原本斷言「只出現在錢已受理那一格」,length === 1~~ **作廢**,`#906` 2026-08-29
+    //    —— 而它當時是對的:那時 adapter_threw 那一格**拿不到**那顆編號,
+    //    寫進去只會是一個恆 null 的欄位。
+    //    🔴 而 `#906` 量到的正是「拿不到」這件事本身是個 bug:
+    //    TapPay 在未實證回應碼那一態**仍然給了 refund_id**,而它只進了 log,型別層沒帶出來。
+    //    ⇒ 補上 TapPayRefundUnknownStateError.refundId 之後,這一格**真的拿得到**了。
+    //    📌 而我沒有把這一格改成 toBeGreaterThan 0 —— 那會讓它從此不管出現幾次。
+    //      **改成逐格點名**:多一格、少一格、或跑到別的 site 去,三種都要紅。
     const withTappay = auditCallBlocks().filter((b) => b.src.includes('tappayRefundId:'));
-    expect(withTappay.length).toBe(1);
-    expect(withTappay[0]!.site).toBe('finalize_threw_after_accepted');
+    expect(withTappay.map((b) => b.site).sort()).toEqual([
+      'adapter_threw',
+      'finalize_threw_after_accepted',
+    ]);
+  });
+
+  it('🔴 而 adapter_threw 那一格的值必須來自【型別】,不得 parse 錯誤訊息的字串', () => {
+    // 📌 這一格才是 `#906` 的本體:四個分支裡只有一個把編號寫進訊息字面,
+    //    而那一個的格式沒有任何東西釘著 ⇒ 一旦有人改文案,parse 就靜靜地拿到 null。
+    const block = auditCallBlocks().find((b) => b.site === 'adapter_threw');
+    expect(block, 'adapter_threw 那一段找不到了').toBeTruthy();
+    expect(block!.src).toContain('TapPayRefundUnknownStateError');
+    expect(block!.src).not.toMatch(/error\.message/);
   });
 
   it('🔴 三段互不重疊,且每段恰含 1 個 site: / 1 個 refundFailure(', () => {

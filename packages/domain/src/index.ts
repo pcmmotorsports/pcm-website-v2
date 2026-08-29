@@ -127,7 +127,15 @@ export type { PaymentConfirmErrorCode } from './payment/errors';
 export { PaymentConfirmError } from './payment/errors';
 
 // M-3 退款線第一片:refund 契約 runtime 值(barrel 為 export type * ⇒ 值必須顯式;比照 AuthError)
-export { TAPPAY_REFUND_STATUS, TapPayRefundNotSentError } from './payment/types';
+export {
+  TAPPAY_REFUND_STATUS,
+  TapPayRefundNotSentError,
+  // 🔴 `#906`:**必須走值 export**(`export {}` 不是 `export type {}`)——
+  //    它是一個 class，呼叫端要 `new` 它、要 `instanceof` 它。
+  //    ⚠️ 而寫錯的症狀是 TS1362「cannot be used as a value because it was exported using 'export type'」
+  //      —— 那句話指的是**這裡**，不是 import 那一側（2026-08-29 我先去查了 import，查錯地方）。
+  TapPayRefundUnknownStateError,
+} from './payment/types';
 
 // payment 3DS-5a bank_transaction_id 產生器(純函式;5b initiate use-case charge 前產唯一對帳鍵)
 export { generateBankTransactionId } from './payment/bank-transaction-id';

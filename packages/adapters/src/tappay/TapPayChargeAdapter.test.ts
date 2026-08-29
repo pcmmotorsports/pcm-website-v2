@@ -4,6 +4,7 @@ import {
   toMoneyAmount,
   TAPPAY_REFUND_STATUS,
   TapPayRefundNotSentError,
+  TapPayRefundUnknownStateError,
   type TapPayChargePayload,
   type TapPayInitiationPayload,
   type TapPayRecordQuery,
@@ -718,6 +719,10 @@ describe('TapPayChargeAdapter.refund — 三態(deferred/rejected 僅 partial �
     expect(res).toEqual({
       status: 'rejected',
       wireStatus: TAPPAY_REFUND_STATUS.OUT_OF_RANGE_AMOUNT,
+      // 🔴 `#906`(2026-08-29):這一欄是新的。**本 fixture 的 wire 沒有 `refund_id`**
+      //    ⇒ 這裡的 `null` 量到的是「這一發沒給」,**不是「TapPay 在這一態不會給」**
+      //    ⇒ 而後者【沒有人量過】—— 要確認得打一發 sandbox 造出 10051。
+      refundId: null,
       msg: 'Out of range : amount',
       bankResultCode: 'BRC-51',
       rawResponse: wire,
@@ -737,6 +742,8 @@ describe('TapPayChargeAdapter.refund — 三態(deferred/rejected 僅 partial �
     expect(res).toEqual({
       status: 'deferred',
       wireStatus: TAPPAY_REFUND_STATUS.NOT_CAPTURED_PARTIAL,
+      // 🔴 同上(`#906`):`null` = 這一發沒給,不是「這一態不會給」。
+      refundId: null,
       msg: 'Authorized transaction cannot be partially refunded',
       bankResultCode: 'BRC-24',
       rawResponse: wire,
@@ -1203,5 +1210,87 @@ describe('TapPayChargeAdapter.refund — #16 log 零 PII / 零自由文字 / 零
     expect(logged).not.toContain('RAW-CANARY');
     expect(logged).toContain('99999');
     expect(refundLogOutcomes(infoSpy)).toEqual(['attempt_started', 'unknown_wire_status']);
+  });
+});
+
+
+// ── `#906` refund_id 在傳遞途中被丟掉(2026-08-29;線C)──────────────────────
+// 🔴 這一族的形狀:**同一顆 refund_id 在 wire 裡**,而它出不出得來由 `wire.status` 決定。
+//    ⇒ 所以每一格都【只改 status 這一個變因】,fixture 其餘逐字相同。
+describe('#906:refund_id 出得來嗎(唯一變因 = wire.status)', () => {
+  const DR = 'DR20260822YJToyS';
+  const wireWith = (over: Record<string, unknown>) => ({
+    status: 0,
+    msg: 'Success',
+    refund_id: DR,
+    refund_amount: 300,
+    ...over,
+  });
+
+  // ⚠️ 下面三格是【對照】不是守門(codex 2026-08-29 R1 點名,照實標):
+  //    · accepted 這一格:這條路本來就沒壞 ⇒ 它守不到 `#906`,它守的是「我沒有改壞既有的路」
+  //    · 「wire 沒給 ⇒ null」那一格:硬寫 null 的實作**也會過** ⇒ 它單獨沒有判別力,
+  //      它的判別力來自**與上一格配對**(同一個 fixture 加上 refund_id 就必須拿到值)
+  //    · 「不是 NotSent」那一格:丟一個 generic Error **也會過** ⇒ 它守的是「沒有被誤判成可重試」,
+  //      不是「型別對」
+  //    📌 而把它們標出來,是因為【一份全綠的測試檔不會告訴你哪幾格其實沒在守】。
+  it('✅ 對照:status 0 且形狀合法 ⇒ accepted 帶得出來(這條路本來就沒壞)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(wireWith({}))));
+    const res = await new TapPayChargeAdapter(CONFIG).refund(PARTIAL_PAYLOAD);
+    expect(res).toMatchObject({ status: 'accepted', refundId: DR });
+  });
+
+  it('🔴 未實證回應碼(10016)⇒ 丟 TapPayRefundUnknownStateError,而**它帶著那顆編號**', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(wireWith({ status: 10016 }))));
+    const err = await new TapPayChargeAdapter(CONFIG)
+      .refund(PARTIAL_PAYLOAD)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TapPayRefundUnknownStateError);
+    expect((err as TapPayRefundUnknownStateError).refundId).toBe(DR);
+  });
+
+  it('🔴 受理但形狀異常 ⇒ 同樣帶得出來(改前只有【訊息字面】有,程式拿不到)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse({ status: 0, msg: 'Success', refund_id: DR })),
+    );
+    const err = await new TapPayChargeAdapter(CONFIG)
+      .refund(PARTIAL_PAYLOAD)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TapPayRefundUnknownStateError);
+    expect((err as TapPayRefundUnknownStateError).refundId).toBe(DR);
+  });
+
+  it('🔴🔴 而 wire **沒給** ⇒ `refundId` 是 null,而它仍然是這個型別', async () => {
+    // 📌 這一格分開「TapPay 沒給」與「我們弄丟了」—— 改前那兩件在下游長得一樣。
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse({ status: 10016, msg: 'unknown' })),
+    );
+    const err = await new TapPayChargeAdapter(CONFIG)
+      .refund(PARTIAL_PAYLOAD)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TapPayRefundUnknownStateError);
+    expect((err as TapPayRefundUnknownStateError).refundId).toBeNull();
+  });
+
+  it('🔴 而它**不得**與 NotSent 互換 —— 那兩者的下一步相反(一個可重試、一個絕不可)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(wireWith({ status: 10016 }))));
+    const err = await new TapPayChargeAdapter(CONFIG)
+      .refund(PARTIAL_PAYLOAD)
+      .catch((e: unknown) => e);
+    expect(err).not.toBeInstanceOf(TapPayRefundNotSentError);
+  });
+
+  it('⚠️ deferred(10024)⇒ 帶得出來(而這一態 TapPay 帶不帶【沒有人量過】)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(wireWith({ status: 10024 }))));
+    const res = await new TapPayChargeAdapter(CONFIG).refund(PARTIAL_PAYLOAD);
+    expect(res).toMatchObject({ status: 'deferred', refundId: DR });
+  });
+
+  it('⚠️ rejected(10051)同上', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(wireWith({ status: 10051 }))));
+    const res = await new TapPayChargeAdapter(CONFIG).refund(PARTIAL_PAYLOAD);
+    expect(res).toMatchObject({ status: 'rejected', refundId: DR });
   });
 });
