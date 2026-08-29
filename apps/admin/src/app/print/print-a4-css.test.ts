@@ -26,6 +26,10 @@ const CSS_RULES = CSS.replace(/\/\*[\s\S]*?\*\//g, '');
 const LAYOUT = read('./layout.tsx');
 const SHIPPING = read('../../components/print/shipping-doc.tsx');
 const PICKING = read('../../components/print/picking-doc.tsx');
+// 🔴 2026-08-29 A3-1'a:masthead 抽成獨立檔 ⇒ 不加這一行，分母會從 42 掉到 35
+//    （離開的正是 pd-masthead/brand/mstripe/logo/issuer/i1/i2 七個），
+//    而 `names.size > 10` 照樣過 ⇒ 這把尺會【安靜地變窄而印綠】。
+const MASTHEAD = read('../../components/print/print-masthead.tsx');
 const GLOBALS = read('../globals.css');
 
 // 🔴 **`PAGE_DECL` 而不是 `[^}]*`**(2026-08-17,code-reviewer R1 nit):
@@ -242,7 +246,7 @@ describe('🔴🔴 反方向掃描 —— 元件掛了、而 CSS 沒有的 `pd-*
   };
 
   it('🔴 元件掛的每一個 `pd-*`,CSS 都要接得住(或在白名單裡並寫明理由)', () => {
-    const names = new Set([...emitted(SHIPPING), ...emitted(PICKING)]);
+    const names = new Set([...emitted(SHIPPING), ...emitted(PICKING), ...emitted(MASTHEAD)]);
     expect(names.size, '一個 pd-* 都沒掃到 ⇒ 本格恆真').toBeGreaterThan(10);
     const orphan = [...names].filter(
       (n) => !new RegExp(`\\.${n}(?![\\w-])`).test(CSS_RULES) && !(n in HOOK_ONLY),

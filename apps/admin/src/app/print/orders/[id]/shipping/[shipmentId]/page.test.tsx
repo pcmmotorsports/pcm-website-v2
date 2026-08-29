@@ -569,13 +569,23 @@ describe('#10 片2b — 版面', () => {
     //    ⇒ 對全文 `not.toContain` 會被**它自己的說明文字**弄紅。
     //    📎 同族坑今天在 `print-a4.css` 那片已經發生過一次(`.print-sheet` 出現在註解裡),
     //       正本 `docs/patterns/guard-and-instrument-traps.md`「偵測字串自命中」。
-    const DOC = readFileSync(join(SRC, 'components/print/shipping-doc.tsx'), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/\/\/.*$/gm, '');
+    // 🔴 2026-08-29 A3-1'a:LOGO 那顆 `<img>` 搬到 `components/print/print-masthead.tsx`
+    //    ⇒ 只讀 shipping-doc 的話,這道守門對 LOGO 【失明而印綠】
+    //      (正對照 `src='/print/line-qr.png'` 仍在 shipping-doc ⇒ 它會繼續證明「檔沒讀空」,
+    //       而那個綠已經與 LOGO 無關)。⇒ 兩支一起讀。
+    const strip = (f: string) =>
+      readFileSync(join(SRC, f), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/.*$/gm, '');
+    const DOC =
+      strip('components/print/shipping-doc.tsx') + strip('components/print/print-masthead.tsx');
     expect(DOC).not.toContain('background-image');
     expect(DOC).not.toContain('backgroundImage');
     // 正向對照:證明上面那兩個 0 不是因為檔案讀成空字串。
     expect(DOC).toContain("src='/print/line-qr.png'");
+    // 🔴 第二個正對照:證明【masthead 那半】也真的被讀進來了 —— 少了它,
+    //    上面兩個 0 會在「masthead 讀成空字串」的世界裡照樣成立。
+    expect(DOC).toContain("src='/print/logo-p2-bicolor.png'");
   });
 
   it('🔴🔴 片4b:出貨單【不得讀 `lineTotal`】—— 型別帶進來了,而紙上不准用它', async () => {

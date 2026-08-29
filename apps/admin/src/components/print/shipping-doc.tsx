@@ -22,6 +22,7 @@ import { carrierLabelOf } from '../../lib/shipping/carrier-label';
 import { shippedDateText } from '../../lib/shipping/shipping-doc-dispatch';
 import { BlockedSheet } from './blocked-sheet';
 import { PrintButton } from './print-button';
+import { PrintMasthead } from './print-masthead';
 
 // #10 片2b:出貨單(一個箱 × 一張訂單)。
 //
@@ -510,17 +511,6 @@ function Alert({ children }: { children: React.ReactNode }) {
 }
 
 
-/**
- * 抬頭七值(#10)。**逐字,不得正規化** —— 依據與典故見 `<header>` 那段註解。
- *
- * 🔴 **拆成四個常數而不是一整串,是為了讓 `<b>` 只包住公司名** —— 排版需要,值沒有變。
- * 🔴 分隔用的是**全形空格 `　`(U+3000)**,取自 OD 產物 `預覽-出貨明細單.html` 的 `.pd-i1/.pd-i2`。
- *    ⚠️ 它看起來像兩個半形空格,**而它不是**。用半形取代會讓紙上三段字擠在一起。
- */
-const ISSUER_NAME = '派達有限公司';
-const ISSUER_LINE1_REST = '　PCM MOTOR PARTS LTD　統一編號 90003020';
-const ISSUER_LINE2 = '新北市新莊區化成路736巷18號1樓';
-const ISSUER_LINE3 = '+886 930-531-867　sean@pcmmotorsports.com　LINE @pcmmoto';
 
 /**
  * 🔴🔴 **對外紙本的文案 —— Sean 2026-08-24 親自挑的版本(`Q2` 三選一,他逐字「那題人話: 乙」)。**
@@ -694,67 +684,11 @@ export function ShippingDoc({
           ⇒ `displayId` 抽出前是**裸印**(沒有「訂單編號」四個字),這次補上。
           ⚠️ **原文寫「現在紙上有三個 —— 訂單編號 / 箱號 / 追蹤碼」,`Q-C5`=丙 之後只剩兩個**
              (追蹤碼那一列已拿掉,見下方貨運資訊區的作廢註解)。 */}
-      {/* ── 抬頭七值(#10,2026-08-17 落地)──
-          🔴 **真權威是 OD 專案 `pcm-print-docs` / `shipping-picking-doc-a4.html:228-241`**
-             (我當場開過,不是轉述;`list_projects` 當場列出該專案)。
-             repo 側 `docs/specs/2026-08-15-shipping-doc-content-contract.md:95-101` 七值逐字相同
-             ⇒ 兩個獨立來源吻合。
-          🔴 **一個字都不准正規化** —— 樣張 `:231-232` 自己的註解逐字:
-             「全形半形不動、+886 不改 0、LTD 後面沒有句點」。
-             ⚠️ `PCM MOTOR PARTS LTD` **沒有句點**是 Sean 親自推翻自己前一句的結果
-             (合約檔 `:315` 逐字「好啦～沒句點,抱歉」)⇒ 看到有句點的版本是過期來源。
-          🔴 **分級 = L2,不是 L1**(code-reviewer R1 MF6 更正我第一版):同一組公司登記資料
-             在 `apps/storefront/src/lib/site-config.ts:3` 已經標成 **L2(hardcode + TODO +
-             backlog `#248`)**,逐字還寫著「**此處為唯一真相,勿在各元件重複硬寫**」。
-             **兩個分級不能同時對** ⇒ 以既有那份為準。
-          ⚠️ **而這裡仍然重複寫了一份,那是刻意的**:`site-config.ts` 在 **storefront** 這個 app,
-             admin 不 import 它(跨 app 依賴 = 另一件事)。⇒ **代價是它們會各自漂**,
-             所以兩邊互指:那支檔的電話是 `+886-930-531-867`(連字號),
-             **紙上這份是空格版**,因為樣張要求逐字不正規化 —— **不是打錯,是兩個不同的用途**。
-             🔴 **而「兩邊互指」目前是【單向】的**(code-reviewer R2 F5 抓到我把它寫成互指):
-             **只有這裡指過去,`site-config.ts` 一個字沒動** —— 它 `:4` 仍逐字寫著
-             「此處為唯一真相,勿在各元件重複硬寫」,而這裡正是一份重複。
-             ⇒ **那一邊要補的那一行歸 storefront**(跨 app、另一片),**本片刻意不動**。
-             📌 真正的收斂點是 `#248`(登記資料進後台),不是在這裡再造一個常數。
-             📌 **已立案 `#602`**(2026-08-17)—— 在那之前,這條登記**只住在註解裡**,
-                而註解**被遺忘時什麼都不會響**。
-          ⚠️ 左側欄名(公司名稱/電話/…)是設計端自訂、非拍板值;右側八個字串才是。 */}
-      {/* ── 片2:改成稿的 `.pd-masthead`(FIX-48/63)────────────────────────────
-          🔴 **七個值一個字都沒動** —— 只有【排法】從 `<dl>` 七列壓成三行跑文字。
-             上面那段逐字紀律(全形半形不動 / +886 不改 0 / LTD 後面沒有句點)照舊生效。
-          🔴 **值放在 JS 常數裡,不放進 JSX 的文字節點** —— 那不是風格:
-             這三行含**全形空格 `　`(U+3000)**,而 JSX 會在換行邊界做 `\s` trim,
-             `\s` 在 JS 裡**吃得掉 U+3000**;prettier 又可能把長行折在那些空格上。
-             ⇒ 放進 JSX 文字節點時,**格式化工具改一次排版就可能把分隔空格吃掉,而沒有人會發現**。
-          🔴 LOGO 用 `<img>`,**不得改成 background-image** ——
-             Sean 2026-08-23 14:08 實印:用 background 畫的四樣全不見,同張紙文字與框線都在。
-             資產逐位元組複製自 OD `assets-print/`(sha256 `0eb4b772…`),**沒有重產**。 */}
-      <header className='pd-masthead'>
-        <div className='pd-brand'>
-          {/* 三色條 = 三條 `border-left`(見 CSS),不是圖也不是底色。純裝飾 ⇒ 對讀屏隱藏。 */}
-          <div className='pd-mstripe' aria-hidden='true'>
-            <i />
-            <i />
-            <i />
-          </div>
-          {/* 🔴🔴 **這張圖在【伺服器渲染】那條路上 100% 不會出現。**
-              `proxy.ts:80` 的 matcher 沒排除 `public` ⇒ 沒有 cookie 的請求會被 303。
-              · 員工用瀏覽器列印 ⇒ 分頁登入過、`<img>` 帶同一顆 cookie ⇒ **看得到**
-              · Sean 08-23 拍板的「出貨單出圖走伺服器渲染」⇒ **沒有任何人的 cookie ⇒ 必然缺圖**
-              ⚠️ 症狀是**圖不見了,不是錯誤**:三綠全綠、頁面不報錯、零告警。
-              ⇒ 修法是 `proxy.ts` 一行 matcher(**不是本檔**),已交下手窗排 backlog。
-              📌 這段寫在這裡而不是只寫在交件檔 —— **交件檔不會被下一個開這支檔的人讀到。** */}
-          <img className='pd-logo' alt='PCM MOTOR PARTS' src='/print/logo-p2-bicolor.png' />
-        </div>
-        <div className='pd-issuer'>
-          <div className='pd-i1'>
-            <b>{ISSUER_NAME}</b>
-            {ISSUER_LINE1_REST}
-          </div>
-          <div className='pd-i2'>{ISSUER_LINE2}</div>
-          <div className='pd-i2'>{ISSUER_LINE3}</div>
-        </div>
-      </header>
+      {/* 🔴 抬頭七值(#10)的完整依據與典故 —— **2026-08-29 A3-1'a 跟著碼一起搬到**
+          `components/print/print-masthead.tsx`(鐵則 6:註解要跟著它解釋的那段碼搬)。
+          ⚠️ 那段裡住著三個【拍板紀錄】:L2 分級 / `LTD` 後面沒有句點 / `#248` `#602`
+          ⇒ **不要在這裡重寫一份** —— 兩份會分岔,而分岔那天沒有東西會紅。 */}
+      <PrintMasthead />
 
       {/* ── 片2:`.pd-doctitle`(FIX-48/63)──
           🔴 英文由 ~~`Shipping / Picking Document`~~ 改為 **`Shipping Document`**,依稿的最終值。
