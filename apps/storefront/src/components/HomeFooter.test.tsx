@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { HomeFooter } from './HomeFooter';
-import { OPENING_HOURS, STORE_ADDRESS } from '@/lib/site-config';
+import { OPENING_HOURS, SOCIAL_URLS, STORE_ADDRESS } from '@/lib/site-config';
 
 afterEach(cleanup);
 
@@ -114,8 +114,32 @@ describe('HomeFooter', () => {
       expect(a.getAttribute('target')).toBe('_blank');
       expect(a.getAttribute('rel')).toContain('noopener');
     }
-    // 聯絡客服仍 disabled(拍板範圍外)
-    expect(screen.getByLabelText('聯絡客服(尚未上線)')).toBeDefined();
+    // ⛔ ~~聯絡客服仍 disabled(拍板範圍外)~~
+    // ✅ 2026-08-29 12:14:32 接上 LINE(Sean 逐字「甲 接上 LINE」)
+    // 🔴 該綠必綠:它是一顆【按得動】的外連, 而網址走 SSoT、不寫死在這裡
+    const contact = screen.getByText('聯絡客服');
+    expect(contact.tagName).toBe('A');
+    expect(contact.getAttribute('href')).toBe(SOCIAL_URLS.line);
+    expect(contact.getAttribute('target')).toBe('_blank');
+    expect(contact.getAttribute('rel')).toContain('noopener');
+    // 🔴🔴 而【最重要的一格】:那個網址不得是空的或 '#'。
+    //   理由是 Sean 自己的話:「一顆連到空網址的按鈕, 比沒有按鈕糟」
+    //   ⇒ 我們把一顆【誠實的死按鈕】換成一顆會動的, 而換錯了就變成那句話講的東西。
+    expect(contact.getAttribute('href')).toBeTruthy();
+    expect(contact.getAttribute('href')).not.toBe('#');
+    expect(contact.getAttribute('href')?.startsWith('https://')).toBe(true);
+    // 🔴 而「尚未上線」那五個字必須【消失】—— 留著它會變成一句假話,
+    //   而螢幕閱讀器的使用者會聽到它, 然後不去按一顆現在按得動的按鈕。
+    expect(screen.queryByLabelText('聯絡客服(尚未上線)')).toBeNull();
+    // ⚠️ 而【負向斷言最便宜的假綠是選擇器打錯 ⇒ 恆綠】——
+    //   上面那一發若因為我打錯字而永遠撈不到東西, 它照樣綠。
+    // ⛔ ~~原句寫「擋住它的是上面 getByText('聯絡客服')」。~~
+    //   🔴 **理由錯而結論對**(code-reviewer 2026-08-29):`getByText` 只保證「有這段文字」,
+    //      它【管不到】上面那條 queryByLabelText 裡的 aria-label **字面拼錯** ——
+    //      拼錯 ⇒ 永遠撈不到 ⇒ 恆綠, 而 getByText 照樣過。
+    //   ✅ 真正殺掉「改回 disabled 按鈕」那發突變的是 `expect(contact.tagName).toBe('A')`。
+    //   📌 **⇒ 一個【對的結論】配一個【錯的理由】, 在綠燈上與全對長得一樣;**
+    //      **而下一個人會照那個理由去動別的地方。**
   });
 
   // 🔴 D3c-5:「購物」那欄四個目的地原本**零守門** —— 本片把「品牌專區」從 `/products`

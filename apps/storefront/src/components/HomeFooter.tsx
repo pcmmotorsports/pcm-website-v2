@@ -20,7 +20,40 @@
 // social 3 條:M-1-06 #136 曾因無真連結改 <button disabled> 宣告未上線 → 2026-07-03 Sean 拍 Q2=A
 //   接 site-config SOCIAL_URLS 真連結、回到 design <a> 結構(design L303-305 href="#" 佔位 → 真 URL、
 //   外連加 target="_blank" rel="noopener noreferrer");#136 該段 supersede。
-// 聯絡客服 1 條:仍 disabled(不在 Q2=A 拍板範圍;接 LINE 與否待 Sean)。
+// ⛔ ~~聯絡客服 1 條:仍 disabled(不在 Q2=A 拍板範圍;接 LINE 與否待 Sean)。~~
+// ✅ **2026-08-29 12:14:12 接上 LINE**(Sean 逐字「甲 接上 LINE」;`Q-CONTACTBTN`)。
+//   🔴 **網址【不自己發明】** —— 用同一顆 `SOCIAL_URLS.line`,真值鏈逐層:
+//     本檔 `<a href={SOCIAL_URLS.line}>` → `site-config.ts:96` `LINE_ADD_URL`
+//     → `line-cta.ts:20` = `https://lin.ee/R6QZUH2`(Sean 2026-06-21 親自提供;
+//       **SSoT 在 `line-cta` 不在 `site-config`**)。
+//   ✅ **而政策頁用的是【同一支檔的另一個常數】**:`data/legal-content.ts:46` `SUPPORT_CHANNELS`
+//     → `line-cta.ts:17` `LINE_OA_ID` = `@pcmmoto`。
+//     📌 **同一個 LINE, 兩種形式(短網址 vs 帳號), 而它們住在同一支檔。**
+//     ⛔ ~~原句在這裡寫「⇒ 不會分歧」。~~ 🔴 **同檔【不構成約束】** ——
+//        那是兩個各自獨立的字串字面, **換 LINE 帳號時沒有任何機制強迫兩個一起改**,
+//        而改了一個沒改另一個, 三綠不紅、測試不紅、畫面看不出來。
+//        ⇒ 正確字面:**換帳號要【兩個一起改】, 而現在沒有東西會提醒你。**
+//   ⚠️ **`aria-label="聯絡客服(尚未上線)"` 一併拿掉** —— 它現在上線了,留著會變成一句**假話**,
+//      而螢幕閱讀器的使用者會聽到「尚未上線」然後**不去按一顆現在按得動的按鈕**。
+//   🔴 **`target` / `rel` 照本頁尾既有那三顆外連逐字抄**(`ed-footer-social` 裡
+//      Facebook / Instagram / LINE 那三顆)—— 屬性集合逐字相同, 不多不少。
+//      ⛔ ~~原句在這裡寫了 `:108-110`、並附一句「grep 過, 不憑記憶」。~~
+//      🔴 **那一句是整段註解裡唯一在替自己背書的話, 而它是唯一被證偽的那句**
+//         (code-reviewer 2026-08-29 抓到;我自己複量:三顆在 :113-115、新那顆 :138)。
+//      📌 **屬性【真的是 grep 來的】, 行號【不是】** —— 而它們寫在同一句裡,
+//         那句話的可信度就被拉成一致的。**半真的背書句, 比沒有背書句糟。**
+//      ✅ **⇒ 根因不是我漏 grep, 是【同一支檔裡引自己的行號, 會被自己的編輯弄壞】**
+//         —— 我加了 16 行檔頭, 下面每一顆都往下漂, 而註解裡的數字不會跟著動,
+//         **且漂掉之後在畫面上與寫對時長得一模一樣。**
+//      ⇒ **所以這裡改成引【字面】不引行號。跨檔那幾個行號保留**(它們不隨本檔編輯漂)。
+//   ✅ **而這次是【回到 design】不是偏離**(鐵則 1):`design-reference/components/HomePage.jsx:325`
+//      本來就是 `<a href="#">聯絡客服</a>` ⇒ 稿上是連結, 佔位的是 href 不是標籤。
+//      📌 **⇒ 前一版那顆 `<button disabled>` 才是偏離稿的那一版**, 而它偏離得有理由
+//         (當年沒有真網址);理由消失了, 而**那一版沒有跟著回來** —— 直到今天。
+//   📌 **而它【不是】隱私政策承諾的三個管道之一**(那三個是 LINE `@pcmmoto` / 電話 / 信箱,
+//      `legal-content.ts:46`)⇒ **它先前不是一個違約, 是一個【死掉的入口】。**
+//      而死掉的入口比沒有入口糟:客人按了沒反應, 而他不會知道旁邊那個 LINE 才是路。
+//
 // 'use client' 移除原因:此元件無 useState / useEffect / onClick / window. / hover、純展示
 //
 // 字面 vs 事實(2026-07-03 A4):design 門市電話「02-2998-xxxx」/ 統編「xxxxxxxx」為佔位假值
@@ -119,7 +152,7 @@ export function HomeFooter({ tagline }: { tagline?: ReactNode }) {
             {/* #291(2026-07-24):法律頁須從任何頁可達,不能只在結帳/註冊才找得到。 */}
             <Link href="/terms">服務條款</Link>
             <Link href="/privacy">隱私政策</Link>
-            <button type="button" disabled aria-label="聯絡客服(尚未上線)">聯絡客服</button>
+            <a href={SOCIAL_URLS.line} target="_blank" rel="noopener noreferrer">聯絡客服</a>
           </div>
           <div>
             <div className="ed-mono ed-footer-h">門市</div>

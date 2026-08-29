@@ -1686,8 +1686,7 @@
   margin-bottom: 16px;
 }
 .ed-footer-cols a,
-.ed-footer-cols p,
-.ed-footer-cols button {
+.ed-footer-cols p {
   display: block;
   font-size: 14px; /* R2-3 / 設計端 §4-3「字級只用整數 px」:13.5 併整數 */
   color: rgba(255,255,255,0.75);
@@ -1722,8 +1721,7 @@
 @media (min-width: 600px) and (max-width: 1079px) {
   .ed-footer-tagline,
   .ed-footer-cols a,
-  .ed-footer-cols p,
-  .ed-footer-cols button { font-size: 15px; }
+  .ed-footer-cols p { font-size: 15px; }
   .ed-footer-social { font-size: 14px; }
 }
 
