@@ -177,62 +177,31 @@ describe('#10 片1 揀貨單列印頁', () => {
     }
   });
 
-  it('②🔴 揀貨單上不得有**任何**金額欄位,也不得有收件電話 / 地址', async () => {
+  // 🔴🔴 A3-4'(2026-08-29):~~②「揀貨單上不得有任何金額欄位, 也不得有收件電話 / 地址」~~
+  //    **整格反轉**, 而它是【兩個拍板】的後果, 不是放寬:
+  //    ① `Q-DETAIL-MONEY` Sean 2026-08-29 拍【甲 要印金額】
+  //       （落檔:~/pcm-mailbox/等Sean決策-20260829.md;理由「訂單明細 = 完整的一張訂單」）
+  //    ② PII Sean 2026-08-29 拍【甲 要(照稿)】⇒ 推翻 `page.tsx:19` 那條「只印姓名」
+  //       （落檔 `memory/project_0829-sean-order-detail-prints-full-pii.md`, 含原句與代價）
+  //    🛑 而原本那道守門【是用突變驗過的】—— 它對【揀貨單】是正確的。
+  //       這張紙已經不是揀貨單了(Sean 08-23)⇒ 反轉的是【對象】, 不是紀律。
+  //    📌 ⇒ 所以這一格改成守【現在該有的東西】, 而不是刪掉它。
+  it("②' 訂單明細【必須】有金額三欄與收件資訊 —— 兩者都是 Sean 2026-08-29 拍板要的", async () => {
     const { container } = await renderPage();
-    // 🔴 **分母守門(2026-08-29 量到:本檔 `renderPage()` 那道錨【對這一格不夠】)**
-    //    那道錨釘的是「整張紙有沒有標題節點」;而本格的洩漏面是**品項列**。
-    //    實測:把 `picking-doc.tsx` 的 `detail.items.map(...)` 換成空陣列
-    //    ⇒ 全檔 44 格中只有 7 紅, **而本格是綠的**(紙的其餘部分還在, 品項列整組不見了)。
-    //    📌 **錨要釘【洩漏面本身】, 不是它的外殼。** 同夜第 N 次同一個形狀。
-    //    ⇒ 釘品項列的列數(結構), 不釘任何一個欄位的字面。
-    expect(
-      container.querySelectorAll('tbody tr[data-slot="picking-item"]').length,
-      // 🔴 **從 `> 0` 升級成精確數(2026-08-29 · 線C 那個問句問出來的)**:
-      //    線C 問 R1「我沒用更強的那個, 是因為好寫還是因為對?」⇒ 答案是**好寫**。
-      //    我對自己問同一句, 這一格的答案也是好寫 ——
-      //    `> 0` 擋得住「一列都沒有」, **擋不住「少印一列」**, 而那是一張紙上最容易錯、最難發現的事。
-      //    ⇒ 本格 fixture 的品項數是**固定的 1**(當場量:先寫 `toBe(999)` 讓它把真值印出來 ⇒ `expected 1`)。
-      //
-      // 🔴🔴 **補審 I1(2026-08-29)抓到:原本選擇器是 `tbody tr` —— 而那會【假紅】。**
-      //    同一個 `<tbody>`(`picking-doc.tsx:284-413`)裡還住著**截斷列**(:389 / :405),
-      //    它們是**合法**的東西(B 態要印)⇒ 有人讓它們出現, 這一格就紅,
-      //    🔴 **而失敗訊息會說「品項列數與 fixture 對不上」⇒ 把讀者指向 fixture, 而 fixture 沒問題。**
-      //    ⇒ 改成只數 `tr[data-slot="picking-item"]`(生產端 `picking-doc.tsx:293` 沿用本檔既有慣例)。
-      //    📌 **一個釘成精確數的集合, 要先問「這個數變了是【壞了】還是【也可以】」——**
-      //       **品項多一列 = 壞了;截斷列多一列 = 也可以。而 `tbody tr` 把兩者加在一起。**
-      //
-      // 🔴🔴 **而我【證不了】這個升級今天有判別力 —— 誠實寫在這裡, 不要讀成「驗過了」**:
-      //    fixture 只有 1 件 ⇒ 我打的那發突變(`items.slice(1)`)讓列數變 **0**
-      //    ⇒ **舊錨 `> 0` 在那一發同樣會紅** ⇒ **那一發不區分新舊錨。**
-      //    ⚠️ 而在 1 件的 fixture 上, 「少印一列」與「一列都沒有」是同一件事
-      //      ⇒ **今天這兩個寫法的判別力相同**, 我構造不出區分它們的突變。
-      //    ⇒ 那為什麼還是改成 `toBe(1)`?**理由是未來式的, 不是現在式的**:
-      //      這一格掃的是**整張紙的 textContent**;哪天有人把 fixture 加到 3 件而只渲染 1 件,
-      //      `> 0` 會過而那次掃描只涵蓋三分之一 —— **而 `toBe(1)` 會紅, 那個紅在說「fixture 變了, 回來看這格」**。
-      //      📌 **它是一個【會叫的提醒】, 不是一道今天在擋什麼的守門。**
-      //    ⚠️ **而這不推翻「錨要用寬鬆」那條** —— 判準是【這個數字如果變了, 是壞了還是也可以】:
-      //      這裡 fixture 固定 ⇒ 變了就是壞了 ⇒ 精確;
-      //      而 `.co-actions` / `suspects` 那幾格的集合有合法的變動空間 ⇒ 那裡才用 `> 0`。
-      '品項列數與 fixture 對不上 ⇒ 下面那整組「不得出現金額 / 電話 / 地址」的斷言可能只掃到一部分',
-    ).toBe(1);
-    // 🔴 **審查第 2 條:收窄選擇器【少擋】了一件事,這一行把它補回來。**
-    //    突變 `picking-doc.tsx:386` 的 `{detail.itemsTruncated && (` 改成 `{true && (`
-    //    ⇒ 截斷列在 `itemsTruncated=false` 時照印(4 列)⇒ 舊的 `tbody tr` 會紅(5 vs 1),
-    //    **而收窄後的選擇器只數品項列 ⇒ 綠。**
-    //    📌 **「不假紅」與「少擋」是同一個屬性的兩面 —— 我原本只量了討喜的那一面。**
-    expect(
-      container.querySelector('[data-slot="picking-truncated-band"]'),
-      '本格 fixture 沒有截斷 ⇒ 截斷列不該出現;它出現了而品項列數仍是 1 ⇒ 收窄的選擇器看不見它',
-    ).toBeNull();
-    const t = textOf(container);
-    // 六個金額欄整組掃,不是只掃我想得到的那兩個(must-fix 5 的修法)。
-    for (const v of MONEY_VALUES) {
-      expect(t).not.toContain(String(v));
-      expect(t).not.toContain(v.toLocaleString('en-US'));
-    }
-    expect(t).not.toContain('NT$');
-    expect(t).not.toContain(PHONE);
-    expect(t).not.toContain(ADDRESS);
+    const rows = container.querySelectorAll('.pd-items tbody tr[data-slot="picking-item"]');
+    // ✅ 正對照:確認 fixture 真的渲染了品項 —— 否則下面全是恆真
+    expect(rows.length).toBeGreaterThan(0);
+    const html = container.innerHTML;
+    // 金額:表頭三欄 + 頁尾金額區
+    expect(container.querySelector('.pd-money')).not.toBeNull();
+    expect(html).toContain('單價');
+    expect(html).toContain('小計');
+    expect(html).toContain('訂單金額');
+    // 收件資訊:姓名 / 電話 / 地址三格
+    expect(container.querySelector('.pd-info')).not.toBeNull();
+    expect(html).toContain('姓名');
+    expect(html).toContain('電話');
+    expect(html).toContain('地址');
   });
 
   it('②b🔴 品項清單必須是真的 `<table>` + 真的 `<thead>`(跨頁表頭靠它)', async () => {
@@ -258,7 +227,7 @@ describe('#10 片1 揀貨單列印頁', () => {
     //    🛑 而稿的表頭是【六欄】:料號 | 品名 / 規格 | 狀態 | 數量 | 單價 | 小計
     //       ⇒ 本片只到三欄，狀態 / 單價 / 小計是下一片。
     //       ⚠️ 所以這一格【現在守的是一個中間狀態】—— 它會在下一片再改一次，那是預期的。
-    ).toEqual(['料號', '品名 / 規格', '數量']);
+    ).toEqual(['料號', '品名 / 規格', '狀態', '數量', '單價', '小計']);
     // 🔴🔴 **這一格【刻意】數整個 tbody 的列,不收窄成 `[data-slot="picking-item"]` ——**
     //    審查(2026-08-29)問過同一句:它與 `:160` 改前同款、同一個 `<tbody>`、同一個假紅面。
     //    ⇒ 保留的理由:本格 fixture 的 `itemsTruncated` 是預設的 `false`(:109)
@@ -277,7 +246,7 @@ describe('#10 片1 揀貨單列印頁', () => {
     //       真的需要動這一行的人會相信「收了就零訊號」而不敢動。
     //    ⚠️ **要動這一行之前**:先確認上面那個 `it` 裡的 `picking-truncated-band` 斷言還在
     //       (它的失敗訊息最直指結構, 這才是保留本格的真正理由 —— 不是因為別處沒有)。
-    expect(container.querySelectorAll('table > tbody > tr').length).toBe(1);
+    expect(container.querySelectorAll('.pd-items table > tbody > tr').length).toBe(1);
   });
 
   it('②c🔴 `Q-C20` 續頁抬頭:訂單編號必須在 `<thead>` 【裡面】,不是在頁面上任何地方', async () => {
@@ -291,16 +260,20 @@ describe('#10 片1 揀貨單列印頁', () => {
     //    它證的是那個原生保證的**前提還在**。真的印出來看過的紀錄在
     //    `docs/specs/2026-08-17-qc5-tracking-off-paper-decommission-list.md` §4b-4。
     const { container } = await renderPage();
-    const contbar = container.querySelector('table > thead > tr.contbar > th');
+    const contbar = container.querySelector('.pd-items table > thead > tr.pd-contbar > th');
     expect(contbar).not.toBeNull();
-    expect(contbar?.textContent).toContain('品項明細');
+    // 🔴 A3-4'(2026-08-29):~~contbar 要含「品項明細」~~ ⇒ 稿把那四個字放在
+    //    表格【外面】的 `<h2 class="pd-sech">`, 而 contbar 逐字是 `訂單 <b>XXX</b><i>續頁欄名重複</i>`。
+    //    ⇒ 本格守的是【第 2 頁認得出是哪一張單】⇒ 真正要釘的是**訂單編號在 thead 裡**（下一行）。
+    //    ✅ 而「品項明細」那個標題仍然要在紙上, 只是不在這一列 ⇒ 分成兩個斷言。
+    expect(container.querySelector('.pd-items > .pd-sech')?.textContent).toContain('品項明細');
     expect(contbar?.textContent).toContain('PCM-2026-0042');
     // 🔴 揀貨單的單位是「一張訂單」⇒ 這一列**不帶箱號**(出貨明細單那張才有)。
     expect(contbar?.textContent).not.toContain('箱號');
     // 跨欄要蓋滿,少一欄的話那一列只會撐在左邊、右邊被欄名擠上來。
     // 🔴 A3-3'(2026-08-29):~~寫死 '4'~~ —— 勾選欄拿掉後欄數變 3,
     //    而【兩端同時錯成 4】會比出「完全吻合」⇒ 改成從真正的欄名列推。
-    const headCols = container.querySelectorAll('table > thead > tr')[1]?.querySelectorAll('th').length;
+    const headCols = container.querySelectorAll('.pd-items table > thead > tr')[1]?.querySelectorAll('th').length;
     expect(headCols).toBeGreaterThan(0); // 正對照:欄名列真的在
     expect(contbar?.getAttribute('colspan')).toBe(String(headCols));
   });
@@ -442,11 +415,12 @@ describe('#10 片1 🔴 揀貨單必須反映貨的真實狀態', () => {
   //       而稿把它放在【狀態】欄 ⇒ **那一欄是下一片**。
   it("⑤面2/3/4'(A3-3' 反轉):數量欄印的是【訂購數量】, 不是應揀量", async () => {
     const { container } = await renderPage();
-    const cells = [...container.querySelectorAll('table > tbody > tr > td')];
+    const cells = [...container.querySelectorAll('.pd-items table > tbody > tr > td')];
     // fixture 第一列:訂購 53 / 到貨 41 / 已出貨 15 ⇒ 應揀量 26
-    expect(cells[2]?.textContent?.trim()).toBe('53');
+    // 🔴 A3-4':稿的表頭是六欄, 狀態插在品名與數量之間 ⇒ 數量從 cells[2] 變成 cells[3]
+    expect(cells[3]?.textContent?.trim()).toBe('53');
     // ✅ 反例守門:26 是【舊行為】的值 —— 它不得再出現在這一格
-    expect(cells[2]?.textContent).not.toContain('26');
+    expect(cells[3]?.textContent).not.toContain('26');
   });
 
   // 🔴 A3-3'(2026-08-29):~~⑤面3b 反向:應揀量 > 0 時必須有打勾框~~ **整格作廢** ——
@@ -643,12 +617,15 @@ describe("#10 片1 🔴 A3-3' 誤刪後【還原】的四格 —— 它們與勾
       detail({ items: ALL_UNKNOWN } as unknown as Partial<AdminOrderDetail>),
     );
     const { container } = await renderPage();
-    const cells = [...container.querySelectorAll('table > tbody > tr > td')];
-    expect(cells[2]?.textContent?.trim()).toBe('9');
+    const cells = [...container.querySelectorAll('.pd-items table > tbody > tr > td')];
+    expect(cells[3]?.textContent?.trim()).toBe('9');
     // 🔴 而「不知道」這件事仍然要說 —— 只是位置換到頁首 Alert（上面那格釘位置）
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('數量資料尚未就緒');
     // ✅ 反例:舊行為會在【格子裡】說「數量資料尚未就緒」⇒ 現在不得如此
-    expect(cells[2]?.textContent).not.toContain('尚未就緒');
+    // 🔴 而「尚未就緒」現在住在【狀態欄】(cells[2]) —— 稿把它放在那裡。
+    //    ⇒ 數量欄(cells[3])不得有它;而狀態欄【應該】有它。
+    expect(cells[3]?.textContent).not.toContain('尚未就緒');
+    expect(cells[2]?.textContent).toContain('尚未就緒');
   });
 });
 

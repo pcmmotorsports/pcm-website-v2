@@ -65,7 +65,10 @@ describe('PickingDoc · 客人名字的 emoji 濾除【接線】', () => {
   //    沒有它, 一個「把客人名字整個不印」的實作也會通過上面那一格。
   it('🔴 純中文名 ⇒ 逐字出現在紙上', () => {
     const { container } = render(<PickingDoc detail={detailWithName('王小明')} />);
-    expect(container.textContent).toContain('客人:王小明');
+    // 🔴 A3-4'(2026-08-29):~~舊版把客人印成一行 `客人:XXX`~~
+    //    ⇒ 換成稿的 `.pd-info` 客戶欄(姓名 / 電話 / 地址三格)⇒ 標籤是「姓名」不是「客人」。
+    //    📌 本格守的是【emoji 有沒有被濾掉】, 那個目的沒有變 ⇒ 只改錨。
+    expect(container.querySelector('.pd-info')?.textContent).toContain('王小明');
   });
 
   // 🔴 罕用漢字要留著 —— 它同時證明「本片沒有解決域外字那一族」。
@@ -76,12 +79,18 @@ describe('PickingDoc · 客人名字的 emoji 濾除【接線】', () => {
 
   it('名字整串都是 emoji ⇒ 印「—」而不是空白', () => {
     const { container } = render(<PickingDoc detail={detailWithName('🏍')} />);
-    expect(container.textContent).toContain('客人:—');
+    // 🔴 A3-4'(2026-08-29):~~舊版把客人印成一行 `客人:XXX`~~
+    //    ⇒ 換成稿的 `.pd-info` 客戶欄(姓名 / 電話 / 地址三格)⇒ 標籤是「姓名」不是「客人」。
+    //    📌 本格守的是【emoji 有沒有被濾掉】, 那個目的沒有變 ⇒ 只改錨。
+    expect(container.querySelector('.pd-info')?.textContent).toContain('—');
   });
 
   it('名字為 null ⇒ 印「—」(既有行為不變)', () => {
     const { container } = render(<PickingDoc detail={detailWithName(null)} />);
-    expect(container.textContent).toContain('客人:—');
+    // 🔴 A3-4'(2026-08-29):~~舊版把客人印成一行 `客人:XXX`~~
+    //    ⇒ 換成稿的 `.pd-info` 客戶欄(姓名 / 電話 / 地址三格)⇒ 標籤是「姓名」不是「客人」。
+    //    📌 本格守的是【emoji 有沒有被濾掉】, 那個目的沒有變 ⇒ 只改錨。
+    expect(container.querySelector('.pd-info')?.textContent).toContain('—');
   });
 });
 
