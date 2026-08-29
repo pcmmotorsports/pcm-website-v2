@@ -157,12 +157,20 @@ describe('#10 片1 揀貨單列印頁', () => {
     //    📌 **錨要釘【洩漏面本身】, 不是它的外殼。** 同夜第 N 次同一個形狀。
     //    ⇒ 釘品項列的列數(結構), 不釘任何一個欄位的字面。
     expect(
-      container.querySelectorAll('tbody tr').length,
+      container.querySelectorAll('tbody tr[data-slot="picking-item"]').length,
       // 🔴 **從 `> 0` 升級成精確數(2026-08-29 · 線C 那個問句問出來的)**:
       //    線C 問 R1「我沒用更強的那個, 是因為好寫還是因為對?」⇒ 答案是**好寫**。
       //    我對自己問同一句, 這一格的答案也是好寫 ——
       //    `> 0` 擋得住「一列都沒有」, **擋不住「少印一列」**, 而那是一張紙上最容易錯、最難發現的事。
       //    ⇒ 本格 fixture 的品項數是**固定的 1**(當場量:先寫 `toBe(999)` 讓它把真值印出來 ⇒ `expected 1`)。
+      //
+      // 🔴🔴 **補審 I1(2026-08-29)抓到:原本選擇器是 `tbody tr` —— 而那會【假紅】。**
+      //    同一個 `<tbody>`(`picking-doc.tsx:284-413`)裡還住著**截斷列**(:389 / :405),
+      //    它們是**合法**的東西(B 態要印)⇒ 有人讓它們出現, 這一格就紅,
+      //    🔴 **而失敗訊息會說「品項列數與 fixture 對不上」⇒ 把讀者指向 fixture, 而 fixture 沒問題。**
+      //    ⇒ 改成只數 `tr[data-slot="picking-item"]`(生產端 `picking-doc.tsx:293` 沿用本檔既有慣例)。
+      //    📌 **一個釘成精確數的集合, 要先問「這個數變了是【壞了】還是【也可以】」——**
+      //       **品項多一列 = 壞了;截斷列多一列 = 也可以。而 `tbody tr` 把兩者加在一起。**
       //
       // 🔴🔴 **而我【證不了】這個升級今天有判別力 —— 誠實寫在這裡, 不要讀成「驗過了」**:
       //    fixture 只有 1 件 ⇒ 我打的那發突變(`items.slice(1)`)讓列數變 **0**
@@ -178,6 +186,15 @@ describe('#10 片1 揀貨單列印頁', () => {
       //      而 `.co-actions` / `suspects` 那幾格的集合有合法的變動空間 ⇒ 那裡才用 `> 0`。
       '品項列數與 fixture 對不上 ⇒ 下面那整組「不得出現金額 / 電話 / 地址」的斷言可能只掃到一部分',
     ).toBe(1);
+    // 🔴 **審查第 2 條:收窄選擇器【少擋】了一件事,這一行把它補回來。**
+    //    突變 `picking-doc.tsx:386` 的 `{detail.itemsTruncated && (` 改成 `{true && (`
+    //    ⇒ 截斷列在 `itemsTruncated=false` 時照印(4 列)⇒ 舊的 `tbody tr` 會紅(5 vs 1),
+    //    **而收窄後的選擇器只數品項列 ⇒ 綠。**
+    //    📌 **「不假紅」與「少擋」是同一個屬性的兩面 —— 我原本只量了討喜的那一面。**
+    expect(
+      container.querySelector('[data-slot="picking-truncated-band"]'),
+      '本格 fixture 沒有截斷 ⇒ 截斷列不該出現;它出現了而品項列數仍是 1 ⇒ 收窄的選擇器看不見它',
+    ).toBeNull();
     const t = textOf(container);
     // 六個金額欄整組掃,不是只掃我想得到的那兩個(must-fix 5 的修法)。
     for (const v of MONEY_VALUES) {
@@ -208,6 +225,12 @@ describe('#10 片1 揀貨單列印頁', () => {
     expect(
       [...(headRows[1]?.querySelectorAll('th') ?? [])].map((th) => th.textContent?.trim()),
     ).toEqual(['✓', '料號', '品名 / 規格', '應揀數量']);
+    // 🔴🔴 **這一格【刻意】數整個 tbody 的列,不收窄成 `[data-slot="picking-item"]` ——**
+    //    審查(2026-08-29)問過同一句:它與 `:160` 改前同款、同一個 `<tbody>`、同一個假紅面。
+    //    ⇒ 而它是【截斷列意外出現】的**唯一結構捕手**:本格 fixture 的 `itemsTruncated` 是
+    //      預設的 `false`(:109)⇒ 這個世界裡截斷列出現 = **真的壞了**, 紅得對。
+    //    🔴 **兩處都收窄的話, 這條路的結構捕手歸零, 而且零訊號。**
+    //    ⚠️ **要動這一行之前**:先確認 `:160` 那格的 `picking-truncated-band` 斷言還在。
     expect(container.querySelectorAll('table > tbody > tr').length).toBe(1);
   });
 
@@ -516,7 +539,7 @@ describe('#10 片1 本次應揀合計', () => {
     // 🔴 **分母守門(2026-08-29 補審抓到:與本檔 :151 同款、同一支檔、同一發突變下恆綠)**
     //    洩漏面同樣是 `<tbody>` 的品項列 —— 而 renderPage() 那道錨只釘「整張紙有標題」。
     expect(
-      container.querySelectorAll('tbody tr').length,
+      container.querySelectorAll('tbody tr[data-slot="picking-item"]').length,
       '一列品項都沒渲染 ⇒ 下面兩條「那段標記整段不在」恆真',
     ).toBeGreaterThan(0);
     const t = textOf(container);

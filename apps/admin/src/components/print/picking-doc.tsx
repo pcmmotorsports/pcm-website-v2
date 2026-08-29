@@ -285,8 +285,12 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                 {detail.items.map((item, i) => {
                   // 🔴 讀上面算好的那一份,不重算 —— 合計與這一列必須是同一個數。
                   const pickable = pickables[i] ?? null;
+                  // 🔴 `data-slot` 是給守門用的【結構契約】, 不是樣式:`page.test.tsx` 要數
+                  //    【品項列】, 而這個 `<tbody>`(:284-413)裡還住著截斷列(:389 / :405)
+                  //    ⇒ `tbody tr` 數的是兩種的和, 而截斷列是合法的 ⇒ 會假紅。
+                  //    沿用本檔既有慣例(:401 那列已經在用 `data-slot`)。
                   return (
-                    <tr key={item.id} className='border-b'>
+                    <tr key={item.id} data-slot='picking-item' className='border-b'>
                       {/* 真的要用筆勾的框。`print-color-adjust` 不碰 —— 空心框在單色印表機上照樣看得見。
                           🔴 R2 nit-4 同一條:**不用揀 / 不該揀的列不給框**。
                              給了框就是在問「要不要打勾」,而那正是這格的歧義來源;
