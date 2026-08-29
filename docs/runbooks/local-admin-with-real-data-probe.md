@@ -766,6 +766,26 @@ ls -a "$WT" "$WT/apps/storefront" | grep '^\.env' | sort -u
 
 # ③ 裝相依(pnpm workspace 大多是連結,實測數十秒等級)
 ( cd "$WT" && pnpm install --frozen-lockfile --prefer-offline )
+#
+# 🔴🔴 **這一步【不可跳】,而它被跳過的方式不是「忘了」,是【沒讀到就先動手】。**
+#    2026-08-29 線D 撞到,而它是這一節目前唯一有實測失敗簽章的一格。
+#    ⚠️ **成因寫出來,因為它會重演**:那個人讀 §8-g 時只讀了**前半**(病灶那段),
+#    看到「把 web 那層搬出去跑」就去起 `next dev` 了 —— **而步驟 ③ 在他讀的那個視窗之外。**
+#    📌 **一份說明的前半段如果自己就讀得通,後半段就會被跳過。**
+#
+#    **跳過它會撞到三個【長得完全不一樣】的錯,而三個都不會提到 node_modules**:
+#    ① `npx next dev`      ⇒ `Error: Cannot find module 'next/constants'`
+#       (npx 抓了一份 cache 裡的 Next,而它解析不到這棵樹)
+#    ② 改用**主樹**的 next binary ⇒ **Ready 了,而首頁 500**
+#       ⇒ `Could not find the Next.js package (next/package.json)`
+#       🔴 這一種最會騙人:`✓ Ready in 455ms` 印出來了,看起來只是頁面壞掉
+#    ③ `ln -s` 主樹的 `node_modules` 進去 ⇒ **Turbopack 直接拒絕**
+#       ⇒ `Symlink [project]/apps/storefront/node_modules is invalid, it points out of the filesystem root`
+#    ⇒ **看到上面任何一個 ⇒ 回來跑這一步,不要往下修。**
+#
+#    ⚠️ 而線D 當時跑的是 `--frozen-lockfile --ignore-scripts`(不是本行的 `--prefer-offline`),
+#    **兩者都成功起站**。🔴 而 `--ignore-scripts` 會不會讓某些套件裝不完整 —— **他沒有查**,
+#    ⇒ **以本行為準**(`--prefer-offline`);`--ignore-scripts` 只是「當時也能跑」,不是建議值。
 
 # ④ 在那棵樹起 next dev,指向鑽機的 PostgREST 代理;埠【換一個】,不要用 up.sh 那個
 . scripts/storefront-probe/env.sh
