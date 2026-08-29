@@ -339,8 +339,8 @@ A 尺撈到的「CI 已經連紅 74 小時」那一列, **B 尺撈不到** —�
 
 | 態 | # | 事 | 誰 | 卡什麼 / 關鍵事實 |
 |---|---|---|---|---|
-| open | — | **優惠券／折扣碼** —— Sean 逐字「開發啊,去做啊」 | **plan 等批** · 落點 `docs/specs/2026-08-26-coupon-schema-plan.md` | 🔴 **從零開始的新功能**:`優惠券`/`優惠卷`/`折扣碼`/`coupon` 於 backlog ⇒ **全 0**(正對照 `出貨單` ⇒ 18);code 三處全是「不做」註解(✅ **2026-08-25 線 4 補座標**:`apps/storefront/src/components/CheckoutStep2.tsx:35` / `CheckoutView.tsx:39` / `CartView.tsx:13`,逐句都是「優惠券…不做」並指回 `plan §3.2` 與 `#202`;數法 `grep -rn '優惠券\|折扣碼\|coupon' --include='*.tsx' apps/storefront/src` ⇒ **3**,負對照 `'優惠ZZZ券'` ⇒ 0)。~~**零條目、零 PRD、零 schema**~~(**2026-08-27 作廢,見本列末追記**)。必動訂單金額計算 ⇒ 鐵則 12① ⇒ **先寫 PRD 等批,不是直接開工** 🔵 **2026-08-27 b4 核查(主視窗抽驗)**:🔴 **本列左邊那句「零條目、零 PRD、零 schema」已作廢** —— PRD **已寫**:`docs/specs/2026-08-25-coupon-prd.md`(檔頭「Sean 2026-08-26 已答完(Q10 除外)。一行碼都還沒寫」)+ `2026-08-26-coupon-schema-plan.md`(「等批」)+ `2026-08-26-coupon-admin-crud-spec.md`。**碼與條目仍是零**(主視窗抽驗:`ls supabase/migrations \| grep -ci coupon` ⇒ **0**;`grep -cE "優惠券\|優惠卷\|折扣碼\|coupon" docs/phase-1-backlog.md` ⇒ **0**;負對照 `zzz優惠券negctrl` ⇒ 0)。Sean 08-26 拍「券片B緩做」。🔴 **b4 自標射程照抄(兩句,`-9e` 複量指出第一版只帶了前半)**:**「plan 在 ≠ 有人在做;§1 前三列只證檔在。」** |
-| open | — | **客戶篩選多軸 + 註冊表單加性別** —— 他逐字「當然要做啊......... 性別、生日這個在客戶註冊時候也要有」 | **plan 等批** · 落點 `docs/specs/2026-08-26-customer-filters-merged-plan.md` | 🔴 **他把範圍擴到顧客站了**,三段一起:註冊表單 / `customers` schema 加 `gender` / 後台篩選多軸。生日**已有一半地基**(`20260523034911:19` `birthday date`、`:231` 已有欄級 GRANT)⇒ 缺的是註冊表單有沒有在收。`gender` 全樹 0。命中 **12③ + 12⑤** ⇒ 對抗審查不降級。⚠️ **既有客人的回填策略他沒說 —— 那是還沒問的第六題** 🔵 **2026-08-27 b4 核查(主視窗抽驗)**:誰欄 ~~待寫 plan~~ ⇒ **plan 等批**,落點 `docs/specs/2026-08-26-customer-filters-merged-plan.md` + `2026-08-26-customer-gender-birthday-spec.md`(自陳「等批。一行碼都還沒寫」);backlog `#938`;碼仍 0(`grep -rln gender supabase/migrations apps packages` ⇒ 0)。🔴 **落檔只能寫「缺口已知並保留」, 不得寫「已合規」**(memory `project_0826-sean-gender-without-policy-change`)。⚠️ 第六題(既有客人回填)拍了沒 —— **b4 與主視窗都沒查, 未確認**。 |
+| open | — | **優惠券／折扣碼** —— Sean 逐字「開發啊,去做啊」 | **plan 等批** · 落點 `docs/specs/2026-08-26-coupon-schema-plan.md` | 🔴 **從零開始的新功能**:`優惠券`/`優惠卷`/`折扣碼`/`coupon` 於 backlog ⇒ **全 0**(正對照 `出貨單` ⇒ 18);code 三處全是「不做」註解(✅ **2026-08-25 線 4 補座標**:`apps/storefront/src/components/CheckoutStep2.tsx:35` / `CheckoutView.tsx:39` / `CartView.tsx:13`,逐句都是「優惠券…不做」並指回 `plan §3.2` 與 `#202`;數法 `grep -rn '優惠券\|折扣碼\|coupon' --include='*.tsx' apps/storefront/src` ⇒ **3**,負對照 `'優惠ZZZ券'` ⇒ 0)。~~**零條目、零 PRD、零 schema**~~(**2026-08-27 作廢,見本列末追記**)。必動訂單金額計算 ⇒ 鐵則 12① ⇒ **先寫 PRD 等批,不是直接開工** 🔵 **2026-08-27 b4 核查(主視窗抽驗)**:🔴 **本列左邊那句「零條目、零 PRD、零 schema」已作廢** —— PRD **已寫**:`docs/specs/2026-08-25-coupon-prd.md`(檔頭「Sean 2026-08-26 已答完(Q10 除外)。一行碼都還沒寫」)+ `2026-08-26-coupon-schema-plan.md`(「等批」)+ `2026-08-26-coupon-admin-crud-spec.md`。**碼與條目仍是零**(主視窗抽驗:`ls supabase/migrations \| grep -ci coupon` ⇒ **0**;`grep -cE "優惠券\|優惠卷\|折扣碼\|coupon" docs/phase-1-backlog.md` ⇒ **0**;負對照 `zzz優惠券negctrl` ⇒ 0)。Sean 08-26 拍「券片B緩做」。🔴 **b4 自標射程照抄(兩句,`-9e` 複量指出第一版只帶了前半)**:**「plan 在 ≠ 有人在做;§1 前三列只證檔在。」** | <br> 🔵 **2026-08-29 線A `-e9` 篩上線擋門時撞到、`-b9` 開檔複驗**:~~板上寫「從零開始的新功能」「backlog 全 0」~~ ⇒ **不成立** —— **兩支 migration 已經在 repo 裡**:`20260829150000_m4b_coupon_p1_tables.sql` 與 `20260829170000_m4b_2b1_admin_coupon_list_view.sql`(`-b9` 當場 `ls supabase/migrations | grep -ci coupon\|discount` ⇒ **2**, 並逐一列出檔名)。🛑 **態不改** —— **有 migration 不等於那件事做完了**;`-b9` **沒有查**它們 apply 了沒、也沒查後台 UI 那一半 ⇒ **只訂正「從零開始」那個字面。**📌 **⇒ 而那個字面會讓下一個接的人重新設計一次已經有人設計過的東西。**
+| open | — | **客戶篩選多軸 + 註冊表單加性別** —— 他逐字「當然要做啊......... 性別、生日這個在客戶註冊時候也要有」 | **plan 等批** · 落點 `docs/specs/2026-08-26-customer-filters-merged-plan.md` | 🔴 **他把範圍擴到顧客站了**,三段一起:註冊表單 / `customers` schema 加 `gender` / 後台篩選多軸。生日**已有一半地基**(`20260523034911:19` `birthday date`、`:231` 已有欄級 GRANT)⇒ 缺的是註冊表單有沒有在收。`gender` 全樹 0。命中 **12③ + 12⑤** ⇒ 對抗審查不降級。⚠️ **既有客人的回填策略他沒說 —— 那是還沒問的第六題** 🔵 **2026-08-27 b4 核查(主視窗抽驗)**:誰欄 ~~待寫 plan~~ ⇒ **plan 等批**,落點 `docs/specs/2026-08-26-customer-filters-merged-plan.md` + `2026-08-26-customer-gender-birthday-spec.md`(自陳「等批。一行碼都還沒寫」);backlog `#938`;碼仍 0(`grep -rln gender supabase/migrations apps packages` ⇒ 0)。🔴 **落檔只能寫「缺口已知並保留」, 不得寫「已合規」**(memory `project_0826-sean-gender-without-policy-change`)。⚠️ 第六題(既有客人回填)拍了沒 —— **b4 與主視窗都沒查, 未確認**。 | <br> 🔵 **2026-08-29 線A `-e9` 撞到、`-b9` 複驗**:~~板上寫「plan 等批」~~ ⇒ **生日那兩軸【已經上線】**:`f8f62cab`「客戶生日兩軸篩選 —— 而年齡走 o…」(2026-08-26T12:09),`-b9` 以 `git merge-base --is-ancestor f8f62cab HEAD` 驗過 **在 HEAD 上**。🔴 **而性別那半【線A 查無落點】⇒ 不要一起改** —— 這一列是**兩件事合在一格**, 只有一半做了。🛑 **態不改**(性別那半還開著)⇒ 只訂正「plan 等批」對生日那半而言已經過期。
 | open | #660 #390 | **商品編輯後台** —— ✅ Sean 2026-08-24 已定義範圍 | 線A / **plan 等批** · 落點 `~/pcm-mailbox/60-線2-20-商品編輯-選項丙-plan-20260825.md` ⏱ **落點 `c69dafa9`**(線 2 盤點、線 4 逐顆核過標題:`git log -1 --format='%s' c69dafa9` ⇒ 「docs(docs): #660 商品編輯後台開片前必答…」;負對照 `0000dead` ⇒ unknown revision)| 他逐字:「**可以編輯、新增手動商品,而編輯的功能更完善,可以編輯很多地方。只是會連動到報價單比較麻煩而已**」⇒ 三件:①**新增手動商品**(網站上沒有的)②既有商品**多欄位可編輯**③與同步管線共存。現況 `components/products/` 唯一表單是 `product-listing-form.tsx`(數法 2026-08-25 主視窗量:`ls apps/admin/src/components/products/ \| wc -l` ⇒ **11 支**、同目錄 `\| grep -c form` ⇒ **1**。⚠️ 同目錄另有 `product-listing-submit.tsx` —— **它是不是表單,這把尺(檔名含 `form`)分不出來**),檔頭自陳「上下架表單」⇒ 零編輯欄位、零新增入口 🔵 **2026-08-27 b4 核查(主視窗抽驗)**:誰欄 ~~待寫 plan~~ ⇒ **plan 等批**,落點 `~/pcm-mailbox/60-線2-20-商品編輯-選項丙-plan-20260825.md`;`docs/specs/2026-08-26-index-tonight.md:78` 逐字「Sean 拍 `Q1=丙`,**而 plan 本身還沒批**」。 |
 | open | — | 🔴 **商品編輯的真正難題:每天會被覆蓋一次** | **待寫 plan**(⚠️ 丙 plan 未涵蓋本題,見內文) | Sean 自己點到的「連動到報價單比較麻煩」= 本題核心。商品頁**自陳**逐字「**不能在後台改**」「**多數商品每天會被覆蓋一次**」(`apps/admin/src/app/products/[id]/page.test.tsx:255,354`)。同步管線 `scripts/rpm-delta.ts` 等會 upsert。🔴 **2026-08-24 複驗更正(換掉分母,原判作廢)**:~~「只有 1 支命中 `product_source\|is_manual\|origin`」⇒ 區分大概不存在~~ —— **那三個欄名是我猜的,分母是我自己列的**。改用【建表語句本身】當分母重量:`products` 出生 14 欄(`20260507004826_init_products.sql:23`)、後續 `ALTER TABLE products ADD COLUMN` 共 8 欄(`delisted_at highlights manuals price_general price_store sound_clips supplier_slug video_url`;負對照假表名 ⇒ 0)⇒ ✅ **區分【存在】,叫 `supplier_slug`**,`20260602135934:34` `NOT NULL DEFAULT 'rpm'`。⇒ **真正的題目換掉了**:不是「要加一個欄位」,是「**手動商品的 `supplier_slug` 填什麼,而同步管線看到那個值要略過它**」。同步端是另一個 repo ⇒ 跨 repo 合約 🔵 **2026-08-27 b4 核查(主視窗抽驗)**:🔴 **那份丙 plan 沒接本列的核心題** —— `grep -c supplier_slug ~/pcm-mailbox/60-線2-20-商品編輯-選項丙-plan-20260825.md` ⇒ **0**;而 `DEFAULT 'rpm'` 仍活(`supabase/migrations/20260602135934:34-35`,後續零改 default)。態 open 不動。 |
 | parked | #236 | 安裝預約／合作店家「即將上線」 | **等時機:**上線後 | ✅ **他裁「尚未做,等上線運作後再補」** ⇒ 那兩個入口**留著**,不是缺陷。**下一個盤點的人不要再報一次** |
@@ -485,6 +485,35 @@ A 尺撈到的「CI 已經連紅 74 小時」那一列, **B 尺撈不到** —�
 | done | #905 | 出貨數量欄可以清空 | — | ✅ `af201cc2`(2026-08-24)。守門 45 → 59,三發突變各紅 5/3/4 格(✅ **2026-08-25 線 4 補座標**:那些格住在 **`apps/admin/src/components/orders/shipment-dialog.test.tsx`** —— `git show --stat af201cc2` ⇒ 該顆只動兩支檔,測試那支 **+196 行**、元件 `shipment-dialog.tsx` +115 ⇒ 重跑 `pnpm vitest run apps/admin/src/components/orders/shipment-dialog.test.tsx`;負對照 `git show --stat af201ccz` ⇒ unknown revision)。🔴 **而 code-reviewer 抓到作者把隔壁那道 N2 守門殺死了** —— 「尺量的是顯示層,而我把真相搬離了畫面」,而那正是作者當時在寫的那條教訓。⚠️ **閘③(SQL `quantity <= 0`)未驗**,卡在 `#907`。⚠️ park 一條:靜默夾(remaining=2 打 9 ⇒ 夾成 2 而沒有提示)—— 設計題不是 bug <br> 🔴 **2026-08-25 態欄正規化**(原 `~~open~~ **done**`, 不在封閉集)。
 | open | #903 | B5-a 的 rollback 是**紙上約束** | 待派 | 正確動作是輪換 `ADMIN_SESSION_SECRET`,不是移除 env。而 `git revert` 預設丟掉 body ⇒ 那條約束若只寫在 body,**恰好在最需要它的那天看不到**(`ede72879` 的 subject 因此帶著 runbook 名字) |
 | done | — | 🔴 **B5-a 的 `20260824030000` 仍未 apply** | Sean | 加 `admin_sso_login_events.actor_kind` / `.actor_staff_id`。空窗期由 `login-event.ts` 一段會出聲的退回路徑接住。⚠️ **順序是硬的且與直覺相反**:先加欄後接線(欄位閒置、無事);先接線後加欄 ⇒ 每次登入靜默降級  ✅ **2026-08-24 夜 Sean 本人貼,螢幕逐字回「Success. No rows returned」**,已記進 `supabase/APPLIED.tsv`。⇒ **此刻起靜默降級關閉**(接線碼 `ede72879` 早就上線了) <br> 🔴 **2026-08-25 態欄正規化**(原 `~~open~~ **done**`, 不在封閉集)。
+
+
+### 🔵 2026-08-29 線A `-e9` 篩過一輪「哪幾列真的擋上線」—— 而**標記沒有落到每一列上**
+
+```
+分母 131 件 open（它當場 grep -c '^| open ' 數的）⇒ 判【擋上線】39 列
+  型① 卡 Sean 一句話  7 列    型② 卡技術前置 28 列    型③ 卡外部 4 列
+  另一族「災難還原」4 列 ⇒ 它單獨放，因為那擋的是「出事之後救不救得回」
+交件全文 ~/pcm-mailbox/線A-上線擋門篩選-20260829.md（128 行）
+```
+
+🛑 **而 `-b9`(板子單一寫者)【沒有】把那 39 個標記寫到每一列上, 理由是量到的**:
+```
+型①  用【錨點】標 ⇒ 4 個，對得回板子
+型②③ 用【描述文字】標，沒有錨點
+🔴 -b9 拿最長中文片段當指紋去比 ⇒ 29 條裡 23 條唯一命中、8 條【0 命中或多重命中】
+```
+📌 **⇒ 而那 23 條的「唯一命中」是【`-b9` 的比對器】說的, 不是線A 說的** ——
+**一個唯一命中仍然可能是錯的那一列, 而標上去之後沒有人分得出它是誰判的。**
+⇒ **要落到列上, 需要線A 補錨點(或列號)。** 在那之前這一節就是那份篩選在板子上的落點。
+
+### ⚠️ 而線A 自己標的兩格誠實邊界, 照抄不壓縮
+```
+① 它【沒有逐列開檔】—— 判準吃的是板子「關鍵事實」那一欄
+   ⇒ 🔴 每一條的效度上界 = 那一欄的效度上界。那一欄錯，它就跟著錯。
+② 131 不是分母 —— 板尾自己列的七條沒涵蓋的裡，最硬的是「線A 的後台 UI 那一塊完全沒盤」
+```
+✅ **而它查到【至少 2 列】已做完而板子還開著**(它明寫只掃 18 個關鍵字 ⇒ **那是下界**),
+`-b9` 已逐列複驗並訂正字面(優惠券那列 / 客戶篩選那列)—— **兩列的態都沒動, 理由寫在列上。**
 
 ## 🔴 這張板子沒涵蓋什麼(不要把它讀得比它大)
 
