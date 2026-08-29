@@ -160,6 +160,40 @@ export type ProductAvailability = 'in-stock' | 'out-of-stock';
  * 註:ADR §4 #6 字面是 `Map<MemberTier, Money>`、本實作為 Record(JSON 序列化友善、
  * storefront server-side render 不需 hand-roll Map serializer);兩者語意等價。
  */
+/**
+ * 🔴🔴 **這個 map 裡的值【不是同一個單位】—— 而它們是同一個型別 `Money`。**
+ *
+ * ```
+ * general      = 【含稅】   顧客站標價(ProductInfo 逐字「含稅 · 滿 NT$ 5,000 免運」)
+ * store        = 【未稅】   經銷價
+ * premiumStore = 【未稅】   ⚠️ 這一格是【推的, 不是拍板的】——
+ *                          `computeEffectivePrice` 是拿 store × (1 - premium_extra_pct/100)
+ *                          算出來的 ⇒ 單位跟著 store 走。Sean 沒有對這一格說過話。
+ * ```
+ *
+ * **來源 = memory `project_0829-pricing-tax-convention`(2026-08-29 Sean 逐字**
+ * **「網站售價都含稅沒問題,但是經銷價都是未稅。」)—— 【不是】對本檔說的、也不是當場問來的。**
+ * ⇒ **不加 5%**:他原本在考慮全站 +5%,問清楚之後不做 —— 那會是漲價,不是加稅。
+ *
+ * 🔴 **為什麼這句話住在【這一行】而不是住在文件裡**:
+ * 危險的形狀 =【同型別、不同單位】,而**這一行正是宣告它們同型別的地方**。
+ * ⇒ 任何把兩者相比、相減、混進同一張單的地方,都會拿含稅數字去和未稅數字算,
+ *   而**兩邊都印一個正常的整數** —— 沒有欄位、型別或命名說得出這個數字含不含稅。
+ *
+ * ⚠️ **時態(2026-08-29 線D 複量, 推翻原本的寫法 —— 這一格會決定下一個人做什麼)**:
+ * **不是「已經在發生」。今天零個生產碼拿 `price_store` 定價**
+ * (命中的 9 處逐處開過, 全是註解裡的排除宣告)。
+ * ⇒ **它會在【接通的那一刻】從 0 變成必然** ——
+ *   22,786 個商品只有 1 個有填 `price_store` ⇒ 接通後購物車幾乎一定同時有未稅列與 fallback 的含稅列。
+ * 📌 **⇒ 該做的是【在接通那一刀裡把單位帶上】, 不是現在去修一個還不存在的東西。**
+ *
+ * ⚠️ **本註解涵蓋【今天的三個 tier】。`MemberTier` 日後多一個 ⇒ 那一格才是真的未拍板,**
+ * **要回來判它的單位。**
+ * 🔴 **而 `premiumStore` 那格的依據是【那行乘法】, 不是拍板** ——
+ * 哪天有人把它改成「另外查一個欄位」, 那個「未稅」就會**靜靜地失去依據, 而沒有東西會叫**。
+ *
+ * @see packages/domain/src/catalog/pricing.ts computeEffectivePrice(回傳值單位隨 tier 而變)
+ */
 export type PriceByTier = Record<MemberTier, Money>;
 
 /**

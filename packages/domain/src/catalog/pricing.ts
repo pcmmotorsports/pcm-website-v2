@@ -32,6 +32,10 @@ import { toMoneyAmount } from '../shared/types';
  * @param tier MemberTier enum(`'general'` | `'store'` | `'premiumStore'`)
  * @returns Money(tier-aware 顯示價、currency 對齊 store tier)
  *
+ * 🔴 **而回傳值的【單位隨 tier 而變】,而型別不變** —— `general` 回的是【含稅】,
+ * `store` 與 `premiumStore` 回的是【未稅】。三者都是 `Money`,呼叫端分不出來。
+ * ⇒ 完整論證與來源:`packages/domain/src/catalog/types.ts` 的 `PriceByTier` 上方。
+ *
  * @example
  * computeEffectivePrice(product, 'general')      // → product.priceByTier.general
  * computeEffectivePrice(product, 'store')        // → product.priceByTier.store
