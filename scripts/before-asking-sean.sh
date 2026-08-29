@@ -45,10 +45,14 @@ fi
 
 # 🔴 標籤一律由結果決定 —— 本檔自己不得違反 `block-unconditional-echo-label` 那條。
 #    (那條的成因:`cmd; echo "(空 = 零命中)"` 在【有命中】時照樣印,而它就印在命中的正下方。)
+# 🔴 而它同時記帳:這一段是不是零。**第二輪要靠這個數決定跑不跑**,
+#    而【不是靠人看完五段之後自己判斷】—— 那正是本檔第二輪存在的理由。
+ZERO_N=0
 report() {  # report <這一發掃了什麼> <輸出檔>
   if [ -s "$2" ]; then
     sed 's/^/    /' "$2"
   else
+    ZERO_N=$((ZERO_N + 1))
     printf '    ⇒ 掃了 %s, 零命中\n' "$1"
   fi
 }
@@ -58,6 +62,7 @@ section() { printf '\n═══ %s ═══\n  指令: %s\n' "$1" "$2"; }
 sweep() {
   local KW="$1"
   local TMP; TMP="$(mktemp -t basweep)"
+  ZERO_N=0
 
   printf '\n\n########## 關鍵字: %s ##########\n' "$KW"
 
@@ -101,6 +106,60 @@ sweep() {
   report "全 repo 命中處往下 10 行" "$TMP"
 
   rm -f "$TMP"
+}
+
+# ══ 🔴 第二輪:五段全零時【自己換一批字再跑一次】════════════════════════
+#
+# 🔴 **為什麼是機制不是一句話**(2026-08-30 線G 實例, 而受害者是本檔自己):
+#    有人跑 `before-asking-sean.sh "出貨信 時區"` ⇒ **五段全零**,
+#    而那個答案**就在 repo 裡** —— 它住在 `Q-出貨信起點` 與一支 `.ts` 的檔頭註解,
+#    要用常數名 `SHIPPED_EMAIL_CUTOFF` 才撈得到。
+#    ⇒ 📌 **本檔的存在理由就是防「答案落在提問者不會去的地方」——而它自己就是那樣失敗的。**
+#    ⚠️ 而本檔輸出末尾**已經有一份誠實的射程清單**(三樣掃不到的),
+#       **而「關鍵字沒對上」不在上面** ⇒ ⇒ **一份沒有被讀完的清單, 再加一行不會被讀到。**
+#       ⇒ **所以修法是「它自己再跑一次」, 不是「多印一句提醒」。**
+#
+# 變體怎麼生(只用【使用者給的字】推,不猜語意):
+#   · 拆詞:空白 / 全形空白 / 頓號 分開
+#   · 每個詞的 SCREAMING_SNAKE 與 camelCase(只對 ASCII 詞有意義, 中文原樣保留)
+#   · 整串去空白
+variants_of() {  # variants_of "<原關鍵字>"
+  printf '%s\n' "$1" | tr ' 、　' '\n\n\n' | while IFS= read -r w; do
+    [ -n "$w" ] || continue
+    printf '%s\n' "$w"
+    # ASCII 詞才生大小寫變體
+    case "$w" in
+      *[!\ -~]*) : ;;
+      *) printf '%s\n' "$(printf '%s' "$w" | tr 'a-z-' 'A-Z_')"
+         printf '%s\n' "$(printf '%s' "$w" | tr 'A-Z_' 'a-z-')" ;;
+    esac
+  done
+  printf '%s\n' "$(printf '%s' "$1" | tr -d ' 、　')"
+  # 🔴 **合併形**才是真正撈得到東西的那一種(2026-08-30 實例:`shipped email cutoff`
+  #    ⇒ 逐詞變體全部零命中, 而 `SHIPPED_EMAIL_CUTOFF` 一發命中)。
+  #    ⇒ 只對【全 ASCII】的關鍵字生, 中文不生(生出來也沒有意義)。
+  case "$1" in
+    *[!\ -~]*) : ;;
+    *) printf '%s\n' "$(printf '%s' "$1" | tr ' ' '_' | tr 'a-z-' 'A-Z_')"
+       printf '%s\n' "$(printf '%s' "$1" | awk '{for(i=1;i<=NF;i++){if(i==1)printf tolower($i);else printf toupper(substr($i,1,1)) tolower(substr($i,2))}print ""}')" ;;
+  esac
+}
+
+second_round() {  # second_round "<原關鍵字>"
+  printf '\n\n🔁 ═══ 第二輪(觸發條件:第一輪【五段全零】)═══\n'
+  printf '  🔴 五段全零【最常見的成因不是「沒有人做」, 是【關鍵字沒對上】。\n'
+  printf '     ⇒ 本輪由工具自己換一批字重跑, 不需要任何人記得。\n'
+  V="$(variants_of "$1" | sort -u | grep -v "^$(printf '%s' "$1" | sed 's/[].[^$\\*/]/\\&/g')$")"
+  if [ -z "$V" ]; then
+    printf '  ⇒ 這個關鍵字生不出任何變體(單一中文詞)⇒ 第二輪【沒有東西可跑】\n'
+    printf '  🛑 ⇒ 而那【不是】「確認沒有」—— 請自己換成常數名 / 檔名 / 英文識別字再跑一次。\n'
+    return 0
+  fi
+  printf '  變體清單:%s\n' "$(printf '%s' "$V" | tr '\n' ' ')"
+  printf '%s\n' "$V" | while IFS= read -r v; do
+    [ -n "$v" ] || continue
+    sweep "$v"
+  done
 }
 
 scope_note() {
@@ -148,7 +207,37 @@ selftest() {
   if [ "$P" -lt 5 ]; then printf '  ✅ 正對照:它真的撈得到東西\n'; else printf '  🔴 正對照全零 ⇒ 本 script 是死的\n'; RC=1; fi
   if [ "$N" -eq 5 ]; then printf '  ✅ 負對照:現造字面五段全零\n'; else printf '  🔴 負對照有命中 ⇒ 它在亂撈\n'; RC=1; fi
 
-  rm -f "$T1" "$T2"
+
+  # ══ 🔴 第二輪的兩發(2026-08-30 加;**這一格是「第二輪成不成立」的唯一判準**)══
+  #    沒有它, 第二輪只是「多跑幾次」—— 而多跑幾次不等於多撈到東西。
+  local T3 T4 Z3A Z3B Z4A Z4B
+  T3="$(mktemp -t basweep3)"; T4="$(mktemp -t basweep4)"
+
+  # 正對照:一個【只有合併成 SCREAMING_SNAKE 才撈得到】的關鍵字。
+  #   `shipped email cutoff` ⇒ 第一輪五段全零;而 `SHIPPED_EMAIL_CUTOFF` 撈得到。
+  bash "$0" 'shipped email cutoff' > "$T3" 2>&1
+  Z3A="$(sed -n '/關鍵字: shipped email cutoff/,/第二輪/p' "$T3" | grep -c '零命中')"
+  Z3B="$(sed -n '/關鍵字: SHIPPED_EMAIL_CUTOFF/,/##########/p' "$T3" | grep -c '零命中')"
+  printf '\n  第二輪 正對照「shipped email cutoff」\n'
+  printf '    第一輪零命中段數 = %s (期望 5)\n' "$Z3A"
+  printf '    第二輪 SHIPPED_EMAIL_CUTOFF 的零命中段數 = %s (期望 < 5)\n' "$Z3B"
+
+  # 負對照:一個現造字面 ⇒ **兩輪都要全零**(否則第二輪只是變得比較會亂命中)。
+  local NEG2; NEG2="ZZQ$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')nowhere"
+  bash "$0" "$NEG2" > "$T4" 2>&1
+  Z4A="$(sed -n "/關鍵字: $NEG2/,/第二輪/p" "$T4" | grep -c '零命中')"
+  Z4B="$(grep -c '零命中' "$T4")"
+  printf '  第二輪 負對照 %s\n' "$NEG2"
+  printf '    第一輪零命中段數 = %s (期望 5)\n' "$Z4A"
+  printf '    整份輸出的零命中段數 = %s (期望 = 每一輪都 5 的倍數, 而【不得有任何一段命中】)\n' "$Z4B"
+
+  if [ "$Z3A" -eq 5 ] && [ "$Z3B" -lt 5 ]; then
+    printf '  ✅ 第二輪【有判別力】:第一輪撈不到而第二輪撈得到\n'
+  else
+    printf '  🔴 第二輪沒有判別力 —— 它只是多跑了幾次\n'; RC=1
+  fi
+
+  rm -f "$T1" "$T2" "$T3" "$T4"
   if [ "$RC" -eq 0 ]; then printf '⇒ selftest PASS(兩個世界印不同的東西)\n'; else printf '⇒ selftest FAIL\n'; fi
   return "$RC"
 }
@@ -163,5 +252,9 @@ fi
 
 if [ "$1" = "--selftest" ]; then selftest; exit "$?"; fi
 
-for KW in "$@"; do sweep "$KW"; done
+for KW in "$@"; do
+  sweep "$KW"
+  # 🔴 五段全零 ⇒ 自己再跑一輪(而不是印一句話叫人自己想)
+  if [ "$ZERO_N" -eq 5 ]; then second_round "$KW"; fi
+done
 scope_note
