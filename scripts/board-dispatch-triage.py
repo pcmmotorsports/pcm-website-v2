@@ -41,7 +41,7 @@ def rows(path):
 
 def triage(rs):
     """待派 x 有沒有標記 ⇒ 兩堆。判準是【逐字子字串】, 不是分類器。"""
-    blocked, ready = [], []
+    blocked, ready, notopen = [], [], []
     marked = 0
     for i, state, what, who, body in rs:
         has_mark = any(m in body for m in MARKERS)
@@ -49,13 +49,21 @@ def triage(rs):
             marked += 1
         if '待派' not in who:
             continue
-        (blocked if has_mark else ready).append((i, who, what))
-    return blocked, ready, marked
+        if has_mark:
+            blocked.append((i, who, what))
+        elif state != 'open':
+            # 🔴 態 != open 的不進可派名單(-b4 2026-08-30 量到「可派」裡混著
+            #    done 21 / parked 4 / doing 3)。配套規矩是 -b9 落的(ba7111ca):
+            #    態 = done 的列, 誰欄【不是權威】 ⇒ 判「還要不要做」看態、不看誰欄。
+            notopen.append((i, state, what))
+        else:
+            ready.append((i, who, what))
+    return blocked, ready, notopen, marked
 
 
 def main(path):
     rs = rows(path)
-    blocked, ready, marked = triage(rs)
+    blocked, ready, notopen, marked = triage(rs)
 
     print(f'掃過的資料列 = {len(rs)}   內文帶標記的列 = {marked}')
     print(f'字集 = {" / ".join(MARKERS)}   板子 = {path}')
@@ -93,6 +101,11 @@ def main(path):
     for v, n in collections.Counter(w for _, _, _, w, _ in rs if w).most_common(12):
         print(f'   {n:4d}  [{v[:72]}]')
 
+    print(f'\n⛔ 誰欄寫「待派」而態【不是 open】({len(notopen)} 列) —— 不進可派名單')
+    print('   （態 = done 的列，誰欄不是權威；判「還要不要做」看態、不看誰欄）')
+    for i2, st, what in notopen:
+        print(f'   :{i2}  態={st:8s} {what[:66]}')
+
     print('\n📎 射程在最上面那段（刻意不放這裡 —— 放這裡等於沒放）')
     return 0
 
@@ -107,21 +120,24 @@ def selftest():
         '| open | A3 | 丙事 | 待派 | 平行重驗請跳過本列並回報 |\n'
         '| open | A4 | 丁事 | -b9 | 內文乾淨而已經有人拿著, 不該進任何一堆 |\n'
         '| open | A5 | 戊事 | 要面板 + 要 code | 重驗中 -b9 —— 第4欄答非所問 |\n'
+        '| done | A6 | 己事 | 待派 | 內文乾淨而態是 done ⇒ 不該進可派名單 |\n'
     )
     fd, p = tempfile.mkstemp(suffix='.md'); os.close(fd)
     io.open(p, 'w', encoding='utf-8').write(board)
     try:
-        b, r, marked = triage(rows(p))
+        b, r, no, marked = triage(rows(p))
         bl = sorted(x[2] for x in b)
         rl = sorted(x[2] for x in r)
         checks = [
-            ('資料列數 = 5（表頭與分隔列不算）', len(rows(p)) == 5),
+            ('資料列數 = 6（表頭與分隔列不算）', len(rows(p)) == 6),
             ('負對照① 待派+有標記 ⇒ 被抓（甲丙兩列）', bl == ['丙事', '甲事']),
             ('負對照② 待派+乾淨 ⇒ 進可派名單（乙）', rl == ['乙事']),
             ('乙【沒有】被誤抓進不要派', '乙事' not in bl),
             ('丁(有主+乾淨) 兩堆都不進', '丁事' not in bl and '丁事' not in rl),
             ('戊(第4欄答非所問) 兩堆都不進', '戊事' not in bl and '戊事' not in rl),
             ('帶標記的列數 = 3（甲丙戊）', marked == 3),
+            ('負對照③ 待派+乾淨但態=done ⇒ 不進可派名單', '己事' not in rl),
+            ('而它要進「態不是 open」那一堆，不得靜靜消失', '己事' in [x[2] for x in no]),
         ]
     finally:
         os.unlink(p)
