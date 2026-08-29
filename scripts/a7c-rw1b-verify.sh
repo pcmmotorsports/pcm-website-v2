@@ -46,7 +46,18 @@ case "$MODE" in all|run) : ;; *) echo "🔴 mode 只接受 all|run(收到:$MODE)
 #    ⇒ ①w7-coverage 的 invoke 行給不了專用埠、②多窗同時跑必撞同一個埠、
 #      ③更陰的是**呼叫者以為自己換了埠**(B 窗 2026-08-11 就這樣「換到 54348」實際還是 54331)。
 #    改成可被 env 覆寫,預設值不變。
+#    🔴🔴 **而這一段自己預言的那個病,2026-08-29 又發生一次 —— 用的是【另一個變數名】。**
+#    線C 送了 `A7C_VERIFY_PORT=54893 bash scripts/a7c-rw1b-verify.sh …`,
+#    ⇒ **它跑在 54331 上**,而畫面上沒有任何東西說「你設的那個沒有生效」。
+#    ⇒ 📌 成因:`A7C_VERIFY_PORT` **在本檔裡真的存在**(`:190` `:1397` 往下傳給 sibling),
+#      ⇒ 🔴 **所以它不是打錯字 —— 是一個【真的、而職務不同】的變數名。**
+#      ⇒ ⇒ 而那比打錯字難發現一格:打錯字沒有人會替你解釋,
+#         **而一個 grep 得到的變數名會讓你以為自己找對了。**
+#    ✅ **⇒ 要換埠的人:用 `PORT=xxxx bash scripts/a7c-rw1b-verify.sh …`,只有這一個。**
+#    ✅ **⇒ 而換完【當場驗一發】**:`lsof -nP -iTCP:<你設的埠> -sTCP:LISTEN | wc -l` 應 >0,
+#       且 `…:54331` 應為 0 —— **兩邊都量,只量一邊的話「沒生效」與「生效了」印同一個數字。**
 PORT="${PORT:-54331}"
+echo "ℹ️  本發使用的埠 = ${PORT}(要換請用 PORT=xxxx;A7C_VERIFY_PORT 不是這個開關)"
 URL="postgresql://postgres@127.0.0.1:${PORT}/postgres"
 AURL="${URL}?application_name=rw1b_sess_a"
 BURL="${URL}?application_name=rw1b_sess_b"
