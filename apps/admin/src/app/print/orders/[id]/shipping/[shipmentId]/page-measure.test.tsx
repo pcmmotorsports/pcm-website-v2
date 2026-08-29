@@ -656,6 +656,13 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
       const one = await measure(await emit(2, 'shipping-2item'));
       const many = await measure(await emit(3, 'shipping-3item'));
 
+      // 🔴 SHIPBRANCH1(2026-08-29 `-b9`):【尚未出貨:無】那一條分支 —— 它零守門, 而 Sean 印的是它。
+      //    門檻是 `-b9` 在【本 repo 的 fixture 上】實測探點來的(1..7 逐點), 不是從線A 的數字抄的:
+      //      1..5 項 ⇒ 1 頁 · 6 項起 ⇒ 2 頁
+      //    📌 兩份不同 fixture 落在同一個門檻上 ⇒ **那是收斂, 不是同一份數字複印兩次。**
+      const noOut5 = await measure(await emitNoOutstanding(5, 'shipB-5item'));
+      const noOut6 = await measure(await emitNoOutstanding(6, 'shipB-6item'));
+
       // 🔴 **世界活錨:這一發要說得出它站在哪一條分支上。**
       //    出貨單有兩條(`shipping-doc.tsx` 的 `outstandingRows.length === 0 ? 一行字 : 整張表`),
       //    而決定者是 `item.quantitySummary` —— 本檔 fixture 給的是 `null`
@@ -673,6 +680,27 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
           '這張訂單沒有還欠客人的品項',
         );
       }
+
+      // ✅ SHIPBRANCH1 的世界活錨:那兩份必須真的走【另一條】——
+      //    🛑 而【不能用 `not.toContain('尚未出貨')`】:兩條分支都印那四個字。
+      //       無 ⇒「尚未出貨:無 —— 這張訂單沒有還欠客人的品項。」
+      //       有 ⇒「尚未出貨   這張訂單還欠客人的東西(不含這一箱要寄的)」
+      //    ⇒ 分得開兩個世界的是【那句話】, 不是那四個字。(`-b9` 第一版寫錯, 一裝就紅。)
+      for (const [label, html] of [
+        ['無未出貨 5 項', noOut5.html],
+        ['無未出貨 6 項', noOut6.html],
+      ] as const) {
+        expect(html, `${label}:必須走「無未出貨」那條`).toContain('這張訂單沒有還欠客人的品項');
+        expect(html, `${label}:不得同時走「有未出貨表」那條`).not.toContain(
+          '這張訂單還欠客人的東西',
+        );
+      }
+      // 🔴 點收在門檻上(5⇒6), 不是 1 與 12 —— 離門檻太遠的兩點擋不住「往前挪一格」。
+      expect(noOut5.pages, '無未出貨 5 項 ⇒ 恰 1 頁').toBe(1);
+      expect(noOut6.pages, '無未出貨 6 項 ⇒ 恰 2 頁').toBe(2);
+      // ⚠️ 射程(寫成【它證不到什麼】):本守門量的是 CSS 框內的頁數,
+      //    而 Sean 那台的可用高比我們宣告的窄(他實測縮到 93% 才一頁)
+      //    ⇒ **這兩格全綠, 不代表他印得完。**
 
       // 🔴 餘裕:**只印, 不斷言**。而 `used` 為 null 代表 `.print-sheet` 不見了 ⇒ 那要紅。
       expect(one.used).not.toBeNull();
