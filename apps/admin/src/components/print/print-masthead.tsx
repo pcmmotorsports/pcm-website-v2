@@ -59,6 +59,8 @@
  * 🔴 分隔用的是**全形空格 `　`(U+3000)**,取自 OD 產物 `預覽-出貨明細單.html` 的 `.pd-i1/.pd-i2`。
  *    ⚠️ 它看起來像兩個半形空格,**而它不是**。用半形取代會讓紙上三段字擠在一起。
  */
+import { LOGO_DATA_URI } from './print-assets';
+
 const ISSUER_NAME = '派達有限公司';
 const ISSUER_LINE1_REST = '　PCM MOTOR PARTS LTD　統一編號 90003020';
 const ISSUER_LINE2 = '新北市新莊區化成路736巷18號1樓';
@@ -84,7 +86,14 @@ export function PrintMasthead() {
           <i />
           <i />
         </div>
-        {/* 🔴🔴 **這張圖在【伺服器渲染】那條路上 100% 不會出現。**
+        {/* ⛔ ~~🔴🔴 **這張圖在【伺服器渲染】那條路上 100% 不會出現。**~~
+            ✅ **2026-08-29 已修(線A):`src` 改成 `LOGO_DATA_URI`(`./print-assets`)**
+               ⇒ 那張圖不再是一個【要去拿】的東西 ⇒ 沒有請求, 就沒有 303。
+            🔴 **而上面那句劃線不刪, 因為它解釋的東西【沒有過期】** ——
+               「為什麼員工看得到而伺服器看不到」仍然成立;過期的只有「還沒修」那半。
+            🛑 **⇒ 下一個人若看到「圖拿不到」而想去動 `proxy.ts` 的 matcher ⇒ 先讀下面那段否決理由。**
+            ── 以下是修之前的現場, 保留 ──
+            **(修之前)這張圖在伺服器渲染那條路上不會出現。**
             `proxy.ts:80` 的 matcher 沒排除 `public` ⇒ 沒有 cookie 的請求會被 303。
             · 員工用瀏覽器列印 ⇒ 分頁登入過、`<img>` 帶同一顆 cookie ⇒ **看得到**
             · Sean 08-23 拍板的「出貨單出圖走伺服器渲染」⇒ **沒有任何人的 cookie ⇒ 必然缺圖**
@@ -96,7 +105,7 @@ export function PrintMasthead() {
               ✅ **採用的修法是 `LOGO_DATA_URI`**(同檔)—— 讓那張圖不再是一個要去拿的東西。
               ⚠️ 而下面那個 `proxy.ts:80` 行號**已經漂到 `:84`**(該檔 85 行)(**不是本檔**),已交下手窗排 backlog。
             📌 這段寫在這裡而不是只寫在交件檔 —— **交件檔不會被下一個開這支檔的人讀到。** */}
-        <img className='pd-logo' alt='PCM MOTOR PARTS' src='/print/logo-p2-bicolor.png' />
+        <img className='pd-logo' alt='PCM MOTOR PARTS' src={LOGO_DATA_URI} />
       </div>
       <div className='pd-issuer'>
         <div className='pd-i1'>

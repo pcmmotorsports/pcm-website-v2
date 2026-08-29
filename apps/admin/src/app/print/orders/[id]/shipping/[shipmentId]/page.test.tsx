@@ -559,7 +559,18 @@ describe('#10 片2b — 版面', () => {
     //    `background-image` 時,螢幕上一模一樣、三綠全綠,**只有紙上會少東西**。
     const { container } = await renderPage();
     const imgs = [...container.querySelectorAll('img')].map((i) => i.getAttribute('src'));
-    expect(imgs).toEqual(['/print/logo-p2-bicolor.png', '/print/line-qr.png']);
+    // 🔴 2026-08-29 線A:從【等於這兩個網址】改成【不得是任何會發出請求的東西】。
+    //    理由:那兩個網址走 `proxy.ts` 的登入閘 ⇒ 沒有 cookie 的請求(伺服器渲染出圖)被 303,
+    //    而症狀是【圖不見了, 不是錯誤】—— 三綠全綠、零告警。
+    //    ⇒ 舊斷言擋的是「網址變了」(連變成更安全的也擋);新斷言擋的是
+    //      【網址回到一個要登入的地方】⇒ 它允許更好的做法, 只禁止重新打開那個缺口。
+    expect(imgs).toHaveLength(2);
+    for (const src of imgs) {
+      expect(src?.startsWith('data:image/png;base64,')).toBe(true);
+      expect(src).not.toMatch(/^\/print\//); // 走登入閘 ⇒ 無 cookie 被 303
+      expect(src).not.toMatch(/^https?:\/\//); // 外部網址 ⇒ 容器不一定連得出去
+      expect(src).not.toMatch(/^\/_next\//); // 靜態資源 ⇒ 仍然是一次 HTTP 請求
+    }
     // 每張圖都要有 alt(單色印表機印不出來時,螢幕上至少讀得到那是什麼)。
     expect([...container.querySelectorAll('img')].every((i) => (i.getAttribute('alt') ?? '') !== '')).toBe(true);
     // 🔴 **原始碼層**:元件裡不准出現 background-image / backgroundImage。
@@ -582,10 +593,13 @@ describe('#10 片2b — 版面', () => {
     expect(DOC).not.toContain('background-image');
     expect(DOC).not.toContain('backgroundImage');
     // 正向對照:證明上面那兩個 0 不是因為檔案讀成空字串。
-    expect(DOC).toContain("src='/print/line-qr.png'");
+    expect(DOC).toContain('src={QR_DATA_URI}');
     // 🔴 第二個正對照:證明【masthead 那半】也真的被讀進來了 —— 少了它,
     //    上面兩個 0 會在「masthead 讀成空字串」的世界裡照樣成立。
-    expect(DOC).toContain("src='/print/logo-p2-bicolor.png'");
+    expect(DOC).toContain('src={LOGO_DATA_URI}');
+    // 🔴 2026-08-29 線A:兩個正對照的【字面】跟著改法換了, 而它們的【性質沒變】——
+    //    仍然各自證明「那一支檔真的被讀進來了」(少了它, 上面兩個 0 會在
+    //    「檔案讀成空字串」的世界裡照樣成立)。⇒ 換字面不是降級, 前提是性質保住。
   });
 
   it('🔴🔴 片4b:出貨單【不得讀 `lineTotal`】—— 型別帶進來了,而紙上不准用它', async () => {

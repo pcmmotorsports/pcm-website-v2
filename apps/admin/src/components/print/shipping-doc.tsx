@@ -1,4 +1,5 @@
 import { stripPictographs } from '@/lib/print/strip-pictographs';
+import { QR_DATA_URI } from './print-assets';
 import type {
   AdminOrderDetail,
   AdminOrderDetailFullItem,
@@ -1044,7 +1045,10 @@ export function ShippingDoc({
               <section className='pd-contact'>
                 {/* 🔴 同 LOGO 那段:伺服器渲染路上這張 QR 也是 100% 被 303(`proxy.ts:80`)。
                     ⚠️ 而 QR 缺了比 LOGO 貴:客人**掃不到**就聯絡不上,而紙上看起來只是少一塊。 */}
-                <img className='pd-qr' alt='LINE 官方帳號 QR Code' src='/print/line-qr.png' />
+                {/* 🔴 `src` 是內嵌常數, 不是 `/print/line-qr.png` —— 那個網址走 `proxy.ts`
+                    的登入閘, 沒有 cookie 的請求(伺服器渲染出圖)會被 303, 而症狀是
+                    【圖不見了, 不是錯誤】。否決過的三案與理由見 `./print-assets.ts` 檔頭。 */}
+                <img className='pd-qr' alt='LINE 官方帳號 QR Code' src={QR_DATA_URI} />
                 <div className='pd-ctxt'>
                   <div className='pd-ch'>加入官方 LINE 帳號</div>
                   {/* 🔴 **`lin.ee/egsf1Jy` 是【新增在紙上的字面】**,取自稿逐字。

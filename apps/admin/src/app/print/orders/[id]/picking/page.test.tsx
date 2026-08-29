@@ -148,6 +148,27 @@ describe('#10 片1 揀貨單列印頁', () => {
     expect(t).toContain('顏色: 黑');
   });
 
+  it('①b🔴 抬頭那張 LOGO 不得是一個【要登入才拿得到的網址】', async () => {
+    // 🔴 **為什麼這一格要在【這張紙】上也寫一次**(2026-08-29 線A;主視窗 `-06` 指出):
+    //    LOGO 住在共用的 `PrintMasthead`,而出貨單那支測試已經有同款守門
+    //    ⇒ **看起來「已經有人在守」了**。而那道守門讀的是【出貨單那條 render 路徑】,
+    //      它對「揀貨單有沒有把 masthead 接上」完全失明 —— 少接了它也照樣綠。
+    //    📌 ⇒ 一個共用元件的守門,不會自動覆蓋每一個用它的地方。
+    //       ⇒ 兩張紙各斷言一次,不要靠一支通用的守門。
+    // 病:`/print/…` 走 `proxy.ts` 的登入閘 ⇒ 沒有 cookie 的請求(伺服器渲染出圖)被 303,
+    //    而症狀是【圖不見了,不是錯誤】—— 三綠全綠、零告警。修法見 `components/print/print-assets.ts`。
+    const { container } = await renderPage();
+    const imgs = [...container.querySelectorAll('img')].map((i) => i.getAttribute('src'));
+    // 分母:這張紙上至少要有抬頭那顆 LOGO。0 張圖 ⇒ 下面那個迴圈一格都不跑而照樣綠。
+    expect(imgs.length).toBeGreaterThan(0);
+    for (const src of imgs) {
+      expect(src?.startsWith('data:image/png;base64,')).toBe(true);
+      expect(src).not.toMatch(/^\/print\//);
+      expect(src).not.toMatch(/^https?:\/\//);
+      expect(src).not.toMatch(/^\/_next\//);
+    }
+  });
+
   it('②🔴 揀貨單上不得有**任何**金額欄位,也不得有收件電話 / 地址', async () => {
     const { container } = await renderPage();
     // 🔴 **分母守門(2026-08-29 量到:本檔 `renderPage()` 那道錨【對這一格不夠】)**
