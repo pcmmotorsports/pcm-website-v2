@@ -65,7 +65,23 @@ import type { PaymentListData } from './payment-list';
  *  是為了不讓下面保留的真實判斷邏輯被 lint 的 no-unreachable 當死碼砍掉。
  *  🔴 **匯出是為了讓 `manual-refund-787-trigger.test.ts` 讀得到它。**
  *  ⚠️ **要暫時關掉這個入口的人:兩道都要關** —— 只關這裡關不住直接送 server action 的請求
- *     (理由寫在 `lib/payment/manual-refund-actions.ts` 那道的旁邊)。 */
+ *     (理由寫在 `lib/payment/manual-refund-actions.ts` 那道的旁邊)。
+ *
+ *  ── 🔴🔴 **要【開封】的那個人:先讀這一段。它不在 `#866` 裡,它在這裡,因為你會經過這裡。**
+ *  ```
+ *  這道封印今天擋著的那個東西,線C 2026-08-29 23:2x **開檔複量過**(不是讀註解):
+ *    supabase/migrations/20260820100000_*.sql:231 逐字仍是 `SELECT o.total::bigint`
+ *    ⇒ 額度上限用的是【訂單總額】,不是【該軌(現金/匯款)的淨實收】
+ *    ⇒ ⇒ **一張從來沒有收過現金的單,今天仍然有額度可以被扣。**
+ *  ```
+ *  🔴 **而它今天【按不到】—— 因為就是這顆旗標擋著。⇒ 它是潛伏的,不是正在流血的。**
+ *  🔴🔴 **而那正是它危險的地方:你把這顆旗標翻成 `false` 的那一刻,它會【跟著一起上線】。**
+ *  ⇒ 📌 **所以「開封」不是一個動作,是兩個**:翻旗標 **且** `#866` 那道 server 不變式要先存在。
+ *  ⚠️ 而 `#866` 命中鐵則 12①③(動 RPC)⇒ **要 Sean 批、要 Sean apply**,不是施工窗自己能收的。
+ *
+ *  📌 **而這一段為什麼貼在這裡而不是留在 `#866`**:
+ *     風險住在檔案上,而指令下在人身上 —— 一個要開封的人**一定會打開這一行**,
+ *     而他**不一定會去翻 backlog**。⇒ 把它搬到他會經過的那一格。 */
 export const MANUAL_REFUND_ENTRY_BLOCKED_BY_787: boolean = true;
 
 export function shouldShowManualRefundEntry(input: {
