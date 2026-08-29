@@ -350,6 +350,20 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
       //    ✅ 正確的說法是:**觸發本 gate 的那兩支是 .sql + .sh** ⇒ 若我沒有回來補這一筆,
       //       三綠(typecheck/lint)不跑 vitest ⇒ 這道紅會**在 CI 之外被發現**, 或根本沒被發現。
       //    📌 而這一次它是**被別的窗跑 greenlight --tests 撈到的**, 不是我自己的三綠叫的。
+      // ══ 🔴🔴 而這一筆順帶照出本 gate 自己的一個形狀(線C `-b4` 2026-08-30 指出)══
+      //    本 gate 的錨是**欄名** `refund_amount`,而**欄名不是唯一鍵** ——
+      //    `order_refunds.refund_amount`(它要保護的)與
+      //    `order_manual_refunds.refund_amount`(本片碰的)**同名不同表**。
+      //    ⇒ 它的分母被悄悄放大成「**所有叫這個名字的欄**」。
+      //    🔴 **而危險的方向是【放行】不是【誤擋】**:
+      //      真的有人在 `order_refunds.refund_amount` 上自己算一份餘額,
+      //      只要那支檔的 count 湊得上 allowlist 裡的數字,**這道 gate 會全綠**。
+      //      (誤擋那一側只是噪音 —— 像本片這樣被叫來寫一筆 why;放行那一側沒有人會知道。)
+      //    ⚠️ **本片刻意不收窄它** —— 那是這道 gate 自己的片,而它守的是別人的錢。
+      //      要收窄的話:錨改成「**表名 + 欄名**相鄰」的字面,
+      //      🔴 **而收窄的那一天必須補一發突變** —— 拿 `order_refunds.refund_amount`
+      //      現造一行塞進某支 migration,**那道 gate 必須紅**。**今天它不會。**
+      //    📌 這一格記在這裡而不是別處,因為**下一個被它叫來寫 why 的人,一定會讀到這裡**。
       '🔴 觸發本 gate 的那兩支是 .sql + .sh ⇒ 若不回來補這一筆, 三綠(typecheck/lint)不跑 vitest、' +
       '這道紅不會在本片的三綠裡出現(同表 :169-172 已記的結構性成因, 本片再次示範);' +
       '本次是別的窗跑 greenlight --tests 撈到的。',
