@@ -97,6 +97,13 @@ const LOAD_BEARING_NOT_NULL: readonly (readonly [string, string])[] = [
   ['shipments', 'hct_status'],
   ['order_refunds', 'status'],
   ['customer_wallet_ledger', 'entry_type'],
+  // 🔴 2026-08-29 線A `-e9` 實測加入(拋棄式 PG 17.10,real/weak 兩張表、CHECK 一字未改):
+  //    `coupons_percent_range` = `discount_type <> 'percent' OR discount_value BETWEEN 1 AND 100`
+  //    real(NOT NULL 在):`percent,101` 擋住 · `NULL,999` 擋住 · 正對照 `percent,100` / `fixed,5000` 進得去
+  //    weak(只拿掉兩個 NOT NULL):`percent,101` **仍然擋住** ⇒ 值域那半是 CHECK 自己在守;
+  //      🔴 而 `(NULL, 999)` 與 `('percent', NULL)` **兩發都進去了** ⇒ **兩欄都在承重**。
+  ['coupons', 'discount_type'],
+  ['coupons', 'discount_value'],
 ] as const;
 
 /**
@@ -115,6 +122,12 @@ const LOAD_BEARING_NOT_NULL: readonly (readonly [string, string])[] = [
  * 結論:**全部擋得住,而幾乎全部靠 NOT NULL 撐著。**
  */
 const PROBED_OR_CHECKS: readonly string[] = [
+  // 🔴 2026-08-29 線A `-e9` 補測(方法同 08-21:同一條 CHECK 建 real/weak 兩張表,真的塞一發進去看誰擋)。
+  //    ⚠️ **本條的值域那半 `-1c` 已在券片1 驗過(percent=101 紅 / 100 綠 / 1 綠)**,
+  //       而那份證據住在已收攤的拋棄式 PG + 它的 scratchpad ⇒ **我複跑不了** ⇒ 我自己重跑了一發。
+  //    🔴 而它驗的是【值域】,本守門問的是【NULL 短路】—— **那不是同一個問題**(`-1c` 自己指出的)。
+  //       NULL 那一側的實測結果寫在 `LOAD_BEARING_NOT_NULL` 那兩列旁邊。
+  'coupons_percent_range',
   'bbox_complete',
   'bbox_null_unless_ok',
   'order_notes_contact_fields_required',

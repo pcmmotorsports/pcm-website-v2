@@ -226,6 +226,17 @@ const ALLOWLIST = [
   //         【座標軸】的兩端:把「人講的那部分」說得比實際更可靠、或更不可靠。**
   //    ⚠️ 上面每一組數字與 sha1 都是**量測結果、有時效**,重驗就重跑那幾發指令。
   '20260825130000_m4b_zero_price_checkout_and_cart_total_gate.sql',
+  // 🔴 2026-08-29 登記(線A `-e9`;**不是為了讓紅變綠**)——
+  //    它是 `admin_create_manual_order` 的 `CREATE OR REPLACE` 重定義,把 `20260824020000`
+  //    那個函式體整段抽出再套兩處改動 ⇒ **建單的 INSERT 整個在裡面** ⇒ 它本來就是寫入者。
+  //    命中點親自開檔核過(不是憑掃描結果):`:428` `INSERT INTO public.orders (`,
+  //    而欄位表逐字含 `subtotal, shipping_fee, discount_total, total` ⇒ **真 INSERT,不在註解裡**。
+  //    🔴 **登記前跑過一發壞形狀**:把 `20260604130000` 那一項從本 ALLOWLIST 拿掉 ⇒ 本格轉紅
+  //    並同時報出兩個未登記者 ⇒ **這道守門此刻有判別力**,加這一行不是把它關掉。
+  //    ⚠️ 突變刻意做在【本白名單】上,**不往 `supabase/migrations/` 丟檔** ——
+  //       八窗共用一棵樹,那幾秒別的窗的 `git status` 會看到一支不是它的野檔
+  //       (成因與實例見 `scripts/null-shortcircuit-check-guard.test.ts:41-46`)。
+  '20260829140000_m4b_b2c_manual_order_explicit_tax_total.sql',
 ] as const;
 
 function scanWriters(dir: string): string[] {
