@@ -1,6 +1,28 @@
 // app/account/page.tsx — 會員中心(server 守門 + 取 user/stats/featured/profile/addresses → client AccountView)
 //
 // 對齊 design-reference/components/AccountPages.jsx AccountPage(L310-681)。
+//
+// 🔴🔴 **要照 OD 的 `pcm-home-redesign/account-page.html` 做這一頁的人,先讀這一段。**
+//    (2026-08-30 線D;而本檔對齊的是 `design-reference`,那是【另一份】設計來源 ——
+//     兩份都存在,而它們對這一塊講的話不一樣。)
+//
+//    那支稿的訂單概覽塊(`acc-glance`)逐字寫著:
+//        <div class="acc-glance-sub">出貨後會通知你預計送達日</div>
+//    🛑 **那句話【不能照抄上線】,而理由有兩層:**
+//      ① **「會通知」那一半今天做不到** —— 出貨通知信的整條管線都建好了
+//         (view / use case / 模板 / cron 都在),**而沒有任何一行碼呼叫它**
+//         (`enqueueOrderShippedEmails(` 全 repo 呼叫端 ⇒ 0;
+//          正對照 `sweepEmailOutbox(` ⇒ 2 ⇒ 那把尺看得見「被接上」長什麼樣)。
+//      ② 🔴 **「預計送達日」那一半【Sean 說先不做】** ——
+//         2026-08-29 他逐字:「預計到貨(od-head-eta)⇒ 先不做(等有到貨日資料再說)」
+//         (`memory/project_0829-sean-three-rulings-order-detail-blocks.md`)
+//         ⇒ 沒有到貨日資料 ⇒ 那句承諾我們給不起。
+//
+//    📌 **⇒ 而稿本身不會告訴你這兩件事 —— 稿不知道自己過期了。**
+//    ✅ **⇒ 今天客人看得到的地方【零通知承諾】**(顧客站與法律頁掃過:「會通知/通知您/
+//       通知你/寄出後」全 0;而「出貨後」那幾處講的是到貨時間)⇒ **所以還沒有人被違約。**
+//    ⇒ 要做的話:先接那條線(plan 在 `~/pcm-mailbox/plan-線D-出貨通知接線-20260830.md`),
+//      而文案只能講【已出貨 + 單號】,不能講送達日。
 // g-1a 殼 + 7-tab nav;g-2 接 overview/orders tab 真資料(stats + featured)+ Issue 1
 // LINE 合成 email 過濾(server-side、line.ts 為 server-only 不可洩到 client);
 // g-4a 擴 select 5 欄(+ name/phone/birthday)+ profile prop 傳 AccountView(Q4=A SoT)。
