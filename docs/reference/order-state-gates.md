@@ -221,7 +221,7 @@
 
 **允許集合(逐字)**
 
-`:371` WHERE o.payment_status = 'unpaid'::public.payment_status<br>`:372` AND o.cancelled_at IS NULL<br>`:377` AND a.status <> 'failed'
+`:379` WHERE o.payment_status = 'unpaid'::public.payment_status<br>`:380` AND o.cancelled_at IS NULL<br>`:385` AND a.status <> 'failed'
 
 ---
 
