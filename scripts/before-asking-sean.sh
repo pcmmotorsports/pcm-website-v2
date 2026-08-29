@@ -123,8 +123,27 @@ sweep() {
 #   · 拆詞:空白 / 全形空白 / 頓號 分開
 #   · 每個詞的 SCREAMING_SNAKE 與 camelCase(只對 ASCII 詞有意義, 中文原樣保留)
 #   · 整串去空白
+# 🔴 切詞用 python3, 【不要用 tr】—— macOS 的 tr 是【逐 byte】的
+#    (2026-08-30 線G 實測、成因逐字):
+#      、 = e3 80 81 · 全形空白 = e3 80 80  ⇒ tr 的字集含 byte 80 與 81
+#      而 揀 = e6 8f 80(尾 byte 80) · 頁 = e9 a0 81(尾 byte 81)
+#    ⇒ `printf '揀貨單 尾頁' | tr ' 、　' '\n\n\n'` ⇒ 印出 [?] [貨單] [尾?] []
+#    ⇒ ⇒ 而它【不報錯】—— 壞掉的變體照樣拿去 grep, 撈到就看起來像它會動。
+#    📌 一個壞掉的變體產生器剛好命中, 與一個好的產生器, 那一發印同一個結果。
+#    ⚠️ 而舊的 selftest 是用英文 `SHIPPED_EMAIL_CUTOFF` 過的
+#       ⇒ 那把尺從來沒有量過中文, 而它的使用者九成在打中文。
+_split_words() {  # 逐詞切(空白 / 、 / , / 全形空白), UTF-8 安全
+  printf '%s' "$1" | python3 -c 'import sys,re
+[print(w) for w in re.split(r"[\s、，,　]+", sys.stdin.read()) if w]'
+}
+
+_strip_seps() {  # 去掉所有分隔字元, UTF-8 安全
+  printf '%s' "$1" | python3 -c 'import sys,re
+sys.stdout.write(re.sub(r"[\s、，,　]+", "", sys.stdin.read()))'
+}
+
 variants_of() {  # variants_of "<原關鍵字>"
-  printf '%s\n' "$1" | tr ' 、　' '\n\n\n' | while IFS= read -r w; do
+  _split_words "$1" | while IFS= read -r w; do
     [ -n "$w" ] || continue
     printf '%s\n' "$w"
     # ASCII 詞才生大小寫變體
@@ -134,7 +153,7 @@ variants_of() {  # variants_of "<原關鍵字>"
          printf '%s\n' "$(printf '%s' "$w" | tr 'A-Z_' 'a-z-')" ;;
     esac
   done
-  printf '%s\n' "$(printf '%s' "$1" | tr -d ' 、　')"
+  printf '%s\n' "$(_strip_seps "$1")"
   # 🔴 **合併形**才是真正撈得到東西的那一種(2026-08-30 實例:`shipped email cutoff`
   #    ⇒ 逐詞變體全部零命中, 而 `SHIPPED_EMAIL_CUTOFF` 一發命中)。
   #    ⇒ 只對【全 ASCII】的關鍵字生, 中文不生(生出來也沒有意義)。
@@ -219,7 +238,7 @@ selftest() {
   Z3A="$(sed -n '/關鍵字: shipped email cutoff/,/第二輪/p' "$T3" | grep -c '零命中')"
   Z3B="$(sed -n '/關鍵字: SHIPPED_EMAIL_CUTOFF/,/##########/p' "$T3" | grep -c '零命中')"
   printf '\n  第二輪 正對照「shipped email cutoff」\n'
-  printf '    第一輪零命中段數 = %s (期望 5)\n' "$Z3A"
+  printf '    第一輪零命中段數 = %s (觀測值, 不是判準 —— 見下方汙染訂正)\n' "$Z3A"
   printf '    第二輪 SHIPPED_EMAIL_CUTOFF 的零命中段數 = %s (期望 < 5)\n' "$Z3B"
 
   # 負對照:一個現造字面 ⇒ **兩輪都要全零**(否則第二輪只是變得比較會亂命中)。
@@ -231,13 +250,50 @@ selftest() {
   printf '    第一輪零命中段數 = %s (期望 5)\n' "$Z4A"
   printf '    整份輸出的零命中段數 = %s (期望 = 每一輪都 5 的倍數, 而【不得有任何一段命中】)\n' "$Z4B"
 
-  if [ "$Z3A" -eq 5 ] && [ "$Z3B" -lt 5 ]; then
-    printf '  ✅ 第二輪【有判別力】:第一輪撈不到而第二輪撈得到\n'
+  # 🔴 2026-08-30 訂正:`Z3A -eq 5` 這個判準【自己被汙染了】。
+  #    成因(量到的, 不是推的):`31b6f7eb` 那顆 commit 的訊息裡就寫著
+  #    `shipped email cutoff` 這個字面(`git log -1 --format=%B 31b6f7eb | grep -c` ⇒ 1)
+  #    ⇒ 第①段(掃 commit 訊息)從那一刻起【必定命中】⇒ Z3A 再也不會是 5。
+  #    📌 ⇒ **一個測資, 被寫進了它自己的分母** —— 而寫它進去的正是那一片的 commit。
+  #    ⇒ ⇒ 而它壞掉的方式是【紅】, 所以還算幸運;同族的另一種是安靜地變綠。
+  #    ✅ 改法:判準改成【不依賴 repo 內容】—— 直接看變體清單裡有沒有那個合併形。
+  #       那才是這一發真正要證的事(第二輪會不會生出撈得到的字), 而不是「今天撈不撈得到」。
+  local HASSNAKE
+  HASSNAKE="$(variants_of 'shipped email cutoff' | grep -c '^SHIPPED_EMAIL_CUTOFF$')"
+  printf '    變體清單裡有沒有 SHIPPED_EMAIL_CUTOFF ⇒ %s (期望 1)\n' "$HASSNAKE"
+  if [ "$HASSNAKE" -eq 1 ] && [ "$Z3B" -lt 5 ]; then
+    printf '  ✅ 第二輪【有判別力】:它生得出合併形, 而那個合併形撈得到東西\n'
   else
     printf '  🔴 第二輪沒有判別力 —— 它只是多跑了幾次\n'; RC=1
   fi
+  # ⚠️ 而 Z3A 仍然印出來當【觀測值】, 不再當判準 —— 它今天是 4, 那是汙染不是缺陷。
 
   rm -f "$T1" "$T2" "$T3" "$T4"
+  # ══ 🔴 中文切詞那一發(2026-08-30 加)══
+  #    舊的兩發都是英文 ⇒ 那把尺從來沒有量過中文, 而使用者九成在打中文。
+  #    這一發直接看【變體本身】, 不看撈不撈得到 —— 因為壞掉的變體也可能撈到東西。
+  local CJK EXP BAD
+  CJK="$(variants_of '揀貨單 尾頁' | sort -u | tr '\n' ' ')"
+  EXP="$(printf '%s\n' '揀貨單' '尾頁' '揀貨單尾頁' | sort -u | tr '\n' ' ')"
+  printf '  中文切詞 variants_of "揀貨單 尾頁" ⇒ %s\n' "$CJK"
+  if [ "$CJK" = "$EXP" ]; then
+    printf '  ✅ 中文變體逐字正確(每個都是完整的詞)\n'
+  else
+    printf '  🔴 中文變體壞掉 —— 期望 [%s]\n' "$EXP"; RC=1
+  fi
+  # 負對照:任何一個變體不是合法 UTF-8 ⇒ 紅。(舊寫法 tr 會切出半個字)
+  BAD="$(variants_of '揀貨單 尾頁' | python3 -c 'import sys
+raw = sys.stdin.buffer.read()
+try:
+    raw.decode("utf-8"); print(0)
+except UnicodeDecodeError:
+    print(1)')"
+  if [ "$BAD" = "0" ]; then
+    printf '  ✅ 負對照:沒有任何一個變體是半個字\n'
+  else
+    printf '  🔴 有變體不是合法 UTF-8 ⇒ 切詞又退回 byte 層了\n'; RC=1
+  fi
+
   if [ "$RC" -eq 0 ]; then printf '⇒ selftest PASS(兩個世界印不同的東西)\n'; else printf '⇒ selftest FAIL\n'; fi
   return "$RC"
 }
