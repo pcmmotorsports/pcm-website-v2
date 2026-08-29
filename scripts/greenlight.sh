@@ -73,6 +73,21 @@ if [ "${1:-}" = "--selftest" ]; then
   if [ "$M" = "RED" ]; then printf '  ✅ 判定突變:任一道非 0 ⇒ 結論 RED(它不是恆綠)\n'
   else printf '  🔴 判定突變:有一道 rc=1 而結論仍是 GREEN\n'; SRC=1; fi
 
+  # ⑤ 🔴 三態分得開嗎 —— 「工具壞了」不可以被印成「你的碼壞了」
+  #    (2026-08-29 主視窗問「人分得出是它壞了還是碼壞了嗎」⇒ 當場演出來是【分不出】,才補的。)
+  TD2="$(mktemp -d -t glenv)"
+  PATH=/usr/bin:/bin bash "$0" > "$TD2/env.log" 2>&1 ; R=$?
+  if [ "$R" = "2" ] && grep -q 'ENV-FAIL' "$TD2/env.log"; then
+    printf '  ✅ 三態:工具跑不起來 ⇒ rc=2 且印 ENV-FAIL(不是 RED)\n'
+  else printf '  🔴 三態:工具跑不起來時 rc=%s ⇒ 它被讀成「碼壞了」\n' "$R"; SRC=1; fi
+  # ⑥ 🔴 非綠時 log 要留著 —— 它剛剛印了那個路徑
+  if grep -q 'log 留著沒刪' "$TD2/env.log"; then
+    LD="$(grep -o '📎 log 留著沒刪: .*' "$TD2/env.log" | sed 's/.*: //')"
+    if [ -d "$LD" ]; then printf '  ✅ 證據:非綠時 log 目錄還在\n'; rm -rf "$LD"
+    else printf '  🔴 證據:它印了 log 路徑而那個目錄已經不存在\n'; SRC=1; fi
+  else printf '  🔴 證據:非綠而沒有印 log 落點\n'; SRC=1; fi
+  rm -rf "$TD2"
+
   if [ "$SRC" -eq 0 ]; then printf '⇒ selftest PASS(每一格的兩個世界都印不同的東西)\n'
   else printf '⇒ selftest FAIL\n'; fi
   exit "$SRC"
@@ -135,9 +150,25 @@ if [ "$RUN_TESTS" -eq 1 ]; then
 fi
 
 # ── 🔴 一行摘要:它自己的分母就在這一行裡 ───────────────────────────────────
+# 🔴🔴 **三態,不是兩態**(2026-08-29 主視窗問「它出錯時人分得出是它壞了還是碼壞了嗎」——
+#    當場演一發 `PATH=/usr/bin:/bin bash scripts/greenlight.sh` ⇒ **它印 `RED …=127`**
+#    ⇒ **把「工具跑不起來」印成了「你的碼壞了」。**)
+#    ⇒ 照 `.husky/scripts-whitelist-gate.sh` 的成例分三態:0 綠 / 1 真的紅 / 2 量具自己壞了。
+#    📌 **一支被六個窗信任的工具,它自己的錯會被讀成六份碼的錯。**
+ENVFAIL=0
+for R in "$RC_TC" "$RC_LT" "$RC_BD"; do
+  case "$R" in 126|127) ENVFAIL=1 ;; esac
+done
 VERDICT=RED
-if [ "$RC_TC" = "0" ] && [ "$RC_LT" = "0" ] && [ "$RC_BD" = "0" ]; then
+if [ "$ENVFAIL" -eq 1 ]; then
+  VERDICT=ENV-FAIL
+elif [ "$RC_TC" = "0" ] && [ "$RC_LT" = "0" ] && [ "$RC_BD" = "0" ]; then
   if [ "$RUN_TESTS" -eq 0 ] || [ "$RC_VT" = "0" ]; then VERDICT=GREEN; fi
+fi
+if [ "$VERDICT" = "ENV-FAIL" ]; then
+  printf '\n🛑🛑 ENV-FAIL —— **這【不是】你的碼壞了,是這支工具跑不起來**(rc=126/127 = 找不到或不能執行)。\n'
+  printf '     先確認 `pnpm` 在 PATH 上、而且你人在 repo 根;修好再跑一次。\n'
+  printf '     ⇒ 本次【不對這棵樹下任何判斷】。\n'
 fi
 printf '\n%s typecheck=%s lint=%s build=%s tests=%s | 涵蓋: turbo + tsc scripts%s | @ %s HEAD %s\n' \
   "$VERDICT" "$RC_TC" "$RC_LT" "$RC_BD" "$RC_VT" \
@@ -153,5 +184,14 @@ cat <<'SCOPE'
    · 不含 CI 那一層（playwright、真 postgres 的 SQL 探針）—— 那層只有 CI 有
    · 未加 --tests 時，tests=skip 的意思是【沒跑】，不是【綠】
 SCOPE
-rm -rf "$D"
-[ "$VERDICT" = "GREEN" ] && exit 0 || exit 1
+# 🔴 **非綠時【不要刪 log】** —— 上面每一道紅都印了 log 路徑,
+#    而第一版在這裡 `rm -rf "$D"` ⇒ **它指的那個檔在它印完的下一刻就不存在了。**
+#    (2026-08-29 演 ENV-FAIL 時當場撞到:三行 log 路徑,三個都已經被刪。)
+#    📌 **一個訊號指向一個【它自己剛剛毀掉】的證據,比不給證據更糟。**
+if [ "$VERDICT" = "GREEN" ]; then
+  rm -rf "$D"
+  exit 0
+fi
+printf '\n📎 log 留著沒刪: %s\n' "$D"
+[ "$VERDICT" = "ENV-FAIL" ] && exit 2
+exit 1
