@@ -11,7 +11,11 @@ import {
   CorrectionRejectedError,
   correctRefundVerdict,
 } from './refund-correction-repository';
-import type { CorrectionResultCode } from './refund-correction-state';
+import {
+  CORRECTION_EXCEPTIONS_PATH,
+  type CorrectionActionState,
+  type CorrectionResultCode,
+} from './refund-correction-state';
 
 // refund-correction-actions.ts — `#890` 片2c:更正判定的 server action。
 //
@@ -31,11 +35,6 @@ import type { CorrectionResultCode } from './refund-correction-state';
 //    · 上限**寫死 1** —— 撞第二次代表那不是碰撞、是別的東西,**讓它紅出來**。
 //    · 而它與 `DUPLICATE_REQUEST` **處置相反**:
 //      前者靜靜換一把重送(員工不必知道);後者要告訴他「這筆已經處理過」。
-
-/** 那一頁的路徑(PRG 導回這裡)。 */
-export const CORRECTION_EXCEPTIONS_PATH = '/orders/refund-exceptions';
-
-export type CorrectionActionState = { ok: false; code: CorrectionResultCode } | { ok: true };
 
 function fail(code: CorrectionResultCode): CorrectionActionState {
   return { ok: false, code };

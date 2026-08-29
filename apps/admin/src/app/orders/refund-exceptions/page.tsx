@@ -1,11 +1,16 @@
 import React from 'react';
 import Link from 'next/link';
 import { RefundExceptionResolve } from '../../../components/orders/refund-exception-resolve';
+import { RefundVerdictCorrection } from '../../../components/orders/refund-verdict-correction';
 import { ResultBanner } from '../../../components/orders/result-banner';
 import { formatOrderAmount } from '../../../lib/orders/order-list-view';
 import { formatOrderDateTime } from '../../../lib/orders/order-detail-view';
 import { generateRefundRequestToken } from '../../../lib/payment/refund-action-state';
 import { listRefundExceptions } from '../../../lib/payment/refund-read';
+import {
+  findEffectiveVerdicts,
+  type EffectiveVerdict,
+} from '../../../lib/payment/refund-correction-read';
 import {
   REFUND_EXCEPTION_STALL_MS,
   isStuckManualVerdict,
@@ -44,6 +49,26 @@ export default async function RefundExceptionsPage({
   } catch (error) {
     console.error('[admin/orders/refund-exceptions] 異常清單載入失敗', error);
     loadFailed = true;
+  }
+
+  // 🔴🔴 **`#890` 片3:更正查詢【自己一個 try】,不得併進上面那個**(plan §1d #13 逐字)。
+  //    上面那個 try 失敗 ⇒ 整張清單不顯示;而更正查詢失敗**不該讓整頁看起來像「沒有資料」**
+  //    ⇒ 它只該讓那幾列少一個入口。
+  // 🔴 而 `null` 與空 Map 是**兩件事**:
+  //    · `null`  = 讀失敗 ⇒ **fail-closed,不渲染更正入口**（那時他確實沒有可以按的東西，
+  //      而**一顆按不動的鈕比沒有鈕糟**）
+  //    · 空 Map  = 讀到了，只是這些列都還沒被更正過 ⇒ 入口照渲染，CAS 送 NULL
+  let effectiveVerdicts: Map<string, EffectiveVerdict> | null = null;
+  const stuckIds = rows.filter((row) => isStuckManualVerdict(row)).map((row) => row.id);
+  try {
+    const got = await findEffectiveVerdicts(stuckIds);
+    // 🔴 **型別漂移也要 fail-closed**(codex 2026-08-29):`!== null` 放行的不只 Map ——
+    //    一個回 `undefined` 或別的東西的實作會通過那個判斷,而下一步 `.get()` **炸整頁**。
+    //    ⇒ 這裡只認 `Map`;不是 Map 就當成「讀失敗」。
+    effectiveVerdicts = got instanceof Map ? got : null;
+  } catch (error) {
+    console.error('[admin/orders/refund-exceptions] 現行更正判定載入失敗', error);
+    effectiveVerdicts = null;
   }
 
   const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
@@ -141,7 +166,13 @@ export default async function RefundExceptionsPage({
                   </tr>
                   <tr>
                     <td colSpan={7} className='px-3 pt-0 pb-3'>
-                      {stuck ? (
+                      {stuck && effectiveVerdicts !== null ? (
+                        <RefundVerdictCorrection
+                          refundId={row.id}
+                          serverToken={generateRefundRequestToken()}
+                          effective={effectiveVerdicts.get(row.id) ?? null}
+                        />
+                      ) : stuck ? (
                         // 文案與訂單頁那條早退路徑同一句意思(refund-recovery-state.ts):
                         // 說清楚「這裡沒有可以改的地方」+ 下一步找誰,不叫員工去做沒有結果的事。
                         <p className='text-muted-foreground text-sm'>
@@ -149,8 +180,12 @@ export default async function RefundExceptionsPage({
                               當成金流事實。這一列存在的理由就是那個判定可能錯(尤其是 TapPay
                               曾受理的列,錢可能真的動了)—— 說死了員工就不會再去追。
                               ⇒ 敘述「當初判定的內容」,不敘述「錢的狀態」。 */}
-                          這一列當初被人工判定為「沒有動到錢」並結案,這裡沒有可以按的動作。
-                          若你認為當初的判定有誤、需要更正,請聯絡工程師處理。
+                          {/* 🔴 `#890` 片3 之後,這一段**只在【更正查詢失敗】時出現** ——
+                              入口本身已經做出來了(見上面那個分支)。
+                              ⇒ 而這時他確實沒有可以按的東西,所以這句話仍然是真的。 */}
+                          這一列當初被人工判定為「沒有動到錢」並結案。
+                          現在讀不到它的更正紀錄,所以這裡暫時沒有可以按的動作 ——
+                          請重新整理;若一直如此,請聯絡工程師處理。
                         </p>
                       ) : (
                         // token=渲染期產、每列一把(force-dynamic 零快取;refund-action-state.ts:41-43)。

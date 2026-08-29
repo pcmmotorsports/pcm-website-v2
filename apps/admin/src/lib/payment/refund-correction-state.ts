@@ -69,3 +69,15 @@ export const CORRECTION_RETRYABLE_CODES: readonly CorrectionResultCode[] = [
   'correction_stale',
   'correction_invalid',
 ];
+
+/**
+ * 那一頁的路徑(PRG 導回這裡)。
+ * 🔴 **它住在這裡而不是 actions 檔,是被 build 逼的,不是分類美學**(2026-08-29 實撞):
+ *    一個 `'use server'` 檔**只准 export async function** ——
+ *    `export const` 會讓 **Turbopack build 紅**,而 `typecheck` 與 `vitest` **兩邊都綠**。
+ *    ⇒ 📌 那是「三綠不是同一道閘」的一個乾淨實例:少跑 build 就看不到它。
+ */
+export const CORRECTION_EXCEPTIONS_PATH = '/orders/refund-exceptions';
+
+/** server action 的回傳狀態(失敗才回;成功走 PRG)。 */
+export type CorrectionActionState = { ok: false; code: CorrectionResultCode } | { ok: true };

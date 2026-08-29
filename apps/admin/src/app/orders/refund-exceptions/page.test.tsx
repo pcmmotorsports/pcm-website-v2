@@ -7,9 +7,20 @@ import type { RefundExceptionRow } from '../../../lib/payment/refund-read';
 // refund-read / recovery-actions transitively 拉 server-only ⇒ 整支 mock
 // (refund-wiring.test.tsx 同紀律:page graph 每支 server 模組都要 mock)。
 
-const mocks = vi.hoisted(() => ({ listRefundExceptions: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  listRefundExceptions: vi.fn(),
+  findEffectiveVerdicts: vi.fn(),
+  correctVerdictAction: vi.fn(),
+}));
 vi.mock('../../../lib/payment/refund-read', () => ({
   listRefundExceptions: mocks.listRefundExceptions,
+}));
+// 🔴 `#890` 片3:更正那條路的兩支 server 模組同樣要 mock(同上紀律 —— page graph 每支都要)。
+vi.mock('../../../lib/payment/refund-correction-read', () => ({
+  findEffectiveVerdicts: mocks.findEffectiveVerdicts,
+}));
+vi.mock('../../../lib/payment/refund-correction-actions', () => ({
+  correctVerdictAction: mocks.correctVerdictAction,
 }));
 vi.mock('../../../lib/payment/refund-recovery-actions', () => ({
   judgeRefundExceptionAction: vi.fn(),
@@ -41,6 +52,10 @@ function exceptionRow(over: Partial<RefundExceptionRow> = {}): RefundExceptionRo
 }
 
 beforeEach(() => {
+  // 🔴 預設讓它成功回一個空 Map ——
+  //    沒有這一行，「沒有 stuck 列」的那幾格是**靠運氣過**的:
+  //    mock 回 undefined ⇒ 頁面拿到 undefined ⇒ 它不是 null ⇒ 只是剛好沒有列去 .get() 它。
+  mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
   vi.clearAllMocks();
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -112,31 +127,120 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
   //    manual_failed ⇒ 帶證據的卡住列是**主要形態**,不是邊角。
   const stuckWithEvidence = () => stuckRow({ id: 'r-stuck-ev', providerEvidence: 'DR999' });
 
-  it('[8] 🔴 卡住的列**不掛**任何操作入口 —— 按了只會回「已結案」的按鈕就是誤導', async () => {
+  // 🔴🔴 **`#890` 片3 之後,這一族的合約【反過來了】** ——
+  //    ⛔ ~~原本 `[8]` 逐字「卡住的列**不掛**任何操作入口」~~ **作廢**,而它當時是對的:
+  //      那時**沒有更正入口存在**,一顆按了只會回「已結案」的鈕確實是誤導。
+  //    ✅ 而 `#890` 把那個入口做出來了 ⇒ 現在的合約是「**掛得上,而且員工按得到**」。
+  //    🔴 而原本那句**仍然有一個世界成立**:更正查詢**失敗**時 ——
+  //      那時他確實沒有可以按的東西,而**一顆按不動的鈕比沒有鈕糟**。
+  //    ⇒ 所以下面把它拆成兩格,而不是刪掉。
+
+  it('[8a] 🔴🔴 卡住的列**掛得上更正入口**,而且是【渲染整頁】量到的(A2 驗收)', async () => {
+    // 📌 掛載元件只證明「元件會畫」;渲染 page 才證明「員工按得到」——
+    //    而 R3-3 抓到的正是「入口被加在一個目標列永遠走不到的分支裡」。
     mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
+    mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
     const { container } = await renderPage();
-    expect(container.querySelectorAll('button')).toHaveLength(0);
+    const buttons = [...container.querySelectorAll('button')].map((b) => b.textContent ?? '');
+    expect(buttons.some((t) => t.includes('更正這一筆的判定'))).toBe(true);
+    // 🔴 只認鈕的字 ⇒ **接線接錯照樣綠**(codex 2026-08-29)。連那張表單真的帶了什麼一起釘。
+    const form = container.querySelector('form');
+    expect(form, '那顆鈕不在一張 form 裡 ⇒ 它按下去什麼都不會送').not.toBeNull();
+    const named = [...(form?.querySelectorAll('input,textarea') ?? [])].map((el) =>
+      el.getAttribute('name'),
+    );
+    expect(named).toContain('correction_refund_id');
+    expect(named).toContain('correction_request_token');
+    expect(named).toContain('correction_verdict');
+    expect(named).toContain('correction_reason');
   });
 
-  it('[9] 🔴 同頁混合時,只有可處理那列有按鈕(不是整頁一起關掉)', async () => {
+  it('[8b] 🔴 而更正查詢**失敗**時 ⇒ 零按鈕 + 原本那段話(按不動的鈕比沒有鈕糟)', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
+    mocks.findEffectiveVerdicts.mockRejectedValue(new Error('boom'));
+    const { container } = await renderPage();
+    expect(container.querySelectorAll('button')).toHaveLength(0);
+    expect(container.textContent ?? '').toContain('沒有可以按的動作');
+  });
+
+  it('[8c] 🔴 而查詢失敗**不得讓整張清單看起來像「沒有資料」**(plan §1d #13)', async () => {
+    // 那正是「不得併進 page.tsx 既有那個 try」的理由 —— 併了就是整頁一起消失。
     mocks.listRefundExceptions.mockResolvedValue({
       rows: [exceptionRow(), stuckRow()],
       truncated: false,
     });
+    mocks.findEffectiveVerdicts.mockRejectedValue(new Error('boom'));
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    expect(text).toContain('PCM-2026-0001');
+    // 可處理那列的入口照常在。
+    expect(
+      [...container.querySelectorAll('button')].some((b) =>
+        (b.textContent ?? '').includes('執行對帳判定'),
+      ),
+    ).toBe(true);
+  });
+
+  it('[8d] 🔴 已經被更正過的列:畫面要顯示【現行有效判定】,不只是給一顆鈕', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
+    mocks.findEffectiveVerdicts.mockResolvedValue(
+      new Map([
+        [
+          'r-stuck',
+          {
+            refundId: 'r-stuck',
+            correctionId: 'c-1',
+            seq: 2,
+            correctedTo: 'money_moved' as const,
+            reason: '對過 TapPay，錢有動',
+            actor: 'staff_01',
+            createdAt: '2026-08-29T10:00:00+00:00',
+          },
+        ],
+      ]),
+    );
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    expect(text).toContain('已經被更正過');
+    expect(text).toContain('staff_01');
+    expect(text).toContain('對過 TapPay，錢有動');
+    // 🔴🔴 **CAS 那一欄才是這條路的錢守門**(codex 2026-08-29 點名:刪掉它這一格仍會綠)。
+    //    沒有它 ⇒ 送出去的是 NULL ⇒ 而 NULL 的語意是「我看到的是尚未更正過」
+    //    ⇒ 一筆**已經被改過**的列會拿一個過期的前提去寫 ⇒ 而 CAS 本來就是為了擋這個。
+    const cas = container.querySelector('input[name="correction_expected_id"]');
+    expect(cas, '已更正過的列少了 CAS 鏈頭 ⇒ 它會用 NULL 送出去').not.toBeNull();
+    expect(cas?.getAttribute('value')).toBe('c-1');
+  });
+
+  it('🔴 而【還沒被更正過】的列**不得**渲染那一欄(空字串會被解析器判成壞表單)', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
+    mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
+    const { container } = await renderPage();
+    expect(container.querySelector('input[name="correction_expected_id"]')).toBeNull();
+  });
+
+  it('[9] 🔴 同頁混合時,可處理那列仍只有一顆「執行對帳判定」(不是整頁一起開)', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [exceptionRow(), stuckRow()],
+      truncated: false,
+    });
+    mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
     const { container } = await renderPage();
     const buttons = [...container.querySelectorAll('button')].map((b) => b.textContent ?? '');
     expect(buttons.filter((t) => t.includes('執行對帳判定'))).toHaveLength(1);
+    // 而卡住那列拿到的是【另一種】入口，不是同一顆。
+    expect(buttons.filter((t) => t.includes('更正這一筆的判定'))).toHaveLength(1);
   });
 
-  it('[10] 文案講清楚「這裡改不了」+ 下一步找誰(不叫人去做沒有結果的事)', async () => {
+  it('[10] 🔴 而【查詢成功】時不得再出現「請聯絡工程師處理」—— 他現在做得到了', async () => {
+    // ⛔ ~~原本這一格斷言那句話**必須**出現~~ 作廢：那時它是真的，現在它會叫他去找人做他自己能做的事。
     mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
-    const { container } = await renderPage();
-    const text = container.textContent ?? '';
-    expect(text).toContain('這裡沒有可以按的動作');
-    expect(text).toContain('請聯絡工程師處理');
-    // 🔴 負:不得沿用 processing 那半的兩句 —— 卡住的列既沒滯留逾時、也無「優先處理」可言。
-    //    ⚠️ 掃的是**整頁**:fixture 只放一列卡住的 ⇒ 頁面上任何地方出現這兩句都算違反
-    //    (含頁首 prose)。日後若頁首要合法地提到它們,這格要改成只掃該列。
+    mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
+    const text = (await renderPage()).container.textContent ?? '';
+    // 🔴 正向錨(codex 2026-08-29):下面全是負斷言 ⇒ **一張空畫面也會過**。
+    expect(text, '畫面是空的 ⇒ 下面那三個 not 都是恆真的').toContain('更正這一筆的判定');
+    expect(text).not.toContain('請聯絡工程師處理');
+    // 🔴 負:仍不得沿用 processing 那半的兩句。
     expect(text).not.toContain('滯留逾時');
     expect(text).not.toContain('優先處理');
   });
@@ -146,12 +250,11 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
       rows: [stuckWithEvidence()],
       truncated: false,
     });
+    mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
     const { container } = await renderPage();
     const text = container.textContent ?? '';
     expect(text).toContain('TapPay 曾受理');
-    // 這是 MF4 的本體:刪掉 page.tsx 的 stuck 分支、恢復「已受理,優先處理」,本格會紅。
     expect(text).not.toContain('優先處理');
-    expect(container.querySelectorAll('button')).toHaveLength(0);
   });
 
   it('[10c] 🔴 不得把「人工判定」講成金流事實 —— 那正是可能要更正的東西', async () => {
@@ -159,16 +262,47 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
       rows: [stuckWithEvidence()],
       truncated: false,
     });
+    mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
     const { container } = await renderPage();
-    const copy = [...container.querySelectorAll('p')].map((p) => p.textContent ?? '').join(' ');
-    // 🔴 兩關同抓:「錢沒有動」寫成既成事實 ⇒ 員工不會再去追 TapPay,
-    //    而帶證據的列**錢可能真的動了**。文案只能敘述「當初判定的內容」。
-    expect(copy).not.toContain('錢沒有動');
+    const copy = [...container.querySelectorAll('p')].map((x) => x.textContent ?? '').join(' ');
+    // 🔴🔴 **這一格的尺被我改窄過一次,而那是錯的**(code-reviewer 2026-08-29 Important):
+    //    ⛔ ~~我把 `not.toContain('錢沒有動')` 改成 `'錢沒有動,'`(多帶一個逗號)~~ **作廢**
+    //      —— 那讓「…錢沒有動而結案」這種**沒有逗號的宣稱句**從此抓不到,
+    //      而那正是本格要防的東西。**我為了讓自己的新文案過關,把守門縮小了。**
+    //    ✅ 改成量【那句規矩真正說的事】:出現那個詞可以,**但它必須被歸給「判定」**。
+    //      ⇒ `#890` 的畫面寫「現行判定是「錢沒有動」」⇒ 合法(它敘述判定)
+    //      ⇒ 而「這筆錢沒有動」⇒ 非法(它敘述金流事實)
+    // 🔴🔴 **這裡差一點裝錯一種對照,寫下來**(2026-08-29 實撞):
+    //    我原本加了一格「命中數必須 > 0,否則迴圈恆真」⇒ **當場紅,而紅得對** ——
+    //    現行畫面一個「錢…動」都沒有(文案是「沒有動到錢」,詞序不同)。
+    //    📌 而那不是缺陷:**這一格是【絆線】不是【量測】** ——
+    //      一條禁止清單在一切正常時,本來就該零命中。
+    //    ⇒ 🔴 **絆線的對照不是「現在有沒有命中」,是【餵一句違規的字,它抓不抓得到】。**
+    //    ⇒ 而我如果留著那格「>0」,只有兩條路:拿掉守門,或去把違規的話寫進畫面。
+    const rule = (text: string) =>
+      [...text.matchAll(/錢[^。,，]{0,3}動|動到錢/g)].every((m) =>
+        text.slice(Math.max(0, m.index - 12), m.index).includes('判定'),
+      );
+    // 負對照:一句把判定講成金流事實的話 ⇒ 這把尺必須判它違規。
+    expect(rule('這一列的這筆錢沒有動,已結案'), '尺對違規句失效了').toBe(false);
+    // 🔴 字集擴到「動到錢」那個詞序(codex 2026-08-29:原本只認一種寫法)。
+    expect(rule('這一列沒有動到錢,已結案'), '尺抓不到另一種詞序').toBe(false);
+    expect(rule('這一列的這筆錢有動'), '尺抓不到肯定句').toBe(false);
+    // 正對照:一句正確歸屬給判定的話 ⇒ 必須放行(否則它是「一律拒」)。
+    expect(rule('現行判定是「錢沒有動」'), '尺把合法句也擋了').toBe(true);
+    for (const m of copy.matchAll(/錢[^。,，]{0,3}動|動到錢/g)) {
+      const before = copy.slice(Math.max(0, m.index - 12), m.index);
+      expect(
+        before.includes('判定'),
+        `「${m[0]}」出現在 <p> 而前 12 字內沒有「判定」⇒ 那是把判定講成金流事實:…${before}${m[0]}…`,
+      ).toBe(true);
+    }
     expect(copy).toContain('當初被人工判定');
   });
 
   it('[11] 🔴 文案守門:純文字輸出不得混進 Markdown 星號;不得寫死鐘點', async () => {
     mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
+    mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
     const { container } = await renderPage();
     expect(container.textContent ?? '').not.toContain('**');
     // 🔴 鐘點守門只掃「我們寫的字」(<p> 文案),**不掃整頁** ——
