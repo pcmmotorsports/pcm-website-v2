@@ -17,9 +17,44 @@ import type { AdminOrderDetail } from '@pcm/domain';
 //    ⇒ **那份重製忠實到連 Sean 都認得** —— 而**像不代表是同一份**。
 //    ⇒ 本檔量的是【要被改的那一份】:真的元件 + 真的 Tailwind 產物。
 //
-// 🔴 **本檔【不數頁數】。** 它只產出 HTML;數頁數是 `scripts/pagecount.sh` 的事。
+// ⛔ ~~**本檔【不數頁數】。** 它只產出 HTML;數頁數是 `scripts/pagecount.sh` 的事。
 //    分開的理由:數頁數要起 Chrome(慢、要環境),而產 HTML 不用
-//    ⇒ 合在一起會讓 CI 每次都跑 Chrome。
+//    ⇒ 合在一起會讓 CI 每次都跑 Chrome。~~
+//    **2026-08-29 作廢 —— 而那句話當初是【對的】。**
+//
+// 🔴 **它為什麼過期(寫下來,因為它今天真的擋住了兩個窗)**:
+//    ① CI **已經裝 chromium**(`.github/workflows/ci.yml:48` 逐字
+//       `playwright install --with-deps chromium`),而**本檔本來就在 CI 跑** ——
+//       🔴 依據是 `ci.yml:163` `run: pnpm test`(前置 `:123` Build admin)。
+//       ⛔ ~~原本引 `:82-83`~~ **改掉(reviewer nit)**:那兩行只是一段**註解**在列
+//          「依賴建置產物的測試」,**它不是本檔會在 CI 跑的依據**。
+//       ⇒ 「要起 Chrome」這個代價**已經付掉了**。
+//    ② 而 `scripts/pagecount.sh` 走的是 **CLI `--print-to-pdf`** ——
+//       🔴 **實測:那條路配 playwright 的 chromium 會【掛住】**(5 分鐘逾時被砍,不是報錯);
+//       而本檔用的是 **`page.pdf()` API**,同一顆 chromium-1223 ⇒ **通, 而且準**。
+//       📌 **⇒ 擋路的不是那顆 binary, 是【怎麼叫它】。**
+//    📌 **⇒ 而一句過期的理由, 長得跟還成立的一模一樣** —— 兩個窗都在它上面繞了一圈,
+//       才有人去查 `ci.yml`。所以這裡不刪它,劃掉並寫下它為什麼過期。
+//
+// 🔴 **本檔現在的依賴(寫成【有觸發條件】的形狀, 不是一句會再過期的說明)**:
+//    **本檔需要 playwright 的 chromium(`ci.yml:48` 裝的那顆)。拿掉它, 本檔會紅。**
+//    ⇒ 本機沒裝的人也會紅。**修法是 `pnpm --filter @pcm/admin exec playwright install chromium`。**
+//    🛑🛑 **而【不得】把它改成「找不到就 skip」** ——
+//       那個誘惑會在**第一個同事本機紅掉來問你**的那一刻出現,而那時它看起來是【體貼】,
+//       不是【關掉守門】。而一支「環境不齊就當作沒問題」的測試,**會在 CI 上永遠綠**。
+//       ⇒ 這一段是寫給那一天的那個人看的。
+//
+// 🔴🔴 **而有一格【CI 從未實跑過】, 而它承重(reviewer nit,落地時必須知道)**:
+//    下面那兩個期望值(1 項⇒1頁、12 項⇒2頁)**是在 macOS 上校準的**。
+//    而 `--font-sans` 列的 CJK 字型是 `Noto Sans TC / PingFang TC / Microsoft JhengHei`
+//    ⇒ **Linux runner 三個都可能沒有** ⇒ 長中文品名的換行位置變 ⇒ **頁數可能不是 2**。
+//    ⚠️ 這是**推的、沒量**(而它與 `Q-FONT2` 那條線是同一件事:repo 內零字型檔)。
+//    ⇒ 📌 **所以「CI 第一發」的結果是承重的** —— 它紅了**不代表版面壞了**,
+//       可能是那個字型缺口。**而上面那道「不得 skip」的禁令, 不是叫你在那時關掉它**,
+//       是叫你**去查是哪一種**(本機綠 + CI 紅 ⇒ 先看字型,不要先改版面)。
+//
+// ✅ 而 `scripts/pagecount.sh` **留著**:它是第二把尺(系統 Chrome + CLI),
+//    而本檔那一發與它在真檔上四格對照過(1 項 1/1、12 項 2/2)。
 //
 // **怎麼用(兩步)**:
 // ```
@@ -435,6 +470,132 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     expect(real).toContain('picking-truncated-notice');
     expect(real).toContain('picking-truncated-band');
   });
+
+  /**
+   * 🔴🔴 **出貨單必須一頁印完 —— 而在這一發之前, 那件事【沒有任何守門】。**
+   *
+   * **今天(2026-08-29)Sean 印出來發現跑版, 而 CI 全綠。** 成因不是有人改壞了一道尺,
+   * 是**那件事從來沒有尺**:本檔既有的 4 個 `toBeGreaterThan` 守的是
+   * CSS 檔數 / CSS 長度 / SKU 命中數 / HTML 長度 —— **沒有一個在守高度或頁數**。
+   * ⇒ 而「頁數」的守門一直是 `scripts/pagecount.sh`,**一支要人手動跑的腳本**
+   *   (全 repo 零測試呼叫它)⇒ 📌 **所以那道守門實際上是「一個人記得去跑它」。**
+   *
+   * ── 🔴 為什麼是 **兩個世界**, 而不是「1 項要 1 頁」一格 ────────────────
+   *   只斷言「1 項 ⇒ 1 頁」的話,**一支永遠回 1 的實作會全過**。
+   *   ⇒ 所以同一發要求 **12 項 ⇒ 2 頁** —— 兩個世界印**不同**的數字,那個 1 才有意義。
+   *
+   * ── 那兩個期望值從哪來(**不是我挑的**)────────────────────────────────
+   *   · 線A(`-11`)的曲線 A:1 項⇒1頁 · 2 項⇒1頁 · **3 項⇒2頁** · 4..12 全 2 頁
+   *   · `-c8` 的 `scripts/pagecount.sh` 獨立複現 1 項與 12 項 ⇒ **兩把獨立的尺一致**
+   *   · 本窗再用 `page.pdf()` 對**這兩份真檔**複量 ⇒ 1/1 與 2/2 ⇒ **四格全對**
+   *   🛑 **射程**:量的是**本檔 fixture 的資料**,不是任何一張真訂單。
+   *      (Sean 那張真的 `PCM-2026-0104` 是 1 頁 —— 那是**他印的**,不是這道守門量的。)
+   *
+   * ── 🔴 餘裕那一格:**只印, 不設門檻** ─────────────────────────────────
+   *   1 項那張今天用掉 **923px / 1024.25px = 90.1%**,只剩 101px。
+   *   ⇒ **那個數字該多少沒有人知道** ⇒ 發明一個門檻等於發明一個判準 ⇒ 只印出來。
+   *   📌 而印出來就夠:下一個人改版面時,會在測試輸出上看到它從 90% 變成 97%。
+   *      **⇒ 那是「讓它有形狀」, 不是「讓它會紅」—— 而今天壞的正是【它沒有形狀】。**
+   *
+   *   🔴🔴 **而量餘裕要多一個動作, 否則它印的是一個【常數】**:
+   *   `.print-sheet` 有 `min-height: 1024.25px`(= 可印區)⇒ **直接量 1 項那張會得到 1024**,
+   *   而那是**地板**不是內容 ⇒ **在「還沒破頁」的整個範圍裡它永遠印 1024** ⇒ 零判別力。
+   *   ⇒ 所以要**把 min-height 暫時設 0、量、再還原**(一次只改一個變因)。
+   *   ✅ 而那條路量到 **923**,與線A 用**不同解除手法**得到的數字**逐字相同**
+   *      ⇒ 那是兩把尺收斂,不是同一個錯複印兩份。
+   *   ⚠️ 本窗第一次量到 1024 時差一點報成「用滿了」—— **抓到它的是那個「還原回 1024」的動作。**
+   */
+  it('🔴 出貨單的頁數:1 項 ⇒ 恰 1 頁、12 項 ⇒ 恰 2 頁(兩個世界要印不同的數)', async () => {
+    const { chromium } = await import('playwright');
+    const browser = await chromium.launch();
+    try {
+      const measure = async (html: string) => {
+        const page = await browser.newPage();
+        try {
+          await page.setContent(html, { waitUntil: 'load' });
+          await page.emulateMedia({ media: 'print' });
+          // 🔴 拿掉地板再量,量完還原 —— 理由見上方那一段。
+          const used = await page.evaluate(() => {
+            const sheet = document.querySelector('.print-sheet') as HTMLElement | null;
+            if (sheet === null) return null;
+            const floor = Number.parseFloat(getComputedStyle(sheet).minHeight);
+            const before = sheet.style.minHeight;
+            sheet.style.minHeight = '0px';
+            const content = Math.round(sheet.getBoundingClientRect().height);
+            sheet.style.minHeight = before;
+            // 🔴 reviewer nit:還原【今天是成立的】(`before` 讀的是 inline style = `''`,
+            //    而整段在同一個同步 `evaluate` 內、中間沒有可拋的呼叫)——
+            //    **而它若哪天壞了, 不會紅**:min-height 留 0 ⇒ 1 項仍 1 頁、12 項仍 2 頁 ⇒ 兩格照過。
+            //    ⇒ 所以把還原後的值也回出去,讓它有形狀。
+            const after = Number.parseFloat(getComputedStyle(sheet).minHeight);
+            return { content, floor: Math.round(floor), after: Math.round(after) };
+          });
+          // 🔴🔴 **`margin` 必須明寫 —— 而這是 reviewer must-fix**:
+          //    `page.pdf({format:'A4'})` 的 margin 預設是 **0**
+          //    ⇒ 它量的可印高是 **297mm(1123px)**,而版面設計的是 **271mm(1024px)**
+          //      (`print-a4.css` 的 `@page margin:12mm 12mm 14mm 12mm` + `.print-sheet{min-height:271mm}`)
+          //    ⇒ 📌 **多出約 98px 的假餘裕** ⇒ 一張在真紙上溢出 98px 的單子,這一發照樣印 1、照樣綠
+          //      —— 而那正是今天 Sean 撞到的那一種。
+          //    ✅ **而加上它【今天不改變答案】** —— 我三種幾何各量一發(2026-08-29):
+          //       `margin 預設 0` / `加 12·14mm` / `preferCSSPageSize` ⇒ **1 項全是 1、12 項全是 2**
+          //       ⇒ 所以這一改是**可證明的行為中性**,而它把那 98px 的盲區關掉。
+          const pdf = await page.pdf({
+            format: 'A4',
+            printBackground: true,
+            margin: { top: '12mm', right: '12mm', bottom: '14mm', left: '12mm' },
+          });
+          // 🔴 reviewer nit:PDF 產出空的 / 格式變了(物件流壓縮)⇒ regex 數不到 ⇒ 也是
+          //    `expected 0 to be 1` ⇒ **讀的人會去查版面, 而壞的是工具**。
+          //    ⇒ 先驗它真的是一份 PDF,讓那兩種失敗分得開。
+          expect(pdf.length).toBeGreaterThan(1000);
+          // PDF 裡數 `/Type /Page`(不含 `/Pages`)—— 與 `scripts/pagecount.sh` 同一個數法。
+          const pages = (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length;
+          return { pages, used };
+        } finally {
+          await page.close();
+        }
+      };
+
+      const one = await measure(await emit(1, 'shipping-1item'));
+      const many = await measure(await emit(12, 'shipping-12item'));
+
+      // 🔴 餘裕:**只印, 不斷言**。而 `used` 為 null 代表 `.print-sheet` 不見了 ⇒ 那要紅。
+      expect(one.used).not.toBeNull();
+      expect(many.used).not.toBeNull();
+      const { content, floor, after } = one.used as { content: number; floor: number; after: number };
+      const many1 = many.used as { content: number; floor: number };
+      // 🔴 reviewer nit:`floor` 若拿到 `auto`(`@media print` 不再命中 / 選擇器改名)
+      //    ⇒ `NaN` ⇒ 下面那個檔會靜靜印 `NaN%` 而測試全綠。
+      expect(floor).toBeGreaterThan(900);
+      // 🔴 而還原要有形狀(見上方 `after` 那一段)。
+      expect(after).toBe(floor);
+      // 🔴🔴 **寫檔, 不用 `console.log`** —— 而這一格是實測改的, 不是選的:
+      //    第一版寫 `console.log` ⇒ 跑完之後**整份輸出 9 行, 一個字都沒有**
+      //    (vitest 預設 reporter 在非 TTY 下把它吞了)。
+      //    📌 **⇒ 我加了一個「讓它有形狀」的機制, 而它【沒有形狀】** —— 而那正是本片要修的病。
+      //    ⇒ 所以改成寫進**與那三份 HTML 同一個目錄**的檔:人要看那張紙時就會看到它。
+      // 🔴 reviewer nit:寫檔要在兩個 `expect` **之前** ——
+      //    寫在後面的話,**守門紅掉的那一次正好拿不到餘裕數字**,而那是唯一想看它的時刻。
+      writeFileSync(
+        join(OUT_DIR, 'shipping-1item.slack.txt'),
+        `出貨單 1 項:內容 ${content}px / 可印 ${floor}px = ` +
+          `${((content / floor) * 100).toFixed(1)}%,剩 ${floor - content}px\n` +
+          // 🔴 reviewer nit:12 項那張離「第 3 頁」還剩多少,**比 1 項那張更會先撞線**。
+          `出貨單 12 項:內容 ${many1.content}px(已跨頁,可印 ${many1.floor}px/頁)\n` +
+          '🔴 這一格【沒有門檻】—— 那個數字該多少沒有人知道,發明一個門檻等於發明一個判準。\n' +
+          '   它存在的理由是:改版面的人會看到它從 90% 變成 97%。\n',
+        'utf8',
+      );
+
+      // 🔴 兩個世界:一個 1、一個 2。**兩格都是精確比對**,不用 `>=`
+      //    (`>=` 之下,一支永遠回 99 的實作兩格都會過 —— `scripts/pagecount.sh`
+      //     的 selftest 檔頭記著它自己踩過那一發。)
+      expect(one.pages).toBe(1);
+      expect(many.pages).toBe(2);
+    } finally {
+      await browser.close();
+    }
+  }, 120_000);
 
   it('🔴 `#601` 阻印狀態 ⇒ 產出 shipping-blocked.html(那一幅要真的印出來看)', async () => {
     // 🔴 **為什麼這一份非產不可**:`#601` 守的是**份量**(「警告必須佔滿這個位置」),
