@@ -120,8 +120,20 @@ describe('真值形狀守門', () => {
   // ✅ 突變:現造一個沒人見過的真值形狀 ⇒ 必須被抓到。
   //    🔴 這一發才是這支檔的職務 —— 前三發只證明它「會動」,這一發證明它「擋得住新的」。
   it('突變:新滲進來的識別碼形狀會被抓到,且不在 allowlist 裡', () => {
-    const planted = findIdShapes('log: refund_id=DR20260915qWeRtY 已送出');
-    expect(planted).toEqual(['DR20260915qWeRtY']);
+    // 🔴🔴 **這個樣本【拼出來,不寫成字面】—— 而理由是這支檔自己踩過的坑。**
+    //    第一版把那個樣本【寫成字面】⇒ 我跑過、4 passed、commit。
+//    ⚠️ 而這句註解的第一版【又把那個字面打了一次】⇒ 它自己讓守門紅了。
+//       📌 **解釋一個坑的句子,可以再踩一次那個坑。** ⇒ 所以這裡連提都不提它長什麼樣。
+    //    ⇒ 而 commit 的那一刻它變成【被追蹤的檔】⇒ `git grep` 從此看得到它
+    //    ⇒ ⇒ **這道守門開始把自己的突變樣本當成違規,而我 commit 之後沒有再跑一次。**
+    //    📌 **綠的那一發與紅的那一發,中間唯一的差別是「它被 commit 了」——**
+    //    **而那個動作不在任何人的檢查清單上。**
+    //    ✅ 拼接讓那個形狀在檔案裡【不存在】⇒ 這支檔仍然留在掃描範圍內,沒有盲區。
+    //    ⚠️ 反面做法(把本檔排除在 pathspec 外)會製造一個真的盲區:
+    //       那時這支檔就可以藏真值而沒有人會知道。
+    const sample = `DR${'20260915'}qWeRtY`;
+    const planted = findIdShapes(`log: refund_id=${sample} 已送出`);
+    expect(planted).toEqual([sample]);
     expect(planted.filter((v) => !Object.hasOwn(ALLOWED, v))).toHaveLength(1);
   });
 });
