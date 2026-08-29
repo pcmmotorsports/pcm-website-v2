@@ -104,54 +104,71 @@ FROM public.coupons c;
 -- 🔴 `is_active = true` **不等於「可用」** —— 券可能已過期或已用完, 而旗標還是 true。
 --    Sean 拍甲 = 顯示【自己算出來的狀態】,而**篩選也跟著改**(spec §3-1 那三個選項作廢)。
 --
--- 🔴🔴 **而一張券可以【同時】停用 + 過期 + 用完 ⇒ 那不是三個狀態, 是一個要挑的顯示規則。**
---    **Sean 沒有拍過這個順序 ⇒ 下面這個順序是【我挑的】, 而挑法寫在這裡不讓下一個人猜:**
---      ① disabled  已停用   ← `is_active = false`
---      ② expired   已過期   ← `ends_on` 早於今天
---      ③ exhausted 已用完   ← `used_count >= max_redemptions`
---      ④ available 可用
---    **挑法的理由**:員工看這一欄是要答「客人現在能不能用、而我能做什麼」
---      ⇒ 由【最容易人為改回來的】排到【最難的】:
---         停用 ⇒ 按一下就開回來 / 過期 ⇒ 改結束日 / 用完 ⇒ 要提高總量上限。
---    ⇒ **要換順序就改下面 CASE 的排列, 那是一個地方。**
+-- 🔴🔴 **一張券可以【同時】停用 + 過期 + 用完 ⇒ 所以這裡回【一組原因】, 不是一顆狀態。**
+--
+-- ⚠️ **這一格改過一次, 而改的理由值得留著**:
+--    我第一版做的是單一 `status`, 並挑了順序「停用 > 過期 > 用完」,
+--    理由寫著「由**最容易人為改回來的**排到最難的」。
+--    🔴 **而 codex 關卡2 用同一個理由把它駁倒**:同時「停用 + 過期」的券只會顯示「已停用」
+--       ⇒ 員工**按了啟用, 而它還是不能用** ⇒ **那正是一個錯的行動建議。**
+--    📌 **⇒ 那不是「順序挑錯了」, 是【單一值這個形狀】答不出「還差幾關」。**
+--       換一個順序只是換一個會誤導的方向。
+--    ⇒ 主視窗 2026-08-29 裁:**資料層回一組原因**(這是正確性, 不是品味 ⇒ 不用問 Sean);
+--      **而畫面上那一組長什麼樣(三顆標籤? 「已停用 +2」? hover 看全部?)是 Sean 的**
+--      ⇒ 留到 2b-2, 而且**要給他看實體版本, 不是文字選項**。
+--
+-- 🔴🔴 **欄名不叫 `status`、值不叫 `available` —— 而那是刻意的**:
+--    空陣列的意思是【**這張券本身沒有擋住的理由**】, **不是【這個客人現在用得了】**。
+--    它答不出三件事, 而那三件都要有【客人 + 購物車】才算得出來:
+--      · `max_per_account` 每人上限 —— 要知道是誰
+--      · `min_spend` 最低消費       —— 要知道這一車多少錢
+--      · `stacks_with_tier` 會員價衝突 —— 要知道他的等級
+--    ⇒ 本 view 是**券的清單, 手上沒有客人** ⇒ 這三格**結構上算不出來, 不是漏做**。
+--    📌 **⇒ 所以欄名要寫得出它的射程:`coupon_level_blocks` = 「券這一層有哪些擋住的理由」。**
+--    🔴 **⇒ 叫 `status` / `available` 的話, 寫畫面的人【沒有理由懷疑它】** ——
+--       而他會把它直接印成「可用」, 那就超出這個值答得出的範圍。
+--    ⚠️ 畫面上要寫什麼字(「可用」? 「有效」? 「無限制」?)是 Sean 的文案題 ⇒ 2b-2 再問。
+--    ⚠️ **而【留給 2b-2 的不只文案】, 逐條寫明免得交接的人只做視覺**(R2 nit):
+--      ① `coupon_level_blocks` 是 `text[]`, **值域沒有 enum 釘住**
+--         ⇒ 2b-2 拼錯常數不會有型別錯 ⇒ 要共用 union 型別 + exhaustive 測試
+--      ② 這一欄是**動態算的, 沒有索引可以直接建在它上面**
+--         ⇒ 用它篩選 + `count: 'exact'` 在量大時要量一次 EXPLAIN
+--      ③ 空陣列的 `array_length` 是 **NULL 不是 0**(見下方)
+--      ⇒ 三條都在 `docs/phase-1-backlog.md` `#963`。
 --
 -- 🔴 **「今天」用 `Asia/Taipei`, 不用 `current_date`** ——
 --    `current_date` 跟著 session 的 TimeZone 走(Supabase 上常態是 UTC)
 --    ⇒ 台灣時間的最後一天會提早 8 小時變成「已過期」, 而**畫面上看不出來**。
 --    ✅ 而這不是我發明的:本 repo migration 裡 `timezone('Asia/Taipei', …)` 用了 12 次、
---       `current_date` 只有 1 次 ⇒ 家法是明寫時區。
+--       `current_date` 只有 1 次(而那 1 次是 `wallet ledger` 的 `entry_date` 預設值,
+--       已回報主視窗、**本片不動它**)⇒ 家法是明寫時區。
 --
 -- ⚠️ **為什麼包一層 sub-select 而不是照鄰居的扁平寫法**:
---    `status` 要用到 `used_count`, 而同一層 SELECT 裡引用不到自己的別名
+--    這一欄要用到 `used_count`, 而同一層 SELECT 裡引用不到自己的別名
 --    ⇒ 扁平寫法就得**把那個 count 子查詢再抄一次**
 --    ⇒ 🔴 而片1 檔內警告過:**每一個數次數的地方都要帶 `reverted_at IS NULL`**,
 --       漏掉任一處 ⇒ 券看起來已用完而客人明明退過貨, 不報錯、不轉紅。
 --    ⇒ **抄第二份 = 製造第二個會漏掉那一格的地方** ⇒ 所以包一層, 讓它只有一份。
-CREATE VIEW public.admin_coupon_list_status_v AS
+CREATE VIEW public.admin_coupon_list_blocks_v AS
 SELECT
   -- 🔴 **逐欄列出, 不用 `b.*`**(關卡2 nit)—— `b.*` 在建 view 當下就凍結了欄位清單
   --    ⇒ 內層 view 日後加欄, 外層【不會】自動拿到, 而那正是本檔 §3 剛避免掉的同一個陷阱。
-  --    ⇒ 逐欄列出讓「兩支必須同批重建」變成一件看得見的事。
   b.id, b.code, b.description, b.discount_type, b.discount_value,
   b.ends_on, b.max_redemptions, b.max_per_account, b.min_spend,
   b.stacks_with_tier, b.is_active, b.created_at, b.created_by,
   b.creator_label, b.used_count,
-  CASE
-    WHEN NOT b.is_active                                              THEN 'disabled'
-    WHEN b.ends_on IS NOT NULL
-     AND b.ends_on < (timezone('Asia/Taipei', now()))::date           THEN 'expired'
-    WHEN b.max_redemptions IS NOT NULL
-     AND b.used_count >= b.max_redemptions                            THEN 'exhausted'
-    -- 🔴🔴 **`available` 的意思是【這張券本身還有效】, 不是【這個客人現在用得了】**(關卡2 must-fix)。
-    --    它**答不出**三件事, 而那三件都要有【客人 + 購物車】才算得出來:
-    --      · `max_per_account` 每人上限 —— 要知道是誰
-    --      · `min_spend` 最低消費     —— 要知道這一車多少錢
-    --      · `stacks_with_tier` 會員價衝突 —— 要知道他的等級
-    --    ⇒ 本 view 是**券的清單**, 它手上沒有客人 ⇒ 這三格**結構上算不出來**, 不是漏做。
-    --    ⚠️ **⇒ 而畫面上寫「可用」會超出這個意思** —— 那是 2b-2 的文案題:
-    --       建議寫成「有效」或「無限制」, 而**那要 Sean 的品味決定**, 我不自己定。
-    ELSE 'available'
-  END AS status
+  -- 空陣列 = 券這一層沒有擋住的理由(**不等於這個客人用得了**, 見上面)
+  array_remove(ARRAY[
+    CASE WHEN NOT b.is_active THEN 'disabled' END,
+    CASE WHEN b.ends_on IS NOT NULL
+          AND b.ends_on < (timezone('Asia/Taipei', now()))::date THEN 'expired' END,
+    CASE WHEN b.max_redemptions IS NOT NULL
+          AND b.used_count >= b.max_redemptions THEN 'exhausted' END
+  ], NULL) AS coupon_level_blocks
+  -- ⚠️ **給 2b-2 的一格陷阱, 實測到的**:`array_length('{}'::text[], 1)` 回的是 **NULL, 不是 0**
+  --    ⇒ 「還差幾關」直接印 `array_length(...)` ⇒ **沒有擋住的券那一格會是空白**,
+  --      而空白在畫面上與【載入失敗】長得一樣(本檔 §4 抄來的那條紀律, 同一個病)。
+  --    ⇒ 前端要 `coalesce(array_length(coupon_level_blocks, 1), 0)`, 或直接判陣列是不是空的。
 FROM public.admin_coupon_list_v b;
 
 -- ✅ **狀態欄已放進來(見上面 §4b)** —— Sean 2026-08-29 `Q1 = 甲` 已答。
@@ -163,10 +180,10 @@ FROM public.admin_coupon_list_v b;
 -- 🔴 **絕不 GRANT 給 `anon` / `authenticated`**。
 -- ⚠️ view 建立者的授權是**給具名角色的授權、不是 PUBLIC** ⇒ `REVOKE … FROM PUBLIC`
 --    **收不掉它** ⇒ 必須**逐角色**再收一次(這一段的教訓來自鄰居 :101-102, 不是我推的)。
-REVOKE ALL ON public.admin_coupon_list_status_v FROM PUBLIC;
-REVOKE ALL ON public.admin_coupon_list_status_v FROM anon, authenticated;
-REVOKE ALL ON public.admin_coupon_list_status_v FROM service_role;
-GRANT SELECT ON public.admin_coupon_list_status_v TO service_role;
+REVOKE ALL ON public.admin_coupon_list_blocks_v FROM PUBLIC;
+REVOKE ALL ON public.admin_coupon_list_blocks_v FROM anon, authenticated;
+REVOKE ALL ON public.admin_coupon_list_blocks_v FROM service_role;
+GRANT SELECT ON public.admin_coupon_list_blocks_v TO service_role;
 
 REVOKE ALL ON public.admin_coupon_list_v FROM PUBLIC;
 REVOKE ALL ON public.admin_coupon_list_v FROM anon, authenticated;
@@ -187,7 +204,10 @@ COMMENT ON VIEW public.admin_coupon_list_v IS
   '(實測, 不是推的)⇒ 整頁打不開。⇒ 想改回 security_invoker=true 之前, 先讀本檔 §2。'
   '🔴 寫法契約:coupons 欄位逐顆列出(不用 c.*)、聚合與 creator_label 一律純量子查詢, '
   '不得 GROUP BY/DISTINCT/join。coupons 加欄要同批重建本 view。'
-  '🔴 只給 service_role。⏸️ 衍生狀態欄(可用/已過期/已用完/已停用)未定 —— Sean 未答, 見本檔 §4 後那段。';
+  '🔴 只給 service_role。'
+  '✅ 券這一層的擋住理由在另一支 view admin_coupon_list_blocks_v 的 coupon_level_blocks 欄(陣列)。'
+  '🔴 那個空陣列的意思是【這張券本身沒有擋住的理由】, 不是【這個客人現在用得了】——'
+  '每人上限 / 最低消費 / 會員價衝突要有客人與購物車才算得出來, 本 view 手上沒有客人。';
 
 -- ══ 6. 🔴 fail-closed 斷言 ═════════════════════════════════════════════════════
 --
@@ -202,7 +222,7 @@ DECLARE
   -- 家法要求的收權斷言清單(migration-static-checks.sh:461 會比對它與 CREATE 的支數)
   v_relations text[] := ARRAY[
     'public.admin_coupon_list_v',
-    'public.admin_coupon_list_status_v'
+    'public.admin_coupon_list_blocks_v'
   ]::text[];
   v_functions text[] := ARRAY[]::text[];
   -- 🔴 迴圈變數【不叫 r】—— 6e 那段的表別名就是 r,撞名會讓 plpgsql 把別名解析成變數
@@ -296,6 +316,23 @@ BEGIN
     RAISE EXCEPTION '片2b-1 fail-closed:本 view 上有預期外的【表級】授權對象 ⇒ %', v_extra;
   END IF;
 
+  -- 6f-2. 🔴 **而上面只取 grantee, 沒看 `is_grantable`**(R2 must-fix):
+  --    `GRANT SELECT ON <view> TO service_role WITH GRANT OPTION`
+  --    ⇒ grantee 仍是【預期內的 service_role】⇒ **上面每一格全綠**
+  --    ⇒ 而它可以**把券碼的讀取權再轉授給別人** ⇒ 閉世界從此不閉。
+  --    📌 **一個白名單檢查, 只問「是誰」而沒問「他能不能再送人」。**
+  SELECT pg_catalog.string_agg(DISTINCT g.grantee, ', ') INTO v_extra
+    FROM (
+      SELECT pg_catalog.pg_get_userbyid((pg_catalog.aclexplode(c.relacl)).grantee) AS grantee,
+             (pg_catalog.aclexplode(c.relacl)).is_grantable                        AS is_grantable
+        FROM pg_catalog.pg_class c
+       WHERE c.oid = v_view AND c.relacl IS NOT NULL
+    ) g
+   WHERE g.is_grantable AND g.grantee <> v_owner;
+  IF v_extra IS NOT NULL THEN
+    RAISE EXCEPTION '片2b-1 fail-closed:本 view 上有【可再轉授】的授權(WITH GRANT OPTION)⇒ %', v_extra;
+  END IF;
+
   -- 6g. 🔴 **欄級 ACL**(關卡2 must-fix;片1 折過同一條, 而我沒有把它帶過來)——
   --     `GRANT SELECT (code) ON admin_coupon_list_v TO anon` 住在 `pg_attribute.attacl`
   --     ⇒ 6e(表級有效權限)與 6f(relacl)**兩關都看不到它**, 而券碼已經外洩。
@@ -324,8 +361,16 @@ BEGIN
   --    住在 `pg_attribute.attacl` ⇒ `has_table_privilege` 看不到它, 而 6g 的閉世界又把
   --    service_role 當【預期內的名字】排除 ⇒ **兩關全綠, 而它照樣能透過可更新 view 寫底表。**
   --    ⇒ 用 `has_any_column_privilege`:它把表級與欄級一起算進去。
+  -- 🔴 **清單漏 PG17 的 `MAINTAIN`**(R2 must-fix)—— 片1 那支補過同一格, 而我**沒有帶過來**。
+  --    📌 **這是「在一個地方修好、沒有帶到另一個地方」在本檔的第三次**
+  --       (前兩次:欄級 ACL 閉世界、has_any_column_privilege)。
+  --    ⚠️ 分岔理由同片1:舊版 PG 收到未知權限名會報錯 ⇒ 那會把 fail-closed 變 fail-loud。
   SELECT pg_catalog.string_agg(p, ', ') INTO v_extra
-    FROM unnest(ARRAY['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p
+    FROM unnest(
+      CASE WHEN current_setting('server_version_num')::int >= 170000
+        THEN ARRAY['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN']
+        ELSE ARRAY['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']
+      END) p
    WHERE pg_catalog.has_table_privilege('service_role', v_view, p)
       OR (p IN ('INSERT','UPDATE','REFERENCES')
           AND pg_catalog.has_any_column_privilege('service_role', v_view, p));
