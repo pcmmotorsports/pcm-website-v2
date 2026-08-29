@@ -18,8 +18,13 @@
 #   3. 標記檔存在且第一行 = 當下 HEAD:$git_dir/pcm-reviewer-ran
 #
 # 標記寫法(跑完 code-reviewer、或依片型分級自判輕量片跳審之後,在自己的 worktree 根執行):
-#   { git rev-parse HEAD; echo "reviewed: <片名或跳審理由>"; } > "$(git rev-parse --git-dir)/pcm-reviewer-ran"
-# 標記釘在寫入當下的 HEAD ⇒ 任何 commit 落地後 HEAD 一動、標記自動失效(不需要
+#   ~~{ git rev-parse HEAD; echo "reviewed: <理由>"; } > "<git-dir>/pcm-reviewer-ran"~~
+#   🔴 **2026-08-30 作廢 —— 那是【兩行】版, 而標記現在是三行**(HEAD / index tree id / 理由)。
+#   照舊寫的話理由會落在第 2 行 ⇒ **必定對不上 tree id ⇒ 你會被自己的標記擋住**。
+#   ✅ 現行唯一寫法(先 git add, 再寫標記, 才 commit):
+#       bash scripts/write-reviewer-marker.sh "<片名或跳審理由>"
+# 標記釘在寫入當下的 HEAD **與當下 index 的 tree id** ⇒ HEAD 一動、或別人動了 index, 標記都失效;
+# 而**別窗寫的標記不再放行你的 commit**(它的 tree id 與你的不同)。⇒ 任何 commit 落地後標記自動失效(不需要
 # post-commit 消耗;.husky/post-commit 是 graphify 本機 hook 保留位、.gitignore:84 擋著)。
 # 代價:同一片的 amend、或 reviewer 跑完後先落了別的 commit,都要重寫標記 —— 一行的事。
 # 已知邊界:標記失效不刪檔,HEAD 若被 reset/checkout 回被釘的那顆 commit,標記會復活
@@ -81,7 +86,26 @@ fi
 
 head=$(git rev-parse -q --verify HEAD || echo none)
 
-if [ -f "$git_dir/pcm-reviewer-ran" ] && [ "$(sed -n 1p "$git_dir/pcm-reviewer-ran")" = "$head" ]; then
+# 🔴 2026-08-30:除了 HEAD, 還要比對【這一次 staged 的內容】。
+#   理由與實錘見 scripts/write-reviewer-marker.sh 的註解(那支是唯一的寫入口)。
+#   一句話:只比 HEAD 的話, **A 窗寫的標記會讓 B 窗的 commit 通過**。
+# ⚠️ **這一句刻意放在條件位置以外, 而它【必須】fail-closed**:
+#   算不出雜湊(git 壞了 / shasum 不在)⇒ `$now_staged` 空 ⇒ 下面比對必不相等 ⇒ **擋**。
+#   📌 而這正是本檔檔頭那條教訓的反面:`staged=$(...)` 失敗會變空而**靜默放行**;
+#     這裡失敗變空會**擋**。⇒ 同一種「變成空字串」, 在兩個位置的方向相反 —— 要寫出來。
+# 🔴 用 git write-tree(index 的 tree id)—— **不要雜湊 diff 的文字輸出**。
+#   管線只回最後一段的 rc ⇒ git diff 失敗會被吞而 shasum 算出「空內容」的雜湊
+#   ⇒ 兩邊都算出同一個空雜湊 ⇒ **放行**(codex 2026-08-30 實測重現)。理由全文在 writer 那支。
+now_staged=$(git write-tree)
+case "$now_staged" in
+  [0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) : ;;
+  *) now_staged='' ;;    # 🔴 算不出來 ⇒ 清空 ⇒ 下面必不相等 ⇒ **擋**
+esac
+
+if [ -f "$git_dir/pcm-reviewer-ran" ] \
+   && [ "$(sed -n 1p "$git_dir/pcm-reviewer-ran")" = "$head" ] \
+   && [ -n "$now_staged" ] \
+   && [ "$(sed -n 2p "$git_dir/pcm-reviewer-ran")" = "$now_staged" ]; then
   exit 0
 fi
 
@@ -89,8 +113,16 @@ echo '' >&2
 echo '⛔ PCM reviewer gate:本次 commit 動到受審面(code 或根層平台設定),' >&2
 echo '   但本 worktree 沒有釘在當下 HEAD 的 reviewer 完成標記。' >&2
 echo '   · 已跑過 code-reviewer(或本片=輕量片、依分級可跳審)→ 寫標記再 commit:' >&2
-echo '       { git rev-parse HEAD; echo "reviewed: <片名或跳審理由>"; } > "$(git rev-parse --git-dir)/pcm-reviewer-ran"' >&2
+echo '       bash scripts/write-reviewer-marker.sh "<片名或跳審理由>"' >&2
+echo '     🔴 舊的那條兩行寫法(手動 echo 兩行進 pcm-reviewer-ran)已作廢:' >&2
+echo '        標記現在是三行(HEAD / index tree id / 理由),照舊寫理由會落在第 2 行' >&2
+echo '        ⇒ 必定對不上 tree id ⇒ 你會被自己的標記擋住。' >&2
 echo '   · 還沒審 → 先跑 code-reviewer、折完 findings 再回來。' >&2
-echo '   · amend 或中間落過別的 commit ⇒ 標記已因 HEAD 移動失效,重寫上面那行即可。' >&2
+echo '   · amend 或中間落過別的 commit ⇒ 標記已因 HEAD 移動失效,重寫即可。' >&2
+echo '   · 🔴 2026-08-30 起順序變了:**先 `git add`、再寫標記、才 commit**' >&2
+echo '     (標記現在同時釘 HEAD 與【這一次 staged 的內容】⇒ 先寫標記再 add 會對不上)' >&2
+echo '     ⇒ 寫標記一律走:bash scripts/write-reviewer-marker.sh "<你這一片>"' >&2
+echo '   · 而它為什麼要釘內容:只釘 HEAD 的話,**別的窗寫的標記會讓你的 commit 通過**' >&2
+echo '     ⇒ 那道閘答得出「最近有人寫過標記」,答不出「這一顆審過了嗎」。' >&2
 echo '   背景:Sean 2026-08-04 拍板 Q3=A(D3a/D3c-1 兩次「先 commit 後審」)。' >&2
 exit 1
