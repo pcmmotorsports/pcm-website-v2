@@ -263,6 +263,17 @@ pq () { psql -h 127.0.0.1 -p $PORT -U postgres -v ON_ERROR_STOP=1 "$@"; }
 CREATE ROLE service_role NOLOGIN;
 CREATE ROLE authenticated NOLOGIN;
 CREATE ROLE anon NOLOGIN;
+-- 🔴 **`authenticator` 也要**(2026-08-29 線A `-e9` 量到,拋棄式 PG 17.10):
+--    `20260810100000_m4b_e10_op1_order_payments_m.sql:410` 要它 ⇒ 少了它那支炸
+--    `ERROR:  role "authenticator" does not exist` ⇒ 而 `order_payments` 建不出來
+--    ⇒ 下游每一支碰帳本的都跟著死,**而失敗數看起來只是「這個環境比較嚴格」**。
+--    **量到的**:照檔名序套到 `20260823030000`(209 支),
+--      補這一行【之前】失敗 **65** 支 ⇒ 補上【之後】失敗 **43** 支。
+-- 🛑 **而 43 支【仍然】失敗 —— 本清單還是不完整,不要讀成「照著跑就會全綠」。**
+--    ⇒ 你要驗的那支若在下游,**先看第一支失敗的錯是什麼**,不要看總數
+--      (2026-08-29 同一輪的第二個自踩:總數 164 看起來像環境嚴格,
+--       而真相是【第一支就斷了、`orders` 根本沒建起來】—— 抓到它的是開檔讀那個錯)。
+CREATE ROLE authenticator NOLOGIN;
 
 -- auth schema 骨架(只需要被 FK 參照的那張表)
 CREATE SCHEMA auth;
