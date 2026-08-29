@@ -149,6 +149,44 @@ export function nextSortDir(current: CouponSort | undefined, key: CouponSortKey)
   return DEFAULT_ASCENDING[key] ? DIR_ASC : DIR_DESC;
 }
 
+/**
+ * 建列表頁的連結(篩選 + 頁碼 + 排序)。
+ *
+ * 🔴 **排序要一起帶** —— 少了它, 翻到第 2 頁會回到預設排序,
+ *    **而畫面上的箭頭還指在原來那一欄**(逐字照 customers 那支的理由)。
+ */
+export function buildCouponListHref(
+  statusParam: CouponStatusParam,
+  page: number,
+  sort?: CouponSort,
+): string {
+  const q = new URLSearchParams();
+  if (statusParam !== 'all') q.set(STATUS_PARAM, statusParam);
+  if (page > 1) q.set('page', String(page));
+  if (sort !== undefined) {
+    q.set(SORT_PARAM, SORT_KEY_TO_URL[sort.key]);
+    q.set(DIR_PARAM, sort.ascending ? DIR_ASC : DIR_DESC);
+  }
+  const qs = q.toString();
+  return qs === '' ? '/coupons' : `/coupons?${qs}`;
+}
+
+/**
+ * 篩選表單要把目前的排序**原封帶過去**的 hidden 欄位。
+ *
+ * 🔴 **不是裝飾** —— GET 表單只送出自己的欄位 ⇒ 少了這兩個 hidden,
+ *    員工改一次篩選就會把自己排好的順序丟掉, **而畫面看起來完全正常**。
+ * ⚠️ 與 `buildCouponListHref` **共用同一份對照表**(`SORT_KEY_TO_URL`)——
+ *    各寫一份的話, 連結與表單會在某一天指向不同的軸。
+ */
+export function couponSortHiddenFields(sort: CouponSort | undefined): Record<string, string> {
+  if (sort === undefined) return {};
+  return {
+    [SORT_PARAM]: SORT_KEY_TO_URL[sort.key],
+    [DIR_PARAM]: sort.ascending ? DIR_ASC : DIR_DESC,
+  };
+}
+
 // ── 顯示字面 ────────────────────────────────────────────────────────────
 
 /**

@@ -53,6 +53,13 @@ const BASE_NAV_ITEMS: readonly NavItem[] = [
   //    搬清單那一刻它還不存在 ⇒ 直接取本檔會靜默刪掉側欄的「商品」入口。
   //    合併者比對兩側 key 集合才發現(不是 git 提示的——那不是文字衝突,是集合差異)。
   { key: 'products', label: '商品', icon: 'product', href: '/products' },
+  // M-4b 券片 2b-2:後台券列表(唯讀)。href 有值 = 頁面已接上(照本檔檔頭慣例)。
+  // 🔴 **沒有這一列, 員工只能手打網址** ⇒ 而「後台列表頁」這個驗收根本不成立
+  //    (關卡1 must-fix, 2026-08-29:我的檔案清單原本漏了本檔)。
+  // ⚠️ **icon 是將就的, 不是選過的**:`Icons` 全 97 個 key 裡
+  //    `tag|coupon|ticket|percent|gift|discount` **零命中** ⇒ 借用 `billing`。
+  //    ⇒ 那是「現在沒有更好的」, 不是「這個最適合」—— 要換 icon 是視覺題, Sean 的。
+  { key: 'coupons', label: '優惠券', icon: 'billing', href: '/coupons' },
   { key: 'staff', label: '員工管理', icon: 'teams', href: '/settings/staff' },
   { key: 'suppliers', label: '供應商', icon: 'post', href: '/settings/suppliers' },
 ];
