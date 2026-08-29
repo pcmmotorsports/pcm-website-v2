@@ -153,3 +153,93 @@ CROSS JOIN (VALUES
 ) AS v(code, zh, delta, so)
 WHERE p.handle LIKE 'probe-%-3'
 ; -- 同上:不寫 ON CONFLICT
+
+-- ════════════════════════════════════════════════════════════════════
+-- 🔴 訂單種子(2026-08-29 線D;主視窗批准)
+--
+-- 病灶:這份種子【建訂單的 INSERT = 0】(當天實測;正對照:建商品的 INSERT = 4)
+--   ⇒ 客人的「訂單記錄」與「訂單詳情」在這台鑽機上【永遠是空狀態】
+--   ⇒ 而那兩片正是 Sean 2026-08-29 批的客人面工作 ⇒ **沒有任何人在真瀏覽器裡看過它們**
+--   ⚠️ 而更毒的是:空狀態量出來的「0 溢出 / 沒問題」看起來像一份合格的驗收報告。
+--     ⇒ 當天線D 就交過那樣一份,並自己標了「這兩發對訂單卡片的判別力是零」。
+--
+-- ⚠️ 資料【刻意明顯是假的】(名字/地址/金額)——免得有人把鑽機截圖當成真實訂單。
+-- 🔴 演反面的方法:把本段整個拿掉重跑 up.sh ⇒ 那些卡片必須消失。
+--    不做這一步的話,你不知道你看到的卡片是不是這段種出來的。
+-- ════════════════════════════════════════════════════════════════════
+
+-- ── 訂單 1:多品項(3 件)、已付款已出貨 ── 驗商品列/縮圖/品牌標/小計 ──
+-- ── 訂單 2:單品項 ── 驗最小情況 ──
+-- ── 訂單 3:有折扣 ── 驗 discount_total(線G 剛動過那一格,沒有被看過) ──
+-- ── 訂單 4:未付款、尚未叫貨 ── 驗狀態徽章的另一種顏色 ──
+-- ── 訂單 5:已取消(cancelled_at 有值)── Sean 2026-08-29 拍板「已取消的單回到客人帳號」──
+INSERT INTO orders (
+  display_id, customer_user_id, shipping_address_snapshot, tier_at_checkout,
+  payment_status, fulfillment_status, subtotal, shipping_fee, discount_total, total,
+  shipping_method, invoice, paid_at, cancelled_at, cancelled_reason
+)
+SELECT o.display_id, c.user_id,
+  '{"name":"探針測試客人(假資料)","phone":"0900-000-000","line":"測試市測試區測試路 000 號(假地址)"}'::jsonb,
+  'general'::member_tier, o.pay::payment_status, o.ful::fulfillment_status,
+  o.sub, o.ship, o.disc, o.sub + o.ship - o.disc,
+  'home', '{"type":"personal"}'::jsonb, o.paid_at, o.cancelled_at, o.cancelled_reason
+FROM customers c
+CROSS JOIN (VALUES
+  ('PCM-2026-9001', 'paid',   'shipped',    5400, 160,   0, now() - interval '9 days', NULL::timestamptz, NULL::text),
+  ('PCM-2026-9002', 'paid',   'inStock',    1800, 160,   0, now() - interval '6 days', NULL,              NULL),
+  ('PCM-2026-9003', 'paid',   'ordered',    4200, 160, 700, now() - interval '4 days', NULL,              NULL),
+  ('PCM-2026-9004', 'unpaid', 'notOrdered', 2100, 160,   0, NULL,                      NULL,              NULL),
+  ('PCM-2026-9005', 'paid',   'notOrdered', 1500, 160,   0, now() - interval '2 days',
+     now() - interval '1 day', '探針假資料:客人要求取消')
+) AS o(display_id, pay, ful, sub, ship, disc, paid_at, cancelled_at, cancelled_reason)
+WHERE c.email = 'probe@example.com'
+; -- 不寫 ON CONFLICT:重跑 up.sh 是在全新的資料庫上,撞到 = 有東西不對,要看見它
+
+-- 品項:金額必須自己對得起來(order_items_line_balances / orders_total_balances 兩道 CHECK)
+INSERT INTO order_items (order_id, variant_sku, product_snapshot, quantity, unit_price, line_total)
+SELECT ord.id, i.sku,
+  jsonb_build_object('title', i.title, 'sku', i.sku, 'spec', jsonb_build_object('顏色', i.color)),
+  i.qty, i.price, i.price * i.qty
+FROM orders ord
+JOIN (VALUES
+  ('PCM-2026-9001', 'G3-0001-BLK', '腳踏後移組 — BONAMICI RACING(假資料)', '黑色', 1, 2100),
+  ('PCM-2026-9001', 'G3-0002-RED', '煞車拉桿 — TERMIGNONI(假資料)',       '紅色', 1, 1800),
+  ('PCM-2026-9001', 'G3-0003-SLV', '防摔球 — RPM CARBON(假資料)',         '銀色', 1, 1500),
+  ('PCM-2026-9002', 'G3-0002-RED', '煞車拉桿 — TERMIGNONI(假資料)',       '紅色', 1, 1800),
+  ('PCM-2026-9003', 'G3-0001-BLK', '腳踏後移組 — BONAMICI RACING(假資料)', '黑色', 2, 2100),
+  ('PCM-2026-9004', 'G3-0001-GLD', '腳踏後移組 — MOTOGADGET(假資料)',     '金色', 1, 2100),
+  ('PCM-2026-9005', 'G3-0003-SLV', '防摔球 — EBC BRAKES(假資料)',         '銀色', 1, 1500)
+) AS i(display_id, sku, title, color, qty, price) ON i.display_id = ord.display_id
+;
+
+-- ── 訂單 6:**500 件品項** ⇒ 逼出 itemCountTruncated ──────────────────
+-- 🔴 這一張【不是真實情況】,它是一個【狀態夾具】:
+--    `ORDER_LIST_ITEMS_EMBED_LIMIT = 500`(packages/adapters/src/supabase/mappers/order.ts:524)
+--    ⇒ `itemCountTruncated` 的判準是 `order_items.length >= 500`
+--    ⇒ 想看那句「商品列也是被切過的」提示長什麼樣,**只有 500 件構造得出來**。
+-- ⚠️ 主視窗原話是「不要種 500 件 —— 那是上限不是真實情況」,而它同時要求演 truncated。
+--    這兩句互相衝突 ⇒ 我選了【演得出來】,並在這裡寫明它是夾具、不是樣本。
+--    ⇒ 不想要它 ⇒ 刪掉本段兩個 statement 即可,前五張單不受影響。
+-- 📌 那句提示是 codex 抓出來補的,而**補完沒有人看過它** ⇒ 它可能長得醜或位置不對。
+INSERT INTO orders (
+  display_id, customer_user_id, shipping_address_snapshot, tier_at_checkout,
+  payment_status, fulfillment_status, subtotal, shipping_fee, discount_total, total,
+  shipping_method, invoice, paid_at
+)
+SELECT 'PCM-2026-9006', c.user_id,
+  '{"name":"探針測試客人(假資料)","phone":"0900-000-000","line":"測試市測試區測試路 000 號(假地址)"}'::jsonb,
+  'general'::member_tier, 'paid'::payment_status, 'ordered'::fulfillment_status,
+  500 * 100, 160, 0, 500 * 100 + 160,
+  'home', '{"type":"personal"}'::jsonb, now() - interval '3 days'
+FROM customers c WHERE c.email = 'probe@example.com'
+;
+INSERT INTO order_items (order_id, variant_sku, product_snapshot, quantity, unit_price, line_total)
+SELECT ord.id,
+  'G3-BULK-' || lpad(g::text, 4, '0'),
+  jsonb_build_object('title', '大量品項夾具 #' || g || '(假資料)',
+                     'sku',   'G3-BULK-' || lpad(g::text, 4, '0'),
+                     'spec',  jsonb_build_object('顏色', '黑色')),
+  1, 100, 100
+FROM orders ord CROSS JOIN generate_series(1, 500) AS g
+WHERE ord.display_id = 'PCM-2026-9006'
+;
