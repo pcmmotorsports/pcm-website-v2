@@ -36,8 +36,24 @@ CHECKS="$HERE/migration-static-checks.sh"
 #    那個 127 不是「閘擋了」也不是「閘放行」,是【指令根本沒跑】—— 而 `rc != 0` 讀起來像前者。
 SELF="$HERE/$(basename "$0")"
 
-is_added() { # $1=path → 0=這次 commit 新增
-  git diff --cached --name-only --diff-filter=A -- "$1" 2>/dev/null | grep -q .
+# 🔴🔴 **2026-08-30 線A `-e9` 改(主視窗 `-48` 指名;成因是本支自己造出來的)**:
+#    舊版只認 `--cached --diff-filter=A` ⇒ **檔沒 staged 就整支略過**,
+#    印「檢查了 0 支新增的 .sql」而**它其實一支都沒看**。
+#    🔴 **⇒ 它逼人把還沒要 commit 的東西放進 index**:2026-08-30 我為了讓這道閘真的跑,
+#      只好先 `git add` 一支動錢的 migration ⇒ 而八窗共用一棵樹 ⇒ 同一個 index
+#      ⇒ **另一個窗 `-e4` 差點在它自己那顆 commit 裡把它一起帶走**(它帶了 pathspec 才擋住)。
+#    📌 **一道正確的守門,它的【輸入需求】本身可以是危險的** ——
+#      而這一格在單窗環境下完全沒有代價,只有共用工作樹時才變成問題。
+#    ⇒ **只改輸入,不動它的檢查邏輯**(那四道是對的,今天還當場擋下過我一格)。
+#
+# ⚠️ 而這**不放寬 Sean 2026-08-23「甲」** —— 「甲」是「只擋**新增的**、舊檔一律豁免」,
+#    而一支 untracked 的檔按任何定義都是新增的。放寬的是「新增」的**觀測方式**,不是它的定義。
+# ⚠️ 對 pre-commit 鏈**零影響**:lint-staged 只會把 **staged** 的檔接在後面
+#    ⇒ untracked 那一支根本不會被傳進來。這一改只讓**手動呼叫**看得見它們。
+is_new() { # $1=path → 0=新增的(staged 新增 或 未追蹤)
+  git diff --cached --name-only --diff-filter=A -- "$1" 2>/dev/null | grep -q . && return 0
+  # `--others --exclude-standard` = 未追蹤且不被 .gitignore 忽略的檔
+  git ls-files --others --exclude-standard -- "$1" 2>/dev/null | grep -q .
 }
 
 if [ "${1:-}" = "--selftest" ]; then
@@ -79,7 +95,35 @@ if [ "${1:-}" = "--selftest" ]; then
   printf 'BEGIN;\nSELECT 1;\nCOMMIT;\n' > "$W/supabase/migrations/20200202000000_new.sql"
   ( cd "$W" && git add supabase/migrations/20200202000000_new.sql && bash "$SELF" supabase/migrations/20200202000000_new.sql >/dev/null 2>&1 )
   cell "新檔(A)乾淨 ⇒ 放行(該綠必綠)" "$?" "0"
-  [ "$fail" = "0" ] && echo "✅ migration-new-file-static-checks --selftest $n/$n(A/M 雙向 + 多檔 + 該綠必綠)"
+
+  # ══ 🔴🔴 未 staged 的新增檔(2026-08-30 線A `-e9` 加)══════════════════════
+  #    這兩格是本次改動的證人。**舊版在這兩格上都會放行**(它只看 `--cached --diff-filter=A`)
+  #    ⇒ 而放行的理由不是「這支檔沒問題」,是「**我沒看到它**」。
+  #    📌 而那個放行**逼人去 `git add`** —— 那正是這一改要拆掉的因果。
+  printf 'BEGIN;\nSELECT 1; COMMIT;\nSELECT 2;\nCOMMIT;\n' > "$W/supabase/migrations/20200303000000_untracked_bad.sql"
+  ( cd "$W" && bash "$SELF" supabase/migrations/20200303000000_untracked_bad.sql >/dev/null 2>&1 )
+  cell "🔴 未 staged 的新檔【違規】⇒ 必須擋(舊版會放行)" "$?" "1"
+  printf 'BEGIN;\nSELECT 1;\nCOMMIT;\n' > "$W/supabase/migrations/20200404000000_untracked_ok.sql"
+  ( cd "$W" && bash "$SELF" supabase/migrations/20200404000000_untracked_ok.sql >/dev/null 2>&1 )
+  cell "未 staged 的新檔【乾淨】⇒ 放行(不誤報)" "$?" "0"
+  # 🔴 **突變:證明擋它的是【新的 untracked 那條】,不是別的** ——
+  #    把那支違規的檔加進 .gitignore ⇒ `--others --exclude-standard` 就看不到它
+  #    ⇒ 它退回「不是新增的」⇒ 照「甲」豁免 ⇒ 必須放行。
+  #    沒有這一發,「它會擋」與「它對任何 .sql 都擋」印同一個字。
+  ( cd "$W" && printf 'supabase/migrations/20200303000000_untracked_bad.sql\n' > .gitignore )
+  ( cd "$W" && bash "$SELF" supabase/migrations/20200303000000_untracked_bad.sql >/dev/null 2>&1 )
+  cell "突變:同一支檔被 gitignore ⇒ 看不見 ⇒ 放行(證明擋它的是 untracked 那條)" "$?" "0"
+  ( cd "$W" && rm -f .gitignore )
+
+  # ══ 🔴 「0」的兩態必須分得開 ═════════════════════════════════════════════
+  #    · 有輸入而全都不是新增 ⇒ rc=0(照「甲」豁免)
+  #    · 一個輸入都沒有       ⇒ rc=2(工具沒生效)—— 而舊版這一格也是 0
+  ( cd "$W" && bash "$SELF" >/dev/null 2>&1 )
+  cell "🔴 零參數 ⇒ rc=2(我沒去查), 不是 rc=0(查無)" "$?" "2"
+  ( cd "$W" && bash "$SELF" supabase/migrations/20200101000000_old.sql >/dev/null 2>&1 )
+  cell "【對照】有輸入而全是舊檔 ⇒ rc=0(這一格才是「查無」)" "$?" "0"
+
+  [ "$fail" = "0" ] && echo "✅ migration-new-file-static-checks --selftest $n/$n(A/M 雙向 + 多檔 + 該綠必綠 + untracked 雙向含突變 + 零參數兩態)"
   exit "$fail"
 fi
 
@@ -95,7 +139,7 @@ skipped_list=""
 _idx=0
 for f in "$@"; do
   _idx=$((_idx + 1))
-  if ! is_added "$f"; then
+  if ! is_new "$f"; then
     skipped_list="$skipped_list $f"
     continue
   fi
@@ -127,5 +171,18 @@ if [ -n "$skipped_list" ]; then
   printf '⚠️ 略過(不是這次新增的檔,照 Sean 2026-08-23「甲」豁免):\n'
   for s in $skipped_list; do printf '   · %s\n' "$s"; done
 fi
-printf 'migration-new-file-static-checks:檢查了 %s 支新增的 .sql\n' "$checked"
+# 🔴🔴 **「0」要分成兩態**(主視窗 `-48` 指名的第二格;而它就是今晚一直在講的那條):
+#    **【查無】與【我沒去查】不得壓成同一格。**
+#    · 有輸入而全都不是新增的 ⇒ **正常**(照「甲」豁免;上面已逐支列出來了)
+#    · **一個輸入都沒收到** ⇒ **工具沒生效** —— 那不是「乾淨」,是這一發**什麼都沒量**。
+#      而舊版兩者都印「檢查了 0 支」⇒ 讀的人會把後者讀成前者。
+if [ "$_idx" -eq 0 ]; then
+  printf '🛑 migration-new-file-static-checks:**一個輸入都沒收到** ⇒ 這一發沒有量到任何東西。\n' >&2
+  printf '   這【不是】「沒有新增的 .sql」—— 那一種會印「檢查了 0 支」並列出略過的檔。\n' >&2
+  printf '   最可能的成因:呼叫端沒有把檔名接上來(lint-staged 沒命中 / 手動忘了給參數)。\n' >&2
+  printf '   用法:bash %s <file.sql> [more.sql ...]\n' "$0" >&2
+  exit 2
+fi
+printf 'migration-new-file-static-checks:收到 %s 支、檢查了 %s 支新增的 .sql(其餘照「甲」豁免)\n' \
+  "$_idx" "$checked"
 exit "$rc"
