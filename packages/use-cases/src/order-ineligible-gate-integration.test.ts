@@ -153,7 +153,14 @@ function seedRow(): Map<string, Row> {
   ]);
 }
 
-const SWEEP_OPTS: SweepEmailOutboxOptions = { claimLimit: 10, maxRunSeconds: 60, leaseSeconds: 3600 };
+// 🔵 `allowOrderShipped` 2026-08-30 片3b 新增 —— **本節只跑 `order_created`,這一欄對它沒有作用**;
+//    填 true 是為了讓這一節維持在「其他閘都開著,只量 ineligible 那一道」的世界。
+const SWEEP_OPTS: SweepEmailOutboxOptions = {
+  allowOrderShipped: true,
+  claimLimit: 10,
+  maxRunSeconds: 60,
+  leaseSeconds: 3600,
+};
 
 describe('E2a-2 ineligible gate — 紅綠雙向組合證明', () => {
   /**

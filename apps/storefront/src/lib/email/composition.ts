@@ -22,13 +22,19 @@
 //    (另:packages 不可反向 import app,故不論如何都不會由 app 端提供規則本體。)
 
 import 'server-only';
-import type { ApplyOrderIneligibleGateDeps, EnqueueOrderCreatedEmailsDeps, SweepEmailOutboxDeps } from '@pcm/use-cases';
+import type {
+  ApplyOrderIneligibleGateDeps,
+  EnqueueOrderCreatedEmailsDeps,
+  EnqueueOrderShippedEmailsDeps,
+  SweepEmailOutboxDeps,
+} from '@pcm/use-cases';
 // eslint-disable-next-line no-restricted-imports -- 受控例外(鏡像 payment/composition.ts):composition root 注入 email server-only adapter;SupabaseEmailOutboxAdapter 持 service_role client(email_outbox 含 recipient_email PII)、ResendEmailSenderAdapter 持 RESEND_API_KEY、皆 server-only 不進 client bundle。
 import {
   SupabaseEmailOutboxAdapter,
   SupabasePaidOrderScannerAdapter,
   SupabaseIneligibleOrderEmailScannerAdapter,
   SupabaseShippedEmailContextAdapter,
+  SupabaseShippedOrderScannerAdapter,
   ResendEmailSenderAdapter,
   createSupabaseServiceClient,
 } from '@pcm/adapters/server';
@@ -107,6 +113,27 @@ export function getEnqueueOrderCreatedDeps(): EnqueueOrderCreatedEmailsDeps {
       isSyntheticEmail: isSyntheticEmailDomain,
     }),
     scanner: new SupabasePaidOrderScannerAdapter(createSupabaseServiceClient()),
+  };
+}
+
+/**
+ * 建 `EnqueueOrderShippedEmailsDeps`(M-4b E4 片3b:出貨線的掃描式 enqueue)。
+ *
+ * 🔴🔴 **刻意【不共用】`getSweepEmailOutboxDeps()`** —— 與 `getEnqueueOrderCreatedDeps` **同一個理由**,
+ *    而它在出貨線上更重要:那支會 `requireEnv` Resend 兩顆、缺就 throw ⇒ route 503
+ *    ⇒ 共用的話,**Resend 沒設好的期間連「把出貨信排進 outbox」都不會發生**,
+ *    而那些箱子的 `shipped_at` 會落在 cutoff 之後、**永遠不會再被掃到一次**
+ *    (掃描是 anti-join「還沒排過的」,不是「還沒寄成功的」)⇒ **那幾封信永久消失,零訊號。**
+ * 🔴 lazy 契約同檔頭:本 factory 零 env 讀取。
+ * 🔴 scanner 與 outbox 共用 service_role(scanner 讀 shipments / orders / customers,含 PII;
+ *    它回的 email 只准被交給 `outbox.enqueue`)。
+ */
+export function getEnqueueOrderShippedDeps(): EnqueueOrderShippedEmailsDeps {
+  return {
+    outbox: new SupabaseEmailOutboxAdapter(createSupabaseServiceClient(), {
+      isSyntheticEmail: isSyntheticEmailDomain,
+    }),
+    scanner: new SupabaseShippedOrderScannerAdapter(createSupabaseServiceClient()),
   };
 }
 

@@ -17,6 +17,27 @@ vi.mock('server-only', () => ({}));
 /** composition.ts 原始碼(source-contract 斷言用)。 */
 const COMPOSITION_SOURCE = readFileSync(new URL('./composition.ts', import.meta.url), 'utf8');
 
+/**
+ * 切出**一支 factory 的函式本體**(從 `export function <名稱>` 到第一行單獨的 `}`)。
+ *
+ * 🔴 **原本這兩格是 `.slice(indexOf(...))` —— 一路切到【檔尾】。**
+ *    ⇒ 它的名字說「本 factory 一顆 env 都不讀」,而它實際問的是
+ *      「**這支 factory 以下的所有東西**都沒有出現 requireEnv / process.env」。
+ *    ⇒ 2026-08-30 片3b 在下面新增一支 factory,它的**註解**解釋了為什麼不共用那支會
+ *      `requireEnv` 的 deps ⇒ **那個字出現在註解裡,這一格就紅了。**
+ *    📌 **⇒ 一個切到檔尾的 source-contract,量的是它後面每一個人的行為。**
+ *      而它今天是**假紅**;明天同樣的形狀會是**假綠**(有人把讀 env 的碼放在被切範圍外)。
+ * ⚠️ 射程:靠「第一行單獨的 `}`」斷句 ⇒ 只適用本檔這種**平坦的 factory**(無巢狀區塊在頂層)。
+ */
+function factoryBody(name: string): string {
+  const start = COMPOSITION_SOURCE.indexOf(`export function ${name}`);
+  expect(start, `找不到 factory:${name}`).toBeGreaterThan(-1);
+  const rest = COMPOSITION_SOURCE.slice(start);
+  const end = rest.indexOf('\n}\n');
+  expect(end, `切不出 ${name} 的函式尾`).toBeGreaterThan(-1);
+  return rest.slice(0, end + 2);
+}
+
 // 🔴 vi.mock 工廠會被 hoist 到檔頂 → 其引用的常數必須走 vi.hoisted(否則 ReferenceError:早於初始化)。
 const {
   outboxCtor,
@@ -24,6 +45,7 @@ const {
   scannerCtor,
   ineligibleScannerCtor,
   shippedContextCtor,
+  shippedScannerCtor,
   serviceClientSpy,
   SERVICE_CLIENT,
 } =
@@ -33,6 +55,7 @@ const {
     scannerCtor: vi.fn(), // 🔴 B-5:掃描式 enqueue 的 adapter
     ineligibleScannerCtor: vi.fn(), // 🔴 E2a-2(W3-G):寄送前 ineligible gate 的 adapter
     shippedContextCtor: vi.fn(), // 🔴 E4-b(2026-08-22):出貨信的寄送時讀取 adapter
+    shippedScannerCtor: vi.fn(), // 🔴 片3b(2026-08-30):出貨線掃描式 enqueue 的 adapter
     serviceClientSpy: vi.fn(),
     SERVICE_CLIENT: { __serviceClient: true },
   }));
@@ -43,11 +66,17 @@ vi.mock('@pcm/adapters/server', () => ({
   SupabasePaidOrderScannerAdapter: scannerCtor,
   SupabaseIneligibleOrderEmailScannerAdapter: ineligibleScannerCtor,
   SupabaseShippedEmailContextAdapter: shippedContextCtor,
+  SupabaseShippedOrderScannerAdapter: shippedScannerCtor,
   createSupabaseServiceClient: serviceClientSpy,
 }));
 
 import { isSyntheticEmailDomain } from '@pcm/schemas';
-import { getApplyOrderIneligibleGateDeps, getEnqueueOrderCreatedDeps, getSweepEmailOutboxDeps } from './composition';
+import {
+  getApplyOrderIneligibleGateDeps,
+  getEnqueueOrderCreatedDeps,
+  getEnqueueOrderShippedDeps,
+  getSweepEmailOutboxDeps,
+} from './composition';
 
 beforeEach(() => {
   outboxCtor.mockReset();
@@ -192,7 +221,7 @@ describe('getEnqueueOrderCreatedDeps — 不吃 Resend env(這是它存在的全
   });
 
   it('🔴 lazy 契約:本 factory 一顆 env 都不讀(source-contract)', () => {
-    const fn = COMPOSITION_SOURCE.slice(COMPOSITION_SOURCE.indexOf('export function getEnqueueOrderCreatedDeps'));
+    const fn = factoryBody('getEnqueueOrderCreatedDeps');
     expect(fn).not.toContain('requireEnv');
     expect(fn).not.toContain('process.env');
   });
@@ -213,7 +242,37 @@ describe('getApplyOrderIneligibleGateDeps — 不吃 Resend env(同 enqueue 的�
   });
 
   it('🔴 lazy 契約:本 factory 一顆 env 都不讀(source-contract)', () => {
-    const fn = COMPOSITION_SOURCE.slice(COMPOSITION_SOURCE.indexOf('export function getApplyOrderIneligibleGateDeps'));
+    const fn = factoryBody('getApplyOrderIneligibleGateDeps');
+    expect(fn).not.toContain('requireEnv');
+    expect(fn).not.toContain('process.env');
+  });
+});
+
+// ── 🔴 M-4b E4 片3b:出貨線 enqueue 的 deps 也刻意不共用 sweeper 的 ──
+describe('getEnqueueOrderShippedDeps — 不吃 Resend env(而在出貨線上這件事更貴)', () => {
+  it('🔴 `RESEND_API_KEY` / `ORDER_EMAIL_FROM` 都不存在 ⇒ 仍然建得出 deps、不 throw', () => {
+    // 🔴 **為什麼這一格特別重要**:共用的話,Resend 沒設好的期間連「把出貨信排進 outbox」
+    //    都不會發生,而那些箱子的 `shipped_at` 會落在 cutoff 之後、**永遠不會再被掃到一次**
+    //    (掃描是 anti-join「還沒排過的」,不是「還沒寄成功的」)⇒ 那幾封信永久消失、零訊號。
+    delete process.env.RESEND_API_KEY;
+    delete process.env.ORDER_EMAIL_FROM;
+
+    const deps = getEnqueueOrderShippedDeps();
+
+    expect(Object.keys(deps).sort()).toEqual(['outbox', 'scanner']); // 🔴 沒有 sender
+    expect(senderCtor).not.toHaveBeenCalled();
+    expect(outboxCtor).toHaveBeenCalledWith(SERVICE_CLIENT, { isSyntheticEmail: isSyntheticEmailDomain });
+    expect(shippedScannerCtor).toHaveBeenCalledWith(SERVICE_CLIENT);
+  });
+
+  it('🔴 用的是【出貨】那支 scanner,不是訂單成立那支(兩支長得一樣、掃的表不一樣)', () => {
+    getEnqueueOrderShippedDeps();
+    expect(shippedScannerCtor).toHaveBeenCalledTimes(1);
+    expect(scannerCtor).not.toHaveBeenCalled();
+  });
+
+  it('🔴 lazy 契約:本 factory 一顆 env 都不讀(source-contract)', () => {
+    const fn = factoryBody('getEnqueueOrderShippedDeps');
     expect(fn).not.toContain('requireEnv');
     expect(fn).not.toContain('process.env');
   });

@@ -122,14 +122,34 @@ export {
 
 // 🔴 M-4b E4-a(2026-08-22):出貨線的同款掃描式 enqueue。**一列 = 一個 (箱, 單) 配對 = 一封信**
 // (Sean 2026-08-17「一箱兩單就兩封」)。
-// ⚠️ **片1 刻意【不】把它掛上任何 route** —— sweeper 對 order_shipped 目前仍 fail-closed throw,
-// 掛上去會讓列排進佇列、每輪 throw、燒 attempts 進死信、然後每天告警。**模板與掛 route 是同一片(片3)。**
+// ⛔ ~~**片1 刻意【不】把它掛上任何 route** —— sweeper 對 order_shipped 目前仍 fail-closed throw,
+//    掛上去會讓列排進佇列、每輪 throw、燒 attempts 進死信、然後每天告警。**模板與掛 route 是同一片(片3)。**~~
+// ✅ **2026-08-30 片3b:模板落地了,兩件同一片做完** ⇒ 上面那個順序風險已經消失,
+//    而**那句話留著是刻意的**:它講的順序仍然是對的(先模板、後接線),下一條線照樣適用。
+// 🔴 **而閘沒有消失,只是換了位置** —— 而它是**兩道**,不是一道:
+//    ```
+//    ① 排信那一半：env 沒設 ⇒ resolveShippedEmailCutoff 回 not-configured ⇒ 一列都不排
+//    ② 寄信那一半：sweepEmailOutbox 的必填 allowOrderShipped ⇒ false 就不寄
+//    ```
+//    🔴🔴 **只寫 ① 是一句被擊破過的話**(codex 2026-08-30 R1 must-fix 1):
+//    env 只擋得住【還沒排進去的】,而 outbox 裡**已經有**的 `order_shipped` 列,
+//    sweeper 每五分鐘照樣把它們寄出去 —— 而那正是「設了、看到不對、把 env 拿掉」之後的世界。
+//    ⇒ 📌 **把 ② 刪掉,上面 ① 那句話【讀起來照樣成立】** ⇒ 所以兩道都要寫在這裡,
+//      否則下一個人會以為那個旗標是多餘的。
 export {
   enqueueOrderShippedEmails,
   type EnqueueOrderShippedEmailsDeps,
   type EnqueueOrderShippedEmailsOptions,
   type EnqueueOrderShippedEmailsResult,
 } from './enqueue-order-shipped-emails';
+
+// 🔴 M-4b E4 片3b(2026-08-30):`SHIPPED_EMAIL_CUTOFF` 的解析(純函式、零 I/O)。
+// ⚠️ 它**不是**開關本身 —— 開關是那顆 env 有沒有被設。本函式只負責「設了之後怎麼讀」,
+//    而它刻意沒有「沒設就用預設起點」那條路(見該檔:那是這條線最貴的失敗模式)。
+export {
+  resolveShippedEmailCutoff,
+  type ShippedEmailCutoff,
+} from './shipped-email-cutoff';
 
 // 🔴 M-4a E2a-2(W3-G 拆出,2026-08-20):寄送前 ineligible gate,擋「排進佇列後、真正寄出前
 // 才被取消」的窗口。獨立 cron route,跑在 sweepEmailOutbox 之前但**不掛進**它的 route ——

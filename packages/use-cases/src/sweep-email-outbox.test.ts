@@ -12,6 +12,10 @@ import { sweepEmailOutbox, type SweepEmailOutboxOptions } from './sweep-email-ou
 const NOW = new Date('2026-07-17T10:00:00.000Z');
 
 const OPTS: SweepEmailOutboxOptions = {
+  // 🔴 預設 `true` = 「出貨線已上膛」的那個世界 —— 絕大多數測項跑的是它。
+  //    ⚠️ 而**那是一個世界,不是一個中性預設** ⇒ 另一個世界(線關著)必須有專屬的一節,
+  //       否則這道閘在測試層等於沒有被量過(同 `eligibleAll()` 那一格的理由)。
+  allowOrderShipped: true,
   claimLimit: 20,
   maxRunSeconds: 60,
   leaseSeconds: 3600,
@@ -197,6 +201,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     expect(res).toEqual({
       reclaimed: 0, claimed: 1, sent: 1, failed: 0,
       deferred: 0, staleMarks: 0, errors: 0, skippedIneligible: 0, eligibilityUnknown: 0, quotaFailed: 0,
+      skippedShipmentVoided: 0,
     });
   });
 
@@ -390,7 +395,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     const outbox = outboxFake([job()]);
     const sender = senderFake([{ kind: 'failed', errorCode: 'quota_daily_exceeded' }]);
     const before = Date.now();
-    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, { claimLimit: 20, maxRunSeconds: 60, leaseSeconds: 3600 });
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, { allowOrderShipped: true, claimLimit: 20, maxRunSeconds: 60, leaseSeconds: 3600 });
     const after = Date.now();
     const [staleBefore, nextRetryAt] = outbox.reclaimStaleLeases.mock.calls[0]! as [Date, Date];
     expect(nextRetryAt.getTime() - staleBefore.getTime()).toBe(3600 * 1000 + LEASE_RECLAIM_RETRY_DELAY_MS);
@@ -437,6 +442,7 @@ describe('sweepEmailOutbox — 結果形狀(零 PII 合約)', () => {
       'reclaimed',
       'sent',
       'skippedIneligible',
+      'skippedShipmentVoided',
       'staleMarks',
     ]);
   });
@@ -476,7 +482,10 @@ describe('sweepEmailOutbox — 結果形狀(零 PII 合約)', () => {
   });
 });
 
-describe('sweepEmailOutbox — 🔴 order_shipped 仍然 fail-closed(M-4b E4-b 零對外的【可跑證明】)', () => {
+// ⛔ ~~`sweepEmailOutbox — 🔴 order_shipped 仍然 fail-closed(M-4b E4-b 零對外的【可跑證明】)`~~
+//    **2026-08-30 片3b:模板落地了,`order_shipped` 不再無條件 fail-closed。**
+//    ⇒ 本組現在量的是**它【什麼時候仍然】不寄** —— 而那四格全部還成立,一格都沒有被刪。
+describe('sweepEmailOutbox — 🔴 order_shipped:【拿不到脈絡】時仍然 fail-closed(片3b 之後)', () => {
   // 🔴 這一組存在的理由:片2 交件時我要說「一封信都不會多」,
   //    而**「我沒有寫寄信的 code」不是證明** —— 那是宣稱。
   //    真正的證明是:餵一份 order_shipped 的工作單進去,看它**有沒有呼叫 sender**。
@@ -508,9 +517,20 @@ describe('sweepEmailOutbox — 🔴 order_shipped 仍然 fail-closed(M-4b E4-b �
     expect(outbox.markSent).not.toHaveBeenCalled();
   });
 
-  it('🔴 給了 shippedContext 也一樣不寄 —— 那一欄【不是】打開閘的東西', async () => {
-    // 片2 只加了 Deps 的欄位。真正打開閘的是 buildEmailText 的 case(片3)。
-    // ⚠️ 少了這一格,「加了欄位」與「開始寄信」在片2 的交件上分不出來。
+  /**
+   * ⛔ ~~`🔴 給了 shippedContext 也一樣不寄 —— 那一欄【不是】打開閘的東西`~~
+   *    **2026-08-30 片3b 之後那個宣稱不成立了** —— 模板落地,給了 context 就會寄。
+   *
+   * 🔴🔴 **而最危險的一格是:那一格【不改也會綠】。**
+   *    因為 `shippedJob()` 的 payload **沒有 `shipment_id`** ⇒ 走的是「撈不到鍵」那條
+   *    fail-closed ⇒ `sender` 仍然零呼叫、`errors` 仍然是 1、`loadShippedContext` 仍然沒被呼叫。
+   *    ⇒ 📌 **它會繼續印綠,而它印的綠講的是另一件事** —— 一個標題寫著「閘是關的」的恆綠格。
+   *    ⇒ 所以這裡不是「順手更新測試名字」,是**把一個已經失去標的的量具換掉**。
+   *
+   * ✅ 換成:**payload 缺 `shipment_id` ⇒ fail-closed,而且【連讀都不讀】。**
+   *    那才是它現在真正量得到的東西,而它有判別力(補上鍵就會走到讀取,見下面那一組)。
+   */
+  it('🔴 payload 缺 shipment_id ⇒ fail-closed:不寄、不讀、errors+1', async () => {
     const outbox = outboxFake([shippedJob()]);
     const sender = senderFake([]);
     const loadShippedContext = vi.fn();
@@ -518,7 +538,6 @@ describe('sweepEmailOutbox — 🔴 order_shipped 仍然 fail-closed(M-4b E4-b �
     const r = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender, shippedContext: { loadShippedContext } }, OPTS);
 
     expect(sender.send).not.toHaveBeenCalled();
-    // 連讀都還沒開始讀 —— 模板不存在,根本走不到需要脈絡的那一步。
     expect(loadShippedContext).not.toHaveBeenCalled();
     expect(r.errors).toBe(1);
   });
@@ -548,6 +567,337 @@ describe('sweepEmailOutbox — 🔴 order_shipped 仍然 fail-closed(M-4b E4-b �
     const sender = senderFake([{ kind: 'sent' }]);
 
     const r = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
+
+    expect(sender.send).toHaveBeenCalledTimes(1); // 只有 order_created 那一封
+    expect(r.sent).toBe(1);
+    expect(r.errors).toBe(1);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴 M-4b E4 片3b:出貨通知信的【模板】與【寄送時讀取】
+// ══════════════════════════════════════════════════════════════════════════
+//
+// 🔴 **這一組是 Sean `q3: C` 那一板的量具。** 而他拍的是「放哪三段」,
+//    不是「那三段怎麼寫」⇒ 下面第一格把**信件全文逐字**釘住,
+//    交件時貼給他看的就是這一格裡的字面(不是我另外重打一份)。
+//
+// ⚠️ **條件才是這一片的內容**:他讀到的理由逐字是
+//    「那兩句只在該出現的那一批出現, 不是每封信都變長」
+//    ⇒ 所以真值表那四格(②on/off × ③on/off)是承重的,不是湊數。
+describe('sweepEmailOutbox — 🔴 order_shipped 模板(Sean 2026-08-30 `q3: C`)', () => {
+  /** 一份**有 `shipment_id`** 的出貨工作單(上一組那份刻意沒有,用來量另一條路)。 */
+  const shippedJobWithId = () =>
+    job({
+      id: 'outbox-shipped-1',
+      eventType: 'order_shipped',
+      dedupKey: 'shp-1:order-1',
+      subject: 'PCM 訂單 PCM-2026-0001 出貨通知(包裹 BCDF23)',
+      payload: {
+        event_version: 1,
+        display_id: 'PCM-2026-0001',
+        shipment_id: '11111111-2222-3333-4444-555555555555',
+        shipment_reference: 'BCDF23',
+        shipped_at: '2026-08-30T02:00:00.000Z',
+      },
+    });
+
+  const CTX = {
+    orderDisplayId: 'PCM-2026-0001',
+    shipmentReference: 'BCDF23',
+    carrierName: '黑貓宅急便',
+    trackingNumber: '1234567890',
+    lines: [
+      { title: '前煞車來令片', quantity: 2 },
+      { title: null, quantity: 1 },
+    ],
+    linesTruncated: false,
+    orderHasUnshippedItems: true,
+  };
+
+  /** 跑一輪、回 `{ r, sender, outbox, load }`(所有測項共用,少一份重複的組裝碼)。 */
+  async function run(loadResult: unknown, ctxOverrides: Record<string, unknown> = {}, outboxOverrides = {}) {
+    const outbox = outboxFake([shippedJobWithId()], outboxOverrides);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const resolved =
+      loadResult === 'ok' ? { kind: 'ok', context: { ...CTX, ...ctxOverrides } } : loadResult;
+    const load = vi.fn().mockResolvedValue(resolved);
+    const r = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender, shippedContext: { loadShippedContext: load } },
+      OPTS,
+    );
+    return { r, sender, outbox, load };
+  }
+
+  /** 那一封信的內文(只有真的寄了才拿得到)。 */
+  function sentText(sender: { send: ReturnType<typeof vi.fn> }): string {
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    return sender.send.mock.calls[0]![0].text as string;
+  }
+
+  it('🔴🔴 信件全文逐字(三段全開)—— **這一格就是交件時貼給 Sean 看的那份**', async () => {
+    const { r, sender } = await run('ok', { trackingNumber: null });
+    expect(sentText(sender)).toBe(
+      [
+        '您好,',
+        '',
+        '您的訂單 PCM-2026-0001 有一批商品已出貨。',
+        '',
+        '箱號:BCDF23',
+        '本批為自取／自送,無追蹤碼。',
+        '',
+        '本批出貨內容:',
+        '· 前煞車來令片 × 2',
+        '· (品名從缺) × 1',
+        '',
+        '這張訂單可能分批出貨,其餘商品出貨時會另外通知您。',
+        '',
+        '訂單明細與最新狀態請至 PCM 會員中心查看。',
+        '',
+        'PCM重機零件販售',
+      ].join('\n'),
+    );
+    expect(r.sent).toBe(1);
+    expect(r.errors).toBe(0);
+  });
+
+  it('🔴 有追蹤碼那一版的全文(③ 那句不在、改印貨運與碼)', async () => {
+    const { sender } = await run('ok');
+    expect(sentText(sender)).toBe(
+      [
+        '您好,',
+        '',
+        '您的訂單 PCM-2026-0001 有一批商品已出貨。',
+        '',
+        '箱號:BCDF23',
+        '貨運:黑貓宅急便',
+        '追蹤碼:1234567890',
+        '',
+        '本批出貨內容:',
+        '· 前煞車來令片 × 2',
+        '· (品名從缺) × 1',
+        '',
+        '這張訂單可能分批出貨,其餘商品出貨時會另外通知您。',
+        '',
+        '訂單明細與最新狀態請至 PCM 會員中心查看。',
+        '',
+        'PCM重機零件販售',
+      ].join('\n'),
+    );
+  });
+
+  /**
+   * 🔴 **真值表 —— 兩句話 × 兩個世界,四格都要各自表演一次。**
+   *    少了「不該出現時真的不出現」那兩格,一個把條件寫成 `if (true)` 的實作會全綠,
+   *    而那正是**沒有照拍板做**的那個版本(字面全在、條件沒接)。
+   */
+  it.each([
+    [true, null, true, true],
+    [true, 'T1', true, false],
+    [false, null, false, true],
+    [false, 'T1', false, false],
+  ])(
+    '真值表:orderHasUnshippedItems=%s / trackingNumber=%s ⇒ ②=%s ③=%s',
+    async (hasUnshipped, tracking, expectPartial, expectNoTracking) => {
+      const { sender } = await run('ok', {
+        orderHasUnshippedItems: hasUnshipped,
+        trackingNumber: tracking,
+      });
+      const text = sentText(sender);
+      expect(text.includes('這張訂單可能分批出貨,其餘商品出貨時會另外通知您。')).toBe(expectPartial);
+      expect(text.includes('本批為自取／自送,無追蹤碼。')).toBe(expectNoTracking);
+    },
+  );
+
+  /**
+   * 🔴 **傳出去的那一發查詢要釘住形狀** —— 少了這一格,
+   *    一個「把 orderId 與 shipmentId 對調」或「根本沒把 shipmentId 傳下去」的改動
+   *    在上面每一格底下都是綠的(替身照樣回 ok)。
+   */
+  it('🔴 讀取那一發:orderId 與 shipmentId 都要從 job/payload 正確帶下去', async () => {
+    const { load } = await run('ok');
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledWith({
+      orderId: 'order-1',
+      shipmentId: '11111111-2222-3333-4444-555555555555',
+    });
+  });
+
+  it('🔴 箱被作廢(voided)⇒ 不寄、落 skipped_shipment_voided 痕跡、**不計 error**', async () => {
+    const { r, sender, outbox } = await run({ kind: 'voided' }, {}, {
+      markSkippedShipmentVoided: vi.fn().mockResolvedValue(true),
+    });
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(outbox.markSkippedShipmentVoided).toHaveBeenCalledWith('outbox-shipped-1', 1);
+    expect(r.skippedShipmentVoided).toBe(1);
+    // 🔴 這一行才是這一格的重點:作廢是正常業務動作,不可以讓 route 回 503。
+    expect(r.errors).toBe(0);
+  });
+
+  it('🔴 voided 的世代柵欄沒對上 ⇒ 記 staleMarks、不記 skippedShipmentVoided', async () => {
+    const { r, outbox } = await run({ kind: 'voided' }, {}, {
+      markSkippedShipmentVoided: vi.fn().mockResolvedValue(false),
+    });
+    expect(outbox.markSkippedShipmentVoided).toHaveBeenCalled();
+    expect(r.skippedShipmentVoided).toBe(0);
+    expect(r.staleMarks).toBe(1);
+    expect(r.errors).toBe(0);
+  });
+
+  it('🔴 讀不到(unavailable)⇒ 不寄、計 error、零 mark —— **這一態應該吵**', async () => {
+    const { r, sender, outbox } = await run({ kind: 'unavailable' });
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.errors).toBe(1);
+    expect(r.skippedShipmentVoided).toBe(0);
+    expect(outbox.markSent).not.toHaveBeenCalled();
+    expect(outbox.markFailed).not.toHaveBeenCalled();
+  });
+
+  it('🔴 loadShippedContext throw ⇒ 不寄、計 error(不得吞成「沒有脈絡就寄通用信」)', async () => {
+    const outbox = outboxFake([shippedJobWithId()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const load = vi.fn().mockRejectedValue(new Error('db down'));
+    const r = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender, shippedContext: { loadShippedContext: load } },
+      OPTS,
+    );
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.errors).toBe(1);
+  });
+
+  /**
+   * 🔴 `linesTruncated` 是 port 檔頭指名要 fail-closed 的那一格:
+   *    **少列幾項的信與正常的信長得一模一樣** —— 客人照著清單對,少的那一項他不會知道要問。
+   */
+  it('🔴 linesTruncated ⇒ 不寄、計 error', async () => {
+    const { r, sender } = await run('ok', { linesTruncated: true });
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.errors).toBe(1);
+  });
+
+  it('🔴 品項空的 ⇒ 不寄(否則客人收到一封「本批出貨內容:」底下什麼都沒有的信)', async () => {
+    const { r, sender } = await run('ok', { lines: [] });
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.errors).toBe(1);
+  });
+
+  /**
+   * 🔴 同 codex R2 那一格的理由,而這是**第二發**會等的 await:
+   *    合格性讀完時還沒超時,而**脈絡那一發**在 59.9 秒開始、60 秒之後才回來
+   *    ⇒ 少了讀完再問一次,就會在已經超時的情況下呼叫 Resend。
+   * ⚠️ 把那一格拿掉這一條會紅 —— 它是那個修法的證人,不是裝飾。
+   */
+  it('🔴 脈絡讀取【穿越】deadline ⇒ 這一封不得寄出', async () => {
+    const outbox = outboxFake([shippedJobWithId()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const load = vi.fn().mockResolvedValue({ kind: 'ok', context: CTX });
+    const r = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender, shippedContext: { loadShippedContext: load } },
+      // 迴圈頭 0ms(過)→ 合格性讀完 0ms(過)→ 脈絡讀完 61s(超)
+      { ...OPTS, now: tickingClock([0, 0, 0, 61_000]) },
+    );
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.sent).toBe(0);
+    expect(r.deferred).toBe(1);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 codex 2026-08-30 R1 must-fix 1 的證人:**線沒上膛的時候,佇列裡的列不准被寄出去**
+// ══════════════════════════════════════════════════════════════════════════
+//
+// 🔴 **它擋的那個世界怎麼發生的**:Sean 設了 `SHIPPED_EMAIL_CUTOFF` ⇒ 信排進 outbox
+//    ⇒ 他看到不對、把 env 拿掉 ⇒ **而那個動作在這一格之前【不會讓寄信停下來】**,
+//    因為 cutoff 只擋得住排信那一半,已經排好的列每五分鐘照樣被寄出去。
+//
+// 🛑🛑 **而「把 env 拿掉」這句話自己漏了一步**(Fable 2026-08-30 R3 must-fix 2)——
+//    Vercel **刪掉** env 與**設定** env 一樣,只對**新的 deployment** 生效
+//    ⇒ 刪完不 redeploy ⇒ **現行 deployment 讀到的還是舊值 ⇒ 這道閘在它眼裡仍然是開的**
+//    ⇒ 📌 **出事那天他刪了、以為停了,而信每五分鐘照樣寄。**
+//    ✅ 停下來的完整動作 = **刪 env ⇒ redeploy ⇒ 看下一輪 `shippedEnqueueStatus`
+//       是不是 `skipped_no_cutoff`** —— 那一格才是「真的停了」的證據,不是「我刪過了」。
+//    ⚠️ **這一節量得到的是「旗標 false ⇒ 不寄」,量不到「他刪了 env 之後旗標會變 false」**
+//       —— 後者要經過一次 redeploy,而那不在任何測試的射程裡。**寫出來,不留白。**
+//
+// 🔴🔴 **而這道保護在片3b【之前】是存在的 —— 它是「模板還沒做」的副產品**
+//    (那時 `buildEmailText` 對 `order_shipped` 無條件 throw)。
+//    ⇒ 📌 **沒有人「裝」過它,所以它不在任何清單上;而做完那件功能本身,就是拆掉它。**
+//    ⇒ ⇒ **這一節就是把它變成一個【有名字、有守門】的東西。**
+describe('sweepEmailOutbox — 🔴 allowOrderShipped=false ⇒ 佇列裡的出貨信一封都不寄', () => {
+  const shippedReady = () =>
+    job({
+      id: 'outbox-armed-1',
+      eventType: 'order_shipped',
+      dedupKey: 'shp-9:order-1',
+      subject: 'PCM 訂單 PCM-2026-0001 出貨通知(包裹 BCDF23)',
+      payload: {
+        event_version: 1,
+        display_id: 'PCM-2026-0001',
+        shipment_id: '99999999-8888-7777-6666-555555555555',
+        shipment_reference: 'BCDF23',
+        shipped_at: '2026-08-30T02:00:00.000Z',
+      },
+    });
+
+  /** 一份**完全健康、拿得到脈絡**的 context —— 讓「不寄」只可能來自那個旗標。 */
+  const okCtx = {
+    kind: 'ok',
+    context: {
+      orderDisplayId: 'PCM-2026-0001',
+      shipmentReference: 'BCDF23',
+      carrierName: '新竹物流',
+      trackingNumber: 'T1',
+      lines: [{ title: '前煞車來令片', quantity: 1 }],
+      linesTruncated: false,
+      orderHasUnshippedItems: false,
+    },
+  };
+
+  it('🔴🔴 線關著 ⇒ 不寄、**連查主表都不查**、計 error(列留 sending,下輪回收)', async () => {
+    const outbox = outboxFake([shippedReady()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const load = vi.fn().mockResolvedValue(okCtx);
+
+    const r = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender, shippedContext: { loadShippedContext: load } },
+      { ...OPTS, allowOrderShipped: false },
+    );
+
+    // ⬇️ 這一行是「線關著就真的不寄」的證據 —— 不是 counts,是那支 spy。
+    expect(sender.send).not.toHaveBeenCalled();
+    // 🔴 線關著的時候連查主表都不該發生(擋在讀取【之前】)。
+    expect(load).not.toHaveBeenCalled();
+    expect(r.sent).toBe(0);
+    expect(r.errors).toBe(1); // 線關著而佇列裡有列 = 有事情不對,應該吵
+    expect(outbox.markSent).not.toHaveBeenCalled();
+  });
+
+  it('🔵 正對照:同一份工作單、同一份 context,只把旗標翻成 true ⇒ **它就寄了**', async () => {
+    // 🔴 沒有這一格,上面那格在「這支 use-case 整個壞掉、什麼都不寄」的世界裡也會綠。
+    const outbox = outboxFake([shippedReady()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const load = vi.fn().mockResolvedValue(okCtx);
+
+    const r = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender, shippedContext: { loadShippedContext: load } },
+      { ...OPTS, allowOrderShipped: true },
+    );
+
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(r.sent).toBe(1);
+    expect(r.errors).toBe(0);
+  });
+
+  it('🔴 線關著【不影響】訂單成立信 —— 它擋的是一種信,不是整個 sweeper', async () => {
+    const outbox = outboxFake([job(), shippedReady()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+
+    const r = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender },
+      { ...OPTS, allowOrderShipped: false },
+    );
 
     expect(sender.send).toHaveBeenCalledTimes(1); // 只有 order_created 那一封
     expect(r.sent).toBe(1);
