@@ -449,6 +449,38 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
   }
 
   async markSkippedShipmentVoided(id: string, claimedAttempts: number): Promise<boolean> {
+    // ══════════════════════════════════════════════════════════════════════════
+    // 🔴🔴 **部署順序:先 apply `20260830060000`,再部署會走到這裡的碼。**
+    //    (2026-08-30 搬到這裡;搬的理由在本段最後。)
+    // ══════════════════════════════════════════════════════════════════════════
+    // ⛔ **那支 migration 的檔頭寫著一句【已經為假】的話,而它不能改**(見下方「為什麼搬」):
+    //    ~~「今天沒有任何正式碼呼叫 `markSkippedShipmentVoided` ⇒ 今天反序部署不會立刻壞」~~
+    // 🔴 **那一天到了 —— 它已經被接上去了**:
+    //    `packages/use-cases/src/sweep-email-outbox.ts:546` 呼叫本方法,
+    //    由 `apps/storefront/src/app/api/cron/email-sweep/route.ts` 走到;接線那顆是 `44ccc0bc`。
+    //    ⚠️ **而「現在就會走到」要帶前提,不要讀成無條件立即可達**:還需要同時滿足
+    //      ① `allowOrderShipped=true`(由 env 導出的 cutoff 決定,該 route `:453`)
+    //      ② 有一列 due 的 `order_shipped` 被認領 ③ 那一箱撈回來的脈絡是 `voided`
+    //    ⇒ 正確說法:**那條路【已經接上了】**,會不會今天走到取決於那個 env 有沒有上膛。
+    //      而重點不變:**「還沒有人接」這個理由已經沒有了。**
+    //
+    // 🔴 **它是怎麼被發現的,比那個事實本身更值得留**(可複製的那一步):
+    //    上午量的時候在 `9002092d`,而 `44ccc0bc` 不在它的祖先裡
+    //    (`git merge-base --is-ancestor 44ccc0bc 9002092d` ⇒ 否)⇒ 接線在後來 merge 進來的 19 顆裡。
+    //    抓到它的是:**被指派去做別件事時,回頭把同一個 grep 重跑了一次。**
+    //    ⇒ 📌 **merge 之後,先前寫下的每一句「今天還沒有 X」都可能已經不成立 —— 而它們不會自己出聲。**
+    //    ⇒ 🔴 **而這一次是往【更嚴重】的方向過期**:當時寫的是「今天不急」。
+    //      往好的方向過期**容易**沒有人回頭查(讀起來像好消息);
+    //      **而往壞的方向過期也一樣容易 —— 因為它讀起來像一句已經查證過的安心話。**
+    //
+    // 🛑 **為什麼這一段住在這裡,而不是住在那支 migration 的檔頭**(2026-08-30,Sean 裁【甲】):
+    //    那一段**曾經**寫在 migration 檔頭(commit `87f86194`),而**那支 migration 已經 apply 了**
+    //    ⇒ 改它(即使只改註解)會讓 `supabase/APPLIED.tsv` 記的 sha256 對不上。
+    //    CLAUDE.md 路由表逐字:「**已 apply 的 migration 連註解都不能動**」。
+    //    ⇒ migration 本體已還原成帳本那一版;**更正搬來這裡 —— 會走到第七態的碼就是這一支。**
+    //    ⚠️ **代價明寫,不掩蓋**:那支 migration 的檔頭現在**仍然留著那句已為假的話**,
+    //       而它**不能**改。⇒ 只讀那支檔的人會讀到舊的。這是【甲】這個選項的已知代價。
+    //
     // 🔴 M-4b E4 片3a。**可翻轉態(與 skipped_no_real_email 同類), 不是不可翻轉終態**
     //    —— 箱可被 admin_unvoid_shipment 用同一個 id 復原, 而掃描 view 的 anti-join 不分 status
     //    ⇒ 這一列會永久擋住重新 enqueue(合約全文與反例在 port)。稽核碼由本層寫死、不經

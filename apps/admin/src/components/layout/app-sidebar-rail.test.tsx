@@ -28,6 +28,7 @@ const SYNCED_COUNTS: SidebarCounts = {
   unorderedOrderCount: 0,
   refundExceptionCount: 0,
   refundExceptionTruncated: false,
+  refundExceptionVerdictsUnavailable: false,
   outOfStockProductCount: 0,
   syncedAt: '2026-08-20T04:00:00.000Z', // 台北 12:00
 };
@@ -36,6 +37,7 @@ const FAILED_COUNTS: SidebarCounts = {
   unorderedOrderCount: null,
   refundExceptionCount: null,
   refundExceptionTruncated: false,
+  refundExceptionVerdictsUnavailable: false,
   outOfStockProductCount: null,
   syncedAt: null,
 };
@@ -184,6 +186,27 @@ describe('稿指名的兩個承重細節(它們看起來都像垃圾)', () => {
     expect(rail.textContent).not.toContain('讀取失敗');
   });
 
+  // ── 🔴 R1 MF3:第三態的量具(之前零覆蓋 —— 那個分支整段刪掉照樣全綠)──
+  it('🔴 更正讀不到(而三格都讀到了)⇒ 軌底顯示「判定讀不到」,**不印時間戳**', () => {
+    mount(true, { ...SYNCED_COUNTS, refundExceptionVerdictsUnavailable: true });
+    const rail = screen.getByTestId('nav-rail');
+    expect(
+      rail.textContent,
+      '那時退款那格是退化值(含已判定的)⇒ 印時間戳等於把一個退化值蓋章成事實',
+    ).toContain('判定讀不到');
+    expect(rail.textContent).not.toMatch(/\d{1,2}:\d{2}/);
+  });
+
+  it('🔴 它與「讀取失敗」是**兩句話**,不得合成一句(少一句 = 少一個世界)', () => {
+    mount(true, { ...SYNCED_COUNTS, refundExceptionVerdictsUnavailable: true });
+    expect(screen.getByTestId('nav-rail').textContent).not.toContain('讀取失敗');
+  });
+
+  it('負對照:旗標是 false 時**不得**出現那句話(否則它是恆真的裝飾)', () => {
+    mount(true, SYNCED_COUNTS);
+    expect(screen.getByTestId('nav-rail').textContent).not.toContain('判定讀不到');
+  });
+
   it('🔴 任一格讀取失敗(syncedAt=null)⇒ 軌底顯示「讀取失敗」,**不印時間戳**', () => {
     mount(true, FAILED_COUNTS);
     const rail = screen.getByTestId('nav-rail');
@@ -248,6 +271,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       unorderedOrderCount: 12,
       refundExceptionCount: 3,
       refundExceptionTruncated: false,
+      refundExceptionVerdictsUnavailable: false,
       outOfStockProductCount: 0,
       syncedAt: SYNCED_COUNTS.syncedAt,
     });
@@ -279,11 +303,12 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       unorderedOrderCount: 12,
       refundExceptionCount: 3,
       refundExceptionTruncated: false,
+      refundExceptionVerdictsUnavailable: false,
       outOfStockProductCount: 5,
       syncedAt: SYNCED_COUNTS.syncedAt,
     });
     expect(visibleTextOf('訂單')).toContain('未訂貨');
-    expect(visibleTextOf('退款異常')).toContain('卡住');
+    expect(visibleTextOf('退款異常')).toContain('待處理');
     expect(visibleTextOf('商品')).toContain('缺貨');
   });
 
@@ -294,6 +319,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       unorderedOrderCount: 12,
       refundExceptionCount: 3,
       refundExceptionTruncated: false,
+      refundExceptionVerdictsUnavailable: false,
       outOfStockProductCount: 5,
       syncedAt: SYNCED_COUNTS.syncedAt,
     });
@@ -310,11 +336,12 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       unorderedOrderCount: 12,
       refundExceptionCount: 55,
       refundExceptionTruncated: true,
+      refundExceptionVerdictsUnavailable: false,
       outOfStockProductCount: 5,
       syncedAt: SYNCED_COUNTS.syncedAt,
     });
     const sr = railCellFor('退款異常').querySelector('.sr-only');
-    expect(sr?.textContent?.trim()).toBe('卡住 99+ 筆');
+    expect(sr?.textContent?.trim()).toBe('待處理 99+ 筆');
     expect(sr?.textContent).not.toContain('55');
   });
 
@@ -332,12 +359,13 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       unorderedOrderCount: 12,
       refundExceptionCount: 3,
       refundExceptionTruncated: false,
+      refundExceptionVerdictsUnavailable: false,
       outOfStockProductCount: 5,
       syncedAt: SYNCED_COUNTS.syncedAt,
     });
     for (const [label, qualifier] of [
       ['訂單', '未訂貨'],
-      ['退款異常', '卡住'],
+      ['退款異常', '待處理'],
       ['商品', '缺貨'],
     ] as const) {
       const cell = railCellFor(label).cloneNode(true) as HTMLElement;
@@ -360,6 +388,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       unorderedOrderCount: 12,
       refundExceptionCount: 0,
       refundExceptionTruncated: false,
+      refundExceptionVerdictsUnavailable: false,
       outOfStockProductCount: 5,
       syncedAt: SYNCED_COUNTS.syncedAt,
     });
@@ -374,6 +403,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       unorderedOrderCount: 12,
       refundExceptionCount: 3,
       refundExceptionTruncated: false,
+      refundExceptionVerdictsUnavailable: false,
       outOfStockProductCount: 0, // ⇒ 商品那格數字是空白
       syncedAt: SYNCED_COUNTS.syncedAt,
     });
@@ -382,7 +412,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
     // 客戶 / 供應商 / 總覽:count 本身是 null ⇒ 不該有任何限定詞
     for (const label of ['客戶', '供應商', '總覽']) {
       const t = railCellFor(label).textContent ?? '';
-      expect(t, `${label} 不該有限定詞`).not.toMatch(/未訂貨|卡住|缺貨/);
+      expect(t, `${label} 不該有限定詞`).not.toMatch(/未訂貨|待處理|缺貨/);
     }
   });
 
@@ -396,12 +426,13 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       unorderedOrderCount: null,
       refundExceptionCount: null,
       refundExceptionTruncated: false,
+      refundExceptionVerdictsUnavailable: false,
       outOfStockProductCount: null,
       syncedAt: null,
     });
     for (const label of ['訂單', '退款異常', '商品']) {
       const t = railCellFor(label).textContent ?? '';
-      expect(t, `${label} 讀取失敗時不該留著限定詞`).not.toMatch(/未訂貨|卡住|缺貨/);
+      expect(t, `${label} 讀取失敗時不該留著限定詞`).not.toMatch(/未訂貨|待處理|缺貨/);
     }
   });
 
@@ -433,6 +464,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       unorderedOrderCount: 13,
       refundExceptionCount: 3,
       refundExceptionTruncated: false,
+      refundExceptionVerdictsUnavailable: false,
       outOfStockProductCount: 0,
       syncedAt: SYNCED_COUNTS.syncedAt,
     });
@@ -448,6 +480,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       unorderedOrderCount: 0,
       refundExceptionCount: 55,
       refundExceptionTruncated: true,
+      refundExceptionVerdictsUnavailable: false,
       outOfStockProductCount: 0,
       syncedAt: SYNCED_COUNTS.syncedAt,
     });
@@ -463,6 +496,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       unorderedOrderCount: 0,
       refundExceptionCount: 55,
       refundExceptionTruncated: false,
+      refundExceptionVerdictsUnavailable: false,
       outOfStockProductCount: 0,
       syncedAt: SYNCED_COUNTS.syncedAt,
     });
@@ -481,6 +515,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       unorderedOrderCount: 99,
       refundExceptionCount: 99,
       refundExceptionTruncated: false,
+      refundExceptionVerdictsUnavailable: false,
       outOfStockProductCount: 99,
       syncedAt: SYNCED_COUNTS.syncedAt,
     });

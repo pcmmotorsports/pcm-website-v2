@@ -133,7 +133,13 @@ function setup(over: Over = {}) {
   if (over.exceptionsReject) {
     mocks.listRefundExceptions.mockRejectedValue(over.exceptionsReject);
   } else {
-    mocks.listRefundExceptions.mockResolvedValue({ rows: [], truncated: false });
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [],
+      truncated: false,
+      pendingCount: 0,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+    });
   }
   return { orders, rpcCalls };
 }

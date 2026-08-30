@@ -481,8 +481,18 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     const other = await emit(1, 'shipping-1item');
     expect(other).not.toContain('以下空白');
     expect(other).toContain('還欠幾件');
-    for (const n of [2, 3, 4, 5, 6, 7]) {
+    for (const n of [2, 3, 4, 5, 6, 7, 8]) {
       await emitNoOutstanding(n, `shipB-${n}item`);
+    }
+    // 🔴🔴 **【有未出貨表】那一側的 2~6 項 —— 這一段 2026-08-30 傍晚才補**(線-出貨)。
+    //    在它之前,這一側只造得出 **1 / 7 / 12** ⇒ **2~6 是一個洞**,
+    //    而任何人想知道「幾項會爆頁」都會落在那個洞裡。
+    //    📌 **而洞的位置正好蓋住一張真實訂單最常見的品項數。**
+    //    ⚠️ 兩側的門檻**不一樣**(見 `docs/design/print-sheet-page-thresholds.md`
+    //       的「2026-08-30 傍晚補量」那一節;⚠️ 該檔**沒有**一張叫「兩世界表」的表)
+    //       ⇒ 造這一側是為了**不必從另一側外推**,而不是為了確認它們一樣。
+    for (const n of [2, 3, 4, 5, 6]) {
+      await emit(n, `shipping-${n}item`);
     }
   });
 
@@ -709,6 +719,19 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
       // 🔵 **2026-08-30:跨頁門檻整個右移** —— 拿掉 `.pd-runhead`/`.pd-runfoot` 之後
       //    每一頁少吃兩行字 ≈ 26px ⇒ **原本 2 項就跨頁,現在 6 項還在一頁、7 項才跨**
       //    (同一發實測:5 ⇒ 1 頁 · 6 ⇒ 1 頁 · 7 ⇒ 2 頁)。
+      // 🔴🔴 **2026-08-30 傍晚更正(線-出貨;原句留著不刪,因為它已經被引用過)**:
+      //    ① 上面那組 `5⇒1 6⇒1 7⇒2` 是**【無未出貨】那一側、而且是四改【之前】**的數字,
+      //       而它寫在 `emit` 旁邊。無表那側**今天**是 `7⇒1 / 8⇒2`(見本檔 `:1057` 的守門)。
+      //    ② `emit(n)` 這一側 = **每一項佔兩列(本次出貨 + 尚未出貨)** 的那個世界,
+      //       實量:**1/2/3 ⇒ 1 頁,4 項起 ⇒ 2 頁**(`shipping-1..7item` + 12;3~6 連跑兩發相同)。
+      //    🔴 **而【門檻那兩格】(3⇒1 / 4⇒2)在本檔沒有守門** —— 下面 `:837/:838` 只釘
+      //       `one`(1 項)=1 頁 與 `many`(7 項)=2 頁,**離門檻各差 2 格與 3 格**
+      //       ⇒ 門檻往前或往後挪一格,那兩格照樣全綠。
+      //       ⚠️ 我第一版把這句寫成「這個 `it` 從頭到尾沒有斷言過有表那半的頁數」——
+      //          **那是假的**(`:837/:838` 就是),`code-reviewer` 抓到、我開檔複核屬實。
+      //          📌 **一句用來警告別人「這裡沒有證人」的話,自己就沒有證人。**
+      //    📎 兩側門檻與世界怎麼分辨 = `docs/design/print-sheet-page-thresholds.md`
+      //       的「2026-08-30 傍晚補量」那一節(**靠數同一個 SKU 出現幾次認世界,不靠檔名**)。
       //    ⛔ ~~const many = await measure(await emit(2, 'shipping-2item'));~~
       //    ⚠️ 這個世界要的是【已跨頁】那一邊 ⇒ 換成 7 項;`one` 那一邊不動。
       const many = await measure(await emit(7, 'shipping-7item'));
@@ -885,6 +908,9 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
  */
 describe('🔴 出貨明細單 · 分支B 的兩道版面守門(真 PDF + 逐頁抽字)', () => {
   const ANCHORS: PageAnchors = { item: 'SKU-', money: '訂單金額' };
+  // ⟦b9-2DOCS1⟧:今天量到的訂單明細形狀(**先跑再填,不是先猜再驗** —— 見 blankp1 那一格的教訓)。
+  const PICKING_PAGES_TODAY = '1:1 3:1 6:1 7:1 8:1 9:2 12:2 16:2';
+  const PICKING_SPLIT_TODAY = '1:[] 3:[] 6:[] 7:[] 8:[] 9:[2] 12:[2] 16:[]';
   /* 丁(2026-08-30):跨頁頁首 `.pd-runhead` / 頁尾 `.pd-runfoot`。
      🔴🔴 **頭那個錨是【複合】的, 而那是一發突變改出來的**:
         第一版寫 `head: '訂單編號'` ⇒ 把 `.pd-runhead` 關掉(`display:block`)重 build 之後
@@ -1069,4 +1095,161 @@ describe('🔴 出貨明細單 · 分支B 的兩道版面守門(真 PDF + 逐頁
       split: [2],
     });
   }, 120_000);
+
+  // ══════════════════════════════════════════════════════════════════════
+  // ⟦b9-BLANKP1⟧ 探測(2026-08-30 傍晚,線-出貨):**分支A(有「尚未出貨」表)那一側**
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴 **為什麼要這一格**:上面那整套白頁/裂頁守門**只站在分支B**(`shipB-guard-*`,無未出貨)。
+  //    而 `⟦b9-BLANKP1⟧` 講的正是「同一個結構在別的輸入下會生出一張整頁空白的第 1 頁」——
+  //    ⇒ **分支A 從來沒有被這把尺量過**,它今天的「沒事」是【沒人問過】不是【問過而沒事】。
+  //    📌 **⇒ 一把只裝在一條分支上的守門,會讓另一條分支看起來一樣安全。**
+  // 🛑 **期望值寫的是【今天量到的】,不是「應該長怎樣」** ——
+  //    它紅 = 版面動了而沒有人知道;**紅不代表壞掉**,要開檔看是哪一格變了。
+  // 🔴🔴 **第一版寫成「只記錄,不下判斷」而【真的只有記錄】** ——
+  //    11 個點的 blank/split/pages 全部只 `writeFileSync` 進 txt,零斷言
+  //    ⇒ 明天長出一張白頁,這一格照樣全綠(`code-reviewer` M1 抓,我複核屬實)。
+  //    📌 **而同一段註解裡就寫著「它紅 = 版面動了」—— 一個純記錄器不會紅。**
+  //    ⇒ **一句描述守門行為的話,寫在一個不是守門的東西上面。**
+  it('⟦b9-BLANKP1⟧ 分支A 逐項:有沒有白頁 / 有沒有「只有錢沒有品項」的頁', async () => {
+    // 🔴 型別就地宣告 —— `Verdict` 住在上面那個 `it` 的區塊範圍裡,借不到。
+    //    ⚠️ 而借不到這件事【vitest 不會說】:它不做型別檢查 ⇒ 測試全綠、typecheck 紅。
+    type VerdictA = { pages: number; blank: number[]; split: number[] };
+    const seenA = new Map<number, VerdictA>();
+    // 🔴 **點到 16** —— 那一列講的是「**品項多的時候**」,而 1..8 全部沒有重現;
+    //    只點到 8 就下「沒事」的結論,分母會比宣稱窄。
+    for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 13, 14, 15, 16]) {
+      await emit(n, `blankp1-A-${n}item`);
+      const pages = await pagesOf(join(OUT_DIR, `blankp1-A-${n}item.html`));
+      // 🔴 錨的正對照先跑 —— 錨死了的話下面兩道會一半全紅一半全綠(同上面那段的理由)。
+      expect(assertAnchorsAlive(pages, ANCHORS), `${n} 項:錨還活著嗎`).toEqual([]);
+      seenA.set(n, {
+        pages: pages.length,
+        blank: blankPages(pages, ANCHORS),
+        split: moneyPagesWithoutItems(pages, ANCHORS),
+      });
+    }
+    writeFileSync(
+      join(OUT_DIR, 'blankp1-branchA.txt'),
+      [...seenA.entries()]
+        .map(([n, v]) => `${n} 項 ⇒ ${v.pages} 頁 · blank=[${v.blank.join(',')}] · split=[${v.split.join(',')}]`)
+        .join('\n') + '\n',
+      'utf8',
+    );
+    // ⛔ ~~expect(seenA.size).toBe(11)~~ —— **恆真格**(迴圈吃字面陣列、key 唯一)⇒ 零判別力。
+    // ✅ 換成真的斷言:把今天量到的形狀釘上去(code-reviewer M1/N1)。
+    //    🔴 **`blank` 全部為空是這一格的重點** —— 它就是 `⟦b9-BLANKP1⟧` 問的那件事。
+    for (const [n, v] of seenA) {
+      expect(v.blank, `${n} 項:不得有整頁空白的紙`).toEqual([]);
+    }
+    // 🔴 頁數也釘住 —— 門檻漂了要有人知道。
+    // 🔴🔴 **這一行第一版是我【猜】的(寫 `14:2 15:3`)⇒ 當場紅,實際是 `14:3`。**
+    //    ⇒ 而那正是 `code-reviewer` M6 說的:12 與 16 兩點**跨過了門檻卻沒踩到它**,
+    //      補上 13/14/15 才問得出來。**門檻是 14,不是我推的 15。**
+    //    📌 **一個從別的數字推出來的期望值,與一個量到的,在這一行上長得一模一樣。**
+    expect([...seenA].map(([n, v]) => `${n}:${v.pages}`).join(' ')).toBe(
+      '1:1 2:1 3:1 4:2 5:2 6:2 7:2 8:2 10:2 12:2 13:2 14:3 15:3 16:3',
+    );
+    // 🔴 「錢與品項分家」的那兩格也釘住 —— 它們都出現在**剛跨頁的那一格**
+    //    (4 項 = 剛進 2 頁 / 14 項 = 剛進 3 頁)⇒ 同一個形狀,不是兩個巧合。
+    expect(seenA.get(4)?.split, '4 項:錢單獨在第 2 頁').toEqual([2]);
+    expect(seenA.get(14)?.split, '14 項:錢單獨在第 3 頁').toEqual([3]);
+    for (const n of [1, 2, 3, 5, 6, 7, 8, 10, 12, 13, 15, 16]) {
+      expect(seenA.get(n)?.split, `${n} 項:錢不該與品項分家`).toEqual([]);
+    }
+
+    // 🔴🔴 **負對照:證明這把尺【看得見】白頁 —— 否則上面那 11 個 `blank=[]` 是「沒問過」不是「沒事」。**
+    //    做法:拿同一份 1 項的 HTML,在內容【之前】塞一個 200mm 高的空 div ⇒ 第 1 頁沒有任何錨。
+    //    ⚠️ **歸因寫準**(code-reviewer N2):真正把內容推到第 2 頁的是**那個高度**
+    //       (200mm ≈ 756px + 1 項 923px 已經超過單頁 1024px),`break-after:page` 只是加保險
+    //       ⇒ 不要照抄成「靠強制分頁」。
+    //    🔴 **它真正關掉的假綠**:如果 `gs -sDEVICE=txtwrite` 對【無字的頁】不吐出 `pN.txt`,
+    //       `blankPages` 在結構上就永遠回不了非空 ⇒ 上面每一格都是恆綠。回 `[1]` 同時證明
+    //       (a) gs 對無字頁有出檔 (b) 頁碼索引沒有位移。
+    //    ⚠️ **它證不到**:只演了「2 頁、空的在第 1 頁」;**3 頁以上的索引對齊未演**(而 15/16 項是 3 頁)。
+    //    ⇒ 尺是活的 ⇒ `blank` 必須回 `[1]`;回 `[]` 代表這一整格是恆綠的。
+    //    📌 **突變的是【輸入】不是【尺】** —— 改尺去證明尺,是自己給自己背書。
+    const oneItem = readFileSync(join(OUT_DIR, 'blankp1-A-1item.html'), 'utf8');
+    const forcedBlank = oneItem.replace(
+      '<body',
+      '<body data-blankp1-negative-control="1"',
+    ).replace(
+      /(<body[^>]*>)/,
+      '$1<div style="break-after:page;page-break-after:always;height:200mm"></div>',
+    );
+    const ncPath = join(OUT_DIR, 'blankp1-negative-control.html');
+    writeFileSync(ncPath, forcedBlank, 'utf8');
+    const ncPages = await pagesOf(ncPath);
+    expect(
+      blankPages(ncPages, ANCHORS),
+      '🔴 負對照:硬塞一張空白首頁,這把尺必須指認出第 1 頁 —— 回 [] 代表上面 11 格是恆綠的',
+    ).toEqual([1]);
+  }, 300_000);
+
+  // ══════════════════════════════════════════════════════════════════════
+  // ⟦b9-2DOCS1⟧ + ⟦b9-BLANKP1⟧ 的另一半:**訂單明細(picking)那一側**
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴 **板 `:421` 那一列的核心**:兩張紙**共用** `apps/admin/src/app/print/print-a4.css`,
+  //    ⛔ ~~而丁(`6c3cefcd`)只給出貨單加了跨頁頁首頁尾 ⇒ 兩張紙對同一條規則的反應已經不同
+  //       (`grep -c` 兩支:`shipping-doc.tsx` ⇒ 3、`picking-doc.tsx` ⇒ 0)~~
+  //    🔴 **那個證據已經過期**(`code-reviewer` 抓,我用**渲染後的標記**複核):
+  //       `class="pd-runhead|pd-runfoot"` ⇒ **出貨單 0 · 訂單明細 0**(兩張紙都沒有);
+  //       CSS 規則 `.pd-run*` 兩份各 5(規則還在,只是沒有人用);
+  //       正對照 `class="pd-items"` ⇒ 2 / 1(這把 grep 不是恆回 0)。
+  //       ⇒ 那兩塊**當天稍早已經被 Sean 拿掉了** ⇒ 原本那個「結構已經不同」的證據不成立。
+  //    ✅ **而這一列仍然成立,只是理由要換**:兩支**不同的元件**共用同一支 CSS,
+  //       而在這一格之前**只有其中一支被量過**。
+  //    ⇒ **改共用 CSS 時只量其中一張,另一張會安靜地變形。**
+  // 🔴🔴 **而在這一格之前,訂單明細那一側【從來沒有被這把尺量過】** ——
+  //    上面每一個守門的標的都是出貨單(`shipB-*` / `blankp1-A-*`)。
+  //    📌 **一把只裝在一張紙上的守門,會讓另一張紙看起來一樣安全。**
+  // 🛑 期望值寫的是**今天量到的**,不是「應該長怎樣」;它紅 = 版面動了而沒有人知道。
+  it('⟦b9-2DOCS1⟧ 訂單明細逐項:頁數 / 有沒有白頁 / 有沒有「只有錢沒有品項」的頁', async () => {
+    type VerdictP = { pages: number; blank: number[]; split: number[] };
+    const seenP = new Map<number, VerdictP>();
+    // 🔴 點【跨過門檻】的兩側 —— 只點 1 與 12 那種離門檻很遠的兩點擋不住「往前挪一格」
+    //    (那正是 blankp1 那一格今天踩到的:12 與 16 跨過門檻卻沒碰到它)。
+    for (const n of [1, 3, 6, 7, 8, 9, 12, 16]) {
+      await emitPicking(n, `docs2-picking-${n}item`, {}, true);
+      const pages = await pagesOf(join(OUT_DIR, `docs2-picking-${n}item.html`));
+      // 🔴 錨的正對照先跑 —— 錨死了的話下面兩道會一半全紅一半全綠。
+      expect(assertAnchorsAlive(pages, ANCHORS), `${n} 項:錨還活著嗎`).toEqual([]);
+      // 🔴🔴 **世界活錨(`code-reviewer` M6)** —— `emitPicking(..., withQuantity=true)` 是刻意的:
+      //    `withQuantity=false` 那個世界每一列都印「數量資料尚未就緒 / 這一項不要揀」,
+      //    本檔 `:504-507` 逐字說它**只能當正向對照、不要拿去驗版面**。
+      //    ⚠️ 而【檔名答不出它是哪一張紙】—— 那正是本檔 doc 那句「不要靠檔名認世界」的病。
+      //    ⇒ 每一發都問一次:這一份**不得**是那個 null 世界。
+      expect(
+        pages.join('\n'),
+        `${n} 項:這一發必須站在【有數量】那個世界(withQuantity=true)`,
+      ).not.toContain('數量資料尚未就緒');
+      seenP.set(n, {
+        pages: pages.length,
+        blank: blankPages(pages, ANCHORS),
+        split: moneyPagesWithoutItems(pages, ANCHORS),
+      });
+    }
+    writeFileSync(
+      join(OUT_DIR, 'docs2-picking.txt'),
+      [...seenP.entries()]
+        .map(([n, v]) => `${n} 項 ⇒ ${v.pages} 頁 · blank=[${v.blank.join(',')}] · split=[${v.split.join(',')}]`)
+        .join('\n') + '\n',
+      'utf8',
+    );
+    // 🔴 **這三格是本格真正的產物** —— 少了它們,上面那個迴圈只是一台記錄器。
+    // 🛑🛑 **而 `blank` 這一串的分母【不是 8,是 3】**(`code-reviewer` M5,我複核屬實):
+    //    `1/3/6/7/8` 那五格都是**單頁**,而 `assertAnchorsAlive` 已保證品項錨在整份文件命中
+    //    ⇒ 單頁文件在 `blankPages` 與 `moneyPagesWithoutItems` 底下**結構上不可能非空**
+    //    ⇒ 那五格**恆真**,不是「量到沒事」。有判別力的只有 **9 / 12 / 16**。
+    //    📌 **⇒ 一個 8 分之 8 的綠,而其中 5 格在任何世界都會是綠的。**
+    //    ⇒ 迴圈照跑(多跑不花判別力),而**引用時要講 3,不要講 8**。
+    for (const [n, v] of seenP) {
+      expect(v.blank, `${n} 項:訂單明細不得有整頁空白的紙`).toEqual([]);
+    }
+    expect([...seenP].map(([n, v]) => `${n}:${v.pages}`).join(' ')).toBe(
+      PICKING_PAGES_TODAY,
+    );
+    expect([...seenP].map(([n, v]) => `${n}:[${v.split.join(',')}]`).join(' ')).toBe(
+      PICKING_SPLIT_TODAY,
+    );
+  }, 300_000);
 });

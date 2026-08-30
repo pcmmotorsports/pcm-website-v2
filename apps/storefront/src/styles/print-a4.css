@@ -610,6 +610,11 @@ tr {
   gap: 3mm;
   flex-wrap: wrap;
 }
+/* ⛔ **零消費端(2026-08-30)** —— `.pd-sech` 底下的說明 `<span>` 三處全被 Sean 拿掉了
+   (逐字「我不要這些奇怪標語」+ 後續答【甲 兩句都拿掉】)。
+   🔴 **規則留著而不是刪掉**:稿(OD `pcm-524f`)上那個 `<span>` 仍然在,
+   哪天他要它回來,樣式不必重新發明。⚠️ 而 `print-a4-css.test.ts` 那道守門是**單向**的
+   (元件 → CSS)⇒ **反方向沒有任何東西會告訴你這條已經沒人用了**,所以只能寫在這裡。 */
 .pd-sech span {
   font-family: var(--pd-body);
   font-size: 8pt;
@@ -1025,6 +1030,37 @@ tr.pd-wait .pd-state {
      🔴 **⇒ 所以「安全」這句話的射程是【≤100 項、這種品名長度】, 不是無條件。**
      📎 而揀貨單 `picking-doc.tsx` **踩到了**(12 項 ⇒ 第 1 頁全白)⇒ 它因此**沒有**上這層 wrap,
         三個選項 2026-08-30 已排進 Sean 的待問佇列。**不要在他答之前替它包上去。** */
+
+  /* ══ 🔴🔴 列印時把【後台外殼】關掉 —— 而它與這張紙的內容無關 ══════════════
+     **成因(2026-08-30 `-30` 在拋棄式後台的真路由上量到, 不是讀碼推的)**:
+     `app/print/layout.tsx` 只有 `import './print-a4.css'; return children;`
+     ⇒ **它沒有跳出根 layout** ⇒ `/print/...` 仍然被
+     `<SidebarProvider><SidebarInset><Header/><WorkspaceShell>` 包著。
+     🔴 **證據有兩種、方向相同**:
+     ① 那支程式自己在報錯時說的 —— dev server 的 stack trace 逐字
+        `at loadSidebarCountsUncached (sidebar-counts.ts:77)` ← `at RootLayout (layout.tsx:54)`
+     ② 真路由 vs fixture 同一顆瀏覽器、列印媒體、同一次量測:
+        真路由 `body=262.7mm` / 紙高 250mm / **紙頂 6.3mm** · sidebar=true · inset=true
+        fixture `body=250mm`  / 紙高 250mm / **紙頂 0mm**   · sidebar=false
+        ⇒ **差 12.7mm**,而它 = `workspace-content` 的 `p-6`(24px ≈ 6.35mm)上下各一份。
+
+     🛑 **而它【不是】Sean 2026-08-30 那個「要選無邊界才會一頁」的成因** ——
+        262.7mm < 271mm(297 − 12 − 14)⇒ **加了外殼仍然放得下**,那一發複現不出來。
+        📌 **一個真的、方向也對的發現, 不等於那個成因** —— 擋住它的是算術, 不是感覺。
+     ✅ **那為什麼還是要修**:那張紙已知很緊(門檻只差一項就跨頁),
+        而它被一個**與內容完全無關**的東西吃掉 12.7mm ——
+        🔴 **而我們整套頁數量測看不到它**(fixture 沒有外殼)⇒ 它會一直在那裡而沒有訊號。
+
+     ⚠️ **範圍刻意窄**:只關外殼, **不動任何一條 `pd-` 規則**。
+     🔴 **而驗收【必須用真路由】, 不能用 fixture** —— fixture 天生沒有外殼
+        ⇒ **在 fixture 上這一段是零判別力的**(改不改都一樣綠)。
+        ⇒ 量法: 起 `bash scripts/admin-probe/up.sh`, 開真路由, 列印媒體量 `body.scrollHeight`。 */
+  .workspace-content {
+    padding: 0;
+  }
+  [data-slot='sidebar'] {
+    display: none;
+  }
 
   /* 頁首只在紙上出現。`table-header-group` = 瀏覽器每頁重印它的那個值。 */
   .pd-runhead {

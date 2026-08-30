@@ -13,6 +13,14 @@ const mocks = vi.hoisted(() => ({
   refund: vi.fn(),
   revalidatePath: vi.fn(),
   redirect: vi.fn(),
+  // 🔴 `#890` 片4:server 閘 ④-b 會讀帳本 + 更正紀錄。
+  //    **預設 = 零帳本列** ⇒ 那道閘直接放過 ⇒ 本檔既有每一格行為一個字不變。
+  listOrderRefunds: vi.fn(),
+  findEffectiveVerdicts: vi.fn(),
+}));
+vi.mock('./refund-read', () => ({ listOrderRefunds: mocks.listOrderRefunds }));
+vi.mock('./refund-correction-read', () => ({
+  findEffectiveVerdicts: mocks.findEffectiveVerdicts,
 }));
 
 vi.mock('../session/authorize', () => ({ authorizeAdminMutation: mocks.authorizeAdminMutation }));
@@ -85,6 +93,8 @@ beforeEach(() => {
   savedFlag = process.env.REFUND_UI_ENABLED;
   process.env.REFUND_UI_ENABLED = '1';
   mocks.authorizeAdminMutation.mockResolvedValue({ sid: 'sid-1', actorId: 'sean' });
+  mocks.listOrderRefunds.mockResolvedValue({ rows: [], truncated: false });
+  mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
   mocks.getRequestId.mockResolvedValue('req_http-side-id');
   mocks.getTapPayAdapter.mockReturnValue({ recordQuery: mocks.recordQuery, refund: mocks.refund });
   mocks.findOrderForRefund.mockResolvedValue({

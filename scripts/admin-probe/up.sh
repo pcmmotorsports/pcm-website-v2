@@ -153,7 +153,16 @@ CREATE ROLE authenticator LOGIN NOINHERIT;
 GRANT anon, authenticated, service_role TO authenticator;
 CREATE SCHEMA auth;
 -- 🔴 `id` 一欄不夠:`handle_new_auth_user()` trigger 會讀 NEW.email 與 NEW.raw_user_meta_data。
-CREATE TABLE auth.users (id uuid PRIMARY KEY, email text, raw_user_meta_data jsonb DEFAULT '{}'::jsonb);
+-- 🔴🔴 **2026-08-30 加了兩欄, 而理由不是「補完整」, 是【不補會讓一道安全檢查 fail-open】**:
+--    `manual-customer.ts:297` 拿 `getUserById(...).app_metadata` 去判「這個既有帳號是不是我們自己建的」
+--    (codex R2 擊破過一次的那條:**未驗 app_metadata ⇒ 搶註者會被當成這張表單的既有客人**)。
+--    骨架若沒有 `raw_app_meta_data`, 替身只能回 undefined ⇒ **那道檢查在鑽機上恆過**
+--    ⇒ 📌 **一個【少一欄】的骨架, 會讓一道真的安全檢查在這條鏈上永遠印綠。**
+-- 🔴 `email` 加 UNIQUE:`createManualCustomer` 的**冪等靠它**(同一個佔位信箱重送 ⇒ 唯一鍵撞到
+--    ⇒ 那不是失敗, 是第一發已經建好了)。沒有這個約束, 重送會安靜地建出第二個帳號 ——
+--    而那正是那支檔逐字警告「那種帳號**刪不掉**, 而且他之後登入會看不到自己的單」的情境。
+CREATE TABLE auth.users (id uuid PRIMARY KEY, email text UNIQUE, raw_user_meta_data jsonb DEFAULT '{}'::jsonb,
+                         raw_app_meta_data jsonb DEFAULT '{}'::jsonb, created_at timestamptz DEFAULT now());
 CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA extensions;
 -- 🔴🔴 pgcrypto **一定要在 extensions 這個 schema**:少了它(或裝進 public)⇒
@@ -178,6 +187,38 @@ for f in "$REPO"/supabase/migrations/*.sql; do
   then ok=$((ok+1)); else fail=$((fail+1)); echo "FAIL $f" >> $S/apply.log; fi
 done
 echo "migration ok=$ok fail=$fail  (判準不是全綠,是你要用的表在不在;失敗清單 grep '^FAIL' $S/apply.log)"
+
+# ── ③-b 把【人手寫的前置閘訊息】印到人正在看的那個畫面上 ────────────────────
+# 🔴 成因是量到的(2026-08-30):`20260729010000`(D0)在本鑽機 apply 失敗 ⇒ 那條
+#    `orders_display_id_format` CHECK 停在舊版 ⇒ 後來每一筆手動建單都死 `sqlstate 23514`。
+#    而**答案在起站當下就印在 `apply.log` 裡了** —— `20260730120100:84` 逐字:
+#    「…否則本片 apply 會全綠、但第一筆真結帳會死在 check_violation」。
+#    ⇒ 📌 **寫那道閘的人把後來要花一小時找到的東西寫成一句話, 而沒有人讀那個 log。**
+#    ⇒ 🔴 **這不是「忘了讀」能修的 —— 上面那行已經寫著「grep '^FAIL' $S/apply.log」,**
+#       **而它照樣沒有被走過。一條【要你自己再打一個指令】的路, 等於沒有路。**
+#
+# 為什麼只挑含中文的那些:generic 的(`relation "cron.job" does not exist`)是本機沒有
+# pg_cron 造成的**預期失敗**、runbook §3 已寫;含中文的是**人手寫的前置閘**,
+# 它們的作者是刻意在預告「apply 全綠但之後某件事會壞」—— 那才是會咬人的那一種。
+# ⚠️ 分類法就是「這一行有沒有 CJK」, 不是語意判斷 ⇒ **一道用英文寫的手寫閘會被漏掉**(已知盲區)。
+if [ "$fail" -gt 0 ]; then
+  GATES=$(grep -E '^psql:.*ERROR:' "$S/apply.log" 2>/dev/null | grep -E '[一-龥]' || true)
+  NGATE=$(printf '%s\n' "$GATES" | grep -c . || true)
+  if [ "$NGATE" -gt 0 ]; then
+    echo "  🔴 其中 $NGATE 支是【人手寫的前置閘】—— 它們在預告「現在全綠、但之後某件事會壞」:"
+    printf '%s\n' "$GATES" | while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      x=${line#psql:}; f=${x%%:*}; where=${x#*:}; where=${where%%:*}
+      rest=${line#*: ERROR:  }
+      echo "     · $(basename "$f"):$where"
+      echo "       $rest"
+    done
+    echo "  ⇒ 全文 grep 'ERROR:' $S/apply.log"
+  else
+    echo "  ✅ $fail 支失敗裡【沒有】人手寫的前置閘(都是本機缺 pg_cron 那類預期失敗)"
+    echo "     ⚠️ 這一行的分類法是「該行有沒有中文」⇒ 英文寫的手寫閘會被算進上面那個「預期」"
+  fi
+fi
 
 # ── ④ service_role 兩道(平台平常幫你做,本機沒有)──────────────────────────
 # 🔴 少了 BYPASSRLS ⇒ RLS 把結果濾成 0 列,而 **HTTP 仍是 200** ⇒
@@ -218,13 +259,19 @@ print("SERVICE="+tok("service_role"))
 PY
 
 cp "$SP/proxy.py" $S/proxy.py
-nohup python3 $S/proxy.py "$PREST" "$PROXY" > $S/proxy.log 2>&1 &
+# 🔴 第三個參數 = 拋棄式 PG 的埠 —— 沒帶的話 proxy 裡那兩支 `/auth/v1/admin/users`
+#    替身**自動停用**(而不是壞掉):`PG_PORT is None ⇒ _auth 直接回 False ⇒ 照舊轉給 PostgREST`。
+#    ⇒ 那是刻意的:少一個參數應該讓它退回舊行為, 不是讓它半開。
+nohup python3 $S/proxy.py "$PREST" "$PROXY" "$PG" > $S/proxy.log 2>&1 &
 sleep 2
 
 # ── ⑦ 真後台 ─────────────────────────────────────────────────────────────
 A=$(grep '^ANON=' $S/jwts.txt | cut -d= -f2-); SR=$(grep '^SERVICE=' $S/jwts.txt | cut -d= -f2-)
 cd "$REPO/apps/admin"
 ADMIN_DEV_BYPASS=1 \
+ADMIN_SESSION_SECRET="$SECRET" \
+REFUND_UI_ENABLED="${REFUND_UI_ENABLED:-}" \
+AUDIT_UI_ENABLED="${AUDIT_UI_ENABLED:-}" \
 NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:$PROXY \
 NEXT_PUBLIC_SUPABASE_ANON_KEY="$A" \
 SUPABASE_SERVICE_ROLE_KEY="$SR" \
@@ -297,6 +344,44 @@ else
   FAILED=1
 fi
 
+# ── ⑧b 🔴 簽一張【真的 admin session 票】(2026-08-30 加)──────────────────────────
+# 在此之前這台鑽機**任何寫入都做不到**:畫面「沒有權限或登入狀態已失效,…沒有寫入。」+ DB 0 筆。
+# 成因見 env.sh 那段(三道閘,ADMIN_DEV_BYPASS 只放寬第②道)。
+#
+# 🔴 票的形狀【不是我發明的】,逐格對著 `apps/admin/src/lib/session/session.ts` 抄:
+#   · cookie 名  `pcm_admin_sess_dev`         (`:181`,非 prod 分支)
+#   · 值         `b64url(payloadJSON).b64url(HMAC_SHA256(payloadJSON, key))` (`:418-424`)
+#   · 金鑰材料   `v1:<len>:<secret>:<len>:<envTag>`  (`:304-307`;長度前綴是刻意的)
+#   · envTag     `local`   (`:263-274`:無 VERCEL_ENV 且 NODE_ENV=development ⇒ 'local')
+#   · b64url     無 padding、`+`→`-` `/`→`_`  (`lib/base64url.ts:6-10`)
+#   · v:2 + sub  `{kind:'user',staff_id}`   (`:51-53`,`:97-103` sub 必填)
+# ⚠️ **票只活 15 分鐘**(`ADMIN_SESSION_MAX_AGE_SEC`,`:193`)—— 那是 Sean `Q-B5b-2=乙` 拍的,
+#    不是我選的。過期就重跑本區塊那行 python,或重跑 up.sh。
+#    🔴 app 有靜默續期(`/api/session/renew`),而**它要先有一張有效票才續得動** ——
+#       修這件事之前那支路由一直回 401,那正是「沒有票」的外顯。
+COOKIE_NAME="pcm_admin_sess_dev"
+COOKIE_VAL=$(SECRET="$SECRET" STAFF_ID="$STAFF_ID" python3 <<'MINT'
+import base64, hashlib, hmac, json, os, time
+secret = os.environ["SECRET"]; staff = os.environ["STAFF_ID"]
+env_tag = "local"
+material = f"v1:{len(secret)}:{secret}:{len(env_tag)}:{env_tag}".encode()
+now = int(time.time())
+payload = {
+    "v": 2, "sid": os.urandom(16).hex(), "iat": now, "sso_at": now,
+    "exp": now + 60 * 15,                      # 對齊 ADMIN_SESSION_MAX_AGE_SEC
+    "amr": ["pwd"], "auth_time": now,
+    "sub": {"kind": "user", "staff_id": staff},
+}
+# 🔴 separators 去空白:`verifySession` 驗的是【位元組】,而簽名與 payload 是同一份 bytes,
+#    所以其實怎麼排都行 —— 但保持穩定輸出讓兩次跑出來的票可比對。
+data = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
+b64 = lambda x: base64.urlsafe_b64encode(x).decode().rstrip("=")
+sig = hmac.new(material, data, hashlib.sha256).digest()
+print(f"{b64(data)}.{b64(sig)}")
+MINT
+)
+printf '%s\n' "$COOKIE_NAME=$COOKIE_VAL" > "$S/session-cookie.txt"
+
 echo
 if [ "$FAILED" = "0" ]; then
   echo "✅ 這份 HTML 裡有正確的資料 —— 上面每一格都拿到真資料。"
@@ -309,6 +394,23 @@ if [ "$FAILED" = "0" ]; then
   echo "   👉 用瀏覽器開:  http://localhost:$WEB/orders"
   echo "      (🔴 一定要 localhost,不要 127.0.0.1 —— 用 127 的話 client JS 會靜靜地不見)"
   echo
+  echo "   🔴 要【寫入】(送採購 / 加備註 / 登錄收款…)⇒ 先把這一行貼進瀏覽器 console:"
+  echo "        document.cookie='$COOKIE_NAME=$COOKIE_VAL; path=/'"
+  echo "      (同一行也存在 $S/session-cookie.txt)"
+  echo "      ⚠️ **票 15 分鐘到期**(Sean Q-B5b-2=乙 拍的,不是我們選的)⇒ 過期就重跑 up.sh。"
+  echo "      🔴 不貼的話寫入會被擋,而畫面上那句是「沒有權限或登入狀態已失效」——"
+  echo "         那句**字面上是對的**,不是 bug:這台鑽機沒有登入流程,票要用手貼。"
+  echo
+  echo "   ⚠️ 這張票【證不了】的兩件事(照實寫,不要拿鑽機當它們的證據):"
+  echo "      · 真登入流程(SSO callback / 報價單那一側)—— 完全沒有走到"
+  echo "      · 「非管理者會被擋下」—— 種子那一列是 is_manager=true;要驗擋下要改成 false 再跑一次"
+  echo
+  echo "   🔌 要驗【被旗標關著】那幾格(板 :433 的 #17 / #27)⇒ 起站時帶旗標:"
+  echo "        REFUND_UI_ENABLED=1 AUDIT_UI_ENABLED=1 <你原本那串 env> bash scripts/admin-probe/up.sh"
+  echo "      🔴 **預設不帶 = 關著** —— 那是正式站今天的樣子, 不要為了看得到而預設打開。"
+  echo "      ⚠️ 兩個都【不是】 NEXT_PUBLIC_* ⇒ 只有 server 讀得到; 側欄那顆是 client,"
+  echo "         它靠 layout 傳下去(見 app-sidebar.tsx 檔頭那段量法)。"
+  echo ""
   echo "   收攤:  bash scripts/admin-probe/down.sh"
 else
   echo "🔴 自檢沒過 —— **不要拿這個環境下任何結論**。log 在 $S/"

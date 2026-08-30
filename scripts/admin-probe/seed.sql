@@ -138,4 +138,53 @@ UPDATE orders o
   FROM (SELECT order_id, sum(line_total) AS sum_line FROM order_items GROUP BY order_id) s
  WHERE s.order_id = o.id;
 
+-- ── 🔴 員工一列(2026-08-30 加)——【真 session 的第三道閘要它】────────────────────
+-- `authorizeAdminMutation` 第 ③ 道是 `getSessionActor()` → `resolveStaff(id)` →
+-- `listActiveStaff()` 裡撈得到才算數。這張表本來是**空的** ⇒ 就算票是對的,第 ③ 道仍然回 null。
+-- ⚠️ 兩個 CHECK 要過:`staff_id_format ^[a-z0-9_]{1,64}$`、`staff_label_nonempty`。
+-- 🔴 `is_manager = true`:讓 `authorizeManagerMutation` 那一支(⟦b4-MGR0⟧)也走得通 ——
+--    否則「管理者專用」的那幾個動作在鑽機上仍然是死的,而那與本次要修的是同一種病。
+--    ⚠️ **代價明寫**:這台鑽機上的人是管理者 ⇒ **鑽機證不了「非管理者會被擋下」**。
+--    要驗那一面,把這一列改成 `false` 再跑一次 —— 那是另一個世界,不是同一發。
+INSERT INTO staff (id, label, is_manager, is_active)
+VALUES ('probe_staff', '探針員工', true, true)
+ON CONFLICT (id) DO UPDATE SET is_manager = true, is_active = true;
+
+-- ── 🔴🔴 補上 D0 那條【沒 apply 成功】的約束放寬(2026-08-30 加)────────────────────
+-- **這是 runbook §3-a 那個病的一個【真實現場】**:逐字「失敗的那幾支會讓本機的約束比正式站舊
+-- —— 而它不會紅, 只會靜靜地說謊」。
+-- 現場:`20260729010000`(D0)在本鑽機 **FAIL**(它的驗收閘說「service_role 對 orders 的 SELECT 不見了」,
+--   那是鑽機 bootstrap 的洞, 不是那支 migration 的錯)
+--   ⇒ `orders_display_id_format` 停在**舊版**(只收 `PCM-YYYY-NNNN`)
+--   ⇒ 而 `pcm_generate_display_id()`(N3a, **有 apply 成功**)產的是**新的 6 碼**
+--   ⇒ **新產生器 + 舊約束** ⇒ 任何自己產號的路徑(手動建單就是)必死 `23514`。
+-- 🔴🔴 **而那個答案在起站當下就被印出來了** —— `20260730120100`(N3b)的前置閘逐字:
+--   「`orders_display_id_format` 沒有接受新 6 碼格式的分支。請先套用 20260729010000(D0);
+--    否則本片 apply 會全綠、但第一筆真結帳會死在 check_violation」
+--   ⇒ 📌 **寫那道閘的人, 把我後來花一小時找到的東西, 一句話寫在 apply.log 裡** ——
+--      而那個 log 沒有人讀。**訊號存在 ≠ 訊號被讀。**
+-- ⚠️ 這裡**只補那一條約束**, 不重跑整支 D0(它還做別的事, 而那些在鑽機上不需要)。
+ALTER TABLE public.orders DROP CONSTRAINT IF EXISTS orders_display_id_format;
+ALTER TABLE public.orders
+  ADD CONSTRAINT orders_display_id_format
+  CHECK (
+    display_id ~ '^PCM-[0-9]{4}-[0-9]{4,}$'
+    OR display_id ~ '^[23456789BCDFGHJKMNPQRSTVWXYZ]{6}$'
+  );
+
+-- ── 🔴🔴 把 `order_display_seq` 推到與種子單一致(2026-08-30 加)──────────────────
+-- **成因是量到的, 不是想到的**:種子用**寫死的** `display_id`(`PCM-2026-1001`…)插單,
+-- 而**完全沒有動那個序號** ⇒ 它停在 `last_value=1, is_called=f`。
+-- ⇒ 任何【自己產號】的路徑(`admin_create_manual_order` 就是)會產出 `PCM-2026-1`
+--    ⇒ 撞 `orders_display_id_format`(`^PCM-[0-9]{4}-[0-9]{4,}$` **要 4 位以上**)⇒ `sqlstate 23514`。
+-- 🔴 **而那個失敗【看起來像產品壞了】** —— 畫面回 `manual_order_bug`、log 的 `constraint` 是 `null`
+--    (那支刻意不記訊息, 因為含 PII ⇒ **那是對的, 不要為了 debug 改它**)。
+--    ⇒ 📌 **要分辨「真 bug」與「我的資料不夠真」, 唯一的路是【在拋棄式庫上重放同一筆 payload】,
+--       讓 Postgres 自己把 constraint 名字印出來。**本機庫沒有 PII 顧慮 ⇒ 這條路不必動產品碼。
+-- ⚠️ 正式庫沒有這個問題:那個序號已經跑過幾千次, 天生就是 4 位以上。
+--    ⇒ **這是【鑽機的資料不夠真】, 不是產品缺陷。**
+SELECT setval('order_display_seq',
+              GREATEST((SELECT COALESCE(MAX(split_part(display_id, '-', 3)::bigint), 0) FROM orders), 1000),
+              true);
+
 COMMIT;
