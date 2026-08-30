@@ -560,9 +560,13 @@ describe('initiateRefundAction — initiate 錯誤與 revalidate 紀律', () => 
     expect(state).toMatchObject({ code: 'db_config' });
     const message = (state as { message: string }).message;
     // 🔴 釘 **Sean 逐字核可的原句**,不是釘一個關鍵字 —— 關鍵字過得了的句子有無限多句。
-    expect(message).toBe('系統設定與預期不符,請通知維護。');
+    expect(message).toBe('資料庫設定與預期不符,請通知維護。退款沒有發起、錢沒有動。');
     // 🔴 負對照:不得與 `config`(TapPay 環境)那句合流 —— 合流會讓員工去問錯的人。
     expect(message).not.toMatch(/金流環境/);
+    // ✅ 2026-08-31 定稿補了兩件,各釘一格(而 `toBe` 已經涵蓋 —— 這兩行是**給讀的人看的**,
+    //    它們說明那句話為什麼長這樣:①指向資料庫不是 TapPay ②明說錢沒動)
+    expect(message).toMatch(/資料庫設定/);
+    expect(message).toMatch(/錢沒有動/);
     expect(mocks.refund).not.toHaveBeenCalled();
   });
 
