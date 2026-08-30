@@ -1,3 +1,9 @@
+// 🔴 **`import type` 不是風格, 是必要的**:`refund-correction-read.ts` 檔頭第一行是
+//    `import 'server-only'` ⇒ 用值匯入會把它拖進來, 而本檔被 client component 吃得到。
+//    `import type` 在編譯期被抹掉 ⇒ 零 runtime 相依, 而型別仍然綁在同一個來源上
+//    (不自己重打一份 `'money_moved' | 'no_money_moved'` —— 那就是第二份、會漂)。
+import type { CorrectedTo } from './refund-correction-read';
+
 // refund-ledger-view.ts — M-3 A7c RW3:退款帳本「顯示層」純函式(零 IO;供訂單頁帳本區塊
 // 與異常清單頁共用字面 —— 兩處各養一份 label 就是下一個漂移點)。
 //
@@ -41,6 +47,52 @@ export const REFUND_FAILED_REASON_LABEL: Record<string, string> = {
  *  memory reference_js-index-lookup-hits-prototype-chain 有時間軸)。 */
 export function refundStatusLabel(status: string): string {
   return Object.hasOwn(REFUND_STATUS_LABEL, status) ? REFUND_STATUS_LABEL[status]! : status;
+}
+
+/**
+ * 狀態欄字面 **跟著人工判定的更正走**(板 `:638` ⟦b9-VERDICT2LINE⟧;Sean 2026-08-30 拍【甲】,
+ * 逐字「退款異常那頁:狀態欄跟著更正走」)。
+ *
+ * 🔴🔴 **它修的是一個【只有開畫面才看得到】的矛盾**:那一頁的「狀態」欄讀的是**原始那一列**
+ *    (`refundStatusLabel('failed')` ⇒ 「失敗(錢沒有動)」), 而它**正下方**的更正區塊讀的是
+ *    **有效判定**(`refund-verdict-correction.tsx:61-63` ⇒ 「現行判定是『錢有動』」)
+ *    ⇒ **員工同時看到兩行相反的話。**
+ *    📌 而那個矛盾在 diff 上看不出來、單元測試也不會紅 —— 兩邊各自都是對的,
+ *       **錯的是它們並排在一起**, 而沒有任何一支檔同時看得到兩邊。
+ *
+ * 🔴 **為什麼收成一支函式**:這樣「狀態欄要說什麼」與「更正區塊要說什麼」**吃同一個輸入**
+ *    ⇒ 它們**沒有各自的版本可以漂走**。兩邊寫得一樣不算, 要的是沒有第二份。
+ *
+ * 🛑 **`失敗` 那兩個字不動, 只換括號裡那句。** 帳本上那一列的 `status` **仍然是 `failed`**
+ *    —— 那是金流事實(這筆退款請求沒有成功), 而更正改的是**「錢有沒有動」這個人工判定**。
+ *    ⇒ 把 `失敗` 改成別的字 = 用一個顯示層的更正去覆寫帳本狀態, 那是另一件事、要另一個板。
+ *
+ * 🔴🔴 **三態, 不是兩態**(codex 對抗審查 2026-08-30 must-fix):
+ *    ⛔ ~~我第一版把「沒有更正紀錄」與「讀不到更正」都收成 `null`, 兩者都退回原始字面,
+ *       並宣稱「讀不到那一種由畫面上的另一段負責講」。~~
+ *    🔴 **codex 的反駁成立, 逐字**:「更正查詢失敗、實際已有 `money_moved` 更正 ⇒ 狀態仍斷言
+ *       『錢沒有動』;**下方『讀不到』不能抵銷這個錯誤金流結論**。」
+ *    ⇒ 📌 **那句 fallback 在【表格下面】, 而狀態欄在【表格裡】** —— 掃欄位的人不會往下看,
+ *       而他掃到的是一句**我們此刻無法確認的金流斷言**。
+ *    ⇒ ⇒ **「我們不知道」與「錢沒有動」是兩件事, 而只有前者是真的。**
+ *    ✅ ⇒ `'unreadable'` 獨立一態:**不講錢, 只講我們讀不到。**
+ *
+ * ⚠️ 而 `null`(= 真的沒有更正紀錄)仍然退回原始字面 —— 那時「錢沒有動」是**帳本上最後一筆
+ *    人工判定**, 它是有依據的。**兩者的差別不是保守程度, 是有沒有依據。**
+ */
+export function refundStatusLabelWithCorrection(
+  status: string,
+  corrected: CorrectedTo | null | 'unreadable',
+): string {
+  const base = refundStatusLabel(status);
+  // 🔴 讀不到 ⇒ **不對錢下任何斷言**。只對 `failed` 換字面(其餘態的括號裡沒有金流宣稱)。
+  if (corrected === 'unreadable') return status === 'failed' ? '失敗(更正紀錄讀不到)' : base;
+  if (corrected === null) return base;
+  // 🔴 只對 `failed` 生效。更正紀錄今天只存在於卡住的列(`isStuckManualVerdict` = status `failed`
+  //    且 `failedReason === 'manual_failed'`), 而**萬一將來別的態也帶著更正進來, 這裡不發明字面**
+  //    ⇒ 退回原始標籤, 讓它看起來「沒被處理」而不是「被我猜了一個」。
+  if (status !== 'failed') return base;
+  return corrected === 'money_moved' ? '失敗(已更正:錢有動)' : '失敗(已更正:錢沒有動)';
 }
 
 export function refundFailedReasonLabel(reason: string | null): string | null {

@@ -14,7 +14,7 @@ import {
 import {
   REFUND_EXCEPTION_STALL_MS,
   isStuckManualVerdict,
-  refundStatusLabel,
+  refundStatusLabelWithCorrection,
 } from '../../../lib/payment/refund-ledger-view';
 
 // /orders/refund-exceptions — M-3 A7c RW3 清單 + RW4 操作(對帳判定/人工結案)。
@@ -146,7 +146,37 @@ export default async function RefundExceptionsPage({
                     <td className={`${TD} text-right tabular-nums whitespace-nowrap`}>
                       NT$ {formatOrderAmount(row.refundAmount)}
                     </td>
-                    <td className={TD}>{refundStatusLabel(row.status)}</td>
+                    {/* 🔴🔴 板 `:638` ⟦b9-VERDICT2LINE⟧:**狀態欄跟著更正走**
+                        (Sean 2026-08-30 拍【甲】, 逐字「退款異常那頁:狀態欄跟著更正走」)。
+                        改之前這一格印 `refundStatusLabel(row.status)` = **「失敗(錢沒有動)」**,
+                        而它**正下方**的更正區塊印「現行判定是『錢有動』」
+                        ⇒ **員工同時看到兩行相反的話。**
+                        📌 而那個矛盾**只有開畫面才看得到** —— 兩邊各自都是對的,
+                           **錯的是它們並排在一起**, 而在此之前沒有任何一支檔同時看得到兩邊。
+                        ⛔ ~~⚠️ 讀不到更正時(`effectiveVerdicts === null`)傳 `null` ⇒ 退回原始字面,
+                           而那時畫面上另一段會說「現在讀不到它的更正紀錄」⇒ 兩行仍然一致。~~
+                        🔴🔴 **那一段【與它正下方的碼相反】了 —— codex R2 抓到。**
+                           碼現在傳的是 `'unreadable'`(見下面那三行), 而那句註解還在說傳 `null`。
+                           ⇒ **後人照著它回退, 就會把 codex R1 那條 must-fix 原封裝回去。**
+                           📌 **⇒ 而這正是本片在修的那個病, 只是換了載體**:
+                              上面那半是【狀態欄與更正區塊】並排說相反的話,
+                              這一半是【註解與它下面三行碼】並排說相反的話。
+                              ⇒ ⇒ **我在修一個矛盾的同時, 在它正上方造了另一個。**
+                        ✅ **現行行為(以下面那三行為準)**:讀不到 ⇒ `'unreadable'` ⇒
+                           狀態欄印「失敗(更正紀錄讀不到)」、**不對錢下任何斷言**。 */}
+                    <td className={TD}>
+                      {refundStatusLabelWithCorrection(
+                        row.status,
+                        // 🔴 **三態, 而這裡是分得出來的地方**(codex must-fix):
+                        //    `effectiveVerdicts === null` = **整批讀不到**(上面那個 try 掛了)
+                        //    ⇒ 傳 `'unreadable'` ⇒ 狀態欄**不對錢下斷言**。
+                        //    ⚠️ 而 `.get()` 回 undefined 是**另一件事**:讀得到, 而這一列沒有更正
+                        //    ⇒ 傳 `null` ⇒ 原始字面(那時「錢沒有動」是帳本上最後一筆人工判定, 有依據)。
+                        effectiveVerdicts === null
+                          ? 'unreadable'
+                          : (effectiveVerdicts.get(row.id)?.correctedTo ?? null),
+                      )}
+                    </td>
                     <td className={TD}>
                       {/* 🔴 括號裡那句是「這列為什麼在清單上」。卡住的列既不是滯留逾時、
                           也沒有「優先處理」可言(沒有動作可做)⇒ 兩句都不能沿用。 */}
