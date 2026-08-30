@@ -6,8 +6,24 @@
 //   樣式住在 OD 的 `pcm-account.css:1167` 起「訂單詳情」段(與會員中心共用 .acc-main / .acc-section)。
 //
 // 🔴 **稿上有、而本片【刻意不做】的東西**(每一個都是「沒有資料來源」,不是漏做):
-//   · 「下載訂單 PDF」鈕 —— 稿註解要求真站接 /account/orders/<id>/statement.pdf 由後端產;
-//     後端不存在 ⇒ **做出來就是第二顆死鈕**,而本片存在的理由正是消滅第一顆。
+//   ⛔ ~~· 「下載訂單 PDF」鈕 —— 稿註解要求真站接 /account/orders/<id>/statement.pdf 由後端產;
+//     後端不存在 ⇒ **做出來就是第二顆死鈕**,而本片存在的理由正是消滅第一顆。~~
+//   ✅ **2026-08-30 片 C:那顆鈕接上了**(板 `:416` ⟦b4-CUSTPDF1⟧;片 A 路由+授權、片 B 紙面已落地)。
+//     🔴 **而它的 URL 是 `/account/orders/<displayId>/statement`,【沒有 `.pdf`】** ——
+//        稿 `:288` 寫的是 `statement.pdf`,而那句話**假設的是伺服器產檔**;
+//        Sean 的選型走甲案(客人自己的瀏覽器按列印/儲存成 PDF)⇒ 那條路沒有 `.pdf` 這個網址。
+//        ⇒ **照稿抄那一行的話, 這顆鈕會 404** —— 而稿 `:286` 自己逐字警告的正是那件事
+//          (「不假裝下載成功、也不給一個會 404 的 href」)。**稿在同一段裡同時給了陷阱與警告。**
+//     ⚠️ **一個【我沒有自己決定】的字**:鈕上的字照稿是「下載訂單 PDF」,而**點下去不會下載一個檔**,
+//        是打開一頁可以列印的明細(那一頁自己的鈕才寫「列印 / 儲存成 PDF」)。
+//        ⇒ 客人的目的達得到, 而「下載」這兩個字比實際多說了一點點。
+//        ⇒ **照鐵則 1 先搬稿的字面, 並把這一格交給 Sean 拍**(文案調性是他的板, 不是我的)。
+//        🔴 **而稿那個字面本身就是一板**:稿 `:193` 逐字帶著「**(2026-08-07 Sean 拍板)**」
+//           ⇒ 動它 = 動一板, 而唯一可以偏離稿字面的理由是**另一板推翻它**。
+//        🔴🔴 **落點**:板 `docs/launch-todo.md:416` ⟦b4-CUSTPDF1⟧ 尾端「待 Sean 拍」那一格
+//           (第 3 題 `Q-明細鈕文案`)。**寫在那裡而不是只寫在這裡** ——
+//           一句「交給 Sean 拍」如果沒有落點, **session 結束它就消失, 而鈕已經上線了**。
+//           (code-reviewer 2026-08-30 抓:同檔另兩處待拍都寫了落點, 只有這一處沒有。)
 //   · 物流(courier / trackingNo / trackingUrl / 物流歷程)與進度軸後兩階 ——
 //     稿 :167-175 自己就寫著「需要第 2 批【包裹真相】」,且逐字警告
 //     **「fulfillment_status 是 stale 出貨軸,拿它點亮『已出貨』等於對客人說謊」**。
@@ -157,6 +173,23 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
                 :196 的紀律):印「?」= 我們也不確定,而下一步寫在下面看得見的說明裡。 */}
             {order.itemsTruncated ? ' · 共 ? 件商品' : ` · 共 ${order.itemCount} 件商品`}
           </div>
+        </div>
+        {/* 片 C:稿 `:196-197` 的 `.od-head-actions` > `.acc-btn-ghost`。
+            **class 與位置都照稿**,CSS 早就在(`order-detail.css:96`)、不新寫。
+            🔴 用 `<Link>` 不是 `<button>`:稿用 button 是因為原型不產檔、要就地換字;
+               而我們**真的有一頁可以去** ⇒ 它是一個導覽,不是一個動作。
+               (用 button + onClick 導頁會失去中鍵開新分頁、右鍵複製網址與鍵盤可及性。)
+            🔴 `encodeURIComponent` 沿用 `components/account/tabs/OrdersTab.tsx:189` 的既有慣例 ——
+               而**下游那一頁刻意【不再解一次碼】**(Next 的動態路由段進來就已解碼,
+               再解一次遇到 `%` 會拋 `URIError` 而整頁 500)。兩端要對得起來。 */}
+        <div className="od-head-actions">
+          <Link
+            className="acc-btn-ghost"
+            href={`/account/orders/${encodeURIComponent(order.displayId)}/statement`}
+            data-od-id="order-statement-link"
+          >
+            下載訂單 PDF
+          </Link>
         </div>
       </div>
 

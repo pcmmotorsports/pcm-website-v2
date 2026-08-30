@@ -7,7 +7,11 @@
 // - 🔴 品牌 null ⇒ **整行不印**;收件缺值 ⇒ **印 `—`**(兩者刻意相反,各有理由)
 // - 🔴 運費 0 ⇒「免運」;未付款 ⇒「應付金額」、已付款 ⇒「實付金額」
 // - 🔴 itemsTruncated ⇒ 件數印「?」+ 印出說明段;**不得印 0、不得留空**
-// - 🔴 稿上「沒有資料來源」的東西不得出現(下載 PDF / 查詢物流)—— 做出來就是第二顆死鈕
+// - ⛔ ~~🔴 稿上「沒有資料來源」的東西不得出現(**下載訂單 PDF** / 查詢物流)—— 做出來就是第二顆死鈕~~
+//   ✅ **2026-08-30 片 C:「下載訂單 PDF」那半已翻面**(它現在有一頁真的可以去);
+//     「查詢物流進度」那半**原封不動**——物流資料源今天仍然不存在。
+//   🔴 **而舊字面用的是縮寫「下載 PDF」** ⇒ 拿完整字面 `下載訂單 PDF` 跑 `literal-sweep.sh`
+//     **撈不到這一行** ⇒ 它會活下來當一句過期的驗收條(code-reviewer 抓)。⇒ 這裡補齊全名。
 // - 反洩 guard:畫面文字零經銷價字面
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -190,14 +194,38 @@ describe('OrderDetailView', () => {
   });
 
   // 🔴 稿上有、而本片刻意不做的東西 —— 做出來就是第二顆死鈕(本片存在的理由是消滅第一顆)
-  it('零死鈕:不得出現「下載訂單 PDF」/「查詢物流進度」(兩者都沒有資料來源)', () => {
+  //
+  // 🔴🔴 **2026-08-30 片 C:這一格【半格翻面】,而【只翻半格】是刻意的。**
+  //    ⛔ ~~`expect(container.textContent).not.toContain('下載訂單 PDF')`~~ —— **前提消失了**:
+  //       那顆鈕現在**有一頁真的可以去**(`/account/orders/<id>/statement`,片 A+B 已落地)
+  //       ⇒ 它不再是死鈕。
+  //    ✅ **而「查詢物流進度」那一半原封不動** —— 它的前提**沒有**變:
+  //       物流資料源今天仍然不存在(稿 `:167-175` 自己就寫著「需要第 2 批【包裹真相】」)。
+  //    📌 **⇒ 一格守門的兩個宣稱可以【一個過期一個沒有】,而它們寫在同一行。**
+  //       ⇒ 整格刪掉的話,物流那顆死鈕就沒有人守了 —— 而那正是本格存在的理由。
+  //
+  // 🔴 **而真正該加強的是下面那半(結構),不是上面那半(字面)**:
+  //    字面那半只擋得住「我想得到的那兩顆」;結構那半擋的是**任何一顆**死鈕,
+  //    而它**不需要我先知道那顆鈕叫什麼名字**。
+  it('零死鈕:物流入口仍不得出現;而任何 <a> 都要有真的去處', () => {
     const { container } = render(<OrderDetailView order={ORDER} />);
-    expect(container.textContent).not.toContain('下載訂單 PDF');
-    expect(container.textContent).not.toContain('查詢物流進度');
-    // 🔴 反向那半:整頁不得有任何【沒有 href 的 <a>】或【沒有 onClick 的 <button>】
+    expect(container.textContent, '物流資料源今天仍然不存在').not.toContain('查詢物流進度');
+
+    // 🔴 結構那半 —— 整頁不得有任何【沒有 href 的 <a>】或【沒有 onClick 的 <button>】
     expect(container.querySelector('button')).toBeNull();
-    for (const a of Array.from(container.querySelectorAll('a'))) {
-      expect(a.getAttribute('href')).toBeTruthy();
+    const links = Array.from(container.querySelectorAll('a'));
+    // 🔴 分母:掃到空集合會無聲通過。
+    //    ⛔ ~~`toBeGreaterThanOrEqual(2)`~~ —— **那比註解宣稱的弱一格**(code-reviewer 抓):
+    //       這一頁**恆有 3 顆** `<a>`(`:154` 返回 / `:180` 明細 / LINE 那顆,三顆都無條件渲染)
+    //       ⇒ `>=2` 在**任何一顆消失時仍然綠**。⇒ 釘死 3。
+    expect(links.length, '<a> 的顆數變了 —— 少一顆代表有入口不見了, 多一顆代表有沒被這格驗過的新入口').toBe(3);
+    for (const a of links) {
+      const href = a.getAttribute('href');
+      expect(href, `這顆連結沒有去處:${a.textContent}`).toBeTruthy();
+      // 🔴 加強:`href="#"` 也是死鈕,而舊的 `toBeTruthy()` 讓它過關。
+      //    ⛔ ~~我原本寫「`href=""` 也是」~~ —— **那句是錯的**:`''` 是 falsy,舊尺本來就擋得住。
+      //    ⚠️ 而這一條**擋不住** `#top` / `javascript:void(0)`(code-reviewer 標的射程)。
+      expect(href, `這顆連結的 href 是佔位符:${a.textContent}`).not.toBe('#');
     }
   });
 
@@ -223,6 +251,62 @@ describe('OrderDetailView', () => {
   // 在此之前 adapter 的 `.neq('payment_status','unpaid')` 把取消單全濾掉了(取消不動 payment_status
   // ⇒ 每一張取消單都是 unpaid)。下面三格**不是新功能**,是一段沒人走過的路被點亮之後才暴露的東西。
   // 📌 形狀:**拆掉一道濾網,等於把它背後所有沒被走過的路一次點亮 —— 而那些路沒有人驗過。**
+  // ── 🔴🔴 `#249`(2026-08-24):這一頁對【取消單】從今天起才走得到 ────────────────
+  // 在此之前 adapter 的 `.neq('payment_status','unpaid')` 把取消單全濾掉了(取消不動 payment_status
+  // ⇒ 每一張取消單都是 unpaid)。下面三格**不是新功能**,是一段沒人走過的路被點亮之後才暴露的東西。
+  // 📌 形狀:**拆掉一道濾網,等於把它背後所有沒被走過的路一次點亮 —— 而那些路沒有人驗過。**
+  describe('片 C:客人拿得走自己的訂單明細(板 `:416` ⟦b4-CUSTPDF1⟧)', () => {
+    it('🔴🔴 那顆鈕連到 `/statement`,**不是** `/statement.pdf`(照稿抄會 404)', () => {
+      const { container } = render(<OrderDetailView order={ORDER} />);
+      const link = container.querySelector('[data-od-id="order-statement-link"]');
+      expect(link, '那顆鈕不見了').not.toBeNull();
+      expect(link!.getAttribute('href')).toBe('/account/orders/PCM-2099-0007/statement');
+      // 🔴 **這一半是本格真正的重點**:稿 `:288` 寫的是 `statement.pdf`,而那句話假設伺服器產檔。
+      //    照它抄 ⇒ 那條路由不存在 ⇒ 404,而**稿 `:286` 自己就警告過「不給一個會 404 的 href」**。
+      //    ⇒ 稿在同一段裡同時給了陷阱與警告,而抄的人只會看到前者。
+      // ⚠️ **這一條在上面那個 exact `toBe` 通過時【不可能紅】**(code-reviewer 抓)——
+      //    承重的是 `toBe`,不是它。留著的用途只有一個:**擋住有人手改上面那個期望值**
+      //    (改期望值讓測試變綠, 是 R4 換路訊號裡點名的那個動作)。⇒ 它是絆線, 不是量具。
+      expect(link!.getAttribute('href'), '抄了稿上那個 .pdf ⇒ 這顆鈕會 404').not.toContain('.pdf');
+    });
+
+    it('🔴 它是 `<a>` 不是 `<button>` —— 導覽要能中鍵開新分頁 / 右鍵複製網址', () => {
+      const { container } = render(<OrderDetailView order={ORDER} />);
+      const el = container.querySelector('[data-od-id="order-statement-link"]');
+      // 🔴 先證它在 —— 否則鈕不見時是 `null.tagName` 拋 TypeError:**會紅, 而訊息說錯原因**。
+      expect(el, '那顆鈕不見了').not.toBeNull();
+      expect(el!.tagName).toBe('A');
+    });
+
+    it('🔴 單號要被 encode —— 而下游那一頁刻意【不再解一次碼】,兩端要對得起來', () => {
+      // Next 的動態路由段進來就已解碼;再解一次遇到 `%` 會拋 URIError 而整頁 500
+      // (`statement/page.tsx` 那條 codex must-fix)。⇒ 這一端負責 encode。
+      const weird = { ...ORDER, displayId: 'PCM 100%/A' as typeof ORDER.displayId };
+      const { container } = render(<OrderDetailView order={weird} />);
+      const href = container
+        .querySelector('[data-od-id="order-statement-link"]')!
+        .getAttribute('href')!;
+      expect(href).toBe('/account/orders/PCM%20100%25%2FA/statement');
+      // 翻面:解回來要等於原值 —— 沒有這一半,上面那串亂碼「對不對」沒有人證得了
+      expect(decodeURIComponent(href.slice('/account/orders/'.length, -'/statement'.length))).toBe(
+        'PCM 100%/A',
+      );
+    });
+
+    it('🔴 class 照稿(`.od-head-actions` > `.acc-btn-ghost`)—— 這兩個 class 的 CSS 早就在', () => {
+      const { container } = render(<OrderDetailView order={ORDER} />);
+      const link = container.querySelector('[data-od-id="order-statement-link"]');
+      expect(link!.className).toContain('acc-btn-ghost');
+      expect(link!.parentElement!.className).toContain('od-head-actions');
+      // 🔴 負對照 —— ⛔ ~~`not.toContain('zzz-not-a-class')`~~ **那是恆真的**
+      //    (`zzz-not-a-class` 全 repo 只出現在那一行自己;正對照 `acc-btn-ghost` ⇒ 7 檔)
+      //    ⇒ 換成一個**真的存在、但屬於別人**的 class:父層是版面容器,它不該長得像一顆鈕。
+      expect(link!.parentElement!.className, '父層混進了鈕的 class ⇒ 上面兩格可能只是撞到字串').not.toContain(
+        'acc-btn-ghost',
+      );
+    });
+  });
+
   describe('`#249` 取消單:一段今天才走得到的路', () => {
     const CANCELLED = {
       ...ORDER,
@@ -277,4 +361,6 @@ describe('OrderDetailView', () => {
     // 負對照:尺是活的(成交價確實印在畫面上)。
     expect(container.textContent).toContain('NT$ 6,000');
   });
+
+
 });
