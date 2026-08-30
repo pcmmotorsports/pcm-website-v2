@@ -121,10 +121,16 @@ export class SupabaseShippedEmailContextAdapter implements IShippedEmailContext 
     // 🔴 查不到 ⇒ `unavailable`。**不得**退化成一封沒有箱號的通用信
     //    (DB COLUMN COMMENT 明文禁止:「不得寄出『已出貨但無單號』的通用信」)。
     if (box === undefined) return { kind: 'unavailable' };
-    // 🔴 作廢 ⇒ 可辨識的態,呼叫端據此落「跳過」痕跡而不是計 error。
-    if (box.deleted_at !== null) return { kind: 'voided' };
-    // 還沒標出貨 ⇒ 我們對「這封信該寄」的判斷與資料對不上 ⇒ 這一態**應該**吵。
-    if (box.shipped_at === null) return { kind: 'unavailable' };
+    // 🔴🔴 **箱層的兩個裁決(作廢 / 還沒出貨)【往下搬了】** —— codex 2026-08-30 R1 must-fix 6。
+    //    ⛔ ~~原本這裡直接 `if (box.deleted_at !== null) return { kind: 'voided' };`~~
+    //    **問題**:那是在確認「這一箱到底屬不屬於這張訂單」**之前**下的裁決。
+    //    ⇒ A 單的 outbox 列若指向 B 單的箱(scanner 出錯 / 手動寫入 / 我們沒想到的路),
+    //      而那個箱剛好**已作廢** ⇒ 回 `voided` ⇒ 呼叫端**靜默跳過、不計 error**
+    //      ⇒ 📌 **一個【資料錯配】被當成【正常業務動作】吞掉,而 A 的客人永遠收不到信。**
+    //    ⚠️ 而同一個錯配在箱**沒有**作廢時是會吵的(② 撈到 0 項 ⇒ `unavailable`)
+    //      ⇒ **同一個病,吵不吵取決於一個無關的欄位** —— 那不是設計,那是順序。
+    // ✅ 修法 = **把 ② 提前,不是加一發查詢**(查詢數不變:作廢的箱多跑一次 ② 而已)。
+    //    `shipment_items` 不會因為箱作廢而消失(`deleted_at` 在 `shipments` 上)⇒ ② 照樣答得出歸屬。
 
     // ── ② 這一箱裡【屬於這張訂單】的品項 ────────────────────────────────────
     // 🔴 `order_items!inner` 的 `!inner` 是承重的,不是風格:少了它,`order_id` 那個篩選
@@ -149,7 +155,17 @@ export class SupabaseShippedEmailContextAdapter implements IShippedEmailContext 
     // 🔴 **0 項也回 null**,不回一封空清單的信:
     //    這張訂單在這一箱裡沒有任何品項 = 我們對「哪一封信該寄」的判斷與資料對不上,
     //    而一封「你的貨出了,內容:(空白)」比不寄更糟。
+    // 🔴 **而這一行現在同時是【歸屬】的守門**(見上面 must-fix 6 那段):
+    //    它必須排在箱層的 `voided` 之前,否則錯配會被 `voided` 先吞掉。
     if (items.length === 0) return { kind: 'unavailable' };
+
+    // ── ①' 箱層的兩個裁決(**歸屬確認之後**才下)────────────────────────────
+    // 🔴 作廢 ⇒ 可辨識的態,呼叫端據此落「跳過」痕跡而不是計 error。
+    //    ⚠️ **順序不可以換**:`voided` 仍然要**優先於**「還沒出貨」——
+    //    兩個都成立時它真正的狀態是「被作廢了」(既有測試釘住這一格)。
+    if (box.deleted_at !== null) return { kind: 'voided' };
+    // 還沒標出貨 ⇒ 我們對「這封信該寄」的判斷與資料對不上 ⇒ 這一態**應該**吵。
+    if (box.shipped_at === null) return { kind: 'unavailable' };
 
     // 🔴 display_id 從 embed 拿,拿不到就整包 null(不得用空字串頂替)。
     const displayId = firstDisplayId(items);

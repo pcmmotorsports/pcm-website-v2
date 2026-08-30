@@ -47,8 +47,27 @@ describe('SHIPPED_EMAIL_CUTOFF 解析(Sean 2026-08-30「今天開始後才寄」
    * 🔴 must-fix 2/3 的證人:V8 與 Postgres 是**兩個 parser、兩個裁決** ——
    *    V8 對 2 月 30 日判 ok 並**靜默滾成 3/1**, 而 PG 的 timestamptz 直接 throw。
    */
-  it('🔴 2 月 30 日(帶 Z)⇒ 必須 bad-format —— V8 會靜默把它滾到下個月, 而 Postgres 會炸', () => {
-    expect(resolveShippedEmailCutoff('2026-02-30T00:00:00Z').kind).toBe('bad-format');
+  /**
+   * 🔴🔴 **這一格原本是假綠**(codex 2026-08-30 R1 must-fix 4):
+   *    原本餵的是 `2026-02-30T00:00:00Z` —— 它滾成 3/2,而 **3/2 早於硬下界 2026-08-30**
+   *    ⇒ **把滾日檢查整段刪掉,它照樣被下界擋住、照樣紅** ⇒ 它證不到滾日檢查存在。
+   *    ✅ 年份改成 2027 ⇒ 滾出來的日子晚於下界 ⇒ **只有滾日檢查擋得住它**。
+   *
+   * 🔴🔴 **而 `+08:00` 那一格是 must-fix 3 本人**:舊實作的滾日檢查
+   *    **只對 `Z` 結尾生效**(理由是「帶偏移時跨日是正常的」——那句話對,
+   *    而它讓整個檢查對帶偏移的值失效)⇒ `2027-02-30T00:00:00+08:00` **被判合法**
+   *    ⇒ cutoff 錯位一天 ⇒ 那一天的箱子漏寄或誤寄,**而沒有任何一格會紅**。
+   */
+  it.each(['2027-02-30T00:00:00Z', '2027-02-30T00:00:00+08:00', '2027-04-31T12:00:00+08:00'])(
+    '🔴 那一天不存在(%s)⇒ 必須 bad-format —— V8 會靜默把它滾到下個月, 而 Postgres 會炸',
+    (bad) => {
+      expect(resolveShippedEmailCutoff(bad).kind).toBe('bad-format');
+    },
+  );
+
+  it('🔵 負對照:同月份**真的存在**的那一天 ⇒ ok(證上面那三格不是把整個 2 月都擋掉)', () => {
+    expect(resolveShippedEmailCutoff('2027-02-28T00:00:00+08:00').kind).toBe('ok');
+    expect(resolveShippedEmailCutoff('2028-02-29T00:00:00+08:00').kind).toBe('ok'); // 2028 是閏年
   });
 
   it('✅ 帶 +08:00 ⇒ ok, 而 `iso` 是**正規化後的 UTC**(交出去的是一個沒有歧義的時刻, 不是使用者打的字)', () => {
@@ -99,5 +118,46 @@ describe('SHIPPED_EMAIL_CUTOFF 解析(Sean 2026-08-30「今天開始後才寄」
     expect(resolveShippedEmailCutoff('2026-08-30T00:00:00+08:00').kind).toBe('ok');
     // 🛑 誠實的射程宣告:**形狀對不代表【那個時刻】對**,
     //    而「該填哪一刻」只有設值的人知道 ⇒ 那條規矩住在檔頭與 3b 的驗收條裡, 不在這支函式裡。
+  });
+});
+
+/**
+ * 🔴🔴 **錯誤說明【自己】不可以是一個可以貼上去的答案**(Fable 2026-08-30 R3 must-fix 3)。
+ *
+ * 構造:設值那天打成裸日期 ⇒ 503 ⇒ 去看 log ⇒ **把說明裡那個範例逐字貼進 env**
+ * ⇒ 格式過、下界也過 ⇒ **把那個日期之後每一箱沒排過的一次全部排進去**
+ * ⇒ 客人收到講幾週前那批貨的信,而信收不回來。
+ * 📌 **⇒ 一段用來幫助設定的說明,提供了一個【設錯而看起來設對】的完整答案。**
+ *
+ * 🔴 **這一格是自我指涉的,所以它不會過期**:它把 `why` 自己餵回這支函式,
+ *    不是比對一個寫死的字串 —— 下一個人改了範例、而改成一個合法的值,這一格會紅。
+ */
+describe('🔴 bad-format 的 why 本身不得含有一個【貼上去就會生效】的值', () => {
+  /** 從一段文字裡撈出所有「看起來像完整 ISO 時刻」的子字串。 */
+  function isoLikeIn(text: string): string[] {
+    return text.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})/g) ?? [];
+  }
+
+  it('每一個 bad-format 的 why,撈出來的候選值餵回去都不可以是 ok', () => {
+    const bads = ['2026-09-01', '2026-09-01T21:30:00', '2026-09-01T21:30:00+0800', '1970-01-01T00:00:00Z', '2027-02-30T00:00:00+08:00'];
+    let checked = 0;
+    for (const bad of bads) {
+      const r = resolveShippedEmailCutoff(bad);
+      expect(r.kind).toBe('bad-format');
+      if (r.kind !== 'bad-format') continue;
+      for (const candidate of isoLikeIn(r.why)) {
+        checked += 1;
+        // 🔴 說明裡若還留著一個合法值 ⇒ 這一行紅。
+        expect(resolveShippedEmailCutoff(candidate).kind, `why 裡的「${candidate}」貼上去會生效`).not.toBe('ok');
+      }
+    }
+    // 🔵 **正對照:那把撈值的尺是活的** —— 沒有這一行,「why 裡一個候選都沒撈到」
+    //    與「撈到而且都不合法」會印同一個綠(而前者也可能是 regex 壞掉)。
+    expect(isoLikeIn('請填 2026-09-01T21:30:00+08:00 這種'), '撈值的 regex 必須撈得到東西').toEqual([
+      '2026-09-01T21:30:00+08:00',
+    ]);
+    // ⚠️ `checked` 允許是 0(今天就是 0:範例已改成佔位形狀)——
+    //    它記在這裡是為了讓下一個人看得出「這一格今天檢查了幾個候選」。
+    expect(checked).toBeGreaterThanOrEqual(0);
   });
 });

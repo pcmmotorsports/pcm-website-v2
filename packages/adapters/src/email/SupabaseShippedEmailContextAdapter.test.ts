@@ -304,10 +304,23 @@ describe('SupabaseShippedEmailContextAdapter — 🔴 兩種 null 不可以合�
     expect((await load(client([{ data: [], error: null }]))).kind).toBe('unavailable');
   });
 
+  /**
+   * 🔴🔴 **這一格在 2026-08-30 一度變成假綠, 而抓到它的是 codex R2** ——
+   *    我把箱層裁決搬到品項查詢之後(R1 must-fix 6)之後,**這一格沒有補品項 fixture**
+   *    ⇒ 它其實是先被「0 品項 ⇒ unavailable」擋下的
+   *    ⇒ **把 `shipped_at === null` 那一行整行刪掉, 32 格照樣全綠**(我自己跑過那一發突變)。
+   * 📌 **⇒ 一個【正確的重構】把一格守門推到它守的東西後面, 而斷言的【值】沒有變 ⇒ 零訊號。**
+   *    ⇒ 所以補品項不是「讓測試過」, 是**讓它重新走到它要量的那一行**。
+   */
   it('🔴 箱還沒標出貨 ⇒ unavailable(我們對「該寄」的判斷與資料對不上)', async () => {
-    expect(
-      (await load(client([{ data: [box({ shipped_at: null })], error: null }]))).kind,
-    ).toBe('unavailable');
+    const res = await load(
+      client([
+        { data: [box({ shipped_at: null })], error: null },
+        // 🔴 品項給滿 —— 否則這一格會停在「0 品項」那道閘, 永遠走不到 `shipped_at` 那一行。
+        { data: [line('前煞車來令片')], error: null },
+      ]),
+    );
+    expect(res.kind).toBe('unavailable');
   });
 
   it('🔴🔴 箱【已作廢】⇒ voided,**不是 unavailable** —— 那是正常業務動作,不該把人叫起來', async () => {
@@ -315,8 +328,13 @@ describe('SupabaseShippedEmailContextAdapter — 🔴 兩種 null 不可以合�
     //    信排進佇列 → 員工把箱子作廢 → 每輪 claim 都失敗 → 燒完 attempts → 進死信
     //    → **訊號 2 每日告警** ⇒ 有人半夜起來查一個【正常的】業務動作。
     // ⚠️ 而 voided **不等於可以靜默丟掉** —— 呼叫端要落一列「跳過」的痕跡(片3 的事)。
+    // 🔵 **2026-08-30 起這一格要多餵一段品項**(codex R1 must-fix 6):`voided` 現在下在
+    //    **歸屬確認之後** ⇒ 沒有品項的話會先落 `unavailable`。理由見下面那一格。
     const res = await load(
-      client([{ data: [box({ deleted_at: '2026-08-22T12:00:00.000Z' })], error: null }]),
+      client([
+        { data: [box({ deleted_at: '2026-08-22T12:00:00.000Z' })], error: null },
+        { data: [line('前煞車來令片')], error: null },
+      ]),
     );
 
     expect(res.kind).toBe('voided');
@@ -324,10 +342,36 @@ describe('SupabaseShippedEmailContextAdapter — 🔴 兩種 null 不可以合�
 
   it('作廢優先於「還沒出貨」—— 兩個都成立時回 voided(那是它真正的狀態)', async () => {
     const res = await load(
-      client([{ data: [box({ shipped_at: null, deleted_at: '2026-08-22T12:00:00.000Z' })], error: null }]),
+      client([
+        { data: [box({ shipped_at: null, deleted_at: '2026-08-22T12:00:00.000Z' })], error: null },
+        { data: [line('前煞車來令片')], error: null },
+      ]),
     );
 
     expect(res.kind).toBe('voided');
+  });
+
+  /**
+   * 🔴🔴 **codex 2026-08-30 R1 must-fix 6 的證人。**
+   *
+   * 場景:A 單的 outbox 列指向一個**不屬於 A**的箱(scanner 出錯 / 手動寫入),
+   * 而那個箱**剛好已作廢**。
+   * ```
+   * 舊行為 ⇒ voided ⇒ 呼叫端【靜默跳過、不計 error】⇒ A 的客人永遠收不到信,零訊號
+   * 新行為 ⇒ unavailable ⇒ 計 error ⇒ 503 ⇒ 有人看得到
+   * ```
+   * 📌 而最難看見的是:**同一個錯配,在箱【沒有】作廢時本來就會吵**(② 撈到 0 項)
+   *    ⇒ **吵不吵取決於一個與錯配完全無關的欄位。那不是設計,那是順序。**
+   */
+  it('🔴🔴 箱已作廢【而且不屬於這張訂單】⇒ unavailable(不得被當成正常作廢吞掉)', async () => {
+    const res = await load(
+      client([
+        { data: [box({ deleted_at: '2026-08-22T12:00:00.000Z' })], error: null },
+        { data: [], error: null }, // ← 這張單在這一箱裡 0 項 = 錯配
+      ]),
+    );
+
+    expect(res.kind).toBe('unavailable');
   });
 
   it('🔴 這張訂單在這一箱裡 0 項 ⇒ 整包 null,**不寄一封空清單的信**', async () => {

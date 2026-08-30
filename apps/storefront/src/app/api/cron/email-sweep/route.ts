@@ -42,11 +42,18 @@
 import { timingSafeEqual } from 'node:crypto';
 import {
   enqueueOrderCreatedEmails,
+  enqueueOrderShippedEmails,
+  resolveShippedEmailCutoff,
   sweepEmailOutbox,
   type EnqueueOrderCreatedEmailsDeps,
+  type EnqueueOrderShippedEmailsDeps,
   type SweepEmailOutboxDeps,
 } from '@pcm/use-cases';
-import { getEnqueueOrderCreatedDeps, getSweepEmailOutboxDeps } from '@/lib/email/composition';
+import {
+  getEnqueueOrderCreatedDeps,
+  getEnqueueOrderShippedDeps,
+  getSweepEmailOutboxDeps,
+} from '@/lib/email/composition';
 // eslint-disable-next-line no-restricted-imports -- 受控例外:只取型別守衛用的錯誤類別(不建任何 adapter);它只帶 stage/code 兩個固定欄、零 PII。
 import { ScanQueryError } from '@pcm/adapters/server';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
@@ -197,6 +204,11 @@ function pickCounts(result: {
    */
   eligibilityUnknown: number;
   quotaFailed: number;
+  /**
+   * 箱被作廢而正確地沒寄(M-4b E4 片3b)。**非錯誤 ⇒ 不進 503 條件** ——
+   * 併進去的話,一個員工按「作廢重開」就會讓 cron 回 503、心跳掉、有人半夜起來查。
+   */
+  skippedShipmentVoided: number;
 }) {
   return {
     reclaimed: result.reclaimed,
@@ -209,6 +221,7 @@ function pickCounts(result: {
     skippedIneligible: result.skippedIneligible,
     eligibilityUnknown: result.eligibilityUnknown,
     quotaFailed: result.quotaFailed,
+    skippedShipmentVoided: result.skippedShipmentVoided,
   };
 }
 
@@ -243,6 +256,30 @@ function pickEnqueueCounts(result: {
     enqDuplicate: result.duplicate,
     enqNoRecipient: result.noRecipient,
     enqErrors: result.errors,
+  };
+}
+
+/**
+ * 🔴 出貨線 enqueue 的 counts allowlist(同 `pickEnqueueCounts` 的理由:**顯式挑欄、不 blind spread**)。
+ * 前綴 `shp` 與訂單成立線的 `enq` 分開 —— 兩條線的數字混在同一個平坦物件裡會被讀成同一件事。
+ */
+function pickShippedEnqueueCounts(result: {
+  scanned: number;
+  truncated: boolean;
+  enqueued: number;
+  skippedNoRealEmail: number;
+  duplicate: number;
+  noRecipient: number;
+  errors: number;
+}) {
+  return {
+    shpScanned: result.scanned,
+    shpTruncated: result.truncated,
+    shpEnqueued: result.enqueued,
+    shpSkippedNoRealEmail: result.skippedNoRealEmail,
+    shpDuplicate: result.duplicate,
+    shpNoRecipient: result.noRecipient,
+    shpErrors: result.errors,
   };
 }
 
@@ -316,10 +353,104 @@ export async function GET(request: Request): Promise<Response> {
   }
   const enqueueSection = { enqueueStatus, ...(enqueueCounts ?? {}) };
 
+  // ── 1d. 🔴 M-4b E4 片3b:出貨通知信的掃描式 enqueue ────────────────────────────
+  //     **與上面那一段完全平行**(自己的 deps、自己的 try/catch、自己的 env),
+  //     而它們刻意**不共用 cutoff** —— 兩條線是分別上線的,起始線不是同一刻。
+  //
+  // 🔴🔴 **這一段【不會讓任何信寄出去】,而唯一讓它寄的是 Sean 手上那顆 env**:
+  //     `SHIPPED_EMAIL_CUTOFF` 沒設 ⇒ `not-configured` ⇒ 整段不跑 ⇒ 一列都不排 ⇒ 一封都不寄。
+  //     ⇒ 📌 **真正的開關在他手上,不在這一顆 commit 上。這是安全的預設,而整片依賴它。**
+  //
+  // ── 🛑🛑 **上膛的【順序】,而它有一個前置不是 env**(Fable 2026-08-30 R3 must-fix 1)──
+  // ```
+  // ① 先 apply supabase/migrations/20260830060000_m4b_e4_outbox_shipment_voided_status.sql
+  // ② 再設 SHIPPED_EMAIL_CUTOFF
+  // ③ 再 redeploy（新 env 只有新的 deployment 讀得到）
+  // ```
+  //     🔴 **① 不能省,而省了不會馬上出事** —— 那支 migration 給 `email_outbox.status`
+  //     加第七態 `skipped_shipment_voided`,而它**還不在 `supabase/APPLIED.tsv` 上**
+  //     (2026-08-30 實查 `grep -c` ⇒ **0**;負對照用當場生成的隨機字面 ⇒ 0;
+  //      正對照:帳本尾端三筆都在 ⇒ 尺是活的)。
+  //     ⇒ 沒 apply 就上膛 ⇒ 正式庫的 CHECK 只認六態
+  //     ⇒ **第一個「排完信才被作廢」的箱** ⇒ `markSkippedShipmentVoided` 被 **23514 拒**
+  //     ⇒ `errors++` ⇒ 503 ⇒ 那一列燒完 attempts 進死信 ⇒ anti-join 永久佔住去重鍵
+  //     ⇒ 📌 **一個【正常的業務動作】變成半夜告警,而那封信永久消失。**
+  //     ⚠️ 而 `scripts/deploy-order-gate.sh` 掃的是 `.from()` / `.rpc(` ——
+  //        **一個寫進 adapter 的 status 字面值對它是隱形的** ⇒ **沒有機制會擋這一條,只有這段話。**
+  //
+  // ── 🛑 **而【關掉】它也要 redeploy**(R3 must-fix 2)──────────────────────────
+  //     ⛔ ~~「把 env 拿掉 ⇒ 寄信就停下來」~~ —— **那句話漏了一步。**
+  //     Vercel **刪掉** env 與**設定** env 一樣,只對**新的 deployment** 生效
+  //     ⇒ 出事那天刪掉它、以為停了,而**現行 deployment 每五分鐘照樣寄**。
+  //     ✅ 停下來的完整動作 = **刪 env ⇒ redeploy ⇒ 看下一輪的 `shippedEnqueueStatus`
+  //        是不是 `skipped_no_cutoff`**(那一格才是「真的停了」的證據,不是「我刪過了」)。
+  //     ⚠️ 而**已經排進 outbox 的列不受 env 影響**是【另一件事】,由下面那個
+  //        `allowOrderShipped` 旗標擋 —— 它與 env 同源,所以刪 env + redeploy 之後兩半一起關。
+  //
+  // 🔴 `bad-format` ⇒ **503**(與 `skipped_bad_cutoff` 同款):填錯了要吵。
+  //    那支純函式的 `why` **不印進 log 的值欄** —— 它是我們自己寫的固定字串、零 PII,
+  //    印它是為了讓凌晨三點看 log 的人知道**該去改 env 而不是去查 DB**。
+  // 🔴🔴 **「有沒有設」與「設得對不對」是兩個問題,而它們住在兩層。**
+  //    `resolveShippedEmailCutoff` 的簽章吃 `string | undefined | null`,它**答不出**
+  //    「這顆 env 到底存不存在」—— 它把 `undefined` 與 `''` 都判成 `not-configured`
+  //    (那支檔有一格測試逐字釘住 `[undefined, null, '', '   ']` 全回 not-configured)。
+  //    ⇒ 而那讓一個**貼錯成空值**的設定回 200 `skipped_no_cutoff`:
+  //      **Sean 以為他上膛了,而一封都不會寄,且沒有任何東西會吵。**
+  //    ⇒ 📌 這正是姊妹那半(`B4_DEPLOY_CUTOFF`)被 codex R5 must-fix 掉的同一個病。
+  // ✅ **修在這一層,不改那支純函式**:presence 是 route 的事(它才看得到 env),
+  //    format 是那支函式的事 —— 這裡**沒有第二套格式判準**,只多問一句「它在不在」。
+  // eslint-disable-next-line no-restricted-syntax -- 受控例外:同本檔 readCutoff();server-only cron 端點,動態 env 不進 client bundle
+  const shippedRaw = process.env['SHIPPED_EMAIL_CUTOFF'];
+  const shippedCutoff =
+    shippedRaw !== undefined && shippedRaw.trim() === ''
+      ? ({ kind: 'bad-format', why: '這顆 env 設了,而值是空的(多半是貼上時只貼到空白)' } as const)
+      : resolveShippedEmailCutoff(shippedRaw);
+  let shippedCounts: ReturnType<typeof pickShippedEnqueueCounts> | null = null;
+  let shippedStatus: 'skipped_no_cutoff' | 'skipped_bad_cutoff' | 'completed' | 'failed' =
+    shippedCutoff.kind === 'not-configured'
+      ? 'skipped_no_cutoff'
+      : shippedCutoff.kind === 'bad-format'
+        ? 'skipped_bad_cutoff'
+        : 'completed';
+  if (shippedCutoff.kind === 'bad-format') {
+    console.error('[email-sweep] 🔴 SHIPPED_EMAIL_CUTOFF 格式不合 ⇒ 整段出貨 enqueue 不跑', {
+      env: 'SHIPPED_EMAIL_CUTOFF',
+      reason: 'bad_cutoff_format',
+      why: shippedCutoff.why, // 🔴 我們自己寫的固定字串,不是使用者填的值
+    });
+  }
+  if (shippedCutoff.kind === 'ok') {
+    try {
+      const shippedDeps: EnqueueOrderShippedEmailsDeps = getEnqueueOrderShippedDeps();
+      shippedCounts = pickShippedEnqueueCounts(
+        await enqueueOrderShippedEmails(shippedDeps, {
+          cutoff: shippedCutoff.iso,
+          limit: ENQUEUE_LIMIT,
+        }),
+      );
+    } catch (err) {
+      shippedStatus = 'failed';
+      // 🔴 只 allowlist 我們自己產的兩個固定欄(同上一段),不碰 message/stack/cause。
+      const scan = err instanceof ScanQueryError ? { stage: err.stage, code: err.code } : {};
+      console.error('[email-sweep] 🔴 出貨 enqueue 整段失敗(不擋 sweeper;本輪最後回 503)', {
+        reason: 'shipped_enqueue_scan_throw',
+        ...scan,
+      });
+    }
+  }
+  const shippedSection = { shippedEnqueueStatus: shippedStatus, ...(shippedCounts ?? {}) };
+
   try {
     const deps: SweepEmailOutboxDeps = getSweepEmailOutboxDeps();
     // 🔴 maxRunSeconds = maxDuration 同一 const(單一來源、不寫第二字面);leaseSeconds/claimLimit = route 端常數。
     const result = await sweepEmailOutbox(deps, {
+      // 🔴🔴 **同一個 cutoff 同時控【排信】與【寄信】**(codex 2026-08-30 R1 must-fix 1)。
+      //    在這一行之前,cutoff 只擋得住 enqueue ⇒ outbox 裡**已經排好的** `order_shipped` 列
+      //    會在 env 關著的情況下被 sweeper 照常寄出去
+      //    ⇒ 而「設了 env、看到不對、把它拿掉」正是一個人會做的事,
+      //      **那個動作在這一行之前【不會讓寄信停下來】。**
+      //    ⚠️ 這裡刻意**不另外讀一次 env** —— 用上面那個已解析的結果,兩半不可能分岔。
+      allowOrderShipped: shippedCutoff.kind === 'ok',
       claimLimit: CLAIM_LIMIT,
       maxRunSeconds: maxDuration,
       leaseSeconds: LEASE_SECONDS,
@@ -375,19 +506,25 @@ export async function GET(request: Request): Promise<Response> {
       result.quotaFailed > 0 ||
       enqueueStatus === 'failed' ||
       enqueueStatus === 'skipped_bad_cutoff' ||
-      (enqueueCounts?.enqErrors ?? 0) > 0
+      (enqueueCounts?.enqErrors ?? 0) > 0 ||
+      // 🔴 出貨線那半用**同一套判準**(片3b):整段爆掉、env 填錯、單筆錯,三者都要吵。
+      //    ⚠️ 而 `skipped_no_cutoff` **不在裡面** —— 那是「還沒上膛」的正常狀態,不是失敗。
+      shippedStatus === 'failed' ||
+      shippedStatus === 'skipped_bad_cutoff' ||
+      (shippedCounts?.shpErrors ?? 0) > 0
     ) {
       console.error('[email-sweep] 🔴 本輪有失敗(回 503;不吞成 200 偽裝成功)', {
         ...counts,
         ...enqueueSection,
+        ...shippedSection,
       });
       await recordHeartbeatFailure(CRON_JOB_NAME.emailSweep);
-      return Response.json({ ok: false, ...counts, ...enqueueSection }, { status: 503 });
+      return Response.json({ ok: false, ...counts, ...enqueueSection, ...shippedSection }, { status: 503 });
     }
 
     // 4. 認證過 + 無錯 → 200 + 計數摘要(零 PII counts;含 deferred 供調參可見度)。
     await recordHeartbeatSuccess(CRON_JOB_NAME.emailSweep);
-    return Response.json({ ok: true, ...counts, ...enqueueSection }, { status: 200 });
+    return Response.json({ ok: true, ...counts, ...enqueueSection, ...shippedSection }, { status: 200 });
   } catch {
     // deps/env 缺(requireEnv throw)或非預期 throw(如 lease 下界違反)→ 503 fail-closed(不偽 200)。
     // 🔴 固定 reason code(零 PII、零洩漏面;不把任意 err.message 入 log 縱深、杜絕密鑰 drift 帶進 log)。
