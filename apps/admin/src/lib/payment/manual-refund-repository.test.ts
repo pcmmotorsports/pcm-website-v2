@@ -116,6 +116,46 @@ describe('🔵 負對照 —— 證明我沒有把既有那幾條弄壞', () => 
     );
   });
 
+  // 🔴 `⟦b4-CAPNULLDEAD⟧`(2026-08-31):真的「算不出上限」時會吐的碼。
+  //    ⚠️ **而它們【不是同一個桶子】** —— 這一組測試的形狀本身就是那個判斷:
+  //      42P01 / 42883 / 42703 / 23502 = schema 漂移 ⇒ `bug`(停手、通知維護)
+  //      22003        = ⛔ ~~金額太大 ⇒ invalid~~ 🔴 **改成 `bug`** —— 表單層已擋掉超大金額
+  //                     ⇒ 一個真的抵達的 22003 是內部溢位,不是使用者輸入(見下方那一格)
+  //      40001 / 40P01 = 瞬時 ⇒ **維持 fallback 的 `error`**(「稍後用同一張表單再試」)
+  //    📌 **⇒ 「把沒接的碼都接上」是錯的問法;要逐碼問【員工的下一步是什麼】。**
+  it.each(['42P01', '42883', '42703', '23502'])('%s(schema 漂移)⇒ bug —— 重試一百次都一樣', async (code) => {
+    mocks.rpc.mockResolvedValue(raise(code));
+    expect(await recordManualRefund(ARGS)).toMatchObject({ code: 'bug', sqlstate: code });
+  });
+
+  it('🔴 22003 ⇒ bug —— 因為超大金額【到不了這一層】,所以抵達的那個一定是系統壞了', async () => {
+    // ⛔ ~~原本我判它是「金額太大」⇒ invalid~~ 🔴 **回頭查之後推翻了我自己**:
+    //    `manual-refund-form.ts:29,85` 在解析階段就擋掉 `> 2_147_483_647`
+    //    ⇒ 使用者輸入永遠走不到 PostgREST 的轉型層
+    //    ⇒ 📌 **一個真的抵達的 22003,照定義不是使用者輸入問題,是內部算術溢位。**
+    //    ⇒ 而「叫他改金額」在那個世界是**錯的指示**:他改一百次也不會好。
+    mocks.rpc.mockResolvedValue(raise('22003', 'value out of range for type integer'));
+    const out = await recordManualRefund(ARGS);
+    expect(out).toMatchObject({ code: 'bug', sqlstate: '22003' });
+    expect((out as { code: string }).code).not.toBe('invalid');
+  });
+
+  // ⚠️ 可達性不同,而兩個都留在「不加」那一邊(codex R1 nit):
+  //    `40P01` deadlock 是真正可達的那一個;而 `40001` 要 REPEATABLE READ 以上,
+  //    而 RPC 步1 先用 `P8C01` 擋掉非 READ COMMITTED ⇒ **它大概到不了**。
+  //    📌 **⇒ 一個是政策(不該加),一個是可達性(加了也不會被打到)—— 理由不同,結論相同。**
+  it.each(['40001', '40P01'])(
+    '🔵 %s(瞬時)⇒ **維持 fallback 的 error** —— 加進 map 反而會把「重試就好」變成一張工單',
+    async (code) => {
+      mocks.rpc.mockResolvedValue(raise(code));
+      const out = await recordManualRefund(ARGS);
+      // 🔴 這一格是【反向】的:它守的是「有人好心把它加進 map」那個改動。
+      //    ⚠️ 而 `not.toBe('bug')` 我拿掉了(codex R1 nit):上面那個精確斷言已經涵蓋它,
+      //      多一行不增加守門能力 —— 📌 **一行看起來像多一道防護的斷言,可能一格都沒多守。**
+      expect(out).toMatchObject({ code: 'error', sqlstate: code });
+    },
+  );
+
   it.each(['P8C01', '23514', '23505', '42501', 'PGRST202'])(
     '%s 仍然是 bug(既有分類沒被動到)',
     async (code) => {
