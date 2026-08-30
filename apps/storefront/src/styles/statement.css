@@ -1,0 +1,119 @@
+/* 客人的「訂單明細 / 對帳單」列印頁 —— **只裝紙【以外】的東西**。
+ *
+ * 🔴 紙本身的每一條規則都在 `print-a4.css`(後台正本的逐位元組副本,由
+ *    `components/print/admin-copy-drift.test.ts` 釘住)⇒ **不要往那支檔加任何一行**,
+ *    加了就等於把那道守門關掉。要加的東西寫在這裡。
+ *
+ * 🔴🔴 **本檔的螢幕規則【必須】包在 `@media screen` 裡,不是風格,是 R1 must-fix**
+ *    (code-reviewer 2026-08-30 抓到,而我自己絕對看不到):
+ *    · `print-a4.css:211` 的 `@media print{ .print-sheet{padding:0} }` 具體度 = (0,1,0)
+ *    · 我原本的裸 `.stmt-page{padding:24px}` 也是 (0,1,0)
+ *    · 而 `page.tsx` 把本檔 import 在 `print-a4.css` **之後** ⇒ **同分時後載的贏 ⇒ 我贏**
+ *    ⇒ 紙上會多 24px 內距 —— 也就是本檔原本自己宣稱要防住的「內縮兩次」。
+ *    🔴 **後台不會這樣,而理由不是它比較小心**:後台那三條是 Tailwind utilities、住在
+ *       `@layer utilities`,而 `print-a4.css` 是無層 ⇒ **無層永遠贏有層,與載入順序無關**。
+ *    📌 **⇒ 我把一個「因為在另一個 app 有 layer 才成立」的做法搬了過來,而 layer 沒跟著搬。**
+ *    ⚠️ 而這件事 `renderToStaticMarkup` 量不到、typecheck 量不到、83 格測試全綠 ——
+ *       **DOM 是對的,贏的是哪一條規則不在 DOM 裡。**
+ *
+ * 🔴 **為什麼 storefront 不能照抄後台那顆鈕的 class**:後台那顆用 Tailwind
+ *    (`rounded-md border px-3 py-1.5 text-sm print:hidden`),而 **storefront 沒有 Tailwind** ——
+ *    `grep -c tailwind apps/storefront/package.json` ⇒ 0、`find apps/storefront -name 'postcss.config*'` ⇒ 零命中。
+ *    ⇒ 照抄過來的話那顆鈕是**瀏覽器預設樣式的裸鈕,而且 `print:hidden` 是死的 ⇒ 它會被印在紙上**。 */
+
+@media screen {
+  /* 螢幕上的容器 —— 對應後台那張紙的 `mx-auto max-w-3xl p-6`(Tailwind 換算:48rem / 24px)。
+     🛑 **這三條一條都不准搬出 `@media screen`**(檔頭那段講了為什麼)。 */
+  .stmt-page {
+    margin: 0 auto;
+    max-width: 48rem;
+    padding: 24px;
+  }
+
+  .stmt-actions {
+    display: flex;
+    justify-content: flex-end;
+    /* 原本這 16px 是那條 `* + *` 順手給的;它刪掉之後要顯式寫。
+       🔴 只在 `@media screen` 裡 ⇒ **紙上零影響**(這顆鈕本來就不印)。 */
+    margin-bottom: 1rem;
+  }
+}
+
+/* ⛔ ~~`.stmt-page > * + * { margin-top: 1rem }` —— 鏡射後台那張的 Tailwind `space-y-4`~~
+   🔴🔴 **R3 BLOCKER 同族 must-fix:那條規則的【前提整個是假的】,而它把四個間距改錯了。**
+   我當時的理由是「後台那條 `space-y-*` 在列印時也生效,所以要鏡射」。**而它從來沒有生效過**:
+   · `apps/admin/package.json:37` 是 **Tailwind v4** ⇒ utilities 住在 **native `@layer`**
+   · 而 `print-a4.css` 是**無層**的,它自己就給了每一塊間距:
+     `.pd-info{margin-top:5mm}`(:549)· `.pd-items{5mm}`(:597)· `.pd-totals{4mm}`(:796)
+   ⇒ **無層永遠贏過 layered** ⇒ **後台那張紙的區塊間距根本不是 1rem,`space-y-4` 對這些 gap 全是死的。**
+   ⇒ 而我那條是**無層、同 (0,1,0)、後載** ⇒ 它把 5mm/5mm/4mm 全蓋成 4.23mm。
+   📌 **⇒ 我鏡射的是一條【在對面也沒有生效】的規則** —— 那是 R1 那個病的第 4-7 處。
+   ✅ **⇒ 修法是【刪掉它】,不是再加一條補丁。**位元組相同的 `print-a4.css` 自己會把間距管對,
+      而那正是「一模一樣」最便宜的實現方式。
+   🛑 **⇒ 連帶刪掉兩條【只為了補這條的害而存在】的補丁**:
+      `@media print{.stmt-actions + *{margin-top:0}}`(R1 MF2)與
+      `.stmt-page > .pd-bottom{margin-top:auto}`(R2 must-fix)——
+      **它們解的兩個問題,都是這一條製造出來的。**
+   📌 **⇒ 三輪審查,前兩輪都在替這條規則打補丁,第三輪才問「它為什麼要存在」。** */
+
+/* 抬頭右側的訂單編號。三個宣告是**照後台那顆 Tailwind 的計算值抄的**,不是我調的:
+     text-xl        ⇒ font-size: 1.25rem; line-height: 1.75rem;
+     font-semibold  ⇒ font-weight: 600;
+     tabular-nums   ⇒ font-variant-numeric: tabular-nums;
+   🔴 `.pd-sheet` 把字級設成 `9pt`,而 `rem` 是**跟著根字級**、不跟著它 ——
+      所以這裡的 1.25rem 與後台那張是同一個絕對大小,不會因為紙的 9pt 而縮水。 */
+.stmt-docid {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 「這張單讀不到任何品項」那一句。
+   🔴 **不用 `.pd-dim`**(R1 nit):那個 class 是 8pt + `--pd-sub` 灰
+   ⇒ 那張紙上**最重要的一句話會用最小最淡的字印出來**。 */
+.stmt-notice {
+  /* 同上:原本靠那條 `* + *`。這一塊取代的是 `.pd-items`(`print-a4.css:597`)的位置,
+     所以間距**照它抄 5mm**,不是我挑的數字。 */
+  margin-top: 5mm;
+  border: 1px solid var(--pd-hair, #dddddd);
+  padding: 6mm;
+  font-size: 10pt;
+  line-height: 1.6;
+  text-align: center;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   🔴🔴 **R3 BLOCKER:紙上會印出【手機底部導覽列】,而它正壓在金額表上。**
+
+   成因不在這一頁,在**它上面那一層**:`app/layout.tsx:179` 每一條 route 都渲染 `<MobileTabBar />`,
+   而 `mobile-tabbar.css` 讓它 `position:fixed; bottom:0` —— **兩個分支都沒有任何 `@media print`**
+   (`:21` 的 `@media (max-width:1079px)` 與 `:42` 的 `html[data-mobile="true"]`)。
+   ⇒ 手機客人按下「列印 / 儲存成 PDF」⇒ **每一頁紙的底部都印出五顆導覽鈕**,
+     壓在被 `margin-top:auto` 推到紙底的 `.pd-bottom`(金額表 + LINE QR)上。
+   ⚠️ 而 `html[data-mobile="true"] body{padding-bottom:70px}` 同時在列印時擠壓內容。
+
+   📌 **⇒ 為什麼前兩輪都沒看到它**:R1/R2 與我自己都在比
+     「`StatementDoc` vs 後台 `picking-doc`」—— 而**客人印到的是【整條 route】**,
+     root layout 從來不在任何人的比對框裡。
+     🔴 **⇒ 後台那兩張紙不會中,因為它們住在 `app/print/layout.tsx` 底下**(一個乾淨的殼),
+        而**這一頁住在 root layout 底下** —— 我搬了紙,沒有搬它站的那塊地。
+
+   🔴 **具體度:那個「顯而易見」的修法【會輸】,而它輸得無聲無息。**(真瀏覽器實測,print media)
+     `.mobile-tabbar{display:none}`                     (0,1,0) ⇒ **print 仍是 `flex`** ❌
+     `html[data-mobile='true'] .mobile-tabbar{...}`      (0,2,1) ⇒ `none` ✅
+     `!important`                                        ⇒ `none` ✅(不用,能靠具體度就別用)
+   ⇒ 下面兩條各打一個分支,而**都比它要蓋的那條【多一個 `body`】** ⇒ 不靠載入順序也贏。 */
+@media print {
+  /* `html[data-mobile='true'] body .mobile-tabbar` = (0,2,2) 贏 `:42` 那條的 (0,2,1)
+     `body .mobile-tabbar`                          = (0,1,1) 贏 `:21` 那條的 (0,1,0) */
+  html[data-mobile='true'] body .mobile-tabbar,
+  body .mobile-tabbar {
+    display: none;
+  }
+  /* 那兩條 `body{padding-bottom}` 也要收 —— 它們在列印時把內容往上擠。 */
+  html[data-mobile='true'] body,
+  body {
+    padding-bottom: 0;
+  }
+}

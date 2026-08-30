@@ -11,8 +11,23 @@
 //    🛑 **那句話【不能照抄上線】,而理由有兩層:**
 //      ① **「會通知」那一半今天做不到** —— 出貨通知信的整條管線都建好了
 //         (view / use case / 模板 / cron 都在),**而沒有任何一行碼呼叫它**
-//         (`enqueueOrderShippedEmails(` 全 repo 呼叫端 ⇒ 0;
-//          正對照 `sweepEmailOutbox(` ⇒ 2 ⇒ 那把尺看得見「被接上」長什麼樣)。
+//         ⛔ ~~數法原本寫「`enqueueOrderShippedEmails(` 全 repo 呼叫端 ⇒ 0;
+//            正對照 `sweepEmailOutbox(` ⇒ 2」~~
+//         🔴🔴 **2026-08-30 線【客人帳戶區】`-eb`:那條指令今天照跑會得 3, 不是 0** ——
+//            **因為上面這句註解自己就是其中一個命中**(另外兩個是定義檔與同名 `.test.ts`)。
+//            📌 **⇒ 一句記錄「這裡沒有呼叫端」的註解, 自己變成了那個命中。**
+//            ⇒ 而 3 看起來就像「它被接上了」⇒ **下一個重量的人會得到相反的結論。**
+//         ✅ **⇒ 換成這把(兩件事一起做:只掃 `apps/`、濾掉註解行):**
+//            `git grep -n "enqueueOrderShippedEmails" -- apps | grep -vE ':[0-9]+: *(//|\*)' | wc -l`
+//            · `-- apps` 的理由:**定義與 barrel re-export 都住 `packages/`, 它們不是呼叫端**
+//            · 濾註解的理由:那正是把 0 變成 3 的東西
+//         🔴 **三發實跑(同一條命令只換名字), 而第三發才是重點**:
+//            `enqueueOrderShippedEmails` ⇒ **0**
+//            正對照 `sweepEmailOutbox` ⇒ **6**(`app/api/cron/email-sweep/route.ts` 的 import + 真的 `await`)
+//            負對照 `zzzNotAFunction` ⇒ **0**
+//            ⇒ **沒有那個 6, 上面那個 0 與「這把尺撈不到任何呼叫端」印同一個數字。**
+//         ⚠️ **而結論沒有變**:正式呼叫端仍然是 0 ⇒ **那句承諾今天仍然給不起。**
+//            換掉的是**量法**, 不是事實 —— 舊字面留著劃掉, 因為它是這個坑的現場。
 //      ② 🔴 **「預計送達日」那一半【Sean 說先不做】** ——
 //         2026-08-29 他逐字:「預計到貨(od-head-eta)⇒ 先不做(等有到貨日資料再說)」
 //         (`memory/project_0829-sean-three-rulings-order-detail-blocks.md`)

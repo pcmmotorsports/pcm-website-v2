@@ -1,0 +1,1022 @@
+/* A4 版面 —— Sean 2026-08-17 逐字:「出貨單都是 A4 請設計、排版好滿版式樣,
+   跨頁面也要保留標題與頁碼連續性。末端簽名處只有最後一張要顯示。」
+   本檔現在做那四條裡的**第 1、2、4 條**(A4 滿版 / 跨頁表格欄名 / 頁碼)。
+   ⚠️ **2026-08-17 更新** —— 這一段原本寫「只做第 1、2 條;第 3、4、5 條不在本檔」,
+      而第 4 條已經在下面落地了(`@page` 裡的 `@bottom-center`)。**改字面的同一批把這句翻掉。**
+
+   **另外兩條的現況不同,不要混在一起講**:
+   · **第 5 條(簽名只在最後一頁)= 已經成立,零 code、不在本檔。**
+     技法就是「放在文件流末端、不是 `tfoot`」,而兩張紙本來就是那樣:
+     `grep -c tfoot` 對 `shipping-doc.tsx` / `picking-doc.tsx` 皆 **0**
+     (正向對照:同一支 grep 找 `thead` 得 **3 / 5** ⇒ 那個 0 是量出來的),
+     簽名在 `shipping-doc.tsx:521` / `picking-doc.tsx:325`,都是 fragment 的最後一塊。
+     🔴 **未驗**:5b「簽名會不會被擠到單獨一頁」—— 見下方第 4 條註解裡對那次實印的限定。
+   · **第 3 條(跨頁抬頭)= 還沒做,而且【不是忘了】。**
+     ⛔ ~~照量具的字面技法要把**整份單據包進一個 `<table>`**,而三張資訊卡與三個 `Section`
+     各自的 `<table>` 會變成**巢狀 table** —— 巢狀 table 跨頁時它自己的 `thead`
+     重不重複,**沒有人量過**。~~ ⇒ 這正是量具紙上那句「代價比紙上寫的大就停下來回報」。
+     🔴🔴 **2026-08-30 已量,而答案是「兩個都重複」**(線G `-1c`,commit `6c3cefcd`):
+        外層 `<table>` 的 `thead` **與**內層品項表自己的 `thead`,在同一份 PDF 上**逐頁都印**;
+        負對照:把外層 `thead` 強制 `display:table-row-group` ⇒ 它就只剩第 1 頁(內層仍在)。
+        ⇒ **「沒有人量過」那句已作廢,劃掉不刪** —— 留著是因為它記錄了當時為什麼停下來,
+          而那個判斷**是對的**:停下來回報,後來 Sean 拍了丁,才有人去量。
+     ✅ **而丁走的正是這條路**(只包一層 `.pd-run`,不改各 `Section`)⇒ 只有出貨單這一張,
+        `picking-doc.tsx` 一個字沒動。**兩張紙從此結構不同,改共用 CSS 時要各自量。**
+     ⚠️ 舊的替代做法(抬頭併進各 `Section` 現有的 `thead`,零結構重組)**沒有被採用**;
+        決策題原登記在
+     `docs/specs/2026-08-17-qc5-tracking-off-paper-decommission-list.md` §4b。
+
+   🔴 **真權威 = OD 專案 `pcm-print-docs` / `shipping-picking-doc-a4.html`**
+      (2026-08-17 當場用 `list_projects` + `get_file` 開過,不是憑記憶;下面每條都附樣張行號)。
+
+   🔴🔴 **本檔的每一條我都【沒有印出來看過】。** 施工窗印不出紙、也量不到列印預覽。
+      單測只證得了「這些字面在檔案裡、而且會被載入」,**證不了紙上長什麼樣** ——
+      A4 尺寸、邊距 mm 數、跨頁切在哪裡,一律**未確認**,留 Sean 肉眼驗。
+
+   🔴 **為什麼是 route-scoped 而不是進 `globals.css`**:`@page` 是頁面層 at-rule、
+      沒有選擇器可以侷限它 ⇒ 放進 `globals.css` 會讓**後台每一頁**列印時都變成 A4 12mm。
+      本檔由 `app/print/layout.tsx` import ⇒ Next 只在 `/print/...` 這段路由載入它。 */
+
+/* 樣張 `:21` 逐字 —— 一個字都沒改(含 `portrait` 與四個 mm 值的順序)。
+   ⚠️ 落地前 repo 內 `@page` 是**零命中**:`git grep -c '@page' -- apps/admin/src` ⇒ 0。 */
+@page {
+  size: A4 portrait;
+  margin: 12mm 12mm 14mm 12mm;
+
+  /* ── 第 4 條:頁碼連續性 ──────────────────────────────────────────
+     樣張**沒有這一條**,而且它自己逐字寫著「頁碼:本檔沒有頁碼。Chrome 是否支援
+     `@page` 邊距框(`@bottom-right{content:counter(page)}`)我【未實測】」
+     ⇒ **這條不是照搬樣張,是新設計。** 下面這段規則是 CSS Paged Media 的正統寫法。
+
+     🔴🔴 **這一條【還沒有被驗到】,而我一度以為驗到了 —— 那個誤會的形狀值得留著。**
+     (code-reviewer R1 2026-08-17 打破;原文寫「已經被 Sean 用真印表機驗過」。)
+
+     實際發生的事:2026-08-17 Sean 用**真印表機、Chrome**印了量具
+     `docs/specs/2026-08-17-a4-print-probe.html`(**留著不要刪**),
+     逐字回「**列印出來,一切正確**」;追問「總共幾頁」⇒「**3頁**」。
+
+     **為什麼那還不夠**:
+       ① 量具的檢查表(`probe.html:249-253`)逐字要求「**不必寫評語,只要回報你在紙上看到什麼**」,
+          而頁碼那一項紙上印的是一句**自述字串**(「④ 頁碼:有印出來 = @page 邊距框可用」)。
+          **他回的是總評,那串自述他一次都沒複述。**
+       ② 量具紙上自己標了混淆項:**Chrome 的「頁首及頁尾」沒關掉的話,Chrome 會自己加頁碼。**
+          他有沒有關掉那個選項 —— **沒有任何紀錄。**
+          ⇒ 在「`@bottom-center` 生效」與「Chrome 自己印的」兩個世界裡,
+            **「一切正確」是同一句話** ⇒ 它問不出差別。
+       ③ 「3 頁」證的是**跨頁條件真的被觸發**(排除掉「只印 1 頁所以沒機會出錯」),
+          **不證 counter 有沒有渲染** —— 頁數在 Chrome 的列印對話框上就讀得到,不必看紙。
+
+     ⇒ **現在可以說的只有**:機制是規範內的正統做法、產物裡的字面對(見測試檔那段產物實測)、
+       且**那次實印沒有出現任何反證**。**不可以說「頁碼已驗」。**
+
+     🔴 **要驗掉它,下次請 Sean 印的時候要拿到【兩個世界會不同的東西】**:
+       ① 先確認「頁首及頁尾」是**取消勾選**的(這一項要他回答,不能省)
+       ② 請他**照抄紙上最下面正中央那一行字**,不要回「有」或「正確」
+
+     🔴 另外兩個限定跟著走(它們與上面是不同的事):
+       1. **只針對 Chrome。** 換瀏覽器印,結果不能沿用。
+       2. 量具是**單一 `<table>`**,正式頁是**多個區塊** ⇒ 版面結構不同,
+          **接上去之後一定要再印一次**(已回報主視窗排進 Sean 的隊列)。
+
+     📎 `font-family` / `font-size` / `color` 沿用量具那份 —— **不是裝飾**:
+        邊距框不繼承 `body` 的字型(它屬頁面脈絡)。
+
+     🔴🔴 **2026-08-18 版面量測補一個【具體數字】給上面那個「未驗」**:
+       量法 = 把正式頁印成 PDF、轉 70dpi PNG、量**墨水的外接框**離紙邊多遠
+       (`gs -r70`;1px ≈ 0.36mm ⇒ 誤差 ±0.4mm)。四張圖(200 品項的 p1/p2/p7/p14)一致:
+     ```
+       左 11.6mm   右 11.6mm   上 13.4–14.5mm      ⇒ 與 margin 12mm 相符（差 0.4mm = 框線抗鋸齒）
+       🔴 下 5.1mm  ⇐ 頁碼那一行，它坐在 14mm 下邊界【裡面】，離紙邊只剩 5.1mm
+     ```
+       ⚠️ **一般辦公室雷射印表機的【硬體不可印區】常見落在 4–6mm** ——
+       **5.1mm 正好在那個帶上** ⇒ **換一台機器,這行頁碼可能【整行被切掉】。**
+       🔴 而被切掉的後果不是難看:**員工不知道這張單有第 2 頁** ——
+          那正是「少出貨而紙上看不出來」那一族。
+
+       ⇒ **這【不是】叫下一個人現在去改版面。** 它做兩件事:
+         ① 把上面那條「頁碼未驗」從一句話變成**一個有數字的風險**;
+         ② 給下次請 Sean 實印時**一個問得出差別的問題**:
+            **「紙的最下面正中央那一行,你【看得到完整的一行】嗎?有沒有被切掉一半?」**
+            (照上面 `①②` 那兩條問法一起問。)
+       ⚠️ **本量測只在 headless Chrome + macOS + `gs -r70` 成立**,而**真印表機沒有印過**。
+
+       🔴 **2026-08-23 更新:上面那個「下 5.1mm」已經被修掉了,原句留著不改** ——
+          修法 = 下面 `@bottom-center` 裡新增的 `vertical-align: top`(FIX-74 的另一半),
+          墨水由 **5.42mm → 10.50mm**(本次重量,量法與數字見那一段)。
+          ⚠️ 這一段的**風險敘述與問法仍然有效**,失效的只有那個數字。 */
+  @bottom-center {
+    /* ── FIX-74 的另一半(2026-08-23 落地)────────────────────────────────
+       🔴 **`vertical-align: top` 與下頁邊是【綁在一起的兩件事】,抄一半會比不抄更糟。**
+          邊距框的預設垂直對齊是 `middle` ⇒ 這一行字會坐在 14mm 邊界的**正中間**,
+          離紙邊只剩 5mm 出頭 —— 而 Sean 那台印表機的下緣不可印區**實量 4.0–5.1mm**
+          (OD `HANDOFF-orders-ui.md` FIX-74:兩張紙兩個獨立來源夾出來的區間)
+          ⇒ **整行頁碼可能被切掉**,而後果不是難看:**員工不知道這張單還有第 2 頁。**
+       ⚠️ **不要照抄 OD 的 `margin: 6mm 6mm 12mm`** —— 那是他們那張紙的留白,
+          我們的 `@page{margin}` 由 `print-a4-css.test.ts` 釘死在 `12mm 12mm 14mm 12mm`。
+          改邊距 = 改內容區高度 = 本檔最下面 `@media print` 那段的 `min-height` 要同步動
+          (~~`271mm`~~ ⇒ **2026-08-29 起是 `250mm`**, 理由見那一段),
+          **而那兩個字面不會互相報錯**。本次只動對齊,不動邊距 ⇒ 分頁行為零變化。
+
+       📏 **這次是量到的,不是推的**(2026-08-23,本機 headless Chrome `--print-to-pdf`
+          → `gs -r300 -sDEVICE=pnggray` → 掃最低一列有墨水的 row;A4 3508px @300dpi):
+       ```
+         14mm + 預設對齊(改前)          5.42mm   ✗ 落在 4.0–5.1mm 那條帶的正上緣
+         14mm + vertical-align:top(改後) 10.50mm  ✅ 對 5.1mm 有 5.4mm 餘裕
+         負向對照:把 content 換成 ''     274.91mm ⇒ 上面那兩個數字**就是頁碼那一行**,不是別的東西
+       ```
+       📎 OD 在他們的 12mm 下頁邊上量到 8.55mm;我們的 14mm 更遠 ⇒ 同向、更安全。
+       🔴 **仍然未驗**:真的用實體印表機印一張多頁的單、唸出紙上那一行字。
+          我量的是 PDF 的墨水位置,而**不可印區是印表機的、不是 PDF 的**。
+          問法照下面那段:①「頁首及頁尾」要取消勾選 ②請他**照抄**紙上最下面正中央那行字。 */
+    vertical-align: top;
+    content: '第 ' counter(page) ' 頁 / 共 ' counter(pages) ' 頁';
+    font-family: system-ui, 'PingFang TC', sans-serif;
+    font-size: 8pt;
+    color: #444;
+  }
+}
+
+/* 樣張 `:130` 逐字。
+   🔴 **樣張同一段還有 `thead{display:table-header-group}`,而我【刻意沒搬】** ——
+      那等於 UA 預設,而 `picking-doc.tsx`(錨點 `跨頁表頭:已實測會自動重複`)有 2026-08-15
+      的真瀏覽器量測**含負向對照**:注入 `display:table-row-group !important` 之後第 2 頁欄名整排消失。
+      ⇒ 搬過來會是一條**永遠不會失效的字面**,而「紅不起來的守門比沒有更糟」。
+      📎 真正會弄壞跨頁欄名的是**把 `<table>/<thead>` 改成 div 排版**,那條路由
+      `page.test.tsx` 的結構格守著(它斷言 `:scope > thead` 存在),不是靠 CSS 字面。
+   ⚠️ 而 `break-inside` **與它不同,是搬的**:它不是 UA 預設(預設是 `auto`)。
+      2026-08-15 那次拒絕加它的理由是「沒量過」,而**當時樣張還不存在**;
+      現在版面真權威明寫了這一條 ⇒ 依鐵則 1 直接搬。
+      🔴 **但「搬了」不等於「驗了」** —— 一列會不會剛好被切成兩半,我**沒有印出來看過**。 */
+tr {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+/* 樣張 `:44` 的 `@media print{ .sheet{ padding:0 } }` 對應物。
+   我們的兩張紙用的是 Tailwind 容器(`mx-auto max-w-3xl space-y-4 p-6 print:max-w-none`),
+   `p-6` 在列印時**不會消失** ⇒ 會疊在 `@page` 的 12mm 上面,紙面內縮兩次。
+   ⇒ 版面邊界**只由 `@page` 決定**,螢幕上的內距在列印時歸零。
+   📎 這一條寫在 CSS 而不是加 `print:p-0` class 的理由:兩張紙各加一次 = 兩個載體,
+      而下一張紙(合併片)會忘記加。 */
+@media print {
+  body {
+    background: #fff;
+  }
+
+  /* ── `#601` 續:讓紙面成為一個【有高度的容器】,阻印那一幅才撐得滿 ──────────
+     🔴 **為什麼需要它**:`BlockedSheet` 用 `flex-1` 撐滿剩餘空間,而 `flex-1` 只在
+        **容器有確定高度**時才有東西可以分。`.print-sheet` 原本高度 = 內容高度
+        ⇒ 沒有剩餘空間可分 ⇒ 那一幅只會跟內容一樣高。
+     ⛔ ~~**為什麼是 `271mm`**:A4 縱向 297mm 減掉 `@page` 的上 12mm、下 14mm = **271mm**。~~
+     🔴 **2026-08-29 起是 `250mm`, 而那個算式【不再是它的來源】。**
+        271 = 297 − 12 − 14 算的是【我們宣告的紙】;而 250 來自【真的紙】——
+        實體印表機有印不到的邊, 而 271 之下在 Sean 那台上【連一項的單也是兩頁】。
+        ⇒ 理由與量法見下面那一大段(`.print-sheet` 的 `min-height` 前)。
+     ⚠️ **⇒ 所以「改 `@page` 的 margin 要同步改這裡」這個耦合【已經斷了】** ——
+        新值由【實體可印高】決定, 不由 `297 − 上 − 下` 決定。
+        🔴 而 `@page` 的 margin 仍是 `12mm 12mm 14mm 12mm`(由 `print-a4-css.test.ts` 釘死);
+        **改它仍然要重看這裡, 但不是照那個減法算。**
+     🔴 **為什麼只在 `@media print` 裡**:螢幕上這張頁面是一般網頁,不該被撐成 A4 高。
+     ⚠️ **這一段會影響【所有列印頁】,而那個分母是【2】**:
+        `find apps/admin/src/app/print -name 'page.tsx'` ⇒ 2(picking / shipping),
+        `grep -rn 'print-sheet' apps/admin/src --include='*.tsx'` ⇒ 兩支 doc 元件各一處。
+        **兩張紙的六份 fixture 都當場量過、也開圖看過**(見本片 commit body)。
+     📎 **技法有既有量測背書**:`docs/specs/2026-08-17-qc5-…-list.md` §4c-2 的 v0–v8 表 ——
+        `v1 只開 flex ⇒ 1 頁`、`v2 flex + min-height:271mm ⇒ 1 頁`(負向對照 `400mm ⇒ 2 頁`)。 */
+  /* 🔴🔴 **`250mm` 不是 271mm —— 而 271 是【算對的】,只是它算的是我們宣告的紙,不是真的紙。**
+     (2026-08-29 Sean 逐字「可以」;他看過 `~/pcm-mailbox/現況-271mm-p1.png` 與 `改成-250mm-p1.png` 兩張圖才批。)
+
+     ① **這個值從哪來**:Sean 在他那台 **HP Color LaserJet Pro** 上實測 ——
+        列印預覽把縮放往下調:**98% 仍然兩張、93% 才一張** ⇒ 回推 271 × 0.93 ≈ **252mm**。
+        🔴 **而那是【他那組設定下的可用高】,不是「HP 的硬體可印高」** ——
+           那一發的截圖顯示【邊界 = 預設值】,而預設值比最小值大。**兩個不同,不要混。**
+
+     ② **為什麼是 250 不是 252**:250 是【試出來會過的第一格】,不是最佳值。
+        實測(可印 252mm、量真頁數):
+          `min-height 271mm` ⇒ 訂單明細 **0 項** · 出貨單「無」 **0 項**(= 連一項的單也兩頁)
+          `min-height 260mm` ⇒ 仍然 **0 項 / 0 項**
+          `min-height 250mm` ⇒ **6 項 / 4 項**
+        ⇒ 所以它必須 **≤ 252**。
+
+     ③ **它不花容量** —— 在我們宣告的世界(可印 271mm)實測:
+          `min-height 271` ⇒ 7 項 / 5 項    `min-height 250` ⇒ 7 項 / 5 項  **完全相同**
+        成因:`min-height` 只是【最小值】,內容長的時候紙照樣長,分頁由 `@page` 決定
+        ⇒ 它只影響【短的那些紙】:把被 `.pd-bottom{margin-top:auto}` 推到紙底的頁尾往上收。
+
+     🔴 ④ **什麼時候要重算(這是觸發條件,不是免責)**:
+        **換一台印表機 / 使用者改了列印邊界設定** ⇒ 這個值要重算,方法照 ① 那一段
+        (列印預覽把縮放往下調,找出【還是一頁】的最高縮放值 × 271mm = 那台的可用高)。
+        📎 完整量法與四個世界的門檻:`docs/design/print-sheet-page-thresholds.md`
+     ⚠️ **而 `@page` 的 margin 仍然是 12/12/14** —— 本次【只動這個 min-height】,不動邊距。 */
+  .print-sheet {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 250mm;
+  }
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   片1 · OD `.pd-*` 紙面系統(2026-08-23 落地;鐵則 8 plan 已由 Sean 批「不用看直接開工」)
+
+   🔴 **來源不是任何一條 FIX 條目,是【產物的最終渲染值】。**
+      Sean 2026-08-23 逐字「OD 現在設計稿用什麼,就用什麼」——
+      而 FIX 條目會被後面的 FIX 蓋掉(實例:FIX-63 說「實心黑帶+反白」,
+      最終產物是 `border-top:1.2mm`,`background` 命中 0)。
+      算最終值的工具與它的五個世界自檢:`scripts/tool-final-css.py`
+      (~~原本指 `~/pcm-mailbox/tool-final-css.py`~~ —— 2026-08-24 `5b59575e` 已收進 repo,
+       repo 內那份才是被維護的;`python3 scripts/tool-final-css.py` 會自己表演一次)。
+      🔴 **要它的指紋請當場量**:`shasum -a 256 scripts/tool-final-css.py`
+      (~~此處原本釘著 `sha256 7dd52815…`~~ —— 2026-08-25 實量:repo 那份是 `4dd68e2e…`、
+       信箱那份是 `63eea00c…`,**兩個都不是它** ⇒ 那個 sha 指不到任何現存版本,而它不會叫。
+       **一個會被維護的檔,釘它的 sha 就是製造一個必然過期的字面** ⇒ 指【怎麼量】不指【量到什麼】。)
+   📎 **兩份產物的 CSS 逐鍵相同**(差集:出貨單獨有 0 / 訂單獨有 0 / 同鍵不同值 0)
+      ⇒ 「兩張紙共用同一套骨架」是量到的,不是宣稱。
+
+   ⚠️ **本片【只加樣式,不動元件】** —— 目前沒有任何 TSX 帶這些 class
+      ⇒ 螢幕與紙上都看不出變化。那是刻意的:讓「搬樣式」與「接上去」分成兩個可審的 diff。
+
+   ── 🔴 四條【刻意沒搬】,每條都有理由,不是漏掉 ────────────────────────────
+   ① `.pd-items thead{display:…-header-group}` 與 `tfoot` 那條
+      = **UA 預設**,搬過來會是一條永遠不會失效的字面。
+      2026-08-15 真瀏覽器量測含負向對照(注入 `table-row-group !important` ⇒ 第 2 頁欄名整排消失)
+      已證明跨頁欄名靠的是「真 table + 真 thead」的原生保證,不是 CSS 字面。
+      `print-a4-css.test.ts` 有一格專門釘這個不作為 —— **搬了它會紅,而那個紅是對的。**
+   ② `@media print{ body *{visibility:hidden} }` + `.pd-stage{position:absolute}`
+      = OD 的 FIX-66「只印那張紙」。**那是他們快照帶著後台外殼才需要的補丁,我們沒有那個問題**
+      (`app/print/layout.tsx` 只回 `children`,實查;OD 自己也記過他們把快照形狀誤推成我們的形狀)。
+      ⚠️ 而它**不是無害的**:`body *{visibility:hidden}` 會立刻作用在整個 body 上。
+   ③ `print-color-adjust:exact`
+      = 用來逼瀏覽器印背景,而**它蓋不掉使用者的「背景圖形」勾選框**(OD 自己的結論)。
+      本系統**沒有任何意思掛在 background 上**(實掃 4 筆全是紙色/桌面色)⇒ 這條沒有工作可做。
+   ④ `.pd-sheet{min-height:276mm}` ⇒ ⛔ ~~我們是 271mm~~ **2026-08-29 起我們是 250mm**。
+      276 = 297 − 6 − 12 − 3(OD 的 `@page{margin:6mm 6mm 12mm}` + 餘裕);
+      而 297 − 12 − 14 = 271 是【我們宣告的紙】的算式 —— 而 250 來自實體印表機的可印高。
+      🔴 **照抄 276 的症狀是「短單被推成 2 頁,而第 2 頁是空的」**,且兩個字面不會互相報錯。
+      📌 **而那正是 271 在 Sean 那台上的症狀**(2026-08-29 實測)——
+      **也就是說:這一句當時是在描述「照抄別人的值」的風險, 而我們自己的值也踩了同一個坑。**
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* 三組軸(灰階五階 / 線寬三級 / 三套字)。逐字取自最終值,一個沒改。
+   📎 相鄰灰階 ΔL* ≥ 20 是設計端的約束;`--pd-r2` 之下(0.35pt)會斷續 ⇒ 不得當可靠分隔手段。
+
+   🔴🔴 **片4-R1 修 F10:token 與字級【不再掛到 `.print-sheet` 上】。**
+      我上一版寫的是 `.pd-stage, .print-sheet { …font-size:9pt… }`,而 `.print-sheet` 是
+      **兩張紙共用**的容器、且那條規則**不在 `@media print` 裡**
+      ⇒ **`picking-doc.tsx` 所有沒有顯式指定字級的元素從 16px 掉到 9pt,螢幕與紙面皆然**。
+      ⚠️ 而我在交件檔寫的是「picking-doc 一個字沒動」—— **那句對【檔案】為真,對【那張紙】為假。**
+         我改的是 CSS 的共用掛點,而交件檔只盤點了我編輯過的檔名。
+      ⇒ 現在字型/字級/顏色掛在 `.pd-sheet`(只有已移植的那張紙帶它)。
+      ⚠️ **R2 N6 更正**:我原本寫「`.print-sheet` 一個宣告都不加」——**那是無條件句,而它是假的**:
+         同支檔 `@media print` 區塊裡就有 `.print-sheet{padding:0;…;min-height:250mm}`(#601 那條;~~271mm~~ ⇒ 2026-08-29 改)。
+         **成立的只有這一句**:`.print-sheet` **在 `@media print` 之外**不加任何宣告
+         ⇒ 螢幕上兩張紙不受本片影響。
+         📎 寫成無條件句的代價:下一個人會據此認定它乾淨,而不去看 `@media print` 那一段。 */
+.pd-stage,
+.pd-sheet {
+  --pd-ink: #1f1f1f;
+  --pd-sub: #6a6a6a;
+  --pd-mute: #a6a6a6;
+  --pd-hair: #dddddd;
+  --pd-paper: #fff;
+  --pd-r1: 1pt;
+  --pd-r2: 0.5pt;
+  --pd-body: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', 'Helvetica Neue', sans-serif;
+  --pd-disp: 'Helvetica Neue', 'Helvetica', 'PingFang TC', 'Noto Sans TC', sans-serif;
+  --pd-mono: 'SF Mono', 'Menlo', 'Consolas', 'DejaVu Sans Mono', monospace;
+  font-family: var(--pd-body);
+  color: var(--pd-ink);
+  font-size: 9pt;
+  line-height: 1.45;
+}
+
+/* `.pd-stage` 專屬:螢幕上的灰桌面。**我們的列印路由沒有這個元素**(頁面本身就是紙),
+   留著是為了與稿的結構對得起來;沒有元素帶它時它就是死的。 */
+.pd-stage {
+  background: #c9c9c9;
+  padding: 24px 0;
+  min-height: 100%;
+}
+
+/* 紙本身:**只有版面行為**,沒有尺寸。
+   🔴 **2026-08-30 丁:`display:flex` 搬到 `.pd-flow`** —— `.pd-sheet` 現在唯一的子元素是
+      `<table class="pd-run">`(跨頁頁首頁尾),而 `.pd-bottom{margin-top:auto}` 要的是
+      **它自己的父層**是 flex 直欄。留在這裡的話中間隔了一層 table ⇒ **不貼底而不會紅**。 */
+.pd-sheet {
+  box-sizing: border-box;
+}
+.pd-flow {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 丁:跨頁頁首與頁尾(Sean 2026-08-30)────────────────────────────────
+   🔴 **機制是 `<table>` 的 `thead`/`tfoot` 自動重複, 不是 `position:fixed`** ——
+      兩條都量過(量法與正負對照寫在 `shipping-doc.tsx` 那段 JSX 註解裡):
+      `fixed` **會重複但不佔位** ⇒ 第 2 頁的內容從紙頂開始、被頁首蓋住;
+      把 `fixed` 塞進 `@page` 的邊界帶(負 `top` + 加大 `margin`)⇒ **它就不重複了**。
+   ⇒ **「會重複」與「有留位子」是兩個宣稱, 只有 table 兩個都成立。**
+   ⚠️ **本檔上面那條 `tr{break-inside:avoid}`(搬自稿)會套到外層那一列** ——
+      而那一列裝著**整份單據** ⇒ 等於叫瀏覽器「整份不要斷」。
+      Chrome 目前對「比一頁還高」會照斷,**但那是它的容錯, 不是我們的宣告**
+      ⇒ 這裡明寫 `auto` 把它關掉, 不靠瀏覽器好心。 */
+.pd-run {
+  width: 100%;
+  border-collapse: collapse;
+}
+.pd-run > tbody > tr {
+  break-inside: auto;
+  page-break-inside: auto;
+}
+.pd-run > tbody > tr > td {
+  padding: 0;
+  vertical-align: top;
+}
+/* 螢幕上沒有「頁」⇒ 頁首是純噪音(它會在抬頭正上方再寫一次單據名)。
+   🔴 而 `.pd-runfoot` **不藏** —— 那一行「列印時間」在螢幕上本來就看得到,
+      藏掉會是一個沒有人要求的行為改變。 */
+.pd-runhead {
+  display: none;
+}
+.pd-runhead > tr > td {
+  padding: 0 0 2mm;
+  border-bottom: var(--pd-r2) solid var(--pd-hair);
+}
+.pd-rh-title {
+  font-family: var(--pd-disp);
+  font-size: 8.5pt;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.pd-rh-meta {
+  margin-left: 4mm;
+  font-size: 7.5pt;
+  color: var(--pd-sub);
+}
+.pd-runfoot > tr > td {
+  padding-top: 3mm;
+}
+
+/* 🔴 **紙的尺寸與陰影只在 `.pd-stage` 裡面才成立** —— 那是 OD 預覽的「灰桌面上放一張紙」情境,
+   **而我們的列印路由沒有 stage**(頁面本身就是紙,邊界由 `@page` 決定)。
+   ⚠️ 不分開的話,`width:210mm` / `padding:6mm` 會蓋掉元件容器的 `max-w-3xl` / `p-6`
+      —— 而那是**版面尺寸**被無層規則搶走,與 F1 同一族。 */
+.pd-stage .pd-sheet {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: 6mm;
+  background: var(--pd-paper);
+  box-shadow: 0 2px 0 rgb(0 0 0 / 25%);
+}
+.pd-sheet * {
+  box-sizing: border-box;
+}
+
+/* ── 抬頭 ── */
+.pd-masthead {
+  display: flex;
+  justify-content: space-between;
+  gap: 10mm;
+  align-items: flex-start;
+}
+.pd-brand {
+  display: flex;
+  align-items: flex-start;
+  gap: 3mm;
+}
+/* 🔴 三色條是三條 `border-left`,**不是 background、也不是圖** ——
+   Sean 2026-08-23 14:08 實印:用 background 畫的四樣全不見,而 border 印得出來。 */
+.pd-mstripe {
+  display: flex;
+  gap: 1mm;
+}
+.pd-mstripe i {
+  display: block;
+  width: 0;
+  height: 12mm;
+  border-left: 1.4mm solid var(--pd-mute);
+}
+.pd-mstripe i:nth-child(2) {
+  height: 16mm;
+  border-left-color: var(--pd-sub);
+}
+.pd-mstripe i:nth-child(3) {
+  height: 20mm;
+  border-left-color: var(--pd-ink);
+}
+/* 🔴 LOGO / QR 一律 `<img>`。改成 background-image 的症狀 = 紙上整個不見,而螢幕正常。 */
+.pd-logo {
+  width: 38mm;
+  height: auto;
+  display: block;
+}
+.pd-issuer {
+  text-align: right;
+  line-height: 1.5;
+}
+.pd-i1 {
+  font-size: 9pt;
+}
+.pd-i2 {
+  font-size: 8pt;
+  color: var(--pd-sub);
+}
+
+/* ── 單據標題 ── */
+.pd-doctitle {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 5mm;
+  border-top: var(--pd-r1) solid var(--pd-ink);
+  padding-top: 2.5mm;
+  margin-top: 4mm;
+}
+.pd-doctitle h1 {
+  font-family: var(--pd-disp);
+  font-size: 14pt;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  margin: 0;
+}
+.pd-en {
+  font-family: var(--pd-disp);
+  font-size: 8pt;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--pd-sub);
+  text-transform: uppercase;
+}
+.pd-use {
+  margin-left: auto;
+  text-align: right;
+  font-size: 8pt;
+  color: var(--pd-sub);
+}
+.pd-use span {
+  display: block;
+  color: var(--pd-mute);
+}
+.pd-label {
+  display: block;
+  font-family: var(--pd-disp);
+  font-size: 8pt;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--pd-sub);
+  text-transform: uppercase;
+  margin-bottom: 2mm;
+}
+.pd-mono {
+  font-family: var(--pd-mono);
+  font-variant-numeric: tabular-nums;
+}
+.pd-keys {
+  display: flex;
+  gap: 8mm;
+  margin-top: 4mm;
+  font-size: 8pt;
+}
+.pd-keys b {
+  font-family: var(--pd-disp);
+  font-weight: 700;
+  color: var(--pd-sub);
+  margin-right: 2mm;
+  font-size: 8pt;
+  letter-spacing: 0.1em;
+}
+
+/* ── 阻印版面(對應我們既有的 `BlockedSheet`)── */
+.pd-blocker {
+  margin-top: 6mm;
+  border-top: var(--pd-r1) solid var(--pd-ink);
+  border-bottom: var(--pd-r1) solid var(--pd-ink);
+  padding: 5mm 0 6mm;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.pd-bhead {
+  font-family: var(--pd-disp);
+  font-size: 22pt;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.05;
+}
+.pd-bgrid {
+  display: flex;
+  gap: 8mm;
+  margin-top: 5mm;
+  flex-wrap: wrap;
+}
+.pd-bgrid > div {
+  flex: 1 1 70mm;
+  min-width: 0;
+}
+.pd-bgrid ul {
+  margin: 0;
+  padding-left: 5mm;
+  font-size: 8pt;
+  line-height: 1.8;
+}
+.pd-why {
+  border-left: var(--pd-r1) solid var(--pd-ink);
+  padding-left: 4mm;
+}
+.pd-reason {
+  font-size: 11pt;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.pd-bnote {
+  margin-top: 2mm;
+  font-size: 8pt;
+  color: var(--pd-sub);
+}
+.pd-noitems {
+  margin-top: 5mm;
+  font-size: 8pt;
+  color: var(--pd-sub);
+}
+
+/* ── 資訊區(兩欄)── */
+.pd-info {
+  display: flex;
+  gap: 10mm;
+  flex-wrap: wrap;
+  margin-top: 5mm;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.pd-col {
+  flex: 1 1 78mm;
+  min-width: 0;
+}
+.pd-field {
+  display: flex;
+  gap: 3mm;
+  margin-bottom: 1.1mm;
+  align-items: baseline;
+}
+.pd-field .k {
+  flex: 0 0 17mm;
+  font-size: 8pt;
+  color: var(--pd-sub);
+}
+.pd-field .v {
+  font-size: 10pt;
+  font-weight: 700;
+  line-height: 1.35;
+  min-width: 0;
+  word-break: break-word;
+}
+.pd-field .v.big {
+  font-size: 11pt;
+}
+.pd-field .v.code {
+  font-family: var(--pd-mono);
+  letter-spacing: 0.02em;
+}
+.pd-field .v.addr {
+  font-weight: 400;
+  font-size: 9pt;
+}
+.pd-multi {
+  margin-top: 3mm;
+  font-size: 8pt;
+  font-weight: 700;
+}
+
+/* ── 品項區 ──
+   🔴 `.pd-sech` = **粗上框線 + 一般文字**,不是黑底反白。
+      FIX-63 的字面寫「實心黑帶+反白標題」,而 FIX-71 之後最終產物是這個形狀
+      (實掃:`.pd-sech` 的 background 命中 = 0)。**照 FIX-63 字面搬 = 搬進已修掉的 bug。** */
+.pd-items {
+  margin-top: 5mm;
+}
+.pd-sech {
+  font-family: var(--pd-disp);
+  font-size: 11pt;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--pd-ink);
+  border-top: 1.2mm solid var(--pd-ink);
+  padding-top: 1.8mm;
+  margin: 0 0 2mm;
+  display: flex;
+  align-items: baseline;
+  gap: 3mm;
+  flex-wrap: wrap;
+}
+.pd-sech span {
+  font-family: var(--pd-body);
+  font-size: 8pt;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--pd-sub);
+  margin: 0;
+}
+.pd-items table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.pd-items th {
+  vertical-align: top;
+  font-size: 8pt;
+}
+.pd-items td {
+  vertical-align: top;
+  font-size: 9pt;
+}
+.pd-items thead th {
+  border-bottom: var(--pd-r2) solid var(--pd-ink);
+  text-align: left;
+  padding: 1.6mm 1.2mm;
+}
+.pd-items tbody td {
+  padding: 1.6mm 1.2mm;
+  border-bottom: var(--pd-r2) solid var(--pd-hair);
+}
+.pd-items tbody tr:last-child td {
+  border-bottom: var(--pd-r2) solid var(--pd-ink);
+}
+.pd-items tbody tr {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+/* 續頁抬頭那一列(我們既有的 `.contbar` 對應物)。 */
+.pd-contbar th {
+  text-align: left;
+  padding: 0 0 2mm;
+  font-family: var(--pd-disp);
+  font-size: 8pt;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--pd-sub);
+}
+.pd-contbar th b {
+  color: var(--pd-ink);
+  font-family: var(--pd-mono);
+  letter-spacing: 0.04em;
+}
+.pd-contbar th i {
+  float: right;
+  font-style: normal;
+  color: var(--pd-mute);
+  font-weight: 400;
+}
+.pd-colhead th {
+  text-align: left;
+  padding: 1.6mm 1.2mm;
+  font-family: var(--pd-disp);
+  font-size: 8pt;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border-bottom: var(--pd-r2) solid var(--pd-ink);
+}
+/* 🔴🔴 **選擇器要寫成 `.pd-items td.pd-sku`,不是裸的 `.pd-sku`** ——
+   上面 `.pd-items td{font-size:9pt}` 的具體度是 **(0,1,1)**,而裸 `.pd-sku` 是 **(0,1,0)**
+   ⇒ **裸的那條永遠贏不了,`font-size:11pt` 從落地起就沒有生效過。**
+   📎 這一條是 2026-08-23 片4-R1 的**真瀏覽器量具**抓到的
+      (`print-doc-cascade-browser.test.tsx`,量 computed style 不是量檔案字面)——
+      而它與 F1「無層規則蓋掉 Tailwind」是**同一族的第二層**:
+      F1 是「兩套系統打架」,這一條是「**同一套系統自己內部打架**」。
+   ⚠️ **OD 的稿有同樣的潛在覆蓋**(他們的 `.pd-items table td` 具體度更高)⇒ 已回報。
+      我們照兩邊都寫過的**意圖**修:料號要比品名大(本檔 `ItemCells` 上方 docstring 逐字
+      「料號刻意比品名大…在單色雷射印表機上料號比縮圖可靠…掃描槍讀得到」)。 */
+.pd-items td.pd-sku {
+  font-family: var(--pd-mono);
+  font-size: 11pt;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.pd-name {
+  font-size: 9pt;
+  line-height: 1.4;
+}
+.pd-spec {
+  display: block;
+  font-size: 8pt;
+  color: var(--pd-sub);
+  margin-top: 0.6mm;
+}
+.pd-num {
+  text-align: right;
+  font-family: var(--pd-mono);
+  font-size: 8pt;
+  color: var(--pd-sub);
+  white-space: nowrap;
+}
+.pd-colhead th.pd-num {
+  text-align: right;
+  font-family: var(--pd-mono);
+  font-size: 8pt;
+  color: var(--pd-sub);
+  white-space: nowrap;
+}
+/* 🔴 **這一條【不需要】提高具體度,而我一度以為需要** ——
+   `.pd-num.pd-strong` = **(0,2,0)**,`.pd-items td` = **(0,1,1)**;
+   比較是**先比 class 數**(2 > 1)⇒ **它本來就贏**。
+   ⚠️ 我先前把它一起改成 `.pd-items td.pd-num.pd-strong` 並在註解裡寫「具體度必須 ≥」——
+      **那句是錯的**,而它讀起來跟上面 `.pd-sku` 那條(真的需要)一模一樣。
+   📎 抓到它的是**突變**:把這條改回裸的 ⇒ 量具**沒有紅** ⇒ 代表那個「修正」沒有修到任何東西。
+      上面 `.pd-sku` 那條同樣的突變**紅了** ⇒ 兩條的差別是量出來的,不是我推的。
+   ⇒ 保持裸的。**承重的是 (0,2,0) 這個事實,不是我加的那兩個選擇器。** */
+.pd-num.pd-strong {
+  font-size: 10pt;
+  font-weight: 700;
+  color: var(--pd-ink);
+}
+.pd-state {
+  font-size: 8pt;
+  white-space: nowrap;
+  color: var(--pd-sub);
+}
+/* 已取消 / 未到貨那兩種列的語彙:刪除線 + 灰,**不用底色**(同 ③ 的理由)。 */
+tr.pd-void .pd-state {
+  font-weight: 700;
+  color: var(--pd-ink);
+}
+tr.pd-void .pd-sku,
+tr.pd-void .pd-name {
+  text-decoration: line-through;
+  color: var(--pd-sub);
+}
+tr.pd-void .pd-num {
+  color: var(--pd-mute);
+}
+tr.pd-wait .pd-state {
+  font-weight: 700;
+  color: var(--pd-ink);
+}
+.pd-cancelled .pd-sku,
+.pd-cancelled .pd-name {
+  text-decoration: line-through;
+  color: var(--pd-sub);
+}
+/* 勾選框:空心 border,單色印表機照樣看得見。 */
+.pd-items th.pd-mid {
+  width: 8mm;
+  text-align: center;
+}
+.pd-items td.pd-tick {
+  width: 8mm;
+  text-align: center;
+  vertical-align: middle;
+}
+.pd-box {
+  display: inline-block;
+  width: 5mm;
+  height: 5mm;
+  border: var(--pd-r2) solid var(--pd-ink);
+}
+.pd-reconcile {
+  margin-top: 2.5mm;
+  font-size: 8pt;
+  line-height: 1.6;
+  font-weight: 700;
+}
+.pd-reconcile span {
+  display: block;
+  font-weight: 400;
+  color: var(--pd-sub);
+  margin-top: 1mm;
+}
+.pd-slot {
+  color: var(--pd-mute);
+}
+
+/* ── 合計(只有訂單明細有)── */
+.pd-totals {
+  display: flex;
+  gap: 8mm;
+  margin-top: 4mm;
+  flex-wrap: wrap;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.pd-primary {
+  padding-top: 0;
+  flex: 0 0 84mm;
+}
+.pd-primary .n {
+  font-family: var(--pd-body);
+  font-size: 10pt;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.pd-dim {
+  font-size: 8pt;
+  color: var(--pd-sub);
+  margin-top: 1mm;
+}
+
+/* ── 貼齊紙底的底部區(FIX-55/64)──
+   🔴 `margin-top:auto` 要有東西可以推,靠的是 `.pd-sheet{display:flex;flex-direction:column}`
+      加上列印時的 `min-height` —— **三個字面是同一件事的三個面,少一個就不貼底。** */
+.pd-bottom {
+  margin-top: auto;
+}
+.pd-foot {
+  display: flex;
+  gap: 10mm;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  break-inside: avoid;
+  page-break-inside: avoid;
+  padding-top: 3mm;
+  border-top: var(--pd-r1) solid var(--pd-ink);
+}
+.pd-contact {
+  flex: 1 1 88mm;
+  display: flex;
+  gap: 4mm;
+  min-width: 0;
+  padding-top: 3mm;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.pd-qr {
+  width: 24mm;
+  height: 24mm;
+  display: block;
+  flex: 0 0 auto;
+}
+.pd-ch {
+  font-size: 9pt;
+  font-weight: 700;
+}
+.pd-cu {
+  font-family: var(--pd-mono);
+  font-size: 8pt;
+  margin-top: 1mm;
+}
+.pd-cp {
+  font-size: 8pt;
+  color: var(--pd-sub);
+  margin-top: 1.5mm;
+  line-height: 1.6;
+}
+.pd-money {
+  flex: 0 0 68mm;
+  min-width: 0;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.pd-money h2 {
+  font-family: var(--pd-disp);
+  font-size: 8pt;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding-top: 2.5mm;
+  margin: 0 0 2mm;
+}
+.pd-money h2 span {
+  font-family: var(--pd-body);
+  font-size: 8pt;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--pd-sub);
+  margin-left: 2mm;
+}
+.pd-money table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.pd-money td {
+  padding: 1.2mm 0;
+  font-size: 9pt;
+}
+.pd-money td.k {
+  color: var(--pd-sub);
+}
+.pd-money td.v {
+  text-align: right;
+  font-family: var(--pd-mono);
+}
+.pd-money tr.grand td {
+  border-top: var(--pd-r1) solid var(--pd-ink);
+  padding-top: 2.4mm;
+}
+.pd-money tr.grand td.k {
+  color: var(--pd-ink);
+  font-size: 10pt;
+  font-weight: 700;
+}
+.pd-money tr.grand td.v {
+  font-size: 11pt;
+  font-weight: 700;
+}
+
+/* ── 片4b:區塊合計列 + 跨區人話 ──────────────────────────────────────────────
+   🔴 **具體度要贏過 `.pd-items td`(0,1,1)** —— 裸 `.pd-subtotal`(0,1,0)會輸,
+      而輸的症狀是**紙上那一列的字級與一般品項列一樣**、螢幕上看不出來、三綠不會紅。
+      (同族的病本檔已經吃過兩次:`.pd-sku` 與 `.pd-num`,見元件那兩段 R1/R2 註解。) */
+.pd-items tr.pd-subtotal td {
+  border-top: var(--pd-r1) solid var(--pd-ink);
+  padding-top: 2mm;
+}
+.pd-items tr.pd-subtotal td.pd-num {
+  color: var(--pd-ink);
+}
+/* 跨區說明那句人話(值由元件的 `CROSS_SECTION_NOTICE` 決定,**待 Sean 拍板**)。
+   🔴 給它一個【比金額列小、但仍讀得清楚】的字級 —— 它是說明不是數字,
+      印得跟金額一樣大會讓客人以為那也是一個要核對的欄位。 */
+/* 頁尾列印時間(`Q-⑨`=甲,Sean 2026-08-24「頁尾一行淡色小字」)。
+   🔴 **稿上沒有這個元素**(分母與正對照寫在元件那段註解裡)⇒ 值不是搬的,是**照本檔既有小字慣例**:
+      字級沿用 `.pd-xnote` 的 7.5pt(本檔最小的一級),色沿用 `--pd-sub`。
+   🔴 **靠右**:它是這張紙的簽收欄位之外唯一的「機器資訊」,靠右可以讓它不與左下的聯絡區搶讀順序。
+   ⚠️ **`margin-top` 用 3mm 而不是 auto** —— `.pd-bottom` 自己已經吃掉 `margin-top:auto`
+      (見本檔錨點「`margin-top:auto` 掛在 `.pd-bottom`」),再給一次會把整組推爆版面。 */
+/* 🔴 **2026-08-30 丁:選擇器從 `.pd-bottom .pd-printed` 改成 `.pd-runfoot .pd-printed`** ——
+   那一行搬進 `<tfoot>` 了(元件那段註解記著為什麼)。**選擇器沒跟著搬 = 那行字在紙上會變成
+   預設 16px 黑字、靠左** ⇒ 螢幕上看不出來、三綠不會紅,只有紙上不對(本檔已吃過三次同族)。
+   ⚠️ `margin-top` 從 3mm 改成 0:原本那 3mm 是要跟 `.pd-bottom` 上面那組隔開,
+      而現在它自己是一格 `<td>`,間距由 `.pd-runfoot > tr > td` 的 `padding-top` 給。 */
+.pd-runfoot .pd-printed {
+  margin: 0;
+  font-size: 7.5pt;
+  line-height: 1.4;
+  color: var(--pd-sub);
+  text-align: right;
+}
+
+/* 退款小字 —— **值逐字取自稿**:`.money .refund{font-size:8pt;color:var(--sub);
+   margin-top:2mm;line-height:1.45}`(OD `pcm-print-docs/shipping-picking-doc-a4.html:201`)。
+   🔴 **四個值一個沒改**;改的只有選擇器命名 —— 本 repo 一律 `pd-` 前綴(`--sub` ⇒ `--pd-sub`)。
+      ⇒ 這是**命名慣例對齊**,不是「翻譯設計」:數值才是稿的內容,前綴是本檔的既有規矩。
+   ⚠️ 具體度要贏過可能的 `.pd-money p` —— 同族的病本檔吃過三次(`.pd-sku` / `.pd-num` / `.pd-subtotal`),
+      而症狀都一樣:**螢幕上看不出來、三綠不會紅、只有紙上不對。** */
+.pd-money .pd-refund {
+  margin: 2mm 0 0;
+  font-size: 8pt;
+  line-height: 1.45;
+  color: var(--pd-sub);
+}
+.pd-money .pd-xnote {
+  margin: 2.5mm 0 0;
+  font-size: 7.5pt;
+  line-height: 1.5;
+  color: var(--pd-sub);
+}
+
+@media print {
+  /* ⛔ ~~`271mm` 不是 OD 的 `276mm` —— 297 − `@page` 上 12mm − 下 14mm = 271。~~
+     🔴 **2026-08-29 改成 250mm** —— 那個算式沒有錯,而它算的是【我們宣告的紙】,
+     不是【真的紙】:實體印表機有印不到的邊,而 271mm 之下【連一項的單也是兩頁】。
+     ⇒ 理由、量法、什麼時候要重算:見本檔上面 `.print-sheet` 那段(兩處必須同值)。
+     **改 `@page` 的 margin 要同步改這裡。** */
+  .pd-sheet {
+    width: auto;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  /* 🔴 **2026-08-30 丁:`min-height` 從 `.pd-sheet` 搬到 `.pd-flow`, 而數字從 250 降到 240** ——
+     它的工作只有一個:給 `.pd-bottom{margin-top:auto}` 一些可以推的空間(FIX-55/64 貼紙底)。
+     ⇒ 掛在 `.pd-sheet` 上時它推不到東西了(中間隔了一層 table)。
+     ⚠️ **240 不是算出來的, 是量出來的**:頁首 + 頁尾這兩列自己要吃掉高度,
+        留 250 會讓**本來一頁的單變成兩頁**。量法與四格數字見
+        `page-measure.test.tsx` 的分支B 那一區。
+     🔴 **而這個數字與 `@page{margin}` 一樣, 是【沒有東西會替它報錯】的那種** ——
+        改它、或改頁首頁尾的高度, 都要回去把那四格重跑一次。 */
+  .pd-flow {
+    min-height: 240mm;
+  }
+
+  /* 🔴🔴 **`.pd-flow` 是 flex 直欄, 而它住在一個 `<td>` 裡 —— 那個組合【不會跨頁切開】。**
+     2026-08-30 量到(注入式二分, 四發):Chromium 把「flex 直欄 in `<td>`」當成一整塊,
+     放不下就**整塊推到下一頁** ⇒ 第 1 頁變成**一張只有頁首的白紙**。
+     ```
+       .pd-flow{display:block}                 ⇒ ✅ 正常切開
+       .pd-flow / td 加 break-inside:auto       ⇒ ❌ 三發都沒救
+       .pd-flow{min-height:0}                  ⇒ ❌ 不是它
+     ```
+     🛑 **而它【今天沒有咬到出貨單】, 那是量出來的不是假設的**(同日,真 PDF 逐頁抽字;
+        品項列由 12 項那份複製而成 ⇒ 品名長度固定):
+     ```
+       分支A（有未出貨表）  12 / 16 / 20 / 24 / 30 / 50 / 100 項 ⇒ 第 1 頁【每一發都有品項】
+       分支B（尚未出貨:無） 同一組級距                          ⇒ 同上
+     ```
+     ⚠️ **射程**:①品名長度固定 ⇒ 真實資料下的門檻未量;②只量到 100 項;
+        ③headless chromium + PDF 抽字, **不是實體印表機**。
+     🔴 **⇒ 所以「安全」這句話的射程是【≤100 項、這種品名長度】, 不是無條件。**
+     📎 而揀貨單 `picking-doc.tsx` **踩到了**(12 項 ⇒ 第 1 頁全白)⇒ 它因此**沒有**上這層 wrap,
+        三個選項 2026-08-30 已排進 Sean 的待問佇列。**不要在他答之前替它包上去。** */
+
+  /* 頁首只在紙上出現。`table-header-group` = 瀏覽器每頁重印它的那個值。 */
+  .pd-runhead {
+    display: table-header-group;
+  }
+
+  /* OD 那份螢幕上是灰桌面,列印時壓白。我們沿用。 */
+  .pd-stage {
+    background: #fff;
+    padding: 0;
+  }
+}

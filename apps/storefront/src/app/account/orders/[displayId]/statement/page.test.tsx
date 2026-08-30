@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { MemberOrderDetail } from '@pcm/domain';
+import { toMoneyAmount, type MemberOrderDetail } from '@pcm/domain';
 
 /**
  * 客人訂單明細列印頁(片 A:路由 + 授權)。
@@ -41,10 +41,63 @@ vi.mock('@/lib/supabase/server', () => ({
 // 🔴 這個 spy 就是本檔的量具 —— 它記【這一頁呼叫了誰、帶了什麼】。
 //    而假 repo 刻意複製真 adapter 的行為:只認「本人 + 該 displayId」,其餘一律回 `null`
 //    (回 `null` 本身就是「不洩存在性」的機制:別人的單與不存在的單,在 caller 眼中同一個值)。
+// 🔴 **這份 fixture 是【完整的】,不是 `{ displayId } as MemberOrderDetail`。**
+//    片 A 時它就是後者,而那個 `as` 讓 TypeScript 閉嘴、讓 10 格全綠 ——
+//    直到片 B 真的去讀 `shippingAddress.name` 才炸(`Cannot read properties of undefined`)。
+//    📌 **⇒ 一個 `as` 把「這些欄位不存在」變成了一件三綠看不到的事。**
+//    ⇒ 欄位形狀對著 `packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts:2746` 那份
+//      真 adapter 的回傳期望值抄,**不自己發明欄位**。
+// 🔴 走 `toMoneyAmount()` 而不是 `as MoneyAmount` —— `packages/domain/src/shared/types.ts:15`
+//    逐字「強制走 toMoneyAmount() helper 集中守門、不允許 `as MoneyAmount` 強轉」。
+const twd = (amount: number) => ({ amount: toMoneyAmount(amount), currency: 'TWD' as const });
+
+function orderFixture(over: Partial<MemberOrderDetail> = {}): MemberOrderDetail {
+  return {
+    id: 'o1',
+    displayId: 'A1B2C3',
+    createdAt: '2099-04-15T10:00:00Z',
+    paymentStatus: 'paid',
+    fulfillmentStatus: 'shipped',
+    paymentMethod: 'tappay',
+    paidAt: '2099-04-18T03:00:00Z',
+    subtotal: twd(12000),
+    shippingFee: twd(100),
+    discountTotal: twd(0),
+    total: twd(12100),
+    shippingMethod: 'home',
+    shippingAddress: {
+      name: '王小明',
+      phone: '0912345678',
+      line: '新北市新莊區化成路 736 巷 18 號',
+    },
+    cancelledAt: null,
+    cancelKind: 'none',
+    items: [
+      {
+        id: 'oi1',
+        variantSku: 'SKU-1',
+        brand: 'CNC RACING',
+        title: '下鏈條蓋',
+        spec: { color: 'black' },
+        imageUrl: null,
+        vehicle: null,
+        quantity: 2,
+        unitPrice: twd(6000),
+        lineTotal: twd(12000),
+      },
+    ],
+    itemCount: 2,
+    itemsTruncated: false,
+    ...over,
+  };
+}
+
+let orderOverride: Partial<MemberOrderDetail> = {};
+
 const findSpy = vi.fn(
   async (displayId: string, userId: string): Promise<MemberOrderDetail | null> =>
     displayId === 'A1B2C3' && userId === 'owner-1'
-      ? ({ displayId: 'A1B2C3' } as MemberOrderDetail)
+      ? orderFixture({ displayId: 'A1B2C3', ...orderOverride })
       : null,
 );
 vi.mock('@/lib/auth/composition', () => ({
@@ -61,10 +114,11 @@ async function render(displayId: string) {
 describe('客人的訂單明細列印頁 —— 授權走既有那條路,而不是自己查', () => {
   beforeEach(() => {
     currentUser = { id: 'owner-1' };
+    orderOverride = {};
     findSpy.mockReset();
     findSpy.mockImplementation(async (displayId: string, userId: string) =>
       displayId === 'A1B2C3' && userId === 'owner-1'
-        ? ({ displayId: 'A1B2C3' } as MemberOrderDetail)
+        ? orderFixture({ displayId: 'A1B2C3', ...orderOverride })
         : null,
     );
     redirectMock.mockClear();
@@ -147,6 +201,101 @@ describe('客人的訂單明細列印頁 —— 授權走既有那條路,而不�
     });
     const html = await render('A1B2C3');
     expect(html).toContain('查無此訂單');
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 片 B(版面)—— Sean 2026-08-30 `Q-容差 = 甲`「客人下載的明細 = 後台那張,一模一樣」
+  // ══════════════════════════════════════════════════════════════════════
+
+  it('🔴 紙上有【收件三格】與【金額四格】—— 這是他親口要的內容,不是版面偏好', async () => {
+    const html = await render('A1B2C3');
+    for (const must of ['王小明', '0912345678', '新北市新莊區化成路 736 巷 18 號']) {
+      expect(html, `收件資訊少了 ${must}`).toContain(must);
+    }
+    for (const must of ['小計', '運費', '訂單金額', '12,100']) {
+      expect(html, `金額區少了 ${must}`).toContain(must);
+    }
+    // 品項那一列的三個數字都要在(數量 / 單價 / 小計)
+    expect(html).toContain('SKU-1');
+    expect(html).toContain('下鏈條蓋');
+    expect(html).toContain('6,000');
+    expect(html).toContain('12,000');
+  });
+
+  it('🔴🔴 紙上【不得】洩營運內部數量 —— 那是「一模一樣」少掉的那一欄', async () => {
+    const html = await render('A1B2C3');
+    // 🔴 這一格守的是 `SupabaseOrderAdapter.ts:420-421` 那條紅線:
+    //    「客人看得到『已向上游訂了幾件』等於看得到採購節奏。」
+    //    上游那道守門守的是**投影字面**;這一格守的是**紙上**。兩層不可互相抵。
+    for (const leak of ['未到貨', '數量資料尚未就緒', 'quantity_summary', '應揀', '揀貨', '供應商']) {
+      expect(html, `紙上出現了不該有的 ${leak}`).not.toContain(leak);
+    }
+    // 🔴 **負對照**:證明上面那六條不是因為 HTML 是空的才全過。
+    expect(html).toContain('品項明細');
+    expect(html).toContain('料號');
+  });
+
+  it('🔴 已取消的單:**照印**(那是他的記錄),而取消這件事要印在紙上', async () => {
+    // 🔴 `cancelKind` 只有三值(`OrderCancelKind = 'none' | 'expired' | 'cancelled'`,
+    //    `packages/domain/src/order/order-cancel-reason.ts:48`)。
+    //    ⛔ ~~我第一版寫 `'full' as never`~~ —— **那是一個 domain 造不出來的值**,
+    //       而 `as never` 正是讓它過 typecheck 的東西(R1 must-fix)。
+    //       今天沒有人讀 `cancelKind` 所以行為不變,**而它會教下一個人一個不存在的狀態**。
+    orderOverride = { cancelledAt: '2099-04-20T02:30:00Z', cancelKind: 'cancelled' };
+    const html = await render('A1B2C3');
+    // 🛑 後台那張對已取消是**整幅阻印**,理由是「員工會照著去倉庫揀一批不該出的貨」——
+    //    那是一個**實體動作**的守門,而客人這一側沒有那個動作。
+    //    ⇒ 照抄過來會變成「你自己的訂單記錄不給你看」。
+    expect(html, '品項表被整幅擋掉了 ⇒ 客人拿不到自己的記錄').toContain('SKU-1');
+    expect(html).toContain('data-slot="statement-cancelled"');
+    expect(html).toContain('取消');
+    // 日期要是**台北時間**:UTC 02:30 ⇒ 台北 10:30(+8)
+    expect(html, '取消時間沒有換成台北時間').toContain('2099-04-20 10:30');
+  });
+
+  it('🔴 讀不到任何品項 ⇒ 印一句話,**不印一張只有表頭的空表格**', async () => {
+    orderOverride = { items: [], itemCount: 0 };
+    const html = await render('A1B2C3');
+    expect(html).toContain('data-slot="statement-no-items"');
+    // 空表格看起來像「這張單沒有東西」,而它其實可能是資料讀取出問題 ⇒ 表頭不得在
+    expect(html, '印了一張空表格').not.toContain('料號');
+    // 🔴 **而聯絡方式與金額表【仍然要在】**(R1 nit):它們原本住在「有品項」那一支
+    //    ⇒ 讀不到品項時整塊消失 ⇒ **一句「請與客服聯絡」旁邊沒有客服**,
+    //      而那正是最需要它的那一張紙。
+    expect(html, '讀不到品項時連客服 QR 都不見了').toContain('加入官方 LINE 帳號');
+    expect(html, '讀不到品項時金額表也不見了').toContain('訂單金額');
+  });
+
+  it('🔴 清單沒載完 ⇒ 表【自己】要說它沒有結尾,不是只在表尾講一句', async () => {
+    orderOverride = { itemsTruncated: true };
+    const html = await render('A1B2C3');
+    expect(html).toContain('data-slot="statement-truncated-band"');
+    // 佔位列的 `? ? ? ?` —— 上游只給布林,印任何具體數字就是編的
+    expect(html).toContain('? ? ? ?');
+    expect(html).toContain('清單沒載完');
+  });
+
+  it('🔴 折扣是 0 ⇒ 不印那一列(印 0 會讓客人以為我們算了一筆折扣給他)', async () => {
+    const zero = await render('A1B2C3');
+    expect(zero).not.toContain('折扣');
+    // 🔴 翻面 —— 沒有這一半,上面那條在「折扣列永遠不印」時也會綠
+    orderOverride = { discountTotal: twd(500) };
+    const some = await render('A1B2C3');
+    expect(some).toContain('折扣');
+    expect(some, '負號要用 ASCII 的 -,不是 U+2212').toContain('-500');
+    expect(some).not.toContain('\u2212');
+  });
+
+  it('🔴 列印鈕在,而它包在 `.stmt-actions` 裡(紙上不准有它 —— 那一格靠 CSS)', async () => {
+    const html = await render('A1B2C3');
+    expect(html).toContain('data-slot="statement-print-button"');
+    // ⚠️ 這一格**證不了它在紙上不見** —— `@media print{.stmt-actions{display:none}}`
+    //    只有真的按下列印才看得到 ⇒ 那一格留給肉眼驗。這裡只證它有被那個容器包住。
+    // ⛔ ~~`/class="stmt-actions"[^]*?data-slot="statement-print-button"/`~~
+    //    🔴 **那個 `[^]*?` 跨得過 `</div>`** ⇒ 它證的是【先後】不是【包住】
+    //       ⇒ 把鈕搬到 `.stmt-actions` 外面它照樣綠,而「紙上藏鈕」已經壞了(R3 抓)。
+    //    ✅ 改成斷言**相鄰字面** —— 中間不准有任何東西。
+    expect(html).toContain('class="stmt-actions"><button');
   });
 
   it('⚠️ 標題只用固定字 —— 單號不得進 <title>(分頁/歷史/分享預覽都不受登入保護)', async () => {
