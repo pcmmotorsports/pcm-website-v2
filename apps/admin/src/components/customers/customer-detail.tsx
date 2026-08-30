@@ -220,22 +220,21 @@ export function CustomerDetail({
                  差別只在有沒有這一筆紀錄。**而一筆寫錯的紀錄比沒有紀錄更糟。**
               🛑 **而甲的邊界只有這一列** —— 這張卡的其他欄位、間距、標題一個字都沒動。
 
-              🔴🔴 **codex must-fix(2026-08-30):而【這張卡現在會自相矛盾】,寫在這裡不藏。**
+              🟢 **而這張卡曾經自相矛盾,2026-08-30 已修 —— 留痕不刪,因為它解釋了上面那一列的用途。**
               ```
-              後台手動建的客人，佔位信箱是 manual_<id>@manual.pcmmotorsports.local
-              而 customer-list-view.ts:62 的 customerEmailDisplay 對【任何】合成網域
-              一律回 LINE_NO_EMAIL_LABEL = 'LINE 帳號登入，無 Email'（:28 逐字）
-              ⇒ 上一列 Email 顯示「LINE 帳號登入」，下一列顯示「後台建立（佔位信箱）」
-              ⇒ ⇒ 🔴 同一張卡，兩句互相打架。
+              ~~舊況：後台手動建的客人，佔位信箱 manual_<id>@manual.pcmmotorsports.local
+                也是合成網域 ⇒ customerEmailDisplay 一律回「LINE 帳號登入，無 Email」
+                ⇒ 上一列印「LINE 帳號登入」、下一列印「後台建立（佔位信箱）」⇒ 同一張卡打架~~
+              ✅ 現況：那個字面改成不分平台的「系統產生的位址」（Sean 2026-08-30 拍甲）
+                ⇒ Email 那一欄只回答「這個位址能不能寄信」，
+                   而「他從哪登入」由下面這一列回答 —— 兩列各答一題，不再互相打架。
               ```
-              📌 **這是【本片之前就存在】的缺陷,不是本片造成的** ——
-                 手動建的客人在今天的畫面上**本來就被標成 LINE**。
-                 **本片做的是把它照出來。**(而「照出來」正是這一片的用途。)
-              🛑 **本片刻意不修它,兩個理由**:①改的是**文案**,而文案是 Sean 拍板(`CLAUDE.md`);
-                 ②`LINE_NO_EMAIL_LABEL` 有三個顯示點(本檔 `:193`、`customers-table.tsx:95`、
-                 `order-detail-summary-cards.tsx:291`),且它自己的註解寫著
-                 「逐字沿用 storefront 既有字面、兩份字面必漂」⇒ 動它是另一片。
-              ⇒ **已端給 Sean**(經主視窗):那句話要不要改成 provider 中性的說法。 */}
+              📌 **而那個矛盾【本片之前就存在】** —— 手動建的客人本來就被標成 LINE,
+                 **是這一列把它照出來的**。⇒ 「照出來」正是這一列的用途,而它第一天就做到了。
+              🔵 **而我原本說「不修」的第二個理由(那個常數有三個顯示點、兩份字面必漂)
+                 後來被證明【從來不成立】** —— 兩邊的觸發條件與讀者都不同,不是同一句話的兩份拷貝。
+                 詳 `lib/customers/customer-list-view.ts` 那個常數的註解。
+                 📌 **一個「修法有代價」的判斷,在我沒去查那個代價還在不在的時候,就只是一個藉口。** */}
           <Field
             label='Email 驗證'
             value={EMAIL_VERIFICATION_LABEL[(emailVerification ?? { kind: 'unknown' }).kind]}

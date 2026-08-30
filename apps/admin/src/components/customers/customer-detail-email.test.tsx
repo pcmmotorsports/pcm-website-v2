@@ -21,7 +21,8 @@ import { CustomerDetail } from './customer-detail';
 //    ```
 //    ⚠️ **而它是被【一次錯誤的指認】撈出來的**:同儕窗回報「訂單明細那處沒有守門」,
 //    量法是 `git grep -l "customerEmailDisplay|LINE_NO_EMAIL_LABEL" -- '*.test.*'` ⇒ 訂單那支沒命中。
-//    🔴 **但那支【有】守門** —— 它斷言的是**渲染出來的字面**(`'LINE 帳號登入,無 Email'`),
+//    🔴 **但那支【有】守門** —— 它斷言的是**渲染出來的字面**
+//    (🔵 2026-08-30 起是 `'系統產生的位址'`;~~舊字面 `'LINE 帳號登入,無 Email'`~~ 已依 Sean 拍甲改成不分平台),
 //    **不是函式名或常數名** ⇒ **掃描字集比宣稱窄**,同一族的錯今晚第二次。
 //    ✅ **而順著那個分母查下去,真正沒守門的是【客戶明細頁】** —— 指錯了一格,但撈對了東西。
 //
@@ -77,7 +78,7 @@ afterEach(() => {
 describe('客戶明細頁 Email 欄:LINE 合成位址不外顯', () => {
   it('🔴 合成位址 → 顯示替代字面,原字串不出現', () => {
     const { container } = renderDetail(SYNTHETIC);
-    expect(container.textContent).toContain('LINE 帳號登入,無 Email');
+    expect(container.textContent).toContain('系統產生的位址');
     // 🔴 兩段都要不出現:`line_u` 是內部識別碼、`.local` 是內部網域,
     //    只擋其中一段的話,另一段照樣把內部細節送到客服眼前。
     expect(container.textContent).not.toContain('line_u');

@@ -112,7 +112,7 @@ describe('/customers 列表:LINE 合成位址不外顯', () => {
       total: 1,
     });
     const { container } = render(await CustomersPage({ searchParams: Promise.resolve({}) }));
-    expect(container.textContent).toContain('LINE 帳號登入,無 Email');
+    expect(container.textContent).toContain('系統產生的位址');
     expect(container.textContent).not.toContain('line_u');
     expect(container.textContent).not.toContain('pcmmotorsports.local');
   });
