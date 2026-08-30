@@ -13,6 +13,21 @@
 #   |  B   | 無 | 是        | 有 | ✅ 過 |
 #   |  C   | 有 | 是        | **無** | 🛑 擋 ← **正對照:這一格不紅 ⇒ 整發作廢** |
 #   |  D   | 有 | **否(docs)** | 有 | ✅ 過 |
+#   |  E   | **寫標記【後】才塞進來** | 是 | 有 | ✅ **過** |
+#   |  F   | 同 E | 否(docs) | 有 | ✅ 過 |
+#   |  G   | 同 E | 是 | **無** | 🛑 擋 ← **第二個正對照** |
+#
+# 🔵 **E/F/G 是為了關掉 `-1c` 的競爭假說**(它自己標了「這是推論不是量測」):
+#   「決定性的變數是【寫標記到 commit 之間 index 有沒有變】」⇒ **實測:不是。**
+#   E 的 index 在寫標記後【確實變了】(多一支別人的檔)而它 **✅ 過** ——
+#   因為 hook 看到的暫時 index = HEAD + 只有 pathspec 那幾支,**後來塞進來的那支不在裡面**。
+#
+# ══ ⇒ **所以判準要寫準,而它比「index 裡有沒有別人的檔」窄一格** ═════════════
+#   🔴 **決定性變數 =【寫標記那一刻】共用 index 裡有沒有別人的檔** ——
+#     **不是** commit 當下有沒有、**不是** 中間有沒有變。
+#   ⇒ 因為標記的 tree 是在**共用 index** 上算的(含別人的),
+#     而 hook 的 tree 是**暫時 index**(只含 pathspec)⇒ 兩者只在「寫標記時 index 乾淨」時相等。
+#   ⚠️ 而這一切都在**受審面**那道短路之後才發生(世界 D/F)。
 #
 # 🔴 **世界 D 是解謎的那一格**:tree **不符**(標記 `c2c18a7d` vs hook `98665d8c`)**而它照樣過**
 #   ⇒ 因為閘在比 tree 之【前】先判「這顆有沒有碰受審面」,沒碰 ⇒ **靜默放行,連比都沒比**。
@@ -38,7 +53,7 @@ unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY 2>/dev/null || t
 
 REAL=/Users/sean_1/pcm-website-v2
 run_world() {
-  world="$1"; foreign="$2"; marker="${3:-yes}"; surface="${4:-yes}"
+  world="$1"; foreign="$2"; marker="${3:-yes}"; surface="${4:-yes}"; late="${5:-no}"
   R=$(mktemp -d "${TMPDIR:-/tmp}/gate-exp-XXXXXX")
   git init -q "$R"; cd "$R" || return 1
   git config user.email probe@x; git config user.name probe
@@ -75,6 +90,10 @@ HK
     echo "   標記:完全不寫(正對照, 這一格【必須】紅)"
   fi
 
+  if [ "$late" = yes ]; then
+    echo theirs > scripts/late.sh; git add scripts/late.sh
+    echo "   🔴 寫標記【之後】才把別人的檔塞進 index ⇒ 現在 index tree = $(git write-tree)"
+  fi
   git commit -q -m exp -- "$M1" "$M2" 2>&1 | grep -E "HOOK:|PCM reviewer gate" | head -3
   RC=$?
   if git log --oneline -1 2>/dev/null | grep -q exp; then
@@ -92,3 +111,9 @@ echo
 run_world "C(正對照:不寫標記)" yes no
 echo
 run_world "D(有別人的檔, 而我的兩支是 docs 不在受審面)" yes yes no
+echo
+run_world "E(時序:寫標記【後】才有別人的檔, 我碰受審面)" no yes yes yes
+echo
+run_world "F(同 E 而我的是 docs)" no yes no yes
+echo
+run_world "G(第二個正對照:E 的條件但不寫標記)" no no yes yes
