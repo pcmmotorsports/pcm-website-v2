@@ -22,6 +22,8 @@ set -u
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 MAILBOX="${HOME}/pcm-mailbox"
+# 🔴 拍板落檔的正式落點(`00-work-rules §4`)—— 2026-08-31 補進段②的分母。
+MEMDIR="${MEMDIR:-$HOME/.claude/projects/-Users-sean-1-pcm-website-v2/memory}"
 # 🔴🔴 **`--since=<今天的日期>` 恆回 0** —— 2026-08-29 線A 實測,而它爆在最需要它的那一天。
 #    git 把【光寫今天日期】的 `--since` 解析成「**現在**」,不是「今天 00:00」:
 #      `--since=2026-08-29`         ⇒ 0 顆
@@ -74,11 +76,20 @@ sweep() {
 
   # ── ② Sean 答過了嗎 ──────────────────────────────────────────────────
   #    🔴 用【他會講的話】去掃,不是用我們的編號 —— 他答的時候不會用錨。
-  local C2="grep -rn <關鍵字> ~/pcm-mailbox/*決策*.md ~/pcm-mailbox/*等Sean*.md docs/launch-todo.md"
-  section "② Sean 答過了嗎(決策板 + 板子)" "$C2"
+  #    🔴 **memory 是 2026-08-31 才加進來的, 而它是這一段最會命中的那個載體。**
+  #    成因是量到的:主視窗拿「git 身分 probe」跑這支 ⇒ **五段全零**,
+  #    而 Sean 2026-08-25 【答過了】(`Q-窗名字 ⇒ 乙, 維持共用 probe`),
+  #    答案就住在 memory,而 memory **不在當時的分母裡**。
+  #    📌 ⇒ 一支「防止你問他已經答過的題」的工具, 在一題他已經答過的題上印了五個零 ——
+  #       **而五個零讀起來與「他沒答過」一模一樣。**
+  #    🔴 ⇒ 而拍板落檔的規矩(`00-work-rules §4`)本來就寫著「PCM 拍板 → memory `project_*`」
+  #       ⇒ **這支工具的分母, 少了制度指定的那個落點。**
+  local C2="grep -rn <關鍵字> ~/pcm-mailbox/*決策*.md ~/pcm-mailbox/*等Sean*.md docs/launch-todo.md + memory/"
+  section "② Sean 答過了嗎(決策板 + 板子 + memory 拍板檔)" "$C2"
   { grep -rn -- "$KW" "$MAILBOX"/*決策*.md "$MAILBOX"/*等Sean*.md 2>/dev/null
-    grep -n -- "$KW" "$REPO/docs/launch-todo.md" 2>/dev/null; } | cut -c1-220 > "$TMP"
-  report "決策板與 launch-todo" "$TMP"
+    grep -n -- "$KW" "$REPO/docs/launch-todo.md" 2>/dev/null
+    grep -rn -- "$KW" "$MEMDIR" 2>/dev/null; } | cut -c1-220 > "$TMP"
+  report "決策板與 launch-todo 與 memory" "$TMP"
 
   # ── ③ 答案寫在碼的註解裡嗎 ────────────────────────────────────────────
   local C3="git grep -n <關鍵字> -- supabase/migrations packages/use-cases apps/*/src"
@@ -225,6 +236,19 @@ selftest() {
 
   if [ "$P" -lt 5 ]; then printf '  ✅ 正對照:它真的撈得到東西\n'; else printf '  🔴 正對照全零 ⇒ 本 script 是死的\n'; RC=1; fi
   if [ "$N" -eq 5 ]; then printf '  ✅ 負對照:現造字面五段全零\n'; else printf '  🔴 負對照有命中 ⇒ 它在亂撈\n'; RC=1; fi
+
+  # ══ 🔴 第三發:段② 的【memory 那一條腿】自己要有正對照(2026-08-31 加)══
+  #    為什麼要單獨一發:上面那個正對照「不用改名」住在【決策板】——
+  #    它會在 memory 這條腿【完全沒接上】的情況下照樣印綠。
+  #    📌 ⇒ 一條新加的腿, 必須有一個【只有它撈得到】的正對照, 否則它與沒加是同一個綠。
+  #    這個錨(Q-窗名字, Sean 2026-08-25 拍乙維持共用 git 身分)
+  #    在決策板 / 等Sean / launch-todo 三處皆 0 ⇒ 撈得到 = memory 那條腿真的活著。
+  local T5 Z5
+  T5="$(mktemp -t basel5)"
+  sweep 'Q-窗名字' > "$T5" 2>&1
+  Z5="$(sed -n '/② Sean 答過了嗎/,/③ 答案寫在碼裡嗎/p' "$T5" | grep -o '零命中' | wc -l | tr -d ' ')"
+  if [ "$Z5" -eq 0 ]; then printf '  ✅ memory 腿正對照 Q-窗名字 ⇒ 段② 撈到了(零命中數 %s)⇒ 那條腿真的接上了\n' "$Z5"
+  else printf '  🔴 memory 腿沒接上(零命中數 %s)⇒ 它會在他答過的題上印零命中\n' "$Z5"; RC=1; fi
 
 
   # ══ 🔴 第二輪的兩發(2026-08-30 加;**這一格是「第二輪成不成立」的唯一判準**)══
