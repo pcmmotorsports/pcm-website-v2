@@ -226,6 +226,8 @@ A=$(grep '^ANON=' $S/jwts.txt | cut -d= -f2-); SR=$(grep '^SERVICE=' $S/jwts.txt
 cd "$REPO/apps/admin"
 ADMIN_DEV_BYPASS=1 \
 ADMIN_SESSION_SECRET="$SECRET" \
+REFUND_UI_ENABLED="${REFUND_UI_ENABLED:-}" \
+AUDIT_UI_ENABLED="${AUDIT_UI_ENABLED:-}" \
 NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:$PROXY \
 NEXT_PUBLIC_SUPABASE_ANON_KEY="$A" \
 SUPABASE_SERVICE_ROLE_KEY="$SR" \
@@ -359,6 +361,12 @@ if [ "$FAILED" = "0" ]; then
   echo "      · 真登入流程(SSO callback / 報價單那一側)—— 完全沒有走到"
   echo "      · 「非管理者會被擋下」—— 種子那一列是 is_manager=true;要驗擋下要改成 false 再跑一次"
   echo
+  echo "   🔌 要驗【被旗標關著】那幾格(板 :433 的 #17 / #27)⇒ 起站時帶旗標:"
+  echo "        REFUND_UI_ENABLED=1 AUDIT_UI_ENABLED=1 <你原本那串 env> bash scripts/admin-probe/up.sh"
+  echo "      🔴 **預設不帶 = 關著** —— 那是正式站今天的樣子, 不要為了看得到而預設打開。"
+  echo "      ⚠️ 兩個都【不是】 NEXT_PUBLIC_* ⇒ 只有 server 讀得到; 側欄那顆是 client,"
+  echo "         它靠 layout 傳下去(見 app-sidebar.tsx 檔頭那段量法)。"
+  echo ""
   echo "   收攤:  bash scripts/admin-probe/down.sh"
 else
   echo "🔴 自檢沒過 —— **不要拿這個環境下任何結論**。log 在 $S/"
