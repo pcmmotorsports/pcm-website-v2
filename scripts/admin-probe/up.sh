@@ -153,7 +153,16 @@ CREATE ROLE authenticator LOGIN NOINHERIT;
 GRANT anon, authenticated, service_role TO authenticator;
 CREATE SCHEMA auth;
 -- 🔴 `id` 一欄不夠:`handle_new_auth_user()` trigger 會讀 NEW.email 與 NEW.raw_user_meta_data。
-CREATE TABLE auth.users (id uuid PRIMARY KEY, email text, raw_user_meta_data jsonb DEFAULT '{}'::jsonb);
+-- 🔴🔴 **2026-08-30 加了兩欄, 而理由不是「補完整」, 是【不補會讓一道安全檢查 fail-open】**:
+--    `manual-customer.ts:297` 拿 `getUserById(...).app_metadata` 去判「這個既有帳號是不是我們自己建的」
+--    (codex R2 擊破過一次的那條:**未驗 app_metadata ⇒ 搶註者會被當成這張表單的既有客人**)。
+--    骨架若沒有 `raw_app_meta_data`, 替身只能回 undefined ⇒ **那道檢查在鑽機上恆過**
+--    ⇒ 📌 **一個【少一欄】的骨架, 會讓一道真的安全檢查在這條鏈上永遠印綠。**
+-- 🔴 `email` 加 UNIQUE:`createManualCustomer` 的**冪等靠它**(同一個佔位信箱重送 ⇒ 唯一鍵撞到
+--    ⇒ 那不是失敗, 是第一發已經建好了)。沒有這個約束, 重送會安靜地建出第二個帳號 ——
+--    而那正是那支檔逐字警告「那種帳號**刪不掉**, 而且他之後登入會看不到自己的單」的情境。
+CREATE TABLE auth.users (id uuid PRIMARY KEY, email text UNIQUE, raw_user_meta_data jsonb DEFAULT '{}'::jsonb,
+                         raw_app_meta_data jsonb DEFAULT '{}'::jsonb, created_at timestamptz DEFAULT now());
 CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA extensions;
 -- 🔴🔴 pgcrypto **一定要在 extensions 這個 schema**:少了它(或裝進 public)⇒
@@ -218,7 +227,10 @@ print("SERVICE="+tok("service_role"))
 PY
 
 cp "$SP/proxy.py" $S/proxy.py
-nohup python3 $S/proxy.py "$PREST" "$PROXY" > $S/proxy.log 2>&1 &
+# 🔴 第三個參數 = 拋棄式 PG 的埠 —— 沒帶的話 proxy 裡那兩支 `/auth/v1/admin/users`
+#    替身**自動停用**(而不是壞掉):`PG_PORT is None ⇒ _auth 直接回 False ⇒ 照舊轉給 PostgREST`。
+#    ⇒ 那是刻意的:少一個參數應該讓它退回舊行為, 不是讓它半開。
+nohup python3 $S/proxy.py "$PREST" "$PROXY" "$PG" > $S/proxy.log 2>&1 &
 sleep 2
 
 # ── ⑦ 真後台 ─────────────────────────────────────────────────────────────
