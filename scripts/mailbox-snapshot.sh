@@ -87,6 +87,17 @@ snapshot() {
       iso="${ny:0:4}-${ny:4:2}-${ny:6:2} ${nt:0:2}:${nt:2:2}:${nt:4:2}"
       prev_epoch=$(date -j -f '%Y-%m-%d %H:%M:%S' "$iso" '+%s' 2>/dev/null \
                    || date -d "$iso" '+%s' 2>/dev/null || echo '')
+      # 🔴🔴 2026-08-31 四修(報價單線提, `-48` 做):**「讀不到」不是「沒跑過」**。
+      #    三修的第一版:算不出上一份的時刻 ⇒ 落到「那就跑」⇒ 而跑 = 會刪。
+      #    ⇒ 📌 那正是它在【最該擋的那一次】(目錄被清、名字被弄壞、狀態不可讀)剛好不擋。
+      #    ✅ 修法不是「讀不到就不跑」(那會變成永遠不備份) ——
+      #       是把【建快照】與【刪舊的】分開:讀不到 ⇒ **照樣建, 而【一份都不刪】**。
+      #       理由:這一支的傷害在【刪】那一半, 不在【建】那一半。
+      if [ -z "$prev_epoch" ]; then
+        AGE_UNKNOWN=1
+        printf '⚠️  算不出上一份快照的時刻(最新那份叫 %s)\n' "$newest"
+        printf '   ⇒ 🔴 這【不是】「沒跑過」⇒ 本次【照樣建快照, 而一份都不刪】。\n'
+      fi
       if [ -n "$prev_epoch" ]; then
         age_min=$(( ( $(date '+%s') - prev_epoch ) / 60 ))
         if [ "$age_min" -lt "$MIN_MIN" ]; then
@@ -132,7 +143,9 @@ snapshot() {
   [ "$n_dst" -gt 0 ] || die_tool "內部矛盾:快照檔數 0 而上面檢查過了 ⇒ 不刪任何舊快照"
 
   total=$(ls -1 "$SNAP_ROOT" | wc -l | tr -d ' ')
-  if [ "$total" -le "$KEEP" ]; then
+  if [ -n "${AGE_UNKNOWN:-}" ]; then
+    printf '   🛑 因為算不出上一份的時刻 ⇒ **這一輪一份都不刪**(現有 %s 份 / 上限 %s)\n' "$total" "$KEEP"
+  elif [ "$total" -le "$KEEP" ]; then
     printf '   現有 %s 份 / 上限 %s ⇒ 這一輪沒有東西要刪\n' "$total" "$KEEP"
   else
     LIST=$(mktemp) || die_tool "mktemp 失敗"
