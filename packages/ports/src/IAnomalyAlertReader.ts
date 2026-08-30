@@ -23,5 +23,13 @@ export interface IAnomalyAlertReader {
     refundingStuckSeconds: number,
     pendingDcWindowSeconds: number,
     pendingDcStuckSeconds: number,
+    /**
+     * 🔵 出貨信起始線(ISO 8601 UTC;對應 env `SHIPPED_EMAIL_CUTOFF`;2026-08-31 Sean `2 甲`)。
+     * 🛑 **`null` = 那一段整段不查** —— 而那不是失敗, 是「還沒上膛」;
+     *   實作要落 `shippedGapUnknown`, **不得寫成 0**。
+     */
+    shippedCutoffIso: string | null,
+    /** 🔵 出貨信寬限秒數(Sean `2 甲` = 15 分鐘 = 3 次掃描;呼叫端常數注入、無 DEFAULT)。 */
+    shippedGraceSeconds: number,
   ): Promise<AnomalyAlertSummary>;
 }

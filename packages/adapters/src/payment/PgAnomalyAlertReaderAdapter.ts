@@ -59,6 +59,14 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
     refundingStuckSeconds: number,
     pendingDcWindowSeconds: number,
     pendingDcStuckSeconds: number,
+    /**
+     * 🔵 出貨信起始線(ISO 8601 UTC;對應 env `SHIPPED_EMAIL_CUTOFF`)。
+     * 🛑 **`null` = 那一段【整段不查】** —— 而那不是失敗, 是「還沒上膛」。
+     *   ⇒ 落 `shippedGapUnknown`, 而那個狀態由呼叫端印在 log 上(不進 `shouldAlert`)。
+     */
+    shippedCutoffIso: string | null,
+    /** 🔵 出貨信寬限秒數(Sean `2 甲` = 15 分鐘 = 3 次掃描;route 常數注入)。 */
+    shippedGraceSeconds: number,
   ): Promise<AnomalyAlertSummary> {
     return this.run(async (client) => {
       const args = [refundingStuckSeconds, pendingDcWindowSeconds, pendingDcStuckSeconds];
@@ -168,7 +176,58 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         if (probe.rows[0]?.missing !== true) throw err;
       }
 
-      return parseAlertSummary(counts.rows, ids, refundRows, emailRows);
+      /**
+       * 🔵 **出貨信缺口計數**(2026-08-31;Sean 逐字答 `2 甲`;RPC `get_shipped_email_gap_counts`)。
+       *
+       * 🛑 **只有【起始線有值】才呼叫** —— 那支 RPC 的兩個參數**無 DEFAULT**,
+       *   而它自己的閘會對 `NULL` 直接 `RAISE`(那是刻意的:`NULL` 比較 = UNKNOWN ⇒ 恆回 0 = 靜默漏報)。
+       *   ⇒ 沒有起始線 ⇒ **不呼叫**, 落 `shippedGapUnknown` ⇒ 而那個狀態由呼叫端印在 log 上。
+       * 🔴 降級**逐字沿用寄信那條**:`42883` → `to_regprocedure` 複查 → 真的不存在 ⇒ unknown;
+       *   oid 回得出來 ⇒ 原封上拋;`42501` ⇒ 原封上拋。
+       *   **而 unknown 不寫成 0** —— 「讀不到」與「一切正常」在一個裸數字上長得一模一樣。
+       */
+      let shippedRows: Array<Record<string, unknown>> = [];
+      if (shippedCutoffIso !== null) {
+        try {
+          const res = await client.query(
+            'SELECT public.get_shipped_email_gap_counts($1::timestamptz, $2::integer) AS result',
+            [shippedCutoffIso, shippedGraceSeconds],
+          );
+          shippedRows = res.rows;
+        } catch (err) {
+          const code = (err as { code?: unknown } | null)?.code;
+          /**
+           * 🔴🔴 **`P0001` = 那支函式【自己的參數閘】RAISE 了**(`-48` 2026-08-31 指名的驗收)。
+           *
+           * **我量過現在會怎樣, 沒有猜**:`P0001` 原封上拋 ⇒ `getAlertSummary` throw
+           * ⇒ use-case throw ⇒ route 503 ⇒ **今晚一封告警都不寄**。
+           * ⇒ 📌 **一個【設定問題】把整條告警帶走了** —— 而那正是告警最該在的那一晚。
+           *
+           * 🛑 **而它也不可以被吞成 0** —— 那會把片1 剛裝上的 fail-closed 在下游拆掉
+           *   (那支函式的閘存在的理由就是「NULL ⇒ 恆回 0 = 靜默漏報」)。
+           * ✅ **⇒ 兩個都不要:降級成 `unknown` + 一行 `console.error`。**
+           *   `unknown` 不進 `shouldAlert`, 而 route 在【起始線有設】時據它回 503
+           *   ⇒ **那一段變成「查不到」, 而不是「0」, 也不是「整條沒了」。**
+           * ⚠️ **只降級 `P0001`** —— `42501`(權限)與其他碼**照舊原封上拋**:
+           *   那些不是設定問題, 而把它們吞掉會讓一個真的壞掉被讀成「還沒上膛」。
+           */
+          if (code === RAISE_EXCEPTION) {
+            console.error(
+              '[anomaly-alert] 🔴 get_shipped_email_gap_counts 自己 RAISE 了(參數閘)⇒ 出貨缺口那一段降級成【查不到】,而其他告警照常送',
+              { code: RAISE_EXCEPTION, reason: 'shipped_gap_rpc_raised' },
+            );
+          } else {
+            if (code !== UNDEFINED_FUNCTION) throw err;
+            const probe = await client.query(
+              "SELECT to_regprocedure('public.get_shipped_email_gap_counts(timestamptz,integer)') IS NULL AS missing",
+              [],
+            );
+            if (probe.rows[0]?.missing !== true) throw err;
+          }
+        }
+      }
+
+      return parseAlertSummary(counts.rows, ids, refundRows, emailRows, shippedRows);
     });
   }
 
@@ -217,6 +276,9 @@ const EMAIL_SIGNAL1_GRACE_SECONDS = 3600;
 
 const REFUNDS_FN = 'get_order_refunds_stuck_summary';
 const EMAIL_FN = 'get_email_outbox_deadman_counts';
+const SHIPPED_FN = 'get_shipped_email_gap_counts';
+/** PG `raise_exception` —— plpgsql 的 `RAISE EXCEPTION` 預設就是這個 SQLSTATE。 */
+const RAISE_EXCEPTION = 'P0001';
 
 /**
  * 非負整數解析(count 欄;非有限/負 → throw fail-closed)。
@@ -280,6 +342,7 @@ function parseAlertSummary(
   idRows: Array<Record<string, unknown>>,
   refundRows: Array<Record<string, unknown>>,
   emailRows: Array<Record<string, unknown>>,
+  shippedRows: Array<Record<string, unknown>>,
 ): AnomalyAlertSummary {
   const r = rows[0]?.result as Record<string, unknown> | undefined;
   if (!r || typeof r !== 'object') {
@@ -338,6 +401,14 @@ function parseAlertSummary(
   const emailCount = (key: string): number | null =>
     emailOutboxUnknown ? null : parseCount(em![key], key, EMAIL_FN);
 
+  const sp = shippedRows[0]?.result as Record<string, unknown> | undefined;
+  const shippedGapUnknown = sp === undefined;
+  if (!shippedGapUnknown && (sp === null || typeof sp !== 'object')) {
+    throw new AnomalyAlertReaderParseError(`${SHIPPED_FN} 回應格式異常(函式存在但回了 NULL 或非物件)`);
+  }
+  const shippedCount = (key: string): number | null =>
+    shippedGapUnknown ? null : parseCount(sp![key], key, SHIPPED_FN);
+
   return {
     emailOverdueCount: emailCount('signal1_overdue_count'),
     emailDeadLetterCount: emailCount('signal2_dead_letter_count'),
@@ -349,6 +420,12 @@ function parseAlertSummary(
     //   ⇒ 沒有它, 上面五個 0 在「一切正常」與「這張表是空的」之間分不出來。
     emailOutboxTotalCount: emailCount('total_count'),
     emailOutboxUnknown,
+    // 🔵 出貨缺口那三格(2026-08-31)。空陣列 = 沒呼叫(起始線沒設)或函式不存在 ⇒ unknown。
+    //   🔴 **不寫成 0** —— 「讀不到」與「一切正常」在一個裸數字上長得一模一樣。
+    shippedNeverEnqueuedCount: shippedCount('shipped_never_enqueued_count'),
+    shippedUnsendableCount: shippedCount('shipped_unsendable_count'),
+    shipmentsTotalCount: shippedCount('shipments_total_count'),
+    shippedGapUnknown,
     openCount: parseCount(r.open_count, 'open_count'),
     refundingCount: parseCount(r.refunding_count, 'refunding_count'),
     refundingStuckCount: parseCount(r.refunding_stuck_count, 'refunding_stuck_count'),

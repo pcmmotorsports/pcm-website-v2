@@ -44,6 +44,14 @@ export type CheckAnomalyAlertsOptions = {
   pendingDoubleChargeWindowSeconds: number;
   /** #256 卡住指紋門檻秒數(charged attempt updated_at-created_at 逾此才算卡住;route 常數、預設 10min)。 */
   pendingDoubleChargeStuckSeconds: number;
+  /**
+   * 🔵 出貨信起始線(ISO 8601 UTC;來自 env `SHIPPED_EMAIL_CUTOFF`;2026-08-31 Sean `2 甲`)。
+   * 🛑 **`null` = 那一段整段不查** —— 而那不是失敗, 是「**還沒上膛**」。
+   *   ⇒ 落 `shippedGapUnknown`, **不進 `shouldAlert`**;而那個狀態由 route 印在 log 上。
+   */
+  shippedCutoffIso: string | null;
+  /** 🔵 出貨信寬限秒數(Sean `2 甲` = 15 分鐘 = 3 次掃描;route 常數注入)。 */
+  shippedGraceSeconds: number;
 };
 
 /** CheckAnomalyAlertsResult:結構化摘要(零 PII counts only;route log/回應用)。 */
@@ -67,6 +75,19 @@ export type CheckAnomalyAlertsResult = {
   /** ②終態半(只進信尾那一行,**不進 `shouldAlert`**;Sean 2026-08-24 拍甲)。 */
   orderRefundsManualFailedCount: number | null;
   orderRefundsStuckUnknown: boolean;
+  /**
+   * 🔵 出貨信缺口那三格(2026-08-31;Sean `2 甲`)。
+   * 🔴 **[codex R1 must-fix 1]**:片1 給那支 RPC 裝了 fail-closed(NULL 參數 ⇒ RAISE),
+   *   而**片2 若不把 `shippedGapUnknown` 帶到 result 上, 那道 fail-closed 在下游就被拆掉了** ——
+   *   起始線【有設】而 RPC【不存在】⇒ route 會安靜回 200, 沒有 info、沒有 503、沒有旗標。
+   * ⇒ 📌 **片1 讓那三個數字讀得到, 而片2 決定【讀不到的時候印什麼】—— 後者才是承重件。**
+   * ⚠️ **而它與 `emailOutboxUnknown` 的處置【不同】**:那一個一律 503;
+   *   這一個**只有在「起始線有設」時才 503** —— 沒設是「還沒上膛」= 正常, 由 route 印一行 info。
+   */
+  shippedNeverEnqueuedCount: number | null;
+  shippedUnsendableCount: number | null;
+  shipmentsTotalCount: number | null;
+  shippedGapUnknown: boolean;
   /**
    * 🔴 M-4a:寄信那支 RPC 是不是【讀不到】(尚未 apply / 權限問題)。
    * route 依它回 **503**,而不是寄一封「尚未啟用」的信(部署問題走部署管道)。
@@ -577,6 +598,12 @@ export function buildAnomalyAlertMessage(
   emailPush(summary.emailQuotaSuspectedCount, '⚠️ 大量被擋(可能是額度,也可能只是一時被限流)');
   emailPush(summary.emailOverdueCount, '該重試而沒有人重試的信');
   emailPush(summary.emailStuckSendingCount, '卡在「寄送中」出不來的信');
+  // 🔵 出貨信缺口(2026-08-31;Sean `2 甲`)。用【不同的字】—— 它不是「信寄不出去」,
+  //   是「**信根本沒有被建出來**」⇒ 去看的地方不一樣。
+  emailPush(summary.shippedNeverEnqueuedCount, '🔴 貨出了而通知信【根本沒被排進佇列】');
+  // 🔵 而這一格與上一格【不同種】:不是系統壞掉, 是**我們沒有那個客人的信箱**。
+  //   ⇒ 併起來 = 用一種原因的文案報另一種原因(與 5-a / 5-b 分開的理由相同)。
+  emailPush(summary.shippedUnsendableCount, '⚠️ 貨出了而那張單【兩個信箱都是空的】⇒ 寄不出去');
   // 🔴 這一行【不走 emailPush】—— 它不是「幾封信」, 它是「一封都沒有」。
   //   ⇒ 文案刻意寫成兩種可能, **不猜是哪一種**:「這張表是空的」與「讀不到資料」
   //     在這一格底下**分不出來**, 而寫死其中一個會把人送去修錯的東西。
@@ -791,6 +818,8 @@ export async function checkAnomalyAlerts(
     opts.refundingStuckSeconds,
     opts.pendingDoubleChargeWindowSeconds,
     opts.pendingDoubleChargeStuckSeconds,
+    opts.shippedCutoffIso,
+    opts.shippedGraceSeconds,
   );
 
   /**
@@ -898,7 +927,12 @@ export async function checkAnomalyAlerts(
     //   🛑 **`emailOutboxUnknown` 必須排除**:那是「函式不存在」= 部署問題, 走 503 那條路;
     //     而它會讓五個 count 全是 `null` ⇒ `?? 0` 之後長得與「真的全 0」一模一樣。
     //     ⇒ 📌 **兩個不同的世界, 在 `?? 0` 之後印同一組 0 —— 那正是本片要防的形狀本身。**
-    isEmailOutboxSilentlyEmpty(summary);
+    isEmailOutboxSilentlyEmpty(summary) ||
+    // 🔵 出貨信缺口(2026-08-31;Sean 逐字答 `2 甲`:「大於 0 就叫」)。
+    //   🛑 `?? 0` 在這裡是安全的:unknown 那條路 adapter 回 `null` ⇒ 不叫,
+    //     而那是刻意的 —— **部署問題 / 還沒上膛走別的管道, 不變成一封每天寄的信。**
+    (summary.shippedNeverEnqueuedCount ?? 0) > 0 ||
+    (summary.shippedUnsendableCount ?? 0) > 0;
 
   let notifiersTotal = 0;
   let notifiersFailed = 0;
@@ -953,6 +987,10 @@ export async function checkAnomalyAlerts(
     orderRefundsStuckOvernightCount: summary.orderRefundsStuckOvernightCount,
     orderRefundsManualFailedCount: summary.orderRefundsManualFailedCount,
     orderRefundsStuckUnknown: summary.orderRefundsStuckUnknown,
+    shippedNeverEnqueuedCount: summary.shippedNeverEnqueuedCount,
+    shippedUnsendableCount: summary.shippedUnsendableCount,
+    shipmentsTotalCount: summary.shipmentsTotalCount,
+    shippedGapUnknown: summary.shippedGapUnknown,
     /**
      * 🔴 **這一行是本片【最重要】的一行,而我差點沒寫。**
      * 上面把五格排除在 `shouldAlert` 之外,理由是「部署問題走部署管道」——

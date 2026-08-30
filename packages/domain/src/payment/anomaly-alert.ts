@@ -150,6 +150,37 @@ export type AnomalyAlertSummary = {
    */
   emailOutboxTotalCount: number | null;
   /**
+   * 🔴 **出貨信缺口:貨出了、有收件信箱、而通知信【還沒被排進佇列】,且已過寬限。**
+   * (2026-08-31;Sean 逐字答 `2 甲`;RPC `get_shipped_email_gap_counts`;板上錨 `⟦b4-EMAILEMPTY⟧` 出貨那半)
+   *
+   * ⚠️ **它與上面五個訊號的分母【不同】**:那五個數 `email_outbox` 裡的列;
+   * 這一個數的是**那張表裡【應該有而沒有】的列** —— 分母來自 `pcm_shipped_email_pending` 那支 view。
+   * ⇒ 📌 **所以它是唯一一個「東西沒被建出來」看得到的訊號。**
+   */
+  shippedNeverEnqueuedCount: number | null;
+  /**
+   * 🔵 **另一種壞法**:貨出了,而那張單**兩個信箱都是空的** ⇒ 它不會進佇列。
+   * **而那不是系統壞掉, 是我們沒有那個客人的信箱。**
+   * ⇒ 分開數的理由與 5-a / 5-b 同一個:**併起來 = 用一種原因的文案報另一種原因。**
+   */
+  shippedUnsendableCount: number | null;
+  /**
+   * 🔴 **分母**:未刪的 `shipments` 總數。
+   * ⚠️ **它是【全域存活量】, 不是「本告警視窗的分母」** —— 含未出貨、也含起始線以前的。
+   * 它答的是「**這裡到底有沒有出貨資料**」。
+   * ⇒ 📌 **一個分母的用途要寫在它旁邊, 否則下一個人會拿它去算比率。**
+   */
+  shipmentsTotalCount: number | null;
+  /**
+   * 🔴 上面三個是不是**讀不到**(RPC 尚未 apply / 起始線沒設)。
+   * ⚠️ 與 `emailOutboxUnknown` 同族:**它刻意【不】進 `shouldAlert`** ——
+   * 部署問題走部署管道, 不變成一封每天寄的信。
+   * 🛑 **而它比那一個多一種成因**:`SHIPPED_EMAIL_CUTOFF` 沒設 ⇒ 那支 RPC 不能呼叫
+   *   (它的參數無 DEFAULT, 而 NULL 會被它自己的閘擋下)⇒ **也落這一格。**
+   *   ⇒ 而那個狀態**在 log 上看得見**(呼叫端印一行), 不靠這個旗標。
+   */
+  shippedGapUnknown: boolean;
+  /**
    * 🔴 上面五個是不是**讀不到**。
    * ⚠️ **它只代表【函式不存在】(部署窗口),不代表權限問題**(codex 2026-08-29 nit:
    *    原句寫「RPC 尚未 apply / 權限問題」是錯的)—— `42501` 在 adapter 是**原封上拋**,

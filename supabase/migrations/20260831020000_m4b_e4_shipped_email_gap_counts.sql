@@ -126,6 +126,18 @@ COMMENT ON FUNCTION public.get_shipped_email_gap_counts(timestamptz, integer) IS
 --    ⇒ 那是**既有的角色成員缺口**, 不是本片新增的;寫在這裡是為了不讓下一個人把它讀成完整證明。
 -- 🔴 新物件**出生就自帶 anon 權限**,而 repo 內零 `GRANT` 字面可掃、三綠不紅。
 --    (docs/patterns/revoking-function-execute-in-supabase.md:「兩道 REVOKE,少一道都是開的」)
+-- 🔴🔴 **[2026-08-31 實測 —— 而這一段是【給想刪掉 `anon` 的下一個人】看的]**
+--   我在拋棄式 PG 上跑過一發突變:**把上面那行的 `anon` 拿掉** ⇒ **rc=0, 一聲不吭。**
+--   ⇒ 而我沒有猜為什麼, 我量了:那個世界裡新函式對 `anon` 的 EXECUTE
+--     是**經由 `PUBLIC` 來的**(實測:一支完全沒 REVOKE 的新函式,
+--     `has_function_privilege('anon', …)` ⇒ **true**)
+--     ⇒ 一道 `REVOKE ... FROM PUBLIC` 就已經拿掉那條路。
+--   🛑 **⇒ 所以那一發【不是證明 `anon` 是多餘的】, 是證明【我的測試世界少了一層】** ——
+--     `docs/patterns/revoking-function-execute-in-supabase.md` 那個四臂實測是在
+--     **Supabase 的預設授權**之上做的(`anon` 在那裡有**直接的**授權), 而拋棄式 PG 沒有那一層。
+--   🔴 **⇒ 不要因為「本機重跑它不炸」就刪掉 `anon`。**
+--     那一發在拋棄式 PG 上殺不掉、在正式庫上殺得掉, **而那個差沒有別的地方記著。**
+--   📌 **⇒ 一個在錯的世界裡跑的負對照, 會給你一個【看起來像好消息】的 rc=0。**
 REVOKE ALL ON FUNCTION public.get_shipped_email_gap_counts(timestamptz, integer)
   FROM PUBLIC, anon, authenticated, service_role, payment_confirmer;
 GRANT EXECUTE ON FUNCTION public.get_shipped_email_gap_counts(timestamptz, integer)

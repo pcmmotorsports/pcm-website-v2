@@ -32,6 +32,12 @@ const ZERO: AnomalyAlertSummary = {
   //   那條新路 ⇒ 一片本來與本片無關的測試會開始紅, 而紅的理由與它們要測的事無關。
   //   📌 而更糟的是反過來:給 0 而那條路【沒接上】時, 沒有任何一格會發現。
   emailOutboxTotalCount: 12,
+  // 🔵 出貨那三格:預設 fixture 給【0 + 已知】—— 不叫, 而不是 unknown。
+  //   🔴 給 unknown(null)會讓「它有沒有被接上」在既有每一格底下【都看不出來】。
+  shippedNeverEnqueuedCount: 0,
+  shippedUnsendableCount: 0,
+  shipmentsTotalCount: 5,
+  shippedGapUnknown: false,
   emailOutboxUnknown: false,
   openDisplayIds: [],
   refundingStuckDisplayIds: [],
@@ -60,6 +66,8 @@ const OPTS = {
   refundingStuckSeconds: 86400,
   pendingDoubleChargeWindowSeconds: 43200,
   pendingDoubleChargeStuckSeconds: 600,
+  shippedCutoffIso: null,
+  shippedGraceSeconds: 900,
 };
 
 describe('checkAnomalyAlerts — 門檻矩陣', () => {
@@ -549,9 +557,18 @@ describe('checkAnomalyAlerts — 計數透傳(telemetry 零 PII)', () => {
     const r = reader(ZERO);
     await checkAnomalyAlerts(
       { reader: r, notifiers: [okNotifier()] },
-      { refundingStuckSeconds: 43200, pendingDoubleChargeWindowSeconds: 3600, pendingDoubleChargeStuckSeconds: 900 },
+      {
+        refundingStuckSeconds: 43200,
+        pendingDoubleChargeWindowSeconds: 3600,
+        pendingDoubleChargeStuckSeconds: 900,
+        shippedCutoffIso: '2026-08-31T00:00:00.000Z',
+        shippedGraceSeconds: 900,
+      },
     );
-    expect(r.getAlertSummary).toHaveBeenCalledWith(43200, 3600, 900);
+    // 🔵 出貨那兩個參數也要【真的傳下去】(2026-08-31)——
+    //   🔴 少了這一格, 一個「在 use-case 裡寫死 null」的實作會讓上面所有格全綠,
+    //     而那正好等於「那一段永遠不查」。
+    expect(r.getAlertSummary).toHaveBeenCalledWith(43200, 3600, 900, '2026-08-31T00:00:00.000Z', 900);
   });
 });
 
@@ -1044,6 +1061,66 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
             emailQuotaSuspectedCount: null,
             emailOutboxTotalCount: null,
             emailOutboxUnknown: true,
+          }),
+      },
+      notifiers: [notifier],
+    }, OPTS);
+    expect(res.alerted).toBe(false);
+    expect(notifier.notify).not.toHaveBeenCalled();
+  });
+
+  // ══ 🔵🔵 出貨信缺口(2026-08-31;Sean 逐字答 `2 甲`:「大於 0 就叫」)══
+  it('[E5a] 🔴 貨出了而通知信沒被排進佇列 ⇒ 要叫,而用【與寄不出去不同的字】', async () => {
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    const res = await checkAnomalyAlerts({
+      reader: { getAlertSummary: async () => withEmail({ shippedNeverEnqueuedCount: 3 }) },
+      notifiers: [notifier],
+    }, OPTS);
+    expect(res.alerted).toBe(true);
+    const body = (notifier.notify.mock.calls[0]![0] as { text: string }).text;
+    expect(body).toContain('根本沒被排進佇列');
+    // 🔴 它與「兩個信箱都是空的」是【兩種病】—— 併起來 = 用一種原因的文案報另一種原因。
+    expect(body).not.toContain('兩個信箱都是空的');
+  });
+
+  it('[E5b] 🔴 兩個信箱都空 ⇒ 也要叫,而【那不是系統壞掉】,字要不一樣', async () => {
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    const res = await checkAnomalyAlerts({
+      reader: { getAlertSummary: async () => withEmail({ shippedUnsendableCount: 2 }) },
+      notifiers: [notifier],
+    }, OPTS);
+    expect(res.alerted).toBe(true);
+    const body = (notifier.notify.mock.calls[0]![0] as { text: string }).text;
+    expect(body).toContain('兩個信箱都是空的');
+    expect(body).not.toContain('根本沒被排進佇列');
+  });
+
+  it('[E5c] 🔴 負對照:兩格都是 0 ⇒ 不叫(它不是恆叫)', async () => {
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    const res = await checkAnomalyAlerts({
+      reader: {
+        getAlertSummary: async () =>
+          withEmail({ shippedNeverEnqueuedCount: 0, shippedUnsendableCount: 0 }),
+      },
+      notifiers: [notifier],
+    }, OPTS);
+    expect(res.alerted).toBe(false);
+    expect(notifier.notify).not.toHaveBeenCalled();
+  });
+
+  it('[E5d] 🔴🔴 還沒上膛 / 讀不到(unknown ⇒ 三個都是 null)⇒ 【不叫】', async () => {
+    // 🛑 這一格與 E4 同一個理由, 而它多防一種成因:
+    //   `SHIPPED_EMAIL_CUTOFF` 沒設 ⇒ adapter 根本不呼叫那支 RPC ⇒ 也落 unknown。
+    //   ⇒ 而那個狀態【由 route 印在 log 上】, 不變成一封每天寄的信。
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    const res = await checkAnomalyAlerts({
+      reader: {
+        getAlertSummary: async () =>
+          withEmail({
+            shippedNeverEnqueuedCount: null,
+            shippedUnsendableCount: null,
+            shipmentsTotalCount: null,
+            shippedGapUnknown: true,
           }),
       },
       notifiers: [notifier],

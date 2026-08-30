@@ -225,7 +225,68 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
       refundingStuckSeconds: 86400,
       pendingDoubleChargeWindowSeconds: 43200,
       pendingDoubleChargeStuckSeconds: 600,
+      // 🔵 出貨那兩個(2026-08-31;Sean `2 甲`)。本檔沒設 env ⇒ 起始線是 null = 那一段不查。
+      //   🛑 這裡用【完整物件比對】不是 toMatchObject —— 多一個沒有人拍板的 option 會紅。
+      shippedCutoffIso: null,
+      shippedGraceSeconds: 900,
     });
+  });
+
+  it('🔵 SHIPPED_EMAIL_CUTOFF 有設 ⇒ 起始線【真的傳下去】,而且沒有那一行 log', async () => {
+    // 🔴 沒有這一格,一個「在 route 裡寫死 null」的實作會讓上面那格全綠 ——
+    //   而那正好等於【出貨缺口那一段永遠不查】。
+    process.env.SHIPPED_EMAIL_CUTOFF = '2026-08-20T00:00:00.000Z';
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await GET(makeReq(bearer()));
+
+    expect(checkSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ shippedCutoffIso: '2026-08-20T00:00:00.000Z', shippedGraceSeconds: 900 }),
+    );
+    // 🔴 上膛了就【不該】再印那一行 —— 否則它是一個無條件的標籤,不是一個訊號。
+    expect(JSON.stringify(infoSpy.mock.calls)).not.toContain('還沒上膛');
+    infoSpy.mockRestore();
+    delete process.env.SHIPPED_EMAIL_CUTOFF;
+  });
+
+  it('🔴 負對照:env 設成空白 ⇒ 仍然是 null(不得把空字串當成一個起始線)', async () => {
+    process.env.SHIPPED_EMAIL_CUTOFF = '   ';
+    await GET(makeReq(bearer()));
+    expect(checkSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ shippedCutoffIso: null }),
+    );
+    delete process.env.SHIPPED_EMAIL_CUTOFF;
+  });
+
+  it('🔴🔴 起始線【有設】而那支 RPC 讀不到 ⇒ 回 503(不得安靜回 200)', async () => {
+    // 🔴 codex R1 must-fix 1:片1 給那支 RPC 裝了 fail-closed,
+    //   而若這裡不看 shippedGapUnknown, 那道 fail-closed 在下游就被拆掉了。
+    process.env.SHIPPED_EMAIL_CUTOFF = '2026-08-20T00:00:00.000Z';
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, shippedGapUnknown: true });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    expect((await res.json()).ok).toBe(false);
+    errSpy.mockRestore();
+    delete process.env.SHIPPED_EMAIL_CUTOFF;
+  });
+
+  it('🔴🔴 負對照:起始線【沒設】而同樣 unknown ⇒ 仍然 200(還沒上膛不是失敗)', async () => {
+    // 🛑 這一格是上一格唯一會出錯的地方:少了它, 一個「一律 503」的實作會讓上一格全綠,
+    //   而那會讓一個【還沒設定】的功能每天把整支 cron 弄紅一次。
+    delete process.env.SHIPPED_EMAIL_CUTOFF;
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, shippedGapUnknown: true });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+  });
+
+  it('🔴 沒設 ⇒ 那一行 log【要印】,而訊息含那顆 env 的名字', async () => {
+    delete process.env.SHIPPED_EMAIL_CUTOFF;
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await GET(makeReq(bearer()));
+    expect(JSON.stringify(infoSpy.mock.calls)).toContain('SHIPPED_EMAIL_CUTOFF');
+    infoSpy.mockRestore();
   });
 
   it('deps = getAnomalyAlertDeps() 注入', async () => {
