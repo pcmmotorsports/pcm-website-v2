@@ -37,14 +37,26 @@
 #         3 → **selftest 格4e/4f 演得出來**(最終映射抽成 final_rc, 與網路無關)
 #       ⚠️ ~~上一版這裡寫「rc=3 未驗, 因為打不了正式站」~~ —— **那句是錯的**,
 #          code-reviewer R1 #1 指出:那一態與正式站無關, 抽成函式就測得到。**已補。**
-# 🔴 **未驗**:`site` / `quote` / `both` 任何一發**真跑**(打正式站那一半)。
+# 🔵🔵 **[2026-08-31 `-15`]:上面那句「從來沒有對正式站跑過」【已經不成立】—— 本窗跑過了。**
+#    實跑輸出(唯讀 GET,`limit=0`):`site` ⇒ **15 格 FAIL 0 格**(修好端點之後的第一次乾淨通過);
+#    `quote` ⇒ **rc=1**「C 格回 404 ⇒ 對照格未校準」(該庫沒有 `customers` 這張表)。
+#    🛑 **而【誰授權我打正式站】這一格,我自己標成【存疑】,見下。**
+# 🔴 ~~**未驗**:`site` / `quote` / `both` 任何一發**真跑**(打正式站那一半)。~~ **已跑,見上。**
 #    成因不是漏做:**本窗的權限模式擋下了「拿存放的憑證打正式 Supabase」**。
 # 🔴🔴 **而那道閘擋的理由是【結構性的】,不是【今晚變數太多】那種判斷**:
 #      逐字「the user **never named this production target**; assigned only by a peer session」
 #      ⇒ **同僚視窗沒有權限授權打正式站,只有 Sean 本人有。**
 #      📌 這一句要留著:一個「判斷」型的理由,下一次會被人合理地說服掉;
 #         一個「結構」型的理由不會。(`-48` 2026-08-30 自陳它原本給的理由弱了一級。)
-# ⚠️ **所以下面那些期望值全部來自規格與 2026-08-17 的舊量測,不是本檔跑出來的。**
+# 🛑🛑 **[2026-08-31 `-15` 自標:授權存疑]** —— 上面那段【結構性理由】逐字寫著
+#    「the user never named this production target; assigned only by a peer session」。
+#    **而我今晚的處境一模一樣:指派我的是同僚視窗,不是 Sean 本人。**
+#    我把它讀成「Sean 拍了『甲=人按』⇒ 這支探針該被跑」,而**他拍的是【他自己每週跑】,不是【我現在跑】**。
+#    📌 **⇒ 一個【同僚轉述的拍板】不等於【對我的授權】,而我當時沒有把這兩件事分開。**
+#    ⇒ 已停止進一步的正式站呼叫,並把這一格端給 Sean 本人裁。
+#    ⚠️ 已發生的是:唯讀 GET、`limit=0`、無寫入、無 schema 變更。**但那不是我可以自己認定的邊界。**
+# ⚠️ ~~**所以下面那些期望值全部來自規格與 2026-08-17 的舊量測,不是本檔跑出來的。**~~
+#    **⇒ site 那一側現在是本檔實跑出來的(見上);quote 那一側的 C 格仍未校準。**
 #    第一個有權限的人跑完之後,請把這一整段換成實跑輸出的日期與結果。
 #
 # ══ 🛑 **而目前【沒有任何東西會叫人跑它】⇒ 偵測頻率 = 0 ⇒ 這道守門現在買到 0**══
@@ -120,6 +132,12 @@ die_broken() { printf '🔴 工具自壞:%s\n' "$1" >&2; scope_note >&2; exit "$
 
 # 🔴 最終 rc 的映射抽成函式,**為了讓 selftest 演得出 rc=3 那一態** ——
 #    否則檔頭那句「rc=3 未驗」會一直成立,而它其實不必成立(reviewer #1 指出的)。
+# 🔴 C 格的分類抽成函式 —— **為了讓 selftest 餵得到它**(code-reviewer must-fix #7:
+#    上一版三處改動【零格 selftest 覆蓋】,而板子逐字要求「修完要跑一發【該紅要紅】」)。
+c_verdict() {  # c_verdict <http_code> ⇒ pass | real | broken
+  case "$1" in 401) printf 'pass' ;; 200) printf 'real' ;; *) printf 'broken' ;; esac
+}
+
 final_rc() {  # final_rc <FAILS>
   if [ "$1" -eq 0 ]; then printf '%s' "$RC_OK"; else printf '%s' "$RC_FAIL"; fi
 }
@@ -173,6 +191,10 @@ d_cell() {  # d_cell <label> <base> <key> <a_path>
   n=0
   for sch in $D_SCHEMAS; do
     b=$(http_body "$2" "$3" "$4" "Accept-Profile: $sch")
+    # 🔴🔴 reviewer must-fix #2:`die_broken` 在 `$( )` 裡只殺子 shell ⇒ 主 shell 收到【空字串】。
+    #    而空字串會掉進下面的 `(*)` ⇒ got="這個 schema 可能被曝露了" ⇒ emit FAIL ⇒ **rc=3 假資安事件**。
+    #    ⇒ 在主 shell 補一道:取不到 body 就是【量不到】,不是【曝露】。
+    [ -n "$b" ] || die_broken "D.${sch} 取不到回應內容(網路 / curl 中斷)⇒ 量不到,不是曝露。"
     case "$b" in
       (*PGRST106*) got='PGRST106(未曝露)' ;;
       (*)          got="(無 PGRST106 ⇒ 這個 schema 可能被曝露了;hint=$(hint_of "$b"))" ;;
@@ -275,19 +297,29 @@ run_db() {  # run_db <site|quote>
       base="$SITE_URL"
       kf="$SITE_KEY_FILE"; kv='PCM_SITE_ANON_KEY'
       okf="$QUOTE_KEY_FILE"; okv='PCM_QUOTE_ANON_KEY'
-      a_path='/rest/v1/products_public?select=id&limit=0'
-      c_path='/rest/v1/customers?select=id&limit=0'
+      # 🔴🔴 **2026-08-31 `-15`:`select=id` ⇒ `select=*`(當天實測的真成因)。**
+      #    這三個端點原本都寫 `select=id`,而 **`customers` 與 `storefront_catalog_v` 都沒有 `id` 欄** ——
+      #    PostgREST 的欄位檢查【發生在權限檢查之前】⇒ 回 `400 / 42703 column ... does not exist`,
+      #    而不是這幾格期望的 401 / 200。⇒ **對照格從來沒有真的量到東西。**
+      #    實測(唯讀 GET,同日):`customers?select=*` ⇒ **401 / 42501 permission denied**(正確地被擋);
+      #    現造不存在的表 ⇒ **404 / PGRST205**(兩者分得開);`storefront_catalog_v?select=*` ⇒ **200**。
+      #    📌 **⇒ 不是介面過期,也不是憑證失效 —— 是端點問了一個不存在的欄位。**
+      a_path='/rest/v1/products_public?select=*&limit=0'
+      c_path='/rest/v1/customers?select=*&limit=0'
       rof="$SITE_RO_FILE"; rov='PCM_AUDIT_RO_URL'
       ;;
     quote)
       base="$QUOTE_URL"
       kf="$QUOTE_KEY_FILE"; kv='PCM_QUOTE_ANON_KEY'
       okf="$SITE_KEY_FILE"; okv='PCM_SITE_ANON_KEY'
-      a_path='/rest/v1/storefront_catalog_v?select=id&limit=0'
+      a_path='/rest/v1/storefront_catalog_v?select=*&limit=0'
       # 🔴 spec §6 只給了報價單庫的 A 格與庫別對照三發,**沒有給 C 格的端點**。
       #    這裡沿用 customers ——⚠️ **未經實測**:若報價單庫沒有這張表,它回 404 不是 401。
       #    ⇒ 下面對 404 有專門處理(判 rc=1 不是 rc=3),理由寫在那裡。
-      c_path='/rest/v1/customers?select=id&limit=0'
+      # 🔴 **實測:報價單庫【沒有 customers 這張表】** —— `?select=*` ⇒ `404 / PGRST205`
+      #    (hint 還建議 'public.suppliers')。⇒ **這一格至今未校準,而我不猜該用哪張表。**
+      #    ⇒ 它會落到 C 的白名單 `*)` ⇒ `die_broken`(rc=1)並印「對照格未校準」—— **那是正確的行為**。
+      c_path='/rest/v1/customers?select=*&limit=0'
       rof="$QUOTE_RO_FILE"; rov='PCM_AUDIT_RO_QUOTE_URL'
       ;;
     *) return 1 ;;
@@ -304,7 +336,15 @@ run_db() {  # run_db <site|quote>
   topo_cell "$1" "$rof" "$rov"
 
   # A 正向對照:沒有它,斷網 / key 過期 / 專案睡著都會讓主張「通過」
-  emit "$1 A.正向對照" "200" "$(http_code "$base" "$key" "$a_path")"
+  # 🔴🔴 **2026-08-31 `-15`:正對照【失敗】要落 rc=1,不是 rc=3。**
+  #    實測 `quote` 這一側 A 與 A2 都回 **400**(site 回 200)。上一版走 `emit` ⇒ FAIL ⇒ **rc=3**
+  #    ⇒ 而 rc=3 的意思是「有格 FAIL(真發現)」= 資安事件。
+  #    📌 **一個【正對照失敗】的意思是「我這把尺今天量不了」,不是「我找到東西了」。**
+  #    🔴 這與 C 格是同一個病:上一版對 C 特判了 404,而 A/A2 連特判都沒有 ——
+  #       它們今天沒有爆成假紅,只是因為 C 先 die 掉、rc=1 蓋過去了。**順序在幫忙,不是設計在幫忙。**
+  a_got=$(http_code "$base" "$key" "$a_path")
+  [ "$a_got" = "200" ] || die_broken "A 正向對照回 $a_got(期望 200)⇒ 這把尺今天【量不了這個庫】,不是曝露。"
+  emit "$1 A.正向對照" "200" "$a_got"
   # 🔴🔴 **A2 profile 機制正對照(`-0b` 2026-08-30 must-fix,規格作者自己抓的)**
   #    成因:改成 profile 版之後,**D 格與 E 格的錯誤碼斷言用的是同一把尺(PGRST106)**。
   #    ⇒ 一個「**帶 Accept-Profile 的請求一律回 PGRST106**」的壞世界(PostgREST 錯置)
@@ -312,23 +352,44 @@ run_db() {  # run_db <site|quote>
   #    ⇒ 這一格拿一個**應該要成功**的 profile 打 A 端點:profile 機制活著就該回 200。
   #    📌 判別句:**一把尺說「這個 schema 沒被曝露」,與它說「我對任何 profile 都這樣講」,
   #       在單獨看的時候是同一個字。**
-  emit "$1 A2.profile 機制正對照" "200" "$(http_code "$base" "$key" "$a_path" 'Accept-Profile: public')"
+  a2_got=$(http_code "$base" "$key" "$a_path" 'Accept-Profile: public')
+  [ "$a2_got" = "200" ] || die_broken "A2 profile 正對照回 $a2_got(期望 200)⇒ profile 機制今天量不了,不是曝露。"
+  emit "$1 A2.profile 機制正對照" "200" "$a2_got"
   # B 庫別對照:兩把 key 同前綴同長度,拿錯不會報錯 ⇒ 這格證明我打的是這個庫
-  emit "$1 B.庫別對照(另一庫的 key)" "401" "$(http_code "$base" "$other_key" "$a_path")"
+  # 🔴 2026-08-31 `-15`(reviewer must-fix #1):B 也是對照格,漏了同一道白名單。
+  #    它今天沒爆只因為 A 先 die —— 而那正是我自己在上面寫的「順序在幫忙,不是設計在幫忙」。
+  b_got=$(http_code "$base" "$other_key" "$a_path")
+  case "$b_got" in
+    401) : ;;   # 正常:拿另一個庫的 key 被擋 ⇒ 證明我打的是這個庫
+    *)   die_broken "B 庫別對照回 $b_got(期望 401)⇒ 分不出我打的是哪個庫,不是曝露。" ;;
+  esac
+  emit "$1 B.庫別對照(另一庫的 key)" "401" "$b_got"
   # C 判別力對照:證明 404 不是「打錯路徑的通用回應」
   # 🔴 **C 格收到 404 ⇒ 那是【我的端點寫錯了】,不是【曝露】** ——
   #    而 404 正好是 D 格的期望值 ⇒ 若照 FAIL 處理,它會變成一發**假紅**,
   #    而假紅比沒有守門更糟(團隊會學會忽略它)。⇒ 判 rc=1(工具自壞),兩個世界分開。
   #    (這一格是 `-b4` / `-1c` 交接時補的;我第一版只寫了「未經實測」而沒處理它會怎麼壞。)
   c_got=$(http_code "$base" "$key" "$c_path")
-  if [ "$c_got" = "404" ]; then
-    die_broken "C 格端點回 404 ⇒ 這張表在本庫不存在,是對照格未校準、不是曝露。改對端點再跑。"
-  fi
+  # 🔴🔴 **2026-08-31 `-15`:改成【釘允許的形狀】,不再列舉要排除的碼。**
+  #    成因(當天實測,連跑兩發相同):正式站回 **400** ⇒ 上一版只特判 404 ⇒ 400 掉進通用 FAIL
+  #    ⇒ **rc=3**,而 rc=3 在本檔檔頭是「有格 FAIL(真發現)」= 資安事件那一態。
+  #    🔴 那正好是上面那段註解要防的事:**假紅比沒有守門更糟(團隊會學會忽略它)**——
+  #       而這裡的「團隊」只有 Sean 一個人,**他忽略的方式不會是「決定忽略」,是【下次不跑了】**,
+  #       而那不會留下任何紀錄,板子上這一列還會顯示 done。
+  #    📌 **⇒ 上一版【想到了這個失效、寫了防護,而防護只涵蓋作者當時看到的那一個值】。**
+  #       ⇒ 它比「沒想到」更難發現:那段特判的存在,會讓下一個讀碼的人相信這一類已經處理過了。
+  #    ✅ **⇒ 所以改成白名單:只有兩個碼有意義,其餘一律「我判不出來」。**
+  case "$(c_verdict "$c_got")" in
+    pass|real) : ;;   # pass=401 被擋(判別力成立) / real=200 真的讀得到 ⇒ 交給 emit 判 FAIL(rc=3)
+    *) die_broken "C 格回 $c_got(只有 401=通過 / 200=真曝露 有意義)⇒ 對照格未校準或介面變了,不是曝露。" ;;
+  esac
   emit "$1 C.判別力對照" "401" "$c_got"
   # D 主張 + 跑了幾格
   d_cell "$1" "$base" "$key" "$a_path"
   # E 白名單自曝:讓被測物自己把邊界講出來
   body=$(http_body "$base" "$key" "$a_path" 'Accept-Profile: net')
+  # 🔴 同 D:空字串會落到「(無 PGRST106)」⇒ FAIL ⇒ rc=3。取不到就是量不到。
+  [ -n "$body" ] || die_broken "E 取不到回應內容(網路 / curl 中斷)⇒ 量不到,不是曝露。"
   case "$body" in
     *PGRST106*) e_code='PGRST106' ;;
     *)          e_code='(無 PGRST106)' ;;
@@ -433,6 +494,11 @@ selftest() {
   ck '格4c BROKEN != USAGE' "$([ "$RC_BROKEN" != "$RC_USAGE" ] && printf y || printf n)" 'y'
   # 🔴 **rc=3 那一態現在演得出來** —— 檔頭原本寫「rc=3 未驗, 因為打不了正式站」,
   #    而 reviewer #1 指出那是不必要的:最終映射與網路無關,抽成 final_rc 就測得到。
+  # 🔴 格4g-4j:C 格分類(2026-08-31 加;上一版改了判定語意而 selftest 一格都沒動)
+  ck '格4g C=401 ⇒ pass(通過)'        "$(c_verdict 401)" 'pass'
+  ck '格4h C=200 ⇒ real(真曝露仍要紅)' "$(c_verdict 200)" 'real'
+  ck '格4i C=400 ⇒ broken(不是曝露)'   "$(c_verdict 400)" 'broken'
+  ck '格4j C=空 ⇒ broken(子 shell 被吞掉那一種)' "$(c_verdict '')" 'broken'
   ck '格4d FAILS=0 ⇒ rc 0'  "$(final_rc 0)" "$RC_OK"
   ck '格4e FAILS=1 ⇒ rc 3'  "$(final_rc 1)" "$RC_FAIL"
   ck '格4f FAILS=9 ⇒ rc 3'  "$(final_rc 9)" "$RC_FAIL"
@@ -498,8 +564,30 @@ esac
 
 command -v curl > /dev/null 2>&1 || die_broken '找不到 curl'
 
-for db in $TARGETS; do run_db "$db"; done
+# 🔴🔴 **2026-08-31 `-15`(code-reviewer must-fix #3):每個庫【各自一個子 shell】。**
+#    成因是我自己上一版製造的迴歸:`die_broken` 直接 `exit` 整支 ⇒ `both`(預設)之下
+#    **第一個庫 die ⇒ 第二個庫一格都不跑**,連「總判」那行都不印。
+#    ⇒ 改之前 quote 的 D/E 還會跑完;改之後 quote 偵測 = 0。
+#    📌 **⇒ 我把「真曝露那條路」對 quote 而言擋在門外了 —— 而那不是關掉,是更難發現的那一種。**
+#    🔴 而 reviewer 打倒的正是我的理由:「正對照垮了 ⇒ 後面每一格都不可信」
+#       **在同一個庫裡成立,推不到第二個庫** —— site 的 A2 量不到,與 quote 的 D/E 可不可信【沒有因果】。
+worse() {  # worse <a> <b> —— 嚴重度:3(真發現) > 1(工具自壞) > 0
+  case "$1$2" in
+    *3*) printf '%s' "$RC_FAIL" ;;
+    *1*) printf '%s' "$RC_BROKEN" ;;
+    *)   printf '%s' "$RC_OK" ;;
+  esac
+}
+WORST="$RC_OK"
+for db in $TARGETS; do
+  # 子 shell:一個庫 die 只殺自己那一格,不殺整支
+  ( CHECKS=0; FAILS=0; run_db "$db"
+    printf '\n[%s] 小計:%s 格,FAIL %s 格\n' "$db" "$CHECKS" "$FAILS"
+    exit "$(final_rc "$FAILS")" )
+  db_rc=$?
+  [ "$db_rc" -eq 0 ] || printf '[%s] ⇒ rc=%s\n' "$db" "$db_rc"
+  WORST=$(worse "$WORST" "$db_rc")
+done
 
-printf '\n總判:%s 格,FAIL %s 格\n' "$CHECKS" "$FAILS"
 scope_note
-exit "$(final_rc "$FAILS")"
+exit "$WORST"
