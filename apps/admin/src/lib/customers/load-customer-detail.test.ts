@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   listSummariesByCustomer: vi.fn(),
   listAddresses: vi.fn(),
   listVehicles: vi.fn(),
+  readEmailVerification: vi.fn(),
 }));
 vi.mock('./customer-repository', () => ({
   getAdminCustomerRepository: () => ({ findById: mocks.findById }),
@@ -16,6 +17,14 @@ vi.mock('./customer-repository', () => ({
 }));
 vi.mock('../orders/order-repository', () => ({
   getAdminOrderRepository: () => ({ listSummariesByCustomer: mocks.listSummariesByCustomer }),
+}));
+// 🔵🔵 **codex must-fix(2026-08-30):第六路一定要 mock。**
+//    ~~本檔原本沒 mock 它~~ ⇒ 在一台**有 Supabase env** 的機器上跑,
+//    這支單元測試會**真的用 service_role 去打 GoTrue**(`getUserById('cu-1')`)。
+//    📌 而它今天在 CI 上「看起來沒事」,只是因為那台機器沒有那組 env
+//       ⇒ **「測試會過」與「測試沒有碰外部服務」是兩件事。**
+vi.mock('./email-verification-read', () => ({
+  readEmailVerification: mocks.readEmailVerification,
 }));
 vi.mock('server-only', () => ({}));
 
@@ -48,6 +57,11 @@ function allOk() {
   mocks.listSummariesByCustomer.mockResolvedValue([{ id: 'o1' }]);
   mocks.listAddresses.mockResolvedValue([{ id: 'a1' }]);
   mocks.listVehicles.mockResolvedValue([{ id: 'v1' }]);
+  mocks.readEmailVerification.mockResolvedValue({
+    confirmedAt: '2026-08-01T00:00:00Z',
+    provider: undefined,
+    syntheticAddress: false,
+  });
 }
 
 afterEach(() => {
@@ -208,5 +222,53 @@ describe('loadCustomerDetail — 儲值金分頁參數傳遞（2026-08-17）', (
 
     expect(data.walletTotal).toBe(137);
     expect(data.walletPage).toBe(2);
+  });
+
+  // ══ 🔵🔵 codex must-fix(2026-08-30):第六路的容錯契約【原本零覆蓋】══════════
+  //
+  //    本檔原本只驗五路。而第六路的契約是:**任何失敗 ⇒ `unknown`,不是 `unverified`**。
+  //    ⇒ 突變測過:把 reject 的 fallback 改成 `{confirmedAt:null}`(⇒ 畫面變「尚未驗證」),
+  //      本檔**照樣全綠** —— 因為它連 `emailVerification` 這個欄位都沒看。
+  //    📌 **一個「我測了那支檔」與「我測了那支檔的每一條路」是兩件事**,
+  //       而這一片的第六路是【後來加的那一條】—— 最容易落在既有測試的分母之外。
+  it('第六路成功 ⇒ 判讀成 verified', async () => {
+    allOk();
+    const data = await loadCustomerDetail('cu-1');
+    expect(data.emailVerification.kind).toBe('verified');
+  });
+
+  it('🔴 第六路 reject ⇒ unknown,而【不是】unverified(容錯契約)', async () => {
+    allOk();
+    mocks.readEmailVerification.mockRejectedValue(new Error('boom'));
+    const data = await loadCustomerDetail('cu-1');
+    expect(data.emailVerification.kind).toBe('unknown');
+    expect(data.emailVerification.kind).not.toBe('unverified');
+  });
+
+  it('🔴 第六路 reject ⇒ 其餘五路【不連坐】(基本資料照常)', async () => {
+    allOk();
+    mocks.readEmailVerification.mockRejectedValue(new Error('boom'));
+    const data = await loadCustomerDetail('cu-1');
+    expect(data.customer).toEqual(CUSTOMER);
+    expect(data.customerFailed).toBe(false);
+    expect(data.orders).toHaveLength(1);
+    expect(data.vehicles).toHaveLength(1);
+  });
+
+  it('第六路回 null(讀不到)⇒ 也是 unknown', async () => {
+    allOk();
+    mocks.readEmailVerification.mockResolvedValue(null);
+    expect((await loadCustomerDetail('cu-1')).emailVerification.kind).toBe('unknown');
+  });
+
+  // 負對照:證明上面那幾格不是「永遠 unknown」。
+  it('負對照:第六路回沒驗證 ⇒ unverified(分得開)', async () => {
+    allOk();
+    mocks.readEmailVerification.mockResolvedValue({
+      confirmedAt: null,
+      provider: undefined,
+      syntheticAddress: false,
+    });
+    expect((await loadCustomerDetail('cu-1')).emailVerification.kind).toBe('unverified');
   });
 });

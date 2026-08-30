@@ -18,8 +18,13 @@
 #
 # 用法:
 #   ./scripts/display-site-guard-audit.sh \
-#       --id 'customerEmailDisplay|LINE_NO_EMAIL_LABEL' \
-#       --literal 'LINE 帳號登入,無 Email|line_u|pcmmotorsports\.local' \
+#       --id 'customerEmailDisplay|SYNTHETIC_EMAIL_LABEL' \
+#       --literal '系統產生的位址|line_u|pcmmotorsports\.local' \
+#   🔵 2026-08-30:上面兩行的範例值跟著改過一次(Sean 拍甲,那句話改成不分平台)。
+#      ~~舊值 `LINE_NO_EMAIL_LABEL` / `LINE 帳號登入,無 Email`~~ ——
+#      🔴 **它們是【範例】不是寫死的 pattern**(真的 pattern 由 `--id` / `--literal` 傳進來),
+#      所以它們過期【不會讓本腳本壞掉】—— 而下一個人是照著這兩行複製的
+#      ⇒ 📌 **一個過期的範例,壞的不是工具,是使用它的人下一次量到的東西。**
 #       [--ref <git-ref>]        # 對某個歷史版本跑（正向對照用）
 #
 # 🔴 **它證明不了的事(照實印在輸出裡,不要只寫在這裡)**:

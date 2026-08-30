@@ -40,6 +40,13 @@ export function CustomerPanel({
   /** 訂單歷史的單號連到哪(面板版 = 換成那張訂單的面板)。 */
   orderHref: (orderId: string) => string;
 }) {
+  // 🔵 **code-reviewer must-fix 1(2026-08-30)**:下面那棵 `<CustomerDetail>` 的
+  //    `emailVerification` ~~原本沒傳~~ ⇒ 它走預設 `{kind:'unknown'}`
+  //    ⇒ **每一個客人在訂單面板都印「讀不到」,而那個值其實已經算好了**
+  //    (`@panel/orders/page.tsx` 那一發 `loadCustomerDetail` 就帶著它)。
+  //    🔴 **而客服就住在這個面板** —— 他會照著唸「系統查不到」給一個真實狀態是
+  //    「尚未驗證」的客人聽,**那正是這一片要接的那通電話**。
+  //    📌 **一個「安全的預設值」,在【沒接線】與【真的讀不到】印同一句話。**
   return (
     <div className='space-y-4'>
       {/* 🔴 標頭只放「回去」與「開整頁」兩顆。客人名字**不在這裡重複** ——
@@ -88,6 +95,7 @@ export function CustomerPanel({
           vehiclesLoadFailed={data.vehiclesLoadFailed}
           readOnly
           orderHref={orderHref}
+          emailVerification={data.emailVerification}
         />
       )}
     </div>

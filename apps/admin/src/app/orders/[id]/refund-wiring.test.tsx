@@ -1069,7 +1069,7 @@ describe('訂單明細 Email 欄:LINE 合成位址不外顯', () => {
       withEmail('line_u5877604cab5e67badac879d777bf702e@line.pcmmotorsports.local'),
     );
     const { container } = await renderPage();
-    expect(container.textContent).toContain('LINE 帳號登入,無 Email');
+    expect(container.textContent).toContain('系統產生的位址');
     expect(container.textContent).not.toContain('line_u');
     expect(container.textContent).not.toContain('pcmmotorsports.local');
   });

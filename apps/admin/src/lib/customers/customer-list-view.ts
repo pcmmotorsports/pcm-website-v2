@@ -19,13 +19,38 @@ import {
 } from '../shared/list-params';
 
 /**
- * LINE 用戶沒有真 Email 時,後台 Email 欄的替代字面。
+ * 後台 Email 欄:**這個位址是我們自己產的**(不是客人給的真信箱)時的替代字面。
  *
- * 🔴 **逐字沿用 storefront 既有字面、不新造詞**:
- * `apps/storefront/src/components/account/tabs/ProfileTab.tsx:137` 的 `placeholder`
- * (該處 `Q2-1=b` business override)。兩邊講的是同一件事,兩份字面必漂。
+ * 🔵🔵 **2026-08-30 Sean 拍【甲】改成不分平台的說法。而改之前先量了「代價還在不在」——
+ *    結果是【代價從來不成立】,而舊註解那句正是它。**
+ *
+ * ~~舊字面 `LINE 帳號登入,無 Email`;舊註解:「逐字沿用 storefront 既有字面…
+ * 兩邊講的是同一件事,兩份字面必漂。」~~ ⇒ 🔴 **「講的是同一件事」是假的。** 量到的:
+ * ```
+ *                admin（本檔 :62）                storefront ProfileTab.tsx:137
+ * 觸發條件       isSyntheticEmailDomain(email)     email === ''（:83 逐字）
+ * 它是什麼       一個【值】                        一個【placeholder】
+ * 給誰看         員工                              客人自己
+ * 涵蓋誰         LINE ＋ 後台手動建的（兩種）      只有 LINE 登入的那個人
+ * 那句話對不對   🔴 對手動建的是【錯的】           ✅ 對（看的人就是 LINE 登入的）
+ * ```
+ * 📌 **⇒ 它們不是同一句話的兩份拷貝,是兩句剛好字一樣的話。**
+ *    ⇒ 所以**只改 admin 這半、storefront 那半不動**:它在那裡是對的。
+ * 🛑 **而【兩邊現在字不一樣】是刻意的,不是漂掉了** —— 下一個人不要為了「對齊」把它同步回去。
+ *
+ * 🔴 **為什麼舊字面是錯的**:後台手動建的客人,佔位信箱是
+ *    `manual_<id>@manual.pcmmotorsports.local`(`lib/customers/manual-customer.ts` 的
+ *    `placeholderEmailFor`)—— **也是合成網域** ⇒ 舊字面把它標成「LINE 帳號登入」。
+ *    而客人卡上緊接著的「Email 驗證」那一列會說「後台建立(佔位信箱)」⇒ **同一張卡兩句話打架。**
+ *
+ * ✅ **而平台是哪一個並沒有消失,它搬去了知道答案的那一列** ——
+ *    `lib/customers/email-verification.ts` 的 `EMAIL_VERIFICATION_LABEL`
+ *    分得出 LINE / 後台建立 / 系統產生。**這一欄回答「這個位址能不能寄信」,不回答「他從哪登入」。**
+ *
+ * ⚠️ **措辭來源**:Sean 2026-08-30 答「甲(改)」,而他答的是**方向**(不分平台);
+ *    括號裡那六個字是**主視窗端題時舉的例**,不是他指定的定稿。本檔採用那個例。
  */
-export const LINE_NO_EMAIL_LABEL = 'LINE 帳號登入,無 Email';
+export const SYNTHETIC_EMAIL_LABEL = '系統產生的位址';
 
 /**
  * 後台顯示客戶 Email —— **LINE 合成位址不顯示原字串**(Sean 2026-08-16 拍板乙)。
@@ -59,7 +84,7 @@ export const LINE_NO_EMAIL_LABEL = 'LINE 帳號登入,無 Email';
  */
 export function customerEmailDisplay(email: string | null): string | null {
   if (email === null) return null;
-  return isSyntheticEmailDomain(email) ? LINE_NO_EMAIL_LABEL : email;
+  return isSyntheticEmailDomain(email) ? SYNTHETIC_EMAIL_LABEL : email;
 }
 
 /** 每頁筆數(server 端 .range 分頁)。 */

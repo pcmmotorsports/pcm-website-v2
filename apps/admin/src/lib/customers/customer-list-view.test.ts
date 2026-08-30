@@ -12,7 +12,7 @@ import {
   TIER_LABEL,
   TIER_VALUES,
   customerEmailDisplay,
-  LINE_NO_EMAIL_LABEL,
+  SYNTHETIC_EMAIL_LABEL,
   parseAge,
   birthdayRangeForAges,
   todayInTaipei,
@@ -92,7 +92,7 @@ describe('customerEmailDisplay', () => {
   it('🔴 LINE 合成位址 → 替代字面,且原字串一個字都不留', () => {
     const raw = 'line_u5877604cab5e67badac879d777bf702e@line.pcmmotorsports.local';
     const out = customerEmailDisplay(raw);
-    expect(out).toBe(LINE_NO_EMAIL_LABEL);
+    expect(out).toBe(SYNTHETIC_EMAIL_LABEL);
     // 🔴 光斷言「等於替代字面」還不夠:要釘住**原字串沒有被夾帶出去**
     //    (例如未來有人改成 `${LABEL}(${raw})` 之類的「貼心」寫法)。
     expect(out).not.toContain('line_u');
@@ -109,11 +109,18 @@ describe('customerEmailDisplay', () => {
    * 出處:`apps/storefront/src/components/account/tabs/ProfileTab.tsx:137` 的 placeholder。
    */
   it('替代字面與 storefront 逐字相同', () => {
-    expect(LINE_NO_EMAIL_LABEL).toBe('LINE 帳號登入,無 Email');
+    // 🔵 **2026-08-30 Sean 拍甲:改成不分平台的說法。**
+    //    🔴 而這一格【釘字面】是刻意的:它是那句話唯一的守門
+    //    ⇒ 有人把平台名加回去(那正是 Sean 要拿掉的東西),這一格會紅。
+    expect(SYNTHETIC_EMAIL_LABEL).toBe('系統產生的位址');
+    // 🔴 負對照:新字面【不得】再出現任何平台名 —— 舊字面把後台手動建的客人標成 LINE,
+    //    而那正是這次要修掉的病。
+    expect(SYNTHETIC_EMAIL_LABEL).not.toContain('LINE');
+    expect(SYNTHETIC_EMAIL_LABEL).not.toContain('後台');
   });
 
   it('子網域也算合成位址(判斷式來自 @pcm/schemas,本格釘的是我們有接到它)', () => {
-    expect(customerEmailDisplay('a@sub.line.pcmmotorsports.local')).toBe(LINE_NO_EMAIL_LABEL);
+    expect(customerEmailDisplay('a@sub.line.pcmmotorsports.local')).toBe(SYNTHETIC_EMAIL_LABEL);
   });
 });
 

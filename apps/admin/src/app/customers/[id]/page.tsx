@@ -82,6 +82,7 @@ export default async function CustomerDetailPage({
           addressesLoadFailed={data.addressesLoadFailed}
           vehicles={data.vehicles}
           vehiclesLoadFailed={data.vehiclesLoadFailed}
+          emailVerification={data.emailVerification}
         />
       )}
     </div>

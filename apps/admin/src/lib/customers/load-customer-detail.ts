@@ -19,6 +19,14 @@ import {
   getAdminVehicleRepository,
 } from './customer-repository';
 import { getAdminOrderRepository } from '../orders/order-repository';
+// 板 :437:客人明細多一格「Email 驗證狀態」。取數在 `email-verification-read`(第六路),
+// 判讀在 `email-verification`(純函式)—— 分開是為了讓三種帳號 × 三種狀態不必接 DB 就測得出來。
+import { readEmailVerification } from './email-verification-read';
+import {
+  classifyEmailVerification,
+  type EmailVerification,
+  type EmailVerificationInput,
+} from './email-verification';
 
 // load-customer-detail.ts — 客戶明細五路取數的**單一實作**(OD 片 3a 從 `app/customers/[id]/page.tsx` 抽出)。
 //
@@ -78,6 +86,13 @@ export type CustomerDetailData = {
   addressesLoadFailed: boolean;
   vehicles: CustomerVehicle[];
   vehiclesLoadFailed: boolean;
+  /**
+   * 板 :437 —— Email 驗證狀態。
+   * 🔴 **它自己就帶得出「讀不到」那一態**(`kind: 'unknown'`)⇒ 呼叫端**不需要**再看一個
+   *    `Failed` 旗標去猜。那是刻意的:上面那幾路的 `xxxLoadFailed` 與空值是**兩個變數**,
+   *    而這一路把「我沒讀到」做成**值本身的一種**,少一次「兩個欄位要一起讀」的機會。
+   */
+  emailVerification: EmailVerification;
 };
 
 /**
@@ -93,8 +108,14 @@ export async function loadCustomerDetail(
   // 🔴 分頁「顯示」不是分頁「撈取」：這一頁只要這一頁的列 + 伺服器算的總數。
   //    `count:'exact'` 不受 `db-max-rows` 限制 ⇒ 畫面能印「共 N 筆」而不必先把 N 筆撈下來。
   const walletPage = options.walletPage ?? 1;
-  const [customerSettled, walletSettled, ordersSettled, addressesSettled, vehiclesSettled] =
-    await Promise.allSettled([
+  const [
+    customerSettled,
+    walletSettled,
+    ordersSettled,
+    addressesSettled,
+    vehiclesSettled,
+    emailVerificationSettled,
+  ] = await Promise.allSettled([
       (async () => getAdminCustomerRepository().findById(id))(),
       (async () =>
         getAdminWalletRepository().listEntries(id, {
@@ -104,6 +125,12 @@ export async function loadCustomerDetail(
       (async () => getAdminOrderRepository().listSummariesByCustomer(id))(),
       (async () => getAdminAddressRepository().listByCustomer(id))(),
       (async () => getAdminVehicleRepository().listByCustomer(id))(),
+      // 🔴 **第六路。`customers.user_id` 就是 `auth.users.id`**
+      //    (`20260523034911_init_customers_and_subtables.sql:15` 逐字
+      //     `user_id uuid PRIMARY KEY REFERENCES auth.users(id)`)⇒ 這個 `id` 直接拿得動。
+      // ⚠️ **延遲未量**:這一頁本來就同時發五路,第六路的邊際成本大概不顯著 ——
+      //    而**「大概」不是量到的**。下一個抱怨這頁變慢的人,第一個嫌疑犯在這裡。
+      (async () => readEmailVerification(id))(),
     ]);
 
   const customerResult = settle<Customer | null>(customerSettled, null, '客戶明細');
@@ -115,6 +142,13 @@ export async function loadCustomerDetail(
   const orders = settle<OrderListItem[]>(ordersSettled, [], '訂單歷史');
   const addresses = settle<CustomerAddress[]>(addressesSettled, [], '收件地址');
   const vehicles = settle<CustomerVehicle[]>(vehiclesSettled, [], '車庫');
+  // 🔴 fallback 是 `null` ⇒ 判讀成 `unknown`(讀不到),**不是** `unverified`。
+  //    這一路整個 throw 掉時,畫面要說「讀不到」,不能說「這個客人沒驗證」。
+  const emailVerificationRaw = settle<EmailVerificationInput | null>(
+    emailVerificationSettled,
+    null,
+    'Email 驗證狀態',
+  );
 
   return {
     customer: customerResult.value,
@@ -129,5 +163,6 @@ export async function loadCustomerDetail(
     addressesLoadFailed: addresses.failed,
     vehicles: vehicles.value,
     vehiclesLoadFailed: vehicles.failed,
+    emailVerification: classifyEmailVerification(emailVerificationRaw.value),
   };
 }
