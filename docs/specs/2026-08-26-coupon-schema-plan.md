@@ -116,6 +116,7 @@ coupon_id · order_id · user_id · discount_applied  ← 原本就要的
     const resultAmount = Math.round(storePrice.amount * (1 - extraPct / 100));
   ⇒ 會員價那條線用 Math.round(四捨五入)
 量法 grep -rln 'Math.round|Math.floor|roundTwd' packages/domain/src --include='*.ts' | grep -v test ⇒ 2 支
+🔴 2026-08-31 訂正【配方】不是結論:那條 grep 少了 `-E`, 豎線被當字面 ⇒ 照抄重跑會拿到 **0**。正確寫法加 `-E` ⇒ **2 支**,與上面那個數字**逐字相同** ⇒ 作者跑的與寫下來的不是同一條。
 負對照 'MathZZ.round' ⇒ 0
 ```
 ⚠️ **而「會員價這樣做」不等於「券也該這樣做」** —— 券是**折抵**不是**定價**,
@@ -143,6 +144,7 @@ coupon_reject_reason:
 ### 1-5 併發:限量券兩個人同時結帳
 ```
 本 repo 有前例:grep -rln 'SKIP LOCKED|FOR UPDATE' supabase/migrations/*.sql ⇒ 75 支
+🔴 2026-08-31 訂正【配方】:同款少 `-E` ⇒ 照抄重跑拿到 **0**。加 `-E` 今天 ⇒ **82 支**(原記 75)。⚠️ 82 與 75 的差我**分不出是「這五天長出來的」還是「範圍不同」** —— 未查歷史。🔵 而下一行那個負對照 `SKIP LOCKEDZZ ⇒ 0` **通過了** —— 因為它本來就該是 0,**而這把尺對什麼都回 0** ⇒ **一把恆回 0 的尺會通過所有負對照。**
 負對照 'SKIP LOCKEDZZ' ⇒ 0
 ```
 ⇒ **`max_redemptions` 的扣減必須是原子的**(在同一個交易裡 `SELECT … FOR UPDATE` 券那一列再寫 redemption)。

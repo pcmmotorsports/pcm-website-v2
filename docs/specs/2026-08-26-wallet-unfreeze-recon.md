@@ -120,6 +120,7 @@ memory `project_wallet-deposit-taiwan-legal-hold`,2026-07-16 那節逐字:
 ```
 我量  「有沒有【入口】」 grep -rln 'depositWallet|立即儲值' apps/storefront/src   ⇒ 0 支
 主視窗量「有沒有【提到】」git grep -l 'depositWallet|儲值' -- apps/storefront/src ⇒ 7 支
+🔴 2026-08-31 訂正【配方】:那條也少 `-E` ⇒ 照抄重跑拿到 **0**。加 `-E` 今天 ⇒ **13 支**(原記 7)。⚠️ 13 與 7 的差**分不出是長出來的還是範圍不同** —— 未查歷史。
 ```
 **那 7 支我逐支開過,沒有一支是入口**:
 ```
