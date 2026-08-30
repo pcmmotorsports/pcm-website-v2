@@ -166,6 +166,12 @@ export function mapPlaceOrderToCreateOrderArgs(input: PlaceOrderInput): CreateOr
  * `payment_status` / `fulfillment_status` 生成 enum 型別字面與 domain `PaymentStatus`/`FulfillmentStatus`
  * 完全一致(直送、無需轉換);`total` integer 元位 → Money 走 `toMoneyAmount`。
  * 🔴 鐵則 12:**不含** 經銷價 / cost / tier / PII —— 投影白名單外的欄不在此型別。
+ *
+ * 🔵 **真權威是那個 `toBe()`,不是這段散文**(2026-08-31 `-15` 加):
+ *    `packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts:216`
+ *    `expect(ORDER_LIST_SELECT).toBe(…)` —— **逐字完全相等**,任何一次擴欄都會紅
+ *    (同檔 `:240` 逐個掃禁用欄、`:249` 自帶正對照)。**實測:偷加 `dealer_price` ⇒ 1 failed。**
+ *    📌 **⇒ 這段字會過期,那一格不會 —— 兩者不一致時以那一格為準。**
  *   ⚠️ ~~原句寫「不含 unit_price / line_total / product_snapshot」~~ ⇒ **2026-08-29 起那半是假的**:
  *   Sean 拍板訂單記錄卡片要列出每件商品(有圖有品名)⇒ `line_total` / `product_snapshot` /
  *   `product_variants(images, products(images, brands(name)))` 進了投影(`unit_price` **仍然不取**:
