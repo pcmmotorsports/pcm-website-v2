@@ -21,6 +21,7 @@
 
 ② 優惠券:**零實作,如他所說是全新的**
    grep -rn 'coupon|voucher|promo_code|discount_code' apps packages supabase
+🔴 2026-08-31 訂正:少 `-E` ⇒ 照抄重跑拿到 **0**(假 0)。加 `-E` 今天 ⇒ **13 支**。
      (.ts/.tsx/.sql,排 node_modules、排測試)   ⇒ **0 命中**
 
 ③ 價格今天長這樣(兩支整數欄,無變體以外的層級)

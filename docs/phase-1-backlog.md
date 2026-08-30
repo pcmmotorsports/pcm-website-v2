@@ -7247,6 +7247,7 @@ order by n desc, 1;
 >    app/checkout/ 底下**沒有 actions.ts**(現有:checkout-form-types / charge-actions /
 >      reconcile-actions / callback/page / page)
 > ② 全樹 grep 'usePlaceOrder|placeOrderAction'(排 .next)⇒ **1 行,而那一行是【訃聞】**:
+> 🔴 2026-08-31 訂正【配方】不是結論:那條少 `-E` ⇒ 照抄重跑拿到 **0**。加 `-E` 今天 ⇒ **1 行**,與上面那個數字**逐字相同** ⇒ 作者跑的與寫下來的不是同一條。
 >    checkout-form-types.ts:3-5 逐字(**過去式**):
 >      「原寄居於 `checkout/actions.ts`(隨退役建單 action `placeOrderAction` 一起),
 >        **`#246` 死碼清理刪除 `actions.ts` 時,抽出**這兩個被 live 刷卡路徑共用的欄位錯誤型別、

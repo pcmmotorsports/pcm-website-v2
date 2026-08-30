@@ -362,6 +362,7 @@ codex R2 逐字：「用錯誤訊息字串計數無法完整識別所有依賴 b
    check  Test  [facet-counts] 分類 / 品牌 taxonomy 讀取 throw: Error: NEXT_PUBLIC_SUPABASE_URL not set
    ⇒ 前綴是 `Test`，不是 `Build admin`
    ⇒ CI 沒有建 storefront（量法 grep -c '@pcm/storefront:build|storefront.*Compiled' ⇒ 0，符合乙的設計）
+   🔴 2026-08-31:這一條**今天跑不了** —— 目標是【那一發 CI 的 log】,而它不在 repo 裡;且那條 grep 也少了 `-E`。⇒ **兩種死法疊在同一行**,結論無法重驗。
    ```
    ⇒ **主視窗裁定(三句分開)**：①**乙案的前提成立** —— 那個「零 env storefront bundle」的疑慮在 CI 上不存在
    ②**那個 `1` 與本步無因果**(它在 `Test` 那一步)③~~但它自己是一格待查~~
