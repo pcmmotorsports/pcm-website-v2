@@ -140,5 +140,8 @@ if __name__ == '__main__':
     print("🔴 ⑤ 仍然是【上界】不是答案 —— 守門寫法是一份黑名單, 見檔頭射程。")
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     if args:
-        io.open(args[0], 'w', encoding='utf-8').write('\n'.join(r['rows']))
-        print(f"清單已寫 {args[0]}({len(r['rows'])} 行)")
+        # 🔴 結尾要補 `\n`:少了它, 本檔印「97 行」而 `wc -l` 印 **96**
+        #    (`wc -l` 數的是換行字元, 不是列數)⇒ 一個回頭用 `wc -l` 驗的人會以為這個數字錯了。
+        #    📌 **兩個都對, 而它們數的是不同的東西 —— 而先撞到的人只會看到「對不上」。**
+        io.open(args[0], 'w', encoding='utf-8').write('\n'.join(r['rows']) + '\n')
+        print(f"清單已寫 {args[0]}({len(r['rows'])} 列;`wc -l` 也會印這個數)")
