@@ -110,4 +110,39 @@ describe('CheckoutSuccess', () => {
     expect(screen.queryByRole('button', { name: /查詢付款結果/ })).toBeNull();
     expect(screen.getByRole('link', { name: /繼續購物/ }).getAttribute('href')).toBe('/products');
   });
+
+  // ══ 2026-08-30 Sean 拍【加】那顆訂單入口(推翻檔頭 Q1=A「不放查看訂單詳情」)═══════
+  // 🔴 這四格是**成對**的:兩格證「該有的時候有」、兩格證「不該有的時候沒有」。
+  //    只寫前兩格的話,一個「無條件永遠渲染」的實作會全過 —— 而那會在 failed 態
+  //    給客人一顆通往「你沒有這張單」的鈕。
+  it('🔵 paid + 單號 → 有「查看我的訂單」且連 /account?tab=orders;繼續購物保留為次動作', () => {
+    render(<CheckoutSuccess displayId="PCM-2026-0001" variant="paid" />);
+    const mine = screen.getByRole('link', { name: /查看我的訂單/ });
+    expect(mine.getAttribute('href')).toBe('/account?tab=orders');
+    expect(mine.className).toContain('btn-primary');
+    const keep = screen.getByRole('link', { name: /繼續購物/ });
+    expect(keep.getAttribute('href')).toBe('/products');
+    expect(keep.className).toContain('btn-outline');
+  });
+
+  // 🔴 **這一格是本片存在的理由** —— processing 的成因之一是反查不到成交結果,
+  //    **錢可能已經扣了**;那正是最需要去看一眼訂單的時刻。
+  it('🔵 processing + 單號 → 一樣有「查看我的訂單」(錢可能已扣,這時最需要查得到)', () => {
+    render(<CheckoutSuccess displayId="PCM-2026-0002" variant="processing" message="確認中" />);
+    expect(
+      screen.getByRole('link', { name: /查看我的訂單/ }).getAttribute('href'),
+    ).toBe('/account?tab=orders');
+  });
+
+  it('🔴 processing **無單號** → 不渲染那顆鈕(沒有單可以看 ⇒ 不給一顆按下去會落空的鈕)', () => {
+    render(<CheckoutSuccess variant="processing" message="確認中" />);
+    expect(screen.queryByRole('link', { name: /查看我的訂單/ })).toBeNull();
+    expect(screen.getByRole('link', { name: /繼續購物/ }).getAttribute('href')).toBe('/products');
+  });
+
+  it('🔴 failed → 不渲染那顆鈕,CTA 維持返回購物車(Sean D4:車保留可立即重結帳)', () => {
+    render(<CheckoutSuccess displayId="PCM-2026-0003" variant="failed" message="未完成" />);
+    expect(screen.queryByRole('link', { name: /查看我的訂單/ })).toBeNull();
+    expect(screen.getByRole('link', { name: /返回購物車/ }).getAttribute('href')).toBe('/cart');
+  });
 });

@@ -37,7 +37,12 @@
 import Link from 'next/link';
 import type { MemberOrderDetail, MemberOrderDetailItem, OrderItemVehicleSnapshot, PaymentStatus } from '@pcm/domain';
 import { ProductImage } from '@/components/ProductImage';
-import { formatOrderDate, orderStatusLabel, orderStatusTone } from '@/lib/orders/order-display';
+import {
+  formatOrderDate,
+  orderStatusLabel,
+  orderStatusTone,
+  paymentMethodLabel,
+} from '@/lib/orders/order-display';
 import { ORDER_DETAIL_ITEMS_TRUNCATED_NOTE } from '@/lib/account-order-copy';
 
 /**
@@ -273,8 +278,12 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
             <dl>
               <dt>付款方式</dt>
               {/* paymentMethod 為 null = 尚無成功請款(不是「資料缺失」)⇒ 仍印 `—`,
-                  與收件那三格同理:這一格空著是**看得出來比較好**的那種空。 */}
-              <dd>{dash(order.paymentMethod)}</dd>
+                  與收件那三格同理:這一格空著是**看得出來比較好**的那種空。
+                  🔴 有值時走 `paymentMethodLabel()` 翻成客人看得懂的字 ——
+                     在那之前這一格直接印 DB 的原始值,客人看到的是 `tappay`
+                     (2026-08-30 本機真瀏覽器實見,不是讀碼推的)。
+                     ⚠️ `dash()` 仍在外層:翻譯只處理「有值」那半,空值的語意不變。 */}
+              <dd>{dash(order.paymentMethod === null ? null : paymentMethodLabel(order.paymentMethod))}</dd>
               <dt>{amountLabel}</dt>
               <dd>{nt(order.total.amount)}</dd>
             </dl>

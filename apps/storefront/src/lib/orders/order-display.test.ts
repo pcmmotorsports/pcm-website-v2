@@ -8,9 +8,11 @@
 //   paid→(任意 fulfillment)「處理中」(A9f row47:stale 出貨軸下架、第 1 批固定文案)、絕不空字串。
 // - formatOrderDate:ISO → YYYY-MM-DD(Asia/Taipei、含跨日 UTC 邊界)。
 
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import type { PaymentStatus, FulfillmentStatus } from '@pcm/domain';
-import { orderStatusLabel, formatOrderDate } from './order-display';
+import { orderStatusLabel, formatOrderDate, paymentMethodLabel } from './order-display';
 
 /**
  * 沒有取消的單(`#249` 加的第三個參數)。
@@ -109,5 +111,72 @@ describe('formatOrderDate(ISO → YYYY-MM-DD、Asia/Taipei)', () => {
 
   it('午夜邊界:UTC 00:00 + 8h = 同日 08:00 台灣', () => {
     expect(formatOrderDate('2099-04-15T00:00:00Z')).toBe('2099-04-15');
+  });
+});
+
+describe('paymentMethodLabel', () => {
+  it('tappay → 信用卡(客人結帳時看到的就是這四個字,同一件事同一個詞)', () => {
+    expect(paymentMethodLabel('tappay')).toBe('信用卡');
+  });
+
+  // 🔴 這一格是本組的**理由**,不是補充:`payment_method` 沒有 CHECK 約束
+  //    ⇒ 值域無法窮舉 ⇒ 認不得的值必須**原樣印出**。
+  //    窮舉表遇到沒列到的值會印 undefined/空白,而**空白與「這張單沒有付款方式」長得一樣**
+  //    ⇒ 客人會以為那一格是壞的,而我們會以為那一格是空的。
+  it('認不得的值 → 原樣印出,不吞成空白', () => {
+    expect(paymentMethodLabel('linepay')).toBe('linepay');
+    expect(paymentMethodLabel('qqx7bogus4930')).toBe('qqx7bogus4930');
+  });
+
+  it('空字串 → 原樣回空字串(由呼叫端的 dash() 決定印什麼,本函式不越權)', () => {
+    expect(paymentMethodLabel('')).toBe('');
+  });
+
+  // 🔴 R2 code-reviewer 2026-08-30 抓到的真缺陷,補守門:原本的 `map[m] ?? m` **會走原型鏈**。
+  //    我當場複跑確認(不是照收):這五個值回的**不是 string** ——
+  //    toString / constructor / valueOf / hasOwnProperty ⇒ function、`__proto__` ⇒ object。
+  //    失敗情境:React child 拿到 function ⇒ **訂單明細整頁 render throw**,
+  //    而檔頭宣稱的「認不得的原樣印出」在那五個值上不成立。
+  //    ⚠️ 今天不可達(migrations 只寫 `tappay`),**而這一欄是自由文字、沒有 CHECK** ⇒ 是守門不是裝飾。
+  it('🔴 原型鏈上的名字 → 一律原樣回字串(不得回 function/object)', () => {
+    for (const k of ['toString', 'constructor', 'valueOf', 'hasOwnProperty', '__proto__']) {
+      expect(typeof paymentMethodLabel(k), `${k} 回了非字串`).toBe('string');
+      expect(paymentMethodLabel(k)).toBe(k);
+    }
+  });
+
+  // 🔴🔴 **分母守門** —— 上面三格證的是「函式行為對」,證不了「我們有沒有漏翻一個值」。
+  //    這一格去**掃 migrations 裡所有真的被寫進 payment_method 的字面**,
+  //    要求每一個都翻得出中文(= 翻譯結果不等於原值)。
+  //    ⇒ 有人新增一種付款方式而忘了補對照時,**這一格會紅**;
+  //      沒有它的話,客人會在訂單頁上再看到一次原始代號,而三綠全綠。
+  //    🔴🔴 **射程(code-reviewer 2026-08-30 抓到我原本寫太寬,這是訂正後的字面)**:
+  //       它只認 **`payment_method = '字面'`** 這一種語法形狀。reviewer 對 5 種真實寫入形狀實測
+  //       ⇒ **命中 1 / 漏 4**:`INSERT (…payment_method) VALUES (…,'linepay')` /
+  //       `SET DEFAULT 'cash'` / plpgsql `:= 'atm'` / 變數指派 —— **這四種它一個都看不到**。
+  //       ⇒ 📌 **失敗情境是具體的**:有人用 INSERT 那種形狀加 LINE Pay ⇒ **本格照樣綠**,
+  //          而客人在訂單頁看到 `linepay`。
+  //       ⚠️ 我原本只寫「app 層 / 正式庫殘值不在分母裡」—— **那句話漏掉了【語法形狀】這一維**,
+  //          而讀的人會把它讀成「除了那兩個例外,其餘全涵蓋」。
+  //       ⚠️ app 層另有一格:目前 `apps`/`packages` **零寫入**。
+  //          ⚠️ 我原本寫「只有 SupabaseOrderAdapter.ts:176/531 兩處」—— **那個數字略窄**
+  //          (R2 抓):另有 `packages/adapters/src/supabase/mappers/order.ts:1002/1206` 兩處**讀取**。
+  //          ⇒ 「零寫入」這個結論成立,而「只有兩處」不成立 —— **結論對、分母錯,兩件事**。
+  //          哪天有人加寫入點,這個限制就活了。
+  it('分母:migrations 裡每一個寫進 payment_method 的字面,都翻得出中文', () => {
+    const dir = join(__dirname, '../../../../../supabase/migrations');
+    const found = new Set<string>();
+    for (const f of readdirSync(dir).filter((n) => n.endsWith('.sql'))) {
+      const sql = readFileSync(join(dir, f), 'utf8');
+      for (const m of sql.matchAll(/payment_method\s*=\s*'([^']+)'/g)) {
+        const v = m[1];
+        if (v !== undefined) found.add(v);
+      }
+    }
+    // 🔴 正對照:掃不到任何值 = 尺瞎了(regex 壞了 / 路徑錯了),那時上面的迴圈會「全過」而什麼都沒證。
+    expect(found.size, '一個值都沒掃到 ⇒ 這把尺沒有接上,不是「沒有漏翻」').toBeGreaterThan(0);
+    for (const v of found) {
+      expect(paymentMethodLabel(v), `payment_method 的字面「${v}」沒有中文對照`).not.toBe(v);
+    }
   });
 });
