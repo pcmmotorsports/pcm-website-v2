@@ -38,6 +38,16 @@ export type ShippedEmailContextClient = SupabaseClient<Database>;
 export const SHIPPED_EMAIL_MAX_LINES = 50;
 
 /**
+ * 掃「這張訂單還有沒有沒出的東西」時最多讀幾列 `order_items`。
+ *
+ * 🔴 它與 `SHIPPED_EMAIL_MAX_LINES` **不是同一件事**:那個限的是【這一箱印幾列】,
+ * 這個限的是【整張訂單掃幾列】—— 一張單的品項數 ≥ 一箱的品項數, 所以這個要寬。
+ * ⚠️ 超過上限時本 adapter **判「還有沒出的」**(見呼叫處註解), 不是 fail-closed ——
+ * 那是刻意選的那一邊, 理由寫在那裡。
+ */
+export const ORDER_ITEMS_SCAN_MAX = 200;
+
+/**
  * 🔴 **本檔【假設】PostgREST 的 `db-max-rows` 至少有這麼大**(codex 2026-08-22 R1 ⑤)。
  *
  * `linesTruncated` 靠「拿得到第 `MAX+1` 列」判定。若伺服器的 `db-max-rows` 掉到 ≤ `MAX`,
@@ -151,6 +161,39 @@ export class SupabaseShippedEmailContextAdapter implements IShippedEmailContext 
       quantity: row.shipped_quantity,
     }));
 
+    // ── ③ 這張訂單【還有沒有沒出的東西】 ──────────────────────────────────
+    // 🔴 它答的是拍板 C 第二段的【條件】(「其餘商品出貨時會另外通知您」該不該印)。
+    //    判準逐字對齊 DB 那一側 `20260816050000_m4b_522_*.sql:88-90`:
+    //      全出完 ⟺ bool_and( COALESCE(shipped,0) >= GREATEST(quantity - COALESCE(cancelled,0), 0) )
+    //    ⚠️ PostgREST 比不了兩個欄位 ⇒ 撈回來在 TS 算,而**公式要與 SQL 逐字同形**。
+    //    🔴 `cancelled_quantity` 不是裝飾:少了它,「訂 3 取消 1 出 2」會被判成還有東西沒出
+    //       ⇒ 客人等一封永遠不會來的信。
+    const summary = await this.query('order_summary', () =>
+      this.client
+        .from('order_items')
+        .select('quantity, order_item_quantity_summary(shipped_quantity, cancelled_quantity)')
+        .eq('order_id', input.orderId)
+        // 多要一列當探針:拿到 MAX+1 就代表沒載完(與品項那段同一個手法)。
+        .order('id', { ascending: true })
+        .limit(ORDER_ITEMS_SCAN_MAX + 1),
+    );
+    if (summary === null) return { kind: 'unavailable' };
+    // 🔴 一張訂單撈不到任何品項 ⇒ 我們對這封信的判斷與資料對不上 ⇒ 應該吵,不猜。
+    if (summary.length === 0) return { kind: 'unavailable' };
+    const orderHasUnshippedItems = summary.length > ORDER_ITEMS_SCAN_MAX
+      ? // 🔴 沒載完時【印那一句】,不是不印 —— 這是刻意選的那一邊:
+        //    品項多到超過上限的單,分批出貨近乎必然;而兩種錯的代價不對稱
+        //    (沒印 ⇒ 客人收到第二封以為重複寄,那正是 Sean 選 C 要防的)。
+        true
+      : summary.some((row) => {
+          const s = row.order_item_quantity_summary as
+            | { shipped_quantity?: number; cancelled_quantity?: number }
+            | null;
+          const shipped = s?.shipped_quantity ?? 0;
+          const cancelled = s?.cancelled_quantity ?? 0;
+          return shipped < Math.max(row.quantity - cancelled, 0);
+        });
+
     return {
       kind: 'ok',
       context: {
@@ -163,6 +206,7 @@ export class SupabaseShippedEmailContextAdapter implements IShippedEmailContext 
         trackingNumber: emptyToNull(box.tracking_number),
         lines,
         linesTruncated,
+        orderHasUnshippedItems,
       },
     };
   }

@@ -11,6 +11,7 @@ import {
   SupabaseShippedEmailContextAdapter,
   ShippedContextQueryError,
   SHIPPED_EMAIL_MAX_LINES,
+  ORDER_ITEMS_SCAN_MAX,
   type ShippedEmailContextClient,
 } from './SupabaseShippedEmailContextAdapter';
 
@@ -96,12 +97,31 @@ function makeClient(
       rec.limit = n;
       const i = call++;
       if (opts.throwOn === i) return Promise.reject(new Error('boom'));
-      return Promise.resolve(results[i] ?? { data: [], error: null });
+      // 🔴 第三段(訂單層「還有沒出的東西」)沒給時, 預設回【一項、已全出】
+      //    ⇒ orderHasUnshippedItems = false。
+      //    為什麼給預設而不是空陣列:那一段是 2026-08-30 才加的, 而既有 14 格
+      //    問的都不是它 —— 讓它們每一格都去寫一個與自己無關的 fixture, 只會讓
+      //    「這一格在測什麼」變模糊。
+      //    ⚠️ 而**這個預設會讓「adapter 根本沒發那一段查詢」變得看不出來**
+      //    ⇒ 所以下面「查詢形狀」那組有一格專門釘住第三段的表名/欄位/條件。
+      const fallback = i === 2 ? { data: [summaryRow(1, 1, 0)], error: null } : { data: [], error: null };
+      return Promise.resolve(results[i] ?? fallback);
     };
     return self;
   };
   const client = { from: (t: string) => chain(t) } as unknown as ShippedEmailContextClient;
   return { client, queries };
+}
+
+/**
+ * 訂單層那一段的一列:`order_items` 的 `quantity` + 內嵌的 summary。
+ * 判準(與 adapter 及 SQL 同形):`shipped >= max(quantity - cancelled, 0)` ⇒ 這一項出完了。
+ */
+function summaryRow(quantity: number, shipped: number, cancelled = 0) {
+  return {
+    quantity,
+    order_item_quantity_summary: { shipped_quantity: shipped, cancelled_quantity: cancelled },
+  };
 }
 
 /** 只要 client 的簡寫(大多數格不需要看送出去的參數)。 */
@@ -386,5 +406,84 @@ describe('SupabaseShippedEmailContextAdapter — 錯誤路徑', () => {
     await expect(
       load(client([{ data: [box()], error: null }, { data: null, error: { code: 'PGRST100' } }])),
     ).rejects.toThrow(/items:PGRST100/);
+  });
+});
+
+/**
+ * 🔴 **`orderHasUnshippedItems`** —— 它答的是 Sean 2026-08-30 `q3: C` 第二段的【條件】
+ * (「其餘商品出貨時會另外通知您」該不該印), 而**兩個方向的錯都會打電話進來**:
+ * ```
+ * 印了而其實出完了 ⇒ 客人等一封永遠不會來的信
+ * 沒印而其實還有  ⇒ 客人收到第二封時以為我們重複寄（那正是他選 C 要防的）
+ * ```
+ */
+describe('SupabaseShippedEmailContextAdapter — 🔴 這張訂單還有沒有沒出的東西', () => {
+  const ok3 = (rows: unknown[]) => [
+    { data: [box()], error: null },
+    { data: [line('A')], error: null },
+    { data: rows, error: null },
+  ];
+
+  it('全部出完 ⇒ false(不印那一句)', async () => {
+    const ctx = expectOk(await load(client(ok3([summaryRow(2, 2), summaryRow(1, 1)]))));
+    expect(ctx.orderHasUnshippedItems).toBe(false);
+  });
+
+  it('有一項沒出完 ⇒ true', async () => {
+    const ctx = expectOk(await load(client(ok3([summaryRow(2, 2), summaryRow(3, 1)]))));
+    expect(ctx.orderHasUnshippedItems).toBe(true);
+  });
+
+  it('🔴 取消掉的量要扣:訂 3 取消 1 出 2 ⇒ false(它已經出完了)', async () => {
+    const ctx = expectOk(await load(client(ok3([summaryRow(3, 2, 1)]))));
+    expect(ctx.orderHasUnshippedItems).toBe(false);
+  });
+
+  it('🔴 對照:同一列只把 cancelled 拿掉 ⇒ true(證明那個扣是承重的)', async () => {
+    const ctx = expectOk(await load(client(ok3([summaryRow(3, 2, 0)]))));
+    expect(ctx.orderHasUnshippedItems).toBe(true);
+  });
+
+  it('summary 內嵌回 null ⇒ 當成 0 已出 ⇒ true, 不靜靜當成出完了', async () => {
+    const ctx = expectOk(
+      await load(client(ok3([{ quantity: 1, order_item_quantity_summary: null }]))),
+    );
+    expect(ctx.orderHasUnshippedItems).toBe(true);
+  });
+
+  it('🔴 這張訂單一列都撈不到 ⇒ unavailable(不猜、不寄)', async () => {
+    const r = await load(client(ok3([])));
+    expect(r.kind).toBe('unavailable');
+  });
+
+  it('🔴 掃不完(拿到 MAX+1 列)⇒ true —— 刻意選這一邊, 理由在 adapter 註解', async () => {
+    const rows = Array.from({ length: ORDER_ITEMS_SCAN_MAX + 1 }, () => summaryRow(1, 1));
+    const ctx = expectOk(await load(client(ok3(rows))));
+    expect(ctx.orderHasUnshippedItems).toBe(true);
+  });
+
+  it('🔴 查詢形狀:第三段要問對表與條件 —— 否則那個預設會讓「根本沒問」看不出來', async () => {
+    const { client: c, queries } = makeClient(ok3([summaryRow(1, 1)]));
+    await load(c);
+    expect(queries).toHaveLength(3);
+    const q = queries[2];
+    if (q === undefined) throw new Error('第三段查詢沒有被送出去');
+    expect(q.table).toBe('order_items');
+    expect(q.columns).toContain('order_item_quantity_summary');
+    expect(q.columns).toContain('cancelled_quantity');
+    expect(q.eq).toContainEqual(['order_id', ORDER]);
+    expect(q.limit).toBe(ORDER_ITEMS_SCAN_MAX + 1);
+  });
+
+  it('第三段查詢失敗 ⇒ 階段名指得出是哪一段', async () => {
+    await expect(
+      load(
+        client([
+          { data: [box()], error: null },
+          { data: [line('A')], error: null },
+          { data: null, error: { code: 'PGRST200' } },
+        ]),
+      ),
+    ).rejects.toThrow(/order_summary:PGRST200/);
   });
 });
