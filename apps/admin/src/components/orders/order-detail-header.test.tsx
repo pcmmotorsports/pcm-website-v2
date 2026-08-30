@@ -195,7 +195,7 @@ describe('片2 標頭列 · render 層', () => {
       // 🔴 `customerHref` 必須傳 —— 它預設 `null` = **不渲染入口**(fail-closed),
       //    不傳的話下面那條「客人入口有畫出來」會**因為入口根本不該出現而紅**,
       //    而那個紅講的是我漏傳,不是產品壞了。
-      <OrderDetail refundsTruncated={false}
+      <OrderDetail refundsTruncated={false} stuckVerdicts={new Map()}
         detail={HEAD_DETAIL}
         returnTo='/orders'
         payments={{ status: 'ok', rows: [] }}
@@ -210,7 +210,7 @@ describe('片2 標頭列 · render 層', () => {
 
   it('🔴 chip 畫出來的是【既有標籤表的字】,不是設計稿那個「未收齊」', () => {
     const { container } = render(
-      <OrderDetail refundsTruncated={false} detail={HEAD_DETAIL} returnTo='/orders' payments={{ status: 'ok', rows: [] }} />,
+      <OrderDetail refundsTruncated={false} stuckVerdicts={new Map()} detail={HEAD_DETAIL} returnTo='/orders' payments={{ status: 'ok', rows: [] }} />,
     );
     // `partiallyPaid` 的字面 Sean 2026-08-18 `Q3` 拍為「已收訂金」。
     expect(container.textContent).toContain('已收訂金');
@@ -219,7 +219,7 @@ describe('片2 標頭列 · render 層', () => {
 
   it('🔴 標頭**不再**畫發票狀態(拿掉那一格之後,`未開立` 不該再出現在標頭)', () => {
     const { container } = render(
-      <OrderDetail refundsTruncated={false} detail={HEAD_DETAIL} returnTo='/orders' payments={{ status: 'ok', rows: [] }} />,
+      <OrderDetail refundsTruncated={false} stuckVerdicts={new Map()} detail={HEAD_DETAIL} returnTo='/orders' payments={{ status: 'ok', rows: [] }} />,
     );
     // ⚠️ 射程:子元件全被 mock 成 null ⇒ 這一格量的確實只有標頭那一列,
     //    不會因為下方發票卡也印「未開立」而假綠。
@@ -244,7 +244,7 @@ describe('片12 危險操作兩顆鈕 · 對帳異常不准收起來', () => {
 
   it('🔴 帳本讀不到 ⇒ 退款那一塊預設展開,鈕上寫著異常', () => {
     const { container } = render(
-      <OrderDetail refundsTruncated={false}
+      <OrderDetail refundsTruncated={false} stuckVerdicts={new Map()}
         detail={HEAD_DETAIL}
         returnTo='/orders'
         payments={{ status: 'ok', rows: [] }}
@@ -259,7 +259,7 @@ describe('片12 危險操作兩顆鈕 · 對帳異常不准收起來', () => {
   // 🔴 未登記額為**負** = 帳本登記已超過訂單總額,與讀取失敗同一族。
   it('🔴 未登記額為負 ⇒ 同樣自己展開', () => {
     const { container } = render(
-      <OrderDetail refundsTruncated={false}
+      <OrderDetail refundsTruncated={false} stuckVerdicts={new Map()}
         detail={HEAD_DETAIL}
         returnTo='/orders'
         payments={{ status: 'ok', rows: [] }}
@@ -272,7 +272,7 @@ describe('片12 危險操作兩顆鈕 · 對帳異常不准收起來', () => {
   // 🔴 **負對照,沒有它上面兩格在「永遠展開」時照樣綠**:正常單兩塊都收著。
   it('🔴 正常單 ⇒ 兩顆鈕都收著、沒有異常字樣', () => {
     const { container } = render(
-      <OrderDetail refundsTruncated={false} detail={HEAD_DETAIL} returnTo='/orders' payments={{ status: 'ok', rows: [] }} />,
+      <OrderDetail refundsTruncated={false} stuckVerdicts={new Map()} detail={HEAD_DETAIL} returnTo='/orders' payments={{ status: 'ok', rows: [] }} />,
     );
     const all = [...container.querySelectorAll('details')];
     expect({ 危險區塊數: all.length, 展開的: all.filter((d) => d.open).length }).toEqual({

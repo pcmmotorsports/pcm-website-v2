@@ -32,6 +32,7 @@ import {
   REFUND_EXCEPTION_STALL_MS,
   STUCK_MANUAL_VERDICT_FAILED_REASON,
   countDecidedExceptions,
+  isBlockingStuckVerdict,
   isStuckManualVerdict,
 } from './refund-ledger-view';
 
@@ -465,5 +466,49 @@ describe('countDecidedExceptions(純函式;側欄與清單頁共用的唯一述�
 
   it('負對照:②類但不在 Map 裡 ⇒ 不算', () => {
     expect(countDecidedExceptions([stuck], new Map())).toBe(0);
+  });
+});
+
+describe('isBlockingStuckVerdict(`#890` 片4:三態預設關)', () => {
+  const stuck = { id: 's1', status: 'failed', failedReason: 'manual_failed' };
+  const plain = { id: 'a1', status: 'processing', failedReason: null };
+
+  it('🔴 no_money_moved ⇒ 不擋(唯一放行的世界;8X3N5Q 那張單就是這一格)', () => {
+    expect(
+      isBlockingStuckVerdict(stuck, new Map([['s1', { correctedTo: 'no_money_moved' }]])),
+    ).toBe(false);
+  });
+
+  it('🔴 money_moved ⇒ 擋(那筆錢已經退出去了,再退一次是第二次付款)', () => {
+    expect(
+      isBlockingStuckVerdict(stuck, new Map([['s1', { correctedTo: 'money_moved' }]])),
+    ).toBe(true);
+  });
+
+  it('🔴 未更正(不在 Map)⇒ 擋(維持現況)', () => {
+    expect(isBlockingStuckVerdict(stuck, new Map())).toBe(true);
+  });
+
+  it('🔴 讀不到(null)⇒ 擋 —— 而它與「未更正」**是分開餵的兩格**', () => {
+    expect(isBlockingStuckVerdict(stuck, null)).toBe(true);
+  });
+
+  it('🔴 未知的 correctedTo 值 ⇒ 擋(白名單式:只認 no_money_moved 放行)', () => {
+    expect(
+      isBlockingStuckVerdict(stuck, new Map([['s1', { correctedTo: 'zzq_future_value' }]])),
+    ).toBe(true);
+  });
+
+  it('負對照:不是卡住的列 ⇒ 一律不擋,連 Map 都不看', () => {
+    expect(isBlockingStuckVerdict(plain, null)).toBe(false);
+    expect(isBlockingStuckVerdict(plain, new Map([['a1', { correctedTo: 'money_moved' }]]))).toBe(
+      false,
+    );
+  });
+
+  it('🔴 Map 裡有【別人的】更正不算數(只認自己那一列的 id)', () => {
+    expect(
+      isBlockingStuckVerdict(stuck, new Map([['s2', { correctedTo: 'no_money_moved' }]])),
+    ).toBe(true);
   });
 });

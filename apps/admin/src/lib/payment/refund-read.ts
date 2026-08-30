@@ -176,6 +176,18 @@ async function listRefundExceptionsUncached(): Promise<{
   /** 已經有人判定過的筆數(清單頁灰字那一行)。讀不到時 = 0。 */
   decidedCount: number;
   /**
+   * 卡住那幾列**現行有效的更正判定**;`null` = 讀不到(與 `verdictsUnavailable` 同源)。
+   *
+   * 🔴 **為什麼把它一起回出去**(R3 consider-2,2026-08-30):清單頁本來自己再打一發
+   *    `findEffectiveVerdicts`,而我在上一片宣稱「包了 `cache()` ⇒ 同成同敗」——
+   *    **那句是假的**:React `cache()` 以**引數的 reference** 當 key,兩個呼叫端各自
+   *    `filter().map()` 出一個**新陣列** ⇒ 永遠 miss ⇒ 兩發獨立、仍然可能一成一敗。
+   *    📌 **一個「快取會幫我去重」的假設,在引數是新造物件時永遠不成立** ——
+   *       而它不會報錯,只會安靜地多打一發。
+   *    ⇒ 真正的修法不是快取,是**只撈一次然後把東西傳下去**。
+   */
+  stuckVerdicts: ReadonlyMap<string, { correctedTo: string; seq: number }> | null;
+  /**
    * 🔴 更正紀錄讀不到 ⇒ 上面兩個數字都是退化值。
    *
    * **為什麼不讓它 throw**:`refund-correction-read.ts` 檔頭「為什麼新開一支」那段逐字寫著它刻意不擴進本檔,
@@ -221,12 +233,14 @@ async function listRefundExceptionsUncached(): Promise<{
   const stuckIds = rows.filter(isStuckManualVerdict).map((row) => row.id);
   let decidedCount = 0;
   let verdictsUnavailable = false;
+  let stuckVerdicts: ReadonlyMap<string, { correctedTo: string; seq: number }> | null = null;
   try {
     const verdicts = await findEffectiveVerdicts(stuckIds);
     // 型別漂移也算讀不到(同 `refund-exceptions/page.tsx` 的 `instanceof Map` 那一格的理由(錨在字面不在行號 —— 本片自己讓那支檔位移了):
     // 不是 Map 就別往下 `.has()`,那會炸掉三個消費端)。
     if (verdicts instanceof Map) {
       decidedCount = countDecidedExceptions(rows, verdicts);
+      stuckVerdicts = verdicts;
     } else {
       verdictsUnavailable = true;
     }
@@ -245,6 +259,7 @@ async function listRefundExceptionsUncached(): Promise<{
     pendingCount: verdictsUnavailable ? rows.length : rows.length - decidedCount,
     decidedCount,
     verdictsUnavailable,
+    stuckVerdicts,
   };
 }
 

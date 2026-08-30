@@ -13,6 +13,14 @@ const mocks = vi.hoisted(() => ({
   refund: vi.fn(),
   revalidatePath: vi.fn(),
   redirect: vi.fn(),
+  // 🔴 `#890` 片4:server 閘 ④-b 會讀帳本 + 更正紀錄。
+  //    **預設 = 零帳本列** ⇒ 那道閘直接放過 ⇒ 本檔既有每一格行為一個字不變。
+  listOrderRefunds: vi.fn(),
+  findEffectiveVerdicts: vi.fn(),
+}));
+vi.mock('./refund-read', () => ({ listOrderRefunds: mocks.listOrderRefunds }));
+vi.mock('./refund-correction-read', () => ({
+  findEffectiveVerdicts: mocks.findEffectiveVerdicts,
 }));
 
 vi.mock('../session/authorize', () => ({ authorizeAdminMutation: mocks.authorizeAdminMutation }));
@@ -109,6 +117,8 @@ beforeEach(() => {
   savedFlag = process.env.REFUND_UI_ENABLED;
   process.env.REFUND_UI_ENABLED = '1';
   mocks.authorizeAdminMutation.mockResolvedValue({ sid: 'sid-1', actorId: 'sean' });
+  mocks.listOrderRefunds.mockResolvedValue({ rows: [], truncated: false });
+  mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
   // 🔴 header id 與表單 token **刻意不同值**:斷言 RPC 收到的是 token 不是 header
   //    (A9d2-1 H9/F1:兩者 mock 成同值的話,「冪等鍵接錯來源」恆綠)。
   mocks.getRequestId.mockResolvedValue('req_http-side-id');
@@ -249,6 +259,170 @@ describe('initiateRefundAction — server 重讀訂單(app 層縱深)', () => {
         code: 'no_card_transaction',
       });
     }
+  });
+});
+
+describe('🔴🔴 initiateRefundAction — 卡住的人工判定閘(④-b,`#890` 片4)', () => {
+  // ═══════════════════════════════════════════════════════════════════════
+  // 🔴 **這一組量的是「繞過畫面直送 server action」那條路。**
+  //    `refund-entry-gate.ts` 自己的檔頭逐字寫著 server 端對 stuck 那格「**擋不住**」。
+  //    ⇒ 沒有這一組,片4 就只是把按鈕藏起來 —— 而**藏按鈕不是閘**
+  //      (`#806` 那個錢洞的形狀:持有效後台 session 不經畫面直送 action)。
+  //    ⇒ 這裡完全不渲染任何畫面,直接呼叫 action。
+  // ═══════════════════════════════════════════════════════════════════════
+  const stuck = {
+    id: 'r-stuck',
+    kind: 'partial',
+    status: 'failed',
+    refundAmount: 100,
+    reason: '人工判定',
+    actor: 'sean',
+    createdAt: '2026-08-04T03:00:00+00:00',
+    failedReason: 'manual_failed',
+    failedDetail: null,
+    providerEvidence: null,
+  };
+  const feed = () =>
+    mocks.listOrderRefunds.mockResolvedValue({ rows: [stuck], truncated: false });
+
+  it('🔴 未更正 ⇒ stuck_verdict,而且 TapPay Record **零呼叫**(擋在動錢之前)', async () => {
+    feed();
+    await expect(initiateRefundAction(IDLE, refundForm())).resolves.toMatchObject({
+      code: 'stuck_verdict',
+    });
+    expect(mocks.recordQuery).not.toHaveBeenCalled();
+    expect(mocks.initiateOrderRefund).not.toHaveBeenCalled();
+  });
+
+  it('🔴 更正成「錢動了」⇒ 一樣擋(那筆錢已經退出去了,再退一次是第二次付款)', async () => {
+    feed();
+    mocks.findEffectiveVerdicts.mockResolvedValue(
+      new Map([['r-stuck', { correctedTo: 'money_moved' }]]),
+    );
+    const got = await initiateRefundAction(IDLE, refundForm());
+    // 🔴 **碼要分得開**(codex R1 must-fix):這一種的下一步**不是**「去更正」——
+    //    已經有人更正過了,而結論是錢動了。叫他再更正一次 = 暗示他翻成放行值。
+    expect(got).toMatchObject({ code: 'stuck_verdict_money' });
+    // `RefundActionState` 是 union,`message` 只住在 failed 那一支 ⇒ 先收斂再讀。
+    if (got.status !== 'failed') throw new Error(`預期 failed,實得 ${got.status}`);
+    expect(got.message).toContain('那筆錢已經退出去了');
+    expect(got.message).not.toContain('還沒有人更正過');
+    expect(mocks.initiateOrderRefund).not.toHaveBeenCalled();
+  });
+
+  it('🔴🔴 混合:一列未更正 + 一列 money_moved ⇒ 回 **money** 那一碼(codex R2 must-fix)', async () => {
+    // 🔴 **這一格擋的是 `some` 被誤改成 `every`** —— 沒有它,那個突變在既有測試下全過。
+    //    為什麼是 money 那一句贏:三者裡它最該讓人停手(「那筆錢已經退出去了」),
+    //    而叫一個看到 money_moved 的人「去更正判定」是最危險的那一句。
+    mocks.listOrderRefunds.mockResolvedValue({
+      rows: [stuck, { ...stuck, id: 'r-stuck-2' }],
+      truncated: false,
+    });
+    mocks.findEffectiveVerdicts.mockResolvedValue(
+      new Map([['r-stuck-2', { correctedTo: 'money_moved', seq: 1 }]]),
+    );
+    const got = await initiateRefundAction(IDLE, refundForm());
+    expect(got).toMatchObject({ code: 'stuck_verdict_money' });
+    expect(mocks.initiateOrderRefund).not.toHaveBeenCalled();
+  });
+
+  it('負對照:兩列都只是未更正 ⇒ 回 **一般** 那一碼(否則上面那格分不出兩種)', async () => {
+    mocks.listOrderRefunds.mockResolvedValue({
+      rows: [stuck, { ...stuck, id: 'r-stuck-2' }],
+      truncated: false,
+    });
+    await expect(initiateRefundAction(IDLE, refundForm())).resolves.toMatchObject({
+      code: 'stuck_verdict',
+    });
+  });
+
+  it('🔴 混合:一列 money_moved + 一列已更正為 no_money_moved ⇒ 仍然擋(擋的那一列說了算)', async () => {
+    mocks.listOrderRefunds.mockResolvedValue({
+      rows: [stuck, { ...stuck, id: 'r-stuck-2' }],
+      truncated: false,
+    });
+    mocks.findEffectiveVerdicts.mockResolvedValue(
+      new Map([
+        ['r-stuck', { correctedTo: 'no_money_moved', seq: 1 }],
+        ['r-stuck-2', { correctedTo: 'money_moved', seq: 1 }],
+      ]),
+    );
+    await expect(initiateRefundAction(IDLE, refundForm())).resolves.toMatchObject({
+      code: 'stuck_verdict_money',
+    });
+  });
+
+  it('🔴 兩列**都**更正為 no_money_moved ⇒ 放行(正對照:少了它,上面三格可能是恆真)', async () => {
+    mocks.listOrderRefunds.mockResolvedValue({
+      rows: [stuck, { ...stuck, id: 'r-stuck-2' }],
+      truncated: false,
+    });
+    mocks.findEffectiveVerdicts.mockResolvedValue(
+      new Map([
+        ['r-stuck', { correctedTo: 'no_money_moved', seq: 1 }],
+        ['r-stuck-2', { correctedTo: 'no_money_moved', seq: 2 }],
+      ]),
+    );
+    await expect(initiateRefundAction(IDLE, refundForm())).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.recordQuery).toHaveBeenCalled();
+  });
+
+  it('🔴 帳本讀不到 ⇒ 擋(不知道有沒有 ⇒ 當作有),而且是 unknown 那一碼', async () => {
+    mocks.listOrderRefunds.mockRejectedValue(new Error('ledger down'));
+    const got = await initiateRefundAction(IDLE, refundForm());
+    expect(got).toMatchObject({ code: 'stuck_verdict_unknown' });
+    if (got.status !== 'failed') throw new Error(`預期 failed,實得 ${got.status}`);
+    // 🔴 讀不到的時候**不得叫他去更正**(他看不到要更正什麼)。
+    expect(got.message).not.toContain('更正之後再回來退款');
+    expect(mocks.recordQuery).not.toHaveBeenCalled();
+  });
+
+  it('🔴 更正紀錄讀不到 ⇒ 擋(fail-closed),同樣是 unknown 那一碼', async () => {
+    feed();
+    mocks.findEffectiveVerdicts.mockRejectedValue(new Error('verdict down'));
+    await expect(initiateRefundAction(IDLE, refundForm())).resolves.toMatchObject({
+      code: 'stuck_verdict_unknown',
+    });
+  });
+
+  it('🔴🔴 **帳本被截斷 ⇒ 擋**(codex R1 must-fix:那是這道閘唯一被繞得過去的路)', async () => {
+    // `listOrderRefunds` 只回**最新** 100 列(`refund-read.ts:78`,`created_at` DESC)
+    // ⇒ 一列較舊的 `manual_failed` 落在第 101 列之後,`stuckIds` 會是**空的**
+    // ⇒ 修之前:這道閘直接放行,而畫面那道也看不到它。
+    // 📌 「我沒看到卡住的列」與「沒有卡住的列」是兩個宣稱 —— 截斷正是它們分開的那一刻。
+    mocks.listOrderRefunds.mockResolvedValue({ rows: [], truncated: true });
+    const got = await initiateRefundAction(IDLE, refundForm());
+    expect(got).toMatchObject({ code: 'stuck_verdict_unknown' });
+    expect(mocks.recordQuery).not.toHaveBeenCalled();
+  });
+
+  it('負對照:同樣零列而**沒有**截斷 ⇒ 照常放行(否則上面那格是恆真的)', async () => {
+    mocks.listOrderRefunds.mockResolvedValue({ rows: [], truncated: false });
+    await expect(initiateRefundAction(IDLE, refundForm())).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.recordQuery).toHaveBeenCalled();
+  });
+
+  it('🔴 更正成「錢沒有動」⇒ **放行**,這一發要真的走到 Record 那一步', async () => {
+    feed();
+    mocks.findEffectiveVerdicts.mockResolvedValue(
+      new Map([['r-stuck', { correctedTo: 'no_money_moved' }]]),
+    );
+    // 🔴 走完整條成功路徑 ⇒ 最後會 `redirect()`,而本檔把 redirect mock 成**拋**
+    //    (`:146-147` 逐字:「真 redirect 是拋;不拋的話『包進 try』的突變殺不掉」)。
+    await expect(initiateRefundAction(IDLE, refundForm())).rejects.toThrow('NEXT_REDIRECT');
+    // 🔴 **正對照,而它是這一組的承重格**:少了它,一個「永遠回 stuck_verdict」
+    //    的壞版本會讓上面四格全過。它必須走過這道閘、進到下一步。
+    expect(mocks.recordQuery).toHaveBeenCalled();
+  });
+
+  it('🔴 沒有卡住的列 ⇒ **不發那一發更正查詢**(絕大多數訂單走這條)', async () => {
+    mocks.listOrderRefunds.mockResolvedValue({
+      rows: [{ ...stuck, failedReason: 'not_sent' }],
+      truncated: false,
+    });
+    await expect(initiateRefundAction(IDLE, refundForm())).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.findEffectiveVerdicts).not.toHaveBeenCalled();
+    expect(mocks.recordQuery).toHaveBeenCalled();
   });
 });
 

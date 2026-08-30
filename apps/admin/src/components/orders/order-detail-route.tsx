@@ -5,6 +5,8 @@ import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
 import { getAdminOrderRepository } from '../../lib/orders/order-repository';
 import { isOrderId } from '../../lib/orders/order-detail-view';
 import { mergeDetailItems } from '../../lib/orders/merge-detail-items';
+import { findEffectiveVerdicts } from '../../lib/payment/refund-correction-read';
+import { isStuckManualVerdict } from '../../lib/payment/refund-ledger-view';
 import { isRefundUiEnabled } from '../../lib/payment/refund-ui-flag';
 import { isUuid } from '../../lib/orders/note-action-state';
 import {
@@ -125,6 +127,10 @@ export async function OrderDetailRoute({
   let refundsTruncated = false;
   let refundUnregisteredAmount: number | null = null;
   let refundUnregisteredFailed = false;
+  // 🔴 `#890` 片4:卡住那幾列**現行有效的更正判定**。
+  //    `null` = 讀不到(或還沒查)⇒ 退款入口 fail-closed;空 Map = 讀到了而一筆都沒被更正過。
+  //    ⚠️ 兩者**必須分得出來**,理由寫在 `refund-ledger-view.ts` 的 `isBlockingStuckVerdict` 旁邊。
+  let stuckVerdicts: ReadonlyMap<string, { correctedTo: string }> | null = null;
   // M-4b E10 D3:非卡退款登記列表(獨立容錯,同 refunds 的立場——藏掉登記紀錄比整頁掛掉更糟)。
   let manualRefunds: ManualRefundRow[] = [];
   let manualRefundsFailed = false;
@@ -224,6 +230,27 @@ export async function OrderDetailRoute({
     console.error('[admin/order-detail] 退款帳本載入失敗(區塊顯示警告、入口 fail-closed)', refundsSettled.reason);
     refundsFailed = true;
   }
+  // 🔴 `#890` 片4:卡住那幾列的更正判定 —— **串行的第二趟,而它有前提**。
+  //    ⚠️ **不能併進上面那個 `Promise.allSettled`**:它要用 `refunds` 當輸入(問哪幾個 id)。
+  //    🔴 **而絕大多數訂單根本不會走它**:沒有卡住的列 ⇒ `stuckIds` 為空 ⇒
+  //       `findEffectiveVerdicts` 自己早退、**不打 DB**(`refund-correction-read.ts` 的
+  //       `if (ids.length === 0) return new Map()`)⇒ 那一趟只在真的有卡住列時發生。
+  //    ⚠️ **成本未量**:有卡住列的那條路多一次往返,而明細頁是高頻互動頁。**定性、非定量。**
+  //
+  //    🔴 **`refundsFailed` 時不查、留 `null`** —— 帳本都讀不到了,問「哪幾列被更正過」
+  //       沒有意義,而**留 `null` 正是 fail-closed 要的值**。
+  if (!refundsFailed) {
+    const stuckIds = refunds.filter(isStuckManualVerdict).map((row) => row.id);
+    try {
+      const got = await findEffectiveVerdicts(stuckIds);
+      // 型別漂移也算讀不到(不是 Map 就別往下 `.get()`,那會炸整頁)。
+      stuckVerdicts = got instanceof Map ? got : null;
+    } catch (error) {
+      console.error('[admin/order-detail] 卡住判定的更正紀錄載入失敗(退款入口 fail-closed)', error);
+      stuckVerdicts = null;
+    }
+  }
+
   // 🔴 #445a-3:帳本未登記額改成**無條件查**(原本只在 `refunds.length > 0` 才查)。
   // ⚠️ **本片只鋪管線,不負責把那個數字顯示出來** —— 零帳本列時
   //    `RefundLedgerSection` 仍然整區不渲染(plan §6-33 明文要求「不因刪短路多冒空區塊」),
@@ -326,6 +353,7 @@ export async function OrderDetailRoute({
           refunds={refunds}
           refundsFailed={refundsFailed}
           refundsTruncated={refundsTruncated}
+          stuckVerdicts={stuckVerdicts}
           refundUnregisteredAmount={refundUnregisteredAmount}
           refundUnregisteredFailed={refundUnregisteredFailed}
           manualRefunds={manualRefunds}

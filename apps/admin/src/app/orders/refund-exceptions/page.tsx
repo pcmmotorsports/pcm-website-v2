@@ -7,10 +7,7 @@ import { formatOrderAmount } from '../../../lib/orders/order-list-view';
 import { formatOrderDateTime } from '../../../lib/orders/order-detail-view';
 import { generateRefundRequestToken } from '../../../lib/payment/refund-action-state';
 import { listRefundExceptions } from '../../../lib/payment/refund-read';
-import {
-  findEffectiveVerdicts,
-  type EffectiveVerdict,
-} from '../../../lib/payment/refund-correction-read';
+import type { EffectiveVerdict } from '../../../lib/payment/refund-correction-read';
 import {
   REFUND_EXCEPTION_STALL_MS,
   isStuckManualVerdict,
@@ -47,36 +44,35 @@ export default async function RefundExceptionsPage({
   //    ⇒ 自己重算會出現「側欄說判定讀不到、而同一台螢幕上灰字精確地說另有 1 筆」。
   let decidedCount = 0;
   let verdictsUnavailable = false;
+  // 🔴 **這一份就是側欄那顆數字用的那一份**(R3 consider-2)——
+  //    本頁不再自己打第二發 `findEffectiveVerdicts`。理由寫在 `refund-read.ts` 的
+  //    `stuckVerdicts` 欄位旁邊:`cache()` 以引數 reference 當 key,兩個呼叫端各造一個
+  //    新陣列 ⇒ 永遠 miss ⇒ 「同成同敗」那句是假的,而它不會報錯、只會安靜地多打一發。
+  let effectiveVerdicts: Map<string, EffectiveVerdict> | null = null;
   try {
     const result = await listRefundExceptions();
     rows = result.rows;
     truncated = result.truncated;
     decidedCount = result.decidedCount;
     verdictsUnavailable = result.verdictsUnavailable;
+    effectiveVerdicts = (result.stuckVerdicts as Map<string, EffectiveVerdict> | null) ?? null;
   } catch (error) {
     console.error('[admin/orders/refund-exceptions] 異常清單載入失敗', error);
     loadFailed = true;
   }
 
-  // 🔴🔴 **`#890` 片3:更正查詢【自己一個 try】,不得併進上面那個**(plan §1d #13 逐字)。
-  //    上面那個 try 失敗 ⇒ 整張清單不顯示;而更正查詢失敗**不該讓整頁看起來像「沒有資料」**
-  //    ⇒ 它只該讓那幾列少一個入口。
-  // 🔴 而 `null` 與空 Map 是**兩件事**:
-  //    · `null`  = 讀失敗 ⇒ **fail-closed,不渲染更正入口**（那時他確實沒有可以按的東西，
-  //      而**一顆按不動的鈕比沒有鈕糟**）
-  //    · 空 Map  = 讀到了，只是這些列都還沒被更正過 ⇒ 入口照渲染，CAS 送 NULL
-  let effectiveVerdicts: Map<string, EffectiveVerdict> | null = null;
-  const stuckIds = rows.filter((row) => isStuckManualVerdict(row)).map((row) => row.id);
-  try {
-    const got = await findEffectiveVerdicts(stuckIds);
-    // 🔴 **型別漂移也要 fail-closed**(codex 2026-08-29):`!== null` 放行的不只 Map ——
-    //    一個回 `undefined` 或別的東西的實作會通過那個判斷,而下一步 `.get()` **炸整頁**。
-    //    ⇒ 這裡只認 `Map`;不是 Map 就當成「讀失敗」。
-    effectiveVerdicts = got instanceof Map ? got : null;
-  } catch (error) {
-    console.error('[admin/orders/refund-exceptions] 現行更正判定載入失敗', error);
-    effectiveVerdicts = null;
-  }
+  // 🔴🔴 **`#890` 片3 原本在這裡有【自己一個 try】的第二發更正查詢**(plan §1d #13)。
+  //    ⛔ ~~它與上面那個 try 分開,是為了「更正查詢失敗不該讓整頁看起來像沒有資料」。~~
+  //    🔵 **2026-08-30(R3 consider-2)搬走了,而那個理由【仍然成立、只是換人做】**:
+  //       `listRefundExceptions` 現在把它撈到的那一份一起回出來(`stuckVerdicts`),
+  //       而它在**自己的 try 裡**吞掉例外、只翻 `verdictsUnavailable` ⇒ 清單照樣顯示。
+  //       ⇒ 分離 fail 的語意一個字沒變,變的是**只撈一次**。
+  //    🔴 為什麼一定要搬:上一片宣稱「包 `cache()` ⇒ 兩發同成同敗」——**那句是假的**,
+  //       React `cache()` 以引數 reference 當 key,兩端各造一個新陣列 ⇒ 永遠 miss。
+  //       📌 **一個「快取會幫我去重」的假設,在引數是新造物件時永遠不成立,而它不會報錯。**
+  // 🔴 `null` 與空 Map 仍然是**兩件事**(語意未變):
+  //    · `null`  = 讀失敗 ⇒ **fail-closed,不渲染更正入口**(一顆按不動的鈕比沒有鈕糟)
+  //    · 空 Map  = 讀到了,只是這些列都還沒被更正過 ⇒ 入口照渲染,CAS 送 NULL
 
   const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
   const TD = 'px-3 py-2 text-sm align-top';

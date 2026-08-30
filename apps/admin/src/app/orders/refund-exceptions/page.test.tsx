@@ -79,6 +79,7 @@ describe('/orders/refund-exceptions — RW3', () => {
       pendingCount: 0,
       decidedCount: 2,
       verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     const { container } = await renderPage();
     // 🔴 **R2 MF-B**:第一版是 `toContain('2')` —— 而 `exceptionRow()` 的
@@ -95,6 +96,7 @@ describe('/orders/refund-exceptions — RW3', () => {
       pendingCount: 1,
       decidedCount: 0,
       verdictsUnavailable: true,
+      stuckVerdicts: null,
     });
     const { container } = await renderPage();
     expect(container.textContent).not.toContain('筆已經有人更正過判定');
@@ -107,6 +109,7 @@ describe('/orders/refund-exceptions — RW3', () => {
       pendingCount: 1,
       decidedCount: 0,
       verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     const { container } = await renderPage();
     expect(container.textContent).not.toContain('筆已經有人更正過判定');
@@ -119,6 +122,7 @@ describe('/orders/refund-exceptions — RW3', () => {
       pendingCount: 0,
       decidedCount: 0,
       verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     const { container } = await renderPage();
     expect(container.textContent).toContain('目前沒有滯留或卡住的退款');
@@ -132,6 +136,7 @@ describe('/orders/refund-exceptions — RW3', () => {
       pendingCount: 1,
       decidedCount: 0,
       verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     const { container } = await renderPage();
     const link = container.querySelector(`a[href="/orders/${ORDER_ID}"]`);
@@ -149,6 +154,7 @@ describe('/orders/refund-exceptions — RW3', () => {
       pendingCount: 1,
       decidedCount: 0,
       verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     const { container } = await renderPage();
     // 文案已改成不歸因(兩關 nit:原文把爆量一律說成「滯留量」,但 #473b-2 之後
@@ -169,6 +175,7 @@ describe('/orders/refund-exceptions — RW3', () => {
       pendingCount: 1,
       decidedCount: 0,
       verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     const { container } = await renderPage();
     expect(container.textContent).not.toContain('還能退');
@@ -208,6 +215,7 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
       pendingCount: 1,
       decidedCount: 0,
       verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
     const { container } = await renderPage();
@@ -231,9 +239,10 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
       truncated: false,
       pendingCount: 1,
       decidedCount: 0,
-      verdictsUnavailable: false,
+      verdictsUnavailable: true,
+      // 🔴 更正讀不到 ⇒ `null`(R3 consider-2 之後,這一份由 `listRefundExceptions` 一起回)。
+      stuckVerdicts: null,
     });
-    mocks.findEffectiveVerdicts.mockRejectedValue(new Error('boom'));
     const { container } = await renderPage();
     expect(container.querySelectorAll('button')).toHaveLength(0);
     expect(container.textContent ?? '').toContain('沒有可以按的動作');
@@ -246,9 +255,9 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
       truncated: false,
       pendingCount: 1,
       decidedCount: 0,
-      verdictsUnavailable: false,
+      verdictsUnavailable: true,
+      stuckVerdicts: null,
     });
-    mocks.findEffectiveVerdicts.mockRejectedValue(new Error('boom'));
     const { container } = await renderPage();
     const text = container.textContent ?? '';
     expect(text).toContain('PCM-2026-0001');
@@ -267,8 +276,7 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
       pendingCount: 1,
       decidedCount: 0,
       verdictsUnavailable: false,
-    });
-    mocks.findEffectiveVerdicts.mockResolvedValue(
+      stuckVerdicts:
       new Map([
         [
           'r-stuck',
@@ -283,7 +291,7 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
           },
         ],
       ]),
-    );
+    });
     const { container } = await renderPage();
     const text = container.textContent ?? '';
     expect(text).toContain('已經被更正過');
@@ -304,6 +312,7 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
       pendingCount: 1,
       decidedCount: 0,
       verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
     const { container } = await renderPage();
@@ -317,6 +326,7 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
       pendingCount: 1,
       decidedCount: 0,
       verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
     const { container } = await renderPage();
@@ -334,6 +344,7 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
       pendingCount: 1,
       decidedCount: 0,
       verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
     const text = (await renderPage()).container.textContent ?? '';
@@ -352,6 +363,7 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
       pendingCount: 1,
       decidedCount: 0,
       verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
     const { container } = await renderPage();
@@ -367,6 +379,7 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
       pendingCount: 1,
       decidedCount: 0,
       verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
     const { container } = await renderPage();
@@ -413,6 +426,7 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
       pendingCount: 1,
       decidedCount: 0,
       verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
     const { container } = await renderPage();
@@ -436,6 +450,7 @@ describe('/orders/refund-exceptions — RW4 操作接線', () => {
       pendingCount: 1,
       decidedCount: 0,
       verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     const { container } = await renderPage();
     const buttons = [...container.querySelectorAll('button')].map((b) => b.textContent ?? '');
@@ -452,6 +467,7 @@ describe('/orders/refund-exceptions — RW4 操作接線', () => {
       pendingCount: 0,
       decidedCount: 0,
       verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     let rendered = await renderPage({ r: 'refund_marked_failed' });
     expect(rendered.container.textContent).toContain('已標記失敗結案');
