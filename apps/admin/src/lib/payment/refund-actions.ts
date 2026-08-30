@@ -49,19 +49,25 @@ import {
   initiateOrderRefund,
   type FinalizeOrderRefundArgs,
   type FinalizeOrderRefundOutcome,
-  type RefundBlockedBy,
 } from './refund-repository';
 
-/**
- * #445 步 6b:`blocked_by` → 員工看到的文案碼(§4-4 三分)。
- * 🔴 寫成 `Record<RefundBlockedBy, …>` 而不是 switch:RPC 日後新增第 4 個 blocked_by 值時
- *    **這裡編譯期就紅**,不會靜默落進「打太多」那句話 —— 那會把員工導向相反的動作。
- */
-const EXCEEDS_FAILURE_CODE: Record<RefundBlockedBy, RefundFailureCode> = {
-  amount: 'exceeds_remaining',
-  in_flight: 'exceeds_in_flight',
-  unknown: 'exceeds_unknown',
-};
+// ⛔ ~~`const EXCEEDS_FAILURE_CODE: Record<RefundBlockedBy, RefundFailureCode>`~~
+// 🔴 **2026-08-31 刪(`⟦b4-EXCEEDSDEAD⟧` 甲案)** —— 它唯一的使用者是那個已刪的
+//    `case 'REFUND_EXCEEDS_REMAINING'`,而那個碼 DB 從來沒有回過。
+// ⛔ ~~**而它的三個值沒有消失,它們搬到了【真的會發生的那條路】上**~~
+// 🔴 **2026-08-31 訂正(codex 對抗審查 must-fix 2 抓到)—— 那句話是【三分之二真】。**
+//    當場逐個對:
+//      · `amount`    → `exceeds_remaining` ✅ 搬到了(`PCM04`)
+//      · `unknown`   → `exceeds_unknown`   ✅ 搬到了(`PCM05`)
+//      · `in_flight` → `exceeds_in_flight` 🔴 **沒有搬** —— `PCM06` 對到的是 `db_config`(新的),
+//        而 `exceeds_in_flight` 今天**零個產生者**(`grep -rn exceeds_in_flight apps packages`
+//        ⇒ 只有型別成員 + 訊息本身 + 一格測試,沒有任何一處在產生它)。
+//    📌 **⇒ 我寫「三個值都搬過去」的時候,兩個是真的、第三個我沒有逐個去對。**
+//       🔴 **而一個【三分之二真】的句子讀起來與一個全真的句子完全一樣** ——
+//          它甚至更可信,因為它具體。
+// 🔵 **`exceeds_in_flight` 本身沒刪**:`445b` 只做 `BEFORE INSERT`(`20260830210000:333`),
+//    在途那一種未來仍可能需要它;⇒ 它是**留著的空位**,不是遺留的死碼。
+//    ⚠️ 而「留著的空位」與「沒清乾淨的死碼」在 code 上長得一樣 —— **差別只在這段字。**
 
 // refund-actions.ts — M-3 A7c RW2c:退款 server action(高風險片、鐵則 12 ①②)。
 //
@@ -462,14 +468,14 @@ export async function initiateRefundAction(
         return refundFailure('no_card_transaction', input, parsed.requestToken);
       case 'REFUND_NOTHING_LEFT':
         return refundFailure('nothing_left', input, parsed.requestToken);
-      // #445 步 6b 超退閘。判別依據是 RPC 吐的 `blocked_by`,不是 app 端猜的 ——
-      // 「打太多」「有東西卡住」「算不出來」三者的處置完全不同(§0-E 第 2 條)。
-      case 'REFUND_EXCEEDS_REMAINING':
-        return refundFailure(
-          EXCEEDS_FAILURE_CODE[initiated.blockedBy],
-          input,
-          parsed.requestToken,
-        );
+      // ⛔ ~~case 'REFUND_EXCEEDS_REMAINING': …EXCEEDS_FAILURE_CODE[initiated.blockedBy]~~
+      // 🔴 **2026-08-31 刪(`⟦b4-EXCEEDSDEAD⟧` 甲案)** —— 那支 RPC 從來沒有回過這個碼
+      //    (它自己列出的回傳碼是 8 個,`20260803150000:415-416`(座標已訂正,見本檔上方那一處)(⛔ ~~舊座標~~ 🔴 **2026-08-31 訂正:那支 RPC 的【最新一代】是 `20260812170000:480` 的 `CREATE OR REPLACE`,不是 `20260803150000`** —— 用 `scripts/latest-definition-of.sh admin_initiate_order_refund` 查到的。✅ **結論不變**:在最新那一代裡重數,仍然恰 8 碼、與 `INITIATE_RESULT_CODES` 逐字相同,而 `REFUND_EXCEEDS_REMAINING` / `blocked_by` 在該代 **0 命中**(負對照現造字面亦 0)。📌 **⇒ 我的結論是對的,而我的【證據指著一份已經被取代的定義】—— 那份舊的當時也是 8 碼,所以【指錯代】與【指對代】印出同一個答案。**) 逐字,**沒有它**;
+      //     而 `blocked_by` 在整個 `supabase/` ⇒ **0 處**)。
+      // ✅ **而今天真的在做那件事的是 `445b` 的 trigger + `PCM04`** ——
+      //    它走的是**例外**那條路(上方 `RefundCapGuardError`),不是這個 switch。
+      //    ⇒ 📌 **兩條路長得完全不同,而它們的員工訊息是同一句** —— 那不是巧合,
+      //      是 `CAP_GUARD_FAILURE_CODE` 刻意對到同一個 `exceeds_remaining`。
       // 🔴 窮盡守(本片新增):原本這個 switch **沒有 default**。
       //    ⚠️ 它擋的**不是** RPC 在 runtime 吐出未知碼 —— 那個更早就被
       //    `refund-repository.ts` 的碼表白名單 throw 掉了(`:270`),到不了這裡;

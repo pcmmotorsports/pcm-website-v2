@@ -32,8 +32,20 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
  *    ⇒ 它們是綠的,而那個綠**灌大了覆蓋率的印象**。
  * ⚠️ **後果二**:`refund-actions.ts` 那個 `case 'REFUND_EXCEEDS_REMAINING':` 是死碼。
  *
- * 🛑 **本片【不刪】它們** —— 刪除是範圍擴張,而它們無害(不可達的分支不會做錯事)。
- *    ⇒ 已開列 `⟦b4-EXCEEDSDEAD⟧`,連同「要不要改回 JSON 碼形狀」一起裁。
+ * ⛔ ~~本片【不刪】它們 —— 刪除是範圍擴張~~
+ * ✅ **2026-08-31 刪了(`⟦b4-EXCEEDSDEAD⟧` 甲案,`-48` 批)。而批它的理由是【兩邊的量測】不是推薦**:
+ *    甲 = 20 處 / 6 支檔(非註解實碼 15)· **不含任何 migration** · 一顆 commit
+ *    乙 = 改回 JSON 碼 ⇒ 要動**已 apply** 的 `20260830210000` ⇒ 一支新 migration ⇒ Sean 的手
+ *      🔴 而它要**重做一次已經做完的證明** —— 445b 的併發正確性是**實測**出來的
+ *        (`FOR NO KEY UPDATE` 把兩個 session 序列化,harness 7 個量測點)
+ *      📌 **⇒ 而「重證」的成本不只是時間,是【那次重證有可能證不出同樣的結論】。**
+ *
+ * 🔵 **而刪之前我多量了一發,它是決定性的**(先前我只掃 `apps` + `packages`):
+ *    `supabase/` 裡 `REFUND_EXCEEDS_REMAINING` ⇒ **4 處,而全部在 445b 那支的【註解】裡**;
+ *    `blocked_by` 在 `supabase/` ⇒ **0 處**;
+ *    而那支 RPC 自己列出的回傳碼(`20260803150000:415-416`(座標已訂正,見本檔上方那一處)(⛔ ~~舊座標~~ 🔴 **2026-08-31 訂正:那支 RPC 的【最新一代】是 `20260812170000:480` 的 `CREATE OR REPLACE`,不是 `20260803150000`** —— 用 `scripts/latest-definition-of.sh admin_initiate_order_refund` 查到的。✅ **結論不變**:在最新那一代裡重數,仍然恰 8 碼、與 `INITIATE_RESULT_CODES` 逐字相同,而 `REFUND_EXCEEDS_REMAINING` / `blocked_by` 在該代 **0 命中**(負對照現造字面亦 0)。📌 **⇒ 我的結論是對的,而我的【證據指著一份已經被取代的定義】—— 那份舊的當時也是 8 碼,所以【指錯代】與【指對代】印出同一個答案。**) 逐字)是 8 個,**沒有它**。
+ *    🔵 正對照 `'INITIATED'` 在 `supabase/` ⇒ 3 · 負對照現造字面 ⇒ 0。
+ *    ⇒ 📌 **⇒ 也就是說:那是一份【只存在於 app 這一側】的協定 —— DB 那一側從來沒有實作過它。**
  * ✅ **今天真正在接那個閘的是 `RefundCapGuardError` / `toCapGuard`(本檔下方)。**
  */
 export const INITIATE_RESULT_CODES = [
@@ -45,20 +57,18 @@ export const INITIATE_RESULT_CODES = [
   'REFUND_LEDGER_FULL',
   'REFUND_IN_FLIGHT',
   'REFUND_NOTHING_LEFT',
-  'REFUND_EXCEEDS_REMAINING',
 ] as const;
 export type InitiateResultCode = (typeof INITIATE_RESULT_CODES)[number];
 
-/**
- * 超退閘擋下來的三種原因(#445 §4-4)。三者員工的下一步動作完全不同,
- * 而「有沒有列佔著額度」只有 RPC 知道 ⇒ 判別值必須由 RPC 吐,app 端從
- * 「一個碼 + 一個數字」推不出來。
- * · `amount`    = 純粹打太多       ⇒ 改金額重打
- * · `in_flight` = 有列佔著額度      ⇒ 先去處理那一筆(含 processing 與待人工判定的列)
- * · `unknown`   = RPC 算不出額度    ⇒ 不是金額問題,勿重試、找人
- */
-export const REFUND_BLOCKED_BY_VALUES = ['amount', 'in_flight', 'unknown'] as const;
-export type RefundBlockedBy = (typeof REFUND_BLOCKED_BY_VALUES)[number];
+// ⛔ ~~`REFUND_BLOCKED_BY_VALUES = ['amount','in_flight','unknown']` + `type RefundBlockedBy`~~
+// 🔴 **2026-08-31 整段刪(`⟦b4-EXCEEDSDEAD⟧` 甲,`-48` 二次批「一起刪」)** ——
+//    刪前當場量:`grep -rn 'REFUND_BLOCKED_BY_VALUES\|RefundBlockedBy' apps packages scripts`
+//    ⇒ 5 處命中,而**沒有一處是使用**(1 宣告 + 1 型別別名 + 2 已加刪除線的歷史字面
+//      + 1 格只驗「這個常數的內容是什麼」的測試)⇒ **零個真實使用者。**
+// 📌 **而它值得記的不是死碼本身,是:被刪掉的那段 JSDoc 寫得非常好** ——
+//    三個值各自解釋、各自寫了「員工該做什麼」⇒ **它讀起來完全像一個活著的合約。**
+//    🔴 **一段寫得越好的註解,越不會讓人去查它還有沒有人在用。**
+
 
 /** finalize 的 3 個固定回傳碼(`20260803150000:607`)。 */
 export const FINALIZE_RESULT_CODES = [
@@ -249,16 +259,12 @@ export type InitiateOrderRefundOutcome =
       refundAmount: number;
       rowStatus: 'processing' | 'confirmed';
     }
-  | {
-      result: 'REFUND_EXCEEDS_REMAINING';
-      /**
-       * 本單目前可受理的退款上限(元,整數)。
-       * 🔴 **`0` 是合法值**(已無可退),不是「沒拿到」—— 呼叫端不得用 falsy 判斷;
-       *    `null` = RPC 算不出來(guard IS NULL),由 `blockedBy === 'unknown'` 承接。
-       */
-      remaining: number | null;
-      blockedBy: RefundBlockedBy;
-    }
+  // ⛔ ~~| { result: 'REFUND_EXCEEDS_REMAINING'; remaining: number | null; blockedBy: RefundBlockedBy }~~
+  //    🔴 **2026-08-31 刪(`⟦b4-EXCEEDSDEAD⟧` 甲案)** —— 那支 RPC 從來沒有回過這個碼:
+  //    它自己列出的回傳碼是 8 個(`20260803150000:415-416`(座標已訂正,見本檔上方那一處) 逐字),**沒有它**;
+  //    而 `blocked_by` 在整個 `supabase/` ⇒ **0 處**。
+  //    ⇒ 📌 **那是一份【只存在於 app 這一側】的協定 —— DB 那一側從來沒有實作過它。**
+  //    ✅ 而今天真的在做那件事的是 `445b` 的 trigger + `RefundCapGuardError`(本檔下方)。
   | {
       result:
         | 'ORDER_NOT_FOUND'
@@ -295,33 +301,18 @@ function requirePositiveInt(fn: string, row: Record<string, unknown>, key: strin
   return value;
 }
 
-/**
- * 超退閘的可退上限。與 `requirePositiveInt` **刻意不同**:
- * · `0` 合法(這張單已無可退額度)⇒ 不能沿用「非正即拋」;
- * · `null` 合法(RPC 的 guard 算不出來)⇒ 由 `blocked_by='unknown'` 承接;
- * · 負值 / 非整數 / 非數字 = 合約漂移 ⇒ fail-loud,不讓它流進 UI 變成一個會被照著操作的數字。
- */
-function requireNonNegativeIntOrNull(
-  fn: string,
-  row: Record<string, unknown>,
-  key: string,
-): number | null {
-  // 🔴 關卡2 MF1:**缺欄與明寫 null 是兩件事,不得收斂成同一個值。**
-  //    `null` = RPC 說「我算不出來」(合法,由 blocked_by='unknown' 承接);
-  //    **缺欄** = 合約漂移 ⇒ 落到下面的型別檢查、fail-loud。
-  //    第一版寫 `value === null || value === undefined` ⇒ 把協定漂移偽裝成一次
-  //    「算不出來」,而後者是我們會照著顯示給員工的合法狀態。**只認 null。**
-  //    ⚠️ 我一度另加一道 `if (!(key in row)) throw` —— **實測那道紅不起來**
-  //    (缺欄 = undefined,型別檢查本來就會拋)⇒ 它是 no-op,已刪。
-  const value = row[key];
-  if (value === null) return null;
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
-    throw new RefundCallerBugError(
-      `${fn} 回傳 ${key} 非「非負整數或 null」:${JSON.stringify(row).slice(0, 200)}`,
-    );
-  }
-  return value;
-}
+// ⛔ ~~`function requireNonNegativeIntOrNull(fn, row, key): number | null`~~(連它上方那段 JSDoc)
+// 🔴 **2026-08-31 刪(`⟦b4-EXCEEDSDEAD⟧` 甲,codex 對抗審查 must-fix 1 抓到)** ——
+//    它唯一的呼叫點是已刪的 `REFUND_EXCEEDS_REMAINING` 解析區塊。當場量:
+//    `grep -rn requireNonNegativeIntOrNull apps packages scripts` ⇒ **只剩宣告本身,0 個呼叫者。**
+// 🔴 **而這一格是【我漏掉的第三個】,不是我找到的**:同一片我已經自己抓到
+//    `REFUND_BLOCKED_BY_VALUES` 與 `RefundBlockedBy` 兩個,**然後就停了**。
+//    📌 **⇒ 我找的是【我記得自己加過什麼】,而 codex 找的是【現在誰沒有呼叫者】——
+//       兩個分母不一樣,而我那個分母的上界是我的記憶。**
+// 🔵 它被刪掉的那段 JSDoc 值得留一句:它寫著「`0` 合法 / `null` 合法 / 負值=合約漂移」,
+//    **那個區分是對的,而且將來 `⟦b4-CAPMSGNUM⟧` 把 cap 值從 `DETAIL` 帶回來時會再需要它一次。**
+//    ⇒ 到時**重寫**,不要從這裡挖 —— 那時的合法值集合要重新回答一次。
+
 
 /**
  * 登記退款(帳先記、後打 API)。逐欄具名送、不 spread(A9d2-1 慣例;spread 繞過
@@ -376,38 +367,10 @@ export async function initiateOrderRefund(
       rowStatus,
     };
   }
-  if (result === 'REFUND_EXCEEDS_REMAINING') {
-    const blockedBy = row.blocked_by;
-    if (
-      typeof blockedBy !== 'string' ||
-      !(REFUND_BLOCKED_BY_VALUES as readonly string[]).includes(blockedBy)
-    ) {
-      // 判別值缺或不認得 ⇒ 三種文案分不出來(§0-E 第 2 條)。不猜、不降級成「打太多」。
-      throw new RefundCallerBugError(
-        `${fn} REFUND_EXCEEDS_REMAINING 帶非預期 blocked_by:${JSON.stringify(row).slice(0, 200)}`,
-      );
-    }
-    const remaining = requireNonNegativeIntOrNull(fn, row, 'remaining');
-    // 🔴 關卡2 MF2:兩欄要**交叉驗**,各自合法不代表組合合法。
-    //    `unknown` 的定義就是「guard 算不出來」⇒ 必然沒有數字;反過來,
-    //    有數字卻說 unknown、或說 amount 卻沒數字,都是協定漂移。
-    //    放行矛盾組合的後果:員工看到「不是金額問題、勿重試」卻同時拿到一個上限,
-    //    或看到「請降低金額」卻沒有可對照的數字 —— 兩種都會讓他做錯下一步。
-    if ((blockedBy === 'unknown') !== (remaining === null)) {
-      throw new RefundCallerBugError(
-        `${fn} REFUND_EXCEEDS_REMAINING 的 remaining 與 blocked_by 矛盾:${JSON.stringify(row).slice(0, 200)}`,
-      );
-    }
-    return {
-      result,
-      remaining,
-      blockedBy: blockedBy as RefundBlockedBy,
-    };
-  }
   return {
     result: result as Exclude<
       InitiateResultCode,
-      'INITIATED' | 'DUPLICATE_REQUEST' | 'REFUND_EXCEEDS_REMAINING'
+      'INITIATED' | 'DUPLICATE_REQUEST'
     >,
   };
 }
