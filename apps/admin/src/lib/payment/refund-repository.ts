@@ -16,11 +16,25 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 /**
  * initiate 的 9 個固定回傳碼。前 8 碼 = migration `20260803150000:414-416` 逐字。
  *
- * 🔴 第 9 碼 `REFUND_EXCEEDS_REMAINING` = **#445 步 6b 超退閘**,由 **445b** 建立 ——
- *    **今天庫裡那支 RPC 還不會吐它**,本片刻意先接。理由是反向窗口:
- *    445b 一 apply 而本片還沒 deploy,下面的窮盡收斂會判未知碼丟 `RefundCallerBugError`
- *    ⇒ 每一筆被擋下的超退在員工眼裡變成「系統呼叫異常」。
- *    ⇒ **445a 必須先 deploy,才准 apply 445b**(順序要寫進 445b migration 檔頭)。
+ * ⛔ ~~🔴 第 9 碼 `REFUND_EXCEEDS_REMAINING` = **#445 步 6b 超退閘**,由 **445b** 建立 ——~~
+ * ⛔ ~~**今天庫裡那支 RPC 還不會吐它**,本片刻意先接。~~
+ * ⛔ ~~⇒ **445a 必須先 deploy,才准 apply 445b**(順序要寫進 445b migration 檔頭)。~~
+ *
+ * 🔴🔴 **2026-08-30:上面那段【前提沒有成立】,舊字面留著讓引用它的人同一發撞到這裡。**
+ *    `445b` 真的落地時**不是**「RPC 多回一個 JSON 碼」,而是
+ *    **`order_refunds` 上一道 BEFORE INSERT trigger,超額直接 `RAISE ... USING ERRCODE='PCM04'`**
+ *    (`20260830210000`,2026-08-30 已 apply 上正式庫)。
+ *    ⇒ 📌 **RAISE 會讓整筆交易回滾 ⇒ RPC 根本沒有機會回傳任何 JSON** ——
+ *       所以那第 9 個碼**今天不可達,而且照現行 445b 的形狀永遠不會可達。**
+ *
+ * ⚠️ **後果一(codex 關卡2 nit 5 抓到)**:`refund-repository.test.ts` 與
+ *    `refund-actions-dispatch.test.ts` 裡驗那個碼的那幾格,**驗的是一條到不了的分支**
+ *    ⇒ 它們是綠的,而那個綠**灌大了覆蓋率的印象**。
+ * ⚠️ **後果二**:`refund-actions.ts` 那個 `case 'REFUND_EXCEEDS_REMAINING':` 是死碼。
+ *
+ * 🛑 **本片【不刪】它們** —— 刪除是範圍擴張,而它們無害(不可達的分支不會做錯事)。
+ *    ⇒ 已開列 `⟦b4-EXCEEDSDEAD⟧`,連同「要不要改回 JSON 碼形狀」一起裁。
+ * ✅ **今天真正在接那個閘的是 `RefundCapGuardError` / `toCapGuard`(本檔下方)。**
  */
 export const INITIATE_RESULT_CODES = [
   'INITIATED',
@@ -94,8 +108,75 @@ export class RefundFinalizeParseError extends RefundCallerBugError {
  * ⑤狀態機 RAISE(P0001)。全部是「停手」語意,收斂一致。
  * 前提(grep supabase/migrations 實查):orders 表唯一 trigger = `orders_freeze_shipping_snapshot_bi`
  * (BEFORE **INSERT**、`20260725120000:104-105`)⇒ G8 的 orders UPDATE 路徑上零其他 RAISE 源;
- * order_refunds 的三支 trigger 全在上列 ④⑤。
+ * ⛔ ~~order_refunds 的三支 trigger 全在上列 ④⑤。~~ 🔴 **這句 2026-08-30 起不成立,舊字面留著**
+ * ——`445b`(`20260830210000`)在 order_refunds 上又掛了一支 `order_refunds_a445b_cap_guard_bi`,
+ * 而它吐的 `PCM04/05/06` **既不是 ④ 也不是 ⑤** ⇒ 由下方 `toCapGuard` 接,**不走本函式**。
+ * 📌 **⇒ 不要拿這句推出「`isRpcRaise` 的分母是完整的」** —— 它從來只答「哪些碼算契約違反」。
  */
+/**
+ * 🔴 `445b` 上限閘的自訂 SQLSTATE(`20260830210000`)—— **它們刻意不走 `isRpcRaise`。**
+ *
+ * 為什麼要另開一道:`RefundCallerBugError` 的語意是「**呼叫端寫錯了**」,員工訊息叫他停手。
+ * 而 `PCM04`(退款金額超過上限)**不是 bug,是一個正常的業務結果** —— 員工的正確動作是
+ * **改個金額再送一次**,不是停手找維護。兩者合流 ⇒ 畫面上分不出來 ⇒ 員工被叫去做錯的事。
+ *
+ * 三個碼各自對應誰去處理:
+ *   `PCM04` 超額            ⇒ 員工自己改金額(`exceeds_remaining`)
+ *   `PCM05` 算不出上限      ⇒ 停手、通知系統維護(`exceeds_unknown`)
+ *   `PCM06` 隔離級別不對    ⇒ 停手、通知**管理者查資料庫設定**(`db_config`)
+ * 📌 **一個失敗碼的用途是【告訴人去找誰】** —— 三個不同的人 ⇒ 三個碼,不合流。
+ *
+ * ⚠️ 本型別**不繼承** `RefundCallerBugError` —— 繼承會讓既有的
+ * `error instanceof RefundCallerBugError` 分支先攔到它,而那正是本註解要防的合流。
+ */
+export class RefundCapGuardError extends Error {
+  readonly sqlstate: CapGuardSqlstate;
+  /**
+   * 🔴 **與 `sqlstate` 同值,而它不是重複**(codex 關卡2 nit 4):
+   * 把原始 PostgrestError 收進 `cause` **保不住頂層 `.code`** —— 而事故當天照 SQLSTATE
+   * 撈 log 的人讀的正是 `.code`,他會撈到 `undefined` ⇒ **漏件,而漏的那一筆長得像沒發生。**
+   * ⇒ 這裡把它補回頂層。⚠️ 下游若真要 `details`/`hint`,那些仍在 `cause` 上。
+   */
+  readonly code: CapGuardSqlstate;
+  constructor(sqlstate: CapGuardSqlstate, message: string, options?: { cause?: unknown }) {
+    super(message);
+    this.name = 'RefundCapGuardError';
+    this.sqlstate = sqlstate;
+    this.code = sqlstate;
+    // 🔴 原始 PostgrestError 掛在 cause 上(關卡2 nit 13)—— 換掉它會讓 `details`/`hint`
+    //    在下游消失,而 `refund-recovery-actions.ts` 那條路正在讀原始物件的 `code`。
+    if (options && 'cause' in options) (this as { cause?: unknown }).cause = options.cause;
+  }
+}
+
+/**
+ * 三個碼對到哪個員工訊息 —— **窮盡 Record,不是三元鏈**(關卡2 nit 5)。
+ * 🔴 union 日後加第四個碼(PCM07…)時這裡**編譯會紅**;三元鏈會讓它靜默落進 fallback。
+ *
+ * ⚠️ **`PCM05` 有兩個語意而這裡只映一個**(關卡2 Important 4,開 migration 量的):
+ *   `20260830210000:237-241` = **找不到訂單**(DB 的話是「請重新整理後確認」)
+ *   `20260830210000:270-276` = **算不出上限**(「請找工程確認」)
+ *   COMMENT `:297` 逐字「PCM05=算不出上限**或查無訂單**」。
+ * ⇒ 同一個 SQLSTATE ⇒ **app 層分不出來**。這裡選 `exceeds_unknown`(勿重試、通知維護),
+ *   理由是**錯的方向比較安全**:把「該重新整理」的人送去找維護 ⇒ 白跑一趟、錢不動;
+ *   反過來把「系統算不出上限」說成「重新整理就好」⇒ 他會一直按。
+ * 🛑 **真正的修法是在 migration 裡把它拆成兩個碼**,而那支已 apply ⇒ 要新的一支。
+ *   已開列 `⟦b4-PCM05SPLIT⟧`。**這一格是殘餘風險,不自宣接受。**
+ */
+export const CAP_GUARD_SQLSTATES = ['PCM04', 'PCM05', 'PCM06'] as const;
+export type CapGuardSqlstate = (typeof CAP_GUARD_SQLSTATES)[number];
+
+/** 認得就回具名錯,認不得回 null(**不是 boolean** —— 呼叫端要用到那個碼)。 */
+function toCapGuard(fn: string, error: unknown): RefundCapGuardError | null {
+  if (typeof error !== 'object' || error === null) return null;
+  const code = (error as { code?: unknown }).code;
+  if (!(CAP_GUARD_SQLSTATES as readonly unknown[]).includes(code)) return null;
+  const detail = String((error as { message?: unknown }).message ?? '').slice(0, 200);
+  return new RefundCapGuardError(code as CapGuardSqlstate, `${fn} 被上限閘擋下(${code}):${detail}`, {
+    cause: error,
+  });
+}
+
 function isRpcRaise(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false;
   const code = (error as { code?: unknown }).code;
@@ -261,6 +342,10 @@ export async function initiateOrderRefund(
     p_request_id: args.requestId,
   });
   if (error) {
+    // 🔴 上限閘先判 —— 它的三個碼都不是 P0001/P7Cxx,不會被下一行攔走,
+    //    但順序寫死在這裡是為了讓「不合流」這件事在碼上看得見。
+    const capGuard = toCapGuard(fn, error);
+    if (capGuard) throw capGuard;
     if (isRpcRaise(error)) throw toCallerBug(fn, error);
     throw error;
   }
@@ -428,6 +513,10 @@ async function callFinalizeRpc(params: {
     p_request_id: params.requestId,
   });
   if (error) {
+    // 🔴 上限閘先判 —— 它的三個碼都不是 P0001/P7Cxx,不會被下一行攔走,
+    //    但順序寫死在這裡是為了讓「不合流」這件事在碼上看得見。
+    const capGuard = toCapGuard(fn, error);
+    if (capGuard) throw capGuard;
     if (isRpcRaise(error)) throw toCallerBug(fn, error);
     throw error;
   }

@@ -461,6 +461,30 @@ export async function GET(request: Request): Promise<Response> {
   }
   const shippedSection = { shippedEnqueueStatus: shippedStatus, ...(shippedCounts ?? {}) };
 
+  // 🔵🔵 **「還沒上膛」要出聲**(2026-08-30 夜;`-48` 拍板做、codex 不豁免)
+  //   量到的:env 沒設 ⇒ `skipped_no_cutoff` ⇒ **不進下面的 503 判斷** ⇒ 回 200,
+  //   而本檔成功路徑**一行 log 都沒有**(全檔 console 分母 6,而 6 支全是 `console.error`)
+  //   ⇒ 📌 **「設好了」與「沒設好」在 Vercel 那一側印同一個 200、同一片空 log。**
+  //   ⇒ 🔴 而那個狀態就是「**一封信都不會寄**」—— 一個還沒上膛的系統, 每 5 分鐘安靜地回一次 200。
+  // 🔴 **為什麼是 `console.info` 不是 `console.error`**:`skipped_no_cutoff` 被歸成「正常狀態」是**對的**
+  //   (下面那句「而 `skipped_no_cutoff` **不在裡面**」那一格**不改**)——
+  //   **錯的是把「正常」讀成「不用講」。「正常」與「該吵」是兩件事。**
+  //   ⇒ 它不進 503、不改任何回應碼、不改任何寄信行為;**只是讓那個狀態在 log 上看得見。**
+  // 🛑 **零 PII**:只印我們自己寫死的 env 名與 status 列舉值,**不印 env 的值、不印收件人、不印任何計數以外的東西**。
+  // ⚠️ **射程**:它只答得出「**這一輪跑的時候, 那顆 env 有沒有被讀到**」——
+  //   答不出「Vercel 上設了沒」(設了不 redeploy ⇒ 現行 deployment 仍讀不到 ⇒ 這裡照樣印它, 而那是對的)。
+  if (enqueueStatus === 'skipped_no_cutoff' || shippedStatus === 'skipped_no_cutoff') {
+    console.info('[email-sweep] 🔵 有 cutoff env 還沒上膛 ⇒ 那一段 enqueue 這輪不跑(不是失敗,回 200)', {
+      // 🔴 B-5 那半用既有的 `CUTOFF_ENV` 常數(見本檔 `const CUTOFF_ENV =`)不重打字面。
+      //   ⚠️ 而出貨那半**沒有對應的 const** —— 字面 `'SHIPPED_EMAIL_CUTOFF'` 在本檔已出現兩次
+      //   (讀 env 的 `process.env['SHIPPED_EMAIL_CUTOFF']`, 與 bad-format 那行的 `env:`);
+      //   這裡照它既有的寫法, **不順手新增第三種寫法**。
+      //   ⇒ 要收成 const 是另一件事(會動到讀 env 那行 = 行為路徑), 不夾帶進這片。
+      b5DeployCutoff: enqueueStatus === 'skipped_no_cutoff' ? `${CUTOFF_ENV} 未設或空` : enqueueStatus,
+      shippedCutoff: shippedStatus === 'skipped_no_cutoff' ? 'SHIPPED_EMAIL_CUTOFF 未設或空' : shippedStatus,
+    });
+  }
+
   try {
     const deps: SweepEmailOutboxDeps = getSweepEmailOutboxDeps();
     // 🔴 maxRunSeconds = maxDuration 同一 const(單一來源、不寫第二字面);leaseSeconds/claimLimit = route 端常數。

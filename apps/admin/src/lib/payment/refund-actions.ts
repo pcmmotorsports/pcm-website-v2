@@ -42,6 +42,8 @@ import {
 } from './refund-action-state';
 import {
   RefundCallerBugError,
+  RefundCapGuardError,
+  type CapGuardSqlstate,
   finalizeOrderRefund,
   findOrderForRefund,
   initiateOrderRefund,
@@ -105,6 +107,18 @@ function carryBack(formData: FormData): RefundFormInput & { requestToken: string
     requestToken: token !== '' ? token : generateRefundRequestToken(),
   };
 }
+
+/**
+ * `445b` 上限閘的三個 SQLSTATE → 員工訊息碼。**窮盡 Record,不是三元鏈**(關卡2 nit 5):
+ * union 加第四個碼時這裡編譯會紅,三元鏈會讓它靜默落進 fallback。
+ * ⚠️ `PCM05` 兩個語意只映一個 —— 理由與殘餘風險寫在 `refund-repository.ts` 的
+ * `CAP_GUARD_SQLSTATES` 上方(`⟦b4-PCM05SPLIT⟧`),此處不重複。
+ */
+const CAP_GUARD_FAILURE_CODE: Record<CapGuardSqlstate, RefundFailureCode> = {
+  PCM04: 'exceeds_remaining',
+  PCM05: 'exceeds_unknown',
+  PCM06: 'db_config',
+};
 
 export async function initiateRefundAction(
   _prev: RefundActionState,
@@ -399,6 +413,12 @@ export async function initiateRefundAction(
       //    ⚠️ 本檔其餘 `requestId: parsed.requestToken` 是**送進 RPC 的冪等鍵**,那些是對的、不要一起改。
       requestId: httpRequestId,
     });
+    // 🔴 上限閘(`445b`)要**排在契約違反之前** —— 它不是 bug,是業務結果,
+    //    而三個碼要找的人各不相同(`refund-repository.ts` 的 `RefundCapGuardError` 註解)。
+    if (error instanceof RefundCapGuardError) {
+      logError(`initiate 被上限閘擋下(${error.sqlstate})`, error);
+      return refundFailure(CAP_GUARD_FAILURE_CODE[error.sqlstate], input, parsed.requestToken);
+    }
     if (error instanceof RefundCallerBugError) {
       logError('initiate 契約違反', error);
       return refundFailure('bug', input, parsed.requestToken);
