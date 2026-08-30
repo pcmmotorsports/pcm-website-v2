@@ -10,6 +10,27 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+// 🔴🔴 **繼承來的 `GIT_*` 會讓底下每一個 `git …` 寫到【外層那棵樹】,而不是 `cwd` 指的那個。**
+//    `GIT_DIR` 贏過 `cwd` —— 而本檔跑的是 `git config user.email` / `git add` / `git commit`。
+// 📌 **2026-08-31 這件事今晚【真的發生過】**:另一條線的 selftest 用 `git -C <tmp> config user.name t`,
+//    而 hook 底下 `GIT_DIR` 指著真 repo ⇒ **全隊八個窗的 git 身分被改成 `t`**(`probe → t → probe`)。
+// ✅ 本檔的雙世界實測(拋棄式 victim repo,`mktemp -d`,不是本 repo):
+//    不剝 ⇒ victim 的 `user.email` 從 `VICTIM@keep.me` **變成 `t@l`**
+//    剝了 ⇒ victim **不變**,而內層那個 repo **仍然被正確設到** ⇒ 不是「什麼都沒做」。
+// 🔵 **而這裡刻意【不用】姊妹檔 `migration-new-file-gate.test.ts` 那個「每個呼叫點傳 env」的寫法** ——
+//    那是一種紀律(漏一個呼叫點就靜靜地失效,而本檔有 8-15 個呼叫點);
+//    改成**在模組載入時就把它從 `process.env` 拿掉** ⇒ **之後新增的呼叫點自動被保護,不必有人記得。**
+for (const k of [
+  'GIT_INDEX_FILE',
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_COMMON_DIR',
+  'GIT_PREFIX',
+])
+  delete process.env[k];
+
+
 const GUARD = resolve(process.cwd(), 'scripts/guarded-edit.sh');
 let dir: string;
 
@@ -37,6 +58,30 @@ beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), 'guarded-edit-'));
 });
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+describe('🔴 模組層 GIT_* 剝除(本檔每一個 git 呼叫都靠它)', () => {
+  // 🔴 **為什麼是「斷言 postcondition」而不是「跑一發 victim repo」**:
+  //    模組層那個 `delete` 在 **import 的那一刻**就跑完了 ⇒ 在同一個 process 裡再把
+  //    `GIT_DIR` 設回去, 測到的是「執行時設 GIT_DIR 很危險」(真, 但不是本檔在防的那件事)。
+  //    ⇒ 本檔防的是【載入時就帶著 GIT_DIR】, 而那一格只有 postcondition 驗得到。
+  // ✅ 而【行為面】的雙世界我在 repo 外用拋棄式 victim repo 實跑過:
+  //    不剝 ⇒ victim 的 user.email 從 `VICTIM@keep.me` 變成 `t@l`;剝了 ⇒ victim 不變,
+  //    而內層那個 repo 仍然被正確設到 ⇒ **不是「什麼都沒做」**。
+  it.each([
+    'GIT_INDEX_FILE',
+    'GIT_DIR',
+    'GIT_WORK_TREE',
+    'GIT_OBJECT_DIRECTORY',
+    'GIT_COMMON_DIR',
+    'GIT_PREFIX',
+  ])('%s 在本模組載入之後不存在', (k) => {
+    expect(process.env[k]).toBeUndefined();
+  });
+
+  it('🔵 對照:我們沒有把整個 env 清掉 —— PATH 還在(否則上面六格對「env 是空的」也會過)', () => {
+    expect(process.env.PATH).toBeTruthy();
+  });
+});
 
 describe('happy path(正向對照,防守門恆假)', () => {
   it('宣告與實得相符 → exit 0,檔案保留改動', () => {

@@ -30,6 +30,27 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 
+// 🔴🔴 **繼承來的 `GIT_*` 會讓底下每一個 `git …` 寫到【外層那棵樹】,而不是 `cwd` 指的那個。**
+//    `GIT_DIR` 贏過 `cwd` —— 而本檔跑的是 `git config user.email` / `git add` / `git commit`。
+// 📌 **2026-08-31 這件事今晚【真的發生過】**:另一條線的 selftest 用 `git -C <tmp> config user.name t`,
+//    而 hook 底下 `GIT_DIR` 指著真 repo ⇒ **全隊八個窗的 git 身分被改成 `t`**(`probe → t → probe`)。
+// ✅ 本檔的雙世界實測(拋棄式 victim repo,`mktemp -d`,不是本 repo):
+//    不剝 ⇒ victim 的 `user.email` 從 `VICTIM@keep.me` **變成 `t@l`**
+//    剝了 ⇒ victim **不變**,而內層那個 repo **仍然被正確設到** ⇒ 不是「什麼都沒做」。
+// 🔵 **而這裡刻意【不用】姊妹檔 `migration-new-file-gate.test.ts` 那個「每個呼叫點傳 env」的寫法** ——
+//    那是一種紀律(漏一個呼叫點就靜靜地失效,而本檔有 8-15 個呼叫點);
+//    改成**在模組載入時就把它從 `process.env` 拿掉** ⇒ **之後新增的呼叫點自動被保護,不必有人記得。**
+for (const k of [
+  'GIT_INDEX_FILE',
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_COMMON_DIR',
+  'GIT_PREFIX',
+])
+  delete process.env[k];
+
+
 // 🔴 **容差,不是斷言**(2026-08-18 W1;主視窗准、Sean FYI)。斷言一個字沒有變。
 //    每一格 spawn 一次 `lint-staged`(node 冷啟動 × 2),而本檔原本吃 vitest 預設 `testTimeout` 5000ms。
 //    ⚠️ **檔頭那句「~600ms」是舊的**:2026-08-18 11:0x 在本機單檔實測逐格
