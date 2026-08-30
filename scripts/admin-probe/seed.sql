@@ -188,3 +188,25 @@ SELECT setval('order_display_seq',
               true);
 
 COMMIT;
+
+-- ── 客人的收件地址與車庫(2026-08-31 線【客人帳戶區】`-08` 補)──────────────
+-- 🔴 **為什麼補**:spec `#25` 那一格逐字卡在「地址 / 愛車**判不了** —— 鑽機那兩張表是空的
+--    ⇒ 畫面印『目前沒有收件地址』= **沒資料, 不是不能改**」。
+--    ⇒ 📌 **那是【鑽機的缺】被記成【產品的未知】** —— 而它擋了那一格九天。
+--    ⇒ 種了之後當場判得出來:兩段都印得出來, 而**那兩段裡的互動元素數 = 0** ⇒ 看得到、改不了。
+-- ⚠️ 而畫面上那兩段的標題是「收件地址」與**「車庫」**(不是「愛車」)——
+--    我第一發用 `愛車|車輛` 找標題得到零命中, 而那不是「沒有那一段」。
+INSERT INTO public.customer_addresses
+  (id, customer_user_id, is_default, name, phone, line, invoice_type,
+   invoice_title, invoice_tax_id, invoice_donate_code, email)
+VALUES
+  (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', true,
+   '探針客人甲', '0912345678', '台北市中山區測試路 1 號 3 樓', 'personal', '', '', '', 'probe@example.com')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO public.customer_vehicles
+  (id, customer_user_id, is_primary, name, year, engine, km, mods, dict_brand_name, dict_model_name)
+VALUES
+  (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', true,
+   'BMW M3 (探針)', '2019', 'S58', '42000', '中冷 / 排氣', 'BMW', 'M3')
+ON CONFLICT DO NOTHING;
