@@ -146,6 +146,28 @@ initdb -D $S/pg -U postgres --auth=trust --encoding=UTF8 --locale=C > $S/initdb.
 pg_ctl -D $S/pg -o "-p $PG -k /tmp" -l $S/pg.log start > $S/pgctl.log 2>&1
 sleep 2
 
+# 🔴 **驗「我連上的那顆, 真的是我剛起的那顆」**(2026-08-30 線【客人帳戶區】`-08` 補;
+#    與 `scripts/admin-probe/up.sh` **同一段, 逐字相同** —— 兩支的 `initdb`/`pg_ctl` 也是逐字相同,
+#    所以洞也是同一個)。成因由哨兵 `-22` 轉來:`-eb` 的 codex 在另一支 probe 上抓到同型 ——
+#    埠上若已經有【別的】postgres, 腳本會對**不是拋棄式的那顆**套 migration, **而且照樣全綠**。
+# 🔴 為什麼不靠上面那道埠預檢就好:①它靠 `lsof`, 而 `lsof` 不存在時 `|| true` 讓它**安靜放行**
+#    ②預檢與真正連上之間有時間差 ③**預檢答的是「埠上有沒有人」, 這一發答的是「那個人是不是我」**。
+#    📌 **⇒ 兩個問句不同, 而它們在一切正常的日子裡印同一個結果。**
+# ⚠️ 兩側都走 realpath:postgres 回的是 `-D` 當初拿到的字面(`/tmp/…`),
+#    而 macOS 的 `/tmp` 是 `/private/tmp` 的 symlink ⇒ 不解析就會【永遠不相等】=一道恆紅的閘。
+_want=$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$S/pg")
+_got=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "SHOW data_directory" 2>/dev/null || true)
+_got=$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]) if sys.argv[1] else "")' "$_got")
+if [ "$_want" != "$_got" ]; then
+  echo "🔴 埠 $PG 上的 postgres【不是】這支腳本剛起的那顆 —— 停止, 不對它套任何東西。" >&2
+  echo "   我起的  : $_want" >&2
+  echo "   實際連到: ${_got:-(連不上或回空)}" >&2
+  echo "   ⇒ 若是連不上:看 $S/pg.log 與 $S/pgctl.log" >&2
+  echo "   ⇒ 若是別人的 postgres:換一組埠(STOREFRONT_PROBE_PG=…),或收掉那一份" >&2
+  exit 1
+fi
+echo "✅ pg 身分核對:$PG ⇒ $_got"
+
 psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q <<'SQL'
 CREATE ROLE service_role NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE anon NOLOGIN;
 CREATE ROLE authenticator LOGIN NOINHERIT;
