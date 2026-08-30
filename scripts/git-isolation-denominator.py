@@ -341,6 +341,7 @@ def self_check():
         "execFileSync('git', ['add', '-A'])",        # Node 分離參數形
         "execFileSync('git', ['status'])",           # 同形【唯讀】⇒ 不得誤收
         'log("see git commit history")',             # 散文裡的 git ⇒ 不得誤收
+        "CMD = GITBIN + 'commit'",                   # `_PYJS_CONCAT` 第二條 alternative 的唯一證人
     ]
     for frag, sh, exp in worlds:
         got = calls_git_write(frag, sh)
@@ -354,6 +355,14 @@ def self_check():
         ("subprocess.run('cd x && git init', shell=True)", True),   # exec-string
         ("execSync('git add -A')",                         True),   # js
         ("GC = 'git ' + 'commit'",                         True),   # 動態拼接(不靠硬編)
+        # 🔴 這一格是 2026-08-31 加的, 而它蓋的是 `_PYJS_CONCAT` 的**第二條 alternative**
+        #    (`+ '<動詞>'` 那一半, 它內嵌了一份自己的動詞表)。
+        #    🛑 **在它之前那一半【零覆蓋】**:code-reviewer 實跑 M5 把那份內嵌表清空 ⇒ self-check 全過。
+        #    成因量到了:上面那格 `'git ' + 'commit'` 是被**第一條** alternative(`'git ' +`)接住的
+        #    ⇒ 兩條都中 ⇒ **拿掉第二條也不會紅。**
+        #    ✅ 這一格刻意**沒有 `git` 字面** ⇒ 第一條不可能中 ⇒ **只有第二條接得住它。**
+        #    📌 **⇒ 一個 `A|B` 的正則, 它的每一條都要有一個【只有它會中】的世界。**
+        ("CMD = GITBIN + 'commit'",                        True),   # 只有第二條 alternative 接得住
         ("GC = 'git ' + 'status'",                         True),   # 🔴 拼接【刻意不分動詞】:動態建命令看不到動詞 ⇒ 一律收(安全方向,code-reviewer R3)
         ("subprocess.check_call(('git','commit','-m','x'))", True),  # 🔴 b4 R3-1:Python tuple 形(對 subprocess 等價 list)
         ("execFileSync('git', ['add', '-A'])",             True),   # 🔴 b4 R3-2:Node 分離參數形(叫 git 最標準、不經 shell)
@@ -375,10 +384,10 @@ def self_check():
     #    ⚠️ 這裡寫死 `>= 6` / `>= 4` 是刻意的:**答案卷【只增不減】** ——
     #    新增承重的格子時把數字一起加大;而**要減的時候它會擋你一次, 逼你說明為什麼。**
     #    (與 `EXPECT_RAN` 那種「綁回資料」的做法【相反】, 因為這一份【就是】那個獨立來源。)
-    if len(REQUIRED_SHELL) < 6 or len(REQUIRED_PYJS) < 4:
+    if len(REQUIRED_SHELL) < 6 or len(REQUIRED_PYJS) < 5:
         ok = False
         print(f"  🔴 答案卷被縮小了(shell {len(REQUIRED_SHELL)} 期望 >=6 / "
-              f"py-js {len(REQUIRED_PYJS)} 期望 >=4)⇒ 這一發的綠不算數")
+              f"py-js {len(REQUIRED_PYJS)} 期望 >=5)⇒ 這一發的綠不算數")
     for name, req, have in (('shell', REQUIRED_SHELL, [w[0] for w in worlds]),
                             ('py/js', REQUIRED_PYJS, [w[0] for w in pyjs_worlds])):
         missing = [f for f in req if f not in have]
