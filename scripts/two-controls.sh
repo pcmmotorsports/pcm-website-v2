@@ -53,16 +53,33 @@ fi
 
 TARGET="$1"; POS="$2"; shift 2
 
+# 🔴 **排除建置產物 —— 2026-08-30 首次真實使用時當場撞到的。**
+#    用它掃「沒有任何機制在」⇒ 它回 **27**,而我自己帶 `--include` 的那一發回 **20**。
+#    差的 7 個全在 `apps/admin/.next/**/*.js.map` —— **那是我自己那些註解被編譯進 sourcemap 的【複本】。**
+#    ⇒ 📌 **同一段文字被數了兩次:一次是原稿,一次是它的建置產物。**
+#    🔴🔴 **而那一發的兩個對照【都是好的】** —— 正對照 124、負對照 0。
+#       ⇒ **錯的不是 pattern,是【掃描集合】。而兩把對照都量不到掃描集合。**
+#       ⇒ 這是本工具自己的第三種失效,與它防的前兩種不同。
+EXCLUDES=(--exclude-dir=.next --exclude-dir=node_modules --exclude-dir=.git
+          --exclude-dir=dist --exclude-dir=coverage --exclude-dir=.turbo
+          --exclude-dir=.vercel --exclude-dir=graphify-out --exclude=*.map)
+
 # 🔴 現造:每次執行都不一樣 ⇒ 它不可能已經在任何檔案裡
 NEG="negctl-$(date +%s)-$$-$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
-c_target=$(grep -rc -- "$TARGET" "$@" 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}')
-c_pos=$(grep -rc -- "$POS" "$@" 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}')
-c_neg=$(grep -rc -- "$NEG" "$@" 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}')
+c_target=$(grep -rc "${EXCLUDES[@]}" -- "$TARGET" "$@" 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}')
+c_pos=$(grep -rc "${EXCLUDES[@]}" -- "$POS" "$@" 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}')
+c_neg=$(grep -rc "${EXCLUDES[@]}" -- "$NEG" "$@" 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}')
 
 printf '命中   = %s   (%s)\n' "$c_target" "$TARGET"
 printf '正對照 = %s   (%s)\n' "$c_pos" "$POS"
 printf '負對照 = %s   (現造 %s)\n' "$c_neg" "$NEG"
+# 🔴 掃描集合要有分母 —— 否則「它到底掃了什麼」是一個沒有人看得到的決定
+n_files=$(grep -rl "${EXCLUDES[@]}" -- '' "$@" 2>/dev/null | wc -l | tr -d ' ')
+printf '掃了   = %s 個檔(已排除 .next / node_modules / dist / *.map 等建置產物)\n' "${n_files:-?}"
+# ⚠️ 本工具【不排除它自己】—— 若你搜的字剛好寫在本檔的註解裡,它會把自己算進去。
+#    2026-08-30 首次使用當場發生:搜「沒有任何機制在」⇒ 多算 1,那一筆就是本檔。
+#    📌 不自動排除是刻意的:**安靜地把自己從分母拿掉,比多算一筆更難發現。**
 
 rc=0
 if [ "$c_pos" -eq 0 ]; then
