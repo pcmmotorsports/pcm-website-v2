@@ -215,7 +215,18 @@ export function TodaySummaryCards({ summary }: { summary: TodaySummary }) {
               ? null
               : `${summary.refundExceptionCount}${summary.refundExceptionTruncated ? '+' : ''} 筆`
           }
-          hint={summary.refundExceptionTruncated ? '已達顯示上限,實際可能更多' : '累計未結案,非今日新增'}
+          hint={
+            // 🔴 兩個旗標**各講各的、不互相蓋掉**(R1 nit3):第一版把退化那句排在截斷前面,
+            //    兩者同時為真時「已達顯示上限」就消失了 —— 而那時它反而更該說。
+            [
+              summary.refundExceptionVerdictsUnavailable
+                ? '更正紀錄讀不到 ⇒ 這個數字含已判定的,是全部筆數'
+                : null,
+              summary.refundExceptionTruncated ? '已達顯示上限,實際可能更多' : null,
+            ]
+              .filter((x) => x !== null)
+              .join(';') || '累計未結案且尚未判定,非今日新增'
+          }
           href='/orders/refund-exceptions'
         />
       </div>

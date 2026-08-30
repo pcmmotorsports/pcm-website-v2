@@ -7,10 +7,7 @@ import { formatOrderAmount } from '../../../lib/orders/order-list-view';
 import { formatOrderDateTime } from '../../../lib/orders/order-detail-view';
 import { generateRefundRequestToken } from '../../../lib/payment/refund-action-state';
 import { listRefundExceptions } from '../../../lib/payment/refund-read';
-import {
-  findEffectiveVerdicts,
-  type EffectiveVerdict,
-} from '../../../lib/payment/refund-correction-read';
+import type { EffectiveVerdict } from '../../../lib/payment/refund-correction-read';
 import {
   REFUND_EXCEPTION_STALL_MS,
   isStuckManualVerdict,
@@ -42,34 +39,40 @@ export default async function RefundExceptionsPage({
   let rows: Awaited<ReturnType<typeof listRefundExceptions>>['rows'] = [];
   let truncated = false;
   let loadFailed = false;
+  // 🔴 **灰字那一行吃這兩顆,不自己重算**(R1 nit1):本頁下面另有一發
+  //    `findEffectiveVerdicts` 是給【每一列的更正入口】用的,兩發可能一成一敗
+  //    ⇒ 自己重算會出現「側欄說判定讀不到、而同一台螢幕上灰字精確地說另有 1 筆」。
+  let decidedCount = 0;
+  let verdictsUnavailable = false;
+  // 🔴 **這一份就是側欄那顆數字用的那一份**(R3 consider-2)——
+  //    本頁不再自己打第二發 `findEffectiveVerdicts`。理由寫在 `refund-read.ts` 的
+  //    `stuckVerdicts` 欄位旁邊:`cache()` 以引數 reference 當 key,兩個呼叫端各造一個
+  //    新陣列 ⇒ 永遠 miss ⇒ 「同成同敗」那句是假的,而它不會報錯、只會安靜地多打一發。
+  let effectiveVerdicts: Map<string, EffectiveVerdict> | null = null;
   try {
     const result = await listRefundExceptions();
     rows = result.rows;
     truncated = result.truncated;
+    decidedCount = result.decidedCount;
+    verdictsUnavailable = result.verdictsUnavailable;
+    effectiveVerdicts = (result.stuckVerdicts as Map<string, EffectiveVerdict> | null) ?? null;
   } catch (error) {
     console.error('[admin/orders/refund-exceptions] 異常清單載入失敗', error);
     loadFailed = true;
   }
 
-  // 🔴🔴 **`#890` 片3:更正查詢【自己一個 try】,不得併進上面那個**(plan §1d #13 逐字)。
-  //    上面那個 try 失敗 ⇒ 整張清單不顯示;而更正查詢失敗**不該讓整頁看起來像「沒有資料」**
-  //    ⇒ 它只該讓那幾列少一個入口。
-  // 🔴 而 `null` 與空 Map 是**兩件事**:
-  //    · `null`  = 讀失敗 ⇒ **fail-closed,不渲染更正入口**（那時他確實沒有可以按的東西，
-  //      而**一顆按不動的鈕比沒有鈕糟**）
-  //    · 空 Map  = 讀到了，只是這些列都還沒被更正過 ⇒ 入口照渲染，CAS 送 NULL
-  let effectiveVerdicts: Map<string, EffectiveVerdict> | null = null;
-  const stuckIds = rows.filter((row) => isStuckManualVerdict(row)).map((row) => row.id);
-  try {
-    const got = await findEffectiveVerdicts(stuckIds);
-    // 🔴 **型別漂移也要 fail-closed**(codex 2026-08-29):`!== null` 放行的不只 Map ——
-    //    一個回 `undefined` 或別的東西的實作會通過那個判斷,而下一步 `.get()` **炸整頁**。
-    //    ⇒ 這裡只認 `Map`;不是 Map 就當成「讀失敗」。
-    effectiveVerdicts = got instanceof Map ? got : null;
-  } catch (error) {
-    console.error('[admin/orders/refund-exceptions] 現行更正判定載入失敗', error);
-    effectiveVerdicts = null;
-  }
+  // 🔴🔴 **`#890` 片3 原本在這裡有【自己一個 try】的第二發更正查詢**(plan §1d #13)。
+  //    ⛔ ~~它與上面那個 try 分開,是為了「更正查詢失敗不該讓整頁看起來像沒有資料」。~~
+  //    🔵 **2026-08-30(R3 consider-2)搬走了,而那個理由【仍然成立、只是換人做】**:
+  //       `listRefundExceptions` 現在把它撈到的那一份一起回出來(`stuckVerdicts`),
+  //       而它在**自己的 try 裡**吞掉例外、只翻 `verdictsUnavailable` ⇒ 清單照樣顯示。
+  //       ⇒ 分離 fail 的語意一個字沒變,變的是**只撈一次**。
+  //    🔴 為什麼一定要搬:上一片宣稱「包 `cache()` ⇒ 兩發同成同敗」——**那句是假的**,
+  //       React `cache()` 以引數 reference 當 key,兩端各造一個新陣列 ⇒ 永遠 miss。
+  //       📌 **一個「快取會幫我去重」的假設,在引數是新造物件時永遠不成立,而它不會報錯。**
+  // 🔴 `null` 與空 Map 仍然是**兩件事**(語意未變):
+  //    · `null`  = 讀失敗 ⇒ **fail-closed,不渲染更正入口**(一顆按不動的鈕比沒有鈕糟)
+  //    · 空 Map  = 讀到了,只是這些列都還沒被更正過 ⇒ 入口照渲染,CAS 送 NULL
 
   const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
   const TD = 'px-3 py-2 text-sm align-top';
@@ -89,6 +92,20 @@ export default async function RefundExceptionsPage({
           判定不明時停手並通知系統維護。
         </p>
       </div>
+
+      {/* 🔴 **灰字保底(Sean 2026-08-30 那板的配套)** —— 側欄/首頁那顆數字改成只數「尚未判定」之後,
+          已判定的那幾筆**從數字上消失了**。而 `#473b-2`(2026-08-14)把它們列出來的理由逐字是
+          「這條不解卡單,**只解看不見**」(`docs/phase-1-backlog.md:13843`)
+          ⇒ 讓它們**從數字上消失**是拍板要的,讓它們**從畫面上消失**不是。
+          ⇒ 這一行就是那個差別:數字歸得了零,而它們仍然數得出來、仍然在下面的表格裡。
+          ⚠️ 讀不到更正時(`verdictsUnavailable`)**這一行不出現** ——
+             那時 `decidedCount` 會是 0,而印「另有 0 筆」會把「讀不到」講成「沒有」。 */}
+      {!verdictsUnavailable && decidedCount > 0 && (
+        <p className='text-muted-foreground text-sm'>
+          另有 <span className='font-medium'>{decidedCount}</span>{' '}
+          筆已經有人更正過判定 —— 它們不算在側欄與首頁那顆數字裡,但仍然列在下面。
+        </p>
+      )}
 
       <ResultBanner code={resultCode} />
 

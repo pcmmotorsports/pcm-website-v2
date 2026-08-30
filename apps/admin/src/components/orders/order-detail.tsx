@@ -102,6 +102,7 @@ export function OrderDetail({
   refunds = [],
   refundsFailed = false,
   refundsTruncated,
+  stuckVerdicts,
   refundUnregisteredAmount = null,
   refundUnregisteredFailed = false,
   manualRefunds = [],
@@ -146,6 +147,13 @@ export function OrderDetail({
    * 📌 `refundEnabled` 不在此列:它的預設 `false` 落在**安全**方向(關著=入口不顯示)。
    */
   refundsTruncated: boolean;
+  /**
+   * `#890` 片4:卡住那幾列**現行有效的更正判定**(`refundId → { correctedTo }`)。
+   * 🔴 `null` = **讀不到**(或帳本本身讀不到)⇒ 退款入口 fail-closed;
+   *    空 Map = 讀到了、只是一筆都沒被更正過。**兩者不得合流**,理由在
+   *    `lib/payment/refund-ledger-view.ts` 的 `isBlockingStuckVerdict` 旁邊。
+   */
+  stuckVerdicts: ReadonlyMap<string, { correctedTo: string }> | null;
   /** M-3 RW3:`pcm_order_refundable_remaining`(措辭鐵律=「帳本未登記額」)。 */
   refundUnregisteredAmount?: number | null;
   /** M-3 RW3:未登記額讀取失敗(顯錯誤態≠查無 + 發起入口 fail-closed,codex MF2)。 */
@@ -355,6 +363,7 @@ export function OrderDetail({
               refunds={refunds}
               refundsFailed={refundsFailed}
               refundsTruncated={refundsTruncated}
+              stuckVerdicts={stuckVerdicts}
               refundUnregisteredAmount={refundUnregisteredAmount}
               refundUnregisteredFailed={refundUnregisteredFailed}
               manualRefunds={manualRefunds}

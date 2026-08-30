@@ -73,8 +73,61 @@ async function renderPage(search: Record<string, string> = {}) {
 }
 
 describe('/orders/refund-exceptions — RW3', () => {
+  // ── 🔴 R1 MF3:灰字保底那一行的量具(這三格之前是零覆蓋 —— 整段刪掉照樣全綠)──
+  //    它是 Sean 2026-08-30 拍【甲】的配套:數字只數尚未判定的,已判定的**從數字上消失**,
+  //    而 `#473b-2` 的理由是「不解卡單,**只解看不見**」⇒ 不能讓它們從**畫面上**也消失。
+  it('🔴 有已判定的列 ⇒ 灰字講出「另有 N 筆」(N 來自 listRefundExceptions,不自己重算)', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [exceptionRow()],
+      truncated: false,
+      pendingCount: 0,
+      decidedCount: 2,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
+    });
+    const { container } = await renderPage();
+    // 🔴 **R2 MF-B**:第一版是 `toContain('2')` —— 而 `exceptionRow()` 的
+    //    `PCM-2026-0001` 與 `2026-08-04…` 本來就把 `2` 放進 DOM ⇒ **零判別力**。
+    //    實測:把 `{decidedCount}` 換成 `{rows.length}`(印 1)⇒ 那一版**全綠存活**。
+    //    ⇒ 整句一起錨,數字要真的是它。
+    expect(container.textContent).toMatch(/另有\s*2\s*筆已經有人更正過判定/);
+  });
+
+  it('🔴 更正讀不到 ⇒ 那一行**不出現**(印「另有 0 筆」會把「讀不到」講成「沒有」)', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [exceptionRow()],
+      truncated: false,
+      pendingCount: 1,
+      decidedCount: 0,
+      verdictsUnavailable: true,
+      stuckVerdicts: null,
+    });
+    const { container } = await renderPage();
+    expect(container.textContent).not.toContain('筆已經有人更正過判定');
+  });
+
+  it('負對照:一筆都沒判定過 ⇒ 那一行也不出現(不印「另有 0 筆」)', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [exceptionRow()],
+      truncated: false,
+      pendingCount: 1,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
+    });
+    const { container } = await renderPage();
+    expect(container.textContent).not.toContain('筆已經有人更正過判定');
+  });
+
   it('[1] 空清單 → 空態;頁面明寫勿重複發起', async () => {
-    mocks.listRefundExceptions.mockResolvedValue({ rows: [], truncated: false });
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [],
+      truncated: false,
+      pendingCount: 0,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
+    });
     const { container } = await renderPage();
     expect(container.textContent).toContain('目前沒有滯留或卡住的退款');
     expect(container.textContent).toContain('勿重複發起');
@@ -84,6 +137,10 @@ describe('/orders/refund-exceptions — RW3', () => {
     mocks.listRefundExceptions.mockResolvedValue({
       rows: [exceptionRow(), exceptionRow({ id: 'r-2', providerEvidence: 'DR999', refundAmount: 4500 })],
       truncated: false,
+      pendingCount: 1,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     const { container } = await renderPage();
     const link = container.querySelector(`a[href="/orders/${ORDER_ID}"]`);
@@ -95,7 +152,14 @@ describe('/orders/refund-exceptions — RW3', () => {
   });
 
   it('[2b] 截斷旗標 → 顯「較新的異常未列出」橫幅(codex MF1)', async () => {
-    mocks.listRefundExceptions.mockResolvedValue({ rows: [exceptionRow()], truncated: true });
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [exceptionRow()],
+      truncated: true,
+      pendingCount: 1,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
+    });
     const { container } = await renderPage();
     // 文案已改成不歸因(兩關 nit:原文把爆量一律說成「滯留量」,但 #473b-2 之後
     // 也可能全是卡住的列)⇒ 這格改守「有東西沒列出來」這個可觀察事實。
@@ -109,7 +173,14 @@ describe('/orders/refund-exceptions — RW3', () => {
   });
 
   it('[4] 🔴 措辭鐵律同頁適用:不得出現「還能退」「剩餘可退」', async () => {
-    mocks.listRefundExceptions.mockResolvedValue({ rows: [exceptionRow()], truncated: false });
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [exceptionRow()],
+      truncated: false,
+      pendingCount: 1,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
+    });
     const { container } = await renderPage();
     expect(container.textContent).not.toContain('還能退');
     expect(container.textContent).not.toContain('剩餘可退');
@@ -142,7 +213,14 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
   it('[8a] 🔴🔴 卡住的列**掛得上更正入口**,而且是【渲染整頁】量到的(A2 驗收)', async () => {
     // 📌 掛載元件只證明「元件會畫」;渲染 page 才證明「員工按得到」——
     //    而 R3-3 抓到的正是「入口被加在一個目標列永遠走不到的分支裡」。
-    mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [stuckRow()],
+      truncated: false,
+      pendingCount: 1,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
+    });
     mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
     const { container } = await renderPage();
     const buttons = [...container.querySelectorAll('button')].map((b) => b.textContent ?? '');
@@ -160,8 +238,15 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
   });
 
   it('[8b] 🔴 而更正查詢**失敗**時 ⇒ 零按鈕 + 原本那段話(按不動的鈕比沒有鈕糟)', async () => {
-    mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
-    mocks.findEffectiveVerdicts.mockRejectedValue(new Error('boom'));
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [stuckRow()],
+      truncated: false,
+      pendingCount: 1,
+      decidedCount: 0,
+      verdictsUnavailable: true,
+      // 🔴 更正讀不到 ⇒ `null`(R3 consider-2 之後,這一份由 `listRefundExceptions` 一起回)。
+      stuckVerdicts: null,
+    });
     const { container } = await renderPage();
     expect(container.querySelectorAll('button')).toHaveLength(0);
     expect(container.textContent ?? '').toContain('沒有可以按的動作');
@@ -172,8 +257,11 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
     mocks.listRefundExceptions.mockResolvedValue({
       rows: [exceptionRow(), stuckRow()],
       truncated: false,
+      pendingCount: 1,
+      decidedCount: 0,
+      verdictsUnavailable: true,
+      stuckVerdicts: null,
     });
-    mocks.findEffectiveVerdicts.mockRejectedValue(new Error('boom'));
     const { container } = await renderPage();
     const text = container.textContent ?? '';
     expect(text).toContain('PCM-2026-0001');
@@ -289,8 +377,13 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
   });
 
   it('[8d] 🔴 已經被更正過的列:畫面要顯示【現行有效判定】,不只是給一顆鈕', async () => {
-    mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
-    mocks.findEffectiveVerdicts.mockResolvedValue(
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [stuckRow()],
+      truncated: false,
+      pendingCount: 1,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts:
       new Map([
         [
           'r-stuck',
@@ -305,7 +398,7 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
           },
         ],
       ]),
-    );
+    });
     const { container } = await renderPage();
     const text = container.textContent ?? '';
     expect(text).toContain('已經被更正過');
@@ -320,7 +413,14 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
   });
 
   it('🔴 而【還沒被更正過】的列**不得**渲染那一欄(空字串會被解析器判成壞表單)', async () => {
-    mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [stuckRow()],
+      truncated: false,
+      pendingCount: 1,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
+    });
     mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
     const { container } = await renderPage();
     expect(container.querySelector('input[name="correction_expected_id"]')).toBeNull();
@@ -330,6 +430,10 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
     mocks.listRefundExceptions.mockResolvedValue({
       rows: [exceptionRow(), stuckRow()],
       truncated: false,
+      pendingCount: 1,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
     const { container } = await renderPage();
@@ -341,7 +445,14 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
 
   it('[10] 🔴 而【查詢成功】時不得再出現「請聯絡工程師處理」—— 他現在做得到了', async () => {
     // ⛔ ~~原本這一格斷言那句話**必須**出現~~ 作廢：那時它是真的，現在它會叫他去找人做他自己能做的事。
-    mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [stuckRow()],
+      truncated: false,
+      pendingCount: 1,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
+    });
     mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
     const text = (await renderPage()).container.textContent ?? '';
     // 🔴 正向錨(codex 2026-08-29):下面全是負斷言 ⇒ **一張空畫面也會過**。
@@ -356,6 +467,10 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
     mocks.listRefundExceptions.mockResolvedValue({
       rows: [stuckWithEvidence()],
       truncated: false,
+      pendingCount: 1,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
     const { container } = await renderPage();
@@ -368,6 +483,10 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
     mocks.listRefundExceptions.mockResolvedValue({
       rows: [stuckWithEvidence()],
       truncated: false,
+      pendingCount: 1,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
     const { container } = await renderPage();
@@ -408,7 +527,14 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
   });
 
   it('[11] 🔴 文案守門:純文字輸出不得混進 Markdown 星號;不得寫死鐘點', async () => {
-    mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [stuckRow()],
+      truncated: false,
+      pendingCount: 1,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
+    });
     mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
     const { container } = await renderPage();
     expect(container.textContent ?? '').not.toContain('**');
@@ -428,6 +554,10 @@ describe('/orders/refund-exceptions — RW4 操作接線', () => {
     mocks.listRefundExceptions.mockResolvedValue({
       rows: [exceptionRow(), exceptionRow({ id: 'r-2' })],
       truncated: false,
+      pendingCount: 1,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
     });
     const { container } = await renderPage();
     const buttons = [...container.querySelectorAll('button')].map((b) => b.textContent ?? '');
@@ -438,7 +568,14 @@ describe('/orders/refund-exceptions — RW4 操作接線', () => {
   });
 
   it('[6] PRG 結果碼 → 兩則成功橫幅(result-banner 註冊)', async () => {
-    mocks.listRefundExceptions.mockResolvedValue({ rows: [], truncated: false });
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [],
+      truncated: false,
+      pendingCount: 0,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
+    });
     let rendered = await renderPage({ r: 'refund_marked_failed' });
     expect(rendered.container.textContent).toContain('已標記失敗結案');
     cleanup();

@@ -43,6 +43,9 @@ type Over = {
   exceptionsRows?: unknown[];
   exceptionsTruncated?: boolean;
   exceptionsReject?: unknown;
+  exceptionsPending?: number;
+  exceptionsDecided?: number;
+  exceptionsVerdictsUnavailable?: boolean;
 };
 
 function setup(over: Over = {}) {
@@ -56,9 +59,16 @@ function setup(over: Over = {}) {
   if (over.exceptionsReject) {
     mocks.listRefundExceptions.mockRejectedValue(over.exceptionsReject);
   } else {
+    const rows = over.exceptionsRows ?? [];
     mocks.listRefundExceptions.mockResolvedValue({
-      rows: over.exceptionsRows ?? [],
+      rows,
       truncated: over.exceptionsTruncated ?? false,
+      // 🔴 預設 `pendingCount = rows.length` ⇒ 既有每一條斷言的期待值不變。
+      //    ⚠️ 而那正是為什麼下面要另外有一條「兩者不同」的格:**兩者相同時,
+      //       一個誤讀 `rows.length` 的實作會全綠**(本片改的就是這一格)。
+      pendingCount: over.exceptionsPending ?? rows.length,
+      decidedCount: over.exceptionsDecided ?? 0,
+      verdictsUnavailable: over.exceptionsVerdictsUnavailable ?? false,
     });
   }
   return { orders, products };
@@ -164,5 +174,29 @@ describe('loadSidebarCounts — syncedAt(三態的機制)', () => {
     setup({ orderError: new Error('boom'), productCount: 0, exceptionsRows: [] });
     const out = await loadSidebarCounts();
     expect(out.syncedAt).toBeNull();
+  });
+});
+
+describe('退款異常那格數的是 pendingCount(Sean 2026-08-30 拍【甲】)', () => {
+  it('🔴 **兩者不同時要跟 pendingCount 走** —— 這一格是本片的本體', async () => {
+    // 3 筆在清單上,其中 1 筆已經有人判定 ⇒ 側欄要印 2,不是 3。
+    setup({ exceptionsRows: [{}, {}, {}] as never[], exceptionsPending: 2, exceptionsDecided: 1 });
+    const got = await loadSidebarCounts();
+    expect(got.refundExceptionCount).toBe(2);
+  });
+
+  // ⚠️ **這一格不是第二個世界**(R1 nit5):它與上面那條同紅同綠、是複本不是獨立的尺。
+  //    留著的用途是把「舊實作會印 3」這個事實寫在測試檔裡給下一個人看,不要把它算成一道守門。
+  it('補述(非獨立守門):讀 rows.length 的舊實作在這個世界會印 3', async () => {
+    setup({ exceptionsRows: [{}, {}, {}] as never[], exceptionsPending: 2, exceptionsDecided: 1 });
+    const got = await loadSidebarCounts();
+    expect(got.refundExceptionCount).not.toBe(3);
+  });
+
+  it('🔴 更正讀不到的旗標原樣透傳,不在本層被吃掉(顯示端靠它決定印不印時間戳)', async () => {
+    setup({ exceptionsRows: [{}] as never[], exceptionsVerdictsUnavailable: true });
+    expect((await loadSidebarCounts()).refundExceptionVerdictsUnavailable).toBe(true);
+    setup({ exceptionsRows: [{}] as never[] });
+    expect((await loadSidebarCounts()).refundExceptionVerdictsUnavailable).toBe(false);
   });
 });

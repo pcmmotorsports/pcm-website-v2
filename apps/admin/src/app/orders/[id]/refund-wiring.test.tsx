@@ -54,6 +54,12 @@ const mocks = vi.hoisted(() => ({
   //    要構造出 `unreadable` 那一態(讓它 reject)。⚠️ **預設值在 `beforeEach` 維持回 `[]`**
   //    ⇒ 本檔其他每一格的行為一個字都沒變(提升本身零行為改變)。
   listOrderPayments: vi.fn(),
+  // 🔴 `#890` 片4:`order-detail-route` 會問「卡住那幾列有沒有被更正過」。
+  //    **預設回空 Map**(讀得到、而一筆都沒被更正)⇒ 本檔既有每一格行為一個字不變。
+  findEffectiveVerdicts: vi.fn(),
+}));
+vi.mock('../../../lib/payment/refund-correction-read', () => ({
+  findEffectiveVerdicts: mocks.findEffectiveVerdicts,
 }));
 // M-3 RW3:page 直接 import refund-read(→ server-only)⇒ 必 mock;
 // 本檔另有帳本顯示鏈的接線格,mock 給 hoisted 的可控版本。
@@ -158,6 +164,9 @@ beforeEach(() => {
   mocks.getLedgerUnregisteredAmount.mockResolvedValue(null);
   // 提升前的 inline 預設,逐字保留:`[]` = 「這單沒收過款」,不是「讀不到」。
   mocks.listOrderPayments.mockResolvedValue([]);
+  // 🔴 空 Map = **讀得到、而一筆都沒被更正過** ⇒ 卡住的列照舊擋(既有行為不變)。
+  //    ⚠️ 它與 `null`(讀不到)是兩件事,而兩者今天都擋 —— 分開餵的那兩格在下面。
+  mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
   vi.spyOn(console, 'error').mockImplementation(() => {});
   savedFlag = process.env.REFUND_UI_ENABLED;
 });
@@ -1216,6 +1225,86 @@ describe('#787:非卡退款登記入口硬閘(沖銷 RPC 落地前恆不渲染)'
     mocks.getLedgerUnregisteredAmount.mockResolvedValue(877);
     const { container } = await renderPage();
     expect(hasRefundEntry(container)).toBe(false);
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // 🔴 `#890` 片4(Sean 2026-08-30 拍板做 (b)):**已更正成「錢沒有動」的列不再擋**
+  // ═════════════════════════════════════════════════════════════════════════
+  // 驗收對象是一張真的單(正式站 `8X3N5Q`,主視窗 2026-08-30 轉的後台截圖):
+  //   信用卡 NT$ 20 / 已收足 / 帳本未登記額 NT$ 20 / 兩筆「部分 NT$ 10 失敗(錢沒有動)」
+  // ⇒ 兩筆判定都是「錢沒有動」⇒ 餘額沒被高估 ⇒ **做完之後那張單的退款入口必須回來**。
+  //
+  // 🔴 三態預設關,而下面四格是那三態 + 一個真的放行:
+  //    `no_money_moved` ⇒ 放行 / `money_moved` ⇒ 擋 / 未更正 ⇒ 擋 / 讀不到 ⇒ 擋
+  const stuckRow = {
+    id: 'r-stuck',
+    kind: 'partial',
+    status: 'failed',
+    refundAmount: 100,
+    reason: '人工判定',
+    actor: 'sean',
+    createdAt: '2026-08-04T03:00:00+00:00',
+    failedReason: 'manual_failed',
+    failedDetail: null,
+    providerEvidence: null,
+  };
+  function feedStuck() {
+    process.env.REFUND_UI_ENABLED = '1';
+    mocks.listOrderRefunds.mockResolvedValue({ rows: [stuckRow], truncated: false });
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(877);
+  }
+
+  it('🔴 更正成「錢沒有動」⇒ 入口**回來**(這一格是本片的本體,也是 8X3N5Q 那張單)', async () => {
+    feedStuck();
+    mocks.findEffectiveVerdicts.mockResolvedValue(
+      new Map([['r-stuck', { correctedTo: 'no_money_moved' }]]),
+    );
+    const { container } = await renderPage();
+    expect(hasRefundEntry(container)).toBe(true);
+  });
+
+  it('🔴 更正成「錢動了」⇒ 入口**仍然不見**(那筆錢已經退出去了)', async () => {
+    feedStuck();
+    mocks.findEffectiveVerdicts.mockResolvedValue(
+      new Map([['r-stuck', { correctedTo: 'money_moved' }]]),
+    );
+    const { container } = await renderPage();
+    expect(hasRefundEntry(container)).toBe(false);
+  });
+
+  it('🔴 更正紀錄讀不到(throw)⇒ 入口不見(fail-closed;與「未更正」分開餵)', async () => {
+    feedStuck();
+    mocks.findEffectiveVerdicts.mockRejectedValue(new Error('boom'));
+    const { container } = await renderPage();
+    expect(hasRefundEntry(container)).toBe(false);
+  });
+
+  it('🔴 更正紀錄回的不是 Map(型別漂移)⇒ 也當讀不到 ⇒ 入口不見', async () => {
+    feedStuck();
+    mocks.findEffectiveVerdicts.mockResolvedValue({ get: () => undefined } as never);
+    const { container } = await renderPage();
+    expect(hasRefundEntry(container)).toBe(false);
+  });
+
+  it('🔴 帳本讀不到時**不去問**更正紀錄(問了也沒意義,而留 null 正是 fail-closed 要的值)', async () => {
+    process.env.REFUND_UI_ENABLED = '1';
+    mocks.listOrderRefunds.mockRejectedValue(new Error('ledger down'));
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(877);
+    const { container } = await renderPage();
+    expect(mocks.findEffectiveVerdicts).not.toHaveBeenCalled();
+    expect(hasRefundEntry(container)).toBe(false);
+  });
+
+  it('🔴 沒有卡住的列 ⇒ 以空陣列問(下游自己早退不打 DB),入口照常', async () => {
+    process.env.REFUND_UI_ENABLED = '1';
+    mocks.listOrderRefunds.mockResolvedValue({
+      rows: [{ ...stuckRow, id: 'r-plain', failedReason: 'not_sent' }],
+      truncated: false,
+    });
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(877);
+    const { container } = await renderPage();
+    expect(mocks.findEffectiveVerdicts.mock.calls[0]![0]).toEqual([]);
+    expect(hasRefundEntry(container)).toBe(true);
   });
 
   // 🔴 **負對照,而它是這一組的承重格**:同一發、只把 `failedReason` 換掉。

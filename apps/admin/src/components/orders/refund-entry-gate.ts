@@ -84,6 +84,16 @@ export function shouldShowRefundEntry(input: {
    *
    * 🔴 **而藏起來只修掉一半** —— 那個被高估的數字**沒有動**,不經過這個畫面的路徑一樣會撞到。
    *   ⇒ backlog `#890`。**看到入口不見了,不要讀成「這件事處理過了」。**
+   *
+   * 🔵🔵 **2026-08-30 更正(`#890` 片4;只加不刪,舊字面留著讓搜舊句的人同一發撞到)**
+   *   ① **上面那句「server 端擋不住」今天不成立了** —— `refund-actions.ts` 的 ④-b 就是那道
+   *      server 閘(判準與這裡共用 `isBlockingStuckVerdict`)。⇒ 現在**兩端都擋**。
+   *   ② **而 `hasStuckRefundVerdict` 的語意變了**:它不再是「有沒有卡住的列」,
+   *      是「**有沒有卡住而且還沒有人擔保過的列**」——
+   *      已被更正為 `no_money_moved` 的列**不再擋**(Sean 2026-08-30 拍板)。
+   *   ③ ⚠️ **上面那段「未登記額被高估」只對【未更正】的列成立** ——
+   *      `20260820100000:231-248` 的第二段**會扣掉** `corrected_to='money_moved'` 的 failed 列。
+   *      (我在片4 一度以為它不扣,而那是**只讀了算式的一半**。)
    */
   hasStuckRefundVerdict: boolean;
   paymentChannel: AdminOrderDetail['paymentChannel'];
