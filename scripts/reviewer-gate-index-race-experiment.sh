@@ -16,6 +16,15 @@
 #   |  E   | **寫標記【後】才塞進來** | 是 | 有 | ✅ **過** |
 #   |  F   | 同 E | 否(docs) | 有 | ✅ 過 |
 #   |  G   | 同 E | 是 | **無** | 🛑 擋 ← **第二個正對照** |
+#   |  H   | 有(寫標記前) | 是 | 有,**被擋後重寫再送** | 🛑 **兩發都擋** |
+#
+# ══ 🔴 **世界 H:「被擋再重寫標記再送」這條修法【在世界 A 會鬼打牆】** ══════════
+#   實測:第一發標記 tree `3e883e01` ⇒ 擋;重寫後的標記 tree **`3e883e01`(一模一樣)** ⇒ 仍然擋。
+#   ⇒ 因為標記算的是**共用 index**,而別人的檔還在裡面 ⇒ **重算幾次都是同一個 tree。**
+#   ⇒ 📌 **⇒ 那條修法只在【別人的檔已經離開 index】之後才生效** ——
+#     而它離開的原因通常是**別人自己 commit 走了**,不是我做了什麼。
+#   ✅ 所以正確的說法是:**直接送、被擋就重送**,而**重送要等別人的檔離開 index**;
+#     判別動作 = 比 `sed -n 2p <git-dir>/pcm-reviewer-ran` 與「HEAD + 只有我那幾支」的 tree。
 #
 # 🔵 **E/F/G 是為了關掉 `-1c` 的競爭假說**(它自己標了「這是推論不是量測」):
 #   「決定性的變數是【寫標記到 commit 之間 index 有沒有變】」⇒ **實測:不是。**
@@ -53,7 +62,7 @@ unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY 2>/dev/null || t
 
 REAL=/Users/sean_1/pcm-website-v2
 run_world() {
-  world="$1"; foreign="$2"; marker="${3:-yes}"; surface="${4:-yes}"; late="${5:-no}"
+  world="$1"; foreign="$2"; marker="${3:-yes}"; surface="${4:-yes}"; late="${5:-no}"; retry="${6:-no}"
   R=$(mktemp -d "${TMPDIR:-/tmp}/gate-exp-XXXXXX")
   git init -q "$R"; cd "$R" || return 1
   git config user.email probe@x; git config user.name probe
@@ -94,8 +103,21 @@ HK
     echo theirs > scripts/late.sh; git add scripts/late.sh
     echo "   🔴 寫標記【之後】才把別人的檔塞進 index ⇒ 現在 index tree = $(git write-tree)"
   fi
-  git commit -q -m exp -- "$M1" "$M2" 2>&1 | grep -E "HOOK:|PCM reviewer gate" | head -3
-  RC=$?
+  git commit -q -m exp -- "$M1" "$M2" > /dev/null 2>&1
+  # 🔴 這一段【不要】掛管線:上一版把 grep 掛在 fi 後面, 把重試那行 echo 一起濾掉了
+  #    ⇒ 看起來像「重試沒跑」, 而它其實跑了 —— 又一次「量具吃掉自己的證據」。
+  if [ "$retry" = yes ] && ! git log --oneline -1 2>/dev/null | grep -q exp; then
+    echo "   🔁 第一發被擋 ⇒ 照【新規矩】重寫標記再送一次(index 沒清)"
+    st2=$(git write-tree)
+    { git rev-parse HEAD; printf '%s\n' "$st2"; echo "reviewed: retry"; } > "$gd/pcm-reviewer-ran"
+    echo "   🔁 重寫後的標記 tree = $st2"
+    git commit -q -m exp -- "$M1" "$M2" > /dev/null 2>&1
+    if git log --oneline -1 2>/dev/null | grep -q exp; then
+      echo "   🔁 重試結果:✅ 過"
+    else
+      echo "   🔁 重試結果:🛑 仍然擋"
+    fi
+  fi
   if git log --oneline -1 2>/dev/null | grep -q exp; then
     echo "   ⇒ 結果:✅ 過"
   else
@@ -117,3 +139,5 @@ echo
 run_world "F(同 E 而我的是 docs)" no yes no yes
 echo
 run_world "G(第二個正對照:E 的條件但不寫標記)" no no yes yes
+echo
+run_world "H(被擋後照新規矩【重寫標記再送】, 而 index 沒清)" yes yes yes no yes
