@@ -109,6 +109,10 @@ curl -s -o /dev/null -w '%{http_code} → %{redirect_url}'
 apps/admin/src/lib/session/authorize.ts:29-30  verifySession(cookie) ⇒ !session ⇒ return null   ← 沒有 devBypass
                                         :31    isAllowedOrigin(..., { devBypass: DEV_BYPASS })  ← 只有這裡有
 grep -c 'ADMIN_DEV_BYPASS' apps/admin/src/lib/session/session.ts ⇒ 0
+【同款正對照 2026-08-31】換一個參數再問一次同一把尺 ⇒ 答「這個 0 是真的 0, 還是這把尺今天撈不到了」
+  grep -c 'export' apps/admin/src/lib/session/session.ts  ⇒ 29  ← 非 0 = 尺讀得到這支檔
+  git grep -l 'ADMIN_DEV_BYPASS' -- apps/admin | wc -l    ⇒ 11  ← 非 0 = 這個字今天還是這樣拼
+  🔴 兩條任一變 0 ⇒ 上面那個 0 作廢, 重查; 判準是「非 0」不是那兩個數字
 ```
 ⇒ `ADMIN_DEV_BYPASS=1` **讓我看得到頁,而它從來沒有給我一個 session**
 ⇒ 收款/採購/到貨/尾款/出貨/退款/備註/編輯/取消 **九個寫入站全部會回 denied**
