@@ -127,6 +127,17 @@ const PROBED_OR_CHECKS: readonly string[] = [
   //       而那份證據住在已收攤的拋棄式 PG + 它的 scratchpad ⇒ **我複跑不了** ⇒ 我自己重跑了一發。
   //    🔴 而它驗的是【值域】,本守門問的是【NULL 短路】—— **那不是同一個問題**(`-1c` 自己指出的)。
   //       NULL 那一側的實測結果寫在 `LOAD_BEARING_NOT_NULL` 那兩列旁邊。
+  // 🔴 2026-08-30 線【權限與登入】`-15` 實測補進(板 :395 的新表)。
+  //    形狀:(outcome='success' AND reason_code IS NULL) OR (outcome='failure' AND reason_code IS NOT NULL)
+  //    🔴 **NULL 短路面為什麼是關的**:`outcome` 是 `text NOT NULL CHECK (outcome IN ('success','failure'))`
+  //       ⇒ 它永遠不是 NULL、且只有兩個值 ⇒ **兩個分支都不可能求值成 NULL**
+  //       ⇒ 沒有「CHECK 求值成 NULL 就放行」那條路。
+  //       ⚠️ **承重的是那個 `NOT NULL`** —— 哪天有人把它拿掉,這條 CHECK 會對 NULL outcome 靜靜放行。
+  //    ✅ **實跑(不是推的)**:拋棄式 PG 17.10,同一張表兩個世界 ——
+  //       有 CHECK:`success+reason_code` 與 `failure+NULL` **兩發都被擋**(check constraint 違反);
+  //       DROP 掉那條 CHECK 後:**同樣兩發都進得去**(壞形狀 2 列 / 總 4 列)
+  //       ⇒ 擋它們的確實是這條 CHECK,不是別的約束。收攤後叢集已刪、工作樹 dirty=0。
+  'auth_callback_events_outcome_reason_pair',
   'coupons_percent_range',
   'bbox_complete',
   'bbox_null_unless_ok',
