@@ -33,6 +33,14 @@ export function isManualRefundRequestToken(value: string): boolean {
  * D1 的業務 RAISE 全部走預設 `P0001`(`20260820021000:169` 只有隔離閘顯式帶 `P8C01`,
  * 其餘一個 `USING ERRCODE` 都沒有),分不出來哪一種業務拒絕,所以不強行分。
  *
+ * ⚠️ **2026-08-31 補一格 —— 上面那句【只涵蓋 D1 那支 RPC 自己】,而它不是那張表的全部寫入者。**
+ * `#866`(`20260824011000`)在 `order_manual_refunds` 上掛了 `BEFORE INSERT OR UPDATE OR DELETE`
+ * trigger,吐 `PCM01`(現金/匯款軌別上限)/ `PCM02`(算不出上限)/ `PCM03`(不能 DELETE)——
+ * 它們會**穿過** RPC 冒上來,而 `manual-refund-repository.ts` 的 map 已經接了。
+ * 🔴 **這一段是給【從這裡反推】的人看的**(關卡2 R2 must-fix 4):
+ *    上面那句話的主詞是「D1 那支 RPC」,而下一個人很容易把它讀成「這條路上的全部」
+ *    ⇒ 然後推出「PCM0x 不存在」。**兩個宣稱,而它們共用同一句話。**
+ *
  * 🔴 **`rejected` 例外地把 RPC 的 `message` 原樣顯示給員工**(見 repository 層的
  * `staffMessage`),這與 `cancel-repository.ts`/`refund-action-state.ts` 的慣例(只顯示
  * 罐頭訊息、原始 message 只進 log)刻意不同 —— 理由:D1 每一句 RAISE 本身就是寫給員工看的

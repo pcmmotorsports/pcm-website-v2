@@ -11,9 +11,27 @@ import type { ManualRefundRail } from './manual-refund-form';
 //
 // 🔴 稽核由 RPC 同交易寫(D1 header 段自陳),本層不碰 admin_audit_log。
 //
-// 🔴 **分類依 SQLSTATE、不解析 RPC message 的內容**——業務 RAISE 全部落 P0001(見
-//    manual-refund-action-state.ts 檔頭的說明);`rejected` 這一格額外把 message 原樣帶出去
+// 🔴 **分類依 SQLSTATE、不解析 RPC message 的內容**;`rejected` 這一格額外把 message 原樣帶出去
 //    (`staffMessage`),讓 action 層決定要不要顯示給員工(D1 的每句 RAISE 本身就是寫給員工看的)。
+//
+// ⛔ ~~業務 RAISE **全部**落 P0001(檔頭已確認**無其他顯式 ERRCODE**)~~
+// 🔴🔴 **2026-08-31:那句話現在是假的 —— 而【它寫的時候是對的】。三件都留在這裡:**
+//    · **它寫的時候是對的**:D1 那支 RPC 自己的**業務** RAISE 確實都落預設 P0001
+//      (唯一顯式帶碼的是步1 隔離閘 `P8C01`,`20260820021000:169` —— 而它不是業務 RAISE,
+//       且下方 map 本來就列著它)。
+//      ⚠️ **我第一版訂正時把「業務」兩個字弄丟了**,寫成「每一句 RAISE 都是 P0001」——
+//      🔴 **那樣訂正出來的新句子自己是假的。**📌 **訂正一句話時,最容易掉的是它的【限定詞】。**
+//    · **被什麼弄假的**:`#866`(`20260824011000`)後來在**同一張表** `order_manual_refunds` 上掛了
+//      一道 `BEFORE INSERT OR UPDATE **OR DELETE**` trigger(`20260824011000:259` 逐字),
+//      而 `admin_record_manual_refund` 正是 INSERT 那張表的人
+//      —— 🔴 **座標用【現行代】`20260823020000:447`,不是首建那一代**
+//      (`bash scripts/latest-definition-of.sh admin_record_manual_refund` ⇒ newest=live=20260823020000;
+//       我第一版引了 `20260820021000:298`,而那一代已被 `CREATE OR REPLACE` 換掉)
+//      ⇒ 那道 trigger 的 SQLSTATE 會**穿過 RPC** 冒上來。
+//    · **現在是什麼**:除了 P0001,還會收到 `PCM01` / `PCM02` / `PCM03`(下方 map 已列)。
+//    🔴 **⇒ 只寫「現在是什麼」的話,下一個人會以為原作者搞錯了** ——
+//       而真相是:**一句對的話被別人後來加的東西弄假,而它不會紅。**
+//    📌 **判別句:這張表【還有誰會寫它】?那些人各自會吐什麼 SQLSTATE?**
 
 export interface RecordManualRefundArgs {
   orderId: string;
@@ -45,7 +63,20 @@ export type RecordManualRefundOutcome =
  */
 const SQLSTATE_CLASSIFICATION = new Map<string, ManualRefundFailureCode>([
   ['P8C01', 'bug'], // 隔離閘(部署面設定錯)
-  ['P0001', 'rejected'], // D1 全部業務 RAISE 走這條(檔頭已確認無其他顯式 ERRCODE)
+  ['P0001', 'rejected'], // D1 那支 RPC 自己的業務 RAISE 走這條
+  // 🔴 `#866` 的軌別上限 trigger(`pcm_manual_refund_rail_cap_guard`,`20260824011000`,**已 apply**)。
+  //    三個都走 `rejected` ——`-48` 2026-08-31 裁【甲】,理由是本檔下游
+  //    `manual-refund-action-state.ts:36-42` 逐字寫的那條:那些 RAISE **本身就是寫給員工看的指示**,
+  //    罐頭化只會把「只剩 300 元可退」換成一句更含糊的話。
+  // ⛔ **而它們原本落進 fallback 的 `error`,而 `error` 說「可以用同一張表單稍後再試」** ——
+  //    🔴 那對三個碼【每一個】都是錯的下一步(超額再送 = 同一個金額 = 永遠失敗),
+  //    而且它多講一句假話:三個都是 RAISE ⇒ 交易回滾 ⇒ **沒有任何東西在系統裡等著被回報**。
+  ['PCM01', 'rejected'], // 現金/匯款軌別上限:「這張單在【現金/匯款】上目前只剩 % 元可退」
+  ['PCM02', 'rejected'], // 算不出上限:「請找工程確認」(fail-closed,不宣稱知道原因)
+  ['PCM03', 'rejected'], // 不能刪除:「要取消請用『作廢』」⇒ 員工要的是【換一個動作】
+  // ⚠️ PCM03 那句 RAISE 的字面裡有 Markdown 星號,而畫面是純文字輸出 ⇒ 員工會看到兩個星號。
+  //    已開列 `⟦b4-PCM03STARS⟧`(要動已 apply 的 migration ⇒ 要新的一支)。
+  //    🔵 **不因此改走罐頭碼**:兩顆星星是【難看】,而罐頭化會讓他失去「要用作廢」這個指示。
   ['23514', 'bug'], // 表 CHECK 被觸發卻沒被 RPC 自己的 IF 攔到 = RPC 與表定義漂移
   ['23505', 'bug'], // UNIQUE(order_id, request_id):RPC 自己有冪等檢查,不預期還會冒出這個
   ['42501', 'bug'], // ACL 被撤
