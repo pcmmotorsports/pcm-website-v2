@@ -177,6 +177,7 @@ export function ForgotPasswordPage({ next }: { next?: string } = {}) {
               <li>連結 <b>1 小時內有效</b>，過期就再要一次。</li>
               <li>沒看到信的話，<b>檢查垃圾郵件</b>——重設信最常掉在那裡。</li>
               <li>信裡的連結<b>只能用一次</b>，用過就失效。</li>
+              <li>用 <b>Google</b> 或 <b>LINE</b> 註冊的話沒有密碼可以重設 —— 直接回登入頁用原本的方式登入就好。</li>
             </ul>
 
             {formError && <div className="auth-err" role="alert">{formError}</div>}
