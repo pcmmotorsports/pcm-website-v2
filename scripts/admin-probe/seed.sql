@@ -138,4 +138,16 @@ UPDATE orders o
   FROM (SELECT order_id, sum(line_total) AS sum_line FROM order_items GROUP BY order_id) s
  WHERE s.order_id = o.id;
 
+-- ── 🔴 員工一列(2026-08-30 加)——【真 session 的第三道閘要它】────────────────────
+-- `authorizeAdminMutation` 第 ③ 道是 `getSessionActor()` → `resolveStaff(id)` →
+-- `listActiveStaff()` 裡撈得到才算數。這張表本來是**空的** ⇒ 就算票是對的,第 ③ 道仍然回 null。
+-- ⚠️ 兩個 CHECK 要過:`staff_id_format ^[a-z0-9_]{1,64}$`、`staff_label_nonempty`。
+-- 🔴 `is_manager = true`:讓 `authorizeManagerMutation` 那一支(⟦b4-MGR0⟧)也走得通 ——
+--    否則「管理者專用」的那幾個動作在鑽機上仍然是死的,而那與本次要修的是同一種病。
+--    ⚠️ **代價明寫**:這台鑽機上的人是管理者 ⇒ **鑽機證不了「非管理者會被擋下」**。
+--    要驗那一面,把這一列改成 `false` 再跑一次 —— 那是另一個世界,不是同一發。
+INSERT INTO staff (id, label, is_manager, is_active)
+VALUES ('probe_staff', '探針員工', true, true)
+ON CONFLICT (id) DO UPDATE SET is_manager = true, is_active = true;
+
 COMMIT;

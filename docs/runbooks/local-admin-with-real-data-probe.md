@@ -1228,3 +1228,59 @@ public 表數                                  47                 50
 ⇒ **它顯示「看得到」不代表員工看得到。** 拿那批畫面當「權限沒問題」的證據 ⇒ 無效。
 ✅ 那批畫面能證的:版面 / 欄位長相 / 有幾列 / 狀態機 / 文案。
 ❌ 不能證的:誰看得到哪一欄 / anon 打得到什麼 / RLS+GRANT 兩層合起來擋不擋得住。
+
+---
+
+## §13 🔴🔴 後台鑽機**任何寫入都做不到** —— 而錯誤訊息把人指向錯的方向(2026-08-30 修)
+
+### 症狀
+後台任一 mutation(送採購 / 加備註 / 登錄收款 / 儲存發票…)⇒
+畫面 **「沒有權限或登入狀態已失效,…沒有寫入。」**,DB **0 筆**。
+
+### 🔴 成因**不是** `auth.uid()` —— 而那正是最容易猜錯的方向
+派工單傳到我手上時寫的是「`ADMIN_DEV_BYPASS` 沒有真 session ⇒ `auth.uid()` 是替身」。
+**那半是錯的**,而本檔自己早就寫著為什麼:
+`§2:110` 逐字「**admin 那條路永遠看不到它** —— admin 走 `service_role` + `BYPASSRLS`,不經過 `auth.uid()`」;
+`§8:635` 再說一次。⇒ 📌 **`auth.uid()` 是顧客站那一面的病;admin 這一面從頭到尾不呼叫它。**
+
+**真正的成因**(`apps/admin/src/lib/session/authorize.ts:31` `authorizeAdminMutation`,三道閘):
+```
+① verifySessionDetailed(cookie)  ← 沒有 cookie ⇒ reason:'absent' ⇒ 第一道就回 null
+② Origin fail-closed             ← ADMIN_DEV_BYPASS=1 只放寬【這一道】
+③ getSessionActor() 具名身分
+```
+⇒ 🔴 **`ADMIN_DEV_BYPASS` 從來就不是「免登入」,它只是「免 Origin 檢查」。**
+⇒ 📌 **所以那句錯誤訊息【字面上是對的】** ——「登入狀態已失效」是實話,只是它沒說「因為這台鑽機根本沒有登入流程」。
+**證據(修前實量)**:`document.cookie` 只有顧客站鑽機留下的 `sb-127-auth-token`,
+**零個 `pcm_admin_sess_dev`、零個 `pcm_admin_actor`**;dev log 連續 `POST /api/session/renew 401`
+—— **那支路由一直在叫,而沒有人聽出它在說「我沒有票」。**
+
+### 修法(2026-08-30 起 `up.sh` 自己做,你只要貼一行)
+`up.sh` 跑完會印一行 `document.cookie='pcm_admin_sess_dev=…; path=/'`,
+貼進瀏覽器 console 就有真 session。同一行也存在 `$ADMIN_PROBE_DIR/session-cookie.txt`。
+
+票的形狀**不是發明的**,逐格對著 `apps/admin/src/lib/session/session.ts` 抄
+(cookie 名 `:181` / 值的組法 `:418-424` / 金鑰材料 `v1:<len>:<secret>:<len>:<envTag>` `:304-307` /
+envTag=`local` `:263-274` / b64url 無 padding `lib/base64url.ts:6-10` / `v:2` 的 `sub` 必填 `:97-103`)。
+配套兩件:`env.sh` 給 `ADMIN_SESSION_SECRET`(≥32 字元,`session.ts:178`);
+`seed.sql` 插一列 `probe_staff`。
+⚠️ **`staff` 表本來就有列**(migration 種的:`sean` / `staff_1` / …)⇒ 那一列**不是為了讓閘過**,
+是為了**歸屬**:用 `sean` 的話,鑽機產生的稽核紀錄看起來會像**老闆本人**做的。
+
+### 驗收(兩個世界,都是實量)
+| | 修前 | 修後 |
+|---|---|---|
+| 畫面 | 「沒有權限或登入狀態已失效,備註沒有寫入。」 | 那句**消失**,URL 變 `?r=note_added` |
+| `select count(*) from order_notes` | **0** | **1** |
+| 那一筆的 `author` | — | **`probe_staff`** |
+🔴 **`author` 那一格是最強的證據**:它證明身分是從**票的 `sub`** 解出來的,
+不是從那顆自選 picker cookie —— 而我**沒有設**過 picker cookie。
+
+### 🛑 這條路【證不了】什麼(不要拿鑽機當它們的證據)
+- **真登入流程**(SSO callback / 報價單那一側)—— **完全沒有走到**,票是手簽的。
+- **「非管理者會被擋下」** —— 種子那列是 `is_manager=true`;要驗擋下,把它改成 `false` **再跑一次**,
+  那是另一個世界,不是同一發。
+- **票 15 分鐘到期**(`ADMIN_SESSION_MAX_AGE_SEC`,Sean `Q-B5b-2=乙` 拍的)⇒ 過期就重跑 `up.sh`。
+  app 有靜默續期,而**它要先有一張有效票才續得動**。
+- 我實跑驗過的是**「新增備註」這一條**;其餘 mutation **共用同一道 `authorizeAdminMutation`**
+  ⇒ 那是**讀碼得到的**,不是我一條條量到的。**這兩件事不要混。**
