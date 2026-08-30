@@ -112,6 +112,20 @@ snapshot() {
     done < "$LIST"
     rm -f "$LIST"
   fi
+
+  # 🔴 2026-08-31:這一段是【跑它的人要付什麼】—— 而它先前只印「刪掉舊快照 X」
+  #    成因(哨兵量到):一小時內【四個不同的行為者】各自跑了它一次 ⇒ 燒掉 5 格,
+  #    而它設計是每小時 1 格 ⇒ 覆蓋從 24 小時掉到約 18 小時。
+  #    📌 而沒有人是粗心:它名字叫 snapshot、輸出是兩個數字, **看起來像唯讀**;
+  #       而「再跑一次看清楚」是一個人在不確定時最自然的反應。
+  #    ⇒ 所以它自己要說出來, 不能靠別人記得。
+  oldest=$(ls -1 "$SNAP_ROOT" | sort | head -1)
+  newest=$(ls -1 "$SNAP_ROOT" | sort | tail -1)
+  now_total=$(ls -1 "$SNAP_ROOT" | wc -l | tr -d ' ')
+  printf '\n🔴 這一支【會永久刪掉歷史】—— 它不是唯讀的\n'
+  printf '   目前 %s / %s 份 · 最舊 %s · 最新 %s\n' "$now_total" "$KEEP" "$oldest" "$newest"
+  printf '   ⇒ 你能回查的最早時點就是【最舊那一份】; 每多跑一次, 那個時點就往後移一格。\n'
+  printf '   🛑 【再跑一次看清楚】不是免費的。要看清楚 ⇒ 把輸出導進檔案再讀, 不要重跑。\n'
   print_scope
   return 0
 }
