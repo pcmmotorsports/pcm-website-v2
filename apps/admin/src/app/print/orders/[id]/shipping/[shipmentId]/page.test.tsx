@@ -1000,7 +1000,13 @@ describe('#10 片2b — 三區(Sean 2026-08-16 逐字:本次出貨 / 尚未出�
     );
     const { container } = await renderPage();
     expect(container.querySelectorAll('.pd-items table').length).toBe(1); // 只剩「本次出貨」
-    expect(container.textContent).toContain('尚未出貨:無');
+    // ⛔ ~~`toContain('尚未出貨:無')`~~ —— **2026-08-30 Sean 換掉那句**,原話逐字:
+    //    「這個提示拿掉, 改成在本區合計 1,080 下面那條分隔線中間寫著 以下空白」。
+    // 🔴 **本格要證的事沒有變**:真的都寄完時,紙上要**講一句話**而不是留一張空表。
+    //    變的只有那句話是什麼。⇒ 錨跟著換,斷言的意圖一個字沒動。
+    expect(container.textContent).toContain('以下空白');
+    // 🔵 反向:舊字面不准回來(順手「補齊」的人會在這裡紅)。
+    expect(container.textContent).not.toContain('這張訂單沒有還欠客人的品項');
   });
 
   it('🔴🔴 兩張表都必須是真的 `<table>` + 真的 `<thead>`(跨頁表頭靠它)', async () => {
@@ -1096,24 +1102,30 @@ describe('#10 片2b — 三區(Sean 2026-08-16 逐字:本次出貨 / 尚未出�
     const tables = [...container.querySelectorAll('.pd-items table')];
     expect(tables.length).toBe(3);
     for (const [i, t] of tables.entries()) {
-      const bar = t.querySelector(':scope > thead > tr.pd-contbar > th');
-      expect(bar, `第 ${i + 1} 張表少了續頁抬頭那一列`).not.toBeNull();
-      // 🔴 **「品項明細」四個字在片3 拿掉了**(FIX-63:續頁列不再重複區塊名)。
-      //    ⚠️ 原本這裡有 `toContain('品項明細')`。**拿掉它會讓通過集合變大**,
-      //       所以補一條反向的:那四個字不准回來(順手補齊的人會在這裡紅)。
-      expect(bar?.textContent).not.toContain('品項明細');
-      expect(bar?.textContent).toContain('PCM-2026-0042');
-      expect(bar?.textContent).toContain('K7X2MP');
-      // 🔴 跨欄要蓋滿,少一欄的話那一列只撐在左邊、右邊被欄名擠上來。
-      //    **改成與該表【實際欄數】比對**,不寫死 3 —— 本次出貨那張是 4 欄(多了勾選欄),
-      //    寫死的話加一欄就得回來改一次,而**改的人不會知道他改的是「蓋滿」這個意圖**。
-      const cols = t.querySelectorAll(':scope > thead > tr:last-child > th').length;
-      expect(bar?.getAttribute('colspan')).toBe(String(cols));
-      // 🔴 它必須排在欄名那一列**上面** —— 排下面的話續頁上它會出現在欄名之後,
-      //    而樣張 `:291` 的位置是欄名之上。順序錯了畫面上看得出來,但沒有守門就沒人擋。
-      const rows = [...(t.querySelectorAll(':scope > thead > tr') ?? [])];
-      expect(rows.length).toBe(2);
-      expect(rows[0]?.classList.contains('pd-contbar')).toBe(true);
+      // ⛔ ~~整段續頁抬頭的斷言(`tr.pd-contbar` 存在 / 帶單號箱號 / colspan 蓋滿 / 排在欄名上面)~~
+      //    **2026-08-30 Sean 拿掉了那一列**(逐字「左上角的出貨單明細 訂單編號xxxxx 這邊也拿掉 /
+      //    我不要這些奇怪標語」)。
+      // 🔴 **所以本格的一半失去了標的,而【那一半守的事情沒有被解決,是被放棄】** ——
+      //    續頁上現在認不出是哪一單哪一箱。Sean 拍板時已被告知這個代價。
+      //    ⇒ ⇒ 寫在這裡,是為了讓下一個人知道**那道保護不在了**,不是找不到寫法。
+      // ✅ **而本格另一半仍然成立、而且是它的標題所講的那件事**:
+      //    `<table>` + `<thead>` 這個結構是跨頁欄名重複的原生保證,**三張表都要有**。
+      //    突變證據(E 窗):`<table>` → `<div>` ⇒ 4 failed。
+      const head = t.querySelector(':scope > thead');
+      expect(head, `第 ${i + 1} 張表少了 <thead> —— 跨頁欄名重複靠它`).not.toBeNull();
+      const rows = [...(head?.querySelectorAll(':scope > tr') ?? [])];
+      // 🔵 現在只剩欄名一列(抬頭那一列走了)。
+      expect(rows.length, `第 ${i + 1} 張表的 thead 應只剩欄名一列`).toBe(1);
+      // 🔵 **正對照:欄名真的在** —— 少了它,上面那個 `toBe(1)` 與「thead 空的」印同一個綠。
+      expect(
+        rows[0]?.querySelectorAll('th').length,
+        `第 ${i + 1} 張表的欄名列必須有欄`,
+      ).toBeGreaterThan(0);
+      // 🔴 反向:抬頭那一列不准回來(順手「補齊」的人會在這裡紅)。
+      expect(
+        t.querySelector(':scope > thead > tr.pd-contbar'),
+        `第 ${i + 1} 張表:續頁抬頭已由 Sean 拿掉 ⇒ 它必須不在`,
+      ).toBeNull();
     }
   });
 
@@ -1124,7 +1136,14 @@ describe('#10 片2b — 三區(Sean 2026-08-16 逐字:本次出貨 / 尚未出�
       withSummary(summary({ quantity: 9, cancelledQuantity: 1, shippedQuantity: 0 })),
     );
     const t = (await renderPage()).container.textContent ?? '';
-    expect(t).toContain('這個箱子裡屬於這張訂單的品項');
+    // ⛔ ~~`expect(t).toContain('這個箱子裡屬於這張訂單的品項');`~~
+    //    **2026-08-30 Sean 拿掉那一句**(逐字「我不要這些奇怪標語」)。
+    // 🔴 **只拿掉【本次出貨】那一區的** —— 另外兩區他【沒有點名】⇒ 那兩句仍然要在,
+    //    而下面兩行就是「沒有被順手一起清掉」的證人。
+    // ⚠️ **而本格的宣稱因此要收窄**:標題說「三區各自講出來」,而現在**只有兩區在講**
+    //    ⇒ 📌 「三個母體不同、不寫清楚會被加總」那個顧慮**在本次出貨那一區沒有解了**。
+    //       Sean 知道他在拿掉什麼(他的理由是「奇怪標語」)⇒ 這是他的板,不是遺漏。
+    expect(t).not.toContain('這個箱子裡屬於這張訂單的品項');
     expect(t).toContain('這張訂單還欠客人的東西(不含這一箱要寄的)');
     expect(t).toContain('這張訂單裡已經取消的品項,不會出貨');
   });

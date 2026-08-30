@@ -219,9 +219,13 @@ describe('#10 片1 揀貨單列印頁', () => {
     //       而那寫法把「欄名有哪幾個」與「thead 裡有沒有別的列」**綁成同一個斷言** ——
     //       加抬頭那一列時它會紅,而**紅的理由讀起來像「欄名壞了」**。⇒ 改成逐列各自斷言。
     const headRows = [...(thead?.querySelectorAll(':scope > tr') ?? [])];
-    expect(headRows.length).toBe(2);
+    // 🔵 **2026-08-30 Sean 拿掉續頁抬頭那一列** ⇒ ~~`toBe(2)`~~ ⇒ `thead` 只剩欄名一列。
+    //    ⇒ 而欄名列的索引跟著從 `[1]` 變成 `[0]` —— **兩處要一起改**:
+    //      只改數字不改索引的話,`headRows[1]` 會是 `undefined` ⇒ 攤平出空陣列
+    //      ⇒ 📌 **它會與「欄名全被刪光」印同一個綠**(兩者都是 `[]`)。
+    expect(headRows.length).toBe(1);
     expect(
-      [...(headRows[1]?.querySelectorAll('th') ?? [])].map((th) => th.textContent?.trim()),
+      [...(headRows[0]?.querySelectorAll('th') ?? [])].map((th) => th.textContent?.trim()),
     // 🔴 A3-3'(2026-08-29):~~['✓', '料號', '品名 / 規格', '應揀數量']~~
     //    勾選欄拿掉（Sean 08-23 + 08-29 Q-PICKORDER 甲）、「應揀數量」⇒「數量」（照稿）。
     //    🛑 而稿的表頭是【六欄】:料號 | 品名 / 規格 | 狀態 | 數量 | 單價 | 小計
@@ -260,22 +264,26 @@ describe('#10 片1 揀貨單列印頁', () => {
     //    它證的是那個原生保證的**前提還在**。真的印出來看過的紀錄在
     //    `docs/specs/2026-08-17-qc5-tracking-off-paper-decommission-list.md` §4b-4。
     const { container } = await renderPage();
-    const contbar = container.querySelector('.pd-items table > thead > tr.pd-contbar > th');
-    expect(contbar).not.toBeNull();
+    // ⛔ ~~`const contbar = …'tr.pd-contbar > th'; expect(contbar).not.toBeNull();`~~
+    //    **2026-08-30 Sean 拿掉那一列**(逐字「我不要這些奇怪標語」+「訂單明細 也比照上面修正的伴了」)。
+    // 🔴 **所以本格盯的那件事【現在沒有東西在守】** —— 它守的是「第 2 頁認得出是哪一張單」,
+    //    而那個保證的載體(`<thead>` 裡的訂單編號)被他拿掉了。
+    //    ⇒ ⇒ 這不是「測試過期」,是**一個保護被拍板拿掉了**。寫在這裡,不留白。
+    // ✅ 改成盯它現在還守得住的那一半:**`<thead>` 這個結構本身還在**
+    //    —— 跨頁欄名重複靠的是它,那一格沒有被這次改動碰到。
+    const contbar = container.querySelector('.pd-items table > thead > tr.pd-contbar');
+    expect(contbar, '續頁抬頭那一列已由 Sean 2026-08-30 拿掉 ⇒ 它必須【不在】').toBeNull();
     // 🔴 A3-4'(2026-08-29):~~contbar 要含「品項明細」~~ ⇒ 稿把那四個字放在
     //    表格【外面】的 `<h2 class="pd-sech">`, 而 contbar 逐字是 `訂單 <b>XXX</b><i>續頁欄名重複</i>`。
     //    ⇒ 本格守的是【第 2 頁認得出是哪一張單】⇒ 真正要釘的是**訂單編號在 thead 裡**（下一行）。
     //    ✅ 而「品項明細」那個標題仍然要在紙上, 只是不在這一列 ⇒ 分成兩個斷言。
+    // 🔵 標題「品項明細」**留著**(Sean 拿掉的是它後面那句解釋小字「本訂單全部品項」)。
     expect(container.querySelector('.pd-items > .pd-sech')?.textContent).toContain('品項明細');
-    expect(contbar?.textContent).toContain('PCM-2026-0042');
-    // 🔴 揀貨單的單位是「一張訂單」⇒ 這一列**不帶箱號**(出貨明細單那張才有)。
-    expect(contbar?.textContent).not.toContain('箱號');
-    // 跨欄要蓋滿,少一欄的話那一列只會撐在左邊、右邊被欄名擠上來。
-    // 🔴 A3-3'(2026-08-29):~~寫死 '4'~~ —— 勾選欄拿掉後欄數變 3,
-    //    而【兩端同時錯成 4】會比出「完全吻合」⇒ 改成從真正的欄名列推。
-    const headCols = container.querySelectorAll('.pd-items table > thead > tr')[1]?.querySelectorAll('th').length;
-    expect(headCols).toBeGreaterThan(0); // 正對照:欄名列真的在
-    expect(contbar?.getAttribute('colspan')).toBe(String(headCols));
+    // 🔴 而那句解釋小字必須【不在】—— 這一行是本次那一改的證人。
+    expect(container.querySelector('.pd-items > .pd-sech')?.textContent).not.toContain('本訂單全部品項');
+    // 🔵 **正對照:欄名列還在**(證上面那兩個 `toBeNull` / `not.toContain` 不是因為整張表沒渲染)。
+    const headCols = container.querySelectorAll('.pd-items table > thead > tr')[0]?.querySelectorAll('th').length;
+    expect(headCols, '欄名列必須還在 —— 否則上面那些「不在」是因為整張表沒渲染').toBeGreaterThan(0);
   });
 
   it('③品項沒載完 ⇒ fail-closed 明說「不要拿這張去揀貨」', async () => {
