@@ -63,6 +63,12 @@ import subprocess, re, io, os, sys
 WRITE_VERBS = ['add', 'rm', 'mv', 'commit', 'reset', 'restore', 'stash', 'checkout', 'switch',
                'apply', 'update-index', 'update-ref', 'clean', 'init', 'rebase', 'cherry-pick',
                'am', 'revert', 'pull']
+# 🔴🔴 **你如果正要在上面那一行後面加一個動詞, 先讀這三行**(2026-08-31 主視窗要求寫在這裡,
+#    不寫在表【上面】—— 今晚已量到兩次「寫對地方 ≠ 會被讀到」):
+#    你加的動詞會**同時**進 `_PYJS_CONCAT` 的第二條 alternative(`+ '<動詞>'`),
+#    🔴 **而那一條【沒有 `git` 錨】** ⇒ 任何 `x + '<你加的動詞>'` 都會命中, 不論它跟 git 有沒有關係。
+#    ⇒ 📌 **短又常見的英文字(`am` / `mv` / `pull` / `clean`)進來時, 誤報面是【整個 repo】。**
+#    ✅ 加完當場跑一次 `--self-check`, 並看下面那格 `'CONCAT 代價'` 的輸出。
 # merge 但排除唯讀 plumbing merge-base/merge-tree/merge-file(reviewer R2:`\b` 在 e 與 - 之間會誤中)
 WRITE_MERGE = r'merge(?!-)'
 # 🔴 `config` **不放進 WRITE_VERBS**, 因為它的唯讀形比寫入形常見(`--get` / `-l` / `--list`
@@ -100,11 +106,22 @@ _PYJS_LIST = re.compile(rf'''[\[(]\s*['"]git['"]\s*,[^\])]*?['"](?:{_PYJS_VERBS}
 _PYJS_NODE = re.compile(
     rf'''(?:execFile|execFileSync|spawn|spawnSync|execa)\s*\(\s*['"]git['"]\s*,\s*\[[^\]]*?['"](?:{_PYJS_VERBS})['"]''')
 # 動態拼接 'git ' + 'commit'(quantifier-hook 躲字面掃描的形;b4 R2-2:不再靠硬編名字,靠通則抓)
-# 🔴 **這裡內嵌【第二份】動詞表, 而它與上面的 `WRITE_VERBS` 不同步**(2026-08-31 code-reviewer 指出):
-#    它只有 8 個(缺 mv/stash/apply/pull/config…)。**本次刻意不同步**, 理由:
-#    ⚠️ code-reviewer 實跑 M5(把這一串清空)⇒ **self-check 仍全過** ⇒ **整串沒有任何世界在測它**
-#    ⇒ 動一個沒有量具在看的東西, 改對改錯都印同一個綠 ⇒ **先寫下來, 不要順手改。**
-_PYJS_CONCAT = re.compile(r'''['"]git\s*['"]\s*\+|\+\s*['"](?:commit|add|rm|reset|checkout|init|worktree|submodule)['"]''')
+# ✅ **2026-08-31:第二份動詞表已刪, 改引用 `WRITE_VERBS`**(主視窗拍【乙】)。
+#    ⛔ ~~原本這裡內嵌一份自己的 8 個動詞(commit|add|rm|reset|checkout|init|worktree|submodule)~~
+#    🔴 **而「為什麼要兩份」查不到答案**:那一行的來歷 `67f25ee8` 的 commit 訊息講的是
+#       「py/js 執行形跟 shell 相反」, **沒有一句在講為什麼動詞表要另外寫一份**
+#       ⇒ 📌 **它不是一個被權衡過的決定, 是一個沒有人回來對的重複。**
+#    ⚠️ **而我原本替它想的理由被自己的量測推翻了**:我以為「B 沒有 `git` 錨 ⇒ 加動詞會誤中英文字」,
+#       實測掃 1595 支 .py/.js/.ts/.mjs/.tsx ⇒ 8 個動詞命中 5 行、完整表也命中 **5 行**、
+#       新增誤報 **0 行**(負對照 `+ "zzznotaverb"` ⇒ 0)。**⇒ 不能拿一個被推翻的理由當理由。**
+# 🔴🔴 **`'config'` 要【單獨補進來】, 而這一格是實測逼出來的**:
+#    它不在 `WRITE_VERBS` 裡(它在 `WRITE_CONFIG`, 因為要用否定前瞻擋唯讀形)
+#    ⇒ 第一版寫 `WRITE_VERBS + WRITE_SUBACTION` 之後, `x + 'config'` ⇒ **False**
+#    ⇒ 📌 **同步之後, 今晚出事的那個動詞反而【不在】這一半裡** —— 而 self-check 全過。
+#    ✅ 拼接形沒有旗標可看(`+ 'config'` 後面接不到 `--get`)⇒ 這裡收全部, 不做唯讀排除。
+_CONCAT_VERBS = '|'.join(sorted(WRITE_VERBS + list(WRITE_SUBACTION) + ['config'],
+                                key=len, reverse=True))
+_PYJS_CONCAT = re.compile(rf'''['"]git\s*['"]\s*\+|\+\s*['"](?:{_CONCAT_VERBS})['"]''')
 # 🔴 exec-string 必須是【傳給 exec 函式的字串】,不是【當測資/訊息的字串】——
 #    否則本工具自己的 self-check 世界 `('git -C "$d" add -A', True)` 會誤中(那是測資不是執行)。
 #    exec sink:subprocess.run/Popen/call/check_*、os.system/popen、execSync/execFileSync、spawn* 等。
@@ -342,6 +359,9 @@ def self_check():
         "execFileSync('git', ['status'])",           # 同形【唯讀】⇒ 不得誤收
         'log("see git commit history")',             # 散文裡的 git ⇒ 不得誤收
         "CMD = GITBIN + 'commit'",                   # `_PYJS_CONCAT` 第二條 alternative 的唯一證人
+        "note = prefix + 'am'",                      # 🔴 同步的【代價】—— 見那一格的註解
+        "cmd = base + 'config'",                     # 同步時最容易掉的那個(它不在 WRITE_VERBS 裡)
+        "cmd = base + 'worktree'",                   # 來自 WRITE_SUBACTION 那半
     ]
     for frag, sh, exp in worlds:
         got = calls_git_write(frag, sh)
@@ -363,6 +383,19 @@ def self_check():
         #    ✅ 這一格刻意**沒有 `git` 字面** ⇒ 第一條不可能中 ⇒ **只有第二條接得住它。**
         #    📌 **⇒ 一個 `A|B` 的正則, 它的每一條都要有一個【只有它會中】的世界。**
         ("CMD = GITBIN + 'commit'",                        True),   # 只有第二條 alternative 接得住
+        # 🔴🔴 **這一格【不是】我們想要的行為 —— 它在這裡是為了讓「同步的代價」變成【會跑的東西】。**
+        #    `am` 是 `WRITE_VERBS` 裡最短最常見的那個, 而第二條 alternative 沒有 `git` 錨
+        #    ⇒ 一句普通的 `note = prefix + 'am'` 會被判成「呼叫 git 寫入」。
+        #    📌 **⇒ 主視窗要求「代價能寫成測試就不要寫成註解」, 而【誤報面本身守不住】**
+        #      (它是設計上的後果, 不是 bug)⇒ **能做的是讓它每次跑都印出來, 而不是躺在註解裡。**
+        #    ⚠️ **有人哪天把第二條收窄回去 ⇒ 這一格會紅** ⇒ 那時請【重讀上面 WRITE_VERBS 那段警語】
+        #       再決定, 不要直接把這一格改掉。
+        ("note = prefix + 'am'",                           True),   # CONCAT 代價(刻意的假陽性)
+        # 🔴 這兩格各自守一個【同步時最容易掉的東西】(2026-08-31 實測逼出來的):
+        #    `config` —— 它不在 `WRITE_VERBS` 裡 ⇒ 第一版同步之後它【掉了】而 self-check 全過
+        #    `worktree` —— 它來自 `WRITE_SUBACTION` ⇒ 少加那半的突變(M18)當時【殺不掉】
+        ("cmd = base + 'config'",                          True),   # 今晚出事的那個動詞
+        ("cmd = base + 'worktree'",                        True),   # 來自 WRITE_SUBACTION 那半
         ("GC = 'git ' + 'status'",                         True),   # 🔴 拼接【刻意不分動詞】:動態建命令看不到動詞 ⇒ 一律收(安全方向,code-reviewer R3)
         ("subprocess.check_call(('git','commit','-m','x'))", True),  # 🔴 b4 R3-1:Python tuple 形(對 subprocess 等價 list)
         ("execFileSync('git', ['add', '-A'])",             True),   # 🔴 b4 R3-2:Node 分離參數形(叫 git 最標準、不經 shell)
@@ -384,10 +417,10 @@ def self_check():
     #    ⚠️ 這裡寫死 `>= 6` / `>= 4` 是刻意的:**答案卷【只增不減】** ——
     #    新增承重的格子時把數字一起加大;而**要減的時候它會擋你一次, 逼你說明為什麼。**
     #    (與 `EXPECT_RAN` 那種「綁回資料」的做法【相反】, 因為這一份【就是】那個獨立來源。)
-    if len(REQUIRED_SHELL) < 6 or len(REQUIRED_PYJS) < 5:
+    if len(REQUIRED_SHELL) < 6 or len(REQUIRED_PYJS) < 8:
         ok = False
         print(f"  🔴 答案卷被縮小了(shell {len(REQUIRED_SHELL)} 期望 >=6 / "
-              f"py-js {len(REQUIRED_PYJS)} 期望 >=5)⇒ 這一發的綠不算數")
+              f"py-js {len(REQUIRED_PYJS)} 期望 >=8)⇒ 這一發的綠不算數")
     for name, req, have in (('shell', REQUIRED_SHELL, [w[0] for w in worlds]),
                             ('py/js', REQUIRED_PYJS, [w[0] for w in pyjs_worlds])):
         missing = [f for f in req if f not in have]
