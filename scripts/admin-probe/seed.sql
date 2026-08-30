@@ -241,3 +241,43 @@ SELECT gen_random_uuid(), o.id, 'bank_transfer', 1, now(),
  ORDER BY o.created_at
  LIMIT 1
 ON CONFLICT DO NOTHING;
+
+-- ── 一張【哨兵訂單】ZZQPRB + 它的哨兵收款(2026-08-31 `-08` 種;主視窗批「丙」)───────────
+-- 🔴 **這張單存在的理由, 只有一個**:讓那條預設隱藏述詞的【第二項與第三項分得開】。
+--    述詞(`SupabaseOrderAdapter.test.ts:409` 逐字)是 OR:
+--      payment_channel.neq.tappay , payment_status.neq.unpaid , and(paid_total.neq.0 , cancelled_at.is.null)
+--    ⇒ 一張單只有在【tappay 且 unpaid 且(paid_total=0 或已取消)】三件同時成立時才會被藏。
+--    而在種它之前, 這台鑽機上唯一 `paid_total > 0` 的單是 `PCM-2026-1002`,
+--    **它的 payment_status 是 paid** ⇒ **第二項就已經讓它顯示** ⇒ 第三項有沒有生效【分不出來】。
+--
+-- 🛑 **而【不能】改 `PCM-2026-1001` 來湊**(主視窗裁「乙」⇒ 我提丙 ⇒ 批丙):
+--    那張單是這台鑽機上**唯一一個「被正確地藏起來」的樣本**。
+--    📌 **一個「東西被正確地藏起來」的樣本, 天生比「東西正確地顯示」的樣本難取得** ——
+--       **因為前者要三個條件同時成立, 而後者只要一個。**
+--    ⇒ **⇒ 在鑽機上, 負向樣本要當【消耗品】管理, 不能順手改掉。**
+--
+-- ✅ **種完之後那組對照長這樣**(只差 `paid_total` 一項, 其餘完全相同):
+--      PCM-2026-1001  tappay / unpaid / paid_total 0  ⇒ 述詞判【藏】· 真畫面【沒出現】
+--      ZZQPRB         tappay / unpaid / paid_total 1  ⇒ 述詞判【顯示】· 真畫面【出現】
+--    ⇒ 🔴 **變因只有一個 ⇒ 那一項【真的在生效】。**
+--
+-- ✅ **分母寫成兩個數, 不要合成一個**(主視窗指定):
+--      哨兵收款 = **2 筆**(`bank_reference like 'ZZQ-PROBE-SEED%'`)
+--      哨兵訂單 = **1 張**(`display_id = 'ZZQPRB'`)
+-- ⚠️ **而 `/orders` 預設清單因此從 7 張變 8 張** ——
+--    任何引用「預設清單 N 張」的量測**要帶日期**, 否則下一個人會以為它退步了。
+INSERT INTO public.orders (id, display_id, customer_user_id, shipping_address_snapshot, tier_at_checkout,
+                           subtotal, shipping_fee, total, shipping_method, invoice, shipping_method_at_checkout,
+                           payment_channel, payment_status, fulfillment_status, created_at, updated_at)
+SELECT gen_random_uuid(), 'ZZQPRB', o.customer_user_id, o.shipping_address_snapshot, o.tier_at_checkout,
+       1, 0, 1, o.shipping_method, o.invoice, o.shipping_method_at_checkout,
+       'tappay', 'unpaid', o.fulfillment_status, now(), now()
+  FROM public.orders o WHERE o.display_id = 'PCM-2026-1001'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO public.order_payments (id, order_id, rail, amount, received_at, bank_reference, request_id, actor, note)
+SELECT gen_random_uuid(), o.id, 'bank_transfer', 1, now(),
+       'ZZQ-PROBE-SEED-20260831-B', gen_random_uuid(), 'probe_staff',
+       '探針種子(ZZQ-PROBE-SEED)—— 為了讓述詞的第二項與第三項分得開'
+  FROM public.orders o WHERE o.display_id = 'ZZQPRB'
+ON CONFLICT DO NOTHING;
