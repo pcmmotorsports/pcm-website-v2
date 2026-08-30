@@ -17,7 +17,7 @@ OLD="$REPO/supabase/migrations/20260824011000_m4b_866_manual_refund_rail_cap_enf
 NEW="$REPO/supabase/migrations/20260831010000_m4b_866_manual_refund_raise_plaintext.sql"
 D=/tmp/pcm03stars-probe
 PORT=5601
-EXPECT_SLOTS='pre-denom apply stars-gone del-blocked no-stars hint-kept pos-ctl rerun-gate mut-fp1 mut-stars mut-errcode mut-hint mut-hint2 mut-secdef mut-trg'
+EXPECT_SLOTS='pre-denom apply stars-gone del-blocked no-stars hint-kept pos-ctl rerun-gate mut-fp7 mut-stars mut-errcode mut-hint mut-hint2 mut-secdef mut-trg'
 
 for c in initdb pg_ctl psql python3; do
   command -v "$c" >/dev/null || { echo "🔴 缺 $c ⇒ ENV-FAIL(不是紅)"; exit 2; }
@@ -149,10 +149,11 @@ fi
 
 echo
 echo "── ③ 突變:六道斷言【逐一】演一次 ──"
-# 🔴 為什麼要這麼麻煩:後置① 是指紋 ⇒ **任何本體改動都先撞到它** ⇒ ②③④ 在本體突變下【永遠不會開火】。
-#    📌 那正是我整晚在做的那件事的鏡像:一道【被前面那道遮住】的斷言, 它是綠的而它從來沒有被執行過。
-#    ✅ 所以 ②③④ 的突變要**兩段**:改本體 + 把預期指紋一起改對 ——
-#       那正是【未來某人合法地改了本體、順手更新指紋】的那個世界。**②③④ 就是為那個世界留的。**
+# 🔴 這一段原本要「兩段突變」(改本體 + 把預期指紋一起改對), 因為指紋是第①道 ⇒ 遮住 ②③④。
+# ✅ **2026-08-31 指紋搬到最後(第⑦道)⇒ 遮罩消失 ⇒ 每一道都能【單獨】被突變殺死。**
+#    📌 而那一步不是我想出來的, 是掃完 239 支 migration 之後發現的:
+#       **既有那四支全部把整段來源的指紋放最後 —— 我是唯一放第一道的那個。**
+#    🔵 `REFP=yes` 那條路留著沒刪:它仍然是【合法改本體 + 順手更新指紋】那個世界的演法。
 NORMSQL="select md5(regexp_replace(regexp_replace(prosrc, '--[^\n]*', '', 'g'), '\s+', ' ', 'g')) from pg_proc where oid='public.pcm_manual_refund_rail_cap_guard()'::regprocedure"
 
 # 用法:mut <名字> <python 對 migration 文字的編輯> <要開火的斷言標記> <refp: yes|no>
@@ -194,17 +195,17 @@ PYEOF
 }
 
 # ① 指紋:拿掉 OLD.order_id = NEW.order_id(codex must-fix 5 逐字舉的那個突變 —— 跨單假餘裕會復活)
-mut fp1 "a=\"IF TG_OP = 'UPDATE' AND OLD.voided_at IS NULL AND OLD.order_id = NEW.order_id THEN\"; assert s.count(a)==1; s=s.replace(a, a.replace(' AND OLD.order_id = NEW.order_id',''))" "後置①" no
+mut fp7 "a=\"IF TG_OP = 'UPDATE' AND OLD.voided_at IS NULL AND OLD.order_id = NEW.order_id THEN\"; assert s.count(a)==1; s=s.replace(a, a.replace(' AND OLD.order_id = NEW.order_id',''))" "後置⑦" no
 # ② 星號:把一顆星星塞回訊息(必須連指紋一起改, 否則 ① 先開火)
-mut stars "a=\"這是「系統算不出上限」\"; assert s.count(a)==1; s=s.replace(a,\"這是**系統算不出上限**\")" "後置②" yes
+mut stars "a=\"這是「系統算不出上限」\"; assert s.count(a)==1; s=s.replace(a,\"這是**系統算不出上限**\")" "後置②" no
 # ③ USING ERRCODE:把 PCM02 那個碼改掉
-mut errcode "assert s.count(chr(34)) >= 0; i=s.index('DO \$post\$'); s=s[:i].replace(\"ERRCODE = 'PCM02'\",\"ERRCODE = 'PCM99'\",1)+s[i:]" "後置③" yes
+mut errcode "assert s.count(chr(34)) >= 0; i=s.index('DO \$post\$'); s=s[:i].replace(\"ERRCODE = 'PCM02'\",\"ERRCODE = 'PCM99'\",1)+s[i:]" "後置③" no
 # ④ 指示:拿掉「要取消請用作廢」
-mut hint "i=s.index(chr(39)+'人工退款登記'); s=s[:i]+s[i:].replace('要取消請用「作廢」','要取消請走另一個流程',1)" "後置④" yes
+mut hint "i=s.index(chr(39)+'人工退款登記'); s=s[:i]+s[i:].replace('要取消請用「作廢」','要取消請走另一個流程',1)" "後置④" no
 # ⑤ SECURITY DEFINER:改成 INVOKER
-mut secdef "i=s.index('DO \$post\$'); s=s[:i].replace('SECURITY DEFINER','SECURITY INVOKER',1)+s[i:]" "後置⑤" yes
+mut secdef "i=s.index('DO \$post\$'); s=s[:i].replace('SECURITY DEFINER','SECURITY INVOKER',1)+s[i:]" "後置⑤" no
 # ④b PCM02 的指示:拿掉「請找工程確認」(codex must-fix 6 點名 ④b 沒有突變 —— 補上)
-mut hint2 "a=\"這是「系統算不出上限」,請找工程確認。\"; assert s.count(a)==1; s=s.replace(a,\"這是「系統算不出上限」,請自行處理。\")" "後置④b" yes
+mut hint2 "a=\"這是「系統算不出上限」,請找工程確認。\"; assert s.count(a)==1; s=s.replace(a,\"這是「系統算不出上限」,請自行處理。\")" "後置④b" no
 # ⑥ trigger:動詞集合改窄成只有 INSERT(插在後置斷言【之前】)
 mut trg "s=s.replace('DO \$post\$', 'DROP TRIGGER IF EXISTS trg_pcm_manual_refund_rail_cap ON public.order_manual_refunds;\nCREATE TRIGGER trg_pcm_manual_refund_rail_cap BEFORE INSERT ON public.order_manual_refunds FOR EACH ROW EXECUTE FUNCTION public.pcm_manual_refund_rail_cap_guard();\nDO \$post\$', 1)" "後置⑥" no
 
