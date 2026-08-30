@@ -188,6 +188,38 @@ for f in "$REPO"/supabase/migrations/*.sql; do
 done
 echo "migration ok=$ok fail=$fail  (判準不是全綠,是你要用的表在不在;失敗清單 grep '^FAIL' $S/apply.log)"
 
+# ── ③-b 把【人手寫的前置閘訊息】印到人正在看的那個畫面上 ────────────────────
+# 🔴 成因是量到的(2026-08-30):`20260729010000`(D0)在本鑽機 apply 失敗 ⇒ 那條
+#    `orders_display_id_format` CHECK 停在舊版 ⇒ 後來每一筆手動建單都死 `sqlstate 23514`。
+#    而**答案在起站當下就印在 `apply.log` 裡了** —— `20260730120100:84` 逐字:
+#    「…否則本片 apply 會全綠、但第一筆真結帳會死在 check_violation」。
+#    ⇒ 📌 **寫那道閘的人把後來要花一小時找到的東西寫成一句話, 而沒有人讀那個 log。**
+#    ⇒ 🔴 **這不是「忘了讀」能修的 —— 上面那行已經寫著「grep '^FAIL' $S/apply.log」,**
+#       **而它照樣沒有被走過。一條【要你自己再打一個指令】的路, 等於沒有路。**
+#
+# 為什麼只挑含中文的那些:generic 的(`relation "cron.job" does not exist`)是本機沒有
+# pg_cron 造成的**預期失敗**、runbook §3 已寫;含中文的是**人手寫的前置閘**,
+# 它們的作者是刻意在預告「apply 全綠但之後某件事會壞」—— 那才是會咬人的那一種。
+# ⚠️ 分類法就是「這一行有沒有 CJK」, 不是語意判斷 ⇒ **一道用英文寫的手寫閘會被漏掉**(已知盲區)。
+if [ "$fail" -gt 0 ]; then
+  GATES=$(grep -E '^psql:.*ERROR:' "$S/apply.log" 2>/dev/null | grep -E '[一-龥]' || true)
+  NGATE=$(printf '%s\n' "$GATES" | grep -c . || true)
+  if [ "$NGATE" -gt 0 ]; then
+    echo "  🔴 其中 $NGATE 支是【人手寫的前置閘】—— 它們在預告「現在全綠、但之後某件事會壞」:"
+    printf '%s\n' "$GATES" | while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      x=${line#psql:}; f=${x%%:*}; where=${x#*:}; where=${where%%:*}
+      rest=${line#*: ERROR:  }
+      echo "     · $(basename "$f"):$where"
+      echo "       $rest"
+    done
+    echo "  ⇒ 全文 grep 'ERROR:' $S/apply.log"
+  else
+    echo "  ✅ $fail 支失敗裡【沒有】人手寫的前置閘(都是本機缺 pg_cron 那類預期失敗)"
+    echo "     ⚠️ 這一行的分類法是「該行有沒有中文」⇒ 英文寫的手寫閘會被算進上面那個「預期」"
+  fi
+fi
+
 # ── ④ service_role 兩道(平台平常幫你做,本機沒有)──────────────────────────
 # 🔴 少了 BYPASSRLS ⇒ RLS 把結果濾成 0 列,而 **HTTP 仍是 200** ⇒
 #    「200 + 0 列」與「真的沒有資料」長得一模一樣。
