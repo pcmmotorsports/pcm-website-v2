@@ -14,6 +14,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { AdminOrderDetail } from '@pcm/domain';
 
+import { stripComments } from '@/lib/test-support/strip-comments';
+
 import { QTY_MISSING_NOTE } from '@/components/orders/order-focal-row';
 
 // M-3 A7c RW2d:**頁層接線**測試(procurement-wiring.test.tsx 同型)。
@@ -472,7 +474,11 @@ describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
   });
 
   /** admin src 全樹走訪:回傳「內容命中 predicate」的非測試 .ts/.tsx 相對路徑。 */
-  function scanSources(predicate: (content: string) => boolean): string[] {
+  // 🔴 predicate 多收一個 `file`(2026-08-31)—— parser 版剝註解要靠副檔名決定 ScriptKind,
+  //    而 `<Foo>` 在 TS 與 TSX 下語意相反。其餘呼叫端可以照舊只用第一個參數。
+  function scanSources(
+    predicate: (content: string, file: string) => boolean,
+  ): string[] {
     const root = join(__dirname, '../../..');
     const hits: string[] = [];
     const walk = (dir: string) => {
@@ -483,7 +489,7 @@ describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
         } else if (
           /\.(ts|tsx)$/.test(name) &&
           !/\.test\.(ts|tsx)$/.test(name) &&
-          predicate(readFileSync(full, 'utf8'))
+          predicate(readFileSync(full, 'utf8'), full)
         ) {
           hits.push(full.slice(root.length + 1));
         }
@@ -499,9 +505,14 @@ describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
   it('🔴 RW3 措辭 oracle(F25 全域面):「還能退/剩餘可退」剝註解後只准出現在 refund-section(TapPay 端語意的 UI 字串);帳本數字被任何檔標成可退額,這格就紅', () => {
     // 先剝註解(app-sidebar.test.ts stripComments 同款理由):規則註解本身會引用禁語,
     // oracle 管的是**會渲染/會入庫的字串面**,不是講規則的字。
-    const strip = (s: string) =>
-      s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(?<!:)\/\/[^\n]*/g, '');
-    const hits = scanSources((content) => /還能退|剩餘可退/.test(strip(content)));
+    // 🔴 **2026-08-31:剝註解從 regex 換成 parser**(`scripts/strip-comments.ts`)。
+    //    ⛔ ~~`s.replace(/\/\*[\s\S]*?\*\//g, '')`~~ —— 供給源是「`*/` 這兩個字元」不是「註解」
+    //    ⇒ 一個行註解裡的 `*/` 就能開假區塊,把中間的真程式碼從掃描裡拿掉(而 guard 全綠)。
+    //    ⚠️ 舊版那個 `(?<!:)` 是為了不把 `https://` 當行註解 —— parser 天生就答對,不必再繞。
+    // 🛑 **只換剝法,沒換它在找什麼**:仍然是「剝完之後有沒有出現那兩個禁語」。
+    const hits = scanSources((content, file) =>
+      /還能退|剩餘可退/.test(stripComments(content, file)),
+    );
     expect(hits).toEqual([
       // 唯一合法命中:退款表單的 TapPay 端字面(「全額退款以 TapPay 端剩餘可退額為準」等,
       // 語意=TapPay 剩餘額,正確用法;opus R1 對抗面清空紀錄)。

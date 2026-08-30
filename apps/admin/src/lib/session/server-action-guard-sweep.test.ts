@@ -2,6 +2,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+import { stripComments } from '../test-support/strip-comments';
+
 // server-action-guard-sweep.test.ts —— 掃描式守門:**新增一支沒有守門的 server action 時,這裡要紅。**
 //
 // 🔴 為什麼是掃描而不是逐支功能測試(本片存在的理由):
@@ -86,12 +88,14 @@ function serverActionFiles(dir: string, acc: string[] = []): string[] {
  *   實作方式與 `hasUseServerDirective()` 不同(它是逐字元跳過,這支是先剝再比)
  *   ⇒ **兩支同時錯成一樣的機率,比兩支都對的機率低。**
  */
-function hasDirectiveByStripping(src: string): boolean {
-  const stripped = src
-    .replace(/^\ufeff/, '')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^[ \t]*\/\/.*$/gm, '')
-    .trim();
+function hasDirectiveByStripping(src: string, fileName: string): boolean {
+  // 🔴 **2026-08-31:剝註解從 regex 換成 parser**(`scripts/strip-comments.ts`)。
+  //    ⛔ ~~`.replace(/\/\*[\s\S]*?\*\//g, '')`~~ —— 它的供給源是「`*/` 這兩個字元」
+  //    而不是「註解」⇒ 一個 `// dev-preview/*` 的**行註解**就能開一個假區塊,
+  //    直到下一個 `*/` 才收尾 ⇒ 中間的真程式碼**安靜地從掃描裡消失**,而 guard 照樣全綠。
+  //    (`-08` 2026-08-30 在 storefront 那支 guard 上 live 量到:206 行 / 27 支檔。)
+  // ⚠️ **這裡【只換剝法,沒有換它在找什麼】** —— 仍然是「剝完之後開頭是不是 'use server'」。
+  const stripped = stripComments(src.replace(/^\ufeff/, ''), fileName).trim();
   return /^['"]use server['"]/.test(stripped);
 }
 
@@ -100,7 +104,7 @@ function byStripping(dir: string, acc: string[] = []): string[] {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) byStripping(full, acc);
     else if (/\.tsx?$/.test(e.name) && !e.name.includes('.test.')) {
-      if (hasDirectiveByStripping(readFileSync(full, 'utf8'))) acc.push(full);
+      if (hasDirectiveByStripping(readFileSync(full, 'utf8'), full)) acc.push(full);
     }
   }
   return acc;

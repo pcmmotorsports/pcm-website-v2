@@ -372,15 +372,18 @@ describe('#20 片1a — 讀取層守門', () => {
   //    有人哪天把 `strip-comments.ts:13` 補完(例如讓 `(?<!:)` 也擋 `//cdn`),
   //    會看到紅並讀成「我造成回歸」。改用 `it.fails`:**行為修好時這格自己會紅**,
   //    而紅的訊息會把人帶到這段字,他就知道**該做的事是刪掉這格**、不是回退他的修好。
-  it.fails('已知上限①:protocol-relative URL 被當行註解吃掉(修好了就刪這格)', () => {
-    expect(stripComments("const u = '//cdn/x/price_store';")).toContain('price_store');
-  });
-
-  it.fails('已知上限②:字串內的 /* … */ 會把中間真程式碼吃掉(修好了就刪這格)', () => {
-    expect(
-      stripComments("const a = '/*'; const b = row.price_store; const c = '*/';"),
-    ).toContain('price_store');
-  });
+  // ⛔ ~~`it.fails('已知上限①:protocol-relative URL 被當行註解吃掉(修好了就刪這格)')`~~
+  // ⛔ ~~`it.fails('已知上限②:字串內的 /* … */ 會把中間真程式碼吃掉(修好了就刪這格)')`~~
+  //
+  // ✅ **2026-08-31 兩格都刪掉了 —— 因為它們自己叫了。**
+  //    `stripComments` 換成 TypeScript parser 版之後,那兩個缺陷不存在了 ⇒
+  //    `it.fails`【預期失敗而它成功】⇒ **測試變紅** ⇒ 照標題自己的指示刪。
+  // 📌 **⇒ 寫那兩格的人留了一個【會自己出聲】的退場標記,而它今天出聲了。**
+  //    註解不會知道自己過期了,而 `it.fails` 會。**這個手法值得抄。**
+  //
+  // 🛑 **而刪之前先把覆蓋接走了**(`-48` 2026-08-31 的放行條件):
+  //    那兩個形狀現在住在 `lib/test-support/strip-comments.test.ts` 的
+  //    「接走①/接走②」兩格。✅ 已驗:把那支模組換回舊 regex 版(突變)⇒ 那兩格會紅。
 });
 
 describe('#20 片1a — 取值落點的行為', () => {

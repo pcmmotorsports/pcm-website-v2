@@ -877,6 +877,16 @@ describe('GET email-sweep — 🔴 cutoff 同時控【排信】與【寄信】(�
   describe('🔵 skipped_no_cutoff 要在 log 上看得見(而仍然是 200)', () => {
     // 本 describe 自己的已上膛值(外層那個 CUTOFF 不在這個 scope 裡)。
     const ARMED = '2026-08-19T03:14:00.000Z';
+
+    // 🔴 **code-reviewer 2026-08-31 F6**:外層 afterEach 只清 `SHIPPED_EMAIL_CUTOFF`,
+    //   而 `:409` / `:675` 兩個姊妹 describe 的 afterEach **都有**清 `B4_DEPLOY_CUTOFF` ——
+    //   只有本 describe 沒有。**今天無害**(它是全檔最後一個, 最後一格剛好 delete),
+    //   而**無害的理由是【位置】, 不是【設計】** ⇒ 有人在後面追加一個 describe、
+    //   或開 `sequence.shuffle` ⇒ 它會安靜地綠。⇒ 補上, 不靠位置。
+    afterEach(() => {
+      delete process.env.B4_DEPLOY_CUTOFF;
+      delete process.env.SHIPPED_EMAIL_CUTOFF;
+    });
     it('🔴 正對照:兩顆 cutoff 都沒設 ⇒ console.info 印出兩顆的名字,而回應仍是 200', async () => {
       delete process.env.B4_DEPLOY_CUTOFF;
       delete process.env.SHIPPED_EMAIL_CUTOFF;
@@ -918,6 +928,16 @@ describe('GET email-sweep — 🔴 cutoff 同時控【排信】與【寄信】(�
       expect(logged).toContain('SHIPPED_EMAIL_CUTOFF 未設或空');
       // 🔴 已上膛的那一顆【不得】被寫成「未設或空」—— 否則兩顆狀態會被印成同一句
       expect(logged).not.toContain('B4_DEPLOY_CUTOFF 未設或空');
+      // 🔴🔴 **code-reviewer 2026-08-31 F2(它用推的, 我實跑證實)**:把兩個 key 的
+      //   【值】對調 ⇒ **69 格全綠**。成因:五格用 `JSON.stringify(mock.calls)` 比對
+      //   ⇒ **key↔value 的綁定被攤平**;而白名單那格只比 key 的【集合】與 value 的【集合】,
+      //   兩個集合對調之後**完全一樣**。
+      //   ⇒ 📌 **一個「釘住完整形狀」的白名單, 仍然可以不釘【哪個值配哪個 key】。**
+      //   ⇒ 失敗情境:凌晨看 log 的人讀到「B-5 沒設」, 而實際沒設的是出貨那顆。
+      //   ✅ 修法 = 直接斷言【映射】, 不經過字串攤平。
+      const payloadA = (infoSpy.mock.calls[0] as [string, Record<string, unknown>])[1];
+      expect(payloadA['shippedCutoff']).toBe('SHIPPED_EMAIL_CUTOFF 未設或空');
+      expect(payloadA['b5DeployCutoff']).not.toBe('SHIPPED_EMAIL_CUTOFF 未設或空');
       // 🔴🔴 **codex R2 must-fix**:B-5 那顆的【值】也不得出現。
       //   為什麼釘在這一格 —— 這是唯一同時滿足兩件事的世界:**B-5 是上膛的(所以它的值存在)**
       //   **而那一行確實會印(因為出貨沒上膛)**。零 PII 那兩格都少了其中一半:
@@ -964,7 +984,9 @@ describe('GET email-sweep — 🔴 cutoff 同時控【排信】與【寄信】(�
       const ALLOWED_VALUES = [
         'B4_DEPLOY_CUTOFF 未設或空',
         'SHIPPED_EMAIL_CUTOFF 未設或空',
-        'skipped_no_cutoff',
+        // 🔴 **F8**:~~`'skipped_no_cutoff'`~~ **已移除** —— 它在 payload 裡【不可達】
+        //   (三元運算已經把那個狀態換成 env 名那句)⇒ 收著它只會讓這道閘寬一格。
+        //   📌 **一個白名單多收一個到不了的值, 不會紅, 而它讓閘變寬。**
         'skipped_bad_cutoff',
         'completed',
         'failed',

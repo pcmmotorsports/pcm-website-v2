@@ -107,9 +107,22 @@ describe('GET capture-recheck — 心跳三態(⟦b4-CRON6⟧ 片1)', () => {
     expect(hbOkSpy).not.toHaveBeenCalled();
   });
 
-  it("🔴🔴 cutoff 沒設(no-op 200 + enabled:false)⇒ **兩支心跳都不得被呼叫**", async () => {
+  it("🔴🔴 cutoff 沒設 ⇒ 兩支心跳都不得被呼叫 —— **這一格是「這支排程還沒上膛」唯一看得見的地方;改我之前, 你要知道你在關掉什麼**", async () => {
     // 這一格是本檔存在的主要理由:它與 settle-sweep 的 no-op 是**兩個不同機制**、印一樣的形狀。
     // 寫成成功 ⇒ 沒設 cutoff 的期間心跳恆綠;寫成失敗 ⇒ 告警天天叫。兩個都不對。
+    //
+    // 🔴🔴 **[2026-08-31 線【出貨】加註 —— 標題那句話是我加的, 理由在這裡]**
+    //   **這一格是「`CAPTURE_RECHECK_CUTOFF_DAYS` 還沒設」在【線上】唯一看得見的訊號的守門。**
+    //   機制:跳過那條路**不寫心跳** ⇒ 後台儀表板的 staleness 判準會在門檻之後把它標成過期
+    //   ⇒ **⇒ 那就是「這支排程沒上膛」今天唯一的外部訊號**(本檔全檔 `console.*` = **0**,
+    //      而它回 200 ⇒ log 上與「一切正常」印同一個畫面)。
+    //   🔴 **⇒ 所以一個為了「讓儀表板不要紅」而在跳過路徑補一發心跳的人, 會把那個訊號整個關掉** ——
+    //      而那個改動在 diff 上看起來是改善。**這一格就是攔它的地方, 而它會紅。**
+    //   ✅ **實證**:2026-08-31 真的跑過那一發突變(在跳過路徑補 `recordHeartbeatSuccess`)
+    //      ⇒ **本格當場紅**(1 failed / 8 passed)⇒ 還原後工作樹乾淨。
+    //   📌 **⇒ 改這一格之前, 先答一句:那個訊號要換到哪裡去?**
+    //      答不出來 ⇒ 你不是在改一格測試, 你是在把一支排程變回靜音。
+    //   🔗 脈絡與 plan:板上錨 `⟦b9-CAPARM1⟧` · `~/pcm-mailbox/plan-讓沒上膛的排程出聲-CAPARM1-20260831.md`
     delete process.env.CAPTURE_RECHECK_CUTOFF_DAYS;
     const res = await GET(req(bearer()));
     expect(res.status).toBe(200);
