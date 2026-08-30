@@ -28,6 +28,10 @@ const ZERO: AnomalyAlertSummary = {
   emailStuckSendingCount: 0,
   emailQuotaConfirmedCount: 0,
   emailQuotaSuspectedCount: 0,
+  // 🔴 預設 fixture 給【非 0】—— 若給 0, 每一格既有測試都會意外落進「五格全 0 且分母 0」
+  //   那條新路 ⇒ 一片本來與本片無關的測試會開始紅, 而紅的理由與它們要測的事無關。
+  //   📌 而更糟的是反過來:給 0 而那條路【沒接上】時, 沒有任何一格會發現。
+  emailOutboxTotalCount: 12,
   emailOutboxUnknown: false,
   openDisplayIds: [],
   refundingStuckDisplayIds: [],
@@ -978,6 +982,76 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
     expect(notifier.notify).not.toHaveBeenCalled();
   });
 
+  // ══ 🔵🔵 分母那一格(2026-08-31;Sean 逐字答 `3 甲`;板上錨 ⟦b4-EMAILTOTAL⟧)══
+  //   五個 count 全部 `FROM public.email_outbox` ⇒ 只數【已經存在的列】
+  //   ⇒ 「一切正常」與「這張表是空的 / 讀不到資料」印同一組 0。
+  //   🔴 而【只把分母接進來、不改告警閘】是不夠的:閘是「任一 > 0 才叫」
+  //     ⇒ 五格全 0 ⇒ 一封信都不會發 ⇒ **那個分母在它要防的世界裡沒有人看得到。**
+  it('[E3a] 🔴🔴 五格全 0 【而且】分母也 0 ⇒ 要叫,而訊息不得猜是哪一種', async () => {
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    const res = await checkAnomalyAlerts({
+      reader: { getAlertSummary: async () => withEmail({ emailOutboxTotalCount: 0 }) },
+      notifiers: [notifier],
+    }, OPTS);
+    expect(res.alerted).toBe(true);
+    const body = (notifier.notify.mock.calls[0]![0] as { text: string }).text;
+    expect(body).toContain('一列都沒有');
+    // 🔴 文案刻意寫兩種可能 —— 這一格底下【分不出來】是空表還是讀不到,
+    //   而寫死其中一個會把人送去修錯的東西。
+    expect(body).toContain('可能是這張表是空的');
+    expect(body).toContain('也可能是讀不到資料');
+  });
+
+  it('[E3b] 🔴 負對照一:五格全 0 而【分母 > 0】⇒ 不叫(那是真的一切正常)', async () => {
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    const res = await checkAnomalyAlerts({
+      reader: { getAlertSummary: async () => withEmail({ emailOutboxTotalCount: 12 }) },
+      notifiers: [notifier],
+    }, OPTS);
+    // 🔴 沒有這一格,一個【把分母恆判成 0】的實作會天天叫,而上面那一格照樣綠。
+    expect(res.alerted).toBe(false);
+    expect(notifier.notify).not.toHaveBeenCalled();
+  });
+
+  it('[E3c] 🔴 負對照二:有一格 > 0 而分母 > 0 ⇒ 照舊叫,而訊息【不得】出現那一句', async () => {
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    await checkAnomalyAlerts({
+      reader: {
+        getAlertSummary: async () =>
+          withEmail({ emailDeadLetterCount: 3, emailOutboxTotalCount: 12 }),
+      },
+      notifiers: [notifier],
+    }, OPTS);
+    const body = (notifier.notify.mock.calls[0]![0] as { text: string }).text;
+    expect(body).toContain('永遠不會再寄');
+    // 🔴 那一句只屬於【什麼都沒有】那個世界;混進來會讓人以為表也空了。
+    expect(body).not.toContain('一列都沒有');
+  });
+
+  it('[E3d] 🔴🔴 負對照三:讀不到(unknown)而五格與分母都是 null ⇒ 【仍然不叫】', async () => {
+    // 🛑 這一格是本片最容易寫壞的地方:`null ?? 0 === 0` ⇒ 讀不到的世界
+    //   與「真的全 0」在 `?? 0` 之後【長得一模一樣】。
+    //   ⇒ 📌 而那正是本片要防的那個形狀本身 —— 我差一點用它去防它自己。
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    const res = await checkAnomalyAlerts({
+      reader: {
+        getAlertSummary: async () =>
+          withEmail({
+            emailOverdueCount: null,
+            emailDeadLetterCount: null,
+            emailStuckSendingCount: null,
+            emailQuotaConfirmedCount: null,
+            emailQuotaSuspectedCount: null,
+            emailOutboxTotalCount: null,
+            emailOutboxUnknown: true,
+          }),
+      },
+      notifiers: [notifier],
+    }, OPTS);
+    expect(res.alerted).toBe(false);
+    expect(notifier.notify).not.toHaveBeenCalled();
+  });
+
   it('[E4] 🔴 讀不到(RPC 尚未 apply)⇒ 【不叫】—— 部署問題走部署管道', async () => {
     const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
     const res = await checkAnomalyAlerts({
@@ -989,6 +1063,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
             emailStuckSendingCount: null,
             emailQuotaConfirmedCount: null,
             emailQuotaSuspectedCount: null,
+            emailOutboxTotalCount: null,
             emailOutboxUnknown: true,
           }),
       },

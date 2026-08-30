@@ -235,6 +235,33 @@ function section(title: string, count: number, ids: readonly string[], unit = '�
 }
 
 /**
+ * 🔴🔴 **「五格全 0 【而且】分母也 0」**(2026-08-31;Sean 逐字答 `3 甲`;板上錨 `⟦b4-EMAILTOTAL⟧`)。
+ *
+ * **為什麼要有這個判斷**:上面五個 count 全部 `FROM public.email_outbox`
+ * ⇒ 它們只數【已經存在的列】⇒ 📌 **「一切正常」與「這張表是空的 / 讀不到資料」印同一組 0。**
+ * (那句話不是我寫的 —— `20260829010000_m4a_email_deadman_alert_counts.sql` 檔頭自己寫的。)
+ *
+ * 🛑 **為什麼是一支【共用函式】而不是在兩處各寫一次**:
+ * 它同時餵給【告警閘】與【訊息那一段】—— 各算一次 ⇒ 它們可以分岔,
+ * **而分岔的時候不會有任何東西叫**(一邊決定要不要寄、一邊決定信裡寫什麼)。
+ *
+ * 🛑 **`emailOutboxUnknown` 必須排除**:那是「函式不存在」= 部署問題, 走 503 那條路;
+ * 而它會讓五個 count 全是 `null` ⇒ `?? 0` 之後長得與「真的全 0」**一模一樣**。
+ * ⇒ 📌 **兩個不同的世界在 `?? 0` 之後印同一組 0 —— 那正是本片要防的形狀本身。**
+ */
+function isEmailOutboxSilentlyEmpty(summary: AnomalyAlertSummary): boolean {
+  if (summary.emailOutboxUnknown) return false;
+  return (
+    (summary.emailOverdueCount ?? 0) === 0 &&
+    (summary.emailDeadLetterCount ?? 0) === 0 &&
+    (summary.emailStuckSendingCount ?? 0) === 0 &&
+    (summary.emailQuotaConfirmedCount ?? 0) === 0 &&
+    (summary.emailQuotaSuspectedCount ?? 0) === 0 &&
+    (summary.emailOutboxTotalCount ?? 0) === 0
+  );
+}
+
+/**
  * 由摘要組白話告警訊息(只列踩門檻的類別)。
  *
  * 🔴 **文案紀律(三條,改字的人要一起守)**:
@@ -537,6 +564,8 @@ export function buildAnomalyAlertMessage(
    * ⇒ 而我**刻意不加「暫定文案」那種前綴** —— 這是一封他早上九點會收到的 LINE,
    *   前綴在那裡是雜訊;而在後台畫面上(`tier-edit-submit.tsx`)前綴是對的。**載體不同。**
    */
+  const emailOutboxSilentlyEmpty = isEmailOutboxSilentlyEmpty(summary);
+
   const emailLines: string[] = [];
   const emailPush = (n: number | null, label: string) => {
     if ((n ?? 0) > 0) emailLines.push(`· ${label}:${n} 封`);
@@ -548,6 +577,12 @@ export function buildAnomalyAlertMessage(
   emailPush(summary.emailQuotaSuspectedCount, '⚠️ 大量被擋(可能是額度,也可能只是一時被限流)');
   emailPush(summary.emailOverdueCount, '該重試而沒有人重試的信');
   emailPush(summary.emailStuckSendingCount, '卡在「寄送中」出不來的信');
+  // 🔴 這一行【不走 emailPush】—— 它不是「幾封信」, 它是「一封都沒有」。
+  //   ⇒ 文案刻意寫成兩種可能, **不猜是哪一種**:「這張表是空的」與「讀不到資料」
+  //     在這一格底下**分不出來**, 而寫死其中一個會把人送去修錯的東西。
+  if (emailOutboxSilentlyEmpty) {
+    emailLines.push('🔴 寄信佇列【一列都沒有】—— 可能是這張表是空的, 也可能是讀不到資料');
+  }
   const emailBlock: string[] =
     emailLines.length > 0
       ? ['【寄信】', ...emailLines, '⇒ 這一段與訂單無關,不用去後台退款或改單。']
@@ -841,7 +876,29 @@ export async function checkAnomalyAlerts(
     (summary.emailDeadLetterCount ?? 0) > 0 ||
     (summary.emailStuckSendingCount ?? 0) > 0 ||
     (summary.emailQuotaConfirmedCount ?? 0) > 0 ||
-    (summary.emailQuotaSuspectedCount ?? 0) > 0;
+    (summary.emailQuotaSuspectedCount ?? 0) > 0 ||
+    // 🔴🔴 **分母那一格**(2026-08-31;Sean 逐字答 `3 甲`;板上錨 `⟦b4-EMAILTOTAL⟧`)
+    //   **五格全 0 【而且】分母也 0 ⇒ 也叫一次。**
+    //   📌 **為什麼**:上面五個 count 全部 `FROM public.email_outbox` ⇒ 只數【已經存在的列】
+    //     ⇒ 「一切正常」與「這張表是空的 / 讀不到資料」**印同一組 0**。
+    //   ⚠️ **而只把分母接進來、不改這道閘是【不夠的】**:這道閘是「任一 > 0 才叫」
+    //     ⇒ 五格全 0 ⇒ **一封信都不會發** ⇒ 那個分母**在它要防的那個世界裡沒有人看得到**。
+    //   🔵 **它會自己安靜下來**:只要寄出過一封, `total_count` 就 > 0
+    //     ⇒ 上線初期會叫幾天, 而那幾天**本來就沒有人在等信**。
+    //   🔴🔴 **[2026-08-31 codex R1 訂正 —— 而它訂正的是我寫下的理由]**
+    //     ⛔ ~~理由:「那張表不刪列」~~ **那句是假的。**
+    //     `docs/specs/2026-07-18-b0-order-notification-email-prd.md` 的 PII 生命週期表逐字:
+    //     `email_outbox.recipient_email` 保留 **120 天**(Sean 2026-07-18 拍板), 而**清理 job(#281)刪除逾期列**。
+    //     ⇒ ✅ **結論不變**(活著的店天天寄信 ⇒ 表不會空), **而理由要換**:
+    //       它安靜下來靠的是**持續有信在寄**, 不是**列不會被刪**。
+    //     ⇒ 🔴 **⇒ 而那個差別在【店停業 120 天以上】那個世界會顯形:那時它會【再叫一次】,**
+    //       **而那一次沒有人會記得為什麼。**⇒ 訊息那一行因此寫「可能是這張表是空的」——
+    //       **那句話在那個世界裡仍然是對的。**
+    //     📌 **⇒ 一個對的結論配一個錯的理由, 在今天印同一個結果 —— 而它們在【未來的某個世界】分岔。**
+    //   🛑 **`emailOutboxUnknown` 必須排除**:那是「函式不存在」= 部署問題, 走 503 那條路;
+    //     而它會讓五個 count 全是 `null` ⇒ `?? 0` 之後長得與「真的全 0」一模一樣。
+    //     ⇒ 📌 **兩個不同的世界, 在 `?? 0` 之後印同一組 0 —— 那正是本片要防的形狀本身。**
+    isEmailOutboxSilentlyEmpty(summary);
 
   let notifiersTotal = 0;
   let notifiersFailed = 0;

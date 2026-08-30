@@ -126,6 +126,7 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       emailStuckSendingCount: null,
       emailQuotaConfirmedCount: null,
       emailQuotaSuspectedCount: null,
+      emailOutboxTotalCount: null,
       emailOutboxUnknown: true,
       openCount: 2,
       refundingCount: 3,
@@ -425,6 +426,16 @@ describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply
     expect(r.emailStuckSendingCount).toBe(1);
     expect(r.emailQuotaConfirmedCount).toBe(2);
     expect(r.emailQuotaSuspectedCount).toBe(1);
+    // 🔴🔴 **codex 2026-08-31 must-fix**:`total_count: 12` 在 fixture 裡, 而【沒有人斷言它】。
+    //   ⇒ 我實測 codex 指的三個突變, **只有一個真的活著**:
+    //     · `emailOutboxTotalCount: 0`                    ⇒ 已被下面 A0 那格的整包比對殺掉
+    //     · 略過 `parseCount`(直接讀 `em?.['total_count']`)⇒ 也被殺掉
+    //     · 🔴 **把 key 換成另一個【合法的】count key**(例 `signal1_overdue_count`)
+    //       ⇒ **40 格全綠** —— 那一個是真的洞, 而它正是 A1 自己的註解在講的那件事:
+    //         「**鍵名打錯不會 typecheck 紅 —— 兩邊都是合法字串**」。
+    //   📌 **⇒ 那句話寫在這一格的註解裡, 而這一格【對新加的那個鍵沒有執行它】。**
+    //   ⇒ ⇒ **一段正確的說明, 與一格真的在做那件事的斷言, 是兩件事。**
+    expect(r.emailOutboxTotalCount).toBe(12);
   });
 
   it('[A2] 🔴 缺鍵 ⇒ fail-closed 上拋,【不】當成 unknown', async () => {

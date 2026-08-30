@@ -344,6 +344,10 @@ function parseAlertSummary(
     emailStuckSendingCount: emailCount('signal3_stuck_sending_count'),
     emailQuotaConfirmedCount: emailCount('signal5_quota_confirmed_count'),
     emailQuotaSuspectedCount: emailCount('signal5_quota_suspected_count'),
+    // 🔴 **分母**(2026-08-31;`⟦b4-EMAILTOTAL⟧`):SQL 那一側早就在回它
+    //   (`20260829010000…sql` 的 `'total_count'`), 而**本層之前把它丟掉了**。
+    //   ⇒ 沒有它, 上面五個 0 在「一切正常」與「這張表是空的」之間分不出來。
+    emailOutboxTotalCount: emailCount('total_count'),
     emailOutboxUnknown,
     openCount: parseCount(r.open_count, 'open_count'),
     refundingCount: parseCount(r.refunding_count, 'refunding_count'),

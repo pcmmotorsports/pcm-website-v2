@@ -133,6 +133,23 @@ export type AnomalyAlertSummary = {
    */
   emailQuotaSuspectedCount: number | null;
   /**
+   * 🔴🔴 **分母**(2026-08-31 接上;Sean 逐字答 `3 甲`;板上錨 `⟦b4-EMAILTOTAL⟧`)。
+   * `email_outbox` 這張表現在**總共幾列**。
+   *
+   * ⚠️ **它不是第六個訊號, 它是上面五個的【分母】**:
+   * 那五個 count 全部 `FROM public.email_outbox` ⇒ **它們只數【已經存在的列】**
+   * ⇒ 📌 **沒有它, 上面五個 0 在「一切正常」與「這張表是空的 / 讀不到」之間分不出來。**
+   * (那句話不是我寫的 —— `20260829010000_m4a_email_deadman_alert_counts.sql` 檔頭自己寫的,
+   *  逐字:「**一個讀不到資料的計數器, 與一個一切正常的系統, 印同一組 0。**」)
+   *
+   * 🔴 **而它【要進 `shouldAlert`】** —— 與 `emailOutboxUnknown` 那一格**相反**, 理由:
+   * `unknown` 是「函式不存在」= 部署問題, 走部署管道;
+   * 而「五格全 0 **且** 分母也 0」是**資料面**的訊號, 沒有別的管道會講它。
+   * ⇒ 而 SQL 那一側**早就在回它了**, 是 adapter 這一層把它丟掉的
+   * ⇒ 📌 **一個【寫對了而沒接上】的保護, 與一個【沒寫】的保護, 在系統的行為上完全相同。**
+   */
+  emailOutboxTotalCount: number | null;
+  /**
    * 🔴 上面五個是不是**讀不到**。
    * ⚠️ **它只代表【函式不存在】(部署窗口),不代表權限問題**(codex 2026-08-29 nit:
    *    原句寫「RPC 尚未 apply / 權限問題」是錯的)—— `42501` 在 adapter 是**原封上拋**,
