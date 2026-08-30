@@ -122,7 +122,22 @@ export type SweepEmailOutboxOptions = {
    * 已經跑了兩段 enqueue(訂單成立 + 出貨)⇒ 這個迴圈以為自己還有滿滿 `maxRunSeconds`,
    * 實際上平台的 60 秒已經被吃掉一部分。
    * ⇒ 平台可能在 `sender.send` 已被 Resend 接受、`markSent` 還沒寫下去的那一格 kill
-   * ⇒ 列留 `sending` ⇒ 下輪回收 ⇒ **重寄**(Resend 的 Idempotency-Key 只保 24h)。
+   * ⇒ 列留 `sending` ⇒ 下輪回收 ⇒ ⛔ ~~**重寄**(Resend 的 Idempotency-Key 只保 24h)~~
+   *
+   * 🔴🔴 **[2026-08-30 深夜 自我更正:上面那個「重寄」【寫得太重】]**
+   *    套用「這一輪跑完之後那一列處在哪個狀態?下一輪還撿不撿得到它?」這把尺:
+   *    ```
+   *    列停在 sending ⇒ claimDue 只收 ['pending','failed'] ⇒ 下一輪【撿不到它】
+   *    要等回收，而回收條件是 claimed_at < now − LEASE_SECONDS(3600) ⇒ 一小時
+   *    回收後 next_retry +5 分鐘 ⇒ 重新送出大約在【65 分鐘後】
+   *    而 Resend 的 Idempotency-Key 保【24 小時】⇒ 那一發會被 provider 去重
+   *    ```
+   *    ⇒ ✅ **正確字面:真正的傷害是【燒掉一次 attempt】+【那一列一小時內不會再被處理】,
+   *      而「客人收到兩封」只有在 sweeper 停擺【超過 24 小時】時才成立**
+   *      —— 本檔檔頭 `:31` 逐字早就寫著那個條件,而我寫這一段時沒有把它接上。
+   *    📌 **⇒ 同一支檔裡有一句正確的限定,而我在另一段重新描述同一件事時沒有引用它。**
+   *    🛑 **而這一格【不改變本片要不要做】**:燒 attempt 與卡一小時都還在,
+   *      只是「重寄」那個最嚇人的說法要收窄。
    *
    * 🔴 **為什麼不直接改 `maxRunSeconds`**:那一顆的語意是「申告平台的硬性 kill 上界」,
    * 而 lease 的硬下界是**從它推出來的**(`max(3600, maxRunSeconds + 300)`)
@@ -266,7 +281,9 @@ const CLOCK_SKEW_ALLOWANCE_SECONDS = 300;
 /**
  * 收尾餘裕(秒):**停止寄送**的時點要比平台 kill 早這麼多(`⟦b4-SWEEPBUDGET1⟧`)。
  * 留給「`sender.send` 回來 → `markSent` 落表」那一段;沒有它,一次在 `maxRunSeconds - 1ms`
- * 通過的檢查後面仍可能跟著一發跨過 kill 線的 `send` ⇒ 列留 `sending` ⇒ 回收 ⇒ **重寄**。
+ * 通過的檢查後面仍可能跟著一發跨過 kill 線的 `send` ⇒ 列留 `sending` ⇒ 回收 ⇒ ⛔ ~~**重寄**~~
+ * ⇒ ✅ **燒掉一次 attempt + 卡一小時**(「重寄」要停擺 >24h 才成立, 見 `SweepEmailOutboxOptions`
+ *   的 `runStartedAtMs` 那段自我更正)。
  */
 const SEND_TAIL_ALLOWANCE_SECONDS = 5;
 
@@ -442,7 +459,8 @@ export async function sweepEmailOutbox(
   if (!Number.isFinite(opts.maxRunSeconds) || opts.maxRunSeconds < 1) {
     throw new Error(`sweepEmailOutbox:maxRunSeconds 必須是 ≥1 的有限數(收到 ${opts.maxRunSeconds})`);
   }
-  // 🔴 `runStartedAtMs` 同樣 fail-loud:傳錯 ⇒ 預算算錯 ⇒ 重寄,而重寄是收不回來的。
+  // 🔴 `runStartedAtMs` 同樣 fail-loud:傳錯 ⇒ 預算算錯 ⇒ 在 send 途中被 kill
+  //    ⇒ 燒 attempt + 卡一小時(⛔ ~~而重寄是收不回來的~~ —— 「重寄」要停擺 >24h,見上方自我更正)。
   if (!Number.isFinite(opts.runStartedAtMs)) {
     throw new Error(
       `sweepEmailOutbox:runStartedAtMs 必須是有限數(毫秒 epoch;收到 ${opts.runStartedAtMs})`,
@@ -502,7 +520,8 @@ export async function sweepEmailOutbox(
   //
   // 🔴 **收尾餘裕**(codex R1 must-fix 3):預算若正好等於 `maxRunSeconds`,
   //    一次在 59.999s 通過的檢查後面還跟著一整發 `sender.send` ⇒ Resend 在 60.01s 收下、
-  //    平台當場 kill、`markSent` 沒寫下去 ⇒ 回收 ⇒ **重寄**。
+  //    平台當場 kill、`markSent` 沒寫下去 ⇒ 回收 ⇒ ⛔ ~~**重寄**~~
+  //    ⇒ ✅ **燒 attempt + 卡一小時**(「重寄」要停擺 >24h;見上方自我更正)。
   //    ⇒ 停止寄送的時點要**早於**平台 kill,把最後這段留給收尾。
   //    ⚠️ 這一格是**縱深不是保證** —— 擋不住一發自己就超過餘裕的 `send`(那是逾時設定的事)。
   //    `Math.max(1000, …)` = 防呆:`maxRunSeconds` 若小於餘裕,預算不得變成 0 或負
