@@ -1,5 +1,31 @@
 -- M-4b E4 片3a · `email_outbox.status` 加第七態 `skipped_shipment_voided`
 --
+-- 🛑 **部署順序:先 apply 本支,再部署用到第七態的那片。**
+--
+--    🔴 **而這句話的急迫性,我第一版寫過頭了 —— 原字面留著,因為它示範的正是這一片在防的病**:
+--      ~~「出貨通知那片的碼已經在寫這個字面了 ⇒ 反序部署 ⇒ 客人的出貨信永久消失」~~
+--      我是從 `git grep -ln skipped_shipment_voided -- packages apps` ⇒ **3 支檔**推出來的。
+--      ⇒ 📌 **而 grep 數得出「有幾支檔提到它」,數不出「有沒有人呼叫它」** —— 那是兩個問題。
+--
+--    ✅ **實查(2026-08-30)之後的正確說法**:
+--      · `packages/ports/src/IEmailOutbox.ts` 宣告了 `markSkippedShipmentVoided`
+--      · `packages/adapters/src/email/SupabaseEmailOutboxAdapter.ts` 實作了它
+--      · 🔴 **而今天沒有任何正式碼呼叫它** —— `packages/use-cases` 底下的命中
+--        **只有 `sweep-email-outbox.test.ts`**(測試),沒有正式路徑
+--      ⇒ **所以【今天】反序部署不會立刻壞掉。危險是在【有人把它接上去的那一天】才成立的。**
+--
+--    ⚠️ **而接上去之後,反序部署的後果是這樣**(仍然不是「立刻」):
+--      正式庫 CHECK 只認六態 ⇒ 寫第七態被 **23514** 拒 ⇒ errors++ ⇒ 那一列重試
+--      ⇒ **要燒完 attempts 才進死信**(不是第一次就死)⇒ 而死信之後,出貨信掃描 view 的
+--        anti-join 不分 status ⇒ 那一列永久佔住唯一鍵 ⇒ 那位客人再也收不到出貨信。
+--      ⇒ 📌 **起點是一個正常的業務動作(裝箱打錯 → 整箱作廢重開)。**
+--
+-- 🔴 **而沒有機制擋得住這個順序**:`scripts/deploy-order-gate.sh` 掃的是 `.from()` / `.rpc(`,
+--    而**一個寫在 adapter 裡的 status 字串對它是隱形的** ⇒ 這道守門在這一格是瞎的。
+--    ⇒ 所以這段話住在**這裡**(要 apply 它的人一定會讀到的地方),不住在板子上。
+--
+--
+--
 -- 🔴 **為什麼需要它 —— 而這一格是量到的,不是設計偏好**:
 --    出貨通知信在寄送當下要去主表撈這一箱的脈絡(`IShippedEmailContext`),而那支 port 的
 --    讀取結果是**三態**:`ok` / `voided`(箱被作廢)/ `unavailable`(讀不到)。
@@ -34,8 +60,12 @@
 --      ⇒ 六處,**全部是正向列舉**(`IN ('pending','failed')` / `= 'sending'` / `= 'failed'`)
 --      ⇒ **沒有任何一處是 `NOT IN` / 排除式**
 --      負對照(尺是活的):同把 grep 掃 `order_cancellations` 的 scripts ⇒ 20 支檔
---    ⇒ 📌 **第七態是【終態】,它加入的是「刻意不告警」的補集**(與 `sent` /
---      `skipped_no_real_email` / `skipped_order_ineligible` 同一類),**不是掉進某個排除式的縫裡**
+--    ⇒ 📌 **第七態加入的是「刻意不告警」的補集**(與 `sent` / `skipped_no_real_email` /
+--      `skipped_order_ineligible` 同一類),**不是掉進某個排除式的縫裡**
+--      🔴 codex R8 must-fix(更正,原字面留痕):~~這裡原本寫「第七態是【終態】」~~ ——
+--        **與本檔 COMMENT 逐字矛盾**,那裡明訂它是**可翻轉態**(箱可被 admin_unvoid_shipment 復原)。
+--        ⇒ 這一段真正要說的是【刻意不告警】,而那與終不終態無關 —— 兩件事被寫成一件。
+--        📌 一支檔對同一個狀態講了兩種話,而讀的人會信先讀到的那一句。
 --      ⇒ **本片不動任何訊號述詞。**
 --
 --    ⚠️ **而有一格未確認,不得被讀成「那份證明重新成立了」**:我量的是**今天的五訊號實作**,
@@ -76,8 +106,13 @@ SET LOCAL statement_timeout = '60s';
 --    前一版是「前置閘讀 catalog → 然後 ALTER TABLE 才取表鎖」⇒ 兩者之間有一個窗口,
 --    並行的 DDL 可以在那裡把同名約束換掉,而本 migration 會**無聲覆蓋它**。
 --    ⇒ 明確先 `LOCK TABLE ... IN ACCESS EXCLUSIVE MODE`,讓檢查與改動在同一把鎖底下。
---    ⚠️ 而它**不會**讓交易更早放鎖(單一交易本來就持有到 COMMIT)⇒ 這一行**不增加**擋人的時間,
---      它只是把原本就要拿的鎖**提早到檢查之前**。
+--    ⚠️ 它**不會**讓交易更早放鎖(單一交易本來就持有到 COMMIT)。
+--    🔴 codex R10 nit(更正,原句作廢留痕):~~「這一行**不增加**擋人的時間」~~ **不精確** ——
+--      它把鎖**提早**到前置閘之前 ⇒ **前置閘讀 catalog 的那段時間,鎖已經在手上了**
+--      ⇒ 擋人的時間**確實變長了一點**(長度 = 前置閘那個 DO block 跑多久)。
+--      ⇒ 📌 正確的說法是:**用一小段多出來的擋人時間,換掉「檢查與改動之間有個窗口」那個競態**
+--        —— 那是一個取捨,不是一個免費的動作。而**取捨要寫成取捨**,不要寫成沒有代價。
+--      ⚠️ 而那一小段有多長,**我沒有量過**(要正式庫的 catalog 大小與負載)⇒ 未確認。
 LOCK TABLE public.email_outbox IN ACCESS EXCLUSIVE MODE;
 
 -- ── 0. 前置閘(forward-only;已在鎖底下)────────────────────────────────
@@ -151,7 +186,6 @@ DECLARE
   v_com text;
   v_expect constant text :=
     'CHECK ((status = ANY (ARRAY[''pending''::text, ''sending''::text, ''sent''::text, ''failed''::text, ''skipped_no_real_email''::text, ''skipped_order_ineligible''::text, ''skipped_shipment_voided''::text])))';
-  v_n_con int;
 BEGIN
   SELECT pg_catalog.pg_get_constraintdef(c.oid), c.convalidated INTO v_def, v_valid
     FROM pg_catalog.pg_constraint c
@@ -167,17 +201,16 @@ BEGIN
   IF NOT v_valid THEN
     RAISE EXCEPTION '事後閘③:新 CHECK 仍是 NOT VALID ⇒ VALIDATE 沒跑到';
   END IF;
-  -- 🔴 codex R2 must-fix:前一版只數**名稱前綴**符合的 ⇒ 一個【不同名字】的六態 CHECK 可以殘留,
-  --    而事後閘照樣綠 —— 然後寫入第七態時被那個殘留的約束擋掉。
-  --    ⇒ 改成數【所有提到 status 這個欄的 CHECK 約束】,不看名字。
-  SELECT pg_catalog.count(*) INTO v_n_con
-    FROM pg_catalog.pg_constraint c
-   WHERE c.conrelid = 'public.email_outbox'::regclass
-     AND c.contype = 'c'
-     AND pg_catalog.strpos(pg_catalog.pg_get_constraintdef(c.oid), 'status') > 0;
-  IF v_n_con <> 1 THEN
-    RAISE EXCEPTION '事後閘④:這張表上提到 status 的 CHECK 有 % 個(預期恰 1)⇒ 有殘留的舊約束會擋住第七態', v_n_con;
-  END IF;
+  -- 🔴 codex R8 must-fix(2026-08-30 刪掉一段孤兒註解,留這行當痕跡):
+  --    這裡原本有一段講「改成數【所有提到 status 的 CHECK 約束】」—— 而**那段碼已經不在了**
+  --    (它是計數版事後閘④,而 ④ 已隨行為探針一起退役)。
+  --    ⇒ 📌 **一段描述已退役機制的註解,讀起來與描述現役機制的一模一樣。**
+  --      而「殘留的六態 CHECK 會擋住第七態」這件事**今天由 harness 的世界② 看著**
+  --      (scripts/email-outbox-seventh-state-verify.sh),不是由本檔。
+  -- 🛑 2026-08-30:這裡曾經有一道【事後閘④(行為)】—— 對真表 INSERT 一列第七態再回捲。
+  --    **Sean 拍板【甲】把它拿掉了**,理由寫在本檔第 4 節(那一段很長,而它值得)。
+  --    ⚠️ 留這行註解的原因與當初留 v1→v4 那段一樣:**下一個人會想重新發明它。**
+  --    ⇒ 動手之前先讀第 4 節,尤其是「它存在的理由與它的危險是同一個前提」那一段。
 
   v_com := pg_catalog.col_description('public.email_outbox'::regclass,
              (SELECT attnum FROM pg_catalog.pg_attribute
@@ -186,26 +219,57 @@ BEGIN
     RAISE EXCEPTION '事後閘⑤:status 的 COMMENT 沒有提到第七態 ⇒ 契約與碼分岔了';
   END IF;
   IF pg_catalog.strpos(v_com, '7 態') = 0 THEN
-    RAISE EXCEPTION '事後閘⑥:status 的 COMMENT 開頭還寫著舊的態數';
+    RAISE EXCEPTION '事後閘⑥:status 的 COMMENT 裡找不到「7 態」這三個字 ⇒ 還寫著舊的態數。⚠️ 本閘找的是【任意位置】,不是開頭(codex R4 #14:原訊息宣稱開頭而實作是 strpos 全文)。';
   END IF;
 
-  RAISE NOTICE '事後閘通過:CHECK 逐字相符且已 validated、只有一個約束、COMMENT 已更新為 7 態';
+  -- 🔴 2026-08-30:原句「只有一個約束」是【計數版事後閘】的字面,而那一版已被換掉。
+  --    codex R2 #14 抓到:行為/集合版證不出「只有一個」—— 這張表本來就有 10 個 CHECK。
+  --    ⇒ 通過訊息只能宣稱【各道閘各自證到的東西】,不能多說一個字。
+  -- 🔴 2026-08-30 第二次修這句:上一版的字面(「CHECK 集合正好等於預期的 10 個 /
+  --    無會因 INSERT 觸發的觸發器」)是【v4 集合版】的宣稱,而 v4 已被換成行為版。
+  --    ⇒ ⇒ 📌 我改了碼而沒有回頭改這句 —— 這是同一個 NOTICE 在同一天被同一個病咬第二次。
+  --    ⇒ 通過訊息只能宣稱【各道閘各自證到的東西】,一個字都不能多。
+  -- 🔴 編號【不重排】:④ 是被退役的,不是不存在 —— 重排會讓所有引用「事後閘⑤」的地方
+  --    悄悄指到另一道閘。⇒ 通過訊息照真正跑過的編號講,並明說 ④ 退役了。
+  RAISE NOTICE '事後閘通過(定義層五格:①②③⑤⑥):①改名後找得到 ②CHECK 逐字相符 ③已 validated ⑤COMMENT 有第七態 ⑥COMMENT 已寫 7 態。(④ 已於 2026-08-30 退役,見本檔第 4 節 —— 編號刻意不重排。)⚠️ 本檔【不驗行為】—— 「CHECK 的字面對了」與「它擋不擋得住東西」是兩個宣稱;行為那一層在 scripts/email-outbox-seventh-state-verify.sh(拋棄式 PG)。';
 END
 $$;
 
--- ── 4. 行為那一層【本片沒有驗】,而理由與落點要寫出來 ─────────────────────────
--- 🔴 上面三道閘驗的是【定義】(CHECK 的字面、COMMENT 的字面)。
---    **一個 CHECK 的字面對了,與它到底擋不擋得住東西,是兩個宣稱。**
--- 🛑 我原本在這裡寫了一段「行為驗證」,而它是這樣的:
---      PERFORM 1 WHERE 'skipped_shipment_voided' IN ('pending', ..., 'skipped_shipment_voided')
---    ⇒ **那是恆真的** —— 它拿一個字串去比對一份我自己剛打進去的清單,
---      與資料庫裡真正的 CHECK **一點關係都沒有**。它會永遠印綠。
---    ⇒ 📌 **已刪除。留這段註解是因為刪掉之後,下一個人看不出這裡曾經有過一道假的閘** ——
---      而那種閘最危險的時刻,正是它讓人以為「行為也驗過了」的時候。
--- ✅ 真正的行為驗證落點:`scripts/email-outbox-state-coverage.sh`
---    七態 × {attempts<max, attempts>=max} = 14 格,在**拋棄式 PG** 上逐格實寫,
---    並對**今天的五訊號述詞**各跑一次 ⇒ 每一格要嘛被訊號命中、要嘛在「刻意不告警的終態補集」裡。
---    ⚠️ 為什麼不在本檔做:`email_outbox` 有多個 NOT NULL 與唯一鍵,造一列合法測試資料需要一張真訂單
---      ⇒ 那會在正式庫留下一次寫入嘗試。**不在正式庫上做寫入模擬。**
-
+-- ── 4. 行為那一層【刻意不在本檔做】,而理由與落點要寫出來 ────────────────────
+-- 🔴 上面五道閘(①②③⑤⑥)驗的是【定義】(CHECK 的字面、是否 validated、COMMENT 的字面)。
+--    **一個 CHECK 的字面對了,與它到底擋不擋得住東西,是兩個宣稱。** 這一格本檔【不回答】。
+--
+-- 🛑 2026-08-30:本檔曾經有第四道閘,它【對正式庫的真表 INSERT 一列第七態再回捲】,
+--    用來當場證明「真的寫得進去」。它做到了 v5、過了 15 個世界的對照、
+--    而 **Sean 2026-08-30 拍板【甲】:把它拿掉。** 理由留在這裡,因為下一個人一定會想重新發明它:
+--
+--    🔴 **那道探針【存在的理由】與【它的危險】是同一個前提。**
+--      理由 = 正式庫可能有我們不知道的東西(觸發器 / RULE / 殘留約束)在擋第七態。
+--      危險 = 正式庫可能有我們不知道的觸發器,而探針會**去踩它** ——
+--             而觸發器的**交易外副作用不會跟著子交易回捲**(寄一封信、打一個 webhook)。
+--      ⇒ 📌 **它在最有用的那個世界裡,正好也最危險。**
+--
+--    🔴 而還有一格**不是假設的**:探針持有 `email_outbox` 的 ACCESS EXCLUSIVE,
+--      又要等父 order 列的 KEY SHARE(`INSERT` 的 FK 檢查自己會取,寫不寫 `FOR KEY SHARE` 都一樣)
+--      ⇒ **死結環是結構性的**,而 PG 挑誰當受害者不可預測 —— **它可能殺掉一筆真的生意。**
+--      ⚠️ 當時的緩解是 `SET LOCAL deadlock_timeout = '20ms'`(讓自己先偵測、自己中止),
+--        而 **codex 明說那不是安全解法,只是把機率推向一邊**。
+--
+--    🔴🔴 **而決定性的那一格是量出來的**:把那行 `deadlock_timeout` 整個刪掉,
+--      `scripts/email-outbox-seventh-state-verify.sh` 的**世界一格都不動**。
+--      ⇒ **那道探針最危險的那一格,正是我們的 harness 量不到的那一格。**
+--
+--    ⚖️ 代價寫清楚,不要假裝沒有:**正式庫若真有東西在擋第七態,apply 當下不會發現** ——
+--      要等 app 寫不進去才知道。⇒ **而那個漏檢是可逆的**(補一支 migration 就能修),
+--      而踩到未知觸發器的交易外副作用、或殺掉一筆生意,**不可逆**。兩者不是同一個量級。
+--
+-- ✅ 行為驗證的落點(它們【沒有消失】,只是不在正式庫上跑):
+--   ① `scripts/email-outbox-seventh-state-verify.sh` —— 拋棄式 PG,建表 DDL 從 20260717020000
+--      原樣抽出,跑完整支 migration 之後**由 harness 自己寫一列第七態並回頭讀**;
+--      十幾個世界各自種一種阻擋(殘留約束 / 各式觸發器 / RULE 導去影子表 / deferred 約束),
+--      **在那裡寫一列是免費的** —— 那正是這個做法成立的原因。
+--   ② `scripts/email-outbox-state-coverage.sh` —— 七態 × 生死 attempts = 14 格,
+--      對今天的五訊號逐格實跑。
+--   🛑 兩支都在**本機拋棄式庫**上 ⇒ **它們證不出正式庫的行為**。那一格今天沒有人在證,
+--      而那是【甲】這個選擇明知的代價,不是疏漏。
 COMMIT;

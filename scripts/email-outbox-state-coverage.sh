@@ -15,7 +15,10 @@
 #    ⇒ 本腳本是一個【新的、可重跑的宣稱】,不是「重跑了那一發」。
 #
 # 🔴 **兩份權威都【從檔案抽出來】,不手打**:
-#      · 七個狀態值 ⇒ 從 20260830060000 的 `ADD CONSTRAINT` 那一行抽
+#      · 七個狀態值 ⇒ 跑完 20260830060000 之後,**從 DB 裡真正生效的那個 CHECK 讀回來**
+#        🔴 codex R8 nit(更正,原字面留痕):~~原本寫「從 `ADD CONSTRAINT` 那一行抽」~~ ——
+#          實作在 `:123-133`,讀的是 `pg_constraint`。**讀 DB 比讀檔案更強**(檔案那行若被
+#          別處覆寫,讀檔看不出來),而註解把它講成了比較弱的那一種。
 #      · 五個訊號述詞 ⇒ 把 20260829010000 的 `CREATE FUNCTION` 整段抽出來、原樣建在拋棄式庫上
 #    ⇒ 手打的話,這支腳本驗的是【我的副本】,不是那兩份檔。
 #
@@ -30,7 +33,10 @@
 #      副本會紅 ⇒ 它驗的是我自己。⇒ 現在的做法是:**種舊世界 → 跑真的 migration → 從 DB 讀回來**。
 #
 # 用法:bash scripts/email-outbox-state-coverage.sh
-#   零參數、零 env、不碰任何 .env、不連任何遠端。它自己起一個拋棄式 PG、跑完自己收攤。
+#   零必填參數、零必填 env、不碰任何 .env、不連任何遠端。它自己起一個拋棄式 PG、跑完自己收攤。
+#   🔴 codex R9 nit(更正,原字面留痕):~~原本寫「零 env」~~ —— 而它其實吃兩個 optional override:
+#     `PGBIN`(psql/initdb 的目錄)與 `PORT`。⇒ 「零 env」與「零【必填】env」差一個字,
+#     而差別是:照舊字面,一個被外面設過 PGBIN 的環境會跑到別的 PG 去,而讀的人不會想到要查。
 #
 # ⚠️ **射程(它證不到什麼)**:
 #   · 它建的是一張**最小 email_outbox**(只有函式會讀的七個欄 + status 的 CHECK),
@@ -109,6 +115,11 @@ printf '✅ 舊世界的 CHECK 從 20260717020000 原樣抽出(不是手抄)\n'
   printf "COMMENT ON COLUMN public.email_outbox.status IS '6 態(種子;migration 會換掉它)';\n"
 } > "$WORK/seed.sql"
 eval "$PSQL -f $WORK/seed.sql" >"$WORK/seed.log" 2>&1 || { printf '🔴 種舊世界失敗\n'; tail -3 "$WORK/seed.log"; exit 1; }
+# 🔵 2026-08-30:那支 migration **曾經**有一道事後閘④(行為),它會借一筆 order 打真表 ——
+#    而本 harness 的 fixture 是**刻意精簡**的(7 欄、沒有 public.orders),所以當時要明示放行。
+#    ✅ **Sean 拍板【甲】把那道閘拿掉了** ⇒ 放行那一步隨它一起消失,本行不再需要簽名。
+#    ⚠️ 而【本腳本沒有驗第七態寫不寫得進真表】這件事**沒有變** —— 那一格在
+#       scripts/email-outbox-seventh-state-verify.sh,它在拋棄式 PG 上自己寫一列再回頭讀。
 eval "$PSQL -f $MIG_STATUS" >"$WORK/mig.log" 2>&1 \
   || { printf '🔴 **那支 migration 自己跑不起來** ⇒ 下面每一格作廢\n'; tail -5 "$WORK/mig.log"; exit 1; }
 printf '✅ 真的那支 migration 跑過了(CHECK 由它產生, 本腳本沒有副本)\n'
@@ -127,7 +138,12 @@ N_STATUS="$(printf '%s\n' "$STATUSES" | grep -c .)"
 [ "$N_STATUS" -eq 7 ] && printf '✅ 從【DB 裡真正生效的 CHECK】讀回 %s 個狀態值\n' "$N_STATUS" \
   || { printf '🔴 讀回 %s 個, 預期 7 ⇒ 下面每一格作廢\n' "$N_STATUS"; exit 1; }
 
-# ── 刻意不告警的終態補集(**這份名單是本腳本【唯一】手寫的東西, 所以它是被測的對象**)──
+# ── 刻意不告警的【靜默態】補集(**這份名單是本腳本【唯一】手寫的東西, 所以它是被測的對象**)──
+# 🔴 codex R7 nit(2026-08-30 更正命名,原字面留痕):~~原本叫「終態補集」~~ ——
+#    而 skipped_no_real_email 與 skipped_shipment_voided **都是可翻轉態,不是終態**
+#    (20260830060000 的 COMMENT 逐字這樣寫)⇒ 舊名字讓三支檔對同一批狀態講了兩種話。
+#    ⇒ 這裡真正要表達的是【刻意不告警】,與終不終態無關。變數名保留 TERMINAL_SILENT 以免動到
+#      下方每一處引用;語意以本段為準。
 TERMINAL_SILENT="sent skipped_no_real_email skipped_order_ineligible skipped_shipment_voided"
 
 # 🔴 codex R1 must-fix(4/8):每一發 SQL 的 rc 都要收 ——
