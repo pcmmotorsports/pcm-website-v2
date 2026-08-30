@@ -868,4 +868,167 @@ describe('GET email-sweep — 🔴 cutoff 同時控【排信】與【寄信】(�
     // 兩半各自讀一次 env ⇒ 它們可以分岔(讀取之間有人改了設定、或有人只改了其中一處)。
     expect(ROUTE_SOURCE).toMatch(/allowOrderShipped:\s*shippedCutoff\.kind === 'ok'/);
   });
+
+  // ══ 🔵🔵「還沒上膛」要出聲(2026-08-30 夜)══
+  //   量到的:env 沒設 ⇒ skipped_no_cutoff ⇒ 不進 503 判斷 ⇒ 回 200,而成功路徑一行 log 都沒有
+  //   ⇒ 「設好了」與「沒設好」在 Vercel 那一側印同一個 200、同一片空 log。
+  // 🔴 這三格【必須成組】:只有正對照 ⇒ 一個【無條件印】的 console.info 也會全過
+  //   (CLAUDE.md「輸出的標籤要由結果決定,不能無條件印」正是這個形狀)。
+  describe('🔵 skipped_no_cutoff 要在 log 上看得見(而仍然是 200)', () => {
+    // 本 describe 自己的已上膛值(外層那個 CUTOFF 不在這個 scope 裡)。
+    const ARMED = '2026-08-19T03:14:00.000Z';
+    it('🔴 正對照:兩顆 cutoff 都沒設 ⇒ console.info 印出兩顆的名字,而回應仍是 200', async () => {
+      delete process.env.B4_DEPLOY_CUTOFF;
+      delete process.env.SHIPPED_EMAIL_CUTOFF;
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      const res = await GET(makeReq(bearer()));
+      const logged = JSON.stringify(infoSpy.mock.calls);
+
+      expect(res.status).toBe(200); // 🔴 沒上膛不是失敗 —— 這一格釘住「不改回應碼」
+      expect(infoSpy).toHaveBeenCalledTimes(1);
+      expect(logged).toContain('B4_DEPLOY_CUTOFF');
+      expect(logged).toContain('SHIPPED_EMAIL_CUTOFF');
+      infoSpy.mockRestore();
+    });
+
+    it('🔴🔴 負對照:兩顆都設好了 ⇒ 那行 console.info 【一次都不印】', async () => {
+      process.env.B4_DEPLOY_CUTOFF = ARMED;
+      process.env.SHIPPED_EMAIL_CUTOFF = ARMED;
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      await GET(makeReq(bearer()));
+
+      // 🛑 這一格【不釘回應碼】:兩顆都上膛 ⇒ enqueue 真的跑 ⇒ 狀態由外層 describe 的 mock 決定
+      //    (實測是 503)。那與本片無關 —— 本片只加一行 log, 改不動任何回應碼;
+      //    「不改回應碼」由上面【正對照】那一格釘住(沒上膛 ⇒ 仍 200)。
+      expect(infoSpy).not.toHaveBeenCalled(); // 🔴 殺掉「無條件印」那個突變
+      errSpy.mockRestore();
+      infoSpy.mockRestore();
+    });
+
+    it('🔴 只有一顆沒設 ⇒ 也要印,而【印出來的是沒設的那一顆】', async () => {
+      process.env.B4_DEPLOY_CUTOFF = ARMED;
+      delete process.env.SHIPPED_EMAIL_CUTOFF;
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      const res = await GET(makeReq(bearer()));
+      const logged = JSON.stringify(infoSpy.mock.calls);
+
+      expect(res.status).toBe(200);
+      expect(infoSpy).toHaveBeenCalledTimes(1);
+      expect(logged).toContain('SHIPPED_EMAIL_CUTOFF 未設或空');
+      // 🔴 已上膛的那一顆【不得】被寫成「未設或空」—— 否則兩顆狀態會被印成同一句
+      expect(logged).not.toContain('B4_DEPLOY_CUTOFF 未設或空');
+      // 🔴🔴 **codex R2 must-fix**:B-5 那顆的【值】也不得出現。
+      //   為什麼釘在這一格 —— 這是唯一同時滿足兩件事的世界:**B-5 是上膛的(所以它的值存在)**
+      //   **而那一行確實會印(因為出貨沒上膛)**。零 PII 那兩格都少了其中一半:
+      //   「兩顆都上膛」⇒ 根本不印;「B-5 沒上膛」⇒ 它的值是 undefined、沒有東西可洩。
+      expect(logged).not.toContain(ARMED);
+      infoSpy.mockRestore();
+    });
+
+    // 🔴🔴 **這一格是突變測試逼出來的, 不是我想到的**:
+    //   上面那格(B4 上膛 / 出貨沒設)**殺不掉**「把 shippedCutoff 寫死成『未設或空』」那個突變 ——
+    //   因為在那一格裡出貨【本來就沒設】⇒ 寫死與正確輸出**長得一樣**。
+    //   ⇒ 📌 **要殺它, 必須讓【出貨那顆是上膛的】** —— 也就是**反方向**那一格。
+    //   ⇒ 一組看起來對稱的測試, 可能只覆蓋了一個方向, 而它印的是全綠。
+    it('🔴🔴 反方向:出貨上膛而 B-5 沒設 ⇒ 出貨那顆【不得】被寫成「未設或空」', async () => {
+      delete process.env.B4_DEPLOY_CUTOFF;
+      process.env.SHIPPED_EMAIL_CUTOFF = ARMED;
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      await GET(makeReq(bearer()));
+      const logged = JSON.stringify(infoSpy.mock.calls);
+
+      expect(infoSpy).toHaveBeenCalledTimes(1);
+      expect(logged).toContain('B4_DEPLOY_CUTOFF 未設或空');
+      expect(logged).not.toContain('SHIPPED_EMAIL_CUTOFF 未設或空'); // 🔴 殺掉「寫死」那個突變
+      errSpy.mockRestore();
+      infoSpy.mockRestore();
+    });
+
+    // 🔴🔴 **這一格被 codex 打回一次(2026-08-30 夜, must-fix)**:
+    //   我原本只斷言「不含 ARMED」⇒ 一個**多印 `CRON_SECRET`** 的突變**照樣全綠**。
+    //   ⇒ 📌 **測試名字叫「零 PII」, 而它量的只有【其中一個值】** —— 尺比它宣稱的窄。
+    //   ⇒ 修法:每一種**不該出現的值**各給一個**獨立可辨識的 sentinel**, 逐個斷言。
+    // 🔴🔴🔴 **這一格是「別再補 sentinel 了」的那一格**(2026-08-30 夜)
+    //   codex R1 與 R2 各給一個 must-fix, 而**兩條是同一個形狀**:
+    //     R1「你沒擋 CRON_SECRET」→ 我補一個 sentinel
+    //     R2「你沒擋 B-5 的值」  → 我又補一個 sentinel
+    //   ⇒ 📌 **每一輪都在補【下一個我想得到的洩漏】, 而審查者永遠比我多想到一個。**
+    //   ⇒ ⇒ 那是打地鼠, 不是守門 —— 因為 `not.toContain(X)` 的分母是【我列得出來的 X】。
+    // ✅ **改成【白名單】**:釘住那一行 log 的**完整形狀** —— 有哪幾個 key、每個 key 的值是不是
+    //   我們自己寫死的那幾句其中之一。⇒ **任何多印的東西, 不論它是什麼, 都會讓這一格紅。**
+    //   🔴 而它殺得掉一個**我沒想到、也沒人想得到**的洩漏 —— 那正是前面那些格做不到的事。
+    it('🛑🛑🛑 白名單:那一行 log 的形狀被釘死 ⇒ 多印【任何】東西都會紅(不靠列舉洩漏物)', async () => {
+      const ALLOWED_KEYS = ['b5DeployCutoff', 'shippedCutoff'];
+      const ALLOWED_VALUES = [
+        'B4_DEPLOY_CUTOFF 未設或空',
+        'SHIPPED_EMAIL_CUTOFF 未設或空',
+        'skipped_no_cutoff',
+        'skipped_bad_cutoff',
+        'completed',
+        'failed',
+      ];
+      process.env.CRON_SECRET = 'ZZQQ-SECRET-SENTINEL-DO-NOT-LOG-0123456789';
+      process.env.B4_DEPLOY_CUTOFF = ARMED; // 上膛 ⇒ 它的值存在、可被洩
+      delete process.env.SHIPPED_EMAIL_CUTOFF; // 沒上膛 ⇒ 那一行確實會印
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      await GET(makeReq(bearer('ZZQQ-SECRET-SENTINEL-DO-NOT-LOG-0123456789')));
+
+      expect(infoSpy).toHaveBeenCalledTimes(1); // 🔴 先證明這個世界【有印】,否則下面全是空集合
+      const [msg, payload] = infoSpy.mock.calls[0] as [string, Record<string, unknown>];
+      expect(typeof msg).toBe('string'); // 第一個參數是我們寫死的訊息
+      expect(Object.keys(payload).sort()).toEqual([...ALLOWED_KEYS].sort()); // 🔴 多一個 key 就紅
+      for (const v of Object.values(payload)) {
+        expect(ALLOWED_VALUES).toContain(v); // 🔴 值不在白名單就紅(env 的值一定不在)
+      }
+      errSpy.mockRestore();
+      infoSpy.mockRestore();
+    });
+
+    it('🛑 零 PII:那一行不得印出 env 的【值】—— cutoff 值、secret、出貨值三者都不得出現', async () => {
+      const B5_SENTINEL = '2026-08-19T03:14:00.000Z'; // B-5 已上膛的值
+      // 🔴 **必須 >=32 字元** —— 短的會被路由的 secret 長度閘擋掉 ⇒ 提早 return ⇒ 那一行 log 根本不會跑,
+      //    而 `not.toContain` 在【空 log】底下照樣全過。(我第一版寫 31 字元, 被下面那格 `toHaveBeenCalledTimes(1)` 抓到。)
+      const SECRET_SENTINEL = 'ZZQQ-SECRET-SENTINEL-DO-NOT-LOG-0123456789';
+      const SHIPPED_SENTINEL = '2026-08-20T09:00:00.000Z'; // 出貨已上膛的值(反方向)
+      process.env.CRON_SECRET = SECRET_SENTINEL;
+      process.env.B4_DEPLOY_CUTOFF = B5_SENTINEL;
+      process.env.SHIPPED_EMAIL_CUTOFF = SHIPPED_SENTINEL;
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      await GET(makeReq(bearer(SECRET_SENTINEL)));
+      const logged = JSON.stringify(infoSpy.mock.calls);
+
+      expect(logged).not.toContain(SECRET_SENTINEL); // 🔴 codex 指的那一格
+      expect(logged).not.toContain(B5_SENTINEL);
+      expect(logged).not.toContain(SHIPPED_SENTINEL); // 🔴 反方向也要
+      errSpy.mockRestore();
+      infoSpy.mockRestore();
+    });
+
+    // 🔴 上面那格兩顆都上膛 ⇒ 那一行**根本不會印** ⇒ 空 log 也會讓三個 not.toContain 全過。
+    //   ⇒ 📌 **一個「什麼都沒印」的世界, 與「印了而沒洩」的世界, 在那三條斷言底下同色。**
+    //   ⇒ 所以再補一格:**確實有印**的世界裡, 那三個值一樣不得出現。
+    it('🛑🛑 零 PII(有印的那個世界):一顆沒上膛 ⇒ 確實印了, 而三個 sentinel 仍全不出現', async () => {
+      // 🔴 **必須 >=32 字元** —— 短的會被路由的 secret 長度閘擋掉 ⇒ 提早 return ⇒ 那一行 log 根本不會跑,
+      //    而 `not.toContain` 在【空 log】底下照樣全過。(我第一版寫 31 字元, 被下面那格 `toHaveBeenCalledTimes(1)` 抓到。)
+      const SECRET_SENTINEL = 'ZZQQ-SECRET-SENTINEL-DO-NOT-LOG-0123456789';
+      const SHIPPED_SENTINEL = '2026-08-20T09:00:00.000Z';
+      process.env.CRON_SECRET = SECRET_SENTINEL;
+      delete process.env.B4_DEPLOY_CUTOFF; // 這顆沒上膛 ⇒ 一定會印
+      process.env.SHIPPED_EMAIL_CUTOFF = SHIPPED_SENTINEL;
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      await GET(makeReq(bearer(SECRET_SENTINEL)));
+      const logged = JSON.stringify(infoSpy.mock.calls);
+
+      expect(infoSpy).toHaveBeenCalledTimes(1); // 🔴 先證明這個世界【有印】
+      expect(logged).not.toContain(SECRET_SENTINEL);
+      expect(logged).not.toContain(SHIPPED_SENTINEL);
+      errSpy.mockRestore();
+      infoSpy.mockRestore();
+    });
+  });
 });
