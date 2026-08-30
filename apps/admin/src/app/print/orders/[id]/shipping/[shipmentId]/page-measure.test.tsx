@@ -1092,4 +1092,93 @@ describe('🔴 出貨明細單 · 分支B 的兩道版面守門(真 PDF + 逐頁
       split: [2],
     });
   }, 120_000);
+
+  // ══════════════════════════════════════════════════════════════════════
+  // ⟦b9-BLANKP1⟧ 探測(2026-08-30 傍晚,線-出貨):**分支A(有「尚未出貨」表)那一側**
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴 **為什麼要這一格**:上面那整套白頁/裂頁守門**只站在分支B**(`shipB-guard-*`,無未出貨)。
+  //    而 `⟦b9-BLANKP1⟧` 講的正是「同一個結構在別的輸入下會生出一張整頁空白的第 1 頁」——
+  //    ⇒ **分支A 從來沒有被這把尺量過**,它今天的「沒事」是【沒人問過】不是【問過而沒事】。
+  //    📌 **⇒ 一把只裝在一條分支上的守門,會讓另一條分支看起來一樣安全。**
+  // 🛑 **期望值寫的是【今天量到的】,不是「應該長怎樣」** ——
+  //    它紅 = 版面動了而沒有人知道;**紅不代表壞掉**,要開檔看是哪一格變了。
+  // 🔴🔴 **第一版寫成「只記錄,不下判斷」而【真的只有記錄】** ——
+  //    11 個點的 blank/split/pages 全部只 `writeFileSync` 進 txt,零斷言
+  //    ⇒ 明天長出一張白頁,這一格照樣全綠(`code-reviewer` M1 抓,我複核屬實)。
+  //    📌 **而同一段註解裡就寫著「它紅 = 版面動了」—— 一個純記錄器不會紅。**
+  //    ⇒ **一句描述守門行為的話,寫在一個不是守門的東西上面。**
+  it('⟦b9-BLANKP1⟧ 分支A 逐項:有沒有白頁 / 有沒有「只有錢沒有品項」的頁', async () => {
+    // 🔴 型別就地宣告 —— `Verdict` 住在上面那個 `it` 的區塊範圍裡,借不到。
+    //    ⚠️ 而借不到這件事【vitest 不會說】:它不做型別檢查 ⇒ 測試全綠、typecheck 紅。
+    type VerdictA = { pages: number; blank: number[]; split: number[] };
+    const seenA = new Map<number, VerdictA>();
+    // 🔴 **點到 16** —— 那一列講的是「**品項多的時候**」,而 1..8 全部沒有重現;
+    //    只點到 8 就下「沒事」的結論,分母會比宣稱窄。
+    for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 13, 14, 15, 16]) {
+      await emit(n, `blankp1-A-${n}item`);
+      const pages = await pagesOf(join(OUT_DIR, `blankp1-A-${n}item.html`));
+      // 🔴 錨的正對照先跑 —— 錨死了的話下面兩道會一半全紅一半全綠(同上面那段的理由)。
+      expect(assertAnchorsAlive(pages, ANCHORS), `${n} 項:錨還活著嗎`).toEqual([]);
+      seenA.set(n, {
+        pages: pages.length,
+        blank: blankPages(pages, ANCHORS),
+        split: moneyPagesWithoutItems(pages, ANCHORS),
+      });
+    }
+    writeFileSync(
+      join(OUT_DIR, 'blankp1-branchA.txt'),
+      [...seenA.entries()]
+        .map(([n, v]) => `${n} 項 ⇒ ${v.pages} 頁 · blank=[${v.blank.join(',')}] · split=[${v.split.join(',')}]`)
+        .join('\n') + '\n',
+      'utf8',
+    );
+    // ⛔ ~~expect(seenA.size).toBe(11)~~ —— **恆真格**(迴圈吃字面陣列、key 唯一)⇒ 零判別力。
+    // ✅ 換成真的斷言:把今天量到的形狀釘上去(code-reviewer M1/N1)。
+    //    🔴 **`blank` 全部為空是這一格的重點** —— 它就是 `⟦b9-BLANKP1⟧` 問的那件事。
+    for (const [n, v] of seenA) {
+      expect(v.blank, `${n} 項:不得有整頁空白的紙`).toEqual([]);
+    }
+    // 🔴 頁數也釘住 —— 門檻漂了要有人知道。
+    // 🔴🔴 **這一行第一版是我【猜】的(寫 `14:2 15:3`)⇒ 當場紅,實際是 `14:3`。**
+    //    ⇒ 而那正是 `code-reviewer` M6 說的:12 與 16 兩點**跨過了門檻卻沒踩到它**,
+    //      補上 13/14/15 才問得出來。**門檻是 14,不是我推的 15。**
+    //    📌 **一個從別的數字推出來的期望值,與一個量到的,在這一行上長得一模一樣。**
+    expect([...seenA].map(([n, v]) => `${n}:${v.pages}`).join(' ')).toBe(
+      '1:1 2:1 3:1 4:2 5:2 6:2 7:2 8:2 10:2 12:2 13:2 14:3 15:3 16:3',
+    );
+    // 🔴 「錢與品項分家」的那兩格也釘住 —— 它們都出現在**剛跨頁的那一格**
+    //    (4 項 = 剛進 2 頁 / 14 項 = 剛進 3 頁)⇒ 同一個形狀,不是兩個巧合。
+    expect(seenA.get(4)?.split, '4 項:錢單獨在第 2 頁').toEqual([2]);
+    expect(seenA.get(14)?.split, '14 項:錢單獨在第 3 頁').toEqual([3]);
+    for (const n of [1, 2, 3, 5, 6, 7, 8, 10, 12, 13, 15, 16]) {
+      expect(seenA.get(n)?.split, `${n} 項:錢不該與品項分家`).toEqual([]);
+    }
+
+    // 🔴🔴 **負對照:證明這把尺【看得見】白頁 —— 否則上面那 11 個 `blank=[]` 是「沒問過」不是「沒事」。**
+    //    做法:拿同一份 1 項的 HTML,在內容【之前】塞一個 200mm 高的空 div ⇒ 第 1 頁沒有任何錨。
+    //    ⚠️ **歸因寫準**(code-reviewer N2):真正把內容推到第 2 頁的是**那個高度**
+    //       (200mm ≈ 756px + 1 項 923px 已經超過單頁 1024px),`break-after:page` 只是加保險
+    //       ⇒ 不要照抄成「靠強制分頁」。
+    //    🔴 **它真正關掉的假綠**:如果 `gs -sDEVICE=txtwrite` 對【無字的頁】不吐出 `pN.txt`,
+    //       `blankPages` 在結構上就永遠回不了非空 ⇒ 上面每一格都是恆綠。回 `[1]` 同時證明
+    //       (a) gs 對無字頁有出檔 (b) 頁碼索引沒有位移。
+    //    ⚠️ **它證不到**:只演了「2 頁、空的在第 1 頁」;**3 頁以上的索引對齊未演**(而 15/16 項是 3 頁)。
+    //    ⇒ 尺是活的 ⇒ `blank` 必須回 `[1]`;回 `[]` 代表這一整格是恆綠的。
+    //    📌 **突變的是【輸入】不是【尺】** —— 改尺去證明尺,是自己給自己背書。
+    const oneItem = readFileSync(join(OUT_DIR, 'blankp1-A-1item.html'), 'utf8');
+    const forcedBlank = oneItem.replace(
+      '<body',
+      '<body data-blankp1-negative-control="1"',
+    ).replace(
+      /(<body[^>]*>)/,
+      '$1<div style="break-after:page;page-break-after:always;height:200mm"></div>',
+    );
+    const ncPath = join(OUT_DIR, 'blankp1-negative-control.html');
+    writeFileSync(ncPath, forcedBlank, 'utf8');
+    const ncPages = await pagesOf(ncPath);
+    expect(
+      blankPages(ncPages, ANCHORS),
+      '🔴 負對照:硬塞一張空白首頁,這把尺必須指認出第 1 頁 —— 回 [] 代表上面 11 格是恆綠的',
+    ).toEqual([1]);
+  }, 300_000);
 });
