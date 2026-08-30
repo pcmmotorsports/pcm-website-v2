@@ -36,6 +36,8 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+// 🔎 **在 debug「怎麼寫到別的 repo / 別棵樹去了」「git 的設定被誰改掉了」的人:你要找的就是這一段。**
+//    (症狀字寫在這裡是刻意的 —— 會來查的人搜的是【症狀】, 不是 `GIT_DIR` 這個變數名。)
 // 🔴🔴 **繼承來的 `GIT_*` 會讓底下每一個 `git …` 寫到【外層那棵樹】,而不是 `cwd` 指的那個。**
 //    `GIT_DIR` 贏過 `cwd` —— 而本檔跑的是 `git config user.email` / `git add` / `git commit`。
 // 📌 **2026-08-31 這件事今晚【真的發生過】**:另一條線的 selftest 用 `git -C <tmp> config user.name t`,
@@ -85,6 +87,9 @@ function sh(cmd: string, args: string[], opts: { cwd?: string; env?: NodeJS.Proc
   const r = spawnSync(cmd, args, {
     cwd: opts.cwd ?? scratch,
     encoding: 'utf8',
+    // 🔴 這裡的 `process.env` **已經被本檔頂端動過**(六個 `GIT_*` 被 delete 掉了)——
+    //    讀這一行的人會以為它是「真的 env」, 而它不是。⇒ 那是模組層那個修法唯一的代價:
+    //    **它不用人記得, 而它看不見。**(往上搜「怎麼寫到別的 repo」)
     env: { ...process.env, ...(opts.env ?? {}) },
   });
   // 🔴 不用 `r.status ?? -1`:spawnSync 對不存在的 binary 回 status=null(ENOENT),
