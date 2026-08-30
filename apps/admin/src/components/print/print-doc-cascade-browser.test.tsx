@@ -201,9 +201,11 @@ async function sweep(extraCss = '', media: 'print' | 'screen' = 'print'): Promis
       reportedTotal={2}
       shipment={shipment}
       lines={[{ orderItemId: 'i1', quantity: 2 }] as never}
-      // 🔴 **固定值,不是 `new Date()`** —— `printedAt` 收成 prop 的理由就在這裡:
-      //    餵當下時間的話,本檔的讀數**每一發都不一樣**,而「不一樣」與「壞掉」在報表上長得一樣。
-      printedAt='2026-08-16T02:00:00Z'
+      // ⛔ ~~printedAt='2026-08-16T02:00:00Z'~~ —— **2026-08-30 Sean 拍板拿掉紙上的「列印時間」**
+      //    ⇒ 那個 prop 已從 `ShippingDoc` 移除,這裡一併拿掉。
+      //    📌 而它原本存在的理由(**固定值,不是 `new Date()`,否則本檔讀數每一發都不一樣,
+      //       而「不一樣」與「壞掉」在報表上長得一樣**)**仍然成立** ——
+      //       ⇒ 🔴 下一個往這支元件加「當下時間」的人,請把那個值收成 prop,不要在元件裡拿。
     />,
   );
   const server: Server = createServer((_req, res) => {

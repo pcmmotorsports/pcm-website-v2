@@ -99,14 +99,14 @@ export default async function OrderShippingPrintPage({
       reportedTotal={reportedTotal}
       shipment={group.shipment}
       lines={group.lines}
-      // 🔴 **「現在幾點」在【頁層】取,不在元件裡取**(`Q-⑨`=甲,Sean 2026-08-24)。
-      //    理由與本頁既有的立場一致:資料在這裡取好再餵下去,元件不自己去拿。
-      //    ⇒ 元件因此是**純的**:同一份輸入渲染出同一份輸出 ⇒ 測試餵固定值就斷言得了字面。
-      // 🔴 本頁 `export const dynamic = 'force-dynamic'`(檔頭)⇒ **每次請求都重新渲染**
-      //    ⇒ 這個 `new Date()` 拿到的是**這一次列印**的時間,不會被快取凍住。
-      //    ⚠️ 若有人把 `force-dynamic` 拿掉,這一行會**安靜地印出一個舊時間** ——
-      //       而紙看起來完全正常。**那兩件事綁在一起,不要只改一邊。**
-      printedAt={new Date().toISOString()}
+      // ⛔ ~~`printedAt={new Date().toISOString()}` —— 「現在幾點」在頁層取(`Q-⑨`=甲,Sean 2026-08-24)~~
+      //    ⇒ **2026-08-30 Sean 拍板拿掉紙上的「列印時間」** ⇒ 這個 prop 沒有人用了,一併移除。
+      // 🔴 **而 `export const dynamic = 'force-dynamic'`(檔頭)【留著】,理由換了一個**:
+      //    ~~舊理由:不留著的話那個 `new Date()` 會被快取凍住、安靜印出舊時間~~(那一行已不存在)
+      //    ✅ **現在的理由**:本頁每次都要讀這一張出貨單的**當下**資料(品項、已出數量、
+      //       訂單狀態都會變)⇒ 被快取住會印出一張**過期的紙**,而紙上看不出來。
+      //    ⚠️ **⇒ 那個指令沒有變,而它的【理由】變了 —— 舊理由留著加刪除線,
+      //       是因為下一個人讀到「列印時間已經拿掉了」時,會想把 `force-dynamic` 一起拿掉。**
     />
   );
 }
