@@ -68,6 +68,38 @@ SCOPE
 
 snapshot() {
   [ -d "$SRC" ] || die_tool "來源目錄不存在:$SRC"
+
+  # 🔴🔴 2026-08-31 三修(`-22` 提, `-48` 做):**一個地方決定, 而不是兩邊各自看**。
+  #    成因(當晚量到):兩份指令(Sean 貼給主視窗的整點節拍 + 哨兵開場包)各自叫【不同的人】
+  #    每小時跑這一支 ⇒ 一小時燒掉 5 格(設計 1 格)⇒ 可回查範圍 15 分鐘內掉了一小時。
+  #    🔴 而前兩修(說出代價 / 刪之前先念)【都印出來了, 而它仍然一小時跑兩次】
+  #       ⇒ 📌「印出來」跟「擋下來」差一階。
+  #    🛑 而「兩邊各自先 ls 再跑」也不夠:兩邊的【檢查與跑之間不是原子的】
+  #       ⇒ 同一分鐘先後醒來 ⇒ 兩邊都看到「最新那份是 30 分鐘前」⇒ 兩邊都跑。
+  #    ⇒ 所以判斷要在【這裡】做一次, 而不是靠任何一邊記得。
+  #    ⚠️ 射程:它擋的是【時間太近】, 擋不住兩個 process 在同一秒進到這一行(那要鎖, 未做)。
+  MIN_MIN="${MAILBOX_SNAP_MIN_MINUTES:-30}"
+  if [ -d "$SNAP_ROOT" ] && [ -z "${MAILBOX_SNAP_FORCE:-}" ]; then
+    newest=$(ls -1 "$SNAP_ROOT" 2>/dev/null | sort | tail -1)
+    if [ -n "$newest" ]; then
+      # 目錄名就是時間戳 YYYYmmdd-HHMMSS ⇒ 不靠 mtime(它會被搬動改掉)
+      ny=${newest%%-*}; nt=${newest##*-}
+      iso="${ny:0:4}-${ny:4:2}-${ny:6:2} ${nt:0:2}:${nt:2:2}:${nt:4:2}"
+      prev_epoch=$(date -j -f '%Y-%m-%d %H:%M:%S' "$iso" '+%s' 2>/dev/null \
+                   || date -d "$iso" '+%s' 2>/dev/null || echo '')
+      if [ -n "$prev_epoch" ]; then
+        age_min=$(( ( $(date '+%s') - prev_epoch ) / 60 ))
+        if [ "$age_min" -lt "$MIN_MIN" ]; then
+          printf '⏭  跳過:最新那份是 %s 分鐘前(%s), 而間隔下限是 %s 分鐘\n' \
+                 "$age_min" "$newest" "$MIN_MIN"
+          printf '   🔵 這【不是】失敗 —— 快照存在, 而這一支會刪東西, 所以近期跑過就不再跑一次。\n'
+          printf '   🛑 真的要強跑 ⇒ MAILBOX_SNAP_FORCE=1 bash %s\n' "$0"
+          return 0
+        fi
+      fi
+    fi
+  fi
+
   n_src=$(count_files "$SRC")
   # 🔴 空來源要【叫】, 不能靜靜產生一份空快照 ——
   #    那正是本工具要防的形狀:一個乾淨的 rc=0, 而裡面什麼都沒有。
@@ -152,10 +184,10 @@ selftest() {
   printf '%s\n' "這是正對照內容 POSCTRL-$$" > "$t_src/a.md"
   printf '%s\n' "巢狀檔也要被照到" > "$t_src/sub/b.md"
 
-  printf '=== --selftest:四個世界必須印不同的東西 ===\n'
+  printf '=== --selftest:五個世界必須印不同的東西 ===\n'
 
   # 世界一:正常來源
-  MAILBOX_SRC="$t_src" MAILBOX_SNAP_ROOT="$t_snap" MAILBOX_SNAP_KEEP=5 bash "$0" > /dev/null 2>&1 ; RC1=$?
+  MAILBOX_SRC="$t_src" MAILBOX_SNAP_ROOT="$t_snap" MAILBOX_SNAP_KEEP=5 MAILBOX_SNAP_MIN_MINUTES=0 bash "$0" > /dev/null 2>&1 ; RC1=$?
   POS=$(grep -rl "POSCTRL-$$" "$t_snap" 2>/dev/null | wc -l | tr -d ' ')
   NEGHIT=$(grep -rl "$NEG" "$t_snap" 2>/dev/null | wc -l | tr -d ' ')
   AFTER1=$(ls -1 "$t_snap" 2>/dev/null | wc -l | tr -d ' ')
@@ -165,24 +197,44 @@ selftest() {
 
   # 世界二(突變):來源是空目錄 —— 它必須叫, 而且【不得多出一份空快照】
   mkdir -p "$base/empty"
-  MAILBOX_SRC="$base/empty" MAILBOX_SNAP_ROOT="$t_snap" bash "$0" > /dev/null 2>&1 ; RC2=$?
+  MAILBOX_SRC="$base/empty" MAILBOX_SNAP_ROOT="$t_snap" MAILBOX_SNAP_MIN_MINUTES=0 bash "$0" > /dev/null 2>&1 ; RC2=$?
   AFTER2=$(ls -1 "$t_snap" 2>/dev/null | wc -l | tr -d ' ')
   printf '  世界二 空來源(突變) rc=%s %s   快照份數 %s→%s %s\n' \
     "$RC2" "$(verdict "$RC2" 1)" "$AFTER1" "$AFTER2" "$(verdict "$AFTER2" "$AFTER1")"
 
   # 世界三:來源不存在(與「空」是兩個不同的訊息, 而 rc 相同 —— 這一格刻意留著)
-  MAILBOX_SRC="$base/nowhere" MAILBOX_SNAP_ROOT="$t_snap" bash "$0" > /dev/null 2>&1 ; RC3=$?
+  MAILBOX_SRC="$base/nowhere" MAILBOX_SNAP_ROOT="$t_snap" MAILBOX_SNAP_MIN_MINUTES=0 bash "$0" > /dev/null 2>&1 ; RC3=$?
   printf '  世界三 來源不存在   rc=%s %s\n' "$RC3" "$(verdict "$RC3" 1)"
 
   # 世界四:參數亂打 ⇒ 它必須與「工具自壞」分得開
   bash "$0" --這不是參數 > /dev/null 2>&1 ; RC4=$?
   printf '  世界四 參數亂打     rc=%s %s\n' "$RC4" "$(verdict "$RC4" 2)"
 
+  # 🔴 世界五:**間隔閘自己**, 而它要【雙向】表演 —— 一發該跳過、一發該跑。
+  #    (單邊只證明它會印那句話, 證不出它在另一個世界【不會】印。)
+  t_src5="$base/src5"; t_snap5="$base/snap5"
+  mkdir -p "$t_src5"; printf 'x\n' > "$t_src5/a.md"
+  MAILBOX_SRC="$t_src5" MAILBOX_SNAP_ROOT="$t_snap5" MAILBOX_SNAP_MIN_MINUTES=0 bash "$0" > /dev/null 2>&1
+  N5A=$(ls -1 "$t_snap5" 2>/dev/null | wc -l | tr -d ' ')
+  # 該跳過的那一發:下限 30 分鐘, 而上一份是【剛剛】
+  MAILBOX_SRC="$t_src5" MAILBOX_SNAP_ROOT="$t_snap5" MAILBOX_SNAP_MIN_MINUTES=30 bash "$0" > /dev/null 2>&1 ; RC5=$?
+  N5B=$(ls -1 "$t_snap5" 2>/dev/null | wc -l | tr -d ' ')
+  # 該跑的那一發:同樣下限 30, 而加 FORCE
+  # 🔴 sleep 要在【跑之前】—— 時間戳是【秒】, 同一秒會被「目的地已存在」擋下
+  #    ⇒ 而那個擋是對的, 只是它會讓這一格看起來像 FORCE 沒生效(第一版就是這樣紅的)
+  sleep 1
+  MAILBOX_SRC="$t_src5" MAILBOX_SNAP_ROOT="$t_snap5" MAILBOX_SNAP_MIN_MINUTES=30 \
+    MAILBOX_SNAP_FORCE=1 bash "$0" > /dev/null 2>&1
+  N5C=$(ls -1 "$t_snap5" 2>/dev/null | wc -l | tr -d ' ')
+  printf '  世界五 間隔閘       rc=%s %s  份數 %s→%s(該跳過, 不變)→%s(FORCE, 該 +1)\n' \
+         "$RC5" "$(verdict "$RC5" 0)" "$N5A" "$N5B" "$N5C"
+
   rm -rf "$base"
   if [ "$RC1" -eq 0 ] && [ "$POSOK" -eq 1 ] && [ "$NEGHIT" -eq 0 ] \
      && [ "$RC2" -eq 1 ] && [ "$AFTER2" = "$AFTER1" ] \
-     && [ "$RC3" -eq 1 ] && [ "$RC4" -eq 2 ]; then
-    printf '⇒ selftest PASS(四個世界印出不同的答案, 而突變那一格沒有多出空快照)\n'
+     && [ "$RC3" -eq 1 ] && [ "$RC4" -eq 2 ] \
+     && [ "$RC5" -eq 0 ] && [ "$N5B" = "$N5A" ] && [ "$N5C" -gt "$N5B" ]; then
+    printf '⇒ selftest PASS(五個世界印出不同的答案;突變那一格沒有多出空快照, 而間隔閘雙向都表演過)\n'
     return 0
   fi
   printf '⇒ selftest FAIL —— 上面標 🔴 的那一格就是壞掉的那一格\n' >&2
