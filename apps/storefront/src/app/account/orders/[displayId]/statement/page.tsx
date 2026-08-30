@@ -5,6 +5,12 @@ import { getOrderRepo } from '@/lib/auth/composition';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import type { MemberOrderDetail } from '@pcm/domain';
+import { StatementDoc } from '@/components/print/statement-doc';
+// 🔴 CSS 在【這一頁】import、不進 `app/layout.tsx` —— `@page` 是頁面層 at-rule、
+//    沒有選擇器可以侷限它 ⇒ 放進全域的話**顧客站每一頁**列印時都會變成 A4 12mm 邊距。
+//    Next 只在載入本路由時才把它送出去。(同 `apps/admin/src/app/print/layout.tsx` 的既有立場。)
+import '@/styles/print-a4.css';
+import '@/styles/statement.css';
 
 // 客人的「訂單明細 / 對帳單」列印頁(片 A —— 只有路由與授權,版面是片 B)。
 //
@@ -125,17 +131,11 @@ export default async function OrderStatementRoute({ params }: Props) {
     );
   }
 
-  // ⚠️ **片 A 到此為止 —— 版面是片 B。**
-  //    片 B 卡在一個未拍的容差題(客人這張要不要與後台印的「訂單明細」一模一樣),
-  //    而那題已排進給 Sean 的佇列。⇒ 在他答之前,這裡刻意只放最小可驗證的內容。
-  //    🔴 而**成功這條路刻意不加頁首頁尾** —— 它是列印版面,而 chrome 會被印進紙裡。
-  //    🛑 而顧客站那顆「下載訂單 PDF」鈕是片 C,不得早於 A/B ——
-  //       稿 `:286` 逐字「**不假裝下載成功、也不給一個會 404 的 href**」。
-  //    ⚠️ 版面的 class 等片 B 接 `print-a4.css`,**這裡不自創**(見上面那一段的成因)。
-  return (
-    <main data-od-id='order-statement-main'>
-      <h1>訂單明細</h1>
-      <p>單號 {order.displayId}</p>
-    </main>
-  );
+  // ✅ **片 B(版面)已落地** —— Sean 2026-08-30 拍 `Q-容差 = 甲`
+  //    (逐字「客人下載的明細 = 後台那張,一模一樣」)⇒ 原本擋著這一格的容差題已解。
+  //    🔴 **成功這條路刻意不加頁首頁尾** —— 它是列印版面,而 chrome 會被印進紙裡。
+  //       (查無那條路【有】頁首頁尾,因為那一頁最需要出口。兩條路不同是刻意的。)
+  //    ⚠️ **一模一樣有一格做不到**,而那是授權過的偏離 ——
+  //       理由與那道守門寫在 `components/print/statement-doc.tsx` 檔頭那一大段。
+  return <StatementDoc order={order} />;
 }
