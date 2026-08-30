@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# migration-new-file-static-checks.sh — lint-staged 的入口:**只對【新增的】 .sql 跑四道靜態檢查**
+# migration-new-file-static-checks.sh — lint-staged 的入口:**只對【新增的】 .sql 跑【五道】靜態檢查**
 #
 # 用法(lint-staged 會把命中的檔名接在後面):
 #   bash scripts/migration-new-file-static-checks.sh <file.sql> [more.sql ...]
@@ -23,9 +23,9 @@
 #   · 跳過幾支、跳過哪幾支**一律印出來** —— 沉默的跳過會讓人以為「全部檢查過了」。
 #
 # 天花板/範圍: 只對【這次 commit 新增(--diff-filter=A)】的 .sql 跑;舊檔改一個字 ⇒ 跳過(Sean 08-23「甲」);
-#   舊檔刪掉重加 ⇒ 當新增、會檢查。四道檢查的本體在 migration-static-checks.sh,本支只是入口/過濾。
+#   舊檔刪掉重加 ⇒ 當新增、會檢查。五道檢查的本體在 migration-static-checks.sh,本支只是入口/過濾。
 #   這份清單是我想得到的那些, 而我最可能漏掉的是「改舊 migration 引入的錯 —— 按定義不在射程內,那是拍板取捨不是疏漏」。
-# 天花板/量具: 它量「新增檔有沒有過那四道靜態檢查」,量不到「那四道夠不夠」(那是 migration-static-checks.sh 的射程);
+# 天花板/量具: 它量「新增檔有沒有過那五道靜態檢查」,量不到「那五道夠不夠」(那是 migration-static-checks.sh 的射程);
 #   staged 狀態由 git index 決定 ⇒ 在別的 cwd / 沒 index 的環境跑會量到不同的東西。
 #   這份清單是我想得到的那些, 而我最可能漏掉的是「A/M 以外的 git 狀態(R 改名、C 複製)被 --diff-filter=A 怎麼算」。
 set -uo pipefail
@@ -44,7 +44,7 @@ SELF="$HERE/$(basename "$0")"
 #      ⇒ **另一個窗 `-e4` 差點在它自己那顆 commit 裡把它一起帶走**(它帶了 pathspec 才擋住)。
 #    📌 **一道正確的守門,它的【輸入需求】本身可以是危險的** ——
 #      而這一格在單窗環境下完全沒有代價,只有共用工作樹時才變成問題。
-#    ⇒ **只改輸入,不動它的檢查邏輯**(那四道是對的,今天還當場擋下過我一格)。
+#    ⇒ **只改輸入,不動它的檢查邏輯**(那幾道是對的,今天還當場擋下過我一格 —— ⚠️ 刻意不寫死道數:寫死的數字會漂,而它 08-18 從三變四、08-30 從四變五)。
 #
 # ⚠️ 而這**不放寬 Sean 2026-08-23「甲」** —— 「甲」是「只擋**新增的**、舊檔一律豁免」,
 #    而一支 untracked 的檔按任何定義都是新增的。放寬的是「新增」的**觀測方式**,不是它的定義。

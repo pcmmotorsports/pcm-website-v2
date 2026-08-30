@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# migration-static-checks.sh — migration 檔的三道靜態檢查(不用連 DB)
+# migration-static-checks.sh — migration 檔的【五道】靜態檢查(不用連 DB)
+# 🔴 2026-08-30 更正:~~檔頭原本寫「三道」~~ —— 而④是 08-18 加的、⑤是 08-30 加的,
+#    這一行沒有跟著改。檔尾印的數字才是真的,以那裡為準。
 #
 # 用法:bash scripts/migration-static-checks.sh <migration.sql>
 #
@@ -10,7 +12,7 @@
 # 🔴 為什麼要有這支檔:那三道原本只寫在規格與 STOP 信裡。
 #    規格會被讀,但【不會被執行】—— 而檢查不被執行就等於不存在。
 #
-# 天花板/範圍: 三道靜態檢查、【不連 DB】;只對傳進來的 .sql 跑(呼叫端決定是哪幾支)。
+# 天花板/範圍: 五道靜態檢查、【不連 DB】;只對傳進來的 .sql 跑(呼叫端決定是哪幾支)。
 #   這份清單是我想得到的那些, 而我最可能漏掉的是「第四種靜態就抓得到、但我沒寫成一道檢查的錯」。
 # 天花板/量具: 靜態【不驗行為】—— 它證的是「我沒寫那個字面」,不證「撞名時會紅」;後者要在拋棄式 PG
 #   上重跑一次同一支 SQL 才量得到。
@@ -122,6 +124,40 @@ if [ "${1:-}" = "--selftest" ]; then
   printf 'BEGIN;\nCREATE OR REPLACE VIEW public.v AS SELECT 4;\nCOMMIT;\n' > "$FX/20220104000000_r3_redef_noassert.sql"
   check 20220104000000_r3_redef_noassert.sql       '兩邊都是 0 個' '有漏列' '規則③:純重定義(ACL 繼承)且無清單 ⇒ 必須綠 —— 收窄那一刀的證人'
 
+  # ── 規則⑤的證人(2026-08-30 加;codex 抓到「新規則沒進 selftest ⇒ 日後退化仍印 N/N」)──
+  # 🔴 哨兵字面踩過一次,留著:第一版用 '別名.*' 當「不得含」的哨兵 ⇒ **三格全紅**,
+  #    因為檢查⑤【自己的標題行】就有那四個字,而標題是**無條件印**的。
+  #    📌 **哨兵的字面不該與被掃描的內容共用** —— 這是本 session 第三次撞到同一族。
+  #    ⇒ 改用只有【命中時】才印的整句。
+  # 🔴 六格,而**每一格都是為了證明另一格的綠不是白送的**:
+  printf 'BEGIN;\nCREATE OR REPLACE VIEW public.r5a AS SELECT o.*, 1 AS z FROM public.orders o;\nCOMMIT;\n' > "$FX/20230101000000_r5_star_replace.sql"
+  printf 'BEGIN;\nCREATE OR REPLACE VIEW public.r5b AS SELECT 1 AS z;\nCOMMIT;\n' > "$FX/20230102000000_r5_replace_nostar.sql"
+  # 🔴 這一格是【誤抓的形狀】:`c.*` 在函式體裡, 與 view 欄序無關。
+  #    板上寫著線G 第一版就是被這種誤抓的 ⇒ 它必須綠。
+  # 🔴 codex 抓:這一格【零判別力】—— dollar-quote 的函式體在規則⑤跑之前就被 strip_sql 刪光了,
+  #    所以它就算退化成「整檔掃」也會綠。⇒ 留著(它仍是一個真實形狀),
+  #    但**另外加一格真的能分辨語句層 vs 檔層的**:乾淨的 view + 【同檔另一句】普通 SQL 裡的 c.*。
+  printf 'BEGIN;\nCREATE OR REPLACE FUNCTION public.r5f() RETURNS void LANGUAGE sql AS $f$ SELECT c.* FROM public.orders c $f$;\nCOMMIT;\n' > "$FX/20230103000000_r5_star_in_function.sql"
+  # 🔴 多行 CREATE\nOR REPLACE VIEW —— 舊版逐行掃會假綠(codex 點名)
+  printf 'BEGIN;\nCREATE\nOR REPLACE VIEW public.r5c AS\nSELECT o.*, 1 AS z\nFROM public.orders o;\nCOMMIT;\n' > "$FX/20230104000000_r5_multiline.sql"
+  printf -- '-- static-checks:view-replace-ok public.r5a 底表凍結\nBEGIN;\nCREATE OR REPLACE VIEW public.r5a AS SELECT o.*, 1 AS z FROM public.orders o;\nCOMMIT;\n' > "$FX/20230105000000_r5_exempt.sql"
+  # 🔴 具名豁免的證人:豁免寫的是【別支 view】⇒ 必須照樣紅。
+  #    少了這一格, 一個「豁免任何字都能放行整支檔」的退化會印綠。
+  printf -- '-- static-checks:view-replace-ok public.someother 理由\nBEGIN;\nCREATE OR REPLACE VIEW public.r5a AS SELECT o.*, 1 AS z FROM public.orders o;\nCOMMIT;\n' > "$FX/20230106000000_r5_exempt_wrongname.sql"
+  check 20230101000000_r5_star_replace.sql      '這支檔有 CREATE OR REPLACE VIEW' '本檢查零命中' '規則⑤:CREATE OR REPLACE VIEW + 別名.* ⇒ 必須紅'
+  check 20230102000000_r5_replace_nostar.sql    '本檢查零命中' '這支檔有 CREATE OR REPLACE VIEW'  '規則⑤:有 OR REPLACE VIEW 但無 別名.* ⇒ 必須綠(證明它不亂叫)'
+  check 20230103000000_r5_star_in_function.sql  '本檢查零命中' '這支檔有 CREATE OR REPLACE VIEW'  '規則⑤:別名.* 在【函式體】裡 ⇒ 必須綠(板上記的那個誤抓形狀)'
+  check 20230104000000_r5_multiline.sql         '這支檔有 CREATE OR REPLACE VIEW' '本檢查零命中' '規則⑤:CREATE 與 OR REPLACE 跨行 ⇒ 仍要紅(舊版逐行掃會假綠)'
+  check 20230105000000_r5_exempt.sql            '本檢查零命中' '這支檔有 CREATE OR REPLACE VIEW'  '規則⑤:具名豁免那一支 ⇒ 綠'
+  check 20230106000000_r5_exempt_wrongname.sql  '這支檔有 CREATE OR REPLACE VIEW' '本檢查零命中' '規則⑤:豁免寫的是【別支 view】⇒ 必須照樣紅'
+  # 🔴 語句層的真正證人(codex 抓:少了它,退化成「整檔掃」仍印 N/N):
+  #    一支【乾淨的 view】+ 同檔另一句普通 SQL 裡的 `c.*` ⇒ 必須綠。
+  printf 'BEGIN;\nCREATE OR REPLACE VIEW public.r5d AS SELECT 1 AS z;\nINSERT INTO public.t2 SELECT c.* FROM public.orders c;\nCOMMIT;\n' > "$FX/20230107000000_r5_star_other_stmt.sql"
+  check 20230107000000_r5_star_other_stmt.sql   '本檢查零命中' '這支檔有 CREATE OR REPLACE VIEW' '規則⑤:別名.* 在【同檔的另一句】⇒ 必須綠(退化成整檔掃就會紅)'
+  # 🔴 豁免沒寫理由 ⇒ 不算數,必須照樣紅
+  printf -- '-- static-checks:view-replace-ok public.r5a\nBEGIN;\nCREATE OR REPLACE VIEW public.r5a AS SELECT o.*, 1 AS z FROM public.orders o;\nCOMMIT;\n' > "$FX/20230108000000_r5_exempt_noreason.sql"
+  check 20230108000000_r5_exempt_noreason.sql   '這支檔有 CREATE OR REPLACE VIEW' '本檢查零命中' '規則⑤:豁免沒寫理由 ⇒ 不算數, 照樣紅'
+
   # ── 多檔那段的證人:一乾淨 + 一違規,順序【違規在後】(被忽略的就是後面那些)──
   n=$((n+1))
   if bash "$SELF" "$FX/20210101000000_r2_clean.sql" "$FX/20210104000000_r2_midcommit.sql" >/dev/null 2>&1; then
@@ -131,7 +167,7 @@ if [ "${1:-}" = "--selftest" ]; then
   if ! bash "$SELF" "$FX/20210101000000_r2_clean.sql" "$FX/20210102000000_r2_trailing_comment.sql" >/dev/null 2>&1; then
     echo "❌ 多檔:兩支都乾淨卻回非 0 ⇒ 該綠沒綠"; fail=1
   fi
-  [ "$fail" = "0" ] && echo "✅ migration-static-checks --selftest $n/$n(規則①雙向 + 規則②雙向 + 規則③雙向 + 多檔雙向)"
+  [ "$fail" = "0" ] && echo "✅ migration-static-checks --selftest $n/$n(規則①雙向 + 規則②雙向 + 規則③雙向 + 規則⑤八格 + 多檔雙向)"
   exit "$fail"
 fi
 
@@ -593,9 +629,75 @@ else
   fi
 fi
 
+echo "── ⑤ CREATE OR REPLACE VIEW 的那一句裡有【別名.*】⇒ 底表加欄後重跑可能炸 ──"
+# 🔴 2026-08-30 新增(板 ⟦b4-VIEWCOL1⟧)。擋的是【下一個新增的 migration】,不是庫裡那三支。
+#
+# 機制:`別名.*` 在**建 view 那一刻就展開凍結**成一串具名欄。底表之後加了欄,
+#   重跑同一句 `CREATE OR REPLACE VIEW` 時新欄會插在原本某一欄的位置上
+#   ⇒ PG 認為你在改既有欄的名字 ⇒ `cannot change name of view column`。
+#   `CREATE OR REPLACE VIEW` **不准改欄名**;`DROP VIEW` + `CREATE VIEW` 可以。
+#
+# 🔴 **不是推論,是量到的**:`bash scripts/view-column-freeze-probe.sh` ⇒ 五個世界,
+#   含負對照(**不加欄直接重跑 ⇒ 綠**)⇒ 那個紅是【加欄】造成的,不是「這支不能重跑」。
+#
+# 🔴 **不禁 `別名.*` 本身**:`20260814140000` 檔頭把「orders 欄位一律 `o.*` 原樣帶出、
+#   不得逐欄列舉」寫成**契約** ⇒ 禁它會與那份契約打架。**擋的是 `CREATE OR REPLACE` 這個寫法。**
+#
+# 🔴🔴 **它會過度告警,而那是刻意的取捨 —— 寫出來不要讓人以為它很準**(codex 2026-08-30 抓):
+#   · **`別名.*` 是輸出清單的【最後一項】時,加欄只是合法追加 ⇒ 不會炸,而本閘照樣叫**
+#   · **CTE / 子查詢裡的 `t.*` 不會變成 view 的欄 ⇒ 也不會炸,而本閘照樣叫**
+#   ⇒ 判斷那兩件事要真的解析 SQL。⇒ 本閘選擇 **fail-closed + 一行豁免**:
+#     誤紅的代價是**寫一行豁免**,漏放的代價是**下一個人半夜對著一個像自己弄壞的錯誤**。
+#   ⇒ 📌 **所以本閘的綠【不代表安全】,它只代表「本檔沒有這個形狀」。**
+#
+# 🔴 **它抓不到什麼(已知假綠,codex 2026-08-30 逐條點名;寫出來,不假裝解得掉)**:
+#   · **動態 SQL** 組出來的 view
+#   · **E-string**:`E'…\'…;…'` 會讓 `strip_sql` 提早結束字串 ⇒ `RS=";"` 可能切錯語句
+#   · **帶空白或分號的 quoted identifier**:`"my schema"."v name"` 的 view 名只會被抽成 `my`;
+#     識別字裡含 `;` 更會被 RS 直接拆開
+#   · **非 ASCII 別名**:`SELECT 車.* FROM … 車` ⇒ 本閘的 regex 限 ASCII,實測零命中
+#   · 它**只看這一支檔**
+#   ⇒ 📌 這些都要真的解析 SQL 才擋得住。**本閘不是解析器,它是一個會叫的粗篩** ——
+#     而把射程寫出來,是為了讓下一個人不要把它的綠當成「這一類已經看得見了」。
+# 🔴 codex 抓:只取 view 名 ⇒ 一行「view-replace-ok public.foo」**沒寫理由也會放行**,
+#    而宣稱的格式是 `<view名> <理由>`。⇒ 這裡多要求一段非空白的理由才算數。
+VIEW_HITS=$(awk -v exempt="$(grep -oE '^[[:space:]]*--[[:space:]]*static-checks:view-replace-ok[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]].*' "$F" | awk '{print $3}' | tr '\n' ' ')" '
+  BEGIN { RS = ";"; ln = 1 }
+  {
+    stmt = $0; low = tolower(stmt)
+    if (match(low, /create[ \t\r\n]+or[ \t\r\n]+replace[ \t\r\n]+(temp[a-z]*[ \t\r\n]+)?(recursive[ \t\r\n]+)?view[ \t\r\n]/)) {
+      rest = substr(stmt, RSTART + RLENGTH)
+      vname = rest; sub(/^[ \t\r\n]+/, "", vname); sub(/[ \t\r\n(].*$/, "", vname); gsub(/"/, "", vname)
+      short = vname; sub(/^.*\./, "", short)
+      skip = 0
+      if (exempt != "" && (index(" " exempt " ", " " vname " ") > 0 || index(" " exempt " ", " " short " ") > 0)) skip = 1
+      if (!skip && match(stmt, /[A-Za-z_"][A-Za-z0-9_"$]*[ \t\r\n]*\.[ \t\r\n]*\*/)) {
+        pre = substr(stmt, 1, RSTART - 1); nl = gsub(/\n/, "\n", pre)
+        printf "%d: view=%s  片段=%s\n", ln + nl, vname, substr(stmt, RSTART, RLENGTH)
+      }
+    }
+    tmp = $0; ln += gsub(/\n/, "\n", tmp)
+  }' "$STRIPPED" || true)
+if [ -n "$VIEW_HITS" ]; then
+  echo "🔴 這支檔有 CREATE OR REPLACE VIEW 的【那一句之內】用了 別名.* :"
+  printf '%s\n' "$VIEW_HITS" | sed 's/^/     /'
+  echo "   ⇒ 底表日後加一欄,任何人重跑這支就可能炸 —— 而錯誤訊息長得像【他自己弄壞的】。"
+  echo "   ⇒ 改法二選一:①改成 DROP VIEW IF EXISTS + CREATE VIEW ②view 本體逐欄列舉"
+  echo "   🛑 選①之前先想清楚 DROP 會一起帶走什麼:**依賴這支 view 的其他 view/函式會被擋或連帶掉**、"
+  echo "      **ACL(GRANT/REVOKE)與 COMMENT 不會自己回來** —— 重建那幾行要一起寫進同一支 migration,"
+  echo "      否則你把「欄序問題」換成了「權限或依賴事故」,而後者上線後才會看見。"
+  echo "   ⇒ 若這一支【本來就不會炸】(別名.* 是輸出清單最後一項 / 它在 CTE 或子查詢裡),"
+  echo "      或 DROP 刻意寫在別支檔 ⇒ 在本檔加一行,**要指名是哪一支 view**:"
+  echo "      -- static-checks:view-replace-ok <view 名> <理由>"
+  echo "   📌 想親眼看它炸:bash scripts/view-column-freeze-probe.sh"
+  RC=1
+else
+  echo "✅ 本檢查零命中 —— ⚠️ 意思是【本檔沒有這個形狀,或那一支已被具名豁免】,**不是「這支 view 安全」**"
+fi
+
 echo "──────────────────────────────────────────────────────────────────"
 if [ "$RC" = "0" ]; then
-  echo "✅ 四道靜態檢查全過:$F"
+  echo "✅ 五道靜態檢查全過:$F"
 else
   echo "🔴 有檢查未過:$F"
 fi

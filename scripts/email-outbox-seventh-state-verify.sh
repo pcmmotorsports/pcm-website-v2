@@ -39,7 +39,11 @@ export LC_ALL=C LANG=C   # 🔴 postmaster 啟動時也要看到（見 scripts/a
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 M="$REPO/supabase/migrations/20260830060000_m4b_e4_outbox_shipment_voided_status.sql"
 MIG_TABLE="$REPO/supabase/migrations/20260717020000_m4a_email_outbox.sql"
-D=$(mktemp -d "${TMPDIR:-/tmp}/eo7.XXXXXXXX"); PG=54372
+# 🔴 codex 抓:`mktemp` 失敗時 `D` 會是**空字串** ⇒ 後面每一個 "$D/xxx" 都變成 "/xxx"
+#    ⇒ 有權限的環境會在**根目錄**留下殘骸,而 cleanup 也清不到它。
+#    ⇒ 這不是量測結果、也不是「乾淨」⇒ 當場 ENV-FAIL(對齊 migration-static-checks.sh 的 exit 9)。
+D=$(mktemp -d "${TMPDIR:-/tmp}/eo7.XXXXXXXX") || { echo "🔴 建不出暫存目錄(mktemp)⇒ 這不是量測結果, 也不是乾淨 ⇒ ENV-FAIL"; exit 9; }
+PG=54372
 KEEP=0
 cleanup(){ pg_ctl -D "$D/pg" stop -m immediate >/dev/null 2>&1
   if [ "$KEEP" = 1 ]; then printf '🛑 非綠 ⇒ log 保留在 %s\n' "$D"; else rm -rf "$D"; fi; }
