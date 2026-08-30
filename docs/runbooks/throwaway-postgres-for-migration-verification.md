@@ -275,9 +275,32 @@ CREATE ROLE anon NOLOGIN;
 --       而真相是【第一支就斷了、`orders` 根本沒建起來】—— 抓到它的是開檔讀那個錯)。
 CREATE ROLE authenticator NOLOGIN;
 
--- auth schema 骨架(只需要被 FK 參照的那張表)
+-- auth schema 骨架
+-- 🔴 codex 2026-08-30 nit(更正,原字面留痕):~~「只需要被 FK 參照的那張表」~~ 已經不對了 ——
+--    下面除了 `auth.users`,還要 `auth.uid()` 與對 schema 的 USAGE。
 CREATE SCHEMA auth;
 CREATE TABLE auth.users (id uuid PRIMARY KEY);
+-- 🔴 **`auth.uid()` 也要**(2026-08-30 線 DB `-08` 量到,拋棄式 PG 17.10)——
+--    同 `authenticator` 那一條的形狀:少了它,`20260523034911_init_customers_and_subtables.sql`
+--    的 RLS policy 就炸 `ERROR: function auth.uid() does not exist`,
+--    而 `customers` 建不出來 ⇒ **下游每一支碰客戶的都跟著死**。
+--    **量到的**(全樹 237 支依序跑完,`scripts/migrations-replay-from-zero.sh`):
+--      補這一行【之前】失敗 **50** 支 ⇒ 補上【之後】失敗 **47** 支。
+--    🔴 **而真正值錢的不是那 3 支,是【第一支失敗換人了】**:
+--      補之前的第一支失敗是這個 `auth.uid()`(= bootstrap 自己的缺件),
+--      補之後變成 `relation "public.product_fitments_effective" does not exist`
+--      ⇒ **那才是 `#299` 記了一個月的那個真正的斷點。**
+--      📌 **⇒ 一個 bootstrap 缺件會【站在真正的問題前面】,而它們在總數上長得一樣。**
+--    🛑 **而 47 支仍然失敗 ⇒ 本清單【還是】不完整**(這一行不改上面那句警告,只是又補了一格)。
+CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
+-- 🛑 **這個 `auth.uid()` 恆回 NULL** —— 它只夠讓 migration【建得起來】。
+--    ⇒ 拿它驗 RLS 會**恆得 0 列**(`auth.uid() = customer_id` 永遠不成立),
+--      而那個 0 與「policy 寫錯」印同一個東西。⇒ **要驗 RLS 就換一版會回真值的**,例如
+--      `SELECT current_setting('request.jwt.claim.sub', true)::uuid` 再用 `SET` 餵值。
+--    (codex 2026-08-30 抓;而本檔 §1 那句「兩個世界印不同的東西」正是它要防的。)
+-- 🔴 GRANT:少了它,以 authenticated/anon 身分跑的驗證會在【錯的一層】被擋
+--    ⇒ 你會以為是 policy 擋的,而其實是 schema 沒有 USAGE。
+GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
 
 -- 🔴 extensions schema —— migration 裡寫 `extensions.gin_trgm_ops`,沒有這個 schema 會在 DDL 那行就炸
 CREATE SCHEMA IF NOT EXISTS extensions;
