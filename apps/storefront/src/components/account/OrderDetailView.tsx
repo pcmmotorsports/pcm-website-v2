@@ -183,9 +183,22 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
                而**下游那一頁刻意【不再解一次碼】**(Next 的動態路由段進來就已解碼,
                再解一次遇到 `%` 會拋 `URIError` 而整頁 500)。兩端要對得起來。 */}
         <div className="od-head-actions">
+          {/* 🔴 **開新分頁 —— Sean 2026-08-30 在正式站看過之後直接下的。**
+              他的原話逐字:「**有但是直接取代整個頁面, 我要可以跳新分頁或者直接下載PDF,
+              可以直接下載PDF最好**」。
+              ⇒ 「直接下載 PDF」那一半是 `-30` 的 `:412`(伺服器產檔), 不在這一片;
+                 而**「跳新分頁」他明確接受, 且今天就做得到** ⇒ 先做這半。
+              🔴 `rel="noopener noreferrer"` **不是可選的**:`target="_blank"` 會把
+                 `window.opener` 交給新分頁 —— 那一頁是我們自己的沒錯, 而**這條紀律不看目的地**
+                 (下一個人改 href 時不會回來補它)。
+              ⚠️ **可及性缺口, 照實寫**:鈕上的字沒有講「會開新分頁」——
+                 而**那個字面是 Sean 的板**(稿 `:193` 帶著「(2026-08-07 Sean 拍板)」)
+                 ⇒ 我不自己加。已與鈕文案那題一起列在板 `:416` 等他。 */}
           <Link
             className="acc-btn-ghost"
             href={`/account/orders/${encodeURIComponent(order.displayId)}/statement`}
+            target="_blank"
+            rel="noopener noreferrer"
             data-od-id="order-statement-link"
           >
             下載訂單 PDF

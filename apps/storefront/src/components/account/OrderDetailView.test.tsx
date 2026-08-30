@@ -270,6 +270,24 @@ describe('OrderDetailView', () => {
       expect(link!.getAttribute('href'), '抄了稿上那個 .pdf ⇒ 這顆鈕會 404').not.toContain('.pdf');
     });
 
+    it('🔴 它開【新分頁】, 而且帶 `rel="noopener noreferrer"`(Sean 2026-08-30 直接下的)', () => {
+      // 他的原話逐字:「有但是直接取代整個頁面, 我要可以跳新分頁或者直接下載PDF」
+      // ⇒ 取代整頁 = 客人回不去他原本在看的那張訂單。
+      const { container } = render(<OrderDetailView order={ORDER} />);
+      const link = container.querySelector('[data-od-id="order-statement-link"]');
+      expect(link, '那顆鈕不見了').not.toBeNull();
+      expect(link!.getAttribute('target'), '它還是會取代整個頁面').toBe('_blank');
+      // 🔴 `rel` 這一半:`target="_blank"` 會把 `window.opener` 交給新分頁。
+      //    這條紀律**不看目的地** —— 下一個人改 href 時不會回來補它。
+      const rel = link!.getAttribute('rel') ?? '';
+      expect(rel).toContain('noopener');
+      expect(rel).toContain('noreferrer');
+      // 🔴 負對照:同一頁的「返回」那顆**不該**是新分頁(證明上面不是「每顆都有 target」)
+      const back = container.querySelector('[data-od-id="order-back"]');
+      expect(back, '返回那顆不見了 ⇒ 這個負對照失去意義').not.toBeNull();
+      expect(back!.getAttribute('target')).toBeNull();
+    });
+
     it('🔴 它是 `<a>` 不是 `<button>` —— 導覽要能中鍵開新分頁 / 右鍵複製網址', () => {
       const { container } = render(<OrderDetailView order={ORDER} />);
       const el = container.querySelector('[data-od-id="order-statement-link"]');

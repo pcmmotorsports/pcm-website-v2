@@ -91,13 +91,17 @@ const ORDER = {
 
 type Measured = {
   tabbarDisplay: string;
+  actionsDisplay: string;
   bodyPadBottom: string;
   sheetPadding: string;
   gapInfoMm: number;
   gapItemsMm: number;
   gapTotalsMm: number;
   bottomToFloorPx: number;
-  denominator: { sheet: boolean; tabbar: boolean; info: boolean; items: boolean; totals: boolean; bottom: boolean };
+  denominator: {
+    sheet: boolean; tabbar: boolean; info: boolean;
+    items: boolean; totals: boolean; bottom: boolean; actions: boolean;
+  };
 };
 
 let browser: Browser;
@@ -107,8 +111,20 @@ let print: Measured;
 beforeAll(async () => {
   // 🔴 載入順序照真的來:root layout 的 CSS 先,然後才是這一頁自己 import 的那兩支。
   //    順序寫反的話,R1 那顆 bug 在量具裡就不會發生 ⇒ 量具會替它背書。
-  const layoutCss = compiledCss('.mobile-tabbar');
+  // 🔴🔴 **標記要【每一支來源檔各自獨有】, 否則兩次查詢會撈到同一支 chunk。**
+  //    ⛔ ~~`compiledCss('.mobile-tabbar')`~~ —— 那個字面**現在兩支檔都有**:
+  //       `mobile-tabbar.css`(本體)與 `statement.css`(我那條 `@media print` 藏它的規則)
+  //       ⇒ `.find()` 撈到第一支 ⇒ **layout 與 page 變成同一支** ⇒ tabbar 的本體規則整組不見
+  //       ⇒ 螢幕那半的斷言當場紅(`flex` ⇒ `block`)。
+  //    📌 **⇒ 而它紅的方式是【對的】** —— 那兩格螢幕對照就是為了這種事而存在:
+  //       沒有它們, 這次量具失效會安靜地讓 print 那半「通過」。
+  //    ✅ 換成 `.mobile-tabbar-btn`(只有 `mobile-tabbar.css` 有;`statement.css` ⇒ 0 命中)。
+  const layoutCss = compiledCss('.mobile-tabbar-btn');
   const pageCss = compiledCss('.stmt-page');
+  // 🔴 分母:兩支必須是**不同**的 chunk。相同 ⇒ 上面那個病又回來了, 而它會安靜地發生。
+  if (layoutCss === pageCss) {
+    throw new Error('layout 與 page 撈到同一支 chunk ⇒ 標記不夠獨有, 量具失效(不是產品壞了)');
+  }
 
   // 🔴 `<MobileTabBar/>` 是 **root layout 每一條 route 都渲染的**(`app/layout.tsx:179`)——
   //    它不在 `StatementDoc` 裡,而**客人印到的是整條 route**。
@@ -130,6 +146,7 @@ beforeAll(async () => {
       const sheet = q('.stmt-page');
       const bottom = q('.pd-bottom');
       const tabbar = q('.mobile-tabbar');
+      const actions = q('.stmt-actions');
       const info = q('.pd-info');
       const items = q('.pd-items');
       const totals = q('.pd-totals');
@@ -137,10 +154,12 @@ beforeAll(async () => {
       const denominator = {
         sheet: sheet !== null, tabbar: tabbar !== null, info: info !== null,
         items: items !== null, totals: totals !== null, bottom: bottom !== null,
+        actions: actions !== null,
       };
       const cs = (el: Element | null) => (el === null ? null : getComputedStyle(el));
       return {
         tabbarDisplay: cs(tabbar)?.display ?? 'MISSING',
+        actionsDisplay: cs(actions)?.display ?? 'MISSING',
         bodyPadBottom: getComputedStyle(document.body).paddingBottom,
         sheetPadding: cs(sheet)?.padding ?? 'MISSING',
         gapInfoMm: mm(cs(info)?.marginTop ?? '-1px'),
@@ -175,13 +194,28 @@ beforeAll(async () => {
 //    📌 而診斷它的線索是那個數字本身: != 我給 `beforeAll` 的 60000
 //       ⇒ **逾時訊息裡的數字, 就是「是哪一個 hook」的答案。**
 afterAll(async () => {
-  await browser?.close();
+  // 🔴🔴 **關瀏覽器要【夾住】, 不是給它更大的數字。**
+  //    經過:先只給 `beforeAll` 60s ⇒ 仍印 `10000ms`(預設)⇒ 是 `afterAll`;
+  //    給 `afterAll` 30s ⇒ **仍然逾時**(`Hook timed out in 30000ms`)。
+  //    ⇒ 📌 **一個「關掉一顆瀏覽器」的動作超過 30 秒, 不是它慢, 是機器被吃光了**
+  //       (八個施工窗並行 + 同時有人在 `pnpm build`)。
+  //    ⇒ ⇒ **再加大只是把同一件事往後推, 而它下一次仍然會紅** —— 而它紅的形狀是
+  //       **檔紅而 0 格紅**(鐵則 11 點名的那一種:`Tests` 那行與全綠那一發逐字相同)。
+  //
+  // ✅ 改成 race 夾住:10 秒關不掉就放手, **並且不讓它把整支檔判紅** ——
+  //    這一步是**收尾**, 它失敗**不代表任何一條斷言不成立**。
+  // ⚠️ **代價照實寫**:最壞情況會留下一顆沒關乾淨的 chromium, 由 vitest 退出時收。
+  //    我**沒有量過**那種情況實際會不會留下孤兒行程 ⇒ 那是這個取捨裡未確認的一格。
+  await Promise.race([
+    browser?.close().catch(() => undefined),
+    new Promise((resolve) => setTimeout(resolve, 10_000)),
+  ]);
 }, 30_000);
 
 describe('客人明細列印頁 · 串接量測(真 chromium + 編譯後 CSS + 列印媒體)', () => {
   it('🔴 分母:六個被量的節點都在(少一個的話下面每一格都是 fallback)', () => {
     expect(print.denominator).toEqual({
-      sheet: true, tabbar: true, info: true, items: true, totals: true, bottom: true,
+      sheet: true, tabbar: true, info: true, items: true, totals: true, bottom: true, actions: true,
     });
   });
 
@@ -192,6 +226,19 @@ describe('客人明細列印頁 · 串接量測(真 chromium + 編譯後 CSS + �
     expect(print.tabbarDisplay).toBe('none');
     // 🔴 另一半 —— 沒有它,「藏起來了」與「這個元素根本沒被渲染」印同一個結果。
     expect(screen.tabbarDisplay, '螢幕上也不見了 ⇒ 我把手機導覽列弄壞了').toBe('flex');
+  });
+
+  it('🔴🔴 列印鈕不得印在紙上 —— 而這一格是【我弄壞過並且上線了】才補的', () => {
+    // 🔴 成因:`.stmt-actions{display:none}` 原本與 R1 的補丁 `.stmt-actions + *{margin-top:0}`
+    //    **住在同一個 `@media print` 區塊**;R3 判那條 `* + *` 前提是假的 ⇒ 我刪掉它與它的補丁
+    //    ⇒ **那條不相干的、真正在做事的規則一起走了。**
+    // 📌 **而本檔當時全綠** —— 因為我造這把尺時量的是「R1/R2/R3 指名的那四格」,
+    //    而這一格**在那之前就已經是對的**
+    //    ⇒ ⇒ **沒有人會替一個【本來就對】的東西寫守門, 而它正是被我弄壞的那一個。**
+    // 🛑 後果:Sean 在正式站的列印預覽上看到那顆框框(逐字「很奇怪」)—— 客人紙上的髒東西。
+    expect(print.actionsDisplay, '那顆鈕會被印在紙上').toBe('none');
+    // 🔴 另一半 —— 沒有它,「藏起來了」與「這個元素根本沒被渲染」印同一個結果。
+    expect(screen.actionsDisplay, '螢幕上那顆鈕不見了 ⇒ 客人沒有東西可以按').toBe('flex');
   });
 
   it('🔴 紙上不得被 `body{padding-bottom}` 擠壓(同一個成因的另一半)', () => {
