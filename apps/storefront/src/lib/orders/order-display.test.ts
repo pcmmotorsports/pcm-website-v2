@@ -132,6 +132,19 @@ describe('paymentMethodLabel', () => {
     expect(paymentMethodLabel('')).toBe('');
   });
 
+  // 🔴 R2 code-reviewer 2026-08-30 抓到的真缺陷,補守門:原本的 `map[m] ?? m` **會走原型鏈**。
+  //    我當場複跑確認(不是照收):這五個值回的**不是 string** ——
+  //    toString / constructor / valueOf / hasOwnProperty ⇒ function、`__proto__` ⇒ object。
+  //    失敗情境:React child 拿到 function ⇒ **訂單明細整頁 render throw**,
+  //    而檔頭宣稱的「認不得的原樣印出」在那五個值上不成立。
+  //    ⚠️ 今天不可達(migrations 只寫 `tappay`),**而這一欄是自由文字、沒有 CHECK** ⇒ 是守門不是裝飾。
+  it('🔴 原型鏈上的名字 → 一律原樣回字串(不得回 function/object)', () => {
+    for (const k of ['toString', 'constructor', 'valueOf', 'hasOwnProperty', '__proto__']) {
+      expect(typeof paymentMethodLabel(k), `${k} 回了非字串`).toBe('string');
+      expect(paymentMethodLabel(k)).toBe(k);
+    }
+  });
+
   // 🔴🔴 **分母守門** —— 上面三格證的是「函式行為對」,證不了「我們有沒有漏翻一個值」。
   //    這一格去**掃 migrations 裡所有真的被寫進 payment_method 的字面**,
   //    要求每一個都翻得出中文(= 翻譯結果不等於原值)。
@@ -145,8 +158,11 @@ describe('paymentMethodLabel', () => {
   //          而客人在訂單頁看到 `linepay`。
   //       ⚠️ 我原本只寫「app 層 / 正式庫殘值不在分母裡」—— **那句話漏掉了【語法形狀】這一維**,
   //          而讀的人會把它讀成「除了那兩個例外,其餘全涵蓋」。
-  //       ⚠️ app 層另有一格:目前 `apps`/`packages` **零寫入**(只有 SupabaseOrderAdapter.ts:176/531
-  //          兩處 SELECT 投影)⇒ 那個限制今天不是活的缺口,但哪天有人加寫入點它就活了。
+  //       ⚠️ app 層另有一格:目前 `apps`/`packages` **零寫入**。
+  //          ⚠️ 我原本寫「只有 SupabaseOrderAdapter.ts:176/531 兩處」—— **那個數字略窄**
+  //          (R2 抓):另有 `packages/adapters/src/supabase/mappers/order.ts:1002/1206` 兩處**讀取**。
+  //          ⇒ 「零寫入」這個結論成立,而「只有兩處」不成立 —— **結論對、分母錯,兩件事**。
+  //          哪天有人加寫入點,這個限制就活了。
   it('分母:migrations 裡每一個寫進 payment_method 的字面,都翻得出中文', () => {
     const dir = join(__dirname, '../../../../../supabase/migrations');
     const found = new Set<string>();

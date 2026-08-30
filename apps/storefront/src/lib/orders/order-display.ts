@@ -192,5 +192,13 @@ const PAYMENT_METHOD_LABEL: Readonly<Record<string, string>> = {
 };
 
 export function paymentMethodLabel(method: string): string {
-  return PAYMENT_METHOD_LABEL[method] ?? method;
+  // 🔴 `Object.hasOwn` 而不是 `PAYMENT_METHOD_LABEL[method] ?? method`(R2 code-reviewer 2026-08-30):
+  //    後者**會走原型鏈** —— 我當場複跑過,不是照收它的話:
+  //      toString / constructor / valueOf / hasOwnProperty ⇒ 回 **function**
+  //      __proto__                                          ⇒ 回 **object**
+  //    ⇒ `??` 只接 null/undefined,**接不住這五個** ⇒ React child 拿到 function
+  //      ⇒ **整頁 render throw**,而不是本函式檔頭宣稱的「認不得的原樣印出」。
+  //    ⚠️ 今天不可達(migrations 只寫字面 `tappay`),**而這一欄是自由文字、沒有 CHECK**
+  //      (見上面值域那段)⇒ 那是「今天沒有人這樣寫」,不是「寫不進來」。
+  return Object.hasOwn(PAYMENT_METHOD_LABEL, method) ? PAYMENT_METHOD_LABEL[method]! : method;
 }
