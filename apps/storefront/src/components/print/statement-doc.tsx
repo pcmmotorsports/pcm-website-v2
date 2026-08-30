@@ -279,9 +279,14 @@ export function StatementDoc({ order }: { order: MemberOrderDetail }) {
               ⚠️ 這裡刻意**不加** `print:table-header-group` —— 那等於 UA 預設,
                  是一條永遠不會失效的字面,而紅不起來的守門比沒有更糟。 */}
           <section className='pd-items'>
-            <h2 className='pd-sech'>
-              品項明細<span>本訂單全部品項</span>
-            </h2>
+            {/* 🔴 **~~`<span>本訂單全部品項</span>`~~ 拿掉 —— Sean 2026-08-30 拍板。**
+                他的原話逐字(我問「客人那張也一起拿掉嗎」):「**要 拿掉,**
+                **但是我的認定,訂單明細=客人看到的那張,是一樣的東西。**」
+                🔴 **判準是「它是不是一句【解釋排版/範圍】的小字」, 不是「它在哪張紙上」** ——
+                   `品項明細` 這個**標題**留著(那是這一區叫什麼),
+                   走的是後面那句**解釋這一區母體是什麼**的話。
+                📌 他更早的原話:「**我不要這些奇怪標語**」「**太多標語了, 真的很奇怪**」。 */}
+            <h2 className='pd-sech'>品項明細</h2>
             <table>
               {/* 欄寬逐字照後台那張,**扣掉「狀態」那一欄的 20mm**(檔頭那一大段講了為什麼)。 */}
               <colgroup>
@@ -292,14 +297,17 @@ export function StatementDoc({ order }: { order: MemberOrderDetail }) {
                 <col style={{ width: '24mm' }} />
               </colgroup>
               <thead>
-                {/* 續頁欄名重複那一列。`colSpan` **必須等於欄數(5)** ——
-                    少一欄的話那一列只會撐在左邊,而那要真的印到第 2 頁才看得到。 */}
-                <tr className='pd-contbar'>
-                  <th colSpan={5}>
-                    訂單 <b>{order.displayId}</b>
-                    <i>續頁欄名重複</i>
-                  </th>
-                </tr>
+                {/* 🔴 **~~`<tr className='pd-contbar'>` 續頁抬頭整列~~ 拿掉 —— 同一個拍板。**
+                    後台那張同日已拿掉(`2370d745`), 而 Sean 說客人那張「要 拿掉」。
+                    🛑 **代價照實寫**:**續頁上認不出這是哪一單**。他拍後台那張時已被告知這個代價,
+                       而這一張是他自己說「是一樣的東西」⇒ **不要因為「這張是給客人的、更需要編號」
+                       而替他保留** —— 那是替他改板。要保留請回去問他。
+                    🔵 而那一列裡的 `<i>續頁欄名重複</i>` 那六個字**一直印在紙上**
+                       (`print-a4.css` 的 `.pd-contbar th i` 只有 `float`/`font-style`/`color`/
+                       `font-weight`, **零隱藏** —— 出貨線的 code-reviewer 開 CSS 查出來的)
+                       ⇒ 它正是 Sean 說的那種「奇怪標語」, 跟著整列一起走是對的。
+                    ⚠️ **而 `<thead>` 這個結構仍然不得改成 div** —— 跨頁欄名重複靠的是它。
+                       走掉的只有 `.pd-contbar` 那一列, 下面 `.pd-colhead` 那一列**還在**。 */}
                 <tr className='pd-colhead'>
                   <th>料號</th>
                   <th>品名 / 規格</th>
