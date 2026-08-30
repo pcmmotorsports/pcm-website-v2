@@ -210,3 +210,34 @@ VALUES
   (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', true,
    'BMW M3 (探針)', '2019', 'S58', '42000', '中冷 / 排氣', 'BMW', 'M3')
 ON CONFLICT DO NOTHING;
+
+-- ── 一筆【哨兵收款】(2026-08-31 線【客人帳戶區】`-08` 種;主視窗 `-48` 批「甲 種」)──────
+-- 🔴 **為什麼種它**:首頁「今日對帳」的「今日實收(淨)」走 RPC `admin_today_payment_total`。
+--    那支 RPC **在鑽機上存在**, 而 `order_payments` **一列都沒有** ⇒ 它今天回 `(0,0)`,
+--    而**換一天也回 `(0,0)`** ⇒ 📌 **【正對照造不出來】** ⇒
+--    **我分不出「管線正常而真的沒錢」與「管線壞了」** —— 那一格因此驗不了。
+--    (同 `#25` 那次:**量具的缺被記成產品的未知**。而收款是【下一個會擋人的空表】。)
+--
+-- 🔴 **它被做成【一眼看得出是假的】, 不是【查得到它是假的】**(主視窗指定, 比「濾得掉」強一級):
+--    · `amount = 1` —— **NT$1**, 現實中不會有人匯 1 元
+--    · `bank_reference = 'ZZQ-PROBE-SEED-20260831'` · `note` 也帶同一個字面
+--    ⇒ 📌 **「濾得掉」把工作留給下一個人;「一眼看得出」把工作做掉了。**
+--
+-- ✅ **而分母【已經算好】, 不要下一個人自己扣**(主視窗指定):
+--    這台鑽機上的 `order_payments` = **種的 1 筆 + 真的 0 筆**。
+--    數法:`select count(*) filter (where bank_reference like 'ZZQ-PROBE-SEED%'
+--            or note like '%ZZQ-PROBE-SEED%') from public.order_payments`
+--
+-- ✅ **種完之後那個正對照就造得出來了**(當場實跑):
+--    `admin_today_payment_total` 今天 ⇒ `(1,1)` · 昨天 ⇒ `(0,0)`;首頁畫面 ⇒ **今日實收(淨) NT$ 1**
+--    ⇒ 🔴 **⇒ 那條管線【看得見資料】** ⇒ **種之前那個 0 是真的 0, 不是尺沒接上。**
+INSERT INTO public.order_payments
+  (id, order_id, rail, amount, received_at, bank_reference, request_id, actor, note)
+SELECT gen_random_uuid(), o.id, 'bank_transfer', 1, now(),
+       'ZZQ-PROBE-SEED-20260831', gen_random_uuid(), 'probe_staff',
+       '🔴 探針種子資料(ZZQ-PROBE-SEED)—— 不是真收款。種它的理由見本檔上方註解。'
+  FROM public.orders o
+ WHERE o.payment_status = 'paid'
+ ORDER BY o.created_at
+ LIMIT 1
+ON CONFLICT DO NOTHING;
