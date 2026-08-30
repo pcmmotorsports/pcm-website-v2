@@ -666,6 +666,27 @@ def main(argv: list[str]) -> int:
         return 2
     if args[0] == '--selftest':
         return selftest()
+    # 🔵 `--staged-md`:**自己去問 git 這次 staged 了哪幾支 `.md`**, 然後對每一支跑 `--changed-only`。
+    #   🔴🔴 **為什麼這一步不能留在 shell 裡**(2026-08-31 codex 第二輪實跑抓的, 兩條都是我親手寫的):
+    #     ① `git diff … | tr '\0' '\n'` ⇒ **整條管線的 rc 是 `tr` 的** ⇒ git 失敗(實測 rc=129)
+    #        而 `FILES` 變空 ⇒ 我的殼 `[ -z "$FILES" ] && exit 0` ⇒ **rc=0 印綠放行**
+    #        ⇒ 📌 **我花了一整夜寫「fail-open 印綠」的教訓, 然後把它寫進自己的閘。**
+    #     ② `xargs` 會把子程序的 rc=1/2/3 **全部壓成 1**(BSD xargs 實測)
+    #        ⇒ 那支尺的四態契約在殼裡消失, 而我的 `RC -eq 2` 那段提示**永遠走不到**
+    #        ⇒ 🔴 而那正是我【為了避開 lint-staged 才搬過來】的同一個病 —— 換了個殼, 病跟著來。
+    #   ✅ 兩條都只有「整段搬進同一個程序」解得掉:清單、rc、逐檔掃描在同一個 rc 的射程裡。
+    if args[0] == '--staged-md':
+        listing = _git(['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMR', '--', '*.md'])
+        if listing is None:
+            print('🟡 **git 答不出這次 staged 了哪幾支 .md**(不在 repo?git 失敗?)'
+                  ' ⇒ 本閘【不做任何宣稱】, 不放行。')
+            return 2
+        # 🔴 用 NUL 切, 從頭到尾沒有經過 shell 變數 ⇒ 換行檔名與中文檔名都安全。
+        #    (本 repo 今天有 88 支中文檔名的 .md、0 支含換行 —— 而後者是「今天沒有」不是「不會有」。)
+        paths = [p for p in listing.split('\0') if p]
+        if not paths:
+            return 0
+        return main(['x', '--changed-only'] + paths)
     # 🔵 `--changed-only`:只報【這次 staged diff 動到的那些列】上的溢出。
     #   存量不紅, 而你今天新寫壞的那一列會紅。
     #   🛑 **它與 `board-state-consistency.py --staged` 的語意【不同】** ——
