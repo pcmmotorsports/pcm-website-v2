@@ -71,8 +71,12 @@ if [ "${1:-}" = "--selftest" ]; then
   out6=$(bash "$0" --regex 'a.c' 'a.c' "$d/meta.txt" 2>&1); rc=$?
   echo "$out6" | grep -q '你自己明講的' || { echo "🔴 selftest: --regex 應走明講分支, 實得: $out6"; ok=0; }
   [ "$rc" = "0" ] || { echo "🔴 selftest: --regex 正當用法應 rc=0, 實得 $rc"; ok=0; }
+  # 世界七:**那句提示要在 stdout** —— 它是「命中 = N」那個數字的修飾語,
+  #   而修飾語若走 stderr, 一個 `2>/dev/null` 就把它切掉, 留下的正好是那個看起來很正常的數字。
+  out7=$(bash "$0" 'a.c' 'abc' "$d/meta.txt" 2>/dev/null)
+  echo "$out7" | grep -q '當 regex 讀會命中' || { echo "🔴 selftest: 丟掉 stderr 之後提示不見了 ⇒ 它跟數字不同管線"; ok=0; }
   rm -rf "$d"
-  [ "$ok" = "1" ] && { echo "✅ selftest PASS(六個世界印不同的東西)"; exit 0; }
+  [ "$ok" = "1" ] && { echo "✅ selftest PASS(七個世界印不同的東西)"; exit 0; }
   echo "🔴 selftest FAIL"; exit 1
 fi
 
@@ -138,12 +142,18 @@ lr=$(grep -rl  "${EXCLUDES[@]}" -- "$TARGET" "$@" 2>/dev/null | sort | tr '\n' '
 rc=0
 if [ "$lf" != "$lr" ]; then
   nf=$(printf '%s' "$lf" | wc -w | tr -d ' '); nr=$(printf '%s' "$lr" | wc -w | tr -d ' ')
+  # 🔴 這一段走 **stdout**, 不走 stderr(R1 nit 5;而我第一次以為它隨設計改變消失了 ——
+  #    那是【以為它不見了】不是【決定不修】, 兩者在 commit body 上長得一樣:都沒提到它)。
+  #    理由:上面那行「命中 = N」是【對這個模式而言】正確的數字, **而它對【猜錯模式的人】是錯的**,
+  #    唯一的訊號就是這一句。⇒ 它若在 stderr, 一個 `2>/dev/null` 或「只複製第一行」就把它切掉了,
+  #    而留下來的正好是那個看起來很正常的數字。
+  #    📌 **一個修飾語必須跟它修飾的那個數字走同一條管線, 否則它會被單獨丟掉。**
   if [ "$MODE" = "F" ]; then
-    echo "ℹ️  這串字當 regex 讀會命中【不同的檔】(純字串 $nf 支 / regex $nr 支)。" >&2
-    echo "   本次是【純字串】的答案, 那是正確的答案 —— 除非你本來就想要 regex ⇒ 那要加 --regex。" >&2
+    echo "ℹ️  這串字當 regex 讀會命中【不同的檔】(純字串 $nf 支 / regex $nr 支)。"
+    echo "   本次是【純字串】的答案, 那是正確的答案 —— 除非你本來就想要 regex ⇒ 那要加 --regex。"
   else
-    echo "ℹ️  你用了 --regex。同一串字當純字串讀會命中不同的檔(純字串 $nf 支 / regex $nr 支)。" >&2
-    echo "   本次是【regex】的答案, 你自己明講的 ⇒ 不擋。" >&2
+    echo "ℹ️  你用了 --regex。同一串字當純字串讀會命中不同的檔(純字串 $nf 支 / regex $nr 支)。"
+    echo "   本次是【regex】的答案, 你自己明講的 ⇒ 不擋。"
   fi
 fi
 # 🔴 正對照要在【你實際採用的那個讀法】裡非 0(R1 nit 7)—— 不是在另一個讀法裡
