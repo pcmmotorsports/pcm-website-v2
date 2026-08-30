@@ -303,7 +303,44 @@ def self_check():
         #    🛑 **本片刻意不順手做** —— 主視窗指派逐字「一次只加一個變因」,
         #       而那是**測試結構**的改動、不是這條 `config` 腿的一部分
         #       ⇒ 混在同一顆裡的話, 之後多標/少標的那幾支分不出是誰造成的。
-        #    📌 **⇒ 這是一個【有便宜解、而刻意留到下一顆】的缺口, 不是一個沒有解的缺口。**
+        #    ✅ **2026-08-31 已補**:見下方 `REQUIRED_SHELL` / `REQUIRED_PYJS`(具名答案卷)。
+    #       實跑:刪掉這四格裡任一格 ⇒ **紅**(M4/M5/M6/M7)。
+    #    🛑 **而仍然殺不掉的兩發要寫出來**(2026-08-31 實跑):
+    #       M8 把覆蓋檢查改成不設 `ok = False` / M11 把答案卷的非空守門拿掉 ⇒ **仍然全過**。
+    #       —— 兩發都是所有「守門的守門」共有的性質:**在沒有東西該紅的那一天,
+    #          有它跟沒它印同一個字** ⇒ 再加一道去守它 = **無窮後退, 停在這裡。**
+    #    🔴 **而第三發值得單獨記, 因為它是【我的量具錯】不是 finding**:
+    #       我第一版的 M9 寫成 `REQUIRED_SHELL = [] or [...]` ——
+    #       Python 裡 `[] or [x]` 求值成 `[x]` ⇒ **那份清單根本沒被清空** ⇒ 它印 ALIVE。
+    #       📌 **⇒ 我只驗了【字元變了】, 沒驗【行為變了】。**
+    #       ✅ 真的把整段換成 `REQUIRED_SHELL = []` 之後 ⇒ **當場紅**(非空守門接住)。
+    #       ⇒ 🔴 **一發沒有落地的突變, 與一發被殺不掉的突變, 在輸出上印同一個 ALIVE。**
+    ]
+    # 🔴🔴 **這一段是 2026-08-31 加的, 它擋的是【把某一格刪掉】** ——
+    #    實跑量到:刪掉下面任一格 ⇒ `--self-check` 仍 rc=0、0 紅(M4/M5)。
+    #
+    #    🛑 **而【計數】在這一支【行不通】, 這一格值得寫下來:**
+    #       `scripts/literal-sweep.sh` 那一支用「跑了幾格 vs 期望幾格」解掉同一個病,
+    #       而它的期望值來自**另一個來源**(答案卷的 cat 條數)⇒ 刪一格會對不上。
+    #       🔴 本支的期望值**只能從這份清單自己算** ⇒ `len(worlds)` ⇒ **刪一格兩邊同減 ⇒ 恆等。**
+    #       📌 **⇒ 一個從被測物自己算出來的期望值, 它不可能抓到被測物少了東西。**
+    #    ✅ **所以這裡用【具名】不是【計數】**:同構的世界(那一支的七格是同一個 for 跑出來的)
+    #       用計數;**各自不同**的世界用具名 —— 而這 27 格每一格都是不同的形狀。
+    #    ⚠️ 下面這份是**刻意的第二份清單**(答案卷),它只列【承重的那幾格】:
+    #       新增世界不必登記(不會紅);**刪掉登記過的會紅**。
+    REQUIRED_SHELL = [
+        'git -C "$d" add -A',                # 事故形狀 —— 本工具的存在理由
+        'git -C "$d" config user.name t',    # 08-31 洩漏身分的形狀
+        'git config --get user.name',        # config 唯讀形不得誤收
+        'git config -l',                     # 同上, 短旗標
+        'git merge-base HEAD x',             # 唯讀 plumbing 不得誤收
+        'git worktree list',                 # 唯讀子動作不得誤收
+    ]
+    REQUIRED_PYJS = [
+        "subprocess.run(['git','-C',d,'commit'])",   # py 清單形
+        "execFileSync('git', ['add', '-A'])",        # Node 分離參數形
+        "execFileSync('git', ['status'])",           # 同形【唯讀】⇒ 不得誤收
+        'log("see git commit history")',             # 散文裡的 git ⇒ 不得誤收
     ]
     for frag, sh, exp in worlds:
         got = calls_git_write(frag, sh)
@@ -332,6 +369,27 @@ def self_check():
         mark = '✅' if got == exp else '🔴'
         print(f"  邊界(py/js) {mark} pyjs_calls_git_write({frag!r}) = {got} (期望 {exp})")
         ok = ok and (got == exp)
+    # 🔴 **答案卷不得是空的** —— 空的答案卷會讓上面那段【全過而什麼都沒驗】。
+    #    抄 `scripts/literal-sweep.sh:125` 的成例(它對自己的答案卷做同一件事,
+    #    逐字「沒有答案卷就沒有獨立的期望值, 全綠沒有意義」)。
+    #    ⚠️ 這裡寫死 `>= 6` / `>= 4` 是刻意的:**答案卷【只增不減】** ——
+    #    新增承重的格子時把數字一起加大;而**要減的時候它會擋你一次, 逼你說明為什麼。**
+    #    (與 `EXPECT_RAN` 那種「綁回資料」的做法【相反】, 因為這一份【就是】那個獨立來源。)
+    if len(REQUIRED_SHELL) < 6 or len(REQUIRED_PYJS) < 4:
+        ok = False
+        print(f"  🔴 答案卷被縮小了(shell {len(REQUIRED_SHELL)} 期望 >=6 / "
+              f"py-js {len(REQUIRED_PYJS)} 期望 >=4)⇒ 這一發的綠不算數")
+    for name, req, have in (('shell', REQUIRED_SHELL, [w[0] for w in worlds]),
+                            ('py/js', REQUIRED_PYJS, [w[0] for w in pyjs_worlds])):
+        missing = [f for f in req if f not in have]
+        if missing:
+            ok = False
+            print(f"  🔴 {name} 少了承重的世界(有人把格子刪掉了):")
+            for f in missing:
+                print(f"       {f!r}")
+        else:
+            print(f"  覆蓋({name}) ✅ 承重的 {len(req)} 格都在(清單共 {len(have)} 格)")
+
     print("  ⇒", "self-check PASS" if ok else "🔴 self-check FAIL")
     return 0 if ok else 1
 
