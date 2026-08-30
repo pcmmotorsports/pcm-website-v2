@@ -53,6 +53,7 @@ const SUMMARY = {
   newOrderCount: 7,
   refundExceptionCount: 2,
   refundExceptionTruncated: false,
+  refundExceptionVerdictsUnavailable: false,
   failedSections: [],
 };
 

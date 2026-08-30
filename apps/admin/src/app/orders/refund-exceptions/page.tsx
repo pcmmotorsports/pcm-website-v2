@@ -42,10 +42,17 @@ export default async function RefundExceptionsPage({
   let rows: Awaited<ReturnType<typeof listRefundExceptions>>['rows'] = [];
   let truncated = false;
   let loadFailed = false;
+  // 🔴 **灰字那一行吃這兩顆,不自己重算**(R1 nit1):本頁下面另有一發
+  //    `findEffectiveVerdicts` 是給【每一列的更正入口】用的,兩發可能一成一敗
+  //    ⇒ 自己重算會出現「側欄說判定讀不到、而同一台螢幕上灰字精確地說另有 1 筆」。
+  let decidedCount = 0;
+  let verdictsUnavailable = false;
   try {
     const result = await listRefundExceptions();
     rows = result.rows;
     truncated = result.truncated;
+    decidedCount = result.decidedCount;
+    verdictsUnavailable = result.verdictsUnavailable;
   } catch (error) {
     console.error('[admin/orders/refund-exceptions] 異常清單載入失敗', error);
     loadFailed = true;
@@ -89,6 +96,20 @@ export default async function RefundExceptionsPage({
           判定不明時停手並通知系統維護。
         </p>
       </div>
+
+      {/* 🔴 **灰字保底(Sean 2026-08-30 那板的配套)** —— 側欄/首頁那顆數字改成只數「尚未判定」之後,
+          已判定的那幾筆**從數字上消失了**。而 `#473b-2`(2026-08-14)把它們列出來的理由逐字是
+          「這條不解卡單,**只解看不見**」(`docs/phase-1-backlog.md:13843`)
+          ⇒ 讓它們**從數字上消失**是拍板要的,讓它們**從畫面上消失**不是。
+          ⇒ 這一行就是那個差別:數字歸得了零,而它們仍然數得出來、仍然在下面的表格裡。
+          ⚠️ 讀不到更正時(`verdictsUnavailable`)**這一行不出現** ——
+             那時 `decidedCount` 會是 0,而印「另有 0 筆」會把「讀不到」講成「沒有」。 */}
+      {!verdictsUnavailable && decidedCount > 0 && (
+        <p className='text-muted-foreground text-sm'>
+          另有 <span className='font-medium'>{decidedCount}</span>{' '}
+          筆已經有人更正過判定 —— 它們不算在側欄與首頁那顆數字裡,但仍然列在下面。
+        </p>
+      )}
 
       <ResultBanner code={resultCode} />
 

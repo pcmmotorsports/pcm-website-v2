@@ -108,7 +108,25 @@ function formatSyncedAtTaipei(iso: string): string {
  */
 const COUNT_QUALIFIER: Partial<Record<NavItem['key'], string>> = {
   orders: '未訂貨',
+  // 🔵🔵 **2026-08-30 更正(Sean 逐字推翻下面整段;只加不刪,舊字面留著讓搜舊句的人同一發撞到)**
+  //    他這一輪逐字:「那側邊欄位的卡住數字現在是只要一筆資料存在就一直持續在上面,
+  //    **應該變成尚未處理(尚未判定)才在上面**」⇒ 拍【甲】。
+  //    ⇒ **這一格現在數的是 `pendingCount`**(②類裡已經有人判定過的**不算**;①類一律算),
+  //      述詞在 `lib/payment/refund-ledger-view.ts` 的 `countDecidedExceptions`。
+  //    🔴 **而下面那條禁令的【字面】沒有被違反** —— 它禁的是「只數①」,
+  //      而我們是「①+②裡尚未判定的」⇒ ②類未判定的仍然在數字裡。
+  //    🔴 **但它的【理由】仍然打得中我們**:正式站 actionable=0,那 2 筆一旦都被判定
+  //      這一格就會空掉 ⇒ 配套 = 清單頁灰字「另有 N 筆已判定」(`refund-exceptions/page.tsx`)。
+  //      ⚠️ **那行灰字的作者是主視窗,不是 Sean** —— 他貼回的題目只帶了甲那一行。要拿掉不必再問他。
+  //    ⚠️ 下面 `:13760` 那個行號**已漂**,錨句「這條不解卡單,只解看不見」現在在
+  //      **`docs/phase-1-backlog.md:13843`**(2026-08-30 實查,字面逐字相符)。
+  //    🛑 **而下面那個字面【本 commit 不動】** —— 「卡住」是 Sean 2026-08-22 拍板乙,
+  //      改它要他點頭。⇒ **刪除線只畫在【理由】那半,不畫在【字面】上**(R2 MF-C):
+  //      一條畫在字面上的刪除線會被讀成「這個字已經廢了」,而碼還在輸出它、測試還釘著它
+  //      ⇒ 下一個人會自己去改一個他拍過的字。
+  //      📌 **「這個字的理由不成立了」與「這個字可以改了」是兩件事。**
   // 🔴 **「待處理」→「卡住」(2026-08-22,Sean 拍板乙)** —— 那顆數字**沒有說謊,說謊的是這個字**。
+  //    ⛔ ~~而那個理由(②那半永遠不會自己離開清單)2026-08-30 起不成立了 —— 見上面 🔵 段。~~
   //    `refund-read.ts` 那支有【兩支查詢】,而這一格把兩半加起來:
   //      ① actionable  `status='processing'` + 逾時/有受理證據 ⇒ 有得按
   //      ② stuck       `status='failed'` + `failed_reason='manual_failed'` ⇒ **沒得按**
@@ -244,14 +262,21 @@ export function AppSidebar({
         */}
         {/* 🔴 A2(2026-08-21 Sean 拍板乙=最小13px):10px → 13px,見 STATUS Q26 決策。 */}
         <div className='text-muted-foreground border-t px-1 py-2 text-center text-[13px]'>
-          {counts.syncedAt ? (
+          {/* 🔴 **更正紀錄讀不到時不得印時間戳**(2026-08-30,Sean 那板的配套):
+              上面那段稿的契約逐字是「看到時間戳,留白就等於**真的沒事**」——
+              而那時退款那格是**退化值**(含已判定的)⇒ 印時間戳就是把一個退化值蓋章成事實。
+              ⚠️ 它與 `syncedAt === null` **刻意分成兩句話**:那個是「這一格沒讀到」,
+                 這個是「讀到了,而它數的東西比宣稱的寬」。合成一句 = 少一個世界。 */}
+          {counts.syncedAt === null ? (
+            '讀取失敗'
+          ) : counts.refundExceptionVerdictsUnavailable ? (
+            '判定讀不到'
+          ) : (
             <>
               同步
               <br />
               {formatSyncedAtTaipei(counts.syncedAt)}
             </>
-          ) : (
-            '讀取失敗'
           )}
         </div>
       </div>

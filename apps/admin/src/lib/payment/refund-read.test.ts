@@ -6,6 +6,15 @@ vi.mock('server-only', () => ({}));
 const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   from: vi.fn(),
+  findEffectiveVerdicts: vi.fn(),
+}));
+// 🔴 `listRefundExceptions` 2026-08-30 起會問一次「哪幾筆已經有人判定」。
+//    整支模組換掉(不是讓它走 `from` 的鏈式 mock):那支自己有 view 名、`.in()`、
+//    上限守門,在這裡重演一遍等於把它的實作抄第二份 —— 它自己有測試。
+//    ⚠️ **預設回空 Map** ⇒ 本檔既有的每一條斷言(投影/述詞/上限/截斷)行為不變。
+vi.mock('./refund-correction-read', () => ({
+  findEffectiveVerdicts: mocks.findEffectiveVerdicts,
+  CORRECTION_READ_MAX_IDS: 500,
 }));
 vi.mock('@pcm/adapters/server', () => ({
   createSupabaseServiceClient: () => ({ rpc: mocks.rpc, from: mocks.from }),
@@ -22,6 +31,7 @@ import {
 import {
   REFUND_EXCEPTION_STALL_MS,
   STUCK_MANUAL_VERDICT_FAILED_REASON,
+  countDecidedExceptions,
   isStuckManualVerdict,
 } from './refund-ledger-view';
 
@@ -97,6 +107,8 @@ function rawRow(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   mocks.rpc.mockReset();
   mocks.from.mockReset();
+  mocks.findEffectiveVerdicts.mockReset();
+  mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
 });
 
 describe('listOrderRefunds', () => {
@@ -346,5 +358,112 @@ describe('isStuckManualVerdict(#473 卡住的人工判定列)', () => {
 
   it('常數本體 = DB 側 RW4 出口寫的機器碼(20260803150000:760)', () => {
     expect(STUCK_MANUAL_VERDICT_FAILED_REASON).toBe('manual_failed');
+  });
+});
+
+describe('listRefundExceptions:pendingCount(側欄/首頁那顆數字;Sean 2026-08-30 拍板)', () => {
+  // 🔴 **這一組守的是一句拍板**,Sean 這一輪逐字:
+  //    「那側邊欄位的卡住數字現在是只要一筆資料存在就一直持續在上面,
+  //      **應該變成尚未處理(尚未判定)才在上面**」⇒ 晚於 2026-08-22 那板、推翻它。
+  //
+  // ⚠️ **它與一條看起來相反的既有禁令並存,兩條都成立**:
+  //    `app-sidebar.tsx` 的 `COUNT_QUALIFIER` 逐字「**不准改成「只數 ① 那半」**」,
+  //    出處 `docs/phase-1-backlog.md:13843`(⚠️ 該註解寫的是 `:13760`,**行號已漂**,
+  //    字面「這條不解卡單,只解看不見」逐字相符)。
+  //    ⇒ 我們做的**不是**「只數①」:②類裡**還沒有人判定過的仍然算**。
+  //    ⇒ 下面第二條就是釘住這個差別的那一格 —— 少了它,一個「只數①」的實作會全綠。
+
+  const actionableRaw = exceptionRaw({ id: 'a1', status: 'processing', failed_reason: null });
+  const stuckA = exceptionRaw({ id: 's1', status: 'failed', failed_reason: 'manual_failed' });
+  const stuckB = exceptionRaw({ id: 's2', status: 'failed', failed_reason: 'manual_failed' });
+
+  it('已判定的不算,尚未判定的算 —— {①1 + ②2,其中 s1 已判定} ⇒ pending 2 / decided 1', async () => {
+    exceptionChains({ data: [actionableRaw], error: null }, { data: [stuckA, stuckB], error: null });
+    mocks.findEffectiveVerdicts.mockResolvedValue(new Map([['s1', { seq: 1 }]]));
+    const got = await listRefundExceptions();
+    expect(got.rows).toHaveLength(3);
+    expect(got.decidedCount).toBe(1);
+    expect(got.pendingCount).toBe(2);
+    expect(got.verdictsUnavailable).toBe(false);
+  });
+
+  it('🔴 **不是「只數①」** —— ②全部未判定時,pending 必須等於總數(一個只數①的實作在這裡會印 1)', async () => {
+    exceptionChains({ data: [actionableRaw], error: null }, { data: [stuckA, stuckB], error: null });
+    const got = await listRefundExceptions();
+    expect(got.decidedCount).toBe(0);
+    expect(got.pendingCount).toBe(3);
+  });
+
+  it('🔴 只問②類的 id —— ①類沒有「判定」這回事,問它們是白花上限額度', async () => {
+    exceptionChains({ data: [actionableRaw], error: null }, { data: [stuckA, stuckB], error: null });
+    await listRefundExceptions();
+    expect(mocks.findEffectiveVerdicts).toHaveBeenCalledTimes(1);
+    expect(mocks.findEffectiveVerdicts.mock.calls[0]![0]).toEqual(['s1', 's2']);
+  });
+
+  it('🔴 讀不到 ⇒ 退化成總筆數(**不是 0**)且旗標為 true —— 往「多報」的方向退', async () => {
+    exceptionChains({ data: [actionableRaw], error: null }, { data: [stuckA, stuckB], error: null });
+    mocks.findEffectiveVerdicts.mockRejectedValue(new Error('boom'));
+    const got = await listRefundExceptions();
+    expect(got.pendingCount).toBe(3);
+    expect(got.decidedCount).toBe(0);
+    expect(got.verdictsUnavailable).toBe(true);
+  });
+
+  it('🔴 更正查詢失敗**不得**炸掉整張清單 —— 它有三個消費端,側欄在根 layout(每一頁)', async () => {
+    exceptionChains({ data: [actionableRaw], error: null }, { data: [stuckA], error: null });
+    mocks.findEffectiveVerdicts.mockRejectedValue(new Error('boom'));
+    const got = await listRefundExceptions();
+    // 清單本身照常回來 —— 這一條紅 = 一次更正查詢故障會讓全站每一頁的側欄掉一格。
+    expect(got.rows.map((r) => r.id)).toEqual(['a1', 's1']);
+  });
+
+  it('🔴 型別漂移也算讀不到(回的不是 Map ⇒ 不得往下 .has())', async () => {
+    exceptionChains(emptyData, { data: [stuckA], error: null });
+    mocks.findEffectiveVerdicts.mockResolvedValue({ has: () => true } as never);
+    const got = await listRefundExceptions();
+    expect(got.verdictsUnavailable).toBe(true);
+    expect(got.pendingCount).toBe(1);
+  });
+
+  it('🔴 上限對得上:②的上限 < 一次能問的上限 ⇒ 這一發構造不出超限', async () => {
+    // 🔴 **R1 MF1**:第一版比的是本檔 `vi.mock` 裡寫死的 `500` ——
+    //    那是**這道守門自己的複本**,而它要防的另一側正是「有人把真的 500 調小」
+    //    ⇒ 那一側在複本上恆綠。改成 `importActual` 取**真值**。
+    const actual =
+      await vi.importActual<typeof import('./refund-correction-read')>('./refund-correction-read');
+    expect(REFUND_STUCK_LIMIT).toBeLessThan(actual.CORRECTION_READ_MAX_IDS);
+    // 兩側都釘:值本身也要是我們以為的那個,否則「小於」可能是因為它變成了 Infinity。
+    expect(actual.CORRECTION_READ_MAX_IDS).toBe(500);
+  });
+
+  it('清單為空 ⇒ 三個數字都是 0/false,且以**空陣列**呼叫(不逐列硬湊 id)', async () => {
+    // ⚠️ **標題刻意不寫「不發查詢」**(R1 MF2):真正「不打 DB」發生在
+    //    `refund-correction-read.ts` 的 `if (ids.length === 0) return new Map()`,
+    //    而那支在本檔被 mock 掉 ⇒ **這一格量不到它**,它有自己的測試。
+    //    第一版標題寫成「不發那一發查詢」,而它下面那行正在斷言那一發被發出去了。
+    exceptionChains(emptyData, emptyData);
+    const got = await listRefundExceptions();
+    expect(got.pendingCount).toBe(0);
+    expect(got.decidedCount).toBe(0);
+    expect(got.verdictsUnavailable).toBe(false);
+    expect(mocks.findEffectiveVerdicts.mock.calls[0]![0]).toEqual([]);
+  });
+});
+
+describe('countDecidedExceptions(純函式;側欄與清單頁共用的唯一述詞)', () => {
+  const stuck = { id: 's1', status: 'failed', failedReason: 'manual_failed' } as never;
+  const actionable = { id: 'a1', status: 'processing', failedReason: null } as never;
+
+  it('🔴 ①類即使出現在 Map 裡也不算已判定 —— 更正表只服務②類', () => {
+    expect(countDecidedExceptions([actionable], new Map([['a1', 1]]))).toBe(0);
+  });
+
+  it('正對照:②類且在 Map 裡 ⇒ 算', () => {
+    expect(countDecidedExceptions([stuck], new Map([['s1', 1]]))).toBe(1);
+  });
+
+  it('負對照:②類但不在 Map 裡 ⇒ 不算', () => {
+    expect(countDecidedExceptions([stuck], new Map())).toBe(0);
   });
 });

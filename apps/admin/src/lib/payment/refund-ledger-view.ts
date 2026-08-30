@@ -92,6 +92,29 @@ export function isStuckManualVerdict(row: {
 }
 
 /**
+ * 「已經有人判定過」的筆數 —— 側欄/首頁那顆數字與清單頁灰字那一行的**唯一述詞**
+ * (Sean 2026-08-30 拍【甲】,逐字:「應該變成尚未處理(尚未判定)才在上面」;
+ *  晚於 2026-08-22 那板、推翻它)。
+ *
+ * 🔴 **①類(`processing` 那半)即使出現在 Map 裡也不算** —— 它們沒有「判定」這回事,
+ *    更正表只服務②類(`20260814190000:2` 逐字:更正的對象是 `order_refunds` 的 `manual_failed`)。
+ *    ⇒ 所以「待處理 = 總數 − 本函式」既不是「只數①」也不是「只數②」。
+ *
+ * 🔴 **為什麼住在本檔、不住在 `refund-read.ts`**(2026-08-30,踩到才搬):
+ *    它第一版寫在那支,而那支第一行是 `import 'server-only'` ⇒
+ *    `refund-exceptions/page.test.tsx` 用 `importOriginal` 拿它時**整支測試檔載入失敗**,
+ *    而症狀是**檔紅、0 格紅**(`Tests 142 passed / 0 failed`,而測項總數從 157 少了 15)——
+ *    只有「連跑兩發比檔數與測項數」那一格看得出來。
+ *    ⇒ 📌 **純函式不要住在有 IO 的模組裡** —— 那會讓「想用它」等於「要連 IO 一起扛」。
+ */
+export function countDecidedExceptions(
+  rows: readonly { id: string; status: string; failedReason: string | null }[],
+  verdicts: ReadonlyMap<string, unknown>,
+): number {
+  return rows.filter((row) => isStuckManualVerdict(row) && verdicts.has(row.id)).length;
+}
+
+/**
  * 這列是否屬於異常清單的**可處理**那半(plan §4-1):processing 且(滯留逾閾 或 已有受理證據)。
  * 🔴 evidence 非空 = G7-hold(TapPay 已受理但金額不符)= **當下已知異常、不等 30 分**(fable N4)。
  * ⚠️ 清單的**成員資格**已不等於本函式 —— `isStuckManualVerdict` 那半也會進清單(`#473`)。

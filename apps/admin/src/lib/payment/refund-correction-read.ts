@@ -1,4 +1,5 @@
 import 'server-only';
+import { cache } from 'react';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
 
 // refund-correction-read.ts — `#890` 片1:退款人工判定「現行有效更正」的**批量唯讀**。
@@ -24,6 +25,16 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 //        ⇒ **一個 refund 最多一列**(Sean `Q-473-1`=A「最新一筆說了算」)
 //      · view 的 COMMENT 逐字:「**沒有更正過的 refund 不會出現在本 view**(不是回一列 NULL)」
 //        ⇒ 這正是上面「查無 = Map 沒有 key」的來源,**不是我設計的**。
+//
+// 🔵🔵 **2026-08-30 更正(本檔上面那段「壞掉時壞的是新功能」已經不成立;只加不刪)**
+//    ⛔ ~~新開一支只服務新功能 ⇒ **壞掉時壞的是新功能**~~
+//    Sean 2026-08-30 拍【甲】(側欄那顆數字只數「尚未判定」的)之後,
+//    `refund-read.ts` 的 `listRefundExceptions` **會呼叫本檔** —— 而那支有三個消費端,
+//    其中側欄在根 layout ⇒ **每一頁**。⇒ 本檔壞掉時壞的**不再只是新功能**。
+//    ⇒ 🔴 所以那一側**吞掉例外**(`refund-read.ts` 的 `verdictsUnavailable`),
+//      而本檔對**直接呼叫它的人**仍然 throw、契約不變(清單頁的更正入口照舊 fail-closed)。
+//    📌 **一支檔宣稱自己的爆炸半徑,而那個宣稱會被【別人怎麼用它】推翻,
+//       它自己不會知道。**
 //
 // ⚠️ **未量的一格(明寫,不要讀成已驗)**:底表 `order_refund_manual_corrections` 有
 //    `ENABLE ROW LEVEL SECURITY`(同檔 `:154`),而那張 view 是 `security_invoker = true`
@@ -73,7 +84,7 @@ export const CORRECTION_READ_MAX_IDS = 500;
  * @throws {CorrectionReadIntegrityError} id 數超過上限 / view 對同一個 refund 吐出多列
  * @throws PostgrestError 查詢失敗(**不吞**,見檔頭)
  */
-export async function findEffectiveVerdicts(
+async function findEffectiveVerdictsUncached(
   refundIds: readonly string[],
 ): Promise<Map<string, EffectiveVerdict>> {
   // 🔴 去重之後才數,也才送查 —— 呼叫端傳重複 id 不該吃掉上限額度,也不該讓下面那個
@@ -145,3 +156,17 @@ export async function findEffectiveVerdicts(
   }
   return out;
 }
+
+/**
+ * 批量撈「現行有效更正」(**同一次 render pass 內共用一發**)。
+ *
+ * 🔴 **包 `cache()` 是承重的**(2026-08-30 R2 MF-A):現在有**兩個**呼叫端 ——
+ *    `refund-read.ts` 的 `listRefundExceptions`(算側欄那顆數字)與
+ *    `refund-exceptions/page.tsx`(算每一列的更正入口)。
+ *    不包的話那一頁會打兩發,而**兩發可能一成一敗** ⇒ 同一張畫面上
+ *    「另有 2 筆已經有人判定過」與每列「現在讀不到它的更正紀錄」**同時出現**。
+ *    ⇒ 包起來 ⇒ 同成同敗 ⇒ 那個矛盾**構造不出來**,順便少一發查詢。
+ * ⚠️ 沒有作用中的 render 時 `cache()` **靜默不記憶**(`refund-read.ts:151` 同款查證)
+ *    ⇒ 不會讓逐格換 mock 的測試互相污染。
+ */
+export const findEffectiveVerdicts = cache(findEffectiveVerdictsUncached);

@@ -15,6 +15,7 @@ function summary(over: Partial<TodaySummary> = {}): TodaySummary {
     newOrderCount: 7,
     refundExceptionCount: 2,
     refundExceptionTruncated: false,
+    refundExceptionVerdictsUnavailable: false,
     failedSections: [],
     ...over,
   };
@@ -201,5 +202,30 @@ describe('#831 ① 只有退款異常那格可以點', () => {
     const a = link(/目前待處理退款異常/);
     expect(a).not.toBeNull();
     expect(a!.getAttribute('aria-label')).toContain('讀取失敗');
+  });
+
+  // 🔴 R1 MF3:退化提示的量具(之前零覆蓋 —— 那個三元整段刪掉照樣全綠)。
+  it('🔴 更正讀不到 ⇒ hint 要講出「這個數字含已判定的」,不得印成一個精確數字', () => {
+    render(
+      <TodaySummaryCards summary={summary({ refundExceptionVerdictsUnavailable: true })} />,
+    );
+    expect(screen.getByText(/更正紀錄讀不到/)).toBeTruthy();
+  });
+
+  it('負對照:讀得到時**不得**出現那句話(否則它是一句恆真的裝飾)', () => {
+    render(<TodaySummaryCards summary={summary()} />);
+    expect(screen.queryByText(/更正紀錄讀不到/)).toBeNull();
+  });
+
+  it('🔴 兩者同時為真時,截斷那句不得消音(R1 nit3)', () => {
+    render(
+      <TodaySummaryCards
+        summary={summary({
+          refundExceptionVerdictsUnavailable: true,
+          refundExceptionTruncated: true,
+        })}
+      />,
+    );
+    expect(screen.getByText(/已達顯示上限/)).toBeTruthy();
   });
 });

@@ -95,8 +95,15 @@ export type TodaySummary = {
   newOrderCount: number | null;
   /**
    * 退款異常筆數;`null` = 讀取失敗。
-   * 🔴 **不是「待處理」**(2026-08-22):含 `failed`+`manual_failed` 那半,而那半**按不動**
+   * 🔵 **2026-08-30 更正(Sean 逐字推翻下面那句;只加不刪)**:本格現在數 `pendingCount`
+   *    —— ②類裡已判定的不算 ⇒ **它現在就是「待處理」**,下面那句今天不成立了。
+   * ⛔ ~~🔴 **不是「待處理」**(2026-08-22):含 `failed`+`manual_failed` 那半,而那半**按不動**~~
    *    ⇒ 見 `lib/layout/sidebar-counts.ts` 的 `refundExceptionCount` 與 `app-sidebar.tsx` 的 `COUNT_QUALIFIER`。
+   *
+   * ⚠️ **成本未量的一格(2026-08-30,明寫不要讀成已驗)**:本片讓 `listRefundExceptions`
+   *    多跑**第三支**查詢(`order_refund_effective_verdict`)—— 本檔下方那段「已重新量過」
+   *    量的是**兩支**時的數字,**第三支沒有量過**。而它跟著側欄跑在根 layout ⇒ 每一頁。
+   *    ⇒ 要引用那組數字的人:先確認你要的是兩支還是三支。
    *
    * 🔴 **這一格不是「今日」** —— 它是**當下累積的待辦量**(述詞在 `../payment/refund-read.ts`
    *    的 `listRefundExceptions`,本片**不另寫一份述詞**)。**顯示文案不得寫成「今日異常」。**
@@ -104,6 +111,11 @@ export type TodaySummary = {
   refundExceptionCount: number | null;
   /** 異常清單被上限截斷 ⇒ 上面那個數字是**下限**,不是總數。 */
   refundExceptionTruncated: boolean;
+  /**
+   * 🔴 更正紀錄讀不到 ⇒ 上面那個數字**退化成總筆數**(含已判定的)。
+   * 這一格與側欄同源(`lib/layout/sidebar-counts.ts`),顯示端要講出來。
+   */
+  refundExceptionVerdictsUnavailable: boolean;
   // 🪦 `amountsTruncated` 於 2026-08-15 隨退款那格一起拆掉。
   //    它上一版的註解逐字寫著「**刻意不整個拿掉** —— 拿掉會讓退款的截斷變回靜默」——
   //    🔴 **那句在當時是對的,現在不成立了**:它守的那個查詢已經不存在,
@@ -311,10 +323,14 @@ export async function loadTodaySummary(now: Date = new Date()): Promise<TodaySum
           TODAY_SECTION.newOrders,
           new Error(`count 不是安全整數(收到 ${describe(orders.count)})`),
         )),
+    // 🔴 **改數 `pendingCount`**(Sean 2026-08-30 逐字「應該變成尚未處理(尚未判定)才在上面」)。
+    //    ⚠️ 本格與側欄(`lib/layout/sidebar-counts.ts`)**必須同源** ——
+    //       首頁與側欄同時出現在同一台螢幕上,兩個數字不一樣就是一個沒有人解得開的矛盾。
     refundExceptionCount: exceptions.ok
-      ? exceptions.rows.length
+      ? exceptions.pendingCount
       : fail(TODAY_SECTION.exceptions, exceptions.error),
     refundExceptionTruncated: exceptions.ok ? exceptions.truncated : false,
+    refundExceptionVerdictsUnavailable: exceptions.ok ? exceptions.verdictsUnavailable : false,
     failedSections,
   };
 }

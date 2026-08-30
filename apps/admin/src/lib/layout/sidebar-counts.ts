@@ -23,6 +23,11 @@ import { listRefundExceptions } from '../payment/refund-read';
 //    逐字要求「A2 下推 goods_axis 時必須同時加 cancelled_at IS NULL」——
 //    正式站 2026-08-20 實測 7/19(37%)已取消,不是理論風險。
 //
+// ⚠️ **成本未量的一格(2026-08-30,明寫不要讀成已驗)**:2026-08-30 起
+//    `listRefundExceptions()` 多跑**第三支**查詢(`order_refund_effective_verdict`,
+//    算「哪幾筆已經有人更正過判定」)。**本檔跑在根 layout ⇒ 每一頁都會跑它。**
+//    下面那段效能量測是**兩支**時量的,**第三支沒有人量過** ⇒ 引用前先確認你要的是幾支。
+//
 // 🔴 退款異常沿用 `listRefundExceptions()`(../payment/refund-read.ts),不另寫一份述詞。
 //    `truncated=true` 時**不得**顯示精確數字:上限 200/50 兩支各自可能被截,
 //    合成的 `rows.length` 在截斷時是一個看起來精確的假數字(actionable=5、stuck=51 ⇒
@@ -42,12 +47,23 @@ export type SidebarCounts = {
   unorderedOrderCount: number | null;
   /**
    * 退款異常筆數;null = 讀取失敗。`truncated=true` 時這個數字是下限,不是總數。
-   * 🔴 **不是「待處理」** —— 它把兩半加起來,而第二半(`failed`+`manual_failed`)**按不動**:
+   *
+   * 🔵 **2026-08-30 更正(Sean 逐字推翻下面那段;只加不刪,舊字面留著讓搜舊句的人同一發撞到)**:
+   *    他這一輪說「那側邊欄位的卡住數字現在是只要一筆資料存在就一直持續在上面,
+   *    **應該變成尚未處理(尚未判定)才在上面**」⇒ **本欄現在數的是 `pendingCount`**
+   *    (②類裡已經有人判定過的**不算**;①類一律算)。
+   *    ⇒ 所以下面那句「不是待處理」**今天不成立了** —— 它現在**就是**待處理。
+   * ⛔ ~~🔴 **不是「待處理」** —— 它把兩半加起來,而第二半(`failed`+`manual_failed`)**按不動**:~~
    *    出口已 apply 而 app 呼叫端 = 0 ⇒ 那幾筆不會自己離開。側欄字面 2026-08-22 已改「卡住」
    *    (理由與正式站數字見 `app-sidebar.tsx` 的 `COUNT_QUALIFIER`)。
    */
   refundExceptionCount: number | null;
   refundExceptionTruncated: boolean;
+  /**
+   * 🔴 更正紀錄讀不到 ⇒ 上面那個數字**退化成總筆數**(含已判定的)。
+   * 顯示端必須把它講出來 —— 一個退化值印成精確數字,與真的沒事長得一樣。
+   */
+  refundExceptionVerdictsUnavailable: boolean;
   /** 缺貨商品數;null = 讀取失敗。 */
   outOfStockProductCount: number | null;
   /** 三格全部成功的那一刻(ISO);任一格失敗 ⇒ null(顯示端印「讀取失敗」,不是舊時間戳)。 */
@@ -98,8 +114,15 @@ async function loadSidebarCountsUncached(): Promise<SidebarCounts> {
 
   const unorderedOrderCount = orders.error ? null : readCount(orders.count);
   const outOfStockProductCount = products.error ? null : readCount(products.count);
-  const refundExceptionCount = exceptions.ok ? exceptions.rows.length : null;
+  // 🔴 **改數 `pendingCount`、不數 `rows.length`**(Sean 2026-08-30 逐字:
+  //    「應該變成尚未處理(尚未判定)才在上面」)—— 述詞在 `refund-read.ts`,本檔不另寫一份。
+  //    ⚠️ 首頁對帳(`today-read.ts`)與清單頁走**同一個** `pendingCount`;
+  //       只改這裡會讓側欄與首頁在同一台螢幕上印兩個不同的數字。
+  const refundExceptionCount = exceptions.ok ? exceptions.pendingCount : null;
   const refundExceptionTruncated = exceptions.ok ? exceptions.truncated : false;
+  const refundExceptionVerdictsUnavailable = exceptions.ok
+    ? exceptions.verdictsUnavailable
+    : false;
 
   if (orders.error) console.error('[sidebar-counts] 訂單讀取失敗', orders.error);
   if (products.error) console.error('[sidebar-counts] 商品讀取失敗', products.error);
@@ -112,6 +135,7 @@ async function loadSidebarCountsUncached(): Promise<SidebarCounts> {
     unorderedOrderCount,
     refundExceptionCount,
     refundExceptionTruncated,
+    refundExceptionVerdictsUnavailable,
     outOfStockProductCount,
     syncedAt: anyFailed ? null : new Date().toISOString(),
   };

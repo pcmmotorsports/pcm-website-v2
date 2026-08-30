@@ -2,9 +2,12 @@ import 'server-only';
 import { cache } from 'react';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
 import {
+  countDecidedExceptions,
+  isStuckManualVerdict,
   REFUND_EXCEPTION_STALL_MS,
   STUCK_MANUAL_VERDICT_FAILED_REASON,
 } from './refund-ledger-view';
+import { findEffectiveVerdicts } from './refund-correction-read';
 
 // refund-read.ts — M-3 A7c RW3:退款帳本唯讀查詢(訂單頁帳本區塊 + 異常清單頁)。
 //
@@ -164,6 +167,23 @@ function toExceptionRow(row: RawException): RefundExceptionRow {
 async function listRefundExceptionsUncached(): Promise<{
   rows: RefundExceptionRow[];
   truncated: boolean;
+  /**
+   * 還沒有人判定的筆數(側欄/首頁那顆數字)。
+   * ⚠️ `verdictsUnavailable === true` 時這個值 **= `rows.length`**(退化值,不是真的 pending 數)
+   *    —— 顯示端必須把那個旗標一起帶走,否則會把一個退化值印成精確數字。
+   */
+  pendingCount: number;
+  /** 已經有人判定過的筆數(清單頁灰字那一行)。讀不到時 = 0。 */
+  decidedCount: number;
+  /**
+   * 🔴 更正紀錄讀不到 ⇒ 上面兩個數字都是退化值。
+   *
+   * **為什麼不讓它 throw**:`refund-correction-read.ts` 檔頭「為什麼新開一支」那段逐字寫著它刻意不擴進本檔,
+   * 理由是「擴它 = 把爆炸半徑放到那一頁的全部列上」。而本檔有**三個消費端**
+   * (清單頁 / 首頁對帳 / 側欄,側欄在根 layout ⇒ **每一頁**)⇒ 讓它往上炸 = 一次更正查詢故障
+   * 會讓**全站每一頁的側欄**掉一格。⇒ 這裡吞,並且**吞得有聲音**(本旗標 + console.error)。
+   */
+  verdictsUnavailable: boolean;
 }> {
   const cutoffIso = new Date(Date.now() - REFUND_EXCEPTION_STALL_MS).toISOString();
   const supabase = createSupabaseServiceClient();
@@ -190,14 +210,41 @@ async function listRefundExceptionsUncached(): Promise<{
   if (stuck.error) throw stuck.error;
   const actionableRaw = actionable.data as RawException[];
   const stuckRaw = stuck.data as RawException[];
+  const rows = [
+    ...actionableRaw.slice(0, REFUND_EXCEPTIONS_LIMIT).map(toExceptionRow),
+    ...stuckRaw.slice(0, REFUND_STUCK_LIMIT).map(toExceptionRow),
+  ];
+
+  // 🔴 只問②類的 id:①類沒有「判定」這回事,問它們只是白花上限額度。
+  //    ⚠️ 上限對得上:`REFUND_STUCK_LIMIT`(50)< `CORRECTION_READ_MAX_IDS`(500)
+  //       ⇒ 這一發**構造不出**超限;守門在測試裡釘住,免得日後有人調大 50 而沒回訪這裡。
+  const stuckIds = rows.filter(isStuckManualVerdict).map((row) => row.id);
+  let decidedCount = 0;
+  let verdictsUnavailable = false;
+  try {
+    const verdicts = await findEffectiveVerdicts(stuckIds);
+    // 型別漂移也算讀不到(同 `refund-exceptions/page.tsx` 的 `instanceof Map` 那一格的理由(錨在字面不在行號 —— 本片自己讓那支檔位移了):
+    // 不是 Map 就別往下 `.has()`,那會炸掉三個消費端)。
+    if (verdicts instanceof Map) {
+      decidedCount = countDecidedExceptions(rows, verdicts);
+    } else {
+      verdictsUnavailable = true;
+    }
+  } catch (error) {
+    console.error('[refund-read] 現行更正判定載入失敗 ⇒ 待處理筆數退化成總筆數', error);
+    verdictsUnavailable = true;
+  }
+
   return {
-    rows: [
-      ...actionableRaw.slice(0, REFUND_EXCEPTIONS_LIMIT).map(toExceptionRow),
-      ...stuckRaw.slice(0, REFUND_STUCK_LIMIT).map(toExceptionRow),
-    ],
+    rows,
     // 任一半被截斷都要讓橫幅出現(合成一個旗標 = 頁面不必知道有兩支查詢)。
     truncated:
       actionableRaw.length > REFUND_EXCEPTIONS_LIMIT || stuckRaw.length > REFUND_STUCK_LIMIT,
+    // 🔴 讀不到 ⇒ 退化成總筆數,**不是 0**。往「多報」的方向退:
+    //    多報只是讓人多看一眼那一頁;少報會讓那一頁沒有人去。
+    pendingCount: verdictsUnavailable ? rows.length : rows.length - decidedCount,
+    decidedCount,
+    verdictsUnavailable,
   };
 }
 
