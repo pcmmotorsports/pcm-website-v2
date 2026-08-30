@@ -56,7 +56,11 @@ SP="$(cd "$(dirname "$0")" && pwd)"
 SEC="pcm-admin-probe-throwaway-jwt-secret-at-least-32-chars"
 
 # ── 前置:要用的東西在不在(缺了就明確報錯,不要跑到一半才炸)────────────────
-for c in initdb pg_ctl psql postgrest python3 curl; do
+# 🔴 `lsof` 少不得, 而它以前不在這張清單上(2026-08-30 線【客人帳戶區】`-08` 補):
+#    下面那道「埠已被佔用」預檢是 `lsof … 2>/dev/null || true` ⇒ **`lsof` 不存在時它回空字串**
+#    ⇒ 預檢**安靜地放行**, 而畫面上與「埠是空的」一模一樣。
+#    📌 **一道用不存在的工具做的檢查, 它印的是【通過】不是【我不知道】。**
+for c in initdb pg_ctl psql postgrest python3 curl lsof; do
   command -v "$c" >/dev/null || { echo "🔴 缺 $c —— 這條鏈起不來。postgrest 用 brew install postgrest"; exit 1; }
 done
 # 🔴🔴 **這裡原本還有一個【一模一樣的】埠迴圈,已於 2026-08-19 刪掉(W6 `W6-043` M1)。**
@@ -145,6 +149,27 @@ rm -rf "$S" && mkdir -p "$S"   # 🔴 引號:`${ADMIN_PROBE_DIR:-…}` 只擋空
 initdb -D $S/pg -U postgres --auth=trust --encoding=UTF8 --locale=C > $S/initdb.log 2>&1
 pg_ctl -D $S/pg -o "-p $PG -k /tmp" -l $S/pg.log start > $S/pgctl.log 2>&1
 sleep 2
+
+# 🔴 **驗「我連上的那顆, 真的是我剛起的那顆」**(2026-08-30 `-08` 補;成因由哨兵 `-22` 轉來:
+#    `-eb` 的 codex MF2 在另一支 probe 上抓到同型 —— 埠上若已經有【別的】postgres,
+#    腳本會對**不是拋棄式的那顆**套 migration, **而且照樣全綠**)。
+# 🔴 為什麼不靠上面那道埠預檢就好:①它依賴 `lsof`(見上一段, 不存在就放行)
+#    ②預檢與真正連上之間有時間差 ③**預檢答的是「埠上有沒有人」, 這一發答的是「那個人是不是我」**。
+#    📌 **⇒ 兩個問句不同, 而它們在一切正常的日子裡印同一個結果。**
+# ⚠️ 兩側都走 realpath:postgres 回的是 `-D` 當初拿到的字面(`/tmp/…`),
+#    而 macOS 的 `/tmp` 是 `/private/tmp` 的 symlink ⇒ 不解析就會【永遠不相等】=一道恆紅的閘。
+_want=$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$S/pg")
+_got=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "SHOW data_directory" 2>/dev/null || true)
+_got=$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]) if sys.argv[1] else "")' "$_got")
+if [ "$_want" != "$_got" ]; then
+  echo "🔴 埠 $PG 上的 postgres【不是】這支腳本剛起的那顆 —— 停止, 不對它套任何東西。" >&2
+  echo "   我起的  : $_want" >&2
+  echo "   實際連到: ${_got:-(連不上或回空)}" >&2
+  echo "   ⇒ 若是連不上:看 $S/pg.log 與 $S/pgctl.log" >&2
+  echo "   ⇒ 若是別人的 postgres:換一組埠(ADMIN_PROBE_PG=…),或收掉那一份" >&2
+  exit 1
+fi
+echo "✅ pg 身分核對:$PG ⇒ $_got"
 
 # ── ② PCM bootstrap(平台有、本機沒有的)──────────────────────────────────
 psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q <<'SQL'
