@@ -80,7 +80,14 @@ export function resolveShippedEmailCutoff(raw: string | undefined | null): Shipp
   if (!FULL_ISO_WITH_OFFSET.test(v)) {
     return {
       kind: 'bad-format',
-      why: '要完整的 ISO 8601 時刻＋明確時區偏移(例 2026-09-01T21:30:00+08:00;冒號要有、Z 要大寫)。少了偏移或只有日期 ⇒ 會被當 UTC ⇒ 台北當天 08:00 前出的箱子永遠不寄,而那個漏是靜默的',
+      // 🔴🔴 **範例刻意寫成【貼上去不會過】的佔位形狀**(Fable 2026-08-30 R3 must-fix 3)。
+      //    ⛔ ~~原本這裡是一個真的、合法的、可以直接複製的時刻 `2026-09-01T21:30:00+08:00`~~
+      //    構造:設值那天打成裸日期 ⇒ 503 ⇒ 去看 log ⇒ **把說明裡那個範例逐字貼進 env**
+      //    ⇒ 格式過、下界(2026-08-30)也過 ⇒ **把那個日期之後每一箱沒排過的一次全部排進去**
+      //    ⇒ 客人收到一封講幾天前甚至幾週前那批貨的通知信,而**信收不回來**。
+      //    📌 **⇒ 一段用來幫助設定的說明,提供了一個【設錯而看起來設對】的完整答案。**
+      //    ⇒ 佔位形狀過不了 `FULL_ISO_WITH_OFFSET`(字母不是數字)⇒ 照樣落 bad-format ⇒ 會再吵一次。
+      why: '要完整的 ISO 8601 時刻＋明確時區偏移,形狀是 YYYY-MM-DDThh:mm:ss+08:00(冒號要有、Z 要大寫),而時刻請填【你按下去的那一刻】。少了偏移或只有日期 ⇒ 會被當 UTC ⇒ 台北當天 08:00 前出的箱子永遠不寄,而那個漏是靜默的',
     };
   }
   const t = Date.parse(v);
@@ -92,12 +99,18 @@ export function resolveShippedEmailCutoff(raw: string | undefined | null): Shipp
   //    ⇒ 把原字串交給 PG = 讓兩個 parser 各自裁決同一個值。
   //    ✅ 正規化成 V8 自己的 UTC 表述 ⇒ 交出去的是**一個沒有歧義的時刻**, 不是使用者打的字。
   const normalized = new Date(t).toISOString();
-  // 而滾過日的值要在這裡被抓到:正規化之後與原字串的「日」對不上 ⇒ 它本來就不是一個真日期
-  if (v.slice(0, 10) !== new Date(t).toISOString().slice(0, 10)) {
-    // ⚠️ 只有在偏移是 Z 時才能直接比日;帶偏移時跨日是正常的 ⇒ 只對 Z 收這一格
-    if (v.endsWith('Z')) {
-      return { kind: 'bad-format', why: '形狀對而不是一個真的日期(它被滾到了另一天)' };
-    }
+  // 🔴 **滾過日的值要在這裡被抓到** —— 而抓法在 2026-08-30 被 codex 擊破過一次:
+  //    ⛔ ~~舊寫法:把正規化後的 UTC 日期字串與原字串的前 10 碼比,而**只對 `Z` 結尾收這一格**~~
+  //       (理由是「帶偏移時跨日是正常的」—— 那句話**對,而它讓整個檢查對帶偏移的值失效**)。
+  //    🔴 實測:`2027-02-30T00:00:00+08:00` ⇒ V8 靜默滾成 3/1 ⇒ 舊寫法**判它合法**
+  //       ⇒ cutoff 錯位一天 ⇒ 那一天的箱子漏寄或誤寄,而**沒有任何一格會紅**。
+  //    ✅ 新寫法:**比【原字串自己宣告的那個日期】在不在**,與偏移無關 ——
+  //       把年月日拆出來,用 UTC 造一個同年月日的時刻再讀回來,對不上就是那一天不存在。
+  //       ⇒ 這一問完全不碰時區,所以 `+08:00` 與 `Z` 走**同一條路**。
+  const [yy, mm, dd] = [Number(v.slice(0, 4)), Number(v.slice(5, 7)), Number(v.slice(8, 10))];
+  const probe = new Date(Date.UTC(yy, mm - 1, dd));
+  if (probe.getUTCFullYear() !== yy || probe.getUTCMonth() + 1 !== mm || probe.getUTCDate() !== dd) {
+    return { kind: 'bad-format', why: '形狀對而不是一個真的日期(那一天不存在,它會被靜默滾到下個月)' };
   }
   if (t < EARLIEST_SANE) {
     return {

@@ -19,7 +19,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-const { sweepSpy, getDepsSpy, enqueueSpy, getEnqueueDepsSpy , hbOkSpy, hbFailSpy } = vi.hoisted(() => ({
+const {
+  sweepSpy, getDepsSpy, enqueueSpy, getEnqueueDepsSpy, hbOkSpy, hbFailSpy,
+  shippedEnqueueSpy, getShippedDepsSpy,
+} = vi.hoisted(() => ({
   hbOkSpy: vi.fn(),
   hbFailSpy: vi.fn(),
   sweepSpy: vi.fn(),
@@ -27,15 +30,26 @@ const { sweepSpy, getDepsSpy, enqueueSpy, getEnqueueDepsSpy , hbOkSpy, hbFailSpy
   // 🔴 B-5:enqueue 那半有**自己的** use-case 與**自己的** deps factory(plan §3.1)。
   enqueueSpy: vi.fn(),
   getEnqueueDepsSpy: vi.fn(),
+  // 🔴 M-4b E4 片3b:出貨線那半同樣自己一套(自己的 env、自己的 deps、自己的 try/catch)。
+  shippedEnqueueSpy: vi.fn(),
+  getShippedDepsSpy: vi.fn(),
 }));
 
-vi.mock('@pcm/use-cases', () => ({
+// 🔴 **`resolveShippedEmailCutoff` 刻意【不 mock】** —— 它是一支純函式,而
+//    「env 填錯了會不會被擋下來」正是本 route 這一段要證的事。
+//    把它換成替身的話,route 與那支函式之間的接線就沒有任何一格在量了
+//    (而它自己的單元測試證不到「route 有沒有把 env 交給它」)。
+//    ⇒ 用 `importOriginal` 保留真貨,只換掉三個會做 I/O 的。
+vi.mock('@pcm/use-cases', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
   sweepEmailOutbox: sweepSpy,
   enqueueOrderCreatedEmails: enqueueSpy,
+  enqueueOrderShippedEmails: shippedEnqueueSpy,
 }));
 vi.mock('@/lib/email/composition', () => ({
   getSweepEmailOutboxDeps: getDepsSpy,
   getEnqueueOrderCreatedDeps: getEnqueueDepsSpy,
+  getEnqueueOrderShippedDeps: getShippedDepsSpy,
 }));
 
 // b4-CRON6 片1:心跳寫入端。mock 掉的是 IO,不是判斷 —— 判斷(哪一條路寫)在 route 裡。
@@ -65,6 +79,8 @@ const CLEAN_RESULT = {
   skippedIneligible: 0,
   eligibilityUnknown: 0,
   quotaFailed: 0,
+  // M-4b E4 片3b:箱被作廢而正確地沒寄(非錯誤、不進 503 條件)
+  skippedShipmentVoided: 0,
 };
 
 const DEPS = { outbox: {}, sender: {}, ineligibleScanner: {} };
@@ -85,6 +101,10 @@ beforeEach(() => {
   sweepSpy.mockReset().mockResolvedValue({ ...CLEAN_RESULT });
   getDepsSpy.mockReset().mockReturnValue({ ...DEPS });
   resetCronRateLimit(); // #254 限流器 module scope 狀態跨測試存活 → 每測試前全清隔離
+  // 🔴 出貨線的 env 預設**沒設** —— 它是那條線的開關,漏清會讓別的測項意外走進 enqueue。
+  delete process.env.SHIPPED_EMAIL_CUTOFF;
+  shippedEnqueueSpy.mockReset();
+  getShippedDepsSpy.mockReset().mockReturnValue({ outbox: {}, scanner: {} });
 });
 
 afterEach(() => {
@@ -266,6 +286,9 @@ describe('GET email-sweep — 🔴 counts allowlist(不 blind spread ...result�
       [
         'claimed', 'deferred', 'eligibilityUnknown', 'enqueueStatus', 'errors', 'failed',
         'ok', 'quotaFailed', 'reclaimed', 'sent', 'skippedIneligible', 'staleMarks',
+        // 🔴 片3b 多出來的兩欄:sweep 那一份的作廢計數 + 出貨線 enqueue 的四態旗標。
+        //    (env 沒設 ⇒ `shippedEnqueueStatus: 'skipped_no_cutoff'`、其餘 `shp*` 欄不出現。)
+        'skippedShipmentVoided', 'shippedEnqueueStatus',
       ].sort(),
     );
     errSpy.mockRestore();
@@ -303,12 +326,18 @@ describe('GET email-sweep — options/deps 注入(不採信外部輸入)', () =>
     expect(ROUTE_SOURCE).not.toMatch(/maxRunSeconds:\s*\d/); // 無 `maxRunSeconds: 60` 之類的寫死第二字面
   });
 
-  it('sweepEmailOutbox 收 route 端常數 options(claimLimit 50 / maxRunSeconds 60 / leaseSeconds 3600)', async () => {
+  // 🔴 **`toHaveBeenCalledWith` 的物件比對是【全等】,不是子集** ——
+  //    所以這一格同時是一道「options 有沒有多長出東西」的守門:
+  //    片3b 加了 `allowOrderShipped`,這一格當場紅了,而**它紅得對**。
+  //    ⇒ 保持全等寫法(不要改成 `toMatchObject`)—— 那會讓下一個新欄安靜地溜進來。
+  it('sweepEmailOutbox 收 route 端常數 options(claimLimit 50 / maxRunSeconds 60 / leaseSeconds 3600 + 出貨線旗標)', async () => {
     await GET(makeReq(bearer()));
     expect(sweepSpy).toHaveBeenCalledWith(expect.anything(), {
       claimLimit: 50,
       maxRunSeconds: 60,
       leaseSeconds: 3600,
+      // 🔴 env 沒設(本檔 beforeEach 清掉)⇒ 出貨線沒上膛 ⇒ false。
+      allowOrderShipped: false,
     });
   });
 
@@ -605,5 +634,228 @@ describe('route.ts 檔頭的跨檔引用 — 錨在字面、不在行號', () =>
   it('全檔零反引號裸行號(`:123` / `:123-125`)—— 同一個病,換一種寫法', () => {
     const hits = ROUTE_SOURCE_FOR_ANCHOR_GUARD.match(/`:L?\d+(?:-\d+)?`/g) ?? [];
     expect(hits).toEqual([]);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴 M-4b E4 片3b:出貨通知信的 enqueue 接線
+// ══════════════════════════════════════════════════════════════════════════
+//
+// 🔴 **這一組要證的是【它現在還不會寄】,而不是【它能寄】** ——
+//    交件時我要對 Sean 說「這一顆 merge 進去不會寄出任何一封信」,
+//    而**「我沒有設那顆 env」不是證明,那是宣稱**。真正的證明是下面第一格那支 spy。
+describe('GET email-sweep — 🔴 出貨通知信 enqueue 接線(片3b)', () => {
+  /** 一個**合法而且晚於下界**的起始線(下界 = 拍板那天台北零時 2026-08-30)。 */
+  const SHP_CUTOFF = '2026-09-01T21:30:00+08:00';
+  /** ⇒ 交給 use-case 的是**正規化後的 UTC 時刻**,不是使用者打的那串字。 */
+  const SHP_CUTOFF_NORMALIZED = '2026-09-01T13:30:00.000Z';
+
+  const SHP_CLEAN = {
+    scanned: 0, truncated: false, enqueued: 0,
+    skippedNoRealEmail: 0, duplicate: 0, noRecipient: 0, errors: 0,
+  };
+
+  beforeEach(() => {
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT });
+    getEnqueueDepsSpy.mockReturnValue({ outbox: {}, scanner: {} });
+  });
+
+  afterEach(() => {
+    delete process.env.SHIPPED_EMAIL_CUTOFF;
+    delete process.env.B4_DEPLOY_CUTOFF;
+  });
+
+  it('🔴🔴 env 沒設 ⇒ **整段不跑、一封都不會寄**,回 200 + skipped_no_cutoff', async () => {
+    const res = await GET(makeReq(bearer()));
+    const body = await res.json();
+
+    // ⬇️ 這兩行就是「這一顆 merge 進去不會寄信」的真正證據 —— 不是 counts,是那兩支 spy。
+    expect(shippedEnqueueSpy).not.toHaveBeenCalled();
+    expect(getShippedDepsSpy).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(body.shippedEnqueueStatus).toBe('skipped_no_cutoff');
+  });
+
+  it('🔴🔴 **兩條線的 env 不共用**:只設 B4_DEPLOY_CUTOFF 不會把出貨線一起打開', async () => {
+    // 🔴 這一格擋的是一個很自然的「順手共用」重構:兩段長得幾乎一樣,
+    //    共用一顆 env 之後,**訂單成立線上線的那一刻會把出貨線一起上膛**,
+    //    而 Sean 那一板逐字是「從你設定的那一刻起」—— 兩條線不是同一刻。
+    process.env.B4_DEPLOY_CUTOFF = '2026-08-19T03:14:00.000Z';
+    enqueueSpy.mockResolvedValue({
+      scanned: 0, scannedPages: 1, truncated: false,
+      enqueued: 0, skippedNoRealEmail: 0, duplicate: 0, noRecipient: 0, errors: 0,
+    });
+    const res = await GET(makeReq(bearer()));
+    const body = await res.json();
+
+    expect(body.enqueueStatus).toBe('completed'); // 訂單線開了
+    expect(body.shippedEnqueueStatus).toBe('skipped_no_cutoff'); // 而出貨線沒有
+    expect(shippedEnqueueSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['2026-09-01', '裸日期:沒有時刻也沒有偏移 ⇒ 會被當 UTC ⇒ 台北當天 08:00 前的箱子永遠不寄'],
+    ['2026-09-01T21:30:00', '有時刻而沒有偏移 —— 同一個病,而它看起來更像對的'],
+    ['2026-09-01T21:30:00+0800', '偏移少了冒號'],
+    ['', '設了而值是空字串 ⇒ 必須是 bad_cutoff,不是 no_cutoff(貼錯而整件事安靜地沒發生)'],
+  ])('🔴 格式不合 %s ⇒ 不跑、**回 503**、狀態 skipped_bad_cutoff', async (bad) => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.env.SHIPPED_EMAIL_CUTOFF = bad;
+    const res = await GET(makeReq(bearer()));
+    const body = await res.json();
+
+    expect(shippedEnqueueSpy).not.toHaveBeenCalled();
+    expect(res.status).toBe(503);
+    expect(body.shippedEnqueueStatus).toBe('skipped_bad_cutoff');
+    errSpy.mockRestore();
+  });
+
+  /**
+   * 🔴 **log 不印使用者填的那個值** —— 而這一格用一個【不可能與我方固定字串相撞】的哨兵值。
+   * ⚠️ 這不是潔癖:第一版拿 `2026-09-01` 當哨兵而它**紅了** ——
+   *    因為那支純函式回的 `why` 裡舉的例子就是 `2026-09-01T21:30:00+08:00`。
+   *    ⇒ 📌 **一個「log 有沒有洩漏」的斷言,拿一個【我們自己也會印】的字當哨兵 ⇒ 它量的是別的東西。**
+   *    ⇒ 哨兵值必須是這個 repo 裡不會出現的字面,否則假紅(這次)或假綠(下次)。
+   */
+  it('🔴 log **不印**使用者填的那個值(哨兵值不與我方固定字串相撞)', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.env.SHIPPED_EMAIL_CUTOFF = 'ZZQQ-SENTINEL-NOT-A-TIME';
+    const res = await GET(makeReq(bearer()));
+
+    expect(res.status).toBe(503);
+    expect(JSON.stringify(errSpy.mock.calls)).not.toContain('ZZQQ-SENTINEL-NOT-A-TIME');
+    // 🔵 正對照:它**確實印了**我方那段固定說明 ⇒ 上面那個 `not.toContain` 不是因為根本沒 log 才過的。
+    expect(JSON.stringify(errSpy.mock.calls)).toContain('SHIPPED_EMAIL_CUTOFF');
+    errSpy.mockRestore();
+  });
+
+  it('🔴🔴 起始線早於下界(打錯年份)⇒ 擋下、503 —— 這一格擋的是「一次寄出全部歷史箱子」', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.env.SHIPPED_EMAIL_CUTOFF = '1970-01-01T00:00:00Z';
+    const res = await GET(makeReq(bearer()));
+    const body = await res.json();
+
+    expect(shippedEnqueueSpy).not.toHaveBeenCalled();
+    expect(res.status).toBe(503);
+    expect(body.shippedEnqueueStatus).toBe('skipped_bad_cutoff');
+    errSpy.mockRestore();
+  });
+
+  it('🔴 合法 cutoff ⇒ 真的跑、被 await、結果進 body、狀態 completed', async () => {
+    // 🔴 負對照:上面三組全被擋掉,這一組必須過 —— 不然「擋得很嚴」與「全部擋掉」長得一樣。
+    // 🔴 而 `toHaveBeenCalledWith` 那一行同時釘住**傳下去的是正規化後的 UTC 時刻**:
+    //    交給 PG 的必須是一個沒有歧義的瞬間,不是使用者打的那串帶偏移的字。
+    process.env.SHIPPED_EMAIL_CUTOFF = SHP_CUTOFF;
+    shippedEnqueueSpy.mockResolvedValue({ ...SHP_CLEAN, scanned: 3, enqueued: 2, duplicate: 1 });
+    const res = await GET(makeReq(bearer()));
+    const body = await res.json();
+
+    expect(shippedEnqueueSpy).toHaveBeenCalledWith(expect.anything(), {
+      cutoff: SHP_CUTOFF_NORMALIZED,
+      limit: 50,
+    });
+    expect(res.status).toBe(200);
+    expect(body.shippedEnqueueStatus).toBe('completed');
+    expect(body.shpScanned).toBe(3);
+    expect(body.shpEnqueued).toBe(2);
+    expect(body.shpDuplicate).toBe(1);
+  });
+
+  it('🔴 整段 throw ⇒ 狀態 failed(**不是** skipped)、回 503,而 **sweeper 照樣跑完**', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.env.SHIPPED_EMAIL_CUTOFF = SHP_CUTOFF;
+    shippedEnqueueSpy.mockRejectedValue(new Error('scan boom'));
+    const res = await GET(makeReq(bearer()));
+    const body = await res.json();
+
+    expect(res.status).toBe(503);
+    expect(body.shippedEnqueueStatus).toBe('failed');
+    // 🔴 這一行是重點:**排信壞掉不得阻止已經排好的信被寄出去。**
+    expect(sweepSpy).toHaveBeenCalledTimes(1);
+    errSpy.mockRestore();
+  });
+
+  it('🔴 單筆 errors ⇒ 一樣 503(不吞成 200);狀態仍是 completed —— 兩件事分開講', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.env.SHIPPED_EMAIL_CUTOFF = SHP_CUTOFF;
+    shippedEnqueueSpy.mockResolvedValue({ ...SHP_CLEAN, scanned: 2, enqueued: 1, errors: 1 });
+    const res = await GET(makeReq(bearer()));
+    const body = await res.json();
+
+    expect(res.status).toBe(503);
+    expect(body.shippedEnqueueStatus).toBe('completed');
+    expect(body.shpErrors).toBe(1);
+    errSpy.mockRestore();
+  });
+
+  it('🔴 出貨 enqueue result 混入 PII sentinel 欄 ⇒ 回應與 log 皆不含(allowlist 真的跑過)', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.env.SHIPPED_EMAIL_CUTOFF = SHP_CUTOFF;
+    shippedEnqueueSpy.mockResolvedValue({ ...SHP_CLEAN, recipient_email: 'leak@example.com' });
+    const res = await GET(makeReq(bearer()));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).not.toHaveProperty('recipient_email');
+    expect(JSON.stringify(body)).not.toContain('leak@example.com');
+    expect(JSON.stringify(errSpy.mock.calls)).not.toContain('leak@example.com');
+    errSpy.mockRestore();
+  });
+
+  it('🔴 sweep 的 skippedShipmentVoided 進得了 body,而它**不會**讓 route 回 503', async () => {
+    // 箱被作廢是正常業務動作 —— 併進 503 的話,員工按一次「作廢重開」就有人半夜被叫起來。
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT, skippedShipmentVoided: 2 });
+    const res = await GET(makeReq(bearer()));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.skippedShipmentVoided).toBe(2);
+  });
+});
+
+// 🔴🔴 codex 2026-08-30 R1 must-fix 1/2 的證人(**route 這一側**)。
+//
+// ⚠️ **本檔 mock 掉 sweepEmailOutbox ⇒ 這裡量不到「它真的沒寄」** ——
+//    那一半在 `packages/use-cases/src/sweep-email-outbox.test.ts` 的
+//    `allowOrderShipped=false ⇒ 一封都不寄` 那一節(真路徑、只換 port 替身)。
+// ✅ **這裡量的是【接線】**:route 有沒有把 cutoff 的裁決交給 sweeper。
+//    ⇒ 把 `allowOrderShipped: shippedCutoff.kind === 'ok'` 改成寫死 `true`,下面第一格必紅。
+describe('GET email-sweep — 🔴 cutoff 同時控【排信】與【寄信】(不是只擋排信)', () => {
+  beforeEach(() => {
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT });
+    getEnqueueDepsSpy.mockReturnValue({ outbox: {}, scanner: {} });
+  });
+  afterEach(() => {
+    delete process.env.SHIPPED_EMAIL_CUTOFF;
+  });
+
+  it('🔴🔴 env 沒設 ⇒ 傳給 sweeper 的 `allowOrderShipped` 必須是 **false**', async () => {
+    // 🔴 這一格擋的世界:設過 env ⇒ 信排進 outbox ⇒ 看到不對把 env 拿掉
+    //    ⇒ 而在這一行之前,**那個動作不會讓寄信停下來**(已排好的列照樣每五分鐘寄一批)。
+    await GET(makeReq(bearer()));
+    expect(sweepSpy.mock.calls[0]![1]).toMatchObject({ allowOrderShipped: false });
+  });
+
+  it('🔴 env 格式錯 ⇒ 一樣是 false(不得「反正它會 503」就放行寄信)', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.env.SHIPPED_EMAIL_CUTOFF = 'ZZQQ-SENTINEL-NOT-A-TIME';
+    await GET(makeReq(bearer()));
+    expect(sweepSpy.mock.calls[0]![1]).toMatchObject({ allowOrderShipped: false });
+    errSpy.mockRestore();
+  });
+
+  it('🔵 正對照:env 合法 ⇒ **true**(證上面兩格不是恆 false)', async () => {
+    process.env.SHIPPED_EMAIL_CUTOFF = '2026-09-01T21:30:00+08:00';
+    shippedEnqueueSpy.mockResolvedValue({
+      scanned: 0, truncated: false, enqueued: 0,
+      skippedNoRealEmail: 0, duplicate: 0, noRecipient: 0, errors: 0,
+    });
+    await GET(makeReq(bearer()));
+    expect(sweepSpy.mock.calls[0]![1]).toMatchObject({ allowOrderShipped: true });
+  });
+
+  it('🔴 source-contract:那個旗標必須【引用已解析的 cutoff】,不得另外讀一次 env', () => {
+    // 兩半各自讀一次 env ⇒ 它們可以分岔(讀取之間有人改了設定、或有人只改了其中一處)。
+    expect(ROUTE_SOURCE).toMatch(/allowOrderShipped:\s*shippedCutoff\.kind === 'ok'/);
   });
 });
