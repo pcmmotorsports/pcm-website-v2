@@ -36,6 +36,7 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 //    ⇒ 共用版取窄的,理由與射程在 `packages/adapters/src/supabase/auth-errors.ts`。
 import { isEmailExistsError } from '@pcm/adapters';
 import { isValidLineUserId, lineSyntheticEmail, type LineIdentity } from './line';
+import type { AuthCallbackEventClient } from './callback-event';
 
 // service_role client 型別由 factory 推得(storefront 不直接依賴 @supabase/supabase-js)。
 type AdminClient = ReturnType<typeof createSupabaseServiceClient>;
@@ -99,4 +100,45 @@ export async function authenticateLineUser(identity: LineIdentity): Promise<Line
   // 新用戶建立成功 → 產 token(email 已存在故 generateLink 不會誤建)。
   const { hashedToken } = await generateMagicLink(admin, email);
   return { ok: true, hashedToken };
+}
+
+// ── 板 :395:同一道門再發一個【窄能力】,而不是再開一道門 ──────────────────
+/**
+ * 給 `callback-event.ts` 用的 service_role 能力,**只做得到 `record_auth_callback_event` 這一支 RPC**。
+ *
+ * 🔴 **為什麼放在本檔而不是放在它自己那支檔**:`eslint.config.js` 對 `apps/storefront/**` 的禁令
+ *    是**整片**的,而例外一道一道登記在 `// eslint-disable-next-line no-restricted-imports` 行上
+ *    (數法見本檔檔頭那條 git grep 命令)。在 `callback-event.ts` 加一行 disable
+ *    = **多開第五道門**,而那是要 Sean 拍板 + ADR 記錄的事,不是實作窗自己批得了的。
+ *    ⇒ 這裡發出去的**不是** service_role client 本身,是一個**單方法**的型別
+ *    ⇒ 門的數量不變(仍是本檔這一道)、登記表不說謊。
+ *    🔵 **codex R5:~~原本這裡還寫了「爆炸半徑不變」~~ —— 那句是假的。**
+ *       **能力面確實變大了**:這道門現在多發了一個「寫稽核」的能力出去。
+ *       不變的是**兩件比較窄的事**:import 的門數、以及它仍在 `server-only` 邊界之內。
+ *       ⇒ 📌 「我把新東西塞進舊的門」不等於「沒有新東西」。
+ *
+ * ⚠️ **而這道門的用途因此比檔頭那句「LINE OAuth Admin API」寬了一格** —— 寫在這裡,不藏:
+ *    現在它也發**登入回呼稽核**的能力。兩者共同點是「同一條 LINE OAuth callback 路徑、同一個 server-only 邊界」。
+ *    下一個想從這裡再借一樣東西的人:**先問它是不是還在那條路徑上。**
+ *
+ * 🔵🔵 **codex R1-7(must-fix):回傳的必須是【閉包】,不是一個被窄型別註解過的完整 client。**
+ *    ~~原本是 `return createSupabaseServiceClient() as unknown as AuthCallbackEventClient;`~~
+ *    ⇒ 那個物件**實際上仍是完整的 service_role client**,拿到它的人一句 `as any` 就取回
+ *      `.from()` / `.auth.admin` ⇒ **窄型別是一個提醒,不是一道邊界。**
+ *    ⇒ 現在回傳一個**自己新造的物件**,身上只有 `record` 這一個方法(🔵 codex R5:~~原本這句寫「只有
+ *      `rpc`」~~ —— 那是改名之前的殘句,`rpc` 現在留在閉包裡、外面看不到),而且函式名被綁死。
+ *      cast 它回去**拿不到任何東西** —— 完整 client 只活在這個閉包裡,沒有引用逃得出去。
+ *    📌 **「型別上做不到」與「執行期拿不到」是兩個宣稱,而只有後者擋得住人。**
+ */
+export function createAuthCallbackEventClient(): AuthCallbackEventClient {
+  const admin = createSupabaseServiceClient() as unknown as {
+    rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ error: unknown }>;
+  };
+  // 🔵🔵 **codex R2-5(must-fix):RPC 的名字寫死在【這一側】。**
+  //    ~~上一版是 `rpc: (fn, args) => admin.rpc(fn, args)`~~ —— 閉包確實藏住了 client,
+  //    **而它照樣把呼叫端給的函式名原樣轉送出去** ⇒ 一句 `as any` 就能用 service_role
+  //    叫任何一支 RPC。⇒ 📌 **藏住工具與拆掉工具是兩回事。**
+  return {
+    record: (args) => admin.rpc('record_auth_callback_event', args),
+  };
 }
