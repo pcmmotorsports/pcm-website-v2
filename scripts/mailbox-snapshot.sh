@@ -105,6 +105,13 @@ snapshot() {
   else
     LIST=$(mktemp) || die_tool "mktemp 失敗"
     ls -1 "$SNAP_ROOT" | sort | head -n "$((total - KEEP))" > "$LIST"
+    # 🔴 2026-08-31 二修(`-15` 提, `-48` 裁):**先宣告要刪什麼, 再刪**。
+    #    理由:「本次刪除 X」印在事後只是一份訃聞;印在事前, 它是一個【可以按 Ctrl-C 的時刻】。
+    printf '\n🛑 這一輪要【永久刪掉】以下舊快照(刪完就回不來):\n'
+    while IFS= read -r pre; do
+      [ -n "$pre" ] || continue
+      printf '     - %s\n' "$pre"
+    done < "$LIST"
     # 🔴 迴圈一律 while read —— zsh 對未加引號的變數【不】斷詞(本 repo 已記)
     while IFS= read -r old; do
       [ -n "$old" ] || continue
