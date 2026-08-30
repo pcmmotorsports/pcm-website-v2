@@ -8,9 +8,11 @@
 //   paid→(任意 fulfillment)「處理中」(A9f row47:stale 出貨軸下架、第 1 批固定文案)、絕不空字串。
 // - formatOrderDate:ISO → YYYY-MM-DD(Asia/Taipei、含跨日 UTC 邊界)。
 
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import type { PaymentStatus, FulfillmentStatus } from '@pcm/domain';
-import { orderStatusLabel, formatOrderDate } from './order-display';
+import { orderStatusLabel, formatOrderDate, paymentMethodLabel } from './order-display';
 
 /**
  * 沒有取消的單(`#249` 加的第三個參數)。
@@ -109,5 +111,48 @@ describe('formatOrderDate(ISO → YYYY-MM-DD、Asia/Taipei)', () => {
 
   it('午夜邊界:UTC 00:00 + 8h = 同日 08:00 台灣', () => {
     expect(formatOrderDate('2099-04-15T00:00:00Z')).toBe('2099-04-15');
+  });
+});
+
+describe('paymentMethodLabel', () => {
+  it('tappay → 信用卡(客人結帳時看到的就是這四個字,同一件事同一個詞)', () => {
+    expect(paymentMethodLabel('tappay')).toBe('信用卡');
+  });
+
+  // 🔴 這一格是本組的**理由**,不是補充:`payment_method` 沒有 CHECK 約束
+  //    ⇒ 值域無法窮舉 ⇒ 認不得的值必須**原樣印出**。
+  //    窮舉表遇到沒列到的值會印 undefined/空白,而**空白與「這張單沒有付款方式」長得一樣**
+  //    ⇒ 客人會以為那一格是壞的,而我們會以為那一格是空的。
+  it('認不得的值 → 原樣印出,不吞成空白', () => {
+    expect(paymentMethodLabel('linepay')).toBe('linepay');
+    expect(paymentMethodLabel('qqx7bogus4930')).toBe('qqx7bogus4930');
+  });
+
+  it('空字串 → 原樣回空字串(由呼叫端的 dash() 決定印什麼,本函式不越權)', () => {
+    expect(paymentMethodLabel('')).toBe('');
+  });
+
+  // 🔴🔴 **分母守門** —— 上面三格證的是「函式行為對」,證不了「我們有沒有漏翻一個值」。
+  //    這一格去**掃 migrations 裡所有真的被寫進 payment_method 的字面**,
+  //    要求每一個都翻得出中文(= 翻譯結果不等於原值)。
+  //    ⇒ 有人新增一種付款方式而忘了補對照時,**這一格會紅**;
+  //      沒有它的話,客人會在訂單頁上再看到一次原始代號,而三綠全綠。
+  //    ⚠️ 射程:它掃的是 `supabase/migrations` 的**字面寫入**。
+  //       app 層若有別的寫入點、或正式庫有歷史殘值,**不在這個分母裡**。
+  it('分母:migrations 裡每一個寫進 payment_method 的字面,都翻得出中文', () => {
+    const dir = join(__dirname, '../../../../../supabase/migrations');
+    const found = new Set<string>();
+    for (const f of readdirSync(dir).filter((n) => n.endsWith('.sql'))) {
+      const sql = readFileSync(join(dir, f), 'utf8');
+      for (const m of sql.matchAll(/payment_method\s*=\s*'([^']+)'/g)) {
+        const v = m[1];
+        if (v !== undefined) found.add(v);
+      }
+    }
+    // 🔴 正對照:掃不到任何值 = 尺瞎了(regex 壞了 / 路徑錯了),那時上面的迴圈會「全過」而什麼都沒證。
+    expect(found.size, '一個值都沒掃到 ⇒ 這把尺沒有接上,不是「沒有漏翻」').toBeGreaterThan(0);
+    for (const v of found) {
+      expect(paymentMethodLabel(v), `payment_method 的字面「${v}」沒有中文對照`).not.toBe(v);
+    }
   });
 });
