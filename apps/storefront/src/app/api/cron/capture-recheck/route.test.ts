@@ -176,4 +176,109 @@ describe('route.ts 檔頭的跨檔引用 — 錨在字面、不在行號', () =>
     const hits = ROUTE_SOURCE.match(/`:L?\d+(?:-\d+)?`/g) ?? [];
     expect(hits).toEqual([]);
   });
+
+  // ══ 🔵🔵「還沒上膛」要在 log 上看得見(2026-08-31;Sean 答 `5 做`;錨 ⟦b9-CAPARM1⟧)══
+  //   量到的:本片之前這支檔**整支 `console.*` = 0**(5 支 cron route 裡唯一一支),
+  //   而沒上膛那條路回 200 ⇒ 「上膛了」與「沒上膛」在 Vercel log 上印同一片空白。
+  // 🔴 這一族【必須成組】:只有正對照 ⇒ 一個【無條件印】的 console.info 也會全過。
+  describe('🔵 沒上膛要在 log 上看得見(而仍然是 200、而仍然不寫心跳)', () => {
+    afterEach(() => {
+      delete process.env.CAPTURE_RECHECK_CUTOFF_DAYS;
+    });
+
+    it('🔴 正對照:env 沒設 ⇒ console.info 印一次、訊息含那顆 env 的名字,而回應仍是 200', async () => {
+      delete process.env.CAPTURE_RECHECK_CUTOFF_DAYS;
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      const res = await GET(req(bearer()));
+
+      expect(res.status).toBe(200); // 🔴 沒上膛不是失敗 —— 這一格釘住「不改回應碼」
+      expect(infoSpy).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(infoSpy.mock.calls)).toContain('CAPTURE_RECHECK_CUTOFF_DAYS');
+      infoSpy.mockRestore();
+    });
+
+    it('🔴🔴 負對照:env 設好了 ⇒ 那一行【一次都不印】(殺掉「無條件印」那個突變)', async () => {
+      process.env.CAPTURE_RECHECK_CUTOFF_DAYS = '7';
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      await GET(req(bearer()));
+
+      expect(infoSpy).not.toHaveBeenCalled();
+      infoSpy.mockRestore();
+    });
+
+    it('🔴 負對照二:env 設成非正整數 ⇒ 走的仍是同一條「沒上膛」路,行為與 env 未設【一致】', async () => {
+      // readCutoffDays 對「設了而不合法」也回 null(本片不改那條判準)⇒ 它同樣該出聲。
+      process.env.CAPTURE_RECHECK_CUTOFF_DAYS = '0';
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      const res = await GET(req(bearer()));
+
+      expect(res.status).toBe(200);
+      expect(infoSpy).toHaveBeenCalledTimes(1);
+      infoSpy.mockRestore();
+    });
+
+    it('🔴🔴 心跳那一格不得被這一片改到 —— 沒上膛時【兩支心跳仍然都不得被呼叫】', async () => {
+      // 這一格與本檔上面那一格重疊, 而重疊是【刻意的】:
+      // 那個「不寫心跳 ⇒ 儀表板 30 分鐘後紅」是這支排程沒上膛的【另一個】訊號,
+      // 而本片加的 log 是【第三個】。兩個在不同層, 補一個不得關掉另一個。
+      delete process.env.CAPTURE_RECHECK_CUTOFF_DAYS;
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      await GET(req(bearer()));
+
+      expect(hbOkSpy).not.toHaveBeenCalled();
+      expect(hbFailSpy).not.toHaveBeenCalled();
+      infoSpy.mockRestore();
+    });
+
+    it('🛑🛑 白名單:那一行 log 的形狀被釘死 ⇒ 多印【任何】東西都會紅,而且【哪個值配哪個 key】也釘住', async () => {
+      // 🔴 **為什麼要釘映射**:2026-08-31 `code-reviewer` 在 email-sweep 那片抓到 ——
+      //   只比【key 的集合】與【value 的集合】時, 把兩個 key 的值【對調】會全綠
+      //   (`JSON.stringify` 把 key↔value 的綁定攤平了)。這一片不要再犯一次。
+      delete process.env.CAPTURE_RECHECK_CUTOFF_DAYS;
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      await GET(req(bearer()));
+
+      expect(infoSpy).toHaveBeenCalledTimes(1); // 🔴 先證明這個世界【有印】
+      const [msg, payload] = infoSpy.mock.calls[0] as [string, Record<string, unknown>];
+      // 🔴 **codex R1 consider 2**:~~只驗 `typeof msg === 'string'`~~ **不夠** ——
+      //   一個空白訊息、一句誤導的訊息、或【把別的 env 或收件人塞進訊息字串】, 都通得過。
+      //   ⇒ 📌 **`payload` 被釘死了, 而【第一個參數】是同一行 log 的另一半, 它沒有被釘。**
+      //   ⇒ 釘成【逐字相等】:訊息要改就得同時改這裡, 而那正是我們要的那個停頓。
+      expect(msg).toBe('[capture-recheck] 🔵 還沒上膛 ⇒ 這一輪整段不跑(不是失敗,回 200)');
+      expect(Object.keys(payload).sort()).toEqual(['env', 'reason']); // 多一個 key 就紅
+      expect(payload['env']).toBe('CAPTURE_RECHECK_CUTOFF_DAYS'); // 🔴 映射, 不是集合
+      expect(payload['reason']).toBe('skipped_no_cutoff');
+      infoSpy.mockRestore();
+    });
+
+    it('🔴🔴 未認證(401)⇒ 那一行【一次都不印】—— 這一格是 codex 2026-08-31 指出來的缺口', async () => {
+      // 🔴 **codex R1 consider 1**:上面六格【全部用有效 Bearer】, 而既有的 401 / 500 兩格
+      //   又沒有檢查 console ⇒ **把那段 log 搬到認證之前** 這個突變, 在那六格底下全綠。
+      //   ⇒ 📌 **一組「都從正門進來」的測試, 量不到「有人從側門進來時會發生什麼」。**
+      // ⚠️ 而它不是美觀問題:log 若在認證之前, **任何路人都能讓我們的 log 長出東西** ——
+      //   那是一條免費的噪音管道(而噪音會讓人把整條 log 關掉)。
+      delete process.env.CAPTURE_RECHECK_CUTOFF_DAYS;
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      const res = await GET(req('Bearer wrong-secret-wrong-secret-wrong'));
+
+      expect(res.status).toBe(401);
+      expect(infoSpy).not.toHaveBeenCalled();
+      infoSpy.mockRestore();
+    });
+
+    it('🛑 零 PII:那一行不得印出 env 的【值】,也不得印 CRON_SECRET', async () => {
+      // 🔴 sentinel 要【>=32 字元】—— 短的會被 secret 長度閘擋掉 ⇒ 提早 return
+      //   ⇒ 那一行 log 根本不會跑, 而 `not.toContain` 在【空 log】底下照樣全過。
+      const VALUE_SENTINEL = 'ZZQQ-CUTOFF-VALUE-SENTINEL-NOT-A-NUMBER';
+      process.env.CAPTURE_RECHECK_CUTOFF_DAYS = VALUE_SENTINEL; // 不合法 ⇒ 仍走沒上膛那條路
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      await GET(req(bearer()));
+      const logged = JSON.stringify(infoSpy.mock.calls);
+
+      expect(infoSpy).toHaveBeenCalledTimes(1); // 🔴 先證明【有印】,否則下面是空集合
+      expect(logged).not.toContain(VALUE_SENTINEL);
+      expect(logged).not.toContain(SECRET);
+      infoSpy.mockRestore();
+    });
+  });
 });
