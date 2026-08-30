@@ -235,6 +235,28 @@ describe('客人的訂單明細列印頁 —— 授權走既有那條路,而不�
     expect(html).toContain('料號');
   });
 
+  it('🔴 紙上【不印付款資訊】—— Sean 2026-08-30 拍【乙】,這是拍板不是漏做', async () => {
+    // 🔴 **為什麼要有這一格, 而不是只寫一句註解**(機制優先律):
+    //    `MemberOrderDetail` **有** `paymentStatus`/`paymentMethod`/`paidAt` 三欄
+    //    (`packages/domain/src/order/types.ts:1712-1730`), 而紙上一個都沒有
+    //    ⇒ **下一個人看到的形狀長得就像沒做完** ⇒ 他會「順手補上」。
+    //    ⇒ 註解攔不住他(他不會先讀檔頭), 而這一格會當場紅並告訴他那是一板。
+    const html = await render('A1B2C3');
+    for (const leak of ['付款方式', '付款完成', '已付款', '尚未付款', 'tappay']) {
+      expect(
+        html,
+        `紙上出現了「${leak}」—— 而 Sean 2026-08-30 拍【乙】= 不印付款資訊。` +
+          '要加回來需要新的拍板,不是順手補。',
+      ).not.toContain(leak);
+    }
+    // 🔴 **正對照**:證明上面五條不是因為 HTML 是空的、或 render 失敗才全過。
+    //    (今天量到的那個 0 若沒有它, 與「這把尺根本沒讀到東西」印同一個結果。)
+    expect(html).toContain('訂單明細');
+    expect(html).toContain('A1B2C3');
+    // 🔴 **而金額【要在】** —— 拍掉的是「付了沒」, 不是「多少錢」。兩者不要一起弄丟。
+    expect(html).toContain('12,100');
+  });
+
   it('🔴 已取消的單:**照印**(那是他的記錄),而取消這件事要印在紙上', async () => {
     // 🔴 `cancelKind` 只有三值(`OrderCancelKind = 'none' | 'expired' | 'cancelled'`,
     //    `packages/domain/src/order/order-cancel-reason.ts:48`)。
