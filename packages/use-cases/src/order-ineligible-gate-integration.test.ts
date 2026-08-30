@@ -155,12 +155,16 @@ function seedRow(): Map<string, Row> {
 
 // 🔵 `allowOrderShipped` 2026-08-30 片3b 新增 —— **本節只跑 `order_created`,這一欄對它沒有作用**;
 //    填 true 是為了讓這一節維持在「其他閘都開著,只量 ineligible 那一道」的世界。
-const SWEEP_OPTS: SweepEmailOutboxOptions = {
+// 🔴 **函式而不是常數**(`⟦b4-SWEEPBUDGET1⟧`,2026-08-30):本節跑真時鐘、不注入 `now`,
+//    而 `runStartedAtMs` 必須與那支時鐘同源。寫成 module 層常數 ⇒ 它在 import 當下就定死,
+//    整個 suite 跑超過 60 秒就會集體「預算用盡」⇒ **一組會隨機器快慢翻面的測試**。
+const sweepOpts = (): SweepEmailOutboxOptions => ({
   allowOrderShipped: true,
   claimLimit: 10,
+  runStartedAtMs: Date.now(),
   maxRunSeconds: 60,
   leaseSeconds: 3600,
-};
+});
 
 describe('E2a-2 ineligible gate — 紅綠雙向組合證明', () => {
   /**
@@ -185,7 +189,7 @@ describe('E2a-2 ineligible gate — 紅綠雙向組合證明', () => {
           listIneligibleAmong: async () => ['order-1'],
         },
       },
-      SWEEP_OPTS,
+      sweepOpts(),
     );
 
     expect(send).not.toHaveBeenCalled();
@@ -205,7 +209,7 @@ describe('E2a-2 ineligible gate — 紅綠雙向組合證明', () => {
         sender,
         ineligibleScanner: { listDueIneligible: async () => [], listIneligibleAmong: async () => [] },
       },
-      SWEEP_OPTS,
+      sweepOpts(),
     );
 
     expect(send).toHaveBeenCalledTimes(1);
@@ -239,7 +243,7 @@ describe('E2a-2 ineligible gate — 紅綠雙向組合證明', () => {
           listIneligibleAmong: async (ids) => ids.filter((id) => cancelled.has(id)),
         },
       },
-      SWEEP_OPTS,
+      sweepOpts(),
     );
 
     expect(send).toHaveBeenCalledTimes(1); // ✅ 第 1 封照寄(它那時還合格)
@@ -264,7 +268,7 @@ describe('E2a-2 ineligible gate — 紅綠雙向組合證明', () => {
           },
         },
       },
-      SWEEP_OPTS,
+      sweepOpts(),
     );
 
     // 讀不到就不寄 —— 放行才是那道閘在最需要它的那一刻自動消失
@@ -294,7 +298,7 @@ describe('E2a-2 ineligible gate — 紅綠雙向組合證明', () => {
     const sender: IEmailSender = { send };
     const sweepResult = await sweepEmailOutbox(
       { outbox: store as unknown as IEmailOutbox, sender, ineligibleScanner: scanner },
-      SWEEP_OPTS,
+      sweepOpts(),
     );
 
     expect(send).not.toHaveBeenCalled(); // ✅ 那一列已經不是 pending/failed 了,claimDue 撈不到它

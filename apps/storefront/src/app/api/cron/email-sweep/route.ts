@@ -79,6 +79,13 @@ const BEARER_PREFIX = 'Bearer ';
  * 🔴 每輪認領上限 = route 端常數(不採信外部輸入;營運參數、揭示可調)。
  * PCM 量級 10-30 封/日 << 50;concurrency=1 順序寄送(use-case 內建)+ 單封 ~數百 ms → 單輪最壞遠 < maxDuration 60s。
  * 對齊 settle-sweep per-round 50。死列不佔窗(port claimDue = 認領上限、非掃描上限)。
+ *
+ * ⚠️ **「單封 ~數百 ms」是【未量測】的**(codex R3 nit,2026-08-30)——
+ * repo 內查無 Resend 單封延遲的量測或紀錄,那個數字是估的,不是量到的。
+ * 🔵 而 ⟦b4-SWEEPBUDGET1⟧ 把可寄窗口從 60s 收緊成 55s ⇒ **這個沒被量過的前提被收得更緊**。
+ * ⇒ 誠實的界線:超量不會壞掉正確性,會走既有的 `deferred`(剩餘列留 sending、下輪回收)
+ *   ⇒ 症狀是「信慢了一輪」,不是「信不見了」。
+ * ⇒ 要拿掉這個「未量」標記,缺的檢查是:在真環境記一輪的實際耗時與封數,不是再估一次。
  */
 const CLAIM_LIMIT = 50;
 
@@ -196,6 +203,12 @@ function pickCounts(result: {
   deferred: number;
   staleMarks: number;
   errors: number;
+  /**
+   * 本輪因預算已用盡而**沒去認領**(⟦b4-SWEEPBUDGET1⟧)。0 或 1。
+   * 🔴 它與 `claimDue` 掛掉的 counts 完全相同 ⇒ **這一欄是唯一分得開的那個字**,
+   *    凌晨三點靠它決定要查 enqueue 耗時還是查 DB。同時計 `errors` ⇒ 503 由 errors 帶。
+   */
+  budgetExhaustedBeforeClaim: number;
   /** 訂單已不合格而正確地沒寄(Sean 2026-08-30「甲 搬」)。非錯誤 ⇒ 不進 503 條件。 */
   skippedIneligible: number;
   /**
@@ -217,6 +230,7 @@ function pickCounts(result: {
     failed: result.failed,
     deferred: result.deferred,
     staleMarks: result.staleMarks,
+    budgetExhaustedBeforeClaim: result.budgetExhaustedBeforeClaim,
     errors: result.errors,
     skippedIneligible: result.skippedIneligible,
     eligibilityUnknown: result.eligibilityUnknown,
@@ -284,6 +298,13 @@ function pickShippedEnqueueCounts(result: {
 }
 
 export async function GET(request: Request): Promise<Response> {
+  // 🔴🔴 **平台的碼表從這一行按下去**(`⟦b4-SWEEPBUDGET1⟧`,2026-08-30)。
+  //    `maxDuration` 是平台 kill 這個 function 的上界,而它算的是**整個請求**,
+  //    不是 `sweepEmailOutbox` 那一段。在這一行之前,sweeper 的時間預算從**它自己**起算
+  //    ⇒ 前面兩段 enqueue 花掉的時間沒有被扣掉 ⇒ 它以為自己還有滿滿 60 秒
+  //    ⇒ 平台可能在「Resend 已收下、`markSent` 還沒寫」那一格 kill ⇒ 回收 ⇒ **重寄**。
+  //    ⇒ 所以要在**最前面**取,不是在 sweep 呼叫點旁邊取(那樣就又變成從自己起算了)。
+  const invocationStartedAtMs = Date.now();
   // 1. 認證:CRON_SECRET Bearer 硬驗。env 未設/弱 → 500(設定錯、拒不執行);Bearer 缺/不符 → 401(不揭內部)。
   let expected: string;
   try {
@@ -452,6 +473,8 @@ export async function GET(request: Request): Promise<Response> {
       //    ⚠️ 這裡刻意**不另外讀一次 env** —— 用上面那個已解析的結果,兩半不可能分岔。
       allowOrderShipped: shippedCutoff.kind === 'ok',
       claimLimit: CLAIM_LIMIT,
+      // 🔴 見 GET 第一行:預算基準 = 整個請求的起點,不是 sweeper 自己的起點。
+      runStartedAtMs: invocationStartedAtMs,
       maxRunSeconds: maxDuration,
       leaseSeconds: LEASE_SECONDS,
     });

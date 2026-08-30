@@ -34,8 +34,10 @@ import {
  *   證明不了 port 要求的「lease > 單輪最長執行時間 + 時鐘偏差」→ caller 必須申告
  *   `maxRunSeconds`(= 執行環境的硬性 kill 上界,E2a-c 即 route `maxDuration`;單輪真正的
  *   物理上界是**平台 kill**,不是本迴圈自己)並通過 `leaseSeconds ≥ max(3600,
- *   maxRunSeconds + 時鐘偏差餘裕)` 驗證,違反直接 throw;迴圈另設時間預算(超過
- *   `maxRunSeconds` 停止寄送、剩餘已認領列計 `deferred`)= 對「平台沒殺」情境的縱深,
+ *   maxRunSeconds + 時鐘偏差餘裕)` 驗證,違反直接 throw;迴圈另設時間預算(**比
+ *   `maxRunSeconds` 早 `SEND_TAIL_ALLOWANCE_SECONDS` 秒**就停止寄送、剩餘已認領列計
+ *   `deferred`;⟦b4-SWEEPBUDGET1⟧ 2026-08-30 改 —— ~~原字面「超過 `maxRunSeconds` 停止寄送」~~
+ *   已不是現況)= 對「平台沒殺」情境的縱深,
  *   ⚠️ 但**擋不住單一 await 懸掛**(懸掛只能靠平台 kill 收拾 → 列卡 sending → 下輪回收)。
  *   太短的 lease 會把在途列判 stale → 原持有者仍寄出 → 重複寄信。
  * - 單封 fail-closed(鏡像 `sweepSettlements`):sender 合約不 throw,若仍 throw(合約違反)或
@@ -113,6 +115,29 @@ export type SweepEmailOutboxOptions = {
    */
   allowOrderShipped: boolean;
   claimLimit: number;
+  /**
+   * 🔴🔴 **這一輪【平台的碼表】是什麼時候按下去的**(`⟦b4-SWEEPBUDGET1⟧`,2026-08-30)。
+   *
+   * **要修的是什麼**:時間預算原本從 `sweepEmailOutbox` **自己**開始起算,而 route 在它前面
+   * 已經跑了兩段 enqueue(訂單成立 + 出貨)⇒ 這個迴圈以為自己還有滿滿 `maxRunSeconds`,
+   * 實際上平台的 60 秒已經被吃掉一部分。
+   * ⇒ 平台可能在 `sender.send` 已被 Resend 接受、`markSent` 還沒寫下去的那一格 kill
+   * ⇒ 列留 `sending` ⇒ 下輪回收 ⇒ **重寄**(Resend 的 Idempotency-Key 只保 24h)。
+   *
+   * 🔴 **為什麼不直接改 `maxRunSeconds`**:那一顆的語意是「申告平台的硬性 kill 上界」,
+   * 而 lease 的硬下界是**從它推出來的**(`max(3600, maxRunSeconds + 300)`)
+   * ⇒ 動它會同時動掉一個安全計算的輸入。**兩件事分兩顆參數,不共用一顆。**
+   *
+   * 🔴 **為什麼必填**:同 `allowOrderShipped` / `ineligibleScanner` 的理由 ——
+   * 選用而預設「現在」⇒ 忘了傳就退化成本次要修掉的那個行為,而**它不會紅**。
+   *
+   * 單位=毫秒 epoch(`Date.now()`)。⚠️ **它與 `now()` 注入縫共用同一支時鐘**。
+   * 🔴 **傳錯不會 throw,會【降級】**:值若晚於本輪時鐘快照(呼叫端傳錯、或兩次讀之間被校時),
+   * 預算基準自動退回 `sweepStartedAt` = 本片之前的行為 —— 理由見函式內 `budgetBaseMs` 那段
+   * (throw 會讓一次 1ms 的正常校時炸掉整輪,比它要防的問題嚴重)。
+   * ⚠️ **代價照實寫**:呼叫端傳一個荒謬的未來值 ⇒ 這一格會安靜地退回舊行為,沒有訊號。
+   */
+  runStartedAtMs: number;
   maxRunSeconds: number;
   leaseSeconds: number;
   now?: () => Date;
@@ -125,6 +150,18 @@ export type SweepEmailOutboxResult = {
   reclaimed: number;
   /** ② 本輪認領到的列數。 */
   claimed: number;
+  /**
+   * 🔴 **本輪【因為預算已用盡而根本沒去認領】**(⟦b4-SWEEPBUDGET1⟧;codex R3 must-fix)。
+   *
+   * **為什麼需要這一欄**:沒有它,「預算被前面兩段 enqueue 吃光」與「`claimDue` 自己掛了」
+   * 在儀表上**印一模一樣的三個數字**(`errors=1 / claimed=0 / sent=0`)
+   * ⇒ 凌晨三點的人分不出該去查 enqueue 的耗時、還是去查 DB。
+   * 📌 **兩個病共用一個訊號 = 那個訊號答不出「我該往哪裡看」。**
+   *
+   * 值域 0 或 1(一輪最多發生一次)。>0 時 `errors` 也會 +1 ⇒ 503 那一格由 `errors` 帶,
+   * 這一欄只負責**指路**,不重複判。
+   */
+  budgetExhaustedBeforeClaim: number;
   /**
    * ③ provider 裁決 = 接受的封數(sender 回 `sent` 當下遞增、**不含**後續 markSent 是否落表:
    * mark DB 錯 → `errors`、柵欄 no-op → `staleMarks`;codex 關卡2 R1 must-fix 後的精確語意)。
@@ -225,6 +262,13 @@ const MIN_LEASE_SECONDS = 3600;
  * `staleBefore` 由回收方 app 鐘算)。5 分鐘遠大於 NTP 常態偏差量級 = 保守值。
  */
 const CLOCK_SKEW_ALLOWANCE_SECONDS = 300;
+
+/**
+ * 收尾餘裕(秒):**停止寄送**的時點要比平台 kill 早這麼多(`⟦b4-SWEEPBUDGET1⟧`)。
+ * 留給「`sender.send` 回來 → `markSent` 落表」那一段;沒有它,一次在 `maxRunSeconds - 1ms`
+ * 通過的檢查後面仍可能跟著一發跨過 kill 線的 `send` ⇒ 列留 `sending` ⇒ 回收 ⇒ **重寄**。
+ */
+const SEND_TAIL_ALLOWANCE_SECONDS = 5;
 
 /**
  * 依 eventType 窮舉分派內文模板(codex 關卡2 R1 must-fix:DB CHECK 與 `ClaimedEmailJob` 型別
@@ -373,6 +417,12 @@ export async function sweepEmailOutbox(
   if (!Number.isFinite(opts.maxRunSeconds) || opts.maxRunSeconds < 1) {
     throw new Error(`sweepEmailOutbox:maxRunSeconds 必須是 ≥1 的有限數(收到 ${opts.maxRunSeconds})`);
   }
+  // 🔴 `runStartedAtMs` 同樣 fail-loud:傳錯 ⇒ 預算算錯 ⇒ 重寄,而重寄是收不回來的。
+  if (!Number.isFinite(opts.runStartedAtMs)) {
+    throw new Error(
+      `sweepEmailOutbox:runStartedAtMs 必須是有限數(毫秒 epoch;收到 ${opts.runStartedAtMs})`,
+    );
+  }
   const minLease = Math.max(MIN_LEASE_SECONDS, opts.maxRunSeconds + CLOCK_SKEW_ALLOWANCE_SECONDS);
   if (!Number.isFinite(opts.leaseSeconds) || opts.leaseSeconds < minLease) {
     throw new Error(
@@ -390,14 +440,15 @@ export async function sweepEmailOutbox(
     deferred: 0,
     staleMarks: 0,
     errors: 0,
+    budgetExhaustedBeforeClaim: 0,
     skippedIneligible: 0,
     eligibilityUnknown: 0,
     quotaFailed: 0,
     skippedShipmentVoided: 0,
   };
 
-  // 🔴 單一時鐘快照:staleBefore / nextRetryAt / 時間預算基準皆由此導出(兩次 now() 之間的
-  //    間隔會憑空吃掉 lease 餘裕)。
+  // 🔴 單一時鐘快照:staleBefore / nextRetryAt 由此導出(兩次 now() 之間的間隔會憑空吃掉
+  //    lease 餘裕)。⚠️ **時間預算的基準不是它** —— 見下方 `budgetBaseMs`(⟦b4-SWEEPBUDGET1⟧)。
   const sweepStartedAt = now();
 
   // ── ① lease 回收(claim 前必跑;§⑩:落 failed + 'lease_reclaimed'、attempts 不動)────────
@@ -412,18 +463,79 @@ export async function sweepEmailOutbox(
     result.errors++;
   }
 
+  // ── 時間預算(`⟦b4-SWEEPBUDGET1⟧`;codex 2026-08-30 R1 三條 must-fix 折入)────────────
+  //
+  // 🔴 **基準取【兩個起點裡較早的那一個】**,不是單看 `opts.runStartedAtMs`:
+  //    · 正常情況 = route 進來那一刻(比 `sweepStartedAt` 早)⇒ 本片要修的那件事成立:
+  //      前面兩段 enqueue 花掉的時間**也是平台碼表的一部分**,要被扣掉。
+  //    · 而 `runStartedAtMs` 若**晚於**本輪快照(呼叫端傳錯、或系統鐘在兩次讀之間被回撥),
+  //      取 min ⇒ 自動退回 `sweepStartedAt` = **本片之前的行為**。
+  //    🔴 **為什麼不 throw**(codex R1 must-fix 2):一次 1ms 的正常校時就會讓整輪炸掉 ——
+  //      回收、認領、寄送**全都不跑**、route 503,而那**比它要防的問題嚴重**。
+  //      ⇒ 這一格的正確反應是「退回舊的、比較保守的基準」,不是「停掉整條線」。
+  const budgetBaseMs = Math.min(opts.runStartedAtMs, sweepStartedAt.getTime());
+  //
+  // 🔴 **收尾餘裕**(codex R1 must-fix 3):預算若正好等於 `maxRunSeconds`,
+  //    一次在 59.999s 通過的檢查後面還跟著一整發 `sender.send` ⇒ Resend 在 60.01s 收下、
+  //    平台當場 kill、`markSent` 沒寫下去 ⇒ 回收 ⇒ **重寄**。
+  //    ⇒ 停止寄送的時點要**早於**平台 kill,把最後這段留給收尾。
+  //    ⚠️ 這一格是**縱深不是保證** —— 擋不住一發自己就超過餘裕的 `send`(那是逾時設定的事)。
+  //    `Math.max(1000, …)` = 防呆:`maxRunSeconds` 若小於餘裕,預算不得變成 0 或負
+  //    (那會是「永遠不寄、而且安靜」)。
+  const budgetMs = Math.max(1000, (opts.maxRunSeconds - SEND_TAIL_ALLOWANCE_SECONDS) * 1000);
+  //
+  //
+  // 🛑 **已知殘餘,而我【沒有修】**(codex R1 must-fix 1;界線經 R2 收窄過,見下)。
+  //    這道閘讀的是**牆鐘**。系統鐘若在本輪中途被回撥 Δ,已用時間就少算 Δ
+  //    ⇒ **預算等於被延長 Δ**;Δ 大於「到目前為止真正花掉的時間」時 elapsed 才會變負。
+  //    ⚠️ **我第一版把這句寫成「預算等於不存在」= 寫過頭了**(codex R2 must-fix)——
+  //      小幅回撥只是等量延後,不是把閘整個關掉。**一句誇大的殘餘描述,會讓下一個人
+  //      把力氣放在錯的地方。**
+  //    🔴 **我也加過一段「已用時間高水位 ratchet」想擋它,而它【改變不了任何結果】**:
+  //      這道閘一旦回 true,呼叫它的那四個點就不會再問第二次
+  //      (認領前 = 不認領、迴圈直接沒得跑;迴圈頭 / 合格性讀完 / 脈絡讀完 = `break`)
+  //      ⇒ ratchet 只可能在「還沒超出而被回撥」時改到那個變數的**數值**,
+  //        **永遠改不到最終那個布林**。⚠️ 措辭經 R2 修正:~~「不可達的死碼」~~ 不精確
+  //        —— 它跑得到,只是**跑了也沒有用**。
+  //      📌 而它在測試上是綠的 —— 把它拿掉,一格都不會紅。
+  //    ⇒ 留下的是界線,不是一段看起來有在防的碼:
+  //      · 傷害**有上界**:單輪最多 `claimLimit` 封(= 一個健康輪次本來就寄得掉的量);
+  //        超出的部分由平台 kill ⇒ 列留 sending ⇒ 下輪回收
+  //        ⇒ 落回本系統**已申告且 Sean 明示認可的 at-least-once**(見檔頭)。
+  //      · 它**在本片之前就存在**(舊基準 `sweepStartedAt` 同樣是牆鐘)⇒ 不是本片新開的洞。
+  //      · 真正的解 = 預算改用**單調時鐘**(`performance.now()`),而那要換掉 `now` 這個
+  //        注入縫的語意(它同時餵 staleBefore / nextRetryAt,那兩個必須是牆鐘)
+  //        ⇒ 是另一片的體積,不在這裡順手做。
+  /**
+   * 時間預算已用盡?(單一來源)。**四個問點**:認領前 / 迴圈頭 / 合格性讀完之後 /
+   * 出貨脈絡讀完之後 —— ⚠️ 第四個原本漏在這段註解外(codex R2 nit),而它正是
+   * `order_shipped` 那條線唯一的那一道。
+   */
+  const outOfBudget = (): boolean => now().getTime() - budgetBaseMs >= budgetMs;
+
   // ── ② claim due(CAS 認領;輸家/死列由 port 述詞處理)──────────────────────────────
   let jobs: ClaimedEmailJob[] = [];
-  try {
-    jobs = await outbox.claimDue(opts.claimLimit);
-  } catch {
+  // 🔴🔴 **預算已經用完就【不要認領】**(`⟦b4-SWEEPBUDGET1⟧` 的第二半)。
+  //    認領當下 `attempts` 就 +1 ⇒ 認領了卻一封都寄不出去 = 白燒一次重試額度,
+  //    而那些列還會留在 `sending` 等下輪回收。**這條路在本片之前不存在**
+  //    (預算從本函式自己起算 ⇒ 進來時必然還有滿滿的額度),是把基準換成 route 碼表之後
+  //    才變得可達的 ⇒ 所以它跟預算基準同一片修,不另開一列。
+  // 🔴 **計 error 是刻意的**:一輪連認領都排不進去 = 前面那兩段 enqueue 吃掉了整個預算,
+  //    那是設定或量級不對,應該吵(route `errors > 0` ⇒ 503 ⇒ 心跳掉 ⇒ 儀表變紅)。
+  //    ⚠️ 不用 `deferred` —— 那一顆的語意是「**已認領**而來不及寄」,這裡一列都沒認領。
+  if (outOfBudget()) {
     result.errors++;
+    // 🔴 與「claimDue 自己 throw」分家的那一格(codex R3 must-fix)——
+    //    兩者的 errors/claimed/sent 完全相同,只有這一欄說得出是哪一種。
+    result.budgetExhaustedBeforeClaim = 1;
+  } else {
+    try {
+      jobs = await outbox.claimDue(opts.claimLimit);
+    } catch {
+      result.errors++;
+    }
   }
   result.claimed = jobs.length;
-
-  /** 時間預算已用盡?(單一來源;迴圈頭與合格性讀取【之後】各問一次)。 */
-  const outOfBudget = (): boolean =>
-    now().getTime() - sweepStartedAt.getTime() >= opts.maxRunSeconds * 1000;
 
   // ── ③ 逐封順序寄送 → mark(世代柵欄 = job.attempts 原樣帶回)─────────────────────
   for (let i = 0; i < jobs.length; i++) {

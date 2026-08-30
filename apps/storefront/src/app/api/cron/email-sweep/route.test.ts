@@ -330,15 +330,25 @@ describe('GET email-sweep — options/deps 注入(不採信外部輸入)', () =>
   //    所以這一格同時是一道「options 有沒有多長出東西」的守門:
   //    片3b 加了 `allowOrderShipped`,這一格當場紅了,而**它紅得對**。
   //    ⇒ 保持全等寫法(不要改成 `toMatchObject`)—— 那會讓下一個新欄安靜地溜進來。
-  it('sweepEmailOutbox 收 route 端常數 options(claimLimit 50 / maxRunSeconds 60 / leaseSeconds 3600 + 出貨線旗標)', async () => {
+  it('sweepEmailOutbox 收 route 端常數 options(claimLimit 50 / maxRunSeconds 60 / leaseSeconds 3600 + 出貨線旗標 + 本輪碼表)', async () => {
+    const before = Date.now();
     await GET(makeReq(bearer()));
+    const after = Date.now();
     expect(sweepSpy).toHaveBeenCalledWith(expect.anything(), {
       claimLimit: 50,
+      // ⟦b4-SWEEPBUDGET1⟧:route 進來那一刻的毫秒 epoch(值本身會變,形狀不變)。
+      runStartedAtMs: expect.any(Number),
       maxRunSeconds: 60,
       leaseSeconds: 3600,
       // 🔴 env 沒設(本檔 beforeEach 清掉)⇒ 出貨線沒上膛 ⇒ false。
       allowOrderShipped: false,
     });
+    // 🔴 `expect.any(Number)` **只證得出它是個數字** —— 傳 `0`、傳去年的時刻、
+    //    傳 `Date.now() + 一小時`,三種都會過。⇒ 再夾一次區間,這一格才有判別力:
+    //    它必須落在【這一次呼叫的前後】之間。
+    const passed = (sweepSpy.mock.calls[0]![1] as { runStartedAtMs: number }).runStartedAtMs;
+    expect(passed).toBeGreaterThanOrEqual(before);
+    expect(passed).toBeLessThanOrEqual(after);
   });
 
   // 🔴 codex R2 nit:原本只驗 outbox + sender ⇒ **`ineligibleScanner` 沒進來也會綠**。
