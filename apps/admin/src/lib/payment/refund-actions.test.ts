@@ -45,7 +45,7 @@ vi.mock('./refund-repository', async (importOriginal) => {
 
 // 🔴 解析器與 G0 checker 刻意不 mock —— 餵真 FormData 走真檢查,否則守門斷言恆真。
 import { initiateRefundAction } from './refund-actions';
-import { RefundCallerBugError } from './refund-repository';
+import { RefundCallerBugError, RefundCapGuardError } from './refund-repository';
 import { ORDER_RETURN_TO_FIELD } from '../orders/order-return-to';
 import {
   REFUND_AMOUNT_FIELD,
@@ -532,6 +532,55 @@ describe('initiateRefundAction — initiate 錯誤與 revalidate 紀律', () => 
     expect(state).toMatchObject({ code: 'error', requestToken: TOKEN });
     expect(mocks.refund).not.toHaveBeenCalled();
     expect(mocks.revalidatePath).toHaveBeenCalledWith(DETAIL);
+  });
+
+  // ── 445b 上限閘 → 員工看得到的那句話 ──────────────────────────────────
+  // 🔴 這一組驗的是**訊息本身**,不只是碼 —— 「有映射」與「映射到對的字」是兩個宣稱,
+  //    只比碼的話,一張把三個碼全接到同一句話的對照表也會全綠。
+  it('🔴 PCM04(超額)→ exceeds_remaining,而那句話要叫員工【改金額再送】不是停手', async () => {
+    mocks.initiateOrderRefund.mockRejectedValue(new RefundCapGuardError('PCM04', '超額'));
+    const state = await initiateRefundAction(IDLE, refundForm());
+    expect(state).toMatchObject({ code: 'exceeds_remaining' });
+    expect((state as { message: string }).message).toMatch(/請降低金額後重新發起/);
+    expect(mocks.refund).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).toHaveBeenCalledWith(DETAIL);
+  });
+
+  it('🔴 PCM05(算不出上限)→ exceeds_unknown,而那句話要叫員工【勿重試、通知維護】', async () => {
+    mocks.initiateOrderRefund.mockRejectedValue(new RefundCapGuardError('PCM05', '算不出'));
+    const state = await initiateRefundAction(IDLE, refundForm());
+    expect(state).toMatchObject({ code: 'exceeds_unknown' });
+    expect((state as { message: string }).message).toMatch(/請勿重試/);
+    expect(mocks.refund).not.toHaveBeenCalled();
+  });
+
+  it('🔴 PCM06(隔離級別)→ db_config,而那句話要【逐字等於 Sean 核可的原句】', async () => {
+    mocks.initiateOrderRefund.mockRejectedValue(new RefundCapGuardError('PCM06', '隔離級別'));
+    const state = await initiateRefundAction(IDLE, refundForm());
+    expect(state).toMatchObject({ code: 'db_config' });
+    const message = (state as { message: string }).message;
+    // 🔴 釘 **Sean 逐字核可的原句**,不是釘一個關鍵字 —— 關鍵字過得了的句子有無限多句。
+    expect(message).toBe('系統設定與預期不符,請通知維護。');
+    // 🔴 負對照:不得與 `config`(TapPay 環境)那句合流 —— 合流會讓員工去問錯的人。
+    expect(message).not.toMatch(/金流環境/);
+    expect(mocks.refund).not.toHaveBeenCalled();
+  });
+
+  it('🔴 三句話**兩兩不同** —— 只驗「有碼」的話,三個碼接同一句也會全綠', async () => {
+    const messages: string[] = [];
+    for (const code of ['PCM04', 'PCM05', 'PCM06'] as const) {
+      mocks.initiateOrderRefund.mockRejectedValue(new RefundCapGuardError(code, code));
+      const state = await initiateRefundAction(IDLE, refundForm());
+      messages.push((state as { message: string }).message);
+    }
+    expect(new Set(messages).size).toBe(3);
+    // 🔴 而它們都不准是空的(空字串三份也會是 size 1,但保險起見把長度也釘住)。
+    for (const m of messages) expect(m.length).toBeGreaterThan(10);
+  });
+
+  it('🔴 負對照:上限閘沒被打中時,RefundCallerBugError 仍映 bug(既有那道沒被弄壞)', async () => {
+    mocks.initiateOrderRefund.mockRejectedValue(new RefundCallerBugError('契約違反'));
+    await expect(initiateRefundAction(IDLE, refundForm())).resolves.toMatchObject({ code: 'bug' });
   });
 
   it('initiate 之前的失敗不 revalidate(帳本零變化:confirm_mismatch / record_unavailable)', async () => {

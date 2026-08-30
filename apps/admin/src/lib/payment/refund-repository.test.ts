@@ -25,6 +25,7 @@ import {
   INITIATE_RESULT_CODES,
   REFUND_BLOCKED_BY_VALUES,
   RefundCallerBugError,
+  RefundCapGuardError,
   RefundFinalizeParseError,
   finalizeOrderRefund,
   finalizeRecoveryOrderRefund,
@@ -271,6 +272,68 @@ describe('RAISE 分流(真實 PostgrestError 形狀)', () => {
     for (const code of ['P7C02', 'P7C15']) {
       mocks.rpc.mockResolvedValue({ data: null, error: { code, message: 'guard' } });
       await expect(finalizeOrderRefund(FINALIZE_ARGS)).rejects.toBeInstanceOf(RefundCallerBugError);
+    }
+  });
+
+  // ── 445b 上限閘的三個碼 ────────────────────────────────────────────────
+  it('🔴 PCM04/05/06 → RefundCapGuardError,且 sqlstate 逐碼帶對', async () => {
+    for (const code of ['PCM04', 'PCM05', 'PCM06'] as const) {
+      mocks.rpc.mockResolvedValue({ data: null, error: { code, message: `擋下 ${code}` } });
+      await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toSatisfy(
+        (e) => e instanceof RefundCapGuardError && e.sqlstate === code,
+      );
+    }
+  });
+
+  // ⚠️ **射程**(關卡2 nit 12):這一條在【完全沒有映射】的世界也會過 —— 原始 PostgrestError
+  //    本來就不是 RefundCallerBugError。它殺得掉「讓 CapGuard 繼承 CallerBug」那個突變,
+  //    **殺不掉「整片沒做」**。承重的是上面那條(sqlstate 逐碼帶對)。
+  it('🔴 上限閘**不得**是 RefundCallerBugError —— 合流會讓「改金額」被說成「停手」', async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: 'PCM04', message: '超額' } });
+    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toSatisfy(
+      (e) => !(e instanceof RefundCallerBugError),
+    );
+  });
+
+  // 🔴 **finalize 那一側今天【打不到】,而我仍然接了它 —— 所以要有一格在守它**
+  //    (codex 關卡2 nit 3:「刪掉 finalize 的 toCapGuard 分支也不會讓任何測試變紅」)。
+  //    445b 是 `BEFORE INSERT ROW`(migration `:332-334`),而 finalize 走 UPDATE ⇒ 今天不可達。
+  // 📌 **而「不可達」與「不用接」是兩件事**:哪天有人在 order_refunds 加一道 BEFORE UPDATE 的
+  //    上限閘,finalize 就會拿到 PCM04 —— 那時**沒接**的話員工會拿到原始例外,
+  //    而那正是本片存在的理由。⇒ 這一格讓那個分支【現在就有人在看】。
+  it('🔴 finalize 也認得上限閘的碼(今天不可達,而接了就要有東西守著它)', async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: 'PCM04', message: '超額' } });
+    await expect(finalizeOrderRefund(FINALIZE_ARGS)).rejects.toSatisfy(
+      (e) => e instanceof RefundCapGuardError && e.sqlstate === 'PCM04',
+    );
+  });
+
+  it('🔴 `code` 要留在【頂層】—— 事故當天照 SQLSTATE 撈 log 的人讀的是它,不是 cause', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: { code: 'PCM06', message: '隔離級別', details: 'd', hint: 'h' },
+    });
+    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toSatisfy(
+      (e) =>
+        (e as { code?: unknown }).code === 'PCM06' &&
+        // 原始物件仍在 cause 上 ⇒ details/hint 沒有消失
+        ((e as { cause?: { details?: unknown } }).cause?.details === 'd'),
+    );
+  });
+
+  it('🔴 負對照:P0001 仍走 RefundCallerBugError、**不得**變成 CapGuard(證明沒弄壞既有那道)', async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: 'P0001', message: 'raise' } });
+    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toSatisfy(
+      (e) => e instanceof RefundCallerBugError && !(e instanceof RefundCapGuardError),
+    );
+  });
+
+  it('🔴 負對照二:不認得的碼(PCM99/XX999)兩道都不接、原樣拋', async () => {
+    for (const code of ['PCM99', 'XX999']) {
+      mocks.rpc.mockResolvedValue({ data: null, error: { code, message: 'nope' } });
+      await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toSatisfy(
+        (e) => !(e instanceof RefundCapGuardError) && !(e instanceof RefundCallerBugError),
+      );
     }
   });
 
