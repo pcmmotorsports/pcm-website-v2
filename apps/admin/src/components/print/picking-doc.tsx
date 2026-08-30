@@ -375,9 +375,12 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                 ⚠️ **`<table>/<thead>` 這個結構不得改成 div** —— 跨頁欄名重複靠瀏覽器對
                    `<thead>` 的原生行為(舊註解逐字, 那條沒有過期)。 */}
             <section className='pd-items'>
-              <h2 className='pd-sech'>
-                品項明細<span>本訂單全部品項</span>
-              </h2>
+              {/* ⛔ ~~`<span>本訂單全部品項</span>`~~ —— 2026-08-30 Sean 拿掉
+                  (逐字「我不要這些奇怪標語」;他在出貨明細單上點名的兩句是同一族)。
+                  🔴 **判準是「它是不是一句解釋排版/範圍的小字」**,不是「它在哪張紙上」——
+                     `品項明細` 這個**標題**留著(那是這一區叫什麼),
+                     走的是後面那句**解釋這一區母體是什麼**的話。 */}
+              <h2 className='pd-sech'>品項明細</h2>
               <table>
                 <colgroup>
                   <col style={{ width: '38mm' }} />
@@ -388,14 +391,21 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                   <col style={{ width: '24mm' }} />
                 </colgroup>
                 <thead>
-                  {/* 🔴 續頁欄名重複那一列 —— 它在 `<thead>` 裡、在欄名那一列的上面。
-                      `colSpan` 必須等於欄數(6);少一欄的話那一列只會撐在左邊。 */}
-                  <tr className='pd-contbar'>
-                    <th colSpan={6}>
-                      訂單 <b>{detail.displayId}</b>
-                      <i>續頁欄名重複</i>
-                    </th>
-                  </tr>
+                  {/* ⛔ ~~`<tr className='pd-contbar'><th colSpan={6}>訂單 <b>…</b><i>續頁欄名重複</i></th></tr>`~~
+                      **2026-08-30 Sean 拿掉**(逐字:「左上角的出貨單明細 訂單編號xxxxx 這邊也拿掉 /
+                      我不要這些奇怪標語」+ 追加「訂單明細 也比照上面修正的伴了」)。
+                      🔴 **它是出貨明細單那一條的【對應物】** —— 兩張紙各有一條同型的續頁抬頭,
+                         而它們住在不同的檔。⇒ 只改一張的人會以為做完了。
+                      🛑 **代價與那張一樣**:續頁上認不出是哪一單。Sean 拍那張時已被告知這個代價,
+                         而這一張是他自己說「比照」的 ⇒ **不要因為「這張是給客人的、更需要編號」
+                         而替他保留** —— 那是替他改板。要保留請回去問他。
+                      🔴 ⛔ ~~「而 `<i>續頁欄名重複</i>` 那六個字**本來就不印**」~~ **那句是假的**
+                         (code-reviewer 2026-08-30 開 CSS 查出來的):`print-a4.css:664` 的
+                         `.pd-contbar th i` 只有 `float` / `font-style` / `color` / `font-weight`
+                         —— **零隱藏** ⇒ **那六個字一直印在紙上**,而它正是 Sean 說的
+                         那種「奇怪標語」。⇒ 它跟著整列一起走了,而**走掉是對的**。
+                      📌 **⇒ 我寫那句話的時候在替一個沒查過的東西背書, 而背書的方向剛好讓人放心。**
+                         下一個人若要把 contbar 放回續頁, 照那句話會把 `<i>` 一起放回去。 */}
                   <tr className='pd-colhead'>
                     <th>料號</th>
                     <th>品名 / 規格</th>
