@@ -96,13 +96,20 @@ export function CheckoutSuccess({
               {ctaLabel ?? '返回購物車'} <span>→</span>
             </Link>
           ) : displayId ? (
-            // 🔴 2026-08-30 Sean 拍【加】:paid / processing 兩態、且**真的有單號**時,
+            // 🔴 2026-08-30 Sean 拍【加】:**有單號**時給一條通到訂單的路。
+            //    ⚠️ 條件的精確形狀是 `!(unknown && onReconcile) && !failed && displayId`,
+            //       **不是「paid / processing 兩態」**(我第一版這樣寫,比實際窄;code-reviewer 抓)——
+            //       `unknown` + 有 displayId + 無 onReconcile 也會落到這裡。
+            //       今天無呼叫端這樣做(`CheckoutTerminalScreen.tsx:86-92` 的 unknown 完全不傳 displayId),
+            //       所以行為是對的;**而註解不該說得比條件滿**,否則下一個人改呼叫端時不會知道這裡也會亮。
             //    給一條通到訂單的路。形狀抄上面 unknown 那支(主 btn-primary + 次 btn-outline),
             //    不自己發明版型;「繼續購物」保留、只是退成次動作。
             //    ⚠️ `displayId` 是「這張單真的存在」的訊號 —— 沒有它就沒有東西可以看,
             //       那時退回單鈕(下面那支),**不給一顆按下去會落空的鈕**。
             //    🔴 連 `/account?tab=orders` 而不是 `/account/orders/<displayId>`:
-            //       前者與 `OrderDetailView.tsx:160` 的返回鈕同一個字面(單一慣例);
+            //       前者與 `OrderDetailView.tsx:165` 的返回鈕同一個字面(單一慣例);
+            //       ⚠️ 我第一版寫 `:160` —— 而差的那 5 行正是本 commit 的**父 commit** 加的
+            //          ⇒ **寫下的當下就已經漂了**(code-reviewer 2026-08-30 抓)。
             //       而 `?tab=` 那個參數**現在真的會被讀**(`app/account/page.tsx:110` 與 `:137`,
             //       Sean 2026-08-27 拍 B「只修回不來」時修的)⇒ 2026-08-30 本機真瀏覽器點過,
             //       確實落在訂單那一區,不是「連過去但參數被忽略」。

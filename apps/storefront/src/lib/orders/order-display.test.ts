@@ -137,8 +137,16 @@ describe('paymentMethodLabel', () => {
   //    要求每一個都翻得出中文(= 翻譯結果不等於原值)。
   //    ⇒ 有人新增一種付款方式而忘了補對照時,**這一格會紅**;
   //      沒有它的話,客人會在訂單頁上再看到一次原始代號,而三綠全綠。
-  //    ⚠️ 射程:它掃的是 `supabase/migrations` 的**字面寫入**。
-  //       app 層若有別的寫入點、或正式庫有歷史殘值,**不在這個分母裡**。
+  //    🔴🔴 **射程(code-reviewer 2026-08-30 抓到我原本寫太寬,這是訂正後的字面)**:
+  //       它只認 **`payment_method = '字面'`** 這一種語法形狀。reviewer 對 5 種真實寫入形狀實測
+  //       ⇒ **命中 1 / 漏 4**:`INSERT (…payment_method) VALUES (…,'linepay')` /
+  //       `SET DEFAULT 'cash'` / plpgsql `:= 'atm'` / 變數指派 —— **這四種它一個都看不到**。
+  //       ⇒ 📌 **失敗情境是具體的**:有人用 INSERT 那種形狀加 LINE Pay ⇒ **本格照樣綠**,
+  //          而客人在訂單頁看到 `linepay`。
+  //       ⚠️ 我原本只寫「app 層 / 正式庫殘值不在分母裡」—— **那句話漏掉了【語法形狀】這一維**,
+  //          而讀的人會把它讀成「除了那兩個例外,其餘全涵蓋」。
+  //       ⚠️ app 層另有一格:目前 `apps`/`packages` **零寫入**(只有 SupabaseOrderAdapter.ts:176/531
+  //          兩處 SELECT 投影)⇒ 那個限制今天不是活的缺口,但哪天有人加寫入點它就活了。
   it('分母:migrations 裡每一個寫進 payment_method 的字面,都翻得出中文', () => {
     const dir = join(__dirname, '../../../../../supabase/migrations');
     const found = new Set<string>();
