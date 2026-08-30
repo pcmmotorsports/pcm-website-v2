@@ -2,6 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { RefundExceptionRow } from '../../../lib/payment/refund-read';
+import {
+  refundStatusLabel,
+  refundStatusLabelWithCorrection,
+} from '../../../lib/payment/refund-ledger-view';
 
 // M-3 A7c RW3 清單 + RW4 操作(對帳判定/人工結案)。
 // refund-read / recovery-actions transitively 拉 server-only ⇒ 整支 mock
@@ -179,6 +183,109 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
         (b.textContent ?? '').includes('執行對帳判定'),
       ),
     ).toBe(true);
+  });
+
+  /** 帶一筆有效更正的卡住列(`correctedTo` 可換)。 */
+  const withCorrection = (correctedTo: 'money_moved' | 'no_money_moved') =>
+    new Map([
+      [
+        'r-stuck',
+        {
+          refundId: 'r-stuck',
+          correctionId: 'c-1',
+          seq: 2,
+          correctedTo,
+          reason: '對過 TapPay',
+          actor: 'staff_01',
+          createdAt: '2026-08-29T10:00:00+00:00',
+        },
+      ],
+    ]);
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 板 `:638` ⟦b9-VERDICT2LINE⟧ —— 狀態欄與它正下方的更正區塊【互相矛盾】
+  // Sean 2026-08-30 拍【甲】逐字:「退款異常那頁:狀態欄跟著更正走」
+  //
+  // 🔴🔴 **這一族是【渲染整頁】才量得到的** —— 兩邊各自都是對的,
+  //    **錯的是它們並排在一起**, 而在此之前沒有任何一支檔同時看得到兩邊。
+  //    ⇒ 掛載單一元件、或只測 `refundStatusLabel()`, **都抓不到它**。
+  // ══════════════════════════════════════════════════════════════════════
+
+  it('[8e] 🔴🔴 更正成「錢有動」⇒ 狀態欄不得再說「錢沒有動」(那正是那兩行相反的話)', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
+    mocks.findEffectiveVerdicts.mockResolvedValue(withCorrection('money_moved'));
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+
+    // ⛔ 改之前這一頁**同時**印得出下面這兩句 —— 而它們互相矛盾。
+    expect(text, '更正區塊那半不見了 ⇒ 這一格失去判別力').toContain('現行判定是');
+    expect(text).toContain('「錢有動」');
+    // 🔴 而狀態欄那一句**必須跟著走**
+    expect(text, '狀態欄還在說「錢沒有動」, 而它正下方寫著「錢有動」').not.toContain(
+      '失敗(錢沒有動)',
+    );
+    expect(text).toContain('失敗(已更正:錢有動)');
+  });
+
+  it('[8f] 🔴 更正成「錢沒有動」⇒ 兩行【仍然一致】(翻面, 證明上一格不是恆真)', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
+    mocks.findEffectiveVerdicts.mockResolvedValue(withCorrection('no_money_moved'));
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    expect(text).toContain('失敗(已更正:錢沒有動)');
+    // 🔴 而它**不得**印成「錢有動」—— 沒有這一半, 一支永遠回同一個字串的函式也會過
+    expect(text).not.toContain('已更正:錢有動');
+  });
+
+  it('[8g] 🔴 沒有更正紀錄 ⇒ 狀態欄維持原字面(不得憑空加「已更正」)', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
+    mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    expect(text).toContain('失敗(錢沒有動)');
+    expect(text, '沒有更正紀錄卻印了「已更正」').not.toContain('已更正');
+    // 正對照:同一頁的更正區塊此時說「目前沒有被更正過」⇒ 兩行仍然一致
+    expect(text).toContain('沒有被更正過');
+  });
+
+  it('[8h] 🔴🔴 更正【讀不到】時 ⇒ 狀態欄【不得對錢下斷言】', async () => {
+    // ⛔ ~~我第一版把這一格寫成「退回原字面」, 並斷言 `toContain('失敗(錢沒有動)')`~~
+    // 🔴 **codex 對抗審查當場擊破, 逐字**:「更正查詢失敗、實際已有 `money_moved` 更正
+    //    ⇒ 狀態仍斷言『錢沒有動』;**下方『讀不到』不能抵銷這個錯誤金流結論**。」
+    //    ⇒ 📌 而它同時指出**我那一格會把錯的行為鎖成正確答案**
+    //       ——「[8h] 把『讀不到更正時仍宣稱錢沒有動』鎖成正確答案,
+    //         會阻止未來改成『錢是否有動未知』的安全顯示」。
+    //    ⇒ ⇒ **一格測試可以把一個 bug 變成合約, 而它看起來與守門一模一樣。**
+    mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
+    mocks.findEffectiveVerdicts.mockRejectedValue(new Error('boom'));
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    // 🔴 讀不到 ⇒ 不講錢, 只講我們讀不到
+    expect(text, '讀不到更正時仍然斷言錢的狀態 —— 而我們此刻無法確認').not.toContain(
+      '失敗(錢沒有動)',
+    );
+    expect(text).toContain('失敗(更正紀錄讀不到)');
+    expect(text, '讀不到卻印了「已更正」').not.toContain('已更正');
+    // 正對照:那條 fallback 確實出現了 ⇒ 上面三格不是因為整頁沒渲染才過
+    expect(text).toContain('現在讀不到它的更正紀錄');
+  });
+
+  it('[8i] 🔴 非 `failed` 的態帶著更正值 ⇒ 維持原狀態字面, 不發明(codex nit)', () => {
+    // 🔴 這一格**刻意不渲染整頁** —— 它守的是那支純函式裡的 `status !== 'failed'` 那道閘,
+    //    而今天沒有任何 fixture 走得到它(更正只存在於卡住的列)⇒ 渲染頁面測不到它。
+    //    ⚠️ 而 codex 點出的風險是**未來的**:新增可更正的態時, 那道閘會讓函式靜默退回原標籤,
+    //       **而下方仍顯示更正判定 ⇒ 原矛盾復活, 且型別不會報錯**(`status` 是 `string`)。
+    //    ⇒ 這一格不能阻止那件事, 它只能保證**那道閘還在**。射程照實寫。
+    expect(refundStatusLabelWithCorrection('processing', 'money_moved')).toBe(
+      refundStatusLabel('processing'),
+    );
+    expect(refundStatusLabelWithCorrection('processing', 'unreadable')).toBe(
+      refundStatusLabel('processing'),
+    );
+    // 🔴 翻面:`failed` 那一態**必須**變(否則上面兩格在「函式永遠回原標籤」時也全過)
+    expect(refundStatusLabelWithCorrection('failed', 'money_moved')).not.toBe(
+      refundStatusLabel('failed'),
+    );
   });
 
   it('[8d] 🔴 已經被更正過的列:畫面要顯示【現行有效判定】,不只是給一顆鈕', async () => {
