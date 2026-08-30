@@ -459,3 +459,70 @@ describe('分母守門:門市地址字面不得出現在白名單以外的檔', 
     ).toEqual([]);
   });
 });
+
+/**
+ * 本檔【自己】的守門(meta)—— 2026-08-30 `-15` 補。
+ *
+ * 🔴 **它為什麼存在**:本檔 `:44-48` 早就寫下了這條通則與它的形狀 ——
+ *   「本檔新增任何 `readFileSync(...)` + 字面比對 ⇒ 檢查它有沒有經過 `stripComments()`」,
+ *   並且自己標了「⚠️ 而**這條通則本身沒有守門** —— 它靠讀到的人執行。
+ *    要做成機制的話,形狀是『掃本檔的 `readFileSync` 呼叫點』的 meta 測試,**還沒做**。」
+ *   ⇒ **這一段就是那個「還沒做」。**
+ *
+ * 📌 **它屬於一族**:一段【必須被讀到才會生效】的字,而沒有任何東西保證那一刻它會被讀。
+ *   同族(2026-08-30 掃到, 用「靠…讀到」當尺):
+ *     · `session.ts:163` / `docs/runbooks/2026-08-24-b5a-identity-rollout.md:111`
+ *       —— 「沒有任何機制在執行這一條。它靠 revert 的人讀到這段字。」(**仍未掛上機制**)
+ *     · `scripts/347-1-verify.sh:43` —— 「用**機制**擋(…+ exit 2),不是靠下一個人讀到這段字。」
+ *       (**已經掛上了**,而它掛的位置是【那個指令自己的 exit code】)
+ *   ⇒ **這一支選的位置是【測試套件】** —— 因為本檔的規則只在本檔內成立, 掛在別處都比它貴。
+ *
+ * 🛑 **射程**:它只答「每一個 `readFileSync(` 前面**緊接著**是不是 `stripComments(`」。
+ *   **不答**:`stripComments` 本身對不對、有沒有人用別的方式讀檔(`readFile` / `fs.promises`)、
+ *   也不答那些比對邏輯是否正確。**⇒ 它擋的是【忘了包】,不是【包錯】。**
+ */
+describe('本檔自己的守門(meta)', () => {
+  /** 🔴 下界:2026-08-30 當場數 = **6** 個真呼叫點(五個既有掃描器 + **本 meta 測試自己那一發**;
+   *  不含註解裡那一個)。~~第一版寫 5~~ —— **漏算了它自己, 是 code-reviewer 實量抓到的。**
+   *  📌 **而那個數字正是下界的立論根據** ⇒ 數錯了, 「餘裕多大」就跟著錯。
+   *  取 4 是留給【正常刪掉掃描器】的餘裕(實際餘裕 2), 不是留給「這把尺壞了」的餘裕。 */
+  const LOWER_BOUND = 4;
+
+  /** 🔴🔴 **本檔的 `:45` 註解裡就有一個 `readFileSync(`** —— 不剝註解的話它會被算進來,
+   *  而它【永遠不會被 `stripComments(` 包住】⇒ **這支 meta 測試會恆紅。**
+   *  ⇒ 所以它必須先對自己跑一次 `stripComments` —— **用的正是它在守的那個函式。**
+   *
+   * 🔴🔴 **而這裡讀的是 `__filename`,不是寫死的檔名 —— 那一格是 code-reviewer 擋下來的。**
+   *  第一版寫 `join(__dirname, 'site-config-wiring.test.ts')` ⇒ **存在一個恆綠的世界**:
+   *  把整段【複製】成另一支測試(本 repo 就是這樣繁殖的, 見 `:142` 自己寫的「同族」),
+   *  複本掃的是【正本】⇒ 複本裡新增一個沒包的 `readFileSync` **全綠、零訊號**。
+   *  📌 **位置在檔內, 而身分用路徑 ⇒ 兩者會漂開。**`__filename` 讓身分跟著執行中的那支走。 */
+  const self = stripComments(readFileSync(__filename, 'utf8'));
+
+  it('🔵 掃描本身要有作用(先證明尺撈得到東西,再去斷言)', () => {
+    const n = [...self.matchAll(/readFileSync\(/g)].length;
+    expect(
+      n,
+      `只掃到 ${n} 個 readFileSync 呼叫點(下界 ${LOWER_BOUND})—— ` +
+        '要嘛真的刪了幾個掃描器,要嘛這把尺(或檔名)壞了。先確認是哪一種,不要直接調低下界。',
+    ).toBeGreaterThanOrEqual(LOWER_BOUND);
+  });
+
+  it('🔴 本檔每一個 readFileSync 都要被 stripComments 包住', () => {
+    const unwrapped = [...self.matchAll(/readFileSync\(/g)]
+      // 🔵 容許 `stripComments(` 與 `readFileSync(` 之間有空白/換行 ——
+      //    code-reviewer 實測:98 字元那一行只要有人跑一次 80 寬格式化就會換行,
+      //    而嚴格版會把一個【完全合法】的寫法判紅 ⇒ 假紅會讓這一格被關掉。
+      .filter((m) => !/stripComments\(\s*$/.test(self.slice(0, m.index)))
+      .map((m) => {
+        const line = self.slice(0, m.index).split('\n').length;
+        return `剝註解後第 ${line} 行`;
+      });
+    expect(
+      unwrapped,
+      `這幾處 readFileSync 沒有經過 stripComments:\n  ${unwrapped.join('\n  ')}\n` +
+        '⇒ 少了它,被掃的檔【註解裡的字面】會被算成真的用到 —— ' +
+        '而那個方向是【多報】:它會紅在一個其實沒有問題的地方,然後被關掉。',
+    ).toEqual([]);
+  });
+});
