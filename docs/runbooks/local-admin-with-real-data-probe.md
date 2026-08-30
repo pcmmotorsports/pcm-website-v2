@@ -1301,3 +1301,25 @@ ADMIN_PROBE_PROXY=… ADMIN_PROBE_WEB=… bash scripts/admin-probe/down.sh
 ⚠️ **所以這一段【不是】實跑驗出來的**:我**刻意沒有跑**那一發,因為跑下去的代價落在別人身上
 (同 `up.sh` 檔頭那條 `FORCE=1` 的自陳:「那不是拖延,而它的結果是:**這是一個永遠不會被驗的分支**」)。
 ⇒ 上面的推論來自 `down.sh` 自己的碼與當下的埠占用實測,**不是一發完整的重現**。
+
+### ⚠️ 貼 cookie 那一步:**有人成功、有人失敗,而【為什麼】沒有人查出來**
+兩筆互相矛盾的觀察,**兩筆都留著**(2026-08-30):
+```
+`-30`(線ship)：在瀏覽器 console 打 document.cookie='…' ⇒ 讀回空字串，連試兩次都不成功
+                改用 Playwright 的 context().addCookies() ⇒ 成功
+`-08`（本節作者）：同一台鑽機、同一個 origin（http://localhost:3050）
+                用 Playwright 的 page.evaluate 執行 document.cookie='…' ⇒ **成功**
+                當場複驗：塞一顆 canary ⇒ 立刻讀得回來（cookie 字串 1214 → 1239 字元）
+                而那張票隨後真的通過了三道閘（DB 寫進去、author=probe_staff）
+```
+🛑 **所以【不要】把它寫成「那條路不通」** —— 它在至少一種情況下是通的。
+🛑 **也不要補一個成因** —— `-30` 明說它**沒有查為什麼**,我這邊也沒有重現它的失敗。
+   兩邊差在哪(devtools console vs `page.evaluate`?開的是哪一頁?有沒有先導航?)**沒有人量過**。
+✅ **可執行的建議**:
+```
+① 先用 document.cookie，當場讀回來驗（`document.cookie.includes('pcm_admin_sess_dev')`）
+   —— 🔴 **設完一定要讀回來**：它失敗的時候【不會報錯】，只是那顆 cookie 不在
+② 讀不回來 ⇒ 換 Playwright context().addCookies()，那條 `-30` 走通過
+```
+📌 **這一段的價值不是答案,是【它明寫沒有答案】** —— 下一個人撞到時,
+   會知道這不是他手殘,而是一個已知、未解、有替代路的東西。
