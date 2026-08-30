@@ -18,6 +18,19 @@
 #   本工具補的是【分母】那一半:抓出所有呼叫 git 寫入的腳本,並標出【哪些閘測不到】(無 --selftest)。
 #   「抓得到」與「測得到」是兩件事,而它們在一份「分母 N 支」的報告上長得一樣。
 #
+# 🔴🔴 **本尺只讀【一行】—— 把 `git` 藏進一個 helper 的檔, 對它結構上隱形。**
+#    (2026-08-31 用它自己的 `pyjs_calls_git_write()` 逐樣本量的, 含負對照:)
+#      `subprocess.run(['git','-C',d,'commit','-qm','base'])`  ⇒ True   ← 字面在同一行
+#      `sp.run(['git','-C',d] + list(a), …)`                   ⇒ **False** ← 動詞在變數裡
+#      `g('commit', '-qam', 'stock')`                          ⇒ **False** ← 呼叫端沒有 `git` 字面
+#      `print('這行沒有任何 git 呼叫 zzz')`                    ⇒ False   ← 負對照
+#    ⇒ 📌 **一支把 git 包成 `def g(*a): run(['git','-C',d]+list(a))` 的檔, 整支對它不存在。**
+#    🔴 **而 08-31 洩漏身分的那一支 `scripts/md-table-overflow.py` 正是這個形狀**
+#       ⇒ **它今天不在下面那份分母裡, 而它就是本工具存在理由的最新一次發生。**
+#    🛑 **這一格【刻意不修】**(2026-08-31 主視窗裁):追函式沒有便宜解,
+#       而一個【追得不完整】的版本會讓人把「看得見一部分間接呼叫」讀成「看得見間接呼叫」
+#       ⇒ **比現在這個誠實的盲區更貴。**⇒ 寫在這裡, 讓【讀這份報告的人】看得到, 不是只在 git log 裡。
+#
 # 分母怎麼建(每一條對應現行閘的一個洞):
 #   ① python3 逐檔讀 bytes,不用 ugrep(ugrep 的 -I 會把某些檔判 binary ⇒ 分母靜默縮水)
 #   ② shebang 偵測候選,不寫死副檔名(舊閘 `\.(py|sh)$` 濾掉了 quantifier-hook.harness.js〔.js〕)
@@ -36,20 +49,35 @@
 import subprocess, re, io, os, sys
 
 # ═══ 這張表是分母的【唯一來源】—— 設計文件引用它、WRITE 正則【從它生成】(b4:表與碼要同源)═══════
-#   只收【會寫 index / 工作樹 / refs】的子命令 —— 本閘防的是「主 repo 的 index/工作樹被寫」。
+#   只收【會寫 index / 工作樹 / refs / **repo 設定**】的子命令 —— 本閘防的是「主 repo 被寫」。
+#   🔴 「repo 設定」是 2026-08-31 擴的:原句只寫 index/工作樹/refs, **而 `config` 三者都不是**
+#      ⇒ 下一個照那句準則盤點的人會把 `config` 判成不該收而刪掉它。
+#      📌 **一條把自己的新成員排除在外的準則, 讀起來完全自洽。**
 #   🔴 push/fetch/gc/repack/write-tree 刻意【不收】:它們寫遠端或物件庫,不碰 index/工作樹
 #      ⇒ 不是本次事故(git add -A 把 index 全 stage 成刪除)的形狀。(b4 F2 + 主視窗裁 push 不進表)
+# 🔴 `'config'` 是 2026-08-31 加的, 而它補的是【本工具存在的那個理由的最新一次發生】:
+#    08-31 凌晨一支 selftest 的 `git -C <tmp> config user.name t` 在 hook 底下(GIT_DIR 有值)
+#    寫進了**全窗共用的 `.git/config`** ⇒ **38 顆 commit(每個窗、每條線)的作者變成 `t <t@t>`**。
+#    ⇒ 📌 **本工具的存在理由是 08-27 的事故, 而 08-31 的事故用的動詞不在這張表裡。**
+#    ⚠️ 一次只加一個動詞(08-31 這次只加 `'config'`)—— 多標出來的那幾支才分得出是誰造成的。
 WRITE_VERBS = ['add', 'rm', 'mv', 'commit', 'reset', 'restore', 'stash', 'checkout', 'switch',
                'apply', 'update-index', 'update-ref', 'clean', 'init', 'rebase', 'cherry-pick',
                'am', 'revert', 'pull']
 # merge 但排除唯讀 plumbing merge-base/merge-tree/merge-file(reviewer R2:`\b` 在 e 與 - 之間會誤中)
 WRITE_MERGE = r'merge(?!-)'
+# 🔴 `config` **不放進 WRITE_VERBS**, 因為它的唯讀形比寫入形常見(`--get` / `-l` / `--list`
+#    / `--get-regexp` / `--get-all` / `--show-origin`)⇒ 直接放進去會把每一支【讀】設定的腳本
+#    都標成寫入。而本檔 `:40-42` 自己記著「58% 噪音讓閘被學會忽略」⇒ **加噪音等於關掉這道閘。**
+#    ✅ 照本檔既有的 `WRITE_MERGE` 慣例, 用否定前瞻把唯讀形排掉。
+#    ⚠️ **它擋不住什麼**:`git config --get-color` 之類沒列到的唯讀旗標仍會誤判成寫入;
+#       而 `git config` 不帶任何參數(互動式編輯)會被判成寫入 —— **那是對的**。
+WRITE_CONFIG = r'config(?! +(?:--get\b|--get-all\b|--get-regexp\b|--list\b|--show-origin\b|-l\b))'
 # 有唯讀形(list/status)的,只認其【寫入子動作】(reviewer R2:否則 `git worktree list` 破負對照)
 WRITE_SUBACTION = {'worktree': ['add', 'remove', 'move', 'repair', 'prune'],
                    'submodule': ['update', 'add', 'deinit', 'set-url', 'set-branch', 'sync']}
 # 🔴 `-C <path>` / `-c <k>=<v>` 的參數是【下一個 token】(本次事故 `git -C "$dir" add` 的形狀,reviewer R1)
 _FLAG = r'(-C +\S+|-c +\S+|-[^ \n]+)'
-_ALTS = [rf'(?:{"|".join(WRITE_VERBS)}|{WRITE_MERGE})\b'] + \
+_ALTS = [rf'(?:{"|".join(WRITE_VERBS)}|{WRITE_MERGE}|{WRITE_CONFIG})\b'] + \
         [rf'{k} +(?:{"|".join(v)})\b' for k, v in WRITE_SUBACTION.items()]
 WRITE = re.compile(rf'git( +{_FLAG})* +(?:{"|".join(_ALTS)})')
 
@@ -72,6 +100,10 @@ _PYJS_LIST = re.compile(rf'''[\[(]\s*['"]git['"]\s*,[^\])]*?['"](?:{_PYJS_VERBS}
 _PYJS_NODE = re.compile(
     rf'''(?:execFile|execFileSync|spawn|spawnSync|execa)\s*\(\s*['"]git['"]\s*,\s*\[[^\]]*?['"](?:{_PYJS_VERBS})['"]''')
 # 動態拼接 'git ' + 'commit'(quantifier-hook 躲字面掃描的形;b4 R2-2:不再靠硬編名字,靠通則抓)
+# 🔴 **這裡內嵌【第二份】動詞表, 而它與上面的 `WRITE_VERBS` 不同步**(2026-08-31 code-reviewer 指出):
+#    它只有 8 個(缺 mv/stash/apply/pull/config…)。**本次刻意不同步**, 理由:
+#    ⚠️ code-reviewer 實跑 M5(把這一串清空)⇒ **self-check 仍全過** ⇒ **整串沒有任何世界在測它**
+#    ⇒ 動一個沒有量具在看的東西, 改對改錯都印同一個綠 ⇒ **先寫下來, 不要順手改。**
 _PYJS_CONCAT = re.compile(r'''['"]git\s*['"]\s*\+|\+\s*['"](?:commit|add|rm|reset|checkout|init|worktree|submodule)['"]''')
 # 🔴 exec-string 必須是【傳給 exec 函式的字串】,不是【當測資/訊息的字串】——
 #    否則本工具自己的 self-check 世界 `('git -C "$d" add -A', True)` 會誤中(那是測資不是執行)。
@@ -257,6 +289,21 @@ def self_check():
         ('git merge-base HEAD x',         True,  False),   # 唯讀 plumbing
         ('git worktree list',             True,  False),   # 唯讀子動作
         ('git status --porcelain',        True,  False),
+        # 🔴 這三格是 2026-08-31 加的 —— **在它們之前, 拿掉 `config` 那條腿【沒有東西會紅】**
+        #    (code-reviewer 實跑:M1 移除 ⇒ `--self-check` 仍 rc=0、0 紅)
+        #    ⇒ 📌 **一個保護寫對了而沒有接上, 與沒寫的行為相同 —— 而前者更貴。**
+        ('git -C "$d" config user.name t', True,  True),   # 08-31 洩漏身分的那個形狀
+        ('git config --get user.name',     True,  False),  # 唯讀形 ⇒ 不算寫入
+        ('git config -l',                  True,  False),  # 同上, 短旗標
+        # 🛑 **這一份世界清單【殺不掉「把某一格刪掉」那種突變】**(2026-08-31 實跑:
+        #    M4 刪掉上面那個正對照格 / M5 刪掉兩個負對照格 ⇒ **`--self-check` 仍 rc=0、0 紅**)。
+        #    成因與 `scripts/literal-sweep.sh` 同一個:**它只【印】格子, 不【算】格子。**
+        #    ✅ 那一支 2026-08-31 已經修好(`be917373`):`pass()/fail()` 累加一個計數,
+        #       收工比「跑了幾格 vs 期望幾格」, 而期望值綁回**資料**(不寫死數字)。
+        #    🛑 **本片刻意不順手做** —— 主視窗指派逐字「一次只加一個變因」,
+        #       而那是**測試結構**的改動、不是這條 `config` 腿的一部分
+        #       ⇒ 混在同一顆裡的話, 之後多標/少標的那幾支分不出是誰造成的。
+        #    📌 **⇒ 這是一個【有便宜解、而刻意留到下一顆】的缺口, 不是一個沒有解的缺口。**
     ]
     for frag, sh, exp in worlds:
         got = calls_git_write(frag, sh)
