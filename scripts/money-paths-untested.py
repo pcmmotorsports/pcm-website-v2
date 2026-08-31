@@ -112,6 +112,68 @@ def family_c():
         if MONEY_RE.search(io.open(p, encoding='utf-8', errors='ignore').read()): out.append(p)
     return sorted(out)
 
+# ── 「有沒有人在走」:呼叫端偵測 ────────────────────────────────────────────
+# 🔴 2026-09-01 加。成因是量到的:本檔原本【沒有】這一格, 而它被臨時用全字串比對代替
+#    ⇒ 一小時內造成三次訂正(-2d 說「應用碼在呼叫」證據是註解 · -a0 說「零呼叫端」漏了 migrations)
+#    實錘:`redeem_coupon` 在 apps+packages 剝註解之後 = 0, 而呼叫它的是【另一支 DB 函式】
+#          (`20260901021000_…:540  v_coupon_calc := public.redeem_coupon(`)
+# 🛑 本函式擋不住什麼:①剝註解是【字面】剝的, 字串裡的 `--` / `//` 會被誤剝 ⇒ 偏向少報呼叫端
+#    ②動態組出來的函式名(字串拼接)看不到 ③只看本 repo, 別的 repo 的呼叫端不在分母
+SKIP_DIRS = ('node_modules', '.next', 'dist', '.turbo', 'coverage', 'build', '.git')
+
+def _strip_comments(text, sql):
+    text = re.sub(r'/\*.*?\*/', ' ', text, flags=re.S)          # 兩種語言都有的區塊註解
+    text = re.sub(r'^\s*--[^\n]*$', '', text, flags=re.M) if sql else \
+           re.sub(r'(?<!:)//[^\n]*', '', text)
+    if sql:
+        text = re.sub(r'--[^\n]*', '', text)
+    return text
+
+def callers_of(name):
+    """回傳 [(檔, 行號, 那一行)] —— 只認【呼叫形狀】, 不認單純提到名字。"""
+    out = []
+    pats = [re.compile(r'\b(?:public\.)?%s\s*\(' % re.escape(name)),   # SQL / TS 直接呼叫
+            re.compile(r"""rpc\(\s*['"]%s['"]""" % re.escape(name), re.S)]  # rpc('name'), 允許跨行
+    # 🔴 這些【不是呼叫】—— 少了它們, 每一支函式都會被它自己的定義算成「有人在走」
+    #    (2026-09-01 首版就踩到:create_order 印 115 處, 而頭兩處是 CREATE 與 REVOKE)
+    notcall = re.compile(
+        r'\b(?:CREATE|DROP|ALTER|COMMENT\s+ON|REVOKE|GRANT|SECURITY\s+LABEL\s+ON)\b'
+        r'|to_regprocedure|to_regproc\b|pg_get_functiondef', re.I)
+    for base, exts, sql in (('apps', ('.ts', '.tsx', '.js', '.mjs'), False),
+                            ('packages', ('.ts', '.tsx'), False),
+                            ('scripts', ('.ts', '.js', '.mjs'), False),
+                            ('supabase/migrations', ('.sql',), True)):
+        root = os.path.join(ROOT, base)
+        if not os.path.isdir(root): continue
+        for d, dirs, fs in os.walk(root):
+            dirs[:] = [x for x in dirs if x not in SKIP_DIRS]
+            for f in fs:
+                if not f.endswith(exts) or '.test.' in f: continue
+                fp = os.path.join(d, f)
+                try: raw = io.open(fp, encoding='utf-8', errors='ignore').read()
+                except Exception: continue
+                if name not in raw: continue
+                clean = _strip_comments(raw, sql)
+                # 🔴 `rpc(` 與函式名可能【跨行】—— 而逐行比對看不到它
+                #    (2026-09-01 正對照抓到:SupabaseOrderAdapter.ts 的 .rpc( 換行才接 'create_order')
+                for m in pats[1].finditer(clean):
+                    ln = clean.count('\n', 0, m.start()) + 1
+                    src = clean.split('\n')[ln-1].strip()[:90]
+                    if not notcall.search(src):
+                        out.append((rel(fp), ln, src or "rpc( 跨行"))
+                for i, line in enumerate(clean.split('\n'), 1):
+                    if notcall.search(line): continue
+                    # 🔴 字串字面裡的函式簽章【不是呼叫】—— 它是資料
+                    #    (2026-09-01 量到:'public.create_order(jsonb,…)'::regprocedure 這種
+                    #     出現在驗收斷言與錯誤訊息裡, 而它們把每支函式都算成「有人在走」)
+                    # 🔴 只對 .sql 剝字串字面。TS 那一側【不能剝】——
+                    #    因為有一種呼叫就住在字串裡:`'SELECT public.name(…)'` 交給 query 執行
+                    #    (2026-09-01 抽驗抓到:PaymentConfirmerAdapter.ts:159 record_pending_invoice)
+                    probe = re.sub(r"'[^']*'", "''", line) if sql else line
+                    if pats[0].search(probe):
+                        out.append((rel(fp), i, line.strip()[:90]))
+    return out
+
 def sql_name_in_tests(names):
     blob = ''
     for p in list(walk('apps', lambda p: re.search(r'\.test\.(ts|tsx)$', p))) + \
@@ -153,6 +215,17 @@ def selftest():
     chk('不存在的檔', os.path.join(ROOT, 'apps/admin/src/lib/payment/zzz-not-real.ts') in reach, False)
     print('=== 🔵 負對照二:解析器不得把亂寫的 import 解出東西 ===')
     chk('resolve 亂字串', resolve('@zzz/not-real', os.path.join(ROOT, 'apps/admin/src/x.ts')), None)
+    print('=== 🔴 呼叫端偵測(2026-09-01 加)—— 四道, 三正一負 ===')
+    #    🟢 跨行的 rpc(:SupabaseOrderAdapter 的 .rpc( 換行才接 'create_order'
+    chk('create_order 有呼叫端(跨行 rpc)', len(callers_of('create_order')) >= 1, True)
+    #    🟢 呼叫端在【另一支 DB 函式】裡, 不在應用碼
+    chk('redeem_coupon 有呼叫端(來自 migrations)', len(callers_of('redeem_coupon')) >= 1, True)
+    #    🟢 同一行的 rpc('name')
+    chk('admin_adjust_wallet 有呼叫端(同行 rpc)', len(callers_of('admin_adjust_wallet')) >= 1, True)
+    #    🟢 第四種呼叫形狀:寫在 TS 的 SQL 字串裡交給 query 執行
+    chk('record_pending_invoice 有呼叫端(TS 裡的 SQL 字串)', len(callers_of('record_pending_invoice')) >= 1, True)
+    #    🔵 負對照
+    chk('現造函式名 ⇒ 零呼叫端', callers_of('zzz_not_a_real_fn'), [])
     print('=== 🔴 第三道:MONEY 字集要真的在篩 —— 全 repo 不該每支檔都碰錢 ===')
     tot = len(list(walk('apps', lambda p: p.endswith('.ts') and '.test.' not in p)))
     chk('A 族 < 全部 .ts 的一半', len(family_a()) * 2 < tot, True)
