@@ -1,0 +1,377 @@
+-- ============================================================
+-- M-4b 券片 3b 甲:orders 加一欄 coupon_id —— 純加欄, 金額零改變, 零寫入路徑改變
+-- ============================================================
+-- plan:`docs/plans/2026-09-01-coupon-slice3b-redemption-wiring-plan.md` §1(甲案)
+-- 批准:主視窗 -24 2026-09-01 批【甲】(鐵則 8:schema 改動須批准)。
+--       ⚠️ **Sean 本人未看過本片** —— 批的是主視窗, 而它在夜跑班次裡代行派工。
+--          apply 仍要 Sean 本人貼。本檔不 apply、不推。
+-- 依賴:20260604120000(orders 表)、20260829150000(coupons 表)。
+-- 鐵則 12③(schema)⇒ codex 對抗審查不降級, 由本窗自己跑。
+--
+-- ── 🔴 為什麼要這一欄(不是為了「資料完整」, 是因為【券的身分會消失】)──────────
+--    量到的(2026-09-01, worktree pcm-wt-account):
+--      awk '/^CREATE TABLE orders \(/,/^\);/' 20260604120000_….sql ⇒ 抽出 40 行
+--        🟢 正對照 discount_total ⇒ 2   🟢 正對照 subtotal ⇒ 2
+--        🔴 coupon ⇒ 0                  🔵 負對照 zzq9137 ⇒ 0
+--      grep -riE 'alter table (public\.)?orders.*coupon' migrations/ ⇒ 0
+--        🟢 正對照 'alter table … orders' 任何 ⇒ 76(尺會動)
+--    ⇒ `orders` 上沒有任何一欄記得住「這張單用了哪張券」。而:
+--      create_order(…, p_coupon_code text)                        拿得到券碼
+--      confirm_order_payment(p_order_id, p_amount, p_rec_trade_id) 三個參數都不是券
+--      redeem_coupon(p_code, …)                                   要券碼才找得到券
+--    而 Sean 拍的是「收款成功才寫 redemption」⇒ 到了那一刻, 券碼已經不在了。
+--    📌 **金額(discount_total)在、身分不在 —— 那本來就是半套。**
+--
+-- ── 為什麼是 id 不是券碼文字 ────────────────────────────────────────────────
+--    券碼可以被後台改(`coupons.code` 沒有不可變約束)。存 id ⇒ 改碼之後那張單仍然指對同一張券;
+--    存文字 ⇒ 改碼那天所有舊單的指向一起變成孤兒, 而**沒有任何東西會紅**。
+--
+-- ── ON DELETE RESTRICT 的取捨(寫出來, 因為它有代價)──────────────────────────
+--    照鄰居 `coupon_redemptions.coupon_id`(20260829150000)的 RESTRICT, 一致。
+--    ✅ 好處:用過的券刪不掉 ⇒ 歷史指向不會斷。
+--    🔴 **代價**:一張【下了單但從來沒付款】的單也會擋住那張券被刪除, 永遠。
+--       而 `coupons.is_active`(Q7甲「停用取代刪除」)是預期的下架手段 ⇒ 刪除本來就不是常路。
+--       ⚠️ 這是判斷, 不是拍板 —— 若 Sean 之後說「用不到的券要刪得掉」, 改法**不只是換一個字**。
+--    ⛔ ~~原句寫「改法是把本欄改 `ON DELETE SET NULL` 並接受歷史指向會斷」~~ **作廢**
+--       (codex R1 must-fix, 2026-09-01):**`SET NULL` 自己會撞上本檔第 2 節那條 CHECK。**
+--       刪券 ⇒ 那些單的 `coupon_id` 被設成 NULL ⇒ 而它們的 `discount_total > 0`
+--       ⇒ `discount_total = 0 OR coupon_id IS NOT NULL` **不成立** ⇒ **刪券【還是】失敗。**
+--       ✅ 真正的改法要動兩個地方:`SET NULL` **加上** 放寬或移除那條 CHECK。
+--       📌 **而原句危險的地方不是它錯, 是它【看起來可以照做】** ——
+--          下一個人會換掉那個字、跑 apply、綠、然後在刪券那天才發現沒解決。
+--          **一個行不通的替代方案, 比沒有替代方案貴。**
+--    ✅ **而「今天有沒有人會撞到」是量到的, 不是推的**(2026-09-01, worktree pcm-wt-account):
+--         grep -rn "from('coupons')" --include='*.ts' --include='*.tsx' apps packages ⇒ **0**
+--         🟢 正對照 同範圍 grep -rni 'coupons' ⇒ **141**(尺會動)
+--         🔵 負對照 zzqcoupon0901 ⇒ **0**
+--         migrations 裡 `CREATE FUNCTION public.*coupon*` ⇒ 只有 `coupon_redeem_order_problem`
+--           與 `redeem_coupon` 兩支, **沒有建券 / 改券 / 刪券的 RPC**
+--         `apps/admin/src/lib/coupons/coupon-repository.ts:31` 逐字:
+--           「本 repo 只讀。券的寫入唯一路是之後那幾片的 SECURITY DEFINER RPC ——
+--             這裡沒有任何寫入 getter, 而那不是漏做」
+--       ⇒ **今天沒有任何一條路刪得掉券** ⇒ 本欄不會讓任何現有功能從「今天成功」變成「明天失敗」。
+--    ✅ 而方向也已經被拍過:`coupons.is_active` 那一欄的註解逐字「← Q7甲 停用取代刪除」
+--       ⇒ **RESTRICT 與那個拍板同向**, 不是我自己選的路。
+--       ⚠️ 而 Q7甲 那句我讀的是 `20260829150000` 的欄註解, **沒有回去查 Sean 的原話落點**。
+--
+-- ── ⛔ 本片不做(寫下來, 免得下一個人以為漏了)──────────────────────────────
+--    · 不寫入任何值 —— 全表 NULL。寫入是 021000(create_order 第 11 代)的事。
+--    · 🔴 **給 022000 的一句話**(R3 抓的, 現在零落點):本條雙向 CHECK 與既有的
+--      `orders_total_balances`(`total = subtotal + shipping_fee - discount_total`)**聯手**
+--      封死了丙案(付款成功、兌換失敗)的一條看起來很自然的補救路 ——
+--      「把折扣歸零」⇒ 必須同時清掉 `coupon_id`(**丟失鑑識線索**)且改 `total`
+--      (**而 total 是已經刷卡的金額**)⇒ 兩者都不該動。
+--      ⇒ **丙案唯一自洽的補救在【退款側】, 不在訂單側。**這是好性質, 而 022000 要知道。
+--    · 不改任何 RPC、不改前台、不改後台顯示。
+--    · 🔴 **不建索引** —— 券的用量統計走 `coupon_redemptions.coupon_id`(它才是「真的用掉了」),
+--      本欄答的是「這張單當初帶了哪張券」。今天沒有任何查詢以本欄為條件。
+--      ⇒ 3d(使用上限)若真的要以本欄查, 那時再加, 而那時才量得出值不值得。
+--    · 🔴 **不動 `admin_order_list_v`** —— 那支 view 是 `SELECT o.*`, 而 `o.*` 在
+--      **建立當下就展開成固定欄位清單** ⇒ 本欄【不會】出現在它的輸出裡, 也不會讓它壞。
+--      (同一句話 `20260829140000:67` 已經為 B2c 的新欄寫過一次。)
+--
+-- ── 🔴 而「零行為改變」是過度宣稱 ──────────────────────────────────────────
+--    本欄會**立即**進入 `authenticated` 的 `SELECT *` 與 PostgREST 的回應形狀
+--    ⇒ **客人拿到的訂單物件多了一個鍵 `coupon_id`**(值恆 NULL, 直到 021000 上線)。
+--    準確說法:**金額零改變、寫入路徑零改變, 而讀取形狀變了。**
+--    權限:`orders` 走表級 ACL(`20260604120000:188-193` REVOKE ALL + GRANT SELECT TO authenticated
+--    + RLS `orders_select_own`)⇒ 新欄承襲, 客人只看得到自己的單。
+--    本欄的值是一個 uuid, 不含金額、不含別人的資料 ⇒ 不構成鐵則 12② 違反。
+--    ⚠️ 這是**讀 ACL 模型推出來的**, 不是在正式庫上量到的 —— 標明來源, 不寫成「已驗」。
+--
+-- ── 🔴 備份還原(B1 踩過的那個坑, 本檔查過了)────────────────────────────────
+--    `scripts/d1-restore.ts` 曾經用 `LIKE public.orders` + `HEADER MATCH` ⇒ 加一欄就讓
+--    180 天內的舊備份還原不回來(`#958`)。**那一種已經被修掉了**:同檔 `:579` 起改成
+--    **欄位【集合】比對**(`buildColumnSetCheckSql`), 註解 `:732` 逐字「而它不是退回 HEADER MATCH」。
+--    ⛔ ~~原句寫「備份那個坑本檔查過了」~~ **收窄**(R3, 2026-09-01):
+--       我查的是**欄位形狀**那一種, 加上後來 R2 抓到的**CHECK 語意**那一種 —— **共兩種。**
+--
+-- 🔴🔴 **而還有第三種, codex 兩輪都沒看到:`coupons` 根本不在備份的分母裡。**
+--    量到的(R3 提出, 我獨立複量, 2026-09-01):
+--      `scripts/d1-export.ts`  `coupons` ⇒ **0**   🟢 正對照 `orders` ⇒ 5
+--      `scripts/d1-restore.ts` `coupons` ⇒ **0**   🟢 正對照 `orders` ⇒ 38
+--      `d1-restore.ts:498` 的 `PARENT_TABLES` 五張 = customers / customer_addresses /
+--        products / product_variants / legal_terms_versions ⇒ **沒有 coupons**
+--        (同一把尺問 `customers` ⇒ 1 ⇒ 尺會動)
+--      推翻條件也查了:全 repo `scripts/` 底下同時含 coupons 與 orders 的只有 **1 支**
+--        (`null-shortcircuit-check-guard.test.ts`), 而它含 backup/備份/export 字面 ⇒ **0**
+--        ⇒ **沒有另一份含 coupons 的備份表清單。**
+--    ⇒ **失敗情境**:021000 上線後備份裡的 orders 帶著真的 `coupon_id`;災難還原時
+--      `coupons` 若被重建, id 是 `gen_random_uuid()` 產的 ⇒ **全新的 id**
+--      ⇒ `INSERT INTO public.orders SELECT *`(`d1-restore.ts:803`)整批 FK 23503 失敗。
+--    📌 **而這一條最尖的地方**:本欄存在的唯一理由是「把券的身分留下來」,
+--       而**券的身分正好是備份救不回來的那一格**。⇒ 這一欄防的那件事, 備份不防。
+--    🔴 **⇒ 021000 之前要處置**(本片不做, 因為今天全表 coupon_id 皆 NULL ⇒ 還原不會撞):
+--       甲 把 `coupons` 加進 `d1-export.ts` 的表清單與 `PARENT_TABLES`
+--       乙 或在 021000 的檔頭把它記成已知缺口
+--       ⇒ **這一格已交回主視窗。**
+--    ⚠️ 而我**沒有實跑任何一條還原路徑** —— 我讀的是那兩支檔的碼。**推出來的, 不是量到的。**
+--
+-- ── 冪等 ──────────────────────────────────────────────────────────────────
+--    無 `IF NOT EXISTS`, 刻意的:整檔一個交易 ⇒ 重跑整體失敗、不留半套。
+--    (與 `20260828100000` 同一個選擇, 理由同。)
+--
+-- ── 動手前真 DB 交易模擬 ────────────────────────────────────────────────────
+--    ⏳ 本檔在【拋棄式 PG】上跑過(見檔尾「怎麼驗」), **未在正式庫上跑過任何一句。**
+--    🔴 而「⏳ PENDING」這種標記擋不住任何東西(`20260828100000:172-176` 實查三支檔標著
+--       PENDING 而 APPLIED.tsv 裡都有)⇒ 真正的閘是【那份要端給 Sean 的 apply SQL 還沒產出】。
+-- ============================================================
+
+-- 🔴 **事故當天先讀這一行**:本檔整包在一個交易裡, 沒有任何 `IF NOT EXISTS`。
+--    ⇒ **任何一句紅(等鎖逾時 / 23514 CHECK 違反 / 23503 FK 違反)= 整包回捲、零殘留、可以直接重貼。**
+--    ⇒ 不必先去查「上次做到哪一步」—— **沒有半套這種狀態。**
+BEGIN;
+
+-- ── 鎖的上限 ────────────────────────────────────────────────────────────────
+--    `ADD COLUMN` 會對 `orders` 取 ACCESS EXCLUSIVE;FK 會對 `coupons` 取 SHARE ROW EXCLUSIVE。
+--    沒有上限的話它會**無限等**。
+-- ⛔ ~~原句寫「等的期間整張 orders 對所有人上鎖」~~ **作廢**(codex R2 nit):
+--    **還在【等】的時候它還沒拿到鎖 ⇒ 既有的讀取照常跑。**真正的傷害是排隊:
+--    那個等待中的 ALTER 卡在鎖佇列前面 ⇒ **它後面新來的查詢全部排在它後面**
+--    ⇒ 結帳與後台是被【佇列】停住的, 不是被鎖本身。
+--    📌 差別有用:看到卡住時要去看 `pg_locks` 的**佇列**, 不是問「誰持有鎖」。
+--    `lock_timeout` 管等鎖;`statement_timeout` 管拿到鎖之後跑太久。兩個都設。
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '30s';
+-- 🔴 **而 `statement_timeout` 是【逐陳述式】計時, 不是整支 migration 的 30 秒上限**
+--    (codex R1 nit, 2026-09-01)。本檔有兩句會拿鎖的 ALTER ⇒ 各自可以跑到接近 30 秒,
+--    而第一句取得的 ACCESS EXCLUSIVE **持有到 COMMIT** ⇒ **總阻塞可以超過 60 秒。**
+--    ⇒ 端給 Sean 的 apply 說明要寫「最壞情況鎖住 orders 約一分鐘」, 不是「30 秒」。
+
+-- ── 1. 加欄 ────────────────────────────────────────────────────────────────
+--    nullable、無 DEFAULT ⇒ PG 不【改寫】既有的列(全表 NULL)。
+-- ⛔ ~~原句寫「不掃全表」~~ **作廢兩次**, 兩次都錯在不同的地方:
+--    R1 訂正:「那句對這一句 ADD COLUMN 是對的, 錯在第 2 節的 CHECK 會掃」⇒ **也是錯的。**
+-- 🔴🔴 R2 訂正(codex R2 must-fix)+ **我實測**:**這一句自己也會掃。**
+--    量法(拋棄式 PG, 30 萬列的 `zzq_fk_child`, 2026-09-01):
+--      · 對【既有欄】加 FK, 而那 30 萬列指向不存在的 parent
+--        ⇒ `ERROR: … violates foreign key constraint` ⇒ **FK 會驗既有列**
+--      · `ADD COLUMN pid4 uuid CHECK (pid4 IS NOT NULL)`(**新欄, 全 NULL**)
+--        ⇒ `ERROR: check constraint … is violated by some row`
+--        ⇒ 🔴 **新欄的 inline 約束【確實對既有列跑過】** —— 不是「新欄所以不用驗」。
+--      🛑 而**計時分辨不出來**:30 萬列上 A/B/C 三發都是 0.04–0.05s ⇒ 我第一把尺(量時間)沒有判別力,
+--         換成「放一列違規的看它爆不爆」才問得出來。**兩個世界要印不同的東西。**
+--    ⇒ **結論:本檔兩句 ALTER 都會掃全表。**第一句剛好過(全 NULL 不違反 FK), **但掃還是掃了。**
+--    ⇒ 而 `orders` 的 ACCESS EXCLUSIVE 從第一句取得起**一路持有到 COMMIT**
+--      ⇒ 兩句的時間【相加】才是真正的阻塞長度, 而替身表只有 9 列, 量不出真表的量級。
+--    📌 **形狀:「這個動作對【這一筆資料】不會失敗」被我寫成了「這個動作【不做那件事】」。**
+--       ⇒ 而它一路撐過了 R1 的訂正 —— **訂正的人只修了被指出來的那半。**
+ALTER TABLE public.orders
+  ADD COLUMN coupon_id uuid REFERENCES public.coupons(id) ON DELETE RESTRICT;
+
+COMMENT ON COLUMN public.orders.coupon_id IS
+  '這張單結帳時帶的那張優惠券(NULL = 沒帶券)。'
+  '🔴 它【不代表券被用掉了】—— 真的用掉的紀錄在 coupon_redemptions, 那一列在【收款成功】才寫。'
+  '⇒ 一張 coupon_id 非 NULL 而 coupon_redemptions 查無的單 = 下了單但沒付款(或付款後兌換失敗, 見丙)。'
+  '存 id 不存券碼文字:券碼可以被後台改, 存文字會讓改碼那天所有舊單一起變孤兒而沒有東西會紅。';
+
+-- ── 2. 一致性:沒帶券就不該有折扣 ────────────────────────────────────────────
+--    🔴 這一條擋的是【021000 寫錯】那一種:算出折扣卻沒記下是哪張券。
+-- 🔴🔴 **這條是【雙向】的:有券必有折、有折必有券。**
+-- ⛔ ~~原版是單向 `discount_total = 0 OR coupon_id IS NOT NULL`(只擋「有折沒券」)~~
+--    **作廢**(codex R2 must-fix, 2026-09-01)。
+--    我原本的辯護是「反方向下游擋得住 —— `coupon_redemptions.discount_applied` 有
+--    `CHECK (discount_applied > 0)`(`20260829150000`)⇒ 折 0 寫不進兌換 ⇒ 掉進丙(告警)」。
+-- 🔴 **而那個辯護是錯的, 我照著它就會留下一個安靜的洞**:
+--    `redeem_coupon` **自己算折扣**(它不是拿 orders 那個值)⇒ 021000 若寫了 `coupon_id`
+--    卻漏寫 `discount_total`, 那張單是「折 0」, 而 `redeem_coupon` 照樣算出至少 1 元、
+--    **成功寫進 redemption** ⇒ 結果是【訂單折 0、兌換紀錄折 100】, 兩邊不一致,
+--    **而沒有任何東西會叫** —— 券被消耗了, 客人沒拿到折扣。
+--    📌 **我的推理形狀錯在哪:我假設下游讀的是上游那個值。它不是 —— 它自己重算。**
+--       ⇒ **兩個地方各自算同一件事, 它們不一致時沒有人在比。**
+--
+-- ✅ **0 元訂單【不會】撞這條 —— 實測過, 不是推的。**
+--    Sean 2026-09-01 對「0 元單成不成立」答「都可以, 看你建議」⇒ 主視窗 `-24` 裁【讓它成立】
+--    (理由:客人拿全額券 + 門市取貨會看到「付款失敗, 請稍後再試」, 而再試一百次都不會成功)。
+--    ⇒ 我在拋棄式 PG 上餵了兩種形狀給本條 CHECK:
+--      形狀1 全額券 + 門市取貨(subtotal 1000 / discount 1000 / shipping 0 / total 0)⇒ `UPDATE 1`
+--      形狀2 沒有券的 0 元單(四欄皆 0)                                              ⇒ `UPDATE 1`
+--      🔵 負對照 一個真的會撞的形狀(有券而折 0)                                      ⇒ ERROR 23514
+--    ⇒ **兩種都過, 而尺會動** ⇒ 0 元單那一片不會被本條擋住。
+--    🛑 而 0 元單**不是本片** —— 它動的是結帳/付款那條路(金額 0 ⇒ 跳過刷卡、直接算已付款),
+--       另開一列。而上一代 `create_order` 的 `IF v_total <= 0` 那道閘的錯誤訊息**自己預告了它**:
+--       逐字「若這是合法的 0 元單(全額折價券/儲值金), 本閘需重議」⇒ **前人寫下了觸發條件, 而它到了。**
+--
+-- 🔴 **而雙向把一個【沒寫出來的假設】焊死了, 寫出來**(R3 抓的):
+--    本條假設「`discount_total` 的來源永遠只有券, 而券一定折 ≥ 1 元」。
+--    今天成立:`coupons.discount_type` 只有 `fixed` / `percent`(`20260829150000:117`)、
+--    Sean 拍【最低折 1 元】、手動單那條路寫 0。
+--    🛑 **而【免運券】會直接違反本條** —— 那種券是 `coupon_id` 有值而 `discount_total = 0`
+--       (它折的是運費, 不是小計)。台灣電商最常見的券型之一, 而我們今天沒有。
+--    ⇒ **加免運券那天, 這條 CHECK 要一起改。**
+-- ✅ **而「券吃不吃運費」Sean 2026-09-01 已拍:【不可以】**(主視窗 `-24` 轉, 他逐字「不可以」)
+--    ⇒ 逐字落檔:**「2026-09-01 Sean 拍【不可以】—— 券的上限 = 商品金額, 運費照付」**
+--    為什麼(我當時給的理由, 現在是這條規則的【為什麼】):低消比的是小計、百分比乘的是小計
+--    ⇒ 讓它吃運費 = **同一張券兩個基準**, 而客人與員工都算不出同一個數字。
+--    ⇒ `redeem_coupon:218` `v_calc := least(v_calc, p_subtotal)` **已經是這個行為** ⇒ 不用改。
+--    🛑 而這條拍板**不涵蓋免運券** —— 免運券是另一種東西(它折運費、不折小計), 今天沒有。
+--    📌 寫在這裡, 因為那天的人會先看到一個 23514 錯誤, 而不會知道是一條假設過期了。
+--
+-- ── 那為什麼原本不敢做雙向(留著, 因為那個顧慮本身沒有錯)──────────────────────
+--    當時的顧慮:未來一張「券失效 ⇒ 改成不折」的單會寫不進去。
+--    ✅ 而那個顧慮**不成立** —— 券沒有生效就不要寫 `coupon_id`, 兩欄一起留白即可。
+--       ⇒ 顧慮成立的前提是「券失效但仍要記下它」, 而那件事今天沒有規格, 也沒有人要。
+--    ⚠️ 若哪天真的要記「客人試過這張券但沒生效」, **改法不是放寬本條**,
+--       是加一欄(例如 `coupon_attempted_code`), 讓「試過」與「用了」是兩件事。
+--
+--    Sean 2026-08-31 拍【甲 最低折 1 元】,
+--    所以「有券且折 0」在 021000 之後不該發生;而**今天全表 coupon_id 皆 NULL**,
+--    若把它也寫進 CHECK, 未來一張「券失效改成不折」的單就會**寫不進去**。
+--    📌 只擋確定錯的那一邊, 不擋還沒被拍板的那一邊。
+-- 🔴🔴 **這一句會【驗證每一列既有資料】** ⇒ 只要有一筆歷史「有折扣、沒券」, apply 當場失敗。
+--    ✅ **量過了**(主視窗 -24 唯讀正式庫, 2026-09-01 02:0x —— 我沒有正式庫 access, 這是它跑的):
+--         discount_total > 0        ⇒ **0**
+--      🟢 正對照 orders 總筆數       ⇒ **23**(表不是空的 —— 一張空表的 0 與這個 0 印同一個字)
+--      🔵 discount_total IS NULL     ⇒ 0   (NULL 不會被 CHECK 擋, 但值得知道)
+--      🔵 max(discount_total)        ⇒ 0   (第三個角度, 與第一格獨立)
+--      🔵 負對照 現造值 -999999       ⇒ 0
+--    ⇒ **驗全表會過。所以不用 `NOT VALID`。**
+--
+-- 🛑🛑 **而【備份】那個分母沒有人量過 —— 這是本檔交出去時的已知風險, 不是被解掉的。**
+--    `scripts/d1-restore.ts` 最後是 `INSERT INTO public.orders SELECT *`, 而 CHECK 對 INSERT 生效
+--    ⇒ 180 天內的舊備份若含一列「discount_total > 0 且沒有 coupon_id」⇒ **整批還原失敗。**
+--    🔴 而上面那個 0 **答不到這件事**:它量的是【正式庫此刻的 23 筆】, 而備份是【過去某一刻的快照】。
+--       歷史上曾經有過折扣、後來被改成 0 的列, 在今天的表上是**隱形的**。
+--    🔵 間接證據(只縮小、不關閉):`create_order` 目前 `v_discount_total := 0` ⇒ 今天沒有寫入路徑。
+--       ⚠️ **而那答的是「現在」, 這一格要的是「歷代」。兩個宣稱。**
+-- 🛑 ⛔ ~~原句寫「處置是先 DROP CONSTRAINT、還原完再加回來」~~ **作廢**(codex R2 must-fix):
+--    **那個流程自己走不完** —— drop 之後匯得進去, 而**再 `ADD CONSTRAINT` 時那些列還在**
+--    ⇒ 加回來當場失敗 ⇒ 資料庫停在「還原好了、而守門沒了」的狀態, **而畫面上不會有錯誤。**
+--    📌 又是同一族:**我第二次提供了一個看起來可以照做、而實際走不完的處置。**
+--       (第一次是上面那個 `ON DELETE SET NULL`。同一支檔、同一種形狀、我沒有自己抓到。)
+-- ✅ **誠實的處置:這一格【沒有現成流程】, 撞到那天要有人做決定。**
+--    真的撞到時的選項(不要現在挑, 那天的人才知道哪個對):
+--      甲 找出那些列, 人工補上 `coupon_id`(要查得到當初是哪張券 —— 可能查不到)
+--      乙 那些列的 `discount_total` 歸零並補一筆帳(改了歷史金額, 要 Sean 拍板)
+--      丙 那次還原就不裝這道守門, 並記在案上(把問題往後推)
+--    🔴 **而這一格要交回主視窗當【已知缺口】, 不是在這裡假裝解決了。**
+--    📌 B1 踩過同一族(`#958`, 加欄弄壞 `HEADER MATCH`)⇒ **那次是欄位形狀, 這次是資料語意。
+--       同一支腳本, 兩種壞法, 而修好第一種不會擋住第二種。**
+ALTER TABLE public.orders
+  ADD CONSTRAINT orders_discount_needs_coupon
+  CHECK ((discount_total > 0) = (coupon_id IS NOT NULL));
+
+COMMIT;
+
+-- ============================================================
+-- 驗過了 —— 實得值(拋棄式 PG 127.0.0.1:54329, 2026-09-01;不是正式庫)
+-- ============================================================
+-- apply 本檔 ⇒ rc=0(SET/SET/ALTER TABLE/COMMENT/ALTER TABLE/COMMIT)
+--
+-- ① 欄與型別      實得 `uuid | YES`                🔵 負對照 zzq_no_such_col_0901 ⇒ 0
+-- ② FK 與刪除行為  實得 `orders_coupon_id_fkey -> coupons | confdeltype=r`
+--                  🔵 負對照 conname like '%zzq0901nosuch%' ⇒ 0
+--                  (r=RESTRICT / a=NO ACTION / n=SET NULL ⇒ 三者不同 ⇒ 這格有判別力)
+-- ③ FK 真的擋      指向不存在的券 ⇒ ERROR `violates foreign key constraint "orders_coupon_id_fkey"`
+--                  🟢 正對照 指向真的券 ⇒ `UPDATE 1`  ⇒ 兩個世界印不同的東西
+-- ④ CHECK 真的擋   雙向, **四個世界都問過**:
+--                  a 有折沒券         ⇒ ERROR `violates check constraint "orders_discount_needs_coupon"`
+--                  b 有券沒折         ⇒ ERROR 同上   ← 這一格是 R2 修出來的
+--               🟢 c 有券有折         ⇒ `UPDATE 1`
+--               🟢 d 沒券沒折         ⇒ `UPDATE 1`(今天全表 23 筆就是這一種)
+--    🟢🟢 **而 b 那一格是【真的改變了行為】, 不是本來就綠** —— 同一發 UPDATE 各跑一次:
+--         裝【舊版單向】`discount_total = 0 OR coupon_id IS NOT NULL` ⇒ **`UPDATE 1`(放行)**
+--         裝【新版雙向】`(discount_total > 0) = (coupon_id IS NOT NULL)` ⇒ **ERROR**
+--         ⇒ 兩個世界印不同的東西。**「修好了」與「本來就不會發生」是兩個宣稱。**
+-- ⑤ 既有資料       coupon_id 非 NULL ⇒ 0    🟢 正對照 orders 總列數 ⇒ 9(不是空表, 尺有東西可看)
+-- ⑦ rollback       照檔尾那段跑 ⇒ 欄 0 / CHECK 0 / 🟢 FK 也被連帶刪掉 ⇒ 0
+--
+-- ── 🔴🔴 效度限制:這棵拋棄式 PG 的 `orders` 是【替身】, 不是真表 ────────────────
+--    量到的:替身 **17 欄**、CHECK 只有 `orders_display_id_format`(加上我這條)。
+--    而真表是建表 40 行 + 後續 **20 個 `ADD COLUMN` 子句**, CHECK 有四條:
+--    ⛔ ~~原句寫「13 次」~~ **作廢**(codex R1 nit, 2026-09-01):我那把尺只認
+--       `ALTER TABLE public.orders ADD COLUMN` 寫在【同一行】的形狀, 漏掉換行續行的寫法。
+--       重數(剝掉整行註解、按 `ALTER TABLE … orders … ;` 整句抓、再數句內的 ADD COLUMN 子句)
+--       ⇒ 全 repo **21**, 扣掉本檔自己的 1 ⇒ **20**;🔵 負對照 同一支腳本問 `zzq0901notable` ⇒ 0。
+--       📌 **又一次「尺的分母是【格式】不是【事實】」** —— 而它印出來的 13 看起來完全正常。
+--      orders_display_id_format / orders_total_balances /
+--      orders_invoice_whitelist / orders_ship_addr_whitelist
+--    ⇒ 上面**跑過的那幾格**(①②③④⑤⑦)全綠, **只證明它在一個比真表窄的世界裡成立。**
+--    ⛔ ~~原句寫「①-⑦ 全綠」~~ **作廢**(codex R1 must-fix, 2026-09-01):
+--       ⑥ 就在同一段裡被我自己標成【未驗】—— **那兩句話直接矛盾, 而它們相距十行。**
+--       📌 一個範圍寫法(「①-⑦」)會把中間那個沒做的一起收進來, 而**讀的人不會回去展開它**。
+--       ⇒ 列舉跑過的編號, 不要寫範圍。
+--    ✅ 而缺的那條裡最會咬人的是 `orders_total_balances`
+--       (`CHECK (total = subtotal + shipping_fee - discount_total)`)——
+--       它與我這條**搶著紅** ⇒ 我把它補進替身重測, 才有下面 ④b 那一格。
+--    🛑 `orders_invoice_whitelist` / `orders_ship_addr_whitelist` **沒有補**
+--       —— 它們管 jsonb 白名單, 與 coupon_id 無關。這是判斷, 不是量到的。
+--
+-- ── 🔴 ④b:兩條 CHECK 同時被違反時, PG 報的是【誰】────────────────────────────
+--    只改 discount_total=100 而不動 total ⇒ **兩條都被違反**
+--    (我的:有折扣沒券;total 等式:0 ≠ 0+0-100)
+--    實得:ERROR 報的是 `orders_discount_needs_coupon` —— **我的那條先紅。**
+--    ⚠️ **而那是一次觀察, 不是保證** —— PG 沒有承諾 CHECK 的評估順序,
+--       它可能隨 oid / 名稱 / 版本改變。⇒ **驗收時看錯誤訊息裡的 constraint 名字,
+--       不要只看「有沒有紅」。**
+--    📌 這一格是「紅錯地方」的教科書形狀:兩條都會紅, 而只有一條是你要測的;
+--       而它今天剛好紅對了 ⇒ **剛好紅對, 與被證明會紅對, 是兩個宣稱。**
+--
+-- ── ⑥ 讀取形狀(唯一真的對外可見的改動)⇒ 🔴 **未驗** ────────────────────────
+--    apply 之後 PostgREST 回的訂單物件會多一個鍵 `coupon_id`(值 NULL)。
+--    要驗得打一發真的 REST 請求比對鍵的集合, 那要跑起 PostgREST 替身。**我沒跑。**
+--    ⇒ 缺的那一道檢查:`GET /rest/v1/orders?select=*` 的回應鍵集合, apply 前後各一次。
+--
+-- ── 原始的驗收配方(留著, 下一個人要重跑照這個)────────────────────────────
+--
+-- ① 欄真的建出來了, 而且型別對:
+--      SELECT data_type, is_nullable FROM information_schema.columns
+--       WHERE table_schema='public' AND table_name='orders' AND column_name='coupon_id';
+--      ⇒ 期望 uuid | YES
+--      🔵 負對照 同一發問 column_name='zzq_no_such_col_0901' ⇒ 零列
+--
+-- ② FK 真的接到 coupons(id) 且是 RESTRICT:
+--      SELECT confdeltype FROM pg_catalog.pg_constraint c
+--        JOIN pg_catalog.pg_class t ON t.oid=c.conrelid
+--       WHERE t.relname='orders' AND c.contype='f'
+--         AND c.conname LIKE '%coupon_id%';
+--      ⇒ 期望 r  (r = RESTRICT;a = NO ACTION、n = SET NULL —— 三個不一樣, 所以這一格有判別力)
+--
+-- ③ 🔴 FK 真的會擋(不是「建出來了」):
+--      INSERT 一張 coupon_id = gen_random_uuid() 的單 ⇒ **期望 ERROR 23503 foreign key violation**
+--      🟢 正對照:同一發改成一個真的存在的 coupons.id ⇒ **期望成功**
+--      ⇒ 兩個世界印不同的東西, 這一格才算數。
+--
+-- ④ 🔴 CHECK 真的會擋:
+--      UPDATE orders SET discount_total = 100 WHERE coupon_id IS NULL  ⇒ 期望 ERROR 23514
+--      🟢 正對照:先設 coupon_id 為真券再設 discount_total = 100        ⇒ 期望成功
+--      🟢 正對照2:discount_total = 0 且 coupon_id IS NULL              ⇒ 期望成功(今天全表就是這樣)
+--      ⚠️ 而 ④ 要注意 `orders_total_balances` 會一起叫 ——
+--         改 discount_total 而不改 total ⇒ 紅的可能是【那一條】不是我的。
+--         ⇒ **看錯誤訊息裡的 constraint 名字**, 不要只看「有沒有紅」。
+--         📌 這一格是「紅錯地方」的教科書形狀:兩條 CHECK 都會紅, 而只有一條是我要測的。
+--
+-- ⑤ 既有資料零改變:
+--      SELECT count(*) FROM public.orders WHERE coupon_id IS NOT NULL;  ⇒ 期望 0
+--      🟢 正對照 SELECT count(*) FROM public.orders;                     ⇒ 期望 = apply 前的同一個數
+--      ⇒ 🔴 **兩格一起看** —— 只看第一格的話, 一張空表也印 0。
+--
+-- ⑥ 讀取形狀變了(這是本片唯一真的對外可見的改動):
+--      apply 之後 PostgREST 回的訂單物件多一個鍵 coupon_id(值 NULL)。
+--      要驗就打一發真的 REST 請求比對鍵的集合, 不要只看 information_schema。
+--      ⚠️ 我**沒有驗這一格** —— 它要跑起 PostgREST 替身。照實記。
+--
+-- ⑦ ROLLBACK 之後複查(把上面 BEGIN;/COMMIT; 拿掉、改成手動 ROLLBACK 時):
+--      SELECT count(*) FROM information_schema.columns
+--       WHERE table_schema='public' AND table_name='orders' AND column_name='coupon_id';  ⇒ 0
+--      SELECT count(*) FROM pg_catalog.pg_constraint c
+--        JOIN pg_catalog.pg_class t ON t.oid=c.conrelid
+--       WHERE t.relname='orders' AND c.conname='orders_discount_needs_coupon';            ⇒ 0
+--
+-- ============================================================
+-- Rollback(Supabase forward-only, 僅供參考)
+-- ============================================================
+--   BEGIN;
+--     ALTER TABLE public.orders DROP CONSTRAINT orders_discount_needs_coupon;
+--     ALTER TABLE public.orders DROP COLUMN coupon_id;   -- 連帶刪掉那條 FK
+--   COMMIT;
+--
+-- 🔴 順序:先刪 CHECK 再刪欄。**而理由不是「不然會留下引用不存在欄位的 CHECK」** ——
+--    PG 會自動連帶刪掉涉及該欄的 constraint(`20260828100000` 的 rollback 段已為同一個誤解訂正過)。
+--    真正的理由是相反那一面:直接 `DROP COLUMN coupon_id` ⇒ 那條 CHECK 被**靜靜連帶刪掉**,
+--    而 `discount_total` 從此沒有任何「折扣必須有來源」的守門, **畫面上不會有任何錯誤**。
+--    ⇒ 明寫地刪它, 讓下一個人在 diff 上看得見這道守門沒了。
+--
+-- ✅ 資料面零殘留:本欄全表 NULL ⇒ 刪掉不影響任何既有數字。
+-- ⚠️ 而 021000 之後不同:那時會有 coupon_id 非 NULL 的單, 刪欄 = 那些單失去券的身分, 回捲不掉。
+--    這句要寫在 021000 的檔頭第一段, 不是這裡。
