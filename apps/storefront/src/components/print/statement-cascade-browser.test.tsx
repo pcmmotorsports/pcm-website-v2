@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { createRequire } from 'node:module';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { chromium, type Browser } from '@playwright/test';
 import { toMoneyAmount, type MemberOrderDetail } from '@pcm/domain';
@@ -355,14 +356,27 @@ describe('片 C2:自足 HTML 在真瀏覽器 + 零網路下畫得對', () => {
   let totalFaces = 0;
 
   beforeAll(async () => {
-    const fontCss = compiledCss('Noto Sans TC Fallback');
-    const pageCss = [compiledCss('.pd-sheet'), compiledCss('.stmt-page')]
-      .filter((css, i, all) => all.indexOf(css) === i)
+    // 🔴 **餵給它的東西必須與那條 route 餵的【是同一批】** ——
+    //    ⛔ 第一版這裡讀 `.next/static/` 的編譯產物, 而 route 後來改成讀
+    //       `src/styles/*.css` + `@fontsource/noto-sans-tc`(理由:前者在 Vercel 上打包不進去)。
+    //    ⇒ 兩邊不同步的話, **這一節會替一條不存在的路徑背書**。
+    const styles = join(REPO, 'apps/storefront/src/styles');
+    const pageCss = [
+      readFileSync(join(styles, 'print-a4.css'), 'utf8'),
+      readFileSync(join(styles, 'statement.css'), 'utf8'),
+    ].join('\n');
+    const fontPkg = dirname(
+      createRequire(join(REPO, 'apps/storefront/package.json')).resolve(
+        '@fontsource/noto-sans-tc/package.json',
+      ),
+    );
+    const fontCss = ['400.css', '700.css']
+      .map((f) => readFileSync(join(fontPkg, f), 'utf8'))
       .join('\n');
     totalFaces = parseFontFaces(fontCss).length;
     const bodyHtml = renderToStaticMarkup(<StatementDoc order={ORDER} />);
     const readFont = (rel: string) => {
-      const p = join(CHUNKS, rel);
+      const p = resolve(fontPkg, rel);
       return existsSync(p) ? new Uint8Array(readFileSync(p)) : null;
     };
     built = buildStatementHtml({ bodyHtml, pageCss, fontCss, readFont });

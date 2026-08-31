@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { buildStatementHtml, codepointsOfHtml, parseFontFaces } from './statement-html';
+import { buildStatementHtml, codepointsOfHtml, isInsideDir, parseFontFaces } from './statement-html';
 
 // 片 C2 的單元尺。**全部餵合成資料** —— 不讀 `.next`、不開瀏覽器。
 // 🛑 **它證得了什麼、證不了什麼**:
@@ -176,5 +176,23 @@ describe('buildStatementHtml', () => {
     const fontCss = [face('../media/cjk.woff2', 'U+4E00-9FFF'), face(null, null)].join('');
     const r = buildStatementHtml({ bodyHtml: '<p>訂</p>', pageCss, fontCss, readFont: readAll });
     expect(r.html).not.toMatch(/https?:\/\//);
+  });
+});
+
+describe('isInsideDir(信任邊界)', () => {
+  const pkg = '/x/noto-sans-tc';
+  it('✅ 正對照:真的在裡面 ⇒ true', () => {
+    expect(isInsideDir(pkg, '/x/noto-sans-tc/files/a.woff2')).toBe(true);
+  });
+  it('🔴 codex 抓到的那個實例:字串前綴成立而目錄不是 ⇒ 必須 false', () => {
+    // 第一版寫 `child.startsWith(parent)` ⇒ 這一格會通過, 而它是一個目錄逃逸。
+    expect(isInsideDir(pkg, '/x/noto-sans-tc-evil/a.woff2')).toBe(false);
+  });
+  it('🔴 往上跳 ⇒ false', () => {
+    expect(isInsideDir(pkg, '/x/other/a.woff2')).toBe(false);
+    expect(isInsideDir(pkg, '/x')).toBe(false);
+  });
+  it('🔴 自己不算「在裡面」(沒有檔名 ⇒ 沒東西可讀)', () => {
+    expect(isInsideDir(pkg, pkg)).toBe(false);
   });
 });

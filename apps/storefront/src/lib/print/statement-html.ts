@@ -19,6 +19,8 @@
 //   ⇒ 這樣它在單元測試裡測得起來, 而且**在 C1 被否決的世界裡照樣是完成品**。
 // · 它**不保證那張紙好不好看** —— 版面是 `StatementDoc` + 那兩支 CSS 的事。
 
+import { isAbsolute as nodeIsAbsolute, relative as nodeRelative, sep as nodeSep } from 'node:path';
+
 /** 一個 `@font-face` 區塊拆解後的樣子。`url` 為 `null` = 它沒有可內嵌的來源(例如 `src:local(Arial)`)。 */
 export type ParsedFace = {
   /** 原始的宣告內容(大括號裡那一段),用來重組。 */
@@ -38,8 +40,12 @@ export type ParsedFace = {
 /**
  * 從一份 CSS 裡拆出所有 `@font-face`。
  *
- * 🔴 **正規式吃的是【編譯後】的 CSS**(沒有換行、沒有註解)。餵原始碼進來會拆不乾淨 ——
- *    那不是本函式該補的洞,是呼叫端餵錯東西。呼叫端請餵 `.next` 的產物。
+ * ⛔ ~~正規式吃的是【編譯後】的 CSS…呼叫端請餵 `.next` 的產物~~
+ *    🔴 **那個契約已作廢**(codex 2026-08-31 抓到它與實作相反):route 與瀏覽器守門
+ *    現在餵的都是 **`@fontsource` 的原始 CSS**,而它跑得起來(212 個 face 全部拆得出來)。
+ * 🛑 **仍然成立的限制**:這支正規式**不解析 CSS 註解**。`@fontsource` 的 CSS 每個 face
+ *    前面有一行 `/* … *\/` 註解而它們不含 `@font-face` 字面 ⇒ 今天不受影響。
+ *    ⇒ 餵一份**註解裡含 `@font-face` 的 CSS** 會拆出多的東西 —— 那一格**未防**。
  */
 export function parseFontFaces(css: string): ParsedFace[] {
   return [...css.matchAll(/@font-face\s*\{(.*?)\}/gs)].map((m) => {
@@ -216,4 +222,17 @@ export function buildStatementHtml({
 </head><body>${bodyHtml}</body></html>`;
 
   return { html, embedded, skippedUnused, skippedMissing, fontBytes, uncovered };
+}
+
+/**
+ * `child` 是不是真的落在 `parent` 這個目錄【裡面】。
+ *
+ * 🔴 **這是一道信任邊界, 而它被 codex 抓過一次**:第一版寫 `child.startsWith(parent)`,
+ *    **那不是目錄邊界** —— `parent=/x/noto-sans-tc` 而 `child=/x/noto-sans-tc-evil/a`
+ *    的字串前綴是成立的, 它會通過。
+ * ⇒ 改用 `relative()`:落在裡面 ⇒ 得到一段非空、不以 `..` 開頭、且不是絕對路徑的相對路徑。
+ */
+export function isInsideDir(parent: string, child: string): boolean {
+  const rel = nodeRelative(parent, child);
+  return rel.length > 0 && rel !== '..' && !rel.startsWith(`..${nodeSep}`) && !nodeIsAbsolute(rel);
 }
