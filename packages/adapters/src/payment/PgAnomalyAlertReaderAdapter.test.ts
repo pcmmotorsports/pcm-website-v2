@@ -1,4 +1,5 @@
 // node env;mock 'server-only'(adapter 檔頭 import 'server-only')。
+import { CRON_JOB_WHITELIST, FAILURE_COUNT_MEANINGLESS } from '@pcm/domain';
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
@@ -71,6 +72,14 @@ function twoQueryClient(
    */
   orderCreated?: unknown,
   orderCreatedProbeMissing = true,
+  /**
+   * 🔵 **第七支(2026-08-31 片3)**:`get_cron_heartbeat_stale_counts`。
+   * 🔴 預設 `undefined` = 尚未 apply ⇒ 既有那 20+ 格全部落 `cronHeartbeatUnknown: true`。
+   *    ⇒ 📌 **那正是今天的事實**:那支函式今天還沒 apply 到正式庫(片4 才會)。
+   *      **理由與預設值這一次是一致的** —— 而上面 `orderCreated` 那一段記著它們曾經不一致。
+   */
+  heartbeat?: unknown,
+  heartbeatProbeMissing = true,
 ) {
   return makeClient({
     query: async (text: string) => {
@@ -90,10 +99,18 @@ function twoQueryClient(
                     ? shippedProbeMissing
                     : text.includes('get_order_created_gap_counts')
                       ? orderCreatedProbeMissing
-                      : probeMissing,
+                      : text.includes('get_cron_heartbeat_stale_counts')
+                        ? heartbeatProbeMissing
+                        : probeMissing,
             },
           ],
         };
+      }
+      if (text.includes('get_cron_heartbeat_stale_counts')) {
+        if (heartbeat === undefined) {
+          throw Object.assign(new Error('function does not exist'), { code: '42883' });
+        }
+        return { rows: [{ result: heartbeat }] };
       }
       if (text.includes('get_order_created_gap_counts')) {
         if (orderCreated === undefined) {
@@ -176,6 +193,11 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       orderCreatedPaidNoEmailCount: null,
       orderCreatedNoRecipientCount: null,
       orderCreatedGapUnknown: true,
+      // 🔵 片3:harness 預設「那支函式還沒 apply」⇒ 三欄落 unknown 那一組。
+      //    🛑 `Count` 是 `null` 不是 `0` —— 「讀不到」與「六支都健康」不得塌成同一個值。
+      cronHeartbeatAbnormalCount: null,
+      cronHeartbeatAbnormalJobs: null,
+      cronHeartbeatUnknown: true,
       emailOutboxUnknown: true,
       openCount: 2,
       refundingCount: 3,
@@ -233,7 +255,13 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
      * ⇒ **apply 之後只會多 1 發**,不是 2 發。
      * 📌 寫出來是因為:一個「多兩發查詢」的數字,會被讀成這片的固定代價,而它是**部署窗口的代價**。
      */
-    expect(query).toHaveBeenCalledTimes(5);
+    /**
+     * 🔵 **5 → 7(2026-08-31 片3 心跳)** —— 而這個數字是**先推出來、再量到的**,不是抄回來的:
+     *   心跳那支同樣走「尚未 apply」那條路 ⇒ +1 打它(throw 42883)· +1 `to_regprocedure` 複查
+     *   ⇒ 與上面寄信那兩發**同一個形狀** ⇒ 5 + 2 = 7。實跑也是 7。
+     * ⇒ 📌 **apply 之後這一格會掉回 6**(每支只剩 1 發)—— 那時要改的是這個數字, 不是碼。
+     */
+    expect(query).toHaveBeenCalledTimes(7);
     expect(query.mock.calls[1]![0]).toContain('get_payment_anomaly_alert_display_ids');
     expect(query.mock.calls[2]![0]).toContain('get_order_refunds_stuck_summary');
     expect(res.openDisplayIds).toEqual(['PCM-2026-0104']);
@@ -768,5 +796,145 @@ describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply
     // 🔴 怎麼會紅:少傳一個參數、或傳錯順序 ⇒ 這裡紅。
     //    而在正式庫上那個症狀是「找不到相符的函式簽章」，不是一個看得懂的錯。
     expect(call?.[1]).toEqual([3600, 3600]);
+  });
+});
+
+/**
+ * 🔴🔴 **這一組承接片2 那支 migration 的具名缺口。**
+ *
+ * `get_cron_heartbeat_stale_counts` **在 DB 那一側證明不了「呼叫端餵的是完整六支」** ——
+ * 一個合法但少一支的陣列會完整通過, 而**那支死掉的排程完全隱形**(它的 `checked` 只證明
+ * 「收到幾條就跑幾條」)。成因是設計換來的:唯一名單在 TS ⇒ DB 照定義不知道應該有幾支。
+ *
+ * ⇒ 📌 **所以那個保護只能長在這裡。** 落點與斷言在
+ *   `docs/plans/2026-08-31-cron-heartbeat-into-alerter.md` 片3 那一節先寫死, 再寫這支。
+ */
+describe('🔴 心跳:傳給 RPC 的 job 清單 = CRON_JOB_WHITELIST 全部, 沒有被過濾過', () => {
+  function captureHeartbeatPayload() {
+    const seen: { payload: Array<Record<string, unknown>> | null } = { payload: null };
+    const { client } = makeClient({
+      query: async (text: string, values: unknown[]) => {
+        if (text.includes('get_cron_heartbeat_stale_counts')) {
+          seen.payload = JSON.parse(String(values[0])) as Array<Record<string, unknown>>;
+          return resultRows({ checked: 6, abnormal_count: 0, never_beat: [], no_success_ts: [], stale: [], future: [], failing: [] });
+        }
+        if (text.includes('to_regprocedure')) return { rows: [{ missing: true }] };
+        // 🔴 其餘幾支選配 RPC 一律走「尚未 apply」那條路 —— 它們各自有不同的回傳鍵,
+        //    餵同一個 `FULL` 會被 `parseCount` 的 fail-closed 擋下(我第一版就是這樣紅的)。
+        //    ⇒ 這一格只在測心跳那條路, 其餘刻意降級, **而降級不影響本組要驗的東西**。
+        for (const fn of [
+          'get_order_refunds_stuck_summary',
+          'get_email_outbox_deadman_counts',
+          'get_shipped_email_gap_counts',
+          'get_order_created_gap_counts',
+          'get_payment_anomaly_alert_display_ids',
+        ]) {
+          if (text.includes(fn)) throw Object.assign(new Error('function does not exist'), { code: '42883' });
+        }
+        return resultRows(FULL);
+      },
+    });
+    return { client, seen };
+  }
+
+  it('送出的 job_name 集合與白名單【逐一相同】(比集合, 不比長度)', async () => {
+    const { client, seen } = captureHeartbeatPayload();
+    await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null);
+    expect(seen.payload).not.toBeNull();
+    // 🔴 **比集合不比長度** —— 長度相同而成員不同會過, 而那正是片2 那個「重複 job_name」的病:
+    //    送同一支六次 ⇒ 長度 6、DB 的 `checked` 也是 6, 而五支死掉的排程沒有被檢查。
+    expect(seen.payload!.map((j) => j.job_name).sort()).toEqual(
+      [...CRON_JOB_WHITELIST].map((w) => w.jobName).sort(),
+    );
+  });
+
+  it('每一條都帶 stale_minutes 與 failures_meaningful(片2 那兩道 RAISE 的鏡像)', async () => {
+    const { client, seen } = captureHeartbeatPayload();
+    await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null);
+    for (const j of seen.payload!) {
+      // 🛑 缺任何一鍵, 片2 那支函式會 RAISE ⇒ 整段降級成【查不到】⇒ 心跳告警靜靜地不叫。
+      expect(typeof j.stale_minutes).toBe('number');
+      expect(typeof j.failures_meaningful).toBe('boolean');
+    }
+  });
+
+  it('🔵 failures_meaningful 對 FAILURE_COUNT_MEANINGLESS 那一支是 false, 其餘 true', async () => {
+    const { client, seen } = captureHeartbeatPayload();
+    await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null);
+    // 🔴 這一格分得出兩個世界:全 true(= 忘了接白名單)與正確分流, 在上一格底下印同一個綠。
+    const meaningless = seen.payload!.filter((j) => j.failures_meaningful === false).map((j) => j.job_name);
+    expect(meaningless).toEqual([...FAILURE_COUNT_MEANINGLESS]);
+    expect(meaningless.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * 🔴 **回應側的邊界(codex 2026-08-31 片3 R1 #6)。**
+ * 上面那三格只驗「送出去的 payload」—— 而**餵它一個畸形的回應, 它們照樣全綠**。
+ * ⇒ 這一組驗的是另一半:回應壞掉時**要吵**, 而不是安靜地看起來健康。
+ */
+describe('🔴 心跳:回應層對帳(壞回應要 throw, 不是靜靜地健康)', () => {
+  function withHeartbeatResult(result: unknown) {
+    return makeClient({
+      query: async (text: string) => {
+        if (text.includes('get_cron_heartbeat_stale_counts')) return resultRows(result);
+        if (text.includes('to_regprocedure')) return { rows: [{ missing: true }] };
+        for (const fn of [
+          'get_order_refunds_stuck_summary', 'get_email_outbox_deadman_counts',
+          'get_shipped_email_gap_counts', 'get_order_created_gap_counts',
+          'get_payment_anomaly_alert_display_ids',
+        ]) {
+          if (text.includes(fn)) throw Object.assign(new Error('nope'), { code: '42883' });
+        }
+        return resultRows(FULL);
+      },
+    }).client;
+  }
+  const healthy = { checked: 6, abnormal_count: 0, never_beat: [], no_success_ts: [], stale: [], future: [], failing: [] };
+  const call = (result: unknown) =>
+    new PgAnomalyAlertReaderAdapter('conn', () => withHeartbeatResult(result)).getAlertSummary(86400, 43200, 600, null, 900, null);
+
+  it('🟢 正對照:健康回應解析得出來(先證明這條路真的通)', async () => {
+    const r = await call(healthy);
+    expect(r.cronHeartbeatUnknown).toBe(false);
+    expect(r.cronHeartbeatAbnormalCount).toBe(0);
+  });
+
+  it('🔴 checked 少於白名單支數 ⇒ throw(少查的那幾支會靜靜地看起來健康)', async () => {
+    await expect(call({ ...healthy, checked: 5 })).rejects.toThrow(/檢查了 5 支/);
+  });
+
+  it('🔴 abnormal_count 大於 checked ⇒ throw', async () => {
+    await expect(call({ ...healthy, abnormal_count: 7 })).rejects.toThrow(/abnormal_count/);
+  });
+
+  /**
+   * 🔴 這一格是本組最重要的:`count > 0` 而五個原因陣列全空
+   * ⇒ 信裡會寫「有 2 支不正常」而**說不出是哪一支**, 而那是收信人要做的第一件事。
+   */
+  it('🔴 有數字而零名字 ⇒ throw(那封信對收信人等於沒有)', async () => {
+    await expect(call({ ...healthy, abnormal_count: 2 })).rejects.toThrow(/去重後有 0 支/);
+  });
+
+  /**
+   * 🔴 **這一格是 codex R2 指名的**:我第一版只擋「零名字」,而 `count=2 / 名字=1`
+   *   會通過並**寄出一份少一支的名單** —— 收信人會照那份名單去看,而少的那支沒有人會發現。
+   * 📌 兩邊該相等的理由:片2 那支 SQL 的 `flagged` 是**每支 job 一列**,
+   *   `abnormal_count` 數的是【列】⇒ 它就等於五個陣列去重後的支數。
+   */
+  it('🔴 數字 2 而只有 1 個名字 ⇒ throw(少一支的名單比沒有名單更糟)', async () => {
+    await expect(
+      call({ ...healthy, abnormal_count: 2, stale: [{ job_name: 'pcm-settle-sweep' }] }),
+    ).rejects.toThrow(/去重後有 1 支/);
+  });
+
+  it('🟢 有數字也有名字 ⇒ 通過, 而名字要去重(同一支兩個理由只算一次)', async () => {
+    const r = await call({ ...healthy, abnormal_count: 1, stale: [{ job_name: 'pcm-settle-sweep' }], failing: [{ job_name: 'pcm-settle-sweep' }] });
+    expect(r.cronHeartbeatAbnormalJobs).toEqual(['pcm-settle-sweep']);
+  });
+
+  it('🔴 缺鍵(abnormal_count 不見了)⇒ throw, 不得當成 0', async () => {
+    const { checked, never_beat, no_success_ts, stale, future, failing } = healthy;
+    await expect(call({ checked, never_beat, no_success_ts, stale, future, failing })).rejects.toThrow();
   });
 });

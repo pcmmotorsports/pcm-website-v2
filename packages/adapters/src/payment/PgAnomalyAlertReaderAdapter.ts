@@ -28,6 +28,10 @@ import 'server-only';
 import { Client } from 'pg';
 import type { IAnomalyAlertReader } from '@pcm/ports';
 import type { AnomalyAlertSummary } from '@pcm/domain';
+// 🔴 **門檻與名單的唯一來源** —— DB 那一側刻意不知道任何門檻(見片2 migration 檔頭)。
+//    ⇒ 這裡送出去的就是白名單全部;**不得在這裡過濾** ——
+//      少送一支 = 那支排程死掉時心跳告警【永遠印健康】, 而 DB 證明不了它少了。
+import { CRON_JOB_WHITELIST, FAILURE_COUNT_MEANINGLESS } from '@pcm/domain';
 import { buildPgConfig, type PgClientLike } from './PaymentConfirmerAdapter';
 
 /** 帶安全 SQLSTATE 的告警讀錯誤(message 通用、code 供分類;零 pg 原文/token)。 */
@@ -321,7 +325,55 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         }
       }
 
-      return parseAlertSummary(counts.rows, ids, refundRows, emailRows, shippedRows, orderCreatedRows);
+      /**
+       * 🔵 **排程心跳(板 `⟦b4-SWEEPDEAD1⟧` 片3)** —— 降級處置逐字沿用上面訊號4 那一段:
+       *   函式不存在(部署窗口)⇒ 落 `cronHeartbeatUnknown`;它自己 `RAISE`(參數閘)⇒ 一樣降級,
+       *   **而其他告警照常送**。控制流不因為這一段而改變。
+       * 🔴 **`jobsPayload` 直接 map 白名單全部, 這裡不篩不排除** ——
+       *   片2 那支函式**證明不了我有沒有少送**, 所以這一行就是那個保護本身。
+       */
+      const jobsPayload = CRON_JOB_WHITELIST.map((w) => ({
+        job_name: w.jobName,
+        stale_minutes: w.staleMinutes,
+        // 🔴 送出【明確的布林】而不是省略 —— 片2 那支函式對缺鍵會 RAISE,
+        //    因為「缺鍵時預設 true」會與後台儀表板不一致(codex R1 F3)。
+        failures_meaningful: !FAILURE_COUNT_MEANINGLESS.has(w.jobName),
+      }));
+      let heartbeatRows: Array<Record<string, unknown>> = [];
+      try {
+        const res = await client.query(
+          'SELECT public.get_cron_heartbeat_stale_counts($1::jsonb) AS result',
+          [JSON.stringify(jobsPayload)],
+        );
+        heartbeatRows = res.rows;
+      } catch (err) {
+        const code = (err as { code?: unknown } | null)?.code;
+        if (code === RAISE_EXCEPTION) {
+          const looksLikeOwnGate =
+            typeof (err as { message?: unknown }).message === 'string' &&
+            (err as { message: string }).message.includes('get_cron_heartbeat_stale_counts:');
+          console.error(
+            looksLikeOwnGate
+              ? '[anomaly-alert] 🔴 get_cron_heartbeat_stale_counts 自己 RAISE 了(參數閘)⇒ 心跳那一段降級成【查不到】,而其他告警照常送'
+              : '[anomaly-alert] 🔴 get_cron_heartbeat_stale_counts 拋了 P0001 而【訊息不像它自己的參數閘】⇒ 仍降級成【查不到】(不改控制流),但這一格值得有人去看',
+            {
+              code: RAISE_EXCEPTION,
+              reason: looksLikeOwnGate ? 'cron_heartbeat_rpc_raised' : 'cron_heartbeat_rpc_raised_unexpected_shape',
+            },
+          );
+        } else {
+          if (code !== UNDEFINED_FUNCTION) throw err;
+          const probe = await client.query(
+            "SELECT to_regprocedure('public.get_cron_heartbeat_stale_counts(jsonb)') IS NULL AS missing",
+            [],
+          );
+          if (probe.rows[0]?.missing !== true) throw err;
+        }
+      }
+
+      return parseAlertSummary(
+        counts.rows, ids, refundRows, emailRows, shippedRows, orderCreatedRows, heartbeatRows,
+      );
     });
   }
 
@@ -432,6 +484,31 @@ function parseDisplayIdPairs(v: unknown, field: string): Array<[string, string]>
  *    ⇒ 這裡**不做兩者一致性的斷言** —— 那會把一個正常的競態變成半夜的 503。
  *      對得起不起來的檢查放在 **migration 的 apply 期斷言**(那一刻是靜態的、有判別力)。
  */
+const HEARTBEAT_FN = 'get_cron_heartbeat_stale_counts';
+
+/**
+ * 從五個【不互斥】的原因陣列收集出「哪幾支不正常」, **去重**。
+ * 🔴 `stale` / `failing` 的元素是物件(帶 `job_name`), 另外三個是裸字串 —— 兩種形狀都要吃。
+ * 🛑 **這裡【不】重算數量** —— 數量只認 `abnormal_count`(見上面那段)。
+ *    ⇒ 名單長度與 `abnormal_count` **可以不同**, 而那不是 bug:
+ *      一支 job 同時 stale + failing 會在名單裡出現一次, 在計數裡也是一次;
+ *      而若哪天真的對不上, 要查的是 SQL 那一側, 不是這裡。
+ */
+function collectHeartbeatJobNames(hb: Record<string, unknown>): readonly string[] {
+  const out = new Set<string>();
+  for (const key of ['never_beat', 'no_success_ts', 'stale', 'future', 'failing']) {
+    const arr = hb[key];
+    if (!Array.isArray(arr)) continue;
+    for (const item of arr) {
+      if (typeof item === 'string') out.add(item);
+      else if (item !== null && typeof item === 'object' && typeof (item as { job_name?: unknown }).job_name === 'string') {
+        out.add((item as { job_name: string }).job_name);
+      }
+    }
+  }
+  return [...out].sort();
+}
+
 function parseAlertSummary(
   rows: Array<Record<string, unknown>>,
   idRows: Array<Record<string, unknown>>,
@@ -439,6 +516,7 @@ function parseAlertSummary(
   emailRows: Array<Record<string, unknown>>,
   shippedRows: Array<Record<string, unknown>>,
   orderCreatedRows: Array<Record<string, unknown>>,
+  heartbeatRows: Array<Record<string, unknown>>,
 ): AnomalyAlertSummary {
   const r = rows[0]?.result as Record<string, unknown> | undefined;
   if (!r || typeof r !== 'object') {
@@ -505,6 +583,59 @@ function parseAlertSummary(
   const shippedCount = (key: string): number | null =>
     shippedGapUnknown ? null : parseCount(sp![key], key, SHIPPED_FN);
 
+  /**
+   * 🔵 排程心跳(片3)。與 `oc` 同族的三態:
+   *   `heartbeatRows = []`  ⇒ hb === undefined ⇒ **函式不存在**(部署窗口)⇒ unknown
+   *   `{ result: null }`    ⇒ hb === null      ⇒ 函式跑了而回了 SQL NULL ⇒ **那是壞掉, 要吵**
+   *   正常物件              ⇒ 解析
+   * 🛑 `abnormal_count` 是**唯一**能拿來數的欄位 —— 各原因陣列**不互斥**(片2 檔頭寫明),
+   *    相加會重複計數。這裡只讀它, 名單另外從各陣列聯集起來【去重】。
+   */
+  const hb = heartbeatRows[0]?.result as Record<string, unknown> | undefined;
+  const cronHeartbeatUnknown = hb === undefined;
+  if (!cronHeartbeatUnknown && (hb === null || typeof hb !== 'object')) {
+    throw new AnomalyAlertReaderParseError('get_cron_heartbeat_stale_counts 回應格式異常');
+  }
+  const cronHeartbeat = cronHeartbeatUnknown
+    ? { cronHeartbeatAbnormalCount: null, cronHeartbeatAbnormalJobs: null, cronHeartbeatUnknown: true }
+    : {
+        cronHeartbeatAbnormalCount: parseCount(hb!.abnormal_count, 'abnormal_count', HEARTBEAT_FN),
+        cronHeartbeatAbnormalJobs: collectHeartbeatJobNames(hb!),
+        cronHeartbeatUnknown: false,
+      };
+  /**
+   * 🔴🔴 **三道回應層對帳(codex 2026-08-31 片3 R1 #3/#4)** —— 全部 fail-loud,
+   *   因為這一族的失敗形狀是**靜默地看起來健康**, 而那是本片要治的病本身。
+   */
+  if (!cronHeartbeatUnknown) {
+    // ① `checked` 必須等於我送出去的支數 —— 這是片2 那個具名缺口在【回應側】的鏡像:
+    //    片2 證明不了「呼叫端餵的是完整六支」, 而這裡至少證明得了「它跑的支數與白名單一樣多」。
+    const checked = parseCount(hb!.checked, 'checked', HEARTBEAT_FN);
+    if (checked !== CRON_JOB_WHITELIST.length) {
+      throw new AnomalyAlertReaderParseError(
+        `${HEARTBEAT_FN} 檢查了 ${checked} 支, 而白名單有 ${CRON_JOB_WHITELIST.length} 支 —— 少查的那幾支會靜靜地看起來健康`,
+      );
+    }
+    const n = cronHeartbeat.cronHeartbeatAbnormalCount!;
+    const names = cronHeartbeat.cronHeartbeatAbnormalJobs!;
+    // ② 不正常的支數不可能超過檢查的支數。
+    if (n > checked) {
+      throw new AnomalyAlertReaderParseError(`${HEARTBEAT_FN} abnormal_count(${n})> checked(${checked})`);
+    }
+    // ③ 🔴 **數字與名單必須【逐一相等】。**
+    //    ⛔ ~~我第一版只擋「有數字而零名字」, 註解寫「同一支可能因多個理由入列而只算一次,
+    //       兩邊本來就不必相等」~~ —— **codex R2 打掉了那句, 而它是對的**:
+    //       片2 那支 SQL 的 `flagged` 是**每支 job 一列**, `abnormal_count` 數的是【列】
+    //       ⇒ 它就等於五個陣列去重之後的支數。**兩邊本來就該相等。**
+    //    📌 ⇒ 我那句「不必相等」把一個**可以精確對帳**的地方寫成了模糊地帶,
+    //       而 `count=2 / 名字=1` 會通過並寄出一份**少一支的名單**。
+    if (n !== names.length) {
+      throw new AnomalyAlertReaderParseError(
+        `${HEARTBEAT_FN} 說有 ${n} 支不正常, 而五個原因陣列去重後有 ${names.length} 支(${names.join(',')})` +
+          ' ⇒ 兩邊該相等;信裡會寄出一份對不上的名單',
+      );
+    }
+  }
   const oc = orderCreatedRows[0]?.result as Record<string, unknown> | undefined;
   const orderCreatedGapUnknown = oc === undefined;
   if (!orderCreatedGapUnknown && (oc === null || typeof oc !== 'object')) {
@@ -535,6 +666,7 @@ function parseAlertSummary(
     orderCreatedPaidNoEmailCount: orderCreatedCount('paid_no_email_count'),
     orderCreatedNoRecipientCount: orderCreatedCount('no_recipient_count'),
     orderCreatedGapUnknown,
+    ...cronHeartbeat,
     openCount: parseCount(r.open_count, 'open_count'),
     refundingCount: parseCount(r.refunding_count, 'refunding_count'),
     refundingStuckCount: parseCount(r.refunding_stuck_count, 'refunding_stuck_count'),

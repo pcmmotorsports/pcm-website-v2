@@ -75,6 +75,33 @@ SQL 只負責「照這份清單去比 `last_success_at`」,**不自己知道任�
      回傳:過期的支數 + 哪幾支(名字), 而【不回傳門檻】—— 門檻是呼叫端給的
 片3 · 接線五層:IAnomalyAlertReader / PgAnomalyAlertReaderAdapter /
      check-anomaly-alerts / anomaly-alert route(照今天訊號4 那條路, 形狀已知)
+```
+
+### 🔴🔴 片3 有一格【承接片2 的具名缺口】—— 名字與斷言先寫死在這裡
+
+> 主視窗 `-24` 2026-08-31 指定落點:**「已知缺口」與「有人會補它」是兩個宣稱, 而它們在檔案裡長得一樣。**
+> ⇒ 這一格**不能只寫在 migration 檔頭** —— 檔頭答得出「這裡缺什麼」, 答不出「誰要補、補在哪支檔」。
+
+```
+缺口(片2 檔頭已具名):`get_cron_heartbeat_stale_counts` **證明不了呼叫端餵的是完整六支**。
+             一個合法但少一支的陣列會完整通過, 而那支死掉的排程【完全隱形】。
+             成因是設計換來的:唯一名單在 TS ⇒ DB 照定義不知道應該有幾支。
+
+⇒ 片3 必須寫的那一格:
+   檔案   packages/adapters/src/payment/PgAnomalyAlertReaderAdapter.test.ts
+   測試名 「🔴 傳給 RPC 的 job 清單 = CRON_JOB_WHITELIST 全部, 沒有被過濾過」
+   斷言   ① 攔下實際送出的 SQL 參數, 解析那個 jsonb
+          ② `expect(sent.map(j => j.job_name).sort())`
+             `.toEqual([...CRON_JOB_WHITELIST].map(w => w.jobName).sort())`
+             🔴 **比【集合】不比【長度】** —— 長度相同而成員不同會過(那正是片2 那個重複 job_name 的病)
+          ③ 每一條都要帶 stale_minutes 與 failures_meaningful(片2 那兩道 RAISE 的鏡像)
+   🟢 負對照 把 adapter 改成 `.slice(1)`(少送一支)⇒ 這一格必須紅
+       ⇒ **沒有這一發, 這格測試與「沒寫」印同一個綠。**
+```
+🛑 **在那一格寫出來之前, 這個缺口是開著的** —— 而它開著的時候, 心跳告警會對
+「白名單被過濾掉的那幾支」**永遠印健康**。
+
+```
 片4 · 交一支 SQL 檔給 Sean 貼 + 貼完我用唯讀七格複驗(含 prosrc 逐字比)
 ```
 

@@ -8,6 +8,12 @@ import {
 } from './check-anomaly-alerts';
 
 const ZERO: AnomalyAlertSummary = {
+  // 🔵 排程心跳(片3):基準是【六支都健康】—— 0 支不正常, 名單空, 讀得到。
+  //    🛑 `cronHeartbeatUnknown: false` 是刻意的:寫 `true` 會讓這個 ZERO
+  //       同時代表「都健康」與「讀不到」兩個世界, 而那正是這一片要分開的東西。
+  cronHeartbeatAbnormalCount: 0,
+  cronHeartbeatAbnormalJobs: [],
+  cronHeartbeatUnknown: false,
   openCount: 0,
   refundingCount: 0,
   refundingStuckCount: 0,
@@ -1317,5 +1323,64 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
     // 🔴 怎麼會紅:主旨只判其中一邊 ⇒ 會漏講另一件,而收信人只會去查它講的那件。
     expect(subject).toContain('付款');
     expect(subject).toContain('寄信');
+  });
+});
+
+/**
+ * 🔵 **排程心跳(板 `⟦b4-SWEEPDEAD1⟧` 片3;Sean 2026-08-30 拍 `q4: 甲`)。**
+ *
+ * 那一列的問題逐字是「**結算程式死了沒人知道**」—— 而在片3 之前,
+ * 心跳**只被後台儀表板顯示、從來沒有被告警**:
+ *   儀表板 = 有人去看的時候它告訴他;告警 = 沒有人去看的時候它來告訴你。
+ * ⇒ 下面這幾格驗的就是「它會來告訴你」這件事。
+ */
+describe('心跳 → 告警(片3)', () => {
+  it('🔴 有 1 支不正常 ⇒ 告警(而其餘全零)', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: reader({ ...ZERO, cronHeartbeatAbnormalCount: 1, cronHeartbeatAbnormalJobs: ['pcm-settle-sweep'] }), notifiers: [n] },
+      OPTS,
+    );
+    expect(res.alerted).toBe(true);
+    expect(n.notify).toHaveBeenCalled();
+  });
+
+  it('🟢 0 支不正常 ⇒ 不告警(證明上一格不是恆真)', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: reader({ ...ZERO, cronHeartbeatAbnormalCount: 0, cronHeartbeatAbnormalJobs: [] }), notifiers: [n] },
+      OPTS,
+    );
+    expect(res.alerted).toBe(false);
+  });
+
+  /**
+   * 🛑 **`Unknown` 刻意【不】進 `shouldAlert`** —— 照本檔其餘每一條的成例:
+   *   部署問題走部署管道, 不變成一封每天寄的信。
+   * 🔴 而 `Count: null` 與 `Count: 0` **在這一格底下必須都不叫, 理由卻不同**:
+   *   前者是「讀不到」, 後者是「六支都健康」。它們的【下一步】不一樣, 所以型別上分得開。
+   */
+  it('🛑 讀不到(unknown)⇒ 不告警 —— 部署問題不變成每天一封信', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: reader({ ...ZERO, cronHeartbeatAbnormalCount: null, cronHeartbeatAbnormalJobs: null, cronHeartbeatUnknown: true }), notifiers: [n] },
+      OPTS,
+    );
+    expect(res.alerted).toBe(false);
+  });
+
+  it('🔴 信裡要印出【哪幾支】—— 一個裸數字會逼收信的人自己去後台找', () => {
+    const msg = buildAnomalyAlertMessage(
+      { ...ZERO, cronHeartbeatAbnormalCount: 2, cronHeartbeatAbnormalJobs: ['pcm-email-sweep', 'pcm-settle-sweep'] },
+      86400,
+    );
+    expect(msg.text).toContain('pcm-email-sweep');
+    expect(msg.text).toContain('pcm-settle-sweep');
+    expect(msg.text).toContain('2 支');
+  });
+
+  it('🟢 沒有不正常時, 信裡【不得】出現那一塊(否則它每天都在)', () => {
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: displayIds(1) }, 86400);
+    expect(msg.text).not.toContain('【背景排程】');
   });
 });
