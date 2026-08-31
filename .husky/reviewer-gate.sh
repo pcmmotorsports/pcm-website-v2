@@ -153,6 +153,31 @@ case "$now_staged" in
   *) now_staged='' ;;    # 🔴 算不出來 ⇒ 清空 ⇒ 下面必不相等 ⇒ **擋**
 esac
 
+# ════════════════════════════════════════════════════════════════
+# 🔵 **片1 診斷(2026-08-31,線【出貨】`-1e`;⟦b9-GATEDEADLOCK1⟧)——【零判準改動】**
+#
+# 🛑 **下面這一段不參與任何判斷** —— 它只在【已經要擋】的路徑上多印幾行。
+#    判準那三行(HEAD / now_staged / 標記第 2 行)**一個字都沒動**。
+#
+# 🔴 **它要回答的問題**:`now_staged=$(git write-tree)` 在【帶 pathspec 的 commit】裡
+#    拿到的是 **git 造的暫時 index**,不是我寫標記時看到的那個 index。
+#    ⇒ 兩者只有在【index 裡只有我自己的檔】時才相同;
+#      而 `CLAUDE.md` 的規矩A 正是在【index 裡有別人的檔】時才要求帶 pathspec
+#      ⇒ 📌 **兩條規矩的觸發條件是同一個, 而它們在那個條件下互相矛盾。**
+#
+# ⚠️ **而這一段存在的理由是:那個機制我【只在拋棄式 repo 上複現過】** ——
+#    用的是一支只印 `git write-tree` 的 hook, **不是這支 154 行的閘**。
+#    ⇒ **機制成立 ≠ 這支閘沒有別的分支。** 這幾行就是要在【真的這一支】上把它看見。
+#    ⇒ 🛑 **在它印出「兩個 tree 不同」之前, 不要改判準。**(片2 的前置)
+#
+# 🔵 唯讀、不需要 lock:`git write-tree` 要寫 `index.lock`(commit 期間拿不到,實測
+#    `fatal: Unable to create '.../index.lock': File exists`), 而 `ls-files -s` 不用。
+# ════════════════════════════════════════════════════════════════
+_diag_tmp_fp=$(git ls-files -s 2>/dev/null | shasum -a 256 2>/dev/null | cut -c1-16)
+_diag_real_fp=$(GIT_INDEX_FILE="$git_dir/index" git ls-files -s 2>/dev/null | shasum -a 256 2>/dev/null | cut -c1-16)
+_diag_tmp_n=$(git ls-files 2>/dev/null | grep -c '' 2>/dev/null)
+_diag_real_n=$(GIT_INDEX_FILE="$git_dir/index" git ls-files 2>/dev/null | grep -c '' 2>/dev/null)
+
 if [ -f "$git_dir/pcm-reviewer-ran" ] \
    && [ "$(sed -n 1p "$git_dir/pcm-reviewer-ran")" = "$head" ] \
    && [ -n "$now_staged" ] \
@@ -161,6 +186,25 @@ if [ -f "$git_dir/pcm-reviewer-ran" ] \
 fi
 
 echo '' >&2
+# 🔵 片1 診斷:先印這一段, 再印原本的訊息(原訊息一個字都沒改)。
+if [ -n "$_diag_tmp_fp" ] && [ -n "$_diag_real_fp" ] && [ "$_diag_tmp_fp" != "$_diag_real_fp" ]; then
+  echo '🔵🔵 [診斷] 這一次的 index 有兩個版本, 而它們不一樣 —— 你可能撞到 ⟦b9-GATEDEADLOCK1⟧:' >&2
+  echo "     暫時 index(閘看到的, 判準用的) 指紋 $_diag_tmp_fp · $_diag_tmp_n 條" >&2
+  echo "     真 index  (你寫標記時看到的)   指紋 $_diag_real_fp · $_diag_real_n 條" >&2
+  echo '     ⇒ 帶 pathspec 的 commit 會讓 git 造一個【只含你指定那幾支】的暫時 index,' >&2
+  echo '       而標記釘的是【寫標記那一刻的真 index】⇒ 兩個 tree 對不上 ⇒ 就是下面這個擋。' >&2
+  echo '     🔴 而【它今天沒有出路】—— 帶 pathspec 會被這裡擋, 不帶會掃走別人的檔。' >&2
+  echo '     ⇒ 🛑 撞到請回報主視窗並附上這兩行, 不要用 --no-verify 繞過去。' >&2
+  echo '     📎 落點 docs/plans/2026-08-31-reviewer-gate-deadlock-plan.md' >&2
+  echo '' >&2
+elif [ -n "$_diag_tmp_fp" ] && [ "$_diag_tmp_fp" = "$_diag_real_fp" ]; then
+  echo "🔵 [診斷] 兩個 index 指紋相同($_diag_tmp_fp)⇒ **不是** ⟦b9-GATEDEADLOCK1⟧ 那個死結。" >&2
+  echo '' >&2
+else
+  # 🔴 算不出指紋 ⇒ 明說算不出來, **不要讓它看起來像「相同」**。
+  echo '🔵 [診斷] 兩個 index 的指紋【算不出來】(git/shasum 沒回值)⇒ 本格無結論, 不是「沒問題」。' >&2
+  echo '' >&2
+fi
 echo '⛔ PCM reviewer gate:本次 commit 動到受審面(code 或根層平台設定),' >&2
 echo '   但本 worktree 沒有釘在當下 HEAD 的 reviewer 完成標記。' >&2
 echo '   · 已跑過 code-reviewer(或本片=輕量片、依分級可跳審)→ 寫標記再 commit:' >&2
@@ -177,3 +221,5 @@ echo '   · 而它為什麼要釘內容:只釘 HEAD 的話,**別的窗寫的標�
 echo '     ⇒ 那道閘答得出「最近有人寫過標記」,答不出「這一顆審過了嗎」。' >&2
 echo '   背景:Sean 2026-08-04 拍板 Q3=A(D3a/D3c-1 兩次「先 commit 後審」)。' >&2
 exit 1
+
+# 片1 驗收暫時標記 A(這一行等一下會被移除)
