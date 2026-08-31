@@ -23,6 +23,7 @@
     "scripts/pagecount.sh": "sh scripts/pagecount.sh --selftest",
     "scripts/naked-cells.py": "python3 scripts/naked-cells.py --selftest",
     "scripts/anchor-in-helper.py": "python3 scripts/anchor-in-helper.py --selftest",
+    "scripts/money-paths-untested.py": "python3 scripts/money-paths-untested.py --selftest",
     "scripts/md-table-overflow.py": "python3 scripts/md-table-overflow.py --selftest",
     "scripts/verify-cron6-md5.py": "python3 scripts/verify-cron6-md5.py --selftest",
     "scripts/text-layer-tests.py": "python3 scripts/text-layer-tests.py --selftest",
