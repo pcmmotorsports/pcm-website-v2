@@ -63,6 +63,60 @@ function cellTexts(container: HTMLElement, headerLabel: string): string[] {
   );
 }
 
+/**
+ * 🔴🔴 **`expectListCalledWith` —— 2026-09-01 新增,而它取代的是一個【說謊的斷言】。**
+ *
+ * ⛔ ~~原本的寫法~~:
+ * ```ts
+ * expectListCalledWith(size, offset, {
+ *   setBy: undefined, keyword: undefined, brandIds: undefined, categoryIds: undefined,
+ *
+      skus: undefined,
+    });
+ * ```
+ * 而它旁邊逐字寫著:「篩選軸逐個逐字寫 `undefined`(= 不篩)而不是省略 ——
+ * **省略會讓『頁面忘了把某一軸傳下去』這件事在這一格變成綠的**」。
+ *
+ * 🛑 **而寫 `undefined` 也一樣是綠的。那段註解描述的保護從來不存在。**
+ * 機制(2026-09-01 實測 vitest 4.1.5,三格自己會紅的探針):
+ * ```
+ * 期望 {a:1,b:undefined} vs 實際 {a:1}             ⇒ 不紅   ← b 整個沒傳，它看不到
+ * 期望 {a:1}             vs 實際 {a:1,b:undefined} ⇒ 不紅   ← 反向也一樣
+ * 🟢 正對照 期望 {a:1,b:2} vs 實際 {a:1}           ⇒ 紅     ← 尺是活的
+ * ```
+ * ⇒ 📌 **`{a: undefined}` 與 `{}` 在【兩個方向】都相等** ——
+ *    一個 `key: undefined` 只保證「那個鍵不是別的值」,**不保證那個鍵存在**。
+ *
+ * 🔴 而實錘:把 `page.tsx` 傳下去的鍵逐個刪一行,舊寫法的反應是
+ * ```
+ * 拿掉 brandIds    ⇒ 全綠   ← 測試寫的是 `brandId`（少一個 s）
+ * 拿掉 categoryIds ⇒ 全綠   ← 鍵名【完全正確】，而值是 undefined ⇒ 一樣看不到
+ * 拿掉 skus        ⇒ 全綠   ← 測試根本沒寫這個鍵
+ * 拿掉 setBy       ⇒ 紅     ← 它有真值，所以守得住
+ * ```
+ * ⇒ **4 個鍵裡 3 個沒被守著,而只有 1 個是拼字錯** —— 拼字錯只佔三分之一。
+ *
+ * ✅ **本 helper 改成逐鍵斷言【鍵存在】+ 值相符** ⇒ 三種壞法都抓得到:
+ *    鍵名拼錯 / 值是 undefined 而鍵被刪 / 整個鍵沒寫在期望裡(下面那條 keys 比對)。
+ */
+function expectListCalledWith(
+  size: number,
+  offset: number,
+  query: Record<string, unknown>,
+) {
+  expect(mocks.list).toHaveBeenCalled();
+  const call = mocks.list.mock.calls.at(-1)!;
+  expect(call[0]).toBe(size);
+  expect(call[1]).toBe(offset);
+  const actual = call[2] as Record<string, unknown>;
+  // 🔴 **鍵集合逐字比對** —— 這一行才是「頁面忘了傳某一軸」真正會紅的地方。
+  //    (`Object.keys` 對 `{a: undefined}` 仍然回 `['a']` ⇒ 它分得出「有這個鍵」與「沒有」。)
+  expect(Object.keys(actual).sort()).toEqual(Object.keys(query).sort());
+  for (const [k, v] of Object.entries(query)) {
+    expect(actual[k], `query.${k}`).toEqual(v);
+  }
+}
+
 describe('/products 列表(#20 片1a)', () => {
   it('🔴 驗收 1:列出商品,含已下架的那批(後台存在的理由之一)', async () => {
     mocks.list.mockResolvedValue({
@@ -106,21 +160,23 @@ describe('/products 列表(#20 片1a)', () => {
     //    省略會讓「頁面忘了把某一軸傳下去」這件事在這一格變成綠的。
     //    (2026-08-19:第三個參數由四個位置參數改成一個具名物件,理由見
     //     `product-repository.ts` 的 `AdminProductQuery` 檔頭。)
-    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, PRODUCTS_PAGE_SIZE, {
+    expectListCalledWith(PRODUCTS_PAGE_SIZE, PRODUCTS_PAGE_SIZE, {
       setBy: undefined,
       keyword: undefined,
-      brandId: undefined,
+      brandIds: undefined,
       categoryIds: undefined,
+      skus: undefined,
     });
 
     // 負向對照:沒有這格,上面那條對「offset 恆為 20」也會綠。
     mocks.list.mockClear();
     await renderPage();
-    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 0, {
+    expectListCalledWith(PRODUCTS_PAGE_SIZE, 0, {
       setBy: undefined,
       keyword: undefined,
-      brandId: undefined,
+      brandIds: undefined,
       categoryIds: undefined,
+      skus: undefined,
     });
   });
 
@@ -151,11 +207,12 @@ describe('/products 列表(#20 片1a)', () => {
     const { container } = await renderPage({ page: '99' });
     expect(container.textContent ?? '').toContain('目前沒有商品');
     // 🔴 offset 照算送出去、**不夾回 0** —— 夾回去等於偷偷把使用者要的那一頁換掉。
-    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 98 * PRODUCTS_PAGE_SIZE, {
+    expectListCalledWith(PRODUCTS_PAGE_SIZE, 98 * PRODUCTS_PAGE_SIZE, {
       setBy: undefined,
       keyword: undefined,
-      brandId: undefined,
+      brandIds: undefined,
       categoryIds: undefined,
+      skus: undefined,
     });
   });
 
@@ -266,21 +323,23 @@ describe('/products 列表(#20 片1a)', () => {
     mocks.list.mockResolvedValue({ items: [], total: 0 });
     await renderPage({ set_by: 'staff' });
     // 沒有這格,實作可以在頁面上 `items.filter(...)` ⇒ 分頁 count 仍是全表數、翻頁翻不完。
-    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 0, {
+    expectListCalledWith(PRODUCTS_PAGE_SIZE, 0, {
       setBy: 'staff',
       keyword: undefined,
-      brandId: undefined,
+      brandIds: undefined,
       categoryIds: undefined,
+      skus: undefined,
     });
 
     // 負向對照:認不得的值不得被送進查詢(它會直接進 .eq 條件)。
     mocks.list.mockClear();
     await renderPage({ set_by: 'DROP' });
-    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 0, {
+    expectListCalledWith(PRODUCTS_PAGE_SIZE, 0, {
       setBy: undefined,
       keyword: undefined,
-      brandId: undefined,
+      brandIds: undefined,
       categoryIds: undefined,
+      skus: undefined,
     });
   });
 
