@@ -22,7 +22,7 @@
 |---|---|---|---|
 | `admin_add_shipment_items` | **4** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:119<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:631<br>20260807180000_m4b_e10_b2_w3b2_add_shipment_items.sql:83<br>20260807230000_m4b_e10_b2_w4b_impl_extract_and_no_batch.sql:294 | `20260807230000_m4b_e10_b2_w4b_impl_extract_and_no_batch.sql:294` |
 | `admin_cancel_order` | **4** | 20260804180000_m4b_e10_a8a1_admin_cancel_order.sql:83<br>20260805100000_m4b_e10_a8a2_partial_cancel.sql:80<br>20260820030000_m4b_e10_a8a3_cancel_gate_noncard.sql:253<br>20260830020000_m4b_e10_cancel_reason_neutral.sql:115 | `20260830020000_m4b_e10_cancel_reason_neutral.sql:115` |
-| `admin_compute_order_settlement` | **2** | 20260811030000_m4b_e10_op6a_compute_order_settlement.sql:50<br>20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356 | `20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356` |
+| `admin_compute_order_settlement` | **3** | 20260811030000_m4b_e10_op6a_compute_order_settlement.sql:50<br>20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356<br>20260901030000_m4b_zero_total_settle.sql:1636 | `20260901030000_m4b_zero_total_settle.sql:1636` |
 | `admin_create_manual_order` | **3** | 20260824020000_m4b_858_admin_create_manual_order.sql:186<br>20260829140000_m4b_b2c_manual_order_explicit_tax_total.sql:97<br>20260831180000_m4b_spec1_manual_order_authoritative_spec.sql:88 | `20260831180000_m4b_spec1_manual_order_authoritative_spec.sql:88` |
 | `admin_create_saved_order_view` | **2** | 20260828080000_m4b_b4views1_saved_order_views.sql:301<br>20260828090000_m4b_b4views1a_request_id_gate.sql:52 | `20260828090000_m4b_b4views1a_request_id_gate.sql:52` |
 | `admin_create_shipment` | **3** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:96<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:599<br>20260807170000_m4b_e10_b2_w3a_create_shipment.sql:83 | `20260807170000_m4b_e10_b2_w3a_create_shipment.sql:83` |
@@ -47,7 +47,8 @@
 | `claim_stuck_unsettled_attempts` | **4** | 20260615120001_m3_3ds_4a2_attempt_sweeper_rpc.sql:116<br>20260624120008_m3_3ds_r1c1_sweeper_released_policy.sql:80<br>20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:206<br>20260811060000_m4b_lifecycle_l5b2_2a_claim_returns_superseded_at.sql:117 | `20260811060000_m4b_lifecycle_l5b2_2a_claim_returns_superseded_at.sql:117` |
 | `close_released_attempt` | **2** | 20260624120010_m3_3ds_r1c3_close_released_attempt.sql:62<br>20260812160000_m4b_lifecycle_l5b2_2e_close_advisory.sql:169 | `20260812160000_m4b_lifecycle_l5b2_2e_close_advisory.sql:169` |
 | `confirm_order_payment` | **4** | 20260611120000_m3_s2c_confirm_payment_rpc.sql:117<br>20260804150000_m4b_e10_a8c2_confirm_cancel_guard.sql:52<br>20260810160000_m4b_e10_op3_confirm_card_leg.sql:362<br>20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:328 | `20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:328` |
-| `create_order` | **11** | 20260604130000_m3_s2b1_create_order_rpc.sql:47<br>20260613130000_m3_3ds_0b_cart_session_dedup.sql:107<br>20260614130000_m3_create_order_stock_snapshot.sql:49<br>20260630120000_m3_241_checkout_consent.sql:75<br>20260716190000_m4a_v3a_create_order_vehicle_whitelist.sql:34<br>20260716200000_m4a_v3a_create_order_vehicle_type_guard.sql:34<br>20260719120000_m4a_b2_create_order_notification_email.sql:224<br>20260730120100_m4b_e10_n3b_create_order_new_display_id.sql:181<br>20260825130000_m4b_zero_price_checkout_and_cart_total_gate.sql:101<br>20260901003000_m4b_coupon_p3_create_order_discount_param.sql:148<br>20260901021000_m4b_coupon_p3b_create_order_redeem.sql:230 | `20260901021000_m4b_coupon_p3b_create_order_redeem.sql:230` |
+| `coupon_redeem_on_paid` | **2** | 20260901021000_m4b_coupon_p3b_create_order_redeem.sql:936<br>20260901030000_m4b_zero_total_settle.sql:974 | `20260901030000_m4b_zero_total_settle.sql:974` |
+| `create_order` | **12** | 20260604130000_m3_s2b1_create_order_rpc.sql:47<br>20260613130000_m3_3ds_0b_cart_session_dedup.sql:107<br>20260614130000_m3_create_order_stock_snapshot.sql:49<br>20260630120000_m3_241_checkout_consent.sql:75<br>20260716190000_m4a_v3a_create_order_vehicle_whitelist.sql:34<br>20260716200000_m4a_v3a_create_order_vehicle_type_guard.sql:34<br>20260719120000_m4a_b2_create_order_notification_email.sql:224<br>20260730120100_m4b_e10_n3b_create_order_new_display_id.sql:181<br>20260825130000_m4b_zero_price_checkout_and_cart_total_gate.sql:101<br>20260901003000_m4b_coupon_p3_create_order_discount_param.sql:148<br>20260901021000_m4b_coupon_p3b_create_order_redeem.sql:230<br>20260901030000_m4b_zero_total_settle.sql:229 | `20260901030000_m4b_zero_total_settle.sql:229` |
 | `expire_stuck_attempts_at_ceiling` | **2** | 20260615120001_m3_3ds_4a2_attempt_sweeper_rpc.sql:86<br>20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:412 | `20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:412` |
 | `find_active_sibling_own` | **2** | 20260624120001_m3_3ds_r1a2_find_active_sibling_own.sql:44<br>20260820020000_m4b_e10_a8a3g_cancel_guard_sibling_dedup.sql:306 | `20260820020000_m4b_e10_a8a3g_cancel_guard_sibling_dedup.sql:306` |
 | `get_active_charge_attempt` | **2** | 20260614120000_m3_3ds_1b_get_active_charge_attempt.sql:47<br>20260624120007_m3_3ds_r1b3_record_released_failure_observation.sql:135 | `20260624120007_m3_3ds_r1b3_record_released_failure_observation.sql:135` |
@@ -252,6 +253,26 @@
 **允許集合(逐字)**
 
 `:959` IF NEW.payment_status <> 'paid'::public.payment_status<br>`:960` OR OLD.payment_status <> 'unpaid'::public.payment_status THEN<br>`:1179` AND NEW.payment_status = 'paid'::public.payment_status<br>`:1180` AND OLD.payment_status = 'unpaid'::public.payment_status
+
+### `settle_zero_total_order`  ·  `20260901030000_m4b_zero_total_settle.sql`
+
+**改什麼狀態**
+
+`:1487` SET payment_status = 'paid'::public.payment_status,
+
+**允許集合(逐字)**
+
+`:1459` IF v_order.cancelled_at IS NOT NULL THEN<br>`:1471` IF v_order.payment_status = 'paid'::public.payment_status THEN<br>`:1475` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:1487` SET payment_status = 'paid'::public.payment_status,<br>`:1492` AND payment_status = 'unpaid'::public.payment_status;
+
+### `coupon_redeem_on_paid`  ·  `20260901030000_m4b_zero_total_settle.sql`
+
+**改什麼狀態**
+
+`:1150` '🔴 為什麼是 trigger 不是改 confirm_order_payment:全 repo 有【至少五處不同函式】會 SET payment_status=''paid'' '
+
+**允許集合(逐字)**
+
+`:997` IF NEW.payment_status <> 'paid'::public.payment_status<br>`:998` OR OLD.payment_status <> 'unpaid'::public.payment_status THEN<br>`:1244` AND NEW.payment_status = 'paid'::public.payment_status<br>`:1245` AND OLD.payment_status = 'unpaid'::public.payment_status
 
 ---
 
