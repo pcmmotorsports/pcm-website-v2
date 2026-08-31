@@ -573,6 +573,8 @@ extensions.show_trgm('王小明')  ⇒ 0      ← 抽零,實錘成立
 pgrep -f "postgrest $D/prest.conf" | while read p; do kill "$p"; done   # 🔴 帶 $D:別殺到別的窗的
 pg_ctl -D "$D/data" stop -m fast
 # 🔴 驗【世界的狀態】不是【動作的回傳值】
+# 🔵 **跑之前先量一次**(2026-08-31 加):把下面兩行在【殺之前】各跑一次, **這時應該 ≥1**
+#    —— 若殺之前就是 0, 那下面那兩個 0 證不到任何東西(可能是 pattern 打錯 / pgrep 不在)。
 pgrep -f "postgrest $D/prest.conf" | wc -l     # 期望 0
 pgrep -f "postgres.*$PORT"        | wc -l     # 期望 0
 curl -s -m 2 -o /dev/null -w "%{http_code}\n" http://127.0.0.1:$RPORT/ # 期望 000(連不上)
