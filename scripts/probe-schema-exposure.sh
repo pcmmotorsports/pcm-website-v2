@@ -31,8 +31,8 @@
 #
 # ══ 🛑🛑 本檔【從來沒有對正式站跑過】(2026-08-30 線A `-e9` 寫的時候)══════
 # 已驗:`--selftest` 離線 ~~**31 格全過**~~ ⇒ 🔴 **2026-08-31 11:25 `-15` 實跑:35 格全過**
-#       (數法 `sh scripts/probe-schema-exposure.sh --selftest | grep -c '^  \u2705'` ⇒ **35**、
-#        同法數 '^  \U0001f534' ⇒ **0**、rc=**0**;樹 /Users/sean_1/pcm-wt-auth)
+#       (數法 `sh scripts/probe-schema-exposure.sh --selftest | grep -c '^  ✅'` ⇒ **35**、
+#        同法數 `grep -c '^  🔴'` ⇒ **0**、rc=**0**;樹 /Users/sean_1/pcm-wt-auth)
 #       🔴 **舊字面留著不刪** —— 差的 4 格正是同日新增的格 4g-4j(C 格分類),
 #          **加格的人沒有回頭改這個數**。⇒ 引用檔頭數字前先自己跑一發。
 #       📌 這個數會長,而它過期時**零機械訊號**:selftest 照樣全綠、rc 照樣 0。
