@@ -78,10 +78,49 @@ function findMarkdown(text: string): string | null {
   return null;
 }
 
+/**
+ * 🔴🔴 **`readdir` 與 `readFile` 之間有一個窗口, 而它是結構性的**(2026-08-31 實錘)。
+ *
+ * 八個窗共用一棵工作樹, 而 `workflow-status-surface-allowlist.test.ts:123` 會在
+ * `apps/admin/src/lib/orders/` 底下**建一支暫存 `.tsx` 再刪掉**(它在證「走目錄看得到
+ * 未追蹤的新檔」)⇒ 本檔先 `readdir` 看到它、再 `readFile` 時它已經沒了
+ * ⇒ **`ENOENT` 直接把這支測試炸掉**。
+ *
+ * 📌 **⇒ 而那個紅不是斷言紅, 是【工具自己死了】** —— 它與「真的有人寫了 markdown」
+ *    在 CI 上長得完全不一樣(一個是 AssertionError、一個是 Error), 而**在人眼裡都是一支紅檔**。
+ * 🛑 **⇒ 而把那支測試的路徑改成 per-pid【解不掉這個】** —— 換名字不會關掉那個窗口。
+ *    ⇒ 窗口只能由**掃描端**關:那一瞬消失的檔, 依定義就不是這個 repo 的原始碼 ⇒ **跳過它**。
+ * ⚠️ **只吞 `ENOENT`** —— 權限錯、讀壞的檔照樣炸。
+ *    吞掉全部 = 一支讀不到的檔會讓「零命中」變成「我沒看」, 而那正是本檔在防的事。
+ */
+function readIfExists(p: string): string | null {
+  try {
+    return readFileSync(p, 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw e;
+  }
+}
+
 function listTsx(dir: string, acc: string[] = []): string[] {
-  for (const e of readdirSync(dir)) {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch (e) {
+    // 同上:目錄在 readdir 那一刻已經被別的 worker 刪掉 ⇒ 它不是原始碼樹的一部分。
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return acc;
+    throw e;
+  }
+  for (const e of entries) {
     const p = join(dir, e);
-    if (statSync(p).isDirectory()) listTsx(p, acc);
+    let isDir: boolean;
+    try {
+      isDir = statSync(p).isDirectory();
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw err;
+    }
+    if (isDir) listTsx(p, acc);
     else if (e.endsWith('.tsx') && !e.endsWith('.test.tsx')) acc.push(p);
   }
   return acc;
@@ -106,6 +145,16 @@ describe('JSX 純文字裡不得出現 markdown 語法', () => {
     expect(findMarkdown('顏色: 黑 · 規格: 通用')).toBeNull(); // C 窗踩過的分隔符
   });
 
+  it('🔴 ENOENT 容忍【只吞不存在】—— 其他錯照樣炸(否則零命中會變成「我沒看」)', () => {
+    // 🔴 兩個世界各表演一次。少了這一格, `readIfExists` 被改成 `catch { return null }`
+    //    也照樣綠 ⇒ 而那會讓**任何**讀不到的檔安靜地從分母裡消失。
+    expect(readIfExists(join(ADMIN_SRC, '__does_not_exist_zzz__.tsx'))).toBeNull();
+    // 該炸的要炸:目錄不是檔, 讀它會回 EISDIR(不是 ENOENT)⇒ 必須丟出來
+    expect(() => readIfExists(ADMIN_SRC)).toThrow();
+    // 正向:真的讀得到的檔要回內容, 否則上面兩格只是「它什麼都不做」
+    expect(readIfExists(__filename)?.includes('readIfExists')).toBe(true);
+  });
+
   it('分母:掃到的檔數要與實際檔數相符(先證尺量得到東西)', () => {
     const files = listTsx(ADMIN_SRC);
     // 🔴 這一格擋的是「路徑寫錯 ⇒ 掃到 0 個檔 ⇒ 下面那格恆綠」。
@@ -113,14 +162,15 @@ describe('JSX 純文字裡不得出現 markdown 語法', () => {
     //    而報告上長得像「掃過了」。⇒ **宣稱掃過某個範圍之前,先把檔數印出來當分母。**
     expect(files.length).toBeGreaterThan(80);
     // 而且要真的抽得出文字節點,否則「零命中」只是因為抽不到東西
-    const totalNodes = files.reduce((n, f) => n + jsxTextNodes(readFileSync(f, 'utf8')).length, 0);
+    const totalNodes = files.reduce((n, f) => n + jsxTextNodes(readIfExists(f) ?? '').length, 0);
     expect(totalNodes).toBeGreaterThan(200);
   });
 
   it('全 admin 的 JSX 文字節點零 markdown', () => {
     const offenders: string[] = [];
     for (const f of listTsx(ADMIN_SRC)) {
-      const src = readFileSync(f, 'utf8');
+      const src = readIfExists(f);
+      if (src === null) continue;
       for (const text of jsxTextNodes(src)) {
         const shape = findMarkdown(text);
         if (shape) offenders.push(`${f.replace(ADMIN_SRC, 'src')} [${shape}] ${text.slice(0, 60)}`);
