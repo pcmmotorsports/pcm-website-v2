@@ -5,7 +5,7 @@ import { ProductDetail } from '../../../components/products/product-detail';
 import { ProductListingForm } from '../../../components/products/product-listing-form';
 import { findVariantSkuCollision } from '../../../lib/products/variant-sku-collision';
 import { ResultBanner } from '../../../components/orders/result-banner';
-import { resolveListingState } from '../../../lib/products/product-repository';
+import { resolveListingState, resolvePrice } from '../../../lib/products/product-repository';
 import {
   getProductForAdmin,
   getProductTaxonomyNames,
@@ -247,13 +247,70 @@ export default async function ProductDetailPage({
                 訂單金額四欄只在建單時寫一次, `總額 = 小計 + 運費 − 折扣` 是 DB 層 CHECK 綁死的,
                 事後補等於改一筆**已經發生的收款紀錄**。⇒ 那句話不得出現在這一頁。 */}
             <p className='text-muted-foreground mt-2 text-sm'>
-              原價維持 {product.price_general ?? '—'};差額會以「折扣」出現在訂單與單據上。
+              {/* 🔴🔴 **原價走 `resolvePrice`, 不直讀欄位**(全 repo 守門 `product-repository.test.ts`
+                  驗收 5:期望 false 實得 true)。那道守門擔保的是**價格只從一個地方來**。
+                  📌 我當時寫 `product.price_general` 是因為**它在型別上就在那裡, 而 TS 不會紅** ——
+                     繞過取值落點與正確取值**在 diff 上長得一樣**, 三綠也不會紅。
+                  ⇒ 只有那道全 repo 掃描守得到, 而它**不 import 這支檔**
+                     ⇒ ⇒ `vitest related` 的分母裡結構上沒有它。 */}
+              原價維持 {resolvePrice(product) ?? '—'};差額會以「折扣」出現在訂單與單據上。
               折扣在【建單當下】就記進那張訂單。訂單金額只在成立時寫一次,
               之後不會再被商品這邊的特價動到 —— 已經成立的訂單不會因為今天改特價而變動。
             </p>
             <p className='text-muted-foreground mt-2 text-xs'>
-              還做不了的原因:資料庫沒有特價欄位(`sale_price` / `special_price` / `discount_price`
-              型別定義全 0 命中;正向對照 `price_general` 有)。
+              {/* 🔴 **三段腳註改了什麼 —— 逐段列, 不寫概括句**(codex R1 must-fix)。
+                  ⛔ ~~我第一版的標題句寫「只拿掉 markdown, 欄位名一個都沒刪」~~ **那句是假的**,
+                     而它自己下面三行就在講那個例外 ⇒ **一句宣稱與它的但書並排, 說相反的話。**
+                  📌 而那正是本檔上一片(FIX-47)在修的病, 也是退款異常那頁的病 ——
+                     **同一夜第三次, 而這一次的載體是【我自己的宣稱句】。**
+                  🔵 **⇒ 而會受害的是【grep 到那句話就停】的人:概括句先出現, 但書在四行之下。**
+
+                  ✅ **量法** —— 🔴🔴 **那個數字被審了三輪, 每一輪都指出它少帶一段量法。**
+                     ```
+                     R2(gpt-5.6-sol):用 AST 數同一個對象 ⇒ 三張卡 11/11、整頁 25/25
+                     R3(gpt-5.5)   :照我自己寫的 `jsxTextNodes()` 數 ⇒ **原始節點是 24/24, 不是 22**
+                     ```
+                     🔴 **兩輪都對, 而錯的是我**:22 不是「節點數」, 是**正規化 + 去重成集合之後**的大小
+                     —— 而我的註解只寫了「比集合」, **沒寫去重, 也沒寫正規化剝掉了什麼**。
+                     📌 **⇒ 一個數字要能被核出來, 它得帶著【每一步】量法, 不是帶著最後一步。**
+
+                     ✅ **完整的四個數字(2026-08-31 自己重量, script 在 scratchpad `recount.py`)**:
+                     ```
+                     ① 原始文字節點(list)                       改前 24 / 改後 24  ← codex R3 量到的
+                     ② 逐字不同的節點(對 list 做 ndiff)          3(三段腳註各一段)
+                     ③ 正規化(剝空白與 markdown 符號)+ 去重成 set  改前 22 / 改後 22  ← 我原本寫的那個
+                     ④ set 的差異                                 兩側各 2
+                     ```
+                     🔵 **⇒ 而②與④差的那 1 段, 正是「分類」那一段** —— 它只有符號與換行變了,
+                        **正規化之後逐字相同** ⇒ ⇒ **那個差本身就是「純符號改動」最乾淨的證據。**
+                     🛑 **而承重的是③④那一對, 不是任何單一數字**:
+                       · 分類那段  ⇒ 剝符號後【逐字相同】= 純符號改動, 零字變動
+                       · 現貨那段  ⇒ **加了「注意:」兩個字**(替代被拿掉的粗體), 零刪除
+                       · 特價那段  ⇒ **`price_general` 那個子句被改寫**, 原句逐字在下面
+                  🛑 **⇒ 所以精確的說法是:兩段零刪除、一段加兩個字、一段改寫一個子句。**
+
+                  🔴 **那個被改寫的子句, 原句逐字**:「正向對照 `price_general` 有」——
+                     它踩的是**另一道守門**(讀取層驗收 5:`price_general` 出現在非註解的碼裡就算直讀)。
+
+                     🔴🔴 ⛔ ~~我原本在這裡寫:「那道守門守的是**字面**, 因為【有沒有真的在讀】
+                        它看不出來 ⇒ 連在文案裡提到這個欄位名都會踩到, **而它這樣是對的**。」~~
+                     **那句話是假的, 而 codex R3(換模型換角度)用一支 TS AST 探針當場打穿它** ——
+                     它分得出舊版的 `product.price_general`(property access = 真的在讀)
+                     與這一段文案裡的同一串字(純文字 = 沒有在讀)。
+                     📌 **⇒ 所以不是「看不出來」, 是【這把尺沒有去看】。**
+                     🔴 **⇒ 而我那句話的形狀是最該警惕的一種:把【量具的限制】寫成【設計原則】** ——
+                        它讓一個可以修的東西, 讀起來像一個不必修的東西。
+                        ⇒ ⇒ 而寫下它的動機也很清楚:**那句話讓我的繞法看起來正當。**
+                     ✅ **現行事實**:那把尺**今天**是字面掃描 ⇒ 今天我照它的字面做(識別字不進可見文案);
+                        而**「該不該改成 AST 掃描」是那道守門自己的一片**, 已交回主視窗開列。 */}
+              {/* 🔴 **不寫「證明」**(codex R1 nit):正向對照排掉的是**一種**可能, 不等於證明。
+                  🔴 **而「我查錯地方」也太寬**(codex R2 nit):正向對照只排掉
+                     「**這份型別根本沒被搜到 / 尺完全不會命中**」;
+                     它**排不掉**「搜的是過期的、不完整的、或錯的那一份來源」。
+                  ⇒ ⇒ 📌 **寫出它排掉了【哪一扇門】, 不寫它證明了什麼, 也不寫得比它做到的寬。** */}
+              還做不了的原因:資料庫沒有特價欄位(sale_price / special_price / discount_price
+              型別定義全 0 命中;而同一份型別裡「原價」那一欄查得到 —— 那是正向對照,
+              它排掉的是「這份型別根本沒被搜到」這一種可能)。
             </p>
           </section>
 
@@ -272,8 +329,8 @@ export default async function ProductDetailPage({
               <option>{taxonomy.categoryName ?? '—'}</option>
             </select>
             <p className='text-muted-foreground mt-2 text-xs'>
-              還做不了的原因:`products.category_id` 是單一 NOT NULL FK,而
-              `category_set_by` 0 命中 ⇒ 改了會被同步覆蓋回去, 而沒有東西記得是我們改的。
+              還做不了的原因:products.category_id 是單一 NOT NULL FK,而
+              category_set_by 0 命中 ⇒ 改了會被同步覆蓋回去, 而沒有東西記得是我們改的。
             </p>
           </section>
 
@@ -295,9 +352,9 @@ export default async function ProductDetailPage({
               className='w-40 rounded-md border px-2 py-1 text-sm disabled:opacity-50'
             />
             <p className='text-muted-foreground mt-2 text-xs'>
-              還做不了的原因:`stock_quantity` 0 命中。⚠️ **不能拿 `availability` 代替** ——
-              它是兩值供應狀態, 不是數量;而唯一的 `instock_quantity` 住在
-              `order_item_quantity_summary`, 那是**訂單**側的到貨數。
+              還做不了的原因:stock_quantity 0 命中。⚠️ 注意:不能拿 availability 代替 ——
+              它是兩值供應狀態, 不是數量;而唯一的 instock_quantity 住在
+              order_item_quantity_summary, 那是訂單側的到貨數。
             </p>
           </section>
 
