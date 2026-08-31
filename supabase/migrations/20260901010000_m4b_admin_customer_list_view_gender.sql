@@ -142,7 +142,10 @@
 
 BEGIN;
 
--- 🔴 兩支 CREATE INDEX 要取得鎖;照 `20260811060000:54-58` 的 house 值。
+-- ⛔ ~~原句:「兩支 CREATE INDEX 要取得鎖」~~ ⇒ **已過期**:本檔改成不建索引之後,
+--    需要鎖的是 `CREATE OR REPLACE VIEW`(它要 view 的 ACCESS EXCLUSIVE)。
+--    🔴 **timeout 三行照留,理由沒變**:正式庫有長交易在讀 `customers` 時,
+--       這支會排隊,而排隊中的 DDL 會連帶堵住後面的流量。照 `20260811060000:54-58` 的 house 值。
 --    (成因:B-1 `20260831140000` 第一版沒寫,codex R1 must-fix 逐字
 --     「資料列少只能讓 CHECK 掃描很快,不能縮短【等待取得鎖】的時間」。)
 SET LOCAL lock_timeout = '5s';
