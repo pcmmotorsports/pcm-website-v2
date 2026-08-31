@@ -2064,6 +2064,9 @@ order by n desc, 1;
 > ✅ **2026-08-19 G6 第二層查核:成立,零實作、無任何東西推翻它。**
 > ```
 > grep -rn '月結|對帳單|statement' apps/admin/src(.ts/.tsx,排測試)
+> 🔴 **2026-08-31 訂正【配方】不是結論**:那條 grep 少了 `-E`,豎線被當字面 ⇒ 照抄重跑拿到 **0**(加 `-E` 今天 ⇒ **11**)。作者跑的與寫下來的不是同一條。
+> 🔴🔴 **而下面那個負向對照【通過了,卻證不了這條】**:`對帳 ⇒ 112 命中 ✅ 尺會動` —— **那條對照的 pattern 沒有豎線** ⇒ 它證明的是【目錄讀得到】,**不是【「或」會動】,而壞掉的正是「或」**。
+> 📌 **⇒ 正對照必須跟目標【同一種形狀】。一個不含 `|` 的正對照,對「`|` 失效」零判別力 —— 而它會印一個很大的數字,讀起來像很強的證據。**
 >   ⇒ 命中全部是 `statement_timeout`(product-repository.ts:128 / payment-action-state.ts:96-101),
 >     **零個與月結對帳有關**
 > 負向對照(同範圍該命中的)`對帳` ⇒ **112 命中** ✅ 尺會動
@@ -7247,6 +7250,7 @@ order by n desc, 1;
 >    app/checkout/ 底下**沒有 actions.ts**(現有:checkout-form-types / charge-actions /
 >      reconcile-actions / callback/page / page)
 > ② 全樹 grep 'usePlaceOrder|placeOrderAction'(排 .next)⇒ **1 行,而那一行是【訃聞】**:
+> 🔴 2026-08-31 訂正【配方】不是結論:那條少 `-E` ⇒ 照抄重跑拿到 **0**。加 `-E` 今天 ⇒ **1 行**,與上面那個數字**逐字相同** ⇒ 作者跑的與寫下來的不是同一條。
 >    checkout-form-types.ts:3-5 逐字(**過去式**):
 >      「原寄居於 `checkout/actions.ts`(隨退役建單 action `placeOrderAction` 一起),
 >        **`#246` 死碼清理刪除 `actions.ts` 時,抽出**這兩個被 live 刷卡路徑共用的欄位錯誤型別、
@@ -29824,6 +29828,7 @@ A 那半(要正式庫權限, 目前只有主視窗與 Sean 有):
 B 那半(repo, 任何人可跑):
   git grep -n "orders_payment_channel_check" -- supabase/migrations        ⇒ 值域四值
   git grep -rn "新增訂單|建立訂單|手動建單" -- apps/admin/src | grep -v test  ⇒ 逐支開檔看是不是入口
+  🔴 2026-08-31:這一行**少了 `-E`** ⇒ 豎線被當字面 ⇒ **照抄跑拿到 0**(加 `-E` 今天 ⇒ 28)。而這一段自稱「repo,任何人可跑」⇒ **它是配方,下一個人會照跑** ⇒ 跑之前先補 `-E`。
   git grep -n "GRANT EXECUTE ON FUNCTION public.create_order" -- supabase/migrations ⇒ 只有 authenticated
 ```
 

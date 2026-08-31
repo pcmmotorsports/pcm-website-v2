@@ -166,6 +166,8 @@ def _scan_lines(path: str, lines: list[str]) -> list[dict]:
             out.append({
                 'line': j + 1, 'header_line': h + 1, 'ncol': ncol,
                 'got': len(c), 'shape': shape, 'lost': lost, 'lost_chars': len(lost),
+                # 🔵 整行原文 —— 只給 `merge_parent_lines()` 比對用(見它的 docstring)。
+                'text': l,
             })
     return out
 
@@ -621,6 +623,34 @@ def _selftest_changed_only() -> int:
     return bad
 
 
+def merge_parent_lines(path: str):
+    """合併中時,兩個 parent 各自那份檔的【行文字集合】的聯集;不在合併中 ⇒ None。
+
+    🔴 **為什麼需要它**(2026-08-31 收割 line-account 時量到):
+       `--changed-only` 問的是「這次 staged diff 動到哪幾行」,而**合併把對方分支
+       整份帶進來的行【全部算成動到】** ⇒ 一列在分支上已經壞了兩天,
+       在合併那一刻被報成「你這次弄壞的」。
+       實測:那一發報 6 列,而 **6/6 逐字存在於 `MERGE_HEAD`**
+       (負對照:現造一行 ⇒ 兩個 parent 都沒有)。
+       ⇒ 📌 **合併沒有新增任何一列壞的,而閘擋住了合併的人。**
+          修壞列的責任會落在【下一個合併的人】身上,不是寫壞它的人。
+
+    ⚠️ **它證不到什麼**:
+    · 只比【整行逐字相同】—— 一列被改過一個字就不算「已存在」(那是刻意的:
+      改過就要為它負責),而**改的若是別處、行內容不變,它就算已存在**。
+    · 不在合併中 ⇒ 回 `None`,呼叫端不做任何過濾(一般 commit 行為不變)。
+    · git 讀不到某個 parent 的那支檔(新檔)⇒ 那一側貢獻空集合,不當成失敗。
+    """
+    if _git(['rev-parse', '--verify', '--quiet', 'MERGE_HEAD']) is None:
+        return None
+    out = set()
+    for ref in ('HEAD', 'MERGE_HEAD'):
+        text = _git(['show', f'{ref}:{path}'])
+        if text:
+            out |= set(text.split('\n'))
+    return out
+
+
 def staged_new_lines(path: str):   # -> set | None(None = git 答不出來, 見 docstring)
     """這次 staged diff 在【新檔】裡動到的行號集合。
 
@@ -724,6 +754,15 @@ def main(argv: list[str]) -> int:
                 continue
             before = len(rows)
             rows = [r for r in rows if r['line'] in touched]
+            # 🔵 合併中:把【兩個 parent 任一側已經逐字存在】的列排掉 ——
+            #    它們不是這次新增的,見 `merge_parent_lines()` 的 docstring。
+            inherited = merge_parent_lines(path)
+            if inherited is not None:
+                kept = [r for r in rows if r['text'] not in inherited]
+                if len(kept) != len(rows):
+                    print(f'ℹ️  {path}:另有 {len(rows) - len(kept)} 列溢出'
+                          f'【是合併帶進來的、兩個 parent 之一本來就有】⇒ 本模式不報')
+                rows = kept
             skipped = before - len(rows)
             if skipped:
                 print(f'ℹ️  {path}:另有 {skipped} 列溢出【不是這次改的】⇒ 本模式不報'

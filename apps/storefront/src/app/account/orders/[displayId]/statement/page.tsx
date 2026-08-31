@@ -11,6 +11,59 @@ import { StatementDoc } from '@/components/print/statement-doc';
 //    Next 只在載入本路由時才把它送出去。(同 `apps/admin/src/app/print/layout.tsx` 的既有立場。)
 import '@/styles/print-a4.css';
 import '@/styles/statement.css';
+import { Noto_Sans_TC } from 'next/font/google';
+
+/* 片 B(2026-08-31,主視窗 `-2d [16689c]` 拍「甲」)—— **自 host 這一頁的中文字型**。
+ *
+ * 🔴 **它修的不是「客人沒有字型」** —— 那個缺口不存在:`app/layout.tsx:159-164` 全站 `<head>`
+ *    早就從 Google CDN 載了 `Noto+Sans+TC:wght@400;500;600;700`(實抓那支 CSS ⇒ 200 / 241,420 bytes /
+ *    210 個 `@font-face`),而 `account` 底下零 nested layout ⇒ 這一頁吃的就是 root layout。
+ *    plan §0 原本寫「今天的中文靠看的人那台機器剛好有字型」⇒ **那句已在 plan 裡就地訂正。**
+ *
+ * ✅ **真正修的**:片 C 要在**伺服器**上把這一頁渲染成 PDF,而那一刻**不可以依賴外部 CDN** ——
+ *    它失敗時是【靜默】的:網路一慢就豆腐字,零錯誤零警告,而 PDF **照樣產出來**。
+ *    (片 A 實測:字型沒載到時 headless Chrome 印出一張完全正常的中文 PDF,因為那台機器自己有字型。
+ *     成因與負對照見 `docs/patterns/traps-inbox/A-20260831-環境替我供應了那個東西-而我記在自己的接線上.md`。)
+ *
+ * 🛑 **只給這一頁,不動 `app/layout.tsx`** —— 那支檔 `:16` 的註解裡住著一條既有拍板:
+ *    「走 `<link>` 預連 + stylesheet(對齊 design 字面、避免 next/font 隱式包裝偏離 design)」。
+ *    那是鐵則 1 的拍板 ⇒ 要推翻它得 Sean 點頭,不是這一片可以順手做的。
+ *
+ * 🔴 `preload: false` **是必須的,不是偏好**:`Noto_Sans_TC` 的 `subsets` 型別只允許
+ *    `'cyrillic' | 'latin' | 'latin-ext' | 'vietnamese'` —— **沒有中文選項**
+ *    (逐字在 `node_modules/next/dist/compiled/@next/font/dist/google/index.d.ts`)。
+ *    而 Next 的 `preload: true` 要求宣告 subsets ⇒ 對 CJK 字型只能關掉 preload。
+ *    ⚠️ 代價 = 少了 `<link rel=preload>`;字型仍然自 host、仍然會載,只是不搶跑。
+ *
+ * 📎 體積(量於 2026-08-31 11:2x,dev 產物):105 支 woff2 / 4,193,212 bytes。
+ *    400 與 700 **共用同一批檔** —— Google 給的是**可變字型**(解 woff2 表頭有 `fvar`/`avar`/`HVAR`/`STAT`)
+ *    ⇒ 粗體是真的粗體,不是瀏覽器合成的。
+ *
+ * 🔴 **codex R3 抓到一格,而我實跑之後結論與他的處方相反 —— 三件都是量到的**:
+ *    ① next/font 除了自 host 的 face,還多宣告一個度量替身(逐字抄自編譯產物):
+ *       `@font-face{font-family:Noto Sans TC Fallback;src:local(Arial);
+ *        ascent-override:110.73%;descent-override:27.49%;size-adjust:104.76%}`
+ *       ⇒ 它是**被拉伸過的 Arial**,不是 Noto。
+ *    ② 他的處方是「關掉度量 fallback」⇒ 🔴 我加了 `adjustFontFallback: false`、重 build(rc=0)、
+ *       逐檔掃編譯產物 ⇒ **`local(Arial)` 仍然是 1 次** ⇒ 那個選項在 Next 16.3.0 + Turbopack
+ *       底下**型別收、但不生效** ⇒ 留著它等於在碼裡寫一句假話,所以拿掉。
+ *    ③ 那它有沒有害?⛔ ~~定稿後的紙沒有變~~ —— **那句話我寫成了無條件句,而 codex R4 打回。**
+ *       ✅ 成立的是**帶三個條件**的版本:字型比對是逐字的、取第一個有那個字的家族,
+ *          而第一順位仍是 `Noto Sans TC` ⇒ **在下面三件同時成立時**紙不會變:
+ *            (a) 那支字型**已經載完**(不是 swap 空窗期)
+ *            (b) 紙上每一個字元 `Noto Sans TC` **都畫得出來**
+ *            (c) 那台機器上**沒有** `Arial`(替身是 `src:local(Arial)`)
+ *       🛑 而三個條件的現況逐條:
+ *            (a) **未量** —— swap 空窗期的畫面我沒有量
+ *            (b) **未量** —— 片 A 量過 repo 內的字, 但客人的姓名/地址/品名不在那個分母裡
+ *            (c) Linux 容器**預期**沒有 Arial(它是 Microsoft 授權字型), **而我沒有實測那個容器**
+ *       📌 ⇒ 所以正確的講法是:**我沒有找到它會改變定稿版面的路徑, 而我也沒有證明它不會。**
+ *
+ * 🔴 **為什麼回傳值一定要被接住(而不是只呼叫、丟掉)**:實測 —— 寫成裸呼叫
+ *    `Noto_Sans_TC({...});` ⇒ **build 失敗**(`Ecmascript file had an error`,指到那一行)。
+ *    Next 要求 font loader 的回傳值必須被指派。
+ *    ⇒ 所以下面那個 prop 不只是說明,它是**讓這個 import 活著的那個參照**。 */
+const statementFont = Noto_Sans_TC({ weight: ['400', '700'], preload: false });
 
 // 客人的「訂單明細 / 對帳單」列印頁(片 A —— 只有路由與授權,版面是片 B)。
 //
@@ -137,5 +190,5 @@ export default async function OrderStatementRoute({ params }: Props) {
   //       (查無那條路【有】頁首頁尾,因為那一頁最需要出口。兩條路不同是刻意的。)
   //    ⚠️ **一模一樣有一格做不到**,而那是授權過的偏離 ——
   //       理由與那道守門寫在 `components/print/statement-doc.tsx` 檔頭那一大段。
-  return <StatementDoc order={order} />;
+  return <StatementDoc order={order} fontFamily={statementFont.style.fontFamily} />;
 }

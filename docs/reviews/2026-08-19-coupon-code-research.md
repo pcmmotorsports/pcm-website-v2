@@ -248,6 +248,13 @@ TapPay webhook 當初也在同一張清單上,而 Sean 2026-06-11 把它移出�
 
 ### 7-5 ✅ 補查第二格:**design 有沒有後台的券管理頁 ⇒ 沒有,而理由是結構性的**
 ```
+> 🔴 **2026-08-31:下面這些對 `design-reference/` 的 grep,在【施工窗的工作樹】跑會拿到假的零命中。**
+> 那個 submodule 在四棵工作樹全部**沒有 checkout**(`git submodule status` 前綴 `-`;`ls` ⇒ 0 項,主樹 ⇒ 10 項)。
+> ⚠️ 而 `test -d design-reference` **會過** ⇒「檔在不在」那種守門會放行。
+> 🔵 `rc` **會叫,它印 `2`**(目錄存在而空的正常零命中是 `rc=1`)—— 而它被三種常見寫法吃掉:
+> ① 接 `| wc -l` ⇒ rc 變成 `wc` 的 **0** ② `2>/dev/null` ⇒ 警告不見而沒有人看 rc ③ 只看 stdout ⇒ 空的。
+> 🔴 **⇒ 唯一會叫的那個訊號,剛好是最常被丟掉的那個。救法:收 `rc`,不要接 `| wc -l`。**
+> 實測:主樹同一條 ⇒ **4 支命中**,施工窗 ⇒ **0**。同一份文件,兩棵樹,兩個答案。
 /usr/bin/grep -rln "coupon|優惠券" design-reference/components/ ⇒ 2 檔:
   CheckoutPage.jsx / AccountPages.jsx  ← **兩個都是前台**
 而 design-reference/components/ 全部 20 個元件**沒有一個是後台**

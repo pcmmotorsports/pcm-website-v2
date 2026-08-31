@@ -400,6 +400,13 @@ function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact = false,
 # 目標 1: design Pricing.jsx 完整 + exports + CSS
 wc -l design-reference/components/Pricing.jsx
 sed -n '66,200p' design-reference/components/Pricing.jsx
+> 🔴 **2026-08-31:下面這些對 `design-reference/` 的 grep,在【施工窗的工作樹】跑會拿到假的零命中。**
+> 那個 submodule 在四棵工作樹全部**沒有 checkout**(`git submodule status` 前綴 `-`;`ls` ⇒ 0 項,主樹 ⇒ 10 項)。
+> ⚠️ 而 `test -d design-reference` **會過** ⇒「檔在不在」那種守門會放行。
+> 🔵 `rc` **會叫,它印 `2`**(目錄存在而空的正常零命中是 `rc=1`)—— 而它被三種常見寫法吃掉:
+> ① 接 `| wc -l` ⇒ rc 變成 `wc` 的 **0** ② `2>/dev/null` ⇒ 警告不見而沒有人看 rc ③ 只看 stdout ⇒ 空的。
+> 🔴 **⇒ 唯一會叫的那個訊號,剛好是最常被丟掉的那個。救法:收 `rc`,不要接 `| wc -l`。**
+> 實測:主樹同一條 ⇒ **4 支命中**,施工窗 ⇒ **0**。同一份文件,兩棵樹,兩個答案。
 grep -n "^function|^const.*=|Object.assign.*window" design-reference/components/Pricing.jsx
 grep -rn "price-tag-dealer|pd-price-tag-dealer|pd-mbb-orig|cart-item-price-unit|.price-wrap|.price-main" design-reference/styles/
 
