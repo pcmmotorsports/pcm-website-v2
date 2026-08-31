@@ -1127,6 +1127,21 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
     }, OPTS);
     expect(res.alerted).toBe(false);
     expect(notifier.notify).not.toHaveBeenCalled();
+    /**
+     * 🔴🔴 **這四條是【突變殺出來的】,不是想出來的**(線出貨 `-1e` 2026-08-31)。
+     * 實測:把 `check-anomaly-alerts.ts` 那行 `shippedGapUnknown: summary.shippedGapUnknown`
+     * 改成寫死 `false` ⇒ **3 支測試檔 186 格全過、rc=0**(型別過、語法過、零紅)。
+     * ⇒ 📌 而那一行正上方有一段註解逐字寫著「**這一行是本片最重要的一行**」,
+     *    並記載作者第一版漏寫它 ⇒ route 讀不到旗標 ⇒ RPC 沒 apply 時整片沉默。
+     * 🔴 **⇒ 一段說明它有多重要的註解,不是一個會在它壞掉時變紅的東西。**
+     * ⚠️ 為什麼原本抓不到:adapter 的測試測的是 adapter 怎麼【算】這個旗標;
+     *    而 route 的測試把 `checkAnomalyAlerts` 整支 mock 掉 ⇒ **真正的 use-case 沒有跑**
+     *    ⇒ 中間這一段 pass-through 兩邊都以為對方測了。
+     */
+    expect(res.shippedGapUnknown).toBe(true);
+    expect(res.shippedNeverEnqueuedCount).toBeNull();
+    expect(res.shippedUnsendableCount).toBeNull();
+    expect(res.shipmentsTotalCount).toBeNull();
   });
 
   it('[E4] 🔴 讀不到(RPC 尚未 apply)⇒ 【不叫】—— 部署問題走部署管道', async () => {
