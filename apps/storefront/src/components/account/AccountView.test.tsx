@@ -98,7 +98,7 @@ function renderView(overrides: Partial<AccountViewProps> = {}) {
     stats: { tier: 'general', walletBalance: 0, orderCount: 0 },
     featured: EMPTY_FEATURED,
     // g-4a:profile prop 必填、預設與 user.name 同值(對齊 page.tsx Q4=A SoT、customers.name 為主)
-    profile: { name: '王小明', phone: '', birthday: '' },
+    profile: { name: '王小明', phone: '', birthday: '', gender: '' },
     // g-5a:addresses prop 必填、預設空陣列(AddressTab 唯讀列表;切到 address tab 才渲染)
     addresses: [],
     // #202 解凍第一片:儲值金明細 prop 必填、預設空陣列 + 未失敗
@@ -164,7 +164,7 @@ describe('AccountView(會員中心殼 g-1a + g-2 真資料)', () => {
   it('profile.name 空時退化:avatar 走 displayEmail 首字、Hi 顯 email、acc-email 仍 render(g-4a Q4=A:displayName 用 profile.name 為主)', () => {
     renderView({
       user: { name: '', displayEmail: 'wang@example.com' },
-      profile: { name: '', phone: '', birthday: '' },
+      profile: { name: '', phone: '', birthday: '', gender: '' },
     });
     expect(screen.getByText('W')).toBeTruthy();
     expect(screen.getByText('Hi, wang@example.com')).toBeTruthy();
@@ -174,7 +174,7 @@ describe('AccountView(會員中心殼 g-1a + g-2 真資料)', () => {
   it('profile.name + displayEmail 皆空 → avatar=P / Hi=PCM 會員 / acc-email 不 render', () => {
     const { container } = renderView({
       user: { name: '', displayEmail: '' },
-      profile: { name: '', phone: '', birthday: '' },
+      profile: { name: '', phone: '', birthday: '', gender: '' },
     });
     expect(screen.getByText('P')).toBeTruthy();
     expect(screen.getByText('Hi, PCM 會員')).toBeTruthy();
@@ -186,7 +186,7 @@ describe('AccountView(會員中心殼 g-1a + g-2 真資料)', () => {
     // user_metadata.name 同步寫入 LINE 顯示名;g-4a Q4=A SoT)
     const { container } = renderView({
       user: { name: 'LINE 太郎', displayEmail: '' },
-      profile: { name: 'LINE 太郎', phone: '', birthday: '' },
+      profile: { name: 'LINE 太郎', phone: '', birthday: '', gender: '' },
     });
     expect(screen.getByText('L')).toBeTruthy();
     expect(screen.getByText('Hi, LINE 太郎')).toBeTruthy();

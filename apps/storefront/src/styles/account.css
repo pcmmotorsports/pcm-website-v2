@@ -567,14 +567,21 @@
   text-transform: uppercase;
   color: var(--c-text-3);
 }
-.acc-profile input {
+/* 🔴 `select` 與 `input` 套同一組 —— codex R1 must-fix:
+   只樣式化 `input` 的話,性別那顆下拉在桌面會顯示【瀏覽器原生外觀】,
+   與同一張表單上其他欄位不一致。⇒ 那不是「少了一點裝飾」,是**同一排欄位長得不一樣**。
+   🔵 而 `appearance: none` 不加 —— 加了要自己畫箭頭,那才是「新畫視覺」。
+   本格只讓它與鄰居同高同框,箭頭維持系統原生。 */
+.acc-profile input,
+.acc-profile select {
   padding: 12px 14px;
   border: 1px solid var(--c-border);
   background: var(--c-bg);
   font-size: 14px;
   outline: none;
 }
-.acc-profile input:disabled { background: var(--c-surface-2); color: var(--c-text-2); }
+.acc-profile input:disabled,
+.acc-profile select:disabled { background: var(--c-surface-2); color: var(--c-text-2); }
 .acc-profile .auth-submit {
   grid-column: span 2;
   max-width: 200px;

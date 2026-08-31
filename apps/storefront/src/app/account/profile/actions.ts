@@ -4,6 +4,10 @@
 //
 // 對齊 plan v2(Sean Q1=B/Q2=A/Q2-1=b/Q3=A/Q4=A、2026-05-28) + codex k1 round1 修法:
 // - 信任邊界 5 層(codex k1 Important 3):
+//   🔴 **2026-09-01 訂正射程(codex R1 nit)**:這五層【不是每一個請求都依序經過】——
+//      一個已登入的客人可以直接打 Supabase REST ⇒ 繞過 ①②③(zod / use-case / adapter)。
+//      ⇒ **無論如何都擋得住的只有 ④RLS + ⑤欄級 GRANT + DB 的 CHECK**(那三道在 DB 裡)。
+//      ⇒ 📌 ①②③ 的價值是【給得出逐欄錯誤訊息】,不是安全 —— 兩者常被寫成同一句話。
 //   ① server session user.id(getUser 驗 JWT,不從表單 body 取 customerUserId)
 //   ② ProfileInput zod safeParse(name min(1) / phone default '' / birthday default '';strip 未知欄如 tier/id/wallet_balance)
 //   ③ use-case Pick 型別白名單(updateProfile patch: Partial<Pick<Customer, 'name'|'phone'|'birthday'>>)
@@ -21,7 +25,7 @@ import { getCustomerRepo } from '@/lib/auth/composition';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 // 三欄 fieldErrors keys(對齊 ProfileInput zod 三欄 + design profile L666-669)。
-export type ProfileFieldErrors = Partial<Record<'name' | 'phone' | 'birthday', string>>;
+export type ProfileFieldErrors = Partial<Record<'name' | 'phone' | 'birthday' | 'gender', string>>;
 
 // #181 雙通道 + ok 標(g-4b client 收 ok=true 後 setSaved)。
 export type UpdateProfileActionResult = {
@@ -50,7 +54,7 @@ export async function updateProfileAction(input: unknown): Promise<UpdateProfile
     const fieldErrors: ProfileFieldErrors = {};
     for (const issue of parsed.error.issues) {
       const path = issue.path[0];
-      if (path === 'name' || path === 'phone' || path === 'birthday') {
+      if (path === 'name' || path === 'phone' || path === 'birthday' || path === 'gender') {
         fieldErrors[path] = issue.message;
       }
     }
@@ -66,6 +70,17 @@ export async function updateProfileAction(input: unknown): Promise<UpdateProfile
     name: parsed.data.name,
     phone: parsed.data.phone,
     birthday: parsed.data.birthday || null,
+    // 🔴 空字串 ⇒ `null`,同 birthday 那條:DB 那一欄的 CHECK 不收 `''`。
+    //    ⚠️ 而**語意也不同**:`''` 是「這次沒選」,而我們要存的是「沒有值」。
+    //    🛑 而它有一個代價:**選了之後再改回「不選擇」= 把值清成 null** ——
+    //       而 `null` 同時代表「沒被問」。⇒ 那兩件事在 DB 裡分不開,而這是已知的
+    //       (`Customer.gender` 的 docstring 逐字寫著同一句)。要分開得另立一個「拒答」值,
+    //       而 `'undisclosed'` 就是為此存在的 ⇒ **想表達「我不說」的人該選它,不是清空。**
+    // 🔴 **`undefined`(欄位缺席)與 `''`(選了不選擇)在這裡分岔** —— codex R1 must-fix:
+    //    缺席 ⇒ **整個 key 不進 patch** ⇒ mapper 的 `!== undefined` 會跳過它 ⇒ DB 那一欄不動;
+    //    `''`  ⇒ 進 patch 且值為 `null` ⇒ 真的把它清掉(那是使用者明確按的)。
+    //    📌 少了這個分岔,一個舊分頁送出一次就會清掉他已經填好的性別。
+    ...(parsed.data.gender === undefined ? {} : { gender: parsed.data.gender || null }),
   };
 
   try {

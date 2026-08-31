@@ -68,7 +68,18 @@ import type { MockMotoBrand } from '@/data/mock-moto-brands';
 export type AccountUser = { name: string; displayEmail: string };
 export type AccountStats = { tier: MemberTier; walletBalance: number; orderCount: number };
 // g-4a:profile 三欄(form 用 string、空值 ''、不用 null;page.tsx 已 null→'' 還原)
-export type AccountProfile = { name: string; phone: string; birthday: string };
+export type AccountProfile = {
+  name: string;
+  phone: string;
+  birthday: string;
+  /**
+   * 性別代碼(`''` = 未選)。**送的是代碼、顯示的是中文** ——
+   * 對應表 `@pcm/schemas` 的 `GENDER_LABEL`,與註冊表單用的是同一份。
+   * 🔵 而那一致性是刻意的:同一個客人在註冊時看過那顆下拉,
+   *    兩處用不同的字會讓他以為是兩件事。
+   */
+  gender: string;
+};
 
 // 7 tab 的 id / label 字面對齊 design AccountPages.jsx L447-453,**本批未動**。
 // 🔶 第4批 R1 9-2(Sean 2026-08-05「優化整體字體、圖示、比例」):

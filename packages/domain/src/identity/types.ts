@@ -25,6 +25,19 @@ export type Customer = {
   name: string;
   phone: string;
   birthday: string | null; // ISO date 'YYYY-MM-DD' or null
+  /**
+   * 性別代碼(`customers.gender`;值域由 `customers_gender_chk` 管 —— `20260831150000`)。
+   * `null` = 沒有值,而它**同時涵蓋兩件事**:「沒被問」與「問了沒填」,兩者分不開。
+   *
+   * 🔴 **而「沒被問」是【多數】** —— 只有 Email 註冊路徑會經過收這一欄的那張表單;
+   * Google 一鍵與 LINE 進來的使用者**從頭到尾沒看過它** ⇒ 結構上恆 `null`,不是漏做。
+   * ⇒ 會員中心那一格(`AccountView` 個人資料)就是給那批人補填的路。
+   *
+   * 🔵 型別用字串聯集而不是 import `@pcm/schemas` 的 `GenderCode` ——
+   * `packages/domain` **不依賴** `@pcm/schemas`(package.json 實查 0);
+   * 而那是本 repo 既有慣例(同檔 `MemberTier` 也是手寫的,配一支漂移測試)。
+   */
+  gender: 'male' | 'female' | 'undisclosed' | null;
   tier: MemberTier;
   walletBalance: number; // Q1=B:DB trigger 同步、authenticated 不可直寫
   totalDeposit: number; // Q1=B:累積儲值(後台參考門檻、非 auto-upgrade 觸發)

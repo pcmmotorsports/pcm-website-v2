@@ -94,8 +94,12 @@ function parseAdminSearchCustomersResult(data: unknown): { ids: string[]; trunca
 const PGRST_NOT_FOUND = 'PGRST116';
 
 /** customers 表投射(對齊 PRD §7 CUSTOMER_SELECT + migration customers 10 欄)。 */
+// 🔴 `gender` 2026-09-01 加進來 —— **少了它, 存進去之後讀回來是 `null`**,
+//    而那與「這個人沒填」印同一個值 ⇒ 使用者會看到自己剛存的選擇消失。
+//    📌 `SupabaseCustomerRow.gender` 是 optional, 所以漏撈它**不會有任何東西紅** ——
+//       那正是為什麼它要被寫下來。
 const CUSTOMER_SELECT =
-  'user_id, email, name, phone, birthday, tier, wallet_balance, total_deposit, created_at, updated_at';
+  'user_id, email, name, phone, birthday, gender, tier, wallet_balance, total_deposit, created_at, updated_at';
 
 /**
  * admin 客戶摘要投影白名單(M-4a 客戶管理第一片、後台 /customers 列表;service_role 全表)。
@@ -142,6 +146,27 @@ export const ADMIN_CUSTOMER_LIST_VIEW = 'admin_customer_list_v';
  *    ⚠️ **不在本片刪** —— 刪它要重生 `database.types.ts`,那動的是全 repo 的生成檔,
  *       不屬本片範圍。**寫在這裡是因為:下一個讀到上面那句的人會以為整段都還沒到期。**
  */
+/**
+ * 🔴 **本地補上 `customers` 的 `gender`,而它與下面那個 view 的 augment 是【同一種東西、同一個期限】**:
+ * `database.types.ts` 生成於 `20260831140000`(加 gender 欄)之前 ⇒ 生成檔的 `customers` 沒有它,
+ * 而那一欄**在正式庫上已經存在**(帳本 `:338`)。
+ * ⚠️ 重生 `database.types.ts` 之後這個 augment 就該刪掉。
+ * 🔵 它只補 `Update`(寫入面);讀取面走 `mappers/customer.ts` 的 `SupabaseCustomerRow`(那裡是 optional)。
+ */
+type DatabaseWithCustomerGender = Database & {
+  public: Database['public'] & {
+    Tables: Database['public']['Tables'] & {
+      customers: Database['public']['Tables']['customers'] & {
+        // 🔴 `Row` 也要補 —— PostgREST 的 typed client 是拿 `Row` 去**驗 select 字串**的,
+        //    只補 `Update` 的話 `.select('… gender …')` 會回 `SelectQueryError<column 'gender' does not exist>`。
+        //    📌 而那個錯訊息會讓人以為【資料庫沒有那一欄】—— 實際上是【生成型別沒有】。
+        Row: Database['public']['Tables']['customers']['Row'] & { gender: string | null };
+        Update: Database['public']['Tables']['customers']['Update'] & { gender?: string | null };
+      };
+    };
+  };
+};
+
 type DatabaseWithCustomerListView = Database & {
   public: Database['public'] & {
     Views: Database['public']['Views'] & {
@@ -191,9 +216,20 @@ type DatabaseWithCustomerListView = Database & {
 export class SupabaseCustomerAdapter implements ICustomerRepository {
   constructor(private readonly supabase: SupabaseClient<Database>) {}
 
+  /**
+   * 🔴 `customers` 那幾支查詢走這個 —— 它只多知道一件事:那張表有 `gender`。
+   *
+   * ⚠️ **cast 的代價明寫**:它同時關掉這一整條鏈的欄名檢查(`.eq()` / `.order()` 也一起)。
+   *    ⇒ 所以寫入送什麼由 `mapCustomerPatchToRow` 的白名單守、讀取撈什麼由 `CUSTOMER_SELECT` 守,
+   *      **不靠型別**。這一段是有期限的,重生 `database.types.ts` 之後整個拿掉。
+   */
+  private get customersDb(): SupabaseClient<DatabaseWithCustomerGender> {
+    return this.supabase as unknown as SupabaseClient<DatabaseWithCustomerGender>;
+  }
+
   /** 依 id(= auth.users.id)查單筆會員。找不到 → null;其他 error → throw。 */
   async findById(id: CustomerId): Promise<Customer | null> {
-    const { data, error } = await this.supabase
+    const { data, error } = await this.customersDb
       .from('customers')
       .select(CUSTOMER_SELECT)
       .eq('user_id', id)
@@ -209,7 +245,7 @@ export class SupabaseCustomerAdapter implements ICustomerRepository {
 
   /** 依 email 查單筆會員(customers_email_idx + UNIQUE)。找不到 → null;其他 error → throw。 */
   async findByEmail(email: string): Promise<Customer | null> {
-    const { data, error } = await this.supabase
+    const { data, error } = await this.customersDb
       .from('customers')
       .select(CUSTOMER_SELECT)
       .eq('email', email)
@@ -230,9 +266,12 @@ export class SupabaseCustomerAdapter implements ICustomerRepository {
    */
   async update(
     id: CustomerId,
-    patch: Partial<Pick<Customer, 'name' | 'phone' | 'birthday'>>,
+    patch: Partial<Pick<Customer, 'name' | 'phone' | 'birthday' | 'gender'>>,
   ): Promise<Customer> {
-    const { data, error } = await this.supabase
+    // 🔴 窄 cast —— 只為了讓 `gender` 過型別關,形狀照同檔那個既有的 view augment 先例。
+    //    ⚠️ 而 cast 的代價明寫:它同時關掉這一句裡**其他欄名**的檢查
+    //       ⇒ 送進去的東西由 `mapCustomerPatchToRow` 的白名單守, 不靠這裡。
+    const { data, error } = await this.customersDb
       .from('customers')
       .update(mapCustomerPatchToRow(patch))
       .eq('user_id', id)
