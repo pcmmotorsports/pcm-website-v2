@@ -3873,6 +3873,32 @@ export type Database = {
         }
         Returns: Json
       }
+      // 🔴🔴 **手動補寫(重 gen 後會被蓋掉, 而【那正是它正確的退場方式】)**
+      //
+      // 🛑 **退場條件, 寫在這裡因為沒有別的地方會記得**:
+      //    下一次有人正常跑型別生成時, 這一段會被生成的版本蓋掉 ⇒ **那時直接讓它被蓋掉, 不要保留。**
+      //    ⚠️ 而一段【沒有退場條件】的手寫型別, 會活到有人以為它是生成的那一天。
+      //
+      // **為什麼是手寫而不是重新生成**(2026-09-01 線【出貨】, 主視窗裁乙):
+      //    那支 RPC 2026-08-31 才 apply, 而本檔當時沒有重生成 ⇒ 型別裡沒有它 ⇒ `.rpc()` 會 typecheck 紅。
+      //    🔴 而【重新生成整支】的爆炸半徑不歸做這一片的人管:它會把**別的窗今晚 apply 的東西**
+      //      一起帶進來, 而那些行在 diff 上**沒有作者** —— 它們會以「型別檔本來就長這樣」的形狀進來。
+      //    ⛔ 而 `as never` / cast 繞過也排除:`apps/admin/src/lib/customers/customer-repository.ts:105`
+      //      逐字寫著「改回具名 `.rpc()`, 由生成型別直接把關參數名與函式名」—— 繞過等於推翻那個拍板。
+      //
+      // 🔴 **而「手寫的型別不保證與正式庫一致」這句話, 對【下一支】仍然成立** ——
+      //    本支的簽章是唯讀正式庫當場驗過的(2026-09-01):
+      //      `pg_proc` 命中 1 · 本體含白名單那句 · ACL = `postgres=X/postgres, service_role=X/postgres`
+      //      (🟢 正對照 public 底下 admin_ 函式 39 支 · 🔴 負對照 現造名 0)
+      //    ⚠️ 下一個人照抄這個做法時, **那一發驗證要自己重跑**, 不能引用這裡的結果。
+      //
+      // 來源:`supabase/migrations/20260831040000_m4b_maildead_requeue_rpc.sql:70`(共 1 代)
+      admin_requeue_dead_email: {
+        Args: {
+          p_outbox_id: string
+        }
+        Returns: Json
+      }
       admin_reverse_manual_payment: {
         Args: { p_actor: string; p_payment_id: string; p_reason: string }
         Returns: Json
