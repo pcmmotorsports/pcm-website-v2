@@ -227,6 +227,7 @@ DECLARE
   v_def  text;
   v_cols text;
   v_cnt  integer;
+  v_who  text;
 BEGIN
   SELECT pg_get_viewdef('public.admin_customer_list_v'::regclass, true) INTO v_def;
 
@@ -372,14 +373,54 @@ BEGIN
     RAISE EXCEPTION '性別欄驗收失敗 — relacl 是 NULL(從沒下過 GRANT),下面的授權斷言【沒有判別力】';
   END IF;
 
-  SELECT count(*) INTO v_cnt
+  -- 🔴🔴 **2026-09-01 訂正 —— 而訂正的不是判斷,是【訊息】。**
+  --   ⛔ ~~原訊息:「表層授權除了 owner 與 service_role 之外還有 % 條**(grantee=0 即 PUBLIC)**」~~
+  --   🔴 **那個查詢【從來沒有檢查過】那一條是不是 PUBLIC** —— 它數的是「不是 owner、
+  --      而且不是 service_role」的**任何** grantee。而「grantee=0 即 PUBLIC」是對**條件**的註解,
+  --      不是對**這一次結果**的量測 —— 而它印在數字的正後方,讀起來就像那一條的身分。
+  --   📌 **實錘(2026-09-01,Sean 本人貼,整支 fail-closed 回捲、零改動)**:
+  --      它在正式庫上紅了,而主視窗用唯讀連線查 ⇒ 那 1 條是 **`pcm_readonly`(SELECT)**,
+  --      = Sean 開給我們的唯讀帳號,**合法**;而全 public schema 掃 `grantee=0` ⇒ **0 列**。
+  --      ⇒ 🔴 **三個人(Sean / 主視窗 / 我)全部相信了那個寫死的解釋,花了 20 分鐘追一個不存在的 PUBLIC。**
+  --   🔴🔴 **⇒ 一個【正確的偵測】配上一個【寫死的解釋】,比一個錯的偵測更貴 ——**
+  --      **因為偵測是對的,所以沒有人會去驗那個解釋。**
+  --   ✅ **⇒ 兩件事都改**:①白名單收進 `pcm_readonly`(**只准不可轉授的 SELECT**)
+  --      ②訊息**印實得值**,不寫死任何解釋。
+  --   🛑 **而斷言本身留著** —— 它的偵測是對的,而且它 fail-closed 擋下了一次真的 apply。
+  --   ⚠️ **`pcm_readonly` 用【名字比對】,不預設那個角色存在** ——
+  --      拋棄式 PG 上沒有它,而本條只看 ACL 裡出現過的 grantee ⇒ 兩邊都成立。
+  SELECT count(*),
+         coalesce(string_agg(
+           format('%s=%s%s',
+                  CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+                  a.privilege_type,
+                  CASE WHEN a.is_grantable THEN '(可轉授)' ELSE '' END),
+           ', ' ORDER BY 1), '(無)')
+    INTO v_cnt, v_who
     FROM pg_class c, aclexplode(c.relacl) a
    WHERE c.oid = 'public.admin_customer_list_v'::regclass
      AND a.grantee <> c.relowner
-     AND (a.grantee = 0 OR pg_get_userbyid(a.grantee) <> 'service_role');
+     AND a.grantee <> 0                                   -- PUBLIC 由下面單獨一條處理
+     AND pg_get_userbyid(a.grantee) <> 'service_role'
+     -- 🔵 唯讀帳號:**只有不可轉授的 SELECT 算合法**;它拿到 UPDATE 或可轉授 ⇒ 照樣紅。
+     AND NOT (pg_get_userbyid(a.grantee) = 'pcm_readonly'
+              AND a.privilege_type = 'SELECT'
+              AND NOT a.is_grantable);
   IF v_cnt <> 0 THEN
-    RAISE EXCEPTION '性別欄驗收失敗 — 表層授權除了 owner 與 service_role 之外還有 % 條(grantee=0 即 PUBLIC)。'
-      '🔴 本 view 帶著【全體客戶生日 + 性別】, 外流代價比上游那版更高', v_cnt;
+    RAISE EXCEPTION '性別欄驗收失敗 — 表層授權除了 owner / service_role / pcm_readonly(唯讀 SELECT)'
+      '之外還有 % 條:%。🔴 本 view 帶著【全體客戶生日 + 性別】, 外流代價比上游那版更高。'
+      '📌 上面那一串是【實得值】, 不是解釋 —— 看到誰就是誰。', v_cnt, v_who;
+  END IF;
+
+  -- 🔴 PUBLIC 單獨一條 —— 因為它的意義與「多一個具名角色」完全不同,
+  --    而合成一條會讓訊息必須替兩種世界寫同一句話(那正是上面那個病的來源)。
+  SELECT count(*) INTO v_cnt
+    FROM pg_class c, aclexplode(c.relacl) a
+   WHERE c.oid = 'public.admin_customer_list_v'::regclass
+     AND a.grantee = 0;
+  IF v_cnt <> 0 THEN
+    RAISE EXCEPTION '性別欄驗收失敗 — 本 view 對 PUBLIC 開著 % 條授權。'
+      '🔴 PUBLIC 包含 anon ⇒ 未登入的人讀得到全體客戶的生日與性別。', v_cnt;
   END IF;
 
   SELECT count(*) INTO v_cnt
