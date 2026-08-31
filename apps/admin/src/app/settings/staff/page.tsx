@@ -36,14 +36,29 @@ export default async function StaffSettingsPage({
   //
   // 🔵 **刻意不呼叫 `isActiveManager`**:那支在 DB 故障時回 `false`(fail-closed,對閘是對的),
   //    而 UI 沿用它 ⇒ DB 打嗝時真管理者的鈕會灰掉。
-  //    這裡改用【已經載進來的那份名單】—— 零額外查詢,而且名單載不到時自然落在 `unknown`。
+  //
+  // 🔴 **`actor === null` 是 `no` 不是 `unknown`**(codex R1 must-fix,2026-08-31):
+  //    `getSessionActor()` 走 `listActiveStaff()`,而那支**過濾掉停用者**
+  //    ⇒ 一個【已停用而 session 還沒過期】的人會拿到 `null`。
+  //    第一版把 `null` 當 `unknown` ⇒ **他的鈕不會灰**,而他確實管不了任何東西。
+  //    ⇒ 而 `null` 的另外兩個來源(共用密碼備援 / bootstrap)**同樣沒有具名身分**
+  //      ⇒ `authorizeManagerMutation` 也會拒他們 ⇒ 判 `no` 與 server 的行為一致。
+  //
+  // ⚠️ **殘餘的一格,明寫**:`listActiveStaff()` 自己也 catch DB 錯誤並回 `[]`
+  //    ⇒ 若我們這一發 `listStaffRows()` 成功、而它那一發失敗(兩次查詢之間的瞬時故障),
+  //    真管理者會拿到 `no` ⇒ 鈕被誤灰。**那是一個窄的競態,不是常態**,
+  //    而它的代價有界(按不了 ⇒ 重整一次就好),所以本片不為它多開一條路。
   let canManage: ManagePermission = 'unknown';
   if (!loadFailed) {
     try {
       const actor = await getSessionActor();
-      const me = actor ? rows.find((row) => row.id === actor.id) : undefined;
-      // 名單載到了而找不到自己(例如身分不在 staff 表上)⇒ 仍是 unknown,不是 'no'。
-      if (me) canManage = me.is_active && me.is_manager ? 'yes' : 'no';
+      if (!actor) {
+        canManage = 'no';
+      } else {
+        const me = rows.find((row) => row.id === actor.id);
+        // 名單載到了而找不到自己(理論上不可達:actor 就是從同一張表解出來的)⇒ 留 unknown。
+        if (me) canManage = me.is_active && me.is_manager ? 'yes' : 'no';
+      }
     } catch (error) {
       console.error('[admin/settings/staff] 取操作者身分失敗 ⇒ 不灰鈕', error);
     }

@@ -12,7 +12,10 @@ import { cleanup, render } from '@testing-library/react';
 // ⚠️ 而**本檔不驗這一頁的其他行為**(載入失敗、結果橫幅、名單渲染)——
 //    那些是另一片的範圍。**寫下來, 免得有人把這支檔的存在讀成「這頁有覆蓋了」。**
 
-const { listStaffRows } = vi.hoisted(() => ({ listStaffRows: vi.fn() }));
+const { listStaffRows, getSessionActor } = vi.hoisted(() => ({
+  listStaffRows: vi.fn(),
+  getSessionActor: vi.fn(),
+}));
 
 // `staff-repository.ts:1` 有 `import 'server-only'` ⇒ jsdom 直接炸, 必須換掉。
 // 形狀同 `app/settings/audit/page.test.tsx:27`。
@@ -27,6 +30,8 @@ vi.mock('../../../lib/staff-actions', () => ({
   updateStaffProfileAction: vi.fn(),
   setStaffActiveAction: vi.fn(),
 }));
+// ⟦b4-MGR0-UI⟧ 2026-08-31:三態要在【這一層】被驗 —— 元件層驗不到它。
+vi.mock('@/lib/session/actor', () => ({ getSessionActor }));
 
 import StaffSettingsPage from './page';
 
@@ -109,5 +114,68 @@ describe('⟦b4-MGR0-COPY2⟧ 這一頁的說明必須說出「這是授權」',
     const { container } = render(await StaffSettingsPage({ searchParams: noParams }));
     spy.mockRestore();
     expect(pageDescription(container)).toContain(AUTHORIZATION_HALF);
+  });
+});
+
+// ── ⟦b4-MGR0-UI⟧ 頁面層三態 ────────────────────────────────────────────
+//
+// 🔴 **為什麼這一組非在這一層不可**(codex R1 must-fix,2026-08-31):
+//    元件層的三態測試(`components/settings/staff-table.test.tsx`)驗的是
+//    「**收到 canManage='no' 就要灰**」—— 它**證不到**「這一頁算得出正確的那一態」。
+//    codex 的擊破:**刪掉頁面裡算 `canManage` 那幾行、讓它永遠傳 `unknown`
+//    ⇒ 元件層那三格照樣全綠。**⇒ 核心功能壞掉而沒有東西會叫。
+describe('⟦b4-MGR0-UI⟧ 這一頁要算得出正確的那一態', () => {
+  const MANAGER = { id: 'sean', label: 'Sean', is_manager: true, is_active: true };
+  const CLERK = { id: 'staff_2', label: '小明', is_manager: false, is_active: true };
+  const submitButtons = (root: HTMLElement) =>
+    [...root.querySelectorAll<HTMLButtonElement>('button[type="submit"]')];
+  // 新增員工那顆鈕不受救援帳號保護影響 ⇒ 拿它當「這一頁判成哪一態」的探針。
+  const createButton = (root: HTMLElement) =>
+    submitButtons(root).find((b) => b.textContent?.includes('新增員工'));
+
+  it('管理者 ⇒ 新增鈕可按', async () => {
+    listStaffRows.mockResolvedValue([MANAGER, CLERK]);
+    getSessionActor.mockResolvedValue({ id: 'sean', label: 'Sean' });
+    const { container } = render(await StaffSettingsPage({ searchParams: noParams }));
+    expect(createButton(container), '找不到新增鈕 ⇒ 這把尺沒接上').toBeTruthy();
+    expect(createButton(container)?.disabled).toBe(false);
+  });
+
+  it('非管理者 ⇒ 新增鈕灰掉', async () => {
+    listStaffRows.mockResolvedValue([MANAGER, CLERK]);
+    getSessionActor.mockResolvedValue({ id: 'staff_2', label: '小明' });
+    const { container } = render(await StaffSettingsPage({ searchParams: noParams }));
+    expect(createButton(container)?.disabled).toBe(true);
+  });
+
+  it('🔴 已停用而 session 還在(getSessionActor 回 null)⇒ 灰掉, 不是 unknown', async () => {
+    // codex R1 must-fix:`getSessionActor` 走 `listActiveStaff()` 而那支過濾掉停用者
+    // ⇒ 第一版把 null 當 unknown ⇒ 他的鈕不會灰, 而他確實管不了任何東西。
+    listStaffRows.mockResolvedValue([MANAGER, CLERK]);
+    getSessionActor.mockResolvedValue(null);
+    const { container } = render(await StaffSettingsPage({ searchParams: noParams }));
+    expect(
+      createButton(container)?.disabled,
+      'actor=null 被當成 unknown 了 ⇒ 已停用的人看到可按的鈕',
+    ).toBe(true);
+  });
+
+  it('🔴 名單載入失敗 ⇒ unknown ⇒ 【不灰】', async () => {
+    listStaffRows.mockRejectedValue(new Error('db down'));
+    getSessionActor.mockResolvedValue({ id: 'sean', label: 'Sean' });
+    const { container } = render(await StaffSettingsPage({ searchParams: noParams }));
+    // 名單載不到 ⇒ 表格換成錯誤框, 而新增表單還在 ⇒ 那顆鈕就是這一態的探針。
+    expect(createButton(container), '載入失敗時新增表單不見了 ⇒ 這把尺沒接上').toBeTruthy();
+    expect(
+      createButton(container)?.disabled,
+      'DB 掛掉時把鈕灰掉了 ⇒ 真管理者會以為自己被降權',
+    ).toBe(false);
+  });
+
+  it('🔴 getSessionActor 丟例外 ⇒ unknown ⇒ 【不灰】', async () => {
+    listStaffRows.mockResolvedValue([MANAGER, CLERK]);
+    getSessionActor.mockRejectedValue(new Error('cookie jar exploded'));
+    const { container } = render(await StaffSettingsPage({ searchParams: noParams }));
+    expect(createButton(container)?.disabled).toBe(false);
   });
 });
