@@ -52,6 +52,11 @@ export type CheckAnomalyAlertsOptions = {
   shippedCutoffIso: string | null;
   /** 🔵 出貨信寬限秒數(Sean `2 甲` = 15 分鐘 = 3 次掃描;route 常數注入)。 */
   shippedGraceSeconds: number;
+  /**
+   * 🔵 訊號 4 的起始線(env `B4_DEPLOY_CUTOFF`,**與寄信端同一顆**;2026-08-31 Sean 拍 5️⃣ 甲)。
+   * 🛑 `null` = 整段不查 ⇒ 落 `orderCreatedGapUnknown`(**不進 `shouldAlert`**)。
+   */
+  orderCreatedCutoffIso: string | null;
 };
 
 /** CheckAnomalyAlertsResult:結構化摘要(零 PII counts only;route log/回應用)。 */
@@ -88,6 +93,14 @@ export type CheckAnomalyAlertsResult = {
   shippedUnsendableCount: number | null;
   shipmentsTotalCount: number | null;
   shippedGapUnknown: boolean;
+  /**
+   * 🔵 訊號 4 那三格(2026-08-31)。
+   * 🛑 `paidNoEmail` **不進 `shouldAlert`**(它 >0 是正常的);`noRecipient` 才是主詞。
+   * 🔴 `unknown` 為 true 時上面兩個是 `null` —— **不得寫成 0**。
+   */
+  orderCreatedPaidNoEmailCount: number | null;
+  orderCreatedNoRecipientCount: number | null;
+  orderCreatedGapUnknown: boolean;
   /**
    * 🔴 M-4a:寄信那支 RPC 是不是【讀不到】(尚未 apply / 權限問題)。
    * route 依它回 **503**,而不是寄一封「尚未啟用」的信(部署問題走部署管道)。
@@ -604,6 +617,17 @@ export function buildAnomalyAlertMessage(
   // 🔵 而這一格與上一格【不同種】:不是系統壞掉, 是**我們沒有那個客人的信箱**。
   //   ⇒ 併起來 = 用一種原因的文案報另一種原因(與 5-a / 5-b 分開的理由相同)。
   emailPush(summary.shippedUnsendableCount, '⚠️ 貨出了而那張單【兩個信箱都是空的】⇒ 寄不出去');
+  /**
+   * 🔵 **訊號 4(2026-08-31)** —— 用【第三種字】,因為它與上面兩族去看的地方都不一樣:
+   *   上面是「信寄不出去」、出貨那兩格是「貨出了而信沒建」,
+   *   這一格是「**訂單成立了而那封信沒建**」⇒ 看的是 scanner / 起始線那條路。
+   * 🛑 **只推 `noRecipient` 那一格** —— `paidNoEmail` >0 是正常的(下一輪就排進去了),
+   *   把它印進信裡會讓收信的人每天看到一個不用處理的數字, 而那正是噪音的來源。
+   */
+  emailPush(
+    summary.orderCreatedNoRecipientCount,
+    '🔴 訂單成立了而【那張單兩個信箱都是空的】⇒ 通知信永遠不會被建出來',
+  );
   // 🔴 這一行【不走 emailPush】—— 它不是「幾封信」, 它是「一封都沒有」。
   //   ⇒ 文案刻意寫成兩種可能, **不猜是哪一種**:「這張表是空的」與「讀不到資料」
   //     在這一格底下**分不出來**, 而寫死其中一個會把人送去修錯的東西。
@@ -820,6 +844,7 @@ export async function checkAnomalyAlerts(
     opts.pendingDoubleChargeStuckSeconds,
     opts.shippedCutoffIso,
     opts.shippedGraceSeconds,
+    opts.orderCreatedCutoffIso,
   );
 
   /**
@@ -932,7 +957,19 @@ export async function checkAnomalyAlerts(
     //   🛑 `?? 0` 在這裡是安全的:unknown 那條路 adapter 回 `null` ⇒ 不叫,
     //     而那是刻意的 —— **部署問題 / 還沒上膛走別的管道, 不變成一封每天寄的信。**
     (summary.shippedNeverEnqueuedCount ?? 0) > 0 ||
-    (summary.shippedUnsendableCount ?? 0) > 0;
+    (summary.shippedUnsendableCount ?? 0) > 0 ||
+    /**
+     * 🔵 **訊號 4(2026-08-31;Sean 拍 5️⃣ 甲「有一封就叫 —— 最吵但不漏」)。**
+     *
+     * 🛑🛑 **只有 `noRecipient` 進來,`paidNoEmail` 【刻意不進】。**
+     *   scanner 每 5 分鐘掃「已付款而沒有信」的單, **然後當輪就把它們排進去**
+     *   ⇒ `paidNoEmail > 0` 是【正常】的 ⇒ 📌 **拿它當判準 = 有生意就叫,那不是告警。**
+     * ✅ 而 `noRecipient`(兩個信箱都空)**不會自己好** —— 那張單沒有信箱,下一輪也一樣
+     *   ⇒ **叫一次就是一件真的待辦**, 所以「一封就叫」套在這一格上不會變噪音。
+     * 🛑 `?? 0` 在這裡是安全的:unknown 那條路 adapter 回 `null` ⇒ 不叫,
+     *   而那是刻意的 —— **RPC 還沒 apply / 起始線沒設走別的管道, 不變成一封每天寄的信。**
+     */
+    (summary.orderCreatedNoRecipientCount ?? 0) > 0;
 
   let notifiersTotal = 0;
   let notifiersFailed = 0;
@@ -991,6 +1028,9 @@ export async function checkAnomalyAlerts(
     shippedUnsendableCount: summary.shippedUnsendableCount,
     shipmentsTotalCount: summary.shipmentsTotalCount,
     shippedGapUnknown: summary.shippedGapUnknown,
+    orderCreatedPaidNoEmailCount: summary.orderCreatedPaidNoEmailCount,
+    orderCreatedNoRecipientCount: summary.orderCreatedNoRecipientCount,
+    orderCreatedGapUnknown: summary.orderCreatedGapUnknown,
     /**
      * 🔴 **這一行是本片【最重要】的一行,而我差點沒寫。**
      * 上面把五格排除在 `shouldAlert` 之外,理由是「部署問題走部署管道」——

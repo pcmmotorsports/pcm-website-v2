@@ -181,6 +181,36 @@ export type AnomalyAlertSummary = {
    */
   shippedGapUnknown: boolean;
   /**
+   * 🔵 **訊號 4:訂單已付款,而 `order_created` 那一列【根本沒被建出來】**
+   * (2026-08-31,Sean 拍 5️⃣ 甲「有一封就叫」;線【出貨】`-1e`)。
+   *
+   * 🛑🛑 **這個數 > 0 是【正常】的,它【不】進 `shouldAlert`。**
+   *   scanner 每 5 分鐘掃「已付款而沒有信」的單,**然後當輪就把它們排進去**
+   *   ⇒ 新訂單進來就會被數到一次,下一輪就沒了。
+   *   ⇒ 📌 **拿它當判準 = 有生意就叫。那不是告警。**
+   * ⇒ 它存在的理由是**脈絡**:沒有它,下面那個 `no_recipient` 的 0 在
+   *   「一切正常」與「這裡根本沒有訂單」之間分不出來。
+   */
+  orderCreatedPaidNoEmailCount: number | null;
+  /**
+   * 🔴🔴 **這一個才是訊號 4 的告警主詞**:上面那一群裡,**兩個信箱都空**的。
+   *   ⇒ scanner 撈到它也 enqueue 不了(use-case 落 `noRecipient` 桶)
+   *   ⇒ 📌 **它不會自己好** —— 那張單沒有信箱,下一輪、下下輪都一樣。
+   *   ⇒ ✅ 所以 Sean 的「有一封就叫」套在**這一格**上不會變噪音:
+   *      **叫一次就是一件真的待辦。**
+   * ⚠️ **而 `errors` 那一桶【不在這裡】** —— 它會自己好(下一輪重撈)
+   *   ⇒ 要叫它需要跨輪狀態,**本片沒有**。那是具名的已知缺口,不是被忽略的。
+   */
+  orderCreatedNoRecipientCount: number | null;
+  /**
+   * 🔴 上面兩個是不是**讀不到**(RPC 尚未 apply / `B4_DEPLOY_CUTOFF` 沒設或格式不合)。
+   * ⚠️ 與 `shippedGapUnknown` / `emailOutboxUnknown` 同族:**刻意【不】進 `shouldAlert`**
+   *   —— 部署問題走部署管道,不變成一封每天寄的信。
+   * 🛑 **而它【不得】被寫成 0** —— 「讀不到」與「一切正常」在一個裸數字上長得一模一樣,
+   *   那正是訊號 4 這一片要治的病本身。
+   */
+  orderCreatedGapUnknown: boolean;
+  /**
    * 🔴 上面五個是不是**讀不到**。
    * ⚠️ **它只代表【函式不存在】(部署窗口),不代表權限問題**(codex 2026-08-29 nit:
    *    原句寫「RPC 尚未 apply / 權限問題」是錯的)—— `42501` 在 adapter 是**原封上拋**,

@@ -70,6 +70,23 @@ const CLEAN_RESULT = {
   orderRefundsStuckOvernightCount: 0,
   orderRefundsManualFailedCount: 0,
   orderRefundsStuckUnknown: false,
+  /**
+   * 🔴 **訊號 4 那三欄同樣明寫**(codex 2026-08-31 R1 must-fix)——
+   * 理由與上面 F-004 那一段【逐字相同】:route 現在讀 `result.orderCreatedGapUnknown`,
+   * 而一個缺欄位的 fixture(`undefined` ⇒ falsy)與「查得到而且沒事」在這裡印同一個 200。
+   *
+   * 🔴🔴 **而寫這一格時發現:`shippedGapUnknown` 到今天為止【也不在這個 fixture 裡】** ——
+   *   那一片就是靠 `undefined ⇒ falsy` 過的, **而 F-004 那段警告就寫在它正上方八行。**
+   *   ⇒ 📌 **一段寫在檔案裡的警告, 擋不住同一支檔後來新增的那一族。**
+   *   ✅ 一併補上, 讓那三族的 fixture 形狀一致。
+   */
+  shippedNeverEnqueuedCount: 0,
+  shippedUnsendableCount: 0,
+  shipmentsTotalCount: 0,
+  shippedGapUnknown: false,
+  orderCreatedPaidNoEmailCount: 0,
+  orderCreatedNoRecipientCount: 0,
+  orderCreatedGapUnknown: false,
   oldestOpenAgeSeconds: null,
   notifiersTotal: 0,
   notifiersFailed: 0,
@@ -104,6 +121,9 @@ afterEach(() => {
    * 📌 **一個只在成功路徑上執行的清理,等於沒有清理。**
    */
   delete process.env.SHIPPED_EMAIL_CUTOFF;
+  // 🔴 訊號 4 那顆也要清(codex 2026-08-31 R1 nit)—— 同上一行的理由:
+  //    一個只在成功路徑上執行的清理等於沒有清理, 而殘值會讓後面的案例讀到別人的世界。
+  delete process.env.B4_DEPLOY_CUTOFF;
   vi.clearAllMocks();
 });
 
@@ -251,6 +271,13 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
       //   🛑 這裡用【完整物件比對】不是 toMatchObject —— 多一個沒有人拍板的 option 會紅。
       shippedCutoffIso: null,
       shippedGraceSeconds: 900,
+      /**
+       * 🔵 訊號 4 的起始線(2026-08-31;Sean 拍 5️⃣ 甲)。本檔沒設 `B4_DEPLOY_CUTOFF` ⇒ null。
+       * ✅ **而這一格是被上面那道【完整物件比對】逼出來的** —— 我加 option 的時候它紅了,
+       *   而那正是它存在的理由(檔內逐字:「多一個沒有人拍板的 option 會紅」)。
+       *   ⇒ 📌 **這個紅不是壞事,是那道守門在做它的工作。**
+       */
+      orderCreatedCutoffIso: null,
     });
   });
 
@@ -275,12 +302,103 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
 
     expect(checkSpy).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ shippedCutoffIso: '2026-08-31T00:00:00.000Z', shippedGraceSeconds: 900 }),
+      expect.objectContaining({
+        shippedCutoffIso: '2026-08-31T00:00:00.000Z',
+        shippedGraceSeconds: 900,
+        // 🔵 訊號 4 的起始線:本案例沒設 B4 ⇒ 必須是 null(而不是被漏傳成 undefined)
+        orderCreatedCutoffIso: null,
+      }),
     );
-    // 🔴 上膛了就【不該】再印那一行 —— 否則它是一個無條件的標籤,不是一個訊號。
-    expect(JSON.stringify(infoSpy.mock.calls)).not.toContain('還沒上膛');
+    /**
+     * 🔴 上膛了就【不該】再印那一行 —— 否則它是一個無條件的標籤,不是一個訊號。
+     * 🔴 錨用 `env` 不用散文:訊號 4 那一行也寫「還沒上膛」(它的 env 是 `B4_DEPLOY_CUTOFF`)
+     *   ⇒ 用散文當錨會把別人的訊號讀成自己的。
+     */
+    const infoJson2 = JSON.stringify(infoSpy.mock.calls);
+    expect(infoJson2).not.toContain('SHIPPED_EMAIL_CUTOFF');
+    // 🔵 正對照:B4 那一行在(本案例沒設它)⇒ 上面那個 not 不是因為 spy 是空的
+    expect(infoJson2).toContain('B4_DEPLOY_CUTOFF');
     infoSpy.mockRestore();
     delete process.env.SHIPPED_EMAIL_CUTOFF;
+  });
+
+  it('[訊號4] 🔵 B4_DEPLOY_CUTOFF 有設 ⇒ 起始線【真的傳下去】,而且沒有那一行 info', async () => {
+    // 🔴 沒有這一格, 一個「在 route 裡把 orderCreatedCutoffIso 寫死 null」的實作會全綠 ——
+    //   而那等於【訊號4 永遠不查】。(codex 2026-08-31 R1 must-fix:原本一個案例都沒設過 B4。)
+    process.env.B4_DEPLOY_CUTOFF = '2026-08-22T00:00:00.000Z';
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await GET(makeReq(bearer()));
+    expect(checkSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ orderCreatedCutoffIso: '2026-08-22T00:00:00.000Z' }),
+    );
+    // 🔴 上膛了就不該再印那一行;錨用 env 不用散文(出貨那一行也寫「還沒上膛」)。
+    expect(JSON.stringify(infoSpy.mock.calls)).not.toContain('B4_DEPLOY_CUTOFF');
+    infoSpy.mockRestore();
+    delete process.env.B4_DEPLOY_CUTOFF;
+  });
+
+  it('[訊號4] 🔴 負對照:B4 設成空字串 ⇒ 判 invalid ⇒ 不傳下去、印 error、而【不 503】', async () => {
+    /**
+     * 🛑 空字串是 `invalid` 不是 `unset` —— `readDeployCutoff` 只認 `raw === undefined` 為沒設。
+     *   ⇒ 那是 codex 關卡2 R5 修掉的舊 bug:設了而貼成空值, 會被讀成「還沒上膛」而安靜跳過。
+     * 🔴 而它**不得 503** —— 一顆訊號4 的 env 不該把同輪的付款/退款告警帶走
+     *   (codex 今天 R1 已經打過我一次同型)。
+     */
+    process.env.B4_DEPLOY_CUTOFF = '';
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    expect(checkSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ orderCreatedCutoffIso: null }),
+    );
+    expect(JSON.stringify(errSpy.mock.calls)).toContain('bad_cutoff_format');
+    /**
+     * 🔴 它不是「還沒上膛」—— 這一條擋的是把 invalid 與 unset 併成一條的實作。
+     * 🔴🔴 **而錨【第二次】被迫換掉**(第一次是散文「還沒上膛」):
+     *   兩個訊號連 `reason` 都一樣是 `skipped_no_cutoff`
+     *   ⇒ 本案例的 SHIPPED 那顆沒設 ⇒ 它會印 `skipped_no_cutoff` ⇒ 用它當錨照樣撞。
+     * 📌 **⇒ 兩個訊號共用【散文】與【reason 代碼】兩層,唯一分得開的是 `env`。**
+     *   而那對讀 log 的人一樣成立:他看到 `skipped_no_cutoff` 也不知道是哪一顆 env。
+     * ✅ 所以這裡問的是:**B4 那顆有沒有出現在 info 裡**(invalid 該走 error,不該走 info)。
+     */
+    const infoJson = JSON.stringify(infoSpy.mock.calls);
+    expect(infoJson).not.toContain('B4_DEPLOY_CUTOFF');
+    // 🔵 正對照:SHIPPED 那一行【在】info 裡 ⇒ 上面那個 not 不是因為 spy 是空的
+    expect(infoJson).toContain('SHIPPED_EMAIL_CUTOFF');
+    // 🛑 零 PII:那顆 env 的值(這裡是空字串, 換成別的值同理)不得進 log。
+    errSpy.mockRestore();
+    infoSpy.mockRestore();
+    delete process.env.B4_DEPLOY_CUTOFF;
+  });
+
+  it('[訊號4] 🔴🔴 起始線有設而 RPC 讀不到 ⇒ 503(不得安靜回 200)', async () => {
+    /**
+     * 🔴 **這一格是 codex 2026-08-31 R1 must-fix** —— 我第一版**完全沒消費**
+     *   `orderCreatedGapUnknown` ⇒ adapter 已經降級成「查不到」, 而 route 照樣記成功心跳回 200
+     *   ⇒ 📌 **監控會把「查不到」讀成健康** —— 那正是本片要治的病本身。
+     * 🛑 而它與「沒上膛」是兩個世界:沒設起始線 ⇒ 正常 ⇒ 不得 503(下一格演那個)。
+     */
+    process.env.B4_DEPLOY_CUTOFF = '2026-08-22T00:00:00.000Z';
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, orderCreatedGapUnknown: true });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    expect(hbFailSpy).toHaveBeenCalled();
+    expect(JSON.stringify(errSpy.mock.calls)).toContain('get_order_created_gap_counts');
+    errSpy.mockRestore();
+    delete process.env.B4_DEPLOY_CUTOFF;
+  });
+
+  it('[訊號4] 🔵 負對照:起始線【沒設】而 unknown=true ⇒ 200(不得 503)', async () => {
+    // 🛑 少了這一格, 一個「凡 unknown 就 503」的實作會讓上一格全綠 ——
+    //   而那會讓一個【還沒上膛】的功能每天把整支 cron 弄紅一次。
+    delete process.env.B4_DEPLOY_CUTOFF;
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, orderCreatedGapUnknown: true });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
   });
 
   it('🔴🔴 起始線【設了而形狀不合】⇒ 503,而且【不是】走「還沒上膛」那條路', async () => {
@@ -310,8 +428,18 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
       expect.anything(),
       expect.objectContaining({ shippedCutoffIso: null }),
     );
-    // 🔴 它不是「還沒上膛」。這一條擋的是【把兩個世界併成一條】的實作。
-    expect(JSON.stringify(infoSpy.mock.calls)).not.toContain('還沒上膛');
+    /**
+     * 🔴 它不是「還沒上膛」。這一條擋的是【把兩個世界併成一條】的實作。
+     * 🔴🔴 **而斷言的【錨】從散文換成了結構化欄位**(2026-08-31,訊號 4 接線時撞到):
+     *   訊號 4 也印一行「還沒上膛」(它的 env 是 `B4_DEPLOY_CUTOFF`,本案例沒設 ⇒ 它會印)
+     *   ⇒ **兩行不同的訊號共用同一句散文** ⇒ 用散文當錨的斷言**分不出是哪一行**。
+     * 📌 **⇒ 而那不只是測試的問題:一個人在 log 裡看到「還沒上膛」也分不出是哪一顆 env。**
+     *   ✅ 兩行各自在結構化 payload 裡帶了自己的 `env` ⇒ **錨改用那個,不用散文。**
+     */
+    const infoJson = JSON.stringify(infoSpy.mock.calls);
+    expect(infoJson).not.toContain('SHIPPED_EMAIL_CUTOFF');
+    // 🔵 正對照:訊號 4 那一行【應該】在(本案例沒設 B4)⇒ 證明上面那個 not 不是因為 spy 是空的
+    expect(infoJson).toContain('B4_DEPLOY_CUTOFF');
     expect(JSON.stringify(errSpy.mock.calls)).toContain('bad_cutoff_format');
     // 🛑 零 PII:使用者填的那個值本身不得進 log(`why` 是我們自己寫死的字串)。
     expect(JSON.stringify(errSpy.mock.calls)).not.toContain('2026-08-11');

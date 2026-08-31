@@ -61,6 +61,16 @@ function twoQueryClient(
    */
   shipped?: unknown,
   shippedProbeMissing = true,
+  /**
+   * 🔵 **訊號 4 第六支(2026-08-31)**:`get_order_created_gap_counts`。
+   * 🔴 預設 `undefined` = 尚未 apply —— **而這一次那句話今天已經【不是】事實了**:
+   *    那支 RPC 2026-08-31 已 apply(`APPLIED.tsv` 有那一列、六格唯讀複驗)。
+   *    ⇒ 📌 **預設值留 `undefined` 是為了讓既有 20+ 格繼續測「呼叫端沒傳起始線」那個世界**
+   *      (它們第 6 個參數都傳 `null` ⇒ adapter 根本不呼叫這支)——
+   *      **不是因為它沒 apply。理由變了, 預設值沒變, 而那要寫下來。**
+   */
+  orderCreated?: unknown,
+  orderCreatedProbeMissing = true,
 ) {
   return makeClient({
     query: async (text: string) => {
@@ -78,10 +88,18 @@ function twoQueryClient(
                   ? emailProbeMissing
                   : text.includes('get_shipped_email_gap_counts')
                     ? shippedProbeMissing
-                    : probeMissing,
+                    : text.includes('get_order_created_gap_counts')
+                      ? orderCreatedProbeMissing
+                      : probeMissing,
             },
           ],
         };
+      }
+      if (text.includes('get_order_created_gap_counts')) {
+        if (orderCreated === undefined) {
+          throw Object.assign(new Error('function does not exist'), { code: '42883' });
+        }
+        return resultRows(orderCreated);
       }
       if (text.includes('get_shipped_email_gap_counts')) {
         if (shipped === undefined) {
@@ -133,7 +151,7 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
   it('回聚合 jsonb → 映射 snake→camel;SQL integer cast + params=[refundingStuckSeconds]', async () => {
     // 🔴 `ids` 省略 ⇒ 第二支函式回 `42883`(不存在)= **程式先上、migration 還沒 apply** 那個窗口。
     const { client, query, connect, end } = twoQueryClient(FULL);
-    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900);
+    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null);
     expect(res).toEqual({
       // 🔴 M-4a 五格:這一格的世界是「那支 RPC 尚未 apply」⇒ 全 `null` + unknown=true
       //    —— 而 `null` 不是 `0`：後者是「查得到而且沒事」。
@@ -150,6 +168,14 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       shippedUnsendableCount: null,
       shipmentsTotalCount: null,
       shippedGapUnknown: true,
+      /**
+       * 🔵 訊號 4 三格。本案例 `orderCreatedCutoffIso` 傳 `null` ⇒ **不呼叫那支 RPC**
+       * ⇒ `orderCreatedRows` 空 ⇒ unknown = true、兩個 count 是 `null`。
+       * 🛑 **期望值是從【呼叫端傳了什麼】推的,不是從跑出來的結果抄的。**
+       */
+      orderCreatedPaidNoEmailCount: null,
+      orderCreatedNoRecipientCount: null,
+      orderCreatedGapUnknown: true,
       emailOutboxUnknown: true,
       openCount: 2,
       refundingCount: 3,
@@ -185,7 +211,7 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
   it('oldest_open_age_seconds=null(無 open)→ null', async () => {
     // 🔴 改用分流 client:原本這格三支 RPC 都回同一份 —— 那正是 `twoQueryClient` 檔頭警告的形狀。
     const { client } = twoQueryClient({ ...FULL, oldest_open_age_seconds: null });
-    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900);
+    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null);
     expect(res.oldestOpenAgeSeconds).toBeNull();
   });
 
@@ -198,7 +224,7 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       released_stuck_display_ids: ['PCM-2026-0999'],
       pending_double_charge_display_id_pairs: [['PCM-2026-0110', 'PCM-2026-0111']],
     }, true, REFUNDS_FULL);
-    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900);
+    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null);
     // 🔴 三支函式**都要被呼叫到** —— 少了這一格,「只打了計數那支」與「其餘全空」在觀察上一樣。
     //    (F-004 起是三支:計數 / 單號 / 退款卡住計數。)
     /**
@@ -230,7 +256,7 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
   ])('🔴 %s 形狀壞(%j)→ throw(fail-closed,不得安靜當成沒有單號)', async (key, bad) => {
     const { client } = twoQueryClient(FULL, { [key]: bad });
     await expect(
-      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900),
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null),
     ).rejects.toThrow(/異常/);
   });
 
@@ -252,7 +278,7 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       },
     });
     await expect(
-      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900),
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null),
     ).rejects.toThrow();
   });
 
@@ -260,21 +286,21 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
   it('🔴 `42883` 但函式【存在】(=錯在函式體內)⇒ **上拋**,不得降級成「今天沒有單號」', async () => {
     const { client } = twoQueryClient(FULL, undefined, /* probeMissing */ false);
     await expect(
-      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900),
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null),
     ).rejects.toThrow();
   });
 
   it('🔴 正向對照:同樣的形狀但碼是 `42883` ⇒ **不 throw**、五欄降級成 []', async () => {
     // 少了這一格,上面那三格的「會 throw」與「這條路根本不會降級」不可分辨。
     const { client } = twoQueryClient(FULL);
-    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900);
+    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null);
     expect(res.openDisplayIds).toEqual([]);
     expect(res.openCount).toBe(2); // 計數那支照常回 ⇒ 告警照寄,只是沒有單號
   });
 
   it('count 欄以字串回(pg bigint→string)仍解析為數字', async () => {
     const { client } = twoQueryClient({ ...FULL, open_count: '5', oldest_open_age_seconds: '3600' });
-    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900);
+    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null);
     expect(res.openCount).toBe(5);
     expect(res.oldestOpenAgeSeconds).toBe(3600);
   });
@@ -289,7 +315,7 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
   ])('形狀不符(%s)→ throw fail-closed', async (_label, rows) => {
     const { client } = makeClient({ query: async () => rows });
     await expect(
-      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900),
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null),
     ).rejects.toThrow();
   });
 
@@ -303,11 +329,11 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       },
     });
     await expect(
-      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900),
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null),
     ).rejects.toMatchObject({ code: '28P01' });
     // 訊息不含 pg 原文(password/連線字串)
     try {
-      await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900);
+      await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null);
     } catch (e) {
       expect((e as Error).message).not.toContain('password');
       expect((e as Error).message).not.toContain('db.xxx');
@@ -318,7 +344,7 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
     const { client } = twoQueryClient(FULL);
     (client.end as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('end failed'));
     // 主 op 成功 → 即使 end throw 也回正常結果
-    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900);
+    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null);
     expect(res.openCount).toBe(2);
   });
 });
@@ -338,7 +364,7 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
 describe('F-004 get_order_refunds_stuck_summary(第三支 RPC)', () => {
   it('回得出來 → 兩個計數都解析得到', async () => {
     const { client } = twoQueryClient(FULL, undefined, true, REFUNDS_FULL);
-    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900);
+    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null);
     expect(res.orderRefundsStuckCount).toBe(5);
     expect(res.orderRefundsStuckOvernightCount).toBe(2);
     expect(res.orderRefundsStuckUnknown).toBe(false);
@@ -346,7 +372,7 @@ describe('F-004 get_order_refunds_stuck_summary(第三支 RPC)', () => {
 
   it('🔴 函式不存在(42883 且探測說真的不在)→ unknown + null,**不得是 0**', async () => {
     const { client } = twoQueryClient(FULL, undefined, true, undefined, /* refundsProbeMissing */ true);
-    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900);
+    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null);
     expect(res.orderRefundsStuckUnknown).toBe(true);
     expect(res.orderRefundsStuckCount).toBeNull();
     // 🔴 這一行是本組的重點:`null` 與 `0` 在下游會印不同的字,寫成 0 就等於說謊。
@@ -356,7 +382,7 @@ describe('F-004 get_order_refunds_stuck_summary(第三支 RPC)', () => {
   it('🔴 42883 但探測說函式【存在】(=錯在函式體內)⇒ 上拋,不得降級成 unknown', async () => {
     const { client } = twoQueryClient(FULL, undefined, true, undefined, /* refundsProbeMissing */ false);
     await expect(
-      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900),
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null),
     ).rejects.toThrow();
   });
 
@@ -377,7 +403,7 @@ describe('F-004 get_order_refunds_stuck_summary(第三支 RPC)', () => {
       },
     });
     await expect(
-      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900),
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null),
     ).rejects.toThrow();
   });
 
@@ -389,7 +415,7 @@ describe('F-004 get_order_refunds_stuck_summary(第三支 RPC)', () => {
   ])('🔴 函式在而回了垃圾(%s)⇒ 上拋,不得當成 unknown', async (_label, bad) => {
     const { client } = twoQueryClient(FULL, undefined, true, bad);
     await expect(
-      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900),
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null),
     ).rejects.toThrow(/異常/);
   });
 
@@ -401,20 +427,20 @@ describe('F-004 get_order_refunds_stuck_summary(第三支 RPC)', () => {
     // ⇒ 值班的人跑去查一件已經做完的事。**紅在對的時候, 指向錯的地方。**
     const { client } = twoQueryClient(FULL, undefined, true, null);
     await expect(
-      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900),
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null),
     ).rejects.toThrow(/異常/);
   });
 
   it('🔴 對照:同一條路但函式真的不存在 ⇒ unknown(證明上一格紅的是 NULL 不是別的)', async () => {
     const { client } = twoQueryClient(FULL, undefined, true, undefined);
-    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900);
+    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null);
     expect(res.orderRefundsStuckUnknown).toBe(true);
   });
 
   it('🔴 錯誤訊息要指向【這一支】函式,不是隔壁那支(值班的人會照著去查)', async () => {
     const { client } = twoQueryClient(FULL, undefined, true, {});
     await expect(
-      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900),
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null),
     ).rejects.toThrow(/get_order_refunds_stuck_summary/);
   });
 });
@@ -440,7 +466,7 @@ describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply
 
   it('[A1] 五個鍵都解析得出來,而且不是 unknown(正向對照:先證明這條路搬得動東西)', async () => {
     const c = twoQueryClient(FULL, undefined, true, undefined, true, OK, false);
-    const r = await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600, null, 900);
+    const r = await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600, null, 900, null);
     // 🔴 怎麼會紅:adapter 沒把那五個鍵接上、或鍵名打錯 ⇒ 這裡拿到 null。
     //    📌 而鍵名打錯【不會 typecheck 紅】—— 兩邊都是合法字串。
     expect(r.emailOutboxUnknown).toBe(false);
@@ -473,7 +499,7 @@ describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply
   it('[S1] 🔵 起始線有值 ⇒ 三個 key 都解析得出來,而且不是 unknown', async () => {
     const c = twoQueryClient(FULL, undefined, true, undefined, true, undefined, true, SHIPPED_OK, false);
     const r = await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(
-      86400, 43200, 600, '2026-08-20T00:00:00.000Z', 900,
+      86400, 43200, 600, '2026-08-20T00:00:00.000Z', 900, null,
     );
     expect(r.shippedGapUnknown).toBe(false);
     expect(r.shippedNeverEnqueuedCount).toBe(4);
@@ -493,8 +519,7 @@ describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply
       return base.query(text, params ?? []);
     } };
     await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(
-      86400, 43200, 600, '2026-08-20T00:00:00.000Z', 900,
-    );
+      86400, 43200, 600, '2026-08-20T00:00:00.000Z', 900, null);
     const call = seen.find((q) => q.text.includes('get_shipped_email_gap_counts'));
     expect(call?.params).toEqual(['2026-08-20T00:00:00.000Z', 900]);
   });
@@ -509,8 +534,7 @@ describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply
       return base.query(text, params ?? []);
     } };
     const r = await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(
-      86400, 43200, 600, null, 900,
-    );
+      86400, 43200, 600, null, 900, null);
     expect(seen.some((t) => t.includes('get_shipped_email_gap_counts'))).toBe(false);
     expect(r.shippedGapUnknown).toBe(true);
     // 🔴 **不是 0** —— 「沒上膛」與「一切正常」在裸數字上長得一模一樣。
@@ -520,7 +544,7 @@ describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply
   it('[S4] 🔴 42883 + 探測說函式真的不存在 ⇒ unknown(部署窗口), 不上拋', async () => {
     const c = twoQueryClient(FULL, undefined, true, undefined, true, undefined, true, undefined, true);
     const r = await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(
-      86400, 43200, 600, '2026-08-20T00:00:00.000Z', 900,
+      86400, 43200, 600, '2026-08-20T00:00:00.000Z', 900, null,
     );
     expect(r.shippedGapUnknown).toBe(true);
   });
@@ -531,8 +555,7 @@ describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply
     const c = twoQueryClient(FULL, undefined, true, undefined, true, undefined, true, undefined, false);
     await expect(
       new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(
-        86400, 43200, 600, '2026-08-20T00:00:00.000Z', 900,
-      ),
+        86400, 43200, 600, '2026-08-20T00:00:00.000Z', 900, null),
     ).rejects.toThrow();
   });
 
@@ -558,7 +581,7 @@ describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply
     } };
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const r = await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(
-      86400, 43200, 600, '2026-08-20T00:00:00.000Z', 900,
+      86400, 43200, 600, '2026-08-20T00:00:00.000Z', 900, null,
     );
     expect(r.shippedGapUnknown).toBe(true);
     // 🛑 **不是 0** —— 吞成 0 會把片1 的 fail-closed 在下游拆掉。
@@ -603,8 +626,7 @@ describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply
     } };
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const r = await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(
-      86400, 43200, 600, '2026-08-31T00:00:00.000Z', 900,
-    );
+      86400, 43200, 600, '2026-08-31T00:00:00.000Z', 900, null);
     // 🔵 控制流與參數閘那一格相同:降級成「查不到」,不是 0、不是整條炸掉
     expect(r.shippedGapUnknown).toBe(true);
     expect(r.shippedNeverEnqueuedCount).toBeNull();
@@ -616,6 +638,79 @@ describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply
     expect(logged).toContain('shipped_gap_rpc_raised_unexpected_shape');
     expect(logged).toContain('訊息不像它自己的參數閘');
     errSpy.mockRestore();
+  });
+
+  it('[T1] 🔵 訊號4:起始線有值 ⇒ 真的呼叫那支 RPC, 三格映射出來', async () => {
+    /**
+     * 🔴 **codex 2026-08-31 R1 must-fix**:原本這支檔**所有**第 6 個參數都傳 `null`
+     * ⇒ adapter 那條新路**一次都沒被執行過** ⇒ RPC 名稱打錯、參數順序錯、回應鍵拼錯,
+     *   **測試全部照樣綠**。這一格是那條路的第一次真的執行。
+     */
+    const c = twoQueryClient(
+      FULL, undefined, true, undefined, true, undefined, true, undefined, true,
+      { paid_no_email_count: 7, no_recipient_count: 2, orders_total_count: 23 }, false,
+    );
+    const r = await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(
+      86400, 43200, 600, null, 900, '2026-08-22T00:00:00.000Z',
+    );
+    expect(r.orderCreatedPaidNoEmailCount).toBe(7);
+    expect(r.orderCreatedNoRecipientCount).toBe(2);
+    expect(r.orderCreatedGapUnknown).toBe(false);
+    // 🔵 而別族不受影響 —— 逐字比值, 不是 >= 0
+    expect(r.openCount).toBe(2);
+  });
+
+  it('[T2] 🔴 負對照:起始線是 null ⇒ 【根本不呼叫】那支 RPC ⇒ unknown', async () => {
+    /**
+     * 🛑 少了這一格, 一個「不管有沒有起始線都去呼叫」的實作會讓 T1 全綠 ——
+     *   而那支 RPC 的參數無 DEFAULT、它自己的閘會對 NULL 直接 RAISE ⇒ 每天炸一次。
+     */
+    const seen: string[] = [];
+    const base = twoQueryClient(
+      FULL, undefined, true, undefined, true, undefined, true, undefined, true,
+      { paid_no_email_count: 7, no_recipient_count: 2, orders_total_count: 23 }, false,
+    );
+    const c = { ...base, query: async (text: string, params?: unknown[]) => {
+      seen.push(text);
+      return base.query(text, params ?? []);
+    } };
+    const r = await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(
+      86400, 43200, 600, null, 900, null,
+    );
+    expect(seen.some((t) => t.includes('get_order_created_gap_counts'))).toBe(false);
+    expect(r.orderCreatedGapUnknown).toBe(true);
+    // 🔴 不寫成 0 —— 「讀不到」與「一切正常」在一個裸數字上長得一樣
+    expect(r.orderCreatedNoRecipientCount).toBeNull();
+  });
+
+  it('[T3] 🔴 訊號4 的 RPC 尚未 apply(42883)⇒ 降級成 unknown, 而其他告警照常', async () => {
+    // 🛑 那支 RPC 今天已 apply, 而這條路仍要留:碼先上線而 migration 還沒到的世界會再發生。
+    const c = twoQueryClient(
+      FULL, undefined, true, undefined, true, undefined, true, undefined, true,
+      undefined, true,
+    );
+    const r = await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(
+      86400, 43200, 600, null, 900, '2026-08-22T00:00:00.000Z',
+    );
+    expect(r.orderCreatedGapUnknown).toBe(true);
+    expect(r.orderCreatedPaidNoEmailCount).toBeNull();
+    // 🔴 而【其他告警還在】—— 逐字比值
+    expect(r.openCount).toBe(2);
+    expect(r.refundingCount).toBe(3);
+  });
+
+  it('[T4] 🔴🔴 負對照:42883 而 to_regprocedure 說函式【在】⇒ 原封上拋,不得吞成 unknown', async () => {
+    // 🛑 少了這一格, 一個「凡 42883 都降級」的實作會讓 T3 全綠 ——
+    //   而那會把一個【函式內部】拋出的 42883(例如它自己去呼叫了一支不存在的東西)讀成「還沒 apply」。
+    const c = twoQueryClient(
+      FULL, undefined, true, undefined, true, undefined, true, undefined, true,
+      undefined, false,
+    );
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(
+        86400, 43200, 600, null, 900, '2026-08-22T00:00:00.000Z',
+      ),
+    ).rejects.toThrow();
   });
 
   it('[S7] 🔴🔴 負對照:42501(權限)⇒ 【仍然原封上拋】,不得被降級吞掉', async () => {
@@ -630,8 +725,7 @@ describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply
     } };
     await expect(
       new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(
-        86400, 43200, 600, '2026-08-20T00:00:00.000Z', 900,
-      ),
+        86400, 43200, 600, '2026-08-20T00:00:00.000Z', 900, null),
     ).rejects.toThrow();
   });
 
@@ -641,7 +735,7 @@ describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply
     // 🔴 怎麼會紅:把缺鍵也當成 unknown ⇒ 這裡不會拋,而信上會印「查不到」
     //    ⇒ 「函式不在」與「函式回了垃圾」是兩件事,後者必須吵。
     await expect(
-      new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600, null, 900),
+      new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600, null, 900, null),
     ).rejects.toThrow();
   });
 
@@ -651,7 +745,7 @@ describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply
     //    讀成「尚未 apply」⇒ 值班的人跑去查 migration，而它 apply 了
     //    ⇒ 紅在對的時候、指向錯的地方。
     await expect(
-      new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600, null, 900),
+      new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600, null, 900, null),
     ).rejects.toThrow();
   });
 
@@ -661,13 +755,13 @@ describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply
     // 🔴 怎麼會紅:照碼降級(不做 to_regprocedure 複查)⇒ 這裡不拋,而一支壞掉的函式
     //    會被安靜地讀成「今天沒事」,而它不會自己好。
     await expect(
-      new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600, null, 900),
+      new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600, null, 900, null),
     ).rejects.toThrow();
   });
 
   it('[A5] 傳給 RPC 的兩個秒數參數真的送出去了(而它們沒有 DEFAULT,漏傳 = 找不到簽章)', async () => {
     const c = twoQueryClient(FULL, undefined, true, undefined, true, OK, false);
-    await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600, null, 900);
+    await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600, null, 900, null);
     const call = (c.query as ReturnType<typeof vi.fn>).mock.calls.find((x) =>
       String(x[0]).includes('get_email_outbox_deadman_counts'),
     );

@@ -135,6 +135,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import {
   checkAnomalyAlerts,
+  readDeployCutoff,
   resolveShippedEmailCutoff,
   type CheckAnomalyAlertsDeps,
 } from '@pcm/use-cases';
@@ -295,12 +296,42 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
+    /**
+     * 🔵 **訊號 4 的起始線**(2026-08-31;Sean 拍 5️⃣ 甲)。env `B4_DEPLOY_CUTOFF`,
+     * **與寄信端(`email-sweep`)同一顆**,而且**用同一支 `readDeployCutoff` 裁決** ——
+     * 🔴 那不是順手:同一天在 `SHIPPED_EMAIL_CUTOFF` 上量到過「兩個消費者、兩套驗證」
+     *   ⇒ 寄信端擋下一封不寄、告警端收下照數 ⇒ **告警叫一件寄信端結構上做不到的事。**
+     * 🛑 **三種結果都不 503,也都不擋別類告警** —— 照本檔 codex R1 那條 must-fix:
+     *   **一個新加的 fail-closed,它擋掉的東西可能比它守的東西寬。**
+     *   · `unset`   = 那條線還沒上膛 = **正常** ⇒ `info` 一行(不出聲的話與「一切正常」同形)
+     *   · `invalid` = 設了而值不合法 ⇒ **寄信端此刻一列都不排** ⇒ `error` 一行
+     *   · 兩者都讓這一段當「不查」⇒ 落 `orderCreatedGapUnknown`(不進 `shouldAlert`)
+     */
+    // eslint-disable-next-line no-restricted-syntax -- 受控例外:server-only cron 端點,動態 env 不進 client bundle
+    const orderCreatedCutoffRead = readDeployCutoff(process.env['B4_DEPLOY_CUTOFF']);
+    const orderCreatedCutoffIso =
+      orderCreatedCutoffRead.kind === 'ok' ? orderCreatedCutoffRead.cutoff : null;
+    if (orderCreatedCutoffRead.kind === 'unset') {
+      console.info('[anomaly-alert] 🔵 訊號4(訂單成立信沒被建出來)還沒上膛 ⇒ 這一輪不查(不是失敗)', {
+        env: 'B4_DEPLOY_CUTOFF',
+        reason: 'skipped_no_cutoff',
+      });
+    }
+    if (orderCreatedCutoffRead.kind === 'invalid') {
+      // 🛑 零 PII:只印我們自己寫死的 env 名與固定字串,**不印那顆 env 的值**。
+      console.error(
+        '[anomaly-alert] 🔴 B4_DEPLOY_CUTOFF 設了而形狀不合 ⇒ 寄信端此刻一列都不排;訊號4 本輪不查',
+        { env: 'B4_DEPLOY_CUTOFF', reason: 'bad_cutoff_format' },
+      );
+    }
+
     const result = await checkAnomalyAlerts(deps, {
       refundingStuckSeconds: ALERT_REFUNDING_STUCK_SECONDS,
       pendingDoubleChargeWindowSeconds: ALERT_PENDING_DC_WINDOW_SECONDS,
       pendingDoubleChargeStuckSeconds: ALERT_PENDING_DC_STUCK_SECONDS,
       shippedCutoffIso,
       shippedGraceSeconds: ALERT_SHIPPED_GRACE_SECONDS,
+      orderCreatedCutoffIso,
     });
 
     // 4. 🔴 本輪有推播失敗 → 503 + 結構化 counts log,**不偽 200**(壞掉的告警管道必須可見)。
@@ -344,6 +375,29 @@ export async function GET(request: Request): Promise<Response> {
         { ok: false, enabled: true, reason: 'bad_cutoff_format', ...result },
         { status: 503 },
       );
+    }
+
+    /**
+     * 🔴🔴 **第八種 503(2026-08-31,codex R1 must-fix)**:訊號 4 的起始線【有設】而那支 RPC 讀不到。
+     *
+     * ⛔ ~~我第一版【完全沒消費 `orderCreatedGapUnknown`】~~ —— codex 逐字:
+     *   「adapter 降級為 `orderCreatedGapUnknown=true`,但 route 未消費旗標,
+     *    仍記成功心跳並回 200;`42883` 甚至沒有 error log,**監控會把『查不到』誤認為健康**」。
+     * 📌 **⇒ 那正是本片要治的病本身:一個讀不到的量具, 與一個健康的系統, 印同一個 200。**
+     * 🛑 而 adapter 那道 fail-closed(42883/P0001 ⇒ 降級成 unknown 而不是 0)**在下游就被拆掉了** ——
+     *   與片 4 `shippedGapUnknown` 那一格逐字同構,而我在同一支檔裡重犯了一次。
+     *
+     * 🛑 **判斷式帶 `orderCreatedCutoffIso !== null` 是這一格的全部** ——
+     *   沒設起始線 = 「還沒上膛」= 正常(上面已印一行 info)⇒ **不得 503**。
+     * ✅ 形狀與位置逐字沿用第三～七種:**排在 `checkAnomalyAlerts` 之後**、**不擋信**、不擋別類告警。
+     */
+    if (orderCreatedCutoffIso !== null && result.orderCreatedGapUnknown) {
+      console.error(
+        '[anomaly-alert] 🔴 起始線有設而 get_order_created_gap_counts 讀不到 ⇒ 訊號4 今天是【查不到】不是【0】(回 503)',
+        { ...result },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
     }
 
     if (shippedCutoffIso !== null && result.shippedGapUnknown) {

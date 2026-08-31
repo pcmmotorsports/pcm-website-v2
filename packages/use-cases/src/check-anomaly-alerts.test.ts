@@ -38,6 +38,9 @@ const ZERO: AnomalyAlertSummary = {
   shippedUnsendableCount: 0,
   shipmentsTotalCount: 5,
   shippedGapUnknown: false,
+  orderCreatedPaidNoEmailCount: 0,
+  orderCreatedNoRecipientCount: 0,
+  orderCreatedGapUnknown: false,
   emailOutboxUnknown: false,
   openDisplayIds: [],
   refundingStuckDisplayIds: [],
@@ -68,6 +71,9 @@ const OPTS = {
   pendingDoubleChargeStuckSeconds: 600,
   shippedCutoffIso: null,
   shippedGraceSeconds: 900,
+  // 🔵 訊號 4 的起始線;多數案例不需要它 ⇒ null(= 那一段不查)。
+  //   需要它的案例自己覆寫,見「[訊號4]」那幾格。
+  orderCreatedCutoffIso: null,
 };
 
 describe('checkAnomalyAlerts — 門檻矩陣', () => {
@@ -81,12 +87,56 @@ describe('checkAnomalyAlerts — 門檻矩陣', () => {
     expect(n.notify).not.toHaveBeenCalled();
   });
 
+  it('[訊號4] 🔴🔴 負對照:paidNoEmail>0 而 noRecipient=0 ⇒ 【不叫】', async () => {
+    /**
+     * 🛑 **這一格是整個訊號 4 最重要的一條**(codex 2026-08-31 R1 must-fix 指出原本一格都沒有)。
+     * scanner 每 5 分鐘掃「已付款而沒有信」的單, **然後當輪就把它們排進去**
+     * ⇒ `paidNoEmail > 0` 是【正常】的 ⇒ 📌 **把它接進 shouldAlert = 有生意就叫。**
+     * ⇒ 少了這一格, 一個「順手把兩個都接進去」的實作會讓上面那張矩陣全綠,
+     *   而線上會變成**每天都在叫一個正常狀態** —— 板上 `⟦b4-EMAIL2ND⟧` 有前科。
+     */
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: reader({ ...ZERO, orderCreatedPaidNoEmailCount: 99 }), notifiers: [n] },
+      OPTS,
+    );
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+    // 🔵 而它仍然要【透傳出來】—— 不叫不等於不報數
+    expect(res.orderCreatedPaidNoEmailCount).toBe(99);
+  });
+
+  it('[訊號4] 🔵 負對照:unknown=true 而兩個 count 是 null ⇒ 【不叫】(?? 0 不得變成叫)', async () => {
+    // 🛑 讀不到走部署管道(route 依旗標回 503), **不變成一封每天寄的信**。
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: reader({
+          ...ZERO,
+          orderCreatedPaidNoEmailCount: null,
+          orderCreatedNoRecipientCount: null,
+          orderCreatedGapUnknown: true,
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+    // 🔴 旗標要出得來 —— 否則 route 讀不到它, 那道 fail-closed 在下游就被拆掉
+    expect(res.orderCreatedGapUnknown).toBe(true);
+    expect(res.orderCreatedNoRecipientCount).toBeNull();
+  });
+
   it.each([
     ['openCount', { ...ZERO, openCount: 1 }],
     ['refundingStuckCount', { ...ZERO, refundingStuckCount: 1 }],
     ['attemptManualReviewCount', { ...ZERO, attemptManualReviewCount: 1 }],
     ['releasedStuckCount', { ...ZERO, releasedStuckCount: 1 }],
     ['pendingDoubleChargeCandidateCount', { ...ZERO, pendingDoubleChargeCandidateCount: 1 }],
+    // 🔴 訊號 4 的【主詞】(codex 2026-08-31 R1 must-fix:原本這張矩陣一格都沒有)。
+    //   Sean 拍 5️⃣ 甲「有一封就叫」⇒ 這一格證明「一封」真的會叫。
+    ['orderCreatedNoRecipientCount', { ...ZERO, orderCreatedNoRecipientCount: 1 }],
   ] as const)('%s>0 → 告警 + 呼 notifier', async (_label, summary) => {
     const n = okNotifier();
     const res = await checkAnomalyAlerts({ reader: reader(summary), notifiers: [n] }, OPTS);
@@ -563,12 +613,25 @@ describe('checkAnomalyAlerts — 計數透傳(telemetry 零 PII)', () => {
         pendingDoubleChargeStuckSeconds: 900,
         shippedCutoffIso: '2026-08-31T00:00:00.000Z',
         shippedGraceSeconds: 900,
+        // 🔴 刻意【不是 null】—— 見下面那條斷言的成因註解。
+        orderCreatedCutoffIso: '2026-08-22T00:00:00.000Z',
       },
     );
     // 🔵 出貨那兩個參數也要【真的傳下去】(2026-08-31)——
     //   🔴 少了這一格, 一個「在 use-case 裡寫死 null」的實作會讓上面所有格全綠,
     //     而那正好等於「那一段永遠不查」。
-    expect(r.getAlertSummary).toHaveBeenCalledWith(43200, 3600, 900, '2026-08-31T00:00:00.000Z', 900);
+    /**
+     * 🔴🔴 **這一條原本是【恆真】的, codex 2026-08-31 R1 must-fix 抓到**:
+     * ⛔ ~~輸入 `orderCreatedCutoffIso: null`、期望也寫 `null`~~
+     *   ⇒ 一個「在 use-case 裡把它寫死成 null、完全忽略呼叫端傳的值」的實作
+     *   **照樣會通過**, 因為兩邊都是 null。
+     * 📌 **⇒ 一條自稱防寫死的斷言, 它自己的輸入與期望相同時, 什麼都沒防到。**
+     *   (今天我才寫了一則 traps 講這個形狀, 而我在同一天的新碼裡犯了它。)
+     * ✅ 改成餵一個**不是 null 的具體值**, 期望它逐字出現在第 6 個參數。
+     */
+    expect(r.getAlertSummary).toHaveBeenCalledWith(
+      43200, 3600, 900, '2026-08-31T00:00:00.000Z', 900, '2026-08-22T00:00:00.000Z',
+    );
   });
 });
 
