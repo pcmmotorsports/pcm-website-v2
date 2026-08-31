@@ -367,28 +367,36 @@ BEGIN
       '🔴 前置未滿足:請先 apply 20260831140000 與 20260831150000';
   END IF;
 
-  -- ⑦ 🔴 授權(表層 + 欄位層兩個面, 兩個都要)
-  --    正向對照:relacl 是 NULL 時 aclexplode 回 0 列 ⇒ 下面那條會恆綠
+  -- ══ 🔴🔴 ⑦ 授權 —— **2026-09-01 重寫。而重寫的理由不是訊息,是【它問錯了問題】** ══
+  --
+  --   本檔的 ACL 閘在正式庫上**紅了兩次,兩次都是假警報**,而 Sean 兩次都是那個測試環境:
+  --     第一次 條件「不是 owner 也不是 service_role」⇒ 訊息寫死「即 PUBLIC」
+  --            ⇒ 真值 = `pcm_readonly`(Sean 開的唯讀帳號,合法)
+  --     第二次 條件「非 SELECT **或** 可轉授」⇒ 訊息把**兩半**的恐怖後果都講了
+  --            ⇒ 命中的是**第一半**(service_role 有 UPDATE),而最嚇人那句在講**第二半**
+  --   📌 **⇒ 兩次都不是條件錯,是【訊息替一個 `A OR B` 的兩邊寫了同一段解釋】。**
+  --   🔴 **⇒ 一個 `A OR B` 的斷言,它的訊息【必須說出這一次命中的是 A 還是 B】** ——
+  --      否則它每一次都在講一個可能沒發生的故事。
+  --
+  --   🛑🛑 **而真正該停下來的理由不是訊息**(主視窗 2026-09-01 裁定,逐字採用):
+  --      「它現在問的是『service_role 在這張 view 上有沒有多餘的權限』——
+  --        而 service_role 是後端自己那把鑰匙,**它對底下的 `customers` 表本來就有全部權限**
+  --        ⇒ **把 view 的權限收緊,一格保護都沒有增加。它繞過 view 直接讀表就好。**」
+  --      🔵 佐證(主視窗唯讀實查):public schema 的 14 張 view 裡 **6 張**的 service_role 也有 UPDATE
+  --      ⇒ **那不是這張 view 的異常,那是這個庫的常態。**
+  --   📌 **⇒ 所以那道閘原本的【紅】代表的是「這個庫長得跟平常一樣」。**
+  --
+  --   ✅ **重寫後它只問一個問題:有沒有【上得了網的角色】讀得到它。**
+  --   ⚠️ **代價明寫**:`pcm_readonly` 若拿到 `UPDATE`,本閘**不再擋**(只印)。
+  --      那仍然是個問題(一個叫「唯讀」的帳號能寫),**而它不是這道閘守得住的東西** ——
+  --      它該由建那個帳號的人守。**寫出來,免得下一個人以為這裡涵蓋了它。**
+
+  -- 🔵 正向對照:relacl 是 NULL 時 aclexplode 回 0 列 ⇒ 下面每一條都會恆綠。
   IF (SELECT relacl FROM pg_class WHERE oid = 'public.admin_customer_list_v'::regclass) IS NULL THEN
     RAISE EXCEPTION '性別欄驗收失敗 — relacl 是 NULL(從沒下過 GRANT),下面的授權斷言【沒有判別力】';
   END IF;
 
-  -- 🔴🔴 **2026-09-01 訂正 —— 而訂正的不是判斷,是【訊息】。**
-  --   ⛔ ~~原訊息:「表層授權除了 owner 與 service_role 之外還有 % 條**(grantee=0 即 PUBLIC)**」~~
-  --   🔴 **那個查詢【從來沒有檢查過】那一條是不是 PUBLIC** —— 它數的是「不是 owner、
-  --      而且不是 service_role」的**任何** grantee。而「grantee=0 即 PUBLIC」是對**條件**的註解,
-  --      不是對**這一次結果**的量測 —— 而它印在數字的正後方,讀起來就像那一條的身分。
-  --   📌 **實錘(2026-09-01,Sean 本人貼,整支 fail-closed 回捲、零改動)**:
-  --      它在正式庫上紅了,而主視窗用唯讀連線查 ⇒ 那 1 條是 **`pcm_readonly`(SELECT)**,
-  --      = Sean 開給我們的唯讀帳號,**合法**;而全 public schema 掃 `grantee=0` ⇒ **0 列**。
-  --      ⇒ 🔴 **三個人(Sean / 主視窗 / 我)全部相信了那個寫死的解釋,花了 20 分鐘追一個不存在的 PUBLIC。**
-  --   🔴🔴 **⇒ 一個【正確的偵測】配上一個【寫死的解釋】,比一個錯的偵測更貴 ——**
-  --      **因為偵測是對的,所以沒有人會去驗那個解釋。**
-  --   ✅ **⇒ 兩件事都改**:①白名單收進 `pcm_readonly`(**只准不可轉授的 SELECT**)
-  --      ②訊息**印實得值**,不寫死任何解釋。
-  --   🛑 **而斷言本身留著** —— 它的偵測是對的,而且它 fail-closed 擋下了一次真的 apply。
-  --   ⚠️ **`pcm_readonly` 用【名字比對】,不預設那個角色存在** ——
-  --      拋棄式 PG 上沒有它,而本條只看 ACL 裡出現過的 grantee ⇒ 兩邊都成立。
+  --   ⑦-a 🔴 **FAIL:上得了網的身分**(`anon` / `authenticated` / PUBLIC)。
   SELECT count(*),
          coalesce(string_agg(
            format('%s=%s%s',
@@ -399,73 +407,70 @@ BEGIN
     INTO v_cnt, v_who
     FROM pg_class c, aclexplode(c.relacl) a
    WHERE c.oid = 'public.admin_customer_list_v'::regclass
-     AND a.grantee <> c.relowner
-     AND a.grantee <> 0                                   -- PUBLIC 由下面單獨一條處理
-     AND pg_get_userbyid(a.grantee) <> 'service_role'
-     -- 🔵 唯讀帳號:**只有不可轉授的 SELECT 算合法**;它拿到 UPDATE 或可轉授 ⇒ 照樣紅。
-     AND NOT (pg_get_userbyid(a.grantee) = 'pcm_readonly'
-              AND a.privilege_type = 'SELECT'
-              AND NOT a.is_grantable);
+     AND (a.grantee = 0 OR pg_get_userbyid(a.grantee) IN ('anon', 'authenticated'));
   IF v_cnt <> 0 THEN
-    RAISE EXCEPTION '性別欄驗收失敗 — 表層授權除了 owner / service_role / pcm_readonly(唯讀 SELECT)'
-      '之外還有 % 條:%。🔴 本 view 帶著【全體客戶生日 + 性別】, 外流代價比上游那版更高。'
-      '📌 上面那一串是【實得值】, 不是解釋 —— 看到誰就是誰。', v_cnt, v_who;
+    RAISE EXCEPTION '性別欄驗收失敗 — 本 view 對【上得了網的身分】開著 % 條授權:%。'
+      '🔴 anon / authenticated / PUBLIC 是 PostgREST 直接暴露給瀏覽器的身分 ⇒ '
+      '未登入或一般登入的人讀得到全體客戶的生日與性別。'
+      '📌 上面那一串是【實得值】, 不是解釋。', v_cnt, v_who;
   END IF;
 
-  -- 🔴 PUBLIC 單獨一條 —— 因為它的意義與「多一個具名角色」完全不同,
-  --    而合成一條會讓訊息必須替兩種世界寫同一句話(那正是上面那個病的來源)。
+  --   ⑦-b 🔴 **FAIL:可轉授** —— 自己一條,不與 ⑦-a 共用 OR。
+  --        它危險的理由與 ⑦-a **不同**:能轉授的人可以把這張 view 再發給任何人,包含上面那三個。
+  SELECT count(*),
+         coalesce(string_agg(
+           format('%s=%s',
+                  CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+                  a.privilege_type), ', ' ORDER BY 1), '(無)')
+    INTO v_cnt, v_who
+    FROM pg_class c, aclexplode(c.relacl) a
+   WHERE c.oid = 'public.admin_customer_list_v'::regclass
+     AND a.is_grantable;
+  IF v_cnt <> 0 THEN
+    RAISE EXCEPTION '性別欄驗收失敗 — 本 view 有 % 條【可轉授】的授權:%。'
+      '🔴 可轉授 = 那個角色能把這張帶著生日與性別的 view 再發給別人, 包含 anon。'
+      '📌 上面那一串是【實得值】, 不是解釋。', v_cnt, v_who;
+  END IF;
+
+  --   ⑦-c ✅ **PASS 條件:service_role 讀得到** —— 這一條問「有沒有【少】」,方向與上面相反。
+  --        0 條 = 後台客戶列表整個讀不到, 而 ⑦-a / ⑦-b 都不會紅(它們只問「有沒有多」)。
   SELECT count(*) INTO v_cnt
     FROM pg_class c, aclexplode(c.relacl) a
    WHERE c.oid = 'public.admin_customer_list_v'::regclass
-     AND a.grantee = 0;
-  IF v_cnt <> 0 THEN
-    RAISE EXCEPTION '性別欄驗收失敗 — 本 view 對 PUBLIC 開著 % 條授權。'
-      '🔴 PUBLIC 包含 anon ⇒ 未登入的人讀得到全體客戶的生日與性別。', v_cnt;
+     AND a.grantee <> 0
+     AND pg_get_userbyid(a.grantee) = 'service_role'
+     AND a.privilege_type = 'SELECT';
+  IF v_cnt <> 1 THEN
+    RAISE EXCEPTION '性別欄驗收失敗 — service_role 身上的 SELECT 有 % 條(要恰好 1)。'
+      '🔴 0 條 = 後台客戶列表整個讀不到, 而「有沒有多」那兩條一條都不會紅。', v_cnt;
   END IF;
 
-  SELECT count(*) INTO v_cnt
+  --   ⑦-d 🔵 **只印不擋** —— 其餘所有授權。看得到, 而不製造假警報。
+  SELECT coalesce(string_agg(
+           format('%s=%s', pg_get_userbyid(a.grantee), a.privilege_type), ', ' ORDER BY 1), '(無)')
+    INTO v_who
+    FROM pg_class c, aclexplode(c.relacl) a
+   WHERE c.oid = 'public.admin_customer_list_v'::regclass
+     AND a.grantee <> 0
+     AND a.grantee <> c.relowner
+     AND pg_get_userbyid(a.grantee) NOT IN ('anon', 'authenticated', 'service_role');
+  RAISE NOTICE '🔵 本 view 另有非公開授權(僅供參考, 不擋):%', v_who;
+
+  --   ⑦-e 🔴 **欄位層** —— 同樣只擋上得了網的那三個。
+  --        而 `REVOKE ALL ON <view>` 收不掉欄位層的授權 ⇒ 它要自己一條。
+  SELECT count(*),
+         coalesce(string_agg(
+           format('%s.%s=%s', at.attname,
+                  CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+                  a.privilege_type), ', ' ORDER BY 1), '(無)')
+    INTO v_cnt, v_who
     FROM pg_attribute at, aclexplode(at.attacl) a
    WHERE at.attrelid = 'public.admin_customer_list_v'::regclass
-     AND at.attacl IS NOT NULL;
+     AND at.attacl IS NOT NULL
+     AND (a.grantee = 0 OR pg_get_userbyid(a.grantee) IN ('anon', 'authenticated'));
   IF v_cnt <> 0 THEN
-    RAISE EXCEPTION '性別欄驗收失敗 — 出現 % 條【欄位層】授權,而 REVOKE ALL ON <view> 收不掉它', v_cnt;
-  END IF;
-
-  -- 🔴 ⑦-c codex R1 must-fix(2026-09-01):上面兩條問的都是「**有沒有多的人**」,
-  --    而**沒有人問「service_role 自己拿了什麼」**。
-  --    失敗情境:service_role 身上有 `UPDATE` 或 `WITH GRANT OPTION`
-  --    ⇒ 它不是「多餘的 grantee」⇒ 上面那條把它排除掉了 ⇒ **全綠**。
-  --    ⇒ 而 `GRANT SELECT` 是**累加**的,不會把既有的 UPDATE 收掉;
-  --      `REVOKE ALL FROM anon, authenticated` 也不碰它。
-  --    📌 **三個方向:有沒有多的人 / 有沒有欄位層 / 那個對的人拿了多少。**
-  --       前兩個綠,不代表第三個綠 —— 它們是三個宣稱。
-  SELECT count(*) INTO v_cnt
-    FROM pg_class c, aclexplode(c.relacl) a
-   WHERE c.oid = 'public.admin_customer_list_v'::regclass
-     AND a.grantee <> 0
-     AND pg_get_userbyid(a.grantee) = 'service_role'
-     AND (a.privilege_type <> 'SELECT' OR a.is_grantable);
-  IF v_cnt <> 0 THEN
-    RAISE EXCEPTION '性別欄驗收失敗 — service_role 在本 view 上有 % 條【非 SELECT 或可轉授】的權限。'
-      '🔴 GRANT SELECT 是累加的, 它不會把既有的 UPDATE 收掉;而可轉授代表它能把這張帶著'
-      '生日與性別的 view 再發給別人。', v_cnt;
-  END IF;
-
-  -- 🔴 ⑦-d codex R2 新 must-fix:上面三條問的全是「**有沒有多**」——
-  --    service_role **完全沒有 SELECT** 時,它們**一條都不會紅**(0 條多餘 = 0 條)。
-  --    ⇒ 而那個世界的結果是:後台客戶列表**整個讀不到**,
-  --      畫面顯示「客戶列表載入失敗」,而這支 migration 印綠。
-  --    📌 **「沒有多的」與「有該有的」是兩個宣稱,而只問前者的守門對後者失明。**
-  SELECT count(*) INTO v_cnt
-    FROM pg_class c, aclexplode(c.relacl) a
-   WHERE c.oid = 'public.admin_customer_list_v'::regclass
-     AND a.grantee <> 0
-     AND pg_get_userbyid(a.grantee) = 'service_role'
-     AND a.privilege_type = 'SELECT'
-     AND NOT a.is_grantable;
-  IF v_cnt <> 1 THEN
-    RAISE EXCEPTION '性別欄驗收失敗 — service_role 身上【不可轉授的 SELECT】有 % 條(要恰好 1)。'
-      '🔴 0 條 = 後台客戶列表整個讀不到, 而前三條授權斷言【一條都不會紅】。', v_cnt;
+    RAISE EXCEPTION '性別欄驗收失敗 — 出現 % 條【欄位層】授權給上得了網的身分:%。'
+      '🔴 而 `REVOKE ALL ON <view>` 收不掉欄位層的授權。', v_cnt, v_who;
   END IF;
 
   -- ⑧ 🔴 索引 —— 驗【定義】不驗名字(沿用 `20260826140000` §5⑦ 的 codex must-fix)
