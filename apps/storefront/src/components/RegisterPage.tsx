@@ -34,19 +34,28 @@ export function RegisterPage({ next }: { next?: string } = {}) {
   // 雙通道(#181 釘死 2):fieldErrors=逐欄驗證錯、formError=帳號層級錯(頂部);互不取代。
   const [fieldErrors, setFieldErrors] = useState<RegisterFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
+  // 🔵 第三通道(2026-08-31 `-15`):非錯誤的頂部訊息。**刻意不進 clearErr** —— 見下方註解。
+  const [formNotice, setFormNotice] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   /**
    * 一開始改某一欄就清那一欄的 inline 錯 + 頂部帳號層級錯(2026-08-08 全站掃測 B 級;四張表單同形)。
    * 完整理由見 `LoginPage.tsx` 同名函式的註解(只清被動那欄 / formError 一律清 / 無錯時回原值讓 React bail out)。
    *
-   * 🔴 **本頁的 formError 不只裝錯誤**(R1 must-fix,LoginPage 那句「它講的是上一次送出的
+   * ✅ **[2026-08-31 `-15` 已處理]** —— 下面那段是**處理之前**的原文,一字不刪,
+   *    因為它把失效條件寫得比任何事後說明都清楚。**做法採它給的第一個選項:改走非 error 通道。**
+   *    ⇒ `register/actions.ts` 現在回 `formNotice`(不是 `formError`),而 `formNotice`
+   *      **不在本函式清除的範圍裡** ⇒ 客人按鍵不會弄丟他唯一的成功訊號。
+   *    🔴 而它是【客人看得到的】錯,不是內部整潔:成功訊息用紅底錯誤樣式呈現 + 一按鍵就消失
+   *      ⇒ 客人重送 ⇒ 拿到「此 Email 已註冊」⇒ **以為註冊失敗**。
+   *
+   * 🛑 ~~**本頁的 formError 不只裝錯誤**(R1 must-fix,LoginPage 那句「它講的是上一次送出的
    *    **錯誤**」在本頁範圍不足):`register/actions.ts:75` 會用同一個通道回
    *    「註冊成功,請至信箱完成 Email 驗證後再登入。」。今天走不到那條分支
    *    (`actions.ts:73-74` 註明 confirm email 前置為 OFF、預期不命中),所以清掉無害。
    *    ⚠️ **失效條件**:#173 把 confirm email 重開的那一刻,這裡就會把客人唯一的成功訊號
    *    一按鍵清掉(他會重送 → 拿到「此 Email 已註冊」→ 以為註冊失敗)。
-   *    重開 #173 的人必須連帶處理:成功訊息改走非 error 通道,或本函式排除該字面。
+   *    重開 #173 的人必須連帶處理:成功訊息改走非 error 通道,或本函式排除該字面。~~
    *
    * 🔴 與 LoginPage 的差異:**本頁的「同意條款」checkbox 要接**。`agree` 是 `RegisterField`
    *    的一員(`field-validation.ts:26`)、有自己的 `fieldErrors.agree`;而 LoginPage 的
@@ -69,13 +78,16 @@ export function RegisterPage({ next }: { next?: string } = {}) {
     }
     setFieldErrors({});
     setFormError(null);
+    // 送出新的一發時才清 notice(它代表上一次送出的結果);按鍵不清 —— 見 clearErr。
+    setFormNotice(null);
     setPending(true);
     // 成功(直登)時 registerAction 內 redirect(#190 導回 sanitize 過的 next、client 自動導航);
     // 失敗回 { fieldErrors }(server 重驗逐欄)或 { formError }(帳號層級)。
     const result = await registerAction(form, next);
-    if (result?.fieldErrors || result?.formError) {
+    if (result?.fieldErrors || result?.formError || result?.formNotice) {
       if (result.fieldErrors) setFieldErrors(result.fieldErrors);
       if (result.formError) setFormError(result.formError);
+      if (result.formNotice) setFormNotice(result.formNotice);
       setPending(false);
     }
   };
@@ -92,6 +104,8 @@ export function RegisterPage({ next }: { next?: string } = {}) {
           <form onSubmit={submit}>
             {/* 頂部:帳號層級錯(此 Email 已註冊 等);逐欄驗證錯顯示在各欄下方(釘死 2 雙通道) */}
             {formError && <div className="auth-err">{formError}</div>}
+            {/* 非錯誤的頂部訊息(confirm email 重開後的「請收信驗證」)。與 .auth-err 互不取代。 */}
+            {formNotice && <div className="auth-ok">{formNotice}</div>}
             <label className="auth-field">
               <span>姓名（必填）</span>
               <input

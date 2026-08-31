@@ -106,15 +106,25 @@ describe('registerAction(信任邊界 + #181 雙通道)', () => {
     const result = await registerAction(VALID);
     expect(result?.formError).toBe('此 Email 已註冊');
     expect(result?.fieldErrors).toBeUndefined();
+    // 🔵 2026-08-31 `-15` 加:真的錯【不得】走 notice 通道 —— 這是新通道的反向對照,
+    //    沒有它的話「把所有東西都改成 formNotice」也會讓下面那一格綠。
+    expect(result?.formNotice).toBeUndefined();
     expect(redirectSpy).not.toHaveBeenCalled();
   });
 
-  it('needsEmailConfirmation=true(Confirm email 重開)→ formError 提示、不 redirect', async () => {
+  // 🔵 2026-08-31 `-15`:這一格從 formError 改判 formNotice。
+  //    ⚠️ 舊斷言 `result?.formError).toContain('Email 驗證')` 會【繼續通過】如果我只加新通道
+  //    而沒改舊斷言 —— 所以這裡把「它【不】在錯誤通道」也釘死,否則這一片等於沒做。
+  it('needsEmailConfirmation=true(Confirm email 重開)→ formNotice(非錯誤通道)、不 redirect', async () => {
     signUpSpy.mockResolvedValue({ userId: 'u1', email: VALID.email, needsEmailConfirmation: true });
     const result = await registerAction(VALID);
-    expect(result?.formError).toContain('Email 驗證');
+    expect(result?.formNotice).toContain('Email 驗證');
+    // 🔴 這一行才是本片的重點:成功訊息**不得**走錯誤通道(它會被 .auth-err 紅底呈現 +
+    //    被 clearErr 一按鍵清掉 ⇒ 客人重送 ⇒ 「此 Email 已註冊」⇒ 以為註冊失敗)。
+    expect(result?.formError).toBeUndefined();
     expect(redirectSpy).not.toHaveBeenCalled();
   });
+
 });
 
 // ── 🔴 `#858` 片0-a(codex R1 MF4):合成信箱網域**不得走到 signUp** ──────────────

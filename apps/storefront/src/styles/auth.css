@@ -76,6 +76,22 @@
   margin-bottom: 16px;
 }
 
+/* 非錯誤的頂部訊息(2026-08-31 `-15`;目前唯一來源 = confirm email 重開後的「請收信驗證」)。
+   🔴 為什麼需要它:那是一句【成功】訊息,而它原本走 .auth-err ⇒ 紅底 + 一按鍵被 clearErr 清掉
+      ⇒ 客人重送 ⇒ 「此 Email 已註冊」⇒ 以為註冊失敗。詳 RegisterPage.tsx clearErr 註解。
+   🔵 稿那一側【沒有 auth 專用的成功樣式】(design-reference/styles/account.css 只有 .auth-err,
+      同檔 :356)⇒ 不自創顏色:盒型逐格照抄 .auth-err,顏色取稿自己的成功綠
+      `.cart-coupon-ok` `color: #0a7d2a`(design-reference/styles/account.css:209-213)——
+      **同一支稿、同一個設計語彙**,不是我發明的。 */
+.auth-ok {
+  padding: 10px 14px;
+  background: #f1f8f3;
+  border-left: 2px solid #0a7d2a;
+  color: #0a7d2a;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
 .auth-field {
   display: block;
   margin-bottom: 14px;

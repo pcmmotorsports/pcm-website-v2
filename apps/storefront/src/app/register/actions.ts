@@ -21,9 +21,16 @@ import { validateRegister, type RegisterFieldErrors } from '@/lib/auth/field-val
 import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
 
 // #181 Q2=B:雙通道回傳 — fieldErrors(逐欄驗證)/ formError(帳號層級、頂部)。成功 redirect 不回傳。
+// 🔵 2026-08-31 `-15` 加第三個通道 formNotice —— **成功訊息不再穿錯誤的衣服**。
+//    成因(`RegisterPage.tsx` clearErr 的 R1 must-fix 註解早就寫下來了,而它是【失效條件】不是缺陷):
+//    confirm email 重開的那一刻,「註冊成功,請至信箱驗證」會走 formError ⇒ 它①用 .auth-err 紅底呈現
+//    ②被 clearErr 在客人按下第一個鍵時清掉 ⇒ 客人重送 ⇒ 拿到「此 Email 已註冊」⇒ 以為註冊失敗。
+//    ⇒ 分開通道之後:formNotice 不進 clearErr、走 .auth-ok。**這是客人看得到的錯,不是內部整潔。**
 export type RegisterActionResult = {
   fieldErrors?: RegisterFieldErrors;
   formError?: string;
+  /** 非錯誤的頂部訊息(目前唯一來源:confirm email 重開後的「請收信驗證」)。不被 clearErr 清掉。 */
+  formNotice?: string;
 };
 
 /** AuthError(domain code)→ 用戶可見字面;不洩漏 Supabase 原始 error。 */
@@ -72,7 +79,8 @@ export async function registerAction(input: unknown, next?: string | null): Prom
 
   if (result.needsEmailConfirmation) {
     // Confirm email 重開後(backlog #173)走此分支;f1-b dashboard 前置為 OFF、預期不命中。
-    return { formError: '註冊成功，請至信箱完成 Email 驗證後再登入。' };
+    // 🔵 走 formNotice 不走 formError:它是【成功】訊息, 而且是客人唯一的成功訊號。
+    return { formNotice: '註冊成功，請至信箱完成 Email 驗證後再登入。' };
   }
   // #190:直登成功後導回 sanitize 過的 next(同源白名單、不安全→ '/')。
   redirect(sanitizeNextParam(next));
