@@ -156,16 +156,37 @@ export async function GET(_req: Request, ctx: { params: Promise<{ displayId: str
   //         乙 局部缺字仍照產, 而在 log 記一筆
   //       ⇒ 我選甲當預設(壞紙會被寄給第三方, 而錯誤不會), 而**這是端給 Sean 的一題, 未拍板**。
   const missingCss = pageCss.length === 0;
-  if (built.embedded === 0 || built.uncovered.length > 0 || missingCss) {
+
+  // 🔴🔴 **2026-08-31 Sean 拍板【乙】—— 而它推翻我上面那一整段的預設。**
+  //    他逐字:「**照樣產, 缺的字變空白, 只記 log**」
+  //    他的理由(主視窗轉):**甲會讓一個客人名字有生僻字就整張單印不出來, 而員工當下不知道為什麼。**
+  //    ⇒ 📌 我上面那段自己寫的推理(「壞紙會被寄給會計」)**不是錯的, 而他把它權衡掉了** ——
+  //      落檔寫「Sean 拍乙」, **不要寫成「我們發現甲不好」**。那不是他說的路徑。
+  //
+  // 🛑 **而我把他的拍板【收窄】到「缺字」那一種, 這是一個判斷, 寫出來讓人可以推翻我**:
+  //    · `uncovered > 0`(某幾個字沒人涵蓋)⇒ ✅ **照產 + log** —— 那正是他描述的情況
+  //    · `embedded === 0`(一支字型都沒嵌到)⇒ 🔴 **仍然拒絕** —— 那不是「某個生僻字」,
+  //      那是**整張紙每一個中文都會是方框**, 而它的成因是部署壞了、不是客人的名字
+  //    · 版面 CSS 讀不到 ⇒ 🔴 **仍然拒絕** —— 那是一張沒有任何樣式的紙, 與缺字無關
+  //    ⚠️ **而他那句話字面上涵蓋得到 `embedded === 0`**(「缺的字」可以讀成全部)
+  //      ⇒ **這一格我端回去問了, 未拍板。** 在他答之前, 那兩種維持拒絕。
+  if (built.embedded === 0 || missingCss) {
     console.error(
       // 🔴 **不記客人的字**(codex nit):原本會把最多 20 個實際字元寫進 log,
       //    而那是可識別的訂單內容。只留數量 —— 要知道是哪些字, 去本機重現。
       // 🛑 **而 `displayId` 我刻意留著, 與 codex 的建議不同, 理由寫在這裡讓下一個人可以推翻我**:
       //    它本來就在這條 route 的 URL 裡, 而平台的 access log 一定有它
       //    ⇒ 拿掉它不會讓這筆更不可識別, 只會讓客服拿到客訴時**對不到是哪一張單**。
-      `[statement.pdf] 拒絕產檔 displayId=${displayId} · 內嵌 ${built.embedded} · 拿不到字型檔 ${built.skippedMissing} · 沒有 face 宣告涵蓋的字 ${built.uncovered.length} 個 · 版面 CSS 缺 ${missingCss} · cwd=${process.cwd()}`,
+      `[statement.pdf] 拒絕產檔 displayId=${displayId} · 內嵌 ${built.embedded} · 拿不到字型檔 ${built.skippedMissing} · 版面 CSS 缺 ${missingCss} · cwd=${process.cwd()}`,
     );
     return new NextResponse(null, { status: 500 });
+  }
+
+  // ✅ Sean 拍乙那一格:缺字**照產**, 而它必須留下一筆 —— 否則沒有人知道那張紙上有空白。
+  if (built.uncovered.length > 0 || built.skippedMissing > 0) {
+    console.warn(
+      `[statement.pdf] 缺字照產(Sean 2026-08-31 拍乙) displayId=${displayId} · 內嵌 ${built.embedded} · 拿不到字型檔 ${built.skippedMissing} · 沒有 face 宣告涵蓋的字 ${built.uncovered.length} 個`,
+    );
   }
 
   try {
