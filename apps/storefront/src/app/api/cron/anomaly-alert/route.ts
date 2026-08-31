@@ -391,6 +391,34 @@ export async function GET(request: Request): Promise<Response> {
      *   沒設起始線 = 「還沒上膛」= 正常(上面已印一行 info)⇒ **不得 503**。
      * ✅ 形狀與位置逐字沿用第三～七種:**排在 `checkAnomalyAlerts` 之後**、**不擋信**、不擋別類告警。
      */
+    /**
+     * 🔴🔴 **這一格【回 503】,而我第一版寫的是「刻意不回」—— codex 打掉了那個理由,它是錯的。**
+     *
+     * ⛔ ~~我的理由:「回 503 ⇒ recordHeartbeatFailure ⇒ 這個功能會把自己判成不正常,
+     *    然後為此每天寄一封信」~~
+     * 🔴 **那句話的後半段不成立**:`cronHeartbeatUnknown` 時 `cronHeartbeatAbnormalCount` 是
+     *    **`null`** ⇒ `(… ?? 0) > 0` 是 `false` ⇒ **它根本進不了 `shouldAlert`** ⇒ 不會寄信。
+     *    ⇒ 📌 **我用一個「會每天寄信」的後果去支持一個決定, 而那個後果不會發生。**
+     *      (同族:本檔上面 `emailQuotaSuspectedCount` 那一段也記過我拿假理由支持對決定的事。)
+     *
+     * ✅ **而 codex 指出的真正代價才是承重的**:回 200 + 記成功 ⇒
+     *    **「這把量具壞了」被記成「一切健康」** —— 而那正是這一整片要治的病本身。
+     * ⇒ 所以照上面每一種的成例 503:**部署窗口會看得見, 而看得見正是重點。**
+     *
+     * 🛑 **代價明寫(它是真的)**:片3 上線到片4(Sean 貼 SQL)之間,這支 route **每天回 503**,
+     *   而 `pcm-anomaly-alert` 那一列會被記成失敗。**那不是誤報,那就是事實** ——
+     *   在那支 RPC 存在之前,這條告警線確實少一隻眼睛。
+     * ⚠️ 而它**不會**變成信:那段期間 `count` 是 `null`,進不了 `shouldAlert`(見上面)。
+     */
+    if (result.cronHeartbeatUnknown) {
+      console.error(
+        '[anomaly-alert] 🔴 get_cron_heartbeat_stale_counts 讀不到 ⇒ 排程心跳今天是【查不到】不是【六支都健康】(回 503)',
+        { ...result },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+
     if (orderCreatedCutoffIso !== null && result.orderCreatedGapUnknown) {
       console.error(
         '[anomaly-alert] 🔴 起始線有設而 get_order_created_gap_counts 讀不到 ⇒ 訊號4 今天是【查不到】不是【0】(回 503)',

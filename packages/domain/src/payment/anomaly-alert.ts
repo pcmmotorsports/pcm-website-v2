@@ -211,6 +211,27 @@ export type AnomalyAlertSummary = {
    */
   orderCreatedGapUnknown: boolean;
   /**
+   * 🔴🔴 **排程心跳:六支 cron 裡有幾支不正常**(板 `⟦b4-SWEEPDEAD1⟧` 片3;Sean `q4: 甲`)。
+   *   判準由 `@pcm/domain` 的 `CRON_JOB_WHITELIST` 傳進 DB 函式 ——
+   *   **DB 那一側不知道任何門檻**,那是刻意的(兩份門檻會漂,而漂開時兩邊都不會紅)。
+   * 🔵 判準與後台儀表板逐格相同:過期 / 時間戳在未來 / 連續失敗(該支的失敗計數有意義時)/
+   *   心跳表根本沒有那一列 / 有那一列而 `last_success_at` 是 NULL。
+   */
+  cronHeartbeatAbnormalCount: number | null;
+  /**
+   * 🔴 **哪幾支** —— 一個裸數字寫不出信裡那句「哪一支死了」。
+   *   ⇒ 告警信要說得出名字,否則收到信的人還得自己去後台找。
+   * ⚠️ 同一支 job 可能因為多個理由不正常,而這裡**每支只出現一次**。
+   */
+  cronHeartbeatAbnormalJobs: readonly string[] | null;
+  /**
+   * 🔴 上面兩個是不是**讀不到**(RPC 尚未 apply / 白名單是空的)。
+   * ⚠️ 與 `orderCreatedGapUnknown` 同族:**刻意【不】進 `shouldAlert`** ——
+   *   部署問題走部署管道,不變成一封每天寄的信。
+   * 🛑 **而它【不得】被寫成 0** —— 「讀不到」與「六支都健康」在一個裸數字上長得一模一樣。
+   */
+  cronHeartbeatUnknown: boolean;
+  /**
    * 🔴 上面五個是不是**讀不到**。
    * ⚠️ **它只代表【函式不存在】(部署窗口),不代表權限問題**(codex 2026-08-29 nit:
    *    原句寫「RPC 尚未 apply / 權限問題」是錯的)—— `42501` 在 adapter 是**原封上拋**,

@@ -101,6 +101,10 @@ export type CheckAnomalyAlertsResult = {
   orderCreatedPaidNoEmailCount: number | null;
   orderCreatedNoRecipientCount: number | null;
   orderCreatedGapUnknown: boolean;
+  /** 🔵 排程心跳(片3):幾支不正常 / 哪幾支 / 是不是讀不到。`Unknown` 不進 `shouldAlert`。 */
+  cronHeartbeatAbnormalCount: number | null;
+  cronHeartbeatAbnormalJobs: readonly string[] | null;
+  cronHeartbeatUnknown: boolean;
   /**
    * 🔴 M-4a:寄信那支 RPC 是不是【讀不到】(尚未 apply / 權限問題)。
    * route 依它回 **503**,而不是寄一封「尚未啟用」的信(部署問題走部署管道)。
@@ -666,7 +670,26 @@ export function buildAnomalyAlertMessage(
    * ⇒ 它不該是第一個被截掉的。
    * ⚠️ 而**這不等於它不會被截** —— 它只是排在後面那些單號之前。真正不可截的只有 `footer`。
    */
-  const body = [emailBlock, ...blocks].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
+  /**
+   * 🔵 **排程心跳(片3)** —— 自成一塊, 不併進【寄信】那一塊:
+   *   那一塊的收尾句逐字是「這一段與訂單無關, 不用去後台退款或改單」,
+   *   而心跳講的是**背景程式停了**, 兩者要做的事不一樣。
+   * 🔴 **一定要印出【哪幾支】** —— 一個裸數字("2 支不正常")會逼收信的人自己去後台找,
+   *   而這封信存在的理由就是「沒有人去看的時候它來告訴你」。
+   */
+  const heartbeatBlock: string[] = [];
+  if ((summary.cronHeartbeatAbnormalCount ?? 0) > 0) {
+    const names = summary.cronHeartbeatAbnormalJobs ?? [];
+    heartbeatBlock.push(
+      '【背景排程】',
+      `🔴 有 ${summary.cronHeartbeatAbnormalCount} 支背景程式不正常${names.length > 0 ? `:${names.join('、')}` : ''}`,
+      // 🛑 文案刻意**不寫「它死了」** —— 這道判準涵蓋五種世界(太久沒成功 / 時間戳在未來 /
+      //    連續失敗 / 心跳表沒有那一列 / 有那一列而沒有成功時間), 而它們要查的地方不同。
+      //    ⇒ 寫死其中一種會把人送去修錯的東西。
+      '   ⇒ 到後台首頁看那一排「幾分沒成功」,它會說是哪一種。',
+    );
+  }
+  const body = [emailBlock, heartbeatBlock, ...blocks].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
 
   /**
    * 🔴🔴 **結尾三行是【不可截的】,而這不是排版偏好。**
@@ -969,7 +992,31 @@ export async function checkAnomalyAlerts(
      * 🛑 `?? 0` 在這裡是安全的:unknown 那條路 adapter 回 `null` ⇒ 不叫,
      *   而那是刻意的 —— **RPC 還沒 apply / 起始線沒設走別的管道, 不變成一封每天寄的信。**
      */
-    (summary.orderCreatedNoRecipientCount ?? 0) > 0;
+    (summary.orderCreatedNoRecipientCount ?? 0) > 0 ||
+    /**
+     * 🔴🔴 **排程心跳(板 `⟦b4-SWEEPDEAD1⟧` 片3;Sean 2026-08-30 拍 `q4: 甲` = 現在做)**。
+     * 那一列的問題逐字是「**結算程式死了沒人知道**」—— 而在這一行之前,
+     * 心跳**只被儀表板顯示、從來沒有被告警**:
+     *   儀表板 = 有人去看的時候它告訴他;告警 = 沒有人去看的時候它來告訴你。
+     *   ⇒ 而那一列問的是後者。**這一行就是那一列缺的東西。**
+     *
+     * `?? 0` = **讀不到就不叫**,照上面每一條的成例(部署問題走部署管道)。
+     * ⇒ 🛑 `cronHeartbeatUnknown` **刻意不在這道閘裡** —— 它只進 log 與信尾那一行。
+     *
+     * ⚠️ **而本片【不關】的那一半要寫在這裡, 免得下一個人以為關掉了**:
+     *   **「整組 cron 一起死」這一格照舊沒有人看得到** ——
+     *   這支告警器自己也是一支 cron(`pcm-anomaly-alert`), 它與它要監控的那五支
+     *   **走同一條線**, 那條線壞掉兩個一起停 ⇒ **沒有人會收到任何信。**
+     *   📌 ⇒ 本行關掉的是「**單支**死掉沒人知道」, 不是「整組一起死」。
+     *
+     * 🛑 **沒有冷卻機制, 而那是【接受】不是【漏】**(codex 2026-08-31 片3 R1 #5 提):
+     *   一支排程持續死著 ⇒ **每天都會再寄一次**(這封信一天一班)。
+     *   ⇒ 而本檔上面對 `emailQuotaConfirmedCount` 已經寫過同一句話並被 Sean 拍過:
+     *     **「一個持續一整個月的問題, 每天提醒一次可能正是對的 —— 它還沒被處理。」**
+     *   ⇒ 📌 一支排程死了三天而第二天起不再提醒, 與「它自己好了」在收件匣裡長得一樣。
+     *   ⚠️ **若哪天要加冷卻**, 要先答一個問題:**停止提醒之後, 誰會發現它還死著?**
+     */
+    (summary.cronHeartbeatAbnormalCount ?? 0) > 0;
 
   let notifiersTotal = 0;
   let notifiersFailed = 0;
@@ -1031,6 +1078,9 @@ export async function checkAnomalyAlerts(
     orderCreatedPaidNoEmailCount: summary.orderCreatedPaidNoEmailCount,
     orderCreatedNoRecipientCount: summary.orderCreatedNoRecipientCount,
     orderCreatedGapUnknown: summary.orderCreatedGapUnknown,
+    cronHeartbeatAbnormalCount: summary.cronHeartbeatAbnormalCount,
+    cronHeartbeatAbnormalJobs: summary.cronHeartbeatAbnormalJobs,
+    cronHeartbeatUnknown: summary.cronHeartbeatUnknown,
     /**
      * 🔴 **這一行是本片【最重要】的一行,而我差點沒寫。**
      * 上面把五格排除在 `shouldAlert` 之外,理由是「部署問題走部署管道」——
