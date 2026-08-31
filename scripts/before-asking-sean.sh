@@ -20,6 +20,15 @@
 
 set -u
 
+# 🔴 2026-08-31:本檔的 `cut -c` 在 C locale 下【按位元組】切中文 ⇒ 切出裸 0x85 之類的破碎序列
+#    ⇒ 那個輸出檔會被 ugrep(`-I` 跳過二進位)判成二進位 ⇒ 整檔跳過、`grep -c` 印【空白不是 0】
+#    ⇒ 而它在「有命中」與「零命中」兩個世界印同一個東西 ⇒ 零判別力。
+#    實測:`printf '一二三四五六七八九十' | LC_ALL=C cut -c1-5` ⇒ 非法 UTF-8(5 個位元組, 切在字中間)
+#          同一發 `LC_ALL=en_US.UTF-8` ⇒ 合法 UTF-8, 恰 5 個【字】。
+#    ⚠️ 這裡設 LC_ALL 是為了讓 `cut -c` 數【字】不是數位元組;它同時影響本檔的 grep/sort 排序,
+#       而本檔不依賴任何 locale 相關的排序。
+export LC_ALL="${LC_ALL:-en_US.UTF-8}"
+
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 MAILBOX="${HOME}/pcm-mailbox"
 # 🔴 拍板落檔的正式落點(`00-work-rules §4`)—— 2026-08-31 補進段②的分母。
