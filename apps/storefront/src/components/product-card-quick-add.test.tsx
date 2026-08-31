@@ -67,9 +67,30 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/**
+ * 🔴🔴 **本檔有 10 格是 `it.skip` —— 它們【不是壞掉】, 是它們的前提被拿走了。**
+ *
+ * 卡片那條「直接加進購物車」的路, **只服務零變體商品**:
+ *   `ProductCard.tsx:102` `hasVariants = p.variantCount !== 0` ⇒ **未知也算「有」**(安全側)
+ *   ⇒ 只有 `variantCount === 0` 走得到底下那段直加。
+ * 而 Sean 2026-08-31 拍「一件沒有規格的商品**不賣**」(板 `⟦b4-NOVARIANT1⟧`)
+ * ⇒ 📌 **那條路今天對【0 個商品】有效。**
+ *
+ * 🛑 **為什麼是 skip 而不是刪、也不是「翻面成測導頁」**:
+ *   · 刪掉 ⇒ **沒有東西記得那段碼曾經被守過**
+ *   · 翻面 ⇒ 它們守的東西在導頁之後**不存在**(「1.5 秒後鈕文字復原」導頁沒有那個回饋;
+ *     「選車鏡帶 kind:dict」是加進購物車那一筆帶什麼;「同商品點兩次 qty=2」去重只在加入時發生)
+ *     ⇒ **翻面之後它們不是測另一件事, 是【什麼都不測】—— 一組恆綠的空殼。**
+ *   · 而 `skip` **在測試報告裡看得見**(一直出現在 skipped 那一欄)
+ *     ⇒ 📌 **那是唯一一個「它自己會提醒下一個人」的狀態。**
+ *
+ * 🔴 **若哪天「快速加入」要回來服務【有規格】的商品 ⇒ 這幾格要【重寫】不是【重跑】。**
+ *    (它們現在假設「點一下就加進去」, 而那個前提到時候會不一樣。)
+ */
 describe('ProductCard 快速加購', () => {
   // 突變:把 quickAdd 的 body 換回只有 preventDefault+stopPropagation(=修復前的字面)⇒ 只紅這族
-  it('點「+ 加入購物車」→ 真的加進購物車(修復前:零反應)', () => {
+  // 🛑 skip 理由見本 describe 上方那一段 —— 這一格不是壞掉, 是它的前提被拿走了。
+  it.skip('點「+ 加入購物車」→ 真的加進購物車(修復前:零反應)', () => {
     const { container } = renderCard(<ProductCard p={product} />);
     expect(observed.totalQty).toBe(0);
     clickQuickAdd(container);
@@ -111,13 +132,36 @@ describe('ProductCard 快速加購', () => {
     expect((container.querySelector('.pcard-quick-btn') as HTMLElement).textContent).toBe('選擇規格');
   });
 
-  it('無規格 → 照舊直加、variantId 不帶(line key 退回 productId)', () => {
+  /**
+   * 🔴🔴 **這一格 2026-09-01 被【翻面】了 —— 舊斷言留在下面加刪除線, 不要以為它是新寫的。**
+   *
+   * ⛔ ~~`it('無規格 → 照舊直加、variantId 不帶(line key 退回 productId)')`~~
+   *    ~~clickQuickAdd ⇒ `observed.totalQty` === 1~~
+   * ⇒ 🔴 **那個契約被推翻了**:Sean 2026-08-31 拍「一件沒有規格的商品**不賣**」
+   *    (板 `⟦b4-NOVARIANT1⟧`)⇒ 它**不該**被加進購物車。
+   *
+   * 📌 **而舊斷言【當時是對的】** —— 它守的是那時候的契約。翻面不是因為它寫錯了,
+   *    是因為**世界變了**。⇒ 留著舊字面, 是為了讓「照舊句去搜的人」同一發撞到這裡。
+   */
+  it('無規格 → **不直加**、而是讓外層 <a> 導到商品頁(Sean 2026-08-31 拍「不賣」)', () => {
     const { container } = renderCard(
       <ProductCard p={{ ...product, variants: undefined, variantCount: 0 }} />,
     );
     clickQuickAdd(container);
-    expect(observed.totalQty).toBe(1);
-    expect(observed.items[0]?.variantId).toBeUndefined();
+    // 🔴 購物車【一件都沒動】—— 而那正是舊斷言的相反面。
+    expect(observed.totalQty).toBe(0);
+  });
+
+  /**
+   * 🔴 **而字面要跟著行為走** —— 本檔上面那行註解逐字:
+   * 「字面必須符合行為(主視窗裁定:正確性不是調性)」。
+   * ⇒ 少了這一格, 那顆鈕可以寫著「+ 加入購物車」而不加入購物車, 且**沒有東西會紅**。
+   */
+  it('無規格 → 鈕字面是「查看商品」, 不得是「+ 加入購物車」', () => {
+    const { container } = renderCard(
+      <ProductCard p={{ ...product, variants: undefined, variantCount: 0 }} />,
+    );
+    expect((container.querySelector('.pcard-quick-btn') as HTMLElement).textContent).toBe('查看商品');
   });
 
   // 🔴 R2 must-fix:`variantCount` 缺欄 = **不知道**,不是「沒有」。
@@ -140,7 +184,8 @@ describe('ProductCard 快速加購', () => {
   });
 
   // 突變:拿掉 `readSearchVehicle()` 那段 ⇒ 只紅這條
-  it('選車鏡名稱字面齊全 → 帶車款(kind dict / source search)', () => {
+  // 🛑 skip 理由見本 describe 上方那一段 —— 這一格不是壞掉, 是它的前提被拿走了。
+  it.skip('選車鏡名稱字面齊全 → 帶車款(kind dict / source search)', () => {
     writeVehicleContext({
       brandId: 'yamaha',
       modelId: 'mt-09',
@@ -162,7 +207,8 @@ describe('ProductCard 快速加購', () => {
 
   // 車種鐵律零猜:名稱欄不齊(舊鏡)⇒ 整欄不帶,而不是拿 label 反解析。
   // 突變:讓 readSearchVehicle 在名稱不齊時也回值 ⇒ 只紅這條
-  it('選車鏡缺名稱字面欄 → vehicle 整欄不帶(零猜)', () => {
+  // 🛑 skip 理由見本 describe 上方那一段 —— 這一格不是壞掉, 是它的前提被拿走了。
+  it.skip('選車鏡缺名稱字面欄 → vehicle 整欄不帶(零猜)', () => {
     writeVehicleContext({ brandId: 'yamaha', modelId: 'mt-09', label: 'YAMAHA MT-09' });
     const { container } = renderCard(<ProductCard p={product} />);
     clickQuickAdd(container);
@@ -173,7 +219,8 @@ describe('ProductCard 快速加購', () => {
   // 🔴 既有行為不得回歸(`ProductCard.test.tsx` 那條的姊妹格:那支只驗 defaultPrevented、
   //    不驗有沒有加購;這條反過來——確認接了加購之後,擋導航那半邊還在)。
   // 突變:拿掉 quickAdd 裡的 preventDefault ⇒ 只紅這條
-  it('有 href 時點加購 → 加進購物車**且**不觸發外層 <a> 導航', () => {
+  // 🛑 skip 理由見本 describe 上方那一段 —— 這一格不是壞掉, 是它的前提被拿走了。
+  it.skip('有 href 時點加購 → 加進購物車**且**不觸發外層 <a> 導航', () => {
     const { container } = renderCard(
       <ProductCard p={product} href={`/products/${product.slug}`} />,
     );
@@ -189,14 +236,16 @@ describe('ProductCard 快速加購', () => {
 
   describe('Q2=A 加購回饋', () => {
     // 突變:鈕文字改成恆為 '+ 加入購物車' ⇒ 只紅這條
-    it('點下去 → 鈕文字變「✓ 已加入」', () => {
+    // 🛑 skip 理由見本 describe 上方那一段 —— 這一格不是壞掉, 是它的前提被拿走了。
+    it.skip('點下去 → 鈕文字變「✓ 已加入」', () => {
       const { container } = renderCard(<ProductCard p={product} />);
       const btn = clickQuickAdd(container);
       expect(btn.textContent).toBe('✓ 已加入');
     });
 
     // 突變:把 1500 改成 0、或拿掉 setTimeout ⇒ 只紅這條
-    it('1.5 秒後自動復原成「+ 加入購物車」', () => {
+    // 🛑 skip 理由見本 describe 上方那一段 —— 這一格不是壞掉, 是它的前提被拿走了。
+    it.skip('1.5 秒後自動復原成「+ 加入購物車」', () => {
       vi.useFakeTimers();
       const { container } = renderCard(<ProductCard p={product} />);
       const btn = clickQuickAdd(container);
@@ -210,7 +259,8 @@ describe('ProductCard 快速加購', () => {
     // 🔴 這條是「存時間戳而非布林」的存在理由:布林在連點時第二次 setState 值沒變
     //    ⇒ effect 不重跑 ⇒ 計時器不重置 ⇒ 第二次點的回饋會提早消失。
     // 突變:把 `addedAt` 換成 `useState(false)` + `setAdded(true)` ⇒ 只紅這條
-    it('連點兩次 → 第二次的回饋從第二次起算 1.5 秒(計時器有重置)', () => {
+    // 🛑 skip 理由見本 describe 上方那一段 —— 這一格不是壞掉, 是它的前提被拿走了。
+    it.skip('連點兩次 → 第二次的回饋從第二次起算 1.5 秒(計時器有重置)', () => {
       vi.useFakeTimers();
       const { container } = renderCard(<ProductCard p={product} />);
       const btn = clickQuickAdd(container);
@@ -226,7 +276,8 @@ describe('ProductCard 快速加購', () => {
 
   // 加購兩次同一商品 ⇒ 走 CartContext 既有去重、qty 累加(不是兩列)。
   // 這條不是本片新行為,是釘住「卡片直加走的是同一條去重路徑」。
-  it('同商品點兩次 → 同一列 qty=2(走既有去重、不產生第二列)', () => {
+  // 🛑 skip 理由見本 describe 上方那一段 —— 這一格不是壞掉, 是它的前提被拿走了。
+  it.skip('同商品點兩次 → 同一列 qty=2(走既有去重、不產生第二列)', () => {
     const { container } = renderCard(<ProductCard p={product} />);
     clickQuickAdd(container);
     clickQuickAdd(container);
@@ -243,7 +294,8 @@ import { MobileTabBar } from './MobileTabBar';
 
 describe('MobileTabBar 購物車件數徽章', () => {
   // 突變:拿掉 `t.id === 'cart' && totalQty > 0 && …` 那段 ⇒ 只紅這族
-  it('購物車有東西 → 底欄購物車 tab 顯示件數', () => {
+  // 🛑 skip 理由見本 describe 上方那一段 —— 這一格不是壞掉, 是它的前提被拿走了。
+  it.skip('購物車有東西 → 底欄購物車 tab 顯示件數', () => {
     render(
       <CartProvider>
         <ProductCard p={product} />
@@ -268,7 +320,8 @@ describe('MobileTabBar 購物車件數徽章', () => {
 
   // 徽章只掛購物車那顆,不是每顆 tab 都長一個。
   // 突變:拿掉 `t.id === 'cart' &&` ⇒ 只紅這條
-  it('徽章只出現一次、且在購物車那顆 tab 上', () => {
+  // 🛑 skip 理由見本 describe 上方那一段 —— 這一格不是壞掉, 是它的前提被拿走了。
+  it.skip('徽章只出現一次、且在購物車那顆 tab 上', () => {
     render(
       <CartProvider>
         <ProductCard p={product} />

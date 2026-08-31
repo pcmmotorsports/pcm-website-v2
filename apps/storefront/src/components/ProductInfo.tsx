@@ -120,6 +120,12 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
   //   ⇒ 共用一個 state 的話,改 ② 會**順手把 ① 也改掉** —— 那是把他的裁定擴張到他沒被問的東西上。
   //   (memory `project_0823-sean-overlimit-notice-persists`)
   const [overLimitNotice, setOverLimitNotice] = useState<string | null>(null);
+  /**
+   * 🔵 「這件不能單獨買」的提示(板 `⟦b4-NOVARIANT1⟧`)。
+   * 🛑 **與 `overLimitNotice` 分開兩個 state, 而共用同一個顯示位置** ——
+   *    它們是兩件事(「拿不到那麼多」vs「這件不能單獨買」), 合成一個會讓其中一句蓋掉另一句。
+   */
+  const [cannotBuyAloneNotice, setCannotBuyAloneNotice] = useState<string | null>(null);
   // 🔴 終止條件用**他的字面**:「直到他**換規格或離開**」—— 不是「按了確定」(那會多一個動作)。
   //   ⇒ 與 A3 的「已加入」共用同一個生命週期(離開 = 換商品 / 關頁面 = 元件卸載)。
   useEffect(() => {
@@ -168,12 +174,47 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
         .join(' · ')
     : '';
 
+  /**
+   * 🔴🔴 **一件【沒有任何規格】的商品不能單獨買**(板 `⟦b4-NOVARIANT1⟧`;Sean 2026-08-31 拍「不賣」)。
+   *
+   * ⛔ **而修法【不是】把加入鈕變灰** —— `:283` 那一行逐字寫著
+   *    「#161 **業務拍板:永遠可點、無 disabled**」⇒ 變灰會推翻一個既有拍板。
+   * ⇒ 📌 **所以鈕照樣可點, 變的是【點下去發生什麼】。**
+   *
+   * 🔴 **而它擋的位置是刻意選的**:客人在【還沒填卡號】之前就知道。
+   *    ⛔ 現況是**填完卡號、按下確認付款【之後】**才被退回(`useChargePayment.tsx:140`)——
+   *      而那句話叫他「返回購物車重新確認」, **而購物車上沒有東西可以修**
+   *      (那支商品本來就沒有規格可選)⇒ **他被叫去做一件做不到的事。**
+   *
+   * 🛑 **而這道擋【不取代】結帳那一道** —— 那一道是最後的 fail-closed 底線,
+   *    前面加了不代表可以拆後面。(測試釘住它還在。)
+   */
   const addToCart = () => {
     // M-3-S2-b2-c:cart 線契約改帶 variant_id(變體 uuid = selectedVariant.id、建單 RPC create_order 的
     //   variant_id 來源;取代 M-1-16c-3 把 sku 塞 color 的權宜 hack)。無變體 → variantId undefined、
     //   line key 退回 productId。🔴 不送價(server 依 tier 取價、鐵則 12)。
     // V-2a 帶入路徑1(搜尋情境自動帶):選車 context 有字典名稱字面 → 標 kind:'dict' source:'search'
     //   (V-2h/MF-4 抽 readSearchVehicle 供 mobile buybar 共用同一來源、零猜邏輯在純函式)。
+    // 🔴🔴 **一件【沒有任何規格】的商品不能單獨買**(板 `⟦b4-NOVARIANT1⟧`;Sean 2026-08-31 拍「不賣」)。
+    //
+    // ⛔ **修法【不是】把加入鈕變灰** —— 本檔 `:283` 逐字寫著
+    //    「#161 **業務拍板:永遠可點、無 disabled**」⇒ 變灰會推翻一個既有拍板。
+    //    ⇒ 📌 **鈕照樣可點, 變的是【點下去發生什麼】。**
+    //
+    // 🔴 **而擋在這裡是刻意的**:客人在【還沒填卡號】之前就知道。
+    //    ⛔ 現況是**填完卡號、按下確認付款【之後】**才被退回(`useChargePayment.tsx:140`),
+    //      而那句話叫他「返回購物車重新確認」—— **購物車上沒有東西可以修**
+    //      (那支商品本來就沒有規格可選)⇒ **他被叫去做一件做不到的事。**
+    //
+    // 🛑 **這道【不取代】結帳那一道** —— 那是最後的 fail-closed 底線,
+    //    前面加了不代表可以拆後面(測試釘住它還在)。
+    // 🔵 而「客服 LINE」是**沿用既有字面**(付款那條路四處都這樣寫)——
+    //    自己發明一種說法會讓它變成第六種。
+    if (!hasVariants) {
+      setCannotBuyAloneNotice('這件商品目前不能單獨購買,請聯繫客服 LINE 協助訂購。');
+      setAddedToCart(false);
+      return;
+    }
     const vehicle = readSearchVehicle();
     // 🔴 N4(2026-08-24):`addItem` 現在**自己回傳「因為上限而被夾掉幾件」** ——
     //   算法與「這一列現在幾件」都住共用層(`CartContext.tsx`),這裡只負責【怎麼顯示】。
@@ -366,6 +407,12 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
       {overLimitNotice && (
         <div className="pd-added-notice pd-over-limit-notice" role="alert">
           {overLimitNotice}
+        </div>
+      )}
+      {/* 🔵 沿用同一個顯示位置與 role="alert" —— 這句同樣是「你要的事情沒有發生」。 */}
+      {cannotBuyAloneNotice && (
+        <div className="pd-added-notice pd-over-limit-notice" role="alert">
+          {cannotBuyAloneNotice}
         </div>
       )}
 

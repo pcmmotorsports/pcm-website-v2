@@ -71,7 +71,7 @@ export function ProductListingForm({
       actions={<ListingToggleSubmitButton listed={listed} />}
     >
       {askConfirm ? (
-        <p className='rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900'>
+        <p className='rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900'>
           {/* 🔴 **一定要說得出【是誰的規格】** —— 一句「這支看起來怪怪的」會被一路按過去,
               而一個講得出對方料號的句子, 員工可以當場去查。 */}
           ⚠️ 這支商品看起來是「{variantSkuCollisionOwner}」的一個規格,不是一件獨立商品。
