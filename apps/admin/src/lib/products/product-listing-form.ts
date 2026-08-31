@@ -22,6 +22,26 @@ export const LISTING_PRODUCT_ID_FIELD = 'product_id';
 export const LISTING_DELISTED_FIELD = 'delisted';
 export const LISTING_NOTE_FIELD = 'note';
 export const LISTING_RETURN_TO_FIELD = 'return_to';
+/**
+ * 🔵 「我確定要上架這支」——【確認】那道的通行證(板 `⟦b4-NOVARIANT1⟧`, Sean `Q2=甲`)。
+ *
+ * 🔴🔴 **它必須是【員工主動勾的 checkbox】, 不得由畫面自動送**(codex 2026-08-31 R1 #1 must-fix)。
+ *    ⛔ ~~我第一版把它做成 hidden 自動夾帶 `'true'`~~ —— 那不是「員工按了我確定」,
+ *      是**畫面幫他確定了** ⇒ 📌 **那道確認等於不存在。**
+ *    🛑 而最毒的是它【會產生正確的訊號】:畫面上有警示文字、測試裡「帶確認⇒放行」那格是綠的、
+ *      commit 訊息寫「加了確認步驟」而字面完全誠實 —— **四個地方都說它在,
+ *      而沒有任何一個人做過那個動作。**
+ */
+export const LISTING_CONFIRM_FIELD = 'confirm_variant_sku_collision';
+/**
+ * 🔵 員工按下確定的**那一刻,畫面上寫的是哪一支商品**(對方的料號)。
+ *
+ * 🔴 **為什麼要送它**(codex R1 #5):只送一個布林 ⇒ 畫面顯示 A、而資料在他讀那句話之後變成 B,
+ *    action 仍然照放 —— 那是 stale confirmation(TOCTOU)。
+ *    ⇒ 送出他**看到的那個值**, server 端比對現在算出來的是不是同一個。
+ * 📌 **⇒ 他確認的是【那一句話】, 不是「我要上架」。**
+ */
+export const LISTING_CONFIRM_OWNER_FIELD = 'confirm_variant_sku_owner';
 
 /**
  * 🔴 上下架線**專屬**的結果碼:同狀態再按一次、而員工**打了備註** ——
@@ -39,7 +59,17 @@ export const LISTING_NOTE_MAX = 200;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type ListingToggleParseResult =
-  | { ok: true; productId: string; delisted: boolean; note: string | null; returnTo: string }
+  | {
+      ok: true;
+      productId: string;
+      delisted: boolean;
+      note: string | null;
+      returnTo: string;
+      /** 🔵 員工已經看過「這支看起來是別支商品的規格」並【主動勾了】確定。 */
+      confirmed: boolean;
+      /** 🔵 他勾的那一刻, 畫面上寫的是哪一支商品(對方料號);沒送 ⇒ `null`。 */
+      confirmOwner: string | null;
+    }
   | { ok: false };
 
 /**
@@ -56,6 +86,8 @@ export const LISTING_SINGLE_FIELDS = [
   LISTING_DELISTED_FIELD,
   LISTING_NOTE_FIELD,
   LISTING_RETURN_TO_FIELD,
+  LISTING_CONFIRM_FIELD,
+  LISTING_CONFIRM_OWNER_FIELD,
 ] as const;
 
 /** 只接受站內 `/products` 路徑(鏡像 `parseCustomersReturnTo`);非法 → 退 `/products`。 */
@@ -94,5 +126,13 @@ export function parseListingToggleForm(form: FormLike): ListingToggleParseResult
     delisted: delistedRaw === 'true',
     note,
     returnTo: parseProductsReturnTo(readString(form, LISTING_RETURN_TO_FIELD)),
+    // 🔴 **只認一個字面 `'true'`** —— 而不是「有沒有這一欄」:
+    //    checkbox 沒勾時瀏覽器【根本不送這一欄】, 而勾了送 'on';
+    //    我們讓畫面送死值 'true', 任何其他值(含空字串、'on'、'false')一律當【沒確認】。
+    //    ⇒ 📌 失敗方向朝「再問一次」, 而不是朝「放行」。
+    confirmed: readString(form, LISTING_CONFIRM_FIELD) === 'true',
+    // 🔴 原樣帶走, 不做任何正規化 —— 這一欄的用途是【和 server 現在算出來的比對】,
+    //    而任何「順手洗一下」都會讓兩邊在不同的字面上比較。
+    confirmOwner: readString(form, LISTING_CONFIRM_OWNER_FIELD) || null,
   };
 }

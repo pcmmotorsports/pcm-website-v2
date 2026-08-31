@@ -404,6 +404,12 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       ORDER_AMOUNT_REJECTED_RESULT_CODE,
       // 🔴 M-4b #20 上下架線只登錄這一顆(saved/noop/not_found/invalid/denied/error 走裸碼)。
       LISTING_NOOP_NOTE_DROPPED_RESULT_CODE,
+      // 🔴 M-4b ⟦b4-NOVARIANT1⟧ 上架前的確認兩顆(Sean 2026-08-31 拍 `Q2=甲`)。
+      //    **本格在我把它們加進 MESSAGES 的當下真的紅過**(2026-08-31 實跑,`2 failed`)
+      //    —— 那是它有判別力的證據,不是推的。
+      //    ⚠️ 逐顆列出、不用前綴比對:前綴會讓「有人偷偷多加一顆 variant_sku_xxx」也自動歸類。
+      'variant_sku_collision',
+      'variant_sku_check_unavailable',
       // 🔴 M12-A3-b 手動建單線八顆(`#858`;沒送到 2 + 送到之後 6)。**本格在我把它們加進 MESSAGES 的當下真的紅過**
       //    (2026-08-24 實跑,`1 failed | 31 passed (32)`)—— 那是它有判別力的證據,不是推的。
       //    ⚠️ 逐顆列出、不用迴圈展開:迴圈會讓「有人偷偷多加一顆 manual_order_xxx」也自動歸類。
