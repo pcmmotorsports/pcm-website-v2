@@ -84,6 +84,39 @@ if [ -n "$SUMMARY" ]; then
   exit 98
 fi
 
+# 🔴🔴 走到這裡 = 找不到文字摘要。而【找不到】有兩種, 而它們的處置相反
+#    (2026-08-31 codex 對抗審查抓到的 must-fix, 主視窗當場構造實測確認):
+#      `sh vitest-ran-gate.sh run --reporter=json <一支真的測試檔>`
+#      ⇒ 本閘回 **97** 並印「它沒有跑」, 而 vitest 自己回 **0**、測試【全部跑過了】
+#      ⇒ 🛑 **一發假紅** —— 而它在 CI 上會擋掉一次完全正常的測試。
+#    成因:本閘的判準是【預設 reporter 的文字摘要】, 而換 reporter 就沒有那一行。
+#    ⇒ 📌 而那不是「它沒跑」, 是【本閘看不懂這一種輸出】—— 兩件事, 而舊版把它們印成同一個。
+#
+# ① 先試 JSON reporter 自己的證據(`--reporter=json` 會吐 numTotalTests / numPassedTests)
+JSON_TOTAL=$(grep -o '"numTotalTests"[[:space:]]*:[[:space:]]*[0-9]\{1,\}' "$OUT" | tail -1 | grep -o '[0-9]\{1,\}$')
+if [ -n "$JSON_TOTAL" ]; then
+  if [ "$JSON_TOTAL" -gt 0 ]; then
+    exit "$RC"
+  fi
+  echo '' >&2
+  echo "🔴 vitest-ran-gate:JSON reporter 說 numTotalTests=0 ⇒ **一格都沒跑到。**" >&2
+  exit 98
+fi
+
+# ② 呼叫端自己換了 reporter, 而本閘不認得那一種 ⇒ 🔴 **不判, 而且要吵**
+#    這一格是【刻意的放行】—— 理由:假紅會擋掉正常的測試, 而本閘的存在理由是別讓人誤判。
+#    🛑 而它是一個真的缺口:任何人加 `--reporter=<本閘不認得的>` 就繞過了這道閘。
+#       ⇒ 所以它印在 stderr 而不是靜靜放行 —— 一個被繞過的閘要自己說出來。
+case " $* " in
+  *" --reporter"*|*" --reporter="*)
+    echo '' >&2
+    echo '🟡 vitest-ran-gate:你換了 `--reporter`, 而本閘【看不懂這一種輸出】。' >&2
+    echo '   ⇒ 本閘這一發**沒有判**「它到底跑了沒」—— 原樣傳回 vitest 的 exit code。' >&2
+    echo "   🔴 也就是說:這一發【沒有這道保護】。而 vitest 自己回的是 $RC。" >&2
+    exit "$RC"
+    ;;
+esac
+
 echo '' >&2
 echo '🔴 vitest-ran-gate:輸出裡【找不到】`Tests  N …` 那一行 ⇒ **它沒有跑,不是它沒事。**' >&2
 echo '   最常見的三個成因(2026-08-25 一天內各踩過一次):' >&2
