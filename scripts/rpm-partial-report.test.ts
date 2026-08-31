@@ -177,11 +177,24 @@ describe('🔴 接線守門:rpm-import.ts 真的用了這支,而且不是留著�
   it('🔴 餵進去的必須是【那個真陣列】—— 不然 runAtomicGroups([], …) 三格照樣全綠(codex R2 must-fix)', () => {
     // 📌 「有呼叫它」與「餵對了東西給它」是兩個宣稱, 而上面三格只證了第一個。
     //    餵空陣列 ⇒ 一群都不會跑, 而字面斷言完全看不出來。
-    expect(SRC).toContain('runAtomicGroups(variantWork.atomicGroups,');
+    //
+    // ⛔ ~~expect(SRC).toContain('runAtomicGroups(variantWork.atomicGroups,')~~
+    // 🔴🔴 **2026-08-31:那個字面變了, 而【這一格擋下了我的改動】—— 它做對了。**
+    //    我把它換成 `runAtomicGroups(atomicToRun, …)`,理由是 Sean 拍【乙】之後
+    //    有孤兒的 hazard 群要**整群跳過**(傳空 orphan 清單給那支原子 RPC 會撞
+    //    「payload 不是完整商品群」的斷言 ⇒ 那是 abort,不是不刪)。
+    // 🛑 **而這一格的【意圖】沒有變**:餵進去的必須是【從那個真陣列長出來的】,
+    //    不是一個空陣列、也不是一個常數。⇒ 所以我改的是字面,不是那個意圖。
+    //    ⇒ 📌 **改測試字面時,要能指出【哪一個宣稱沒有變】—— 指不出來的話那就是在改期望值。**
+    expect(SRC).toContain('runAtomicGroups(atomicToRun,');
+    // 🔴 而「atomicToRun 是不是真的從那個陣列長出來的」要單獨釘 ——
+    //    否則 `const atomicToRun = []` 會讓上面那一行照樣過。
+    expect(SRC).toContain('variantWork.atomicGroups.filter(');
+    expect(SRC).not.toContain('const atomicToRun = [];');
   });
 
   it('🔴 供應商 slug 也要餵對(同族:餵一個字面常數也會全綠)', () => {
-    expect(SRC).toContain('runAtomicGroups(variantWork.atomicGroups, config.supplierSlug,');
+    expect(SRC).toContain('runAtomicGroups(atomicToRun, config.supplierSlug,');
   });
 });
 

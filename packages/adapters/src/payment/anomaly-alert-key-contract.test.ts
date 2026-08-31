@@ -238,6 +238,25 @@ for (const { fn, varName, pin } of TARGETS) {
           '⇒ 這幾格在正式站上會【永遠是空的】,而 fail-soft 讓它不 throw、不紅、畫面不報錯。',
       ).toEqual([]);
     });
+
+    // ── 以下兩格由 `-eb`(線 DB 與金流)於 2026-08-31 合併時併入 ──────────────
+    //    背景:本列被【三個人各做了一次】,而其中兩支建在【同一個檔案路徑】上
+    //    ⇒ `add/add` 衝突。解法是以這一支(涵蓋兩支 RPC、三輪審查)為底,
+    //      把另一支獨有的兩格加進來 —— 而不是二選一。
+    it('🔴 反方向:SQL 產出的每一個 key,TS 都要有人讀 —— 症狀與上一格【一模一樣】', () => {
+      // 🔴 上一格擋的是「TS 讀一個 SQL 沒產出的 key」。
+      //    而【SQL 加了新 key,而 TS 沒有人去讀它】——**症狀相同:那一格永遠是空的**。
+      // 📌 ⇒ 一個只驗單向的合約,在【多出來的那一側】是瞎的。
+      const file = latestDefinitionFile(fn);
+      const fromSql = sqlKeys(file, fn);
+      const fromTs = tsKeys(varName);
+      const unread = fromSql.filter((k) => !fromTs.includes(k)).sort();
+      expect(
+        unread,
+        `${path.basename(file)} 產出了這幾個 key,而 TS 沒有任何人讀:\n  ${unread.join('\n  ')}\n` +
+          '⇒ 新增一個 key 卻忘了接 TS,畫面上那一格【永遠是空的】——與上一格同一個症狀。',
+      ).toEqual([]);
+    });
   });
 }
 
@@ -256,6 +275,31 @@ const FAIL_LOUD_RPCS = [
   'get_order_refunds_stuck_summary',
   'get_email_outbox_deadman_counts',
 ] as const;
+
+describe('屬性名與錯誤訊息字面(`-eb` 2026-08-31 併入)', () => {
+  // 🔴 這一格與 key 對不對得上【無關】,它擋的是另一件事:
+  //    `parseDisplayIds(d.open_display_ids, 'refunding_stuck_display_ids')`
+  //    ⇒ 編譯過、跑得過,而它壞掉時吐的訊息會讓接手的人去查【另一個】欄位。
+  // 🛑 射程:只涵蓋 `parseDisplayIds` / `parseDisplayIdPairs` 這一族的呼叫
+  //    ——它們是 `d.X` 與字面 `'X'` 成對出現的那種寫法。走 `parseCount` 的不在內。
+  it('🔴 `parseDisplayIds(d.A, \'B\')` 兩個字面必須一致 —— 不一致的話那句話會指向錯的欄', () => {
+    const src = readFileSync(TS_FILE, 'utf8');
+    const re =
+      /parseDisplayIds?\s*\(\s*d\.([a-z_]+)\s*,\s*'([a-z_]+)'|parseDisplayIdPairs\s*\(\s*d\.([a-z_]+)\s*,\s*'([a-z_]+)'/g;
+    const pairs: Array<[string, string]> = [];
+    for (const m of src.matchAll(re)) {
+      const prop = m[1] ?? m[3];
+      const literal = m[2] ?? m[4];
+      // 🔴 兩個都拿不到 ⇒ regex 與這裡的取值對不上 ⇒ **拋, 不要靜靜地放行**
+      if (prop === undefined || literal === undefined) throw new Error(`抽取器與 regex 對不上:${m[0]}`);
+      pairs.push([prop, literal]);
+    }
+    // 🔵 前置:抽得到東西 —— 否則下面那個迴圈跑 0 次而它印綠
+    expect(pairs.length, '一組都沒抽到 ⇒ 這把尺沒有接上(或那一族呼叫被改寫了)').toBeGreaterThanOrEqual(5);
+    const bad = pairs.filter(([prop, literal]) => prop !== literal);
+    expect(bad, `這幾組的屬性名與訊息字面不一樣:${JSON.stringify(bad)}`).toEqual([]);
+  });
+});
 
 describe('本檔自己的分母', () => {
   it('🔴 TARGETS 沒有漏掉這支 adapter 裡的任何一支 RPC(擋住「覆蓋率單調衰減而它印綠」)', () => {
