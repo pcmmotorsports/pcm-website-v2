@@ -108,6 +108,19 @@ A: 甲 不用 —— 員工想上架就上架(它本來就賣得出去了, 這�
 · 那 10 支【為什麼】沒有變體(供應商資料缺? 匯入漏了?)⇒ **未查**。
   ⇒ 若成因是匯入漏了, 本片會把一個【資料問題】變成一個【賣得出去的商品】,
     而那未必是壞事, 但要知道它是這樣。
-· 顧客站前台對零變體商品的顯示(規格區塊、加入購物車按鈕)⇒ **本 plan 只走到結帳**,
-  沒有查前台還有沒有別的地方假設「一定有變體」。
+· ✅ ~~顧客站前台還有沒有別的地方假設「一定有變體」~~ **查了(2026-08-31 19:2x),而答案是【範圍不變】**:
+```
+storefront 非測試碼裡【唯一】拒絕無變體的地方 = useChargePayment.tsx:140
+  (尺:grep 'if (!it.variantId|!line.variantId|!variantId)' ⇒ **1 處**)
+而其餘每一處都【已經】handle 掉 null 了:
+  cart/actions.ts:112      variantIdRaw !== undefined 才檢查型別(明文允許 undefined)
+  CartView.tsx:42          line.variantId ?? null      useResolvedCart.tsx:58  同
+  CheckoutSummaryAside:41  item.variantId ?? ''        CheckoutStep2ReviewSections:162 同
+非空斷言 / variants[0] 這種會炸的寫法 ⇒ **2 命中而【兩處都在註解裡】**(ProductCard.tsx:83 `*` 續行 / :89 `//`)
+🟢 正對照:同尺打 `variantId` 全 storefront 非測試 ⇒ **63 命中**(尺是活的, 不是恆空)
+```
+📌 **⇒ 片2 的 TS 範圍確實只有那一支檔那一道**,不是我原本估的「四五支」——
+**而我是查了才敢把它縮小的, 不是因為它聽起來小。**
+· 🔴 **仍然未查**:零變體商品的**前台顯示**(商品頁的規格區塊會長什麼樣、加入購物車鈕的文案)
+  ⇒ 那不影響「賣得成嗎」, 但影響「他看起來像不像一件正常的商品」。**本 plan 不涵蓋。**
 ```
