@@ -146,3 +146,7 @@ export type { AnomalyAlertSummary, AnomalyAlertMessage } from './payment/anomaly
 // 商品卡去白邊 bbox 共用 parser(trim 線 S4a;兩條卡片資料路單一收斂來源、plan 2026-07-19 §5)
 export type { ImageTrim } from './catalog/image-trim';
 export { parseImageTrim } from './catalog/image-trim';
+
+// 🔴 排程白名單與門檻的【唯一來源】(2026-08-31 從 apps/admin 搬入)。
+//    儀表板與告警器兩側都從這裡讀 —— 各寫一份會漂, 而漂開時兩邊都不會紅。
+export { CRON_JOB_WHITELIST, FAILURE_COUNT_MEANINGLESS } from './ops/cron-jobs';
