@@ -247,9 +247,14 @@ describe('⟦b4-PURCHTAX1⟧ ③ 含稅保證住在 UI 那條路徑上 —— �
   /** 只看碼,不看註解 —— 這支檔的註解裡就寫著 `price_store` 等字。 */
   const catalogCode = () => catalog().replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 
-  it('🔴 後台目錄仍然只讀 price_general(它是含稅的那一欄)', () => {
+  // ⛔ 標題原本是「仍然只讀 price_general」—— 🔴 **那句 2026-08-31 起不成立**
+  //    (codex R2 must-fix ③:「下一位審查者會誤認舊含稅保證仍存在」)。
+  //    ⇒ 現在目錄**同時讀** `price_general`(含稅)與 `price_store`(未稅)。
+  it('🔴 單價的來源仍然只有 price_general —— 而目錄本身已經【也讀】price_store 了', () => {
+    // ⛔ ~~"'id, sku, price_general, products(title)'"~~
+    // 🔵 2026-08-31 Sean 批 `price_store` 進欄位表(⟦b4-SKULOOKUP⟧ Q2 逐字「甲 標未稅」)。
     expect(catalog(), '目錄的 select 不再指名 price_general').toContain(
-      "'id, sku, price_general, products(title)'",
+      "'id, sku, price_general, price_store, products(title)'",
     );
     expect(catalog(), 'unitPrice 不再來自 price_general').toContain('unitPrice: row.price_general');
   });
@@ -257,9 +262,71 @@ describe('⟦b4-PURCHTAX1⟧ ③ 含稅保證住在 UI 那條路徑上 —— �
   it('🔴🔴 「只讀」要被真的斷言 —— 保留舊字面而【另外新增】一條價格路徑, 上一版兩格全綠', () => {
     // codex R1 must-fix ⑦:`toContain` 只證明「舊的還在」,不證明「沒有新的」。
     const code = catalogCode();
-    for (const col of ['price_store', 'price_dealer', 'price_by_tier', 'cost'] as const) {
+    // ⛔ ~~for (const col of ['price_store', 'price_dealer', 'price_by_tier', 'cost'])~~
+    // 🔴🔴 **`price_store` 2026-08-31 移出這張清單, 而這一格比隔壁那支檔的同款改動【重一階】**:
+    //    本 describe 的標題逐字寫著「**含稅保證住在 UI 那條路徑上 —— 而那是副作用不是保證**」
+    //    ⇒ 那個「副作用」就是【目錄只讀 price_general 一欄】。
+    //    ⇒ ⇒ **我加了 price_store, 就是把那個副作用拿掉了。**
+    //    🛑 **所以含稅保證從今天起【不是碼給的, 是人給的】** ——
+    //       Sean 拍甲:經銷價標「未稅」, 由員工自己換算(而他知道代價:貼過去會少收 5%,
+    //       畫面上不會有任何東西叫)。
+    //    ⇒ 📌 **這一格不是「放寬一道守門」, 是【一個保證換了持有人】。寫在這裡, 不要讓它靜靜發生。**
+    //    ✅ 而**判準沒有被刪, 它被換成更窄的那一句**:`price_store` 可以【被讀出來顯示】,
+    //       但**不得成為單價的來源** —— 下面那兩格釘的就是這個。
+    for (const col of ['price_dealer', 'price_by_tier', 'cost'] as const) {
       expect(code.includes(col), `目錄的【碼】裡出現了 ${col} ⇒ 另一條價格路徑`).toBe(false);
     }
+    // 🔴 `price_store` 只能以「翻成 dealerPriceUntaxed」這一種形狀存在。
+    //    識別字帶 `Untaxed` 是刻意的:呼叫端的自動完成裡就看得到稅基, 而註解看不到。
+    expect(code, 'price_store 沒有被翻成帶稅基的識別字 ⇒ 下游會把它與含稅價混用').toContain(
+      'dealerPriceUntaxed: row.price_store',
+    );
+    // 🔴🔴 **而含稅保證的最後一格:單價的來源仍然只有 price_general。**
+    //    這一句紅 = 有人讓經銷價變成單價 ⇒ 那才是撞上 manual-order-catalog.ts:6-70 那道凍結。
+    expect(code.includes('unitPrice: row.price_store'), '單價的來源變成經銷價了').toBe(false);
+    expect(
+      code.match(/price_store/g)?.length,
+      'price_store 出現超過 2 次 ⇒ 它跑到欄名與 map 以外的地方了',
+    ).toBe(2);
+
+    // 🔴🔴 **codex R1 must-fix ①:上面那三格守的是【字面與次數】, 守不到【資料流】。**
+    //    它舉的反例逐字:在 map 之後寫 `hit.unitPrice = hit.dealerPriceUntaxed`
+    //    ⇒ `price_store` 仍恰 2 次、三格全綠, **而經銷價已經自動生效了**
+    //    ⇒ ⇒ **而舊那張黑名單會紅。**
+    //    📌 **⇒ 我用「更窄」換掉「更寬」時, 窄掉的那一半正好是這一格。**
+    //       換判準不是免費的:新判準蓋得住的那一半很明顯, 蓋不住的那一半要自己去找。
+    //    ✅ 補上真正的那一句:**`dealerPriceUntaxed` 不得流進任何「單價」識別字。**
+    //       範圍是整個 orders lib, 不是單一檔 —— 因為那個賦值可以寫在任何一支檔裡。
+    const ordersDir = __dirname;
+    const files = readdirSync(ordersDir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'));
+    // 🔵 分母守門:掃到 0 支檔 ⇒ 下面那個迴圈恆綠。
+    expect(files.length, 'orders lib 掃到 0 支非測試檔 ⇒ 本格恆綠').toBeGreaterThan(5);
+    const offenders: string[] = [];
+    for (const f of files) {
+      const src = readFileSync(join(ordersDir, f), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '');
+      // 形狀:同一個 statement 裡, 帶 unitPrice/unit_price 的東西旁邊出現 dealerPriceUntaxed。
+      // 🛑🛑 **射程, 照 codex R2 must-fix ① 逐條寫出來 —— 這一格【擋不住】下列每一種**:
+      //    · 別名:`const p = hit.dealerPriceUntaxed; hit.unitPrice = p;`
+      //    · 解構:`const { dealerPriceUntaxed: p } = hit;`
+      //    · 跨 statement / 跨函式 / 跨檔傳遞
+      //    · 呼叫端的 `.tsx`(本掃描只吃 orders lib 的 `.ts`)
+      // 📌 **⇒ 所以它不是「資料流守門」, 它是【最直白那一種寫法的絆線】。**
+      //    我原本在 commit body 裡把它講成前者 —— 那是誇大, 已改。
+      // ✅ 而它仍然值得留:那個最直白的寫法**正是順手改的人會寫的那一種**。
+      //    真正的資料流保證要靠型別(讓未稅價與含稅價是兩個不可互換的型別), 而那是另一片。
+      if (/unit_?[Pp]rice[^;\n]*dealerPriceUntaxed/.test(src)) offenders.push(f);
+    }
+    expect(offenders, '有人把經銷價(未稅)接成單價 ⇒ 那是「生效」不是「顯示」').toEqual([]);
+    // 🔵 正對照:同一把尺換成一個【確定存在】的形狀, 必須抓得到東西 ——
+    //    不然上面那個空陣列與「正規式根本不匹配任何東西」印同一個綠。
+    const positive = files.filter((f) =>
+      /unitPrice[^\n]{0,40}row\.price_general/.test(
+        readFileSync(join(ordersDir, f), 'utf8').replace(/\/\/[^\n]*/g, ''),
+      ),
+    );
+    expect(positive.length, '正對照:找不到 unitPrice: row.price_general ⇒ 這把尺沒有在動').toBeGreaterThan(0);
     // 正對照兩發(R2 must-fix:TS 剝註解器不懂字串,`"https://x"` 裡的 `//` 會吃掉同行真碼
     //    ⇒ 只驗 `price_general` 還在【別行】仍會過)。
     //    ⇒ 改用**已知碼錨**逐個點名(⛔ ~~行數守恆~~ 實測作廢:這支檔 153 非空行裡

@@ -143,3 +143,38 @@
     padding-bottom: 0;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   片 B(2026-08-31)· **自 host 的中文字型排進第一順位**
+
+   `--font-statement` 由 `statement-doc.tsx` 用 inline style 設上去,值 = `next/font/google`
+   回的 `.style.fontFamily`。理由(為什麼是變數、為什麼是 inline style)在那支檔的 `StatementDoc` 檔頭。
+   ⛔ ~~(值 = 雜湊過的家族名)~~ —— **這句錯的我在兩支檔各寫了一次;codex R1 抓到那一處、
+      R2 才抓到這一處。**
+   ✅ 實量:它是 `Noto Sans TC,Noto Sans TC Fallback` —— 🔴 **第一個名字與 root layout
+      那條 Google CDN `<link>` 宣告的家族【同名】** ⇒ 本節只保證「我們這份排得進去」,
+      **不保證伺服器最後拿的是我們這份**(那要片 C 攔掉外部請求;兩世界實測數字寫在 plan)。
+   📌 **⇒ 一個被複製過的說法,修一處不會讓另一處變對 —— 而修的人最不會去找第二處。**
+
+   🔴 **為什麼寫在這裡而不是 `print-a4.css`**:那支檔是後台正本的**逐位元組副本**,
+      由 `components/print/admin-copy-drift.test.ts` 釘住 ⇒ 往它加一行就等於把那道守門關掉
+      (本檔檔頭第一段逐字寫著這件事)。
+
+   🔴 **具體度**:兩邊都是 `.pd-sheet`(0,1,0),而 `page.tsx` 把本檔 import 在 `print-a4.css`
+      **之後** ⇒ 同分後載的贏 ⇒ 本節贏。**這與檔頭那條「我贏」是同一個機制,不是新的。**
+
+   ⚠️ **fallback 一定要留**:`--font-statement` 沒被設上去時(例如別處直接用 `<StatementDoc>`
+      而沒傳 `fontFamily`),`var(--font-statement, 'Noto Sans TC')` 走第二個參數
+      ⇒ 整條堆疊退回片 B 之前的樣子。**不留 fallback 的話整條 `--pd-body` 會變成無效值,
+      而 `font-family` 會掉回繼承 —— 那是一個沒有人會發現的靜默壞法。**
+
+   🛑 **`--pd-mono` 刻意不動**(`SF Mono`/`Menlo`/`Consolas`/`DejaVu Sans Mono`/`monospace`):
+      Linux 容器上那四支都沒有 ⇒ 走通用 monospace ⇒ **它畫不出中文**。
+      走 mono 的欄位(單號、金額)目前看起來是純 ASCII,**而我沒有逐欄驗過它永遠不含中文**
+      ⇒ 這一格標【未確認】,留給片 C 開瀏覽器時一起看。 */
+.pd-sheet {
+  --pd-body: var(--font-statement, 'Noto Sans TC'), 'PingFang TC', 'Microsoft JhengHei',
+    'Helvetica Neue', sans-serif;
+  --pd-disp: 'Helvetica Neue', 'Helvetica', 'PingFang TC', var(--font-statement, 'Noto Sans TC'),
+    sans-serif;
+}

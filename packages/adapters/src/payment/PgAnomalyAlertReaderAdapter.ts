@@ -59,6 +59,22 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
     refundingStuckSeconds: number,
     pendingDcWindowSeconds: number,
     pendingDcStuckSeconds: number,
+    /**
+     * 🔵 出貨信起始線(ISO 8601 UTC;對應 env `SHIPPED_EMAIL_CUTOFF`)。
+     * 🛑 **`null` = 那一段【整段不查】** —— 而那不是失敗, 是「還沒上膛」。
+     *   ⇒ 落 `shippedGapUnknown`, 而那個狀態由呼叫端印在 log 上(不進 `shouldAlert`)。
+     */
+    shippedCutoffIso: string | null,
+    /** 🔵 出貨信寬限秒數(Sean `2 甲` = 15 分鐘 = 3 次掃描;route 常數注入)。 */
+    shippedGraceSeconds: number,
+    /**
+     * 🔵 訊號 4 的起始線(ISO 8601 UTC;對應 env `B4_DEPLOY_CUTOFF`,**與寄信端同一顆**)。
+     * 🛑 **`null` = 那一段【整段不查】** —— 而那不是失敗, 是「還沒上膛」或「值不合法」。
+     *   ⇒ 落 `orderCreatedGapUnknown`, 而那個狀態由呼叫端印在 log 上(不進 `shouldAlert`)。
+     * 🔴 **它與 `shippedCutoffIso` 是【兩顆不同的 env】** —— 寄信那兩條線是分別上線的,
+     *   起始線不是同一刻(`email-sweep/route.ts` 檔頭逐字:「它們刻意**不共用** cutoff」)。
+     */
+    orderCreatedCutoffIso: string | null,
   ): Promise<AnomalyAlertSummary> {
     return this.run(async (client) => {
       const args = [refundingStuckSeconds, pendingDcWindowSeconds, pendingDcStuckSeconds];
@@ -168,7 +184,144 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         if (probe.rows[0]?.missing !== true) throw err;
       }
 
-      return parseAlertSummary(counts.rows, ids, refundRows, emailRows);
+      /**
+       * 🔵 **出貨信缺口計數**(2026-08-31;Sean 逐字答 `2 甲`;RPC `get_shipped_email_gap_counts`)。
+       *
+       * 🛑 **只有【起始線有值】才呼叫** —— 那支 RPC 的兩個參數**無 DEFAULT**,
+       *   而它自己的閘會對 `NULL` 直接 `RAISE`(那是刻意的:`NULL` 比較 = UNKNOWN ⇒ 恆回 0 = 靜默漏報)。
+       *   ⇒ 沒有起始線 ⇒ **不呼叫**, 落 `shippedGapUnknown` ⇒ 而那個狀態由呼叫端印在 log 上。
+       * 🔴 降級**逐字沿用寄信那條**:`42883` → `to_regprocedure` 複查 → 真的不存在 ⇒ unknown;
+       *   oid 回得出來 ⇒ 原封上拋;`42501` ⇒ 原封上拋。
+       *   **而 unknown 不寫成 0** —— 「讀不到」與「一切正常」在一個裸數字上長得一模一樣。
+       */
+      let shippedRows: Array<Record<string, unknown>> = [];
+      if (shippedCutoffIso !== null) {
+        try {
+          const res = await client.query(
+            'SELECT public.get_shipped_email_gap_counts($1::timestamptz, $2::integer) AS result',
+            [shippedCutoffIso, shippedGraceSeconds],
+          );
+          shippedRows = res.rows;
+        } catch (err) {
+          const code = (err as { code?: unknown } | null)?.code;
+          /**
+           * 🔴🔴 **`P0001` = 那支函式【自己的參數閘】RAISE 了**(`-48` 2026-08-31 指名的驗收)。
+           *
+           * **我量過現在會怎樣, 沒有猜**:`P0001` 原封上拋 ⇒ `getAlertSummary` throw
+           * ⇒ use-case throw ⇒ route 503 ⇒ **今晚一封告警都不寄**。
+           * ⇒ 📌 **一個【設定問題】把整條告警帶走了** —— 而那正是告警最該在的那一晚。
+           *
+           * 🛑 **而它也不可以被吞成 0** —— 那會把片1 剛裝上的 fail-closed 在下游拆掉
+           *   (那支函式的閘存在的理由就是「NULL ⇒ 恆回 0 = 靜默漏報」)。
+           * ✅ **⇒ 兩個都不要:降級成 `unknown` + 一行 `console.error`。**
+           *   `unknown` 不進 `shouldAlert`, 而 route 在【起始線有設】時據它回 503
+           *   ⇒ **那一段變成「查不到」, 而不是「0」, 也不是「整條沒了」。**
+           * ⚠️ **只降級 `P0001`** —— `42501`(權限)與其他碼**照舊原封上拋**:
+           *   那些不是設定問題, 而把它們吞掉會讓一個真的壞掉被讀成「還沒上膛」。
+           */
+          /**
+           * 🔴 **只認【那支函式自己的參數閘】,不是「凡 P0001 都降級」**(codex 2026-08-31 R1 nit)。
+           * ⛔ ~~舊寫法 `if (code === RAISE_EXCEPTION)`~~ —— 那把**任何** `P0001` 都當成參數閘。
+           * ⚠️ **今天踩不踩得到:踩不到。** 數法
+           *   `grep -c 'RAISE EXCEPTION' <20260831020000_...sql>` ⇒ **7**,而其中**只有 2 條在函式體內**
+           *   (`:65` / `:68`,兩條都是參數閘);其餘 5 條在 apply 期的 DO 斷言塊,呼叫時跑不到。
+           * 🔴 **⇒ 所以這是【未來的洞】不是今天的**:哪天那支函式用 `RAISE EXCEPTION` 回報別的
+           *   完整性錯誤,它會被**靜靜降級成「查不到」**,而那是一個真的壞掉被讀成「還沒上膛」。
+           * ✅ 收窄成:`P0001` **且**訊息帶那支函式自己的前綴。
+           * 🛑 而收窄的失敗方向是**安全的那一邊**:訊息哪天改了 ⇒ 認不出來 ⇒ **原封上拋**(現況行為),
+           *   不會變成靜默降級。
+           */
+          if (code === RAISE_EXCEPTION) {
+            /**
+             * 🔵 **訊息前綴只用來【分類 log】,不用來改控制流**(codex 2026-08-31 R2 must-fix ×2)。
+             *
+             * ⛔ ~~我 R2 之前的修法:前綴不符 ⇒ `throw err`~~ —— **那是我 R1 剛被打過的同一個錯**:
+             *   codex 逐字「migration 改動參數閘前綴或標點而應用程式尚未同步 ⇒ 真正可降級的參數錯誤
+             *   改成整條上拋,**付款／退款等其他告警同輪無法送出**」。
+             *   📌 **⇒ 我把「未來可能誤分類」換成了「訊息一漂就整條告警死掉」。那個交換是虧的。**
+             * 🛑 而 codex 同時指出前綴**也擋不住**它原本要擋的:日後那支函式用**同一個前綴**
+             *   拋非參數閘的 `P0001`,照樣被當成參數閘。**⇒ 前綴在兩個方向上都不是那道判準。**
+             * ✅ **⇒ 控制流維持現況(`P0001` ⇒ 降級),前綴只決定 log 印哪一句** ——
+             *   拿不到訊號的成本是 0,而拿錯控制流的成本是整條告警。
+             * ⚠️ **今天踩不踩得到:踩不到。** 那支函式體內只有 2 條 `RAISE`,兩條都是參數閘
+             *   (全檔 `grep -c 'RAISE EXCEPTION'` ⇒ 7,其餘 5 條在 apply 期 DO 塊、呼叫時跑不到)。
+             */
+            const looksLikeOwnGate =
+              typeof (err as { message?: unknown }).message === 'string' &&
+              (err as { message: string }).message.includes('get_shipped_email_gap_counts:');
+            console.error(
+              looksLikeOwnGate
+                ? '[anomaly-alert] 🔴 get_shipped_email_gap_counts 自己 RAISE 了(參數閘)⇒ 出貨缺口那一段降級成【查不到】,而其他告警照常送'
+                : '[anomaly-alert] 🔴 get_shipped_email_gap_counts 拋了 P0001 而【訊息不像它自己的參數閘】⇒ 仍降級成【查不到】(不改控制流),但這一格值得有人去看',
+              {
+                code: RAISE_EXCEPTION,
+                reason: looksLikeOwnGate ? 'shipped_gap_rpc_raised' : 'shipped_gap_rpc_raised_unexpected_shape',
+              },
+            );
+          } else {
+            if (code !== UNDEFINED_FUNCTION) throw err;
+            const probe = await client.query(
+              "SELECT to_regprocedure('public.get_shipped_email_gap_counts(timestamptz,integer)') IS NULL AS missing",
+              [],
+            );
+            if (probe.rows[0]?.missing !== true) throw err;
+          }
+        }
+      }
+
+      /**
+       * 🔵 **訊號 4:訂單已付款而 `order_created` 那一列根本沒被建出來**
+       * (2026-08-31;Sean 拍 5️⃣ 甲;RPC `get_order_created_gap_counts`)。
+       *
+       * 🛑 **形狀逐字沿用出貨那一段** —— 起始線 `null` ⇒ **不呼叫**(那支 RPC 的參數無 DEFAULT,
+       *   它自己的閘會對 `NULL` 直接 `RAISE`)⇒ 落 `orderCreatedGapUnknown`。
+       * 🔵 **狀態(2026-08-31 14:0x 更新)**:那支 RPC **已經 apply 到正式庫了**
+       *   (Sean 本人貼;`supabase/APPLIED.tsv` 那一列有六格唯讀複驗)。
+       *   ⛔ ~~我第一版寫「它現在還沒 apply ⇒ 42883 今天一定走得到」~~ —— **半小時後就過期了**
+       *   (codex R1 nit 抓到:值班的人會被導向錯誤的部署原因,且與帳本衝突)。
+       * 🔴 **而那條路仍然要留**:`42883` 是**部署窗口**那一種 —— 碼先上線而 migration 還沒到的世界。
+       *   它今天不會走到,不代表它不會再發生。
+       *   `to_regprocedure` 複查 → 真的不存在 ⇒ unknown(部署窗口);oid 回得出來 ⇒ 原封上拋。
+       *   ⇒ 📌 **所以它一定要降級,不能讓整支告警死掉** —— 那正是本片 codex R1 打過我一次的地方。
+       * ⚠️ `P0001` 的處置也逐字沿用:**控制流一律降級**,訊息前綴只決定 log 印哪一句。
+       */
+      let orderCreatedRows: Array<Record<string, unknown>> = [];
+      if (orderCreatedCutoffIso !== null) {
+        try {
+          const res = await client.query(
+            'SELECT public.get_order_created_gap_counts($1::timestamptz) AS result',
+            [orderCreatedCutoffIso],
+          );
+          orderCreatedRows = res.rows;
+        } catch (err) {
+          const code = (err as { code?: unknown } | null)?.code;
+          if (code === RAISE_EXCEPTION) {
+            const looksLikeOwnGate =
+              typeof (err as { message?: unknown }).message === 'string' &&
+              (err as { message: string }).message.includes('get_order_created_gap_counts:');
+            console.error(
+              looksLikeOwnGate
+                ? '[anomaly-alert] 🔴 get_order_created_gap_counts 自己 RAISE 了(參數閘)⇒ 訊號4 那一段降級成【查不到】,而其他告警照常送'
+                : '[anomaly-alert] 🔴 get_order_created_gap_counts 拋了 P0001 而【訊息不像它自己的參數閘】⇒ 仍降級成【查不到】(不改控制流),但這一格值得有人去看',
+              {
+                code: RAISE_EXCEPTION,
+                reason: looksLikeOwnGate
+                  ? 'order_created_gap_rpc_raised'
+                  : 'order_created_gap_rpc_raised_unexpected_shape',
+              },
+            );
+          } else {
+            if (code !== UNDEFINED_FUNCTION) throw err;
+            const probe = await client.query(
+              "SELECT to_regprocedure('public.get_order_created_gap_counts(timestamptz)') IS NULL AS missing",
+              [],
+            );
+            if (probe.rows[0]?.missing !== true) throw err;
+          }
+        }
+      }
+
+      return parseAlertSummary(counts.rows, ids, refundRows, emailRows, shippedRows, orderCreatedRows);
     });
   }
 
@@ -217,6 +370,10 @@ const EMAIL_SIGNAL1_GRACE_SECONDS = 3600;
 
 const REFUNDS_FN = 'get_order_refunds_stuck_summary';
 const EMAIL_FN = 'get_email_outbox_deadman_counts';
+const SHIPPED_FN = 'get_shipped_email_gap_counts';
+const ORDER_CREATED_FN = 'get_order_created_gap_counts';
+/** PG `raise_exception` —— plpgsql 的 `RAISE EXCEPTION` 預設就是這個 SQLSTATE。 */
+const RAISE_EXCEPTION = 'P0001';
 
 /**
  * 非負整數解析(count 欄;非有限/負 → throw fail-closed)。
@@ -280,6 +437,8 @@ function parseAlertSummary(
   idRows: Array<Record<string, unknown>>,
   refundRows: Array<Record<string, unknown>>,
   emailRows: Array<Record<string, unknown>>,
+  shippedRows: Array<Record<string, unknown>>,
+  orderCreatedRows: Array<Record<string, unknown>>,
 ): AnomalyAlertSummary {
   const r = rows[0]?.result as Record<string, unknown> | undefined;
   if (!r || typeof r !== 'object') {
@@ -338,13 +497,44 @@ function parseAlertSummary(
   const emailCount = (key: string): number | null =>
     emailOutboxUnknown ? null : parseCount(em![key], key, EMAIL_FN);
 
+  const sp = shippedRows[0]?.result as Record<string, unknown> | undefined;
+  const shippedGapUnknown = sp === undefined;
+  if (!shippedGapUnknown && (sp === null || typeof sp !== 'object')) {
+    throw new AnomalyAlertReaderParseError(`${SHIPPED_FN} 回應格式異常(函式存在但回了 NULL 或非物件)`);
+  }
+  const shippedCount = (key: string): number | null =>
+    shippedGapUnknown ? null : parseCount(sp![key], key, SHIPPED_FN);
+
+  const oc = orderCreatedRows[0]?.result as Record<string, unknown> | undefined;
+  const orderCreatedGapUnknown = oc === undefined;
+  if (!orderCreatedGapUnknown && (oc === null || typeof oc !== 'object')) {
+    throw new AnomalyAlertReaderParseError(`${ORDER_CREATED_FN} 回應格式異常(函式存在但回了 NULL 或非物件)`);
+  }
+  const orderCreatedCount = (key: string): number | null =>
+    orderCreatedGapUnknown ? null : parseCount(oc![key], key, ORDER_CREATED_FN);
+
   return {
     emailOverdueCount: emailCount('signal1_overdue_count'),
     emailDeadLetterCount: emailCount('signal2_dead_letter_count'),
     emailStuckSendingCount: emailCount('signal3_stuck_sending_count'),
     emailQuotaConfirmedCount: emailCount('signal5_quota_confirmed_count'),
     emailQuotaSuspectedCount: emailCount('signal5_quota_suspected_count'),
+    // 🔴 **分母**(2026-08-31;`⟦b4-EMAILTOTAL⟧`):SQL 那一側早就在回它
+    //   (`20260829010000…sql` 的 `'total_count'`), 而**本層之前把它丟掉了**。
+    //   ⇒ 沒有它, 上面五個 0 在「一切正常」與「這張表是空的」之間分不出來。
+    emailOutboxTotalCount: emailCount('total_count'),
     emailOutboxUnknown,
+    // 🔵 出貨缺口那三格(2026-08-31)。空陣列 = 沒呼叫(起始線沒設)或函式不存在 ⇒ unknown。
+    //   🔴 **不寫成 0** —— 「讀不到」與「一切正常」在一個裸數字上長得一模一樣。
+    shippedNeverEnqueuedCount: shippedCount('shipped_never_enqueued_count'),
+    shippedUnsendableCount: shippedCount('shipped_unsendable_count'),
+    shipmentsTotalCount: shippedCount('shipments_total_count'),
+    shippedGapUnknown,
+    // 🔵 訊號 4 那三格(2026-08-31)。空陣列 = 沒呼叫(起始線沒設/不合法)或函式尚未 apply ⇒ unknown。
+    //   🔴 **不寫成 0** —— 而這一格今天【一定會走到】:那支 RPC 還沒 apply。
+    orderCreatedPaidNoEmailCount: orderCreatedCount('paid_no_email_count'),
+    orderCreatedNoRecipientCount: orderCreatedCount('no_recipient_count'),
+    orderCreatedGapUnknown,
     openCount: parseCount(r.open_count, 'open_count'),
     refundingCount: parseCount(r.refunding_count, 'refunding_count'),
     refundingStuckCount: parseCount(r.refunding_stuck_count, 'refunding_stuck_count'),

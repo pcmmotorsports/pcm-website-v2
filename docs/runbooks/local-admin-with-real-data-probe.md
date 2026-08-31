@@ -830,6 +830,10 @@ cd /Users/sean_1/pcm-website-v2
 : "${WT:?先跑 git worktree list 找到那棵樹的路徑、指派給 WT 再貼}"
 
 pkill -f "next dev -p 3021" ; sleep 2
+# 🔵 **跑之前先量一次**(2026-08-31 加;先例 `regenerate-database-types.md` 那格「正向對照」):
+#    pgrep -f "next dev -p 3021" | wc -l   # 這時【應該 ≥1】—— 若這裡就是 0, 下面那個 0 不算數
+#    🔴 理由不是「更嚴謹」:一個「期望 0」的檢查在【指令打錯 / 工具不存在 / 範圍錯】時**也印 0**,
+#       而那三種正是收攤時最容易發生的。
 pgrep -f "next dev -p 3021" | wc -l                       # 期望 0
 # 🔴 `pgrep` 不夠:父程序被帶走而 worker 還活著時它會印 0(down.sh 自己的註解就寫著這件事)
 #    ⇒ 再驗一次【埠】,與 §6 / down.sh 同口徑。

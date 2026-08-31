@@ -133,7 +133,12 @@
 // @see packages/use-cases/src/check-anomaly-alerts.ts
 
 import { timingSafeEqual } from 'node:crypto';
-import { checkAnomalyAlerts, type CheckAnomalyAlertsDeps } from '@pcm/use-cases';
+import {
+  checkAnomalyAlerts,
+  readDeployCutoff,
+  resolveShippedEmailCutoff,
+  type CheckAnomalyAlertsDeps,
+} from '@pcm/use-cases';
 import { getAnomalyAlertDeps } from '@/lib/payment/composition';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
 import { safeErrorName } from '@/lib/safe-log';
@@ -164,6 +169,18 @@ const ALERT_REFUNDING_STUCK_SECONDS = 86400;
  */
 const ALERT_PENDING_DC_WINDOW_SECONDS = 43200;
 const ALERT_PENDING_DC_STUCK_SECONDS = 600;
+
+/**
+ * 🔵 出貨信缺口的寬限秒數 = **15 分鐘**(Sean 2026-08-31 逐字答 `2 甲`)。
+ * 🔴 **15 分鐘 = 3 次掃描** —— 寄信佇列的排程是【每 5 分鐘一次】的 cron
+ *   ⚠️ (那個 cron 字面**不寫在這個註解裡** —— 它含 `*` 加斜線, 而那兩個字元
+ *    連在一起會【把這個區塊註解關掉】。2026-08-31 當場踩到:typecheck 報
+ *    `TS1109: Expression expected` 三行, 而那三行看起來與註解無關。)
+ *   (`apps/admin/src/lib/dashboard/cron-heartbeat-read.ts` 的白名單逐字)。
+ *   ⇒ **連錯三次才叫**, 不會因為「剛好在兩次掃描中間」誤報。
+ * 🛑 改它之前先答一句:你要它連錯【幾次】才叫?那個數字不是 15, 是 3。
+ */
+const ALERT_SHIPPED_GRACE_SECONDS = 900;
 
 /** 等長 constant-time 比對;長度不等先回 false(timingSafeEqual 要求等長 Buffer;沿 settle-sweep safeEqual)。 */
 function safeEqual(a: string, b: string): boolean {
@@ -218,10 +235,103 @@ export async function GET(request: Request): Promise<Response> {
   //    錯誤在 use-case/adapter 內 sanitize + Promise.allSettled → result.errors,不外拋至此。
   try {
     const deps: CheckAnomalyAlertsDeps = getAnomalyAlertDeps();
+
+    /**
+     * 🔵 **出貨信缺口那一段的起始線**(2026-08-31;Sean 逐字答 `2 甲`)。
+     * 它與寄信端用**同一顆 env** `SHIPPED_EMAIL_CUTOFF` —— **刻意共用**:
+     * 兩邊各讀一顆 ⇒ 它們可以分岔, 而分岔時**告警會對著一個不同的起始線報數字**。
+     *
+     * 🛑 **沒設 ⇒ 那一段整段不查**, 而**它要出聲** —— 照今晚 `⟦b9-SHIPTZ1⟧` / `⟦b9-CAPARM1⟧` 那條:
+     *   一個「還沒上膛」的狀態若不出聲, 它與「一切正常」在 log 上印同一片空白。
+     * 🔴 而這裡用 `console.info` 不是 `error`:**沒上膛是正常狀態, 不是失敗** ——
+     *   它不進 `errors`、不改回應碼、不觸發任何告警。
+     */
+    /**
+     * 🔴🔴 **同一顆 env 由【同一支 resolver】裁決**(2026-08-31 must-fix,線出貨 `-1e`)。
+     *
+     * ⛔ ~~舊寫法:這裡自己 `trim()` 一下就當合法~~ —— 而**寄信端不是這樣判的**:
+     *   數法 `grep -c resolveShippedEmailCutoff <email-sweep/route.ts>` ⇒ **3**;本檔改前 ⇒ **0**。
+     * 🔴 **後果是具體的**:`resolveShippedEmailCutoff` 有格式檢查與**下界
+     *   `EARLIEST_SANE = 2026-08-30`**
+     *   (常數名在 `packages/use-cases/src/shipped-email-cutoff.ts`,`grep -n EARLIEST_SANE` 找它——
+     *    **本檔有一道守門禁止寫【檔名:行號】,因為行號會漂而漂掉時沒有訊號**;我第一版寫了,被它擋下)。
+     *   有人設 `2026-08-11` ⇒ **寄信端判 bad-format,一封都不排、不寄**;
+     *   而舊的本檔會**收下那個字串、照樣去數** ⇒ 數到一批「貨出了沒通知」
+     *   ⇒ 📌 **告警每天叫一件寄信端【結構上做不到】的事。**
+     *   ⇒ 而一個叫了而沒有人能把它關掉的告警,下一步是**被整組關掉**(板上 `⟦b4-EMAIL2ND⟧` 前科)。
+     * 📌 **⇒ 兩個消費者、兩套驗證 ⇒ 它們對同一個字串有不同的世界觀。這裡把它收成一套。**
+     */
+    // eslint-disable-next-line no-restricted-syntax -- 受控例外:server-only cron 端點,動態 env 不進 client bundle
+    const shippedCutoffRaw = process.env['SHIPPED_EMAIL_CUTOFF'];
+    const shippedCutoff = resolveShippedEmailCutoff(shippedCutoffRaw);
+    const shippedCutoffIso = shippedCutoff.kind === 'ok' ? shippedCutoff.iso : null;
+    if (shippedCutoff.kind === 'not-configured') {
+      console.info('[anomaly-alert] 🔵 出貨信缺口那一段還沒上膛 ⇒ 這一輪不查(不是失敗)', {
+        env: 'SHIPPED_EMAIL_CUTOFF',
+        reason: 'skipped_no_cutoff',
+      });
+    }
+    /**
+     * 🔴🔴 **第七種 503**:那顆 env **設了、而值不合法**。
+     *
+     * 🛑 **它與「還沒上膛」是相反的兩件事,不可以共用同一條路**:
+     *   沒設 = 正常狀態(功能還沒開)⇒ `info`、不 503。
+     *   **設了而不合法 = 寄信端此刻【一封都不寄】,而設的人以為他開好了。**
+     *   ⇒ 📌 **那是本片要治的病本身:一個關掉了的功能,外觀與一個健康的系統相同。**
+     * 🔴🔴 **而【它要排在哪裡】被 codex 2026-08-31 R1 擊破過一次,原句留著**:
+     *   ⛔ ~~我的第一版在這裡就 `return 503`~~ —— codex must-fix 逐字:
+     *      「route 在 `checkAnomalyAlerts` 前直接 return 503 ⇒ **同輪付款、退款等其他真異常全部不通知**」。
+     *   📌 **⇒ 一顆打錯的出貨 env,會讓【整支告警】啞掉一天。而那比它要治的病更嚴重。**
+     *   ✅ 改法:這裡只 `console.error` + 把出貨段當「不查」(`shippedCutoffIso = null`),
+     *      **503 排到 `checkAnomalyAlerts` 跑完之後**,與第三～六種同一個位置。
+     *   🛑 判別句:**一個新加的 fail-closed,它擋掉的東西可能比它守的東西寬。**
+     * ✅ 形狀沿用第三～六種:**它不擋信**(本來就要寄的那封照常送出),也不擋別類告警。
+     * 🛑 **零 PII**:`why` 是 `shipped-email-cutoff.ts` 裡我們自己寫死的字串,**不是使用者填的值**;
+     *   `shippedCutoffRaw` 本身**不進 log**。
+     */
+    if (shippedCutoff.kind === 'bad-format') {
+      console.error(
+        '[anomaly-alert] 🔴 SHIPPED_EMAIL_CUTOFF 設了而形狀不合 ⇒ 寄信端此刻一封都不寄;出貨那一段本輪不查(本輪結束後回 503)',
+        { env: 'SHIPPED_EMAIL_CUTOFF', reason: 'bad_cutoff_format', why: shippedCutoff.why },
+      );
+    }
+
+    /**
+     * 🔵 **訊號 4 的起始線**(2026-08-31;Sean 拍 5️⃣ 甲)。env `B4_DEPLOY_CUTOFF`,
+     * **與寄信端(`email-sweep`)同一顆**,而且**用同一支 `readDeployCutoff` 裁決** ——
+     * 🔴 那不是順手:同一天在 `SHIPPED_EMAIL_CUTOFF` 上量到過「兩個消費者、兩套驗證」
+     *   ⇒ 寄信端擋下一封不寄、告警端收下照數 ⇒ **告警叫一件寄信端結構上做不到的事。**
+     * 🛑 **三種結果都不 503,也都不擋別類告警** —— 照本檔 codex R1 那條 must-fix:
+     *   **一個新加的 fail-closed,它擋掉的東西可能比它守的東西寬。**
+     *   · `unset`   = 那條線還沒上膛 = **正常** ⇒ `info` 一行(不出聲的話與「一切正常」同形)
+     *   · `invalid` = 設了而值不合法 ⇒ **寄信端此刻一列都不排** ⇒ `error` 一行
+     *   · 兩者都讓這一段當「不查」⇒ 落 `orderCreatedGapUnknown`(不進 `shouldAlert`)
+     */
+    // eslint-disable-next-line no-restricted-syntax -- 受控例外:server-only cron 端點,動態 env 不進 client bundle
+    const orderCreatedCutoffRead = readDeployCutoff(process.env['B4_DEPLOY_CUTOFF']);
+    const orderCreatedCutoffIso =
+      orderCreatedCutoffRead.kind === 'ok' ? orderCreatedCutoffRead.cutoff : null;
+    if (orderCreatedCutoffRead.kind === 'unset') {
+      console.info('[anomaly-alert] 🔵 訊號4(訂單成立信沒被建出來)還沒上膛 ⇒ 這一輪不查(不是失敗)', {
+        env: 'B4_DEPLOY_CUTOFF',
+        reason: 'skipped_no_cutoff',
+      });
+    }
+    if (orderCreatedCutoffRead.kind === 'invalid') {
+      // 🛑 零 PII:只印我們自己寫死的 env 名與固定字串,**不印那顆 env 的值**。
+      console.error(
+        '[anomaly-alert] 🔴 B4_DEPLOY_CUTOFF 設了而形狀不合 ⇒ 寄信端此刻一列都不排;訊號4 本輪不查',
+        { env: 'B4_DEPLOY_CUTOFF', reason: 'bad_cutoff_format' },
+      );
+    }
+
     const result = await checkAnomalyAlerts(deps, {
       refundingStuckSeconds: ALERT_REFUNDING_STUCK_SECONDS,
       pendingDoubleChargeWindowSeconds: ALERT_PENDING_DC_WINDOW_SECONDS,
       pendingDoubleChargeStuckSeconds: ALERT_PENDING_DC_STUCK_SECONDS,
+      shippedCutoffIso,
+      shippedGraceSeconds: ALERT_SHIPPED_GRACE_SECONDS,
+      orderCreatedCutoffIso,
     });
 
     // 4. 🔴 本輪有推播失敗 → 503 + 結構化 counts log,**不偽 200**(壞掉的告警管道必須可見)。
@@ -240,6 +350,65 @@ export async function GET(request: Request): Promise<Response> {
     //     ⇒ 「DB 函式沒 apply」是**部署問題**,該吵的對象是看 cron 的人,不是老闆。
     //     ⚠️ 而它**不擋信** —— 上面那封信(若本來就要寄)照常送出,只是多帶一行「今天查不到」。
     //        ⇒ 503 與「信沒寄」是兩件事,不要讀成同一件。
+    /**
+     * 🔴🔴 **第六種 503(2026-08-31;codex R1 must-fix 1)**:起始線【有設】而那支 RPC 讀不到。
+     *
+     * 🛑 **判斷式帶 `shippedCutoffIso !== null` 是這一格的全部** ——
+     *   沒設起始線 = 「**還沒上膛**」= 正常狀態(上面已經印一行 info)⇒ **不得 503**,
+     *   否則一個還沒設定的功能會讓整支 cron 每天紅一次。
+     * ✅ 而**有設**卻讀不到 ⇒ 那是**部署問題**(RPC 沒 apply / 權限)⇒ 該吵的對象是看 cron 的人。
+     * ⚠️ 形狀逐字沿用第三、四種:**它不擋信** —— 上面那封信(若本來就要寄)照常送出。
+     * 📌 **⇒ 而這一格存在的理由**:片1 給那支 RPC 裝了 fail-closed(NULL 參數 ⇒ RAISE),
+     *   **若這裡不看那個旗標, 那道 fail-closed 在下游就被拆掉了** —— route 會安靜回 200。
+     */
+    /**
+     * 🔴🔴 **第七種 503(2026-08-31,線出貨 `-1e`;位置由 codex R1 must-fix 決定)**:
+     * 那顆 env **設了、而值不合法**。
+     * 🛑 它與「還沒上膛」是相反的兩件事:沒設 = 功能還沒開 = 正常 ⇒ `info`、不 503;
+     *   **設了而不合法 = 寄信端此刻一封都不寄, 而設的人以為他開好了。**
+     * ✅ **而它排在 `checkAnomalyAlerts` 之後** —— 付款、退款那些告警**照常送出**,
+     *   只是回應碼帶 503 讓看 cron 的人知道那顆 env 壞了。
+     */
+    if (shippedCutoff.kind === 'bad-format') {
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json(
+        { ok: false, enabled: true, reason: 'bad_cutoff_format', ...result },
+        { status: 503 },
+      );
+    }
+
+    /**
+     * 🔴🔴 **第八種 503(2026-08-31,codex R1 must-fix)**:訊號 4 的起始線【有設】而那支 RPC 讀不到。
+     *
+     * ⛔ ~~我第一版【完全沒消費 `orderCreatedGapUnknown`】~~ —— codex 逐字:
+     *   「adapter 降級為 `orderCreatedGapUnknown=true`,但 route 未消費旗標,
+     *    仍記成功心跳並回 200;`42883` 甚至沒有 error log,**監控會把『查不到』誤認為健康**」。
+     * 📌 **⇒ 那正是本片要治的病本身:一個讀不到的量具, 與一個健康的系統, 印同一個 200。**
+     * 🛑 而 adapter 那道 fail-closed(42883/P0001 ⇒ 降級成 unknown 而不是 0)**在下游就被拆掉了** ——
+     *   與片 4 `shippedGapUnknown` 那一格逐字同構,而我在同一支檔裡重犯了一次。
+     *
+     * 🛑 **判斷式帶 `orderCreatedCutoffIso !== null` 是這一格的全部** ——
+     *   沒設起始線 = 「還沒上膛」= 正常(上面已印一行 info)⇒ **不得 503**。
+     * ✅ 形狀與位置逐字沿用第三～七種:**排在 `checkAnomalyAlerts` 之後**、**不擋信**、不擋別類告警。
+     */
+    if (orderCreatedCutoffIso !== null && result.orderCreatedGapUnknown) {
+      console.error(
+        '[anomaly-alert] 🔴 起始線有設而 get_order_created_gap_counts 讀不到 ⇒ 訊號4 今天是【查不到】不是【0】(回 503)',
+        { ...result },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+
+    if (shippedCutoffIso !== null && result.shippedGapUnknown) {
+      console.error(
+        '[anomaly-alert] 🔴 起始線有設而 get_shipped_email_gap_counts 讀不到 ⇒ 出貨缺口那一段今天是【查不到】不是【0】(回 503)',
+        { ...result },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+
     if (result.orderRefundsStuckUnknown) {
       console.error(
         '[anomaly-alert] 🔴 get_order_refunds_stuck_summary 尚未 apply ⇒ 退款卡住那一類今天是【查不到】不是【0】(回 503)',

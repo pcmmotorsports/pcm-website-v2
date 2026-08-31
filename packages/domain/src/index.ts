@@ -142,6 +142,9 @@ export { generateBankTransactionId } from './payment/bank-transaction-id';
 
 // M-3 #250 雙扣 anomaly 主動告警 domain 型別(零 PII 計數摘要 + 固定格式告警訊息)
 export type { AnomalyAlertSummary, AnomalyAlertMessage } from './payment/anomaly-alert';
+// 優惠券驗券結果(M-4b 券片:兌換那一半)。🔴 判斷住在 SQL 的 RPC, 這裡只有型別 —— 理由在那支檔頭。
+export type { CouponRejectReason, CouponValidation } from './order/coupon';
+export { COUPON_REJECT_REASONS } from './order/coupon';
 
 // 商品卡去白邊 bbox 共用 parser(trim 線 S4a;兩條卡片資料路單一收斂來源、plan 2026-07-19 §5)
 export type { ImageTrim } from './catalog/image-trim';

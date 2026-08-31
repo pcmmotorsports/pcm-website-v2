@@ -188,3 +188,96 @@ SELECT setval('order_display_seq',
               true);
 
 COMMIT;
+
+-- ── 客人的收件地址與車庫(2026-08-31 線【客人帳戶區】`-08` 補)──────────────
+-- 🔴 **為什麼補**:spec `#25` 那一格逐字卡在「地址 / 愛車**判不了** —— 鑽機那兩張表是空的
+--    ⇒ 畫面印『目前沒有收件地址』= **沒資料, 不是不能改**」。
+--    ⇒ 📌 **那是【鑽機的缺】被記成【產品的未知】** —— 而它擋了那一格九天。
+--    ⇒ 種了之後當場判得出來:兩段都印得出來, 而**那兩段裡的互動元素數 = 0** ⇒ 看得到、改不了。
+-- ⚠️ 而畫面上那兩段的標題是「收件地址」與**「車庫」**(不是「愛車」)——
+--    我第一發用 `愛車|車輛` 找標題得到零命中, 而那不是「沒有那一段」。
+INSERT INTO public.customer_addresses
+  (id, customer_user_id, is_default, name, phone, line, invoice_type,
+   invoice_title, invoice_tax_id, invoice_donate_code, email)
+VALUES
+  (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', true,
+   '探針客人甲', '0912345678', '台北市中山區測試路 1 號 3 樓', 'personal', '', '', '', 'probe@example.com')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO public.customer_vehicles
+  (id, customer_user_id, is_primary, name, year, engine, km, mods, dict_brand_name, dict_model_name)
+VALUES
+  (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', true,
+   'BMW M3 (探針)', '2019', 'S58', '42000', '中冷 / 排氣', 'BMW', 'M3')
+ON CONFLICT DO NOTHING;
+
+-- ── 一筆【哨兵收款】(2026-08-31 線【客人帳戶區】`-08` 種;主視窗 `-48` 批「甲 種」)──────
+-- 🔴 **為什麼種它**:首頁「今日對帳」的「今日實收(淨)」走 RPC `admin_today_payment_total`。
+--    那支 RPC **在鑽機上存在**, 而 `order_payments` **一列都沒有** ⇒ 它今天回 `(0,0)`,
+--    而**換一天也回 `(0,0)`** ⇒ 📌 **【正對照造不出來】** ⇒
+--    **我分不出「管線正常而真的沒錢」與「管線壞了」** —— 那一格因此驗不了。
+--    (同 `#25` 那次:**量具的缺被記成產品的未知**。而收款是【下一個會擋人的空表】。)
+--
+-- 🔴 **它被做成【一眼看得出是假的】, 不是【查得到它是假的】**(主視窗指定, 比「濾得掉」強一級):
+--    · `amount = 1` —— **NT$1**, 現實中不會有人匯 1 元
+--    · `bank_reference = 'ZZQ-PROBE-SEED-20260831'` · `note` 也帶同一個字面
+--    ⇒ 📌 **「濾得掉」把工作留給下一個人;「一眼看得出」把工作做掉了。**
+--
+-- ✅ **而分母【已經算好】, 不要下一個人自己扣**(主視窗指定):
+--    這台鑽機上的 `order_payments` = **種的 1 筆 + 真的 0 筆**。
+--    數法:`select count(*) filter (where bank_reference like 'ZZQ-PROBE-SEED%'
+--            or note like '%ZZQ-PROBE-SEED%') from public.order_payments`
+--
+-- ✅ **種完之後那個正對照就造得出來了**(當場實跑):
+--    `admin_today_payment_total` 今天 ⇒ `(1,1)` · 昨天 ⇒ `(0,0)`;首頁畫面 ⇒ **今日實收(淨) NT$ 1**
+--    ⇒ 🔴 **⇒ 那條管線【看得見資料】** ⇒ **種之前那個 0 是真的 0, 不是尺沒接上。**
+INSERT INTO public.order_payments
+  (id, order_id, rail, amount, received_at, bank_reference, request_id, actor, note)
+SELECT gen_random_uuid(), o.id, 'bank_transfer', 1, now(),
+       'ZZQ-PROBE-SEED-20260831', gen_random_uuid(), 'probe_staff',
+       '🔴 探針種子資料(ZZQ-PROBE-SEED)—— 不是真收款。種它的理由見本檔上方註解。'
+  FROM public.orders o
+ WHERE o.payment_status = 'paid'
+ ORDER BY o.created_at
+ LIMIT 1
+ON CONFLICT DO NOTHING;
+
+-- ── 一張【哨兵訂單】ZZQPRB + 它的哨兵收款(2026-08-31 `-08` 種;主視窗批「丙」)───────────
+-- 🔴 **這張單存在的理由, 只有一個**:讓那條預設隱藏述詞的【第二項與第三項分得開】。
+--    述詞(`SupabaseOrderAdapter.test.ts:409` 逐字)是 OR:
+--      payment_channel.neq.tappay , payment_status.neq.unpaid , and(paid_total.neq.0 , cancelled_at.is.null)
+--    ⇒ 一張單只有在【tappay 且 unpaid 且(paid_total=0 或已取消)】三件同時成立時才會被藏。
+--    而在種它之前, 這台鑽機上唯一 `paid_total > 0` 的單是 `PCM-2026-1002`,
+--    **它的 payment_status 是 paid** ⇒ **第二項就已經讓它顯示** ⇒ 第三項有沒有生效【分不出來】。
+--
+-- 🛑 **而【不能】改 `PCM-2026-1001` 來湊**(主視窗裁「乙」⇒ 我提丙 ⇒ 批丙):
+--    那張單是這台鑽機上**唯一一個「被正確地藏起來」的樣本**。
+--    📌 **一個「東西被正確地藏起來」的樣本, 天生比「東西正確地顯示」的樣本難取得** ——
+--       **因為前者要三個條件同時成立, 而後者只要一個。**
+--    ⇒ **⇒ 在鑽機上, 負向樣本要當【消耗品】管理, 不能順手改掉。**
+--
+-- ✅ **種完之後那組對照長這樣**(只差 `paid_total` 一項, 其餘完全相同):
+--      PCM-2026-1001  tappay / unpaid / paid_total 0  ⇒ 述詞判【藏】· 真畫面【沒出現】
+--      ZZQPRB         tappay / unpaid / paid_total 1  ⇒ 述詞判【顯示】· 真畫面【出現】
+--    ⇒ 🔴 **變因只有一個 ⇒ 那一項【真的在生效】。**
+--
+-- ✅ **分母寫成兩個數, 不要合成一個**(主視窗指定):
+--      哨兵收款 = **2 筆**(`bank_reference like 'ZZQ-PROBE-SEED%'`)
+--      哨兵訂單 = **1 張**(`display_id = 'ZZQPRB'`)
+-- ⚠️ **而 `/orders` 預設清單因此從 7 張變 8 張** ——
+--    任何引用「預設清單 N 張」的量測**要帶日期**, 否則下一個人會以為它退步了。
+INSERT INTO public.orders (id, display_id, customer_user_id, shipping_address_snapshot, tier_at_checkout,
+                           subtotal, shipping_fee, total, shipping_method, invoice, shipping_method_at_checkout,
+                           payment_channel, payment_status, fulfillment_status, created_at, updated_at)
+SELECT gen_random_uuid(), 'ZZQPRB', o.customer_user_id, o.shipping_address_snapshot, o.tier_at_checkout,
+       1, 0, 1, o.shipping_method, o.invoice, o.shipping_method_at_checkout,
+       'tappay', 'unpaid', o.fulfillment_status, now(), now()
+  FROM public.orders o WHERE o.display_id = 'PCM-2026-1001'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO public.order_payments (id, order_id, rail, amount, received_at, bank_reference, request_id, actor, note)
+SELECT gen_random_uuid(), o.id, 'bank_transfer', 1, now(),
+       'ZZQ-PROBE-SEED-20260831-B', gen_random_uuid(), 'probe_staff',
+       '探針種子(ZZQ-PROBE-SEED)—— 為了讓述詞的第二項與第三項分得開'
+  FROM public.orders o WHERE o.display_id = 'ZZQPRB'
+ON CONFLICT DO NOTHING;

@@ -1,6 +1,27 @@
 # Spec · 優惠券後台 CRUD(`fixed` 那一半)
 
-> **狀態:等批。一行碼都還沒寫。**
+> ⛔ ~~**狀態:等批。一行碼都還沒寫。**~~
+>
+> ## 🔴 2026-08-31 就地訂正 —— **上面那一行今天為假**
+> 當場量(線【客人帳戶區】`pcm-wt-account`,2026-08-31 15:0x;`git ls-files` 讀 index、`wc -l` 讀工作樹):
+> ```
+> 後台優惠券已經存在的檔(9 支 / 合計 1,263 行, 非空):
+>   apps/admin/src/app/coupons/page.tsx                        90
+>   apps/admin/src/components/coupons/coupon-filter-bar.tsx    72
+>   apps/admin/src/components/coupons/coupons-table.tsx       197  (+ 測試 156)
+>   apps/admin/src/lib/coupons/coupon-list-view.ts            260  (+ 測試 171)
+>   apps/admin/src/lib/coupons/coupon-repository.ts            33
+>   packages/adapters/src/supabase/SupabaseCouponAdapter.ts   137  (+ 測試 147)
+> 而 schema 那半也已 apply:20260829150000(兩張表)/ 20260829170000(後台清單 view)
+>   帳本 supabase/APPLIED.tsv 兩支皆 =1 · ⚪ 負對照 '^20260831999999' ⇒ 0
+> ⚪ 負對照 `git ls-files | grep -c zzqcoupon9137` ⇒ 0
+> ```
+> 🛑 **⇒ 「一行碼都還沒寫」在三份優惠券文件裡各寫了一次**(本檔、`2026-08-25-coupon-prd.md`、
+> `2026-08-26-coupon-schema-plan.md`),而**碼與 migration 都已經在了**。
+> 🔴 **真正還沒做的是【兌換 / 執行】那一半**:
+> `INSERT INTO coupon_redemptions` 在 migrations ⇒ 0 · app 側 ⇒ 0
+> (🟢 正對照 同把尺打 `order_refunds` 的 app 側 ⇒ 27 支 ⇒ 尺是活的)
+> ⇒ 那三個上限今天是**給人看的數字, 不是會執行的規則**(板 `⟦b4-COUPONCAP1⟧`)。
 > 上游:`docs/specs/2026-08-26-coupon-schema-plan.md`(schema plan)· `2026-08-25-coupon-prd.md` §7(Sean 的答案)。
 > 產出者:施工窗 pcm-website-v2-1d(線 4),2026-08-26。
 >

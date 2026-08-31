@@ -138,6 +138,16 @@ else
   printf '%s\n' '   復原:git checkout -- .husky/zsh-shebang-gate.sh' >&2
   exit 2
 fi
+
+if [ -f .husky/md-table-overflow-gate.sh ]; then
+  sh .husky/md-table-overflow-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/md-table-overflow-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   它守的是「表格多一格 ⇒ 那一格在渲染時被丟掉」——' >&2
+  printf '%s\n' '   而檔案裡那些字一個都沒少, grep 讀得到 ⇒ 只有渲染那一層看得見。' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/md-table-overflow-gate.sh' >&2
+  exit 2
+fi
 if [ -f .husky/view-apply-gate.sh ]; then
   sh .husky/view-apply-gate.sh || exit $?
 else

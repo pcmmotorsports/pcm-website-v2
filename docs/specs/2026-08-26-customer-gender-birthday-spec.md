@@ -31,6 +31,7 @@ Q14 分不分兩片    乙 【一次做完】
 **我複驗那三條路都在**:
 ```
 grep -rln 'signInWithOAuth|createUser' apps/storefront/src packages --include='*.ts' ⇒ 4 支
+🔴 2026-08-31 訂正【配方】不是結論:少 `-E` ⇒ 照抄重跑拿到 **0**。加 `-E` ⇒ **4 支**,與上面那個數字**逐字相同**(🔵 正對照:同款 `grep -rl export` ⇒ 129)。
   LoginPage.tsx:107  signInWithOAuth(Google 一鍵)
   auth/callback/route.ts  · lib/auth/line-admin.ts(LINE)
 負對照 'signInWithZZZ' ⇒ 0

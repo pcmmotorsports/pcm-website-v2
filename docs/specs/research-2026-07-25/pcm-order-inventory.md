@@ -202,4 +202,10 @@ repo 內 `ALTER TYPE ... ADD VALUE` 全樹只此一筆(`20260725130000_m3_rf2a1.
 
 - admin 匯出/CSV 功能:`grep -riE "csv|export|download" apps/admin/src/lib/orders/*.ts apps/admin/src/components/orders/*.tsx apps/admin/src/app/orders/**/*.tsx` — 零命中(功能性,僅命中不相關的 `export function` 語法)。
 - admin 手動建單表單/action:`grep -rn "manual_phone|manual_order|建立訂單|新增訂單" apps/admin/src` — 零命中。
+> 🔴 **2026-08-31 訂正:今天不成立, 而那個零命中是死尺**(grep 無 `-E`)。加 `-E` ⇒ 多支實作,
+> 含 `components/orders/manual-order-form-body.tsx` / `manual-order-submit.tsx` / `lib/orders/manual-order-repository.ts`;
+> **頁面路由也在**:`apps/admin/src/app/orders/new/page.tsx`。
+> 🔵 順帶:`docs/specs/2026-08-16-remaining-work-panorama.md` 的 `#12 手動建單 find … -name new ⇒ 0`
+>    今天重跑 ⇒ **1** —— 那條 `find` **不是死尺, 它是真的過期**。
 - `order_refunds`/`OrderRefund` 在 admin 任何檔案:`grep -rln "order_refund|OrderRefund" apps/admin/src` — 零命中(唯一近似命中為 `customer-detail-view.ts` 內含子字串巧合,非退款功能,已人工排除)。
+> 🔴 **2026-08-31 訂正:同上, 死尺(grep 無 `-E`)。**加 `-E` ⇒ 27 支非測試實作檔 + 專屬頁 `app/orders/refund-exceptions/page.tsx`。
