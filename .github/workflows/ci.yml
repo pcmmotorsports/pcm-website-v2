@@ -141,6 +141,17 @@ jobs:
       - name: Build admin (編譯產物類測試的前置)
         run: TURBO_FORCE=1 pnpm --filter @pcm/admin build
 
+      # 🔴🔴 **2026-08-31 補上 storefront** —— codex 關卡2 must-fix①。
+      #    `apps/storefront/src/app/account/orders/[displayId]/statement.pdf/
+      #     statement-pdf-tracing.test.ts` 讀 `.next/server/**/route.js.nft.json`,
+      #    **讀不到就 throw**(它刻意不 skip —— skip 會變成一個假綠)。
+      # 🛑 而那支測試**在此之前就已經進 dev 了** ⇒ 這不是「未來會紅」,是**現在就紅**。
+      # 📌 ⇒ 上面那段註解逐字寫著「有新的就要擴這一步」—— 而它被寫下來了、
+      #    被讀到了、然後**沒有人在加那支測試的時候回來擴**。
+      #    **一句寫在別人不會經過的地方的提醒, 與沒有寫是同一個東西。**
+      - name: Build storefront (statement.pdf 追蹤清單測試的前置)
+        run: TURBO_FORCE=1 pnpm --filter @pcm/storefront build
+
       # ══ 釘 python 版本 —— 讓 `check-syntax-nonts` 那道閘在 CI 上【通得過】═══════════
       #
       # 🔴 **它在此之前從未在 CI 上成功通過**(codex R1 M1:原句寫「從來沒跑過一次」而下一句又說

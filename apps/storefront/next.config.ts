@@ -45,7 +45,18 @@ const nextConfig: NextConfig = {
     //      key 用字面 `[displayId]` ⇒ 命中 0
     //      key 用 `'**'`(最大對照)  ⇒ 命中 48   ⇒ 機制是好的
     //      key 用 `/account/orders/**` + `./src/styles/print-a4.css` ⇒ 命中 1 ⇒ **key 對了**
-    '/account/orders/**/statement.pdf': [
+    // 🔵 **2026-08-31 收窄**(codex 關卡2 R4 nit):原本是 `/account/orders/**/statement.pdf`,
+    //    而 `**` 會命中任何巢狀的 `statement.pdf` route ⇒ 未來多一條同名 route 就會被塞進
+    //    66 MB 的 chromium。改成把方括號**跳脫**掉, 只命中這一條。
+    // 🔴 **而這個收窄敢做的唯一理由, 是那道守門已經在了** ——
+    //    `statement-pdf-tracing.test.ts` 那格「`.br` 必須是 4 支且逐支點名」。
+    //    收窄的失敗形狀是**靜靜地 0 個檔**(區段改名 / 跳脫寫錯), 而那正是今天修的那個病。
+    //    ⇒ **沒有那道守門的話, 這個 nit 不該收** —— 為了未來的整潔去換一個安靜的失敗, 不划算。
+    // 🟢 實測(一次只變一個變因, 各一發 build):
+    //      `**`              ⇒ .br 4 / files 2839
+    //      `\[displayId\]`   ⇒ .br 4 / files 2839   ← 採用這個
+    //      `\[zzq9137\]`(現造負對照) ⇒ .br **0** / files 2618  ← 證明這把 key 是活的
+    '/account/orders/\\[displayId\\]/statement.pdf': [
       './src/styles/print-a4.css',
       './src/styles/statement.css',
       // ── 字型 ──────────────────────────────────────────────────────────
@@ -60,6 +71,19 @@ const nextConfig: NextConfig = {
       //    ⇒ 而真正在看著它的是 `statement-pdf-tracing.test.ts` 那道守門, 不是這幾行。
       '../../node_modules/.pnpm/@fontsource+noto-sans-tc@*/node_modules/@fontsource/noto-sans-tc/{400,700}.css',
       '../../node_modules/.pnpm/@fontsource+noto-sans-tc@*/node_modules/@fontsource/noto-sans-tc/package.json',
+      // ── chromium 的那四包壓縮檔 ────────────────────────────────────────
+      // 🔴🔴 **2026-08-31 量到的:它們一支都沒被 trace 進來(`.br` 條數 = 0)。**
+      //    而 `route.ts:201` 呼叫 `chromium.executablePath()`, 那支函式的實作逐字是
+      //    `inflate(join(input, "chromium.br"))`(`@sparticuz/chromium/build/index.js:128-133`,
+      //    四支全要:chromium / fonts.tar / swiftshader.tar / al2023.tar)
+      //    ⇒ **檔不在 = 那條 route 在線上 `ENOENT`**, 而 build 全綠、`Route (app)` 表上它還在。
+      // 🔴 **為什麼 Next 追蹤器抓不到**:那四支是**執行期用字串 join 出來的路徑**,
+      //    不是 `import` / `require` ⇒ 靜態追蹤看不到它們。字型那包會被整包追進來是因為
+      //    route 裡有一句真的 `require.resolve(...)`;**這裡沒有那句, 所以沒有那個運氣。**
+      // 📌 ⇒ 兩個相依都在 `package.json` 裡、都被 `pnpm install` 裝好了,
+      //    而**「裝了」與「被打包進那條 route」是兩個宣稱** —— 這一格就是那句話的實例。
+      '../../node_modules/.pnpm/@sparticuz+chromium@*/node_modules/@sparticuz/chromium/bin/*.br',
+
       '../../node_modules/.pnpm/@fontsource+noto-sans-tc@*/node_modules/@fontsource/noto-sans-tc/files/*-400-normal.woff2',
       '../../node_modules/.pnpm/@fontsource+noto-sans-tc@*/node_modules/@fontsource/noto-sans-tc/files/*-700-normal.woff2',
     ],
