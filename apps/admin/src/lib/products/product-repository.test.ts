@@ -151,6 +151,42 @@ const DESIGN_TOKENS = ['price_general', 'delisted_at'] as const;
 const LEAK_TOKENS = ['price_store', 'price_by_tier', 'cost'] as const;
 
 /**
+ * 🔴 **經銷價外洩守門的【唯一】例外 —— 而它是一筆拍板,不是一筆豁免。**
+ *
+ * Sean 2026-08-31 拍甲(逐字「**甲 標未稅**」):後台手動建單的商品目錄要**顯示經銷價**,
+ * 讓員工報價時看得到。⇒ `manual-order-catalog.ts` 的 select 必須有 `price_store`。
+ * 落地於 `9040ec12`(⟦b4-SKULOOKUP⟧,命中鐵則 12 ①錢 ②權限 ⇒ codex R1+R2 全修)。
+ *
+ * 🔴 **為什麼不是把守門關掉、也不是把 `price_store` 移出 `LEAK_TOKENS`**:
+ *   那個 token 要守的是**整棵 admin src 的其餘每一支檔**。移出去 = 為了一支檔放棄整棵樹,
+ *   (🔴 這裡刻意**不寫支數** —— 上一版寫「其餘 195 支」,codex 當場量到 335 ⇒
+ *    **一個寫死在註解裡的分母,它的失效方式是【專案長大】,而那沒有任何訊號**。)
+ *   而「守門紅了沒有出路會被整支刪掉」正是這一族最常見的死法
+ *   (memory `feedback_a-guard-with-no-exit-gets-deleted`)。
+ *   ⇒ 改成**逐 `檔:token×次數` 的白名單**:這一支放行,任何別的檔**新增原始 `price_store` 字面**照樣紅。
+ *   🛑 **而射程就到這裡,不要讀寬**(codex R2):別的檔若只是**消費既有別名** `dealerPriceUntaxed`
+ *      (例如 `manual-order-catalog-lookup.tsx` 現在就是),`price_store` 次數不變 ⇒ **本守門全綠**。
+ *      ⇒ 本守門守的是「原始欄名再度出現」,**不是**「經銷價傳到哪裡去」。
+ *
+ * 🛑 **這筆例外【沒有】解除的限制(寫出來,免得下一個人以為經銷價從此自由)**:
+ *   · 它只放行 `apps/admin`(**員工後台**)。顧客站那一側完全不受本檔管轄 ——
+ *     CLAUDE.md「Server 端鐵則」逐字:**經銷價絕不傳到一般會員瀏覽器**。
+ *   · 它只放行**顯示**。⟦b4-SKULOOKUP⟧ 的 commit body 逐字記著:單價來源仍**只有**
+ *     `price_general`。
+ *     🛑 **而「不參與計算」這件事【沒有一道守門真的擋得住】,不要讀成已保證**
+ *     (codex 2026-08-31 must-fix:上一版這裡寫「那條由絆線另外守」——**那是我在替一把
+ *      我自己知道有洞的尺背書**)。`manual-order-tax-basis.test.ts` 的資料流絆線只抓
+ *     `unitPrice … dealerPriceUntaxed` **同一條敘述**的寫法;它自己的檔頭就寫明
+ *     **別名 / 跨 statement / 跨函式 / 跨檔 / `.tsx` 都掃不到** ——
+ *     `const p = hit.dealerPriceUntaxed; hit.unitPrice = p;` 兩道都是綠的。
+ *     ⇒ 這一格的真實狀態是**靠 code review 與 codex,不是靠自動守門**。
+ *
+ * 🔴 **到期條件**:哪一天 Sean 收回「後台顯示經銷價」這個拍板,或那支檔不再需要它 ⇒ 本筆即失效,
+ *   直接刪掉這一行、守門會自己回到全樹零命中。
+ */
+const LEAK_ALLOWLIST = ['apps/admin/src/lib/orders/manual-order-catalog.ts:price_store×2'] as const;
+
+/**
  * 🔴 **`cost` 用字界比對,其餘用子字串**(R3 n2 —— 與 F1 是同一個動作的兩半)。
  *
  * 理由:`price_store` / `price_by_tier` 是夠獨特的全名;但裸子字串 `cost` 在**全樹**尺度下
@@ -239,18 +275,46 @@ describe('#20 片1a — 讀取層守門', () => {
     expect(rels.some((r) => r.includes('/orders/'))).toBe(true);
     expect(rels.some((r) => r.includes('/customers/'))).toBe(true);
 
+    // 🔴 **記【次數】不是【有沒有】**(codex 2026-08-31 must-fix):
+    //    原版一個「檔:token」最多記一筆 ⇒ **同一支檔再多加十處 `price_store`,白名單照樣全綠**。
+    //    ⇒ 白名單那筆帶實測次數(本檔現值 `×2`),同檔多一處就變 `×3` ⇒ 對不上 ⇒ 紅。
     const hits: string[] = [];
     for (const file of files) {
       const code = stripComments(readFileSync(file, 'utf8'));
       for (const token of LEAK_TOKENS) {
-        if (leakMatcher(token).test(code)) {
-          hits.push(`${path.relative(REPO_ROOT, file)}:${token}`);
+        const n = code.match(new RegExp(leakMatcher(token).source, 'g'))?.length ?? 0;
+        if (n > 0) {
+          hits.push(`${path.relative(REPO_ROOT, file)}:${token}×${n}`);
         }
       }
     }
     // 🔴 印出**命中清單**而不是只印數字 —— 數字對不上時要能一眼看到是哪一行
     //    (「`grep -c` 的數字要能指出第幾行」那條)。
-    expect(hits).toEqual([]);
+    // 🔴 比對的是**白名單**不是空陣列:白名單外多一筆就紅,而白名單本身逐筆寫著 why 與到期條件。
+    expect(hits).toEqual([...LEAK_ALLOWLIST]);
+  });
+
+  it('🔴 白名單那筆【現在仍對應一個真的命中】,而且只有一處(跑 production 掃描器,不是比對常量)', () => {
+    // 🔴🔴 **上一版這格是恆真的**(codex 2026-08-31 must-fix,照實留著當反例):
+    //    它只做 `expect([...ALLOW, '別的檔']).not.toEqual([...ALLOW])` + `length === 1`
+    //    ⇒ **對任何固定陣列都成立,完全沒有呼叫掃描器** ⇒ 它證明的是「陣列加一個元素會變長」。
+    //    📌 **一格不碰待測物的測試,與沒有那格,印同一個綠。**
+    //
+    // 這一版改成**真的去掃**,並釘死兩件白名單自己答不出來的事:
+    //   ① 白名單那筆**還對應得到一個真命中** ⇒ 它沒有過期(檔被刪 / 欄位被拿掉 ⇒ 這裡紅)
+    //   ② 那支檔的 `price_store` **恰好是實測的那個處數** ⇒ 同檔多加一處就紅(不是「有就放行」)
+    const files = sourceFiles(ADMIN_SRC_ROOT);
+    const target = files.find((f) =>
+      path.relative(REPO_ROOT, f) === 'apps/admin/src/lib/orders/manual-order-catalog.ts',
+    );
+    // 🔴 前提:那支檔真的在掃描分母裡(找不到 ⇒ 下面整格會變成恆綠)。
+    expect(target, '白名單指向的檔不在掃描分母裡 ⇒ 白名單已過期或路徑寫錯').toBeTruthy();
+    const code = stripComments(readFileSync(target!, 'utf8'));
+    const n = code.match(new RegExp(leakMatcher('price_store').source, 'g'))?.length ?? 0;
+    // 🔴 **這個 2 是量出來的,不是我以為的** —— 我先寫 1,而這一格當場紅並印出 2。
+    //    兩處 = `MANUAL_ORDER_CATALOG_COLUMNS` 的 select 欄位清單 ×1 + map 裡 `row.price_store` ×1。
+    //    📌 **那一發紅就是這格存在的理由:它抓到的第一個錯,是【寫它的人自己的假設】。**
+    expect({ 那支檔的price_store處數: n }).toEqual({ 那支檔的price_store處數: 2 });
   });
 
   it('前提斷言:F1 那格的偵測器真的會吐東西(拿合成字串驗,不靠 production 檔)', () => {
