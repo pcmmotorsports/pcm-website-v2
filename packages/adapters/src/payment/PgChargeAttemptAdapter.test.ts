@@ -682,7 +682,20 @@ describe('PgChargeAttemptAdapter.recordReleasedFailureObservation(R2a、三參�
 //    其餘 8 支只命中 `scripts/*-verify.sh` / `docs/` / 產生的 `database.types.ts`,
 //    ⚠️ 加上 `admin_correct_refund_manual_verdict` 另有一處在 `apps/admin/.../refund-recovery-state.ts:74`
 //    —— **那是一句註解,不是呼叫**(code-reviewer 補的偏差:原句寫「其餘是 scripts 與 docs」
-//    **字面不全**,少了 `apps/admin/` 這一處)。而 `redeem_coupon` **全 repo 零呼叫端**。
+//    **字面不全**,少了 `apps/admin/` 這一處)。
+//    ⛔ ~~而 `redeem_coupon` **全 repo 零呼叫端**~~ 🔴 **那句錯了 —— 就地訂正(2026-09-01 08:5x)**:
+//      它**有**呼叫端,而且在**結帳主線**上 —— `create_order` 這支 DB 函式呼叫它
+//      (`20260901021000_m4b_coupon_p3b_create_order_redeem.sql`,`:12`/`:93`/`:270` 逐字提到試算呼叫)。
+//      ⇒ 而我錯在**兩個地方**,兩個都是分母:
+//        ① 我掃的是【應用碼】(`apps/**` `packages/**`)⇒ **呼叫它的是另一支 DB 函式**,不在我的分母裡
+//        ② 🔴 更根本的:**我在自己那條落後的分支上量** —— 那支 `20260901021000` 當時
+//           在我的工作樹裡**根本不存在**(`test -e` ⇒ 不在),而它在 `origin/dev` 上
+//        ⇒ 📌 **一把尺量到 0,而它量的是一棵【比世界舊】的樹 —— 而那個 0 讀起來完全正常。**
+//      ✅ 而 app 側**仍然是 0**:`origin/dev` 上 `apps+packages` 命中 3 處,**逐處開檔全是註解**
+//        (`mappers/order.ts:88`/`:166`、`domain/src/order/types.ts:1632`,都在說「金額由 DB 那側算」)
+//        🟢 正對照 同法查 `create_order` ⇒ **34 支** ⇒ 尺會動。
+//      🛑 **⇒ 而結論的方向沒變**(它不該被排在真的在走的那兩支前面),
+//        **變的是理由** —— 而 📌 **對的結論配上錯的證據,會讓下一個人推翻證據時連結論一起推翻。**
 //    🔵 而「零測試」要講精確:這兩個【方法名】在 repo 內有 60+ 命中
 //    (`recheck-capture-state.test.ts` / `settle-charge.test.ts` …),**而全部是 port mock**
 //    ⇒ 一格都沒跑到本 adapter 的 SQL 與 parse ⇒ **正確的宣稱是「adapter 層 0」, 不是「0 命中」。**
