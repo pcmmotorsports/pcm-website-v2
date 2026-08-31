@@ -699,7 +699,13 @@ export async function sweepEmailOutbox(
         //    逐字寫著「單獨開一列追蹤」,而查證當下**那一列並不存在**。
         //    📌 **一句「已另外追蹤」會讓讀到它的人停止追蹤。**
         try {
-          const owned = await outbox.markSkippedShipmentVoided(job.id, job.attempts);
+          // 🔴 `job.dedupKey` 要傳進去 —— 實作會把它退休(⟦b4-SHIPUNVOID1⟧)。
+            //    少了它,那位客人的出貨信會永遠不排,而**沒有任何東西會叫**。
+            const owned = await outbox.markSkippedShipmentVoided(
+              job.id,
+              job.attempts,
+              job.dedupKey,
+            );
           if (owned) result.skippedShipmentVoided++;
           else result.staleMarks++;
         } catch {

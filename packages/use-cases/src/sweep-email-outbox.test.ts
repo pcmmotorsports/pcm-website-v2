@@ -868,7 +868,14 @@ describe('sweepEmailOutbox — 🔴 order_shipped 模板(Sean 2026-08-30 `q3: C`
       markSkippedShipmentVoided: vi.fn().mockResolvedValue(true),
     });
     expect(sender.send).not.toHaveBeenCalled();
-    expect(outbox.markSkippedShipmentVoided).toHaveBeenCalledWith('outbox-shipped-1', 1);
+    expect(outbox.markSkippedShipmentVoided).toHaveBeenCalledWith(
+      'outbox-shipped-1',
+      1,
+      // 🔴 **第三個參數是承重的**(⟦b4-SHIPUNVOID1⟧ 2026-08-31):實作要拿它去退休那把去重鍵。
+      //    少了它 ⇒ 那一列永久佔住鍵 ⇒ **那位客人的出貨信永遠不會排,而沒有任何東西會叫。**
+      //    ⇒ 這裡釘的是【值】不是【有沒有帶】—— 兩者是兩個宣稱,而只有前者關得掉那個病。
+      'shp-1:order-1',
+    );
     expect(r.skippedShipmentVoided).toBe(1);
     // 🔴 這一行才是這一格的重點:作廢是正常業務動作,不可以讓 route 回 503。
     expect(r.errors).toBe(0);
