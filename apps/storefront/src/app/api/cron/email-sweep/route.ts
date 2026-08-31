@@ -43,8 +43,10 @@ import { timingSafeEqual } from 'node:crypto';
 import {
   enqueueOrderCreatedEmails,
   enqueueOrderShippedEmails,
+  readDeployCutoff,
   resolveShippedEmailCutoff,
   sweepEmailOutbox,
+  type DeployCutoffRead,
   type EnqueueOrderCreatedEmailsDeps,
   type EnqueueOrderShippedEmailsDeps,
   type SweepEmailOutboxDeps,
@@ -117,44 +119,20 @@ const LEASE_SECONDS = 3600;
 const CUTOFF_ENV = 'B4_DEPLOY_CUTOFF';
 
 /**
- * ISO 8601 UTC 的**形狀**(毫秒可有可無)。
- * 🔴 **形狀對 ≠ 日期存在**(codex 關卡2 R4 must-fix 3):`2026-13-40T25:61:61Z` 過得了這個正則。
- *    那種值會一路送進 PostgREST,失敗在那裡 ⇒ 回 `failed` + `stage=orders` + DB code
- *    ⇒ **接手的人會往權限 / schema / 網路查,而不是去看 env** —— 我們設計的分流當場失效。
- *    ⇒ 所以下面還要做一次 **round-trip**:parse 回 Date、再 `toISOString()` 比對回來。
+ * 🔴 **`B4_DEPLOY_CUTOFF` 的解析已搬到 `@pcm/use-cases` 的 `readDeployCutoff`**(2026-08-31,線出貨)。
+ * ⛔ ~~原本這裡有一份本地的 `ISO_UTC_SHAPE` / `CutoffRead` / `readCutoff`~~
+ * ⇒ 訊號 4 的告警端要讀**同一顆 env**;各寫一份 ⇒ **兩個消費者、兩套驗證**
+ * ⇒ 而那個病同一天在 `SHIPPED_EMAIL_CUTOFF` 上量到過:
+ *   寄信端有格式檢查與下界、告警端只 `trim()` ⇒ 設一個早於下界的值
+ *   ⇒ **寄信端擋下一封不寄,而告警端收下照數** ⇒ 告警叫一件寄信端做不到的事。
+ * 🛑 **搬移是【搬】不是【複製】** —— 這裡不留第二份;那些理由(round-trip、
+ *   `raw === undefined` 才算沒設)全部跟著搬過去,逐字未改。
  */
-const ISO_UTC_SHAPE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
+type CutoffRead = DeployCutoffRead;
 
-type CutoffRead =
-  | { kind: 'unset' }
-  | { kind: 'invalid' }
-  | { kind: 'ok'; cutoff: string };
-
-/**
- * 🔴 **不准隨便填一個看起來合理的時戳**:
- * · 填【早】了 ⇒ 掃到 B-4 之前建的舊單 ⇒ 那些單 `notification_email` 是 NULL ⇒ 走 `customers.email`
- *   ⇒ **客人收到一封關於幾個月前那張單的通知信**,而 repo 內不會有任何東西紅。
- * · 填【晚】了 ⇒ 已由 B-4 新程式處理、但 `created_at < cutoff` 的單**被永久排除**
- *   ⇒ 少數客人沒收到信,而 route 一路 200、counts 正常(codex R3 consider:這一種更不明顯)。
- * ⇒ **啟用前必須先定義「部署瞬間」到底指哪一刻**(deployment ready / alias 切換 / 第一個新版本 request /
- *   最後一個舊版本 request 結束),並對邊界區間做一次性對帳。**那件事不在本片,已寫進 plan §4.3。**
- */
 function readCutoff(): CutoffRead {
   // eslint-disable-next-line no-restricted-syntax -- 受控例外:本 route 為 server-only cron 端點,動態 env 不進 client bundle(鏡像 lib/email/composition.ts requireEnv)
-  const raw = process.env[CUTOFF_ENV];
-  // 🔴 `raw === undefined` 才是「沒設」(codex 關卡2 R5 must-fix)。
-  //    原本寫 `!raw` ⇒ **env 設了、但值是空字串** 會被判成「沒設」⇒ 回 200 `skipped_no_cutoff`
-  //    ⇒ 有人設定填錯(貼成空值)而**整件事安靜地沒發生**,正是本片一直在防的那種壞法。
-  //    空字串過不了下面的形狀檢查 ⇒ 落 `invalid` ⇒ 503,吵得出來。
-  if (raw === undefined) return { kind: 'unset' };
-  if (!ISO_UTC_SHAPE.test(raw)) return { kind: 'invalid' };
-  // 🔴 round-trip:`Date` 對 `2026-13-40T25:61:61Z` 會回 Invalid Date;
-  //    對「形狀合法但被正規化過」的值(例 `2026-02-30`)則會回到不同的字面 ⇒ 一併擋掉。
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return { kind: 'invalid' };
-  const normalized = parsed.toISOString();
-  if (normalized !== raw && normalized !== `${raw.slice(0, 19)}.000Z`) return { kind: 'invalid' };
-  return { kind: 'ok', cutoff: raw };
+  return readDeployCutoff(process.env[CUTOFF_ENV]);
 }
 
 /**

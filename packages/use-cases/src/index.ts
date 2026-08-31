@@ -151,6 +151,12 @@ export {
   type ShippedEmailCutoff,
 } from './shipped-email-cutoff';
 
+// 🔴 訊號 4(2026-08-31,線出貨):`B4_DEPLOY_CUTOFF` 的解析。
+// ⚠️ **它是【搬移】不是新寫的** —— 原本只住在 `email-sweep/route.ts` 裡,
+//    而訊號 4 的告警端要讀同一顆 env。各寫一份 ⇒ 兩個消費者兩套驗證
+//    ⇒ 同一天在 `SHIPPED_EMAIL_CUTOFF` 上量到過那個病(寄信端擋下、告警端照數)。
+export { readDeployCutoff, type DeployCutoffRead } from './deploy-cutoff';
+
 // 🔴 M-4a E2a-2(W3-G 拆出,2026-08-20):寄送前 ineligible gate,擋「排進佇列後、真正寄出前
 // 才被取消」的窗口。獨立 cron route,跑在 sweepEmailOutbox 之前但**不掛進**它的 route ——
 // 歸屬邊界見 sweep-email-outbox.test.ts:53 的預設 mock(reject,證明 E2a-b 不呼叫此路徑)。
