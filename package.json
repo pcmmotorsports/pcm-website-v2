@@ -13,7 +13,7 @@
     "build": "turbo run build",
     "lint": "turbo run lint && eslint 'scripts/*.ts' --max-warnings 0",
     "typecheck": "turbo run typecheck && tsc -p tsconfig.scripts.json --noEmit",
-    "test": "vitest run",
+    "test": "sh scripts/vitest-ran-gate.sh run",
     "clean": "turbo run clean",
     "prepare": "husky"
   },

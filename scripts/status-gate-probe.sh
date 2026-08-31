@@ -19,6 +19,18 @@
 # 前提: 主樹跑;自建/自刪拋棄式 worktree,不碰任何人的樹。exit 非 0 = 有格沒過。
 
 set -e
+
+# ── 🔴 剝掉繼承來的 GIT_* (2026-08-31 補;-15 在全隊 12 支會寫 git config 的腳本裡點出這一支)──
+#    本檔【整支】都是 harness:它建拋棄式 worktree、在裡面 commit、然後突變。
+#    而在 husky hook 底下跑時會繼承 GIT_DIR / GIT_INDEX_FILE
+#    ⇒ 那些 git 動作**打到真的 repo 上**,而 `git -C "$WT"` 蓋不掉它們。
+#    🔴 它必須在下一行的 `git rev-parse --show-toplevel` 【之前】——
+#       GIT_DIR 一旦生效, 連 REPO 都已經解錯了, 後面補多少都沒用。
+#    ⚠️ 而本檔與 where-is.sh 不同:那支只剝在 selftest 裡(它有一個要看當下 repo 的主模式),
+#       本檔沒有主模式 ⇒ 無條件剝。
+#    📌 為什麼原本沒有:整支檔零個 GIT_ 字面 ⇒ 不是防得不好, 是【沒有這個概念】。
+for _gv in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$_gv"; done
+unset _gv
 REPO=$(git rev-parse --show-toplevel); cd "$REPO"
 # 🔴 這兩處補的**不是「一道擋」—— `set -e`(上一行)本來就會停**。補的是【它說得出自己在擋什麼】。
 #   量到的(2026-08-28 線E,PATH 替身,兩處各一發 + 負對照):

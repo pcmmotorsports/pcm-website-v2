@@ -89,7 +89,10 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 ## Git 紀律
 
-- **SSH only**:`git@github.com:pcmmotorsports/pcm-website-v2.git`。絕不在對話貼 ghp_ token;credential 命令加 `grep -v ghp_`;`cat .env` 不在對話跑(Sean 自驗)。
+- **SSH only**:`git@github.com:pcmmotorsports/pcm-website-v2.git`。絕不在對話貼 token;**credential 相關命令一律只印【名稱】不印【值】**(例:`git config --get-regexp '^credential' | awk '{print $1}'`)；`cat .env` 不在對話跑(Sean 自驗)。
+  > 🛑 **2026-08-31 Sean 拍甲改字面**:~~原本寫「credential 命令加 `grep -v ghp_`」~~ —— **那是【黑名單】, 它只擋掉開頭是 `ghp_` 的那一種**。
+  > 🔴 而 GitHub 現在的 token 前綴至少有 `ghp_` / `gho_` / `ghu_` / `ghs_` / `ghr_` / `github_pat_`,而別家(`glpat-` / `xoxb-` / `sk-`)一個都不在那個黑名單裡。
+  > 📌 **⇒ 黑名單在跟下一個沒想到的前綴賽跑。改成【只印名稱】—— 那是白名單, 而它不需要知道值長什麼樣。**
 - **Branch**:`main`←production(Sean 手動 merge)/ `dev`←主開發(slice 都在 dev、線性、暫不開 feature branch)。
 - **Commit 訊息**:`type(scope): subject [milestone]`。type=feat/fix/refactor/docs/chore/test/perf;scope=storefront/medusa/ui/schemas/docs/config;subject=繁中祈使句≤72 字元。
 - **Add 必精準**:`git add <精確路徑>`;**禁 `git add .` / `git add -A`**。🔴 **而「路徑精準」≠「內容精準」**(2026-08-25 拋棄式 repo 雙世界實測):`git add <單一檔案>` 拿的是**那支檔的整個 diff** —— 一支檔被改了兩處(例如另一個窗也動過), `add` 它就兩處全進來。⇒ 動**多窗共用的檔**(`package.json` / `STATUS.md` / 板子)前先 `git diff <檔>` 看清楚。🔴 **而 `git commit -F <msg> -- <pathspec>` 與不帶 pathspec【各擋一半、各對另一半失明】**:帶 pathspec ⇒ 只收指定的檔(擋住別人放進 index 的**其他檔**), **而它收的是【工作樹】那一份** ⇒ 別人在你 `add` 之後對**同一支檔**的編輯會一起被收走;不帶 pathspec ⇒ 收 index(你 `add` 的那版), **而別人的其他檔會一起進去**。⇒ 兩種都不是無條件安全 ⇒ **commit 前 `git diff --cached -- <檔>`、commit 後 `git show HEAD:<檔>` 回核**。<br>🛑 **而【兩邊同時有東西】時(index 有別人的檔、而你要 commit 的那支檔工作樹裡也有別人未 commit 的行), 兩種形狀都不安全 ⇒ 預設動作是【停下來協調、等對方先 commit】, 不要自己動手**(Sean 2026-08-29 拍 `⑦ 補`)。<br>⚠️ **協調不到時有一條路, 而它只被走過一次** —— 五步流程與三道還原守門在 `docs/runbooks/multi-window-command-workflow.md` §v6;**前置條件是【那支檔是尾端追加型、且別人的改動也在尾端】, 中段 ⇒ 不成立, 回到上面那句預設。**
