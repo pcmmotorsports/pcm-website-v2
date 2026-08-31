@@ -86,7 +86,7 @@ describe('訂單失效落點:新表出現時要有人分類', () => {
     const unclassified = [...found].filter((t) => !(t in CLASSIFIED)).sort();
     // 🛑 這一格紅的時候, **不要直接把名字加進 CLASSIFIED** ——
     //    先回答:「這張表有列, 代表那張單可能不算數了嗎?」
-    //    答 true ⇒ 要同時改 `20260831150000_m4b_coupon_order_problem_predicate.sql`。
+    //    答 true ⇒ 要同時改 `20260831155000_m4b_coupon_order_problem_predicate.sql`。
     expect(unclassified, `這些表沒有被分類 —— 先決定它們算不算失效訊號:${unclassified.join(', ')}`).toEqual(
       [],
     );
@@ -98,7 +98,7 @@ describe('訂單失效落點:新表出現時要有人分類', () => {
     // 📌 今天第二次同族(券那邊 grep `printButton: false` 命中我自己寫的註解)——
     //    **一把讀原始碼字面的尺, 它的分母包含所有在講這件事的字, 而註解最會講。**
     const raw = readFileSync(
-      join(MIG, '20260831150000_m4b_coupon_order_problem_predicate.sql'),
+      join(MIG, '20260831155000_m4b_coupon_order_problem_predicate.sql'),
       'utf8',
     );
     const sql = raw.replace(/^\s*--.*$/gm, '').replace(/(^|[^:])--.*$/gm, '$1');
@@ -118,7 +118,7 @@ describe('訂單失效落點:新表出現時要有人分類', () => {
     //    `order_refund_effective_verdict` 是 view 不是表 ⇒ 兩者都掃不到。
     //    ⇒ 它們今天有被 predicate 問到, 而**本閘不會在它們消失時叫**。
     const sql = readFileSync(
-      join(MIG, '20260831150000_m4b_coupon_order_problem_predicate.sql'),
+      join(MIG, '20260831155000_m4b_coupon_order_problem_predicate.sql'),
       'utf8',
     );
     expect(sql).toContain('public.payment_refunds');
