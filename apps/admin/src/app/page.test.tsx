@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   listActiveStaff: vi.fn(),
   loadTodaySummary: vi.fn(),
   loadDataFreshness: vi.fn(),
+  loadFitmentFreshness: vi.fn(),
   loadCronHeartbeats: vi.fn(),
 }));
 vi.mock('../lib/session/actor-actions', () => ({ selectActorAction: vi.fn() }));
@@ -34,6 +35,11 @@ vi.mock('../lib/dashboard/today-read', () => ({ loadTodaySummary: mocks.loadToda
 vi.mock('../lib/dashboard/freshness-read', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   loadDataFreshness: mocks.loadDataFreshness,
+  // 🔴 2026-09-01 `⟦b4-FIT1⟧`:**這一行沒補之前, 這支測試會【打真的 supabase client】** ——
+  //    而 `loadFitmentFreshness` 把查詢層的錯接成值 + 首頁用 `allSettled` ⇒ 它會安靜地落成「量不到」
+  //    ⇒ **測試照樣全綠, 而那一行字從來沒有被驗過。**
+  //    📌 那正是本檔開頭那句「一個只在正常時出現的儀表」的第二個實例, 這次發生在【測試】那一側。
+  loadFitmentFreshness: mocks.loadFitmentFreshness,
 }));
 // 同上:`unreadableReport` **刻意不 mock** —— 它是「量不到長什麼樣」的唯一作者。
 vi.mock('../lib/dashboard/cron-heartbeat-read', async (orig) => ({
@@ -71,6 +77,7 @@ beforeEach(() => {
   mocks.listActiveStaff.mockResolvedValue([{ id: 's1', label: '小陳' }]);
   mocks.loadTodaySummary.mockResolvedValue(SUMMARY);
   mocks.loadDataFreshness.mockResolvedValue({ hoursAgo: 3, stale: false, abnormal: false, unreadableReason: null });
+  mocks.loadFitmentFreshness.mockResolvedValue({ hoursAgo: 24, stale: false, abnormal: false, unreadableReason: null });
   mocks.loadCronHeartbeats.mockResolvedValue({
     jobs: [
       { jobName: 'pcm-settle-sweep', label: '結帳掃描', minutesAgo: 1, consecutiveFailures: 0, abnormal: false, note: '1 分前成功' },
@@ -93,6 +100,11 @@ describe('AdminHomePage', () => {
     // 🔴 灰字那一行是【常亮的值】⇒ 正常時它就要在畫面上,不是只有出事才出現。
     expect(container.textContent).toContain('供應商資料最後更新:3 小時前');
     expect(container.querySelector('[data-testid="data-freshness"]')?.className).toContain(
+      'text-muted-foreground',
+    );
+    // 🔵 `⟦b4-FIT1⟧`:第二行(車款搜尋)也是常亮的值 ⇒ 正常時它就要在畫面上。
+    expect(container.textContent).toContain('車款搜尋同步:已 1 天沒有成功過');
+    expect(container.querySelector('[data-testid="fitment-freshness"]')?.className).toContain(
       'text-muted-foreground',
     );
   });
@@ -121,6 +133,41 @@ describe('AdminHomePage', () => {
     expect(line?.textContent).toContain('未來');
     expect(line?.className).toContain('text-destructive');
     expect(line?.className).not.toContain('text-muted-foreground');
+  });
+
+  // ══ 車款搜尋那一行的兩個世界(`⟦b4-FIT1⟧`,門檻 7 天 = Sean 2026-08-29 逐字 `A: 7天`)══
+  it('🔴 車款搜尋資料超過 7 天 ⇒ 那一行轉 destructive(而【供應商那一行仍是灰的】)', async () => {
+    mocks.loadFitmentFreshness.mockResolvedValue({
+      hoursAgo: 8 * 24, stale: true, abnormal: true, unreadableReason: null,
+    });
+    const { container } = render(await AdminHomePage());
+    const fit = container.querySelector('[data-testid="fitment-freshness"]');
+    expect(fit?.textContent).toContain('車款搜尋同步:已 8 天沒有成功過');
+    expect(fit?.className).toContain('text-destructive');
+    // 🔴🔴 **這一格才是「兩行分開」的判別力所在** —— 合成一行的話, 這個斷言寫不出來:
+    //    供應商那半今天是新鮮的(3 小時前), 而車搜那半已經 8 天沒更新。
+    //    ⇒ 一行的世界裡, 這兩件事只能印同一個顏色。
+    const sup = container.querySelector('[data-testid="data-freshness"]');
+    expect(sup?.textContent).toContain('供應商資料最後更新:3 小時前');
+    expect(sup?.className).toContain('text-muted-foreground');
+  });
+
+  it('🔴 車款搜尋那支拋錯 ⇒ 印「量不到」不留白,而供應商那行與對帳照舊', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.loadFitmentFreshness.mockRejectedValue(new Error('boom'));
+
+    const { container } = render(await AdminHomePage());
+
+    const fit = container.querySelector('[data-testid="fitment-freshness"]');
+    expect(fit).not.toBeNull();
+    expect(fit?.textContent).toContain('量不到');
+    expect(fit?.textContent?.trim()).not.toBe('');
+    expect(fit?.className).toContain('text-destructive');
+    // 失敗隔離:它掛掉不得把隔壁那行或對帳帶走
+    expect(container.textContent).toContain('供應商資料最後更新:3 小時前');
+    expect(container.textContent).toContain('今日實收');
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   it('🔴 新鮮度讀取拋錯 ⇒ 印「量不到」,**不得留白**,而其他區照舊', async () => {
