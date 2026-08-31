@@ -217,6 +217,51 @@ eq  "C 併發後列數"   "$C_ROWS" "1"
 eq  "C 併發後總額"   "$C_SUM"  "600"
 echo "     🔵 S2 牆鐘 ${S2SEC}s ⇒ 接近 S1 持有的 2.0s = **它真的被鎖住等**,不是剛好晚一步"
 
+
+# ══════════════════════════════════════════════════════════════
+# 世界 D:死結 —— 甲 的代價,而 2026-08-24 主視窗就是為了它裁「不加鎖」
+#
+# 🔴 現況兩條路的鎖序【相反】(本窗 2026-08-31 複量,兩格都對得上檔頭的宣稱):
+#    admin_record_manual_refund :216  orders FOR UPDATE → :298 INSERT 子表   ⇒ orders → 子表
+#    admin_void_manual_refund   :335  子表 FOR UPDATE;對 orders 上鎖命中 0  ⇒ 子表 → (加鎖後)orders
+# ⇒ 在 trigger 內取 orders 鎖 = 讓第二條路變成「子表 → orders」⇒ 兩種順序並存 ⇒ 死結。
+#
+# 🔴🔴 **本節必須有一個【該死鎖的世界】真的死鎖** ——
+#    否則「沒有 deadlock」與「我的測法根本碰不到那條路」印同一個綠。(主視窗 2026-08-31 指定的形狀)
+# ══════════════════════════════════════════════════════════════
+echo
+echo "── 世界 D:兩種鎖序並存會不會死結 ──"
+seed
+# D1 正對照:【手工造一個必死的世界】—— 兩個交易以相反順序鎖同兩列。
+#    這一格不是在測我們的碼, 是在測【這個 harness 抓不抓得到死結】。
+psql -qX -c "CREATE TABLE IF NOT EXISTS public.zzq_lockprobe(id int primary key)" >/dev/null 2>&1
+psql -qX -c "INSERT INTO public.zzq_lockprobe(id) VALUES (1),(2) ON CONFLICT DO NOTHING" >/dev/null 2>&1
+( printf 'BEGIN;\nSELECT 1 FROM public.zzq_lockprobe WHERE id=1 FOR UPDATE;\nSELECT pg_sleep(1.2);\nSELECT 1 FROM public.zzq_lockprobe WHERE id=2 FOR UPDATE;\nCOMMIT;\n' | psql -qX > "$PGDIR/d1a.out" 2>&1 ) &
+DA=$!
+( sleep 0.2; printf 'BEGIN;\nSELECT 1 FROM public.zzq_lockprobe WHERE id=2 FOR UPDATE;\nSELECT pg_sleep(1.2);\nSELECT 1 FROM public.zzq_lockprobe WHERE id=1 FOR UPDATE;\nCOMMIT;\n' | psql -qX > "$PGDIR/d1b.out" 2>&1 ) &
+DB=$!
+wait $DA $DB
+D1=$(cat "$PGDIR/d1a.out" "$PGDIR/d1b.out" | grep -c 'deadlock detected')
+eq "D1 正對照:反向鎖序的世界【真的死鎖】(證明本 harness 抓得到)" "$D1" "1"
+
+# D2:世界C 的修法(trigger 取 orders 鎖)+ 一個模擬 void 路徑(先鎖子表、再碰 orders)
+seed
+psql -qX -c "$(ins 300)" >/dev/null 2>&1   # 先有一列可以讓 void 那條路去鎖
+RID=$(q "select id from public.order_manual_refunds limit 1")
+( printf 'BEGIN;\nSELECT 1 FROM public.order_manual_refunds WHERE id=%s FOR UPDATE;\nSELECT pg_sleep(1.2);\nSELECT 1 FROM public.orders WHERE id=%s FOR UPDATE;\nCOMMIT;\n' "'$RID'" "'$O1'" | psql -qX > "$PGDIR/d2a.out" 2>&1 ) &
+DA=$!
+( sleep 0.2; printf 'BEGIN;\n%s;\nSELECT pg_sleep(1.2);\nCOMMIT;\n' "$(ins 100)" | psql -qX > "$PGDIR/d2b.out" 2>&1 ) &
+DB=$!
+wait $DA $DB
+D2=$(cat "$PGDIR/d2a.out" "$PGDIR/d2b.out" | grep -c 'deadlock detected')
+if [ "$D2" -ge 1 ]; then
+  ok "D2 甲的代價【實測成立】:trigger 取 orders 鎖 + 子表先鎖的路徑 ⇒ 死結 $D2 次"
+else
+  echo "  ⬜ D2 這一發沒撞出死結(0 次)—— 🔴 **而這【不等於】甲安全**:"
+  echo "     死結要兩邊真的交錯持有;本格用固定 sleep 逼交錯, 仍可能錯過。"
+  echo "     ⇒ 照 D1 的形狀:D1 死鎖了 ⇒ harness 抓得到死結 ⇒ D2 的 0 至少不是「尺沒接上」。"
+fi
+
 echo
 echo "══ 結果:PASS=$PASS FAIL=$FAIL ══"
 echo "🛑 射程:本機 read committed;orders/staff 是 stub;無 RLS;未驗 FOR UPDATE 與既有 trigger 的鎖序互動。"
