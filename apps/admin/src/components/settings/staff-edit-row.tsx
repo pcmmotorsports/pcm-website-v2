@@ -11,7 +11,29 @@ import {
 import type { StaffRow } from '../../lib/staff-repository';
 import { ADMIN_INPUT_CLASS } from '../shared/admin-form';
 
-function StaffProfileForm({ staff }: { staff: StaffRow }) {
+/**
+ * 看這一頁的人有沒有管理權 —— **三態,不是布林**。
+ *
+ * 🔴 **為什麼不能是布林**:唯一現成的查核 `staff.ts` 的 `isActiveManager`
+ *    在 **DB 故障時回 `false`**(`staff.ts:209-216`,那是刻意的 fail-closed,而它留了 log)。
+ *    對【閘】來說那是對的;**對【UI】直接沿用就錯了** ——
+ *    DB 打嗝 ⇒ 回 false ⇒ 鈕灰掉 ⇒ **一個真的是管理者的人會以為自己被降權**,
+ *    而畫面上沒有任何字告訴他「這是查不到,不是你沒權限」。
+ *
+ * ⇒ 所以 `unknown` **不灰**:讓他按,由 server 那道
+ *   `authorizeManagerMutation` 擋 —— 閘還在,安全面不受影響,
+ *   而他會拿到 `staff-result-messages.ts` 那句明確的錯誤訊息,
+ *   **那比一顆沉默的灰鈕好**。
+ */
+export type ManagePermission = 'yes' | 'no' | 'unknown';
+
+function StaffProfileForm({
+  staff,
+  canManage,
+}: {
+  staff: StaffRow;
+  canManage: ManagePermission;
+}) {
   return (
     <form
       action={updateStaffProfileAction}
@@ -43,7 +65,8 @@ function StaffProfileForm({ staff }: { staff: StaffRow }) {
       </p>
       <button
         type='submit'
-        className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium md:ml-auto'
+        disabled={canManage === 'no'}
+        className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 md:ml-auto'
       >
         儲存資料
       </button>
@@ -51,7 +74,13 @@ function StaffProfileForm({ staff }: { staff: StaffRow }) {
   );
 }
 
-function StaffActiveForm({ staff }: { staff: StaffRow }) {
+function StaffActiveForm({
+  staff,
+  canManage,
+}: {
+  staff: StaffRow;
+  canManage: ManagePermission;
+}) {
   const nextActive = !staff.is_active;
   const breakGlassProtected = staff.id === 'sean' && !nextActive;
 
@@ -68,7 +97,7 @@ function StaffActiveForm({ staff }: { staff: StaffRow }) {
       />
       <button
         type='submit'
-        disabled={breakGlassProtected}
+        disabled={breakGlassProtected || canManage === 'no'}
         className='h-9 rounded-md border px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50'
       >
         {breakGlassProtected
@@ -81,11 +110,17 @@ function StaffActiveForm({ staff }: { staff: StaffRow }) {
   );
 }
 
-export function StaffEditRow({ staff }: { staff: StaffRow }) {
+export function StaffEditRow({
+  staff,
+  canManage,
+}: {
+  staff: StaffRow;
+  canManage: ManagePermission;
+}) {
   return (
     <div className='flex w-full flex-col gap-3 md:flex-row md:items-end'>
-      <StaffProfileForm staff={staff} />
-      <StaffActiveForm staff={staff} />
+      <StaffProfileForm staff={staff} canManage={canManage} />
+      <StaffActiveForm staff={staff} canManage={canManage} />
     </div>
   );
 }

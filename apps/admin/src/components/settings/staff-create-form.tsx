@@ -9,8 +9,13 @@ import {
   AdminForm,
   AdminFormField,
 } from '../shared/admin-form';
+import type { ManagePermission } from './staff-edit-row';
 
-export function StaffCreateForm() {
+export function StaffCreateForm({
+  canManage,
+}: {
+  canManage: ManagePermission;
+}) {
   return (
     <AdminForm
       action={createStaffAction}
@@ -20,7 +25,8 @@ export function StaffCreateForm() {
       actions={
         <button
           type='submit'
-          className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium'
+          disabled={canManage === 'no'}
+          className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50'
         >
           新增員工
         </button>
