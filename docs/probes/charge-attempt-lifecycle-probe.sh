@@ -174,11 +174,21 @@ cell () {  # cell <說明> <期望字串> <SQL>
 echo ""
 echo "── ③ token hash:算法單一真相 ──────────────────────────────────────────────"
 # 🔴 期望值用【外部算的】—— 拿函式自己算兩次會恆綠。
+# 🔴🔴 **`shasum` 是 macOS 的, Linux runner 上的是 `sha256sum`** ——
+#    而本檔標了 `ci-self-contained: yes` ⇒ **CI 會跑它**, 而那是 ubuntu runner。
+#    ⇒ 📌 我「連跑兩發逐行相同」證的是**本機**, 而本機與 runner 是**兩個分母**。
+#      (主視窗 2026-09-01 指出這一格 ⇒ 我去掃了才發現:既有那三支 CI probe **一支都沒用 shasum**,
+#       只有我這支用了 ⇒ **我是那個把它帶進來的人。**)
+#    ✅ 用 `python3` 算 —— 它三支 probe 本來就在用(切檔那段), 不多一個依賴。
+#    🛑 而**不寫成 `command -v shasum || sha256sum`** 那種 fallback:
+#       兩條路會有兩種行為, 而只有一條會在 CI 上被跑到 ⇒ 另一條的錯永遠不會被發現。
+sha256hex () { python3 -c 'import hashlib,sys;print(hashlib.sha256(sys.argv[1].encode()).hexdigest())' "$1"; }
 TOKEN=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
-EXPECT="$(printf '%s' "$TOKEN" | shasum -a 256 | cut -d' ' -f1)"
+TOKEN2=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeef
+EXPECT="$(sha256hex "$TOKEN")"
 cell "sha256(uuid canonical text) 對得上外部算的" "$EXPECT" "select public.charge_attempt_token_hash('$TOKEN')"
-cell "🔵 不同 token ⇒ 不同 hash" "$(printf '%s' 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeef' | shasum -a 256 | cut -d' ' -f1)" \
-  "select public.charge_attempt_token_hash('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeef')"
+cell "🔵 不同 token ⇒ 不同 hash" "$(sha256hex "$TOKEN2")" \
+  "select public.charge_attempt_token_hash('$TOKEN2')"
 
 echo ""
 echo "── ① record_charge_capture_state:雙鍵 + 值域 + 冪等 ───────────────────────"
