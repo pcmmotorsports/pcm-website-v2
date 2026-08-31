@@ -23,7 +23,7 @@
 import { LoginInput, RegisterInput, isSyntheticEmailDomain } from '@pcm/schemas';
 import type { LoginInput as LoginData, RegisterInput as RegisterData } from '@pcm/schemas';
 
-export type RegisterField = 'name' | 'email' | 'phone' | 'password' | 'agree';
+export type RegisterField = 'name' | 'email' | 'phone' | 'password' | 'agree' | 'gender';
 export type LoginField = 'email' | 'password';
 export type ForgotField = 'email';
 export type ResetPasswordField = 'password' | 'confirm';
@@ -33,7 +33,7 @@ export type ForgotFieldErrors = Partial<Record<ForgotField, string>>;
 export type ResetPasswordFieldErrors = Partial<Record<ResetPasswordField, string>>;
 
 // 可顯示欄位 allowlist:zod issue 只在這些欄才塞 fieldErrors(防契約外 key、如 login.remember 型別錯)。
-const REGISTER_FIELDS: ReadonlySet<RegisterField> = new Set(['name', 'email', 'phone', 'password', 'agree']);
+const REGISTER_FIELDS: ReadonlySet<RegisterField> = new Set(['name', 'email', 'phone', 'password', 'agree', 'gender']);
 const LOGIN_FIELDS: ReadonlySet<LoginField> = new Set(['email', 'password']);
 
 /** unknown → string(安全取值;server action 收 unknown、client 傳 form state)。 */

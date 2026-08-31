@@ -112,7 +112,13 @@
   color: var(--c-text-3);
   margin-bottom: 6px;
 }
-.auth-field input {
+/* 🔵 select 與 input 共用同一組欄位樣式(2026-08-31 性別欄):
+   稿那一側【沒有 auth 專用的 select 樣式】—— design-reference 有 11 個 <select>,
+   而 account.css 對 select 零規則(🔵 正對照:同一份稿對 input 有 53 條 ⇒ 尺會動)。
+   ⇒ 不自創:讓 select 走與 input 逐字相同的那一組, 它就長得像同一張表單裡的東西。
+   ⚠️ 唯一自帶的差別是瀏覽器原生的下拉箭頭 —— 我沒有拿掉(拿掉要自畫, 那才是自創)。 */
+.auth-field input,
+.auth-field select {
   width: 100%;
   padding: 12px 14px;
   border: 1px solid var(--c-border);
@@ -121,7 +127,8 @@
   outline: none;
   transition: border-color 0.15s;
 }
-.auth-field input:focus { border-color: var(--c-text); }
+.auth-field input:focus,
+.auth-field select:focus { border-color: var(--c-text); }
 
 /* 逐欄 inline error(#181 Q2=B、business override):顯示在該欄 input 下方;
  * 與頂部 .auth-err(帳號層級錯)雙通道並存、互不取代(Sean 釘死 2)。 */
@@ -272,7 +279,10 @@
   [data-mobile] .auth-card, .auth-card { padding: 36px 32px; max-width: 480px; }
   [data-mobile] .auth-card h1, .auth-card h1 { font-size: 29px; }  /* 桌機 32 / 手機 26 */
   .auth-sub { font-size: 15px; }
-  .auth-field input { font-size: 16px; } /* iOS Safari 聚焦 <16px 會自動放大 */
+  /* 🔴 select 也要 —— 沒有它, iOS Safari 聚焦下拉時整頁會放大。
+     這一格是被 assert 逼出來的:我原本只改上面那條, 而這裡是【第二個】同名選擇器。 */
+  .auth-field input,
+  .auth-field select { font-size: 16px; } /* iOS Safari 聚焦 <16px 會自動放大 */
   .auth-field > span { font-size: 12px; }
   .auth-submit { padding: 15px; font-size: 15px; }
   .auth-social { padding: 13px 16px; font-size: 14px; }

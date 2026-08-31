@@ -38,6 +38,32 @@ export const LoginInput = z.object({
 });
 export type LoginInput = z.infer<typeof LoginInput>;
 
+// ══ 性別:值域與顯示字面的【唯一真相】(2026-08-31 片 B-2b)═══════════════════
+//
+// 🔴 為什麼放這裡而不是放在表單那支檔:`-24`/`-2d` 要求「顯示字面與儲存值的對應表要有
+//    【單一來源】,不要三個地方各寫一次」。而 repo 既有慣例是
+//    `TierBadge.tsx` 的 `TIER_LABEL: Record<MemberTier, string>` —— 一份 Record。
+//    ⇒ 這裡放【型別 + 值域 + 顯示表】三樣,前端只 import,不自己重打。
+//
+// 🔴🔴 **儲存的是代碼,畫面顯示的是中文** —— 兩者刻意分開:
+//    Sean 2026-08-26 `Q3`=乙 拍的是【畫面上的字】(第三個選項叫「不透露」),
+//    而「資料庫怎麼存」他看不到、也不該看。用代碼是為了
+//    **不讓文案調整變成資料庫值域遷移**(codex R3, 2026-08-31)。
+//    ⇒ 哪天他說「不透露」要改字,只改 `GENDER_LABEL`,DB 一動都不用動。
+//
+// ⚠️ 這三個代碼必須與 DB 端【兩處】逐字相同:
+//    `customers_gender_chk` 的 CHECK 值域、`handle_new_auth_user()` 的 CASE 白名單
+//    (兩者都在 `supabase/migrations/20260831150000_…`)。改任一處要三處一起改。
+export const GENDER_CODES = ['male', 'female', 'undisclosed'] as const;
+export type GenderCode = (typeof GENDER_CODES)[number];
+
+/** 代碼 ⇒ 畫面顯示字面。**改文案只改這裡。** */
+export const GENDER_LABEL: Record<GenderCode, string> = {
+  male: '男',
+  female: '女',
+  undisclosed: '不透露',
+};
+
 // RegisterInput — design AccountPages L256-299(欄位順序對齊 design:name→email→phone→password→agree)
 export const RegisterInput = z.object({
   // #201 刻意不 trim:design RegisterPage L261 `!form.name` 無 .trim()、storefront 不比 design 嚴(鐵則 1);要擴須 backlog 另立。
@@ -46,6 +72,10 @@ export const RegisterInput = z.object({
   phone: z.string().regex(/^[\d\s-]{8,}$/, { error: '手機格式不正確' }),
   password: z.string().min(8, { error: '密碼至少 8 碼' }),
   agree: z.literal(true, { error: '請同意服務條款' }),
+  // 🔵 性別 = **選填**(Sean 2026-08-31 答甲之下 `-2d` 定的;必填會強迫 Email 註冊的人填一個
+  //    我們對 Google / LINE 那群人根本收不到的欄位 ⇒ 資料更偏, 而報表上看不出來)。
+  //    ⇒ `.optional()`:沒選就不送這個 key ⇒ trigger 那側收成 NULL。
+  gender: z.enum(GENDER_CODES, { error: '性別選項不正確' }).optional(),
 });
 export type RegisterInput = z.infer<typeof RegisterInput>;
 

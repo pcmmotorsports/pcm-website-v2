@@ -28,9 +28,12 @@ import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import { registerAction } from '@/app/register/actions';
 import { validateRegister, type RegisterFieldErrors } from '@/lib/auth/field-validation';
+// 🔴 顯示字面的【唯一真相】—— 不在本檔重打那三個中文字(見 @pcm/schemas 那一節)。
+import { GENDER_CODES, GENDER_LABEL } from '@pcm/schemas';
 
 export function RegisterPage({ next }: { next?: string } = {}) {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', agree: false });
+  // 🔵 gender 預設 '' = 沒選(選填)。送出時 '' 會被轉成 undefined ⇒ 不進 options.data。
+  const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', agree: false, gender: '' });
   // 雙通道(#181 釘死 2):fieldErrors=逐欄驗證錯、formError=帳號層級錯(頂部);互不取代。
   const [fieldErrors, setFieldErrors] = useState<RegisterFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -70,7 +73,10 @@ export function RegisterPage({ next }: { next?: string } = {}) {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     // client 逐欄驗證(主防線、與 server 同一份 validateRegister)
-    const v = validateRegister(form);
+    // 🔵 '' 是「沒選」,不是一個值 ⇒ 轉成 undefined,讓 zod 的 .optional() 放行、
+    //    也讓它不進 options.data(見 SupabaseAuthAdapter 那段註解)。
+    const payload = { ...form, gender: form.gender === '' ? undefined : form.gender };
+    const v = validateRegister(payload);
     if (!v.ok) {
       setFieldErrors(v.fieldErrors);
       setFormError(null);
@@ -83,7 +89,7 @@ export function RegisterPage({ next }: { next?: string } = {}) {
     setPending(true);
     // 成功(直登)時 registerAction 內 redirect(#190 導回 sanitize 過的 next、client 自動導航);
     // 失敗回 { fieldErrors }(server 重驗逐欄)或 { formError }(帳號層級)。
-    const result = await registerAction(form, next);
+    const result = await registerAction(payload, next);
     if (result?.fieldErrors || result?.formError || result?.formNotice) {
       if (result.fieldErrors) setFieldErrors(result.fieldErrors);
       if (result.formError) setFormError(result.formError);
@@ -143,6 +149,27 @@ export function RegisterPage({ next }: { next?: string } = {}) {
                 placeholder="至少 8 碼"
               />
               {fieldErrors.password && <span className="auth-field-err">{fieldErrors.password}</span>}
+            </label>
+            {/* ══ 性別(選填)══════════════════════════════════════════════════
+                🔴 **這一欄只對【用 Email 註冊的人】有效** —— Google 一鍵與 LINE 進來的人
+                   從頭到尾不會看到這張表單,他們的 `customers.gender` 恆為 NULL。
+                   那是結構,不是漏做。⇒ 任何「客人性別分布」的統計都只涵蓋這條路進來的人,
+                   **而那個偏差在報表上沒有形狀**。(同一句話也寫在 DB 那一欄的 COMMENT 裡,
+                   因為做報表的人不會讀這支檔。)
+                🔵 顯示中文、**送代碼** —— 對應表在 `@pcm/schemas` 的 `GENDER_LABEL`,
+                   改文案只改那裡,DB 值域一動都不用動。 */}
+            <label className="auth-field">
+              <span>性別（選填）</span>
+              <select
+                value={form.gender}
+                onChange={(e) => { setForm({ ...form, gender: e.target.value }); clearErr('gender'); }}
+              >
+                <option value="">不選擇</option>
+                {GENDER_CODES.map((code) => (
+                  <option key={code} value={code}>{GENDER_LABEL[code]}</option>
+                ))}
+              </select>
+              {fieldErrors.gender && <span className="auth-field-err">{fieldErrors.gender}</span>}
             </label>
             <label className="auth-check auth-check-full">
               <input

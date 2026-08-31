@@ -112,6 +112,38 @@ describe('registerAction(信任邊界 + #181 雙通道)', () => {
     expect(redirectSpy).not.toHaveBeenCalled();
   });
 
+  // ══ 🔴 ⟦性別 B-2b⟧ 收工判準不是「表單上有那個下拉」,是【真的送得出去】 ══════════
+  //    這兩格斷言的是 signUp 收到的 **metadata**(= 會進 auth.users.raw_user_meta_data
+  //    ⇒ 由 trigger 搬進 customers.gender 的那一份)。
+  //    ⚠️ 射程:它們證的是【我方送出去的東西】。**它們證不到 trigger 真的搬了** ——
+  //       那一半的證據在拋棄式 PG（migration 20260831150000 那幾發),不在這裡。兩個宣稱。
+  it('⟦B-2b⟧ 選了性別 → signUp 收到的 metadata.gender = 送出去的【代碼】', async () => {
+    const result = await registerAction({ ...VALID, gender: 'female' });
+    expect(signUpSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ metadata: expect.objectContaining({ gender: 'female' }) }),
+    );
+    expect(result?.fieldErrors).toBeUndefined();
+  });
+
+  it('⟦B-2b⟧ 【不選】性別 → 照樣送得出去,而 metadata.gender 是 undefined(選填就是這樣成立的)', async () => {
+    const result = await registerAction(VALID); // VALID 不含 gender
+    expect(signUpSpy).toHaveBeenCalledTimes(1);
+    // 🔵 用 objectContaining 而不是 mock.calls[0][0].… —— 後者 TS 判它可能 undefined(TS2532),
+    //    而 typecheck 抓到了它, 測試沒有。**測試綠與 typecheck 綠是兩件事。**
+    expect(signUpSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ metadata: expect.not.objectContaining({ gender: expect.anything() }) }),
+    );
+    // 🔴 而它【不得】變成一個逐欄錯 —— 選填欄位擋住註冊是本片最該防的失敗。
+    expect(result?.fieldErrors).toBeUndefined();
+    expect(result?.formError).toBeUndefined();
+  });
+
+  it('⟦B-2b·對照⟧ 送一個【值域外】的性別 → 逐欄錯,而且 signUp 一次都沒被呼叫', async () => {
+    const result = await registerAction({ ...VALID, gender: '女' }); // 中文顯示字面不是代碼
+    expect(result?.fieldErrors?.gender).toBeDefined();
+    expect(signUpSpy).not.toHaveBeenCalled();
+  });
+
   // 🔵 2026-08-31 `-15`:這一格從 formError 改判 formNotice。
   //    ⚠️ 舊斷言 `result?.formError).toContain('Email 驗證')` 會【繼續通過】如果我只加新通道
   //    而沒改舊斷言 —— 所以這裡把「它【不】在錯誤通道」也釘死,否則這一片等於沒做。

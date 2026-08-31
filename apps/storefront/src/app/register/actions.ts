@@ -61,10 +61,18 @@ export async function registerAction(input: unknown, next?: string | null): Prom
   }
 
   // v.data 已 strip 未知欄;只映射 use-case 契約欄(AuthSignUpParams);agree 不進 use-case(表單同意欄、非 signUp 參數)。
+  // 🔴 gender 走 `options.data` ⇒ `auth.users.raw_user_meta_data` ⇒ 由 trigger
+  //    `handle_new_auth_user()` 搬進 `customers.gender`(migration 20260831150000)。
+  //    ⚠️ **送的是代碼**(male / female / undisclosed), 不是畫面上的中文 ——
+  //    對應表在 `@pcm/schemas` 的 `GENDER_LABEL`, 那是唯一真相。
+  //    🔵 沒選 ⇒ `v.data.gender` 是 undefined ⇒ 這個 key 不會進 metadata
+  //       ⇒ trigger 那側 `raw_user_meta_data->>'gender'` 取到 NULL ⇒ 收成 NULL。**選填就是這樣成立的。**
+  //    🛑 而 **DB 那側不信任這裡** —— trigger 有 CASE 白名單, 送一個值域外的字串
+  //       不會炸掉註冊, 只會被當成沒填。這一層與那一層是兩道, 不是重複。
   const params: AuthSignUpParams = {
     email: v.data.email,
     password: v.data.password,
-    metadata: { name: v.data.name, phone: v.data.phone },
+    metadata: { name: v.data.name, phone: v.data.phone, gender: v.data.gender },
   };
 
   let result;
