@@ -313,6 +313,22 @@ const ALLOWLIST = [
   //      ⇒ **這道守門此刻有判別力, 加這一行不是把它關掉。**
   //    ⚠️ 突變刻意做在【本白名單】上, **不往 `supabase/migrations/` 丟野檔**(八窗共用一棵樹)。
   '20260901003000_m4b_coupon_p3_create_order_discount_param.sql',
+
+  // ── 券片 3b(2026-09-01):`create_order` 第 11 代 + 收款扣券 trigger ────────────
+  //    **這道閘紅了才發現要登記, 不是我主動想到的** —— 照實記, 因為那正是它的價值。
+  //    🔴 而登記前先答它要我答的:我對那三欄做了什麼。**用 diff 對 3a 逐字比, 不憑印象**:
+  //      · `INSERT INTO public.order_items (...)` ⇒ **diff 0 行, 逐字相同**
+  //      · `INSERT INTO public.orders (...)` 的差異**只有一處**:
+  //          欄位清單 `notification_email` ⇒ `notification_email, coupon_id`
+  //          值   `p_notification_email` ⇒ `p_notification_email, v_coupon_id`
+  //        ⇒ 那是新加的 **`coupon_id`** 欄, **`subtotal` 那一格一個字都沒動**
+  //          (仍是 `v_subtotal::integer`)。
+  //    ⇒ ✅ **本片守的那條不變式(`orders.subtotal` = Σ`order_items.line_total`)沒被碰到。**
+  //    🔵 而本片新加的 trigger `coupon_redeem_on_paid()` **不寫這三欄**
+  //      —— 它只寫 `coupon_redemptions` 與 `order_notes`。而它照樣要登記:
+  //      **本白名單掃的是【檔】不是【函式】**, 而這支檔裡確實有一個寫 orders 的 INSERT。
+  //      📌 分母是檔 ⇒ 一支檔裡混了兩件事, 兩件都要一起被看。
+  '20260901021000_m4b_coupon_p3b_create_order_redeem.sql',
 ] as const;
 
 function scanWriters(dir: string): string[] {
