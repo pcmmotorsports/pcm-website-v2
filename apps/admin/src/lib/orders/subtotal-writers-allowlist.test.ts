@@ -296,6 +296,23 @@ const ALLOWLIST = [
   //          **而 live 那一欄仍只是帳本、不是正式庫現況**(那支工具自己的射程聲明)。
   //       🛑 撞號本身是一個**跨線的獨立問題**(不是本筆造成的),已回報主視窗。
   '20260831180000_m4b_spec1_manual_order_authoritative_spec.sql',
+  // 🔴 2026-09-01 登記(線【客人帳戶區】`-7a`;券片3a)——
+  //    它是 `create_order` 的 `CREATE OR REPLACE` 重定義(第 10 代), 函式本體逐字抄自
+  //    `20260825130000`, 只在三處有 delta ⇒ **寫那三欄的路徑沒有變多**, 是同一條路徑的新版本。
+  //
+  //    🔴 **而本格真正要問的是「寫的值對嗎」, 不是「請把名字加進去」** —— 我逐字比過:
+  //      · `INSERT INTO public.order_items (...)` 整段 **逐字相同**
+  //        ⇒ `line_total` / `order_id` 兩欄一個字沒動
+  //      · `INSERT INTO public.orders (...)` 的差異**只有一格**:`0` ⇒ `v_discount_total`
+  //        ⇒ 那是 **`discount_total`** 欄, **不是 `subtotal`**;`subtotal` 仍是 `v_subtotal::integer`
+  //    ⇒ ✅ **本片守的那條不變式(`orders.subtotal` = Σ`order_items.line_total`)完全沒被碰到。**
+  //    🔵 而本片改動的 `total` / `discount_total` 兩欄**不在這兩支 trigger 的監看範圍內**。
+  //
+  //    🔴 **登記前跑過一發壞形狀**(照 `20260829140000` 那一筆的做法):
+  //      把 `20260730120100` 那一項從本 ALLOWLIST 拿掉 ⇒ 本格轉紅並報出未登記者
+  //      ⇒ **這道守門此刻有判別力, 加這一行不是把它關掉。**
+  //    ⚠️ 突變刻意做在【本白名單】上, **不往 `supabase/migrations/` 丟野檔**(八窗共用一棵樹)。
+  '20260901003000_m4b_coupon_p3_create_order_discount_param.sql',
 ] as const;
 
 function scanWriters(dir: string): string[] {
