@@ -10,6 +10,7 @@ vi.mock('../../lib/staff-actions', () => ({
 
 import { StaffCreateForm } from './staff-create-form';
 import { StaffTable } from './staff-table';
+import { permissionNotice } from './staff-edit-row';
 
 const ROWS = [
   {
@@ -116,82 +117,90 @@ describe('StaffCreateForm', () => {
   });
 });
 
-// ── ⟦b4-MGR0-UI⟧ 三個世界(2026-08-31,Sean 逐字「要灰」)──────────────────
+// ── ⛔ 舊的那組三個世界(2026-08-31 上半場)已由上面那組取代 ────────────────
 //
-// 🔴 **這一組真正要釘死的是第三個世界**:`unknown` **不灰**。
-//    最容易被寫反的就是它 —— 有人「順手把三態收成布林」時,`unknown` 會掉進 `no` 那一邊,
-//    而畫面上看起來完全正常:一顆灰鈕,沒有人分得出它是「你沒權限」還是「我們查不到」。
-//    (為什麼不能灰:`isActiveManager` 在 DB 故障時回 false ⇒ 沿用它會讓真管理者以為自己被降權。
-//     詳 staff-edit-row.tsx 的 `ManagePermission` docstring。)
+// 🔴 **舊版逐字寫著「`unknown` **不灰**:讓他按, 由 server 那道閘擋」** ——
+//    那是我的第一版設計, 理由是「灰了他會以為自己被降權」。
+// ✅ **而 Sean 2026-08-31 拍甲把它推翻了**:`unknown` **也停用**,
+//    差別在【那句話】(「暫時無法確認你的權限」)。
+//    ⇒ 📌 我原本的顧慮是對的, 而**解法選錯了** —— 該解的是「他不知道為什麼」,
+//      而我解成「那就讓他按」。**一句話比一個可按的鈕便宜。**
 //
-// 🛑 而 server 那道 `authorizeManagerMutation` 一個字都沒動 ⇒ 安全面不靠這一組。
-describe('⟦b4-MGR0-UI⟧ 沒權限的鈕要灰 —— 而【查不到】不算沒權限', () => {
-  const submitButtons = (root: HTMLElement) =>
-    [...root.querySelectorAll<HTMLButtonElement>('button[type="submit"]')];
+// 🛑 舊測試已刪(留不得:它與新規格【互相矛盾】, 兩套同時在會有一套恆紅)。
+//    而它的職能沒有消失 —— 上面那組用【掃出來的每一個可互動元素】當分母, 涵蓋更寬。
 
-  it("canManage='no' ⇒ 表格與新增表單的送出鈕【全部】灰掉", () => {
-    const table = render(<StaffTable rows={ROWS} canManage='no' />);
-    const tableButtons = submitButtons(table.container);
-    expect(tableButtons.length).toBeGreaterThan(0); // 先證明尺撈得到東西
-    expect(tableButtons.every((b) => b.disabled)).toBe(true);
-    cleanup();
+// ── ⟦b4-MGR0-UI⟧ 整組唯讀(Sean 2026-08-31 拍甲;codex R2 那四條是規格)────────
+//
+// ⛔ **舊的那組(2026-08-31 上半場)已刪** —— 它逐字寫著
+//    「`unknown` **不灰**:讓他按, 由 server 那道閘擋」, 那是我的第一版設計。
+// ✅ Sean 拍甲把它推翻:`unknown` **也停用**, 差別在【那句話】。
+//    📌 我原本的顧慮(灰了他會以為被降權)是對的, 而**解法選錯了** ——
+//       該解的是「他不知道為什麼」, 而我解成「那就讓他按」。**一句話比一個可按的鈕便宜。**
+//    🛑 舊測試留不得:它與新規格【互相矛盾】, 兩套同時在會有一套恆紅。
+//
+// 🔴 **分母刻意是【畫面上所有可互動元素】, 不是一份清單。**
+//    codex R2 逐字:「`no` 世界只灰送出鈕, 顯示名、管理者勾選框與新增欄位仍可編輯」
+//    ⇒ 若寫成「檢查這 5 個」, 有人加第 6 個輸入框時它照樣綠。
+//    ⇒ 改成「**掃出來的每一個**都要 disabled」—— 新元素一出生就在射程裡。
+// 🛑 `type='hidden'` 排除:它們載的是 id, 停用它們會讓表單送不出正確的值。
+const interactive = (root: HTMLElement) => [
+  ...root.querySelectorAll<HTMLInputElement | HTMLButtonElement>(
+    'input:not([type="hidden"]), button, select, textarea',
+  ),
+];
 
-    const form = render(<StaffCreateForm canManage='no' />);
-    const formButtons = submitButtons(form.container);
-    expect(formButtons.length).toBeGreaterThan(0);
-    expect(formButtons.every((b) => b.disabled)).toBe(true);
+describe('⟦b4-MGR0-UI⟧ no / unknown ⇒ 整組唯讀 + 一句話', () => {
+  it.each([['no' as const], ['unknown' as const]])(
+    'canManage=%s ⇒ 表格裡每一個可互動元素都停用',
+    (mode) => {
+    const { container } = render(<StaffTable rows={ROWS} canManage={mode} />);
+    const els = interactive(container);
+    expect(els.length, '掃到 0 個可互動元素 ⇒ 這把尺沒接上, 不是通過').toBeGreaterThan(0);
+    expect(
+      els.filter((el) => !el.disabled).map((el) => el.getAttribute('name') ?? el.textContent),
+      `這些元素在 ${mode} 之下還可以動 ⇒ 沒權限的人可以把表填完才發現存不了`,
+    ).toEqual([]);
+    // 🔴 codex R3 must-fix:那句話【不由元件印】—— 放進列元件會變成 N 位員工 N 段紅字。
+    // ⚠️ codex R4 nit:第一版硬編舊片語 ⇒ 文案改字之後這裡會【假綠】
+    //    (提示被搬回列元件而字變了 ⇒ 舊片語抓不到)。
+    // ⇒ 改成拿 `permissionNotice()` 的【實際輸出】比 —— 文案改字它跟著改。
+    expect(container.textContent).not.toContain(permissionNotice(mode));
+    expect(container.querySelectorAll('[role="status"]').length).toBe(0);
+    },
+  );
+
+  it.each([['no' as const], ['unknown' as const]])(
+    'canManage=%s ⇒ 新增表單同樣整組停用',
+    (mode) => {
+    const { container } = render(<StaffCreateForm canManage={mode} />);
+    const els = interactive(container);
+    expect(els.length, '掃到 0 個可互動元素 ⇒ 這把尺沒接上').toBeGreaterThan(0);
+    expect(
+      els.filter((el) => !el.disabled).map((el) => el.getAttribute('name') ?? el.textContent),
+      `這些元素在 ${mode} 之下還可以動`,
+    ).toEqual([]);
+    expect(container.textContent).not.toContain(permissionNotice(mode));
+    expect(container.querySelectorAll('[role="status"]').length).toBe(0);
+    },
+  );
+
+  it('🔴 那兩句話【不一樣】—— 合併成一句, 使用者分不出「我沒權限」與「系統查不到」', () => {
+    // 文案由頁面印, 而【那兩句必須不同】這件事在這裡釘 —— 它是純函式, 不必渲染。
+    expect(permissionNotice('no')).not.toBe(permissionNotice('unknown'));
+    expect(permissionNotice('no')).toContain('你沒有權限');
+    expect(permissionNotice('unknown')).toContain('暫時無法確認');
+    expect(permissionNotice('yes')).toBeNull();
   });
 
-  it("canManage='yes' ⇒ 只有 break-glass 那顆灰(其餘都能按)", () => {
+  it("canManage='yes' ⇒ 除了救援帳號那顆, 其餘都能動, 而且【不顯示】那兩句話", () => {
     const table = render(<StaffTable rows={ROWS} canManage='yes' />);
-    const all = submitButtons(table.container);
-    expect(all.length).toBeGreaterThan(0); // 先證明尺撈得到東西
-    const disabled = all.filter((b) => b.disabled);
-    // sean 那列的「停用員工」是救援帳號保護 ⇒ 它本來就灰,而且與 canManage 無關。
-    // 🔴 這裡【不釘死數字】:StaffTable 同時渲染桌機列與手機卡 ⇒ 同一顆救援鈕出現兩次。
-    //    我第一版寫 `toBe(1)` ⇒ 紅在 2。那個 1 是【猜的】,不是量的。
-    //    ⇒ 釘「非空 + 全部都是救援鈕」——`> 0` 那一格正是 codex nit 要的:
-    //      沒有它,`.every()` 對空陣列恆為 true。
-    expect(disabled.length).toBeGreaterThan(0);
+    const els = interactive(table.container);
+    expect(els.length).toBeGreaterThan(0);
+    const disabled = els.filter((el) => el.disabled);
+    expect(disabled.length).toBeGreaterThan(0); // 救援帳號那顆本來就灰
     expect(
-      disabled.every((b) => b.textContent?.includes('救援帳號不可停用')),
-      "canManage='yes' 之下有非救援鈕被灰掉了",
+      disabled.every((el) => el.textContent?.includes('救援帳號不可停用')),
+      "canManage='yes' 之下有非救援元素被停用",
     ).toBe(true);
-    cleanup();
-
-    // 🔴 codex R1 must-fix:第一版只驗表格 ⇒ 把新增鈕改成 `disabled={canManage !== 'unknown'}`
-    //    管理者會無法新增員工,而三態測試仍然全綠。
-    const form = render(<StaffCreateForm canManage='yes' />);
-    const formButtons = submitButtons(form.container);
-    expect(formButtons.length).toBeGreaterThan(0);
-    expect(
-      formButtons.some((b) => b.disabled),
-      "canManage='yes' 之下新增員工的鈕不該灰",
-    ).toBe(false);
-  });
-
-  it("🔴 canManage='unknown' ⇒ 【不灰】—— 讓他按, 由 server 那道閘擋", () => {
-    const { container } = render(<StaffTable rows={ROWS} canManage='unknown' />);
-    const all = submitButtons(container);
-    expect(all.length).toBeGreaterThan(0);
-    const disabled = all.filter((b) => b.disabled);
-    // 🔴 codex R1 nit:第一版只寫 `disabled.every(...)`,而它【對空陣列恆為 true】
-    //    ⇒ 救援帳號保護哪天失效、所有鈕都不灰,那一格照樣綠。
-    //    ⇒ 改成釘死「就是那一顆,而且只有那一顆」。
-    // 同上:不釘死數字（桌機 + 手機各一顆),而 `> 0` 那一格是 codex nit 要的防空陣列。
-    expect(disabled.length).toBeGreaterThan(0);
-    expect(
-      disabled.every((b) => b.textContent?.includes('救援帳號不可停用')),
-      'unknown 被當成 no 了 ⇒ DB 打嗝時真管理者會以為自己被降權',
-    ).toBe(true);
-    cleanup();
-
-    const form = render(<StaffCreateForm canManage='unknown' />);
-    const formButtons = submitButtons(form.container);
-    expect(formButtons.length).toBeGreaterThan(0);
-    expect(
-      formButtons.some((b) => b.disabled),
-      'unknown 之下新增表單的鈕不該灰',
-    ).toBe(false);
   });
 });
