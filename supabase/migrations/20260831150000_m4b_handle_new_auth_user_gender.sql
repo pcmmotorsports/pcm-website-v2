@@ -30,6 +30,17 @@
 --   (為什麼不用一個共用函式:那會讓這支 SECURITY DEFINER 的 trigger 多一個外部依賴,
 --    而它的失敗代價是「每個新註冊的人都建不出列」⇒ 這裡選【重複兩份 + 明寫約束】。)
 --
+-- ══ 🔴🔴 值域從【中文字面】改成【穩定代碼】(2026-08-31,`-2d` 裁)═════════════
+--   B-1(`20260831140000`,**已 apply**)當時把值域寫成 `'男' / '女' / '不透露'`。
+--   codex R3 指出:那會讓**文案調整變成資料庫值域遷移**。
+--   ⇒ 改存 `male` / `female` / `undisclosed`,**畫面上仍然顯示「男 / 女 / 不透露」**。
+--   🔵 **這【沒有推翻】Sean 2026-08-26 的 `Q3`=乙** —— 他拍的是【畫面上的字】,
+--      而「資料庫怎麼存」他看不到、也不該看。畫面字面一字未改。
+--   🔴 而為什麼是現在做:**14 筆全 NULL、零值在用** ⇒ 今天改 = 純 DDL、零資料處理;
+--      晚一天就要處理真資料。**這一題有時效,而時效是它現在做的唯一理由。**
+--   🛑 **代價寫在這裡**:Sean 要為同一件事多貼一次 SQL。那是我們切片時沒想到,不是他的。
+--   ⚠️ 而 B-1 那支**已 apply,不得改寫** ⇒ 值域用「先 DROP 再 ADD」在本支處理。
+--
 -- ══ 🔴 這一支比 B-1 危險一級 ═══════════════════════════════════════════════
 --   B-1 加欄寫錯 ⇒ 多一個沒人用的欄。
 --   **本支寫錯 ⇒ 每一個新註冊的人(三條路都是)都建不出 `customers` 列。**
@@ -91,7 +102,7 @@ BEGIN
        --       不是反編譯字串 ⇒ 它們不會因為別人合法重寫而誤擋。
   ) THEN
     RAISE EXCEPTION
-      '前置未滿足:customers_gender_chk 不存在 / 不在 public.customers 上 / 不是已驗證的 CHECK / 值域不含三個預期值 ⇒ 請先 apply 20260831140000';
+      '前置未滿足:customers_gender_chk 不存在 / 不在 public.customers 上 / 不是已驗證的 CHECK ⇒ 請先 apply 20260831140000';
   END IF;
 
   -- 🔴 同 must-fix:既有函式與 trigger 必須都在且互相綁定。
@@ -119,7 +130,46 @@ BEGIN
 END
 $gender_preflight$;
 
--- ══ 1. 函式 ═══════════════════════════════════════════════════════════════
+-- ══ 1. 值域置換:中文字面 ⇒ 穩定代碼 ═══════════════════════════════════════
+-- 🔵 先 DROP 再 ADD(不是 ALTER)—— PG 沒有「改 CHECK 內容」這個動作。
+-- 🔵 而這一步安全的唯一理由是【現在沒有任何一列有值】:
+--    既有 14 筆全 NULL ⇒ 新 CHECK 對它們求值為 NULL ⇒ 不拒絕 ⇒ 不需要回填、不需要 NOT VALID。
+--    ⚠️ **這個理由會過期。** 一旦有真值,同樣的置換就要先回填。
+-- 🔴 codex must-fix ①(2026-08-31):`SELECT count()` 只拿 ACCESS SHARE
+--    ⇒ 它擋不住另一個 session 在【數完之後、第一個 ALTER 之前】寫進一個舊中文值。
+--    🔵 資料完整性其實沒破(ADD CHECK 掃描會失敗 ⇒ 整筆 rollback、舊 CHECK 復原),
+--       **壞的是我那句「先確認零值再置換」的宣稱** —— 它在併發下不成立。
+--    ⇒ 把後面本來就要拿的最強鎖【提前】拿:`lock_timeout='5s'` 仍會 fail-fast。
+DO $gender_domain_swap$
+DECLARE
+  v_non_null bigint;
+BEGIN
+  LOCK TABLE public.customers IN ACCESS EXCLUSIVE MODE;
+  SELECT count(gender) INTO v_non_null FROM public.customers;
+  IF v_non_null <> 0 THEN
+    RAISE EXCEPTION
+      '前置未滿足:public.customers.gender 已經有 % 列有值 ⇒ 直接換值域會讓它們變成非法值。本支的安全前提(全 NULL)不成立,停止。', v_non_null;
+  END IF;
+END
+$gender_domain_swap$;
+
+ALTER TABLE public.customers DROP CONSTRAINT customers_gender_chk;
+
+ALTER TABLE public.customers
+  ADD CONSTRAINT customers_gender_chk
+    CHECK (gender IN ('male', 'female', 'undisclosed'));
+
+COMMENT ON COLUMN public.customers.gender IS
+  '性別(選填)。**儲存穩定代碼** male / female / undisclosed;'
+  '畫面顯示「男 / 女 / 不透露」由前端對應表負責(Sean 2026-08-26 Q3=乙 拍的是【畫面的字】)。'
+  '🔵 用代碼不用中文的理由:文案調整不該變成資料庫值域遷移(codex R3, 2026-08-31)。'
+  '🔴 只有【Email 註冊路徑】會填這一欄;Google / LINE 進來的使用者恆 NULL —— '
+  '他們從頭到尾沒有看過我們的註冊表單,那是結構不是漏做。'
+  '⇒ 任何「性別分布」的統計都只涵蓋 Email 註冊的那一群,而 customers 沒有欄位記錄'
+  '註冊來源(provider 在 auth.users.raw_user_meta_data)⇒ 無法事後把兩群對起來。'
+  'NULL 同時涵蓋「沒被問」「問了沒填」「送了不認得的值」三種,彼此分不開。';
+
+-- ══ 2. 函式 ═══════════════════════════════════════════════════════════════
 -- 🔵 基準 = `20260523034911:278`(repo 唯一一代;而 2026-08-31 正式庫實查【與它逐字相同】)。
 --    本次唯一的改動 = 多一個 gender 欄與它的 CASE;name / phone 兩條路一字未動。
 CREATE OR REPLACE FUNCTION public.handle_new_auth_user()
@@ -131,10 +181,21 @@ BEGIN
     NEW.email,
     COALESCE(NEW.raw_user_meta_data->>'name', ''),
     COALESCE(NEW.raw_user_meta_data->>'phone', ''),
-    -- 🔴 收斂,不信任前端:認得的三個值才收,其餘(含沒帶、空字串、亂送)一律 NULL。
-    --    ⚠️ 這三個字面必須與 `customers_gender_chk` 的值域【逐字相同】—— 見檔頭那一節。
-    CASE WHEN NEW.raw_user_meta_data->>'gender' IN ('男', '女', '不透露')
-         THEN NEW.raw_user_meta_data->>'gender'
+    -- 🔴 收斂,不信任前端:認得的值才收,其餘(沒帶、空字串、亂送)一律 NULL
+    --    ⇒ 不讓一個亂送的字串害那個人註冊不成功。
+    -- 🔴🔴 codex must-fix ②(2026-08-31):**中文不能靜默吞掉。**
+    --    舊版前端(或快取住的頁面)會送「男 / 女 / 不透露」——那是【使用者真的填了】的值。
+    --    我原本把它收成 NULL,而 COMMENT 自己承認 NULL 分不出「沒問 / 沒填 / 送錯」
+    --    ⇒ 📌 **那等於已知的合法輸入被靜默遺失,而資料面不會有任何告警。**
+    --    ⇒ 相容期【兩組都收】,但**一律存代碼**。中文那三個是可以退場的,而退場要有人決定。
+    --    ⚠️ 代碼那三個字面必須與上面剛換好的 `customers_gender_chk` 值域【逐字相同】。
+    CASE NEW.raw_user_meta_data->>'gender'
+         WHEN 'male'        THEN 'male'
+         WHEN '男'          THEN 'male'          -- 相容:舊版前端送顯示字面
+         WHEN 'female'      THEN 'female'
+         WHEN '女'          THEN 'female'        -- 相容
+         WHEN 'undisclosed' THEN 'undisclosed'
+         WHEN '不透露'      THEN 'undisclosed'   -- 相容
          ELSE NULL
     END
   );
@@ -148,6 +209,9 @@ COMMENT ON FUNCTION public.handle_new_auth_user IS
   'SECURITY DEFINER 必要(trigger 需以 owner 權限寫 public.customers)。'
   'Google / LINE OAuth 註冊也走此 trigger:Google 走 Supabase 內建 signInWithOAuth、'
   'LINE 走自寫 OAuth + Supabase Admin API createUser(都會觸發 auth.users insert)。'
+  '🔵 相容期:CASE 同時接受代碼與中文顯示字面(男/女/不透露),而【一律存代碼】——'
+  '舊版前端送的中文是使用者真的填了的值,靜默吞成 NULL 等於已知輸入遺失(codex must-fix, 2026-08-31)。'
+  '⇒ 中文那三個入口可以退場,而退場要有人決定、不是自然消失。'
   '🔴 gender 走 CASE 白名單收斂(20260831150000):raw_user_meta_data 是【客戶端送的】,'
   '直接寫進有 CHECK 的欄 ⇒ 送一個值域外的字串就會讓 trigger 失敗 ⇒ 那個人註冊不成功。'
   '⇒ 不認得的值一律當作沒填(NULL),而不是讓註冊掛掉。'
