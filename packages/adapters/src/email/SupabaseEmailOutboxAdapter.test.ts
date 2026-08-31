@@ -488,7 +488,7 @@ describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA
   //    落哪個 status / 稽核碼寫了沒 / claimed_at 有沒有清 / 世代柵欄 CAS 帶對了沒。
   it('markSkippedShipmentVoided:落 skipped_shipment_voided + 🔴 稽核碼 shipment_voided + 清 claimed_at + 世代柵欄', async () => {
     const b = makeBuilder({ data: [{ id: 'outbox-9' }], error: null });
-    expect(await adapter(makeClient(b)).markSkippedShipmentVoided('outbox-9', 3)).toBe(true);
+    expect(await adapter(makeClient(b)).markSkippedShipmentVoided('outbox-9', 3, 'ship-1:ord-1')).toBe(true);
     const vals = argsOf(b, 'update')[0]![0] as Record<string, unknown>;
     expect(vals.status).toBe('skipped_shipment_voided');
     // 🔴 與 order_ineligible 分開是承重的:合併之後稽核會得到一個【錯而合理】的答案
@@ -501,9 +501,41 @@ describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA
     ]);
   });
 
+  // ⟦b4-SHIPUNVOID1⟧ 2026-08-31 —— 🔴 **這三格守的是一個【沒有東西會叫】的漏信。**
+  it('🔴🔴 退休 dedup_key,而且【與 status 在同一發 update】', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-9' }], error: null });
+    await adapter(makeClient(b)).markSkippedShipmentVoided('outbox-9', 3, 'ship-1:ord-1');
+    const calls = argsOf(b, 'update');
+    // 🔴 **只有一發 update** —— 拆成兩發的話,「先 unvoid 後 skip」那個順序會讓退休撲空
+    //    (probe W4 實測那個順序可達;W4b 負對照對另一個順序印不同的值)。
+    expect(calls.length).toBe(1);
+    const vals = calls[0]![0] as Record<string, unknown>;
+    expect(vals.dedup_key).toBe('ship-1:ord-1:voided:outbox-9');
+    // 🔴 status 與它在**同一個 values 物件**裡 ⇒ 同一發 UPDATE ⇒ 不可能一個成功一個失敗
+    expect(vals.status).toBe('skipped_shipment_voided');
+  });
+
+  it('🔴 負對照:兩列不同的 outbox ⇒ 兩把不同的退休鍵(否則第二列會撞到第一列)', async () => {
+    const b1 = makeBuilder({ data: [{ id: 'a' }], error: null });
+    await adapter(makeClient(b1)).markSkippedShipmentVoided('outbox-A', 1, 'ship-1:ord-1');
+    const b2 = makeBuilder({ data: [{ id: 'b' }], error: null });
+    await adapter(makeClient(b2)).markSkippedShipmentVoided('outbox-B', 1, 'ship-1:ord-1');
+    expect((argsOf(b1, 'update')[0]![0] as Record<string, unknown>).dedup_key)
+      .not.toBe((argsOf(b2, 'update')[0]![0] as Record<string, unknown>).dedup_key);
+  });
+
+  it('🔴 冪等:同一列被 skip 兩次 ⇒ 算出來的鍵【相同】(不會越疊越長)', async () => {
+    const b1 = makeBuilder({ data: [{ id: 'x' }], error: null });
+    await adapter(makeClient(b1)).markSkippedShipmentVoided('outbox-9', 3, 'ship-1:ord-1');
+    const b2 = makeBuilder({ data: [{ id: 'x' }], error: null });
+    await adapter(makeClient(b2)).markSkippedShipmentVoided('outbox-9', 3, 'ship-1:ord-1');
+    expect((argsOf(b1, 'update')[0]![0] as Record<string, unknown>).dedup_key)
+      .toBe((argsOf(b2, 'update')[0]![0] as Record<string, unknown>).dedup_key);
+  });
+
   it('🔴 對照:同一支出口, 所有權已失(0 列)⇒ false 且不覆寫(證明上一格的 true 是資料造成的)', async () => {
     const b = makeBuilder({ data: [], error: null });
-    expect(await adapter(makeClient(b)).markSkippedShipmentVoided('outbox-9', 3)).toBe(false);
+    expect(await adapter(makeClient(b)).markSkippedShipmentVoided('outbox-9', 3, 'ship-1:ord-1')).toBe(false);
   });
 
   it('所有權已失(lease 被回收、0 列)→ false 不覆寫', async () => {

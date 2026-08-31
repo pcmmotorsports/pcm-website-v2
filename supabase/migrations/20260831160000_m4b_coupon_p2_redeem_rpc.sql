@@ -108,9 +108,7 @@ DECLARE
   v_dry_run   boolean := p_order_id IS NULL;
   v_c         public.coupons%ROWTYPE;
   v_owner     uuid;
-  v_paystat   text;
-  v_cancelled timestamptz;
-  v_partcxl   integer;
+  v_problem   text;
   v_used      integer;
   v_by_acct   integer;
   v_discount  integer;
@@ -159,49 +157,28 @@ BEGIN
     --    ⇒ 我照樣寫下一列「有效」的 redemption, 掛在一張已經被退掉的單上。
     -- ⚠️ **鎖序=先單再券**(這裡 → 1c)。今天只有這支函式碰 `coupons`,
     --    ⇒ 未來若有另一條路【先鎖券再鎖單】, 那就是死結。寫下來, 不要靠記得。
-    -- 🔴🔴 **`cancelled_at` 也要看**(codex R3 must-fix):`admin_cancel_order`
-    --    (`20260804180000_..._admin_cancel_order.sql:241-245`)的 UPDATE **只寫
-    --    `cancelled_at` / `cancelled_reason` / `updated_at`, 不動 `payment_status`**
-    --    ⇒ **一張已付款後被取消的單, 它的 `payment_status` 還是 `paid`**
-    --    ⇒ 只問付款狀態的話, 那張單照樣兌得掉券, 而它已經不存在了。
-    -- 📌 **⇒ 「付了錢」與「這張單還算數」是兩個宣稱, 而它們住在兩個欄位。**
-    SELECT o.customer_user_id, o.payment_status::text, o.cancelled_at
-      INTO v_owner, v_paystat, v_cancelled
+    -- 🔵🔵 **2026-08-31:三道 inline 檢查 → 一支 predicate**(Sean 拍甲, 主視窗 `-24` 轉)。
+    --    ⛔ ~~原本這裡逐一問 `payment_status` / `cancelled_at` / `order_cancellations`~~
+    --    🔴 **為什麼收掉**:codex 五輪裡有三輪落在同一層 —— R3 抓 1 個、R4 抓 1 個、
+    --      **R5 一次抓 3 個**(`order_refunds` / `order_manual_refunds` / `order_payments`)
+    --      ⇒ **這條路上的數字在變大, 不是變小。**每多一條退款/取消路徑就多一個落點,
+    --      而漏掉的那一次不會有東西叫。
+    -- 📌 **⇒ 一格一格補是輸的做法;收成一個地方, 下一個落點只要改那裡。**
+    --    predicate = `20260831150000_m4b_coupon_order_problem_predicate.sql`(**十個問題碼**, 實測含正反兩向,
+    --    四發正向突變 + 三發反向突變各殺各的)。
+    -- 🛑 **它比原本【嚴】** —— 部分退款之後訂單其實還有效、只是金額變小, 而它一律回問題碼。
+    --    那是刻意的:**在錢這一層, 誤擋的代價是客人再按一次;漏擋的代價是錢算錯。**
+    SELECT o.customer_user_id INTO v_owner
       FROM public.orders o WHERE o.id = p_order_id
       FOR UPDATE;
     IF NOT FOUND OR v_owner IS DISTINCT FROM p_user_id THEN
       RAISE EXCEPTION 'redeem_coupon: 訂單不存在或不屬於這個帳號(order_id=%)', p_order_id;
     END IF;
-    -- 🔵 **寫成「不等於 paid 就擋」而不是「列出哪幾種要擋」是刻意的**:
-    --    `payment_status` 這個 ENUM **已經被長過一次**
-    --    (`20260725130000_..._add_partially_refunded:45` 加了 `partiallyRefunded`)
-    --    ⇒ 白名單只有一個值, 它不需要知道未來會多出什麼;
-    --      黑名單則會在下一個人加值的那天**安靜地放行**, 而三綠不會紅。
-    --    (欄位形狀:`20260604120000_..._orders_order_items.sql:99`
-    --      `payment_status payment_status NOT NULL DEFAULT 'unpaid'`)
-    IF v_cancelled IS NOT NULL THEN
+    v_problem := public.coupon_redeem_order_problem(p_order_id);
+    IF v_problem IS NOT NULL THEN
       RAISE EXCEPTION
-        'redeem_coupon: 這張單已被取消(cancelled_at=%)—— 取消不會改 payment_status, 所以要分開問',
-        v_cancelled;
-    END IF;
-    -- 🔴🔴 **部分取消【不寫 `orders.cancelled_at`】**(codex R4 must-fix):
-    --    `20260820030000_..._cancel_gate_noncard.sql:668` 的 `UPDATE public.orders`
-    --    **只在 `v_closed`(所有品項都被取消)時才跑** ⇒ 部分取消只寫進
-    --    `order_cancellations` / `order_cancellation_items` 這兩張「取消真相表」。
-    --    ⇒ 一張**已付款、被部分取消**的單, 它的三格仍然是「本人 + paid + cancelled_at NULL」
-    --    ⇒ 券照樣兌得掉, 而**那張單的金額已經不是呼叫端算的那個了**。
-    -- 📌 **⇒ R3 抓到「取消不改付款狀態」, R4 抓到「部分取消連取消欄位都不改」——
-    --    同一個形狀的第二層:【真相住在另一張表, 而主表看起來完全正常】。**
-    SELECT count(*) INTO v_partcxl
-      FROM public.order_cancellations oc WHERE oc.order_id = p_order_id;
-    IF v_partcxl > 0 THEN
-      RAISE EXCEPTION
-        'redeem_coupon: 這張單有 % 筆取消紀錄(order_cancellations)—— 金額已變動, 不接受兌券',
-        v_partcxl;
-    END IF;
-    IF v_paystat IS DISTINCT FROM 'paid' THEN
-      RAISE EXCEPTION
-        'redeem_coupon: 這張單還沒付款(payment_status=%)—— 片1 :7 Sean 拍乙「付款成功才算」', v_paystat;
+        'redeem_coupon: 這張單不算數(problem=%)—— 見 coupon_redeem_order_problem 的問題碼清單(order_id=%)',
+        v_problem, p_order_id;
     END IF;
   END IF;
 
@@ -480,8 +457,12 @@ BEGIN
     --    `service_role` 的成員(或繼承得到它), 它們**照樣執行得了這支 SECURITY DEFINER RPC**,
     --    而 `v_extra` 仍然是空的 ⇒ 上面那把尺對這一種**完全沒有動作**。
     -- 🛑 這道問的是【角色圖】, 不是這支函式 —— 它會因為別人改角色而紅, 那是刻意的。
-    IF pg_catalog.pg_has_role('anon', 'service_role', 'USAGE')
-       OR pg_catalog.pg_has_role('authenticated', 'service_role', 'USAGE') THEN
+    -- 🔴🔴 **`MEMBER` 不是 `USAGE`**(codex R4 must-fix):`USAGE` 只答「繼承得到」,
+    --    而 **NOINHERIT 的成員仍可 `SET ROLE`** ⇒ `USAGE` 對那條路回 false。
+    -- 🛑 **我在 predicate 那支改對了, 而【這一支忘了】** —— 兩支檔同一個病, 我只修了一支。
+    --    📌 一個修法只套用在你當下打開的那個檔, 而同族的另一處沒有東西會提醒你。
+    IF pg_catalog.pg_has_role('anon', 'service_role', 'MEMBER')
+       OR pg_catalog.pg_has_role('authenticated', 'service_role', 'MEMBER') THEN
       RAISE EXCEPTION '片2 fail-closed:anon/authenticated 繼承得到 service_role ⇒ 它們執行得了 %', v_fn;
     END IF;
   END LOOP;

@@ -362,7 +362,23 @@ export interface IEmailOutbox {
    *   📌 **在它真的上板之前,這裡不得寫成「已追蹤」** —— 那句話的作用是**關掉下一個人的尋找動作**,
    *     而現在能被找到的只有那份交件檔。(同族:本片作者今天已經在「已列進待決」上犯過一次。)
    */
-  markSkippedShipmentVoided(id: string, claimedAttempts: number): Promise<boolean>;
+  /**
+   * 🔴 **`currentDedupKey` 是 2026-08-31 ⟦b4-SHIPUNVOID1⟧ 加的,而它承重**:
+   *    實作要在**標記 skip 的同一發 UPDATE 裡**把這把鍵退休(加後綴),否則會有一個
+   *    **沒有任何東西會叫**的漏信:箱作廢 ⇒ 這一列以正規鍵落地 ⇒ 員工用同一個
+   *    shipment id 復原 ⇒ 掃描 view 的 anti-join(`20260822010000:275`)**不分 status**
+   *    ⇒ 那一列永久佔住鍵 ⇒ **那位客人的出貨信永遠不會排進去**,而狀態是「跳過」不是
+   *    「失敗」⇒ 不進 due、不被任何 dead-man 命中。
+   * 🔴 **為什麼一定要在【同一發】裡**:分成兩步(先標 skip、再退休)的話,
+   *    「先 unvoid 後 skip」那個交錯順序會讓退休撲空 —— 而那個順序**實測可達**
+   *    (`scripts/shipunvoid1-apply-probe.sh` 的 W4,負對照 W4b 印不同的值)。
+   *    ⇒ 📌 **原子性是免費的:那一發 UPDATE 本來就存在,只是多帶一個欄位。**
+   */
+  markSkippedShipmentVoided(
+    id: string,
+    claimedAttempts: number,
+    currentDedupKey: string,
+  ): Promise<boolean>;
 
   /**
    * lease 回收:把「認領後程序才死」而卡在 `sending` 的列翻回**可重試的 `failed`**
