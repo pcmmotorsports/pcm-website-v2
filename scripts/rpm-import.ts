@@ -758,12 +758,7 @@ async function main(): Promise<void> {
   //       而修好的那一半會讓人相信整行都對了。(同族:R1 的 (b) 也是「訊息與行為對不上」。)
   const atomicVariantsRun = atomicToRun.reduce((n, g) => n + g.variants.length, 0);
   const writtenVariants = regularVariantRowsWithProduct.length + atomicVariantsRun;
-  console.log(
-    `[rpm-import] WRITE 完成:${productRows.length} 商品 / ${writtenVariants} 變體` +
-      `(一般 ${regularVariantRowsWithProduct.length} / atomic ${atomicToRun.length} 群 ${atomicVariantsRun} 變體` +
-      `${skippedHazardGroups.length ? ` / 🔴 扣留跳過 ${skippedHazardGroups.length} 群(其變體【不計入】上面那個數)` : ''})`,
-  );
-
+  // 🔴 **「WRITE 完成」那一行搬到 S4 之後了 —— 見本段末尾。**(片B2, codex R3)
   // ── S4 來源消失對賬(源頭消失 → **標記** source_missing_at,不下架;upsert 後跑、只全量)──
   // 🔴 2026-08-15 `#20` 片2b:本段**不再下架任何商品**(Sean `Q-B-2=甲` / `Q-關哪一條=乙`)。
   //    篩選模式(--group/--limit)整段跳過:那時 source 集合不完整 ⇒ 標記會誤標、清除會誤清。
@@ -788,6 +783,24 @@ async function main(): Promise<void> {
   } else {
     console.log('[rpm-import] 來源消失對賬跳過(--group/--limit 篩選、非全量、避免誤標與誤清)');
   }
+
+  // ══ 🔴 片B2(codex R3 must-fix):這一行【原本印在 S4 之前】════════════════════
+  //   而 S4 會 `throw`(來源消失對賬安全 gate 觸發)⇒ 舊順序下, 一次【中途失敗的同步】
+  //   仍然會先印出「WRITE 完成:N 商品 / M 變體」, 然後才 throw。
+  //   📌 **⇒ 而 runbook 與操作的人是拿那一行當完成依據的** —— 他看到「完成」就走了。
+  //   🛑 **這一格【沒有任何測試守著】**:本檔檔尾直接 `main()`(無 `import.meta` 守衛,
+  //      理由見上方 :727 那段)⇒ 一被 import 就整支跑起來 ⇒ 要測它得先拆檔, 那是另一片。
+  //      ⇒ 所以它靠的是【位置】不是【斷言】—— 而位置這種東西, 下一個人很容易順手搬回去。
+  //   ⚠️ **這是一個可觀察行為的改變, 不是純搬移**:
+  //      · S4 throw 的那一輪, 這一行【不再印】(舊行為:印了才 throw)
+  //      · 輸出順序變了:S4 那幾行(標記 / 清除 / 跳過)現在【在這一行之前】
+  //      ⇒ 任何用「WRITE 完成 是最後一行」或「它在 S4 之前」來剖 log 的東西都會受影響。
+  //   🔵 而扣留那幾群仍然只在括號裡另計, 不併進主數字 —— 那是 R1/R2 那兩條, 本片沒有動它。
+  console.log(
+    `[rpm-import] WRITE 完成:${productRows.length} 商品 / ${writtenVariants} 變體` +
+      `(一般 ${regularVariantRowsWithProduct.length} / atomic ${atomicToRun.length} 群 ${atomicVariantsRun} 變體` +
+      `${skippedHazardGroups.length ? ` / 🔴 扣留跳過 ${skippedHazardGroups.length} 群(其變體【不計入】上面那個數)` : ''})`,
+  );
 }
 
 main().catch((e) => {
