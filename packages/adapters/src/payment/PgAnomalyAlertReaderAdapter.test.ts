@@ -543,7 +543,16 @@ describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply
     const base = twoQueryClient(FULL, undefined, true, undefined, true, undefined, true, undefined, true);
     const c = { ...base, query: async (text: string, params?: unknown[]) => {
       if (text.includes('get_shipped_email_gap_counts')) {
-        throw Object.assign(new Error('p_grace_seconds 必須是正整數'), { code: 'P0001' });
+        /**
+         * 🔴 訊息**逐字帶那支函式自己的前綴** —— 對齊 `20260831020000_...sql:68` 的真實 RAISE。
+         * 改前這裡只寫 `'p_grace_seconds 必須是正整數'`(**沒有前綴**)⇒ 一個只認前綴的收窄版
+         *   會判它不是參數閘 ⇒ 原封上拋。
+         * 📌 **⇒ 一個【比真實訊息短】的假錯誤,會讓一道靠訊息辨識的守門在測試裡表現得與正式庫不同。**
+         */
+        throw Object.assign(
+          new Error('get_shipped_email_gap_counts:p_grace_seconds 必須是正整數(收到 0)'),
+          { code: 'P0001' },
+        );
       }
       return base.query(text, params ?? []);
     } };
@@ -554,9 +563,58 @@ describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply
     expect(r.shippedGapUnknown).toBe(true);
     // 🛑 **不是 0** —— 吞成 0 會把片1 的 fail-closed 在下游拆掉。
     expect(r.shippedNeverEnqueuedCount).toBeNull();
-    // 🔴 而【其他告警還在】—— 這一格證明它沒有把整條帶走。
-    expect(r.openCount).toBeGreaterThanOrEqual(0);
+    /**
+     * 🔴 而【其他告警還在】—— 這一格證明它沒有把整條帶走。
+     * ⛔ ~~舊寫法 `expect(r.openCount).toBeGreaterThanOrEqual(0)`~~(codex 2026-08-31 R1 nit)
+     *   —— **一個把所有計數都寫死成 0 的降級實作,照樣過** ⇒ 它證不出「其他告警還在」,
+     *   只證得出「openCount 是個非負數」。
+     * ✅ `FULL.open_count = 2` ⇒ 斷言它**逐字等於 2**:那分得出「原值保留」與「被歸零」。
+     * 📌 **一個 `>= 0` 的斷言,在它要守的那個東西壞掉時不會變紅。**
+     */
+    expect(r.openCount).toBe(2);
+    expect(r.refundingCount).toBe(3);
     expect(JSON.stringify(errSpy.mock.calls)).toContain('shipped_gap_rpc_raised');
+    errSpy.mockRestore();
+  });
+
+  it('[S6b] 🔵 P0001 而訊息【不像】它自己的參數閘 ⇒ 仍然降級(控制流不變),但 log 換一句', async () => {
+    /**
+     * 🔴🔴 **這一格的宣稱在 codex R2 之後【換過方向】,舊的留著讓人看到為什麼**:
+     * ⛔ ~~舊版:前綴不符 ⇒ 原封上拋~~ —— codex R2 must-fix:
+     *   「migration 改動參數閘前綴或標點而應用程式尚未同步 ⇒ 真正可降級的參數錯誤改成整條上拋,
+     *    **付款／退款等其他告警同輪無法送出**」。
+     *   📌 **⇒ 那是 R1 already 打過我一次的同一個形狀:一個新守門擋掉的比它守的寬。**
+     * ✅ 現在的宣稱:**控制流不變(照樣降級)**,前綴只決定 log 印哪一句 + `reason` 標成
+     *   `shipped_gap_rpc_raised_unexpected_shape`,讓看 log 的人分得出兩種來源。
+     * ⚠️ **今天踩不踩得到:踩不到**(那支函式體內只有 2 條 RAISE,兩條都是參數閘)。
+     *
+     * 🔴 **而 codex R2 另有一條 nit 打舊版**:它只 `rejects.toThrow()` ⇒
+     *   實作換成拋任何別的錯、或掉了 `P0001`,那條照樣過。**本版不靠 toThrow,靠具名的值。**
+     */
+    const base = twoQueryClient(FULL, undefined, true, undefined, true, undefined, true, undefined, true);
+    const c = { ...base, query: async (text: string, params?: unknown[]) => {
+      if (text.includes('get_shipped_email_gap_counts')) {
+        throw Object.assign(
+          new Error('some_other_constraint_violation: 對帳金額不一致'),
+          { code: 'P0001' },
+        );
+      }
+      return base.query(text, params ?? []);
+    } };
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const r = await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(
+      86400, 43200, 600, '2026-08-31T00:00:00.000Z', 900,
+    );
+    // 🔵 控制流與參數閘那一格相同:降級成「查不到」,不是 0、不是整條炸掉
+    expect(r.shippedGapUnknown).toBe(true);
+    expect(r.shippedNeverEnqueuedCount).toBeNull();
+    // 🔴 而【其他告警還在】—— 逐字比值,不是 >= 0(R1 nit 就是打這個)
+    expect(r.openCount).toBe(2);
+    expect(r.refundingCount).toBe(3);
+    // 🔴 本格的判別值:reason 要標成 unexpected_shape,而【不是】參數閘那一句
+    const logged = JSON.stringify(errSpy.mock.calls);
+    expect(logged).toContain('shipped_gap_rpc_raised_unexpected_shape');
+    expect(logged).toContain('訊息不像它自己的參數閘');
     errSpy.mockRestore();
   });
 

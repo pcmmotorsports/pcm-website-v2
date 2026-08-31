@@ -160,4 +160,33 @@ describe('🔴 bad-format 的 why 本身不得含有一個【貼上去就會生�
     //    它記在這裡是為了讓下一個人看得出「這一格今天檢查了幾個候選」。
     expect(checked).toBeGreaterThanOrEqual(0);
   });
+
+  it('🔴 小數位收到 3 位 —— 多打的會被 toISOString 截掉,而截掉是靜默的', () => {
+    /**
+     * 🔴 **成因(codex 2026-08-31 R1 nit)**:`resolveShippedEmailCutoff` 回的是
+     * `new Date(t).toISOString()`,**只保留毫秒**。舊 regex 收 `(\.\d+)?` 任意位數
+     * ⇒ `.123999Z` 靜靜變成 `.123Z` ⇒ **恰落在那 999 微秒裡的 shipment 會被分到 cutoff 錯的一側**。
+     * ⚠️ **今天踩不踩得到:未數。** 我沒有量過有沒有人會打次毫秒,也沒量過 `shipped_at` 有沒有次毫秒值。
+     * ✅ 失敗方向安全:多打 ⇒ 拒收要人重打,而不是收下一個會被截掉的值。
+     */
+    // 🔵 正對照:恰好 3 位 ⇒ ok,而且【正規化後逐字相同】(證明 3 位不會被動到)
+    const ok = resolveShippedEmailCutoff('2026-08-31T00:00:00.123Z');
+    expect(ok.kind).toBe('ok');
+    if (ok.kind === 'ok') expect(ok.iso).toBe('2026-08-31T00:00:00.123Z');
+    // 🔵 正對照:不帶小數 ⇒ 照樣 ok(收窄不得誤傷既有形狀)
+    expect(resolveShippedEmailCutoff('2026-08-31T00:00:00Z').kind).toBe('ok');
+    /**
+     * 🔴 **1 位與 2 位小數也必須過**(codex 2026-08-31 R2 nit)。
+     * 舊版這一格只測「3 位過 / 4 位不過」⇒ **一個誤寫成 `\.\d{3}`(恰好三位)的 regex
+     * 會讓 `.1Z` / `.12Z` 被拒收,而那兩種【今天合法且不失精度】** —— 而舊測試全綠。
+     * 📌 **⇒ 只測邊界的兩側,測不出邊界【形狀】錯了。**
+     */
+    expect(resolveShippedEmailCutoff('2026-08-31T00:00:00.1Z').kind).toBe('ok');
+    expect(resolveShippedEmailCutoff('2026-08-31T00:00:00.12Z').kind).toBe('ok');
+    // 🔴 本體:4 位以上 ⇒ 拒收
+    expect(resolveShippedEmailCutoff('2026-08-31T00:00:00.1239Z').kind).toBe('bad-format');
+    expect(resolveShippedEmailCutoff('2026-08-31T00:00:00.123999Z').kind).toBe('bad-format');
+    expect(resolveShippedEmailCutoff('2026-08-31T00:00:00.123999+08:00').kind).toBe('bad-format');
+  });
+
 });

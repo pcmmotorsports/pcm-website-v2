@@ -211,10 +211,44 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
            * ⚠️ **只降級 `P0001`** —— `42501`(權限)與其他碼**照舊原封上拋**:
            *   那些不是設定問題, 而把它們吞掉會讓一個真的壞掉被讀成「還沒上膛」。
            */
+          /**
+           * 🔴 **只認【那支函式自己的參數閘】,不是「凡 P0001 都降級」**(codex 2026-08-31 R1 nit)。
+           * ⛔ ~~舊寫法 `if (code === RAISE_EXCEPTION)`~~ —— 那把**任何** `P0001` 都當成參數閘。
+           * ⚠️ **今天踩不踩得到:踩不到。** 數法
+           *   `grep -c 'RAISE EXCEPTION' <20260831020000_...sql>` ⇒ **7**,而其中**只有 2 條在函式體內**
+           *   (`:65` / `:68`,兩條都是參數閘);其餘 5 條在 apply 期的 DO 斷言塊,呼叫時跑不到。
+           * 🔴 **⇒ 所以這是【未來的洞】不是今天的**:哪天那支函式用 `RAISE EXCEPTION` 回報別的
+           *   完整性錯誤,它會被**靜靜降級成「查不到」**,而那是一個真的壞掉被讀成「還沒上膛」。
+           * ✅ 收窄成:`P0001` **且**訊息帶那支函式自己的前綴。
+           * 🛑 而收窄的失敗方向是**安全的那一邊**:訊息哪天改了 ⇒ 認不出來 ⇒ **原封上拋**(現況行為),
+           *   不會變成靜默降級。
+           */
           if (code === RAISE_EXCEPTION) {
+            /**
+             * 🔵 **訊息前綴只用來【分類 log】,不用來改控制流**(codex 2026-08-31 R2 must-fix ×2)。
+             *
+             * ⛔ ~~我 R2 之前的修法:前綴不符 ⇒ `throw err`~~ —— **那是我 R1 剛被打過的同一個錯**:
+             *   codex 逐字「migration 改動參數閘前綴或標點而應用程式尚未同步 ⇒ 真正可降級的參數錯誤
+             *   改成整條上拋,**付款／退款等其他告警同輪無法送出**」。
+             *   📌 **⇒ 我把「未來可能誤分類」換成了「訊息一漂就整條告警死掉」。那個交換是虧的。**
+             * 🛑 而 codex 同時指出前綴**也擋不住**它原本要擋的:日後那支函式用**同一個前綴**
+             *   拋非參數閘的 `P0001`,照樣被當成參數閘。**⇒ 前綴在兩個方向上都不是那道判準。**
+             * ✅ **⇒ 控制流維持現況(`P0001` ⇒ 降級),前綴只決定 log 印哪一句** ——
+             *   拿不到訊號的成本是 0,而拿錯控制流的成本是整條告警。
+             * ⚠️ **今天踩不踩得到:踩不到。** 那支函式體內只有 2 條 `RAISE`,兩條都是參數閘
+             *   (全檔 `grep -c 'RAISE EXCEPTION'` ⇒ 7,其餘 5 條在 apply 期 DO 塊、呼叫時跑不到)。
+             */
+            const looksLikeOwnGate =
+              typeof (err as { message?: unknown }).message === 'string' &&
+              (err as { message: string }).message.includes('get_shipped_email_gap_counts:');
             console.error(
-              '[anomaly-alert] 🔴 get_shipped_email_gap_counts 自己 RAISE 了(參數閘)⇒ 出貨缺口那一段降級成【查不到】,而其他告警照常送',
-              { code: RAISE_EXCEPTION, reason: 'shipped_gap_rpc_raised' },
+              looksLikeOwnGate
+                ? '[anomaly-alert] 🔴 get_shipped_email_gap_counts 自己 RAISE 了(參數閘)⇒ 出貨缺口那一段降級成【查不到】,而其他告警照常送'
+                : '[anomaly-alert] 🔴 get_shipped_email_gap_counts 拋了 P0001 而【訊息不像它自己的參數閘】⇒ 仍降級成【查不到】(不改控制流),但這一格值得有人去看',
+              {
+                code: RAISE_EXCEPTION,
+                reason: looksLikeOwnGate ? 'shipped_gap_rpc_raised' : 'shipped_gap_rpc_raised_unexpected_shape',
+              },
             );
           } else {
             if (code !== UNDEFINED_FUNCTION) throw err;
