@@ -1,6 +1,19 @@
 -- 20260831160000_m4b_coupon_p2_redeem_rpc.sql
 -- 優惠券片 2:驗券 + 原子兌換的 SECURITY DEFINER RPC。
 --
+-- ══ 🔵 2026-09-01 改動:成功時多回一格 `coupon_id`(三處 `'valid', true` 全改)═══════
+-- **為什麼**:3b 的 `create_order`(`20260901021000`)要把券的身分寫進 `orders.coupon_id`
+-- (那一欄 `20260901020000` 剛加),而它**只有券碼**,沒有券的 id。
+-- 🔴 **而另一條路是讓 `create_order` 自己 `SELECT id FROM coupons WHERE code = 正規化(...)`**
+--    ⇒ 那會把本檔 `:105-108` 那組空白字元正規化(含 U+00A0 / U+200B / U+FEFF 等)**再抄一份**。
+--    ⇒ 📌 **兩個地方各自算同一件事, 它們不一致時沒有人在比** ——
+--       這正是本片 3b 甲那顆 commit(`8bca4bd1`)剛踩到的病:我當時假設下游讀的是上游那個值,
+--       而它自己重算。**不要在同一條線上犯第二次。**
+-- ✅ 安全性:多回一個 uuid 不洩漏任何東西 —— 呼叫者本來就知道自己送了哪個券碼,
+--    而 id 對它沒有額外用途(`coupons` 表對 `authenticated` 是 REVOKE ALL, 拿到 id 也讀不到)。
+-- ✅ 就地改而不另開一支的理由:本檔**還沒 apply**(`supabase/APPLIED.tsv` 命中 `^20260831160000` ⇒ 0;
+--    🟢 正對照 `^20260829150000` ⇒ 1)⇒ 改它不會讓帳本上任何一列變孤兒。
+--
 -- ══ 為什麼這件事只能在這裡做 ═══════════════════════════════════════════════
 -- 🔴 片 1(`20260829150000`)把 `coupons` 與 `coupon_redemptions` 對
 --    `PUBLIC / anon / authenticated / service_role` **REVOKE ALL**(該檔 `:208-209`),
@@ -239,7 +252,8 @@ BEGIN
             'redeem_coupon: 重送算出的折抵 % 與已記錄的 % 不同(order_id=%, subtotal=%)—— 兩次的小計對不上',
             coalesce(v_calc::text, 'NULL'), v_prev.discount_applied, p_order_id, p_subtotal;
         END IF;
-        RETURN jsonb_build_object('valid', true, 'discount_applied', v_prev.discount_applied);
+        RETURN jsonb_build_object('valid', true, 'discount_applied', v_prev.discount_applied,
+                                  'coupon_id', v_c.id);
       END IF;
       RAISE EXCEPTION
         'redeem_coupon: 這張單已經有一列 redemption 而它不是這一張券(order_id=%)—— 封閉集沒有對應的拒絕理由, 需要拍板',
@@ -355,7 +369,8 @@ BEGIN
   END IF;
 
   IF v_dry_run THEN
-    RETURN jsonb_build_object('valid', true, 'discount_applied', v_discount);
+    RETURN jsonb_build_object('valid', true, 'discount_applied', v_discount,
+                              'coupon_id', v_c.id);
   END IF;
 
   -- 1f. 寫 redemption。
@@ -372,13 +387,16 @@ BEGIN
       p_order_id;
   END;
 
-  RETURN jsonb_build_object('valid', true, 'discount_applied', v_discount);
+  RETURN jsonb_build_object('valid', true, 'discount_applied', v_discount,
+                            'coupon_id', v_c.id);
 END;
 $$;
 
 COMMENT ON FUNCTION public.redeem_coupon(text, uuid, integer, boolean, uuid) IS
   'M-4b 券片2:驗券 + 原子兌換。p_order_id NULL = 試算(不鎖不寫);有值 = 兌換(FOR UPDATE + 寫一列)。'
-  '回 jsonb {valid, reason?, discount_applied?}(**shortfall 今天不回**, 見 coupon.ts:84)。reason 為 coupon_reject_reason 七值之一。'
+  '回 jsonb {valid, reason?, discount_applied?, coupon_id?}(**shortfall 今天不回**, 見 coupon.ts:84)。reason 為 coupon_reject_reason 七值之一。'
+  '🔴 `coupon_id` 在【每一條 valid=true 的路徑】都必回(三處), 而 `create_order`(20260901021000)'
+  '   拿它寫 orders.coupon_id ⇒ **回不出來的話那支會 RAISE「契約破了」**。刪它之前先讀那支。'
   '同單同券同人重送【且算出來的折抵與已記錄的相同】= 冪等回上次結果(不同 ⇒ 丟例外)。訂單歸屬在函式內驗(片1 :349-356 指定)。'
   '折抵下限 1 元(Sean 2026-08-31 拍甲), 上限 = 小計;0 元小計走 below_min_spend(作者判, 非拍板)。'
   '🛑 答不出:'

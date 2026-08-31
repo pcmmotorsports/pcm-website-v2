@@ -47,7 +47,7 @@
 | `claim_stuck_unsettled_attempts` | **4** | 20260615120001_m3_3ds_4a2_attempt_sweeper_rpc.sql:116<br>20260624120008_m3_3ds_r1c1_sweeper_released_policy.sql:80<br>20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:206<br>20260811060000_m4b_lifecycle_l5b2_2a_claim_returns_superseded_at.sql:117 | `20260811060000_m4b_lifecycle_l5b2_2a_claim_returns_superseded_at.sql:117` |
 | `close_released_attempt` | **2** | 20260624120010_m3_3ds_r1c3_close_released_attempt.sql:62<br>20260812160000_m4b_lifecycle_l5b2_2e_close_advisory.sql:169 | `20260812160000_m4b_lifecycle_l5b2_2e_close_advisory.sql:169` |
 | `confirm_order_payment` | **4** | 20260611120000_m3_s2c_confirm_payment_rpc.sql:117<br>20260804150000_m4b_e10_a8c2_confirm_cancel_guard.sql:52<br>20260810160000_m4b_e10_op3_confirm_card_leg.sql:362<br>20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:328 | `20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:328` |
-| `create_order` | **10** | 20260604130000_m3_s2b1_create_order_rpc.sql:47<br>20260613130000_m3_3ds_0b_cart_session_dedup.sql:107<br>20260614130000_m3_create_order_stock_snapshot.sql:49<br>20260630120000_m3_241_checkout_consent.sql:75<br>20260716190000_m4a_v3a_create_order_vehicle_whitelist.sql:34<br>20260716200000_m4a_v3a_create_order_vehicle_type_guard.sql:34<br>20260719120000_m4a_b2_create_order_notification_email.sql:224<br>20260730120100_m4b_e10_n3b_create_order_new_display_id.sql:181<br>20260825130000_m4b_zero_price_checkout_and_cart_total_gate.sql:101<br>20260901003000_m4b_coupon_p3_create_order_discount_param.sql:148 | `20260901003000_m4b_coupon_p3_create_order_discount_param.sql:148` |
+| `create_order` | **11** | 20260604130000_m3_s2b1_create_order_rpc.sql:47<br>20260613130000_m3_3ds_0b_cart_session_dedup.sql:107<br>20260614130000_m3_create_order_stock_snapshot.sql:49<br>20260630120000_m3_241_checkout_consent.sql:75<br>20260716190000_m4a_v3a_create_order_vehicle_whitelist.sql:34<br>20260716200000_m4a_v3a_create_order_vehicle_type_guard.sql:34<br>20260719120000_m4a_b2_create_order_notification_email.sql:224<br>20260730120100_m4b_e10_n3b_create_order_new_display_id.sql:181<br>20260825130000_m4b_zero_price_checkout_and_cart_total_gate.sql:101<br>20260901003000_m4b_coupon_p3_create_order_discount_param.sql:148<br>20260901021000_m4b_coupon_p3b_create_order_redeem.sql:230 | `20260901021000_m4b_coupon_p3b_create_order_redeem.sql:230` |
 | `expire_stuck_attempts_at_ceiling` | **2** | 20260615120001_m3_3ds_4a2_attempt_sweeper_rpc.sql:86<br>20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:412 | `20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:412` |
 | `find_active_sibling_own` | **2** | 20260624120001_m3_3ds_r1a2_find_active_sibling_own.sql:44<br>20260820020000_m4b_e10_a8a3g_cancel_guard_sibling_dedup.sql:306 | `20260820020000_m4b_e10_a8a3g_cancel_guard_sibling_dedup.sql:306` |
 | `get_active_charge_attempt` | **2** | 20260614120000_m3_3ds_1b_get_active_charge_attempt.sql:47<br>20260624120007_m3_3ds_r1b3_record_released_failure_observation.sql:135 | `20260624120007_m3_3ds_r1b3_record_released_failure_observation.sql:135` |
@@ -234,6 +234,24 @@
 **允許集合(逐字)**
 
 `:237` FROM public.order_cancellations<br>`:258` IF (v_order.cancelled_at IS NOT NULL) <> (NOT EXISTS (<br>`:265` IF v_order.cancelled_at IS NULL THEN<br>`:290` JOIN public.order_cancellations c ON c.id = (g.after->>'cancellation_id')::uuid<br>`:327` IF (v_order.payment_status <> 'unpaid'::public.payment_status<br>`:328` AND NOT (v_order.payment_status = 'paid'::public.payment_status<br>`:334` WHERE pa.order_id = p_order_id AND pa.status <> 'failed') THEN<br>`:363` OR v_audit.before->>'payment_status' NOT IN ('unpaid', 'paid')<br>`:387` IF v_closed AND v_order.cancelled_at IS NULL THEN<br>`:395` IF v_order.cancelled_at IS NOT NULL THEN<br>`:403` OR EXISTS (SELECT 1 FROM public.order_cancellations c<br>`:424` IF (v_order.payment_status <> 'unpaid'::public.payment_status<br>`:425` AND NOT (v_order.payment_status = 'paid'::public.payment_status<br>`:431` WHERE a.order_id = p_order_id AND a.status <> 'failed') THEN<br>`:497` INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)<br>`:569` COMMENT ON COLUMN public.order_cancellations.reason_code IS
+
+### `(檔案層 DO block / 非函式內)`  ·  `20260901020000_m4b_coupon_p3b_order_coupon_id.sql`
+
+**改什麼狀態**
+
+`:183` '   全 repo 至少五處不同函式會 SET payment_status=''paid'', 只補一支會漏掉後台手動收款那條路。'
+
+**允許集合** — 🔴 **本函式體內零命中**(字面比對)⇒ 要嘛它沒有狀態閘、要嘛閘的寫法本腳本抓不到。**開檔確認,不要當成「沒有閘」。**
+
+### `coupon_redeem_on_paid`  ·  `20260901021000_m4b_coupon_p3b_create_order_redeem.sql`
+
+**改什麼狀態**
+
+`:1090` '🔴 為什麼是 trigger 不是改 confirm_order_payment:全 repo 有【至少五處不同函式】會 SET payment_status=''paid'' '
+
+**允許集合(逐字)**
+
+`:959` IF NEW.payment_status <> 'paid'::public.payment_status<br>`:960` OR OLD.payment_status <> 'unpaid'::public.payment_status THEN<br>`:1179` AND NEW.payment_status = 'paid'::public.payment_status<br>`:1180` AND OLD.payment_status = 'unpaid'::public.payment_status
 
 ---
 
