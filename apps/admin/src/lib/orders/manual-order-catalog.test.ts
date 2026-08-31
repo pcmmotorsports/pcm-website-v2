@@ -62,7 +62,13 @@ describe('🔴🔴 防洩漏:select 逐欄指名,零經銷價 / 成本 / metadat
   });
 
   it('🔴 逐字釘住整串欄名 —— 加一欄就要撞紅,被迫回來想一次「這欄該不該進建單表單」', () => {
-    expect(MANUAL_ORDER_CATALOG_COLUMNS).toBe('id, sku, price_general, products(title)');
+    // ⛔ ~~'id, sku, price_general, products(title)'~~
+    // 🔵 **2026-08-31 Sean 批 price_store 進來**(⟦b4-SKULOOKUP⟧ Q2 逐字「甲 標未稅」)。
+    //    🛑 **這一格紅過, 而它紅得對** —— 它逼我回來想一次, 而想完的結論是「該進」。
+    //    ⇒ 舊字面留著加刪除線:會來搜舊那串的人, 是讀過舊版的人。
+    expect(MANUAL_ORDER_CATALOG_COLUMNS).toBe(
+      'id, sku, price_general, price_store, products(title)',
+    );
   });
 
   it('🔴 釘的是傳進 select() 的【值】,不是 `.select(\'*\')` 那個呼叫字面', async () => {
@@ -74,7 +80,14 @@ describe('🔴🔴 防洩漏:select 逐欄指名,零經銷價 / 成本 / metadat
     expect(String(arg(calls, 'select')[0])).not.toContain('*');
   });
 
-  it.each(['price_store', 'price_by_tier', 'metadata'])(
+  // ⛔ ~~it.each(['price_store', 'price_by_tier', 'metadata'])~~
+  // 🔵 **`price_store` 2026-08-31 移出這張黑名單**(Sean 批了它進欄位表)。
+  // 🛑🛑 **而我【沒有只是把它刪掉】** —— 那會讓這支檔對它從此零約束。
+  //    下面另立一格:它只能出現在【該出現的兩個地方】, 不得散在別處。
+  //    📌 **一道守門要放寬時, 換掉判準比刪掉判準安全** —— 刪掉之後沒有東西會記得它曾經被守過。
+  // ⚠️ 而 `cost` **本來就不在這張清單裡**, 而本 describe 的標題寫著「零經銷價 / 成本 / metadata」
+  //    ⇒ **標題比清單寬**(那是本 repo 記過的形狀)。我**沒有**順手補它 —— 那是另一個決定, 已回報。
+  it.each(['price_by_tier', 'metadata'])(
     '🔴 整支檔(剝掉註解之後)不得出現 %s',
     (token) => {
       // 🔴 **一定要剝註解** —— 本檔頭那段【逐字寫著】price_store 三次(在講為什麼不讀它)
@@ -87,6 +100,22 @@ describe('🔴🔴 防洩漏:select 逐欄指名,零經銷價 / 成本 / metadat
       expect(code).not.toContain(token);
     },
   );
+
+  // 🔵 **取代上面那條被移出黑名單的守門** —— `price_store` 現在合法, 而它**只能在兩個地方**:
+  //    ① `MANUAL_ORDER_CATALOG_COLUMNS` 那串 select 欄名
+  //    ② 把它翻成 `dealerPriceUntaxed` 的那一行 map
+  //    ⇒ 散到別處(例如有人拿它去算價、去比較、去當預設值)⇒ 這一格紅。
+  //    📌 而那正是 `:6-70` 那道凍結守的東西:**顯示可以, 生效不行。**
+  it('🔴 price_store 只能出現在【欄名字串】與【map 那一行】, 不得散在別處', () => {
+    const code = stripComments(readFileSync(SRC_FILE, 'utf8'));
+    expect(code, '剝完註解連 export 都不在 ⇒ 下面什麼都沒證明').toContain('export');
+    const hits = code.split('price_store').length - 1;
+    // 🔵 正對照:同一把尺量一個【確定出現且已知次數】的字面, 證明它數得到東西。
+    expect(code.split('price_general').length - 1, '正對照:price_general 至少要有 2 處').toBeGreaterThanOrEqual(2);
+    // 🔵 負對照:現造字面必須是 0(不然這把尺對任何字串都回非零)。
+    expect(code.split('zzq_no_such_column_20260831').length - 1).toBe(0);
+    expect(hits, 'price_store 出現次數超過 2 ⇒ 有人把它用在欄名與 map 之外').toBe(2);
+  });
 
   it('🔴 剝註解的負對照:**沒剝的原文確實含 price_store**(否則上一格是恆綠)', () => {
     expect(readFileSync(SRC_FILE, 'utf8')).toContain('price_store');
