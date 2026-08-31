@@ -87,6 +87,11 @@ const CLEAN_RESULT = {
   orderCreatedPaidNoEmailCount: 0,
   orderCreatedNoRecipientCount: 0,
   orderCreatedGapUnknown: false,
+  // 🔵 心跳(片3):基準是【讀得到而六支健康】。
+  //    🛑 寫 `Unknown: true` 會讓每一格都走 503 那條路 ⇒ 這份 CLEAN 就不 clean 了。
+  cronHeartbeatAbnormalCount: 0,
+  cronHeartbeatAbnormalJobs: [],
+  cronHeartbeatUnknown: false,
   oldestOpenAgeSeconds: null,
   notifiersTotal: 0,
   notifiersFailed: 0,
@@ -837,6 +842,36 @@ describe('🔴 寄信計數讀不到 ⇒ route 回 503(部署管道)', () => {
     const res = await GET(makeReq(bearer()));
     // 🔴 沒有這一格,一個「永遠 503」的實作也會讓 U1 全綠。
     //    📌 而「讀得到而且是 0」與「讀不到」正是這一片存在的全部理由。
+    expect(res.status).toBe(200);
+  });
+});
+
+/**
+ * 🔴 **心跳 unknown 的兩個世界(codex 2026-08-31 片3 R1 #7)。**
+ * codex 逐字:「測試只釘 `unknown ⇒ 不寄信`,沒有 route 測試證明 unknown 仍產生可靠失敗訊號」
+ * ⇒ 而它是對的:少了這一組, 一個「印一行 log 然後回 200」的實作會全綠,
+ *   而那正是「**量具壞了被記成健康**」那個病。
+ */
+describe('[心跳] unknown ⇒ 要有可靠的失敗訊號', () => {
+  it('🔴 cronHeartbeatUnknown=true ⇒ 503 + 記失敗心跳(不得回 200)', async () => {
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, cronHeartbeatUnknown: true, cronHeartbeatAbnormalCount: null, cronHeartbeatAbnormalJobs: null });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    expect(hbFailSpy).toHaveBeenCalled();
+    expect(JSON.stringify(errSpy.mock.calls)).toContain('get_cron_heartbeat_stale_counts');
+    errSpy.mockRestore();
+  });
+
+  /**
+   * 🟢 **負對照** —— 少了這一格,「凡是跑到這裡都 503」的實作會讓上一格全綠。
+   * 🛑 而這一格與訊號4 那組**不一樣**:那邊的負對照是「起始線沒設」(有 env 可以關),
+   *   **心跳沒有那種 env** ⇒ 它的負對照只能是「讀得到」。
+   *   ⇒ 📌 也就是說:心跳這條線**沒有「還沒上膛」那個狀態** —— 它要嘛讀得到, 要嘛就是壞了。
+   */
+  it('🟢 讀得到(unknown=false)⇒ 200, 證明上一格不是恆 503', async () => {
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT });
+    const res = await GET(makeReq(bearer()));
     expect(res.status).toBe(200);
   });
 });

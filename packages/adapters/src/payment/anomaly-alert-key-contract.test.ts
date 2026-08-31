@@ -271,9 +271,30 @@ for (const { fn, varName, pin } of TARGETS) {
  *      `client.query('SELECT public.…')` 對它是隱形的)。**已另開板列, 不在本檔解。**
  */
 const FAIL_LOUD_RPCS = [
-  // 這兩支走 `parseCount` / `parseBeginResult` ⇒ 缺鍵會 throw ⇒ 不需要本檔這種對帳。
+  // 這幾支走 `parseCount` / `parseBeginResult` ⇒ 缺鍵會 throw ⇒ 不需要本檔這種對帳。
   'get_order_refunds_stuck_summary',
   'get_email_outbox_deadman_counts',
+  /**
+   * 🔴🔴 **這三支是 2026-08-31 補登記的, 而【前兩支在補之前就已經漏著】。**
+   *
+   * 本檔上面那段自陳「今天 **4 = 2 + 2**;第 5 支進來就紅」—— 而實查:
+   * ```
+   * HEAD(ab6d31c3)的 adapter 已經呼叫 6 支 RPC, 而註冊表只有 4
+   * ⇒ 📌 這一格【在我今天動它之前就是紅的】, 不是我弄紅的。
+   * ⇒ 而它紅了多久沒有人知道 —— 一道紅著的守門與一道沒裝的守門,
+   *   對「有沒有人在看」這件事印同一個答案。
+   * ```
+   * 🔵 **分堆依據是開檔看的, 不是猜的**(本檔上面那句逐字要求):三支都走 `parseCount`
+   *   ⇒ 缺鍵直接 throw ⇒ 屬 fail-loud 那一堆:
+   *     `PgAnomalyAlertReaderAdapter.ts:584`(shipped)· `:612`(orderCreated)· `:602`(heartbeat)
+   * ⚠️ **而 heartbeat 那支是【混的】, 要寫清楚**:`abnormal_count` 走 `parseCount`(fail-loud),
+   *   而五個原因陣列走 `collectHeartbeatJobNames` —— 那裡缺鍵會**安靜地變成空名單**(fail-soft)。
+   *   ⇒ 📌 **後果不是漏報**(數量仍然對、仍然會叫), **是那封信裡沒有名字** ——
+   *     而收信的人得自己去後台找。**這一格本檔守不到, 留在這裡當已知邊界。**
+   */
+  'get_shipped_email_gap_counts',
+  'get_order_created_gap_counts',
+  'get_cron_heartbeat_stale_counts',
 ] as const;
 
 describe('屬性名與錯誤訊息字面(`-eb` 2026-08-31 併入)', () => {
