@@ -104,10 +104,29 @@ export LC_ALL=C
 #    推 feature branch / 推 tag 時本閘刻意不看(只看 dev 與 main),
 #    此時若印「0 blocked」會被讀成「檢查過、乾淨」——那正是本閘要避免的那種沉默。
 REF_N=0; PENDING_N=0
+# 🔵 2026-09-01 加(主視窗批):REF_N=0 時把【收到的原始 stdin】原封留一份。
+#    成因:第十三批一發 non-ff 被拒的 push, 閘印「未檢查任何 ref」而沒有留下它到底收到什麼
+#    ⇒ 只能事後推。本機四個世界重現不出那個空 stdin(non-ff / --force 都給 114 bytes;
+#      只有 Everything up-to-date 給 0)⇒ 差異可能在 SSH 傳輸層, 而那一格【未量】。
+#    🔴 這一段不下判斷、不改行為 —— 它只讓【下一次】自己留下證據。
+GATE_STDIN="$(mktemp -t dogstdin 2>/dev/null || echo /tmp/dogstdin.$$)"
+trap 'rm -f "$GATE_STDIN"' EXIT
 summary() {  # $1 = 結論標籤
   if [ "$1" = "skipped" ]; then
     echo "gate: 跳過($2)—— 本閘沒有判準,不是「檢查過而乾淨」" >&2
   elif [ "$REF_N" = "0" ]; then
+    # 🔴 原始 stdin 留一份, 帶時間戳、不覆蓋 ⇒ 兩次發生時兩份都在。
+    # 🔵 印在摘要行【之前】是刻意的:驗證器取 `tail -1`,
+    #    把摘要行擠掉會讓「有沒有印對摘要」變成假紅。
+    if [ -f "${GATE_STDIN:-}" ]; then
+      _gd="$(git rev-parse --git-dir 2>/dev/null || echo .git)"
+      _gf="$_gd/deploy-order-gate-empty-$(date +%Y%m%d-%H%M%S)-$$.txt"
+      if cp "$GATE_STDIN" "$_gf" 2>/dev/null; then
+        echo "gate: 原始 stdin 已留存 ⇒ $_gf($(wc -c < "$_gf" | tr -d ' ') bytes)" >&2
+      else
+        echo "gate: 想留存原始 stdin 但寫不進去($_gf)—— 這一發沒有證據" >&2
+      fi
+    fi
     echo "gate: 未檢查任何 ref(這次推的不是 refs/heads/dev 或 refs/heads/main)" >&2
   else
     echo "gate: $1 blocked / $PENDING_N pending(檢查了 $REF_N 個 ref)" >&2
@@ -240,6 +259,8 @@ EMPTY_TREE="$(git hash-object -t tree /dev/null)"
 # 🔴 判準用**這次要推的那顆的樹**,不是工作樹(#4);比對的是**新增行**,不是整個檔的現況(#3)——
 #    只改同一個檔的無關一行,不該因為檔內早就有那個 RPC 字樣而被擋。
 BLOCKED=""
+# 🔵 先把 stdin 整個收下來, 迴圈改讀那份 ⇒ 這樣 REF_N=0 時才留得住它。
+cat > "$GATE_STDIN"
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ -n "${local_sha:-}" ] || continue
   [ "$local_sha" = "$ZERO" ] && continue                       # 刪除 ref
@@ -392,7 +413,7 @@ $VALS"
       done <<< "$VIEW_LIST"
     fi
   done <<< "$APP_FILES"
-done
+done < "$GATE_STDIN"
 
 [ -z "$BLOCKED" ] && { summary 0; exit 0; }
 
