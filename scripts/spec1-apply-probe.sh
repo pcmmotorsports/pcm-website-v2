@@ -29,7 +29,7 @@ set -u
 export LC_ALL=C LANG=C
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 GEN2="$REPO/supabase/migrations/20260829140000_m4b_b2c_manual_order_explicit_tax_total.sql"
-NEW="$REPO/supabase/migrations/20260831160000_m4b_spec1_manual_order_authoritative_spec.sql"
+NEW="$REPO/supabase/migrations/20260831180000_m4b_spec1_manual_order_authoritative_spec.sql"
 D=/tmp/spec1-probe
 PORT=5621
 EXPECT='pre-gate apply worldA worldB worldC worldD worldE pos-ctl rerun rollback mut-M1 mut-M2 mut-M3 mut-M4'
