@@ -131,6 +131,11 @@ describe('AppSidebar 導覽項', () => {
       ['優惠券', '/coupons'],
       ['員工管理', '/settings/staff'],
       ['供應商', '/settings/suppliers'],
+      // M-4b ⟦b4-MAILDEAD⟧:死信清單頁已接上 ⇒ 這一格可點。
+      //    🔴 本行同樣是【跟著 `nav-items.ts` 一起改的】——
+      //    而上一次有人加 nav 忘了同步(見上方那段自陳)⇒ 這兩支在 dev 上一起紅。
+      //    📌 這一次它【當場抓到我】:我跑全 repo 測試才看到, 而我先前只跑了自己新建的檔。
+      ['寄不出去的信', '/settings/mail'],
       // A9w2:「設定」原指 `/settings/order-statuses`(九碼狀態詞彙 CRUD),該頁隨九碼退場已刪
       // ⇒ 改為無 href 的不可點格;`navEntries()` 的 regex 要求 `href:` 才匹配得到,
       // 所以它從本清單消失是**預期**的。本檔看守的正是「哪幾項是可點的」。
