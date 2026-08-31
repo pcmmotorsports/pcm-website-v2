@@ -1,9 +1,10 @@
 import { SettingsResultBanner } from '@/components/settings/settings-result-banner';
-import { permissionNotice, type ManagePermission } from '@/components/settings/staff-edit-row';
+import type { ManagePermission } from '@/components/settings/staff-edit-row';
 import { Button } from '@/components/ui/button';
 import { requeueDeadEmailAction } from '@/lib/mail/dead-letter-actions';
 import { DEAD_LETTER_RESULT_MESSAGES } from '@/lib/mail/dead-letter-messages';
 import { listDeadLetters } from '@/lib/mail/dead-letter-read';
+import { formatOrderDateTime } from '@/lib/orders/order-detail-view';
 import { getSessionActorIdWithSource } from '@/lib/session/actor';
 import { listStaffRows } from '@/lib/staff-repository';
 
@@ -68,12 +69,18 @@ export default async function MailDeadLetterPage({
 
       <SettingsResultBanner code={resultCode} messages={DEAD_LETTER_RESULT_MESSAGES} />
 
-      {permissionNotice(canManage) ? (
+      {/* 🔴 **不借用 staff 頁的 `permissionNotice()`** —— 2026-09-01 真瀏覽器當場抓到:
+          它印的是「你沒有權限修改【員工資料】」,而這裡是死信頁。
+          📌 **一句在 A 頁正確的文案,搬到 B 頁會變成一句假話** —— 而 11 個測試沒有一個會紅,
+             因為它們驗的是邏輯,不是畫面上的字。 */}
+      {canManage !== 'yes' ? (
         <p
           className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-3 text-sm'
           role='status'
         >
-          {permissionNotice(canManage)}
+          {canManage === 'no'
+            ? '只有管理者可以重排寄不出去的信。你目前不是管理者。'
+            : '暫時無法確認你的權限,所以重排按鈕先停用。請重新整理,或稍後再試。'}
         </p>
       ) : null}
 
@@ -119,7 +126,7 @@ export default async function MailDeadLetterPage({
                   </td>
                   {/* 🔴 沒有錯誤碼要印一個看得出來的東西 —— 空白格與「沒有錯誤」長得一樣。 */}
                   <td className='p-3 font-mono text-xs'>{row.lastErrorCode ?? '(沒有記到)'}</td>
-                  <td className='p-3'>{row.createdAt}</td>
+                  <td className='p-3'>{formatOrderDateTime(row.createdAt)}</td>
                   <td className='p-3 text-right'>
                     <form action={requeueDeadEmailAction}>
                       <input type='hidden' name='outbox_id' value={row.id} />
