@@ -19,16 +19,19 @@
 -- ══ 拒絕理由的【順序】—— 我判的, 不是 Sean 拍的 ═══════════════════════════
 -- `not_found → inactive → expired → tier_conflict → already_used_by_account
 --  → exhausted → below_min_spend`
--- 🔴 `below_min_spend` 排最後:只有它回一個【可行動】的數字。一張**已過期**的券若先回
---    「還差 NT$50」, 客人會去湊金額, 然後發現它根本不能用。
+-- 🔴 `below_min_spend` 排最後:它是唯一一個**客人做得了事**的理由(去湊金額)。
+--    一張**已過期**的券若先回「金額不足」, 客人會去湊, 然後發現它根本不能用。
+-- ⛔ ~~原句寫「只有它回一個【可行動】的數字」~~(codex nit)—— **那個數字今天不回**:
+--    `shortfall` 依 `packages/domain/src/order/coupon.ts:84` **預設不回**(Sean 未答)。
+--    ⇒ 可行動的是**那個理由**, 不是一個數字。字面改掉, 舊句留著加刪除線。
 -- ⚠️ `already_used_by_account` 與 `exhausted` 誰先兩個都說得通:我選前者(與這位客人有關)。
 --    **這一格可以被推翻。**
 --
 -- ══ 🛑 這支函式【答不出】的, 具名 ═══════════════════════════════════════════
--- ① **折抵算出 0 元要怎麼辦** —— 片1 `:357-361` 逐字把它列為片2 要先決定的三選一
---    (拒券 / 最低折 1 元 / 允許 0), 而且逐字「**它是【錢】那一層 ⇒ Sean 拍, 不是我挑**」。
---    ⇒ 🔴 **本函式丟例外, 而那【不是】那三個選項的任何一個** —— 它是一個「還沒決定」的佔位。
---      端給 Sean 的題已交主視窗。**在他答之前, 一張會算出 0 元的券會讓這條路 500。**
+-- ✅ ① **折抵算出 0 元** —— **2026-08-31 Sean 拍【甲:最低折 1 元】, 已落地(見 1e)。**
+--    ⛔ ~~本函式丟例外, 那是佔位不是答案~~ ⇒ 已移除。
+--    ⚠️ 而**他沒有被問到 0 元小計那個邊界** ⇒ 那一格是我判的,
+--       寫在 1d 的 `greatest(min_spend, 1)` 旁邊。**那一格可以被推翻。**
 -- ② **券碼含零寬字元(U+200B 等)的券查不到** —— 片1 `:113` 的 CHECK 用 `[[:space:]]`,
 --    而那個字集**不含零寬字元** ⇒ 這種碼存得進去, 而本函式的正規化會把它從輸入剝掉
 --    ⇒ 存得進去、永遠查不到。🔵 **而它今天打不到**:`coupons` 目前**零寫入端**
@@ -44,6 +47,32 @@
 -- 🔴 ⑤ **兌換成功【不會】動 `orders.discount_total` / `orders.total`。**
 --    ⇒ 「已付款、已記一列 redemption、而訂單金額一毛沒少」是一個**寫得出來的狀態**。
 --    ⇒ 那是片3(接進結帳)的工作, 而在片3 落地之前, **這支函式單獨呼叫是不安全的**。
+-- 🔴🔴 ⑦ **「這張單還算不算數」的真相散在【至少六個地方】, 而本函式只問得到三個。**
+--    codex 五輪, 而 R3/R4/R5 全部落在這一層 —— 那不是三個 bug, 是一個結構:
+--      **每一條會讓訂單失效的路徑, 都【不更新 `orders.payment_status`】。**
+--    ✅ 本函式已問(且各有一發突變證明在承重):
+--      `orders.customer_user_id` · `orders.payment_status = 'paid'` · `orders.cancelled_at IS NULL`
+--      · `order_cancellations` 有沒有列(部分取消只寫這裡)
+--    🛑 **本函式【沒有】問, R5 具名的三個**:
+--      · `order_refunds.status`(`20260823010000_..._extract_sync_fn.sql:356-369`)
+--        —— 退款已受理而金額不符時停在 `processing`, 訂單仍 `paid`
+--      · `order_manual_refunds.voided_at / refund_amount`(`20260823020000_..._record_calls_sync.sql:447-478`)
+--        —— `admin_record_manual_refund` 寫入有效非卡退款, 而同步 helper 不計此表
+--      · `order_payments.amount / reverses_payment_id`(`20260812150000_..._payment_audit.sql:426-430`)
+--        —— `admin_reverse_manual_payment` 寫負數沖銷卻不改 `payment_status`
+--
+-- 🛑🛑 **為什麼我【不】把那三個也加成 `count(*) > 0`** —— 這是判斷, 寫出來讓人推翻:
+--    ① **那是打地鼠**:每多一條退款/取消路徑就多一張表, 而漏掉的那一次不會有東西叫。
+--       R3 抓 1 個、R4 抓 1 個、R5 一次抓 3 個 ⇒ **這條路上的數字在變大, 不是變小。**
+--    ② **誤擋的風險是真的**:`order_payments` 每張正常的單都有列(要只數沖銷那種)、
+--       `order_refunds` 有多個狀態 ⇒ **寫錯條件 = 擋掉正常兌券**, 而那比漏擋更快被客人撞到。
+--       而我**沒有這三張表的測試資料**, 加了也驗不了 ⇒ 那會是「寫了而沒接上」的守門。
+--    ③ **真正的修法是【一個單一真相】** —— 一支「這張單現在還算不算數」的 predicate,
+--       由訂單那條線擁有, 六個地方共用。而那是**新 DB 物件 + 跨線** ⇒ 鐵則 8, 要 plan + Sean 批。
+--    🔵 **而今天這三格打不到**:兌換發生在【付款成功那一步】(片1 `:11` Sean 拍乙),
+--       那一刻退款/沖銷/部分取消**都還不存在**。⇒ 代價今天是零, 而它會隨片3 上線變成非零。
+-- 📌 **⇒ 這一條不是「未做」, 是「做法錯了要換」** —— 已交主視窗端成決策題。
+--
 -- 🔴 ⑥ **`reverted_at` 全 repo 零寫入端**(codex 掃 2,107 檔:revert writer 0 / INSERT writer 1)。
 --    ⇒ 退款 / 取消 / 客服手改單之後, 那一列**永遠算數**, 持續吃掉總量與每人上限。
 --    ⇒ 片1 `:186` 早就警告過「每一個數次數的地方都要帶 `reverted_at IS NULL`」——
@@ -80,9 +109,12 @@ DECLARE
   v_c         public.coupons%ROWTYPE;
   v_owner     uuid;
   v_paystat   text;
+  v_cancelled timestamptz;
+  v_partcxl   integer;
   v_used      integer;
   v_by_acct   integer;
   v_discount  integer;
+  v_calc      integer;   -- 用【這一次的 p_subtotal】算出來的折抵;NULL = 這個小計不該有折抵
   v_prev      public.coupon_redemptions%ROWTYPE;
 BEGIN
   -- 🔴🔴 **R3-must-fix:那三道上限暗藏一個【沒有寫出來】的假設 —— `READ COMMITTED`。**
@@ -127,8 +159,14 @@ BEGIN
     --    ⇒ 我照樣寫下一列「有效」的 redemption, 掛在一張已經被退掉的單上。
     -- ⚠️ **鎖序=先單再券**(這裡 → 1c)。今天只有這支函式碰 `coupons`,
     --    ⇒ 未來若有另一條路【先鎖券再鎖單】, 那就是死結。寫下來, 不要靠記得。
-    SELECT o.customer_user_id, o.payment_status::text
-      INTO v_owner, v_paystat
+    -- 🔴🔴 **`cancelled_at` 也要看**(codex R3 must-fix):`admin_cancel_order`
+    --    (`20260804180000_..._admin_cancel_order.sql:241-245`)的 UPDATE **只寫
+    --    `cancelled_at` / `cancelled_reason` / `updated_at`, 不動 `payment_status`**
+    --    ⇒ **一張已付款後被取消的單, 它的 `payment_status` 還是 `paid`**
+    --    ⇒ 只問付款狀態的話, 那張單照樣兌得掉券, 而它已經不存在了。
+    -- 📌 **⇒ 「付了錢」與「這張單還算數」是兩個宣稱, 而它們住在兩個欄位。**
+    SELECT o.customer_user_id, o.payment_status::text, o.cancelled_at
+      INTO v_owner, v_paystat, v_cancelled
       FROM public.orders o WHERE o.id = p_order_id
       FOR UPDATE;
     IF NOT FOUND OR v_owner IS DISTINCT FROM p_user_id THEN
@@ -141,6 +179,26 @@ BEGIN
     --      黑名單則會在下一個人加值的那天**安靜地放行**, 而三綠不會紅。
     --    (欄位形狀:`20260604120000_..._orders_order_items.sql:99`
     --      `payment_status payment_status NOT NULL DEFAULT 'unpaid'`)
+    IF v_cancelled IS NOT NULL THEN
+      RAISE EXCEPTION
+        'redeem_coupon: 這張單已被取消(cancelled_at=%)—— 取消不會改 payment_status, 所以要分開問',
+        v_cancelled;
+    END IF;
+    -- 🔴🔴 **部分取消【不寫 `orders.cancelled_at`】**(codex R4 must-fix):
+    --    `20260820030000_..._cancel_gate_noncard.sql:668` 的 `UPDATE public.orders`
+    --    **只在 `v_closed`(所有品項都被取消)時才跑** ⇒ 部分取消只寫進
+    --    `order_cancellations` / `order_cancellation_items` 這兩張「取消真相表」。
+    --    ⇒ 一張**已付款、被部分取消**的單, 它的三格仍然是「本人 + paid + cancelled_at NULL」
+    --    ⇒ 券照樣兌得掉, 而**那張單的金額已經不是呼叫端算的那個了**。
+    -- 📌 **⇒ R3 抓到「取消不改付款狀態」, R4 抓到「部分取消連取消欄位都不改」——
+    --    同一個形狀的第二層:【真相住在另一張表, 而主表看起來完全正常】。**
+    SELECT count(*) INTO v_partcxl
+      FROM public.order_cancellations oc WHERE oc.order_id = p_order_id;
+    IF v_partcxl > 0 THEN
+      RAISE EXCEPTION
+        'redeem_coupon: 這張單有 % 筆取消紀錄(order_cancellations)—— 金額已變動, 不接受兌券',
+        v_partcxl;
+    END IF;
     IF v_paystat IS DISTINCT FROM 'paid' THEN
       RAISE EXCEPTION
         'redeem_coupon: 這張單還沒付款(payment_status=%)—— 片1 :7 Sean 拍乙「付款成功才算」', v_paystat;
@@ -164,6 +222,24 @@ BEGIN
     RETURN jsonb_build_object('valid', false, 'reason', 'not_found');
   END IF;
 
+  -- 1c-1. 🔴🔴 **折抵【只算一次】, 冪等路徑與正常路徑共用同一個值**(codex R2 must-fix)。
+  --    ⛔ ~~原版:冪等路徑直接回 `v_prev.discount_applied`, 而正常路徑另外算一次~~
+  --    ⇒ **兩條路徑, 兩個答案** ⇒ 先用小計 4000 折 40, 重送時傳 10000
+  --      ⇒ 靜默回 40, 而正確是 100。**少折 60 元, 而沒有東西會叫。**
+  --    ⚠️ 而我第一版的修法(只擋「折抵 > 小計」)**只涵蓋一個方向** ——
+  --      codex 逐字:「反方向『小計變大』必須擋或驗證, 否則百分比券會靜默少折」。
+  -- 📌 **⇒ 加第二道檢查是在補洞;只算一次是把洞的來源拿掉。**
+  IF p_subtotal < greatest(v_c.min_spend, 1) THEN
+    v_calc := NULL;   -- 這個小計不該有折抵(理由見 1d)
+  ELSE
+    v_calc := CASE v_c.discount_type
+      WHEN 'fixed'   THEN v_c.discount_value
+      WHEN 'percent' THEN round(p_subtotal::numeric * v_c.discount_value::numeric / 100)::integer
+    END;
+    v_calc := least(v_calc, p_subtotal);   -- 上限 = 小計(算術, 不是政策)
+    v_calc := greatest(v_calc, 1);          -- 下限 = 1 元(Sean 2026-08-31 拍甲)
+  END IF;
+
   -- 1c-2. 🔵 **同一張單重送 ⇒ 冪等回成功**(codex must-fix):
   --   付款流程會重試, 而「同一張單、同一張券、同一個帳號」再送一次**不是錯誤**。
   --   ⇒ 回上一次的結果, 不再寫第二列(`UNIQUE (order_id)` 本來就不准)。
@@ -176,6 +252,16 @@ BEGIN
     SELECT * INTO v_prev FROM public.coupon_redemptions r WHERE r.order_id = p_order_id;
     IF FOUND AND v_prev.reverted_at IS NULL THEN
       IF v_prev.coupon_id = v_c.id AND v_prev.user_id = p_user_id THEN
+        -- 🔴🔴 **拿【這一次算出來的】跟【已記錄的】比, 兩邊都要相同才叫冪等**(codex R2)。
+        --    ⛔ ~~第一版只擋「折抵 > 小計」~~ —— 那**只涵蓋小計變小那個方向**;
+        --      小計變【大】時(4000 → 10000)它一句話都不會說, 而客人少折 60 元。
+        -- 📌 **冪等 =「同一件事再做一次給同一個答案」, 不是「不管你問什麼都給舊答案」。**
+        --    ⇒ 對不上 = 呼叫端這兩次送的小計不一樣 ⇒ 丟例外, 不回一個看起來正常的 JSON。
+        IF v_calc IS DISTINCT FROM v_prev.discount_applied THEN
+          RAISE EXCEPTION
+            'redeem_coupon: 重送算出的折抵 % 與已記錄的 % 不同(order_id=%, subtotal=%)—— 兩次的小計對不上',
+            coalesce(v_calc::text, 'NULL'), v_prev.discount_applied, p_order_id, p_subtotal;
+        END IF;
         RETURN jsonb_build_object('valid', true, 'discount_applied', v_prev.discount_applied);
       END IF;
       RAISE EXCEPTION
@@ -222,7 +308,42 @@ BEGIN
     END IF;
   END IF;
 
-  IF p_subtotal < v_c.min_spend THEN
+  -- 🔴🔴 **`greatest(min_spend, 1)` —— 這一格是我判的, 不是 Sean 拍的。**
+  --    他 2026-08-31 拍【甲:最低折 1 元】, 而那句話帶出一個**他沒有被問到的邊界**:
+  --    小計 0 元的單(PCM 有零元單)⇒ 折抵下限 1 會**大於小計** ⇒ 負數金額。
+  --    ⇒ 我的判斷:**「最低折 1 元」等於把這張券的有效低消抬到至少 1 元**
+  --      —— 一張 0 元的單本來就沒有東西可以折。⇒ 回既有的 `below_min_spend`,
+  --      **不發明第八個拒絕理由**。
+  -- ⛔ ~~**codex 說這是新金額政策 —— 我查了, 那個前提不成立**~~
+  -- 🔴🔴 **我錯了, 而 codex R2 的反駁是對的:`total` 與 `subtotal` 是【兩個欄位】。**
+  --    `create_order` 段 7 擋的是 `v_total <= 0`, 而 `total = subtotal + 運費`
+  --    ⇒ **商品小計 0 + 宅配運費 100 ⇒ total 100 ⇒ 建得起來、付得掉**
+  --    ⇒ **兌換模式真的收得到 `p_subtotal = 0`。** 我把「整車金額」讀成涵蓋 subtotal 了。
+  -- 📌 **⇒ 這正是「範圍在轉述中被丟掉」那一族:我引用了一個真的拍板,
+  --    而我引用的射程比它實際涵蓋的寬一格。而那一格剛好是這裡。**
+  -- 🛑 **⇒ 那真的是一題待 Sean 拍, 而 codex 也講出了那一格具體是什麼**:
+  --      「商品小計 0 + 運費 100 的單, 券要【拒掉】還是【允許折運費】?」
+  -- ✅ **他答了:2026-08-31 19:5x 拍【甲:拒掉】** ——
+  --    ⚠️ **來源屬性**:他本人在**哨兵視窗**打的字, 由哨兵 `-26`[72f94a] 逐字轉給本窗;
+  --       **不是本窗第一手收到的**。⇒ 不要把這裡讀成「他對這個視窗說過」。
+  --    ⇒ ⛔ ~~暫時的預設, 不是他的答案~~ ⇒ **現在的行為就是他拍的答案。**
+  --    🔵 **兩條獨立路徑各轉一次, 而兩邊逐字一致**:哨兵 `-26`[72f94a] 與主視窗 `-24`[231383]
+  --       各自轉了同一個「甲」, 且都附上同一份選項字面。⇒ 這一格不是單一來源。
+  -- 🔵 而這一格誤傳的代價低:**甲 = 碼本來就在做的事** ⇒ 這則轉述沒有讓我【改變】任何行為,
+  --    只讓我把註解從「暫時」改成「拍板」。⇒ **若他答的是乙(要改行為), 我會回頭要一次確認才動手。**
+  --
+  -- 🔵 以下是我原本那段查證, 保留 —— 它證明了那個拍板存在, 只是射程不到這裡:
+  --    `20260825130000_m4b_zero_price_checkout_and_cart_total_gate.sql` 檔頭逐字:
+  --      Sean 2026-08-25 拍【甲:修結帳那道閘的時候順手加一道「整車金額要大於 0」】
+  --      ⇒ `create_order` 段 7:`v_total <= 0 ⇒ RAISE`
+  --    ⇒ **一張 total = 0 的訂單【建不起來】** ⇒ 兌換模式(`p_order_id` 有值)**到不了這一格**。
+  --    ⇒ 到得了的只有**試算**(車上只有 0 元贈品, 客人去試打一張券)——
+  --      而那台車**本來就結不了帳**, 而 `below_min_spend` 對客人是正確且可行動的答案。
+  --    ⇒ **不是新政策, 是把一個既有拍板的後果講出來。**
+  -- ⚠️ 而 codex 的語意批評有一半是對的:券面 `min_spend = 0` 時這個理由**對內部**不精確。
+  --    ⇒ 代價寫在這裡, 不藏:**封閉集沒有「金額為 0」這個值, 而我不發明第八個。**
+  -- 🛑 **這一格仍然可以被推翻** —— 要一個專屬理由的話, 那要動封閉集(TS + SQL ENUM 兩側)。
+  IF p_subtotal < greatest(v_c.min_spend, 1) THEN
     -- 🔴🔴 **R2-must-fix:`shortfall` 不回** —— `packages/domain/src/order/coupon.ts:84` 逐字
     --    「**今天預設不回**(plan §1-4):要不要把差額算給客人看 **Sean 還沒答**」。
     --    ⇒ 原版直接回了 ⇒ **SQL 這一側自己開啟了一個沒有人授權的行為**,
@@ -235,17 +356,24 @@ BEGIN
   -- 1e. 折抵金額。percent 四捨五入(片1 `:114`:與 `pricing.ts:53` 同一個做法, Sean 拍的)。
   -- 🔴🔴 **先轉 numeric 再乘**(codex must-fix):`p_subtotal * discount_value` 是 integer 乘法
   --    ⇒ 30,000,000 × 100 在**除以 100.0 之前就 overflow** ⇒ 兌換整個失敗。
-  v_discount := CASE v_c.discount_type
-    WHEN 'fixed'   THEN v_c.discount_value
-    WHEN 'percent' THEN round(p_subtotal::numeric * v_c.discount_value::numeric / 100)::integer
-  END;
-  -- 🛑 上限 = 小計(算術, 不是政策 —— 見檔頭)。
-  v_discount := least(v_discount, p_subtotal);
-  IF v_discount <= 0 THEN
-    -- 🛑 **這裡丟例外【不是】一個決定, 是一個佔位** —— 見檔頭 ①。
-    --    片1 `:357-361` 把三選一(拒券 / 最低折 1 元 / 允許 0)指名為 **Sean 拍**。
+  v_discount := v_calc;   -- 🔵 1c-1 已經算好了 —— **這裡不再算第二次**(見 1c-1 的理由)。
+  -- 🔴🔴 **Sean 2026-08-31 拍【甲:最低折 1 元】**(片1 `:357-361` 的三選一)。
+  --    他看到的題目與代價(主視窗 `-24` 端, 逐字):
+  --      甲 最低折 1 元 —— 一行碼、不用改資料表、客人看到「-1 元」(推薦)
+  --      乙 拒絕這張券 —— 客人拿到「不能用」而不知道為什麼
+  --      丙 允許折 0 —— 🔴 要改資料表規則, 而且券被用掉卻一毛沒少
+  -- 🔵 **而他選的甲, 正好是唯一不用動已 apply 的表的那一個** ——
+  --    丙 要改片1 那張表的 `CHECK (discount_applied > 0)`(片1 `:358` 逐字點名)。
+  -- ⛔ ~~舊版在這裡 `RAISE EXCEPTION`~~ —— 那是**佔位不是答案**, 現在有答案了。
+  --
+  -- 🛑 **先夾上限, 再抬下限, 而抬完不可能超過上限** —— 因為上面那道
+  --    `p_subtotal >= greatest(min_spend, 1)` 保證了 `p_subtotal >= 1`。**不會出負數。**
+  -- 🟢 收尾斷言:走到這裡的值必須落在 [1, p_subtotal]。
+  --    這一格不是裝飾 —— 上面那兩行的正確性**依賴一個在別處的前提**(`p_subtotal >= 1`),
+  --    而那個前提哪天被改掉時, **這裡是唯一會叫的地方**。
+  IF v_discount < 1 OR v_discount > p_subtotal THEN
     RAISE EXCEPTION
-      'redeem_coupon: 折抵算出 %(subtotal=%, code=%)—— 片1 :357-361 的三選一尚未拍板, 本函式暫不決定',
+      'redeem_coupon: 折抵 % 落在 [1, %] 之外 —— 上下限的前提被破壞了(code=%)',
       v_discount, p_subtotal, v_code;
   END IF;
 
@@ -274,8 +402,9 @@ $$;
 COMMENT ON FUNCTION public.redeem_coupon(text, uuid, integer, boolean, uuid) IS
   'M-4b 券片2:驗券 + 原子兌換。p_order_id NULL = 試算(不鎖不寫);有值 = 兌換(FOR UPDATE + 寫一列)。'
   '回 jsonb {valid, reason?, discount_applied?}(**shortfall 今天不回**, 見 coupon.ts:84)。reason 為 coupon_reject_reason 七值之一。'
-  '同單同券同人重送 = 冪等回上次結果。訂單歸屬在函式內驗(片1 :349-356 指定)。'
-  '🛑 答不出:①折抵算出 0 元的三選一未拍板(片1 :357-361)⇒ 本函式丟例外, 那是佔位不是答案 '
+  '同單同券同人重送【且算出來的折抵與已記錄的相同】= 冪等回上次結果(不同 ⇒ 丟例外)。訂單歸屬在函式內驗(片1 :349-356 指定)。'
+  '折抵下限 1 元(Sean 2026-08-31 拍甲), 上限 = 小計;0 元小計走 below_min_spend(作者判, 非拍板)。'
+  '🛑 答不出:'
   '②券碼含零寬字元者存得進去卻查不到(片1 :113 的 CHECK 不含零寬字集;今天無寫入端 ⇒ 打不到) '
   '③會員價衝突只讀 p_has_tier_price, 本函式不自己算。';
 
