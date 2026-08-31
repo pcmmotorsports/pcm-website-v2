@@ -122,7 +122,22 @@ export type SweepEmailOutboxOptions = {
    * 已經跑了兩段 enqueue(訂單成立 + 出貨)⇒ 這個迴圈以為自己還有滿滿 `maxRunSeconds`,
    * 實際上平台的 60 秒已經被吃掉一部分。
    * ⇒ 平台可能在 `sender.send` 已被 Resend 接受、`markSent` 還沒寫下去的那一格 kill
-   * ⇒ 列留 `sending` ⇒ 下輪回收 ⇒ **重寄**(Resend 的 Idempotency-Key 只保 24h)。
+   * ⇒ 列留 `sending` ⇒ 下輪回收 ⇒ ⛔ ~~**重寄**(Resend 的 Idempotency-Key 只保 24h)~~
+   *
+   * 🔴🔴 **[2026-08-30 深夜 自我更正:上面那個「重寄」【寫得太重】]**
+   *    套用「這一輪跑完之後那一列處在哪個狀態?下一輪還撿不撿得到它?」這把尺:
+   *    ```
+   *    列停在 sending ⇒ claimDue 只收 ['pending','failed'] ⇒ 下一輪【撿不到它】
+   *    要等回收，而回收條件是 claimed_at < now − LEASE_SECONDS(3600) ⇒ 一小時
+   *    回收後 next_retry +5 分鐘 ⇒ 重新送出大約在【65 分鐘後】
+   *    而 Resend 的 Idempotency-Key 保【24 小時】⇒ 那一發會被 provider 去重
+   *    ```
+   *    ⇒ ✅ **正確字面:真正的傷害是【燒掉一次 attempt】+【那一列一小時內不會再被處理】,
+   *      而「客人收到兩封」只有在 sweeper 停擺【超過 24 小時】時才成立**
+   *      —— 本檔檔頭 `:31` 逐字早就寫著那個條件,而我寫這一段時沒有把它接上。
+   *    📌 **⇒ 同一支檔裡有一句正確的限定,而我在另一段重新描述同一件事時沒有引用它。**
+   *    🛑 **而這一格【不改變本片要不要做】**:燒 attempt 與卡一小時都還在,
+   *      只是「重寄」那個最嚇人的說法要收窄。
    *
    * 🔴 **為什麼不直接改 `maxRunSeconds`**:那一顆的語意是「申告平台的硬性 kill 上界」,
    * 而 lease 的硬下界是**從它推出來的**(`max(3600, maxRunSeconds + 300)`)
@@ -266,7 +281,9 @@ const CLOCK_SKEW_ALLOWANCE_SECONDS = 300;
 /**
  * 收尾餘裕(秒):**停止寄送**的時點要比平台 kill 早這麼多(`⟦b4-SWEEPBUDGET1⟧`)。
  * 留給「`sender.send` 回來 → `markSent` 落表」那一段;沒有它,一次在 `maxRunSeconds - 1ms`
- * 通過的檢查後面仍可能跟著一發跨過 kill 線的 `send` ⇒ 列留 `sending` ⇒ 回收 ⇒ **重寄**。
+ * 通過的檢查後面仍可能跟著一發跨過 kill 線的 `send` ⇒ 列留 `sending` ⇒ 回收 ⇒ ⛔ ~~**重寄**~~
+ * ⇒ ✅ **燒掉一次 attempt + 卡一小時**(「重寄」要停擺 >24h 才成立, 見 `SweepEmailOutboxOptions`
+ *   的 `runStartedAtMs` 那段自我更正)。
  */
 const SEND_TAIL_ALLOWANCE_SECONDS = 5;
 
@@ -370,8 +387,33 @@ function buildOrderCreatedText(job: ClaimedEmailJob): string {
  * 不是「信裡要印一個時間」。⇒ 印一個他沒有拍過的欄位 = 自己加文案。
  * ⚠️ **要加的話請連時區一起拍板** —— 印一個沒有偏移的時刻,客人看到的會是 UTC。
  *
- * 🔴 **標點用半形逗號**,與隔壁 `buildOrderCreatedText` 一致;而 Sean 看到的選項字面裡
- * 是全形「，」⇒ **兩者只差標點、字沒有改**,這一格在交件時要跟他講一聲。
+ * 🔴 **標點用半形逗號**,與隔壁 `buildOrderCreatedText` 一致;而 Sean 看到的**選項摘要**裡
+ * 是全形「，」。
+ * ⛔ ~~⇒ 兩者只差標點、字沒有改,這一格在交件時要跟他講一聲。~~
+ * ✅ **已複驗(2026-08-30 夜):不需要告知 —— 碼的字面與他核可的那一份【完全相同】。**
+ *    **落點(去這裡看,不要只信這一句)**:
+ *    `~/pcm-mailbox/給Sean-出貨通知信實際措辭-20260830.md`
+ *      `:23` 「## 信長這樣」= 他實際看到的那封信全文
+ *      `:42` 這張訂單可能分批出貨,…      ⇒ **半形 `,`**
+ *      `:56` 本批為自取／自送,無追蹤碼。 ⇒ **半形 `,`**
+ *      `:72` 「信的措辭就照【上面那樣】?」⇒ 他答「可以」
+ *    ⇒ 全形只出現在 `:15-16` 的**選項摘要**,而那一題問的是「放哪三段」不是「怎麼寫」
+ *      —— **那份檔自己在 `:9` 就寫了。**
+ *
+ * 🔴🔴 **而這一格是怎麼被抓到的,留著 —— 它比那個標點值錢**:
+ *    我拿【碼】去比【選項摘要】,得到「我們偏離了他核可的字面」這個結論,
+ *    而它一路轉手到準備端給 Sean,**中間零個人回過原件**。
+ *    📌 **那兩種字面在【同一支檔裡】** ⇒ 我 grep 它、撞到全形,
+ *    **而那個命中【不是錯的】—— 它只是沒有在回答我的問題。**
+ *    ⇒ **一個真的命中,比一個假的命中難發現**:零命中至少會讓人問「我的尺對不對」,
+ *      而一個真實存在的命中**沒有任何訊號**告訴你「這一個屬於另一個世界」。
+ *
+ * 🛑 **而原註解那句「要跟他講一聲」的教訓【仍然成立】,不要跟上面一起劃掉**:
+ *    它要講的那件事複驗後不需要講了;**而「它從來沒有被講出去」這件事是真的** ——
+ *    量法:本線在 `~/pcm-mailbox/` 的 58 支檔 `grep 只差標點` ⇒ **0**
+ *    (正對照:同 58 支含「出貨」⇒ **58**)。
+ *    📌 **一句寫在碼裡的待辦,沒有任何東西會叫醒它 —— 它與一句寫完就完成了的註解,
+ *      在檔案上長得一模一樣。**
  */
 function buildOrderShippedText(ctx: ShippedEmailContext): string {
   const lines: string[] = [
@@ -417,7 +459,8 @@ export async function sweepEmailOutbox(
   if (!Number.isFinite(opts.maxRunSeconds) || opts.maxRunSeconds < 1) {
     throw new Error(`sweepEmailOutbox:maxRunSeconds 必須是 ≥1 的有限數(收到 ${opts.maxRunSeconds})`);
   }
-  // 🔴 `runStartedAtMs` 同樣 fail-loud:傳錯 ⇒ 預算算錯 ⇒ 重寄,而重寄是收不回來的。
+  // 🔴 `runStartedAtMs` 同樣 fail-loud:傳錯 ⇒ 預算算錯 ⇒ 在 send 途中被 kill
+  //    ⇒ 燒 attempt + 卡一小時(⛔ ~~而重寄是收不回來的~~ —— 「重寄」要停擺 >24h,見上方自我更正)。
   if (!Number.isFinite(opts.runStartedAtMs)) {
     throw new Error(
       `sweepEmailOutbox:runStartedAtMs 必須是有限數(毫秒 epoch;收到 ${opts.runStartedAtMs})`,
@@ -477,7 +520,8 @@ export async function sweepEmailOutbox(
   //
   // 🔴 **收尾餘裕**(codex R1 must-fix 3):預算若正好等於 `maxRunSeconds`,
   //    一次在 59.999s 通過的檢查後面還跟著一整發 `sender.send` ⇒ Resend 在 60.01s 收下、
-  //    平台當場 kill、`markSent` 沒寫下去 ⇒ 回收 ⇒ **重寄**。
+  //    平台當場 kill、`markSent` 沒寫下去 ⇒ 回收 ⇒ ⛔ ~~**重寄**~~
+  //    ⇒ ✅ **燒 attempt + 卡一小時**(「重寄」要停擺 >24h;見上方自我更正)。
   //    ⇒ 停止寄送的時點要**早於**平台 kill,把最後這段留給收尾。
   //    ⚠️ 這一格是**縱深不是保證** —— 擋不住一發自己就超過餘裕的 `send`(那是逾時設定的事)。
   //    `Math.max(1000, …)` = 防呆:`maxRunSeconds` 若小於餘裕,預算不得變成 0 或負
