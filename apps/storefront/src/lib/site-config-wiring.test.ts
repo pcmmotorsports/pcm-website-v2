@@ -51,6 +51,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { RPM_WARRANTY_NOTES } from '../data/rpm-policies';
+import { stripComments } from './test-support/strip-comments';
 import { STORE_ADDRESS } from './site-config';
 
 const SRC = join(__dirname, '..');
@@ -62,12 +63,20 @@ const SRC = join(__dirname, '..');
  * 而**註解裡提到那個欄位**會讓它誤判成「有接」。第一版就是這樣紅的 ——
  * `HomeFooter.tsx` 的註解寫著 `OPENING_HOURS.days` 是為了說明 `#528` 的債,
  * 結果被自己的守門當成「它接了 days」。
- * ⚠️ **這支不是完整的 JS parser** —— 字串字面裡的 `//`(例如網址)會被誤剝。
- * 對本支夠用(我們只找 `OPENING_HOURS.x` 這種識別字),**別拿去做別的事**。
+ * ⛔ ~~**這支不是完整的 JS parser** —— 字串字面裡的 `//`(例如網址)會被誤剝。
+ * 對本支夠用(我們只找 `OPENING_HOURS.x` 這種識別字),**別拿去做別的事**。~~
+ *
+ * 🔵 **2026-08-31 改(線【客人帳戶區】`-08`;舊字面留著讓搜舊句的人同一發撞到)**:
+ *    本地那支 regex 版**已刪**, 改 import `./test-support/strip-comments`(TypeScript **parser** 版)。
+ * 🔴 **理由不是「更嚴謹比較好」, 是量到的**:同一個 regex 寫法在
+ *    `scripts/storefront-projection-leak-guard.test.ts` 上被對抗審查**連打穿三次**, 而第二版
+ *    **當天就在漏** —— `app/dev-preview/_components/PreviewHarness.tsx:8` 的
+ *    `// dev-preview/* 全部 route …` 開了假區塊 ⇒ **206 行真程式碼 / 27 支檔**從掃描裡消失。
+ * 🔴 **而本檔在那個交集裡**:它 `walk` 整個 `apps/storefront/src` ⇒ 掃得到 **22 支**
+ *    「regex 會弄丟真識別字」的檔(2026-08-31 實量;負對照現造根目錄 ⇒ 0)。
+ *    📌 **⇒ 本檔的守門對象裡, 有 22 支是它讀不完整的。**
+ * ⚠️ **原本那句「字串裡的 `//` 會被誤剝」今天不成立了** —— parser 知道那是字串。
  */
-function stripComments(code: string): string {
-  return code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
-}
 
 /**
  * `OPENING_HOURS` 的消費端全清單(2026-08-16 實測)。
@@ -141,7 +150,7 @@ describe('SSoT 接線:`OPENING_HOURS` 的消費端必須真的接著常數', () 
       //    而那句是**我自己為了 `#528` 寫的說明** ⇒ **偵測字串命中了自己的輸入**。
       //    同族:`lib/orders/cancel-request-token.test.ts` 的 `stripComments`(admin 側同一個坑)。
       //    ⚠️ 不剝的話這支守門會把「有人寫了註解提到它」當成「有人接了它」。
-      const src = stripComments(readFileSync(join(SRC, rel), 'utf8'));
+      const src = stripComments(readFileSync(join(SRC, rel), 'utf8'), rel);
       // ① 有 import(擋「整支改成硬寫、連 import 都刪掉」)
       expect(src, `${rel} 不再 import site-config —— 它脫鉤了`).toMatch(
         /import\s*\{[^}]*\bOPENING_HOURS\b[^}]*\}\s*from\s*['"]@\/lib\/site-config['"]/,
@@ -184,7 +193,7 @@ describe('SSoT 接線:`OPENING_HOURS` 的消費端必須真的接著常數', () 
       //    `{/* … */}` 的中間行常常以內文開頭 —— `ComingSoon.tsx:217` 那行逐字含「週一-週六」
       //    ⇒ 星期字面一加進掃描字集,那行就被當成硬寫殘留、**假紅**。
       //    這與 F1(地址守門)是同一個病,而它在同一支檔裡已經被記過兩次。
-      const src = stripComments(readFileSync(join(SRC, rel), 'utf8'));
+      const src = stripComments(readFileSync(join(SRC, rel), 'utf8'), rel);
       // 只看「渲染/組字」那一類殘留。
       const codeLines = src.split('\n');
       // 🔴 GR-051 F4:原本這條**只掃時段字面**,星期不在掃描字集
@@ -221,7 +230,7 @@ describe('`#528` 同族:門市地址(硬寫的字面必須與 `STORE_ADDRESS` �
 
   for (const rel of ['components/HomeFooter.tsx', 'components/ComingSoon.tsx']) {
     it(`🔴 ${rel} 的門市地址字面(去空白後)必須【完整等於】STORE_ADDRESS 串接`, () => {
-      const src = stripComments(readFileSync(join(SRC, rel), 'utf8'));
+      const src = stripComments(readFileSync(join(SRC, rel), 'utf8'), rel);
       const i = src.indexOf(STORE_ADDRESS.region);
       expect(
         i,
@@ -355,7 +364,7 @@ describe('分母守門:營業時間字面不得出現在白名單以外的檔', 
 
   it('🔴 白名單以外的檔不得出現營業時間字面(剝掉註解後)', () => {
     const leaked = FILES.filter(
-      (rel) => !ALLOWED.has(rel) && HOURS.test(stripComments(readFileSync(join(SRC, rel), 'utf8'))),
+      (rel) => !ALLOWED.has(rel) && HOURS.test(stripComments(readFileSync(join(SRC, rel), 'utf8'), rel)),
     );
     expect(
       leaked,
@@ -449,13 +458,80 @@ describe('分母守門:門市地址字面不得出現在白名單以外的檔', 
   it('🔴 白名單以外的檔不得出現門市地址字面(剝掉註解後)', () => {
     const leaked = ADDR_FILES.filter(
       (rel) =>
-        !ADDR_ALLOWED.has(rel) && ADDR.test(stripComments(readFileSync(join(SRC, rel), 'utf8'))),
+        !ADDR_ALLOWED.has(rel) && ADDR.test(stripComments(readFileSync(join(SRC, rel), 'utf8'), rel)),
     );
     expect(
       leaked,
       `這幾支檔硬寫了門市地址,而 STORE_ADDRESS 改了它們不會跟著改:\n  ${leaked.join('\n  ')}\n` +
         '⇒ 要嘛改成從 `STORE_ADDRESS` 衍生,\n' +
         '   要嘛(確定它該硬寫)把它加進 `ADDR_ALLOWED`,**並在上面那格補一條逐字等值斷言**。',
+    ).toEqual([]);
+  });
+});
+
+/**
+ * 本檔【自己】的守門(meta)—— 2026-08-30 `-15` 補。
+ *
+ * 🔴 **它為什麼存在**:本檔 `:44-48` 早就寫下了這條通則與它的形狀 ——
+ *   「本檔新增任何 `readFileSync(...)` + 字面比對 ⇒ 檢查它有沒有經過 `stripComments()`」,
+ *   並且自己標了「⚠️ 而**這條通則本身沒有守門** —— 它靠讀到的人執行。
+ *    要做成機制的話,形狀是『掃本檔的 `readFileSync` 呼叫點』的 meta 測試,**還沒做**。」
+ *   ⇒ **這一段就是那個「還沒做」。**
+ *
+ * 📌 **它屬於一族**:一段【必須被讀到才會生效】的字,而沒有任何東西保證那一刻它會被讀。
+ *   同族(2026-08-30 掃到, 用「靠…讀到」當尺):
+ *     · `session.ts:163` / `docs/runbooks/2026-08-24-b5a-identity-rollout.md:111`
+ *       —— 「沒有任何機制在執行這一條。它靠 revert 的人讀到這段字。」(**仍未掛上機制**)
+ *     · `scripts/347-1-verify.sh:43` —— 「用**機制**擋(…+ exit 2),不是靠下一個人讀到這段字。」
+ *       (**已經掛上了**,而它掛的位置是【那個指令自己的 exit code】)
+ *   ⇒ **這一支選的位置是【測試套件】** —— 因為本檔的規則只在本檔內成立, 掛在別處都比它貴。
+ *
+ * 🛑 **射程**:它只答「每一個 `readFileSync(` 前面**緊接著**是不是 `stripComments(`」。
+ *   **不答**:`stripComments` 本身對不對、有沒有人用別的方式讀檔(`readFile` / `fs.promises`)、
+ *   也不答那些比對邏輯是否正確。**⇒ 它擋的是【忘了包】,不是【包錯】。**
+ */
+describe('本檔自己的守門(meta)', () => {
+  /** 🔴 下界:2026-08-30 當場數 = **6** 個真呼叫點(五個既有掃描器 + **本 meta 測試自己那一發**;
+   *  不含註解裡那一個)。~~第一版寫 5~~ —— **漏算了它自己, 是 code-reviewer 實量抓到的。**
+   *  📌 **而那個數字正是下界的立論根據** ⇒ 數錯了, 「餘裕多大」就跟著錯。
+   *  取 4 是留給【正常刪掉掃描器】的餘裕(實際餘裕 2), 不是留給「這把尺壞了」的餘裕。 */
+  const LOWER_BOUND = 4;
+
+  /** 🔴🔴 **本檔的 `:45` 註解裡就有一個 `readFileSync(`** —— 不剝註解的話它會被算進來,
+   *  而它【永遠不會被 `stripComments(` 包住】⇒ **這支 meta 測試會恆紅。**
+   *  ⇒ 所以它必須先對自己跑一次 `stripComments` —— **用的正是它在守的那個函式。**
+   *
+   * 🔴🔴 **而這裡讀的是 `__filename`,不是寫死的檔名 —— 那一格是 code-reviewer 擋下來的。**
+   *  第一版寫 `join(__dirname, 'site-config-wiring.test.ts')` ⇒ **存在一個恆綠的世界**:
+   *  把整段【複製】成另一支測試(本 repo 就是這樣繁殖的, 見 `:142` 自己寫的「同族」),
+   *  複本掃的是【正本】⇒ 複本裡新增一個沒包的 `readFileSync` **全綠、零訊號**。
+   *  📌 **位置在檔內, 而身分用路徑 ⇒ 兩者會漂開。**`__filename` 讓身分跟著執行中的那支走。 */
+  const self = stripComments(readFileSync(__filename, 'utf8'), __filename);
+
+  it('🔵 掃描本身要有作用(先證明尺撈得到東西,再去斷言)', () => {
+    const n = [...self.matchAll(/readFileSync\(/g)].length;
+    expect(
+      n,
+      `只掃到 ${n} 個 readFileSync 呼叫點(下界 ${LOWER_BOUND})—— ` +
+        '要嘛真的刪了幾個掃描器,要嘛這把尺(或檔名)壞了。先確認是哪一種,不要直接調低下界。',
+    ).toBeGreaterThanOrEqual(LOWER_BOUND);
+  });
+
+  it('🔴 本檔每一個 readFileSync 都要被 stripComments 包住', () => {
+    const unwrapped = [...self.matchAll(/readFileSync\(/g)]
+      // 🔵 容許 `stripComments(` 與 `readFileSync(` 之間有空白/換行 ——
+      //    code-reviewer 實測:98 字元那一行只要有人跑一次 80 寬格式化就會換行,
+      //    而嚴格版會把一個【完全合法】的寫法判紅 ⇒ 假紅會讓這一格被關掉。
+      .filter((m) => !/stripComments\(\s*$/.test(self.slice(0, m.index)))
+      .map((m) => {
+        const line = self.slice(0, m.index).split('\n').length;
+        return `剝註解後第 ${line} 行`;
+      });
+    expect(
+      unwrapped,
+      `這幾處 readFileSync 沒有經過 stripComments:\n  ${unwrapped.join('\n  ')}\n` +
+        '⇒ 少了它,被掃的檔【註解裡的字面】會被算成真的用到 —— ' +
+        '而那個方向是【多報】:它會紅在一個其實沒有問題的地方,然後被關掉。',
     ).toEqual([]);
   });
 });

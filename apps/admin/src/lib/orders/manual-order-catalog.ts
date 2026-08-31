@@ -93,11 +93,38 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 //   `products` 表用的,直接搬過來會對到錯的表。
 
 /**
- * 🔴 逐欄指名。**不得改成 `*`**,也不得加入 `price_store` / `price_by_tier` / `cost` /
- * `metadata` 任一欄。這串字面被 `manual-order-catalog.test.ts` **逐字**釘住 ——
+ * 🔴 逐欄指名。**不得改成 `*`**,也不得加入 `price_by_tier` / `cost` / `metadata` 任一欄。
+ * 這串字面被 `manual-order-catalog.test.ts` **逐字**釘住 ——
  * 釘整串的用途是:任何人加欄都會撞紅,被迫回來想一次「這欄該不該進建單表單」。
+ *
+ * 🔵 **`price_store` 允許在列(2026-08-31 Sean 拍板, ⟦b4-SKULOOKUP⟧ Q2 逐字「甲 標未稅」)。**
+ *    🛑 **而那道測試紅過, 而它紅得對** —— 它逼人回來想一次, 而想完的結論是「該進」。
+ *    🛑 **本段刻意不保留先前那句禁令的原字面**(codex R2 must-fix ②):
+ *       原始碼裡的刪除線沒有語意, **搜尋式的安全審查會把過期禁令當成現況**。
+ *       ⇒ 歷史去 `git log -S price_store` 與 `docs/plans/2026-08-31-manual-order-sku-lookup-plan.md`。
+ *
+ * 🔴🔴 **而【那道凍結沒有被解開】, 這一格是本次改動最容易被讀錯的地方**:
+ *    上方 `:6-70` 那道凍結守的是「**讓經銷價生效**」——
+ *    亦即「系統拿 `price_store` 去定價」。**本片沒有做那件事。**
+ *    本片做的是:**把那個數字顯示給員工看, 讓他自己複製貼上。**
+ *    ⇒ 📌 **顯示 ≠ 生效。** 單價那一格仍然是員工手打的(Sean 逐字「我們自己複製貼上」),
+ *      系統一個字都沒有自動帶。⇒ 那道凍結的解凍條件(經銷價正式上線)**仍然沒有滿足**,
+ *      而本片**不需要**它滿足。
+ *    🛑 **⇒ 下一個人若要讓系統【自動帶入】經銷價, 那才是撞那道凍結 —— 回去讀 `:6-70`。**
+ *
+ * 🔴 **而加了它就代表:經銷價【會】被送到瀏覽器。**
+ *    ⚠️ **今天還沒有** —— `manual-order-catalog-actions.ts` 零呼叫端(codex R2 must-fix ③:
+ *       我原本寫成完成式「已送進 HTML」, 而那不是現況)。接上 UI 的那一天它才會進頁面。
+ *    Server 端鐵則逐字「經銷價絕不傳到一般會員瀏覽器」—— 這裡是**後台**, 員工看得到是對的;
+ *    而**誰拿得到那個後台頁面**由 `ADMIN_REQUIRE_REAL_IDENTITY` 那道閘決定, **不是這一支檔**。
+ *    ⇒ 那道閘若鬆了, 這一欄就是它多洩漏的東西之一。**寫在這裡, 不要讓它變成無條件的。**
+ *
+ * ⚠️ **而兩個價的稅基不同**:`price_general` 含稅 / `price_store` **未稅**
+ *    (Sean 2026-08-29 逐字「網站售價都含稅沒問題, 但是經銷價都是未稅」)。
+ *    ⇒ 顯示時**兩邊都要標稅基** —— 只標一邊, 讀的人會以為另一邊「沒標所以沒問題」。
  */
-export const MANUAL_ORDER_CATALOG_COLUMNS = 'id, sku, price_general, products(title)' as const;
+export const MANUAL_ORDER_CATALOG_COLUMNS =
+  'id, sku, price_general, price_store, products(title)' as const;
 
 /**
  * 回傳筆數上限。
@@ -118,6 +145,13 @@ export type ManualOrderCatalogHit = {
    *    ⇒ 兩個不同的世界不得印同一個畫面。表單那一側要為 `null` 出一句話。
    */
   unitPrice: number | null;
+  /**
+   * 經銷價(元,整數)。🔴 **未稅** —— 與 `unitPrice`(含稅)**稅基不同**。
+   * ⇒ 顯示時必須標「未稅」, 而那不是裝飾:員工會把這個數字複製貼進單價那一格,
+   *   而單價那一格假設含稅(`20260829140000:434-439` 的 `tax_total = 0`)⇒ 貼過去會少收稅。
+   * 🔴 `null` = 沒有經銷價, **不得因此把這一列拿掉**(同 `unitPrice` 那段的理由)。
+   */
+  dealerPriceUntaxed: number | null;
 };
 
 /** supabase 內嵌 to-one 在型別上可能是物件或 null;只取 `title`。 */
@@ -158,5 +192,9 @@ export async function searchManualOrderCatalog(
     sku: row.sku,
     title: readTitle(row.products),
     unitPrice: row.price_general,
+    // 🔴 名字刻意帶 `Untaxed` —— 型別上叫 `dealerPrice` 的話,
+    //    下一個人會把它與 `unitPrice`(含稅)當成同一種東西相加或比較。
+    //    ⇒ 稅基寫進【識別字】, 不只寫在註解裡 —— 註解不會出現在呼叫端的自動完成裡。
+    dealerPriceUntaxed: row.price_store,
   }));
 }

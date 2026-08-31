@@ -62,6 +62,12 @@ import {
  * orders 摘要投影白名單(account OrdersTab / Overview 最近訂單)。
  *
  * 🔴 鐵則 12:摘要欄 + 內嵌 `order_items`;**禁** 經銷價 / cost / tier / PII
+ *
+ * 🔵 **真權威是那個 `toBe()`,不是這段散文**(2026-08-31 `-15` 加):
+ *    `packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts:216`
+ *    `expect(ORDER_LIST_SELECT).toBe(…)` —— **逐字完全相等**,任何一次擴欄都會紅
+ *    (同檔 `:240` 逐個掃禁用欄、`:249` 自帶正對照)。**實測:偷加 `dealer_price` ⇒ 1 failed。**
+ *    📌 **⇒ 這段字會過期,那一格不會 —— 兩者不一致時以那一格為準。**
  * (shipping_address_snapshot / invoice / tappay_rec_trade_id / tier_at_checkout)。
  * ⚠️ ~~原句:「**只** 內嵌 `order_items(quantity)`(只算件數);**禁** unit_price / line_total /
  *    product_snapshot」~~ ⇒ **2026-08-29 起那半不成立**(卡片商品列;逐欄理由見下方常數的 docstring)。

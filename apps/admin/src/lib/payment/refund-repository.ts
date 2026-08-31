@@ -16,11 +16,37 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 /**
  * initiate 的 9 個固定回傳碼。前 8 碼 = migration `20260803150000:414-416` 逐字。
  *
- * 🔴 第 9 碼 `REFUND_EXCEEDS_REMAINING` = **#445 步 6b 超退閘**,由 **445b** 建立 ——
- *    **今天庫裡那支 RPC 還不會吐它**,本片刻意先接。理由是反向窗口:
- *    445b 一 apply 而本片還沒 deploy,下面的窮盡收斂會判未知碼丟 `RefundCallerBugError`
- *    ⇒ 每一筆被擋下的超退在員工眼裡變成「系統呼叫異常」。
- *    ⇒ **445a 必須先 deploy,才准 apply 445b**(順序要寫進 445b migration 檔頭)。
+ * ⛔ ~~🔴 第 9 碼 `REFUND_EXCEEDS_REMAINING` = **#445 步 6b 超退閘**,由 **445b** 建立 ——~~
+ * ⛔ ~~**今天庫裡那支 RPC 還不會吐它**,本片刻意先接。~~
+ * ⛔ ~~⇒ **445a 必須先 deploy,才准 apply 445b**(順序要寫進 445b migration 檔頭)。~~
+ *
+ * 🔴🔴 **2026-08-30:上面那段【前提沒有成立】,舊字面留著讓引用它的人同一發撞到這裡。**
+ *    `445b` 真的落地時**不是**「RPC 多回一個 JSON 碼」,而是
+ *    **`order_refunds` 上一道 BEFORE INSERT trigger,超額直接 `RAISE ... USING ERRCODE='PCM04'`**
+ *    (`20260830210000`,2026-08-30 已 apply 上正式庫)。
+ *    ⇒ 📌 **RAISE 會讓整筆交易回滾 ⇒ RPC 根本沒有機會回傳任何 JSON** ——
+ *       所以那第 9 個碼**今天不可達,而且照現行 445b 的形狀永遠不會可達。**
+ *
+ * ⚠️ **後果一(codex 關卡2 nit 5 抓到)**:`refund-repository.test.ts` 與
+ *    `refund-actions-dispatch.test.ts` 裡驗那個碼的那幾格,**驗的是一條到不了的分支**
+ *    ⇒ 它們是綠的,而那個綠**灌大了覆蓋率的印象**。
+ * ⚠️ **後果二**:`refund-actions.ts` 那個 `case 'REFUND_EXCEEDS_REMAINING':` 是死碼。
+ *
+ * ⛔ ~~本片【不刪】它們 —— 刪除是範圍擴張~~
+ * ✅ **2026-08-31 刪了(`⟦b4-EXCEEDSDEAD⟧` 甲案,`-48` 批)。而批它的理由是【兩邊的量測】不是推薦**:
+ *    甲 = 20 處 / 6 支檔(非註解實碼 15)· **不含任何 migration** · 一顆 commit
+ *    乙 = 改回 JSON 碼 ⇒ 要動**已 apply** 的 `20260830210000` ⇒ 一支新 migration ⇒ Sean 的手
+ *      🔴 而它要**重做一次已經做完的證明** —— 445b 的併發正確性是**實測**出來的
+ *        (`FOR NO KEY UPDATE` 把兩個 session 序列化,harness 7 個量測點)
+ *      📌 **⇒ 而「重證」的成本不只是時間,是【那次重證有可能證不出同樣的結論】。**
+ *
+ * 🔵 **而刪之前我多量了一發,它是決定性的**(先前我只掃 `apps` + `packages`):
+ *    `supabase/` 裡 `REFUND_EXCEEDS_REMAINING` ⇒ **4 處,而全部在 445b 那支的【註解】裡**;
+ *    `blocked_by` 在 `supabase/` ⇒ **0 處**;
+ *    而那支 RPC 自己列出的回傳碼(`20260803150000:415-416`(座標已訂正,見本檔上方那一處)(⛔ ~~舊座標~~ 🔴 **2026-08-31 訂正:那支 RPC 的【最新一代】是 `20260812170000:480` 的 `CREATE OR REPLACE`,不是 `20260803150000`** —— 用 `scripts/latest-definition-of.sh admin_initiate_order_refund` 查到的。✅ **結論不變**:在最新那一代裡重數,仍然恰 8 碼、與 `INITIATE_RESULT_CODES` 逐字相同,而 `REFUND_EXCEEDS_REMAINING` / `blocked_by` 在該代 **0 命中**(負對照現造字面亦 0)。📌 **⇒ 我的結論是對的,而我的【證據指著一份已經被取代的定義】—— 那份舊的當時也是 8 碼,所以【指錯代】與【指對代】印出同一個答案。**) 逐字)是 8 個,**沒有它**。
+ *    🔵 正對照 `'INITIATED'` 在 `supabase/` ⇒ 3 · 負對照現造字面 ⇒ 0。
+ *    ⇒ 📌 **⇒ 也就是說:那是一份【只存在於 app 這一側】的協定 —— DB 那一側從來沒有實作過它。**
+ * ✅ **今天真正在接那個閘的是 `RefundCapGuardError` / `toCapGuard`(本檔下方)。**
  */
 export const INITIATE_RESULT_CODES = [
   'INITIATED',
@@ -31,20 +57,18 @@ export const INITIATE_RESULT_CODES = [
   'REFUND_LEDGER_FULL',
   'REFUND_IN_FLIGHT',
   'REFUND_NOTHING_LEFT',
-  'REFUND_EXCEEDS_REMAINING',
 ] as const;
 export type InitiateResultCode = (typeof INITIATE_RESULT_CODES)[number];
 
-/**
- * 超退閘擋下來的三種原因(#445 §4-4)。三者員工的下一步動作完全不同,
- * 而「有沒有列佔著額度」只有 RPC 知道 ⇒ 判別值必須由 RPC 吐,app 端從
- * 「一個碼 + 一個數字」推不出來。
- * · `amount`    = 純粹打太多       ⇒ 改金額重打
- * · `in_flight` = 有列佔著額度      ⇒ 先去處理那一筆(含 processing 與待人工判定的列)
- * · `unknown`   = RPC 算不出額度    ⇒ 不是金額問題,勿重試、找人
- */
-export const REFUND_BLOCKED_BY_VALUES = ['amount', 'in_flight', 'unknown'] as const;
-export type RefundBlockedBy = (typeof REFUND_BLOCKED_BY_VALUES)[number];
+// ⛔ ~~`REFUND_BLOCKED_BY_VALUES = ['amount','in_flight','unknown']` + `type RefundBlockedBy`~~
+// 🔴 **2026-08-31 整段刪(`⟦b4-EXCEEDSDEAD⟧` 甲,`-48` 二次批「一起刪」)** ——
+//    刪前當場量:`grep -rn 'REFUND_BLOCKED_BY_VALUES\|RefundBlockedBy' apps packages scripts`
+//    ⇒ 5 處命中,而**沒有一處是使用**(1 宣告 + 1 型別別名 + 2 已加刪除線的歷史字面
+//      + 1 格只驗「這個常數的內容是什麼」的測試)⇒ **零個真實使用者。**
+// 📌 **而它值得記的不是死碼本身,是:被刪掉的那段 JSDoc 寫得非常好** ——
+//    三個值各自解釋、各自寫了「員工該做什麼」⇒ **它讀起來完全像一個活著的合約。**
+//    🔴 **一段寫得越好的註解,越不會讓人去查它還有沒有人在用。**
+
 
 /** finalize 的 3 個固定回傳碼(`20260803150000:607`)。 */
 export const FINALIZE_RESULT_CODES = [
@@ -94,8 +118,75 @@ export class RefundFinalizeParseError extends RefundCallerBugError {
  * ⑤狀態機 RAISE(P0001)。全部是「停手」語意,收斂一致。
  * 前提(grep supabase/migrations 實查):orders 表唯一 trigger = `orders_freeze_shipping_snapshot_bi`
  * (BEFORE **INSERT**、`20260725120000:104-105`)⇒ G8 的 orders UPDATE 路徑上零其他 RAISE 源;
- * order_refunds 的三支 trigger 全在上列 ④⑤。
+ * ⛔ ~~order_refunds 的三支 trigger 全在上列 ④⑤。~~ 🔴 **這句 2026-08-30 起不成立,舊字面留著**
+ * ——`445b`(`20260830210000`)在 order_refunds 上又掛了一支 `order_refunds_a445b_cap_guard_bi`,
+ * 而它吐的 `PCM04/05/06` **既不是 ④ 也不是 ⑤** ⇒ 由下方 `toCapGuard` 接,**不走本函式**。
+ * 📌 **⇒ 不要拿這句推出「`isRpcRaise` 的分母是完整的」** —— 它從來只答「哪些碼算契約違反」。
  */
+/**
+ * 🔴 `445b` 上限閘的自訂 SQLSTATE(`20260830210000`)—— **它們刻意不走 `isRpcRaise`。**
+ *
+ * 為什麼要另開一道:`RefundCallerBugError` 的語意是「**呼叫端寫錯了**」,員工訊息叫他停手。
+ * 而 `PCM04`(退款金額超過上限)**不是 bug,是一個正常的業務結果** —— 員工的正確動作是
+ * **改個金額再送一次**,不是停手找維護。兩者合流 ⇒ 畫面上分不出來 ⇒ 員工被叫去做錯的事。
+ *
+ * 三個碼各自對應誰去處理:
+ *   `PCM04` 超額            ⇒ 員工自己改金額(`exceeds_remaining`)
+ *   `PCM05` 算不出上限      ⇒ 停手、通知系統維護(`exceeds_unknown`)
+ *   `PCM06` 隔離級別不對    ⇒ 停手、通知**管理者查資料庫設定**(`db_config`)
+ * 📌 **一個失敗碼的用途是【告訴人去找誰】** —— 三個不同的人 ⇒ 三個碼,不合流。
+ *
+ * ⚠️ 本型別**不繼承** `RefundCallerBugError` —— 繼承會讓既有的
+ * `error instanceof RefundCallerBugError` 分支先攔到它,而那正是本註解要防的合流。
+ */
+export class RefundCapGuardError extends Error {
+  readonly sqlstate: CapGuardSqlstate;
+  /**
+   * 🔴 **與 `sqlstate` 同值,而它不是重複**(codex 關卡2 nit 4):
+   * 把原始 PostgrestError 收進 `cause` **保不住頂層 `.code`** —— 而事故當天照 SQLSTATE
+   * 撈 log 的人讀的正是 `.code`,他會撈到 `undefined` ⇒ **漏件,而漏的那一筆長得像沒發生。**
+   * ⇒ 這裡把它補回頂層。⚠️ 下游若真要 `details`/`hint`,那些仍在 `cause` 上。
+   */
+  readonly code: CapGuardSqlstate;
+  constructor(sqlstate: CapGuardSqlstate, message: string, options?: { cause?: unknown }) {
+    super(message);
+    this.name = 'RefundCapGuardError';
+    this.sqlstate = sqlstate;
+    this.code = sqlstate;
+    // 🔴 原始 PostgrestError 掛在 cause 上(關卡2 nit 13)—— 換掉它會讓 `details`/`hint`
+    //    在下游消失,而 `refund-recovery-actions.ts` 那條路正在讀原始物件的 `code`。
+    if (options && 'cause' in options) (this as { cause?: unknown }).cause = options.cause;
+  }
+}
+
+/**
+ * 三個碼對到哪個員工訊息 —— **窮盡 Record,不是三元鏈**(關卡2 nit 5)。
+ * 🔴 union 日後加第四個碼(PCM07…)時這裡**編譯會紅**;三元鏈會讓它靜默落進 fallback。
+ *
+ * ⚠️ **`PCM05` 有兩個語意而這裡只映一個**(關卡2 Important 4,開 migration 量的):
+ *   `20260830210000:237-241` = **找不到訂單**(DB 的話是「請重新整理後確認」)
+ *   `20260830210000:270-276` = **算不出上限**(「請找工程確認」)
+ *   COMMENT `:297` 逐字「PCM05=算不出上限**或查無訂單**」。
+ * ⇒ 同一個 SQLSTATE ⇒ **app 層分不出來**。這裡選 `exceeds_unknown`(勿重試、通知維護),
+ *   理由是**錯的方向比較安全**:把「該重新整理」的人送去找維護 ⇒ 白跑一趟、錢不動;
+ *   反過來把「系統算不出上限」說成「重新整理就好」⇒ 他會一直按。
+ * 🛑 **真正的修法是在 migration 裡把它拆成兩個碼**,而那支已 apply ⇒ 要新的一支。
+ *   已開列 `⟦b4-PCM05SPLIT⟧`。**這一格是殘餘風險,不自宣接受。**
+ */
+export const CAP_GUARD_SQLSTATES = ['PCM04', 'PCM05', 'PCM06'] as const;
+export type CapGuardSqlstate = (typeof CAP_GUARD_SQLSTATES)[number];
+
+/** 認得就回具名錯,認不得回 null(**不是 boolean** —— 呼叫端要用到那個碼)。 */
+function toCapGuard(fn: string, error: unknown): RefundCapGuardError | null {
+  if (typeof error !== 'object' || error === null) return null;
+  const code = (error as { code?: unknown }).code;
+  if (!(CAP_GUARD_SQLSTATES as readonly unknown[]).includes(code)) return null;
+  const detail = String((error as { message?: unknown }).message ?? '').slice(0, 200);
+  return new RefundCapGuardError(code as CapGuardSqlstate, `${fn} 被上限閘擋下(${code}):${detail}`, {
+    cause: error,
+  });
+}
+
 function isRpcRaise(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false;
   const code = (error as { code?: unknown }).code;
@@ -168,16 +259,12 @@ export type InitiateOrderRefundOutcome =
       refundAmount: number;
       rowStatus: 'processing' | 'confirmed';
     }
-  | {
-      result: 'REFUND_EXCEEDS_REMAINING';
-      /**
-       * 本單目前可受理的退款上限(元,整數)。
-       * 🔴 **`0` 是合法值**(已無可退),不是「沒拿到」—— 呼叫端不得用 falsy 判斷;
-       *    `null` = RPC 算不出來(guard IS NULL),由 `blockedBy === 'unknown'` 承接。
-       */
-      remaining: number | null;
-      blockedBy: RefundBlockedBy;
-    }
+  // ⛔ ~~| { result: 'REFUND_EXCEEDS_REMAINING'; remaining: number | null; blockedBy: RefundBlockedBy }~~
+  //    🔴 **2026-08-31 刪(`⟦b4-EXCEEDSDEAD⟧` 甲案)** —— 那支 RPC 從來沒有回過這個碼:
+  //    它自己列出的回傳碼是 8 個(`20260803150000:415-416`(座標已訂正,見本檔上方那一處) 逐字),**沒有它**;
+  //    而 `blocked_by` 在整個 `supabase/` ⇒ **0 處**。
+  //    ⇒ 📌 **那是一份【只存在於 app 這一側】的協定 —— DB 那一側從來沒有實作過它。**
+  //    ✅ 而今天真的在做那件事的是 `445b` 的 trigger + `RefundCapGuardError`(本檔下方)。
   | {
       result:
         | 'ORDER_NOT_FOUND'
@@ -214,33 +301,18 @@ function requirePositiveInt(fn: string, row: Record<string, unknown>, key: strin
   return value;
 }
 
-/**
- * 超退閘的可退上限。與 `requirePositiveInt` **刻意不同**:
- * · `0` 合法(這張單已無可退額度)⇒ 不能沿用「非正即拋」;
- * · `null` 合法(RPC 的 guard 算不出來)⇒ 由 `blocked_by='unknown'` 承接;
- * · 負值 / 非整數 / 非數字 = 合約漂移 ⇒ fail-loud,不讓它流進 UI 變成一個會被照著操作的數字。
- */
-function requireNonNegativeIntOrNull(
-  fn: string,
-  row: Record<string, unknown>,
-  key: string,
-): number | null {
-  // 🔴 關卡2 MF1:**缺欄與明寫 null 是兩件事,不得收斂成同一個值。**
-  //    `null` = RPC 說「我算不出來」(合法,由 blocked_by='unknown' 承接);
-  //    **缺欄** = 合約漂移 ⇒ 落到下面的型別檢查、fail-loud。
-  //    第一版寫 `value === null || value === undefined` ⇒ 把協定漂移偽裝成一次
-  //    「算不出來」,而後者是我們會照著顯示給員工的合法狀態。**只認 null。**
-  //    ⚠️ 我一度另加一道 `if (!(key in row)) throw` —— **實測那道紅不起來**
-  //    (缺欄 = undefined,型別檢查本來就會拋)⇒ 它是 no-op,已刪。
-  const value = row[key];
-  if (value === null) return null;
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
-    throw new RefundCallerBugError(
-      `${fn} 回傳 ${key} 非「非負整數或 null」:${JSON.stringify(row).slice(0, 200)}`,
-    );
-  }
-  return value;
-}
+// ⛔ ~~`function requireNonNegativeIntOrNull(fn, row, key): number | null`~~(連它上方那段 JSDoc)
+// 🔴 **2026-08-31 刪(`⟦b4-EXCEEDSDEAD⟧` 甲,codex 對抗審查 must-fix 1 抓到)** ——
+//    它唯一的呼叫點是已刪的 `REFUND_EXCEEDS_REMAINING` 解析區塊。當場量:
+//    `grep -rn requireNonNegativeIntOrNull apps packages scripts` ⇒ **只剩宣告本身,0 個呼叫者。**
+// 🔴 **而這一格是【我漏掉的第三個】,不是我找到的**:同一片我已經自己抓到
+//    `REFUND_BLOCKED_BY_VALUES` 與 `RefundBlockedBy` 兩個,**然後就停了**。
+//    📌 **⇒ 我找的是【我記得自己加過什麼】,而 codex 找的是【現在誰沒有呼叫者】——
+//       兩個分母不一樣,而我那個分母的上界是我的記憶。**
+// 🔵 它被刪掉的那段 JSDoc 值得留一句:它寫著「`0` 合法 / `null` 合法 / 負值=合約漂移」,
+//    **那個區分是對的,而且將來 `⟦b4-CAPMSGNUM⟧` 把 cap 值從 `DETAIL` 帶回來時會再需要它一次。**
+//    ⇒ 到時**重寫**,不要從這裡挖 —— 那時的合法值集合要重新回答一次。
+
 
 /**
  * 登記退款(帳先記、後打 API)。逐欄具名送、不 spread(A9d2-1 慣例;spread 繞過
@@ -261,6 +333,10 @@ export async function initiateOrderRefund(
     p_request_id: args.requestId,
   });
   if (error) {
+    // 🔴 上限閘先判 —— 它的三個碼都不是 P0001/P7Cxx,不會被下一行攔走,
+    //    但順序寫死在這裡是為了讓「不合流」這件事在碼上看得見。
+    const capGuard = toCapGuard(fn, error);
+    if (capGuard) throw capGuard;
     if (isRpcRaise(error)) throw toCallerBug(fn, error);
     throw error;
   }
@@ -291,38 +367,10 @@ export async function initiateOrderRefund(
       rowStatus,
     };
   }
-  if (result === 'REFUND_EXCEEDS_REMAINING') {
-    const blockedBy = row.blocked_by;
-    if (
-      typeof blockedBy !== 'string' ||
-      !(REFUND_BLOCKED_BY_VALUES as readonly string[]).includes(blockedBy)
-    ) {
-      // 判別值缺或不認得 ⇒ 三種文案分不出來(§0-E 第 2 條)。不猜、不降級成「打太多」。
-      throw new RefundCallerBugError(
-        `${fn} REFUND_EXCEEDS_REMAINING 帶非預期 blocked_by:${JSON.stringify(row).slice(0, 200)}`,
-      );
-    }
-    const remaining = requireNonNegativeIntOrNull(fn, row, 'remaining');
-    // 🔴 關卡2 MF2:兩欄要**交叉驗**,各自合法不代表組合合法。
-    //    `unknown` 的定義就是「guard 算不出來」⇒ 必然沒有數字;反過來,
-    //    有數字卻說 unknown、或說 amount 卻沒數字,都是協定漂移。
-    //    放行矛盾組合的後果:員工看到「不是金額問題、勿重試」卻同時拿到一個上限,
-    //    或看到「請降低金額」卻沒有可對照的數字 —— 兩種都會讓他做錯下一步。
-    if ((blockedBy === 'unknown') !== (remaining === null)) {
-      throw new RefundCallerBugError(
-        `${fn} REFUND_EXCEEDS_REMAINING 的 remaining 與 blocked_by 矛盾:${JSON.stringify(row).slice(0, 200)}`,
-      );
-    }
-    return {
-      result,
-      remaining,
-      blockedBy: blockedBy as RefundBlockedBy,
-    };
-  }
   return {
     result: result as Exclude<
       InitiateResultCode,
-      'INITIATED' | 'DUPLICATE_REQUEST' | 'REFUND_EXCEEDS_REMAINING'
+      'INITIATED' | 'DUPLICATE_REQUEST'
     >,
   };
 }
@@ -428,6 +476,10 @@ async function callFinalizeRpc(params: {
     p_request_id: params.requestId,
   });
   if (error) {
+    // 🔴 上限閘先判 —— 它的三個碼都不是 P0001/P7Cxx,不會被下一行攔走,
+    //    但順序寫死在這裡是為了讓「不合流」這件事在碼上看得見。
+    const capGuard = toCapGuard(fn, error);
+    if (capGuard) throw capGuard;
     if (isRpcRaise(error)) throw toCallerBug(fn, error);
     throw error;
   }

@@ -13,7 +13,7 @@
     "build": "turbo run build",
     "lint": "turbo run lint && eslint 'scripts/*.ts' --max-warnings 0",
     "typecheck": "turbo run typecheck && tsc -p tsconfig.scripts.json --noEmit",
-    "test": "vitest run",
+    "test": "sh scripts/vitest-ran-gate.sh run",
     "clean": "turbo run clean",
     "prepare": "husky"
   },
@@ -25,6 +25,7 @@
     "scripts/md-table-overflow.py": "python3 scripts/md-table-overflow.py --selftest",
     "scripts/verify-cron6-md5.py": "python3 scripts/verify-cron6-md5.py --selftest",
     "scripts/text-layer-tests.py": "python3 scripts/text-layer-tests.py --selftest",
+    "scripts/upstream-guard-scan.py": "python3 scripts/upstream-guard-scan.py --selftest",
     "scripts/dev-four-greens.sh": "sh scripts/dev-four-greens.sh --selftest",
     "scripts/migration-ledger-divergence.sh": "sh scripts/migration-ledger-divergence.sh --selftest",
     "{scripts/scripts-whitelist-gate.harness.sh,.husky/scripts-whitelist-gate.sh}": "sh scripts/scripts-whitelist-gate.harness.sh",

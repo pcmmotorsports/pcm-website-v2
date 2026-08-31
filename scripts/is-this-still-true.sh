@@ -18,6 +18,8 @@
 set -u
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 MAILBOX="${HOME}/pcm-mailbox"
+# 🔴 拍板落檔的正式落點(`00-work-rules §4`)—— 2026-08-31 補進分母。
+MEMDIR="${MEMDIR:-$HOME/.claude/projects/-Users-sean-1-pcm-website-v2/memory}"
 # 🔴🔴 **`--since=<今天的日期>` 恆回 0** —— 2026-08-29 線A 實測,而它爆在最需要它的那一天。
 #    git 把【光寫今天日期】的 `--since` 解析成「**現在**」,不是「今天 00:00」:
 #      `--since=2026-08-29`         ⇒ 0 顆
@@ -93,6 +95,15 @@ sweep() {
   grep -rln -- "$KW" "$MAILBOX"/*.md 2>/dev/null | head -12 > "$TMP"
   report "~/pcm-mailbox 的 .md" "$TMP"
 
+
+  # ⑥ 有沒有一板拍板蓋掉它(memory)
+  #    🔴 2026-08-31 補。成因:`-eb` 拿它與 `before-asking-sean.sh` 一起量 ⇒ 兩支都 `grep -c memory` = 0,
+  #       而 `~/.claude/rules/00-work-rules.md §4` 逐字寫著「PCM 事實/拍板/進度 → memory `project_*`」
+  #       ⇒ 📌 **兩支【專門用來查「這還成不成立」】的工具, 都不看拍板實際住的那個地方。**
+  #    ⇒ 而拍板正是最會讓一列作廢的東西 —— 它不留 commit、不進板子、不進 mailbox。
+  section "⑥ 有沒有一板拍板蓋掉它(memory)" "grep -rln <關鍵字> ~/.claude/projects/*/memory/"
+  grep -rln -- "$KW" "$MEMDIR" 2>/dev/null | head -12 > "$TMP"
+  report "memory 拍板檔" "$TMP"
   rm -f "$TMP"
 }
 
@@ -113,7 +124,8 @@ stamp_and_scope() {
    · 正式庫的實際狀態 —— 旗標現值 / RLS 開沒開 / 表裡幾列，本檔一格都答不出
    · OD 設計稿 —— 稿不在 repo 裡
    · 別的 repo（PCM_Quote / 老闆腦）
-🔴 ⇒ 所以【五段全零】的意思是「這五個載體裡沒有」，不是「它還成立」。
+🔴 ⇒ 所以【六段全零】的意思是「這六個載體裡沒有」，不是「它還成立」。
+   ✅ ⑥(memory 拍板檔)是 2026-08-31 才加的 —— 在那之前這支工具看不到任何一板拍板。
 ──────────────────────────────────────────────────────────────
 SCOPE
 }
@@ -135,16 +147,17 @@ selftest() {
 
   P="$(grep -o '零命中' "$T1" | wc -l | tr -d ' ')"   # ← 不用 grep -c(本機是 ugrep,零命中時不印)
   N="$(grep -o '零命中' "$T2" | wc -l | tr -d ' ')"
-  printf '  正對照 min-height ⇒ 五段裡零命中 %s 段(期望 < 5)\n' "$P"
+  SEG="$(grep -o '^═══ [①②③④⑤⑥⑦⑧⑨]' "$T1" | wc -l | tr -d ' ')"
+  printf '  正對照 min-height ⇒ %s 段裡零命中 %s 段(期望 < %s)\n' "$SEG" "$P" "$SEG"
   # 🔴 印【真的用了哪一個】,不印一個過期的名字 —— 舊版這裡印的是一個**寫死的字面**,
   #    而實際用的已經是現造的 ⇒ 讀的人會以為它還是寫死的(而那正是本檔要防的病)。
   # 🔴🔴 **而這一行註解本身也踩過一次**:我第一版在這裡**把那個舊字面又寫了一遍**當例子
   #    ⇒ 那個形狀就又回到檔案裡了 ⇒ **而 `--selftest` 照樣 PASS**(它只驗現造那一發)。
   #    📌 **⇒ 解釋一個坑的文字,用了那個坑本身的材料** —— 而它不會被任何自檢抓到。
   #    ⇒ 所以這裡刻意**不寫出那個字面**,只描述它的形狀。
-  printf '  負對照 %s ⇒ 五段裡零命中 %s 段(期望 = 5)\n' "$NEG" "$N"
-  if [ "$P" -lt 5 ]; then printf '  ✅ 正對照:它真的撈得到\n'; else printf '  🔴 正對照全零 ⇒ 本 script 是死的\n'; RC=1; fi
-  if [ "$N" -eq 5 ]; then printf '  ✅ 負對照:現造字面五段全零\n'; else printf '  🔴 負對照有命中 ⇒ 它在亂撈\n'; RC=1; fi
+  printf '  負對照 %s ⇒ %s 段裡零命中 %s 段(期望 = %s)\n' "$NEG" "$SEG" "$N" "$SEG"
+  if [ "$P" -lt "$SEG" ]; then printf '  ✅ 正對照:它真的撈得到\n'; else printf '  🔴 正對照全零 ⇒ 本 script 是死的\n'; RC=1; fi
+  if [ "$N" -eq "$SEG" ]; then printf '  ✅ 負對照:現造字面全段零命中\n'; else printf '  🔴 負對照有命中 ⇒ 它在亂撈\n'; RC=1; fi
 
   # 🔴 突變:量測戳若印不出 HEAD,那一行就沒有分母 ⇒ 必須抓得到
   if stamp_and_scope | grep -q 'HEAD '; then printf '  ✅ 量測戳含 HEAD\n'

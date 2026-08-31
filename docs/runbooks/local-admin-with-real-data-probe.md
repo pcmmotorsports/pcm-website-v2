@@ -1351,3 +1351,43 @@ env $E bash scripts/admin-probe/down.sh     # ← 這一行
 並印「怎麼往下走」三選一;真的要收 ⇒ `ADMIN_PROBE_FORCE_DOWN=1`(訊息會寫明它可能殺到誰)。
 **兩發自檢都跑過**:①空目錄 ⇒ **rc=2 且印「停下,不收」** ②有 `owner.txt` 的真鑽機 ⇒ **rc=0、四個埠都釋放**。
 🔴 **第二發不能省** —— 少了它,「閘擋住了」與「閘壞掉誰都收不了」印同一個結果。
+
+### ✅ 那個「有人成功有人失敗」的 cookie 之謎:**解開了,是 `HttpOnly`**(2026-08-30 `-08` 量到)
+上一段記著兩筆互相矛盾的觀察(`-30` 設不進去、`-08` 設得進去),並明寫「沒有人查出為什麼」。
+**現在查出來了,而且是決定性的一發**:
+```
+同一個名字、值只有 1 個字元  document.cookie='pcm_admin_sess_dev=1'   ⇒ 設不進去
+換一個名字、同樣 1 個字元    document.cookie='pcm_admin_sess_devX=1'  ⇒ 設得進去
+⇒ 不是長度、不是內容、不是瀏覽器擋 cookie ——【就是那個名字】
+```
+**成因**:`apps/admin/src/lib/session/session.ts:235` `httpOnly: true`
+⇒ 伺服器發出的那顆 `pcm_admin_sess_dev` 是 **HttpOnly**
+⇒ **JS 既讀不到它、也【覆寫不了】它**;而 `document.cookie` **連列都不會列出來**
+⇒ 📌 **所以它看起來像「這顆 cookie 就是設不進去」,而真相是「已經有一顆你看不見的在那裡」。**
+
+**這也解釋了為什麼兩個人結果相反**:
+```
+還沒有伺服器發過票時（第一次貼）⇒ 沒有 HttpOnly 那顆 ⇒ JS 設得進去 ✅（-08 那次）
+伺服器已經發過票之後            ⇒ 有一顆看不見的擋著 ⇒ JS 怎麼設都不進去 ❌（-30 那次）
+```
+⇒ 🔴 **兩個人都沒有做錯,他們只是站在【同一條時間線的兩端】。**
+
+✅ **可執行**:
+```
+① 設完一定要讀回來驗（它失敗時不報錯）
+② 讀不回來 ⇒ 先看是不是【已經有一顆 HttpOnly 的在那裡】：
+   那時通常你【本來就已經有 session 了】—— 直接試那個動作，不必再貼
+③ 真的要換一張票 ⇒ Playwright 的 context().addCookies()（它繞得過 HttpOnly）
+```
+
+### ✅ `/auth/v1/admin/users` 兩支替身(2026-08-30 加;`#12` 的前置)
+admin 的**客戶管理**會打 `client.auth.admin.*` —— 而本鑽機原本**刻意沒有** `/auth/v1` 替身
+⇒ 查客人與建客人**兩條都回** `AuthApiError: Invalid path specified in request URL`。
+現在 `scripts/admin-probe/proxy.py` 補了**只有兩支**(admin 真的會打的那兩支,當場量的:
+`getUserById` 4 處 / `createUser` 1 處;負對照現造方法名 ⇒ 0)。
+🔴 **`auth.users` 骨架也一起加了兩欄 + 一個 UNIQUE,而理由不是「補完整」**:
+`raw_app_meta_data` —— `manual-customer.ts:297` 拿它判「這個既有帳號是不是我們自己建的」
+(codex R2 擊破過:**未驗 `app_metadata` ⇒ 搶註者會被當成既有客人**)⇒ **少這一欄,那道檢查在鑽機上恆過**;
+`email UNIQUE` —— 建客人的**冪等靠它**(同一個佔位信箱重送 ⇒ 撞唯一鍵 ⇒ 那不是失敗)。
+**三個世界自檢**(起站後跑):不存在的 uuid ⇒ **404** · 真的存在的 ⇒ **200** 且帶 `app_metadata` · 亂字串 ⇒ **400**。
+⚠️ **仍然證不了**:真登入流程(票是手貼的)。

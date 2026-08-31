@@ -299,9 +299,38 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
   //    ⇒ 掛載單一元件、或只測 `refundStatusLabel()`, **都抓不到它**。
   // ══════════════════════════════════════════════════════════════════════
 
+  /**
+   * 🔴 `listRefundExceptions` **現在的回傳形狀**(`refund-read.ts` 的 `RefundExceptionsResult`)。
+   *
+   * ⛔ 這四格原本只餵 `{ rows, truncated }` 並另外 mock `findEffectiveVerdicts` ——
+   *    **而本頁 2026-08-30 起不再自己打第二發**(`page.tsx:48-58` 逐字:改讀
+   *    `result.stuckVerdicts`,理由是 React `cache()` 以引數 reference 當 key、兩個呼叫端各造
+   *    一個新陣列 ⇒ 永遠 miss)。⇒ 舊形狀的 mock 讓 `stuckVerdicts` 是 `undefined`
+   *    ⇒ **整頁渲染成「更正紀錄讀不到」那個世界**。
+   *
+   * 🔴🔴 **而三格紅、一格【綠得沒有道理】**:`[8h]`(讀不到)當時是綠的 ——
+   *    它綠不是因為 fallback 對,是因為**每一格都掉進 fallback**。
+   *    📌 **一個 mock 形狀過期,會讓「該紅的紅」與「該綠的綠得沒道理」同時發生,
+   *       而只有前者會叫。**
+   *
+   * ⚠️ 這個 helper **不重算業務邏輯**,只把「這一格想演的世界」寫成真的那個形狀:
+   *    `verdicts === null` ⇒ 讀不到;否則 `decidedCount` 就數它自己給的那幾筆。
+   */
+  const listResult = (
+    rows: ReturnType<typeof stuckRow>[],
+    verdicts: Map<string, { correctedTo: string; seq: number }> | null,
+    truncated = false,
+  ) => ({
+    rows,
+    truncated,
+    stuckVerdicts: verdicts,
+    verdictsUnavailable: verdicts === null,
+    decidedCount: verdicts === null ? 0 : verdicts.size,
+    pendingCount: verdicts === null ? rows.length : rows.length - verdicts.size,
+  });
+
   it('[8e] 🔴🔴 更正成「錢有動」⇒ 狀態欄不得再說「錢沒有動」(那正是那兩行相反的話)', async () => {
-    mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
-    mocks.findEffectiveVerdicts.mockResolvedValue(withCorrection('money_moved'));
+    mocks.listRefundExceptions.mockResolvedValue(listResult([stuckRow()], withCorrection('money_moved')));
     const { container } = await renderPage();
     const text = container.textContent ?? '';
 
@@ -316,8 +345,9 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
   });
 
   it('[8f] 🔴 更正成「錢沒有動」⇒ 兩行【仍然一致】(翻面, 證明上一格不是恆真)', async () => {
-    mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
-    mocks.findEffectiveVerdicts.mockResolvedValue(withCorrection('no_money_moved'));
+    mocks.listRefundExceptions.mockResolvedValue(
+      listResult([stuckRow()], withCorrection('no_money_moved')),
+    );
     const { container } = await renderPage();
     const text = container.textContent ?? '';
     expect(text).toContain('失敗(已更正:錢沒有動)');
@@ -326,8 +356,7 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
   });
 
   it('[8g] 🔴 沒有更正紀錄 ⇒ 狀態欄維持原字面(不得憑空加「已更正」)', async () => {
-    mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
-    mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
+    mocks.listRefundExceptions.mockResolvedValue(listResult([stuckRow()], new Map()));
     const { container } = await renderPage();
     const text = container.textContent ?? '';
     expect(text).toContain('失敗(錢沒有動)');
@@ -344,8 +373,9 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
     //       ——「[8h] 把『讀不到更正時仍宣稱錢沒有動』鎖成正確答案,
     //         會阻止未來改成『錢是否有動未知』的安全顯示」。
     //    ⇒ ⇒ **一格測試可以把一個 bug 變成合約, 而它看起來與守門一模一樣。**
-    mocks.listRefundExceptions.mockResolvedValue({ rows: [stuckRow()], truncated: false });
-    mocks.findEffectiveVerdicts.mockRejectedValue(new Error('boom'));
+    // 🔴 「讀不到」現在要用 `null` 演 —— 本頁不再自己打第二發, 讓 `findEffectiveVerdicts`
+    //    reject **對這一頁一格影響都沒有**(它綠了, 而它綠的理由是錯的)。
+    mocks.listRefundExceptions.mockResolvedValue(listResult([stuckRow()], null));
     const { container } = await renderPage();
     const text = container.textContent ?? '';
     // 🔴 讀不到 ⇒ 不講錢, 只講我們讀不到

@@ -56,7 +56,11 @@ SP="$(cd "$(dirname "$0")" && pwd)"
 SEC="pcm-admin-probe-throwaway-jwt-secret-at-least-32-chars"
 
 # ── 前置:要用的東西在不在(缺了就明確報錯,不要跑到一半才炸)────────────────
-for c in initdb pg_ctl psql postgrest python3 curl; do
+# 🔴 `lsof` 少不得, 而它以前不在這張清單上(2026-08-30 線【客人帳戶區】`-08` 補):
+#    下面那道「埠已被佔用」預檢是 `lsof … 2>/dev/null || true` ⇒ **`lsof` 不存在時它回空字串**
+#    ⇒ 預檢**安靜地放行**, 而畫面上與「埠是空的」一模一樣。
+#    📌 **一道用不存在的工具做的檢查, 它印的是【通過】不是【我不知道】。**
+for c in initdb pg_ctl psql postgrest python3 curl lsof; do
   command -v "$c" >/dev/null || { echo "🔴 缺 $c —— 這條鏈起不來。postgrest 用 brew install postgrest"; exit 1; }
 done
 # 🔴🔴 **這裡原本還有一個【一模一樣的】埠迴圈,已於 2026-08-19 刪掉(W6 `W6-043` M1)。**
@@ -146,6 +150,27 @@ initdb -D $S/pg -U postgres --auth=trust --encoding=UTF8 --locale=C > $S/initdb.
 pg_ctl -D $S/pg -o "-p $PG -k /tmp" -l $S/pg.log start > $S/pgctl.log 2>&1
 sleep 2
 
+# 🔴 **驗「我連上的那顆, 真的是我剛起的那顆」**(2026-08-30 `-08` 補;成因由哨兵 `-22` 轉來:
+#    `-eb` 的 codex MF2 在另一支 probe 上抓到同型 —— 埠上若已經有【別的】postgres,
+#    腳本會對**不是拋棄式的那顆**套 migration, **而且照樣全綠**)。
+# 🔴 為什麼不靠上面那道埠預檢就好:①它依賴 `lsof`(見上一段, 不存在就放行)
+#    ②預檢與真正連上之間有時間差 ③**預檢答的是「埠上有沒有人」, 這一發答的是「那個人是不是我」**。
+#    📌 **⇒ 兩個問句不同, 而它們在一切正常的日子裡印同一個結果。**
+# ⚠️ 兩側都走 realpath:postgres 回的是 `-D` 當初拿到的字面(`/tmp/…`),
+#    而 macOS 的 `/tmp` 是 `/private/tmp` 的 symlink ⇒ 不解析就會【永遠不相等】=一道恆紅的閘。
+_want=$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$S/pg")
+_got=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "SHOW data_directory" 2>/dev/null || true)
+_got=$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]) if sys.argv[1] else "")' "$_got")
+if [ "$_want" != "$_got" ]; then
+  echo "🔴 埠 $PG 上的 postgres【不是】這支腳本剛起的那顆 —— 停止, 不對它套任何東西。" >&2
+  echo "   我起的  : $_want" >&2
+  echo "   實際連到: ${_got:-(連不上或回空)}" >&2
+  echo "   ⇒ 若是連不上:看 $S/pg.log 與 $S/pgctl.log" >&2
+  echo "   ⇒ 若是別人的 postgres:換一組埠(ADMIN_PROBE_PG=…),或收掉那一份" >&2
+  exit 1
+fi
+echo "✅ pg 身分核對:$PG ⇒ $_got"
+
 # ── ② PCM bootstrap(平台有、本機沒有的)──────────────────────────────────
 psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q <<'SQL'
 CREATE ROLE service_role NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE anon NOLOGIN;
@@ -153,7 +178,16 @@ CREATE ROLE authenticator LOGIN NOINHERIT;
 GRANT anon, authenticated, service_role TO authenticator;
 CREATE SCHEMA auth;
 -- 🔴 `id` 一欄不夠:`handle_new_auth_user()` trigger 會讀 NEW.email 與 NEW.raw_user_meta_data。
-CREATE TABLE auth.users (id uuid PRIMARY KEY, email text, raw_user_meta_data jsonb DEFAULT '{}'::jsonb);
+-- 🔴🔴 **2026-08-30 加了兩欄, 而理由不是「補完整」, 是【不補會讓一道安全檢查 fail-open】**:
+--    `manual-customer.ts:297` 拿 `getUserById(...).app_metadata` 去判「這個既有帳號是不是我們自己建的」
+--    (codex R2 擊破過一次的那條:**未驗 app_metadata ⇒ 搶註者會被當成這張表單的既有客人**)。
+--    骨架若沒有 `raw_app_meta_data`, 替身只能回 undefined ⇒ **那道檢查在鑽機上恆過**
+--    ⇒ 📌 **一個【少一欄】的骨架, 會讓一道真的安全檢查在這條鏈上永遠印綠。**
+-- 🔴 `email` 加 UNIQUE:`createManualCustomer` 的**冪等靠它**(同一個佔位信箱重送 ⇒ 唯一鍵撞到
+--    ⇒ 那不是失敗, 是第一發已經建好了)。沒有這個約束, 重送會安靜地建出第二個帳號 ——
+--    而那正是那支檔逐字警告「那種帳號**刪不掉**, 而且他之後登入會看不到自己的單」的情境。
+CREATE TABLE auth.users (id uuid PRIMARY KEY, email text UNIQUE, raw_user_meta_data jsonb DEFAULT '{}'::jsonb,
+                         raw_app_meta_data jsonb DEFAULT '{}'::jsonb, created_at timestamptz DEFAULT now());
 CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA extensions;
 -- 🔴🔴 pgcrypto **一定要在 extensions 這個 schema**:少了它(或裝進 public)⇒
@@ -178,6 +212,38 @@ for f in "$REPO"/supabase/migrations/*.sql; do
   then ok=$((ok+1)); else fail=$((fail+1)); echo "FAIL $f" >> $S/apply.log; fi
 done
 echo "migration ok=$ok fail=$fail  (判準不是全綠,是你要用的表在不在;失敗清單 grep '^FAIL' $S/apply.log)"
+
+# ── ③-b 把【人手寫的前置閘訊息】印到人正在看的那個畫面上 ────────────────────
+# 🔴 成因是量到的(2026-08-30):`20260729010000`(D0)在本鑽機 apply 失敗 ⇒ 那條
+#    `orders_display_id_format` CHECK 停在舊版 ⇒ 後來每一筆手動建單都死 `sqlstate 23514`。
+#    而**答案在起站當下就印在 `apply.log` 裡了** —— `20260730120100:84` 逐字:
+#    「…否則本片 apply 會全綠、但第一筆真結帳會死在 check_violation」。
+#    ⇒ 📌 **寫那道閘的人把後來要花一小時找到的東西寫成一句話, 而沒有人讀那個 log。**
+#    ⇒ 🔴 **這不是「忘了讀」能修的 —— 上面那行已經寫著「grep '^FAIL' $S/apply.log」,**
+#       **而它照樣沒有被走過。一條【要你自己再打一個指令】的路, 等於沒有路。**
+#
+# 為什麼只挑含中文的那些:generic 的(`relation "cron.job" does not exist`)是本機沒有
+# pg_cron 造成的**預期失敗**、runbook §3 已寫;含中文的是**人手寫的前置閘**,
+# 它們的作者是刻意在預告「apply 全綠但之後某件事會壞」—— 那才是會咬人的那一種。
+# ⚠️ 分類法就是「這一行有沒有 CJK」, 不是語意判斷 ⇒ **一道用英文寫的手寫閘會被漏掉**(已知盲區)。
+if [ "$fail" -gt 0 ]; then
+  GATES=$(grep -E '^psql:.*ERROR:' "$S/apply.log" 2>/dev/null | grep -E '[一-龥]' || true)
+  NGATE=$(printf '%s\n' "$GATES" | grep -c . || true)
+  if [ "$NGATE" -gt 0 ]; then
+    echo "  🔴 其中 $NGATE 支是【人手寫的前置閘】—— 它們在預告「現在全綠、但之後某件事會壞」:"
+    printf '%s\n' "$GATES" | while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      x=${line#psql:}; f=${x%%:*}; where=${x#*:}; where=${where%%:*}
+      rest=${line#*: ERROR:  }
+      echo "     · $(basename "$f"):$where"
+      echo "       $rest"
+    done
+    echo "  ⇒ 全文 grep 'ERROR:' $S/apply.log"
+  else
+    echo "  ✅ $fail 支失敗裡【沒有】人手寫的前置閘(都是本機缺 pg_cron 那類預期失敗)"
+    echo "     ⚠️ 這一行的分類法是「該行有沒有中文」⇒ 英文寫的手寫閘會被算進上面那個「預期」"
+  fi
+fi
 
 # ── ④ service_role 兩道(平台平常幫你做,本機沒有)──────────────────────────
 # 🔴 少了 BYPASSRLS ⇒ RLS 把結果濾成 0 列,而 **HTTP 仍是 200** ⇒
@@ -218,7 +284,10 @@ print("SERVICE="+tok("service_role"))
 PY
 
 cp "$SP/proxy.py" $S/proxy.py
-nohup python3 $S/proxy.py "$PREST" "$PROXY" > $S/proxy.log 2>&1 &
+# 🔴 第三個參數 = 拋棄式 PG 的埠 —— 沒帶的話 proxy 裡那兩支 `/auth/v1/admin/users`
+#    替身**自動停用**(而不是壞掉):`PG_PORT is None ⇒ _auth 直接回 False ⇒ 照舊轉給 PostgREST`。
+#    ⇒ 那是刻意的:少一個參數應該讓它退回舊行為, 不是讓它半開。
+nohup python3 $S/proxy.py "$PREST" "$PROXY" "$PG" > $S/proxy.log 2>&1 &
 sleep 2
 
 # ── ⑦ 真後台 ─────────────────────────────────────────────────────────────
