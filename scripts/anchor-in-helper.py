@@ -26,6 +26,12 @@
    3. 極性「混合」或「看不出來」一律**不當成錨**, 歸 ⓤ 要人開檔 —— 保守方向:
       🔴 寧可把它留在「要看」那一堆, 也不要把一格可能真裸的算成有錨(假綠比假紅貴一個量級)。
    4. 它**不**回答「這一格好不好」。它只回答「我該先看哪一堆」。
+      🔴 **而 ③ 不是高命中率的堆**(2026-09-01 實測:`refund-form.test.ts` 4 格全歸 ③ ⇒ 開檔 **4/4 健康**)
+      ⇒ 📌 它答的是【這一格自己有沒有錨】, 而健康與否取決於【隔壁那一格】——
+         **兩個都是誠實的答案, 而它們回答的不是同一個問題。**
+   5. 合計數字**當場算**, 不寫死:全母體 436 支 = **1,367 格**(2026-09-01 02:4x),
+      而板上長期引用的 **1,284** 是 2026-08-28 21:22 量的 ⇒ 🔴 **四天長了 83 格**。
+      ⇒ 引用前自己跑一發, 不要抄這一行。
 """
 import io, os, re, sys, importlib.util
 
@@ -89,8 +95,6 @@ def classify(path):
             pile, why = 'u', '+'.join(bad) + ' 極性看不出來(' + '+'.join(helpers[h] for h in bad) + ')'
         elif called:
             pile, why = '1', '+'.join(called)
-        elif 'pos' in [nc.kind(s) for s in nc.statements(body)]:
-            pile, why = '2', '格內有 pos 但仍被報裸'
         else:
             pile, why = '3', '零錨'
         out.append((pile, path, ln, why))
@@ -132,7 +136,7 @@ if __name__ == '__main__':
     if not args:
         print('用法: python3 scripts/anchor-in-helper.py <測試檔...>   /   --selftest'); sys.exit(2)
     rows = [r for f in args for r in classify(f)]
-    for p, lab in (('3', '③ 真的零錨 ⇒ 先看這堆'), ('2', '② 格內有 pos 但仍被報裸(多在迴圈內)'),
+    for p, lab in (('3', '③ 這一格【自己】沒有錨 ⇒ 先看這堆(而它【不是】高命中率的堆, 見檔頭限制 4)'),
                    ('u', '🔴 ⓤ 具名函式【極性看不出來】⇒ 必須開檔核, 不得當成任何一邊'),
                    ('1', '① 錨可能在具名 expect* 函式內 ⇒ 命中率預期低'),
                    ('0', '⓪ 🔴 具名函式是【負向語意】⇒ 這不是錨, 不得當它有守')):
