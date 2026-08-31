@@ -166,9 +166,23 @@ describe('🔴 第4批 · auth 平板段的「位置」與「提權」(兩個都
     const seg = AUTH.slice(i, AUTH.indexOf('\n}', i));
     expect(seg, '卡片內距/寬度不對').toMatch(/padding:\s*36px 32px;\s*max-width:\s*480px/);
     expect(seg, '標題字級不是 29px').toMatch(/font-size:\s*29px/);
-    expect(seg, 'input 不是 16px ⇒ iOS Safari 聚焦會自動放大整頁').toMatch(
-      /\.auth-field input\s*\{\s*font-size:\s*16px/,
-    );
+    // 🔴 這一條 2026-08-31 從【字面尺】改成【選擇器涵蓋尺】(`-a0`)。
+    //    舊版逐字要求 `.auth-field input` 後面【直接】接 `{` ——
+    //    而 2026-08-31 `81b2ebea` 為了讓性別下拉也吃到 16px,把它寫成
+    //      `.auth-field input,\n  .auth-field select { font-size: 16px; }`
+    //    ⇒ **行為沒有變**(input 照樣是 16px), 而尺紅了 ⇒ 那是【假紅】。
+    // 📌 病灶:用【原始碼字面】去釘一個【行為】⇒ 任何合法的重寫都會讓它紅。
+    //    ⇒ 改成問「宣告 16px 的那條規則, 它的選擇器清單【涵不涵蓋】input」。
+    // 🛑 而它仍然要在【真的壞掉】時紅 —— 突變驗過:
+    //    把 `.auth-field input,` 從那條規則拿掉(只留 select)⇒ 本條必紅。
+    const noComments = seg.replace(/\/\*[\s\S]*?\*\//g, '');
+    const rule = noComments.match(/([^{}]*)\{[^{}]*font-size:\s*16px/);
+    expect(rule, '平板段裡找不到任何宣告 font-size:16px 的規則').toBeTruthy();
+    const selectors = (rule?.[1] ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+    expect(
+      selectors,
+      `16px 那條規則的選擇器沒有涵蓋 .auth-field input ⇒ iOS Safari 聚焦會自動放大整頁(實際:${selectors.join(' | ')})`,
+    ).toContain('.auth-field input');
   });
 
   it('🔴 位置 — 平板段必須排在 mobile 覆寫**之後**(手機那組完整涵蓋平板區間)', () => {
