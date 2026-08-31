@@ -139,8 +139,20 @@ COMMENT ON FUNCTION public.get_order_created_gap_counts(timestamptz) IS
 -- ── 2. ACL(兩道 REVOKE 是物理擋,不是慣例)──
 -- 🔴 新物件**出生就自帶權限**,而 repo 內零 `GRANT` 字面可掃、三綠不紅。
 --    (`docs/patterns/revoking-function-execute-in-supabase.md`:「兩道 REVOKE,少一道都是開的」)
--- 🛑 **`anon` 那一行不得刪** —— `20260831020000` 檔內記過一次實測:在拋棄式 PG 上刪掉它
---    `rc=0` 一聲不吭(那裡 anon 的權限經 PUBLIC 而來),**而 Supabase 有直接授權那一層**
+-- 🛑🛑 **`anon` 那一行不得刪 —— 而下面這段是【我本人今天量的】,不是抄隔壁那支的。**
+--    (寫成第一手,因為一句轉述擋不住下一個人把它當死碼刪掉。)
+--
+--    2026-08-31 拋棄式 PG 17.10 實測,我把**第二道 REVOKE(具名角色那道)整段拿掉**再跑:
+--      ⇒ `rc=0`、ACL 仍是 `postgres,payment_confirmer` ⇒ **那一發突變【殺不掉】。**
+--    🔴 **而我沒有就此判它多餘,我去量了為什麼**:在同一個世界裡建一支**完全沒 REVOKE** 的裸函式
+--      ⇒ `set role anon; select …` **回 1(呼叫得動)**;
+--      只補一道 `REVOKE ALL … FROM PUBLIC` 之後 ⇒ **`permission denied`**。
+--    ⇒ 📌 **⇒ 那個世界裡 anon 的權限【只經 PUBLIC】⇒ 第一道 REVOKE 就把它蓋掉了**
+--      ⇒ **第二道在那裡結構上不可能有判別力 —— 這不是「它沒用」,是「這把尺量不到它」。**
+--    🛑 **而 Supabase 有【直接授權給具名角色】那一層**(`20260831020000` 檔內同一格,
+--      以及 `docs/patterns/revoking-function-execute-in-supabase.md`)⇒ 在正式庫上它是活的。
+--    📌 **⇒ 「這裡量不到判別力」與「它是多餘的」是兩個結論,而我答的是前者。**
+--    ⚠️ **⇒ 一個在錯的世界裡跑的負對照,會給你一個看起來像好消息的 `rc=0`。**
 --    ⇒ 📌 一個在錯的世界裡跑的負對照,會給你一個看起來像好消息的 rc=0。
 REVOKE ALL ON FUNCTION public.get_order_created_gap_counts(timestamptz) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.get_order_created_gap_counts(timestamptz)
