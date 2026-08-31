@@ -311,9 +311,42 @@ describe('storefront 投影洩漏守門(service-role-only 表)', () => {
     expect(hits(sql, 'order_cancellations')).toBe(true);
   });
 
+  /**
+   * 🔴🔴 **「出現」比「讀得到」寬 —— 而本檔上面 `:139` 自己就寫過這句話。**
+   *
+   * 2026-08-31 這道守門對 `app/api/cron/anomaly-alert/route.test.ts:85` 開火,那一行是
+   * `shipmentsTotalCount: 0` —— **一個正式的 domain 欄位名**
+   * (`packages/domain/src/payment/anomaly-alert.ts:173` · use-cases · adapter 都有它),
+   * **不是**在查那張表。實查:storefront 全樹 `from('shipments')` / `public.shipments` ⇒ **0 命中**。
+   *
+   * 📌 **⇒ 同一個病的下一個形狀**:上一輪的修法是「把註解剝掉」,
+   *    而這一次它命中的是**識別字裡的子字串** —— 剝註解對它沒有作用。
+   *    ⇒ 🔴 **根因不是註解也不是欄位名, 是 `includes()` 這把尺本身**:
+   *      它問「這幾個字元有沒有出現」, 而我們要問的是「有沒有人【把它當一張表在讀】」。
+   *
+   * ✅ **修法:加識別字邊界** —— `shipments` 前後不得是識別字字元。
+   *    · `from('shipments')` / `public.shipments` / `"shipments"` ⇒ **照樣命中**(前後是引號或點)
+   *    · `shipmentsTotalCount` / `orderShipmentsCache` ⇒ **不再命中**(緊鄰的是英數字)
+   * 🛑 **這【不是】白名單** —— 本檔逐字寫著「不要把本守門加白名單」。
+   *    白名單是「這一支檔例外」;這裡改的是**判準本身**, 而它對所有檔一視同仁。
+   * ⚠️ **代價明寫**:有人寫 `const t = 'shipments'; sb.from(t)` ⇒ 仍會命中(那個字面帶引號);
+   *    但 `sb.from('ship' + 'ments')` 這種拼接**本來就掃不到**, 那是這把尺一直都有的天花板。
+   */
+  const wholeWord = (src: string, word: string): boolean =>
+    new RegExp(`(?<![A-Za-z0-9_$])${word}(?![A-Za-z0-9_$])`).test(src);
+  /**
+   * 🛑 **同族的兩處【我刻意沒有一起改】,寫在這裡讓下一個人看得到**:
+   *   下面「欄位」那兩個迴圈(`PROCUREMENT_*_COLUMNS`)也是 `includes()`,
+   *   ⇒ `voidedAt` 會命中 `orderVoidedAt`、`void_reason` 會命中 `has_void_reason_flag`
+   *   ⇒ **同一個病, 只是今天還沒有人踩到。**
+   * 🔵 **為什麼不順手改**:它們今天是綠的, 而我沒有一發【真的會紅】的例子可以驗我的修法 ——
+   *   照本檔上面那三次被打穿的紀錄, **沒有反例的修法就是下一個被打穿的版本。**
+   *   ⇒ 等它真的對某個合法識別字開火時再改, 而那時會有一個現成的反例。
+   */
+
   for (const table of SERVICE_ROLE_ONLY_TABLES) {
     it(`🔴 storefront 原始碼不得出現 ${table}`, () => {
-      const offenders = files.filter((f) => f.source.includes(table)).map((f) => f.path);
+      const offenders = files.filter((f) => wholeWord(f.source, table)).map((f) => f.path);
       expect(
         offenders,
         // 🔴 錯誤訊息要讓「只看得到這則訊息的人做得出正確的下一步」(2026-08-30 `-48` 指定):
