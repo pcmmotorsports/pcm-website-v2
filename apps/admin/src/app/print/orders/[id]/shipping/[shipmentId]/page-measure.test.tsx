@@ -96,9 +96,13 @@ import { requireFreshBuild } from '@/lib/build-stamp';
 // ```
 // TURBO_FORCE=1 pnpm build                 # 🔴 【每次動過樣式之後】都要先 build，見下方那一格
 // npx vitest run apps/admin/src/app/print/orders/'[id]'/shipping/'[shipmentId]'/page-measure.test.tsx
-// sh scripts/pagecount.sh /tmp/pcm-print-measure/shipping-1item.html
-// sh scripts/pagecount.sh /tmp/pcm-print-measure/shipping-12item.html
+// # 🔴 產物目錄【每次執行都不一樣】(`pcm-print-measure-<pid>`)——
+// #    測試跑的時候會把本次的路徑印出來(搜 "產物目錄:"), 拿那一行的路徑用:
+// sh scripts/pagecount.sh <上面印出來的目錄>/shipping-1item.html
+// sh scripts/pagecount.sh <上面印出來的目錄>/shipping-12item.html
 // ```
+// 📌 **為什麼不在這裡寫死一個路徑**:寫死的那個下一個人跑的時候【本來就不是它】
+//    ⇒ 指令不會過期, 而路徑會。
 //
 // ── ✅ **本檔【不再斷言任何文案字面】**(2026-08-18 補完)────────────────
 //   **數法(可重跑,結果應為 0)**:
@@ -175,7 +179,23 @@ import OrderPickingPrintPage from '../../picking/page';
 
 const ORDER = '11111111-1111-4111-8111-111111111111';
 const SHIPMENT = '33333333-3333-4333-8333-333333333333';
-const OUT_DIR = '/tmp/pcm-print-measure';
+/**
+ * 產物目錄 —— **每一次執行各自一個**(`⟦b4-N04⟧` 那一族;2026-09-01 `-f7` 改)。
+ *
+ * ⛔ ~~`const OUT_DIR = '/tmp/pcm-print-measure'`(固定路徑)~~ ⇒ 舊字面留著,
+ *    讓搜「pcm-print-measure」的人同一發撞到這裡。
+ *
+ * 🔴 **為什麼改**:那個固定路徑讓**兩個窗同時跑本檔時互相清掉對方的產物**。
+ *    下面那段(`rmSync` 上方)寫著這個代價, 而它把症狀估成
+ *    「**我剛量的檔不見了**, 不是靜默的錯值」—— **那個估計低了一級**, 見那一段的更正。
+ *
+ * 🔴 **而它【不會】拿掉「舊的不可能還在」那道保護** —— `rmSync` 照舊在模組層跑,
+ *    只是現在刪的是**本次自己那一個**目錄。⇒ 兩件事都保住了。
+ *
+ * ⚠️ **代價(照實)**:`/tmp` 底下會累積 `pcm-print-measure-<pid>` 目錄。
+ *    它們可 grep(前綴沒變)、而系統重開機會清掉 `/tmp`。**沒有人在清它們。**
+ */
+const OUT_DIR = `/tmp/pcm-print-measure-${process.pid}`;
 /** `.next` 在 app 根;本檔在 app/print/orders/[id]/shipping/[shipmentId] ⇒ 上溯 7 層。 */
 const NEXT_DIR = join(__dirname, '..', '..', '..', '..', '..', '..', '..', '.next');
 
@@ -419,10 +439,30 @@ async function emitPicking(
  * **錯的那次和對的那次長得一樣。**
  * ⇒ **提醒擋不住它,只有「舊的不可能還在」擋得住。**
  *
- * ⚠️ **代價明說**:`OUT_DIR` 是固定路徑 ⇒ **兩個窗同時跑本檔會互相清掉對方的產物**。
- * 症狀是「我剛量的檔不見了」,**不是靜默的錯值** ⇒ 兩害相權取這一邊。
+ * ⚠️ ~~**代價明說**:`OUT_DIR` 是固定路徑 ⇒ **兩個窗同時跑本檔會互相清掉對方的產物**。
+ * 症狀是「我剛量的檔不見了」,**不是靜默的錯值** ⇒ 兩害相權取這一邊。~~
+ *
+ * 🔵🔵 **[2026-09-01 更正 —— 上面那個取捨是在一個【錯的權重】下算的]**
+ * 🔴 **實際症狀不是「檔不見了」, 是【假紅】**:兩窗同跑時本檔會紅,
+ *    而**總數(檔數 / 測項)全同、只有紅的格數 0 vs 1** ⇒ 那正是最難發現的那一種。
+ *    ⇒ 📌 **他以為代價是【吵】, 而實際代價是【一個看起來像真紅的紅】。**
+ *      而「兩害相權」的那一權要重新算:**吵可以忍, 假紅會訓練人略過真紅。**
+ * ⚠️ **證據來源**:`-a0` 2026-09-01 兩窗同跑實測(總數全同而紅 0 vs 1)。
+ *    🔴 **本窗【未複量】** —— 要兩個窗同時跑才構造得出來, 而我只有一個。
+ *    ⇒ 這一段引用的是它的數字, 不是我的。
+ *
+ * ✅ **而修法不是拿掉這道 `rmSync`** —— 它擋下過一次差點被回報的假 finding(見上一段)。
+ *    改的是 `OUT_DIR` 本身:每次執行各自一個目錄 ⇒ **兩個窗不再共用**,
+ *    而「舊的不可能還在」照舊成立(這一行照樣每次都跑)。
  */
 rmSync(OUT_DIR, { recursive: true, force: true });
+// 🔴 **把本次的路徑印出來, 而不是讓人去猜** —— 目錄現在每次不同,
+//    而**文件裡寫死一個路徑就一定會過期**(那正是本片在修的病的另一半)。
+//    ⇒ 這一行是那三份 docs 的替代品:它們現在說「拿測試印出來的那個」。
+// 🔴 **用 process.stdout.write 不用 console.log**:實測 vitest **不會印**模組層的 console.log
+//    ⇒ 那一行會安靜地不見, 而文件正是叫人去找它。**兩個世界都試過, 只有這個印得出來。**
+process.stdout.write(`[page-measure] 產物目錄:${OUT_DIR}
+`);
 
 describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => {
   // 🔴 **正向對照必須在同一次執行裡**:沒有它,`.next` 不存在 / 元件沒 render 出東西 /
@@ -500,7 +540,8 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     // 🔴 **為什麼揀貨單也要**:`#601` 的 A(已取消)/ C(讀不到品項)兩種在 2026-08-17 落地,
     //    而**當時沒有任何辦法把它們印出來看** —— 單測只證得了「內容與結構都在同一塊裡」。
     //    ⇒ 本格補的就是那一格。用法:
-    //      sh scripts/pagecount.sh --png /tmp/pcm-print-measure/picking-blocked-cancelled.html <dir>
+    //      sh scripts/pagecount.sh --png <測試印出來的產物目錄>/picking-blocked-cancelled.html <dir>
+    //      (產物目錄每次執行不同 ⇒ 搜測試輸出裡的「產物目錄:」那一行)
     // ⚠️ **`picking-normal` 那一份【不是】一張真實的揀貨單**:本檔的 `detail()` 把
     //    `quantitySummary` 建成 `null` ⇒ 每一列都會印「數量資料尚未就緒 / 這一項不要揀」。
     //    ⇒ 它的用途**只有一個:當上面兩份的正向對照**(證明品項表本來印得出來)。

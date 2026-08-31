@@ -301,13 +301,21 @@ grep -o 'SKU-0002' pick-3.html        | wc -l   ⇒ 1   ← 訂單明細只出�
 # 0. 先 build —— 量測要吃【建置後的 CSS】,不是原始碼
 TURBO_FORCE=1 pnpm build
 
-# 1. 產 HTML(既有管線;它會寫進 /tmp/pcm-print-measure/)
+# 1. 產 HTML(既有管線)
 npx vitest run --project admin \
   'apps/admin/src/app/print/orders/[id]/shipping/[shipmentId]/page-measure.test.tsx'
-#   ⚠️ 它開頭會 rmSync 整個輸出目錄 ⇒ 產完【立刻把檔複製走】,否則下一次跑就沒了
+#   🔴 產物目錄【每次執行都不一樣】(`pcm-print-measure-<pid>`;2026-09-01 起)——
+#      測試會把本次的路徑印出來, 搜輸出裡的「產物目錄:」那一行, 下面用那個。
+#      📌 為什麼不在這裡寫死:寫死的那個, 下一個人跑的時候【本來就不是它】。
+#   🔵 **不想找那一行的後路(指令不會過期)**:`ls -dt /tmp/pcm-print-measure-* | head -1`
+#      ⇒ 拿最新的那一個。⚠️ 而 `/tmp/pcm-print-measure`(**沒有 -pid 的那個舊目錄**)是
+#         2026-09-01 之前留下的殘骸 —— **它的內容是舊的**, 不要拿它。
+#   ⛔ ~~它開頭會 rmSync 整個輸出目錄 ⇒ 產完【立刻把檔複製走】, 否則下一次跑就沒了~~
+#      ⇒ 🔵 **2026-09-01 起這句不成立**:下一次跑用的是【另一個】目錄, 舊的不會被清掉。
+#      ⚠️ 而反過來的代價是:`/tmp` 底下會累積 `pcm-print-measure-*`, **沒有人在清它們**。
 
-# 2. 數頁數
-sh scripts/pagecount.sh /tmp/pcm-print-measure/shipping-1item.html
+# 2. 數頁數(把 <產物目錄> 換成上面印出來的那一個)
+sh scripts/pagecount.sh <產物目錄>/shipping-1item.html
 #   exit code 三態分得開:0=成功(頁數在 stdout) · 3=Chrome 沒產出 PDF · 4=數不出頁數
 #   ⚠️ 機器負載高時會 ENV-FAIL ⇒ `sh scripts/pagecount.sh --selftest` 會自己說是不是環境問題
 ```
