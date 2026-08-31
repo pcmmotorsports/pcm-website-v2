@@ -213,9 +213,24 @@ function StatementMasthead() {
 export function StatementDoc({
   order,
   fontFamily,
+  printButton = true,
 }: {
   order: MemberOrderDetail;
   fontFamily?: string;
+  /**
+   * 螢幕上那顆列印鈕要不要渲染。**預設 `true`** —— 那一頁維持原樣。
+   *
+   * 🔴🔴 **為什麼需要這個開關(2026-08-31 線上 500 抓到的)**:
+   *    `StatementPrintButton` 是 `'use client'`,而 `statement.pdf` 那條 route 自己呼叫
+   *    `renderToStaticMarkup()` ⇒ 那條路**沒有 Next 的 client boundary 處理**
+   *    ⇒ 線上逐字 `Error: Attempted to call StatementPrintButton() from the server but
+   *      StatementPrintButton is on the client.` ⇒ **那條 route 固定 500。**
+   * 📌 **⇒ 同一棵元件樹, 兩條渲染路徑, 而只有第二條會炸** ——
+   *    HTML 那頁走 Next 正常的 RSC 管線 ⇒ 200;PDF 那條自己 render ⇒ 500。
+   *    **兩條路徑共用元件, 而測試只走過第一條 ⇒ 全綠。**
+   * 🛑 而 `@media print` 收掉它**不夠** —— CSS 是在【渲染成功之後】才有機會生效的。
+   */
+  printButton?: boolean;
 }) {
   const addr = order.shippingAddress;
 
@@ -231,10 +246,14 @@ export function StatementDoc({
       className='print-sheet pd-sheet stmt-page'
       style={fontFamily ? ({ '--font-statement': fontFamily } as CSSProperties) : undefined}
     >
-      {/* 螢幕上才有的列印鈕。**紙上不准有它** —— `statement.css` 的 `@media print` 收掉。 */}
-      <div className='stmt-actions'>
-        <StatementPrintButton />
-      </div>
+      {/* 螢幕上才有的列印鈕。**紙上不准有它** —— `statement.css` 的 `@media print` 收掉。
+          🔴 而 `printButton=false` 時**連渲染都不做** —— 見上面 props 那段:
+             `@media print` 救不了一個在 render 階段就丟例外的元件。 */}
+      {printButton ? (
+        <div className='stmt-actions'>
+          <StatementPrintButton />
+        </div>
+      ) : null}
 
       <StatementMasthead />
 

@@ -122,7 +122,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ displayId: str
   const built = buildStatementHtml({
     // `createElement` 而不是 `StatementDoc({ order })` —— 後者是【直接呼叫元件】,
     // 那在今天可行(它是純函式)而在它哪天用到 hook 的那天會安靜地壞掉。
-    bodyHtml: renderToStaticMarkup(createElement(StatementDoc, { order })),
+    // 🔴 `printButton: false` **不是樣式決定, 是【這條路徑能不能跑】** ——
+    //    那顆鈕是 `'use client'`, 而這裡是自己呼叫 renderToStaticMarkup, 沒有 client boundary
+    //    ⇒ 渲染它 = 線上 500(2026-08-31 實際發生過, Vercel runtime log 逐字
+    //      `Attempted to call StatementPrintButton() from the server`)。
+    bodyHtml: renderToStaticMarkup(createElement(StatementDoc, { order, printButton: false })),
     pageCss,
     fontCss,
     readFont: (rel) => {
