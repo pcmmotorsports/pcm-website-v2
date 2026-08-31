@@ -1617,6 +1617,26 @@ export type PlaceOrderInput = {
    *   部署前必須確認 prod 的 `create_order` 確實是 9 參(plan §7 的硬閘)。
    */
   notificationEmail?: string | null;
+  /**
+   * 客人輸入的優惠券碼(沒帶 ⇒ 不送這個鍵)。
+   *
+   * ⛔ ~~`discountTotal?: number` —— 一個【已經算好的金額】~~
+   * 🔴🔴 **那一版有洞, 而它是 codex 抓到、主視窗自己去正式庫量過的**:
+   *    `create_order` 是 SECURITY DEFINER 且 `GRANT EXECUTE … TO authenticated`,
+   *    而 Supabase 把 public schema 的函式全部開成 PostgREST RPC 端點
+   *    ⇒ **任何登入的客人拿 anon key + 自己的 JWT 就叫得動它, 並自己填那個金額。**
+   *    🟢 正式庫實測:authenticated 對它 EXECUTE ⇒ true;anon ⇒ false;
+   *       🟢 對照組 admin_search_customers 對 authenticated ⇒ false(那把尺會說「不」)
+   * 🛑 而這條紅線就寫在 `packages/adapters/src/supabase/mappers/order.ts` 上面幾行:
+   *    「**永不**夾帶 price / unitPrice / tier / …;價 / 運費 / 歸屬 / tier **全 RPC server 權威算**」
+   * ✅ ⇒ 改成送【券碼】, 金額由 DB 那一側呼 `redeem_coupon` 試算出來。
+   *    📌 **那不是把券的邏輯搬進 RPC, 是【不再相信呼叫端算的數】。**
+   *
+   * 🛑 **這個鍵【有值才送】, 照隔壁 `notificationEmail` 的慣例** —— 上線順序是先 DB 後 TS,
+   *    在 migration 還沒 apply 的窗口裡多送一個參數會讓 RPC 整個打不中(參數列不匹配)。
+   *    ⇒ 沒有券的結帳不送這個鍵 ⇒ **那條路在窗口期完全不受影響。**
+   */
+  couponCode?: string;
 };
 
 /**
