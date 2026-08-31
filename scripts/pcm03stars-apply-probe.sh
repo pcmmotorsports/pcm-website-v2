@@ -12,7 +12,11 @@
 #   · 🔴 本機 PG 不是正式庫 ⇒ **「這裡 apply 成功」≠「正式庫 apply 會成功」**。apply 是 Sean 的手。
 set -u
 export LC_ALL=C LANG=C
-REPO=/Users/sean_1/pcm-wt-db
+# 🔴 從腳本自己的位置推, 不要寫死 —— 寫死的話, 從別棵工作樹呼叫它會【安靜地】跑去 pcm-wt-db,
+#    而它會讀到那棵樹的 migration、印出一個看起來完全正常的結論。同族舊病見 CLAUDE.md 路由表。
+# ⚠️ 這裡是 `/..` 【一層】不是 `/../..` —— 本檔在 `scripts/` 底下, 而 `admin-probe/up.sh` 在
+#    `scripts/admin-probe/` 底下【兩層】。照抄那一支的字面會把 REPO 推到 repo 的上一層。
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
 OLD="$REPO/supabase/migrations/20260824011000_m4b_866_manual_refund_rail_cap_enforce.sql"
 NEW="$REPO/supabase/migrations/20260831010000_m4b_866_manual_refund_raise_plaintext.sql"
 D=/tmp/pcm03stars-probe
