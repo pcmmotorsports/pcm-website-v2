@@ -1,3 +1,22 @@
+-- 🔴🔴 **這一段必須在 `BEGIN;` 之前 —— 而它 2026-09-01 之前不是。**
+--
+--  症狀:`ERROR:  cannot ALTER TABLE "orders" because it has pending trigger events`
+--  成因:本檔整支是【一個交易】(下面的 `BEGIN;` → 檔尾 `COMMIT;`),而這兩段 ALTER
+--        原本排在中段 —— 它前面已經有 INSERT ⇒ orders 上的 **DEFERRED 約束觸發器**
+--        還掛在那個交易裡沒有燒掉 ⇒ Postgres 拒絕在這時候 ALTER 那張表。
+--  🛑 **而那個錯誤訊息不會告訴你「把 ALTER 搬到 BEGIN 前面」** —— 那要撞過才知道,
+--     而撞到的人看到的是一支【完全正常的 seed 檔】停在中間。
+--  📎 哪幾道觸發器會擋人:`~/pcm-mailbox/表-INSERT觸發器哪幾道會擋人-20260901.md`
+--  🔵 發現於 2026-09-01 線【出貨】跑 ⟦b4-MAILDEAD⟧ 的實按驗證時(up.sh rc=3)。
+
+ALTER TABLE public.orders DROP CONSTRAINT IF EXISTS orders_display_id_format;
+ALTER TABLE public.orders
+  ADD CONSTRAINT orders_display_id_format
+  CHECK (
+    display_id ~ '^PCM-[0-9]{4}-[0-9]{4,}$'
+    OR display_id ~ '^[23456789BCDFGHJKMNPQRSTVWXYZ]{6}$'
+  );
+
 -- 🔴🔴 **整支種子必須在【一個交易】裡跑,而這不是效能考量** ——
 --    `pcm_e13_items_subtotal_guard` / `pcm_e13_orders_subtotal_guard` 是
 --    **DEFERRABLE INITIALLY DEFERRED** 的 constraint trigger:它們在 **COMMIT 時**才檢查
@@ -164,13 +183,6 @@ ON CONFLICT (id) DO UPDATE SET is_manager = true, is_active = true;
 --   ⇒ 📌 **寫那道閘的人, 把我後來花一小時找到的東西, 一句話寫在 apply.log 裡** ——
 --      而那個 log 沒有人讀。**訊號存在 ≠ 訊號被讀。**
 -- ⚠️ 這裡**只補那一條約束**, 不重跑整支 D0(它還做別的事, 而那些在鑽機上不需要)。
-ALTER TABLE public.orders DROP CONSTRAINT IF EXISTS orders_display_id_format;
-ALTER TABLE public.orders
-  ADD CONSTRAINT orders_display_id_format
-  CHECK (
-    display_id ~ '^PCM-[0-9]{4}-[0-9]{4,}$'
-    OR display_id ~ '^[23456789BCDFGHJKMNPQRSTVWXYZ]{6}$'
-  );
 
 -- ── 🔴🔴 把 `order_display_seq` 推到與種子單一致(2026-08-30 加)──────────────────
 -- **成因是量到的, 不是想到的**:種子用**寫死的** `display_id`(`PCM-2026-1001`…)插單,
