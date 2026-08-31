@@ -9,10 +9,15 @@ const mocks = vi.hoisted(() => ({
   getRequestId: vi.fn(),
   createManualCustomer: vi.fn(),
   findCandidates: vi.fn(),
+  auditRecord: vi.fn(),
 }));
 
 vi.mock('../session/authorize', () => ({ authorizeAdminMutation: mocks.authorizeAdminMutation }));
 vi.mock('../audit/context', () => ({ getRequestId: mocks.getRequestId }));
+// ⟦b4-ENUM3⟧ 片 1:搜尋事件改寫進 admin_audit_log ⇒ 這一支要換掉, 否則測試會真的去打 DB。
+vi.mock('../orders/order-repository', () => ({
+  getAdminAuditLogRepository: () => ({ record: mocks.auditRecord }),
+}));
 vi.mock('@pcm/adapters/server', () => ({ createSupabaseServiceClient: vi.fn(() => ({})) }));
 // 🔴 只換掉兩支會打 DB 的,`normalizeManualPhone` 走真實作 ——
 //    「回傳的電話有沒有正規化」是本檔要量的性質之一,mock 掉它那格會變成自問自答。
@@ -25,6 +30,7 @@ vi.mock('./manual-customer', async (importOriginal) => {
   };
 });
 
+import { MANUAL_CUSTOMER_SEARCH_ACTION } from './manual-customer';
 import {
   createManualCustomerInlineAction,
   searchManualCustomersAction,
@@ -44,6 +50,7 @@ beforeEach(() => {
     samePhoneCount: 0,
     shouldWarnDuplicates: false,
   });
+  mocks.auditRecord.mockResolvedValue(undefined);
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -364,5 +371,103 @@ describe('🔴 R6:電話太短 ⇒ 預檢【完全不打 DB】', () => {
     mocks.createManualCustomer.mockResolvedValue({ ok: true, userId: NEW_USER, idempotent: false });
     await createManualCustomerInlineAction({ name: '王小明', phone: '12345678', requestId: REQ });
     expect(mocks.findCandidates).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── ⟦b4-ENUM3⟧ 片 1:搜尋事件要進【查得到的表】, 不是一行沒人看的 log ────────────
+//
+// 🔴 **這一片修的不是枚舉, 是【偵測那一半的載體】。**
+//    板上逐字寫「每一次查得動的搜尋【留一筆】」—— 而它原本是 `console.warn`:
+//    不在 admin_audit_log、告警器(1,103 行)與 10 支 cron **一支都沒讀它**。
+//    ⇒ 那與「沒有偵測」對【事後查得到嗎】印同一個答案。
+// 🛑 **而限速那一半仍然是 0**(片 2)⇒ 本組測試證不到「擋得住枚舉」, 一格都證不到。
+// ⚠️ **第二個天花板(codex R1 nit, 2026-09-01)**:本組把 `authorizeAdminMutation()` mock 成 `staff-1`
+//    ⇒ 它只證得到 **actor 被原樣轉送**, **證不到 actor 是真的**。
+//    旗標關著 + 舊票時 actor 仍可能來自那顆自選 cookie;session 被竊時也會記成別人。
+//    ⇒ 那一格由 `session/` 那一族負責, 不是這裡。
+describe('⟦b4-ENUM3⟧ 搜尋要留下一列查得到的稽核', () => {
+  beforeEach(() => {
+    mocks.findCandidates.mockResolvedValue({
+      candidates: [{ userId: NEW_USER, name: '王小明', phone: '0912345678', isManual: true }],
+      truncated: false,
+      samePhoneCount: 1,
+      shouldWarnDuplicates: false,
+    });
+  });
+
+  it('查得動 ⇒ 寫一列 admin_audit_log, 而 actor 來自那道授權閘', async () => {
+    const res = await searchManualCustomersAction('0912345678');
+    expect(res.ok).toBe(true);
+    expect(mocks.auditRecord).toHaveBeenCalledTimes(1);
+    const [entry, context] = mocks.auditRecord.mock.calls[0] as [
+      { action: string; after: unknown },
+      { actor: string; sourceApp: string },
+    ];
+    // 🔴 用【匯出的常數】比, 不是自己打一次字串 —— 那正是這個常數存在的理由。
+    expect(entry.action).toBe(MANUAL_CUSTOMER_SEARCH_ACTION);
+    expect(context.actor).toBe('staff-1');
+    expect(context.sourceApp).toBe('admin');
+    expect(entry.after).toEqual({ queryDigits: 10, hits: 1, truncated: false });
+  });
+
+  it('🔴 PII:那一列【不得】含他打的號碼或撈回來的姓名', async () => {
+    await searchManualCustomersAction('0912345678');
+    const payload = JSON.stringify(mocks.auditRecord.mock.calls[0]);
+    // 🟢 先證明這把尺撈得到東西（否則下面兩發是恆真的）
+    expect(payload).toContain(MANUAL_CUSTOMER_SEARCH_ACTION);
+    expect(payload).not.toContain('0912345678');
+    expect(payload).not.toContain('王小明');
+  });
+
+  it('🔴 負對照:太短(不打 DB)⇒【不得】寫稽核, 否則那把尺恆真', async () => {
+    const res = await searchManualCustomersAction('09');
+    expect(res).toMatchObject({ ok: false, reason: 'too_short' });
+    expect(mocks.auditRecord).not.toHaveBeenCalled();
+  });
+
+  it('🛑 稽核寫失敗 ⇒【不擋搜尋】, 而訊號降級成一行 log 而不是消失', async () => {
+    mocks.auditRecord.mockRejectedValue(new Error('audit table down'));
+    const warn = vi.mocked(console.warn);
+    const res = await searchManualCustomersAction('0912345678');
+    // ① 搜尋照樣成功 —— 為了留紀錄而讓員工查不到客人, 代價不對等
+    expect(res.ok).toBe(true);
+    expect((res as { candidates: unknown[] }).candidates).toHaveLength(1);
+    // ② 而訊號沒有消失:降級成 runtime log
+    const lines = warn.mock.calls.map((c) => String(c[0]));
+    expect(lines.some((l) => l.includes(MANUAL_CUSTOMER_SEARCH_ACTION))).toBe(true);
+    expect(lines.some((l) => l.includes('audit_write_failed'))).toBe(true);
+    // ③ 🔴 而降級那一行也不得含 PII
+    expect(lines.some((l) => l.includes('0912345678') || l.includes('王小明'))).toBe(false);
+  });
+
+  it('🛑🛑 稽核【卡住】⇒ 有逾時上界, 不會把搜尋一起拖住(codex R1 must-fix)', async () => {
+    // 🔴 codex 的原話:「`catch` 只處理【快速拒絕】, 沒有逾時上界;
+    //    INSERT 卡住時搜尋會一起卡住直到平台逾時。」
+    //    ⇒ 而我先前那句「片 1 不擋任何人、零誤擋風險」因此是假的。
+    // ⇒ 這一格演的是【慢寫】—— 前兩格演的是立即成功 / 立即失敗, 它們演不到這個世界。
+    vi.useFakeTimers();
+    try {
+      // 永遠不 resolve 的寫入 = 卡住
+      mocks.auditRecord.mockImplementation(() => new Promise(() => {}));
+      const warn = vi.mocked(console.warn);
+      const pending = searchManualCustomersAction('0912345678');
+      await vi.advanceTimersByTimeAsync(2_000);
+      const res = await pending;
+      // ① 搜尋照樣回來了 —— 沒有被那筆寫入拖住
+      expect(res.ok).toBe(true);
+      // ② 而它降級成一行 log（訊號不消失）
+      const lines = warn.mock.calls.map((c) => String(c[0]));
+      expect(lines.some((l) => l.includes('audit_write_failed'))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('🔴 負對照:寫得進去的時候【不得】印那行降級 log(否則上面那格恆真)', async () => {
+    const warn = vi.mocked(console.warn);
+    await searchManualCustomersAction('0912345678');
+    expect(
+      warn.mock.calls.map((c) => String(c[0])).some((l) => l.includes('audit_write_failed')),
+    ).toBe(false);
   });
 });

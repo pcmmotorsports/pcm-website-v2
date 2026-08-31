@@ -2,10 +2,12 @@
 
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
 import { getRequestId } from '../audit/context';
+import { getAdminAuditLogRepository } from '../orders/order-repository';
 import { authorizeAdminMutation } from '../session/authorize';
 import {
   createManualCustomer,
   findCustomerCandidatesByPhone,
+  MANUAL_CUSTOMER_SEARCH_ACTION,
   MIN_PHONE_DIGITS,
   normalizeManualPhone,
   type ManualCustomerClient,
@@ -63,6 +65,95 @@ export type SearchCustomersResult =
  *    ⇒ **授權閘絕對第一**。`authorizeAdminMutation` 同時擋 session、Origin 與具名 actor
  *    (`session/authorize.ts:24-56`)—— 對「可以被 client 直接呼叫的東西」那三道缺一不可。
  */
+/**
+ * 稽核寫入的逾時上界(毫秒)。
+ *
+ * 🔴 **codex R1 must-fix(2026-09-01)**:我第一版只 `catch`, 而 `catch` 只接得住
+ *    **快速拒絕** —— **INSERT 卡住的時候, 搜尋會跟著卡到平台逾時**。
+ *    ⇒ 那讓我原本那句「片 1 不擋任何人、零誤擋風險」變成假的。
+ * 🔵 值取 2 秒:這是一個**唯讀動作的附帶紀錄**, 它沒有理由讓員工多等超過那個。
+ *    (形狀抄 `lib/staff.ts` 的 `lookupWithTimeout` —— 那支跑在登入關鍵路徑上, 同一個理由。)
+ * ⚠️ 而**逾時 ≠ 取消**:這裡只是「不等了」, 那筆 INSERT 可能仍然會成功。
+ *    ⇒ 所以逾時之後印的降級 log **可能與一筆真的存在的稽核並存** —— 那是刻意的,
+ *      寧可多一行 log, 不要為了乾淨而讓員工等。
+ */
+const SEARCH_AUDIT_TIMEOUT_MS = 2_000;
+
+/** 搜尋事件記下的東西 —— **只有形狀, 沒有內容**(見下方那一段)。 */
+interface SearchAuditFacts {
+  readonly queryDigits: number;
+  readonly hits: number;
+  readonly truncated: boolean;
+}
+
+/**
+ * 把一次搜尋寫進 `admin_audit_log`。
+ *
+ * 🔴 **PII 紀律(原本那行 `console.warn` 就有, 這裡照舊)**:記的是**長度與筆數**,
+ *    不是他打的號碼、不是撈回來的姓名。⇒ 這張表的 `before`/`after` 建表註解逐字說它
+ *    「**可合法含經銷價 / 成本 / PII**」—— 而**本事件刻意不放任何一樣**。
+ * ⚠️ **而不要寫成「零 PII」**(codex R1 nit, 2026-09-01 收窄):
+ *    `queryDigits` 與 `hits` 沒有直接識別資料, **而它們是綁著 actor 與時間的搜尋中繼資料**
+ *    ⇒ 反覆觀察可以推斷命中分布。
+ *    ⇒ 📌 正確的字面是「**不含查詢值、也不含客戶的直接識別資訊**」, 不是「零 PII」。
+ *
+ * 🛑🛑 **寫失敗【不擋搜尋】, 而這個取捨要寫出來不要藏**:
+ *    · 若讓它 throw ⇒ 稽核表打嗝時**員工查不到客人** —— 而這是一個**唯讀**動作,
+ *      為了留紀錄而讓正常工作停擺, 代價不對等。
+ *    · 而吞掉它的代價是:**稽核是 best-effort, 它可能漏記。**
+ *    ⇒ 折衷:吞掉, **但把舊那行 `console.warn` 留成【降級訊號】** ——
+ *      寫不進表的時候至少 runtime log 還有一行, **訊號降級而不是消失**。
+ *    ⛔ ~~而那條路不是他控制得了的:搜尋本身就先打了同一個 DB, DB 掛了他也查不到東西。~~
+ *    🔴 **codex R1 must-fix(2026-09-01)推翻了上面那句, 而它是對的**:
+ *      讀與寫是**不同 client、不同請求、不同時間點** ——
+ *      **高併發枚舉可以讓前段讀取完成, 而後段寫入因連線池 / 資源壓力失敗**
+ *      ⇒ 那一次搜尋就只剩下沒有人在看的 runtime log。
+ *      📌 ⇒ **所以正確的說法是:稽核是 best-effort, 而【蓄意的高頻使用者剛好是最可能讓它失敗的那一種】。**
+ *      🛑 而這一格**片 1 不解** —— 真的要解得靠片 2 的限速(先把高頻擋掉), 或把稽核改成同交易寫入。
+ *
+ * 🔴 **而這一支【不是】枚舉那個問題的解** —— 它是【偵測】那一半, 而且只是把偵測
+ *    從「一行沒人看的 log」變成「一列查得到的紀錄」。**限速那一半仍然是 0**
+ *    (板 `⟦b4-ENUM3⟧` 片 2)。⇒ 不要因為這一片落地就把那一列關掉。
+ */
+async function recordSearchAudit(
+  actorId: string,
+  facts: SearchAuditFacts,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      getAdminAuditLogRepository().record(
+        { action: MANUAL_CUSTOMER_SEARCH_ACTION, after: facts },
+        {
+          actor: actorId,
+          requestId: await getRequestId(),
+          sourceApp: 'admin',
+        },
+      ),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`稽核寫入逾時(${SEARCH_AUDIT_TIMEOUT_MS}ms)`)),
+          SEARCH_AUDIT_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } catch (error) {
+    // 降級訊號:表寫不進去 ⇒ 至少留下原本那一行, 讓 runtime log 仍然看得到這次搜尋。
+    console.warn(
+      JSON.stringify({
+        evt: MANUAL_CUSTOMER_SEARCH_ACTION,
+        degraded: 'audit_write_failed',
+        ...facts,
+      }),
+    );
+    console.error('[admin/manual-customer] 搜尋稽核寫入失敗(不擋搜尋)', error);
+  } finally {
+    // 清掉計時器 —— 否則 serverless 下這條 timer 會把函式生命週期拖長,
+    // 即使寫入早就回來了(形狀抄 `lib/staff.ts:121-125`, 那裡有同一句理由)。
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 export async function searchManualCustomersAction(rawPhone: string): Promise<SearchCustomersResult> {
   const authorization = await authorizeAdminMutation();
   if (!authorization) return { ok: false, reason: 'denied' };
@@ -84,15 +175,20 @@ export async function searchManualCustomersAction(rawPhone: string): Promise<Sea
     //    ⚠️ **這一行不是那個問題的解,它是【偵測】那一半** —— 缺的那一半是**限速**,本片沒做。
     //       ⇒ 判別句:少了這行,枚舉發生過與沒發生過**在系統裡印同一個東西**(什麼都沒有)。
     //    🔴 記的是**長度與筆數**,不是他打的號碼、不是撈回來的姓名 —— 那些是客人的 PII。
-    console.warn(
-      JSON.stringify({
-        evt: 'admin.manual_customer.searched',
-        requestId: await getRequestId(),
-        queryDigits: phone.length,
-        hits: res.candidates.length,
-        truncated: res.truncated,
-      }),
-    );
+    //
+    // ⛔ ~~原本這裡是一行 `console.warn`~~ 🔴 **2026-09-01 換掉,而換的理由是量到的**:
+    //    板上 `⟦b4-ENUM3⟧` 逐字寫「每一次查得動的搜尋【留一筆】」—— 讀起來像寫進稽核表。
+    //    **而它不是。**當場量(剝註解、帶正負對照):本檔 `admin_audit_log` / `writeAudit` /
+    //    `auditRepository` / `buildAuditContext` **皆 0**;告警器 `check-anomaly-alerts.ts`
+    //    (1,103 行)對 `searched` / `admin_audit_log` / `manual_customer` **皆 0**
+    //    (🟢 正對照 `anomaly` ⇒ 11 ⇒ 尺是活的);`api/cron/` 底下 **0 / 10** 支讀那張表。
+    //    ⇒ 📌 **它是一行沒有人在看、而且不在任何可查詢的表裡的 log。**
+    //       那與「沒有偵測」對【事後查得到嗎】這個問題印同一個答案。
+    await recordSearchAudit(authorization.actorId, {
+      queryDigits: phone.length,
+      hits: res.candidates.length,
+      truncated: res.truncated,
+    });
     return {
       ok: true,
       // 🔴 逐欄挑,不整包轉送:`ManualCustomerCandidate` 有 `email`,而畫面不需要它。
