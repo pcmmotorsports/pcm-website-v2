@@ -105,6 +105,14 @@ memory `project_wallet-deposit-taiwan-legal-hold`,2026-07-16 那節逐字:
 
 ❌ 沒有的
   顧客站的 deposit 入口             ⇒ grep 'depositWallet|立即儲值' apps/storefront/src ⇒ 0 支檔
+  🔴 2026-08-31 補範圍(結論不變, 而範圍原本沒有跟著數字走):
+     那個 0 的【範圍 = apps/storefront/src】。而後端 use-case depositWallet 存在且測過
+     —— packages/use-cases/src/deposit-wallet.ts:28(export)· index.ts:33(re-export)
+     · deposit-wallet.test.ts 九個測項(負數/小數/0 都 reject)
+  ✅ 所以這裡的 0 是【前台入口沒有】, 不是【儲值沒做】—— 而前台那顆鈕是 Sean 拍板不做
+     (wallet.css:8 逐字:「立即儲值」不做, Sean:等網站上線後再補)
+  ⚠️ 而那條 grep 本身也是死尺(沒有 -E, 豎線被當字面)⇒ 它對什麼都會回 0;
+     結論碰巧是對的, 而【碰巧】兩個字要留著。
 負對照(當天靶)zzzWallet20260826 ⇒ 0
 ```
 
@@ -112,6 +120,7 @@ memory `project_wallet-deposit-taiwan-legal-hold`,2026-07-16 那節逐字:
 ```
 我量  「有沒有【入口】」 grep -rln 'depositWallet|立即儲值' apps/storefront/src   ⇒ 0 支
 主視窗量「有沒有【提到】」git grep -l 'depositWallet|儲值' -- apps/storefront/src ⇒ 7 支
+🔴 2026-08-31 訂正【配方】:那條也少 `-E` ⇒ 照抄重跑拿到 **0**。加 `-E` 今天 ⇒ **13 支**(原記 7)。⚠️ 13 與 7 的差**分不出是長出來的還是範圍不同** —— 未查歷史。
 ```
 **那 7 支我逐支開過,沒有一支是入口**:
 ```

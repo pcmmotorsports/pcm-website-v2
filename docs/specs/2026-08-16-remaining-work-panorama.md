@@ -85,7 +85,16 @@ docs/specs/2026-07-25-admin-backend-rebuild-spec.md
 ```
 #12 手動建單      find apps/admin/src/app/orders -type d -name new   ⇒ 0
 #21 上傳商品圖片  grep -rl 'supabase.*\.storage' apps/admin/src packages ⇒ 0（連底層都沒接）
-#24 匯出訂單商品  grep -rli 'export.*csv|toCsv|downloadCsv' apps/admin/src ⇒ 0
+~~#24 匯出訂單商品  grep -rli 'export.*csv|toCsv|downloadCsv' apps/admin/src ⇒ 0~~
+🔴 2026-08-31 訂正:那個 0 是【死尺量出來的】—— 那條 grep 沒有 -E, 豎線被當字面
+   ⇒ 加 -E 重跑 ⇒ 8 支檔, 其中三支是實作(非註解/測試):
+     apps/admin/src/components/orders/order-export-button.tsx
+     apps/admin/src/lib/orders/order-export.ts
+     apps/admin/src/lib/orders/order-export-page.ts
+✅ 入口也接上了:apps/admin/src/app/orders/page.tsx:20(import)· :362(render)
+   🔵 而 order-export-button.tsx 檔頭自己寫著「#24 片B」
+⚠️ 射程:我【沒有真的按過那顆鈕】—— 只驗到它被 render 在訂單頁,
+   沒驗「按下去會拿到檔案」。那一格要開鑽機, 本輪未開。
 #26 員工帳號      grep -rl 'admin_user_staff_map' supabase/migrations ⇒ 0
                   grep -rl 'admin_user_staff_map' docs/specs          ⇒ 3
                   ⇒ 🔴 只有【草稿】，一支都沒 apply。B 窗在做，卡在「要 Sean 在場才能 apply」

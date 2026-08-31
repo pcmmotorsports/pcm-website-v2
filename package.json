@@ -5,7 +5,7 @@
   "description": "PCM重機零件販售 B2B/B2C 機車零件電商 + 車輛服務生態平台 — Phase 1 重做",
   "packageManager": "pnpm@9.15.0",
   "engines": {
-    "node": ">=22.0.0",
+    "node": "^22.17.0 || >=24.0.0",
     "pnpm": ">=9.15.0"
   },
   "scripts": {
@@ -26,6 +26,8 @@
     "scripts/verify-cron6-md5.py": "python3 scripts/verify-cron6-md5.py --selftest",
     "scripts/text-layer-tests.py": "python3 scripts/text-layer-tests.py --selftest",
     "scripts/upstream-guard-scan.py": "python3 scripts/upstream-guard-scan.py --selftest",
+    "scripts/sql-comment-strip-audit.py": "python3 scripts/sql-comment-strip-audit.py --selftest",
+    "scripts/spec-1a-anchor-drift.py": "python3 scripts/spec-1a-anchor-drift.py --selftest",
     "scripts/dev-four-greens.sh": "sh scripts/dev-four-greens.sh --selftest",
     "scripts/migration-ledger-divergence.sh": "sh scripts/migration-ledger-divergence.sh --selftest",
     "{scripts/scripts-whitelist-gate.harness.sh,.husky/scripts-whitelist-gate.sh}": "sh scripts/scripts-whitelist-gate.harness.sh",

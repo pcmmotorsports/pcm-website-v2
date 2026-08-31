@@ -1,6 +1,27 @@
 # PRD · 優惠券 / 折扣碼(M-4b)
 
-> **狀態:✅ Sean 2026-08-26 已答完(`Q10` 除外)。一行碼都還沒寫。**
+> ⛔ ~~**狀態:✅ Sean 2026-08-26 已答完(`Q10` 除外)。一行碼都還沒寫。**~~
+>
+> ## 🔴 2026-08-31 就地訂正 —— **上面那一行今天為假**
+> 當場量(線【客人帳戶區】`pcm-wt-account`,2026-08-31 15:0x;`git ls-files` 讀 index、`wc -l` 讀工作樹):
+> ```
+> 後台優惠券已經存在的檔(9 支 / 合計 1,263 行, 非空):
+>   apps/admin/src/app/coupons/page.tsx                        90
+>   apps/admin/src/components/coupons/coupon-filter-bar.tsx    72
+>   apps/admin/src/components/coupons/coupons-table.tsx       197  (+ 測試 156)
+>   apps/admin/src/lib/coupons/coupon-list-view.ts            260  (+ 測試 171)
+>   apps/admin/src/lib/coupons/coupon-repository.ts            33
+>   packages/adapters/src/supabase/SupabaseCouponAdapter.ts   137  (+ 測試 147)
+> 而 schema 那半也已 apply:20260829150000(兩張表)/ 20260829170000(後台清單 view)
+>   帳本 supabase/APPLIED.tsv 兩支皆 =1 · ⚪ 負對照 '^20260831999999' ⇒ 0
+> ⚪ 負對照 `git ls-files | grep -c zzqcoupon9137` ⇒ 0
+> ```
+> 🛑 **⇒ 「一行碼都還沒寫」在三份優惠券文件裡各寫了一次**(本檔、`2026-08-25-coupon-prd.md`、
+> `2026-08-26-coupon-schema-plan.md`),而**碼與 migration 都已經在了**。
+> 🔴 **真正還沒做的是【兌換 / 執行】那一半**:
+> `INSERT INTO coupon_redemptions` 在 migrations ⇒ 0 · app 側 ⇒ 0
+> (🟢 正對照 同把尺打 `order_refunds` 的 app 側 ⇒ 27 支 ⇒ 尺是活的)
+> ⇒ 那三個上限今天是**給人看的數字, 不是會執行的規則**(板 `⟦b4-COUPONCAP1⟧`)。
 > 🔴 **答案與連動見檔尾 §7 —— 下面 §1 的七題【原句不動】,而其中三題他選了與推薦不同的答案。**
 > 來源:Sean 2026-08-24 逐字「優惠券／折扣碼:**開發啊,去做啊**」(memory `project_0824-sean-five-scope-rulings`)。
 > 分級:**L3**(鐵則 9 —— 優惠券是週級以上的內容,必後台 CRUD)。

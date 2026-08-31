@@ -98,6 +98,7 @@ apply 期 fail-closed 斷言（同檔 :451-453 逐字）
   OR has_function_privilege('service_role', 'public.mark_charge_attempt_failed(uuid,uuid)','EXECUTE')
   ⇒ 任一為真就整支 migration RAISE
 呼叫端（grep -rn "markFailed|mark_charge_attempt_failed" --include='*.ts' apps packages | grep -v '\.test\.'）
+     🔴 2026-08-31:少 `-E` ⇒ 照抄跑拿到 **0**(加 `-E` 今天 ⇒ 144 行)。下面那兩句(全部在 storefront 側 / apps/admin 零命中)是**真的結果**,而這條配方生不出它。
   ⇒ 全部在 storefront 側（settle-charge / confirm-payment / PgChargeAttemptAdapter）
   ⇒ apps/admin 零命中
 ```

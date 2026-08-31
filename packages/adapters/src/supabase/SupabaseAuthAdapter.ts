@@ -41,7 +41,15 @@ export class SupabaseAuthAdapter implements IAuthService {
       email: params.email,
       password: params.password,
       options: {
-        data: { name: params.metadata.name, phone: params.metadata.phone },
+        // 🔵 gender 選填:`undefined` 時**不放這個 key** —— 而那不是潔癖,是契約:
+        //    trigger 那側用 `raw_user_meta_data->>'gender'` 取值,
+        //    key 不在 ⇒ 取到 SQL NULL ⇒ 收成 NULL。放一個 `undefined` 進去
+        //    會被 JSON 序列化吃掉,結果一樣,而【看得出意圖】的寫法是不放。
+        data: {
+          name: params.metadata.name,
+          phone: params.metadata.phone,
+          ...(params.metadata.gender ? { gender: params.metadata.gender } : {}),
+        },
       },
     });
     if (error) {
