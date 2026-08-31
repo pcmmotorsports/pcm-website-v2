@@ -28,6 +28,19 @@ const ZERO: AnomalyAlertSummary = {
   emailStuckSendingCount: 0,
   emailQuotaConfirmedCount: 0,
   emailQuotaSuspectedCount: 0,
+  // 🔴 預設 fixture 給【非 0】—— 若給 0, 每一格既有測試都會意外落進「五格全 0 且分母 0」
+  //   那條新路 ⇒ 一片本來與本片無關的測試會開始紅, 而紅的理由與它們要測的事無關。
+  //   📌 而更糟的是反過來:給 0 而那條路【沒接上】時, 沒有任何一格會發現。
+  emailOutboxTotalCount: 12,
+  // 🔵 出貨那三格:預設 fixture 給【0 + 已知】—— 不叫, 而不是 unknown。
+  //   🔴 給 unknown(null)會讓「它有沒有被接上」在既有每一格底下【都看不出來】。
+  shippedNeverEnqueuedCount: 0,
+  shippedUnsendableCount: 0,
+  shipmentsTotalCount: 5,
+  shippedGapUnknown: false,
+  orderCreatedPaidNoEmailCount: 0,
+  orderCreatedNoRecipientCount: 0,
+  orderCreatedGapUnknown: false,
   emailOutboxUnknown: false,
   openDisplayIds: [],
   refundingStuckDisplayIds: [],
@@ -56,6 +69,11 @@ const OPTS = {
   refundingStuckSeconds: 86400,
   pendingDoubleChargeWindowSeconds: 43200,
   pendingDoubleChargeStuckSeconds: 600,
+  shippedCutoffIso: null,
+  shippedGraceSeconds: 900,
+  // 🔵 訊號 4 的起始線;多數案例不需要它 ⇒ null(= 那一段不查)。
+  //   需要它的案例自己覆寫,見「[訊號4]」那幾格。
+  orderCreatedCutoffIso: null,
 };
 
 describe('checkAnomalyAlerts — 門檻矩陣', () => {
@@ -69,12 +87,56 @@ describe('checkAnomalyAlerts — 門檻矩陣', () => {
     expect(n.notify).not.toHaveBeenCalled();
   });
 
+  it('[訊號4] 🔴🔴 負對照:paidNoEmail>0 而 noRecipient=0 ⇒ 【不叫】', async () => {
+    /**
+     * 🛑 **這一格是整個訊號 4 最重要的一條**(codex 2026-08-31 R1 must-fix 指出原本一格都沒有)。
+     * scanner 每 5 分鐘掃「已付款而沒有信」的單, **然後當輪就把它們排進去**
+     * ⇒ `paidNoEmail > 0` 是【正常】的 ⇒ 📌 **把它接進 shouldAlert = 有生意就叫。**
+     * ⇒ 少了這一格, 一個「順手把兩個都接進去」的實作會讓上面那張矩陣全綠,
+     *   而線上會變成**每天都在叫一個正常狀態** —— 板上 `⟦b4-EMAIL2ND⟧` 有前科。
+     */
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: reader({ ...ZERO, orderCreatedPaidNoEmailCount: 99 }), notifiers: [n] },
+      OPTS,
+    );
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+    // 🔵 而它仍然要【透傳出來】—— 不叫不等於不報數
+    expect(res.orderCreatedPaidNoEmailCount).toBe(99);
+  });
+
+  it('[訊號4] 🔵 負對照:unknown=true 而兩個 count 是 null ⇒ 【不叫】(?? 0 不得變成叫)', async () => {
+    // 🛑 讀不到走部署管道(route 依旗標回 503), **不變成一封每天寄的信**。
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: reader({
+          ...ZERO,
+          orderCreatedPaidNoEmailCount: null,
+          orderCreatedNoRecipientCount: null,
+          orderCreatedGapUnknown: true,
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+    // 🔴 旗標要出得來 —— 否則 route 讀不到它, 那道 fail-closed 在下游就被拆掉
+    expect(res.orderCreatedGapUnknown).toBe(true);
+    expect(res.orderCreatedNoRecipientCount).toBeNull();
+  });
+
   it.each([
     ['openCount', { ...ZERO, openCount: 1 }],
     ['refundingStuckCount', { ...ZERO, refundingStuckCount: 1 }],
     ['attemptManualReviewCount', { ...ZERO, attemptManualReviewCount: 1 }],
     ['releasedStuckCount', { ...ZERO, releasedStuckCount: 1 }],
     ['pendingDoubleChargeCandidateCount', { ...ZERO, pendingDoubleChargeCandidateCount: 1 }],
+    // 🔴 訊號 4 的【主詞】(codex 2026-08-31 R1 must-fix:原本這張矩陣一格都沒有)。
+    //   Sean 拍 5️⃣ 甲「有一封就叫」⇒ 這一格證明「一封」真的會叫。
+    ['orderCreatedNoRecipientCount', { ...ZERO, orderCreatedNoRecipientCount: 1 }],
   ] as const)('%s>0 → 告警 + 呼 notifier', async (_label, summary) => {
     const n = okNotifier();
     const res = await checkAnomalyAlerts({ reader: reader(summary), notifiers: [n] }, OPTS);
@@ -545,9 +607,31 @@ describe('checkAnomalyAlerts — 計數透傳(telemetry 零 PII)', () => {
     const r = reader(ZERO);
     await checkAnomalyAlerts(
       { reader: r, notifiers: [okNotifier()] },
-      { refundingStuckSeconds: 43200, pendingDoubleChargeWindowSeconds: 3600, pendingDoubleChargeStuckSeconds: 900 },
+      {
+        refundingStuckSeconds: 43200,
+        pendingDoubleChargeWindowSeconds: 3600,
+        pendingDoubleChargeStuckSeconds: 900,
+        shippedCutoffIso: '2026-08-31T00:00:00.000Z',
+        shippedGraceSeconds: 900,
+        // 🔴 刻意【不是 null】—— 見下面那條斷言的成因註解。
+        orderCreatedCutoffIso: '2026-08-22T00:00:00.000Z',
+      },
     );
-    expect(r.getAlertSummary).toHaveBeenCalledWith(43200, 3600, 900);
+    // 🔵 出貨那兩個參數也要【真的傳下去】(2026-08-31)——
+    //   🔴 少了這一格, 一個「在 use-case 裡寫死 null」的實作會讓上面所有格全綠,
+    //     而那正好等於「那一段永遠不查」。
+    /**
+     * 🔴🔴 **這一條原本是【恆真】的, codex 2026-08-31 R1 must-fix 抓到**:
+     * ⛔ ~~輸入 `orderCreatedCutoffIso: null`、期望也寫 `null`~~
+     *   ⇒ 一個「在 use-case 裡把它寫死成 null、完全忽略呼叫端傳的值」的實作
+     *   **照樣會通過**, 因為兩邊都是 null。
+     * 📌 **⇒ 一條自稱防寫死的斷言, 它自己的輸入與期望相同時, 什麼都沒防到。**
+     *   (今天我才寫了一則 traps 講這個形狀, 而我在同一天的新碼裡犯了它。)
+     * ✅ 改成餵一個**不是 null 的具體值**, 期望它逐字出現在第 6 個參數。
+     */
+    expect(r.getAlertSummary).toHaveBeenCalledWith(
+      43200, 3600, 900, '2026-08-31T00:00:00.000Z', 900, '2026-08-22T00:00:00.000Z',
+    );
   });
 });
 
@@ -714,6 +798,42 @@ describe('F-004 退款卡住:計數、過夜拆分、與部署窗口', () => {
     );
     expect(res.alerted).toBe(true);
     expect(n.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴🔴 三個退款計數【出得來】—— 突變殺出來的三格,不是想出來的', async () => {
+    /**
+     * 🔴 **成因(線出貨 `-1e` 2026-08-31,與出貨那四格同一個形狀)**:
+     * 把 `check-anomaly-alerts.ts` 這三行 pass-through 各自寫死成 `0`,**逐格重跑**:
+     * ```
+     * pendingDoubleChargeCandidateCount ⇒ rc=1  ✅ 本來就殺得掉
+     * orderRefundsStuckCount            ⇒ rc=0  🔴 突變活著
+     * orderRefundsStuckOvernightCount   ⇒ rc=0  🔴 突變活著
+     * orderRefundsManualFailedCount     ⇒ rc=0  🔴 突變活著
+     * ```
+     * ⚠️ **而【四格一起突變】那一發是 rc=1** ⇒ 只跑那一發會判成「有守住」。
+     *   📌 **一發混合突變只證明【至少一格】被守住,不證明每一格。**
+     * 🛑 而更刺的一格:我先用 `grep 'res\.<欄位>'` 數斷言,`pendingDoubleChargeCandidateCount`
+     *   數出來 **0 命中** —— 而它的突變**殺得掉**。
+     *   ⇒ 📌 **數字面會少報覆蓋率;突變才是實物。兩把尺方向相反,不要互相追認。**
+     * ⚠️ 上面那兩格既有測試看的是 `res.alerted`(門檻行為),**而不是那三個數字有沒有出得來** ——
+     *   一個把它們寫死成 0 的實作,會讓 route 的 counts log 與告警內文**全部印 0**,而 `alerted` 照樣對。
+     */
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: reader({
+          ...ZERO,
+          orderRefundsStuckCount: 2,
+          orderRefundsStuckOvernightCount: 3,
+          orderRefundsManualFailedCount: 4,
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.orderRefundsStuckCount).toBe(2);
+    expect(res.orderRefundsStuckOvernightCount).toBe(3);
+    expect(res.orderRefundsManualFailedCount).toBe(4);
   });
 
   it('🔴 對照:計數 = 0 且其餘全零 → 不寄信(證明上一格是這個欄位造成的)', async () => {
@@ -978,6 +1098,151 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
     expect(notifier.notify).not.toHaveBeenCalled();
   });
 
+  // ══ 🔵🔵 分母那一格(2026-08-31;Sean 逐字答 `3 甲`;板上錨 ⟦b4-EMAILTOTAL⟧)══
+  //   五個 count 全部 `FROM public.email_outbox` ⇒ 只數【已經存在的列】
+  //   ⇒ 「一切正常」與「這張表是空的 / 讀不到資料」印同一組 0。
+  //   🔴 而【只把分母接進來、不改告警閘】是不夠的:閘是「任一 > 0 才叫」
+  //     ⇒ 五格全 0 ⇒ 一封信都不會發 ⇒ **那個分母在它要防的世界裡沒有人看得到。**
+  it('[E3a] 🔴🔴 五格全 0 【而且】分母也 0 ⇒ 要叫,而訊息不得猜是哪一種', async () => {
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    const res = await checkAnomalyAlerts({
+      reader: { getAlertSummary: async () => withEmail({ emailOutboxTotalCount: 0 }) },
+      notifiers: [notifier],
+    }, OPTS);
+    expect(res.alerted).toBe(true);
+    const body = (notifier.notify.mock.calls[0]![0] as { text: string }).text;
+    expect(body).toContain('一列都沒有');
+    // 🔴 文案刻意寫兩種可能 —— 這一格底下【分不出來】是空表還是讀不到,
+    //   而寫死其中一個會把人送去修錯的東西。
+    expect(body).toContain('可能是這張表是空的');
+    expect(body).toContain('也可能是讀不到資料');
+  });
+
+  it('[E3b] 🔴 負對照一:五格全 0 而【分母 > 0】⇒ 不叫(那是真的一切正常)', async () => {
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    const res = await checkAnomalyAlerts({
+      reader: { getAlertSummary: async () => withEmail({ emailOutboxTotalCount: 12 }) },
+      notifiers: [notifier],
+    }, OPTS);
+    // 🔴 沒有這一格,一個【把分母恆判成 0】的實作會天天叫,而上面那一格照樣綠。
+    expect(res.alerted).toBe(false);
+    expect(notifier.notify).not.toHaveBeenCalled();
+  });
+
+  it('[E3c] 🔴 負對照二:有一格 > 0 而分母 > 0 ⇒ 照舊叫,而訊息【不得】出現那一句', async () => {
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    await checkAnomalyAlerts({
+      reader: {
+        getAlertSummary: async () =>
+          withEmail({ emailDeadLetterCount: 3, emailOutboxTotalCount: 12 }),
+      },
+      notifiers: [notifier],
+    }, OPTS);
+    const body = (notifier.notify.mock.calls[0]![0] as { text: string }).text;
+    expect(body).toContain('永遠不會再寄');
+    // 🔴 那一句只屬於【什麼都沒有】那個世界;混進來會讓人以為表也空了。
+    expect(body).not.toContain('一列都沒有');
+  });
+
+  it('[E3d] 🔴🔴 負對照三:讀不到(unknown)而五格與分母都是 null ⇒ 【仍然不叫】', async () => {
+    // 🛑 這一格是本片最容易寫壞的地方:`null ?? 0 === 0` ⇒ 讀不到的世界
+    //   與「真的全 0」在 `?? 0` 之後【長得一模一樣】。
+    //   ⇒ 📌 而那正是本片要防的那個形狀本身 —— 我差一點用它去防它自己。
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    const res = await checkAnomalyAlerts({
+      reader: {
+        getAlertSummary: async () =>
+          withEmail({
+            emailOverdueCount: null,
+            emailDeadLetterCount: null,
+            emailStuckSendingCount: null,
+            emailQuotaConfirmedCount: null,
+            emailQuotaSuspectedCount: null,
+            emailOutboxTotalCount: null,
+            emailOutboxUnknown: true,
+          }),
+      },
+      notifiers: [notifier],
+    }, OPTS);
+    expect(res.alerted).toBe(false);
+    expect(notifier.notify).not.toHaveBeenCalled();
+  });
+
+  // ══ 🔵🔵 出貨信缺口(2026-08-31;Sean 逐字答 `2 甲`:「大於 0 就叫」)══
+  it('[E5a] 🔴 貨出了而通知信沒被排進佇列 ⇒ 要叫,而用【與寄不出去不同的字】', async () => {
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    const res = await checkAnomalyAlerts({
+      reader: { getAlertSummary: async () => withEmail({ shippedNeverEnqueuedCount: 3 }) },
+      notifiers: [notifier],
+    }, OPTS);
+    expect(res.alerted).toBe(true);
+    const body = (notifier.notify.mock.calls[0]![0] as { text: string }).text;
+    expect(body).toContain('根本沒被排進佇列');
+    // 🔴 它與「兩個信箱都是空的」是【兩種病】—— 併起來 = 用一種原因的文案報另一種原因。
+    expect(body).not.toContain('兩個信箱都是空的');
+  });
+
+  it('[E5b] 🔴 兩個信箱都空 ⇒ 也要叫,而【那不是系統壞掉】,字要不一樣', async () => {
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    const res = await checkAnomalyAlerts({
+      reader: { getAlertSummary: async () => withEmail({ shippedUnsendableCount: 2 }) },
+      notifiers: [notifier],
+    }, OPTS);
+    expect(res.alerted).toBe(true);
+    const body = (notifier.notify.mock.calls[0]![0] as { text: string }).text;
+    expect(body).toContain('兩個信箱都是空的');
+    expect(body).not.toContain('根本沒被排進佇列');
+  });
+
+  it('[E5c] 🔴 負對照:兩格都是 0 ⇒ 不叫(它不是恆叫)', async () => {
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    const res = await checkAnomalyAlerts({
+      reader: {
+        getAlertSummary: async () =>
+          withEmail({ shippedNeverEnqueuedCount: 0, shippedUnsendableCount: 0 }),
+      },
+      notifiers: [notifier],
+    }, OPTS);
+    expect(res.alerted).toBe(false);
+    expect(notifier.notify).not.toHaveBeenCalled();
+  });
+
+  it('[E5d] 🔴🔴 還沒上膛 / 讀不到(unknown ⇒ 三個都是 null)⇒ 【不叫】', async () => {
+    // 🛑 這一格與 E4 同一個理由, 而它多防一種成因:
+    //   `SHIPPED_EMAIL_CUTOFF` 沒設 ⇒ adapter 根本不呼叫那支 RPC ⇒ 也落 unknown。
+    //   ⇒ 而那個狀態【由 route 印在 log 上】, 不變成一封每天寄的信。
+    const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
+    const res = await checkAnomalyAlerts({
+      reader: {
+        getAlertSummary: async () =>
+          withEmail({
+            shippedNeverEnqueuedCount: null,
+            shippedUnsendableCount: null,
+            shipmentsTotalCount: null,
+            shippedGapUnknown: true,
+          }),
+      },
+      notifiers: [notifier],
+    }, OPTS);
+    expect(res.alerted).toBe(false);
+    expect(notifier.notify).not.toHaveBeenCalled();
+    /**
+     * 🔴🔴 **這四條是【突變殺出來的】,不是想出來的**(線出貨 `-1e` 2026-08-31)。
+     * 實測:把 `check-anomaly-alerts.ts` 那行 `shippedGapUnknown: summary.shippedGapUnknown`
+     * 改成寫死 `false` ⇒ **3 支測試檔 186 格全過、rc=0**(型別過、語法過、零紅)。
+     * ⇒ 📌 而那一行正上方有一段註解逐字寫著「**這一行是本片最重要的一行**」,
+     *    並記載作者第一版漏寫它 ⇒ route 讀不到旗標 ⇒ RPC 沒 apply 時整片沉默。
+     * 🔴 **⇒ 一段說明它有多重要的註解,不是一個會在它壞掉時變紅的東西。**
+     * ⚠️ 為什麼原本抓不到:adapter 的測試測的是 adapter 怎麼【算】這個旗標;
+     *    而 route 的測試把 `checkAnomalyAlerts` 整支 mock 掉 ⇒ **真正的 use-case 沒有跑**
+     *    ⇒ 中間這一段 pass-through 兩邊都以為對方測了。
+     */
+    expect(res.shippedGapUnknown).toBe(true);
+    expect(res.shippedNeverEnqueuedCount).toBeNull();
+    expect(res.shippedUnsendableCount).toBeNull();
+    expect(res.shipmentsTotalCount).toBeNull();
+  });
+
   it('[E4] 🔴 讀不到(RPC 尚未 apply)⇒ 【不叫】—— 部署問題走部署管道', async () => {
     const notifier = { notify: vi.fn().mockResolvedValue(undefined) };
     const res = await checkAnomalyAlerts({
@@ -989,6 +1254,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
             emailStuckSendingCount: null,
             emailQuotaConfirmedCount: null,
             emailQuotaSuspectedCount: null,
+            emailOutboxTotalCount: null,
             emailOutboxUnknown: true,
           }),
       },

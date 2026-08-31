@@ -124,6 +124,23 @@ export async function GET(request: Request): Promise<Response> {
   // 3. 🔴 上膛閘:cutoff 未設 ⇒ 200 no-op、**零 Record 呼叫、零 DB env 依賴**(deps 在此閘之後才建)。
   const cutoffDays = readCutoffDays();
   if (cutoffDays === null) {
+    // 🔵🔵 **「還沒上膛」要出聲**(2026-08-31;Sean 答 `5 做`;板上錨 `⟦b9-CAPARM1⟧`)
+    //   量到的:本檔在這一片之前**整支檔 `console.*` = 0** —— 5 支 cron route 裡唯一一支。
+    //   而這條路回 **200** ⇒ 📌 **「上膛了」與「沒上膛」在 Vercel log 上印同一片空白。**
+    // 🔴 **為什麼是 `console.info` 不是 `console.error`**:沒上膛是**正常狀態**, 不是失敗
+    //   —— 它不進任何失敗計數、不觸發任何告警、不改回應碼。
+    //   **錯的是把「正常」讀成「不用講」。「正常」與「該吵」是兩件事。**
+    // 🛑 **它不會自己安靜下來**(終結它的動作是「有人去設那顆 env」= 要人做的)
+    //   ⇒ 所以它刻意只用 `info` 一格, 不升級成告警;否則它會變成永久噪音。
+    // 🛑 **零 PII**:只印我們自己寫死的 env 名與固定訊息, **不印 env 的值**。
+    // ⚠️ **射程**:它只答得出「**這一輪跑的時候, 那顆 env 有沒有被讀到**」——
+    //   答不出「Vercel 上設了沒」(設了不 redeploy ⇒ 現行 deployment 仍讀不到 ⇒ 這裡照樣印, 而那是對的)。
+    // 🔴 **而【心跳那一格不動】**:這條路**仍然不寫心跳** ⇒ 儀表板照舊會把它標成過期,
+    //   而那是「這支排程沒上膛」在線上的另一個訊號。**兩個訊號在不同層, 這一片只加後者。**
+    console.info('[capture-recheck] 🔵 還沒上膛 ⇒ 這一輪整段不跑(不是失敗,回 200)', {
+      env: 'CAPTURE_RECHECK_CUTOFF_DAYS',
+      reason: 'skipped_no_cutoff',
+    });
     return Response.json(
       { ok: true, enabled: false, skipped: 'skipped_no_cutoff' },
       { status: 200 },
