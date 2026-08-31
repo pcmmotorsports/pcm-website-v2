@@ -61,8 +61,14 @@ function sqlKeys(src: string): Set<string> {
     .split('\n')
     .filter((l) => !l.trimStart().startsWith('--'))
     .join('\n');
-  const from = body.indexOf(`FUNCTION public.${RPC}`);
-  if (from < 0) throw new Error(`找不到 ${RPC} 的定義 —— 本檔的前提已經不成立,不要改期望值`);
+  const sig = body.indexOf(`FUNCTION public.${RPC}`);
+  if (sig < 0) throw new Error(`找不到 ${RPC} 的定義 —— 本檔的前提已經不成立,不要改期望值`);
+  // 🔴 **從【本體開始】切,不是從簽章那一行切** —— 否則函式自己的名字
+  //    (`get_payment_anomaly_alert_display_ids`,結尾剛好也是 `_display_ids`)會被算成一個 key。
+  // 📌 而修法刻意**不是**「加一條例外清單把它排除」——
+  //    那會變成一個寫死的期望值,而下一支結尾像 key 的函式名它就漏了。⇒ **收窄範圍,不列例外。**
+  const from = body.indexOf('$fn$', sig) >= 0 ? body.indexOf('$fn$', sig) : body.indexOf('$$', sig);
+  if (from < 0) throw new Error(`找不到 ${RPC} 的本體起點`);
   // 🔴 **只切到函式本體結束為止** —— 第一版切到【檔尾】, 於是把後置斷言區塊裡
   //    (`:304` 那張 `v_pairs` 對照表)出現的同一批字面也算了進來。
   //    ⇒ 突變「把 `jsonb_build_object` 裡的 key 改名」**沒有紅** —— 因為斷言區塊裡那份還在。
@@ -104,6 +110,17 @@ describe('⟦b4-SQLKEY1⟧ jsonb key 的兩側字面合約', () => {
     for (const [prop, literal] of pairs) {
       expect(literal, `parseDisplayIds(d.${prop}, '${literal}') 兩個字面不一樣`).toBe(prop);
     }
+  });
+
+  it('🔴 反方向:RPC 吐的每一個 key,TS 都要有人讀 —— 否則「那一格永遠是空的」', () => {
+    // 🔴 **這一格是 2026-08-31 補的,而補它的理由是【缺席沒有形狀】**:
+    //    原本只驗 `TS ⊆ SQL`(TS 讀一個不存在的 key)。
+    //    而反方向 —— **RPC 加了第 6 個 key,而 TS 沒有人去讀它** —— 症狀【一模一樣】:
+    //    那一列開列時寫的就是「**那一格永遠是空的**」。
+    // 📌 ⇒ 一個只驗單向的合約, 在【多出來的那一側】是瞎的, 而那一側的症狀與它擋的那一側相同。
+    const read = new Set(pairs.map(([prop]) => prop));
+    const unread = [...sql].filter((k) => !read.has(k));
+    expect(unread, `${RPC} 吐了這些 key 而 TS 沒有任何人讀:${unread.join(', ')}`).toEqual([]);
   });
 
   it('🔵 負對照:一個現造的 key 不在 SQL 那側(證明 sqlKeys 不是回一個什麼都有的集合)', () => {
