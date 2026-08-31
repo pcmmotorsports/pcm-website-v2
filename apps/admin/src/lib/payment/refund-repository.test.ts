@@ -23,7 +23,6 @@ vi.mock('@pcm/adapters/server', () => ({
 import {
   FINALIZE_RESULT_CODES,
   INITIATE_RESULT_CODES,
-  REFUND_BLOCKED_BY_VALUES,
   RefundCallerBugError,
   RefundCapGuardError,
   RefundFinalizeParseError,
@@ -72,7 +71,12 @@ afterEach(() => {
 });
 
 describe('碼全集常數(與 migration COMMENT 對齊;RW1a `20260803150000:414-416` / `:607`)', () => {
-  it('initiate 9 碼(第 9 碼 = #445 步 6b,445b 才會吐)、finalize 3 碼', () => {
+  // ⛔ ~~'initiate 9 碼(第 9 碼 = #445 步 6b,445b 才會吐)'~~
+  //    🔴 **2026-08-31 `⟦b4-EXCEEDSDEAD⟧` 甲:第 9 碼刪了 ⇒ 8 碼。**
+  //    📌 **而這一行是【突變照出來的,不是我看出來的】** —— 我改完實碼、三綠全過、
+  //       34 支測試全綠,**而這個標題整段時間都在說謊**:它斷言 8 個而自稱 9 個。
+  //       ⇒ 一個測試的**標題**沒有任何東西在驗它,它是註解穿了測試的衣服。
+  it('initiate 8 碼(第 9 碼 `REFUND_EXCEEDS_REMAINING` 已刪 —— 那支 RPC 從來沒吐過)、finalize 3 碼', () => {
     expect(INITIATE_RESULT_CODES).toEqual([
       'INITIATED',
       'DUPLICATE_REQUEST',
@@ -82,90 +86,28 @@ describe('碼全集常數(與 migration COMMENT 對齊;RW1a `20260803150000:414-
       'REFUND_LEDGER_FULL',
       'REFUND_IN_FLIGHT',
       'REFUND_NOTHING_LEFT',
-      'REFUND_EXCEEDS_REMAINING',
     ]);
     expect(FINALIZE_RESULT_CODES).toEqual(['FINALIZED', 'HELD_AMOUNT_MISMATCH', 'REFUND_NOT_FOUND']);
   });
 
   it('blocked_by 三值(#445 §4-4;新增第 4 值時本格與 EXCEEDS_FAILURE_CODE 一起紅)', () => {
-    expect(REFUND_BLOCKED_BY_VALUES).toEqual(['amount', 'in_flight', 'unknown']);
+    // ⛔ ~~`expect(REFUND_BLOCKED_BY_VALUES).toEqual(['amount','in_flight','unknown'])`~~
+    //    🔴 常數本身已刪(見 `refund-repository.ts` 那段)。而這一行值得留一句:
+    //    它驗的是「這個常數的內容是什麼」—— **一個只驗自己的斷言**,
+    //    ⇒ 📌 **它在【有人用它】與【沒有人用它】兩個世界印同一個綠。**
   });
 });
 
-describe('initiate — REFUND_EXCEEDS_REMAINING 的形狀驗(#445 步 6b;445b 才會吐)', () => {
-  const exceeds = (extra: Record<string, unknown>) =>
-    mocks.rpc.mockResolvedValue({
-      data: { result: 'REFUND_EXCEEDS_REMAINING', ...extra },
-      error: null,
-    });
-
-  it('remaining 正整數 + blocked_by=amount ⇒ 收斂成 union', async () => {
-    exceeds({ remaining: 300, blocked_by: 'amount' });
-    await expect(initiateOrderRefund(INITIATE_ARGS)).resolves.toEqual({
-      result: 'REFUND_EXCEEDS_REMAINING',
-      remaining: 300,
-      blockedBy: 'amount',
-    });
-  });
-
-  // 🔴 這格擋的是「用 falsy 判斷有沒有拿到數字」——0 是合法上限(已無可退),不是「沒拿到」。
-  it('🔴 remaining = 0 是合法值,不得被當成缺值', async () => {
-    exceeds({ remaining: 0, blocked_by: 'amount' });
-    await expect(initiateOrderRefund(INITIATE_ARGS)).resolves.toEqual({
-      result: 'REFUND_EXCEEDS_REMAINING',
-      remaining: 0,
-      blockedBy: 'amount',
-    });
-  });
-
-  it('remaining = null(RPC 的 guard 算不出來)⇒ null + blocked_by=unknown', async () => {
-    exceeds({ remaining: null, blocked_by: 'unknown' });
-    await expect(initiateOrderRefund(INITIATE_ARGS)).resolves.toEqual({
-      result: 'REFUND_EXCEEDS_REMAINING',
-      remaining: null,
-      blockedBy: 'unknown',
-    });
-  });
-
-  it('🔴 remaining 負值 = 合約漂移 ⇒ 拋,不讓它流進 UI 變成被照著操作的數字', async () => {
-    exceeds({ remaining: -1, blocked_by: 'amount' });
-    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toBeInstanceOf(RefundCallerBugError);
-  });
-
-  it('🔴 remaining 非整數 ⇒ 拋', async () => {
-    exceeds({ remaining: 12.5, blocked_by: 'amount' });
-    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toBeInstanceOf(RefundCallerBugError);
-  });
-
-  // 🔴 分不出三種情況 = §0-E 第 2 條的「擋得莫名其妙」⇒ 寧可拋,不猜、不降級成「打太多」。
-  it('🔴 blocked_by 不認得 ⇒ 拋', async () => {
-    exceeds({ remaining: 300, blocked_by: 'because_i_said_so' });
-    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toBeInstanceOf(RefundCallerBugError);
-  });
-
-  it('🔴 blocked_by 缺欄 ⇒ 拋', async () => {
-    exceeds({ remaining: 300 });
-    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toBeInstanceOf(RefundCallerBugError);
-  });
-
-  // 🔴 關卡2 MF1:缺欄 ≠ null。第一版把兩者收斂成同一個 null ⇒ 一次協定漂移
-  //    會偽裝成一次「算不出來」,而後者是我們會照著顯示給員工的合法狀態。
-  it('🔴 remaining **缺欄**(不是 null)⇒ 拋,不得靜默當成 null', async () => {
-    exceeds({ blocked_by: 'unknown' });
-    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toBeInstanceOf(RefundCallerBugError);
-  });
-
-  // 🔴 關卡2 MF2:兩欄各自合法 ≠ 組合合法。
-  it('🔴 blocked_by=unknown 卻帶得出數字 ⇒ 拋(矛盾組合)', async () => {
-    exceeds({ remaining: 300, blocked_by: 'unknown' });
-    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toBeInstanceOf(RefundCallerBugError);
-  });
-
-  it('🔴 blocked_by=amount 卻沒有數字 ⇒ 拋(矛盾組合)', async () => {
-    exceeds({ remaining: null, blocked_by: 'amount' });
-    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toBeInstanceOf(RefundCallerBugError);
-  });
-});
+// ⛔ ~~describe('initiate — REFUND_EXCEEDS_REMAINING 的形狀驗(#445 步 6b;445b 才會吐)')~~
+// 🔴 **2026-08-31 整段刪(`⟦b4-EXCEEDSDEAD⟧` 甲案,`-48` 批)** ——
+//    那四格驗的是【一條到不了的分支】:那支 RPC 自己列出的回傳碼是 8 個
+//    (`20260803150000:415-416`(座標已訂正,見本檔上方那一處)(⛔ ~~舊座標~~ 🔴 **2026-08-31 訂正:那支 RPC 的【最新一代】是 `20260812170000:480` 的 `CREATE OR REPLACE`,不是 `20260803150000`** —— 用 `scripts/latest-definition-of.sh admin_initiate_order_refund` 查到的。✅ **結論不變**:在最新那一代裡重數,仍然恰 8 碼、與 `INITIATE_RESULT_CODES` 逐字相同,而 `REFUND_EXCEEDS_REMAINING` / `blocked_by` 在該代 **0 命中**(負對照現造字面亦 0)。📌 **⇒ 我的結論是對的,而我的【證據指著一份已經被取代的定義】—— 那份舊的當時也是 8 碼,所以【指錯代】與【指對代】印出同一個答案。**) 逐字),**沒有 `REFUND_EXCEEDS_REMAINING`**;
+//    而 `blocked_by` 在整個 `supabase/` ⇒ **0 處**。
+//    ⇒ 📌 **它們是綠的,而那個綠灌大了覆蓋率的印象。**
+// ✅ **而它們原本要守的那件事【今天有人在守】**:`445b` 的 trigger 吐 `PCM04`,
+//    由 `RefundCapGuardError` / `CAP_GUARD_FAILURE_CODE` 接 ——
+//    而那條路是**端到端量過的**(`scripts/pcm04-transport-probe.sh`,PASS=6)。
+//    ⇒ 🔵 **所以這不是「刪掉覆蓋」,是【覆蓋搬到了真的那條路上】。**
 
 describe('findOrderForRefund — 窄讀', () => {
   it('🔴 投影恰三欄(display_id / payment_status / tappay_rec_trade_id;不擴顯示層投影)', async () => {
@@ -220,6 +162,20 @@ describe('initiateOrderRefund — 參數逐欄具名(深度相等;加欄/漏欄�
 });
 
 describe('initiateOrderRefund — 回傳收斂', () => {
+  it('🔴🔴 前提若破了,它要【叫】—— 餵回已刪的 `REFUND_EXCEEDS_REMAINING` ⇒ 拋,不得靜默', async () => {
+    // 📌 這一格是 `⟦b4-EXCEEDSDEAD⟧` 甲案的**安全網**,不是覆蓋率。
+    //    甲案的前提是「那支 RPC 不會吐這個碼」(`20260803150000:415-416`(座標已訂正,見本檔上方那一處) 逐字 8 個碼)。
+    //    🔴 **而前提會被別人後來加的東西弄假,那時沒有任何東西紅** ——
+    //       除非「未列在 `INITIATE_RESULT_CODES` 裡的碼一律拋」這件事被【明寫成一格】。
+    //    ⇒ 它守的不是今天的行為,是**那個前提破掉的那一天會不會有人知道**。
+    mocks.rpc.mockResolvedValue({
+      data: { result: 'REFUND_EXCEEDS_REMAINING', remaining_refundable: 300, blocked_by: 'amount' },
+      error: null,
+    });
+    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toBeInstanceOf(RefundCallerBugError);
+    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toThrow(/回傳非預期碼/);
+  });
+
   it('INITIATED:三欄必在、缺任一 = RefundCallerBugError', async () => {
     await expect(initiateOrderRefund(INITIATE_ARGS)).resolves.toEqual({
       result: 'INITIATED',
