@@ -434,6 +434,19 @@ describe('/orders/refund-exceptions — #473 卡住的列(看得見、但沒有�
     expect(text).toContain('已經被更正過');
     expect(text).toContain('staff_01');
     expect(text).toContain('對過 TapPay，錢有動');
+    // 🔴🔴 **而上面那三格在本片(2026-08-31 收合)之後【變弱了】, 是我弄的**(codex R3 must-fix):
+    //    `container.textContent` **把收合起來的 `<details>` 內文也算進去** ——
+    //    ⇒ 這一格的名字寫著「**畫面要顯示**現行有效判定」, 而收合之後
+    //      「更正歷史整段藏在收合區裡、員工不展開就看不到」**這一格照樣綠**。
+    //    📌 **⇒ 一個既有守門的判別力被我的改動拿掉了, 而它不會紅、不會有任何訊號。**
+    // ✅ ⇒ 補一格:**不展開就看得到的那一層**(`<summary>` 與狀態欄)自己要說得出來。
+    //    ⚠️ 而理由與收合那一片同源:收合可以藏【細節】, 不可以藏【他要據以決定的東西】。
+    const summary = container.querySelector('summary')?.textContent ?? '';
+    for (const must of ['已更正過', '第 2 次', 'staff_01']) {
+      expect({ [`summary含${must}`]: summary.includes(must) }).toEqual({
+        [`summary含${must}`]: true,
+      });
+    }
     // 🔴🔴 **CAS 那一欄才是這條路的錢守門**(codex 2026-08-29 點名:刪掉它這一格仍會綠)。
     //    沒有它 ⇒ 送出去的是 NULL ⇒ 而 NULL 的語意是「我看到的是尚未更正過」
     //    ⇒ 一筆**已經被改過**的列會拿一個過期的前提去寫 ⇒ 而 CAS 本來就是為了擋這個。
@@ -617,5 +630,251 @@ describe('/orders/refund-exceptions — RW4 操作接線', () => {
     mocks.listRefundExceptions.mockRejectedValue(new Error('boom'));
     const { container } = await renderPage();
     expect(container.querySelectorAll('button')).toHaveLength(0);
+  });
+});
+// ══════════════════════════════════════════════════════════════════════════
+// 片3 · 版面重設計(2026-08-31;Sean 逐字「現在太佔空間並且視覺上難以辨認」)
+// ══════════════════════════════════════════════════════════════════════════
+// 🛑 **這一頁【沒有】OD 稿**, 而那是查過的、不是假設的:
+//    磁碟實查 12 個 OD 專案(`ls <OD projects> | wc -l`), 對這一頁**獨有**的五個字面
+//    (`執行對帳判定` / `更正這一筆的判定` / `TapPay 受理證據` / `標記失敗` / `滯留`)
+//    全庫遞迴 grep ⇒ **五個全部 0 命中**;
+//    🟢 正對照(同族訂單頁字面 `出貨單` / `訂單編號` / `收款`)⇒ **61 / 115 / 116** ⇒ 尺是活的;
+//    🔵 而「退款異常」四個字有 75 個檔命中 —— **全部是側欄的導覽項**, 不是這一頁的版面。
+//    ⇒ 依 Sean 2026-08-31 的授權(「先直接幫我決策」), 版面由我們定, 而**決策寫在碼裡**。
+//
+// 🔴 **這一組守的是「別把它退回去」, 而不是「畫面好不好看」。**
+//    好不好看**測不到**(沒有真瀏覽器)⇒ 那一格由 Sean 早上開後台看。
+describe('/orders/refund-exceptions — 片3 版面', () => {
+  const stuck = (over: Partial<RefundExceptionRow> = {}) =>
+    exceptionRow({ id: 'r-s1', status: 'failed', failedReason: 'manual_failed', ...over });
+
+  it('🔴 一列 = 一個 <tbody>, 而每個 <tbody> 裡恰好兩個 <tr>', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [exceptionRow({ id: 'a' }), exceptionRow({ id: 'b' })],
+      truncated: false,
+      pendingCount: 2,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
+    });
+    const { container } = await renderPage();
+    const bodies = [...container.querySelectorAll('tbody')];
+    // 🔴 分母:兩列就要兩個 tbody。少了這一格,「全部塞回一個 tbody」也會過下面那格。
+    expect(bodies).toHaveLength(2);
+    for (const [i, b] of bodies.entries()) {
+      // 🔴 逐個各斷言一次, 不斷言合計 —— 只斷言合計的話「一個 3 一個 1」也會過。
+      expect({ [`tbody${i}`]: b.querySelectorAll('tr').length }).toEqual({ [`tbody${i}`]: 2 });
+      // 🔴🔴 分隔線要掛在【那一組】上, 而不是掛在資料列上 —— 那正是這一片在修的事:
+      //    掛在資料列上時, 下面那一大塊操作區【在畫面上不屬於任何一列】。
+      expect({ [`tbody${i}`]: b.className.includes('border-t') }).toEqual({ [`tbody${i}`]: true });
+    }
+  });
+
+  it('🔴 同一張單有多筆 ⇒ 標「這張單在這頁有 M 筆」', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [
+        exceptionRow({ id: 'a', orderDisplayId: '8X3N5Q' }),
+        exceptionRow({ id: 'b', orderDisplayId: '8X3N5Q', kind: 'full', refundAmount: 900 }),
+      ],
+      truncated: false,
+      pendingCount: 2,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
+    });
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    // 兩列都要標(不是只標第二列)⇒ 數出現次數, 不只問 includes。
+    expect((text.match(/這張單在這頁有 2 筆/g) ?? []).length).toBe(2);
+    // 🔴🔴 **不得出現序號** —— ⛔ ~~第一版標的是「第 N / 共 M 筆」~~, 而那個 N 不穩定:
+    //    兩支查詢都是 `.order('created_at')` 而 `created_at` 不是唯一鍵
+    //    ⇒ 同一筆退款這次「第 1」、重新整理可能變「第 2」
+    //    ⇒ 而這是退款頁:員工記下「第 2 筆有問題」再重整, 那個編號可能已經指到另一筆錢。
+    //    ⇒ 📌 這一格擋的是【有人覺得加個序號比較好看而把它加回來】。
+    // ⛔ ~~`not.toContain('第 1 /')`~~ ⇒ 🔴 **換一種標點就繞過去了**(codex R2 must-fix):
+    //    寫成「第 1 筆 · 這張單在這頁有 2 筆」⇒ 兩個字面都不含 `第 1 /` ⇒ **照樣全綠**,
+    //    而那個不穩定的序號就這樣走回畫面上。
+    // ✅ 改成**形狀**比對:`第 <數字> 筆` 或 `第 <數字> /` 一律不得出現。
+    //    ⚠️ 而「第 N **次**」要放行 —— summary 那一行「已更正過(第 2 次,amy)」是刻意的,
+    //       它數的是**更正次數**(有唯一的 `seq`), 不是列在清單上的位置。
+    expect(text).not.toMatch(/第\s*\d+\s*(筆|\/)/);
+  });
+
+  it('🔴🔴 截斷時字面【不得】宣稱總數 —— 我們只數得到畫面上這一批', async () => {
+    // 🔴 這一頁有顯示上限。同一張單的第 3 筆被截在上限之外時,
+    //    「這張單**共** 2 筆」是**錯的**, 而讀的人沒有任何訊號知道它只數了看得見的那些。
+    //    ⇒ 字面必須是**在這頁有**, 而它在截斷與沒截斷【兩個世界都是真的】。
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [
+        exceptionRow({ id: 'a', orderDisplayId: '8X3N5Q' }),
+        exceptionRow({ id: 'b', orderDisplayId: '8X3N5Q', kind: 'full', refundAmount: 900 }),
+      ],
+      truncated: true,
+      pendingCount: 2,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
+    });
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    // 標記照樣要在(截斷正是列最多、最容易看重複的時候 ⇒ 不可以整個關掉)
+    expect((text.match(/這張單在這頁有 2 筆/g) ?? []).length).toBe(2);
+    // 🔴 而不得出現任何「共 N 筆」形狀的總數宣稱
+    expect(text).not.toMatch(/共\s*\d+\s*筆/);
+    // 前提斷言:截斷橫幅真的出現了 ⇒ 證明這一格跑的確實是截斷的世界
+    expect(text).toContain('清單超過顯示上限');
+  });
+
+  it('🔴 負對照:只有一筆的單【不標】—— 每列都掛「這張單在這頁有 1 筆」= 全是噪音', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [exceptionRow({ id: 'a', orderDisplayId: 'AAA' }), exceptionRow({ id: 'b', orderDisplayId: 'BBB' })],
+      truncated: false,
+      pendingCount: 2,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
+    });
+    const { container } = await renderPage();
+    // 🔴 沒有這一格, 上面那格在「每一列無條件都標」時也會綠。
+    expect(container.textContent ?? '').not.toContain('這張單在這頁有');
+  });
+
+  it('🔴🔴 更正表單預設【收合】—— 而它仍然在 DOM 裡(收合不是隱藏)', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [stuck()],
+      truncated: false,
+      pendingCount: 0,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
+    });
+    const { container } = await renderPage();
+    const d = container.querySelector('details');
+    expect(d).not.toBeNull();
+    expect(d).toHaveProperty('open', false);
+    // 🔴🔴 **未更正時 summary 要明說「尚未更正」**(codex R3 nit)——
+    //    而這一格是**我加了那句話之後跑突變才發現要加的**:
+    //    我把「尚未更正 ——」四個字改回原本的「更正這一筆的判定」⇒ **33 格全綠, 一格都沒動。**
+    //    📌 **⇒ 我修了一個 nit, 而【沒有任何東西在守那個修法】** —— 那與「我宣稱保住了某件事
+    //       而沒有一格在驗它」是同一個病, 今晚我已經撞過兩次(FIX-21 兩條、本片一條)。
+    //    ⇒ 為什麼要明說:「更正這一筆的判定」是**動作**, 不是**狀態**
+    //      ⇒ 讀的人要靠「沒看到『已更正過』」去反推, 而**反推不是講出來**。
+    expect({ summary明說尚未更正: (d?.querySelector('summary')?.textContent ?? '').includes('尚未更正') }).toEqual({
+      summary明說尚未更正: true,
+    });
+    // 🔴 收合不是隱藏:那顆鈕與那張表單仍然渲染得出來、仍然送得出去。
+    //    少了這一格, 有人把它改成 `{false && <RefundVerdictCorrection/>}` 也照樣綠,
+    //    而那會讓**唯一能更正判定的入口整個消失**。
+    //
+    // 🔴🔴 **而要對【`<details>` 裡面】問, 不是對整個容器問**(codex must-fix):
+    //    ⛔ ~~第一版寫 `container.querySelectorAll('button')`~~
+    //    ⇒ 有人把 `<details>` 留成空殼、把表單搬到它外面**常駐展開**,
+    //      `open=false` 仍然成立、鈕與 textarea 也仍然找得到 ⇒ **這一格照樣全綠**
+    //    ⇒ ⇒ 📌 **而本格承諾的正是「表單真的收在裡面」—— 那句話當時沒有任何東西在守。**
+    const inButtons = [...(d?.querySelectorAll('button') ?? [])].map((b) => b.textContent ?? '');
+    expect(inButtons.some((t) => t.includes('更正這一筆的判定'))).toBe(true);
+    // 🔴🔴 **整張表單**要在裡面, 不是只有鈕與 textarea(codex R2 must-fix):
+    //    ⛔ 我上一版只問了那兩個 ⇒ 有人把 `<form>` 留在外面、只把鈕與 textarea 塞進去,
+    //      **這一格照樣全綠**, 而畫面上那兩顆單選鈕(錢有動 / 錢沒有動)常駐攤開。
+    //    ✅ ⇒ 對【那張 form 本身】斷言, 並逐一數 `correction_*` 的每一個控制項。
+    const form = container.querySelector('form:has(input[name="correction_refund_id"])');
+    expect(form, '找不到那張更正表單').not.toBeNull();
+    expect({ 表單住在details裡: d !== null && form !== null && d.contains(form) }).toEqual({
+      表單住在details裡: true,
+    });
+    for (const name of [
+      'correction_refund_id',
+      'correction_request_token',
+      'correction_verdict',
+      'correction_reason',
+    ]) {
+      const el = container.querySelector(`[name="${name}"]`);
+      expect({ [name]: el !== null && d !== null && d.contains(el) }).toEqual({ [name]: true });
+    }
+    // 🔴 而反面也要釘:**不得有任何一份更正表單住在 `<details>` 外面**
+    //    (否則「搬出去一份、裡面也留一份」這種改法會兩格都綠, 而畫面上會有兩張表單)。
+    //
+    // 🛑 ⛔ ~~我第一版寫的是 `!d.contains(el)`, 而 `d` 是【第一個】 details~~
+    //    ⇒ 一頁有兩列卡住時, **第二列的表單對第一個 details 而言就在「外面」**
+    //    ⇒ ⇒ 這一格會在一個**完全正常**的世界裡紅 = **假紅**, 而假紅會被下一個人修掉,
+    //         而他修掉它的方式很可能是把整格刪了。
+    //    📌 **⇒ 而我是在把它送去審查之前自己看出來的 —— 因為我問了「多列的時候呢」。**
+    //       ⇒ ⇒ 這一頁的真實資料**本來就會有多列**(它是清單頁), 而我的 fixture 只有一列。
+    // ✅ 正確的性質是:**每一份表單都要住在某一個 details 裡**, 而不是「都在第一個裡」。
+    const forms = [...container.querySelectorAll('textarea[name="correction_reason"]')];
+    const allDetails = [...container.querySelectorAll('details')];
+    const orphan = forms.filter((el) => !allDetails.some((x) => x.contains(el)));
+    expect({ 沒有住在任何details裡的更正表單: orphan.length }).toEqual({
+      沒有住在任何details裡的更正表單: 0,
+    });
+  });
+
+  it('🔴 多列卡住時:每一列各有自己的 details, 而沒有一份表單掉在外面', async () => {
+    // 🔴🔴 **這一格的存在理由是我上面那段推理** —— 我推出「只看第一個 details 會假紅」,
+    //    而**推理不是量測**。這一格就是把它變成量到的:餵兩列卡住的, 看它綠不綠。
+    //    ⇒ 少了它, 上面那段註解只是一個沒有人驗過的說法, 而它讀起來像已經處理過了。
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [stuck({ id: 'r-s1' }), stuck({ id: 'r-s2', orderDisplayId: 'PCM-2026-0002' })],
+      truncated: false,
+      pendingCount: 0,
+      decidedCount: 0,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map(),
+    });
+    const { container } = await renderPage();
+    const allDetails = [...container.querySelectorAll('details')];
+    // 分母:兩列卡住 ⇒ 兩個 details。少了這一格,「只畫出一個」也會過下面那格。
+    expect(allDetails).toHaveLength(2);
+    const forms = [...container.querySelectorAll('textarea[name="correction_reason"]')];
+    expect(forms).toHaveLength(2);
+    const orphan = forms.filter((el) => !allDetails.some((x) => x.contains(el)));
+    expect({ 掉在外面的: orphan.length }).toEqual({ 掉在外面的: 0 });
+    // 🔴🔴 **合計對得上, 不代表【分佈】對得上**(codex R2 must-fix):
+    //    兩份表單**都塞進第一個 details**、第二個留空殼 ⇒ 上面三格全部照樣綠
+    //    (2 個 details / 2 份表單 / 0 個孤兒), 而畫面上第二列**沒有更正入口**。
+    //    📌 **⇒ 那正是我今晚一直在講的:總數對得上, 而錯藏在正確的總數後面。**
+    // ✅ ⇒ 逐個 details 各問一次, 並且把它裡面那張表單**綁到那一列的退款 id**。
+    const idsInDetails = allDetails.map(
+      (x) =>
+        x.querySelector<HTMLInputElement>('input[name="correction_refund_id"]')?.value ?? '(空殼)',
+    );
+    for (const [i, x] of allDetails.entries()) {
+      expect({ [`details${i}裡的表單數`]: x.querySelectorAll('textarea[name="correction_reason"]').length }).toEqual(
+        { [`details${i}裡的表單數`]: 1 },
+      );
+    }
+    // 🔴 而那兩個 id 要**恰好是那兩列的**(排序不保證 ⇒ 比集合, 不比順序)
+    expect([...idsInDetails].sort()).toEqual(['r-s1', 'r-s2']);
+  });
+
+  it('🔴🔴 已經被更正過的列:收合那一行【自己就說得出來】(否則收合會藏掉歷史)', async () => {
+    mocks.listRefundExceptions.mockResolvedValue({
+      rows: [stuck()],
+      truncated: false,
+      pendingCount: 0,
+      decidedCount: 1,
+      verdictsUnavailable: false,
+      stuckVerdicts: new Map([
+        [
+          'r-s1',
+          {
+            correctionId: 'c-1',
+            correctedTo: 'money_moved' as const,
+            seq: 2,
+            actor: 'amy',
+            createdAt: '2026-08-30T01:00:00+00:00',
+            reason: '對過 TapPay 後台',
+          },
+        ],
+      ]),
+    });
+    const { container } = await renderPage();
+    const summary = container.querySelector('summary')?.textContent ?? '';
+    // 🔴 這三格是「收合沒有藏掉他要據以決定的東西」那個論證的**可執行版本**:
+    //    有沒有被改過 / 改過幾次 / 誰改的 —— 三個問題在【收起來的狀態】就答得出來。
+    expect({ 有沒有被改過: summary.includes('已更正過') }).toEqual({ 有沒有被改過: true });
+    expect({ 第幾次: summary.includes('第 2 次') }).toEqual({ 第幾次: true });
+    expect({ 誰改的: summary.includes('amy') }).toEqual({ 誰改的: true });
   });
 });
