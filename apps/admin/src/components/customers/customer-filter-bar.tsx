@@ -6,6 +6,8 @@ import {
   TIER_PARAM,
   BIRTH_MONTH_OPTIONS,
   BIRTH_MONTH_PARAM,
+  GENDER_OPTIONS,
+  GENDER_PARAM,
   AGE_MIN_PARAM,
   AGE_MAX_PARAM,
   AGE_MIN_ALLOWED,
@@ -22,6 +24,7 @@ export function CustomerFilterBar({
   filter,
   sort,
   ageInputs,
+  showGender,
 }: {
   filter: AdminCustomerFilter;
   /**
@@ -36,6 +39,12 @@ export function CustomerFilterBar({
    *    生日當天差一歲, 而畫面上看不出來。
    */
   ageInputs: { min?: number; max?: number; swapped: boolean };
+  /**
+   * 段③ 性別下拉要不要出現。**必填,不給預設** ——
+   * 🔴 給了 `= true` 的預設就等於「忘了傳 ⇒ 下拉自己冒出來」,
+   *    而那正是這顆閘要防的那件事。⇒ 忘了傳 ⇒ **typecheck 紅**,不是靜靜地開。
+   */
+  showGender: boolean;
 }) {
   return (
     <form
@@ -65,6 +74,22 @@ export function CustomerFilterBar({
         options={BIRTH_MONTH_OPTIONS}
         allLabel='不限'
       />
+      {/* 性別(`:573` 段③)。
+          🔴 **整顆下拉由部署順序閘控制**(`genderFilterEnabled()`)—— view 上還沒有
+             `gender` 欄的期間它不算繪。理由與「忘記的時候會發生什麼」寫在
+             `lib/customers/gender-filter-flag.ts` 檔頭。
+          ⚠️ 而**這一格與 `page.tsx` 那道抹除是【兩件事】** —— 兩邊呼叫同一支函式
+             不等於兩邊綁在一起;綁住它們的是 `customer-gender-filter-flag.test.tsx`。
+          🔵 標籤用 `@pcm/schemas` 的 `GENDER_LABEL`(註冊表單用的同一份),不自訂字。 */}
+      {showGender ? (
+        <SelectFilter
+          name={GENDER_PARAM}
+          label='性別'
+          value={filter.gender}
+          options={GENDER_OPTIONS}
+          allLabel='不限'
+        />
+      ) : null}
       {/* 年齡區間(`e:丙` 的第二半)。原生 number input、無 client JS,與整張表單同一次 GET 送出。 */}
       <label className='flex flex-col gap-1 text-sm'>
         <span className='text-muted-foreground text-xs font-medium'>年齡</span>

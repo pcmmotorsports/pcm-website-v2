@@ -3,6 +3,8 @@
 // 通用分頁 / parsePage 的測試在 ../shared/list-params.test.ts。
 
 import { describe, it, expect } from 'vitest';
+import type { AdminCustomerFilter } from '@pcm/domain';
+import { GENDER_CODES } from '@pcm/schemas';
 import {
   parseCustomerListSearchParams,
   buildCustomerListHref,
@@ -16,6 +18,10 @@ import {
   parseAge,
   birthdayRangeForAges,
   todayInTaipei,
+  GENDER_PARAM,
+  GENDER_VALUES,
+  GENDER_OPTIONS,
+  GENDER_UNSET,
 } from './customer-list-view';
 
 /**
@@ -410,5 +416,104 @@ describe('todayInTaipei — 唯一碰時鐘的地方', () => {
   it('台灣午夜前一刻仍是當天', () => {
     expect(todayInTaipei(new Date('2026-08-26T15:59:00Z'))).toBe('2026-08-26');
     expect(todayInTaipei(new Date('2026-08-26T16:00:00Z'))).toBe('2026-08-27');
+  });
+});
+
+// ─────────────── `:573` 段③ 性別那一軸 ───────────────
+//
+// 🔴🔴 **這一段的第一格是【型別層斷言】,不是行為測試** ——
+//    `packages/domain` 的 `AdminCustomerFilter.gender` 是**手抄**的字串聯集
+//    (domain 不依賴 `@pcm/schemas`,package.json 實查 0),而正本是 `GENDER_CODES`。
+//    ⇒ 兩份真相,中間需要一格比對。
+//    ⚠️ **而它刻意【不是】抄 `member-tier-enum-drift.test.ts`** ——
+//       那支掃的是 migration 裡的 `CREATE TYPE … AS ENUM`,而 gender 是 **CHECK 不是 enum**
+//       ⇒ 抄過來要重寫整組 regex。📌 **那不是「嫌麻煩」,是【那把尺量的不是這個東西】。**
+//    🛑 而代價要明寫:**型別層斷言看不到 DB。**
+//       有人在 SQL Editor 手改 `customers_gender_chk` 加第四個值 ⇒ 本檔全綠。
+//       ⇒ 這一格守的是【TS 兩份之間】的漂移,不是【TS 對 DB】的漂移。**後者沒有守門。**
+describe('性別篩選(`:573` 段③)', () => {
+  it('🔴 domain 手抄的聯集 == @pcm/schemas 的 GENDER_CODES(兩份真相的橋)', () => {
+    // 🔴🔴 **雙向** —— codex R1 must-fix(2026-09-01)逐字:
+    //    「所謂『兩份聯集相等』只驗 schemas ⊆ domain;domain 多出 `'other'` 仍可編譯」
+    //    ⇒ 上一版第二行只是轉成 `readonly string[]`,**那不是一個方向,那是零個方向**。
+    //    ⇒ 兩個方向要分開寫,而且各自指名它擋的是哪一種漂移:
+    type DomainGender = NonNullable<AdminCustomerFilter['gender']>;
+    type SchemaGender = (typeof GENDER_VALUES)[number];
+    //    🔴 **domain 現在是 `GENDER_CODES ∪ {'unset'}`** —— `'unset'` 是哨兵不是性別
+    //       (規格 `:86` 要求「未填」與「不透露」分得開)。
+    //    ⚠️ **所以橋要架在【扣掉哨兵之後】的兩份上,不是放寬成「有包含就好」** ——
+    //       放寬的話,domain 多打一個 `'other'` 就再也不會紅。
+    type DomainGenderCodes = Exclude<DomainGender, typeof GENDER_UNSET>;
+    type SchemaGenderCodes = Exclude<SchemaGender, typeof GENDER_UNSET>;
+    //    ① schemas ⊆ domain:`GENDER_CODES` 多一個值而 domain 沒跟上 ⇒ 這行紅
+    const _schemasFitDomain: DomainGenderCodes[] = [...GENDER_CODES];
+    //    ② domain ⊆ schemas:domain 手抄多打一個 `'other'` ⇒ 這行紅
+    const _domainFitsSchemas: SchemaGenderCodes[] = [] as DomainGenderCodes[];
+    void _schemasFitDomain;
+    void _domainFitsSchemas;
+    const toDomain: readonly string[] = [...GENDER_CODES];
+    // 值層:順序與內容也釘死(型別層擋得住「多一個」, 擋不住「順序被換」——
+    // 而順序決定下拉裡選項的排列, 那是 Sean 看得到的東西)。
+    expect(toDomain).toEqual(['male', 'female', 'undisclosed']);
+  });
+
+  it('中文標籤走 GENDER_LABEL 那份唯一真相, 不在本層自訂', () => {
+    expect(GENDER_OPTIONS.slice(0, 3).map((o) => o.label)).toEqual(['男', '女', '不透露']);
+  });
+
+  // ══ 🔴🔴 「未填」≠「不透露」—— 規格 `:86` 逐字要求, codex R3 抓到我漏了 ═══════
+  it('🔴 選項裡有「未填」, 而它的字與「不透露」拉得開(員工要一眼分得出)', () => {
+    const unset = GENDER_OPTIONS.find((o) => o.value === GENDER_UNSET);
+    expect(unset, '沒有「未填」這一格 ⇒ 上線當天三個選項都回 0 筆而看起來像「沒有這種人」')
+      .toBeDefined();
+    expect(unset?.label).toContain('未填');
+    // 🔵 而它不得與「不透露」用同一個詞 —— 兩者在資料上是兩件事(NULL vs 他選了不說)
+    expect(unset?.label).not.toBe('不透露');
+  });
+
+  it('🔴 unset 是合法的網址值, 而它【不在】GENDER_CODES 裡(它是哨兵不是性別)', () => {
+    expect(parseCustomerListSearchParams({ [GENDER_PARAM]: 'unset' }, TODAY).filter.gender)
+      .toBe('unset');
+    expect([...GENDER_CODES]).not.toContain(GENDER_UNSET);
+  });
+
+  it('白名單守門:認不得的值當作沒填, 不擲錯', () => {
+    expect(parseCustomerListSearchParams({ [GENDER_PARAM]: 'male' }, TODAY).filter.gender).toBe(
+      'male',
+    );
+    for (const bad of ['男', 'MALE', 'other', '', "male' OR 1=1", '1']) {
+      expect(
+        parseCustomerListSearchParams({ [GENDER_PARAM]: bad }, TODAY).filter.gender,
+        `「${bad}」不該被當成合法性別`,
+      ).toBeUndefined();
+    }
+  });
+
+  // 🔴🔴 **這一格的期望值是【量出來的,不是我想出來的】** ——
+  //    我第一版寫 `toBeUndefined()`(「多值一律不採信」),而它紅了:實際回 `'male'`。
+  //    ⇒ `pickEnum` 走 `firstValue`(`lib/shared/list-params.ts:20`)⇒ **取第一個**,
+  //      而那是 `tier` 這一軸從第一天就有的行為 —— 性別跟著它,不另立規矩。
+  //    📌 **我差一點把一個【猜的期望值】寫成守門** —— 那會讓實作去遷就我的想像,
+  //       而畫面上不會有任何東西告訴我我改壞了一條既有慣例。
+  //    ⚠️ 而這個行為本身**沒有被裁決過**是不是最好的:多值時安靜取第一個,
+  //       與「兩個都不採信」相比,員工都看不出差別。**它跟著鄰居,不代表它對。**
+  it('陣列值(?gender=male&gender=female)取第一個 —— 跟 tier 同一條既有慣例', () => {
+    expect(
+      parseCustomerListSearchParams({ [GENDER_PARAM]: ['male', 'female'] }, TODAY).filter.gender,
+    ).toBe('male');
+    // 🔵 而第一個就非法時, 仍然是「當作沒填」——「取第一個」不等於「放寬白名單」。
+    expect(
+      parseCustomerListSearchParams({ [GENDER_PARAM]: ['男', 'male'] }, TODAY).filter.gender,
+    ).toBeUndefined();
+  });
+
+  it('🔴 翻頁 / 排序不得把性別丟掉(`#743` 那一格的同款)', () => {
+    const f = parseCustomerListSearchParams({ [GENDER_PARAM]: 'undisclosed' }, TODAY).filter;
+    const qs = new URLSearchParams(buildCustomerListHref(f, 3).split('?')[1] ?? '');
+    expect(qs.get(GENDER_PARAM)).toBe('undisclosed');
+    // 🔵 負對照:沒選性別時, 網址上不該憑空長出這個鍵(空值也不行)。
+    const none = parseCustomerListSearchParams({}, TODAY).filter;
+    expect(new URLSearchParams(buildCustomerListHref(none, 3).split('?')[1] ?? '').has(GENDER_PARAM))
+      .toBe(false);
   });
 });

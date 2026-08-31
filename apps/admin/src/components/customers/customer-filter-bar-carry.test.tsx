@@ -27,12 +27,16 @@ const FILTER: AdminCustomerFilter = {
   birthMonth: 7,
   ageMin: 30,
   ageMax: 40,
+  // 🔴 `:573` 段③。**照上面那條 must-fix 補的**:性別下拉在 `showGender` 開著時是常駐輸入框
+  //    ⇒ 這裡不給值的話,「表單送得出 gender」與「builder 產得出 gender」之間**又沒有橋**,
+  //    而那正是這支檔存在的理由。
+  gender: 'female',
 };
 const SORT: AdminCustomerSort = { key: 'spend', ascending: false };
 
 /** 表單真的會送出去的鍵(含 hidden)。 */
 function submittedKeys(sort: AdminCustomerSort | undefined): Set<string> {
-  const { container } = render(<CustomerFilterBar filter={FILTER} sort={sort} ageInputs={{ swapped: false }} />);
+  const { container } = render(<CustomerFilterBar filter={FILTER} sort={sort} ageInputs={{ swapped: false }} showGender />);
   const names = [...container.querySelectorAll('[name]')].map((el) => el.getAttribute('name') ?? '');
   cleanup();
   return new Set(names.filter(Boolean));
@@ -47,11 +51,19 @@ function builderKeys(sort: AdminCustomerSort | undefined): Set<string> {
 }
 
 /** 常駐輸入框:一定會被渲染, 因此空值時也會送出 `key=`(GET 表單的正常行為)。 */
-const ALWAYS_RENDERED = ['tier', 'bmonth', 'agemin', 'agemax'] as const;
+// ⚠️ **`gender` 在這裡算常駐, 而那是【本檔 harness 的條件】不是元件的性質** ——
+//    本檔每一次 render 都傳 `showGender`(見 `submittedKeys`), 而正式頁面上它由
+//    部署順序閘決定(`lib/customers/gender-filter-flag.ts`)。
+//    ⇒ 🔴 **「旗標關掉時它不出現」不歸本檔驗** —— 那一格在
+//      `customer-gender-filter-flag.test.tsx`。寫在這裡, 是因為讀到這一行的人
+//      很容易把「它在 ALWAYS_RENDERED 裡」讀成「它永遠都在」。
+const ALWAYS_RENDERED = ['tier', 'gender', 'bmonth', 'agemin', 'agemax'] as const;
 
 describe('`#743` 客戶篩選表單 — 送得出去的鍵必須蓋住 builder 產得出的鍵', () => {
   it('前提:builder 在有排序時真的會產出 sort/dir(不然下面那條恆真)', () => {
-    expect(builderKeys(SORT)).toEqual(new Set(['tier', 'bmonth', 'agemin', 'agemax', 'sort', 'dir']));
+    expect(builderKeys(SORT)).toEqual(
+      new Set(['tier', 'gender', 'bmonth', 'agemin', 'agemax', 'sort', 'dir']),
+    );
   });
 
   // 🔴🔴 **2026-08-26 這一族從【相等】改成【蓋住】, 而那不是為了讓它變綠**:
@@ -88,7 +100,7 @@ describe('`#743` 客戶篩選表單 — 送得出去的鍵必須蓋住 builder �
   });
 
   it('hidden 的【值】與 builder 寫進網址的值逐字相同(不只鍵對上)', () => {
-    const { container } = render(<CustomerFilterBar filter={FILTER} sort={SORT} ageInputs={{ swapped: false }} />);
+    const { container } = render(<CustomerFilterBar filter={FILTER} sort={SORT} ageInputs={{ swapped: false }} showGender />);
     const qs = new URLSearchParams(buildCustomerListHref(FILTER, 1, SORT).split('?')[1] ?? '');
     for (const key of ['sort', 'dir']) {
       const el = container.querySelector(`input[type="hidden"][name="${key}"]`);
