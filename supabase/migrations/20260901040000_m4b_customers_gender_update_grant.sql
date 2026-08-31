@@ -1,4 +1,9 @@
--- 20260901020000_m4b_customers_gender_update_grant.sql
+-- 20260901040000_m4b_customers_gender_update_grant.sql
+-- 🔴 改號紀錄(2026-09-01 04:5x):本檔原為 `20260901020000`,與線【券】`-7a` 的
+--   `20260901020000_m4b_coupon_p3b_order_coupon_id.sql` **撞號**(主視窗收割時的同號掃描抓到)。
+--   改的是本支而不是那支,判準**不是先來後到**:那個號被 4 支檔引用(含一支前置閘逐字要求
+--   先 apply 它),而本支的引用只有自己的檔名 ⇒ **改本支的成本是零**。
+--   帳本 `APPLIED.tsv` 兩支皆 0 ⇒ 都沒 apply ⇒ 改號不影響正式庫。
 -- ⟦客戶篩選多軸⟧ 會員中心那一片:把 `gender` 加進 `customers` 的欄級 UPDATE GRANT。
 --
 -- ══ 🔴🔴 §0 沒有這一支,會員中心那一格是【死的】—— 而它死得很安靜 ══════════════
@@ -40,7 +45,7 @@ SET LOCAL transaction_timeout = '90s';
 -- ══ 1. 兩條 GRANT ════════════════════════════════════════════════════════════
 -- 🔵 GRANT 是**累加**的 ⇒ 這兩行冪等:已經有的欄不會被動到,只多一個 `gender`。
 --    ⇒ 所以不需要先 REVOKE,而**也不該** REVOKE —— 那會在中途把客人的寫入權關掉。
--- ACL-GATE-EXEMPT: public.customers -- 客人自己在會員中心改性別,只有 authenticated 是他本人(20260901020000, 2026-09-01)
+-- ACL-GATE-EXEMPT: public.customers -- 客人自己在會員中心改性別,只有 authenticated 是他本人(20260901040000, 2026-09-01)
 -- 🔴 **豁免的理由要寫得出「誰要用、為什麼不是 service_role」,而這裡是**:
 --   誰要用 = **客人本人**。會員中心那一頁 (`apps/storefront/src/app/account/`) 走的是
 --   `createServerSupabaseClient()` = **authenticated** 身分 + RLS `customers_update_own`
@@ -54,7 +59,7 @@ SET LOCAL transaction_timeout = '90s';
 -- ⚠️ 而本閘自己的天花板要跟著記:它**對 dashboard / SQL Editor 手動 GRANT 是盲的**
 --   ⇒ 有人在後台面板點一下開權限, repo 裡一個字都沒有, 而這道閘不會知道。
 GRANT UPDATE (gender) ON TABLE public.customers TO authenticated;
--- ACL-GATE-EXEMPT: public.customers -- 後台代改客人資料走 service_role,同欄同權(20260901020000, 2026-09-01)
+-- ACL-GATE-EXEMPT: public.customers -- 後台代改客人資料走 service_role,同欄同權(20260901040000, 2026-09-01)
 -- 🔵 這一條是鏡像:`20260717010000:175` 已經給了 service_role 同一組欄
 --   (name, phone, birthday, updated_at)⇒ 少了 gender 的話, 後台那半改不動它,
 --   而**它今天不會紅** —— 會在別人做後台那一片時才炸。
