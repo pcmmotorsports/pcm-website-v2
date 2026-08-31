@@ -7,6 +7,37 @@
 --    ⇒ 包成一個交易,最後那句 UPDATE 對齊完才 COMMIT ⇒ **deferred 才發揮它的用途**。
 --    (2026-08-19 建這支腳本時實際踩到:錯誤訊息指著 order_items 那一句,
 --     而真正的原因是「這一句自己 commit 了」。)
+-- 🔴🔴 **這一段【必須在 BEGIN 之前】—— 2026-09-01 線【出貨】`-1e` 實測後搬上來**
+--    症狀:`cannot ALTER TABLE "orders" because it has pending trigger events`
+--    成因:整支種子是【一個交易】(見檔頭), 而 `ALTER` 前面已經有 INSERT
+--          ⇒ DEFERRED 觸發器還掛在那個交易上 ⇒ Postgres 拒絕 ALTER 那張表。
+--    ⇒ 📌 而那個錯誤訊息【不會說】「把 ALTER 搬到 BEGIN 前面」—— 那要撞過才知道。
+--    ⚠️ 代價明寫:它在交易外 ⇒ 種子後面炸掉的話, 這個約束改動【會留著】。
+--       拋棄式鑽機上那是可接受的(整座 PG 用完就丟);**在任何非拋棄式的庫上不成立。**
+--    📎 哪幾道是 DEFERRABLE:`~/pcm-mailbox/表-INSERT觸發器哪幾道會擋人-20260901.md`(`-a0` 2026-09-01)
+
+-- ── 🔴🔴 補上 D0 那條【沒 apply 成功】的約束放寬(2026-08-30 加)────────────────────
+-- **這是 runbook §3-a 那個病的一個【真實現場】**:逐字「失敗的那幾支會讓本機的約束比正式站舊
+-- —— 而它不會紅, 只會靜靜地說謊」。
+-- 現場:`20260729010000`(D0)在本鑽機 **FAIL**(它的驗收閘說「service_role 對 orders 的 SELECT 不見了」,
+--   那是鑽機 bootstrap 的洞, 不是那支 migration 的錯)
+--   ⇒ `orders_display_id_format` 停在**舊版**(只收 `PCM-YYYY-NNNN`)
+--   ⇒ 而 `pcm_generate_display_id()`(N3a, **有 apply 成功**)產的是**新的 6 碼**
+--   ⇒ **新產生器 + 舊約束** ⇒ 任何自己產號的路徑(手動建單就是)必死 `23514`。
+-- 🔴🔴 **而那個答案在起站當下就被印出來了** —— `20260730120100`(N3b)的前置閘逐字:
+--   「`orders_display_id_format` 沒有接受新 6 碼格式的分支。請先套用 20260729010000(D0);
+--    否則本片 apply 會全綠、但第一筆真結帳會死在 check_violation」
+--   ⇒ 📌 **寫那道閘的人, 把我後來花一小時找到的東西, 一句話寫在 apply.log 裡** ——
+--      而那個 log 沒有人讀。**訊號存在 ≠ 訊號被讀。**
+-- ⚠️ 這裡**只補那一條約束**, 不重跑整支 D0(它還做別的事, 而那些在鑽機上不需要)。
+ALTER TABLE public.orders DROP CONSTRAINT IF EXISTS orders_display_id_format;
+ALTER TABLE public.orders
+  ADD CONSTRAINT orders_display_id_format
+  CHECK (
+    display_id ~ '^PCM-[0-9]{4}-[0-9]{4,}$'
+    OR display_id ~ '^[23456789BCDFGHJKMNPQRSTVWXYZ]{6}$'
+  );
+
 BEGIN;
 
 -- admin 鑽機種子 —— **空庫沒有判別力**,所以這裡種到「後台每一頁都看得到東西」為止。
@@ -150,27 +181,6 @@ INSERT INTO staff (id, label, is_manager, is_active)
 VALUES ('probe_staff', '探針員工', true, true)
 ON CONFLICT (id) DO UPDATE SET is_manager = true, is_active = true;
 
--- ── 🔴🔴 補上 D0 那條【沒 apply 成功】的約束放寬(2026-08-30 加)────────────────────
--- **這是 runbook §3-a 那個病的一個【真實現場】**:逐字「失敗的那幾支會讓本機的約束比正式站舊
--- —— 而它不會紅, 只會靜靜地說謊」。
--- 現場:`20260729010000`(D0)在本鑽機 **FAIL**(它的驗收閘說「service_role 對 orders 的 SELECT 不見了」,
---   那是鑽機 bootstrap 的洞, 不是那支 migration 的錯)
---   ⇒ `orders_display_id_format` 停在**舊版**(只收 `PCM-YYYY-NNNN`)
---   ⇒ 而 `pcm_generate_display_id()`(N3a, **有 apply 成功**)產的是**新的 6 碼**
---   ⇒ **新產生器 + 舊約束** ⇒ 任何自己產號的路徑(手動建單就是)必死 `23514`。
--- 🔴🔴 **而那個答案在起站當下就被印出來了** —— `20260730120100`(N3b)的前置閘逐字:
---   「`orders_display_id_format` 沒有接受新 6 碼格式的分支。請先套用 20260729010000(D0);
---    否則本片 apply 會全綠、但第一筆真結帳會死在 check_violation」
---   ⇒ 📌 **寫那道閘的人, 把我後來花一小時找到的東西, 一句話寫在 apply.log 裡** ——
---      而那個 log 沒有人讀。**訊號存在 ≠ 訊號被讀。**
--- ⚠️ 這裡**只補那一條約束**, 不重跑整支 D0(它還做別的事, 而那些在鑽機上不需要)。
-ALTER TABLE public.orders DROP CONSTRAINT IF EXISTS orders_display_id_format;
-ALTER TABLE public.orders
-  ADD CONSTRAINT orders_display_id_format
-  CHECK (
-    display_id ~ '^PCM-[0-9]{4}-[0-9]{4,}$'
-    OR display_id ~ '^[23456789BCDFGHJKMNPQRSTVWXYZ]{6}$'
-  );
 
 -- ── 🔴🔴 把 `order_display_seq` 推到與種子單一致(2026-08-30 加)──────────────────
 -- **成因是量到的, 不是想到的**:種子用**寫死的** `display_id`(`PCM-2026-1001`…)插單,
