@@ -1,15 +1,24 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 
 // repository 拉 server-only 模組 ⇒ 整支 mock(同 `app/customers/page.test.tsx` 紀律)。
 // 🔴 `resolvePrice` / `resolveListingState` **不 mock** —— 它們是本片的取值落點,
 //    mock 掉等於把要驗的東西換成假的(memory `feedback_assertion-measures-the-wrong-thing`)。
-const mocks = vi.hoisted(() => ({ list: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  list: vi.fn(),
+  // 🔴 **預設是 reject —— 那正是本檔既有每一格現在的世界**(沒有 Supabase ⇒ 撈不到選項
+  //    ⇒ `page.tsx` 的 try/catch 把 `options` 留成 `null` ⇒ 品牌/分類整塊不畫)。
+  //    ⇒ 加這支 mock **不得改變任何既有格的行為**, 所以預設值要跟現況一樣, 不是 `{}`。
+  //    (寫成 `vi.fn()` 會回 `undefined` ⇒ 那不是「撈不到」, 是**另一個世界**, 而它會炸在別處。)
+  // 🔴 回傳型別要顯式寫 `Promise<unknown>` —— 不寫的話 `Promise.reject` 會被推成
+  //    `Promise<never>` ⇒ 之後 `mockResolvedValue({...})` 的參數型別變成 `never` ⇒ **tsc 紅**。
+  options: vi.fn((): Promise<unknown> => Promise.reject(new Error('taxonomy 未 mock(預設維持既有行為)'))),
+}));
 vi.mock('../../lib/products/product-repository', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('../../lib/products/product-repository')>();
-  return { ...actual, listProductsForAdmin: mocks.list };
+  return { ...actual, listProductsForAdmin: mocks.list, listProductFilterOptions: mocks.options };
 });
 vi.mock('server-only', () => ({}));
 
@@ -289,5 +298,101 @@ describe('/products 列表(#20 片1a)', () => {
     const { container } = await renderPage({ set_by: 'staff' });
     const text = container.textContent ?? '';
     expect(text).toContain('設定上下架的功能還沒做好');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// FIX-21 · 篩選區併成一張卡(OD 稿 `pcm-524f/HANDOFF-orders-ui.md:508`)
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴 **這一組守的是「別把它退回去」, 而不是「畫面有那幾個字」。**
+//    稿的症狀是「四塊各自 flex、寬度互不對齊」⇒ 而那件事**測不到**(沒有真瀏覽器)。
+//    ⇒ 所以這裡守的是**結構上可判別的那幾格**:同一個容器裡、貼料號收合、
+//      以及三件這支檔自己寫過理由的**不得動**的事。
+//    ⚠️ **誠實邊界**:全綠**不代表**它看起來對。真的對不對要 Sean 早上開後台看。
+describe('/products 列表 · FIX-21 篩選區併成一張卡', () => {
+  // 🔴 這一組要驗「四塊都在同一個容器裡」⇒ **品牌/分類必須真的渲染得出來**,
+  //    而本檔預設的世界是「選項撈不到 ⇒ 整塊不畫」。⇒ 這一組自己餵一份選項。
+  beforeEach(() => {
+    mocks.list.mockResolvedValue({ items: [], total: 0 });
+    mocks.options.mockResolvedValue({
+      brands: [{ id: 'b1', name: 'CNC RACING' }],
+      categories: [
+        { id: 'c1', name: '外觀部品', raw_path: '外觀部品', parent_category_id: null, sort_order: 1 },
+      ],
+      categoryIdsWithProducts: new Set(['c1']),
+      brandIdsWithProducts: new Set(['b1']),
+    });
+  });
+  // 🛑 跑完把它還原成預設(reject)—— 否則我這一組會把「選項撈得到」這個世界
+  //    留給後面新加的格, 而它們會在一個不是自己設的世界裡綠。
+  afterEach(() => {
+    mocks.options.mockImplementation(() => Promise.reject(new Error('taxonomy 未 mock(預設維持既有行為)')));
+    // 🔴 `list` 也要還原(codex R2 consider):本組最後一格把它留在 reject,
+    //    而檔案層的 `clearAllMocks()` **只清呼叫紀錄, 不清 implementation**。
+    //    ⚠️ 現在無害(本組在檔尾), 而**下一個在它後面加格的人會在一個不是自己設的世界裡綠**。
+    mocks.list.mockReset();
+  });
+
+  it('🟢 搜尋 / 全部手動自動 / 品牌分類 / 料號批次 都在【同一個容器】裡', async () => {
+    const { container } = await renderPage();
+    const card = container.querySelector('[data-od-prodfilters]');
+    expect(card).not.toBeNull();
+    // 🔴 對【容器內部】數, 不對整頁數 —— 整頁數的話, 某一塊被搬出卡片也照樣綠,
+    //    而那正是這一片要修的病(四塊各自散著)。
+    const inner = card?.textContent ?? '';
+    for (const must of ['搜尋', '全部', '手動', '自動', '料號批次']) {
+      expect({ [must]: inner.includes(must) }).toEqual({ [must]: true });
+    }
+    // 🔴 品牌/分類用【元件自己的 id】驗(codex must-fix):我第一版的清單裡**根本沒有它們**
+    //    ⇒ 把整個 taxonomy 元件刪掉這一格照樣綠, 而本格名稱寫著「四塊都在同一個容器裡」。
+    //    **宣稱四塊, 實際兩塊。**
+    expect(card?.querySelector('#product-brand-filter')).not.toBeNull();
+    expect(card?.querySelector('#product-category-filter')).not.toBeNull();
+  });
+
+  it('🔴 貼料號收在 details 裡而【預設收合】—— 而它仍然在 DOM 裡', async () => {
+    const { container } = await renderPage();
+    const d = container.querySelector('[data-od-prodfilters] details');
+    expect(d).not.toBeNull();
+    // 🔴 `open` 為 false = 預設收合。稿逐字:「批次貼 Excel 用, 不是每次都要」。
+    expect(d).toHaveProperty('open', false);
+    // 🔴🔴 **收合不是隱藏** —— 這一格證的是它仍然渲染得出來。
+    //    少了它, 有人把 details 換成 `{false && …}` 也照樣綠, 而那會讓貼料號整個消失。
+    expect(d?.querySelector('#product-sku-filter')).not.toBeNull();
+  });
+
+  it('🔴🔴 網址帶著料號進來 ⇒ 那個 details 必須【展開】—— 否則清單被篩了而畫面不說原因', async () => {
+    // 🔴 這一格是 codex must-fix 逼出來的, 而它打中我自己寫的那句「只改視線占用」:
+    //    沒套用時收合 = 省視線;**套用了還收合 = 藏原因**。⇒ 代價不是均勻的。
+    // 🔴 網址參數是 `sku`(單數, `product-list-view.ts:278` `SKU_PARAM = 'sku'`),
+    //    而 filter 上的欄位是 `skus`(複數)。**我第一版兩個都寫成 skus ⇒ 這一格紅。**
+    //    📌 一個「欄位名」與一個「網址名」長得幾乎一樣, 而它們不是同一個東西。
+    const { container } = await renderPage({ sku: 'RPM-001' });
+    const d = container.querySelector('[data-od-prodfilters] details');
+    expect(d).toHaveProperty('open', true);
+  });
+
+  it('🛑 選項撈失敗時【貼料號仍要在】—— 而品牌分類整塊不畫是刻意的', async () => {
+    // 🔴 這一格是 codex must-fix 補的:我原本**宣稱**保住了這個約束, 而**沒有任何一格在驗它**。
+    //    原檔逐字:「就算分類撈失敗, 員工手上那份 Excel 仍然貼得進來」。
+    mocks.options.mockRejectedValue(new Error('taxonomy boom'));
+    const { container } = await renderPage();
+    const card = container.querySelector('[data-od-prodfilters]');
+    // 品牌/分類整塊不畫 —— 空下拉點得下去、送得出去、什麼都不會變 = 一個會騙人的控制項
+    expect(card?.querySelector('#product-brand-filter')).toBeNull();
+    // 🔴🔴 而貼料號**必須還在** —— 這才是那條約束本身
+    expect(card?.querySelector('#product-sku-filter')).not.toBeNull();
+  });
+
+  it('🛑 讀取失敗時搜尋框仍要在 —— 這支檔自己寫過理由, 不得因為併卡而弄丟', async () => {
+    // 讓選項與清單都掛掉 ⇒ 走 loadFailed 那條路
+    mocks.list.mockRejectedValue(new Error('boom'));
+    const { container } = await renderPage();
+    const card = container.querySelector('[data-od-prodfilters]');
+    expect(card).not.toBeNull();
+    // 🔴 原檔逐字:「否則員工唯一能做的動作(換個詞再試)會跟著錯誤訊息一起消失」
+    // ⛔ ~~`form[action="/products"]`~~ ⇒ 🔴 **太鬆**(codex must-fix):
+    //    搜尋框消失而別的 form 留著, 那一格照樣綠。⇒ 鎖定搜尋框**自己的 id**。
+    expect(card?.querySelector('#product-keyword-search')).not.toBeNull();
   });
 });
