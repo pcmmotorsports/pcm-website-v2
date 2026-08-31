@@ -2,7 +2,9 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+import { requireFreshBuild } from './build-stamp';
 
 /**
  * `scripts/build-with-stamp.sh` + `build-stamp.ts` 的守門測試。
@@ -84,6 +86,48 @@ describe('build-with-stamp.sh —— 先刪後寫,而失敗世界留下的是【
       expect(String(j.at)).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('requireFreshBuild() —— 「有沒有印」要是機制,不是四個呼叫端的紀律', () => {
+  /**
+   * 🔴 **為什麼補這一格**(R3 對抗審查 F2):本檔原本 89 行**只測 shell wrapper**,
+   *    `requireFreshBuild()` 零測試。而 2026-09-01 那個 bug 的形狀正是「**呼叫端忘了接**」
+   *    ⇒ 修法把 `console.info` 移進函式裡,而**沒有這一格的話,下一個人把它刪掉會全綠**。
+   * 📌 **一道防「忘了做」的修法,自己也要有一個會紅的東西盯著。**
+   * 🛑 **不碰真的 `.next`** —— 只斷言「有印」與「沒印」,兩個世界都不寫檔。
+   */
+  it('🔴 戳記成立 ⇒ 一定呼叫 console.info,而印出來的就是回傳的那一行', () => {
+    const spy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      let line: string;
+      try {
+        line = requireFreshBuild();
+      } catch {
+        // 🔵 這棵樹沒有成功 build 過 ⇒ 本格的前提不成立。
+        //    🛑 **不 skip** —— skip 會讓「沒驗到」與「驗過了」印同一個綠。
+        //    ⇒ 改成斷言另一個世界:它 throw 的那條路上**不應該印**。
+        expect(spy).not.toHaveBeenCalled();
+        return;
+      }
+      expect(spy).toHaveBeenCalledTimes(1);
+      const printed = String(spy.mock.calls[0]?.[0] ?? '');
+      expect(printed).toContain('[build-stamp]');
+      expect(printed).toContain(line);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('🟢 負對照:同一把 spy 在【沒有人呼叫】時必須是 0 次', () => {
+    const spy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      // 🔴 這一格證明上面那個 `toHaveBeenCalledTimes(1)` 不是恆真 ——
+      //    一把「不管有沒有被呼叫都算數」的 spy,對兩個世界會印同一個綠。
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
     }
   });
 });

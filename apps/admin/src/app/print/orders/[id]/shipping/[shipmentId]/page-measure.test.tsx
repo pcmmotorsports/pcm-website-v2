@@ -192,8 +192,19 @@ function builtCss(): { css: string; files: string[] } {
   //    成因是量到的:`next build` **rc=1 而 `.next/static/chunks` 仍被寫出 28 個檔**
   //    ⇒ **「產物存在」在【成功】與【失敗但寫了一半】兩個世界印同一個綠**,
   //      而本函式底下那一整格版面量測,就是建在那個綠上面。
-  //    ⇒ `requireFreshBuild()` 分三態:無戳記 / 戳記的 HEAD 與現在不同(兩個 hash 都印)/ 相同。
-  //    ⚠️ 它不 skip,只 throw —— skip 會把「有守門」變成「有宣稱」。
+  //    ⇒ `requireFreshBuild()` 分三態:無戳記 / 戳記的 HEAD 與現在不同 / 相同。
+  //    ⚠️ 它 throw(不 skip),skip 會把「有守門」變成「有宣稱」;
+  //       而 **HEAD 不同只印不擋**(turbo 會 replay 戳記 ⇒ 判紅是常態假紅)。
+  //       **印是 `requireFreshBuild()` 自己做的**,不是這裡做的。
+  //    ⛔ ~~原註解寫「戳記的 HEAD 與現在不同(**兩個 hash 都印**)」~~
+  //       —— 那句在 2026-09-01 之前**是假的**:四處呼叫端全部丟掉回傳值,而警告就在回傳值裡
+  //       ⇒ 它被算出來然後掉在地上。**碼沒有說謊, 說謊的是那句註解。**
+  //    ⚠️ **本檔特別要知道一格**:`builtCss()` 無快取、有 4 個呼叫點,而其中三個住在
+  //       `emit` / `emitNoOutstanding` / `emitPicking` 裡、被多個 `for` 包著 ⇒ **會印數十行同字面**。
+  //       ⇒ 我一度加旗標只印第一次,而 R2 實跑指出**第一次落在一個會通過的 `it` 裡**
+  //         ⇒ 預設 reporter 不吐通過測試的 console ⇒ **真紅那一次反而看不到**。
+  //       📌 **⇒ 幾十行重複是【吵】, 而少一行是【沒有】。取吵。**
+  //    完整成因與射程 = `@/lib/build-stamp` 檔頭(單一權威)。
   requireFreshBuild();
   const dir = join(NEXT_DIR, 'static', 'chunks');
   if (!existsSync(dir)) {
