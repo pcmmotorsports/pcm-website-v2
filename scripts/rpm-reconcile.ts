@@ -134,24 +134,42 @@ const SOURCE_MISSING_COLUMN = 'source_missing_at';
  * 判別邏輯**逐字對齊本 repo 既有前例** `rpm-load.ts:105-108`(`stripColumnIfMissing`)——
  * 那支的註解早就寫著「只比對欄名太寬」。**同一個坑,前例已經填過,我照抄而不是自己再發明一次。**
  */
-function isMissingColumn(error: { code?: string; message?: string } | null): boolean {
+// ⛔ ~~2026-08-31:多一個欄位要用同一道判斷 ⇒ 欄名改成參數~~
+// 🔴 **那兩個「新的呼叫端」在同一夜被刪掉了**(第一版設計被推翻)⇒ **今天沒有任何自訂欄名的呼叫端。**
+//    ⇒ 參數留著,而它是一個**沒有第二個使用者的通用化** —— codex R1 nit 點名為「半套死介面」。
+//    🔵 **留著的理由要寫出來,否則下一個人會刪它**:它零成本(預設值不變、兩個既有呼叫端一行沒動),
+//      而那張表遲早會多一個同族欄位(`⟦b4-WITHHELD1⟧` 那張清單就是候選)。
+//    ⚠️ **而若那一列最後不落在 `products` 上 ⇒ 這個參數就該收回去。**
+function isMissingColumn(
+  error: { code?: string; message?: string } | null,
+  column: string = SOURCE_MISSING_COLUMN,
+): boolean {
   if (!error) return false;
   return (
     error.code === UNDEFINED_COLUMN ||
     error.code === SCHEMA_CACHE_MISS ||
     // 訊息比對只是備援,且**必須同時**命中欄名與「找不到這個東西」的措辭
     (!!error.message &&
-      error.message.includes(SOURCE_MISSING_COLUMN) &&
+      error.message.includes(column) &&
       /does not exist|could not find|unknown column/i.test(error.message))
   );
 }
 
-function warnColumnNotApplied(fn: string): void {
+function warnColumnNotApplied(fn: string, column: string = SOURCE_MISSING_COLUMN, mig = '20260815030000'): void {
   console.warn(
-    `⚠️ [rpm-reconcile] ${fn} 跳過:products.source_missing_at 不存在(migration 20260815030000 尚未 apply)。` +
+    `⚠️ [rpm-reconcile] ${fn} 跳過:products.${column} 不存在(migration ${mig} 尚未 apply)。` +
       ' 其餘同步照跑;apply 後本步驟會自動恢復,無需人工補跑(下一輪 FULL 同步會重算)。',
   );
 }
+
+// ⛔ ~~`markVariantsEmptied` / `clearVariantsEmptied` / `externalIdsWithVariants` 與那支新 migration~~
+// 🔴🔴 **2026-08-31 全部拿掉** —— 它們是【被推翻的那個設計】的零件:
+//    原本要在 `products` 上標「這支商品的變體被清空了」,而 Sean 拍【乙】之後語意變了 ——
+//    乙 記錄的是「**這一次**我不確定,所以沒刪」⇒ 那是**每一輪一筆**,不是每支商品一個時戳。
+//    ⇒ 📌 **一個標記欄與一張清單,不是同一個東西的兩種寫法 —— 它們的主鍵不同。**
+// ⚠️ 而那支 migration 也一併刪了(`20260831020000`)—— **它從來沒有被 apply**,
+//    留著只會讓下一個人以為那是現行設計的一部分。
+
 
 /**
  * 標記「來源已消失」:UPDATE source_missing_at=now WHERE supplier_slug=… AND external_id IN batch AND source_missing_at IS NULL。
@@ -211,6 +229,81 @@ export async function clearSourceMissing(tgt: SupabaseClient, supplierSlug: stri
 
 const VARIANT_DELETE_RATIO_ABORT = 0.1; // 單次孤兒刪除比例硬上限(對齊商品下架 10%;疑來源變體殘缺、防誤刪)
 
+/** 這一批 source 是不是完整的。`'unknown'` = 沒有人說得出來(今天恆為它)。 */
+export type SourceCompleteness = 'complete' | 'incomplete' | 'unknown';
+
+/**
+ * 🔴 **拿不到完整性證據時,預設偏哪一邊。**
+ *
+ * 🛑 **這是一個【商業取捨】,不是工程判斷** —— 而它會被誤認成工程判斷,因為它的載體是一個 `if`。
+ * 📌 **一個商業取捨若剛好只需要改一行碼,它就會被當成一行碼做掉。**
+ *
+ * 兩邊的代價(各有一個今天量到的實例):
+ *   `true`(照刪) ⇒ 商品上架而買不到 —— 那 10 支壞掉的商品就是
+ *   `false`(不刪)⇒ 客人買得到而我們訂不到的規格 —— 而它在**出貨那一刻**才炸
+ *
+ * ⚠️ **它寫成一個具名常數而不是散在 `if` 裡,理由是:這一格 2026-08-31 一夜之內被翻過一次方向**
+ * (`-48` 推「照刪」,而 Sean 拍「寧可少刪」;而那一夜它被來回撥了三次)⇒ **它會再被翻。**
+ *
+ * ✅ **現值 `false` = 乙 = 寧可少刪**(Sean 2026-08-31 逐字「乙 = 寧可少刪 —— 不確定就不下架」,
+ * 最後一則「確定乙」明確確認)。
+ * 🔴 **而它今天的量級要寫在這裡,不要藏在別的檔**:那個完整性資訊**現在不存在**
+ * (報價單那一側沒有 sync_log)⇒ `'unknown'` 是**每一次** ⇒ **今天這等於把孤兒刪除整個關掉。**
+ * ⇒ 📌 **所以下面那張「沒刪的清單」不是附帶產物,它是這個決定的【全部代價】。**
+ */
+export const DELETE_ORPHANS_WHEN_COMPLETENESS_UNKNOWN = false;
+
+/**
+ * 「這一輪要送去刪除的孤兒」與「要跳過原子同步的 hazard 群」。
+ *
+ * 🔴🔴 **抽成純函式的理由是 codex R1 抓到的兩件事,而它們都在【接線】那一層**:
+ *   MF4:我五格新測試只驗分類器 ⇒ 把 `rpm-import` 那一行改回傳全部 `orphans`,
+ *        **兩條刪除路徑會重新打開,而五格仍然全綠**。⇒ 那是現有突變殺不掉的破口。
+ *   MF2:hazard 群若有被扣留的孤兒,傳**空清單**給那支原子 RPC 會撞它的斷言
+ *        「payload 不是完整商品群(缺 orphan)」(`20260825120000:256-268` 逐字)
+ *        ⇒ 🔴 **那不是「不刪」,那是【整群同步 abort】** —— 而我第一版的註解宣稱它是正常不刪。
+ *        ⇒ ✅ 正解:**那幾群整個跳過,不要呼叫 RPC。**
+ *
+ * 📌 **⇒ 「扣留」在兩條路徑上是【兩個不同的動作】**:
+ *    一般群 = 不把 sku 放進刪除清單;hazard 群 = **不做這一群**。
+ */
+/**
+ * 「這一輪真的要送去刪除的孤兒」。
+ *
+ * 🔴 **它【不需要】知道 hazard 群** —— 而那不是巧合,是這兩個決定的順序決定的:
+ *    `hazardExternalIds` 是**預檢的產物**,而預檢又要吃「哪些孤兒會被刪」
+ *    ⇒ 兩者互為前提。⇒ ✅ **拆成兩支:這一支在預檢【之前】跑,下一支在【之後】。**
+ *    ⚠️ 我第一版把它們寫成同一支 ⇒ `hazardExternalIds` 在那個位置**還不存在**(typecheck 紅)
+ *    ⇒ 📌 **一個「看起來該放在一起」的計算,被它自己的資料相依性拆開了。**
+ */
+export function orphansToDeleteFor(input: {
+  orphans: VariantOrphan[];
+  withheldOrphans: VariantOrphan[];
+}): VariantOrphan[] {
+  return input.withheldOrphans.length ? [] : input.orphans;
+}
+
+/**
+ * 「因為扣留而要【整群跳過】原子同步的 hazard 群」。
+ *
+ * 🔴 為什麼是「跳過整群」而不是「傳空 orphan 清單」:那支 RPC 有一道斷言
+ * 「任何非 desired 現存列都必須明列 orphan」(`20260825120000:256-268` 逐字)
+ * ⇒ 傳空 ⇒ `RAISE EXCEPTION 'payload 不是完整商品群(缺 orphan)'`
+ * ⇒ 📌 **那不是「不刪」,那是【整群同步 abort】** —— 而我第一版的註解宣稱它是正常不刪(codex R1 MF2)。
+ */
+export function hazardGroupsToSkip(input: {
+  withheldOrphans: VariantOrphan[];
+  hazardExternalIds: ReadonlySet<string>;
+}): string[] {
+  return [
+    ...new Set(
+      input.withheldOrphans
+        .filter((o) => input.hazardExternalIds.has(o.externalId))
+        .map((o) => o.externalId),
+    ),
+  ].sort();
+}
+
 export interface VariantOrphan {
   sku: string;
   externalId: string; // 所屬群 main_sku(報告用、客訴可回查)
@@ -224,6 +317,29 @@ export interface VariantOrphanReport {
   aborted: boolean; // 安全 gate 觸發(不可刪)
   abortReason?: string;
   largeDeleteBypassed: boolean; // ratio 超限但 --allow-large-delist 顯式放行(loud log、audit trail)
+  /**
+   * ⛔ ~~`emptiedExternalIds`:刪完之後 in-scope 變體剩零個的那些商品~~
+   * 🔴🔴 **2026-08-31 整個判準被推翻,而不是調整** —— 那個情境**在程式裡生不出來**
+   * (`liveVariantsOf` 保證每個群至少帶一列 ⇒ 「群在 source 而 source 零變體」不存在),
+   * 而它會對**純改名**誤報(舊 SKU 全變孤兒 + 新 SKU 寫進來,在那個判準底下與「被清空」一樣)。
+   *
+   * ✅ **真正的判準是這一個**:**這一次的 source 是不是完整的?**
+   * 因為「source 沒有這一列」與「我這次沒抓到這一列」**在 target 這一側是同一個觀察** ——
+   * 📌 **那道閘在【它自己會遇到的那種故障】面前是盲的:同步壞掉的那一次,
+   * 正是它最可能刪錯東西的那一次。**
+   *
+   * ⚠️ **而那個資訊今天【不存在】**(報價單那一側沒有 sync_log)⇒ 恆為 `'unknown'`
+   * ⇒ 🔴 **所以「拿不到」是主要路徑,不是 fallback。**
+   */
+  sourceCompleteness: SourceCompleteness;
+  /**
+   * 「本來會被刪、而因為拿不到完整性證據所以【沒有刪】」的那些變體。
+   *
+   * 🛑 **乙不是「什麼都不做」,乙是【把刪除換成一張清單】** ——
+   * 而若沒有人看得到這張清單,乙的代價會**安靜地累積**(殘留變體可下單、凍結舊價)。
+   * ⇒ 📌 **這個欄位存在的理由就是讓那張清單有一個落點。**
+   */
+  withheldOrphans: VariantOrphan[];
 }
 
 /**
@@ -237,8 +353,11 @@ export function classifyVariantOrphans(
   targetVariants: VariantOrphan[],
   sourceSkus: Set<string>,
   sourceExternalIds: Set<string>,
-  opts: { allowLargeDelist?: boolean } = {},
+  opts: { allowLargeDelist?: boolean; sourceCompleteness?: SourceCompleteness } = {},
 ): VariantOrphanReport {
+  // 🔴 預設 `'unknown'` —— 而那不是「還沒接上」,是**今天的事實**:
+  //    沒有任何一側說得出「這一批 source 是完整的」。呼叫端不傳 = 誠實地說不知道。
+  const sourceCompleteness: SourceCompleteness = opts.sourceCompleteness ?? 'unknown';
   const inScope = targetVariants.filter((v) => sourceExternalIds.has(v.externalId));
   const orphans = inScope.filter((v) => !sourceSkus.has(v.sku));
   const ratio = inScope.length > 0 ? orphans.length / inScope.length : 0;
@@ -256,6 +375,28 @@ export function classifyVariantOrphans(
   } else if (largeDelete) {
     largeDeleteBypassed = true;
   }
+  // 🔴🔴 **乙:拿不到「source 是完整的」這個證據時,【不刪】。**
+  //    (Sean 2026-08-31「乙 = 寧可少刪 —— 不確定就不下架」,最後一則「確定乙」)
+  //
+  //    為什麼判準是這個而不是「刪完剩幾個」:
+  //    **「source 沒有這一列」與「我這次沒抓到這一列」在 target 這一側是【同一個觀察】** ——
+  //    📌 **那道閘在【它自己會遇到的那種故障】面前是盲的:同步壞掉的那一次,
+  //       正是它最可能刪錯東西的那一次。**
+  //
+  // ⚠️ **而 `aborted` 時不扣留** —— abort 代表這一輪整個不寫,呼叫端會 throw;
+  //    在那裡回報「扣留了 N 個」只會製造一個沒有發生過的數字。
+  // 🔴 **`incomplete` 與 `unknown` 走同一邊,而【理由不同】——**
+  //    `incomplete` = 我們**知道**它不完整 ⇒ **無條件不刪**(那個常數管不到它)
+  //    `unknown`    = 我們**不知道** ⇒ 由那個常數決定(現值 `false` = 乙 = 不刪)
+  //    ⚠️ codex R1 MF5:我第一版讓那個常數同時管兩者 ⇒ **有一天有人把它翻成 `true`,
+  //      連【已經確定不完整】的 source 也會被放行刪除** —— 而那與常數的名字牴觸。
+  //    📌 **⇒ 兩個狀態的結論相同,不代表它們該共用一個開關。**
+  const withhold =
+    !aborted &&
+    (sourceCompleteness === 'incomplete' ||
+      (sourceCompleteness === 'unknown' && !DELETE_ORPHANS_WHEN_COMPLETENESS_UNKNOWN));
+  const withheldOrphans = withhold ? orphans : [];
+
   return {
     targetInScope: inScope.length,
     sourceSkuCount: sourceSkus.size,
@@ -264,6 +405,8 @@ export function classifyVariantOrphans(
     aborted,
     abortReason,
     largeDeleteBypassed,
+    sourceCompleteness,
+    withheldOrphans,
   };
 }
 
@@ -320,11 +463,29 @@ export async function applyVariantDelete(tgt: SupabaseClient, supplierSlug: stri
 export function printVariantOrphanReport(r: VariantOrphanReport, opts: { full?: boolean } = {}): void {
   const cap = opts.full ? Number.MAX_SAFE_INTEGER : 50;
   console.log('\n=== 變體級對賬(V1、孤兒變體=群在但變體從來源消失)===');
+  // 🔴🔴 **預覽不可以說謊**(codex R1 MF3):這一段原本無條件印「待硬刪 / 寫入模式將刪除」,
+  //    而扣留之後**一個都不會刪**。
+  //    📌 **⇒ 一個說謊的 dry-run,比沒有 dry-run 糟 —— 它會讓人放心地按下去。**
+  // 🔴 **codex R1 MF2**:只看 `withheldOrphans` 會漏掉 abort 那一路 ——
+  //    `withhold = !aborted && …` ⇒ **abort 時 `withheldOrphans` 是空的** ⇒ 這一段會印
+  //    「待硬刪 / 寫入模式將刪除」, 而那一輪【一個都不會刪】。
+  //    📌 **⇒ 判準要問【這一輪會不會刪】, 不是【是不是因為扣留而不刪】** —— 兩個原因, 同一個後果,
+  //       而預覽只需要答後果。(abort 的理由仍由本函式最後那行 ALERT 印出來。)
+  const nothingWillBeDeleted = r.withheldOrphans.length > 0 || r.aborted;
+  const withheld = nothingWillBeDeleted;
   console.log(
-    `target 變體(本次群範圍): ${r.targetInScope} / source 變體 sku: ${r.sourceSkuCount} / 孤兒(待硬刪): ${r.orphans.length}(${(r.ratio * 100).toFixed(1)}%)`,
+    `target 變體(本次群範圍): ${r.targetInScope} / source 變體 sku: ${r.sourceSkuCount} / ` +
+      `孤兒(${withheld ? '🔴 【這一輪不刪】' : '待硬刪'}): ${r.orphans.length}(${(r.ratio * 100).toFixed(1)}%)` +
+      ` / source 完整性: ${r.sourceCompleteness}`,
   );
   if (r.orphans.length) {
-    console.log(`孤兒變體清單(${opts.full ? '全量' : '前 50'};寫入模式將刪除、dry-run 僅列):`);
+    console.log(
+      withheld
+        ? `孤兒變體清單(${opts.full ? '全量' : '前 50'};🔴 **這一輪【不會刪】** —— ` +
+            `${r.aborted ? 'abort(理由見下方 ALERT)' : `拿不到「source 是完整的」證據(現值 ${r.sourceCompleteness})`}` +
+            `;它們會留在庫裡):`
+        : `孤兒變體清單(${opts.full ? '全量' : '前 50'};寫入模式將刪除、dry-run 僅列):`,
+    );
     console.table(r.orphans.slice(0, cap));
   } else {
     console.log('✅ 無孤兒變體(target 變體全在 source)');

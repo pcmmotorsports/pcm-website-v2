@@ -76,6 +76,8 @@ import {
   computeVariantOrphans,
   applyVariantDelete,
   printVariantOrphanReport,
+  orphansToDeleteFor,
+  hazardGroupsToSkip,
 } from './rpm-reconcile';
 import {
   checkFetchIntegrity,
@@ -440,7 +442,16 @@ async function main(): Promise<void> {
   if (!DRY_RUN && variantOrphans.aborted) {
     throw new Error(`變體級對賬 gate 觸發、不寫:${variantOrphans.abortReason}`); // 🔴 loud alert + 非零退出(cron 警報)
   }
-  const orphanSkusToDelete = new Set(variantOrphans.aborted ? [] : variantOrphans.orphans.map((o) => o.sku));
+  // 🔴 **預檢要吃【真的會被刪的那些】,不是「所有孤兒」**(codex R1 MF1)。
+  //    那道 `pv_spec_unique` 預檢會把「已排定刪除的孤兒」排除掉(它們 upsert 前先刪、不參與模擬)。
+  //    ⇒ 而扣留之後它們**不會被刪** ⇒ 若仍然排除,一次**純改名且 spec 相同**的同步
+  //      會過得了預檢,然後在 variant upsert 撞 `23505` ——
+  //      📌 **而那是「預檢放行 ⇒ products 已經寫進去了」之後才炸,是最貴的位置。**
+  const orphansToDelete = orphansToDeleteFor({
+    orphans: variantOrphans.aborted ? [] : variantOrphans.orphans,
+    withheldOrphans: variantOrphans.withheldOrphans,
+  });
+  const orphanSkusToDelete = new Set(orphansToDelete.map((o) => o.sku));
 
   // ── 硬 gate 1:pv_spec_unique preflight(source 群內 + target 模擬)──
   //   dry-run 列報告不 throw(Sean 看完整碰撞清單、Phase 1 處置 C3:bonamici 3 群真正區分軸是尺寸、不在 spec);
@@ -632,13 +643,60 @@ async function main(): Promise<void> {
 
   // transition hazard 群完整排除一般 orphan delete / bulk upsert，交給單一 RPC 原子處理。
   // 一般群維持既有路徑；本 slice 的 rollback 承諾只涵蓋 hazard 商品群的變體，不擴成整家供應商大交易。
-  const variantWork = splitVariantSyncWork(variantsByExternalId, variantOrphans.orphans, hazardExternalIds);
+  // 🔴 **被扣留的不進刪除清單** —— 這一行就是「乙」的全部行為改變。
+  //    (`withheldOrphans` 要嘛是空的、要嘛就是 `orphans` 整份 —— 見 classifyVariantOrphans。)
+  //
+  // ✅ **而它【同時關掉兩條刪除路徑】,我開檔確認過** —— 這一格重要,因為
+  //    「只關掉一半」會比全開或全關都難理解:
+  //      一般群 ⇒ `variantWork.regularOrphanSkus` ⇒ `applyVariantDelete`
+  //      hazard 群 ⇒ `variantWork.atomicGroups[].orphanSkus` ⇒ 原子 RPC 內
+  //                 `DELETE … WHERE sku = ANY(p_orphan_skus)`(`20260825120000:303-306`)
+  //    🔵 **兩條都從【同一份 orphans】長出來**(`rpm-load.ts:221-236` 逐字:
+  //       `orphanSkusByExternalId` 由傳進來的 `orphans` 建,hazard 群取它的那一份)
+  //    ⇒ **傳空陣列 ⇒ 兩條都收到空的 ⇒ 兩條都不刪。**
+  //    ⚠️ 而那支 RPC 是【吃參數】不是【自己算要刪誰】—— 我開了 migration 確認,
+  //       否則「關掉」只會關掉我看得到的那一半。
+  // 🔵 `orphansToDelete` 在**預檢之前**就算好了 —— **同一份餵給預檢與刪除**,
+  //    而那正是 MF1 的修法:兩處若各算一次,它們有一天會不一致而沒有人會紅。
+  const variantWork = splitVariantSyncWork(variantsByExternalId, orphansToDelete, hazardExternalIds);
+  // 🔴 而 hazard 那一半只能在**預檢之後**算(`hazardExternalIds` 是預檢的產物)。
+  const skippedHazardGroups = hazardGroupsToSkip({
+    withheldOrphans: variantOrphans.withheldOrphans,
+    hazardExternalIds,
+  });
 
   // ── V1 一般群孤兒變體硬刪(variants upsert 前)──
   //   ⚠️ 一般群仍是既有非交易行為；hazard 群 orphan 已排除，由 RPC 內同交易刪除。
   if (variantWork.regularOrphanSkus.length) {
     const deleted = await applyVariantDelete(target, config.supplierSlug, variantWork.regularOrphanSkus);
     console.log(`[rpm-import] 孤兒變體硬刪:${deleted} 列(scope ${config.supplierSlug};order_items FK SET NULL、歷史不破)`);
+  }
+
+  // ── V1b 「該刪而沒刪」的那張清單(2026-08-31,Sean 拍【乙 = 寧可少刪】)──
+  //
+  // 🛑 **乙不是「什麼都不做」,乙是【把刪除換成一張清單】。**
+  //    Sean 逐字:「乙 = 寧可少刪 —— 不確定就不下架」(最後一則「確定乙」明確確認)。
+  //
+  // 🔴 **而它今天的量級**:那個「source 是完整的」的證據**現在不存在**(報價單那一側沒有 sync_log)
+  //    ⇒ `sourceCompleteness` 恆為 `'unknown'` ⇒ **今天這等於把孤兒刪除整個關掉。**
+  //    ⇒ 📌 **所以下面這個數字不是附帶產物,它是這個決定的【全部代價】** ——
+  //      沒有人看它 ⇒ 殘留變體安靜累積 ⇒ 可下單、凍結舊價(那正是那道閘原本要防的)。
+  //
+  // ⚠️ **而這一行 log【不滿足】plan §六 那條驗收**:「log 只滿足『當晚看得到』,
+  //    不滿足『隔天查得到』」⇒ **本片明寫這個缺口,不假裝它完整。**
+  //    ⇒ 真正的落點是那張同步結果表(報價單側,尚未建)⇒ `⟦b4-WITHHELD1⟧`。
+  if (variantOrphans.withheldOrphans.length) {
+    const sample = variantOrphans.withheldOrphans.slice(0, 10).map((o) => o.sku);
+    console.log(
+      `[rpm-import] 🔴 該刪而【沒刪】:${variantOrphans.withheldOrphans.length} 個孤兒變體` +
+        `(source 完整性=${variantOrphans.sourceCompleteness};scope ${config.supplierSlug})` +
+        ` — ${sample.join(', ')}${variantOrphans.withheldOrphans.length > 10 ? ' …' : ''}`,
+    );
+  } else {
+    // 🔴 **零也要印** —— 「不印」與「這一輪沒有扣留」長得一樣(plan §六,`-b6` 提的)。
+    console.log(
+      `[rpm-import] 該刪而沒刪:0 個(source 完整性=${variantOrphans.sourceCompleteness})`,
+    );
   }
 
   const regularVariantRowsWithProduct = productRows
@@ -668,7 +726,18 @@ async function main(): Promise<void> {
   //     **沒有證「真的連 DB 跑一次時相同」** —— 缺的檢查 = 起拋棄式 PG 實跑一次。
   //   🔴 迴圈本體抽到 `rpm-partial-report.ts` 的唯一理由 = **可測**:
   //     本檔檔尾直接 `main()`(無 `import.meta` 守衛)⇒ 一被 import 就會把整個匯入跑起來。
-  await runAtomicGroups(variantWork.atomicGroups, config.supplierSlug, async (group) => {
+  // 🔴 **被扣留的 hazard 群整個跳過** —— 傳空 orphan 清單給那支 RPC 會撞
+  //    「payload 不是完整商品群(缺 orphan)」的斷言 ⇒ **那是 abort,不是不刪**(codex R1 MF2)。
+  const atomicToRun = variantWork.atomicGroups.filter(
+    (g) => !skippedHazardGroups.includes(g.externalId),
+  );
+  if (skippedHazardGroups.length) {
+    console.log(
+      `[rpm-import] 🔴 因扣留而【整群跳過】原子同步:${skippedHazardGroups.length} 群` +
+        ` — ${skippedHazardGroups.slice(0, 10).join(', ')}`,
+    );
+  }
+  await runAtomicGroups(atomicToRun, config.supplierSlug, async (group) => {
     const synced = await syncVariantGroupAtomic(
       target,
       config.supplierSlug,
@@ -678,11 +747,18 @@ async function main(): Promise<void> {
     );
     console.log(`  product_variants atomic:${group.externalId} ${synced}/${group.variants.length}`);
   });
-  console.log(
-    `[rpm-import] WRITE 完成:${productRows.length} 商品 / ${variantRows.length} 變體` +
-      `(一般 ${regularVariantRowsWithProduct.length} / atomic ${variantWork.atomicGroups.length} 群)`,
-  );
-
+  // 🔴 **codex R1 MF1**:`atomicToRun` 已經把被扣留的 hazard 群濾掉了, 而這一行原本仍印
+  //    `variantWork.atomicGroups.length`(**濾之前**的數)⇒ **跳過的群被算進「WRITE 完成」**。
+  //    ⚠️ 而 runbook 拿這一行當完成依據 ⇒ 一個【沒同步的群】會被讀成成功。
+  //    📌 **⇒ 印出來的數要是【真的跑過的那個集合】的長度, 不是它上游那個。**
+  //    🔵 跳過的群另外印, 不併進同一個數 —— 併進去就等於用一個總數蓋掉兩件事。
+  // 🔴 **codex R2**:R1 我只把「群數」換成 `atomicToRun`, 而**變體總數仍是 `variantRows.length`**
+  //    ——那是**濾之前**的全集 ⇒ 被扣留那幾群的變體照樣被算進「WRITE 完成」。
+  //    📌 **⇒ 這就是「改對一半」**:一個數字改對了, 而它旁邊那個沒跟 ——
+  //       而修好的那一半會讓人相信整行都對了。(同族:R1 的 (b) 也是「訊息與行為對不上」。)
+  const atomicVariantsRun = atomicToRun.reduce((n, g) => n + g.variants.length, 0);
+  const writtenVariants = regularVariantRowsWithProduct.length + atomicVariantsRun;
+  // 🔴 **「WRITE 完成」那一行搬到 S4 之後了 —— 見本段末尾。**(片B2, codex R3)
   // ── S4 來源消失對賬(源頭消失 → **標記** source_missing_at,不下架;upsert 後跑、只全量)──
   // 🔴 2026-08-15 `#20` 片2b:本段**不再下架任何商品**(Sean `Q-B-2=甲` / `Q-關哪一條=乙`)。
   //    篩選模式(--group/--limit)整段跳過:那時 source 集合不完整 ⇒ 標記會誤標、清除會誤清。
@@ -707,6 +783,24 @@ async function main(): Promise<void> {
   } else {
     console.log('[rpm-import] 來源消失對賬跳過(--group/--limit 篩選、非全量、避免誤標與誤清)');
   }
+
+  // ══ 🔴 片B2(codex R3 must-fix):這一行【原本印在 S4 之前】════════════════════
+  //   而 S4 會 `throw`(來源消失對賬安全 gate 觸發)⇒ 舊順序下, 一次【中途失敗的同步】
+  //   仍然會先印出「WRITE 完成:N 商品 / M 變體」, 然後才 throw。
+  //   📌 **⇒ 而 runbook 與操作的人是拿那一行當完成依據的** —— 他看到「完成」就走了。
+  //   🛑 **這一格【沒有任何測試守著】**:本檔檔尾直接 `main()`(無 `import.meta` 守衛,
+  //      理由見上方 :727 那段)⇒ 一被 import 就整支跑起來 ⇒ 要測它得先拆檔, 那是另一片。
+  //      ⇒ 所以它靠的是【位置】不是【斷言】—— 而位置這種東西, 下一個人很容易順手搬回去。
+  //   ⚠️ **這是一個可觀察行為的改變, 不是純搬移**:
+  //      · S4 throw 的那一輪, 這一行【不再印】(舊行為:印了才 throw)
+  //      · 輸出順序變了:S4 那幾行(標記 / 清除 / 跳過)現在【在這一行之前】
+  //      ⇒ 任何用「WRITE 完成 是最後一行」或「它在 S4 之前」來剖 log 的東西都會受影響。
+  //   🔵 而扣留那幾群仍然只在括號裡另計, 不併進主數字 —— 那是 R1/R2 那兩條, 本片沒有動它。
+  console.log(
+    `[rpm-import] WRITE 完成:${productRows.length} 商品 / ${writtenVariants} 變體` +
+      `(一般 ${regularVariantRowsWithProduct.length} / atomic ${atomicToRun.length} 群 ${atomicVariantsRun} 變體` +
+      `${skippedHazardGroups.length ? ` / 🔴 扣留跳過 ${skippedHazardGroups.length} 群(其變體【不計入】上面那個數)` : ''})`,
+  );
 }
 
 main().catch((e) => {
