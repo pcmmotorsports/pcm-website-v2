@@ -1,3 +1,8 @@
+// ⚠️⚠️ 【被這支檔的紅擋住而你覺得自己沒弄壞任何東西 —— 先讀這 5 行】
+// 本 repo 有 **238 處**「選擇器後面直接接 `{`」的字面尺(18 支檔;2026-08-31 量,數法在板子那一列)。
+// 你【合法】改寫一條 CSS 規則時它會紅 —— 例如多加一個選擇器 —— 而**行為沒有壞**。
+// 🔴 修法【不是】把 regex 改寬(那是把假紅改成假綠), 是把它推成【選擇器涵蓋尺】並附一發突變。
+//    成例:`066403fb`(`auth-account.test.ts` 的 16px 那條)。板子 `⟦b9-CSSLITERAL⟧`。
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
