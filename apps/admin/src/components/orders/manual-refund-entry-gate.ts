@@ -98,6 +98,14 @@ import type { PaymentListData } from './payment-list';
  *     (🔵 正對照:admin 有 `.insert(` 的檔 ⇒ 8 支 ⇒ 尺會動)。
  *  ⇒ 🔴 **所以那條路要走到,得【繞過 RPC 直接下 SQL】** —— app 層不可達。
  *
+ *  ✅ **而【權限層】那把尺答得比 app 層更窄**(主視窗 2026-08-31 在正式庫唯讀量):
+ *     `order_manual_refunds` 的 **INSERT 權限 ⇒ 只有 `postgres`(一列)** ——
+ *     🔴 **連 `service_role` 都沒有**;`anon` / `authenticated` 的任何權限 ⇒ **0**;
+ *     RLS ⇒ `true` 而政策 **0 條**(RLS 開 + 零政策 = 全擋)。
+ *     🟢 正對照:那張表所有權限筆數 ⇒ 10(尺分得出兩種)· 🔵 負對照 `pcm_audit_ro` ⇒ 0
+ *  ⇒ 📌 **兩把【不同層】的尺同向 ⇒ 這個結論才站得住。**
+ *     只有 app 層那一發的話它站不住 —— 那是一個「太順的 0」,而好消息型的 0 最不會被回頭查。
+ *
  *  🛑 **而【不要】為了修它在那道 trigger 裡加 `orders` 鎖** ——
  *     2026-08-24 主視窗已裁【不加鎖】,理由在 `20260824011000` 檔頭 `:57-72`:
  *       `admin_record_manual_refund` 是 **orders → 子表**;
@@ -113,6 +121,17 @@ import type { PaymentListData } from './payment-list';
  *     (施工窗與主視窗)各自漏掉同一段、各自推薦了加鎖。**
  *     ⇒ 📌 **一個決定不會自己跳出來說「我是被決定的,不是被漏掉的」。**
  *     ⇒ 所以它被複製到這裡 —— 要翻這一行的人一定會經過。
+ *
+ *  🔴🔴 **⇒ 而你要翻這一行之前,真正要做的【不是修這個洞】,是【重量那兩格前提】**
+ *     (主視窗 2026-08-31 拍乙時指定的形狀,而這是本段最重要的一條):
+ *       ① app 層還是零寫入路徑嗎?
+ *          量法 `grep -rn "from('order_manual_refunds')" --include='*.ts' apps packages | grep -v test`
+ *          ⇒ 命中的每一支都要是唯讀(當時:1 支、寫入呼叫 0)
+ *       ② `service_role` 還是沒有 INSERT 嗎?(當時:INSERT 只有 `postgres`)
+ *     🔴 **因為那兩格前提就是「不修」這個裁定的【全部理由】** ——
+ *        任一格變了,這個洞就從**走不到**變成**走得到**,而**沒有任何東西會叫**。
+ *     📌 ⇒ 這一段不是在告訴你「安全」,是在告訴你**它安全的理由是什麼、以及那個理由怎麼過期**。
+ *
  *  📎 可重跑的證人:`scripts/caprace1-concurrency-probe.sh`(四個世界,含**必死正對照**:
  *     一個手工造的反向鎖序世界必須真的 `deadlock detected`,否則整發零判別力)。 */
 export const MANUAL_REFUND_ENTRY_BLOCKED_BY_787: boolean = true;
