@@ -17,11 +17,16 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
   const order: ReturnType<typeof vi.fn> = vi.fn();
   order.mockReturnValue({ order, range });
   const eq = vi.fn();
-  const builder = { eq, order };
+  // 🔴 **2026-09-01:多了 `is`** —— 性別那一軸的「未填」走 `.is('gender', null)`,不是 `.eq`。
+  //    ⚠️ 照本 harness 上面那條同樣的理由:**產品的鏈真的多了一節**,harness 不跟著就模擬不到它。
+  //    📌 而漏加它的症狀不是「測不到」,是 `query.is is not a function` ⇒ **它會吵**,那是好事。
+  const is = vi.fn();
+  const builder = { eq, is, order };
   eq.mockReturnValue(builder);
+  is.mockReturnValue(builder);
   const select = vi.fn().mockReturnValue(builder);
   const from = vi.fn().mockReturnValue({ select });
-  return { client: { from } as unknown as SupabaseClient, from, select, eq, order, range };
+  return { client: { from } as unknown as SupabaseClient, from, select, eq, is, order, range };
 }
 
 describe('SupabaseCustomerAdapter.listCustomerSummariesForAdmin + ADMIN_CUSTOMER_LIST_SELECT 守門', () => {
@@ -110,6 +115,63 @@ describe('SupabaseCustomerAdapter.listCustomerSummariesForAdmin + ADMIN_CUSTOMER
       keywordTruncated: false,
       keywordMatchCount: null,
     });
+  });
+
+  // ══ 🔴🔴 `:573` 段③ 性別 —— codex R1 must-fix(2026-09-01)═══════════════════
+  //   它逐字:「沒有測試真的呼叫 repository 並斷言 `.eq('gender', value)`;
+  //            整段產品查詢被刪掉時,新增測試全部仍綠。」
+  //   📌 **⇒ 我那三支新測試驗的是【參數怎麼解析】與【下拉出不出現】,
+  //      而【那個值有沒有真的變成一條查詢條件】從頭到尾沒有人在看。**
+  //      ⇒ 那是這一片唯一真正會影響客人/員工看到什麼的一步。
+  it('🔴 filter.gender ⇒ 真的下推 .eq(gender, 值);而沒給時完全不下推', async () => {
+    const { client, eq } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseCustomerAdapter(client).listCustomerSummariesForAdmin(
+      { gender: 'female' },
+      { limit: 20, offset: 0 },
+    );
+    expect(eq).toHaveBeenCalledWith('gender', 'female');
+    // 🔴 只有一條 —— 沒給 tier 就不該冒出第二條 eq(不然「有下推」與「下推對了」分不開)
+    expect(eq).toHaveBeenCalledTimes(1);
+  });
+
+  // ══ 🔴🔴 「未填」那一格 —— codex R3(2026-09-01 換角度)+ 規格 `:86` ═══════════
+  //   `'unset'` 是哨兵不是值。走錯 API 的症狀**全都是「零筆」而不報錯**:
+  //     `.eq('gender','unset')` ⇒ 比字面字串 ⇒ 零筆
+  //     `.eq('gender', null)`   ⇒ PostgREST 的 `eq.` 對 NULL 是 SQL `= NULL` ⇒ 零筆
+  //   📌 **三種寫法,兩種錯的,而三種在畫面上長得一模一樣。**
+  it('🔴 gender=unset ⇒ 走 .is(gender, null),而【不得】出現任何 .eq(gender, …)', async () => {
+    const { client, eq, is } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseCustomerAdapter(client).listCustomerSummariesForAdmin(
+      { gender: 'unset' },
+      { limit: 20, offset: 0 },
+    );
+    expect(is).toHaveBeenCalledWith('gender', null);
+    expect(is).toHaveBeenCalledTimes(1);
+    // 🔵 這一行才是判別力所在:把 `.is` 寫成 `.eq` ⇒ 上面兩條紅、這條也紅。
+    expect(eq).not.toHaveBeenCalled();
+  });
+
+  // 🟢 正對照 —— 沒有它, 上面那格在「adapter 對每個 gender 都走 .is」時也會綠。
+  it('🟢 一般性別值【不】走 .is(不然「男」也會篩成未填的人)', async () => {
+    const { client, eq, is } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseCustomerAdapter(client).listCustomerSummariesForAdmin(
+      { gender: 'male' },
+      { limit: 20, offset: 0 },
+    );
+    expect(eq).toHaveBeenCalledWith('gender', 'male');
+    expect(is).not.toHaveBeenCalled();
+  });
+
+  // 🔵 負對照 —— 沒有它, 上面那格在「adapter 對每個 filter 都無條件下推」時也會綠。
+  it('🔵 沒給 gender ⇒ 不得憑空產生 .eq(gender, undefined)(那會篩掉所有人)', async () => {
+    const { client, eq } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseCustomerAdapter(client).listCustomerSummariesForAdmin(
+      { tier: 'general' },
+      { limit: 20, offset: 0 },
+    );
+    expect(eq).toHaveBeenCalledWith('tier', 'general');
+    expect(eq).not.toHaveBeenCalledWith('gender', undefined);
+    expect(eq).toHaveBeenCalledTimes(1);
   });
 
   it('無 tier 篩選 → 完全不下推 eq(全表);offset 預設 0 → range(0, limit-1);phone null 直送', async () => {

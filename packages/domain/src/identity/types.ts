@@ -153,6 +153,41 @@ export type AdminCustomerFilter = {
 
   /** 生日**上界**(含),`YYYY-MM-DD`。`undefined` = 不限。理由同 `birthdayFrom`。 */
   birthdayTo?: string;
+
+  /**
+   * 性別代碼。`undefined` = 不篩。
+   *
+   * 對應 `admin_customer_list_v.gender`(`20260901010000` 那支 migration 加的,
+   * 值域由底表的 `customers_gender_chk` 管 —— `20260831150000`)。
+   * Sean 2026-08-26 逐字「當然要做啊......... 性別、生日這個在客戶註冊時候也要有」的第三段。
+   *
+   * 🔴 **這裡手寫一份聯集,而 `GENDER_CODES` 的正本在 `@pcm/schemas`** ——
+   * 不是重複,是 `packages/domain` **不依賴** `@pcm/schemas`(package.json 實查 0)。
+   * ⇒ 而這正是本 repo 既有的慣例:同一支檔的 `MemberTier`(`../shared/types.ts:70`)
+   *   也是手寫的,旁邊配一支 `member-tier-enum-drift.test.ts` 在盯。
+   * ⚠️ 而**本欄配的不是那種漂移測試** —— 那支掃的是 `CREATE TYPE … AS ENUM`,
+   *   而 gender 是 **CHECK 不是 enum** ⇒ 抄過來要重寫整組 regex。
+   *   📌 **那不是「嫌麻煩」,是【那把尺量的不是這個東西】。**
+   *   改用**型別層斷言**釘住這份手抄 vs `GENDER_CODES`,落點
+   *   `apps/admin/src/lib/customers/customer-list-view.test.ts`(兩邊都看得到的那一層)。
+   *
+   * 🔴🔴 **`'unset'` 是哨兵,不是一個性別** —— 它代表 `gender IS NULL`。
+   * 規格逐字要求(`docs/specs/2026-08-26-customer-gender-birthday-spec.md:86`):
+   *   「後台篩選的 UI 要**分得開「未填」與「不透露」**,不要只給一個「空白」。」
+   * ⇒ 而那兩者在資料上就是兩件事(同檔 `:79-83`):
+   *   `NULL` = **沒機會填 / 還沒填**(含【全部】OAuth 註冊者)
+   *   `'undisclosed'` = 他看過那張表單,而**他選了不說**
+   * 🛑 **上一版我漏了這一格**(codex R3 2026-09-01 換角度抓到):
+   *   下拉只有 男/女/不透露 ⇒ **上線當天三個選項都會回 0 筆**(今天 14 筆全 NULL),
+   *   而員工會把它讀成「沒有這種客人」,不是「這批資料還沒收到」。
+   *   📌 **一個回 0 的篩選器與一個壞掉的篩選器,在畫面上長得一樣。**
+   *
+   * 🔴 **NULL 的人用 `'unset'` 才篩得到,而那是【多數】** —— 只有 Email 註冊路徑會填這一欄,
+   * Google 一鍵與 LINE 進來的使用者恆 NULL(結構,不是漏做;全文在 `customers.gender`
+   * 的 `COMMENT ON COLUMN`)。⇒ 用它做出來的任何分布都只涵蓋 Email 註冊那一群,
+   * **而那個偏差在畫面上沒有形狀。**
+   */
+  gender?: 'male' | 'female' | 'undisclosed' | 'unset';
 };
 
 /**

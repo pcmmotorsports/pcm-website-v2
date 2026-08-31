@@ -11,6 +11,7 @@ import {
   CUSTOMERS_PAGE_SIZE,
 } from '../../lib/customers/customer-list-view';
 import { CustomerFilterBar } from '../../components/customers/customer-filter-bar';
+import { genderFilterEnabled, applyGenderGate } from '../../lib/customers/gender-filter-flag';
 import { CustomerKeywordSearch } from '../../components/customers/customer-keyword-search';
 import {
   readCustomerKeywordCookie,
@@ -36,10 +37,27 @@ export default async function CustomersPage({
   // 🔴 `today` 明給、不讓純函式自己取 —— 這是本頁**唯一**碰時鐘的地方。
   //    伺服器跑 UTC ⇒ 台灣時間每天 0-8 點 `new Date()` 還在昨天
   //    ⇒ 年齡篩選的邊界會差一天, 而**那一天不會有任何東西紅**。
-  const { filter, page, sort, ageInputs } = parseCustomerListSearchParams(
-    rawSearch,
-    todayInTaipei(),
-  );
+  const {
+    filter: parsedFilter,
+    page,
+    sort,
+    ageInputs,
+  } = parseCustomerListSearchParams(rawSearch, todayInTaipei());
+
+  // 🔴🔴 部署順序閘(`:573` 段③)—— **本頁唯一碰 env 的地方**,與上面那句
+  //    「`today` 明給、本頁唯一碰時鐘的地方」是同一條紀律:
+  //    純函式不讀環境,環境只在這一層讀一次。
+  //
+  //    🛑 **這一行抹除【不是為了 UI】** —— 下拉不算繪就已經送不出這個參數了。
+  //       它擋的是**手打網址**:有人貼一條 `?gender=male` 進來,而 view 上還沒有那一欄
+  //       ⇒ PostgREST 42703 ⇒ **整頁炸掉**。⇒ 這是信任邊界,不是顯示邏輯。
+  //    ⚠️ 而它與下拉那一格是【兩件事】:兩邊都呼叫 `genderFilterEnabled()`,
+  //       **而「呼叫同一支函式」不等於「綁在一起」** —— 綁住它們的是
+  //       `customer-gender-filter-flag.test.tsx`(關掉旗標時,兩件事在同一格裡驗)。
+  const genderOn = genderFilterEnabled();
+  // 🔴 邏輯本體在 `applyGenderGate`,不在這一行 —— codex R1 must-fix:
+  //    寫在這裡的話,測試只能【重抄一份】去驗,而那份綠證明不了產品這一份還在。
+  const filter = applyGenderGate(parsedFilter, genderOn);
   // 🔴 #365:儲值金 / 會員等級兩支 action 的失敗出口是**寫死**的 `redirect('/customers?r=…')`
   //    (`lib/customers/wallet-actions.ts:33`/`:39`、`tier-actions.ts:35`/`:41`)——
   //    也就是**所有** `denied` / `invalid` 都落在這一頁。這頁先前沒有橫幅 ⇒ 員工按下去之後
@@ -96,7 +114,7 @@ export default async function CustomersPage({
         truncated={result?.keywordTruncated ?? false}
       />
 
-      <CustomerFilterBar filter={filter} sort={sort} ageInputs={ageInputs} />
+      <CustomerFilterBar filter={filter} sort={sort} ageInputs={ageInputs} showGender={genderOn} />
 
       {loadFailed ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>

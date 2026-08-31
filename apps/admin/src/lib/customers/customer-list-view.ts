@@ -9,7 +9,12 @@ import type {
   AdminCustomerSortKey,
   MemberTier,
 } from '@pcm/domain';
-import { isSyntheticEmailDomain } from '@pcm/schemas';
+import {
+  isSyntheticEmailDomain,
+  GENDER_CODES,
+  GENDER_LABEL,
+  type GenderCode,
+} from '@pcm/schemas';
 import {
   pickEnum,
   parsePage,
@@ -111,6 +116,43 @@ export const TIER_OPTIONS: FilterOption[] = TIER_VALUES.map((v) => ({
   value: v,
   label: TIER_LABEL[v],
 }));
+
+// ─────────────── 性別(`:573` 段③;Sean 2026-08-26「當然要做啊」的第三段)───────────
+//
+// 🔴 值域與中文標籤**都不在這裡自訂** —— 正本是 `@pcm/schemas` 的 `GENDER_CODES` /
+//    `GENDER_LABEL`(`packages/schemas/src/index.ts:57`/`:61`),註冊表單用的就是同一份。
+//    ⇒ 哪天 Sean 說「不透露」要改字,只改那一份,這裡與 DB 都不用動。
+// ⚠️ 而 `apps/admin` **依賴** `@pcm/schemas`(package.json 實查 1、已有 5 支檔在 import)
+//    ⇒ 這一層不必手抄。手抄的只有 `packages/domain` 那一份型別,理由寫在
+//    `AdminCustomerFilter.gender` 的 docstring 裡。
+
+/** 查詢字串鍵名。 */
+export const GENDER_PARAM = 'gender';
+
+/**
+ * 🔴🔴 「未填」的網址值。**它不是一個性別,是 `gender IS NULL`。**
+ *
+ * 規格逐字(`docs/specs/2026-08-26-customer-gender-birthday-spec.md:86`):
+ *   「後台篩選的 UI 要**分得開「未填」與「不透露」**,不要只給一個「空白」。」
+ * ⇒ `NULL` = 沒機會填(**全部** OAuth 註冊者)· `'undisclosed'` = 他看過表單而選了不說。
+ *
+ * ⚠️ **值刻意不叫 `null` 也不叫空字串** —— 空字串在這張表單上已經是「不限」的意思
+ *    (`SelectFilter` 置頂那顆),兩者撞在一起會讓「不限」與「未填」在網址上分不開。
+ */
+export const GENDER_UNSET = 'unset';
+
+/** 值域(= `GENDER_CODES` + 「未填」哨兵;解析白名單守門,形狀照 `tier` 那一軸)。 */
+export const GENDER_VALUES: readonly (GenderCode | typeof GENDER_UNSET)[] = [
+  ...GENDER_CODES,
+  GENDER_UNSET,
+];
+
+export const GENDER_OPTIONS: FilterOption[] = [
+  ...GENDER_CODES.map((v) => ({ value: v, label: GENDER_LABEL[v] })),
+  // 🔴 「未填」排最後,而它的字**刻意與「不透露」拉開**(不是「未提供」這種近義詞)——
+  //    員工要在一眼之內看出這兩個不是同一件事。
+  { value: GENDER_UNSET, label: '未填(含 Google / LINE 註冊)' },
+];
 
 // ─────────────── 排序(2026-08-19;plan 已批,主視窗裁「這不是決策題」)───────────────
 
@@ -284,6 +326,11 @@ export function parseCustomerListSearchParams(
   return {
     filter: {
       tier: pickEnum(raw[TIER_PARAM], TIER_VALUES),
+      // 🔴 白名單守門,形狀與 `tier` 逐字相同 —— 認不得的值一律**當作沒填**,不擲錯。
+      //    ⚠️ 而這一軸另外還有一道【部署順序閘】在 `page.tsx`:view 上還沒有 `gender` 欄
+      //       的期間,那裡會把這個值抹掉。**本函式是純的,不讀 env** —— 理由同 `today`:
+      //       把環境偷渡進純函式,就等於讓它每個部署跑出不同結果,而測試也只能跟著寫死。
+      gender: pickEnum(raw[GENDER_PARAM], GENDER_VALUES),
       ...(bm === undefined ? {} : { birthMonth: Number(bm) }),
       // 🔴 年齡與日期【一起】設定, 而且只在這裡設定 —— 見 `AdminCustomerFilter.ageMin` 的 docstring。
       //    打反時兩者都不設 ⇒ 網址與查詢一起變成「不限」, 不會一半篩一半不篩。
@@ -384,6 +431,9 @@ export function buildCustomerListHref(
     '/customers',
     [
       [TIER_PARAM, filter.tier],
+      // 🔴 性別也要原封帶過去 —— 少了它, 翻頁 / 改排序就會把這個條件丟掉,
+      //    而**筆數變多、畫面自洽、零訊號**(同 `#743` 那一格,已經發生過一次)。
+      [GENDER_PARAM, filter.gender],
       // 🔴 生日兩軸也要原封帶過去 —— 少了它們, 翻頁就會把篩選丟掉,
       //    而畫面看起來完全正常(同 `#743` 排序那一格的病)。
       [BIRTH_MONTH_PARAM, filter.birthMonth === undefined ? undefined : String(filter.birthMonth)],

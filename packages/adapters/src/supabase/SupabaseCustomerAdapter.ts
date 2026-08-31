@@ -149,8 +149,18 @@ type DatabaseWithCustomerListView = Database & {
       //    而它們**刻意只出現在這個 Row 型別裡, 不進 `SupabaseAdminCustomerRow`** ——
       //    後者是**投影**用的(對應 `ADMIN_CUSTOMER_LIST_SELECT`), 而這兩欄**只用來 filter**。
       //    ⇒ 型別層把「查得到」與「拿得到」分開, 與 §PII 那條既有決定同一個形狀。
+      // 🔴 `gender` 是 `20260901010000` 那支加的第三顆, 同一個立場:只 filter、不投影。
+      //    ⚠️ **而它的到期日與那兩顆【不同】** —— 生日兩顆已經在正式庫上
+      //       (主視窗 2026-09-01 唯讀實測 `birthday ⇒ 1` `birth_month ⇒ 1`),
+      //       而 `gender ⇒ 0` ⇒ **這一顆是三顆裡唯一【真的還沒 apply】的。**
+      //    📌 記在這裡是因為:上面那段檔頭寫「apply 之後就該刪掉」,
+      //       而一個讀到那句的人會以為三顆同一個狀態。**它們不是。**
       admin_customer_list_v: {
-        Row: SupabaseAdminCustomerRow & { birthday: string | null; birth_month: number | null };
+        Row: SupabaseAdminCustomerRow & {
+          birthday: string | null;
+          birth_month: number | null;
+          gender: string | null;
+        };
         Relationships: [];
       };
     };
@@ -325,6 +335,26 @@ export class SupabaseCustomerAdapter implements ICustomerRepository {
     }
     if (filter.birthdayTo !== undefined) {
       query = query.lte('birthday', filter.birthdayTo);
+    }
+    // 🔴 性別(`20260901010000` 那支 migration 加的第三顆 view 欄)。
+    //    同樣**只下 filter, 不進 `select`** —— 理由與生日那兩軸逐字相同:篩得到、看不到。
+    //    ⚠️ **`gender` 是 NULL 的人一律篩不到, 而那是【多數】** ——
+    //       只有 Email 註冊路徑會填它, Google / LINE 進來的恆 NULL(結構, 不是漏做)。
+    //       ⇒ 員工選了「男」看到 3 個人, **不代表只有 3 個男客人**。
+    //       那句話寫在 `customers.gender` 與 view 那一欄的 `COMMENT ON COLUMN` 裡,
+    //       因為做報表的人不會讀這支 adapter。
+    //    🛑 而**這一行不看旗標** —— 部署順序閘在 `apps/admin/src/app/customers/page.tsx`,
+    //       這一層拿到什麼就下什麼。adapter 讀 env 會讓它不可單測(同「adapter 不碰時鐘」那條)。
+    if (filter.gender !== undefined) {
+      // 🔴🔴 `'unset'` 是哨兵不是值 —— 它要走 `.is(col, null)`,**不是 `.eq(col, 'unset')`**。
+      //    後者會去比對字面字串 'unset' ⇒ **永遠零筆**,而畫面上與「真的沒有這種人」一樣。
+      //    ⚠️ 也不能寫成 `.eq('gender', null)` —— PostgREST 的 `eq.` 對 NULL
+      //       走的是 SQL 的 `= NULL` 語意(恆 UNKNOWN)⇒ 同樣零筆而不報錯。
+      //    規格要求兩者分得開:`docs/specs/2026-08-26-customer-gender-birthday-spec.md:86`。
+      query =
+        filter.gender === 'unset'
+          ? query.is('gender', null)
+          : query.eq('gender', filter.gender);
     }
     // 🔴 搜尋與 tier 是 **AND**:員工先選「經銷商」再搜名字,不該把 tier 洗掉。
     if (keywordIds !== null) query = query.in('user_id', keywordIds);
