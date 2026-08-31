@@ -247,7 +247,7 @@ const ALLOWLIST = [
   //      量法(**路徑寫全,`gen2`/`gen3` 不是檔名**;codex R2 must-fix:兩個 grep 都讀不到檔時
   //      `diff` 會比兩份空輸出並回 0 ⇒ 那是一條假綠路徑,所以這裡不留簡寫):
   //        `diff <(grep -hE ':=|SUM\(' supabase/migrations/20260829140000_m4b_b2c_manual_order_explicit_tax_total.sql | sort) \
-  //              <(grep -hE ':=|SUM\(' supabase/migrations/20260831160000_m4b_spec1_manual_order_authoritative_spec.sql | sort)`
+  //              <(grep -hE ':=|SUM\(' supabase/migrations/20260831180000_m4b_spec1_manual_order_authoritative_spec.sql | sort)`
   //      ⚠️ 跑之前先各自 `wc -l` 確認兩側**都不是 0 行**,否則 `diff` 回 0 的意思是「兩邊都沒讀到」。
   //      ⇒ **差 2 行,而那 2 行都在【前置閘】裡**(`v_src NOT LIKE '%v_spec := …%'` 與
   //        `v_fp := md5(…)` 的指紋計算)。
@@ -271,12 +271,20 @@ const ALLOWLIST = [
   //    📌 **⇒ 本 allowlist 記的是「這支檔在 repo 裡、而它不是新的寫入者」,**
   //       **不是「這支檔可以上正式庫」。兩件事不同,而它們在一行綠底下長得一樣。**
   //    ⇒ 到期條件:哪一天它被 apply 或被改成會自己算金額,這一筆即失效。
-  //    🔴🔴 **而查法【不能只看版本號】——本 repo 這個版本號是撞號的**(codex 2026-08-31 must-fix,本窗複量):
-  //       `ls supabase/migrations | grep '^20260831160000'` ⇒ **2 支**
-  //         · `20260831160000_m4b_coupon_p2_redeem_rpc.sql`(**另一條線的**)
-  //         · `20260831160000_m4b_spec1_manual_order_authoritative_spec.sql`(本筆)
-  //       🟢 而**只算 `.sql`** 時,全庫重複版本號就只有這一組:
-  //          `ls supabase/migrations/*.sql | xargs -n1 basename | cut -d_ -f1 | sort | uniq -d` ⇒ 只有 20260831160000。
+  //    🔴🔴 **撞號已解(2026-08-31 19:2x,主視窗發號)—— 而【這是本片第二次改號】,兩個舊號都留著:**
+  //         ⛔ ~~`20260831140000`~~ ⇒ 撞線 auth 的 `customers_gender`(**那支已 apply、帳本有鍵** ⇒ 動它要連帳本)
+  //         ⛔ ~~`20260831160000`~~ ⇒ 撞線帳戶區的 `m4b_coupon_p2_redeem_rpc`(**兩支皆未 apply**)
+  //         ✅ 現行 `20260831180000`
+  //       🔴 **兩個舊號刻意留著加刪除線** —— 搜任一個舊號的人要在同一發撞到兩次改號的歷史。
+  //       📌 **而形狀值得記:上一次改號(`bb3618b3`,15:28)挑的是「當下看起來空的」160000,**
+  //          **2.5 小時後另一條線也挑了它 ⇒ 修撞號的那一顆,自己撞了下一個號。**
+  //          ⇒ **一次「挑一個看起來空的號」在單人時安全,在八窗並行時是一次賭。**
+  //       🛑 **而那道 pre-commit 撞號閘這次沒有擋** —— 它只看【這一次 commit 的 staged 內容】,
+  //          而兩支是在**不同的樹**上各自產生的。
+  //          ⇒ **閘的分母是「我這棵樹」,而撞號的分母是「所有樹的聯集」。**
+  //          (射程已寫進那道閘的檔頭;改它的行為要另外提。)
+  //       🟢 改號後複量:`ls supabase/migrations/*.sql | xargs -n1 basename | cut -d_ -f1 | sort | uniq -d`
+  //          ⇒ **零組**(改號前 ⇒ 只有 20260831160000 那一組)。
   //       ⚠️ **不過濾 `.sql` 會得到兩組**(codex R2 抓到我上一版把 `*.sql` 縮寫成 `…` 而讀不出來):
   //          多出來的 `20260820030000` 是「一支 `.sql` + 一支 `_ERRATUM.md`」⇒ **那不是撞號**。
   //          📌 **⇒ 同一句「重複幾組」在兩個分母下答案不同,所以量法要把分母寫進命令裡。**
@@ -287,7 +295,7 @@ const ALLOWLIST = [
   //       📌 ⇒ 到期條件用 `bash scripts/latest-definition-of.sh admin_create_manual_order`,
   //          **而 live 那一欄仍只是帳本、不是正式庫現況**(那支工具自己的射程聲明)。
   //       🛑 撞號本身是一個**跨線的獨立問題**(不是本筆造成的),已回報主視窗。
-  '20260831160000_m4b_spec1_manual_order_authoritative_spec.sql',
+  '20260831180000_m4b_spec1_manual_order_authoritative_spec.sql',
 ] as const;
 
 function scanWriters(dir: string): string[] {

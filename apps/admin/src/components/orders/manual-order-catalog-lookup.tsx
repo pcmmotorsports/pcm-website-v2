@@ -109,8 +109,17 @@ export function ManualOrderCatalogLookup({ searchAction }: ManualOrderCatalogLoo
 
       {hits !== null && hits.length > 0 && (
         <ul className='mt-2 space-y-1 text-sm'>
+          {/* 🔴 下面那個 <li> 的圓角類別**一定要帶後綴**(此處 `-md`)。少了後綴的那個裸形
+              在 Tailwind v4 會產出 `3.40282e38px`(瀏覽器 computed `1.67772e+07px`)
+              ⇒ 不是風格問題,**畫面真的會壞**。守門 `app/design-tokens.test.ts` 的案例表
+              把「有後綴」逐字列為合規;本檔另外三處(:78/:85/:93)本來就帶後綴 ⇒ 那一行是漏網。
+              ⚠️ **本註解刻意不寫出那個裸形** —— 守門連【無引號的註解散文】都會攔。
+              🔴 **而這段註解第一版放在 `.map(h => (` 的正下方 ⇒ JSX parse error**
+                 (箭頭函式那個位置只能回**一個**元素,註解會變成第二個同層節點)。
+                 📌 **而那一版 `design-tokens` 那道守門【照樣印綠】—— 它掃的是文字,不編譯。**
+                 ⇒ 一支**根本 parse 不過**的檔,在那道守門底下與一支正確的檔長得一樣。 */}
           {hits.map((h) => (
-            <li key={h.variantId} className='rounded border px-2 py-1'>
+            <li key={h.variantId} className='rounded-md border px-2 py-1'>
               <span className='font-mono'>{h.sku}</span> · {h.title === '' ? '(無品名)' : h.title}
               {' · '}
               {/* 🔴🔴 **稅基標籤與數字在【同一個 <span> 裡】—— 那是刻意的, 不是排版**:
