@@ -31,6 +31,30 @@ is_collision() {  # is_collision <log 檔>
   grep -qE 'already running|Wait for the build to complete|exit code 130' "$1" 2>/dev/null
 }
 
+# ── 🔴🔴 2026-09-01:上面那個字面【不足以下結論】, 而它下的結論是【解除警戒】的那一種 ──────
+#    實錘(`-a0` 當天撞到):一個真的 build 錯(`'use server'` 檔匯出了非 async 的東西)
+#      ⇒ `@pcm/admin:build` rc=1
+#      ⇒ **turbo 砍掉並行的 `@pcm/storefront:build` ⇒ 它印 `exit code 130`**
+#      ⇒ `is_collision` 命中 ⇒ 本工具印「撞窗, 不是缺陷, 等一下重跑」
+#    📌 **那個 130 是【我自己的錯造成的】, 不是別的窗。**
+#
+# 🛑 **而這個誤判的方向是最貴的那一種**:一個誤報只是吵;
+#    **一句「這個紅可以忽略」會把真錯變成環境雜訊** —— 而當時五條線都在用這支工具。
+#    ⚠️ 抓到它的是**本工具自己輸出裡的矛盾**(說撞窗、而它自己數到 0 個 build 在跑)
+#    ⇒ 📌 **若它只印結論、不印那個數, 沒有人會去查。**
+#
+# ⇒ 改法:**那個字面只是【線索】, 要配上「現在真的有別的 build 在跑」才准下撞窗的結論。**
+live_builds() {
+  pgrep -fc 'next build' 2>/dev/null || printf '0'
+}
+
+# collision_verdict <log 檔> <現在有幾個 build 在跑> ⇒ 印 collision | real
+#   🔵 拆成一支吃參數的函式, 是為了讓自檢演得到【數到 0】那個世界 ——
+#      直接測 `is_collision` 只測得到那個字面, 測不到這個決定。
+collision_verdict() {
+  if is_collision "$1" && [ "${2:-0}" -gt 0 ]; then printf 'collision'; else printf 'real'; fi
+}
+
 # ── 🔴 `$?` 是每一個指令都會覆寫的全域變數 ⇒ 那一行前後不准有任何東西 ────────────
 #    (2026-08-29 實測 40 種寫法:會蓋掉 40 / 不會 0。)
 #    而 `local X=$(cmd)` 會【吞掉】rc ⇒ 必須拆兩行。
@@ -65,6 +89,16 @@ if [ "${1:-}" = "--selftest" ]; then
   else printf '  🔴 撞窗正對照沒被判出來\n'; SRC=1; fi
   if is_collision "$TD/miss.log"; then printf '  🔴 撞窗負對照:一個真的 TS error 被誤判成撞窗\n'; SRC=1
   else printf '  ✅ 撞窗負對照:真的 TS error ⇒ 不判成撞窗\n'; fi
+  # 🔴 2026-09-01 補:上面兩格只驗【那個字面】, 驗不到【那個決定】。
+  #    真正咬人的世界是:log 有撞窗字面(turbo 砍並行任務印的 130), 而現在【沒有】別的 build 在跑。
+  printf '@pcm/storefront:build: ELIFECYCLE Command failed with exit code 130.\n' > "$TD/c130.log"
+  if [ "$(collision_verdict "$TD/c130.log" 0)" = "real" ]; then
+    printf '  ✅ 撞窗判定:有字面而【0 個 build 在跑】⇒ 判 real(不准說撞窗)\n'
+  else printf '  🔴 撞窗判定:數到 0 還說撞窗 ⇒ 那句話會叫人忽略一個真錯\n'; SRC=1; fi
+  # 🔵 負對照:數 > 0 時仍然要判得出撞窗(不要把功能改沒)
+  if [ "$(collision_verdict "$TD/c130.log" 2)" = "collision" ]; then
+    printf '  ✅ 撞窗判定負對照:有字面而【2 個 build 在跑】⇒ 仍判 collision\n'
+  else printf '  🔴 撞窗判定負對照:功能被改沒了\n'; SRC=1; fi
   rm -rf "$TD"
 
   # ④ 🔴 突變:把判定的其中一半拿掉,結論必須改變
@@ -124,11 +158,16 @@ one_line() {  # one_line <名稱> <rc> <log>
   local N="$1" R="$2" L="$3"
   if [ "$R" = "0" ]; then
     printf '  ✅ %-10s rc=0\n' "$N"
-  elif is_collision "$L"; then
-    printf '  🛑 %-10s rc=%s ⇒ 【撞窗,不是缺陷】別的窗在 build,等一下重跑\n' "$N" "$R"
-    printf '     現在還有幾個 next build 在跑: %s\n' "$(pgrep -fc 'next build' 2>/dev/null || printf '0')"
+  elif [ "$(collision_verdict "$L" "$(live_builds)")" = "collision" ]; then
+    printf '  🛑 %-10s rc=%s ⇒ 【可能是撞窗】現在有 %s 個 next build 在跑,等一下重跑\n' \
+      "$N" "$R" "$(live_builds)"
+    printf '     ⚠️ 而「可能」不是「確定」—— 重跑仍紅就去讀 %s\n' "$L"
   else
-    printf '  🔴 %-10s rc=%s ⇒ log %s\n' "$N" "$R" "$L"
+    printf '  🔴 %-10s rc=%s ⇒ 去讀 log %s\n' "$N" "$R" "$L"
+    if is_collision "$L"; then
+      printf '     ⚠️ log 裡有撞窗字面(exit code 130 之類), 而現在【沒有別的 build 在跑】\n'
+      printf '        ⇒ 那個 130 多半是 turbo 砍掉並行任務造成的 —— **它是你自己的錯的副作用, 不是撞窗**\n'
+    fi
     grep -oE '[A-Za-z0-9_./-]+\.(ts|tsx)\([0-9,]+\): error [A-Z0-9]+' "$L" 2>/dev/null | head -3 | sed 's/^/       /'
   fi
 }
