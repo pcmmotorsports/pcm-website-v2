@@ -166,3 +166,55 @@ export async function getSessionActorWithSource(): Promise<{
     source: 'self-selected',
   };
 }
+
+/**
+ * 同一段三層,而**只回【原始 id】,一次 DB 都不打**。
+ *
+ * 🔴 **為什麼要它**(codex R2 must-fix,2026-08-31;Sean 同日拍甲):
+ *    `getSessionActor()` 出口的 `null` 有**兩種意思壓在一起**:
+ *      ① 這次登入沒有具名操作者(共用密碼 / 首次建置 / 舊票 / 還沒選)
+ *      ② **查身分的那一發失敗了** —— `staff.ts` 的 `listActiveStaff()` 逐字
+ *         `catch { … return []; }`(`staff.ts:67-73`)⇒ DB 掛掉也回 `null`
+ *    ⇒ 任何想把「沒權限」與「查不出來」分開顯示的畫面,**在拿到值之前就已經分不開了**。
+ *    codex 原話:**三態在【資料進頁面之前】就已經塌成兩態。**
+ *
+ * ⇒ 本函式**不查 DB** ⇒ 它的回傳值裡沒有「查詢失敗」這種可能:
+ *   `id` 為 null **只代表【票 / cookie 上沒有具名 id】**,而那是一個確定的事實。
+ *   呼叫端若需要「這個 id 是不是啟用中的管理者」,**拿自己已經載好的那份名單去比**
+ *   —— 那樣「名單載入失敗」就由呼叫端自己的錯誤處理承接,不會偽裝成「沒權限」。
+ *
+ * 🛑 **本函式不取代 `getSessionActor()`** —— 那支仍是授權路徑在用的
+ *    (`session/authorize.ts:67`、`audit/context.ts:27`),**一個字都沒動**。
+ *    兩者的分層邏輯目前是**兩份**,而 `actor-source-parity.test.ts` 釘著它們的 `source` 必須一致
+ *    (⇒ 有人只改一邊, 那支會紅)。
+ */
+export async function getSessionActorIdWithSource(): Promise<{
+  readonly id: string | null;
+  readonly source: ActorSource;
+}> {
+  const store = await cookies();
+
+  // ── 第 1 層:票上帶了身分 ⇒ 只認它(不查 DB) ──────────────────────────
+  const session = await verifySession(store.get(ADMIN_SESS_COOKIE)?.value);
+  if (session?.v === 2) {
+    switch (session.sub.kind) {
+      case 'user':
+        return { id: session.sub.staff_id, source: 'ticket' };
+      case 'fallback':
+      case 'bootstrap':
+        return { id: null, source: 'none' };
+      default: {
+        // exhaustive check,理由與 `getSessionActorWithSource` 同一段,不重複寫。
+        const _exhaustive: never = session.sub;
+        void _exhaustive;
+        return { id: null, source: 'none' };
+      }
+    }
+  }
+
+  // ── 第 2 層:旗標開著而票上沒身分 ⇒ 不得回退 ──────────────────────────
+  if (requireRealIdentity()) return { id: null, source: 'stale-ticket' };
+
+  // ── 第 3 層:旗標關著 ⇒ 讀那顆自選 cookie(仍然不查 DB) ──────────────────
+  return { id: store.get(ACTOR_COOKIE)?.value ?? null, source: 'self-selected' };
+}

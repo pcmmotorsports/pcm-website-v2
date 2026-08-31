@@ -8,8 +8,11 @@ import {
   type StaffRow,
 } from '@/lib/staff-repository';
 import { STAFF_RESULT_MESSAGES } from '@/lib/staff-result-messages';
-import { getSessionActor } from '@/lib/session/actor';
-import type { ManagePermission } from '@/components/settings/staff-edit-row';
+import { getSessionActorIdWithSource } from '@/lib/session/actor';
+import {
+  permissionNotice,
+  type ManagePermission,
+} from '@/components/settings/staff-edit-row';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,35 +35,34 @@ export default async function StaffSettingsPage({
     loadFailed = true;
   }
 
-  // ── 這一頁的鈕要不要灰 —— 三態,而 `unknown` 【不灰】(理由見 staff-edit-row 的 ManagePermission)
+  // ── 這一頁能不能編輯 —— 三態(理由見 staff-edit-row 的 ManagePermission)
   //
-  // 🔵 **刻意不呼叫 `isActiveManager`**:那支在 DB 故障時回 `false`(fail-closed,對閘是對的),
-  //    而 UI 沿用它 ⇒ DB 打嗝時真管理者的鈕會灰掉。
+  //   yes     可編輯
+  //   no      整組唯讀 +「你沒有權限」
+  //   unknown 整組停用 +「暫時無法確認權限」
   //
-  // 🔴 **`actor === null` 是 `no` 不是 `unknown`**(codex R1 must-fix,2026-08-31):
-  //    `getSessionActor()` 走 `listActiveStaff()`,而那支**過濾掉停用者**
-  //    ⇒ 一個【已停用而 session 還沒過期】的人會拿到 `null`。
-  //    第一版把 `null` 當 `unknown` ⇒ **他的鈕不會灰**,而他確實管不了任何東西。
-  //    ⇒ 而 `null` 的另外兩個來源(共用密碼備援 / bootstrap)**同樣沒有具名身分**
-  //      ⇒ `authorizeManagerMutation` 也會拒他們 ⇒ 判 `no` 與 server 的行為一致。
+  // 🔴 **`unknown` 也停用, 而它與 `no` 的差別在【那句話】**(Sean 2026-08-31 拍甲)。
+  //    我第一版讓 `unknown` 不灰, 理由是「灰了他會以為自己被降權」——
+  //    而正確的解法不是讓他按, 是**告訴他為什麼**。
   //
-  // ⚠️ **殘餘的一格,明寫**:`listActiveStaff()` 自己也 catch DB 錯誤並回 `[]`
-  //    ⇒ 若我們這一發 `listStaffRows()` 成功、而它那一發失敗(兩次查詢之間的瞬時故障),
-  //    真管理者會拿到 `no` ⇒ 鈕被誤灰。**那是一個窄的競態,不是常態**,
-  //    而它的代價有界(按不了 ⇒ 重整一次就好),所以本片不為它多開一條路。
+  // 🔴 **而根因在 `actor.ts` 修掉了**(codex R2 must-fix):
+  //    舊的 `getSessionActor()` 出口, `null` 同時代表「沒有具名身分」與「查身分失敗」
+  //    (`staff.ts:67-73` 的 `catch { return []; }`)⇒ 三態在資料進頁面之前就塌成兩態。
+  //    ⇒ 改用 `getSessionActorIdWithSource()`:**它一次 DB 都不打** ⇒ 它的 `null`
+  //      只可能是「票 / cookie 上沒有具名 id」這一種確定的事實。
+  //    ⇒ 於是「DB 出問題」這條路**只剩一個入口** = 我們自己這發 `listStaffRows()`,
+  //      而它的失敗由 `loadFailed` 承接 ⇒ 落在 `unknown`。
   let canManage: ManagePermission = 'unknown';
   if (!loadFailed) {
     try {
-      const actor = await getSessionActor();
-      if (!actor) {
-        canManage = 'no';
-      } else {
-        const me = rows.find((row) => row.id === actor.id);
-        // 名單載到了而找不到自己(理論上不可達:actor 就是從同一張表解出來的)⇒ 留 unknown。
-        if (me) canManage = me.is_active && me.is_manager ? 'yes' : 'no';
-      }
+      const { id } = await getSessionActorIdWithSource();
+      const me = id ? rows.find((row) => row.id === id) : undefined;
+      // id 為 null(沒有具名身分)/ 不在名單上 / 不是啟用中的管理者 ⇒ 都是 `no`。
+      // 這三者共通點:**server 那道 authorizeManagerMutation 也會拒他們** ⇒ 畫面與閘一致。
+      canManage = me && me.is_active && me.is_manager ? 'yes' : 'no';
     } catch (error) {
-      console.error('[admin/settings/staff] 取操作者身分失敗 ⇒ 不灰鈕', error);
+      // 讀 cookie / 驗票本身炸了 ⇒ 我們不知道他是誰 ⇒ `unknown`,不是 `no`。
+      console.error('[admin/settings/staff] 取操作者身分失敗 ⇒ 暫時無法確認權限', error);
     }
   }
 
@@ -77,6 +79,17 @@ export default async function StaffSettingsPage({
         code={resultCode}
         messages={STAFF_RESULT_MESSAGES}
       />
+
+      {/* 🔴 這一句在【這一層】印一次 —— 放進列元件會變成 N 位員工 N 段紅字
+          (codex R3 must-fix;桌機+手機雙渲染還會再乘二)。 */}
+      {permissionNotice(canManage) ? (
+        <p
+          className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-3 text-sm'
+          role='status'
+        >
+          {permissionNotice(canManage)}
+        </p>
+      ) : null}
 
       {loadFailed ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>

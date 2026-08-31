@@ -9,13 +9,14 @@ import {
   AdminForm,
   AdminFormField,
 } from '../shared/admin-form';
-import type { ManagePermission } from './staff-edit-row';
+import { isEditable, type ManagePermission } from './staff-edit-row';
 
 export function StaffCreateForm({
   canManage,
 }: {
   canManage: ManagePermission;
 }) {
+  const editable = isEditable(canManage);
   return (
     <AdminForm
       action={createStaffAction}
@@ -25,7 +26,7 @@ export function StaffCreateForm({
       actions={
         <button
           type='submit'
-          disabled={canManage === 'no'}
+          disabled={!editable}
           className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50'
         >
           新增員工
@@ -37,8 +38,9 @@ export function StaffCreateForm({
           name={STAFF_ID_FIELD}
           pattern='[a-z0-9_]{1,64}'
           required
+          disabled={!editable}
           placeholder='staff_3'
-          className={ADMIN_INPUT_CLASS}
+          className={`${ADMIN_INPUT_CLASS} disabled:cursor-not-allowed disabled:opacity-50`}
         />
       </AdminFormField>
 
@@ -47,7 +49,8 @@ export function StaffCreateForm({
           name={STAFF_LABEL_FIELD}
           maxLength={32}
           required
-          className={ADMIN_INPUT_CLASS}
+          disabled={!editable}
+          className={`${ADMIN_INPUT_CLASS} disabled:cursor-not-allowed disabled:opacity-50`}
         />
       </AdminFormField>
 
@@ -57,7 +60,8 @@ export function StaffCreateForm({
             <input
               type='checkbox'
               name={IS_MANAGER_FIELD}
-              className='size-4'
+              disabled={!editable}
+              className='size-4 disabled:cursor-not-allowed disabled:opacity-50'
             />
             設為管理者(這是授權,不只是標記)
           </label>
