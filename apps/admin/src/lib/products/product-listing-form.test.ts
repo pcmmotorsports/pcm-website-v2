@@ -41,6 +41,11 @@ describe('#20 parseListingToggleForm', () => {
       delisted: true,
       note: '原廠停產且無現貨',
       returnTo: `/products/${ID}`,
+      // 🔵 2026-08-31 新增(板 `⟦b4-NOVARIANT1⟧`, Sean `Q2=甲`):沒送那一欄 ⇒ `false`。
+      //    🔴 而這一格是【窮舉比對】—— 它在我加欄位時當場紅了, 那正是它該做的事。
+      confirmed: false,
+      // 🔵 codex R1 #5:確認要綁定「他當時看到的是誰」⇒ 沒送 ⇒ null。
+      confirmOwner: null,
     });
   });
 

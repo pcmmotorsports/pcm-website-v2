@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { isUuid } from '../../../lib/orders/note-action-state';
 import { ProductDetail } from '../../../components/products/product-detail';
 import { ProductListingForm } from '../../../components/products/product-listing-form';
+import { findVariantSkuCollision } from '../../../lib/products/variant-sku-collision';
 import { ResultBanner } from '../../../components/orders/result-banner';
 import { resolveListingState } from '../../../lib/products/product-repository';
 import {
@@ -49,6 +50,25 @@ export default async function ProductDetailPage({
   } catch (error) {
     console.error('[admin/products/[id]] 商品讀取失敗', error);
     loadFailed = true;
+  }
+
+  /**
+   * 🔵 **第一層:上架前的確認**(板 `⟦b4-NOVARIANT1⟧`, Sean 2026-08-31 拍 `Q2=甲`)。
+   * 這支商品的料號是不是【別支商品的一個規格】—— 有值就在上架鈕旁邊講出來。
+   *
+   * 🛑 **只在【現在是下架】時才算** —— 已上架的商品問它沒有意義(它已經在架上了),
+   *    而那也省掉每次開商品頁的兩發查詢。
+   * 🔴 **它失敗時回 `null`(= 不打擾)** —— 而代價明寫:
+   *    **DB 出問題時這道提示會安靜地消失**, 畫面上與「這支商品沒問題」長得一樣。
+   *    ⇒ 真正擋住的是 server action 那一層(它會再算一次)。
+   */
+  let variantSkuCollisionOwner: string | null = null;
+  if (product && resolveListingState(product) !== 'listed') {
+    try {
+      variantSkuCollisionOwner = (await findVariantSkuCollision(product.id))?.belongsToExternalId ?? null;
+    } catch (error) {
+      console.error('[admin/products/[id]] 規格重複偵測失敗(不擋畫面)', error);
+    }
   }
 
   if (!loadFailed && product === null) {
@@ -102,6 +122,7 @@ export default async function ProductDetailPage({
             <ProductListingForm
               productId={product.id}
               listed={resolveListingState(product) === 'listed'}
+              variantSkuCollisionOwner={variantSkuCollisionOwner}
             />
           </section>
           {/* 🔴 這一句原本是「這一頁只能查看,不能修改」—— **本片之後那是假的**。

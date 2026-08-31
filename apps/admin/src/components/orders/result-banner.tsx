@@ -112,6 +112,19 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   invalid: { text: '表單內容不正確,未儲存。', tone: 'warn' },
   denied: { text: '沒有權限或登入狀態已失效,未儲存。', tone: 'error' },
   not_found: { text: '找不到對象資料(可能已被移除),未儲存。', tone: 'warn' },
+  // 🔴🔴 M-4b ⟦b4-NOVARIANT1⟧ 上架前的確認(Sean 2026-08-31 拍 `Q2=甲`;codex R1 #6 must-fix 補這兩則)。
+  //    ⛔ 少了這兩則 ⇒ action 擋下之後**畫面完全靜默** ⇒ 員工看到的是「按了沒反應」,
+  //      而且**不知道商品其實沒上架** ⇒ 他會再按幾次, 然後找別的路。
+  //    📌 而 CLAUDE.md 記過同一條:**守門紅了沒有出路會被整支刪掉, 存活率取決於有沒有給出路。**
+  //    ⇒ 所以這兩則都**說得出下一步**, 而不是只說「失敗了」。
+  variant_sku_collision: {
+    text: '沒有上架 —— 這支商品看起來是另一支商品的一個規格。請在上面那句話旁邊勾「我確認」再按一次;不確定的話先不要上架。',
+    tone: 'warn',
+  },
+  variant_sku_check_unavailable: {
+    text: '沒有上架 —— 現在查不到這支商品的規格資料,所以不敢讓它上架。請再按一次;還是不行就找人看一下,不要繞過去。',
+    tone: 'error',
+  },
   error: { text: '儲存失敗,請稍後再試或聯絡系統維護。', tone: 'error' },
   // 🔴 M-4b E10 A9d2-1:備註**只有成功**會走 redirect 到這裡 —— 失敗一律回 action state
   //    (Sean 拍板 Q1=A:保留員工打的內容)⇒ 這裡**不該**出現 note 的任何失敗碼。
