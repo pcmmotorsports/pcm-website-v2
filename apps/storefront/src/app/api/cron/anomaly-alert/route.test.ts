@@ -21,7 +21,22 @@ const { checkSpy, getDepsSpy , hbOkSpy, hbFailSpy } = vi.hoisted(() => ({
   getDepsSpy: vi.fn(),
 }));
 
-vi.mock('@pcm/use-cases', () => ({ checkAnomalyAlerts: checkSpy }));
+/**
+ * 🔴🔴 **只換掉 `checkAnomalyAlerts`,其餘【用真的】**(2026-08-31,線出貨 `-1e`)。
+ *
+ * ⛔ ~~舊寫法 `vi.mock('@pcm/use-cases', () => ({ checkAnomalyAlerts: checkSpy }))`~~
+ *   —— 那是把**整個模組**換掉:模組裡其他任何 export 在這支測試裡都是 `undefined`。
+ * 🔴 而它壞掉的方式**不是紅一格**:route 新增一個 `resolveShippedEmailCutoff(...)` 呼叫
+ *   ⇒ 執行期 `undefined is not a function` ⇒ 被 route 最外層的 try/catch 接住
+ *   ⇒ **18 格一起變成 `deps_or_unexpected_throw` 的 503**,而錯誤訊息講的是「deps/env 缺」。
+ *   ⇒ 📌 **一個 mock 的射程比它的名字寬,而寬出來的那一段沒有人宣告過。**
+ * ✅ 改成 `importOriginal` 展開後只覆蓋那一支:`resolveShippedEmailCutoff` 是**純函式、零 IO**,
+ *   mock 掉它等於把「這個 route 怎麼裁決那顆 env」這件事從測試裡拿掉 —— 而那正是本片要測的。
+ */
+vi.mock('@pcm/use-cases', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  checkAnomalyAlerts: checkSpy,
+}));
 vi.mock('@/lib/payment/composition', () => ({ getAnomalyAlertDeps: getDepsSpy }));
 
 // b4-CRON6 片1:心跳寫入端。mock 掉的是 IO,不是判斷 —— 判斷(哪一條路寫)在 route 裡。
@@ -82,6 +97,13 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.CRON_SECRET;
   delete process.env.ANOMALY_ALERT_ENABLED;
+  /**
+   * 🔴 **codex 2026-08-31 R1 nit**:`SHIPPED_EMAIL_CUTOFF` 原本只在各案例尾端手動 `delete`
+   * ⇒ 案例在那一行【之前】就紅掉時,那顆 env **留給下一個案例**
+   * ⇒ 後面那些「未設起始線」的案例會連鎖誤紅,而**它們的紅講的是別人的錯**。
+   * 📌 **一個只在成功路徑上執行的清理,等於沒有清理。**
+   */
+  delete process.env.SHIPPED_EMAIL_CUTOFF;
   vi.clearAllMocks();
 });
 
@@ -232,19 +254,68 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
     });
   });
 
+  /**
+   * 🔴🔴 **這三處的值從 `2026-08-20` 改成 `2026-08-31`,而那不是換個好看的日期。**
+   *
+   * 本檔改前用 `'2026-08-20T00:00:00.000Z'` 當「有設起始線」的世界,而**那個值在正式環境
+   * 一定不會生效**:`shipped-email-cutoff.ts:74` 有下界 `EARLIEST_SANE = 2026-08-30T00:00:00+08:00`
+   * (= UTC `2026-08-29T16:00:00Z`)⇒ 08-20 落在它之前 ⇒ **寄信端判 bad-format、一封都不排。**
+   * ⇒ 📌 **改前這幾格測的是一個【在正式庫上永遠不成立的設定】,而它們全綠。**
+   * 🛑 而它們之所以能綠,是因為**本 route 改前不用那支 resolver**(自己 `trim()` 就當合法)——
+   *   ⇒ **測試與被測物共用同一個錯誤前提,所以它們互相印證。**
+   * ✅ 選 `2026-08-31T00:00:00.000Z` 的理由:它在下界之後,**而且正規化後與原字串逐字相同**
+   *   (resolver 會回 `new Date(t).toISOString()`)⇒ 下面那條 `shippedCutoffIso` 的斷言仍可寫字面。
+   */
   it('🔵 SHIPPED_EMAIL_CUTOFF 有設 ⇒ 起始線【真的傳下去】,而且沒有那一行 log', async () => {
     // 🔴 沒有這一格,一個「在 route 裡寫死 null」的實作會讓上面那格全綠 ——
     //   而那正好等於【出貨缺口那一段永遠不查】。
-    process.env.SHIPPED_EMAIL_CUTOFF = '2026-08-20T00:00:00.000Z';
+    process.env.SHIPPED_EMAIL_CUTOFF = '2026-08-31T00:00:00.000Z';
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
     await GET(makeReq(bearer()));
 
     expect(checkSpy).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ shippedCutoffIso: '2026-08-20T00:00:00.000Z', shippedGraceSeconds: 900 }),
+      expect.objectContaining({ shippedCutoffIso: '2026-08-31T00:00:00.000Z', shippedGraceSeconds: 900 }),
     );
     // 🔴 上膛了就【不該】再印那一行 —— 否則它是一個無條件的標籤,不是一個訊號。
     expect(JSON.stringify(infoSpy.mock.calls)).not.toContain('還沒上膛');
+    infoSpy.mockRestore();
+    delete process.env.SHIPPED_EMAIL_CUTOFF;
+  });
+
+  it('🔴🔴 起始線【設了而形狀不合】⇒ 503,而且【不是】走「還沒上膛」那條路', async () => {
+    /**
+     * 🔴 **這一格分的是兩個【很容易被併成一條】的世界**:
+     *   沒設   = 功能還沒開 = 正常 ⇒ `info`「還沒上膛」、200、`checkAnomalyAlerts` 照跑。
+     *   設錯   = **寄信端此刻一封都不寄, 而設的人以為他開好了** ⇒ 503, 且**不該跑**下去。
+     * 🛑 併成一條的話, 一個打錯的 env 會安靜地長得像「還沒開」—— 那正是本片要治的病。
+     * ⚠️ 用 `2026-08-11`(**形狀合法、而在下界 `EARLIEST_SANE` 之前**)當輸入,
+     *   因為它是**最像對的那一種錯**:貼進 Vercel 不會有任何東西提醒你。
+     */
+    process.env.SHIPPED_EMAIL_CUTOFF = '2026-08-11T00:00:00.000Z';
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+
+    expect(res.status).toBe(503);
+    /**
+     * 🔴🔴 **這一條原本是反過來寫的,而 codex 2026-08-31 R1 判它 must-fix。原句留著**:
+     *   ⛔ ~~`expect(checkSpy).not.toHaveBeenCalled();`~~
+     *   codex 逐字:「bad-format 測試強制斷言 `checkAnomalyAlerts` 不得執行
+     *   ⇒ 修成『出貨段停用但其他告警照送』時測試反而變紅,**將上述缺陷鎖成契約**。」
+     * 📌 **⇒ 一條寫錯方向的斷言,不只是漏測 —— 它會在有人來修的時候變紅,把錯的行為變成規格。**
+     * ✅ 正確的宣稱:出貨那一段不查(`shippedCutoffIso` 為 null),而**別類告警照跑**。
+     */
+    expect(checkSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ shippedCutoffIso: null }),
+    );
+    // 🔴 它不是「還沒上膛」。這一條擋的是【把兩個世界併成一條】的實作。
+    expect(JSON.stringify(infoSpy.mock.calls)).not.toContain('還沒上膛');
+    expect(JSON.stringify(errSpy.mock.calls)).toContain('bad_cutoff_format');
+    // 🛑 零 PII:使用者填的那個值本身不得進 log(`why` 是我們自己寫死的字串)。
+    expect(JSON.stringify(errSpy.mock.calls)).not.toContain('2026-08-11');
+    errSpy.mockRestore();
     infoSpy.mockRestore();
     delete process.env.SHIPPED_EMAIL_CUTOFF;
   });
@@ -262,7 +333,7 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
   it('🔴🔴 起始線【有設】而那支 RPC 讀不到 ⇒ 回 503(不得安靜回 200)', async () => {
     // 🔴 codex R1 must-fix 1:片1 給那支 RPC 裝了 fail-closed,
     //   而若這裡不看 shippedGapUnknown, 那道 fail-closed 在下游就被拆掉了。
-    process.env.SHIPPED_EMAIL_CUTOFF = '2026-08-20T00:00:00.000Z';
+    process.env.SHIPPED_EMAIL_CUTOFF = '2026-08-31T00:00:00.000Z';
     checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, shippedGapUnknown: true });
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const res = await GET(makeReq(bearer()));

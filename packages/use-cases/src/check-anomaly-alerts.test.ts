@@ -737,6 +737,42 @@ describe('F-004 退款卡住:計數、過夜拆分、與部署窗口', () => {
     expect(n.notify).toHaveBeenCalledTimes(1);
   });
 
+  it('🔴🔴 三個退款計數【出得來】—— 突變殺出來的三格,不是想出來的', async () => {
+    /**
+     * 🔴 **成因(線出貨 `-1e` 2026-08-31,與出貨那四格同一個形狀)**:
+     * 把 `check-anomaly-alerts.ts` 這三行 pass-through 各自寫死成 `0`,**逐格重跑**:
+     * ```
+     * pendingDoubleChargeCandidateCount ⇒ rc=1  ✅ 本來就殺得掉
+     * orderRefundsStuckCount            ⇒ rc=0  🔴 突變活著
+     * orderRefundsStuckOvernightCount   ⇒ rc=0  🔴 突變活著
+     * orderRefundsManualFailedCount     ⇒ rc=0  🔴 突變活著
+     * ```
+     * ⚠️ **而【四格一起突變】那一發是 rc=1** ⇒ 只跑那一發會判成「有守住」。
+     *   📌 **一發混合突變只證明【至少一格】被守住,不證明每一格。**
+     * 🛑 而更刺的一格:我先用 `grep 'res\.<欄位>'` 數斷言,`pendingDoubleChargeCandidateCount`
+     *   數出來 **0 命中** —— 而它的突變**殺得掉**。
+     *   ⇒ 📌 **數字面會少報覆蓋率;突變才是實物。兩把尺方向相反,不要互相追認。**
+     * ⚠️ 上面那兩格既有測試看的是 `res.alerted`(門檻行為),**而不是那三個數字有沒有出得來** ——
+     *   一個把它們寫死成 0 的實作,會讓 route 的 counts log 與告警內文**全部印 0**,而 `alerted` 照樣對。
+     */
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: reader({
+          ...ZERO,
+          orderRefundsStuckCount: 2,
+          orderRefundsStuckOvernightCount: 3,
+          orderRefundsManualFailedCount: 4,
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.orderRefundsStuckCount).toBe(2);
+    expect(res.orderRefundsStuckOvernightCount).toBe(3);
+    expect(res.orderRefundsManualFailedCount).toBe(4);
+  });
+
   it('🔴 對照:計數 = 0 且其餘全零 → 不寄信(證明上一格是這個欄位造成的)', async () => {
     const n = okNotifier();
     const res = await checkAnomalyAlerts(
