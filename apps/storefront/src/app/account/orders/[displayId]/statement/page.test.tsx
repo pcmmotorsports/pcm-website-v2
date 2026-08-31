@@ -31,6 +31,24 @@ vi.mock('@/components/Header', () => ({
   ),
 }));
 vi.mock('@/components/HomeFooter', () => ({ HomeFooter: () => <div data-stub='site-footer' /> }));
+// 🔴 `next/font/google` 是**建置期轉換**、不是執行期模組 —— 不 mock 的話整檔紅在
+//    `Noto_Sans_TC is not a function`(2026-08-31 片 B 實際撞到),而那個紅與本檔任何斷言無關。
+//    🛑 **而這不是把守門關掉**:下面有一格拿這個假值去驗「它有沒有被接到那張紙上」。
+//    🔴 假件回一個**看得見的標記**,不回空字串 —— 回空的話「接上了」與「沒接」在 DOM 上是同一件事。
+//
+// 🔴🔴 **假件的值刻意是一個【世界上只有一個】的哨兵字串,而不是真實產物那一串** ——
+//    這一格被推翻過一次,兩邊的理由都寫著,因為它是分工問題不是對錯問題:
+//    ⛔ R1(codex):用哨兵 ⇒ 把 production 真正的問題(與 root layout 那條 Google CDN
+//       `<link>` 宣告的家族【同名】)抹掉了 ⇒ 我改成寫死真值 `"Noto Sans TC", …Fallback`。
+//    ✅ R2(codex):寫死真值 ⇒ **mock 與斷言各自抄了一份同樣的字串** ⇒ Next 哪天改了
+//       家族名的產生方式,這兩份會一起維持不變 ⇒ **它會安靜地繼續全綠**。
+//    ⇒ 📌 **分工定案**:接線用哨兵(不會漂),**真實產物那一串由
+//       `components/print/statement-cascade-browser.test.tsx` 從【編譯產物】裡撈** ——
+//       那支不寫死任何期望值,Next 改名它就會紅。
+const FONT_SENTINEL = 'PCM-FONT-SENTINEL-8f2a';
+vi.mock('next/font/google', () => ({
+  Noto_Sans_TC: () => ({ className: 'stub-font', style: { fontFamily: 'PCM-FONT-SENTINEL-8f2a' } }),
+}));
 
 let currentUser: { id: string } | null = { id: 'owner-1' };
 vi.mock('@/lib/supabase/server', () => ({
@@ -135,6 +153,30 @@ describe('客人的訂單明細列印頁 —— 授權走既有那條路,而不�
     const html = await render('A1B2C3');
     expect(html).toContain('A1B2C3');
     expect(html).toContain('訂單明細');
+  });
+
+  // 片 B(2026-08-31):自 host 的中文字型有沒有真的被接到那張紙上。
+  //
+  // 🛑🛑 **這一格證得了什麼、證不了什麼 —— 這一段比斷言本身重要**(codex R1 must-fix 要求寫明):
+  //    ✅ 證得了:route 把 `next/font` 回的家族名串到了 `.pd-sheet` 的 `--font-statement` 上。
+  //    🔴 **證不了本片真正的承諾**:「伺服器產 PDF 時,字是我們自己 host 的那份畫的」。
+  //       理由有三,每一條都是這支檔結構上做不到的:
+  //         ① 贏家由 CSS 層疊決定,而 DOM 字串裡看不到層疊
+  //         ② 這裡沒有載入 root layout 那條 Google CDN `<link>` ⇒ **同名衝突根本沒被製造出來**
+  //         ③ 這裡沒有真的瀏覽器去解析 `@font-face` 與 unicode-range
+  //    ✅ ①③ 已由 `components/print/statement-cascade-browser.test.tsx` 那一節接手(真 chromium
+  //       + 編譯產物 CSS + 兩個世界),而它的期望值從產物撈、不寫死。
+  //    🔴 ② **仍然沒有人在跑** —— 那要起真 server + 攔網路,是**片 C** 的驗收條件:
+  //       用 CDP `CSS.getPlatformFontsForNode` 比【擋 Google 前 / 後】兩個世界的字型來源。
+  //       2026-08-31 手動量過一次(自家 0/Google 17 ⇒ 自家 15/Google 0),**而那一發沒有被自動化。**
+  it('片 B:字型家族名有接到 .pd-sheet 的 --font-statement 上(只證接線,不證誰贏)', async () => {
+    const html = await render('A1B2C3');
+    // 🔴 哨兵直接比,不必處理跳脫 —— 它裡面沒有引號。
+    //    (而「React 有沒有跳脫這個自訂屬性的值」那一格是真的驗過的:上一版用含雙引號的真值,
+    //     比原字串 ⇒ 紅,輸出裡是 `&quot;` ⇒ 值進不了屬性邊界。那是 codex R1 問的注入面。)
+    expect(html).toContain(`--font-statement:${FONT_SENTINEL}`);
+    // 負對照:那張紙的 class 字面一個都沒動(`statement-doc-classes.test.ts` 只掃字面的 class 屬性)
+    expect(html).toContain('class="print-sheet pd-sheet stmt-page"');
   });
 
   it('🔴🔴 別人的單 與 不存在的單 ⇒ 兩份 HTML【逐字相等】(不洩存在性)', async () => {

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { chromium, type Browser } from '@playwright/test';
@@ -262,5 +262,75 @@ describe('客人明細列印頁 · 串接量測(真 chromium + 編譯後 CSS + �
     expect(print.bottomToFloorPx).toBe(0);
     // ⇒ 螢幕上**不該**貼底(那裡的紙沒有固定高度)—— 兩個世界不同, 這格才有判別力。
     expect(screen.bottomToFloorPx).toBeGreaterThan(0);
+  });
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// 片 B(2026-08-31)· 自 host 的中文字型有沒有真的進到編譯產物裡
+//
+// 🔴 **這一節【不開瀏覽器】,而它是被推翻兩次才變成這樣的 —— 兩次的理由都留著:**
+//    ⛔ 我第一版寫成一整個 chromium describe(85 行,兩個世界比 computed font-family)。
+//    · codex R2 要求「真瀏覽器兩世界守門要隨片 B 落地」⇒ 我照做了。
+//    · codex R3 換角度看同一段 ⇒ 「它讓一支本來就脆的測試更脆(共用 `.next`、多開一個 chromium),
+//      而**同一個突變可以用較便宜的編譯 CSS 斷言擋住**」。
+//    ✅ 而我實跑之後同意 R3, 理由比他的更強一格:**那個瀏覽器斷言本來就沒有它看起來的判別力** ——
+//      next/font 產出的家族名就叫 `Noto Sans TC`, **與 root layout 那條 Google CDN `<link>`
+//      宣告的家族同名** ⇒ 傳不傳 `fontFamily`, 贏的都是「第一個叫 Noto Sans TC 的 face」
+//      ⇒ 那一節唯一分得開的其實是**度量替身有沒有出現在字串裡**, 而那不是本片的承諾。
+//    📌 **⇒ 一個開了真瀏覽器的測試, 看起來比它實際證得的多。**
+//
+// 🛑 **所以本節只證兩件【它真的證得了】的事**:
+//    ① 那條 `var(--font-statement, …)` 還在編譯產物裡(突變殺得掉:拿掉它 ⇒ 這一格紅)
+//    ② next/font 的 face **真的是自 host 的**(src 指向 `/_next/static/media/`, 不是 gstatic)
+// 🔴 **證不了**「伺服器產 PDF 時字是我們這份畫的」—— 那要真 server + 攔網路,是**片 C** 的驗收:
+//    2026-08-31 手動量過一次(正常 自家 0/Google 17 ⇒ 擋掉 Google 後 自家 15/Google 0),
+//    **而那一發沒有被自動化。**
+describe('片 B:自 host 字型在編譯產物裡(不開瀏覽器)', () => {
+  it('① `--font-statement` 那條變數還在編譯後的 statement CSS 裡', () => {
+    expect(compiledCss('.stmt-page')).toContain('var(--font-statement');
+  });
+
+  // 🔴 標題**刻意不寫「本尊」** —— codex R5 抓到我上一版寫「Noto Sans TC 本尊」,
+  //    而本格只證得了【CSS 上被標成那個家族名】+【URL 指向本站】+【檔案在磁碟上】;
+  //    **它沒有打開那些 woff2 去確認裡面真的是 Noto**(那要解字型的 name 表)。
+  //    📌 這正是本 repo 記過的「標題比斷言寬」—— 而寬掉的那一格會被下一個人當成驗過了。
+  it('② 被標為 Noto Sans TC 的那些 face:兩個字重都在、src 指向本站、檔案在磁碟上', () => {
+    // 🔴 這一格被 codex R4 打回過一次:我第一版只驗「同一支 chunk 裡有相對 URL」——
+    //    **那沒有把 URL 綁到 Noto 那個 face 上**(同一支 chunk 裡還住著度量替身),
+    //    也沒有驗字重、沒有驗檔案真的存在。⇒ 現在逐個 face 解析。
+    const fontCss = compiledCss('Noto Sans TC Fallback');
+    const faces = [...fontCss.matchAll(/@font-face\{(.*?)\}/gs)].map((m) => m[1] ?? '');
+    // 🔴 分母:先證解析器抓得到東西, 否則下面每一條都會在一個空陣列上恆真。
+    expect(faces.length).toBeGreaterThan(50);
+
+    // 命名:`labelledNoto` 而不是 `noto` —— 它是「被標成那個名字的」, 不是「經過驗證的那個字型」。
+    const labelledNoto = faces.filter((f) => /font-family:Noto Sans TC;/.test(f));
+    // 🔴 這條正規式**刻意帶結尾分號** —— 不帶的話 `Noto Sans TC Fallback` 也會被算進來,
+    //    而那正是本格要排除的那一個。負對照見下面 `fallbackOnly`。
+    const fallbackOnly = faces.filter((f) => /font-family:Noto Sans TC Fallback/.test(f));
+    expect(fallbackOnly.length).toBe(1);
+    expect(labelledNoto.length).toBeGreaterThan(50);
+    expect(labelledNoto).not.toContain(fallbackOnly[0]);
+
+    // 兩個字重都要有(`page.tsx` 要的是 400 + 700;紙上有 22 條 font-weight:700)
+    for (const w of ['400', '700']) {
+      expect(labelledNoto.filter((f) => f.includes(`font-weight:${w};`)).length).toBeGreaterThan(50);
+    }
+
+    // 每一個 Noto face 的 src 都要是相對的 `../media/…`, 而且那個檔要真的在磁碟上。
+    // 🔴 `../media/` 是**開編譯產物抄的**:`/_next/static/media/` 那個絕對形式只出現在 dev
+    //    ——我第一版照 dev 寫 ⇒ 紅 ⇒ 那個紅是我的期望值錯, 不是產品壞了。
+    const urls = labelledNoto.map((f) => /src:url\(([^)]+)\)/.exec(f)?.[1] ?? '');
+    expect(urls.every((u) => u.startsWith('../media/'))).toBe(true);
+    expect(fontCss).not.toContain('fonts.gstatic.com');
+    for (const u of urls) {
+      const onDisk = join(CHUNKS, u);
+      expect(existsSync(onDisk), `編譯產物指到一個不存在的字型檔:${u}`).toBe(true);
+    }
+  });
+
+  it('負對照:現造的字串必須查無(證明 compiledCss 不是恆真)', () => {
+    expect(() => compiledCss('zzq-not-a-real-marker-9137')).toThrow();
   });
 });
