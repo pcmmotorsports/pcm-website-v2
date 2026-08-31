@@ -47,6 +47,8 @@
     "scripts/reachable-ci-scripts.py": "python3 scripts/reachable-ci-scripts.py --self-check",
     "scripts/grep-claim-recheck.py": "python3 scripts/grep-claim-recheck.py --selftest",
     "scripts/citation-rot-check.py": "python3 scripts/citation-rot-check.py --selftest",
+    "scripts/undefined-assert-gate.py": "python3 scripts/undefined-assert-gate.py --selftest",
+    "scripts/undefined-assert-gate.exemptions.tsv": "python3 scripts/undefined-assert-gate.py --selftest",
     "scripts/zsh-shebang-gate.py": "python3 scripts/zsh-shebang-gate.py --selftest",
     "scripts/view-apply-before-wire-gate.py": "python3 scripts/view-apply-before-wire-gate.py --selftest",
     "scripts/rls-service-role-policy-gate.py": "python3 scripts/rls-service-role-policy-gate.py --selftest",

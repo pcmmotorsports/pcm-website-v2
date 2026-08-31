@@ -129,6 +129,14 @@ else
   printf '%s\n' '   復原:git checkout -- .husky/acl-drift-gate.sh' >&2
   exit 2
 fi
+if [ -f .husky/undefined-assert-gate.sh ]; then
+  sh .husky/undefined-assert-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/undefined-assert-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   同族理由:同一顆 commit 刪掉本閘、再做本閘要防的事 ⇒ fail-open 等於自己關掉自己。' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/undefined-assert-gate.sh' >&2
+  exit 1
+fi
 if [ -f .husky/zsh-shebang-gate.sh ]; then
   sh .husky/zsh-shebang-gate.sh || exit $?
 else
