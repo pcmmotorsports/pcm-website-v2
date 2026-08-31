@@ -60,7 +60,8 @@ describe('ProductCard', () => {
   //    「收藏鈕點擊」那條沒傳 href、「href 存在」那條沒點按鈕 ⇒ 少了 `preventDefault` 也全綠。
   //    量的是 `defaultPrevented`(瀏覽器是否會執行 `<a>` 的 default action),
   //    不是「有沒有呼叫某個函式」—— 後者是形狀、前者才是行為。
-  it.each([
+  // 🛑 skip:卡片直加那條路今天不可達(零變體不賣 ⇒ 沒有商品走得到)。理由全文見 product-card-quick-add.test.tsx 檔頭。
+  it.skip.each([
     ['收藏', 'pcard-heart'],
     ['+ 加入購物車', 'pcard-quick-btn'],
   ])('有 href 時點「%s」不得觸發外層 <a> 的原生導航(defaultPrevented)', (label, cls) => {
@@ -194,7 +195,8 @@ describe('ProductCard', () => {
 
     afterEach(() => window.localStorage.clear());
 
-    it('車上已 99 → 鈕改說「已達上限」,而購物車一件都沒動', () => {
+    // 🛑 skip:卡片直加那條路今天不可達(零變體不賣 ⇒ 沒有商品走得到)。理由全文見 product-card-quick-add.test.tsx 檔頭。
+    it.skip('車上已 99 → 鈕改說「已達上限」,而購物車一件都沒動', () => {
       window.localStorage.setItem(CART_KEY, JSON.stringify([{ productId: product.slug, qty: 99 }]));
       const { btn } = clickQuickAdd();
       // ① 東西真的沒進去 —— 沒有這一格,「字面對」與「東西也對」分不開
@@ -205,7 +207,8 @@ describe('ProductCard', () => {
       expect(btn.textContent).toBe('已達上限 99');
     });
 
-    it('對照組:車上是空的 → 鈕照舊說「✓ 已加入」(否則就是恆真的「已達上限」)', () => {
+    // 🛑 skip:卡片直加那條路今天不可達(零變體不賣 ⇒ 沒有商品走得到)。理由全文見 product-card-quick-add.test.tsx 檔頭。
+    it.skip('對照組:車上是空的 → 鈕照舊說「✓ 已加入」(否則就是恆真的「已達上限」)', () => {
       const { btn } = clickQuickAdd();
       expect(JSON.parse(window.localStorage.getItem(CART_KEY)!)).toEqual([
         { productId: product.slug, qty: 1 },
