@@ -42,7 +42,11 @@ function findCompiledCss(): string {
   // 🔴 **M2(2026-08-29):先問戳記,再走 `.next`。**
   //    `next build` 可以 **rc=1 而照樣寫出產物**(實測 28 個 chunk,時間戳為當次)
   //    ⇒ 「產物存在」在【成功】與【失敗但寫了一半】兩個世界印同一個綠。
-  //    ⇒ 戳記分三態:無 / HEAD 不同(兩個 hash 都印)/ 相同。不 skip,只 throw。
+  //    ⇒ 它 throw(不 skip),而 **HEAD 不同只印不擋**。**印是 `requireFreshBuild()` 自己做的。**
+  //    ⛔ ~~原註解寫「戳記分三態:無 / HEAD 不同(**兩個 hash 都印**)/ 相同」~~
+  //       —— 那句在 2026-09-01 之前**是假的**:四處呼叫端全部丟掉回傳值,而警告就在回傳值裡
+  //       ⇒ 它被算出來然後掉在地上。**碼沒有說謊, 說謊的是那句註解。**
+  //    完整成因與射程 = `@/lib/build-stamp` 檔頭(單一權威)。
   requireFreshBuild();
   const roots = [join(__dirname, '../../../.next')];
   const hits: string[] = [];
