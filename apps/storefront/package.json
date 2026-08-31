@@ -15,6 +15,7 @@
     "test:e2e:prod": "playwright test --config=playwright.prod.config.ts"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^149.0.0",
     "@pcm/adapters": "workspace:*",
     "@pcm/domain": "workspace:*",
     "@pcm/ports": "workspace:*",
@@ -23,6 +24,7 @@
     "@pcm/use-cases": "workspace:*",
     "@supabase/ssr": "^0.10.3",
     "next": "16.3.0",
+    "puppeteer-core": "^25.9.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "server-only": "^0.0.1"
