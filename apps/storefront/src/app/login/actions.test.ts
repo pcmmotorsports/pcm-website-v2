@@ -106,4 +106,25 @@ describe('loginAction(信任邊界 + #181 雙通道)', () => {
     expect(result?.fieldErrors).toBeUndefined();
     expect(redirectSpy).not.toHaveBeenCalled();
   });
+
+  // ── 🔴 ⟦b4-SIGNUPOPEN1⟧ 片2(2026-08-31 `-15`)────────────────────────────────
+  // **這是 Confirm email 打開那一天,【現有未驗證使用者】唯一會看到的那句話 —— 而它一格測試都沒有。**
+  // 量到的(2026-08-31 12:4x,`command grep -rn <字面> apps packages --include='*.test.ts*' | wc -l`):
+  //   '請先收信完成'（本句)                  ⇒ **0**
+  //   🔵 正對照 'Email 或密碼錯誤'（隔壁那句)⇒ **5**  ⇒ 尺會動,不是掃不到
+  //   🔵 負對照 現造字面                      ⇒ **0**
+  // 📌 ⇒ 隔壁那句錯誤文案被釘了 5 次,而這一句 0 次。差的不是難度,是**沒有人走到那條路**。
+  // ⚠️ 射程:這一格證的是【我方 action 的映射與文案】。它**證不出**
+  //    「Supabase 對未驗證帳號真的回 email_not_confirmed」—— 那要真的打開開關才知道,
+  //    而那是 Sean 的 dashboard 動作。⇒ 兩個宣稱,不要合併。
+  it('⟦b4-SIGNUPOPEN1⟧ AuthError(email_confirmation_required)→ formError「請先收信完成 Email 驗證後再登入」、不 redirect', async () => {
+    signInSpy.mockRejectedValue(new AuthError('email_confirmation_required', 'unconfirmed'));
+    const result = await loginAction(VALID);
+    expect(result?.formError).toBe('請先收信完成 Email 驗證後再登入');
+    // 不得掉進 default 的「登入失敗，請稍後再試」—— 那句對這個情境是【錯的指引】:
+    // 客人會重試而不是去收信。
+    expect(result?.formError).not.toContain('請稍後再試');
+    expect(result?.fieldErrors).toBeUndefined();
+    expect(redirectSpy).not.toHaveBeenCalled();
+  });
 });
