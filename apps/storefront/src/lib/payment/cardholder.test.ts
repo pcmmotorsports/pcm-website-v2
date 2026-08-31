@@ -18,6 +18,7 @@ function customer(over: Partial<Customer> = {}): Customer {
     name: '王小明',
     phone: '0900111222',
     birthday: null,
+    gender: null,
     tier: 'general',
     walletBalance: 0,
     totalDeposit: 0,

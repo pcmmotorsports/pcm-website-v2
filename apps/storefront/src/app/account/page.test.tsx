@@ -13,9 +13,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-const { getUserMock, customerSingleMock, walletLedgerMock, redirectMock, walletQuery } = vi.hoisted(() => ({
+const { getUserMock, customerSingleMock, walletLedgerMock, redirectMock, walletQuery, customerQuery } = vi.hoisted(() => ({
   getUserMock: vi.fn(),
   customerSingleMock: vi.fn(),
+  /** customers 那一發的 select 實參(見下方使用點的理由)。 */
+  customerQuery: { select: [] as unknown[][] },
   // 真 redirect() 會 throw NEXT_REDIRECT;mock 也必須 throw(理由同 checkout/page.test.tsx)。
   /**
    * 儲值金明細那一發的回傳。預設 = 成功且空(`count: 0`)。
@@ -83,6 +85,10 @@ vi.mock('@/lib/supabase/server', () => ({
           };
           return chain;
         }
+        // 🔴 **customers 那一發的實參也要收** —— 照上面 wallet 那段逐字同一條理由:
+        //    丟掉實參, 對「這一欄被拿掉了」與「它還在」印同一個綠。
+        //    (2026-09-01 codex R1 must-fix:刪掉 page 的 gender SELECT 這族測試仍會綠。)
+        customerQuery.select.push(selectArgs);
         return { eq: () => ({ single: customerSingleMock }) };
       },
     }),
@@ -121,6 +127,7 @@ afterEach(() => {
   vi.clearAllMocks();
   // `vi.clearAllMocks()` 清得到 vi.fn(),**清不到純物件** ⇒ 不清的話跨格累積、筆數斷言全錯。
   walletQuery.select.length = 0;
+  customerQuery.select.length = 0;
   walletQuery.eq.length = 0;
   walletQuery.order.length = 0;
   walletQuery.limit.length = 0;
@@ -501,3 +508,47 @@ describe('/account server route · 🔴 儲值金那一發查詢送出去的參�
     ]);
   });
 });
+// ══ 🔴🔴 `:573` 性別(2026-09-01;codex R1 must-fix)══════════════════════════
+//   它逐字:「刪掉 page 的 gender SELECT／傳遞,這族測試仍會綠。
+//            這正是 optional cast 掩蓋的突變。」
+//   📌 而成因是型別層的:`SupabaseCustomerRow.gender` 是 **optional** ——
+//      那是刻意的(生成檔還不知道有那一欄),而它的代價就是【漏撈不會紅】。
+//      ⇒ 所以這一格只能靠測試守,守不到就真的沒有東西在看。
+describe('性別欄要真的被撈、真的被傳下去', () => {
+  it('🔴 customers 那一發的 select 字串必須含 `gender`(漏撈 ⇒ 讀回來永遠是 null)', async () => {
+    await renderRoute('general');
+    const sel = customerQuery.select.flat().join(' ');
+    expect(sel).toContain('gender');
+    // 🔵 正對照 —— 沒有它,上面那格在「select 根本沒被記到」時也會過(空字串 contains 會 false,
+    //    而如果我寫成 not.toContain 就會假綠)。這一行證明這把尺真的看到了一個 select 字串。
+    expect(sel).toContain('wallet_balance');
+  });
+
+  it('🔴 DB 的 gender 要傳進 profile —— 而不是永遠給空字串', async () => {
+    getUserMock.mockResolvedValue({
+      data: { user: { id: 'u', email: 'a@b.com', user_metadata: { name: 'N' } } },
+    });
+    customerSingleMock.mockResolvedValue({
+      data: { name: 'N', phone: '', birthday: null, gender: 'female', tier: 'general', wallet_balance: 0 },
+      error: null,
+    });
+    const el = (await AccountRoute()) as { props: { profile: { gender: string } } };
+    expect(el.props.profile.gender).toBe('female');
+  });
+
+  it('🔵 DB 給一個本版不認得的值 ⇒ 退回空字串(不把它塞進 select 的 value)', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    getUserMock.mockResolvedValue({
+      data: { user: { id: 'u', email: 'a@b.com', user_metadata: { name: 'N' } } },
+    });
+    customerSingleMock.mockResolvedValue({
+      data: { name: 'N', phone: '', birthday: null, gender: '男', tier: 'general', wallet_balance: 0 },
+      error: null,
+    });
+    const el = (await AccountRoute()) as { props: { profile: { gender: string } } };
+    expect(el.props.profile.gender).toBe('');
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});
+

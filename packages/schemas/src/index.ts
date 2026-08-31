@@ -211,6 +211,22 @@ export const ProfileInput = z.object({
     .string()
     .default('')
     .refine((v) => v === '' || /^\d{4}-\d{2}-\d{2}$/.test(v), { error: '生日格式不正確' }),
+  // 🔴 性別(選填)—— **白名單走 `GENDER_CODES`,不是自由字串**。
+  //    空字串 =「不選擇」⇒ 合法,在 action 層 normalize 成 `null`(同 birthday 那條)。
+  //    ⚠️ `'男'` 這種中文字面在這裡就會被擋 —— 值域是代碼、顯示才是中文
+  //       (對應表 `GENDER_LABEL`,而它是**唯一**一份)。
+  //    🔵 為什麼要在這裡擋而不是靠 DB 的 CHECK:DB 擋了會拋通用錯 ⇒ 被 action 吞成
+  //       「儲存失敗,請稍後再試」⇒ **使用者看不出是哪一欄**。這裡擋才給得出逐欄訊息。
+  // 🔴🔴 **`.optional()` 而不是 `.default('')` —— codex R1 must-fix,而它是【資料遺失】那一種**:
+  //   `.default('')` 會把「**這個 client 根本沒送這個欄位**」變成「'' ⇒ null」
+  //   ⇒ 一個舊分頁 / 舊版 client 送出一次個人資料 ⇒ **把使用者已經填好的性別清掉**。
+  //   📌 **⇒ 「欄位缺席」與「明確選了不選擇」必須是兩件事** ——
+  //      前者 = 不要動它;後者 = 存成 null。而 `.default('')` 把它們壓成同一個。
+  //   ⇒ 而 action 層據此分岔:`undefined` ⇒ 不進 patch;`''` ⇒ 進 patch 且值為 null。
+  //   🔵 而型別要**真的收窄** —— `.refine()` 只驗值、不改型別 ⇒ 用 `z.enum` + `''`。
+  //      不然下游拿到的是 `string`,而 domain 要的是三個字面的聯集
+  //      ⇒ 那個轉換只能靠一個 cast,而 cast 會把「值域錯了」變成 typecheck 看不到的事。
+  gender: z.union([z.literal(''), z.enum(GENDER_CODES)], { error: '性別選項不正確' }).optional(),
 });
 export type ProfileInput = z.infer<typeof ProfileInput>;
 

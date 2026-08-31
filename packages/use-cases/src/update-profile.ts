@@ -15,7 +15,7 @@ import type { Customer, CustomerId } from '@pcm/domain';
 export async function updateProfile(
   customerRepo: ICustomerRepository,
   currentUserId: CustomerId,
-  patch: Partial<Pick<Customer, 'name' | 'phone' | 'birthday'>>,
+  patch: Partial<Pick<Customer, 'name' | 'phone' | 'birthday' | 'gender'>>,
 ): Promise<Customer> {
   return customerRepo.update(currentUserId, patch);
 }
