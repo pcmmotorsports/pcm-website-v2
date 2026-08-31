@@ -672,3 +672,159 @@ describe('PgChargeAttemptAdapter.recordReleasedFailureObservation(R2a、三參�
     ).rejects.toMatchObject({ code: PG_BUSINESS_REJECT, message: expect.stringContaining('主軌失敗') });
   });
 });
+
+// ══ ⟦b4-MONEY2⟧ capture_state 那兩支 —— 2026-09-01 補 ═══════════════════════
+//
+// 🔴 **為什麼是這兩支而不是板上排 ① 的那支**:板列 `⟦b4-MONEY2⟧` 逐字寫
+//    「11 支碰錢的 DB 函式,**應用碼在呼叫它**,而它一個測試都沒有」——
+//    而 2026-09-01 逐支查呼叫端:**「應用碼在呼叫它」對 9 支不成立**。
+//    真的有 TS 呼叫端的只有這兩支(本檔受測的 adapter `:143` / `:154`),
+//    其餘 8 支只命中 `scripts/*-verify.sh` / `docs/` / 產生的 `database.types.ts`,
+//    ⚠️ 加上 `admin_correct_refund_manual_verdict` 另有一處在 `apps/admin/.../refund-recovery-state.ts:74`
+//    —— **那是一句註解,不是呼叫**(code-reviewer 補的偏差:原句寫「其餘是 scripts 與 docs」
+//    **字面不全**,少了 `apps/admin/` 這一處)。而 `redeem_coupon` **全 repo 零呼叫端**。
+//    🔵 而「零測試」要講精確:這兩個【方法名】在 repo 內有 60+ 命中
+//    (`recheck-capture-state.test.ts` / `settle-charge.test.ts` …),**而全部是 port mock**
+//    ⇒ 一格都沒跑到本 adapter 的 SQL 與 parse ⇒ **正確的宣稱是「adapter 層 0」, 不是「0 命中」。**
+//    📌 **⇒ 而那個差別正是這片要補的洞:port 層那些綠會讓人以為它們已經有測試了。**
+//    ⇒ 📌 **排序把兩個沒有人在走的排在真的在走的前面 —— 那不是排序失誤,是前提是假的。**
+//    盤點 `~/pcm-mailbox/段一-MONEY2那11支誰真的在走-20260901.md`。
+//
+// 🔵 **而這兩支走得到**:`PgChargeAttemptAdapter` ← `recheck-capture-state`
+//    ← `apps/storefront/src/app/api/cron/capture-recheck/route.ts`,而
+//    `packages/domain/src/ops/cron-jobs.ts` 登記 `pcm-capture-recheck` `*/10 * * * *`。
+//    ⚠️ **而「登記」不等於「在跑」** —— 那是 `pg_cron`,在正式庫,本片驗不到。
+//
+// 🛑 **本片只加測試,不動 adapter 一個字。**
+describe('PgChargeAttemptAdapter.recordCaptureState(⟦b4-MONEY2⟧ 補測)', () => {
+  it('RPC true → 回 true;SQL 呼 record_charge_capture_state(三 cast)、params 三格', async () => {
+    const { client, query, connect, end } = makeClient({ query: async () => boolRows(true) });
+    const got = await new PgChargeAttemptAdapter('conn', () => client).recordCaptureState(
+      ATTEMPT,
+      ORDER,
+      'captured',
+    );
+    expect(got).toBe(true);
+    const [sql, values] = query.mock.calls[0]!;
+    // 🔴 **釘 SQL 字面**:這支 RPC 是 `SECURITY DEFINER`(繞過 RLS),
+    //    函式名或 cast 被改掉 ⇒ 打到的是另一支函式,而回傳型別相同 ⇒ 行為測試看不出來。
+    expect(sql).toMatch(/record_charge_capture_state\(\$1::uuid, \$2::uuid, \$3::text\)/);
+    expect(values).toEqual([ATTEMPT, ORDER, 'captured']);
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(end).toHaveBeenCalledTimes(1); // finally 永遠釋放
+  });
+
+  it('🔴 RPC false(雙鍵不符 / 查無)→ 回 false 而【不 throw】;而第三參數要原樣傳', async () => {
+    const { client, query } = makeClient({ query: async () => boolRows(false) });
+    // 🛑 這一格守的是「best-effort」那個設計:改成 throw 會讓一次寫不進去
+    //    把整條 capture-recheck 掃描打斷,而那條掃描是每 10 分鐘跑的。
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).recordCaptureState(ATTEMPT, ORDER, 'authorized'),
+    ).resolves.toBe(false);
+    // 🔴🔴 **這一行是 code-reviewer 抓到的真缺口**:上面那格輸入 `'captured'`、
+    //    而 T3/T4 走 throw 路徑根本不看 values ⇒ **把第三參數寫死成 `'captured'` 的改法四格全綠**。
+    //    ⇒ 後果:只授權未請款的單被記成 `captured`,而 RPC 值域檢查放行(兩個都是合法值)
+    //      ⇒ 📌 **RAISE 不會叫, 而帳上那一格是錯的。**
+    //    ⚠️ 而 use-case 那一側的 `recheck-capture-state.test.ts` 擋不住它 ——
+    //      它斷言的是 use-case 對 **port mock** 的呼叫,不是 adapter 對 SQL 的轉發。
+    expect(query.mock.calls[0]![1]).toEqual([ATTEMPT, ORDER, 'authorized']);
+  });
+
+  it.each([
+    ['result 非 boolean(字串)', boolRows('true')],
+    ['空 rows', { rows: [] as Array<Record<string, unknown>> }],
+  ])('回應形狀不符(%s)→ throw,不回一個看起來像 false 的值', async (_l, rows) => {
+    const { client } = makeClient({ query: async () => rows });
+    // 🔴 **這一格與上一格是一對**:上面要「false 不 throw」,這裡要「壞掉要 throw」——
+    //    少了這一格,一個把 parse 失敗吞成 `false` 的改法會全綠,
+    //    而那會讓「RPC 說沒寫成」與「回應壞了」在呼叫端長得一樣。
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).recordCaptureState(ATTEMPT, ORDER, 'captured'),
+    ).rejects.toThrow('回應格式異常');
+  });
+
+  it('RPC RAISE(值域非 authorized|captured)→ throw 帶 code、通用訊息不含 pg 原文', async () => {
+    const { client } = makeClient({
+      query: async () => {
+        throw Object.assign(new Error('record_charge_capture_state: 值域不合法'), { code: 'P0001' });
+      },
+    });
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).recordCaptureState(ATTEMPT, ORDER, 'captured'),
+    ).rejects.toMatchObject({ code: PG_BUSINESS_REJECT, message: expect.stringContaining('主軌失敗') });
+  });
+});
+
+describe('PgChargeAttemptAdapter.listForCaptureRecheck(⟦b4-MONEY2⟧ 補測)', () => {
+  const ROW = { attempt_id: ATTEMPT, order_id: ORDER, rec_trade_id: REC };
+
+  it('三欄齊全 → snake→camel 映射;SQL 呼 list_charge_attempts_for_capture_recheck(兩 int cast)', async () => {
+    const { client, query, end } = makeClient({ query: async () => ({ rows: [ROW, ROW] }) });
+    const got = await new PgChargeAttemptAdapter('conn', () => client).listForCaptureRecheck(7, 50);
+    expect(got).toEqual([
+      { attemptId: ATTEMPT, orderId: ORDER, recTradeId: REC },
+      { attemptId: ATTEMPT, orderId: ORDER, recTradeId: REC },
+    ]);
+    const [sql, values] = query.mock.calls[0]!;
+    expect(sql).toMatch(/list_charge_attempts_for_capture_recheck\(\$1::int, \$2::int\)/);
+    // 🔴 **順序也要釘**:`(cutoffDays, limit)` 兩個都是 int,調換不會型別錯,
+    //    而它會把「掃 7 天最多 50 筆」變成「掃 50 天最多 7 筆」—— 兩者都回一個合法的結果。
+    expect(values).toEqual([7, 50]);
+    expect(end).toHaveBeenCalledTimes(1);
+  });
+
+  it('空集合 → 回 []', async () => {
+    const { client } = makeClient({ query: async () => ({ rows: [] }) });
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).listForCaptureRecheck(7, 50),
+    ).resolves.toEqual([]);
+  });
+
+  it.each([
+    ['attempt_id 不是字串', { ...ROW, attempt_id: 123 }],
+    ['order_id 是 null', { ...ROW, order_id: null }],
+    ['rec_trade_id 缺欄', { attempt_id: ATTEMPT, order_id: ORDER }],
+  ])('🔴 形狀不對(%s)→ throw,而【不是】回一個看起來像空集合的結果', async (_l, bad) => {
+    const { client } = makeClient({ query: async () => ({ rows: [bad] }) });
+    // 🛑 adapter 註解逐字:「不回一個『看起來像空集合』的結果 —— 那會讓【掃不到】與【掃壞了】
+    //    在呼叫端長得一樣」。而這條掃描的呼叫端是排程 ⇒ **沒有人在看它回幾筆。**
+    //
+    // 🔴🔴 **而這一格【記錄的是現況,不是我想要的行為】——我第一版寫 `.toThrow('回應形狀異常')` 而它紅了:**
+    //    `run()` 把錯誤丟進 `sanitizeError()`,而它**只憑類別放行** `ChargeAttemptParseError`
+    //    / `ChargeAttemptNotDurableError` 兩種。而 `listForCaptureRecheck` 丟的是**一個裸的
+    //    `new Error(...)`** ⇒ 被包成 `charge 簿記主軌失敗(transport)`。
+    //    ⇒ 📌 **所以「形狀壞了」在呼叫端與「連線斷了」長得一樣** —— 而那正是這支函式
+    //      自己的註解說要避免的那件事,只是它避免的是「與空集合長一樣」,沒避免「與斷線長一樣」。
+    //    🛑 **本片不動 adapter(只寫測試)⇒ 這一格釘住現況,而那個不對稱另案處理。**
+    //    🔵 對照組就在隔壁:`recordCaptureState` 的形狀錯走 `parseBooleanResult`
+    //      ⇒ 丟 branded ⇒ 訊息**保留**成「回應格式異常」。**同一支 adapter,兩種待遇。**
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).listForCaptureRecheck(7, 50),
+    ).rejects.toThrow('主軌失敗');
+  });
+
+  it('🟢 負對照:一列好的 + 一列壞的 → 仍然 throw(不得只回好的那一列)', async () => {
+    // 🔴 這一格證明上面那三格不是靠「整批都壞」才紅 ——
+    //    一個「跳過壞列、回好列」的改法會讓那三格全綠,而它正是最像善意的那種改法。
+    const { client } = makeClient({ query: async () => ({ rows: [ROW, { ...ROW, order_id: 7 }] }) });
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).listForCaptureRecheck(7, 50),
+    ).rejects.toThrow('主軌失敗');
+  });
+
+  it('🟢 好列在前、壞列在後 ⇒ 仍然 throw,而連線仍然被釋放', async () => {
+    // ⛔ ~~本格原本還有一行 `rejects.not.toBeInstanceOf(Array)`~~ **刪掉了 —— 它是恆真的**
+    //    (code-reviewer 抓到):上一行已斷言 `toBeInstanceOf(Error)`,而 Error 永遠不是 Array
+    //    ⇒ 它只在上一行已經紅的時候才可能紅。而我寫的理由(「不得已經 resolve」)
+    //    **`rejects` 自己就守完了** ⇒ 📌 **那一格的【理由】與它【實際做的事】是兩件事。**
+    const { client, end } = makeClient({ query: async () => ({ rows: [ROW, { ...ROW, attempt_id: null }] }) });
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).listForCaptureRecheck(7, 50),
+    ).rejects.toBeInstanceOf(Error);
+    // 🔴🔴 **這一行補的是【全檔既有】的空缺**(code-reviewer 抓到):本檔 9 處
+    //    `end).toHaveBeenCalled` **全在成功路徑,錯誤路徑零斷言**
+    //    ⇒ 把 `await client.end()` 從 `finally` 搬進 `try`,**全檔照樣全綠**。
+    //    ⇒ 而這條掃描每 10 分鐘跑、遇壞列必 throw ⇒ 📌 **那會每次漏一條 pg 連線。**
+    expect(end).toHaveBeenCalledTimes(1);
+  });
+});
