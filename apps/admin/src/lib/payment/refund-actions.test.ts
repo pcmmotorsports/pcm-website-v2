@@ -588,9 +588,19 @@ describe('initiateRefundAction — initiate 錯誤與 revalidate 紀律', () => 
   });
 
   it('initiate 之前的失敗不 revalidate(帳本零變化:confirm_mismatch / record_unavailable)', async () => {
-    await initiateRefundAction(IDLE, refundForm({ [REFUND_CONFIRM_FIELD]: '9999' }));
+    // 🔴 **正向錨(⟦b4-MONEY1⟧ 2026-09-01 稽核補)**:原本這一格只有下面那句
+    //    `not.toHaveBeenCalled()` ⇒ **受測 action 若整個沒跑,它照樣綠**。
+    //    而它守的是【帳本零變化】—— 那種假綠的後果是:一個不該觸發的快取重整被觸發而沒有人知道。
+    //    ⇒ 所以先釘住【那兩發真的跑了,而且各自走到了預期的失敗】,再問 revalidate 有沒有被叫。
+    const first = await initiateRefundAction(IDLE, refundForm({ [REFUND_CONFIRM_FIELD]: '9999' }));
+    expect(first, '第一發沒有走到 confirm_mismatch ⇒ 下面那句 not.toHaveBeenCalled 是恆真的').toMatchObject({
+      code: 'confirm_mismatch',
+    });
     mocks.recordQuery.mockRejectedValue(new Error('down'));
-    await initiateRefundAction(IDLE, refundForm());
+    const second = await initiateRefundAction(IDLE, refundForm());
+    expect(second, '第二發沒有走到 record_unavailable ⇒ 同上').toMatchObject({
+      code: 'record_unavailable',
+    });
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 });

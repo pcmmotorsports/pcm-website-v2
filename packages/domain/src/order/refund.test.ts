@@ -607,6 +607,10 @@ describe('computeRefundQuote — 輸入守門(逐 kind 分別斷言)', () => {
       input({ items: [['A', 100, 1]], refund: [['A', 0]], fee: 0 }),
       input({ items: [['A', 0, 1], ['B', 100, 1]], refund: [['B', 1]], fee: 0 }),
     ];
+    // 🔴 **這個 6 是分母** —— 少了它,有人把一個 case 拿掉時迴圈只是【少跑一格】,而它不會說。
+    //    要改它,先問:**那個被拿掉的壞輸入,是不是真的不必再守了?**
+    //    (⟦b4-MONEY1⟧ 2026-09-01 稽核補)
+    expect(bads).toHaveLength(6);
     for (const b of bads) {
       expect(() => computeRefundQuote(b as RefundQuoteInput)).not.toThrow();
       expect(computeRefundQuote(b as RefundQuoteInput).ok).toBe(false);
@@ -652,7 +656,11 @@ describe('computeRefundQuote — Q6=B 凍結運費規則(規則取自輸入、�
   });
 
   it('17b: 全退時無論規則為何,運費一律歸 0(邊界②)', () => {
-    for (const r of [rule(5000, 100), rule(3000, 60), rule(0, 999)]) {
+    // 🔴 抽成具名常數才釘得住分母 —— 行內陣列沒有東西可以斷言。
+    //    **這個 3 是分母**:要改它,先問那一組規則是不是真的不必再守了。
+    const rules = [rule(5000, 100), rule(3000, 60), rule(0, 999)];
+    expect(rules).toHaveLength(3);
+    for (const r of rules) {
       const q = ok(computeRefundQuote(input({
         items: [['A', 1000, 1]], refund: [['A', 1]], fee: 100, shippingRule: r,
       })));
@@ -766,6 +774,8 @@ describe('computeRefundQuote — 守恆不變量(矩陣 15)', () => {
       { items: [['A', 300, 4]], fee: 0, method: 'store' },
       { items: [['A', 6000, 1], ['B', 100, 1]], fee: 0, method: 'home' },
     ];
+    // 🔴 **這個 5 是分母**(同上):要改它,先問那個情境是不是真的不必再守了。
+    expect(scenarios).toHaveLength(5);
 
     for (const sc of scenarios) {
       let remaining = sc.items.map(([id, price, qty]) => ({ id, price, qty }));

@@ -289,11 +289,16 @@ describe('deferred / rejected / not_sent 分派(§3 表第 3-5 列;token 換新)
 
 describe('🔴 unknown-state 鐵律(§3 表末列;本片最重要的一格)', () => {
   it('refund() 拋非 NotSentError(HTTP 500 / 逾時 / 6002 / 10050 / full 非 0 碼)→ **finalize 零呼叫**、列留 processing、unknown_state、token 原樣', async () => {
-    for (const error of [
+    // 🔴 抽成具名常數才釘得住分母。**這個 3 是分母** ——
+    //    拿掉其中一種錯誤 ⇒ 迴圈只是少跑一格而不會說,而那一種從此沒有人守。
+    //    要改它,先問:**那個錯誤形狀是不是真的不會再出現了?**
+    const errors = [
       new Error('TapPay refund HTTP 500(狀態未知、不得自動重發)'),
       new Error('TimeoutError'),
       new Error('TapPay refund 未實證回應碼 6002'),
-    ]) {
+    ];
+    expect(errors).toHaveLength(3);
+    for (const error of errors) {
       mocks.finalizeOrderRefund.mockClear();
       mocks.refund.mockRejectedValue(error);
       const state = await initiateRefundAction(IDLE, refundForm());
