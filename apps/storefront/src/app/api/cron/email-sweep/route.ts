@@ -529,6 +529,36 @@ export async function GET(request: Request): Promise<Response> {
     if (
       result.errors > 0 ||
       result.quotaFailed > 0 ||
+      // 🔴🔴 `⟦b4-SWEEP503BLIND⟧`(2026-09-02):**全滅要吵。**
+      //    ⛔ 這個判斷式原本【不含 `result.failed`】—— 而 `failed` 是 provider 裁決失敗的封數。
+      //    ⇒ Resend 回 5xx / 連不上 / 額度以外的任何失敗 ⇒ `failed++` 而 `errors` 不動
+      //    ⇒ ⇒ 回 **200** ⇒ `recordHeartbeatSuccess` ⇒ **儀表綠, 而一整輪一封都沒寄出去。**
+      //    📌 而**同一支檔上面那段** `quotaFailed` 的註解(錨:逐字「額度用盡」那一段)
+      //       已經記過同一句謊 —— 那次補的是 `quotaFailed`
+      //       ⇒ **補丁只補了一個入口, 而這是同一個洞的第二個。**
+      //
+      // 🛑 **為什麼是 `sent === 0 && failed > 0` 而不是 `failed > 0`** —— 而理由要寫成射程句:
+      //    ⛔ ~~我第一版寫「『一封都沒成功而有失敗』不需要基線, 它在結構上就分得出那個世界」~~
+      //    🔴 **那句在【一輪只認領 1 封】時是假的**(code-reviewer 2026-09-02):那一輪
+      //       `sent===0 && failed>0` 與我否決掉的 `failed>0` **是同一個觀察**。
+      //       而 10-30 封/日 ÷ 288 輪 ⇒ **認領 1 封就是最常見的非空輪** ⇒ 大多數輪它不成立。
+      //    ✅ **正確的說法**:這個合取只在【同一輪有多封】時才多買到東西;
+      //       而它擋掉的告警量, 對照組推算約 **10%**(Poisson λ≈30/288≈0.10/輪)——
+      //       🔴 **那是【推算】不是量到的, 而我沒有量過 `failed` 的日常基線。**
+      //
+      // ⚠️ **噪音有上界, 而它不是一次紅**:一個永久壞掉的收件地址(http_400/422)走 exponential
+      //    退避、`max_attempts=5` ⇒ **最多 5 次紅、擠在約 75 分鐘內**, 然後靜靜進死信。
+      //    🛑 **⇒ 那是把【單封資料問題】報成【sweeper 故障】。⇒ 明早若頻繁變紅, 先看是不是這個。**
+      //
+      // 🔴 **而這一格的名字寫「試過而全滅」, 有一個世界不是**(code-reviewer nit):
+      //    時間預算耗盡 ⇒ 首封失敗後即 `deferred = jobs.length - i`
+      //    ⇒ `sent=0, failed=1, deferred=49` ⇒ 503, **而那 49 封根本沒被試過。**
+      //    ⇒ 本片**沒有**排除它 —— 排除它要多讀一欄, 而那會讓這道閘變成兩個判準。明寫, 不假裝沒有。
+      //
+      // ⚠️ 而 `sent === 0 && failed === 0`(本輪沒有到期的信)**照舊回 200** —— 那是常態。
+      //    ⛔ ~~我第一版把上面那條寫成「額度以外的任何失敗」~~ —— 不精確:額度那條**也**走
+      //    `result.failed++`(`quotaFailed` 是**加計**不是互斥)⇒ 不影響行為, 而影響讀的人。
+      (result.sent === 0 && result.failed > 0) ||
       enqueueStatus === 'failed' ||
       enqueueStatus === 'skipped_bad_cutoff' ||
       (enqueueCounts?.enqErrors ?? 0) > 0 ||

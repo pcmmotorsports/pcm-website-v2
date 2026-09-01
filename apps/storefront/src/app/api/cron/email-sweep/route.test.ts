@@ -197,6 +197,54 @@ describe('GET email-sweep — 執行 + 結果映射', () => {
     errSpy.mockRestore();
   });
 
+  /**
+   * 🔴 `⟦b4-SWEEP503BLIND⟧`(2026-09-02):這三格是【一組】, 拆開任何一格另外兩格就沒有判別力。
+   *
+   * 舊條件不含 `result.failed` ⇒ **provider 全掛時 route 回 200 ⇒ 心跳綠 ⇒ 儀表正常**,
+   * 而一整輪一封都沒寄出去。⇒ 而寄信是對外不可回收的。
+   *
+   * 🛑 而【只加一格「全滅 ⇒ 503」】會讓下面兩個世界也變 503, 那就是把有用的訊號換成噪音:
+   *   ② 有寄成功也有失敗 ⇒ 那是常態(單封可重試)
+   *   ③ 本輪沒有到期的信 ⇒ 那是最常見的一輪
+   */
+  it('🔴 全滅(sent=0 而 failed>0)→ 503:一封都沒成功而試過了', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT, claimed: 5, sent: 0, failed: 5 });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ ok: false, sent: 0, failed: 5 });
+    errSpy.mockRestore();
+  });
+
+  it('🟢 對照②:有寄出去也有失敗(sent>0 && failed>0)→ 仍 200(單封失敗是常態, 不是全滅)', async () => {
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT, claimed: 5, sent: 4, failed: 1 });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, sent: 4, failed: 1 });
+  });
+
+  it('🟢 對照③:本輪沒有到期的信(sent=0 且 failed=0)→ 仍 200(那是最常見的一輪, 不是失敗)', async () => {
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT, claimed: 0, sent: 0, failed: 0 });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, sent: 0, failed: 0 });
+  });
+
+  /**
+   * 🔴 **第四格 —— 而它是被一個【還活著的突變】逼出來的**(code-reviewer 2026-09-02):
+   * 把條件換成 `result.sent === 0 && result.claimed > 0` ⇒ **上面三格全綠, 而整支檔 72 格也全綠**
+   * (我實跑複驗過)。成因:34 個 mock 裡**沒有任何一格**是 `claimed>0 && sent===0 && failed===0`。
+   * ⇒ 而那個突變是錯的:一輪【全部被跳過】(不合格 / 箱作廢)不是失敗
+   *   —— `sweep-email-outbox.ts` 明說 skippedIneligible / skippedShipmentVoided **不是失敗**。
+   * 📌 **⇒ 三格證得出「條件在這三個世界對」, 證不出「它沒有把別的世界一起抓進來」。**
+   */
+  it('🟢 對照④:一輪【全部被跳過】(claimed>0 而 sent=0、failed=0)→ 仍 200(跳過不是失敗)', async () => {
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT, claimed: 3, sent: 0, failed: 0, skippedIneligible: 3 });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, claimed: 3, sent: 0, skippedIneligible: 3 });
+  });
+
   // 🔴 E2a-c 特有:deferred = 時間預算耗盡的調參訊號(claimLimit 相對 maxRunSeconds 太大)、非錯誤 → 仍 200。
   it('🔴 deferred>0 但 errors=0 → 仍 200(deferred 是調參訊號、非錯誤,不 503)', async () => {
     sweepSpy.mockResolvedValue({ ...CLEAN_RESULT, claimed: 50, sent: 40, deferred: 10, errors: 0 });
