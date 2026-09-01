@@ -170,6 +170,10 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
   //    (片1 commit `21cb9ca2` 的三綠段只有 typecheck + lint;鐵則 11 對 `.sql` 只有語法守門)
   //    ⇒ `packages/domain/` 裡**所有「掃 migration 的閘」對 migration-only 的 commit 一律隱形**。
   //    ⇒ **之後每一支純 SQL 片都會重演這件事。** 已立 backlog(見該條)。補完 allowlist 不等於修好它。
+  // ✅ **[2026-09-01 回填 · 線【帳號】`-7a`]** 那個「見該條」**指的是 backlog `#863`**
+  //    (標題逐字「純 `.sql` 的 commit 不跑 vitest ⇒ 所有『掃 migration 的閘』對它們【一律隱形】」)。
+  // 🔴 **為什麼要補**:「見該條」看起來有指標, 而它**沒有說是哪一條** ——
+  //    那比完全不寫更難查, 因為讀的人會以為自己漏看了。⇒ 同族 `⟦5b-REPORTEDNOTLANDED1⟧`。
   // 🔴🔴 **本兩筆的第一版被 code-reviewer 判 FAIL(6 must-fix),而錯的方向全部是【把它寫得比實際乾淨】。**
   //    最重的一條:第一版寫「沒有一種是新算式」,而同表 :148 對 `20260803150000` 逐字標著
   //    「🔴 R2 = admin_finalize_order_refund 步 7 自己 SUM 決定 payment_status(**已立案 #497,刻意不在本片修**)」

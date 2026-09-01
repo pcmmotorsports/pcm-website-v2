@@ -295,6 +295,12 @@ const ALLOWLIST = [
   //       📌 ⇒ 到期條件用 `bash scripts/latest-definition-of.sh admin_create_manual_order`,
   //          **而 live 那一欄仍只是帳本、不是正式庫現況**(那支工具自己的射程聲明)。
   //       🛑 撞號本身是一個**跨線的獨立問題**(不是本筆造成的),已回報主視窗。
+//       ✅ **[2026-09-01 回填 · 線【帳號】`-7a`]** 那件事**確實落地了** ⇒ 板上有一列帶著完整量法
+//          (那一列同時提到 `⟦b4-SPEC1⟧`;用 `grep 'uniq -d' docs/launch-todo.md` 找得到),
+//          而 `docs/phase-1-backlog.md` 另有風險評估(發生頻率低 / 收割當下必然發現 / 修復成本低)。
+//       🟢 **而我複量了上面那條命令 ⇒ 仍是零組** ⇒ 「改號後零撞號」今天成立。
+//       🔴 **為什麼要補**:原句只寫「已回報主視窗」而沒有落點 ⇒ 那句話會【關掉下一個人的尋找動作】。
+//          ⇒ 同族 `⟦5b-REPORTEDNOTLANDED1⟧`。
   '20260831180000_m4b_spec1_manual_order_authoritative_spec.sql',
   // 🔴 2026-09-01 登記(線【客人帳戶區】`-7a`;券片3a)——
   //    它是 `create_order` 的 `CREATE OR REPLACE` 重定義(第 10 代), 函式本體逐字抄自

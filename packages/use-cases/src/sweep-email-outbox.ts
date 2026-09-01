@@ -888,7 +888,29 @@ export async function sweepEmailOutbox(
     //    列留 `sending`、每輪重燒 attempts ⇒ 📌 **一個模板 bug 會長得像 Resend 掛了。**
     //    ⇒ 提出來之後:模板 throw 會往上冒到 per-job catch 之外 —— 那是對的,
     //      因為它是**程式錯誤**,不是可重試的寄送失敗。
-    const html = paid !== null ? renderPaidEmailHtml(paid) : null;
+    // 🔴🔴 **`logoUrl: ''` 是【明確不印】, 不是「沒給」**(`-7a` 2026-09-01 補)——
+    //    ⚠️ 下面那段「三格全部不給」的註解**寫的當下是真的**, 而它後來被我(`-7a`)弄假了:
+    //    `002105c4` 給 `PaidEmailChrome.logoUrl` 加了**預設值** `PCM_EMAIL_LOGO_URL`
+    //    ⇒ **`renderPaidEmailHtml(paid)` 不給 chrome 會拿到那個預設 ⇒ 圖會印出去。**
+    //    ⇒ 實測(照這條路一模一樣的呼叫):`<img>` 出現 **1** 次、logo 網址 **1** 次
+    //      (而付款時間 0 · CTA 0 ⇒ 那兩格如原註解所述, 只有 LOGO 那一格變了)。
+    //    🛑 **⇒ 而它推翻的是這一顆明說的設計:「只讓變數有【一個】」** ——
+    //      多一張外連圖 = 第二個對外變數, 而沒有人同意過它。
+    //    ✅ 所以這裡**明確傳空字串**, 讓那句話重新成立。
+    //      🔴 用 `''` 不是 `undefined` —— 物件解構的預設只認 `undefined`,
+    //        傳 `undefined` 會拿到預設值(模板檔頭有寫, 這裡重述是因為**這裡是踩得到的地方**)。
+    //    ⇒ 📌 而下一顆要開圖:把 `logoUrl: ''` 拿掉即可, **一行**。
+    //
+    //    🔴🔴 **而這一格的形狀值得記,因為它不是任何一個人做錯**:
+    //      `-a0` 收窄變數讓第一次上線可歸因 —— 對。
+    //      `-7a` 給預設讓呼叫端不必知道網址 —— 也對。
+    //      ⇒ **而兩個對的決定合起來, 推翻了其中一個明說的前提。**
+    //      🛑 而兩邊的測試**各自全綠**:那一邊驗「html 欄有沒有送出去」(不驗裡面有什麼)、
+    //        這一邊驗「不給 logoUrl ⇒ 用預設」(那正是它要的行為)。
+    //      ⇒ ⇒ 📌 **一個跨檔的假設, 沒有任何一支測試守得住它 ——**
+    //         **因為每一支測試的分母都是【自己那支檔】。**
+    //      ✅ ⇒ 所以本片補了一格**驗這個呼叫點的產物**的測試(見 `sweep-email-outbox.test.ts`)。
+    const html = paid !== null ? renderPaidEmailHtml(paid, { logoUrl: '' }) : null;
 
     try {
       const outcome = await sender.send({

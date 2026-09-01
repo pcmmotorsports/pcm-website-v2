@@ -161,8 +161,32 @@ if [ -f "$git_dir/pcm-reviewer-ran" ] \
 fi
 
 echo '' >&2
-echo '⛔ PCM reviewer gate:本次 commit 動到受審面(code 或根層平台設定),' >&2
-echo '   但本 worktree 沒有釘在當下 HEAD 的 reviewer 完成標記。' >&2
+echo '⛔ PCM reviewer gate:本次 commit 動到受審面(code 或根層平台設定),而標記不成立。' >&2
+# 🔴🔴 **2026-09-01:把三種失敗【分開印】—— 它們的修法完全不同, 而舊版印同一句。**
+#    舊字面逐字是「但本 worktree 沒有釘在當下 HEAD 的 reviewer 完成標記」。
+#    ⇒ 而 2026-09-01 線DB 撞到的是【第三種】:標記的 HEAD 對、內容那一行對不上,
+#      而那句話把人推去查 HEAD、去重寫標記 —— **重寫一百次都不會過, 因為問題不在標記。**
+#    ⇒ 📌 一句涵蓋三種成因的診斷, 對其中兩種是【指錯方向】, 而它讀起來一樣權威。
+if [ ! -f "$git_dir/pcm-reviewer-ran" ]; then
+  echo '   【成因 1/3】**沒有標記檔** —— 這一片還沒寫過標記。' >&2
+elif [ "$(sed -n 1p "$git_dir/pcm-reviewer-ran")" != "$head" ]; then
+  echo '   【成因 2/3】**標記釘的 HEAD 不是現在的 HEAD** —— 中間落過別的 commit(或你 amend 過)。' >&2
+  echo "       標記釘的 HEAD = $(sed -n 1p "$git_dir/pcm-reviewer-ran")" >&2
+  echo "       現在的 HEAD   = $head" >&2
+  echo '       ⇒ 修法:重寫一次標記即可。' >&2
+else
+  echo '   【成因 3/3】**HEAD 對得上,而【這次要 commit 的內容】與標記釘的不同。**' >&2
+  echo "       標記釘的 tree = $(sed -n 2p "$git_dir/pcm-reviewer-ran")" >&2
+  echo "       這一發的 tree = ${now_staged:-<算不出來>}" >&2
+  echo '       ⇒ 常見成因 A:寫完標記之後又改了檔或又 add 了東西 ⇒ 重寫標記即可。' >&2
+  echo '       ⇒ 🔴 常見成因 B(多窗共用一棵工作樹時的**預期行為**, 重寫標記【無效】):' >&2
+  echo '          你用了 `git commit -- <pathspec>`, 而 index 裡有 pathspec 排除掉的東西' >&2
+  echo '          (通常是別的窗 staged 的檔)。帶 pathspec 時 git 會另組一棵臨時的樹交給本閘,' >&2
+  echo '          而 write-reviewer-marker.sh 釘的是【真 index】那一棵 ⇒ 兩棵必然不同。' >&2
+  echo '          ⇒ 這不是你標記寫錯 —— **不要重寫第二次**。' >&2
+  echo '          ⇒ 解法:等對方先 commit(index 只剩你的)⇒ 再【不帶 pathspec】commit;' >&2
+  echo '            或請主樹的協調窗一次收。**不要 --no-verify, 那是動驗證本身。**' >&2
+fi
 echo '   · 已跑過 code-reviewer(或本片=輕量片、依分級可跳審)→ 寫標記再 commit:' >&2
 echo '       bash scripts/write-reviewer-marker.sh "<片名或跳審理由>"' >&2
 echo '     🔴 舊的那條兩行寫法(手動 echo 兩行進 pcm-reviewer-ran)已作廢:' >&2

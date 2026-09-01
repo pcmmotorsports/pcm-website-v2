@@ -1129,6 +1129,33 @@ describe('sweepEmailOutbox — 付款信接金額與 HTML(片2)', () => {
     expect(String(input.text)).toContain('已付款成功');
   });
 
+  // ══ 🔴🔴 **驗【呼叫點的產物】—— 而這一格是 2026-09-01 一次跨檔假設失守補的** ══════
+  //   成因不是任何一個人做錯:
+  //     `-a0` 把 chrome 三格全部不給, 讓第一次上線【只有一個變數】(內文變 HTML)——對。
+  //     `-7a` 後來給 `logoUrl` 加預設值, 讓呼叫端不必知道那個網址 ——也對。
+  //   🛑 而兩個對的決定合起來 ⇒ **不給 chrome 會拿到預設 ⇒ 圖被印進信裡** ⇒ 變數變成兩個。
+  //   🔴 **而兩邊的測試各自全綠**:
+  //     這一支驗「html 欄有沒有送出去」⇒ **不驗 html 裡面有什麼**
+  //     模板那一支驗「不給 logoUrl ⇒ 用預設」⇒ **那正是它要的行為, 不會紅**
+  //   ⇒ ⇒ 📌 **一個跨檔的假設, 沒有任何一支測試守得住它 —— 因為每一支的分母都是自己那支檔。**
+  //   ✅ 所以這一格的分母刻意是【呼叫點吐出來的那份 html】, 不是任何一邊的內部行為。
+  it('🔴 送出去的 html **不含 `<img>`** —— 第一次上線刻意只讓變數有一個', async () => {
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    await sweepEmailOutbox(paidDeps({ kind: 'ok', context: paidCtx() }, outbox, sender), OPTS);
+    const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    const html = String(input.html);
+    // 🔵 先證這把尺【量得到東西】—— 否則 html 是空字串時下面兩格恆過。
+    expect(html.length).toBeGreaterThan(1000);
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('pcm-logo.png');
+    // 🔴 而【付款時間 / CTA】那兩格也一起釘 —— 它們今天不印的理由各自不同
+    //    (付款時間:沒查那個欄位, 而 Sean 拍過「沒有就不要印」;CTA:多一個對外連結他還沒點頭),
+    //    而**兩個理由都不是「模板做不到」** ⇒ 哪天有人給了值, 這幾格會一起變, 要有人看過。
+    expect(html).not.toContain('付款時間');
+    expect(html).not.toContain('到會員中心查看訂單');
+  });
+
   it('🔴 unavailable ⇒ **不寄**、計 error(port 明文;這會讓今天收得到信的單收不到)', async () => {
     const outbox = outboxFake([job()]);
     const sender = senderFake([{ kind: 'sent' }]);

@@ -52,7 +52,17 @@ const ORDER = {
 
 const SRC = resolve(__dirname, '../..');
 const ROOT = join(SRC, 'components/print/statement-doc.tsx');
-const PDF_ROUTE = join(SRC, 'app/account/orders/[displayId]/statement.pdf/route.ts');
+// 🔴🔴 **2026-09-01:那個呼叫從 route 搬到 lib 了**(⟦b4-MAILPDF1⟧ 的前置, 抽產檔函式)。
+//    ⛔ ~~`const PDF_ROUTE = …/statement.pdf/route.ts`~~
+//    🟢 **而這一格【當場紅了】, 那正是它存在的理由** —— 它的正對照
+//       (`expect(args.length).toBeGreaterThan(0)`)在呼叫消失時開火:
+//       `expected 0 to be greater than 0`。
+//    ⇒ 📌 **少了那一行正對照, 這一格會在【它守的東西整個搬走】之後安靜地全綠**
+//      (`every` 對空陣列回 true)⇒ 而那是最糟的一種:守門還在、還綠, 而它守的東西不在了。
+//    ✅ 而搬過去之後那個呼叫**更安全了**:`buildStatementPdfHtml()` 收的是 `order` 不是元素,
+//       `printButton: false` 鎖在函式裡 ⇒ **呼叫端漏傳這個錯, 在型別上構造不出來。**
+//    🛑 而這一格仍然要留 —— 鎖在裡面的那個字面**還是可能被人改掉**。
+const PDF_ROUTE = join(SRC, 'lib/print/statement-pdf.ts');
 
 /**
  * 從 statement-doc.tsx 出發, 把 import / export-from / dynamic import 走完一遍。

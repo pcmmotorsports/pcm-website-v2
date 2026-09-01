@@ -291,6 +291,7 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
        *    這個數字不進 `shouldAlert`。
        */
       manualCustomerSearchWindowSeconds: 86400,
+      orderCreatedStuckMinutes: null,
     });
   });
 
@@ -320,6 +321,7 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
         shippedGraceSeconds: 900,
         // 🔵 訊號 4 的起始線:本案例沒設 B4 ⇒ 必須是 null(而不是被漏傳成 undefined)
         orderCreatedCutoffIso: null,
+        orderCreatedStuckMinutes: null,
       }),
     );
     /**

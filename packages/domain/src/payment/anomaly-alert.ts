@@ -211,6 +211,30 @@ export type AnomalyAlertSummary = {
    */
   orderCreatedGapUnknown: boolean;
   /**
+   * 🔴🔴 **訊號4 的【持續失敗】那一格(板 `⟦b4-SIG4ERRORS⟧`)**。
+   *   已付款、過了起始線, 而 `order_created` 那一列**超過門檻分鐘還沒被建出來**。
+   * 🛑 **它與 `orderCreatedPaidNoEmailCount` 差在【年齡】, 而那個差別就是它能不能當判準**:
+   *   那一個 > 0 是正常的(新訂單進來就會被數到一次, 下一輪就沒了)⇒ 拿它當判準 = 有生意就叫;
+   *   **這一個 > 0 不正常** —— 因為正常的單活不過一輪(scanner 每 5 分鐘就把它排進去)。
+   * ✅ **所以它【要進 `shouldAlert`】** —— 與上面那一個相反。
+   * ⚠️ 已排除【兩個信箱都空】那一群(它們走 `orderCreatedNoRecipientCount`)⇒ 不重複叫。
+   * 🛑 `null` = **沒查**(門檻 env 沒設 / 起始線沒設 / RPC 還沒 apply)⇒ **不是 0**。
+   */
+  orderCreatedStuckCount: number | null;
+  /**
+   * 🔵 最舊那一筆卡了幾分鐘 —— 一個裸的筆數寫不出信裡那句「卡多久了」。
+   * 🛑 **沒有卡住時是 `null` 不是 `0`** ——「沒有卡住」與「卡了 0 分鐘」是兩件事。
+   */
+  orderCreatedStuckOldestMinutes: number | null;
+  /**
+   * 🔴🔴 **上面兩格是不是【讀不到】**(RPC 尚未 apply / 它自己 RAISE)。
+   * 🛑 **它必須有出口** —— 與 `orderCreatedGapUnknown` / `shippedGapUnknown` / `cronHeartbeatUnknown` 同構:
+   *   adapter 那道 fail-closed(降級成 unknown 而不是 0)**如果下游不消費, 就在下游被拆掉了**。
+   * ⛔ 而那正是本片要治的病本身:**一個讀不到的量具, 與一個健康的系統, 印同一個 0。**
+   * 📌 route 那一支的檔頭逐字記著「我在同一支檔裡重犯了一次」—— 這是第三次, 而它被 code-reviewer 抓到。
+   */
+  orderCreatedStuckUnknown: boolean;
+  /**
    * 🔴🔴 **排程心跳:六支 cron 裡有幾支不正常**(板 `⟦b4-SWEEPDEAD1⟧` 片3;Sean `q4: 甲`)。
    *   判準由 `@pcm/domain` 的 `CRON_JOB_WHITELIST` 傳進 DB 函式 ——
    *   **DB 那一側不知道任何門檻**,那是刻意的(兩份門檻會漂,而漂開時兩邊都不會紅)。

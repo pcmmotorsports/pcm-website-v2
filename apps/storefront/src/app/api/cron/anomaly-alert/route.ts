@@ -136,6 +136,7 @@ import { timingSafeEqual } from 'node:crypto';
 import {
   checkAnomalyAlerts,
   readDeployCutoff,
+  readOrderCreatedStuckMinutes,
   resolveShippedEmailCutoff,
   type CheckAnomalyAlertsDeps,
 } from '@pcm/use-cases';
@@ -334,6 +335,31 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
+    /**
+     * 🔵 **訊號4【持續失敗】那一格的門檻**(板 `⟦b4-SIG4ERRORS⟧`;
+     *   Sean 2026-09-01 答「甲 1 小時」⇒ 那顆 env 填 `60`)。
+     * 🛑 **三態與 `B4_DEPLOY_CUTOFF` 同形, 而它們是【兩顆各自獨立的 env】** ——
+     *   本顆沒設 ⇒ 那一格不查 ⇒ **行為與加這一片之前逐字相同**(落地零風險)。
+     * 🔴 而 `invalid` 要出聲、不可以靜靜當成沒設 —— 有人貼成空值而整件事安靜地沒發生,
+     *   正是這一整片在防的那種壞法。
+     */
+    // eslint-disable-next-line no-restricted-syntax -- 受控例外:server-only cron 端點,動態 env 不進 client bundle
+    const stuckRead = readOrderCreatedStuckMinutes(process.env['B4_ORDER_CREATED_STUCK_MINUTES']);
+    const orderCreatedStuckMinutes = stuckRead.kind === 'ok' ? stuckRead.minutes : null;
+    if (stuckRead.kind === 'unset') {
+      console.info('[anomaly-alert] 🔵 訊號4【持續失敗】那一格還沒上膛 ⇒ 這一輪不查(不是失敗)', {
+        env: 'B4_ORDER_CREATED_STUCK_MINUTES',
+        reason: 'skipped_no_stuck_threshold',
+      });
+    }
+    if (stuckRead.kind === 'invalid') {
+      // 🛑 零 PII:只印我們自己寫死的 env 名與固定字串, **不印那顆 env 的值**。
+      console.error(
+        '[anomaly-alert] 🔴 B4_ORDER_CREATED_STUCK_MINUTES 設了而值不合法 ⇒ 訊號4 持續失敗那一格本輪不查',
+        { env: 'B4_ORDER_CREATED_STUCK_MINUTES', reason: 'bad_stuck_threshold' },
+      );
+    }
+
     const result = await checkAnomalyAlerts(deps, {
       refundingStuckSeconds: ALERT_REFUNDING_STUCK_SECONDS,
       pendingDoubleChargeWindowSeconds: ALERT_PENDING_DC_WINDOW_SECONDS,
@@ -342,6 +368,7 @@ export async function GET(request: Request): Promise<Response> {
       shippedGraceSeconds: ALERT_SHIPPED_GRACE_SECONDS,
       orderCreatedCutoffIso,
       manualCustomerSearchWindowSeconds: ALERT_MANUAL_CUSTOMER_SEARCH_WINDOW_SECONDS,
+      orderCreatedStuckMinutes,
     });
 
     // 4. 🔴 本輪有推播失敗 → 503 + 結構化 counts log,**不偽 200**(壞掉的告警管道必須可見)。
@@ -430,6 +457,28 @@ export async function GET(request: Request): Promise<Response> {
     if (result.cronHeartbeatUnknown) {
       console.error(
         '[anomaly-alert] 🔴 get_cron_heartbeat_stale_counts 讀不到 ⇒ 排程心跳今天是【查不到】不是【六支都健康】(回 503)',
+        { ...result },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+
+    /**
+     * 🔴🔴 **第九種 503(2026-09-01,code-reviewer must-fix)**:訊號4【持續失敗】那一格讀不到。
+     * ⛔ ~~我第一版算了 `orderCreatedStuckUnknown` 而【沒有給它出口】~~ ——
+     *   兩顆 env 都設好、而那支 RPC 沒 apply ⇒ 42883 → 降級 → `null` → `?? 0`
+     *   ⇒ ⇒ **不叫、零 log、回 200。**
+     * 🛑 而本檔上面那一格逐字寫著「**我在同一支檔裡重犯了一次**」—— **這是第三次。**
+     *   📌 ⇒ 一個【寫下來的教訓】擋不住同一個人在同一支檔裡再犯;擋住它的是這一段碼。
+     * 🛑 **判斷式要帶【兩顆 env 都設了】** —— 任一沒設 = 還沒上膛 = 正常, **不得 503**。
+     */
+    if (
+      orderCreatedCutoffIso !== null &&
+      orderCreatedStuckMinutes !== null &&
+      result.orderCreatedStuckUnknown
+    ) {
+      console.error(
+        '[anomaly-alert] 🔴 兩顆 env 都設了而 get_order_created_stuck_count 讀不到 ⇒ 訊號4 持續失敗那一格今天是【查不到】不是【沒事】',
         { ...result },
       );
       await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);

@@ -47,6 +47,9 @@ const ZERO: AnomalyAlertSummary = {
   orderCreatedPaidNoEmailCount: 0,
   orderCreatedNoRecipientCount: 0,
   orderCreatedGapUnknown: false,
+  orderCreatedStuckCount: 0,
+  orderCreatedStuckOldestMinutes: null,
+  orderCreatedStuckUnknown: false,
   emailOutboxUnknown: false,
   openDisplayIds: [],
   refundingStuckDisplayIds: [],
@@ -89,6 +92,7 @@ const OPTS = {
   // 🔵 訊號 4 的起始線;多數案例不需要它 ⇒ null(= 那一段不查)。
   //   需要它的案例自己覆寫,見「[訊號4]」那幾格。
   orderCreatedCutoffIso: null,
+  orderCreatedStuckMinutes: null,
 };
 
 describe('checkAnomalyAlerts — 門檻矩陣', () => {
@@ -152,12 +156,49 @@ describe('checkAnomalyAlerts — 門檻矩陣', () => {
     // 🔴 訊號 4 的【主詞】(codex 2026-08-31 R1 must-fix:原本這張矩陣一格都沒有)。
     //   Sean 拍 5️⃣ 甲「有一封就叫」⇒ 這一格證明「一封」真的會叫。
     ['orderCreatedNoRecipientCount', { ...ZERO, orderCreatedNoRecipientCount: 1 }],
+    // 🔴 訊號4 的【持續失敗】那一格(板 ⟦b4-SIG4ERRORS⟧, 2026-09-01)。
+    //   它守的是一個今天零告警的缺口:enqueue 每一輪都失敗 ⇒ errors 只落在 cron 回應 body。
+    ['orderCreatedStuckCount', { ...ZERO, orderCreatedStuckCount: 1 }],
   ] as const)('%s>0 → 告警 + 呼 notifier', async (_label, summary) => {
     const n = okNotifier();
     const res = await checkAnomalyAlerts({ reader: reader(summary), notifiers: [n] }, OPTS);
     expect(res.alerted).toBe(true);
     expect(n.notify).toHaveBeenCalledTimes(1);
     expect(res.errors).toBe(0);
+  });
+
+  /**
+   * 🔴🔴 **訊號4 持續失敗那一格的【第二個世界】—— 而它比會叫那一格重要。**
+   * `orderCreatedPaidNoEmailCount > 0` 是【正常】的:新單進來就被數到一次,
+   * 下一輪 scanner 就把它排進去了。
+   * ⇒ 📌 **拿它當判準 = 有生意就叫 —— 而一個對常態發的警報會訓練所有人跳過它。**
+   */
+  it('🔴 paidNoEmail>0 而 stuck=0 → 不告警(有生意不是異常)', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: reader({ ...ZERO, orderCreatedPaidNoEmailCount: 5, orderCreatedStuckCount: 0 }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 🔵 **`unset` 那一態:env 沒設 ⇒ adapter 回 `null` ⇒ 不叫。**
+   * 🛑 驗收是【行為與加這一片之前逐字相同】—— 那讓「落地」與「Sean 去填那顆 env」脫鉤。
+   * 🔴 少了這一格, 一個忘記處理 null 的實作會在【還沒上膛】時就開始叫。
+   */
+  it('🔵 stuckCount=null(還沒上膛 / RPC 未 apply)→ 不告警', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: reader({ ...ZERO, orderCreatedStuckCount: null }), notifiers: [n] },
+      OPTS,
+    );
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
   });
 
   it('🔴 refundingCount>0 但 stuck=0 且其餘 0 → 不告警(進行中的 refunding 非異常、只 stuck 才告警)', async () => {
@@ -648,6 +689,10 @@ describe('checkAnomalyAlerts — 計數透傳(telemetry 零 PII)', () => {
         shippedGraceSeconds: 900,
         // 🔴 刻意【不是 null】—— 見下面那條斷言的成因註解。
         orderCreatedCutoffIso: '2026-08-22T00:00:00.000Z',
+          // 🔵 訊號4 持續失敗那一格的門檻也【真的傳下去】(2026-09-01)——
+          //   🔴 少了這一格, 一個「在 use-case 裡寫死 null」的實作會全綠,
+          //     而那等於【那一格永遠不查】。
+          orderCreatedStuckMinutes: 60,
       },
     );
     // 🔵 出貨那兩個參數也要【真的傳下去】(2026-08-31)——
@@ -664,6 +709,8 @@ describe('checkAnomalyAlerts — 計數透傳(telemetry 零 PII)', () => {
      */
     expect(r.getAlertSummary).toHaveBeenCalledWith(
       43200, 3600, 900, '2026-08-31T00:00:00.000Z', 900, '2026-08-22T00:00:00.000Z',
+      // 🔵 訊號4 持續失敗那一格的門檻也要【真的透傳】(2026-09-01)
+      60,
     );
   });
 });

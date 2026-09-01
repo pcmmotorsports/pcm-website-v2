@@ -81,6 +81,7 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
      *   起始線不是同一刻(`email-sweep/route.ts` 檔頭逐字:「它們刻意**不共用** cutoff」)。
      */
     orderCreatedCutoffIso: string | null,
+    orderCreatedStuckMinutes: number | null,
   ): Promise<AnomalyAlertSummary> {
     return this.run(async (client) => {
       const args = [refundingStuckSeconds, pendingDcWindowSeconds, pendingDcStuckSeconds];
@@ -328,6 +329,50 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
       }
 
       /**
+       * 🔴🔴 **訊號4 的【持續失敗】那一格(板 `⟦b4-SIG4ERRORS⟧`)**。
+       *   降級處置**逐字沿用上面訊號4 那一段** —— 函式不存在(部署窗口)⇒ 落 unknown;
+       *   它自己 `RAISE`(參數閘)⇒ 一樣降級, **而其他告警照常送**。
+       * 🛑 **兩顆 env 任一沒設就不查, 而那不是保守** ——
+       *   `orderCreatedStuckMinutes` 沒設 = 那條線**還沒上膛**
+       *   ⇒ 📌 **這一格就是「落地」與「Sean 去填那顆 env」脫鉤的地方。**
+       */
+      let orderCreatedStuckRows: Array<Record<string, unknown>> = [];
+      if (orderCreatedCutoffIso !== null && orderCreatedStuckMinutes !== null) {
+        try {
+          const res = await client.query(
+            'SELECT public.get_order_created_stuck_count($1::timestamptz, $2::integer) AS result',
+            [orderCreatedCutoffIso, orderCreatedStuckMinutes],
+          );
+          orderCreatedStuckRows = res.rows;
+        } catch (err) {
+          const code = (err as { code?: unknown } | null)?.code;
+          if (code === RAISE_EXCEPTION) {
+            const looksLikeOwnGate =
+              typeof (err as { message?: unknown }).message === 'string' &&
+              (err as { message: string }).message.includes('get_order_created_stuck_count:');
+            console.error(
+              looksLikeOwnGate
+                ? '[anomaly-alert] 🔴 get_order_created_stuck_count 自己 RAISE 了(參數閘)⇒ 那一格本輪不查'
+                : '[anomaly-alert] 🔴 get_order_created_stuck_count 拋了 P0001 而【訊息不像它自己的參數閘】',
+              {
+                code: RAISE_EXCEPTION,
+                reason: looksLikeOwnGate
+                  ? 'order_created_stuck_rpc_raised'
+                  : 'order_created_stuck_rpc_raised_unexpected_shape',
+              },
+            );
+          } else {
+            if (code !== UNDEFINED_FUNCTION) throw err;
+            const probe = await client.query(
+              "SELECT to_regprocedure('public.get_order_created_stuck_count(timestamptz,integer)') IS NULL AS missing",
+              [],
+            );
+            if (probe.rows[0]?.missing !== true) throw err;
+          }
+        }
+      }
+
+      /**
        * 🔵 **排程心跳(板 `⟦b4-SWEEPDEAD1⟧` 片3)** —— 降級處置逐字沿用上面訊號4 那一段:
        *   函式不存在(部署窗口)⇒ 落 `cronHeartbeatUnknown`;它自己 `RAISE`(參數閘)⇒ 一樣降級,
        *   **而其他告警照常送**。控制流不因為這一段而改變。
@@ -374,7 +419,8 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
       }
 
       return parseAlertSummary(
-        counts.rows, ids, refundRows, emailRows, shippedRows, orderCreatedRows, heartbeatRows,
+        counts.rows, ids, refundRows, emailRows, shippedRows, orderCreatedRows,
+        orderCreatedStuckRows, heartbeatRows,
       );
     });
   }
@@ -628,6 +674,7 @@ function parseAlertSummary(
   emailRows: Array<Record<string, unknown>>,
   shippedRows: Array<Record<string, unknown>>,
   orderCreatedRows: Array<Record<string, unknown>>,
+  orderCreatedStuckRows: Array<Record<string, unknown>>,
   heartbeatRows: Array<Record<string, unknown>>,
 ): AnomalyAlertSummary {
   const r = rows[0]?.result as Record<string, unknown> | undefined;
@@ -756,6 +803,23 @@ function parseAlertSummary(
   const orderCreatedCount = (key: string): number | null =>
     orderCreatedGapUnknown ? null : parseCount(oc![key], key, ORDER_CREATED_FN);
 
+  const ocs = orderCreatedStuckRows[0]?.result as Record<string, unknown> | undefined;
+  // 🔴 `undefined` = **沒查**(兩顆 env 任一沒設 / 函式尚未 apply)⇒ 兩格都回 null, **不是 0**。
+  const orderCreatedStuckUnknown = ocs === undefined;
+  if (!orderCreatedStuckUnknown && (ocs === null || typeof ocs !== 'object')) {
+    throw new AnomalyAlertReaderParseError(
+      'get_order_created_stuck_count 回應格式異常(函式存在但回了 NULL 或非物件)',
+    );
+  }
+  const stuckNum = (key: string): number | null => {
+    if (orderCreatedStuckUnknown) return null;
+    const raw = ocs![key];
+    // 🛑 `oldest_stuck_minutes` 在【沒有卡住】時是 SQL NULL —— 那不是「讀不到」是「沒有」
+    //   ⇒ 兩者都回 null, 而上游靠 stuckCount 分辨(0 = 沒有卡住 · null = 沒查)。
+    if (raw === null) return null;
+    return parseCount(raw, key, 'get_order_created_stuck_count');
+  };
+
   return {
     emailOverdueCount: emailCount('signal1_overdue_count'),
     emailDeadLetterCount: emailCount('signal2_dead_letter_count'),
@@ -778,6 +842,12 @@ function parseAlertSummary(
     orderCreatedPaidNoEmailCount: orderCreatedCount('paid_no_email_count'),
     orderCreatedNoRecipientCount: orderCreatedCount('no_recipient_count'),
     orderCreatedGapUnknown,
+    // 🔵 訊號4 持續失敗那兩格。null = 沒查(兩顆 env 任一沒設)或函式尚未 apply
+    //   🔴 **不寫成 0** ——「還沒上膛」與「今天沒有卡住的單」在一個裸數字上長得一模一樣。
+    orderCreatedStuckCount: stuckNum('stuck_count'),
+    orderCreatedStuckOldestMinutes: stuckNum('oldest_stuck_minutes'),
+    // 🔴 **它必須出得去** —— 沒有這一格, adapter 的 fail-closed 在下游就被 `?? 0` 拆掉了。
+    orderCreatedStuckUnknown,
     ...cronHeartbeat,
     openCount: parseCount(r.open_count, 'open_count'),
     refundingCount: parseCount(r.refunding_count, 'refunding_count'),
