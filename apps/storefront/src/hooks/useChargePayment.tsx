@@ -30,6 +30,7 @@
 
 import { useRef, useState } from 'react';
 import type { ShippingMethod } from '@pcm/domain';
+import { CART_LINE_MISSING_VARIANT_MESSAGE } from '@/lib/checkout/checkout-messages';
 import { useCart, type CartItemVehicle } from '@/contexts/CartContext';
 import { chargePaymentAction, type ChargePaymentActionResult } from '@/app/checkout/charge-actions';
 import type { InvoiceDraft } from '@/components/CheckoutStep2';
@@ -139,7 +140,7 @@ export function useChargePayment(): UseChargePayment {
     for (const it of items) {
       if (!it.variantId) {
         inFlightRef.current = false;
-        setState({ status: 'error', message: '購物車有商品缺少規格資訊,請返回購物車重新確認' });
+        setState({ status: 'error', message: CART_LINE_MISSING_VARIANT_MESSAGE });
         return false;
       }
       lines.push({
