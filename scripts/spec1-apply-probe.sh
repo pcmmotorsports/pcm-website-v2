@@ -32,7 +32,7 @@ GEN2="$REPO/supabase/migrations/20260829140000_m4b_b2c_manual_order_explicit_tax
 NEW="$REPO/supabase/migrations/20260831180000_m4b_spec1_manual_order_authoritative_spec.sql"
 D=/tmp/spec1-probe
 PORT=5621
-EXPECT='pre-gate apply worldA worldB worldC worldD worldE pos-ctl rerun rollback mut-M1 mut-M2 mut-M3 mut-M4'
+EXPECT='pre-gate apply worldA worldB worldC worldD worldE worldF pos-ctl rerun rollback mut-M1 mut-M2 mut-M3 mut-M4'
 
 for c in initdb pg_ctl psql python3; do
   command -v "$c" >/dev/null || { echo "🔴 缺 $c ⇒ ENV-FAIL(不是紅)"; exit 2; }
@@ -123,9 +123,39 @@ Q "update public.product_variants set spec = '{\"color\":\"red\"}'::jsonb where 
 Q "insert into public.product_variants (id, spec) values ('33333333-3333-3333-3333-333333333333'::uuid, '{}'::jsonb)" >/dev/null
 CALL '[{"variant_id":"33333333-3333-3333-3333-333333333333","sku":"SKU-E","title":"E","qty":1,"unit_price":100,"spec":{"color":"員工打的"}}]' >/dev/null
 GOT_E=$(SPEC_OF)
+# ══ 🔴🔴 2026-09-01 期望值【翻面】—— Sean 當天拍板推翻了這一格 ═══════════════════
+#   ⛔ ~~舊期望:`{}` = PASS(「員工打的那份被丟掉」)~~ **作廢**
+#   ✅ 新期望:員工打的那份**留著**。
+#   他的原話一個字:「甲」;題目與選項見
+#   `~/pcm-mailbox/決策-手動建單目錄沒填規格時用誰的-20260901.md`
+#     甲 留員工打的(目錄有填才用目錄的)  ← 他選這個
+#     乙 一律用目錄的(目錄空的就寫空的)  ← 舊期望寫的是這個
+#   🔴 **而「空」有兩個意思, 他分開答了兩次 —— 本世界測的是第一種**:
+#     ① 空的 jsonb `{}`(沒有任何鍵)      ⇒ 留員工打的   (12:0x 原話「甲」)
+#     ② 鍵在、值是空字串 `{"color":""}`   ⇒ 用目錄的空白 (12:1x 原話「算有填(用目錄的空白)」)
+#   ⇒ 本世界 E 餵的是 `{}` = 第一種;第二種另開**世界F**(緊接在下面)。
+#   🔴 **注意:這支檔舊註解裡的「甲」指的是【它自己當時的甲乙編號】, 不是 Sean 的。**
+#      ⇒ 兩套編號同一個字, 而它們指相反的東西 ⇒ 舊字面留著加刪除線, 不要只改結果。
+#   📌 而這一格是 codex R1 抓的:**碼改了而它的測試合約沒跟著改**
+#      ⇒ 跑新版會 FAIL, 而 FAIL 的訊息會說「與讀碼的結論相反」—— 指向錯的地方。
 case "$GOT_E" in
-  '{}') ok worldE "世界E 目錄空 ⇒ 快照是 {} —— **員工打的那份被丟掉**(這是【甲】, 逐字量到)";;
-  *) bad worldE "世界E 得到 $GOT_E(不是 {} ⇒ 那就是【乙】, 與讀碼的結論相反)";;
+  '{"color": "員工打的"}') ok worldE "世界E 目錄空 ⇒ 快照留住員工打的那份(Sean 2026-09-01 拍【甲】)";;
+  '{}') bad worldE "世界E 得到 {} ⇒ **員工打的被丟掉** = Sean 已推翻的行為;那個 CASE 的空值條件不見了";;
+  *) bad worldE "世界E 得到 $GOT_E(既不是員工那份也不是 {})";;
+esac
+
+# ── 🔴 世界F:**目錄那一列【有鍵而值是空字串】** —— Sean 12:1x 親自拍的那一格 ──
+#    他的原話逐字:「**算有填(用目錄的空白)**」⇒ 目錄贏, 員工那份被覆蓋。
+#    🔴 **為什麼這一格要有自己的世界**:它與世界E 在畫面上長得幾乎一樣(兩邊目錄都「看起來沒東西」),
+#       **而答案相反** ⇒ 沒有這一格, 一個把條件寫成「值是空的就留員工的」的改動會全綠。
+#    ⚠️ 它進得來的理由:`m3_jsonb_values_all_string` 要求值全是字串, 而 `""` **是**字串。
+Q "insert into public.product_variants (id, spec) values ('44444444-4444-4444-4444-444444444444'::uuid, '{\"color\":\"\"}'::jsonb)" >/dev/null
+CALL '[{"variant_id":"44444444-4444-4444-4444-444444444444","sku":"SKU-F","title":"F","qty":1,"unit_price":100,"spec":{"color":"員工打的"}}]' >/dev/null
+GOT_F=$(SPEC_OF)
+case "$GOT_F" in
+  '{"color": ""}') ok worldF "世界F 目錄有鍵值是空字串 ⇒ 用目錄的空白(Sean 2026-09-01 12:1x 原話「算有填」)";;
+  '{"color": "員工打的"}') bad worldF "世界F 留了員工那份 ⇒ 條件把【值是空字串】也當成【沒填】, 而 Sean 拍的是相反";;
+  *) bad worldF "世界F 得到 $GOT_F";;
 esac
 
 CALL '[{"variant_id":"22222222-2222-2222-2222-222222222222","sku":"SKU-A","title":"A","qty":1,"unit_price":100,"spec":{"color":"red"}}]' >/dev/null
@@ -134,7 +164,16 @@ CALL '[{"variant_id":"22222222-2222-2222-2222-222222222222","sku":"SKU-A","title
 echo ""
 echo "── ② 重跑閘 ──"
 psql -h 127.0.0.1 -p $PORT -U postgres -q -v ON_ERROR_STOP=1 -f "$NEW" > "$D/again.log" 2>&1
-grep -q '已經套用過了' "$D/again.log" && ok rerun "重跑 ⇒ 前置閘開火" || bad rerun "重跑沒被擋:$(head -2 "$D/again.log")"
+# 🔴🔴 2026-09-01 期望字面【翻面】(codex R2 抓的)——
+#   前置閘原本是「指紋 = 改後那一版 ⇒ RAISE EXCEPTION『已經套用過了』」;
+#   而 codex R1 指出那個早退會讓後置 ④/④b/④c 永遠跑不到 ⇒ 改成 RAISE NOTICE + 往下跑。
+#   ⛔ ~~舊期望:log 裡有『已經套用過了』~~ **作廢** ⇒ 那句話已經不會出現。
+#   ✅ 新期望:log 裡有『指紋已是改後那一版』, **而且整支重跑成功(rc=0)**。
+#   🔴 **而這是同一個病的第二次**(第一次是世界E):
+#      **我改了碼, 而【量它的那個東西】沒有跟著改** ——
+#      ⇒ 而它不會靜靜過, 它會紅, 訊息說「重跑沒被擋」⇒ **指向一個不存在的缺陷。**
+#      📌 一個期望值過期時, 它產生的是【假指控】, 不是漏報 —— 而假指控會動員人去查。
+grep -q '指紋已是改後那一版' "$D/again.log" && ok rerun "重跑 ⇒ 前置閘認出已套用並改走 NOTICE(不早退, 後置檢查照跑)" || bad rerun "重跑的 log 裡沒有那句 NOTICE:$(head -2 "$D/again.log")"
 
 echo ""
 echo "── ②b 🔴 rollback 真的演一次(不是「我想過了」)──"
@@ -187,7 +226,11 @@ PY
 # 🔴 M1 要改【全部】的 public.product_variants —— 只改一處的話, 我新加的權威驗證那一段
 #    仍含該字面 ⇒ ① 放行、⑤ 開火。實測過:那會讓 ① 看起來有效而其實沒被考。
 MUT M1 "s=s.replace('public.product_variants','public.product_variants_ZZQ')" '後置①'
-MUT M2 "s=s.replace(\"CASE WHEN pv.id IS NULL THEN it -> 'product_snapshot'\",\"CASE WHEN pv.id IS NULL OR (it -> 'product_snapshot' -> 'spec') <> '{}'::jsonb THEN it -> 'product_snapshot'\")" '後置⑥b'
+# 🔴 M2 2026-09-01 換靶(codex R1 抓的):舊 M2 替換的是**單行版**的 CASE,
+#    而拍【甲】之後那個字面在檔裡已經不存在 ⇒ `replace` 什麼都沒換 ⇒ **那一發突變是 no-op**,
+#    而 no-op 突變的結果與「守門有效」**印同一個綠**。
+#    ⇒ 新靶打在 Sean 那一格上:把「目錄空就不覆蓋」的兩個條件拿掉(退回【乙】)。
+MUT M2 "s=s.replace(\"WHEN pv.id IS NULL\n                OR pv.spec IS NULL\n                OR pv.spec = '{}'::jsonb\n\",\"WHEN pv.id IS NULL\n\")" '後置⑥c'
 MUT M3 "s=s.replace(\"jsonb_set(it -> 'product_snapshot', '{spec}', pv.spec)\",\"it -> 'product_snapshot'\")" '後置⑥'
 MUT M4 "s=s.replace('-- ⟦b4-SPEC1⟧ · 手動建單的品項規格','-- ZZQ-M4-負對照-純註解 ⟦b4-SPEC1⟧ · 手動建單的品項規格')" ''
 
