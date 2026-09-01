@@ -156,6 +156,10 @@ export {
 //    而訊號 4 的告警端要讀同一顆 env。各寫一份 ⇒ 兩個消費者兩套驗證
 //    ⇒ 同一天在 `SHIPPED_EMAIL_CUTOFF` 上量到過那個病(寄信端擋下、告警端照數)。
 export { readDeployCutoff, type DeployCutoffRead } from './deploy-cutoff';
+export {
+  readOrderCreatedStuckMinutes,
+  type StuckMinutesRead,
+} from './order-created-stuck-minutes';
 
 // 🔴 M-4a E2a-2(W3-G 拆出,2026-08-20):寄送前 ineligible gate,擋「排進佇列後、真正寄出前
 // 才被取消」的窗口。獨立 cron route,跑在 sweepEmailOutbox 之前但**不掛進**它的 route ——
