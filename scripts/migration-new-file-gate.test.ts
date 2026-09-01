@@ -206,7 +206,8 @@ beforeAll(() => {
   //     ~~原句寫「兩個 task」~~ 2026-08-27 實跑是三個, 而**那句正好是解釋本次事故的那句**
   //     ⇒ 不改它, 下一個人會再算錯一次。)
   const mainPkg = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as {
-    'lint-staged': Record<string, string>;
+    // 值可能是字串或字串陣列 —— 見下方 GLOB_KEY 那格的說明。
+    'lint-staged': Record<string, string | string[]>;
   };
   writeFileSync(
     join(scratch, 'package.json'),
@@ -289,13 +290,33 @@ afterAll(() => {
 describe('lint-staged → migration-new-file-static-checks 真效果測', () => {
   it('前提:主 repo 的 lint-staged 真的有這條 entry,且命令指向那支入口', () => {
     const pkg = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as {
-      'lint-staged': Record<string, string>;
+      // 🔴 lint-staged 的值可以是【字串】也可以是【字串陣列】(一個 glob 掛多支指令)。
+      //    2026-09-02:`fc985d4e` 把這一格從字串改成陣列 ⇒ 下面那發 `toContain` 的語意
+      //    從【子字串比對】靜靜變成【元素相等比對】⇒ 紅。
+      //    🛑 而原本寫 `Record<string, string>` 時 typecheck 一聲都沒有 ——
+      //       它是 `JSON.parse` 上的一個 cast ⇒ **這個型別註記的作用是【關掉編譯器】,
+      //       不是【描述事實】。**
+      'lint-staged': Record<string, string | string[]>;
     };
     expect(
       Object.keys(pkg['lint-staged']),
       `lint-staged 少了 \`${GLOB_KEY}\` ⇒ 新增的 .sql 不會被任何東西檢查,而 commit 全程安靜`,
     ).toContain(GLOB_KEY);
-    expect(pkg['lint-staged'][GLOB_KEY]).toContain('migration-new-file-static-checks.sh');
+    // 先正規化成陣列(值可以是字串, 也可以是一個 glob 掛多支指令的陣列),
+    // 再問「有沒有一支指令【就是】那支入口」。
+    // 🔴 不用 `JSON.stringify(...).toContain(名字)`:那樣 `echo migration-new-file-static-checks.sh`
+    //    或任何把那串字放進註解/參數的指令都會通過 ⇒ 那是【偽陽性】, 而它印綠。
+    //    (codex 對抗審查 2026-09-02 抓到;第一版修法就是那個形狀。)
+    const ENTRY = 'bash scripts/migration-new-file-static-checks.sh';
+    // `?? []` 是給 noUncheckedIndexedAccess 的:key 不存在時得到空陣列
+    // ⇒ 下面那發會紅並印出「實得:[]」, 而不是丟 TypeError。
+    const raw = pkg['lint-staged'][GLOB_KEY] ?? [];
+    const cmds: string[] = Array.isArray(raw) ? raw : [raw];
+    expect(
+      cmds.filter((c) => c === ENTRY || c.startsWith(`${ENTRY} `)),
+      `\`${GLOB_KEY}\` 沒有一支指令是 \`${ENTRY}\` ⇒ 新增的 .sql 沒有人檢查`
+        + `(實得:${JSON.stringify(cmds)})`,
+    ).not.toHaveLength(0);
   });
 
   it('🔴 該紅:新增一支違反規則②的 migration ⇒ 被擋,而且是【規則②】擋的', () => {

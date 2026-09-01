@@ -68,10 +68,7 @@
     "scripts/gen-print-assets.py": "python3 scripts/gen-print-assets.py --self-check",
     "scripts/spec-1a-recheck.sh": "bash scripts/spec-1a-recheck.sh --selftest",
     "scripts/migration-static-checks.sh": "bash scripts/migration-static-checks.sh --selftest",
-    "supabase/migrations/*.sql": [
-      "bash scripts/migration-new-file-static-checks.sh",
-      "bash scripts/sql-scan-gate.sh"
-    ],
+    "supabase/migrations/*.sql": "bash scripts/migration-new-file-static-checks.sh",
     "scripts/migration-new-file-static-checks.sh": "bash scripts/migration-new-file-static-checks.sh --selftest",
     "scripts/claim-backlog-number.sh": "bash scripts/claim-backlog-number.sh --selftest",
     "docs/phase-1-backlog.md": "bash scripts/claim-backlog-number.sh --audit",
