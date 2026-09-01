@@ -3,7 +3,7 @@
 #
 # 🔴 為什麼有這支:2026-09-01 夜, 主視窗代推那條鏈的「預告」那一步漏了三次,
 #    而三次的成因不同(記憶 / 用 push origin dev 而非釘 hash / 急事擠掉)⇒ 提醒治不好。
-#    改成寫進一個所有人都撈得到的檔(~/pcm-mailbox/推送預告-<date>.md)。
+#    改成寫進一個所有人都撈得到的檔(~/pcm-mailbox/推送預告.md —— 刻意不帶日期,見下)。
 # 🔴 而那張表上線第一發就被手填錯:「實際推到」那一欄在 push 還在跑的時候量
 #    ⇒ 填成起點 ⇒ 印「🔴 不相等」⇒ 而假警報【看起來像那把尺在工作】, 沒有人會去查。
 #    ⇒ 所以那一欄不手填 —— 由本腳本在 rc 印出來【之後】跑 git ls-remote 貼進去。
@@ -19,7 +19,11 @@ cd "$REPO" || exit 3
 TARGET="${1:-dev}"
 TIP="$(git rev-parse --short "$TARGET" 2>/dev/null)" || { echo "🔴 解不出 $TARGET"; exit 3; }
 FROM="$(git rev-parse --short origin/dev 2>/dev/null)"
-LEDGER="$HOME/pcm-mailbox/推送預告-$(date '+%Y%m%d').md"
+# 🔴 檔名【不帶日期】—— 2026-09-02 00:0x 踩到:帶日期的檔名在跨午夜那一刻,
+#    把各窗拿到的「tail 那支檔」指到一個空的地方,而【查無】與【沒有人在推】印同一個東西。
+#    (同一夜同一個病的第二個載體:第一個是艦隊表 現在誰在做什麼-<日期>.md)
+#    ⇒ 固定檔名把整個「跨午夜」這一類失效模式消掉,而代價只是檔會長。
+LEDGER="$HOME/pcm-mailbox/推送預告.md"
 LOG="$(mktemp -t announce-push)"
 
 if [ ! -f "$LEDGER" ]; then
