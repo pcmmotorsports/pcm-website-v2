@@ -130,6 +130,25 @@ provision() {
   #      **而那條依賴沒有寫在任何地方 —— 是撞到才知道的。**
   #    🔴 而刪的位置從「a8a3g 那一支的正後方」搬到這裡, 也是撞出來的:下一支 20260820021000
   #      **也要借一張訂單**(還多要一位 is_active 的 staff)⇒ 需要 fixture 的不只一支。
+  # 🔴🔴 2026-09-02:把 `expire_unpaid_orders` 補成【20260828060000 那一代】(含成功心跳)。
+  #    成因是量到的:上面的跳過清單為了 pg_cron 跳掉了 `20260828060000`
+  #    ⇒ 這個庫裡那支函式停在 `20260809160000`(L3a, 沒有心跳)
+  #    ⇒ 而 `-0e` 2026-09-01 從這個庫 `pg_get_functiondef` 抄函式體去寫交件 SQL
+  #      ⇒ **抄到舊的那一代 ⇒ 交件檔會把正式庫的心跳整段刪掉**(codex must-fix A:195)。
+  #    ⇒ 📌 **一個為了跳過 pg_cron 而做的省略, 在兩小時後變成一支會刪掉監控的交件檔。**
+  #    ⚠️ 只補【函式定義 + REVOKE】那一段, **不補排程**(排程要真的 pg_cron)。
+  #      抽法用兩個錨(CREATE 那行 → REVOKE 那兩行), 不寫死行號 —— 行號會漂。
+  local HB="$WORK/expire-heartbeat-gen.sql"
+  awk '/^CREATE OR REPLACE FUNCTION pcm_cron\.expire_unpaid_orders/{f=1} f{print} /^  FROM PUBLIC, anon, authenticated, service_role, payment_confirmer;/{if(f)exit}' \
+    supabase/migrations/20260828060000_m4b_b4cron6_expire_unpaid_orders_heartbeat.sql > "$HB"
+  grep -q 'sweeper_heartbeat' "$HB" \
+    || die "抽不到心跳那一代的函式體(錨可能被改過)—— 拒繼續:少了它, 這個庫會安靜地停在舊代"
+  psql "$(url)" -v ON_ERROR_STOP=1 -q -f "$HB"
+  # 🔴 補完當場驗:**「我跑了那支檔」與「庫裡那支函式真的換了」是兩個宣稱。**
+  test "$(runsql "SELECT position('sweeper_heartbeat' in prosrc) > 0 FROM pg_proc WHERE oid = 'pcm_cron.expire_unpaid_orders(integer)'::regprocedure")" = "t" \
+    || die "補完之後庫裡那支函式仍然沒有心跳 ⇒ 補的動作沒生效"
+  echo "  expire_unpaid_orders 已補成 20260828060000 那一代(含心跳)" >&2
+
   psql "$(url)" -v ON_ERROR_STOP=1 -q -c "DELETE FROM public.orders WHERE display_id = 'PCM-2026-9001'" >/dev/null
   psql "$(url)" -v ON_ERROR_STOP=1 -q -c "DELETE FROM auth.users WHERE id = '00000000-0000-4000-8000-00000000a8a3'" >/dev/null
   # 🔴 刪完當場數一次:**「我下了 DELETE」與「它真的不在了」是兩個宣稱**

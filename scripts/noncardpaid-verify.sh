@@ -27,7 +27,8 @@ MODE="${1:?用法: noncardpaid-verify.sh all|run <workdir>}"
 WORK="${2:?缺 workdir(/tmp 底下的短路徑)}"
 PORT="${PORT:-54396}"
 URL="postgresql://postgres@127.0.0.1:${PORT}/postgres"
-MIGRATION="${MIGRATION:-docs/specs/2026-09-01-m4b-noncardpaid-settle-v2.sql}"
+MIGRATION="${MIGRATION:-docs/specs/2026-09-01-m4b-noncardpaid-settle-v3.sql}"
+ROLLBACK_SQL="${ROLLBACK_SQL:-docs/specs/2026-09-01-m4b-noncardpaid-settle-ROLLBACK.sql}"
 export LC_ALL=C
 
 # 🔴 自檢:SQL 註解內不得出現反引號 / ASCII 雙引號(照抄 op5-verify.sh 的機制)——
@@ -217,21 +218,21 @@ fi
 
 # ══ 結構 ══════════════════════════════════════════════════════════════════
 log "S 結構"
-run_case "S1 恰兩個新 trigger, 各在該在的那張表上(Sean 逐字說的是【兩個】)" "NC-S1-OK" "
+run_case "S1 恰【一支】新 trigger(Sean 2026-09-02 重批:兩個變一個 ⇒ 逐字答甲)" "NC-S1-OK" "
 DO \$s1\$
-DECLARE v_pay text; v_ref text; v_n integer;
+DECLARE v_pay text; v_n integer;
 BEGIN
   SELECT pg_catalog.string_agg(tgname, ',' ORDER BY tgname) INTO v_pay FROM pg_trigger
    WHERE tgrelid = 'public.order_payments'::regclass AND NOT tgisinternal AND tgname LIKE 'pcm_noncard%';
-  SELECT pg_catalog.string_agg(tgname, ',' ORDER BY tgname) INTO v_ref FROM pg_trigger
-   WHERE tgrelid = 'public.order_manual_refunds'::regclass AND NOT tgisinternal AND tgname LIKE 'pcm_noncard%';
   IF v_pay IS DISTINCT FROM 'pcm_noncard_settle_after_payment_ai' THEN
     RAISE EXCEPTION 'order_payments 上的本片 trigger = %(預期恰一支)', coalesce(v_pay, '(無)'); END IF;
-  IF v_ref IS DISTINCT FROM 'pcm_noncard_settle_after_manual_refund_ai' THEN
-    RAISE EXCEPTION 'order_manual_refunds 上的本片 trigger = %(預期恰一支)', coalesce(v_ref, '(無)'); END IF;
   SELECT pg_catalog.count(*)::integer INTO v_n FROM pg_trigger
    WHERE NOT tgisinternal AND tgname LIKE 'pcm_noncard%';
-  IF v_n <> 2 THEN RAISE EXCEPTION '全庫本片 trigger 共 % 支(預期恰 2 —— Sean 逐字說的是兩個)', v_n; END IF;
+  -- 🔴 這一格從「恰 2」改成「恰 1」, 而理由不是少做:
+  --    第二個掛點會變成【第二個 payment_status 寫入端】—— 那半自 20260823020000 起
+  --    由 admin_record_manual_refund → pcm_sync_order_refund_payment_status 負責。
+  --    ⇒ 少的那一個不是漏掉, 是【不該加】。
+  IF v_n <> 1 THEN RAISE EXCEPTION '全庫本片 trigger 共 % 支(預期恰 1)', v_n; END IF;
   RAISE NOTICE 'NC-S1-OK';
 END \$s1\$;"
 
@@ -354,6 +355,60 @@ ${MKORDER}
 END \$w\$;
 ROLLBACK;"
 fi
+
+# 🔴🔴 W2-9 —— 本片【不碰退款態】。這一格是 codex must-fix A:135 / A:79 / A:107 的守門。
+#    第二個 payment_status 寫入端這件事沒有任何三綠抓得到:兩支各自都對, 而它們用不同的分母。
+#    ⇒ 這一格證明:有退款活動的時候, 本片【交還】而不是自己算。
+run_case "W2-9 有退款活動 ⇒ 本片交還退款管線, 一個字都不碰" "NC-W2-9-OK" "
+BEGIN;
+DO \$w\$
+DECLARE v_o uuid; v_u uuid; v_v uuid; v_st text;
+BEGIN
+${MKORDER}
+  INSERT INTO public.order_payments (order_id, rail, amount, received_at, actor, bank_reference, request_id)
+  VALUES (v_o, 'bank_transfer', 1000, pg_catalog.now() - interval '2 hours', 'staff_1', 'REF-R9', pg_catalog.gen_random_uuid());
+  IF (SELECT payment_status::text FROM public.orders WHERE id = v_o) <> 'paid' THEN
+    RAISE EXCEPTION 'W2-9 前提不成立:足額之後不是 paid';
+  END IF;
+  -- 直接插一列人工退款(繞過 RPC ⇒ 退款管線【沒有】被呼叫)
+  INSERT INTO public.order_manual_refunds (order_id, rail, refund_amount, reason, actor, occurred_at, request_id)
+  VALUES (v_o, 'bank_transfer', 400, 'harness', 'staff_1', pg_catalog.now(), pg_catalog.gen_random_uuid());
+  -- 再進一筆收款 ⇒ 本片的 trigger 會被觸發, 而它應該【看到退款活動就交還】
+  INSERT INTO public.order_payments (order_id, rail, amount, received_at, actor, bank_reference, request_id)
+  VALUES (v_o, 'bank_transfer', 1, pg_catalog.now() - interval '1 hour', 'staff_1', 'REF-R9b', pg_catalog.gen_random_uuid());
+  SELECT payment_status::text INTO v_st FROM public.orders WHERE id = v_o;
+  IF v_st <> 'paid' THEN
+    RAISE EXCEPTION 'W2-9:有退款活動時本片仍然動了狀態(%)⇒ 它變成第二個退款狀態寫入端', v_st;
+  END IF;
+  RAISE NOTICE 'NC-W2-9-OK 有退款活動 ⇒ 狀態維持 %(交還退款管線)', v_st;
+END \$w\$;
+ROLLBACK;"
+
+# 🔴🔴 W2-10 —— cron 那條腿的判準是【淨額】不是【有沒有列】(codex must-fix A:241)。
+#    收 1000 再全額沖銷 ⇒ 我們手上沒有錢 ⇒ 那張單該恢復可取消。
+#    寫成「有沒有列」的話, 它會被歷史那兩列【永久擋住】⇒ 沒有終點的殭屍。
+run_case "W2-10 沖銷回淨額 0 的單, cron 又會取消它(判準是淨額不是有沒有列)" "NC-W2-10-OK" "
+BEGIN;
+DO \$w\$
+DECLARE v_o uuid; v_u uuid; v_v uuid; v_p uuid; v_c timestamptz;
+BEGIN
+${MKORDER}
+  INSERT INTO public.order_payments (order_id, rail, amount, received_at, actor, bank_reference, request_id)
+  VALUES (v_o, 'bank_transfer', 1000, pg_catalog.now() - interval '2 hours', 'staff_1', 'REF-Z1', pg_catalog.gen_random_uuid())
+  RETURNING id INTO v_p;
+  INSERT INTO public.order_payments (order_id, rail, amount, received_at, actor, reverses_payment_id, reversal_reason)
+  VALUES (v_o, 'bank_transfer', -1000, pg_catalog.now() - interval '1 hour', 'staff_1', v_p, 'harness 沖銷');
+  IF (SELECT payment_status::text FROM public.orders WHERE id = v_o) <> 'unpaid' THEN
+    RAISE EXCEPTION 'W2-10 前提不成立:沖銷回 0 之後不是 unpaid ⇒ 這一格測不到 cron 那條腿';
+  END IF;
+  PERFORM pcm_cron.expire_unpaid_orders(500);
+  SELECT cancelled_at INTO v_c FROM public.orders WHERE id = v_o;
+  IF v_c IS NULL THEN
+    RAISE EXCEPTION 'W2-10:淨額 0 的單沒有被取消 ⇒ 那條腿寫成了「有沒有列」⇒ 這張單永遠沒有終點';
+  END IF;
+  RAISE NOTICE 'NC-W2-10-OK 淨額 0 ⇒ 恢復可取消(at %)', v_c;
+END \$w\$;
+ROLLBACK;"
 
 run_case "W2-6 cron 不再取消【有收款列】的單(真的呼叫那支函式 + 同一發裡有對照組)" "NC-W2-6-OK" "
 BEGIN;
@@ -518,6 +573,56 @@ ${MKORDER}
   IF v_c IS NOT NULL THEN RAISE EXCEPTION 'M3 如預期:拿掉那條腿之後單又被取消了 at %', v_c; END IF;
 END \$m\$;
 ROLLBACK;"
+
+
+# ══ R 還原段:交件的第二支檔真的還原得了嗎 ═══════════════════════════════
+# 🔴 codex must-fix A:320 —— v2 的還原段整段是【註解】, 而檔頭寫「直接貼那一段」。
+#    ⇒ 而一個還原段沒有被跑過, 與一個不存在的還原段, 在交件當下長得一樣。
+log "R 還原(交件的第二支檔)"
+if [ ! -f "$ROLLBACK_SQL" ]; then
+  bad "R:還原檔不存在:$ROLLBACK_SQL ⇒ 交件少一半"
+else
+  if psql "$URL" -v ON_ERROR_STOP=1 --single-transaction -q -f "$ROLLBACK_SQL" > "$WORK/rollback.log" 2>&1; then
+    ok "R1 還原檔整支跑得動(不是註解, 不用挑段落)"
+  else
+    bad "R1 還原檔跑不動 ⇒ $(tail -3 "$WORK/rollback.log" | tr '\n' ' ' | cut -c1-260)"
+  fi
+  run_case "R2 還原之後:本片 trigger 沒了, 而【心跳與卡片腿都還在】" "NC-R2-OK" "
+DO \$r2\$
+DECLARE v_bare text; v_n integer;
+BEGIN
+  SELECT pg_catalog.regexp_replace(p.prosrc, '--[^' || pg_catalog.chr(10) || ']*', '', 'g')
+    INTO v_bare FROM pg_catalog.pg_proc p
+   WHERE p.oid = 'pcm_cron.expire_unpaid_orders(integer)'::regprocedure;
+  SELECT pg_catalog.count(*)::integer INTO v_n FROM pg_trigger
+   WHERE NOT tgisinternal AND tgname LIKE 'pcm_noncard%';
+  IF v_n <> 0 THEN RAISE EXCEPTION 'R2:還原後本片 trigger 還剩 % 支', v_n; END IF;
+  IF pg_catalog.strpos(v_bare, 'np.order_id = o.id') > 0 THEN
+    RAISE EXCEPTION 'R2:那條腿還在 ⇒ 還原沒生效'; END IF;
+  -- 🔴 這兩格是重點:一個把心跳一起拆掉的還原, 【不是還原】—— 它是第二次事故。
+  IF pg_catalog.strpos(v_bare, 'sweeper_heartbeat') = 0 THEN
+    RAISE EXCEPTION 'R2:還原把心跳一起拆掉了'; END IF;
+  IF pg_catalog.strpos(v_bare, 'payment_charge_attempts') = 0 THEN
+    RAISE EXCEPTION 'R2:還原把卡片那條腿一起拆掉了'; END IF;
+  RAISE NOTICE 'NC-R2-OK';
+END \$r2\$;"
+  run_case "R3 而還原之後【缺陷回來了】—— 那是還原的定義, 不是它壞掉" "NC-R3-OK" "
+BEGIN;
+DO \$r3\$
+DECLARE v_o uuid; v_u uuid; v_v uuid; v_st text; v_c timestamptz;
+BEGIN
+${MKORDER}
+  INSERT INTO public.order_payments (order_id, rail, amount, received_at, actor, bank_reference, request_id)
+  VALUES (v_o, 'bank_transfer', 1000, pg_catalog.now() - interval '1 hour', 'staff_1', 'REF-R3', pg_catalog.gen_random_uuid());
+  SELECT payment_status::text INTO v_st FROM public.orders WHERE id = v_o;
+  IF v_st <> 'unpaid' THEN RAISE EXCEPTION 'R3:還原之後狀態竟然還會翻(%)⇒ 還原沒還乾淨', v_st; END IF;
+  PERFORM pcm_cron.expire_unpaid_orders(500);
+  SELECT cancelled_at INTO v_c FROM public.orders WHERE id = v_o;
+  IF v_c IS NULL THEN RAISE EXCEPTION 'R3:還原之後 cron 竟然還擋著 ⇒ 還原沒還乾淨'; END IF;
+  RAISE NOTICE 'NC-R3-OK 缺陷如預期回來了(狀態 unpaid 且被 cron 取消)⇒ 還原是真的';
+END \$r3\$;
+ROLLBACK;"
+fi
 
 echo
 echo "════ NONCARDPAID harness 結果:PASS=$PASS FAIL=$FAIL SKIP=$SKIP ════"
