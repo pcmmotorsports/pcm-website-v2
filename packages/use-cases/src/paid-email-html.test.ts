@@ -277,6 +277,64 @@ describe('🔴 Gmail 102KB:本檔只量,不擋', () => {
   });
 });
 
+// ══ 🔴 標籤平衡 —— 而它補的是【現有這些測試結構上驗不到】的那一族 ═══════════
+//   上面每一格驗的都是「某個字串在不在」⇒ **少一個 `</table>` 它們一個都不會紅**,
+//   而那在信箱裡是整段版面塌掉(email client 的容錯比瀏覽器差很多)。
+//   🛑 而本 repo **零 snapshot 用法**(實掃 `toMatchSnapshot|toMatchInlineSnapshot` ⇒ 0 處,
+//      🔵 負對照 現造 API 名 ⇒ 0)⇒ 我不引入新慣例,改驗一個**性質**而不是一份固定值。
+//      📌 差別:snapshot 在任何改動都會紅(含刻意的);性質只在【真的壞掉】時紅。
+function tagCounts(html: string, tag: string): { open: number; close: number } {
+  return {
+    open: (html.match(new RegExp(`<${tag}[ >]`, 'g')) ?? []).length,
+    close: (html.match(new RegExp(`</${tag}>`, 'g')) ?? []).length,
+  };
+}
+
+describe('🔴 產物是【結構完整的】—— 而上面每一格都驗不到這件事', () => {
+  const TAGS = ['table', 'tr', 'td', 'div', 'a', 'span'] as const;
+
+  it.each(TAGS)('%s 的開闔數相等（三個世界都要平衡）', (tag) => {
+    for (const [ctx, chrome] of [
+      [ctxWithDiscount(), {}],
+      [ctxNoDiscountFreeShipping(), {}],
+      [
+        ctxWithDiscount(),
+        {
+          paidAtText: '2026-08-23 14:07',
+          orderUrl: 'https://x.test/o/X',
+          hasPdfAttachment: true,
+        },
+      ],
+    ] as const) {
+      const { open, close } = tagCounts(renderPaidEmailHtml(ctx, chrome), tag);
+      expect(open, `<${tag}> 開 ${open} 闔 ${close}`).toBe(close);
+    }
+  });
+
+  // 🔵🔵 **這把尺自己的判別力** —— 沒有這一格,一個永遠回 `{open:0, close:0}` 的
+  //    `tagCounts` 也會讓上面全過(0 === 0)。
+  it('🔵 對照:這把尺在【真的不平衡】時會叫,在【平衡】時不叫', () => {
+    expect(tagCounts('<table><tr></tr>', 'table')).toEqual({ open: 1, close: 0 });
+    expect(tagCounts('<table></table>', 'table')).toEqual({ open: 1, close: 1 });
+    // 🔴 而它【數得到東西】—— 防「正規式壞了 ⇒ 兩邊都 0 ⇒ 恆等」
+    const real = tagCounts(renderPaidEmailHtml(ctxWithDiscount(), {}), 'table');
+    expect(real.open).toBeGreaterThan(5);
+  });
+
+  it('🔴 每個 <a> 都有 href,而且是絕對 http(s) —— 信裡的相對連結一定是死的', () => {
+    const html = renderPaidEmailHtml(ctxWithDiscount(), { orderUrl: 'https://x.test/o/X' });
+    const hrefs = [...html.matchAll(/<a\s[^>]*href="([^"]*)"/g)].map((mm) => mm[1]!);
+    expect(hrefs.length).toBeGreaterThan(0); // 🔵 防「一個都沒抓到 ⇒ 下面的迴圈空轉」
+    for (const h of hrefs) expect(h).toMatch(/^https?:\/\//);
+  });
+
+  it('🔴 <style> 只有一個,而 <body> 裡零個 —— 信箱只認 <head> 裡那一個', () => {
+    const html = renderPaidEmailHtml(ctxWithDiscount(), {});
+    expect((html.match(/<style>/g) ?? []).length).toBe(1);
+    expect(html.slice(html.indexOf('<body')).includes('<style')).toBe(false);
+  });
+});
+
 describe('🛑 本模板【不】檢查 linesTruncated —— 那是呼叫端的 fail-closed 責任', () => {
   it('linesTruncated=true 照樣吐得出來(而呼叫端必須不寄)', () => {
     const c = ctxWithDiscount();
