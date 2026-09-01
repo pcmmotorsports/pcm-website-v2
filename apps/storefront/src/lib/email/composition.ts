@@ -116,8 +116,17 @@ export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
   //
   // 🔴 service_role 的第四個用途:它讀 `orders`(含 PII)與 `order_items`。
   //    回傳只進信件內文,不進 log / result(adapter 檔頭明文)。
-  const paidContext = new SupabasePaidEmailContextAdapter(serviceClient);
-  return { outbox, sender, shippedContext, ineligibleScanner, paidContext };
+  // 🛑🛑 **2026-09-02 這一行被【revert 掉了】—— 而它曾經上過 `origin/dev`。**
+  //    ⛔ ~~`const paidContext = new SupabasePaidEmailContextAdapter(serviceClient);`~~
+  //    🔴 **為什麼撤**:codex 對抗審查判 FAIL,4 條 must-fix【一條都沒修】,而接上它
+  //       ⇒ ①真客人開始收到 HTML 付款信 ②fail-closed 那幾格的單【從此收不到信】
+  //       ⇒ 而 ⟦f3-RECIPIENTBIND1⟧ 會把洩漏面從【單號】放大成【品名 / SKU / 數量 / 金額】。
+  //    🛑 **而它是怎麼上去的**:`-f3` commit 了一顆標題逐字寫「🛑 未完成, 不得上線」的半成品,
+  //       而收割那條路(`git rev-list` + `push`)**結構上不會讀到 commit 標題** ⇒ 它被連同收走。
+  //       ⇒ 📌 **一個寫給【人】看的保護,在一條【不看人話】的路上等於不存在**(⟦b9-CLAIMEDPROTECTION⟧ 同族)。
+  //    ✅ **要接回來之前,先關掉 ⟦b4-MAILCANCEL1⟧ 那支 `markSkippedOrderCancelled`** ——
+  //       那是那支被審的碼自己寫的前置條件,而它今天只以「被點名」的形式存在。
+  return { outbox, sender, shippedContext, ineligibleScanner };
 }
 
 /**
