@@ -15,31 +15,64 @@
 --   🔵 而他的字面是「讓【你】看得到」⇒ 那個「你」是他 ⇒ 落點是**他會打開的畫面**,
 --     不是一個沒有人讀的 view。本支只做【數字】那一半;畫面那一半在 app 層。
 --
--- ══ 🔴 兩種紅是【兩個數字】, 不是一個 ═══════════════════════════════════════════
---   `over_cap`   = 超額(`cap < 0`)      ⇒ 員工的下一步:**確認金額**
---   `cap_unknown`= 算不出上限(`cap IS NULL`)⇒ 員工的下一步:**找工程**
---   🛑 **合成一個數字 = 把「該找工程的」與「該改金額的」混在一起** ——
---     而那正是 `⟦b4-PCM05SPLIT⟧` 那一條(一碼兩義而下一步相反)。
---   ⇒ 所以本支回**兩欄**, 而不是一個 total。
+-- ══ 🛑🛑 為什麼只有【一欄】—— 而我原本寫了兩欄 ═══════════════════════════════════
+--   ⛔ ~~`over_cap`(超額 ⇒ 確認金額)與 `cap_unknown`(算不出上限 ⇒ 找工程)兩欄~~
+--   🔴 **【codex 2026-09-02 must-fix】那第二欄【結構上恆為 0】** ——
+--     `pcm_manual_refund_rail_cap`(`20260824010000:123-133`)是
+--     `COALESCE(SUM,0)::bigint - COALESCE(SUM,0)::bigint` ⇒ **它正常回傳不可能是 NULL**;
+--     而它出錯時整支查詢會失敗, 也不會變成一個「0 或 1」的計數。
+--     ⇒ 📌 **`cap IS NULL` 那個 CASE 永遠走不到** ⇒ 那一欄是一個【恆綠格】,
+--        而它在畫面上長得像「有在數」。
+--   ⇒ ⇒ **移除。** 先例在同一族:`amountsTruncated`(`today-summary.tsx` 的墓碑段)逐字
+--     「留著會是一個沒有任何路徑能讓它變 true 的旗標 = 恆綠格,而 UI 上長得像【有在防】」。
+--
+--   🔴🔴 **而這個錯最刺的一格:我【自己 40 分鐘前寫下過這個事實】** ——
+--     `manual-refund-ledger-section.tsx` 那段(codex R2③ 逼我寫的)逐字:
+--     「兩段都 COALESCE(...,0) ⇒ 它正常回傳【不可能是 NULL】
+--       ⇒ 畫面這一側的 null 一格都不是來自 DB 說【算不出來】」。
+--     ⇒ ⇒ **我把那句話寫進一支檔, 然後在另一支檔裡building 它的反面。**
+--     ⇒ ⇒ ⇒ 📌 **一個被寫下來的事實, 不會自己去找它的其他消費端。**
+--
+--   🛑 **⇒ 而「算不出上限」那種紅【現在沒有觀眾】, 那是一個真的缺口, 不是被解掉了**:
+--     它在畫面上只在【當下】看得到(訂單頁那條紅), 重新整理就可能消失, 而沒有地方記得。
+--     ⇒ ✅ 已開列 `⟦5b-CAPUNKNOWNSTATE⟧`(**而它真的在信箱裡**:
+--        `~/pcm-mailbox/交給f3上板-20260902-5b-四列漏交.md` 第 ③ 節)。
 --
 -- ══ 🔵 分母為什麼可以這樣收窄(不是為了快, 是為了它答得準)═══════════════════════
 --   `pcm_manual_refund_rail_cap` = 兩軌淨實收 − 未作廢的人工退款。
 --   ⇒ **一張沒有任何未作廢人工退款的單, 它的 cap 不可能是負的**(被減數是 0)。
 --   ⇒ 所以只掃「有未作廢人工退款」的那些單就夠了 —— 而那是【等價】不是【抽樣】。
---   ⚠️ 而 `cap IS NULL` 那一半**不吃這個推論**:算式回 NULL 是算式本身出狀況,
---     那與有沒有退款無關 ⇒ 🛑 **所以 `cap_unknown` 這個數字【只涵蓋有退款的那些單】,**
---     **它不是全站的**。⇒ 這個限制寫在函式的 COMMENT 裡, 而不是只寫在這裡。
+--   ⛔ ~~而 `cap IS NULL` 那一半不吃這個推論…所以 cap_unknown 只涵蓋有退款的那些單~~
+--   🔵 **那一整段隨第二欄一起作廢**(見上方那個 codex must-fix):那一欄根本走不到。
+--     留著這幾行加刪除線, 是因為**它的推理是對的** —— 錯的是它在替一個不存在的世界擔心。
 
 -- 🔴 **裸 `CREATE`, 不是 `OR REPLACE`**(`migration-new-file-static-checks` ①)——
 --   這是一個【新物件】⇒ 撞名要當場紅。
 --   `OR REPLACE` 會把撞名**靜靜蓋掉**, 而 REVOKE 與後置斷言【照樣綠】
 --   ⇒ 📌 拿到綠燈, 卻蓋掉了一個你不知道存在的東西。
 CREATE FUNCTION public.pcm_manual_refund_red_counts()
-RETURNS TABLE (over_cap bigint, cap_unknown bigint)
+RETURNS TABLE (over_cap bigint)
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+-- 🔴 `''` 而不是 `public, pg_temp`(2026-09-02 補;codex R3 對【隔壁那支】點名的同一格)。
+--    本函式是 `SECURITY DEFINER` 且回財務數字 ⇒ 可被污染的 search_path 是這個 repo 記過的那一類。
+--    ✅ 安全的理由是**本體全部限定**:`public.order_manual_refunds` /
+--       `public.pcm_manual_refund_rail_cap`,其餘是內建(`SUM` / `COALESCE` / `::bigint`)。
+--
+-- 🛑🛑 **而這一行【為什麼是補的】要寫下來 —— 它是同一夜第三次同型**:
+--    codex R3 點名的是 `20260902030000`, 而它逐字給了我一個對照:「隔壁那支用的就是 `''`」。
+--    ⇒ 而我用那個對照**修了被點名的那一處**, 沒有拿它去找【還有誰長一樣】。
+--    ⇒ 📌 **一個 finding 附的對照組, 同時也是一份「還有誰」的清單 —— 而我只把它當證據。**
+--    ⇒ ⇒ **修一個被點名的實例, 不等於修那個類別。而三綠、diff、審查三個都不會叫。**
+--
+-- ⚠️ **而這一改【不會讓這條鏈變安全】, 不要讀成堵洞**:本函式呼叫的
+--    `public.pcm_manual_refund_rail_cap` 自己就是 `SET search_path = public, pg_temp`
+--    (`20260824010000:122`, 而**那支早就在正式庫上**)⇒ 這裡改的是【不要再擴散舊慣例】。
+--    🔵 全 repo 現況(2026-09-02 當場數):`''` **191** 處 / `public, pg_temp` **72** 處。
+--       ⚠️ ~~190~~ —— 我第一次數是**改這一行之前**數的, 而**改完之後我自己就是第 191 個**。
+--       📌 一個把自己算進去的計數, 在寫下的那一刻就過期了。⇒ 引用前自己重跑那兩發 `grep -c`。
+SET search_path = ''
 AS $fn$
   WITH candidate AS (
     SELECT DISTINCT m.order_id
@@ -51,18 +84,19 @@ AS $fn$
       FROM candidate c
   )
   SELECT
-    COALESCE(SUM(CASE WHEN k.cap < 0 THEN 1 ELSE 0 END), 0)::bigint     AS over_cap,
-    COALESCE(SUM(CASE WHEN k.cap IS NULL THEN 1 ELSE 0 END), 0)::bigint AS cap_unknown
+    COALESCE(SUM(CASE WHEN k.cap < 0 THEN 1 ELSE 0 END), 0)::bigint AS over_cap
     FROM capped k;
 $fn$;
 
 COMMENT ON FUNCTION public.pcm_manual_refund_red_counts() IS
   '⟦b4-RAILCAPAUDIENCE⟧「現在有幾張單是紅的」——後台首頁用(Sean 2026-09-02 拍甲:要有觀眾)。'
-  '🔴 回【兩個】數字而不是一個:over_cap(超額 ⇒ 確認金額)與 cap_unknown(算不出上限 ⇒ 找工程),'
+  '🔴 只有【一欄】:over_cap(超額 ⇒ 員工的下一步是確認金額)。'
+  '⛔ 原本還有一欄 cap_unknown(算不出上限 ⇒ 找工程),而它【結構上恆為 0】——'
+  'pcm_manual_refund_rail_cap 兩段都 COALESCE(...,0) ⇒ 正常回傳不可能是 NULL ⇒ 那個 CASE 走不到。'
+  '⇒ 那種紅目前【沒有觀眾】,已開列 ⟦5b-CAPUNKNOWNSTATE⟧。'
   '兩者的下一步相反,合成一個數字就是 ⟦b4-PCM05SPLIT⟧ 那個病。'
   '🔵 分母 = 有【未作廢人工退款】的單。cap = 兩軌淨實收 − 未作廢退款 ⇒ 沒有退款的單不可能為負,'
   '所以那個收窄對 over_cap 是【等價】不是抽樣。'
-  '🛑 而 cap_unknown 不吃那個推論(算式回 NULL 與有沒有退款無關)'
   '⇒ **這個數字只涵蓋有退款的那些單,它不是全站的**。'
   '⚠️ 它是即時算的(STABLE,無快取):單數變多時要回來看它的成本。';
 
@@ -112,10 +146,10 @@ DO $post$
 DECLARE
   v_a uuid := '00000000-0000-0000-0000-00000000cab1';
   v_b uuid := '00000000-0000-0000-0000-00000000cab2';
-  v_over int; v_unk int;
+  v_over int;
 BEGIN
-  SELECT r.over_cap, r.cap_unknown INTO v_over, v_unk FROM public.pcm_manual_refund_red_counts() r;
-  IF v_over IS NULL OR v_unk IS NULL THEN
+  SELECT r.over_cap INTO v_over FROM public.pcm_manual_refund_red_counts() r;
+  IF v_over IS NULL THEN
     RAISE EXCEPTION '後置斷言:函式回了 NULL ⇒ 呼叫端會把它當成 0, 而那是「不知道」不是「沒有」';
   END IF;
 

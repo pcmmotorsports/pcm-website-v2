@@ -13,8 +13,18 @@ SELECT 'G3-' || lpad(g::text, 4, '0'),
   CASE WHEN g % 7 = 0 THEN 'out-of-stock' ELSE 'in-stock' END,
   b.id, c.id, '[]'::jsonb,
   jsonb_build_array(
-    jsonb_build_object('brand','Aprilia','modelCode','RSV4 1100 Factory','yearStart',2021,'yearEnd',2024),
-    jsonb_build_object('brand','Aprilia','modelCode','Tuono V4','yearStart',2021,'yearEnd',null)),
+    -- 🔴 **2026-09-02 `-0e` 修:key ~~`brand`~~ ⇒ `motoBrand`(三處)。**
+    --    成因:`sync_product_fitments` 這支 trigger 讀的是 `elem->>'motoBrand'`
+    --    ⇒ 而種子寫 `brand` ⇒ **每一列都被那道「非空字串才成列」的防禦性判斷跳過**
+    --    ⇒ ⇒ `product_fitments` 恆 0 ⇒ `vehicle_taxonomy_public` 恆 0
+    --    ⇒ ⇒ ⇒ **顧客站「先選車, 只看裝得上的零件」那一整塊在鑽機上永遠是空的。**
+    --    🛑 而它【不會出錯】:trigger 逐字說「單一髒元素跳過、絕不 rollback products」
+    --      ⇒ 種子印「✅ 有車款 72」、商品頁也顯示「適用 YZF-R7」(那是直接讀 products.fitments)
+    --      ⇒ **只有【選車篩選】那一條路是空的, 而沒有任何東西會叫。**
+    --    🟢 真相來源:正式庫實查 ⇒ `{"modelCode":"Bobber","motoBrand":"Triumph",…}`
+    --      + app 側 `motoBrand` 143 處引用、`brand` 0 處 ⇒ **`motoBrand` 才是合約。**
+    jsonb_build_object('motoBrand','Aprilia','modelCode','RSV4 1100 Factory','yearStart',2021,'yearEnd',2024),
+    jsonb_build_object('motoBrand','Aprilia','modelCode','Tuono V4','yearStart',2021,'yearEnd',null)),
   jsonb_build_array('乾式碳纖維，非水轉印','原廠孔位直上，不需鑽孔','附不鏽鋼固定件'),
   'rpm'
 FROM generate_series(1, 12) g
@@ -118,7 +128,7 @@ SELECT
        ELSE '[]'::jsonb END,
   CASE WHEN k = 1 THEN '[]'::jsonb
        ELSE jsonb_build_array(
-              jsonb_build_object('brand','Yamaha','modelCode','YZF-R7','yearStart',2021,'yearEnd',2025)) END,
+              jsonb_build_object('motoBrand','Yamaha','modelCode','YZF-R7','yearStart',2021,'yearEnd',2025)) END,
   jsonb_build_array('探針假資料，不是真商品', '形狀:' || (ARRAY['通用款無圖','有車款無圖','有圖多變體','有圖常態'])[k]),
   b.slug
 FROM (SELECT id, name, slug, row_number() OVER (ORDER BY slug) AS bn FROM brands) b

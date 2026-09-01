@@ -79,6 +79,42 @@ import type { PaymentListData } from './payment-list';
  *  ⇒ 📌 **所以「開封」不是一個動作,是兩個**:翻旗標 **且** `#866` 那道 server 不變式要先存在。
  *  ⚠️ 而 `#866` 命中鐵則 12①③(動 RPC)⇒ **要 Sean 批、要 Sean apply**,不是施工窗自己能收的。
  *
+ *  ── 🔴🔴 **2026-09-02 更新:上面那句「要先存在」【已經成立了】—— 而它同一天又被鬆開** ──
+ *  ⛔ ~~(上面那兩行不刪:它們當時完全正確, 而它們現在會把人帶去錯的結論)~~
+ *  ```
+ *  ① `#866` 已於 2026-08-24 完成並 apply —— 帳本上兩支各 1 列:
+ *       supabase/APPLIED.tsv  20260824010000(建 pcm_manual_refund_rail_cap)
+ *                             20260824011000(把它執行起來)
+ *     執行的形狀是一道 trigger(不是改 RPC —— 主視窗 2026-08-24 裁【乙】):
+ *       trg_pcm_manual_refund_rail_cap  BEFORE INSERT OR UPDATE OR DELETE
+ *         ON public.order_manual_refunds  FOR EACH ROW
+ *         EXECUTE FUNCTION public.pcm_manual_refund_rail_cap_guard()
+ *
+ *  ② 🔴 而 `20260902020000_m4b_pcm01_record_not_block.sql` 改的【就是那支 guard 函式】
+ *       :94  CREATE OR REPLACE FUNCTION public.pcm_manual_refund_rail_cap_guard()
+ *       :43  逐字「`PCM01` 與 `PCM02` 兩段都從 `RAISE EXCEPTION` 變成 `RAISE WARNING`」
+ *     ⇒ **那道不變式從【擋】變成【記】。**
+ *     🔵 **而那是 Sean 2026-09-02 自己拍的甲(「記得下來, 但標紅」)—— 不是退化, 是決定。**
+ *  ```
+ *  🛑 **⇒ 所以這道封印的前置條件, 在同一天之內【先被滿足, 又被鬆開】——**
+ *     **而【沒有任何一個地方會說這件事】。**
+ *  🔴 **而下一個想開封的人會【每一步都做對】然後算錯**:
+ *     檔頭叫他打開這裡 → 他讀到「要等 `#866`」 → 他去查 → 做完了、apply 了 → 條件到齊
+ *     ⇒ 而他不會知道那道不變式今天是 `WARNING` ⇒ 他翻旗標
+ *     ⇒ ⇒ 而上面 `:73-78` 那個「潛伏的」東西(額度上限仍是 `o.total`)跟著一起上線。
+ *
+ *  🎯 **⇒ ⇒ 所以【開封前要問的第三個問題】, 而它才是這一段的全部價值:**
+ *  ## **那道 `WARNING` 有沒有人在看?**
+ *     · 有人看 ⇒ 那它仍然是一道防線(慢的那一種)
+ *     · 沒人看 ⇒ 那它只是一行 log ⇒ **而封印是今天唯一還在擋的東西**
+ *  🔵 而今天「有沒有人在看」那一半已經在做:`⟦b4-RAILCAPAUDIENCE⟧` 首頁那一格
+ *     (`components/dashboard/today-summary.tsx` 的「目前退款超出上限」)——
+ *     ⚠️ **而它數的只有【超額】那一種**;「算不出上限」那種紅目前沒有觀眾(`⟦5b-CAPUNKNOWNSTATE⟧`)。
+ *
+ *  ⚠️ **本段沒有驗到的一格, 而它是【驗了也不影響決定】那一種**:
+ *     正式庫上那道 trigger 現在實際是哪一版 —— 我讀的是帳本與 migration 檔, 不是 `pg_proc`。
+ *     ⇒ 而 `20260902020000` 是 `CREATE OR REPLACE` ⇒ 它一貼就覆蓋 ⇒ **補量也不改變上面的結論。**
+ *
  *  📌 **而這一段為什麼貼在這裡而不是留在 `#866`**:
  *     風險住在檔案上,而指令下在人身上 —— 一個要開封的人**一定會打開這一行**,
  *     而他**不一定會去翻 backlog**。⇒ 把它搬到他會經過的那一格。

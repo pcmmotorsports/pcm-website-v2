@@ -95,6 +95,7 @@ AS $fn$
   -- 🔴 **整數分配用【前綴和差分】** —— 兩件事要同時成立:
   --   ① 每一列都 > 0(它要能被直接照著付)
   --   ② Σ 每一列 **恰好等於** `total`(不能因為取整而多付或少付一塊錢)
+  --      🔴 **而它【只有加上 `trunc()` 才成立】** —— 見下方那段(SUM(bigint) 回 numeric)。
   --   ⇒ 前綴和差分天生滿足 ②:相鄰兩個「已分配累計」相減, 誤差不會累積, 也不必事後補餘數。
   -- ⛔ ~~第一版用 `LEFT JOIN net n2 ON n2.rail <= n.rail` + `GROUP BY` 做同一件事~~
   -- 🔴 **那一版是錯的, 而【對照組抓到它】**:兩軌都有收款且沒有退款時, 它只吐 `bank_transfer=600`
@@ -108,21 +109,82 @@ AS $fn$
            SUM(p.net) OVER (ORDER BY p.rail ROWS UNBOUNDED PRECEDING) - p.net  AS c_prev
       FROM pos p
   )
+  -- 🔴🔴 **`trunc(...)` 不是保險, 它是這個算式成立的前提**(`-c7` 2026-09-02 複驗抓到, 本窗自己重量過)。
+  --   🛑 **`SUM(bigint)` 在 Postgres 回的是 `numeric`, 不是 `bigint`** ⇒ 上面 `total` / `pos_total`
+  --     都是 numeric ⇒ 那兩個 `/` **不是整數除法**, 而是精確有理數除法。
+  --   ⇒ 而 `::bigint` 是**逐列四捨五入** ⇒ 📌 **前綴和差分的遞移抵銷【根本沒有發生】。**
+  --
+  --   實測(本窗拋棄式 PG 17.10, LC_ALL=C):
+  --     pg_typeof(SUM(1::bigint))            ⇒ numeric
+  --     ((7::numeric*9)/17)::bigint          ⇒ 4      而 (7::bigint*9)/17 ⇒ 3
+  --     `total=2` · `pos_total=3` · 三條正軌各 1:
+  --       現行(無 trunc)⇒ 逐列 1 | 1 | 1 = 3  🔴 **比 total 多付 1 元**
+  --       trunc 版      ⇒ 逐列 0 | 1 | 1 = 2  ✅ 而那個 0 會被下面的 WHERE 濾掉
+  --     ⚠️ **而這一組是【四軌】不是三軌**(codex 2026-09-02 must-fix 更正我原本的標籤):
+  --       三條正軌各 1 ⇒ `pos_total = 3`, 而 `total = 2` **還需要第四條 `−1`**。
+  --       ⇒ 📌 我寫「三軌」是因為我腦子裡只數了【正的那幾條】—— 而 `total` 是**全部**的和。
+  --
+  --   🛑 **而【零元列】不只是多一列, 它會炸掉整筆取消**:WHERE 比的是 numeric(0.333… > 0 為真)
+  --     而 SELECT 的 `::bigint` 得 0 ⇒ 撞 `20260901080000` 的 `amount_at_cancel CHECK (> 0)`
+  --     ⇒ INSERT 失敗 ⇒ **整筆取消回滾**。⇒ ✅ 兩處都套 trunc ⇒ WHERE 與 SELECT 算同一個值。
+  --
+  -- 🔵 **而今天(兩軌)【本來就是對的】, 這一改是行為中性的** —— `-c7` 窮舉 nets 各 -50..50
+  --   ⇒ 10,201 個世界, 合計不符 0、零元列 0(正對照:多餵一條軌 ⇒ 不符 50 ⇒ 那把尺會動)。
+  --   理由:一軌負 ⇒ `pos` 只剩一列 ⇒ 分配 = `total` 本身;兩軌都正 ⇒ `total = pos_total`
+  --   ⇒ 各拿自己的數。
+  --   ⛔ ~~⇒ 分數要【三條正軌】才生得出來。~~ 🔴 **假的**, 而它錯在【兩個方向】。
+  --     🔵 **這句話的作者是 `-c7`, 不是本窗** —— 它在複驗那一則裡逐字寫了
+  --       「⇒ 分數要三條正軌才生得出來」, 而我**照收進這段註解**。
+  --       ⇒ 📌 標出處不是禮貌:**一條錯誤如果歸錯人, 下一個人會去查【錯的那個來源】。**
+  --       ⇒ ⇒ 而真正該去查的是 `~/pcm-mailbox/量測-那支跨軌修法的分配算式-20260902.md`
+  --          (檔尾有就地訂正, 零刪除)—— 那裡才有那 4,913 個世界的資料。
+  --     · **講太窄**:`[1, 2, −2]` 只有**兩條**正軌(`total=1` / `pos_total=3`)⇒ 生出 `1/3`、`2/3`
+  --       ⇒ 🛑 而舊版在這個世界會送出一個**零元列** ⇒ 撞 CHECK ⇒ 整筆取消回滾。
+  --       ⇒ ⇒ 讀那句的人會以為「只有兩條正軌 ⇒ 安全」—— **而那正是會出事的那一種。**
+  --     · **講太寬**:`[1,1,1]`(三條全正、沒有負軌 ⇒ `total = pos_total`)舊版**完全正確**
+  --       ⇒ 那句話讓一個沒問題的世界看起來有問題。
+  --     🎯 **而 `-c7` 自己講了它為什麼躲過自己那 4,913 個世界**:
+  --       那些反例**就在裡面**(它撈到 126 多付 + 162 零元列)——
+  --       ⇒ **而它看著正確的數字, 寫下了錯誤的解釋**:從「兩軌是安全的」直接外推,
+  --         而**沒有回去問那 162 個零元列是什麼形狀**。
+  --       ⇒ 📌 **窮舉驗了現象, 而沒有讓它去驗【我對現象的解釋】。**
+  --       ⇒ ⇒ **而解釋才是下一個人會讀的 —— 數字他不會重跑。**
+  --   ✅ **正確的條件是兩個【同時】成立**:`total ≠ pos_total`(⇒ 至少一條負軌)
+  --     **而且** `pos` 有兩列以上(⇒ 至少兩條正軌)⇒ **合計至少【三條軌】, 不是三條正軌。**
+  --   ⇒ 📌 而今天恰好兩軌 ⇒ 那兩個條件**不可能同時成立** ⇒ 這就是今天安全的完整理由。
+  --
+  -- 🛑🛑 **而這一格真正的教訓是【警告的方向】**:
+  --   本檔已經警告了「新增第 4 條非卡軌時, rail 值域**兩處**都要回來改」——
+  --   ⇒ 而**沒有警告【回來改算式】** ⇒ 📌 **而回來改值域的那個人, 會以為算式是安全的**
+  --     ⇒ ⇒ **因為 COMMENT 是這樣告訴他的。**
+  --   ⛔ ~~原 COMMENT 逐字:「⇒ Σ 每一列**恰好等於** total, 不會因取整多付或少付。」~~
+  --     🔴 **那句話在三軌以上【不成立】, 而它是我寫的。留著加刪除線, 因為它正是那個誤導。**
   SELECT cu.rail,
-         ((a.total * cu.c) / a.pos_total - (a.total * cu.c_prev) / a.pos_total)::bigint AS amount
+         (trunc((a.total * cu.c) / a.pos_total)
+        - trunc((a.total * cu.c_prev) / a.pos_total))::bigint AS amount
     FROM cum cu
     CROSS JOIN agg a
    WHERE a.total > 0
-     AND ((a.total * cu.c) / a.pos_total - (a.total * cu.c_prev) / a.pos_total) > 0;
+     AND (trunc((a.total * cu.c) / a.pos_total)
+        - trunc((a.total * cu.c_prev) / a.pos_total)) > 0;
 $fn$;
 
 COMMENT ON FUNCTION public.pcm_pending_refund_amounts(uuid) IS
   '⟦b4-CROSSRAILNET⟧ 取消時「每一軌該開多少待退款」。'
   '🔴 先合計再分配:逐軌淨額可以是負的(跨軌退款 —— Sean 2026-09-02 拍甲說那是合法的),'
   '而總淨額才是真的還欠多少;total <= 0 回零列。'
-  '🔴 分配用【前綴和差分】做整數分配 ⇒ Σ 每一列恰好等於 total,不會因取整多付或少付。'
+  '🔴 分配用【前綴和差分 + trunc()】⇒ Σ 每一列恰好等於 total,不會因取整多付或少付。'
+  '🛑 那個 trunc() 不是保險:SUM(bigint) 在 Postgres 回 numeric ⇒ 少了它, 除法是精確有理數除法, '
+  '而 ::bigint 是逐列四捨五入 ⇒ 遞移抵銷不會發生 ⇒ 三軌以上會多付, 而零元列會撞 '
+  'amount_at_cancel 的 CHECK (> 0) 讓整筆取消回滾。(2026-09-02 -c7 複驗抓到, 本窗實測複現。)'
+  '⚠️ 而「三軌以上會多付」講得太絕對(codex 更正):[1,1,1] 這種 total = pos_total 的三軌'
+  '舊版也完全正確。⇒ 正確說法是【可能多付, 也可能生出零元列】, 而零元列那一種比較貴。'
+  '🔴🔴 所以【回來改 rail 值域的人, 也要回來看這個算式】—— 而它今天之所以安全, '
+  '是因為兩軌時分數生不出來(一軌負 ⇒ pos 只剩一列;兩軌都正 ⇒ total = pos_total)。'
   '🛑 而它【看不出來曾經跨軌】—— 那要新欄位或另一張紀錄,已開列 ⟦5b-CROSSRAILVISIBLE⟧。'
   '⚠️ rail 值域是手抄副本(同 20260901080000:441-442):新增第 4 條非卡軌時兩處都要改。'
+  '🛑 而【只改值域不夠】—— 上面那條 trunc 的理由講的就是第 3 條軌會發生什麼。'
+  '📌 原本這裡只警告了值域, 而回來改值域的人會以為算式是安全的 —— 因為本 COMMENT 這樣告訴他。'
   '🛑 它是【取消那一刻的快照】:取消後再登記退款或沖銷收款,既有那幾列【不會跟著變】'
   '(那是 20260901080000 的既有設計,不是本支引入的)⇒ 已開列 ⟦5b-PENDINGSTALE⟧。';
 
@@ -331,6 +393,31 @@ BEGIN
     RAISE EXCEPTION '世界B(作廢後):合計應為 1000, 實得 % ⇒ 這把尺不會動', v_sum;
   END IF;
 
+  -- 🟢🟢 世界E 正對照:**同軌部分退款** ⇒ 匯款收 1000、匯款退 500 ⇒ 恰好一列合計 500
+  --    🔴 **這一格是 `-c7` 2026-09-02 指出來的缺口, 而它是本支【最該有】的一格**:
+  --      上面 A/B/C/D 全部沒有演過「一條軌自己收自己退」—— 而那是**平常每天都在發生**的那一種。
+  --      ⇒ 📌 A 證的是「跨軌那一種會算對」;而**沒有東西在證「本來對的那一種沒有被改壞」**。
+  --      ⇒ ⇒ 🛑 **這一片的風險方向是【修過頭】, 不是【沒修到】** —— 而那需要不同的對照。
+  --    🔵 而 `-c7` 自報它就是寫 `WHERE x.amt > 0` 那一行的人, 而它給的形狀是:
+  --      「一個【過濾掉零】的條件, 在有負數的世界裡變成【丟資訊】」
+  --      ⇒ 而它躲過三輪審查的方式:每一輪都在問「這一列該不該開」,
+  --        **沒有人問那個負數去哪了**。
+  --    ⚠️ 本窗的拋棄式 harness 有演過同軌那一格(commit body 的「🟢 同軌 500」),
+  --      **而 migration 自己的後置斷言沒有** ⇒ 📌 **harness 演過, 不等於【貼下去的那一刻】會驗。**
+  --      而 Sean 貼的是這支檔, 不是我的 harness。
+  DELETE FROM public.order_manual_refunds WHERE order_id = v_o;
+  DELETE FROM public.order_payments WHERE order_id = v_o;
+  INSERT INTO public.order_payments(order_id, rail, amount) VALUES (v_o, 'bank_transfer', 1000);
+  INSERT INTO public.order_manual_refunds(order_id, rail, refund_amount, reason, actor, occurred_at)
+    VALUES (v_o, 'bank_transfer', 500, '後置斷言', 'assert', pg_catalog.now());
+  SELECT COALESCE(SUM(amount), 0), count(*) INTO v_sum, v_rows
+    FROM public.pcm_pending_refund_amounts(v_o);
+  IF v_sum <> 500 OR v_rows <> 1 THEN
+    RAISE EXCEPTION
+      '世界E(同軌部分退款):應為 1 列合計 500, 實得 % 列合計 % ⇒ 平常那一種被改壞了',
+      v_rows, v_sum;
+  END IF;
+
   -- 🟢 世界C 正對照:退款超過收款 ⇒ total <= 0 ⇒ **一列都不准開**
   INSERT INTO public.order_manual_refunds(order_id, rail, refund_amount, reason, actor, occurred_at)
     VALUES (v_o, 'cash', 1200, '後置斷言', 'assert', pg_catalog.now());
@@ -358,7 +445,7 @@ BEGIN
       v_rows, v_sum;
   END IF;
 
-  RAISE NOTICE '✅ 四個世界都對:跨軌 500(1 列)· 作廢後 1000 · 超退 0 列 · 兩軌 1400(2 列)';
+  RAISE NOTICE '✅ 五個世界都對:跨軌 500(1 列)· 作廢後 1000 · 同軌部分退 500(1 列)· 超退 0 列 · 兩軌 1400(2 列)';
   RAISE EXCEPTION '後置斷言跑完 —— 刻意回滾這段測試資料(這不是失敗)'
     USING ERRCODE = 'P0001';
 EXCEPTION WHEN SQLSTATE 'P0001' THEN
