@@ -14,6 +14,7 @@ import {
   paidEmailSubject,
   paidEmailHtmlBytes,
   GMAIL_CLIP_BYTES,
+  PCM_EMAIL_LOGO_URL,
 } from './paid-email-html';
 
 const m = (n: number) => n as MoneyAmount;
@@ -86,15 +87,39 @@ describe('🔴 硬限制② LOGO 外連,絕不 base64(Gmail 102KB 會剪信)', (
     expect(html).toContain('<img src="https://x.test/logo.png"');
   });
 
-  it('🔴 產物裡【零個】 data: URI —— 兩個世界都掃', () => {
-    for (const chrome of [{}, { logoUrl: 'https://x.test/logo.png' }]) {
+  it('🔴 產物裡【零個】 data: URI —— 三個世界都掃(預設 / 指定 / 明確不印)', () => {
+    for (const chrome of [{}, { logoUrl: 'https://x.test/logo.png' }, { logoUrl: '' }]) {
       expect(renderPaidEmailHtml(ctxWithDiscount(), chrome)).not.toContain('data:image');
     }
   });
 
-  it('沒給 logoUrl ⇒ 不吐一個 src 是空的 <img>(那會變成破圖框)', () => {
+  // ══ 🔴 期望值【翻面】(2026-09-01,LOGO 網址通了之後)═══════════════════════
+  //   ⛔ ~~舊期望:沒給 logoUrl ⇒ 不吐 `<img>`~~ **作廢** —— 現在 `logoUrl` 有預設值。
+  //   🔴 而這一格是**這支測試自己抓到**的:我改了預設,它當場紅,
+  //      訊息說「不吐一個 src 是空的 <img>」⇒ **而真相是「現在會吐一個 src 正確的」。**
+  //      📌 一個過期的期望值,它紅的時候說的是**舊世界的話** ——
+  //         而看的人會照那句話去找一個不存在的缺陷。(同一片裡第三次了。)
+  it('不給 logoUrl ⇒ 用預設那個網址(LOGO 是站台常數,不是每封信不同)', () => {
     const html = renderPaidEmailHtml(ctxWithDiscount(), {});
+    expect(html).toContain(`<img src="${PCM_EMAIL_LOGO_URL}"`);
+  });
+
+  it('🔴 要【明確不印 LOGO】⇒ 傳空字串(不是 undefined —— 那會拿到預設)', () => {
+    const html = renderPaidEmailHtml(ctxWithDiscount(), { logoUrl: '' });
     expect(html).not.toContain('<img');
+  });
+
+  it('🔵 而 undefined 與空字串【必須給出不同結果】—— 否則那個區分只是註解', () => {
+    const a = renderPaidEmailHtml(ctxWithDiscount(), { logoUrl: undefined });
+    const b = renderPaidEmailHtml(ctxWithDiscount(), { logoUrl: '' });
+    expect(a).not.toBe(b);
+    expect(a).toContain('<img');
+    expect(b).not.toContain('<img');
+  });
+
+  it('🔴 預設那個網址是 https 且不是 shop.(Sean 拍板用 www —— shop 之後會移轉)', () => {
+    expect(PCM_EMAIL_LOGO_URL).toMatch(/^https:\/\/www\.pcmmotorsports\.com\//);
+    expect(PCM_EMAIL_LOGO_URL).not.toContain('shop.');
   });
 });
 
