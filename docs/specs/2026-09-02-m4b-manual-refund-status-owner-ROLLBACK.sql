@@ -75,8 +75,33 @@ BEGIN
 END;
 $fn$;
 
+-- ── 把作廢那支的接線也拆掉 ────────────────────────────────────────────────
+-- 🔴 2026-09-02 04:xx 補:第一版【漏了這一段】—— 它只還原同步器, 而 §2 插進
+--    `admin_void_manual_refund` 的那兩行留在原地。
+--    ⇒ 那不是「無害的殘留」:重貼主檔時 §2 會判「已經接過了」而拒繼續
+--      ⇒ **還原之後裝不回去** ⇒ 而那是還原最該保證的一件事。
+--    ⇒ 📌 抓到它的是【還原完再貼一次】—— 而 harness 原本的 R1/R2 只驗同步器, 兩格都綠。
+DO $unwire$
+DECLARE v_def text; v_n integer;
+BEGIN
+  v_def := pg_catalog.pg_get_functiondef('public.admin_void_manual_refund(uuid,text,text)'::regprocedure);
+  v_n := (SELECT pg_catalog.count(*)
+            FROM pg_catalog.regexp_matches(v_def, 'PERFORM public\.pcm_sync_order_refund_payment_status\(v_row\.order_id\);', 'g'))::integer;
+  IF v_n = 0 THEN
+    RAISE NOTICE '還原:作廢那支沒有本片的接線 ⇒ 略過(它可能沒被接過, 或已經拆過了)';
+  ELSE
+    IF v_n <> 2 THEN
+      RAISE EXCEPTION '還原:作廢那支的接線是 % 處(預期 0 或 2)⇒ 有人動過它, 拒繼續', v_n;
+    END IF;
+    v_def := pg_catalog.replace(v_def,
+      'PERFORM public.pcm_sync_order_refund_payment_status(v_row.order_id);' || pg_catalog.chr(10) || '      ', '');
+    EXECUTE v_def;
+  END IF;
+END
+$unwire$;
+
 DO $post$
-DECLARE v_bare text;
+DECLARE v_bare text; v_void text;
 BEGIN
   SELECT pg_catalog.regexp_replace(p.prosrc, '--[^' || pg_catalog.chr(10) || ']*', '', 'g')
     INTO v_bare FROM pg_catalog.pg_proc p
@@ -90,7 +115,12 @@ BEGIN
   IF pg_catalog.strpos(v_bare, 'domain 轉移表') = 0 THEN
     RAISE EXCEPTION '還原後置:那道 domain 閘不見了';
   END IF;
-  RAISE NOTICE '⟦b4-MANREFUNDNOOWNER⟧ 還原完成:同步器已回到 20260823020000 那一版';
+  SELECT p.prosrc INTO v_void FROM pg_catalog.pg_proc p
+   WHERE p.oid = 'public.admin_void_manual_refund(uuid,text,text)'::regprocedure;
+  IF pg_catalog.strpos(v_void, 'pcm_sync_order_refund_payment_status') > 0 THEN
+    RAISE EXCEPTION '還原後置:作廢那支的接線還在 ⇒ 還原不完整, 主檔會裝不回去';
+  END IF;
+  RAISE NOTICE '⟦b4-MANREFUNDNOOWNER⟧ 還原完成:同步器已回到 20260823020000 那一版, 作廢那支的接線也拆了';
   RAISE NOTICE '⚠️ 提醒:人工退款又會變成不改狀態 —— 退了款而畫面仍寫已付款。';
 END
 $post$;

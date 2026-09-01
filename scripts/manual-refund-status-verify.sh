@@ -169,24 +169,32 @@ END \$w\$;
 ROLLBACK;"
 
 # 🔴 作廢的退款不算 —— 那張表刻意沒有 status, voided_at 是它唯一的「不算數」訊號。
-run_case "W2-3 退款被作廢(voided_at 非空)⇒ 不計入 ⇒ 狀態回不到退款域" "MR-W2-3-OK" "
+run_case "W2-3 有效退款 ⇒ 進退款域 ⇒ 作廢它 ⇒ 【降回 paid】(真的生命週期)" "MR-W2-3-OK" "
 BEGIN;
 DO \$w\$
-DECLARE v_o uuid; v_u uuid; v_v uuid; v_st text;
+DECLARE v_o uuid; v_u uuid; v_v uuid; v_st text; v_rid uuid;
 BEGIN
 ${MKPAID}
-  INSERT INTO public.order_manual_refunds (order_id, rail, refund_amount, reason, actor, occurred_at, request_id, voided_at, void_reason, voided_by)
-  VALUES (v_o, 'bank_transfer', 400, 'harness', 'staff_1', pg_catalog.now(), pg_catalog.gen_random_uuid(),
-          pg_catalog.now(), 'harness 作廢', 'staff_1');
-  SELECT public.pcm_sync_order_refund_payment_status(v_o) INTO v_st;
-  IF v_st <> 'paid' THEN
-    RAISE EXCEPTION 'W2-3:作廢過的退款被算成錢真的退出去了(狀態 =%)⇒ 少了 voided_at IS NULL 那道篩', v_st;
+  PERFORM public.admin_record_manual_refund(v_o, pg_catalog.gen_random_uuid(), 'staff_1', 'bank_transfer', 400, 'harness', pg_catalog.now());
+  SELECT payment_status::text INTO v_st FROM public.orders WHERE id = v_o;
+  IF v_st <> 'partiallyRefunded' THEN
+    RAISE EXCEPTION 'W2-3 前提不成立:登記之後不是 partiallyRefunded 而是 % ⇒ 那張單根本沒進退款域 ⇒ 下面測不到降回', v_st;
   END IF;
-  RAISE NOTICE 'MR-W2-3-OK 作廢的不算, 狀態維持 %', v_st;
+  SELECT id INTO v_rid FROM public.order_manual_refunds WHERE order_id = v_o AND voided_at IS NULL LIMIT 1;
+  PERFORM public.admin_void_manual_refund(v_rid, 'harness 作廢', 'staff_1');
+  SELECT payment_status::text INTO v_st FROM public.orders WHERE id = v_o;
+  IF v_st <> 'paid' THEN
+    RAISE EXCEPTION 'W2-3:全部退款作廢之後狀態 =%(預期回到 paid)⇒ 它卡住了', v_st;
+  END IF;
+  RAISE NOTICE 'MR-W2-3-OK paid ⇒ partiallyRefunded ⇒ (作廢) ⇒ %', v_st;
 END \$w\$;
 ROLLBACK;"
 
-# 🔴🔴 這一格是【回歸守門】—— 本檔差一點就會弄壞一個今天能用的流程。
+# 🔴 codex 抓到的那一格:第一版的 fixture 一開始就插一列 voided_at 非空的
+#    ⇒ 那張單【從來沒有進過退款域】⇒ 舊版什麼都不做時它本來就是 paid ⇒ 照樣綠。
+#    📌 一個從來沒有離開過正確狀態的東西, 拿它測「會不會回到正確狀態」⇒ 永遠綠。
+#    ⇒ 上面那一格改成走完整條生命週期, 而且【用真的作廢 RPC】不是手插一列。
+
 run_case "W2-4 unpaid 的單被人工退款 ⇒ 不拋錯、狀態不變(保護分支)" "MR-W2-4-OK" "
 BEGIN;
 DO \$w\$
@@ -223,6 +231,52 @@ ${MKPAID}
     RAISE EXCEPTION 'W2-5:卡片那條路壞了(狀態 =%, 預期 partiallyRefunded)⇒ 本檔動到了不該動的那半', v_st;
   END IF;
   RAISE NOTICE 'MR-W2-5-OK 卡片那條路照舊 ⇒ %', v_st;
+END \$w\$;
+ROLLBACK;"
+
+# 🔴 混合退款 —— codex 指出這是本檔【真的改變行為】的那一格, 而檔頭原本寫「完全沒有改變」。
+run_case "W2-6 人工 600 + 卡片 confirmed 400 = 1000 ⇒ refunded(兩本帳合計)" "MR-W2-6-OK" "
+BEGIN;
+DO \$w\$
+DECLARE v_o uuid; v_u uuid; v_v uuid; v_st text;
+BEGIN
+${MKPAID}
+  PERFORM public.admin_record_manual_refund(v_o, pg_catalog.gen_random_uuid(), 'staff_1', 'bank_transfer', 600, 'harness 人工那半', pg_catalog.now());
+  IF (SELECT payment_status::text FROM public.orders WHERE id = v_o) <> 'partiallyRefunded' THEN
+    RAISE EXCEPTION 'W2-6 前提不成立:人工退 600 之後不是 partiallyRefunded';
+  END IF;
+  UPDATE public.orders SET tappay_rec_trade_id = 'REC-M6-' || pg_catalog.substr(v_o::text, 1, 8) WHERE id = v_o;
+  INSERT INTO public.order_refunds (order_id, rec_trade_id, bank_refund_id, refund_amount, status, reason, actor, request_id, kind, record_refunded_before, confirmed_at)
+  VALUES (v_o, 'REC-M6-' || pg_catalog.substr(v_o::text, 1, 8), 'BR6-' || pg_catalog.substr(v_o::text, 1, 12), 400, 'processing', 'harness', 'staff_1', pg_catalog.gen_random_uuid()::text, 'partial', 0, NULL);
+  UPDATE public.order_refunds SET status = 'confirmed', confirmed_at = pg_catalog.now(),
+         tappay_refund_id = 'TR6-' || pg_catalog.substr(v_o::text, 1, 10)
+   WHERE order_id = v_o AND status = 'processing';
+  SELECT public.pcm_sync_order_refund_payment_status(v_o) INTO v_st;
+  IF v_st <> 'refunded' THEN
+    RAISE EXCEPTION 'W2-6:兩本帳合計 1000(= 訂單總額)而狀態 =%(預期 refunded)⇒ 沒有合計', v_st;
+  END IF;
+  RAISE NOTICE 'MR-W2-6-OK 合計 ⇒ %', v_st;
+END \$w\$;
+ROLLBACK;"
+
+# 🔴 降級 —— 舊版有一道 v_ps <> 'refunded' 的單調閘, 一旦寫上 refunded 就再也下不來。
+run_case "W2-7 退滿 ⇒ refunded ⇒ 作廢其中一筆 ⇒ 降回 partiallyRefunded" "MR-W2-7-OK" "
+BEGIN;
+DO \$w\$
+DECLARE v_o uuid; v_u uuid; v_v uuid; v_st text; v_rid uuid;
+BEGIN
+${MKPAID}
+  PERFORM public.admin_record_manual_refund(v_o, pg_catalog.gen_random_uuid(), 'staff_1', 'bank_transfer', 400, 'harness 第一筆', pg_catalog.now());
+  PERFORM public.admin_record_manual_refund(v_o, pg_catalog.gen_random_uuid(), 'staff_1', 'bank_transfer', 600, 'harness 第二筆', pg_catalog.now());
+  SELECT payment_status::text INTO v_st FROM public.orders WHERE id = v_o;
+  IF v_st <> 'refunded' THEN RAISE EXCEPTION 'W2-7 前提不成立:退滿之後不是 refunded 而是 %', v_st; END IF;
+  SELECT id INTO v_rid FROM public.order_manual_refunds WHERE order_id = v_o AND refund_amount = 600 AND voided_at IS NULL LIMIT 1;
+  PERFORM public.admin_void_manual_refund(v_rid, 'harness 作廢第二筆', 'staff_1');
+  SELECT payment_status::text INTO v_st FROM public.orders WHERE id = v_o;
+  IF v_st <> 'partiallyRefunded' THEN
+    RAISE EXCEPTION 'W2-7:作廢一筆之後狀態 =%(預期 partiallyRefunded)⇒ 單調不降級那道閘還在', v_st;
+  END IF;
+  RAISE NOTICE 'MR-W2-7-OK refunded ⇒ (作廢一筆) ⇒ %', v_st;
 END \$w\$;
 ROLLBACK;"
 
@@ -272,6 +326,53 @@ ${MKPAID}
 END \$m\$;
 ROLLBACK;"
 
+run_case_expect_red "M3 把早退裡的降回分支拿掉 ⇒ W2-3 必須紅" "M3 如預期" "
+BEGIN;
+DO \$m0\$
+DECLARE v_def text; v_n integer;
+BEGIN
+  v_def := pg_catalog.pg_get_functiondef('public.pcm_sync_order_refund_payment_status(uuid)'::regprocedure);
+  v_n := (SELECT pg_catalog.count(*) FROM regexp_matches(v_def, 'IF v_ps IN \(''partiallyRefunded'', ''refunded''\) THEN', 'g'))::integer;
+  IF v_n <> 1 THEN RAISE EXCEPTION 'M3 突變沒有裝上:錨出現 % 次(預期恰 1)⇒ 本格作廢', v_n; END IF;
+  v_def := pg_catalog.replace(v_def, 'IF v_ps IN (''partiallyRefunded'', ''refunded'') THEN', 'IF false THEN');
+  EXECUTE v_def;
+END \$m0\$;
+DO \$m\$
+DECLARE v_o uuid; v_u uuid; v_v uuid; v_st text; v_rid uuid;
+BEGIN
+${MKPAID}
+  PERFORM public.admin_record_manual_refund(v_o, pg_catalog.gen_random_uuid(), 'staff_1', 'bank_transfer', 400, 'harness', pg_catalog.now());
+  SELECT id INTO v_rid FROM public.order_manual_refunds WHERE order_id = v_o AND voided_at IS NULL LIMIT 1;
+  PERFORM public.admin_void_manual_refund(v_rid, 'harness', 'staff_1');
+  SELECT payment_status::text INTO v_st FROM public.orders WHERE id = v_o;
+  IF v_st <> 'paid' THEN RAISE EXCEPTION 'M3 如預期:拿掉降回分支之後狀態卡在 %', v_st; END IF;
+END \$m\$;
+ROLLBACK;"
+
+run_case_expect_red "M4 把單調不降級那道閘加回去 ⇒ W2-7 必須紅" "M4 如預期" "
+BEGIN;
+DO \$m0\$
+DECLARE v_def text; v_n integer;
+BEGIN
+  v_def := pg_catalog.pg_get_functiondef('public.pcm_sync_order_refund_payment_status(uuid)'::regprocedure);
+  v_n := (SELECT pg_catalog.count(*) FROM regexp_matches(v_def, 'IF v_ps <> v_target THEN', 'g'))::integer;
+  IF v_n <> 1 THEN RAISE EXCEPTION 'M4 突變沒有裝上:錨出現 % 次(預期恰 1)⇒ 本格作廢', v_n; END IF;
+  v_def := pg_catalog.replace(v_def, 'IF v_ps <> v_target THEN', 'IF v_ps <> ''refunded'' AND v_ps <> v_target THEN');
+  EXECUTE v_def;
+END \$m0\$;
+DO \$m\$
+DECLARE v_o uuid; v_u uuid; v_v uuid; v_st text; v_rid uuid;
+BEGIN
+${MKPAID}
+  PERFORM public.admin_record_manual_refund(v_o, pg_catalog.gen_random_uuid(), 'staff_1', 'bank_transfer', 400, 'h1', pg_catalog.now());
+  PERFORM public.admin_record_manual_refund(v_o, pg_catalog.gen_random_uuid(), 'staff_1', 'bank_transfer', 600, 'h2', pg_catalog.now());
+  SELECT id INTO v_rid FROM public.order_manual_refunds WHERE order_id = v_o AND refund_amount = 600 AND voided_at IS NULL LIMIT 1;
+  PERFORM public.admin_void_manual_refund(v_rid, 'h', 'staff_1');
+  SELECT payment_status::text INTO v_st FROM public.orders WHERE id = v_o;
+  IF v_st <> 'partiallyRefunded' THEN RAISE EXCEPTION 'M4 如預期:加回單調閘之後狀態卡在 %', v_st; END IF;
+END \$m\$;
+ROLLBACK;"
+
 log "R 還原"
 if [ ! -f "$ROLLBACK_SQL" ]; then
   bad "R:還原檔不存在:$ROLLBACK_SQL ⇒ 交件少一半"
@@ -281,6 +382,18 @@ else
   else
     bad "R1 還原檔跑不動 ⇒ $(tail -3 "$WORK/rollback.log" | tr '\n' ' ' | cut -c1-260)"
   fi
+  run_case "R1b 還原之後【主檔裝得回去】(不然那不是還原, 是單程票)" "MR-R1B-OK" "
+DO \$r1b\$
+DECLARE v_void text;
+BEGIN
+  SELECT p.prosrc INTO v_void FROM pg_catalog.pg_proc p
+   WHERE p.oid = 'public.admin_void_manual_refund(uuid,text,text)'::regprocedure;
+  IF pg_catalog.strpos(v_void, 'pcm_sync_order_refund_payment_status') > 0 THEN
+    RAISE EXCEPTION 'R1b:還原之後作廢那支的接線還在 ⇒ 重貼主檔時 §2 會判【已經接過了】而拒繼續 ⇒ 裝不回去';
+  END IF;
+  RAISE NOTICE 'MR-R1B-OK 接線已拆乾淨';
+END \$r1b\$;"
+
   run_case "R2 還原之後缺陷回來了, 而【卡片那條路仍然好的】" "MR-R2-OK" "
 BEGIN;
 DO \$r\$

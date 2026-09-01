@@ -68,7 +68,7 @@ DO $pre$
 DECLARE v_src text; v_md5 text; v_secdef boolean; v_cfg text; v_owner text;
 BEGIN
   SELECT p.prosrc, pg_catalog.md5(p.prosrc), p.prosecdef,
-         pg_catalog.coalesce(pg_catalog.array_to_string(p.proconfig, ','), '<無>'),
+         coalesce(pg_catalog.array_to_string(p.proconfig, ','), '<無>'),
          pg_catalog.pg_get_userbyid(p.proowner)
     INTO v_src, v_md5, v_secdef, v_cfg, v_owner
     FROM pg_catalog.pg_proc p
