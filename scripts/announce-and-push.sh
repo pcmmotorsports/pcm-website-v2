@@ -53,9 +53,13 @@ git log --format='   %h %s' "$FROM".."$TIP" 2>/dev/null || git log --format='   
 #    ⇒ 它把自己擋下來了。而那正是 memory 裡那條:
 #      「記錄缺口的註解, 會被偵測缺口的量具數進去。」
 #    ⇒ 所以先把 「…」 與 "…" 裡的東西拿掉再比。⚠️ 它擋不住:用別的引號、或根本不加引號地引述。
+# 🔴 而第三發又誤擋:「未完成」太泛 —— 一顆【講這次事故的 docs commit】逐字寫
+#    「合起來把一行未完成的接線送上遠端」⇒ 那是敘述, 不是宣稱。已從清單移除。
+#    📌 而三發三種誤擋(自己引用 / 敘述用語 / 尚待第四種)⇒ 一份黑名單要跑過真語料好幾輪才穩,
+#       而每一輪的誤擋都長得像「它在工作」。
 BLOCKED="$(git log --format='%h %s%n%b' "$FROM".."$TIP" 2>/dev/null \
   | python3 -c "import sys,re; sys.stdout.write(re.sub(r'「[^」]*」|\"[^\"]*\"','',sys.stdin.read()))" \
-  | grep -nE '不得上線|不得貼|不要上|未完成|尚未通過審查|WIP|DO NOT (MERGE|PUSH|SHIP)' || true)"
+  | grep -nE '不得上線|不得貼|不得 ?apply|不要上線|尚未通過審查|WIP|DO NOT (MERGE|PUSH|SHIP)' || true)"
 if [ -n "$BLOCKED" ]; then
   echo "🛑 有 commit 自稱不該上線 —— 停下,不推:"
   echo "$BLOCKED" | head -20
