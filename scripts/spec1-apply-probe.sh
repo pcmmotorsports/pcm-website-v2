@@ -32,7 +32,24 @@ GEN2="$REPO/supabase/migrations/20260829140000_m4b_b2c_manual_order_explicit_tax
 NEW="$REPO/supabase/migrations/20260831180000_m4b_spec1_manual_order_authoritative_spec.sql"
 D=/tmp/spec1-probe
 PORT=5621
-EXPECT='pre-gate apply worldA worldB worldC worldD worldE worldF pos-ctl rerun rollback mut-M1 mut-M2 mut-M3 mut-M4'
+EXPECT='pre-gate apply worldA worldB worldC worldD worldE worldF pos-ctl rerun rollback mut-M1 mut-M2 mut-M3 mut-M4 sources-untouched'
+
+# ══ 🔴 來源檔零留痕:**先量, 不是先宣稱** ═════════════════════════════════════
+#   本 harness 的設計是「讀來源檔 → 把突變寫到 /tmp 的副本 → 餵那份副本」
+#   ⇒ **來源檔從頭到尾只被讀。**
+#   🛑 而上面那句是【設計意圖】—— 它與「今天真的沒被寫到」是兩個宣稱。
+#      一個 `sed -i` 打錯目標、一個未來被加進來的 `>`,都會讓那句話變成假的,
+#      **而它變假的那一天, 沒有任何東西會叫。**
+#   ⇒ 📌 **這不是新教訓, 是既有那一條的一個特例** —— 不在這裡重寫全文:
+#        · `memory/feedback_mutation-harness-needs-both-pre-and-post-checks.md`
+#          逐字要求兩道獨立檢查, 而**後置那一道問的正是「上一發真的還原乾淨了嗎(檔案與環境狀態)」**
+#        · `docs/patterns/mutation-harness-restore.md`:病灶不是「忘了還原」,
+#          是**用一個會殺掉還原的方式跑它** ⇒ 那不是提醒防得了的, 要量。
+#      🔵 本格加的只有一句特化:**「設計上不會寫」也算一種還原宣稱, 而它一樣要被量。**
+#   ⇒ 開跑前記兩支的 sha256, 跑完再比一次(見檔尾 `sources-untouched` 那一格)。
+SHA(){ python3 -c "import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$1"; }
+SHA_GEN2_BEFORE=$(SHA "$GEN2")
+SHA_NEW_BEFORE=$(SHA "$NEW")
 
 for c in initdb pg_ctl psql python3; do
   command -v "$c" >/dev/null || { echo "🔴 缺 $c ⇒ ENV-FAIL(不是紅)"; exit 2; }
@@ -233,6 +250,18 @@ MUT M1 "s=s.replace('public.product_variants','public.product_variants_ZZQ')" '�
 MUT M2 "s=s.replace(\"WHEN pv.id IS NULL\n                OR pv.spec IS NULL\n                OR pv.spec = '{}'::jsonb\n\",\"WHEN pv.id IS NULL\n\")" '後置⑥c'
 MUT M3 "s=s.replace(\"jsonb_set(it -> 'product_snapshot', '{spec}', pv.spec)\",\"it -> 'product_snapshot'\")" '後置⑥'
 MUT M4 "s=s.replace('-- ⟦b4-SPEC1⟧ · 手動建單的品項規格','-- ZZQ-M4-負對照-純註解 ⟦b4-SPEC1⟧ · 手動建單的品項規格')" ''
+
+echo ""
+echo "── 🔴 來源檔零留痕(跑前跑後比 sha256, 不是宣稱)──"
+SHA_GEN2_AFTER=$(SHA "$GEN2")
+SHA_NEW_AFTER=$(SHA "$NEW")
+if [ "$SHA_GEN2_BEFORE" = "$SHA_GEN2_AFTER" ] && [ "$SHA_NEW_BEFORE" = "$SHA_NEW_AFTER" ]; then
+  ok sources-untouched "兩支來源 migration 跑前跑後 sha256 相同(gen2 $(printf %s "$SHA_GEN2_AFTER" | cut -c1-12)… / new $(printf %s "$SHA_NEW_AFTER" | cut -c1-12)…)"
+else
+  bad sources-untouched "🔴 來源檔被改到了 —— gen2 $SHA_GEN2_BEFORE ⇒ $SHA_GEN2_AFTER / new $SHA_NEW_BEFORE ⇒ $SHA_NEW_AFTER;**停下來, 不要 commit**"
+fi
+# 🔵 而這一格自己的判別力:把上面 `SHA_NEW_BEFORE` 改成一個現造字串, 本格必須紅。
+#    ⚠️ 未做成自動突變 —— 它要動 harness 自己, 而那正是本節在防的事。**寫出來, 不假裝驗過。**
 
 echo ""
 printf 'PASS=%s FAIL=%s\n' "$PASS" "$FAIL"
