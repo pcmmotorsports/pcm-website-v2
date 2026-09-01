@@ -108,3 +108,74 @@ describe('🔴 架構閘:那六個門檻在全 repo 只有一份【定義】', (
     expect(outside, `這幾處在本檔之外定義了門檻:${JSON.stringify(outside, null, 2)}`).toEqual([]);
   });
 });
+
+/**
+ * 🔴 `⟦b9-HBSEMANTIC⟧` 的前置守門(2026-09-02, `-15`)—— **而它獨立成立**:
+ * 就算那一片不做, 這張表也答得出「今天六支的 schedule 是什麼、而它的週期是幾分鐘」。
+ *
+ * ## 它擋什麼
+ * 那一片要用【比值 = staleMinutes / 週期】來決定訊息怎麼寫。
+ * 🔴 而週期若與真排程漂開 ⇒ 那句話會**很有信心地講錯輪數** —— 比不寫更糟。
+ * ✅ 所以週期不用【解析 cron 運算式】算(那種東西看起來簡單而邊界很多),
+ *    改用**一張寫死的對照表** + 一道「白名單裡的每個 schedule 都要在表上」的斷言。
+ *    ⇒ 有人改 schedule 或加一支 job ⇒ **當場紅**, 直到他把週期也寫上。
+ *
+ * ## 🛑 它【擋不到】什麼 —— 先讀這一段
+ * ```
+ * 它比的是【本檔的字面】對【本表】。
+ * 🔴 而「正式庫的 cron 被人在 SQL Editor 改了」⇒ 兩邊都不會動 ⇒ **這道閘全綠**。
+ * ⇒ 那與 cron-jobs.ts 檔頭已知的那一格同型(「它會漂, 而本檔不會知道」), 不是本測項新增的。
+ * ```
+ * 🟢 **而現值有一發實測**:`-15` 2026-09-02 00:0x 以 `postgres` 身分唯讀撈正式庫 `cron.job`
+ *    全表(六支, 分母是全部不是抽樣)⇒ **六支的 schedule 全部與下表相同**。
+ *    🛑 **而那不是「它不會漂」** —— 它只是把那一格的時點推到 2026-09-02。
+ *    **下一個引用它的人一樣要自己撈一次。**
+ *    ⚠️ 而那一發是【只下 SELECT】—— **那是自律不是限制**(連線身分是 postgres)。
+ */
+describe('⟦b9-HBSEMANTIC⟧ 週期對照表 —— 而它不解析 cron 運算式', () => {
+  /** schedule 字面 → 週期(分鐘)。🔴 **人寫死的**, 加一支 job 就要加一行。 */
+  const PERIOD_MINUTES_BY_SCHEDULE: Readonly<Record<string, number>> = {
+    '*/2 * * * *': 2,
+    '*/5 * * * *': 5,
+    '*/10 * * * *': 10,
+    '0 * * * *': 60,
+    '0 1 * * *': 1440,
+  };
+
+  it('🔴 白名單裡每一支的 schedule 都要在對照表上(加 job 或改 schedule ⇒ 當場紅)', () => {
+    const missing = CRON_JOB_WHITELIST.filter(
+      (w) => PERIOD_MINUTES_BY_SCHEDULE[w.schedule] === undefined,
+    ).map((w) => `${w.jobName}(${w.schedule})`);
+    expect(missing).toEqual([]);
+  });
+
+  it('🟢 對照表沒有【多】的項目 —— 一個沒有人用的週期是一個沒有人會維護的數字', () => {
+    // 🔵 明寫 `Set<string>`:白名單是 `as const` ⇒ `w.schedule` 是字面聯集型別,
+    //    而 `used.has(k)` 的 `k` 來自 `Object.keys` ⇒ `string` ⇒ **typecheck 紅而 vitest 綠**。
+    //    📌 而那正是今晚踩過的形狀:兩把尺, 而只有一把看了。
+    const used = new Set<string>(CRON_JOB_WHITELIST.map((w) => w.schedule));
+    expect(Object.keys(PERIOD_MINUTES_BY_SCHEDULE).filter((k) => !used.has(k))).toEqual([]);
+  });
+
+  /**
+   * 🔴 **這一格才是那一列在講的東西**:比值把六支分成兩種語意,
+   * 而它們今天**印同一句話**。
+   * ```
+   * 比值 >= 2 ⇒ 門檻至少兩個週期 ⇒ 要【連續錯過一整輪以上】才叫 ⇒ 語意是「它停了嗎」
+   * 比值 <  2 ⇒ 一輪都不必錯過 ⇒ 只要那一輪晚了就叫       ⇒ 語意是「它準時嗎」
+   * ```
+   * 🛑 **而 2.0 這條線【不承重】** —— 它只決定那句話怎麼寫, 不決定叫不叫。
+   *    六支現值是 3.0 ×5 與 1.08 ×1 ⇒ 分界放在 1.5–2.9 之間結果都一樣。
+   */
+  it('🔴 六支分成兩種語意 —— 五支答【它停了嗎】, 一支答【它準時嗎】', () => {
+    const byMeaning = { 停了嗎: [] as string[], 準時嗎: [] as string[] };
+    for (const w of CRON_JOB_WHITELIST) {
+      const period = PERIOD_MINUTES_BY_SCHEDULE[w.schedule]!;
+      (w.staleMinutes / period >= 2 ? byMeaning.停了嗎 : byMeaning.準時嗎).push(w.jobName);
+    }
+    expect(byMeaning.準時嗎).toEqual(['pcm-anomaly-alert']);
+    expect(byMeaning.停了嗎).toHaveLength(5);
+    // 🔵 而那個 1.08 要釘住:它是這一列存在的理由, 而它被調過就該回來讀這一段。
+    expect(1560 / 1440).toBeCloseTo(1.083, 3);
+  });
+});
