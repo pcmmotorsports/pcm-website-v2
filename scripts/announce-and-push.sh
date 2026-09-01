@@ -48,7 +48,14 @@ fi
 #    ⚠️ 那個清單是【黑名單】⇒ 它在跟下一個沒想到的講法賽跑 ⇒ 印出來那一格才是主要防線。
 echo "── 這一發要推的 commit(逐顆標題,自己看一眼)──"
 git log --format='   %h %s' "$FROM".."$TIP" 2>/dev/null || git log --format='   %h %s' -5 "$TIP"
-BLOCKED="$(git log --format='%h %s%n%b' "$FROM".."$TIP" 2>/dev/null | grep -nE '不得上線|不得貼|不要上|未完成|尚未通過審查|WIP|DO NOT (MERGE|PUSH|SHIP)' || true)"
+# 🔴 只比【沒有被引號包住】的字 —— 本閘上線第一發就被自己咬:
+#    記錄這道閘的那一顆 commit, 標題逐字寫著「不得上線」(在引號裡, 是【提及】不是【宣稱】)
+#    ⇒ 它把自己擋下來了。而那正是 memory 裡那條:
+#      「記錄缺口的註解, 會被偵測缺口的量具數進去。」
+#    ⇒ 所以先把 「…」 與 "…" 裡的東西拿掉再比。⚠️ 它擋不住:用別的引號、或根本不加引號地引述。
+BLOCKED="$(git log --format='%h %s%n%b' "$FROM".."$TIP" 2>/dev/null \
+  | python3 -c "import sys,re; sys.stdout.write(re.sub(r'「[^」]*」|\"[^\"]*\"','',sys.stdin.read()))" \
+  | grep -nE '不得上線|不得貼|不要上|未完成|尚未通過審查|WIP|DO NOT (MERGE|PUSH|SHIP)' || true)"
 if [ -n "$BLOCKED" ]; then
   echo "🛑 有 commit 自稱不該上線 —— 停下,不推:"
   echo "$BLOCKED" | head -20
