@@ -185,6 +185,17 @@ GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN
 --    🛑 **而那條【至今沒有機制】** —— `WARNING` 只是讓它出聲, 不是修好。
 --       真正的修法是【建 `pcm_readonly` 的那支 migration 自己補這條 GRANT】, 而那支還不存在。
 --    ⇒ 所以它記在板 `b4-PCMRO1`(log 會滾掉, 板子不會), 而不是靠這幾行。
+-- 🔴🔴 **2026-09-02 補(給下一個要收 `pcm_readonly` 權限的人 —— 他不會收到那則訊息)**:
+--    下面那個 `IF EXISTS` 判的是【**那個角色存不存在**】,**不是【它該不該有這個權限】**。
+--    ⇒ 有人 `REVOKE` 掉 `pcm_readonly` 的權限之後,**角色還在** ⇒ 它走 THEN 那一支
+--      ⇒ **它會安靜地把 GRANT 補回去,一個 WARNING 都不印。**
+--    ⇒ 📌 那是「fail-open 藏住有沒有裝上」的一個形狀 —— 而寫它的是我(線【出貨】`-0e`)。
+--    ✅ **而 2026-09-02 的窄版收權(只收客戶 PII 那幾張 view)底下,本檔【一個字都不用改】**:
+--      `product_fitments_effective` 是車型對應表、**零 PII** ⇒ 不在那個收權範圍裡。
+--      (`-5b` 2026-09-02 提出窄版、主視窗裁准;而窄版的好處不是比較小,
+--       是它**不需要改任何已經在 dev 上的東西**。)
+--    🛑 **而如果哪天走的是【全收】那一版 ⇒ 這一段必須跟著改,否則收完會被它補回去。**
+--      判別句:**要收的那個東西,有沒有人在別的地方【無條件】把它加回來?**
 DO $pfe_ro$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'pcm_readonly') THEN
