@@ -59,6 +59,18 @@ submodule_prefix() {
 
 selftest() {
   local rc bad=0
+  # 🔴 2026-09-02:本函式【第一件事】必須剝掉繼承來的 git 環境。
+  #    成因是量到的, 不是猜的 —— `scripts/selftest-git-isolation-gate.sh` 擋下一次 push,
+  #    而主視窗用它的環境重現:GIT_DIR + **GIT_INDEX_FILE**、cwd 留在真 repo
+  #    ⇒ 受害者 repo 的 `ls-files|status` 從 **1|0 變 4|6** —— 下面每一發
+  #      `git -C "$tmp/..." init/add` 都寫進了【別人的】index。
+  #    🛑 而 `git -C <路徑>` **擋不住它**:GIT_DIR / GIT_INDEX_FILE 的優先權比 -C 高。
+  #    ⚠️ 而它只在【被掛在 hook 底下】那個世界壞 —— 在自己樹上手跑 selftest 是綠的,
+  #      而那正是它會被跑的世界。⇒ 「我本機 selftest 全過」與「它在真的被跑的環境裡乾淨」
+  #      是兩個宣稱。
+  #    🔵 為什麼用 unset 而不是每一發包 `env -u`:漏掉一發就等於沒做, 而這裡有 6 發。
+  unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY \
+        GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE
   # 🔴 `SELFTEST_TMP` 是【全域】不是 local —— trap 在函式結束【之後】才跑,
   #    而 `set -u` 之下一個 local 變數在那時已經不存在 ⇒ 「unbound variable」。
   #    ⇒ 📌 而那個錯印在 selftest【全過】的下一行 ⇒ **一支自檢工具自己壞在收尾。**
