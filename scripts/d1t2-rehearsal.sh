@@ -71,12 +71,19 @@ provision() {
       # M-4b 生命週期 L3b:只有「排程」那半依賴 pg_cron;函式本體在 L3a(20260809160000)照常套用
       # ⇒ scripts/l3-verify.sh 驗得到真 PostgreSQL 上的行為(拆兩支的理由見 L3a 檔頭)。
       *20260809170000*) echo "  跳過(pg_cron):$f" >&2; continue ;;
+      # 🔴 2026-09-01 補:E2b 的 sweep 排程 —— 它 :101 直接查 pg_extension 有沒有 pg_cron,
+      #    而本環境【沒有】那個 extension(下面的 d1-fake-cron.sql 只建 cron/net 兩個 schema
+      #    與表,建不出 pg_extension 那一列)⇒ 不跳過就必死在「E2b:pg_cron 未啟用;拒繼續」。
+      # 🛑 而它【一直都會死】—— 只是先前被更早的一支(20260818190000 的 ACL 斷言)擋住而看不到。
+      #    ⇒ 📌 兩個獨立的壞掉疊在一起, 而修好第一個之後第二個才露出來。
+      *20260819160000*) echo "  跳過(pg_cron):$f" >&2; continue ;;
     esac
     if [ "$f" = "$FIRST_FITMENTS" ]; then
       echo "  插入 fitments DDL 快照(於首引用 $f 之前)" >&2
       psql "$(url)" -v ON_ERROR_STOP=1 -q -f scripts/d1-fitments-bootstrap.sql
     fi
     psql "$(url)" -v ON_ERROR_STOP=1 -q -f "$f" || die "migration 失敗:$f"
+
   done
 
   log "4/5 fake cron/pg_net 介面 + alter_job 自檢(true→false→true;五元組唯一)"

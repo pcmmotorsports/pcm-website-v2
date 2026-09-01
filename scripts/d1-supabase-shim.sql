@@ -49,6 +49,35 @@ GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
+-- 🔴🔴 **2026-09-01:這一行【與正式站不符】, 而它讓 65 支 harness 兩週跑不起來。**
+--    正式庫唯讀實查(Sean 2026-09-01 本人授權的唯讀連線;查 pg_default_acl):
+--      SELECT d.defaclobjtype, pg_get_userbyid(d.defaclrole), d.defaclacl::text
+--        FROM pg_default_acl d JOIN pg_namespace n ON n.oid = d.defaclnamespace
+--       WHERE n.nspname = 'public' AND pg_get_userbyid(d.defaclrole) = 'postgres';
+--    ⇒ **f(FUNCTIONS)那一列是 `{postgres=X/postgres}` —— 只有 postgres 自己,**
+--      **沒有 anon / authenticated / service_role。**
+--    ⇒ 而本檔原本這一行把 EXECUTE 發給那三個角色 ⇒ 隔離庫比正式庫【寬】
+--    ⇒ ⇒ `20260818190000_m4b_admin_sso_login_events.sql:318` 的閉世界斷言
+--      (「owner 以外的 grantee 應零筆」)在隔離庫必炸:2 支函式 × 3 角色 = 6 筆。
+--    📌 **⇒ 而那個斷言是【對的】—— 錯的是這個 shim, 它的職務是模仿正式庫而它沒有。**
+--    ⚠️ **grantor 這一格是關鍵**:同一個 schema 底下 `supabase_admin` 授的那一列
+--      **確實**含三個角色的 `X`;而本行寫的是 `FOR ROLE postgres` ⇒ **要比的是 postgres 那一列。**
+--      🔴 **兩列長得很像, 而只有一列與這一行對應。**
+-- ⛔ ~~ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;~~
+--    (舊字面留著:拿它去 grep 的人會在同一發撞到這段更正。)
+-- ⇒ 正確做法 = **不下那道 ADP**。postgres 建的函式在正式站不自動給那三個角色 EXECUTE,
+--   要用的片自己顯式 GRANT(那正是 `docs/patterns/revoking-function-execute-in-supabase.md` 的口徑)。
+
+-- 🛑 **而另外兩行(TABLES / SEQUENCES)【也與正式站不符】—— 本次刻意不動, 理由在下面。**
+--    正式站同一次查詢的另外兩列:
+--      S(SEQUENCES)⇒ {postgres=rwU, anon=**w**, authenticated=**w**, service_role=**w**}
+--                     而本檔寫的是 GRANT **ALL** ⇒ 比正式站寬
+--      r(TABLES)   ⇒ {postgres=arwdDxtm, service_role=**Dxtm**, pcm_readonly=r}
+--                     🔴 **正式站的 service_role 在這一列【沒有 SELECT】**, 而本檔寫 GRANT ALL 給三個角色
+--    🔴 **不動它們的理由是爆炸半徑未知**:很多既有 migration 的 ACL 斷言是對著【這個寬鬆的 shim】寫的
+--      (本檔上面那句註解就點名 `20260717010000`「service_role 應可 SELECT」)⇒ 收緊它們可能讓一批
+--      本來會過的 migration 當場紅, 而那是另一件事、要另外規劃。
+--    📌 **⇒ 但要寫下來:這個 shim 的註解宣稱「照正式站 pg_default_acl 實查值重建」——**
+--      **而 2026-09-01 逐列比對, 三列【沒有一列相符】。⇒ 那句宣稱今天是假的。**
 
 COMMIT;
