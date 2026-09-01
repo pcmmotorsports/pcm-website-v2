@@ -95,6 +95,7 @@ AS $fn$
   -- 🔴 **整數分配用【前綴和差分】** —— 兩件事要同時成立:
   --   ① 每一列都 > 0(它要能被直接照著付)
   --   ② Σ 每一列 **恰好等於** `total`(不能因為取整而多付或少付一塊錢)
+  --      🔴 **而它【只有加上 `trunc()` 才成立】** —— 見下方那段(SUM(bigint) 回 numeric)。
   --   ⇒ 前綴和差分天生滿足 ②:相鄰兩個「已分配累計」相減, 誤差不會累積, 也不必事後補餘數。
   -- ⛔ ~~第一版用 `LEFT JOIN net n2 ON n2.rail <= n.rail` + `GROUP BY` 做同一件事~~
   -- 🔴 **那一版是錯的, 而【對照組抓到它】**:兩軌都有收款且沒有退款時, 它只吐 `bank_transfer=600`
@@ -108,21 +109,67 @@ AS $fn$
            SUM(p.net) OVER (ORDER BY p.rail ROWS UNBOUNDED PRECEDING) - p.net  AS c_prev
       FROM pos p
   )
+  -- 🔴🔴 **`trunc(...)` 不是保險, 它是這個算式成立的前提**(`-c7` 2026-09-02 複驗抓到, 本窗自己重量過)。
+  --   🛑 **`SUM(bigint)` 在 Postgres 回的是 `numeric`, 不是 `bigint`** ⇒ 上面 `total` / `pos_total`
+  --     都是 numeric ⇒ 那兩個 `/` **不是整數除法**, 而是精確有理數除法。
+  --   ⇒ 而 `::bigint` 是**逐列四捨五入** ⇒ 📌 **前綴和差分的遞移抵銷【根本沒有發生】。**
+  --
+  --   實測(本窗拋棄式 PG 17.10, LC_ALL=C):
+  --     pg_typeof(SUM(1::bigint))            ⇒ numeric
+  --     ((7::numeric*9)/17)::bigint          ⇒ 4      而 (7::bigint*9)/17 ⇒ 3
+  --     `total=2` · `pos_total=3` · 三條正軌各 1:
+  --       現行(無 trunc)⇒ 逐列 1 | 1 | 1 = 3  🔴 **比 total 多付 1 元**
+  --       trunc 版      ⇒ 逐列 0 | 1 | 1 = 2  ✅ 而那個 0 會被下面的 WHERE 濾掉
+  --     ⚠️ **而這一組是【四軌】不是三軌**(codex 2026-09-02 must-fix 更正我原本的標籤):
+  --       三條正軌各 1 ⇒ `pos_total = 3`, 而 `total = 2` **還需要第四條 `−1`**。
+  --       ⇒ 📌 我寫「三軌」是因為我腦子裡只數了【正的那幾條】—— 而 `total` 是**全部**的和。
+  --
+  --   🛑 **而【零元列】不只是多一列, 它會炸掉整筆取消**:WHERE 比的是 numeric(0.333… > 0 為真)
+  --     而 SELECT 的 `::bigint` 得 0 ⇒ 撞 `20260901080000` 的 `amount_at_cancel CHECK (> 0)`
+  --     ⇒ INSERT 失敗 ⇒ **整筆取消回滾**。⇒ ✅ 兩處都套 trunc ⇒ WHERE 與 SELECT 算同一個值。
+  --
+  -- 🔵 **而今天(兩軌)【本來就是對的】, 這一改是行為中性的** —— `-c7` 窮舉 nets 各 -50..50
+  --   ⇒ 10,201 個世界, 合計不符 0、零元列 0(正對照:多餵一條軌 ⇒ 不符 50 ⇒ 那把尺會動)。
+  --   理由:一軌負 ⇒ `pos` 只剩一列 ⇒ 分配 = `total` 本身;兩軌都正 ⇒ `total = pos_total`
+  --   ⇒ 各拿自己的數。
+  --   ⛔ ~~⇒ 分數要【三條正軌】才生得出來。~~ 🔴 **假的**(codex must-fix):`[1, 2, −2]`
+  --     只有**兩條**正軌, 而 `total=1` / `pos_total=3` ⇒ 生出 `1/3` 與 `2/3`。
+  --   ✅ **正確的條件是兩個【同時】成立**:`total ≠ pos_total`(⇒ 至少一條負軌)
+  --     **而且** `pos` 有兩列以上(⇒ 至少兩條正軌)⇒ **合計至少【三條軌】, 不是三條正軌。**
+  --   ⇒ 📌 而今天恰好兩軌 ⇒ 那兩個條件**不可能同時成立** ⇒ 這就是今天安全的完整理由。
+  --
+  -- 🛑🛑 **而這一格真正的教訓是【警告的方向】**:
+  --   本檔已經警告了「新增第 4 條非卡軌時, rail 值域**兩處**都要回來改」——
+  --   ⇒ 而**沒有警告【回來改算式】** ⇒ 📌 **而回來改值域的那個人, 會以為算式是安全的**
+  --     ⇒ ⇒ **因為 COMMENT 是這樣告訴他的。**
+  --   ⛔ ~~原 COMMENT 逐字:「⇒ Σ 每一列**恰好等於** total, 不會因取整多付或少付。」~~
+  --     🔴 **那句話在三軌以上【不成立】, 而它是我寫的。留著加刪除線, 因為它正是那個誤導。**
   SELECT cu.rail,
-         ((a.total * cu.c) / a.pos_total - (a.total * cu.c_prev) / a.pos_total)::bigint AS amount
+         (trunc((a.total * cu.c) / a.pos_total)
+        - trunc((a.total * cu.c_prev) / a.pos_total))::bigint AS amount
     FROM cum cu
     CROSS JOIN agg a
    WHERE a.total > 0
-     AND ((a.total * cu.c) / a.pos_total - (a.total * cu.c_prev) / a.pos_total) > 0;
+     AND (trunc((a.total * cu.c) / a.pos_total)
+        - trunc((a.total * cu.c_prev) / a.pos_total)) > 0;
 $fn$;
 
 COMMENT ON FUNCTION public.pcm_pending_refund_amounts(uuid) IS
   '⟦b4-CROSSRAILNET⟧ 取消時「每一軌該開多少待退款」。'
   '🔴 先合計再分配:逐軌淨額可以是負的(跨軌退款 —— Sean 2026-09-02 拍甲說那是合法的),'
   '而總淨額才是真的還欠多少;total <= 0 回零列。'
-  '🔴 分配用【前綴和差分】做整數分配 ⇒ Σ 每一列恰好等於 total,不會因取整多付或少付。'
+  '🔴 分配用【前綴和差分 + trunc()】⇒ Σ 每一列恰好等於 total,不會因取整多付或少付。'
+  '🛑 那個 trunc() 不是保險:SUM(bigint) 在 Postgres 回 numeric ⇒ 少了它, 除法是精確有理數除法, '
+  '而 ::bigint 是逐列四捨五入 ⇒ 遞移抵銷不會發生 ⇒ 三軌以上會多付, 而零元列會撞 '
+  'amount_at_cancel 的 CHECK (> 0) 讓整筆取消回滾。(2026-09-02 -c7 複驗抓到, 本窗實測複現。)'
+  '⚠️ 而「三軌以上會多付」講得太絕對(codex 更正):[1,1,1] 這種 total = pos_total 的三軌'
+  '舊版也完全正確。⇒ 正確說法是【可能多付, 也可能生出零元列】, 而零元列那一種比較貴。'
+  '🔴🔴 所以【回來改 rail 值域的人, 也要回來看這個算式】—— 而它今天之所以安全, '
+  '是因為兩軌時分數生不出來(一軌負 ⇒ pos 只剩一列;兩軌都正 ⇒ total = pos_total)。'
   '🛑 而它【看不出來曾經跨軌】—— 那要新欄位或另一張紀錄,已開列 ⟦5b-CROSSRAILVISIBLE⟧。'
   '⚠️ rail 值域是手抄副本(同 20260901080000:441-442):新增第 4 條非卡軌時兩處都要改。'
+  '🛑 而【只改值域不夠】—— 上面那條 trunc 的理由講的就是第 3 條軌會發生什麼。'
+  '📌 原本這裡只警告了值域, 而回來改值域的人會以為算式是安全的 —— 因為本 COMMENT 這樣告訴他。'
   '🛑 它是【取消那一刻的快照】:取消後再登記退款或沖銷收款,既有那幾列【不會跟著變】'
   '(那是 20260901080000 的既有設計,不是本支引入的)⇒ 已開列 ⟦5b-PENDINGSTALE⟧。';
 
