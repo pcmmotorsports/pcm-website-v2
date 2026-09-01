@@ -38,13 +38,17 @@
 #     實測 2026-09-02:266 支 migration / 帳上 241 ⇒ **25 支沒記帳, 而那是【正常狀態】**
 #     ⇒ 拿它當紅的判準會【每天紅 25 次】⇒ 本閘刻意不用它。
 #   · 族的定義是 grep `supabase/migrations` 的字面 ⇒ 一道用別的方式讀 migration 的閘會漏掉。
+#   · 🔴 族的【目錄清單】也是一個分母:2026-09-02 修之前它是
+#     `packages/domain/src apps/*/src`(逐字抄 #863 的量法)⇒ 漏掉整個 `scripts/` 8 支,
+#     而其中 null-shortcircuit-check-guard.test.ts 當時正在 CI 上紅, 而本閘印 rc=0 綠。
+#     ⇒ 目錄清單改動由 --selftest 的 P2 逐目錄守著(只看總數的 P1 擋不住)。
 set -uo pipefail
 export LC_ALL=C
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO" || exit 2
 
 family() {
-  grep -rln "supabase/migrations" packages/domain/src apps/*/src \
+  grep -rln "supabase/migrations" packages/domain/src apps/*/src scripts \
     --include="*.test.ts" --include="*.test.tsx" 2>/dev/null | sort
 }
 
@@ -121,6 +125,16 @@ case "${1:-}" in
     if [ "$a" = admin ] && [ "$s" = storefront ] && [ "$n" = node ]; then
       echo "✅ N2 三個 project 分得開($a/$s/$n)"
     else echo "🔴 N2 分類壞了:$a/$s/$n"; ok=1; fi
+    # 🟢 P2 正對照(2026-09-02 補):每一個宣告的目錄都要【真的貢獻至少一支】。
+    #    成因:本閘出貨時目錄清單逐字抄 #863 的量法, 而它沒有 scripts/
+    #    ⇒ 族 36 支全綠, 而 scripts/null-shortcircuit-check-guard.test.ts 正在 CI 上紅。
+    #    🔴 而 P1 那個「>= 10」擋不住這個 —— 拿掉 scripts 之後族還有 36 支, P1 照樣綠。
+    #    ⇒ 所以要【逐目錄】問, 不能只問總數。
+    for d in packages/domain/src apps/admin/src apps/storefront/src scripts; do
+      c=$(echo "$F" | grep -c "^$d/" || true)
+      if [ "$c" -ge 1 ]; then echo "✅ P2 $d 貢獻 $c 支"
+      else echo "🔴 P2 $d 貢獻 0 支 ⇒ 它被從族裡拿掉了(或路徑改了)⇒ 那一整塊會安靜地不被掃"; ok=1; fi
+    done
     echo ""
     echo "射程:它比對【repo 內一致性】不是正式庫現況 ⇒ 它縮短窗口, 不消滅窗口。"
     echo "      它不看 APPLIED.tsv(#864:那個訊號本來就弱;實測 266 支 migration / 帳上 241)。"
