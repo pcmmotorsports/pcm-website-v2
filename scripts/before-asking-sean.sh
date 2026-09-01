@@ -229,7 +229,35 @@ second_round() {  # second_round "<原關鍵字>"
   done
 }
 
+# ══ 🔴🔴 **這一棵樹與 dev 差多少 —— 而不印它會產生【假的零】** ═══════════════
+#    成因是量到的(2026-09-01 線 `-5b`, 線DB 複驗):在一棵落後 origin/dev 59 顆的
+#    工作樹上跑同族工具查一個【就在 dev 板上】的錨 ⇒ **全段零命中**。
+#      那棵樹的板 態列 315 · 命中 0   ·   origin/dev 的板 態列 377 · 命中 4
+#    🛑 **而那一發的量測戳看起來完全健康**:HEAD 正常、工作樹 0 項 dirty。
+#    📌 **⇒ 判別句**:**它守的是「同一棵樹上兩個人的差異」, 而漏的是「這棵樹與 dev 的差異」。**
+#       **⇒ 兩個都是分母, 而它只印了一個。**
+#    🔵 **⇒ 而修法【不是】改成讀 `origin/dev`** —— 那會換一個方向的假零(剛 commit 未推的查不到)
+#       ⇒ ⇒ **兩個方向都有假零 ⇒ 兩邊都印。**
+behind_warning() {
+  local BEHIND AHEAD
+  BEHIND="$(git -C "$REPO" rev-list --count HEAD..origin/dev 2>/dev/null)"; BEHIND="${BEHIND:-未知}"
+  AHEAD="$(git -C "$REPO" rev-list --count origin/dev..HEAD 2>/dev/null)"; AHEAD="${AHEAD:-未知}"
+  if [ "$BEHIND" != "0" ]; then
+    printf '\n   🔴🔴 ⚠️  這棵樹【落後 origin/dev %s 顆】—— 本支所有 grep 讀的是【這棵樹】\n' "$BEHIND"
+    printf '   🔴🔴     ⇒ 那 %s 顆裡的板子列 / 碼 / 註解 / COMMENT, 本支【一個字都看不到】\n' "$BEHIND"
+    printf '   🔴🔴     ⇒ 而它會印成【零命中】, 而零命中讀起來像「他沒答過、也沒有人做過」\n'
+    printf '   🔴🔴     ⇒ 先 `git pull --ff-only`(或到主樹跑)再重跑, 不要用這一發的零端他\n'
+  else
+    printf '\n   🔵 落後 origin/dev 0 顆(這棵樹與 dev 同步)\n'
+  fi
+  if [ "$AHEAD" != "0" ]; then
+    printf '   🔵 領先 origin/dev %s 顆 —— 那幾顆【只有這棵樹看得到】\n' "$AHEAD"
+  fi
+  printf '   ⚠️ 而 origin/dev 是【本地那份 ref】—— 它可能是舊的, 而它不會說\n'
+}
+
 scope_note() {
+  behind_warning
   cat <<'SCOPE'
 
 
