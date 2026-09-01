@@ -21,21 +21,43 @@ BOARD = 'docs/launch-todo.md'
 MARKERS = ('重驗中', '平行重驗請跳過')
 
 
+# 🔴 2026-09-02 修(線 -7d 端到主視窗):本函式原本【硬取 c[4] 當誰欄】。
+#    而板子在同一支檔裡有不只一種表 —— :729 那張是【4 欄】(| 態 | # | 事 | 卡什麼 |)
+#    ⇒ 在那九列上 c[4] 是「卡什麼」不是「誰」
+#    ⇒ ⇒ 問它「這件誰在做」⇒ 它回一段【散文】而不是一個名字, 而它很有信心。
+#    🛑 而那正是本工具 docstring 說它要防的那件事的鏡像:
+#       「主視窗讀第 4 欄 ⇒ 一夜派重三次」—— 而工具自己在讀第 4 欄。
+#    ✅ 改成【讀那張表自己的表頭】找誰欄; 找不到 ⇒ 誰欄回 None,
+#       而 None 與「待派」是兩件事 —— 答不出來要長得像答不出來, 不能長得像一個答案。
+_WHO_HINTS = ('誰', '派給', 'owner', '負責')
+
+
+def _who_idx(header_cells):
+    """從表頭找【誰欄】的索引; 找不到回 None。"""
+    for j, h in enumerate(header_cells):
+        if any(k in h for k in _WHO_HINTS):
+            return j
+    return None
+
+
 def rows(path):
-    """回傳 (行號, 態, 事欄, 誰欄, 內文) —— 只認 6 欄以上的資料列, 跳過分隔列。"""
+    """回傳 (行號, 態, 事欄, 誰欄, 內文, #欄) —— 誰欄依【該表自己的表頭】取; 找不到回 None。"""
     L = io.open(path, encoding='utf-8').readlines()
     sep = lambda s: bool(re.match(r'^\|[\s:|-]+$', s))
     out = []
+    cur_who = 4  # 沒遇到表頭之前的預設 = 舊行為(5 欄表)
     for i, l in enumerate(L, 1):
         if not l.startswith('|') or sep(l):
             continue
         # 表頭 = 它的【下一列】是分隔列。不靠欄位內容猜, 靠位置。
         if i < len(L) and sep(L[i]):
+            cur_who = _who_idx([x.strip() for x in l.split('|')])
             continue
         c = l.split('|')
         if len(c) < 6:
             continue
-        out.append((i, c[1].strip(), c[3].strip(), c[4].strip(), '|'.join(c[5:]), c[2].strip()))
+        who = c[cur_who].strip() if (cur_who is not None and cur_who < len(c)) else None
+        out.append((i, c[1].strip(), c[3].strip(), who, '|'.join(c[5:]), c[2].strip()))
     return out
 
 
