@@ -18,6 +18,16 @@
    B:    SQL 沒有 import 鏈可解 ⇒ 只能看函式名有沒有出現在測試檔裡
           ⇒ 🔴 **這是【比較弱】的訊號, 本工具把 B 族單獨印, 不與 A/C 合併成一個數。**
 
+🛑🛑 **「零呼叫端」不等於「沒有人叫它」—— 而看到那個數字的人, 最自然的下一步是【去刪掉它們】。**
+   本檔的分母只有【這個 repo】。以下呼叫端**結構上不在分母裡**:
+     · Supabase Edge Function          · 報價單那個 repo(`~/API大量上架/PCM報價單-V2/`)
+     · 有人在 SQL Editor 手動執行      · 外部工具 / 排程直連
+   ⇒ 📌 所以那一堆的正確讀法是「**本 repo 找不到呼叫端**」, 不是「它沒有被使用」。
+   🔴 掃的是:apps/packages/scripts 的 .ts/.tsx/.js/.mjs + scripts 與 docs/specs 的 .sh
+      + supabase/migrations 與 docs/specs 的 .sql。**其餘副檔名與目錄不在分母裡。**
+      ⚠️ `.sh` / `docs/specs` 那兩處多半是【驗收腳本】—— 它證明有人跑過它, 不等於產品碼在走它
+      ⇒ 看到呼叫端要**看它落在哪個檔**, 不要只看那個數字。
+
 🛑 它擋不住什麼:
    1. 動態 import / 字串拼出來的路徑 / barrel 檔轉出去的東西 —— 解析器看不到 ⇒ 會**少報覆蓋**
       ⇒ 方向是**偏向多報「沒測試」**(假指控), 不是漏報。已知, 且是刻意選的方向。
@@ -31,7 +41,13 @@ import io, os, re, sys, json
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MONEY = ['order', 'payment', 'refund', 'wallet', 'coupon', 'pricing', 'price',
-         'charge', 'settle', 'invoice', 'tappay', 'money', 'amount', 'balance']
+         'charge', 'settle', 'invoice', 'tappay', 'money', 'amount', 'balance',
+         # 2026-09-01 補:鐵則 12 ① 明列「會員 tier」屬錢, 而 subtotal 不含 amount/price
+         'tier', 'subtotal']
+# 🔴 這裡【刻意不加 \b】—— 加了 B 族當場歸零:`create_order` 裡 `_` 與 `o` 都是 word char
+#    ⇒ `\border\b` 匹配不到它。代價是 A 族會多抓 sortOrder/reorder 那類(已知, 偏多報)。
+#    📌 2026-09-01 實測:加上去 ⇒ B 族 70 ⇒ 0, 而 --selftest **照樣全過**
+#       ⇒ 那個綠是恆綠 —— 所以下面補了一道 B 族下界。
 MONEY_RE = re.compile('|'.join(MONEY), re.I)
 IMP = re.compile(r"""(?:from|import|require)\s*\(?\s*['"]([^'"]+)['"]""")
 EXTS = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts']
@@ -122,18 +138,33 @@ def family_c():
 SKIP_DIRS = ('node_modules', '.next', 'dist', '.turbo', 'coverage', 'build', '.git')
 
 def _strip_comments(text, sql):
-    text = re.sub(r'/\*.*?\*/', ' ', text, flags=re.S)          # 兩種語言都有的區塊註解
-    text = re.sub(r'^\s*--[^\n]*$', '', text, flags=re.M) if sql else \
+    # 🔴 塊註解要換成【等量的換行】不是一個空格 —— 換成空格會讓後面每一行的行號往上位移
+    #    (2026-09-01 code-reviewer 抓到:create_order 印 :181 而真實是 :682)
+    #    📌 指到真實存在的檔的【壞座標】, 比死連結難發現 —— 貼上去看起來完全正常。
+    text = re.sub(r'/\*.*?\*/', lambda m: re.sub(r'[^\n]', ' ', m.group(0)), text, flags=re.S)
+    # 🔴 這裡是 `[ \t]*` 不是 `\s*` —— `\s` 會吃掉【換行】
+    #    ⇒ 整段連續註解被塌成一行, 後面每一行的行號往上位移
+    #    (2026-09-01 實量:一支 245 行的 migration 掉了 16 行 ⇒ 印出來的座標全錯)
+    #    📌 而修掉塊註解那一條【還不夠】—— 同一個病有兩個來源, 修一個之後看起來像修好了。
+    text = re.sub(r'^[ \t]*--[^\n]*$', '', text, flags=re.M) if sql else \
            re.sub(r'(?<!:)//[^\n]*', '', text)
     if sql:
         text = re.sub(r'--[^\n]*', '', text)
     return text
 
+def fp_dir(d):
+    return d.replace(ROOT, '')
+
 def callers_of(name):
     """回傳 [(檔, 行號, 那一行)] —— 只認【呼叫形狀】, 不認單純提到名字。"""
     out = []
     pats = [re.compile(r'\b(?:public\.)?%s\s*\(' % re.escape(name)),   # SQL / TS 直接呼叫
-            re.compile(r"""rpc\(\s*['"]%s['"]""" % re.escape(name), re.S)]  # rpc('name'), 允許跨行
+            re.compile(r"""rpc\(\s*['"]%s['"]""" % re.escape(name), re.S),   # rpc('name'), 允許跨行
+            # 🔴 第五種形狀:RPC 名先綁成常數再用 —— `const fn = 'admin_initiate_order_refund'`
+            #    ⇒ 上面兩個 pattern 一個都看不到它, 而它咬的是【退款正路】
+            #    (2026-09-01 code-reviewer 抓到:refund-repository.ts:324 等 5 處, 4 支函式被誤判零呼叫端)
+            #    ⇒ 這些函式名夠獨特 ⇒ 在【非 SQL 檔】裡出現一個帶引號的字面, 本身就是呼叫端訊號
+            re.compile(r"""['"`]%s['"`]""" % re.escape(name))]
     # 🔴 這些【不是呼叫】—— 少了它們, 每一支函式都會被它自己的定義算成「有人在走」
     #    (2026-09-01 首版就踩到:create_order 印 115 處, 而頭兩處是 CREATE 與 REVOKE)
     notcall = re.compile(
@@ -142,13 +173,19 @@ def callers_of(name):
     for base, exts, sql in (('apps', ('.ts', '.tsx', '.js', '.mjs'), False),
                             ('packages', ('.ts', '.tsx'), False),
                             ('scripts', ('.ts', '.js', '.mjs'), False),
-                            ('supabase/migrations', ('.sql',), True)):
+                            ('supabase/migrations', ('.sql',), True),
+                            # 🔴 這兩行是 2026-09-01 補的:先前只掃 .ts/.tsx/.js/.mjs + migrations
+                            #    ⇒ 12 支「零呼叫端」裡有 9 支的呼叫端就住在 .sh / docs 的 .sql 裡
+                            ('scripts', ('.sh',), False),
+                            ('docs/specs', ('.sh', '.sql'), False)):
         root = os.path.join(ROOT, base)
         if not os.path.isdir(root): continue
         for d, dirs, fs in os.walk(root):
             dirs[:] = [x for x in dirs if x not in SKIP_DIRS]
             for f in fs:
-                if not f.endswith(exts) or '.test.' in f: continue
+                # .spec. 與 e2e 也是測試 —— 現在 0 命中, 但 e2e 若直接打 RPC 會被算成「有人在走」
+                if not f.endswith(exts) or '.test.' in f or '.spec.' in f \
+                        or os.sep + 'e2e' in fp_dir(d): continue
                 fp = os.path.join(d, f)
                 try: raw = io.open(fp, encoding='utf-8', errors='ignore').read()
                 except Exception: continue
@@ -171,6 +208,9 @@ def callers_of(name):
                     #    (2026-09-01 抽驗抓到:PaymentConfirmerAdapter.ts:159 record_pending_invoice)
                     probe = re.sub(r"'[^']*'", "''", line) if sql else line
                     if pats[0].search(probe):
+                        out.append((rel(fp), i, line.strip()[:90]))
+                    elif not sql and pats[2].search(line):
+                        # 🔴 SQL 檔【不套這一條】—— 那裡的引號字面是斷言文字與錯誤訊息, 不是呼叫
                         out.append((rel(fp), i, line.strip()[:90]))
     return out
 
@@ -200,6 +240,19 @@ def report():
     print('\n🛑 「有測試」= 那支檔被 import 進某支測試, **不代表它每個 export 都被呼叫**'
           ' ⇒ 要看的是【零測試】那一堆(見檔頭限制 2)。')
 
+    # 🔴 這一段是 2026-09-01 補的, 而【補它的理由本身就是一次事故】:
+    #    `callers_of()` 當天寫好、selftest 綠、而它【沒有被接進這支 report】
+    #    ⇒ 跑這支腳本的人看不到任何呼叫端數字, 而那個數字已經被口頭轉述出去了。
+    #    📌 寫對了而沒接上的保護, 與沒寫的行為相同 —— 而前者更貴, 因為它讓人以為有。
+    print('\n== B DB 函式:本 repo 找不找得到呼叫端 ==')
+    zero = []
+    for nm in sorted(b):
+        cs = callers_of(nm)
+        if not cs: zero.append(nm)
+    print('   有呼叫端 %d / 零呼叫端 %d / 分母 %d' % (len(b) - len(zero), len(zero), len(b)))
+    for nm in zero: print('   ✗ ' + nm)
+    print('🛑 「零呼叫端」= **本 repo 找不到**, 不是「沒有人叫它」—— 射程見檔頭 🛑🛑 那一段。')
+
 def selftest():
     ok = True
     def chk(label, got, want):
@@ -226,6 +279,15 @@ def selftest():
     chk('record_pending_invoice 有呼叫端(TS 裡的 SQL 字串)', len(callers_of('record_pending_invoice')) >= 1, True)
     #    🔵 負對照
     chk('現造函式名 ⇒ 零呼叫端', callers_of('zzz_not_a_real_fn'), [])
+    # 🔴 上面那道負對照【殺不掉 notcall 那個回歸】—— 它用的名字在檔案裡根本不存在
+    #    ⇒ 所以它沒有 CREATE 行可以被誤算成呼叫 ⇒ 拿掉整組 notcall, 它照樣印綠。
+    #    (2026-09-01 code-reviewer 突變 M5 實測:notcall 整組拿掉 ⇒ 10 道全過)
+    #    📌 負對照必須【同類】:一支【真的有 CREATE FUNCTION、而確認零呼叫端】的函式。
+    chk('有 CREATE 但零呼叫端(同類負對照, 殺 notcall 回歸)',
+        callers_of('resolve_double_charge_anomaly'), [])
+    # 🔴 B 族下界:沒有它, 任何把 B 族篩成空的改動都會【安靜地全綠】
+    #    (2026-09-01 實錘:替 MONEY_RE 加 \b ⇒ B 族 70⇒0, 而自檢十一道全過)
+    chk('B 族不得歸零(擋住把篩選改壞而全綠)', len(family_b()) > 20, True)
     print('=== 🔴 第三道:MONEY 字集要真的在篩 —— 全 repo 不該每支檔都碰錢 ===')
     tot = len(list(walk('apps', lambda p: p.endswith('.ts') and '.test.' not in p)))
     chk('A 族 < 全部 .ts 的一半', len(family_a()) * 2 < tot, True)
