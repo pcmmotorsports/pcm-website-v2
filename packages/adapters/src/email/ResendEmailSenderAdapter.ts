@@ -214,6 +214,32 @@ export class ResendEmailSenderAdapter implements IEmailSender {
     const raw = Object.prototype.hasOwnProperty.call(input, 'attachments')
       ? (input.attachments ?? [])
       : [];
+    // 🔵 **html 這一欄照抄上面那三個決定,而【第四個決定刻意不同】——**(2026-09-01 片1)
+    //    ⛔ ~~第一版這裡寫「逐字照抄」~~ **那是假的**(code-reviewer 抓到):
+    //    🔴 attachments 對畸形輸入 **throw**(見下方兩處 TypeError);html 對畸形輸入 **安靜丟掉**。
+    //    ⇒ 而差別是刻意的,理由在【丟掉的東西是什麼】:
+    //      · 畸形 attachment ⇒ 呼叫端**要求寄一份文件**而它壞了 ⇒ 安靜丟 = 客人收到一封少了附件的信
+    //      · 畸形 html      ⇒ 那封信**仍然完整**(`text` 必填且原樣)⇒ 丟掉 = 退回今天的行為
+    //    🛑 ⇒ 所以這裡選的是「**退回純文字**」而不是「**擋下整封信**」。
+    //      而擋下整封信會讓一個模板 bug 變成**客人收不到付款通知** —— 那比收到純文字糟。
+    //    ⛔ ~~第一版把它寫成「fail-closed 方向」~~ **用詞錯了**(codex nit):
+    //      **fail-closed 是【擋下整封信】那一個**;這裡做的是 graceful degradation / fail-safe。
+    //      ⇒ 📌 而那不只是名詞 —— 用錯名詞會讓下一個人以為這裡已經是最嚴的那一檔。
+    //    ① 只認【自己身上】那個 key —— `Object.prototype.html` 被污染時,
+    //       **一個字都沒改的既有呼叫端會突然送出一份 HTML**,而改動前那份碼根本不讀這一欄。
+    //       ⚠️ **而它擋的範圍要講準**(codex nit):它擋的是**一般物件的原型污染**。
+    //       惡意 `Proxy` 的 `has`/`get` trap、被換掉的內建 `hasOwnProperty`、或會 throw 的 own getter
+    //       **都繞得過** ⇒ 那些不在這道門的射程裡(而今天唯一的生產呼叫端是個物件字面量)。
+    //    ② 空字串當作沒給 —— 帶 `"html":""` 出去會讓既有信的 payload 逐位元改變,
+    //       也讓「這封信沒有 HTML」與「HTML 組出來是空的」在 wire 上長得一樣。
+    //    ③ **不驗內容**(不 sanitize / 不量長度 / 不判合法性)—— 那是產出側的契約,
+    //       理由與 Gmail 102KB 那條為什麼不在這一層,全文寫在 port 的 `html?` 那一格。
+    //    🛑 而型別上它是 `string | undefined`,**runtime 不能只信型別** ——
+    //       污染來的值可以是任何東西 ⇒ 這裡用 `typeof === 'string'` 當實際的門。
+    const rawHtml: unknown = Object.prototype.hasOwnProperty.call(input, 'html')
+      ? input.html
+      : undefined;
+    const html = typeof rawHtml === 'string' && rawHtml.length > 0 ? rawHtml : null;
     // 🔴 **一次讀完並定住**(codex R1 MF-3):原本量一次、送出時再讀一次
     //    ⇒ getter / Proxy 可以第一次回短字串、第二次回一份超量的有效 base64,**繞過前面那道 throw**。
     //    ⇒ 之後所有用到的都是這份快照,`input` 那一側再怎麼變都影響不到已經量過的東西。
@@ -280,6 +306,11 @@ export class ResendEmailSenderAdapter implements IEmailSender {
           to: input.to,
           subject: input.subject,
           text: input.text,
+          // 🔴 **有 html 才出現這個 key**(同一個形狀,見上面 `rawHtml` 那段)。
+          //    寫成 `html: html ?? undefined` 也會被 `JSON.stringify` 丟掉 ——
+          //    ⚠️ 而那個寫法**誘導下一個人給空字串**(以為「反正會被丟掉」),而空字串會真的送出去。
+          //    ⇒ 用條件展開,讓「不出現」是**結構決定的**,不是靠序列化的副作用。
+          ...(html !== null ? { html } : {}),
           // 🔴 **有附件才出現這個 key**(展開一個空物件 ⇒ 零改變)。
           //    寫成 `attachments: attachments` 的話,既有的信 body 會多一個 `"attachments":[]`
           //    —— 那是一個**沒有人要求的、對外可見的**改變,而三綠不會紅。
