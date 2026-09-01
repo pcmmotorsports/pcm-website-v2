@@ -165,7 +165,11 @@ describe('sweepEmailOutbox — ② claim', () => {
     outbox.claimDue.mockRejectedValue(new Error('db down'));
     const sender = senderFake([]);
     const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
-    expect(outbox.claimDue).toHaveBeenCalledExactlyOnceWith(20);
+    // 🔵 ⟦b4-SHIPGATE1⟧ 2026-09-01:第二個參數是新加的。
+    //    這一格的 `OPTS` 是 `allowOrderShipped: true`(線開著)⇒ 第二個參數是 `undefined`。
+    //    🛑 **不是空陣列** —— 空陣列會讓 adapter 送出空的 `not in ()`(PostgREST 語法錯)。
+    //    ✅ 而這一格【本來就會紅】正是它存在的理由:它釘的是呼叫形狀, 而我改了呼叫形狀。
+    expect(outbox.claimDue).toHaveBeenCalledExactlyOnceWith(20, undefined);
     expect(res.errors).toBe(1);
     expect(res.claimed).toBe(0);
     expect(sender.send).not.toHaveBeenCalled();
@@ -1004,7 +1008,18 @@ describe('sweepEmailOutbox — 🔴 allowOrderShipped=false ⇒ 佇列裡的出�
     },
   };
 
-  it('🔴🔴 線關著 ⇒ 不寄、**連查主表都不查**、計 error(列留 sending,下輪回收)', async () => {
+  /**
+   * 🔴🔴 **2026-09-01 `⟦b4-SHIPGATE1⟧` 之後,這一格的【意思換了】**(codex R2 consider):
+   *
+   * ⛔ ~~它原本模擬的是「線關著的正常流程」~~ —— 而**修法之後那個流程不會走到這裡**:
+   *    `claimDue` 現在收 `excludeEventTypes` ⇒ 正式 adapter **根本不會回這一列**。
+   * ✅ **而這一格的 `outboxFake` 忽略那個 opts、照樣回 `order_shipped`**
+   *    ⇒ **⇒ 它現在演的是【實作違約】那個世界**(adapter 沒實作 / 換了一個別的 port)。
+   * 🛑 **⇒ 所以它證的是「第二道閘在 port 違約時仍然擋得住」, 不是「關線時會計 error」。**
+   *    而在正式 adapter 底下,關線時**一列都不會被認領** ⇒ `errors` 是 0、不是 1。
+   * 📌 **⇒ 名字沒改會讓下一個人把它讀成正常路徑, 然後以為關線每輪都在計 error。**
+   */
+  it('🔴🔴 **實作違約時**(adapter 忽略 excludeEventTypes)⇒ 第二道閘仍不寄、計 error(列留 sending)', async () => {
     const outbox = outboxFake([shippedReady()]);
     const sender = senderFake([{ kind: 'sent' }]);
     const load = vi.fn().mockResolvedValue(okCtx);
@@ -1185,5 +1200,39 @@ describe('sweepEmailOutbox — 付款信接金額與 HTML(片2)', () => {
       OPTS,
     );
     expect(load).not.toHaveBeenCalled();
+  });
+});
+
+// ⟦b4-SHIPGATE1⟧ 2026-09-01:出貨信線關著時,**連認領都不要認領**。
+//
+// 🔴 舊行為的代價(碼裡 `:757` 原本寫「約 25 分鐘」而那是錯的):
+//    認領當下 attempts +1、狀態落 `sending` ⇒ 被 `:750` 那道閘擋下、`continue`(不呼叫 mark*)
+//    ⇒ 留在 `sending`, 而 `sending` **不在** CLAIMABLE_STATUSES ⇒ 下一輪撿不到
+//    ⇒ 唯一出路是租約回收(route 端 LEASE_SECONDS=3600)⇒ **每燒一次 ≈ 一小時**。
+describe('⟦b4-SHIPGATE1⟧ 線關著時不認領 order_shipped', () => {
+  it('🔴 旗標關 ⇒ claimDue 收到 excludeEventTypes(突變:拿掉那個參數 ⇒ 這一格必須紅)', async () => {
+    const outbox = outboxFake([]);
+    await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]) },
+      { ...OPTS, allowOrderShipped: false },
+    );
+    expect(outbox.claimDue).toHaveBeenCalledWith(OPTS.claimLimit, {
+      excludeEventTypes: ['order_shipped'],
+    });
+  });
+
+  it('🟢 正對照:旗標開 ⇒ 第二個參數是 undefined(既有查詢逐位元不變)', async () => {
+    const outbox = outboxFake([]);
+    await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]) },
+      { ...OPTS, allowOrderShipped: true },
+    );
+    // 🛑 **不是空陣列**。而理由要寫精確(codex 2026-09-01 nit):
+    //    adapter **現在**對空陣列與未給是**同一條路**(`exclude.length > 0` 才加 `.not`)
+    //    ⇒ 空陣列今天**不會**送出空的 `not in ()` —— **只有那道守門被拿掉時才會**(codex R2 nit)。
+    //    ✅ 這一格釘的是**呼叫端的意圖**:線開著時傳 `undefined`(= 不排除任何東西),
+    //       而不是傳一個「排除空集合」—— 兩者語意不同, 而**只有 adapter 那道守門讓它們今天等價**。
+    //    🔴 ⇒ 那道守門哪天被拿掉, 這裡的 `undefined` 仍然是對的;而空陣列會變成語法錯。
+    expect(outbox.claimDue).toHaveBeenCalledWith(OPTS.claimLimit, undefined);
   });
 });
