@@ -794,6 +794,41 @@ tr.pd-wait .pd-state {
   color: var(--pd-mute);
 }
 
+/* ══ 🔴 ⟦b4-2PAPERS⟧ 訂單明細的側邊標記 —— 而它【只掛在那一張紙上】 ══════════
+   **病(那一列逐字)**:兩張紙分不出來 ⇒ 員工拿錯那張 ⇒ **倉庫沒有東西可以勾**
+   (勾選框只在出貨單:`shipping-doc.tsx` 的 `data-slot='shipping-checkbox'`)。
+   **Sean 2026-08-31 拍【甲】= 加一個【不是字】的視覺標記。**
+
+   🛑 **他明文拍過相反的三件, 本片一件都沒碰**:
+      · 改名 ⇒「不用改名, 依照現在」(`等Sean決策-20260829.md:2388`)
+      · 改檔名/路由 ⇒ `picking` 那個字, `-48` 明令
+      · 統一兩張紙 ⇒ ⟦b9-2DOCS1⟧ 那一列自己禁止
+   ⇒ 📌 **所以這裡動的是【顏色與邊框】, 一個字都沒有動。**
+
+   🔴 **為什麼是 `border` 不是 `background`**:同檔 `:250-251` 逐字 ——
+      `print-color-adjust:exact` **蓋不掉使用者的「背景圖形」勾選框**
+      ⇒ **一個掛在 background 上的標記, 在關掉那個勾選框的印表機上【不存在】** ——
+        而它在螢幕預覽上看起來完全正常。⇒ 邊框沒有那個開關。
+
+   🔴 **為什麼是 `::before` + `absolute`**:那 10 個 `--pd-*` 變數住在 `.pd-stage, .pd-sheet`,
+      而**兩張紙都掛 `pd-sheet`** ⇒ 動它們會同時改到兩張(2026-09-01 量:picking 2 處 / shipping 4 處)。
+      ⇒ 而**任何佔版面高度的東西都可能把單頁推成兩頁** ⇒ 絕對定位 = 零高度貢獻。
+   ⚠️ **已知限制(明寫, 不假裝沒有)**:它相對 `.pd-sheet` 定位 ⇒ **多頁時只出現在第 1 頁**。
+      而「一眼分得出來」發生在人拿起那疊紙的第一眼 ⇒ 判斷可接受;**要每頁都有得另外做。** */
+.pd-mark-detail {
+  position: relative;
+}
+
+.pd-mark-detail::before {
+  content: '';
+  position: absolute;
+  /* 貼著紙的左緣, 從抬頭一路到底 —— 一公尺外看得到的是【有沒有那條黑槓】。 */
+  top: 0;
+  bottom: 0;
+  left: -6mm;
+  border-left: 3mm solid var(--pd-ink);
+}
+
 /* ── 合計(只有訂單明細有)── */
 .pd-totals {
   display: flex;
