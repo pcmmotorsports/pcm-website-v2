@@ -1,0 +1,174 @@
+// @vitest-environment node
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { toMoneyAmount, type MemberOrderDetail } from '@pcm/domain';
+import { buildStatementPdfHtml } from './statement-pdf';
+// 🛑 ⛔ ~~`import { htmlToPdf }`~~ **拿掉了**(codex R1 must-fix):我 import 了它而**一次都沒呼叫**
+//    ⇒ 📌 一個「被 import 的函式」讀起來像被測過了, 而那支函式的覆蓋率是 **0**。
+//    ⇒ 它為什麼測不到、以及我改用什麼守它, 見本檔最下面那一組。
+
+// statement-pdf 的守門(2026-09-01,⟦b4-MAILPDF1⟧ 前置)。
+//
+// 🔴 **這一組要證的是一句【被問到而還沒有人證過】的話**:
+//    「那條 route 的產檔函式吃的是【一個 React 元素】不是一個網址 ⇒ 餵訂單資料 = 換一個元件」
+//    ⇒ 而在這一片之前, 那句話**只是讀碼讀出來的**。這裡把它變成量到的。
+//
+// ⚠️ **射程(照實寫, 不要讀成別的)**:
+//    · 它證得出「餵一份訂單資料 ⇒ 產得出一份自足的 HTML / 一份 PDF」
+//    · 它**證不出**「在 Vercel 上產得出來」—— 那條路壞過一次(200 而每個中文是方框),
+//      而唯一守它的是 `statement.pdf/statement-pdf-tracing.test.ts`(讀 `.nft.json`),
+//      **那支自己寫著「答得出 Next 打算帶哪些檔, 答不出 Vercel 真的帶了」。**
+
+// 🔴 `Money` 是 `{ amount, currency }` 不是一個數字 —— 我第一版寫 `toMoneyAmount(n)` 就直接
+//    回一個 branded number ⇒ `order.total.amount` 是 `undefined` ⇒ `toLocaleString` 當場炸。
+//    📌 而 TypeScript **沒有攔住它** ⇒ 抓到它的是這支測試自己跑了一發。
+const twd = (amount: number) => ({ amount: toMoneyAmount(amount), currency: 'TWD' as const });
+
+/** 12 項的訂單 —— 刻意不是 1 項:`maxDuration = 60` 那個估值要有個【接近上限】的樣本。 */
+function orderFixture(itemCount: number): MemberOrderDetail {
+  return {
+    id: 'o1',
+    displayId: 'A1B2C3',
+    createdAt: '2099-04-15T10:00:00Z',
+    paymentStatus: 'paid',
+    fulfillmentStatus: 'shipped',
+    paymentMethod: 'tappay',
+    paidAt: '2099-04-18T03:00:00Z',
+    subtotal: twd(12000),
+    shippingFee: twd(100),
+    discountTotal: twd(0),
+    total: twd(12100),
+    shippingMethod: 'home',
+    shippingAddress: {
+      name: '王小明',
+      phone: '0912345678',
+      line: '新北市新莊區化成路 736 巷 18 號',
+    },
+    cancelledAt: null,
+    cancelKind: 'none',
+    items: Array.from({ length: itemCount }, (_, i) => ({
+      id: `oi${i + 1}`,
+      variantSku: `SKU-${i + 1}`,
+      brand: 'CNC RACING',
+      title: `碳纖維下鏈條蓋 第 ${i + 1} 項`,
+      spec: { color: 'black' },
+      imageUrl: null,
+      vehicle: null,
+      quantity: 1,
+      unitPrice: twd(1000),
+      lineTotal: twd(1000),
+    })),
+    itemCount,
+    itemsTruncated: false,
+  };
+}
+
+// 🔵 直接餵 `order` —— codex R1 之後本函式不收元素了(`printButton: false` 鎖在它裡面)。
+const el = (n: number) => orderFixture(n);
+
+describe('statement-pdf · 它吃得下訂單資料嗎', () => {
+  it('🔴 餵一份訂單 ⇒ 產得出【自足的】HTML(字型內嵌、對外請求 0)', async () => {
+    const built = await buildStatementPdfHtml(el(12));
+    // 🔴 前提斷言:訂單的字真的進去了。少了它, 一份空殼 HTML 也會過下面每一格。
+    expect(built.html).toContain('A1B2C3');
+    expect(built.html).toContain('王小明');
+    expect(built.html).toContain('第 12 項');
+    // 🔴🔴 **自足** = 字型是 data: URI, 而**沒有任何一個對外的 http(s) 資源**。
+    //    那是這條路的全部設計理由(route 檔頭:「對外網路請求 0」)。
+    expect(built.html).toContain('data:font/woff2;base64,');
+    const external = [...built.html.matchAll(/(?:src|href)="(https?:\/\/[^"]+)"/g)].map((m) => m[1]);
+    expect({ 對外資源: external }).toEqual({ 對外資源: [] });
+    // 🔵 而這三個數字是那條 route 的**政策判準**在讀的東西 ⇒ 它們要真的被算出來。
+    expect(built.embedded).toBeGreaterThan(0);
+    expect(built.missingCss).toBe(false);
+  });
+
+  it('🔴🔴 版面 CSS 讀不到 ⇒ `missingCss` 要翻成 true(那是 route 拒絕產檔的判準之一)', async () => {
+    // 🔴 **這一格是跑突變才發現要加的**:我原本只在快樂路徑斷言 `missingCss === false`,
+    //    而把 `missingCss: pageCss.length === 0` 改成 `missingCss: false` ⇒ **兩格照樣全綠**
+    //    ⇒ 📌 **我斷言的那個值, 在【正確計算】與【寫死 false】兩個世界一模一樣。**
+    //    ⇒ ⇒ 而它承重:route 用它決定要不要回 500(一張沒有任何樣式的紙不得寄給客人)。
+    // 🔵 造法:版面 CSS 是從 `process.cwd()` 底下兩個候選路徑讀的 ⇒ **把 cwd 換到一個空目錄**
+    //    ⇒ 兩個候選都讀不到。而字型走 `require.resolve` ⇒ **不受 cwd 影響**
+    //    ⇒ ⇒ 所以這一發只動 CSS 那一軸, 而 `embedded` 仍然 > 0(那正是本格的判別力來源)。
+    const { mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const here = process.cwd();
+    const empty = mkdtempSync(join(tmpdir(), 'pcm-nocss-'));
+    try {
+      process.chdir(empty);
+      const built = await buildStatementPdfHtml(el(1));
+      expect({ missingCss: built.missingCss }).toEqual({ missingCss: true });
+      // 🔴 而字型那一軸要**仍然是好的** —— 否則這一格證的是「什麼都讀不到」, 不是「CSS 讀不到」。
+      expect(built.embedded).toBeGreaterThan(0);
+    } finally {
+      process.chdir(here);
+    }
+  });
+
+  it('🔴🔴 產出的 HTML 裡【沒有任何一個非 data: 的資源引用】—— 那是「對外請求 0」的實體', async () => {
+    // 🔴 **這一格是 codex R1 must-fix 補的, 而它守的是一個【我原本只是宣稱】的性質**:
+    //    `htmlToPdf` **沒有**攔截 Chrome 的請求 ⇒ 「對外網路請求 0」不是那裡強制的,
+    //    是**這份 HTML 的內容碰巧沒有對外引用**。
+    //    ⇒ ⇒ 📌 元件或 CSS 哪天長出一個 `url(https://…)` / `@import` / `srcset`,
+    //      **伺服器就會真的去抓它**(對外, 或對內網 ⇒ SSRF 面)⇒ 而那時只有這一格會叫。
+    // ⚠️ **射程**:它掃的是**這份 HTML 的字面**。攔不住 JS 在瀏覽器裡動態產生的請求
+    //    (這份紙沒有 script, 而「沒有 script」本身也在下面那一格釘著)。
+    const built = await buildStatementPdfHtml(el(12));
+    const refs = [
+      ...[...built.html.matchAll(/\burl\(\s*['"]?([^'")]+)/g)].map((m) => m[1]),
+      ...[...built.html.matchAll(/(?:src|href)\s*=\s*"([^"]+)"/g)].map((m) => m[1]),
+      ...[...built.html.matchAll(/@import\s+(?:url\()?['"]?([^'")\s;]+)/g)].map((m) => m[1]),
+      ...[...built.html.matchAll(/\bsrcset\s*=\s*"([^"]+)"/g)].map((m) => m[1]),
+    ].filter((u): u is string => typeof u === 'string');
+    // 🔴 前提斷言:真的抽到東西了。抽到 0 個 ⇒ 下面那格恆綠(而這份紙一定有字型 url())。
+    expect({ 抽到的資源引用數: refs.length > 0 }).toEqual({ 抽到的資源引用數: true });
+    const nonData = refs.filter((u) => !u.startsWith('data:'));
+    expect({ 非data的資源引用: nonData }).toEqual({ 非data的資源引用: [] });
+    // 🔴 而「沒有 script」要一起釘 —— 有了 script, 上面那個字面掃描就不再是完整的分母。
+    expect({ script標籤: /<script[\s>]/i.test(built.html) }).toEqual({ script標籤: false });
+  });
+
+  it('🔴 負對照:換一份【不同的】訂單 ⇒ 產出的 HTML 要跟著變(否則上一格是恆真)', async () => {
+    const a = await buildStatementPdfHtml(el(1));
+    const b = await buildStatementPdfHtml(el(12));
+    // 少了這一格,「它把訂單畫進去了」與「它回一份固定樣板」印同一個綠。
+    expect(a.html).not.toEqual(b.html);
+    expect(a.html).not.toContain('第 12 項');
+    expect(b.html).toContain('第 12 項');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// `htmlToPdf` —— 🛑 **它在本機【執行不了】, 而這一組是退而求其次的替代品**
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴 **為什麼執行不了(量到的, 不是推的)**:`@sparticuz/chromium` 是 **Linux binary**
+//    ⇒ macOS 上跑它 ⇒ `Error: spawn ENOEXEC`(2026-09-01 實測)。
+// 🔴 **而我第一版做錯的事**(codex R1 must-fix):我 `import { htmlToPdf }` 而**一次都沒呼叫**
+//    ⇒ 📌 一支被 import 的函式讀起來像被測過了, 而它的覆蓋率是 **0** ——
+//      刪掉 `fonts.ready` / 改成 Letter / 關掉 `printBackground` / 忘了 `browser.close()`
+//      ⇒ **上面每一格照樣全綠**。
+// ✅ **替代品 = 掃它自己的原始碼**。這很弱, 而它殺得掉上面那四個突變, 所以它不是零。
+// 🛑 **它證不到的**:那些參數**真的產出一份對的 PDF** ——
+//    那要一個跑得動 `@sparticuz/chromium` 的環境(Linux 容器 / 真部署), 而那不在這一片。
+describe('htmlToPdf · 本機執行不了 ⇒ 只釘得住它的形狀', () => {
+  const src = readFileSync(join(__dirname, 'statement-pdf.ts'), 'utf8');
+
+  it('🔴 前提斷言:真的讀到那支檔(讀到空字串 ⇒ 下面每一格恆綠)', () => {
+    expect(src.length).toBeGreaterThan(2000);
+    expect(src).toContain('export async function htmlToPdf');
+  });
+
+  it('🔴 四個【改了客人就會拿到不同的紙】的參數, 逐個釘', () => {
+    for (const must of [
+      "format: 'A4'",            // 改成 Letter ⇒ 紙的尺寸就變了
+      'printBackground: true',   // 關掉 ⇒ 底色/框線全部不見
+      'document.fonts.ready',    // 刪掉 ⇒ 字型還沒載完就截圖 ⇒ 可能是方框
+      'await browser.close()',   // 漏掉 ⇒ 殘留行程(平台強殺時本來就不保證, 更不能自己也漏)
+    ]) {
+      expect({ [must]: src.includes(must) }).toEqual({ [must]: true });
+    }
+  });
+});

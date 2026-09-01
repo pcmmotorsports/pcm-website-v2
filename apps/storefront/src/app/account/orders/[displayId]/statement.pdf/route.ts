@@ -16,14 +16,14 @@
 // ⚠️ **字型檔從哪來**:`.next/static/` 底下的編譯產物,由 `next.config.ts` 的
 //    `outputFileTracingIncludes` 拉進這條 route 的函式包。拉不進來的話 ⇒ 見下面 `uncovered`。
 import { NextResponse } from 'next/server';
-import { existsSync, readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
-import { createElement } from 'react';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getOrderRepo } from '@/lib/auth/composition';
-import { StatementDoc } from '@/components/print/statement-doc';
-import { buildStatementHtml, isInsideDir } from '@/lib/print/statement-html';
+// 🔵 **2026-09-01:產檔那兩段搬到 `@/lib/print/statement-pdf`**(⟦b4-MAILPDF1⟧ 的前置)——
+//    寄訂單信要附一份 PDF, 而它需要**同一條路**。
+//    🛑 而搬走的只有「資源組裝」與「Chrome 產檔」兩支原語;
+//       **政策(缺什麼就拒絕產)留在這條 route 裡**, 因為寄信那條路要不要一樣拒絕**還沒有人拍板**。
+//    ⇒ 📌 把政策焊進共用函式, 下一個呼叫端就只能接受它或整支複製一份。
+import { buildStatementPdfHtml, htmlToPdf } from '@/lib/print/statement-pdf';
 
 // 🔴 一定要 nodejs runtime —— chromium 與 `node:fs` 在 edge 上都不存在。
 export const runtime = 'nodejs';
@@ -47,25 +47,6 @@ export const maxDuration = 60;
  *       —— 這兩支是純 CSS、沒有前處理, 所以原始碼與編譯產物在這個用途上等價
  *     · 字型     ⇒ `@fontsource/noto-sans-tc`(住 `node_modules`)
  *       —— 它的 CSS 就是 `@font-face` + `unicode-range`, `buildStatementHtml` 現成吃得下 */
-const require_ = createRequire(import.meta.url);
-
-/** fontsource 那個套件的根目錄 —— 用 node 解析, 不假設 pnpm 的目錄長相。 */
-function fontPkgDir(): string | null {
-  try {
-    return dirname(require_.resolve('@fontsource/noto-sans-tc/package.json'));
-  } catch {
-    return null;
-  }
-}
-
-function readTextOrNull(p: string): string | null {
-  try {
-    return readFileSync(p, 'utf8');
-  } catch {
-    return null;
-  }
-}
-
 export async function GET(_req: Request, ctx: { params: Promise<{ displayId: string }> }) {
   const { displayId } = await ctx.params;
 
@@ -88,58 +69,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ displayId: str
   //    分開講會讓這條 route 變成一個列舉工具。那個模糊是資安性質的。
   if (!order) return new NextResponse(null, { status: 404 });
 
-  // 🔴 **`process.cwd()` 是什麼, 我們【沒有量到】**(codex must-fix):
-  //    Vercel 專案的 Root Directory 是 repo 根, 而這支碼假設 cwd 正好是 `apps/storefront`。
-  //    NFT 清單裡有那兩支 CSS **不等於** `process.cwd()/src/styles` 找得到它們。
-  //    ⇒ 兩個候選都試, 而**兩個都找不到就走 fail closed**(下面那道閘)——
-  //      **不猜、不硬填, 讓它大聲失敗。** 真正要答這一題要目標 `.func` 或真部署。
-  const cssCandidates = [
-    join(process.cwd(), 'src', 'styles'),
-    join(process.cwd(), 'apps', 'storefront', 'src', 'styles'),
-  ];
-  const pageCss = cssCandidates
-    .flatMap((dir) => [join(dir, 'print-a4.css'), join(dir, 'statement.css')])
-    .map(readTextOrNull)
-    .filter((css): css is string => css !== null)
-    .filter((css, i, all) => all.indexOf(css) === i)
-    .join('\n');
-
-  const pkg = fontPkgDir();
-  // 400 + 700 —— 那張紙上有 22 條 `font-weight: 700`(`print-a4.css`)。
-  const fontCss =
-    pkg === null
-      ? ''
-      : ['400.css', '700.css']
-          .map((f) => readTextOrNull(join(pkg, f)))
-          .filter((css): css is string => css !== null)
-          .join('\n');
-
-  // 🔴 `react-dom/server` 只能【動態】import —— Next 的 App Router 對它有一道靜態 import 閘:
-  //    「You're importing a component that imports react-dom/server.」⇒ build 直接失敗(實測)。
-  //    那道閘防的是把它拉進 client bundle;而我們在 route handler 裡是合法用途 ⇒ 動態即可。
-  const { renderToStaticMarkup } = await import('react-dom/server');
-
-  const built = buildStatementHtml({
-    // `createElement` 而不是 `StatementDoc({ order })` —— 後者是【直接呼叫元件】,
-    // 那在今天可行(它是純函式)而在它哪天用到 hook 的那天會安靜地壞掉。
-    // 🔴 `printButton: false` **不是樣式決定, 是【這條路徑能不能跑】** ——
-    //    那顆鈕是 `'use client'`, 而這裡是自己呼叫 renderToStaticMarkup, 沒有 client boundary
-    //    ⇒ 渲染它 = 線上 500(2026-08-31 實際發生過, Vercel runtime log 逐字
-    //      `Attempted to call StatementPrintButton() from the server`)。
-    bodyHtml: renderToStaticMarkup(createElement(StatementDoc, { order, printButton: false })),
-    pageCss,
-    fontCss,
-    readFont: (rel) => {
-      // `rel` 形如 `./files/noto-sans-tc-xxx-400-normal.woff2`(相對於套件根)
-      if (pkg === null) return null;
-      const p = resolve(pkg, rel);
-      // 🔴 防目錄逃逸。⛔ ~~`p.startsWith(pkg)`~~ —— **那不是目錄邊界**(codex 抓):
-      //    `pkg=/x/noto-sans-tc` 而 `rel=../noto-sans-tc-evil/a` **照樣通過**。
-      //    ✅ 改用 `isInsideDir`(它有自己的測試, 含那個 `-evil` 的實例)。
-      if (!isInsideDir(pkg, p)) return null;
-      return existsSync(p) ? new Uint8Array(readFileSync(p)) : null;
-    },
-  });
+  // 🔵 資源組裝(版面 CSS + 字型內嵌)已搬去 `@/lib/print/statement-pdf`。
+  //    🔴 而**那幾段註解跟著碼一起搬了, 不是被刪掉** —— `process.cwd()` 未量、
+  //       目錄逃逸那道、`react-dom/server` 只能動態 import, 三段逐字在那支檔裡。
+  //    🔴 而 `printButton: false` 與 `createElement` 那兩段理由**跟著碼搬進去了**,
+  //       而且 codex R1 之後**鎖在函式裡**:本函式收的是 `order` 不是一個元素
+  //       ⇒ ⇒ **「呼叫端漏傳 printButton」這個錯, 在型別上構造不出來。**
+  const built = await buildStatementPdfHtml(order);
 
   // 🛑🛑 **fail closed —— 三種缺口都拒絕產檔, 不產一張壞掉的紙。**
   //
@@ -159,7 +95,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ displayId: str
   //         甲(現在這樣)寧可不給, 也不給一張名字是方框的單
   //         乙 局部缺字仍照產, 而在 log 記一筆
   //       ⇒ 我選甲當預設(壞紙會被寄給第三方, 而錯誤不會), 而**這是端給 Sean 的一題, 未拍板**。
-  const missingCss = pageCss.length === 0;
+  const missingCss = built.missingCss;
 
   // 🔴🔴 **2026-08-31 Sean 拍板【乙】—— 而它推翻我上面那一整段的預設。**
   //    他逐字:「**照樣產, 缺的字變空白, 只記 log**」
@@ -187,42 +123,26 @@ export async function GET(_req: Request, ctx: { params: Promise<{ displayId: str
   }
 
   // ✅ Sean 拍乙那一格:缺字**照產**, 而它必須留下一筆 —— 否則沒有人知道那張紙上有空白。
-  if (built.uncovered.length > 0 || built.skippedMissing > 0) {
+  if (built.uncovered > 0 || built.skippedMissing > 0) {
     console.warn(
-      `[statement.pdf] 缺字照產(Sean 2026-08-31 拍乙) displayId=${displayId} · 內嵌 ${built.embedded} · 拿不到字型檔 ${built.skippedMissing} · 沒有 face 宣告涵蓋的字 ${built.uncovered.length} 個`,
+      `[statement.pdf] 缺字照產(Sean 2026-08-31 拍乙) displayId=${displayId} · 內嵌 ${built.embedded} · 拿不到字型檔 ${built.skippedMissing} · 沒有 face 宣告涵蓋的字 ${built.uncovered} 個`,
     );
   }
 
   try {
-    // 🔴 動態 import —— 讓 chromium 那 66 MB 只在**這條 route 真的被打到**時才進記憶體,
-    //    而不是每一次冷啟動都拉。(它進不進【函式包】是 tracing 的事, 與這裡無關。)
-    const [{ default: chromium }, puppeteer] = await Promise.all([
-      import('@sparticuz/chromium'),
-      import('puppeteer-core'),
-    ]);
-    const browser = await puppeteer.launch({
-      args: chromium.args,
-      executablePath: await chromium.executablePath(),
-      headless: true,
+    // 🔵 Chrome 那一段搬去 `htmlToPdf()`(動態 import chromium 的理由跟著搬)。
+    //    🛑 **`try` 的位置沒有動** —— 產檔失敗仍然由這裡接、仍然回 500。
+    const pdf = await htmlToPdf(built.html);
+    return new NextResponse(pdf, {
+      status: 200,
+      headers: {
+        'content-type': 'application/pdf',
+        // 檔名用單號 —— 客人下載一疊的時候分得出來。
+        'content-disposition': `attachment; filename="PCM-${displayId}.pdf"`,
+        // 🔴 這是客人自己的單 ⇒ **不得被任何共用快取收走**。
+        'cache-control': 'private, no-store',
+      },
     });
-    try {
-      const page = await browser.newPage();
-      await page.setContent(built.html, { waitUntil: 'load' });
-      await page.evaluateHandle('document.fonts.ready');
-      const pdf = await page.pdf({ format: 'A4', printBackground: true });
-      return new NextResponse(new Uint8Array(pdf), {
-        status: 200,
-        headers: {
-          'content-type': 'application/pdf',
-          // 檔名用單號 —— 客人下載一疊的時候分得出來。
-          'content-disposition': `attachment; filename="PCM-${displayId}.pdf"`,
-          // 🔴 這是客人自己的單 ⇒ **不得被任何共用快取收走**。
-          'cache-control': 'private, no-store',
-        },
-      });
-    } finally {
-      await browser.close();
-    }
   } catch (err) {
     // 🛑 母 plan §6:產檔失敗**不得讓既有流程死**。這條 route 就是那個功能, 所以它自己回 500;
     //    而客人仍然拿得到明細 —— 那一頁(`/statement`)還在, 那顆鈕也還在。

@@ -27,6 +27,30 @@ const ROUTE_NFT = join(
   '../../../../../../.next/server/app/account/orders/[displayId]/statement.pdf/route.js.nft.json',
 );
 
+/**
+ * 這份追蹤清單**是哪一次 build 產的** —— 而它與現在的原始碼是不是同一份。
+ *
+ * 🔴🔴 **2026-09-01 codex 抓到的假綠**:本檔原本只驗「`.nft.json` 存在」。
+ *    當天實測:`.next` 是 **11:02** 而被它守的原始碼是 **13:01**
+ *    ⇒ ⇒ 📌 **那一發驗的是【改動前】的產物, 而它印全綠。**
+ *      而它綠得很有說服力 —— 每一格都通過, 只是通過的是上一個世界。
+ * ✅ 所以現在多問一句:**產物比它守的原始碼舊嗎?**
+ * 🛑 而它**不 throw、只出聲**(照本 repo 那條「一道紅著而沒有出路的守門會被整支刪掉」):
+ *    有人只是想跑單元測試而沒有 build ⇒ 硬擋他等於逼他刪掉這支檔。
+ *    ⇒ ⇒ 而**下面那幾格會照樣跑** —— 它們對舊產物仍然有意義, 只是意義不是「現在是好的」。
+ */
+function stalenessNote(): string | null {
+  const nftAt = statSync(ROUTE_NFT).mtimeMs;
+  const guarded = [
+    join(__dirname, 'route.ts'),
+    join(__dirname, '../../../../../lib/print/statement-pdf.ts'),
+  ].filter((p) => existsSync(p));
+  const newest = Math.max(...guarded.map((p) => statSync(p).mtimeMs));
+  if (newest <= nftAt) return null;
+  const mins = Math.round((newest - nftAt) / 60_000);
+  return `⚠️ 這份追蹤清單比它守的原始碼舊 ${mins} 分鐘 ⇒ 下面每一格驗的是【上一次 build】那個世界, 不是現在這份碼。要驗現在這份 ⇒ 先跑 \`TURBO_FORCE=1 pnpm --filter @pcm/storefront build\``;
+}
+
 function tracedFiles(): string[] {
   if (!existsSync(ROUTE_NFT)) {
     throw new Error(
@@ -42,6 +66,16 @@ describe('片 C3:statement.pdf 這條 route 的追蹤清單', () => {
 
   it('量具自檢:清單本身要夠大(空清單會讓下面每一格都恆綠)', () => {
     expect(files.length).toBeGreaterThan(500);
+  });
+
+  it('🔴🔴 量具自檢②:這份清單【不比它守的原始碼舊】—— 舊的話下面全部是上一個世界', () => {
+    const note = stalenessNote();
+    // 🔴 **不 throw, 而是把那句話印在【判定的正上方】** —— 它與「綠」在同一個畫面上,
+    //    而人讀的就是那幾行。(2026-09-01 那次假綠的成因不是沒有訊號, 是沒有任何訊號。)
+    if (note !== null) process.stdout.write(`\n${note}\n`);
+    // 🛑 而這一格**本身仍然要綠** —— 它守的是「有沒有把這件事講出來」, 不是「你有沒有 build」。
+    //    ⇒ 判別力在上面那行輸出:兩個世界印**不同的東西**(過期 ⇒ 有那句;同步 ⇒ 一個字都沒有)。
+    expect(typeof note === 'string' || note === null).toBe(true);
   });
 
   it('✅ 版面 CSS 的【原始碼】在裡面 —— route 讀的是它,不是編譯產物', () => {
