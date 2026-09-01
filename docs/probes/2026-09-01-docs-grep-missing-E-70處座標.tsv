@@ -1,0 +1,84 @@
+# 逐條座標 · docs 裡 grep 想寫「或」而漏 -E 的 70 處
+# 量測時刻	2026-09-01 18:1x · 線【帳號】-7a
+# ref	e62a6853 —— 🔴 這一格我第一版寫錯成 80ef6dab, 因為我在【掃完之後】才去讀 origin/dev, 而它中間動了一顆
+# ref	抓到它的方法: 拿同一條指令對兩個 ref 重跑並比【總行數】—— e62a6853 ⇒ 5194 · 80ef6dab ⇒ 5195 · 我當時記的是 5194
+# ref	📌 一個寫在旁邊的 ref, 如果不是掃描當下釘的, 它會安靜地指到別的世界
+# 數法	grep / 無 -E / 無 -P / 無 -F / 排除 egrep / pattern 內有裸豎線(未跳脫)且至少一個豎線兩側都非空白
+# 範圍	git grep -n grep origin/dev -- docs/*.md docs/**/*.md ⇒ 5194 行, 再套上面的過濾
+# 結果	70 處 / 35 支檔 (原 2026-08-31 交件檔記 58 處 / 30 支)
+# 正對照	recon/m-1-03-main-a-刀-4-recon.md 原記 x8 ⇒ 本表 x8;archive/…m-1-03-main-a-recon.md 原記 x6 ⇒ 本表 x6
+# 已知限制	①70 vs 58 不是乾淨的差 —— 原始逐條座標沒有留下來, 分不出【檔長了】還是【我的尺較寬】
+# 已知限制	②誤報存在:guard-and-instrument-traps.md 裡 3 條是 grep -c "a|b|c" 這種【教學佔位符】, 不是真指令
+# 已知限制	③本表只答【寫法壞】, 不答【結論對不對】—— 逐條驗過的只有該檔那 9 條
+#
+檔案	行號	命中原文(截 70 字)
+docs/archive/2026-07-25-docs-cleanup/recon/M-1-04-slice-4-recon-supplement.md	59	grep -l "DETAILS|TOKENS|COMPONENTS|PAGES|OVERVIEW|API|CHANGELOG|DEPLOY
+docs/archive/2026-07-25-docs-cleanup/recon/M-1-04-slice-4-recon-supplement.md	114	grep -n "design-handoff|HANDOFF|design-reference"
+docs/archive/2026-07-25-docs-cleanup/recon/M-1-04-slice-4-recon-supplement.md	157	grep -rln "server component|client component|'use client'|use client|s
+docs/archive/2026-07-25-docs-cleanup/recon/m-1-03-main-a-recon.md	473	grep -rn "price_by_tier|premium_extra_pct|MemberTier"
+docs/archive/2026-07-25-docs-cleanup/recon/m-1-03-main-a-recon.md	474	grep -rn "price_by_tier|premium_extra_pct|MemberTier|priceByTier"
+docs/archive/2026-07-25-docs-cleanup/recon/m-1-03-main-a-recon.md	476	grep -l "price_by_tier|premium_extra_pct"
+docs/archive/2026-07-25-docs-cleanup/recon/m-1-03-main-a-recon.md	487	grep -n "CREATE TABLE brands|brands("
+docs/archive/2026-07-25-docs-cleanup/recon/m-1-03-main-a-recon.md	503	grep -rn "function toMoney|const toMoney|export.*toMoney"
+docs/archive/2026-07-25-docs-cleanup/recon/m-1-03-main-a-recon.md	504	grep -rn "SupabaseBrandRow|type SupabaseBrandRow"
+docs/patterns/guard-and-instrument-traps.md	1914	grep -rn "event trigger|ddl_command_end|pg_cron"
+docs/patterns/guard-and-instrument-traps.md	11756	grep -i 'css|audit'
+docs/patterns/guard-and-instrument-traps.md	11783	grep 'ledger|cash_book|accounting'
+docs/patterns/guard-and-instrument-traps.md	24183	grep 'skipIf|凍住|上界|沒有人這樣做'
+docs/patterns/guard-and-instrument-traps.md	25464	git grep -l "supabase\.storage|\.storage\.from("
+docs/patterns/guard-and-instrument-traps.md	29055	grep -c "a|b|c"
+docs/patterns/guard-and-instrument-traps.md	29149	grep -c "a|b|c"
+docs/patterns/guard-and-instrument-traps.md	29193	grep -rn '月結|對帳單|statement'
+docs/patterns/guard-and-instrument-traps.md	29233	grep -c "a|b"
+"docs/patterns/traps-inbox/A-20260831-\347\222\260\345\242\203\346\233\277\346\210\221\344\276\233\346\207\211\344\272\206\351\202\243\345\200\213\346\235\261\350\245\277-\350\200\214\346\210\221\350\250\230\345\234\250\350\207\252\345\267\261\347\232\204\346\216\245\347\267\232\344\270\212.md"	92	grep -ci '\.(ttf|otf|woff2?)$'
+docs/phase-1-backlog.md	2066	grep -rn '月結|對帳單|statement'
+docs/phase-1-backlog.md	6622	grep 'card_key|card_token'
+docs/phase-1-backlog.md	7252	grep 'usePlaceOrder|placeOrderAction'
+docs/phase-1-backlog.md	23732	grep -rn "'use server'|<form"
+docs/phase-1-backlog.md	29583	git grep -ln 'updateListingState|setListingState|delistProduct|relistP
+docs/phase-1-backlog.md	29830	git grep -rn "新增訂單|建立訂單|手動建單"
+docs/plans/2026-08-31-novariant-sellable-plan.md	145	grep 'if (!it.variantId|!line.variantId|!variantId)'
+docs/plans/2026-08-31-statement-pdf-server-render-plan.md	11	grep -ci '\.(ttf|otf|woff2?)$'
+docs/probes/2026-08-19-after-payment-what-the-customer-sees.md	112	grep -rn "requestPasswordReset|getAuthService"
+docs/probes/2026-08-19-e8b-quote-db-production-probe.md	254	grep -rn 'SUPABASE_ANON_KEY|PUBLISHABLE_KEY'
+docs/recon/M-1-03-audit-disposition-slice-C-recon.md	158	grep -rn "isNaN|toFixed|Number(|parseInt|parseFloat"
+"docs/recon/m-1-03-main-a-\345\210\200-4-recon.md"	410	grep -n "^function|^const.*=|Object.assign.*window"
+"docs/recon/m-1-03-main-a-\345\210\200-4-recon.md"	411	grep -rn "price-tag-dealer|pd-price-tag-dealer|pd-mbb-orig|cart-item-p
+"docs/recon/m-1-03-main-a-\345\210\200-4-recon.md"	417	grep -rn "MemberTier|memberTier|tier=|tier:"
+"docs/recon/m-1-03-main-a-\345\210\200-4-recon.md"	418	grep -rn "designTierToSchema|schemaTierToDesign"
+"docs/recon/m-1-03-main-a-\345\210\200-4-recon.md"	424	grep -rn "<Price\b|<LinePrice\b|from.*Pricing"
+"docs/recon/m-1-03-main-a-\345\210\200-4-recon.md"	425	grep -rn "getPriceForTier|getEffectivePrice|getBrandFor"
+"docs/recon/m-1-03-main-a-\345\210\200-4-recon.md"	429	grep -n "tier|memberTier|search|Search|price"
+"docs/recon/m-1-03-main-a-\345\210\200-4-recon.md"	433	grep -rln "getPriceForTier|window.getPriceForTier|window.Price"
+docs/reviews/2026-08-19-coupon-code-research.md	258	grep -rln "coupon|優惠券"
+docs/reviews/2026-08-19-product-admin-template-research.md	16	grep -rn 'sale_price|special_price|compare_at|discount_price|price_sal
+docs/reviews/2026-08-19-product-admin-template-research.md	23	grep -rn 'coupon|voucher|promo_code|discount_code'
+docs/runbooks/data-rights-sop.md	460	grep -rn "search_log|searchLog|log_search|logSearch"
+docs/security/2026-08-16-security-audit-run1-phase2-hunt.md	423	grep -rn 'reportedStatus|reported_status'
+docs/specs/2026-07-25-admin-backend-rebuild-spec.md	370	git grep -ln 'implements IShippedEmailContext|: IShippedEmailContext'
+docs/specs/2026-07-25-admin-backend-rebuild-spec.md	374	git grep -l "resetPasswordForEmail|generateLink"
+docs/specs/2026-07-25-order-backend-model-spec.md	70	grep -rln "order_refund|OrderRefund"
+docs/specs/2026-08-15-product-editing-admin-research.md	101	grep -c "sale_price|compare_at|discount_price"
+docs/specs/2026-08-16-remaining-work-panorama.md	88	grep -rli 'export.*csv|toCsv|downloadCsv'
+docs/specs/2026-08-16-shipping-doc-amounts-plan.md	182	grep -c 'paidAmount|amountPaid|actualPaid'
+docs/specs/2026-08-16-shipping-doc-open-questions.md	71	grep -rn "SET total|total ="
+docs/specs/2026-08-18-ci-build-before-test-plan.md	364	grep -c '@pcm/storefront:build|storefront.*Compiled'
+docs/specs/2026-08-18-m4b-e8b-b2-spec.md	552	grep 'SUPABASE_ANON_KEY|PUBLISHABLE_KEY'
+docs/specs/2026-08-18-m4b-e8b-b4-spec.md	504	git grep 'AdminSession|@pcm/'
+docs/specs/2026-08-18-m4b-e8b-b5-c1c2-plan.md	358	git grep -ln 'edge-config|EDGE_CONFIG'
+docs/specs/2026-08-18-m4b-order-detail-items-exhaustive-plan.md	51	grep -n 'itemsTruncated|disabled'
+docs/specs/2026-08-18-manual-review-queue-has-no-exit-plan.md	100	grep -rn "markFailed|mark_charge_attempt_failed"
+docs/specs/2026-08-19-477-shipment-reference-format-plan.md	82	git grep 'shipmentReference|shipment_reference'
+docs/specs/2026-08-19-477-shipment-reference-format-plan.md	89	git grep -l 'shipment_reference|shipmentReference'
+docs/specs/2026-08-19-product-listing-toggle-plan.md	12	git grep -n "\.update(|\.upsert(|\.insert(|\.rpc("
+docs/specs/2026-08-25-saved-views-plan.md	974	grep -n "searchParams|raw\["
+docs/specs/2026-08-25-saved-views-plan.md	2090	grep 'createSupabaseServiceClient|createSupabaseAnonClient'
+docs/specs/2026-08-26-coupon-schema-plan.md	152	grep -rln 'Math.round|Math.floor|roundTwd'
+docs/specs/2026-08-26-coupon-schema-plan.md	180	grep -rln 'SKIP LOCKED|FOR UPDATE'
+docs/specs/2026-08-26-customer-gender-birthday-spec.md	33	grep -rln 'signInWithOAuth|createUser'
+docs/specs/2026-08-26-wallet-unfreeze-recon.md	107	grep 'depositWallet|立即儲值'
+docs/specs/2026-08-26-wallet-unfreeze-recon.md	121	grep -rln 'depositWallet|立即儲值'
+docs/specs/2026-08-26-wallet-unfreeze-recon.md	122	git grep -l 'depositWallet|儲值'
+docs/specs/2026-08-27-945-submodule-in-sandbox-and-ci-plan.md	291	grep '(readFileSync|readFile|import)\('
+docs/specs/research-2026-07-25/pcm-order-inventory.md	204	grep -rn "manual_phone|manual_order|建立訂單|新增訂單"
+docs/specs/research-2026-07-25/pcm-order-inventory.md	210	grep -rln "order_refund|OrderRefund"
