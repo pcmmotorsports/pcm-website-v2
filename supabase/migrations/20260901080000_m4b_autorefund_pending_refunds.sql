@@ -537,6 +537,22 @@ BEGIN
            AND NOT (a.grantee = 'service_role'::regrole
                     AND a.privilege_type = 'SELECT'
                     AND NOT a.is_grantable)
+           -- 🔴🔴 **`pcm_readonly` 不是我們 GRANT 的 —— 它是【新表出生就自帶】的。**
+           --    2026-09-01 正式庫唯讀實查:`pg_default_acl` 有一列 `defaclobjtype='r'`
+           --    把 `SELECT` 發給 `pcm_readonly` ⇒ **postgres 建的每一張新表都會拿到它**。
+           --    量到的分母(同一發):`pcm_readonly` 在 public 的**表**上有 **68** 筆權限,
+           --    而在**函式**上 **0** 筆(`defaclobjtype='f'` 也是 0)
+           --    ⇒ 📌 **所以只有【表級】閉世界斷言會撞到它,函式級那道不受影響。**
+           --    🛑 **而不加這一條的後果不是「斷言比較嚴」,是【這支 migration 貼不進去】** ——
+           --      本檔 2026-09-01 就是這樣被擋下的。
+           --    🔵 **而它【不是放寬】**:仍然要求「不可轉授的 SELECT」,與 `service_role` 同一把尺;
+           --      多一個 privilege、或它變成可轉授,照樣炸。
+           --    ⚠️ **`to_regrole` 而不是 `::regrole`** —— 拋棄式 PG 上沒有這個角色,
+           --      而 `'pcm_readonly'::regrole` 在那裡會直接拋錯 ⇒ 本檔在隔離環境就跑不起來。
+           --      `to_regrole` 查無回 NULL,而 `a.grantee = NULL` 是 NULL ⇒ 那一條自動失效。
+           AND NOT (a.grantee = to_regrole('pcm_readonly')
+                    AND a.privilege_type = 'SELECT'
+                    AND NOT a.is_grantable)
       ) x;
     IF v_bad IS NOT NULL THEN
       RAISE EXCEPTION 'ACL 異常 — % 除了 owner 只准 service_role 的【不可轉授】SELECT,實際多出:%;拒繼續', v_obj, v_bad;
