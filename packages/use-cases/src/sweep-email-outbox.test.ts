@@ -4,6 +4,9 @@ import type {
   IEmailOutbox,
   IEmailSender,
   IIneligibleOrderEmailScanner,
+  IPaidEmailContext,
+  LoadPaidContextResult,
+  PaidEmailContext,
   SendEmailResult,
 } from '@pcm/ports';
 import { computeEmailBackoff, LEASE_RECLAIM_RETRY_DELAY_MS } from './email-backoff';
@@ -1049,5 +1052,138 @@ describe('sweepEmailOutbox — 🔴 allowOrderShipped=false ⇒ 佇列裡的出�
     expect(sender.send).toHaveBeenCalledTimes(1); // 只有 order_created 那一封
     expect(r.sent).toBe(1);
     expect(r.errors).toBe(1);
+  });
+});
+
+// ══ 片2(2026-09-01):付款信接上 `IPaidEmailContext` + HTML 模板 ══════════════
+//
+// 🔴 **這一組守的是兩件相反的事,而它們必須同時成立**:
+//    ① 沒注入 `paidContext` ⇒ 寄出去的東西**逐位元與今天相同**(既有 62 格就是那個世界)
+//    ② 注入了 ⇒ 三態各走各的路,而 `unavailable` **會讓今天收得到信的單收不到**
+//       —— 那是 port 明文要的,而它是本片最貴的那個改變。
+function paidCtx(over: Partial<PaidEmailContext> = {}): PaidEmailContext {
+  // 🔴 `MoneyAmount` 是 **branded number**(`packages/domain/src/shared/types.ts:17`),
+  //    不是 `{amount,currency}` 物件。⛔ ~~我第一版寫成物件~~ ⇒ **vitest 全綠而 typecheck 紅**。
+  //    📌 **vitest 不做型別檢查** ⇒ 型別錯的替身照樣跑過,而它「跑過」會讓人以為型別也對。
+  // 🔴🔴 而本 fixture **不用 `as` 包整個物件**(code-reviewer must-fix):第一版兩層 `as` +
+  //    一個 port 上不存在的 `unitPrice` ⇒ 那等於把上面那句話吹的守門關掉。
+  const m = (n: number) => n as PaidEmailContext['total'];
+  return {
+    orderDisplayId: 'PCM-2026-0001',
+    lines: [{ title: '排氣管', variantSku: 'SKU-1', quantity: 1, lineTotal: m(1000) }],
+    linesTruncated: false,
+    subtotal: m(1000),
+    shippingFee: m(100),
+    discountTotal: m(0),
+    total: m(1100),
+    ...over,
+  };
+}
+const paidFake = (r: LoadPaidContextResult): IPaidEmailContext => ({
+  loadPaidContext: async () => r,
+});
+const paidDeps = (r: LoadPaidContextResult, outbox: OutboxFake, sender: IEmailSender) => ({
+  ineligibleScanner: eligibleAll(),
+  outbox,
+  sender,
+  paidContext: paidFake(r),
+});
+
+describe('sweepEmailOutbox — 付款信接金額與 HTML(片2)', () => {
+  it('🔵 沒注入 paidContext ⇒ 完全是今天的行為:送出去的東西**沒有 html 這個 key**', async () => {
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const r = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
+    expect(r.sent).toBe(1);
+    const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    // 🔴 用 hasOwnProperty 不用 `in` —— 片1 那組已經寫過為什麼(`in` 走原型鏈)。
+    expect(Object.prototype.hasOwnProperty.call(input, 'html')).toBe(false);
+    expect(input.subject).toBe(job().subject);
+  });
+
+  it('🟢 注入且 ok ⇒ 帶 html,而 subject 與 text 一個字都沒變', async () => {
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const r = await sweepEmailOutbox(paidDeps({ kind: 'ok', context: paidCtx() }, outbox, sender), OPTS);
+    expect(r.sent).toBe(1);
+    const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(input, 'html')).toBe(true);
+    expect(String(input.html)).toContain('PCM-2026-0001');
+    // 🔴 主旨與純文字是【退化路徑】⇒ 原樣才是「同一封信多了排版」而不是另一封信。
+    expect(input.subject).toBe(job().subject);
+    expect(String(input.text)).toContain('已付款成功');
+  });
+
+  it('🔴 unavailable ⇒ **不寄**、計 error(port 明文;這會讓今天收得到信的單收不到)', async () => {
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const r = await sweepEmailOutbox(paidDeps({ kind: 'unavailable' }, outbox, sender), OPTS);
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.sent).toBe(0);
+    expect(r.errors).toBe(1);
+  });
+
+  it('🔴 cancelled ⇒ 不寄、計 error,而【不呼叫 markSkippedOrderIneligible】', async () => {
+    // 🔴🔴 這一格釘的是一個**已知偏離 port 合約**的現況(全文在被測碼那一格):
+    //    port 要落 `order_ineligible_at_send` 終態,而那要開一支新的 outbox 方法(鐵則 8)。
+    //    ⇒ 在那支開出來之前,沿用 `markSkippedOrderIneligible` 會違反 2026-08-24 的乙。
+    // 🔵 而 `outboxFake` 對它的預設替身是 **reject** ⇒ 有人改回去呼它, 兩道都會叫。
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const r = await sweepEmailOutbox(paidDeps({ kind: 'cancelled' }, outbox, sender), OPTS);
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.errors).toBe(1);
+    expect(outbox.markSkippedOrderIneligible).not.toHaveBeenCalled();
+  });
+
+  it('🔴 linesTruncated ⇒ 不寄(少兩項的信與正常的信長得一模一樣)', async () => {
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const r = await sweepEmailOutbox(
+      paidDeps({ kind: 'ok', context: paidCtx({ linesTruncated: true }) }, outbox, sender),
+      OPTS,
+    );
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.errors).toBe(1);
+  });
+
+  it('🔴 空品項 ⇒ 不寄(port 說它會走 unavailable,而那是【它的】保證不是我們的)', async () => {
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const r = await sweepEmailOutbox(
+      paidDeps({ kind: 'ok', context: paidCtx({ lines: [] }) }, outbox, sender),
+      OPTS,
+    );
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.errors).toBe(1);
+  });
+
+  it('🔴 loadPaidContext 自己 throw ⇒ 計 error 不寄(不得讓它變成程式錯誤逃出去)', async () => {
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const r = await sweepEmailOutbox(
+      {
+        ineligibleScanner: eligibleAll(),
+        outbox,
+        sender,
+        paidContext: { loadPaidContext: async () => { throw new Error('boom'); } },
+      },
+      OPTS,
+    );
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.errors).toBe(1);
+  });
+
+  it('🔵 `order_shipped` 不受影響:注入了 paidContext 也不會被呼叫', async () => {
+    // 🔴 少了這一格,一個「對每一種 event 都去查付款金額」的改法會全綠 ——
+    //    而它會對出貨信多打一次 DB, 並在 unavailable 時把出貨信也擋掉。
+    const load = vi.fn(async () => ({ kind: 'unavailable' }) as LoadPaidContextResult);
+    const outbox = outboxFake([job({ eventType: 'order_shipped' })]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender, paidContext: { loadPaidContext: load } },
+      OPTS,
+    );
+    expect(load).not.toHaveBeenCalled();
   });
 });

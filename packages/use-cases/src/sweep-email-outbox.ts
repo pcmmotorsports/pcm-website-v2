@@ -3,10 +3,14 @@ import type {
   IEmailOutbox,
   IEmailSender,
   IIneligibleOrderEmailScanner,
+  IPaidEmailContext,
   IShippedEmailContext,
+  LoadPaidContextResult,
   LoadShippedContextResult,
+  PaidEmailContext,
   ShippedEmailContext,
 } from '@pcm/ports';
+import { renderPaidEmailHtml } from './paid-email-html';
 import {
   computeEmailBackoff,
   LEASE_RECLAIM_RETRY_DELAY_MS,
@@ -81,6 +85,30 @@ export type SweepEmailOutboxDeps = {
    *    ⇒ 不得宣稱「這個洞補起來了」。那支獨立 cron **留著**(它擋的是還沒被認領的列)。
    */
   ineligibleScanner: IIneligibleOrderEmailScanner;
+  /**
+   * 付款成功通知信的**寄送時讀取**(M-4b 片2;`IPaidEmailContext`)。
+   *
+   * 🔴 **選用,而「不給」是一個【有意義的狀態】,不是尚未接線的預設值**:
+   * 不給 ⇒ `order_created` 維持**今天的行為** —— 寄那封 6 行純文字信,POST body 逐位元不變。
+   * ⇒ 這一欄不會讓任何一封信【停寄】;真正會停寄的是它給了之後的 `unavailable` 那一態。
+   *
+   * 🔴🔴 **而給了它之後,一些今天收得到信的單會從此收不到** —— 那是 port 明文要的行為:
+   * 撈不到金額 ⇒ fail-closed 不寄、計 error(理由:一封金額是 0 的付款確認信,
+   * 客人看不出是系統壞了還是他被多收了)。
+   * ⇒ 📌 **而那個代價只有在信裡真的有金額時才划算** ⇒ 所以本片把「拿資料」與「放進信裡」
+   *   放在同一顆 commit。只做前半的話,那些單會從「收得到純文字」變成「一封都收不到」。
+   *
+   * 🔴 **為什麼是 port 不是把資料塞進 payload** —— 而原句要照原文,不要自己收斂:
+   * `IEmailOutbox.ts` 那段引 `order-email-assembly.ts:12` 的設計意圖,逐字是
+   * 「品項/金額/地址等渲染資料**寄信時即時查主表**」+「**可後台改的欄**(如 `shipping_method`)刻意不存」。
+   * ⛔ ~~我第一版寫成「金額與品項是可後台改的欄(`IEmailOutbox.ts:134` 逐字)」~~ ——
+   *   **兩處都錯**(code-reviewer 2026-09-01):`:134` 是 `| 'provider_error';`,原文在 `:153`;
+   *   而原文**沒有**「金額與品項是可後台改的欄」這一句 —— 那是我把兩句併成一句。
+   * ⇒ 📌 而併句子的代價在這裡具體是:原文的例子是 `shipping_method`,而我把它改成了金額,
+   *   **下一個人會去找「金額在哪裡可以被後台改」而找不到**。
+   * ⇒ 不論如何,結論不變:入列當下凍住的值在員工改過之後就是舊的,而**信寄出去收不回來**。
+   */
+  paidContext?: IPaidEmailContext;
 };
 
 /**
@@ -551,9 +579,12 @@ export async function sweepEmailOutbox(
   //        注入縫的語意(它同時餵 staleBefore / nextRetryAt,那兩個必須是牆鐘)
   //        ⇒ 是另一片的體積,不在這裡順手做。
   /**
-   * 時間預算已用盡?(單一來源)。**四個問點**:認領前 / 迴圈頭 / 合格性讀完之後 /
-   * 出貨脈絡讀完之後 —— ⚠️ 第四個原本漏在這段註解外(codex R2 nit),而它正是
+   * 時間預算已用盡?(單一來源)。**五個問點**:認領前 / 迴圈頭 / 合格性讀完之後 /
+   * **付款脈絡讀完之後**(2026-09-01 片2 新增)/ 出貨脈絡讀完之後
+   * —— ⚠️ 第四個(出貨那個)原本漏在這段註解外(codex R2 nit),而它正是
    * `order_shipped` 那條線唯一的那一道。
+   * ⛔ ~~原本寫「四個問點」~~ ⇒ 片2 加了第五個而我沒改這句(code-reviewer 2026-09-01 抓到)。
+   * 📌 **而這段註解正是下一個人拿來【數】的東西** —— 它少一個,下一個人就會以為沒有那一道。
    */
   const outOfBudget = (): boolean => now().getTime() - budgetBaseMs >= budgetMs;
 
@@ -641,6 +672,76 @@ export async function sweepEmailOutbox(
     // 🔴 **這一段就是把那個「建構了、注入了、一次都沒有被呼叫」的依賴接上** ——
     //    在本片之前 `shippedContext` 是一個 **建構後閒置** 的 dep(`IShippedEmailContext` 檔頭
     //    把那個狀態拆成三行寫著)。
+    // ── 付款成功通知信的【寄送當下讀取】(M-4b 片2;`IPaidEmailContext`)────────────
+    // 🔴 **這一段把第二個「建構了、匯出了、一次都沒有被呼叫」的依賴接上** ——
+    //    `IPaidEmailContext` 檔頭把那個狀態拆成三行寫著,而 ③ 那一格逐字是
+    //    「**沒有** —— 零 `loadPaidContext` 呼叫端」。本片就是那一格。
+    //
+    // 🔴🔴 **而接上它會讓一些【今天收得到信】的單從此收不到** —— 那是 port 明文要的:
+    //    `kind:'unavailable'` 逐字「呼叫端**必須 fail-closed:不寄、計 error**」,
+    //    而它禁止退化(「不得退化成『就把撈到的印上去』—— 一封金額是 0 的付款確認信,
+    //    客人看不出是系統壞了還是他被多收了」)。
+    //    ⇒ 📌 **而那個代價只有在【信裡真的有金額】時才划算** ——
+    //      所以本片把「拿資料」與「把資料放進信裡」放在**同一顆 commit**:
+    //      🛑 若只做前半,那些單會從「收得到純文字」變成「一封都收不到」,而信的內容一個字沒變。
+    let paid: PaidEmailContext | null = null;
+    if (job.eventType === 'order_created' && deps.paidContext !== undefined) {
+      // 🔵 **沒注入 dep ⇒ 維持今天的行為**(純文字、照寄)—— 與 `shippedContext` 那一欄同款:
+      //    「不給」是一個有意義的狀態,而它在這裡的意思是**還沒接線**,不是「不寄」。
+      let loadedPaid: LoadPaidContextResult;
+      try {
+        loadedPaid = await deps.paidContext.loadPaidContext({ orderId: job.orderId });
+      } catch {
+        result.errors++;
+        continue;
+      }
+      if (loadedPaid.kind === 'cancelled') {
+        // 🔴🔴 **這一格是【已知偏離 port 合約】,而它是刻意的 —— 全文寫在這裡,不要當疏漏。**
+        //
+        // port(`IPaidEmailContext.ts` 的 `cancelled` 那一段)要的是:
+        //   不寄 + 標終態 + `last_error_code = 'order_ineligible_at_send'`,
+        //   而它逐字寫著「**為什麼不沿用既有的 `order_ineligible`**(主視窗 2026-08-24 裁【乙】):
+        //   沿用會讓上游那道閘變成**看不見的** —— 補完之後沒有人知道它還有沒有在做事。」
+        //
+        // ⛔ ~~我第一版呼 `markSkippedOrderIneligible`~~ —— 而那支 adapter **內部寫死**
+        //    `last_error_code: 'order_ineligible'` ⇒ **正好是那個乙禁止的合併**
+        //    ⇒ 兩層落同一個碼 ⇒ port 要的那個【比值】永遠算不出來。(code-reviewer 2026-09-01 抓到。)
+        //
+        // 🛑 **而合規的做法要開一支新的 outbox 方法**(`markSkippedOrderCancelled`)——
+        //    那是動 `IEmailOutbox` 這個**金流鄰居的 port** ⇒ 鐵則 8,要 plan + 批准,
+        //    而本片沒有那個批准。⇒ **所以這一格【不寫那段碼】,而不是寫一段違反拍板的碼。**
+        //
+        // ⇒ 現況:與 `unavailable` 同路(計 error、不寄、不標記)。**而它的代價要明寫**:
+        //    一列持續 `cancelled` 的單會每輪燒一次 attempt、約 5 輪進死信 —— 而那正是 port
+        //    警告的那個坑。⚠️ **今天不可達**:①`paidContext` 還沒有人注入(`composition.ts` 未建構)
+        //    ②上游逐封閘 `listIneligibleAmong` 的述詞已含 `cancelled_at IS NOT NULL`
+        //    ⇒ 這條只吃得到兩次讀取之間那幾毫秒。
+        // 🔴 **而「今天不可達」不是理由,是【期限】** —— 誰把 `paidContext` 接進 composition,
+        //    誰就要先把那支新方法開出來。落點:`⟦b4-MAILCANCEL1⟧`(要開)。
+        result.errors++;
+        continue;
+      }
+      if (loadedPaid.kind === 'unavailable') {
+        // 🔴 「讀不到」**應該吵** —— 它與 `cancelled` 分開,正是因為
+        //    「系統壞了」與「這張單本來就被取消了」不可以在呼叫端變成同一件事。
+        result.errors++;
+        continue;
+      }
+      // 🔴 **載不完 ⇒ 不寄**(`paid-email-html.ts` 的 `renderPaidEmailHtml` 檔頭逐字把這道
+      //    fail-closed 推回呼叫端:「一封少了兩項的信,與一封正常的信,在這裡長得一模一樣」)。
+      //    ⚠️ 空品項 port 說會走 `unavailable`,而那是**它的**保證不是我們的 ⇒ 一併擋。
+      if (loadedPaid.context.linesTruncated || loadedPaid.context.lines.length === 0) {
+        result.errors++;
+        continue;
+      }
+      paid = loadedPaid.context;
+      // 🔴 同下方 shipped 那一格的理由:**上面那一發 `await` 可能穿越 deadline**。
+      if (outOfBudget()) {
+        result.deferred = jobs.length - i;
+        break;
+      }
+    }
+
     let shipped: ShippedEmailContext | null = null;
     if (job.eventType === 'order_shipped') {
       // 🔴🔴 **這條線沒上膛 ⇒ 不寄**(codex R1 must-fix 1;見 `allowOrderShipped` 的 JSDoc)。
@@ -737,11 +838,37 @@ export async function sweepEmailOutbox(
       }
     }
 
+    // 🔴🔴 **在 try 之外組 HTML**(code-reviewer 2026-09-01 must-fix)——
+    //    我第一版把 `renderPaidEmailHtml(paid)` 寫在 `sender.send({...})` 的參數裡,
+    //    而那整段在 `try` **裡面** ⇒ **模板 throw 會落進下面那個 catch**,
+    //    而那個 catch 的語意是「寄送失敗」⇒ 它與 provider 故障在計數上**同形**,
+    //    列留 `sending`、每輪重燒 attempts ⇒ 📌 **一個模板 bug 會長得像 Resend 掛了。**
+    //    ⇒ 提出來之後:模板 throw 會往上冒到 per-job catch 之外 —— 那是對的,
+    //      因為它是**程式錯誤**,不是可重試的寄送失敗。
+    const html = paid !== null ? renderPaidEmailHtml(paid) : null;
+
     try {
       const outcome = await sender.send({
         to: job.recipientEmail,
+        // 🔴 **主旨一個字都不動**(片2 第一顆刻意保守):`paidEmailSubject(ctx)` 存在而**沒有用**。
+        //    主旨是客人在信箱列表看到的那一行 ⇒ 改它 = 又一個對外可見的變數。
+        //    ⇒ 📌 這一顆只讓變數有【一個】:內文從純文字變成 HTML。出事時知道是哪一格。
         subject: job.subject,
+        // 🔴 `text` 一個字都沒動 —— 它是退化路徑(收信端不顯示 HTML 時讀的那一份)。
         text: buildEmailText(job, shipped),
+        // 🔴 **有 context 才給 html**(選填欄;不給時 POST body 不出現這個 key —— 片1 已釘住)
+        //    ⇒ 沒注入 `paidContext` 的環境,寄出去的東西**逐位元與今天相同**。
+        // ⚠️ 而 `chrome` 三格**全部不給**,理由逐條:
+        //    · `logoUrl`   —— ⛔ ~~那個網址今天是 404,等 Sean 加 Vercel Domain~~ **已假**
+        //      (code-reviewer 2026-09-01 抓到:`⟦b4-MAILLOGO1⟧` 那一列態已是 `done`,
+        //       `https://www.pcmmotorsports.com/pcm-logo.png` ⇒ **200 · 66,739 bytes**)。
+        //      ⇒ 🔵 **不放它的理由換成真的**:第一顆刻意只讓變數有一個(內文變 HTML)。
+        //        多一張圖是另一個變數 —— 而它可以下一顆再開,不必混進這一顆。
+        //    · `orderUrl`  —— 加一個連結進客人的信是**新的對外面**,他還沒點頭
+        //    · `paidAtText`—— 稿要求用**真的付款完成時間**(Sean 逐字「沒有那個欄位就不要印,
+        //      不要拿成立時間頂替」),而那一格本片沒查 ⇒ 不給 = 不印,而不是印一個頂替的
+        //    ⇒ 🔵 三格不給 ⇒ 模板那幾段不印(`-7a` 做成 optional)⇒ **不造假值**。
+        ...(html !== null ? { html } : {}),
         idempotency: { eventType: job.eventType, outboxId: job.id },
       });
       // 🔴 計數 = provider 裁決當下(mark 落表前;codex 關卡2 R1 must-fix:mark throw 不得

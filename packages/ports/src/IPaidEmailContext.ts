@@ -17,10 +17,16 @@ import type { MoneyAmount } from '@pcm/domain';
  * ① 有實作嗎？   ✅ **有** —— `SupabasePaidEmailContextAdapter`,且已從 `adapters/src/server.ts` 匯出
  *                (數法 `grep -c SupabasePaidEmailContextAdapter packages/adapters/src/server.ts` ⇒ 2)
  * ② 被建構了嗎？ 🔴 **沒有** —— 除了它自己的測試,零處 `new`
- * ③ 被呼叫了嗎？ 🔴 **沒有** —— 零 `loadPaidContext` 呼叫端(`sweepEmailOutbox` 仍只解構
- *                `{ outbox, sender }`)
+ * ③ 被呼叫了嗎？ ✅ **有**(2026-09-01 片2)—— `sweepEmailOutbox` 的 `paidContext?` dep,
+ *                `order_created` 時呼 `loadPaidContext` 並把 ok 的 context 餵給
+ *                `renderPaidEmailHtml`(數法 `grep -c loadPaidContext
+ *                packages/use-cases/src/sweep-email-outbox.ts` ⇒ 1)
+ *                ⛔ ~~原本:**沒有** —— 零 `loadPaidContext` 呼叫端(`sweepEmailOutbox` 仍只解構
+ *                `{ outbox, sender }`)~~ ⇒ 那句話在片2 之後為假(code-reviewer 2026-09-01 抓到)。
  * ```
- * ⇒ **本檔今天仍不是一條通路**(②③ 斷著)。客人收到的信一個字都沒變。
+ * ⇒ **本檔今天仍不是一條通路** —— ②仍然斷著:`apps/storefront/src/lib/email/composition.ts`
+ *   還沒有 `new SupabasePaidEmailContextAdapter`(數法同上,對 composition.ts ⇒ 0)。
+ *   ⇒ 📌 **而那正是「不給 dep = 維持今天的行為」那條路** ⇒ 客人收到的信目前一個字都沒變。
  *   接上它的是模板那一片(合併 plan 的 S4)。
  *
  * 🔴 **而 ① 那一格 2026-08-24 被 codex 抓到字面已假(M6)** —— 原文寫「**沒有** —— 零 adapter。
