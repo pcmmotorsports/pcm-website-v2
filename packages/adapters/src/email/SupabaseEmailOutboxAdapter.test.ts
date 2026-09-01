@@ -20,7 +20,10 @@ type Resp = { data: unknown; error: { code?: string; message: string } | null };
 function makeBuilder(result: Resp) {
   const calls: Array<[string, unknown[]]> = [];
   const b: Record<string, unknown> = { calls };
-  for (const m of ['insert', 'select', 'update', 'eq', 'in', 'lt', 'lte', 'order', 'limit']) {
+  // 🔵 ⟦b4-SHIPGATE1⟧ 2026-09-01 加 `not` —— 而【在加它之前既有測試全綠】,
+  //    因為既有路徑一次都沒呼叫它(未給 excludeEventTypes ⇒ 那一句不執行)。
+  //    📌 ⇒ 那本身就是「未給 ⇒ 查詢逐位元不變」的一個側面證據。
+  for (const m of ['insert', 'select', 'update', 'eq', 'in', 'not', 'lt', 'lte', 'order', 'limit']) {
     b[m] = vi.fn((...args: unknown[]) => {
       calls.push([m, args]);
       return b;
@@ -622,5 +625,32 @@ describe('SupabaseEmailOutboxAdapter.reclaimStaleLeases(回收器路徑;E2a-a、
     await expect(
       adapter(makeClient(b)).reclaimStaleLeases(STALE_BEFORE, NEXT_RETRY),
     ).rejects.toThrow(/lease 回收失敗\(42501\)/);
+  });
+});
+
+// ⟦b4-SHIPGATE1⟧ 2026-09-01:線關著時不要認領 order_shipped。
+describe('⟦b4-SHIPGATE1⟧ claimDue 的 excludeEventTypes', () => {
+  it('🔴 給了 ⇒ 查詢帶 .not(event_type, in, (…))(突變:拿掉 adapter 那一句 ⇒ 這格必須紅)', async () => {
+    const b = makeBuilder({ data: [], error: null });
+    await adapter(makeClient(b)).claimDue(10, { excludeEventTypes: ['order_shipped'] });
+    expect(argsOf(b, 'not')).toEqual([['event_type', 'in', '(order_shipped)']]);
+  });
+
+  it('🟢 未給 ⇒ 【一次都不呼叫 not】(既有查詢逐位元不變)', async () => {
+    const b = makeBuilder({ data: [], error: null });
+    await adapter(makeClient(b)).claimDue(10);
+    expect(argsOf(b, 'not')).toEqual([]);
+  });
+
+  it('🔵 給空陣列 ⇒ 也【一次都不呼叫 not】', async () => {
+    // 🛑 這一格是承重的:**若沒有 `exclude.length > 0` 那道守門**, 空陣列會組出
+    //    `not('event_type','in','()')` —— 而空的 `not in ()` 給 PostgREST 是**語法錯**,
+    //    它會炸。⛔ ~~「在【所有既有路徑】上炸」~~ **那句誇大了**(codex R2 nit):
+    //       既有呼叫端傳的是 `undefined`, 而空陣列今天**只出現在這一格專屬測試裡**。
+    //    ⇒ 而它仍然值得守:哪天有人「順手」傳一個算出來的空陣列進來, 那條路就活了。
+    //    ✅ 而**今天不會發生**, 因為那道守門在。**這一格釘的就是那道守門。**
+    const b = makeBuilder({ data: [], error: null });
+    await adapter(makeClient(b)).claimDue(10, { excludeEventTypes: [] });
+    expect(argsOf(b, 'not')).toEqual([]);
   });
 });

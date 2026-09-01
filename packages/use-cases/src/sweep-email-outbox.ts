@@ -605,7 +605,24 @@ export async function sweepEmailOutbox(
     result.budgetExhaustedBeforeClaim = 1;
   } else {
     try {
-      jobs = await outbox.claimDue(opts.claimLimit);
+      /**
+       * ⟦b4-SHIPGATE1⟧ 2026-09-01:**線關著時,連認領都不要認領。**
+       *
+       * 🔴 舊行為:認領 ⇒ `attempts` +1、落 `sending` ⇒ 走到 `:750` 那道閘被擋 ⇒ `continue`
+       *    ⇒ 不呼叫任何 `mark*` ⇒ **留在 `sending`,而 `sending` 不可再認領**
+       *    ⇒ 每【回來一次】要等一輪租約回收(route 端 3600 秒)+ 一次退避(5 分)= 1h05m
+       *    🔴 **而【attempts 用完】與【進死信】是兩個時點, 不要合成一句**(codex R2):
+       *       `t≈4h20m` 第 5 次認領 = attempts 用完 · `t≈5h20m` 再等最後一次回收才成 `failed@max`。
+       *       ⇒ 全文推導在 `:750` 那道閘旁邊(單一來源, 這裡不重複第二份)。
+       * 🛑 而 `:750` 那道閘**留著** —— 不認領是省成本,不寄是保正確。
+       *    ⛔ ~~「旗標讀取壞掉時第二道還在」~~ **假的**(codex 2026-09-01):
+       *    **兩道同一顆 `allowOrderShipped`** ⇒ 旗標錯的世界裡兩道一起錯。
+       *    ✅ 第二道守的是**實作違約**(adapter 忽略 opts / 換一個沒實作它的 port)。
+       */
+      jobs = await outbox.claimDue(
+        opts.claimLimit,
+        opts.allowOrderShipped ? undefined : { excludeEventTypes: ['order_shipped'] },
+      );
     } catch {
       result.errors++;
     }
@@ -752,9 +769,35 @@ export async function sweepEmailOutbox(
         continue;
         // 🛑🛑 **已知代價,codex 2026-08-30 R2 抓出,而我【沒有修】—— 理由在下面** 🛑🛑
         //
+        // ✅✅ **2026-09-01 `⟦b4-SHIPGATE1⟧` 已修:`claimDue` 現在收 `excludeEventTypes`**
+        //    ⇒ 線關著時**根本不認領** `order_shipped` ⇒ 下面這一段描述的是【修之前】的行為。
+        //    🛑 而這道閘**留著**:不認領是省成本,不寄是保正確。這裡忘了傳時第二道還在。
+        //
         // **這道閘在 `claimDue` 【之後】才擋** ⇒ 線關著的期間,佇列裡的 `order_shipped` 列
         // 每一輪都會被認領一次(`attempts` 在認領當下就 +1)、被這裡擋下、留在 `sending`、
-        // 下一輪被回收 ⇒ **約 25 分鐘後燒完 5 次 attempts ⇒ 進死信,而它一封都沒寄過。**
+        // 下一輪被回收 ⇒
+        // ⛔ ~~**約 25 分鐘後燒完 5 次 attempts ⇒ 進死信**~~
+        // 🔴🔴 **那個 25 分鐘是錯的,而它低估了約 10 倍**(2026-09-01 逐行推導):
+        //    `continue` **不呼叫任何 `mark*`** ⇒ 那一列留在 `sending`;
+        //    而 5 分鐘那個退避是 `markFailed` **之後**才套的 ⇒ **這條路走不到它**;
+        //    而 `sending` **不在** `CLAIMABLE_STATUSES`(`['pending','failed']`)⇒ 下一輪撿不到
+        //    ⇒ 唯一出路是 `reclaimStaleLeases`(`claimed_at < now − LEASE_SECONDS`)
+        //    ⇒ **每【回來一次】≈ `LEASE_SECONDS` + 退避(route 端 3600 秒 + 5 分 = 1h05m)**
+        //
+        //    🔴🔴 **而【三個時點要分開,不要合成一句】**(codex 2026-09-01 must-fix ——
+        //       而它指的正是我上一版的錯:**我把「attempts 用完」與「進死信」合成同一刻**):
+        //       ```
+        //       t=0       第 1 次認領(attempts 1)—— 它本來就 due, 不用等回收
+        //       t≈1h05m   第 2 次 … 每次 = 一輪租約回收 + 一次退避
+        //       t≈4h20m   **第 5 次認領 = attempts 用完**(4 × 1h05m)
+        //       t≈5h20m   **再等最後一次回收, 它才變成 failed@max ⇒ 進死信**
+        //       ```
+        //    ⚠️ **⇒ 「attempts 用完」與「進死信」差【一整輪回收】** —— 而它們在
+        //       「約 5 小時」這句話底下長得一樣。
+        //    📌 **⇒ 而我上一版就是這樣寫的。⇒ 同一個病:兩個時點被一句話合併。**
+        //       ⇒ **⇒ 而我上一版正是在【修同一種病】(舊註解的「25 分鐘」)的時候犯的。**
+        //    📌 **⇒ 而舊那個數字的傷害不是不準 —— 是它會【讓人決定不做】。**
+        //       一個沒有數字的描述會讓人去算;而看到「25 分鐘」的人不會。
         // ⚠️ 另一半:它們**佔著 `claimLimit` 的格子** ⇒ 線關著時會延遲 `order_created` 的信。
         //
         // 🔴 **為什麼沒有在這一片修**:正解是【不要認領它們】,而 `claimDue(limit)` 沒有

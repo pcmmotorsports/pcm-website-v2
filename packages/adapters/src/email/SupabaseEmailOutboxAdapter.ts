@@ -343,13 +343,31 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     return { kind: 'duplicate' };
   }
 
-  async claimDue(limit: number): Promise<ClaimedEmailJob[]> {
+  async claimDue(
+    limit: number,
+    opts?: { readonly excludeEventTypes?: readonly EmailOutboxEventType[] },
+  ): Promise<ClaimedEmailJob[]> {
     const nowIso = new Date().toISOString();
-    const { data, error } = await this.client
+    /**
+     * ⟦b4-SHIPGATE1⟧ 2026-09-01:**不要認領被上層閘擋掉的那些事件型別。**
+     * 理由全文在 port(`IEmailOutbox.ts` 的 `claimDue`)—— 一句話:那道閘擋在認領【之後】,
+     * 而認領當下 `attempts` 就 +1、狀態落 `sending`,而 `sending` 不可再認領
+     * ⇒ 每燒一次要等一輪租約回收(route 端 3600 秒)。
+     *
+     * 🛑 **空陣列 / 未給 ⇒ 一個字都不加** —— 而那不是最佳化,是**驗收條件**:
+     *    既有呼叫端零改 ⇒ 送出的查詢必須與改動前**逐位元相同**。
+     *    ⚠️ 送一個空的 `not in ()` 給 PostgREST 是**語法錯**,而它會在【所有既有路徑】上炸。
+     */
+    const exclude = opts?.excludeEventTypes ?? [];
+    let q = this.client
       .from('email_outbox')
       .select(JOB_SELECT)
       .in('status', CLAIMABLE_STATUSES)
-      .lte('next_retry_at', nowIso)
+      .lte('next_retry_at', nowIso);
+    if (exclude.length > 0) {
+      q = q.not('event_type', 'in', `(${exclude.join(',')})`);
+    }
+    const { data, error } = await q
       .order('next_retry_at', { ascending: true })
       // 🔴 取大窗(見 DUE_SCAN_CAP):先 limit 再過濾會被恆最老的死列餓死活信(R1 Critical)。
       .limit(Math.max(limit, DUE_SCAN_CAP));
