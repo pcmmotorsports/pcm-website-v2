@@ -137,6 +137,26 @@ describe('兩軌的欄位不同(不是同一組欄位有些留空)', () => {
     expect(container.querySelector('input[name="received_date"]')).not.toBeNull();
     expect(container.querySelector('input[name="bank_reference"]')).not.toBeNull();
   });
+
+  // 🔴🔴 **這兩格是一對, 而只釘「匯款軌看得到」是不夠的。**
+  //    那兩行提示住在 `{!isCash && …}` 裡 ⇒ 一個把它們搬到那個條件【外面】的改動,
+  //    在「匯款軌看得到」那一格底下**照樣全綠** —— 而畫面上會出現一句
+  //    「匯款一定要填這一欄」**印在現金軌上**, 而現金軌根本沒有那兩欄可填。
+  //    ⇒ 📌 所以現金軌那一格不是補充, 它是**唯一殺得掉那個突變的一半**。
+  //    🔵 而它與 `:129` 盯的不是同一個東西:那格盯【輸入框】, 本格盯【解釋它的那句話】
+  //      ⇒ 兩者可以分開壞掉(搬走一個而留下另一個), 所以兩格都要。
+  it('匯款軌:兩欄各有一行「一定要填」的提示', () => {
+    const { container } = renderForm();
+    const txt = container.textContent ?? '';
+    expect(txt).toContain('匯款一定要填這一欄。');
+    expect(txt).toContain('匯款一定要填這一欄,只打末五碼也可以。');
+  });
+
+  it('現金軌:那兩行提示【跟著兩欄一起不見】(正對照)', () => {
+    const { container } = renderForm();
+    pickCash(container);
+    expect(container.textContent ?? '').not.toContain('匯款一定要填這一欄');
+  });
 });
 
 describe('文案紅線(plan v4 §4a)', () => {
