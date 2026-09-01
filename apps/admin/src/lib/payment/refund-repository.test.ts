@@ -24,6 +24,7 @@ import {
   FINALIZE_RESULT_CODES,
   INITIATE_RESULT_CODES,
   RefundCallerBugError,
+  CAP_GUARD_SQLSTATES,
   RefundCapGuardError,
   RefundFinalizeParseError,
   finalizeOrderRefund,
@@ -232,8 +233,11 @@ describe('RAISE 分流(真實 PostgrestError 形狀)', () => {
   });
 
   // ── 445b 上限閘的三個碼 ────────────────────────────────────────────────
-  it('🔴 PCM04/05/06 → RefundCapGuardError,且 sqlstate 逐碼帶對', async () => {
-    for (const code of ['PCM04', 'PCM05', 'PCM06'] as const) {
+  // 🔵 ⟦b4-PCM05SPLIT⟧ 2026-09-02 加入 `PCM07`(查無訂單, 從 `PCM05` 拆出)。
+  //    🔴 **分母用 `CAP_GUARD_SQLSTATES` 自己, 不是手打一份** ——
+  //       手打的那份在下一次加碼時會安靜地少一格, 而少掉的正是沒人想到要檢查的那個。
+  it('🔴 每一個 cap guard 碼 → RefundCapGuardError,且 sqlstate 逐碼帶對', async () => {
+    for (const code of CAP_GUARD_SQLSTATES) {
       mocks.rpc.mockResolvedValue({ data: null, error: { code, message: `擋下 ${code}` } });
       await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toSatisfy(
         (e) => e instanceof RefundCapGuardError && e.sqlstate === code,
@@ -323,6 +327,16 @@ describe('RAISE 分流(真實 PostgrestError 形狀)', () => {
 
   // 🟢 **負對照 ③:`PCM05` 是「算不出上限」** ⇒ 它結構上就沒有數字。
   //    這一格釘住「不要為了填滿而給它一個數字」。
+  // ── ⟦b4-PCM05SPLIT⟧ 查無訂單有自己的碼了 ────────────────────────────────────
+  //  🔴 **這一格釘的是【員工的下一步】不是碼** —— `PCM07` 的意思是「重新整理就好」,
+  //     而它以前與「算不出上限 ⇒ 找工程」共用 `PCM05` ⇒ **兩者的下一步相反。**
+  it('🔴 PCM07(查無訂單)⇒ 走 order_not_found,而不是「通知系統維護」那一句', async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: 'PCM07', message: '找不到訂單' } });
+    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toSatisfy(
+      (e) => e instanceof RefundCapGuardError && e.sqlstate === 'PCM07',
+    );
+  });
+
   // 🔴 **【codex R2 MF3 折一半】直接建構那條路 —— 上面幾格【全部走 `capFromDetails`】,**
   //    而那只證明了「今天唯一那個 producer」有綁 SQLSTATE。
   //    ⇒ 把 constructor 的那道還原成 `options?.cap ?? null`, **上面每一格都還是綠的。**

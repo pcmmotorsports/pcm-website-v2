@@ -9,6 +9,7 @@ vi.mock('@pcm/adapters/server', () => ({
 
 import {
   FITMENT_STALE_DAYS,
+  FITMENT_SCHEDULER_DEAD_DAYS,
   FRESHNESS_STALE_HOURS,
   fitmentFreshnessLabel,
   freshnessLabel,
@@ -211,12 +212,46 @@ describe('loadFitmentFreshness', () => {
     expect(FITMENT_STALE_DAYS).toBe(7);
   });
 
+  // ══════════════════════════════════════════════════════════════════════
+  // 🆕 2026-09-02 · 第二個門檻 —— 而它回答的是【另一個問題】
+  // ══════════════════════════════════════════════════════════════════════
+  it('🔵 前提:排程門檻就是 2 天 —— 這個數是 Sean 給的,不是我們算的(改它這格必紅)', () => {
+    // Sean 2026-09-02 逐字「甲 2天」。題目是「要不要為【排程掛了】另立一個更短的門檻」。
+    // 🛑 而 7 那個【沒有被推翻】—— 他是加了第二個。兩格各釘各的。
+    expect(FITMENT_SCHEDULER_DEAD_DAYS).toBe(2);
+  });
+
+  it('🔴🔴 3 天沒成功 ⇒ 亮燈,而話是【排程可能掛了】不是【資料舊了】', async () => {
+    // 🔴 這一格是本次改動的理由本體:排程【每日】跑, 而舊的判準是 7 天
+    //    ⇒ 改動前它在這裡是【綠的】—— 一支已經漏了三班的排程, 儀表上一片平靜。
+    mocks.from.mockReturnValue(logChain([{ ran_at: daysAgoIso(3), status: 'success' }]));
+    const f = await loadFitmentFreshness(NOW);
+    expect(f.stale).toBe(true);
+    expect(f.abnormal).toBe(true);
+    expect(fitmentFreshnessLabel(f)).toBe('車款搜尋同步:已 3 天沒有成功過(排程可能掛了 —— 它本來每天跑)');
+    // 🔴 反面釘住:3 天【還沒到】資料算舊那一格 ⇒ 不准講「資料也已經算舊了」
+    expect(fitmentFreshnessLabel(f)).not.toContain('資料也已經算舊了');
+  });
+
+  it('🟢 1.5 天沒成功 ⇒ 還沒到門檻(它本來就可能剛好跨過一天)', async () => {
+    // ⚠️ 排程台北每日 07:01 ⇒ 正常情況這個數字最大約 1 天多
+    //    ⇒ 門檻設 1 會把【還沒到時間】判成【掛了】。這一格釘住那個邊界。
+    mocks.from.mockReturnValue(logChain([{ ran_at: daysAgoIso(1.5), status: 'success' }]));
+    const f = await loadFitmentFreshness(NOW);
+    expect(f.stale).toBe(false);
+    expect(f.abnormal).toBe(false);
+    expect(fitmentFreshnessLabel(f)).toBe('車款搜尋同步:已 1 天沒有成功過');
+  });
+
   it('🔴 該紅的那一發:超過門檻 ⇒ stale', async () => {
     mocks.from.mockReturnValue(logChain([{ ran_at: daysAgoIso(FITMENT_STALE_DAYS + 1), status: 'success' }]));
     const f = await loadFitmentFreshness(NOW);
     expect(f.stale).toBe(true);
     expect(f.abnormal).toBe(true);
-    expect(fitmentFreshnessLabel(f)).toBe(`車款搜尋同步:已 ${FITMENT_STALE_DAYS + 1} 天沒有成功過`);
+    // 🔴 2026-09-02:超過 7 天那一段話變了 —— 它現在同時講【排程可能掛了】與【資料也舊了】
+    expect(fitmentFreshnessLabel(f)).toBe(
+      `車款搜尋同步:已 ${FITMENT_STALE_DAYS + 1} 天沒有成功過(排程可能掛了, 而資料也已經算舊了)`,
+    );
   });
 
   // ══════════════════════════════════════════════════════════════════════
@@ -233,7 +268,9 @@ describe('loadFitmentFreshness', () => {
     const f = await loadFitmentFreshness(NOW);
     expect(Math.floor((f.hoursAgo ?? NaN) / 24)).toBe(10);
     expect(f.stale).toBe(true);
-    expect(fitmentFreshnessLabel(f)).toBe('車款搜尋同步:已 10 天沒有成功過');
+    expect(fitmentFreshnessLabel(f)).toBe(
+      '車款搜尋同步:已 10 天沒有成功過(排程可能掛了, 而資料也已經算舊了)',
+    );
     // 🔴 反面也釘住:它【不准】讀成「今天剛更新過」—— 那是這道儀表最該叫卻不叫的那一種。
     expect(fitmentFreshnessLabel(f)).not.toContain('1 天內');
   });

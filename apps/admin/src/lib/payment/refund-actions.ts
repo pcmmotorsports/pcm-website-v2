@@ -117,13 +117,22 @@ function carryBack(formData: FormData): RefundFormInput & { requestToken: string
 /**
  * `445b` 上限閘的三個 SQLSTATE → 員工訊息碼。**窮盡 Record,不是三元鏈**(關卡2 nit 5):
  * union 加第四個碼時這裡編譯會紅,三元鏈會讓它靜默落進 fallback。
- * ⚠️ `PCM05` 兩個語意只映一個 —— 理由與殘餘風險寫在 `refund-repository.ts` 的
- * `CAP_GUARD_SQLSTATES` 上方(`⟦b4-PCM05SPLIT⟧`),此處不重複。
+ * ⛔ ~~`PCM05` 兩個語意只映一個~~ ⇒ ✅ **2026-09-02 拆掉了(`⟦b4-PCM05SPLIT⟧`)** ——
+ * `20260902010000` 把【查無訂單】拆成 `PCM07`, 而 `PCM05` 現在只剩【算不出上限】。
+ * 🔵 **而那句「union 加第四個碼時這裡編譯會紅」不是預言, 是量到的**:
+ *    本片把 `PCM07` 加進 union 的當下, `tsc` 就吐 `TS2741: Property 'PCM07' is missing`
+ *    ⇒ **那道設計今天第一次真的擋了一次, 而它擋的是我。**
+ * 🛑 **而 `20260902010000` 還沒 apply** ⇒ 正式庫今天不會吐 `PCM07`
+ *    ⇒ 這一格在 Sean 貼那一支之前是**接好而沒有流量**的, 不是壞的。
  */
 const CAP_GUARD_FAILURE_CODE: Record<CapGuardSqlstate, RefundFailureCode> = {
   PCM04: 'exceeds_remaining',
   PCM05: 'exceeds_unknown',
   PCM06: 'db_config',
+  // 🔴 **這一格就是這一列的全部** —— 有了自己的碼, 員工才講得出「請重新整理」。
+  //    在此之前它與「算不出上限」共用 `exceeds_unknown`(「請勿重試,並通知系統維護」)
+  //    ⇒ 一個只要重新整理就好的人, 被送去找工程。
+  PCM07: 'order_not_found',
 };
 
 export async function initiateRefundAction(

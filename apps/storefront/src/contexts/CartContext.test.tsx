@@ -116,6 +116,47 @@ describe('CartContext / useCart', () => {
     expect(result.current.totalQty).toBe(2);
   });
 
+  // ── ⟦b4-NOVARIANT-OLDCART⟧ 2026-09-02 ────────────────────────────────────────
+  // 🔴 **那一列問的第三格逐字:「客人自己刪得掉嗎」** —— 而在本片之前, `removeItem` /
+  //    `updateQty` 的每一格【都帶著一個真的 `variantId`】⇒ **無變體那條路一格都沒有。**
+  // 🔴 而它靠的是 `sameLine` 的 `a.variantId === b.variantId` 在【兩邊都是 `undefined`】時成立
+  //    ⇒ 那是一個**很容易在重構時消失**的性質(例如有人改成 `a.variantId && a.variantId === b.variantId`)
+  //    ⇒ 而消失的後果是:**客人刪不掉那一筆, 而畫面上沒有任何錯誤** —— 他只會一直按。
+  // 📌 **為什麼這件事今天不是理論**:購物車存 localStorage, 而顧客站只擋【加入】
+  //    ⇒ 曾經加進去的那一筆**不會被清掉**(那一列自己寫的)。
+  it('🔴 無變體那一筆刪得掉(⟦b4-NOVARIANT-OLDCART⟧ 第三格)', () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => {
+      result.current.addItem({ productId: 'no-variant-1', qty: 2 });
+    });
+    expect(result.current.items).toHaveLength(1);
+    act(() => {
+      result.current.removeItem({ productId: 'no-variant-1' });
+    });
+    expect(result.current.items).toHaveLength(0);
+    expect(result.current.totalQty).toBe(0);
+  });
+
+  it('🔴 無變體那一筆改得動數量, 而它不會誤殺同商品的變體行', () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => {
+      result.current.addItem({ productId: 'mix-1', qty: 1 }); // 無變體
+      result.current.addItem({ productId: 'mix-1', qty: 1, variantId: 'v-silver' });
+    });
+    expect(result.current.items).toHaveLength(2); // 🔵 正對照:它們本來就是兩行
+    act(() => {
+      result.current.updateQty({ productId: 'mix-1' }, 5);
+    });
+    expect(result.current.items.find((i) => i.variantId === undefined)!.qty).toBe(5);
+    // 🔵 **負對照:變體那一行不准被動到** —— 沒有這一行, 一個「把兩行都改掉」的實作也會過
+    expect(result.current.items.find((i) => i.variantId === 'v-silver')!.qty).toBe(1);
+    act(() => {
+      result.current.removeItem({ productId: 'mix-1' });
+    });
+    expect(result.current.items).toHaveLength(1);
+    expect(result.current.items[0]!.variantId).toBe('v-silver'); // 🔵 刪對了那一行
+  });
+
   it('updateQty only updates matching variant', () => {
     const { result } = renderHook(() => useCart(), { wrapper });
     act(() => {

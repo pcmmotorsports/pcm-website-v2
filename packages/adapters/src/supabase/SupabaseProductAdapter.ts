@@ -394,8 +394,31 @@ export class SupabaseProductAdapter implements IProductRepository {
    *
    * R2a:由舊 jsonb `.contains` @> + client cross-check 改走**正規化 product_fitments 索引表**
    * (推薦引擎「以車查商品」反查加速;正規化一列一相容、天生消掉舊版跨車型 false-positive)。
-   * 兩步查詢與年份範圍重疊邏輯抽至 `helpers/fitment-queries.ts`(鐵則 6);prod 無 caller、
-   * 行為以 contract + 兩實作測為準。
+   * 兩步查詢與年份範圍重疊邏輯抽至 `helpers/fitment-queries.ts`(鐵則 6)。
+   *
+   * 🔴🔴 **[2026-09-01 訂正 · 線【帳號】`-7a`;主視窗 `-0a` 裁]**
+   * ⛔ ~~prod 無 caller、行為以 contract + 兩實作測為準。~~ —— **那一句的【兩個宣稱都是假的】**:
+   *
+   * 🔴 **假一「prod 無 caller」** ——
+   *   `apps/storefront/src/lib/recommendations/rule-based-engine.ts:131` 逐字
+   *   `await this.repo.listByFitment(` ⇒ **推薦引擎在用它。這是一條【活的】路。**
+   *   (🟢 正對照:同一把尺打 `listByBrand` ⇒ 7 個真呼叫, 而我濾掉了註解行。)
+   *
+   * 🔴 **假二「行為以 contract 為準」** ——
+   *   那個 contract 是 `packages/ports/src/IProductRepository.contract.ts`, 而
+   *   **`runProductRepositoryContract()` 全 repo 零真呼叫端** ⇒ 裡面 15 個 `it.todo`
+   *   **從來沒有被 vitest 收集過, 連「skipped」都不會出現在報告裡**(見該檔檔頭)。
+   *
+   * 🛑 **而真正要記的是那兩句【互相支撐】**:
+   *   「沒有人用它」讓「測試不嚴謹沒關係」聽起來合理;
+   *   而「有 contract 守著」讓「沒有人用它」聽起來不重要。
+   *   ⇒ ⇒ **兩句單獨看都像小事, 而合起來它們讓一條【活的推薦引擎查詢】變成沒有人會去看的地方。**
+   *   ⇒ 所以它們**必須一起訂正** —— 拆掉任何一句, 另一句就撐不住。
+   *
+   * ✅ **今天真正在守它的是**:`InMemoryProductRepository.test.ts`(InMemory 那一層)
+   *   與 `rule-based-engine.test.ts`(而那支測的是**引擎**, 它自己 stub 了一個 repo)。
+   * ⚠️ **⇒ 所以【這支 Supabase 實作本身】今天沒有測試。**已開列, 而本片刻意不順手補它
+   *   (那是範圍擴張;本片只補了 `listByBrand`, 見 `SupabaseProductAdapter.test.ts` 檔尾那一節)。
    */
   async listByFitment(
     spec: FitmentSpec,

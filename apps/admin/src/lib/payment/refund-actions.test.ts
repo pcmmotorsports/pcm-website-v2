@@ -546,6 +546,40 @@ describe('initiateRefundAction — initiate 錯誤與 revalidate 紀律', () => 
     expect(mocks.revalidatePath).toHaveBeenCalledWith(DETAIL);
   });
 
+  // ── ⟦b4-PCM05SPLIT⟧ 2026-09-02 ──────────────────────────────────────────
+  // 🔴 **這一格與下面那一格是【一對】, 分開看沒有意義** ——
+  //    拆分之前這兩種情況共用 `PCM05`, 而它們給員工的下一步【相反】:
+  //      查無訂單   ⇒ 重新整理就好
+  //      算不出上限 ⇒ 別再按了, 找工程
+  //    ⇒ 📌 所以驗收不是「PCM07 有沒有映射」, 是**這兩句話有沒有真的不一樣**。
+  it('🔴 PCM07(查無訂單)→ order_not_found,而那句話要叫員工【重新整理】', async () => {
+    mocks.initiateOrderRefund.mockRejectedValue(new RefundCapGuardError('PCM07', '找不到訂單'));
+    const state = await initiateRefundAction(IDLE, refundForm());
+    expect(state).toMatchObject({ code: 'order_not_found' });
+    const msg = (state as { message: string }).message;
+    // 🔴 **【codex must-fix】`/重新整理/` 這把尺【太寬】** —— 「**請勿**重新整理」也會命中它,
+    //    而那正好是相反的指示。⇒ 📌 **一把尺撈得到那個詞, 不代表它撈得到那個【意思】。**
+    //    ⇒ 釘那句話的完整形狀, 並現造一句反面的來證明這把尺分得出來。
+    const REFRESH_INSTRUCTION = /請重新整理/;
+    expect(msg).toMatch(REFRESH_INSTRUCTION);
+    // 🔵 **負對照(現造)**:相反的指示不得通過這把尺
+    expect(REFRESH_INSTRUCTION.test('請勿重新整理,並通知系統維護。')).toBe(false);
+    // 🔴 **原本這裡寫 `not.toMatch(/通知系統維護/)`, 而它【是錯的尺】** ——
+    //    同一輪 codex 也要求 `order_not_found` 補上出口(「若仍然找不到…並通知系統維護」)
+    //    ⇒ 兩個修法在同一支檔裡撞在一起, 而**撞的那一刻它才顯形**。
+    //    ⇒ 📌 我要驗的不是「有沒有提到維護」, 是**它有沒有被送去拆分前那一句**。
+    //      ⇒ 那是【身分】不是【字面】⇒ 直接比對 `exceeds_unknown` 那一句。
+    const wrongOne = await (async () => {
+      mocks.initiateOrderRefund.mockRejectedValue(new RefundCapGuardError('PCM05', '算不出'));
+      const st = await initiateRefundAction(IDLE, refundForm());
+      return (st as { message: string }).message;
+    })();
+    expect(msg).not.toBe(wrongOne);
+    // 🔵 正對照:那兩句真的不一樣(否則上一行在「兩句相同」以外的任何實作下都恆真)
+    expect(wrongOne).toMatch(/勿重試|通知系統維護/);
+    expect(mocks.refund).not.toHaveBeenCalled();
+  });
+
   it('🔴 PCM05(算不出上限)→ exceeds_unknown,而那句話要叫員工【勿重試、通知維護】', async () => {
     mocks.initiateOrderRefund.mockRejectedValue(new RefundCapGuardError('PCM05', '算不出'));
     const state = await initiateRefundAction(IDLE, refundForm());

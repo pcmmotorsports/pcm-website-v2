@@ -972,3 +972,162 @@ describe('SupabaseProductAdapter.listAllProducts — 排除大類(新品區排�
     expect(result).toHaveLength(10);
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// listByBrand —— 2026-09-01 補(線【帳號】`-7a`;主視窗 `-0a` 裁【甲】)
+//
+// 🔴 **為什麼這一格今天才補**:`packages/ports/src/IProductRepository.contract.ts` 裡有一個
+//    `listByBrand` 的 `it.todo`, 而**那支 contract 的 `runProductRepositoryContract()` 全 repo 零真呼叫端**
+//    ⇒ 那 15 個 `it.todo` 從來沒有被 vitest 收集過, **連「skipped」都不會出現在報告裡**。
+//    ⇒ ⇒ 而 `InMemoryProductRepository.test.ts:183` 有測 —— **那是 InMemory 那一層**,
+//        而這支 Supabase adapter 的 `listByBrand`(`SupabaseProductAdapter.ts:356`)沒有。
+//
+// 🔴 **而它是【活的】, 不是死路**:production 真呼叫端 =
+//    `apps/storefront/src/lib/recommendations/rule-based-engine.ts:159-160`(推薦引擎)。
+//    ⚠️ 而 `rule-based-engine.test.ts` 測的是【引擎】—— 它自己 stub 了一個 `listByBrand`
+//    ⇒ **引擎有測, 而那句 Supabase 查詢沒有。**
+//
+// 🛑🛑 **這幾格證不到什麼(先讀, 不要把它們讀成「這個查詢是對的」)**:
+//    本檔的 mock 攔的是 `.from()` / `.select()` / `.eq()` / `.order()` / `.limit()` 的**參數**
+//    ⇒ 它驗的是「**這支 adapter 有沒有組出對的查詢**」,
+//    **不是「那個查詢在真的 DB 上回對的列」** —— 後者只有真 Postgres 量得到, 而本檔沒有。
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * 依 table 分流的 mock:`categories` 走 `.single()`(給 resolveCategoryId 用),
+ * `products_public` 走 `.order().limit()` 回列。
+ *
+ * @param categoryRow `null` = 該分類查無(PGRST116)⇒ resolveCategoryId 回 null
+ */
+function makeBrandClient(opts: {
+  rows: SupabaseProductRow[];
+  categoryRow: { id: string } | null;
+  productsError?: { message: string };
+}) {
+  const calls = {
+    tables: [] as string[],
+    selects: [] as string[],
+    eqs: [] as Array<[string, unknown]>,
+    order: null as null | [string, { ascending: boolean }],
+    limit: null as null | number,
+  };
+  const productsBuilder = {
+    select(cols: string) {
+      calls.selects.push(cols);
+      return productsBuilder;
+    },
+    eq(col: string, val: unknown) {
+      calls.eqs.push([col, val]);
+      return productsBuilder;
+    },
+    order(col: string, o: { ascending: boolean }) {
+      calls.order = [col, o];
+      return productsBuilder;
+    },
+    limit(n: number) {
+      calls.limit = n;
+      return Promise.resolve(
+        opts.productsError
+          ? { data: null, error: opts.productsError }
+          : { data: opts.rows, error: null },
+      );
+    },
+  };
+  const categoriesBuilder = {
+    select() {
+      return categoriesBuilder;
+    },
+    eq() {
+      return categoriesBuilder;
+    },
+    single() {
+      return Promise.resolve(
+        opts.categoryRow === null
+          ? { data: null, error: { code: 'PGRST116', message: 'not found' } }
+          : { data: opts.categoryRow, error: null },
+      );
+    },
+  };
+  const client = {
+    from(table: string) {
+      calls.tables.push(table);
+      return table === 'categories' ? categoriesBuilder : productsBuilder;
+    },
+  };
+  return { client: client as unknown as SupabaseClient, calls };
+}
+
+describe('SupabaseProductAdapter.listByBrand', () => {
+  const BRAND = 'b-akrapovic';
+
+  it('打 products_public 安全 view、投射不含經銷欄、依 brand_id 過濾、order handle、limit poolLimit', async () => {
+    const { client, calls } = makeBrandClient({ rows: [], categoryRow: null });
+    const adapter = new SupabaseProductAdapter(client);
+
+    await adapter.listByBrand(BRAND, 7);
+
+    expect(calls.tables).toEqual(['products_public']); // 沒碰 base products 表、也沒碰 categories
+    expect(calls.eqs).toEqual([['brand_id', BRAND]]);
+    expect(calls.order).toEqual(['handle', { ascending: true }]);
+    expect(calls.limit).toBe(7);
+    for (const col of DEALER_COLUMNS) {
+      expect(calls.selects.join(' ')).not.toContain(col);
+    }
+  });
+
+  it('poolLimit 非正整數 ⇒ throw(不發查詢)', async () => {
+    const { client, calls } = makeBrandClient({ rows: [], categoryRow: null });
+    const adapter = new SupabaseProductAdapter(client);
+
+    await expect(adapter.listByBrand(BRAND, 0)).rejects.toThrow();
+    // 🔴 而「有沒有發查詢」要單獨驗 —— 一個先查再擋的實作也會 throw, 而它多打了一次 DB
+    expect(calls.tables).toEqual([]);
+  });
+
+  it('給 categoryRaw 且解得到 ⇒ 分類 filter【下推 DB】(多一個 .eq),不是拉回來再篩', async () => {
+    const { client, calls } = makeBrandClient({ rows: [], categoryRow: { id: 'cat-1' } });
+    const adapter = new SupabaseProductAdapter(client);
+
+    await adapter.listByBrand(BRAND, 5, '排氣管');
+
+    expect(calls.tables).toEqual(['categories', 'products_public']);
+    expect(calls.eqs).toEqual([
+      ['brand_id', BRAND],
+      ['category_id', 'cat-1'],
+    ]);
+  });
+
+  it('🔴 給 categoryRaw 而【解不到】⇒ 回 [] 且【不 throw】、且不發商品查詢', async () => {
+    // 🛑 這一格是最容易被「修掉」的那一種:一個回空而不報錯的分支,
+    //    沒有測試釘住它時, 下一個人會覺得那是 bug 而把它改成 throw。
+    //    ⇒ 而它是刻意的(與 listByCategory 同慣例, SupabaseProductAdapter.ts:364-370 逐字)。
+    const { client, calls } = makeBrandClient({ rows: [], categoryRow: null });
+    const adapter = new SupabaseProductAdapter(client);
+
+    const result = await adapter.listByBrand(BRAND, 5, '不存在的分類');
+
+    expect(result).toEqual([]);
+    expect(calls.tables).toEqual(['categories']); // 沒有再去打 products_public
+  });
+
+  it('DB 回 error ⇒ throw(不吞成空陣列)', async () => {
+    const { client } = makeBrandClient({
+      rows: [],
+      categoryRow: null,
+      productsError: { message: 'boom' },
+    });
+    const adapter = new SupabaseProductAdapter(client);
+
+    await expect(adapter.listByBrand(BRAND, 5)).rejects.toBeDefined();
+  });
+
+  it('DB 回幾筆就回幾筆(adapter 不得事後再濾)', async () => {
+    const rows = Array.from({ length: 4 }, (_, i) => makeRow(i));
+    const { client } = makeBrandClient({ rows, categoryRow: null });
+    const adapter = new SupabaseProductAdapter(client);
+
+    const result = await adapter.listByBrand(BRAND, 10);
+
+    expect(result).toHaveLength(4);
+  });
+});

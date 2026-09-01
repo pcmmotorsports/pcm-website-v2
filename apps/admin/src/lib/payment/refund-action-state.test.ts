@@ -186,6 +186,46 @@ describe('🔵 對照:這把尺確實分得出兩種世界', () => {
     expect(MONEY.test('上限是 300 元。') && !VOLATILE.test('上限是 300 元。')).toBe(true);
   });
 
+  // 🔴 **每一句叫員工「再試一次」的話, 都必須有一個【出口】**(codex 換角度那一問)——
+  //    沒有出口的重試指示 = 員工會一直按, 而系統永遠給同一句話。
+  //    ⇒ 這一格【不釘措辭】, 釘的是那個結構:**有「重新整理/再試」⇒ 必須有「還是不行怎麼辦」。**
+  it('🔴 叫人重試的訊息必須帶出口(不然他會一直按)', () => {
+    const RETRY = /重新整理|再試/;
+    // 🔴 **第一版這把尺【太窄】, 而它產出的是【假指控】** —— 它把 3 句判成違規, 而逐句開檔看:
+    //    `nothing_left` 的出口是「**勿直接重發**」;`error` 的出口是「系統會辨識這筆請求並
+    //    **回報它的現況**」⇒ 兩句都有出口, 只是用了我沒想到的講法。
+    //    ⇒ 📌 **一把尺太窄時, 它產出的不是漏報而是【假指控】—— 而假指控會讓人去改本來對的東西。**
+    const EXIT = /若仍|仍然|勿反覆|勿直接重發|勿重發|通知系統維護|請勿重試|回報它的現況|超過/;
+    const offenders: string[] = [];
+    for (const code of REFUND_FAILURE_CODES) {
+      const msg = messageOf(code);
+      if (RETRY.test(msg) && !EXIT.test(msg)) offenders.push(code);
+    }
+    // 🔴 **已知欠債清單, 不是空集合** —— `record_unavailable` 逐字「稍後可再試一次。」**沒有出口**。
+    //    ⇒ 它是【本片之前就在的】, 而它是員工看得到的字 ⇒ **字面是 Sean 的, 本片不改。**
+    //    ⇒ 已交板 `⟦5b-RETRYNOEXIT1⟧`。
+    //    🎯 **而這一格的價值不是「現在乾淨」, 是【它不准再長】**:
+    //      任何人新增一句沒有出口的重試指示, 這裡就紅。
+    //    🛑 而 `order_not_found`【不得】出現在這個清單裡 —— 本片剛把它修好, 而它是本片的主線。
+    const KNOWN_DEBT = ['record_unavailable'];
+    // 🔴 **【codex R2 新洞】原本寫 `toEqual(KNOWN_DEBT)` —— 那是【精確相等】**
+    //    ⇒ 有人把 `record_unavailable` 真的修好, 這一格會【紅】
+    //    ⇒ 📌 **一道防欠債長大的守門, 反而把欠債凍進綠燈基線 —— 它懲罰的正是它要鼓勵的行為。**
+    //    ⇒ ⇒ 改成【子集】:不准長出新的, 而修掉舊的隨時可以。
+    const grew = offenders.filter((c) => !KNOWN_DEBT.includes(c));
+    expect(grew, `新長出來的「叫人重試而沒有出口」:${grew.join(', ')}`).toEqual([]);
+    // 🛑 而 `order_not_found` 不得在裡面 —— 本片剛把它修好, 它是本片的主線
+    expect(offenders).not.toContain('order_not_found');
+    // 🔵 而基線縮小是好事, 不是壞事:這一行只是把現況印出來, 不當判準
+    if (offenders.length < KNOWN_DEBT.length) {
+      console.log(`🟢 重試出口欠債從 ${KNOWN_DEBT.length} 降到 ${offenders.length} —— 可以更新 KNOWN_DEBT`);
+    }
+    // 🔵 **正對照:這把尺撈得到那種形狀** —— 否則它在「沒有任何一句叫人重試」時恆真
+    expect(REFUND_FAILURE_CODES.some((c) => RETRY.test(messageOf(c)))).toBe(true);
+    // 🔵 **負對照(現造)**:一句「叫人重試而沒有出口」必須被這把尺抓到
+    expect(RETRY.test('請重新整理後確認。') && !EXIT.test('請重新整理後確認。')).toBe(true);
+  });
+
   // 🔴 **而措辭鐵律仍要成立**:加了數字之後那句話仍然不得出現「還能退」「剩餘可退」,
   //    也仍然要保留「錢沒有動」(`refund-money-line-forbidden.test.ts` 的正對照讀的就是它)。
   it('🔴 加了數字之後, 措辭鐵律與「錢沒有動」都還在', () => {
