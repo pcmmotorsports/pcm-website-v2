@@ -104,6 +104,21 @@ if [ -n "$BLOCKED" ] && [ -z "${ALLOW_SELFDESC:-}" ]; then
   exit 3
 fi
 
+# 🔴 互斥鎖 —— 2026-09-02 02:0x 量到的成因, 不是猜的:
+#    兩發 announce-and-push 同時在跑 ⇒ 第二發送出的 old-value 是它【開跑時】看到的
+#    origin/dev, 而那時第一發還沒落地 ⇒ remote 回
+#      "cannot lock ref: is at <A> but expected <B>"
+#    ⇒ 而它在帳本上印 PUSH-FAILED, 讀起來像【內容沒上去】
+#    ⇒ ⇒ 而事實是【第一發的內容上去了, 第二發的還沒】—— 兩者長得一樣。
+#    🛑 而這道鎖擋不住:別的視窗自己下 `git push`(它不經過這支)。
+LOCK="$HOME/pcm-mailbox/.announce-push.lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+  echo "🛑 另一發 announce-and-push 正在跑(鎖:$LOCK)⇒ 本發不推, 沒有任何副作用。"
+  echo "   ⇒ 等它印完 rc 再跑一次。⇒ 而如果它已經死了:rmdir \"$LOCK\""
+  exit 4
+fi
+trap 'rmdir "$LOCK" 2>/dev/null' EXIT
+
 # 預告先落檔, 再 push —— 順序不能反, 反了就不是預告
 printf '| %s | %s | %s | (推中) | — |\n' "$(date '+%H:%M')" "$FROM" "$TIP" >> "$LEDGER"
 echo "📢 預告已落檔:$LEDGER"

@@ -36,6 +36,18 @@ MARKERS = ('重驗中', '平行重驗請跳過')
 #       【讀起來很像一個誰欄】⇒ 比回一整段散文更難發現。
 #    ✅ 修法:①明確的欄名優先(派給/owner/負責/誰在做)②「誰」只在【不是「誰受」】時才算
 #    📌 一般化:關鍵字比對要問「還有誰會含這個字」—— 而表頭是最容易撞的地方。
+# 2026-09-02 (line -f3 scanned 1040 files; it also measured row-evidence.sh printing a wrong column):
+#   this file used l.split('|') -- a naive split. Board content contains escaped pipes
+#   (markdown uses backslash-pipe to render a literal bar); a naive split still cuts there.
+#   Same row: 10 cols naive vs 4 cols correct.
+#   The escape is for RENDERING, not for FIELD SPLITTING -- so escaping bare pipes helps the
+#   display and does nothing for the programs that read it. The fix belongs at the read end.
+#   Positive control from -f3: board-state-consistency.py:228 already uses the correct split.
+def _split_row(line):
+    """Split one markdown table row without cutting at escaped pipes."""
+    return re.split(r'(?<!\\)\|', line)
+
+
 _WHO_STRONG = ('派給', 'owner', '負責', '誰在做')
 
 
@@ -62,11 +74,11 @@ def rows(path):
             continue
         # 表頭 = 它的【下一列】是分隔列。不靠欄位內容猜, 靠位置。
         if i < len(L) and sep(L[i]):
-            hc = [x.strip() for x in l.split('|')]
+            hc = [x.strip() for x in _split_row(l)]
             cur_who = _who_idx(hc)
             cur_ncol = len(hc)
             continue
-        c = l.split('|')
+        c = _split_row(l)
         if len(c) < 6:
             continue
         # 🔴 2026-09-02 第二發(線 -7d 複驗 3/4 時抓到):表頭對欄只解了【欄數與表頭一致】的列。
