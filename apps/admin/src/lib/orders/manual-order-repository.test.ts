@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readdirSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 vi.mock('server-only', () => ({}));
 
@@ -21,6 +23,45 @@ import {
   type CreateManualOrderArgs,
 } from './manual-order-repository';
 import type { ManualOrderValues } from './manual-order-form';
+
+/**
+ * ⟦跨檔守門⟧ `pcm_display_id_exhausted` 這個 token 是**兩側同源**的:
+ * SQL 那側 `RAISE … ' (pcm_display_id_exhausted)' USING ERRCODE = 'P0001'`,
+ * TS 這側 `DISPLAY_ID_EXHAUSTED_TOKEN` 拿它分辨 `exhausted` 與 `rejected`。
+ *
+ * 🔴 **為什麼要讀【最後一代】而不是某一支寫死的檔名**:
+ *    `scripts/latest-definition-of.sh admin_create_manual_order` 2026-09-01 實跑 ⇒
+ *    **3 代**(`20260824020000` create / `20260829140000` cor / `20260831180000` cor),
+ *    而**跑的是最後一代**。寫死檔名 ⇒ 下一次 `CREATE OR REPLACE` 之後這道守門就量錯對象了。
+ *
+ * 🛑 **而【最後一代】刻意取 repo 的 `newest`, 不取帳本的 `live`** ——
+ *    那支工具同一發印著 `newest = 20260831180000` 而 `live = 20260824020000`(**兩者不同**),
+ *    而它自己標:`live` 答的是**帳本 `supabase/APPLIED.tsv`**, 不是正式庫 —— 那是兩個宣稱。
+ *    ⇒ **本測試驗的是【repo 內兩側一致】, 不是【正式庫現在跑哪一版】** ⇒ 取 `newest`。
+ *    ⚠️ ⇒ 所以它**證不到**「正式庫那支 RPC 現在真的 RAISE 這個 token」。那要連正式庫讀 `pg_proc`。
+ */
+const MIGRATIONS_DIR = resolve(__dirname, '../../../../../supabase/migrations');
+
+/** 🔴 只認【行首】的 `CREATE [OR REPLACE] FUNCTION public.admin_create_manual_order(` —— 不是 substring。 */
+const DEFINES_MANUAL_ORDER_RPC =
+  /^CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+public\.admin_create_manual_order\s*\(/m;
+
+/**
+ * 活的那一支 = 檔名序(= 時間序)最後一支。
+ * 🔴 **取不到就丟** —— `undefined` 在這裡代表【尺沒接上】, 而它與「值不對」是兩件事。
+ *    體例沿用同目錄 `create-order-tier-pin.test.ts`。
+ */
+function liveDefinerOfManualOrderRpc(): string {
+  const all = readdirSync(MIGRATIONS_DIR)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+    .filter((f) => DEFINES_MANUAL_ORDER_RPC.test(readFileSync(resolve(MIGRATIONS_DIR, f), 'utf8')));
+  const live = all.at(-1);
+  if (live === undefined) {
+    throw new Error('跨檔守門的尺沒接上:找不到任何一支定義 admin_create_manual_order 的 migration');
+  }
+  return live;
+}
 
 // M12-A1:`admin_create_manual_order`(#858)唯一呼叫端。
 // 🔴 誠實邊界:本檔全是 mock ⇒ 證的是「呼叫端把契約接對了」,**不是** RPC 在正式站的行為。
@@ -176,10 +217,40 @@ describe('🔴 P0001 是兩義的 —— 只看碼會把「產號用盡」講成
     expect(out).toMatchObject({ ok: false, code: 'rejected', sqlstate: 'P0001' });
   });
 
-  it('🔴 釘住那個字串 —— RPC 那句訊息被改掉時,這一格要紅', async () => {
-    // 少了這一格, RPC 改訊息 ⇒ 上面那格【靜靜地】改走 rejected,
-    // 而 rejected 的畫面會叫員工「看訊息自己改」—— 他改不動, 那不是他輸入的問題。
+  // ⛔ ~~原本這一格是 `expect(DISPLAY_ID_EXHAUSTED_TOKEN).toBe('pcm_display_id_exhausted')`~~
+  //    **它的標題說「RPC 那句訊息被改掉時, 這一格要紅」, 而它做不到** ——
+  //    那是拿 TS 常數去比對【它自己的一份硬抄】, 一個字都沒讀那支 migration。
+  //    數法(2026-09-01 實跑):`grep -c "supabase/migrations\|readFileSync"` 於本檔 ⇒ **0**。
+  //    🔴 ⇒ RPC 那句訊息被改掉時, 它**不會紅**。而標題說它會。
+  //    📌 **⇒ 一支檔對它自己說謊, 而說謊的那句讀起來最像已經做到了。**
+  //    ⚠️ 舊字面留在這裡不刪 —— 讓搜舊句的人同一發撞到這段更正。
+  //
+  // ✅ 修法是**既有慣例**, 不是新設計:同目錄 `create-order-tier-pin.test.ts:40` 起
+  //    用的就是這個形狀(全 repo 43 支測試在讀 migration)。
+  //
+  // 🔴 **爆炸半徑**:`git grep -c pcm_display_id_exhausted -- supabase/migrations` ⇒ **8 支**
+  //    (最新兩支是 2026-09-01 當天的)⇒ 那支 RPC 重定義過至少 3 代、而那個字面散在 8 支檔裡
+  //    ⇒ **每一次重貼都是一次掉字面的機會, 而 TS 這側從頭到尾都是綠的。**
+  it('🔴 釘住那個字串 —— 而它讀的是【最後一代 migration】, 不是自己的硬抄', () => {
+    const live = liveDefinerOfManualOrderRpc();
+    const sql = readFileSync(resolve(MIGRATIONS_DIR, live), 'utf8');
+    // 🟢 先證這把尺接上了:撈得到那支檔、而且它真的是定義那支 RPC 的那一支
+    expect(sql.length).toBeGreaterThan(1000);
+    expect(DEFINES_MANUAL_ORDER_RPC.test(sql)).toBe(true);
+    // 🎯 主斷言:最後一代裡仍然 RAISE 那個 token
+    // 🔴🔴 **必須連【定界字元】一起釘** —— 我第一版寫 `expect(sql).toContain(TOKEN)`,
+    //    而突變(把 SQL 那側改成 `pcm_display_id_exhaustedX`)⇒ **47 格照樣全過**。
+    //    成因:`toContain` 對字串是**子字串比對** ⇒ 加一個字元的那個世界仍然「包含」原 token。
+    //    📌 **⇒ 我用來修一支說謊測試的那一版, 自己犯了同一個病。抓到它的是那一發突變, 不是我。**
+    //    ⇒ 改成連 SQL 裡的 `' (…)'` 定界一起比:加字元 ⇒ 定界對不上 ⇒ 紅。
+    expect(sql).toContain(`' (${DISPLAY_ID_EXHAUSTED_TOKEN})'`);
+    // 而 TS 常數本身也釘住(舊那一格的用途, 留著 —— 它擋的是「有人改 TS 這側」)
     expect(DISPLAY_ID_EXHAUSTED_TOKEN).toBe('pcm_display_id_exhausted');
+  });
+
+  it('🔵 負對照 —— 同一把尺對一個現造 token 撈不到', () => {
+    const sql = readFileSync(resolve(MIGRATIONS_DIR, liveDefinerOfManualOrderRpc()), 'utf8');
+    expect(sql).not.toContain('zzq9_never_a_token');
   });
 });
 
