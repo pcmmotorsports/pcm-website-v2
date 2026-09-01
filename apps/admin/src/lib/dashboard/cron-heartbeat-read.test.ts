@@ -25,9 +25,18 @@ import {
 type Row = Record<string, unknown>;
 
 /** 讓 `.from(...).select(...)` 這條鏈 resolve 成一份假資料。 */
+/** 🔴 **最後一次 `.select()` 被餵了什麼** —— 而它是本檔唯一看得到「有沒有讀那一欄」的地方。
+ *  ⚠️ 原本的 mock 是 `select: () => …`(**丟掉參數**)⇒ 把 `last_failure_at` 從 SELECT 拿掉
+ *     時, **24 格全綠**(2026-09-02 突變實測)⇒ 📌 而那正是這一片要修的那個病本身。
+ *  ⇒ ⇒ **一個守「有沒有去讀」的測試, 如果它的替身丟掉那個參數, 它守的就是別的東西。** */
+let lastSelect: string | null = null;
 function withRows(rows: Row[] | null, error: unknown = null) {
+  lastSelect = null;
   mocks.from.mockReturnValue({
-    select: () => Promise.resolve({ data: rows, error }),
+    select: (cols?: unknown) => {
+      lastSelect = typeof cols === 'string' ? cols : null;
+      return Promise.resolve({ data: rows, error });
+    },
   });
 }
 /** transport 層真的 reject(網路斷 / DNS)—— 那不會進 `{ error }`。 */
@@ -347,5 +356,60 @@ describe('loadCronHeartbeats', () => {
       unknownJobs: [],
       unreadableReason: '測試原因',
     });
+  });
+});
+
+describe('🔴 那個【自己癒合的紅點】—— 失敗過的事實不得在下一輪成功時消失', () => {
+  // 病灶(2026-09-02 正式庫唯讀量到, 而它當時就在發生):
+  //   pcm-settle-sweep  last_success 09-01 19:00 · last_failure **09-01 17:16** · consecutive_failures **0**
+  //   ⇒ 舊版只 SELECT last_success_at 與 consecutive_failures ⇒ 兩個都是好的 ⇒ **畫成綠的**
+  //   ⇒ 而「兩小時前失敗過」這件事在畫面上不存在。
+  const TARGET = 'pcm-settle-sweep';
+
+  it('🔴 現在健康、而 N 分鐘前失敗過 ⇒ note 要【兩句都說】', async () => {
+    withRows(
+      ALL_HEALTHY.map((r) =>
+        r.job_name === TARGET ? { ...r, last_failure_at: ago(134) } : r,
+      ),
+    );
+    const r = await loadCronHeartbeats(NOW);
+    const j = r.jobs.find((x) => x.jobName === TARGET);
+    expect(j, '找不到那一列').toBeDefined();
+    expect(j!.note, 'note 沒說「現在健康」那一句').toContain('分前成功');
+    expect(j!.note, '🔴 note 沒說「失敗過」—— 那正是會消失的那件事').toContain('失敗過一次');
+    expect(j!.lastFailureMinutesAgo).toBe(134);
+  });
+
+  it('🛑 而它【不得】讓那一列變紅 —— 已經復原的失敗不是警報', async () => {
+    // 理由:一次已復原的失敗亮紅 = 假警報, 而本檔逐字記過「天天叫的告警 = 等於沒有告警」。
+    // ⇒ 本片做的是【把消失的證據留下來】, 不是【多亮一盞燈】。
+    withRows(
+      ALL_HEALTHY.map((r) =>
+        r.job_name === TARGET ? { ...r, last_failure_at: ago(134) } : r,
+      ),
+    );
+    const r = await loadCronHeartbeats(NOW);
+    expect(r.jobs.filter((j) => j.abnormal)).toEqual([]);
+  });
+
+  it('🔴 SELECT 真的把 last_failure_at 讀進來了(不是只改判定)', async () => {
+    // 🛑 這一格是突變逼出來的:把 last_failure_at 從 .select() 拿掉 ⇒ 上面那幾格【全綠】,
+    //    因為 mock 的 select 丟掉了參數 ⇒ 它們讀的是我餵進去的 row, 不是真的查詢。
+    //    ⇒ 📌 而那正是本片要修的病:**沒有去讀的那一欄, 在下游長得像「沒有值」。**
+    withRows(ALL_HEALTHY);
+    await loadCronHeartbeats(NOW);
+    expect(lastSelect, '沒有攔到 select 的參數 ⇒ 這一格證不了東西').not.toBeNull();
+    expect(lastSelect, '🔴 SELECT 沒有讀 last_failure_at').toContain('last_failure_at');
+    // 🔵 正對照:那個字串真的是欄位清單(不是被我攔到別的東西)。
+    expect(lastSelect).toContain('last_success_at');
+    expect(lastSelect).toContain('consecutive_failures');
+  });
+
+  it('🔵 負對照:從來沒失敗過 ⇒ note 【不得】出現那一句', async () => {
+    withRows(ALL_HEALTHY);
+    const r = await loadCronHeartbeats(NOW);
+    const j = r.jobs.find((x) => x.jobName === TARGET);
+    expect(j!.note).not.toContain('失敗過一次');
+    expect(j!.lastFailureMinutesAgo).toBeNull();
   });
 });

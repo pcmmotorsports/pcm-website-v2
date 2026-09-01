@@ -68,6 +68,14 @@ export type CronJobHealth = {
   consecutiveFailuresUnreadable: boolean;
   /** 🔴 **「這一列該不該亮」的唯一判準** —— 顯示端只准讀這一格,不准自己再組一次。 */
   abnormal: boolean;
+  /**
+   * 距離**最後一次失敗**幾分鐘;`null` = 這一支從來沒失敗過(或時間戳解不出來)。
+   *
+   * 🔴 **它為什麼要存在**:`consecutiveFailures` 在下一輪成功時被寫回 0
+   *    ⇒ 「剛剛失敗過」這件事**在畫面上會消失**, 而問題可能還在(退避最長 24h+)。
+   * 🛑 **而它【不進 `abnormal`】—— 那是刻意的, 理由在下面那段。**
+   */
+  lastFailureMinutesAgo: number | null;
   /** 一句人看得懂的話。兩個世界印不同的東西,而**兩邊都會印**。 */
   note: string;
 };
@@ -96,6 +104,8 @@ export function unreadableReport(reason: string): CronHeartbeatReport {
 type HeartbeatRowRead = {
   job_name?: unknown;
   last_success_at?: unknown;
+  /** 🔴 2026-09-02 加:寫入端一直在寫它, 而讀取端從來沒讀過(見 select 那段)。 */
+  last_failure_at?: unknown;
   consecutive_failures?: unknown;
 };
 
@@ -117,7 +127,15 @@ export async function loadCronHeartbeats(now: Date = new Date()): Promise<CronHe
   // 形狀抄隔壁 `freshness-read.ts`,不自創第二種寫法。
   const res = await createSupabaseServiceClient()
     .from('sweeper_heartbeat')
-    .select('job_name, last_success_at, consecutive_failures')
+    // 🔴🔴 **`last_failure_at` 是 2026-09-02 加進來的, 而它【原本就寫在表裡】** ——
+    //    寫入端 `apps/storefront/src/lib/cron/heartbeat.ts:414` 每次失敗都更新它,
+    //    而這一行**從來沒有 SELECT 它** ⇒ 📌 **證據一直在資料庫裡, 只是沒有人讀。**
+    //    ⇒ 病灶:一輪失敗 ⇒ 紅;5 分鐘後那批已退避、沒有 due 列 ⇒ 200
+    //      ⇒ `recordHeartbeatSuccess` 把 `consecutive_failures` 寫回 0 ⇒ **紅自己癒合**
+    //      而**問題還在**(退避最長 24h+)⇒ 訊號沒了。
+    //    🔵 實例(2026-09-02 03:2x 正式庫唯讀量到, 而它當時就在發生):
+    //      `pcm-settle-sweep` last_success 09-01 19:00 · **last_failure 09-01 17:16** · failures **0**
+    .select('job_name, last_success_at, last_failure_at, consecutive_failures')
     .then(
       (v) => v as { data: HeartbeatRowRead[] | null; error: unknown },
       (error: unknown) => ({ data: null, error }),
@@ -147,6 +165,8 @@ export async function loadCronHeartbeats(now: Date = new Date()): Promise<CronHe
         minutesAgo: null,
         consecutiveFailures: null,
         consecutiveFailuresUnreadable: false,
+        // 🔵 表裡根本沒有那一列 ⇒ 沒有失敗時間可讀。
+        lastFailureMinutesAgo: null,
         abnormal: true,
         note: `從來沒寫過心跳(接線落點:${w.wiredAt})`,
       });
@@ -163,6 +183,9 @@ export async function loadCronHeartbeats(now: Date = new Date()): Promise<CronHe
     const neverSucceeded = rawSuccess === null || rawSuccess === undefined;
     const minutesAgo = neverSucceeded ? null : minutesSince(rawSuccess, now);
 
+    // 🔴 **最後一次失敗** —— 與 `minutesAgo` 用同一把 `minutesSince`(同一種壞法、同一種 null)。
+    const lastFailureMinutesAgo = minutesSince(row.last_failure_at, now);
+
     const rawFailures = row.consecutive_failures;
     const meaningless = FAILURE_COUNT_MEANINGLESS.has(w.jobName);
     // 🔴 R1 I2:設計上沒有意義 vs 讀到的不是數字 —— 兩件事,兩個欄位,不共用 `null`。
@@ -177,6 +200,7 @@ export async function loadCronHeartbeats(now: Date = new Date()): Promise<CronHe
         minutesAgo: null,
         consecutiveFailures: failures,
         consecutiveFailuresUnreadable: failuresUnreadable,
+        lastFailureMinutesAgo,
         abnormal: true,
         note: failing
           ? `從來沒有成功過,而已連續失敗 ${failures} 次`
@@ -194,6 +218,7 @@ export async function loadCronHeartbeats(now: Date = new Date()): Promise<CronHe
         minutesAgo: null,
         consecutiveFailures: failures,
         consecutiveFailuresUnreadable: failuresUnreadable,
+        lastFailureMinutesAgo,
         abnormal: true,
         note: '有這一列,而最後成功時間讀不出來',
       });
@@ -210,17 +235,34 @@ export async function loadCronHeartbeats(now: Date = new Date()): Promise<CronHe
       minutesAgo,
       consecutiveFailures: failures,
       consecutiveFailuresUnreadable: failuresUnreadable,
+      lastFailureMinutesAgo,
       // 🔴 `failuresUnreadable` 進判準 = R1 I2 的修法本體:兩把尺方向要一致。
+      //
+      // 🛑🛑 **而 `lastFailureMinutesAgo` 【刻意不進這一格】** —— 理由不是省事:
+      //    ① 一次**已經復原**的失敗不該讓這一格亮紅 ——
+      //       實例:`pcm-settle-sweep` 17:16 失敗、19:00 已成功 ⇒ 它現在是健康的
+      //       ⇒ 讓它紅 = 一個**假警報**, 而本檔上面逐字記過「天天叫的告警 = 等於沒有告警」
+      //    ② 而「那批東西還在不在退避裡」**這張表答不出來** —— 那要讀 outbox 的 next_retry_at
+      //       ⇒ 用心跳表去猜它 = 拿一把答不出那個問題的尺去回答它
+      // 🎯 **⇒ 所以本片做的是【把消失的證據留下來】, 不是【多亮一盞燈】。**
+      //    ⇒ ⇒ 紅點仍然會在 5 分鐘後癒合;而**「它 N 分鐘前失敗過」這句話留在那一行上**。
+      // 📌 **⇒ 而那一句是給【那天有打開後台的人】看的, 不是給告警系統看的。**
       abnormal: stale || future || failing || failuresUnreadable,
-      note: future
-        ? `最後成功時間在未來(${minutesAgo.toFixed(1)} 分)`
-        : stale
-          ? `已經 ${Math.floor(minutesAgo)} 分沒成功(門檻 ${w.staleMinutes} 分)`
-          : failing
-            ? `最近一次成功在 ${Math.floor(minutesAgo)} 分前,而連續失敗 ${failures} 次`
-            : failuresUnreadable
-              ? `${Math.floor(minutesAgo)} 分前成功,而失敗計數讀不出來(欄位型別漂了?)`
-              : `${Math.floor(minutesAgo)} 分前成功`,
+      // 🔴 而失敗那一句**接在最後**, 不取代前面任何一句 —— 兩件事都要說得出來:
+      //    「它現在健康」與「它 N 分鐘前失敗過」**同時為真**, 而舊版只說得出前者。
+      note:
+        (future
+          ? `最後成功時間在未來(${minutesAgo.toFixed(1)} 分)`
+          : stale
+            ? `已經 ${Math.floor(minutesAgo)} 分沒成功(門檻 ${w.staleMinutes} 分)`
+            : failing
+              ? `最近一次成功在 ${Math.floor(minutesAgo)} 分前,而連續失敗 ${failures} 次`
+              : failuresUnreadable
+                ? `${Math.floor(minutesAgo)} 分前成功,而失敗計數讀不出來(欄位型別漂了?)`
+                : `${Math.floor(minutesAgo)} 分前成功`) +
+        (lastFailureMinutesAgo === null
+          ? ''
+          : `;而 ${Math.floor(lastFailureMinutesAgo)} 分前失敗過一次`),
     });
   }
 

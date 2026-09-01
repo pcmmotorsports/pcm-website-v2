@@ -197,7 +197,14 @@ FROM customers c
 CROSS JOIN (VALUES
   ('PCM-2026-9001', 'paid',   'shipped',    5400, 160,   0, now() - interval '9 days', NULL::timestamptz, NULL::text),
   ('PCM-2026-9002', 'paid',   'inStock',    1800, 160,   0, now() - interval '6 days', NULL,              NULL),
-  ('PCM-2026-9003', 'paid',   'ordered',    4200, 160, 700, now() - interval '4 days', NULL,              NULL),
+  -- 🔴 **2026-09-02 `-0e` 修:折抵 ~~700~~ ⇒ 0**(舊值留著劃掉, 讓搜 700 的人撞到這裡)
+  --    成因:`20260901020000` 加了 CHECK `orders_discount_needs_coupon`
+  --    ⇒ **`discount_total` 與 `coupon_id` 要一起有、或一起沒有**。
+  --    而本種子只填折抵不填券 ⇒ 23514 ⇒ **`up.sh` 整支在這裡中止, 站根本沒起來**。
+  --    📌 **而它安靜了一天**:那支 migration 2026-09-01 落地, 而在那之後
+  --       【沒有任何人跑過 storefront probe】⇒ 這台鑽機壞掉零訊號。
+  --    ⇒ 🔵 要演「有券折抵」那個世界, 要連 `coupon_id` 一起種 —— 那是另一件, 不在本修。
+  ('PCM-2026-9003', 'paid',   'ordered',    4200, 160,   0, now() - interval '4 days', NULL,              NULL),
   ('PCM-2026-9004', 'unpaid', 'notOrdered', 2100, 160,   0, NULL,                      NULL,              NULL),
   ('PCM-2026-9005', 'paid',   'notOrdered', 1500, 160,   0, now() - interval '2 days',
      now() - interval '1 day', '探針假資料:客人要求取消')
