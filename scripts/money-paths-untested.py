@@ -155,6 +155,23 @@ def _strip_comments(text, sql):
 def fp_dir(d):
     return d.replace(ROOT, '')
 
+def trigger_fns():
+    """CREATE TRIGGER … EXECUTE [PROCEDURE|FUNCTION] f() 綁走的函式。
+    🔴 它們【結構上不會有呼叫端】—— 由 DB 自己在寫入時叫, 與「沒人在用」是兩件事。"""
+    out = set()
+    pat = re.compile(r'EXECUTE\s+(?:PROCEDURE|FUNCTION)\s+(?:public\.)?([a-z0-9_]+)', re.I)
+    for d, dirs, fs in os.walk(os.path.join(ROOT, 'supabase', 'migrations')):
+        for f in fs:
+            if not f.endswith('.sql'): continue
+            raw = io.open(os.path.join(d, f), encoding='utf-8', errors='ignore').read()
+            out |= {m.group(1) for m in pat.finditer(_strip_comments(raw, True))}
+    return out
+
+def caller_kind(f):
+    if f.endswith('.sh') or '/docs/specs/' in f: return '驗收腳本'
+    if f.startswith('supabase/'): return 'migration'
+    return '產品碼'
+
 def callers_of(name):
     """回傳 [(檔, 行號, 那一行)] —— 只認【呼叫形狀】, 不認單純提到名字。"""
     out = []
@@ -191,6 +208,10 @@ def callers_of(name):
                 except Exception: continue
                 if name not in raw: continue
                 clean = _strip_comments(raw, sql)
+                # 🔴 .sh 走 sql=False ⇒ 它的 `#` 註解【一條都沒被剝】
+                #    (2026-09-01 實量:29 筆命中是 .sh 註解裡在講那支函式, 不是在呼叫它)
+                if f.endswith('.sh'):
+                    clean = re.sub(r'^[ \t]*#[^\n]*$', '', clean, flags=re.M)
                 # 🔴 `rpc(` 與函式名可能【跨行】—— 而逐行比對看不到它
                 #    (2026-09-01 正對照抓到:SupabaseOrderAdapter.ts 的 .rpc( 換行才接 'create_order')
                 for m in pats[1].finditer(clean):
@@ -249,8 +270,28 @@ def report():
     for nm in sorted(b):
         cs = callers_of(nm)
         if not cs: zero.append(nm)
+    trg = trigger_fns()
     print('   有呼叫端 %d / 零呼叫端 %d / 分母 %d' % (len(b) - len(zero), len(zero), len(b)))
-    for nm in zero: print('   ✗ ' + nm)
+    print('   🔴 而【有呼叫端】這個數要拆開看 —— 一個數字會被讀成「都有人在走」:')
+    # 🔴 這四堆【不可以併成一個數】—— 前三堆是真的在跑, 只有第四堆才是可疑的那一堆
+    #    (2026-09-01:併成「有呼叫端 69」時, redeem_coupon 被歸進待查,
+    #     而它的呼叫端就在 create_order 的函式體裡 —— 那是顧客結帳的正路)
+    prod, indb, trig, weak = [], [], [], []
+    for n in sorted(set(b) - set(zero)):
+        ks = {caller_kind(c[0]) for c in callers_of(n)}
+        # 🔴 觸發器要排在 migration 【前面】—— 否則那一堆永遠印 0:
+        #    `CREATE TRIGGER … EXECUTE FUNCTION f()` 那一行自己就住在 migration 裡
+        #    ⇒ 一個結構上不可能非零的格子, 與「真的沒有」印同一個 0。
+        if '產品碼' in ks: prod.append(n)
+        elif n in trg: trig.append(n)
+        elif 'migration' in ks: indb.append(n)
+        else: weak.append(n)
+    print('      · 有【產品碼】呼叫端(TS/JS)      %d' % len(prod))
+    print('      · 被【別支 DB 函式】呼叫(正路)   %d' % len(indb))
+    print('      · 觸發器綁走(結構上無呼叫端)     %d' % len(trig))
+    print('      🔴 只有【驗收腳本】撐住 ⇒ 這才是可疑的那一堆  %d' % len(weak))
+    for nm in weak: print('        🔴 %s' % nm)
+    for nm in zero: print('   ✗ 零呼叫端 ' + nm)
     print('🛑 「零呼叫端」= **本 repo 找不到**, 不是「沒有人叫它」—— 射程見檔頭 🛑🛑 那一段。')
 
 def selftest():
