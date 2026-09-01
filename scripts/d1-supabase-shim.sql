@@ -6,7 +6,9 @@
 -- - auth schema:`auth.users` 必須含 email 與 raw_user_meta_data ——
 --   `20260523034911:278-295` 的 `handle_new_auth_user` trigger 讀這兩欄,
 --   id-only 最小表在造資料當下就會炸(Fable R3-F1;對齊 D1a6 實證形狀)。
--- - `auth.uid()`:回 NULL(rehearsal 無 JWT;RLS policy 解析需要函式存在)。
+-- - `auth.uid()`:~~回 NULL~~ ⇒ **2026-09-01 改為讀 `request.jwt.claims`(照平台形狀)**。
+--   🔵 **沒有人設那個 GUC 時它仍然回 NULL** ⇒ 舊句描述的那個世界沒有變,只是不再是全部。
+--   舊字面留著不刪:搜「auth.uid() 回 NULL」的人要在同一發撞到這裡。詳見下面 :41 那段。
 -- - vault / pcm_cron / cron / net:唯一引用者 = 被跳過的 `20260723120000`;
 --   cron/net 由 d1-fake-cron.sql 提供,vault 不 shim。
 -- - 🆕 **N3a(2026-07-30)`extensions` schema + pgcrypto**:平台上這兩者由 Supabase 預先建好,
@@ -38,8 +40,26 @@ CREATE TABLE IF NOT EXISTS auth.users (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- 🔴🔴 **2026-09-01 改:原本是常數 `SELECT NULL::uuid`,而那讓 26 支 harness 的 provision 過不去。**
+--   成因不在 fixture,在這裡:`supabase/migrations/20260820020000_…_a8a3g_…sql:147` 會自己
+--   `set_config('request.jwt.claims', …)`,然後在 `:152` 驗 `auth.uid()` 有沒有真的變成那個 uid
+--   ⇒ **常數版永遠回 NULL ⇒ 它會紅在那道【自檢】上,而不是紅在 fixture 上。**
+--   ⇒ 📌 補一張訂單之後才會撞到這一層 —— 那是【第二個、獨立的】缺口。
+--
+-- 下面這個定義照 Supabase 平台的形狀寫(`request.jwt.claim.sub` 舊鍵優先、再退回 `request.jwt.claims` JSON)。
+-- 🟢 **正對照(實測 PG 17.10)**:設了 GUC ⇒ 回得到那個 uid。
+-- 🔵 **負對照(實測)**:GUC 空字串 ⇒ NULL。
+-- 🔵🔵 **而真正決定「這個改動安不安全」的是第三格 —— 全新連線、從來沒設過那個 GUC ⇒ 仍是 NULL**
+--    ⇒ **對【不設 GUC 的每一支 migration】,行為與改之前逐字相同。**
+--    ⇒ 📌 那一格不是額外的謹慎,它是唯一問得出「我有沒有改到別人」的那一問。
+-- ⚠️ `current_setting(..., true)` 的第二個參數 = missing_ok ⇒ 沒設過不會拋錯而是回 NULL。
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
-LANGUAGE sql STABLE AS 'SELECT NULL::uuid';
+LANGUAGE sql STABLE AS $auth_uid$
+  SELECT coalesce(
+           nullif(current_setting('request.jwt.claim.sub', true), ''),
+           (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')
+         )::uuid
+$auth_uid$;
 
 GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
 
