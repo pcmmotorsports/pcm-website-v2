@@ -284,6 +284,16 @@
 
 **允許集合** — 🔴 **本函式體內零命中**(字面比對)⇒ 要嘛它沒有狀態閘、要嘛閘的寫法本腳本抓不到。**開檔確認,不要當成「沒有閘」。**
 
+### `pcm_pending_refund_on_cancel`  ·  `20260901080000_m4b_autorefund_pending_refunds.sql`
+
+**改什麼狀態**
+
+`:459` '寫 SET cancelled_at(含 pg_cron 的逾期批次 UPDATE, 而那條路不建 order_cancellations)。'<br>`:473` '20260809160000:100-101 是一段 in-tree 的資料回滾指令(SET cancelled_at = NULL WHERE cancelled_reason=payment_expired), '
+
+**允許集合(逐字)**
+
+`:379` IF OLD.cancelled_at IS NOT NULL OR NEW.cancelled_at IS NULL THEN<br>`:403` FROM public.order_cancellations c<br>`:409` FROM public.order_cancellations c<br>`:459` '寫 SET cancelled_at(含 pg_cron 的逾期批次 UPDATE, 而那條路不建 order_cancellations)。'<br>`:466` 'admin_cancel_order 最新代(20260830020000)是先 INSERT order_cancellations(:497)才 UPDATE cancelled_at(:533)。'
+
 ---
 
 ## 三、自測:本表答得出「已付款的單能不能取消品項」嗎?
