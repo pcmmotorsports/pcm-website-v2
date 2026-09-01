@@ -102,6 +102,49 @@ export type PaidEmailChrome = {
  */
 export const PCM_EMAIL_LOGO_URL = 'https://www.pcmmotorsports.com/pcm-logo.png';
 
+/**
+ * 「到會員中心查看訂單」那顆鈕的網址。**基底由呼叫端傳進來,本檔不讀 `process.env`。**
+ *
+ * ══ 🔴 為什麼 CTA 讀 env, 而 LOGO 是硬編碼 —— 兩者【方向相反】而那是刻意的 ══════
+ *   下一個人一定會問這件事, 所以寫在這裡:
+ *
+ *   **LOGO**:那張圖在**官網專案與顧客站的同一個路徑上各放一份** ⇒ 移轉那天不論誰接手都活著
+ *     ⇒ 所以可以直接指向**未來那個網域**(`www`)。代價是**今天先壞一陣子**,而 Sean 選了它。
+ *
+ *   🔴 **CTA 不一樣**:它連的是**客人的訂單頁**, 而那一頁**只有顧客站有** ——
+ *      官網那個 landing 專案上沒有 ⇒ **今天指向 `www` 會是一顆點下去到不了的鈕**。
+ *      🛑 而本板記過:**死入口比沒入口糟**。
+ *   ⇒ ✅ 所以 CTA 跟著 `NEXT_PUBLIC_SITE_URL` 走(今天 = `shop`)⇒ **今天連得到**;
+ *      移轉那天 Sean 改那顆 env ⇒ 新寄的信自動變 `www`。
+ *   ⚠️ **代價一樣要明寫**:已經寄出去的信裡是 `shop` 的連結 ⇒ `shop` 關掉那天它們會失效。
+ *      ⇒ 📌 **與 LOGO 是同一種「未來變假」, 只是我們這一次選了相反的邊** ——
+ *         因為 LOGO 壞掉是**難看**, 而 CTA 壞掉是**客人點了到不了**。
+ *
+ * ══ 🔴 而本檔【不自己讀 env】—— 這一格我推翻了「在這裡讀」的做法, 理由三條 ══════
+ *   ① 已經有一支 prod-safe 的 `resolveSiteUrl()`(`apps/storefront/src/lib/site-url.ts:20`),
+ *      它處理了「未設 + production ⇒ 回 undefined、絕不吐 localhost」。
+ *      ⇒ **在這裡再寫一份 = 兩份會漂的同義邏輯**,而漂了之後這一份不會紅。
+ *   ② `packages/use-cases` 是共用層 ⇒ 它不該知道呼叫它的是哪一個 app 的哪一顆 env。
+ *   ③ 讀 env 的函式**測不動** —— 而這一格要測的正是「env 沒設 ⇒ 不印那顆鈕」。
+ *   ⇒ ✅ 所以基底**當參數傳進來**:呼叫端(那條 cron route)把 `resolveSiteUrl()` 餵進來。
+ *      🔵 **淨效果與「在這裡讀 env」完全相同, 而它可測、且零重複。**
+ *
+ * @param siteUrl 站台基底(呼叫端給 `resolveSiteUrl()` 的回傳值;未設 ⇒ 傳 `undefined`)
+ * @returns 完整網址;**基底缺了或不是絕對 http(s) ⇒ 回 `undefined`** ⇒ 呼叫端就不會印那顆鈕。
+ */
+export function paidEmailOrderUrl(
+  siteUrl: string | undefined,
+  orderDisplayId: string,
+): string | undefined {
+  // 🔴 `isAbsoluteHttpUrl` 的判準逐字對齊 `site-url.ts:31`(`/^https?:\/\//`)——
+  //    不是我另訂一套。⇒ 那邊放行的、這邊也放行,兩份不會對同一個值給不同答案。
+  if (siteUrl === undefined) return undefined;
+  const base = siteUrl.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//.test(base)) return undefined;
+  // 🔴 單號進網址要 encode —— 它今天是 `[A-Z0-9]`,而**那是今天的產號規則不是欄位約束**。
+  return `${base}/account/orders/${encodeURIComponent(orderDisplayId)}`;
+}
+
 /** HTML 特殊字元逃逸。品名與料號是**外部資料**(供應商匯入、員工手打)⇒ 一律過這一關。 */
 function esc(s: string): string {
   return s

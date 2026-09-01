@@ -15,6 +15,7 @@ import {
   paidEmailHtmlBytes,
   GMAIL_CLIP_BYTES,
   PCM_EMAIL_LOGO_URL,
+  paidEmailOrderUrl,
 } from './paid-email-html';
 
 const m = (n: number) => n as MoneyAmount;
@@ -141,6 +142,47 @@ describe('🔴 稿上那句「PDF 已附在這封信裡」是事實宣稱,預設
   it('明確說有附 ⇒ 才印', () => {
     const html = renderPaidEmailHtml(ctxWithDiscount(), { hasPdfAttachment: true });
     expect(html).toContain('訂單明細 PDF 已附在這封信裡');
+  });
+});
+
+describe('🔴 CTA 網址 · paidEmailOrderUrl —— 而它與 LOGO 的取捨【方向相反】', () => {
+  it('有基底 ⇒ 組出訂單頁網址', () => {
+    expect(paidEmailOrderUrl('https://shop.pcmmotorsports.com', 'XMFPNH')).toBe(
+      'https://shop.pcmmotorsports.com/account/orders/XMFPNH',
+    );
+  });
+
+  it('🔴 基底沒設(env 未設 ⇒ resolveSiteUrl 回 undefined)⇒ 回 undefined ⇒ 那顆鈕不印', () => {
+    expect(paidEmailOrderUrl(undefined, 'XMFPNH')).toBeUndefined();
+  });
+
+  it('🔴 基底不是絕對 http(s) ⇒ 也回 undefined —— 不是組一個半截網址', () => {
+    // 📌 一個半截網址會變成【點得下去而到不了】的鈕,而那比沒有鈕糟。
+    for (const bad of ['', '   ', 'pcmmotorsports.com', '/account', 'ftp://x.test']) {
+      expect(paidEmailOrderUrl(bad, 'XMFPNH')).toBeUndefined();
+    }
+  });
+
+  it('尾斜線不會變成雙斜線', () => {
+    expect(paidEmailOrderUrl('https://x.test///', 'AB1')).toBe('https://x.test/account/orders/AB1');
+  });
+
+  it('🔴 單號進網址要 encode(今天的產號是 [A-Z0-9],而那是產號規則不是欄位約束)', () => {
+    expect(paidEmailOrderUrl('https://x.test', 'A B/C?')).toBe(
+      'https://x.test/account/orders/A%20B%2FC%3F',
+    );
+  });
+
+  it('🔵 端到端:env 沒設 ⇒ 整封信裡沒有那顆鈕;有設 ⇒ 有,而兩份不一樣', () => {
+    const off = renderPaidEmailHtml(ctxWithDiscount(), {
+      orderUrl: paidEmailOrderUrl(undefined, 'XMFPNH'),
+    });
+    const on = renderPaidEmailHtml(ctxWithDiscount(), {
+      orderUrl: paidEmailOrderUrl('https://shop.pcmmotorsports.com', 'XMFPNH'),
+    });
+    expect(off).not.toContain('到會員中心查看訂單');
+    expect(on).toContain('href="https://shop.pcmmotorsports.com/account/orders/XMFPNH"');
+    expect(off).not.toBe(on);
   });
 });
 
