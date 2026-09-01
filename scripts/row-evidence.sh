@@ -35,7 +35,13 @@ if not hits:
     print("🛑 板上查無這個錨/關鍵字 ⇒ 【不知道】, 不是【沒問題】"); sys.exit(3)
 print("命中 %d 列"%len(hits))
 for n,l in hits:
-    c=[x.strip() for x in l.strip('|').split('|')]
+    # 🔴 **在【沒有被反斜線跳脫的】豎線上切**(2026-09-02;`-f3` 量到, `-15` 自己重現後改)。
+    #    ⛔ ~~`l.split('|')`~~ ⇒ 它把 `\|` 也當欄位分隔 ⇒ 一列有 6 個跳脫豎線時欄位整個右移
+    #      ⇒ 「誰欄」印出**一段看起來像內容的指令碎片**(實測 `b4-NEWAPI1` ⇒ 印 `` `git ls-files \ ``)。
+    # 📌 **⇒ 關鍵是:`\|` 是【markdown 渲染】的跳脫, 不是【欄位切割】的跳脫。**
+    #    ⇒ ⇒ 「把裸 `|` 跳脫掉」對畫面有效、對讀它的程式**無效** ⇒ 修法在【讀端】。
+    # 🟢 而正對照寫法早就存在:`scripts/board-state-consistency.py` 用的就是這個。
+    c=[x.strip().replace('\\|','|') for x in re.split(r'(?<!\\)\|', l.strip('|'))]
     st=[x for x in c if x in ('open','doing','parked','done')]
     print("\n───────── 板 L%d ─────────"%n)
     print("① 態      :", st[0] if st else "🛑 讀不到(欄位可能錯位, 本列 %d 欄)"%len(c))
