@@ -280,6 +280,36 @@ ${MKPAID}
 END \$w\$;
 ROLLBACK;"
 
+# 🔴🔴 第三段聚合 —— codex R1 抓到的那條:一筆被人工判定 failed、而事後被更正成
+#    【錢真的動了】的卡片列, 在 pcm_order_refundable_remaining 裡是算的。
+#    兩支對同一筆錢給不同答案 ⇒ 客人會看到互相矛盾的畫面。
+#    ⇒ 而在補這一格之前, 那段碼是【寫了而零測試】—— 與「寫對了而沒接上」在觀測上相同。
+run_case "W2-8 被更正成 money_moved 的 failed 卡片列 400 + 人工 600 ⇒ refunded" "MR-W2-8-OK" "
+BEGIN;
+DO \$w\$
+DECLARE v_o uuid; v_u uuid; v_v uuid; v_st text; v_rf uuid;
+BEGIN
+${MKPAID}
+  UPDATE public.orders SET tappay_rec_trade_id = 'REC-M8-' || pg_catalog.substr(v_o::text, 1, 8) WHERE id = v_o;
+  INSERT INTO public.order_refunds (order_id, rec_trade_id, bank_refund_id, refund_amount, status, reason, actor, request_id, kind, record_refunded_before, confirmed_at)
+  VALUES (v_o, 'REC-M8-' || pg_catalog.substr(v_o::text, 1, 8), 'BR8-' || pg_catalog.substr(v_o::text, 1, 12), 400, 'processing', 'harness', 'staff_1', pg_catalog.gen_random_uuid()::text, 'partial', 0, NULL)
+  RETURNING id INTO v_rf;
+  UPDATE public.order_refunds SET status = 'failed', failed_reason = 'manual_failed', failed_detail = 'harness' WHERE id = v_rf;
+  PERFORM public.admin_record_manual_refund(v_o, pg_catalog.gen_random_uuid(), 'staff_1', 'bank_transfer', 600, 'harness 人工那半', pg_catalog.now());
+  SELECT payment_status::text INTO v_st FROM public.orders WHERE id = v_o;
+  IF v_st <> 'partiallyRefunded' THEN
+    RAISE EXCEPTION 'W2-8 前提不成立:未更正的 failed 列竟然被算了(狀態 =%)⇒ 一般 failed 不該計入', v_st;
+  END IF;
+  INSERT INTO public.order_refund_manual_corrections (refund_id, seq, corrected_to, reason, actor, request_id)
+  VALUES (v_rf, 1, 'money_moved', 'harness 更正:錢其實動了', 'staff_1', pg_catalog.gen_random_uuid()::text);
+  SELECT public.pcm_sync_order_refund_payment_status(v_o) INTO v_st;
+  IF v_st <> 'refunded' THEN
+    RAISE EXCEPTION 'W2-8:400(更正為 money_moved 的 failed)+ 600(人工)= 1000 而狀態 =%(預期 refunded)⇒ 第三段沒有生效', v_st;
+  END IF;
+  RAISE NOTICE 'MR-W2-8-OK 未更正時 partiallyRefunded, 更正後 %', v_st;
+END \$w\$;
+ROLLBACK;"
+
 log "M 突變證人"
 run_case_expect_red "M1 把人工那本帳的 SUM 拿掉 ⇒ W2-1 必須紅" "M1 如預期" "
 BEGIN;
@@ -370,6 +400,34 @@ ${MKPAID}
   PERFORM public.admin_void_manual_refund(v_rid, 'h', 'staff_1');
   SELECT payment_status::text INTO v_st FROM public.orders WHERE id = v_o;
   IF v_st <> 'partiallyRefunded' THEN RAISE EXCEPTION 'M4 如預期:加回單調閘之後狀態卡在 %', v_st; END IF;
+END \$m\$;
+ROLLBACK;"
+
+run_case_expect_red "M5 把第三段(corrected money_moved)拿掉 ⇒ W2-8 必須紅" "M5 如預期" "
+BEGIN;
+DO \$m0\$
+DECLARE v_def text; v_n integer;
+BEGIN
+  v_def := pg_catalog.pg_get_functiondef('public.pcm_sync_order_refund_payment_status(uuid)'::regprocedure);
+  v_n := (SELECT pg_catalog.count(*) FROM regexp_matches(v_def, 'corrected_to = ''money_moved''', 'g'))::integer;
+  IF v_n <> 1 THEN RAISE EXCEPTION 'M5 突變沒有裝上:錨出現 % 次(預期恰 1)⇒ 本格作廢', v_n; END IF;
+  v_def := pg_catalog.replace(v_def, 'AND v.corrected_to = ''money_moved''', 'AND false');
+  EXECUTE v_def;
+END \$m0\$;
+DO \$m\$
+DECLARE v_o uuid; v_u uuid; v_v uuid; v_st text; v_rf uuid;
+BEGIN
+${MKPAID}
+  UPDATE public.orders SET tappay_rec_trade_id = 'REC-M5x-' || pg_catalog.substr(v_o::text, 1, 8) WHERE id = v_o;
+  INSERT INTO public.order_refunds (order_id, rec_trade_id, bank_refund_id, refund_amount, status, reason, actor, request_id, kind, record_refunded_before, confirmed_at)
+  VALUES (v_o, 'REC-M5x-' || pg_catalog.substr(v_o::text, 1, 8), 'BR5x-' || pg_catalog.substr(v_o::text, 1, 11), 400, 'processing', 'h', 'staff_1', pg_catalog.gen_random_uuid()::text, 'partial', 0, NULL)
+  RETURNING id INTO v_rf;
+  UPDATE public.order_refunds SET status = 'failed', failed_reason = 'manual_failed', failed_detail = 'h' WHERE id = v_rf;
+  INSERT INTO public.order_refund_manual_corrections (refund_id, seq, corrected_to, reason, actor, request_id)
+  VALUES (v_rf, 1, 'money_moved', 'h', 'staff_1', pg_catalog.gen_random_uuid()::text);
+  PERFORM public.admin_record_manual_refund(v_o, pg_catalog.gen_random_uuid(), 'staff_1', 'bank_transfer', 600, 'h', pg_catalog.now());
+  SELECT payment_status::text INTO v_st FROM public.orders WHERE id = v_o;
+  IF v_st <> 'refunded' THEN RAISE EXCEPTION 'M5 如預期:拿掉第三段之後狀態 =%', v_st; END IF;
 END \$m\$;
 ROLLBACK;"
 
