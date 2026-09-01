@@ -119,6 +119,40 @@ describe('CartView(M-3-S2-b2-d)', () => {
     expect(screen.getByText('載入購物車…')).toBeTruthy();
   });
 
+  // ── ⟦b4-NOVARIANT-OLDCART⟧ 2026-09-02 ────────────────────────────────────────
+  // 🔴 **那一列問的第一格逐字:「購物車頁面會怎麼顯示它(價格?規格欄空白?)」**
+  //    而在本片之前, `variantLabel: null` 只是 fixture 的預設值 —— **沒有一格在斷言它。**
+  // 🎯 這一格釘三件事, 而它們是【客人看得到的】:
+  //    ① 價格照顯(無變體商品取群代表價 —— `cart/actions.ts` 那條 `else` 分支)
+  //    ② 規格那一行【整行不出現】, 不是出現一個空的
+  //    ③ 畫面上不准出現 `null` / `undefined` 這種字 —— 那是最常見的「沒處理到」形狀
+  it('🔴 無變體那一筆:價格照顯、規格行整行不出現、畫面沒有 null/undefined(⟦b4-NOVARIANT-OLDCART⟧ 第一格)', async () => {
+    // 🔵 無變體那一筆解析回來的形狀:variantId / variantLabel / sku 全是空, 而 unitPrice 是【群代表價】
+    //    (`apps/storefront/src/app/cart/actions.ts` 的 `else` 分支:variants 空 ⇒ unitPrice = product.price)
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'nv-1' })]);
+    setCart([{ productId: 'nv-1', qty: 1 }]);
+    render(<CartView />);
+    // ① 價格 —— 🔵 用 findAll:單價與小計【兩個地方都會顯】(qty=1 ⇒ 同一個數字)
+    //    findByText 在這裡會炸「Found multiple elements」⇒ 而那個炸法本身就是證據:它真的顯了
+    expect((await screen.findAllByText(/14,600|14600/)).length).toBeGreaterThanOrEqual(1);
+    // ③ 畫面上不准有 null / undefined
+    const body = document.body.textContent ?? '';
+    expect(body).not.toMatch(/undefined/);
+    expect(body).not.toMatch(/\bnull\b/);
+    // ② 規格行不存在 —— 用 class 查, 因為它就是那一行的身分
+    expect(document.querySelector('.cart-item-variant')).toBeNull();
+  });
+
+  it('🔵 正對照:有變體那一筆【要】有規格行 —— 否則上面那一格在「這個 class 根本不存在」時也會過', async () => {
+    resolveMock.mockResolvedValue([
+      resolvedLine({ productId: 'rpm-1', variantId: 'v1', variantLabel: 'Forged · Glossy' }),
+    ]);
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    render(<CartView />);
+    await screen.findByText(/Forged/);
+    expect(document.querySelector('.cart-item-variant')).not.toBeNull();
+  });
+
   it('空車 → design 空狀態 +「繼續購物」', async () => {
     setCart([]);
     render(<CartView />);
