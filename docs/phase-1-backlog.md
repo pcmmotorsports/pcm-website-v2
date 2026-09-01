@@ -30104,7 +30104,34 @@ DB 層可達 = **是**(上面實測)
 
 ### #863. 🔴 純 `.sql` 的 commit 不跑 vitest ⇒ 所有「掃 migration 的閘」對它們【一律隱形】
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 已執行(2026-09-02 · 線 `-0e` · `fc985d4e`)~~⏳ 待執行~~
+  - 落點:`scripts/sql-scan-gate.sh` + `package.json` 的 lint-staged
+    (`supabase/migrations/*.sql` 那個 key 改成陣列 ⇒ 原本的靜態檢查之外再掛這一道)。
+  - 🔴 **本條自己寫好的【雙向驗收】兩半都實跑了**(不是讀碼):
+    - **該綠**:乾淨工作樹 ⇒ `rc=0`,三個 project 全綠,**7 秒**。
+    - **該紅**:現造一支 `ALTER … refund_amount` 的 migration ⇒ `rc=1`(`node` 那格紅)。
+    - **e2e**:把那支 migration 真的 `git add` 再 `commit` ⇒ **被擋下**,
+      而且是 `[FAILED] bash scripts/sql-scan-gate.sh` 那一行 ——
+      📌 **「它被擋下了」與「它被【這道閘】擋下了」是兩個宣稱**,證的是後者。
+      探針檔已刪 / index 已清 / `supabase/migrations/` 乾淨,三格分開驗。
+  - 🛑 **刻意【不】用 `APPLIED.tsv` 當判準,而理由是量到的**(2026-09-02):
+    `266` 支 migration / 帳上 `241` ⇒ **`25` 支沒記帳,而那是【正常狀態】**(它們在等 Sean 貼)
+    ⇒ 拿它當紅的判準會**每天紅 25 次** ⇒ 而一道對正常狀態長紅的閘,
+    正是本條自己引的 `#806`(訓練所有人略過紅字)。`#864` 逐字也已寫著那個訊號本來就弱。
+    🔵 **⇒ 這一格是「先量一發【它今天會叫幾次】」抓到的,而那一發原本只是要估價值。**
+  - 🔴 **做的時候量到一格,它會咬到任何想跑測試子集的人**(vitest 4.1.5,已廣播全隊):
+    本 repo 三個 vitest project ⇒ **把跨 project 的 filter 一次餵進去 ⇒ `No test files found`、`rc=1`**,
+    而每一條單獨跑都是綠的 ⇒ **必須逐 project 分開跑**。
+    🔵 它至少誠實(`rc=1` 且明說找不到檔),不是印全綠而少跑。
+  - 🔴 **鐵則 11「我餵幾條 vs 它跑幾支」已接進去**:逐 project 比對,`ran < fed` 就紅
+    (餵一條不存在的 filter,vitest 不報錯、就少跑一支,而總計行只印它跑了幾支)。
+    現況三格都是 `ran > fed`(basename 當 filter 會多命中)⇒ **過度涵蓋,方向安全**。
+  - 🛑 **射程(印在 `--selftest` 末尾,不是躺在檔頭)**:它比對的是【repo 內一致性】,
+    **不是正式庫現況** —— Sean 在 SQL Editor 貼 migration 是【人】的動作、走另一條路徑
+    ⇒ **本閘能做到的最好情況是【縮短窗口】,不是【消滅它】**
+    ⇒ 它的價值要用【窗口從幾小時縮到幾分鐘】估,**不是用「有沒有防住」**。
+  - ⚠️ **仍未關的那一格**:族的定義是 grep `supabase/migrations` 的**字面**
+    ⇒ 一道用別的方式讀 migration 的閘會被漏掉,而**漏掉時零訊號**。
 - **分流:** P2(守門盲點)—— 而它**已經真的發生過一次**,不是理論。
 - **關鍵字**(給搜的人):三綠 / 鐵則 11 / 純 SQL 片 / migration-only commit / vitest /
   SQL_ALLOWLIST / 473b-1 / pre-commit / 掃 migration 的測試 / 長紅。
