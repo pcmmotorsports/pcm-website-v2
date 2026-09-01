@@ -128,6 +128,32 @@ def staged_content(path: str):
     return _git(['show', ':./' + rel])
 
 
+def worktree_differs(path: str) -> bool | None:
+    """🔴 **這支檔在工作樹上還有沒 stage 的改動嗎**(2026-09-01 加;`None` = git 答不出來)。
+
+    ── 為什麼(它與 `board-state-consistency.py` 同一個病, 同一天一起補)────────
+    `--changed-only` 讀的是 **index 那一份**。而人**手動跑它複驗自己剛改的東西**時,
+    很可能還沒 `git add` ⇒ 🔴 **它驗的是【上一版】, 而它印綠。**
+    2026-09-01 線 `-f7` 在隔壁那支閘上真的踩到:改完直接跑 ⇒ 全綠 ⇒ `git add` 後重跑才紅。
+
+    🛑 **而本檔【早就把這件事寫在 docstring 裡了**(`:10-14` 逐字「自己複驗一列時要對齊來源」)——
+       **而它還是發生了。**
+       📌 ⇒ 因為那段話在【我 add 了】與【我沒 add】兩個世界**逐字相同**
+       ⇒ ⇒ **一個對兩個世界印同一句的標註, 等於不存在。**
+    ✅ ⇒ 所以這一格做的不是「再提醒一次」, 是**讓輸出在兩個世界不一樣**。
+
+    ⚠️ **射程**:只答「工作樹 vs index」。答不出「index vs HEAD」, 也不管未追蹤的新檔
+       (那種在 `staged_content()` 那一關就已經 `None` 了)。
+    🔴 路徑一律走與 `staged_content()` **同一套** `:./rel` 換算 —— 兩支用不同換算就會比到不同的檔
+       (那正是本檔 `staged_content()` docstring 記過的坑②)。
+    """
+    rel = os.path.relpath(os.path.realpath(path), os.path.realpath(os.getcwd()))
+    out = _git(['diff', '--name-only', '--', './' + rel])
+    if out is None:
+        return None
+    return bool(out.strip())
+
+
 def scan(path: str, content: str | None = None) -> list[dict]:
     """回傳每一列溢出的細節。
 
@@ -210,7 +236,7 @@ def selftest() -> int:
               f"{'/形狀' + got[0]['shape'] if got else ''})")
         if not ok:
             bad += 1
-    # ══ 🔵 `--changed-only` 的十四個世界(2026-08-31 加;③④⑤⑥ 由 R1、⑦⑧ 由 R2、⑨ 由 R3、⑩⑪⑫⑬ 由 R4、⑭ 由 pre-commit 閘逼出來)══
+    # ══ 🔵 `--changed-only` 的十七個世界(2026-08-31 加;③④⑤⑥ 由 R1、⑦⑧ 由 R2、⑨ 由 R3、⑩⑪⑫⑬ 由 R4、⑭ 由 pre-commit 閘逼出來、⑮⑯⑰ 2026-09-01 加(工作樹漂移那一行))══
     #   🛑 **在【真的 git repo】裡造, 不是 fixture 字串** —— 抄 `board-state-consistency.py`
     #      那支的成例:它的 partial-staging 那幾格也是真的建 repo。
     #      理由:這個旗標的整個內容是「git 怎麼看這次的 diff」⇒ **假的 repo 驗不到它。**
@@ -223,11 +249,11 @@ def selftest() -> int:
         print(f'\n🔴 selftest 失敗 {bad} 格 ⇒ **這把尺壞了,它現在印的 0 不算數**')
         return 3
     print('\nselftest 全過(含兩個正對照:乾淨的表與跳脫過的豎線都不得誤報;'
-          '另含 --changed-only 的十四個世界, 每一格都有一個實跑殺掉的突變)')
+          '另含 --changed-only 的十七個世界, 每一格都有一個實跑殺掉的突變)')
     return 0
 
 
-def _run_changed_only(d: str, *paths: str):
+def _run_changed_only(d: str, *paths: str, changed: bool = True):
     """在 `d` 底下**真的跑一發 `main(['x','--changed-only', ...])`**, 回 `(rc, stdout)`。
 
     🔴🔴 **為什麼每一格都要走 `main()` 而不是自己重寫一次過濾器**
@@ -257,7 +283,10 @@ def _run_changed_only(d: str, *paths: str):
     buf = io.StringIO()
     try:
         with contextlib.redirect_stdout(buf):
-            rc = main(['x', '--changed-only'] + list(paths))
+            # 🔴 `changed=False` 是給【負對照】用的:不帶旗標時它讀工作樹
+            #    ⇒ 那個「工作樹漂移」的提示**不得出現**(否則它就是對常態發的警報)。
+            argv = ['x'] + (['--changed-only'] if changed else []) + list(paths)
+            rc = main(argv)
     finally:
         os.chdir(cwd)
         os.environ.update(saved)
@@ -265,8 +294,12 @@ def _run_changed_only(d: str, *paths: str):
 
 
 def _selftest_changed_only() -> int:
-    """`--changed-only` 的十四個世界。回傳失敗格數。
+    """`--changed-only` 的十七個世界。回傳失敗格數。
 
+    ⑮⑯⑰ 工作樹漂移那一行(2026-09-01 加):
+       ⑮ staged == 工作樹      ⇒ **不得**叫, 而成功句要寫「與工作樹相同」
+       ⑯ add 之後又改工作樹    ⇒ **必須**叫(rc 兩個世界相同 ⇒ 判別式不在 rc 上)
+       ⑰ 負對照:不帶旗標      ⇒ 兩句都不得出現
     ① 我改了一列而把它寫壞                      ⇒ **必須報**(rc=1)
     ② 壞的那列【先存在】, 而我在別的地方插一列  ⇒ **不准報**(rc=0)
     ③ 上面插一列 + 下面改壞一列                 ⇒ 只報那一列, **比內容不比個數**
@@ -282,12 +315,12 @@ def _selftest_changed_only() -> int:
     ⑬ index 那一份是【空的】                     ⇒ 不准掉回讀工作樹(判別式是 ℹ️ 那行不是 rc)
     ⑭ 環境裡有 `GIT_DIR`(= hook 的常態)         ⇒ 拋棄式 repo 仍要成立
     🔴 每一格底下的註解寫著它殺掉的是哪一個突變。**沒寫的那一格 = 我沒演過。**
-    🛑 **十四格全部走 `_run_changed_only()` ⇒ 也就是走 `main()`**, 理由見它的 docstring。
+    🛑 **十七格全部走 `_run_changed_only()` ⇒ 也就是走 `main()`**, 理由見它的 docstring。
        (⑧ 以外全部用真的 git repo;只有⑧ 換掉 `subprocess.run`。)
     """
     import tempfile, os as _os, shutil, subprocess as sp
     if not shutil.which('git'):
-        print('  🟡 SKIP  --changed-only 十四個世界(找不到 git)⇒ **這不是通過, 是沒跑**')
+        print('  🟡 SKIP  --changed-only 十七個世界(找不到 git)⇒ **這不是通過, 是沒跑**')
         return 1
     d = tempfile.mkdtemp()
     bad = 0
@@ -559,6 +592,39 @@ def _selftest_changed_only() -> int:
                   f"印了「另有 N 列」= {'是' if '另有' in out13 else '否'} ⇒ 期望 否)"
                   f" —— 🔴 **兩種實作的 rc 都是 0, 判別式在那行 ℹ️ 上**")
 
+        # ══ ⑮⑯⑰ 工作樹漂移那一行:三個世界(2026-09-01 加)══════════════════
+        # 🔴 **守的不是「它會不會叫」, 是【它在兩個世界印不同的字】。**
+        #    本檔 `:10-14` 早就把「它讀 index」寫進 docstring 了, **而那件事還是發生了** ——
+        #    因為那段話在【我 add 了】與【我沒 add】兩個世界**逐字相同**。
+        #    ⇒ 📌 所以 ⑮(乾淨時不得叫)與 ⑯(髒時必須叫)**缺一不可**:
+        #      只有 ⑯ = 一個對常態發的警報;只有 ⑮ = 一個永遠沉默的守門。
+        DRIFT = '還有沒 stage 的改動'
+        SAMEW = '與工作樹相同'
+        g('reset', '-q', '--hard')
+        pd = _os.path.join(d, 'drift.md')
+        io.open(pd, 'w', encoding='utf-8').write('# d\n\n| a | b |\n|---|---|\n| 1 | 2 |\n')
+        g('add', 'drift.md')
+        rc15, out15 = _run_changed_only(d, 'drift.md')
+        bad += rep('⑮', (DRIFT not in out15) and (SAMEW in out15),
+                  f"staged == 工作樹 ⇒ **不得**出現漂移提示, 而成功句要寫「{SAMEW}」"
+                  f"(漂移提示={'有' if DRIFT in out15 else '無'} ⇒ 期望 無;"
+                  f"「{SAMEW}」={'有' if SAMEW in out15 else '無'} ⇒ 期望 有)")
+
+        io.open(pd, 'a', encoding='utf-8').write('| 3 | 4 |\n')   # 只改工作樹, 不 add
+        rc16, out16 = _run_changed_only(d, 'drift.md')
+        bad += rep('⑯', (DRIFT in out16) and (SAMEW not in out16),
+                  f"add 之後又改工作樹 ⇒ **必須**出現漂移提示"
+                  f"(漂移提示={'有' if DRIFT in out16 else '無'} ⇒ 期望 有;"
+                  f"「{SAMEW}」={'有' if SAMEW in out16 else '無'} ⇒ 期望 無)"
+                  f" —— 🔴 **而 rc 兩個世界都是 {rc16}, 判別式不在 rc 上**")
+
+        rc17, out17 = _run_changed_only(d, 'drift.md', changed=False)
+        bad += rep('⑰', (DRIFT not in out17) and (SAMEW not in out17),
+                  f"負對照:**不帶 --changed-only** ⇒ 它讀工作樹 ⇒ 兩句都不得出現"
+                  f"(漂移提示={'有' if DRIFT in out17 else '無'};「{SAMEW}」={'有' if SAMEW in out17 else '無'}"
+                  f" ⇒ 期望 兩個都無)"
+                  f" —— 📌 **少了這一格, 一個【無條件印那句話】的實作會過 ⑯**")
+
         # ⑧ `git diff` 那一發自己拋例外(逾時)⇒ **不准印綠**
         #    🔴 殺的三個突變:`_git` 的 `except` 回空字串 / 收窄成 `except OSError` /
         #       `staged_new_lines` 拿掉 `if text is None`。
@@ -747,6 +813,19 @@ def main(argv: list[str]) -> int:
                 env_fail += 1
                 continue
             rows = scan(path, content=idx)
+            # 🔴🔴 **兩個世界要印不同的字** —— 見 `worktree_differs()` 的 docstring。
+            #    位置刻意放在**這一支檔的結論正上方**:放檔頭會被捲過去,
+            #    而人讀的是那一行 ✅ / 🔴。
+            drift = worktree_differs(path)
+            if drift is None:
+                print(f'🟡 {path}:**比不出工作樹與 index 一不一樣**(git 答不了)'
+                      f' ⇒ 下面那個結論【只涵蓋 index 那一份】。')
+            elif drift:
+                print(f'🔴 {path}:這一發讀的是 **index 那一份**, 而**工作樹上還有沒 stage 的改動**'
+                      f' ⇒ 📌 **下面那個結論說的是【index 那一份】, 不是你剛改的那份。**')
+                print(f'   ✅ 要驗你剛改的那份 ⇒ `git add {path}` 之後重跑,'
+                      f' 或**拿掉 `--changed-only`**(那會讀工作樹)。')
+                print(f'   ⚠️ 而 pre-commit 底下這是【合法】的(partial staging)⇒ 本閘只出聲, 不擋你。')
         else:
             rows = scan(path)
         if changed_only:
@@ -780,9 +859,11 @@ def main(argv: list[str]) -> int:
             #    而上一行剛印完「另有 N 列溢出」⇒ 再印「沒有被丟掉的內容」是**自相矛盾且假**。
             #    📌 而本 repo 的常態就是後者(19 檔 / 45 列存量, 2026-08-31 當場量)。
             if changed_only and skipped:
-                print(f'✅ {path}:**這次改的那幾行**沒有把內容弄丟(而那 {skipped} 列存量還在)')
+                print(f'✅ {path}:**這次改的那幾行**沒有把內容弄丟(而那 {skipped} 列存量還在)'
+                      + ('(讀的是 index, 而它與工作樹相同)' if drift is False else ''))
             else:
-                print(f'✅ {path}:沒有被丟掉的內容')
+                print(f'✅ {path}:沒有被丟掉的內容'
+                      + ('(讀的是 index, 而它與工作樹相同)' if changed_only and drift is False else ''))
             continue
         lostc = sum(r['lost_chars'] for r in rows)
         a = sum(1 for r in rows if r['shape'] == 'A')

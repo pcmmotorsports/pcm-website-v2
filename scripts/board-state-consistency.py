@@ -266,6 +266,53 @@ def read_source(path, staged):
         raise MeasurementError('NOT_UTF8', f'index 裡的 {path} 不是 UTF-8:{e}')
 
 
+def worktree_differs(paths):
+    """🔴🔴 **回傳這幾支檔裡, 【工作樹與 index 不同】的那些**(2026-09-01 加)。
+
+    ── 為什麼要有這一格(它是一次真的踩到, 不是想像)──────────────────
+    2026-09-01 線 `-f7` 改完板子, 直接跑 `--staged` ⇒ **全綠**,
+    而它**還沒 `git add`** ⇒ 🔴 **這一發驗的是 HEAD 那一份, 不是他剛改的那一份。**
+    `git add` 之後重跑才抓到他漏改的一列。
+
+    🛑 **而這個坑 memory 裡【已經記過】, 它還是復發了 ⇒ 提醒治不了它。**
+    而復發的機制是這一句:
+      📌 **那行「讀自 index」它一直都有印 —— 是讀的人跳過了它。**
+      ⇒ ⇒ 而它跳得掉的原因是:**它在【我 add 了】與【我沒 add】兩個世界【逐字相同】。**
+      ⇒ ⇒ ⇒ **一個對兩個世界印同一句話的標註, 等於不存在。**
+
+    ✅ **所以這一格做的不是「多印一行提醒」, 是【讓那一行在兩個世界不一樣】**:
+       · 相同 ⇒ 標題直接寫「與工作樹相同」(**不是警告, 是事實** ⇒ 不製造噪音)
+       · 不同 ⇒ 標題不變, 而**結論的正上方**多一塊, 逐支列出是哪幾支。
+
+    ⚠️ **選【出聲】不選【拒跑】, 理由**:pre-commit 底下 partial staging 是**合法的**
+       (先 add 一半拿去審、再改另一半)⇒ 拒跑會把一個正當的 commit 變成硬擋,
+       而本 repo 記過「**一道紅著而沒有出路的守門會被整支刪掉**」。
+
+    🔴 **`git diff` 是 cwd 相對, 而 `git show :path` 是 repo-root 相對** ——
+       兩者混用就會在非根目錄下比錯東西(這條是 `md-table-overflow.py` 檔頭記過的坑)。
+       ⇒ 這裡顯式取 `--show-toplevel` 並在那裡跑。
+    ⚠️ **射程**:它只答「工作樹 vs index」。**答不出**「index vs HEAD」(那是另一個問題),
+       也答不出未追蹤的新檔(那種在 `git show :path` 那一關就已經炸了)。
+    """
+    try:
+        top = subprocess.run(['git', 'rev-parse', '--show-toplevel'],
+                             capture_output=True, text=True)
+    except OSError:
+        return None
+    if top.returncode != 0:
+        return None
+    root = top.stdout.strip()
+    try:
+        r = subprocess.run(['git', 'diff', '--name-only', '--'] + list(paths),
+                           cwd=root, capture_output=True, text=True)
+    except OSError:
+        return None
+    if r.returncode != 0:
+        return None
+    hit = {ln.strip() for ln in r.stdout.split('\n') if ln.strip()}
+    return sorted(p for p in paths if p in hit)
+
+
 def _rows(path, sec_pat, head_pat, state_header, staged=False):
     """撈資料列。同時驗【欄位標題】—— 不驗的話, 欄位順序一改它會靜靜地讀錯欄。"""
     lines = read_source(path, staged).split('\n')
@@ -483,7 +530,18 @@ def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None, sta
             'BOARD_ROW_FLOOR',
             f'{board} 只撈到 {len(rows)} 列(地板 {board_min})—— '
             f'掉一整節時唯一的訊號就是這個數變小')
-    say(f'══ {board}(資料列 {len(rows)};讀自 {"index" if staged else "工作樹"})══')
+    # 🔴 `--staged` 時先量一次「工作樹與 index 一不一樣」—— 見 `worktree_differs` 的 docstring。
+    #    `None` = 量不出來(git 跑不動 / 不在 repo 裡)⇒ **那是第三個世界, 不可以與「相同」合併**。
+    drift = worktree_differs([board, spec]) if staged else []
+    if not staged:
+        src = '工作樹'
+    elif drift is None:
+        src = 'index(而【工作樹那一份比不出來】—— git 答不了)'
+    elif drift:
+        src = 'index'
+    else:
+        src = 'index(與工作樹相同)'
+    say(f'══ {board}(資料列 {len(rows)};讀自 {src})══')
 
     # ① 🔴 真的跑那條 grep, 兩個【各自量到的】數字比對。不是 len(rows) 減 len(strays)。
     # 🔴 兩條路【分開判、分開印】—— R2 抓到:合成一個 if 之後它們會互相遮蔽,
@@ -561,6 +619,18 @@ def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None, sta
                 say(f'     :{r["line"]}  #{f[1]} {f[2][:20]}  狀態=[{mk[:40]}]')
     else:
         say(f'  ✅ ③ {len(grows)} 列狀態欄全是純 ✅')
+
+    # 🔴🔴 **結論的正上方** —— 位置是刻意的:放輸出開頭會被捲過去,
+    #    而人讀的是最後那幾行(綠或紅)。⇒ 這一塊要貼著那個結論。
+    if staged and drift:
+        say('')
+        say(f'  🔴 這一發驗的是 **index 那一份**, 而下面這 {len(drift)} 支檔'
+            f'**工作樹上還有沒 stage 的改動**:')
+        for p in drift:
+            say(f'     {p}')
+        say('     ⇒ 📌 **所以「它綠了」的意思是【index 那一份是綠的】, 不是【你剛改的那份是綠的】。**')
+        say('     ✅ 要驗你剛改的那份 ⇒ `git add <檔>` 之後重跑, 或**不帶 `--staged`**(那會讀工作樹)。')
+        say('     ⚠️ 而 pre-commit 底下這是【合法】的(partial staging)⇒ 本閘只出聲, 不擋你。')
 
     # 🔴 逃生門(見檔上方 BYPASS_ENV 那段的「為什麼」)。**兩個條件都要成立才放行。**
     #    ⚠️ 只在 bad 時才讀那支檔 —— 綠的時候多讀一次沒有意義, 而 `--staged` 那條會多跑一發 git。
@@ -1151,6 +1221,56 @@ def selftest():
     except RuntimeError as e:
         print(f'  🔴 子丑·grep 同源 · fixture 壞了:{e}')
         ok = False
+
+    # ══ 工作樹漂移那一行:【四個世界】各表演一次(2026-09-01 加)═══════════════
+    # 🔴 **這一組守的不是「它會不會叫」, 是【它在兩個世界印不同的字】。**
+    #    成因見 `worktree_differs` 的 docstring:那行「讀自 index」原本在
+    #    【我 add 了】與【我沒 add】**逐字相同** ⇒ 而那正是它可以被跳過的原因。
+    #    ⇒ 📌 所以「乾淨時不得出現那一塊」與「髒時必須出現」**兩格缺一不可** ——
+    #      只驗前者 = 一個永遠沉默的守門;只驗後者 = 一個對常態發的警報。
+    MARK = '工作樹上還有沒 stage 的改動'
+    SAME = '與工作樹相同'
+
+    def _mm_world():
+        """`MM` 那一種:index 與 HEAD 不同, **而且**工作樹與 index 也不同。
+           🔴 哨兵點名它是第三種形狀, 而它最陰險:閘看到的是【中間那一份】。"""
+        w = _git_world(GREEN_BOARD, GREEN_BOARD)  # 先做出一個乾淨世界
+        bp = os.path.join(w, BOARD)
+        for cmd in (['git', 'commit', '-q', '-m', 'base'],):
+            subprocess.run(cmd, cwd=w, capture_output=True, env=_GIT_FREE_ENV)
+        io.open(bp, 'w', encoding='utf-8').write(GREEN_BOARD + _pad('| open | — | staged 那一份多的 | 待派 | x |\n'))
+        subprocess.run(['git', 'add', BOARD], cwd=w, capture_output=True, env=_GIT_FREE_ENV)
+        io.open(bp, 'w', encoding='utf-8').write(GREEN_BOARD + _pad('| open | — | 只在工作樹上的 | 待派 | x |\n'))
+        return w
+
+    for label, mk, args, want_mark, want_same in [
+        ('①乾淨(staged == 工作樹)⇒ **不得**出現那一塊, 而標題要寫「與工作樹相同」',
+         lambda: _git_world(GREEN_BOARD, GREEN_BOARD), ['--staged'], False, True),
+        ('②只有工作樹髒(add 之後又改)⇒ **必須**出現那一塊',
+         lambda: _git_world(GREEN_BOARD, GREEN_BOARD + _pad('| open | — | 只在工作樹 | 待派 | x |\n')),
+         ['--staged'], True, False),
+        ('③`MM`(index 與 HEAD 不同, 工作樹又與 index 不同)⇒ **必須**出現那一塊',
+         _mm_world, ['--staged'], True, False),
+        ('④負對照:**不帶 --staged** ⇒ 它讀工作樹 ⇒ 那一塊【不得】出現',
+         lambda: _git_world(GREEN_BOARD, GREEN_BOARD + _pad('| open | — | 只在工作樹 | 待派 | x |\n')),
+         [], False, False),
+    ]:
+        try:
+            w = mk()
+        except RuntimeError as e:
+            print(f'  🔴 工作樹漂移 {label} · fixture 壞了:{e}')
+            ok = False
+            continue
+        r = subprocess.run([sys.executable, os.path.abspath(__file__)] + args,
+                           cwd=w, capture_output=True, text=True, env=_GIT_FREE_ENV)
+        got_mark = MARK in r.stdout
+        got_same = SAME in r.stdout
+        good = (got_mark == want_mark) and (got_same == want_same)
+        print(('  ✅ ' if good else '  🔴 ') +
+              f'工作樹漂移 {label} ⇒ 那一塊={got_mark}(期望 {want_mark})· '
+              f'「{SAME}」={got_same}(期望 {want_same})')
+        if not good:
+            ok = False
 
     # 🔴🔴 **這一格是那場事故的證人。** 它把 `GIT_DIR` / `GIT_INDEX_FILE` 指到一個
     #    拋棄式 repo(= pre-commit 執行時的環境形狀), 跑一次本檔的 selftest,
