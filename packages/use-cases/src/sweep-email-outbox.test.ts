@@ -1210,13 +1210,35 @@ describe('sweepEmailOutbox — 付款信接金額與 HTML(片2)', () => {
 //    ⇒ 留在 `sending`, 而 `sending` **不在** CLAIMABLE_STATUSES ⇒ 下一輪撿不到
 //    ⇒ 唯一出路是租約回收(route 端 LEASE_SECONDS=3600)⇒ **每燒一次 ≈ 一小時**。
 describe('⟦b4-SHIPGATE1⟧ 線關著時不認領 order_shipped', () => {
+  // 🔴🔴 **R3 F5:我在別處註解裡寫「正式 adapter 底下關線時 errors 是 0 不是 1」,
+  //    而【沒有任何一格測試量它】—— 而 F1/F3 的推論整個掛在那句話上。**
+  //    ⇒ 補一個**會遵守 opts** 的 fake(= 正式 adapter 的行為), 斷言 errors/claimed 都是 0。
+  //    📌 **⇒ 一句只寫在註解裡的行為宣稱, 與一句被測到的, 在讀的人眼裡長得一樣。**
+  it('🔴 會遵守 opts 的 fake(= 正式 adapter)⇒ 關線時 errors 0 / claimed 0(不是計 error)', async () => {
+    const shipped = job({ eventType: 'order_shipped', dedupKey: 'order-9/batch-9' });
+    const outbox = outboxFake([shipped]);
+    // 遵守 opts:被排除的型別就不回它
+    outbox.claimDue.mockImplementation(
+      async (_limit: number, opts?: { excludeEventTypes?: readonly string[] }) =>
+        (opts?.excludeEventTypes ?? []).includes(shipped.eventType) ? [] : [shipped],
+    );
+    const sender = senderFake([]);
+    const r = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender },
+      { ...OPTS, allowOrderShipped: false },
+    );
+    expect(r.errors, '關線時不該計 error —— 那一列根本沒被認領').toBe(0);
+    expect(r.claimed).toBe(0);
+    expect(sender.send).not.toHaveBeenCalled();
+  });
+
   it('🔴 旗標關 ⇒ claimDue 收到 excludeEventTypes(突變:拿掉那個參數 ⇒ 這一格必須紅)', async () => {
     const outbox = outboxFake([]);
     await sweepEmailOutbox(
       { ineligibleScanner: eligibleAll(), outbox, sender: senderFake([]) },
       { ...OPTS, allowOrderShipped: false },
     );
-    expect(outbox.claimDue).toHaveBeenCalledWith(OPTS.claimLimit, {
+    expect(outbox.claimDue).toHaveBeenCalledExactlyOnceWith(OPTS.claimLimit, {
       excludeEventTypes: ['order_shipped'],
     });
   });
@@ -1233,6 +1255,6 @@ describe('⟦b4-SHIPGATE1⟧ 線關著時不認領 order_shipped', () => {
     //    ✅ 這一格釘的是**呼叫端的意圖**:線開著時傳 `undefined`(= 不排除任何東西),
     //       而不是傳一個「排除空集合」—— 兩者語意不同, 而**只有 adapter 那道守門讓它們今天等價**。
     //    🔴 ⇒ 那道守門哪天被拿掉, 這裡的 `undefined` 仍然是對的;而空陣列會變成語法錯。
-    expect(outbox.claimDue).toHaveBeenCalledWith(OPTS.claimLimit, undefined);
+    expect(outbox.claimDue).toHaveBeenCalledExactlyOnceWith(OPTS.claimLimit, undefined);
   });
 });
