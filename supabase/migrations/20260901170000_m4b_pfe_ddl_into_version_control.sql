@@ -20,7 +20,11 @@
 --
 -- 🛑🛑 而【它沒有解掉從零重放】—— 這一句不要只讀過去:
 --    本支的版號是 `20260901170000`, 而**第一個讀這張表的 migration 是 `20260712183000`**
---    (`20260712183000_products_catalog_page_public.sql`;讀它的共 11 支)。
+--    (`20260712183000_products_catalog_page_public.sql`;⛔ ~~讀它的共 11 支~~ ⇒ ✅ **真消費者 9 支**)。
+--    🔴 **Fable R3 F4:那個 `11` 是用【含註解】的尺量的** —— 而**同一顆 commit 修 replay 閘的理由
+--      正是「`grep -l` 註解裡提到也算」**。⇒ 📌 **我用自己譴責過的尺, 量了自己檔頭那個數字。**
+--      重量(剝註解:對 `git ls-files supabase/migrations/` 逐檔用 sed 剝掉 `--` 之後再 grep):
+--        含註解 12(扣 creator 11)/ 剝註解 10(扣 creator ⇒ **9**)。差的兩支只在註解裡提到。
 --    ⇒ 從零重放時, 建表跑在【第 11 個讀它的人之後】⇒ **一樣炸。**
 --    ⇒ 📌 **要真的解掉, 版號必須插到 2026-07-12 之前 —— 而那會動 `APPLIED.tsv` 帳本
 --      (一支【號碼在過去而 apply 在今天】的 migration), 那是 Sean 的成本, 不是這支檔能決定的。**
@@ -221,7 +225,11 @@ DECLARE
   spec       text[][] := ARRAY[
     ['ux_pfe_row',     'product_id,moto_brand,model_code,year_start,year_end,match_source', 'unique_nnd'],
     ['ix_pfe_lookup',  'moto_brand,model_code,year_start,year_end',                          'plain'],
-    ['ix_pfe_product', 'product_id',                                                         'plain']
+    ['ix_pfe_product', 'product_id',                                                         'plain'],
+    -- 🔵 Fable R3 F3:實查列 **4 支**索引而原本 spec 只有 3 支 —— `..._pkey` 不在裡面。
+    --    ⇒ 有人把 `PRIMARY KEY`(或整個 identity)改掉 ⇒ 表沒有主鍵, 而三支照樣全過。
+    --    `unique_plain` = 要 UNIQUE 而**不要求** NULLS NOT DISTINCT(pkey 的欄不可為 NULL)。
+    ['product_fitments_effective_pkey', 'id',                                                 'unique_plain']
   ];
   i int;
 BEGIN
@@ -254,10 +262,12 @@ BEGIN
       RAISE EXCEPTION '索引 % 的欄序或欄集不同 ⇒ 它守的不是同一件事。實際 % / 預期 %',
         spec[i][1], r.cols, v_expect;
     END IF;
-    IF spec[i][3] = 'unique_nnd' THEN
+    IF spec[i][3] IN ('unique_nnd', 'unique_plain') THEN
       IF NOT r.indisunique THEN
         RAISE EXCEPTION '索引 % 不是 UNIQUE ⇒ 唯一性根本不存在。', spec[i][1];
       END IF;
+    END IF;
+    IF spec[i][3] = 'unique_nnd' THEN
       IF NOT r.indnullsnotdistinct THEN
         RAISE EXCEPTION
           '索引 % 缺 NULLS NOT DISTINCT ⇒ 兩列除了 NULL 年份以外完全相同時【都塞得進去】。', spec[i][1];
@@ -292,6 +302,8 @@ $pfe_ix$;
 --    那一列的成因就是一句寫在碼旁的「不在本片可修」, 三週沒有人回來做。
 --
 -- 🛑 這道斷言【擋不住什麼】:
+--    · 🔴 **欄級 ACL(`pg_attribute.attacl`)完全在射程外** —— 本節兩把尺都只讀表級 `relacl`
+--      (Fable R3 F5)。今天無實害(apply 當下不可能有欄級授權), 而**它不是被守住的面。**
 --    · 它驗的是 **apply 當下**那一刻的 ACL;apply 之後任何人在 dashboard 手動 GRANT, 它看不到
 --      (那正是 acl-drift-gate 檔頭天花板 ① 的路⑤, 而這張表就是走那條路進線上的)
 --    · 它不驗 sequence 的 ACL —— 那一格刻意留在板 ⟦b4-SEQACL1⟧, 本支不碰
@@ -329,8 +341,11 @@ BEGIN
   END IF;
 
   -- ② anon / authenticated 只准有 SELECT —— 多一項就紅
-  --    🔴 用 aclexplode 逐項比, 不用 has_table_privilege:後者對【欄級授權】少報(見
-  --       docs/patterns/revoking-function-execute-in-supabase.md), 而少報的方向是「看起來沒有」。
+  --    🔴 用 aclexplode 逐項比而不用 has_table_privilege:後者會把**透過角色成員資格繼承**的
+  --       權限也算進去, 而這裡要的是【直接授在這張表上的那幾項】。
+  --    ⛔ ~~原本寫「後者對欄級授權少報」~~ ⇒ **那個理由是錯的**(Fable R3 F5):
+  --       `aclexplode(c.relacl)` 讀的是**表級** ACL, 而欄級授權住在 `pg_attribute.attacl`
+  --       ⇒ 📌 **兩把尺對欄級同樣印零。⇒ 我宣稱了一個沒有拿到的優勢。**
   SELECT pg_catalog.string_agg(z.t, ', ' ORDER BY z.t) INTO v_bad
     FROM (
       SELECT pg_catalog.pg_get_userbyid(g.grantee) || ':' || g.privilege_type AS t
@@ -351,7 +366,54 @@ BEGIN
     RAISE EXCEPTION 'anon 或 authenticated 拿不到 SELECT ⇒ 顧客站車款搜尋會空掉';
   END IF;
 
-  RAISE NOTICE 'ACL 閉世界斷言通過(owner=%, 允許集合 = owner/service_role/anon/authenticated/pcm_readonly)。', v_owner;
+  -- ④ 🔴🔴 `service_role` 的權限集必須【逐項等於】那八項(Fable R3 F2)
+  --    成因是我自己記在這支檔裡的那次事故:「我第一版漏掉 `MAINTAIN` ⇒ 實跑量到 `arwdDxt`」
+  --    ⇒ 而 ①②③ 三道**沒有一格**比對 service_role 的權限集
+  --    ⇒ 📌 **Fable 的原話:「這是【我守了會叫過的那幾格】在守門自己身上再現。」**
+  --    ⇒ ⇒ 而那正是本檔第 2 節自己命名的病(「我修了會叫的那一個」)在守門自己身上第三次出現。
+  SELECT pg_catalog.string_agg(w.t, ', ' ORDER BY w.t) INTO v_bad
+    FROM (
+      SELECT g.privilege_type AS t
+        FROM pg_catalog.pg_class c
+        CROSS JOIN LATERAL pg_catalog.aclexplode(c.relacl) g
+       WHERE c.oid = 'public.product_fitments_effective'::regclass
+         AND pg_catalog.pg_get_userbyid(g.grantee) = 'service_role'
+      EXCEPT
+      SELECT x FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE',
+                                 'TRUNCATE','REFERENCES','TRIGGER','MAINTAIN']) x
+    ) w;
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION 'service_role 拿到那八項以外的權限(%)', v_bad;
+  END IF;
+  SELECT pg_catalog.string_agg(w.t, ', ' ORDER BY w.t) INTO v_bad
+    FROM (
+      SELECT x AS t FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE',
+                                      'TRUNCATE','REFERENCES','TRIGGER','MAINTAIN']) x
+      EXCEPT
+      SELECT g.privilege_type
+        FROM pg_catalog.pg_class c
+        CROSS JOIN LATERAL pg_catalog.aclexplode(c.relacl) g
+       WHERE c.oid = 'public.product_fitments_effective'::regclass
+         AND pg_catalog.pg_get_userbyid(g.grantee) = 'service_role'
+    ) w;
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION
+      'service_role 少了那八項裡的(%)⇒ 正式庫的 ACL 指紋是 arwdDxtm, 而這裡對不上。'
+      '📌 少一個字母在 diff 上看不出來、也不會紅 —— 這一格就是為那件事加的', v_bad;
+  END IF;
+
+  -- ⑤ `pcm_readonly` 若存在, 只准有 SELECT(同 ④ 的理由:在名單裡不等於權限對)
+  SELECT pg_catalog.string_agg(g.privilege_type, ', ' ORDER BY g.privilege_type) INTO v_bad
+    FROM pg_catalog.pg_class c
+    CROSS JOIN LATERAL pg_catalog.aclexplode(c.relacl) g
+   WHERE c.oid = 'public.product_fitments_effective'::regclass
+     AND pg_catalog.pg_get_userbyid(g.grantee) = 'pcm_readonly'
+     AND g.privilege_type <> 'SELECT';
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION 'pcm_readonly 拿到 SELECT 以外的權限(%)', v_bad;
+  END IF;
+
+  RAISE NOTICE 'ACL 閉世界斷言通過(owner=%;service_role 八項逐項相符;pcm_readonly 只有 SELECT)。', v_owner;
 END
 $pfe_acl$;
 
