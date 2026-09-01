@@ -57,6 +57,11 @@ export type CheckAnomalyAlertsOptions = {
    * 🛑 `null` = 整段不查 ⇒ 落 `orderCreatedGapUnknown`(**不進 `shouldAlert`**)。
    */
   orderCreatedCutoffIso: string | null;
+  /**
+   * 🔵 訊號4【持續失敗】那一格的門檻(分鐘)。`null` = 還沒上膛。
+   * 🛑 它與 `orderCreatedCutoffIso` 是兩顆各自獨立的 env, 任一為 null 就不查那一格。
+   */
+  orderCreatedStuckMinutes: number | null;
 };
 
 /** CheckAnomalyAlertsResult:結構化摘要(零 PII counts only;route log/回應用)。 */
@@ -100,6 +105,10 @@ export type CheckAnomalyAlertsResult = {
    */
   orderCreatedPaidNoEmailCount: number | null;
   orderCreatedNoRecipientCount: number | null;
+  /** 🔵 訊號4 持續失敗那三格 —— 信裡印了而 result 沒有 ⇒ 事後對不了帳。 */
+  orderCreatedStuckCount: number | null;
+  orderCreatedStuckOldestMinutes: number | null;
+  orderCreatedStuckUnknown: boolean;
   orderCreatedGapUnknown: boolean;
   /** 🔵 排程心跳(片3):幾支不正常 / 哪幾支 / 是不是讀不到。`Unknown` 不進 `shouldAlert`。 */
   cronHeartbeatAbnormalCount: number | null;
@@ -628,6 +637,16 @@ export function buildAnomalyAlertMessage(
    * 🛑 **只推 `noRecipient` 那一格** —— `paidNoEmail` >0 是正常的(下一輪就排進去了),
    *   把它印進信裡會讓收信的人每天看到一個不用處理的數字, 而那正是噪音的來源。
    */
+  // 🔵 卡住那一格【自己一行】—— 它要說得出「幾張」與「最舊卡多久」,
+  //   而一個裸的筆數寫不出信裡那句話。
+  if ((summary.orderCreatedStuckCount ?? 0) > 0) {
+    const oldestStuck = summary.orderCreatedStuckOldestMinutes;
+    emailLines.push(
+      `· 🔴 訂單成立信【一直排不進去】:${summary.orderCreatedStuckCount} 張` +
+        (oldestStuck === null ? '' : `(最舊那張已經 ${oldestStuck} 分鐘)`) +
+        ' ⇒ 那不是還沒輪到它, 是每一輪都失敗',
+    );
+  }
   emailPush(
     summary.orderCreatedNoRecipientCount,
     '🔴 訂單成立了而【那張單兩個信箱都是空的】⇒ 通知信永遠不會被建出來',
@@ -868,6 +887,7 @@ export async function checkAnomalyAlerts(
     opts.shippedCutoffIso,
     opts.shippedGraceSeconds,
     opts.orderCreatedCutoffIso,
+    opts.orderCreatedStuckMinutes,
   );
 
   /**
@@ -994,6 +1014,18 @@ export async function checkAnomalyAlerts(
      */
     (summary.orderCreatedNoRecipientCount ?? 0) > 0 ||
     /**
+     * 🔴🔴 **訊號4 的【持續失敗】那一格(板 `⟦b4-SIG4ERRORS⟧`)**。
+     * 🛑 它與上面 `paidNoEmail` 的差別是【年齡】, 而那個差別就是它能不能當判準:
+     *   `paidNoEmail > 0` 是正常的(新單進來就被數到一次, 下一輪 scanner 就排掉)
+     *   ⇒ 拿它當判準 = **有生意就叫**, 那不是告警。
+     * ✅ 而 `stuck` 是【超過門檻分鐘還沒被建出來】⇒ 正常的單活不過一輪 ⇒ > 0 就是真卡住。
+     * 🔴 它守的是一個今天【零告警】的缺口:enqueue 每一輪都失敗時, 那個 `errors`
+     *   只落在 cron 的回應 body、沒有進任何表 ⇒ **當下不會叫, 而且事後查不到。**
+     * ⚠️ 已排除【兩個信箱都空】那一群 ⇒ 同一張單不會被兩個訊號各叫一次。
+     * 🛑 `?? 0` 安全:沒上膛 / RPC 未 apply ⇒ adapter 回 `null` ⇒ **不叫**(走別的管道)。
+     */
+    (summary.orderCreatedStuckCount ?? 0) > 0 ||
+    /**
      * 🔴🔴 **排程心跳(板 `⟦b4-SWEEPDEAD1⟧` 片3;Sean 2026-08-30 拍 `q4: 甲` = 現在做)**。
      * 那一列的問題逐字是「**結算程式死了沒人知道**」—— 而在這一行之前,
      * 心跳**只被儀表板顯示、從來沒有被告警**:
@@ -1076,6 +1108,11 @@ export async function checkAnomalyAlerts(
     shipmentsTotalCount: summary.shipmentsTotalCount,
     shippedGapUnknown: summary.shippedGapUnknown,
     orderCreatedPaidNoEmailCount: summary.orderCreatedPaidNoEmailCount,
+    // 🔵 訊號4 持續失敗那三格也要進 result —— 否則信裡印了而 cron log/body 上這件事不存在,
+    //   ⇒ 事後對不了帳(code-reviewer 2026-09-01 抓)。
+    orderCreatedStuckCount: summary.orderCreatedStuckCount,
+    orderCreatedStuckOldestMinutes: summary.orderCreatedStuckOldestMinutes,
+    orderCreatedStuckUnknown: summary.orderCreatedStuckUnknown,
     orderCreatedNoRecipientCount: summary.orderCreatedNoRecipientCount,
     orderCreatedGapUnknown: summary.orderCreatedGapUnknown,
     cronHeartbeatAbnormalCount: summary.cronHeartbeatAbnormalCount,

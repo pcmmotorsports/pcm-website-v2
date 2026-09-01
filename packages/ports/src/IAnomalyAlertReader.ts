@@ -37,5 +37,11 @@ export interface IAnomalyAlertReader {
      * 🔴 **它與 `shippedCutoffIso` 是兩顆不同的 env** —— 那兩條線分別上線,起始線不是同一刻。
      */
     orderCreatedCutoffIso: string | null,
+    /**
+     * 🔵 訊號4【持續失敗】那一格的門檻(分鐘)。`null` = 那條線還沒上膛。
+     * 🛑 它與 `orderCreatedCutoffIso` 是【兩顆各自獨立的 env】——
+     *   任一為 null 就不查那一格, 而不是互相補值。
+     */
+    orderCreatedStuckMinutes: number | null,
   ): Promise<AnomalyAlertSummary>;
 }
