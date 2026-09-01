@@ -50,6 +50,7 @@ import {
 } from '@pcm/use-cases';
 import { createCheckoutInputSchema, PlaceOrderLinesInput, TapPayPrimeInput } from '@pcm/schemas';
 import { resolveNotificationRecipient } from '@/lib/email/resolve-notification-recipient';
+import { CART_LINES_INVALID_MESSAGE } from '@/lib/checkout/checkout-messages';
 import type {
   ConfirmPaymentOutcome,
   InitiatePaymentOutcome,
@@ -162,7 +163,7 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
   // ②b 購物車線(缺/非法 variantId → REJECT 整單、zod strip 竄改的 unitPrice/tier 等鍵)。
   const parsedLines = PlaceOrderLinesInput.safeParse(raw.lines);
   if (!parsedLines.success) {
-    return { formError: '購物車有商品缺少規格資訊,請返回購物車重新確認' };
+    return { formError: CART_LINES_INVALID_MESSAGE };
   }
 
   // ②c prime(一次性 token、形狀驗;真偽 TapPay server 驗)。
