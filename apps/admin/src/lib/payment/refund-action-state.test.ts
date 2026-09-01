@@ -20,13 +20,31 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { refundFailure, type RefundFailureCode } from './refund-action-state';
+import {
+  REFUND_FAILURE_CODES,
+  refundFailure,
+  type RefundFailureCode,
+} from './refund-action-state';
 
 const INPUT = { amount: '100', reason: '測試', confirmCode: '1234' } as const;
 const TOKEN = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 
 function messageOf(code: RefundFailureCode): string {
   const out = refundFailure(code, INPUT as never, TOKEN);
+  if (out.status !== 'failed') throw new Error(`${code} 應該是 failed`);
+  return out.message;
+}
+
+/**
+ * ⟦b4-CAPMSGNUM⟧ 帶 options 的版本。
+ * 🔴 `RefundActionState` 是 discriminated union ⇒ **直接讀 `.message` typecheck 會紅**
+ *    (`{ status: 'idle' }` 那一支沒有 `message`)⇒ 這裡與 `messageOf` 一樣先窄化。
+ */
+function messageWith(
+  code: RefundFailureCode,
+  options: { readonly remainingCap?: number | null },
+): string {
+  const out = refundFailure(code, INPUT as never, TOKEN, options);
   if (out.status !== 'failed') throw new Error(`${code} 應該是 failed`);
   return out.message;
 }
@@ -96,5 +114,83 @@ describe('🔵 對照:這把尺確實分得出兩種世界', () => {
     for (const code of ALL) {
       expect(messageOf(code), `${code}`).not.toContain('ZZQ不存在的字串');
     }
+  });
+  // ── ⟦b4-CAPMSGNUM⟧ DB 算好的上限有沒有走到【員工眼前】 ──────────────────────
+  //  🔴 這一組是那一列的【收工判準】:「那句話帶得出實際可退金額 = 本列可關」。
+  //  🔴 而它**不釘整句話** —— 釘的是「有沒有那個數字」。字面是 Sean 的, 他隨時可以改。
+  it('🔴 exceeds_remaining 帶得出 DB 算好的上限(⟦b4-CAPMSGNUM⟧ 收工判準)', () => {
+    const msg = messageWith('exceeds_remaining', { remainingCap: 300 });
+    expect(msg).toContain('300');
+    expect(msg).toContain('元');
+  });
+
+  // 🟢 **負對照 ①:沒有 cap ⇒ 那句話必須與今天【逐字相同】** ——
+  //    這一格守的是「DB 還沒 apply 新的那一支時, 畫面不會多出一個空括號或 undefined」。
+  it('🟢 負對照:沒有 cap ⇒ 訊息逐字等於沒帶 options 的那一版', () => {
+    const withNull = messageWith('exceeds_remaining', { remainingCap: null });
+    const without = messageOf('exceeds_remaining');
+    expect(withNull).toBe(without);
+    expect(withNull).not.toContain('undefined');
+    expect(withNull).not.toContain('()');
+  });
+
+  // ⛔ ~~負對照②「別的碼不帶 cap 時不准冒出數字」~~ **【codex R1 nit ——它是恆真的】**
+  //    原版根本沒有傳 cap 進去 ⇒ 即使實作把數字附到**每一個**失敗碼, 那一格照樣綠。
+  //    ⇒ 📌 **一個負對照必須【在錯的世界裡紅】—— 而它連進不進得去那個世界都沒演。**
+  //    ⇒ 而正確的守門位置**不在這一層**:本層 `refundFailure` 是【刻意】與碼無關的
+  //      (分支寫在值上不寫在碼上), 保證住在上游 `capFromDetails` 的 SQLSTATE 綁定
+  //      ⇒ 那一格由 `refund-repository.test.ts` 的「PCM05 帶了 cap 也要回 null」承重。
+  //    ⇒ ⇒ 所以這裡改成釘本層真正的契約:**有 cap 就印、沒有就一個字都不加。**
+  it('🟢 本層的契約:cap 決定印不印, 而【碼】不參與(保證在上游, 見 capFromDetails)', () => {
+    // 錯的世界:如果有人讓某個碼「自己生一個數字」, 這一格會紅
+    expect(messageOf('exceeds_unknown')).not.toMatch(/[0-9]+ 元/);
+    // 🔵 而對的世界要證明這把尺撈得到那種形狀 —— 否則上一行在任何實作下都綠
+    expect(messageWith('exceeds_unknown', { remainingCap: 300 })).toMatch(/300 元/);
+  });
+
+  // 🔴 **【codex R1 MF1】那個數字是【快照】不是【現值】—— 而這一格釘的是事實不是措辭。**
+  //    例外一回滾, DB 的鎖就放掉了 ⇒ 別的交易可以立刻改變 cap
+  //    ⇒ **員工讀到它的時候它已經是過去式。**
+  //    ⇒ 📌 所以那句話**不得宣稱它是「目前」的** —— 那與本檔的立檔精神一致:
+  //      「釘的不是措辭, 是【每一句話在它自己那一格是不是真的】」。
+  //    ✅ 字面仍然是 Sean 的:他可以換句話說, 只要不宣稱它是現值。
+  it('🔴 只要訊息裡有金額, 就【必須】同時說「它會變」與「它不是該退的金額」(守類不守字串)', () => {
+    // 🔴 **【codex R2:上一版守的是特定字串, 不是那一類語意】**
+    //    上一版只禁「目前的上限是」⇒ 換成「目前上限為 / 現在上限是」照樣過。
+    //    ⇒ 📌 **黑名單在跟下一個沒想到的講法賽跑**(同 `CLAUDE.md` 那條 token 前綴的形狀)。
+    //    ⇒ ⇒ 改成**白名單式的不變式**:**有數字 ⇒ 必須有那一句。**
+    //      它與講法無關, 而它正是那一句話唯一要成立的事實。
+    //    🔵 而碼那一側本來就是這樣構造的:數字與那一句在**同一個樣板字串**裡, 拆不開。
+    //      這一格釘的是「不准有人把它們拆開」。
+    const VOLATILE = /會隨|以重送時|可能已|不是現值/;
+    // 🔴 **【codex R3】有金額 ⇒ 還必須說出「這不是該退的金額」** ——
+    //    否則員工會照著那個數字重送, 而它是【系統容許的最高額】不是【這次該退的錢】。
+    //    ⇒ 📌 一個數字加上去之後, 它就帶著權威感 —— 而權威感是這片新增的風險, 不是原本就有的。
+    const NOT_THE_AMOUNT = /不是這次該退的金額|不是應退金額|不是該退的金額/;
+    const MONEY = /[0-9]+ 元/;
+    for (const code of REFUND_FAILURE_CODES) {
+      for (const cap of [300, 0, null] as const) {
+        const msg = messageWith(code, { remainingCap: cap });
+        if (MONEY.test(msg)) {
+          expect(msg, `${code} / cap=${cap}:有金額而沒有講它會變`).toMatch(VOLATILE);
+          expect(msg, `${code} / cap=${cap}:有金額而沒有講它不是該退的金額`).toMatch(NOT_THE_AMOUNT);
+        }
+      }
+    }
+    // 🔵 **正對照:這把尺真的撈得到那種形狀** —— 否則上面整個迴圈在「永遠沒有金額」時恆真
+    const withCap = messageWith('exceeds_remaining', { remainingCap: 300 });
+    expect(withCap).toMatch(MONEY);
+    expect(withCap).toMatch(VOLATILE);
+    expect(withCap).toMatch(NOT_THE_AMOUNT);
+    // 🔵 **負對照:現造一句「有金額而沒有那一句」⇒ 這把尺必須紅**
+    expect(MONEY.test('上限是 300 元。') && !VOLATILE.test('上限是 300 元。')).toBe(true);
+  });
+
+  // 🔴 **而措辭鐵律仍要成立**:加了數字之後那句話仍然不得出現「還能退」「剩餘可退」,
+  //    也仍然要保留「錢沒有動」(`refund-money-line-forbidden.test.ts` 的正對照讀的就是它)。
+  it('🔴 加了數字之後, 措辭鐵律與「錢沒有動」都還在', () => {
+    const msg = messageWith('exceeds_remaining', { remainingCap: 300 });
+    expect(msg).not.toMatch(/還能退|剩餘可退/);
+    expect(msg).toContain('錢沒有動');
   });
 });

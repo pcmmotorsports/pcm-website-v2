@@ -318,13 +318,58 @@ export type RefundActionState =
 export const REFUND_AUDIT_UNCONFIRMED_SUFFIX =
   '另外:這筆的內部紀錄有沒有寫成,系統無法確認。請立刻截圖這個畫面,並通知系統維護。';
 
+/**
+ * ⟦b4-CAPMSGNUM⟧ **DB 算好的上限接在訊息後面的那一句。**
+ *
+ * 🔴 **措辭鐵律(`refund-ledger-view.ts:4-8`)禁「還能退」「剩餘可退」** ——
+ *    這裡用的是【那句話自己已經在用的詞】「上限」,不新造名詞。
+ * 🔴 **不准用 Markdown**:`refund-section.tsx` 是 `<p role='alert'>{state.message}</p>`,
+ *    純文字輸出,寫粗體員工會看到字面上的星號(同檔 `exceeds_unknown` 上方那條註解)。
+ * 🔴 **單位跟著 DB 走**:`20260830210000` 那句人話逐字是「只剩 % 元可退」⇒ 這裡也用「元」。
+ *    ⇒ 兩邊用不同單位詞是一個**看不出來**的錯:畫面正常、數字對、而意思差 100 倍。
+ * ⚠️ **這句話的字面仍然是 Sean 的** —— 本片做的是【讓那個數字拿得到】。
+ *    他要改字, 改這一行即可(而 `refund-money-line-forbidden.test.ts` 會繼續守住禁字)。
+ */
+function remainingCapSuffix(cap: number | null | undefined): string {
+  // 🔴 **【codex R1 MF1】不得寫「目前的上限是」** —— 那句話是假的。
+  //    那個數字是 DB 在**擋下這一發的那一刻**算的, 而例外一回滾, 鎖就放掉了
+  //    ⇒ 別的交易可以立刻改變它 ⇒ 員工讀到它的時候, 它已經是**過去式**。
+  //    ⇒ 📌 而寫成「目前」的代價是具體的:員工照著那個數字重送, 又被擋一次,
+  //      而他會以為是系統壞了 —— **一個過期的數字比沒有數字更難處理。**
+  //    ⇒ ⇒ 所以字面寫「剛才算出來的」, 並明說可能已經變了。
+  //    🔵 這與 §6-b 的「數字要離開量測現場時把範圍寫在旁邊」是同一條, 而這裡的範圍是【時點】。
+  //
+  // 🔴🔴 **【codex R3 —— 換角度那一輪抓到的, 而它比前兩輪的都重】**
+  //    前兩輪問的是「這片碼對不對」。R3 問的是「員工看到那句話之後【下一步會做什麼】」。
+  //    ⇒ 答案:**他很可能直接照那個 X 重送。**
+  //    ⇒ 而 X 是【系統容許的最高額】, 不是【這次該退給客人的金額】——
+  //      它已經扣掉處理中/已完成的退款, 但它不知道這一筆的退款【目的】是什麼。
+  //    🛑 **⇒ 所以本片如果只是印一個數字, 它把一個【模糊的問題】換成一個【更有權威感的錯誤提示】**
+  //      —— 而那比沒有數字糟:員工照著退, 而那個數字看起來是系統給的。
+  //    ⇒ ⇒ 所以那句話必須自己說出「這不是該退的金額」。**這一句不是禮貌, 是這片能不能上的條件。**
+  //    🔵 codex R3 逐字建議「先把訊息改成明確警告 X 不是應退金額,請勿直接照抄」⇒ 已照做。
+  return typeof cap === 'number' && Number.isSafeInteger(cap) && cap >= 0
+    ? `(剛才算出來的上限是 ${cap} 元。這是系統容許的最高額,不是這次該退的金額 —— ` +
+      `請先確認這次要退多少,再重送;這個數字也會隨其他退款變動。)`
+    : '';
+}
+
+/**
+ * ⟦b4-CAPMSGNUM⟧ 全部失敗碼。
+ *
+ * 🔴 **分母由碼表自己產, 不是手打一份清單** —— 手打的那份在下一次加碼時會**安靜地少一格**,
+ *    而少掉的那一格正是「沒有人想到要檢查」的那一個。
+ *    (本檔另一支測試裡就有一份手打的 `ALL`, 而它只列了 7 個。)
+ */
+export const REFUND_FAILURE_CODES = Object.keys(FAILURE_MESSAGES) as RefundFailureCode[];
+
 export function refundFailure(
   code: RefundFailureCode,
   input: RefundFormInput,
   submittedToken: string,
-  options?: { readonly auditUnconfirmed?: boolean },
+  options?: { readonly auditUnconfirmed?: boolean; readonly remainingCap?: number | null },
 ): RefundActionState {
-  const base = FAILURE_MESSAGES[code];
+  const base = `${FAILURE_MESSAGES[code]}${remainingCapSuffix(options?.remainingCap)}`;
   return {
     status: 'failed',
     code,

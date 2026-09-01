@@ -148,11 +148,34 @@ export class RefundCapGuardError extends Error {
    * ⇒ 這裡把它補回頂層。⚠️ 下游若真要 `details`/`hint`,那些仍在 `cause` 上。
    */
   readonly code: CapGuardSqlstate;
-  constructor(sqlstate: CapGuardSqlstate, message: string, options?: { cause?: unknown }) {
+  /**
+   * ⟦b4-CAPMSGNUM⟧ **DB 算好的那個數字** —— `PCM04` 才有,其餘碼是 `null`。
+   *
+   * 🔴 **它為什麼不是從 message 挖出來的**:本 repo 明文紀律「分類依 SQLSTATE、
+   *    **不解析 RPC message 的內容**」(`manual-refund-repository.ts` 檔頭)。
+   *    從人話字串挖數字 = 做一個**跟著文案漂**的解析器:DB 那句話改一個字,
+   *    員工看到的金額就變成 `undefined` —— 而**三綠不會紅、型別也不會紅**。
+   * ⇒ 所以 `20260902000000` 把它放進 `DETAIL` 的 JSON,而這裡讀那個欄位。
+   * ⚠️ 解析失敗 ⇒ `null`,**不是 throw** —— 這條路上錢已經確定沒有動,
+   *    為了一個「訊息裡少一個數字」把員工丟到 bug 畫面是更糟的交換。
+   */
+  readonly cap: number | null;
+  constructor(
+    sqlstate: CapGuardSqlstate,
+    message: string,
+    options?: { cause?: unknown; cap?: number | null },
+  ) {
     super(message);
     this.name = 'RefundCapGuardError';
     this.sqlstate = sqlstate;
     this.code = sqlstate;
+    // 🔴 **【codex R2 MF3 折一半】不變式搬進 constructor, 不是只放在唯一的 producer 裡。**
+    //    上一版把「只有 PCM04 有 cap」綁在 `capFromDetails` ⇒ 那只守住了**今天唯一那個**呼叫端。
+    //    ⇒ 日後有人直接 `new RefundCapGuardError('PCM05', …, { cap: 300 })`,
+    //      員工會看到「算不出上限」後面跟著一個上限 —— **一句自我矛盾的話**, 而沒有東西會紅。
+    //    ⇒ 📌 **一個只在【目前唯一的入口】成立的規則, 不是不變式, 是巧合。**
+    //    ⇒ ⇒ 放在 constructor ⇒ 不論誰建它、從哪裡建, 都成立。
+    this.cap = sqlstate === 'PCM04' ? (options?.cap ?? null) : null;
     // 🔴 原始 PostgrestError 掛在 cause 上(關卡2 nit 13)—— 換掉它會讓 `details`/`hint`
     //    在下游消失,而 `refund-recovery-actions.ts` 那條路正在讀原始物件的 `code`。
     if (options && 'cause' in options) (this as { cause?: unknown }).cause = options.cause;
@@ -176,6 +199,41 @@ export class RefundCapGuardError extends Error {
 export const CAP_GUARD_SQLSTATES = ['PCM04', 'PCM05', 'PCM06'] as const;
 export type CapGuardSqlstate = (typeof CAP_GUARD_SQLSTATES)[number];
 
+/**
+ * ⟦b4-CAPMSGNUM⟧ 從 `PostgrestError.details` 讀出 DB 算好的可退上限。
+ *
+ * 🔴 **每一步都可能不成立,而每一步不成立都回 `null`**(而不是丟例外):
+ *    ①`details` 不是字串(舊版 DB 還沒 apply ⇒ 它是空字串或 undefined)
+ *    ②不是合法 JSON  ③沒有 `cap` 欄  ④`cap` 不是有限數字
+ * ⇒ 📌 **這四種在畫面上長得一樣:那句話就是沒有數字** —— 與今天的行為完全相同。
+ *   ⇒ ⇒ 所以【DB 還沒 apply 新的那一支】時,這一整條路是安全的:訊息退回舊樣子,不會壞。
+ */
+function capFromDetails(sqlstate: CapGuardSqlstate, error: unknown): number | null {
+  // 🔴 **【codex R1 MF3】綁 SQLSTATE, 而它原本只寫在註解裡。**
+  //    原版註解逐字宣稱「`PCM04` 才有,其餘碼是 `null`」—— 而**碼沒有在做那件事**:
+  //    `PCM05` 的語意是【算不出上限】, 它若哪天也帶了一個 `cap`,
+  //    員工會在「算不出上限」那句話後面看到一個上限 ⇒ **一句自我矛盾的話。**
+  //    ⇒ 📌 **一個寫在註解裡的不變式, 不是不變式。**
+  if (sqlstate !== 'PCM04') return null;
+  const details = (error as { details?: unknown }).details;
+  if (typeof details !== 'string' || details.length === 0) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(details);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const cap = (parsed as { cap?: unknown }).cap;
+  // 🔴 **【codex R1 MF2】`Number.isFinite` 收得太寬** —— 它放行負數、小數,
+  //    以及**超過 2^53 之後已經被 `JSON.parse` 動過手腳**的整數(DB 那側是 `bigint`)。
+  //    ⇒ 三種都會讓員工看到一個**錯的金額**, 而畫面完全正常。
+  //    ⇒ ⇒ 這個值的形狀是【非負的安全整數(單位:元)】—— 照那個形狀收, 不是照「是不是數字」。
+  //    🔵 而 DB 那側已經 `GREATEST(v_cap, 0)` ⇒ 負數本來就不該出現;
+  //       這裡再擋一次是因為**兩邊各自都會改**, 而只有這一側看得到員工。
+  return typeof cap === 'number' && Number.isSafeInteger(cap) && cap >= 0 ? cap : null;
+}
+
 /** 認得就回具名錯,認不得回 null(**不是 boolean** —— 呼叫端要用到那個碼)。 */
 function toCapGuard(fn: string, error: unknown): RefundCapGuardError | null {
   if (typeof error !== 'object' || error === null) return null;
@@ -184,6 +242,7 @@ function toCapGuard(fn: string, error: unknown): RefundCapGuardError | null {
   const detail = String((error as { message?: unknown }).message ?? '').slice(0, 200);
   return new RefundCapGuardError(code as CapGuardSqlstate, `${fn} 被上限閘擋下(${code}):${detail}`, {
     cause: error,
+    cap: capFromDetails(code as CapGuardSqlstate, error),
   });
 }
 
