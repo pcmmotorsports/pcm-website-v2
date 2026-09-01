@@ -33,14 +33,28 @@ die() { printf '🔴 design-ref-check 自己壞了:%s\n' "$1" >&2; exit 1; }
 check_one() {
   local root="$1" label="$2"
   [ -d "$root" ] || { printf '  %-40s 🔴 連目錄都沒有\n' "$label"; return 3; }
-  local n; n="$(ls -A "$root" 2>/dev/null | wc -l | tr -d ' ')"
-  if [ "$n" = "0" ]; then
-    printf '  %-40s 🔴 **空的**(0 個檔)\n' "$label"; return 3
+  # 🔴 **尺 B(有判別力的那一把)**:`ls | wc -l` 在【空】與【只是沒加 -A】之間只差 3
+  #    ⇒ 那個差太小, 不夠當判準(`-c7` 量 10 / `-15` 量 13 / 而真分母是 176 —— 三個都是真的)。
+  #    ✅ `git ls-files` 在兩個世界差 **1 vs 176** ⇒ 那才分得開。
+  #    🛑 **而它【不是】靠 rc**:未初始化時它 **rc=0 而回一行 `./`** —— 我實測過。
+  #       ⇒ 📌 「它會報錯」是一個很自然的假設, 而它是假的。
+  local n; n="$(git -C "$root" ls-files 2>/dev/null | wc -l | tr -d ' ')"
+  if [ "$n" -le 1 ] 2>/dev/null; then
+    printf '  %-40s 🔴 **沒有分母**(git ls-files ⇒ %s)\n' "$label" "$n"; return 3
   fi
   if [ ! -f "$root/$SENTINEL" ]; then
-    printf '  %-40s ⚠️ 有 %s 個檔而【沒有 %s】⇒ 那可能不是稿\n' "$label" "$n" "$SENTINEL"; return 3
+    printf '  %-40s ⚠️ ls-files %s 而【沒有 %s】⇒ 那可能不是稿\n' "$label" "$n" "$SENTINEL"; return 3
   fi
-  printf '  %-40s ✅ %s 個檔(正對照 %s 在)\n' "$label" "$n" "$SENTINEL"; return 0
+  printf '  %-40s ✅ 分母 %s 個檔(正對照 %s 在)\n' "$label" "$n" "$SENTINEL"; return 0
+}
+
+# 🔵 **尺 A(語意直接的那一把)** —— 它答的不是「有幾個檔」, 是「這個 submodule 初始化了沒」。
+#    `git submodule status` 首字元:`-` = 未初始化 · 空白 = 已初始化。**沒有門檻。**
+#    🛑 而它【不進 selftest】—— 造一個真的 submodule 太重。
+#       ⇒ 它由**真實世界那一發**背書:2026-09-02 `-15` 實測
+#         `pcm-wt-ship` ⇒ `-` · `pcm-wt-auth`(已 init)⇒ 空白。**兩個世界印不同的字元。**
+submodule_prefix() {
+  git -C "$1" submodule status "$SUB" 2>/dev/null | cut -c1
 }
 
 selftest() {
@@ -53,8 +67,15 @@ selftest() {
   local tmp="$SELFTEST_TMP"
   printf '── selftest ──\n'
 
-  # 🟢 正對照:造一個【看起來對】的目錄
+  # 🟢 正對照:造一個【真的 git repo】而且有稿的根檔
+  # 🔴 fixture 從「一個目錄」改成「一個 git repo」是因為**尺換了**(數檔案 ⇒ git ls-files)。
+  #    ⇒ 📌 而那一刻 selftest 當場紅 —— **它抓到我換了尺而 fixture 沒跟上。**
+  #       那正是 harness 該做的事:不是證明碼對, 是**在前提變了的時候出聲**。
   mkdir -p "$tmp/ok" && printf 'x\n' > "$tmp/ok/$SENTINEL"
+  git -C "$tmp/ok" init -q 2>/dev/null && git -C "$tmp/ok" add -A 2>/dev/null
+  # 🔵 多塞幾個檔:讓它與「只有 1 個檔」那條線分得開(`ls-files <= 1` ⇒ 沒有分母)
+  for i in 1 2 3; do printf 'x\n' > "$tmp/ok/f$i.txt"; done
+  git -C "$tmp/ok" add -A 2>/dev/null
   check_one "$tmp/ok" "正對照 有稿" >/dev/null; rc=$?
   [ "$rc" = "0" ] && printf '  ✅ 有稿 ⇒ rc=0\n' || { printf '  🔴 有稿卻 rc=%s\n' "$rc"; bad=1; }
 
@@ -63,8 +84,12 @@ selftest() {
   check_one "$tmp/empty" "負對照 空的" >/dev/null; rc=$?
   [ "$rc" = "3" ] && printf '  ✅ 空的 ⇒ rc=3\n' || { printf '  🔴 空的卻 rc=%s\n' "$rc"; bad=1; }
 
-  # 🔴 負對照②:**有東西而不是稿** —— 這一格擋的是「只數檔數」那種寫法
-  mkdir -p "$tmp/wrong" && printf 'x\n' > "$tmp/wrong/some-other-file.txt"
+  # 🔴 負對照②:**有東西而不是稿** —— 這一格擋的是「只看有沒有分母」那種寫法
+  #    ⇒ 它是一個【真的 repo、真的有很多檔】, 而它缺那個根檔 ⇒ **那不是稿。**
+  mkdir -p "$tmp/wrong"
+  git -C "$tmp/wrong" init -q 2>/dev/null
+  for i in 1 2 3 4; do printf 'x\n' > "$tmp/wrong/other$i.txt"; done
+  git -C "$tmp/wrong" add -A 2>/dev/null
   check_one "$tmp/wrong" "負對照 有東西而不是稿" >/dev/null; rc=$?
   [ "$rc" = "3" ] && printf '  ✅ 不是稿 ⇒ rc=3\n' || { printf '  🔴 不是稿卻 rc=%s ⇒ 只數檔數會漏掉它\n' "$rc"; bad=1; }
 
@@ -82,6 +107,17 @@ selftest() {
 printf '你現在站的地方:%s\n' "$PWD"
 printf 'design-reference 狀況:\n'
 check_one "$PWD/$SUB" "本樹 $SUB"; rc=$?
+
+# 🔴 **兩把尺要對得上** —— 對不上時我【不猜】, 我報 rc=1(工具/世界說不清楚)。
+#    📌 因為那時「有分母而沒初始化」與「初始化了而空的」都可能, 而它們的修法不同。
+PREFIX="$(submodule_prefix "$PWD")"
+case "$PREFIX" in
+  '-') printf '  尺A submodule status ⇒ **未初始化**(前綴 `-`)\n'
+       [ "$rc" = "0" ] && { printf '  🔴 兩把尺不一致:尺B 說有分母而尺A 說沒 init ⇒ 我不猜\n'; rc=1; } ;;
+  '')  printf '  尺A submodule status ⇒ 讀不出來(不是 submodule?或不在 repo 裡)\n' ;;
+  *)   printf '  尺A submodule status ⇒ 已初始化(前綴 空白)\n'
+       [ "$rc" = "3" ] && { printf '  🔴 兩把尺不一致:尺A 說已 init 而尺B 說沒分母 ⇒ 我不猜\n'; rc=1; } ;;
+esac
 
 if [ "$rc" != "0" ]; then
   cat <<'FIX'
