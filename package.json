@@ -22,6 +22,7 @@
     "*.{[sS][hH],[yY][aA][mM][lL],[yY][mM][lL],[sS][qQ][lL],[pP][yY]}": "tsx scripts/check-syntax-nonts.ts",
     "scripts/pagecount.sh": "sh scripts/pagecount.sh --selftest",
     "scripts/naked-cells.py": "python3 scripts/naked-cells.py --selftest",
+    "scripts/reported-not-landed.py": "python3 scripts/reported-not-landed.py --selftest",
     "scripts/anchor-in-helper.py": "python3 scripts/anchor-in-helper.py --selftest",
     "scripts/money-paths-untested.py": "python3 scripts/money-paths-untested.py --selftest",
     "scripts/md-table-overflow.py": "python3 scripts/md-table-overflow.py --selftest",
