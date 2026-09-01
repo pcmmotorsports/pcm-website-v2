@@ -142,7 +142,18 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
        讓紙面邊界**只由** `@page{margin:12mm 12mm 14mm 12mm}` 決定,不然會內縮兩次。
        ⚠️ 改名要同步那支 CSS;改名後的症狀是**紙印出來邊距不對**,三綠與單測都不會紅。
        📎 Sean 逐字「出貨單都是 A4」⇒ **揀貨單一起吃**,兩張紙同一套版面。 */
-    <div data-slot='picking-doc' className='print-sheet mx-auto max-w-3xl space-y-4 p-6 print:max-w-none pd-sheet'>
+    <div
+      data-slot='picking-doc'
+      /* 🔴 `pd-mark-detail` = ⟦b4-2PAPERS⟧,Sean 2026-08-31 拍【甲】(視覺標記,不動任何字)。
+         **只有這張紙掛它** —— 出貨單那支一個字都沒動。
+         ⚠️ 而它為什麼不是背景色:`print-a4.css:250-251` 逐字寫著
+            `print-color-adjust:exact` **蓋不掉使用者的「背景圖形」勾選框**
+            ⇒ 📌 **一個掛在 background 上的標記,在關掉那個勾選框的印表機上【不存在】。**
+            ⇒ 所以它是 `border`(邊框一定會印),而且是深色 ⇒ 黑白印表機也看得見。
+         🛑 而 Sean 明文拍過相反的三件,這一片一件都沒碰:
+            改名(「不用改名,依照現在」)· 改檔名/路由(`-48` 明令)· 統一兩張紙(⟦b9-2DOCS1⟧ 禁止)。 */
+      className='print-sheet mx-auto max-w-3xl space-y-4 p-6 print:max-w-none pd-sheet pd-mark-detail'
+    >
       {/* 🔴 A3-2'(2026-08-29):這張紙改吃【與出貨單同一套】的抬頭 ——
           Sean 2026-08-23 拍板(壓縮轉述, 原話見 memory `project_0823-sean-shipping-doc-server-render.md:19-20`)
           「原揀貨單鈕改成訂單明細…**格式跟出貨單一樣**」。
