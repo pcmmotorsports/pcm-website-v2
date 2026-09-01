@@ -189,6 +189,21 @@ export function formatOrderDate(iso: string): string {
  */
 const PAYMENT_METHOD_LABEL: Readonly<Record<string, string>> = {
   tappay: '信用卡',
+  // 🔴 `zero_total`(2026-09-01,0 元單片):`settle_zero_total_order()` 寫的字面
+  //    (`20260901030000_m4b_zero_total_settle.sql`)。**它不是一種付款工具,是「這張單不必付」。**
+  //    ⚠️ 沒有這一列,客人會在自己的訂單頁上看到英文 `zero_total` ——
+  //      而本函式的設計是「認不得的原樣印出」⇒ 它**不會報錯、不會空白**,就是把原文端到客人面前。
+  //      ⇒ 抓到它的是 `order-display.test.ts` 那道「migrations 裡每個字面都翻得出中文」的閘,
+  //        而**那支測試住在 storefront,而 0 元單那 6 顆一個 `apps/` 檔都沒動** ⇒ 我自己跑不會紅。
+  //
+  //    🔴 選字理由(design-reference 主樹實掃:免付款/無需付款/全額折抵/0 元 **皆 0 檔**;
+  //      🟢 正對照「信用卡」⇒ 5 檔 ⇒ 那把尺是活的,不是掃不到東西)⇒ 稿上沒有這一格,由本片裁:
+  //      · ~~全額折抵~~ —— 今天為真(閘要求 `v_total = 0` 必須帶券),**而它把「為什麼」寫死進標籤**。
+  //        哪天贈品單或儲值金全額折抵也走這條路,這個字就會變成謊,而**沒有東西會紅**。
+  //      · ~~免付款~~ —— 讀起來像「我們免了你的錢」,而事實是折抵之後剛好是 0。
+  //      · ✅ `無需付款` —— 只描述**這張單的狀態**,不描述成因 ⇒ 未來多一種 0 元成因也仍然為真。
+  //    📌 一個把成因寫進去的標籤,它的正確性綁在今天的成因清單上;而那份清單會變,標籤不會跟著變。
+  zero_total: '無需付款',
 };
 
 export function paymentMethodLabel(method: string): string {
