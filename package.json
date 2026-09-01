@@ -74,7 +74,9 @@
     "{docs/launch-todo.md,docs/specs/2026-07-25-admin-backend-rebuild-spec.md}": "python3 scripts/board-state-consistency.py --staged",
     "scripts/pcmro1-verify.sh": "bash scripts/pcmro1-verify.sh --selftest",
     "scripts/env-value-in-docs.py": "python3 scripts/env-value-in-docs.py --selftest",
-    "docs/**/*.{md,sh,py}": "python3 scripts/env-value-in-docs.py --staged"
+    "docs/**/*.{md,sh,py}": "python3 scripts/env-value-in-docs.py --staged",
+    "scripts/pcm01-record-verify.sh": "bash scripts/pcm01-record-verify.sh --selftest",
+    "supabase/migrations/20260902020000_m4b_pcm01_record_not_block.sql": "bash scripts/pcm01-record-verify.sh --selftest"
   },
   "devDependencies": {
     "@pcm/domain": "workspace:^",
