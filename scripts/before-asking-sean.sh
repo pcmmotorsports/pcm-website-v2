@@ -121,12 +121,37 @@ sweep() {
   #       **而五個零讀起來與「他沒答過」一模一樣。**
   #    🔴 ⇒ 而拍板落檔的規矩(`00-work-rules §4`)本來就寫著「PCM 拍板 → memory `project_*`」
   #       ⇒ **這支工具的分母, 少了制度指定的那個落點。**
-  local C2="grep -rn <關鍵字> ~/pcm-mailbox/*決策*.md ~/pcm-mailbox/*等Sean*.md docs/launch-todo.md + memory/"
-  section "② Sean 答過了嗎(決策板 + 板子 + memory 拍板檔)" "$C2"
+  # 🔴🔴 **2026-09-01:這一段的檔名 glob 是一個【白名單】, 而它在跟下一個檔名賽跑。**
+  #    成因是量到的:Sean 2026-08-31 批了一份 `~/pcm-mailbox/清單-開站前必須做完-20260901.md`
+  #    (299 行, 逐字「依照這個清單一直安排所有視窗不停工 趕工完成」)
+  #    ⇒ 而它既不叫 `*決策*` 也不叫 `*等Sean*` ⇒ **這一段一個字都看不到它。**
+  #    📌 **⇒ 一支防「重問已答過的事」的工具, 分母裡沒有【他答完之後產生的那份清單】。**
+  #    ✅ 修法【不是】再加兩個 pattern —— 那是同一場賽跑再跑一圈。
+  #      改成:窄的那組照舊(訊號準), 而**另外整個信箱粗掃一遍**(涵蓋所有檔名), 兩個【分開印】。
+  #      🔵 實測全掃成本:6,042 支 .md / 481 MB ⇒ `grep -rl` 約 **0.57 秒** ⇒ 便宜。
+  #      🛑 而粗掃**雜訊高**(信箱裡多數是交件不是拍板)⇒ 所以它印在後面、而且明講它是粗的。
+  local C2="grep -rn <關鍵字> ~/pcm-mailbox/*決策*.md ~/pcm-mailbox/*等Sean*.md docs/launch-todo.md + memory/ + 全信箱粗掃"
+  section "② Sean 答過了嗎(決策板 + 板子 + memory 拍板檔 + 全信箱粗掃)" "$C2"
   { grep -rn -- "$KW" "$MAILBOX"/*決策*.md "$MAILBOX"/*等Sean*.md 2>/dev/null
     grep -n -- "$KW" "$REPO/docs/launch-todo.md" 2>/dev/null
     grep -rn -- "$KW" "$MEMDIR" 2>/dev/null; } | cut -c1-220 > "$TMP"
   report "決策板與 launch-todo 與 memory" "$TMP"
+
+  # ── ②b 全信箱粗掃(只印檔名 + 命中數, 不參與上面那個零計數)──────────────
+  #    🔴 它【不併進 ②】是刻意的:併了會讓「決策板有沒有」這個準訊號被交件檔淹掉。
+  #    而它單獨印, 讀的人自己決定要不要點進去。
+  local WIDE_N WIDE_LIST
+  WIDE_LIST="$(grep -rl -- "$KW" "$MAILBOX"/*.md 2>/dev/null | head -12)"
+  WIDE_N="$(grep -rl -- "$KW" "$MAILBOX"/*.md 2>/dev/null | grep -c '')"
+  printf '\n   ②b 全信箱粗掃(所有 *.md, 不限檔名):命中 %s 支\n' "$WIDE_N"
+  if [ "$WIDE_N" != "0" ]; then
+    printf '%s\n' "$WIDE_LIST" | sed 's|.*/|      · |'
+    [ "$WIDE_N" -gt 12 ] 2>/dev/null && printf '      …(只列前 12 支)\n'
+    printf '   🛑 而這一段【雜訊高】—— 信箱裡多數是交件不是拍板。它的用途是:\n'
+    printf '      ②那組窄的印零, 而這裡非零 ⇒ **那個零是檔名 glob 造成的, 不是「他沒答過」**\n'
+  else
+    printf '   🔵 全信箱也是零 ⇒ ②那個零不是檔名 glob 造成的\n'
+  fi
 
   # ── ③ 答案寫在碼的註解裡嗎 ────────────────────────────────────────────
   local C3="git grep -n <關鍵字> -- supabase/migrations packages/use-cases apps/*/src"
@@ -229,7 +254,35 @@ second_round() {  # second_round "<原關鍵字>"
   done
 }
 
+# ══ 🔴🔴 **這一棵樹與 dev 差多少 —— 而不印它會產生【假的零】** ═══════════════
+#    成因是量到的(2026-09-01 線 `-5b`, 線DB 複驗):在一棵落後 origin/dev 59 顆的
+#    工作樹上跑同族工具查一個【就在 dev 板上】的錨 ⇒ **全段零命中**。
+#      那棵樹的板 態列 315 · 命中 0   ·   origin/dev 的板 態列 377 · 命中 4
+#    🛑 **而那一發的量測戳看起來完全健康**:HEAD 正常、工作樹 0 項 dirty。
+#    📌 **⇒ 判別句**:**它守的是「同一棵樹上兩個人的差異」, 而漏的是「這棵樹與 dev 的差異」。**
+#       **⇒ 兩個都是分母, 而它只印了一個。**
+#    🔵 **⇒ 而修法【不是】改成讀 `origin/dev`** —— 那會換一個方向的假零(剛 commit 未推的查不到)
+#       ⇒ ⇒ **兩個方向都有假零 ⇒ 兩邊都印。**
+behind_warning() {
+  local BEHIND AHEAD
+  BEHIND="$(git -C "$REPO" rev-list --count HEAD..origin/dev 2>/dev/null)"; BEHIND="${BEHIND:-未知}"
+  AHEAD="$(git -C "$REPO" rev-list --count origin/dev..HEAD 2>/dev/null)"; AHEAD="${AHEAD:-未知}"
+  if [ "$BEHIND" != "0" ]; then
+    printf '\n   🔴🔴 ⚠️  這棵樹【落後 origin/dev %s 顆】—— 本支所有 grep 讀的是【這棵樹】\n' "$BEHIND"
+    printf '   🔴🔴     ⇒ 那 %s 顆裡的板子列 / 碼 / 註解 / COMMENT, 本支【一個字都看不到】\n' "$BEHIND"
+    printf '   🔴🔴     ⇒ 而它會印成【零命中】, 而零命中讀起來像「他沒答過、也沒有人做過」\n'
+    printf '   🔴🔴     ⇒ 先 `git pull --ff-only`(或到主樹跑)再重跑, 不要用這一發的零端他\n'
+  else
+    printf '\n   🔵 落後 origin/dev 0 顆(這棵樹與 dev 同步)\n'
+  fi
+  if [ "$AHEAD" != "0" ]; then
+    printf '   🔵 領先 origin/dev %s 顆 —— 那幾顆【只有這棵樹看得到】\n' "$AHEAD"
+  fi
+  printf '   ⚠️ 而 origin/dev 是【本地那份 ref】—— 它可能是舊的, 而它不會說\n'
+}
+
 scope_note() {
+  behind_warning
   cat <<'SCOPE'
 
 

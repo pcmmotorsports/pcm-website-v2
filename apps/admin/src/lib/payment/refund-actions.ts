@@ -423,7 +423,13 @@ export async function initiateRefundAction(
     //    而三個碼要找的人各不相同(`refund-repository.ts` 的 `RefundCapGuardError` 註解)。
     if (error instanceof RefundCapGuardError) {
       logError(`initiate 被上限閘擋下(${error.sqlstate})`, error);
-      return refundFailure(CAP_GUARD_FAILURE_CODE[error.sqlstate], input, parsed.requestToken);
+      // ⟦b4-CAPMSGNUM⟧ `PCM04` 帶得出 DB 算好的上限 ⇒ 讓那個數字進員工看到的那句話。
+      // 🔴 **只有 `PCM04` 有**:`PCM05` 的語意是「算不出上限」⇒ 它【本來就沒有數字】,
+      //    而 `error.cap` 在那條路上是 `null` ⇒ 這裡不必分支,`remainingCapSuffix` 自己會空手。
+      //    ⇒ 📌 分支寫在【值】上不寫在【碼】上 —— 碼會長,而「有沒有數字」永遠只有一個答案。
+      return refundFailure(CAP_GUARD_FAILURE_CODE[error.sqlstate], input, parsed.requestToken, {
+        remainingCap: error.cap,
+      });
     }
     if (error instanceof RefundCallerBugError) {
       logError('initiate 契約違反', error);

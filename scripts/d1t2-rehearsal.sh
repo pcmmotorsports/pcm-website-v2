@@ -65,6 +65,14 @@ provision() {
   log "3/5 套 migrations(跳過 pg_cron 那支;fitments 快照插在首引用之前)"
   local FIRST_FITMENTS
   FIRST_FITMENTS="$(grep -l 'product_fitments_effective' supabase/migrations/*.sql | sort | head -1)"
+  # 🔴 2026-09-01:那支 a8a3-G 的 probe 要「借一張既有訂單」(:137),而 replay-from-zero 的庫是空的
+  #    ⇒ 它 :139 fail-closed 拒繼續 ⇒ **26 支 harness 的 provision 全部死在這裡**。
+  #    🛑 那道斷言逐字寫著「不要把這道斷言拿掉」⇒ 我一個字都沒動它,補的是它要的世界。
+  #    ⚠️ 而它**不是只缺一張訂單** —— 補了訂單還會死在下一層(`auth.uid()` 原本是常數 NULL);
+  #       那一格修在 `scripts/d1-supabase-shim.sql`,兩處要一起才會過。
+  local NEEDS_ORDER
+  NEEDS_ORDER="$(ls supabase/migrations/*a8a3g_cancel_guard_sibling_dedup.sql 2>/dev/null | head -1)"
+  [ -n "$NEEDS_ORDER" ] || die "找不到 a8a3g 那支 migration(檔名改過?)—— 拒繼續:少了它下面那段 fixture 會安靜地不執行"
   for f in supabase/migrations/*.sql; do
     case "$f" in
       *20260723120000*) echo "  跳過(pg_cron/vault):$f" >&2; continue ;;
@@ -77,14 +85,82 @@ provision() {
       # 🛑 而它【一直都會死】—— 只是先前被更早的一支(20260818190000 的 ACL 斷言)擋住而看不到。
       #    ⇒ 📌 兩個獨立的壞掉疊在一起, 而修好第一個之後第二個才露出來。
       *20260819160000*) echo "  跳過(pg_cron):$f" >&2; continue ;;
+      # 🔴 2026-09-01 補:E2a-2 的 ineligible 排程 —— :68 逐字「E2a-2 gate:pg_cron 未啟用;拒繼續」。
+      #    ⚠️ **它一直都會死, 只是先前被更早的兩支擋住而看不到**(同 20260819160000 那一格的形狀)。
+      #    ⚠️⚠️ **我在這裡寫過一句「不會再有第 5 支」, 而【下一發就撞到第 5 支】(20260820070000)。**
+      #      舊字面留著不刪:~~掃「同一支檔裡同時出現 pg_extension 與 pg_cron」⇒ 恰 4 支 ⇒ 不會再有第 5 支~~
+      #      🔴 **成因**:那把尺掃的是「有沒有【檢查】pg_extension」, 而第 5 支根本不檢查 ——
+      #        它直接 `FROM cron.job` ⇒ 死在 `relation "cron.job" does not exist`。
+      #      📌 **⇒ 而那三支正對照【全部通過】了 —— 一把太窄的尺, 在它自己的正對照上表現完美。**
+      #        ⇒ 正對照證明的是「尺會動」, 它證明不了「尺夠寬」。那是兩個宣稱。
+      #      🔵 **寬一點的尺**(掃有沒有碰 `cron.` 這個 schema)⇒ 8 支, 涵蓋上面 4 支;
+      #        而它【過報】:`20260809160000`(L3a 函式本體)碰了 cron 而照樣 apply 得過
+      #        —— 因為那段字在函式體裡, apply 當下不執行。
+      #      ⇒ 🛑 **所以這張清單沒有一把靜態的尺答得出來** ⇒ 它就是撞一支加一支。
+      #        **尚未撞到、而在寬尺名單上的候選**:20260828060000 · 20260829190000。
+      *20260820060000*) echo "  跳過(pg_cron):$f" >&2; continue ;;
+      # 🔴 第 5 支:它不檢查 pg_extension, 直接讀 cron.job(:40)⇒ 死在 relation does not exist。
+      *20260820070000*) echo "  跳過(pg_cron):$f" >&2; continue ;;
+      # 🔴 第 6 支:b4cron6 心跳 —— 它比對 cron.job 的排程列(:164 那個 IF)⇒ 同樣讀 cron schema。
+      #    ✅ 它【在上面那份寬尺的候選名單裡】⇒ 那份名單這次答對了一格(剩 20260829190000 未撞到)。
+      *20260828060000*) echo "  跳過(pg_cron):$f" >&2; continue ;;
     esac
     if [ "$f" = "$FIRST_FITMENTS" ]; then
       echo "  插入 fitments DDL 快照(於首引用 $f 之前)" >&2
       psql "$(url)" -v ON_ERROR_STOP=1 -q -f scripts/d1-fitments-bootstrap.sql
     fi
-    psql "$(url)" -v ON_ERROR_STOP=1 -q -f "$f" || die "migration 失敗:$f"
+    if [ "$f" = "$NEEDS_ORDER" ]; then
+      echo "  插入最小訂單 fixture(那支的 probe 要借一張既有訂單;跑完立刻刪)" >&2
+      psql "$(url)" -v ON_ERROR_STOP=1 -q -f scripts/d1-order-fixture.sql
+    fi
+    # 🔴 2026-09-01 加 `--single-transaction`:`20260820120000` 在一個 DO 區塊裡建 `ON COMMIT DROP`
+    #    的 temp table, 到下一個區塊才讀它 ⇒ **自動提交模式下那張表在區塊結束就沒了**
+    #    ⇒ `relation "pcm_ebc_pad_before" does not exist`。
+    #    🔵 而這也【更接近正式站】:Sean 是把整支貼進 Supabase SQL Editor, 那本來就是一個交易。
+    #    ⚠️ **而它的射程比看起來窄**:本 repo 有 147 支 migration 自己就寫了 `BEGIN;`
+    #      (實測 log 印了 141 次「already a transaction in progress」+ 141 次「no transaction in progress」)
+    #      ⇒ **對那些檔它幾乎是 no-op** ⇒ 這個旗標真正改變的是【沒自帶 BEGIN 的那一小撮】。
+    #      ⇒ 📌 那兩行 WARNING 是預期的, 不是壞掉。
+    psql "$(url)" -v ON_ERROR_STOP=1 --single-transaction -q -f "$f" || die "migration 失敗:$f"
 
   done
+
+  # 🛑 **fixture 撐到整個迴圈跑完才刪, 而理由是硬的**:下面 5/5 逐字斷言 `orders` = 31
+  #    ⇒ 留著它會變 32 ⇒ 📌 **一個 harness 的 fixture 會弄壞【另一支 harness 的斷言】,**
+  #      **而那條依賴沒有寫在任何地方 —— 是撞到才知道的。**
+  #    🔴 而刪的位置從「a8a3g 那一支的正後方」搬到這裡, 也是撞出來的:下一支 20260820021000
+  #      **也要借一張訂單**(還多要一位 is_active 的 staff)⇒ 需要 fixture 的不只一支。
+  # 🔴🔴 2026-09-02:把 `expire_unpaid_orders` 補成【20260828060000 那一代】(含成功心跳)。
+  #    成因是量到的:上面的跳過清單為了 pg_cron 跳掉了 `20260828060000`
+  #    ⇒ 這個庫裡那支函式停在 `20260809160000`(L3a, 沒有心跳)
+  #    ⇒ 而 `-0e` 2026-09-01 從這個庫 `pg_get_functiondef` 抄函式體去寫交件 SQL
+  #      ⇒ **抄到舊的那一代 ⇒ 交件檔會把正式庫的心跳整段刪掉**(codex must-fix A:195)。
+  #    ⇒ 📌 **一個為了跳過 pg_cron 而做的省略, 在兩小時後變成一支會刪掉監控的交件檔。**
+  #    ⚠️ 只補【函式定義 + REVOKE】那一段, **不補排程**(排程要真的 pg_cron)。
+  #      抽法用兩個錨(CREATE 那行 → REVOKE 那兩行), 不寫死行號 —— 行號會漂。
+  local HB="$WORK/expire-heartbeat-gen.sql"
+  awk '/^CREATE OR REPLACE FUNCTION pcm_cron\.expire_unpaid_orders/{f=1} f{print} /^  FROM PUBLIC, anon, authenticated, service_role, payment_confirmer;/{if(f)exit}' \
+    supabase/migrations/20260828060000_m4b_b4cron6_expire_unpaid_orders_heartbeat.sql > "$HB"
+  grep -q 'sweeper_heartbeat' "$HB" \
+    || die "抽不到心跳那一代的函式體(錨可能被改過)—— 拒繼續:少了它, 這個庫會安靜地停在舊代"
+  psql "$(url)" -v ON_ERROR_STOP=1 -q -f "$HB"
+  # 🔴 補完當場驗:**「我跑了那支檔」與「庫裡那支函式真的換了」是兩個宣稱。**
+  test "$(runsql "SELECT position('sweeper_heartbeat' in prosrc) > 0 FROM pg_proc WHERE oid = 'pcm_cron.expire_unpaid_orders(integer)'::regprocedure")" = "t" \
+    || die "補完之後庫裡那支函式仍然沒有心跳 ⇒ 補的動作沒生效"
+  echo "  expire_unpaid_orders 已補成 20260828060000 那一代(含心跳)" >&2
+
+  psql "$(url)" -v ON_ERROR_STOP=1 -q -c "DELETE FROM public.orders WHERE display_id = 'PCM-2026-9001'" >/dev/null
+  psql "$(url)" -v ON_ERROR_STOP=1 -q -c "DELETE FROM auth.users WHERE id = '00000000-0000-4000-8000-00000000a8a3'" >/dev/null
+  # 🔴 刪完當場數一次:**「我下了 DELETE」與「它真的不在了」是兩個宣稱**
+  #    (customers 那列靠 auth.users 的 ON DELETE CASCADE 走;沒走成這裡會叫)。
+  test "$(runsql "SELECT count(*) FROM public.orders")" = "0" \
+    || die "fixture 沒刪乾淨:orders 應回到 0 列 —— 再往下跑會撞壞 5/5 的筆數斷言"
+  test "$(runsql "SELECT count(*) FROM public.customers")" = "0" \
+    || die "fixture 沒刪乾淨:customers 應回到 0 列(auth.users 的 CASCADE 沒生效?)"
+  # 🔴 這裡【曾經】多一道 `staff 應回到 0 列`, 而它是錯的尺:migration 自己種了 5 位 staff
+  #    (`20260726120000` 起)⇒ 那一道會在一個完全正常的世界裡紅。已拿掉。
+  #    📌 **⇒ 一道守門紅了, 第一問不是「誰弄壞的」, 是「這把尺量的是不是我以為的東西」。**
+  echo "  fixture 已刪除(orders/customers 皆回 0 列;staff 是 migration 自己種的, 不歸本 fixture 管)" >&2
 
   log "4/5 fake cron/pg_net 介面 + alter_job 自檢(true→false→true;五元組唯一)"
   psql "$(url)" -v ON_ERROR_STOP=1 -q -f scripts/d1-fake-cron.sql
@@ -104,7 +180,14 @@ provision() {
     pnpm exec tsx scripts/d1t2-seed.ts --fixture "$v" > "$WORK/fixture-$v.json"
     test -s "$WORK/fixture-$v.json"
   done
-  for pair in "orders 31" "order_items 41" "order_legal_consents 5" "payment_charge_attempts 28" "pending_invoices 4" "customers 2" "customer_addresses 3" "products 10" "product_variants 10" "legal_terms_versions 2" "email_outbox 1"; do
+  # 🔴 2026-09-01:`legal_terms_versions` 從 2 改 4。**不是 seed 變了 —— 是 migration 又加了兩版**
+  #    (`20260819120000` v3 法定名稱 · `20260821113000` v4 搜尋記錄)⇒ 這個數字由 migration 決定,不由 seed 決定。
+  #    ⇒ 它【還會再漂】。重量的指令:`grep -l legal_terms_versions supabase/migrations/*.sql`
+  #      再開檔數 INSERT;或直接對一個剛 provision 好的庫跑
+  #      `psql "$(url)" -qtA -c 'SELECT count(*) FROM public.legal_terms_versions'`。
+  #    📌 **⇒ 而這一格與上面 #13 那個 seed 金額是同一個病**:harness 的期望值凍在寫下的那一天,
+  #      而 migration 繼續往前走 —— **兩邊都沒有錯,是它們之間沒有東西在對帳。**
+  for pair in "orders 31" "order_items 41" "order_legal_consents 5" "payment_charge_attempts 28" "pending_invoices 4" "customers 2" "customer_addresses 3" "products 10" "product_variants 10" "legal_terms_versions 4" "email_outbox 1"; do
     set -- $pair
     test "$(runsql "SELECT count(*) FROM public.$1")" = "$2" || die "seed 筆數不符:$1 應 $2"
   done

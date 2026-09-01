@@ -185,6 +185,23 @@ GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN
 --    🛑 **而那條【至今沒有機制】** —— `WARNING` 只是讓它出聲, 不是修好。
 --       真正的修法是【建 `pcm_readonly` 的那支 migration 自己補這條 GRANT】, 而那支還不存在。
 --    ⇒ 所以它記在板 `b4-PCMRO1`(log 會滾掉, 板子不會), 而不是靠這幾行。
+-- 🔴🔴 **2026-09-02 補(給下一個要收 `pcm_readonly` 權限的人 —— 他不會收到那則訊息)**:
+--    下面那個 `IF EXISTS` 判的是【**那個角色存不存在**】,**不是【它該不該有這個權限】**。
+--    ⇒ 有人 `REVOKE` 掉 `pcm_readonly` 的權限之後,**角色還在** ⇒ 它走 THEN 那一支
+--      ⇒ **它會安靜地把 GRANT 補回去,一個 WARNING 都不印。**
+--    ⇒ 📌 那是「fail-open 藏住有沒有裝上」的一個形狀 —— 而寫它的是我(線【出貨】`-0e`)。
+--    ✅ **而 2026-09-02 的窄版收權(只收客戶 PII 那幾張 view)底下,本檔【一個字都不用改】**:
+--      `product_fitments_effective` 是車型對應表、**零 PII** ⇒ 不在那個收權範圍裡。
+--    🔴 **而窄版的【理由】被換過一次,兩個理由都留著 —— 因為第一個已經被推翻**:
+--      ⛔ ~~理由甲:`pcm_readonly` 就是我們自己在用的那條唯讀連線,全收會讓我們查不動~~
+--        **推翻**(`-15` 2026-09-02 兩發實量):`pg_stat_activity` 裡 `pcm_readonly` **0 條連線**
+--        (而尺是活的:`authenticator` 21 / `payment_confirmer` 1);碼裡引用 **1 支**,
+--        而那一支是稽核腳本 `scripts/rls-policy-debt.sh`,不是產線。
+--      ✅ 理由乙(現行):**窄版不需要改任何已經在 dev 上的東西** —— 全收要改本檔與 `20260901080000`。
+--      ⇒ 📌 **一個被推翻的理由撐著一個仍然正確的結論 ⇒ 那是下一次事故的種子。**
+--        (下一個人若拿理由甲去做別的決定,他會做錯 —— 而結論看起來替他背書了。)
+--    🛑 **而如果哪天走的是【全收】那一版 ⇒ 這一段必須跟著改,否則收完會被它補回去。**
+--      判別句:**要收的那個東西,有沒有人在別的地方【無條件】把它加回來?**
 DO $pfe_ro$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'pcm_readonly') THEN

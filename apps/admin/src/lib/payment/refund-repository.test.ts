@@ -264,6 +264,90 @@ describe('RAISE 分流(真實 PostgrestError 形狀)', () => {
     );
   });
 
+  // ── ⟦b4-CAPMSGNUM⟧ DB 算好的上限有沒有【離開資料庫】────────────────────────
+  //  🔴 這一組守的不是「有沒有紅」——【舊版也會紅】。守的是:
+  //     `RefundCapGuardError.cap` 這個【結構化欄位】拿不拿得到那個數字。
+  //  🔴 而它刻意**不從 message 挖** —— 本 repo 明文紀律「不解析 RPC message 的內容」
+  //     (`manual-refund-repository.ts` 檔頭);從字串挖會做出一個跟著文案漂的解析器。
+  it('🔴 PCM04 帶 DETAIL ⇒ `cap` 拿得到 DB 算好的那個數字(⟦b4-CAPMSGNUM⟧)', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: {
+        code: 'PCM04',
+        message: '這張單目前只剩 300 元可退,退不了 500 元',
+        details: '{"cap" : 300, "asked" : 500}',
+        hint: 'lower-the-amount',
+      },
+    });
+    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toSatisfy(
+      (e) => e instanceof RefundCapGuardError && e.cap === 300,
+    );
+  });
+
+  // 🟢 **負對照 ①:DB 還沒 apply 那一支** —— `details` 是空的 ⇒ `cap` 必須是 `null`,
+  //    而**不是 throw**:那條路上錢已經確定沒有動,為了少一個數字把員工丟到 bug 畫面更糟。
+  //    📌 這一格同時是「新舊 DB 都能上線」的證據:訊息退回舊樣子,不會壞。
+  it('🟢 負對照:沒有 DETAIL(舊版 DB)⇒ cap = null 而不是 throw', async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: 'PCM04', message: '超額' } });
+    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toSatisfy(
+      (e) => e instanceof RefundCapGuardError && e.cap === null,
+    );
+  });
+
+  // 🟢 **負對照 ②:四種壞掉的 DETAIL 各一發** —— 每一種都要落到 `null`,不准有一種丟例外。
+  //    🔴 而它們**在畫面上長得一樣**(那句話就是沒有數字)⇒ 只有這裡量得出差別。
+  it('🟢 負對照:DETAIL 壞掉的八種形狀都回 null,一種都不准 throw', async () => {
+    // 🔴 後四種是 **codex R1 MF2**:`Number.isFinite` 全部放行, 而它們都會讓員工看到錯的金額。
+    //    `9007199254740993` 超過 `2^53` ⇒ **`JSON.parse` 在讀進來的當下就已經動過它**
+    //    ⇒ 那不是「大數字」, 是**一個不等於 DB 那個值的數字**。
+    const broken = [
+      '不是 JSON',
+      '[]',
+      '{"asked" : 500}',
+      '{"cap" : "300"}',
+      '{"cap" : -50}',
+      '{"cap" : 300.5}',
+      '{"cap" : 9007199254740993}',
+      '{"cap" : null}',
+    ];
+    for (const details of broken) {
+      mocks.rpc.mockResolvedValue({
+        data: null,
+        error: { code: 'PCM04', message: '超額', details },
+      });
+      await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toSatisfy(
+        (e) => e instanceof RefundCapGuardError && e.cap === null,
+      );
+    }
+  });
+
+  // 🟢 **負對照 ③:`PCM05` 是「算不出上限」** ⇒ 它結構上就沒有數字。
+  //    這一格釘住「不要為了填滿而給它一個數字」。
+  // 🔴 **【codex R2 MF3 折一半】直接建構那條路 —— 上面幾格【全部走 `capFromDetails`】,**
+  //    而那只證明了「今天唯一那個 producer」有綁 SQLSTATE。
+  //    ⇒ 把 constructor 的那道還原成 `options?.cap ?? null`, **上面每一格都還是綠的。**
+  //    ⇒ 📌 **只在唯一入口成立的規則不是不變式, 是巧合 —— 而測試也要從那個角度打一次。**
+  it('🔴 直接建構也守得住:PCM05 / PCM06 帶 cap ⇒ 一律變 null(不變式在 constructor)', () => {
+    expect(new RefundCapGuardError('PCM05', 'x', { cap: 300 }).cap).toBeNull();
+    expect(new RefundCapGuardError('PCM06', 'x', { cap: 300 }).cap).toBeNull();
+    // 🔵 正對照:PCM04 那條路要留得住, 否則上面兩行在「永遠回 null」的實作下也會過
+    expect(new RefundCapGuardError('PCM04', 'x', { cap: 300 }).cap).toBe(300);
+  });
+
+  // 🔴 **【codex R1 MF3 的守門】這一格【故意餵一個合法的 cap】** ——
+  //    原版只餵「沒有 DETAIL 的 PCM05」⇒ 那在【綁了 SQLSTATE】與【沒綁】的兩個實作下
+  //    都會回 null ⇒ **它證明不了那道綁定存在。**
+  //    ⇒ 📌 負對照要在【錯的世界裡紅】:沒綁 SQLSTATE 的實作在這一格會拿到 300。
+  it('🟢 負對照:PCM05(算不出上限)就算 DETAIL 帶了 cap, 也必須是 null', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: { code: 'PCM05', message: '算不出', details: '{"cap" : 300, "asked" : 500}' },
+    });
+    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toSatisfy(
+      (e) => e instanceof RefundCapGuardError && e.cap === null,
+    );
+  });
+
   it('🔴 `code` 要留在【頂層】—— 事故當天照 SQLSTATE 撈 log 的人讀的是它,不是 cause', async () => {
     mocks.rpc.mockResolvedValue({
       data: null,

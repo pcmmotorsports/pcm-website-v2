@@ -77,15 +77,34 @@ export function buildSeedScript(): string {
 
   // order_items 39 = delete 36(前 10 張各 2 + 其餘 16 張各 1)+ retained 3(各 1)。
   let variant = 0;
-  const item = (orderId: string) => {
+  // 🔴🔴 2026-09-01:`amount` 從【寫死 100】改成【由呼叫端給】。
+  //   成因是實跑撞到的:`20260815040000`(#13)加了一道跨列不變式
+  //   `orders.subtotal` 必須等於 `Σ order_items.line_total`,而本 seed 比它早
+  //   ⇒ 種到 order_items 時它就紅:「subtotal(1000) <> Σ line_total(200)」。
+  //   📌 **⇒ 那不是 seed 壞了, 是【它被寫下來的時候那條不變式還不存在】。**
+  //     而它兩週沒有人撞到, 因為 provision 更早就死在別的地方了 ——
+  //     🛑 **一個壞掉擋在另一個壞掉前面時, 後面那個【連紅都沒有機會紅】。**
+  //   ⚠️ quantity 維持 1、unit_price 跟著 line_total 走 ⇒ 「單價 × 數量 = 小計」在列內仍自洽。
+  const item = (orderId: string, amount: number) => {
     variant = (variant % 10) + 1;
-    return `INSERT INTO public.order_items (order_id, variant_id, variant_sku, product_snapshot, quantity, unit_price, line_total) SELECT '${orderId}', v.id, v.sku, '{"title":"演練商品","sku":"drill","spec":{}}', 1, 100, 100 FROM public.product_variants v WHERE v.sku = 'drill-v${variant}';`;
+    return `INSERT INTO public.order_items (order_id, variant_id, variant_sku, product_snapshot, quantity, unit_price, line_total) SELECT '${orderId}', v.id, v.sku, '{"title":"演練商品","sku":"drill","spec":{}}', 1, ${amount}, ${amount} FROM public.product_variants v WHERE v.sku = 'drill-v${variant}';`;
   };
-  D1_DELETE_COHORT.forEach(({ id }, i) => {
-    lines.push(item(id));
-    if (i < 10) lines.push(item(id));
+  // 前 10 張各 2 列 ⇒ 把該張單的 subtotal 拆兩半(奇數時第一列多 1,兩列相加仍等於 subtotal)。
+  const amountOf = (displayId: string, i: number) => READBACK_AMOUNTS[displayId] ?? 1000 + i;
+  D1_DELETE_COHORT.forEach(({ id, displayId }, i) => {
+    const cohortIdx = D1_COHORT.findIndex((o) => o.id === id);
+    const total = amountOf(displayId, cohortIdx);
+    if (i < 10) {
+      const half = Math.floor(total / 2);
+      lines.push(item(id, total - half));
+      lines.push(item(id, half));
+    } else {
+      lines.push(item(id, total));
+    }
   });
-  for (const { id } of D1_RETAIN_COHORT) lines.push(item(id));
+  for (const { id, displayId } of D1_RETAIN_COHORT) {
+    lines.push(item(id, amountOf(displayId, D1_COHORT.findIndex((o) => o.id === id))));
+  }
 
   // consents 4 = delete 2(0064/0090)+ retained 2(0052/0102)。
   for (const d of ['PCM-2026-0064', 'PCM-2026-0090', 'PCM-2026-0052', 'PCM-2026-0102']) {
@@ -124,7 +143,7 @@ export function buildSeedScript(): string {
       `INSERT INTO public.orders (id, display_id, customer_user_id, shipping_address_snapshot, tier_at_checkout, payment_status, subtotal, shipping_fee, discount_total, total, shipping_method, invoice, paid_at) VALUES ` +
         `('${ncId}', 'PCM-2026-9${90 + i}0', '${i === 0 ? U1 : U2}', '{"name":"旁觀","phone":"0900000001","line":"旁觀地址"}', 'general', 'paid', 777, 0, 0, 777, 'home', '{"type":"personal"}', now());`,
     );
-    lines.push(item(ncId));
+    lines.push(item(ncId, 777));   // 🔴 與上面那張旁觀單的 subtotal 777 對齊(#13 不變式)
   }
   lines.push(attempt(NON_COHORT_ORDER_IDS[0]!, U1, 'charged', 'REC-NC-1'));
   lines.push(`INSERT INTO public.pending_invoices (order_id, status) VALUES ('${NON_COHORT_ORDER_IDS[0]}', 'pending');`);
