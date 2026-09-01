@@ -33829,7 +33829,7 @@ supabase/migrations/20260825130000_m4b_zero_price_checkout_and_cart_total_gate.s
 ```
 尺     /usr/bin/grep -rn 'IF .*!~' supabase/migrations/   ⇒ 32
 正對照 20260730120100:65 在命中裡 ⇒ 1     負對照 'IF .*!ZZQQ~' ⇒ 0
-剔除   註解行 1 · position('!~~' 那種字面(不是運算子)1 · 同行已有 IS NULL/COALESCE 護欄 13
+剔除   註解行 1 · position(`'!~~'` 那種字面(不是運算子)1 · 同行已有 IS NULL/COALESCE 護欄 13
 ⇒ 裸露 17,再拆兩堆:
 (a) 讀 catalog 進變數再比對 = **apply 期驗收斷言** 8 處
     20260730120100:65 · 20260730120000:114 · 20260725120000:189,:210
