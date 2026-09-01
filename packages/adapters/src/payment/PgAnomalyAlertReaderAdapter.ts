@@ -46,6 +46,8 @@ class AnomalyAlertReaderParseError extends Error {}
  *    值的來源 = PostgreSQL 官方 Appendix A「PostgreSQL Error Codes」Class 42。
  */
 const UNDEFINED_FUNCTION = '42883';
+/** ⟦b9-ENUMWATCH⟧ 片 2:單一來源的 RPC 名(錯誤訊息與探詢字面都從這裡來)。 */
+const RPC_MANUAL_SEARCH = 'get_manual_customer_search_summary';
 
 function defaultClientFactory(connectionString: string): PgClientLike {
   return new Client(buildPgConfig(connectionString)) as unknown as PgClientLike;
@@ -374,6 +376,116 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
       return parseAlertSummary(
         counts.rows, ids, refundRows, emailRows, shippedRows, orderCreatedRows, heartbeatRows,
       );
+    });
+  }
+
+  /**
+   * ⟦b9-ENUMWATCH⟧ 片 2:客戶搜尋稽核計數。**回 `null` = 那支 RPC 還沒被 apply。**
+   *
+   * 🔴🔴 **這一段的核心只有一件事:`42883` 有【兩個意思】,而它們印同一個碼。**
+   *
+   * ```
+   * 世界 A  函式在, 而它的函式體裡少了東西(有人 DROP 了它呼叫的 helper)
+   * 世界 B  函式真的不存在(還沒 apply = 部署窗口)
+   * ```
+   * **2026-09-01 拋棄式 PG 17.10 實測(三行就造得出來, PG 不擋 —— 它不追蹤 函式→函式 相依)**:
+   * ```
+   * 世界 A  呼叫 ⇒ ERROR: 42883: function public.helper_x() does not exist
+   *         to_regprocedure('public.outer_y()') IS NULL ⇒ **false**
+   * 世界 B  呼叫 ⇒ ERROR: 42883: function public.zzq9_never() does not exist
+   *         to_regprocedure(...) IS NULL ⇒ **true**
+   * ```
+   * 🔴 **兩個世界的 SQLSTATE 完全相同。而 `to_regprocedure` 那一發真的分得開。**
+   * ⇒ **⇒ 所以那發二次探詢不是防禦深度 —— 它是【唯一】分得開這兩個世界的東西。**
+   *
+   * 🛑🛑 **而【錯誤訊息裡的名字,是最內層失敗的那個東西,不是你呼叫的那個】** ——
+   *    世界 A 的訊息裡寫的是 `helper_x`,**不是我們那支函式的名字**。
+   *    ⇒ 任何「訊息裡有沒有提到我們那支函式」的判斷,**在世界 A 會判成「不是我們的問題」而降級**
+   *    ⇒ **而那正好是最糟的方向:一支壞掉的函式被讀成「今天沒有人搜尋客戶」,而它不會自己好。**
+   *    📌 **⇒ 這一段寫下來是因為讀訊息比呼 `to_regprocedure` 直觀得多,而它會安靜地錯。**
+   *
+   * ⚠️ **本量測的射程**:macOS 的 PG 17.10、`LANGUAGE sql` 函式。
+   *    Supabase 是 Linux、版本可能不同 ⇒ **SQLSTATE 是 SQL 標準碼、跨版本很穩,而我沒在正式庫驗過。**
+   *    `plpgsql` 的解析時機不同 ⇒ **未驗**;而我們那支 RPC 正是 `LANGUAGE sql` ⇒ 對它成立。
+   */
+  async getManualCustomerSearchSummary(
+    windowSeconds: number,
+  ): Promise<{ readonly count: number; readonly actors: number; readonly windowSeconds: number } | null> {
+    return this.run(async (client) => {
+      try {
+        const res = await client.query(
+          'SELECT public.get_manual_customer_search_summary($1::integer) AS result',
+          [windowSeconds],
+        );
+        const raw = res.rows[0]?.result;
+        if (raw === null || typeof raw !== 'object') {
+          // 🔴 回應形狀不符 ⇒ **throw, 不降級** —— 那不是部署窗口, 那是壞掉。
+          throw new AnomalyAlertReaderParseError(`${RPC_MANUAL_SEARCH} 回應形狀不符`);
+        }
+        const bag = raw as Record<string, unknown>;
+        /**
+         * 🔴🔴 **2026-09-01 R2(換模型)must-fix F2 + nit F15:改用同檔既有的 `parseCount`。**
+         *
+         * ⛔ ~~我原本自己寫 `typeof` 檢查 + `throw new Error(...)`~~ —— **兩個問題**:
+         *  ① **那個 `Error` 在出方法之前就被銷毀了**:`run()` 一律 `throw sanitizeError(err)`,
+         *     而 `sanitizeError` **只放行 `AnomalyAlertReaderParseError`**,其餘重造成
+         *     「anomaly 告警聚合讀失敗(transport)」
+         *     ⇒ **RPC 回垃圾時,值班的人看到的字是「transport」⇒ 他去查網路。**
+         *     📌 而那正是 `parseCount` 的 `fn` 參數當初被加進來要防的病:
+         *        **紅在對的時候、指向錯的地方。**
+         *  ② 我少掉了 repo 既有的「非負**整數**」契約 ⇒ `-1` / `1.5` 會通過我的檢查落進信裡。
+         * ✅ `parseCount` 兩件都解:它丟 branded 錯(訊息活得下來)且驗非負整數。
+         */
+        /**
+         * 🔴🔴 **先擋型別, 再交給 `parseCount` —— 而這一格是【我的測試抓到我的修法】。**
+         *
+         * `parseCount` 逐字 `typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN`
+         * ⇒ 而 **`Number('') === 0`** ⇒ **空字串會通過它, 而回傳 0。**
+         * 🛑 **⇒ 那正是 codex R1 F1 指的那個病(壞掉被讀成「今天沒有人搜尋」), 只是換一個入口。**
+         * 📌 **⇒ 我為了拿 branded 錯(訊息活得過 `sanitizeError`)而改用 `parseCount`,
+         *    而它把我剛修掉的洞帶了回來 —— 抓到它的是我自己那格 `it.each([null,'',false,undefined])`。**
+         *
+         * ⚠️ **而我【不改 `parseCount` 本身】** —— 它被同檔另外六支 RPC 共用,
+         *    而「字串數字也收」對那幾支可能是刻意的。**動它 = 動一個我沒讀完的分母。**
+         * ✅ ⇒ 在這一支的入口加一道 `typeof === 'number'`, 兩者的好處都拿到:
+         *    嚴格型別 + branded 錯訊息。
+         */
+        const strictNumber = (v: unknown, field: string): number => {
+          if (typeof v !== 'number') {
+            throw new AnomalyAlertReaderParseError(`${RPC_MANUAL_SEARCH} 計數欄 ${field} 異常`);
+          }
+          return parseCount(v, field, RPC_MANUAL_SEARCH);
+        };
+        const count = strictNumber(bag.manual_customer_search_count, 'manual_customer_search_count');
+        const actors = strictNumber(bag.manual_customer_search_actors, 'manual_customer_search_actors');
+        /**
+         * 🔴 **跨欄不變量**(R3 consider 4):`actors` 是相異操作者數,而每個操作者至少留一筆
+         * ⇒ **`actors <= count` 恆成立**。而 `{count:0, actors:1}` 通得過逐欄檢查 ——
+         * 📌 **⇒ 逐欄都合法而合起來不可能, 正是「壞掉的 RPC」最像正常的那一種形狀。**
+         */
+        if (actors > count) {
+          throw new AnomalyAlertReaderParseError(
+            `${RPC_MANUAL_SEARCH} 計數欄 manual_customer_search_actors 異常`,
+          );
+        }
+        return {
+          count,
+          actors,
+          // 🔴 回傳【我真的送出去的那個值】(R3 must-fix 2)⇒ 呼叫端無法配一個不同的窗口上去。
+          windowSeconds,
+        };
+      } catch (err) {
+        // 非 42883 ⇒ 原封上拋(連線 / 權限 42501 / 型別 … 都不是部署窗口)
+        if ((err as { code?: unknown } | null)?.code !== UNDEFINED_FUNCTION) throw err;
+        const probe = await client.query(
+          "SELECT to_regprocedure('public.get_manual_customer_search_summary(integer)') IS NULL AS missing",
+          [],
+        );
+        // 🔴 回得出 oid ⇒ 那個 42883 來自【函式內部】(世界 A)⇒ **原封上拋**
+        if (probe.rows[0]?.missing !== true) throw err;
+        // 只有真的不存在(世界 B)才降級
+        return null;
+      }
     });
   }
 

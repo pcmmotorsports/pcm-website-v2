@@ -295,6 +295,21 @@ const FAIL_LOUD_RPCS = [
   'get_shipped_email_gap_counts',
   'get_order_created_gap_counts',
   'get_cron_heartbeat_stale_counts',
+  /**
+   * 🔵 ⟦b9-ENUMWATCH⟧ 片 2(2026-09-01)。**分堆是開檔看的, 不是猜的**(本檔上面那句逐字要求):
+   *   `PgAnomalyAlertReaderAdapter.getManualCustomerSearchSummary` 自己判形狀 ——
+   *   回應不是物件 / 計數欄不是數字 ⇒ **`throw`**。
+   *   ⛔ ~~「檔內**兩處** `throw new Error('get_manual_customer_search_summary:…')`」~~ **數錯了**
+   *      (R2 must-fix F12:實查 `grep -c` ⇒ **3 處**;🔵 負對照現造字面 ⇒ 0)——
+   *      而**那個數字現在連對象都沒了**:R2 F2 之後那三處改用同檔既有的 `parseCount`,
+   *      它丟的是 branded 的 `AnomalyAlertReaderParseError`(訊息活得過 `sanitizeError`)。
+   *   📌 **⇒ 一個寫在註解裡的計數, 它過期時沒有任何東西會紅。**
+   *   ⇒ 缺鍵會炸, 不會安靜變成空的 ⇒ 屬 fail-loud 這一堆。
+   * 🛑 **而它有一條【刻意的 fail-soft 路徑, 而那條不是缺鍵】**:
+   *   那支 RPC **還沒被 apply** 時(`42883` 且 `to_regprocedure` 回 NULL)⇒ 回 `null` = 查不到。
+   *   ⇒ 那是**部署窗口**, 不是「鍵不見了」—— 兩者在本檔的分堆上是不同的東西。
+   */
+  'get_manual_customer_search_summary',
 ] as const;
 
 describe('屬性名與錯誤訊息字面(`-eb` 2026-08-31 併入)', () => {

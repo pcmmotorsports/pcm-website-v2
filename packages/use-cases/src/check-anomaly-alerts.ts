@@ -57,6 +57,11 @@ export type CheckAnomalyAlertsOptions = {
    * 🛑 `null` = 整段不查 ⇒ 落 `orderCreatedGapUnknown`(**不進 `shouldAlert`**)。
    */
   orderCreatedCutoffIso: string | null;
+  /**
+   * ⟦b9-ENUMWATCH⟧ 片 2:客戶搜尋計數的回看窗口(秒;route 常數注入)。
+   * 🔵 它**不是門檻** —— 本片刻意不設門檻(板 `⟦b4-ENUM3⟧` 逐字「門檻不要用猜的」)。
+   */
+  manualCustomerSearchWindowSeconds: number;
 };
 
 /** CheckAnomalyAlertsResult:結構化摘要(零 PII counts only;route log/回應用)。 */
@@ -79,6 +84,32 @@ export type CheckAnomalyAlertsResult = {
   orderRefundsStuckOvernightCount: number | null;
   /** ②終態半(只進信尾那一行,**不進 `shouldAlert`**;Sean 2026-08-24 拍甲)。 */
   orderRefundsManualFailedCount: number | null;
+  /**
+   * 🔵 ⟦b9-ENUMWATCH⟧ 片 2:近 N 秒的客戶搜尋筆數 / 相異操作者數。
+   * 🛑 **不進 `shouldAlert`** —— 沿用本檔 `:850` 那格的慣例(搭已經要寄的那封信的便車)。
+   *    本片**刻意不設門檻**:沒有基線, 猜低=天天吵(= `2SQH2P` 叫了 15 天的同一個病)、
+   *    猜高=永遠不叫 = 裝飾, **而兩種失敗都不會叫**。本片產生的正是那個基線。
+   * 🔴 **`Unknown` = 查不到, 不是零筆** —— 那支 RPC 還沒 apply 時走這一格。
+   * 🛑🛑 **而 `manualCustomerSearchActors` 不是「零 PII」的計數**(R3 must-fix 3):
+   *    同批 migration 自己寫著「**actors=1 + 已知班表 ⇒ 連得回唯一員工**,不得宣稱絕對零 PII」。
+   *    ⇒ **它今天只走內部告警管道, 而要外送到別處時要重新判。**
+   *    📌 一個錯的安全標籤比沒有標籤貴 —— 它讓下一個人沿用一個不存在的保證。
+   *    ⚠️ 而**天花板要一起讀**:那封信只在別的異常觸發時才寄
+   *    ⇒ 一整週沒有別的異常 ⇒ **這個數字一次都不會被看到。往前一格, 不是解決。**
+   */
+  manualCustomerSearchCount: number | null;
+  manualCustomerSearchActors: number | null;
+  manualCustomerSearchUnknown: boolean;
+  /**
+   * 🔴🔴 **R3 must-fix 1:「讀取失敗」與「還沒 apply」必須在【回傳值】上分得開。**
+   *
+   * ⛔ 我原本把兩者都壓成 `Unknown = true`, 而**唯一分得開它們的是一行 `console.error`**
+   *    ⇒ 而 R3 指出:**把那行 log 刪掉, 測試照樣全綠** ⇒ 那個「分得開」沒有量具。
+   * 🛑 而後果不是少一個欄位:**信上一律寫「那支查詢還沒上線」** ——
+   *    而權限被收回 / 函式體壞掉的那一天, 讀信的人會以為它只是還沒部署。
+   * ✅ ⇒ 加這一格 ⇒ 兩者在 Result、在信上、在 route 回應裡都分得開。
+   */
+  manualCustomerSearchFailed: boolean;
   orderRefundsStuckUnknown: boolean;
   /**
    * 🔵 出貨信缺口那三格(2026-08-31;Sean `2 甲`)。
@@ -313,6 +344,35 @@ function isEmailOutboxSilentlyEmpty(summary: AnomalyAlertSummary): boolean {
 export function buildAnomalyAlertMessage(
   summary: AnomalyAlertSummary,
   refundingStuckSeconds: number,
+  /**
+   * ⟦b9-ENUMWATCH⟧ 片 2:客戶搜尋計數。**第三個參數,而不是塞進 `AnomalyAlertSummary`。**
+   * 🔴 理由:`AnomalyAlertSummary` 對應的是 `get_payment_anomaly_alert_summary` 那支 RPC 的形狀,
+   *    而這個數字來自**另一支 RPC** ⇒ 混進去會讓那個型別不再對應任何一支函式。
+   * 🛑 `null` = 那支 RPC 還沒 apply(查不到), **不是零筆**。
+   */
+  //  🔴🔴 **沒有預設值 —— 而那是 R2(換模型)must-fix F4。**
+  //     ⛔ ~~原本寫 `= null`~~ ⇒ **少傳一個參數 = 「查不到」** ⇒ 真的告警信裡會印
+  //        「那支查詢還沒上線」而它其實上線了, **而零 typecheck 紅、零測試紅**。
+  //     ⇒ 而它與 `IAnomalyAlertReader` 那句「`null` 的唯一合法來源是【還沒被 apply】」直接相撞。
+  //     📌 **⇒ 拿掉一個字元, 漏傳就當場 typecheck 紅。**(本函式對外匯出, 呼叫端不只一個。)
+  /**
+   * 🔵 **`windowSeconds` 併在這個物件裡, 不另開第四個參數** —— 而那不只是省一個參數:
+   *    **那個窗口是【這份量測的一部分】** ⇒ 它跟著資料走, 就不會有「數字換了而說明沒換」。
+   * 🔴 而它解掉 R2 consider F7:原本信裡**寫死**「過去 24 小時」,
+   *    而窗口是 route 端注入的常數 ⇒ **把它改成 3600 而信上照樣說 24 小時。**
+   *    ⇒ 那是同一支檔 `:346-348` 判過的同一個病的復發(那段逐字:「正式路徑目前固定 86400,
+   *      所以今天走不到 —— **而那不是不修的理由**」)。
+   */
+  manualCustomerSearch: {
+    readonly count: number;
+    readonly actors: number;
+    readonly windowSeconds: number;
+  } | null,
+  /**
+   * 🔴 R3 must-fix 1:`manualCustomerSearch` 是 `null` 時有**兩種**成因,而它們在信上要講不同的話。
+   * `true` = 讀取失敗(有人要去看)· `false` = 那支 RPC 還沒 apply(預期中,不必動作)。
+   */
+  searchReadFailedForMessage = false,
 ): AnomalyAlertMessage {
   // 🔴 `Math.round(秒/3600)` 會把 5400 秒(90 分)講成「2 小時」= **報一個錯的門檻給收信人**
   //    (codex R2 nit)。正式路徑目前固定 86400,所以今天走不到 —— 而那不是不修的理由:
@@ -689,7 +749,34 @@ export function buildAnomalyAlertMessage(
       '   ⇒ 到後台首頁看那一排「幾分沒成功」,它會說是哪一種。',
     );
   }
-  const body = [emailBlock, heartbeatBlock, ...blocks].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
+  /**
+   * 🔴🔴 **⟦b9-ENUMWATCH⟧ 片 2:這一行放【body】不放 footer —— R2(換模型)must-fix F1。**
+   *
+   * ⛔ ~~我原本把它加在 `footer` 陣列裡~~ —— 而那是這一片最貴的一個錯:
+   *    `fitToLineBudget` 把**整個 footer 算進預算, 而只 pop `body`**
+   *    ⇒ footer 多 ~33 字 ⇒ **截斷時多 pop 掉約 2 行單號**(`  PCM-2026-0104` = 16 字/行)。
+   * 🛑 **而 footer 的「不可截」是為了【擋誤退款的警語】爭來的**(見 footer 那段註解)——
+   *    **我這一行繼承了那個豁免權, 然後用它擠掉主要內容。**
+   * 📌 **⇒ 一個次要觀測拿到了為安全警語爭來的豁免權 ⇒ 那正是「把問題搬到別的層」。**
+   * ✅ 放 body 末端 ⇒ **pop 的順序天然是次要先讓路。**
+   * 🔵 而截斷路徑是活的(同檔實測 4,594 / 4,585 字, 而測試裡有一格在跑它)⇒ 這不是理論。
+   */
+  const searchBlock: string[] =
+    manualCustomerSearch === null
+      ? [
+          searchReadFailedForMessage
+            ? '(客戶搜尋計數:🔴 讀取失敗 —— 不是沒有人搜尋,也不是還沒上線。這一格要有人去看。)'
+            : '(客戶搜尋計數:查不到 —— 那支查詢還沒上線,不是沒有人搜尋)',
+        ]
+      : [
+          // ⟦b9-ENUMWATCH⟧ 片 2:同一個形狀(整點講小時、否則講分鐘)—— 不另發明第二種算法。
+          `過去 ${
+            manualCustomerSearch.windowSeconds % SECONDS_PER_HOUR === 0
+              ? `${manualCustomerSearch.windowSeconds / SECONDS_PER_HOUR} 小時`
+              : `${Math.round(manualCustomerSearch.windowSeconds / 60)} 分鐘`
+          }客戶搜尋 ${manualCustomerSearch.count} 次,${manualCustomerSearch.actors} 個操作者。`,
+        ];
+  const body = [emailBlock, heartbeatBlock, ...blocks, searchBlock].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
 
   /**
    * 🔴🔴 **結尾三行是【不可截的】,而這不是排版偏好。**
@@ -871,6 +958,58 @@ export async function checkAnomalyAlerts(
   );
 
   /**
+   * ⟦b9-ENUMWATCH⟧ 片 2:第二支 RPC(客戶搜尋計數)。
+   *
+   * 🔴 **它【不共用】上面那一發的 throw 語意** —— 上面那支 throw ⇒ 整個告警 fail-closed(對的);
+   *    而這一支**回 `null` 代表「那支 RPC 還沒 apply」**,那是部署窗口、不是壞掉
+   *    ⇒ 落 `Unknown`、**不進 `shouldAlert`**、cron 照常跑完。
+   * 🛑 **而它真的壞掉時(連線 / 權限 / 函式體壞掉)adapter 會原封上拋** ⇒ 走上面那條路
+   *    ⇒ **「查不到」與「壞掉」在這一層是兩條路,而分開它們的是 adapter 那發 `to_regprocedure`。**
+   */
+  //
+  // 🔴🔴 **必須 catch —— 而我第一版沒有 catch, 那是 codex R1 must-fix 2。**
+  //
+  // 我在這一片的 plan 裡自己寫過:「為了加一個觀測而弄壞了主要功能, 比不加還糟」。
+  // **而我照樣寫出了一個【它 throw 就會把整封告警帶走】的版本。**
+  // ⇒ 因為 adapter 那側對「函式體壞掉 / 回應形狀不符」是**刻意 fail-loud** 的(那是對的),
+  //   而那個 throw 一路上來就會炸掉 `checkAnomalyAlerts` ⇒ route 回 503
+  //   ⇒ **原本該寄的付款告警一封都不會送。**
+  //
+  // ✅ 正確的分界:**adapter 的 fail-loud 是「不要把壞掉讀成 0」, 不是「壞掉就停掉全部」。**
+  //    ⇒ 在**這一層**收口:一個【次要觀測】永遠不得帶走【主要功能】。
+  // 🛑 **而它不得變成靜默降級** —— 落 `Unknown` **並且** 印一行可辨識的 log,
+  //    而 route 那側要把它算進回應(見 route.ts 那邊的 `manualCustomerSearchUnknown`)。
+  // 📌 **⇒ 兩種 Unknown 的成因不同, 而它們在回傳值上是同一格**:
+  //    ①那支 RPC 還沒 apply(部署窗口, 預期中)②它真的壞了(要有人看)
+  //    ⇒ **所以 log 那一行是唯一分得開它們的東西。**
+  let searchSummary:
+    | { readonly count: number; readonly actors: number; readonly windowSeconds: number }
+    | null = null;
+  /** 🔴 R3 must-fix 1:與「還沒 apply」分開 —— 兩者都讓 `searchSummary` 是 null, 而意思相反。 */
+  let searchReadFailed = false;
+  try {
+    searchSummary = await deps.reader.getManualCustomerSearchSummary(
+      opts.manualCustomerSearchWindowSeconds,
+    );
+  } catch (err) {
+    searchSummary = null;
+    searchReadFailed = true;
+    console.error(
+      '[anomaly-alert] 🔴 客戶搜尋計數讀取失敗 ⇒ 降級成【查不到】,而其他告警照常送(這一格值得有人去看)',
+      // 🔴🔴 **記 `code` 不記 `name` —— R2 must-fix F3。**
+      //    ⛔ ~~原本記 `name`~~ ⇒ 逃出 adapter 的錯**永遠**是 `Error` 或
+      //       `AnomalyAlertReaderParseError`(未設 `name`)⇒ **`name` 恆為 `'Error'`**
+      //       ⇒ **我宣稱「唯一分得開的東西」的那行 log, payload 是一個常數。**
+      //    ✅ 而 `sanitizeError` **刻意保留 `code`**:`42501` 權限 / `ECONNREFUSED` 連線 /
+      //       parse 失敗時 undefined ⇒ **那一格才真的分得開【怎麼壞的】。**
+      {
+        reason: 'manual_customer_search_read_failed',
+        code: (err as { code?: unknown } | null)?.code,
+      },
+    );
+  }
+
+  /**
    * 🔴 **F-004 加了第六項,而它是一個【被明知接受的代價】,不是順手加的。**
    *
    * 加了 `orderRefundsStuckCount > 0` ⇒ 只要有一筆卡住的退款沒被處理掉,
@@ -1028,7 +1167,13 @@ export async function checkAnomalyAlerts(
     if (deps.notifiers.length === 0) {
       throw new Error('checkAnomalyAlerts:踩告警門檻但未注入任何 notifier(告警無法送達、fail-closed)');
     }
-    const message = buildAnomalyAlertMessage(summary, opts.refundingStuckSeconds);
+    const message = buildAnomalyAlertMessage(
+      summary,
+      opts.refundingStuckSeconds,
+      // 🔴 直接傳 adapter 回的那個物件 —— **不再由這一層拼一個 windowSeconds 上去**(R3 must-fix 2)。
+      searchSummary,
+      searchReadFailed,
+    );
     notifiersTotal = deps.notifiers.length;
     // 🔴 **這一行講的是【送】那個階段**:各管道各自送、一管道掛掉不影響另一管道
     //    (`Promise.allSettled`);失敗計數 → route 503(壞掉的管道必須可見)。
@@ -1070,6 +1215,10 @@ export async function checkAnomalyAlerts(
     orderRefundsStuckCount: summary.orderRefundsStuckCount,
     orderRefundsStuckOvernightCount: summary.orderRefundsStuckOvernightCount,
     orderRefundsManualFailedCount: summary.orderRefundsManualFailedCount,
+    manualCustomerSearchCount: searchSummary?.count ?? null,
+    manualCustomerSearchActors: searchSummary?.actors ?? null,
+    manualCustomerSearchUnknown: searchSummary === null,
+    manualCustomerSearchFailed: searchReadFailed,
     orderRefundsStuckUnknown: summary.orderRefundsStuckUnknown,
     shippedNeverEnqueuedCount: summary.shippedNeverEnqueuedCount,
     shippedUnsendableCount: summary.shippedUnsendableCount,
