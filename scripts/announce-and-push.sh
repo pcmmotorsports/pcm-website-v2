@@ -38,6 +38,31 @@ if [ ! -f "$LEDGER" ]; then
   } > "$LEDGER"
 fi
 
+# 🔴 先自癒:把那些「PUSH-FAILED」而【後來其實進去了】的列標起來。
+#    成因(線 -7d 診斷):這張表記的是【嘗試】不是【結局】——
+#    一個 PUSH-FAILED 的列永遠是 PUSH-FAILED, 即使那顆 commit 十分鐘後被下一發帶上去。
+#    🛑 而它沒有任何訊號說它已經不是現況 ⇒ 下一個讀它的人會去重推, 或去叫。
+#    📌 而這一格比別的過期難發現:那張表【是我們用來查證別的東西的工具】——
+#       一把量具自己過期時, 沒有第二把量具在量它。
+#    ✅ 所以每次跑都掃一遍, 而不是「下次記得回來改」。
+if [ -f "$LEDGER" ]; then
+  while IFS= read -r h; do
+    [ -z "$h" ] && continue
+    if git merge-base --is-ancestor "$h" origin/dev 2>/dev/null; then
+      python3 - "$LEDGER" "$h" <<'PYHEAL'
+import io,sys
+p,h=sys.argv[1],sys.argv[2]
+s=io.open(p,encoding='utf-8').read()
+old='| %s | PUSH-FAILED' % h
+if old in s:
+    s=s.replace('| %s | PUSH-FAILED(rc=1) | 🔴 推失敗 |' % h,
+                '| %s | PUSH-FAILED(rc=1) | 🔵 當時失敗, 而它後來被別的一發帶上去了(自癒標記) |' % h)
+    io.open(p,'w',encoding='utf-8').write(s)
+PYHEAL
+    fi
+  done <<< "$(grep 'PUSH-FAILED' "$LEDGER" 2>/dev/null | sed -n 's/^| *[0-9:]* *| *[0-9a-f]* *| *\([0-9a-f]\{7,\}\) *|.*/\1/p')"
+fi
+
 # 🔴 推之前先把【每一顆的標題】印出來 —— 2026-09-02 00:1x 實錘:
 #    一顆 subject 逐字寫著「🛑 未完成, 不得上線」的 commit 被收割推上 origin/dev,
 #    而它裡面有一行是【把 HTML 付款信接上】(4 條 must-fix 未修, 洩漏面從單號變成品名/金額)。
