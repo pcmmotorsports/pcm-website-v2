@@ -31,6 +31,7 @@ import type {
 // eslint-disable-next-line no-restricted-imports -- 受控例外(鏡像 payment/composition.ts):composition root 注入 email server-only adapter;SupabaseEmailOutboxAdapter 持 service_role client(email_outbox 含 recipient_email PII)、ResendEmailSenderAdapter 持 RESEND_API_KEY、皆 server-only 不進 client bundle。
 import {
   SupabaseEmailOutboxAdapter,
+  SupabasePaidEmailContextAdapter,
   SupabasePaidOrderScannerAdapter,
   SupabaseIneligibleOrderEmailScannerAdapter,
   SupabaseShippedEmailContextAdapter,
@@ -90,7 +91,33 @@ export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
   //       這一行接上去會**開始擋東西**。⇒ 它是必填 dep,漏掉的話 typecheck 就紅,
   //       而那正是它必填的理由:一道 fail-open 的閘比沒有閘更糟。
   const ineligibleScanner = new SupabaseIneligibleOrderEmailScannerAdapter(serviceClient);
-  return { outbox, sender, shippedContext, ineligibleScanner };
+  // 🔴🔴 **付款信的寄送時讀取(2026-09-01;Sean 拍甲「付款信接上 HTML 版本」)。**
+  //    共用同一個 serviceClient(見上方那條「不要再開一條連線」的註解)。
+  //
+  // 🛑 **這一行與 `shippedContext` 那一行【性質不同】,不要照那一行的直覺讀它:**
+  //    `shippedContext` 接上去不會寄出任何東西(閘在 `buildEmailText` 的 throw)。
+  //    🔴 **而這一行接上去,下一輪 cron 的真客人就會收到不一樣的信** ——
+  //      `sweep-email-outbox.ts` 那個 `renderPaidEmailHtml` 呼叫點**早就在了**,
+  //      它一直沒有生效的唯一理由就是 `deps.paidContext === undefined`。
+  //    ⚠️ **兩個座標一律用【可 grep 的字面】,不寫行號** —— 2026-09-01 落這一段時,
+  //      另一條線同時在改那支檔,而我原本寫的 `:688` / `:870` 在同一個小時內就漂成 `:705` / `:913`。
+  //      ⇒ 要找它們:`grep -n "deps.paidContext !== undefined" packages/use-cases/src/sweep-email-outbox.ts`
+  //        與 `grep -n "const html = paid !== null" packages/use-cases/src/sweep-email-outbox.ts`。
+  //    ⇒ 📌 **本檔這一行是那條線的最後一格,不是第一格。**
+  //
+  // 🔴 **而它會讓一些【今天收得到信】的單從此收不到** —— 那是 `IPaidEmailContext` 明文要的
+  //    fail-closed:`unavailable` / `cancelled` / `linesTruncated` / 空品項 ⇒ `errors++`、不寄
+  //    (那四格在 `sweep-email-outbox.ts` 的 `loadedPaid.kind ===` 與 `loadedPaid.context.linesTruncated`
+  //     那幾行,grep 得到)。port 逐字禁止退化成「就把撈到的印上去」——
+  //    一封金額是 0 的付款確認信,客人看不出是系統壞了還是他被多收了。
+  //    ⚠️ **而純文字那一份【不受影響】**:`sender.send({ text: buildEmailText(...) })` 一個字沒動
+  //       ⇒ 收信端不顯示 HTML 時讀的那一份還在,**不會有人收到空白信**。
+  //       ⇒ 會消失的是**整封信**(fail-closed 那條路),不是信的內容。
+  //
+  // 🔴 service_role 的第四個用途:它讀 `orders`(含 PII)與 `order_items`。
+  //    回傳只進信件內文,不進 log / result(adapter 檔頭明文)。
+  const paidContext = new SupabasePaidEmailContextAdapter(serviceClient);
+  return { outbox, sender, shippedContext, ineligibleScanner, paidContext };
 }
 
 /**
