@@ -73,10 +73,22 @@ BEGIN
     INTO v_fp
     FROM pg_catalog.pg_proc p
    WHERE p.oid = 'public.admin_create_manual_order(uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb)'::regprocedure;
-  IF v_fp = '0682d685d9662e71d53d0da49b2901ba' THEN
-    RAISE EXCEPTION '⟦b4-SPEC1⟧ 前置閘:這支已經套用過了(指紋 = 改後那一版)⇒ 不要重跑';
-  END IF;
-  IF v_fp <> '244d944d629497fd20c48814d0f491ec' THEN
+  -- 🔴🔴 codex R1 must-fix(2026-09-01):**指紋相同 ≠ 這支裝好了。**
+  --   `prosrc` 只是函式本體 ⇒ `SECURITY DEFINER` 掉了、`search_path` 掉了、ACL 被改寬,
+  --   這三種**指紋一個字都不會變** ⇒ 舊版在這裡直接 `RAISE` 走人
+  --   ⇒ **後置 ④ / ④b / ④c 那三道永遠跑不到。**
+  --   ⚠️ **而它們能抓到什麼要講準(codex R2 nit)**:本檔中間那句 `CREATE OR REPLACE`
+  --      會**順手把 SECDEF 與 search_path 修回來** ⇒ 等 ④ 跑的時候異常已經不在了。
+  --      ⇒ 📌 **結果是安全的, 而那不是 ④ 抓到的** —— 是 `CREATE OR REPLACE` 蓋掉的。
+  --      ⇒ ⇒ 所以不早退真正買到的是【ACL 那一道(④c)】與【下次有人加新檢查時它跑得到】,
+  --         不是「偵測到 SECDEF 掉了」。**不要把這道閘寫得比它做得到的寬。**
+  --   📌 一個「已經做過了, 不用再檢查」的早退, 它跳過的是【檢查】不是【工作】。
+  --   ⇒ 改法:指紋相同時**不早退**, 先把安全屬性那幾道跑完, 再在最後面才說「已套用」。
+  --      ⚠️ 代價明寫:重跑會多花那幾道的時間 —— 而那是幾個 catalog 查詢, 便宜得多。
+  IF v_fp = 'e387b096263c72e858575a33be248239' THEN
+    RAISE NOTICE '⟦b4-SPEC1⟧ 前置閘:指紋已是改後那一版 ⇒ 本體不會有變化;'
+                 '**仍然往下跑, 因為安全屬性(SECDEF / search_path / ACL)不進指紋。**';
+  ELSIF v_fp <> '244d944d629497fd20c48814d0f491ec' THEN
     RAISE EXCEPTION '⟦b4-SPEC1⟧ 前置閘:庫裡那支的正規化指紋是 %, 而我抄的那一版是 % '
                     '⇒ 🔴 最可能的原因:**你還沒貼第 1 支(20260829140000 稅額那支)**。'
                     '先貼它, 再回來貼這一支。若你確定貼過了, 停下來人工核對, 不要 force。',
@@ -574,7 +586,53 @@ BEGIN
          --   ⚠️ `SET search_path = ''` ⇒ 表名寫全 `public.product_variants`。
          --   📎 權威來源:`20260531142533_init_product_variants.sql:43`(`spec jsonb NOT NULL DEFAULT '{}'`)
          --      · `:62` CHECK 只保證 object · `:40` `id uuid PRIMARY KEY` ⇒ 一個 variant 恰一份 spec。
-         CASE WHEN pv.id IS NULL THEN it -> 'product_snapshot'
+         -- ══ 🔴🔴 Sean 2026-09-01 12:0x 拍【甲】—— 原話一個字:「甲」 ══════════════
+         --   題目逐字:「員工手動建單選了網站上有的商品, 而那個商品在我們目錄裡沒有填規格。
+         --             員工自己打了規格。訂單上要留哪一份?」
+         --     甲 留員工打的(目錄有填才用目錄的)  ← **他選這個**
+         --     乙 一律用目錄的(目錄空的就寫空的)  ← ⛔ **本檔原本的行為, 已被推翻**
+         --     丙 擋下來, 叫員工先去補目錄
+         --   落點 `~/pcm-mailbox/決策-手動建單目錄沒填規格時用誰的-20260901.md`
+         --
+         --   🔴 **為什麼**(端題時給他的那一句):目錄是空的時候, 它**不是一個更可信的真相,
+         --      它是【沒有值】** ⇒ 拿沒有值去蓋掉有值, 不是取權威, 是**把資料弄丟**,
+         --      而且丟得很安靜 —— 員工打了字、按了送出、單子成立了, 而那格是空的, 畫面零訊號。
+         --   🔴 **而它踩得到多少**:`product_variants` 54,000 列 / 空規格 **13,112(24%)**
+         --      (2026-08-31 主視窗唯讀跑正式庫, 數字與範圍見本檔 `:31`)。
+         --
+         --   ══ 「空」的定義:三種都處理, 而只有第三種在今天可達 ═══════════════════
+         --     ① `pv.spec IS NULL`  ⇒ 🔵 **今天不可達**:欄位是 `NOT NULL DEFAULT '{}'`
+         --        (`20260531142533_init_product_variants.sql:43`)。仍然寫進條件, 理由是
+         --        **它今天不可達的依據是【另一支檔的欄位定義】** —— 那支哪天放寬了,
+         --        這裡會安靜地把 NULL 當成「有值」丟進 `jsonb_set` ⇒ 整格變 NULL。
+         --     ② 空字串 `''` ⇒ 🔵 **結構上不可達**:`pv_spec_is_object` CHECK 要求
+         --        `jsonb_typeof(spec) = 'object'`(同檔 `:62`)⇒ 字串進不了這一欄。
+         --        ⇒ 所以**不為它寫條件** —— 寫了會是一句永遠為假的死碼, 而死碼讀起來像防護。
+         --     ③ `pv.spec = '{}'::jsonb` ⇒ 🔴 **這才是那 13,112 列** ⇒ 本片真正要擋的那一種。
+         --   ⛔ ~~我原本寫「`{"a": null}` 算有值, 會贏過員工那份, 那是刻意的」~~ **作廢**
+         --      (codex R1 抓的):`{"a": null}` **根本走不到這裡** ——
+         --      上面 `m3_jsonb_values_all_string` 那道(`:549` 一族)要求值全部是字串,
+         --      `null` 不是 ⇒ **整張單直接 RAISE**。⇒ 我描述了一個不存在的行為。
+         --      📌 而它讀起來完全合理, 因為它在講一個**看起來會發生**的情境。
+         --
+         --   ══ 🔴🔴 **「空」在這一格有【兩個意思】, 而 Sean 分開答了兩次** ══════════
+         --      ① **空的 jsonb `{}`**(整個規格沒有任何鍵)⇒ **留員工打的**
+         --         依據:Sean 2026-09-01 12:0x 原話一個字「甲」。
+         --      ② **鍵在、而值是空字串**(`{"color": ""}`)⇒ 🔴 **用目錄的那個空白**
+         --         依據:Sean 2026-09-01 12:1x 原話逐字「**算有填(用目錄的空白)**」。
+         --      ⇒ ✅ 所以本 CASE 只判 `{}`, 是**對的**, 不是漏掉 ②。
+         --
+         --      🔵 **這一格的來歷寫下來, 因為它差一點被我自己決定掉**:
+         --      codex R1 舉了 `{"color": ""}` 當 must-fix 反例(「用空字串蓋掉員工打的紅」)。
+         --      🛑 而我判它**不是 bug, 是一格沒有被問到的業務規則** ⇒ 沒有自行擴張拍板, 端上去問。
+         --      ⇒ 他花一行答完, 而答案是 ②(與我原本猜的方向相反 —— 我以為他會想保住員工那份)。
+         --      📌 **⇒ 我猜錯了, 而因為我沒有把猜的東西寫成碼, 那個錯不需要任何人來修。**
+         --      ⇒ ⇒ 若當時自己決定, 他永遠不會知道有這一格,
+         --         而它會變成一個沒有人記得為什麼的行為。
+         CASE WHEN pv.id IS NULL
+                OR pv.spec IS NULL
+                OR pv.spec = '{}'::jsonb
+              THEN it -> 'product_snapshot'
               ELSE pg_catalog.jsonb_set(it -> 'product_snapshot', '{spec}', pv.spec)
          END,
          (it ->> 'quantity')::integer,
@@ -635,13 +693,36 @@ $fn$;
 -- ── 後置斷言 ──────────────────────────────────────────────────────────────
 DO $post$
 DECLARE
-  v_src  text;
-  v_fp   text;
-  v_n    int;
+  v_src    text;
+  v_src_nc text;   -- 🔴 剝掉整行註解之後的碼(見下面那段)
+  v_fp     text;
+  v_n      int;
 BEGIN
   SELECT p.prosrc INTO v_src
     FROM pg_catalog.pg_proc p
    WHERE p.oid = 'public.admin_create_manual_order(uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb)'::regprocedure;
+
+  -- ══ 🔴🔴 codex R1 must-fix(2026-09-01):**下面那些 `LIKE` 全都在讀【含註解的】原始碼** ══
+  --   `prosrc` 是函式本體, 而函式本體裡有它自己的註解 ——
+  --   ⇒ 一個字面只要出現在**任何一行註解**裡, 那道閘就命中 ⇒ **把真的碼刪掉也照樣全過。**
+  --   🔴 而這一格是我自己造的:我剛加的 ⑥c/⑥d 找的是 `pv.spec = '{}'::jsonb` 與 `pv.spec IS NULL`,
+  --      **而我在同一次改動裡把這兩個字面寫進了註解** ⇒ 兩道新閘出廠就是假綠。
+  --   📌 一把讀字面的尺, 它的分母包含【所有在講這件事的字】—— 而作者自己的註解最會講那件事。
+  --      (同族第三次:`20260901020000` 的負對照命中我自己寫的負對照;鐵則 11 那條的文字層版本。)
+  --   ⇒ 修法沿用本檔 ① 已經在用的那個做法(逐行、丟掉 `^\s*--`), 不另發明。
+  --   🔴🔴 **codex R2 must-fix:只剝【整行】不夠。**
+  --      ⛔ ~~我原本寫「本檔註解全是整行式, 這個粒度足夠」~~ **作廢** ——
+  --      那句話描述的是**今天的檔**, 而這幾道閘防的是**未來有人改它**。
+  --      反例(codex 現造):把條件改成 `OR FALSE -- pv.spec = '{}'::jsonb`
+  --      ⇒ 行為退回【乙】, 而 ⑥c 命中那個**行尾註解** ⇒ 假綠。
+  --      📌 **⇒ 「現況足夠」與「防得住改動」是兩件事, 而一道閘的用途是後者。**
+  --   ⇒ 改法:整行 + 行尾一起剝(`--` 到行末)。
+  --   ⚠️ **代價寫明:字串常數裡若出現 `--`, 它會被誤剝** ⇒ 那個方向是**漏檢**(把碼變短),
+  --      而漏檢會讓閘紅得比該紅的多(fail-closed), 不會讓它假綠。
+  --      🟢 **而它今天不會誤傷**:本函式本體實掃 ⇒ **零個字串常數含 `--`**(2026-09-01 量)。
+  SELECT pg_catalog.string_agg(pg_catalog.regexp_replace(l, '--.*$', ''), E'\n')
+    INTO v_src_nc
+    FROM pg_catalog.regexp_split_to_table(v_src, E'\n') AS l;
 
   -- ── ① 權威查詢真的在裡面(而它先跑 ⇒ 它給的是【哪裡不一樣】)──────────────
   -- 🔴 右界一定要釘:`LIKE '%public.product_variants%'` **也會命中 `public.product_variants_ZZQ`**
@@ -656,15 +737,15 @@ BEGIN
   END IF;
 
   -- ── ② 代購那條路還在(不得把 variant_id IS NULL 也拖去查)────────────────
-  IF v_src NOT LIKE '%v_spec := COALESCE(v_line -> ''spec''%' THEN
+  IF v_src_nc NOT LIKE '%v_spec := COALESCE(v_line -> ''spec''%' THEN
     RAISE EXCEPTION '⟦b4-SPEC1⟧ 後置②:代購品項(variant_id IS NULL)那條 fallback 不見了 ⇒ 它會建不了單';
   END IF;
 
   -- ── ③ 三道既有驗證都還在(它們現在驗的是權威那一份)──────────────────────
-  IF v_src NOT LIKE '%m3_jsonb_values_all_string%' THEN
+  IF v_src_nc NOT LIKE '%m3_jsonb_values_all_string%' THEN
     RAISE EXCEPTION '⟦b4-SPEC1⟧ 後置③:值全字串那道驗證不見了';
   END IF;
-  IF v_src NOT LIKE '%price_by_tier%' THEN
+  IF v_src_nc NOT LIKE '%price_by_tier%' THEN
     RAISE EXCEPTION '⟦b4-SPEC1⟧ 後置③b:價格欄名那道驗證不見了 ⇒ 經銷價可能進快照';
   END IF;
 
@@ -709,11 +790,29 @@ BEGIN
   --    **兩者對「G8 那個 CASE 被拿掉 / 被改成只在空值時覆蓋」零判別力**(M2/M3 實測都是⑤殺的)。
   --    ⑤ 指紋擋得住 ⇒ 不是安全缺口;而**⑤ 只說「不一樣」, 說不出「哪裡不一樣」**
   --    ⇒ 這一道補的是【訊息】, 不是防線。
-  IF v_src NOT LIKE '%jsonb_set(it -> ''product_snapshot'', ''{spec}'', pv.spec)%' THEN
+  IF v_src_nc NOT LIKE '%jsonb_set(it -> ''product_snapshot'', ''{spec}'', pv.spec)%' THEN
     RAISE EXCEPTION '⟦b4-SPEC1⟧ 後置⑥:G8 的權威覆蓋(jsonb_set … pv.spec)不見了 ⇒ 快照會用呼叫端送的那一份';
   END IF;
-  IF v_src NOT LIKE '%CASE WHEN pv.id IS NULL THEN it -> ''product_snapshot''%' THEN
+  -- ⛔ ~~原本比對 `CASE WHEN pv.id IS NULL THEN it -> 'product_snapshot'`(單行形狀)~~
+  --    **作廢**:Sean 2026-09-01 拍【甲】之後那個 CASE 變成三條件多行 ⇒ 舊字面必然不匹配。
+  --    🔴 **而它會【炸在 apply 當下】, 不是安靜地過** —— 那是對的方向(fail-closed),
+  --       但它炸的訊息會說「代購那條分支不見了」, 而真相是「我改了它而忘了改這道閘」
+  --       ⇒ 📌 **一道閘的訊息若指向錯的原因, 修的人會往錯的地方找。**
+  IF v_src_nc NOT LIKE '%CASE WHEN pv.id IS NULL%' THEN
     RAISE EXCEPTION '⟦b4-SPEC1⟧ 後置⑥b:代購那條分支(pv.id IS NULL ⇒ 原樣)不見了 ⇒ 代購品項會被拖去查權威';
+  END IF;
+
+  -- ── ⑥c 🔴 Sean 拍【甲】那一格:目錄空的時候不覆蓋 ────────────────────────
+  --    🛑 **這一道是新的, 而它存在的理由是 ⑥ 與 ⑥b 對它零判別力**:
+  --       ⑥ 只確認 `jsonb_set(… pv.spec)` 那個字面在;⑥b 只確認代購那條分支在。
+  --       ⇒ **把「目錄空就留員工的」那兩個條件拿掉, 上面兩道照樣全過** ——
+  --         而那正好把行為改回 Sean 剛推翻的【乙】。
+  --    📌 一道守門守得住它列出來的那幾種, 而【剛剛才決定的那一種】不會自己出現在舊清單裡。
+  IF v_src_nc NOT LIKE '%pv.spec = ''{}''::jsonb%' THEN
+    RAISE EXCEPTION '⟦b4-SPEC1⟧ 後置⑥c:目錄空就不覆蓋那個條件(pv.spec = ''{}'')不見了 ⇒ 行為退回【乙】, 而 Sean 2026-09-01 拍的是【甲】';
+  END IF;
+  IF v_src_nc NOT LIKE '%pv.spec IS NULL%' THEN
+    RAISE EXCEPTION '⟦b4-SPEC1⟧ 後置⑥d:pv.spec IS NULL 那個條件不見了 ⇒ 欄位哪天放寬成可 NULL 時, jsonb_set 會把整格寫成 NULL';
   END IF;
 
   -- ── ⑤ 🔴 指紋:總簽收, 刻意排最後 ────────────────────────────────────────
@@ -724,8 +823,8 @@ BEGIN
   --    ②〜④ 先跑, 給的是【哪裡不一樣】;指紋最後跑, 答【還有沒有別的地方不一樣】。
   --    (慣例對齊 20260810170000 / 20260831010000 那幾支 —— 指紋放最後。)
   v_fp := pg_catalog.md5(pg_catalog.regexp_replace(pg_catalog.regexp_replace(v_src, '--[^\n]*', '', 'g'), '\s+', ' ', 'g'));
-  IF v_fp <> '0682d685d9662e71d53d0da49b2901ba' THEN
-    RAISE EXCEPTION '⟦b4-SPEC1⟧ 後置⑤:換上去的那一版指紋是 %, 而本檔預期的是 % ⇒ 我裝上去的不是我寫的那一支', v_fp, '0682d685d9662e71d53d0da49b2901ba';
+  IF v_fp <> 'e387b096263c72e858575a33be248239' THEN
+    RAISE EXCEPTION '⟦b4-SPEC1⟧ 後置⑤:換上去的那一版指紋是 %, 而本檔預期的是 % ⇒ 我裝上去的不是我寫的那一支', v_fp, 'e387b096263c72e858575a33be248239';
   END IF;
 END
 $post$;
