@@ -121,12 +121,37 @@ sweep() {
   #       **而五個零讀起來與「他沒答過」一模一樣。**
   #    🔴 ⇒ 而拍板落檔的規矩(`00-work-rules §4`)本來就寫著「PCM 拍板 → memory `project_*`」
   #       ⇒ **這支工具的分母, 少了制度指定的那個落點。**
-  local C2="grep -rn <關鍵字> ~/pcm-mailbox/*決策*.md ~/pcm-mailbox/*等Sean*.md docs/launch-todo.md + memory/"
-  section "② Sean 答過了嗎(決策板 + 板子 + memory 拍板檔)" "$C2"
+  # 🔴🔴 **2026-09-01:這一段的檔名 glob 是一個【白名單】, 而它在跟下一個檔名賽跑。**
+  #    成因是量到的:Sean 2026-08-31 批了一份 `~/pcm-mailbox/清單-開站前必須做完-20260901.md`
+  #    (299 行, 逐字「依照這個清單一直安排所有視窗不停工 趕工完成」)
+  #    ⇒ 而它既不叫 `*決策*` 也不叫 `*等Sean*` ⇒ **這一段一個字都看不到它。**
+  #    📌 **⇒ 一支防「重問已答過的事」的工具, 分母裡沒有【他答完之後產生的那份清單】。**
+  #    ✅ 修法【不是】再加兩個 pattern —— 那是同一場賽跑再跑一圈。
+  #      改成:窄的那組照舊(訊號準), 而**另外整個信箱粗掃一遍**(涵蓋所有檔名), 兩個【分開印】。
+  #      🔵 實測全掃成本:6,042 支 .md / 481 MB ⇒ `grep -rl` 約 **0.57 秒** ⇒ 便宜。
+  #      🛑 而粗掃**雜訊高**(信箱裡多數是交件不是拍板)⇒ 所以它印在後面、而且明講它是粗的。
+  local C2="grep -rn <關鍵字> ~/pcm-mailbox/*決策*.md ~/pcm-mailbox/*等Sean*.md docs/launch-todo.md + memory/ + 全信箱粗掃"
+  section "② Sean 答過了嗎(決策板 + 板子 + memory 拍板檔 + 全信箱粗掃)" "$C2"
   { grep -rn -- "$KW" "$MAILBOX"/*決策*.md "$MAILBOX"/*等Sean*.md 2>/dev/null
     grep -n -- "$KW" "$REPO/docs/launch-todo.md" 2>/dev/null
     grep -rn -- "$KW" "$MEMDIR" 2>/dev/null; } | cut -c1-220 > "$TMP"
   report "決策板與 launch-todo 與 memory" "$TMP"
+
+  # ── ②b 全信箱粗掃(只印檔名 + 命中數, 不參與上面那個零計數)──────────────
+  #    🔴 它【不併進 ②】是刻意的:併了會讓「決策板有沒有」這個準訊號被交件檔淹掉。
+  #    而它單獨印, 讀的人自己決定要不要點進去。
+  local WIDE_N WIDE_LIST
+  WIDE_LIST="$(grep -rl -- "$KW" "$MAILBOX"/*.md 2>/dev/null | head -12)"
+  WIDE_N="$(grep -rl -- "$KW" "$MAILBOX"/*.md 2>/dev/null | grep -c '')"
+  printf '\n   ②b 全信箱粗掃(所有 *.md, 不限檔名):命中 %s 支\n' "$WIDE_N"
+  if [ "$WIDE_N" != "0" ]; then
+    printf '%s\n' "$WIDE_LIST" | sed 's|.*/|      · |'
+    [ "$WIDE_N" -gt 12 ] 2>/dev/null && printf '      …(只列前 12 支)\n'
+    printf '   🛑 而這一段【雜訊高】—— 信箱裡多數是交件不是拍板。它的用途是:\n'
+    printf '      ②那組窄的印零, 而這裡非零 ⇒ **那個零是檔名 glob 造成的, 不是「他沒答過」**\n'
+  else
+    printf '   🔵 全信箱也是零 ⇒ ②那個零不是檔名 glob 造成的\n'
+  fi
 
   # ── ③ 答案寫在碼的註解裡嗎 ────────────────────────────────────────────
   local C3="git grep -n <關鍵字> -- supabase/migrations packages/use-cases apps/*/src"
