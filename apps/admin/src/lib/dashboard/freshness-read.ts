@@ -237,6 +237,30 @@ export const FITMENT_STALE_DAYS = 7;
 export const FITMENT_STALE_HOURS = FITMENT_STALE_DAYS * 24;
 
 /**
+ * 車款搜尋的**排程**多久沒成功,就算「它可能掛了」= **2 天**。
+ *
+ * 🔴🔴 **它與上面那個 7 【回答的是兩個不同的問題】,而先前只有一個數字在回答兩個。**
+ * ```
+ * FITMENT_STALE_DAYS = 7  答的是:【資料多舊算舊】
+ *                            (Sean 2026-08-29 逐字答 `A: 7天`;題目原文
+ *                             「資料幾天沒更新, 就算太舊該通知你?」)
+ * 本常數        = 2  答的是:【排程掛了多久才該有人知道】
+ *                            (Sean 2026-09-02 逐字答「甲 2天」)
+ * ```
+ * 🛑 **而 7 那個【一個字都沒動】** —— 他是【加了第二個】, 不是推翻第一個。
+ * 📌 **⇒ 為什麼需要第二個**:這支排程是**每日**跑的
+ *    ⇒ 用 7 天當警戒 ⇒ **它可以連續漏 6 天而那行字仍然是綠的**。
+ *    ⇒ 而那正是這道儀表最該叫的那一種。
+ * 🔵 **而 2 是【他給的數】不是我們算的** —— 要改它是回去問他, 不是自己重算。
+ *    (同上面那個 7 的規矩;而 7 是「推的 vs 拍的」那一對裡【拍的】那一半。)
+ * ⚠️ **它為什麼不是 1**:排程台北每日 07:01 跑一次 ⇒ 正常情況下這個數字最大會到約 1 天。
+ *    設 1 會在【還沒到時間】與【掛了】之間分不開 —— 那正是本檔下面那段
+ *    「沒有新的列與還沒到時間長一樣」講的東西。**2 天 = 它已經漏掉整整一班。**
+ */
+export const FITMENT_SCHEDULER_DEAD_DAYS = 2;
+export const FITMENT_SCHEDULER_DEAD_HOURS = FITMENT_SCHEDULER_DEAD_DAYS * 24;
+
+/**
  * 車款搜尋那一行字。**單位是天**(門檻是天,而讓讀的人自己把小時換算成天 = 多一個出錯的地方)。
  *
  * 🔴 與上面 {@link freshnessLabel} 同一條規矩:**量不到時印「量不到」,不印空白、不印數字。**
@@ -254,7 +278,18 @@ export function fitmentFreshnessLabel(f: DataFreshness): string {
   // 🔴 負數照實印,不夾成 0 —— 同上面那條:未來時間戳 = 有東西寫錯了。
   if (f.hoursAgo < 0) return `車款搜尋同步:時間戳在未來(${(f.hoursAgo / 24).toFixed(1)} 天)`;
   if (f.hoursAgo < 24) return '車款搜尋同步:最後一次成功在 1 天內';
-  return `車款搜尋同步:已 ${Math.floor(f.hoursAgo / 24)} 天沒有成功過`;
+  const days = Math.floor(f.hoursAgo / 24);
+  // 🔴🔴 兩個門檻 ⇒ **兩句話**, 而分開的理由是【看到的人下一步不同】:
+  //    2-6 天 ⇒ 去看那支排程還活著嗎(問題在【機器】)
+  //    ≥ 7 天 ⇒ 資料也已經算舊了(問題在【客人看到的東西】)
+  //    ⇒ 📌 那與 `⟦b4-PCM05SPLIT⟧` 是同一條:一個碼兩個語意, 而兩者的下一步相反 ⇒ 要拆。
+  if (f.hoursAgo >= FITMENT_STALE_HOURS) {
+    return `車款搜尋同步:已 ${days} 天沒有成功過(排程可能掛了, 而資料也已經算舊了)`;
+  }
+  if (f.hoursAgo >= FITMENT_SCHEDULER_DEAD_HOURS) {
+    return `車款搜尋同步:已 ${days} 天沒有成功過(排程可能掛了 —— 它本來每天跑)`;
+  }
+  return `車款搜尋同步:已 ${days} 天沒有成功過`;
 }
 
 /**
@@ -333,5 +368,15 @@ export async function loadFitmentFreshness(now: Date = new Date()): Promise<Data
     return unreadable('查詢失敗');
   }
   // 「一列成功都沒有」不是「很新」—— 它是最壞的那一種(這條線從來沒成功過 / 紀錄被清了)。
-  return freshnessFromTimestamp(res.data?.[0]?.ran_at, now, FITMENT_STALE_HOURS, '查無任何成功同步紀錄');
+  // 🔴🔴 **亮燈用【短的那個】(2 天), 不是 7 天** —— 那正是 Sean 2026-09-02 加它的目的:
+  //    7 天答的是「資料多舊算舊」, 而這道儀表要答的是「排程掛了有沒有人知道」。
+  //    ⇒ 用 7 當警戒 ⇒ 每日排程可以連漏 6 天而這一行仍然是綠的。
+  // ⚠️ 而 7 【沒有消失】—— 它活在 `fitmentFreshnessLabel` 的第二句裡(≥7 天時話會變)。
+  //    ⇒ 📌 兩個數字都還在, 而它們各自回答自己那一題。
+  return freshnessFromTimestamp(
+    res.data?.[0]?.ran_at,
+    now,
+    FITMENT_SCHEDULER_DEAD_HOURS,
+    '查無任何成功同步紀錄',
+  );
 }
