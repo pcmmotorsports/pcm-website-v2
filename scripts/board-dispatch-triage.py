@@ -29,13 +29,23 @@ MARKERS = ('重驗中', '平行重驗請跳過')
 #       「主視窗讀第 4 欄 ⇒ 一夜派重三次」—— 而工具自己在讀第 4 欄。
 #    ✅ 改成【讀那張表自己的表頭】找誰欄; 找不到 ⇒ 誰欄回 None,
 #       而 None 與「待派」是兩件事 —— 答不出來要長得像答不出來, 不能長得像一個答案。
-_WHO_HINTS = ('誰', '派給', 'owner', '負責')
+# 🔴 2026-09-02 第二發真正的成因(線 -7d 複驗抓到):
+#    那 37 件的表頭是 | 行 | 錨 | 誰受什麼傷 | 派給 | 大概多大 | 前置 |
+#    ⇒ 而「誰受什麼傷」也含「誰」⇒ 原本的 any(k in h) 先命中它, 取到【傷害描述】當誰欄
+#    ⇒ ⇒ 而它回的那句「客人的資料 · 新開的 API 出生就是不用登入可打」
+#       【讀起來很像一個誰欄】⇒ 比回一整段散文更難發現。
+#    ✅ 修法:①明確的欄名優先(派給/owner/負責/誰在做)②「誰」只在【不是「誰受」】時才算
+#    📌 一般化:關鍵字比對要問「還有誰會含這個字」—— 而表頭是最容易撞的地方。
+_WHO_STRONG = ('派給', 'owner', '負責', '誰在做')
 
 
 def _who_idx(header_cells):
-    """從表頭找【誰欄】的索引; 找不到回 None。"""
+    """從表頭找【誰欄】的索引; 找不到回 None。明確欄名優先, 裸「誰」最後且排除「誰受」。"""
     for j, h in enumerate(header_cells):
-        if any(k in h for k in _WHO_HINTS):
+        if any(k in h for k in _WHO_STRONG):
+            return j
+    for j, h in enumerate(header_cells):
+        if '誰' in h and '誰受' not in h:
             return j
     return None
 
@@ -45,18 +55,33 @@ def rows(path):
     L = io.open(path, encoding='utf-8').readlines()
     sep = lambda s: bool(re.match(r'^\|[\s:|-]+$', s))
     out = []
-    cur_who = 4  # 沒遇到表頭之前的預設 = 舊行為(5 欄表)
+    cur_who = 4   # 沒遇到表頭之前的預設 = 舊行為(5 欄表)
+    cur_ncol = None  # 該表表頭的欄數 —— 用來擋「內容裡有裸 | 而多切了幾刀」的列
     for i, l in enumerate(L, 1):
         if not l.startswith('|') or sep(l):
             continue
         # 表頭 = 它的【下一列】是分隔列。不靠欄位內容猜, 靠位置。
         if i < len(L) and sep(L[i]):
-            cur_who = _who_idx([x.strip() for x in l.split('|')])
+            hc = [x.strip() for x in l.split('|')]
+            cur_who = _who_idx(hc)
+            cur_ncol = len(hc)
             continue
         c = l.split('|')
         if len(c) < 6:
             continue
-        who = c[cur_who].strip() if (cur_who is not None and cur_who < len(c)) else None
+        # 🔴 2026-09-02 第二發(線 -7d 複驗 3/4 時抓到):表頭對欄只解了【欄數與表頭一致】的列。
+        #    而 ⟦b4-NEWAPI1⟧ 那一列的【內容裡有裸 `|`】(一段 git 指令)⇒ 它被多切了幾刀
+        #    ⇒ 索引全部右移 ⇒ 誰欄取到「客人的資料 · 新開的 API 出生就是不用登入可打」
+        #    🛑 而那句話【讀起來很像一個誰欄】⇒ 比回一整段散文更難發現。
+        #    ✅ 所以欄數與表頭不符 ⇒ 一律 None。理由同上一發:
+        #       答不出來要長得像答不出來, 而【猜一個看起來合理的】是這一族最貴的失敗。
+        # 🔵 只擋【比表頭短】的列(那種一定對不齊);比表頭長多半是內文裡有裸 `|`,
+        #    而那些 `|` 幾乎都在誰欄【之後】⇒ 誰欄仍然取得到。
+        #    (第一版寫成 len(c)==cur_ncol ⇒ 132 列變 None, 連正對照 ⟦b4-PARTCANCEL1⟧ 都中 ⇒ 太嚴, 收回。)
+        shape_ok = (cur_ncol is None) or (len(c) >= cur_ncol)
+        who = (c[cur_who].strip()
+               if (shape_ok and cur_who is not None and cur_who < len(c))
+               else None)
         out.append((i, c[1].strip(), c[3].strip(), who, '|'.join(c[5:]), c[2].strip()))
     return out
 
