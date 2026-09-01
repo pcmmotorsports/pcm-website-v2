@@ -63,6 +63,7 @@ const mocks = vi.hoisted(() => ({
   //    要構造得出【成功】與【失敗】兩態。⚠️ 預設在 beforeEach 回 `[]`(= 這單沒有登記紀錄)
   //    ⇒ 本檔既有每一格的行為一個字都沒變。
   listOrderManualRefunds: vi.fn(),
+  readOrderManualRefundRailCap: vi.fn(),
 }));
 vi.mock('../../../lib/payment/refund-correction-read', () => ({
   findEffectiveVerdicts: mocks.findEffectiveVerdicts,
@@ -121,8 +122,16 @@ vi.mock('../../../lib/orders/payment-repository', () => ({
 //    🛑 **⇒ 而值得記的是那段警告本身:它把機制講得很清楚,而套用它的人只套了它點名的那一個。**
 //      ⇒ **一段正確而具體的警告,它的射程止於它舉的例子。**
 //    回空陣列 = 「這單沒有非卡退款登記」,與本檔要驗的東西無關,也不會多畫任何東西。
+// 🔴🔴 **而這個 mock 在 2026-09-02 又漏掉一支**(codex must-fix ⑤)——
+//    `readOrderManualRefundRailCap` 加進 `order-detail-route.tsx` 的 `allSettled` 之後,
+//    這裡沒有跟著加 ⇒ 呼叫它會 **throw(mock 模組沒有這個 export)** ⇒ 被 `allSettled` 吞成
+//    `railCap = null` ⇒ **每一發都固定顯示「算不出這張單的可退上限」, 而全檔照樣綠。**
+//    📌 **⇒ 這與上面 `:115` 那段【是同一個病、同一支檔、隔一天】** ——
+//       那段警告寫得完全正確, 而它救不了下一支 export:**警告的射程止於它舉的那個名字。**
+//    ⇒ ✅ 修法不是再寫一句提醒, 是下面 `[R-WIRE]` 那一格 —— 它會在漏 mock 時**紅**。
 vi.mock('../../../lib/payment/manual-refund-read', () => ({
   listOrderManualRefunds: mocks.listOrderManualRefunds,
+  readOrderManualRefundRailCap: mocks.readOrderManualRefundRailCap,
 }));
 
 import OrderDetailPage from './page';
@@ -184,6 +193,8 @@ beforeEach(() => {
   // 提升前的 inline 預設,逐字保留:`[]` = 「這單沒收過款」,不是「讀不到」。
   mocks.listOrderPayments.mockResolvedValue([]);
   mocks.listOrderManualRefunds.mockResolvedValue({ rows: [], truncated: false });
+  // 🔵 預設 `0` = 上限剛好用完、不標紅 ⇒ 其餘每一格驗的是它們原本要驗的東西。
+  mocks.readOrderManualRefundRailCap.mockResolvedValue(0);
   // 🔴 空 Map = **讀得到、而一筆都沒被更正過** ⇒ 卡住的列照舊擋(既有行為不變)。
   //    ⚠️ 它與 `null`(讀不到)是兩件事,而兩者今天都擋 —— 分開餵的那兩格在下面。
   mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
@@ -1254,6 +1265,122 @@ describe('非卡退款帳本區塊:成功與失敗兩態都要看得出來', () 
     // 正向對照:頁面真的渲染出來,不是整頁空白讓下面那條恆真。
     expect(text).toContain('退款');
     expect(text).toContain('非卡退款登記載入失敗');
+  });
+  // ══ ⟦b4-PCM01RECORD⟧ route 層接線 ═══════════════════════════════════════════
+  //
+  // 🛑 **這一格存在的唯一理由:讓「mock 漏一支 export」變成【紅】而不是【綠】。**
+  //    上面那段警告(`:115`)是文字, 而文字擋不住下一支 export —— 這一格擋得住:
+  //    把 `readOrderManualRefundRailCap` 從 mock 拿掉 ⇒ 呼叫 throw ⇒ 收斂成 null
+  //    ⇒ 畫面出現「算不出這張單的可退上限」⇒ **下面第一條 expect 立刻紅。**
+  it('[R-WIRE] 🟢 cap 讀得到而不超額 ⇒ 兩條紅都不出現(這一格會在 mock 漏 export 時紅)', async () => {
+    mocks.listOrderManualRefunds.mockResolvedValue({
+      rows: [
+        {
+          id: 'mr-w1', rail: 'cash', refundAmount: 100, reason: 'r', actor: 'tester',
+          occurredAt: '2026-08-20T02:00:00+00:00', createdAt: '2026-08-20T03:00:00+00:00',
+          voidedAt: null, voidReason: null, voidedBy: null,
+        },
+      ],
+      truncated: false,
+    });
+    mocks.readOrderManualRefundRailCap.mockResolvedValue(0);
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    expect(text).not.toContain('算不出這張單的可退上限');
+    expect(text).not.toContain('超出可退上限');
+  });
+
+  it('[R-WIRE2] 🔴 cap 是負的 ⇒ route 真的把它送到畫面上(接線活著, 不是只有元件會畫)', async () => {
+    mocks.listOrderManualRefunds.mockResolvedValue({
+      rows: [
+        {
+          id: 'mr-w2', rail: 'cash', refundAmount: 100, reason: 'r', actor: 'tester',
+          occurredAt: '2026-08-20T02:00:00+00:00', createdAt: '2026-08-20T03:00:00+00:00',
+          voidedAt: null, voidReason: null, voidedBy: null,
+        },
+      ],
+      truncated: false,
+    });
+    mocks.readOrderManualRefundRailCap.mockResolvedValue(-700);
+    const { container } = await renderPage();
+    // 🔴 釘完整字面 —— 只找「超出」的話, 一個算錯的金額照樣過。
+    expect(container.textContent ?? '').toContain('超出可退上限 NT$ 700');
+  });
+
+  // 🔴🔴 **R3/Fable F3:釘「cap 排在列【之後】」** —— 那條承重宣稱原本只活在註解裡。
+  //
+  // 🛑 **這道守門我寫了【三版】, 前兩版都被實跑或審查打掉, 而三版都印得出一個合理的斷言:**
+  //    ① 比 `mock.invocationCallOrder` ⇒ 而 `Promise.all([a(), b()])` **兩支也是依序被呼叫的**
+  //       (陣列字面由左而右求值)⇒ 突變回併行【全綠】。
+  //       📌 **「誰先被【呼叫】」與「誰先【完成】」是兩個量, 而我要的是後者。**
+  //    ② 列的 mock 隔一個 microtask 翻旗標、cap 當場抄 ⇒ 突變兩發都紅了, 我以為成了。
+  //       🛑 **codex R4 must-fix**:一個「只延遲一個 microtask 再啟動 cap、而不等 list」的壞實作
+  //       仍然會綠 —— 而真實世界的 DB 查詢**遠不只一個 microtask**
+  //       ⇒ ⇒ 📌 **我的量具只擋得住「剛好差一個 microtask」的那一種併行, 而那是最不可能發生的那一種。**
+  //    ③ 現行:**閘住 list, 在放行之前先斷言 cap 沒被呼叫過。**
+  //       ⇒ 這一版不依賴任何時間量, 它問的是**因果**:cap 有沒有辦法在 list 給答案之前開始。
+  it('[R-WIRE4] 🔴 cap 必須在列【讀完之後】才開始讀(併行回來 ⇒ 這一格紅)', async () => {
+    let releaseList: () => void = () => {};
+    const listGate = new Promise<void>((resolve) => {
+      releaseList = resolve;
+    });
+    let capCalled = false;
+    mocks.listOrderManualRefunds.mockImplementation(async () => {
+      await listGate;
+      return { rows: [], truncated: false };
+    });
+    mocks.readOrderManualRefundRailCap.mockImplementation(async () => {
+      capCalled = true;
+      return 0;
+    });
+
+    const pending = renderPage();
+    // 🛑🛑 **這一行的長度是量出來的, 不是隨手寫的** ——
+    //    ~~第三版寫 `setTimeout(resolve, 0)`~~ ⇒ 實跑突變 B(壞實作也只延一個 `setTimeout(0)`)
+    //    ⇒ **全綠**:兩個 0ms 排在同一輪佇列裡, 誰先誰後是排程順序, 不是因果。
+    //    📌 ⇒ **兩個都用「最短的等待」時, 我的量具與被量的東西變成同一個東西。**
+    //    ✅ 現在**閘住 list 不放**, 而等一段【明顯長於任何微延遲】的真實時間:
+    //       cap 若真的排在 list 之後, 它**永遠**不會被呼叫(閘沒開);
+    //       cap 若是併行的, 它在這 50ms 內一定已經跑了。
+    //    ⚠️ **射程寫出來**:一個「刻意延遲超過 50ms 再併行」的實作仍然溜得過去。
+    //       ⇒ 而那不是省往返會寫出來的形狀 —— 省往返的人寫的是 `Promise.all`。
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(
+      capCalled,
+      '列還沒給答案, cap 就已經開始了 ⇒ 兩支是併行的 ⇒ 「新列配舊 cap」那個漏紅時序回來了',
+    ).toBe(false);
+
+    releaseList();
+    await pending;
+    // 🔴 正向對照:放行之後它**真的**被呼叫了 —— 否則上面那個 `false` 對「cap 根本沒接上」也綠。
+    expect(capCalled, 'cap 從頭到尾沒被呼叫過 ⇒ 上面那一格的分母是空的').toBe(true);
+  });
+
+  it('[R-WIRE3] 🔴 cap 讀取 reject ⇒ 收斂成「算不出上限」, 不是安靜地不標紅', async () => {
+    mocks.listOrderManualRefunds.mockResolvedValue({
+      rows: [
+        {
+          id: 'mr-w3', rail: 'cash', refundAmount: 100, reason: '這一筆列還在', actor: 'tester',
+          occurredAt: '2026-08-20T02:00:00+00:00', createdAt: '2026-08-20T03:00:00+00:00',
+          voidedAt: null, voidReason: null, voidedBy: null,
+        },
+      ],
+      truncated: false,
+    });
+    mocks.readOrderManualRefundRailCap.mockRejectedValue(new Error('boom'));
+    const { container } = await renderPage();
+    expect(container.textContent ?? '').toContain('算不出這張單的可退上限');
+    // 🔴 **codex R2 nit ⑦**:少了下面這一行, 本格的因果是假的 ——
+    //    把整條 cap 查詢從 route 拿掉, `manualRefundRailCap` 仍是初值 `null`
+    //    ⇒ 畫面照樣印那句話 ⇒ **這一格會綠, 而它宣稱驗的是「reject 被收斂」。**
+    //    ⇒ 📌 一個測「失敗態」的格子, 要先證明那條路【真的被走過】。
+    expect(mocks.readOrderManualRefundRailCap).toHaveBeenCalledWith(ORDER);
+    // 🔴🔴 **R3/Fable F4:cap 失敗【不得把列一起拖掉】** ——
+    //    把 route 那支的 `.catch` 拿掉 ⇒ 整支 settled promise reject ⇒ `manualRefundsFailed=true`
+    //    ⇒ 列被一起吞掉, 而上面兩行**照樣全綠**。這一行是那道保護唯一的守門。
+    expect(container.textContent ?? '', 'cap 讀失敗把列也吃掉了 ⇒ route 的 .catch 不見了').toContain(
+      '這一筆列還在',
+    );
   });
 });
 

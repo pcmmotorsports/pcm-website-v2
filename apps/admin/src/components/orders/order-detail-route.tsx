@@ -14,7 +14,11 @@ import {
   listOrderRefunds,
   type OrderRefundRow,
 } from '../../lib/payment/refund-read';
-import { listOrderManualRefunds, type ManualRefundRow } from '../../lib/payment/manual-refund-read';
+import {
+  listOrderManualRefunds,
+  readOrderManualRefundRailCap,
+  type ManualRefundRow,
+} from '../../lib/payment/manual-refund-read';
 import { listOrderPayments } from '../../lib/orders/payment-repository';
 import { listSuppliers } from '../../lib/supplier';
 import { OrderDetail } from './order-detail';
@@ -135,6 +139,13 @@ export async function OrderDetailRoute({
   let manualRefunds: ManualRefundRow[] = [];
   let manualRefundsFailed = false;
   let manualRefundsTruncated = false;
+  // 🔴 ⟦b4-PCM01RECORD⟧ 兩軌可退上限。**初值 `null` = 算不出來** ⇒ 這一格 fail-loud。
+  //    讀失敗與 RPC 回不出可信整數**都落在這個 `null`**,而那是刻意的:員工的下一步一樣
+  //    (重新整理 ⇒ 不行就叫工程),分成兩句畫面上一個字都不會不同。
+  //    ⚠️ **而「`null` 就會標紅」不是無條件的**(codex R2 nit ⑧ 更正我原本的絕對句):
+  //    零列、未截斷、列表讀得到的那張單,`null` **不標紅** —— 沒有登記過的單, 上限算不出來
+  //    對員工沒有任何下一步。判準在 `ManualRefundLedgerSection` 的 `capUnknown`。
+  let manualRefundRailCap: number | null = null;
   // 🔴 A13b D6-a:取消面板要拿它比對「這筆是不是你送的」。
   //    ⚠️ **不是授權邊界** —— 只做顯示層比對,不拿它擋任何東西。
   //
@@ -183,7 +194,28 @@ export async function OrderDetailRoute({
       //    ⇒ **連「找不到訂單」的 404 頁都要先等這支 RPC**。關卡2 codex 抓到。
       (async () => getLedgerUnregisteredAmount(id))(),
       // M-4b E10 D3:非卡退款登記列表,同 refunds 併進平行查(不依賴 detail)。
-      (async () => listOrderManualRefunds(id))(),
+      //
+      // 🔴🔴 **⟦b4-PCM01RECORD⟧ 兩軌可退上限【故意排在列之後】, 不與它平行**
+      //    ~~第一版把兩支併排在同一批 `allSettled` 裡~~ ⇒ codex R1④/R2① 給了一個會漏紅的時序:
+      //      cap 先讀到舊的非負值 → 另一名員工登記一筆超額退款 → 列表後讀到那筆新列
+      //      ⇒ 畫面有列、而 cap 說沒事 ⇒ 🛑 **該紅而完全不紅。**
+      //    ✅ **修法是排序, 不是加旗標**:cap 讀在列之後 ⇒ cap 的快照**永遠不早於**列的快照
+      //      ⇒ **「新列配舊 cap」這個方向不存在了。**
+      //    🔵 而反方向(cap 比列新、cap 是負的而列還沒出現)**仍然可能**, 但它**不漏紅** ——
+      //      `overCap` 在元件那側是無條件的, 零列照樣渲染那條紅。
+      //    ⚠️ **代價寫清楚**:這一支分支變成兩趟往返。**而它仍與另外五支平行**
+      //      ⇒ 頁面總延遲只在「這一支變成最慢那一支」時才會被它決定。
+      //      📌 這與上方 `#445a-3` 那條「不要串著等」不衝突:那條講的是**跨批**串行
+      //      (會擋到 `notFound()`),而這裡是**同一批之內**的兩跳。
+      // 🔴 cap 自己 `catch` ⇒ **它失敗不得把列一起拖掉**(兩件事、兩個顯示)。
+      (async () => {
+        const list = await listOrderManualRefunds(id);
+        const cap = await readOrderManualRefundRailCap(id).catch((reason: unknown) => {
+          console.error('[admin/order-detail] 兩軌可退上限讀取失敗(顯示為算不出上限)', reason);
+          return null;
+        });
+        return { list, cap };
+      })(),
     ]);
   if (detailSettled.status === 'fulfilled') {
     detail = detailSettled.value;
@@ -278,14 +310,17 @@ export async function OrderDetailRoute({
   }
 
   if (manualRefundsSettled.status === 'fulfilled') {
-    manualRefunds = manualRefundsSettled.value.rows;
-    manualRefundsTruncated = manualRefundsSettled.value.truncated;
+    manualRefunds = manualRefundsSettled.value.list.rows;
+    manualRefundsTruncated = manualRefundsSettled.value.list.truncated;
+    manualRefundRailCap = manualRefundsSettled.value.cap;
   } else {
     console.error(
       '[admin/order-detail] 非卡退款登記載入失敗(區塊顯示警告)',
       manualRefundsSettled.reason,
     );
     manualRefundsFailed = true;
+    // 🔵 列讀不到 ⇒ cap 那一跳**根本沒跑到**(它排在列之後)⇒ `manualRefundRailCap` 留在初值 `null`
+    //    ⇒ 畫面顯示「算不出上限」。**那是對的**:列都看不到了,沒有理由宣稱上限沒問題。
   }
 
   // 🔴🔴 #15-B2-c 片1a:**三態不可收斂成兩態**(`payment-repository.ts:93-96` 逐字)——
@@ -359,6 +394,7 @@ export async function OrderDetailRoute({
           manualRefunds={manualRefunds}
           manualRefundsFailed={manualRefundsFailed}
           manualRefundsTruncated={manualRefundsTruncated}
+          manualRefundRailCap={manualRefundRailCap}
           cancelFormsAllowed={cancelFormsAllowedOnResultPage(resultCode)}
           customerHref={
             // 🔴 **形狀閘、不是只有 falsy**:型別是 `string | null`,但實際可能是

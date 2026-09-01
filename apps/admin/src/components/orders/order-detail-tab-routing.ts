@@ -17,6 +17,15 @@ export function resolveOrderDetailTabFlags(input: {
   refundUnregisteredAmount: number | null;
   refundsTruncated: boolean;
   manualRefundsTruncated: boolean;
+  /**
+   * 🔴 ⟦b4-PCM01RECORD⟧ 這張單的非卡退款區**現在會不會出現紅字**(超額 或 算不出上限)。
+   *    判準的唯一權威 = `manual-refund-ledger-section.tsx` 的 `manualRefundRedState`,
+   *    呼叫端算好再傳進來 —— 本檔**不重算一份**(重算就是下一個漂移點)。
+   * 🛑 **它為什麼一定要進 `moneyTabMustSee` 的分母**:本段 JSDoc 逐字寫著這個分母是
+   *    「哪些 flag 會在 money 頁產生員工必須看到的紅字」—— 而這條紅**逐字符合那個定義**。
+   *    R3/Fable 2026-09-02 F1 抓到的正是「新增了一種紅、而沒有進這個分母」。
+   */
+  manualRefundRailCapRed: boolean;
   payments: PaymentListData;
 }): { refundLedgerAbnormal: boolean; moneyTabMustSee: boolean } {
   const {
@@ -26,6 +35,7 @@ export function resolveOrderDetailTabFlags(input: {
     refundUnregisteredAmount,
     refundsTruncated,
     manualRefundsTruncated,
+    manualRefundRailCapRed,
     payments,
   } = input;
 
@@ -99,6 +109,8 @@ export function resolveOrderDetailTabFlags(input: {
     refundLedgerAbnormal ||
     refundsTruncated ||
     manualRefundsTruncated ||
+    // 🔴 ⟦b4-PCM01RECORD⟧ 2026-09-02 進分母。理由與漏它的後果寫在上面 prop 的 JSDoc。
+    manualRefundRailCapRed ||
     payments.status !== 'ok';
 
   return { refundLedgerAbnormal, moneyTabMustSee };

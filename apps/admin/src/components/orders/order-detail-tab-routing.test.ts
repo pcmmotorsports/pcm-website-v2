@@ -34,10 +34,20 @@ const CLEAN = {
   refundUnregisteredAmount: 0,
   refundsTruncated: false,
   manualRefundsTruncated: false,
+  manualRefundRailCapRed: false,
   payments: { status: 'ok' as const, rows: [] },
 };
 
 describe('moneyTabMustSee —— fail-loud 逐路徑(組 28 警示圓點的判準)', () => {
+  // 🔴 ⟦b4-PCM01RECORD⟧ 2026-09-02 新增的那一條紅(R3/Fable F1)。
+  //    少了這一格, 「新增一種紅而沒進分母」這件事**第二次發生時照樣全綠** ——
+  //    而它第一次發生時(`refundsTruncated`/`manualRefundsTruncated` 沒接)也是零訊號。
+  it('🔴 非卡退款上限紅(超額 或 算不出上限)⇒ **要亮**', () => {
+    expect(
+      resolveOrderDetailTabFlags({ ...CLEAN, manualRefundRailCapRed: true }).moneyTabMustSee,
+    ).toBe(true);
+  });
+
   it('🔴 正常態:全部乾淨 ⇒ **不亮**(沒有這一格,下面每一格都會恆綠)', () => {
     const { moneyTabMustSee } = resolveOrderDetailTabFlags(CLEAN);
     expect(moneyTabMustSee).toBe(false);

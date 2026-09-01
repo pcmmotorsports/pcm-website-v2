@@ -18,7 +18,7 @@ import { RefundLedgerSection } from './refund-ledger-section';
 import { isBlockingStuckVerdict, isStuckManualVerdict } from '../../lib/payment/refund-ledger-view';
 import { shouldShowRefundEntry } from './refund-entry-gate';
 import { ManualRefundEntrySection } from './manual-refund-entry-section';
-import { ManualRefundLedgerSection } from './manual-refund-ledger-section';
+import { ManualRefundLedgerSection, manualRefundRedState } from './manual-refund-ledger-section';
 import { shouldShowManualRefundEntry } from './manual-refund-entry-gate';
 import type { PaymentListData } from './payment-list';
 import { PaymentSection } from './payment-section';
@@ -46,6 +46,7 @@ export function OrderDetailMoneyTab({
   manualRefunds,
   manualRefundsFailed,
   manualRefundsTruncated,
+  manualRefundRailCap,
   refundEnabled,
   cancelFormsAllowed,
   refundLedgerAbnormal,
@@ -63,11 +64,22 @@ export function OrderDetailMoneyTab({
   manualRefunds: readonly ManualRefundRow[];
   manualRefundsFailed: boolean;
   manualRefundsTruncated: boolean;
+  /** ⟦b4-PCM01RECORD⟧ 兩軌可退上限;負=超額、`null`=算不出來。語意在 `ManualRefundLedgerSection`。 */
+  manualRefundRailCap: number | null;
   refundEnabled: boolean;
   cancelFormsAllowed: boolean;
   refundLedgerAbnormal: boolean;
 }) {
   const cancelled = detail.cancelledAt !== null;
+
+  // 🔴 判準單一權威(`manual-refund-ledger-section.tsx`)—— 這裡只是**再問一次同一個問題**,
+  //    不是第二份實作。用途:下面那顆退款收合塊的 `defaultOpen`。
+  const manualRefundRed = manualRefundRedState({
+    rows: manualRefunds,
+    railCap: manualRefundRailCap,
+    rowsTruncated: manualRefundsTruncated,
+    loadFailed: manualRefundsFailed,
+  });
 
   /**
    * 🔴 SUB2-009:帳本裡有沒有「人工判定沒動到錢」而卡住的列。
@@ -200,7 +212,18 @@ export function OrderDetailMoneyTab({
                         拿它來開這一塊會對一個其實沒事的退款區平白掛開。
                      ⚠️ 紅標題「退款(對帳異常)」的判準【不動】(仍是 refundLedgerAbnormal):
                         截斷不是對帳異常,掛那五個字會說謊 —— 打開之後紅區自己會講話。 */
-                  defaultOpen={refundLedgerAbnormal || refundsTruncated || manualRefundsTruncated}
+                  defaultOpen={
+                    // 🔴 ⟦b4-PCM01RECORD⟧ 2026-09-02 加 `manualRefundRed` —— 而它是【第二道】:
+                    //    `moneyTabMustSee` 只保證「開在金流頁」, 而這條紅住在**這顆收合塊裡面**
+                    //    ⇒ 少了這一格, 員工會落在正確的分頁上, 看著一顆**收起來的**退款區。
+                    //    📌 `order-detail-tab-routing.ts` 的 JSDoc 早就寫了這句
+                    //    (「只開分頁不夠, defaultOpen 也要接」)—— 而 R3 抓到我兩道都漏了。
+                    refundLedgerAbnormal ||
+                    refundsTruncated ||
+                    manualRefundsTruncated ||
+                    manualRefundRed.overCap ||
+                    manualRefundRed.capUnknown
+                  }
                   summary={
                     <span className='flex flex-wrap items-center gap-2'>
                       {/* 🔴 A2(2026-08-21 Sean 拍板乙=最小13px):10px → 13px。 */}
@@ -240,6 +263,8 @@ export function OrderDetailMoneyTab({
                   <ManualRefundLedgerSection
                     rows={manualRefunds}
                     orderId={detail.id}
+                    displayId={detail.displayId}
+                    railCap={manualRefundRailCap}
                     returnTo={returnTo}
                     rowsTruncated={manualRefundsTruncated}
                     loadFailed={manualRefundsFailed}
