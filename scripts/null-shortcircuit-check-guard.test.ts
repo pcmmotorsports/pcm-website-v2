@@ -152,6 +152,27 @@ const PROBED_OR_CHECKS: readonly string[] = [
   'shipments_hct_submitted_evidence',
   'shipments_shipped_needs_tracking',
   'wallet_amount_sign',
+  // 🔴 2026-09-02 線 `-c7` 實測補進(它自己寫的 `20260901080000_m4b_autorefund_pending_refunds.sql:246-249`)。
+  //    形狀:`(voided_at IS NULL) = (void_reason IS NULL)
+  //           AND (void_reason IS NULL OR btrim(void_reason, <字集>) <> '')`
+  //    🔴 **NULL 短路面為什麼是關的(而這一格是實測不是推的)**:
+  //       ①`(x IS NULL) = (y IS NULL)` 兩側都是 `IS NULL` 述詞 ⇒ **永遠不是 NULL**
+  //       ②OR 的第一個分支 `void_reason IS NULL` 把 NULL 那條路自己吃掉 ⇒ 走不到會回 NULL 的比較
+  //    ✅ **實跑(拋棄式 PG 17.10)—— 直接對這條運算式求值,五個 NULL 組合逐格印 `IS NULL`**:
+  //       兩欄皆 NULL / 只有 voided_at NULL / 只有 void_reason NULL / 皆非 NULL(空白) / 皆非 NULL(真理由)
+  //       ⇒ **五格的「求值成 NULL」全部是 `f`**(結果分別 t / f / f / f / t)。
+  //       🟢 而同一發帶對照:一條真的有短路面的形狀 `(s='a' OR s='b')` 餵 `s = NULL`
+  //          ⇒ **印 `求值成 NULL = t`** ⇒ 📌 **那證明這把尺分得出兩個世界,不是它對誰都印 f。**
+  //    ✅ **而【擋不擋得住】也真的塞過(real / weak 兩張表,同一批六個世界)**:
+  //       有這條 CHECK ⇒ 作廢無理由 / 沒作廢有理由 / 理由只有半形空白 / 理由只有全形空白 **四發全擋**,
+  //       兩發正常的進得去(2 列);DROP 掉這條之後 ⇒ **同樣六發全部進得去**(6 列)
+  //       ⇒ 📌 **擋它們的確實是這條 CHECK,不是別的約束。**收攤後叢集已刪。
+  //    ⚠️ **它【沒有】承重的 NOT NULL**:`voided_at` 與 `void_reason` 兩欄都是 nullable(`attnotnull=false`)
+  //       ⇒ 所以本檔 `LOAD_BEARING_NOT_NULL` 不必為它加列 —— **沒有可以被拆掉而讓它失效的東西**。
+  //    🎯 **⇒ 所以它是【自身安全】不是【條件安全】**(`-0e` 2026-09-02 複審給的區分,而那個區分承重):
+  //       理由要寫成「**這條運算式構造不出 NULL**」,**不是「我試過了它擋得住」** ——
+  //       後者只涵蓋我試過的那幾發,前者涵蓋所有輸入。⇒ 而上面那五格 NULL 組合就是在證前者。
+  'order_pending_refunds_void_needs_reason',
 ] as const;
 
 /**
@@ -180,6 +201,24 @@ const SHAPE_MATCHED_NOT_YET_PROBED: readonly string[] = [
   'orj_shape_queued',
   'orj_shape_reconciling',
   'orj_shape_submitted',
+  // 🔴🔴 `pfe_provenance_valid` —— **它留在【待驗】這一欄是刻意的,而它與上面那些不同族**。
+  //    出處 `20260901170000_m4b_pfe_ddl_into_version_control.sql`(commit `4356010f`;
+  //    ⚠️ 作者欄全窗共用 probe ⇒ **查不出是誰寫的**)。**不是 `-c7` 寫的。**
+  //
+  //    🔴 **它形狀上【真的有】那個洞**(`-0e` 2026-09-02 複審):
+  //       `source_model_code` 是 NULL 時 ⇒ `(true AND NULL) OR (false AND NULL)` = **NULL**
+  //       ⇒ 而 CHECK 只擋 FALSE ⇒ **NULL 放行**。
+  //    ✅ **而它今天不咬人的理由是【別人的 NOT NULL】,不是它自己**:
+  //       `match_source` / `model_code` / `source_model_code` 三欄皆 `is_nullable = NO`
+  //       ⇒ 量測:**`-0e` 2026-09-02 唯讀正式庫 `information_schema.columns`**;
+  //         🟢 正對照 `year_start` / `year_end` ⇒ `YES` ⇒ **那把尺會動**。
+  //    🛑 **⇒ 所以它是【條件安全】不是【自身安全】** —— 而這就是它不能上 `PROBED_OR_CHECKS` 的理由:
+  //       **那一發壞形狀【跑不出來】,因為 NOT NULL 會先擋。**⇒ 本欄的門檻(跑過一發壞形狀)它達不到。
+  //    🔴🔴 **觸發條件(寫給未來的人,不是寫給今天的)**:
+  //       **哪天有人把那三欄任一欄改成 nullable ⇒ 這條 CHECK 當場靜靜放行,而沒有任何東西會叫。**
+  //       ⇒ 那一次要叫 codex —— 它動的是**可達性**,不是樣式。
+  //    📌 **⇒ 而理由寫在這裡而不是寫「已確認」,是因為【白名單本身會變成關掉下一個人查證動作的東西】。**
+  'pfe_provenance_valid',
 ] as const;
 
 /**

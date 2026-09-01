@@ -69,6 +69,43 @@ const CLASSIFIED: Record<string, boolean> = {
   //    一張單有 attempt 不代表它失效(每一張刷卡的單都有);真正的訊號在它底下的
   //    `payment_refunds`, 而 predicate 是**經由這張表 JOIN 過去**問它的。
   payment_charge_attempts: false,
+  // 🔴🔴 `order_pending_refunds` 標 **false** —— 而它是本表最需要解釋的一格(線 `-c7` 2026-09-02 判)。
+  //
+  // **為什麼 false**:它的列只有一條產生路徑,而那條路徑的觸發訊號【就是 predicate 已經在問的那一個】。
+  //   · 寫入端唯一:`20260901080000:495-496` `CREATE TRIGGER … AFTER UPDATE OF cancelled_at ON public.orders`
+  //     ⇒ 只在 `cancelled_at` 由 NULL 變成非 NULL 的那一刻發火(`:377` 逐字「只在【由無變有】那一刻」)
+  //   · 而 predicate `20260831155000:76` 已經逐字問 `orders.cancelled_at IS NOT NULL`
+  //   ⇒ 📌 **有列 ⇒ `cancelled_at` 非 NULL ⇒ predicate 早就說「有問題」了。**
+  //   ⇒ ⇒ 它與 `coupon_redemptions` 同族:**是【結果】不是【原因】。**
+  //   🟢 而全 repo `INSERT INTO public.order_pending_refunds` 只有兩處
+  //      (`20260901080000:432` 與它的修正版 `20260902030000:326`)⇒ 沒有第二條寫入路徑。
+  //
+  // 🛑 **判錯的話會怎樣(唯一會分岔的世界,而它是【量到的】不是理論)**:
+  //   `20260809160000:100-101` 是一段 in-tree 的「復活食譜」——
+  //   `UPDATE public.orders SET cancelled_at = NULL … WHERE cancelled_reason='payment_expired'`。
+  //   跑完之後那張單活了,而本表的列還 live ⇒ **`cancelled_at` 回到 NULL 而欠款紀錄還在**
+  //   ⇒ predicate 會說「沒問題」,而我們其實還欠客人錢 ⇒ 券可能被重新兌換。
+  //   🔵 而那段是**註解裡的手動回滾指令,不是會自己跑的碼**(整段前綴 `--`)。
+  //   ✅ 而那個世界的正解**已經寫在建表那支檔裡**(`20260901080000` 的 COMMENT,F4 那一段逐字):
+  //      「**復活一張單時必須同時作廢本表對應的列。**」⇒ 📌 修法在【復活那一步】,不在 predicate。
+  //
+  // 🔴 **誰會先發現**:沒有任何機器會叫。**是值班的人** —— 因為這張表就是拿來照著退錢的,
+  //   而 F4 那段自己寫著「值班會看到【這張活著的單欠著錢】」。
+  //
+  // 🔵 **而【改變】那一半**(本表的判準逐字是「一筆待退款**出現 / 改變**」——
+  //   而上面整段只論證了【出現】;這一格是 `-0e` 2026-09-02 複審點出來的):
+  //   那張表有 void 生命週期(`voided_at` / `void_reason`,就是另一支守門盯的那條 CHECK)。
+  //   ✅ **而【改變】那半安全的理由與【出現】那半是【同一個】**:
+  //      `cancelled_at` 一旦非 NULL 就不會自己變回去 ⇒ predicate 在那張單上**恆說失效**,
+  //      **不論那一列是 live 還是已作廢。**⇒ 📌 作廢一列不會讓那張單重新變成「沒問題」。
+  //
+  // ⚠️ **而反面那個選項我沒有自己拍**:標 `true` 會關掉上面那個洞,
+  //   **而它要求 predicate 真的提到這張表**(見本檔最後一格)⇒ 那是改 DB 函式 ⇒ 命中鐵則 12③
+  //   ⇒ 🛑 **那是 Sean / 主視窗的板,不是我在凌晨補 CI 時順手做的決定。**
+  //   🔵 而要改的話,**在 `20260831155000` 被貼進正式庫【之前】改比較便宜**
+  //      —— 已 apply 的 migration 連註解都不能再動,那時就得另開一支。
+  //      (⚠️ 刻意不寫「它現在還沒貼」:那句話會在它一被貼下去的那一刻靜靜變假,而沒有東西會叫。)
+  order_pending_refunds: false,
 };
 
 describe('訂單失效落點:新表出現時要有人分類', () => {
