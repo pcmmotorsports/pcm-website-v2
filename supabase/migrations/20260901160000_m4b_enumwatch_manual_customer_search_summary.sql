@@ -162,14 +162,30 @@ BEGIN
 
   -- 🔴 **成員資格**(codex R2):ACL 只講【直接授與】。任何能 `SET ROLE payment_confirmer`
   --    的角色照樣執行得到, 而白名單一格都不會紅。
-  --    ⇒ 斷言 payment_confirmer **沒有任何成員**。
-  --    ⚠️ 天花板照寫:superuser 無視這一切;而 owner 自己本來就跑得動。**這一格擋的是
-  --      「有人日後把某個帳號加進 payment_confirmer」, 不是擋 superuser。**
+  --
+  -- ⛔ ~~第一版:斷言 payment_confirmer 【沒有任何成員】~~ —— **那個判準寫窄了, 而它把 Sean 擋下來**
+  --    (2026-09-01 正式庫實貼 ⇒ P0001 ⇒ 整支 rollback、零改動)。
+  --    🔴 而它紅的理由不是一個真的洩漏:正式庫的成員是 `postgres`(= 本函式的 owner)
+  --       與 `cli_login_postgres`, 而後者的鏈是 `cli_login_postgres → postgres → payment_confirmer`
+  --       ⇒ **它到得了 payment_confirmer, 是因為它已經到得了 owner。**
+  --    📌 **⇒ 而 SECDEF 是用 owner 的權限跑的 ⇒ 任何到得了 owner 的角色, 本來就做得到這一切。**
+  --       ⇒ 把它們算成「多出來的成員」= 用一個更嚴的判準去禁止一件它已經能做的事。
+  --
+  -- ✅ **現行判準:除了【到得了 owner 的角色】之外, 零成員。**
+  --    ⇒ 它仍然抓得到真正要防的那件事:**有人日後 `GRANT payment_confirmer TO <別的角色>`。**
+  --    🛑 **不要放寬成「不檢查」** —— 這一格抓到的是一個真實的事實, 錯的只是判準的邊界。
+  --
+  -- ⚠️ **天花板與未確認, 照寫:**
+  --    · superuser 無視這一切;而 `pg_has_role` 對 superuser 一律回 true
+  --      ⇒ 一個 superuser 成員會被本格排除。**那是刻意的**(superuser 在天花板之上)。
+  --    · ⚠️ **未確認**:`cli_login_postgres` 的 `rolinherit=f`(不自動繼承, 要明確 `SET ROLE`)——
+  --      **本片沒有驗這一格**, 它由別的窗以唯讀連線量到並標為未確認。
   IF EXISTS (
     SELECT 1 FROM pg_catalog.pg_auth_members m
      WHERE m.roleid = 'payment_confirmer'::regrole::oid
+       AND NOT pg_catalog.pg_has_role(m.member, v_owner, 'MEMBER')
   ) THEN
-    RAISE EXCEPTION 'ENUMWATCH 斷言 B 失敗:payment_confirmer 有成員 ⇒ 那些角色 SET ROLE 之後就執行得到, 而直接 ACL 一格都不會紅';
+    RAISE EXCEPTION 'ENUMWATCH 斷言 B 失敗:payment_confirmer 有【到不了 owner 的】成員 ⇒ 那些角色 SET ROLE 之後就執行得到, 而直接 ACL 一格都不會紅';
   END IF;
 
   -- 而白名單那兩筆**必須都在**(只有「沒有多的」不夠 —— 一筆都沒有也會通過上面那格)
