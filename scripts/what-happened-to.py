@@ -119,6 +119,17 @@ def emit(anchor, rows):
 
 # ───────── selftest ─────────
 def selftest():
+    # 🔴🔴 **第一件事:剝掉繼承來的 git 環境。**(2026-09-02 實測,不是預防)
+    #   那道 `scripts/selftest-git-isolation-gate.sh` 跑本支時會設
+    #   `GIT_DIR` / `GIT_INDEX_FILE` 指向一棵【受害者】的 repo,而 cwd 留在真的 repo。
+    #   🛑 而 `GIT_DIR` / `GIT_INDEX_FILE` 的優先權【比 `git -C <路徑>` 高】
+    #      ⇒ 本支 selftest 裡每一發 `git`(**包含帶 `-C` 的**)都會去讀寫受害者的 repo。
+    #   **實測(修之前,`-f3` 自己重現)**:受害者 `ls-files|status` 從 `1|0` ⇒ `3|4`,而 `rc=1`。
+    #   🔵 **一次剝乾淨,不要逐發包** —— `-15` 今晚逐點突變量到:
+    #      只覆蓋 6 個呼叫點裡的 4 個時,那道閘底下**仍然全綠**(一個只修對一半的修法看不出來)。
+    for _k in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_OBJECT_DIRECTORY",
+               "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_NAMESPACE"):
+        os.environ.pop(_k, None)
     tmp = tempfile.mkdtemp(prefix="wht-")
     ok = True
     def chk(name, got, want):
