@@ -23,7 +23,7 @@ function makeBuilder(result: Resp) {
   // 🔵 ⟦b4-SHIPGATE1⟧ 2026-09-01 加 `not` —— 而【在加它之前既有測試全綠】,
   //    因為既有路徑一次都沒呼叫它(未給 excludeEventTypes ⇒ 那一句不執行)。
   //    📌 ⇒ 那本身就是「未給 ⇒ 查詢逐位元不變」的一個側面證據。
-  for (const m of ['insert', 'select', 'update', 'eq', 'in', 'not', 'lt', 'lte', 'order', 'limit']) {
+  for (const m of ['insert', 'select', 'update', 'eq', 'neq', 'in', 'not', 'lt', 'lte', 'order', 'limit']) {
     b[m] = vi.fn((...args: unknown[]) => {
       calls.push([m, args]);
       return b;
@@ -630,10 +630,28 @@ describe('SupabaseEmailOutboxAdapter.reclaimStaleLeases(回收器路徑;E2a-a、
 
 // ⟦b4-SHIPGATE1⟧ 2026-09-01:線關著時不要認領 order_shipped。
 describe('⟦b4-SHIPGATE1⟧ claimDue 的 excludeEventTypes', () => {
-  it('🔴 給了 ⇒ 查詢帶 .not(event_type, in, (…))(突變:拿掉 adapter 那一句 ⇒ 這格必須紅)', async () => {
+  // 🔴🔴 **2026-09-01 R3 must-fix F2:改用 `.neq` —— 而 `.not(…,'in',…)` 那個形狀本 repo 零前例。**
+  //    ⛔ ~~原本斷言 `[['event_type','in','(order_shipped)']]`~~ —— 而那一格斷言的是
+  //       **實作自己寫出來的同一個字面** ⇒ 對「PostgREST 收不收這個文法」**零判別力**
+  //       ⇒ **兩邊一起錯會印綠。**⇒ 改成釘住【已證形狀】。
+  it('🔴 給了一個 ⇒ 查詢帶 .neq(event_type, …)(突變:拿掉 adapter 那一句 ⇒ 這格必須紅)', async () => {
     const b = makeBuilder({ data: [], error: null });
     await adapter(makeClient(b)).claimDue(10, { excludeEventTypes: ['order_shipped'] });
-    expect(argsOf(b, 'not')).toEqual([['event_type', 'in', '(order_shipped)']]);
+    expect(argsOf(b, 'neq')).toEqual([['event_type', 'order_shipped']]);
+    // 🔵 而【不得】再用那個沒驗過的 in 形狀
+    expect(argsOf(b, 'not')).toEqual([]);
+  });
+
+  it('🔴 給兩個以上 ⇒ **throw**(不猜一個沒驗過的 PostgREST 文法)', async () => {
+    const b = makeBuilder({ data: [], error: null });
+    await expect(
+      adapter(makeClient(b)).claimDue(10, {
+        excludeEventTypes: ['order_shipped', 'order_created'],
+      }),
+    ).rejects.toThrow(/未驗證/);
+    // 🛑 而它【在送出任何查詢之前】就擋下來 —— 不得先打一發壞查詢再說
+    expect(argsOf(b, 'neq')).toEqual([]);
+    expect(argsOf(b, 'not')).toEqual([]);
   });
 
   it('🟢 未給 ⇒ 【一次都不呼叫 not】(既有查詢逐位元不變)', async () => {

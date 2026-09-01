@@ -356,7 +356,11 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
      *
      * 🛑 **空陣列 / 未給 ⇒ 一個字都不加** —— 而那不是最佳化,是**驗收條件**:
      *    既有呼叫端零改 ⇒ 送出的查詢必須與改動前**逐位元相同**。
-     *    ⚠️ 送一個空的 `not in ()` 給 PostgREST 是**語法錯**,而它會在【所有既有路徑】上炸。
+     *    ⚠️ ⛔ ~~送一個空的 `not in ()` 給 PostgREST 是語法錯,而它會在【所有既有路徑】上炸~~
+     *       **那句誇大了**(codex R2 nit;而 R3 F7 抓到我【只改了測試檔那一份, 沒改這一份】)——
+     *       既有呼叫端傳的是 `undefined`, 而空陣列只出現在專屬測試裡。
+     *       🔴 而 2026-09-01 R3 F2 之後**連 `not in` 都不用了**(改 `.neq`)⇒ 這句連對象都沒了。
+     *    📌 **⇒ 而這一格本身是第三次同款:改了一處而同款還在另一支檔, 而 diff 上看起來很完整。**
      */
     const exclude = opts?.excludeEventTypes ?? [];
     let q = this.client
@@ -364,8 +368,37 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
       .select(JOB_SELECT)
       .in('status', CLAIMABLE_STATUSES)
       .lte('next_retry_at', nowIso);
-    if (exclude.length > 0) {
-      q = q.not('event_type', 'in', `(${exclude.join(',')})`);
+    /**
+     * 🔴🔴 **2026-09-01 R3(adversarial-reviewer, 換模型)must-fix F2 —— 而兩輪 codex 都沒看到。**
+     *
+     * ⛔ ~~`q.not('event_type','in', \`(${exclude.join(',')})\`)`~~ **那個形狀在本 repo 零前例**:
+     *    全 repo 非測試的 `.not(` 只有兩處,另一處(`SupabaseProductAdapter.ts:302`)用的是
+     *    `'eq'` / `'like'` **純量** ⇒ `'in'` + 括號字串**沒有任何一次被證明過 PostgREST 收**。
+     * 🛑 **而它壞掉的後果不是「出貨信沒排除」,是【全部的信都停】**:
+     *    PostgREST 拒收 ⇒ `claimDue` throw ⇒ `sweep-email-outbox.ts:626` `catch { errors++ }`
+     *    ⇒ `jobs = []` ⇒ **這一輪連 `order_created` 都不寄**,每 5 分鐘一次。
+     * 🔴🔴 **而旗標【今天就是關的】**(env 未設)⇒ **這條路第一次部署就會走到,不是邊角。**
+     * ⚠️ 而唯一釘它的測試斷言的是**實作自己寫出來的同一個字面** ⇒ 對「PostgREST 收不收」**零判別力**
+     *    ⇒ **兩邊一起錯會印綠。**
+     *
+     * ✅ **改用已證形狀 `.neq`** —— 而它為什麼夠:
+     *    `20260717020000_m4a_email_outbox.sql:315` 的 CHECK 逐字
+     *    `event_type IN ('order_created','order_shipped')` ⇒ **值域只有兩個**,
+     *    而唯一呼叫端(`sweep-email-outbox.ts:624`)只傳**一個**元素。
+     * 🔴 **而 ≥2 個【直接 throw】,不猜一個沒驗過的文法** ——
+     *    值域只有兩個 ⇒ 排除兩個 = 排除全部 = 沒有意義的呼叫;
+     *    而日後真的加第三個事件型別時,**要先照
+     *    `docs/runbooks/throwaway-postgres-for-migration-verification.md` 跑一發真的 PostgREST
+     *    驗那個 `in` 文法**,再回來改這裡。
+     * 📌 **⇒ 根因是【為了一個只有一個元素的呼叫端做了陣列泛化】,而那個泛化正是逼出無前例
+     *    filter 字串的原因。這裡不撤回那個泛化(port 已上線),而讓它【在沒驗過的區間拒絕動作】。**
+     */
+    if (exclude.length === 1) {
+      q = q.neq('event_type', exclude[0] as string);
+    } else if (exclude.length > 1) {
+      throw new Error(
+        'claimDue:excludeEventTypes 一次只支援 1 個(≥2 的 PostgREST 文法本 repo 未驗證;見本行上方註解)',
+      );
     }
     const { data, error } = await q
       .order('next_retry_at', { ascending: true })
