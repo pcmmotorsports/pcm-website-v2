@@ -331,6 +331,31 @@ BEGIN
     RAISE EXCEPTION '世界B(作廢後):合計應為 1000, 實得 % ⇒ 這把尺不會動', v_sum;
   END IF;
 
+  -- 🟢🟢 世界E 正對照:**同軌部分退款** ⇒ 匯款收 1000、匯款退 500 ⇒ 恰好一列合計 500
+  --    🔴 **這一格是 `-c7` 2026-09-02 指出來的缺口, 而它是本支【最該有】的一格**:
+  --      上面 A/B/C/D 全部沒有演過「一條軌自己收自己退」—— 而那是**平常每天都在發生**的那一種。
+  --      ⇒ 📌 A 證的是「跨軌那一種會算對」;而**沒有東西在證「本來對的那一種沒有被改壞」**。
+  --      ⇒ ⇒ 🛑 **這一片的風險方向是【修過頭】, 不是【沒修到】** —— 而那需要不同的對照。
+  --    🔵 而 `-c7` 自報它就是寫 `WHERE x.amt > 0` 那一行的人, 而它給的形狀是:
+  --      「一個【過濾掉零】的條件, 在有負數的世界裡變成【丟資訊】」
+  --      ⇒ 而它躲過三輪審查的方式:每一輪都在問「這一列該不該開」,
+  --        **沒有人問那個負數去哪了**。
+  --    ⚠️ 本窗的拋棄式 harness 有演過同軌那一格(commit body 的「🟢 同軌 500」),
+  --      **而 migration 自己的後置斷言沒有** ⇒ 📌 **harness 演過, 不等於【貼下去的那一刻】會驗。**
+  --      而 Sean 貼的是這支檔, 不是我的 harness。
+  DELETE FROM public.order_manual_refunds WHERE order_id = v_o;
+  DELETE FROM public.order_payments WHERE order_id = v_o;
+  INSERT INTO public.order_payments(order_id, rail, amount) VALUES (v_o, 'bank_transfer', 1000);
+  INSERT INTO public.order_manual_refunds(order_id, rail, refund_amount, reason, actor, occurred_at)
+    VALUES (v_o, 'bank_transfer', 500, '後置斷言', 'assert', pg_catalog.now());
+  SELECT COALESCE(SUM(amount), 0), count(*) INTO v_sum, v_rows
+    FROM public.pcm_pending_refund_amounts(v_o);
+  IF v_sum <> 500 OR v_rows <> 1 THEN
+    RAISE EXCEPTION
+      '世界E(同軌部分退款):應為 1 列合計 500, 實得 % 列合計 % ⇒ 平常那一種被改壞了',
+      v_rows, v_sum;
+  END IF;
+
   -- 🟢 世界C 正對照:退款超過收款 ⇒ total <= 0 ⇒ **一列都不准開**
   INSERT INTO public.order_manual_refunds(order_id, rail, refund_amount, reason, actor, occurred_at)
     VALUES (v_o, 'cash', 1200, '後置斷言', 'assert', pg_catalog.now());
@@ -358,7 +383,7 @@ BEGIN
       v_rows, v_sum;
   END IF;
 
-  RAISE NOTICE '✅ 四個世界都對:跨軌 500(1 列)· 作廢後 1000 · 超退 0 列 · 兩軌 1400(2 列)';
+  RAISE NOTICE '✅ 五個世界都對:跨軌 500(1 列)· 作廢後 1000 · 同軌部分退 500(1 列)· 超退 0 列 · 兩軌 1400(2 列)';
   RAISE EXCEPTION '後置斷言跑完 —— 刻意回滾這段測試資料(這不是失敗)'
     USING ERRCODE = 'P0001';
 EXCEPTION WHEN SQLSTATE 'P0001' THEN

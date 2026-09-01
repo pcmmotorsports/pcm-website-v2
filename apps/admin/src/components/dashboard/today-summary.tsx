@@ -8,8 +8,9 @@ import {
 } from '../../lib/orders/order-list-view';
 import type { TodaySummary } from '../../lib/dashboard/today-read';
 
-// today-summary.tsx — `#16` 今日對帳:首頁**三格**的純顯示元件。
-//    🪦 原為四格;「今日退款」於 2026-08-15 拆掉(見 `lib/dashboard/today-view.ts` 墓碑段)。
+// today-summary.tsx — `#16` 今日對帳:首頁**四格**的純顯示元件。
+//    🪦 原為四格;「今日退款」於 2026-08-15 拆掉 ⇒ 三格(見 `lib/dashboard/today-view.ts` 墓碑段)。
+//    🔵 ⟦b4-RAILCAPAUDIENCE⟧ 2026-09-02 加「目前退款超出上限」⇒ **又是四格,而不是同一個第四格。**
 //
 // 🔴 **server component、零 `'use client'`**:全部唯讀顯示,沒有任何互動 ⇒ 不需要 client JS。
 //    ⚠️ 它收的是**金額**;若哪天被 `'use client'` 檔 import,這些數字會進 RSC payload。
@@ -38,7 +39,7 @@ const CARD = 'rounded-lg border bg-card p-4 text-card-foreground';
 /**
  * 🔴 **`#831` ①(2026-08-21):只有這一格可以點,而「只有這一格」是量出來的、不是保守。**
  *
- * 三格裡**只有「目前待處理退款異常」**兩側是**同一支函式**:
+ * 四格裡**只有「目前待處理退款異常」**兩側是**同一支函式**:
  * ```
  * 卡片  lib/dashboard/today-read.ts:3            import { listRefundExceptions } from '../payment/refund-read'
  * 頁面  app/orders/refund-exceptions/page.tsx:8  import { listRefundExceptions } from '…/lib/payment/refund-read'
@@ -178,7 +179,7 @@ export function TodaySummaryCards({ summary }: { summary: TodaySummary }) {
           。其餘數字仍可使用。請稍後重新整理,若持續發生請通知系統維護。
         </p>
       )}
-      <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
+      <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-4'>
         {/* 🔴 「實收」不是「營業額」:它是今天實際收到的錢,含沖銷。
             🪦 原本這句後半寫「退錢給客人不走這格、**走下一格**」—— **那一格 2026-08-15 拆掉了**,
                留著會指向一個不存在的地方。退款金額目前**全站沒有任何一格在顯示**。 */}
@@ -196,10 +197,15 @@ export function TodaySummaryCards({ summary }: { summary: TodaySummary }) {
                「要拿來對帳、要分毫不差」⇒ **一個可能不準的對帳數字比沒有更糟**
                (員工會拿它去對,對不起來,而他不知道是數字錯還是帳錯)。
             完整理由與重做方向見 `lib/dashboard/today-view.ts` 的墓碑段。
-            ⚠️ 因此下面的 grid 現在是**三格**;`lg:grid-cols-4` 已跟著改成 `lg:grid-cols-3`。 */}
+            ⛔ ~~因此下面的 grid 現在是**三格**;`lg:grid-cols-4` 已跟著改成 `lg:grid-cols-3`。~~
+            🔵 **2026-09-02 又回到四格**(⟦b4-RAILCAPAUDIENCE⟧,而**不是**把退款那格加回來)——
+               `lg:grid-cols-3` 已改回 `lg:grid-cols-4`。舊字面留刪除線:它記的是
+               「這個 grid 的欄數跟著格數走」這條規矩,而那條規矩今天仍然對。 */}
         {/* 🔴 R2 nit5:這格數的是**今天建立的所有單**,含還沒付錢的(`payment_status` enum 有
             `unpaid`,`packages/adapters/src/supabase/database.types.ts:3748-3754`)、也含當天就取消的
-            ⇒ **口徑與另外兩格不同**(那兩格都是「錢真的動了」)。並排時不講,員工會拿它跟實收對。 */}
+            ⇒ **口徑與其他各格不同**。⛔ ~~(那兩格都是「錢真的動了」)~~ —— **2026-09-02 起不成立**:
+            第四格「目前退款超出上限」數的是**待辦張數**, 也不是「錢動了」
+            ⇒ 📌 原本那個二分法現在只剩「今日實收」對它成立。並排時不講,員工會拿它跟實收對。 */}
         <Stat
           label='今日新單'
           value={summary.newOrderCount === null ? null : `${summary.newOrderCount} 筆`}
@@ -229,6 +235,40 @@ export function TodaySummaryCards({ summary }: { summary: TodaySummary }) {
           }
           href='/orders/refund-exceptions'
         />
+        {/* 🔴🔴 ⟦b4-RAILCAPAUDIENCE⟧ 第四格 —— Sean 2026-09-02 拍甲逐字:
+            「那個紅要有【出口】與【觀眾】—— 加一個地方讓他看得到現在有幾張單是紅的」。
+            **出口那一半已上線**(訂單頁的紅字);**這一格是觀眾。**
+
+            🛑🛑 **只數【超額】那一種, 而那不是偷懶 —— 另一種【數不出來】**(codex 2026-09-02 must-fix):
+              `pcm_manual_refund_rail_cap` 兩段都 `COALESCE(...,0)` ⇒ **它正常回傳不可能是 NULL**
+              ⇒ 「算不出上限」在 DB 那一側**沒有東西可以數**;而畫面上那種紅來自
+                 傳輸失敗 / 形狀不對 / 超出安全整數 —— 那是**每個瀏覽者當下各自的狀態**,
+                 不是一個全站數得出來的量。
+              ⇒ 📌 **所以那一種紅目前【沒有觀眾】** —— 已開列 `⟦5b-CAPUNKNOWNSTATE⟧`。
+              🔴 而我原本在這裡放了合計與「N 張要確認金額、M 張算不出上限」的 hint
+                 ⇒ **那個 M 結構上永遠是 0** ⇒ 一句永遠不會出現的話, 而它讀起來完全合理。
+
+            🔴 **這一格不是「今日」**(同「目前待處理退款異常」那格)——文案寫「目前」。
+
+            🛑 **沒有 `href`, 而那是【缺口不是決定】** —— 目前沒有「只看紅的那幾張」的清單網址。
+               ⇒ 而按本檔上方那段的規矩:**連到「差不多相關」的清單, 是同一個病換一個載體**
+               ⇒ 所以寧可不給連結。⚠️ 已開列 `⟦5b-RAILCAPNOLIST⟧`,而**本體真的在信箱裡**
+                  (`~/pcm-mailbox/交給f3上板-20260902-5b-railcapnolist.md`)——
+                  今晚我有四個錨只寫在碼裡而板上是 0, 所以這一次先交件再寫這行字。 */}
+        <Stat
+          label='目前退款超出上限'
+          value={summary.railCapOverCount === null ? null : `${summary.railCapOverCount} 張`}
+          hint={
+            // 🔴 **不寫「點進那張單」**(codex must-fix ⑦):這一格**沒有 href**、不帶單號,
+            //    而數字可能大於 1 ⇒ 叫他「點進那張單」時, 他不知道是哪一張, 也沒有東西可以點。
+            //    ⇒ 📌 一句叫人做一個他做不到的動作的提示, 比沒有提示糟。
+            //    ✅ 改成講【這個數字是什麼】, 而「怎麼找到那幾張」是 ⟦5b-RAILCAPNOLIST⟧ 的事。
+            summary.railCapOverCount === null
+              ? undefined
+              : '登記的退款比收到的錢多;累計未處理,非今日新增'
+          }
+        />
+
       </div>
     </section>
   );

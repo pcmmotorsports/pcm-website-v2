@@ -253,7 +253,11 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
   //     這兩支讀的是 `order_payments` + `order_manual_refunds`, **一次都沒有 FROM `order_refunds`**。
   //   ⇒ 🔵 **可證偽**:`grep -c 'FROM public.order_refunds' <該檔>` ⇒ 兩支皆 0。
   '20260902030000_m4b_crossrail_pending_refund_net.sql': {
-    count: 3,
+    // 🔵 3 ⇒ 4(2026-09-02):後置斷言加了**世界E 同軌部分退款**(`-c7` 指出的缺口)
+    //    ⇒ 那一格自己 INSERT 一筆 `refund_amount` ⇒ 多一處字面。
+    //    🎯 而這道閘**當場紅了**, 而它紅的理由是對的:它逐檔比計數, 不只比檔名集合
+    //    ⇒ 📌 「同一個檔裡多冒出一處」正是它要抓的東西, 而我這一次是那個「多冒出一處」的人。
+    count: 4,
     why:
       '⟦b4-CROSSRAILNET⟧ 修一個【已在正式庫上】的多報缺陷:取消時逐軌算而把負的那一軌丟掉,' +
       '跨軌退款(匯款收的錢用現金退 —— Sean 2026-09-02 拍甲說那是合法的)會讓待退款偏高。' +

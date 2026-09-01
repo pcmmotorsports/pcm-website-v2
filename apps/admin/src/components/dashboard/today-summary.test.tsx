@@ -4,9 +4,11 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { TodaySummaryCards } from './today-summary';
 import type { TodaySummary } from '../../lib/dashboard/today-read';
 
-// today-summary.test.tsx — `#16` **三格**的顯示 smoke(🪦 原為四格,退款那格 2026-08-15 拆掉)。
+// today-summary.test.tsx — `#16` **四格**的顯示 smoke。
+// 🪦 原為四格 ⇒ 退款那格 2026-08-15 拆掉 ⇒ 三格 ⇒ ⟦b4-RAILCAPAUDIENCE⟧ 2026-09-02 加「退款超上限」⇒ 又四格。
+//    🔴 **兩次的第四格不是同一格** —— 不要因為數字一樣就以為退款那格回來了。
 // 🔴 這支不驗算術(那在 `today-view.test.ts`)、也不驗查詢形狀(那在 `today-read.test.ts`),
-//    只驗**三格都在、數字有出來、措辭不騙人**。
+//    只驗**四格都在、數字有出來、措辭不騙人**。
 
 function summary(over: Partial<TodaySummary> = {}): TodaySummary {
   return {
@@ -16,6 +18,9 @@ function summary(over: Partial<TodaySummary> = {}): TodaySummary {
     refundExceptionCount: 2,
     refundExceptionTruncated: false,
     refundExceptionVerdictsUnavailable: false,
+    // 🔵 ⟦b4-RAILCAPAUDIENCE⟧ 預設 `0 / 0` = 「沒有紅的單」⇒ 那一格顯示 `0 張`, 不標紅、不打擾。
+    //    ⚠️ 給 `null` 的話每一格測試都會多一個「讀取失敗」, 而它們**照樣會綠**。
+    railCapOverCount: 0,
     failedSections: [],
     ...over,
   };
@@ -24,10 +29,12 @@ function summary(over: Partial<TodaySummary> = {}): TodaySummary {
 afterEach(cleanup);
 
 describe('TodaySummaryCards', () => {
-  it('三格都在,且金額有千分位', () => {
+  it('四格都在,且金額有千分位', () => {
+    // 🔵 codex nit ⑥:這一格的名字說「四格」⇒ 四個標籤都要斷言, 否則名字比斷言寬。
     render(<TodaySummaryCards summary={summary()} />);
     expect(screen.getByText('今日實收(淨)')).toBeTruthy();
     expect(screen.getByText('今日新單')).toBeTruthy();
+    expect(screen.getByText('目前退款超出上限')).toBeTruthy();
     expect(screen.getByText('目前待處理退款異常')).toBeTruthy();
     expect(screen.getByText('NT$ 12,345')).toBeTruthy();
     // 🪦 「今日退款(已完成)」那格於 2026-08-15 拆掉(見 `lib/dashboard/today-view.ts` 墓碑段)。
@@ -88,14 +95,14 @@ describe('TodaySummaryCards', () => {
     expect(container.textContent).not.toContain('NaN');
   });
 
-  it('🔴 R2 nit7:只有一格掛 ⇒ 那格顯示「讀取失敗」,其餘三格照常顯示數字', () => {
+  it('🔴 R2 nit7:只有一格掛 ⇒ 那格顯示「讀取失敗」,其餘三格照常顯示數字(共四格)', () => {
     const { container } = render(
       <TodaySummaryCards
         summary={summary({ newOrderCount: null, failedSections: ['今日新單'] })}
       />,
     );
     expect(container.textContent).toContain('讀取失敗');
-    // 🔴 本體:另外兩格**沒有**被一起蓋掉。
+    // 🔴 本體:其餘各格**沒有**被一起蓋掉(⛔ ~~另外兩格~~ ⇒ 2026-09-02 起是四格)。
     expect(container.textContent).toContain('NT$ 12,345');
     expect(container.textContent).toContain('2 筆');
     // 講得出是哪一格 —— 只說「對帳壞了」等於要員工自己猜哪個數字能信。
@@ -110,9 +117,12 @@ describe('TodaySummaryCards', () => {
     expect(container.textContent).not.toContain('沒讀到');
   });
 
-  it('🔴 「今日新單」的口徑與另三格不同,必須講出來(R2 nit5)', () => {
+  it('🔴 「今日新單」的口徑與另外幾格不同,必須講出來(R2 nit5)', () => {
     const { container } = render(<TodaySummaryCards summary={summary()} />);
-    // 另三格數的是「錢真的動了」,這格數的是「今天建了幾張單」—— 含未付款、含當天取消。
+    // 另外那幾格數的是「錢真的動了」或「當下的待辦量」,這格數的是「今天建了幾張單」
+    // —— 含未付款、含當天取消。
+    // 🔵 2026-09-02 起「另三格」改寫成「另外那幾格」:第四格(退款超上限)也不是「錢動了」
+    //    ⇒ 原本那個二分法**現在只剩本格對它成立**, 而寫死數字會讓下一個人以為它還是三比一。
     expect(container.textContent).toContain('含未付款與當天取消的');
   });
 
@@ -227,5 +237,63 @@ describe('#831 ① 只有退款異常那格可以點', () => {
       />,
     );
     expect(screen.getByText(/已達顯示上限/)).toBeTruthy();
+  });
+});
+
+// ══ ⟦b4-RAILCAPAUDIENCE⟧ 第四格:目前退款超出上限 ═══════════════════════════
+//
+// 🔴 Sean 2026-09-02 拍甲:「加一個地方讓他看得到現在有幾張單是紅的」⇒ 這一格就是那個地方。
+// 🛑 **只數超額那一種** —— 另一種(算不出上限)在 DB 那一側**數不出來**
+//    (`pcm_manual_refund_rail_cap` 兩段都 COALESCE ⇒ 不回 NULL)⇒ 已開列 ⟦5b-CAPUNKNOWNSTATE⟧。
+//    📌 而我原本寫了合計 + 兩段式 hint, 而那個第二個數字**結構上永遠是 0** ——
+//       測試用 mock 捏出 `1` 就全綠了。**替身可以演一個 DB 演不出來的世界。**
+describe('TodaySummaryCards — ⟦b4-RAILCAPAUDIENCE⟧ 退款超上限', () => {
+  it('🔴 有紅的單 ⇒ 印出張數', () => {
+    render(<TodaySummaryCards summary={summary({ railCapOverCount: 3 })} />);
+    expect(screen.getByText('目前退款超出上限')).toBeTruthy();
+    expect(screen.getByText('3 張')).toBeTruthy();
+  });
+
+  it('🔴 這一格【不是今日】⇒ 文案不得寫「今日」(同「目前待處理退款異常」的立場)', () => {
+    render(<TodaySummaryCards summary={summary()} />);
+    expect(screen.getByText('目前退款超出上限')).toBeTruthy();
+    expect(screen.queryByText('今日退款超出上限')).toBeNull();
+  });
+
+  it('🔴 hint 不得叫他「點進那張單」—— 這一格沒有連結、不帶單號、而張數可能大於 1', () => {
+    // 🔴 codex 2026-09-02 must-fix ⑦:一句叫人做一個他做不到的動作的提示, 比沒有提示糟。
+    const { container } = render(<TodaySummaryCards summary={summary({ railCapOverCount: 2 })} />);
+    const text = container.textContent ?? '';
+    expect(text).not.toContain('點進那張單');
+    // 🔵 而它仍要講【這個數字是什麼】—— 否則員工不知道 2 張是什麼意思。
+    expect(text).toContain('登記的退款比收到的錢多');
+  });
+
+  it('🔴 讀取失敗 ⇒ 顯示「讀取失敗」,不得顯示一個安靜的 0', () => {
+    const { container } = render(
+      <TodaySummaryCards
+        summary={summary({ railCapOverCount: null, failedSections: ['退款超上限'] })}
+      />,
+    );
+    const text = container.textContent ?? '';
+    expect(text).toContain('讀取失敗');
+    expect(text).toContain('退款超上限');
+    // 🛑 「0 張是紅的」是這一格最好消息的形狀 ⇒ 讀不到而印 0, 沒有人會回頭查它。
+    expect(text).not.toContain('0 張');
+  });
+
+  it('🟢 正向對照:真的 0 ⇒ 顯示「0 張」而【不是】讀取失敗', () => {
+    // 🔴 沒有這一格, 上面那條對「永遠顯示讀取失敗」也綠。
+    const { container } = render(<TodaySummaryCards summary={summary({ railCapOverCount: 0 })} />);
+    expect(screen.getByText('0 張')).toBeTruthy();
+    expect(container.textContent ?? '').not.toContain('讀取失敗');
+  });
+
+  it('🔴 grid 是四欄 —— 少了它,加了第四格而版面還卡在三欄沒有東西會紅', () => {
+    const { container } = render(<TodaySummaryCards summary={summary()} />);
+    const grid = container.querySelector('.grid');
+    expect(grid?.className).toContain('lg:grid-cols-4');
+    expect(grid?.className).not.toContain('lg:grid-cols-3');
+    // 🔵 而真正的欄數要真瀏覽器才量得到 —— 這一格只釘 class, 誠實邊界寫在這裡。
   });
 });
