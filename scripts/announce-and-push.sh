@@ -38,6 +38,24 @@ if [ ! -f "$LEDGER" ]; then
   } > "$LEDGER"
 fi
 
+# 🔴 推之前先把【每一顆的標題】印出來 —— 2026-09-02 00:1x 實錘:
+#    一顆 subject 逐字寫著「🛑 未完成, 不得上線」的 commit 被收割推上 origin/dev,
+#    而它裡面有一行是【把 HTML 付款信接上】(4 條 must-fix 未修, 洩漏面從單號變成品名/金額)。
+#    🎯 成因是結構性的:收割那條路是 `rev-list --count` + `push` ——
+#       那一路上【沒有任何一步會看到 commit 標題】。
+#       ⇒ 那顆 commit 在標題寫「不得上線」是給【人】看的,而收割是機器動作。
+#    ⇒ 所以這裡把標題印出來(肉眼那一格不靠字串比對),並對幾個常見講法硬停。
+#    ⚠️ 那個清單是【黑名單】⇒ 它在跟下一個沒想到的講法賽跑 ⇒ 印出來那一格才是主要防線。
+echo "── 這一發要推的 commit(逐顆標題,自己看一眼)──"
+git log --format='   %h %s' "$FROM".."$TIP" 2>/dev/null || git log --format='   %h %s' -5 "$TIP"
+BLOCKED="$(git log --format='%h %s%n%b' "$FROM".."$TIP" 2>/dev/null | grep -nE '不得上線|不得貼|不要上|未完成|尚未通過審查|WIP|DO NOT (MERGE|PUSH|SHIP)' || true)"
+if [ -n "$BLOCKED" ]; then
+  echo "🛑 有 commit 自稱不該上線 —— 停下,不推:"
+  echo "$BLOCKED" | head -20
+  echo "   ⇒ 要推 ⇒ 先把那一顆處理掉(revert / 改標題 / 分開推),不要繞過本閘。"
+  exit 3
+fi
+
 # 預告先落檔, 再 push —— 順序不能反, 反了就不是預告
 printf '| %s | %s | %s | (推中) | — |\n' "$(date '+%H:%M')" "$FROM" "$TIP" >> "$LEDGER"
 echo "📢 預告已落檔:$LEDGER"
