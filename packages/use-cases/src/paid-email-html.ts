@@ -53,13 +53,97 @@ export type PaidEmailChrome = {
    * ⚠️ 刻意收字串不收 `Date`:時區與格式是呼叫端的決定,而本檔不該替它猜台北時間。
    */
   paidAtText?: string;
-  /** LOGO 的 https 位址。🔴 不要 base64(稿 `:70-73`)。缺了就不印 LOGO,只留右邊那行公司英文名。 */
+  /**
+   * LOGO 的 https 位址。🔴 不要 base64(稿 `:70-73`)。缺了就不印 LOGO,只留右邊那行公司英文名。
+   * 預設 `PCM_EMAIL_LOGO_URL`(見下面那個常數與它旁邊的三段)。
+   */
   logoUrl?: string;
   /** 「到會員中心查看訂單」那顆鈕的完整網址。缺了就不印那顆鈕 —— 一顆連到空網址的按鈕比沒有按鈕糟。 */
   orderUrl?: string;
   /** 🔴 這封信**真的**帶了明細 PDF 附件嗎。預設 `false`。見檔頭那段。 */
   hasPdfAttachment?: boolean;
 };
+
+/**
+ * 付款信 LOGO 的預設位址。
+ *
+ * ══ 🔴 為什麼是【硬編碼】而不是 env(2026-09-01,主視窗傾向硬編碼,我同意並補理由)══
+ *   這個值的壽命綁在 **Sean 對網域的決定**上,不綁在部署環境上 ——
+ *   ⇒ 它在 dev / preview / production **都是同一個值**,而 env 的用途是讓它們不同。
+ *   🔴 而更重要的:env 會讓「**它為什麼是這個值**」失去落點 ——
+ *      下一個看到破圖的人拿到的是一個變數名,而不是下面這三段。
+ *   ⚠️ 代價明寫:換網域要改碼 + 重新部署。而那件事**本來就要有人看過**(見第三段)。
+ *
+ * ══ ① 接線前置(可判定,而它今天過了)═══════════════════════════════════════
+ *   `curl -sI https://www.pcmmotorsports.com/pcm-logo.png | head -1` ⇒ 必須 **200**
+ *   🟢 2026-09-01 13:1x 實測 ⇒ **200**(🔵 負對照 同網域現造檔名 ⇒ **404** ⇒ 那把尺是活的)
+ *
+ * ══ ② 而 `shop.` 那一側【今天量不出來】—— 不要拿它當驗收 ═══════════════════
+ *   2026-09-01 實測:`shop.../pcm-logo.png` ⇒ **429**、`shop.` 首頁 ⇒ **429**、
+ *   🔵 而**現造的不存在檔名也 ⇒ 429** ⇒ **它對「存在」與「不存在」印同一個東西,判別力 0。**
+ *   🛑 **⇒ 所以 429【不得判綠】。** 要驗那一側,判準是三態不是兩態:
+ *      200 ⇒ 綠 / 404 ⇒ 紅 / **429 ⇒ ENV-FAIL(工具自己跑不起來),不是綠也不是紅**。
+ *   ✅ 而今天真正驗得到的那一格改成看 repo:`apps/storefront/public/pcm-logo.png`
+ *      存在(66,739 bytes,2026-09-01 量)⇒ 它答的是「**部署之後會有**」,
+ *      答不出「現在通不通」—— **而那正是它誠實的射程。**
+ *   🔴 為什麼要驗那一側:`www` 今天掛在**另一個 Vercel 專案**(官網 landing),
+ *      而它之後會移轉到顧客站 ⇒ **同一個路徑要在兩個專案上都有**,移轉那天才不會斷。
+ *      📌 而重點不是「兩邊都有 LOGO」,是【**兩邊在同一個路徑上都有**】——
+ *         官網原本就有一份,而它的路徑是 `assets/brand/…` ⇒ 那樣移轉照樣斷。
+ *
+ * ══ ③ 🔴 而上面那道 curl 是【一次性】的,而信是【永久】的 ═══════════════════
+ *   今天 200、明年 404 ⇒ **那封信還在客人信箱裡**,而它會變成一個破圖框。
+ *   ⇒ 📌 **一次性的前置擋得住「寫的當下就假」,擋不住「未來變假」。**
+ *   ✅ **Sean 2026-09-01 拍板:知情接受 + 記在板上**,不做持續監看(原話一個字「甲」)。
+ *      ⇒ 板上那一列的錨 = 標題逐字,用標題查不要用編號 ——
+ *        ⚠️ 而本註解寫的當下那一列**還沒進 `dev`**(我量過:`505306c7` 不在 `origin/dev` 上)
+ *        ⇒ 搜不到不代表沒有,先 `git log --all --grep` 找那顆。
+ *   🛑 **這一段不重寫全文** —— 全文在板子那一列;這裡只留「為什麼你看到 404 不是打錯」。
+ */
+export const PCM_EMAIL_LOGO_URL = 'https://www.pcmmotorsports.com/pcm-logo.png';
+
+/**
+ * 「到會員中心查看訂單」那顆鈕的網址。**基底由呼叫端傳進來,本檔不讀 `process.env`。**
+ *
+ * ══ 🔴 為什麼 CTA 讀 env, 而 LOGO 是硬編碼 —— 兩者【方向相反】而那是刻意的 ══════
+ *   下一個人一定會問這件事, 所以寫在這裡:
+ *
+ *   **LOGO**:那張圖在**官網專案與顧客站的同一個路徑上各放一份** ⇒ 移轉那天不論誰接手都活著
+ *     ⇒ 所以可以直接指向**未來那個網域**(`www`)。代價是**今天先壞一陣子**,而 Sean 選了它。
+ *
+ *   🔴 **CTA 不一樣**:它連的是**客人的訂單頁**, 而那一頁**只有顧客站有** ——
+ *      官網那個 landing 專案上沒有 ⇒ **今天指向 `www` 會是一顆點下去到不了的鈕**。
+ *      🛑 而本板記過:**死入口比沒入口糟**。
+ *   ⇒ ✅ 所以 CTA 跟著 `NEXT_PUBLIC_SITE_URL` 走(今天 = `shop`)⇒ **今天連得到**;
+ *      移轉那天 Sean 改那顆 env ⇒ 新寄的信自動變 `www`。
+ *   ⚠️ **代價一樣要明寫**:已經寄出去的信裡是 `shop` 的連結 ⇒ `shop` 關掉那天它們會失效。
+ *      ⇒ 📌 **與 LOGO 是同一種「未來變假」, 只是我們這一次選了相反的邊** ——
+ *         因為 LOGO 壞掉是**難看**, 而 CTA 壞掉是**客人點了到不了**。
+ *
+ * ══ 🔴 而本檔【不自己讀 env】—— 這一格我推翻了「在這裡讀」的做法, 理由三條 ══════
+ *   ① 已經有一支 prod-safe 的 `resolveSiteUrl()`(`apps/storefront/src/lib/site-url.ts:20`),
+ *      它處理了「未設 + production ⇒ 回 undefined、絕不吐 localhost」。
+ *      ⇒ **在這裡再寫一份 = 兩份會漂的同義邏輯**,而漂了之後這一份不會紅。
+ *   ② `packages/use-cases` 是共用層 ⇒ 它不該知道呼叫它的是哪一個 app 的哪一顆 env。
+ *   ③ 讀 env 的函式**測不動** —— 而這一格要測的正是「env 沒設 ⇒ 不印那顆鈕」。
+ *   ⇒ ✅ 所以基底**當參數傳進來**:呼叫端(那條 cron route)把 `resolveSiteUrl()` 餵進來。
+ *      🔵 **淨效果與「在這裡讀 env」完全相同, 而它可測、且零重複。**
+ *
+ * @param siteUrl 站台基底(呼叫端給 `resolveSiteUrl()` 的回傳值;未設 ⇒ 傳 `undefined`)
+ * @returns 完整網址;**基底缺了或不是絕對 http(s) ⇒ 回 `undefined`** ⇒ 呼叫端就不會印那顆鈕。
+ */
+export function paidEmailOrderUrl(
+  siteUrl: string | undefined,
+  orderDisplayId: string,
+): string | undefined {
+  // 🔴 `isAbsoluteHttpUrl` 的判準逐字對齊 `site-url.ts:31`(`/^https?:\/\//`)——
+  //    不是我另訂一套。⇒ 那邊放行的、這邊也放行,兩份不會對同一個值給不同答案。
+  if (siteUrl === undefined) return undefined;
+  const base = siteUrl.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//.test(base)) return undefined;
+  // 🔴 單號進網址要 encode —— 它今天是 `[A-Z0-9]`,而**那是今天的產號規則不是欄位約束**。
+  return `${base}/account/orders/${encodeURIComponent(orderDisplayId)}`;
+}
 
 /** HTML 特殊字元逃逸。品名與料號是**外部資料**(供應商匯入、員工手打)⇒ 一律過這一關。 */
 function esc(s: string): string {
@@ -98,7 +182,18 @@ export function paidEmailSubject(ctx: PaidEmailContext): string {
  *    ⇒ 若改成本函式丟例外,那道保護會變成「模板有沒有被呼叫到」的副作用,而那不可靠。
  */
 export function renderPaidEmailHtml(ctx: PaidEmailContext, chrome: PaidEmailChrome = {}): string {
-  const { paidAtText, logoUrl, orderUrl, hasPdfAttachment = false } = chrome;
+  // 🔴 `logoUrl` 有預設,而 `paidAtText` / `orderUrl` **刻意沒有** ——
+  //    那兩個的值是**每一封信不同**的(付款時間、單號),沒有一個「預設」說得通;
+  //    而 LOGO 是**每一封信都一樣**的一個站台常數。
+  //    ⇒ 📌 有沒有預設,判準是「這個值屬於這封信,還是屬於這個站」。
+  //    ⚠️ 而傳 `logoUrl: undefined` 進來會拿到預設值(物件解構的預設只認 `undefined`)——
+  //       要**明確不印 LOGO**,傳 `logoUrl: ''` ⇒ 空字串是 falsy,下面那道用的是 `!logoUrl`。
+  const {
+    paidAtText,
+    logoUrl = PCM_EMAIL_LOGO_URL,
+    orderUrl,
+    hasPdfAttachment = false,
+  } = chrome;
   const id = esc(ctx.orderDisplayId);
 
   // ── 品項列 ────────────────────────────────────────────────────────────────
@@ -158,7 +253,7 @@ ${skuRow ? `              ${skuRow}\n` : ''}            </td>
           </tr>`;
 
   const logoCell =
-    logoUrl === undefined
+    !logoUrl
       ? ''
       : `<td><img src="${esc(logoUrl)}" width="132" height="72" alt="PCM MOTOR PARTS"
            style="display:block;border:0;width:132px;height:auto;font-family:${SANS};font-size:14px;font-weight:700;color:#1f2933;"></td>`;
@@ -334,8 +429,23 @@ ${ctaBlock}${pdfBlock}
 /**
  * 這段 HTML 有多少 bytes(UTF-8)。
  *
- * 🔴 **Gmail 超過 102KB(104,857 bytes)會把信剪掉** —— 而被剪掉的是**下半部**,
+ * 🔴 **Gmail 超過 102KB 會把信剪掉** —— 而被剪掉的是**下半部**,
  *    也就是金額合計、CTA 與公司資訊。稿 `:72-73` 就是為了這條才禁 base64。
+ *
+ * ══ 🔴🔴 而【圖不算在那 102KB 裡】—— 這一格最容易讀反 ═══════════════════════
+ *   那條上限量的是**這封信的 HTML 本體**,不是它引用到的東西。
+ *   ⇒ 一張外連的 LOGO 不論多大(我們這張 **66,739 bytes**),進到信裡的只有
+ *     `<img src="…">` 那個標籤 —— 2026-09-01 實測 **324 bytes**
+ *     (有 LOGO 12,306 vs 明確不印 11,982)。
+ *   ✅ **⇒ 這正是稿禁 base64 的全部理由**:同一張圖 base64 之後會直接進本體。
+ *      ⛔ ~~我第一版寫「66,739 bytes ≈ 門檻的 64%」~~ **作廢** ——
+ *      🔴 **base64 會脹 4/3** ⇒ 66,739 × 4/3 ÷ 104,448 = **85.2%**(當場算的,不是估的)。
+ *      📌 而我第一版是**拿原始檔大小直接除** —— 一個少了一步換算的數字,
+ *         它讀起來完全正常,而且**方向是往安全那一側偏**(64% 比 85% 沒那麼嚇人)。
+ *   🛑 **⇒ 所以「12% 很安全」這句話的前提是【圖在外面】。**
+ *      哪天有人為了「怕圖載不到」把它內嵌回來,本體會從 12% 跳到 **97%**(11,982 + 88,985),
+ *      **而三綠與那 25 格測試一個都不會紅**(它們驗的是字串長對,不是大小)。
+ *   ⚠️ 而本檔的 `paidEmailHtmlBytes()` **量的也只有本體** —— 附件不在裡面。
  * 🛑 **本函式只量,不擋。** 擋不擋是寄送端的決定 —— 只有它知道附件加進去之後總共多大,
  *    而**本檔量到的數字不含附件**。
  */
