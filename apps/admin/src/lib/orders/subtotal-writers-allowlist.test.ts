@@ -116,6 +116,19 @@ function stripSqlComments(src: string): string {
  * **也就是那個「讓原本『單一寫入者』前提消失」的第二個寫入者**。
  */
 const ALLOWLIST = [
+  // ── 2026-09-02 線 `-5b` 補(兩支都【不寫那三欄】—— 命中的是它們的後置斷言)──────
+  // 🔴 命中原因逐字:`WRITER_RE` 的第二個分支是 `INSERT INTO public."?(orders|order_items)"?`
+  //    —— 而這兩支的**後置斷言**要造一張測試訂單才跑得起來 ⇒ `INSERT INTO public.orders(id)`。
+  // ✅ **而它們寫的欄位只有 `id`**(`VALUES (v_o)` / `VALUES (v_a), (v_b)`),
+  //    `subtotal` / `line_total` / `order_id` 三欄**一個字都沒有**。
+  //    🔵 可證偽:`grep -cE 'subtotal|line_total' <該兩支>` ⇒ 皆 **0**。
+  // 🛑 而那些 INSERT **跑完就回滾**(兩支的後置斷言都以一發刻意的 `RAISE EXCEPTION` 收尾,
+  //    而 harness 另外驗過「表上真的是 0 列」)⇒ 它們連一列都不會留在正式庫。
+  // 📌 **⇒ 所以這兩筆是「尺撈到了測試資料」, 不是「多了一個寫入者」** ——
+  //    而那與上面 `20260725120000` 那一筆的成因**同族不同種**:那一筆是註解, 這兩筆是【後置斷言】。
+  //    ⇒ ⇒ 兩者都不是「真的寫入者」, 而剝註解救得了前者、救不了後者。
+  '20260902030000_m4b_crossrail_pending_refund_net.sql',
+  '20260902040000_m4b_railcap_red_counts.sql',
   '20260604130000_m3_s2b1_create_order_rpc.sql',
   '20260613130000_m3_3ds_0b_cart_session_dedup.sql',
   '20260614130000_m3_create_order_stock_snapshot.sql',
