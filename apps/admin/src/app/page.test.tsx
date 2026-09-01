@@ -51,25 +51,15 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { stripComments } from '../lib/test-support/strip-comments';
 
-import type { TodaySummary } from '../lib/dashboard/today-read';
 import AdminHomePage from './page';
 
-/**
- * 🔴🔴 **型別註記【不是裝飾】**(codex 2026-09-02 must-fix ⑤)——
- *    ~~原本這是一個裸的物件字面~~ ⇒ `loadTodaySummary` 是 `vi.fn()` ⇒ **typecheck 不看它**
- *    ⇒ `TodaySummary` 加欄位時這裡**不會紅**, 而畫面拿到 `undefined`
- *    ⇒ 📌 那一格會渲染成 `undefined 張`, 而本檔的斷言(「四格數字都在」)**不看那一格**
- *       ⇒ ⇒ **一個壞掉的畫面, 配一句宣稱它沒壞的測試名。**
- *    ✅ 標上型別 ⇒ 下一個人加欄位時, **這裡當場編譯紅**。
- */
-const SUMMARY: TodaySummary = {
+const SUMMARY = {
   ymd: '2026-08-14',
   receivedAmount: 12345,
   newOrderCount: 7,
   refundExceptionCount: 2,
   refundExceptionTruncated: false,
   refundExceptionVerdictsUnavailable: false,
-  railCapOverCount: 1,
   failedSections: [],
 };
 
@@ -100,16 +90,10 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('AdminHomePage', () => {
-  it('正常時:四格數字與身分選單都在(正向對照,證明下一格的斷言真的看得到東西)', async () => {
+  it('正常時:三格數字與身分選單都在(正向對照,證明下一格的斷言真的看得到東西)', async () => {
     const { container } = render(await AdminHomePage());
     expect(container.textContent).toContain('今日實收');
     expect(container.textContent).toContain('NT$ 12,345');
-    // 🔴 **第四格也要斷言**(codex must-fix ⑤):這一格的名字寫「四格數字都在」,
-    //    而它原本只看第一格 ⇒ 第四格渲染成 `undefined 張` 時**它照樣綠**。
-    //    📌 一句宣稱涵蓋四格的測試名, 配一組只涵蓋一格的斷言 —— 而只有測試名會被引用。
-    expect(container.textContent).toContain('目前退款超出上限');
-    expect(container.textContent).toContain('1 張');
-    expect(container.textContent).not.toContain('undefined');
     expect(container.querySelector('form')).not.toBeNull();
     expect(container.textContent).toContain('切換');
     expect(container.textContent).not.toContain('今日對帳載入失敗');

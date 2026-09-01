@@ -3,11 +3,8 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 import { listRefundExceptions } from '../payment/refund-read';
 import { todayTaipeiRange } from './today-view';
 
-// today-read.ts — `#16` 今日對帳:首頁**四格**的唯讀查詢(IO 層)。
-//    🪦 原本四格;「今日退款」於 2026-08-15 拆掉 ⇒ 三格(見 `today-view.ts` 墓碑段)。
-//    🔵 ⟦b4-RAILCAPAUDIENCE⟧ 2026-09-02 加第四格「退款超上限」——
-//       🛑 **而它與被拆掉的那一格【毫無關係】**:那格是「今日退款金額」, 這格是「現在有幾張單是紅的」。
-//       ⇒ 📌 兩次都是「四格」, 而**數字相同不代表回到同一個世界** —— 這一行就是防那個誤讀。
+// today-read.ts — `#16` 今日對帳:首頁**三格**的唯讀查詢(IO 層)。
+//    🪦 原本四格;「今日退款」於 2026-08-15 拆掉(見 `today-view.ts` 墓碑段)。
 //    🔴 **「四格 / 四支」的過期字面已掃過改齊 —— 而這句話本身被審查打過一次,值得留著**:
 //       ① codex 點名 4 處 → 我在**本檔**概念詞掃描實得 **8 處**(`四格|四支|另外三格`)
 //       ② 我於是寫下「**所有**四格/四支的字面已一併掃過改齊」——
@@ -61,7 +58,7 @@ import { todayTaipeiRange } from './today-view';
 // —— 當時記載 1000,2026-08-18 起實測 **2000**;**兩個值之下 500 都嚴格更小 ⇒ 本段結論不受影響**),
 // 存在理由 = 撞到上限時**旗標亮得起來**、而不是把超出的錢靜默吃掉。
 // 🔴 **拆掉它不是因為那條守門沒用,是因為它守的那個查詢整個不見了** ——
-//    現在**四支**查詢裡**沒有任何一支在 TS 端撈列再加總**:收款走 RPC(SQL 端加總、物理上無列可截)、
+//    現在**三支**查詢裡**沒有任何一支在 TS 端撈列再加總**:收款走 RPC(SQL 端加總、物理上無列可截)、
 //    新單走 `count: 'exact', head: true`、異常那支的上限與截斷由 `refund-read.ts` 自己擁有。
 // ⚠️ **重做退款那格時**:若走 RPC(正解方向)⇒ **不需要**這個常數;
 //    若又變成撈列再加總 ⇒ **必須把它連同 `toBeLessThan(1000)` 那格守門一起帶回來**,
@@ -70,7 +67,7 @@ import { todayTaipeiRange } from './today-view';
 //       ⇒ `length > 1000` **恆假** ⇒ 旗標恆不亮、測試照樣全綠。**別再踩一次。**
 
 // 🔴🔴 **`null` = 「這一格沒讀到」,絕不等於 0**(R2 nit7 的型別地基)。
-//    四支查詢彼此獨立,一支掛掉不該讓另外三支跟著消失 —— 但**更不能**把讀取失敗顯示成 `0`,
+//    三支查詢彼此獨立,一支掛掉不該讓另外兩支跟著消失 —— 但**更不能**把讀取失敗顯示成 `0`,
 //    那正是「一個安靜的錯數字」。⇒ 失敗用 `null` 表達,顯示端渲染「讀取失敗」而不是數字。
 //    ⚠️ **這修正了本檔上一版的一句話**:原寫「任何一個失敗就整個拋 —— 寧可讓這一區顯示錯誤」。
 //    **原則沒變**(絕不顯示少算過的數字),但「整區一起倒」不是實現它的唯一方式,
@@ -79,7 +76,7 @@ import { todayTaipeiRange } from './today-view';
 //    (SQL 端 `COALESCE` 已保證非 NULL、TS 不該再補一層 `?? 0`);
 //    這裡的 `null` 是**「這格失敗」的顯式表達**,語意完全不同,而且它**不會**被兜成 0。
 
-/** 四格的資料;任一欄為 `null` 表示**那一格讀取失敗**(不是零)。 */
+/** 三格的資料;任一欄為 `null` 表示**那一格讀取失敗**(不是零)。 */
 export type TodaySummary = {
   /** 台北曆面的今天(顯示用,例:`2026-08-14`)。 */
   ymd: string;
@@ -119,23 +116,6 @@ export type TodaySummary = {
    * 這一格與側欄同源(`lib/layout/sidebar-counts.ts`),顯示端要講出來。
    */
   refundExceptionVerdictsUnavailable: boolean;
-  /**
-   * ⟦b4-RAILCAPAUDIENCE⟧ 現在有幾張單的**人工退款超出可退上限**;`null` = 讀取失敗。
-   *
-   * 🔴 **這一格不是「今日」** —— 與退款異常那格同一個立場:它是**當下累積的**。
-   *    文案要寫「目前」不寫「今日」。
-   * 🔴 **只數超額這一種。** Sean Q4 甲要「兩種紅分得開」,而分得開的做法**不是**在這裡放兩個
-   *    數字 —— 是**不要把另一種混進來**。另一種目前沒有觀眾(見下方那段訃聞)。
-   * 🔵 分母:**有未作廢人工退款的單**(`20260902040000` 的 COMMENT 逐字)——不是全站訂單。
-   */
-  railCapOverCount: number | null;
-  // ⛔ ~~`railCapUnknownCount`(算不出上限的張數)~~ —— **從來沒有上線過, 在同一片裡被拿掉。**
-  //    🔴 【codex must-fix】那個數字**結構上恆為 0**:`pcm_manual_refund_rail_cap`
-  //       兩段都 `COALESCE(...,0)` ⇒ 正常回傳不可能是 NULL ⇒ `cap IS NULL` 那個 CASE 走不到。
-  //    ⇒ 📌 而我【自己 40 分鐘前在 `manual-refund-ledger-section.tsx` 寫下過這個事實】,
-  //       然後在這裡建了它的反面。**一個被寫下來的事實, 不會自己去找它的其他消費端。**
-  //    🛑 ⇒ 「算不出上限」那種紅**現在沒有觀眾** —— 它只在訂單頁的【當下】看得到。
-  //       那是真缺口, 已開列 `⟦5b-CAPUNKNOWNSTATE⟧`(信箱裡有本體, 不是只寫在這裡)。
   // 🪦 `amountsTruncated` 於 2026-08-15 隨退款那格一起拆掉。
   //    它上一版的註解逐字寫著「**刻意不整個拿掉** —— 拿掉會讓退款的截斷變回靜默」——
   //    🔴 **那句在當時是對的,現在不成立了**:它守的那個查詢已經不存在,
@@ -231,59 +211,19 @@ function readRpcInteger(v: unknown): number | null {
   return Number.isSafeInteger(n) ? n : null;
 }
 
-/**
- * ⟦b4-RAILCAPAUDIENCE⟧ 把那支 RPC 的一列一欄, 讀成畫面要的那個數字。
- *
- * 🔴 **值要過 `readRpcInteger`** —— `bigint` 經 PostgREST 可能是字串,
- *    而 `Number(null)` / `Number('')` 都是 `0`
- *    ⇒ 📌 一個「讀不出來」會靜靜變成「現在 0 張是紅的」, 而**那是最好消息的形狀** ——
- *       沒有人會回頭查一個說「一切正常」的數字。
- * 🔴 **負數也算失敗**(codex 2026-09-02 must-fix ④):`readRpcInteger` 只保證是安全整數,
- *    而「有 −1 張單是紅的」不是任何世界的答案 ⇒ 它是 `null` / `0` / 正數之外溜出來的第四態。
- *    ⇒ 而它會**畫在首頁上**, 而讀的人會以為那是一個他不懂的統計。
- * ⚠️ **`0` 是合法值**(今天沒有紅的單, 而那是每天的常態)⇒ 不得與失敗合流。
- */
-function railCapCounts(
-  r: { error: unknown; data?: unknown },
-  fail: (section: string, error: unknown) => null,
-): { railCapOverCount: number | null } {
-  if (r.error) {
-    fail(TODAY_SECTION.railCap, r.error);
-    return { railCapOverCount: null };
-  }
-  // RETURNS TABLE ⇒ PostgREST 回陣列;恆一列(無 GROUP BY 的聚合), 而空陣列仍要當失敗。
-  const row = (r.data as { over_cap?: unknown }[] | null)?.[0] ?? null;
-  const over = row === null ? null : readRpcInteger(row.over_cap);
-  if (over === null || over < 0) {
-    fail(
-      TODAY_SECTION.railCap,
-      new Error(
-        row === null
-          ? 'RPC 沒有回任何列'
-          : `over_cap 讀不出【非負】安全整數(收到 ${describe(row.over_cap)})`,
-      ),
-    );
-    return { railCapOverCount: null };
-  }
-  return { railCapOverCount: over };
-}
-
 /** 顯示端會原樣印出來的格名 —— 失敗時員工要知道**是哪一格**沒讀到。 */
 export const TODAY_SECTION = {
   received: '今日實收',
   // 🪦 `refunded: '今日退款'` 於 2026-08-15 拆掉(見 `today-view.ts` 墓碑段)。
   newOrders: '今日新單',
   exceptions: '退款異常',
-  // ⟦b4-RAILCAPAUDIENCE⟧ 第四格的格名(⛔ ~~一支查詢餵【兩格】數字~~ —— 第二欄已移除, 見型別那段)。
-  railCap: '退款超上限',
 } as const;
 
 /**
- * 首頁四格的資料。
+ * 首頁三格的資料。
  *
- * 🔴 四支查詢**平行跑,而且各自獨立失敗**(R2 nit7):一支掛掉只讓**那一格**變「讀取失敗」,
- *    另外三格照常顯示。**絕不把讀取失敗兜成 0** —— 那才是這一區最怕的壞法。
- *    ⚠️ 而第四支**一支餵兩個數字** ⇒ 它掛掉時那一格的兩個數字一起沒有(見 `railCapCounts`)。
+ * 🔴 三支查詢**平行跑,而且各自獨立失敗**(R2 nit7):一支掛掉只讓**那一格**變「讀取失敗」,
+ *    另外兩格照常顯示。**絕不把讀取失敗兜成 0** —— 那才是這一區最怕的壞法。
  * 🔴 本函式**只在日界換算失敗時拋**(那是真 bug、不是資料問題)⇒ 呼叫端的 try/catch 仍要留著。
  * ⚠️ 「哪一格掛了」透過 `failedSections` 出去,不靠呼叫端去猜 `null` 的意思。
  */
@@ -293,9 +233,8 @@ export async function loadTodaySummary(now: Date = new Date()): Promise<TodaySum
   const { ymd, fromIso, toIso } = todayTaipeiRange(now);
   const supabase = createSupabaseServiceClient();
 
-  // 🪦 原本是四支查詢,退款那支於 2026-08-15 拆掉 ⇒ 剩三支;
-  //    ⟦b4-RAILCAPAUDIENCE⟧ 2026-09-02 加回第四支(**不是把那格加回來**,是另一件事)。
-  const [payments, orders, exceptions, railCap] = await Promise.all([
+  // 🪦 原本是四支查詢,退款那支於 2026-08-15 拆掉 ⇒ 現在三支。
+  const [payments, orders, exceptions] = await Promise.all([
     // 🔴 **收款走 RPC、不直查表**(R2 MF-A):`order_payments` 對 service_role **零表權**
     //    (`20260810100000:410` REVOKE ALL 含 service_role)⇒ 直查必回 `42501`,而全 mock 的單測全綠。
     //    加總在 SQL 端做 ⇒ **沒有 `max-rows` 可截** ⇒ 收款這支不需要 `.limit()` 與截斷旗標。
@@ -303,7 +242,7 @@ export async function loadTodaySummary(now: Date = new Date()): Promise<TodaySum
     // 🔴🔴 **每一支都要自己接住 reject(codex 關卡2 MF3)**。
     //    supabase builder **平常**把錯誤放進 `{ error }` 回來 —— 但那只涵蓋「伺服器有回話」。
     //    **網路斷、DNS 失敗、fetch abort ⇒ 它是真的 reject**,而 `Promise.all` **一支 reject 整包 reject**
-    //    ⇒ 整個 `loadTodaySummary` 拋 ⇒ **「逐格獨立失敗」那個設計當場失效,四格一起消失。**
+    //    ⇒ 整個 `loadTodaySummary` 拋 ⇒ **「逐格獨立失敗」那個設計當場失效,三格一起消失。**
     //    ⚠️ 上一版只有 `listRefundExceptions()` 接了,理由寫的是「它是會 reject 的、不像 builder」——
     //       **那句話把「平常不 reject」讀成了「不會 reject」。** 兩者差的正是 transport 層。
     //    ⇒ 統一用 `.then(ok, err)` 收成值,**沒有任何一支能把整頁拖下水**。
@@ -319,19 +258,6 @@ export async function loadTodaySummary(now: Date = new Date()): Promise<TodaySum
       (r) => ({ ok: true as const, ...r }),
       (error: unknown) => ({ ok: false as const, error }),
     ),
-    // 🔴 ⟦b4-RAILCAPAUDIENCE⟧ Sean 2026-09-02 拍甲:「那個紅要有【出口】與【觀眾】——
-    //    加一個地方讓他看得到現在有幾張單是紅的」。**這一格就是那個觀眾。**
-    //    出口那一半已上線(訂單頁的紅字,`manual-refund-ledger-section.tsx`)。
-    //
-    // 🔴🔴 **這支 RPC 在 `20260902040000`,而它【尚未 apply】** ——
-    //    ⇒ 在 Sean 貼那支之前, 這一格會走 `settle` 的失敗路徑 ⇒ 畫面顯示「讀取失敗」。
-    //    ✅ 那是**既有契約下正確的降級**(不是白屏、不是一個安靜的 0), 而它**會被看見**。
-    //    🛑 **⇒ 所以本片的碼與那支 SQL 要一起上線** —— 交件時要寫死順序。
-    //
-    // 🔵 `as never`:同 `lib/payment/manual-refund-read.ts` 那段 —— `database.types.ts`
-    //    檔頭記著「正式庫有而本檔沒有的具名區塊」, 正確修法是**整支重 gen**(已排),
-    //    不是在這裡手補一段型別(手補會讓那份「哪些是手工校正」的清單開始說謊)。
-    settle(createSupabaseServiceClient().rpc('pcm_manual_refund_red_counts' as never)),
   ]);
 
   const failedSections: string[] = [];
@@ -405,9 +331,6 @@ export async function loadTodaySummary(now: Date = new Date()): Promise<TodaySum
       : fail(TODAY_SECTION.exceptions, exceptions.error),
     refundExceptionTruncated: exceptions.ok ? exceptions.truncated : false,
     refundExceptionVerdictsUnavailable: exceptions.ok ? exceptions.verdictsUnavailable : false,
-    // 🔴 ⟦b4-RAILCAPAUDIENCE⟧ 一支查詢、兩個數字, 而**兩個都失敗才記一次格名** ——
-    //    `fail()` 每呼叫一次就 push 一次, 呼叫兩次會讓「這幾格沒讀到」印出重複的名字。
-    ...railCapCounts(railCap, fail),
     failedSections,
   };
 }

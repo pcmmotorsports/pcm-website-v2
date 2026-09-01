@@ -98,10 +98,6 @@ type Over = {
    *    那格於是恆綠。**又一次「替身自己把要驗的東西兜掉」**(同檔上面那條註解講的是同一件事)。
    */
   orderCountRaw?: { value: unknown };
-  /** ⟦b4-RAILCAPAUDIENCE⟧ 第四支的回傳(不指定 ⇒ 兩欄都 0 = 沒有紅的單)。 */
-  railCapRows?: unknown[];
-  railCapError?: unknown;
-  railCapReject?: unknown;
 };
 
 function setup(over: Over = {}) {
@@ -121,26 +117,8 @@ function setup(over: Over = {}) {
     throw new Error(`未預期的 table:${table}`);
   });
   const rpcCalls: unknown[][] = [];
-  // 🔴🔴 **這個替身【必須認函式名】**(⟦b4-RAILCAPAUDIENCE⟧ 2026-09-02)——
-  //    加第四支之前它只有一個 RPC 呼叫端, 所以「無條件回收款那組資料」是對的。
-  //    加了之後**兩支共用這一個 mock** ⇒ 不分辨的話, 退款超上限那支會收到
-  //    `[{ total, row_count }]` ⇒ 讀不出 `over_cap` ⇒ **每一格都多一個「退款超上限」讀取失敗**。
-  //    ⇒ 📌 而它**不是靜默的**:七格當場紅, 而那正是它該有的形狀。
-  //    ⚠️ 但下一支 RPC 加進來時, 這裡**又要改一次** —— 而那時它會落進 `default` 那條 throw,
-  //       不是安靜地拿到別人的資料。**這一行 throw 就是為了讓下一次也吵。**
   mocks.rpc.mockImplementation((...args: unknown[]) => {
     rpcCalls.push(args);
-    const fn = args[0];
-    if (fn === 'pcm_manual_refund_red_counts') {
-      if (over.railCapReject !== undefined) return Promise.reject(over.railCapReject);
-      return Promise.resolve({
-        data: over.railCapRows ?? (over.railCapError ? null : [{ over_cap: 0 }]),
-        error: over.railCapError ?? null,
-      });
-    }
-    if (fn !== 'admin_today_payment_total') {
-      throw new Error(`未預期的 RPC:${String(fn)}(替身沒有為它準備資料 ⇒ 請在這裡加一格)`);
-    }
     // 🔴 MF3 的靶:RPC 在 transport 層 reject。
     if (over.rpcReject !== undefined) return Promise.reject(over.rpcReject);
     return Promise.resolve({
@@ -208,11 +186,7 @@ describe('loadTodaySummary — 查詢形狀', () => {
   it('🔴 MF-A:收款走 RPC、**不得**直查 `order_payments`(零表權 ⇒ 上線必 42501)', async () => {
     const { rpcCalls } = setup({ paymentTotal: 12345, paymentRowCount: 7 });
     const out = await loadTodaySummary(NOW);
-    // 🔵 ⟦b4-RAILCAPAUDIENCE⟧ 起有兩支 RPC ⇒ 這一格只釘**收款那一支的參數**,
-    //    不把第四支的存在寫死進來(寫死了, 加第五支時這一格會為了一個無關的理由紅)。
-    expect(rpcCalls.filter((c) => c[0] === 'admin_today_payment_total')).toEqual([
-      ['admin_today_payment_total', { p_from: FROM, p_to: TO }],
-    ]);
+    expect(rpcCalls).toEqual([['admin_today_payment_total', { p_from: FROM, p_to: TO }]]);
     expect(out.receivedAmount).toBe(12345);
     // 突變靶:改回 `.from('order_payments')` ⇒ setup 的 `from` 會擲「未預期的 table」。
     expect(mocks.from).not.toHaveBeenCalledWith('order_payments');
@@ -256,8 +230,7 @@ describe('loadTodaySummary — 查詢形狀', () => {
   //       看不出那會讓截斷旗標**恆假**。**退款那格若又用撈列加總,這格必須一起回來。**
 });
 
-// 🔴 **逐格失敗**(R2 nit7):一支掛掉只讓**那一格**變 `null`,其餘各格照常有值。
-//    ⛔ ~~另外兩格~~ ⇒ ⟦b4-RAILCAPAUDIENCE⟧ 2026-09-02 起是**四支**;寫死數字會再過期一次。
+// 🔴 **逐格失敗**(R2 nit7):一支掛掉只讓**那一格**變 `null`,另外兩格照常有值。
 //    🪦 原本是「另外三格」—— 退款那格 2026-08-15 拆掉。
 //    上一版是「任一失敗就整段拋」⇒ 退款查詢掛掉會連帶蓋掉**今天收了多少錢**,而那格明明是好的。
 //    🔴 但 `null` **絕不能被兜成 0** —— 那才是這一區最怕的「安靜的錯數字」。
@@ -345,7 +318,7 @@ describe('loadTodaySummary — 各格各自獨立失敗', () => {
     const out = await loadTodaySummary(NOW);
     expect(out.receivedAmount).toBeNull();
     expect(out.failedSections).toContain(TODAY_SECTION.received);
-    // 本體:其餘各格照常有值 —— 這正是「逐格獨立失敗」的設計,transport 層不該讓它失效。
+    // 本體:另外兩格照常有值 —— 這正是「逐格獨立失敗」的設計,transport 層不該讓它失效。
     expect(out.newOrderCount).toBe(5);
     expect(out.refundExceptionCount).toBe(0);
   });
@@ -363,7 +336,7 @@ describe('loadTodaySummary — 各格各自獨立失敗', () => {
     expect(out.failedSections).toContain(TODAY_SECTION.newOrders);
   });
 
-  it('✅ 正向對照:`count` 真的是 0 ⇒ 顯示 0、**不算失敗**(否則上面那幾格對「永遠失敗」也綠)', async () => {
+  it('✅ 正向對照:`count` 真的是 0 ⇒ 顯示 0、**不算失敗**(否則上面三格對「永遠失敗」也綠)', async () => {
     setup({ orderCount: 0 });
     const out = await loadTodaySummary(NOW);
     expect(out.newOrderCount).toBe(0);
@@ -409,7 +382,7 @@ describe('loadTodaySummary — 各格各自獨立失敗', () => {
     expect(out.failedSections).toContain(TODAY_SECTION.received);
   });
 
-  it('四支都正常 ⇒ `failedSections` 是空的(正向對照:證明上面各格不是恆真)', async () => {
+  it('三支都正常 ⇒ `failedSections` 是空的(正向對照:證明上面各格不是恆真)', async () => {
     setup({ paymentTotal: 100, orderCount: 3 });
     const out = await loadTodaySummary(NOW);
     expect(out.failedSections).toEqual([]);
@@ -471,71 +444,5 @@ describe('migration SQL 的錢口徑(源碼契約,非行為證明)', () => {
     // `REVOKE FROM PUBLIC` 收不掉 anon(建函式時 pg_default_acl 自動給)⇒ 必須逐個點名。
     expect(sql).toMatch(/FROM PUBLIC, anon, authenticated, authenticator/);
     expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION[\s\S]{0,160}TO service_role/);
-  });
-});
-
-// ══ ⟦b4-RAILCAPAUDIENCE⟧ 第四支:退款超上限的計數 ═══════════════════════════
-//
-// 🔴 Sean 2026-09-02 拍甲:「那個紅要有【出口】與【觀眾】」⇒ 出口是訂單頁的紅字(已上線),
-//    這一支是【觀眾】。
-// 🛑 **只有一欄, 而那是被 codex 打掉一欄之後的結果**:原本還有 `cap_unknown`,
-//    而它**結構上恆為 0**(`pcm_manual_refund_rail_cap` 兩段都 COALESCE(...,0) ⇒ 不回 NULL)。
-//    ⇒ 📌 而我當時的測試**用 mock 捏出 `cap_unknown: 1`** ⇒ 那一格永遠會綠,
-//       而正式 SQL 那一欄永遠是 0。**替身可以演一個 DB 演不出來的世界。**
-describe('loadTodaySummary — 退款超上限(第四支)', () => {
-  it('🔵 讀得到 ⇒ 原樣出來', async () => {
-    setup({ railCapRows: [{ over_cap: 3 }] });
-    const out = await loadTodaySummary(NOW);
-    expect(out.railCapOverCount).toBe(3);
-    expect(out.failedSections).toEqual([]);
-  });
-
-  it('🔵 `bigint` 經 PostgREST 回字串 ⇒ 也要讀得出來(不是 NaN、不是 0)', async () => {
-    setup({ railCapRows: [{ over_cap: '12' }] });
-    const out = await loadTodaySummary(NOW);
-    expect(out.railCapOverCount).toBe(12);
-  });
-
-  it('🔴 讀取失敗 ⇒ null,而「這幾格沒讀到」只記【一次】格名', async () => {
-    setup({ railCapError: { message: 'boom' } });
-    const out = await loadTodaySummary(NOW);
-    expect(out.railCapOverCount).toBeNull();
-    expect(out.failedSections).toEqual(['退款超上限']);
-  });
-
-  it('🔴 transport 層 reject ⇒ 那一格失敗,而【其他三格照常】', async () => {
-    setup({ railCapReject: new Error('fetch failed'), paymentTotal: 100, orderCount: 5 });
-    const out = await loadTodaySummary(NOW);
-    expect(out.railCapOverCount).toBeNull();
-    // 🔵 正向對照:少了這兩行,一個「整包一起掛」的實作也會過上面那條。
-    expect(out.receivedAmount).toBe(100);
-    expect(out.newOrderCount).toBe(5);
-  });
-
-  it('🔴 回空陣列 ⇒ 算失敗,不得兜成「0 張是紅的」', async () => {
-    // 📌 「0 張是紅的」是這一格最好消息的形狀 ⇒ 一個讀不到而印 0 的實作, 沒有人會回頭查它。
-    setup({ railCapRows: [] });
-    const out = await loadTodaySummary(NOW);
-    expect(out.railCapOverCount).toBeNull();
-    expect(out.failedSections).toEqual(['退款超上限']);
-  });
-
-  it('🔴 負數也算失敗 —— 「有 −1 張單是紅的」不是任何世界的答案', async () => {
-    // 🔴 codex 2026-09-02 must-fix ④:`readRpcInteger` 只保證安全整數 ⇒ 負數會原樣畫上首頁,
-    //    而讀的人會以為那是一個他不懂的統計。
-    for (const v of [-1, '-7']) {
-      setup({ railCapRows: [{ over_cap: v }] });
-      const out = await loadTodaySummary(NOW);
-      expect(out.railCapOverCount, `over_cap=${v}`).toBeNull();
-      expect(out.failedSections).toEqual(['退款超上限']);
-    }
-  });
-
-  it('🟢 正向對照:真的是 0 ⇒ 顯示 0,【不算失敗】', async () => {
-    // 🔴 沒有這一格, 一個「永遠回 null」的實作會通過上面每一條。
-    setup({ railCapRows: [{ over_cap: 0 }] });
-    const out = await loadTodaySummary(NOW);
-    expect(out.railCapOverCount).toBe(0);
-    expect(out.failedSections).toEqual([]);
   });
 });
