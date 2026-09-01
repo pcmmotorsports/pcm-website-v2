@@ -963,6 +963,36 @@ scripts-whitelist-gate ⇒ 命中 4 列 · progress-roadmap.html ⇒ 2 · 從零
 | open | ⟦f3-TWELVEUNPROVABLE1⟧ | 🔴 **端給 Sean 的那個「12 件擋上線」機械上不可複現 —— 而它最可能被拿去排上線工序** | 🔴 **這一列掛 `-0a` 自己的名字**(它逐字「這一列要掛我的名字, 不是別人的」);`-f3` 2026-09-01 落檔 | `-f3` 當場複跑:`grep -o '擋上線' docs/launch-todo.md \| wc -l` ⇒ **21 次**;`awk -F'\|' '/^\| /'` 掃資料列 ⇒ 落在 **9 個**資料列(來源報 open 5 / done 3)。<br>🔴 **⇒ 板上根本沒有「擋不擋上線」這個欄位** ⇒ 那個 12 是**一個人的判斷**,沒有人能重推導,也沒有人能推翻。<br>📌 **⇒ 而不可複現的數字最危險的性質不是它可能錯,是【它錯了也不會有人發現】。**<br>⇒ **關閉條件**:要嘛板子長出一個「擋上線」的欄位(封閉集),要嘛那個 12 每次引用都帶「這是 `-0a` 2026-09-01 的判斷」。 |
 | open | ⟦f3-RULERSSELFBROKE1⟧ | 🔴 **那個交叉查核 agent 自己壞過兩把尺,而兩次都印出【看起來完全合理的數字】** | `-f3` 2026-09-01 開列;`-0a` 明白要求這一格進板子(它逐字「它比結論值錢」) | **①** 用 `re.sub(r'/\*.*?\*/')` 剝區塊註解 ⇒ **repo 裡有 33 支 migration 的 `/*` 與 `*/` 不成對** ⇒ 它吃掉半支檔,把一支**有** `REVOKE` 的函式報成沒有。<br>**②** 🔴 **這台機器的 `grep` 是 `ugrep 7.8.4`**(`-f3` 當場跑 `grep --version` 複驗 ✅)—— `([^0-9]\|$)` 把 `$` 放進括號 ⇒ **靜靜回 0 命中** ⇒ 它第一發因此報「47 個 backlog 號有 44 個查無」,而正確答案是 **0**。<br>📌 **⇒ 兩次都是它回頭撞到才發現,不是有人查出來的。**<br>🎯 **判別句(`-0a` 給的)**:**如果那六份裡任何一份用過這兩種形狀,它的每一個 `0` 都要重跑** —— **而那查不到,因為沒有它們的指令。**<br>⇒ **關閉條件**:六份報告補交它們用過的指令,或它們的每個 `0` 都被一把已知會動的尺重跑一次。 |
 
+## Q · 2026-09-01 付款信接 HTML:codex 對抗審查擋下的四條(`-f3` 開列)
+
+> 🔵 **現場**:Sean 2026-09-01 拍甲「付款信接上 HTML 版本」⇒ `-f3` 把 `paidContext` 注進
+> `apps/storefront/src/lib/email/composition.ts`(63 行,三綠全綠、突變殺得掉)
+> ⇒ **而 codex 對抗審查判 `FAIL` 今天不該上,4 條 must-fix** ⇒ 主視窗 `-0a` 裁**乙**:不 commit,開成列。
+>
+> 🔴 **而 Sean 那個「甲」不是被推翻,是【射程沒有涵蓋新事實】** —— 他拍板時**沒有被告知**
+> 接上去會讓取消單進死信、也沒有被告知 6a 會把洩漏面從「單號」放大成「完整明細」。
+> 📌 **⇒ 一個拍板的射程由【他當時知道什麼】決定,不由那句話的字面決定。**
+>
+> ✅ **`-f3` 這一片實跑的**(數法在旁邊):
+> ```
+> 三綠   bash scripts/greenlight.sh ⇒ GREEN typecheck=0 lint=0 build=0
+> 測試   餵 2 條 → 跑 2 支 → 91 格全過, 連跑兩發相同 @ HEAD 12a77685
+>        🔴 那個 91【必須帶 HEAD】—— 線 -15 同一小時往同一支檔加測項(b1b7b6f5 +2 · bab8c83d +1)
+>        ⇒ 別人拿到的會是別的數, 而那看起來像有人漏跑(-15 2026-09-01 提醒)
+> 突變   拿掉 return 裡的 paidContext ⇒ 紅 2 格(鍵集合 + 建構子)⇒ 不是恆綠;已還原
+> 複核   codex 第 7 條(那支碼自己點名接線的人)-f3 開檔逐字核過, 成立
+> ```
+> 🛑 **`-f3` 只複核了第 7 條** —— 下面 2 / 3 / 6a / 6b 四條**是 codex 的判斷,`-f3` 未獨立複量**,照抄不壓縮。
+> ⚠️ 而 codex 標的一格未確認**保留不結案**:收信軟體與 Resend 的 multipart fallback 是**外部行為**,本 repo 沒有真信箱驗過。
+
+| 態 | # | 事 | 誰 | 卡什麼 / 關鍵事實 |
+|---|---|---|---|---|
+| parked | ⟦f3-PAIDHTMLWIRING1⟧ | 🔴 **付款信接 HTML 的那 63 行【寫好了、綠了、沒有 commit】** —— 它現在只活在一個工作樹裡 | **等人:**Sean 答 ⟦f3-RECIPIENTBIND1⟧ 那題(值不值得現在放大洩漏面),且 ⟦b4-MAILCANCEL1⟧ 落地 | 改動本體:`apps/storefront/src/lib/email/composition.ts` 的 `getSweepEmailOutboxDeps()` 加一行 `new SupabasePaidEmailContextAdapter(serviceClient)` 並放進回傳;`composition.test.ts` 對應加鍵集合與建構子兩格。<br>🔴 **為什麼它是最後一格不是第一格**:`sweep-email-outbox.ts` 那個 `const html = paid !== null` 呼叫點**早就在了**,整條線沒生效的唯一理由就是 `deps.paidContext !== undefined` 那個判斷式為 false。<br>🛑 **⇒ 所以「接線」與「開始寄不一樣的信」是同一個動作,中間沒有階段。**<br>⚠️ **座標一律 grep 不寫行號** —— 落檔那一小時 `-15` 的 `b1b7b6f5` 往同一支檔加了 53 行,`:688` / `:870` 當場漂成 `:705` / `:913`。<br>🔴 **而這一列存在的理由就是那 63 行沒有 commit** —— 它不在任何 commit 裡,`-f3` 的 session 一結束就只剩這一列指得到它。 |
+| open | ⟦f3-RECIPIENTBIND1⟧ | 🔴🔴 **寄件信箱與信件內容沒有「同一張單」的不變式 —— 而換成 HTML 會把洩漏面放大一個量級** | `-f3` 2026-09-01 開列;來源=codex 對抗審查 6a(`-f3` 未獨立複量) | 寄送目的地取 `email_outbox` 那一列的 `recipient_email`,而詳細內容依**同一列的 `order_id`** 另外查(`SupabaseEmailOutboxAdapter.ts` 與 `SupabasePaidEmailContextAdapter.ts`)。DB 只有 `order_id` FK 與信箱非空 CHECK(`20260717020000_m4a_email_outbox.sql`)⇒ **沒有「這個收件人屬於那張單」的約束**。<br>🛑 **⇒ 而這一格【不是接線那一片造成的】,它是既有缺口** —— 正常 scanner 路徑會一起組裝兩者,擋不住的是 service_role 人工修復或歷史髒列留下的錯配。<br>🔴 **接線改變的是後果的量級,不是機率**:<br>· 今天(純文字)配錯 ⇒ 只洩**單號**<br>· 接上 HTML 之後 ⇒ 洩**品名 / SKU / 數量 / 金額**<br>📌 **⇒ 所以要問的不是「這一片有沒有 bug」,是【值不值得現在把一個既有缺口的爆炸半徑放大】** —— 而那是 Sean 答得出來的形狀,「port 方法 / 不變式」不是。<br>⇒ **關閉條件**:寄送前驗 `recipient_email` 與該 `order_id` 的歸屬,或 DB 層加不變式。 |
+| open | ⟦f3-PAIDCANCELRACE1⟧ | 🔴 **取消狀態只讀一次 ⇒ 讀完之後才被取消的單,照樣收到「付款成功」** | `-f3` 2026-09-01 開列;來源=codex 對抗審查第 2 條(`-f3` 未獨立複量) | `cancelled_at` 在查表頭那一次讀,之後還有「查品項 → 組 HTML → 呼叫 Resend」三個步驟的窗口。表頭查完後才被取消 ⇒ `loadedPaid` 已是 `ok` ⇒ 信照寄。<br>🔵 **port 自己承認這個 race**(`packages/ports/src/IPaidEmailContext.ts` 的 `cancelled` 那一段;座標用 grep 不寫行號)。<br>⚠️ **今天的曝露面比看起來小**:上游逐封閘 `listIneligibleAmong` 的述詞已含 `cancelled_at IS NOT NULL` ⇒ 這條只吃得到兩次讀取之間那幾毫秒。<br>🔴 **而「小」不是「零」,而一封寄出去的付款成功信收不回來。**<br>⇒ **關閉條件**:寄送前再讀一次 `cancelled_at`,或把它併進 ⟦b4-MAILCANCEL1⟧ 那支新方法的同一次交易。 |
+| open | ⟦f3-PAIDAMOUNTDRIFT1⟧ | 🔴 **表頭金額與品項是兩次獨立查詢,沒有人驗它們相等** | `-f3` 2026-09-01 開列;來源=codex 對抗審查 6b(`-f3` 未獨立複量) | `SupabasePaidEmailContextAdapter` 查表頭(`subtotal` / `shipping_fee` / `discount_total` / `total`)與查品項是兩發,**adapter 不驗 `subtotal` 等於品項 `line_total` 的總和**。<br>⇒ 正式資料若已有跨表漂移,HTML 會**照單全收** ⇒ 客人看到「品項加總」與「訂單金額」互相矛盾的一封付款確認信。<br>⚠️ **合法業務路徑未確認**:codex 逐字「一般已收款後改價 RPC 目前會拒絕,因此正常操作造成此狀態的路徑未確認」⇒ **這一條要的是一發正式資料 probe,不是先寫防禦碼。**<br>📌 **⇒ 而純文字那一版沒有這個問題,因為它一個金額都沒印。** |
+| open | ⟦f3-SVCROLEUNVERIFIED1⟧ | 🔴 **「service_role 讀得到那兩張表」這件事,只在 mock 上驗過,沒有在正式庫驗過** | `-f3` 2026-09-01 開列;來源=codex 對抗審查第 3 條(`-f3` 未獨立複量) | `composition.test.ts` 那格斷言證的是「兩個 adapter 拿到**同一個 mock 物件**」,證不了正式庫的 ACL 與 RLS。<br>⇒ 正式 `service_role` 對 `orders` / `order_items` 的 SELECT 若與預期不同 ⇒ 表頭或品項查詢失敗 ⇒ **付款信整批 fail-closed、route 回 503**。<br>🔴 **⇒ 這一條的形狀是【repo 裡寫了 vs 正式庫上有】** —— 與 ⟦f3-REPOVSLIVE1⟧ 同一族,而那一族量到 repo 與帳本差 27 支。<br>⇒ **關閉條件**:一發唯讀正式庫 probe(Sean 2026-09-01 已授權唯讀查正式庫;**而唯讀與 apply 是兩個授權,他只給了前一個**)。<br>⚠️ codex 另一格 nit:「不會多開連線」這句話**不精確** —— Supabase client 不是一條固定 DB connection;factory 只建一個 client 這件事成立,但別把它讀成連線數的保證。 |
+
 ## 🔴 這張板子沒涵蓋什麼(不要把它讀得比它大)
 
 1. **線A 的 UI 統整** —— Sean 2026-08-24 告知「資訊還在那邊沒出來」⇒ **後台畫面那一塊完全沒盤。** 它交件後本檔要再長一段。
