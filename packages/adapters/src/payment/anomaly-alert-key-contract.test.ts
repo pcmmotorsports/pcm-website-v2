@@ -310,6 +310,24 @@ const FAIL_LOUD_RPCS = [
    *   ⇒ 那是**部署窗口**, 不是「鍵不見了」—— 兩者在本檔的分堆上是不同的東西。
    */
   'get_manual_customer_search_summary',
+  /**
+   * 🔵 `⟦b4-SIG4ERRORS⟧` 那一片(`20260901060000` 已 apply)。
+   *   **分堆是開檔看的, 不是猜的**(本檔上面那句逐字要求):
+   * ```
+   * PgAnomalyAlertReaderAdapter.ts 的 stuckNum(key) ⇒ parseCount(raw, key, 'get_order_created_stuck_count')
+   * 而 parseCount:v === undefined ⇒ n = NaN ⇒ !Number.isFinite(NaN) ⇒ **throw**
+   * ⇒ 缺鍵 = fail-loud ⇒ 屬這一堆
+   * ```
+   * 🛑 **而它有兩條【不是缺鍵】的 null 路徑, 兩條都不改變分堆**:
+   *   ① `raw === null` ⇒ 直接回 `null` —— 那是 `oldest_stuck_minutes` 在【沒有卡住】時的 SQL NULL,
+   *      **「沒有」不是「讀不到」**(同檔 `stuckNum` 註解逐字)。
+   *   ② 兩顆 env 任一沒設 / 函式尚未 apply ⇒ `orderCreatedStuckRows` 留 `[]` ⇒ `ocs === undefined`
+   *      ⇒ 兩格都回 `null` **而不是 0** —— 那是**部署窗口**, 與 `get_manual_customer_search_summary`
+   *      那一格同型, 而**它們都不是「鍵不見了」**。
+   * 📌 **⇒ 分堆問的是【鍵不見時會不會叫】, 不是【這支函式會不會回 null】。**
+   *   ⇒ 兩者在本檔的分堆上是不同的東西, 而混起來會把一支 fail-loud 的錯歸進 fail-soft。
+   */
+  'get_order_created_stuck_count',
 ] as const;
 
 describe('屬性名與錯誤訊息字面(`-eb` 2026-08-31 併入)', () => {
