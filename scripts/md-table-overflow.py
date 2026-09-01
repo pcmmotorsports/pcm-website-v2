@@ -154,14 +154,15 @@ def worktree_differs(path: str) -> bool | None:
     return bool(out.strip())
 
 
-def scan(path: str, content: str | None = None) -> list[dict]:
+def scan(path: str, content: str | None = None,
+         short_out: list | None = None) -> list[dict]:
     """回傳每一列溢出的細節。
 
     `content` 給了就用它(`--changed-only` 會餵 index 那一份), 沒給才讀工作樹。
     """
     if content is not None:
         lines = content.split('\n')
-        return _scan_lines(path, lines)
+        return _scan_lines(path, lines, short_out)
     try:
         lines = io.open(path, encoding='utf-8').read().split('\n')
     except OSError as e:
@@ -169,15 +170,17 @@ def scan(path: str, content: str | None = None) -> list[dict]:
         #    「這個檔沒問題」「這個檔有問題」「我根本沒量到這個檔」三件事。
         print(f'md-table-overflow: 讀不到 {path}({e})', file=sys.stderr)
         sys.exit(2)
-    return _scan_lines(path, lines)
+    return _scan_lines(path, lines, short_out)
 
 
-def _scan_lines(path: str, lines: list[str]) -> list[dict]:
+def _scan_lines(path: str, lines: list[str],
+                short_out: list | None = None) -> list[dict]:
     heads = []
     for i, l in enumerate(lines[:-1]):
         if l.startswith('|') and SEP.match(lines[i + 1] or ''):
             heads.append((i, len(cells(l))))
     out = []
+    short: list[dict] = []
     for idx, (h, ncol) in enumerate(heads):
         end = heads[idx + 1][0] if idx + 1 < len(heads) else len(lines)
         for j in range(h + 2, end):
@@ -185,8 +188,18 @@ def _scan_lines(path: str, lines: list[str]) -> list[dict]:
             if not l.startswith('|') or SEP.match(l):
                 continue
             c = cells(l)
-            if len(c) <= ncol:
-                continue  # 少格 ⇒ GFM 補空,內容不掉
+            if len(c) < ncol:
+                # 🔵 形狀C:欄數【少】於表頭。內容一個字都沒掉(GFM 補空),
+                #    壞的是【欄位歸屬】—— 第 5 欄的東西可能坐在第 2 欄。
+                #    🛑 它與 A/B 不同種, 所以【不進 rows】、不算進「丟了幾字」、不改 rc。
+                #       理由:①它不是內容遺失 ②本 repo 已有這種列被主視窗裁「不修」
+                #       (`docs/launch-todo.md` ⟦b4-B07⟧ 那一列逐字:「少在哪只有 0 根有訊號,
+                #        其餘怎麼放都是猜 ⇒ 刻意不修」)⇒ 讓它變紅 = 一裝就紅而沒有出路。
+                short.append({'line': j + 1, 'header_line': h + 1,
+                              'ncol': ncol, 'got': len(c), 'chars': len(l)})
+                continue
+            if len(c) == ncol:
+                continue  # 剛好 ⇒ 沒有多出來的格
             # 找出切出第 ncol+1 格的那根豎線在哪
             pos = None
             for n, m in enumerate(PIPE.finditer(l), start=1):
@@ -201,6 +214,10 @@ def _scan_lines(path: str, lines: list[str]) -> list[dict]:
                 # 🔵 整行原文 —— 只給 `merge_parent_lines()` 比對用(見它的 docstring)。
                 'text': l,
             })
+    # 🔵 形狀C 只從 out-param 出去, 不混進 out ——
+    #    既有回傳型別一個字沒動(輕量片的界線:不動既有兩種的判定)。
+    if short_out is not None:
+        short_out.extend(short)
     return out
 
 
@@ -214,9 +231,36 @@ SELFTEST = [
      '| a | b |\n|---|---|\n| 1 | `x|y` 後面這段會被丟掉 |\n', 1, 'B'),
     ('跳脫過的豎線(正對照:不得誤報)',
      '| a | b |\n|---|---|\n| 1 | x \\| y |\n', 0, None),
-    ('少格(GFM 補空,內容不掉 ⇒ 不得報)',
+    ('少格(GFM 補空,內容不掉 ⇒ 不得報成 A/B)',
      '| a | b | c |\n|---|---|---|\n| 1 | 2 |\n', 0, None),
 ]
+
+# 🔵 形狀C 的兩個世界 —— 它不進 SELFTEST(那張表的契約是「期望溢出列數」,
+#    而形狀C 不算溢出)⇒ 自己一格, 而兩個世界【必須印不同的東西】。
+SHAPE_C_WORLDS = [
+    # (名稱, 內容, 期望形狀C 列數)
+    ('形狀C:欄數少於表頭 ⇒ 要看得到',
+     '| a | b | c | d |\n|---|---|---|---|\n| 1 | 這一格裝了本來該分到三欄的東西 |\n', 1),
+    # 🔴 這一格是關鍵:沒有它, 這一族會把【每一列剛好滿格的表】也算進去。
+    ('剛好滿格(正對照:不得報成形狀C)',
+     '| a | b | c |\n|---|---|---|\n| 1 | 2 | 3 |\n', 0),
+    # 🔴 而這一格擋的是相反方向:多格是 A/B 的地盤, 不可以被形狀C 搶走。
+    ('多格(是形狀A ⇒ 不得同時報成形狀C)',
+     '| a | b |\n|---|---|\n| 1 | 2 | 多出來 |\n', 0),
+]
+
+
+def _selftest_shape_c() -> int:
+    """形狀C 三個世界。🔴 兩個正對照各擋一個方向:剛好滿格、以及多格(那是 A/B)。"""
+    bad = 0
+    for name, content, want in SHAPE_C_WORLDS:
+        got = []
+        scan('<selftest>', content=content, short_out=got)
+        ok = len(got) == want
+        print(f"  {'ok  ' if ok else 'FAIL'} {name} ⇒ 得 {len(got)} / 應 {want}")
+        if not ok:
+            bad += 1
+    return bad
 
 
 def selftest() -> int:
@@ -245,11 +289,17 @@ def selftest() -> int:
     #   🔴 而③④⑤⑥ 每一格都對應一個【實跑殺掉的突變】, 不是想像出來的世界 ——
     #      每一格的註解裡寫著它殺的是哪一個。
     bad += _selftest_changed_only()
+    # 🔵 形狀C 三個世界(2026-09-01 加):一個要看得到, 兩個正對照各擋一個方向。
+    print('\n══ 形狀C(欄數少於表頭)══')
+    bad += _selftest_shape_c()
     if bad:
         print(f'\n🔴 selftest 失敗 {bad} 格 ⇒ **這把尺壞了,它現在印的 0 不算數**')
         return 3
-    print('\nselftest 全過(含兩個正對照:乾淨的表與跳脫過的豎線都不得誤報;'
-          '另含 --changed-only 的十七個世界, 每一格都有一個實跑殺掉的突變)')
+    # 🔵 格數【當場算】不寫死 —— 照 -f7 那個判準:一個寫死的數字過期時, 現場沒有人。
+    n = len(SELFTEST) + len(SHAPE_C_WORLDS)
+    print(f'\nselftest 全過(表格層 {n} 格:含兩個正對照——乾淨的表與跳脫過的豎線都不得誤報;'
+          f'形狀C 三格含兩個反方向正對照)'
+          '\n另含 --changed-only 的十七個世界, 每一格都有一個實跑殺掉的突變')
     return 0
 
 
@@ -812,7 +862,8 @@ def main(argv: list[str]) -> int:
                       f' ⇒ 本模式【不做任何宣稱】。要看全部:拿掉 --changed-only')
                 env_fail += 1
                 continue
-            rows = scan(path, content=idx)
+            shortc = []
+            rows = scan(path, content=idx, short_out=shortc)
             # 🔴🔴 **兩個世界要印不同的字** —— 見 `worktree_differs()` 的 docstring。
             #    位置刻意放在**這一支檔的結論正上方**:放檔頭會被捲過去,
             #    而人讀的是那一行 ✅ / 🔴。
@@ -827,7 +878,8 @@ def main(argv: list[str]) -> int:
                       f' 或**拿掉 `--changed-only`**(那會讀工作樹)。')
                 print(f'   ⚠️ 而 pre-commit 底下這是【合法】的(partial staging)⇒ 本閘只出聲, 不擋你。')
         else:
-            rows = scan(path)
+            shortc = []
+            rows = scan(path, short_out=shortc)
         if changed_only:
             touched = staged_new_lines(path)
             if touched is None:
@@ -852,6 +904,16 @@ def main(argv: list[str]) -> int:
             if skipped:
                 print(f'ℹ️  {path}:另有 {skipped} 列溢出【不是這次改的】⇒ 本模式不報'
                       f'(要看全部:拿掉 --changed-only)')
+        # 🔵 形狀C 印在【結論之前】—— 讓人先知道「還有一類我沒判成紅」。
+        #    🛑 它【不進 total】⇒ 不改 rc:它不是內容遺失, 而本 repo 已有這種列被裁「不修」。
+        if shortc:
+            print(f'ℹ️  {path}:另有 {len(shortc)} 列【欄數少於表頭】'
+                  f'(形狀C:內容一個字都沒掉, 壞的是【欄位歸屬】)')
+            for r in sorted(shortc, key=lambda x: -x['chars'])[:6]:
+                print(f"     第 {r['line']} 行(表頭在 :{r['header_line']},{r['ncol']} 欄;"
+                      f"這一列只有 {r['got']} 格;整行 {r['chars']} 字)")
+            print('     🛑 本工具【不把它判成紅】—— 少的那幾根格線該補在哪, 機械上答不出來'
+                  '(照猜的切會安靜地切錯)⇒ 那是人的判斷, 不是閘的。')
         total += len(rows)
         if not rows:
             # 🔴 **這兩句不能共用一個字面**(2026-08-31 R2 抓的 nit):
@@ -879,6 +941,8 @@ def main(argv: list[str]) -> int:
     print('\n🛑 這一發【證不到】什麼:')
     print('   · 它只認以 `|` 開頭的行 —— 縮排表格 / HTML table 它看不到')
     print('   · 它不判內容重不重要 —— 上面印的那幾段要不要急,是人的判斷')
+    print('   · 🔵 形狀C(欄數少於表頭)它【看得到而不判紅】 —— 那一類內容沒掉、壞的是歸屬,')
+    print('     而少的格線該補在哪機械上答不出來 ⇒ 它只列給你看')
     print('   · 🔴 檔案裡那些字【一個都沒少】⇒ grep / cat 讀得到')
     print('     ⇒ 這個病只在【把它渲染成表格】的地方成立;沒有人那樣讀 ⇒ 今天損害為零')
     if env_fail:
