@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ci-self-contained: no  —— 要位置參數/信箱裡的 SQL 檔, CI 裡那些不存在 ⇒ 它跑不起來, 不是不該跑
 # orderpurge-v3-probe.sh — v3(單一 DO 區塊)的拋棄式 PG 實演 + codex 七條的回歸突變
 # 🛑 它用【自動生成的 stub schema】演 v3 的控制流(快照→停用→刪→還原→整包比對),
 #    不是正式庫的真 schema ⇒ 它證的是【流程】, 不是【那 27 張表的欄位對不對】。

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ci-self-contained: no  —— 要位置參數/信箱裡的 SQL 檔, CI 裡那些不存在 ⇒ 它跑不起來, 不是不該跑
 # ============================================================
 # shipunvoid1-apply-probe — ⟦b4-SHIPUNVOID1⟧ 五個世界
 #

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ci-self-contained: no  —— 要位置參數/信箱裡的 SQL 檔, CI 裡那些不存在 ⇒ 它跑不起來, 不是不該跑
 # orderpurge-apply-probe.sh — 清空訂單那份 SQL 的拋棄式 PG 實演 + 三發突變
 #
 # 🔴 它證什麼:①刪除順序在 FK 底下走得通 ②防刪守門要先關、關了才刪得動
