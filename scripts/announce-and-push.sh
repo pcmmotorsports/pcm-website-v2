@@ -57,13 +57,25 @@ git log --format='   %h %s' "$FROM".."$TIP" 2>/dev/null || git log --format='   
 #    「合起來把一行未完成的接線送上遠端」⇒ 那是敘述, 不是宣稱。已從清單移除。
 #    📌 而三發三種誤擋(自己引用 / 敘述用語 / 尚待第四種)⇒ 一份黑名單要跑過真語料好幾輪才穩,
 #       而每一輪的誤擋都長得像「它在工作」。
-BLOCKED="$(git log --format='%h %s%n%b' "$FROM".."$TIP" 2>/dev/null \
+# 🔴 第四發誤擋(就是上一句預言的那個):一顆 commit 的【body】列出了這份黑名單本身
+#    ⇒ 逐字「尚未通過審查 / WIP / DO NOT MERGE|PUSH|SHIP」⇒ 沒有引號, 剝不掉。
+#    ✅ 改成【只讀 subject】—— 真正的宣稱(「這一顆不得上線」)寫在標題,
+#       而 body 是文件住的地方, 而文件本來就會引用它要防的字。
+#    📌 一般化:一道守門要判的是【這一顆在宣稱什麼】, 而宣稱住在標題。
+BLOCKED="$(git log --format='%h %s' "$FROM".."$TIP" 2>/dev/null \
   | python3 -c "import sys,re; sys.stdout.write(re.sub(r'「[^」]*」|\"[^\"]*\"','',sys.stdin.read()))" \
   | grep -nE '不得上線|不得貼|不得 ?apply|不要上線|尚未通過審查|WIP|DO NOT (MERGE|PUSH|SHIP)' || true)"
-if [ -n "$BLOCKED" ]; then
+# 🔴 而這道閘一定要有出路 —— 今晚學到的:「守門紅了沒有出路, 會被整支刪掉」。
+#    而它特別需要:線 -7d 指出【一個掃文字的系統, 會被描述這個系統的文字觸發】,
+#    而這支艦隊的 commit 標題寫法逐字就是「把那個危險的句子寫進標題」
+#    ⇒ 所以字串比對在這裡【結構性地】會反覆誤擋, 不是調得不夠好。
+if [ -n "$BLOCKED" ] && [ -z "${ALLOW_SELFDESC:-}" ]; then
   echo "🛑 有 commit 自稱不該上線 —— 停下,不推:"
   echo "$BLOCKED" | head -20
-  echo "   ⇒ 要推 ⇒ 先把那一顆處理掉(revert / 改標題 / 分開推),不要繞過本閘。"
+  echo "   ⇒ 真的是【某一顆自稱不該上線】⇒ 先處理掉那一顆(revert / 改標題 / 分開推)。"
+  echo "   ⇒ 而如果它只是【一顆在描述這件事的 commit】(本閘四發裡有三發是這一種):"
+  echo "        ALLOW_SELFDESC=1 bash scripts/announce-and-push.sh $TARGET"
+  echo "     🔴 而用它之前, 上面那份逐顆標題【自己看完】—— 這道閘的主要防線是那一份, 不是字串比對。"
   exit 3
 fi
 
