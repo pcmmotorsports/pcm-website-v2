@@ -59,6 +59,10 @@ const mocks = vi.hoisted(() => ({
   // 🔴 `#890` 片4:`order-detail-route` 會問「卡住那幾列有沒有被更正過」。
   //    **預設回空 Map**(讀得到、而一筆都沒被更正)⇒ 本檔既有每一格行為一個字不變。
   findEffectiveVerdicts: vi.fn(),
+  // 🔴 2026-09-01:與 listOrderPayments 同一個理由提升到 hoisted —— 非卡退款那一區
+  //    要構造得出【成功】與【失敗】兩態。⚠️ 預設在 beforeEach 回 `[]`(= 這單沒有登記紀錄)
+  //    ⇒ 本檔既有每一格的行為一個字都沒變。
+  listOrderManualRefunds: vi.fn(),
 }));
 vi.mock('../../../lib/payment/refund-correction-read', () => ({
   findEffectiveVerdicts: mocks.findEffectiveVerdicts,
@@ -106,6 +110,19 @@ vi.mock('../../../lib/supplier-repository', () => ({ listSupplierRows: vi.fn() }
 //    與本檔要驗的東西無關,也不會多畫任何東西。
 vi.mock('../../../lib/orders/payment-repository', () => ({
   listOrderPayments: mocks.listOrderPayments,
+}));
+// 🔴🔴 **2026-09-01:上面那段警告【只被套用在它自己點名的那一個模組上】。**
+//    `order-detail-route.tsx:186` 同樣在 `allSettled` 裡呼叫 `listOrderManualRefunds`,
+//    而本檔【沒有】mock 它 ⇒ 完全一樣的機制:它 throw、被 `allSettled` 折成 `unreadable`。
+//    ⇒ 🔵 **實測(不是讀出來的)**:在本檔的環境下直接 await 它 ⇒
+//      `reject: NEXT_PUBLIC_SUPABASE_URL not set`(本檔零處設那個 env,`grep -c` ⇒ 0)。
+//    ⇒ ⇒ 📌 **所以那六支 wiring test 的每一發,非卡退款區塊走的都是失敗路徑 ——**
+//      **成功路徑一次都沒有跑過,而 53 格照樣全綠。**
+//    🛑 **⇒ 而值得記的是那段警告本身:它把機制講得很清楚,而套用它的人只套了它點名的那一個。**
+//      ⇒ **一段正確而具體的警告,它的射程止於它舉的例子。**
+//    回空陣列 = 「這單沒有非卡退款登記」,與本檔要驗的東西無關,也不會多畫任何東西。
+vi.mock('../../../lib/payment/manual-refund-read', () => ({
+  listOrderManualRefunds: mocks.listOrderManualRefunds,
 }));
 
 import OrderDetailPage from './page';
@@ -166,6 +183,7 @@ beforeEach(() => {
   mocks.getLedgerUnregisteredAmount.mockResolvedValue(null);
   // 提升前的 inline 預設,逐字保留:`[]` = 「這單沒收過款」,不是「讀不到」。
   mocks.listOrderPayments.mockResolvedValue([]);
+  mocks.listOrderManualRefunds.mockResolvedValue({ rows: [], truncated: false });
   // 🔴 空 Map = **讀得到、而一筆都沒被更正過** ⇒ 卡住的列照舊擋(既有行為不變)。
   //    ⚠️ 它與 `null`(讀不到)是兩件事,而兩者今天都擋 —— 分開餵的那兩格在下面。
   mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
@@ -1191,6 +1209,54 @@ describe('危險操作沉底:取消排在出貨之後', () => {
 //   因為 `MANUAL_REFUND_ENTRY_BLOCKED_BY_787` 恆 true,不是因為輸入不滿足其他 gating 條件。
 // 世界②(手動驗證,不在自動化測試裡):把該常數改成 false、重跑本測試、斷言改為
 //   toBe(true)、確認真的翻紅,再還原並用 sha256 核對逐位元相同——記錄見 W2-014 commit body。
+// ═════════════════════════════════════════════════════════════════════════
+// 🔴🔴 非卡退款【帳本區塊】的兩個世界(2026-09-01 加;而加它的理由是量到的)
+// ═════════════════════════════════════════════════════════════════════════
+// 本檔在 2026-09-01 之前【沒有】mock `manual-refund-read` —— 而 `order-detail-route.tsx:186`
+// 在 `allSettled` 裡呼叫它。實測(直接 await 它):`reject: NEXT_PUBLIC_SUPABASE_URL not set`
+// ⇒ 那六支 wiring test 的每一發,這一區走的都是【失敗路徑】,而 53 格照樣全綠。
+// 🛑 而我補上 mock 之後做了一發突變:**讓 mock 改成 throw ⇒ 53 格【仍然全過】**
+//    ⇒ ⇒ 📌 **那證明「補上 mock」只是把靜默失敗關掉, 一格覆蓋都沒有加。**
+//    ⇒ **下面這兩格才是覆蓋。** 少了它們,這個區塊的成功路徑仍然沒有人在看。
+describe('非卡退款帳本區塊:成功與失敗兩態都要看得出來', () => {
+  it('🟢 讀得到一筆登記 ⇒ 區塊把它畫出來(不是畫失敗字樣)', async () => {
+    // 🔴 **形狀是 `{ rows, truncated }` 不是裸陣列**(`order-detail-route.tsx:281-282` 讀 `.rows`)。
+    //    我第一版餵裸陣列 ⇒ 那一區【整塊不渲染】,而其他 53 格【照樣全綠】
+    //    ⇒ 📌 **一個形狀錯的 mock, 與一個正確的 mock, 在別人的測試裡印同一個綠。**
+    mocks.listOrderManualRefunds.mockResolvedValue({
+      truncated: false,
+      rows: [
+      {
+        id: 'mr-1',
+        rail: 'cash',
+        refundAmount: 350,
+        reason: '客人匯錯金額退回差額',
+        actor: 'tester',
+        occurredAt: '2026-08-20T02:00:00+00:00',
+        createdAt: '2026-08-20T03:00:00+00:00',
+        voidedAt: null,
+        voidReason: null,
+        voidedBy: null,
+      },
+      ],
+    });
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    expect(text).toContain('客人匯錯金額退回差額');
+    // 🔵 對照:成功那一態不得同時出現失敗字樣(否則「有畫出來」可能是兩塊都畫了)
+    expect(text).not.toContain('非卡退款登記載入失敗');
+  });
+
+  it('🔴 讀不到(reject)⇒ 區塊要說它讀不到,不是安靜地什麼都不畫', async () => {
+    mocks.listOrderManualRefunds.mockRejectedValue(new Error('boom'));
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    // 正向對照:頁面真的渲染出來,不是整頁空白讓下面那條恆真。
+    expect(text).toContain('退款');
+    expect(text).toContain('非卡退款登記載入失敗');
+  });
+});
+
 describe('#787:非卡退款登記入口硬閘(沖銷 RPC 落地前恆不渲染)', () => {
   it('現金收款 + 帳本未登記額為正(健康輸入)⇒ 入口仍然不出現', async () => {
     mocks.listOrderPayments.mockResolvedValue([
