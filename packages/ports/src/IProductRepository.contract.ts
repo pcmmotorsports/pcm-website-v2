@@ -4,6 +4,45 @@ import type { IProductRepository } from './IProductRepository';
 /**
  * Reusable contract test framework for IProductRepository.
  *
+ * 🔴🔴 **先讀這一段:本檔【不會被執行】。它今天是【文件】, 不是【測試】。**
+ * (2026-09-01 線【帳號】`-7a` 實查, 主視窗 `-0a` 派)
+ *
+ * `runProductRepositoryContract()` **全 repo 零真呼叫端** —— 4 個字面命中裡,
+ * 一個是本檔的定義、兩個是本檔 `@example` 的 JSDoc、一個是 `packages/ports/src/index.ts:60` 的註解。
+ * ⇒ 🔴 **所以底下那 15 個 `it.todo` 從來沒有被 vitest 收集過** ——
+ *   **連「skipped」都不會出現在報告裡**。
+ *
+ * 🛑 **而 `it.todo` 這個形式在這裡比一句註解【糟】, 這一格要講明白**:
+ *   `it.todo` 讀起來像「**一個已登記的待辦**」—— 它有測試框架的外觀、有 runner 的語彙。
+ *   ⇒ 而在一個從來不會被收集的函式裡, 它連【被收集】都沒有發生。
+ *   ⇒ ⇒ 📌 **它比 `it.skip` 隱形一層:`it.skip` 至少會印一行, 而這個【連行都沒有】。**
+ *
+ * ⚠️ **而底下每一格的理由「待 SupabaseProductAdapter 落地時實作」今天是【假的】** ——
+ *   那支早就落地了(`packages/adapters/src/supabase/SupabaseProductAdapter.ts`)。
+ *
+ * ✅ **而 15 格【多數今天有別的東西在守】**(2026-09-01 實量, 分母 700 支 `*.test.ts(x)`,
+ *   涵蓋 `packages/adapters` `packages/domain` `packages/use-cases` `apps/<app>/src`;
+ *   🟢 正對照 `findByHandle` ⇒ 3 支檔 · 🔵 負對照現造方法名 ⇒ 0):
+ *   · `findById` / `findByHandle` / `listByCategory` / `listAllProducts` / `listCategories`
+ *     / `listByFitment` / `listGeneral` / `searchByKeyword` ⇒ 各有 2-12 支檔命中
+ *   🔴 **而兩格值得單獨講, 而它們的結論相反**:
+ *     · `listByBrand` —— InMemory 那層有測(`InMemoryProductRepository.test.ts:183`),
+ *       **而 Supabase 那支沒有**(`SupabaseProductAdapter.ts:356` 有實作)。
+ *       🔴 **而它是活的**:production 真呼叫端 =
+ *       `apps/storefront/src/lib/recommendations/rule-based-engine.ts:159-160`(推薦引擎)
+ *       ⇒ 而 `rule-based-engine.test.ts` 測的是【引擎】, 它自己 stub 了一個 `listByBrand`
+ *       ⇒ ⇒ **引擎有測, 而那句 Supabase 查詢沒有。⇒ 這一格是真缺口。**
+ *     · `save` —— 同樣只有 InMemory 那層有測(`InMemoryProductRepository.test.ts:54/259/261`),
+ *       **而 production 非測試呼叫端 = 0** ⇒ 🔴 **那是死路** ⇒ 該問的不是「要不要補測試」,
+ *       是「它為什麼還在」。
+ *   ⚠️ **未查**:那 4 個 year-range 格我只驗到【檔層命中】,
+ *     **沒有逐格對照 `InMemoryProductRepository.test.ts`**。
+ *
+ * 🎯 **⇒ 那為什麼不刪掉本檔**:底下那 15 條是**寫下來的契約文字**, 而那是它今天唯一的價值。
+ *   而**接上它**(讓 `runProductRepositoryContract` 真的被呼叫)也不划算 ——
+ *   `SupabaseProductAdapter.test.ts` 已經有 974 行, 接上去等於把同一批行為再寫一次。
+ * 🔵 **⇒ 而本檔的檔名是 `.contract.ts` 不是 `.test.ts` —— 那一格它是誠實的。**
+ *
  * 任何 IProductRepository 實作(InMemory / Supabase / 等)都應通過此 contract 驗收。
  *
  * 對齊 docs/architecture/testing-strategy.md §3.4「in-memory 樣板不搬到真實 adapter」:
