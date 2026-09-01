@@ -283,6 +283,14 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
        *   ⇒ 📌 **這個紅不是壞事,是那道守門在做它的工作。**
        */
       orderCreatedCutoffIso: null,
+      /**
+       * 🔵 ⟦b9-ENUMWATCH⟧ 片 2(2026-09-01):客戶搜尋計數的回看窗口 = 24 小時。
+       * ✅ **而這一格【又一次】是被上面那道完整物件比對逼出來的** —— 我加 option 的時候它紅了。
+       *    ⇒ 檔內 `:276` 逐字「多一個沒有人拍板的 option 會紅」⇒ **它今天第二次做到了。**
+       * 🛑 **它不是門檻** —— 本片刻意不設門檻(板 `⟦b4-ENUM3⟧` 逐字「門檻不要用猜的」),
+       *    這個數字不進 `shouldAlert`。
+       */
+      manualCustomerSearchWindowSeconds: 86400,
       orderCreatedStuckMinutes: null,
     });
   });
@@ -875,5 +883,35 @@ describe('[心跳] unknown ⇒ 要有可靠的失敗訊號', () => {
     checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT });
     const res = await GET(makeReq(bearer()));
     expect(res.status).toBe(200);
+  });
+});
+
+// ⟦b9-ENUMWATCH⟧ 片 2:R2(換模型)must-fix F6 —— codex R1 那條 must-fix 的【修法本身沒有量具】。
+// 🔴 我補的那個 `console.warn` 在 route.ts,而這支檔對 `manualCustomerSearchUnknown` 的命中數是 **0**
+//    ⇒ **把那整個 `if` 刪掉,全套測試照樣綠。**
+// 📌 ⇒ 一條 must-fix 的修法, 與它的量具, 是兩件事 —— 而只有後者會在它被拿掉時說話。
+describe('⟦b9-ENUMWATCH⟧ 片 2:Unknown 那一行 warn', () => {
+  it('🔴 Unknown=true ⇒ 印一行 warn(突變:刪掉 route 那個 if ⇒ 這一格必須紅)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    checkSpy.mockResolvedValue({ ...CLEAN_RESULT, manualCustomerSearchUnknown: true });
+    const res = await GET(makeReq(bearer()));
+    // 🛑 而它**刻意不改 200 / 不記 heartbeat failure** —— 那個 Unknown 有一種完全預期的成因
+    //    (那支 RPC 還沒 apply)⇒ 升成 503 會讓一個【還沒上膛】的觀測把整支 cron 看起來弄壞。
+    expect(res.status).toBe(200);
+    expect(
+      warnSpy.mock.calls.some((c) => String(c[1] && (c[1] as { reason?: string }).reason) === 'manual_customer_search_unknown'),
+      '查不到時要留一行, 否則 RPC 長期缺席沒有人會發現',
+    ).toBe(true);
+    warnSpy.mockRestore();
+  });
+
+  it('🟢 正對照:Unknown=false ⇒ **不印**那一行(否則它每輪都吵)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    checkSpy.mockResolvedValue({ ...CLEAN_RESULT, manualCustomerSearchUnknown: false });
+    await GET(makeReq(bearer()));
+    expect(
+      warnSpy.mock.calls.some((c) => String(c[1] && (c[1] as { reason?: string }).reason) === 'manual_customer_search_unknown'),
+    ).toBe(false);
+    warnSpy.mockRestore();
   });
 });

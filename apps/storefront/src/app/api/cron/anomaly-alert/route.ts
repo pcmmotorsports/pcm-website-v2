@@ -181,6 +181,15 @@ const ALERT_PENDING_DC_STUCK_SECONDS = 600;
  *   ⇒ **連錯三次才叫**, 不會因為「剛好在兩次掃描中間」誤報。
  * 🛑 改它之前先答一句:你要它連錯【幾次】才叫?那個數字不是 15, 是 3。
  */
+/**
+ * ⟦b9-ENUMWATCH⟧ 片 2:客戶搜尋計數的回看窗口 = 24 小時。
+ * 🔵 **它不是門檻** —— 本片刻意不設門檻(板 `⟦b4-ENUM3⟧` 逐字「門檻不要用猜的」);
+ *    這個數字**不進 `shouldAlert`**,它只搭已經要寄的那封信的便車,而它產生的正是那個基線。
+ * ⚠️ **而天花板要一起記**:那封信只在別的異常觸發時才寄
+ *    ⇒ 一整週沒有別的異常 ⇒ **這個數字一次都不會被看到。往前一格,不是解決。**
+ */
+const ALERT_MANUAL_CUSTOMER_SEARCH_WINDOW_SECONDS = 86400;
+
 const ALERT_SHIPPED_GRACE_SECONDS = 900;
 
 /** 等長 constant-time 比對;長度不等先回 false(timingSafeEqual 要求等長 Buffer;沿 settle-sweep safeEqual)。 */
@@ -358,12 +367,20 @@ export async function GET(request: Request): Promise<Response> {
       shippedCutoffIso,
       shippedGraceSeconds: ALERT_SHIPPED_GRACE_SECONDS,
       orderCreatedCutoffIso,
+      manualCustomerSearchWindowSeconds: ALERT_MANUAL_CUSTOMER_SEARCH_WINDOW_SECONDS,
       orderCreatedStuckMinutes,
     });
 
     // 4. 🔴 本輪有推播失敗 → 503 + 結構化 counts log,**不偽 200**(壞掉的告警管道必須可見)。
     //    result.errors = notifiersFailed(管道 API 非 2xx / transport 失敗);>0 → 下輪 cron 重試(無去重、持續提醒)。
-    //    counts only 零 PII(route 本就無 order/rec/amount 等可洩欄)。
+    //    counts only(route 本就無 order/rec/amount 等可洩欄)。
+    //    🔴🔴 ⛔ ~~「零 PII」~~ **那個標籤在 2026-09-01 之後不再成立**(R3 must-fix 3)——
+    //       `⟦b9-ENUMWATCH⟧` 片 2 加了 `manualCustomerSearchActors`, 而**同批 migration 自己寫著**:
+    //       「【計數本身在小樣本下仍可能可再識別】(actors=1 + 已知班表 ⇒ 連得回唯一員工),
+    //         **不得宣稱絕對零 PII**;要外送到內部告警管道以外時重新判」。
+    //    📌 **⇒ 一個錯的安全標籤比沒有標籤貴** —— 它會讓後續的 log / 轉寄 / 外送
+    //       沿用一個不存在的隱私保證, 而沒有人會回頭查那個標籤是什麼時候變假的。
+    //    ✅ 正確字面:**本回應只有計數, 而其中 `manualCustomerSearchActors` 在小樣本下可再識別。**
     if (result.errors > 0) {
       console.error('[anomaly-alert] 🔴 本輪告警管道推播有失敗(回 503;不吞成 200 偽裝成功)', { ...result });
       await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
@@ -510,6 +527,26 @@ export async function GET(request: Request): Promise<Response> {
       );
       await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
       return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+
+    /**
+     * 🔵 ⟦b9-ENUMWATCH⟧ 片 2:客戶搜尋計數**查不到**時要留一行 —— codex R1 must-fix 3。
+     *
+     * 🔴 **而它【刻意不改 200 / 不記 heartbeat failure】**:
+     *    那個 Unknown 有一種**完全預期**的成因 —— 那支 RPC 還沒 apply(部署窗口)。
+     *    把它升成 503 ⇒ 心跳變紅 ⇒ **一個【還沒上膛】的觀測會讓整支 cron 看起來壞了**,
+     *    而那正是本片 plan 自己寫的「為了加一個觀測而弄壞主要功能」。
+     * 🛑 **而不留訊號也不行**(那正是 codex 指的):RPC **長期**缺席 ⇒ 沒有人會發現。
+     *    ⇒ 折衷 = **回應照舊 200 + 這一行 log**,而 `manualCustomerSearchUnknown` 本來就在
+     *      `...result` 裡跟著回應走 ⇒ 打那支 route 的人看得到。
+     * ⚠️ **而【誰在讀這一行】沒有解決** —— 它與 `⟦b9-ENUMWATCH⟧` 這一列本身是同一個病的下一層。
+     *    ⇒ 那要等這個計數真的接進告警判斷之後才收得掉。**明寫,不假裝這一行等於有人在看。**
+     */
+    if (result.manualCustomerSearchUnknown) {
+      console.warn(
+        '[anomaly-alert] 🔵 客戶搜尋計數查不到 ⇒ 那支 RPC 還沒 apply, 或它讀取失敗(失敗那一種在 use-case 另有一行 error log)',
+        { reason: 'manual_customer_search_unknown' },
+      );
     }
 
     // 5. 認證過 + enabled + 無錯 → 200 + 計數摘要(零 PII counts)。

@@ -1046,3 +1046,170 @@ describe('🔴 心跳:回應層對帳(壞回應要 throw, 不是靜靜地健康)
     await expect(call({ checked, never_beat, no_success_ts, stale, future, failing })).rejects.toThrow();
   });
 });
+
+// ⟦b9-ENUMWATCH⟧ 片 2:客戶搜尋計數。**這一族的全部重點是「42883 有兩個意思」。**
+//
+// 🔴 而那不是推論, 是量的(2026-09-01 拋棄式 PG 17.10, 三行就造得出來):
+//    世界 A 函式在而函式體裡少東西 ⇒ 42883 · to_regprocedure IS NULL ⇒ **false**
+//    世界 B 函式真的不存在        ⇒ 42883 · to_regprocedure IS NULL ⇒ **true**
+//    ⇒ **兩個世界的 SQLSTATE 完全相同, 而只有那發探詢分得開。**
+//
+// 🛑🛑 **而【錯誤訊息裡的名字, 是最內層失敗的那個東西, 不是你呼叫的那個】** ——
+//    世界 A 的訊息寫的是那個 helper 的名字 ⇒ 任何「訊息裡有沒有提到我們那支函式」的判斷
+//    在世界 A 會判成「不是我們的問題」而降級 ⇒ **一支壞掉的函式被讀成「今天沒有人搜尋客戶」。**
+describe('⟦b9-ENUMWATCH⟧ getManualCustomerSearchSummary — 42883 的兩個世界', () => {
+  const RPC = 'get_manual_customer_search_summary';
+
+  /** @param probeMissing `to_regprocedure(...) IS NULL` 的回答 —— 這一格就是兩個世界的分界線。 */
+  function searchClient(opts: { result?: unknown; raise42883?: boolean; probeMissing?: boolean; otherError?: unknown }) {
+    return makeClient({
+      query: async (text: string) => {
+        if (text.includes('to_regprocedure')) {
+          return { rows: [{ missing: opts.probeMissing === true }] };
+        }
+        if (opts.otherError !== undefined) throw opts.otherError;
+        if (opts.raise42883 === true) {
+          // 🔴 訊息刻意寫成【內層 helper 的名字】—— 那正是世界 A 的真實形狀。
+          const err = new Error('function public.some_inner_helper() does not exist') as Error & { code: string };
+          err.code = '42883';
+          throw err;
+        }
+        return resultRows(opts.result);
+      },
+    });
+  }
+
+  it('🟢 正常 ⇒ 回兩個數字', async () => {
+    const { client } = searchClient({
+      result: { manual_customer_search_count: 7, manual_customer_search_actors: 3 },
+    });
+    const out = await new PgAnomalyAlertReaderAdapter('postgres://x', () => client)
+      .getManualCustomerSearchSummary(86400);
+    // 🔵 R3 must-fix 2 之後多一格 `windowSeconds` —— 而它是 adapter 回的, 不是呼叫端拼的。
+    expect(out).toEqual({ count: 7, actors: 3, windowSeconds: 86400 });
+  });
+
+  it('世界 B(函式真的不存在, probe 回 missing=true)⇒ 回 null, **不 throw**', async () => {
+    const { client, query } = searchClient({ raise42883: true, probeMissing: true });
+    const out = await new PgAnomalyAlertReaderAdapter('postgres://x', () => client)
+      .getManualCustomerSearchSummary(86400);
+    // 🔵 那是部署窗口 —— 碼會比 migration 早上線, 而它不得讓整支 cron 炸。
+    expect(out).toBeNull();
+    // 🎯 而探詢那一發的【完整簽章】在這裡釘(它只在錯誤路徑走得到)
+    const texts = query.mock.calls.map((c) => String(c[0]));
+    expect(texts.some((t) => t.includes(`to_regprocedure('public.${RPC}(integer)')`))).toBe(true);
+  });
+
+  it('🔴🔴 世界 A(函式在而體壞掉, probe 回 missing=false)⇒ **原封上拋, 不得降級**', async () => {
+    const { client } = searchClient({ raise42883: true, probeMissing: false });
+    // 🎯 這一格就是這一片的分界線。突變:把 adapter 裡那發 to_regprocedure 拿掉
+    //    (直接照 42883 降級)⇒ 這一格會拿到 null 而紅。
+    await expect(
+      new PgAnomalyAlertReaderAdapter('postgres://x', () => client).getManualCustomerSearchSummary(86400),
+    ).rejects.toThrow();
+  });
+
+  it('🔵 非 42883 的錯誤(例:權限 42501)⇒ 原封上拋, 不得吞', async () => {
+    const err = new Error('permission denied') as Error & { code: string };
+    err.code = '42501';
+    // 🔴🔴 **`probeMissing: true` 是這一格的承重點, 不是順手填的** ——
+    //    我第一版沒設它(預設 false)⇒ 拿掉 `code !== 42883` 那道判斷之後, 探詢會說「函式在」
+    //    ⇒ 照樣 throw ⇒ **突變殺不掉這一格, 而它是綠的。**
+    //    設成 true ⇒ 少了那道判斷就會降級成 null ⇒ 這一格才真的紅。
+    //    📌 **⇒ 一個測試要殺得掉突變, 它的 fixture 必須把【兩個世界】真的分開。**
+    const { client } = searchClient({ otherError: err, probeMissing: true });
+    await expect(
+      new PgAnomalyAlertReaderAdapter('postgres://x', () => client).getManualCustomerSearchSummary(86400),
+    ).rejects.toThrow();
+  });
+
+  // 🔴🔴 **codex R1 must-fix 1 的證人 —— 而我第一版的測試殺不掉它。**
+  //    我原本只餵 `'x'` ⇒ `Number('x')` 是 `NaN` ⇒ 舊版的 `Number.isFinite` 照樣 throw
+  //    ⇒ **把 typeof 檢查拿掉那個突變是綠的。**
+  //    ✅ 而真正會出事的是 `null` / `''` / `false` —— `Number()` 把它們全變成 **0**
+  //       ⇒ **一支壞掉的 RPC 看起來像「今天沒有人搜尋客戶」。**
+  it.each([null, '', false, undefined])(
+    '🔴 計數欄是 %p ⇒ **throw**(Number() 會把它變成 0, 而 0 與「沒有人搜尋」印同一個數字)',
+    async (bad) => {
+      const { client } = searchClient({
+        result: { manual_customer_search_count: bad, manual_customer_search_actors: 1 },
+      });
+      await expect(
+        new PgAnomalyAlertReaderAdapter('postgres://x', () => client).getManualCustomerSearchSummary(86400),
+      ).rejects.toThrow();
+    },
+  );
+
+  it('🔵 回應形狀不符(計數欄是字串)⇒ throw, 不得當成 0', async () => {
+    const { client } = searchClient({
+      result: { manual_customer_search_count: 'x', manual_customer_search_actors: 1 },
+    });
+    await expect(
+      new PgAnomalyAlertReaderAdapter('postgres://x', () => client).getManualCustomerSearchSummary(86400),
+    ).rejects.toThrow();
+  });
+
+  // 🔴🔴 **codex R1 must-fix 5:我第一版的「尺自檢」近乎恆真。**
+  //    舊版:`texts.some(t => t.includes(RPC))` + 一個現造名字的負對照。
+  //    ⛔ 而**那個負對照沒有承重** —— 現造的名字本來就不會出現, 它在任何世界都是 false。
+  //    ⛔ 而 `includes(RPC)` 是**子字串** ⇒ 把 RPC 打成 `get_manual_customer_search_summary_x`
+  //       仍然通過(原名是它的子字串)。**⇒ 今天第三次同一個病:子字串比對。**
+  //    ✅ 改成:①釘住**完整呼叫字面**(含括號與參數佔位)②負對照用【真的會混淆的那個】——
+  //       同一支 adapter 的**別支 RPC 名字**, 它們在同一個檔裡, 而打錯很可能就是打成它們。
+  it('🟢 尺的自檢:它打的是那支 RPC 的【完整字面】, 而不是任何一支', async () => {
+    const { client, query } = searchClient({
+      result: { manual_customer_search_count: 0, manual_customer_search_actors: 0 },
+    });
+    await new PgAnomalyAlertReaderAdapter('postgres://x', () => client).getManualCustomerSearchSummary(86400);
+    const texts = query.mock.calls.map((c) => String(c[0]));
+    // 🎯 完整字面 ⇒ 名字後面多一個字元就對不上(舊版的 includes 吞得掉)
+    expect(texts.some((t) => t.includes(`public.${RPC}($1::integer)`))).toBe(true);
+    // 🛑 而【探詢那一發只在錯誤路徑才打】—— 我第一版把它也塞進這一格 ⇒ 當場紅。
+    //    ⇒ 那個紅是對的:正常路徑本來就不該多打一發探詢(那會是每輪一次的多餘往返)。
+    //    ⇒ 探詢的字面改到下面那一格(世界 B)去釘, 因為那裡才走得到它。
+    expect(texts.some((t) => t.includes('to_regprocedure'))).toBe(false);
+    // 🔵 負對照用【同一支 adapter 真的存在的別支 RPC】—— 打錯最可能打成它們
+    for (const other of [
+      'get_payment_anomaly_alert_summary',
+      'get_order_refunds_stuck_summary',
+      'get_shipped_email_gap_counts',
+    ]) {
+      expect(texts.some((t) => t.includes(other)), `不該打到 ${other}`).toBe(false);
+    }
+  });
+});
+
+// ⟦b9-ENUMWATCH⟧ 片 2:R3(codex, 第三輪)的證人們。
+describe('⟦b9-ENUMWATCH⟧ R3 的三格', () => {
+  function ok(result: unknown) {
+    return makeClient({
+      query: async (text: string) =>
+        text.includes('to_regprocedure')
+          ? { rows: [{ missing: false }] }
+          : { rows: [{ result }] },
+    });
+  }
+
+  it('🔴 R3 must-fix 2:回傳的 windowSeconds 是【我真的送出去的那個】', async () => {
+    // 🎯 突變:把 adapter 那個 `windowSeconds,` 拿掉 ⇒ 這一格必須紅。
+    //    而它守的是那個被證偽的前提:**放進同一個物件 ≠ 來自同一次量測**。
+    const { client } = ok({ manual_customer_search_count: 3, manual_customer_search_actors: 2 });
+    const out = await new PgAnomalyAlertReaderAdapter('postgres://x', () => client)
+      .getManualCustomerSearchSummary(3600);
+    expect(out).toEqual({ count: 3, actors: 2, windowSeconds: 3600 });
+  });
+
+  it('🔴 R3 consider 4:`{count:0, actors:1}` 逐欄都合法而合起來不可能 ⇒ throw', async () => {
+    const { client } = ok({ manual_customer_search_count: 0, manual_customer_search_actors: 1 });
+    await expect(
+      new PgAnomalyAlertReaderAdapter('postgres://x', () => client).getManualCustomerSearchSummary(86400),
+    ).rejects.toThrow();
+  });
+
+  it('🟢 正對照:actors === count 是合法的(每個人各一筆)', async () => {
+    const { client } = ok({ manual_customer_search_count: 4, manual_customer_search_actors: 4 });
+    const out = await new PgAnomalyAlertReaderAdapter('postgres://x', () => client)
+      .getManualCustomerSearchSummary(86400);
+    expect(out?.actors).toBe(4);
+  });
+});
