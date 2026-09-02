@@ -97,6 +97,14 @@ bash .husky/g.sh >/dev/null 2>&1; echo "noBlob=$?"
 git checkout -q -- . 2>/dev/null; git reset -q
 echo x > other.md; git add other.md
 bash .husky/g.sh >/dev/null 2>&1; echo "notStaged=$?"
+git checkout -q -- . 2>/dev/null; git reset -q
+w CLAUDE.md 100; git add CLAUDE.md; git commit -qm small
+bash .husky/g.sh --at-head >/dev/null 2>&1; echo "headSmall=$?"
+w CLAUDE.md 99999; git add CLAUDE.md; git commit -qm big; w CLAUDE.md 100
+bash .husky/g.sh --at-head >/dev/null 2>&1; echo "headBig=$?"
+bash .husky/g.sh >/dev/null 2>&1; echo "headBigButNothingStaged=$?"
+w CLAUDE.md 100; git add CLAUDE.md
+bash .husky/g.sh --at-head >/dev/null 2>&1; echo "headBigIndexSmall=$?"
 ITEOF
   mkdir -p "$R/repo"
   env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_OBJECT_DIRECTORY \
@@ -108,13 +116,34 @@ ITEOF
   chk "整合:只有工作樹超標要放"  "$(g treeBig)"   "0"
   chk "整合:讀不到 blob 要擋"    "$(g noBlob)"    "2"
   chk "整合:沒動到本檔要放行"    "$(g notStaged)" "0"
+  # 🔴 --at-head 這一層是 pre-push 走的路 —— 它擋的是 merge/rebase/cherry-pick/revert
+  #    那幾條【不經過 pre-commit】的路徑(2026-09-02 codex R3 指出)。
+  #    最後一格是關鍵:HEAD 超標而 index 乾淨 ⇒ pre-commit 那條【放行】而 --at-head 【擋】
+  #    ⇒ 兩條路各自守不同的世界, 而它們印不同的答案 = 兩者都有判別力。
+  chk "at-head:HEAD 合規放行"        "$(g headSmall)"               "0"
+  chk "at-head:HEAD 超標要擋"        "$(g headBig)"                 "1"
+  chk "對照:同一刻 pre-commit 放行"   "$(g headBigButNothingStaged)" "0"
+  # 🔴🔴 這一格是【殺 mut8 的那一格】—— 沒有它, 把 `REF="HEAD:$F"` 改成 `REF=":$F"`
+  #    (= --at-head 偷偷改回量 index)在上面每一格都還是綠。
+  #    成因:`git commit` 之後 index 與 HEAD 相同 ⇒ 兩個 REF 指到同一個 blob ⇒ 那些格對這一軸零判別力。
+  #    ⇒ 必須造一個【HEAD 超標而 index 合規】的世界, 兩者才會印不同的答案。
+  #    📌 一發突變全綠有兩種原因:斷言太弱, 或那個世界根本沒被造出來。這一次是後者。
+  chk "at-head:HEAD超標而index合規仍要擋" "$(g headBigIndexSmall)"   "1"
   rm -rf "$R"
   printf '⇒ selftest %s (通過 %s / 失敗 %s)\n' "$([ "$ng" -eq 0 ] && echo PASS || echo FAIL)" "$ok" "$ng"
   [ "$ng" -eq 0 ] || exit 1
   exit 0
 fi
 
-git diff --cached --name-only 2>/dev/null | grep -qx "$F" || exit 0
+# --at-head:pre-push 走這條 —— 量【HEAD 上那顆 commit 的 CLAUDE.md】, 不是 index 也不是工作樹。
+# 🔴 為什麼要有它:pre-commit 那條只在 staged 到 CLAUDE.md 時啟動,
+#    而乾淨 merge / rebase / cherry-pick / revert 不經過 pre-commit ⇒ 那些路徑上它零判別力。
+if [ "${1:-}" = "--at-head" ]; then
+  REF="HEAD:$F"
+else
+  git diff --cached --name-only 2>/dev/null | grep -qx "$F" || exit 0
+  REF=":$F"
+fi
 
 # 🔴 兩步, 不准串成一條管線(2026-09-02 我自己踩到, 而規則就寫在 CLAUDE.md 終端機紀律第 6 條):
 #    `git show :F | python3 數長度` ⇒ git show 失敗時 python3 讀到空 stdin ⇒ **印 0 而 rc=0**
@@ -122,9 +151,9 @@ git diff --cached --name-only 2>/dev/null | grep -qx "$F" || exit 0
 #    📌 管線的 rc 是【最後一段】的, 而錯在第一段。
 BLOB=$(mktemp) || { printf '🔴 建不出暫存檔 ⇒ 擋下\n' >&2; exit 2; }
 trap 'rm -f "$BLOB"' EXIT
-git show ":$F" > "$BLOB" 2>/dev/null
+git show "$REF" > "$BLOB" 2>/dev/null
 GRC=$?
-[ "$GRC" -eq 0 ] || { printf '🔴 讀不到 staged 的 %s(git show rc=%s)⇒ 擋下, 不是「乾淨」\n' "$F" "$GRC" >&2; exit 2; }
+[ "$GRC" -eq 0 ] || { printf '🔴 讀不到 %s(git show rc=%s)⇒ 擋下, 不是「乾淨」\n' "$REF" "$GRC" >&2; exit 2; }
 N=$(python3 -c "import io,sys;print(len(io.open(sys.argv[1],encoding='utf-8').read()))" "$BLOB" 2>/dev/null)
 PRC=$?
 [ "$PRC" -eq 0 ] && [ -n "$N" ] || { printf '🔴 量不到字元數(python rc=%s)⇒ 擋下\n' "$PRC" >&2; exit 2; }
@@ -132,7 +161,7 @@ PRC=$?
 V=$(verdict "$N")
 if [ "$V" = "ok" ]; then exit 0; fi
 
-printf '%s\n' "📏 staged $F = $N 字元(警告帶 $WARN / 硬上限 $HARD)" >&2
+printf '%s\n' "📏 $REF = $N 字元(警告帶 $WARN / 硬上限 $HARD)" >&2
 printf '%s\n' '' >&2
 printf '%s\n' '🎯 正解:把【病史·實錘·射程】搬去落點檔, 常載只留【症狀句 + 一行指標】。' >&2
 printf '%s\n' '   範例:2026-09-02 那兩顆 refactor(docs) —— 43,326 ⇒ 19,650。' >&2

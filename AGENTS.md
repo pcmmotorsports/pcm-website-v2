@@ -26,17 +26,17 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 ## 鐵則 1-12(每個 slice 必遵守;編號固定、外部大量按編號引用、**絕不重新編號**)
 
-1. **design 直接搬、不翻譯** — design-reference 是真權威、storefront 對齊 design 不反向遷就;寫前台元件前**必先 grep design-reference 字面、不憑記憶**;slice 指令禁用「翻譯/對齊/重寫」字眼;不畫預覽 HTML、不憑想像描述視覺。
+1. **design 直接搬、不翻譯** — design-reference 是真權威、storefront 對齊 design 不反向遷就;寫前台元件前**必先 grep design-reference 字面、不憑記憶**;slice 指令禁用「翻譯/對齊/重寫」字眼;🔴 **真權威不只 design-reference** —— 任何會被人看到的產出物動工前先解析真權威:OD `list_projects` 當場列全部設計專案 + grep design-reference,🔴 **而 `list_projects` 的結果【必須跟磁碟目錄數對一次】;數字不合 ⇒ 以磁碟為準**(2026-08-28 實測 `list_projects` ⇒ 1 個 / 磁碟 ⇒ 12 個;📌 一個【部分正確】的答案比一個空答案危險一個量級)。不畫預覽 HTML、不憑想像描述視覺。
 2. **後台對應 design** — Medusa schema 對應 design 已定義的資料結構;design `data/products.js` mock 是合約、後台實作合約。
 3. **前後台同步、不分階段** — 每 slice:**動前台 → 補對應後台 → 肉眼驗 → 修連動 → commit**;禁「前台全做、後台後補」。
 4. **Slice 15-45 分鐘可中斷** — 體積 15-45 分鐘可完成 + Sean 可肉眼驗;超過 → 拆。
 5. **CSS + TSX 同元件單一 slice** — 雙檔聯動、預設單一 slice 完成、不拆。
-6. **檔案大小硬上限** — 元件檔 **>400 行必拆**、>300 行硬警戒;Hook 檔 >200 行 → 評估拆分、不拆須於 commit body 寫理由。(OD worktree 檔大小用 `git show <sha>:<path>|wc -l`、別讀主樹版。)
+6. **檔案大小** — 元件檔 ~~**>400 行必拆**~~ **>400 行預設拆**(🔴 2026-09-02 訂正:正本是「預設拆」,**過線只是「要看一眼」的訊號, 不是「一定要拆」的結論**;每一刀要寫得出與 400 無關的理由)、>300 行警戒;🔴 **拆檔時註解必須跟著它解釋的那段碼搬;不得以壓縮/刪減註解作為降行手段**;Hook 檔 >200 行 → 評估拆分、不拆須於 commit body 寫理由。(OD worktree 檔大小用 `git show <sha>:<path>|wc -l`、別讀主樹版。)
 7. **多代理實作需批准** — 實作預設單一 session 順序執行;模型自評多代理派工更合適時,**先向 Sean 提案**(拆法、各代理範圍、怎麼驗收)、批准才派,不得自行啟動(2026-08-04 放寬自原「永久禁用」)。Claude Code 端「讀取/驗證/審查/機械批次套用・docs/制度檔工程(限主對話已驗證模式、diff 回核)」的委派授權見其 `~/.claude/rules/00-work-rules.md` §1,不需另批;你審到此類委派時知悉為合規、非鐵則 7 違反。
 8. **重大改動前先提 plan 等批准** — 「重大」=任一:跨 3+ 檔 / 動 schema·API·共用元件 / 動 next.config·vercel.json·Medusa config·Prisma schema / 影響部署或資料遷移。Plan 含:**要改什麼、為什麼、預期影響面、rollback**。Sean 批准才執行。
 9. **內容分級 L1/L2/L3 強制前置** — L1(年 0-1 次)hardcode 可;L2(季 1-3 次)hardcode+TODO+backlog;L3(週多次)**必後台 CRUD、發現立即停、寫 PRD 後再動**。任何 slice 前先標;**頻率拿不準 → 預設當 L3 停下問 Sean、不硬標 L2**。
 10. **三視角檢查** — 每技術決策過:擴充性 / 可維護性 / bug 可追蹤性。backlog 條目必寫「不修未來會痛在哪」、禁寫「待 Sean 決定」空泛句。
-11. **Slice 收工三綠 Checkpoint** — commit 前強制跑 typecheck+lint(動 .ts/.tsx 加 build)、任一紅停下修紅再 commit、不繞道/disable/skip/ignore(詳 `docs/patterns/slice-checkpoint.md`)。**字面 vs 事實守則:commit 訊息對應實際內容、不假裝完成沒做的事、有偏離寫 commit body 註明**(背景見 slice-checkpoint.md §1)。🔴 **而跑測試時「連跑兩發比檔數/測項/紅格」有一個沒寫出來的前提:輸入清單是對的**(2026-08-28 Sean 拍 `Q-鐵則11分母=甲`;實測 **三個窗各自複現**:餵 vitest 一條**不存在的測試檔路徑** ⇒ **它不報錯、rc=0、就少跑一支**,餵 6 條跑 5 支,**而連跑兩發都印 5**)⇒ **兩發用同一份錯清單 ⇒ 必然一致 ⇒ 那個「相同」是【重現性】不是【效度】**;總計行**只印「它跑了幾支」、不印「你餵了幾條」** ⇒ **要比第四個數:【我餵幾條】vs【它跑幾支】**。⚠️ 與「在錯的目錄跑 ⇒ `No test files found`」**不是同一個**:那一種至少 `rc=1`,**這一種全綠而沉默**。(本段與 `CLAUDE.md` 鐵則 11 同步,主從以 `CLAUDE.md` 為準。)
+11. **Slice 收工三綠 Checkpoint** — commit 前強制跑 typecheck+lint(動 .ts/.tsx/**.css/設定檔**加 build)🔴 **三綠指令一律加前綴 `TURBO_FORCE=1 pnpm <項目>`** —— 少了它 turbo 命中既有快取時會 replay 舊的綠;🔴 **「純文件片」僅指只動 `.md`** —— `.json` / `.css` / `.sh` / `.yaml` / `.yml` / `.sql` **一律不算**;🔴 **測試那一項:跑【測到你動的那個東西的檔】, 而放寬與驗法【成對】** ⇒ **連跑兩發, 比四個數(檔數 / 測項 / 紅的格數 / 我餵幾條 vs 它跑幾支)**;、任一紅停下修紅再 commit、不繞道/disable/skip/ignore(詳 `docs/patterns/slice-checkpoint.md`)。**字面 vs 事實守則:commit 訊息對應實際內容、不假裝完成沒做的事、有偏離寫 commit body 註明**(背景見 slice-checkpoint.md §1)。🔴 **而跑測試時「連跑兩發比檔數/測項/紅格」有一個沒寫出來的前提:輸入清單是對的**(2026-08-28 Sean 拍 `Q-鐵則11分母=甲`;實測 **三個窗各自複現**:餵 vitest 一條**不存在的測試檔路徑** ⇒ **它不報錯、rc=0、就少跑一支**,餵 6 條跑 5 支,**而連跑兩發都印 5**)⇒ **兩發用同一份錯清單 ⇒ 必然一致 ⇒ 那個「相同」是【重現性】不是【效度】**;總計行**只印「它跑了幾支」、不印「你餵了幾條」** ⇒ **要比第四個數:【我餵幾條】vs【它跑幾支】**。⚠️ 與「在錯的目錄跑 ⇒ `No test files found`」**不是同一個**:那一種至少 `rc=1`,**這一種全綠而沉默**。(本段與 `CLAUDE.md` 鐵則 11 同步,主從以 `CLAUDE.md` 為準。)
 12. 🔴 **codex 唯讀審查跑完的零留痕檢查:照 `docs/patterns/cowork-review-chain.md` 那四步**(先驗 codex 真的跑了 → 比對**我的檔的內容雜湊**、**不比全樹 `git status --porcelain`** —— 八窗共用一棵樹時它量到的是「誰在動」不是「codex 動了什麼」;Sean 2026-08-28 拍 `Q-零留痕判準=甲`)。⚠️ 本段 2026-08-28 才補進本檔 ⇒ **在此之前 Codex session 沒有任何零留痕義務**,不得把過去的審查回報讀成「已驗證零留痕」。
 
 12. **高風險改動 commit 前必過第二視角對抗審查** — 高風險=動到任一(2026-07-22 拍板 C 案):**①錢**(order·payment·refund·pricing·經銷價·會員 tier·儲值金)**②權限**(auth·RLS·GRANT·service_role·server/client 邊界)**③DB 結構與大量/不可逆寫入**(schema·migration·批次匯入)**④平台設定**(next.config·vercel.json·Prisma·CI·env)**⑤對外不可回收**(寄信·對外發布·法律頁)**⑥共用元件 packages/ui 行為改動**(純樣式除外)。跨 3 檔/一般 API/進度單元收尾不自動觸發;Sean 說「Ready for review」必審;milestone 收尾總審一次。不產書面 Packet(07-21 拍板),由執行端直呼另一模型唯讀對抗審查(Claude 端=codex CLI `-s read-only`;你被指派審查時同樣唯讀)。審查模式紀律=`docs/ops/AI_CONTRACT.md` §2:不改檔、不跑寫入工具、不 commit、不 push,只回 findings/風險/是否可繼續。審查重點:安全/權限、schema/migration 破壞面、STATUS/NORTHSTAR/鐵則、backlog/文件。歷史 Packet 格式備查 `docs/patterns/codex-review-packet.md`。
@@ -86,7 +86,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 - **zsh 禁忌**:命令內**禁 `#` 註解**(報 command not found)、**禁全形標點「」():;**(報 unknown file attribute);註解寫 prose、不寫進命令。
 - 🔴 **`echo` 遇到 `\c` 會【停止輸出】而 `rc=0`**(2026-08-29 實測 `/bin/zsh`,主視窗複驗):`echo "\copy …"` ⇒ **整行一個字都沒有**;`printf '%s\n' "\copy …"` ⇒ 正常。⚠️ `\copy` 是 psql 最常用的 meta-command ⇒ 專打【產生 SQL 腳本】:少掉那行沒跑,psql 照樣 `rc=0`。⇒ **含反斜線的字寫進檔案一律 `printf '%s\n'`**;餵 psql 前先數(`grep -c '^\\copy' <檔>` vs 期望條數)。詳 `CLAUDE.md` 同節。
-- **多步驟用 `&&` 串接**(任一步失敗自動停)、**禁裸換行 batch 多命令**。
+- **多步驟用 `&&` 串接**(任一步失敗自動停)、**禁裸換行 batch 多命令**。🔴 **而 `&&` 會被一個【合法的零】截斷**(`grep -c` 沒命中印 `0` 而 `rc=1` ⇒ 後面整串不跑, 而畫面上只是少印一行)⇒ **量測鏈不要用 `&&` 串;要串就每一段自己收 rc**。同族成員:`grep -c` / `grep -q` / `diff` / `test` / glob。
 - **「產生新檔→驗證→覆蓋」**:`cat > /tmp/x <<'EOF'` → `test -s /tmp/x || exit 1` → `mv /tmp/x target`。
 - **不假設非 macOS CLI 已裝**:`jq`/`yq` 用前 `command -v` 確認、或改 Python 內建。
 - **zsh nomatch**:glob 無匹配 exit 1、含 glob 加 `|| true` 或用 `find`。
@@ -138,11 +138,11 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 ## 快速自檢清單(你審 slice 是否合規的對照)
 
-**slice 開工前應有**:☐ 起手檢查綠(branch=dev/樹乾淨/HEAD 對齊 STATUS) ☐ 讀 STATUS「下一步」確認範圍 ☐ 動 design → grep 真權威字面 ☐ 標 L1/L2/L3(L3 立即停寫 PRD) ☐ 判鐵則 8 重大改動(是則先提 plan 等批) ☐ 涉錢/權限/schema·migration·大量寫入/平台設定/對外發送/共用元件行為任一 → 逐字過鐵則 12 六類清單(硬清單、不憑自評) ☐ 規劃前偵察 pass(掃 backlog/STATUS/specs/memory/lessons + graphify 連動面、plan 附相關紀錄節) ☐ 估時 15-45 分鐘(超出拆)。
+**slice 開工前應有**:☐ 起手檢查綠(branch=dev/樹乾淨/HEAD 對齊 STATUS) ☐ 讀 STATUS「下一步」確認範圍 ☐ 動 design → **先跑 `bash scripts/design-ref-check.sh`** 再 grep 真權威字面(🔴 13 棵工作樹裡 12 棵的 `design-reference/` 是空的 ⇒ 每一發 grep 都回零命中, 而讀的人會讀成「稿裡沒有這個」) ☐ 標片型(輕量 / 標準 / 高風險) ☐ 標 L1/L2/L3(L3 立即停寫 PRD) ☐ 判鐵則 8 重大改動(是則先提 plan 等批) ☐ 涉錢/權限/schema·migration·大量寫入/平台設定/對外發送/共用元件行為任一 → 逐字過鐵則 12 六類清單(硬清單、不憑自評) ☐ 規劃前偵察 pass(掃 backlog/STATUS/specs/memory/lessons + graphify 連動面、plan 附相關紀錄節) ☐ 估時 15-45 分鐘(超出拆)。
 
 **寫 slice 指令應有**:☐ 直接搬非翻譯 ☐ grep design 字面 ☐ CSS+TSX 同 slice ☐ 前後台同步 ☐ 標內容分級 ☐ 估時 15-45 分 ☐ 數字內部一致 ☐ 用詞精準(preview≠production / stash≠working tree / commit≠push) ☐ 禁止清單可執行不矛盾 ☐ 結尾「— 禁止清單結束 —」未截斷 ☐ 重大改動先提 plan。
 
-**slice 結束應有**:☐ **寫 reviewer 標記一律走 `bash scripts/write-reviewer-marker.sh "<片名+輪次或跳審理由>"`, 不要直接寫 `.git/`**(Sean 2026-08-29 拍「加」)—— 🔴 **實錘:有一個窗每一顆都直接寫, 而它說沒有人跟它講過**;⚠️ **而那道閘只驗「有沒有標記 + 釘不釘在當前 HEAD」, 不驗理由是不是真的** ⇒ **一個誠實的跳審理由與一個編的, 在它底下印同一個綠。** ☐ 肉眼驗 ☐ 三綠(動 .ts/.tsx 加 build、不 disable/skip) ☐ 動前台元件 → 補/更新 smoke test(`*.test.tsx`、見 `docs/architecture/testing-strategy.md`) ☐ commit 字面vs事實一致、偏離寫 body ☐ 精準 add ☐ commit 格式對 ☐ STATUS 7 欄更新(同 commit) ☐ 收尾對帳(Sean 拍板逐條 vs 已落檔;漏的補寫成 memory `project_*.md`、含決定/理由/連動、不只 commit body) ☐ busboy-end ☐ 不 push(roadmap/graphify=milestone 收尾或每日一次、不隨每 slice;07-10 拍板)。
+**slice 結束應有**:🔴 **順序:先 `git add`、【再】寫 reviewer 標記、才 commit**(Sean 2026-09-02 拍甲改字面 —— 那個標記釘的是 **staged 樹的雜湊**, add 之前寫會釘到一棵還沒有你的東西的樹, commit 當場被閘擋下) ☐ **寫一行心跳** `bash /Users/sean_1/pcm-website-v2/scripts/heartbeat.sh …` ☐ **改過任何對外字面(註解 / 文案 / plan / commit body / handoff)→ 拿舊字面跑 `bash scripts/literal-sweep.sh '<舊字面>'` 再 commit** ☐ **命中鐵則 12 六類 → codex 對抗審查已跑、未 push** ☐ **寫 reviewer 標記一律走 `bash scripts/write-reviewer-marker.sh "<片名+輪次或跳審理由>"`, 不要直接寫 `.git/`**(Sean 2026-08-29 拍「加」)—— 🔴 **實錘:有一個窗每一顆都直接寫, 而它說沒有人跟它講過**;⚠️ **而那道閘只驗「有沒有標記 + 釘不釘在當前 HEAD」, 不驗理由是不是真的** ⇒ **一個誠實的跳審理由與一個編的, 在它底下印同一個綠。** ☐ 肉眼驗 ☐ 三綠(動 .ts/.tsx 加 build、不 disable/skip) ☐ 動前台元件 → 補/更新 smoke test(`*.test.tsx`、見 `docs/architecture/testing-strategy.md`) ☐ commit 字面vs事實一致、偏離寫 body ☐ 精準 add ☐ commit 格式對 ☐ STATUS 7 欄更新(同 commit) ☐ 收尾對帳(Sean 拍板逐條 vs 已落檔;漏的補寫成 memory `project_*.md`、含決定/理由/連動、不只 commit body) ☐ busboy-end ☐ 不 push(roadmap/graphify=milestone 收尾或每日一次、不隨每 slice;07-10 拍板)。
 
 ---
 📎 **每一格「為什麼有這一格」的實錘與量測 → `docs/patterns/checklist-casebook.md`**(2026-09-02 從 `CLAUDE.md` 搬出)

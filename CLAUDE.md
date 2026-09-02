@@ -33,7 +33,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 3. **前後台同步、不分階段** — 每 slice:**動前台 → 補對應後台 → 肉眼驗 → 修連動 → commit**;禁「前台全做、後台後補」。
 4. **Slice 15-45 分鐘可中斷** — 體積 15-45 分鐘可完成 + Sean 可肉眼驗;超過 → 拆。
 5. **CSS + TSX 同元件單一 slice** — 雙檔聯動、預設單一 slice 完成、不拆。
-6. **檔案大小** — 元件檔 >400 行預設拆、>300 行警戒;Hook 檔 >200 行評估拆分;判斷不拆 → commit body 寫理由。(OD worktree 檔大小用 `git show <sha>:<path>|wc -l`、別讀主樹版。) 📎 **病史·實錘·舊字面 → `docs/patterns/ironrules-casebook.md` §鐵則6**
+6. **檔案大小** — 元件檔 >400 行預設拆、>300 行警戒;Hook 檔 >200 行評估拆分;判斷不拆 → commit body 寫理由。🛑 **而過線只是「要看一眼」的訊號, 不是「一定要拆」的結論** —— 每一刀要寫得出與 400 無關的理由。🔴 **拆檔時註解必須跟著它解釋的那段碼搬;不得以壓縮/刪減註解作為降行手段** —— 那些註解裡住著 Sean 的拍板紀錄,而「刪註解」在 diff 上與「搬移」長得一樣、三綠全綠、審查看的是行為零改動。(OD worktree 檔大小用 `git show <sha>:<path>|wc -l`、別讀主樹版。) 📎 **病史·實錘·舊字面 → `docs/patterns/ironrules-casebook.md` §鐵則6**
 7. **多代理實作需批准** — 實作預設單一 session 順序執行;模型自評多代理派工更合適時,**先向 Sean 提案**(拆法、各代理範圍、怎麼驗收)、批准才派,不得自行啟動。讀取/驗證/審查/機械批次套用・docs/制度檔工程(限主對話已驗證模式、diff 回核)類委派照 `~/.claude/rules/00-work-rules.md` §1,不需另批。(2026-08-04 放寬自原「永久禁用」)
 8. **重大改動前先提 plan 等批准** — 「重大」=任一:跨 3+ 檔 / 動 schema・API・共用元件 / 動 next.config・vercel.json・Medusa config・Prisma schema / 影響部署或資料遷移。Plan 含:**要改什麼、為什麼、預期影響面、rollback**。Sean 批准才執行。
 9. **內容分級 L1/L2/L3 強制前置** — L1(年 0-1 次)hardcode 可;L2(季 1-3 次)hardcode+TODO+backlog;L3(週多次)**必後台 CRUD、發現立即停、寫 PRD 後再動**。任何 slice 前先標;**頻率拿不準 → 預設當 L3 停下問 Sean、不硬標 L2**。
@@ -102,7 +102,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
   > 📌 **⇒ 黑名單在跟下一個沒想到的前綴賽跑。改成【只印名稱】—— 那是白名單, 而它不需要知道值長什麼樣。**
 - **Branch**:`main`←production(Sean 手動 merge)/ `dev`←主開發(slice 都在 dev、線性、暫不開 feature branch)。
 - **Commit 訊息**:`type(scope): subject [milestone]`。type=feat/fix/refactor/docs/chore/test/perf;scope=storefront/medusa/ui/schemas/docs/config;subject=繁中祈使句≤72 字元。
-- **Add 必精準**:`git add <精確路徑>`;**禁 `git add .` / `git add -A`**。 📎 **共用 index 的暴露期、pathspec 兩種形狀各擋一半、兩邊同時有東西時的預設動作 → `docs/runbooks/multi-window-command-workflow.md` 附錄**
+- **Add 必精準**:`git add <精確路徑>`;**禁 `git add .` / `git add -A`**。🔴 **而「路徑精準」≠「內容精準」** —— `git add <單一檔案>` 拿的是那支檔的**整個 diff**。🛑 **`git commit -F <msg> -- <pathspec>` 與不帶 pathspec【各擋一半、各對另一半失明】** ⇒ 兩種都不是無條件安全 ⇒ commit 前 `git diff --cached -- <檔>`、commit 後 `git show HEAD:<檔>` 回核。🛑 **而【兩邊同時有東西】時(index 有別人的檔、你要 commit 的那支檔工作樹裡也有別人未 commit 的行), 兩種形狀都不安全 ⇒ 預設動作是【停下來協調、等對方先 commit】, 不要自己動手**(Sean 2026-08-29 拍 `⑦ 補`)。 📎 **共用 index 的暴露期、pathspec 兩種形狀各擋一半、兩邊同時有東西時的預設動作 → `docs/runbooks/multi-window-command-workflow.md` 附錄**
 - **不自動 push**:commit + busboy-end 後**不 push**、Sean 手動推=review checkpoint。
 - **Submodule**:初始化 `git submodule update --init --recursive`;同步 design `git submodule update --remote design-reference/` → `git add design-reference` commit。
 
@@ -115,7 +115,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 - **zsh 禁忌**:命令內**禁 `#` 註解**、**禁全形標點「」():;**;註解寫 prose、不寫進命令。
 - 🔴 **雙引號內禁反引號** —— 被 zsh 當命令替換吃掉,而句子還讀得通。commit body 一律 `git commit -F <檔>` 或單引號。
-- 🔴 **含反斜線的字寫進檔案一律 `printf '%s\n'`,不要 `echo`** —— `echo` 遇 `\c` 會停止輸出,`rc=0` 而那行從來沒存在過。⚠️ 射程:只在 `/bin/zsh` 實測過、只講 `\c`(bash 的 `echo` 需 `-e` 才解讀跳脫),而它打的是**人在終端機打的那一層**不是腳本層。
+- 🔴 **含反斜線的字寫進檔案一律 `printf '%s\n'`,不要 `echo`** —— `echo` 遇 `\c` 會停止輸出,`rc=0` 而那行從來沒存在過。⚠️ 射程:只在 `/bin/zsh` 實測過、只講 `\c`(bash 的 `echo` 需 `-e` 才解讀跳脫),而它打的是**人在終端機打的那一層**不是腳本層。✅ **而可機械執行的自檢是:餵給 psql 之前先數一次** `grep -c '^\\copy' <產生的檔>` vs 你期望的條數 —— 那就是鐵則 11「我餵幾條 vs 它跑幾支」套在【腳本產生】這一層。
 - 🔴 **`$?` 每一個指令都會覆寫**(實測 40 種寫法 40 中)⇒ 唯一安全形狀 `cmd > file 2>&1 ; RC=$?`,中間不准有任何東西。
 - 🔴 **`local X=$(cmd)` 會【吞掉】rc**(不是蓋掉)⇒ 必須拆兩行 `local X; X=$(cmd); RC=$?`。
 - 🔴 **管線每一段的結果 ⇒ 跑完【立刻】整條收進陣列**,中間不准有任何東西(bash `PIPESTATUS` / zsh `pipestatus`)🛑 **這一條只能寫成「你必須怎麼做」, 不可以寫成「它會怎樣」** —— bash 與 zsh 行為相反, 任何事實描述一定對其中一邊是錯的。。
