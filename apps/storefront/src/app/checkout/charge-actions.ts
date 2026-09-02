@@ -370,6 +370,19 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
       //    ⇒ 它自己拋就逃出這個 catch ⇒ 下面那句 `return { formError: MSG.generic }` 不會跑。
       //    ⚠️ 而它的**傷害比 finding 2 輕**, 理由寫在下面 :356 那段註解:走到此處的 throw
       //       全屬零扣款路徑 ⇒ 逃出去也沒有一筆錢可以扣第二次。**輕不等於不修**, 而修法是一個字。
+      // 🔵 2026-09-03 訂正(主視窗 `-87` 對正式庫唯讀實測 `pg_proc`;線 `-account` 落檔)
+      //   ⛔ 下面 `fix:` 字串裡那句 ~~「prod 的 create_order 可能仍是 8 參」~~ **今天為假**:
+      //   正式庫已是 **10 參** —— p_lines / p_address_id / p_shipping_method / p_invoice /
+      //   p_cart_session_id / p_terms_version / p_client_ip / p_client_ua /
+      //   p_notification_email / p_coupon_code
+      //   🛑 射程:**只量了參數個數與名稱, 沒有比對函式本體是不是 repo 裡那一版**
+      //      ⇒ 「簽章對了」不等於「函式本體是我們以為的那一版」—— 那正是這一族的坑。
+      //   📌 這是【好消息型的過期】(以為有風險而其實沒有)⇒ **最不會被回頭查的一種**,
+      //      而它的成本是讓人為一個不存在的風險繞路。
+      //   🔴 **而那句假話【還留在下面那個字串裡】, 本次沒有動它** —— 理由:那是**執行時會印出去的
+      //      log 訊息, 不是註解**;改它不是零行為改動(實測:剝註解後 sha256 會變)⇒ 依鐵則 12
+      //      的判準它不該由我自己放行。**已端給主視窗,等裁。**
+      //   🛑 **而那個決定也沒有被重新評估**:`fix:` 仍叫人跑那支腳本, 它是否仍為必要, 本次不判。
       safeLog('error', '[checkout] create_order 簽章不符', {
         code: rpcErrorCode,
         fix: 'prod 的 create_order 可能仍是 8 參:跑 bash scripts/verify-create-order-9param.sh,只有 exit 0 才可部署',
