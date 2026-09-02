@@ -29,6 +29,7 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
  * 取錯誤字面。🔴 `String(e)` 對一個 `toString` 會拋的物件**自己會拋**
@@ -64,9 +65,31 @@ export interface AtomicPartialWrite {
   notRun: string[];
 }
 
-/** 落點目錄。`logs/` 已在 `.gitignore:48`(當場驗:`git check-ignore -v` rc=0;
- *  正對照 `scripts/rpm-import.ts` rc=1 ⇒ 那把尺兩個方向都會動)。 */
-const LOG_DIR = 'logs';
+/**
+ * 落點目錄 —— **從本檔自己的位置推, 不是相對 `process.cwd()`**(⟦f3-HALFWRITELOGDIR⟧)。
+ *
+ * ⛔ 舊值 ~~`const LOG_DIR = 'logs'`~~ 是**相對路徑** ⇒ 對 `process.cwd()` 解析。
+ * 🔴 **兩個世界實測(2026-09-02 `-f3` 量、2026-09-03 `-auth` 複現)**:
+ * ```
+ * 從 repo 跑     ⇒ /Users/sean_1/pcm-wt-auth/logs/rpm-import-partial-…
+ * 從 /tmp 跑     ⇒ /private/tmp/logs/rpm-import-partial-…
+ * ```
+ * 🛑 **而它印給人看的那一行【兩種情況逐字相同】**(`⇒ 已寫入 logs/rpm-import-partial-…`)
+ *    ⇒ 🎯 **讀的人會以為是 repo 的 `logs/`, 而那份紀錄可能落在他找不到的地方。**
+ *
+ * 🔴 **而失敗方向不只是「找不到」**:`.gitignore:48` 的 `logs/` **只涵蓋 repo 的那一個**
+ *    ⇒ 從**別的 repo** 底下跑, 這份含【供應商 ID + 原始 DB 錯誤字面】的紀錄
+ *    **可能變成那個 repo 的 tracked 檔**。
+ *
+ * ✅ 修法照 repo 既有先例(`scripts/admin-probe/up.sh:47` 的 `REPO="$(cd "$(dirname "$0")/../.." && pwd)"`
+ *    與 `scripts/storefront-projection-leak-guard.test.ts:202` 的 `fileURLToPath(new URL(…, import.meta.url))`)
+ *    —— **不自己發明一個形狀**。
+ * 🔵 `logs/` 仍在 `.gitignore:48`(`git check-ignore -v logs/x.log` rc=0;
+ *    正對照 `scripts/rpm-import.ts` rc=1 ⇒ 那把尺兩個方向都會動)。
+ * 🛑 **本修法證不到什麼**:它保證**落點**固定, **不保證**有人去看那份檔;
+ *    也**沒有查**今天有沒有人真的從別的目錄跑過它 —— 這是一個機制, 不是一次事故。
+ */
+export const LOG_DIR = fileURLToPath(new URL('../logs/', import.meta.url));
 
 /**
  * 產生要印/要寫的那幾行。**純函式** —— 不碰檔案系統、不碰時間,好測。
