@@ -26,8 +26,91 @@ export function assertPositiveIntegerPoolLimit(
   }
 }
 
-/** searchByKeyword ILIKE 三欄(對齊 PRD §3.5 + supabase-schema-design.md §2.5 dev 階段)。 */
-export const SEARCHABLE_COLUMNS = ['title', 'subtitle', 'description'] as const;
+/**
+ * searchByKeyword 的 ILIKE 欄位(原三欄 + `external_id`;⟦搜尋-多詞與料號⟧ 2026-09-03)。
+ *
+ * 🔴 **`external_id` 就是客人在商品頁上看到的那個料號** —— 加它是因為 Sean 線上逐字回報
+ *    「輸入料號會找不到東西, 我要找料號」(線上實測 `CARK9650` ⇒ 0 件,而那個碼就印在
+ *    `/products/lightech-cark9650` 的主標上方「LIGHTECH · CARK9650」)。
+ *    來源對應:`mappers/product.ts` 錨 `productCode: row.external_id`;
+ *    畫面端 `apps/storefront/src/components/ProductTabs.tsx` 錨「顯真主碼 productCode」。
+ *
+ * 🔴🔴 **不要改成 `sku` —— 那一欄【不在被搜的那張 view 上】。**
+ *    被搜的是 `products_public`(見 `SupabaseProductAdapter` 錨 `searchByKeyword`),
+ *    而 `sku` 住在 `product_variants`、`variant_sku` 住在 `product_variants_public`
+ *    ⇒ **兩者都要 join 才到得了**。2026-09-03 逐欄看過 `database.types.ts` 的
+ *    `products_public` Row:20 欄裡沒有 `sku` 也沒有 `variant_sku`。
+ *
+ * 🛑 **加欄位只准加【那張 view 上已經有的欄】** —— `products_public` 物理上就沒有
+ *    `price_store` / 經銷價那些欄,那是一道**實體隔離**而不是一個 WHERE
+ *    (PCM Server 端鐵則:經銷價絕不傳到一般會員瀏覽器)。
+ *    ⇒ **改成別的投影表 / materialized view = 把實體隔離換成條件式**,那要另案並過對抗審查。
+ */
+export const SEARCHABLE_COLUMNS = [
+  'title',
+  'subtitle',
+  'description',
+  'external_id',
+] as const;
+
+/**
+ * 詞數上限:每多一個詞就多疊一組 `.or()` ⇒ URL 變長。
+ *
+ * 🔴 PostgREST 走 GET ⇒ URL 過長會 **HTTP 414 或被 proxy 砍**,
+ *    而**那個失敗長得像「搜不到」** ⇒ 截斷要有上限,不能讓輸入決定 URL 長度。
+ * ⚠️ **`8` 這個數字沒有量過**(plan §4 第 10 格自標未確認)——
+ *    它是「比任何真實查詢都寬、又遠小於任何 URL 上限」的保守值,不是量出來的門檻。
+ *    要動它:先實測 URL 長度上限,不要憑感覺調。
+ */
+export const MAX_SEARCH_TERMS = 8;
+
+/**
+ * 把使用者輸入切成「每個都要中」的詞(⟦搜尋-多詞與料號⟧ 2026-09-03)。
+ *
+ * 🔴 **為什麼要切** —— 不切的話整串被包成**一個連續**的 `%...%`,
+ *    `%rpm rsv4%` 要求那八個字**照這個順序連在一起**出現在**同一欄**裡
+ *    ⇒ 沒有商品長那樣 ⇒ 線上實測 `rpm rsv4` / `rsv4 油箱貼` **一律 0 件**。
+ *
+ * 🔴🔴 **順序是【先 sanitize 再切】,而它【不可以】倒過來**(codex 2026-09-03 對抗審查 MF2/MF4)。
+ *    `sanitizeSearchInput` 會把 `,` `(` `)` `.` `"` **換成空白** ⇒
+ *    ```
+ *    先切後 sanitize(錯):`AP.123` ⇒ 一個詞 ⇒ 之後變 `%AP 123%` ⇒ 仍要求同欄連續 ⇒ 找不到
+ *    先 sanitize 後切(對):`AP.123` ⇒ `AP 123` ⇒ 切成 ['AP','123'] ⇒ AND ⇒ 命中
+ *    ```
+ *    ⚠️ **我第一版就是寫反的**,而 plan §7-a 那句「修病①會順手吃掉病③」**在寫反的版本下是假的**。
+ *    ⇒ 📌 那句話的真假**取決於這兩行的順序**,而順序在 diff 上看不出語意 ⇒ 這段註解就是它的守門。
+ *
+ * 🔴 **分隔字元集顯式列舉** —— ⛔ ~~原註解寫「`\s` 在 JS 不含全形空格 `U+3000`」~~ **那句是錯的**
+ *    (codex nit;我用 node 實測 `/\s/.test('\u3000')` ⇒ **true**)。
+ *    ✅ 正確的理由是 **`\s` 不含 `U+200B`(零寬空格)與 `U+FEFF`**(實測 `/\s/.test('\u200B')` ⇒ **false**)
+ *    ⇒ 所以仍然要顯式列舉,只是理由換一個。
+ *
+ * ⚠️ **中文不含空白時這裡回一個詞** —— `油箱貼` 切完仍是 `['油箱貼']`,
+ *    與今天的行為相同(那一格今天是綠的,不得回歸)。**本函式不做中文斷詞。**
+ *
+ * 🛑 **回空陣列是一個【要呼叫端 fail-closed 的訊號】,不是「沒有條件」** ——
+ *    輸入只有 `U+200B` 時 `trim()` **不會**把它清掉(實測:`'\u200B'.trim()` 仍是 `'\u200B'`)
+ *    ⇒ 呼叫端的「空字串就短路」擋不住它 ⇒ 切完是零詞
+ *    ⇒ **若呼叫端照樣送查詢, 那是一個【完全沒有條件】的查詢 = 整張 view 撈回來**(codex MF1)。
+ */
+const TERM_SEPARATORS = /[\s\u3000\u00A0\u202F\u200B\uFEFF]+/;
+
+export function splitSearchTerms(q: string): string[] {
+  const all = sanitizeSearchInput(q)
+    .split(TERM_SEPARATORS)
+    .filter((t) => t !== '');
+  if (all.length > MAX_SEARCH_TERMS) {
+    // 🔴 **不靜默截斷**(codex MF3;形狀對齊同檔 `fetchAllPaginated` 的 MAX_PAGES 警告)。
+    //    截掉的是 AND 的條件 ⇒ 結果會**變寬**不會變窄 ⇒ 客人看到的是「多出來的東西」,
+    //    而**那長得像搜尋很爛,不像被截斷**。⚠️ 讓客人在畫面上看到這件事屬於片 B(要改回傳型別)。
+    console.warn(
+      `[searchByKeyword] 詞數 ${all.length} 超過上限 ${MAX_SEARCH_TERMS}、只用前 ${MAX_SEARCH_TERMS} 個詞;` +
+        `結果會比使用者打的條件寬`,
+    );
+  }
+  // 🔴 **取【前】N 個,不是後 N 個或任選** —— 使用者先打的詞通常是主詞(品牌/品名)。
+  return all.slice(0, MAX_SEARCH_TERMS);
+}
 
 /**
  * 為 PostgREST `.or()` 跨欄 ILIKE filter 組裝 sanitized pattern + filter string。
@@ -41,11 +124,23 @@ export const SEARCHABLE_COLUMNS = ['title', 'subtitle', 'description'] as const;
  *
  * regex / strip 字元集合為 Code 設計選擇、不歸 PRD 字面源(對齊 lessons §12-3 維度 A)。
  */
-export function buildIlikeOrFilter(columns: readonly string[], q: string): string {
-  const sanitized = q
-    .replace(/[,()."]/g, ' ')
-    .replace(/[\\%_]/g, (c) => '\\' + c);
-  const pattern = `%${sanitized}%`;
+export function sanitizeSearchInput(q: string): string {
+  return q.replace(/[,()."]/g, ' ').replace(/[\\%_]/g, (c) => '\\' + c);
+}
+
+/**
+ * 🔴🔴 **`term` 必須是【已經 sanitize 過】的** —— 本函式**不再自己 sanitize**。
+ *
+ * **為什麼改**:sanitize 現在住在 `splitSearchTerms`(它必須先跑,見該函式的順序說明)。
+ * 若這裡再 sanitize 一次 ⇒ **雙重轉義**:`50%` 第一次變 `50\%`、第二次那個 `\` 又被轉義
+ * 成 `50\\\%` ⇒ **搜尋 `50%` 從此找不到東西,而它不會報錯、只會回 0 件**。
+ * (2026-09-03 我改順序時自己製造的,當場用 node 印出來才看見。)
+ *
+ * ⇒ **唯一的 sanitize 落點 = `splitSearchTerms`。** 要繞過切詞直接呼叫本函式的人,
+ *   自己先呼叫 `sanitizeSearchInput`。
+ */
+export function buildIlikeOrFilter(columns: readonly string[], term: string): string {
+  const pattern = `%${term}%`;
   return columns.map((col) => `${col}.ilike.${pattern}`).join(',');
 }
 

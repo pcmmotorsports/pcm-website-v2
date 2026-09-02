@@ -25,6 +25,7 @@ import {
   SEARCHABLE_COLUMNS,
   assertPositiveIntegerPoolLimit,
   buildIlikeOrFilter,
+  splitSearchTerms,
   fetchAllPaginated,
   findSingle,
 } from './helpers/product-query-support';
@@ -512,7 +513,38 @@ export class SupabaseProductAdapter implements IProductRepository {
     }
 
     const offset = params.offset ?? 0;
-    const filter = buildIlikeOrFilter(SEARCHABLE_COLUMNS, q);
+    // ⟦搜尋-多詞與料號⟧ 2026-09-03:**每個詞各組一組 `.or()`,詞與詞之間是 AND。**
+    //
+    // 🔴 **為什麼不是把整串包成一個 pattern**(那是修之前的行為):
+    //    `%rpm rsv4%` 要求那八個字**照這個順序連在一起**出現在**同一欄**裡
+    //    ⇒ 線上實測 `rpm rsv4` / `rsv4 油箱貼` / `gilles rsv4` **一律 0 件**,而單詞全中。
+    //    Sean 2026-09-03 線上親自撞到這一發。
+    //
+    // 🔴 **「兩道 `.or()` 疊起來 = AND、括號各自保住」不是推論,是本 repo 實測過的**:
+    //    `SupabaseOrderAdapter.ts` 錨「兩道 `.or()` 疊起來」(該檔兩處都記著),
+    //    來源片0 = `docs/specs/2026-08-15-1-p0-postgrest-or-semantics.md`(commit `b4865c29`,
+    //    **跑真 PostgREST 量的、不是讀文件推的**);同檔第二次對 PostgREST 14.16 複量亦同。
+    //    ⇒ 語意:`(詞1 中在任一欄) AND (詞2 中在任一欄) AND …`
+    //    ⇒ 📌 **一個詞可以中在標題、另一個中在料號** —— 每一組都含全部欄位就是為了這件事。
+    //
+    // ⚠️ **這裡【不做】相關性排序** —— 下方 `.order('id')` 是**穩定序**(分頁正確性),不是相關序。
+    //    ⇒ 本次改動修的是「找不到」,**不是「排得好」**。排序整段在片 B(要新 RPC + migration)。
+    const terms = splitSearchTerms(q);
+    // 🔴🔴 **零詞 ⇒ 當成空查詢 fail-closed,絕不往下送**(codex 2026-09-03 對抗審查 MF1)。
+    //
+    // **為什麼上面那道 `q === ''` 短路擋不住它**:`trim()` 走 Unicode White_Space,
+    // 而 **`U+200B`(零寬空格)不在那個集合裡** —— 實測 `'\u200B'.trim()` 仍是 `'\u200B'`
+    // ⇒ 它通過空字串檢查、然後被 `TERM_SEPARATORS` 切成**零個詞**。
+    // 同族:只打 `.` 或 `,` 或 `()` —— sanitize 把它們換成空白 ⇒ 一樣是零詞。
+    //
+    // 🛑 **少了這一格會發生什麼**:`terms.reduce(...)` 沒有東西可疊 ⇒ 回傳的是**沒有加任何
+    // `.or()` 的 base query** ⇒ 送出去的是一句**完全沒有條件**的查詢
+    // ⇒ **整張 `products_public` 的第一頁被當成「搜尋結果」回給客人**,
+    //   而 `count: 'exact'` 會讓它順便去數**全表**。
+    // ⇒ 📌 **失敗形狀是【成功】** —— HTTP 200、有結果、畫面看起來正常。
+    if (terms.length === 0) {
+      return { items: [], total: 0 };
+    }
 
     // 🔴 `.order('id')` 不是排版,是**分頁正確性的前提**(2026-08-17 V 窗掃出、A 窗修)。
     //    SQL **沒有 ORDER BY 就不保證列的順序** —— 而本方法是分頁(`.range(offset, …)`),
@@ -533,13 +565,21 @@ export class SupabaseProductAdapter implements IProductRepository {
     //    —— 而疊層那條路只顯示 8 筆、畫面上沒有印總數的地方 ⇒ 那一發是白付的。
     //    🛑 而 `/search` 要它(`app/search/page.tsx:85` 共 N 件)⇒ **分路,不是刪掉。**
     const wantCount = opts?.countTotal !== false;
-    const { data, error, count } = await this.supabase
+    // 🛑 **`.from('products_public')` 不准換** —— 那張 view **物理上**就沒有
+    //    `price_store` / 經銷價那些欄(PCM Server 端鐵則)。換成別的投影 =
+    //    把一道實體隔離換成一個條件式 ⇒ 另案 + 對抗審查,不在本次射程。
+    const base = this.supabase
       .from('products_public')
       .select(
         PRODUCT_SELECT_DETAIL_VIEW,
         wantCount ? { count: 'exact' } : undefined,
-      )
-      .or(filter)
+      );
+    // 🔴 每個詞疊一道 `.or()` ⇒ 交集(AND);`terms` 為空在上面就已經 return 了。
+    const filtered = terms.reduce(
+      (qb, term) => qb.or(buildIlikeOrFilter(SEARCHABLE_COLUMNS, term)),
+      base,
+    );
+    const { data, error, count } = await filtered
       .order('id', { ascending: true })
       .range(offset, offset + params.limit - 1);
 
