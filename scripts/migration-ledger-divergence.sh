@@ -29,6 +29,18 @@
 #   ⑥ R̄ H P̄  幽靈:只有人帳有                                  warn
 #   ⑦ R̄ H̄ P  🔴 平台孤兒版本號(MCP 自派號的殘骸)             ← 擋
 #   ⑧ R̄ H̄ P̄  不存在(構造不出來)
+#   ⑨ ④ 的子集:檔頭帶 `-- pcm:never-apply` ⇒ **刻意不套用**(不是「還沒」)      ok
+#      🔴 為什麼要有它(2026-09-02,而它有一個真的受害者):
+#         `20260901170000` 那支自己第 4 行逐字寫著「本支【不 apply 到正式庫】」,
+#         而它在本表上落在 ④「待套 PENDING(正常,還沒 apply)」
+#         ⇒ **一個【永遠不會被套】的東西,掛在一個寫著「還沒」的態底下**
+#         ⇒ ⇒ 而主視窗當晚把它排進了「要 Sean 手貼」的清單(已撈回;它包在 BEGIN…COMMIT
+#            ⇒ 貼下去會 ERROR + 回捲、零改動 —— 而成本是 Sean 一次不必要的緊張)。
+#      📌 **而真正的病不是「它被歸錯類」**:當晚 ④ 裡 24 支有 23 支是真的還沒套
+#         ⇒ **那個分類對 23/24 是對的** —— 而正因為它幾乎總是對,沒有人會為它建立查證習慣。
+#         ⇒ ⇒ 🔴 **一個 96% 準確的訊號,不會有人去驗;而剩下那 4% 就是會送到 Sean 桌上的東西。**
+#      🛑 **⇒ 所以第九格不是「多一個態」,它是【把那 4% 從那 96% 裡拉出來】。**
+#      🔵 而**編號刻意不重排**:①-⑧ 在別處被引用,重排會讓那些引用悄悄指到另一格。
 #
 # ── exit code(對齊 scripts/where-is.sh 的 1/2/3 慣例)──────────
 #   0 = 三把尺對得上(可能有 warn,但沒有危險組合)
@@ -206,6 +218,27 @@ compare() {
   read_H "$REV" "$TSV" | sed "1s/^${BOM}//" | grep -v '^#' | grep -v '^[[:space:]]*$' > "$W/H.raw"
 
   sed -n 's/^\([0-9]\{14\}\)_.*\.sql$/\1/p' "$W/R.raw" | sort -u > "$W/R"
+
+  # 🔴 第九格的來源:檔頭前 20 行帶 `-- pcm:never-apply` 的那幾支。
+  #    ⚠️ **限定前 20 行是刻意的** —— 一支檔中段的註解提到這個字面(例如在解釋這個機制)
+  #      不該把它自己變成 never-apply。⇒ 標記是【宣告】,不是【提及】。
+  #    ⚠️ 而 rev 那條路要從 rev 讀, 不能讀工作樹 —— 否則 `--rev` 會拿今天的檔去判昨天的樹。
+  : > "$W/NEVER"
+  while IFS= read -r _f; do
+    case "$_f" in
+      [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_*.sql) ;;
+      *) continue ;;
+    esac
+    if [ -n "$REV" ]; then
+      _head=$(git show "$REV:supabase/migrations/$_f" 2>/dev/null | head -20)
+    else
+      _head=$(head -20 "$MIGDIR/$_f" 2>/dev/null)
+    fi
+    case "$_head" in
+      *"-- pcm:never-apply"*) printf '%s\n' "${_f%%_*}" >> "$W/NEVER" ;;
+    esac
+  done < "$W/R.raw"
+  sort -u -o "$W/NEVER" "$W/NEVER"
   sed -n 's/^\([0-9]\{14\}\)	.*/\1/p'      "$W/H.raw" | sort -u > "$W/H"
 
   # 🔴 codex R1:形狀對不上的列會【靜默消失】而不觸發任何自檢
@@ -260,7 +293,11 @@ compare() {
   comm -23 "$W/RH" "$W/P" > "$W/c2"       # ② R H P̄  危險
   comm -12 "$W/RH" "$W/P" > "$W/c1"       # ① 正常
   comm -23 "$W/R"  "$W/H" > "$W/RnoH"
-  comm -23 "$W/RnoH" "$W/P" > "$W/c4"     # ④ 待套
+  comm -23 "$W/RnoH" "$W/P" > "$W/c4.all" # ④ 待套(拆之前)
+  # 🔴 ④ 拆兩半:帶標記的進 ⑨, 其餘留 ④。**兩半都要印** ——
+  #    只印 ⑨ 會讓「真的還沒套」那 23 支消失, 而那是這道閘本來的用途。
+  comm -12 "$W/c4.all" "$W/NEVER" > "$W/c9"
+  comm -23 "$W/c4.all" "$W/NEVER" > "$W/c4"
   comm -12 "$W/RnoH" "$W/P" > "$W/c3"     # ③ 做了沒記
   comm -13 "$W/R"  "$W/H" > "$W/HnoR"
   comm -12 "$W/HnoR" "$W/P" > "$W/c5"     # ⑤ 檔不見了
@@ -270,11 +307,12 @@ compare() {
 
   n1=$(wc -l < "$W/c1"|tr -d ' '); n2=$(wc -l < "$W/c2"|tr -d ' '); n3=$(wc -l < "$W/c3"|tr -d ' ')
   n4=$(wc -l < "$W/c4"|tr -d ' '); n5=$(wc -l < "$W/c5"|tr -d ' '); n6=$(wc -l < "$W/c6"|tr -d ' ')
-  n7=$(wc -l < "$W/c7"|tr -d ' ')
+  n7=$(wc -l < "$W/c7"|tr -d ' '); n9=$(wc -l < "$W/c9"|tr -d ' ')
 
   # 🔴 分母對帳:八格加總必須等於三把尺的聯集。對不上 ⇒ 有版本掉在格子外面,結論作廢。
   cat "$W/R" "$W/H" "$W/P" | sort -u > "$W/U"
-  nU=$(wc -l < "$W/U"|tr -d ' '); nSum=$((n1+n2+n3+n4+n5+n6+n7))
+  # 🔴 ⑨ 是從 ④ 拆出來的 ⇒ 加總要含它, 否則拆完之後這道自檢會【自己紅】
+  nU=$(wc -l < "$W/U"|tr -d ' '); nSum=$((n1+n2+n3+n4+n5+n6+n7+n9))
   if [ "$nSum" != "$nU" ]; then
     echo "🔴 自檢 FAIL:八格加總 $nSum ≠ 版本號聯集 $nU ⇒ 有版本掉在格子外,本次輸出作廢" >&2
     rm -rf "$W"; return 1
@@ -285,6 +323,10 @@ compare() {
     echo "   讀的是 rev $REV 那棵樹(不是工作樹)"
   fi
   echo "   ① 正常已套 $n1   ④ 待套 PENDING $n4"
+  if [ "$n9" -gt 0 ]; then
+    echo "   🔵 ⑨ 刻意不套用(檔頭 -- pcm:never-apply)$n9 —— **這幾支不要放進「要 Sean 貼」的那一疊**"
+    sed 's/^/      · /' "$W/c9"
+  fi
   for k in 3 5 6; do
     eval "n=\$n$k"
     if [ "$n" -gt 0 ]; then
@@ -492,6 +534,39 @@ if [ "$MODE" = "selftest" ]; then
   )
   ck "N symlink 不可冒充 migration ⇒ 仍判⑦=3" "$n_rc" "3"
 
+  # ── ⑨【刻意不套用】那一格:兩個世界 + 兩發突變 ────────────────────────
+  # 🔴 為什麼要兩個世界:只驗「有標記的變 ⑨」會讓另外那 23 支消失而沒有人發現。
+  #    ⇒ ⑨ 是從 ④ 裡【拉出來】的, 所以 ④ 剩下什麼也要被釘住。
+  O1=$(mk never1)
+  printf '   20260101000000 | 20260101000000 | t \n   20260102000000 |                | t \n' >> "$O1/platform.txt"
+  # 20260102 在 repo、不在人帳、不在平台 ⇒ 本來是 ④;給它標記 ⇒ 應該變 ⑨
+  printf -- '-- pcm:never-apply\nSELECT 1;\n' > "$O1/migrations/20260102000000_x.sql"
+  # 🔴 `$(run X; has …)` 會把 run 的 rc 與 has 的答案**串起來**(拿到 "0\nyes")
+  #    ⇒ 分兩步:先 run(它把輸出寫進 $T/out), 再 has。第一版就是這樣白紅四格的。
+  o1rc=$(run "$O1")
+  ck "O1 仍然該綠(⑨ 不是紅)⇒ 0" "$o1rc" "0"
+  ck "O1 帶標記那支 ⇒ 印⑨" "$(has x '⑨ 刻意不套用')" "yes"
+  ck "O1 有印出【具體是哪一支】" "$(has x '20260102000000')" "yes"
+
+  # 🧬 突變一:把標記拿掉 ⇒ 它必須掉回 ④(⑨ 那一行整個不見)
+  printf 'SELECT 1;\n' > "$O1/migrations/20260102000000_x.sql"
+  run "$O1" > /dev/null
+  ck "🧬 拿掉標記 ⇒ ⑨ 消失" "$(has x '⑨ 刻意不套用')" "no"
+
+  # 🧬 突變二(反向):標記放在第 25 行(超過檔頭 20 行)⇒ **不算**
+  #    🔴 這一格守的是「標記是【宣告】不是【提及】」—— 少了它, 任何在中段解釋這個機制的檔
+  #      都會把自己變成 never-apply。
+  { i=1; while [ $i -le 24 ]; do printf -- '-- filler\n'; i=$((i+1)); done
+    printf -- '-- pcm:never-apply\nSELECT 1;\n'; } > "$O1/migrations/20260102000000_x.sql"
+  run "$O1" > /dev/null
+  ck "🧬 標記在第 25 行 ⇒ 不算(仍不是⑨)" "$(has x '⑨ 刻意不套用')" "no"
+
+  # 🔵 而 ④ 那一半要自己被釘住:沒有任何標記時, 待套數不可以掉
+  O2=$(mk never2)
+  printf '   20260101000000 | 20260101000000 | t \n   20260102000000 |                | t \n' >> "$O2/platform.txt"
+  run "$O2" > /dev/null
+  ck "O2 零標記 ⇒ ④ 待套 PENDING 1 還在" "$(has x '④ 待套 PENDING 1')" "yes"
+
   echo "  ── selftest: $pass PASS / $fail FAIL"
   # 🔴 codex R1:只驗 fail=0 ⇒ 刪掉任何一格照樣 exit 0。格數要釘死。
   # 🔴 格數守門比的是【跑過幾格】(pass+fail),不是【過了幾格】(pass)——
@@ -499,7 +574,10 @@ if [ "$MODE" = "selftest" ]; then
   #    舊寫法卻印「格數不對:有格被刪掉或沒跑到」⇒ **診斷指錯方向**,
   #    而它印在「17 PASS / 1 FAIL」之後 ⇒ 讀的人最後看到的是錯的那一句。
   #    「一格失敗」與「一格不見了」修法完全不同,不能共用同一個出口。
-  EXPECT=21
+  # 2026-09-02:21 ⇒ **27**(⑨【刻意不套用】那一格新增 6 格:O1×3 + 兩發突變 + O2)
+  #   🔵 而這道閘【自己叫了】—— 我加完格數沒改它, 它當場印「跑了 27 格 ≠ 21」。
+  #      ⇒ 📌 那正是它存在的理由:**改動格數的人一定會撞到它, 而那個人正是剛動過那段碼的人。**
+  EXPECT=27
   if [ "$((pass + fail))" != "$EXPECT" ]; then
     echo "  🔴 【格數】不對:跑了 $((pass + fail)) 格 ≠ $EXPECT ⇒ 有格被刪掉或沒跑到(這不是「有格失敗」)"; exit 1
   fi
