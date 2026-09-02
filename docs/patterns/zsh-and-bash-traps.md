@@ -106,3 +106,32 @@
   `docs/patterns/guard-and-instrument-traps.md:18352` / `:18446`。
   🔵 **本行 2026-09-03 由線 `-account` 補** —— 我在這支檔查無而重新發現了一次(`grep -cE 'ref:apps|參數修飾符'` ⇒ **0**),
   跑 `scripts/traps-neighbours.py` 第一名 **0.5338** 就是那份 memory ⇒ 🎯 **這支檔缺的不是那條教訓,是【指到它的一行】。**
+
+## 🔴🔴 heredoc:`<<'PY'` 那對單引號才是保護 —— **「改用 python3」不是**
+
+2026-09-03 `-account` 第四次踩(前三次見 memory `feedback_unquoted-heredoc-ate-the-path-twice-in-one-night`)。
+🛑 **而這一次的價值在它推翻了那條教訓自己寫的建議。**
+
+```
+那條 memory 的 How to apply 逐字:「寫檔一律用 <<'EOF'(加單引號), **或改用 python3 直接寫**」
+🔴 而我【確實用了 python3】—— python3 - <<PY   ⇒ 照樣被咬
+   因為我需要把 $M 插進去 ⇒ 所以拿掉了那對單引號
+⇒ 🎯 **被吃掉的不是 python 的東西, 是 heredoc 的內文** —— python 根本還沒拿到它
+```
+📌 **⇒ 保護來自【那對單引號】, 不是來自 python。**
+**⇒ 「改用 python3」那句話可以被讀成「python 讓我安全」, 而它不會。**
+
+### ✅ 正解:單引號留著, 變數走 **argv**
+```bash
+python3 - "$M" "$OTHER" <<'PY'
+import sys
+p, other = sys.argv[1], sys.argv[2]
+PY
+```
+🔵 **判別句(要拿掉那對單引號之前問一次)**:
+> **我是不是為了「插一個變數進去」, 而把【整段內文】的保護拿掉了?**
+> 是 ⇒ **那個變數走 argv, 引號留著。**
+
+🛑 **而它壞掉時的樣子照舊**:zsh 印幾行 `command not found` / `no matches found`,
+**`rc` 不紅**, 而檔案**寫了一半或掉了主詞** ⇒ 🔴 **一定要回頭 `grep -c '<剛寫的字面>'` 驗。**
+✅ 我這次是**有備份 + 逐字比對**才發現的 —— 那兩步不能省。
