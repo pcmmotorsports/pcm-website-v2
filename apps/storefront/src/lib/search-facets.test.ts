@@ -88,8 +88,13 @@ describe('filterFacets', () => {
     expect(res.failed).toEqual({ brands: true, categories: false, vehicles: true });
   });
 
-  it('should still report the flags when the query is empty', async () => {
-    // 🔴 查詢是空的**不代表那三支沒壞** —— 短路掉結果, 不可以順手短路掉旗標。
+  it('should still report the flags when the query is empty (unit-only path)', async () => {
+    // 🛑 **本格守的是【純函式自己的契約】, 不是正式路徑** ——
+    //    `route.ts:61` 在空 `q` 時就 return 了(R1:搜尋框剛打開不該把 DB 叫醒)
+    //    ⇒ 這個分支**只有單元測試到得了**(`-c7` 2026-09-02 R1 抓到)。
+    //    📌 而寫清楚它, 是因為一發綠的測試守著一段到不了的碼,
+    //       在覆蓋率上與真的守住長得一模一樣。
+    // 🔴 而它仍然要帶旗標:短路掉結果, 不可以順手短路掉「沒查」這件事。
     const res = filterFacets('   ', data({ failed: { brands: true } }));
 
     expect(res.brands).toEqual([]);

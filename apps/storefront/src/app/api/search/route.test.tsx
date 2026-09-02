@@ -14,6 +14,20 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 const searchProducts = vi.fn();
 vi.mock('@/lib/search', () => ({ searchProducts, SEARCH_OVERLAY_LIMIT: 8 }));
 
+// 🔴 **這三支非 mock 不可, 而理由不是「省一點」**:`@/lib/products` 頂層有 `import 'server-only'`
+//    ⇒ 這支測試 import `./route` 時整檔就炸(`This module cannot be imported from a
+//    Client Component module`)⇒ **`Tests: no tests` —— 連一格都沒跑, 而不是紅一格。**
+//    ⚠️ 而 `route.ts` 是 2026-09-02 `⟦搜尋-第2刀⟧` 2a(`5e268d49`)才多引它們的
+//    ⇒ 📌 **加一個 import 會讓一支【它沒改過】的測試整檔消失 —— 而報告上是「0 test」不是「1 failed」。**
+const tryCatalogBrandTaxonomy = vi.fn();
+const tryCategories = vi.fn();
+const tryVehicleTaxonomy = vi.fn();
+vi.mock('@/lib/products', () => ({
+  tryCatalogBrandTaxonomy,
+  tryCategories,
+  tryVehicleTaxonomy,
+}));
+
 const { GET } = await import('./route');
 
 const req = (q: string) => new Request(`http://x/api/search?q=${encodeURIComponent(q)}`);
@@ -24,7 +38,13 @@ const FULL_PRODUCT = {
   description: 'x'.repeat(500), images: ['1', '2'], fitments: [{ motoBrand: 'Honda' }],
 };
 
-beforeEach(() => searchProducts.mockReset());
+beforeEach(() => {
+  searchProducts.mockReset();
+  // 預設:三支 taxonomy 都好、都空 ⇒ 既有那四格的斷言不受本次改動影響。
+  tryCatalogBrandTaxonomy.mockReset().mockResolvedValue({ brands: [], failed: false });
+  tryCategories.mockReset().mockResolvedValue({ categories: [], failed: false });
+  tryVehicleTaxonomy.mockReset().mockResolvedValue({ motoBrands: [], failed: false });
+});
 
 describe('/api/search', () => {
   it('R1 空 q ⇒ 200 空陣列,且完全沒呼叫 searchProducts', async () => {
@@ -32,6 +52,12 @@ describe('/api/search', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ items: [], total: 0 });
     expect(searchProducts).not.toHaveBeenCalled();
+    // 🔴 **R1 的分母 2026-09-02 變寬了**:2a 之後這條路上多了三支 taxonomy,
+    //    而「不打 DB」要對它們也成立 —— 否則有人把 `Promise.all` 搬到早退之前,
+    //    R1 照樣綠而「搜尋框一打開就叫醒 DB」就回來了。
+    expect(tryCatalogBrandTaxonomy).not.toHaveBeenCalled();
+    expect(tryCategories).not.toHaveBeenCalled();
+    expect(tryVehicleTaxonomy).not.toHaveBeenCalled();
   });
 
   it('R2 撈失敗 ⇒ 503,**不是** 200 空陣列', async () => {
@@ -59,5 +85,44 @@ describe('/api/search', () => {
     const res = await GET(req('排'.repeat(300)));
     expect(res.status).toBe(200);
     expect((searchProducts.mock.calls[0] as [string])[0]).toHaveLength(300);
+  });
+});
+
+// ⟦搜尋-第2刀⟧ 2a 的兩個決定 —— 而它們原本【只活在一句註解裡】(`-f3` 自己標、`-c7` 審前補)。
+describe('/api/search 的另三區', () => {
+  it('R5 三個 failed 各自回, 不合成一個', async () => {
+    // 🔴 合成一個在型別上完全合法 ⇒ 而它壞掉的方式是【品牌查不到 ⇒ 三區都說查不到】。
+    //    這一格用**三區狀態互不相同**的世界去問:`a||b||c` 三格全 true、
+    //    `a&&b&&c` 三格全 false ⇒ 兩種合成法都紅。
+    searchProducts.mockResolvedValue({ items: [], total: null, error: false });
+    tryCatalogBrandTaxonomy.mockResolvedValue({ brands: [], failed: true });
+    tryCategories.mockResolvedValue({ categories: [], failed: false });
+    tryVehicleTaxonomy.mockResolvedValue({ motoBrands: [], failed: true });
+
+    const res = await GET(req('brembo'));
+    const body = await res.json();
+
+    // 🔵 `-c7` 2026-09-02 nit:這一行不是因為現在沒守住, 是因為**現在那個保護讀不出來**
+    //    —— 下一個人會像 `-c7` 一樣以為沒守。(它原本被 `body.failed` 那格【間接】守著:
+    //    變 503 的話 body 會是 `{error:'search_failed'}` ⇒ toEqual 必紅。)
+    expect(res.status).toBe(200);
+    expect(body.failed).toEqual({ brands: true, categories: false, vehicles: true });
+  });
+
+  it('R6 三區任一 failed 不讓整發變 503 —— 商品那一區是主體', async () => {
+    // 🔴 這個決定原本只寫在 route.ts 的一句註解裡 ⇒ **沒有任何東西守著它**,
+    //    而它是一個下一個人可以【無聲改掉】的決定:改成 503 之後,
+    //    「品牌那支壞了」會讓客人連商品都搜不到。
+    searchProducts.mockResolvedValue({
+      items: [{ slug: 'a', brand: 'B', name: 'N', price: 1, image: null }],
+      total: null,
+      error: false,
+    });
+    tryCatalogBrandTaxonomy.mockResolvedValue({ brands: [], failed: true });
+
+    const res = await GET(req('brembo'));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).items).toHaveLength(1); // 🟢 商品照樣給
   });
 });
