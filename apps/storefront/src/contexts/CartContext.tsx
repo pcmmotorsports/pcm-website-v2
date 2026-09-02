@@ -14,8 +14,22 @@
 // localStorage key:`pcm-cart-mock-v2`(M-3-S2-b2-c 線契約改 variant_id → bump v1→v2;
 //   舊 v1 sku-塞-color hack 資料隨 key-bump 自然失效〔v2 不讀 v1 key、production 等同丟棄〕;
 //   readStorage 另對殘留 color/size 欄寬容忽略〔不解析為 variantId、合法 productId 行收為無變體〕。
-//   不可靠反推〔color=sku 非 variant uuid〕+ Phase 1 localStorage mock cart〔無真結帳/金額/訂單、
-//   丟棄成本=用戶重加幾筆〕→ 不寫 v1→v2 migration)
+//   不可靠反推〔color=sku 非 variant uuid〕+ ⛔ ~~Phase 1 localStorage mock cart〔無真結帳/金額/訂單、
+//   丟棄成本=用戶重加幾筆〕~~ → 不寫 v1→v2 migration)
+//
+// 🔵 2026-09-03 訂正(線 `-account` 量,主視窗 `-87` 裁准;只訂正事實,零行為改動)
+//   ⛔ 上面刪除線那句「**無真結帳/金額/訂單**」**今天為假**。它與**本檔 `:23` 自己寫的話直接矛盾**:
+//   `:23` 逐字「(= UIVariant.id、**建單 RPC `create_order` 的 variant_id 來源**)」。
+//   量到的:`apps/storefront/app/checkout/charge-actions.ts:269` 逐字「④ 建單(零 userId/tier/price;
+//   身分/算價全 create_order RPC server 權威)」;同目錄有 `callback/` 與 `reconcile-actions.ts`。
+//   而最硬的一格是正式庫:主視窗唯讀查 `orders` ⇒ `payment_channel=tappay` **1 筆**(2026-09-02)
+//   ⇒ **真的有一張單從這條路生出來過。**
+//   🔵 `pcm-cart-mock-v2` 這個 key 名字裡的 `mock` 是**遺留的名字**,不是「還在用假資料」。
+//
+// 🛑🛑 而本次**只訂正事實 —— 那個決定沒有被重新評估**:
+//   上面那句話是「**所以不寫 v1→v2 migration**」的**理由**,而理由沒了、決定還在。
+//   ⇒ 要動購物車資料格式的人,**不能再拿這句當依據**;
+//     而「該不該補 migration」是**一件還沒有人做的判斷**,不是本次訂正的結論。
 //
 // Identity / line key 設計(M-3-S2-b2-c 改 variant_id 線契約;取代 M-1-13e-b 的 color=sku 權宜 hack):
 // - productId 用 string(對齊 domain ProductId / Supabase uuid;mock 路徑傳 product.slug、stable + URL friendly)
