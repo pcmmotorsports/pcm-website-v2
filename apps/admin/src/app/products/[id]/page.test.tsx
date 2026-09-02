@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 
 // repository 拉 server-only 模組 ⇒ 只 mock 那兩支查詢函式。
@@ -90,7 +90,16 @@ async function renderPage(id = ID, search: Record<string, string> = {}) {
 }
 
 describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
-  it('🔴 驗收 1:六個平欄區塊都看得到,料號 / 供應商 / 售價 / 狀態逐欄驗', async () => {
+  // 🔵🔵 **[2026-09-01 FIX-47 註 —— 本格的標題已經語意過期, 斷言【刻意不動】]**
+  //    「六個平欄區塊都看得到」是 FIX-47 之前的事實。現在那六張收在 `<details>` 裡、**預設收合**。
+  //    🔴 而 `textContent` 對收合的 `<details>` **仍然讀得到** ⇒ 這一格照樣綠,
+  //       而它綠的意思從「看得到」變成了「**在 DOM 裡**」。**兩個不同的宣稱, 同一個綠。**
+  //    ⇒ 斷言保留(它仍然守著逐欄取值那件事);而「看得到」那半改由
+  //      FIX-47 那組的 `details[data-od-pe="other"]` 那一格守。
+  // ⛔ ~~原名:「🔴 驗收 1:**六個平欄區塊都看得到**,料號 / 供應商 / 售價 / 狀態逐欄驗」~~
+  //    ⇒ 🔴 **那個名稱是被【我】的改動弄成假的**(FIX-47 把六張收進 `<details>` 預設收合)
+  //      ⇒ 改名是我的責任, 不是動別人的驗收。**斷言一個字都沒動。**
+  it('🔴 驗收 1:六個平欄區塊都【在 DOM 裡】,料號 / 供應商 / 售價 / 狀態逐欄取值', async () => {
     mocks.get.mockResolvedValue(PRODUCT);
     mocks.taxonomy.mockResolvedValue({ brandName: 'CNC RACING', categoryName: '外觀部品' });
     const { container } = await renderPage();
@@ -375,5 +384,157 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     expect(fieldValue(container, '料號')).toBe('RPM-001');
     // 副標為 null ⇒ 整個節點不渲染(不是印 `—`)—— 那是刻意的:h1 底下多一個空殼會像壞掉。
     expect(container.querySelector('h1')?.nextElementSibling?.tagName).not.toBe('P');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// FIX-47 · 三堆分組(OD 稿 `pcm-524f/HANDOFF-orders-ui.md:3666`)
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴 **這一組要證的不是「畫面有那幾個字」, 是【看得出哪一張按得動】** ——
+//    稿寫的症狀逐字:「唯一能改的那張被埋在最下面, 跟六張看不能改的長得一模一樣」。
+//    ⇒ 所以每一格都成對:**能用的那張要真的能按** + **不能用的那幾張要真的按不動**。
+//    一邊漏掉, 這一片就退化成「換了幾個標題」。
+describe('/products/[id] · FIX-47 三堆分組', () => {
+  // 🔴🔴 **這一組必須自己設 mock**(codex must-fix)。
+  //    檔頭的 `afterEach` 只跑 `vi.clearAllMocks()` —— 它清呼叫紀錄, **不清 implementation**
+  //    ⇒ 我第一版沒設, 這六格是靠**前面那些 it 留下來的 `mockResolvedValue`** 在跑。
+  //    📌 **單獨跑這個 describe、或有人把上面的 it 刪掉/換順序 ⇒ 它們會拿到 undefined 而失真**,
+  //       而那一天它們紅的理由與「我改壞了畫面」長得一樣。
+  beforeEach(() => {
+    mocks.get.mockResolvedValue(PRODUCT);
+    mocks.taxonomy.mockResolvedValue({ brandName: 'CNC RACING', categoryName: '外觀部品' });
+  });
+
+  it('🟢 三個分組抬頭都在, 而順序是【可以改的 → 還不能用 → 只能看的】', async () => {
+    const { container } = await renderPage();
+    const heads = Array.from(container.querySelectorAll('[data-od-pe="grouph"]')).map(
+      (n) => n.textContent,
+    );
+    // 🔴 比【陣列】不是比「有沒有出現」:順序本身是這一片的內容
+    //    ——「可以改的」排在最後 = 病灶原樣復發, 而逐個 includes 抓不到。
+    expect(heads).toEqual(['可以改的', '還不能用(要先做後端)', '只能看的']);
+  });
+
+  // ⛔ ~~原名:「…而它的 form 一個字都沒改」~~ ⇒ 🔴 **名稱才是報表印出來的東西**(codex R2):
+  //    刪節線寫在註解裡, 而跑測試的人看到的是那一行名稱。⇒ 名稱改成它真正守得住的。
+  it('🔴 能按的那一張:上架/下架卡帶「已經可以用」, 而它那兩句文案沒被順手改掉', async () => {
+    const { container } = await renderPage();
+    const live = container.querySelector('[data-od-pe="live"]');
+    expect(live?.textContent).toBe('已經可以用');
+    // ⛔ ~~稿逐字要求「上架/下架的 form 一個字都沒改」⇒ 這兩句是它上線時的文案,
+    //    在這裡當**負向對照**:我若不小心動到那個 form, 這兩格會紅。~~
+    // 🔴 **上面那句講太滿(codex must-fix)**:兩句文案證得了「那兩句還在」,
+    //    **證不了「form 一個字都沒改」** —— `action` / hidden 欄位 / 二次確認閘全壞掉,
+    //    這兩格照樣綠。⇒ 它們守的是**文案沒被我順手改掉**, 就這樣。
+    //    (「本片沒動那個 form」這件事由 `git diff` 證, 不由這兩行證。)
+    expect(container.textContent).toContain('下架這件商品');
+    expect(container.textContent).toContain('變更會寫入稽核紀錄');
+  });
+
+  it('🔴 按不動的那三張:各有「還不能用」徽章, 而控制項【真的 disabled】', async () => {
+    const { container } = await renderPage();
+    const todos = Array.from(container.querySelectorAll('[data-od-pe="todo"]'));
+    expect(todos).toHaveLength(3);
+    for (const t of todos) expect(t.textContent).toBe('還不能用');
+    // 🔴🔴 **徽章與 disabled 要分開驗** —— 只驗徽章的話,
+    //    「標了還不能用而其實按得動」會全綠, 而那正好是最糟的那一種(員工按下去以為改到了)。
+    expect(container.querySelector('input[aria-label="特價(還不能用)"]')).toHaveProperty(
+      'disabled',
+      true,
+    );
+    expect(container.querySelector('select[aria-label="分類(還不能用)"]')).toHaveProperty(
+      'disabled',
+      true,
+    );
+    // 🔴 第三張(codex must-fix):我第一版只驗兩張, 而本格的標題寫「那三張」
+    //    ⇒ **宣稱三、實際二**。現貨那張原本只印一個 `—`, 沒有控制項可以驗。
+    expect(container.querySelector('input[aria-label="各規格現貨數量(還不能用)"]')).toHaveProperty(
+      'disabled',
+      true,
+    );
+  });
+
+  it('🔴 腳註寫的是【缺什麼】, 不是「敬請期待」(稿指定)', async () => {
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    // 逐欄點名, 因為那三句的價值在於**下一個人拿它就能去查**
+    // 🔴 **九個全部釘**(codex R1 nit):我第一版只釘三個
+    //    ⇒ 刪掉 `special_price` / `discount_price` / `products.category_id` / `availability`
+    //      / `instock_quantity` / `order_item_quantity_summary` **這一格照樣綠**
+    //    ⇒ 📌 **宣稱「逐欄點名」, 實際點三欄。** 而那句「下一個人拿它就能去查」
+    //       靠的正是【每一個名字都在】—— 少一個, 下一個人就少一條路。
+    //
+    // 🔴🔴 **而釘九個之後它仍有一格假綠**(codex R2 must-fix):
+    //    `text.includes('stock_quantity')` 在【只剩 `instock_quantity`】時**照樣為真**
+    //    ⇒ 把腳註裡那個獨立的 `stock_quantity` 刪掉, 這一格不會紅。
+    //    📌 **⇒ 一個名字是另一個名字的子字串, 而 `includes` 分不出來。**
+    //    ⇒ 改用**識別字邊界**比對(前後不得是 `[A-Za-z0-9_]`;`products.category_id` 的
+    //      前緣連 `.` 也擋, 免得 `xproducts.category_id` 這種也算命中)。
+    //
+    // 🔴 而斷言**限縮到那三段腳註**, 不對整頁掃(codex R2):
+    //    本格名稱寫的是「腳註寫的是缺什麼」—— 對整頁掃的話, 那些名字**出現在頁面任何地方**
+    //    都算過, 而它們本來就可能出現在別的卡片上 ⇒ **量到的不是本格宣稱的那件事。**
+    //    而 `toHaveLength(3)` 那一行是**分母**:腳註被刪掉一段時, 少掉的那些名字
+    //    會讓下面逐欄紅, 而**整段消失**這件事本身要先有一格看得見。
+    const foot = [...container.querySelectorAll('p')].filter((p) =>
+      (p.textContent ?? '').includes('還做不了的原因'),
+    );
+    expect(foot).toHaveLength(3);
+    const footText = foot.map((p) => p.textContent ?? '').join(' ');
+    // 🛑🛑 **而這一整組斷言本身有一個未裁的設計爭議, 我把它寫在這裡而不是修掉它**
+    //    (codex R3 must-fix, 換模型換角度打出來的):
+    //    「九個 DB 欄位名被釘在**渲染文字**裡 ⇒ 會把『員工看得出哪張卡按得動』
+    //      變成『UI 必須長得像 schema 備忘錄』;欄位改名或文案改寫會製造假紅。」
+    //    🔵 **而它說的是真的** —— 稿(FIX-47)逐字只要求「腳註寫的是【缺什麼】, 不是敬請期待」,
+    //       **它沒有要求逐欄點名**。逐欄點名是我 2026-08-31 自己加的強度。
+    //    🔴 **而我今天【不改它】, 理由要寫出來, 不能只是「不想動」**:
+    //       ① 那三段腳註是 `d6e62635`(FIX-47)已經出貨的畫面, 而 Sean 明早會親自打開它看
+    //          ⇒ 凌晨在沒有 OD 權威的情況下重新設計一張已出貨的卡 = 範圍擴張, 風險高於收益。
+    //       ② 這一組斷言**確實殺得掉真的假綠**(見下面那段子字串的事)⇒ 拿掉它會退回更差的狀態。
+    //    📌 **⇒ 所以正確的動作是【把爭議留在它會被讀到的地方】, 而不是自己裁掉。**
+    //       裁這件事的人是 Sean(那是他的畫面), 或者一片有 OD 權威的重設計。**已交回主視窗開列。**
+    //
+    // 🔴 `price_general` **刻意不在這張清單裡**, 而精確的理由是(codex R2 nit):
+    //    **不是「原價這件事不該出現在畫面上」** —— 原價現在就印在上面那一段,
+    //    而它是經 `resolvePrice()` 來的。不該出現的是**那個識別字本身**:
+    //    它出現在非註解的碼裡會踩到讀取層驗收 5(消費面零直讀)。
+    //    ⇒ **語意留著, 識別字不留。這是兩件事。**
+    for (const col of [
+      'sale_price',
+      'special_price',
+      'discount_price',
+      'products.category_id',
+      'category_set_by',
+      'stock_quantity',
+      'availability',
+      'instock_quantity',
+      'order_item_quantity_summary',
+    ]) {
+      const rx = new RegExp(`(?<![A-Za-z0-9_.])${col.replace(/\./g, '\\.')}(?![A-Za-z0-9_])`);
+      expect({ [col]: rx.test(footText) }).toEqual({ [col]: true });
+    }
+    // 🔴 反面:不得出現安慰句。它在「有沒有做事」上與腳註長得一樣, 而它什麼都沒說。
+    expect(text).not.toContain('敬請期待');
+    expect(text).not.toContain('即將推出');
+  });
+
+  it('🔴 六張唯讀卡【一張都沒少】—— 收進 details 不等於刪掉', async () => {
+    const { container } = await renderPage();
+    const other = container.querySelector('details[data-od-pe="other"]');
+    expect(other).not.toBeNull();
+    // 🔴 對 details **內部**數, 不對整頁數:整頁數的話, 卡片被搬到 details 外面也照樣綠。
+    const inner = other?.textContent ?? '';
+    for (const must of ['基本資料', '分類', '商品說明與賣點', '適用車型', '圖片與影音', '時間']) {
+      expect({ [must]: inner.includes(must) }).toEqual({ [must]: true });
+    }
+  });
+
+  it('🔴 那句誠實話留著 —— 稿明寫它是這一頁自己的話', async () => {
+    const { container } = await renderPage();
+    expect(container.textContent).toContain('這一頁目前只能改上架狀態,其餘欄位仍不能修改。');
+    // 🛑 而稿【刻意不寫】「之後可以再調整這筆訂單的特價」:
+    //    訂單金額只在建單時寫一次, 事後補等於改一筆已經發生的收款紀錄。
+    //    ⇒ 這一格就是稿說的「驗收有一發專門查這句話 0 命中」。
+    expect(container.textContent).not.toContain('之後可以再調整這筆訂單的特價');
   });
 });

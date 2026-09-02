@@ -9,7 +9,7 @@
 - 事故式教訓(rsync/env·secret/跨 repo/立法格式等;條數會長,當場 `grep -c '^### 12-'` 才算數) → `docs/lessons-learned.md` §12(先 `grep -n '^### 12-' docs/lessons-learned.md` 列標題、精準讀命中條);偵察方法論(凡結論將寫「X 未實作/未覆蓋/查無」)→ 同檔 §13;寫 slice 指令前自檢 → `docs/working-style.md` §6.3;Sean 報告/決策格式 → 同檔 §1/§2;Sean 環境與 dashboard → 同檔 §4
 - 要跑任何會【改檔案】的腳本 · 要寫突變/還原流程之前 → `docs/patterns/mutation-harness-restore.md`(2026-08-16 實錘:**一份被突變的 migration 被 commit 進正式分支**;🔴 **病灶不是忘了還原,是用一個會殺掉還原的方式跑它**)
 - 要下「查無 / 不存在 / 零命中」而對象是【一個檔案路徑】 → 先跑 `bash scripts/where-is.sh <path>`(四處分開報:工作樹 / dev / 所有 ref(分支・remote-tracking・tag) / 信箱;**查無 rc=3 / 用法錯 rc=2 / 工具自壞 rc=1,三者分得開**)。🔴 **它只查【本 repo】** —— repo root 由腳本自己的位置決定,不由你人在哪決定 ⇒ 在別的 repo 底下呼叫它會安靜地跑去 pcm-website-v2 找;跨 repo 路徑不在它的分母裡。🔴 **`git ls-files` / `test -e` 只看【當前 checkout】,不是整個 repo** —— 未收割分支上的檔在那裡是隱形的;成因全文 `docs/lessons-learned.md` §12-43
-- 三綠與字面vs事實背景 → `docs/patterns/slice-checkpoint.md`;Packet 格式 → `docs/patterns/codex-review-packet.md`;審查鏈全貌 → `docs/patterns/cowork-review-chain.md`;React/hooks 規則 → `docs/patterns/react-nextjs-rules.md`;鐵則詳解與程式碼範例(規則字面以本檔為準)→ `docs/patterns/general.md` + `docs/patterns/pcm-specific.md`;🔴 **新建任何 DB 物件(表 / view / 函式)或動 `GRANT` / `REVOKE` / `SECURITY DEFINER` → `docs/patterns/revoking-function-execute-in-supabase.md`(檔名比範圍窄、表也在裡面;新物件出生就自帶 anon 權限、repo 內零 `GRANT` 字面可掃、三綠不紅)**
+- 三綠與字面vs事實背景 → `docs/patterns/slice-checkpoint.md`;Packet 格式 → `docs/patterns/codex-review-packet.md`;審查鏈全貌 → `docs/patterns/cowork-review-chain.md`;React/hooks 規則 → `docs/patterns/react-nextjs-rules.md`;鐵則詳解與程式碼範例(規則字面以本檔為準)→ `docs/patterns/general.md` + `docs/patterns/pcm-specific.md`;🔴 **新建任何 DB 物件(表 / view / 函式)或動 `GRANT` / `REVOKE` / `SECURITY DEFINER` / 或你正在做一次【安全強化】(收掉 `BYPASSRLS` / `ALTER ROLE` / RLS 收緊 / 改 `service_role` 用法) → `docs/patterns/revoking-function-execute-in-supabase.md`(檔名比範圍窄、表也在裡面;新物件出生就自帶 anon 權限、repo 內零 `GRANT` 字面可掃、三綠不紅)**
 
 ---
 
@@ -61,7 +61,10 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 ## Git 紀律
 
-- **SSH only**:`git@github.com:pcmmotorsports/pcm-website-v2.git`。絕不在對話貼 ghp_ token;credential 命令加 `grep -v ghp_`;`cat .env` 不在對話跑(Sean 自驗)。
+- **SSH only**:`git@github.com:pcmmotorsports/pcm-website-v2.git`。絕不在對話貼 token;**credential 相關命令一律只印【名稱】不印【值】**(例:`git config --get-regexp '^credential' | awk '{print $1}'`)；`cat .env` 不在對話跑(Sean 自驗)。
+  > 🛑 **2026-08-31 Sean 拍甲改字面**:~~原本寫「credential 命令加 `grep -v ghp_`」~~ —— **那是【黑名單】, 它只擋掉開頭是 `ghp_` 的那一種**。
+  > 🔴 而 GitHub 現在的 token 前綴至少有 `ghp_` / `gho_` / `ghu_` / `ghs_` / `ghr_` / `github_pat_`,而別家(`glpat-` / `xoxb-` / `sk-`)一個都不在那個黑名單裡。
+  > 📌 **⇒ 黑名單在跟下一個沒想到的前綴賽跑。改成【只印名稱】—— 那是白名單, 而它不需要知道值長什麼樣。**
 - **Branch**:`main`←production(Sean 手動 merge)/ `dev`←主開發(slice 都在 dev、線性、暫不開 feature branch)。
 - **Commit 訊息**:`type(scope): subject [milestone]`。type=feat/fix/refactor/docs/chore/test/perf;scope=storefront/medusa/ui/schemas/docs/config;subject=繁中祈使句≤72 字元。
 - **Add 必精準**:`git add <精確路徑>`;**禁 `git add .` / `git add -A`**。🔴 **本行是短版, 而缺的那半會咬你**:八窗共用一棵樹 ⇒ **你要 commit 的那支檔, 工作樹裡若有別人未 commit 的行, 帶不帶 pathspec 兩種形狀【都不安全】**(一種帶走別人的檔、一種帶走別人在同檔裡的行), **而兩邊都沒有東西會紅**。🛑 **⇒ 遇到那個形狀時預設【停下協調、等對方先 commit】**;完整版在 `CLAUDE.md` 同段(該段以 `CLAUDE.md` 為準 —— 檔頭重複段主從), 協調不到時的五步在 `docs/runbooks/multi-window-command-workflow.md` §v6。⚠️ **本行刻意不同步、`CLAUDE.md` 無【逐字】對應句, 機械對齊時不要當歧異刪掉**;**以上是摘要非全部**。這個長短歧異**先於 2026-08-29**, 本次是把它寫明、不是新造。

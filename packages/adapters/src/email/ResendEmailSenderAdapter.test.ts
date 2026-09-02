@@ -552,3 +552,86 @@ describe('#876 出口面 —— 🔴 呼叫端【拿得到】那個 class,不然
     expect(mod['ZzzThisExportDoesNotExist']).toBeUndefined();
   });
 });
+
+// ══ 片1(2026-09-01):`html` 選填欄 —— 只開管道,呼叫端一個字都沒改 ══════════
+//
+// 🔴 **這一組守的不是「html 會被送出去」,是【不給 html 的那封信逐位元不變】。**
+//    訂單確認信寄出去收不回來(鐵則 12⑤)⇒ 這一片刻意只動管道,
+//    而「管道動了而內容沒動」這句話**要有證據,不是宣稱**。
+// 🔵 用同檔既有的 `sendWith` / `sentBody` / `sentInit`,**不另造量具** ——
+//    ⛔ ~~第一版我自己寫了一個 `bodyOf`~~ (code-reviewer:兩把量具,而以後只有一把會被修)。
+describe('ResendEmailSenderAdapter.send —— html 選填欄(片1)', () => {
+  it('🔴 不給 html ⇒ body 裡【沒有 html 這個 key】(不是 html:null、不是空字串)', async () => {
+    const f = vi.fn(async () => realResponse({ id: 'e1' }, 200));
+    await sendWith(f);
+    // 🔴 一律用 `hasOwnProperty.call`,不用 `in` —— 同檔 attachments 那組已經寫過為什麼:
+    //    `in` 走原型鏈 ⇒ 在污染的世界裡對任何物件都回 true。統一成一種,免得下一個人挑錯。
+    expect(Object.prototype.hasOwnProperty.call(sentBody(f), 'html')).toBe(false);
+    expect(sentBody(f).text).toBe(INPUT.text); // 純文字那一欄原樣
+  });
+
+  it('🔴 逐位元:不給 html 的那封信,body 與【本片之前】的期望值逐字相同', async () => {
+    // 🛑 上一格只證明「沒有 html 這個 key」。而把 `text` 改名、或多塞一個欄位仍會讓它全綠
+    //    ⇒ 這一格釘的是**整份 body**,那才是「寄出去的東西沒變」。
+    const f = vi.fn(async () => realResponse({ id: 'e2' }, 200));
+    await sendWith(f);
+    expect(sentInit(f).body).toBe(
+      JSON.stringify({ from: FROM, to: INPUT.to, subject: INPUT.subject, text: INPUT.text }),
+    );
+  });
+
+  it('🟢 給了 html ⇒ 整份 body 也釘死(不得順手多送一個欄位給 provider)', async () => {
+    // 🔴 只驗 `body.html` 的話,`...(html!==null ? { html, reply_to:'x' } : {})` 會全綠
+    //    ⇒ 多一個欄位送給 provider 而沒有人看得出來(code-reviewer nit)。
+    const f = vi.fn(async () => realResponse({ id: 'e3' }, 200));
+    const html = '<table><tr><td>PCM</td></tr></table>';
+    await sendWith(f, { html });
+    expect(sentInit(f).body).toBe(
+      JSON.stringify({ from: FROM, to: INPUT.to, subject: INPUT.subject, text: INPUT.text, html }),
+    );
+  });
+
+  it('🔴 空字串當作沒給 ⇒ body 裡仍然沒有 html 這個 key', async () => {
+    const f = vi.fn(async () => realResponse({ id: 'e4' }, 200));
+    await sendWith(f, { html: '' });
+    expect(Object.prototype.hasOwnProperty.call(sentBody(f), 'html')).toBe(false);
+  });
+
+  it('🔴 非字串一律丟掉,**不轉型** —— 一個有 toString 的物件不得被送出去', async () => {
+    // 🔴🔴 這一格是 code-reviewer 逼出來的:`typeof rawHtml === 'string'` 那道門原本**零測試**,
+    //    而註解逐字稱它是「實際的門」⇒ 宣稱有門而沒有殺得掉突變的格。
+    //    突變 `String(rawHtml)` ⇒ 這一格必紅(其餘五格全綠)。
+    const f = vi.fn(async () => realResponse({ id: 'e5' }, 200));
+    const evil = { toString: () => '<b>轉型來的</b>' } as unknown as string;
+    await sendWith(f, { html: evil });
+    expect(Object.prototype.hasOwnProperty.call(sentBody(f), 'html')).toBe(false);
+    expect(sentInit(f).body).not.toContain('轉型來的');
+  });
+
+  it('🔴🔴 `Object.prototype` 被污染 ⇒ 既有呼叫端仍然零改變(改動前不會讀這一欄)', async () => {
+    // 🔵 兩道還原守門逐字照抄同檔 attachments 那格(污染前負對照 + finally 後還原驗證)——
+    //    ⛔ ~~第一版我兩道都沒寫~~,而「還原乾淨」當時只是宣稱(code-reviewer 抓到)。
+    const proto = Object.prototype as unknown as Record<string, unknown>;
+    expect('html' in proto).toBe(false); // 負對照:開跑前是乾淨的
+    proto['html'] = '<b>污染</b>';
+    try {
+      const f = vi.fn(async () => realResponse({ id: 'e6' }, 200));
+      await sendWith(f);
+      // 🔴 這裡【不能用 `in`】—— 我第一版就是這樣寫的,而它紅了:**量具自己被同一個污染騙到**。
+      expect(Object.prototype.hasOwnProperty.call(sentBody(f), 'html')).toBe(false);
+      expect(sentInit(f).body).not.toContain('污染');
+    } finally {
+      delete proto['html'];
+    }
+    expect('html' in proto).toBe(false); // 還原驗證:不留痕給別的測試
+  });
+
+  it('🟢 而上一格不是恆真:呼叫端明給時,html 必須真的被送出去', async () => {
+    // 🔴 少了這一格,把 adapter 改成「永遠不送 html」也會全綠 ⇒ 那道守門變成「功能沒接上」。
+    // 🔵 而字面**刻意與污染值不同**(code-reviewer:同字面 + 走原型鏈取值 ⇒ 還原一失效這格就恆真)。
+    const f = vi.fn(async () => realResponse({ id: 'e7' }, 200));
+    await sendWith(f, { html: '<b>乾淨</b>' });
+    expect(Object.prototype.hasOwnProperty.call(sentBody(f), 'html')).toBe(true);
+    expect(sentBody(f).html).toBe('<b>乾淨</b>');
+  });
+});

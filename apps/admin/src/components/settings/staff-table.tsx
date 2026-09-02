@@ -3,7 +3,7 @@ import {
   AdminDataTable,
   type AdminColumn,
 } from '../shared/admin-data-table';
-import { StaffEditRow } from './staff-edit-row';
+import { StaffEditRow, type ManagePermission } from './staff-edit-row';
 
 function StaffStatus({ active }: { active: boolean }) {
   return active ? (
@@ -13,7 +13,11 @@ function StaffStatus({ active }: { active: boolean }) {
   );
 }
 
-const COLUMNS: ReadonlyArray<AdminColumn<StaffRow>> = [
+// COLUMNS 從 const 變成函式:操作欄要把 canManage 傳下去。
+// (server component,每次 render 重建一份的成本可忽略。)
+const buildColumns = (
+  canManage: ManagePermission,
+): ReadonlyArray<AdminColumn<StaffRow>> => [
   {
     key: 'label',
     header: '顯示名',
@@ -46,18 +50,26 @@ const COLUMNS: ReadonlyArray<AdminColumn<StaffRow>> = [
   {
     key: 'actions',
     header: '操作',
-    cell: (row) => <StaffEditRow staff={row} />,
+    cell: (row) => <StaffEditRow staff={row} canManage={canManage} />,
   },
 ];
 
-export function StaffTable({ rows }: { rows: readonly StaffRow[] }) {
+export function StaffTable({
+  rows,
+  canManage,
+}: {
+  rows: readonly StaffRow[];
+  canManage: ManagePermission;
+}) {
   return (
     <AdminDataTable
       rows={rows}
-      columns={COLUMNS}
+      columns={buildColumns(canManage)}
       getRowKey={(row) => row.id}
       emptyText='目前沒有員工。用下方表單新增。'
-      renderMobileActions={(row) => <StaffEditRow staff={row} />}
+      renderMobileActions={(row) => (
+        <StaffEditRow staff={row} canManage={canManage} />
+      )}
     />
   );
 }

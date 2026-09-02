@@ -69,6 +69,7 @@ C 讓一次出貨變成兩次列印,而北極星是「員工不用人教能做�
    20260804180000_…a8a1_admin_cancel_order.sql
    數法：grep -rc "UPDATE public.orders" 兩檔 ⇒ 各 1 處，逐處開檔看過
 ② grep -rn "SET total|total =" supabase/migrations/*cancel*.sql
+       🔴 2026-08-31:少 `-E` ⇒ 照抄跑拿到 **0**(加 `-E` 今天 ⇒ 49)。下面那句「唯一命中是 a8c2…」是**真的結果** ⇒ 作者跑的與寫下來的不是同一條。
    ⇒ 唯一命中是 a8c2_confirm_cancel_guard.sql 的 v_order.total = p_amount ——【讀取比對】不是寫入
 ③ 不變式：packages/domain/src/order/types.ts（錨點 `total = subtotal + shippingFee`）
 ```

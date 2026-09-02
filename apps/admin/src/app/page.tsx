@@ -7,7 +7,14 @@ import { ACTOR_ID_FIELD, getSessionActorWithSource, type ActorSource } from '../
 import { listActiveStaff } from '../lib/staff';
 import { loadTodaySummary, type TodaySummary } from '../lib/dashboard/today-read';
 import { TodaySummaryCards } from '../components/dashboard/today-summary';
-import { loadDataFreshness, freshnessLabel, unreadable, type DataFreshness } from '../lib/dashboard/freshness-read';
+import {
+  loadDataFreshness,
+  loadFitmentFreshness,
+  freshnessLabel,
+  fitmentFreshnessLabel,
+  unreadable,
+  type DataFreshness,
+} from '../lib/dashboard/freshness-read';
 import {
   loadCronHeartbeats,
   unreadableReport,
@@ -110,16 +117,25 @@ const ACTOR_SOURCE_COPY: Readonly<Record<CopyKey, string>> = {
 export const dynamic = 'force-dynamic';
 
 export default async function AdminHomePage() {
-  // 🔴 三支**併發**、不串行(R2 nit4):彼此無依賴,串著跑等於白等兩個 round-trip,
+  // 🔴 ~~三支~~ ⇒ **六支**(2026-09-01 `⟦b4-FIT1⟧` 加第六支)**併發**、不串行(R2 nit4):
+  //    彼此無依賴,串著跑等於白等 round-trip,
   //    而這是每次進站都跑的首頁。
   // 🔴 用 `allSettled` 不用 `all`:`all` 會讓對帳的失敗直接吃掉另外兩支的結果 —— 那正是 MF6 要擋的事。
+  // 🔴🔴 **而 `allSettled` 隔離得了【失敗】,隔離不了【永遠不回】**(codex 2026-09-01 must-fix,判定成立):
+  //    這六支都沒有自己的 timeout ⇒ **任何一支卡住,整個首頁跟著卡**,而畫面上看起來就是「還在載」。
+  //    ⚠️ **這個缺口【不是本片帶進來的】** —— 它對原本那五支一樣成立,本片只是讓它多一個曝露面。
+  //    ⇒ **本片刻意不在這裡修**:要修是給這六支各自加 bounded timeout = 動到另外五支的行為,
+  //      那是範圍擴張。⇒ **單獨立一列**,不要順手改。
   //    身分與員工名單失敗**仍照舊往上拋**(它們掛了這頁本來就沒東西可看,不該假裝正常)。
-  const [actorSettled, staffSettled, todaySettled, freshSettled, cronSettled] =
+  const [actorSettled, staffSettled, todaySettled, freshSettled, fitmentSettled, cronSettled] =
     await Promise.allSettled([
       getSessionActorWithSource(),
       listActiveStaff(),
       loadTodaySummary(),
       loadDataFreshness(),
+      // 🔵 `⟦b4-FIT1⟧` 2026-09-01 加:上面那支蓋【供應商資料】, 這支蓋【車款搜尋】——
+      //    兩件不同的資料, 而在這之前畫面上只有一行字。理由全文在 freshness-read.ts 那一節。
+      loadFitmentFreshness(),
       loadCronHeartbeats(),
     ]);
   if (actorSettled.status === 'rejected') throw actorSettled.reason;
@@ -155,6 +171,15 @@ export default async function AdminHomePage() {
     fresh = unreadable('讀取時發生例外');
   }
 
+  // 車款搜尋那一半(`⟦b4-FIT1⟧`)。**同一條理由**:讀不到也要印,不留白。
+  let fitment: DataFreshness;
+  if (fitmentSettled.status === 'fulfilled') {
+    fitment = fitmentSettled.value;
+  } else {
+    console.error('[admin/home] 車款搜尋同步新鮮度載入失敗', fitmentSettled.reason);
+    fitment = unreadable('讀取時發生例外');
+  }
+
   // 排程心跳(3a)。同一條理由:讀不到也要印,不留白。
   let cron: CronHeartbeatReport;
   if (cronSettled.status === 'fulfilled') {
@@ -185,6 +210,18 @@ export default async function AdminHomePage() {
         className={fresh.abnormal ? 'text-destructive text-xs' : 'text-muted-foreground text-xs'}
       >
         {freshnessLabel(fresh)}
+      </p>
+
+      {/* 🔵 `⟦b4-FIT1⟧` 2026-09-01:上面那行蓋【供應商資料】, 這一行蓋【車款搜尋】。
+          🔴 **兩行分開是刻意的, 不要合併成一行** —— 它們是兩條不同的管線、兩個不同的門檻
+             (供應商 26 小時是推的 / 車搜 7 天是 Sean 拍的), 而合成一行之後
+             「哪一半舊了」就答不出來了。
+          🔴 判準同樣只讀 `abnormal` 一格, 不在這裡自己再組一次(理由同上面那格的 R1 must-fix)。 */}
+      <p
+        data-testid='fitment-freshness'
+        className={fitment.abnormal ? 'text-destructive text-xs' : 'text-muted-foreground text-xs'}
+      >
+        {fitmentFreshnessLabel(fitment)}
       </p>
 
       {/* 🔴🔴 這一區**不是「監控做好了」,它是「有一個地方看得到」** —— 沒人登入後台就沒人看見。

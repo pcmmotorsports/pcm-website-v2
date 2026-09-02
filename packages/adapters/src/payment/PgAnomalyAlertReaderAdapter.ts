@@ -28,6 +28,10 @@ import 'server-only';
 import { Client } from 'pg';
 import type { IAnomalyAlertReader } from '@pcm/ports';
 import type { AnomalyAlertSummary } from '@pcm/domain';
+// 🔴 **門檻與名單的唯一來源** —— DB 那一側刻意不知道任何門檻(見片2 migration 檔頭)。
+//    ⇒ 這裡送出去的就是白名單全部;**不得在這裡過濾** ——
+//      少送一支 = 那支排程死掉時心跳告警【永遠印健康】, 而 DB 證明不了它少了。
+import { CRON_JOB_WHITELIST, FAILURE_COUNT_MEANINGLESS } from '@pcm/domain';
 import { buildPgConfig, type PgClientLike } from './PaymentConfirmerAdapter';
 
 /** 帶安全 SQLSTATE 的告警讀錯誤(message 通用、code 供分類;零 pg 原文/token)。 */
@@ -42,6 +46,8 @@ class AnomalyAlertReaderParseError extends Error {}
  *    值的來源 = PostgreSQL 官方 Appendix A「PostgreSQL Error Codes」Class 42。
  */
 const UNDEFINED_FUNCTION = '42883';
+/** ⟦b9-ENUMWATCH⟧ 片 2:單一來源的 RPC 名(錯誤訊息與探詢字面都從這裡來)。 */
+const RPC_MANUAL_SEARCH = 'get_manual_customer_search_summary';
 
 function defaultClientFactory(connectionString: string): PgClientLike {
   return new Client(buildPgConfig(connectionString)) as unknown as PgClientLike;
@@ -59,6 +65,23 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
     refundingStuckSeconds: number,
     pendingDcWindowSeconds: number,
     pendingDcStuckSeconds: number,
+    /**
+     * 🔵 出貨信起始線(ISO 8601 UTC;對應 env `SHIPPED_EMAIL_CUTOFF`)。
+     * 🛑 **`null` = 那一段【整段不查】** —— 而那不是失敗, 是「還沒上膛」。
+     *   ⇒ 落 `shippedGapUnknown`, 而那個狀態由呼叫端印在 log 上(不進 `shouldAlert`)。
+     */
+    shippedCutoffIso: string | null,
+    /** 🔵 出貨信寬限秒數(Sean `2 甲` = 15 分鐘 = 3 次掃描;route 常數注入)。 */
+    shippedGraceSeconds: number,
+    /**
+     * 🔵 訊號 4 的起始線(ISO 8601 UTC;對應 env `B4_DEPLOY_CUTOFF`,**與寄信端同一顆**)。
+     * 🛑 **`null` = 那一段【整段不查】** —— 而那不是失敗, 是「還沒上膛」或「值不合法」。
+     *   ⇒ 落 `orderCreatedGapUnknown`, 而那個狀態由呼叫端印在 log 上(不進 `shouldAlert`)。
+     * 🔴 **它與 `shippedCutoffIso` 是【兩顆不同的 env】** —— 寄信那兩條線是分別上線的,
+     *   起始線不是同一刻(`email-sweep/route.ts` 檔頭逐字:「它們刻意**不共用** cutoff」)。
+     */
+    orderCreatedCutoffIso: string | null,
+    orderCreatedStuckMinutes: number | null,
   ): Promise<AnomalyAlertSummary> {
     return this.run(async (client) => {
       const args = [refundingStuckSeconds, pendingDcWindowSeconds, pendingDcStuckSeconds];
@@ -168,7 +191,347 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         if (probe.rows[0]?.missing !== true) throw err;
       }
 
-      return parseAlertSummary(counts.rows, ids, refundRows, emailRows);
+      /**
+       * 🔵 **出貨信缺口計數**(2026-08-31;Sean 逐字答 `2 甲`;RPC `get_shipped_email_gap_counts`)。
+       *
+       * 🛑 **只有【起始線有值】才呼叫** —— 那支 RPC 的兩個參數**無 DEFAULT**,
+       *   而它自己的閘會對 `NULL` 直接 `RAISE`(那是刻意的:`NULL` 比較 = UNKNOWN ⇒ 恆回 0 = 靜默漏報)。
+       *   ⇒ 沒有起始線 ⇒ **不呼叫**, 落 `shippedGapUnknown` ⇒ 而那個狀態由呼叫端印在 log 上。
+       * 🔴 降級**逐字沿用寄信那條**:`42883` → `to_regprocedure` 複查 → 真的不存在 ⇒ unknown;
+       *   oid 回得出來 ⇒ 原封上拋;`42501` ⇒ 原封上拋。
+       *   **而 unknown 不寫成 0** —— 「讀不到」與「一切正常」在一個裸數字上長得一模一樣。
+       */
+      let shippedRows: Array<Record<string, unknown>> = [];
+      if (shippedCutoffIso !== null) {
+        try {
+          const res = await client.query(
+            'SELECT public.get_shipped_email_gap_counts($1::timestamptz, $2::integer) AS result',
+            [shippedCutoffIso, shippedGraceSeconds],
+          );
+          shippedRows = res.rows;
+        } catch (err) {
+          const code = (err as { code?: unknown } | null)?.code;
+          /**
+           * 🔴🔴 **`P0001` = 那支函式【自己的參數閘】RAISE 了**(`-48` 2026-08-31 指名的驗收)。
+           *
+           * **我量過現在會怎樣, 沒有猜**:`P0001` 原封上拋 ⇒ `getAlertSummary` throw
+           * ⇒ use-case throw ⇒ route 503 ⇒ **今晚一封告警都不寄**。
+           * ⇒ 📌 **一個【設定問題】把整條告警帶走了** —— 而那正是告警最該在的那一晚。
+           *
+           * 🛑 **而它也不可以被吞成 0** —— 那會把片1 剛裝上的 fail-closed 在下游拆掉
+           *   (那支函式的閘存在的理由就是「NULL ⇒ 恆回 0 = 靜默漏報」)。
+           * ✅ **⇒ 兩個都不要:降級成 `unknown` + 一行 `console.error`。**
+           *   `unknown` 不進 `shouldAlert`, 而 route 在【起始線有設】時據它回 503
+           *   ⇒ **那一段變成「查不到」, 而不是「0」, 也不是「整條沒了」。**
+           * ⚠️ **只降級 `P0001`** —— `42501`(權限)與其他碼**照舊原封上拋**:
+           *   那些不是設定問題, 而把它們吞掉會讓一個真的壞掉被讀成「還沒上膛」。
+           */
+          /**
+           * 🔴 **只認【那支函式自己的參數閘】,不是「凡 P0001 都降級」**(codex 2026-08-31 R1 nit)。
+           * ⛔ ~~舊寫法 `if (code === RAISE_EXCEPTION)`~~ —— 那把**任何** `P0001` 都當成參數閘。
+           * ⚠️ **今天踩不踩得到:踩不到。** 數法
+           *   `grep -c 'RAISE EXCEPTION' <20260831020000_...sql>` ⇒ **7**,而其中**只有 2 條在函式體內**
+           *   (`:65` / `:68`,兩條都是參數閘);其餘 5 條在 apply 期的 DO 斷言塊,呼叫時跑不到。
+           * 🔴 **⇒ 所以這是【未來的洞】不是今天的**:哪天那支函式用 `RAISE EXCEPTION` 回報別的
+           *   完整性錯誤,它會被**靜靜降級成「查不到」**,而那是一個真的壞掉被讀成「還沒上膛」。
+           * ✅ 收窄成:`P0001` **且**訊息帶那支函式自己的前綴。
+           * 🛑 而收窄的失敗方向是**安全的那一邊**:訊息哪天改了 ⇒ 認不出來 ⇒ **原封上拋**(現況行為),
+           *   不會變成靜默降級。
+           */
+          if (code === RAISE_EXCEPTION) {
+            /**
+             * 🔵 **訊息前綴只用來【分類 log】,不用來改控制流**(codex 2026-08-31 R2 must-fix ×2)。
+             *
+             * ⛔ ~~我 R2 之前的修法:前綴不符 ⇒ `throw err`~~ —— **那是我 R1 剛被打過的同一個錯**:
+             *   codex 逐字「migration 改動參數閘前綴或標點而應用程式尚未同步 ⇒ 真正可降級的參數錯誤
+             *   改成整條上拋,**付款／退款等其他告警同輪無法送出**」。
+             *   📌 **⇒ 我把「未來可能誤分類」換成了「訊息一漂就整條告警死掉」。那個交換是虧的。**
+             * 🛑 而 codex 同時指出前綴**也擋不住**它原本要擋的:日後那支函式用**同一個前綴**
+             *   拋非參數閘的 `P0001`,照樣被當成參數閘。**⇒ 前綴在兩個方向上都不是那道判準。**
+             * ✅ **⇒ 控制流維持現況(`P0001` ⇒ 降級),前綴只決定 log 印哪一句** ——
+             *   拿不到訊號的成本是 0,而拿錯控制流的成本是整條告警。
+             * ⚠️ **今天踩不踩得到:踩不到。** 那支函式體內只有 2 條 `RAISE`,兩條都是參數閘
+             *   (全檔 `grep -c 'RAISE EXCEPTION'` ⇒ 7,其餘 5 條在 apply 期 DO 塊、呼叫時跑不到)。
+             */
+            const looksLikeOwnGate =
+              typeof (err as { message?: unknown }).message === 'string' &&
+              (err as { message: string }).message.includes('get_shipped_email_gap_counts:');
+            console.error(
+              looksLikeOwnGate
+                ? '[anomaly-alert] 🔴 get_shipped_email_gap_counts 自己 RAISE 了(參數閘)⇒ 出貨缺口那一段降級成【查不到】,而其他告警照常送'
+                : '[anomaly-alert] 🔴 get_shipped_email_gap_counts 拋了 P0001 而【訊息不像它自己的參數閘】⇒ 仍降級成【查不到】(不改控制流),但這一格值得有人去看',
+              {
+                code: RAISE_EXCEPTION,
+                reason: looksLikeOwnGate ? 'shipped_gap_rpc_raised' : 'shipped_gap_rpc_raised_unexpected_shape',
+              },
+            );
+          } else {
+            if (code !== UNDEFINED_FUNCTION) throw err;
+            const probe = await client.query(
+              "SELECT to_regprocedure('public.get_shipped_email_gap_counts(timestamptz,integer)') IS NULL AS missing",
+              [],
+            );
+            if (probe.rows[0]?.missing !== true) throw err;
+          }
+        }
+      }
+
+      /**
+       * 🔵 **訊號 4:訂單已付款而 `order_created` 那一列根本沒被建出來**
+       * (2026-08-31;Sean 拍 5️⃣ 甲;RPC `get_order_created_gap_counts`)。
+       *
+       * 🛑 **形狀逐字沿用出貨那一段** —— 起始線 `null` ⇒ **不呼叫**(那支 RPC 的參數無 DEFAULT,
+       *   它自己的閘會對 `NULL` 直接 `RAISE`)⇒ 落 `orderCreatedGapUnknown`。
+       * 🔵 **狀態(2026-08-31 14:0x 更新)**:那支 RPC **已經 apply 到正式庫了**
+       *   (Sean 本人貼;`supabase/APPLIED.tsv` 那一列有六格唯讀複驗)。
+       *   ⛔ ~~我第一版寫「它現在還沒 apply ⇒ 42883 今天一定走得到」~~ —— **半小時後就過期了**
+       *   (codex R1 nit 抓到:值班的人會被導向錯誤的部署原因,且與帳本衝突)。
+       * 🔴 **而那條路仍然要留**:`42883` 是**部署窗口**那一種 —— 碼先上線而 migration 還沒到的世界。
+       *   它今天不會走到,不代表它不會再發生。
+       *   `to_regprocedure` 複查 → 真的不存在 ⇒ unknown(部署窗口);oid 回得出來 ⇒ 原封上拋。
+       *   ⇒ 📌 **所以它一定要降級,不能讓整支告警死掉** —— 那正是本片 codex R1 打過我一次的地方。
+       * ⚠️ `P0001` 的處置也逐字沿用:**控制流一律降級**,訊息前綴只決定 log 印哪一句。
+       */
+      let orderCreatedRows: Array<Record<string, unknown>> = [];
+      if (orderCreatedCutoffIso !== null) {
+        try {
+          const res = await client.query(
+            'SELECT public.get_order_created_gap_counts($1::timestamptz) AS result',
+            [orderCreatedCutoffIso],
+          );
+          orderCreatedRows = res.rows;
+        } catch (err) {
+          const code = (err as { code?: unknown } | null)?.code;
+          if (code === RAISE_EXCEPTION) {
+            const looksLikeOwnGate =
+              typeof (err as { message?: unknown }).message === 'string' &&
+              (err as { message: string }).message.includes('get_order_created_gap_counts:');
+            console.error(
+              looksLikeOwnGate
+                ? '[anomaly-alert] 🔴 get_order_created_gap_counts 自己 RAISE 了(參數閘)⇒ 訊號4 那一段降級成【查不到】,而其他告警照常送'
+                : '[anomaly-alert] 🔴 get_order_created_gap_counts 拋了 P0001 而【訊息不像它自己的參數閘】⇒ 仍降級成【查不到】(不改控制流),但這一格值得有人去看',
+              {
+                code: RAISE_EXCEPTION,
+                reason: looksLikeOwnGate
+                  ? 'order_created_gap_rpc_raised'
+                  : 'order_created_gap_rpc_raised_unexpected_shape',
+              },
+            );
+          } else {
+            if (code !== UNDEFINED_FUNCTION) throw err;
+            const probe = await client.query(
+              "SELECT to_regprocedure('public.get_order_created_gap_counts(timestamptz)') IS NULL AS missing",
+              [],
+            );
+            if (probe.rows[0]?.missing !== true) throw err;
+          }
+        }
+      }
+
+      /**
+       * 🔴🔴 **訊號4 的【持續失敗】那一格(板 `⟦b4-SIG4ERRORS⟧`)**。
+       *   降級處置**逐字沿用上面訊號4 那一段** —— 函式不存在(部署窗口)⇒ 落 unknown;
+       *   它自己 `RAISE`(參數閘)⇒ 一樣降級, **而其他告警照常送**。
+       * 🛑 **兩顆 env 任一沒設就不查, 而那不是保守** ——
+       *   `orderCreatedStuckMinutes` 沒設 = 那條線**還沒上膛**
+       *   ⇒ 📌 **這一格就是「落地」與「Sean 去填那顆 env」脫鉤的地方。**
+       */
+      let orderCreatedStuckRows: Array<Record<string, unknown>> = [];
+      if (orderCreatedCutoffIso !== null && orderCreatedStuckMinutes !== null) {
+        try {
+          const res = await client.query(
+            'SELECT public.get_order_created_stuck_count($1::timestamptz, $2::integer) AS result',
+            [orderCreatedCutoffIso, orderCreatedStuckMinutes],
+          );
+          orderCreatedStuckRows = res.rows;
+        } catch (err) {
+          const code = (err as { code?: unknown } | null)?.code;
+          if (code === RAISE_EXCEPTION) {
+            const looksLikeOwnGate =
+              typeof (err as { message?: unknown }).message === 'string' &&
+              (err as { message: string }).message.includes('get_order_created_stuck_count:');
+            console.error(
+              looksLikeOwnGate
+                ? '[anomaly-alert] 🔴 get_order_created_stuck_count 自己 RAISE 了(參數閘)⇒ 那一格本輪不查'
+                : '[anomaly-alert] 🔴 get_order_created_stuck_count 拋了 P0001 而【訊息不像它自己的參數閘】',
+              {
+                code: RAISE_EXCEPTION,
+                reason: looksLikeOwnGate
+                  ? 'order_created_stuck_rpc_raised'
+                  : 'order_created_stuck_rpc_raised_unexpected_shape',
+              },
+            );
+          } else {
+            if (code !== UNDEFINED_FUNCTION) throw err;
+            const probe = await client.query(
+              "SELECT to_regprocedure('public.get_order_created_stuck_count(timestamptz,integer)') IS NULL AS missing",
+              [],
+            );
+            if (probe.rows[0]?.missing !== true) throw err;
+          }
+        }
+      }
+
+      /**
+       * 🔵 **排程心跳(板 `⟦b4-SWEEPDEAD1⟧` 片3)** —— 降級處置逐字沿用上面訊號4 那一段:
+       *   函式不存在(部署窗口)⇒ 落 `cronHeartbeatUnknown`;它自己 `RAISE`(參數閘)⇒ 一樣降級,
+       *   **而其他告警照常送**。控制流不因為這一段而改變。
+       * 🔴 **`jobsPayload` 直接 map 白名單全部, 這裡不篩不排除** ——
+       *   片2 那支函式**證明不了我有沒有少送**, 所以這一行就是那個保護本身。
+       */
+      const jobsPayload = CRON_JOB_WHITELIST.map((w) => ({
+        job_name: w.jobName,
+        stale_minutes: w.staleMinutes,
+        // 🔴 送出【明確的布林】而不是省略 —— 片2 那支函式對缺鍵會 RAISE,
+        //    因為「缺鍵時預設 true」會與後台儀表板不一致(codex R1 F3)。
+        failures_meaningful: !FAILURE_COUNT_MEANINGLESS.has(w.jobName),
+      }));
+      let heartbeatRows: Array<Record<string, unknown>> = [];
+      try {
+        const res = await client.query(
+          'SELECT public.get_cron_heartbeat_stale_counts($1::jsonb) AS result',
+          [JSON.stringify(jobsPayload)],
+        );
+        heartbeatRows = res.rows;
+      } catch (err) {
+        const code = (err as { code?: unknown } | null)?.code;
+        if (code === RAISE_EXCEPTION) {
+          const looksLikeOwnGate =
+            typeof (err as { message?: unknown }).message === 'string' &&
+            (err as { message: string }).message.includes('get_cron_heartbeat_stale_counts:');
+          console.error(
+            looksLikeOwnGate
+              ? '[anomaly-alert] 🔴 get_cron_heartbeat_stale_counts 自己 RAISE 了(參數閘)⇒ 心跳那一段降級成【查不到】,而其他告警照常送'
+              : '[anomaly-alert] 🔴 get_cron_heartbeat_stale_counts 拋了 P0001 而【訊息不像它自己的參數閘】⇒ 仍降級成【查不到】(不改控制流),但這一格值得有人去看',
+            {
+              code: RAISE_EXCEPTION,
+              reason: looksLikeOwnGate ? 'cron_heartbeat_rpc_raised' : 'cron_heartbeat_rpc_raised_unexpected_shape',
+            },
+          );
+        } else {
+          if (code !== UNDEFINED_FUNCTION) throw err;
+          const probe = await client.query(
+            "SELECT to_regprocedure('public.get_cron_heartbeat_stale_counts(jsonb)') IS NULL AS missing",
+            [],
+          );
+          if (probe.rows[0]?.missing !== true) throw err;
+        }
+      }
+
+      return parseAlertSummary(
+        counts.rows, ids, refundRows, emailRows, shippedRows, orderCreatedRows,
+        orderCreatedStuckRows, heartbeatRows,
+      );
+    });
+  }
+
+  /**
+   * ⟦b9-ENUMWATCH⟧ 片 2:客戶搜尋稽核計數。**回 `null` = 那支 RPC 還沒被 apply。**
+   *
+   * 🔴🔴 **這一段的核心只有一件事:`42883` 有【兩個意思】,而它們印同一個碼。**
+   *
+   * ```
+   * 世界 A  函式在, 而它的函式體裡少了東西(有人 DROP 了它呼叫的 helper)
+   * 世界 B  函式真的不存在(還沒 apply = 部署窗口)
+   * ```
+   * **2026-09-01 拋棄式 PG 17.10 實測(三行就造得出來, PG 不擋 —— 它不追蹤 函式→函式 相依)**:
+   * ```
+   * 世界 A  呼叫 ⇒ ERROR: 42883: function public.helper_x() does not exist
+   *         to_regprocedure('public.outer_y()') IS NULL ⇒ **false**
+   * 世界 B  呼叫 ⇒ ERROR: 42883: function public.zzq9_never() does not exist
+   *         to_regprocedure(...) IS NULL ⇒ **true**
+   * ```
+   * 🔴 **兩個世界的 SQLSTATE 完全相同。而 `to_regprocedure` 那一發真的分得開。**
+   * ⇒ **⇒ 所以那發二次探詢不是防禦深度 —— 它是【唯一】分得開這兩個世界的東西。**
+   *
+   * 🛑🛑 **而【錯誤訊息裡的名字,是最內層失敗的那個東西,不是你呼叫的那個】** ——
+   *    世界 A 的訊息裡寫的是 `helper_x`,**不是我們那支函式的名字**。
+   *    ⇒ 任何「訊息裡有沒有提到我們那支函式」的判斷,**在世界 A 會判成「不是我們的問題」而降級**
+   *    ⇒ **而那正好是最糟的方向:一支壞掉的函式被讀成「今天沒有人搜尋客戶」,而它不會自己好。**
+   *    📌 **⇒ 這一段寫下來是因為讀訊息比呼 `to_regprocedure` 直觀得多,而它會安靜地錯。**
+   *
+   * ⚠️ **本量測的射程**:macOS 的 PG 17.10、`LANGUAGE sql` 函式。
+   *    Supabase 是 Linux、版本可能不同 ⇒ **SQLSTATE 是 SQL 標準碼、跨版本很穩,而我沒在正式庫驗過。**
+   *    `plpgsql` 的解析時機不同 ⇒ **未驗**;而我們那支 RPC 正是 `LANGUAGE sql` ⇒ 對它成立。
+   */
+  async getManualCustomerSearchSummary(
+    windowSeconds: number,
+  ): Promise<{ readonly count: number; readonly actors: number; readonly windowSeconds: number } | null> {
+    return this.run(async (client) => {
+      try {
+        const res = await client.query(
+          'SELECT public.get_manual_customer_search_summary($1::integer) AS result',
+          [windowSeconds],
+        );
+        const raw = res.rows[0]?.result;
+        if (raw === null || typeof raw !== 'object') {
+          // 🔴 回應形狀不符 ⇒ **throw, 不降級** —— 那不是部署窗口, 那是壞掉。
+          throw new AnomalyAlertReaderParseError(`${RPC_MANUAL_SEARCH} 回應形狀不符`);
+        }
+        const bag = raw as Record<string, unknown>;
+        /**
+         * 🔴🔴 **2026-09-01 R2(換模型)must-fix F2 + nit F15:改用同檔既有的 `parseCount`。**
+         *
+         * ⛔ ~~我原本自己寫 `typeof` 檢查 + `throw new Error(...)`~~ —— **兩個問題**:
+         *  ① **那個 `Error` 在出方法之前就被銷毀了**:`run()` 一律 `throw sanitizeError(err)`,
+         *     而 `sanitizeError` **只放行 `AnomalyAlertReaderParseError`**,其餘重造成
+         *     「anomaly 告警聚合讀失敗(transport)」
+         *     ⇒ **RPC 回垃圾時,值班的人看到的字是「transport」⇒ 他去查網路。**
+         *     📌 而那正是 `parseCount` 的 `fn` 參數當初被加進來要防的病:
+         *        **紅在對的時候、指向錯的地方。**
+         *  ② 我少掉了 repo 既有的「非負**整數**」契約 ⇒ `-1` / `1.5` 會通過我的檢查落進信裡。
+         * ✅ `parseCount` 兩件都解:它丟 branded 錯(訊息活得下來)且驗非負整數。
+         */
+        /**
+         * 🔴🔴 **先擋型別, 再交給 `parseCount` —— 而這一格是【我的測試抓到我的修法】。**
+         *
+         * `parseCount` 逐字 `typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN`
+         * ⇒ 而 **`Number('') === 0`** ⇒ **空字串會通過它, 而回傳 0。**
+         * 🛑 **⇒ 那正是 codex R1 F1 指的那個病(壞掉被讀成「今天沒有人搜尋」), 只是換一個入口。**
+         * 📌 **⇒ 我為了拿 branded 錯(訊息活得過 `sanitizeError`)而改用 `parseCount`,
+         *    而它把我剛修掉的洞帶了回來 —— 抓到它的是我自己那格 `it.each([null,'',false,undefined])`。**
+         *
+         * ⚠️ **而我【不改 `parseCount` 本身】** —— 它被同檔另外六支 RPC 共用,
+         *    而「字串數字也收」對那幾支可能是刻意的。**動它 = 動一個我沒讀完的分母。**
+         * ✅ ⇒ 在這一支的入口加一道 `typeof === 'number'`, 兩者的好處都拿到:
+         *    嚴格型別 + branded 錯訊息。
+         */
+        const strictNumber = (v: unknown, field: string): number => {
+          if (typeof v !== 'number') {
+            throw new AnomalyAlertReaderParseError(`${RPC_MANUAL_SEARCH} 計數欄 ${field} 異常`);
+          }
+          return parseCount(v, field, RPC_MANUAL_SEARCH);
+        };
+        const count = strictNumber(bag.manual_customer_search_count, 'manual_customer_search_count');
+        const actors = strictNumber(bag.manual_customer_search_actors, 'manual_customer_search_actors');
+        /**
+         * 🔴 **跨欄不變量**(R3 consider 4):`actors` 是相異操作者數,而每個操作者至少留一筆
+         * ⇒ **`actors <= count` 恆成立**。而 `{count:0, actors:1}` 通得過逐欄檢查 ——
+         * 📌 **⇒ 逐欄都合法而合起來不可能, 正是「壞掉的 RPC」最像正常的那一種形狀。**
+         */
+        if (actors > count) {
+          throw new AnomalyAlertReaderParseError(
+            `${RPC_MANUAL_SEARCH} 計數欄 manual_customer_search_actors 異常`,
+          );
+        }
+        return {
+          count,
+          actors,
+          // 🔴 回傳【我真的送出去的那個值】(R3 must-fix 2)⇒ 呼叫端無法配一個不同的窗口上去。
+          windowSeconds,
+        };
+      } catch (err) {
+        // 非 42883 ⇒ 原封上拋(連線 / 權限 42501 / 型別 … 都不是部署窗口)
+        if ((err as { code?: unknown } | null)?.code !== UNDEFINED_FUNCTION) throw err;
+        const probe = await client.query(
+          "SELECT to_regprocedure('public.get_manual_customer_search_summary(integer)') IS NULL AS missing",
+          [],
+        );
+        // 🔴 回得出 oid ⇒ 那個 42883 來自【函式內部】(世界 A)⇒ **原封上拋**
+        if (probe.rows[0]?.missing !== true) throw err;
+        // 只有真的不存在(世界 B)才降級
+        return null;
+      }
     });
   }
 
@@ -217,6 +580,10 @@ const EMAIL_SIGNAL1_GRACE_SECONDS = 3600;
 
 const REFUNDS_FN = 'get_order_refunds_stuck_summary';
 const EMAIL_FN = 'get_email_outbox_deadman_counts';
+const SHIPPED_FN = 'get_shipped_email_gap_counts';
+const ORDER_CREATED_FN = 'get_order_created_gap_counts';
+/** PG `raise_exception` —— plpgsql 的 `RAISE EXCEPTION` 預設就是這個 SQLSTATE。 */
+const RAISE_EXCEPTION = 'P0001';
 
 /**
  * 非負整數解析(count 欄;非有限/負 → throw fail-closed)。
@@ -275,11 +642,40 @@ function parseDisplayIdPairs(v: unknown, field: string): Array<[string, string]>
  *    ⇒ 這裡**不做兩者一致性的斷言** —— 那會把一個正常的競態變成半夜的 503。
  *      對得起不起來的檢查放在 **migration 的 apply 期斷言**(那一刻是靜態的、有判別力)。
  */
+const HEARTBEAT_FN = 'get_cron_heartbeat_stale_counts';
+
+/**
+ * 從五個【不互斥】的原因陣列收集出「哪幾支不正常」, **去重**。
+ * 🔴 `stale` / `failing` 的元素是物件(帶 `job_name`), 另外三個是裸字串 —— 兩種形狀都要吃。
+ * 🛑 **這裡【不】重算數量** —— 數量只認 `abnormal_count`(見上面那段)。
+ *    ⇒ 名單長度與 `abnormal_count` **可以不同**, 而那不是 bug:
+ *      一支 job 同時 stale + failing 會在名單裡出現一次, 在計數裡也是一次;
+ *      而若哪天真的對不上, 要查的是 SQL 那一側, 不是這裡。
+ */
+function collectHeartbeatJobNames(hb: Record<string, unknown>): readonly string[] {
+  const out = new Set<string>();
+  for (const key of ['never_beat', 'no_success_ts', 'stale', 'future', 'failing']) {
+    const arr = hb[key];
+    if (!Array.isArray(arr)) continue;
+    for (const item of arr) {
+      if (typeof item === 'string') out.add(item);
+      else if (item !== null && typeof item === 'object' && typeof (item as { job_name?: unknown }).job_name === 'string') {
+        out.add((item as { job_name: string }).job_name);
+      }
+    }
+  }
+  return [...out].sort();
+}
+
 function parseAlertSummary(
   rows: Array<Record<string, unknown>>,
   idRows: Array<Record<string, unknown>>,
   refundRows: Array<Record<string, unknown>>,
   emailRows: Array<Record<string, unknown>>,
+  shippedRows: Array<Record<string, unknown>>,
+  orderCreatedRows: Array<Record<string, unknown>>,
+  orderCreatedStuckRows: Array<Record<string, unknown>>,
+  heartbeatRows: Array<Record<string, unknown>>,
 ): AnomalyAlertSummary {
   const r = rows[0]?.result as Record<string, unknown> | undefined;
   if (!r || typeof r !== 'object') {
@@ -338,13 +734,121 @@ function parseAlertSummary(
   const emailCount = (key: string): number | null =>
     emailOutboxUnknown ? null : parseCount(em![key], key, EMAIL_FN);
 
+  const sp = shippedRows[0]?.result as Record<string, unknown> | undefined;
+  const shippedGapUnknown = sp === undefined;
+  if (!shippedGapUnknown && (sp === null || typeof sp !== 'object')) {
+    throw new AnomalyAlertReaderParseError(`${SHIPPED_FN} 回應格式異常(函式存在但回了 NULL 或非物件)`);
+  }
+  const shippedCount = (key: string): number | null =>
+    shippedGapUnknown ? null : parseCount(sp![key], key, SHIPPED_FN);
+
+  /**
+   * 🔵 排程心跳(片3)。與 `oc` 同族的三態:
+   *   `heartbeatRows = []`  ⇒ hb === undefined ⇒ **函式不存在**(部署窗口)⇒ unknown
+   *   `{ result: null }`    ⇒ hb === null      ⇒ 函式跑了而回了 SQL NULL ⇒ **那是壞掉, 要吵**
+   *   正常物件              ⇒ 解析
+   * 🛑 `abnormal_count` 是**唯一**能拿來數的欄位 —— 各原因陣列**不互斥**(片2 檔頭寫明),
+   *    相加會重複計數。這裡只讀它, 名單另外從各陣列聯集起來【去重】。
+   */
+  const hb = heartbeatRows[0]?.result as Record<string, unknown> | undefined;
+  const cronHeartbeatUnknown = hb === undefined;
+  if (!cronHeartbeatUnknown && (hb === null || typeof hb !== 'object')) {
+    throw new AnomalyAlertReaderParseError('get_cron_heartbeat_stale_counts 回應格式異常');
+  }
+  const cronHeartbeat = cronHeartbeatUnknown
+    ? { cronHeartbeatAbnormalCount: null, cronHeartbeatAbnormalJobs: null, cronHeartbeatUnknown: true }
+    : {
+        cronHeartbeatAbnormalCount: parseCount(hb!.abnormal_count, 'abnormal_count', HEARTBEAT_FN),
+        cronHeartbeatAbnormalJobs: collectHeartbeatJobNames(hb!),
+        cronHeartbeatUnknown: false,
+      };
+  /**
+   * 🔴🔴 **三道回應層對帳(codex 2026-08-31 片3 R1 #3/#4)** —— 全部 fail-loud,
+   *   因為這一族的失敗形狀是**靜默地看起來健康**, 而那是本片要治的病本身。
+   */
+  if (!cronHeartbeatUnknown) {
+    // ① `checked` 必須等於我送出去的支數 —— 這是片2 那個具名缺口在【回應側】的鏡像:
+    //    片2 證明不了「呼叫端餵的是完整六支」, 而這裡至少證明得了「它跑的支數與白名單一樣多」。
+    const checked = parseCount(hb!.checked, 'checked', HEARTBEAT_FN);
+    if (checked !== CRON_JOB_WHITELIST.length) {
+      throw new AnomalyAlertReaderParseError(
+        `${HEARTBEAT_FN} 檢查了 ${checked} 支, 而白名單有 ${CRON_JOB_WHITELIST.length} 支 —— 少查的那幾支會靜靜地看起來健康`,
+      );
+    }
+    const n = cronHeartbeat.cronHeartbeatAbnormalCount!;
+    const names = cronHeartbeat.cronHeartbeatAbnormalJobs!;
+    // ② 不正常的支數不可能超過檢查的支數。
+    if (n > checked) {
+      throw new AnomalyAlertReaderParseError(`${HEARTBEAT_FN} abnormal_count(${n})> checked(${checked})`);
+    }
+    // ③ 🔴 **數字與名單必須【逐一相等】。**
+    //    ⛔ ~~我第一版只擋「有數字而零名字」, 註解寫「同一支可能因多個理由入列而只算一次,
+    //       兩邊本來就不必相等」~~ —— **codex R2 打掉了那句, 而它是對的**:
+    //       片2 那支 SQL 的 `flagged` 是**每支 job 一列**, `abnormal_count` 數的是【列】
+    //       ⇒ 它就等於五個陣列去重之後的支數。**兩邊本來就該相等。**
+    //    📌 ⇒ 我那句「不必相等」把一個**可以精確對帳**的地方寫成了模糊地帶,
+    //       而 `count=2 / 名字=1` 會通過並寄出一份**少一支的名單**。
+    if (n !== names.length) {
+      throw new AnomalyAlertReaderParseError(
+        `${HEARTBEAT_FN} 說有 ${n} 支不正常, 而五個原因陣列去重後有 ${names.length} 支(${names.join(',')})` +
+          ' ⇒ 兩邊該相等;信裡會寄出一份對不上的名單',
+      );
+    }
+  }
+  const oc = orderCreatedRows[0]?.result as Record<string, unknown> | undefined;
+  const orderCreatedGapUnknown = oc === undefined;
+  if (!orderCreatedGapUnknown && (oc === null || typeof oc !== 'object')) {
+    throw new AnomalyAlertReaderParseError(`${ORDER_CREATED_FN} 回應格式異常(函式存在但回了 NULL 或非物件)`);
+  }
+  const orderCreatedCount = (key: string): number | null =>
+    orderCreatedGapUnknown ? null : parseCount(oc![key], key, ORDER_CREATED_FN);
+
+  const ocs = orderCreatedStuckRows[0]?.result as Record<string, unknown> | undefined;
+  // 🔴 `undefined` = **沒查**(兩顆 env 任一沒設 / 函式尚未 apply)⇒ 兩格都回 null, **不是 0**。
+  const orderCreatedStuckUnknown = ocs === undefined;
+  if (!orderCreatedStuckUnknown && (ocs === null || typeof ocs !== 'object')) {
+    throw new AnomalyAlertReaderParseError(
+      'get_order_created_stuck_count 回應格式異常(函式存在但回了 NULL 或非物件)',
+    );
+  }
+  const stuckNum = (key: string): number | null => {
+    if (orderCreatedStuckUnknown) return null;
+    const raw = ocs![key];
+    // 🛑 `oldest_stuck_minutes` 在【沒有卡住】時是 SQL NULL —— 那不是「讀不到」是「沒有」
+    //   ⇒ 兩者都回 null, 而上游靠 stuckCount 分辨(0 = 沒有卡住 · null = 沒查)。
+    if (raw === null) return null;
+    return parseCount(raw, key, 'get_order_created_stuck_count');
+  };
+
   return {
     emailOverdueCount: emailCount('signal1_overdue_count'),
     emailDeadLetterCount: emailCount('signal2_dead_letter_count'),
     emailStuckSendingCount: emailCount('signal3_stuck_sending_count'),
     emailQuotaConfirmedCount: emailCount('signal5_quota_confirmed_count'),
     emailQuotaSuspectedCount: emailCount('signal5_quota_suspected_count'),
+    // 🔴 **分母**(2026-08-31;`⟦b4-EMAILTOTAL⟧`):SQL 那一側早就在回它
+    //   (`20260829010000…sql` 的 `'total_count'`), 而**本層之前把它丟掉了**。
+    //   ⇒ 沒有它, 上面五個 0 在「一切正常」與「這張表是空的」之間分不出來。
+    emailOutboxTotalCount: emailCount('total_count'),
     emailOutboxUnknown,
+    // 🔵 出貨缺口那三格(2026-08-31)。空陣列 = 沒呼叫(起始線沒設)或函式不存在 ⇒ unknown。
+    //   🔴 **不寫成 0** —— 「讀不到」與「一切正常」在一個裸數字上長得一模一樣。
+    shippedNeverEnqueuedCount: shippedCount('shipped_never_enqueued_count'),
+    shippedUnsendableCount: shippedCount('shipped_unsendable_count'),
+    shipmentsTotalCount: shippedCount('shipments_total_count'),
+    shippedGapUnknown,
+    // 🔵 訊號 4 那三格(2026-08-31)。空陣列 = 沒呼叫(起始線沒設/不合法)或函式尚未 apply ⇒ unknown。
+    //   🔴 **不寫成 0** —— 而這一格今天【一定會走到】:那支 RPC 還沒 apply。
+    orderCreatedPaidNoEmailCount: orderCreatedCount('paid_no_email_count'),
+    orderCreatedNoRecipientCount: orderCreatedCount('no_recipient_count'),
+    orderCreatedGapUnknown,
+    // 🔵 訊號4 持續失敗那兩格。null = 沒查(兩顆 env 任一沒設)或函式尚未 apply
+    //   🔴 **不寫成 0** ——「還沒上膛」與「今天沒有卡住的單」在一個裸數字上長得一模一樣。
+    orderCreatedStuckCount: stuckNum('stuck_count'),
+    orderCreatedStuckOldestMinutes: stuckNum('oldest_stuck_minutes'),
+    // 🔴 **它必須出得去** —— 沒有這一格, adapter 的 fail-closed 在下游就被 `?? 0` 拆掉了。
+    orderCreatedStuckUnknown,
+    ...cronHeartbeat,
     openCount: parseCount(r.open_count, 'open_count'),
     refundingCount: parseCount(r.refunding_count, 'refunding_count'),
     refundingStuckCount: parseCount(r.refunding_stuck_count, 'refunding_stuck_count'),

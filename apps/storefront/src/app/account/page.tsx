@@ -83,7 +83,7 @@ import { ACCOUNT_TAB_IDS, type AccountTabId } from '@/components/account/account
 import { fetchFeaturedProducts, fetchVehicleTaxonomy } from '@/lib/products';
 import { LINE_SYNTHETIC_EMAIL_DOMAIN } from '@/lib/auth/line';
 import { toMemberTier } from '@pcm/domain';
-import { mapSupabaseWalletEntryToDomain } from '@pcm/adapters';
+import { mapSupabaseWalletEntryToDomain, narrowGender } from '@pcm/adapters';
 import type {
   MemberTier,
   CustomerAddress,
@@ -225,7 +225,7 @@ export default async function AccountPage(
   // g-4a Q4=A:select 5 欄(+ name/phone/birthday;tier + wallet_balance 沿用 g-2 path)
   const { data: customerRow, error: customerError } = await supabase
     .from('customers')
-    .select('name, phone, birthday, tier, wallet_balance')
+    .select('name, phone, birthday, gender, tier, wallet_balance')
     .eq('user_id', user.id)
     .single();
 
@@ -242,6 +242,7 @@ export default async function AccountPage(
   let name = metadataName;
   let phone = '';
   let birthday = '';
+  let gender = '';
   if (customerError) {
     // PGRST116(row missing、trigger handle_new_auth_user 應已建、極罕)或 RLS/session 異常 → 退化、不 500
     console.error('[account/page] customers row 讀取失敗、退化 general/0/metadata-name:', customerError);
@@ -263,6 +264,16 @@ export default async function AccountPage(
     // phone/birthday domain string|null → form 用 string、null/undefined 還原 ''
     phone = customerRow.phone ?? '';
     birthday = customerRow.birthday ?? '';
+    // 🔴 `gender` 走同一條「domain null → form ''」的路,而它多一格要講:
+    //    `''` 在表單上是「不選擇」,而 DB 的 `null` 同時代表「沒被問」與「問了沒填」
+    //    ⇒ 兩者在這裡被壓成同一個 `''`。**那是刻意的** —— 表單表達不了「沒被問」,
+    //      而想表達「我不說」的人有 `undisclosed` 可以選。
+      // 🔴 走 `narrowGender` 而不是裸 cast —— codex R1 nit,而它是對的:
+    //    裸 cast 時,DB 裡一個本版不認得的值會**原樣進到 select 的 value**
+    //    ⇒ 那顆下拉停在一個【沒有對應 option】的值上,而且沒有任何 log。
+    //    ⇒ `narrowGender` 認不得就回 null + `console.error` ⇒ 畫面退回「不選擇」而留下鑑識。
+    gender =
+      narrowGender((customerRow as { gender?: string | null }).gender, 'account/page') ?? '';
   }
 
   // g-2:推薦走 fetchFeaturedProducts、走 Supabase 真資料(非 mock)
@@ -339,7 +350,7 @@ export default async function AccountPage(
       walletEntryTotal={walletEntryTotal}
       walletBalanceFailed={walletBalanceFailed}
       featured={featured}
-      profile={{ name, phone, birthday }}
+      profile={{ name, phone, birthday, gender }}
       addresses={addresses}
       vehicles={vehicles}
       vehicleBrands={vehicleBrands}

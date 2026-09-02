@@ -78,20 +78,29 @@ describe('parseWalletAdjustForm — 拒收矩陣(ok:false)', () => {
   });
 
   it('direction 非 deposit/use(refund 無 UI 路徑、手工 POST 拒)→ 拒', () => {
-    for (const bad of ['refund', 'DEPOSIT', '', 'withdraw']) {
+    const bads = ['refund', 'DEPOSIT', '', 'withdraw'];
+    // 這個 N 是分母;要改它, 先問【那個被拿掉的 case 是不是真的不必再守了】。
+    expect(bads).toHaveLength(4);
+    for (const bad of bads) {
       expect(parseWalletAdjustForm(form(valid({ [WALLET_DIRECTION_FIELD]: bad }))).ok).toBe(false);
     }
   });
 
   it('金額非正整數(0/負號/小數/千分位/前導加號/空/超上限)→ 拒', () => {
-    for (const bad of ['0', '-500', '5.5', '1,000', '+500', '', '10000001', '99999999']) {
+    const bads = ['0', '-500', '5.5', '1,000', '+500', '', '10000001', '99999999'];
+    // 這個 N 是分母;要改它, 先問【那個被拿掉的 case 是不是真的不必再守了】。
+    expect(bads).toHaveLength(8);
+    for (const bad of bads) {
       expect(parseWalletAdjustForm(form(valid({ [WALLET_AMOUNT_FIELD]: bad }))).ok).toBe(false);
     }
   });
 
   it('備註空白(必填=Sean Q1)或超長 → 拒;Unicode 看似空白(NBSP/全形/零寬)→ 拒', () => {
     expect(parseWalletAdjustForm(form(valid({ [WALLET_NOTE_FIELD]: '   ' }))).ok).toBe(false);
-    for (const bad of ['\u00A0\u00A0', '\u3000\u3000', '\u200B\u200B', '\uFEFF', '\u200B \u3000']) {
+    const bads = ['\u00A0\u00A0', '\u3000\u3000', '\u200B\u200B', '\uFEFF', '\u200B \u3000'];
+    // 這個 N 是分母;要改它, 先問【那個被拿掉的 case 是不是真的不必再守了】。
+    expect(bads).toHaveLength(5);
+    for (const bad of bads) {
       expect(parseWalletAdjustForm(form(valid({ [WALLET_NOTE_FIELD]: bad }))).ok).toBe(false);
     }
     expect(

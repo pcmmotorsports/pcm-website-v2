@@ -30,6 +30,7 @@
 import { useEffect, useState, useTransition } from 'react';
 import type { FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { GENDER_CODES, GENDER_LABEL } from '@pcm/schemas';
 import { updateProfileAction, type ProfileFieldErrors } from '@/app/account/profile/actions';
 import type { AccountProfile } from '@/components/account/AccountView';
 
@@ -45,6 +46,8 @@ export function ProfileTab({ profile, email }: ProfileTabProps) {
   const [name, setName] = useState(profile.name);
   const [phone, setPhone] = useState(profile.phone);
   const [birthday, setBirthday] = useState(profile.birthday);
+  // 🔴 性別:`''` = 未選。**送代碼、顯示中文**,對應表 `GENDER_LABEL` 是唯一一份。
+  const [gender, setGender] = useState(profile.gender);
   // #181 雙通道:fieldErrors 逐欄 / formError 帳號層級;互不取代。
   const [fieldErrors, setFieldErrors] = useState<ProfileFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -86,7 +89,7 @@ export function ProfileTab({ profile, email }: ProfileTabProps) {
     e.preventDefault();
     startTransition(async () => {
       // 信任邊界在 server(updateProfileAction 五層、g-4a);client 不重驗、收 server 逐欄回傳渲染。
-      const result = await updateProfileAction({ name, phone, birthday });
+      const result = await updateProfileAction({ name, phone, birthday, gender });
       if (result.fieldErrors) {
         setFieldErrors(result.fieldErrors);
         setFormError(null);
@@ -159,6 +162,33 @@ export function ProfileTab({ profile, email }: ProfileTabProps) {
               }}
             />
             {fieldErrors.birthday && <span className="auth-field-err">{fieldErrors.birthday}</span>}
+          </label>
+          {/* 🔴 **性別這一格【設計稿上沒有】** —— 掃過 12 個 OD 專案 + design-reference,
+              「性別」零命中(🟢 同一把尺問「生日」⇒ pcm-524f 38 支 / pcm-home-redesign 14 支
+               ⇒ 尺是活的;🔵 負對照現造字面 ⇒ 0)。
+              ⇒ Sean 2026-09-01 逐字授權:「依照 OD,如果有漏缺怎樣,你們先直接幫我決策…
+                 這次都不用再問我 UI 怎樣」⇒ **本格由施工窗決定,而決定是【不新畫視覺】**:
+                 外框與稿上其他 label 逐字同構,只把 input 換成 select。
+              🔵 標籤字面與**我們自己的註冊表單**一致(`RegisterPage.tsx` 那顆下拉)——
+                 判準是【同一個人會不會看到兩次】:他註冊時看過,兩處用不同的字
+                 會讓他以為是兩件事。 */}
+          <label>
+            <span>性別（選填）</span>
+            <select
+              value={gender}
+              onChange={(e) => {
+                setGender(e.target.value);
+                clearErr('gender');
+              }}
+            >
+              <option value="">不選擇</option>
+              {GENDER_CODES.map((code) => (
+                <option key={code} value={code}>
+                  {GENDER_LABEL[code]}
+                </option>
+              ))}
+            </select>
+            {fieldErrors.gender && <span className="auth-field-err">{fieldErrors.gender}</span>}
           </label>
           <button type="submit" className="auth-submit" disabled={isPending}>
             {saved ? '✓ 已儲存' : '儲存變更'}

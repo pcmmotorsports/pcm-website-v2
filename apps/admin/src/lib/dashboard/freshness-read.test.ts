@@ -7,7 +7,15 @@ vi.mock('@pcm/adapters/server', () => ({
   createSupabaseServiceClient: () => ({ from: mocks.from }),
 }));
 
-import { FRESHNESS_STALE_HOURS, freshnessLabel, loadDataFreshness } from './freshness-read';
+import {
+  FITMENT_STALE_DAYS,
+  FITMENT_SCHEDULER_DEAD_DAYS,
+  FRESHNESS_STALE_HOURS,
+  fitmentFreshnessLabel,
+  freshnessLabel,
+  loadDataFreshness,
+  loadFitmentFreshness,
+} from './freshness-read';
 
 // freshness-read.test.ts — 那一行灰字的守門。
 //
@@ -31,6 +39,10 @@ function chain(result: { data?: unknown[] | null; error?: unknown; reject?: unkn
   };
   const self: Record<string, unknown> = {};
   self.select = () => self;
+  // 🔵 2026-09-01 加:`loadFitmentFreshness` 那條路多一段 `.eq()`。
+  //    這裡**只是讓鏈接得下去**(錯誤/reject 那幾格根本走不到過濾)——
+  //    真的會照 `.eq` 過濾的假 client 是下面的 `logChain`,而**過濾行為要由它證**。
+  self.eq = () => self;
   self.order = () => self;
   self.limit = () => thenable;
   return self;
@@ -143,5 +155,200 @@ describe('loadDataFreshness', () => {
 
     expect(mocks.from).toHaveBeenCalledWith('product_variants');
     expect(calls).toEqual(['select:updated_at', 'order:updated_at:false', 'limit:1']);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 車款搜尋(fitment)那一半 —— `⟦b4-FIT1⟧`
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * 會**真的照 `.eq()` 過濾**的假 client。
+ *
+ * 🔴 **為什麼不是「記下呼叫過 .eq 就好」**:那只證得到「我打了那行字」,
+ *    證不到「打了它會改變答案」。而本片唯一要證的就是後者 ——
+ *    **拿掉 `.eq('status','success')` 這支測試必須紅。**
+ *    ⇒ 所以這個假 client 自己實作過濾,讓兩個世界(有過濾 / 沒過濾)印不同的值。
+ */
+function logChain(rows: { ran_at: string; status: string }[]) {
+  const filters: [string, unknown][] = [];
+  const thenable = {
+    then(ok: (v: unknown) => unknown) {
+      let out = rows;
+      for (const [col, val] of filters) out = out.filter((r) => (r as Record<string, unknown>)[col] === val);
+      out = [...out].sort((a, b) => (a.ran_at < b.ran_at ? 1 : -1));
+      return Promise.resolve(ok({ data: out.slice(0, 1), error: null }));
+    },
+  };
+  const self: Record<string, unknown> = {};
+  self.select = () => self;
+  self.eq = (col: string, val: unknown) => { filters.push([col, val]); return self; };
+  self.order = () => self;
+  self.limit = () => thenable;
+  return self;
+}
+
+/** `NOW` 往前推 d 天的 ISO 字串。 */
+const daysAgoIso = (d: number) => new Date(NOW.getTime() - d * 86_400_000).toISOString();
+
+describe('loadFitmentFreshness', () => {
+  it('🟢 該綠的那一發:1 天前成功過 ⇒ 不算舊', async () => {
+    mocks.from.mockReturnValue(logChain([{ ran_at: daysAgoIso(1), status: 'success' }]));
+    const f = await loadFitmentFreshness(NOW);
+    expect(f.hoursAgo).toBeCloseTo(24, 5);
+    expect(f.stale).toBe(false);
+    expect(f.abnormal).toBe(false);
+    expect(fitmentFreshnessLabel(f)).toBe('車款搜尋同步:已 1 天沒有成功過');
+  });
+
+  // 🔴🔴 **這一格是 codex 對抗審查(2026-09-01)抓到的,而它的 finding 對、理由只對一半 ——**
+  //    它說「輸入與期望值都引用 `FITMENT_STALE_DAYS` ⇒ 把 7 改成 30 仍會全綠」。
+  //    **實測(突變 7 ⇒ 30)⇒ 確實會紅,但紅的是【下面那格 abort 的】**(10 天在 30 天門檻下不算舊),
+  //    **不是這一格**。⇒ 所以「本檔整體抓得到改常數」成立,而**這一格自己的那句宣稱是假的**。
+  //    📌 **一個突變測試可以【給對顏色而理由是錯的】,而顏色是唯一會被看的東西。**
+  //    ⇒ 修法不是刪掉相對寫法(它讓「超過門檻」這件事仍然跟著常數走),是**把那個數字本身釘死**:
+  it('🔵 前提:門檻就是 7 天 —— 這個數是 Sean 給的,不是我們算的(改它這格必紅)', () => {
+    // Sean 2026-08-29 逐字 `A: 7天`。改這個常數 ⇒ 這一格立刻紅 ⇒ 逼人回去看是誰改的、依據是什麼。
+    expect(FITMENT_STALE_DAYS).toBe(7);
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 🆕 2026-09-02 · 第二個門檻 —— 而它回答的是【另一個問題】
+  // ══════════════════════════════════════════════════════════════════════
+  it('🔵 前提:排程門檻就是 2 天 —— 這個數是 Sean 給的,不是我們算的(改它這格必紅)', () => {
+    // Sean 2026-09-02 逐字「甲 2天」。題目是「要不要為【排程掛了】另立一個更短的門檻」。
+    // 🛑 而 7 那個【沒有被推翻】—— 他是加了第二個。兩格各釘各的。
+    expect(FITMENT_SCHEDULER_DEAD_DAYS).toBe(2);
+  });
+
+  it('🔴🔴 3 天沒成功 ⇒ 亮燈,而話是【排程可能掛了】不是【資料舊了】', async () => {
+    // 🔴 這一格是本次改動的理由本體:排程【每日】跑, 而舊的判準是 7 天
+    //    ⇒ 改動前它在這裡是【綠的】—— 一支已經漏了三班的排程, 儀表上一片平靜。
+    mocks.from.mockReturnValue(logChain([{ ran_at: daysAgoIso(3), status: 'success' }]));
+    const f = await loadFitmentFreshness(NOW);
+    expect(f.stale).toBe(true);
+    expect(f.abnormal).toBe(true);
+    expect(fitmentFreshnessLabel(f)).toBe('車款搜尋同步:已 3 天沒有成功過(排程可能掛了 —— 它本來每天跑)');
+    // 🔴 反面釘住:3 天【還沒到】資料算舊那一格 ⇒ 不准講「資料也已經算舊了」
+    expect(fitmentFreshnessLabel(f)).not.toContain('資料也已經算舊了');
+  });
+
+  it('🟢 1.5 天沒成功 ⇒ 還沒到門檻(它本來就可能剛好跨過一天)', async () => {
+    // ⚠️ 排程台北每日 07:01 ⇒ 正常情況這個數字最大約 1 天多
+    //    ⇒ 門檻設 1 會把【還沒到時間】判成【掛了】。這一格釘住那個邊界。
+    mocks.from.mockReturnValue(logChain([{ ran_at: daysAgoIso(1.5), status: 'success' }]));
+    const f = await loadFitmentFreshness(NOW);
+    expect(f.stale).toBe(false);
+    expect(f.abnormal).toBe(false);
+    expect(fitmentFreshnessLabel(f)).toBe('車款搜尋同步:已 1 天沒有成功過');
+  });
+
+  it('🔴 該紅的那一發:超過門檻 ⇒ stale', async () => {
+    mocks.from.mockReturnValue(logChain([{ ran_at: daysAgoIso(FITMENT_STALE_DAYS + 1), status: 'success' }]));
+    const f = await loadFitmentFreshness(NOW);
+    expect(f.stale).toBe(true);
+    expect(f.abnormal).toBe(true);
+    // 🔴 2026-09-02:超過 7 天那一段話變了 —— 它現在同時講【排程可能掛了】與【資料也舊了】
+    expect(fitmentFreshnessLabel(f)).toBe(
+      `車款搜尋同步:已 ${FITMENT_STALE_DAYS + 1} 天沒有成功過(排程可能掛了, 而資料也已經算舊了)`,
+    );
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴🔴 本片存在的那一格 —— 沒有它,兩種寫法在【今天的資料】上印同一個數
+  // ══════════════════════════════════════════════════════════════════════
+  it('🔴🔴 今天 abort + 10 天前 success ⇒ 必須回【10 天】(用 max(ran_at) 寫的話這格會回「不到 1 天」)', async () => {
+    mocks.from.mockReturnValue(
+      logChain([
+        // 這一列比較新, 而它【不是成功】—— 只看 max(ran_at) 就會拿到它
+        { ran_at: daysAgoIso(0), status: 'abort' },
+        { ran_at: daysAgoIso(10), status: 'success' },
+      ]),
+    );
+    const f = await loadFitmentFreshness(NOW);
+    expect(Math.floor((f.hoursAgo ?? NaN) / 24)).toBe(10);
+    expect(f.stale).toBe(true);
+    expect(fitmentFreshnessLabel(f)).toBe(
+      '車款搜尋同步:已 10 天沒有成功過(排程可能掛了, 而資料也已經算舊了)',
+    );
+    // 🔴 反面也釘住:它【不准】讀成「今天剛更新過」—— 那是這道儀表最該叫卻不叫的那一種。
+    expect(fitmentFreshnessLabel(f)).not.toContain('1 天內');
+  });
+
+  it('🔴 一列成功都沒有 ⇒ 量不到(空紀錄不是「很新」)', async () => {
+    mocks.from.mockReturnValue(logChain([{ ran_at: daysAgoIso(0), status: 'abort' }]));
+    const f = await loadFitmentFreshness(NOW);
+    expect(f.hoursAgo).toBeNull();
+    expect(f.abnormal).toBe(true);
+    expect(fitmentFreshnessLabel(f)).toContain('查無任何成功同步紀錄');
+  });
+
+  it('🔴 查詢出錯 ⇒ 量不到,而不是 0 天前', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.from.mockReturnValue(chain({ error: { message: 'boom' } }));
+    const f = await loadFitmentFreshness(NOW);
+    expect(f.hoursAgo).toBeNull();
+    expect(f.stale).toBe(false);
+    expect(f.abnormal).toBe(true);
+    expect(fitmentFreshnessLabel(f)).toContain('量不到');
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('未來時間戳照實印、不夾成 0', async () => {
+    mocks.from.mockReturnValue(logChain([{ ran_at: daysAgoIso(-3), status: 'success' }]));
+    const f = await loadFitmentFreshness(NOW);
+    expect(fitmentFreshnessLabel(f)).toContain('未來');
+    expect(f.stale).toBe(false);
+    expect(f.abnormal).toBe(true);
+  });
+
+  it('🔴🔴 查詢永遠不回 ⇒ 5 秒後印「查詢逾時」,而【不是】把首頁吊住(codex R2 must-fix)', async () => {
+    vi.useFakeTimers();
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // 永遠 pending 的 thenable —— 那正是 allSettled 隔離不了的那一種。
+    const never = { then: () => new Promise(() => {}) };
+    const self: Record<string, unknown> = {};
+    self.select = () => self; self.eq = () => self; self.order = () => self;
+    self.limit = () => never;
+    mocks.from.mockReturnValue(self);
+
+    // 🔴 `try/finally`:codex R3 nit —— 原本 `mockRestore` / `useRealTimers` 只寫在成功尾端,
+    //    這一格若中途斷言失敗,**fake timers 與 console spy 會漏到後面每一格**
+    //    ⇒ 後面那些格的錯誤訊息會失真,而失真的方向是「看起來像別的問題」。
+    try {
+      const p = loadFitmentFreshness(NOW);
+      await vi.advanceTimersByTimeAsync(5_000);
+      const f = await p;
+
+      expect(f.hoursAgo).toBeNull();
+      expect(f.abnormal).toBe(true);
+      expect(fitmentFreshnessLabel(f)).toContain('查詢逾時');
+      // 🔴 逾時與查詢失敗要印【不同的原因】—— 讀的人靠它決定下一步去查哪裡。
+      expect(fitmentFreshnessLabel(f)).not.toContain('查詢失敗');
+      expect(spy).toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('查詢形狀:讀 sync_log、只取成功的、取最新那一列', async () => {
+    const calls: string[] = [];
+    const thenable = {
+      then: (ok: (v: unknown) => unknown) =>
+        Promise.resolve(ok({ data: [{ ran_at: daysAgoIso(1) }], error: null })),
+    };
+    const self: Record<string, unknown> = {};
+    self.select = (c: string) => { calls.push(`select:${c}`); return self; };
+    self.eq = (c: string, v: string) => { calls.push(`eq:${c}:${v}`); return self; };
+    self.order = (c: string, o: { ascending: boolean }) => { calls.push(`order:${c}:${o.ascending}`); return self; };
+    self.limit = (n: number) => { calls.push(`limit:${n}`); return thenable; };
+    mocks.from.mockReturnValue(self);
+
+    await loadFitmentFreshness(NOW);
+
+    expect(mocks.from).toHaveBeenCalledWith('product_fitments_effective_sync_log');
+    expect(calls).toEqual(['select:ran_at', 'eq:status:success', 'order:ran_at:false', 'limit:1']);
   });
 });

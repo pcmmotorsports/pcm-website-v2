@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -35,7 +36,11 @@ import { describe, expect, it } from 'vitest';
  *   (關卡2 R2 提出,**評估後不追**,理由同 GRANT 守門那條:文字層蓋不完等價編碼,
  *   而刻意混淆表名的人已不在本檔的威脅模型內)。真要關掉得換層 —— 對 build 產物或
  *   runtime 查詢做檢查,不屬單元測試層。
- * - 寫在**行尾註解**裡的表名會被當成程式碼(偏保守、寧可誤紅不漏放)。
+ * - ⛔ ~~寫在**行尾註解**裡的表名會被當成程式碼(偏保守、寧可誤紅不漏放)。~~
+ *   🔵 **2026-08-30 改**:**所有註解一律剝掉** —— `//` 與 `/* … *\/`、行首與行尾、
+ *   JSX 的 `{/* … *\/}` 一視同仁。**判斷「這是不是註解」交給 TypeScript 自己的 scanner,不用 regex。**
+ *   理由與代價寫在 `stripComments` 上面(前後不一致的守門, 它的誤報會被讀成「尺壞了」
+ *   ⇒ 那正是它被關掉的方式)。
  * - 🔴 **storefront 呼叫 adapter 的 admin 方法**(R1 nit 9):`apps/storefront` 已 import
  *   `SupabaseOrderAdapter`(`src/lib/auth/composition.ts`),某條 route 若直接呼
  *   `findAdminOrderDetail()`,表名根本不會出現在 storefront 原始碼裡 ⇒ 本守門全綠。
@@ -125,6 +130,75 @@ const CANCELLATION_INTERNAL_COLUMNS = [
  */
 const PROCUREMENT_VOID_COLUMNS = ['voided_at', 'voidedAt', 'void_reason', 'voidReason'] as const;
 
+/**
+ * 只留**程式碼行**:剝掉 `//` 整行註解,以及 `/* … *\/` 區塊註解的每一行。
+ *
+ * 🔴 **為什麼要動它**(2026-08-30 線【客人帳戶區】`-08`;主視窗 `-48` 改派):
+ *    這道守門對 `lib/email/composition.ts:128` 開火,而那一行是 block comment 的 ` * ` 續行,
+ *    逐字寫著「scanner 讀 shipments / orders / customers,含 PII」—— **一句誠實記錄事實的註解。**
+ *    📌 **病灶不是那行註解, 是這把尺**:它宣稱「不得【出現】shipments」,
+ *       而它要防的是「客人【讀得到】營運資料」—— **「出現」比「讀得到」寬**
+ *       ⇒ **一句記錄「service_role 會讀 shipments」的文件, 讓守門對自己的文件叫。**
+ *    ⇒ 而守門對文件開火的下場是**它會被關掉, 不是被修**(本檔上面那段自己就寫過這句)。
+ *
+ * 🔴 **而 R1 nit 8 當初收窄成「只剝 `//`」的理由仍然成立, 本版沒有把它丟掉**:
+ *    template literal 裡跨行 SQL 的 `  * from order_cancellations` **不得**被當成註解剝掉
+ *    ⇒ parser 看得出那是 template literal 的一部分, 不是註解 ⇒ **照掃**(下方測項釘住它)。
+ *
+ * 🔴🔴 **本函式被對抗審查打穿【三次】, 三次的根因是同一句話:我用【比 JS 語法弱的工具】去回答一個語法問題。**
+ *    **第一版(逐行字串判斷)**:`/* legacy *\/ await sb.from('shipments')`(行首開區塊而同行有查詢)、
+ *      `*\/ const r = …`(收尾行尾巴有碼)、字串裡未閉合的 `/*`(**吞到 EOF, 整支檔隱形**)。
+ *    **第二版(整份 regex 非貪婪移除)**:更糟, 而且**當天就在發生** ——
+ *      `PreviewHarness.tsx:8` 逐字 `// dev-preview/* 全部 route …`, 收尾由 `:17` 的 `*\/` 提供
+ *      ⇒ 中間 **206 行真程式碼 / 27 支檔**從掃描裡消失(R2 live 量;第一版 0 行)。
+ *      📌 **供給源是「`*\/` 這兩個字元」, 不是「註解」** —— 字串裡的 glob `'src/*'`、
+ *      正則字面 `/a*\/` 自己就含收尾, 都是同一個供給源。
+ *    **第三版(`ts.createScanner`)**:看起來是「用 TypeScript 自己的工具」而**它一樣不夠** ——
+ *      裸 scanner **答不出帶 `${}` 的 template**(那要由 parser 驅動 `reScanTemplateToken`)
+ *      ⇒ 實測 `composition.ts:48` 的 `` `缺少必要環境變數:${name}` `` 讓它從那裡開始整段錯讀,
+ *      **而它的表現是「有剝掉一些註解」(7844⇒5714 字元), 不是整個壞掉** ⇒ 📌 **半對的輸出最難發現。**
+ *
+ * ✅ **第四版:用 parser**(`ts.createSourceFile`)。走過**每一個 token**(`getChildren`, 不是
+ *    `forEachChild` —— 後者跳過標點 token, 而 JSX 的 `{/* … *\/}` 正好掛在 `}` 上),
+ *    收集 `getLeadingCommentRanges` 與 `getTrailingCommentRanges`, 只把那些區間挖掉。
+ *    ⇒ 字串、template(含 `${}`)、正則字面、JSX、U+2028 / 單獨 CR **全部由 parser 免費答對**。
+ *    ⇒ `.tsx` / `.jsx` 用 `ScriptKind.TSX`(`<Foo>` 在兩種 ScriptKind 下語意相反, 判錯會整支檔錯讀)。
+ *
+ * ⚠️ **殘留盲區(照實寫, 不寫「有界」那種安慰話)**:
+ *    ① parser 對**語法壞掉**的檔是容錯的, 它可能少認出一段註解 ⇒ 那個方向是**多掃**(誤紅), 不是漏放。
+ *    ② 本檔仍然只做**文字層**比對:跳脫序列拼出的表名(`"order…"`)照樣掃不到,
+ *       同本檔上面「字串混淆」那條, **評估後不追**。
+ */
+function stripComments(source: string, fileName: string): string {
+  const sf = ts.createSourceFile(
+    fileName,
+    source,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ true,
+    /\.(tsx|jsx)$/.test(fileName) ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const cuts: Array<[number, number]> = [];
+  const add = (rs: readonly ts.CommentRange[] | undefined) => {
+    for (const r of rs ?? []) cuts.push([r.pos, r.end]);
+  };
+  const visit = (n: ts.Node): void => {
+    add(ts.getLeadingCommentRanges(source, n.getFullStart()));
+    add(ts.getTrailingCommentRanges(source, n.getEnd()));
+    for (const c of n.getChildren(sf)) visit(c);
+  };
+  visit(sf);
+  // 同一段註解會被相鄰 token 各報一次 ⇒ 排序後跳過已被涵蓋的區間(否則 `slice` 會把碼切碎)
+  cuts.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+  let out = '';
+  let last = 0;
+  for (const [a, b] of cuts) {
+    if (b <= last) continue;
+    out += source.slice(last, Math.max(a, last));
+    last = b;
+  }
+  return out + source.slice(last);
+}
+
 const STOREFRONT_SRC = fileURLToPath(new URL('../apps/storefront/src/', import.meta.url));
 
 function walk(dir: string): string[] {
@@ -141,16 +215,19 @@ function walk(dir: string): string[] {
 describe('storefront 投影洩漏守門(service-role-only 表)', () => {
   const files = walk(STOREFRONT_SRC).map((path) => ({
     path: path.slice(STOREFRONT_SRC.length),
-    source: readFileSync(path, 'utf8')
-      .split('\n')
-      // 🔴 **只剝 `//` 開頭的行**(R1 nit 8 收窄):原本連 `*` 開頭也剝,
-      //    會把 template literal 裡跨行 SQL 的 `  * from order_cancellations` 整行當註解刪掉
-      //    ⇒ 真的寫了 raw SQL 的洩漏反而隱形。實測會誤命中的那一筆是 `//` 註解,剝這個就夠。
-      .filter((line) => !/^\s*\/\//.test(line))
-      .join('\n'),
+    source: stripComments(readFileSync(path, 'utf8'), path),
   }));
 
-  it('前提:真的掃到 storefront 原始碼(否則本檔是恆真的空守門)', () => {
+  // ── stripComments 的自檢(R1/R2 兩輪對抗審查打穿過的每一個形狀都在這裡)──────────
+  //    🔴 **沒有正對照那幾發, 你分不出「修好了誤報」與「把守門關掉了」。**
+  //    ⚠️ **射程**:這幾發驗的是**判準本身**(`stripComments(src, path).includes(table)`);
+  //       檔案走訪那一層由下面兩個「前提」測項顧。
+  //       刻意**不**在 `apps/storefront/` 底下種真檔:一份被突變的檔曾經被 commit 進正式分支
+  //       (`docs/patterns/mutation-harness-restore.md`)⇒ 不留還原這一步, 就不會有還原失敗。
+  const hits = (src: string, needle = 'shipments', fileName = 'probe.ts') =>
+    stripComments(src, fileName).includes(needle);
+
+  it('前提一:真的掃到 storefront 原始碼(否則本檔是恆真的空守門)', () => {
     expect(files.length).toBeGreaterThan(50);
     // 釘住那兩處 inline select 確實在掃描範圍內 —— 它們正是本檔存在的理由。
     const paths = files.map((f) => f.path);
@@ -158,10 +235,128 @@ describe('storefront 投影洩漏守門(service-role-only 表)', () => {
     expect(paths).toContain(join('app', 'api', 'orders', '[orderId]', 'payment-status', 'route.ts'));
   });
 
+  it('🔴 前提二:剝完之後【程式碼真的還在】(R2 must-fix 5:門檻式的釘子近乎恆真)', () => {
+    // R1 finding 6:守門整個關掉(`source: ''`)時,「有幾支檔 + 路徑在不在」那一發**照樣全綠**。
+    // 🔴 而 R2 打穿了我第一次補的釘子:`total > 100_000`(實際 298 萬)與 `importFiles > 50`(實際 501)
+    //    ⇒ 一個「只留含 import 的行」的突變(刪掉 94.6% 內容)**照樣過**。
+    // ⇒ 改成釘**具名檔案裡的具名程式碼字面** —— 門檻可以被稀釋, 一個具體的字面不行。
+    const pinned = files.find(
+      (f) => f.path === join('app', 'api', 'orders', '[orderId]', 'payment-status', 'route.ts'),
+    );
+    expect(pinned, '釘住的那支檔不在掃描結果裡 ⇒ 走訪層壞了').toBeDefined();
+    // 這三個字面都在**程式碼行**上(不是註解)⇒ 任何「把內容刪掉/剝過頭」的突變都會殺掉它們。
+    expect(pinned!.source).toContain('export');
+    expect(pinned!.source).toContain('import');
+    // 🔴 這三顆刻意**都不在 import 行上**(2026-08-30 開檔核)——
+    //    R2 打穿的那個突變是「只留含 `import` 的行」(刪掉 94.6% 內容), 它會讓
+    //    任何釘在 import 行上的字面**照樣存活**。⇒ 釘子要落在**函式體與常數**上。
+    expect(pinned!.source).toContain('POLL_SETTLE_THROTTLE_SECONDS');
+    expect(pinned!.source).toContain(`'force-dynamic'`);
+    expect(pinned!.source).toContain('function fail(');
+  });
+
+  it('🔴 正對照:真的讀 shipments 的程式碼必須被抓到', () => {
+    expect(hits(`const r = await sb.from('shipments').select('*');`)).toBe(true);
+    // ⚠️ 上面那發在一個【什麼都不剝】的 stripper 底下**也會過**(自己那格判別力是 0)——
+    //    真正殺掉 no-op 的是負對照那幾發。兩邊都要在。
+  });
+
+  it('🔴 R1 打穿第一版(逐行)的三個形狀 —— 每一個都必須是「掃」', () => {
+    // ① 行首開區塊, 而**同一行還有真查詢**
+    expect(hits(`/* legacy */ await sb.from('shipments').select('*');`)).toBe(true);
+    // ② 收尾行的**尾巴**有碼
+    expect(hits(`/* 說明\n*/ const r = await sb.from('shipments');`)).toBe(true);
+    // ③ 字串裡一個沒閉合的 `/*` —— 第一版從這裡吞到 EOF
+    expect(hits('const note = `\n/* TODO 這裡以後要接\n`;\nawait sb.from("shipments");')).toBe(true);
+  });
+
+  it('🔴 R2 打穿第二版(整份 regex)的形狀 —— 供給源是 `*/` 兩個字元, 不是註解', () => {
+    // ① **當天就在發生的那一個**:`// …/* …` 開了假區塊, 收尾由後面某個真註解提供
+    //    (實例 `app/dev-preview/_components/PreviewHarness.tsx:8` 的 `// dev-preview/* 全部 route`)
+    expect(hits('// dev-preview/* route\nconst x = 1;\n/* 真註解 */\nawait sb.from("shipments");')).toBe(
+      true,
+    );
+    // ② 字串裡的 glob 當假開頭
+    expect(hits('const g = "src/*";\nawait sb.from("shipments");\n/** doc */')).toBe(true);
+    // ③ 正則字面自己就含 `*/`, 當假收尾
+    expect(hits('const s = "a/*b";\nconst re = /a*/;\nawait sb.from("shipments");')).toBe(true);
+    // ④ **貪婪殺手**:兩個獨立註解之間的碼(regex 若少了 `?` 會把中間整段吃掉)
+    expect(hits(`/* a */ const x = 'shipments'; /* b */`)).toBe(true);
+  });
+
+  it('🔴 R2 must-fix 9:U+2028 與單獨 CR 也是行終止符(前兩版在這裡 LEAK)', () => {
+    expect(hits('// note await sb.from("shipments");')).toBe(true);
+    expect(hits('// note\rawait sb.from("shipments");')).toBe(true);
+  });
+
+  it('負對照:只出現在註解裡的表名不算洩漏(本次改動要修的就是這一格)', () => {
+    expect(hits(`  // service_role 會讀 shipments`)).toBe(false);
+    // `/* */` 區塊的續行 —— **第一版剝不掉, 它就是 composition.ts:128 那一格**
+    expect(hits(`/**\n * scanner 讀 shipments / orders,含 PII\n */\nconst a = 1;`)).toBe(false);
+    // 🔵 **行尾註解今天也剝** —— `//` 與 `/* */` 兩種都是(R2 must-fix 6/7:上一版只剝了一半而檔頭說剝了全部)
+    expect(hits(`const a = 1; // 以後要讀 shipments`)).toBe(false);
+    expect(hits(`const t = 'orders'; /* 也會碰 shipments */`)).toBe(false);
+    // JSX 的 `{/* */}`
+    expect(
+      hits(`const E = () => <div>{/* 這裡以後接 shipments */}</div>;`, 'shipments', 'a.tsx'),
+    ).toBe(false);
+    // 而註解結束之後的程式碼**不得**被連坐吃掉
+    expect(hits(`/**\n * 說明\n */\nawait sb.from('shipments');`)).toBe(true);
+  });
+
+  it('🔴 template literal 裡的跨行 SQL 仍然照掃(第一版收窄的理由沒有被丟掉)', () => {
+    // ⚠️ **它守的是未來不是現況**:storefront 今天沒有任何 template literal 跨行 SQL(R1 實掃),
+    //    所以這一格今天沒有真實對象 —— 那不是刪掉它的理由, 是它存在的理由。
+    const sql = ['const q = `select', '  * from order_cancellations', '`;'].join('\n');
+    expect(hits(sql, 'order_cancellations')).toBe(true);
+  });
+
+  /**
+   * 🔴🔴 **「出現」比「讀得到」寬 —— 而本檔上面 `:139` 自己就寫過這句話。**
+   *
+   * 2026-08-31 這道守門對 `app/api/cron/anomaly-alert/route.test.ts:85` 開火,那一行是
+   * `shipmentsTotalCount: 0` —— **一個正式的 domain 欄位名**
+   * (`packages/domain/src/payment/anomaly-alert.ts:173` · use-cases · adapter 都有它),
+   * **不是**在查那張表。實查:storefront 全樹 `from('shipments')` / `public.shipments` ⇒ **0 命中**。
+   *
+   * 📌 **⇒ 同一個病的下一個形狀**:上一輪的修法是「把註解剝掉」,
+   *    而這一次它命中的是**識別字裡的子字串** —— 剝註解對它沒有作用。
+   *    ⇒ 🔴 **根因不是註解也不是欄位名, 是 `includes()` 這把尺本身**:
+   *      它問「這幾個字元有沒有出現」, 而我們要問的是「有沒有人【把它當一張表在讀】」。
+   *
+   * ✅ **修法:加識別字邊界** —— `shipments` 前後不得是識別字字元。
+   *    · `from('shipments')` / `public.shipments` / `"shipments"` ⇒ **照樣命中**(前後是引號或點)
+   *    · `shipmentsTotalCount` / `orderShipmentsCache` ⇒ **不再命中**(緊鄰的是英數字)
+   * 🛑 **這【不是】白名單** —— 本檔逐字寫著「不要把本守門加白名單」。
+   *    白名單是「這一支檔例外」;這裡改的是**判準本身**, 而它對所有檔一視同仁。
+   * ⚠️ **代價明寫**:有人寫 `const t = 'shipments'; sb.from(t)` ⇒ 仍會命中(那個字面帶引號);
+   *    但 `sb.from('ship' + 'ments')` 這種拼接**本來就掃不到**, 那是這把尺一直都有的天花板。
+   */
+  const wholeWord = (src: string, word: string): boolean =>
+    new RegExp(`(?<![A-Za-z0-9_$])${word}(?![A-Za-z0-9_$])`).test(src);
+  /**
+   * 🛑 **同族的兩處【我刻意沒有一起改】,寫在這裡讓下一個人看得到**:
+   *   下面「欄位」那兩個迴圈(`PROCUREMENT_*_COLUMNS`)也是 `includes()`,
+   *   ⇒ `voidedAt` 會命中 `orderVoidedAt`、`void_reason` 會命中 `has_void_reason_flag`
+   *   ⇒ **同一個病, 只是今天還沒有人踩到。**
+   * 🔵 **為什麼不順手改**:它們今天是綠的, 而我沒有一發【真的會紅】的例子可以驗我的修法 ——
+   *   照本檔上面那三次被打穿的紀錄, **沒有反例的修法就是下一個被打穿的版本。**
+   *   ⇒ 等它真的對某個合法識別字開火時再改, 而那時會有一個現成的反例。
+   */
+
   for (const table of SERVICE_ROLE_ONLY_TABLES) {
     it(`🔴 storefront 原始碼不得出現 ${table}`, () => {
-      const offenders = files.filter((f) => f.source.includes(table)).map((f) => f.path);
-      expect(offenders, `${table} 出現在 storefront ⇒ 客人可能讀得到營運內部資料`).toEqual([]);
+      const offenders = files.filter((f) => wholeWord(f.source, table)).map((f) => f.path);
+      expect(
+        offenders,
+        // 🔴 錯誤訊息要讓「只看得到這則訊息的人做得出正確的下一步」(2026-08-30 `-48` 指定):
+        //    舊版只說「出現在 storefront」⇒ 讀的人不知道該刪那行、還是那行其實是註解。
+        //    ⇒ 這裡明說「已經剝掉註解」, 所以命中必然在**程式碼行**上。
+        `${table} 出現在 storefront 的【程式碼行】(整行 // 與 /* */ 區塊註解都已剝掉)` +
+          ` ⇒ 客人可能讀得到營運內部資料。\n` +
+          `下一步:開那支檔找 ${table} —— 若它真的在查這張表, 把那條路拿掉(客人不該讀它);` +
+          `若你認為它是誤報, 先確認它不是註解(註解已經被剝了), 不要把本守門加白名單。`,
+      ).toEqual([]);
     });
   }
 

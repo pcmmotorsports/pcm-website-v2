@@ -78,6 +78,7 @@ import math
 import os
 import re
 import unicodedata
+import subprocess
 import sys
 from collections import Counter
 
@@ -124,6 +125,30 @@ def load_sections(path, source):
     return secs
 
 
+def _main_worktree(root):
+    """git worktree ⇒ 主樹路徑。common dir 是 <主樹>/.git ⇒ 去尾即主樹。推不出回 None。"""
+    try:
+        r = subprocess.run(['git', '-C', root, 'rev-parse', '--path-format=absolute',
+                            '--git-common-dir'], capture_output=True, text=True, timeout=5)
+    except Exception:
+        return None
+    if r.returncode != 0:
+        return None
+    common = r.stdout.strip()
+    if not common.endswith(os.sep + '.git'):
+        return None          # bare repo / 非預期形狀 ⇒ 不猜
+    return os.path.dirname(common)
+
+
+def _root_candidates(root):
+    """[自己, 主樹] —— 去重且保順序;不是 worktree 時就只有一個。"""
+    out = [os.path.abspath(root)]
+    m = _main_worktree(root)
+    if m and os.path.abspath(m) not in out:
+        out.append(os.path.abspath(m))
+    return out
+
+
 def memory_dir(root):
     """推導 memory 目錄(不寫死)。順序:環境變數 → Claude Code 的 projects 慣例。
     推不出來回 None —— 呼叫端必須【出聲】,不可安靜地少一個抽屜。"""
@@ -133,10 +158,15 @@ def memory_dir(root):
     # 🔴 Claude Code 的 projects slug 把【路徑分隔符與底線】都換成 `-`
     #    (實測 2026-08-22:/Users/sean_1/pcm-website-v2 ⇒ -Users-sean-1-pcm-website-v2。
     #     只換 os.sep 會推出 `sean_1` 而目錄是 `sean-1` ⇒ 靜靜地少一個抽屜。第一版就是這樣錯的。)
-    slug = os.path.abspath(root).replace(os.sep, '-').replace('_', '-')
-    cand = os.path.join(os.path.expanduser('~'), '.claude', 'projects', slug, 'memory')
-    if os.path.isdir(cand):
-        return cand
+    # 🔴 2026-08-30:在 git worktree 裡跑時,slug 推出來的是【worktree 的路徑】,
+    #    而 memory 住在【主樹】那個 slug 底下 ⇒ 推不到、整族缺席。
+    #    症狀不是靜默(下面有警告),但那句警告會被讀成「這台機器沒有 memory」,
+    #    而真相是「你在副本裡問,答案在正本那邊」。⇒ 兩個候選各試一次。
+    for r in _root_candidates(root):
+        slug = os.path.abspath(r).replace(os.sep, '-').replace('_', '-')
+        cand = os.path.join(os.path.expanduser('~'), '.claude', 'projects', slug, 'memory')
+        if os.path.isdir(cand):
+            return cand
     # 退一步:同名前綴只有一個候選時接受它(避免 slug 規則日後再變就整族缺席)
     base = os.path.join(os.path.expanduser('~'), '.claude', 'projects')
     tail = os.path.basename(os.path.abspath(root))

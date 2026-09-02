@@ -41,8 +41,20 @@ function row(over: Partial<ManualRefundRow> = {}): ManualRefundRow {
   };
 }
 
-/** D3-c 起本元件要 orderId/returnTo(只給作廢後 revalidate 與 returnTo 用)。 */
-const WIRE = { orderId: 'ord-1', returnTo: '/orders/ord-1' } as const;
+/**
+ * D3-c 起本元件要 orderId/returnTo(只給作廢後 revalidate 與 returnTo 用)。
+ *
+ * 🔴 ⟦b4-PCM01RECORD⟧ 起多了 `displayId` 與 `railCap`。**`railCap` 這裡給 `0` 而不是 `null`**:
+ *    `0` = 「上限剛好用完、沒有超額」⇒ **不標紅** ⇒ 上面那幾格驗的是它們原本要驗的東西。
+ *    ⚠️ 給 `null` 的話每一格都會多出一條紅字, 而它們**照樣會綠** —— 那就是把一個
+ *    「畫面多了一段沒人預期的東西」藏進一堆綠裡。
+ */
+const WIRE = {
+  orderId: 'ord-1',
+  displayId: 'PCM-0001',
+  railCap: 0,
+  returnTo: '/orders/ord-1',
+} as const;
 
 afterEach(() => {
   cleanup();
@@ -180,5 +192,168 @@ describe('ManualRefundLedgerSection — D3', () => {
     expect(text).toContain('300');
     expect(text).toContain('700');
     expect(container.querySelectorAll('tbody tr')).toHaveLength(2);
+  });
+});
+
+// ══ ⟦b4-PCM01RECORD⟧ 那條紅 ══════════════════════════════════════════════════
+//
+// 🔴 這一組是 `20260902020000` 的**解封條件**:那支把上限閘從【擋下來】改成【記下來】,
+//    Sean 2026-09-02 拍甲逐字「記得下來, 但標紅」⇒ 沒有下面這幾格,那支不得單獨上線。
+//    ⇒ 所以這裡驗的不是「有沒有一句字」,是**兩種紅分不分得開**(Sean Q4 甲)。
+//
+// 🛑 **第一版有三個假綠格, 全部由 codex 2026-09-02 抓到 —— 訃聞留著, 因為它們是同一族**:
+//    ⑥ 只數 `role="alert"`, **完全沒驗它是紅的** ⇒ 把整段改成灰色仍全綠
+//       ⇒ 📌 而規格的字面就是「標紅」, 那格量的卻是「有沒有一段 alert」。
+//    ⑦ `toContain('800')` ⇒ 畫面印 `1,800` / `8000` 照樣過
+//       ⇒ 📌 **而它守不到的正好是同一份 diff 裡另一條 must-fix(bigint 失真)。**
+//    ⑧ 沒有任何一格演過 truncated / loadFailed / 零列 —— 而那三條 return 路徑當時都不掛紅。
+describe('ManualRefundLedgerSection — ⟦b4-PCM01RECORD⟧ 超出上限要標紅', () => {
+  /**
+   * 🔴 **不是只數 `role="alert"`** —— 那把尺只量得到「有一段警語」,量不到「它是紅的」。
+   *    這裡多釘一格:那段必須帶 `text-destructive`(本 repo 的紅=destructive token)。
+   *    ⚠️ 誠實邊界:它證的是**class 在**, 不是**瀏覽器真的畫成紅色**(那要真瀏覽器)。
+   *    ⇒ 但它擋得住「有人把紅底紅字改成灰色」這一種 —— 那正是 codex ⑥ 的那個世界。
+   */
+  function redAlerts(c: HTMLElement): HTMLElement[] {
+    return Array.from(c.querySelectorAll<HTMLElement>('[role="alert"]')).filter((el) =>
+      el.className.includes('text-destructive'),
+    );
+  }
+  const allAlerts = (c: HTMLElement) => Array.from(c.querySelectorAll('[role="alert"]'));
+
+  it('[R1] railCap 為負 ⇒ 一條紅,講得出【超出多少】與【下一步是確認金額】', () => {
+    const { container } = render(
+      <ManualRefundLedgerSection rows={[row()]} {...WIRE} railCap={-800} />,
+    );
+    expect(redAlerts(container)).toHaveLength(1);
+    const text = redAlerts(container)[0]?.textContent ?? '';
+    // 🔴 **釘完整金額字面, 不是 `toContain('800')`**(codex ⑦):
+    //    `1,800` / `8000` 都含 `800` ⇒ 那把尺對「金額算錯」是瞎的。
+    expect(text).toContain('超出可退上限 NT$ 800');
+    expect(text).not.toContain('-800');
+    // 🔴🔴 **R3/Fable F2:文案原本只點名【一個】成因** ——
+    //    而 `railCap < 0` 有兩個成因:①退款打錯 ②**收款側少記**。
+    //    ⇒ 現金單的收款從未登錄時 cap=0 ⇒ 一筆【金額完全正確】的退款也會標紅
+    //    ⇒ 員工確認金額沒錯 ⇒ 紅永遠在 ⇒ 🛑 **而畫面上唯一可按的東西是「作廢」**
+    //    ⇒ ⇒ 他會作廢一筆**真實發生過**的退款來消紅 ⇒ 帳與事實分家,
+    //       而那正是作廢欄自己(本檔 `:19-21`)說不該做的事。
+    expect(text).toContain('退款金額有沒有打錯');
+    expect(text).toContain('收款有沒有登錄齊全');
+    // 🔴 而它必須明說「不要用作廢消警示」—— 那是這個畫面唯一一顆按得下去的鈕。
+    expect(text).toContain('請勿用「作廢」來消除這個提示');
+    // 🔴 而它必須同時講「已經記下來了」—— 少了這句,員工會以為登記被擋掉而再按一次。
+    expect(text).toContain('記下來');
+  });
+
+  it('[R1b] 🔴 金額要逐字對得上, 千分位也算(守 bigint 失真那條)', () => {
+    const { container } = render(
+      <ManualRefundLedgerSection rows={[row()]} {...WIRE} railCap={-1234567} />,
+    );
+    expect(redAlerts(container)[0]?.textContent ?? '').toContain('超出可退上限 NT$ 1,234,567');
+  });
+
+  it('[R2] railCap 為 null ⇒ 出現的是【另一條】紅:算不出上限 + 帶單號', () => {
+    const { container } = render(
+      <ManualRefundLedgerSection rows={[row()]} {...WIRE} railCap={null} />,
+    );
+    expect(redAlerts(container)).toHaveLength(1);
+    const text = redAlerts(container)[0]?.textContent ?? '';
+    expect(text).toContain('算不出');
+    // 🔴 單號:員工看到這句會去打電話,而電話那頭第一句一定是「哪一張」(主視窗 2026-09-02 指定)。
+    expect(text).toContain('PCM-0001');
+    // 🛑 **這一格是 Sean Q4 甲的本體**:兩種紅的【下一步不同】⇒ 不得共用同一句。
+    //    超額 ⇒ 自己去確認金額;算不出 ⇒ 找工程。合成一句 = 把該找工程的送去改一個沒問題的金額。
+    expect(text).not.toContain('超出可退上限');
+    expect(text).toContain('系統維護');
+  });
+
+  it('[R3] 🟢 正向對照:railCap >= 0 ⇒ 一條紅都不出現(否則上面兩格對「永遠標紅」也綠)', () => {
+    for (const cap of [0, 1, 999999]) {
+      const { container } = render(
+        <ManualRefundLedgerSection rows={[row()]} {...WIRE} railCap={cap} />,
+      );
+      expect(allAlerts(container)).toHaveLength(0);
+      cleanup();
+    }
+  });
+
+  // ══ codex must-fix ②/③/④:紅不得被別的 return 路徑遮掉 ════════════════════════
+  it('[R6] 🔴 列被截斷時, 超額的紅仍要在 —— 那正是最該紅的時候', () => {
+    const { container } = render(
+      <ManualRefundLedgerSection rows={[row()]} {...WIRE} railCap={-800} rowsTruncated />,
+    );
+    expect(container.textContent).toContain('不顯示任何一列');
+    expect(redAlerts(container)).toHaveLength(1);
+    expect(redAlerts(container)[0]?.textContent ?? '').toContain('超出可退上限 NT$ 800');
+  });
+
+  it('[R7] 🔴 載入失敗時, 超額的紅仍要在(cap 是另一支查詢, 它沒失敗)', () => {
+    const { container } = render(
+      <ManualRefundLedgerSection rows={[]} {...WIRE} railCap={-500} loadFailed />,
+    );
+    expect(container.textContent).toContain('載入失敗');
+    expect(redAlerts(container)[0]?.textContent ?? '').toContain('超出可退上限 NT$ 500');
+  });
+
+  it('[R8] 🔴 零列 + 超額 ⇒ 仍要渲染(並發時序:另一人在兩支查詢之間登記)', () => {
+    const { container } = render(
+      <ManualRefundLedgerSection rows={[]} {...WIRE} railCap={-500} />,
+    );
+    // 🛑 第一版在這裡 `return null` ⇒ 該紅而整個區塊不存在, 而畫面上零訊號。
+    expect(container.innerHTML).not.toBe('');
+    expect(redAlerts(container)).toHaveLength(1);
+  });
+
+  it('[R9] 🔴 只剩已作廢的列 + railCap 為 null ⇒ 不掛「算不出上限」', () => {
+    // 🛑 **理由【不是】「對齊 RPC 的分母」**(R3/Fable F5 更正 —— 而那句宣稱在元件那側
+    //    已經被 codex R2③/R2④ 判死兩次:cap 函式兩段 COALESCE(...,0) ⇒ DB 端恆非 NULL
+    //    ⇒ 兩個數字本來就不會相等)。把它寫在測試裡, 會讓一句被殺掉的宣稱復活。
+    // ✅ 真正的理由:**已作廢的登記不需要任何人做任何事** ⇒ 掛一句「請通知系統維護」
+    //    是叫人去處理一件已經處理完的事。判準是【對員工有沒有下一步】, 就這一條。
+    const { container } = render(
+      <ManualRefundLedgerSection
+        rows={[row({ voidedAt: '2026-09-01T00:00:00.000Z', voidReason: 'x', voidedBy: 'a' })]}
+        {...WIRE}
+        railCap={null}
+      />,
+    );
+    expect(allAlerts(container)).toHaveLength(0);
+    // 🟢 而列本身仍要看得到 —— 帳本不藏已作廢的列。
+    expect(container.textContent).toContain('已作廢');
+  });
+
+  it('[R10] 🟢 負向對照:零列 + railCap 為 null ⇒ 整區不渲染(不是全站每張單都掛紅字)', () => {
+    const { container } = render(
+      <ManualRefundLedgerSection rows={[]} {...WIRE} railCap={null} />,
+    );
+    expect(container.textContent).toBe('');
+  });
+
+  // ══ codex R2⑤:`|| rowsTruncated || loadFailed` 那兩格【原本沒有守門】 ════════════
+  //    把那整段從實作刪掉 ⇒ 上面每一格照樣全綠。下面兩格就是那兩個世界。
+  it('[R12] 🔴 railCap 為 null + 列被截斷 ⇒ 仍要掛「算不出上限」(列看不到 ⇒ 往紅倒)', () => {
+    const { container } = render(
+      <ManualRefundLedgerSection rows={[row()]} {...WIRE} railCap={null} rowsTruncated />,
+    );
+    expect(redAlerts(container)).toHaveLength(1);
+    expect(redAlerts(container)[0]?.textContent ?? '').toContain('算不出');
+  });
+
+  it('[R13] 🔴 railCap 為 null + 載入失敗 ⇒ 仍要掛「算不出上限」', () => {
+    const { container } = render(
+      <ManualRefundLedgerSection rows={[]} {...WIRE} railCap={null} loadFailed />,
+    );
+    expect(redAlerts(container)).toHaveLength(1);
+    expect(redAlerts(container)[0]?.textContent ?? '').toContain('算不出');
+  });
+
+  it('[R11] 🔴 React 不解析 markdown ⇒ 兩條紅裡都不准有星號(同 today-summary R2 MF-D)', () => {
+    for (const cap of [-800, null]) {
+      const { container } = render(
+        <ManualRefundLedgerSection rows={[row()]} {...WIRE} railCap={cap} />,
+      );
+      expect(container.textContent).not.toContain('**');
+      cleanup();
+    }
   });
 });

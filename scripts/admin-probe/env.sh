@@ -26,8 +26,21 @@
 : "${ADMIN_PROBE_PROXY:=3978}"
 : "${ADMIN_PROBE_WEB:=3011}"
 
+# ── 🔴 真 admin session(2026-08-30 加;在此之前這台鑽機【任何寫入都做不到】)────────────
+# 症狀:任何 mutation ⇒ 畫面「沒有權限或登入狀態已失效,…沒有寫入。」+ DB 0 筆。
+# 成因**不是** `auth.uid()`(那條是顧客站那一面;admin 走 service_role + BYPASSRLS、
+#   從頭到尾不呼叫 auth.uid() —— runbook §2:110 與 §8:635 都寫著)。
+# 真正的成因:`authorizeAdminMutation()`(`apps/admin/src/lib/session/authorize.ts:31`)有三道閘 ——
+#   ① `verifySessionDetailed(cookie)` ② Origin ③ 具名 actor —— 而 `ADMIN_DEV_BYPASS=1`
+#   **只放寬第 ②** 道。①③ 一格都沒被滿足 ⇒ 第一道就 `reason:'absent'` ⇒ 回 null ⇒ denied。
+# 📌 **所以那句錯誤訊息字面上是對的:登入狀態確實不存在。**
+: "${ADMIN_PROBE_SECRET:=pcm-admin-probe-throwaway-secret-0000000000000000}"   # ≥32 字元(session.ts:178 MIN_SECRET_LEN)
+: "${ADMIN_PROBE_STAFF_ID:=probe_staff}"                                      # 需符合 staff_id_format `^[a-z0-9_]{1,64}$`
+
 S="$ADMIN_PROBE_DIR"
 PG="$ADMIN_PROBE_PG"
 PREST="$ADMIN_PROBE_PREST"
 PROXY="$ADMIN_PROBE_PROXY"
 WEB="$ADMIN_PROBE_WEB"
+SECRET="$ADMIN_PROBE_SECRET"
+STAFF_ID="$ADMIN_PROBE_STAFF_ID"

@@ -13,6 +13,14 @@ const mocks = vi.hoisted(() => ({
   refund: vi.fn(),
   revalidatePath: vi.fn(),
   redirect: vi.fn(),
+  // 🔴 `#890` 片4:server 閘 ④-b 會讀帳本 + 更正紀錄。
+  //    **預設 = 零帳本列** ⇒ 那道閘直接放過 ⇒ 本檔既有每一格行為一個字不變。
+  listOrderRefunds: vi.fn(),
+  findEffectiveVerdicts: vi.fn(),
+}));
+vi.mock('./refund-read', () => ({ listOrderRefunds: mocks.listOrderRefunds }));
+vi.mock('./refund-correction-read', () => ({
+  findEffectiveVerdicts: mocks.findEffectiveVerdicts,
 }));
 
 vi.mock('../session/authorize', () => ({ authorizeAdminMutation: mocks.authorizeAdminMutation }));
@@ -36,7 +44,10 @@ vi.mock('./refund-repository', async (importOriginal) => {
 
 import { TapPayRefundNotSentError } from '@pcm/domain';
 import { initiateRefundAction } from './refund-actions';
+import { RefundCapGuardError } from './refund-repository';
 import {
+  refundFailure,
+  EMPTY_REFUND_INPUT,
   REFUND_AMOUNT_FIELD,
   REFUND_CONFIRM_FIELD,
   REFUND_KIND_FIELD,
@@ -85,6 +96,8 @@ beforeEach(() => {
   savedFlag = process.env.REFUND_UI_ENABLED;
   process.env.REFUND_UI_ENABLED = '1';
   mocks.authorizeAdminMutation.mockResolvedValue({ sid: 'sid-1', actorId: 'sean' });
+  mocks.listOrderRefunds.mockResolvedValue({ rows: [], truncated: false });
+  mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
   mocks.getRequestId.mockResolvedValue('req_http-side-id');
   mocks.getTapPayAdapter.mockReturnValue({ recordQuery: mocks.recordQuery, refund: mocks.refund });
   mocks.findOrderForRefund.mockResolvedValue({
@@ -276,11 +289,16 @@ describe('deferred / rejected / not_sent 分派(§3 表第 3-5 列;token 換新)
 
 describe('🔴 unknown-state 鐵律(§3 表末列;本片最重要的一格)', () => {
   it('refund() 拋非 NotSentError(HTTP 500 / 逾時 / 6002 / 10050 / full 非 0 碼)→ **finalize 零呼叫**、列留 processing、unknown_state、token 原樣', async () => {
-    for (const error of [
+    // 🔴 抽成具名常數才釘得住分母。**這個 3 是分母** ——
+    //    拿掉其中一種錯誤 ⇒ 迴圈只是少跑一格而不會說,而那一種從此沒有人守。
+    //    要改它,先問:**那個錯誤形狀是不是真的不會再出現了?**
+    const errors = [
       new Error('TapPay refund HTTP 500(狀態未知、不得自動重發)'),
       new Error('TimeoutError'),
       new Error('TapPay refund 未實證回應碼 6002'),
-    ]) {
+    ];
+    expect(errors).toHaveLength(3);
+    for (const error of errors) {
       mocks.finalizeOrderRefund.mockClear();
       mocks.refund.mockRejectedValue(error);
       const state = await initiateRefundAction(IDLE, refundForm());
@@ -373,57 +391,62 @@ describe('initiate 業務碼 → state(refund() 全零呼叫)', () => {
   }
 });
 
-describe('#445 步 6b 超退閘 → state(blocked_by 三分;445b 才會吐這個碼)', () => {
-  // 🔴 三個 blocked_by 值必須映到**三個不同**的 state code —— 它們的處置完全不同
-  //    (改金額 / 去處理另一筆 / 停手找人)。壓成同一句話 = §0-E 第 2 條說的「擋得莫名其妙」。
-  const cases: Array<[string, string]> = [
-    ['amount', 'exceeds_remaining'],
-    ['in_flight', 'exceeds_in_flight'],
-    ['unknown', 'exceeds_unknown'],
-  ];
-  for (const [blockedBy, stateCode] of cases) {
-    it(`blocked_by=${blockedBy} → ${stateCode}`, async () => {
-      mocks.initiateOrderRefund.mockResolvedValue({
-        result: 'REFUND_EXCEEDS_REMAINING',
-        // 🔴 fixture 要與 repository 的交叉驗一致(`unknown` ⇔ `remaining === null`)——
-        //    造一個 repository 根本不會放行的組合,等於在測一個到不了的狀態。
-        remaining: blockedBy === 'unknown' ? null : 300,
-        blockedBy,
-      });
-      const state = await initiateRefundAction(IDLE, refundForm());
-      expect(state).toMatchObject({ status: 'failed', code: stateCode, requestToken: TOKEN });
-      expect(mocks.refund).not.toHaveBeenCalled();
-      expect(mocks.redirect).not.toHaveBeenCalled();
-    });
-  }
-
-  // 🔴 關卡2 nit3:第一版只斷言 `new Set(messages).size === 3` —— **那是恆綠的**:
-  //    把 amount 與 in_flight 的操作指示對調、或三句全改成錯的「錢已動」,size 仍是 3。
-  //    ⇒ 改成釘每一句**該叫員工做的那個動作**,那才是 §0-E 第 2 條要的判別力。
+// ⛔ ~~describe('#445 步 6b 超退閘 → state(blocked_by 三分;445b 才會吐)')~~
+// 🔴 **2026-08-31 改寫,而不是刪(`⟦b4-EXCEEDSDEAD⟧` 甲案)** ——
+//    原本它從 RPC 的 `REFUND_EXCEEDS_REMAINING` 進去,而那個碼 DB 從來沒有回過。
+// 🔵 **而它守的東西【仍然活著】**:那三句訊息各自要帶對「下一步該做什麼」。
+//    ⇒ 📌 **所以刪的是【路】,不是【它在守的那件事】** —— 改成走今天真的那條路(PCM04/05)。
+describe('超額三句話 → state(而它們今天走的是 445b 的 PCM 碼,不是 RPC 回傳碼)', () => {
+  // 🔴 這張表釘的是「每一句該叫員工做的那個動作」——
+  //    第一版只斷言 `new Set(messages).size === 3`,而那是**恆綠的**:
+  //    把兩句的操作指示對調、或三句全改成錯的「錢已動」,size 仍是 3。
   const ACTION_ANCHOR: Record<string, string> = {
     exceeds_remaining: '降低金額',
-    exceeds_in_flight: '退款紀錄',
     exceeds_unknown: '通知系統維護',
   };
-  it('🔴 三句各自帶對「下一步該做什麼」(對調兩句就會紅)', async () => {
-    for (const [blockedBy, stateCode] of cases) {
-      mocks.initiateOrderRefund.mockResolvedValue({
-        result: 'REFUND_EXCEEDS_REMAINING',
-        remaining: blockedBy === 'unknown' ? null : 300,
-        blockedBy,
-      });
-      const state = (await initiateRefundAction(IDLE, refundForm())) as { message: string };
-      expect(state.message).toContain(ACTION_ANCHOR[stateCode]);
-      // 三句都必須說明錢沒有動 —— 動錢路徑的人因防線(檔頭鐵律)
-      expect(state.message).toContain('錢沒有動');
-      // 措辭鐵律:禁語一個都不准出現(與來源無關)
-      expect(state.message).not.toMatch(/還能退|剩餘可退/);
-      // 🔴 純文字輸出,不得混 Markdown(關卡2 nit:員工會看到字面星號)
-      expect(state.message).not.toContain('**');
-    }
+  const CASES: [string, keyof typeof ACTION_ANCHOR][] = [
+    ['PCM04', 'exceeds_remaining'],
+    ['PCM05', 'exceeds_unknown'],
+  ];
+
+  it.each(CASES)('%s → %s,而那句話要帶對「下一步該做什麼」', async (sqlstate, stateCode) => {
+    mocks.initiateOrderRefund.mockRejectedValue(new RefundCapGuardError(sqlstate as never, '擋下'));
+    const state = (await initiateRefundAction(IDLE, refundForm())) as {
+      code: string;
+      message: string;
+      requestToken: string;
+    };
+    expect(state).toMatchObject({ status: 'failed', code: stateCode, requestToken: TOKEN });
+    expect(state.message).toContain(ACTION_ANCHOR[stateCode]);
+    // 三句都必須說明錢沒有動 —— 動錢路徑的人因防線(檔頭鐵律)
+    expect(state.message).toContain('錢沒有動');
+    // 措辭鐵律:禁語一個都不准出現(與來源無關)
+    expect(state.message).not.toMatch(/還能退|剩餘可退/);
+    // 🔴 純文字輸出,不得混 Markdown(員工會看到字面星號)
+    expect(state.message).not.toContain('**');
+    expect(mocks.refund).not.toHaveBeenCalled();
   });
 
-  // 🔴 token 專格已刪(關卡2 nit2):上面三個映射格的 `toMatchObject` 已經含
-  //    `requestToken: TOKEN`,單獨再寫一格**被嚴格蘊含、零額外訊號** —— 正是本輪
-  //    在別人 plan 裡抓了 8 個的那種恆綠格,不能自己再種一個。
+  it('🔴 `exceeds_in_flight` 今天【沒有任何產生者】—— 而它的訊息仍然要守住那三條措辭鐵律', () => {
+    // 🔴 **codex 對抗審查 must-fix 2 質疑這一格**:「新增測試反而保護一個不可達訊息」。
+    //    ✅ **保留,而理由要寫出來**:它驗的不是「這條路走得到」,是**那句話的措辭**——
+    //       而措辭鐵律(`refund-ledger-view.ts:4-8`)的存在理由與可達性無關。
+    //    🔵 它今天是**留著的空位**(`445b` 只做 `BEFORE INSERT`,在途那種未來可能要它),
+    //       不是遺留死碼 —— ⚠️ **而兩者在 code 上長得一樣,差別只在這段字。**
+    //    🛑 **⇒ 若將來判定它永遠不會有產生者 ⇒ 連它跟這一格一起刪,不要只刪測試。**
+    // 當場量:`'exceeds_in_flight'` 在 lib/payment 的非 state、非測試檔 ⇒ **0 處**
+    //   (🔵 正對照 `'exceeds_remaining'` ⇒ 1 處 = CAP_GUARD_FAILURE_CODE 的 PCM04)
+    // ⇒ 📌 **它是第三個「寫好了而沒有路走到它」的碼** —— 而我【不刪它】:
+    //    它與另外兩句是同一組措辭,刪掉會讓那一組只剩兩句而看不出來少了什麼。
+    //    ⚠️ 而「沒有產生者」這件事寫在這裡,免得下一個人以為它在用。
+    // 🔵 走 `refundFailure`(已 export)而不是把 `FAILURE_MESSAGES` 開出來 ——
+    //    **不為了一格測試把內部表變成公開 API。**
+    const msg = (
+      refundFailure('exceeds_in_flight', EMPTY_REFUND_INPUT, TOKEN) as { message: string }
+    ).message;
+    expect(msg).toContain('退款紀錄');
+    expect(msg).toContain('錢沒有動');
+    expect(msg).not.toMatch(/還能退|剩餘可退/);
+    expect(msg).not.toContain('**');
+  });
 });

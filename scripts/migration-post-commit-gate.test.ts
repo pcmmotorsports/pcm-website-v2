@@ -36,6 +36,47 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+// 🔎 **在 debug「怎麼寫到別的 repo / 別棵樹去了」「git 的設定被誰改掉了」的人:你要找的就是這一段。**
+//    (症狀字寫在這裡是刻意的 —— 會來查的人搜的是【症狀】, 不是 `GIT_DIR` 這個變數名。)
+// 🔴🔴 **繼承來的 `GIT_*` 會讓底下每一個 `git …` 寫到【外層那棵樹】,而不是 `cwd` 指的那個。**
+//    `GIT_DIR` 贏過 `cwd` —— 而本檔跑的是 `git config user.email` / `git add` / `git commit`。
+// 📌 **2026-08-31 這件事今晚【真的發生過】**:另一條線的 selftest 用 `git -C <tmp> config user.name t`,
+//    而 hook 底下 `GIT_DIR` 指著真 repo ⇒ **全隊八個窗的 git 身分被改成 `t`**(`probe → t → probe`)。
+// ✅ 本檔的雙世界實測(拋棄式 victim repo,`mktemp -d`,不是本 repo):
+//    不剝 ⇒ victim 的 `user.email` 從 `VICTIM@keep.me` **變成 `t@l`**
+//    剝了 ⇒ victim **不變**,而內層那個 repo **仍然被正確設到** ⇒ 不是「什麼都沒做」。
+// 🔵 **而這裡刻意【不用】姊妹檔 `migration-new-file-gate.test.ts` 那個「每個呼叫點傳 env」的寫法。**
+// ⚠️ **而【姊妹檔那個寫法不是錯的】—— 它有自己的射程,我寫出來,免得下一個人以為它該被換掉:**
+//    ✅ **呼叫點少、而且集中在一個 helper 裡** ⇒ 每個呼叫點傳 `env` 是對的:
+//       它把「用了乾淨的 env」寫在**看得見的地方**,而模組層的 `delete` 是隱形的
+//       (讀那一行 `spawnSync('git', …)` 的人,不會知道 `process.env` 已經被動過)。
+//    🔴 **而本檔不是那個條件**:8 / 15 個呼叫點、散在各個 `it` 裡。
+// ⛔ ~~而漏掉的機率與呼叫點數成正比(檔案會長)~~
+// 🔴 **2026-08-31 訂正 —— 我把那個理由量了一發,而【資料不支持它】**:
+//    `git log --follow` 逐顆數非註解的 `spawnSync(` ⇒
+//      `migration-new-file-gate` **3 → 3**(08-24 起)· 本族兩支 **8 → 8** / **15 → 15**(08-07 起,24 天沒動)
+//    ⇒ 📌 這三支**不是「會長」,是【已經定型】** —— 而照上面那條判準,定型的檔反而該用姊妹檔那個寫法。
+// ✅ **⇒ 所以真正站得住的理由要換一個,而它在【導入期】不在【維護期】**:
+//    要一次把 **15 個散在各個 `it` 裡**的呼叫點【全部】改對。
+//    而事實是:這兩支在 08-07 到 08-31 的 **24 天裡一個保護都沒有** ——
+//    **那不是因為有人漏了一個,是因為【沒有人做那 15 次】。**
+//    ⇒ 🔵 模組層那一行做完就是做完了;15 次修改是一件永遠排不進去的事。
+// 📌 **⇒ 所以差別不在誰比較好,在【呼叫點的數量與集中度】** ——
+//    而**一個成例的可行性,綁在它當初那支檔的規模上,而抄它的人不會知道那個規模。**
+//    (`-48` 2026-08-31 的話,我原樣收。)
+// ⇒ 本檔選**機制**:在模組載入時把六個 `GIT_*` 從 `process.env` 拿掉
+//   ⇒ **之後新增的呼叫點自動被保護,不必有人記得。**
+for (const k of [
+  'GIT_INDEX_FILE',
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_COMMON_DIR',
+  'GIT_PREFIX',
+])
+  delete process.env[k];
+
+
 // scratch repo 建一次 + 每格 spawn 一次 bash/git ⇒ 給足餘裕(對齊 check-syntax-nonts.gate.test.ts
 // 那支的教訓:5000ms 預設在多窗共用機器上會假紅,而假紅讓「全綠」這個訊號變得不可信)。
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
@@ -55,6 +96,9 @@ function sh(cmd: string, args: string[], opts: { cwd?: string; env?: NodeJS.Proc
   const r = spawnSync(cmd, args, {
     cwd: opts.cwd ?? scratch,
     encoding: 'utf8',
+    // 🔴 這裡的 `process.env` **已經被本檔頂端動過**(六個 `GIT_*` 被 delete 掉了)——
+    //    讀這一行的人會以為它是「真的 env」, 而它不是。⇒ 那是模組層那個修法唯一的代價:
+    //    **它不用人記得, 而它看不見。**(往上搜「怎麼寫到別的 repo」)
     env: { ...process.env, ...(opts.env ?? {}) },
   });
   // 🔴 不用 `r.status ?? -1`:spawnSync 對不存在的 binary 回 status=null(ENOENT),

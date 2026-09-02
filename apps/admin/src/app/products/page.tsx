@@ -201,11 +201,34 @@ export default async function ProductsPage({
           「這一頁是什麼 → 我要找什麼 → 再細分」。
           ⚠️ 它畫在 `loadFailed` 判斷【外面】:讀取失敗時搜尋框仍要在 ——
           否則員工唯一能做的動作(換個詞再試)會跟著錯誤訊息一起消失。 */}
-      <ProductKeywordSearch filter={filter} size={view.size} />
+      {/* ══════════════════════════════════════════════════════════════
+          FIX-21 商品頁篩選區重排(OD 稿 `pcm-524f/HANDOFF-orders-ui.md:508`)
+          ══════════════════════════════════════════════════════════════
+          🔴 **這一片的來源是 Sean 自己的話**:稿的標題逐字帶著「Sean:『排列的也太爛』」。
+          稿寫的症狀:「三個各自獨立的 form + 一排 chips, 四塊各自 flex、**寬度互不對齊**,
+          右邊留一大片空白;品牌是 4 行高多選、分類是單行下拉, **底部對不齊**。」
+          ⇒ 改後:**併進同一張卡、分成兩列** —— 第 1 列 `搜尋 + 全部/手動/自動`、第 2 列 `品牌 + 分類`;
+            「貼料號」(批次貼 Excel 用, 不是每次都要)收進 `<details>`, **預設收合**。
 
-      {!loadFailed && (
-        <>
-          <ProductFilterChips filter={filter} size={view.size} />
+          🔵 **而這一片順帶裁掉一件事**:`components/products/product-sku-filter.tsx:20` 逐字寫著
+             「**沒有人裁過哪一版是權威** ⇒ 本片只取『貼料號』這一軸, 不取它的版面」——
+             ⇒ **2026-09-01 裁了:版面的真權威是 FIX-21**(磁碟實查 12 個 OD 專案、逐支開檔)。
+
+          🛑 **三件不得動的, 全部是這支檔自己寫過理由的**:
+            ① 搜尋框畫在 `loadFailed` 判斷【外面】—— 讀取失敗時它仍要在,
+               否則員工唯一能做的動作(換個詞再試)會跟著錯誤訊息一起消失。
+               ⇒ 所以**卡片外框也畫在外面**, 而卡片【裡面】才分條件。
+            ② 貼料號**不**跟品牌/分類綁同一個條件 —— 分類撈失敗時, 員工手上那份 Excel 仍要貼得進來。
+            ③ 兩則「網址帶著找不到的品牌/分類」警告原封留著。
+          ══════════════════════════════════════════════════════════════ */}
+      <div data-od-prodfilters className='rounded-lg border p-4'>
+        {/* 第 1 列:搜尋 + 全部/手動/自動 */}
+        <div className='flex flex-wrap items-end gap-4'>
+          <ProductKeywordSearch filter={filter} size={view.size} />
+          {!loadFailed && <ProductFilterChips filter={filter} size={view.size} />}
+        </div>
+        {!loadFailed && (
+          <>
           {/* 🔴 與下面那則分類的形狀逐字相同(W6 `W6-051` F1)—— 兩軸的員工看到的要是同一種東西。 */}
           {brandFilterDropped && (
             <p className='border-input text-muted-foreground rounded-md border border-dashed p-3 text-sm'>
@@ -233,17 +256,43 @@ export default async function ProductsPage({
           )}
           {/* 🔴 選項撈失敗 ⇒ 整塊不畫(不是畫一組空下拉)。
               空下拉點得下去、送得出去、然後什麼都不會變 —— 那是一個會騙人的控制項。 */}
-          {(brandOptions.length > 0 || categoryOptions.length > 0) && (
-            <ProductTaxonomyFilter
-              filter={filter}
-              size={view.size}
-              brands={brandOptions}
-              categories={categoryOptions}
-            />
-          )}
-          {/* 🔴 貼料號【不】跟品牌/分類綁在同一個條件下 —— 它不依賴任何選項清單撈不撈得到,
-              就算分類撈失敗,員工手上那份 Excel 仍然貼得進來。 */}
-          <ProductSkuFilter filter={filter} size={view.size} />
+            {/* 第 2 列:品牌 + 分類 */}
+            {(brandOptions.length > 0 || categoryOptions.length > 0) && (
+              <div className='mt-3'>
+                <ProductTaxonomyFilter
+                  filter={filter}
+                  size={view.size}
+                  brands={brandOptions}
+                  categories={categoryOptions}
+                />
+              </div>
+            )}
+            {/* 🔴 貼料號【不】跟品牌/分類綁在同一個條件下 —— 它不依賴任何選項清單撈不撈得到,
+                就算分類撈失敗,員工手上那份 Excel 仍然貼得進來。
+                🔵 而它收進 `<details>` 預設收合(稿:「批次貼 Excel 用, **不是每次都要**」)——
+                   ⚠️ **收合不是隱藏**:它仍在 DOM 裡、仍然送得出去, 而網址帶著料號進來時
+                   下面的清單照樣是篩選過的。**這一格只改「要不要佔掉每個人的視線」。** */}
+            {/* 🔴🔴 **有套用料號時要【展開】**(codex must-fix, 而它打中我自己寫的那句):
+                我原本寫「收合不是隱藏 …【這一格只改「要不要佔掉每個人的視線」】」——
+                **那句話在【已經套用了料號】的世界裡是假的**:有人從 `?sku=` 深連結進來(🔴 **網址參數是單數 `sku`**, 而 filter 欄位是複數 `skus` —— 我第一版寫測試時把兩者當成同一個, 紅了才發現),
+                清單是篩選過的, 而**為什麼被篩選那件事收在關起來的抽屜裡**
+                ⇒ 他看到的是一份「怎麼只有這幾筆」的清單, 而畫面上沒有東西告訴他原因。
+                📌 **⇒ 收合的代價不是均勻的:沒套用時它省視線, 套用了它藏原因。**
+                ⇒ 判準跟著【有沒有套用】走, 不跟著「預設」走。 */}
+            <details open={(filter.skus?.length ?? 0) > 0} className='mt-3'>
+              <summary className='text-muted-foreground cursor-pointer text-xs font-medium'>
+                料號批次
+              </summary>
+              <div className='mt-2'>
+                <ProductSkuFilter filter={filter} size={view.size} />
+              </div>
+            </details>
+          </>
+        )}
+      </div>
+
+      {!loadFailed && (
+        <>
           {filter.setBy === 'staff' && filter.keyword === undefined && total === 0 && (
             <p className='text-muted-foreground text-sm'>
               目前沒有手動設定過的商品。設定上下架的功能還沒做好,所以現在每一筆都是「自動」。

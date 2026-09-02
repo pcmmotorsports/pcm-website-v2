@@ -1,6 +1,40 @@
 # Plan · 優惠券 schema + 拒絕理由(M-4b)
 
-> **狀態:等批。一行碼都還沒寫。**
+> ⛔ ~~**狀態:等批。一行碼都還沒寫。**~~
+>
+> ## 🔴 2026-08-31 就地訂正 —— **上面那一行今天為假,而它會害人重做一次已 apply 的 migration**
+> **§1-1 / §1-2 / §1-2b(schema 那一半)已於 2026-08-29 落地並 apply。**
+> 當場量(線【客人帳戶區】`pcm-wt-account`,2026-08-31 14:5x;指令讀工作樹、不吃 ref):
+> ```
+> supabase/migrations/20260829150000_m4b_coupon_p1_tables.sql
+>   :93  CREATE TABLE public.coupons
+>   :149 CREATE TABLE public.coupon_redemptions          ⇒ 正是 §1-1 那兩張
+> supabase/migrations/20260829170000_m4b_2b1_admin_coupon_list_view.sql  (後台清單 view)
+> 帳本 grep -c '^<版本號>' supabase/APPLIED.tsv ⇒ 兩支皆 1
+>      ⚪ 負對照 '^20260831999999' ⇒ 0
+> 欄位 §1-2 列 12 欄 vs 建出來 13 欄 ⇒ 12 欄逐字命中,
+>      多的是 id / created_at(plan 沒列而本來就該有)
+>      ⇒ 建出來的就是這份 plan 設計的那一張, 不是別人另外設計的
+> ```
+> 🛑 **⇒ 照 §1-1 動手 = 寫一支與 `20260829150000` 打架的 migration, 而它已經 apply。**
+>
+> ### ⇒ 現在真正未完成的是【兌換 / 執行】那一半
+> ```
+> §1-4 拒絕理由(7 種)· §1-5 併發 · §1-6 猜碼防護   ⇒ 全部未做
+> 量:INSERT INTO coupon_redemptions 在 migrations ⇒ 0 · app 側 ⇒ 0
+>    🟢 正對照 同把尺打 order_refunds 的 app 側 ⇒ 27 支 ⇒ 尺是活的
+>    ⚪ 負對照 zzq_no_such_table ⇒ 0
+> ⇒ 板 ⟦b4-COUPONCAP1⟧(docs/launch-todo.md:735)講的就是這一格:
+>   那三個上限(max_redemptions / max_per_account / min_spend)
+>   今天是【給人看的數字, 不是會執行的規則】。
+> ```
+>
+> ### 📌 而 Sean 2026-08-31 的 `7️⃣ = 甲(批, 開工)` 仍然有效, 不用重問他
+> 他批的是「開工」, 而那道題描述的範圍**比實際大**(以為零行碼, 而 schema 那半已 apply)
+> ⇒ **剩下的工作是他批准範圍的子集** ⇒ 涵蓋得到。
+> 🔴 **而反過來就必須重問**:描述比實際【小】的時候, 他批的是他沒看到的東西。
+> (本分界由主視窗 `-2d [16689c]` 2026-08-31 定;兩個方向同日各出現一次。)
+>
 > 上游:`docs/specs/2026-08-25-coupon-prd.md` §7(Sean 2026-08-26 的答案)。
 > 命中 **鐵則 8**(新表 + CRUD + UI,跨 3+ 檔)、**鐵則 12①錢**、**鐵則 12③schema**
 > ⇒ **高風險片,對抗審查不降級(codex,由本窗自己跑)。**
@@ -116,6 +150,7 @@ coupon_id · order_id · user_id · discount_applied  ← 原本就要的
     const resultAmount = Math.round(storePrice.amount * (1 - extraPct / 100));
   ⇒ 會員價那條線用 Math.round(四捨五入)
 量法 grep -rln 'Math.round|Math.floor|roundTwd' packages/domain/src --include='*.ts' | grep -v test ⇒ 2 支
+🔴 2026-08-31 訂正【配方】不是結論:那條 grep 少了 `-E`, 豎線被當字面 ⇒ 照抄重跑會拿到 **0**。正確寫法加 `-E` ⇒ **2 支**,與上面那個數字**逐字相同** ⇒ 作者跑的與寫下來的不是同一條。
 負對照 'MathZZ.round' ⇒ 0
 ```
 ⚠️ **而「會員價這樣做」不等於「券也該這樣做」** —— 券是**折抵**不是**定價**,
@@ -143,6 +178,7 @@ coupon_reject_reason:
 ### 1-5 併發:限量券兩個人同時結帳
 ```
 本 repo 有前例:grep -rln 'SKIP LOCKED|FOR UPDATE' supabase/migrations/*.sql ⇒ 75 支
+🔴 2026-08-31 訂正【配方】:同款少 `-E` ⇒ 照抄重跑拿到 **0**。加 `-E` 今天 ⇒ **82 支**(原記 75)。⚠️ 82 與 75 的差我**分不出是「這五天長出來的」還是「範圍不同」** —— 未查歷史。🔵 而下一行那個負對照 `SKIP LOCKEDZZ ⇒ 0` **通過了** —— 因為它本來就該是 0,**而這把尺對什麼都回 0** ⇒ **一把恆回 0 的尺會通過所有負對照。**
 負對照 'SKIP LOCKEDZZ' ⇒ 0
 ```
 ⇒ **`max_redemptions` 的扣減必須是原子的**(在同一個交易裡 `SELECT … FOR UPDATE` 券那一列再寫 redemption)。

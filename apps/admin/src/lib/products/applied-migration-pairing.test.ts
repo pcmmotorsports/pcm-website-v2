@@ -56,7 +56,28 @@ describe('🔴 #20 片2c:SELECT 的欄位不得早於 migration apply 而上線'
   //    🔴 它是本 repo 第一次把「紅」刻意排到【有人能處理的那一刻】，而不是刻意讓它現在就紅或永遠不紅。
   //    ⇒ 從現在起本格的意義變成「這片的 SELECT 與那支 migration 必須成對存在」的常設守門。
   it('SELECT 用到的兩欄，其 migration 必須已登記在 APPLIED.tsv（成對存在）', () => {
-    const applied = read('supabase/APPLIED.tsv');
-    expect(applied).toContain(MIGRATION_VERSION);
+    // 🔴🔴 **2026-09-01 修:原本是 `expect(整檔文字).toContain(MIGRATION_VERSION)`。**
+    //   ⛔ ~~那一行~~ 的問題不是它會漏, 是它**答不出「登記在哪一欄」**:
+    //      `APPLIED.tsv` 是四欄 TAB 分隔(版本號 / sha256 / apply 日期 / 由誰記),
+    //      而**整檔子字串比對**會讓下面三種世界一律印綠 ——
+    //      · 版本號只出現在檔頭的 `#` 註解裡
+    //      · 版本號出現在【備註欄】(有人寫「跟在 20260815030000 之後」)
+    //      · 一支更長的版本號把它當前綴吞掉(`202608150300001`)
+    //      ⇒ **而它宣稱的是「已登記」。那三種世界都不是已登記。**
+    //   ✅ 改成:剝掉註解行、取第一欄、比對**集合成員**。
+    //      🔵 `toContain` 對【陣列】是**元素完全相等**(不是子字串)⇒ 前綴吞不掉它。
+    //      📌 **⇒ 修法與病因是同一件事的兩面:`toContain` 的語意由【對象型別】決定。**
+    //   🛑 **已知限制**:它證的是「這個版本號在第一欄」, **證不到「正式庫真的 apply 了」**
+    //      —— `APPLIED.tsv` 是一本**帳本**, 而「帳上寫著」與「庫裡真的有」是兩個宣稱。
+    const versions = read('supabase/APPLIED.tsv')
+      .split('\n')
+      .filter((l) => l.trim() !== '' && !l.trimStart().startsWith('#'))
+      .map((l) => l.split('\t')[0]?.trim() ?? '');
+    // 🟢 先證這把尺撈得到東西 —— 剝完剩 0 列的話下面那格會變成假紅,
+    //    而假紅會被下一個人改回子字串 ⇒ 我們剛修掉的東西就回來了。
+    expect(versions.length).toBeGreaterThan(0);
+    expect(versions).toContain(MIGRATION_VERSION);
+    // 🔵 負對照:同一把尺對一個現造版本號撈不到
+    expect(versions).not.toContain('29990101000000');
   });
 });

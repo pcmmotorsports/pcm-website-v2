@@ -78,6 +78,14 @@ describe('ForgotPasswordPage · 狀態 A(填 Email)', () => {
     expect(screen.getByRole('button', { name: '寄出重設連結' })).toBeDefined();
   });
 
+  it('🔴 那句「LINE/Google 沒有密碼可以重設」在輸入頁【無條件】渲染 —— 不看輸入、不查帳號', () => {
+    renderPage();
+    const note = document.querySelector('.auth-note');
+    expect(note?.textContent ?? '').toContain('註冊的話沒有密碼可以重設');
+    // 負對照:同一把尺對現造字面必須抓不到(否則 toContain 這一格是恆真的)
+    expect(note?.textContent ?? '').not.toContain('zqq9never_used_marker');
+  });
+
   it('「回登入」連到 /login', () => {
     renderPage();
     expect(screen.getByText('回登入').closest('a')?.getAttribute('href')).toBe('/login');
@@ -124,6 +132,18 @@ describe('ForgotPasswordPage · 送出成功 → 狀態 B(已寄出)', () => {
     expect(screen.getByText('信寄出去了')).toBeDefined();
     expect(screen.getByText('如果', { exact: false })).toBeDefined();
     expect(screen.getByText('rider@pcm.com')).toBeDefined();
+  });
+
+  it('🔴 那句提示在「信寄出去了」也要有 —— 那一頁的三條建議對 LINE 客人【每一條都是錯的】', async () => {
+    // 為什麼補這一格:那三條在教他「等一小時 / 去垃圾桶找 / 連結只能用一次」——
+    // 而 LINE 客人根本沒有密碼可以重設,那封信不會來。建議正確、對象錯。
+    await submitValid();
+    const items = Array.from(document.querySelectorAll('.auth-steps li'));
+    // 分母也要釘:只斷言「有一條含那句」的話,三條變兩條也照樣綠。
+    expect(items).toHaveLength(4);
+    expect(items.some((li) => (li.textContent ?? '').includes('註冊的話沒有密碼可以重設'))).toBe(true);
+    // 負對照:同一把尺對現造字面必須為 false
+    expect(items.some((li) => (li.textContent ?? '').includes('zqq9never_used_marker'))).toBe(false);
   });
 
   it('🔴 剛送出 → 「再寄一次」鈕 disabled 且顯示 60 秒倒數文字', async () => {

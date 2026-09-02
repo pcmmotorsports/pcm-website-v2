@@ -78,15 +78,35 @@ function navEntries(): Array<[string, string]> {
 
 describe('stripComments', () => {
   it('should strip real comments without eating a url inside a string', () => {
-    // 🔴 沒有這條,`(?<!:)` 那個 lookbehind 在本 repo **沒有任何判別力**
-    //    —— 目前 nav 全是相對路徑,拿掉它對 `app-sidebar.tsx` 的解析結果逐字相同。
+    // ⛔ ~~`(?<!:)` 那個 lookbehind 在本 repo 沒有任何判別力~~ —— 2026-08-31 起
+    //    `stripComments` 換成 TypeScript parser 版,**沒有 lookbehind 這回事了**:
+    //    字串裡的 `//` 與 `/*` 由 parser 天生答對。舊字面留著當紀錄。
+    //
+    // 🔴🔴 **期望值從「刪掉註解」改成「換成等長空白、保留換行」,而那不是手滑 ——**
+    //    `lib/orders/order-status-axes-importers.test.ts` 的 `importsModule` 比對式
+    //    帶 `m` 旗標、用 `^[ \t]*(?:import|export)` **錨行首** ⇒ **它依賴行結構**。
+    //    把跨行的區塊註解**刪掉**會讓後面那個 `import` 併到上一行的碼後面 ⇒ `^` 不再匹配
+    //    ⇒ 📌 **少認一個 importer,而那是【漏放】方向,不是誤紅。**
+    //    ⇒ 🛑 **不要把它改回刪除** —— 兩個選項的錯法方向不同:
+    //       改期望字串 = 沒有人受害;改回刪除 = 有一支守門會漏放。
+    //    ✅ 理由與量測寫在 `lib/test-support/strip-comments.ts` 檔頭。
     expect(stripComments("  { href: '/orders' }, // 訂單\n")).toBe(
-      "  { href: '/orders' }, \n",
+      "  { href: '/orders' },      \n",
     );
     expect(stripComments("  { href: 'https://example.com/x' },\n")).toBe(
       "  { href: 'https://example.com/x' },\n",
     );
-    expect(stripComments('a /* 整段\n跨行 */ b')).toBe('a  b');
+    // 🔵 跨行區塊:釘【性質】不釘那一坨空白字串。
+    //    🔴 我第一版把觀察到的輸出抄成期望值 ⇒ 抄錯了一格空白而測試紅 ——
+    //       而那個做法本身就不對:**把期望值改成觀察值,等於讓實作自己出考題。**
+    //    ⇒ 改成三個【推導得出來】的性質:等長 / 換行數不變 / 非註解的字元原地不動。
+    const src = 'a /* 整段\n跨行 */ b';
+    const out = stripComments(src);
+    expect(out).toHaveLength(src.length);
+    expect(out.split('\n')).toHaveLength(src.split('\n').length);
+    expect(out[0]).toBe('a');
+    expect(out[src.length - 1]).toBe('b');
+    expect(out.replace(/[ \n]/g, ''), '註解沒被剝乾淨').toBe('ab');
   });
 });
 
@@ -111,6 +131,11 @@ describe('AppSidebar 導覽項', () => {
       ['優惠券', '/coupons'],
       ['員工管理', '/settings/staff'],
       ['供應商', '/settings/suppliers'],
+      // M-4b ⟦b4-MAILDEAD⟧:死信清單頁已接上 ⇒ 這一格可點。
+      //    🔴 本行同樣是【跟著 `nav-items.ts` 一起改的】——
+      //    而上一次有人加 nav 忘了同步(見上方那段自陳)⇒ 這兩支在 dev 上一起紅。
+      //    📌 這一次它【當場抓到我】:我跑全 repo 測試才看到, 而我先前只跑了自己新建的檔。
+      ['寄不出去的信', '/settings/mail'],
       // A9w2:「設定」原指 `/settings/order-statuses`(九碼狀態詞彙 CRUD),該頁隨九碼退場已刪
       // ⇒ 改為無 href 的不可點格;`navEntries()` 的 regex 要求 `href:` 才匹配得到,
       // 所以它從本清單消失是**預期**的。本檔看守的正是「哪幾項是可點的」。

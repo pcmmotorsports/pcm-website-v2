@@ -12,7 +12,29 @@ import type { Database } from '../database.types';
  * Nullable / enum 由生成型別保證對齊 DB(phone / birthday nullable、tier member_tier enum =
  * general/store/premiumStore == domain MemberTier)。
  */
-export type SupabaseCustomerRow = Database['public']['Tables']['customers']['Row'];
+/**
+ * 🔴 **本地補上 `gender`,而它是【有期限的】。**
+ *
+ * `database.types.ts` 是對正式庫生成的,而它**生成於 `20260831140000`(加 gender 欄)之前**
+ * ⇒ 生成檔的 `customers.Row` 裡查無此欄(2026-09-01 實查:11 欄,沒有 gender)。
+ * ⇒ 而那一欄**在正式庫上已經存在**(帳本 `:338`,Sean 08-31 手貼 + `-15` 唯讀複驗)。
+ *
+ * ⚠️ **重生 `database.types.ts` 之後這個 augment 就該刪掉** —— 留著不刪的話,
+ *    它會變成「型別說有、DB 說了算」的第二份真相。
+ * 🔵 形狀照本 repo 既有先例:`SupabaseCustomerAdapter.ts` 對
+ *    `admin_customer_list_v` 也是這樣補的(那裡逐字寫著同一條期限)。
+ */
+export type SupabaseCustomerRow = Omit<Database['public']['Tables']['customers']['Row'], never> & {
+  /**
+   * 🔴 **刻意是 optional(`?`)而不是必填** —— 那不是圖方便,是**型別層的誠實**:
+   * 生成檔還不知道有這一欄 ⇒ 任何從 client 回來的 row,在型別上**就是沒有它**。
+   * 寫成必填會逼每一個讀取點去假造一個值, 而那等於把「型別不新鮮」這件事藏起來。
+   * ⇒ 而 `undefined` 由 `narrowGender` 接住(它把 null 與 undefined 都收成 null)。
+   * ⚠️ 而代價要明寫:**`.select()` 沒撈這一欄時,domain 拿到的也是 `null`**
+   *    —— 那與「這個人沒填」印同一個值。⇒ 要拿性別的讀取點, `select` 必須含 `gender`。
+   */
+  gender?: string | null;
+};
 
 /**
  * 本 patch 只寫 name / phone / birthday(對齊 ICustomerRepository.update Pick 簽名)。
@@ -20,8 +42,28 @@ export type SupabaseCustomerRow = Database['public']['Tables']['customers']['Row
  * updated_at 不由本 patch 送、由 customers_set_updated_at trigger 強制覆寫(見 mapCustomerPatchToRow)。
  */
 export type SupabaseCustomerUpdateRow = Partial<
-  Pick<SupabaseCustomerRow, 'name' | 'phone' | 'birthday'>
+  Pick<SupabaseCustomerRow, 'name' | 'phone' | 'birthday' | 'gender'>
 >;
+
+/**
+ * DB 讀出來的 `gender` → domain 的三字面聯集。
+ *
+ * 🔵 值域正本是 `@pcm/schemas` 的 `GENDER_CODES`, 而 `packages/adapters` 依賴得到它;
+ *    這裡仍然手寫三個字面, 理由是**這支函式要在型別不新鮮時仍然正確** ——
+ *    它的輸入是 `string | null`(來自一個可能過期的生成型別), 而它的工作就是不信任那個型別。
+ * ⚠️ 認不得 ⇒ 回 `null` + `console.error`(照 `narrowMemberTier` 的形狀:降級 + 留鑑識)。
+ *    🔴 而這裡**沒有「安全的預設值」可以降** —— tier 可以降成 `general`(權限最小),
+ *    而性別沒有一個「最小」的值。⇒ 只能回 `null`,而 `null` 的意思是「沒有值」。
+ */
+export function narrowGender(
+  raw: unknown,
+  where: string,
+): 'male' | 'female' | 'undisclosed' | null {
+  if (raw === null || raw === undefined) return null;
+  if (raw === 'male' || raw === 'female' || raw === 'undisclosed') return raw;
+  console.error(`[${where}] gender 是本版不認得的值,降成 null`, { raw });
+  return null;
+}
 
 /**
  * wire customers row → domain Customer(snake_case → camelCase)。
@@ -36,6 +78,13 @@ export function mapSupabaseCustomerToDomain(row: SupabaseCustomerRow): Customer 
     name: row.name,
     phone: row.phone ?? '',
     birthday: row.birthday,
+    // 🔴 執行期收窄 —— 照同檔 `tier` 那一格的理由(`#879`:生成型別的新鮮度不保證),
+    //    而這一欄**更需要它**:`gender` 在 DB 是 `text`(不是 enum),值域靠 CHECK 管
+    //    ⇒ 型別層給的是 `string | null`, 而 domain 要的是三個字面的聯集。
+    // 🛑 **認不得的值一律降成 `null`, 而不是原樣帶過去** ——
+    //    `null` 的語意是「沒有值」, 那是誠實的;帶一個不認得的字串進 domain
+    //    會讓下游每一個 `switch` 落到它沒寫的分支, 而那時已經離這裡很遠了。
+    gender: narrowGender(row.gender, 'mappers/customer.mapSupabaseCustomerToDomain'),
     // 🔴 `#879`:runtime 收窄(生成型別新鮮度不保證,見 `./member-tier`)。
     tier: narrowMemberTier(row.tier, 'mappers/customer.mapSupabaseCustomerToDomain'),
     walletBalance: row.wallet_balance,
@@ -110,11 +159,15 @@ export function mapSupabaseAdminCustomerRowToSummary(
  * tier / wallet_balance / total_deposit 不在 GRANT、不在此 patch(走 service_role / ledger trigger)。
  */
 export function mapCustomerPatchToRow(
-  patch: Partial<Pick<Customer, 'name' | 'phone' | 'birthday'>>,
+  patch: Partial<Pick<Customer, 'name' | 'phone' | 'birthday' | 'gender'>>,
 ): SupabaseCustomerUpdateRow {
   const row: SupabaseCustomerUpdateRow = {};
   if (patch.name !== undefined) row.name = patch.name;
   if (patch.phone !== undefined) row.phone = patch.phone;
+  // 🔴 `gender` 與上面三欄同一個形狀:**只有 `!== undefined` 才寫**。
+  //    ⇒ 沒送這一欄 = 不動它, 而不是把它清成 null。兩者對一個「沒填過性別的人」
+  //      看起來一樣, 而對一個「填過而這次沒改」的人差很多。
+  if (patch.gender !== undefined) row.gender = patch.gender;
   if (patch.birthday !== undefined) row.birthday = patch.birthday;
   return row;
 }

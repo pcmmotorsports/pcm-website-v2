@@ -98,7 +98,32 @@ describe('SupabaseAuditLogRepository', () => {
   //    client 注入後解除,驗:真 INSERT 落地、return=minimal 不炸 42501。
   //    ⚠️ **原字面寫「service_role 無 SELECT 下」—— D0(`20260815020000`)apply 後那句就是假的**
   //       (它會有 SELECT)。規定仍留著,理由見 `repository.ts` 的 REQUIRED-2 段。
-  it.todo('integration: 真 Supabase service client 寫入 admin_audit_log(pending:admin 未接 adapters/server)');
+  // 🔴🔴 **[2026-09-01 訂正理由 · 線【帳號】`-7a`;主視窗 `-0a` 派]**
+  //    ⛔ ~~pending:admin 未接 adapters/server~~ —— **那個理由今天是假的。**
+  //    `apps/admin/src/lib/orders/order-repository.ts:43` 的 `getAdminAuditLogRepository()`
+  //    **已經用真的 `createSupabaseServiceClient()` 建構真 inserter**,而它有【四支檔、五處】真呼叫端:
+  //      `staff-actions.ts:78` · `customers/manual-customer-actions.ts:125`
+  //      · `mail/dead-letter-actions.ts:70` 與 `:121` · `payment/refund-unknown-state-audit.ts:180`
+  //    (🟢 正對照:同一把尺打 `createSupabaseServiceClient` 於 `apps/admin/src` ⇒ 116 個非註解命中;
+  //     🔵 負對照:現造函式名 ⇒ 0。而我濾掉了 import 行與註解行。)
+  //
+  // 🛑 **而它【仍然是 it.todo】, 這是刻意的, 不要順手把它變成 `it()`**:
+  //    一個跑不起來的 integration test 會變成【假紅】, 而假紅會被刪掉 —— 那比它掛在這裡糟。
+  //
+  // ✅ **而「稽核失敗 ⇒ 那個動作不該發生」那一半【已經有人守了】**(2026-09-01 實查):
+  //    · `mail/dead-letter-actions.test.ts:103` 逐字「should never requeue when the audit write fails (fail-closed)」
+  //      —— 而那支是**真的 fail-closed**:稽核寫在 RPC【之前】(`dead-letter-actions.ts:68` 逐字「稽核【先寫】。寫不成 ⇒ 不重排」)
+  //    · `staff-actions.test.ts:365` 也有一格 ——
+  //      🔴 **而它的形狀不同**:那一格是「**after a successful write** when audit throws」
+  //      ⇒ 那裡的動作**已經發生了**, 稽核失敗只換導頁 ⇒ **它不是 fail-closed, 而是事後記錄。**
+  //      ⇒ ⇒ 📌 **兩處都叫「稽核」, 而一處擋得住、一處擋不住 —— 讀的人分不出來。**
+  //
+  // 🔴 **⇒ 所以這一格真正還缺的是【另一個失效模式】, 不是覆蓋率**:
+  //    mock 驗得到「呼叫端有沒有照約定用它」, **驗不到「那個 INSERT 在真 DB 上會不會被權限擋掉」**。
+  //    而那不是假想 —— 本檔上方 `repository.ts` 的 REQUIRED-2 段逐字寫著
+  //    **「這個 GRANT 有到期日」**(見 `20260815020000` 檔頭「外部前提 1」)。
+  //    ⇒ ⇒ **那一天到了的時候, 今天所有的測試都會照樣全綠。**
+  it.todo('integration: 真 Supabase service client 寫入 admin_audit_log(要拋棄式 PG 或真 service client;而它守的是【權限/schema】那一半, 不是呼叫端約定)');
 });
 
 /**

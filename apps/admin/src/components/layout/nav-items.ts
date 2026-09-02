@@ -62,6 +62,13 @@ const BASE_NAV_ITEMS: readonly NavItem[] = [
   { key: 'coupons', label: '優惠券', icon: 'billing', href: '/coupons' },
   { key: 'staff', label: '員工管理', icon: 'teams', href: '/settings/staff' },
   { key: 'suppliers', label: '供應商', icon: 'post', href: '/settings/suppliers' },
+  // M-4b ⟦b4-MAILDEAD⟧:寄不出去的信。
+  // 🔴 **沒有這一列, 那一頁【沒有人到得了】—— 而這一片要解的病就是那個。**
+  //    死信告警信會叫員工進後台看, 而在此之前後台一個 `email_outbox` 的字都沒有。
+  // ⚠️ icon 是將就的:`Icons` 裡 `mail|envelope|inbox` 命中 —— 用 `mail`。
+  // 🛑 **必須單行字面**(`href` 後不得有逗號)—— `navEntries()` 的 regex 守門認的是這個形狀,
+  //    拆多行 ⇒ 它從字面守門裡**靜默消失, 而測試照樣全綠**(本檔 :105 已記過這一格)。
+  { key: 'maildead', label: '寄不出去的信', icon: 'alertCircle', href: '/settings/mail' },
 ];
 
 /**

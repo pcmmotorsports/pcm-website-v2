@@ -38,6 +38,32 @@ export const LoginInput = z.object({
 });
 export type LoginInput = z.infer<typeof LoginInput>;
 
+// ══ 性別:值域與顯示字面的【唯一真相】(2026-08-31 片 B-2b)═══════════════════
+//
+// 🔴 為什麼放這裡而不是放在表單那支檔:`-24`/`-2d` 要求「顯示字面與儲存值的對應表要有
+//    【單一來源】,不要三個地方各寫一次」。而 repo 既有慣例是
+//    `TierBadge.tsx` 的 `TIER_LABEL: Record<MemberTier, string>` —— 一份 Record。
+//    ⇒ 這裡放【型別 + 值域 + 顯示表】三樣,前端只 import,不自己重打。
+//
+// 🔴🔴 **儲存的是代碼,畫面顯示的是中文** —— 兩者刻意分開:
+//    Sean 2026-08-26 `Q3`=乙 拍的是【畫面上的字】(第三個選項叫「不透露」),
+//    而「資料庫怎麼存」他看不到、也不該看。用代碼是為了
+//    **不讓文案調整變成資料庫值域遷移**(codex R3, 2026-08-31)。
+//    ⇒ 哪天他說「不透露」要改字,只改 `GENDER_LABEL`,DB 一動都不用動。
+//
+// ⚠️ 這三個代碼必須與 DB 端【兩處】逐字相同:
+//    `customers_gender_chk` 的 CHECK 值域、`handle_new_auth_user()` 的 CASE 白名單
+//    (兩者都在 `supabase/migrations/20260831150000_…`)。改任一處要三處一起改。
+export const GENDER_CODES = ['male', 'female', 'undisclosed'] as const;
+export type GenderCode = (typeof GENDER_CODES)[number];
+
+/** 代碼 ⇒ 畫面顯示字面。**改文案只改這裡。** */
+export const GENDER_LABEL: Record<GenderCode, string> = {
+  male: '男',
+  female: '女',
+  undisclosed: '不透露',
+};
+
 // RegisterInput — design AccountPages L256-299(欄位順序對齊 design:name→email→phone→password→agree)
 export const RegisterInput = z.object({
   // #201 刻意不 trim:design RegisterPage L261 `!form.name` 無 .trim()、storefront 不比 design 嚴(鐵則 1);要擴須 backlog 另立。
@@ -46,6 +72,10 @@ export const RegisterInput = z.object({
   phone: z.string().regex(/^[\d\s-]{8,}$/, { error: '手機格式不正確' }),
   password: z.string().min(8, { error: '密碼至少 8 碼' }),
   agree: z.literal(true, { error: '請同意服務條款' }),
+  // 🔵 性別 = **選填**(Sean 2026-08-31 答甲之下 `-2d` 定的;必填會強迫 Email 註冊的人填一個
+  //    我們對 Google / LINE 那群人根本收不到的欄位 ⇒ 資料更偏, 而報表上看不出來)。
+  //    ⇒ `.optional()`:沒選就不送這個 key ⇒ trigger 那側收成 NULL。
+  gender: z.enum(GENDER_CODES, { error: '性別選項不正確' }).optional(),
 });
 export type RegisterInput = z.infer<typeof RegisterInput>;
 
@@ -181,6 +211,22 @@ export const ProfileInput = z.object({
     .string()
     .default('')
     .refine((v) => v === '' || /^\d{4}-\d{2}-\d{2}$/.test(v), { error: '生日格式不正確' }),
+  // 🔴 性別(選填)—— **白名單走 `GENDER_CODES`,不是自由字串**。
+  //    空字串 =「不選擇」⇒ 合法,在 action 層 normalize 成 `null`(同 birthday 那條)。
+  //    ⚠️ `'男'` 這種中文字面在這裡就會被擋 —— 值域是代碼、顯示才是中文
+  //       (對應表 `GENDER_LABEL`,而它是**唯一**一份)。
+  //    🔵 為什麼要在這裡擋而不是靠 DB 的 CHECK:DB 擋了會拋通用錯 ⇒ 被 action 吞成
+  //       「儲存失敗,請稍後再試」⇒ **使用者看不出是哪一欄**。這裡擋才給得出逐欄訊息。
+  // 🔴🔴 **`.optional()` 而不是 `.default('')` —— codex R1 must-fix,而它是【資料遺失】那一種**:
+  //   `.default('')` 會把「**這個 client 根本沒送這個欄位**」變成「'' ⇒ null」
+  //   ⇒ 一個舊分頁 / 舊版 client 送出一次個人資料 ⇒ **把使用者已經填好的性別清掉**。
+  //   📌 **⇒ 「欄位缺席」與「明確選了不選擇」必須是兩件事** ——
+  //      前者 = 不要動它;後者 = 存成 null。而 `.default('')` 把它們壓成同一個。
+  //   ⇒ 而 action 層據此分岔:`undefined` ⇒ 不進 patch;`''` ⇒ 進 patch 且值為 null。
+  //   🔵 而型別要**真的收窄** —— `.refine()` 只驗值、不改型別 ⇒ 用 `z.enum` + `''`。
+  //      不然下游拿到的是 `string`,而 domain 要的是三個字面的聯集
+  //      ⇒ 那個轉換只能靠一個 cast,而 cast 會把「值域錯了」變成 typecheck 看不到的事。
+  gender: z.union([z.literal(''), z.enum(GENDER_CODES)], { error: '性別選項不正確' }).optional(),
 });
 export type ProfileInput = z.infer<typeof ProfileInput>;
 

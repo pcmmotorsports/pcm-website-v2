@@ -830,6 +830,10 @@ cd /Users/sean_1/pcm-website-v2
 : "${WT:?先跑 git worktree list 找到那棵樹的路徑、指派給 WT 再貼}"
 
 pkill -f "next dev -p 3021" ; sleep 2
+# 🔵 **跑之前先量一次**(2026-08-31 加;先例 `regenerate-database-types.md` 那格「正向對照」):
+#    pgrep -f "next dev -p 3021" | wc -l   # 這時【應該 ≥1】—— 若這裡就是 0, 下面那個 0 不算數
+#    🔴 理由不是「更嚴謹」:一個「期望 0」的檢查在【指令打錯 / 工具不存在 / 範圍錯】時**也印 0**,
+#       而那三種正是收攤時最容易發生的。
 pgrep -f "next dev -p 3021" | wc -l                       # 期望 0
 # 🔴 `pgrep` 不夠:父程序被帶走而 worker 還活著時它會印 0(down.sh 自己的註解就寫著這件事)
 #    ⇒ 再驗一次【埠】,與 §6 / down.sh 同口徑。
@@ -1228,3 +1232,162 @@ public 表數                                  47                 50
 ⇒ **它顯示「看得到」不代表員工看得到。** 拿那批畫面當「權限沒問題」的證據 ⇒ 無效。
 ✅ 那批畫面能證的:版面 / 欄位長相 / 有幾列 / 狀態機 / 文案。
 ❌ 不能證的:誰看得到哪一欄 / anon 打得到什麼 / RLS+GRANT 兩層合起來擋不擋得住。
+
+---
+
+## §13 🔴🔴 後台鑽機**任何寫入都做不到** —— 而錯誤訊息把人指向錯的方向(2026-08-30 修)
+
+### 症狀
+後台任一 mutation(送採購 / 加備註 / 登錄收款 / 儲存發票…)⇒
+畫面 **「沒有權限或登入狀態已失效,…沒有寫入。」**,DB **0 筆**。
+
+### 🔴 成因**不是** `auth.uid()` —— 而那正是最容易猜錯的方向
+派工單傳到我手上時寫的是「`ADMIN_DEV_BYPASS` 沒有真 session ⇒ `auth.uid()` 是替身」。
+**那半是錯的**,而本檔自己早就寫著為什麼:
+`§2:110` 逐字「**admin 那條路永遠看不到它** —— admin 走 `service_role` + `BYPASSRLS`,不經過 `auth.uid()`」;
+`§8:635` 再說一次。⇒ 📌 **`auth.uid()` 是顧客站那一面的病;admin 這一面從頭到尾不呼叫它。**
+
+**真正的成因**(`apps/admin/src/lib/session/authorize.ts:31` `authorizeAdminMutation`,三道閘):
+```
+① verifySessionDetailed(cookie)  ← 沒有 cookie ⇒ reason:'absent' ⇒ 第一道就回 null
+② Origin fail-closed             ← ADMIN_DEV_BYPASS=1 只放寬【這一道】
+③ getSessionActor() 具名身分
+```
+⇒ 🔴 **`ADMIN_DEV_BYPASS` 從來就不是「免登入」,它只是「免 Origin 檢查」。**
+⇒ 📌 **所以那句錯誤訊息【字面上是對的】** ——「登入狀態已失效」是實話,只是它沒說「因為這台鑽機根本沒有登入流程」。
+**證據(修前實量)**:`document.cookie` 只有顧客站鑽機留下的 `sb-127-auth-token`,
+**零個 `pcm_admin_sess_dev`、零個 `pcm_admin_actor`**;dev log 連續 `POST /api/session/renew 401`
+—— **那支路由一直在叫,而沒有人聽出它在說「我沒有票」。**
+
+### 修法(2026-08-30 起 `up.sh` 自己做,你只要貼一行)
+`up.sh` 跑完會印一行 `document.cookie='pcm_admin_sess_dev=…; path=/'`,
+貼進瀏覽器 console 就有真 session。同一行也存在 `$ADMIN_PROBE_DIR/session-cookie.txt`。
+
+票的形狀**不是發明的**,逐格對著 `apps/admin/src/lib/session/session.ts` 抄
+(cookie 名 `:181` / 值的組法 `:418-424` / 金鑰材料 `v1:<len>:<secret>:<len>:<envTag>` `:304-307` /
+envTag=`local` `:263-274` / b64url 無 padding `lib/base64url.ts:6-10` / `v:2` 的 `sub` 必填 `:97-103`)。
+配套兩件:`env.sh` 給 `ADMIN_SESSION_SECRET`(≥32 字元,`session.ts:178`);
+`seed.sql` 插一列 `probe_staff`。
+⚠️ **`staff` 表本來就有列**(migration 種的:`sean` / `staff_1` / …)⇒ 那一列**不是為了讓閘過**,
+是為了**歸屬**:用 `sean` 的話,鑽機產生的稽核紀錄看起來會像**老闆本人**做的。
+
+### 驗收(兩個世界,都是實量)
+| | 修前 | 修後 |
+|---|---|---|
+| 畫面 | 「沒有權限或登入狀態已失效,備註沒有寫入。」 | 那句**消失**,URL 變 `?r=note_added` |
+| `select count(*) from order_notes` | **0** | **1** |
+| 那一筆的 `author` | — | **`probe_staff`** |
+🔴 **`author` 那一格是最強的證據**:它證明身分是從**票的 `sub`** 解出來的,
+不是從那顆自選 picker cookie —— 而我**沒有設**過 picker cookie。
+
+### 🛑 這條路【證不了】什麼(不要拿鑽機當它們的證據)
+- **真登入流程**(SSO callback / 報價單那一側)—— **完全沒有走到**,票是手簽的。
+- **「非管理者會被擋下」** —— 種子那列是 `is_manager=true`;要驗擋下,把它改成 `false` **再跑一次**,
+  那是另一個世界,不是同一發。
+- **票 15 分鐘到期**(`ADMIN_SESSION_MAX_AGE_SEC`,Sean `Q-B5b-2=乙` 拍的)⇒ 過期就重跑 `up.sh`。
+  app 有靜默續期,而**它要先有一張有效票才續得動**。
+- 我實跑驗過的是**「新增備註」這一條**;其餘 mutation **共用同一道 `authorizeAdminMutation`**
+  ⇒ 那是**讀碼得到的**,不是我一條條量到的。**這兩件事不要混。**
+
+### 🔴 收攤要帶【同一組 env】—— 不帶的話它會每一格印綠,而你的鑽機還活著
+起的時候帶了自訂埠 ⇒ **收的時候一定要帶同一組**:
+```bash
+ADMIN_PROBE_DIR=/tmp/pcm-admin-probe-<你的> ADMIN_PROBE_PG=… ADMIN_PROBE_PREST=… \
+ADMIN_PROBE_PROXY=… ADMIN_PROBE_WEB=… bash scripts/admin-probe/down.sh
+```
+不帶 ⇒ `down.sh` 拿**預設**那組去查 ⇒ 那組本來就沒東西 ⇒ **每一格都印「已釋放」**,
+而你那台還在跑。⇒ 📌 **「收乾淨了」與「我去看了別人的空位」印同一句話。**
+忘了當初帶什麼 ⇒ `$ADMIN_PROBE_DIR/owner.txt` 有記(`down.sh:39` 也會把它查的四個埠印出來,對不上就是帶錯)。
+
+🔴🔴 **而它不只是「沒收到」,在多窗夜裡它會【收到別人的】** —— 2026-08-30 當場量的:
+預設 web 埠 **3011 有人佔用**(不是我的;我的在 3050),而預設資料目錄 `/tmp/pcm-admin-probe` 不存在。
+⇒ 那一刻若我裸跑 `down.sh`,它會拿預設埠去殺 —— **殺的是別人的鑽機**。
+⚠️ **所以這一段【不是】實跑驗出來的**:我**刻意沒有跑**那一發,因為跑下去的代價落在別人身上
+(同 `up.sh` 檔頭那條 `FORCE=1` 的自陳:「那不是拖延,而它的結果是:**這是一個永遠不會被驗的分支**」)。
+⇒ 上面的推論來自 `down.sh` 自己的碼與當下的埠占用實測,**不是一發完整的重現**。
+
+### ⚠️ 貼 cookie 那一步:**有人成功、有人失敗,而【為什麼】沒有人查出來**
+兩筆互相矛盾的觀察,**兩筆都留著**(2026-08-30):
+```
+`-30`(線ship)：在瀏覽器 console 打 document.cookie='…' ⇒ 讀回空字串，連試兩次都不成功
+                改用 Playwright 的 context().addCookies() ⇒ 成功
+`-08`（本節作者）：同一台鑽機、同一個 origin（http://localhost:3050）
+                用 Playwright 的 page.evaluate 執行 document.cookie='…' ⇒ **成功**
+                當場複驗：塞一顆 canary ⇒ 立刻讀得回來（cookie 字串 1214 → 1239 字元）
+                而那張票隨後真的通過了三道閘（DB 寫進去、author=probe_staff）
+```
+🛑 **所以【不要】把它寫成「那條路不通」** —— 它在至少一種情況下是通的。
+🛑 **也不要補一個成因** —— `-30` 明說它**沒有查為什麼**,我這邊也沒有重現它的失敗。
+   兩邊差在哪(devtools console vs `page.evaluate`?開的是哪一頁?有沒有先導航?)**沒有人量過**。
+✅ **可執行的建議**:
+```
+① 先用 document.cookie，當場讀回來驗（`document.cookie.includes('pcm_admin_sess_dev')`）
+   —— 🔴 **設完一定要讀回來**：它失敗的時候【不會報錯】，只是那顆 cookie 不在
+② 讀不回來 ⇒ 換 Playwright context().addCookies()，那條 `-30` 走通過
+```
+📌 **這一段的價值不是答案,是【它明寫沒有答案】** —— 下一個人撞到時,
+   會知道這不是他手殘,而是一個已知、未解、有替代路的東西。
+
+### 🔴🔴 實錘:**寫下那條警告的人,一小時後從另一條路走進同一個坑**(2026-08-30)
+上面「收攤要帶同一組 env」那一段是 `-08` 18:5x 寫的,連「預設埠 3011 現在有別人在用」都寫了。
+**19:0x 同一個人跑 `down.sh`,把 3011 上【別人的】鑽機停掉了。**
+
+**它是怎麼發生的(不是忘記,是另一條路)**:
+```zsh
+E="ADMIN_PROBE_DIR=… ADMIN_PROBE_PG=… …"
+env $E bash scripts/admin-probe/down.sh     # ← 這一行
+```
+🔴 **zsh 不對未加引號的變數斷詞**(CLAUDE.md 早就寫著這一條)⇒ `env` 收到**一個巨大的參數**
+當作 `ADMIN_PROBE_DIR` ⇒ **四個覆寫全部失效** ⇒ 落回預設埠 ⇒ 收掉 3011。
+**徵兆當時就印出來了**:log 裡 `datadir /tmp/pcm-admin-probe-eb ADMIN_PROBE_PG=55571 …`
+(整串當成一個路徑),而磁碟上真的多了一個那個名字的空目錄。**而人不會逐字讀自己剛下的指令的回音。**
+
+📌 **兩個判別句,兩個都不是「下次小心」**:
+- **我以為我帶了埠,而我沒有查我到底帶進去沒有** ⇒ ✅ **起完 / 收完一定回頭驗一次**
+  (`head -4 $ADMIN_PROBE_DIR/owner.txt` 對埠;`ps eww -p <next dev pid>` 看 env 真的在不在)
+- **那段警告當時就印出來了,它印完照樣往下跑** ⇒ ✅ 已改成 **fail-closed**(見下)
+
+✅ **機制(2026-08-30 落地,`-48` 批准)**:`down.sh` 在**找不到 `owner.txt`** 時**停下不收**、`exit 2`,
+並印「怎麼往下走」三選一;真的要收 ⇒ `ADMIN_PROBE_FORCE_DOWN=1`(訊息會寫明它可能殺到誰)。
+**兩發自檢都跑過**:①空目錄 ⇒ **rc=2 且印「停下,不收」** ②有 `owner.txt` 的真鑽機 ⇒ **rc=0、四個埠都釋放**。
+🔴 **第二發不能省** —— 少了它,「閘擋住了」與「閘壞掉誰都收不了」印同一個結果。
+
+### ✅ 那個「有人成功有人失敗」的 cookie 之謎:**解開了,是 `HttpOnly`**(2026-08-30 `-08` 量到)
+上一段記著兩筆互相矛盾的觀察(`-30` 設不進去、`-08` 設得進去),並明寫「沒有人查出為什麼」。
+**現在查出來了,而且是決定性的一發**:
+```
+同一個名字、值只有 1 個字元  document.cookie='pcm_admin_sess_dev=1'   ⇒ 設不進去
+換一個名字、同樣 1 個字元    document.cookie='pcm_admin_sess_devX=1'  ⇒ 設得進去
+⇒ 不是長度、不是內容、不是瀏覽器擋 cookie ——【就是那個名字】
+```
+**成因**:`apps/admin/src/lib/session/session.ts:235` `httpOnly: true`
+⇒ 伺服器發出的那顆 `pcm_admin_sess_dev` 是 **HttpOnly**
+⇒ **JS 既讀不到它、也【覆寫不了】它**;而 `document.cookie` **連列都不會列出來**
+⇒ 📌 **所以它看起來像「這顆 cookie 就是設不進去」,而真相是「已經有一顆你看不見的在那裡」。**
+
+**這也解釋了為什麼兩個人結果相反**:
+```
+還沒有伺服器發過票時（第一次貼）⇒ 沒有 HttpOnly 那顆 ⇒ JS 設得進去 ✅（-08 那次）
+伺服器已經發過票之後            ⇒ 有一顆看不見的擋著 ⇒ JS 怎麼設都不進去 ❌（-30 那次）
+```
+⇒ 🔴 **兩個人都沒有做錯,他們只是站在【同一條時間線的兩端】。**
+
+✅ **可執行**:
+```
+① 設完一定要讀回來驗（它失敗時不報錯）
+② 讀不回來 ⇒ 先看是不是【已經有一顆 HttpOnly 的在那裡】：
+   那時通常你【本來就已經有 session 了】—— 直接試那個動作，不必再貼
+③ 真的要換一張票 ⇒ Playwright 的 context().addCookies()（它繞得過 HttpOnly）
+```
+
+### ✅ `/auth/v1/admin/users` 兩支替身(2026-08-30 加;`#12` 的前置)
+admin 的**客戶管理**會打 `client.auth.admin.*` —— 而本鑽機原本**刻意沒有** `/auth/v1` 替身
+⇒ 查客人與建客人**兩條都回** `AuthApiError: Invalid path specified in request URL`。
+現在 `scripts/admin-probe/proxy.py` 補了**只有兩支**(admin 真的會打的那兩支,當場量的:
+`getUserById` 4 處 / `createUser` 1 處;負對照現造方法名 ⇒ 0)。
+🔴 **`auth.users` 骨架也一起加了兩欄 + 一個 UNIQUE,而理由不是「補完整」**:
+`raw_app_meta_data` —— `manual-customer.ts:297` 拿它判「這個既有帳號是不是我們自己建的」
+(codex R2 擊破過:**未驗 `app_metadata` ⇒ 搶註者會被當成既有客人**)⇒ **少這一欄,那道檢查在鑽機上恆過**;
+`email UNIQUE` —— 建客人的**冪等靠它**(同一個佔位信箱重送 ⇒ 撞唯一鍵 ⇒ 那不是失敗)。
+**三個世界自檢**(起站後跑):不存在的 uuid ⇒ **404** · 真的存在的 ⇒ **200** 且帶 `app_metadata` · 亂字串 ⇒ **400**。
+⚠️ **仍然證不了**:真登入流程(票是手貼的)。

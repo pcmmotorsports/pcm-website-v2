@@ -450,7 +450,7 @@ Sean「就是公司」= 誰承擔責任。
   ⇒ 那是 2026-08-21 隨 `20260821113000` 一起上線的(Sean 答「乙 = 直接發」)
 
 而實際上(2026-08-21 窗 C2 實查):
-  ① 搜尋入口是關的   apps/storefront/src/components/Header.tsx:79 逐字
+  ① 搜尋入口是關的   apps/storefront/src/components/Header.tsx:92 逐字(🔵 2026-08-30 `-15` 開檔量:~~`:79`~~ 已漂 ⇒ 現 `:92`)
                      `const SEARCH_ENTRY_ENABLED = false;`
                      (Sean 2026-08-16 拍 `Q-SEARCH-0` = 乙「藏起來」)
   ② 搜尋日誌沒做     docs/phase-1-backlog.md 的 `### #183.` 那條,狀態逐字「⏳ 待評估」

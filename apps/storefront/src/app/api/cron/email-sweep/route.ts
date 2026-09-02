@@ -43,8 +43,10 @@ import { timingSafeEqual } from 'node:crypto';
 import {
   enqueueOrderCreatedEmails,
   enqueueOrderShippedEmails,
+  readDeployCutoff,
   resolveShippedEmailCutoff,
   sweepEmailOutbox,
+  type DeployCutoffRead,
   type EnqueueOrderCreatedEmailsDeps,
   type EnqueueOrderShippedEmailsDeps,
   type SweepEmailOutboxDeps,
@@ -79,6 +81,13 @@ const BEARER_PREFIX = 'Bearer ';
  * 🔴 每輪認領上限 = route 端常數(不採信外部輸入;營運參數、揭示可調)。
  * PCM 量級 10-30 封/日 << 50;concurrency=1 順序寄送(use-case 內建)+ 單封 ~數百 ms → 單輪最壞遠 < maxDuration 60s。
  * 對齊 settle-sweep per-round 50。死列不佔窗(port claimDue = 認領上限、非掃描上限)。
+ *
+ * ⚠️ **「單封 ~數百 ms」是【未量測】的**(codex R3 nit,2026-08-30)——
+ * repo 內查無 Resend 單封延遲的量測或紀錄,那個數字是估的,不是量到的。
+ * 🔵 而 ⟦b4-SWEEPBUDGET1⟧ 把可寄窗口從 60s 收緊成 55s ⇒ **這個沒被量過的前提被收得更緊**。
+ * ⇒ 誠實的界線:超量不會壞掉正確性,會走既有的 `deferred`(剩餘列留 sending、下輪回收)
+ *   ⇒ 症狀是「信慢了一輪」,不是「信不見了」。
+ * ⇒ 要拿掉這個「未量」標記,缺的檢查是:在真環境記一輪的實際耗時與封數,不是再估一次。
  */
 const CLAIM_LIMIT = 50;
 
@@ -110,44 +119,20 @@ const LEASE_SECONDS = 3600;
 const CUTOFF_ENV = 'B4_DEPLOY_CUTOFF';
 
 /**
- * ISO 8601 UTC 的**形狀**(毫秒可有可無)。
- * 🔴 **形狀對 ≠ 日期存在**(codex 關卡2 R4 must-fix 3):`2026-13-40T25:61:61Z` 過得了這個正則。
- *    那種值會一路送進 PostgREST,失敗在那裡 ⇒ 回 `failed` + `stage=orders` + DB code
- *    ⇒ **接手的人會往權限 / schema / 網路查,而不是去看 env** —— 我們設計的分流當場失效。
- *    ⇒ 所以下面還要做一次 **round-trip**:parse 回 Date、再 `toISOString()` 比對回來。
+ * 🔴 **`B4_DEPLOY_CUTOFF` 的解析已搬到 `@pcm/use-cases` 的 `readDeployCutoff`**(2026-08-31,線出貨)。
+ * ⛔ ~~原本這裡有一份本地的 `ISO_UTC_SHAPE` / `CutoffRead` / `readCutoff`~~
+ * ⇒ 訊號 4 的告警端要讀**同一顆 env**;各寫一份 ⇒ **兩個消費者、兩套驗證**
+ * ⇒ 而那個病同一天在 `SHIPPED_EMAIL_CUTOFF` 上量到過:
+ *   寄信端有格式檢查與下界、告警端只 `trim()` ⇒ 設一個早於下界的值
+ *   ⇒ **寄信端擋下一封不寄,而告警端收下照數** ⇒ 告警叫一件寄信端做不到的事。
+ * 🛑 **搬移是【搬】不是【複製】** —— 這裡不留第二份;那些理由(round-trip、
+ *   `raw === undefined` 才算沒設)全部跟著搬過去,逐字未改。
  */
-const ISO_UTC_SHAPE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
+type CutoffRead = DeployCutoffRead;
 
-type CutoffRead =
-  | { kind: 'unset' }
-  | { kind: 'invalid' }
-  | { kind: 'ok'; cutoff: string };
-
-/**
- * 🔴 **不准隨便填一個看起來合理的時戳**:
- * · 填【早】了 ⇒ 掃到 B-4 之前建的舊單 ⇒ 那些單 `notification_email` 是 NULL ⇒ 走 `customers.email`
- *   ⇒ **客人收到一封關於幾個月前那張單的通知信**,而 repo 內不會有任何東西紅。
- * · 填【晚】了 ⇒ 已由 B-4 新程式處理、但 `created_at < cutoff` 的單**被永久排除**
- *   ⇒ 少數客人沒收到信,而 route 一路 200、counts 正常(codex R3 consider:這一種更不明顯)。
- * ⇒ **啟用前必須先定義「部署瞬間」到底指哪一刻**(deployment ready / alias 切換 / 第一個新版本 request /
- *   最後一個舊版本 request 結束),並對邊界區間做一次性對帳。**那件事不在本片,已寫進 plan §4.3。**
- */
 function readCutoff(): CutoffRead {
   // eslint-disable-next-line no-restricted-syntax -- 受控例外:本 route 為 server-only cron 端點,動態 env 不進 client bundle(鏡像 lib/email/composition.ts requireEnv)
-  const raw = process.env[CUTOFF_ENV];
-  // 🔴 `raw === undefined` 才是「沒設」(codex 關卡2 R5 must-fix)。
-  //    原本寫 `!raw` ⇒ **env 設了、但值是空字串** 會被判成「沒設」⇒ 回 200 `skipped_no_cutoff`
-  //    ⇒ 有人設定填錯(貼成空值)而**整件事安靜地沒發生**,正是本片一直在防的那種壞法。
-  //    空字串過不了下面的形狀檢查 ⇒ 落 `invalid` ⇒ 503,吵得出來。
-  if (raw === undefined) return { kind: 'unset' };
-  if (!ISO_UTC_SHAPE.test(raw)) return { kind: 'invalid' };
-  // 🔴 round-trip:`Date` 對 `2026-13-40T25:61:61Z` 會回 Invalid Date;
-  //    對「形狀合法但被正規化過」的值(例 `2026-02-30`)則會回到不同的字面 ⇒ 一併擋掉。
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return { kind: 'invalid' };
-  const normalized = parsed.toISOString();
-  if (normalized !== raw && normalized !== `${raw.slice(0, 19)}.000Z`) return { kind: 'invalid' };
-  return { kind: 'ok', cutoff: raw };
+  return readDeployCutoff(process.env[CUTOFF_ENV]);
 }
 
 /**
@@ -196,6 +181,12 @@ function pickCounts(result: {
   deferred: number;
   staleMarks: number;
   errors: number;
+  /**
+   * 本輪因預算已用盡而**沒去認領**(⟦b4-SWEEPBUDGET1⟧)。0 或 1。
+   * 🔴 它與 `claimDue` 掛掉的 counts 完全相同 ⇒ **這一欄是唯一分得開的那個字**,
+   *    凌晨三點靠它決定要查 enqueue 耗時還是查 DB。同時計 `errors` ⇒ 503 由 errors 帶。
+   */
+  budgetExhaustedBeforeClaim: number;
   /** 訂單已不合格而正確地沒寄(Sean 2026-08-30「甲 搬」)。非錯誤 ⇒ 不進 503 條件。 */
   skippedIneligible: number;
   /**
@@ -217,6 +208,7 @@ function pickCounts(result: {
     failed: result.failed,
     deferred: result.deferred,
     staleMarks: result.staleMarks,
+    budgetExhaustedBeforeClaim: result.budgetExhaustedBeforeClaim,
     errors: result.errors,
     skippedIneligible: result.skippedIneligible,
     eligibilityUnknown: result.eligibilityUnknown,
@@ -284,6 +276,13 @@ function pickShippedEnqueueCounts(result: {
 }
 
 export async function GET(request: Request): Promise<Response> {
+  // 🔴🔴 **平台的碼表從這一行按下去**(`⟦b4-SWEEPBUDGET1⟧`,2026-08-30)。
+  //    `maxDuration` 是平台 kill 這個 function 的上界,而它算的是**整個請求**,
+  //    不是 `sweepEmailOutbox` 那一段。在這一行之前,sweeper 的時間預算從**它自己**起算
+  //    ⇒ 前面兩段 enqueue 花掉的時間沒有被扣掉 ⇒ 它以為自己還有滿滿 60 秒
+  //    ⇒ 平台可能在「Resend 已收下、`markSent` 還沒寫」那一格 kill ⇒ 回收 ⇒ **重寄**。
+  //    ⇒ 所以要在**最前面**取,不是在 sweep 呼叫點旁邊取(那樣就又變成從自己起算了)。
+  const invocationStartedAtMs = Date.now();
   // 1. 認證:CRON_SECRET Bearer 硬驗。env 未設/弱 → 500(設定錯、拒不執行);Bearer 缺/不符 → 401(不揭內部)。
   let expected: string;
   try {
@@ -440,6 +439,30 @@ export async function GET(request: Request): Promise<Response> {
   }
   const shippedSection = { shippedEnqueueStatus: shippedStatus, ...(shippedCounts ?? {}) };
 
+  // 🔵🔵 **「還沒上膛」要出聲**(2026-08-30 夜;`-48` 拍板做、codex 不豁免)
+  //   量到的:env 沒設 ⇒ `skipped_no_cutoff` ⇒ **不進下面的 503 判斷** ⇒ 回 200,
+  //   而本檔成功路徑**一行 log 都沒有**(全檔 console 分母 6,而 6 支全是 `console.error`)
+  //   ⇒ 📌 **「設好了」與「沒設好」在 Vercel 那一側印同一個 200、同一片空 log。**
+  //   ⇒ 🔴 而那個狀態就是「**一封信都不會寄**」—— 一個還沒上膛的系統, 每 5 分鐘安靜地回一次 200。
+  // 🔴 **為什麼是 `console.info` 不是 `console.error`**:`skipped_no_cutoff` 被歸成「正常狀態」是**對的**
+  //   (下面那句「而 `skipped_no_cutoff` **不在裡面**」那一格**不改**)——
+  //   **錯的是把「正常」讀成「不用講」。「正常」與「該吵」是兩件事。**
+  //   ⇒ 它不進 503、不改任何回應碼、不改任何寄信行為;**只是讓那個狀態在 log 上看得見。**
+  // 🛑 **零 PII**:只印我們自己寫死的 env 名與 status 列舉值,**不印 env 的值、不印收件人、不印任何計數以外的東西**。
+  // ⚠️ **射程**:它只答得出「**這一輪跑的時候, 那顆 env 有沒有被讀到**」——
+  //   答不出「Vercel 上設了沒」(設了不 redeploy ⇒ 現行 deployment 仍讀不到 ⇒ 這裡照樣印它, 而那是對的)。
+  if (enqueueStatus === 'skipped_no_cutoff' || shippedStatus === 'skipped_no_cutoff') {
+    console.info('[email-sweep] 🔵 有 cutoff env 還沒上膛 ⇒ 那一段 enqueue 這輪不跑(不是失敗,回 200)', {
+      // 🔴 B-5 那半用既有的 `CUTOFF_ENV` 常數(見本檔 `const CUTOFF_ENV =`)不重打字面。
+      //   ⚠️ 而出貨那半**沒有對應的 const** —— 字面 `'SHIPPED_EMAIL_CUTOFF'` 在本檔已出現兩次
+      //   (讀 env 的 `process.env['SHIPPED_EMAIL_CUTOFF']`, 與 bad-format 那行的 `env:`);
+      //   這裡照它既有的寫法, **不順手新增第三種寫法**。
+      //   ⇒ 要收成 const 是另一件事(會動到讀 env 那行 = 行為路徑), 不夾帶進這片。
+      b5DeployCutoff: enqueueStatus === 'skipped_no_cutoff' ? `${CUTOFF_ENV} 未設或空` : enqueueStatus,
+      shippedCutoff: shippedStatus === 'skipped_no_cutoff' ? 'SHIPPED_EMAIL_CUTOFF 未設或空' : shippedStatus,
+    });
+  }
+
   try {
     const deps: SweepEmailOutboxDeps = getSweepEmailOutboxDeps();
     // 🔴 maxRunSeconds = maxDuration 同一 const(單一來源、不寫第二字面);leaseSeconds/claimLimit = route 端常數。
@@ -452,6 +475,8 @@ export async function GET(request: Request): Promise<Response> {
       //    ⚠️ 這裡刻意**不另外讀一次 env** —— 用上面那個已解析的結果,兩半不可能分岔。
       allowOrderShipped: shippedCutoff.kind === 'ok',
       claimLimit: CLAIM_LIMIT,
+      // 🔴 見 GET 第一行:預算基準 = 整個請求的起點,不是 sweeper 自己的起點。
+      runStartedAtMs: invocationStartedAtMs,
       maxRunSeconds: maxDuration,
       leaseSeconds: LEASE_SECONDS,
     });
@@ -504,6 +529,36 @@ export async function GET(request: Request): Promise<Response> {
     if (
       result.errors > 0 ||
       result.quotaFailed > 0 ||
+      // 🔴🔴 `⟦b4-SWEEP503BLIND⟧`(2026-09-02):**全滅要吵。**
+      //    ⛔ 這個判斷式原本【不含 `result.failed`】—— 而 `failed` 是 provider 裁決失敗的封數。
+      //    ⇒ Resend 回 5xx / 連不上 / 額度以外的任何失敗 ⇒ `failed++` 而 `errors` 不動
+      //    ⇒ ⇒ 回 **200** ⇒ `recordHeartbeatSuccess` ⇒ **儀表綠, 而一整輪一封都沒寄出去。**
+      //    📌 而**同一支檔上面那段** `quotaFailed` 的註解(錨:逐字「額度用盡」那一段)
+      //       已經記過同一句謊 —— 那次補的是 `quotaFailed`
+      //       ⇒ **補丁只補了一個入口, 而這是同一個洞的第二個。**
+      //
+      // 🛑 **為什麼是 `sent === 0 && failed > 0` 而不是 `failed > 0`** —— 而理由要寫成射程句:
+      //    ⛔ ~~我第一版寫「『一封都沒成功而有失敗』不需要基線, 它在結構上就分得出那個世界」~~
+      //    🔴 **那句在【一輪只認領 1 封】時是假的**(code-reviewer 2026-09-02):那一輪
+      //       `sent===0 && failed>0` 與我否決掉的 `failed>0` **是同一個觀察**。
+      //       而 10-30 封/日 ÷ 288 輪 ⇒ **認領 1 封就是最常見的非空輪** ⇒ 大多數輪它不成立。
+      //    ✅ **正確的說法**:這個合取只在【同一輪有多封】時才多買到東西;
+      //       而它擋掉的告警量, 對照組推算約 **10%**(Poisson λ≈30/288≈0.10/輪)——
+      //       🔴 **那是【推算】不是量到的, 而我沒有量過 `failed` 的日常基線。**
+      //
+      // ⚠️ **噪音有上界, 而它不是一次紅**:一個永久壞掉的收件地址(http_400/422)走 exponential
+      //    退避、`max_attempts=5` ⇒ **最多 5 次紅、擠在約 75 分鐘內**, 然後靜靜進死信。
+      //    🛑 **⇒ 那是把【單封資料問題】報成【sweeper 故障】。⇒ 明早若頻繁變紅, 先看是不是這個。**
+      //
+      // 🔴 **而這一格的名字寫「試過而全滅」, 有一個世界不是**(code-reviewer nit):
+      //    時間預算耗盡 ⇒ 首封失敗後即 `deferred = jobs.length - i`
+      //    ⇒ `sent=0, failed=1, deferred=49` ⇒ 503, **而那 49 封根本沒被試過。**
+      //    ⇒ 本片**沒有**排除它 —— 排除它要多讀一欄, 而那會讓這道閘變成兩個判準。明寫, 不假裝沒有。
+      //
+      // ⚠️ 而 `sent === 0 && failed === 0`(本輪沒有到期的信)**照舊回 200** —— 那是常態。
+      //    ⛔ ~~我第一版把上面那條寫成「額度以外的任何失敗」~~ —— 不精確:額度那條**也**走
+      //    `result.failed++`(`quotaFailed` 是**加計**不是互斥)⇒ 不影響行為, 而影響讀的人。
+      (result.sent === 0 && result.failed > 0) ||
       enqueueStatus === 'failed' ||
       enqueueStatus === 'skipped_bad_cutoff' ||
       (enqueueCounts?.enqErrors ?? 0) > 0 ||

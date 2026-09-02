@@ -46,6 +46,7 @@ const {
   ineligibleScannerCtor,
   shippedContextCtor,
   shippedScannerCtor,
+  paidContextCtor,
   serviceClientSpy,
   SERVICE_CLIENT,
 } =
@@ -56,6 +57,7 @@ const {
     ineligibleScannerCtor: vi.fn(), // 🔴 E2a-2(W3-G):寄送前 ineligible gate 的 adapter
     shippedContextCtor: vi.fn(), // 🔴 E4-b(2026-08-22):出貨信的寄送時讀取 adapter
     shippedScannerCtor: vi.fn(), // 🔴 片3b(2026-08-30):出貨線掃描式 enqueue 的 adapter
+    paidContextCtor: vi.fn(), // 🔴 2026-09-01:付款信 HTML 的寄送時讀取 adapter(Sean 拍甲)
     serviceClientSpy: vi.fn(),
     SERVICE_CLIENT: { __serviceClient: true },
   }));
@@ -67,6 +69,7 @@ vi.mock('@pcm/adapters/server', () => ({
   SupabaseIneligibleOrderEmailScannerAdapter: ineligibleScannerCtor,
   SupabaseShippedEmailContextAdapter: shippedContextCtor,
   SupabaseShippedOrderScannerAdapter: shippedScannerCtor,
+  SupabasePaidEmailContextAdapter: paidContextCtor,
   createSupabaseServiceClient: serviceClientSpy,
 }));
 
@@ -83,6 +86,9 @@ beforeEach(() => {
   senderCtor.mockReset();
   scannerCtor.mockReset();
   ineligibleScannerCtor.mockReset();
+  // 🔴 這一行是刻意加的:`shippedContextCtor` 沒有被 reset(只靠 afterEach 的 clearAllMocks),
+  //    而 `toHaveBeenCalledTimes(1)` 這種斷言在「上一格漏清」時會安靜地變成累加。
+  paidContextCtor.mockReset();
   serviceClientSpy.mockReset().mockReturnValue(SERVICE_CLIENT);
   process.env.RESEND_API_KEY = 'test-resend-key';
   process.env.ORDER_EMAIL_FROM = 'orders@test.example';
@@ -135,8 +141,29 @@ describe('getSweepEmailOutboxDeps — 呼叫後建 deps', () => {
     //    ⚠️ 判別:它是**讀取**(查那張單現在合不合格),**不是發送管道**
     //    ⇒ 這格原本擋的東西(告警管道被注進 sweeper)**一個字都沒變**,
     //      下面兩行對 `notifiers` / `alertNotifier` 的斷言照舊 —— 那才是本體。
+    //
+    // 🔴 **2026-09-01(Sean 拍甲「付款信接上 HTML 版本」)第三次改期望值,照上面那句判過再改**:
+    //    ~~`['ineligibleScanner', 'outbox', 'sender', 'shippedContext']`~~ ⇒ 多了 `paidContext`。
+    //    ⚠️ 判別:它是**讀取**(查那張單的金額與品項),**不是發送管道**
+    //    ⇒ 這格原本擋的東西(告警管道被注進 sweeper)一個字都沒變。
+    //    🔴 **而它與前兩次【有一個地方不同,寫下來免得被同一個直覺讀過去】**:
+    //      前兩次接上去不會改變任何一封信;**這一次接上去,下一輪 cron 的真客人就收到 HTML 信**
+    //      (`sweep-email-outbox.ts` 那個 `const html = paid !== null` 的呼叫點早就在,
+    //       缺的一直是這個 dep;**座標用 grep 不用行號** —— 落檔那一小時它就從 `:870` 漂到 `:913`)。
+    //
+    // 🛑🛑 **2026-09-02 `paidContext` 被 revert 掉了 ⇒ 期望值改回四把鑰匙。**
+    //    ⛔ ~~['ineligibleScanner', 'outbox', 'paidContext', 'sender', 'shippedContext']~~
+    //    🔴 而撤它的理由不在這支檔:codex 判 FAIL 4 條 must-fix 一條都沒修,
+    //       而那一行曾經上過 `origin/dev`(全文在 composition.ts 那一段註解)。
+    //    ⚠️ **而這一格【不是回到原點】** —— 那一行的歷史留在 `10079aa6`(接上)與這一顆(撤掉),
+    //       ⇒ 而下一個要接它的人,兩顆都撈得到。
     const deps = getSweepEmailOutboxDeps() as Record<string, unknown>;
-    expect(Object.keys(deps).sort()).toEqual(['ineligibleScanner', 'outbox', 'sender', 'shippedContext']);
+    expect(Object.keys(deps).sort()).toEqual([
+      'ineligibleScanner',
+      'outbox',
+      'sender',
+      'shippedContext',
+    ]);
     expect(deps.notifiers).toBeUndefined();
     expect(deps.alertNotifier).toBeUndefined();
   });
@@ -160,6 +187,25 @@ describe('getSweepEmailOutboxDeps — 呼叫後建 deps', () => {
     getSweepEmailOutboxDeps();
     expect(shippedContextCtor).toHaveBeenCalledTimes(1);
     expect(shippedContextCtor.mock.calls[0]![0]).toBe(SERVICE_CLIENT);
+  });
+
+  /**
+   * 🔴 同 codex 2026-08-30 那條 must-fix 的理由:`Object.keys` 那一格只證得了「有這把鑰匙」。
+   *    而這一把的爆炸半徑比前兩把大 —— 接錯 client ⇒ 讀不到 ⇒ `unavailable` ⇒ **fail-closed 不寄**
+   *    ⇒ 📌 **客人不是收到壞掉的信,是【一封都收不到】,而畫面上只有 `errors++`。**
+   */
+  // 🛑🛑 **2026-09-02:這一格從「它有被建構」翻成「它【沒有】被建構」——而那是刻意的。**
+  //    ⛔ ~~expect(paidContextCtor).toHaveBeenCalledTimes(1)~~
+  //    🔴 **為什麼不是刪掉它**:刪掉之後,下一個人把那一行接回去時【不會有任何東西紅】
+  //       ⇒ 而那正是這一次出事的方式(一個保護只寫在人話裡,而沒有東西在守)。
+  //    ✅ **翻成反向斷言 ⇒ 接回去的那一刻它會紅 ⇒ 而紅的那個人會被迫讀到下面那句話。**
+  //    ⚠️ 要接回去的前置:先關掉 ⟦b4-MAILCANCEL1⟧(markSkippedOrderCancelled),
+  //       否則取消單會每輪計 error、燒 attempts、進死信 —— 那是那支被審的碼自己寫的。
+  it('🛑 paidContext 【不得】被建構 —— 接回去之前先關掉 ⟦b4-MAILCANCEL1⟧(2026-09-02 revert)', () => {
+    getSweepEmailOutboxDeps();
+    expect(paidContextCtor).not.toHaveBeenCalled();
+    // 🟢 正對照:同一發裡【該被建構的那個】仍然被建構 ⇒ 這一格不是恆綠。
+    expect(shippedContextCtor).toHaveBeenCalledTimes(1);
   });
 
   it('outbox = SupabaseEmailOutboxAdapter(service_role client cast, {假信箱判斷式 單源})', () => {

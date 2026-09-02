@@ -105,16 +105,43 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
   //   若一律寫「選擇規格」,零變體商品也會被這麼寫、點進去卻沒規格可選 = 字面小謊。
   //   `undefined`(不知道)⇒「查看商品」,誠實描述這顆鈕實際會做的事(跳過去看)。
   //   backlog #342 讓 RPC 帶回真值後,`undefined` 消失、字面自動歸位成另外兩態。
+  // 🔴🔴 **零變體那一態也要有字面, 否則那顆鈕【寫著它不會做的事】**
+  //    (板 `⟦b4-NOVARIANT1⟧`;2026-09-01 主視窗裁, 早報一行告知 Sean, 他有權推翻)。
+  //    ⛔ 原本零變體 ⇒ `null` ⇒ 鈕上 fallback 成「+ 加入購物車」——
+  //      而它現在【不會加入購物車】(見下方 quickAdd 那道)⇒ **那不是不好聽, 那是假的。**
+  // 🔵 而「查看商品」**不是新字面** —— 它已經是本元件 `variantCount === undefined` 那一態在用的
+  //    ⇒ 📌 **把既有字面用在多一種情況上, 而不是發明第六種說法。**
   const quickLabel =
-    p.variantCount === undefined ? '查看商品' : hasVariants ? '選擇規格' : null;
+    p.variantCount === undefined || p.variantCount === 0
+      ? '查看商品'
+      : hasVariants
+        ? '選擇規格'
+        : null;
 
   const quickAdd = (e: { preventDefault: () => void; stopPropagation: () => void }) => {
     // 有規格 ⇒ **什麼都不做**:不 preventDefault、讓外層 <Link href> 自己導到商品頁(零導頁程式碼)。
     // 三個呼叫點都傳 href(ProductsPage:399 / ProductRelated:105 / ProductRail:242-247);
     // 型別上 href 可省略但實際不可達,那種情況會落到既有的 onClick 分支 —— 不猜一個變體加下去。
     if (hasVariants) return;
+    // 🔴🔴 **零變體的也【什麼都不做】⇒ 讓它導到商品頁**(板 `⟦b4-NOVARIANT1⟧`;Sean 2026-08-31 拍「不賣」)。
+    //
+    // ⛔ ~~原本這裡就地把它加進購物車~~ —— 而一件沒有任何規格的商品**不能單獨買**
+    //    ⇒ 它會一路暢通到【填完卡號按下確認之後】才被退回(`useChargePayment.tsx:140`)。
+    // 🔵 **而這裡不自己顯示訊息, 是導到商品頁** —— 那句話只寫在一個地方(`ProductInfo` 的
+    //    `cannotBuyAloneNotice`)⇒ 📌 **兩個地方各寫一句, 遲早會變成兩種說法。**
+    // 🛑 而 `p.variantCount === undefined`(不知道有沒有規格)⇒ **不在這一道裡** ——
+    //    那一態的鈕字面是「查看商品」, 它本來就導頁;而把「不知道」當成「沒有」會擋掉正常商品。
+    if (p.variantCount === 0) return;
     e.preventDefault();
     e.stopPropagation();
+    // 🛑🛑 **底下這一整段今天【不可達】, 而它是刻意留著的**(板 `⟦b4-NOVARIANT1⟧`)。
+    //    上面兩道 `return` 之後, **沒有任何 `variantCount` 值走得到這裡**:
+    //      有變體 ⇒ 第一道擋 · 未知 ⇒ 第一道也擋(`variantCount !== 0` 對 undefined 是 true)
+    //      零變體 ⇒ 第二道擋(Sean 2026-08-31 拍「不賣」)
+    //    ⇒ 📌 **「卡片直接加入購物車」這個功能, 今天對 0 個商品有效。**
+    // 🔵 **為什麼不刪**:它沒有被呼叫 ⇒ 留著的成本是零;而今晚已經兩次「不可達」被證明可達。
+    //    ⚠️ 而它的測試在 `product-card-quick-add.test.tsx` 裡是 `it.skip`(10 格, 理由寫在該檔檔頭)
+    //    ⇒ **若哪天要讓它服務【有規格】的商品, 那幾格要重寫不是重跑。**
     const vehicle = readSearchVehicle();
     // 🔴 **刻意不帶 `variantId`**:能走到這一行就代表 `variantCount === 0`(有規格的在上面已導頁),
     //   line key 照契約退回 `productId`。原本這裡寫 `p.variants?.[0]?.id` —— 導頁分支落地後那是死碼

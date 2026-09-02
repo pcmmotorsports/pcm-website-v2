@@ -69,4 +69,8 @@ export {
 //    (它不能用 `SupabaseWalletAdapter` —— 那支的 ctor 強制 service_role writeClient,
 //     而 `apps/storefront/src/app/account/page.tsx:18-19` 逐字寫著 storefront 不允許注入 service_role)。
 //    ⇒ 沒有這個 export,那邊就要**再寫一份欄位對照** ⇒ 兩份會漂,而漂了之後畫面照樣顯示得出東西。
+// 🔵 `narrowGender` 進 root export 的理由:**會員中心那一頁自己讀 `customers` 行**
+//    (`account/page.tsx` 走 Supabase client 直取,不經 adapter)⇒ 它需要同一把收窄尺。
+//    🔴 而重點是【同一把】—— 兩處各寫一份「認得哪三個值」的判斷,它們會漂。
+export { narrowGender } from './supabase/mappers/customer';
 export { mapSupabaseWalletEntryToDomain } from './supabase/mappers/wallet';

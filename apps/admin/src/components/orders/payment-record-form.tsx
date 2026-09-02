@@ -268,6 +268,20 @@ export function PaymentRecordForm({
             · 現金軌的時點來自 server 蓋的章(hidden),員工沒有那一欄。 */}
         {!isCash && (
           <>
+            {/* 🔴🔴 **這兩行提示是 2026-09-02 補的, 而補的理由是【上面那段註解自己寫的對策沒做完】。**
+                `:258-260` 逐字寫著:「invalid 只回一句通用的『表單內容不正確』—— 員工看不出是哪一欄、
+                哪裡不對。**規則寫在輸入格旁邊,不要等他撞。**」
+                ⇒ 而那個對策當時只套在【金額】一欄(`:261`), 而**匯款軌真正必填的是這兩欄**
+                  (`payment-form.ts:182-184`, 就是上面 `:265` 自己引的那一行)。
+                🔵 **實測撞到過**(`-15` 2026-09-02, 拋棄式 probe + 真瀏覽器, 新票下背靠背 11 秒兩發):
+                  填金額 + 勾確認 + **填單號** ⇒ ✅「已登錄這筆收款。」收款 1 筆 ⇒ 2 筆
+                  填金額 + 勾確認 + **不填單號** ⇒ 🔴「表單內容不正確,這筆收款沒有寫入。」0 筆不變
+                  ⇒ 而畫面上**沒有任何一欄被標出來**(比對整頁文字差集, 只多出那一句)。
+                🛑 **⇒ 所以缺的不是錯誤處理 —— 缺的是【欄位級】那一層, 而它在「有沒有錯誤處理」
+                   這個問題底下是看不見的。**本片只補提示, **不動任何邏輯**;欄位級紅框是另一題。
+                ⚠️ **而這兩行只在匯款軌存在** —— 它們住在 `{!isCash && …}` 裡面,
+                   與它們解釋的那兩個輸入格同生同滅(現金軌不渲染, 見 `:264-268`)。
+                   ⇒ 📌 那是刻意的:一句「匯款一定要填」出現在現金軌上會是**錯的**。 */}
             <AdminFormField label='銀行入帳日'>
               <input
                 className={ADMIN_INPUT_CLASS}
@@ -276,6 +290,7 @@ export function PaymentRecordForm({
                 value={values.receivedDate}
                 onChange={(e) => setValues((v) => ({ ...v, receivedDate: e.target.value }))}
               />
+              <p className='text-muted-foreground mt-1 text-xs'>匯款一定要填這一欄。</p>
             </AdminFormField>
             <AdminFormField label='銀行單號 / 末五碼'>
               <input
@@ -284,6 +299,7 @@ export function PaymentRecordForm({
                 value={values.bankReference}
                 onChange={(e) => setValues((v) => ({ ...v, bankReference: e.target.value }))}
               />
+              <p className='text-muted-foreground mt-1 text-xs'>匯款一定要填這一欄,只打末五碼也可以。</p>
             </AdminFormField>
           </>
         )}

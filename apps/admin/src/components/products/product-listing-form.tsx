@@ -4,6 +4,8 @@ import {
   LISTING_DELISTED_FIELD,
   LISTING_NOTE_FIELD,
   LISTING_RETURN_TO_FIELD,
+  LISTING_CONFIRM_FIELD,
+  LISTING_CONFIRM_OWNER_FIELD,
   LISTING_NOTE_MAX,
 } from '../../lib/products/product-listing-form';
 import { ADMIN_INPUT_CLASS, AdminForm, AdminFormField } from '../shared/admin-form';
@@ -29,10 +31,22 @@ import { ListingToggleSubmitButton } from './product-listing-submit';
 export function ProductListingForm({
   productId,
   listed,
+  variantSkuCollisionOwner,
 }: {
   productId: string;
   listed: boolean;
+  /**
+   * 🔵 **第一層(給人看的那一層)**(板 `⟦b4-NOVARIANT1⟧`, Sean `Q2=甲`)。
+   * 有值 = 這支商品的料號是【那一支商品】的一個規格 ⇒ 它八成是重複匯進來的空殼。
+   *
+   * 🔴 **為什麼要在按鈕【旁邊】而不是按下之後才說**:
+   *    一個只在按下之後才出現的警告, 讀的人已經在「我要完成這件事」的狀態裡了。
+   * 🛑 而它**只在【要上架】時有意義** —— 下架一支可疑商品永遠是安全的。
+   */
+  variantSkuCollisionOwner?: string | null;
 }) {
+  // 🔴 `listed === true` 表示這顆鈕要做的是【下架】⇒ 那一側不問。
+  const askConfirm = !listed && typeof variantSkuCollisionOwner === 'string' && variantSkuCollisionOwner !== '';
   return (
     <AdminForm
       action={setProductListingAction}
@@ -42,6 +56,12 @@ export function ProductListingForm({
         // 🔴 送的是「要變成什麼」,不是「現在是什麼」:上架中 ⇒ 送 true(去下架)。
         [LISTING_DELISTED_FIELD]: String(listed),
         [LISTING_RETURN_TO_FIELD]: `/products/${productId}`,
+        // 🔴🔴 **這裡【只送 owner】, 不送 confirm** —— 那是 codex R1 #1 打掉的東西:
+        //    ⛔ ~~原本 hidden 自動夾帶 `confirm='true'`~~ ⇒ 那是**畫面幫員工確定了**,
+        //      而不是他確定。⇒ confirm 現在是下面那個【他要自己勾】的 checkbox。
+        //    🔵 而 owner 仍然用 hidden 送:它不是「他的決定」, 是**他看到的那句話的內容**,
+        //      server 端拿它比對現在算出來的是不是同一支 ⇒ 擋 stale confirmation。
+        ...(askConfirm ? { [LISTING_CONFIRM_OWNER_FIELD]: variantSkuCollisionOwner } : {}),
       }}
       footerHint={
         listed
@@ -50,6 +70,22 @@ export function ProductListingForm({
       }
       actions={<ListingToggleSubmitButton listed={listed} />}
     >
+      {askConfirm ? (
+        <p className='rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900'>
+          {/* 🔴 **一定要說得出【是誰的規格】** —— 一句「這支看起來怪怪的」會被一路按過去,
+              而一個講得出對方料號的句子, 員工可以當場去查。 */}
+          ⚠️ 這支商品看起來是「{variantSkuCollisionOwner}」的一個規格,不是一件獨立商品。
+          <br />
+          先確認它該獨立存在再上架 —— 上架之後客人會在店裡看到兩個一樣的東西。
+          {/* 🔴🔴 **這個 checkbox 就是那道確認本身** —— 它必須是員工【自己勾】的動作。
+              value 用死值 `'true'`(原生 checkbox 勾了送 `'on'`, 而 parse 那側只認 `'true'`)
+              ⇒ 沒勾 ⇒ 瀏覽器【根本不送這一欄】⇒ server 端當「沒確認」⇒ 擋下。 */}
+          <label className='mt-2 flex items-center gap-2 font-medium'>
+            <input type='checkbox' name={LISTING_CONFIRM_FIELD} value='true' />
+            我確認這支商品該獨立存在,要上架
+          </label>
+        </p>
+      ) : null}
       <AdminFormField label='變更原因(選填)'>
         <input
           type='text'

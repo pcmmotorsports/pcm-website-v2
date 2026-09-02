@@ -33,6 +33,7 @@ import { ShipmentSection } from './shipment-section';
 import type { PaymentListData } from './payment-list';
 import type { OrderRefundRow } from '../../lib/payment/refund-read';
 import type { ManualRefundRow } from '../../lib/payment/manual-refund-read';
+import { manualRefundRedState } from './manual-refund-ledger-section';
 import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
 
 // M-4a Slice B:訂單明細(server-render、唯讀;狀態/出貨/發票的「改」= Slice C 寫入片)。
@@ -102,11 +103,13 @@ export function OrderDetail({
   refunds = [],
   refundsFailed = false,
   refundsTruncated,
+  stuckVerdicts,
   refundUnregisteredAmount = null,
   refundUnregisteredFailed = false,
   manualRefunds = [],
   manualRefundsFailed = false,
   manualRefundsTruncated = false,
+  manualRefundRailCap = null,
   cancelFormsAllowed = false,
   customerHref = null,
   payments,
@@ -146,6 +149,13 @@ export function OrderDetail({
    * 📌 `refundEnabled` 不在此列:它的預設 `false` 落在**安全**方向(關著=入口不顯示)。
    */
   refundsTruncated: boolean;
+  /**
+   * `#890` 片4:卡住那幾列**現行有效的更正判定**(`refundId → { correctedTo }`)。
+   * 🔴 `null` = **讀不到**(或帳本本身讀不到)⇒ 退款入口 fail-closed;
+   *    空 Map = 讀到了、只是一筆都沒被更正過。**兩者不得合流**,理由在
+   *    `lib/payment/refund-ledger-view.ts` 的 `isBlockingStuckVerdict` 旁邊。
+   */
+  stuckVerdicts: ReadonlyMap<string, { correctedTo: string }> | null;
   /** M-3 RW3:`pcm_order_refundable_remaining`(措辭鐵律=「帳本未登記額」)。 */
   refundUnregisteredAmount?: number | null;
   /** M-3 RW3:未登記額讀取失敗(顯錯誤態≠查無 + 發起入口 fail-closed,codex MF2)。 */
@@ -156,6 +166,19 @@ export function OrderDetail({
   manualRefundsFailed?: boolean;
   /** M-4b E10 D3:登記列被上限截斷。 */
   manualRefundsTruncated?: boolean;
+  /**
+   * ⟦b4-PCM01RECORD⟧ 兩軌可退上限;負=超額(標紅)、`null`=算不出來(標另一種紅)。
+   * 完整語意與「為什麼一張單一條紅」寫在 `ManualRefundLedgerSection` 的同名 prop 上。
+   *
+   * 🔴 **預設值刻意選 `null` 而不是 0** —— 這一格往 fail-loud 那一側倒:
+   *    忘了接的呼叫端, 只要那張單**有未作廢的登記列**, 就會得到一句「算不出上限」。
+   *    📌 而兩種錯法的代價不對稱:多叫一次 = 有人去查;少叫一次 = 一筆多退的錢沒有人知道。
+   *    ⚠️ **而它【不是無條件】的**(codex R4 nit 更正我原本的絕對句):零列、未截斷、
+   *    列表讀得到的那張單, `null` **不標紅** ⇒ 漏接仍然是一片正常畫面。
+   *    ⇒ 🛑 **所以這個預設值不是保護, 只是把漏接的代價壓低。**真正的保護是
+   *       `ManualRefundLedgerSection` 那一側把它列為**必填**(那裡沒有預設值)。
+   */
+  manualRefundRailCap?: number | null;
   /** A13b D6-a:這一次渲染准不准出現取消表單。**預設 fail-closed**,逐條理由見 `OrderCancelBlock`。 */
   cancelFormsAllowed?: boolean;
   /**
@@ -188,6 +211,14 @@ export function OrderDetail({
      `hasStuckRefundVerdict` 隨唯一消費端搬進 `order-detail-money-tab.tsx`。
      🔴 「本檔真的在用回傳值」由 `order-detail-tabs-wiring.test.tsx` 的頁級行為格守 ——
         純函式自己再會測,也答不了「呼叫端接了沒」。 */
+  // 🔴 ⟦b4-PCM01RECORD⟧ 那條紅會不會出現 —— 判準只有一份(`manualRefundRedState`)。
+  //    這裡算是為了餵下面那道「開哪一頁」的閘;畫的那一份在元件裡呼叫同一支函式。
+  const manualRefundRed = manualRefundRedState({
+    rows: manualRefunds,
+    railCap: manualRefundRailCap,
+    rowsTruncated: manualRefundsTruncated,
+    loadFailed: manualRefundsFailed,
+  });
   const { refundLedgerAbnormal, moneyTabMustSee } = resolveOrderDetailTabFlags({
     refundsFailed,
     refundUnregisteredFailed,
@@ -195,6 +226,7 @@ export function OrderDetail({
     refundUnregisteredAmount,
     refundsTruncated,
     manualRefundsTruncated,
+    manualRefundRailCapRed: manualRefundRed.overCap || manualRefundRed.capUnknown,
     payments,
   });
 
@@ -355,11 +387,13 @@ export function OrderDetail({
               refunds={refunds}
               refundsFailed={refundsFailed}
               refundsTruncated={refundsTruncated}
+              stuckVerdicts={stuckVerdicts}
               refundUnregisteredAmount={refundUnregisteredAmount}
               refundUnregisteredFailed={refundUnregisteredFailed}
               manualRefunds={manualRefunds}
               manualRefundsFailed={manualRefundsFailed}
               manualRefundsTruncated={manualRefundsTruncated}
+              manualRefundRailCap={manualRefundRailCap}
               refundEnabled={refundEnabled}
               cancelFormsAllowed={cancelFormsAllowed}
               refundLedgerAbnormal={refundLedgerAbnormal}

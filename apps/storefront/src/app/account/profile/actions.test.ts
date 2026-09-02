@@ -91,12 +91,20 @@ describe('updateProfileAction(g-4a server action)', () => {
       id: 'attacker-id',
       user_id: 'attacker-uid',
       wallet_balance: 999999,
+      // 🔴 `:573` 會員中心那一片新增的攻擊面:性別送【中文】而不是代碼。
+      //    zod 的 refine 會擋它 ⇒ 這一發應該落 fieldErrors, 而不是透傳到 use-case。
+      //    ⚠️ 而它與上面那幾個不同:tier/id 是【不該存在的欄】被 strip;
+      //       gender 是【該存在的欄】而值不合法 ⇒ 走的是不同一條路。
       totalDeposit: 999999,
     } as unknown);
     expect(mockUpdateProfile).toHaveBeenCalledOnce();
     const [, currentUserId, patch] = mockUpdateProfile.mock.calls[0]!;
     expect(currentUserId).toBe('user-1'); // server session、非 input 的 id/user_id
-    // patch 只有三欄、其他全被 strip
+    // 🔴🔴 **這一發沒送 `gender` ⇒ patch 裡【不該有】它** —— 2026-09-01 codex R1 must-fix:
+    //    上一版 zod 是 `.default('')` ⇒ 欄位缺席會被補成 `''` ⇒ 再被轉成 `null`
+    //    ⇒ **一個舊分頁送出一次個人資料, 就把使用者已經填好的性別清掉。**
+    //    ⇒ 改成 `.optional()` 之後, 缺席 = key 不進 patch = DB 那一欄不動。
+    //    📌 這一格現在多守一件事:**多出 `gender` 這個 key 就是資料遺失的訊號。**
     expect(Object.keys(patch).sort()).toEqual(['birthday', 'name', 'phone']);
     expect(patch).not.toHaveProperty('tier');
     expect(patch).not.toHaveProperty('id');
@@ -164,5 +172,46 @@ describe('updateProfileAction(g-4a server action)', () => {
     await action({ name: '王', phone: '', birthday: '1990-01-01' });
     const [, , patch] = mockUpdateProfile.mock.calls[0]!;
     expect(patch.phone).toBe('');
+  });
+
+  // 🔴🔴 `:573` 會員中心那一片新增的攻擊面 —— 而它與上面那幾個【不同種】:
+  //   `tier` / `id` 是【不該存在的欄】被 zod strip 掉;
+  //   而 `gender` 是【該存在的欄】而值不合法 ⇒ 走的是 refine 那條路,落 fieldErrors。
+  //   📌 兩者的失敗形狀不同:strip 是安靜地不見, refine 是逐欄紅字。
+  it('🔴 性別送【中文】而不是代碼 ⇒ 落 fieldErrors, 不透傳 use-case', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    mockGetCustomerRepo.mockResolvedValue({ update: vi.fn() });
+    const action = await getSUT();
+    const res = await action({
+      name: '王',
+      phone: '',
+      birthday: '',
+      gender: '男', // ← 顯示用的字, 不是值域
+    } as unknown as Parameters<typeof action>[0]);
+    expect(res.fieldErrors?.gender).toBe('性別選項不正確');
+    expect(mockUpdateProfile).not.toHaveBeenCalled();
+  });
+
+  // 🟢 正對照 —— 沒有它, 上面那格在「任何 gender 都被擋」時也會綠。
+  it('🟢 性別送代碼 ⇒ 過, 且 normalize 後進 patch', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    mockGetCustomerRepo.mockResolvedValue({ update: vi.fn() });
+    mockUpdateProfile.mockResolvedValue({ id: 'user-1' });
+    const action = await getSUT();
+    const res = await action({ name: '王', phone: '', birthday: '', gender: 'undisclosed' });
+    expect(res.ok).toBe(true);
+    const [, , patch] = mockUpdateProfile.mock.calls[0]!;
+    expect(patch.gender).toBe('undisclosed');
+  });
+
+  // 🔵 而「不選擇」要變成 null, 不是空字串 —— DB 的 CHECK 不收 ''。
+  it('🔵 性別空字串 ⇒ normalize 成 null(同 birthday 那條)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    mockGetCustomerRepo.mockResolvedValue({ update: vi.fn() });
+    mockUpdateProfile.mockResolvedValue({ id: 'user-1' });
+    const action = await getSUT();
+    await action({ name: '王', phone: '', birthday: '', gender: '' });
+    const [, , patch] = mockUpdateProfile.mock.calls[0]!;
+    expect(patch.gender).toBeNull();
   });
 });

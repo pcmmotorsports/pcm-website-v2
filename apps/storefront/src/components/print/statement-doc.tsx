@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import type { MemberOrderDetail } from '@pcm/domain';
 import { stripPictographs } from '@/lib/print/strip-pictographs';
 import { LOGO_DATA_URI, QR_DATA_URI } from './print-assets';
@@ -172,7 +173,65 @@ function StatementMasthead() {
   );
 }
 
-export function StatementDoc({ order }: { order: MemberOrderDetail }) {
+/* `fontFamily` = 片 B(2026-08-31):把**自 host** 的中文字型接到這張紙上。
+   值 = `next/font/google` 回的 `.style.fontFamily`。
+   ⛔ ~~(它是雜湊過的家族名,不是 'Noto Sans TC')~~ —— **我寫錯了,codex R1 must-fix 抓到。**
+   ✅ 實量(2026-08-31,真瀏覽器讀 computed style):它是
+      `"Noto Sans TC", "Noto Sans TC Fallback"` —— **第一個名字與 root layout 那條 Google
+      CDN `<link>` 宣告的家族【同名】**。
+
+   🛑 **⇒ 所以這一片【自己不保證】伺服器會用到我們這份。** 同名的兩套 `@font-face` 都在層疊裡,
+      而 2026-08-31 實測:平常那一發 Chrome 抓的是 **Google 那 17 支**、我們自家 **0 支**;
+      擋掉 `fonts.googleapis.com` / `fonts.gstatic.com` 之後才變成 **自家 15 支 / Google 0**。
+      ⇒ 本片提供的是【擋掉外部之後接得住的那張網】;**真正讓它生效的動作在片 C**
+        (伺服器渲染時攔掉外部字型請求)。**不要把這一片讀成「字型已經自 host 了」。**
+
+   🔴 **為什麼是一個 prop,而不是在這支檔裡 import `next/font/google`**:
+      `statement-cascade-browser.test.tsx` 用 `renderToStaticMarkup(<StatementDoc/>)` 直接渲染本元件,
+      而 `next/font/google` 是**建置期轉換**、不是執行期模組 ⇒ 在那支測試裡它沒有東西可以解析。
+      ⇒ 字型留在 route(`page.tsx`),本元件對測試仍是純的。
+
+   🔴 **為什麼是 inline style 的 CSS 變數,而不是把 `.variable` 那個 class 併進 `className`**:
+      `statement-doc-classes.test.ts:14` 逐字寫著「它只掃**字面上的** className 單引號字面;
+      動態拼出來的 class 它看不到」⇒ 我第一版把 className 改成模板字串,
+      ⚠️ (而那句話**不能照抄原文**:原文示範了它掃的那個 pattern 本身,
+          而那支守門是對【整份檔案的原始文字】跑正規式的 —— 註解不會被排除
+          ⇒ 抄進來就等於餵它一個假 class,**它會紅**。
+          2026-08-31 實際發生兩次:5 支測試裡 1 支紅,而紅的理由是我引用了它自己的說明文字。
+          📌 一份守門的說明文件, 抄進它自己掃的檔案裡, 會變成它的輸入。)
+      **那三個 class 就會從那道守門的分母裡消失,而 `used.length > 10` 照樣綠。**
+      ⇒ 📌 一個看起來無害的寫法改動,會**安靜地把既有守門的射程縮小**。
+      ⇒ 改成 inline style ⇒ `className` 字面**一個字都沒動** ⇒ 那道守門的分母不變。
+
+   🔴 **為什麼是變數而不是直接設 `font-family`**:直接設會與 `print-a4.css:288` 的
+      `font-family: var(--pd-body)` 同具體度打架、靠載入順序決勝;
+      設 `--font-statement` 則由 `statement.css` 把它排進 `--pd-body` 第一順位
+      ⇒ 贏家由**字型堆疊的順序**決定,不由載入順序決定。
+
+   ⚠️ 沒傳 ⇒ `statement.css` 那條 `var(--font-statement, 'Noto Sans TC')` 走 fallback
+      ⇒ 行為與片 B 之前**逐字相同**(靠客人那台機器,或 root layout 的 Google CDN `<link>`)。 */
+export function StatementDoc({
+  order,
+  fontFamily,
+  printButton = true,
+}: {
+  order: MemberOrderDetail;
+  fontFamily?: string;
+  /**
+   * 螢幕上那顆列印鈕要不要渲染。**預設 `true`** —— 那一頁維持原樣。
+   *
+   * 🔴🔴 **為什麼需要這個開關(2026-08-31 線上 500 抓到的)**:
+   *    `StatementPrintButton` 是 `'use client'`,而 `statement.pdf` 那條 route 自己呼叫
+   *    `renderToStaticMarkup()` ⇒ 那條路**沒有 Next 的 client boundary 處理**
+   *    ⇒ 線上逐字 `Error: Attempted to call StatementPrintButton() from the server but
+   *      StatementPrintButton is on the client.` ⇒ **那條 route 固定 500。**
+   * 📌 **⇒ 同一棵元件樹, 兩條渲染路徑, 而只有第二條會炸** ——
+   *    HTML 那頁走 Next 正常的 RSC 管線 ⇒ 200;PDF 那條自己 render ⇒ 500。
+   *    **兩條路徑共用元件, 而測試只走過第一條 ⇒ 全綠。**
+   * 🛑 而 `@media print` 收掉它**不夠** —— CSS 是在【渲染成功之後】才有機會生效的。
+   */
+  printButton?: boolean;
+}) {
   const addr = order.shippingAddress;
 
   return (
@@ -182,11 +241,19 @@ export function StatementDoc({ order }: { order: MemberOrderDetail }) {
        · `print-sheet` ⇒ `@media print` 裡的 `padding:0` + `min-height:250mm`
          (讓紙面邊界**只由** `@page` 決定,不然會內縮兩次)
        `stmt-page` 是螢幕上的容器,對應後台那張紙的 Tailwind `mx-auto max-w-3xl p-6 space-y-4`。 */
-    <div data-slot='statement-doc' className='print-sheet pd-sheet stmt-page'>
-      {/* 螢幕上才有的列印鈕。**紙上不准有它** —— `statement.css` 的 `@media print` 收掉。 */}
-      <div className='stmt-actions'>
-        <StatementPrintButton />
-      </div>
+    <div
+      data-slot='statement-doc'
+      className='print-sheet pd-sheet stmt-page'
+      style={fontFamily ? ({ '--font-statement': fontFamily } as CSSProperties) : undefined}
+    >
+      {/* 螢幕上才有的列印鈕。**紙上不准有它** —— `statement.css` 的 `@media print` 收掉。
+          🔴 而 `printButton=false` 時**連渲染都不做** —— 見上面 props 那段:
+             `@media print` 救不了一個在 render 階段就丟例外的元件。 */}
+      {printButton ? (
+        <div className='stmt-actions'>
+          <StatementPrintButton />
+        </div>
+      ) : null}
 
       <StatementMasthead />
 

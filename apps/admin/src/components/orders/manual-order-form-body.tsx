@@ -15,6 +15,7 @@ import {
 import { ManualCustomerPicker } from './manual-customer-picker';
 import { ManualOrderSubmit } from './manual-order-submit';
 import { createManualOrderAction } from '@/lib/orders/manual-order-actions';
+import { ManualOrderCatalogLookup } from './manual-order-catalog-lookup';
 import { ManualOrderLines } from './manual-order-lines';
 // 🔴 三個 `MANUAL_ORDER_SHIP_TO_*` 常數 2026-08-28 從本檔的 import 移除 ——
 //    它們現在由 `./manual-order-ship-to` 自己 import。**欄名一個字都沒改**,只是換了誰在用。
@@ -210,6 +211,12 @@ export function ManualOrderFormBody({
 
           {/* 🔴 品項在收件與發票**之後** —— 員工的動線是「先確認是誰、寄到哪」再逐項打單。
               ⚠️ 這一格沒有稿可以對(OD 那份是訂單【明細】不是【建單】)⇒ 這是我的判斷,不是照稿。 */}
+          {/* 🔴 查商品排在品項列【上面】 —— 員工的動線是「先查到資料, 再往下填」。
+              🛑 而它**不會幫他填** —— 那是 Sean 2026-08-31 拍的丙:
+                 查到的顯示在旁邊, 他自己抄。理由(那道用一次誤送整單取消換來的不變式)
+                 寫在 `manual-order-catalog-lookup.tsx` 檔頭, 不在這裡重複。 */}
+          <ManualOrderCatalogLookup />
+
           <ManualOrderLines />
 
           {/* 🔴 送出鈕是一支 client component:**沒選客人時它是灰的**。

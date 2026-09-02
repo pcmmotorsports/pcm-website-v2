@@ -133,6 +133,129 @@ export type AnomalyAlertSummary = {
    */
   emailQuotaSuspectedCount: number | null;
   /**
+   * 🔴🔴 **分母**(2026-08-31 接上;Sean 逐字答 `3 甲`;板上錨 `⟦b4-EMAILTOTAL⟧`)。
+   * `email_outbox` 這張表現在**總共幾列**。
+   *
+   * ⚠️ **它不是第六個訊號, 它是上面五個的【分母】**:
+   * 那五個 count 全部 `FROM public.email_outbox` ⇒ **它們只數【已經存在的列】**
+   * ⇒ 📌 **沒有它, 上面五個 0 在「一切正常」與「這張表是空的 / 讀不到」之間分不出來。**
+   * (那句話不是我寫的 —— `20260829010000_m4a_email_deadman_alert_counts.sql` 檔頭自己寫的,
+   *  逐字:「**一個讀不到資料的計數器, 與一個一切正常的系統, 印同一組 0。**」)
+   *
+   * 🔴 **而它【要進 `shouldAlert`】** —— 與 `emailOutboxUnknown` 那一格**相反**, 理由:
+   * `unknown` 是「函式不存在」= 部署問題, 走部署管道;
+   * 而「五格全 0 **且** 分母也 0」是**資料面**的訊號, 沒有別的管道會講它。
+   * ⇒ 而 SQL 那一側**早就在回它了**, 是 adapter 這一層把它丟掉的
+   * ⇒ 📌 **一個【寫對了而沒接上】的保護, 與一個【沒寫】的保護, 在系統的行為上完全相同。**
+   */
+  emailOutboxTotalCount: number | null;
+  /**
+   * 🔴 **出貨信缺口:貨出了、有收件信箱、而通知信【還沒被排進佇列】,且已過寬限。**
+   * (2026-08-31;Sean 逐字答 `2 甲`;RPC `get_shipped_email_gap_counts`;板上錨 `⟦b4-EMAILEMPTY⟧` 出貨那半)
+   *
+   * ⚠️ **它與上面五個訊號的分母【不同】**:那五個數 `email_outbox` 裡的列;
+   * 這一個數的是**那張表裡【應該有而沒有】的列** —— 分母來自 `pcm_shipped_email_pending` 那支 view。
+   * ⇒ 📌 **所以它是唯一一個「東西沒被建出來」看得到的訊號。**
+   */
+  shippedNeverEnqueuedCount: number | null;
+  /**
+   * 🔵 **另一種壞法**:貨出了,而那張單**兩個信箱都是空的** ⇒ 它不會進佇列。
+   * **而那不是系統壞掉, 是我們沒有那個客人的信箱。**
+   * ⇒ 分開數的理由與 5-a / 5-b 同一個:**併起來 = 用一種原因的文案報另一種原因。**
+   */
+  shippedUnsendableCount: number | null;
+  /**
+   * 🔴 **分母**:未刪的 `shipments` 總數。
+   * ⚠️ **它是【全域存活量】, 不是「本告警視窗的分母」** —— 含未出貨、也含起始線以前的。
+   * 它答的是「**這裡到底有沒有出貨資料**」。
+   * ⇒ 📌 **一個分母的用途要寫在它旁邊, 否則下一個人會拿它去算比率。**
+   */
+  shipmentsTotalCount: number | null;
+  /**
+   * 🔴 上面三個是不是**讀不到**(RPC 尚未 apply / 起始線沒設)。
+   * ⚠️ 與 `emailOutboxUnknown` 同族:**它刻意【不】進 `shouldAlert`** ——
+   * 部署問題走部署管道, 不變成一封每天寄的信。
+   * 🛑 **而它比那一個多一種成因**:`SHIPPED_EMAIL_CUTOFF` 沒設 ⇒ 那支 RPC 不能呼叫
+   *   (它的參數無 DEFAULT, 而 NULL 會被它自己的閘擋下)⇒ **也落這一格。**
+   *   ⇒ 而那個狀態**在 log 上看得見**(呼叫端印一行), 不靠這個旗標。
+   */
+  shippedGapUnknown: boolean;
+  /**
+   * 🔵 **訊號 4:訂單已付款,而 `order_created` 那一列【根本沒被建出來】**
+   * (2026-08-31,Sean 拍 5️⃣ 甲「有一封就叫」;線【出貨】`-1e`)。
+   *
+   * 🛑🛑 **這個數 > 0 是【正常】的,它【不】進 `shouldAlert`。**
+   *   scanner 每 5 分鐘掃「已付款而沒有信」的單,**然後當輪就把它們排進去**
+   *   ⇒ 新訂單進來就會被數到一次,下一輪就沒了。
+   *   ⇒ 📌 **拿它當判準 = 有生意就叫。那不是告警。**
+   * ⇒ 它存在的理由是**脈絡**:沒有它,下面那個 `no_recipient` 的 0 在
+   *   「一切正常」與「這裡根本沒有訂單」之間分不出來。
+   */
+  orderCreatedPaidNoEmailCount: number | null;
+  /**
+   * 🔴🔴 **這一個才是訊號 4 的告警主詞**:上面那一群裡,**兩個信箱都空**的。
+   *   ⇒ scanner 撈到它也 enqueue 不了(use-case 落 `noRecipient` 桶)
+   *   ⇒ 📌 **它不會自己好** —— 那張單沒有信箱,下一輪、下下輪都一樣。
+   *   ⇒ ✅ 所以 Sean 的「有一封就叫」套在**這一格**上不會變噪音:
+   *      **叫一次就是一件真的待辦。**
+   * ⚠️ **而 `errors` 那一桶【不在這裡】** —— 它會自己好(下一輪重撈)
+   *   ⇒ 要叫它需要跨輪狀態,**本片沒有**。那是具名的已知缺口,不是被忽略的。
+   */
+  orderCreatedNoRecipientCount: number | null;
+  /**
+   * 🔴 上面兩個是不是**讀不到**(RPC 尚未 apply / `B4_DEPLOY_CUTOFF` 沒設或格式不合)。
+   * ⚠️ 與 `shippedGapUnknown` / `emailOutboxUnknown` 同族:**刻意【不】進 `shouldAlert`**
+   *   —— 部署問題走部署管道,不變成一封每天寄的信。
+   * 🛑 **而它【不得】被寫成 0** —— 「讀不到」與「一切正常」在一個裸數字上長得一模一樣,
+   *   那正是訊號 4 這一片要治的病本身。
+   */
+  orderCreatedGapUnknown: boolean;
+  /**
+   * 🔴🔴 **訊號4 的【持續失敗】那一格(板 `⟦b4-SIG4ERRORS⟧`)**。
+   *   已付款、過了起始線, 而 `order_created` 那一列**超過門檻分鐘還沒被建出來**。
+   * 🛑 **它與 `orderCreatedPaidNoEmailCount` 差在【年齡】, 而那個差別就是它能不能當判準**:
+   *   那一個 > 0 是正常的(新訂單進來就會被數到一次, 下一輪就沒了)⇒ 拿它當判準 = 有生意就叫;
+   *   **這一個 > 0 不正常** —— 因為正常的單活不過一輪(scanner 每 5 分鐘就把它排進去)。
+   * ✅ **所以它【要進 `shouldAlert`】** —— 與上面那一個相反。
+   * ⚠️ 已排除【兩個信箱都空】那一群(它們走 `orderCreatedNoRecipientCount`)⇒ 不重複叫。
+   * 🛑 `null` = **沒查**(門檻 env 沒設 / 起始線沒設 / RPC 還沒 apply)⇒ **不是 0**。
+   */
+  orderCreatedStuckCount: number | null;
+  /**
+   * 🔵 最舊那一筆卡了幾分鐘 —— 一個裸的筆數寫不出信裡那句「卡多久了」。
+   * 🛑 **沒有卡住時是 `null` 不是 `0`** ——「沒有卡住」與「卡了 0 分鐘」是兩件事。
+   */
+  orderCreatedStuckOldestMinutes: number | null;
+  /**
+   * 🔴🔴 **上面兩格是不是【讀不到】**(RPC 尚未 apply / 它自己 RAISE)。
+   * 🛑 **它必須有出口** —— 與 `orderCreatedGapUnknown` / `shippedGapUnknown` / `cronHeartbeatUnknown` 同構:
+   *   adapter 那道 fail-closed(降級成 unknown 而不是 0)**如果下游不消費, 就在下游被拆掉了**。
+   * ⛔ 而那正是本片要治的病本身:**一個讀不到的量具, 與一個健康的系統, 印同一個 0。**
+   * 📌 route 那一支的檔頭逐字記著「我在同一支檔裡重犯了一次」—— 這是第三次, 而它被 code-reviewer 抓到。
+   */
+  orderCreatedStuckUnknown: boolean;
+  /**
+   * 🔴🔴 **排程心跳:六支 cron 裡有幾支不正常**(板 `⟦b4-SWEEPDEAD1⟧` 片3;Sean `q4: 甲`)。
+   *   判準由 `@pcm/domain` 的 `CRON_JOB_WHITELIST` 傳進 DB 函式 ——
+   *   **DB 那一側不知道任何門檻**,那是刻意的(兩份門檻會漂,而漂開時兩邊都不會紅)。
+   * 🔵 判準與後台儀表板逐格相同:過期 / 時間戳在未來 / 連續失敗(該支的失敗計數有意義時)/
+   *   心跳表根本沒有那一列 / 有那一列而 `last_success_at` 是 NULL。
+   */
+  cronHeartbeatAbnormalCount: number | null;
+  /**
+   * 🔴 **哪幾支** —— 一個裸數字寫不出信裡那句「哪一支死了」。
+   *   ⇒ 告警信要說得出名字,否則收到信的人還得自己去後台找。
+   * ⚠️ 同一支 job 可能因為多個理由不正常,而這裡**每支只出現一次**。
+   */
+  cronHeartbeatAbnormalJobs: readonly string[] | null;
+  /**
+   * 🔴 上面兩個是不是**讀不到**(RPC 尚未 apply / 白名單是空的)。
+   * ⚠️ 與 `orderCreatedGapUnknown` 同族:**刻意【不】進 `shouldAlert`** ——
+   *   部署問題走部署管道,不變成一封每天寄的信。
+   * 🛑 **而它【不得】被寫成 0** —— 「讀不到」與「六支都健康」在一個裸數字上長得一模一樣。
+   */
+  cronHeartbeatUnknown: boolean;
+  /**
    * 🔴 上面五個是不是**讀不到**。
    * ⚠️ **它只代表【函式不存在】(部署窗口),不代表權限問題**(codex 2026-08-29 nit:
    *    原句寫「RPC 尚未 apply / 權限問題」是錯的)—— `42501` 在 adapter 是**原封上拋**,

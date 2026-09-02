@@ -106,15 +106,57 @@ describe('registerAction(信任邊界 + #181 雙通道)', () => {
     const result = await registerAction(VALID);
     expect(result?.formError).toBe('此 Email 已註冊');
     expect(result?.fieldErrors).toBeUndefined();
+    // 🔵 2026-08-31 `-15` 加:真的錯【不得】走 notice 通道 —— 這是新通道的反向對照,
+    //    沒有它的話「把所有東西都改成 formNotice」也會讓下面那一格綠。
+    expect(result?.formNotice).toBeUndefined();
     expect(redirectSpy).not.toHaveBeenCalled();
   });
 
-  it('needsEmailConfirmation=true(Confirm email 重開)→ formError 提示、不 redirect', async () => {
+  // ══ 🔴 ⟦性別 B-2b⟧ 收工判準不是「表單上有那個下拉」,是【真的送得出去】 ══════════
+  //    這兩格斷言的是 signUp 收到的 **metadata**(= 會進 auth.users.raw_user_meta_data
+  //    ⇒ 由 trigger 搬進 customers.gender 的那一份)。
+  //    ⚠️ 射程:它們證的是【我方送出去的東西】。**它們證不到 trigger 真的搬了** ——
+  //       那一半的證據在拋棄式 PG（migration 20260831150000 那幾發),不在這裡。兩個宣稱。
+  it('⟦B-2b⟧ 選了性別 → signUp 收到的 metadata.gender = 送出去的【代碼】', async () => {
+    const result = await registerAction({ ...VALID, gender: 'female' });
+    expect(signUpSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ metadata: expect.objectContaining({ gender: 'female' }) }),
+    );
+    expect(result?.fieldErrors).toBeUndefined();
+  });
+
+  it('⟦B-2b⟧ 【不選】性別 → 照樣送得出去,而 metadata.gender 是 undefined(選填就是這樣成立的)', async () => {
+    const result = await registerAction(VALID); // VALID 不含 gender
+    expect(signUpSpy).toHaveBeenCalledTimes(1);
+    // 🔵 用 objectContaining 而不是 mock.calls[0][0].… —— 後者 TS 判它可能 undefined(TS2532),
+    //    而 typecheck 抓到了它, 測試沒有。**測試綠與 typecheck 綠是兩件事。**
+    expect(signUpSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ metadata: expect.not.objectContaining({ gender: expect.anything() }) }),
+    );
+    // 🔴 而它【不得】變成一個逐欄錯 —— 選填欄位擋住註冊是本片最該防的失敗。
+    expect(result?.fieldErrors).toBeUndefined();
+    expect(result?.formError).toBeUndefined();
+  });
+
+  it('⟦B-2b·對照⟧ 送一個【值域外】的性別 → 逐欄錯,而且 signUp 一次都沒被呼叫', async () => {
+    const result = await registerAction({ ...VALID, gender: '女' }); // 中文顯示字面不是代碼
+    expect(result?.fieldErrors?.gender).toBeDefined();
+    expect(signUpSpy).not.toHaveBeenCalled();
+  });
+
+  // 🔵 2026-08-31 `-15`:這一格從 formError 改判 formNotice。
+  //    ⚠️ 舊斷言 `result?.formError).toContain('Email 驗證')` 會【繼續通過】如果我只加新通道
+  //    而沒改舊斷言 —— 所以這裡把「它【不】在錯誤通道」也釘死,否則這一片等於沒做。
+  it('needsEmailConfirmation=true(Confirm email 重開)→ formNotice(非錯誤通道)、不 redirect', async () => {
     signUpSpy.mockResolvedValue({ userId: 'u1', email: VALID.email, needsEmailConfirmation: true });
     const result = await registerAction(VALID);
-    expect(result?.formError).toContain('Email 驗證');
+    expect(result?.formNotice).toContain('Email 驗證');
+    // 🔴 這一行才是本片的重點:成功訊息**不得**走錯誤通道(它會被 .auth-err 紅底呈現 +
+    //    被 clearErr 一按鍵清掉 ⇒ 客人重送 ⇒ 「此 Email 已註冊」⇒ 以為註冊失敗)。
+    expect(result?.formError).toBeUndefined();
     expect(redirectSpy).not.toHaveBeenCalled();
   });
+
 });
 
 // ── 🔴 `#858` 片0-a(codex R1 MF4):合成信箱網域**不得走到 signUp** ──────────────

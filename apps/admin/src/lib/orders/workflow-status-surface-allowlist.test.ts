@@ -121,13 +121,28 @@ describe('🔴 workflow_status 面的 allowlist —— 量具自檢(排在目標
   //    這一版**真的寫一支暫存檔進來**:它是未追蹤的,`git grep` 看不到它、而 `collectSources` 要看得到。
   //    ⚠️ 內容**刻意不含那兩條軸** ⇒ 萬一 `finally` 沒跑到、殘留一支檔,也不會誤觸目標斷言。
   it('🔴 走目錄真的看得到【未追蹤】的新檔(這是不用 git grep 的理由)', () => {
-    const dir = join(ADMIN_SRC, 'lib', 'orders', '__tmp_allowlist_probe__');
+    // 🔴 **目錄名帶 pid**(2026-08-31)——⛔ ~~`__tmp_allowlist_probe__`(固定路徑)~~。
+    //    成因:八個窗共用一棵工作樹, 而每個窗都會跑全套件
+    //    ⇒ **兩份這支測試同時在跑** ⇒ A 的 `finally rmSync` 會刪掉 B 正在用的那支檔
+    //    ⇒ B 的 `expect(seen.some(...))` 紅, 而**紅的是一個沒有壞掉的東西**。
+    //    🔵 這與 `page-measure.test.tsx` 的 `OUT_DIR` 是【逐字相同】的修法(`af0110b4`)。
+    // 🛑 **而這一格【不解】另一個病, 不要讀成它解了**:
+    //    這支測試在【被別人掃描的那棵樹裡面】建檔又刪檔 ⇒ 任何同時在跑的
+    //    `readdir → readFile` 掃描型守門仍會撞進那個窗口(2026-08-31 實錘:
+    //    `markdown-in-jsx-text.test.ts` 因此 ENOENT 炸掉, 而它不是斷言紅、是工具自己死)。
+    //    ⇒ **換個名字不會關掉那個窗口, 它是結構性的** ⇒ 那一族由掃描端容忍 ENOENT 解。
+    const dir = join(ADMIN_SRC, 'lib', 'orders', `__tmp_allowlist_probe_${process.pid}__`);
     const file = join(dir, 'probe.tsx');
     try {
       mkdirSync(dir, { recursive: true });
       writeFileSync(file, 'export const ZZZ_PROBE = 1;\n', 'utf8');
       const seen = collectSources(ADMIN_SRC);
-      expect(seen.some((s) => s.rel.endsWith('__tmp_allowlist_probe__/probe.tsx'))).toBe(true);
+      expect(
+        seen.some((s) => s.rel.endsWith(`__tmp_allowlist_probe_${process.pid}__/probe.tsx`)),
+      ).toBe(true);
+      // 🔴 **pid 真的進去了**:少了這一格, 有人把樣板字串改回固定字面, 上面那格照樣綠
+      //    (它自己也用同一個變數 ⇒ 兩邊一起錯就一起對)⇒ 這裡對【路徑本身】斷言。
+      expect({ 目錄名帶pid: dir.includes(`_${process.pid}__`) }).toEqual({ 目錄名帶pid: true });
       expect(seen.length).toBe(SOURCES.length + 1);
     } finally {
       rmSync(dir, { recursive: true, force: true });

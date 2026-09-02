@@ -263,6 +263,11 @@
 > **怎麼看的**:`sh scripts/pagecount.sh --png <那份> /tmp/pcm-print-measure/shots-12`
 > ⇒ `p1.png` / `p2.png` / `p3.png`,**三張我都開來看過**(不是只數頁數)。
 >
+> ⚠️ **[2026-09-01 註 —— 上面兩行是【當時的量測紀錄】, 字面刻意不改]**:
+> 產物目錄從那時起改成**每次執行各自一個**(`pcm-print-measure-<pid>`)
+> ⇒ **照上面的路徑重跑會找不到檔**。要重量的話:跑那支測試, 拿它印出來的「產物目錄:」那一行。
+> 📌 **紀錄與指令是兩種東西** —— 紀錄要保留當時的樣子, 而指令要能今天照著跑。
+>
 > ```text
 > p1  抬頭七值 + 訂單編號 + 箱號 + 品項表 7 列  頁尾「第 1 頁 / 共 3 頁」  無簽名
 > p2  欄名整排重複 ✅                          頁尾「第 2 頁 / 共 3 頁」  無簽名
@@ -425,7 +430,12 @@ logo 12mm ⇒ 字級 0.90    ⇒ 三個一模一樣
 1  產出正式頁的靜態 HTML（要先 build，它讀建置產物的 CSS）
    TURBO_FORCE=1 pnpm build
    npx vitest run apps/admin/src/app/print/orders/[id]/shipping/[shipmentId]/page-measure.test.tsx
-   ⇒ /tmp/pcm-print-measure/shipping-1item.html
+   ⇒ ~~/tmp/pcm-print-measure/shipping-1item.html~~
+   ⇒ 🔵 **2026-09-01 起產物目錄每次執行不同**(`pcm-print-measure-<pid>`)——
+     測試輸出裡有一行「產物目錄:」, 拿那個路徑 + `/shipping-1item.html`。
+     📌 這裡刻意不寫死一個新路徑:**寫死的那個下一次就過期**。
+     🔵 後路(不依賴輸出):`ls -dt /tmp/pcm-print-measure-* | head -1` 拿最新那個;
+        ⚠️ **不要拿 `/tmp/pcm-print-measure`(沒有 -pid 的舊目錄)** —— 那是舊殘骸。
 2  只在 </head> 前多注入一段 <style>，其餘 byte 不動：
    python3 -c "import io,sys; s=io.open(sys.argv[1],encoding='utf-8').read(); \
    io.open(sys.argv[3],'w',encoding='utf-8').write(s.replace('</head>','<style>'+sys.argv[2]+'</style></head>',1))" \

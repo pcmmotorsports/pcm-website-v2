@@ -34,6 +34,15 @@ export type AuthSignUpParams = AuthCredentials & {
   metadata: {
     name: string;
     phone: string;
+    /**
+     * 性別代碼(選填,2026-08-31 片 B-2b)。值域 `male` / `female` / `undisclosed`
+     * —— 型別與顯示表在 `@pcm/schemas` 的 `GENDER_CODES` / `GENDER_LABEL`(唯一真相)。
+     * 🔴 **這裡刻意用 `string` 不用那個 union**:domain 不該 import schemas
+     * (依賴方向相反),而值域的守門在【DB 那一側】—— `handle_new_auth_user()` 的
+     * CASE 白名單會把不認得的值收成 NULL,不讓它炸掉註冊。
+     * 🔵 `undefined` = 沒選 ⇒ 這個 key 不進 `options.data` ⇒ DB 收 NULL。
+     */
+    gender?: string;
   };
 };
 

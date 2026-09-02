@@ -22,8 +22,8 @@
 |---|---|---|---|
 | `admin_add_shipment_items` | **4** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:119<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:631<br>20260807180000_m4b_e10_b2_w3b2_add_shipment_items.sql:83<br>20260807230000_m4b_e10_b2_w4b_impl_extract_and_no_batch.sql:294 | `20260807230000_m4b_e10_b2_w4b_impl_extract_and_no_batch.sql:294` |
 | `admin_cancel_order` | **4** | 20260804180000_m4b_e10_a8a1_admin_cancel_order.sql:83<br>20260805100000_m4b_e10_a8a2_partial_cancel.sql:80<br>20260820030000_m4b_e10_a8a3_cancel_gate_noncard.sql:253<br>20260830020000_m4b_e10_cancel_reason_neutral.sql:115 | `20260830020000_m4b_e10_cancel_reason_neutral.sql:115` |
-| `admin_compute_order_settlement` | **2** | 20260811030000_m4b_e10_op6a_compute_order_settlement.sql:50<br>20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356 | `20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356` |
-| `admin_create_manual_order` | **2** | 20260824020000_m4b_858_admin_create_manual_order.sql:186<br>20260829140000_m4b_b2c_manual_order_explicit_tax_total.sql:97 | `20260829140000_m4b_b2c_manual_order_explicit_tax_total.sql:97` |
+| `admin_compute_order_settlement` | **3** | 20260811030000_m4b_e10_op6a_compute_order_settlement.sql:50<br>20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356<br>20260901030000_m4b_zero_total_settle.sql:1646 | `20260901030000_m4b_zero_total_settle.sql:1646` |
+| `admin_create_manual_order` | **3** | 20260824020000_m4b_858_admin_create_manual_order.sql:186<br>20260829140000_m4b_b2c_manual_order_explicit_tax_total.sql:97<br>20260831180000_m4b_spec1_manual_order_authoritative_spec.sql:100 | `20260831180000_m4b_spec1_manual_order_authoritative_spec.sql:100` |
 | `admin_create_saved_order_view` | **2** | 20260828080000_m4b_b4views1_saved_order_views.sql:301<br>20260828090000_m4b_b4views1a_request_id_gate.sql:52 | `20260828090000_m4b_b4views1a_request_id_gate.sql:52` |
 | `admin_create_shipment` | **3** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:96<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:599<br>20260807170000_m4b_e10_b2_w3a_create_shipment.sql:83 | `20260807170000_m4b_e10_b2_w3a_create_shipment.sql:83` |
 | `admin_delete_saved_order_view` | **2** | 20260828080000_m4b_b4views1_saved_order_views.sql:509<br>20260828090000_m4b_b4views1a_request_id_gate.sql:371 | `20260828090000_m4b_b4views1a_request_id_gate.sql:371` |
@@ -47,11 +47,15 @@
 | `claim_stuck_unsettled_attempts` | **4** | 20260615120001_m3_3ds_4a2_attempt_sweeper_rpc.sql:116<br>20260624120008_m3_3ds_r1c1_sweeper_released_policy.sql:80<br>20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:206<br>20260811060000_m4b_lifecycle_l5b2_2a_claim_returns_superseded_at.sql:117 | `20260811060000_m4b_lifecycle_l5b2_2a_claim_returns_superseded_at.sql:117` |
 | `close_released_attempt` | **2** | 20260624120010_m3_3ds_r1c3_close_released_attempt.sql:62<br>20260812160000_m4b_lifecycle_l5b2_2e_close_advisory.sql:169 | `20260812160000_m4b_lifecycle_l5b2_2e_close_advisory.sql:169` |
 | `confirm_order_payment` | **4** | 20260611120000_m3_s2c_confirm_payment_rpc.sql:117<br>20260804150000_m4b_e10_a8c2_confirm_cancel_guard.sql:52<br>20260810160000_m4b_e10_op3_confirm_card_leg.sql:362<br>20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:328 | `20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:328` |
-| `create_order` | **9** | 20260604130000_m3_s2b1_create_order_rpc.sql:47<br>20260613130000_m3_3ds_0b_cart_session_dedup.sql:107<br>20260614130000_m3_create_order_stock_snapshot.sql:49<br>20260630120000_m3_241_checkout_consent.sql:75<br>20260716190000_m4a_v3a_create_order_vehicle_whitelist.sql:34<br>20260716200000_m4a_v3a_create_order_vehicle_type_guard.sql:34<br>20260719120000_m4a_b2_create_order_notification_email.sql:224<br>20260730120100_m4b_e10_n3b_create_order_new_display_id.sql:181<br>20260825130000_m4b_zero_price_checkout_and_cart_total_gate.sql:101 | `20260825130000_m4b_zero_price_checkout_and_cart_total_gate.sql:101` |
+| `coupon_redeem_on_paid` | **2** | 20260901021000_m4b_coupon_p3b_create_order_redeem.sql:946<br>20260901030000_m4b_zero_total_settle.sql:984 | `20260901030000_m4b_zero_total_settle.sql:984` |
+| `create_order` | **12** | 20260604130000_m3_s2b1_create_order_rpc.sql:47<br>20260613130000_m3_3ds_0b_cart_session_dedup.sql:107<br>20260614130000_m3_create_order_stock_snapshot.sql:49<br>20260630120000_m3_241_checkout_consent.sql:75<br>20260716190000_m4a_v3a_create_order_vehicle_whitelist.sql:34<br>20260716200000_m4a_v3a_create_order_vehicle_type_guard.sql:34<br>20260719120000_m4a_b2_create_order_notification_email.sql:224<br>20260730120100_m4b_e10_n3b_create_order_new_display_id.sql:181<br>20260825130000_m4b_zero_price_checkout_and_cart_total_gate.sql:101<br>20260901003000_m4b_coupon_p3_create_order_discount_param.sql:158<br>20260901021000_m4b_coupon_p3b_create_order_redeem.sql:240<br>20260901030000_m4b_zero_total_settle.sql:239 | `20260901030000_m4b_zero_total_settle.sql:239` |
 | `expire_stuck_attempts_at_ceiling` | **2** | 20260615120001_m3_3ds_4a2_attempt_sweeper_rpc.sql:86<br>20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:412 | `20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:412` |
 | `find_active_sibling_own` | **2** | 20260624120001_m3_3ds_r1a2_find_active_sibling_own.sql:44<br>20260820020000_m4b_e10_a8a3g_cancel_guard_sibling_dedup.sql:306 | `20260820020000_m4b_e10_a8a3g_cancel_guard_sibling_dedup.sql:306` |
 | `get_active_charge_attempt` | **2** | 20260614120000_m3_3ds_1b_get_active_charge_attempt.sql:47<br>20260624120007_m3_3ds_r1b3_record_released_failure_observation.sql:135 | `20260624120007_m3_3ds_r1b3_record_released_failure_observation.sql:135` |
+| `get_order_created_gap_counts` | **2** | 20260831030000_m4b_e4_order_created_gap_counts.sql:38<br>20260901070000_m4b_e4_js_trim_ws_single_source.sql:76 | `20260901070000_m4b_e4_js_trim_ws_single_source.sql:76` |
+| `get_order_created_stuck_count` | **2** | 20260901060000_m4b_e4_order_created_stuck_count.sql:39<br>20260901070000_m4b_e4_js_trim_ws_single_source.sql:167 | `20260901070000_m4b_e4_js_trim_ws_single_source.sql:167` |
 | `get_payment_anomaly_alert_summary` | **3** | 20260701120000_m3_250_anomaly_alert_summary.sql:42<br>20260701130000_m3_256_pending_double_charge_detection.sql:43<br>20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:316 | `20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:316` |
+| `handle_new_auth_user` | **2** | 20260523034911_init_customers_and_subtables.sql:278<br>20260831150000_m4b_handle_new_auth_user_gender.sql:175 | `20260831150000_m4b_handle_new_auth_user_gender.sql:175` |
 | `mark_attempt_settle_retry` | **5** | 20260615120001_m3_3ds_4a2_attempt_sweeper_rpc.sql:192<br>20260624120008_m3_3ds_r1c1_sweeper_released_policy.sql:126<br>20260702120000_m3_251_retry_reason_allowlist_released_failure_observed.sql:50<br>20260809140000_m4b_lifecycle_l2_retry_reason_record_not_found.sql:89<br>20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:261 | `20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:261` |
 | `mark_charge_attempt_charged_fallback` | **2** | 20260612150000_m3_s2d_charge_attempts.sql:351<br>20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:241 | `20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:241` |
 | `mark_charge_attempt_charged` | **3** | 20260612150000_m3_s2d_charge_attempts.sql:240<br>20260624120005_m3_3ds_r1b1c_markcharged_released_genesis.sql:64<br>20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:127 | `20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql:127` |
@@ -64,8 +68,11 @@
 | `pcm_b2_shipping_human_error` | **2** | 20260807190000_m4b_e10_b2_w3c3_mark_shipped.sql:71<br>20260808100000_m4b_e10_b2_w7d1_ship_deadlock_retry.sql:112 | `20260808100000_m4b_e10_b2_w7d1_ship_deadlock_retry.sql:112` |
 | `pcm_b2_shipping_idem_freeze_identity` | **2** | 20260807140000_m4b_e10_b2_w0b_shipping_idempotency.sql:153<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:463 | `20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:463` |
 | `pcm_b2_shipping_idem_require_complete` | **2** | 20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:531<br>20260809200000_m4b_e10_b2_w2_stub_verifies_artifact.sql:51 | `20260809200000_m4b_e10_b2_w2_stub_verifies_artifact.sql:51` |
+| `pcm_manual_refund_rail_cap_guard` | **3** | 20260824011000_m4b_866_manual_refund_rail_cap_enforce.sql:112<br>20260831010000_m4b_866_manual_refund_raise_plaintext.sql:66<br>20260902020000_m4b_pcm01_record_not_block.sql:94 | `20260902020000_m4b_pcm01_record_not_block.sql:94` |
+| `pcm_order_refund_cap_guard` | **3** | 20260830210000_m4b_445b_order_refund_cap.sql:190<br>20260902000000_m4b_capmsgnum_pcm04_detail.sql:29<br>20260902010000_m4b_pcm05split_order_not_found.sql:43 | `20260902010000_m4b_pcm05split_order_not_found.sql:43` |
 | `pcm_order_refund_status_transition` | **2** | 20260725130100_m3_rf2a2_order_refunds_ledger.sql:287<br>20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:201 | `20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:201` |
 | `pcm_order_refundable_remaining` | **5** | 20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:454<br>20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:394<br>20260814190000_m4b_e10_473b1_refund_manual_corrections.sql:403<br>20260820010000_m4b_manual_refunds.sql:213<br>20260820100000_m4b_e10_d3b_void_manual_refund.sql:224 | `20260820100000_m4b_e10_d3b_void_manual_refund.sql:224` |
+| `pcm_pending_refund_on_cancel` | **2** | 20260901080000_m4b_autorefund_pending_refunds.sql:367<br>20260902030000_m4b_crossrail_pending_refund_net.sql:237 | `20260902030000_m4b_crossrail_pending_refund_net.sql:237` |
 | `pcm_refund_ledger_block_truncate` | **2** | 20260725130100_m3_rf2a2_order_refunds_ledger.sql:253<br>20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:422 | `20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:422` |
 | `pcm_sync_order_refund_payment_status` | **2** | 20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql:127<br>20260823020000_m4b_refund_notify_p2a_record_calls_sync.sql:239 | `20260823020000_m4b_refund_notify_p2a_record_calls_sync.sql:239` |
 | `search_catalog_by_vehicle` | **7** | 20260712183000_products_catalog_page_public.sql:37<br>20260712193000_catalog_rpc_expose_fitments.sql:10<br>20260712213000_p4_catalog_rpc_split_generic_plan_replay.sql:8<br>20260719150000_catalog_product_image_trim.sql:73<br>20260811040000_m4b_storefront_269b_catalog_new_arrivals.sql:266<br>20260827150000_m4b_storefront_950_recommend_sort_mid_high_price.sql:84<br>20260827180000_m4b_storefront_new_arrivals_exclude_repair_parts.sql:38 | `20260827180000_m4b_storefront_new_arrivals_exclude_repair_parts.sql:38` |
@@ -232,6 +239,62 @@
 **允許集合(逐字)**
 
 `:237` FROM public.order_cancellations<br>`:258` IF (v_order.cancelled_at IS NOT NULL) <> (NOT EXISTS (<br>`:265` IF v_order.cancelled_at IS NULL THEN<br>`:290` JOIN public.order_cancellations c ON c.id = (g.after->>'cancellation_id')::uuid<br>`:327` IF (v_order.payment_status <> 'unpaid'::public.payment_status<br>`:328` AND NOT (v_order.payment_status = 'paid'::public.payment_status<br>`:334` WHERE pa.order_id = p_order_id AND pa.status <> 'failed') THEN<br>`:363` OR v_audit.before->>'payment_status' NOT IN ('unpaid', 'paid')<br>`:387` IF v_closed AND v_order.cancelled_at IS NULL THEN<br>`:395` IF v_order.cancelled_at IS NOT NULL THEN<br>`:403` OR EXISTS (SELECT 1 FROM public.order_cancellations c<br>`:424` IF (v_order.payment_status <> 'unpaid'::public.payment_status<br>`:425` AND NOT (v_order.payment_status = 'paid'::public.payment_status<br>`:431` WHERE a.order_id = p_order_id AND a.status <> 'failed') THEN<br>`:497` INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)<br>`:569` COMMENT ON COLUMN public.order_cancellations.reason_code IS
+
+### `(檔案層 DO block / 非函式內)`  ·  `20260901020000_m4b_coupon_p3b_order_coupon_id.sql`
+
+**改什麼狀態**
+
+`:183` '   全 repo 至少五處不同函式會 SET payment_status=''paid'', 只補一支會漏掉後台手動收款那條路。'
+
+**允許集合** — 🔴 **本函式體內零命中**(字面比對)⇒ 要嘛它沒有狀態閘、要嘛閘的寫法本腳本抓不到。**開檔確認,不要當成「沒有閘」。**
+
+### `coupon_redeem_on_paid`  ·  `20260901021000_m4b_coupon_p3b_create_order_redeem.sql`
+
+**改什麼狀態**
+
+`:1100` '🔴 為什麼是 trigger 不是改 confirm_order_payment:全 repo 有【至少五處不同函式】會 SET payment_status=''paid'' '
+
+**允許集合(逐字)**
+
+`:969` IF NEW.payment_status <> 'paid'::public.payment_status<br>`:970` OR OLD.payment_status <> 'unpaid'::public.payment_status THEN<br>`:1189` AND NEW.payment_status = 'paid'::public.payment_status<br>`:1190` AND OLD.payment_status = 'unpaid'::public.payment_status
+
+### `settle_zero_total_order`  ·  `20260901030000_m4b_zero_total_settle.sql`
+
+**改什麼狀態**
+
+`:1497` SET payment_status = 'paid'::public.payment_status,
+
+**允許集合(逐字)**
+
+`:1469` IF v_order.cancelled_at IS NOT NULL THEN<br>`:1481` IF v_order.payment_status = 'paid'::public.payment_status THEN<br>`:1485` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:1497` SET payment_status = 'paid'::public.payment_status,<br>`:1502` AND payment_status = 'unpaid'::public.payment_status;
+
+### `coupon_redeem_on_paid`  ·  `20260901030000_m4b_zero_total_settle.sql`
+
+**改什麼狀態**
+
+`:1160` '🔴 為什麼是 trigger 不是改 confirm_order_payment:全 repo 有【至少五處不同函式】會 SET payment_status=''paid'' '
+
+**允許集合(逐字)**
+
+`:1007` IF NEW.payment_status <> 'paid'::public.payment_status<br>`:1008` OR OLD.payment_status <> 'unpaid'::public.payment_status THEN<br>`:1254` AND NEW.payment_status = 'paid'::public.payment_status<br>`:1255` AND OLD.payment_status = 'unpaid'::public.payment_status
+
+### `(檔案層 DO block / 非函式內)`  ·  `20260901050000_m4b_841_orders_payment_status_comment.sql`
+
+**改什麼狀態**
+
+`:57` ⇒ 要現值自己跑:grep -rn "SET payment_status" --include='*.sql' --include='*.ts'
+
+**允許集合** — 🔴 **本函式體內零命中**(字面比對)⇒ 要嘛它沒有狀態閘、要嘛閘的寫法本腳本抓不到。**開檔確認,不要當成「沒有閘」。**
+
+### `pcm_pending_refund_on_cancel`  ·  `20260901080000_m4b_autorefund_pending_refunds.sql`
+
+**改什麼狀態**
+
+`:459` '寫 SET cancelled_at(含 pg_cron 的逾期批次 UPDATE, 而那條路不建 order_cancellations)。'<br>`:473` '20260809160000:100-101 是一段 in-tree 的資料回滾指令(SET cancelled_at = NULL WHERE cancelled_reason=payment_expired), '
+
+**允許集合(逐字)**
+
+`:379` IF OLD.cancelled_at IS NOT NULL OR NEW.cancelled_at IS NULL THEN<br>`:403` FROM public.order_cancellations c<br>`:409` FROM public.order_cancellations c<br>`:459` '寫 SET cancelled_at(含 pg_cron 的逾期批次 UPDATE, 而那條路不建 order_cancellations)。'<br>`:466` 'admin_cancel_order 最新代(20260830020000)是先 INSERT order_cancellations(:497)才 UPDATE cancelled_at(:533)。'
 
 ---
 

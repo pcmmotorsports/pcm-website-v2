@@ -37,7 +37,19 @@ afterEach(() => {
   if (typeof window !== 'undefined') window.localStorage.clear();
 });
 
-// 帶變體的 fixture(weave × finish、價隨 weave 變;對齊 RPM 真資料 shape)
+/**
+ * 帶變體的 fixture(weave × finish、價隨 weave 變;對齊 RPM 真資料 shape)
+ *
+ * 🔴 **2026-09-01:本檔 16 處 `renderInfo(MOCK_PRODUCTS[0]!)` 全部改用它**(板 `⟦b4-NOVARIANT1⟧`)。
+ *    成因:Sean 2026-08-31 拍「一件**沒有規格**的商品不賣」⇒ PDP 的加入購物車對它會擋下
+ *    ⇒ 而 `MOCK_PRODUCTS[0]` **沒有 variants** ⇒ 那 16 格裡有 9 格因此紅。
+ * 🔵 **而它們紅【不是因為它們在測「無變體」】** —— 它們測的是 qty / 車型帶入 / 上限 / 回饋計時器,
+ *    用無變體商品只是「點一下就加進去」最短的路。
+ * ✅ **證據**:16 處全改之後 **40 格全綠, 沒有一格因此紅**
+ *    ⇒ 📌 若其中有任何一格真的在測「無變體」, 它會在這一改之後變紅 —— 而沒有。
+ * ⚠️ 而**卡片那一側不同**(`product-card-quick-add.test.tsx`):那裡有 10 格是 `it.skip`,
+ *    因為卡片直加那條路**整條不可達**, 不是 fixture 的問題。**同樣的表面現象, 兩種意義。**
+ */
 const variantProduct: MockProduct = {
   ...MOCK_PRODUCTS[0]!,
   price: 8400,
@@ -331,7 +343,7 @@ describe('ProductInfo — V-2a 路徑1(搜尋情境自動帶入車款)', () => {
       CTX_KEY,
       JSON.stringify({ brandId: 'yamaha', modelId: 'mt-09-sp', year: 2021, label: 'Yamaha MT-09 SP 2021', brandName: 'Yamaha', modelName: 'MT-09 SP', savedAt: 1 }),
     );
-    renderInfo(MOCK_PRODUCTS[0]!);
+    renderInfo(variantProduct);
     fireEvent.click(screen.getByRole('button', { name: '加入購物車' }));
     const items = JSON.parse(window.localStorage.getItem(CART_KEY)!);
     expect(items[0].vehicle).toEqual({ kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', year: 2021, source: 'search' });
@@ -342,7 +354,7 @@ describe('ProductInfo — V-2a 路徑1(搜尋情境自動帶入車款)', () => {
       CTX_KEY,
       JSON.stringify({ brandId: 'yamaha', modelId: 'mt-09-sp', label: 'Yamaha MT-09 SP', savedAt: 1 }),
     );
-    renderInfo(MOCK_PRODUCTS[0]!);
+    renderInfo(variantProduct);
     fireEvent.click(screen.getByRole('button', { name: '加入購物車' }));
     const items = JSON.parse(window.localStorage.getItem(CART_KEY)!);
     expect(items[0].vehicle).toBeUndefined();
@@ -352,7 +364,7 @@ describe('ProductInfo — V-2a 路徑1(搜尋情境自動帶入車款)', () => {
 // W11-019 B1/B2:數量改可鍵盤輸入 + 修既有無上限 bug(+ 按到 107、加購後靜默變 99)。
 describe('ProductInfo — 數量輸入框(W11-019 B1/B2)', () => {
   it('打 0 失焦 → 回復成 1(§5 row1)', () => {
-    renderInfo(MOCK_PRODUCTS[0]!);
+    renderInfo(variantProduct);
     const input = screen.getByRole('textbox', { name: '數量' });
     fireEvent.change(input, { target: { value: '0' } });
     fireEvent.blur(input);
@@ -360,14 +372,14 @@ describe('ProductInfo — 數量輸入框(W11-019 B1/B2)', () => {
   });
 
   it('輸入非數字字元 → 被過濾掉、不會進到輸入框(§5 row2)', () => {
-    renderInfo(MOCK_PRODUCTS[0]!);
+    renderInfo(variantProduct);
     const input = screen.getByRole('textbox', { name: '數量' });
     fireEvent.change(input, { target: { value: '1a2.5-3' } });
     expect((input as HTMLInputElement).value).toBe('1253'); // 非數字字元(a/./-)被濾掉,數字字元原序保留
   });
 
   it('打 >99 失焦 → 夾到 99 並顯示提示(§5 row3,對照 B2 既有 bug:不再靜默夾)', () => {
-    renderInfo(MOCK_PRODUCTS[0]!);
+    renderInfo(variantProduct);
     const input = screen.getByRole('textbox', { name: '數量' });
     fireEvent.change(input, { target: { value: '500' } });
     fireEvent.blur(input);
@@ -376,7 +388,7 @@ describe('ProductInfo — 數量輸入框(W11-019 B1/B2)', () => {
   });
 
   it('B2 修復:連按「+」超過 99 次也夾在 99,不再無上限累加(對照舊值可到 107)', () => {
-    renderInfo(MOCK_PRODUCTS[0]!);
+    renderInfo(variantProduct);
     const plus = screen.getByRole('button', { name: '增加數量' });
     for (let i = 0; i < 105; i += 1) fireEvent.click(plus);
     const input = screen.getByRole('textbox', { name: '數量' }) as HTMLInputElement;
@@ -384,7 +396,7 @@ describe('ProductInfo — 數量輸入框(W11-019 B1/B2)', () => {
   });
 
   it('加入購物車帶的 qty 就是輸入框確定後的值(不是打到一半的暫存文字)', () => {
-    renderInfo(MOCK_PRODUCTS[0]!);
+    renderInfo(variantProduct);
     const input = screen.getByRole('textbox', { name: '數量' });
     fireEvent.change(input, { target: { value: '5' } });
     fireEvent.blur(input);
@@ -406,18 +418,18 @@ describe('ProductInfo — A3 加入購物車回饋', () => {
   const NOTICE = /已加入購物車 · 車上共/;
 
   it('按之前不出字(它是回饋,不是裝飾)', () => {
-    renderInfo(MOCK_PRODUCTS[0]!);
+    renderInfo(variantProduct);
     expect(screen.queryByText(NOTICE)).toBeNull();
   });
 
   it('按一下 ⇒ 出「已加入購物車 · 車上共 1 件」', () => {
-    renderInfo(MOCK_PRODUCTS[0]!);
+    renderInfo(variantProduct);
     fireEvent.click(screen.getByRole('button', { name: '加入購物車' }));
     expect(screen.getByText('已加入購物車 · 車上共 1 件')).toBeDefined();
   });
 
   it('再按一下 ⇒ 數字從 1 變 2(畫面會動 = 他不會再盲按)', () => {
-    renderInfo(MOCK_PRODUCTS[0]!);
+    renderInfo(variantProduct);
     const btn = screen.getByRole('button', { name: '加入購物車' });
     fireEvent.click(btn);
     fireEvent.click(btn);
@@ -460,7 +472,7 @@ describe('ProductInfo — A5 加購被上限夾掉要明說', () => {
   }
 
   it('車裡 90 再加 20 ⇒ 明說「少加了 11 件」', () => {
-    renderInfo(MOCK_PRODUCTS[0]!);
+    renderInfo(variantProduct);
     addQty(90);
     addQty(20);
     expect(screen.getByText('已達購買上限 99,這次少加了 11 件')).toBeDefined();
@@ -472,7 +484,7 @@ describe('ProductInfo — A5 加購被上限夾掉要明說', () => {
   //   ⚠️ 而**這一格在修之前是不存在的** —— 39 格全綠,沒有任何一格抓得到它。
   const ADDED_RE = /已加入購物車 · 車上共/;
   it('🔴 車上已滿 99 再加 ⇒ **不准**說「已加入」(一件都沒進去)', () => {
-    renderInfo(MOCK_PRODUCTS[0]!);
+    renderInfo(variantProduct);
     addQty(99);
     expect(screen.getByText(ADDED_RE)).toBeDefined(); // 這一發是真的加進去了 ⇒ 該說
     addQty(5); // 車上已 99 ⇒ 全部被夾掉 ⇒ 零件進車
@@ -481,7 +493,7 @@ describe('ProductInfo — A5 加購被上限夾掉要明說', () => {
   });
 
   it('負對照:沒滿就加(1 + 5)⇒ **不准**出任何上限提示', () => {
-    renderInfo(MOCK_PRODUCTS[0]!);
+    renderInfo(variantProduct);
     addQty(1);
     addQty(5);
     expect(screen.queryByText(/購買上限/)).toBeNull();
@@ -492,7 +504,7 @@ describe('ProductInfo — A5 加購被上限夾掉要明說', () => {
   it('常駐:出現之後【不會自己消失】(逾時 3 秒後仍在)', () => {
     vi.useFakeTimers();
     try {
-      renderInfo(MOCK_PRODUCTS[0]!);
+      renderInfo(variantProduct);
       addQty(99);
       addQty(1);
       expect(screen.getByText('已達購買上限 99,這次少加了 1 件')).toBeDefined();
@@ -516,7 +528,7 @@ describe('ProductInfo — A5 加購被上限夾掉要明說', () => {
   it('🔴 打字超過上限那句【沒有被順手改成常駐】—— Sean 沒有被問到那一句', () => {
     vi.useFakeTimers();
     try {
-      renderInfo(MOCK_PRODUCTS[0]!);
+      renderInfo(variantProduct);
       const input = screen.getByRole('textbox', { name: '數量' });
       fireEvent.change(input, { target: { value: '500' } });
       fireEvent.blur(input);
@@ -530,7 +542,7 @@ describe('ProductInfo — A5 加購被上限夾掉要明說', () => {
   });
 
   it('已經 99 再加 1 ⇒ 說「少加了 1 件」(而不是靜靜地什麼都沒發生)', () => {
-    renderInfo(MOCK_PRODUCTS[0]!);
+    renderInfo(variantProduct);
     addQty(99);
     addQty(1);
     expect(screen.getByText('已達購買上限 99,這次少加了 1 件')).toBeDefined();

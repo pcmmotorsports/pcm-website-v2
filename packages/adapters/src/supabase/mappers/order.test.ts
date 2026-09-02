@@ -85,6 +85,47 @@ describe('mapPlaceOrderToCreateOrderArgs', () => {
     expect(args.p_notification_email).toBe('real@example.com');
   });
 
+  it('🔴 券片3:沒帶券碼時【不送】p_coupon_code —— 那是上線順序的安全帶', () => {
+    // 🛑 上線順序是【先 DB 後 TS】, 而在 20260901003000 還沒 apply 的窗口裡,
+    //    多送一個參數會讓 RPC **整個打不中**(參數列不匹配)。
+    //    ⇒ 沒有券的結帳不送這個鍵 ⇒ 那條路在窗口期完全不受影響。
+    const args = mapPlaceOrderToCreateOrderArgs(input());
+    expect(Object.prototype.hasOwnProperty.call(args, 'p_coupon_code')).toBe(false);
+  });
+
+  it('🔴 券片3:有券碼時原樣送出(而且 trim)', () => {
+    const some: PlaceOrderInput = { ...input(), couponCode: '  PCM100  ' };
+    expect(mapPlaceOrderToCreateOrderArgs(some).p_coupon_code).toBe('PCM100');
+  });
+
+  it('🔴🔴 券片3:mapper【送不出金額】—— 那個洞的形狀不可以回來', () => {
+    // ⛔ 原本這裡送的是 `p_discount_total`(一個算好的金額)⇒ 而 create_order 是
+    //    SECURITY DEFINER + GRANT TO authenticated + PostgREST 自動暴露
+    //    ⇒ 任何登入的客人可以自己填那個金額。**codex 抓到, 正式庫實測過。**
+    // 📌 這一格守的不是「現在沒有那個鍵」, 是【它不可以回來】。
+    const withMoney = { ...input(), discountTotal: 999 } as unknown as PlaceOrderInput;
+    const args = mapPlaceOrderToCreateOrderArgs(withMoney);
+    expect(Object.prototype.hasOwnProperty.call(args, 'p_discount_total')).toBe(false);
+    expect(JSON.stringify(args)).not.toContain('999');
+  });
+
+  it('🟢 券片3 負對照:空字串 / 空白 / 非字串 都不送(證明上面不是恆真)', () => {
+    for (const bad of ['', '   ', 123, null, undefined]) {
+      const o = { ...input(), couponCode: bad } as unknown as PlaceOrderInput;
+      expect(
+        Object.prototype.hasOwnProperty.call(mapPlaceOrderToCreateOrderArgs(o), 'p_coupon_code'),
+        `couponCode=${JSON.stringify(bad)} 不該送出那個鍵`,
+      ).toBe(false);
+    }
+    // 🟢 而正對照就在旁邊:一個真的券碼會送 ⇒ 證明這把尺不是永遠回 false
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        mapPlaceOrderToCreateOrderArgs({ ...input(), couponCode: 'X1' }),
+        'p_coupon_code',
+      ),
+    ).toBe(true);
+  });
+
   it('🔴 #241:termsVersion → p_terms_version;clientIp/UA → p_client_ip/ua(缺 → null)', () => {
     const withConsent = mapPlaceOrderToCreateOrderArgs(
       input({ termsVersion: '2026-06-30', clientIp: '1.2.3.4', clientUserAgent: 'UA/1.0' }),

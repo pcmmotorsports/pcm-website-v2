@@ -325,6 +325,25 @@ describe('OrderDetailView', () => {
     });
   });
 
+  // 🔴 **這一格補在 code-reviewer(2026-08-30)抓到之後** —— 那一片的存在理由就是這一格的畫面,
+  //    而在它之前,畫面那一側只有【一發手動瀏覽器觀察】在守。
+  //    reviewer 的失敗情境逐字:把 `:286` 回捲成 `dash(order.paymentMethod)` ⇒ 54 格**全綠**
+  //    而客人再次看到 `tappay`。純函式那四格證的是 `paymentMethodLabel` 對,
+  //    **證不了有人真的把它接上去**。
+  it('🔴 付款方式印中文、不印 DB 原始值(接線格:純函式測試證不到這一段)', () => {
+    const { container } = render(<OrderDetailView order={ORDER} />);
+    const text = container.textContent ?? '';
+    expect(text).toContain('信用卡');
+    // 負對照:原始值不得出現在畫面上。少了這一行,一個「兩個都印」的實作也會過。
+    expect(text).not.toContain('tappay');
+  });
+
+  it('付款方式為 null ⇒ 仍印 —(空值語意未被翻譯層改掉)', () => {
+    const { container } = render(<OrderDetailView order={{ ...ORDER, paymentMethod: null }} />);
+    const dds = [...container.querySelectorAll('dd')].map((e) => e.textContent);
+    expect(dds).toContain('—');
+  });
+
   describe('`#249` 取消單:一段今天才走得到的路', () => {
     const CANCELLED = {
       ...ORDER,

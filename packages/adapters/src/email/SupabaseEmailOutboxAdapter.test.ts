@@ -20,7 +20,10 @@ type Resp = { data: unknown; error: { code?: string; message: string } | null };
 function makeBuilder(result: Resp) {
   const calls: Array<[string, unknown[]]> = [];
   const b: Record<string, unknown> = { calls };
-  for (const m of ['insert', 'select', 'update', 'eq', 'in', 'lt', 'lte', 'order', 'limit']) {
+  // 🔵 ⟦b4-SHIPGATE1⟧ 2026-09-01 加 `not` —— 而【在加它之前既有測試全綠】,
+  //    因為既有路徑一次都沒呼叫它(未給 excludeEventTypes ⇒ 那一句不執行)。
+  //    📌 ⇒ 那本身就是「未給 ⇒ 查詢逐位元不變」的一個側面證據。
+  for (const m of ['insert', 'select', 'update', 'eq', 'neq', 'in', 'not', 'lt', 'lte', 'order', 'limit']) {
     b[m] = vi.fn((...args: unknown[]) => {
       calls.push([m, args]);
       return b;
@@ -488,7 +491,7 @@ describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA
   //    落哪個 status / 稽核碼寫了沒 / claimed_at 有沒有清 / 世代柵欄 CAS 帶對了沒。
   it('markSkippedShipmentVoided:落 skipped_shipment_voided + 🔴 稽核碼 shipment_voided + 清 claimed_at + 世代柵欄', async () => {
     const b = makeBuilder({ data: [{ id: 'outbox-9' }], error: null });
-    expect(await adapter(makeClient(b)).markSkippedShipmentVoided('outbox-9', 3)).toBe(true);
+    expect(await adapter(makeClient(b)).markSkippedShipmentVoided('outbox-9', 3, 'ship-1:ord-1')).toBe(true);
     const vals = argsOf(b, 'update')[0]![0] as Record<string, unknown>;
     expect(vals.status).toBe('skipped_shipment_voided');
     // 🔴 與 order_ineligible 分開是承重的:合併之後稽核會得到一個【錯而合理】的答案
@@ -501,9 +504,41 @@ describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA
     ]);
   });
 
+  // ⟦b4-SHIPUNVOID1⟧ 2026-08-31 —— 🔴 **這三格守的是一個【沒有東西會叫】的漏信。**
+  it('🔴🔴 退休 dedup_key,而且【與 status 在同一發 update】', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-9' }], error: null });
+    await adapter(makeClient(b)).markSkippedShipmentVoided('outbox-9', 3, 'ship-1:ord-1');
+    const calls = argsOf(b, 'update');
+    // 🔴 **只有一發 update** —— 拆成兩發的話,「先 unvoid 後 skip」那個順序會讓退休撲空
+    //    (probe W4 實測那個順序可達;W4b 負對照對另一個順序印不同的值)。
+    expect(calls.length).toBe(1);
+    const vals = calls[0]![0] as Record<string, unknown>;
+    expect(vals.dedup_key).toBe('ship-1:ord-1:voided:outbox-9');
+    // 🔴 status 與它在**同一個 values 物件**裡 ⇒ 同一發 UPDATE ⇒ 不可能一個成功一個失敗
+    expect(vals.status).toBe('skipped_shipment_voided');
+  });
+
+  it('🔴 負對照:兩列不同的 outbox ⇒ 兩把不同的退休鍵(否則第二列會撞到第一列)', async () => {
+    const b1 = makeBuilder({ data: [{ id: 'a' }], error: null });
+    await adapter(makeClient(b1)).markSkippedShipmentVoided('outbox-A', 1, 'ship-1:ord-1');
+    const b2 = makeBuilder({ data: [{ id: 'b' }], error: null });
+    await adapter(makeClient(b2)).markSkippedShipmentVoided('outbox-B', 1, 'ship-1:ord-1');
+    expect((argsOf(b1, 'update')[0]![0] as Record<string, unknown>).dedup_key)
+      .not.toBe((argsOf(b2, 'update')[0]![0] as Record<string, unknown>).dedup_key);
+  });
+
+  it('🔴 冪等:同一列被 skip 兩次 ⇒ 算出來的鍵【相同】(不會越疊越長)', async () => {
+    const b1 = makeBuilder({ data: [{ id: 'x' }], error: null });
+    await adapter(makeClient(b1)).markSkippedShipmentVoided('outbox-9', 3, 'ship-1:ord-1');
+    const b2 = makeBuilder({ data: [{ id: 'x' }], error: null });
+    await adapter(makeClient(b2)).markSkippedShipmentVoided('outbox-9', 3, 'ship-1:ord-1');
+    expect((argsOf(b1, 'update')[0]![0] as Record<string, unknown>).dedup_key)
+      .toBe((argsOf(b2, 'update')[0]![0] as Record<string, unknown>).dedup_key);
+  });
+
   it('🔴 對照:同一支出口, 所有權已失(0 列)⇒ false 且不覆寫(證明上一格的 true 是資料造成的)', async () => {
     const b = makeBuilder({ data: [], error: null });
-    expect(await adapter(makeClient(b)).markSkippedShipmentVoided('outbox-9', 3)).toBe(false);
+    expect(await adapter(makeClient(b)).markSkippedShipmentVoided('outbox-9', 3, 'ship-1:ord-1')).toBe(false);
   });
 
   it('所有權已失(lease 被回收、0 列)→ false 不覆寫', async () => {
@@ -590,5 +625,50 @@ describe('SupabaseEmailOutboxAdapter.reclaimStaleLeases(回收器路徑;E2a-a、
     await expect(
       adapter(makeClient(b)).reclaimStaleLeases(STALE_BEFORE, NEXT_RETRY),
     ).rejects.toThrow(/lease 回收失敗\(42501\)/);
+  });
+});
+
+// ⟦b4-SHIPGATE1⟧ 2026-09-01:線關著時不要認領 order_shipped。
+describe('⟦b4-SHIPGATE1⟧ claimDue 的 excludeEventTypes', () => {
+  // 🔴🔴 **2026-09-01 R3 must-fix F2:改用 `.neq` —— 而 `.not(…,'in',…)` 那個形狀本 repo 零前例。**
+  //    ⛔ ~~原本斷言 `[['event_type','in','(order_shipped)']]`~~ —— 而那一格斷言的是
+  //       **實作自己寫出來的同一個字面** ⇒ 對「PostgREST 收不收這個文法」**零判別力**
+  //       ⇒ **兩邊一起錯會印綠。**⇒ 改成釘住【已證形狀】。
+  it('🔴 給了一個 ⇒ 查詢帶 .neq(event_type, …)(突變:拿掉 adapter 那一句 ⇒ 這格必須紅)', async () => {
+    const b = makeBuilder({ data: [], error: null });
+    await adapter(makeClient(b)).claimDue(10, { excludeEventTypes: ['order_shipped'] });
+    expect(argsOf(b, 'neq')).toEqual([['event_type', 'order_shipped']]);
+    // 🔵 而【不得】再用那個沒驗過的 in 形狀
+    expect(argsOf(b, 'not')).toEqual([]);
+  });
+
+  it('🔴 給兩個以上 ⇒ **throw**(不猜一個沒驗過的 PostgREST 文法)', async () => {
+    const b = makeBuilder({ data: [], error: null });
+    await expect(
+      adapter(makeClient(b)).claimDue(10, {
+        excludeEventTypes: ['order_shipped', 'order_created'],
+      }),
+    ).rejects.toThrow(/未驗證/);
+    // 🛑 而它【在送出任何查詢之前】就擋下來 —— 不得先打一發壞查詢再說
+    expect(argsOf(b, 'neq')).toEqual([]);
+    expect(argsOf(b, 'not')).toEqual([]);
+  });
+
+  it('🟢 未給 ⇒ 【一次都不呼叫 not】(既有查詢逐位元不變)', async () => {
+    const b = makeBuilder({ data: [], error: null });
+    await adapter(makeClient(b)).claimDue(10);
+    expect(argsOf(b, 'not')).toEqual([]);
+  });
+
+  it('🔵 給空陣列 ⇒ 也【一次都不呼叫 not】', async () => {
+    // 🛑 這一格是承重的:**若沒有 `exclude.length > 0` 那道守門**, 空陣列會組出
+    //    `not('event_type','in','()')` —— 而空的 `not in ()` 給 PostgREST 是**語法錯**,
+    //    它會炸。⛔ ~~「在【所有既有路徑】上炸」~~ **那句誇大了**(codex R2 nit):
+    //       既有呼叫端傳的是 `undefined`, 而空陣列今天**只出現在這一格專屬測試裡**。
+    //    ⇒ 而它仍然值得守:哪天有人「順手」傳一個算出來的空陣列進來, 那條路就活了。
+    //    ✅ 而**今天不會發生**, 因為那道守門在。**這一格釘的就是那道守門。**
+    const b = makeBuilder({ data: [], error: null });
+    await adapter(makeClient(b)).claimDue(10, { excludeEventTypes: [] });
+    expect(argsOf(b, 'not')).toEqual([]);
   });
 });

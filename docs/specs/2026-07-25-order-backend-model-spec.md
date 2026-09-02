@@ -68,6 +68,10 @@ backlog #26 已於 2026-07-25 由 RF2a 收掉(`partiallyRefunded` 已上 product
 ### 2.2 已知缺口(盤點實查,非推測)
 
 - 🔴 **退款帳本無任何後台 UI**:`grep -rln "order_refund|OrderRefund" apps/admin/src` 零命中。`order_refunds`/`order_refund_items` 昨日上線,後台完全看不到、不能操作。
+> 🔴 **2026-08-31 訂正:這一條【今天不成立】, 而當時那個「零命中」是死尺量出來的**(那條 grep 沒有 `-E`, 豎線被當字面 ⇒ 它對什麼都回 0)。
+> 加 `-E` 重跑 ⇒ **27 支非測試實作檔**, 含專屬頁面 `apps/admin/src/app/orders/refund-exceptions/page.tsx`、
+> `components/orders/refund-ledger-section.tsx`、`lib/payment/refund-read.ts`;側欄 `app-sidebar.tsx` 也有那一格。
+> ⚠️ 射程:只驗到**檔案存在與頁面路徑**,**沒有開鑽機按過任何一顆鈕**。
 - 🔴 **明細頁無退款/退貨區塊**(`order-detail.tsx` 全文 249 行讀過)。
 - **無匯出功能**(grep `csv|export|download` 功能性零命中)。
 - **無手動建單入口**:`order_source` enum 有 `manual_phone`/`manual_line`/`manual_other` 三值,但 admin 只拿來篩選,沒有建單表單。

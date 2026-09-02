@@ -41,6 +41,7 @@
 set -u
 
 OUT=$(mktemp) || { echo "🔴 vitest-ran-gate:mktemp 失敗 ⇒ 本閘自壞,輸出作廢" >&2; exit 96; }
+PLAIN=$(mktemp) || { rm -f "$OUT"; echo "🔴 vitest-ran-gate:mktemp 失敗 ⇒ 本閘自壞,輸出作廢" >&2; exit 96; }
 # 🔴 **只掛 EXIT,不要掛 INT TERM HUP**(2026-08-25 codex must-fix,兩個世界都實測過):
 #    掛了訊號 ⇒ handler 跑完之後 **shell 會【繼續執行下一行】** ⇒ `$OUT` 已被刪、`cat` 讀不到
 #    ⇒ 一路走到最後 `exit 97`「它沒有跑」。**而它其實跑了,只是被中斷。**
@@ -49,7 +50,7 @@ OUT=$(mktemp) || { echo "🔴 vitest-ran-gate:mktemp 失敗 ⇒ 本閘自壞,輸
 #    🔴 背景程序預設【忽略 INT】,第一發用 kill -INT 完全沒打中而外觀是「它沒事」):
 #      掛 EXIT INT TERM HUP ⇒ 🔴 **rc=97,而且真的印出「它沒有跑」** —— 中斷被誤報成沒跑
 #      只掛 EXIT            ⇒ ✅ rc=143(訊號死,分得開)· 不印那句話
-trap 'rm -f "$OUT"' EXIT
+trap 'rm -f "$OUT" "$PLAIN"' EXIT
 
 # 🔴 不接管線 —— pipeline 之後的 $? 是【右端】那個指令的,不是 vitest 的。
 #    先落檔取得真正的 rc,再把檔案印出來。
@@ -58,8 +59,43 @@ RC=$?
 
 cat "$OUT"
 
+# ══════════════════════════════════════════════════════════════════════
+# 🔴🔴 **比對前先剝掉 ANSI 顏色碼**(2026-09-01 `⟦b4-N04⟧`;`-f7` 量到、主視窗裁甲)
+# ══════════════════════════════════════════════════════════════════════
+#   病:CI 上 vitest 會上色, 那一行長成
+#     `<ESC>[2m      Tests <ESC>[22m <ESC>[1m<ESC>[32m12744 passed…`
+#   ⇒ `Tests` 與數字之間隔著 ESC 序列, **不是空白** ⇒ 下面那條 regex 對不上
+#   ⇒ 本閘回 **97「它沒有跑」**, 而**它跑了, 而且 740 支測試檔全過、vitest 自己回 0**。
+#
+#   🔴 **實測(2026-09-01, 用本閘自己的邏輯、只把 vitest 換成 cat)**:
+#        同一份摘要 帶 ANSI ⇒ rc=**97** · 不帶 ANSI ⇒ rc=**0**
+#   🔴 **而它不只多報, 它還【蓋掉真的】**:CI run `33396899912` 那一發
+#        `Test Files 1 failed | 735 passed`、**vitest 自己 rc=1**, 而 CI 印出來的是 **97**
+#      📌 **⇒ 一道為了「別讓人誤判」而做的閘, 把【真紅】與【假紅】印成同一個數字。**
+#         那不是「它太吵」, 是**它把自己要保護的那個區分毀掉了**。
+#
+#   🛑 **剝色只用來【比對】, 印出去的仍是原文**(上面那個 `cat "$OUT"` 一個字沒改)——
+#      人要看到的是 vitest 原本的樣子, 而閘要看的是它讀得懂的樣子。**兩個用途, 兩份資料。**
+#   🔴🔴 **只剝 SGR(結尾字母是 `m`), 不剝所有 CSI** —— 而這一格是 codex 2026-09-01 must-fix 抓的,
+#      它是我自己在 prompt 裡問的那個「最危險的方向」, 而我第一版真的踩了:
+#        舊式 `s/ESC\[[0-9;]*[A-Za-z]//g` 會連**游標控制**一起剝
+#        ⇒ 實測 `Te<ESC>[2Dsts  1 passed` 被剝成 **`Tests  1 passed`**
+#        ⇒ 📌 **一段畫面上根本沒有摘要的輸出, 被剝成有摘要 ⇒ 假綠。**
+#      ⇒ 收窄成 `[0-9;:]*m`:游標控制(`[2D`)不再被碰, 而**冒號式 SGR**(`ESC[38:5:2m`, ITU T.416)
+#        也吃得到 —— 舊式的 `[0-9;]*` 反而剝不掉它(codex 同一輪的第二條)。
+#   ⚠️ **射程(照實)**:只處理 SGR。OSC(`ESC ] … BEL`)、以及非 SGR 的 CSI **刻意不碰**
+#      ⇒ 若有一天摘要行帶那些, 本閘會**回到看不懂**(方向是 97 假紅, 不是假綠)。
+#      📌 **那個方向是刻意選的**:剝不夠 ⇒ 它吵;剝過頭 ⇒ 它放行。**寧可吵。**
+ESC=$(printf '\033')
+# 🔴 fail-closed:sed 與 cp 都失敗 ⇒ 本閘自壞, 回 96。
+#    (codex must-fix:原本兩者都失敗仍會拿一份空的 / 殘缺的 $PLAIN 繼續判 ⇒ 那會變成一發假的 97。)
+if ! sed "s/${ESC}\[[0-9;:]*m//g" "$OUT" > "$PLAIN" 2>/dev/null; then
+  echo "🔴 vitest-ran-gate:剝 ANSI 失敗 ⇒ 本閘自壞, 輸出作廢(不猜)" >&2
+  exit 96
+fi
+
 # `Tests  35 passed (35)` / `Tests  1 failed | 34 passed (35)` 兩種都要認得。
-SUMMARY=$(grep -E '^[[:space:]]*Tests[[:space:]]+[0-9]' "$OUT" | tail -1)
+SUMMARY=$(grep -E '^[[:space:]]*Tests[[:space:]]+[0-9]' "$PLAIN" | tail -1)
 
 if [ -n "$SUMMARY" ]; then
   # 🔴 有 Tests 行【不等於】有東西跑過(這一格是本閘自己的洞,實測補的):
@@ -83,6 +119,39 @@ if [ -n "$SUMMARY" ]; then
   echo '   🔴 這一格與「完全沒有 Tests 行」不同:它【印得出摘要】,所以更像跑完了。' >&2
   exit 98
 fi
+
+# 🔴🔴 走到這裡 = 找不到文字摘要。而【找不到】有兩種, 而它們的處置相反
+#    (2026-08-31 codex 對抗審查抓到的 must-fix, 主視窗當場構造實測確認):
+#      `sh vitest-ran-gate.sh run --reporter=json <一支真的測試檔>`
+#      ⇒ 本閘回 **97** 並印「它沒有跑」, 而 vitest 自己回 **0**、測試【全部跑過了】
+#      ⇒ 🛑 **一發假紅** —— 而它在 CI 上會擋掉一次完全正常的測試。
+#    成因:本閘的判準是【預設 reporter 的文字摘要】, 而換 reporter 就沒有那一行。
+#    ⇒ 📌 而那不是「它沒跑」, 是【本閘看不懂這一種輸出】—— 兩件事, 而舊版把它們印成同一個。
+#
+# ① 先試 JSON reporter 自己的證據(`--reporter=json` 會吐 numTotalTests / numPassedTests)
+JSON_TOTAL=$(grep -o '"numTotalTests"[[:space:]]*:[[:space:]]*[0-9]\{1,\}' "$PLAIN" | tail -1 | grep -o '[0-9]\{1,\}$')
+if [ -n "$JSON_TOTAL" ]; then
+  if [ "$JSON_TOTAL" -gt 0 ]; then
+    exit "$RC"
+  fi
+  echo '' >&2
+  echo "🔴 vitest-ran-gate:JSON reporter 說 numTotalTests=0 ⇒ **一格都沒跑到。**" >&2
+  exit 98
+fi
+
+# ② 呼叫端自己換了 reporter, 而本閘不認得那一種 ⇒ 🔴 **不判, 而且要吵**
+#    這一格是【刻意的放行】—— 理由:假紅會擋掉正常的測試, 而本閘的存在理由是別讓人誤判。
+#    🛑 而它是一個真的缺口:任何人加 `--reporter=<本閘不認得的>` 就繞過了這道閘。
+#       ⇒ 所以它印在 stderr 而不是靜靜放行 —— 一個被繞過的閘要自己說出來。
+case " $* " in
+  *" --reporter"*|*" --reporter="*)
+    echo '' >&2
+    echo '🟡 vitest-ran-gate:你換了 `--reporter`, 而本閘【看不懂這一種輸出】。' >&2
+    echo '   ⇒ 本閘這一發**沒有判**「它到底跑了沒」—— 原樣傳回 vitest 的 exit code。' >&2
+    echo "   🔴 也就是說:這一發【沒有這道保護】。而 vitest 自己回的是 $RC。" >&2
+    exit "$RC"
+    ;;
+esac
 
 echo '' >&2
 echo '🔴 vitest-ran-gate:輸出裡【找不到】`Tests  N …` 那一行 ⇒ **它沒有跑,不是它沒事。**' >&2

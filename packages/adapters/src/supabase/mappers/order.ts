@@ -83,6 +83,11 @@ export type CreateOrderRpcArgs = {
   p_client_ip: string | null; // 🔴 #241 best-effort 同意來源 IP(可 null;RPC left 截 128);PII、非價
   p_client_ua: string | null; // 🔴 #241 best-effort User-Agent(可 null;RPC left 截 1024);PII、非價
   p_notification_email?: string | null; // 🔴 B-4 起送 canonical 真值(解不出 ⇒ null);~~B-3 只允許 null marker~~
+  /**
+   * 🔴 券片3:**優惠券碼**(不是金額)。**選填** —— 見 mapper 裡那段「有值才送」的理由。
+   * DB 那一側 `p_coupon_code text DEFAULT NULL`(`20260901003000`), 金額由 DB 呼 `redeem_coupon` 算。
+   */
+  p_coupon_code?: string;
 };
 
 /** create_order RPC return DTO(wire、對齊 RPC RETURNS jsonb `{order_id, display_id}`、零價結構)。 */
@@ -154,6 +159,15 @@ export function mapPlaceOrderToCreateOrderArgs(input: PlaceOrderInput): CreateOr
     ...(Object.prototype.hasOwnProperty.call(input, 'notificationEmail')
       ? { p_notification_email: input.notificationEmail ?? null }
       : {}),
+    // 🔴 券片3(2026-09-01):**券碼**, 不是金額。**有值才送**, 照上面那個鍵的慣例。
+    //    ⛔ ~~原本送 `p_discount_total`(一個算好的金額)~~ ⇒ 那是**客人可控的**
+    //    (create_order 是 SECURITY DEFINER 且 GRANT TO authenticated, PostgREST 自動暴露)
+    //    ⇒ 📌 而那正是本檔上面那條紅線禁的東西:「價 / 運費 / 歸屬 / tier 全 RPC server 權威算」。
+    // ✅ 改送券碼 ⇒ 金額在 DB 那一側由 `redeem_coupon` 試算出來, 呼叫端說了不算。
+    // 🛑 而「有值才送」是上線順序的安全帶:先 DB 後 TS, 窗口期多送一個參數會讓 RPC 整個打不中。
+    ...(typeof input.couponCode === 'string' && input.couponCode.trim() !== ''
+      ? { p_coupon_code: input.couponCode.trim() }
+      : {}),
   };
 }
 
@@ -175,6 +189,12 @@ export function mapPlaceOrderToCreateOrderArgs(input: PlaceOrderInput): CreateOr
  *   而巢狀那段與 `MEMBER_ORDER_DETAIL_SELECT`(`#240` 已審、已上線)**逐字相同**。
  *   🔴 **留原句在這裡是刻意的** —— 掃「這一面沒有 product_snapshot」的人會撞到它,
  *      而它現在自己說得出【我什麼時候、為什麼不再成立】。
+ *
+ * 🔵 **真權威是那個 `toBe()`,不是這段散文**(2026-08-31 `-15` 加):
+ *    `packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts:216`
+ *    `expect(ORDER_LIST_SELECT).toBe(…)` —— **逐字完全相等**,任何一次擴欄都會紅
+ *    (同檔 `:240` 逐個掃禁用欄、`:249` 自帶正對照)。**實測:偷加 `dealer_price` ⇒ 1 failed。**
+ *    📌 **⇒ 這段字會過期,那一格不會 —— 兩者不一致時以那一格為準。**
  */
 export type SupabaseOrderListRow = Pick<
   Database['public']['Tables']['orders']['Row'],

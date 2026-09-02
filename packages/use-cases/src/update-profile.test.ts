@@ -12,6 +12,7 @@ const CUSTOMER: Customer = {
   name: '新名',
   phone: '0911',
   birthday: '1990-01-01',
+  gender: null,
   tier: 'general',
   walletBalance: 0,
   totalDeposit: 0,

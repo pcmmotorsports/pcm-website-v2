@@ -44,6 +44,29 @@ export type CheckAnomalyAlertsOptions = {
   pendingDoubleChargeWindowSeconds: number;
   /** #256 卡住指紋門檻秒數(charged attempt updated_at-created_at 逾此才算卡住;route 常數、預設 10min)。 */
   pendingDoubleChargeStuckSeconds: number;
+  /**
+   * 🔵 出貨信起始線(ISO 8601 UTC;來自 env `SHIPPED_EMAIL_CUTOFF`;2026-08-31 Sean `2 甲`)。
+   * 🛑 **`null` = 那一段整段不查** —— 而那不是失敗, 是「**還沒上膛**」。
+   *   ⇒ 落 `shippedGapUnknown`, **不進 `shouldAlert`**;而那個狀態由 route 印在 log 上。
+   */
+  shippedCutoffIso: string | null;
+  /** 🔵 出貨信寬限秒數(Sean `2 甲` = 15 分鐘 = 3 次掃描;route 常數注入)。 */
+  shippedGraceSeconds: number;
+  /**
+   * 🔵 訊號 4 的起始線(env `B4_DEPLOY_CUTOFF`,**與寄信端同一顆**;2026-08-31 Sean 拍 5️⃣ 甲)。
+   * 🛑 `null` = 整段不查 ⇒ 落 `orderCreatedGapUnknown`(**不進 `shouldAlert`**)。
+   */
+  orderCreatedCutoffIso: string | null;
+  /**
+   * ⟦b9-ENUMWATCH⟧ 片 2:客戶搜尋計數的回看窗口(秒;route 常數注入)。
+   * 🔵 它**不是門檻** —— 本片刻意不設門檻(板 `⟦b4-ENUM3⟧` 逐字「門檻不要用猜的」)。
+   */
+  manualCustomerSearchWindowSeconds: number;
+  /**
+   * 🔵 訊號4【持續失敗】那一格的門檻(分鐘)。`null` = 還沒上膛。
+   * 🛑 它與 `orderCreatedCutoffIso` 是兩顆各自獨立的 env, 任一為 null 就不查那一格。
+   */
+  orderCreatedStuckMinutes: number | null;
 };
 
 /** CheckAnomalyAlertsResult:結構化摘要(零 PII counts only;route log/回應用)。 */
@@ -66,7 +89,62 @@ export type CheckAnomalyAlertsResult = {
   orderRefundsStuckOvernightCount: number | null;
   /** ②終態半(只進信尾那一行,**不進 `shouldAlert`**;Sean 2026-08-24 拍甲)。 */
   orderRefundsManualFailedCount: number | null;
+  /**
+   * 🔵 ⟦b9-ENUMWATCH⟧ 片 2:近 N 秒的客戶搜尋筆數 / 相異操作者數。
+   * 🛑 **不進 `shouldAlert`** —— 沿用本檔 `:850` 那格的慣例(搭已經要寄的那封信的便車)。
+   *    本片**刻意不設門檻**:沒有基線, 猜低=天天吵(= `2SQH2P` 叫了 15 天的同一個病)、
+   *    猜高=永遠不叫 = 裝飾, **而兩種失敗都不會叫**。本片產生的正是那個基線。
+   * 🔴 **`Unknown` = 查不到, 不是零筆** —— 那支 RPC 還沒 apply 時走這一格。
+   * 🛑🛑 **而 `manualCustomerSearchActors` 不是「零 PII」的計數**(R3 must-fix 3):
+   *    同批 migration 自己寫著「**actors=1 + 已知班表 ⇒ 連得回唯一員工**,不得宣稱絕對零 PII」。
+   *    ⇒ **它今天只走內部告警管道, 而要外送到別處時要重新判。**
+   *    📌 一個錯的安全標籤比沒有標籤貴 —— 它讓下一個人沿用一個不存在的保證。
+   *    ⚠️ 而**天花板要一起讀**:那封信只在別的異常觸發時才寄
+   *    ⇒ 一整週沒有別的異常 ⇒ **這個數字一次都不會被看到。往前一格, 不是解決。**
+   */
+  manualCustomerSearchCount: number | null;
+  manualCustomerSearchActors: number | null;
+  manualCustomerSearchUnknown: boolean;
+  /**
+   * 🔴🔴 **R3 must-fix 1:「讀取失敗」與「還沒 apply」必須在【回傳值】上分得開。**
+   *
+   * ⛔ 我原本把兩者都壓成 `Unknown = true`, 而**唯一分得開它們的是一行 `console.error`**
+   *    ⇒ 而 R3 指出:**把那行 log 刪掉, 測試照樣全綠** ⇒ 那個「分得開」沒有量具。
+   * 🛑 而後果不是少一個欄位:**信上一律寫「那支查詢還沒上線」** ——
+   *    而權限被收回 / 函式體壞掉的那一天, 讀信的人會以為它只是還沒部署。
+   * ✅ ⇒ 加這一格 ⇒ 兩者在 Result、在信上、在 route 回應裡都分得開。
+   */
+  manualCustomerSearchFailed: boolean;
   orderRefundsStuckUnknown: boolean;
+  /**
+   * 🔵 出貨信缺口那三格(2026-08-31;Sean `2 甲`)。
+   * 🔴 **[codex R1 must-fix 1]**:片1 給那支 RPC 裝了 fail-closed(NULL 參數 ⇒ RAISE),
+   *   而**片2 若不把 `shippedGapUnknown` 帶到 result 上, 那道 fail-closed 在下游就被拆掉了** ——
+   *   起始線【有設】而 RPC【不存在】⇒ route 會安靜回 200, 沒有 info、沒有 503、沒有旗標。
+   * ⇒ 📌 **片1 讓那三個數字讀得到, 而片2 決定【讀不到的時候印什麼】—— 後者才是承重件。**
+   * ⚠️ **而它與 `emailOutboxUnknown` 的處置【不同】**:那一個一律 503;
+   *   這一個**只有在「起始線有設」時才 503** —— 沒設是「還沒上膛」= 正常, 由 route 印一行 info。
+   */
+  shippedNeverEnqueuedCount: number | null;
+  shippedUnsendableCount: number | null;
+  shipmentsTotalCount: number | null;
+  shippedGapUnknown: boolean;
+  /**
+   * 🔵 訊號 4 那三格(2026-08-31)。
+   * 🛑 `paidNoEmail` **不進 `shouldAlert`**(它 >0 是正常的);`noRecipient` 才是主詞。
+   * 🔴 `unknown` 為 true 時上面兩個是 `null` —— **不得寫成 0**。
+   */
+  orderCreatedPaidNoEmailCount: number | null;
+  orderCreatedNoRecipientCount: number | null;
+  /** 🔵 訊號4 持續失敗那三格 —— 信裡印了而 result 沒有 ⇒ 事後對不了帳。 */
+  orderCreatedStuckCount: number | null;
+  orderCreatedStuckOldestMinutes: number | null;
+  orderCreatedStuckUnknown: boolean;
+  orderCreatedGapUnknown: boolean;
+  /** 🔵 排程心跳(片3):幾支不正常 / 哪幾支 / 是不是讀不到。`Unknown` 不進 `shouldAlert`。 */
+  cronHeartbeatAbnormalCount: number | null;
+  cronHeartbeatAbnormalJobs: readonly string[] | null;
+  cronHeartbeatUnknown: boolean;
   /**
    * 🔴 M-4a:寄信那支 RPC 是不是【讀不到】(尚未 apply / 權限問題)。
    * route 依它回 **503**,而不是寄一封「尚未啟用」的信(部署問題走部署管道)。
@@ -235,6 +313,33 @@ function section(title: string, count: number, ids: readonly string[], unit = '�
 }
 
 /**
+ * 🔴🔴 **「五格全 0 【而且】分母也 0」**(2026-08-31;Sean 逐字答 `3 甲`;板上錨 `⟦b4-EMAILTOTAL⟧`)。
+ *
+ * **為什麼要有這個判斷**:上面五個 count 全部 `FROM public.email_outbox`
+ * ⇒ 它們只數【已經存在的列】⇒ 📌 **「一切正常」與「這張表是空的 / 讀不到資料」印同一組 0。**
+ * (那句話不是我寫的 —— `20260829010000_m4a_email_deadman_alert_counts.sql` 檔頭自己寫的。)
+ *
+ * 🛑 **為什麼是一支【共用函式】而不是在兩處各寫一次**:
+ * 它同時餵給【告警閘】與【訊息那一段】—— 各算一次 ⇒ 它們可以分岔,
+ * **而分岔的時候不會有任何東西叫**(一邊決定要不要寄、一邊決定信裡寫什麼)。
+ *
+ * 🛑 **`emailOutboxUnknown` 必須排除**:那是「函式不存在」= 部署問題, 走 503 那條路;
+ * 而它會讓五個 count 全是 `null` ⇒ `?? 0` 之後長得與「真的全 0」**一模一樣**。
+ * ⇒ 📌 **兩個不同的世界在 `?? 0` 之後印同一組 0 —— 那正是本片要防的形狀本身。**
+ */
+function isEmailOutboxSilentlyEmpty(summary: AnomalyAlertSummary): boolean {
+  if (summary.emailOutboxUnknown) return false;
+  return (
+    (summary.emailOverdueCount ?? 0) === 0 &&
+    (summary.emailDeadLetterCount ?? 0) === 0 &&
+    (summary.emailStuckSendingCount ?? 0) === 0 &&
+    (summary.emailQuotaConfirmedCount ?? 0) === 0 &&
+    (summary.emailQuotaSuspectedCount ?? 0) === 0 &&
+    (summary.emailOutboxTotalCount ?? 0) === 0
+  );
+}
+
+/**
  * 由摘要組白話告警訊息(只列踩門檻的類別)。
  *
  * 🔴 **文案紀律(三條,改字的人要一起守)**:
@@ -248,6 +353,35 @@ function section(title: string, count: number, ids: readonly string[], unit = '�
 export function buildAnomalyAlertMessage(
   summary: AnomalyAlertSummary,
   refundingStuckSeconds: number,
+  /**
+   * ⟦b9-ENUMWATCH⟧ 片 2:客戶搜尋計數。**第三個參數,而不是塞進 `AnomalyAlertSummary`。**
+   * 🔴 理由:`AnomalyAlertSummary` 對應的是 `get_payment_anomaly_alert_summary` 那支 RPC 的形狀,
+   *    而這個數字來自**另一支 RPC** ⇒ 混進去會讓那個型別不再對應任何一支函式。
+   * 🛑 `null` = 那支 RPC 還沒 apply(查不到), **不是零筆**。
+   */
+  //  🔴🔴 **沒有預設值 —— 而那是 R2(換模型)must-fix F4。**
+  //     ⛔ ~~原本寫 `= null`~~ ⇒ **少傳一個參數 = 「查不到」** ⇒ 真的告警信裡會印
+  //        「那支查詢還沒上線」而它其實上線了, **而零 typecheck 紅、零測試紅**。
+  //     ⇒ 而它與 `IAnomalyAlertReader` 那句「`null` 的唯一合法來源是【還沒被 apply】」直接相撞。
+  //     📌 **⇒ 拿掉一個字元, 漏傳就當場 typecheck 紅。**(本函式對外匯出, 呼叫端不只一個。)
+  /**
+   * 🔵 **`windowSeconds` 併在這個物件裡, 不另開第四個參數** —— 而那不只是省一個參數:
+   *    **那個窗口是【這份量測的一部分】** ⇒ 它跟著資料走, 就不會有「數字換了而說明沒換」。
+   * 🔴 而它解掉 R2 consider F7:原本信裡**寫死**「過去 24 小時」,
+   *    而窗口是 route 端注入的常數 ⇒ **把它改成 3600 而信上照樣說 24 小時。**
+   *    ⇒ 那是同一支檔 `:346-348` 判過的同一個病的復發(那段逐字:「正式路徑目前固定 86400,
+   *      所以今天走不到 —— **而那不是不修的理由**」)。
+   */
+  manualCustomerSearch: {
+    readonly count: number;
+    readonly actors: number;
+    readonly windowSeconds: number;
+  } | null,
+  /**
+   * 🔴 R3 must-fix 1:`manualCustomerSearch` 是 `null` 時有**兩種**成因,而它們在信上要講不同的話。
+   * `true` = 讀取失敗(有人要去看)· `false` = 那支 RPC 還沒 apply(預期中,不必動作)。
+   */
+  searchReadFailedForMessage = false,
 ): AnomalyAlertMessage {
   // 🔴 `Math.round(秒/3600)` 會把 5400 秒(90 分)講成「2 小時」= **報一個錯的門檻給收信人**
   //    (codex R2 nit)。正式路徑目前固定 86400,所以今天走不到 —— 而那不是不修的理由:
@@ -537,6 +671,8 @@ export function buildAnomalyAlertMessage(
    * ⇒ 而我**刻意不加「暫定文案」那種前綴** —— 這是一封他早上九點會收到的 LINE,
    *   前綴在那裡是雜訊;而在後台畫面上(`tier-edit-submit.tsx`)前綴是對的。**載體不同。**
    */
+  const emailOutboxSilentlyEmpty = isEmailOutboxSilentlyEmpty(summary);
+
   const emailLines: string[] = [];
   const emailPush = (n: number | null, label: string) => {
     if ((n ?? 0) > 0) emailLines.push(`· ${label}:${n} 封`);
@@ -548,6 +684,39 @@ export function buildAnomalyAlertMessage(
   emailPush(summary.emailQuotaSuspectedCount, '⚠️ 大量被擋(可能是額度,也可能只是一時被限流)');
   emailPush(summary.emailOverdueCount, '該重試而沒有人重試的信');
   emailPush(summary.emailStuckSendingCount, '卡在「寄送中」出不來的信');
+  // 🔵 出貨信缺口(2026-08-31;Sean `2 甲`)。用【不同的字】—— 它不是「信寄不出去」,
+  //   是「**信根本沒有被建出來**」⇒ 去看的地方不一樣。
+  emailPush(summary.shippedNeverEnqueuedCount, '🔴 貨出了而通知信【根本沒被排進佇列】');
+  // 🔵 而這一格與上一格【不同種】:不是系統壞掉, 是**我們沒有那個客人的信箱**。
+  //   ⇒ 併起來 = 用一種原因的文案報另一種原因(與 5-a / 5-b 分開的理由相同)。
+  emailPush(summary.shippedUnsendableCount, '⚠️ 貨出了而那張單【兩個信箱都是空的】⇒ 寄不出去');
+  /**
+   * 🔵 **訊號 4(2026-08-31)** —— 用【第三種字】,因為它與上面兩族去看的地方都不一樣:
+   *   上面是「信寄不出去」、出貨那兩格是「貨出了而信沒建」,
+   *   這一格是「**訂單成立了而那封信沒建**」⇒ 看的是 scanner / 起始線那條路。
+   * 🛑 **只推 `noRecipient` 那一格** —— `paidNoEmail` >0 是正常的(下一輪就排進去了),
+   *   把它印進信裡會讓收信的人每天看到一個不用處理的數字, 而那正是噪音的來源。
+   */
+  // 🔵 卡住那一格【自己一行】—— 它要說得出「幾張」與「最舊卡多久」,
+  //   而一個裸的筆數寫不出信裡那句話。
+  if ((summary.orderCreatedStuckCount ?? 0) > 0) {
+    const oldestStuck = summary.orderCreatedStuckOldestMinutes;
+    emailLines.push(
+      `· 🔴 訂單成立信【一直排不進去】:${summary.orderCreatedStuckCount} 張` +
+        (oldestStuck === null ? '' : `(最舊那張已經 ${oldestStuck} 分鐘)`) +
+        ' ⇒ 那不是還沒輪到它, 是每一輪都失敗',
+    );
+  }
+  emailPush(
+    summary.orderCreatedNoRecipientCount,
+    '🔴 訂單成立了而【那張單兩個信箱都是空的】⇒ 通知信永遠不會被建出來',
+  );
+  // 🔴 這一行【不走 emailPush】—— 它不是「幾封信」, 它是「一封都沒有」。
+  //   ⇒ 文案刻意寫成兩種可能, **不猜是哪一種**:「這張表是空的」與「讀不到資料」
+  //     在這一格底下**分不出來**, 而寫死其中一個會把人送去修錯的東西。
+  if (emailOutboxSilentlyEmpty) {
+    emailLines.push('🔴 寄信佇列【一列都沒有】—— 可能是這張表是空的, 也可能是讀不到資料');
+  }
   const emailBlock: string[] =
     emailLines.length > 0
       ? ['【寄信】', ...emailLines, '⇒ 這一段與訂單無關,不用去後台退款或改單。']
@@ -580,7 +749,53 @@ export function buildAnomalyAlertMessage(
    * ⇒ 它不該是第一個被截掉的。
    * ⚠️ 而**這不等於它不會被截** —— 它只是排在後面那些單號之前。真正不可截的只有 `footer`。
    */
-  const body = [emailBlock, ...blocks].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
+  /**
+   * 🔵 **排程心跳(片3)** —— 自成一塊, 不併進【寄信】那一塊:
+   *   那一塊的收尾句逐字是「這一段與訂單無關, 不用去後台退款或改單」,
+   *   而心跳講的是**背景程式停了**, 兩者要做的事不一樣。
+   * 🔴 **一定要印出【哪幾支】** —— 一個裸數字("2 支不正常")會逼收信的人自己去後台找,
+   *   而這封信存在的理由就是「沒有人去看的時候它來告訴你」。
+   */
+  const heartbeatBlock: string[] = [];
+  if ((summary.cronHeartbeatAbnormalCount ?? 0) > 0) {
+    const names = summary.cronHeartbeatAbnormalJobs ?? [];
+    heartbeatBlock.push(
+      '【背景排程】',
+      `🔴 有 ${summary.cronHeartbeatAbnormalCount} 支背景程式不正常${names.length > 0 ? `:${names.join('、')}` : ''}`,
+      // 🛑 文案刻意**不寫「它死了」** —— 這道判準涵蓋五種世界(太久沒成功 / 時間戳在未來 /
+      //    連續失敗 / 心跳表沒有那一列 / 有那一列而沒有成功時間), 而它們要查的地方不同。
+      //    ⇒ 寫死其中一種會把人送去修錯的東西。
+      '   ⇒ 到後台首頁看那一排「幾分沒成功」,它會說是哪一種。',
+    );
+  }
+  /**
+   * 🔴🔴 **⟦b9-ENUMWATCH⟧ 片 2:這一行放【body】不放 footer —— R2(換模型)must-fix F1。**
+   *
+   * ⛔ ~~我原本把它加在 `footer` 陣列裡~~ —— 而那是這一片最貴的一個錯:
+   *    `fitToLineBudget` 把**整個 footer 算進預算, 而只 pop `body`**
+   *    ⇒ footer 多 ~33 字 ⇒ **截斷時多 pop 掉約 2 行單號**(`  PCM-2026-0104` = 16 字/行)。
+   * 🛑 **而 footer 的「不可截」是為了【擋誤退款的警語】爭來的**(見 footer 那段註解)——
+   *    **我這一行繼承了那個豁免權, 然後用它擠掉主要內容。**
+   * 📌 **⇒ 一個次要觀測拿到了為安全警語爭來的豁免權 ⇒ 那正是「把問題搬到別的層」。**
+   * ✅ 放 body 末端 ⇒ **pop 的順序天然是次要先讓路。**
+   * 🔵 而截斷路徑是活的(同檔實測 4,594 / 4,585 字, 而測試裡有一格在跑它)⇒ 這不是理論。
+   */
+  const searchBlock: string[] =
+    manualCustomerSearch === null
+      ? [
+          searchReadFailedForMessage
+            ? '(客戶搜尋計數:🔴 讀取失敗 —— 不是沒有人搜尋,也不是還沒上線。這一格要有人去看。)'
+            : '(客戶搜尋計數:查不到 —— 那支查詢還沒上線,不是沒有人搜尋)',
+        ]
+      : [
+          // ⟦b9-ENUMWATCH⟧ 片 2:同一個形狀(整點講小時、否則講分鐘)—— 不另發明第二種算法。
+          `過去 ${
+            manualCustomerSearch.windowSeconds % SECONDS_PER_HOUR === 0
+              ? `${manualCustomerSearch.windowSeconds / SECONDS_PER_HOUR} 小時`
+              : `${Math.round(manualCustomerSearch.windowSeconds / 60)} 分鐘`
+          }客戶搜尋 ${manualCustomerSearch.count} 次,${manualCustomerSearch.actors} 個操作者。`,
+        ];
+  const body = [emailBlock, heartbeatBlock, ...blocks, searchBlock].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
 
   /**
    * 🔴🔴 **結尾三行是【不可截的】,而這不是排版偏好。**
@@ -756,7 +971,63 @@ export async function checkAnomalyAlerts(
     opts.refundingStuckSeconds,
     opts.pendingDoubleChargeWindowSeconds,
     opts.pendingDoubleChargeStuckSeconds,
+    opts.shippedCutoffIso,
+    opts.shippedGraceSeconds,
+    opts.orderCreatedCutoffIso,
+    opts.orderCreatedStuckMinutes,
   );
+
+  /**
+   * ⟦b9-ENUMWATCH⟧ 片 2:第二支 RPC(客戶搜尋計數)。
+   *
+   * 🔴 **它【不共用】上面那一發的 throw 語意** —— 上面那支 throw ⇒ 整個告警 fail-closed(對的);
+   *    而這一支**回 `null` 代表「那支 RPC 還沒 apply」**,那是部署窗口、不是壞掉
+   *    ⇒ 落 `Unknown`、**不進 `shouldAlert`**、cron 照常跑完。
+   * 🛑 **而它真的壞掉時(連線 / 權限 / 函式體壞掉)adapter 會原封上拋** ⇒ 走上面那條路
+   *    ⇒ **「查不到」與「壞掉」在這一層是兩條路,而分開它們的是 adapter 那發 `to_regprocedure`。**
+   */
+  //
+  // 🔴🔴 **必須 catch —— 而我第一版沒有 catch, 那是 codex R1 must-fix 2。**
+  //
+  // 我在這一片的 plan 裡自己寫過:「為了加一個觀測而弄壞了主要功能, 比不加還糟」。
+  // **而我照樣寫出了一個【它 throw 就會把整封告警帶走】的版本。**
+  // ⇒ 因為 adapter 那側對「函式體壞掉 / 回應形狀不符」是**刻意 fail-loud** 的(那是對的),
+  //   而那個 throw 一路上來就會炸掉 `checkAnomalyAlerts` ⇒ route 回 503
+  //   ⇒ **原本該寄的付款告警一封都不會送。**
+  //
+  // ✅ 正確的分界:**adapter 的 fail-loud 是「不要把壞掉讀成 0」, 不是「壞掉就停掉全部」。**
+  //    ⇒ 在**這一層**收口:一個【次要觀測】永遠不得帶走【主要功能】。
+  // 🛑 **而它不得變成靜默降級** —— 落 `Unknown` **並且** 印一行可辨識的 log,
+  //    而 route 那側要把它算進回應(見 route.ts 那邊的 `manualCustomerSearchUnknown`)。
+  // 📌 **⇒ 兩種 Unknown 的成因不同, 而它們在回傳值上是同一格**:
+  //    ①那支 RPC 還沒 apply(部署窗口, 預期中)②它真的壞了(要有人看)
+  //    ⇒ **所以 log 那一行是唯一分得開它們的東西。**
+  let searchSummary:
+    | { readonly count: number; readonly actors: number; readonly windowSeconds: number }
+    | null = null;
+  /** 🔴 R3 must-fix 1:與「還沒 apply」分開 —— 兩者都讓 `searchSummary` 是 null, 而意思相反。 */
+  let searchReadFailed = false;
+  try {
+    searchSummary = await deps.reader.getManualCustomerSearchSummary(
+      opts.manualCustomerSearchWindowSeconds,
+    );
+  } catch (err) {
+    searchSummary = null;
+    searchReadFailed = true;
+    console.error(
+      '[anomaly-alert] 🔴 客戶搜尋計數讀取失敗 ⇒ 降級成【查不到】,而其他告警照常送(這一格值得有人去看)',
+      // 🔴🔴 **記 `code` 不記 `name` —— R2 must-fix F3。**
+      //    ⛔ ~~原本記 `name`~~ ⇒ 逃出 adapter 的錯**永遠**是 `Error` 或
+      //       `AnomalyAlertReaderParseError`(未設 `name`)⇒ **`name` 恆為 `'Error'`**
+      //       ⇒ **我宣稱「唯一分得開的東西」的那行 log, payload 是一個常數。**
+      //    ✅ 而 `sanitizeError` **刻意保留 `code`**:`42501` 權限 / `ECONNREFUSED` 連線 /
+      //       parse 失敗時 undefined ⇒ **那一格才真的分得開【怎麼壞的】。**
+      {
+        reason: 'manual_customer_search_read_failed',
+        code: (err as { code?: unknown } | null)?.code,
+      },
+    );
+  }
 
   /**
    * 🔴 **F-004 加了第六項,而它是一個【被明知接受的代價】,不是順手加的。**
@@ -816,13 +1087,49 @@ export async function checkAnomalyAlerts(
      *    ⇒ 要的是一顆「我知道了、N 天內別再說」的**靜音鈕**,~~而那顆鈕的存在與天數**是 Sean 的**~~。
      *
      * 🔵🔵 **2026-08-30 已拍板,這一格不再是待答題:Sean `Q3 靜音鈕 = 乙`,逐字「不做,就讓它一直提醒」。**
-     *   出處 `~/pcm-mailbox/等Sean決策-20260829.md:3538`(2026-08-30 上午一口氣回六題那一批;
+     *   出處 ⛔ ~~`~/pcm-mailbox/等Sean決策-20260829.md:3538`~~(2026-08-30 上午一口氣回六題那一批;
      *   題目來源 `~/pcm-mailbox/de-b9-等決策表18格triage-剩6題-20260830.md` 的 `Q-靜音鈕`)。
+     *   🔴 **2026-09-02 05:2x 座標訂正(`-f3` 發現、`-c7` 開檔複核;舊字面加刪除線留著)**:
+     *      `:3538` **指到的是另一題**(`Q-VISUAL`/OD 那一題)⇒ 照它跳過去的人會讀到不相干的內容。
+     *      ✅ **正確的兩個座標(`-c7` 當場 `sed -n` 各印一次)**:
+     *        · **題目** `等Sean決策-20260829.md:2980` ⇒ 逐字「**額度類**的告警現在會【每天】提醒你…」
+     *          🔴 **那三個字就是本段射程的全部依據** —— 見下方 09-02 那一節。
+     *        · **答案** 同檔 `:3573` ⇒ 逐字「`Q3 靜音鈕  乙  不做,就讓它一直提醒`」
+     *      🟢 負對照:全檔 `靜音鈕` 只有 4 處(`:2980` `:2981` `:3573` `:3593`)⇒ `:3538` 一處都不是。
+     *      📌 **⇒ 而 `:3538` 那一段自己在講的正是【兩題相鄰、轉述時被併成一個】** ——
+     *        **一個壞掉的行號,指到了一段在描述同一種病的文字。**
      *   🔴 **他選的是【推薦的反面】** —— 推薦是甲(做鈕、預設 7 天),他選乙。
      *      而題目裡逐字寫著「會**每天**提醒你,一直提醒到有人處理為止」
      *      ⇒ **他看過那一句才選的 ⇒ 那是【接受成本】,不是【沒看到】。**
      *   🛑 **⇒ 兩件事不要做**:①不要再拿這一格去問他 ②不要有人「順手把鈕做出來」——
      *      做了就是推翻他的拍板,**而那在 diff 上會長得像一個貼心的補強。**
+     *
+     * 🔴🔴 **2026-09-02 05:1x 就地訂正(`-c7` 開兩份原文核;零刪除,上面一個字都沒改)**
+     *   **上面那個「不要做」【射程只有「額度類」】,而它寫在一個管【五個訊號】的地方。**
+     *   ```
+     *   08-30 那一題逐字(de-b9-…-剩6題-20260830.md:99):
+     *     「Q: **額度類**的告警現在會【每天】提醒你…要不要做一顆靜音鈕?」  ⇒ 他答【乙 不做】
+     *   09-02 00:43 Q2 逐字(拍板-20260902-06題.md:20):
+     *     「Q2 ⇒ 丙 · **死信**:靜音【與】重排都做」                        ⇒ 他答【丙 都做】
+     *   ```
+     *   🟢 **⇒ 那是【兩個不同的告警】,兩筆拍板【同時成立】,沒有誰推翻誰。**
+     *      而本段緊接的 `shouldAlert` 是 `emailDeadLetterCount` 與 `emailQuota*Count` 五格【或】起來的
+     *      ⇒ 📌 **一筆「額度類」的拍板,被記在一個【死信也適用】的位置上。**
+     *   🛑 **⇒ 所以危害是真的**:今天要做死信靜音的人讀到「②不要有人順手把鈕做出來」
+     *      **會停手,而且不會去查** —— 因為那句話的語氣是【禁止】,不是【參考】。
+     *      **⇒ 而他會拒絕做 Sean 三小時前才要求的東西。**
+     *   ✅ **⇒ 正確的讀法**:
+     *      · **額度類**(`emailQuota*`)⇒ **不做靜音鈕**(08-30 乙,仍然有效,不要動它)
+     *      · **死信**(`emailDeadLetterCount`)⇒ **靜音與重排都要做**(09-02 丙)
+     *   🔴 **⇒ 而【一顆管全部五格的通用靜音鈕】仍然違反 08-30 那一板** —— 要做就只能是死信那一格。
+     *   ⚠️ **分母**:`-c7` 只比了這兩筆;**09-02 00:43 之後有沒有第三筆,我沒有查**(`-f3` 同標)。
+     *   🔵 **⇒ 而本訂正【與 `-0a`/`-f3` 的判斷不同】,留在這裡讓下一個人自己核**:
+     *      它們判「08-30 已被推翻 ⇒ 整段劃掉」;**而劃掉會讓通用靜音鈕變成看起來合法的。**
+     *      **⇒ 分歧點只有一句:那兩個「靜音」是不是同一顆鈕。⇒ 兩份題目原文說【不是】。**
+     *   🎯 **⇒ 而這一格自己是母題的最尖版本**:
+     *      **一段【為了保護拍板】而寫的註解,因為射程沒寫,自己變成了擋住另一筆拍板的東西。**
+     *      **⇒ 而修法不是刪掉它,是【把它的射程寫出來】—— 刪掉會弄丟一筆仍然有效的拍板。**
+     *
      *   📌 **為什麼要改這段註解(而不是只在板子上記一筆)**:上面那句「是 Sean 的」
      *      **就是把人推去問他的那句話** —— 拍板落在板子上而碼裡還在等,
      *      下一個讀到這裡的人會【第二次】去問一個他已經答過的問題。
@@ -841,7 +1148,82 @@ export async function checkAnomalyAlerts(
     (summary.emailDeadLetterCount ?? 0) > 0 ||
     (summary.emailStuckSendingCount ?? 0) > 0 ||
     (summary.emailQuotaConfirmedCount ?? 0) > 0 ||
-    (summary.emailQuotaSuspectedCount ?? 0) > 0;
+    (summary.emailQuotaSuspectedCount ?? 0) > 0 ||
+    // 🔴🔴 **分母那一格**(2026-08-31;Sean 逐字答 `3 甲`;板上錨 `⟦b4-EMAILTOTAL⟧`)
+    //   **五格全 0 【而且】分母也 0 ⇒ 也叫一次。**
+    //   📌 **為什麼**:上面五個 count 全部 `FROM public.email_outbox` ⇒ 只數【已經存在的列】
+    //     ⇒ 「一切正常」與「這張表是空的 / 讀不到資料」**印同一組 0**。
+    //   ⚠️ **而只把分母接進來、不改這道閘是【不夠的】**:這道閘是「任一 > 0 才叫」
+    //     ⇒ 五格全 0 ⇒ **一封信都不會發** ⇒ 那個分母**在它要防的那個世界裡沒有人看得到**。
+    //   🔵 **它會自己安靜下來**:只要寄出過一封, `total_count` 就 > 0
+    //     ⇒ 上線初期會叫幾天, 而那幾天**本來就沒有人在等信**。
+    //   🔴🔴 **[2026-08-31 codex R1 訂正 —— 而它訂正的是我寫下的理由]**
+    //     ⛔ ~~理由:「那張表不刪列」~~ **那句是假的。**
+    //     `docs/specs/2026-07-18-b0-order-notification-email-prd.md` 的 PII 生命週期表逐字:
+    //     `email_outbox.recipient_email` 保留 **120 天**(Sean 2026-07-18 拍板), 而**清理 job(#281)刪除逾期列**。
+    //     ⇒ ✅ **結論不變**(活著的店天天寄信 ⇒ 表不會空), **而理由要換**:
+    //       它安靜下來靠的是**持續有信在寄**, 不是**列不會被刪**。
+    //     ⇒ 🔴 **⇒ 而那個差別在【店停業 120 天以上】那個世界會顯形:那時它會【再叫一次】,**
+    //       **而那一次沒有人會記得為什麼。**⇒ 訊息那一行因此寫「可能是這張表是空的」——
+    //       **那句話在那個世界裡仍然是對的。**
+    //     📌 **⇒ 一個對的結論配一個錯的理由, 在今天印同一個結果 —— 而它們在【未來的某個世界】分岔。**
+    //   🛑 **`emailOutboxUnknown` 必須排除**:那是「函式不存在」= 部署問題, 走 503 那條路;
+    //     而它會讓五個 count 全是 `null` ⇒ `?? 0` 之後長得與「真的全 0」一模一樣。
+    //     ⇒ 📌 **兩個不同的世界, 在 `?? 0` 之後印同一組 0 —— 那正是本片要防的形狀本身。**
+    isEmailOutboxSilentlyEmpty(summary) ||
+    // 🔵 出貨信缺口(2026-08-31;Sean 逐字答 `2 甲`:「大於 0 就叫」)。
+    //   🛑 `?? 0` 在這裡是安全的:unknown 那條路 adapter 回 `null` ⇒ 不叫,
+    //     而那是刻意的 —— **部署問題 / 還沒上膛走別的管道, 不變成一封每天寄的信。**
+    (summary.shippedNeverEnqueuedCount ?? 0) > 0 ||
+    (summary.shippedUnsendableCount ?? 0) > 0 ||
+    /**
+     * 🔵 **訊號 4(2026-08-31;Sean 拍 5️⃣ 甲「有一封就叫 —— 最吵但不漏」)。**
+     *
+     * 🛑🛑 **只有 `noRecipient` 進來,`paidNoEmail` 【刻意不進】。**
+     *   scanner 每 5 分鐘掃「已付款而沒有信」的單, **然後當輪就把它們排進去**
+     *   ⇒ `paidNoEmail > 0` 是【正常】的 ⇒ 📌 **拿它當判準 = 有生意就叫,那不是告警。**
+     * ✅ 而 `noRecipient`(兩個信箱都空)**不會自己好** —— 那張單沒有信箱,下一輪也一樣
+     *   ⇒ **叫一次就是一件真的待辦**, 所以「一封就叫」套在這一格上不會變噪音。
+     * 🛑 `?? 0` 在這裡是安全的:unknown 那條路 adapter 回 `null` ⇒ 不叫,
+     *   而那是刻意的 —— **RPC 還沒 apply / 起始線沒設走別的管道, 不變成一封每天寄的信。**
+     */
+    (summary.orderCreatedNoRecipientCount ?? 0) > 0 ||
+    /**
+     * 🔴🔴 **訊號4 的【持續失敗】那一格(板 `⟦b4-SIG4ERRORS⟧`)**。
+     * 🛑 它與上面 `paidNoEmail` 的差別是【年齡】, 而那個差別就是它能不能當判準:
+     *   `paidNoEmail > 0` 是正常的(新單進來就被數到一次, 下一輪 scanner 就排掉)
+     *   ⇒ 拿它當判準 = **有生意就叫**, 那不是告警。
+     * ✅ 而 `stuck` 是【超過門檻分鐘還沒被建出來】⇒ 正常的單活不過一輪 ⇒ > 0 就是真卡住。
+     * 🔴 它守的是一個今天【零告警】的缺口:enqueue 每一輪都失敗時, 那個 `errors`
+     *   只落在 cron 的回應 body、沒有進任何表 ⇒ **當下不會叫, 而且事後查不到。**
+     * ⚠️ 已排除【兩個信箱都空】那一群 ⇒ 同一張單不會被兩個訊號各叫一次。
+     * 🛑 `?? 0` 安全:沒上膛 / RPC 未 apply ⇒ adapter 回 `null` ⇒ **不叫**(走別的管道)。
+     */
+    (summary.orderCreatedStuckCount ?? 0) > 0 ||
+    /**
+     * 🔴🔴 **排程心跳(板 `⟦b4-SWEEPDEAD1⟧` 片3;Sean 2026-08-30 拍 `q4: 甲` = 現在做)**。
+     * 那一列的問題逐字是「**結算程式死了沒人知道**」—— 而在這一行之前,
+     * 心跳**只被儀表板顯示、從來沒有被告警**:
+     *   儀表板 = 有人去看的時候它告訴他;告警 = 沒有人去看的時候它來告訴你。
+     *   ⇒ 而那一列問的是後者。**這一行就是那一列缺的東西。**
+     *
+     * `?? 0` = **讀不到就不叫**,照上面每一條的成例(部署問題走部署管道)。
+     * ⇒ 🛑 `cronHeartbeatUnknown` **刻意不在這道閘裡** —— 它只進 log 與信尾那一行。
+     *
+     * ⚠️ **而本片【不關】的那一半要寫在這裡, 免得下一個人以為關掉了**:
+     *   **「整組 cron 一起死」這一格照舊沒有人看得到** ——
+     *   這支告警器自己也是一支 cron(`pcm-anomaly-alert`), 它與它要監控的那五支
+     *   **走同一條線**, 那條線壞掉兩個一起停 ⇒ **沒有人會收到任何信。**
+     *   📌 ⇒ 本行關掉的是「**單支**死掉沒人知道」, 不是「整組一起死」。
+     *
+     * 🛑 **沒有冷卻機制, 而那是【接受】不是【漏】**(codex 2026-08-31 片3 R1 #5 提):
+     *   一支排程持續死著 ⇒ **每天都會再寄一次**(這封信一天一班)。
+     *   ⇒ 而本檔上面對 `emailQuotaConfirmedCount` 已經寫過同一句話並被 Sean 拍過:
+     *     **「一個持續一整個月的問題, 每天提醒一次可能正是對的 —— 它還沒被處理。」**
+     *   ⇒ 📌 一支排程死了三天而第二天起不再提醒, 與「它自己好了」在收件匣裡長得一樣。
+     *   ⚠️ **若哪天要加冷卻**, 要先答一個問題:**停止提醒之後, 誰會發現它還死著?**
+     */
+    (summary.cronHeartbeatAbnormalCount ?? 0) > 0;
 
   let notifiersTotal = 0;
   let notifiersFailed = 0;
@@ -853,7 +1235,13 @@ export async function checkAnomalyAlerts(
     if (deps.notifiers.length === 0) {
       throw new Error('checkAnomalyAlerts:踩告警門檻但未注入任何 notifier(告警無法送達、fail-closed)');
     }
-    const message = buildAnomalyAlertMessage(summary, opts.refundingStuckSeconds);
+    const message = buildAnomalyAlertMessage(
+      summary,
+      opts.refundingStuckSeconds,
+      // 🔴 直接傳 adapter 回的那個物件 —— **不再由這一層拼一個 windowSeconds 上去**(R3 must-fix 2)。
+      searchSummary,
+      searchReadFailed,
+    );
     notifiersTotal = deps.notifiers.length;
     // 🔴 **這一行講的是【送】那個階段**:各管道各自送、一管道掛掉不影響另一管道
     //    (`Promise.allSettled`);失敗計數 → route 503(壞掉的管道必須可見)。
@@ -895,7 +1283,26 @@ export async function checkAnomalyAlerts(
     orderRefundsStuckCount: summary.orderRefundsStuckCount,
     orderRefundsStuckOvernightCount: summary.orderRefundsStuckOvernightCount,
     orderRefundsManualFailedCount: summary.orderRefundsManualFailedCount,
+    manualCustomerSearchCount: searchSummary?.count ?? null,
+    manualCustomerSearchActors: searchSummary?.actors ?? null,
+    manualCustomerSearchUnknown: searchSummary === null,
+    manualCustomerSearchFailed: searchReadFailed,
     orderRefundsStuckUnknown: summary.orderRefundsStuckUnknown,
+    shippedNeverEnqueuedCount: summary.shippedNeverEnqueuedCount,
+    shippedUnsendableCount: summary.shippedUnsendableCount,
+    shipmentsTotalCount: summary.shipmentsTotalCount,
+    shippedGapUnknown: summary.shippedGapUnknown,
+    orderCreatedPaidNoEmailCount: summary.orderCreatedPaidNoEmailCount,
+    // 🔵 訊號4 持續失敗那三格也要進 result —— 否則信裡印了而 cron log/body 上這件事不存在,
+    //   ⇒ 事後對不了帳(code-reviewer 2026-09-01 抓)。
+    orderCreatedStuckCount: summary.orderCreatedStuckCount,
+    orderCreatedStuckOldestMinutes: summary.orderCreatedStuckOldestMinutes,
+    orderCreatedStuckUnknown: summary.orderCreatedStuckUnknown,
+    orderCreatedNoRecipientCount: summary.orderCreatedNoRecipientCount,
+    orderCreatedGapUnknown: summary.orderCreatedGapUnknown,
+    cronHeartbeatAbnormalCount: summary.cronHeartbeatAbnormalCount,
+    cronHeartbeatAbnormalJobs: summary.cronHeartbeatAbnormalJobs,
+    cronHeartbeatUnknown: summary.cronHeartbeatUnknown,
     /**
      * 🔴 **這一行是本片【最重要】的一行,而我差點沒寫。**
      * 上面把五格排除在 `shouldAlert` 之外,理由是「部署問題走部署管道」——

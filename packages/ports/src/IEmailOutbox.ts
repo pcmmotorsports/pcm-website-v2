@@ -276,7 +276,36 @@ export interface IEmailOutbox {
    * limit = 認領上限、非掃描上限(死列不佔窗口)。
    * 述詞 = `status IN (pending,failed) AND next_retry_at <= now() AND attempts < max_attempts`。
    */
-  claimDue(limit: number): Promise<ClaimedEmailJob[]>;
+  claimDue(
+    limit: number,
+    /**
+     * ⟦b4-SHIPGATE1⟧ 2026-09-01:**不要認領這些事件型別。**
+     *
+     * 🔴 **為什麼要在【認領】這一層擋,而不是認領完再判**:
+     *    `sweep-email-outbox.ts:750` 那道 `allowOrderShipped` 閘擋在 `claimDue` **之後** ⇒
+     *    線關著的期間,佇列裡的 `order_shipped` 列**每一輪都被認領一次**
+     *    (`attempts` 在認領當下就 +1、狀態落 `sending`;`SupabaseEmailOutboxAdapter.ts:395`),
+     *    被擋下、`continue`(不呼叫任何 `mark*`)⇒ **留在 `sending`**。
+     *    而 `sending` **不在** `CLAIMABLE_STATUSES`(`['pending','failed']`)⇒ 下一輪撿不到
+     *    ⇒ 唯一出路是 `reclaimStaleLeases`(`claimed_at < now − LEASE_SECONDS`,route 端 3600 秒)
+     *    ⇒ **每【回來一次】≈ 1h05m(租約 3600 秒 + 退避 5 分)**
+     *    🔴 **而【attempts 用完】與【進死信】差一整輪回收, 不要合成一句**(codex R2 2026-09-01):
+     *       `t≈4h20m` 第 5 次認領 = attempts 用完 · `t≈5h20m` 才成 `failed@max` ⇒ 進死信。
+     *       ⇒ 全文推導在 `sweep-email-outbox.ts` 的 `allowOrderShipped` 那道閘旁邊。
+     *    ⚠️ 另一半:它們**佔著 `claimLimit` 的格子**(route 端 50)⇒ 拖慢 `order_created`。
+     *
+     * 🛑 **選擇性 —— 而那是承重的**:既有呼叫端一個字都沒改,
+     *    **未給 / 空陣列 ⇒ 送出的查詢與改動前逐位元相同**(不得多一個空的 `not in`)。
+     *
+     * 🔵 **而它【不取代】`:750` 那道閘** —— 不認領是**省成本**,不寄是**保正確**。
+     * 🛑🛑 **而我第一版寫「旗標讀取邏輯壞掉時第二道還在」—— 那句是【假的】**(codex 2026-09-01):
+     *    **兩道都由同一顆 `allowOrderShipped` 驅動** ⇒ 旗標讀錯的那個世界裡,**兩道一起錯**。
+     *    ✅ 正確字面:第二道守的是「**實作違約**」——
+     *    adapter 忽略這個 opts、或有人換一個沒實作它的 `IEmailOutbox`。
+     *    ⇒ **⇒ 它不是「同一個輸入的第二次判斷」(那才是重複),是【另一個失效來源】。**
+     */
+    opts?: { readonly excludeEventTypes?: readonly EmailOutboxEventType[] },
+  ): Promise<ClaimedEmailJob[]>;
 
   /** 對指定列 CAS 認領(E3 after() 立即嘗試路徑)。非 due / 搶輸 / 已達上限 → null。 */
   claimById(id: string): Promise<ClaimedEmailJob | null>;
@@ -362,7 +391,23 @@ export interface IEmailOutbox {
    *   📌 **在它真的上板之前,這裡不得寫成「已追蹤」** —— 那句話的作用是**關掉下一個人的尋找動作**,
    *     而現在能被找到的只有那份交件檔。(同族:本片作者今天已經在「已列進待決」上犯過一次。)
    */
-  markSkippedShipmentVoided(id: string, claimedAttempts: number): Promise<boolean>;
+  /**
+   * 🔴 **`currentDedupKey` 是 2026-08-31 ⟦b4-SHIPUNVOID1⟧ 加的,而它承重**:
+   *    實作要在**標記 skip 的同一發 UPDATE 裡**把這把鍵退休(加後綴),否則會有一個
+   *    **沒有任何東西會叫**的漏信:箱作廢 ⇒ 這一列以正規鍵落地 ⇒ 員工用同一個
+   *    shipment id 復原 ⇒ 掃描 view 的 anti-join(`20260822010000:275`)**不分 status**
+   *    ⇒ 那一列永久佔住鍵 ⇒ **那位客人的出貨信永遠不會排進去**,而狀態是「跳過」不是
+   *    「失敗」⇒ 不進 due、不被任何 dead-man 命中。
+   * 🔴 **為什麼一定要在【同一發】裡**:分成兩步(先標 skip、再退休)的話,
+   *    「先 unvoid 後 skip」那個交錯順序會讓退休撲空 —— 而那個順序**實測可達**
+   *    (`scripts/shipunvoid1-apply-probe.sh` 的 W4,負對照 W4b 印不同的值)。
+   *    ⇒ 📌 **原子性是免費的:那一發 UPDATE 本來就存在,只是多帶一個欄位。**
+   */
+  markSkippedShipmentVoided(
+    id: string,
+    claimedAttempts: number,
+    currentDedupKey: string,
+  ): Promise<boolean>;
 
   /**
    * lease 回收:把「認領後程序才死」而卡在 `sending` 的列翻回**可重試的 `failed`**

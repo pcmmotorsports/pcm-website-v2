@@ -1,0 +1,36 @@
+# undefined-assert-gate 豁免清單 —— **只減不增**
+#
+# 🔴 每一行 = 一處【已經證明零判別力】的既有斷言。它們不會讓現有功能壞掉,
+#    而它們也擋不住下一次壞掉。⇒ **不要去找 bug** —— 它們是【少了保護】不是【有缺陷】。
+#
+# 🔴 鍵 = `檔案<TAB>鍵名`,**刻意不用行號** —— 行號會漂,而漂掉之後豁免會
+#    【自己失效】或【自己擴大】(漂到另一處上,那一處就靜靜被豁免),兩種都不會有人發現。
+#
+# ✅ **修好一處 ⇒ 把那一行刪掉。清單縮短 = 板 ⟦b4-UNDEFASSERT1⟧ 那一列在前進。**
+# 🛑 **不要往裡面加。** 加了本閘會紅(它會比對「清單裡有而全 repo 掃不到」的項目)。
+#
+# 📎 全文盤點 ~/pcm-mailbox/盤點-key-undefined-的斷言零判別力-20260901.md
+# 📎 已修 1 支:apps/admin/src/app/products/page.test.tsx(commit 970f1089)⇒ 它不在本清單裡
+apps/admin/src/lib/customers/customer-list-view.test.ts	tier
+apps/admin/src/lib/customers/email-verification-read.test.ts	provider
+apps/admin/src/lib/orders/order-list-view.test.ts	customer
+apps/admin/src/lib/orders/order-list-view.test.ts	den
+apps/admin/src/lib/orders/order-list-view.test.ts	goodsAxes
+apps/admin/src/lib/orders/order-list-view.test.ts	orderSources
+apps/admin/src/lib/orders/order-list-view.test.ts	panel
+apps/admin/src/lib/orders/order-list-view.test.ts	paymentChannels
+apps/admin/src/lib/orders/order-list-view.test.ts	paymentStatus
+apps/admin/src/lib/orders/order-list-view.test.ts	pending
+apps/storefront/src/app/checkout/charge-actions.test.ts	recTradeIdHint
+apps/storefront/src/components/CartVehicleField.test.tsx	year
+apps/storefront/src/contexts/CartContext.test.tsx	year
+apps/storefront/src/hooks/useResolvedCart.test.tsx	b
+apps/storefront/src/hooks/useResolvedCart.test.tsx	variantId
+apps/storefront/src/lib/garage-chip.test.ts	garageYear
+apps/storefront/src/lib/garage-chip.test.ts	year
+apps/storefront/src/lib/vehicle-url.test.ts	model
+apps/storefront/src/lib/vehicle-url.test.ts	year
+packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts	carrier
+packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts	donateCode
+packages/adapters/src/tappay/wire.test.ts	bankTransactionId
+packages/adapters/src/tappay/wire.test.ts	paymentUrl

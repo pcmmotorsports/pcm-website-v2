@@ -13,8 +13,18 @@ SELECT 'G3-' || lpad(g::text, 4, '0'),
   CASE WHEN g % 7 = 0 THEN 'out-of-stock' ELSE 'in-stock' END,
   b.id, c.id, '[]'::jsonb,
   jsonb_build_array(
-    jsonb_build_object('brand','Aprilia','modelCode','RSV4 1100 Factory','yearStart',2021,'yearEnd',2024),
-    jsonb_build_object('brand','Aprilia','modelCode','Tuono V4','yearStart',2021,'yearEnd',null)),
+    -- 🔴 **2026-09-02 `-0e` 修:key ~~`brand`~~ ⇒ `motoBrand`(三處)。**
+    --    成因:`sync_product_fitments` 這支 trigger 讀的是 `elem->>'motoBrand'`
+    --    ⇒ 而種子寫 `brand` ⇒ **每一列都被那道「非空字串才成列」的防禦性判斷跳過**
+    --    ⇒ ⇒ `product_fitments` 恆 0 ⇒ `vehicle_taxonomy_public` 恆 0
+    --    ⇒ ⇒ ⇒ **顧客站「先選車, 只看裝得上的零件」那一整塊在鑽機上永遠是空的。**
+    --    🛑 而它【不會出錯】:trigger 逐字說「單一髒元素跳過、絕不 rollback products」
+    --      ⇒ 種子印「✅ 有車款 72」、商品頁也顯示「適用 YZF-R7」(那是直接讀 products.fitments)
+    --      ⇒ **只有【選車篩選】那一條路是空的, 而沒有任何東西會叫。**
+    --    🟢 真相來源:正式庫實查 ⇒ `{"modelCode":"Bobber","motoBrand":"Triumph",…}`
+    --      + app 側 `motoBrand` 143 處引用、`brand` 0 處 ⇒ **`motoBrand` 才是合約。**
+    jsonb_build_object('motoBrand','Aprilia','modelCode','RSV4 1100 Factory','yearStart',2021,'yearEnd',2024),
+    jsonb_build_object('motoBrand','Aprilia','modelCode','Tuono V4','yearStart',2021,'yearEnd',null)),
   jsonb_build_array('乾式碳纖維，非水轉印','原廠孔位直上，不需鑽孔','附不鏽鋼固定件'),
   'rpm'
 FROM generate_series(1, 12) g
@@ -118,7 +128,7 @@ SELECT
        ELSE '[]'::jsonb END,
   CASE WHEN k = 1 THEN '[]'::jsonb
        ELSE jsonb_build_array(
-              jsonb_build_object('brand','Yamaha','modelCode','YZF-R7','yearStart',2021,'yearEnd',2025)) END,
+              jsonb_build_object('motoBrand','Yamaha','modelCode','YZF-R7','yearStart',2021,'yearEnd',2025)) END,
   jsonb_build_array('探針假資料，不是真商品', '形狀:' || (ARRAY['通用款無圖','有車款無圖','有圖多變體','有圖常態'])[k]),
   b.slug
 FROM (SELECT id, name, slug, row_number() OVER (ORDER BY slug) AS bn FROM brands) b
@@ -197,7 +207,14 @@ FROM customers c
 CROSS JOIN (VALUES
   ('PCM-2026-9001', 'paid',   'shipped',    5400, 160,   0, now() - interval '9 days', NULL::timestamptz, NULL::text),
   ('PCM-2026-9002', 'paid',   'inStock',    1800, 160,   0, now() - interval '6 days', NULL,              NULL),
-  ('PCM-2026-9003', 'paid',   'ordered',    4200, 160, 700, now() - interval '4 days', NULL,              NULL),
+  -- 🔴 **2026-09-02 `-0e` 修:折抵 ~~700~~ ⇒ 0**(舊值留著劃掉, 讓搜 700 的人撞到這裡)
+  --    成因:`20260901020000` 加了 CHECK `orders_discount_needs_coupon`
+  --    ⇒ **`discount_total` 與 `coupon_id` 要一起有、或一起沒有**。
+  --    而本種子只填折抵不填券 ⇒ 23514 ⇒ **`up.sh` 整支在這裡中止, 站根本沒起來**。
+  --    📌 **而它安靜了一天**:那支 migration 2026-09-01 落地, 而在那之後
+  --       【沒有任何人跑過 storefront probe】⇒ 這台鑽機壞掉零訊號。
+  --    ⇒ 🔵 要演「有券折抵」那個世界, 要連 `coupon_id` 一起種 —— 那是另一件, 不在本修。
+  ('PCM-2026-9003', 'paid',   'ordered',    4200, 160,   0, now() - interval '4 days', NULL,              NULL),
   ('PCM-2026-9004', 'unpaid', 'notOrdered', 2100, 160,   0, NULL,                      NULL,              NULL),
   ('PCM-2026-9005', 'paid',   'notOrdered', 1500, 160,   0, now() - interval '2 days',
      now() - interval '1 day', '探針假資料:客人要求取消')

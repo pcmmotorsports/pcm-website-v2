@@ -7,6 +7,38 @@
 --    ⇒ 包成一個交易,最後那句 UPDATE 對齊完才 COMMIT ⇒ **deferred 才發揮它的用途**。
 --    (2026-08-19 建這支腳本時實際踩到:錯誤訊息指著 order_items 那一句,
 --     而真正的原因是「這一句自己 commit 了」。)
+-- 🔴🔴 **這一段【必須在 BEGIN 之前】—— 2026-09-01 線【出貨】`-1e` 實測後搬上來**
+--    症狀:`cannot ALTER TABLE "orders" because it has pending trigger events`
+--    成因:整支種子是【一個交易】(見檔頭), 而 `ALTER` 前面已經有 INSERT
+--          ⇒ DEFERRED 觸發器還掛在那個交易上 ⇒ Postgres 拒絕 ALTER 那張表。
+--    ⇒ 📌 而那個錯誤訊息【不會說】「把 ALTER 搬到 BEGIN 前面」—— 那要撞過才知道。
+--       🔴 **而撞到的人看到的是一支【完全正常的 seed 檔】停在中間。**(線【出貨】原句)
+--    ⚠️ 代價明寫:它在交易外 ⇒ 種子後面炸掉的話, 這個約束改動【會留著】。
+--       拋棄式鑽機上那是可接受的(整座 PG 用完就丟);**在任何非拋棄式的庫上不成立。**
+--    📎 哪幾道是 DEFERRABLE:`~/pcm-mailbox/表-INSERT觸發器哪幾道會擋人-20260901.md`(`-a0` 2026-09-01)
+
+-- ── 🔴🔴 補上 D0 那條【沒 apply 成功】的約束放寬(2026-08-30 加)────────────────────
+-- **這是 runbook §3-a 那個病的一個【真實現場】**:逐字「失敗的那幾支會讓本機的約束比正式站舊
+-- —— 而它不會紅, 只會靜靜地說謊」。
+-- 現場:`20260729010000`(D0)在本鑽機 **FAIL**(它的驗收閘說「service_role 對 orders 的 SELECT 不見了」,
+--   那是鑽機 bootstrap 的洞, 不是那支 migration 的錯)
+--   ⇒ `orders_display_id_format` 停在**舊版**(只收 `PCM-YYYY-NNNN`)
+--   ⇒ 而 `pcm_generate_display_id()`(N3a, **有 apply 成功**)產的是**新的 6 碼**
+--   ⇒ **新產生器 + 舊約束** ⇒ 任何自己產號的路徑(手動建單就是)必死 `23514`。
+-- 🔴🔴 **而那個答案在起站當下就被印出來了** —— `20260730120100`(N3b)的前置閘逐字:
+--   「`orders_display_id_format` 沒有接受新 6 碼格式的分支。請先套用 20260729010000(D0);
+--    否則本片 apply 會全綠、但第一筆真結帳會死在 check_violation」
+--   ⇒ 📌 **寫那道閘的人, 把我後來花一小時找到的東西, 一句話寫在 apply.log 裡** ——
+--      而那個 log 沒有人讀。**訊號存在 ≠ 訊號被讀。**
+-- ⚠️ 這裡**只補那一條約束**, 不重跑整支 D0(它還做別的事, 而那些在鑽機上不需要)。
+ALTER TABLE public.orders DROP CONSTRAINT IF EXISTS orders_display_id_format;
+ALTER TABLE public.orders
+  ADD CONSTRAINT orders_display_id_format
+  CHECK (
+    display_id ~ '^PCM-[0-9]{4}-[0-9]{4,}$'
+    OR display_id ~ '^[23456789BCDFGHJKMNPQRSTVWXYZ]{6}$'
+  );
+
 BEGIN;
 
 -- admin 鑽機種子 —— **空庫沒有判別力**,所以這裡種到「後台每一頁都看得到東西」為止。
@@ -138,4 +170,125 @@ UPDATE orders o
   FROM (SELECT order_id, sum(line_total) AS sum_line FROM order_items GROUP BY order_id) s
  WHERE s.order_id = o.id;
 
+-- ── 🔴 員工一列(2026-08-30 加)——【真 session 的第三道閘要它】────────────────────
+-- `authorizeAdminMutation` 第 ③ 道是 `getSessionActor()` → `resolveStaff(id)` →
+-- `listActiveStaff()` 裡撈得到才算數。這張表本來是**空的** ⇒ 就算票是對的,第 ③ 道仍然回 null。
+-- ⚠️ 兩個 CHECK 要過:`staff_id_format ^[a-z0-9_]{1,64}$`、`staff_label_nonempty`。
+-- 🔴 `is_manager = true`:讓 `authorizeManagerMutation` 那一支(⟦b4-MGR0⟧)也走得通 ——
+--    否則「管理者專用」的那幾個動作在鑽機上仍然是死的,而那與本次要修的是同一種病。
+--    ⚠️ **代價明寫**:這台鑽機上的人是管理者 ⇒ **鑽機證不了「非管理者會被擋下」**。
+--    要驗那一面,把這一列改成 `false` 再跑一次 —— 那是另一個世界,不是同一發。
+INSERT INTO staff (id, label, is_manager, is_active)
+VALUES ('probe_staff', '探針員工', true, true)
+ON CONFLICT (id) DO UPDATE SET is_manager = true, is_active = true;
+
+
+-- ── 🔴🔴 把 `order_display_seq` 推到與種子單一致(2026-08-30 加)──────────────────
+-- **成因是量到的, 不是想到的**:種子用**寫死的** `display_id`(`PCM-2026-1001`…)插單,
+-- 而**完全沒有動那個序號** ⇒ 它停在 `last_value=1, is_called=f`。
+-- ⇒ 任何【自己產號】的路徑(`admin_create_manual_order` 就是)會產出 `PCM-2026-1`
+--    ⇒ 撞 `orders_display_id_format`(`^PCM-[0-9]{4}-[0-9]{4,}$` **要 4 位以上**)⇒ `sqlstate 23514`。
+-- 🔴 **而那個失敗【看起來像產品壞了】** —— 畫面回 `manual_order_bug`、log 的 `constraint` 是 `null`
+--    (那支刻意不記訊息, 因為含 PII ⇒ **那是對的, 不要為了 debug 改它**)。
+--    ⇒ 📌 **要分辨「真 bug」與「我的資料不夠真」, 唯一的路是【在拋棄式庫上重放同一筆 payload】,
+--       讓 Postgres 自己把 constraint 名字印出來。**本機庫沒有 PII 顧慮 ⇒ 這條路不必動產品碼。
+-- ⚠️ 正式庫沒有這個問題:那個序號已經跑過幾千次, 天生就是 4 位以上。
+--    ⇒ **這是【鑽機的資料不夠真】, 不是產品缺陷。**
+SELECT setval('order_display_seq',
+              GREATEST((SELECT COALESCE(MAX(split_part(display_id, '-', 3)::bigint), 0) FROM orders), 1000),
+              true);
+
 COMMIT;
+
+-- ── 客人的收件地址與車庫(2026-08-31 線【客人帳戶區】`-08` 補)──────────────
+-- 🔴 **為什麼補**:spec `#25` 那一格逐字卡在「地址 / 愛車**判不了** —— 鑽機那兩張表是空的
+--    ⇒ 畫面印『目前沒有收件地址』= **沒資料, 不是不能改**」。
+--    ⇒ 📌 **那是【鑽機的缺】被記成【產品的未知】** —— 而它擋了那一格九天。
+--    ⇒ 種了之後當場判得出來:兩段都印得出來, 而**那兩段裡的互動元素數 = 0** ⇒ 看得到、改不了。
+-- ⚠️ 而畫面上那兩段的標題是「收件地址」與**「車庫」**(不是「愛車」)——
+--    我第一發用 `愛車|車輛` 找標題得到零命中, 而那不是「沒有那一段」。
+INSERT INTO public.customer_addresses
+  (id, customer_user_id, is_default, name, phone, line, invoice_type,
+   invoice_title, invoice_tax_id, invoice_donate_code, email)
+VALUES
+  (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', true,
+   '探針客人甲', '0912345678', '台北市中山區測試路 1 號 3 樓', 'personal', '', '', '', 'probe@example.com')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO public.customer_vehicles
+  (id, customer_user_id, is_primary, name, year, engine, km, mods, dict_brand_name, dict_model_name)
+VALUES
+  (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', true,
+   'BMW M3 (探針)', '2019', 'S58', '42000', '中冷 / 排氣', 'BMW', 'M3')
+ON CONFLICT DO NOTHING;
+
+-- ── 一筆【哨兵收款】(2026-08-31 線【客人帳戶區】`-08` 種;主視窗 `-48` 批「甲 種」)──────
+-- 🔴 **為什麼種它**:首頁「今日對帳」的「今日實收(淨)」走 RPC `admin_today_payment_total`。
+--    那支 RPC **在鑽機上存在**, 而 `order_payments` **一列都沒有** ⇒ 它今天回 `(0,0)`,
+--    而**換一天也回 `(0,0)`** ⇒ 📌 **【正對照造不出來】** ⇒
+--    **我分不出「管線正常而真的沒錢」與「管線壞了」** —— 那一格因此驗不了。
+--    (同 `#25` 那次:**量具的缺被記成產品的未知**。而收款是【下一個會擋人的空表】。)
+--
+-- 🔴 **它被做成【一眼看得出是假的】, 不是【查得到它是假的】**(主視窗指定, 比「濾得掉」強一級):
+--    · `amount = 1` —— **NT$1**, 現實中不會有人匯 1 元
+--    · `bank_reference = 'ZZQ-PROBE-SEED-20260831'` · `note` 也帶同一個字面
+--    ⇒ 📌 **「濾得掉」把工作留給下一個人;「一眼看得出」把工作做掉了。**
+--
+-- ✅ **而分母【已經算好】, 不要下一個人自己扣**(主視窗指定):
+--    這台鑽機上的 `order_payments` = **種的 1 筆 + 真的 0 筆**。
+--    數法:`select count(*) filter (where bank_reference like 'ZZQ-PROBE-SEED%'
+--            or note like '%ZZQ-PROBE-SEED%') from public.order_payments`
+--
+-- ✅ **種完之後那個正對照就造得出來了**(當場實跑):
+--    `admin_today_payment_total` 今天 ⇒ `(1,1)` · 昨天 ⇒ `(0,0)`;首頁畫面 ⇒ **今日實收(淨) NT$ 1**
+--    ⇒ 🔴 **⇒ 那條管線【看得見資料】** ⇒ **種之前那個 0 是真的 0, 不是尺沒接上。**
+INSERT INTO public.order_payments
+  (id, order_id, rail, amount, received_at, bank_reference, request_id, actor, note)
+SELECT gen_random_uuid(), o.id, 'bank_transfer', 1, now(),
+       'ZZQ-PROBE-SEED-20260831', gen_random_uuid(), 'probe_staff',
+       '🔴 探針種子資料(ZZQ-PROBE-SEED)—— 不是真收款。種它的理由見本檔上方註解。'
+  FROM public.orders o
+ WHERE o.payment_status = 'paid'
+ ORDER BY o.created_at
+ LIMIT 1
+ON CONFLICT DO NOTHING;
+
+-- ── 一張【哨兵訂單】ZZQPRB + 它的哨兵收款(2026-08-31 `-08` 種;主視窗批「丙」)───────────
+-- 🔴 **這張單存在的理由, 只有一個**:讓那條預設隱藏述詞的【第二項與第三項分得開】。
+--    述詞(`SupabaseOrderAdapter.test.ts:409` 逐字)是 OR:
+--      payment_channel.neq.tappay , payment_status.neq.unpaid , and(paid_total.neq.0 , cancelled_at.is.null)
+--    ⇒ 一張單只有在【tappay 且 unpaid 且(paid_total=0 或已取消)】三件同時成立時才會被藏。
+--    而在種它之前, 這台鑽機上唯一 `paid_total > 0` 的單是 `PCM-2026-1002`,
+--    **它的 payment_status 是 paid** ⇒ **第二項就已經讓它顯示** ⇒ 第三項有沒有生效【分不出來】。
+--
+-- 🛑 **而【不能】改 `PCM-2026-1001` 來湊**(主視窗裁「乙」⇒ 我提丙 ⇒ 批丙):
+--    那張單是這台鑽機上**唯一一個「被正確地藏起來」的樣本**。
+--    📌 **一個「東西被正確地藏起來」的樣本, 天生比「東西正確地顯示」的樣本難取得** ——
+--       **因為前者要三個條件同時成立, 而後者只要一個。**
+--    ⇒ **⇒ 在鑽機上, 負向樣本要當【消耗品】管理, 不能順手改掉。**
+--
+-- ✅ **種完之後那組對照長這樣**(只差 `paid_total` 一項, 其餘完全相同):
+--      PCM-2026-1001  tappay / unpaid / paid_total 0  ⇒ 述詞判【藏】· 真畫面【沒出現】
+--      ZZQPRB         tappay / unpaid / paid_total 1  ⇒ 述詞判【顯示】· 真畫面【出現】
+--    ⇒ 🔴 **變因只有一個 ⇒ 那一項【真的在生效】。**
+--
+-- ✅ **分母寫成兩個數, 不要合成一個**(主視窗指定):
+--      哨兵收款 = **2 筆**(`bank_reference like 'ZZQ-PROBE-SEED%'`)
+--      哨兵訂單 = **1 張**(`display_id = 'ZZQPRB'`)
+-- ⚠️ **而 `/orders` 預設清單因此從 7 張變 8 張** ——
+--    任何引用「預設清單 N 張」的量測**要帶日期**, 否則下一個人會以為它退步了。
+INSERT INTO public.orders (id, display_id, customer_user_id, shipping_address_snapshot, tier_at_checkout,
+                           subtotal, shipping_fee, total, shipping_method, invoice, shipping_method_at_checkout,
+                           payment_channel, payment_status, fulfillment_status, created_at, updated_at)
+SELECT gen_random_uuid(), 'ZZQPRB', o.customer_user_id, o.shipping_address_snapshot, o.tier_at_checkout,
+       1, 0, 1, o.shipping_method, o.invoice, o.shipping_method_at_checkout,
+       'tappay', 'unpaid', o.fulfillment_status, now(), now()
+  FROM public.orders o WHERE o.display_id = 'PCM-2026-1001'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO public.order_payments (id, order_id, rail, amount, received_at, bank_reference, request_id, actor, note)
+SELECT gen_random_uuid(), o.id, 'bank_transfer', 1, now(),
+       'ZZQ-PROBE-SEED-20260831-B', gen_random_uuid(), 'probe_staff',
+       '探針種子(ZZQ-PROBE-SEED)—— 為了讓述詞的第二項與第三項分得開'
+  FROM public.orders o WHERE o.display_id = 'ZZQPRB'
+ON CONFLICT DO NOTHING;

@@ -18,6 +18,19 @@
 #   本工具補的是【分母】那一半:抓出所有呼叫 git 寫入的腳本,並標出【哪些閘測不到】(無 --selftest)。
 #   「抓得到」與「測得到」是兩件事,而它們在一份「分母 N 支」的報告上長得一樣。
 #
+# 🔴🔴 **本尺只讀【一行】—— 把 `git` 藏進一個 helper 的檔, 對它結構上隱形。**
+#    (2026-08-31 用它自己的 `pyjs_calls_git_write()` 逐樣本量的, 含負對照:)
+#      `subprocess.run(['git','-C',d,'commit','-qm','base'])`  ⇒ True   ← 字面在同一行
+#      `sp.run(['git','-C',d] + list(a), …)`                   ⇒ **False** ← 動詞在變數裡
+#      `g('commit', '-qam', 'stock')`                          ⇒ **False** ← 呼叫端沒有 `git` 字面
+#      `print('這行沒有任何 git 呼叫 zzz')`                    ⇒ False   ← 負對照
+#    ⇒ 📌 **一支把 git 包成 `def g(*a): run(['git','-C',d]+list(a))` 的檔, 整支對它不存在。**
+#    🔴 **而 08-31 洩漏身分的那一支 `scripts/md-table-overflow.py` 正是這個形狀**
+#       ⇒ **它今天不在下面那份分母裡, 而它就是本工具存在理由的最新一次發生。**
+#    🛑 **這一格【刻意不修】**(2026-08-31 主視窗裁):追函式沒有便宜解,
+#       而一個【追得不完整】的版本會讓人把「看得見一部分間接呼叫」讀成「看得見間接呼叫」
+#       ⇒ **比現在這個誠實的盲區更貴。**⇒ 寫在這裡, 讓【讀這份報告的人】看得到, 不是只在 git log 裡。
+#
 # 分母怎麼建(每一條對應現行閘的一個洞):
 #   ① python3 逐檔讀 bytes,不用 ugrep(ugrep 的 -I 會把某些檔判 binary ⇒ 分母靜默縮水)
 #   ② shebang 偵測候選,不寫死副檔名(舊閘 `\.(py|sh)$` 濾掉了 quantifier-hook.harness.js〔.js〕)
@@ -36,20 +49,41 @@
 import subprocess, re, io, os, sys
 
 # ═══ 這張表是分母的【唯一來源】—— 設計文件引用它、WRITE 正則【從它生成】(b4:表與碼要同源)═══════
-#   只收【會寫 index / 工作樹 / refs】的子命令 —— 本閘防的是「主 repo 的 index/工作樹被寫」。
+#   只收【會寫 index / 工作樹 / refs / **repo 設定**】的子命令 —— 本閘防的是「主 repo 被寫」。
+#   🔴 「repo 設定」是 2026-08-31 擴的:原句只寫 index/工作樹/refs, **而 `config` 三者都不是**
+#      ⇒ 下一個照那句準則盤點的人會把 `config` 判成不該收而刪掉它。
+#      📌 **一條把自己的新成員排除在外的準則, 讀起來完全自洽。**
 #   🔴 push/fetch/gc/repack/write-tree 刻意【不收】:它們寫遠端或物件庫,不碰 index/工作樹
 #      ⇒ 不是本次事故(git add -A 把 index 全 stage 成刪除)的形狀。(b4 F2 + 主視窗裁 push 不進表)
+# 🔴 `'config'` 是 2026-08-31 加的, 而它補的是【本工具存在的那個理由的最新一次發生】:
+#    08-31 凌晨一支 selftest 的 `git -C <tmp> config user.name t` 在 hook 底下(GIT_DIR 有值)
+#    寫進了**全窗共用的 `.git/config`** ⇒ **38 顆 commit(每個窗、每條線)的作者變成 `t <t@t>`**。
+#    ⇒ 📌 **本工具的存在理由是 08-27 的事故, 而 08-31 的事故用的動詞不在這張表裡。**
+#    ⚠️ 一次只加一個動詞(08-31 這次只加 `'config'`)—— 多標出來的那幾支才分得出是誰造成的。
 WRITE_VERBS = ['add', 'rm', 'mv', 'commit', 'reset', 'restore', 'stash', 'checkout', 'switch',
                'apply', 'update-index', 'update-ref', 'clean', 'init', 'rebase', 'cherry-pick',
                'am', 'revert', 'pull']
+# 🔴🔴 **你如果正要在上面那一行後面加一個動詞, 先讀這三行**(2026-08-31 主視窗要求寫在這裡,
+#    不寫在表【上面】—— 今晚已量到兩次「寫對地方 ≠ 會被讀到」):
+#    你加的動詞會**同時**進 `_PYJS_CONCAT` 的第二條 alternative(`+ '<動詞>'`),
+#    🔴 **而那一條【沒有 `git` 錨】** ⇒ 任何 `x + '<你加的動詞>'` 都會命中, 不論它跟 git 有沒有關係。
+#    ⇒ 📌 **短又常見的英文字(`am` / `mv` / `pull` / `clean`)進來時, 誤報面是【整個 repo】。**
+#    ✅ 加完當場跑一次 `--self-check`, 並看下面那格 `'CONCAT 代價'` 的輸出。
 # merge 但排除唯讀 plumbing merge-base/merge-tree/merge-file(reviewer R2:`\b` 在 e 與 - 之間會誤中)
 WRITE_MERGE = r'merge(?!-)'
+# 🔴 `config` **不放進 WRITE_VERBS**, 因為它的唯讀形比寫入形常見(`--get` / `-l` / `--list`
+#    / `--get-regexp` / `--get-all` / `--show-origin`)⇒ 直接放進去會把每一支【讀】設定的腳本
+#    都標成寫入。而本檔 `:40-42` 自己記著「58% 噪音讓閘被學會忽略」⇒ **加噪音等於關掉這道閘。**
+#    ✅ 照本檔既有的 `WRITE_MERGE` 慣例, 用否定前瞻把唯讀形排掉。
+#    ⚠️ **它擋不住什麼**:`git config --get-color` 之類沒列到的唯讀旗標仍會誤判成寫入;
+#       而 `git config` 不帶任何參數(互動式編輯)會被判成寫入 —— **那是對的**。
+WRITE_CONFIG = r'config(?! +(?:--get\b|--get-all\b|--get-regexp\b|--list\b|--show-origin\b|-l\b))'
 # 有唯讀形(list/status)的,只認其【寫入子動作】(reviewer R2:否則 `git worktree list` 破負對照)
 WRITE_SUBACTION = {'worktree': ['add', 'remove', 'move', 'repair', 'prune'],
                    'submodule': ['update', 'add', 'deinit', 'set-url', 'set-branch', 'sync']}
 # 🔴 `-C <path>` / `-c <k>=<v>` 的參數是【下一個 token】(本次事故 `git -C "$dir" add` 的形狀,reviewer R1)
 _FLAG = r'(-C +\S+|-c +\S+|-[^ \n]+)'
-_ALTS = [rf'(?:{"|".join(WRITE_VERBS)}|{WRITE_MERGE})\b'] + \
+_ALTS = [rf'(?:{"|".join(WRITE_VERBS)}|{WRITE_MERGE}|{WRITE_CONFIG})\b'] + \
         [rf'{k} +(?:{"|".join(v)})\b' for k, v in WRITE_SUBACTION.items()]
 WRITE = re.compile(rf'git( +{_FLAG})* +(?:{"|".join(_ALTS)})')
 
@@ -72,7 +106,22 @@ _PYJS_LIST = re.compile(rf'''[\[(]\s*['"]git['"]\s*,[^\])]*?['"](?:{_PYJS_VERBS}
 _PYJS_NODE = re.compile(
     rf'''(?:execFile|execFileSync|spawn|spawnSync|execa)\s*\(\s*['"]git['"]\s*,\s*\[[^\]]*?['"](?:{_PYJS_VERBS})['"]''')
 # 動態拼接 'git ' + 'commit'(quantifier-hook 躲字面掃描的形;b4 R2-2:不再靠硬編名字,靠通則抓)
-_PYJS_CONCAT = re.compile(r'''['"]git\s*['"]\s*\+|\+\s*['"](?:commit|add|rm|reset|checkout|init|worktree|submodule)['"]''')
+# ✅ **2026-08-31:第二份動詞表已刪, 改引用 `WRITE_VERBS`**(主視窗拍【乙】)。
+#    ⛔ ~~原本這裡內嵌一份自己的 8 個動詞(commit|add|rm|reset|checkout|init|worktree|submodule)~~
+#    🔴 **而「為什麼要兩份」查不到答案**:那一行的來歷 `67f25ee8` 的 commit 訊息講的是
+#       「py/js 執行形跟 shell 相反」, **沒有一句在講為什麼動詞表要另外寫一份**
+#       ⇒ 📌 **它不是一個被權衡過的決定, 是一個沒有人回來對的重複。**
+#    ⚠️ **而我原本替它想的理由被自己的量測推翻了**:我以為「B 沒有 `git` 錨 ⇒ 加動詞會誤中英文字」,
+#       實測掃 1595 支 .py/.js/.ts/.mjs/.tsx ⇒ 8 個動詞命中 5 行、完整表也命中 **5 行**、
+#       新增誤報 **0 行**(負對照 `+ "zzznotaverb"` ⇒ 0)。**⇒ 不能拿一個被推翻的理由當理由。**
+# 🔴🔴 **`'config'` 要【單獨補進來】, 而這一格是實測逼出來的**:
+#    它不在 `WRITE_VERBS` 裡(它在 `WRITE_CONFIG`, 因為要用否定前瞻擋唯讀形)
+#    ⇒ 第一版寫 `WRITE_VERBS + WRITE_SUBACTION` 之後, `x + 'config'` ⇒ **False**
+#    ⇒ 📌 **同步之後, 今晚出事的那個動詞反而【不在】這一半裡** —— 而 self-check 全過。
+#    ✅ 拼接形沒有旗標可看(`+ 'config'` 後面接不到 `--get`)⇒ 這裡收全部, 不做唯讀排除。
+_CONCAT_VERBS = '|'.join(sorted(WRITE_VERBS + list(WRITE_SUBACTION) + ['config'],
+                                key=len, reverse=True))
+_PYJS_CONCAT = re.compile(rf'''['"]git\s*['"]\s*\+|\+\s*['"](?:{_CONCAT_VERBS})['"]''')
 # 🔴 exec-string 必須是【傳給 exec 函式的字串】,不是【當測資/訊息的字串】——
 #    否則本工具自己的 self-check 世界 `('git -C "$d" add -A', True)` 會誤中(那是測資不是執行)。
 #    exec sink:subprocess.run/Popen/call/check_*、os.system/popen、execSync/execFileSync、spawn* 等。
@@ -257,6 +306,62 @@ def self_check():
         ('git merge-base HEAD x',         True,  False),   # 唯讀 plumbing
         ('git worktree list',             True,  False),   # 唯讀子動作
         ('git status --porcelain',        True,  False),
+        # 🔴 這三格是 2026-08-31 加的 —— **在它們之前, 拿掉 `config` 那條腿【沒有東西會紅】**
+        #    (code-reviewer 實跑:M1 移除 ⇒ `--self-check` 仍 rc=0、0 紅)
+        #    ⇒ 📌 **一個保護寫對了而沒有接上, 與沒寫的行為相同 —— 而前者更貴。**
+        ('git -C "$d" config user.name t', True,  True),   # 08-31 洩漏身分的那個形狀
+        ('git config --get user.name',     True,  False),  # 唯讀形 ⇒ 不算寫入
+        ('git config -l',                  True,  False),  # 同上, 短旗標
+        # 🛑 **這一份世界清單【殺不掉「把某一格刪掉」那種突變】**(2026-08-31 實跑:
+        #    M4 刪掉上面那個正對照格 / M5 刪掉兩個負對照格 ⇒ **`--self-check` 仍 rc=0、0 紅**)。
+        #    成因與 `scripts/literal-sweep.sh` 同一個:**它只【印】格子, 不【算】格子。**
+        #    ✅ 那一支 2026-08-31 已經修好(`be917373`):`pass()/fail()` 累加一個計數,
+        #       收工比「跑了幾格 vs 期望幾格」, 而期望值綁回**資料**(不寫死數字)。
+        #    🛑 **本片刻意不順手做** —— 主視窗指派逐字「一次只加一個變因」,
+        #       而那是**測試結構**的改動、不是這條 `config` 腿的一部分
+        #       ⇒ 混在同一顆裡的話, 之後多標/少標的那幾支分不出是誰造成的。
+        #    ✅ **2026-08-31 已補**:見下方 `REQUIRED_SHELL` / `REQUIRED_PYJS`(具名答案卷)。
+    #       實跑:刪掉這四格裡任一格 ⇒ **紅**(M4/M5/M6/M7)。
+    #    🛑 **而仍然殺不掉的兩發要寫出來**(2026-08-31 實跑):
+    #       M8 把覆蓋檢查改成不設 `ok = False` / M11 把答案卷的非空守門拿掉 ⇒ **仍然全過**。
+    #       —— 兩發都是所有「守門的守門」共有的性質:**在沒有東西該紅的那一天,
+    #          有它跟沒它印同一個字** ⇒ 再加一道去守它 = **無窮後退, 停在這裡。**
+    #    🔴 **而第三發值得單獨記, 因為它是【我的量具錯】不是 finding**:
+    #       我第一版的 M9 寫成 `REQUIRED_SHELL = [] or [...]` ——
+    #       Python 裡 `[] or [x]` 求值成 `[x]` ⇒ **那份清單根本沒被清空** ⇒ 它印 ALIVE。
+    #       📌 **⇒ 我只驗了【字元變了】, 沒驗【行為變了】。**
+    #       ✅ 真的把整段換成 `REQUIRED_SHELL = []` 之後 ⇒ **當場紅**(非空守門接住)。
+    #       ⇒ 🔴 **一發沒有落地的突變, 與一發被殺不掉的突變, 在輸出上印同一個 ALIVE。**
+    ]
+    # 🔴🔴 **這一段是 2026-08-31 加的, 它擋的是【把某一格刪掉】** ——
+    #    實跑量到:刪掉下面任一格 ⇒ `--self-check` 仍 rc=0、0 紅(M4/M5)。
+    #
+    #    🛑 **而【計數】在這一支【行不通】, 這一格值得寫下來:**
+    #       `scripts/literal-sweep.sh` 那一支用「跑了幾格 vs 期望幾格」解掉同一個病,
+    #       而它的期望值來自**另一個來源**(答案卷的 cat 條數)⇒ 刪一格會對不上。
+    #       🔴 本支的期望值**只能從這份清單自己算** ⇒ `len(worlds)` ⇒ **刪一格兩邊同減 ⇒ 恆等。**
+    #       📌 **⇒ 一個從被測物自己算出來的期望值, 它不可能抓到被測物少了東西。**
+    #    ✅ **所以這裡用【具名】不是【計數】**:同構的世界(那一支的七格是同一個 for 跑出來的)
+    #       用計數;**各自不同**的世界用具名 —— 而這 27 格每一格都是不同的形狀。
+    #    ⚠️ 下面這份是**刻意的第二份清單**(答案卷),它只列【承重的那幾格】:
+    #       新增世界不必登記(不會紅);**刪掉登記過的會紅**。
+    REQUIRED_SHELL = [
+        'git -C "$d" add -A',                # 事故形狀 —— 本工具的存在理由
+        'git -C "$d" config user.name t',    # 08-31 洩漏身分的形狀
+        'git config --get user.name',        # config 唯讀形不得誤收
+        'git config -l',                     # 同上, 短旗標
+        'git merge-base HEAD x',             # 唯讀 plumbing 不得誤收
+        'git worktree list',                 # 唯讀子動作不得誤收
+    ]
+    REQUIRED_PYJS = [
+        "subprocess.run(['git','-C',d,'commit'])",   # py 清單形
+        "execFileSync('git', ['add', '-A'])",        # Node 分離參數形
+        "execFileSync('git', ['status'])",           # 同形【唯讀】⇒ 不得誤收
+        'log("see git commit history")',             # 散文裡的 git ⇒ 不得誤收
+        "CMD = GITBIN + 'commit'",                   # `_PYJS_CONCAT` 第二條 alternative 的唯一證人
+        "note = prefix + 'am'",                      # 🔴 同步的【代價】—— 見那一格的註解
+        "cmd = base + 'config'",                     # 同步時最容易掉的那個(它不在 WRITE_VERBS 裡)
+        "cmd = base + 'worktree'",                   # 來自 WRITE_SUBACTION 那半
     ]
     for frag, sh, exp in worlds:
         got = calls_git_write(frag, sh)
@@ -270,6 +375,27 @@ def self_check():
         ("subprocess.run('cd x && git init', shell=True)", True),   # exec-string
         ("execSync('git add -A')",                         True),   # js
         ("GC = 'git ' + 'commit'",                         True),   # 動態拼接(不靠硬編)
+        # 🔴 這一格是 2026-08-31 加的, 而它蓋的是 `_PYJS_CONCAT` 的**第二條 alternative**
+        #    (`+ '<動詞>'` 那一半, 它內嵌了一份自己的動詞表)。
+        #    🛑 **在它之前那一半【零覆蓋】**:code-reviewer 實跑 M5 把那份內嵌表清空 ⇒ self-check 全過。
+        #    成因量到了:上面那格 `'git ' + 'commit'` 是被**第一條** alternative(`'git ' +`)接住的
+        #    ⇒ 兩條都中 ⇒ **拿掉第二條也不會紅。**
+        #    ✅ 這一格刻意**沒有 `git` 字面** ⇒ 第一條不可能中 ⇒ **只有第二條接得住它。**
+        #    📌 **⇒ 一個 `A|B` 的正則, 它的每一條都要有一個【只有它會中】的世界。**
+        ("CMD = GITBIN + 'commit'",                        True),   # 只有第二條 alternative 接得住
+        # 🔴🔴 **這一格【不是】我們想要的行為 —— 它在這裡是為了讓「同步的代價」變成【會跑的東西】。**
+        #    `am` 是 `WRITE_VERBS` 裡最短最常見的那個, 而第二條 alternative 沒有 `git` 錨
+        #    ⇒ 一句普通的 `note = prefix + 'am'` 會被判成「呼叫 git 寫入」。
+        #    📌 **⇒ 主視窗要求「代價能寫成測試就不要寫成註解」, 而【誤報面本身守不住】**
+        #      (它是設計上的後果, 不是 bug)⇒ **能做的是讓它每次跑都印出來, 而不是躺在註解裡。**
+        #    ⚠️ **有人哪天把第二條收窄回去 ⇒ 這一格會紅** ⇒ 那時請【重讀上面 WRITE_VERBS 那段警語】
+        #       再決定, 不要直接把這一格改掉。
+        ("note = prefix + 'am'",                           True),   # CONCAT 代價(刻意的假陽性)
+        # 🔴 這兩格各自守一個【同步時最容易掉的東西】(2026-08-31 實測逼出來的):
+        #    `config` —— 它不在 `WRITE_VERBS` 裡 ⇒ 第一版同步之後它【掉了】而 self-check 全過
+        #    `worktree` —— 它來自 `WRITE_SUBACTION` ⇒ 少加那半的突變(M18)當時【殺不掉】
+        ("cmd = base + 'config'",                          True),   # 今晚出事的那個動詞
+        ("cmd = base + 'worktree'",                        True),   # 來自 WRITE_SUBACTION 那半
         ("GC = 'git ' + 'status'",                         True),   # 🔴 拼接【刻意不分動詞】:動態建命令看不到動詞 ⇒ 一律收(安全方向,code-reviewer R3)
         ("subprocess.check_call(('git','commit','-m','x'))", True),  # 🔴 b4 R3-1:Python tuple 形(對 subprocess 等價 list)
         ("execFileSync('git', ['add', '-A'])",             True),   # 🔴 b4 R3-2:Node 分離參數形(叫 git 最標準、不經 shell)
@@ -285,6 +411,27 @@ def self_check():
         mark = '✅' if got == exp else '🔴'
         print(f"  邊界(py/js) {mark} pyjs_calls_git_write({frag!r}) = {got} (期望 {exp})")
         ok = ok and (got == exp)
+    # 🔴 **答案卷不得是空的** —— 空的答案卷會讓上面那段【全過而什麼都沒驗】。
+    #    抄 `scripts/literal-sweep.sh:125` 的成例(它對自己的答案卷做同一件事,
+    #    逐字「沒有答案卷就沒有獨立的期望值, 全綠沒有意義」)。
+    #    ⚠️ 這裡寫死 `>= 6` / `>= 4` 是刻意的:**答案卷【只增不減】** ——
+    #    新增承重的格子時把數字一起加大;而**要減的時候它會擋你一次, 逼你說明為什麼。**
+    #    (與 `EXPECT_RAN` 那種「綁回資料」的做法【相反】, 因為這一份【就是】那個獨立來源。)
+    if len(REQUIRED_SHELL) < 6 or len(REQUIRED_PYJS) < 8:
+        ok = False
+        print(f"  🔴 答案卷被縮小了(shell {len(REQUIRED_SHELL)} 期望 >=6 / "
+              f"py-js {len(REQUIRED_PYJS)} 期望 >=8)⇒ 這一發的綠不算數")
+    for name, req, have in (('shell', REQUIRED_SHELL, [w[0] for w in worlds]),
+                            ('py/js', REQUIRED_PYJS, [w[0] for w in pyjs_worlds])):
+        missing = [f for f in req if f not in have]
+        if missing:
+            ok = False
+            print(f"  🔴 {name} 少了承重的世界(有人把格子刪掉了):")
+            for f in missing:
+                print(f"       {f!r}")
+        else:
+            print(f"  覆蓋({name}) ✅ 承重的 {len(req)} 格都在(清單共 {len(have)} 格)")
+
     print("  ⇒", "self-check PASS" if ok else "🔴 self-check FAIL")
     return 0 if ok else 1
 

@@ -129,6 +129,14 @@ else
   printf '%s\n' '   復原:git checkout -- .husky/acl-drift-gate.sh' >&2
   exit 2
 fi
+if [ -f .husky/undefined-assert-gate.sh ]; then
+  sh .husky/undefined-assert-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/undefined-assert-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   同族理由:同一顆 commit 刪掉本閘、再做本閘要防的事 ⇒ fail-open 等於自己關掉自己。' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/undefined-assert-gate.sh' >&2
+  exit 1
+fi
 if [ -f .husky/zsh-shebang-gate.sh ]; then
   sh .husky/zsh-shebang-gate.sh || exit $?
 else
@@ -136,6 +144,16 @@ else
   printf '%s\n' '   它守的是:repo 裡 55 處 `for X in $VAR` 現在是對的, 靠「沒有一支被 zsh 跑」' >&2
   printf '%s\n' '   ⇒ 第一支 zsh shebang 出現的那天, 55 處會同時只跑一次而沒有東西會紅' >&2
   printf '%s\n' '   復原:git checkout -- .husky/zsh-shebang-gate.sh' >&2
+  exit 2
+fi
+
+if [ -f .husky/md-table-overflow-gate.sh ]; then
+  sh .husky/md-table-overflow-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/md-table-overflow-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   它守的是「表格多一格 ⇒ 那一格在渲染時被丟掉」——' >&2
+  printf '%s\n' '   而檔案裡那些字一個都沒少, grep 讀得到 ⇒ 只有渲染那一層看得見。' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/md-table-overflow-gate.sh' >&2
   exit 2
 fi
 if [ -f .husky/view-apply-gate.sh ]; then

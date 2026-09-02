@@ -27,7 +27,7 @@ export interface ICustomerRepository {
   findByEmail(email: string): Promise<Customer | null>;
   update(
     id: CustomerId,
-    patch: Partial<Pick<Customer, 'name' | 'phone' | 'birthday'>>,
+    patch: Partial<Pick<Customer, 'name' | 'phone' | 'birthday' | 'gender'>>,
   ): Promise<Customer>;
 
   /**

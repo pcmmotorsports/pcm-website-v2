@@ -1,5 +1,19 @@
 import 'server-only';
 import { SYNTHETIC_EMAIL_BASE_DOMAIN } from '@pcm/schemas';
+
+/**
+ * 搜尋事件的稽核動作代碼(⟦b4-ENUM3⟧ 片 1)。
+ *
+ * 🔴 **它 export 不是為了給別人用, 是為了讓【寫入端】與【查詢/告警端】引用同一個常數** ——
+ *    有人改這個名字, 引用它的那一端會**編譯紅**;而各自打字串的世界裡, 那是靜靜地斷掉。
+ *
+ * 🛑 **而它住在【這一支】而不是 `manual-customer-actions.ts`, 是被 build 逼出來的**:
+ *    那一支是 `'use server'`, 而 **`'use server'` 檔只能匯出 async function** ——
+ *    我第一版把常數放在那裡 ⇒ typecheck **綠**、而 `next build` 紅
+ *    (「the requested export doesn't exist」, 追到 `manual-customer-actions.ts:74`)。
+ *    📌 ⇒ **型別檢查看不到那條規矩, 只有 build 看得到。**
+ */
+export const MANUAL_CUSTOMER_SEARCH_ACTION = 'admin.manual_customer.searched';
 // 🔴 GoTrue 錯誤碼的判別**走共用那一支**,不在本檔再寫一份(2026-08-28 R3 F5)——
 //    而那正是本檔 `:3-5` 自己寫下的紀律:「兩份的那天,寬的那份會…」
 //    ⚠️ 我在同一份 diff 裡寫下那條規矩、然後違反了它。共用版取**窄**的,理由在該檔。

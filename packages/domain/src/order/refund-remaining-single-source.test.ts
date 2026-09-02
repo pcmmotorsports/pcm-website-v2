@@ -59,6 +59,68 @@ const REFUND_AMOUNT_COL = /"?\brefund_amount\b"?/g;
 //   ⚠️ 它**不在 CI**,不會自己紅。這一行就是它的兩個落點之一(另一個在該 RPC 的 COMMENT ON FUNCTION)。
 
 const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
+  // ── 2026-09-02 · 線【出貨】`-0e` 補(而**那支 migration 不是我寫的** ——
+  //    `3b546a59` 才是它的第一顆, 而我今晚的錨一個都沒命中它。
+  //    `-5b` 請我寫這一筆, 理由是那個技術判斷要有人做; 我做, 而**作者不是我**這件事寫在這裡,
+  //    免得下一個人以為「作者自己審自己」。) ────────────────────────────────
+  '20260901080000_m4b_autorefund_pending_refunds.sql': {
+    count: 3,
+    why:
+      // 🔴 why 要答的是「gate 為什麼對【正確的東西】報紅」。
+      // 本 gate 掃的是 `refund_amount` 這個【欄位字面】(檔頭第④點:寬 = fail-closed)
+      // ⇒ 它分不出「有人自己再算一次【還能退多少】」與「有人在算【另一個問題】而剛好碰到同一個欄」。
+      '本檔算的是【另一個問題】：訂單被取消時，我們手上還握著多少【非卡】的錢。' +
+      // ✅ 反面證據(這才是關鍵, 而它是【結構性】的不是宣稱):
+      //   🔴 本檔的算式【從頭到尾沒有讀 order_refunds】——
+      //      而 gate 保護的那支 `pcm_order_refundable_remaining` 的三段【全部】以 order_refunds 為主體,
+      //      「更正成 money_moved 的 failed 列」那一段更是只存在於卡片帳本。
+      //   ⇒ ⇒ 一份【不讀那張表】的算式, **結構上不可能「看不到更正」** —— 它從來不在那條路上。
+      //   ⇒ 而那正是本 gate 要防的形狀(「另一份算式看不到更正 ⇒ 報出的數比實際多 ⇒ 重複退款」)。
+      '三處分兩種：兩處在 `COMMENT ON` 的字串裡寫口徑（:308 / :313），一處是真的加總（:439）。' +
+      // ⚠️ 而那兩處【不是 `--` 註解】—— 它們是 `COMMENT ON` 這個 SQL 陳述的字串內容
+      //    ⇒ 剝 `--` 之後它們【仍然在】(實測 refund_amount 原始 3 / 剝註解後仍 3)。
+      //    ⇒ 📌 「註解」在這支檔裡有兩種, 而它們對任何文字尺的行為【不一樣】。
+      '而那一處加總的口徑逐字寫在它自己的 COMMENT 裡：' +
+      'SUM(order_payments.amount 同軌) − SUM(order_manual_refunds.refund_amount 同軌且未作廢)。' +
+      // 🔴 可證偽的那一半(照本檔的規矩, 不留一句只能相信的話):
+      //   ① 本檔若哪天開始讀 order_refunds ⇒ 那就是它跨進卡片帳本 ⇒ **這一筆 allowlist 立刻失效**。
+      //   🔴🔴 而這個檢查【要剝掉 `--` 註解才算數】—— 我第一版寫「引用數必須維持 0」,
+      //      **而當場實測是 1** ⇒ 我自己的可證偽宣稱, 在寫下的三十秒後被自己打臉。
+      //      成因:那 1 處是 `:39` 的一句【註解】, 內容逐字是「隔壁 order_refunds 也不行」——
+      //      **它是在解釋為什麼【不】用那張表**, 而裸 grep 把它算成「用了」。
+      //      ⇒ 📌 這正是本 repo 記過的那一條:**比對整包字串時, 註解與 code 是同一種東西。**
+      //      ✅ 量法(剝註解):
+      //         `python3 -c "import re,io;s=io.open(F,encoding='utf-8').read();
+      //                      print(re.sub(r'--[^\n]*','',s).count('order_refunds'))"`
+      //         ⇒ **今日實測:原始 1 · 剝註解後 0。**
+      //         🟢 正對照(證明沒有剝過頭):同一發剝完之後 order_payments 仍有 6 處。
+      //   ② 它是【軌別範圍內】的:同軌相減 ⇒ 卡片退款不會被它算進來, 反之亦然。
+      '可證偽:本檔【剝掉 -- 註解之後】對 order_refunds 的引用數必須維持 0' +
+      '(今日實測 原始 1 / 剝註解後 0;那 1 處是 :39 一句「隔壁 order_refunds 也不行」的註解。' +
+      '🟢 正對照:同一發剝完 order_payments 仍有 6 處 ⇒ 沒有剝過頭)。' +
+      // ⚠️ 而一個【未來會撞到】的點, 先寫在這裡:
+      //   `⟦b4-MANREFUNDNOOWNER⟧` 那片(2026-09-02 封存, codex R2 FAIL)也會 SUM order_manual_refunds。
+      //   ⇒ 它若哪天上線, 這個欄位就會有【兩個】加總者 —— 而那時要回來問:
+      //     它們算的是不是同一件事? 今天不是(一個算「手上還有多少錢」, 一個算「狀態該是什麼」),
+      //     而【兩個各自正確的算式】正是今晚一再撞到的那個形狀。
+      '⚠️ 未來:⟦b4-MANREFUNDNOOWNER⟧ 若上線，這個欄位會有第二個加總者 ⇒ 屆時要回訪本筆。' +
+      // ══ 🔵 以下由線 `-5b` 併入(2026-09-02)—— **兩個窗各自判過這一支, 而我們把兩份都留著** ══
+      //   🛑 我原本另外加了一筆同鍵的 entry ⇒ `TS1117: 同名屬性` ⇒ push 被擋。
+      //   📌 **而那個重複本身是訊號**:如果 TS 沒擋, JS 會【安靜地用後面那一個】
+      //      ⇒ 前面那一筆的 why 就消失了, 而它**仍然看得到**(還在檔案裡、有理由)
+      //      ⇒ ⇒ 那正是「寫對了而沒接上, 與沒寫的行為相同, 而前者更貴」的又一個載體。
+      //   ✅ 處置(主視窗裁):**合併成一筆而兩個理由都寫**, 不是挑一個 —— 兩份判斷的角度不同。
+      //
+      // 🔴 **`-5b` 獨有的那一格:它有一個【本 gate 看不到】的風險, 而它不是本 gate 的射程**
+      //   `:439` 算的是「**每一條軌**的淨實收」, 而 `pcm_manual_refund_rail_cap`(`20260824010000`)
+      //   算的是「**兩軌合計**的淨實收」⇒ **同一個公式的兩份實作, 只差一個 group by。**
+      //   ⇒ 一邊改了(作廢語意、或新增第四條軌)⇒ 另一邊不會紅。
+      //   ⇒ 🔵 而該檔 `:441-442` **自己就記了那一半**(rail 值域是手抄副本, 加軌的人要回來改這裡)。
+      //   ⇒ 📌 **所以這不是「無害」, 是【害的是另一件事, 而那件事不歸本 gate 管】。**
+      //   ⇒ ✅ 已開列 `⟦5b-RAILCAPTWICE⟧`, **不在本筆解決**。
+      '⚠️ 而它與 pcm_manual_refund_rail_cap 是同一個公式的兩份實作（差在 group by rail）' +
+      '⇒ 會漂移而本 gate 看不到 —— 已開列 ⟦5b-RAILCAPTWICE⟧，不在本筆解決（-5b 併入）。',
+  },
   // ── 2026-08-20 W1 補(片 D3-b 沖銷;主視窗批,W4 唯讀對抗審查) ─────────────────
   '20260820100000_m4b_e10_d3b_void_manual_refund.sql': {
     count: 9,
@@ -155,6 +217,73 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
     count: 2,
     why: '🔴 R1 現行生效版(本片):兩段 SUM 值域互斥(processing/confirmed vs 被更正成 money_moved 的 failed)',
   },
+  // ── 2026-09-02 線 `-5b` 補(445b 那支 trigger 的三代 CREATE OR REPLACE)────────────
+  // 🔴 **這三筆補得晚了, 而【晚了多久】要照實寫**:前兩支在 2026-09-02 凌晨就 commit 並推上
+  //    `origin/dev`, 而本 allowlist 沒跟 ⇒ **本 gate 從那時起一直紅著, 而我兩次回報「三綠全綠」。**
+  // 🔴🔴 **而成因是結構性的, 不是誰偷懶 —— 而本檔 :169 早就寫著同一句**:
+  //    「純 `.sql` 片的三綠**不跑 vitest**」。
+  //    ⇒ 而我的測試分母是 `grep 誰 import / 測到我改的那幾支檔` ——
+  //      **本 gate 不 import 任何東西, 它掃一個目錄** ⇒ 對那種分母【結構上不可見】。
+  //    ⇒ 📌 **可機械化的補法**:凡動 `supabase/migrations/*.sql` 的片, 測試分母另外加
+  //      `grep -rl "supabase/migrations" --include='*.test.ts' packages apps`
+  //      —— 那撈得到「掃目錄型」的 gate, 而 `vitest related` 與「誰 import 我」都撈不到。
+  //
+  // ✅ **三支共同的反面證據(這才是 why 要答的)**:三支都**沒有自己算「已退 / 還能退」**——
+  //    它們讀的是 `pcm_order_refundable_remaining()`(前兩支)與 `pcm_manual_refund_rail_cap()`
+  //    (第三支)的回傳值, 而那正是本 gate 要保護的那兩支唯一算式。
+  //    ⇒ 🔴 **可證偽的那一半**:若它們真的另立算式, 那份算式會出現在檔內而**不會**呼叫上面那兩支函式
+  //      ⇒ 量法 `grep -c 'pcm_order_refundable_remaining\|pcm_manual_refund_rail_cap' <該檔>` ⇒ 三支皆 ≥ 1。
+  '20260902000000_m4b_capmsgnum_pcm04_detail.sql': {
+    count: 3,
+    why:
+      '⟦b4-CAPMSGNUM⟧:445b trigger 的 CREATE OR REPLACE,唯一改動是 PCM04 的 RAISE 加 DETAIL/HINT。' +
+      '三處全是 `NEW.refund_amount`(與 v_cap 比較一次、人話訊息一次、DETAIL 的 asked 一次)——' +
+      '而 v_cap 來自 pcm_order_refundable_remaining()。**讀它,不是另算一份。**',
+  },
+  '20260902010000_m4b_pcm05split_order_not_found.sql': {
+    count: 3,
+    why:
+      '⟦b4-PCM05SPLIT⟧:同一支 trigger 的下一代,唯一改動是「查無訂單」的 SQLSTATE 由 PCM05 拆成 PCM07。' +
+      '三處與上一筆【逐字相同】(本支沿用它的函式本體)⇒ 同樣是讀 pcm_order_refundable_remaining()。',
+  },
+  // ── 2026-09-02 線 `-5b` 補(跨軌修法與它的觀眾)──────────────────────────────
+  // 🔵 **兩支的 why 都指向同一件事:它們算的是【非卡兩軌】, 而本 gate 保護的是【卡片帳本】。**
+  //   ⇒ 而那不是「它們比較小」—— 是**兩本不同的帳**:
+  //     `pcm_order_refundable_remaining` 三段全部以 `order_refunds` 為主體(卡片, 含更正);
+  //     這兩支讀的是 `order_payments` + `order_manual_refunds`, **一次都沒有 FROM `order_refunds`**。
+  //   ⇒ 🔵 **可證偽**:`grep -c 'FROM public.order_refunds' <該檔>` ⇒ 兩支皆 0。
+  '20260902030000_m4b_crossrail_pending_refund_net.sql': {
+    // 🔵 3 ⇒ 4(2026-09-02):後置斷言加了**世界E 同軌部分退款**(`-c7` 指出的缺口)
+    //    ⇒ 那一格自己 INSERT 一筆 `refund_amount` ⇒ 多一處字面。
+    //    🎯 而這道閘**當場紅了**, 而它紅的理由是對的:它逐檔比計數, 不只比檔名集合
+    //    ⇒ 📌 「同一個檔裡多冒出一處」正是它要抓的東西, 而我這一次是那個「多冒出一處」的人。
+    count: 4,
+    why:
+      '⟦b4-CROSSRAILNET⟧ 修一個【已在正式庫上】的多報缺陷:取消時逐軌算而把負的那一軌丟掉,' +
+      '跨軌退款(匯款收的錢用現金退 —— Sean 2026-09-02 拍甲說那是合法的)會讓待退款偏高。' +
+      '三處都在 `pcm_pending_refund_amounts` 的那一段減法裡(SUM(m.refund_amount) 一次、' +
+      '欄位在 COMMENT 裡兩次)⇒ 它算的是【非卡兩軌的淨實收】, 不是「卡片還能退多少」。' +
+      '🔵 實跑重現+修好:9 個世界(缺陷本體 / 同軌無回歸 / 兩軌分配 / 走 trigger 那條路 / ' +
+      '收過錢而算不出欠款要出聲 / 零收款不准出聲)⇒ scratchpad/crossrail-verify.sh。',
+  },
+  '20260902040000_m4b_railcap_red_counts.sql': {
+    count: 2,
+    why:
+      '⟦b4-RAILCAPAUDIENCE⟧ 數「現在有幾張單是紅的」(Sean 2026-09-02 拍甲:那個紅要有觀眾)。' +
+      '兩處都在後置斷言造的假資料裡(INSERT 兩筆 refund_amount),函式本體【一次都沒有碰那個欄】——' +
+      '它只呼叫 pcm_manual_refund_rail_cap()。' +
+      '🔵 可證偽:把後置斷言整段拿掉,這個 count 會變成 0 ⇒ 它與那支函式的算式無關。',
+  },
+  '20260902020000_m4b_pcm01_record_not_block.sql': {
+    count: 3,
+    why:
+      '⟦b4-PCM01RECORD⟧(Sean 2026-09-02 拍甲「記得下來但標紅」):' +
+      'pcm_manual_refund_rail_cap_guard 的 CREATE OR REPLACE,唯一改動是 PCM01 由 EXCEPTION 改 WARNING。' +
+      '三處:①`v_headroom := v_cap + OLD.refund_amount`(UPDATE 時把被改的那一列加回餘裕,' +
+      '這是 2026-08-24 codex 抓到的洞的修法,不是第二份算式)②比較一次 ③警告訊息帶那個數字一次。' +
+      '⚠️ 而 v_cap 來自 pcm_manual_refund_rail_cap() —— 那是【現金/匯款軌】的唯一算式,' +
+      '與本 gate 保護的 pcm_order_refundable_remaining()(卡片帳本)是兩條軌、不是兩份算式。',
+  },
   // ── 2026-08-24 主視窗第三班補(退款通知信 片1 / 片2a;兩支【都已在正式庫】,見 supabase/APPLIED.tsv 同版本號兩列) ──
   // 🔴 這兩筆補得【晚了】:兩支在 2026-08-23 就 commit 且 apply,而 allowlist 沒跟 ⇒ 本 gate 從那天起一直紅著。
   // 🔴🔴 **而「為什麼沒跟」的第一版答案是【錯的】,留痕在此**(Fable R2 2026-08-24 抓到):
@@ -170,6 +299,10 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
   //    (片1 commit `21cb9ca2` 的三綠段只有 typecheck + lint;鐵則 11 對 `.sql` 只有語法守門)
   //    ⇒ `packages/domain/` 裡**所有「掃 migration 的閘」對 migration-only 的 commit 一律隱形**。
   //    ⇒ **之後每一支純 SQL 片都會重演這件事。** 已立 backlog(見該條)。補完 allowlist 不等於修好它。
+  // ✅ **[2026-09-01 回填 · 線【帳號】`-7a`]** 那個「見該條」**指的是 backlog `#863`**
+  //    (標題逐字「純 `.sql` 的 commit 不跑 vitest ⇒ 所有『掃 migration 的閘』對它們【一律隱形】」)。
+  // 🔴 **為什麼要補**:「見該條」看起來有指標, 而它**沒有說是哪一條** ——
+  //    那比完全不寫更難查, 因為讀的人會以為自己漏看了。⇒ 同族 `⟦5b-REPORTEDNOTLANDED1⟧`。
   // 🔴🔴 **本兩筆的第一版被 code-reviewer 判 FAIL(6 must-fix),而錯的方向全部是【把它寫得比實際乾淨】。**
   //    最重的一條:第一版寫「沒有一種是新算式」,而同表 :148 對 `20260803150000` 逐字標著
   //    「🔴 R2 = admin_finalize_order_refund 步 7 自己 SUM 決定 payment_status(**已立案 #497,刻意不在本片修**)」
@@ -237,6 +370,39 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
   //    📌 這正是本 gate 存在的價值之一:**它會替你發現「你改了東西而忘了說」。**
   //    🔴 而處置**不是**抄它報的數字(那等於把期望值改成觀察值)——
   //       是**讀它怎麼數、自己數一次、兩個數一致才寫**。
+  // ── 2026-08-30 線【DB 與金流】補(`#445b` 刷卡軌退款金額上限;`-48` 批片、code-reviewer + codex 審)──
+  // 🔴 **count 是本窗自己數的,不是抄本 gate 的錯誤訊息**(照上面那條紀律)。兩把尺:
+  //    ① 自己剝註解(逐字元走、字串內的 `--` 不算註解)⇒ **5**
+  //    ② `grep -n refund_amount` 剔掉行首 `--` 的行,再**逐行數出現次數**(行數 ≠ 次數)⇒ **5**
+  //    負對照:同一把尺數一個現造字面(`zzq_no_such_column`)⇒ **0** ⇒ 尺是活的。
+  //    ⇒ 兩把一致才寫進來。**本 gate 自己報的也是 5,而那是第三份,不是我的依據。**
+  '20260830210000_m4b_445b_order_refund_cap.sql': {
+    count: 5,
+    why:
+      // 🔴 why 要答的是「gate 為什麼對【正確的東西】報紅」,不是「這一筆無害」。
+      // 本 gate 是文字比對啟發式 ⇒ 它掃的是 `refund_amount` 這個欄位字面,分不出
+      // 「有人自己再算一次可退餘額」與「有人拿那支唯一該算它的函式去比一個值」。
+      // ⇒ **報紅的原因是分母裡冒出一支新的 migration 提到那個欄,不是有人繞過那支函式。**
+      '片 445b:在 order_refunds 上加一道 BEFORE INSERT 上限閘,擋「退超過還能退的錢」。' +
+      // ✅ 反面證據(這才是關鍵):本檔【零處】自己算「已退 / 還能退」——
+      //    它**呼叫** `pcm_order_refundable_remaining(NEW.order_id)`(`:267`),那正是單一算式本身。
+      //    五處分兩種、沒有一種是另一份算式:
+      //      三處(§0 前置閘)= 驗 `refund_amount` 欄位是不是 NOT NULL,以及在 RAISE 訊息與
+      //                        既有 UPDATE 面的說明字串裡提到欄名 —— 那是**檢查欄位**,不是算錢。
+      //      兩處(trigger 本體)= 拿 `NEW.refund_amount` 與那支函式回傳的 `v_cap` **比大小**。
+      //                        📌 **「比」與「算」是兩件事** —— 被比的那個數字整個來自單一算式。
+      // ⚠️ **這裡刻意不寫行號**(照 D3-b 那一格的教訓):行號是會過期的座標,「分兩種」這個形狀不會。
+      '五處分兩種:三處 §0 前置閘檢查欄位 NOT NULL 與訊息字串／兩處 trigger 本體拿 NEW 值與 v_cap 比大小。' +
+      // 🔴 可證偽的那一半(而它必須是【可執行的】,不是一句宣稱):
+      //    本檔一旦自己寫一份 SUM,`refund_amount` 的出現次數就會離開 5 ⇒ **本 gate 當場紅**
+      //    (本 gate 逐檔比對次數,不只比對檔名集合)。
+      // ⚠️ **而那條可證偽有一個上限,寫出來**:一個「多算一份、同時少提一次」的改法可以維持 5。
+      //    ⇒ 真正擋那種的是 §0 前置閘 `to_regprocedure('public.pcm_order_refundable_remaining(uuid)')`
+      //      那一道(`:129-130`):本檔若不再依賴那支函式,那道閘就沒有存在的理由,會被一起刪掉 ⇒ diff 上看得見。
+      '🔴 可證偽:本檔一旦多提或少提一次 refund_amount,count 就不再是 5 ⇒ 本 gate 當場紅。' +
+      '⚠️ 上限:「多算一份 + 少提一次」可維持 5;擋那種的是 §0 那道 to_regprocedure 前置閘(它的存在本身就宣告了依賴)。',
+  },
+
   '20260824010000_m4b_866_manual_refund_rail_cap.sql': {
     count: 3,
     why:
@@ -367,6 +533,54 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
       '🔴 觸發本 gate 的那兩支是 .sql + .sh ⇒ 若不回來補這一筆, 三綠(typecheck/lint)不跑 vitest、' +
       '這道紅不會在本片的三綠裡出現(同表 :169-172 已記的結構性成因, 本片再次示範);' +
       '本次是別的窗跑 greenlight --tests 撈到的。',
+  },
+  // ── 2026-08-31 線DB 補(片E `20260831010000`;**這一筆是上一筆那句話的下游**)──
+  // 🔴 上一筆逐字寫著:「本 gate 擋新檔、不擋同檔改版」+「純 .sql 片的三綠不跑 vitest ⇒ 本 gate 對它隱形」。
+  //    ⇒ 而本片正是**同一族的下一支新檔**,而且**同樣沒有被我自己的三綠叫出來** ——
+  //       它是主視窗跑全套件撈到、隔了約 6 小時才回到我手上。
+  //    📌 **⇒ 這不是新問題,是那兩句話各自的第二個實例。**
+  '20260831010000_m4b_866_manual_refund_raise_plaintext.sql': {
+    // 🔴 這個 3 是**本 gate 自己印的**(剝註解後),不是我 grep 的 ——
+    //    我先 grep -c 得 5、grep -o 得 6,兩個都錯:前者數行、後者含註解。
+    //    📌 **量具的數,要由量具自己給。**(memory `feedback_let-the-tool-compute-the-test-denominator`)
+    count: 3,
+    why:
+      // why 要答的是「gate 為什麼對【正確的東西】報紅」,不是「這一筆無害」(照同表體例)。
+      // 🔴 **上一版這句寫「PCM01/PCM02 兩碼不變」—— 錯的**(codex 2026-08-31 must-fix)。
+      //    實查 `grep -o "ERRCODE = 'PCM[0-9]*'"` ⇒ **PCM01 / PCM02 / PCM03 各 1**,是三碼不是兩碼。
+      //    📌 **我在一張要求附證據的表裡,填了一個沒有量過的數。**
+      '`#866` 片E:把人工退款上限閘的 RAISE 訊息改成員工讀得懂的白話;' +
+      'SQLSTATE 三碼(PCM01/PCM02/PCM03)本身不變,改的是訊息字面。' +
+      // ✅ 反面證據(量法 grep -oF … | wc -l,原文含註解一起算 ⇒ 0 就一定是真 0):
+      '反面證據(量法 grep -oF … | wc -l,含註解一起算):order_refunds ⇒ 0、SUM( ⇒ 0、' +
+      'refundable ⇒ 0、remaining ⇒ 0。' +
+      // 🔴 **上一版由這四個 0 推出「本片沒有第二個算式」—— 推不出來**(codex must-fix)。
+      //    換一張表、換一個 helper、換一個變數名、換一種算術形狀,這四個字面照樣全是 0。
+      //    📌 **零命中證明的是【這四個字面不在】,不是【那件事沒發生】。**
+      '🔴 而這四個 0 【推不出】「沒有第二個算式」—— 它只證明那四個字面不在本片;' +
+      '換表 / 換 helper / 換變數名 / 換算術形狀都能繞過它。這一格的真正證人是開檔讀那 3 處(見下)。' +
+      // 🔴 **與同表前兩筆不同的一格,照實寫出來,不要照抄前例那句「已退/可退 各 0」**:
+      //    本片機械量到 `已退` ⇒ 1(註解)、`可退` ⇒ 2(**RAISE 訊息字串**)。
+      '🔴 與前兩筆不同:本片「可退」機械量到 2 處,而它們在 **RAISE 訊息字串裡**、不在算式裡 ——' +
+      '`:161` 逐字「這張單在【現金 / 匯款】上目前只剩 % 元可退」⇒ **它確實把一個餘裕數字顯示給人看**。' +
+      '可允許的理由:那個數是 `GREATEST(v_headroom,0)` = **order_manual_refunds 那本帳的餘裕**,' +
+      '而同一句訊息下一行就逐字聲明「卡片刷的錢不算在這裡 —— 那要走卡片退款」' +
+      '⇒ 它不宣稱、也答不出 `pcm_order_refundable_remaining` 那個數。' +
+      // 三處分兩種(不寫行號 —— 行號會漂):
+      '三處分兩種:**一處**是 UPDATE 時把自己那列加回餘裕(`v_cap + OLD.refund_amount`,標準的排除自己)' +
+      '+ **兩處**是比較與 RAISE 的參數(`NEW.refund_amount`)⇒ 零聚合、零寫入。' +
+      // 🔴 上游同表已允許:
+      '🔴 上限來源是 `pcm_manual_refund_rail_cap`(同表 `20260824010000` 那筆已允許並載明理由),' +
+      '本片沒有自己再算一次 ⇒ 它與那筆是**同一條鏈的下游**,不是第二個真相來源。' +
+      // 🔴 可證偽(收窄,照同表 codex R2 nit #7 的教訓 —— 不寫證不到的可證偽性):
+      '🔴 可證偽(收窄):本片一旦**多提或少提一次 refund_amount**,count 就不再是 3 ⇒ 本 gate 當場紅。' +
+      '⚠️ 不涵蓋:寫 SUM、引入 order_refunds、換個名字自己算一份 —— 那三族本 gate 都掃不到。' +
+      // 🔴 codex 2026-08-31 補一族,比上面三族更難看見:
+      '🔴 也不涵蓋【抵銷】:同檔刪掉一處舊命中、同時新增一處危險命中 ⇒ count 仍是 3 ⇒ 全綠。' +
+      '⇒ 逐檔數比對擋的是「數量變了」,不是「內容變了」——兩者在同一個 3 底下長得一樣。' +
+      // ⚠️ 盲點:
+      '⚠️ 盲點:本 gate 只比對字面,**答不出「這道 trigger 的觸發面對不對」**;' +
+      '那一半的證人是本片自帶的前置/後置斷言與 `scripts/866-*`,而它們不在 CI。',
   },
 };
 

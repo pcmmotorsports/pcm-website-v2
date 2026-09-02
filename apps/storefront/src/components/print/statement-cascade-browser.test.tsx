@@ -1,11 +1,13 @@
 // @vitest-environment node
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { createRequire } from 'node:module';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { chromium, type Browser } from '@playwright/test';
 import { toMoneyAmount, type MemberOrderDetail } from '@pcm/domain';
 import { StatementDoc } from './statement-doc';
+import { buildStatementHtml, parseFontFaces } from '@/lib/print/statement-html';
 
 // statement-cascade-browser.test.tsx —— 客人那張紙的**串接量測**(真 chromium + 真編譯後 CSS)。
 //
@@ -262,5 +264,231 @@ describe('客人明細列印頁 · 串接量測(真 chromium + 編譯後 CSS + �
     expect(print.bottomToFloorPx).toBe(0);
     // ⇒ 螢幕上**不該**貼底(那裡的紙沒有固定高度)—— 兩個世界不同, 這格才有判別力。
     expect(screen.bottomToFloorPx).toBeGreaterThan(0);
+  });
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// 片 B(2026-08-31)· 自 host 的中文字型有沒有真的進到編譯產物裡
+//
+// 🔴 **這一節【不開瀏覽器】,而它是被推翻兩次才變成這樣的 —— 兩次的理由都留著:**
+//    ⛔ 我第一版寫成一整個 chromium describe(85 行,兩個世界比 computed font-family)。
+//    · codex R2 要求「真瀏覽器兩世界守門要隨片 B 落地」⇒ 我照做了。
+//    · codex R3 換角度看同一段 ⇒ 「它讓一支本來就脆的測試更脆(共用 `.next`、多開一個 chromium),
+//      而**同一個突變可以用較便宜的編譯 CSS 斷言擋住**」。
+//    ✅ 而我實跑之後同意 R3, 理由比他的更強一格:**那個瀏覽器斷言本來就沒有它看起來的判別力** ——
+//      next/font 產出的家族名就叫 `Noto Sans TC`, **與 root layout 那條 Google CDN `<link>`
+//      宣告的家族同名** ⇒ 傳不傳 `fontFamily`, 贏的都是「第一個叫 Noto Sans TC 的 face」
+//      ⇒ 那一節唯一分得開的其實是**度量替身有沒有出現在字串裡**, 而那不是本片的承諾。
+//    📌 **⇒ 一個開了真瀏覽器的測試, 看起來比它實際證得的多。**
+//
+// 🛑 **所以本節只證兩件【它真的證得了】的事**:
+//    ① 那條 `var(--font-statement, …)` 還在編譯產物裡(突變殺得掉:拿掉它 ⇒ 這一格紅)
+//    ② next/font 的 face **真的是自 host 的**(src 指向 `/_next/static/media/`, 不是 gstatic)
+// 🔴 **證不了**「伺服器產 PDF 時字是我們這份畫的」—— 那要真 server + 攔網路,是**片 C** 的驗收:
+//    2026-08-31 手動量過一次(正常 自家 0/Google 17 ⇒ 擋掉 Google 後 自家 15/Google 0),
+//    **而那一發沒有被自動化。**
+describe('片 B:自 host 字型在編譯產物裡(不開瀏覽器)', () => {
+  it('① `--font-statement` 那條變數還在編譯後的 statement CSS 裡', () => {
+    expect(compiledCss('.stmt-page')).toContain('var(--font-statement');
+  });
+
+  // 🔴 標題**刻意不寫「本尊」** —— codex R5 抓到我上一版寫「Noto Sans TC 本尊」,
+  //    而本格只證得了【CSS 上被標成那個家族名】+【URL 指向本站】+【檔案在磁碟上】;
+  //    **它沒有打開那些 woff2 去確認裡面真的是 Noto**(那要解字型的 name 表)。
+  //    📌 這正是本 repo 記過的「標題比斷言寬」—— 而寬掉的那一格會被下一個人當成驗過了。
+  it('② 被標為 Noto Sans TC 的那些 face:兩個字重都在、src 指向本站、檔案在磁碟上', () => {
+    // 🔴 這一格被 codex R4 打回過一次:我第一版只驗「同一支 chunk 裡有相對 URL」——
+    //    **那沒有把 URL 綁到 Noto 那個 face 上**(同一支 chunk 裡還住著度量替身),
+    //    也沒有驗字重、沒有驗檔案真的存在。⇒ 現在逐個 face 解析。
+    const fontCss = compiledCss('Noto Sans TC Fallback');
+    const faces = [...fontCss.matchAll(/@font-face\{(.*?)\}/gs)].map((m) => m[1] ?? '');
+    // 🔴 分母:先證解析器抓得到東西, 否則下面每一條都會在一個空陣列上恆真。
+    expect(faces.length).toBeGreaterThan(50);
+
+    // 命名:`labelledNoto` 而不是 `noto` —— 它是「被標成那個名字的」, 不是「經過驗證的那個字型」。
+    const labelledNoto = faces.filter((f) => /font-family:Noto Sans TC;/.test(f));
+    // 🔴 這條正規式**刻意帶結尾分號** —— 不帶的話 `Noto Sans TC Fallback` 也會被算進來,
+    //    而那正是本格要排除的那一個。負對照見下面 `fallbackOnly`。
+    const fallbackOnly = faces.filter((f) => /font-family:Noto Sans TC Fallback/.test(f));
+    expect(fallbackOnly.length).toBe(1);
+    expect(labelledNoto.length).toBeGreaterThan(50);
+    expect(labelledNoto).not.toContain(fallbackOnly[0]);
+
+    // 兩個字重都要有(`page.tsx` 要的是 400 + 700;紙上有 22 條 font-weight:700)
+    for (const w of ['400', '700']) {
+      expect(labelledNoto.filter((f) => f.includes(`font-weight:${w};`)).length).toBeGreaterThan(50);
+    }
+
+    // 每一個 Noto face 的 src 都要是相對的 `../media/…`, 而且那個檔要真的在磁碟上。
+    // 🔴 `../media/` 是**開編譯產物抄的**:`/_next/static/media/` 那個絕對形式只出現在 dev
+    //    ——我第一版照 dev 寫 ⇒ 紅 ⇒ 那個紅是我的期望值錯, 不是產品壞了。
+    const urls = labelledNoto.map((f) => /src:url\(([^)]+)\)/.exec(f)?.[1] ?? '');
+    expect(urls.every((u) => u.startsWith('../media/'))).toBe(true);
+    expect(fontCss).not.toContain('fonts.gstatic.com');
+    for (const u of urls) {
+      const onDisk = join(CHUNKS, u);
+      expect(existsSync(onDisk), `編譯產物指到一個不存在的字型檔:${u}`).toBe(true);
+    }
+  });
+
+  it('負對照:現造的字串必須查無(證明 compiledCss 不是恆真)', () => {
+    expect(() => compiledCss('zzq-not-a-real-marker-9137')).toThrow();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 片 C2(2026-08-31)· 組出來的那份自足 HTML,在【真瀏覽器 + 零網路】下畫得對嗎
+//
+// 🔴 主視窗 `-2d [16689c]` 逐字要的那一格:「正式的那一發要【自動化】——
+//    你現在那發是手動的, 手動的不會在下一個人改壞時說話」。這一節就是那一發。
+//
+// 🛑 **它證得了什麼**:
+//    ① 內嵌的 `data:` 字型**真的被 Chrome 用來畫中文**(兩個世界比, 不是看畫面)
+//    ② 整個過程**對外網路請求 = 0** —— 那是設計 B 的核心承諾, 不是附帶
+//    ③ 子集挑選在**真資料**上真的有挑(內嵌數 < 全部 face 數)
+// 🔴 **證不了**:Vercel 容器上跑得起來 / 冷啟動多久 / 部署多大 —— 那三格要真部署(C1/C3)。
+describe('片 C2:自足 HTML 在真瀏覽器 + 零網路下畫得對', () => {
+  let b: Browser;
+  let withFonts: { fonts: string[]; net: number };
+  let noFonts: { fonts: string[]; net: number };
+  let built: ReturnType<typeof buildStatementHtml>;
+  let totalFaces = 0;
+
+  beforeAll(async () => {
+    // 🔴 **餵給它的東西必須與那條 route 餵的【是同一批】** ——
+    //    ⛔ 第一版這裡讀 `.next/static/` 的編譯產物, 而 route 後來改成讀
+    //       `src/styles/*.css` + `@fontsource/noto-sans-tc`(理由:前者在 Vercel 上打包不進去)。
+    //    ⇒ 兩邊不同步的話, **這一節會替一條不存在的路徑背書**。
+    const styles = join(REPO, 'apps/storefront/src/styles');
+    const pageCss = [
+      readFileSync(join(styles, 'print-a4.css'), 'utf8'),
+      readFileSync(join(styles, 'statement.css'), 'utf8'),
+    ].join('\n');
+    const fontPkg = dirname(
+      createRequire(join(REPO, 'apps/storefront/package.json')).resolve(
+        '@fontsource/noto-sans-tc/package.json',
+      ),
+    );
+    const fontCss = ['400.css', '700.css']
+      .map((f) => readFileSync(join(fontPkg, f), 'utf8'))
+      .join('\n');
+    totalFaces = parseFontFaces(fontCss).length;
+    const bodyHtml = renderToStaticMarkup(<StatementDoc order={ORDER} />);
+    const readFont = (rel: string) => {
+      const p = resolve(fontPkg, rel);
+      return existsSync(p) ? new Uint8Array(readFileSync(p)) : null;
+    };
+    built = buildStatementHtml({ bodyHtml, pageCss, fontCss, readFont });
+    const stripped = buildStatementHtml({ bodyHtml, pageCss, fontCss, readFont: () => null });
+
+    b = await chromium.launch();
+    const read = async (html: string) => {
+      const p = await b.newPage();
+      const net: string[] = [];
+      p.on('request', (r) => {
+        if (!r.url().startsWith('about:')) net.push(r.url());
+      });
+      const cdp = await p.context().newCDPSession(p);
+      await cdp.send('DOM.enable');
+      await cdp.send('CSS.enable');
+      await p.setContent(html, { waitUntil: 'load' });
+      await p.evaluate(() => document.fonts.ready);
+      await p.emulateMedia({ media: 'print' });
+      const { root } = await cdp.send('DOM.getDocument');
+      // 🔴 量法換過兩次, 兩次的理由都留著 —— 它們是同一個坑的兩面:
+      //    ⛔ 第一版量 `.pd-doctitle h1` ⇒ 那顆吃 `--pd-disp`, 而那條堆疊把
+      //       `'Helvetica Neue','Helvetica','PingFang TC'` 排在我們前面
+      //       ⇒ **在 macOS 上兩個世界都印 `PingFang TC:4`** ⇒ 零判別力。
+      //    ⛔ 第二版量 `[data-slot="statement-doc"]` 這個**容器** ⇒ CDP 回**空陣列**
+      //       (它只答有直接文字的節點)⇒ `length > 0` 那一格當場紅。
+      //    ✅ 現在:掃整棵樹的元素, 把每個節點用到的字型**聯集**起來。
+      //    📌 兩次都是「我挑的那一個點, 剛好答不出那個問題」——而第一次它**印了一個看起來正常的值**。
+      const all = await cdp.send('DOM.querySelectorAll', {
+        nodeId: root.nodeId,
+        selector: '[data-slot="statement-doc"] *',
+      });
+      // 🔴 分母:掃到的節點數。0 ⇒ 下面的聯集必然是空的, 而空會被讀成「沒用到 Noto」。
+      if (all.nodeIds.length < 20) {
+        throw new Error(`只掃到 ${all.nodeIds.length} 個節點 ⇒ 量具失效(不是產品壞了)`);
+      }
+      // 🔴 **逐節點【加總】glyphCount, 不可以先用 Set 去重**(codex R2 抓到):
+      //    去重的話 `Noto:80` 與另一個節點的 `Noto:80` 會塌成一筆
+      //    ⇒ 後面那個「加起來 > 50」的門檻**可以被單一節點跨過**
+      //    ⇒ 那就退回成「有沒有出現」, 而那正是 R1 說不夠的那一格。
+      const totals = new Map<string, number>();
+      for (const id of all.nodeIds) {
+        const r = await cdp.send('CSS.getPlatformFontsForNode', { nodeId: id });
+        for (const f of r.fonts) totals.set(f.familyName, (totals.get(f.familyName) ?? 0) + f.glyphCount);
+      }
+      const fonts = [...totals].map(([fam, n]) => `${fam}:${n}`);
+      await p.close();
+      return { fonts, net: net.length };
+    };
+    withFonts = await read(built.html);
+    noFonts = await read(stripped.html);
+  }, 90_000);
+
+  // 🔴🔴 **這一段是把【同一支檔 `:198` 已經寫好的修法】套到第二個 `afterAll` 上。**
+  //    2026-08-31 實測:全 repo 跑 6 發, 這支檔紅 2 發, 形狀是
+  //    `Hook timed out in 10000ms` 指到本 hook ⇒ **檔級紅而 0 格紅**
+  //    (`Test Files 1 failed` 而 `Tests` 那行全過 —— 鐵則 11 點名的那一種)。
+  //
+  // 🛑 **⇒ 而我第一個想到的修法是錯的, 而【這支檔自己在 234 行之上就否證了它】**:
+  //    `:201` 逐字寫著「給 `afterAll` 30s ⇒ **仍然逾時**(`Hook timed out in 30000ms`)」
+  //    ⇒ 📌 **「再給它更大的數字」在這裡已經被試過而且失敗過。**
+  //    ⇒ ⇒ 而 `:202` 也寫出了為什麼:**一個關瀏覽器的動作超過 30 秒不是它慢,
+  //         是機器被吃光了**(八個施工窗並行 + 同時有人在 build)。
+  //
+  // 📌 **⇒ 這支檔有兩個 `afterAll`, 而只有第一個拿到了那個修法。**
+  //    🔴 **而修法與它的完整理由【就寫在同一支檔裡】—— 少的不是知識, 是【它沒有被套到第二處】。**
+  //    ⇒ 那與 `print-a4.css` 那一格是同一個病:兩個命中在同一支檔, 而只有一個是現況。
+  //
+  // ✅ 照 `:210-215` 的做法:**夾住, 不是加大**。10 秒關不掉就放手, 而**不讓收尾把整支檔判紅** ——
+  //    這一步是收尾, 它失敗**不代表任何一條斷言不成立**。
+  // ⚠️ **代價照抄那邊寫的, 不重新發明**:最壞情況留下一顆沒關乾淨的 chromium, 由 vitest 退出時收;
+  //    那邊逐字寫著「我**沒有量過**那種情況實際會不會留下孤兒行程 ⇒ 那是這個取捨裡未確認的一格」
+  //    ⇒ **本處同樣未確認, 不因為抄過來就變成驗過。**
+  afterAll(async () => {
+    await Promise.race([
+      b?.close().catch(() => undefined),
+      new Promise((resolve) => setTimeout(resolve, 10_000)),
+    ]);
+  }, 30_000);
+
+  it('✅ 內嵌的 data 字型真的被拿去畫中文;拿掉就沒有(兩個世界)', () => {
+    const hasNoto = (fs: string[]) => fs.some((f) => f.startsWith('Noto Sans TC'));
+    expect(withFonts.fonts.length).toBeGreaterThan(0);
+    expect(noFonts.fonts.length).toBeGreaterThan(0);
+    // 🔴 這一格成立有一個前提, 而它是量過的:**這台機器沒有裝 Noto Sans TC**
+    //    (`fc-list | grep -ci 'noto sans tc'` ⇒ 0, 而 `pingfang` ⇒ 36 證明那把尺會動)
+    //    ⇒ 世界 A 印得出 Noto, 就只可能是從那串 data URI 來的。
+    expect(hasNoto(withFonts.fonts)).toBe(true);
+    expect(hasNoto(noFonts.fonts)).toBe(false);
+    // 🔴 **只問「有沒有出現」不夠**(codex R1):任一個節點用到 Noto 就會過,
+    //    而其他中文字全部 fallback / 豆腐仍然全綠。⇒ 加一個【量】的門檻。
+    const notoGlyphs = withFonts.fonts
+      .filter((f) => f.startsWith('Noto Sans TC'))
+      .reduce((n, f) => n + Number(f.split(':').pop() ?? 0), 0);
+    expect(notoGlyphs).toBeGreaterThan(50);
+  });
+
+  it('🔴 對外網路請求 = 0(兩個世界都是)—— 這是設計 B 的核心承諾', () => {
+    expect(withFonts.net).toBe(0);
+    expect(noFonts.net).toBe(0);
+  });
+
+  // 🔴 標題改過(codex R1:「而且沒有漏字」超出斷言能力)——
+  //    `uncovered` 讀的是 CSS 上的 `unicode-range` **宣告**, 不是字型檔裡真的有那個字。
+  it('✅ 子集挑選在真資料上真的有挑, 而且沒有【宣告層】的缺口', () => {
+    expect(totalFaces).toBeGreaterThan(50);
+    expect(built.embedded).toBeGreaterThan(0);
+    // 有挑 = 內嵌的比全部少。相等 ⇒ 挑選那段是死的。
+    expect(built.embedded).toBeLessThan(totalFaces);
+    // 🔴 拿不到檔的必須是 0;而「沒有任何 face 【宣告】涵蓋的字」也必須是空。
+    //    🛑 後者**不等於**「沒有字會豆腐」—— 宣告涵蓋 ≠ 字型檔裡真的有那個字形
+    //       (codex R2 第二次抓同一個過寬:我改了標題卻沒改這一行)。
+    expect(built.skippedMissing).toBe(0);
+    expect(built.uncovered).toEqual([]);
   });
 });

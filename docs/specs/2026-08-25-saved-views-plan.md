@@ -2088,6 +2088,7 @@ repo 現有 **三種**處理「呼叫端可能謊報身分」的形狀(v2 C-2,�
 ### ⚠️ ② 的 ACL 買到什麼、**不**買到什麼
 ```
 量法  grep 'createSupabaseServiceClient|createSupabaseAnonClient' apps/admin/src(扣測試)
+        🔴 2026-08-31:少 `-E` ⇒ 照抄跑拿到 **0**(加 `-E` 今天 ⇒ 220 行)。旁邊那個 `service 103 處 / anon 0 處` 是**真的結果**,而這條配方生不出它。🔵 而同段的負對照 `from 'pgzzz' ⇒ 0` 也通過了 —— **它一樣救不了這種死法。**
      ⇒ service **103** 處 / anon **0** 處   定義 `packages/adapters/src/supabase/client.ts:60` `:63`
      別的連線方式 `from 'pg'|@prisma/client|postgres(` ⇒ **6 支**, 全在 `packages/adapters/src/payment/Pg*.ts`
      ⇒ 金流機器軌, **而我沒有逐支開檔驗證這句** ⇒ 標【未驗】。負對照 `from 'pgzzz'` ⇒ 0

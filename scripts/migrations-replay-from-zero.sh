@@ -133,15 +133,39 @@ printf '   來源: %s\n' "$MDIR"
 #    ②若日後 `#299` 落地(真的有一支 migration 建它)⇒ 還插 stub 就會撞 duplicate
 #    ⇒ 剝掉註解行再找;且先問「有沒有人已經建它」。
 if [ "$STUB" = 1 ]; then
-  CREATOR=$(grep -lE '^[[:space:]]*CREATE[[:space:]]+TABLE([[:space:]]+IF[[:space:]]+NOT[[:space:]]+EXISTS)?[[:space:]]+(public\.)?product_fitments_effective' "$MDIR"/*.sql 2>/dev/null | head -1)
-  if [ -n "$CREATOR" ]; then
-    printf '🔴 已經有 migration 建 product_fitments_effective(%s)⇒ --with-fitments-stub 已不適用, 拿掉它重跑\n' "$(basename "$CREATOR")"
-    KEEP=1; exit 2
-  fi
+  # 🔴 Fable R3 F6:結尾要有邊界 —— 少了它, `product_fitments_effective` 會命中
+  #    `..._staging` / `..._sync_log`(板 b4-PFEDDL2 那兩張表落地那天就是引信)。
+  CREATOR=$(grep -lE '^[[:space:]]*CREATE[[:space:]]+TABLE([[:space:]]+IF[[:space:]]+NOT[[:space:]]+EXISTS)?[[:space:]]+(public\.)?product_fitments_effective([^a-z_]|$)' "$MDIR"/*.sql 2>/dev/null | head -1)
   FIRST_CONSUMER=$(for m in "$MDIR"/*.sql; do
-      sed -e 's,--.*,,' "$m" | grep -q 'product_fitments_effective' && { basename "$m"; break; }
+      # 🔴 同 F6:裸子字串會命中 `..._staging` / `..._sync_log` ⇒ 加尾邊界。
+      sed -e 's,--.*,,' "$m" | grep -qE 'product_fitments_effective([^a-z_]|$)' && { basename "$m"; break; }
     done)
   [ -n "$FIRST_CONSUMER" ] || { printf '🔴 找不到任何【非註解】引用 product_fitments_effective 的 migration ⇒ stub 插不進去 ⇒ ENV-FAIL(不要把這一發讀成 without stub)\n'; KEEP=1; exit 2; }
+  # 🔴🔴 2026-09-01 線【出貨】改:原本【只要有人建它就 exit 2】—— 而那漏了一個世界。
+  #    ⇒ 「有一支 migration 建它」與「那支跑得【夠早】」是**兩個宣稱**,
+  #      而原本這道閘把前者當成後者。
+  #    ⚠️ 實例:`20260901170000_m4b_pfe_ddl_into_version_control.sql` 建它,
+  #      而第一個消費者是 `20260712183000` ⇒ 建表跑在【第 11 個讀它的人之後】⇒ 重放照樣炸。
+  #      ⇒ 而原本這道閘會在那個世界回 exit 2 ⇒ **stub 這條【本來會動】的排練路被關掉,**
+  #        **而 without-stub 那條照樣在 20260712 炸 ⇒ 兩條路同時斷。**
+  #    ⇒ ✅ 判準改成【檔名排序】:creator 排在 first consumer 之前才算真的解掉。
+  if [ -n "$CREATOR" ]; then
+    CREATOR_B=$(basename "$CREATOR")
+    if [ "$CREATOR_B" \< "$FIRST_CONSUMER" ] || [ "$CREATOR_B" = "$FIRST_CONSUMER" ]; then
+      printf '🔴 已經有 migration 建 product_fitments_effective(%s), 而它排在第一個消費者(%s)之前 ⇒ --with-fitments-stub 已不適用, 拿掉它重跑\n' "$CREATOR_B" "$FIRST_CONSUMER"
+      KEEP=1; exit 2
+    fi
+    printf '   ⚠️  有一支 migration 建它(%s), 而它排在第一個消費者(%s)【之後】\n' "$CREATOR_B" "$FIRST_CONSUMER"
+    printf '   ⇒ 從零重放【仍然】需要 stub。本發繼續插 stub, 而那代表那支 creator 沒有解掉順序問題(板 ⟦b4-PFEREPLAY1⟧)。\n'
+    # 🔵 Fable R3 F1 的另一半:stub 與 creator 都用裸 CREATE TABLE ⇒ 本來會在 creator 那一支撞
+    #    `relation already exists` ⇒ **那條路會帶一支自傷的紅, 而沒有任何一行說那個紅是預期的**。
+    #    ✅ 已解:`scripts/d1-fitments-bootstrap.sql` 現在裝一個【讓位】事件觸發器 ——
+    #       creator 來建表時 stub 自己退場(開一次就拆掉自己)。
+    #    🛑 而那句話要印出來, 因為**下一個看到 `already exists` 的人不會去讀那支 bootstrap**:
+    printf '   🔵 stub 會在 creator 建表時自動讓位(d1-fitments-bootstrap.sql 的事件觸發器)⇒ 不會撞。\n'
+    printf '   🛑 若你【真的】看到 relation already exists:那是讓位機制沒生效, 不是要你把 creator 改回 IF NOT EXISTS ——\n'
+    printf '      那個改法會推翻 codex R1/R2 兩輪的核心設計(migration-static-checks 規則① 明文禁它)。\n'
+  fi
   printf '   🔵 --with-fitments-stub: 第一個引用者(已剝註解) = %s\n' "$FIRST_CONSUMER"
 fi
 

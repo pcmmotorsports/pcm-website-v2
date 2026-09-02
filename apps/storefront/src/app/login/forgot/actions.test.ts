@@ -89,3 +89,60 @@ describe('requestPasswordResetAction(plan §3-1 帳號列舉守門)', () => {
     });
   });
 });
+  // ══ 🔴🔴 板 `:443` ⟦b4-AUTHMAIL1⟧ 半A(2026-09-01)═══════════════════════════
+  //   那一列的病:「**『還沒寄』與『寄不出去』在我們這一側沒有任何欄位分得開**」。
+  //   而在這一片之前,那個 `catch {}` 把錯誤整個丟掉 ⇒ 客人打電話來,我們查不到任何東西。
+  //
+  //   🛑 **而上面那幾格【一個字都不能動】** —— 它們守的是「回應形狀 byte-identical」,
+  //      那是帳號列舉防護。本段守的是**另一件事**:伺服器端有沒有留下紀錄。
+  //   📌 **⇒ 「回應不得有差異」與「伺服器不得留紀錄」是兩件事,而它們曾經被寫成同一句。**
+  describe('半A:server 端要留下分得開的紀錄(而回應形狀一個字不動)', () => {
+    it('🔴 成功路徑 ⇒ 記 outcome=requested(⇒「還沒寄」不成立)', async () => {
+      const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+      sendResetSpy.mockResolvedValue(undefined);
+      const result = await requestPasswordResetAction({ email: 'rider@pcm.com' });
+      expect(result).toEqual({}); // 🔵 回應形狀仍然是空物件
+      expect(info).toHaveBeenCalledTimes(1);
+      const payload = info.mock.calls[0]![1] as Record<string, unknown>;
+      expect(payload.outcome).toBe('requested');
+      expect('errorCode' in payload).toBe(false); // 成功時不得憑空長出 errorCode
+      info.mockRestore();
+    });
+
+    it('🔴 provider 回錯 ⇒ 記 outcome=provider_error + errorCode(⇒ 知道是哪一類)', async () => {
+      const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+      sendResetSpy.mockRejectedValue(new AuthError('rate_limited', '429'));
+      const result = await requestPasswordResetAction({ email: 'rider@pcm.com' });
+      expect(result).toEqual({}); // 🔵 回應與成功案例仍然 byte-identical
+      const payload = info.mock.calls[0]![1] as Record<string, unknown>;
+      expect(payload.outcome).toBe('provider_error');
+      expect(payload.errorCode).toBe('rate_limited');
+      info.mockRestore();
+    });
+
+    // 🔴 這一格守的是 PII —— 那行紀錄會流到 access log / 監控。
+    it('🔴 紀錄裡【不得出現 email 本身】,只有長度', async () => {
+      const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+      sendResetSpy.mockResolvedValue(undefined);
+      await requestPasswordResetAction({ email: 'rider@pcm.com' });
+      const [msg, payload] = info.mock.calls[0] as [string, Record<string, unknown>];
+      const dump = msg + JSON.stringify(payload);
+      expect(dump).not.toContain('rider@pcm.com');
+      expect(dump).not.toContain('rider');
+      // 🔵 而網域本身也不得出現 —— 公司網域會把範圍縮到一間公司
+      expect(dump).not.toContain('pcm.com');
+      // 🟢 正對照:長度那兩格要在,不然這一格在「什麼都沒記」時也會綠
+      expect(payload.emailLength).toBe('rider@pcm.com'.length);
+      expect(payload.emailDomainLength).toBe('pcm.com'.length);
+      info.mockRestore();
+    });
+
+    // 🔵 負對照 —— 驗證失敗時不該記,不然 log 會被表單亂打灌爆
+    it('🔵 驗證失敗 ⇒ 不記(那一發根本沒請 Auth 寄)', async () => {
+      const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+      await requestPasswordResetAction({ email: 'not-an-email' });
+      expect(info).not.toHaveBeenCalled();
+      info.mockRestore();
+    });
+  });
+

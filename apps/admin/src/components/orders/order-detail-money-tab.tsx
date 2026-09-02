@@ -15,10 +15,10 @@ import { DangerZoneDetails } from './danger-zone-details';
 import { OrderCancelBlock } from './order-cancel-block';
 import { RefundSection } from './refund-section';
 import { RefundLedgerSection } from './refund-ledger-section';
-import { isStuckManualVerdict } from '../../lib/payment/refund-ledger-view';
+import { isBlockingStuckVerdict, isStuckManualVerdict } from '../../lib/payment/refund-ledger-view';
 import { shouldShowRefundEntry } from './refund-entry-gate';
 import { ManualRefundEntrySection } from './manual-refund-entry-section';
-import { ManualRefundLedgerSection } from './manual-refund-ledger-section';
+import { ManualRefundLedgerSection, manualRefundRedState } from './manual-refund-ledger-section';
 import { shouldShowManualRefundEntry } from './manual-refund-entry-gate';
 import type { PaymentListData } from './payment-list';
 import { PaymentSection } from './payment-section';
@@ -40,11 +40,13 @@ export function OrderDetailMoneyTab({
   refunds,
   refundsFailed,
   refundsTruncated,
+  stuckVerdicts,
   refundUnregisteredAmount,
   refundUnregisteredFailed,
   manualRefunds,
   manualRefundsFailed,
   manualRefundsTruncated,
+  manualRefundRailCap,
   refundEnabled,
   cancelFormsAllowed,
   refundLedgerAbnormal,
@@ -55,16 +57,29 @@ export function OrderDetailMoneyTab({
   refunds: readonly OrderRefundRow[];
   refundsFailed: boolean;
   refundsTruncated: boolean;
+  /** `#890` 片4:卡住那幾列現行有效的更正判定;`null` = 讀不到 ⇒ fail-closed。 */
+  stuckVerdicts: ReadonlyMap<string, { correctedTo: string }> | null;
   refundUnregisteredAmount: number | null;
   refundUnregisteredFailed: boolean;
   manualRefunds: readonly ManualRefundRow[];
   manualRefundsFailed: boolean;
   manualRefundsTruncated: boolean;
+  /** ⟦b4-PCM01RECORD⟧ 兩軌可退上限;負=超額、`null`=算不出來。語意在 `ManualRefundLedgerSection`。 */
+  manualRefundRailCap: number | null;
   refundEnabled: boolean;
   cancelFormsAllowed: boolean;
   refundLedgerAbnormal: boolean;
 }) {
   const cancelled = detail.cancelledAt !== null;
+
+  // 🔴 判準單一權威(`manual-refund-ledger-section.tsx`)—— 這裡只是**再問一次同一個問題**,
+  //    不是第二份實作。用途:下面那顆退款收合塊的 `defaultOpen`。
+  const manualRefundRed = manualRefundRedState({
+    rows: manualRefunds,
+    railCap: manualRefundRailCap,
+    rowsTruncated: manualRefundsTruncated,
+    loadFailed: manualRefundsFailed,
+  });
 
   /**
    * 🔴 SUB2-009:帳本裡有沒有「人工判定沒動到錢」而卡住的列。
@@ -75,7 +90,12 @@ export function OrderDetailMoneyTab({
    * ⚠️ 這一顆**刻意不併進 `refundLedgerAbnormal`**:它不是對帳異常,掛紅標題會說謊
    *    —— 與 `refundsTruncated` 同一個理由。
    */
-  const hasStuckRefundVerdict = refunds.some((r) => isStuckManualVerdict(r));
+  // 🔴 `#890` 片4(Sean 2026-08-30 拍板做 (b)):**已經有人更正成「錢沒有動」的那幾列不再擋**。
+  //    判準本體在 `refund-ledger-view.ts` 的 `isBlockingStuckVerdict`(三態預設關),
+  //    **與 server 端 `refund-actions.ts` 的 ④-b 共用同一支** —— 這裡只是把它套在列上。
+  //    ⚠️ 這一顆的名字沒有改:它問的仍然是「有沒有卡住的判定在擋」,只是「擋不擋」的答案
+  //       現在多看一格更正紀錄。
+  const hasStuckRefundVerdict = refunds.some((r) => isBlockingStuckVerdict(r, stuckVerdicts));
 
   return (
             <>
@@ -192,7 +212,18 @@ export function OrderDetailMoneyTab({
                         拿它來開這一塊會對一個其實沒事的退款區平白掛開。
                      ⚠️ 紅標題「退款(對帳異常)」的判準【不動】(仍是 refundLedgerAbnormal):
                         截斷不是對帳異常,掛那五個字會說謊 —— 打開之後紅區自己會講話。 */
-                  defaultOpen={refundLedgerAbnormal || refundsTruncated || manualRefundsTruncated}
+                  defaultOpen={
+                    // 🔴 ⟦b4-PCM01RECORD⟧ 2026-09-02 加 `manualRefundRed` —— 而它是【第二道】:
+                    //    `moneyTabMustSee` 只保證「開在金流頁」, 而這條紅住在**這顆收合塊裡面**
+                    //    ⇒ 少了這一格, 員工會落在正確的分頁上, 看著一顆**收起來的**退款區。
+                    //    📌 `order-detail-tab-routing.ts` 的 JSDoc 早就寫了這句
+                    //    (「只開分頁不夠, defaultOpen 也要接」)—— 而 R3 抓到我兩道都漏了。
+                    refundLedgerAbnormal ||
+                    refundsTruncated ||
+                    manualRefundsTruncated ||
+                    manualRefundRed.overCap ||
+                    manualRefundRed.capUnknown
+                  }
                   summary={
                     <span className='flex flex-wrap items-center gap-2'>
                       {/* 🔴 A2(2026-08-21 Sean 拍板乙=最小13px):10px → 13px。 */}
@@ -232,6 +263,8 @@ export function OrderDetailMoneyTab({
                   <ManualRefundLedgerSection
                     rows={manualRefunds}
                     orderId={detail.id}
+                    displayId={detail.displayId}
+                    railCap={manualRefundRailCap}
                     returnTo={returnTo}
                     rowsTruncated={manualRefundsTruncated}
                     loadFailed={manualRefundsFailed}

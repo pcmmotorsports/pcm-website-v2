@@ -17,6 +17,18 @@
 #    也不驗 husky 的接線(本腳本自己接 core.hooksPath)。
 set -u
 
+
+# ── 🔴🔴 剝掉繼承來的 GIT_*（2026-08-31 補）────────────────────────────────
+#    🛑 這一支就是 2026-08-31 凌晨【38 顆 commit 作者欄變成 `t`】的成因。
+#    :33 的 `git config user.name t` 本來是要寫進 `fresh()` 建的那個拋棄式 repo；
+#    而在 husky hook 底下跑時會繼承 `GIT_DIR` ⇒ 它【打到真的 repo 的 .git/config】，
+#    於是全隊接下來每一顆 commit 的作者都變成 `t`。
+#    🔴 `cd` 進拋棄式目錄擋不住它 —— `GIT_DIR` 是絕對路徑，它贏過 cwd，也贏過 `git -C`。
+#    📌 而它的外觀是：這支 selftest 全綠。壞掉的不是它量的東西，是它路過的東西。
+#    ⚠️ 剝的位置在 `REPO=` 之前 —— GIT_DIR 一旦生效，連 REPO 都已經解錯。
+#    ✅ 本檔【整支】都是 harness（每一格都建一個全新的拋棄式 repo）⇒ 無條件剝，沒有主模式要保。
+for _gv in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$_gv"; done
+unset _gv
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 # 🔴 codex must-fix:`mktemp` 失敗時 `W=""` ⇒ 第 28 行會變成 `rm -rf /r`。
 #    ⇒ 明檢, 而且【在 trap 裝上去之前】檢。

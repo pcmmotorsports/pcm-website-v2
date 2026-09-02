@@ -1,15 +1,24 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 
 // repository 拉 server-only 模組 ⇒ 整支 mock(同 `app/customers/page.test.tsx` 紀律)。
 // 🔴 `resolvePrice` / `resolveListingState` **不 mock** —— 它們是本片的取值落點,
 //    mock 掉等於把要驗的東西換成假的(memory `feedback_assertion-measures-the-wrong-thing`)。
-const mocks = vi.hoisted(() => ({ list: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  list: vi.fn(),
+  // 🔴 **預設是 reject —— 那正是本檔既有每一格現在的世界**(沒有 Supabase ⇒ 撈不到選項
+  //    ⇒ `page.tsx` 的 try/catch 把 `options` 留成 `null` ⇒ 品牌/分類整塊不畫)。
+  //    ⇒ 加這支 mock **不得改變任何既有格的行為**, 所以預設值要跟現況一樣, 不是 `{}`。
+  //    (寫成 `vi.fn()` 會回 `undefined` ⇒ 那不是「撈不到」, 是**另一個世界**, 而它會炸在別處。)
+  // 🔴 回傳型別要顯式寫 `Promise<unknown>` —— 不寫的話 `Promise.reject` 會被推成
+  //    `Promise<never>` ⇒ 之後 `mockResolvedValue({...})` 的參數型別變成 `never` ⇒ **tsc 紅**。
+  options: vi.fn((): Promise<unknown> => Promise.reject(new Error('taxonomy 未 mock(預設維持既有行為)'))),
+}));
 vi.mock('../../lib/products/product-repository', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('../../lib/products/product-repository')>();
-  return { ...actual, listProductsForAdmin: mocks.list };
+  return { ...actual, listProductsForAdmin: mocks.list, listProductFilterOptions: mocks.options };
 });
 vi.mock('server-only', () => ({}));
 
@@ -63,6 +72,60 @@ function cellTexts(container: HTMLElement, headerLabel: string): string[] {
   );
 }
 
+/**
+ * 🔴🔴 **`expectListCalledWith` —— 2026-09-01 新增,而它取代的是一個【說謊的斷言】。**
+ *
+ * ⛔ ~~原本的寫法~~:
+ * ```ts
+ * expectListCalledWith(size, offset, {
+ *   setBy: undefined, keyword: undefined, brandIds: undefined, categoryIds: undefined,
+ *
+      skus: undefined,
+    });
+ * ```
+ * 而它旁邊逐字寫著:「篩選軸逐個逐字寫 `undefined`(= 不篩)而不是省略 ——
+ * **省略會讓『頁面忘了把某一軸傳下去』這件事在這一格變成綠的**」。
+ *
+ * 🛑 **而寫 `undefined` 也一樣是綠的。那段註解描述的保護從來不存在。**
+ * 機制(2026-09-01 實測 vitest 4.1.5,三格自己會紅的探針):
+ * ```
+ * 期望 {a:1,b:undefined} vs 實際 {a:1}             ⇒ 不紅   ← b 整個沒傳，它看不到
+ * 期望 {a:1}             vs 實際 {a:1,b:undefined} ⇒ 不紅   ← 反向也一樣
+ * 🟢 正對照 期望 {a:1,b:2} vs 實際 {a:1}           ⇒ 紅     ← 尺是活的
+ * ```
+ * ⇒ 📌 **`{a: undefined}` 與 `{}` 在【兩個方向】都相等** ——
+ *    一個 `key: undefined` 只保證「那個鍵不是別的值」,**不保證那個鍵存在**。
+ *
+ * 🔴 而實錘:把 `page.tsx` 傳下去的鍵逐個刪一行,舊寫法的反應是
+ * ```
+ * 拿掉 brandIds    ⇒ 全綠   ← 測試寫的是 `brandId`（少一個 s）
+ * 拿掉 categoryIds ⇒ 全綠   ← 鍵名【完全正確】，而值是 undefined ⇒ 一樣看不到
+ * 拿掉 skus        ⇒ 全綠   ← 測試根本沒寫這個鍵
+ * 拿掉 setBy       ⇒ 紅     ← 它有真值，所以守得住
+ * ```
+ * ⇒ **4 個鍵裡 3 個沒被守著,而只有 1 個是拼字錯** —— 拼字錯只佔三分之一。
+ *
+ * ✅ **本 helper 改成逐鍵斷言【鍵存在】+ 值相符** ⇒ 三種壞法都抓得到:
+ *    鍵名拼錯 / 值是 undefined 而鍵被刪 / 整個鍵沒寫在期望裡(下面那條 keys 比對)。
+ */
+function expectListCalledWith(
+  size: number,
+  offset: number,
+  query: Record<string, unknown>,
+) {
+  expect(mocks.list).toHaveBeenCalled();
+  const call = mocks.list.mock.calls.at(-1)!;
+  expect(call[0]).toBe(size);
+  expect(call[1]).toBe(offset);
+  const actual = call[2] as Record<string, unknown>;
+  // 🔴 **鍵集合逐字比對** —— 這一行才是「頁面忘了傳某一軸」真正會紅的地方。
+  //    (`Object.keys` 對 `{a: undefined}` 仍然回 `['a']` ⇒ 它分得出「有這個鍵」與「沒有」。)
+  expect(Object.keys(actual).sort()).toEqual(Object.keys(query).sort());
+  for (const [k, v] of Object.entries(query)) {
+    expect(actual[k], `query.${k}`).toEqual(v);
+  }
+}
+
 describe('/products 列表(#20 片1a)', () => {
   it('🔴 驗收 1:列出商品,含已下架的那批(後台存在的理由之一)', async () => {
     mocks.list.mockResolvedValue({
@@ -106,21 +169,23 @@ describe('/products 列表(#20 片1a)', () => {
     //    省略會讓「頁面忘了把某一軸傳下去」這件事在這一格變成綠的。
     //    (2026-08-19:第三個參數由四個位置參數改成一個具名物件,理由見
     //     `product-repository.ts` 的 `AdminProductQuery` 檔頭。)
-    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, PRODUCTS_PAGE_SIZE, {
+    expectListCalledWith(PRODUCTS_PAGE_SIZE, PRODUCTS_PAGE_SIZE, {
       setBy: undefined,
       keyword: undefined,
-      brandId: undefined,
+      brandIds: undefined,
       categoryIds: undefined,
+      skus: undefined,
     });
 
     // 負向對照:沒有這格,上面那條對「offset 恆為 20」也會綠。
     mocks.list.mockClear();
     await renderPage();
-    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 0, {
+    expectListCalledWith(PRODUCTS_PAGE_SIZE, 0, {
       setBy: undefined,
       keyword: undefined,
-      brandId: undefined,
+      brandIds: undefined,
       categoryIds: undefined,
+      skus: undefined,
     });
   });
 
@@ -151,11 +216,12 @@ describe('/products 列表(#20 片1a)', () => {
     const { container } = await renderPage({ page: '99' });
     expect(container.textContent ?? '').toContain('目前沒有商品');
     // 🔴 offset 照算送出去、**不夾回 0** —— 夾回去等於偷偷把使用者要的那一頁換掉。
-    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 98 * PRODUCTS_PAGE_SIZE, {
+    expectListCalledWith(PRODUCTS_PAGE_SIZE, 98 * PRODUCTS_PAGE_SIZE, {
       setBy: undefined,
       keyword: undefined,
-      brandId: undefined,
+      brandIds: undefined,
       categoryIds: undefined,
+      skus: undefined,
     });
   });
 
@@ -266,21 +332,23 @@ describe('/products 列表(#20 片1a)', () => {
     mocks.list.mockResolvedValue({ items: [], total: 0 });
     await renderPage({ set_by: 'staff' });
     // 沒有這格,實作可以在頁面上 `items.filter(...)` ⇒ 分頁 count 仍是全表數、翻頁翻不完。
-    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 0, {
+    expectListCalledWith(PRODUCTS_PAGE_SIZE, 0, {
       setBy: 'staff',
       keyword: undefined,
-      brandId: undefined,
+      brandIds: undefined,
       categoryIds: undefined,
+      skus: undefined,
     });
 
     // 負向對照:認不得的值不得被送進查詢(它會直接進 .eq 條件)。
     mocks.list.mockClear();
     await renderPage({ set_by: 'DROP' });
-    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 0, {
+    expectListCalledWith(PRODUCTS_PAGE_SIZE, 0, {
       setBy: undefined,
       keyword: undefined,
-      brandId: undefined,
+      brandIds: undefined,
       categoryIds: undefined,
+      skus: undefined,
     });
   });
 
@@ -289,5 +357,101 @@ describe('/products 列表(#20 片1a)', () => {
     const { container } = await renderPage({ set_by: 'staff' });
     const text = container.textContent ?? '';
     expect(text).toContain('設定上下架的功能還沒做好');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// FIX-21 · 篩選區併成一張卡(OD 稿 `pcm-524f/HANDOFF-orders-ui.md:508`)
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴 **這一組守的是「別把它退回去」, 而不是「畫面有那幾個字」。**
+//    稿的症狀是「四塊各自 flex、寬度互不對齊」⇒ 而那件事**測不到**(沒有真瀏覽器)。
+//    ⇒ 所以這裡守的是**結構上可判別的那幾格**:同一個容器裡、貼料號收合、
+//      以及三件這支檔自己寫過理由的**不得動**的事。
+//    ⚠️ **誠實邊界**:全綠**不代表**它看起來對。真的對不對要 Sean 早上開後台看。
+describe('/products 列表 · FIX-21 篩選區併成一張卡', () => {
+  // 🔴 這一組要驗「四塊都在同一個容器裡」⇒ **品牌/分類必須真的渲染得出來**,
+  //    而本檔預設的世界是「選項撈不到 ⇒ 整塊不畫」。⇒ 這一組自己餵一份選項。
+  beforeEach(() => {
+    mocks.list.mockResolvedValue({ items: [], total: 0 });
+    mocks.options.mockResolvedValue({
+      brands: [{ id: 'b1', name: 'CNC RACING' }],
+      categories: [
+        { id: 'c1', name: '外觀部品', raw_path: '外觀部品', parent_category_id: null, sort_order: 1 },
+      ],
+      categoryIdsWithProducts: new Set(['c1']),
+      brandIdsWithProducts: new Set(['b1']),
+    });
+  });
+  // 🛑 跑完把它還原成預設(reject)—— 否則我這一組會把「選項撈得到」這個世界
+  //    留給後面新加的格, 而它們會在一個不是自己設的世界裡綠。
+  afterEach(() => {
+    mocks.options.mockImplementation(() => Promise.reject(new Error('taxonomy 未 mock(預設維持既有行為)')));
+    // 🔴 `list` 也要還原(codex R2 consider):本組最後一格把它留在 reject,
+    //    而檔案層的 `clearAllMocks()` **只清呼叫紀錄, 不清 implementation**。
+    //    ⚠️ 現在無害(本組在檔尾), 而**下一個在它後面加格的人會在一個不是自己設的世界裡綠**。
+    mocks.list.mockReset();
+  });
+
+  it('🟢 搜尋 / 全部手動自動 / 品牌分類 / 料號批次 都在【同一個容器】裡', async () => {
+    const { container } = await renderPage();
+    const card = container.querySelector('[data-od-prodfilters]');
+    expect(card).not.toBeNull();
+    // 🔴 對【容器內部】數, 不對整頁數 —— 整頁數的話, 某一塊被搬出卡片也照樣綠,
+    //    而那正是這一片要修的病(四塊各自散著)。
+    const inner = card?.textContent ?? '';
+    for (const must of ['搜尋', '全部', '手動', '自動', '料號批次']) {
+      expect({ [must]: inner.includes(must) }).toEqual({ [must]: true });
+    }
+    // 🔴 品牌/分類用【元件自己的 id】驗(codex must-fix):我第一版的清單裡**根本沒有它們**
+    //    ⇒ 把整個 taxonomy 元件刪掉這一格照樣綠, 而本格名稱寫著「四塊都在同一個容器裡」。
+    //    **宣稱四塊, 實際兩塊。**
+    expect(card?.querySelector('#product-brand-filter')).not.toBeNull();
+    expect(card?.querySelector('#product-category-filter')).not.toBeNull();
+  });
+
+  it('🔴 貼料號收在 details 裡而【預設收合】—— 而它仍然在 DOM 裡', async () => {
+    const { container } = await renderPage();
+    const d = container.querySelector('[data-od-prodfilters] details');
+    expect(d).not.toBeNull();
+    // 🔴 `open` 為 false = 預設收合。稿逐字:「批次貼 Excel 用, 不是每次都要」。
+    expect(d).toHaveProperty('open', false);
+    // 🔴🔴 **收合不是隱藏** —— 這一格證的是它仍然渲染得出來。
+    //    少了它, 有人把 details 換成 `{false && …}` 也照樣綠, 而那會讓貼料號整個消失。
+    expect(d?.querySelector('#product-sku-filter')).not.toBeNull();
+  });
+
+  it('🔴🔴 網址帶著料號進來 ⇒ 那個 details 必須【展開】—— 否則清單被篩了而畫面不說原因', async () => {
+    // 🔴 這一格是 codex must-fix 逼出來的, 而它打中我自己寫的那句「只改視線占用」:
+    //    沒套用時收合 = 省視線;**套用了還收合 = 藏原因**。⇒ 代價不是均勻的。
+    // 🔴 網址參數是 `sku`(單數, `product-list-view.ts:278` `SKU_PARAM = 'sku'`),
+    //    而 filter 上的欄位是 `skus`(複數)。**我第一版兩個都寫成 skus ⇒ 這一格紅。**
+    //    📌 一個「欄位名」與一個「網址名」長得幾乎一樣, 而它們不是同一個東西。
+    const { container } = await renderPage({ sku: 'RPM-001' });
+    const d = container.querySelector('[data-od-prodfilters] details');
+    expect(d).toHaveProperty('open', true);
+  });
+
+  it('🛑 選項撈失敗時【貼料號仍要在】—— 而品牌分類整塊不畫是刻意的', async () => {
+    // 🔴 這一格是 codex must-fix 補的:我原本**宣稱**保住了這個約束, 而**沒有任何一格在驗它**。
+    //    原檔逐字:「就算分類撈失敗, 員工手上那份 Excel 仍然貼得進來」。
+    mocks.options.mockRejectedValue(new Error('taxonomy boom'));
+    const { container } = await renderPage();
+    const card = container.querySelector('[data-od-prodfilters]');
+    // 品牌/分類整塊不畫 —— 空下拉點得下去、送得出去、什麼都不會變 = 一個會騙人的控制項
+    expect(card?.querySelector('#product-brand-filter')).toBeNull();
+    // 🔴🔴 而貼料號**必須還在** —— 這才是那條約束本身
+    expect(card?.querySelector('#product-sku-filter')).not.toBeNull();
+  });
+
+  it('🛑 讀取失敗時搜尋框仍要在 —— 這支檔自己寫過理由, 不得因為併卡而弄丟', async () => {
+    // 讓選項與清單都掛掉 ⇒ 走 loadFailed 那條路
+    mocks.list.mockRejectedValue(new Error('boom'));
+    const { container } = await renderPage();
+    const card = container.querySelector('[data-od-prodfilters]');
+    expect(card).not.toBeNull();
+    // 🔴 原檔逐字:「否則員工唯一能做的動作(換個詞再試)會跟著錯誤訊息一起消失」
+    // ⛔ ~~`form[action="/products"]`~~ ⇒ 🔴 **太鬆**(codex must-fix):
+    //    搜尋框消失而別的 form 留著, 那一格照樣綠。⇒ 鎖定搜尋框**自己的 id**。
+    expect(card?.querySelector('#product-keyword-search')).not.toBeNull();
   });
 });

@@ -87,6 +87,7 @@ DB 側
 ---
 
 ## 2. 影響面(`git grep -l 'shipment_reference|shipmentReference' -- apps packages` ⇒ **18 檔**)
+🔴 2026-08-31 訂正:那條 grep 少了 `-E`,豎線被當字面 ⇒ 照抄重跑拿到 **0**(假 0)。加 `-E` 今天 ⇒ **34 支**(🔵 正對照:同款 `grep -rlE export` 在 apps packages ⇒ 529)。
 
 ```
  8  apps/admin/src/components/orders          列表/面板顯示

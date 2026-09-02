@@ -18,6 +18,8 @@
 set -u
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 MAILBOX="${HOME}/pcm-mailbox"
+# 🔴 拍板落檔的正式落點(`00-work-rules §4`)—— 2026-08-31 補進分母。
+MEMDIR="${MEMDIR:-$HOME/.claude/projects/-Users-sean-1-pcm-website-v2/memory}"
 # 🔴🔴 **`--since=<今天的日期>` 恆回 0** —— 2026-08-29 線A 實測,而它爆在最需要它的那一天。
 #    git 把【光寫今天日期】的 `--since` 解析成「**現在**」,不是「今天 00:00」:
 #      `--since=2026-08-29`         ⇒ 0 顆
@@ -59,7 +61,26 @@ sweep() {
   # ② 那一列現在的【態】是什麼 —— 🔴 而 `open` 與 `done` 印在同一張表上
   section "② 板子上那一列現在是什麼態" "grep -n <關鍵字> docs/launch-todo.md | 取態欄"
   grep -n -- "$KW" "$REPO/docs/launch-todo.md" 2>/dev/null \
-    | awk -F'|' '{printf "%s 態=%s | %s\n", $1, $2, substr($4,1,110)}' > "$TMP"
+    | awk '{
+        # 🔴 awk 沒有 lookbehind ⇒ 不能像 python 那樣在【沒被跳脫的】豎線上切。
+        #    用 -F 豎線會把 markdown 的跳脫豎線也當成欄位分隔 ⇒ 一列有 6 個時欄位整個右移
+        #    ⇒ 【態】那一欄印出一段內容碎片。
+        # 📌 那個反斜線加豎線是【畫面】的跳脫, 不是【欄位】的跳脫 ⇒ 修法在讀端。
+        # ✅ 做法:先把它換成一個【不會出現的位元組】(0x01), 切完再換回來。
+        # 🔴 而「不會出現」是一個假設 —— 我量了它, 不是假設它:
+        #    2026-09-02 對 docs/launch-todo.md(2,031,248 bytes)數位元組:
+        #      0x01 ⇒ 0 次    正對照 0x7c(豎線)⇒ 3,916 次 ⇒ 尺會動, 那個 0 才算數
+        #    而那是【那一天】的板子, 不是保證;它哪天真的出現 ⇒ 這一段會安靜地換錯, 而沒有訊號。
+        # 🛑 而本段【不得出現單引號】—— 它會把這支 awk 的引號切斷。
+        #    我犯過兩次:第一次寫在量法裡、第二次寫在一個舉例裡
+        #    ⇒ 兩次都讓【態】那一欄當場變空, 而 selftest 照樣 PASS(它沒有走這條路)。
+        #    📌 一個寫在註解裡的東西弄壞了它旁邊的碼, 而註解看起來不會執行。
+        line=$0
+        gsub(/\\\|/, "\001", line)
+        n=split(line, a, "|")
+        for (i=1;i<=n;i++) gsub(/\001/, "|", a[i])
+        printf "%s 態=%s | %s\n", a[1], a[2], substr(a[4],1,110)
+      }' > "$TMP"
   report "docs/launch-todo.md" "$TMP"
 
   # ③ 那個字面現在還在碼裡嗎 —— 它在不在,與板子怎麼寫是兩件事
@@ -93,7 +114,45 @@ sweep() {
   grep -rln -- "$KW" "$MAILBOX"/*.md 2>/dev/null | head -12 > "$TMP"
   report "~/pcm-mailbox 的 .md" "$TMP"
 
+
+  # ⑥ 有沒有一板拍板蓋掉它(memory)
+  #    🔴 2026-08-31 補。成因:`-eb` 拿它與 `before-asking-sean.sh` 一起量 ⇒ 兩支都 `grep -c memory` = 0,
+  #       而 `~/.claude/rules/00-work-rules.md §4` 逐字寫著「PCM 事實/拍板/進度 → memory `project_*`」
+  #       ⇒ 📌 **兩支【專門用來查「這還成不成立」】的工具, 都不看拍板實際住的那個地方。**
+  #    ⇒ 而拍板正是最會讓一列作廢的東西 —— 它不留 commit、不進板子、不進 mailbox。
+  section "⑥ 有沒有一板拍板蓋掉它(memory)" "grep -rln <關鍵字> ~/.claude/projects/*/memory/"
+  grep -rln -- "$KW" "$MEMDIR" 2>/dev/null | head -12 > "$TMP"
+  report "memory 拍板檔" "$TMP"
   rm -f "$TMP"
+}
+
+# ══ 🔴🔴 **這一棵樹與 dev 差多少 —— 而不印它會產生【假的零】** ═══════════════
+#    成因是量到的(2026-09-01 線 `-5b`, 線DB 複驗):在一棵落後 origin/dev 59 顆的
+#    工作樹上跑本支查 `⟦b4-ZERODENOM1⟧` ⇒ **五段全部零命中**, 而那一列就在 dev 的板上。
+#      那棵樹的板 態列 315 · 命中 0   ·   origin/dev 的板 態列 377 · 命中 4
+#    🛑 **而那一發的量測戳看起來完全健康**:HEAD 正常、工作樹 0 項 dirty。
+#    📌 **⇒ 判別句(`-5b` 的原句)**:
+#       **它守的是「同一棵樹上兩個人的差異」, 而漏的是「這棵樹與 dev 的差異」。**
+#       **⇒ 兩個都是分母, 而它只印了一個。**
+#    🔵 **⇒ 而修法【不是】改成讀 `origin/dev`** —— 那會換一個方向的假零:
+#       「我剛剛 commit 而還沒推」的東西就查不到了。
+#       ⇒ ⇒ **兩個方向都有假零 ⇒ 兩邊都印, 而不是選一邊。**
+behind_warning() {
+  local BEHIND AHEAD
+  BEHIND="$(git -C "$REPO" rev-list --count HEAD..origin/dev 2>/dev/null)"; BEHIND="${BEHIND:-未知}"
+  AHEAD="$(git -C "$REPO" rev-list --count origin/dev..HEAD 2>/dev/null)"; AHEAD="${AHEAD:-未知}"
+  if [ "$BEHIND" != "0" ]; then
+    printf '\n   🔴🔴 ⚠️  這棵樹【落後 origin/dev %s 顆】—— 本支所有 grep 讀的是【這棵樹】\n' "$BEHIND"
+    printf '   🔴🔴     ⇒ 那 %s 顆裡新增的板子列、碼、註解, 本支【一個字都看不到】\n' "$BEHIND"
+    printf '   🔴🔴     ⇒ 而它會印成【零命中】, 而零命中讀起來像「這件事沒有人碰過」\n'
+    printf '   🔴🔴     ⇒ 先 `git pull --ff-only`(或到主樹跑)再重跑, 不要用這一發的零下結論\n'
+  else
+    printf '   🔵 落後 origin/dev 0 顆(這棵樹的板與 dev 同步)\n'
+  fi
+  if [ "$AHEAD" != "0" ]; then
+    printf '   🔵 領先 origin/dev %s 顆 —— 那幾顆【只有這棵樹看得到】, 別棵樹跑同一發會少那些命中\n' "$AHEAD"
+  fi
+  printf '   ⚠️ 而 origin/dev 是【本地那份 ref】—— 它可能是舊的, 而它不會說。要遠端實況跑 git ls-remote\n'
 }
 
 stamp_and_scope() {
@@ -106,6 +165,7 @@ stamp_and_scope() {
   printf '   量測 @ %s · HEAD %s · 工作樹 %s 項未 commit\n' "$T" "$H" "$DIRTY"
   printf '   🔴 那個「%s 項未 commit」不是雜訊 —— 八窗共用一棵樹,\n' "$DIRTY"
   printf '      HEAD 相同而工作樹不同,量到的就不是同一份碼。\n'
+  behind_warning
   cat <<'SCOPE'
 ──────────────────────────────────────────────────────────────
 🛑 這一發【掃不到】什麼:
@@ -113,7 +173,8 @@ stamp_and_scope() {
    · 正式庫的實際狀態 —— 旗標現值 / RLS 開沒開 / 表裡幾列，本檔一格都答不出
    · OD 設計稿 —— 稿不在 repo 裡
    · 別的 repo（PCM_Quote / 老闆腦）
-🔴 ⇒ 所以【五段全零】的意思是「這五個載體裡沒有」，不是「它還成立」。
+🔴 ⇒ 所以【六段全零】的意思是「這六個載體裡沒有」，不是「它還成立」。
+   ✅ ⑥(memory 拍板檔)是 2026-08-31 才加的 —— 在那之前這支工具看不到任何一板拍板。
 ──────────────────────────────────────────────────────────────
 SCOPE
 }
@@ -135,16 +196,17 @@ selftest() {
 
   P="$(grep -o '零命中' "$T1" | wc -l | tr -d ' ')"   # ← 不用 grep -c(本機是 ugrep,零命中時不印)
   N="$(grep -o '零命中' "$T2" | wc -l | tr -d ' ')"
-  printf '  正對照 min-height ⇒ 五段裡零命中 %s 段(期望 < 5)\n' "$P"
+  SEG="$(grep -o '^═══ [①②③④⑤⑥⑦⑧⑨]' "$T1" | wc -l | tr -d ' ')"
+  printf '  正對照 min-height ⇒ %s 段裡零命中 %s 段(期望 < %s)\n' "$SEG" "$P" "$SEG"
   # 🔴 印【真的用了哪一個】,不印一個過期的名字 —— 舊版這裡印的是一個**寫死的字面**,
   #    而實際用的已經是現造的 ⇒ 讀的人會以為它還是寫死的(而那正是本檔要防的病)。
   # 🔴🔴 **而這一行註解本身也踩過一次**:我第一版在這裡**把那個舊字面又寫了一遍**當例子
   #    ⇒ 那個形狀就又回到檔案裡了 ⇒ **而 `--selftest` 照樣 PASS**(它只驗現造那一發)。
   #    📌 **⇒ 解釋一個坑的文字,用了那個坑本身的材料** —— 而它不會被任何自檢抓到。
   #    ⇒ 所以這裡刻意**不寫出那個字面**,只描述它的形狀。
-  printf '  負對照 %s ⇒ 五段裡零命中 %s 段(期望 = 5)\n' "$NEG" "$N"
-  if [ "$P" -lt 5 ]; then printf '  ✅ 正對照:它真的撈得到\n'; else printf '  🔴 正對照全零 ⇒ 本 script 是死的\n'; RC=1; fi
-  if [ "$N" -eq 5 ]; then printf '  ✅ 負對照:現造字面五段全零\n'; else printf '  🔴 負對照有命中 ⇒ 它在亂撈\n'; RC=1; fi
+  printf '  負對照 %s ⇒ %s 段裡零命中 %s 段(期望 = %s)\n' "$NEG" "$SEG" "$N" "$SEG"
+  if [ "$P" -lt "$SEG" ]; then printf '  ✅ 正對照:它真的撈得到\n'; else printf '  🔴 正對照全零 ⇒ 本 script 是死的\n'; RC=1; fi
+  if [ "$N" -eq "$SEG" ]; then printf '  ✅ 負對照:現造字面全段零命中\n'; else printf '  🔴 負對照有命中 ⇒ 它在亂撈\n'; RC=1; fi
 
   # 🔴 突變:量測戳若印不出 HEAD,那一行就沒有分母 ⇒ 必須抓得到
   if stamp_and_scope | grep -q 'HEAD '; then printf '  ✅ 量測戳含 HEAD\n'

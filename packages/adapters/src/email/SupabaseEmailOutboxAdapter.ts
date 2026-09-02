@@ -343,13 +343,64 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     return { kind: 'duplicate' };
   }
 
-  async claimDue(limit: number): Promise<ClaimedEmailJob[]> {
+  async claimDue(
+    limit: number,
+    opts?: { readonly excludeEventTypes?: readonly EmailOutboxEventType[] },
+  ): Promise<ClaimedEmailJob[]> {
     const nowIso = new Date().toISOString();
-    const { data, error } = await this.client
+    /**
+     * ⟦b4-SHIPGATE1⟧ 2026-09-01:**不要認領被上層閘擋掉的那些事件型別。**
+     * 理由全文在 port(`IEmailOutbox.ts` 的 `claimDue`)—— 一句話:那道閘擋在認領【之後】,
+     * 而認領當下 `attempts` 就 +1、狀態落 `sending`,而 `sending` 不可再認領
+     * ⇒ 每燒一次要等一輪租約回收(route 端 3600 秒)。
+     *
+     * 🛑 **空陣列 / 未給 ⇒ 一個字都不加** —— 而那不是最佳化,是**驗收條件**:
+     *    既有呼叫端零改 ⇒ 送出的查詢必須與改動前**逐位元相同**。
+     *    ⚠️ ⛔ ~~送一個空的 `not in ()` 給 PostgREST 是語法錯,而它會在【所有既有路徑】上炸~~
+     *       **那句誇大了**(codex R2 nit;而 R3 F7 抓到我【只改了測試檔那一份, 沒改這一份】)——
+     *       既有呼叫端傳的是 `undefined`, 而空陣列只出現在專屬測試裡。
+     *       🔴 而 2026-09-01 R3 F2 之後**連 `not in` 都不用了**(改 `.neq`)⇒ 這句連對象都沒了。
+     *    📌 **⇒ 而這一格本身是第三次同款:改了一處而同款還在另一支檔, 而 diff 上看起來很完整。**
+     */
+    const exclude = opts?.excludeEventTypes ?? [];
+    let q = this.client
       .from('email_outbox')
       .select(JOB_SELECT)
       .in('status', CLAIMABLE_STATUSES)
-      .lte('next_retry_at', nowIso)
+      .lte('next_retry_at', nowIso);
+    /**
+     * 🔴🔴 **2026-09-01 R3(adversarial-reviewer, 換模型)must-fix F2 —— 而兩輪 codex 都沒看到。**
+     *
+     * ⛔ ~~`q.not('event_type','in', \`(${exclude.join(',')})\`)`~~ **那個形狀在本 repo 零前例**:
+     *    全 repo 非測試的 `.not(` 只有兩處,另一處(`SupabaseProductAdapter.ts:302`)用的是
+     *    `'eq'` / `'like'` **純量** ⇒ `'in'` + 括號字串**沒有任何一次被證明過 PostgREST 收**。
+     * 🛑 **而它壞掉的後果不是「出貨信沒排除」,是【全部的信都停】**:
+     *    PostgREST 拒收 ⇒ `claimDue` throw ⇒ `sweep-email-outbox.ts:626` `catch { errors++ }`
+     *    ⇒ `jobs = []` ⇒ **這一輪連 `order_created` 都不寄**,每 5 分鐘一次。
+     * 🔴🔴 **而旗標【今天就是關的】**(env 未設)⇒ **這條路第一次部署就會走到,不是邊角。**
+     * ⚠️ 而唯一釘它的測試斷言的是**實作自己寫出來的同一個字面** ⇒ 對「PostgREST 收不收」**零判別力**
+     *    ⇒ **兩邊一起錯會印綠。**
+     *
+     * ✅ **改用已證形狀 `.neq`** —— 而它為什麼夠:
+     *    `20260717020000_m4a_email_outbox.sql:315` 的 CHECK 逐字
+     *    `event_type IN ('order_created','order_shipped')` ⇒ **值域只有兩個**,
+     *    而唯一呼叫端(`sweep-email-outbox.ts:624`)只傳**一個**元素。
+     * 🔴 **而 ≥2 個【直接 throw】,不猜一個沒驗過的文法** ——
+     *    值域只有兩個 ⇒ 排除兩個 = 排除全部 = 沒有意義的呼叫;
+     *    而日後真的加第三個事件型別時,**要先照
+     *    `docs/runbooks/throwaway-postgres-for-migration-verification.md` 跑一發真的 PostgREST
+     *    驗那個 `in` 文法**,再回來改這裡。
+     * 📌 **⇒ 根因是【為了一個只有一個元素的呼叫端做了陣列泛化】,而那個泛化正是逼出無前例
+     *    filter 字串的原因。這裡不撤回那個泛化(port 已上線),而讓它【在沒驗過的區間拒絕動作】。**
+     */
+    if (exclude.length === 1) {
+      q = q.neq('event_type', exclude[0] as string);
+    } else if (exclude.length > 1) {
+      throw new Error(
+        'claimDue:excludeEventTypes 一次只支援 1 個(≥2 的 PostgREST 文法本 repo 未驗證;見本行上方註解)',
+      );
+    }
+    const { data, error } = await q
       .order('next_retry_at', { ascending: true })
       // 🔴 取大窗(見 DUE_SCAN_CAP):先 limit 再過濾會被恆最老的死列餓死活信(R1 Critical)。
       .limit(Math.max(limit, DUE_SCAN_CAP));
@@ -448,7 +499,43 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     });
   }
 
-  async markSkippedShipmentVoided(id: string, claimedAttempts: number): Promise<boolean> {
+  async markSkippedShipmentVoided(
+    id: string,
+    claimedAttempts: number,
+    currentDedupKey: string,
+  ): Promise<boolean> {
+    // ══════════════════════════════════════════════════════════════════════════
+    // 🔴🔴 **部署順序:先 apply `20260830060000`,再部署會走到這裡的碼。**
+    //    (2026-08-30 搬到這裡;搬的理由在本段最後。)
+    // ══════════════════════════════════════════════════════════════════════════
+    // ⛔ **那支 migration 的檔頭寫著一句【已經為假】的話,而它不能改**(見下方「為什麼搬」):
+    //    ~~「今天沒有任何正式碼呼叫 `markSkippedShipmentVoided` ⇒ 今天反序部署不會立刻壞」~~
+    // 🔴 **那一天到了 —— 它已經被接上去了**:
+    //    `packages/use-cases/src/sweep-email-outbox.ts:546` 呼叫本方法,
+    //    由 `apps/storefront/src/app/api/cron/email-sweep/route.ts` 走到;接線那顆是 `44ccc0bc`。
+    //    ⚠️ **而「現在就會走到」要帶前提,不要讀成無條件立即可達**:還需要同時滿足
+    //      ① `allowOrderShipped=true`(由 env 導出的 cutoff 決定,該 route `:453`)
+    //      ② 有一列 due 的 `order_shipped` 被認領 ③ 那一箱撈回來的脈絡是 `voided`
+    //    ⇒ 正確說法:**那條路【已經接上了】**,會不會今天走到取決於那個 env 有沒有上膛。
+    //      而重點不變:**「還沒有人接」這個理由已經沒有了。**
+    //
+    // 🔴 **它是怎麼被發現的,比那個事實本身更值得留**(可複製的那一步):
+    //    上午量的時候在 `9002092d`,而 `44ccc0bc` 不在它的祖先裡
+    //    (`git merge-base --is-ancestor 44ccc0bc 9002092d` ⇒ 否)⇒ 接線在後來 merge 進來的 19 顆裡。
+    //    抓到它的是:**被指派去做別件事時,回頭把同一個 grep 重跑了一次。**
+    //    ⇒ 📌 **merge 之後,先前寫下的每一句「今天還沒有 X」都可能已經不成立 —— 而它們不會自己出聲。**
+    //    ⇒ 🔴 **而這一次是往【更嚴重】的方向過期**:當時寫的是「今天不急」。
+    //      往好的方向過期**容易**沒有人回頭查(讀起來像好消息);
+    //      **而往壞的方向過期也一樣容易 —— 因為它讀起來像一句已經查證過的安心話。**
+    //
+    // 🛑 **為什麼這一段住在這裡,而不是住在那支 migration 的檔頭**(2026-08-30,Sean 裁【甲】):
+    //    那一段**曾經**寫在 migration 檔頭(commit `87f86194`),而**那支 migration 已經 apply 了**
+    //    ⇒ 改它(即使只改註解)會讓 `supabase/APPLIED.tsv` 記的 sha256 對不上。
+    //    CLAUDE.md 路由表逐字:「**已 apply 的 migration 連註解都不能動**」。
+    //    ⇒ migration 本體已還原成帳本那一版;**更正搬來這裡 —— 會走到第七態的碼就是這一支。**
+    //    ⚠️ **代價明寫,不掩蓋**:那支 migration 的檔頭現在**仍然留著那句已為假的話**,
+    //       而它**不能**改。⇒ 只讀那支檔的人會讀到舊的。這是【甲】這個選項的已知代價。
+    //
     // 🔴 M-4b E4 片3a。**可翻轉態(與 skipped_no_real_email 同類), 不是不可翻轉終態**
     //    —— 箱可被 admin_unvoid_shipment 用同一個 id 復原, 而掃描 view 的 anti-join 不分 status
     //    ⇒ 這一列會永久擋住重新 enqueue(合約全文與反例在 port)。稽核碼由本層寫死、不經
@@ -456,9 +543,58 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     // ⚠️ **與 `order_ineligible` 分開是承重的**:那一態是「訂單已退款/取消」,
     //    本態是「這一箱被作廢,而訂單好好的」。合併之後稽核會得到一個錯的答案,
     //    而那個答案讀起來完全合理。
+    // 🔴🔴 **⟦b4-SHIPUNVOID1⟧ 2026-08-31**:退休這把鍵,**與 status 在同一發 UPDATE 裡**。
+    //    上面那段寫的是這個病的【結果】—— 而它漏了一件事:**有兩個交錯順序**。
+    //      順序A 先 skip 後 unvoid ⇒ 退休在 skip 當下就發生 ⇒ unvoid 後 view 自然排新的
+    //      順序B 先 unvoid 後 skip ⇒ **實測可達**(probe W4;負對照 W4b 印不同的值):
+    //        sweeper 讀到 voided → **這中間 unvoid 進來** → 才寫下 skip
+    //        ⇒ 任何「在 unvoid 那一側清掉那一列」的修法都會**撲空**,而洞原封不動。
+    //    ⇒ 📌 **所以退休必須發生在【寫下 skip 的那一刻】,不是發生在 unvoid 那一側。**
+    //
+    // 🔴 後綴用**本列自己的 `id`**(uuid,全域唯一):
+    //    · 同一列被 skip 兩次 ⇒ 算出來的鍵**相同** ⇒ 不互撞(冪等)
+    //    · 兩個不同的 outbox 列 ⇒ 兩把不同的鍵
+    //    · 而 `dedup_key` 是 `text` **無長度上限**(`20260717020000:301`,只有 `<> ''` 的 CHECK)
+    //      ⇒ 加後綴不會被截斷。**截斷才是真正危險的那一種**:兩列會撞成同一個鍵。
+    // ⚠️ **這一句我原本寫「箱還作廢時不會誤寄」—— codex 2026-08-31 指出它【不成立】,原句作廢**:
+    //    掃描 view 的 `s.deleted_at IS NULL` 只守**排信那個時點**,守不到**寄送那個時點**。
+    //    sweeper 讀到 live 之後、到 `sender.send` 之間箱仍可被作廢,而它不重查
+    //    ⇒ 那條路**本來就在**(不是本片造成的),而本片也沒有關掉它。
+    //    📌 **⇒ 正確的說法是:本片不讓「作廢過的箱」永久佔住鍵;它不保證寄送時點的正確性。**
+    // ✅ **Sean 2026-08-31 拍甲,原話逐字「依照推薦」。而推薦的內容逐字是:**
+    //    「極少數情況客人會收到**兩封不一樣的**出貨通知 —— 例如兩個不同的追蹤號,
+    //      而他不知道該信哪一封」+「五個條件同時成立」+
+    //      「**我用一個常態的病換一個極少數的病 —— 不是零代價,你要知道**」+
+    //      推薦理由:**漏信是無聲的,矛盾信是有聲的**(客人會打電話,救得回來)。
+    // 🔴 **已知接受的是什麼**:極少數情況客人收到**兩封內容不同**的出貨通知。
+    // 🔴 **發現路徑 = 客服接到客人的電話,不是任何一支監控。**
+    //    ⚠️ 而附註要一起讀:**就算客人打了電話,我們也回頭查不出當時發生了什麼** ——
+    //       那兩列的形狀(一列退休的 skip + 一列 sent)**與正常修好的情況一模一樣**。
+    //    📌 **⇒ 這一格要寫到【客服看得到的地方】,不是只寫在這裡。**(2026-08-31 記,明天處理。)
+    // 🛑 **而 Sean 拍板時【沒有看到】這兩格,寫出來讓引用這個甲的人知道它涵蓋到哪裡為止**:
+    //      ① 「兩封不一樣的機率偏高」那個推論(端出去時標了是從動機推的,但沒展開)
+    //      ② 「就算客人打了電話,我們也回頭查不出當時發生了什麼」
+    //    ⇒ **不是要重問他** —— 是明天有人引用這個甲時,要知道分母。
+    //
+    // 🛑🛑 **本片開了一條【重複寄送】的可能,寫下來不掩蓋**:
+    //    Resend 的冪等鍵是 `${eventType}/${outboxId}`(`ResendEmailSenderAdapter.ts:207`)= **逐列**。
+    //    ⇒ 序列:信已被 Resend 收下 → **「寄出去了」這件事沒有寫回我們的資料庫** → 該列被回收重試 → 期間箱被作廢
+    //      → 本片退休舊鍵 → 箱被復原 → view 排出**新的一列(新 uuid)** → **新的冪等鍵** ⇒ 再寄一次。
+    //    🔴 在本片之前,那把鍵永遠被佔住 ⇒ 不會有新列 ⇒ 不會重寄。**這一條是本片帶來的。**
+    //    🔴 **而「沒有寫回」不只 `markSent` 寫 DB 失敗一種**(codex R2:我原本只寫了那一種,把範圍寫窄了):
+    //      · `markSent` 的 CAS 回 `false`(lease 已被回收 ⇒ 不是它的了)
+    //      · Resend 收下之後、`markSent` 之前**程序被 kill**(部署、OOM、逾時)
+    //      ⇒ 三種都留下「已寄出而我們不知道」的那一列 ⇒ 都走得到下面這條路。
+    //    ⇒ 要**降低**它:把冪等鍵改成 per-(shipment, order) 而不是 per-row ⇒ 另一支檔、另一片。
+    //      🔴 **而那【不是根治】**:`ResendEmailSenderAdapter.ts:7` 逐字「官方保留 **24h**、只是第一道網」
+    //      ⇒ 兩次寄送相隔超過 24 小時仍會重複 —— 而本片這兩次之間隔著「作廢→復原」**一個人的操作**,
+    //         那很容易超過一天。⇒ 📌 **所以那一片是【降低】不是【關掉】,不要寫成根治。**
+    // ✅ 不影響 `resolveUniqueViolation` 那發等值查:退休過的列本來就**不該**被當成
+    //    「同事件的既有列」,而新列用正規鍵 ⇒ 兩者不會撞。
     return this.leaveSending(id, claimedAttempts, {
       status: 'skipped_shipment_voided',
       last_error_code: 'shipment_voided',
+      dedup_key: `${currentDedupKey}:voided:${id}`,
     });
   }
 

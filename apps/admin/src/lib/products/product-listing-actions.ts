@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { authorizeAdminMutation } from '../session/authorize';
 import { getRequestId } from '../audit/context';
 import { setProductListing } from './product-repository';
+import { findVariantSkuCollisionOrUnavailable } from './variant-sku-collision';
 import {
   parseListingToggleForm,
   LISTING_NOOP_NOTE_DROPPED_RESULT_CODE,
@@ -27,6 +28,10 @@ import {
 
 type ResultCode =
   | 'saved'
+  /** 🔵 疑似「別支商品的規格」而員工還沒確認 ⇒ 擋下這一次, 而**不是永久封鎖**(見下方那段)。 */
+  | 'variant_sku_collision'
+  /** 🔴 那道確認【查不出來】⇒ 暫時擋 + 叫他重試(fail-closed;codex R1 #2)。 */
+  | 'variant_sku_check_unavailable'
   | 'noop'
   | typeof LISTING_NOOP_NOTE_DROPPED_RESULT_CODE
   | 'not_found'
@@ -64,6 +69,57 @@ export async function setProductListingAction(formData: FormData): Promise<void>
     product_id: parsed.productId,
     delisted: parsed.delisted,
   });
+
+  /**
+   * 🔴🔴 **第二層:上架前的確認**(板 `⟦b4-NOVARIANT1⟧`;Sean 2026-08-31 拍 `Q2=甲`)。
+   *
+   * 🛑 **只在【要上架】時檢查** —— `parsed.delisted === true`(要下架)一律放行。
+   *    把一支可疑商品**下架**永遠是安全的, 對它多問一句只會擋住正確的動作。
+   *
+   * 🔵 **這是【確認】不是【封鎖】**:員工在畫面上按了「我確定」⇒ 表單帶 `confirm` ⇒ 這裡放行。
+   *    ⇒ 📌 誤上架擋得住, 而**刻意上架不擋**。
+   *
+   * 🔴 **而為什麼 server 端要再算一次**(頁面那一層已經顯示過了):
+   *    第一層是【給人看的】—— 它讓人在按之前就知道;
+   *    第二層才是【真的擋的】—— 少了它, 改一個表單欄位就繞過去了。
+   *    ⇒ 兩層各自不可省, 而理由不是保險, 是它們擋的東西不同。
+   *
+   * ⚠️ `findVariantSkuCollision` **查不到或查錯時回 `null`(= 不擋)** ——
+   *    那個失敗方向是刻意的, 而代價明寫:**DB 出問題時這道確認會安靜地消失。**
+   */
+  if (!parsed.delisted) {
+    const collision = await findVariantSkuCollisionOrUnavailable(parsed.productId);
+
+    // 🔴🔴 **fail-closed**(codex R1 #2 must-fix):查不出來 ⇒ **擋下**, 不是放行。
+    //    ⛔ ~~原本任何錯誤都當「沒撞名」⇒ 繼續上架~~ —— 那讓【真的擋的那一層】在 DB 故障時失效。
+    //    🔵 而它與「是確認不是封鎖」不衝突:這是**暫時擋 + 叫他重試**, 不是永久封鎖。
+    if (collision === 'unavailable') {
+      console.error('[admin/products] product.listing.variant_sku_check_unavailable', {
+        request_id: requestId,
+        product_id: parsed.productId,
+      });
+      redirectWith(parsed.returnTo, 'variant_sku_check_unavailable');
+    }
+
+    if (collision) {
+      // 🔴 兩個條件, 而第二個是 codex R1 #5:
+      //    ① 他有沒有【主動勾】那個 checkbox
+      //    ② 他勾的那一刻看到的是不是【同一支商品】—— 畫面顯示 A 而資料變成 B ⇒ 不算確認過
+      const confirmedThisOne = parsed.confirmed && parsed.confirmOwner === collision.belongsToExternalId;
+      if (!confirmedThisOne) {
+        console.warn('[admin/products] product.listing.variant_sku_collision', {
+          request_id: requestId,
+          product_id: parsed.productId,
+          external_id: collision.externalId,
+          belongs_to: collision.belongsToExternalId,
+          // 🔵 分得出「沒勾」與「勾了但看到的是別支」—— 兩者要查的東西不一樣。
+          confirmed: parsed.confirmed,
+          confirm_owner: parsed.confirmOwner,
+        });
+        redirectWith(parsed.returnTo, 'variant_sku_collision');
+      }
+    }
+  }
 
   let code: ResultCode;
   try {

@@ -33,7 +33,7 @@ import type { AccountProfile } from '@/components/account/AccountView';
 
 const mockUpdate = vi.mocked(updateProfileAction);
 
-const PROFILE: AccountProfile = { name: '王小明', phone: '0912345678', birthday: '1990-05-20' };
+const PROFILE: AccountProfile = { name: '王小明', phone: '0912345678', birthday: '1990-05-20', gender: '' };
 
 beforeEach(() => {
   mockUpdate.mockReset();
@@ -75,7 +75,7 @@ describe('ProfileTab(g-4b 真 form)', () => {
     fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
     expect(await screen.findByText('✓ 已儲存')).toBeTruthy();
     expect(mockUpdate).toHaveBeenCalledTimes(1);
-    expect(mockUpdate).toHaveBeenCalledWith({ name: '王小明', phone: '0912345678', birthday: '1990-05-20' });
+    expect(mockUpdate).toHaveBeenCalledWith({ name: '王小明', phone: '0912345678', birthday: '1990-05-20', gender: '' });
   });
 
   it('編輯姓名後 submit 送出更新值(controlled state)', async () => {
@@ -84,7 +84,7 @@ describe('ProfileTab(g-4b 真 form)', () => {
     fireEvent.change(screen.getByDisplayValue('王小明'), { target: { value: '陳大文' } });
     fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
     await screen.findByText('✓ 已儲存');
-    expect(mockUpdate).toHaveBeenCalledWith({ name: '陳大文', phone: '0912345678', birthday: '1990-05-20' });
+    expect(mockUpdate).toHaveBeenCalledWith({ name: '陳大文', phone: '0912345678', birthday: '1990-05-20', gender: '' });
   });
 
   it('#196 unmount 清未觸發的 saved-timer(防切 tab 卸載後 setState-after-unmount 洩漏)', async () => {
@@ -178,7 +178,7 @@ describe('#378 錯誤隨輸入清除', () => {
   /** 讓三欄同時紅 —— 逐欄清那半要有「其他欄的錯留著」可看,否則改成全清也照樣綠。 */
   async function showAllFieldErrs() {
     mockUpdate.mockResolvedValue({
-      fieldErrors: { name: '請填寫姓名', phone: '手機格式不正確', birthday: '生日格式不正確' },
+      fieldErrors: { name: '請填寫姓名', phone: '手機格式不正確', birthday: '生日格式不正確', gender: '' },
     });
     const utils = renderTab();
     fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
@@ -238,5 +238,57 @@ describe('#378 錯誤隨輸入清除', () => {
     expect(screen.getByText('請填寫姓名')).toBeTruthy();
     expect(screen.getByText('手機格式不正確')).toBeTruthy();
     expect(screen.getByText('生日格式不正確')).toBeTruthy();
+  });
+
+  // ══ 🔴🔴 性別那一格(2026-09-01)══════════════════════════════════════════
+  //   這一段測的是【送代碼、顯示中文】那條契約 —— 它壞掉的方式是**畫面完全正常**:
+  //   下拉上仍然寫著「男」,而送出去的是 '男' ⇒ DB 的 CHECK 擋掉 ⇒ 整筆 UPDATE 被拒
+  //   ⇒ 使用者看到「儲存失敗,請稍後再試」,而**看不出是哪一欄害的**。
+  describe('性別(`:573` 會員中心那一片)', () => {
+    it('🔴 下拉顯示中文而【送出代碼】—— 兩者不是同一個字', async () => {
+      mockUpdate.mockResolvedValue({ ok: true });
+      renderTab({ name: '王', phone: '', birthday: '', gender: '' });
+      const sel = screen.getByDisplayValue('不選擇') as HTMLSelectElement;
+      // 畫面上是中文
+      const labels = [...sel.querySelectorAll('option')].map((o) => o.textContent);
+      expect(labels).toEqual(['不選擇', '男', '女', '不透露']);
+      // 而 value 是代碼
+      const values = [...sel.querySelectorAll('option')].map((o) => o.getAttribute('value'));
+      expect(values).toEqual(['', 'male', 'female', 'undisclosed']);
+
+      fireEvent.change(sel, { target: { value: 'female' } });
+      fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
+      await screen.findByText('✓ 已儲存');
+      // 🔴 判別力在這一行:送出去的必須是 'female'，不是 '女'
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ gender: 'female' }),
+      );
+    });
+
+    it('🟢 正對照:profile 帶進來的代碼要選得起來(不是永遠停在「不選擇」)', () => {
+      renderTab({ name: '王', phone: '', birthday: '', gender: 'undisclosed' });
+      expect((screen.getByDisplayValue('不透露') as HTMLSelectElement).value).toBe('undisclosed');
+    });
+
+    // 🔵 codex R1 nit:上一版只驗「錯誤會顯示」,沒驗「改選項後會清掉」
+    //    ⇒ 刪掉 `clearErr('gender')` 仍全綠。這一格補那個方向。
+    it('🔴 改選項後那一欄的紅字要清掉(刪掉 clearErr 就會紅)', async () => {
+      mockUpdate.mockResolvedValue({ fieldErrors: { gender: '性別選項不正確', name: '請填寫姓名' } });
+      renderTab({ name: '王', phone: '', birthday: '', gender: '' });
+      fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
+      expect(await screen.findByText('性別選項不正確')).toBeTruthy();
+      // 改性別 ⇒ 只清性別那一欄
+      fireEvent.change(screen.getByDisplayValue('不選擇'), { target: { value: 'male' } });
+      expect(screen.queryByText('性別選項不正確')).toBeNull();
+      // 🔵 正對照:姓名那一欄的錯【要留著】—— 不然「逐欄清」與「全清」分不開
+      expect(screen.getByText('請填寫姓名')).toBeTruthy();
+    });
+
+    it('🔴 server 回 fieldErrors.gender ⇒ 那一欄自己顯紅字(不是變成 formError)', async () => {
+      mockUpdate.mockResolvedValue({ fieldErrors: { gender: '性別選項不正確' } });
+      renderTab({ name: '王', phone: '', birthday: '', gender: '' });
+      fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
+      expect(await screen.findByText('性別選項不正確')).toBeTruthy();
+    });
   });
 });

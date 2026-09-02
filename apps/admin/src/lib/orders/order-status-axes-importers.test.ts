@@ -54,13 +54,18 @@ import { describe, expect, it } from 'vitest';
  */
 
 const ADMIN_SRC = resolve(__dirname, '..', '..');
+import { stripComments } from '../test-support/strip-comments';
+
 const TARGET = 'order-status-axes';
 
-/** 🔴 §A①:先剝註解再比對 —— 這個 repo 的註解裡到處都是 import 範例與檔名字面。 */
-function stripComments(src: string): string {
-  const noBlock = src.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
-  return noBlock.replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length));
-}
+// 🔴 §A①:先剝註解再比對 —— 這個 repo 的註解裡到處都是 import 範例與檔名字面。
+// 🔴🔴 **2026-08-31:本檔原本自己寫了一支 regex 版,已改用共用的 parser 版。**
+//    ⛔ ~~`src.replace(/\/\*[\s\S]*?\*\//g, …)`~~ —— 供給源是「`*/` 這兩個字元」不是「註解」
+//    ⇒ 一個行註解裡的 `*/` 就能開假區塊,把中間的真程式碼從掃描裡拿掉。
+// ✅ **共用版刻意也是【換等長空白、保留換行】** —— 因為下方 `importsModule` 的比對式帶 `m` 旗標、
+//    用 `^[ \t]*(?:import|export)` 錨行首 ⇒ **它依賴行結構**;把註解「刪掉」會把後面的 import
+//    併到上一行的碼後面 ⇒ 少認一個 importer,而那是【漏放】方向。
+// 🛑 **只換剝法,沒換它在找什麼。**
 
 /**
  * `from '…/<mod>'` 的匯入來源比對。
@@ -92,7 +97,7 @@ function walk(dir: string, out: string[] = []): string[] {
 function importersOf(mod: string): string[] {
   return walk(ADMIN_SRC)
     .filter((f) => !new RegExp(`(?:^|[/\\\\])${mod}\\.[jt]sx?$`).test(f))
-    .filter((f) => importsModule(stripComments(readFileSync(f, 'utf8')), mod))
+    .filter((f) => importsModule(stripComments(readFileSync(f, 'utf8'), f), mod))
     .map((f) => relative(ADMIN_SRC, f).split('\\').join('/'))
     .sort();
 }

@@ -42,6 +42,7 @@ function customer(email: string): Customer {
     name: '測試客戶',
     phone: '0912345678',
     birthday: null,
+    gender: null,
     tier: 'general',
     walletBalance: 0,
     totalDeposit: 0,

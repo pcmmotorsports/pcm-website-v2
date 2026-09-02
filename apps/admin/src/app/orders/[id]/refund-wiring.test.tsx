@@ -14,6 +14,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { AdminOrderDetail } from '@pcm/domain';
 
+import { stripComments } from '@/lib/test-support/strip-comments';
+
 import { QTY_MISSING_NOTE } from '@/components/orders/order-focal-row';
 
 // M-3 A7c RW2d:**頁層接線**測試(procurement-wiring.test.tsx 同型)。
@@ -54,6 +56,17 @@ const mocks = vi.hoisted(() => ({
   //    要構造出 `unreadable` 那一態(讓它 reject)。⚠️ **預設值在 `beforeEach` 維持回 `[]`**
   //    ⇒ 本檔其他每一格的行為一個字都沒變(提升本身零行為改變)。
   listOrderPayments: vi.fn(),
+  // 🔴 `#890` 片4:`order-detail-route` 會問「卡住那幾列有沒有被更正過」。
+  //    **預設回空 Map**(讀得到、而一筆都沒被更正)⇒ 本檔既有每一格行為一個字不變。
+  findEffectiveVerdicts: vi.fn(),
+  // 🔴 2026-09-01:與 listOrderPayments 同一個理由提升到 hoisted —— 非卡退款那一區
+  //    要構造得出【成功】與【失敗】兩態。⚠️ 預設在 beforeEach 回 `[]`(= 這單沒有登記紀錄)
+  //    ⇒ 本檔既有每一格的行為一個字都沒變。
+  listOrderManualRefunds: vi.fn(),
+  readOrderManualRefundRailCap: vi.fn(),
+}));
+vi.mock('../../../lib/payment/refund-correction-read', () => ({
+  findEffectiveVerdicts: mocks.findEffectiveVerdicts,
 }));
 // M-3 RW3:page 直接 import refund-read(→ server-only)⇒ 必 mock;
 // 本檔另有帳本顯示鏈的接線格,mock 給 hoisted 的可控版本。
@@ -98,6 +111,27 @@ vi.mock('../../../lib/supplier-repository', () => ({ listSupplierRows: vi.fn() }
 //    與本檔要驗的東西無關,也不會多畫任何東西。
 vi.mock('../../../lib/orders/payment-repository', () => ({
   listOrderPayments: mocks.listOrderPayments,
+}));
+// 🔴🔴 **2026-09-01:上面那段警告【只被套用在它自己點名的那一個模組上】。**
+//    `order-detail-route.tsx:186` 同樣在 `allSettled` 裡呼叫 `listOrderManualRefunds`,
+//    而本檔【沒有】mock 它 ⇒ 完全一樣的機制:它 throw、被 `allSettled` 折成 `unreadable`。
+//    ⇒ 🔵 **實測(不是讀出來的)**:在本檔的環境下直接 await 它 ⇒
+//      `reject: NEXT_PUBLIC_SUPABASE_URL not set`(本檔零處設那個 env,`grep -c` ⇒ 0)。
+//    ⇒ ⇒ 📌 **所以那六支 wiring test 的每一發,非卡退款區塊走的都是失敗路徑 ——**
+//      **成功路徑一次都沒有跑過,而 53 格照樣全綠。**
+//    🛑 **⇒ 而值得記的是那段警告本身:它把機制講得很清楚,而套用它的人只套了它點名的那一個。**
+//      ⇒ **一段正確而具體的警告,它的射程止於它舉的例子。**
+//    回空陣列 = 「這單沒有非卡退款登記」,與本檔要驗的東西無關,也不會多畫任何東西。
+// 🔴🔴 **而這個 mock 在 2026-09-02 又漏掉一支**(codex must-fix ⑤)——
+//    `readOrderManualRefundRailCap` 加進 `order-detail-route.tsx` 的 `allSettled` 之後,
+//    這裡沒有跟著加 ⇒ 呼叫它會 **throw(mock 模組沒有這個 export)** ⇒ 被 `allSettled` 吞成
+//    `railCap = null` ⇒ **每一發都固定顯示「算不出這張單的可退上限」, 而全檔照樣綠。**
+//    📌 **⇒ 這與上面 `:115` 那段【是同一個病、同一支檔、隔一天】** ——
+//       那段警告寫得完全正確, 而它救不了下一支 export:**警告的射程止於它舉的那個名字。**
+//    ⇒ ✅ 修法不是再寫一句提醒, 是下面 `[R-WIRE]` 那一格 —— 它會在漏 mock 時**紅**。
+vi.mock('../../../lib/payment/manual-refund-read', () => ({
+  listOrderManualRefunds: mocks.listOrderManualRefunds,
+  readOrderManualRefundRailCap: mocks.readOrderManualRefundRailCap,
 }));
 
 import OrderDetailPage from './page';
@@ -158,6 +192,12 @@ beforeEach(() => {
   mocks.getLedgerUnregisteredAmount.mockResolvedValue(null);
   // 提升前的 inline 預設,逐字保留:`[]` = 「這單沒收過款」,不是「讀不到」。
   mocks.listOrderPayments.mockResolvedValue([]);
+  mocks.listOrderManualRefunds.mockResolvedValue({ rows: [], truncated: false });
+  // 🔵 預設 `0` = 上限剛好用完、不標紅 ⇒ 其餘每一格驗的是它們原本要驗的東西。
+  mocks.readOrderManualRefundRailCap.mockResolvedValue(0);
+  // 🔴 空 Map = **讀得到、而一筆都沒被更正過** ⇒ 卡住的列照舊擋(既有行為不變)。
+  //    ⚠️ 它與 `null`(讀不到)是兩件事,而兩者今天都擋 —— 分開餵的那兩格在下面。
+  mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
   vi.spyOn(console, 'error').mockImplementation(() => {});
   savedFlag = process.env.REFUND_UI_ENABLED;
 });
@@ -463,7 +503,11 @@ describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
   });
 
   /** admin src 全樹走訪:回傳「內容命中 predicate」的非測試 .ts/.tsx 相對路徑。 */
-  function scanSources(predicate: (content: string) => boolean): string[] {
+  // 🔴 predicate 多收一個 `file`(2026-08-31)—— parser 版剝註解要靠副檔名決定 ScriptKind,
+  //    而 `<Foo>` 在 TS 與 TSX 下語意相反。其餘呼叫端可以照舊只用第一個參數。
+  function scanSources(
+    predicate: (content: string, file: string) => boolean,
+  ): string[] {
     const root = join(__dirname, '../../..');
     const hits: string[] = [];
     const walk = (dir: string) => {
@@ -474,7 +518,7 @@ describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
         } else if (
           /\.(ts|tsx)$/.test(name) &&
           !/\.test\.(ts|tsx)$/.test(name) &&
-          predicate(readFileSync(full, 'utf8'))
+          predicate(readFileSync(full, 'utf8'), full)
         ) {
           hits.push(full.slice(root.length + 1));
         }
@@ -490,9 +534,14 @@ describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
   it('🔴 RW3 措辭 oracle(F25 全域面):「還能退/剩餘可退」剝註解後只准出現在 refund-section(TapPay 端語意的 UI 字串);帳本數字被任何檔標成可退額,這格就紅', () => {
     // 先剝註解(app-sidebar.test.ts stripComments 同款理由):規則註解本身會引用禁語,
     // oracle 管的是**會渲染/會入庫的字串面**,不是講規則的字。
-    const strip = (s: string) =>
-      s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(?<!:)\/\/[^\n]*/g, '');
-    const hits = scanSources((content) => /還能退|剩餘可退/.test(strip(content)));
+    // 🔴 **2026-08-31:剝註解從 regex 換成 parser**(`scripts/strip-comments.ts`)。
+    //    ⛔ ~~`s.replace(/\/\*[\s\S]*?\*\//g, '')`~~ —— 供給源是「`*/` 這兩個字元」不是「註解」
+    //    ⇒ 一個行註解裡的 `*/` 就能開假區塊,把中間的真程式碼從掃描裡拿掉(而 guard 全綠)。
+    //    ⚠️ 舊版那個 `(?<!:)` 是為了不把 `https://` 當行註解 —— parser 天生就答對,不必再繞。
+    // 🛑 **只換剝法,沒換它在找什麼**:仍然是「剝完之後有沒有出現那兩個禁語」。
+    const hits = scanSources((content, file) =>
+      /還能退|剩餘可退/.test(stripComments(content, file)),
+    );
     expect(hits).toEqual([
       // 唯一合法命中:退款表單的 TapPay 端字面(「全額退款以 TapPay 端剩餘可退額為準」等,
       // 語意=TapPay 剩餘額,正確用法;opus R1 對抗面清空紀錄)。
@@ -1171,6 +1220,170 @@ describe('危險操作沉底:取消排在出貨之後', () => {
 //   因為 `MANUAL_REFUND_ENTRY_BLOCKED_BY_787` 恆 true,不是因為輸入不滿足其他 gating 條件。
 // 世界②(手動驗證,不在自動化測試裡):把該常數改成 false、重跑本測試、斷言改為
 //   toBe(true)、確認真的翻紅,再還原並用 sha256 核對逐位元相同——記錄見 W2-014 commit body。
+// ═════════════════════════════════════════════════════════════════════════
+// 🔴🔴 非卡退款【帳本區塊】的兩個世界(2026-09-01 加;而加它的理由是量到的)
+// ═════════════════════════════════════════════════════════════════════════
+// 本檔在 2026-09-01 之前【沒有】mock `manual-refund-read` —— 而 `order-detail-route.tsx:186`
+// 在 `allSettled` 裡呼叫它。實測(直接 await 它):`reject: NEXT_PUBLIC_SUPABASE_URL not set`
+// ⇒ 那六支 wiring test 的每一發,這一區走的都是【失敗路徑】,而 53 格照樣全綠。
+// 🛑 而我補上 mock 之後做了一發突變:**讓 mock 改成 throw ⇒ 53 格【仍然全過】**
+//    ⇒ ⇒ 📌 **那證明「補上 mock」只是把靜默失敗關掉, 一格覆蓋都沒有加。**
+//    ⇒ **下面這兩格才是覆蓋。** 少了它們,這個區塊的成功路徑仍然沒有人在看。
+describe('非卡退款帳本區塊:成功與失敗兩態都要看得出來', () => {
+  it('🟢 讀得到一筆登記 ⇒ 區塊把它畫出來(不是畫失敗字樣)', async () => {
+    // 🔴 **形狀是 `{ rows, truncated }` 不是裸陣列**(`order-detail-route.tsx:281-282` 讀 `.rows`)。
+    //    我第一版餵裸陣列 ⇒ 那一區【整塊不渲染】,而其他 53 格【照樣全綠】
+    //    ⇒ 📌 **一個形狀錯的 mock, 與一個正確的 mock, 在別人的測試裡印同一個綠。**
+    mocks.listOrderManualRefunds.mockResolvedValue({
+      truncated: false,
+      rows: [
+      {
+        id: 'mr-1',
+        rail: 'cash',
+        refundAmount: 350,
+        reason: '客人匯錯金額退回差額',
+        actor: 'tester',
+        occurredAt: '2026-08-20T02:00:00+00:00',
+        createdAt: '2026-08-20T03:00:00+00:00',
+        voidedAt: null,
+        voidReason: null,
+        voidedBy: null,
+      },
+      ],
+    });
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    expect(text).toContain('客人匯錯金額退回差額');
+    // 🔵 對照:成功那一態不得同時出現失敗字樣(否則「有畫出來」可能是兩塊都畫了)
+    expect(text).not.toContain('非卡退款登記載入失敗');
+  });
+
+  it('🔴 讀不到(reject)⇒ 區塊要說它讀不到,不是安靜地什麼都不畫', async () => {
+    mocks.listOrderManualRefunds.mockRejectedValue(new Error('boom'));
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    // 正向對照:頁面真的渲染出來,不是整頁空白讓下面那條恆真。
+    expect(text).toContain('退款');
+    expect(text).toContain('非卡退款登記載入失敗');
+  });
+  // ══ ⟦b4-PCM01RECORD⟧ route 層接線 ═══════════════════════════════════════════
+  //
+  // 🛑 **這一格存在的唯一理由:讓「mock 漏一支 export」變成【紅】而不是【綠】。**
+  //    上面那段警告(`:115`)是文字, 而文字擋不住下一支 export —— 這一格擋得住:
+  //    把 `readOrderManualRefundRailCap` 從 mock 拿掉 ⇒ 呼叫 throw ⇒ 收斂成 null
+  //    ⇒ 畫面出現「算不出這張單的可退上限」⇒ **下面第一條 expect 立刻紅。**
+  it('[R-WIRE] 🟢 cap 讀得到而不超額 ⇒ 兩條紅都不出現(這一格會在 mock 漏 export 時紅)', async () => {
+    mocks.listOrderManualRefunds.mockResolvedValue({
+      rows: [
+        {
+          id: 'mr-w1', rail: 'cash', refundAmount: 100, reason: 'r', actor: 'tester',
+          occurredAt: '2026-08-20T02:00:00+00:00', createdAt: '2026-08-20T03:00:00+00:00',
+          voidedAt: null, voidReason: null, voidedBy: null,
+        },
+      ],
+      truncated: false,
+    });
+    mocks.readOrderManualRefundRailCap.mockResolvedValue(0);
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    expect(text).not.toContain('算不出這張單的可退上限');
+    expect(text).not.toContain('超出可退上限');
+  });
+
+  it('[R-WIRE2] 🔴 cap 是負的 ⇒ route 真的把它送到畫面上(接線活著, 不是只有元件會畫)', async () => {
+    mocks.listOrderManualRefunds.mockResolvedValue({
+      rows: [
+        {
+          id: 'mr-w2', rail: 'cash', refundAmount: 100, reason: 'r', actor: 'tester',
+          occurredAt: '2026-08-20T02:00:00+00:00', createdAt: '2026-08-20T03:00:00+00:00',
+          voidedAt: null, voidReason: null, voidedBy: null,
+        },
+      ],
+      truncated: false,
+    });
+    mocks.readOrderManualRefundRailCap.mockResolvedValue(-700);
+    const { container } = await renderPage();
+    // 🔴 釘完整字面 —— 只找「超出」的話, 一個算錯的金額照樣過。
+    expect(container.textContent ?? '').toContain('超出可退上限 NT$ 700');
+  });
+
+  // 🔴🔴 **R3/Fable F3:釘「cap 排在列【之後】」** —— 那條承重宣稱原本只活在註解裡。
+  //
+  // 🛑 **這道守門我寫了【三版】, 前兩版都被實跑或審查打掉, 而三版都印得出一個合理的斷言:**
+  //    ① 比 `mock.invocationCallOrder` ⇒ 而 `Promise.all([a(), b()])` **兩支也是依序被呼叫的**
+  //       (陣列字面由左而右求值)⇒ 突變回併行【全綠】。
+  //       📌 **「誰先被【呼叫】」與「誰先【完成】」是兩個量, 而我要的是後者。**
+  //    ② 列的 mock 隔一個 microtask 翻旗標、cap 當場抄 ⇒ 突變兩發都紅了, 我以為成了。
+  //       🛑 **codex R4 must-fix**:一個「只延遲一個 microtask 再啟動 cap、而不等 list」的壞實作
+  //       仍然會綠 —— 而真實世界的 DB 查詢**遠不只一個 microtask**
+  //       ⇒ ⇒ 📌 **我的量具只擋得住「剛好差一個 microtask」的那一種併行, 而那是最不可能發生的那一種。**
+  //    ③ 現行:**閘住 list, 在放行之前先斷言 cap 沒被呼叫過。**
+  //       ⇒ 這一版不依賴任何時間量, 它問的是**因果**:cap 有沒有辦法在 list 給答案之前開始。
+  it('[R-WIRE4] 🔴 cap 必須在列【讀完之後】才開始讀(併行回來 ⇒ 這一格紅)', async () => {
+    let releaseList: () => void = () => {};
+    const listGate = new Promise<void>((resolve) => {
+      releaseList = resolve;
+    });
+    let capCalled = false;
+    mocks.listOrderManualRefunds.mockImplementation(async () => {
+      await listGate;
+      return { rows: [], truncated: false };
+    });
+    mocks.readOrderManualRefundRailCap.mockImplementation(async () => {
+      capCalled = true;
+      return 0;
+    });
+
+    const pending = renderPage();
+    // 🛑🛑 **這一行的長度是量出來的, 不是隨手寫的** ——
+    //    ~~第三版寫 `setTimeout(resolve, 0)`~~ ⇒ 實跑突變 B(壞實作也只延一個 `setTimeout(0)`)
+    //    ⇒ **全綠**:兩個 0ms 排在同一輪佇列裡, 誰先誰後是排程順序, 不是因果。
+    //    📌 ⇒ **兩個都用「最短的等待」時, 我的量具與被量的東西變成同一個東西。**
+    //    ✅ 現在**閘住 list 不放**, 而等一段【明顯長於任何微延遲】的真實時間:
+    //       cap 若真的排在 list 之後, 它**永遠**不會被呼叫(閘沒開);
+    //       cap 若是併行的, 它在這 50ms 內一定已經跑了。
+    //    ⚠️ **射程寫出來**:一個「刻意延遲超過 50ms 再併行」的實作仍然溜得過去。
+    //       ⇒ 而那不是省往返會寫出來的形狀 —— 省往返的人寫的是 `Promise.all`。
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(
+      capCalled,
+      '列還沒給答案, cap 就已經開始了 ⇒ 兩支是併行的 ⇒ 「新列配舊 cap」那個漏紅時序回來了',
+    ).toBe(false);
+
+    releaseList();
+    await pending;
+    // 🔴 正向對照:放行之後它**真的**被呼叫了 —— 否則上面那個 `false` 對「cap 根本沒接上」也綠。
+    expect(capCalled, 'cap 從頭到尾沒被呼叫過 ⇒ 上面那一格的分母是空的').toBe(true);
+  });
+
+  it('[R-WIRE3] 🔴 cap 讀取 reject ⇒ 收斂成「算不出上限」, 不是安靜地不標紅', async () => {
+    mocks.listOrderManualRefunds.mockResolvedValue({
+      rows: [
+        {
+          id: 'mr-w3', rail: 'cash', refundAmount: 100, reason: '這一筆列還在', actor: 'tester',
+          occurredAt: '2026-08-20T02:00:00+00:00', createdAt: '2026-08-20T03:00:00+00:00',
+          voidedAt: null, voidReason: null, voidedBy: null,
+        },
+      ],
+      truncated: false,
+    });
+    mocks.readOrderManualRefundRailCap.mockRejectedValue(new Error('boom'));
+    const { container } = await renderPage();
+    expect(container.textContent ?? '').toContain('算不出這張單的可退上限');
+    // 🔴 **codex R2 nit ⑦**:少了下面這一行, 本格的因果是假的 ——
+    //    把整條 cap 查詢從 route 拿掉, `manualRefundRailCap` 仍是初值 `null`
+    //    ⇒ 畫面照樣印那句話 ⇒ **這一格會綠, 而它宣稱驗的是「reject 被收斂」。**
+    //    ⇒ 📌 一個測「失敗態」的格子, 要先證明那條路【真的被走過】。
+    expect(mocks.readOrderManualRefundRailCap).toHaveBeenCalledWith(ORDER);
+    // 🔴🔴 **R3/Fable F4:cap 失敗【不得把列一起拖掉】** ——
+    //    把 route 那支的 `.catch` 拿掉 ⇒ 整支 settled promise reject ⇒ `manualRefundsFailed=true`
+    //    ⇒ 列被一起吞掉, 而上面兩行**照樣全綠**。這一行是那道保護唯一的守門。
+    expect(container.textContent ?? '', 'cap 讀失敗把列也吃掉了 ⇒ route 的 .catch 不見了').toContain(
+      '這一筆列還在',
+    );
+  });
+});
+
 describe('#787:非卡退款登記入口硬閘(沖銷 RPC 落地前恆不渲染)', () => {
   it('現金收款 + 帳本未登記額為正(健康輸入)⇒ 入口仍然不出現', async () => {
     mocks.listOrderPayments.mockResolvedValue([
@@ -1216,6 +1429,86 @@ describe('#787:非卡退款登記入口硬閘(沖銷 RPC 落地前恆不渲染)'
     mocks.getLedgerUnregisteredAmount.mockResolvedValue(877);
     const { container } = await renderPage();
     expect(hasRefundEntry(container)).toBe(false);
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // 🔴 `#890` 片4(Sean 2026-08-30 拍板做 (b)):**已更正成「錢沒有動」的列不再擋**
+  // ═════════════════════════════════════════════════════════════════════════
+  // 驗收對象是一張真的單(正式站 `8X3N5Q`,主視窗 2026-08-30 轉的後台截圖):
+  //   信用卡 NT$ 20 / 已收足 / 帳本未登記額 NT$ 20 / 兩筆「部分 NT$ 10 失敗(錢沒有動)」
+  // ⇒ 兩筆判定都是「錢沒有動」⇒ 餘額沒被高估 ⇒ **做完之後那張單的退款入口必須回來**。
+  //
+  // 🔴 三態預設關,而下面四格是那三態 + 一個真的放行:
+  //    `no_money_moved` ⇒ 放行 / `money_moved` ⇒ 擋 / 未更正 ⇒ 擋 / 讀不到 ⇒ 擋
+  const stuckRow = {
+    id: 'r-stuck',
+    kind: 'partial',
+    status: 'failed',
+    refundAmount: 100,
+    reason: '人工判定',
+    actor: 'sean',
+    createdAt: '2026-08-04T03:00:00+00:00',
+    failedReason: 'manual_failed',
+    failedDetail: null,
+    providerEvidence: null,
+  };
+  function feedStuck() {
+    process.env.REFUND_UI_ENABLED = '1';
+    mocks.listOrderRefunds.mockResolvedValue({ rows: [stuckRow], truncated: false });
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(877);
+  }
+
+  it('🔴 更正成「錢沒有動」⇒ 入口**回來**(這一格是本片的本體,也是 8X3N5Q 那張單)', async () => {
+    feedStuck();
+    mocks.findEffectiveVerdicts.mockResolvedValue(
+      new Map([['r-stuck', { correctedTo: 'no_money_moved' }]]),
+    );
+    const { container } = await renderPage();
+    expect(hasRefundEntry(container)).toBe(true);
+  });
+
+  it('🔴 更正成「錢動了」⇒ 入口**仍然不見**(那筆錢已經退出去了)', async () => {
+    feedStuck();
+    mocks.findEffectiveVerdicts.mockResolvedValue(
+      new Map([['r-stuck', { correctedTo: 'money_moved' }]]),
+    );
+    const { container } = await renderPage();
+    expect(hasRefundEntry(container)).toBe(false);
+  });
+
+  it('🔴 更正紀錄讀不到(throw)⇒ 入口不見(fail-closed;與「未更正」分開餵)', async () => {
+    feedStuck();
+    mocks.findEffectiveVerdicts.mockRejectedValue(new Error('boom'));
+    const { container } = await renderPage();
+    expect(hasRefundEntry(container)).toBe(false);
+  });
+
+  it('🔴 更正紀錄回的不是 Map(型別漂移)⇒ 也當讀不到 ⇒ 入口不見', async () => {
+    feedStuck();
+    mocks.findEffectiveVerdicts.mockResolvedValue({ get: () => undefined } as never);
+    const { container } = await renderPage();
+    expect(hasRefundEntry(container)).toBe(false);
+  });
+
+  it('🔴 帳本讀不到時**不去問**更正紀錄(問了也沒意義,而留 null 正是 fail-closed 要的值)', async () => {
+    process.env.REFUND_UI_ENABLED = '1';
+    mocks.listOrderRefunds.mockRejectedValue(new Error('ledger down'));
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(877);
+    const { container } = await renderPage();
+    expect(mocks.findEffectiveVerdicts).not.toHaveBeenCalled();
+    expect(hasRefundEntry(container)).toBe(false);
+  });
+
+  it('🔴 沒有卡住的列 ⇒ 以空陣列問(下游自己早退不打 DB),入口照常', async () => {
+    process.env.REFUND_UI_ENABLED = '1';
+    mocks.listOrderRefunds.mockResolvedValue({
+      rows: [{ ...stuckRow, id: 'r-plain', failedReason: 'not_sent' }],
+      truncated: false,
+    });
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(877);
+    const { container } = await renderPage();
+    expect(mocks.findEffectiveVerdicts.mock.calls[0]![0]).toEqual([]);
+    expect(hasRefundEntry(container)).toBe(true);
   });
 
   // 🔴 **負對照,而它是這一組的承重格**:同一發、只把 `failedReason` 換掉。

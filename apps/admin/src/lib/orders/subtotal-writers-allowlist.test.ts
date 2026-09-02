@@ -116,6 +116,19 @@ function stripSqlComments(src: string): string {
  * **也就是那個「讓原本『單一寫入者』前提消失」的第二個寫入者**。
  */
 const ALLOWLIST = [
+  // ── 2026-09-02 線 `-5b` 補(兩支都【不寫那三欄】—— 命中的是它們的後置斷言)──────
+  // 🔴 命中原因逐字:`WRITER_RE` 的第二個分支是 `INSERT INTO public."?(orders|order_items)"?`
+  //    —— 而這兩支的**後置斷言**要造一張測試訂單才跑得起來 ⇒ `INSERT INTO public.orders(id)`。
+  // ✅ **而它們寫的欄位只有 `id`**(`VALUES (v_o)` / `VALUES (v_a), (v_b)`),
+  //    `subtotal` / `line_total` / `order_id` 三欄**一個字都沒有**。
+  //    🔵 可證偽:`grep -cE 'subtotal|line_total' <該兩支>` ⇒ 皆 **0**。
+  // 🛑 而那些 INSERT **跑完就回滾**(兩支的後置斷言都以一發刻意的 `RAISE EXCEPTION` 收尾,
+  //    而 harness 另外驗過「表上真的是 0 列」)⇒ 它們連一列都不會留在正式庫。
+  // 📌 **⇒ 所以這兩筆是「尺撈到了測試資料」, 不是「多了一個寫入者」** ——
+  //    而那與上面 `20260725120000` 那一筆的成因**同族不同種**:那一筆是註解, 這兩筆是【後置斷言】。
+  //    ⇒ ⇒ 兩者都不是「真的寫入者」, 而剝註解救得了前者、救不了後者。
+  '20260902030000_m4b_crossrail_pending_refund_net.sql',
+  '20260902040000_m4b_railcap_red_counts.sql',
   '20260604130000_m3_s2b1_create_order_rpc.sql',
   '20260613130000_m3_3ds_0b_cart_session_dedup.sql',
   '20260614130000_m3_create_order_stock_snapshot.sql',
@@ -237,6 +250,142 @@ const ALLOWLIST = [
   //       八窗共用一棵樹,那幾秒別的窗的 `git status` 會看到一支不是它的野檔
   //       (成因與實例見 `scripts/null-shortcircuit-check-guard.test.ts:41-46`)。
   '20260829140000_m4b_b2c_manual_order_explicit_tax_total.sql',
+  // 🔴 `⟦b4-SPEC1⟧`(2026-08-31 登錄,線DB):`admin_create_manual_order` 的**第三代**,
+  //    與上一行那支(gen2)是**同一支函式的 CREATE OR REPLACE** —— 寫那三欄的**路徑沒有變多**。
+  //
+  //    **這一片改的是「規格從哪裡來」,不是金額怎麼算**:
+  //      舊 = 相信呼叫端送來的 `spec`;新 = 從 `public.product_variants.spec` 讀權威值。
+  //
+  //    ✅ **可機械複驗的線索**(注意:是線索,不是證明):
+  //      量法(**路徑寫全,`gen2`/`gen3` 不是檔名**;codex R2 must-fix:兩個 grep 都讀不到檔時
+  //      `diff` 會比兩份空輸出並回 0 ⇒ 那是一條假綠路徑,所以這裡不留簡寫):
+  //        `diff <(grep -hE ':=|SUM\(' supabase/migrations/20260829140000_m4b_b2c_manual_order_explicit_tax_total.sql | sort) \
+  //              <(grep -hE ':=|SUM\(' supabase/migrations/20260831180000_m4b_spec1_manual_order_authoritative_spec.sql | sort)`
+  //      ⚠️ 跑之前先各自 `wc -l` 確認兩側**都不是 0 行**,否則 `diff` 回 0 的意思是「兩邊都沒讀到」。
+  //      ⇒ **差 2 行,而那 2 行都在【前置閘】裡**(`v_src NOT LIKE '%v_spec := …%'` 與
+  //        `v_fp := md5(…)` 的指紋計算)。
+  //      🟢 正對照 gen2 自己比自己 ⇒ 0 行差(尺會動)。
+  //
+  //    🔴🔴 **而這把尺【撐不起】「金額算式逐字相同」這句話 —— 上一版我就是那樣寫的**
+  //       (codex 2026-08-31 must-fix)。`:=` 與 `SUM(` 兩個形狀**看不到**:
+  //       `IF` 值域守門 / `SELECT … INTO` / `INSERT … VALUES` 的欄位對位 / `=` 條件 /
+  //       helper 呼叫 / CHECK 與 constraint 改動 —— **其中任何一項都能改變最後寫進去的金額**。
+  //       ⚠️ 而本檔 `:211-223` 早就記過同一件事:「writer 的上游條件變了而 INSERT 沒變」正是本 gate 的已知洞。
+  //       📌 **⇒ 我用一把已知有洞的尺,去支持一句比它射程更寬的話。**
+  //    ⇒ 這一筆能被允許,靠的**不是那個 diff**,是:①它是同一支函式的 CREATE OR REPLACE、
+  //      ②金額仍全部 server 自算不收 client 合計欄(開檔讀過)、③它至今未 apply(見下)。
+  //    ⇒ 金額仍全部 server 自算(`line_total = unit_price * qty`、`subtotal = Σ line_total`),
+  //      **不收 client 送來的任何合計欄** —— 與上一行那筆同理由。
+  //
+  //    🛑 **而有一格必須寫出來,免得這筆登記被讀成「已放行」**:
+  //       **這支 migration 至今【未 apply】,而且是我建議不要 apply 的**(三個理由在片E plan 與
+  //       `⟦b4-SPEC1⟧` 那條:①目錄 spec 為空的 13,112 列會吞掉員工手打的規格 ②今天的觸發條件為零
+  //       ③前提要 Sean 明白接受)。
+  //    📌 **⇒ 本 allowlist 記的是「這支檔在 repo 裡、而它不是新的寫入者」,**
+  //       **不是「這支檔可以上正式庫」。兩件事不同,而它們在一行綠底下長得一樣。**
+  //    ⇒ 到期條件:哪一天它被 apply 或被改成會自己算金額,這一筆即失效。
+  //    🔴🔴 **撞號已解(2026-08-31 19:2x,主視窗發號)—— 而【這是本片第二次改號】,兩個舊號都留著:**
+  //         ⛔ ~~`20260831140000`~~ ⇒ 撞線 auth 的 `customers_gender`(**那支已 apply、帳本有鍵** ⇒ 動它要連帳本)
+  //         ⛔ ~~`20260831160000`~~ ⇒ 撞線帳戶區的 `m4b_coupon_p2_redeem_rpc`(**兩支皆未 apply**)
+  //         ✅ 現行 `20260831180000`
+  //       🔴 **兩個舊號刻意留著加刪除線** —— 搜任一個舊號的人要在同一發撞到兩次改號的歷史。
+  //       📌 **而形狀值得記:上一次改號(`bb3618b3`,15:28)挑的是「當下看起來空的」160000,**
+  //          **2.5 小時後另一條線也挑了它 ⇒ 修撞號的那一顆,自己撞了下一個號。**
+  //          ⇒ **一次「挑一個看起來空的號」在單人時安全,在八窗並行時是一次賭。**
+  //       🛑 **而那道 pre-commit 撞號閘這次沒有擋** —— 它只看【這一次 commit 的 staged 內容】,
+  //          而兩支是在**不同的樹**上各自產生的。
+  //          ⇒ **閘的分母是「我這棵樹」,而撞號的分母是「所有樹的聯集」。**
+  //          (射程已寫進那道閘的檔頭;改它的行為要另外提。)
+  //       🟢 改號後複量:`ls supabase/migrations/*.sql | xargs -n1 basename | cut -d_ -f1 | sort | uniq -d`
+  //          ⇒ **零組**(改號前 ⇒ 只有 20260831160000 那一組)。
+  //       ⚠️ **不過濾 `.sql` 會得到兩組**(codex R2 抓到我上一版把 `*.sql` 縮寫成 `…` 而讀不出來):
+  //          多出來的 `20260820030000` 是「一支 `.sql` + 一支 `_ERRATUM.md`」⇒ **那不是撞號**。
+  //          📌 **⇒ 同一句「重複幾組」在兩個分母下答案不同,所以量法要把分母寫進命令裡。**
+  //       ⇒ 撞號真正打壞的是**以版本號查帳的那一半**:
+  //          🔴 `live`(讀 `APPLIED.tsv`,以版本號認人)⇒ **分不出這兩支**;
+  //          ✅ `newest`(以**函式名**掃 migrations)⇒ 分得出來,coupon 那支不定義這支函式。
+  //          (上一版我寫「newest/live 都分不出」—— **那是過度宣稱**,codex R2 更正。)
+  //       📌 ⇒ 到期條件用 `bash scripts/latest-definition-of.sh admin_create_manual_order`,
+  //          **而 live 那一欄仍只是帳本、不是正式庫現況**(那支工具自己的射程聲明)。
+  //       🛑 撞號本身是一個**跨線的獨立問題**(不是本筆造成的),已回報主視窗。
+//       ✅ **[2026-09-01 回填 · 線【帳號】`-7a`]** 那件事**確實落地了** ⇒ 板上有一列帶著完整量法
+//          (那一列同時提到 `⟦b4-SPEC1⟧`;用 `grep 'uniq -d' docs/launch-todo.md` 找得到),
+//          而 `docs/phase-1-backlog.md` 另有風險評估(發生頻率低 / 收割當下必然發現 / 修復成本低)。
+//       🟢 **而我複量了上面那條命令 ⇒ 仍是零組** ⇒ 「改號後零撞號」今天成立。
+//       🔴 **為什麼要補**:原句只寫「已回報主視窗」而沒有落點 ⇒ 那句話會【關掉下一個人的尋找動作】。
+//          ⇒ 同族 `⟦5b-REPORTEDNOTLANDED1⟧`。
+  '20260831180000_m4b_spec1_manual_order_authoritative_spec.sql',
+  // 🔴 2026-09-01 登記(線【客人帳戶區】`-7a`;券片3a)——
+  //    它是 `create_order` 的 `CREATE OR REPLACE` 重定義(第 10 代), 函式本體逐字抄自
+  //    `20260825130000`, 只在三處有 delta ⇒ **寫那三欄的路徑沒有變多**, 是同一條路徑的新版本。
+  //
+  //    🔴 **而本格真正要問的是「寫的值對嗎」, 不是「請把名字加進去」** —— 我逐字比過:
+  //      · `INSERT INTO public.order_items (...)` 整段 **逐字相同**
+  //        ⇒ `line_total` / `order_id` 兩欄一個字沒動
+  //      · `INSERT INTO public.orders (...)` 的差異**只有一格**:`0` ⇒ `v_discount_total`
+  //        ⇒ 那是 **`discount_total`** 欄, **不是 `subtotal`**;`subtotal` 仍是 `v_subtotal::integer`
+  //    ⇒ ✅ **本片守的那條不變式(`orders.subtotal` = Σ`order_items.line_total`)完全沒被碰到。**
+  //    🔵 而本片改動的 `total` / `discount_total` 兩欄**不在這兩支 trigger 的監看範圍內**。
+  //
+  //    🔴 **登記前跑過一發壞形狀**(照 `20260829140000` 那一筆的做法):
+  //      把 `20260730120100` 那一項從本 ALLOWLIST 拿掉 ⇒ 本格轉紅並報出未登記者
+  //      ⇒ **這道守門此刻有判別力, 加這一行不是把它關掉。**
+  //    ⚠️ 突變刻意做在【本白名單】上, **不往 `supabase/migrations/` 丟野檔**(八窗共用一棵樹)。
+  '20260901003000_m4b_coupon_p3_create_order_discount_param.sql',
+
+  // ── 券片 3b(2026-09-01):`create_order` 第 11 代 + 收款扣券 trigger ────────────
+  //    **這道閘紅了才發現要登記, 不是我主動想到的** —— 照實記, 因為那正是它的價值。
+  //    🔴 而登記前先答它要我答的:我對那三欄做了什麼。**用 diff 對 3a 逐字比, 不憑印象**:
+  //      · `INSERT INTO public.order_items (...)` ⇒ **diff 0 行, 逐字相同**
+  //      · `INSERT INTO public.orders (...)` 的差異**只有一處**:
+  //          欄位清單 `notification_email` ⇒ `notification_email, coupon_id`
+  //          值   `p_notification_email` ⇒ `p_notification_email, v_coupon_id`
+  //        ⇒ 那是新加的 **`coupon_id`** 欄, **`subtotal` 那一格一個字都沒動**
+  //          (仍是 `v_subtotal::integer`)。
+  //    ⇒ ✅ **本片守的那條不變式(`orders.subtotal` = Σ`order_items.line_total`)沒被碰到。**
+  //    🔵 而本片新加的 trigger `coupon_redeem_on_paid()` **不寫這三欄**
+  //      —— 它只寫 `coupon_redemptions` 與 `order_notes`。而它照樣要登記:
+  //      **本白名單掃的是【檔】不是【函式】**, 而這支檔裡確實有一個寫 orders 的 INSERT。
+  //      📌 分母是檔 ⇒ 一支檔裡混了兩件事, 兩件都要一起被看。
+  '20260901021000_m4b_coupon_p3b_create_order_redeem.sql',
+
+  // ── 0 元單片(2026-09-01):`create_order` 第 12 代 + `settle_zero_total_order` ──────
+  //    **這道閘也是紅了才發現要登記** —— 而它紅在【主視窗收割時跑全套】,不是我這邊。
+  //    🔴 因為那兩支測試住在 `apps/`,而本片那 6 顆一個 `apps/` 檔都沒動
+  //      ⇒ **我自己跑「測到我動的那些檔」的分母裡結構上沒有它們。**
+  //      📌 鐵則 11 那句的又一發:量具的分母由「我做了什麼」決定,bug 的分母由「誰碰得到」決定。
+  //
+  //    🔴 **登記前答它要我答的:我對那三欄做了什麼 —— 量的,不是憑印象**
+  //      抽法:`awk '/INSERT INTO public\.orders \(/,/RETURNING/'` 與
+  //           `awk '/INSERT INTO public\.order_items \(/,/^    \);/'`,兩代各自抽再 `diff`。
+  //      · `INSERT INTO public.orders (…)` 段(10 行)⇒ 對 3a **逐字相同**
+  //      · `INSERT INTO public.order_items (…)` 段(13 行)⇒ 對 3a **逐字相同**
+  //      · 🔵 負對照(防「這把尺恆說相同」):拿本檔的 orders 段去比自己的 items 段 ⇒ **它會叫**
+  //    ⇒ ✅ **那三欄的寫入語句一個字元都沒動;`subtotal` 仍是 `v_subtotal::integer`。**
+  //
+  //    🔴🔴 **而「語句沒變」不等於「值域沒變」—— 這正是 `20260825130000` 那格教過的事,
+  //      而本片是同一族的第二例,所以我照那格的要求把改動講明白:**
+  //      本片動的是 `INSERT` **上游的前置條件**:原本一條 `IF v_total <= 0 THEN RAISE`
+  //      被拆成三條 —— `v_total < 0` 無條件擋 / `v_total = 0 AND v_coupon_id IS NULL` 仍擋
+  //      (贈品單那條業務規則的唯一執行者,**一格都沒放寬**)/ 其餘放行。
+  //      ⇒ **淨效果:`total = 0` 且帶券的單,從「建不出來」變成「建得出來」。**
+  //      ⚠️ **而那三欄的【值域】有沒有跟著變寬 —— 我第一版的理由寫錯了,留著當記號:**
+  //        ⛔ ~~「全額券折抵的單 `subtotal` 本來就 > 0(券折的是 total 不是 subtotal)」~~ **作廢**
+  //          —— `20260825130000` 已放行 `unit_price = 0` ⇒ **`subtotal = 0` 早就進得來**
+  //          (那格自己的反例逐字:0 元贈品 + 非門市取貨 ⇒ 運費 100 ⇒ `total > 0` ⇒ 通過 ⇒
+  //           寫下 `subtotal = 0`)⇒ **我那句話的前提本身是假的。**
+  //        ✅ 正解:`subtotal` 能取到的**值集合**不變(0 與正整數,兩者本片之前都已可達);
+  //          本片新開的是一個**組合** —— `subtotal = 0` **且** `total = 0`(門市取貨 + 帶券)。
+  //          ⇒ 🔴 **本片沒有讓那三欄收到任何前一版收不到的【值】,但開了一個新的【狀態組合】。**
+  //        📌 **⇒ 而一個對的結論配一個錯的理由,下一個人照著那個理由推別的事會推錯。**
+  //          ⇒ 我第一版寫完就是「結論對」而收工的 —— 抓到它的是回頭問「那個前提成立嗎」。
+  //      ⇒ ⚠️ **上面這一句是我讀碼推的,不是餵出來的。** 餵出來的只有一格:
+  //        不帶券的 0 元車 ⇒ `create_order` 仍 `RAISE`(拋棄式 PG 實跑,見該 migration 檔內註解)。
+  //
+  //    🔵 而本片新加的 `settle_zero_total_order()` **不寫這三欄** —— 它只改 `orders` 的
+  //      `payment_status` / `payment_method` / `paid_at`。它照樣被這張表收,因為
+  //      **本白名單的分母是【檔】不是【函式】**,而這支檔裡有 `create_order` 的 INSERT。
+  '20260901030000_m4b_zero_total_settle.sql',
 ] as const;
 
 function scanWriters(dir: string): string[] {

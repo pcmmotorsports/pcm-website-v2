@@ -146,6 +146,28 @@ initdb -D $S/pg -U postgres --auth=trust --encoding=UTF8 --locale=C > $S/initdb.
 pg_ctl -D $S/pg -o "-p $PG -k /tmp" -l $S/pg.log start > $S/pgctl.log 2>&1
 sleep 2
 
+# 🔴 **驗「我連上的那顆, 真的是我剛起的那顆」**(2026-08-30 線【客人帳戶區】`-08` 補;
+#    與 `scripts/admin-probe/up.sh` **同一段, 逐字相同** —— 兩支的 `initdb`/`pg_ctl` 也是逐字相同,
+#    所以洞也是同一個)。成因由哨兵 `-22` 轉來:`-eb` 的 codex 在另一支 probe 上抓到同型 ——
+#    埠上若已經有【別的】postgres, 腳本會對**不是拋棄式的那顆**套 migration, **而且照樣全綠**。
+# 🔴 為什麼不靠上面那道埠預檢就好:①它靠 `lsof`, 而 `lsof` 不存在時 `|| true` 讓它**安靜放行**
+#    ②預檢與真正連上之間有時間差 ③**預檢答的是「埠上有沒有人」, 這一發答的是「那個人是不是我」**。
+#    📌 **⇒ 兩個問句不同, 而它們在一切正常的日子裡印同一個結果。**
+# ⚠️ 兩側都走 realpath:postgres 回的是 `-D` 當初拿到的字面(`/tmp/…`),
+#    而 macOS 的 `/tmp` 是 `/private/tmp` 的 symlink ⇒ 不解析就會【永遠不相等】=一道恆紅的閘。
+_want=$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$S/pg")
+_got=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "SHOW data_directory" 2>/dev/null || true)
+_got=$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]) if sys.argv[1] else "")' "$_got")
+if [ "$_want" != "$_got" ]; then
+  echo "🔴 埠 $PG 上的 postgres【不是】這支腳本剛起的那顆 —— 停止, 不對它套任何東西。" >&2
+  echo "   我起的  : $_want" >&2
+  echo "   實際連到: ${_got:-(連不上或回空)}" >&2
+  echo "   ⇒ 若是連不上:看 $S/pg.log 與 $S/pgctl.log" >&2
+  echo "   ⇒ 若是別人的 postgres:換一組埠(STOREFRONT_PROBE_PG=…),或收掉那一份" >&2
+  exit 1
+fi
+echo "✅ pg 身分核對:$PG ⇒ $_got"
+
 psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q <<'SQL'
 CREATE ROLE service_role NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE anon NOLOGIN;
 CREATE ROLE authenticator LOGIN NOINHERIT;
@@ -170,6 +192,52 @@ for f in "$REPO"/supabase/migrations/*.sql; do   # 🔴 引號包在 glob 外:�
 done
 echo "migration ok=$ok fail=$fail  (判準不是全綠,是你要用的表在不在)"
 
+# == 重放後修補(2026-09-02 -0e)=========================================
+# 從零重放會製造出兩個【正式庫上沒有】的問題, 而兩個都是安靜的。
+#
+# (1) search_catalog_by_vehicle 會有【兩個多載】
+#     成因:較新那支 migration 加了 p_new_since 而沒 DROP 舊簽章
+#           正式庫是依序 apply 所以只有 1 個;從零重放兩個都建起來。
+#     症狀:呼叫時 ERROR: function ... is not unique
+#     而前端把那個錯 catch 起來, fallback 成【未篩選】
+#     ==> 畫面不論選什麼車都印全部件數, 連餵一個不存在的車款也一樣
+#     ==> 「篩選壞了」與「這台車真的裝得上這麼多件」在畫面上是同一句話
+#     正式庫實查 2026-09-02:多載數 = 1(正對照 search_products_by_vehicle 也 = 1)
+psql -h 127.0.0.1 -p $PG -U postgres -q -c "
+  DO \$fix\$
+  DECLARE r record;
+  BEGIN
+    FOR r IN
+      SELECT p.oid::regprocedure AS sig
+      FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
+      WHERE ns.nspname='public' AND p.proname='search_catalog_by_vehicle'
+        AND pg_get_function_arguments(p.oid) NOT LIKE '%p_new_since%'
+    LOOP EXECUTE 'DROP FUNCTION ' || r.sig; END LOOP;
+  END \$fix\$;" >> $S/apply.log 2>&1 || true
+NOV=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "SELECT count(*) FROM pg_proc p JOIN pg_namespace ns ON ns.oid=p.pronamespace WHERE ns.nspname='public' AND p.proname='search_catalog_by_vehicle';" 2>/dev/null || echo '')
+if [ "$NOV" = "1" ]; then echo "重放修補1:search_catalog_by_vehicle 多載 = 1(與正式庫相同)"
+else echo "重放修補1:多載 = ${NOV:-讀不到} <== 不是 1, 車款篩選會安靜失效, 去看 $S/apply.log"; fi
+
+# (2) product_fitments_effective 由 20260901170000 建, 而第一個讀它的是 20260712183000
+#     從零重放時那 4 支下游在建表之前就跑過了 ==> 全部 ERROR 而表最後才出現
+#     所以這裡補跑一次。根治要改版號, 那是 Sean 的成本 ==> 板 b4-PFEREPLAY1
+for M in 20260712183000_products_catalog_page_public \
+         20260712193000_catalog_rpc_expose_fitments \
+         20260811020000_m4b_storefront_277_vehicle_taxonomy_effective_view \
+         20260811100000_m4b_storefront_277c_vehicle_taxonomy_direct_years; do
+  psql -h 127.0.0.1 -p $PG -U postgres -q -f "$REPO/supabase/migrations/$M.sql" >> $S/apply.log 2>&1 || true
+done
+# 這裡【不量】vehicle_taxonomy_public 的列數 -- 種子還沒跑, 量到的必然是 0
+# 而那個 0 會被讀成「修補失敗」。列數在種子之後才量(見下方「選車自檢」)。
+VTEXISTS=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='vehicle_taxonomy_public';" 2>/dev/null || echo '')
+if [ "$VTEXISTS" = "1" ]; then echo "重放修補2:vehicle_taxonomy_public 這個 view 建起來了(列數在種子之後才量)"
+else echo "重放修補2:那個 view 沒建起來(VTEXISTS=${VTEXISTS:-讀不到}) <== 去看 $S/apply.log"; fi
+
+# 這一段擋不住什麼, 印在這裡, 下一個人不必重推導:
+echo "   限制:這兩個修補只在鑽機上做;正式庫沒有這兩個問題(2026-09-02 唯讀實查)"
+echo "   限制:其餘 fail 的 migration 沒有被修 -- 判準仍然是「你要用的表在不在」"
+# =======================================================================
+
 psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q <<'SQL'
 GRANT USAGE ON SCHEMA public TO service_role, anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO service_role;
@@ -183,6 +251,17 @@ SQL
 
 psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q -f "$SP/seed.sql"
 echo "seed 完成: $(psql -h 127.0.0.1 -p $PG -U postgres -t -c 'select count(*) from products' | tr -d ' ') 件商品"
+
+# -- 選車自檢(2026-09-02 -0e):種子的車款有沒有真的流進那條路 --------------
+# 為什麼要這一格:trigger sync_product_fitments 讀 elem->>'motoBrand',
+#   而它逐字寫著「單一髒元素跳過、絕不 rollback products」
+#   ==> 種子 key 寫錯時它【不會出錯】:商品照樣進去、商品頁照樣顯示「適用 XXX」
+#       (那是直接讀 products.fitments)-- 只有【選車篩選】那條路空掉, 而沒有東西會叫
+#   實錘 2026-09-02:種子寫 'brand' 而不是 'motoBrand' ==> product_fitments 恆 0
+PFN=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "SELECT count(*) FROM public.product_fitments;" 2>/dev/null || echo '')
+VTN=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "SELECT count(*) FROM public.vehicle_taxonomy_public;" 2>/dev/null || echo '')
+if [ -n "$PFN" ] && [ "$PFN" -gt 0 ] 2>/dev/null; then echo "選車自檢:product_fitments = $PFN 列 / vehicle_taxonomy_public = ${VTN:-?} 列"
+else echo "選車自檢 FAIL:product_fitments = ${PFN:-讀不到} <== 種子的車款沒流進那條路, 選車篩選會是空的(先看 seed.sql 的 key 是不是 motoBrand)"; fi
 
 # ── 🔴 種子自檢:每一家品牌都要有商品(2026-08-27 `-ed` 線)──────────────────
 #    為什麼要有這一格:`seed.sql` 沒有任何自動化測試依賴它(全 repo 唯一的呼叫端就是本檔)

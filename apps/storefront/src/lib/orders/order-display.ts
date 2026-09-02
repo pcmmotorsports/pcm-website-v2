@@ -161,3 +161,59 @@ export function orderStatusTone(
 export function formatOrderDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
 }
+
+/**
+ * paymentMethodLabel:`orders.payment_method` → 客人看得懂的字。
+ *
+ * 🔴 **本函式吃的是 `payment_method`(金流事實軸),不是 `payment_channel`(管理/預期軸)** ——
+ *   兩軸的分界由 `packages/domain/src/order/types.ts:1309` 釘死。
+ *   ⚠️ 後台那份 `PAYMENT_CHANNEL_LABEL`(`apps/admin/src/lib/orders/order-list-view.ts:261`)
+ *   對的是**另一軸** ⇒ **不能直接搬過來當這一軸的對照**,兩者的值域沒有理由相同。
+ *
+ * 🔴 **值域:`payment_method` 沒有 CHECK 約束**(全 `supabase/migrations` 掃過,零命中)
+ *   ⇒ 它是自由文字 + nullable ⇒ **不存在一份「全部合法值」的清單可以窮舉**。
+ *   今天實際會出現什麼(當場量的):
+ *     · 所有寫入點寫的都是字面 `'tappay'` —— `20260611120000:181` / `20260804150000:130` /
+ *       `20260810160000:451` / `20260810170000:439`,四支都是 `payment_method = 'tappay'`。
+ *     · 正式庫實測 **7/7 單值 `tappay`**(`20260811050000:140` 逐字「值域量自正式庫 2026-08-11」)
+ *       —— ⚠️ **那是別人 2026-08-11 量的,不是我量的**,而且 7 筆是當時的量。
+ *     · `null` = 尚無成功請款 ⇒ 由呼叫端的 `dash()` 印 `—`,不進本函式。
+ *
+ * ⇒ 📌 **所以這裡【不做窮舉對照】,做「認得的翻譯、認不得的原樣印出」** ——
+ *   窮舉表遇到沒列到的值會印空白或 `undefined`,而**空白與「這張單沒付款方式」長得一樣**;
+ *   原樣印出至少讓看的人知道「有值,只是我們還沒替它取名字」。
+ *
+ * ⚠️ 字面選 `信用卡` 而不是後台的 `線上刷卡`:**客人在結帳頁看到的就是「信用卡付款」**
+ *   (`CheckoutView` 付款方式區塊)⇒ 同一件事在同一個人眼前要用同一個詞。
+ *   後台那邊給員工看,用 `線上刷卡` 是他們的行話,**不改它**。
+ */
+const PAYMENT_METHOD_LABEL: Readonly<Record<string, string>> = {
+  tappay: '信用卡',
+  // 🔴 `zero_total`(2026-09-01,0 元單片):`settle_zero_total_order()` 寫的字面
+  //    (`20260901030000_m4b_zero_total_settle.sql`)。**它不是一種付款工具,是「這張單不必付」。**
+  //    ⚠️ 沒有這一列,客人會在自己的訂單頁上看到英文 `zero_total` ——
+  //      而本函式的設計是「認不得的原樣印出」⇒ 它**不會報錯、不會空白**,就是把原文端到客人面前。
+  //      ⇒ 抓到它的是 `order-display.test.ts` 那道「migrations 裡每個字面都翻得出中文」的閘,
+  //        而**那支測試住在 storefront,而 0 元單那 6 顆一個 `apps/` 檔都沒動** ⇒ 我自己跑不會紅。
+  //
+  //    🔴 選字理由(design-reference 主樹實掃:免付款/無需付款/全額折抵/0 元 **皆 0 檔**;
+  //      🟢 正對照「信用卡」⇒ 5 檔 ⇒ 那把尺是活的,不是掃不到東西)⇒ 稿上沒有這一格,由本片裁:
+  //      · ~~全額折抵~~ —— 今天為真(閘要求 `v_total = 0` 必須帶券),**而它把「為什麼」寫死進標籤**。
+  //        哪天贈品單或儲值金全額折抵也走這條路,這個字就會變成謊,而**沒有東西會紅**。
+  //      · ~~免付款~~ —— 讀起來像「我們免了你的錢」,而事實是折抵之後剛好是 0。
+  //      · ✅ `無需付款` —— 只描述**這張單的狀態**,不描述成因 ⇒ 未來多一種 0 元成因也仍然為真。
+  //    📌 一個把成因寫進去的標籤,它的正確性綁在今天的成因清單上;而那份清單會變,標籤不會跟著變。
+  zero_total: '無需付款',
+};
+
+export function paymentMethodLabel(method: string): string {
+  // 🔴 `Object.hasOwn` 而不是 `PAYMENT_METHOD_LABEL[method] ?? method`(R2 code-reviewer 2026-08-30):
+  //    後者**會走原型鏈** —— 我當場複跑過,不是照收它的話:
+  //      toString / constructor / valueOf / hasOwnProperty ⇒ 回 **function**
+  //      __proto__                                          ⇒ 回 **object**
+  //    ⇒ `??` 只接 null/undefined,**接不住這五個** ⇒ React child 拿到 function
+  //      ⇒ **整頁 render throw**,而不是本函式檔頭宣稱的「認不得的原樣印出」。
+  //    ⚠️ 今天不可達(migrations 只寫字面 `tappay`),**而這一欄是自由文字、沒有 CHECK**
+  //      (見上面值域那段)⇒ 那是「今天沒有人這樣寫」,不是「寫不進來」。
+  return Object.hasOwn(PAYMENT_METHOD_LABEL, method) ? PAYMENT_METHOD_LABEL[method]! : method;
+}
