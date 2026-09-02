@@ -64,6 +64,20 @@ describe('⟦outbox-union-vs-DB⟧ 手抄的 union 與 DB 的 CHECK', () => {
   });
 
   it('🔴🔴 TS 不得有 DB 沒有的值 —— 那會讓信【永遠寄不出去】', () => {
+    // 🛑🛑 **射程:本格的「DB」是【repo 裡的 migration】,不是【正式庫】。**
+    //    主視窗-87 2026-09-03 03:2x 對正式庫實測 `email_outbox_event_type_check` 全文:
+    //      CHECK ((event_type = ANY (ARRAY['order_created','order_shipped','order_cancelled'])))
+    //    ⇒ **正式庫是三值,而它【沒有】 `order_unpaid_cancelled`**(那支 migration 還在等 Sean 貼)。
+    //    ⇒ 🔴 **所以本格在 repo 上綠,而同一個問題拿去問【正式庫】今天是紅的。**
+    //
+    // 📌 **這不是 bug,是這把尺答得出的問題就只有一個**:「repo 自己一致嗎」。
+    //    「正式庫一致嗎」是**另一個宣稱**,而它要 DB access ⇒ 見
+    //    `docs/specs/2026-09-03-two-migrations-paste-order.md` §4 與 `~/pcm-mailbox/等Sean貼的SQL-20260903.md`。
+    // ⚠️ **而上面那個「三值」會過期** —— Sean 貼下去的那一刻它就變四值。
+    //    ⇒ 引用它的人:**看日期與來源,不要把它當現況**。
+    //
+    // 🔵 **為什麼不把斷言改成問正式庫**:那會讓這格測試需要 DB 連線 ⇒ 在 CI 與每個施工窗都跑不動
+    //    ⇒ 它會變成一格**經常被跳過**的測試,而那比一格射程窄但一直在跑的測試糟。
     const db = dbEventTypes();
     const extra = tsEventTypes().filter((v) => !db.values.includes(v));
     expect(
