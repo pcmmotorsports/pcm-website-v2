@@ -36541,3 +36541,177 @@ grep -c '\.sh"' package.json(lint-staged 裡逐字列名的 .sh)        ⇒ 12
 
 - **相關:** `supabase/migrations/20260829170000_m4b_2b1_admin_coupon_list_view.sql`
   · 片2b-2 plan `線G-plan-優惠券片2b-列表頁-20260829.md` · `#961` · `#962`
+
+
+---
+
+## 搜尋線 backlog(`-e3` 2026-09-02 擬 · `-f3` 落)
+
+> 🔴 **本節【逐字照抄】`~/pcm-mailbox/搜尋線-backlog待落-e3-20260902.md`(160 行正本), 一字未改。**
+> ✅ **而 `-e3` 停手的理由今天【已經不成立】**:它逐字寫「`docs/phase-1-backlog.md` 現在有別人未 commit 的 14 行」
+>    ⇒ `-f3` 2026-09-02 落板時實測 `git status --porcelain docs/phase-1-backlog.md` ⇒ **空** ⇒ 那 14 行已被 commit
+>    ⇒ 📌 **一個【當時完全正確】的停手理由, 在它被讀到的時候已經過期 —— 而它自己不會知道。**
+> 🔵 **而是【3 列】不是 4 列**(轉述說四列;`grep -c '^- \*\*`⟦搜尋'` 正本 ⇒ **3**)。
+> 🟢 落前查過:三個錨在 `docs/phase-1-backlog.md` 與 `docs/launch-todo.md` **各 0 次**
+>    (🔵 負對照現造錨 ⇒ 0)⇒ **沒有人落過。**
+> ⚠️ **本窗未複量那些數字** —— `139ms` / `4,929 buffers` / `3,004 筆` / `22,802 列` 全部由線 `-fc` 交、`-e3` 轉;
+>    而**射程那一節是 `-fc` 自己寫的, 照抄未刪**(不是打真 HTTP 端點 · 三發一致是重現性不是三個方法)。
+>
+> 🔴🔴 **而照抄時撞到一格, 原文不改而在這裡標**:`⟦搜尋-準確度⟧` 那一列寫著自驗指令
+>    `grep -c '不穩' 本檔` ⇒ **0** —— 而 `-f3` 對正本實跑 ⇒ **2 行**。
+>    ✅ **它想講的事是對的**(「順序不穩」從來不是那一列的任何一版, 它活在轉述鏈上);
+>    🛑 **而它寫下的那道【檢查】答的是另一個問題** —— 那兩行正是它自己的訂正文字。
+>    📌 **⇒ 一句正確的話, 配了一道會打自己臉的驗證指令 —— 而下一個照著跑的人會得到 2, 然後不知道該信哪個。**
+>    🔵 **⇒ 而這與本批 memory `a-correct-warning-can-point-at-a-broken-alternative` 是同一族的第四次**:
+>       **診斷對, 而它遞給你的那把尺自己是壞的。**
+
+- **`⟦搜尋-第2刀⟧` 搜尋疊層的另三區(品牌 / 分類 / 車款)** — 狀態 `open`
+- **現況(第一刀 2026-09-02 落地時的事實):**
+  - 稿 `design-reference/components/SearchOverlay.jsx:36-57` 的即時結果分**四區**:
+    商品 / 品牌 / 分類 / 車款,而那四區在稿裡是從 `window.PCM_DATA` 這份**靜態 mock** 算的。
+  - 第一刀**只做【商品】那一區**(主視窗 2026-09-02 批准分刀)。
+  - 🔴 **另三區在畫面上【沒有留空殼】** —— 元件裡根本沒有那三個 `<section>`,
+    不是它們渲染成空。理由:標題底下空著,與「搜不到」在客人眼裡是同一件事。
+- **下一刀要接什麼(三格,各自已經有現成函式,不必新寫查詢):**
+  | 區 | 接哪支 | 落點 |
+  |---|---|---|
+  | 品牌 | `fetchCatalogBrandTaxonomy()` | `apps/storefront/src/lib/products.ts:613` |
+  | 分類 | `fetchCategories()` | `apps/storefront/src/lib/products.ts:696` |
+  | 車款 | `fetchVehicleTaxonomy()` | `apps/storefront/src/lib/products.ts:838` |
+  - 三支都是 server 端 + `unstable_cache` 60s;疊層是 client ⇒ 要嘛由 `/api/search` 一起回,
+    要嘛另開一支 facet route(參考既有 `app/api/catalog/facet-counts/route.ts` 的形狀)。
+  - ⚠️ `fetchCatalogBrandTaxonomy` **撈失敗回 `[]`**(與「真的 0 家」同一個回傳值)⇒
+    要用旁邊那支 `tryCatalogBrandTaxonomy()`(同檔 :603,多回一個 `failed`),
+    否則品牌區在「這次查不到」與「沒有符合的品牌」印同一個畫面。
+- **不修未來會痛在:**
+  - 客人打「Akrapovič」時只會看到**商品**列,看不到「這個品牌有 N 件」那條捷徑 ⇒
+    他要自己再去品牌頁繞一圈,而目錄的品牌篩選就在那裡。
+  - 而**痛的是可發現性、不是正確性** —— 這一列不做不會產生錯的資料,所以它會一直排在後面。
+    📌 排它的時候用這句判準:**現在的搜尋只答得出「有沒有這件商品」,答不出「你要找的是不是一整個品牌」。**
+- **相關:** `apps/storefront/src/components/SearchOverlay.tsx` 檔頭 · `apps/storefront/src/lib/search.ts` 檔頭
+  · `ADR-0004:80`(分詞路線待 Sean 重新拍 = **另一件事**,不是本列)
+
+---
+
+## 🔵 而順帶一列(要不要開由主視窗判)
+- **`⟦搜尋-準確度⟧` 中文搜尋【排不準】** — 狀態 `open`
+
+## 🔵 症狀(用正式庫的數字,不是鑽機的)
+```
+正式庫打「碳纖維」⇒ 命中 3,004 筆,而前 8 名裡有 3 個是靠 description 命中的無關品:
+  1. 碳纖維配件(一對)      5. 🔴 下導流(原廠)
+  2. 碳纖維側蓋              6. 碳纖維副車架側蓋套組
+  3. 碳纖維整流下導流板      7. 🔴 下導流
+  4. 🔴 坐墊中心蓋           8. 碳纖維腳踏翅膀(一對)
+```
+🟢 **前三名反而是對的** —— 這一列比我原本寫的**輕**。
+
+## 🔴 而這一列的第一版有兩處錯,兩處都留著當紀錄
+```
+⛔ ~~第一版症狀:「打『碳纖維』,排在第一個的是水箱護網」~~
+   —— 那是**拋棄式庫 108 件**量的。真實資料下第一名是「碳纖維配件(一對)」。
+   📌 ⇒ 108 件時雜訊佔比被放大了 ⇒ **我差點拿一個小樣本的觀察去描述 22,802 件的系統。**
+
+⛔ ~~另有一版寫「那個順序【不穩】,客人每次搜可能看到不同排序」~~
+   —— **證偽了**(線 `-fc`):排序是 `order by id asc`,而 `id` 是 PK(唯一)⇒ **那是一個全序**。
+   兩個人量到不同第一名的成因是**兩份不同的種子資料**,不是排序會變。
+   ⚠️ 而那一句**不在本檔的任何一版裡**(`grep -c '不穩' 本檔` ⇒ 0)—— 它出現在轉述鏈上。
+   📌 ⇒ 判別句:**從【兩個觀測不同】推出【那個東西會變】之前,
+      先問「你們量的是同一份資料嗎」。**
+```
+
+## ✅ 正確的一句(`-fc` 給的,一字不改)
+```
+排序照 id 遞增,零相關性語意 ⇒ 正式庫 3,004 筆命中裡,
+前 8 名有 3 個是靠 description 命中的無關品(坐墊中心蓋 / 下導流 ×2)
+```
+
+## 🔴 這不是 bug
+`SEARCHABLE_COLUMNS = ['title','subtitle','description']`
+(`packages/adapters/src/supabase/helpers/product-query-support.ts:30`),
+ILIKE 三欄命中就算,**本來就沒有排序語意** —— 沒有詞頻、沒有權重、沒有「標題比說明重要」。
+而 `.order('id')` 是**分頁正確性**的前提(`SupabaseProductAdapter.ts:517-536` 那段註解),
+不是排版選擇 ⇒ **改排序要先讀那一段,它擋的是「同一件商品在兩頁都出現或都不出現」。**
+
+## 不修未來會痛在
+客人搜一個很具體的詞,而清單裡夾著三成不相關的東西 ⇒ 他會以為我們沒有他要的。
+📌 **而這種痛不會有人回報 —— 他只是關掉頁面。**
+
+## 修法
+`ADR-0004:80` 那條待拍板(PGroonga / pg_trgm 混合 / 其他),**M-6 的題,不是這一刀的**。
+🔵 而**便宜的中間解**(不用等分詞路線拍板):`title` 命中排在 `description` 命中之前
+—— 那只要動排序,不用換技術路線。⚠️ 但它會撞到上面那段 `.order('id')` 的分頁前提 ⇒ 要一起想。
+
+---
+# 🔴 追加二(17:0x,codex 對抗審查 must-fix 5 落下來的)
+
+- **`⟦搜尋-每字全表掃⟧` 一個公開端點,每次呼叫付 139ms DB CPU —— 而那筆錢買的是【一個沒有人看的數字】** — 狀態 `open`
+
+## 🔴 這一列不是「效能待優化」。它是一筆每次都付、而且沒有用途的帳。
+```
+/api/search → searchProducts → SupabaseProductAdapter.searchByKeyword
+而那支帶 { count: 'exact' }(SupabaseProductAdapter.ts:531-536)
++ 三欄前置萬用字元 ILIKE(%kw% ⇒ 索引用不上)
+🔴 而疊層只顯示 8 筆、**根本不用那個 total**(route.ts 檔頭逐字寫著這句)
+```
+
+## 🔵 量到的(線 `-fc` 2026-09-02,正式庫唯讀 `EXPLAIN ANALYZE`)
+```
+正式庫 public.products_public = 22,802 列(拋棄式庫 108 ⇒ 差 211 倍)
+
+現況(帶 count: 'exact'):
+  Seq Scan on products · Buffers: shared hit=4,929
+  rows=3,772 命中 / Rows Removed by Filter: 19,030
+  三發 Execution Time:138.9 / 139.9 / 139.4 ms
+
+拿掉 count、只取 8 筆(= 疊層真正需要的):
+  Index Scan using products_pkey · Buffers: shared hit=31
+  三發 Execution Time:0.229 / 0.243 / 0.287 ms
+
+⇒ 時間 ~560 倍 · 讀頁 ~159 倍
+🔵 單字「a」⇒ 98.8 ms(命中更多、掃一樣多)
+   ⇒ **中文單字與英文單字同量級 ⇒ 不是中文分詞的問題,是那個 count**
+```
+
+## 🛑 濫用面(現在有量級了)
+```
+一支公開、無 auth 的端點,每次呼叫 ≈ 139ms DB CPU + 4,929 個 buffer page
+⇒ 一個 curl 迴圈 8 req/s 就吃掉一整顆 core 的時間
+🔴 今天擋著它的只有 client 端 220ms debounce
+   —— 而 debounce 擋的是我們自己的 UI,**不是一支 curl 迴圈**
+```
+
+## ⚠️ 那組數字的射程(照抄,不要外推)
+```
+· 正式庫、唯讀、EXPLAIN ANALYZE —— **不是打真的 HTTP 端點**
+  ⇒ 不含 PostgREST / Next / 網路那幾層
+· 三發一致 = **重現性**,不是三個獨立方法
+· products_public 是 view ⇒ EXPLAIN 展開到底層 products
+· **沒有**量端到端、**沒有**量並發
+· 🔴 **沒有**驗「拿掉 count 之後行為對不對」—— 見下面的開工第一步
+```
+
+## ✅ 開工第一步(⛔ ~~原本寫「先量一發 EXPLAIN ANALYZE」~~ —— **那一發 2026-09-02 已經量完了**)
+```
+🔴 新的第一步 = **拿掉 count 之後,疊層的行為對不對**
+   —— 那是這件事目前【唯一沒有人驗過】的那一格。
+   要看的:searchProducts 回的 total 變成什麼?/search 那頁的「共 N 件」怎麼辦?
+           (它已經吃 total: number | null,而 null ⇒ 整行不印 ⇒ 可能剛好接得住)
+```
+
+## 為什麼它是獨立一片、不是搜尋線第一刀的收尾
+```
+要動 packages/adapters 的共用簽章(加一個「這次不要數」的選項),而它有:
+  packages/ports/src/IProductRepository.ts:173      介面
+  packages/ports/src/IProductRepository.contract.ts:150  contract test
+  packages/adapters/src/in-memory/InMemoryProductRepository.ts:235  另一個實作
+三者都要跟著改 ⇒ 那是一片,不是一刀的尾巴。
+```
+
+## 不修未來會痛在
+```
+🔴 它不會以「搜尋壞了」的形式出現 —— 它會以【整站變慢】出現,
+   而查的人不會先想到搜尋框。
+```
+- **相關:** `apps/storefront/src/app/api/search/route.ts` 檔頭 · codex 2026-09-02 R1 must-fix 5
+  · 量測由線 `-fc` 2026-09-02 交(主視窗轉;**本窗未複量**)
