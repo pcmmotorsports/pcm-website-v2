@@ -202,6 +202,13 @@ export const AUDIT_VALUE_LABEL: Record<string, Record<string, string>> = {
     aborted_or_timeout: '中斷或等太久',
     network_or_type: '網路或程式型別的問題',
     malformed_response: '對方回來的格式不對',
+    // 🔴 這兩格要講【先去哪裡查】, 而**兩格都不得說「錢沒有動」、都不得叫人直接重退**
+    //    —— 那是 codex R2 打掉的過度宣稱, 而 refund-money-line-forbidden.test.ts 早就在管這條。
+    accepted_malformed: 'TapPay 說收到了, 但回話的格式不對 ⇒ 先去查那一筆退款的下落, 查清楚前不要再退一次',
+    // 🔴 **codex R3**:我原本寫「先查那個代碼是什麼意思」⇒ 而那會把人送去做一件**已經做完的調查**
+    //    (10016 是唯一撞過的碼, 2026-08-22 就查明是乾淨拒絕;它進不了常數表是卡在 sandbox 實證, 不是沒查)。
+    //    ✅ 改成指向【那個代碼本身】——它在退款那一列的 log 裡, 而查它之前先看有沒有人查過。
+    unknown_wire_status: 'TapPay 回了一個程式還沒認可的代碼(代碼在這筆退款的紀錄裡)⇒ 錢動了沒還沒確定, 先確認那個代碼(可能已經查過)再決定, 確認前不要再退一次',
     error_unclassified: '有錯誤,但分不出是哪一類',
     other: '其他',
   },
