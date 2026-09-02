@@ -287,3 +287,12 @@ R1/R2 那 10 條 must-fix 每一條都是真的,而 R3 **沒有**抓到它們任
 📌 **兩張地圖各自覆蓋對方的盲區,而不是其中一張比較好。**
 
 — END —
+
+
+---
+## 附錄 · codex-adversary 紀律(2026-09-02 從 `CLAUDE.md` 分工 SOP 節【原封搬過來】)
+> 🔴 一個字都沒刪、沒改寫。`CLAUDE.md` 那一行留條文 + 指標指到這裡。
+> 🛑 **這個檔在什麼情況下會【變成假的】**:當 `codex` CLI 的旗標語意改變、
+> 或 Sean 改掉「由做那片的窗自己跑」那條常設令的那一天。
+
+codex-adversary 紀律:**在 main session 跑**(subagent 被 classifier 擋)—— 🔴 **每個施工窗自己就是一個 main session,不是只有主視窗**(2026-08-24 Sean 常設令:codex 由做那片的窗自己跑、主視窗不代跑;那天這一句被讀成「只主視窗跑」而卡了五個窗三小時,memory `project_0824-codex-review-runs-in-the-working-window`)。只唯讀(`-s read-only`、settings.json deny 擋 fix/apply/a)、零留痕檢查**照 `docs/patterns/cowork-review-chain.md` 那四步**(先驗 codex 真的跑了 → 比對**我的檔的內容雜湊**、🔴 **不比全樹 `git status`** —— 八窗共用一棵樹時它量到的是「誰在動」不是「codex 動了什麼」;Sean 2026-08-28 拍 `Q-零留痕判準=甲`,~~跑前後 `git status --porcelain` 比對~~ 作廢);Codex 與 PCM 鐵則/Sean 拍板衝突以後者為準。🔴 **層級由片型決定**(2026-08-24 Sean 拍甲):每片先跑 `code-reviewer`,**命中鐵則 12 六類才叫 codex**,第三輪(前兩輪仍在抓到真 finding 時)換 Fable 換角度 —— `code-reviewer` 與 Fable 都是 Claude、與寫碼的同一個腦,**codex 的價值是它不共用我們的前提**(memory `project_0824-sean-review-tier-assignment`)。🔴 **stdin 一定要導掉** `< /dev/null`,不導會睡死而外觀與「深度思考」相同;**等待方法:背景起 codex 的下一行立刻收 `PID=$!`(那一行前後不准有任何東西, 同下方 `$?` 那條), 然後 `wait "$PID"`** —— 它等到真的結束, **不必輪詢**(Sean 2026-08-29 拍 `⑥ 改`:「檔案沒長【而且】程式不在了才算跑完」⇒ `wait` 一行同時滿足兩格)。🔴 **為什麼不用那兩個看起來很自然的做法(留著, 免得下一個人發明回來)**:**只看檔案長不長 ⇒ 它在思考或讀大檔時被誤判成【結束】**(線D `-69` 2026-08-28 踩過, 實測數字在 `docs/launch-todo.md` 的 `⟦b4-CODEXWAIT1⟧` 那列(用錨不用行號 —— 板子行號會漂);⚠️ 那兩發**未經第二人複驗**);**只看 `pgrep -f` ⇒ 它命中你自己那行, 而八窗各跑各的 codex ⇒ 也命中別窗**。
