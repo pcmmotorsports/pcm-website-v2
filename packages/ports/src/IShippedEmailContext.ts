@@ -18,8 +18,16 @@
  * ```
  * ① 有實作嗎？   ✅ 有 —— packages/adapters/src/email/SupabaseShippedEmailContextAdapter.ts
  * ② 被建構了嗎？ ✅ 有 —— apps/storefront/src/lib/email/composition.ts 注入 Deps.shippedContext
- * ③ 被【呼叫】了嗎？🔴 **沒有** —— sweep-email-outbox.ts 只解構 { outbox, sender }，
- *                    整支 use-case 一次都沒有讀 shippedContext。**它現在是「建構後閒置」。**
+ * ③ 被【呼叫】了嗎？⛔ ~~🔴 **沒有** —— sweep-email-outbox.ts 只解構 { outbox, sender }，
+ *                    整支 use-case 一次都沒有讀 shippedContext。**它現在是「建構後閒置」。**~~
+ *                    🔵 **2026-09-03 訂正:已被呼叫。**
+ *                    `packages/use-cases/src/sweep-email-outbox.ts:938` 逐字
+ *                    `loaded = await deps.shippedContext.loadShippedContext({ orderId, shipmentId });`
+ *                    (數法 `grep -c loadShippedContext packages/use-cases/src/sweep-email-outbox.ts` ⇒ **1**,
+ *                     開檔看過那 1 行**是碼不是註解**)
+ *                    🛑 **而「被呼叫」不等於「信變了」** —— 同檔 `:932` 逐字
+ *                    `if (deps.shippedContext === undefined || shipmentId === null)` 那道分支仍在,
+ *                    本檔下方「傳不傳 shippedContext,order_shipped 都維持 fail-closed」那句**我沒有重驗**。
  * ```
  * ⇒ ~~「本 port 目前沒有任何 production 呼叫端」~~ 不成立(有實作、有注入),
  *   **而「已經接上了」也不成立**(沒有人呼叫它)。**兩句都錯,所以拆成三行寫。**
