@@ -51,6 +51,22 @@ COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir)
 #    ⇒ `--no-renames` **留著當防禦深度**(擋 rename 偵測相關的 config 差異),
 #      但**它不是那個修法**,而突變測試證明拿掉它現有的格一格都不會紅。
 #    📎 形狀:**註解 = 想守什麼,斷言 = 真表達得出什麼。** 我把「我以為的原因」寫成了「原因」。
+# ── 🔴 說出我讀的是哪一份, 而且說出它與另一份一不一樣(2026-09-03 加)──────────
+#
+# 🎯 **本閘全程走 `git diff --cached` ⇒ 它讀的是 index。**
+#    而下面那一行是【早退點】:index 裡沒動 STATUS.md ⇒ 直接 `exit 0` 放行。
+#    🛑 ⇒ 所以「你改了 STATUS.md 而還沒 `git add`」那個世界, 本閘**看不到, 而且直接放行**
+#       ⇒ 📌 **它印的綠, 說的是 index 那一份, 不是你剛改的那一份。**
+#    memory `feedback_restage-after-edit-lint-staged-trap.md` 記過三次同型復發。
+#
+# 🛑 只說「我讀 index」不夠 —— 那句話在兩個世界都一樣 ⇒ 零判別力。
+#    ⇒ 要印的是【工作樹上那一份有沒有跟 index 分家】。形狀抄 `scripts/md-table-overflow.py`。
+#
+# 🔵 **純輸出, 不改變本閘擋什麼** —— 拿掉這一段, 擋/不擋一格都不動。
+if ! git diff --quiet --no-ext-diff --no-textconv -- STATUS.md 2>/dev/null; then
+  echo "⚠️ status-owner-gate:STATUS.md 在【工作樹】上有改動而【還沒 git add】" >&2
+  echo "   ⇒ 🔴 本閘讀的是 index 那一份 ⇒ 下面不論放行或擋下, 說的都不是你剛改的那一份。" >&2
+fi
 git diff --cached --quiet --no-ext-diff --no-textconv --no-renames -- STATUS.md && exit 0
 
 # ── merge 繼承放行(2026-08-16 立;兩個窗各撞一次都自己繞過)──────────────
