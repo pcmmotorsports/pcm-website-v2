@@ -29047,7 +29047,7 @@ python3 scripts/brand-degenerate-samples.py
 
 ### #841. 🔴 登錄完匯款,那張單**還是找不到** —— 預設隱藏用的是「卡刷過了沒」,不是「錢收到了沒」
 
-- **狀態:** ✅ **實作已完成、且 2026-09-03 線 `-mail` 在【行為層】實跑驗過**(🛑 而 `docs/launch-todo.md:496` 那一列的【態】仍是 `open` —— 改態在 Sean 手上,見 `docs/handoff/CURRENT.md:308` 第 8 格)(碼與 SQL 早就落地,缺的一直是「有沒有人真的登錄過一筆匯款」)
+- **狀態:** ✅ **實作已完成、且 2026-09-03 線 `-mail` 在【行為層】實跑驗過**(🟢 `docs/launch-todo.md:496` 那一列 **2026-09-03 Sean 本人拍甲 ⇒ 態已改 `done`**;射程同上:拋棄式庫,不證正式庫那 2 張活單)(碼與 SQL 早就落地,缺的一直是「有沒有人真的登錄過一筆匯款」)
   ```
   前  admin-probe 拋棄式庫 · 預設列表 7 張 · PCM-2026-1001(tappay/unpaid/paid_total 0)【不在】
       正對照 ZZQPRB(同樣 tappay/unpaid、只差 paid_total=1)【在】⇒ 尺兩邊都會動
