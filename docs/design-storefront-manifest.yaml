@@ -1463,6 +1463,13 @@ components:
       - "apps/storefront/src/components/ProductInfo.tsx"  # V-2a 路徑1:addToCart 讀 context 標 kind:dict source:search
       - "apps/storefront/src/lib/cart-vehicle-mix.ts"  # 2026-09-03 混車橫幅判準(純函式、無 React/DOM 依賴;不看「目前選的車」)
     business_overrides:
+      - field: "cartPrunedNotice"
+        design_value: "稿上【查無】此通知 —— net-new 視覺。數法(兩把尺都先證明會動):design-reference/ 掃 `不再供應|已為您移除` ⇒ 0(正對照掃 `購物車是空的` ⇒ 命中 AccountPages.jsx);OD pcm-home-redesign/cart-page.html 同法 ⇒ 0(正對照 `cart-head|cart-item` ⇒ 53)"
+        storefront_value: "購物車頁在【有商品被系統移除】時說一句「有 N 件商品已不再供應,已為您移除」。兩條路都畫:仍有商品時在頁首、整車被移光時畫在 CartEmpty 的「購物車是空的」底下"
+        decided_at: "2026-09-03"
+        decision_source: "主視窗-87 2026-09-03 裁【甲:只改購物車頁】;起因=線 -front 走顧客站失敗路徑實測 production:購物車商品查無 ⇒ 靜靜移除、零訊息, 而畫面與「他從來沒加過東西」同一句"
+        backlog: "文案暫定待 Sean 拍(`~/pcm-mailbox/等Sean拍的題-20260903.md` 題 25);板列 ⟦b4-NOVARIANT-CHECKOUTMSG⟧ 實例④"
+        reason: "🟢 移除本身是刻意的(hooks/useResolvedCart.tsx:15-16 自我修復 #375/#455:那些行渲染不出來、客人刪不掉, 留著會讓 Header 角標永遠多算)⇒ 本片不動那個行為, 只補它缺的那句話。🛑 而【刻意不動那支 hook】:它的消費端含 CheckoutView.tsx:93 且自己算 subtotal/total ⇒ 改它=動結帳與金額。⚠️ 已知缺口(甲案的代價):結帳頁會發生同樣的移除(useResolvedCart.tsx:144-148 在 hook 內)且會【同時改動 subtotal/total】而零訊息 —— 那是乙案, 要 Sean 拍"
       - field: "cartVehicleMixNotice"
         design_value: "稿上【查無】此橫幅 —— net-new 視覺, 不是偏離既有元素。數法(兩把尺都先證明會動):design-reference/components/AccountPages.jsx 掃 `notice|banner|callout|alert` ⇒ 0(正對照同法掃 `cart-head` ⇒ 2);OD pcm-home-redesign/cart-page.html 同法 ⇒ 0(正對照 `cart-head|cart-item` ⇒ 53)"
         storefront_value: "購物車頂部中性橫幅:一台購物車同時掛著 2 台以上相異車款(僅 kind:dict、不含年份)時出聲, 列出台數與車名。刻意不用 --c-red-*(客人很可能沒做錯任何事);display-only 不擋結帳;不自動改任何一列的車"
