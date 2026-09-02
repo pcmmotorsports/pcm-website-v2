@@ -66,6 +66,64 @@ describe('SearchOverlay', () => {
     expect((screen.getByLabelText('搜尋商品 / 品牌 / 車款') as HTMLInputElement).value).toBe('排氣管');
   });
 
+  // 🔴🔴 **G1-c:等結果的那段時間畫「搜尋中…」**(2026-09-03 線 `-front`)。
+  //   在本片之前 render 端**沒有 `pending` 分支** ⇒ 中文查詢那 ~2 秒疊層是空的
+  //   (線上實測五格取樣全部只有「取消」兩個字;而中文 1934ms vs ASCII 455ms)。
+  //   🎯 **兩個世界印不同的東西**:請求還沒回 ⇒ 有「搜尋中…」;回來了 ⇒ 沒有「搜尋中…」而有結果。
+  //   🧬 **突變**:把 `SearchOverlay.tsx` 的 `view.kind === 'pending'` 那一格拿掉 ⇒ 本格必須紅。
+  it('G1-c 有查詢字而結果還沒到 ⇒ 畫「搜尋中…」;回來之後那句消失、結果出現', async () => {
+    // 一個「我來決定它什麼時候回」的 fetch ⇒ 才拿得到中間那個狀態。
+    // 🔴 deferred 要建在 **mockFetch 之外** —— 建在 executor 裡的話,
+    //    `release` 只有在 fetch【真的被呼叫】之後才存在;而下面第一個 waitFor
+    //    在 debounce 還沒發出請求時就會過(`result === null` 也是 pending)
+    //    ⇒ 那時 `release` 還是 undefined ⇒ TypeError。**這一格我自己踩過一次。**
+    let release!: (r: Response) => void;
+    const deferred = new Promise<Response>((res) => { release = res; });
+    // 🔴 `.clone()`(R1 F7):`() => deferred` 每次回**同一個 Response 實例** ⇒ 將來若真有第二發請求,
+    //    `res.json()` 會 body-already-read ⇒ 走 catch ⇒ **靜靜變 `failed`,而本格照樣綠**。
+    mockFetch(() => deferred.then((r) => r.clone()));
+    render(<SearchOverlay />);
+    openWith('貼');
+
+    // 世界 A:還在等 ⇒ 那句在,而結果與「沒有找到」都不在
+    await waitFor(() => expect(screen.getByText('搜尋中…')).toBeTruthy());
+    expect(screen.queryByText(/沒有找到/)).toBeNull();
+    expect(screen.queryByText(/暫時無法使用/)).toBeNull();
+
+    // 世界 B:回來了 ⇒ 那句消失、**而且結果真的出現**
+    // 🔴 「結果出現」那半是 R1 F6 補的:原本只斷言「那句消失」⇒
+    //    一個「回來之後什麼都不畫」的世界也會過。
+    release(new Response(JSON.stringify(ONE_ITEM), { status: 200 }));
+    await waitFor(() => expect(screen.queryByText('搜尋中…')).toBeNull());
+    expect(screen.getByText('鈦合金全段排氣管')).toBeTruthy();
+  });
+
+  // 🔴🔴 **G1-d:空查詢【不准】出現「搜尋中…」**(2026-09-03 R1 F1 —— 而那是我自己弄出來的)。
+  //   `q === ''` 時 effect 早退並 `setResult(null)` ⇒ `viewFor` 恆回 `pending`,
+  //   **而那時根本沒有請求在飛** ⇒ 我第一版只判 `view.kind === 'pending'`
+  //   ⇒ 「熱門搜尋」與「搜尋中…」**同時**畫,而且是**穩態不是一幀**。
+  //   🎯 而本檔 `codex R2 must-fix 1` 修過的正是同一個病(訊息與熱門搜尋同框)——
+  //      **我把它用另一支 kind 復刻了一次。**
+  //   🧬 突變:把 `SearchOverlay.tsx` 那格的 `q !== '' &&` 拿掉 ⇒ 本格必須紅。
+  it('G1-d 空查詢 ⇒ 畫「熱門搜尋」而【不】畫「搜尋中…」(兩者不同框)', async () => {
+    mockFetch(async () => new Response(JSON.stringify(ONE_ITEM), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('');
+    // 🟢 正對照:熱門搜尋在(否則下一行對「整片空白」也會過)
+    expect(screen.getByText('熱門搜尋')).toBeTruthy();
+    expect(screen.queryByText('搜尋中…')).toBeNull();
+  });
+
+  it('G1-e 查完之後把輸入框清空 ⇒ 回到熱門搜尋, 不是「搜尋中…」', async () => {
+    mockFetch(async () => new Response(JSON.stringify(ONE_ITEM), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('排氣管');
+    await waitFor(() => expect(screen.getByText('鈦合金全段排氣管')).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('搜尋商品 / 品牌 / 車款'), { target: { value: '' } });
+    await waitFor(() => expect(screen.getByText('熱門搜尋')).toBeTruthy());
+    expect(screen.queryByText('搜尋中…')).toBeNull();
+  });
+
   it('G2 API 失敗 ⇒ 畫「暫時無法使用」,而**不是**「沒有找到」', async () => {
     mockFetch(async () => new Response('{}', { status: 503 }));
     render(<SearchOverlay />);
