@@ -51,7 +51,10 @@ import {
 //  ③ **客戶姓名改讀收件快照**:後台取 `detail.customer.name`,而客人側投影刻意不帶 `customers(`
 //     (同一格 forbidden-token 守門)⇒ 取 `shippingAddress.name`。同一個人、不同來源。
 //  ③' 🔴 **電話也是,而它比姓名多一格**(R3 抓到,而這是這張清單第三次被指出不完整):
-//     後台 `picking-doc.tsx:296` 是 `customer.phone ?? shippingAddress?.phone ?? '—'`(**兩層退版**),
+//     ⛔ ~~後台 `picking-doc.tsx:296` 是 `customer.phone ?? shippingAddress?.phone ?? '—'`~~
+//     🔴 **2026-09-03 訂正**(⟦b4-PICKPHONE1⟧):那一行現在在 `picking-doc.tsx:314`,
+//        而且已改成 **`||`** —— 因為 `??` 接不住空字串。舊字面留著, 讓搜舊句的人同一發撞到。
+//        (原句的「**兩層退版**」那個描述仍然成立。)
 //     這裡只有 `addr.phone` 一層 —— 同樣是被 `customers(` 那道邊界逼出來的。
 //     ⇒ **客人會員檔電話 ≠ 收件快照電話時,兩張紙會印不同號碼。**
 //     📌 而這一格值得停一秒:**清單的全部價值就在「全部」二字** ——
@@ -285,11 +288,17 @@ export function StatementDoc({
           </div>
           <div className='pd-field'>
             <div className='k'>電話</div>
-            <div className='v code'>{addr.phone ?? '—'}</div>
+            {/* 🔴 `||` 不是 `??` —— 同 ⟦b4-PICKPHONE1⟧:收件快照的 phone 可能是空字串,
+                而 `??` 只接 null ⇒ 這一格會印空白而不是「—」。 */}
+            <div className='v code'>{addr.phone || '—'}</div>
           </div>
           <div className='pd-field'>
             <div className='k'>地址</div>
-            <div className='v addr'>{addr.line ?? '—'}</div>
+            {/* 🔴 `||` 不是 `??` —— 與同段的 phone 同型(⟦b4-PICKPHONE1⟧)。
+                證據不是推的:`lib/shipping/recipient.ts:31` 的 `blank()` 對 line 用
+                `(v ?? '').trim() === ''`, 而 `:17-22` 逐字講「既有的無地址自取單」
+                ⇒ **`line === ''` 是實際存在的狀態**。 */}
+            <div className='v addr'>{addr.line || '—'}</div>
           </div>
         </div>
         <div className='pd-col'>
