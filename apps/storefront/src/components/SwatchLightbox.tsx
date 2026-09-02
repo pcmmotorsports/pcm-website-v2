@@ -13,6 +13,7 @@
 import { useCallback, useEffect, type Dispatch, type SetStateAction } from 'react';
 import type { RpmSwatch } from '@/data/rpm-swatches';
 import { useLightboxSwipe } from '@/hooks/useLightboxSwipe';
+import { trapTabInOverlay } from '@/lib/overlay-focus';
 
 export type SwatchLightboxProps = {
   swatches: readonly RpmSwatch[];
@@ -20,6 +21,7 @@ export type SwatchLightboxProps = {
   setLbIdx: Dispatch<SetStateAction<number | null>>;
 };
 
+// ⟦fc-FOCUSTRAP⟧ 尺與循環的單一定義點(為什麼不各打一份見那支檔頭)。
 export function SwatchLightbox({ swatches, lbIdx, setLbIdx }: SwatchLightboxProps) {
   const open = lbIdx !== null;
   const len = swatches.length;
@@ -35,6 +37,15 @@ export function SwatchLightbox({ swatches, lbIdx, setLbIdx }: SwatchLightboxProp
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { lbSwipe.resetZoom(); }, [lbIdx]);
 
+  /**
+   * ⟦fc-FOCUSTRAP⟧ 🔴 **`overlayRef` 取成區域變數再進 deps —— 而那不是形式。**
+   * `lbSwipe` 是 hook 每次 render 回的新物件 ⇒ 直接寫 `lbSwipe.overlayRef` 進 deps,
+   * **這個 effect 會跟著重掛**。取成 `overlayRef` 之後,依賴的是【那個 ref 物件本身】,
+   * 而 `useRef` 回的物件身分穩定 ⇒ **不會每次 render 重掛**。
+   * ⚠️ 而重掛在這一片有後果(同 `FilterDrawer` 那段註解):**若日後看到「lightbox 開著時
+   *    焦點被搶走 / 上下滑失效」那類症狀,病灶在這個依賴陣列,不在鍵盤處理本身。**
+   */
+  const overlayRef = lbSwipe.overlayRef;
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -43,6 +54,19 @@ export function SwatchLightbox({ swatches, lbIdx, setLbIdx }: SwatchLightboxProp
       // (原本鍵盤獨走 clamp,桌機在頭尾卡住)。
       else if (e.key === 'ArrowRight') lbNext();
       else if (e.key === 'ArrowLeft') lbPrev();
+      /**
+       * ⟦fc-FOCUSTRAP⟧ Tab 在 lightbox 內循環(2026-09-02;樣板 = `FilterDrawer`)。
+       *
+       * 🔴🔴 **它接在這條 `else if` 鏈的【最後】—— 而順序是這一格唯一的風險。**
+       *    插在 `ArrowLeft/Right` 之前 ⇒ 左右鍵換圖會失效
+       *    ⇒ ⇒ 而那個壞法是「**客人打不開下一張圖**」而測試全綠(沒有人問過左右鍵)
+       *    ⇒ 📌 所以本檔的測試裡有一格專門守它:開著時左右鍵仍然換得了圖。
+       * 🔵 `trapTabInOverlay` 自己只在 `e.key === 'Tab'` 時才動 ⇒ 它不會吃掉別的鍵;
+       *    而放在最後是**雙保險**:即使日後有人改它,順序這一層仍然擋著。
+       */
+      // 🔵 **用 `lbSwipe.overlayRef`(手勢那支已經掛在 `.pd-lightbox` 上的那個),不另掛一個** ——
+      //    那個節點的 ref 已經有主;再掛一個會覆蓋掉手勢的,而**上下滑關閉會安靜地失效**。
+      else trapTabInOverlay(e, overlayRef.current);
     };
     window.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
@@ -51,7 +75,7 @@ export function SwatchLightbox({ swatches, lbIdx, setLbIdx }: SwatchLightboxProp
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [open, setLbIdx, lbNext, lbPrev]);
+  }, [open, setLbIdx, lbNext, lbPrev, overlayRef]);
 
   if (lbIdx === null) return null;
   const sw = swatches[lbIdx];

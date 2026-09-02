@@ -26,7 +26,7 @@
 //   placeholder、跨層直搜、無年份出口**逐字不動** —— 全站規範就是照它寫的。
 //   🔴 :202-222 那顆「清除」= 只清草稿(spec §4-2),不得被「清除車輛」的統一文案吃掉。
 
-import { Fragment, useEffect, useState, type Dispatch, type FocusEvent } from 'react';
+import { Fragment, useEffect, useRef, useState, type Dispatch, type FocusEvent } from 'react';
 import {
   selectVehicleBrand,
   selectVehicleModel,
@@ -40,6 +40,7 @@ import { modelFieldOptions, resolveModelPick, yearsNewestFirst } from '@/lib/veh
 import { VehicleCombo, VEHICLE_EMPTY_HINTS } from './VehicleSelect';
 import { GarageChips, type GarageChipItem } from './GarageChips';
 import { formatSkippedDraftNotice, type VehicleDraftTexts } from '@/lib/vehicle-draft-notice';
+import { focusFirstInOverlay, trapTabInOverlay } from '@/lib/overlay-focus';
 
 /** 面板內的未套用選擇。字典字面 + 已驗年份;null=該層未定。 */
 type VehicleDraft = { brand: string | null; model: string | null; year: number | null };
@@ -103,6 +104,36 @@ export function MobileVehicleSheet({
       document.body.style.overflow = '';
     };
   }, [open]);
+
+  /**
+   * ⟦fc-FOCUSTRAP⟧ 焦點:移入 + Tab 循環 + Escape(2026-09-02;樣板 = `FilterDrawer`)。
+   *
+   * 🔴 **本支開工前現況:三格全缺**(`useRef` 0 · `Escape` 0 · `keydown` 0)——
+   *    它有 `aria-modal="true"`(`:175`),而**那只是一個宣告**:它告訴輔助科技「背景不重要」,
+   *    卻**不會**讓 Tab 走不出去。⇒ 📌 宣告與行為是兩件事,而只有後者擋得住鍵盤。
+   * 🔵 尺與循環住在 `@/lib/overlay-focus`(單一定義點;為什麼不各打一份見那支檔頭)。
+   * ⚠️ 而它**不是等價物**:守得住 Tab 走出去,守不住螢幕閱讀器讀到背景(那要 `inert`,
+   *    而 jsdom 對 `inert` 零判別力 ⇒ 已另開一列)。
+   */
+  const sheetRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    // 🔴 移入落在 `first`, 而本面板第一個可聚焦是 **BUTTON「關閉選車面板」**(實測, 共 3 個,
+    //    其後兩個才是 INPUT)⇒ **不會碰到輸入欄, 不會彈手機鍵盤。**
+    //    ⚠️ 而那條既有規則(本檔 test `:99` 起)的斷言原本是 `activeElement === body` ——
+    //    它比自己宣告的意圖(「不得自動聚焦**輸入欄位**」)寬 ⇒ 已收窄到意圖, 並用突變證明沒被改軟。
+    focusFirstInOverlay(sheetRef.current);
+    const onKeyDown = (e: KeyboardEvent) => {
+      // 🔴 Escape 是「把焦點關起來」的另一半:關得住而出不去 = 我們親手把客人關進去。
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      trapTabInOverlay(e, sheetRef.current);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [open, onClose]);
 
   const brandEntry = draft.brand != null
     ? motoBrands.find((brand) => brand.name === draft.brand)
@@ -172,7 +203,7 @@ export function MobileVehicleSheet({
   return (
     <>
       <div className="mvs-overlay" onClick={onClose} />
-      <section className="mvs-sheet" role="dialog" aria-modal="true" aria-label="選擇適用車輛">
+      <section className="mvs-sheet" ref={sheetRef} role="dialog" aria-modal="true" aria-label="選擇適用車輛">
         <header className="mvs-head">
           <h2>選擇適用車輛</h2>
           <button type="button" className="mvs-close" onClick={onClose} aria-label="關閉選車面板">

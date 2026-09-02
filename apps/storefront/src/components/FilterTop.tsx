@@ -18,7 +18,8 @@
 
 'use client';
 
-import { useEffect, useState, type Dispatch } from 'react';
+import { useEffect, useRef, useState, type Dispatch } from 'react';
+import { trapTabInOverlay } from '@/lib/overlay-focus';
 import {
   selectVehicleBrand,
   selectVehicleModel,
@@ -106,9 +107,25 @@ export function FilterTop({
   const close = () => setOpen(null);
   const toggle = (k: DropdownKey) => setOpen(open === k ? null : k);
 
-  // ESC to close
+  /**
+   * ESC to close + ⟦fc-FOCUSTRAP⟧ Tab 在 dropdown 內循環(2026-09-02)。
+   *
+   * 🔴🔴 **循環【合進這個既有的 handler】,不是再掛第二個 listener。**
+   *    掛第二個會長成:兩個 handler 各自判各自的鍵,而**誰先跑取決於註冊順序**
+   *    ⇒ 那是一個「今天剛好對」的東西 ⇒ 而順序被改動時**不會紅**。
+   * 🔵 而 Escape 那半的行為**一個字沒改** —— 它原本就是「不管開沒開都掛著」,
+   *    `close()` 在沒開時是 no-op ⇒ 維持原狀,這一片不順手改它。
+   * 🔴 而循環那半**只在開著時才有意義**:`open === null` 時 `ftDropdownRef.current` 是 null,
+   *    而 `trapTabInOverlay` 對 null 回 false ⇒ **關著時它不攔任何東西**(那是它自己守的)。
+   *
+   * ⚠️ 不是等價物:守得住 Tab 走出去,守不住螢幕閱讀器讀到背景(要 `inert`,已另開一列)。
+   */
+  const ftDropdownRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    const h = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { close(); return; }
+      trapTabInOverlay(e, ftDropdownRef.current);
+    };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, []);
@@ -214,7 +231,7 @@ export function FilterTop({
         {open && (
           <>
             <div className="ft-overlay" onClick={close} />
-            <div className="ft-dropdown">
+            <div className="ft-dropdown" ref={ftDropdownRef}>
               {open === 'vehicle' && (
                 <div className="ft-veh">
                   <div className="ft-veh-col">

@@ -96,11 +96,30 @@ describe('MobileVehicleSheet(ADR-0007 手機選車面板)', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  // ① 手機鍵盤:開面板不得自動聚焦任何輸入欄位。
-  it('開面板時任何欄位都不得自動取得焦點', () => {
+  /**
+   * ① 手機鍵盤:開面板不得自動聚焦任何**輸入欄位**。
+   *
+   * 🔴🔴 **2026-09-02 ⟦fc-FOCUSTRAP⟧ 收窄了這一格的斷言 —— 而那是【對齊】不是【放寬】。**
+   *
+   * ⛔ 原斷言逐字:`expect(document.activeElement).toBe(document.body);`
+   *    ⇒ 它禁止**任何東西**取得焦點,而本格自己的註解與標題都寫「**輸入欄位**」。
+   *    ⇒ 📌 **斷言比它自己宣告的意圖寬** —— 而聚焦一顆 `<button>`
+   *       **不會叫出手機鍵盤** ⇒ 那種情況【滿足意圖而違反斷言】。
+   * ✅ 新斷言只禁 `INPUT` / `TEXTAREA` / `SELECT` ⇒ **它守的仍然是「不彈手機鍵盤」那件事**。
+   * 🧬 而證明它沒被改軟的是突變:把焦點移入改成聚焦**第一個 `<input>`** ⇒ **本格必紅**
+   *    (`-fc` 2026-09-02 實跑過)。⇒ 📌 一個「收窄斷言」與一個「把礙事的測試改軟」
+   *    **在 diff 上長得一樣** —— 而分得開它們的只有那一發突變。
+   * 🔵 前置量測(實跑):本面板第一個可聚焦元素是 **`BUTTON`「關閉選車面板」**(共 3 個,
+   *    其後兩個才是 `INPUT`)⇒ **所以移入落在 first 就不會碰到輸入欄。**
+   */
+  it('開面板時不得自動聚焦【輸入欄位】(聚焦按鈕可以 —— 那不會彈手機鍵盤)', () => {
     const { container } = renderSheet();
     expect(container.querySelector('[autofocus]')).toBeNull();
-    expect(document.activeElement).toBe(document.body);
+    const a = document.activeElement;
+    expect(
+      a !== null && ['INPUT', 'TEXTAREA', 'SELECT'].includes(a.tagName),
+      '自動聚焦了輸入欄 ⇒ 手機會彈出鍵盤、吃掉半個螢幕',
+    ).toBe(false);
   });
 
   // ② 面板頂部直接顯示真實愛車、一點套用(不需先點 toggle)。
@@ -395,5 +414,49 @@ describe('MobileVehicleSheet(ADR-0007 手機選車面板)', () => {
       fireEvent.click(apply);
       expect(onApplied).not.toHaveBeenCalled();
     });
+  });
+});
+
+/**
+ * ⟦fc-FOCUSTRAP⟧ 焦點:移入 + Tab 循環 + Escape(2026-09-02;樣板 = FilterDrawer)。
+ *
+ * 🔴 本支開工前**三格全缺**。它有 `aria-modal="true"`,而**那只是一個宣告** ——
+ *    它告訴輔助科技「背景不重要」,卻不會讓 Tab 走不出去。
+ *    ⇒ 📌 宣告與行為是兩件事,而只有後者擋得住鍵盤。
+ * ⚠️ 不是等價物:守得住 Tab 走出去,守不住螢幕閱讀器讀到背景(要 `inert`,已另開一列)。
+ */
+describe('⟦fc-FOCUSTRAP⟧ MobileVehicleSheet', () => {
+  const focusables = () =>
+    [...screen.getByRole('dialog').querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled])',
+    )];
+
+  it('🔴 開啟時焦點要移進面板 —— 它是循環的【前提】', () => {
+    renderSheet();
+    const a = document.activeElement as HTMLElement | null;
+    expect(a?.closest('.mvs-sheet'), '開了而焦點留在 body ⇒ 客人要走完整個背景才進得來').not.toBeNull();
+  });
+
+  it('🔴 移入的落點 === 循環的 first(兩處必須同一把尺)', () => {
+    renderSheet();
+    const f = focusables();
+    expect(f.length).toBeGreaterThan(0);
+    expect(document.activeElement, '落在 first 以外 ⇒ Shift+Tab 會跳到 last').toBe(f[0]);
+  });
+
+  it('🔴 焦點在最後一個 → Tab → 回到第一個(不得走出面板)', () => {
+    renderSheet();
+    const f = focusables();
+    expect(f.length, '少於 2 個 ⇒ 證不到循環').toBeGreaterThan(1);
+    const last = f[f.length - 1]!;
+    last.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(document.activeElement).toBe(f[0]);
+  });
+
+  it('🔴 Escape 要關得掉 —— 關得住而出不去 = 我們親手把客人關進去', () => {
+    const { onClose } = renderSheet();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalled();
   });
 });

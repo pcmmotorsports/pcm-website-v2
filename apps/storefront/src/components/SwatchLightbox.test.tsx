@@ -97,4 +97,39 @@ describe('SwatchLightbox', () => {
     fireEvent.click(screen.getByRole('dialog'));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
+
+  /**
+   * ⟦fc-FOCUSTRAP⟧ 而本支的風險與其餘幾支不同:**它的 keydown 裡已經有 `ArrowLeft/Right` 換圖。**
+   *
+   * 🔴 循環那段若插在左右鍵**之前**並 return ⇒ 左右鍵失效
+   *    ⇒ ⇒ 而那個壞法是「**客人打不開下一張圖**」而測試全綠 —— 因為沒有人問過左右鍵。
+   * ✅ 所以下面第一格是**必要守門**,而它守的不是新功能,是【新功能沒有弄壞舊功能】。
+   */
+  describe('⟦fc-FOCUSTRAP⟧', () => {
+    it('🔴 加了 Tab 循環之後, 左右鍵仍然換得了圖(這一格守的是【沒弄壞】)', () => {
+      render(<Harness start={0} />);
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(screen.getByText(`02 / ${total}`), '循環插錯位置 ⇒ 左右鍵失效, 而畫面看起來只是「沒反應」').toBeDefined();
+      fireEvent.keyDown(window, { key: 'ArrowLeft' });
+      expect(screen.getByText(`01 / ${total}`)).toBeDefined();
+    });
+
+    it('🔴 焦點在最後一個 → Tab → 回到第一個(不得走出 lightbox)', () => {
+      render(<Harness start={0} />);
+      const lb = screen.getByRole('dialog');
+      const f = [...lb.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled])')];
+      // 🟢 正對照:少於 2 個 ⇒ 下面那格恆真
+      expect(f.length, 'lightbox 內可聚焦少於 2 個 ⇒ 證不到循環').toBeGreaterThan(1);
+      const last = f[f.length - 1]!;
+      last.focus();
+      fireEvent.keyDown(window, { key: 'Tab' });
+      expect(document.activeElement, 'Tab 走出了 lightbox ⇒ 客人掉到背後那 51 個元素裡').toBe(f[0]);
+    });
+
+    it('🔵 Escape 仍然關得掉(既有行為, 這一片不得弄壞)', () => {
+      render(<Harness start={1} />);
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+  });
 });

@@ -312,6 +312,25 @@ describe('⟦fc-FOCUSTRAP⟧ Tab 在抽屜內循環', () => {
     expect(container.querySelector('.fd-drawer button:not([disabled])')).not.toBeNull();
   });
 
+  /**
+   * 🔴🔴 **移入的落點必須【就是】循環算出來的 `first` —— 兩處要用同一把尺。**
+   *
+   * 第一版我把選擇器打了兩份:移入只找 `button`, 循環找四種。
+   * ⇒ 抽屜第一個可聚焦的若是 `<a>` / `<input>`, **移入會跳過它**
+   * ⇒ ⇒ Shift+Tab 從那個落點走會跳到 `last`, 而中間那幾個永遠走不到。
+   * 🔵 而 FilterDrawer 今天第一個剛好是 `button` ⇒ **它今天不發作**
+   *    ⇒ 📌 **所以那三發突變一格都沒紅 —— 這一格就是補那個洞。**
+   */
+  it('🔴 移入的落點 === 循環的 first(兩處必須同一把尺)', () => {
+    const { container } = render(<Harness open />);
+    const f = focusablesIn(container);
+    expect(f.length, '少於 1 個 ⇒ 下面那格恆真').toBeGreaterThan(0);
+    expect(
+      document.activeElement,
+      '移入落在 first 以外 ⇒ Shift+Tab 會跳到 last, 中間那些永遠走不到',
+    ).toBe(f[0]);
+  });
+
   it('🔴 Escape 要關得掉 —— 焦點被關起來, 就必須有一條出去的路', () => {
     const onClose = vi.fn();
     render(<Harness open onClose={onClose} />);

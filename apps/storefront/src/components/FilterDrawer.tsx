@@ -36,6 +36,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { focusFirstInOverlay, trapTabInOverlay } from '@/lib/overlay-focus';
 import {
   selectCategoryMain,
   selectCategorySub,
@@ -182,12 +183,16 @@ export function FilterDrawer({
   useEffect(() => {
     if (!open) return;
     /**
-     * 🔴🔴 **開啟時把焦點移進來 —— 而它是循環的【前提】,不是第三件事。**
+     * 🔴 **尺與循環都住在 `@/lib/overlay-focus`,這裡不重打一份。**
+     * 第一版我在這支檔裡把它打了兩份(移入只找 `button`、循環找四種)⇒ **當場就已經不同**,
+     * 而那種分岔**不會紅** —— 三發突變一格都沒抓到,是 code-reviewer 讀 diff 抓的。
+     * ⇒ 抽出去的完整理由、已知不完整那一格(缺 `textarea` / `[tabindex]`)寫在那支檔的檔頭。
+     *
+     * 🔴🔴 **開啟時把焦點移進來 —— 它是循環的【前提】,不是第三件事。**
      * 不做它 ⇒ 焦點留在 `BODY`(`-fc` 2026-09-02 在同族的 `.pd-lightbox` 上實測到的正是這個)
-     * ⇒ 客人按第一下 Tab 是從**整頁最上面**開始走 ⇒ 要走完背景才進得來
-     * ⇒ ⇒ **循環要等 30 下才生效 = 等於沒做。**
+     * ⇒ 客人按第一下 Tab 從**整頁最上面**開始走 ⇒ **循環要等 30 下才生效 = 等於沒做。**
      */
-    drawerRef.current?.querySelector<HTMLElement>('button:not([disabled])')?.focus();
+    focusFirstInOverlay(drawerRef.current);
     const onKeyDown = (e: KeyboardEvent) => {
       /**
        * 🔴🔴 **Escape —— 而它是「把焦點關起來」這個承諾的另一半。**
@@ -198,23 +203,7 @@ export function FilterDrawer({
         onClose();
         return;
       }
-      if (e.key !== 'Tab') return;
-      const panel = drawerRef.current;
-      if (!panel) return;
-      // 選擇器與 MobileMenu 同形;`:not([disabled])` 少了它,一顆 disabled 的鈕會變成循環的端點。
-      const focusables = panel.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled])',
-      );
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      if (!first || !last) return;
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
+      trapTabInOverlay(e, drawerRef.current);
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
