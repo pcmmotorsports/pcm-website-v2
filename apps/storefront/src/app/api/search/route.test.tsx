@@ -89,6 +89,26 @@ describe('/api/search', () => {
 });
 
 // ⟦搜尋-第2刀⟧ 2a 的兩個決定 —— 而它們原本【只活在一句註解裡】(`-f3` 自己標、`-c7` 審前補)。
+describe('/api/search 的成本', () => {
+  it('R7 疊層那條路【不】叫 DB 數總數 —— 而那是一個 560 倍的差', async () => {
+    // 🔴 **為什麼這一格非有不可**(`-fc` 2026-09-02 R1 must-fix):
+    //    `route.ts` 那段註解把理由寫得很完整 —— 而**那個知道沒有變成一格會紅的東西**。
+    //    🧬 `-fc` 把第四個參數改回 `true` ⇒ **6 passed, 全綠** ⇒ 零守門。
+    //
+    //    而它比一般的「沒守門」重一格, 理由兩格:
+    //    ① 這是**公開、無 auth** 的端點 ⇒ 回退的後果是【每個按鍵一次全表掃描】
+    //    ② 而它**看不出來** —— 畫面完全正常, 只是慢;疊層那 220ms debounce 還蓋著它
+    //       ⇒ 🔴 **回退之後沒有任何訊號會叫。**
+    //    📌 ⇒ 而 `/search` 那條路**要**數(`app/search/page.tsx:85` 共 N 件)
+    //       ⇒ 這一格釘的是【分路】, 不是「不要數」。
+    searchProducts.mockResolvedValue({ items: [], total: null, error: false });
+
+    await GET(req('碳纖維'));
+
+    expect(searchProducts).toHaveBeenCalledWith('碳纖維', 8, 0, false);
+  });
+});
+
 describe('/api/search 的另三區', () => {
   it('R5 三個 failed 各自回, 不合成一個', async () => {
     // 🔴 合成一個在型別上完全合法 ⇒ 而它壞掉的方式是【品牌查不到 ⇒ 三區都說查不到】。
