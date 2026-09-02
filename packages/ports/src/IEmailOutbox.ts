@@ -19,13 +19,33 @@
  * - 🔴 **離開 `sending` 有兩條路,所有權判定方式不同(E2a-a 更正:前版寫「每一句…必帶世代柵欄」,
  *   在 `reclaimStaleLeases` 落地後即成假 —— 它也離開 sending、卻不可能帶柵欄)**:
  *   · **持有者路徑**(markSent / markFailed / markSkippedOrderIneligible /
- *     **markSkippedShipmentVoided**(2026-08-30 E4 片3a 新增))= **必帶本次認領的
+ *     **markSkippedShipmentVoided**(2026-08-30 E4 片3a 新增)/
+ *     **markSkippedOrderCancelled**(2026-09-02 ⟦b4-MAILCANCEL1⟧ 新增;codex R2 nit 抓到漏列))
+ *     = **必帶本次認領的
  *     `claimedAttempts` 世代柵欄**;否則 lease 回收 + 他人再認領後,舊持有者延遲到達的標記會覆寫
  *     別人的在途列(ABA;codex 關卡2 R1 must-fix)。
  *   · **回收器路徑**(`reclaimStaleLeases`)= 非持有者、**無柵欄可帶**,改以 CAS 述詞
  *     `status='sending' AND claimed_at < staleBefore` 自身作為所有權判定(詳見該方法 JSDoc)。
  * - `skipped_no_real_email` = 可翻轉態(Q1 獨立線受控翻回 pending);`skipped_order_ineligible` =
- *   不可翻轉終態(S3=A 落點、轉入必寫 `last_error_code='order_ineligible'`)。
+ *   不可翻轉終態(S3=A 落點)。
+ *   🔴 **而【轉入時寫哪個碼】有兩個, 不是一個**(2026-09-02 ⟦b4-MAILCANCEL1⟧;codex must-fix):
+ *   ⛔ ~~轉入必寫 `last_error_code='order_ineligible'`~~ —— 那句在本片之後**不完整**。
+ *     · `order_ineligible`         ← 上游逐封閘(`markSkippedOrderIneligible`)
+ *     · `order_ineligible_at_send` ← 寄送當下才發現已取消(`markSkippedOrderCancelled`)
+ *   ⇒ 📌 **態相同而碼不同是刻意的** —— 合併它們會讓上游那道閘變成看不見的
+ *     (主視窗 2026-08-24 拍【乙】,全文在 `markSkippedOrderCancelled` 的 JSDoc)。
+ *
+ *   🛑🛑 **而有一份【更權威而且改不動】的檔仍然寫著舊的那一句 —— 這一段就是給撞到它的人看的**:
+ *     `supabase/migrations/20260717020000_m4a_email_outbox.sql:153` 逐字
+ *     「①轉入本態**必寫** `last_error_code = 'order_ineligible'`」。
+ *     🔴 **那句話在 2026-09-02 之後【不完整】, 而它【不能改】** ——
+ *       已 apply 的 migration **連註解都不可改**(`APPLIED.tsv` 記 sha256, 改一個字就撞閘;
+ *       memory `reference_applied-migrations-are-immutable-even-in-comments`)。
+ *     ⇒ 📌 **所以那一行會永遠是舊的, 而【本檔是活的那一份】。**
+ *     ⇒ ⇒ 兩邊衝突時以本檔為準;而那不是「migration 錯了」——
+ *       它在寫下的那一天是對的, 而它沒有辦法知道自己過期了。
+ *   🔵 **這一格是 codex 2026-09-02 R2 抓的 must-fix, 而它的處方(去改那支 migration)撞到上面那條硬規矩**
+ *     ⇒ 處置改成「不改它, 而把矛盾寫在讀得到的地方」。
  */
 
 export type EmailOutboxEventType = 'order_created' | 'order_shipped';
@@ -36,13 +56,20 @@ export type EmailOutboxEventType = 'order_created' | 'order_shipped';
  * 新增碼 = 改本 union + adapter 映射表與 runtime allowlist,不得動態產生。
  *
  * ⚠️ **本 union ≠ `last_error_code` 欄的完整值域**(前版此字面已作廢):該欄另有 **adapter 內部寫死、
- * 刻意不入本 union 的稽核碼** —— `order_ineligible`(S3=A 抑制終態)、`lease_reclaimed`(E2a-a
- * 回收;見 `reclaimStaleLeases`)與 **`shipment_voided`**(2026-08-30 E4 片3a;箱被作廢)。
- * 三者描述的都**不是「Resend 寄送失敗」**,故不經本 union 與
+ * 刻意不入本 union 的稽核碼** —— `order_ineligible`(S3=A 抑制終態)、
+ * **`order_ineligible_at_send`**(2026-09-02 ⟦b4-MAILCANCEL1⟧;寄送當下才發現單已取消)、
+ * `lease_reclaimed`(E2a-a 回收;見 `reclaimStaleLeases`)與 **`shipment_voided`**
+ * (2026-08-30 E4 片3a;箱被作廢)。
+ * 四者描述的都**不是「Resend 寄送失敗」**,故不經本 union 與
  * `markFailed`(會被其 runtime allowlist 改寫成 `provider_error`)。欄的真實值域 =
- * 本 union ∪ {`order_ineligible`, `lease_reclaimed`, `shipment_voided`};DB 只以 regex 約束格式、不列舉。
+ * 本 union ∪ {`order_ineligible`, `order_ineligible_at_send`, `lease_reclaimed`, `shipment_voided`};
+ * DB 只以 regex 約束格式、不列舉。
  * 🔴 **這一行漏掉新碼會怎樣**(codex R2 抓到我漏了):它是唯一一份寫得出「這個欄可能有什麼」的清單
  * ⇒ 漏一個 ⇒ 下一個做稽核報表的人會把那些列當成髒資料。
+ * 🛑 **而 2026-09-02 它【又被漏了一次】(codex must-fix 再抓)** —— 同一支檔、同一行、同一個病。
+ *    ⇒ 📌 而那說明這段警語**擋不住它自己警告的事** ——
+ *      加新碼的人改的是 adapter 與 use-case, 而**這一行在另一支檔的另一段**。
+ *    ⇒ ⇒ 要機制的話, 那是一支「adapter 裡寫死的碼 vs 本行清單」的比對測試, 而它今天不存在。
  *
  * 🔴 **命名 provider 中立**(E1c;關卡1 codex+Fable 兩審皆判「對的抽象」):port 是抽象層、不綁
  * Resend 字面(provider 專屬 enum 只活在 adapter 映射表=正確位置);未來 provider 語意不等價時
@@ -333,6 +360,29 @@ export interface IEmailOutbox {
    * (migration §⑧);「哪些訂單狀態算 ineligible」= E2a-2 定案、gate 正確性是該片的責任。
    */
   markSkippedOrderIneligible(id: string, claimedAttempts: number): Promise<boolean>;
+
+  /**
+   * `sending → skipped_order_ineligible`,而 `last_error_code = 'order_ineligible_at_send'`
+   * (⟦b4-MAILCANCEL1⟧;付款信在**寄送當下**去撈脈絡,發現**這張單已經被取消**)。
+   *
+   * 🔴 **為何是新方法、不是複用 `markSkippedOrderIneligible`(= 擴充 port,不是繞過 port)**:
+   *    那支 adapter **內部寫死** `last_error_code: 'order_ineligible'`,而
+   *    `IPaidEmailContext.ts:213-216` 逐字裁過(主視窗 2026-08-24 拍【乙】):
+   *    「沿用會讓上游那道閘變成**看不見的** —— 我們正要在它下游補一層,
+   *      補完之後沒有人知道**它還有沒有在做事**。那是把問題換個地方藏。」
+   *    ⇒ 兩層落同一個碼 ⇒ port 要的那個**比值**永遠算不出來。
+   *
+   * 🔵 **狀態值沿用 `skipped_order_ineligible` 是刻意的, 而它零 migration**
+   *    (`IPaidEmailContext.ts:208-211` 逐字:DB 六態 CHECK 白名單已含它、
+   *     而 `last_error_code` 是 pattern `^[a-z0-9_]{1,64}$` 不是 enum)。
+   *    ⇒ 📌 **分得開的是【碼】不是【態】** —— 要算那個比值請查 `last_error_code`。
+   *
+   * ⚠️ **而這個碼存在的理由是【比例】不是【單筆】, 而那筆欠帳是明寫的**
+   *    (`IPaidEmailContext.ts:218-223`):`order_ineligible_at_send` 與
+   *    `order_ineligible` 的**比值上升** ⇒ 上游那道閘落後了 / 那道 race 常常輸。
+   *    🔴 **而今天沒有人在看這個比值** —— 那是欠帳, 不是漏做。
+   */
+  markSkippedOrderCancelled(id: string, claimedAttempts: number): Promise<boolean>;
 
   /**
    * `sending → skipped_shipment_voided`(M-4b E4 片3a:出貨通知信在寄送當下去主表撈脈絡,

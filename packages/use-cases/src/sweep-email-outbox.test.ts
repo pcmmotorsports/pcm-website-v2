@@ -57,6 +57,9 @@ type OutboxFake = IEmailOutbox & {
   markSent: ReturnType<typeof vi.fn>;
   markFailed: ReturnType<typeof vi.fn>;
   markSkippedOrderIneligible: ReturnType<typeof vi.fn>;
+  // 🔴 ⟦b4-MAILCANCEL1⟧(2026-09-02):付款信在寄送當下發現單已取消 ⇒ 標終態、不寄、**不計 error**。
+  //    它與上一行【只差 `last_error_code`】,而那個差是承重的(全文在 `IEmailOutbox` 的 docstring)。
+  markSkippedOrderCancelled: ReturnType<typeof vi.fn>;
   markSkippedShipmentVoided: ReturnType<typeof vi.fn>;
 };
 
@@ -77,6 +80,10 @@ function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEm
     // 🔴 M-4b E4 片3a 新增。預設 reject 同上:在沒有明講「箱被作廢」的測項裡呼到它就是錯的
     //    ⇒ 大聲炸, 不會安靜地過。要測那條路的測項自己 mockResolvedValue(true)。
     markSkippedShipmentVoided: vi.fn().mockRejectedValue(new Error('未預期地呼叫了 markSkippedShipmentVoided(本測項的世界沒有作廢的箱)')),
+    // 🔴 ⟦b4-MAILCANCEL1⟧ 新增。預設 reject 同上兩支:在沒有明講「單已取消」的測項裡呼到它就是錯的。
+    //    ⇒ 📌 而這個預設**同時是一道守門**:一個「把 cancelled 併進 ineligible」的重構
+    //      會讓那些測項呼到【另一支】⇒ 而那一支的預設也是 reject ⇒ 兩邊都炸得出來。
+    markSkippedOrderCancelled: vi.fn().mockRejectedValue(new Error('未預期地呼叫了 markSkippedOrderCancelled(本測項的世界沒有被取消的單)')),
     ...(overrides as object),
   } as OutboxFake;
 }
@@ -1165,17 +1172,51 @@ describe('sweepEmailOutbox — 付款信接金額與 HTML(片2)', () => {
     expect(r.errors).toBe(1);
   });
 
-  it('🔴 cancelled ⇒ 不寄、計 error,而【不呼叫 markSkippedOrderIneligible】', async () => {
-    // 🔴🔴 這一格釘的是一個**已知偏離 port 合約**的現況(全文在被測碼那一格):
-    //    port 要落 `order_ineligible_at_send` 終態,而那要開一支新的 outbox 方法(鐵則 8)。
-    //    ⇒ 在那支開出來之前,沿用 `markSkippedOrderIneligible` 會違反 2026-08-24 的乙。
-    // 🔵 而 `outboxFake` 對它的預設替身是 **reject** ⇒ 有人改回去呼它, 兩道都會叫。
-    const outbox = outboxFake([job()]);
+  // ⛔ ~~it('🔴 cancelled ⇒ 不寄、計 error,而【不呼叫 markSkippedOrderIneligible】')~~
+  //    **2026-09-02 ⟦b4-MAILCANCEL1⟧ 落地 ⇒ 期望值翻轉**(舊標題留著加刪除線, 不刪):
+  //    舊的釘的是「已知偏離 port 合約」那個現況 —— 而那個偏離的理由是【還沒有批准】,
+  //    而 Sean 2026-09-02 拍【乙 = 現在做 HTML 付款信】⇒ 那個批准有了 ⇒ 本格改成合約要的樣子。
+  //    🔴 而它從「計 error」翻成「**不計 error**」—— 一張被取消的單不寄信是正常的業務動作。
+  it('🟢 cancelled ⇒ 不寄、標終態、**不計 error**,而落的是 markSkippedOrderCancelled', async () => {
+    const outbox = outboxFake([job()], { markSkippedOrderCancelled: vi.fn().mockResolvedValue(true) });
     const sender = senderFake([{ kind: 'sent' }]);
     const r = await sweepEmailOutbox(paidDeps({ kind: 'cancelled' }, outbox, sender), OPTS);
     expect(sender.send).not.toHaveBeenCalled();
-    expect(r.errors).toBe(1);
+    // 🔴 **這一格是本片的核心**:計 error ⇒ route 回 503 ⇒ 有人半夜起來查一件正常的事。
+    expect(r.errors).toBe(0);
+    // 🔴🔴 **驗【傳了什麼】不只驗【呼了幾次】**(codex 2026-09-02 must-fix):
+    //    只驗次數的話, 一個誤傳舊世代(例如寫成 `job.attempts - 1`)的改動【兩層測試都綠】,
+    //    而正式庫的 CAS 述詞 `.eq('attempts', claimedAttempts)` 永遠對不上 ⇒ 回 false
+    //    ⇒ 那一列每輪被回收、每輪燒一次 attempt ⇒ **正是這一片要修掉的那個病, 換一個入口回來**。
+    expect(outbox.markSkippedOrderCancelled).toHaveBeenCalledWith(job().id, job().attempts);
+    expect(outbox.markSkippedOrderCancelled).toHaveBeenCalledTimes(1);
+    // 🛑 **而【不可以】落到那一支** —— 兩層落同一個碼 ⇒ 上游那道閘變成看不見的
+    //    (主視窗 2026-08-24 拍乙)。而 outboxFake 對它的預設替身是 reject ⇒ 兩道都會叫。
     expect(outbox.markSkippedOrderIneligible).not.toHaveBeenCalled();
+    expect(r.skippedIneligible).toBe(1);
+  });
+
+  it('🔵 cancelled 的 CAS 世代柵欄:標記回 false ⇒ 算 staleMarks,**不是 error**', async () => {
+    // 🔴 柵欄沒對上 = 別人接手了 ⇒ 那不是錯誤。少了這一格,
+    //    一個把 `else result.staleMarks++` 寫成 `else result.errors++` 的改動不會紅。
+    const outbox = outboxFake([job()], { markSkippedOrderCancelled: vi.fn().mockResolvedValue(false) });
+    const sender = senderFake([{ kind: 'sent' }]);
+    const r = await sweepEmailOutbox(paidDeps({ kind: 'cancelled' }, outbox, sender), OPTS);
+    expect(r.errors).toBe(0);
+    expect(r.staleMarks).toBe(1);
+    expect(r.skippedIneligible).toBe(0);
+  });
+
+  it('🔴 cancelled 的標記本身失敗(throw)⇒ 那才計 error', async () => {
+    // 🔵 兩個世界:標記成功 ⇒ 0 error(上面那格)· 標記 throw ⇒ 1 error(本格)
+    //    ⇒ 少了本格,一個「把 try/catch 拿掉」的改動不會紅。
+    const outbox = outboxFake([job()], {
+      markSkippedOrderCancelled: vi.fn().mockRejectedValue(new Error('boom')),
+    });
+    const sender = senderFake([{ kind: 'sent' }]);
+    const r = await sweepEmailOutbox(paidDeps({ kind: 'cancelled' }, outbox, sender), OPTS);
+    expect(r.errors).toBe(1);
+    expect(sender.send).not.toHaveBeenCalled();
   });
 
   it('🔴 linesTruncated ⇒ 不寄(少兩項的信與正常的信長得一模一樣)', async () => {
