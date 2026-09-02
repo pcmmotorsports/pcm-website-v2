@@ -23,8 +23,8 @@
 //    ⇒ 🔴 它也答不出「**實體印表機**印出來看不看得到」—— 那是墨水與硬體,不是 PDF。
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
+import { inflateSync } from 'node:zlib';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -60,20 +60,50 @@ async function renderPdf(html: string): Promise<Buffer> {
   }
 }
 
-/** 把 PDF 轉成文字化的內容流,用來看它到底畫了什麼(不看畫素、看繪圖指令)。 */
-function pdfInk(pdf: Buffer): string {
-  const dir = mkdtempSync(join(tmpdir(), 'markdetail-'));
-  try {
-    const f = join(dir, 'a.pdf');
-    writeFileSync(f, pdf);
-    // 🔵 用 macOS 內建的 `qlmanage` 太重;改用 PDF 自己的位元組:
-    //    Chromium 產的 PDF 內容流是 Flate 壓縮的,所以這裡不解壓 ——
-    //    改比【檔案大小】與【真的畫了東西】的間接證據會很弱。
-    //    ⇒ 所以真正的判別交給下面那把「同一份 HTML 只差一個 class」的差分尺。
-    return readFileSync(f).toString('latin1');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+/**
+ * 解開 PDF 裡所有 Flate 壓縮串流,回傳 Chromium 畫出來的**繪圖指令**。
+ * 🔴 這是本檔唯一問得出「那條槓在不在」的方法 —— 比檔案大小、比位元組數都不行。
+ */
+function inkOps(pdf: Buffer): string {
+  let out = '';
+  const re = /stream\r?\n/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(pdf.toString('latin1'))) !== null) {
+    const from = m.index + m[0].length;
+    const to = pdf.toString('latin1').indexOf('endstream', from);
+    if (to < 0) continue;
+    try {
+      out += inflateSync(Buffer.from(pdf.toString('latin1').slice(from, to), 'latin1')).toString('latin1');
+    } catch {
+      /* 沒壓縮或不是我們看得懂的:跳過 —— 而真正的內容流一定解得開 */
+    }
   }
+  return out;
+}
+
+/**
+ * 找那條槓,回傳它的**絕對左緣**(PDF pt);找不到回 `null`。
+ *
+ * 🔴 為什麼要位置而不只是「在不在」:2026-09-02 的舊版(`@page` 邊距框)**有畫**,
+ *    而它畫在 `x = 0` —— 貼著紙緣,正好落在印表機那圈不可印帶 ⇒ **螢幕預覽看得到、印出來沒有**。
+ *    ⇒ 📌 所以「在不在」答不出這一題,要問「**離紙緣多遠**」。
+ * ⚠️ 這裡的 CTM 追蹤是簡化版(不處理 q/Q 堆疊)⇒ **絕對值不準,只有「是不是 0」可信**。
+ */
+function barLeftPt(ops: string): number | null {
+  let sx = 1;
+  let tx = 0;
+  for (const line of ops.split('\n')) {
+    const l = line.trim();
+    const cm = /^([\d.]+) 0 0 [\d.]+ ([\d.]+) [\d.]+ cm$/.exec(l);
+    if (cm) {
+      sx = Number(cm[1]);
+      tx = Number(cm[2]);
+      continue;
+    }
+    const re = /^([\d.]+) [\d.]+ ([\d.]+) ([\d.]+) re$/.exec(l);
+    if (re && Number(re[2]) < 20 && Number(re[3]) > 400) return tx + Number(re[1]) * sx;
+  }
+  return null;
 }
 
 describe('⟦b4-2PAPERS⟧ 訂單明細的側邊標記,在【列印】時要真的存在', () => {
@@ -92,17 +122,28 @@ describe('⟦b4-2PAPERS⟧ 訂單明細的側邊標記,在【列印】時要真�
 
   // 🔴🔴 第二格:**真出 PDF**,兩個世界只差一個 class ⇒ 位元組必須不同。
   //    這一格才是「印出來看得到嗎」——前一格只證明「規則寫在檔案裡」。
-  it('🔴 真 PDF:掛了 pd-mark-detail 的那張,與沒掛的那張【不一樣】', async () => {
+  // 🔴🔴 這一格 2026-09-03 重寫過 —— **舊版是假綠**。
+  //    舊版比的是「兩份 PDF 位元組長度不同」⇒ 而換一個具名 page 本來就會讓長度不同
+  //    (實測 18470 vs 12232,差在**字型子集**)⇒ 它在那條槓完全沒被畫出來時照樣通過。
+  //    🛑 而 Sean 實印回報「印出來沒有黑邊,預覽有而已」的時候,這一格是綠的。
+  //    ⇒ 📌 **一個比「有沒有差別」的斷言,答不出「差別是不是我要的那個東西」。**
+  // 🔴🔴 這一格 2026-09-03 重寫過兩次 —— 而**前兩版都是綠的,在紙上什麼都沒有的時候。**
+  //    第一版比「兩份 PDF 位元組長度不同」⇒ 換一個具名 page 本來就會不同(18470 vs 12232,
+  //      差在字型子集)⇒ 📌 一個比「有沒有差別」的斷言,答不出「差別是不是我要的那個東西」。
+  //    第二版比「那條槓在不在」⇒ 🔴 **它在** —— 舊版真的畫了一條,而它畫在 `x = 0`,
+  //      貼著紙緣、落在印表機不可印帶裡 ⇒ **Sean 實印:「印出來沒有黑邊,預覽有而已」。**
+  //    ⇒ ⇒ 🎯 所以問題不是「有沒有畫」,是「**畫在哪**」。
+  it('🔴 真 PDF:那條槓要離紙緣夠遠(不是只有「畫出來」)', async () => {
     const [marked, plain] = await Promise.all([
       renderPdf(sheetHtml(css, true)),
       renderPdf(sheetHtml(css, false)),
     ]);
-    const a = pdfInk(marked);
-    const b = pdfInk(plain);
-    // 🔵 Chromium 的 PDF 帶時間戳 ⇒ 不能直接比整份位元組。比【內容流長度】差。
-    //    畫了一條 3mm 實心邊 ⇒ 內容流會多出繪圖指令 ⇒ 長度必然不同。
-    expect(a.length, '兩份 PDF 一樣長 ⇒ 那條槓在列印世界【沒有被畫出來】').not.toBe(b.length);
-    expect(marked.length).toBeGreaterThan(0);
+    const x = barLeftPt(inkOps(marked));
+    expect(x, '找不到那條槓 ⇒ 印出來不會有').not.toBeNull();
+    // 20pt ≈ 7mm。印表機那圈不可印帶約 4-5mm ⇒ 低於這條線就是「預覽看得到、印不出來」。
+    expect(x!, `那條槓在 x=${x}pt ⇒ 太靠紙緣,印表機會裁掉`).toBeGreaterThan(20);
+    // 🔵 負對照:沒掛標記的那張不得有 —— 少了它,一把「永遠說有」的尺也會通過
+    expect(barLeftPt(inkOps(plain)), '沒掛標記的那張也長出槓 ⇒ 兩張紙又分不出來').toBeNull();
   }, 60_000);
 
   // 🔴 第三格:機制對了,而【那張紙有沒有掛上它】是另一個宣稱。
