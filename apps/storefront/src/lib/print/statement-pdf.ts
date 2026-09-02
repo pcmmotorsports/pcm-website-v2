@@ -84,6 +84,16 @@ export interface StatementPdfHtml {
   uncovered: number;
   /** 兩支版面 CSS 一支都讀不到 ⇒ 那是一張沒有任何樣式的紙。 */
   missingCss: boolean;
+  /**
+   * `@fontsource/noto-sans-tc` 解析到的目錄,**解析不到就是 `null`**。
+   *
+   * 🔴 **它存在的唯一理由是【分辨兩個印一樣的失敗】**(2026-09-03 正式站那一發):
+   *   甲 `require.resolve` 失敗 ⇒ 這裡是 `null` ⇒ 一個 `@font-face` 都沒宣告
+   *   乙 解析成功, 而 `400.css` / `700.css` 讀不到 ⇒ 這裡是**一條路徑**, 而 `fontCss` 一樣是空的
+   *   ⇒ ⇒ 🛑 **甲乙都會讓 `embedded === 0` 且 `skippedMissing === 0`** —— 兩個 0 的意思相反而長得一樣。
+   * 🔵 **本欄【不參與任何判斷】** —— 它只給 log 讀。加它的那一顆 commit 沒有動任何 `if`。
+   */
+  fontPkgDir: string | null;
 }
 
 /**
@@ -161,6 +171,7 @@ export async function buildStatementPdfHtml(
     skippedMissing: built.skippedMissing,
     uncovered: built.uncovered.length,
     missingCss: pageCss.length === 0,
+    fontPkgDir: pkg,
   };
 }
 
