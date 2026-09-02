@@ -2,6 +2,13 @@
 
 // SearchOverlay.tsx — 全站搜尋疊層(搜尋線 第一刀)
 //
+// ⚠️🔴 **這支檔貼著鐵則 6 的 400 行硬線** ⇒ 你很可能是被迫拆的那個人。
+//    ✅ **拆點是 render 那三支 `view.kind` 分支**,各自抽成小元件。
+//    🛑 **拆點【不是】下面那幾段註解** —— 它們記的是「這個分支為什麼存在」與
+//      「視覺從哪一支稿搬來」,搬走 = 下一個人找不到來源(鐵則 1 要防的正是這個)。
+//    🟢 拆的時候 `SearchOverlay.test.tsx` 的 **G1-f** 會盯著你:它釘住 render 的 kind 集合,
+//      多一支或改名都會紅 ⇒ **那一格是給拆的人的安全網。**
+//
 // 🔴 **稿是 `design-reference/components/SearchOverlay.jsx`(205 行),本檔照搬版面與字面**
 //    (鐵則 1:直接搬、不翻譯)。CSS 整支已逐字搬到 `styles/search-overlay.css`。
 //
@@ -293,8 +300,7 @@ export function SearchOverlay() {
                 🔵 同頁量:中文 1934ms vs ASCII `rsv4` 455ms ⇒ 中文那條路真的要等
                 ⚠️ **兩臂各 n=1、單次取樣**(R1 F12);且 `-mail` 的 pg_trgm 索引落地後
                   這個對比**會反轉** ⇒ **那時要回來重量,不要引用這兩個數字。**
-              (後端那半 = `-mail` 的 pg_trgm 索引線;**本片不碰**,兩者互不衝突:
-               索引讓那段變短,本片讓那段不像壞掉。)
+              (後端那半 = `-mail` 的 pg_trgm 索引線,本片不碰:索引讓那段變短,本片讓它不像壞掉。)
 
               🔴 **鐵則 1:視覺不是我發明的,是從稿裡搬的。**
               · 稿 `design-reference/components/SearchOverlay.jsx`(205 行)掃
@@ -311,9 +317,7 @@ export function SearchOverlay() {
                 ⇒ 🎯 **稿自己的做法是【一句「動詞+中…」的字】,不是轉圈圈圖示** ——
                   而 n=2 個元件 / 3 處**讓這個歸納比原本更硬**,不是更軟。
                 (`is-loading` 那個 class 在 `design-reference/styles/` 掃 ⇒ **0 條 CSS 規則**。
-                 ⚠️ **而「它的處理就是換字」漏了一半**(R1 F3):同段 `:148` 還有
-                 `disabled={geoState === 'loading'}` ⇒ 稿是**換字 + 禁用**。
-                 本片沒有按鈕 ⇒ 落點不受影響,但那個歸納要寫全。)
+                 ⚠️ 而稿是**換字 + 禁用**(同段 `:148` `disabled=…`;R1 F3)—— 本片無按鈕、不受影響。)
               · ⇒ 本格照搬那個慣例:**「搜尋中…」**。
               ⚠️ **鐵則 1 的分母我補記(R1 F4)**:`bash scripts/design-ref-check.sh` ⇒ 本樹 submodule
                 已初始化、176 個檔(正對照 README.md 在);OD 那一側磁碟 **12** 個專案,
