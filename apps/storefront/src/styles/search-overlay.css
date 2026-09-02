@@ -18,25 +18,55 @@
       數法:diff <(tail -n +5 本檔) 稿 ⇒ 空」~~ —— **那句話當時是真的,現在不是了。**
    ⛔ ~~「現在的數法:差異應恰為那 10 行 token 名 ⇒ 20」~~ —— **2026-09-02 傍晚起也不對了**:
       檔尾多了一條稿沒有的 `body[data-pcm-search-lock]`(見檔尾註解)⇒ 那是**第二處**差異。
-   ⛔ ~~我第一版寫的是 `head -n -10 本檔 | tail -n +21`~~ —— **那條在 macOS 上跑不起來**
-      (BSD head 不吃負數:`head: illegal line count -- -10`),而**它印出來的 208 看起來像一個答案**。
-      📌 ⇒ 而第二版改用行數算(`sed -n "21,$((TOTAL-10))p"`)⇒ **算錯一行、印 25**
-         ⇒ **兩個錯法都印出一個像樣的數字。**⇒ 改用【錨點】切,不用行數算。
-   ✅ **現在的數法(在 repo 根跑;兩端都用錨點,頭尾都不靠行號)**:
-      sed -n '/^\/\* SearchOverlay — fullscreen modal \*\/$/,$p' apps/storefront/src/styles/search-overlay.css \
-        | sed '/^\/\* 🔴 疊層開著時鎖背景捲動/,$d' \
-        | sed -e :a -e '/^$/{$d;N;ba' -e '}' \
-        | diff - design-reference/styles/search-overlay.css > /tmp/d.txt
-      grep -c '^[<>]' /tmp/d.txt                                                    ⇒ 20
-      grep '^[<>]' /tmp/d.txt | grep -vc -- '--f-sans\|--f-mono\|--font-sans\|--font-mono'  ⇒ 0
-      🔵 **第二發才是重點**:它證的不是「差 20 行」,是【那 20 行【全部】是 token 名,
-         沒有夾帶任何別的改動進去】。
-      🔵 負對照:把 token 名換成一個現造的字串 ⇒ 必須回 0(2026-09-02 實跑 ⇒ 0)。 */
+   ⛔ **這個「與稿的差異」數法我改壞過【四】次,四次都沒有報錯,留著當紀錄**:
+      ~~① `head -n -10 | tail -n +21`~~ ⇒ macOS 的 BSD head 不吃負數 ⇒ 印 208
+      ~~② 改用行數算~~ ⇒ 算錯一行 ⇒ 印 25
+      ~~③ 改用錨點切~~ ⇒ 對了一次,而**下一次改註解就又壞了**(註解被算進差異)
+      ~~④ 改成「剝註解再比」,並把那段 python 寫進本註解~~
+         ⇒ 🔴🔴 **那段 python 裡有一個【星號接斜線】** ⇒ **它把這個 CSS 註解【提前關掉】**
+         ⇒ 後面十行散文變成**真的 CSS**,而瀏覽器要去 parse 它。
+         🎯 抓到它的是那個檢查自己:它印 34 而不是 22。
+      📌 **⇒ 四次的共同點不是我粗心,是【把一條會被執行的規矩寫成散文】** ——
+         散文不會跑,所以它壞掉時沒有東西會叫;而這一次它甚至**弄壞了它所在的那個檔**。
+      🔴🔴 **⑤ 而我在寫上面那段【更正】的當下, 又踩了同一個**:我把那兩個字元
+         原樣打進去當引用 ⇒ **註解又被關掉一次**。⇒ 所以本段一律寫【星號接斜線】五個中文字。
+      📌 **⇒ 正在書寫某條規則的當下, 是它最容易被違反的時刻。**
+      ✅ **⇒ 判準搬進 `search-overlay-design-parity.test.ts`,那是一支會跑的測試。**
+         本註解不再放任何可執行的東西、也不引用任何註解結束符。 */
 /* SearchOverlay — fullscreen modal */
 .search-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  /* 🔴🔴 **10001,不是稿的 1000** —— 這是本檔與稿的**第三處**差異,而它是一個真缺陷的修法。
+     線 `-fc` 2026-09-02 在真瀏覽器用鍵盤走到的五步:
+       ① 商品詳情頁開圖片 lightbox(`.pd-lightbox` z-index **10000**)
+       ② 🔴 背景那顆搜尋鈕**仍在 tab 序裡**(背景沒有 inert / aria-hidden)⇒ 鍵盤 focus 得到
+       ③ 按下去 ⇒ 疊層**真的開了**(panel 存在 · display:flex · visibility:visible · 375×214)
+       ④ 🔴 `elementFromPoint(疊層中心)` ⇒ `DIV.pd-lb-stage` ⇒ **疊層被壓在 lightbox 下面**
+       ⑤ 🔴 `document.activeElement` = `INPUT.search-overlay-input`
+     🎯 **⇒ 客人打的字進到一個他看不到的框,而畫面上還是那張放大的圖。**
+     ⛔ ~~我原本寫「那條路徑今天到不了,滑鼠點不到、鍵盤被 focus trap 關掉」~~
+        —— **滑鼠那半是對的**(`elementFromPoint(搜尋鈕)` ⇒ `pd-lb-stage`),
+        **鍵盤那半不成立**:我的 focus trap 只在疊層【已經開了】之後才生效,
+        它擋不住「在別的 modal 底下 tab 到搜尋鈕」。
+
+     ✅ **修法選【抬高】而不是【擋住開啟】,理由**:被打破的不變式是
+        **「拿到鍵盤焦點的東西必須看得見」** —— 恢復它有兩條路:
+          (a) 讓看不見的變成看得見 ⇒ 抬到最上面(本檔這一行)
+          (b) 讓碰不到的變成 focus 不到 ⇒ **每一支 modal 都要把背景 inert**
+        (b) 才是根治,而它住在**別人的元件**裡(lightbox 那一支)、而且要每一支都做
+        ⇒ 已交 backlog。本刀做 (a):**一行、在我自己的檔裡、而且對【所有】覆蓋情況都成立**。
+     ⚠️ **(a) 的代價要明寫**:lightbox 開著時按到搜尋 ⇒ 疊層會蓋在那張圖上面。
+        客人沒打算按它(他看不到)⇒ 那一下仍然是意外的。
+        🔵 **但它現在是【看得見的意外】,而且 Esc 關得掉** —— 而先前是一個**看不見的輸入框**。
+        📌 ⇒ 一個看得見的意外,優於一個安靜的錯。
+     🔵 現況全站 `position:fixed; inset:0` 的全屏層(2026-09-02 掃 `apps/storefront/src/styles/*.css`):
+        `.ft-overlay` 20 · `.fd-overlay` 80 · `.mvs-overlay` 100 · `.pcm-menu-panel` 200
+        · `.pd-lightbox` 10000 · **本層 10001**
+     🛑 **這個數字有一道守門在盯**(`search-overlay-layer.test.ts`)——
+        它比的是**關係**(本層必須嚴格大於其他每一個全屏層),不是這個字面。
+        有人新增一個更高的全屏層 ⇒ 那一格會紅,而不是等客人踩到。 */
+  z-index: 10001;
   display: flex;
   justify-content: center;
   align-items: flex-start;
