@@ -16,7 +16,7 @@
 
 ---
 
-## §0 開始之前(兩格,少一格後面全部白做)
+## §0 開始之前(三格,少一格後面全部白做)
 
 ```
 ① 目標一律是 production:https://shop.pcmmotorsports.com
@@ -24,6 +24,27 @@
 ② 🔴 .playwright-mcp/ 是【全窗共用】的 ⇒ 每一發 evaluate 自帶 location.href 回核。
    實錘(2026-09-03):本窗第一次點搜尋框, 畫面跳到 /login?next=%2Faccount,
    重做一次沒再發生 ⇒ 極可能是別窗的頁。**沒有那一格回核, 我會報一個不存在的缺陷。**
+③ 🔴🔴 **要走【手機版】⇒ 把視窗縮窄【不算】。** 落筆前先印這【四樣】, 缺一樣就不算在量手機:
+      document.documentElement.dataset.mobile               // 必須 "true"  ← 這格只回核 UA
+      innerWidth + devicePixelRatio                          // 寬度與 DPR 有沒有生效
+      matchMedia('(pointer:coarse)').matches                 // 必須 true
+      navigator.maxTouchPoints                               // 必須 >= 1
+   🛑 **為什麼四樣不是一樣**:`data-mobile` 只證明 UA 對了 ——
+      **只設對 UA 而寬度沒生效的人, 一樣會拿到 `"true"`, 然後走進一個【半對】的世界。**
+      (那與本格要防的失效模式同族、方向相反。)
+   🛑 **而 `data-mobile` 是 SSR 產物** ⇒ `emulate` 之後**沒有重新載入就讀, 讀到的是上一個世界的值**,
+      而它印的是「看起來對」的那一種 ⇒ **emulate ⇒ reload ⇒ 才量。**
+   🔬 為什麼:`app/layout.tsx:158` 的 `<html data-mobile>` 是 **SSR 讀 user-agent** 判的,
+      **與寬度、與 touch 模擬都無關**;而有一整批 CSS 掛在 `html[data-mobile="true"]` 底下
+      (`styles/mobile-tabbar.css` · `styles/home.css` 的 `.b-dock`)。
+   🟢 兩個世界實測(2026-09-03,`curl` 打 **production `https://shop.pcmmotorsports.com/`**):
+      手機UA ⇒ `data-mobile="true"` · 桌機UA ⇒ `"false"`。
+   🛑 **而它只錯一半**:底部導覽列與商品頁購買列是【寬度】驅動的 ⇒ 縮窄時**它們真的會出現**
+      ⇒ 畫面看起來就是手機版 ⇒ **一個部分正確的模擬, 比完全不像的模擬更難發現。**
+   ✅ 正確做法:用 chrome-devtools `emulate` 給 **UA + `393x852x3,mobile,touch`**,
+      `browser_resize` 只改寬度 ⇒ **不夠**。
+   📎 實錘:2026-09-03 `-account` 用 resize 走完 8 格才發現世界錯了, **那 8 格全部作廢重走**。
+      同族全文 memory `feedback_measured-world-is-not-the-users-world`(這是它第三次發生)。
 ```
 
 **每一發的最小形狀**(照抄):

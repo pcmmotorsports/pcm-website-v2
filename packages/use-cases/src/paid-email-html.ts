@@ -177,6 +177,50 @@ export function paidEmailSubject(ctx: PaidEmailContext): string {
 }
 
 /**
+ * PDF 那一塊對客人說的那一句話。**模板與守門共用這一個常數。**
+ *
+ * 🔴 **為什麼不各寫一份**:守門要比對的就是這句話。兩邊各一份 ⇒ 有人改了模板而沒改守門 ⇒
+ *    **守門靜靜地不再守任何東西, 而它照樣全綠**(本 repo 記過同型:斷言被重打一份在測試裡)。
+ */
+export const PAID_EMAIL_PDF_ATTACHED_SENTENCE = '訂單明細 PDF 已附在這封信裡';
+
+/**
+ * 🔴 **送出去之前的最後一道:信裡說了「PDF 已附在這封信裡」, 而附件裡沒有 PDF ⇒ throw。**
+ *
+ * 🛑 **這道守門存在的理由,是【兩個獨立的事實可以不一致】**:
+ *    · `hasPdfAttachment` 是一個**自由布林**, 由呼叫端斷言
+ *    · 而**真的有沒有附件**, 由 `sender.send({ attachments })` 決定
+ *    ⇒ 📌 **兩者今天沒有任何東西綁著。翻開旗標而忘了附檔 ⇒ 那句話直接對客人說謊,**
+ *      **而信會【成功寄出】、三綠全綠、沒有任何一格會紅。**
+ *    ⇒ ⇒ 🎯 **這正是本 repo 記過的形狀:失敗的形狀是【成功】。**
+ *
+ * ✅ **判準用「html 裡有沒有那句話」而不是「旗標是不是 true」** —— 那一格刻意的:
+ *    旗標只是**產生**那句話的其中一條路;而客人讀到的是**那句話**。
+ *    ⇒ 未來有人用別的方式印出同一句(複製一段模板、另開一個 chrome 欄), 這道尺**照樣抓得到**。
+ *
+ * ⚠️ **射程 —— 三格, 而它證不到的東西要跟它抓得到的一樣顯眼**:
+ *    ① 只認附件檔名以 `.pdf` 結尾。改附件命名規則 ⇒ 這道尺要一起改
+ *       (而那一刻它會**紅**, 不會靜靜地放行 —— 那是刻意選的方向)。
+ *    ② 🔴 **它只看 `html` 那一份, 看不到 `text` 那一份。** 而純文字是**收信軟體不顯示 HTML 時
+ *       客人唯一讀得到的那一份** ⇒ 有人把同一句話加進 `buildEmailText` ⇒ **這道尺安靜放行**。
+ *       (今天沒破:`buildEmailText` 那條路零命中。而「今天沒破」不是保護。)
+ *    ③ `includes` 對客人資料太寬:品名走 `esc()` 而那句話零可逃逸字元 ⇒ 一個**逐字**叫
+ *       「訂單明細 PDF 已附在這封信裡」的品名會讓那封信永遠寄不出去。已知、不加碼防。
+ */
+export function assertPdfClaimMatchesAttachments(
+  html: string | null,
+  attachments: readonly { readonly filename: string }[] | undefined,
+): void {
+  if (html === null || !html.includes(PAID_EMAIL_PDF_ATTACHED_SENTENCE)) return;
+  const hasPdf = (attachments ?? []).some((a) => a.filename.toLowerCase().endsWith('.pdf'));
+  if (hasPdf) return;
+  throw new Error(
+    `信裡寫了「${PAID_EMAIL_PDF_ATTACHED_SENTENCE}」而附件裡沒有 .pdf ` +
+      `(附件 ${(attachments ?? []).length} 個)。fail-closed:不寄。`,
+  );
+}
+
+/**
  * 產生付款成功通知信的 HTML 本文。
  *
  * 🔴 **本函式不檢查 `linesTruncated`。** 那是**呼叫端**的 fail-closed 責任
@@ -291,7 +335,7 @@ ${skuRow ? `              ${skuRow}\n` : ''}            </td>
               <div style="width:26px;height:32px;border:1px solid #9aa8b6;border-radius:2px;font-family:${MONO};font-size:10px;font-weight:700;color:#5c6b7a;text-align:center;line-height:32px;">PDF</div>
             </td>
             <td style="padding:14px 14px 14px 10px;">
-              <div class="ink" style="font-family:${SANS};font-size:13px;font-weight:600;color:#1f2933;">訂單明細 PDF 已附在這封信裡</div>
+              <div class="ink" style="font-family:${SANS};font-size:13px;font-weight:600;color:#1f2933;">${PAID_EMAIL_PDF_ATTACHED_SENTENCE}</div>
               <div class="sub" style="font-family:${SANS};font-size:12px;line-height:1.7;color:#5c6b7a;padding-top:3px;">
                 在手機上請往下滑到信件底部；電腦版在信件標題下方。需要報帳或留存時可以直接使用。
               </div>
