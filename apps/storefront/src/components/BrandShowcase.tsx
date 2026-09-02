@@ -34,6 +34,7 @@ import { KspeedShowcase } from './KspeedShowcase';
 import { ExtremeComponentsShowcase } from './ExtremeComponentsShowcase';
 import { GillesShowcase } from './GillesShowcase';
 import { RizomaShowcase } from './RizomaShowcase';
+import { DbkShowcase } from './DbkShowcase';
 
 export type BrandShowcaseProps = { product: MockProduct };
 
@@ -92,6 +93,11 @@ export function BrandShowcase({ product }: BrandShowcaseProps) {
     //   自己點名的「設計理念 + 產品線拓展」。🔴 沿革刻意不寫(官網查無)—— 理由見該元件檔頭。
     case 'rizoma':
       return <RizomaShowcase />;
+    // 上架第 19 家(2026-09-03):DBK SPECIAL PARTS(重量版 + YouTube facade,對照 K-SPEED:
+    //   影片 facade + 故事兩段 + 信任狀四格)。🔴 用 facade 而非本地 mp4 = 素材決定的
+    //   (repo 內 DBK 無 mp4、只有官方 YouTube),不是配置降級。事實逐條見該元件檔頭。
+    case 'dbk':
+      return <DbkShowcase />;
     default:
       // 其餘未知品牌 → 無形象區
       return null;
