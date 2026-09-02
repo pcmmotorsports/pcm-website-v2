@@ -16,6 +16,21 @@ import { dirname, join, resolve } from 'node:path';
 //    (射程全文在 `docs/plans/2026-08-31-statement-pdf-slice-c-plan.md` §2b)。
 //    ⇒ 它答得出「Next 打算帶哪些檔」,答不出「Vercel 真的帶了」。後者要真部署。
 //
+// 🔴🔴 **而 2026-09-03 正式站那一發證明還缺【第三句】:也答不出「帶了之後解析得到嗎」。**
+//    線上逐字 `[statement.pdf] 拒絕產檔 … 內嵌 0 · 拿不到字型檔 0 · 版面 CSS 缺 false`
+//    ⇒ 兩個 0 同時成立 = **不是檔案讀不到, 是一個 `@font-face` 都沒宣告** ⇒ `fontPkgDir()` 回 `null`
+//    ⇒ ⇒ `require.resolve('@fontsource/noto-sans-tc/package.json')` 在函式裡 **throw**。
+//    📌 **而本檔那時候是綠的, 而且它沒有說謊** —— 那 424 支 woff2 的**位元組確實在清單裡**。
+//    🛑 **「位元組在不在包裡」與「那個套件解析得到嗎」是兩個問題, 而它們在這份清單上長得一模一樣。**
+//    ✅ 佐證(2026-09-03 `-ship` 當場量):`.next/node_modules/` 裡有 `@sparticuz/chromium-<hash>` /
+//       `pg-<hash>` / `puppeteer-core-<hash>`,**沒有 `@fontsource`**;而 `.nft.json` 裡
+//       `apps/storefront/node_modules` 底下的條目 = **0**(2,843 筆中 2,761 筆走 `.pnpm` 實體路徑)。
+//       成因:chromium 那三個被 `import()` ⇒ Next 替它們建了可解析入口;字型**只被 `require.resolve`**
+//       (數法:排除 .test 與註解行後,`@fontsource` 真引用 ⇒ 1 支 `statement-pdf.ts:48` 是 `require.resolve`;
+//        🟢 同一把尺對 `@sparticuz` ⇒ 1 支 `:178` 是 `import(`;🔵 負對照 `zzq9137never` ⇒ 0)。
+//    ⚠️ **未量**:我沒有看到 Vercel 實際打包出來的檔案樹 ⇒ 上面是三個讀數同向的**推論**, 不是量到。
+//    ⇒ 🔵 分辨甲(解析失敗)與乙(css 讀不到)的那一格已經補進 log:`字型套件=<路徑|null>`。
+//
 // 🔴 **而它守的其實是一個【隱含行為】**:那些字型檔進得去,是因為 route 裡的
 //    `require.resolve('@fontsource/noto-sans-tc/package.json')` 讓追蹤器把整包拉了進來
 //    (2026-08-31 實測 1,977 檔 / 65.07 MB;`next.config.ts` 那四條 glob 是安全帶,
@@ -68,7 +83,12 @@ describe('片 C3:statement.pdf 這條 route 的追蹤清單', () => {
     expect(files.length).toBeGreaterThan(500);
   });
 
-  it('🔴🔴 量具自檢②:這份清單【不比它守的原始碼舊】—— 舊的話下面全部是上一個世界', () => {
+  // 🔴 **格名 2026-09-03 改過, 而斷言【一個字沒動】**(主視窗-87 准, `-ship` 執行):
+  //    ⛔ ~~舊名「量具自檢②:這份清單【不比它守的原始碼舊】」~~
+  //    🛑 那個名字宣稱的是【清單是新的】, 而下面那行斷言**兩個世界都收** ⇒ 它恆綠。
+  //    📌 **⇒ 只看綠紅的人(CI / 掃測試名的人)會把「綠」讀成「新鮮」** —— 而它從來沒有這個意思。
+  //    ✅ 新名照它**實際在做的事**寫:印一行出來。**恆綠是刻意的**, 理由在 `stalenessNote()` 的 docstring。
+  it('📎 印出這份清單相對原始碼的新鮮度 —— 🛑 本格【恆綠】, 判別力在印出來那一行、不在斷言', () => {
     const note = stalenessNote();
     // 🔴 **不 throw, 而是把那句話印在【判定的正上方】** —— 它與「綠」在同一個畫面上,
     //    而人讀的就是那幾行。(2026-09-01 那次假綠的成因不是沒有訊號, 是沒有任何訊號。)

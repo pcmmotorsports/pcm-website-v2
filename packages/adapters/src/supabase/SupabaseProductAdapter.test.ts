@@ -1217,3 +1217,185 @@ describe('SupabaseProductAdapter.searchByKeyword — countTotal 分路', () => {
     expect(captured.countOption).toBe('exact');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⟦搜尋-多詞與料號⟧ 2026-09-03 線 `-mail`(Sean 線上親自撞到,主視窗-87 派)
+//
+// 🔴 **這一族的期望值【從驗收表推,不從實作推】** —— 表在
+//    `docs/specs/2026-09-03-storefront-search-multiword-sku-plan.md` §4/§5,主視窗-87 批准的那一份。
+//    (板子記過:期望值若是從我要寫的那行碼推的,那格測試從出生起就抓不到那行碼的缺陷。)
+//
+// 🔴 **線上量到的現況(2026-09-03 01:2x,`fetch('/api/search?q=…')` 在 shop.pcmmotorsports.com)**:
+//    `rsv4` 8 · `油箱貼` 8 · `rpm` 8   ⇒ 單詞今天是綠的(正對照)
+//    `rpm rsv4` 0 · `rsv4 油箱貼` 0     ⇒ 兩個詞一律 0
+//    `CARK9650` 0 · `cark9650` 0        ⇒ 真料號(印在該商品自己的頁面上)
+//    `zzqprbxx9999` 0                   ⇒ 負對照
+describe('SupabaseProductAdapter.searchByKeyword — 多詞 AND + 料號欄(⟦搜尋-多詞與料號⟧)', () => {
+  /**
+   * 🔴 與上面那個 `makeSearchMock` 的差別:**這一個把 `.or()` 的參數記下來**。
+   *    上面那份的 `or()` 是 `return builder`(不記)⇒ 它對「呼叫幾次、帶什麼」零判別力。
+   */
+  function makeOrCapturingMock() {
+    // 🔴 `ranged` 是 codex 2026-09-03 MF6 逼出來的:原本只記 `ors` ⇒
+    //    「零詞卻送出一句沒有條件的查詢」那個世界**照樣全綠**(`ors` 是空的 = 看起來很正常)。
+    //    ⇒ 要分辨「沒有條件」與「根本沒發查詢」,**必須記【有沒有真的送出去】**。
+    const captured: { ors: string[]; ranged: boolean; froms: string[] } = {
+      ors: [],
+      ranged: false,
+      froms: [],
+    };
+    const builder = {
+      select() {
+        return builder;
+      },
+      or(filter: string) {
+        captured.ors.push(filter);
+        return builder;
+      },
+      order() {
+        return builder;
+      },
+      range() {
+        captured.ranged = true;
+        return Promise.resolve({ data: [], error: null, count: 0 });
+      },
+    };
+    const client = {
+      from: (table: string) => {
+        captured.froms.push(table);
+        return builder;
+      },
+    };
+    return { client: client as unknown as SupabaseClient, captured };
+  }
+
+  it('🟢 正對照:單詞不得回歸 —— `rsv4` 仍然只組一組 or()', async () => {
+    const { client, captured } = makeOrCapturingMock();
+    await new SupabaseProductAdapter(client).searchByKeyword('rsv4', { limit: 8, offset: 0 });
+    expect(captured.ors).toHaveLength(1);
+    expect(captured.ors[0]).toContain('%rsv4%');
+  });
+
+  it('🟢 正對照:中文不含空白不得回歸 —— `油箱貼` 仍是一個詞', async () => {
+    const { client, captured } = makeOrCapturingMock();
+    await new SupabaseProductAdapter(client).searchByKeyword('油箱貼', { limit: 8, offset: 0 });
+    expect(captured.ors).toHaveLength(1);
+    expect(captured.ors[0]).toContain('%油箱貼%');
+  });
+
+  it('🔴 主症狀:`rpm rsv4` 要組【兩組】or()(疊起來 = AND)', async () => {
+    const { client, captured } = makeOrCapturingMock();
+    await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
+    // 期望來自驗收表:兩個詞【都要中】才算命中 ⇒ 兩組 or() 疊 = 交集
+    // (機制是 repo 自己實測過的:SupabaseOrderAdapter.ts:1043 與 :1143)
+    expect(captured.ors).toHaveLength(2);
+    expect(captured.ors.some((f) => f.includes('%rpm%'))).toBe(true);
+    expect(captured.ors.some((f) => f.includes('%rsv4%'))).toBe(true);
+    // 🔴 而每一組【都】要含全部欄位 ⇒ 一個詞可以中在標題、另一個中在料號
+    for (const f of captured.ors) {
+      expect(f).toContain('title.ilike.');
+      expect(f).toContain('external_id.ilike.');
+    }
+  });
+
+  it('🔴 詞序顛倒同結果 —— `rsv4 rpm` 與 `rpm rsv4` 的 filter 集合相同', async () => {
+    const a = makeOrCapturingMock();
+    const b = makeOrCapturingMock();
+    await new SupabaseProductAdapter(a.client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
+    await new SupabaseProductAdapter(b.client).searchByKeyword('rsv4 rpm', { limit: 8, offset: 0 });
+    // AND 對順序不敏感 ⇒ 排序後逐字相同
+    expect([...b.captured.ors].sort()).toEqual([...a.captured.ors].sort());
+  });
+
+  it('🔴 多個空格 / 全形空格(U+3000)都要切開', async () => {
+    for (const q of ['rpm  rsv4', 'rpm　rsv4', 'rpm\trsv4']) {
+      const { client, captured } = makeOrCapturingMock();
+      await new SupabaseProductAdapter(client).searchByKeyword(q, { limit: 8, offset: 0 });
+      expect(captured.ors, `輸入 ${JSON.stringify(q)}`).toHaveLength(2);
+    }
+  });
+
+  it('🔴 料號欄:`CARK9650` 要進到 external_id 那一欄的 ilike 裡', async () => {
+    const { client, captured } = makeOrCapturingMock();
+    await new SupabaseProductAdapter(client).searchByKeyword('CARK9650', { limit: 8, offset: 0 });
+    expect(captured.ors).toHaveLength(1);
+    expect(captured.ors[0]).toContain('external_id.ilike.%CARK9650%');
+  });
+
+  it('🔴 真料號含空白:`PED-GP EVO MON SX RS660` 切成 5 個詞、每個都要中', async () => {
+    // 🔴 這一筆是**線上撈到的真料號**(8 筆樣本裡唯一含空白的那筆)——
+    //    量法見 plan §7-b。它不是想出來的測資。
+    const { client, captured } = makeOrCapturingMock();
+    await new SupabaseProductAdapter(client).searchByKeyword('PED-GP EVO MON SX RS660', {
+      limit: 8,
+      offset: 0,
+    });
+    expect(captured.ors).toHaveLength(5);
+    // 🔴 codex nit:原本只檢查頭尾兩個 ⇒ 中間三個被改成錯字仍會通過。逐個釘。
+    for (const term of ['PED-GP', 'EVO', 'MON', 'SX', 'RS660']) {
+      expect(captured.ors.some((f) => f.includes(`%${term}%`)), `${term} 應該在`).toBe(true);
+    }
+  });
+
+  it('🔴 詞數上限:超過上限要截斷,不得無限長 URL', async () => {
+    const { client, captured } = makeOrCapturingMock();
+    const many = Array.from({ length: 20 }, (_, i) => `w${i}`).join(' ');
+    await new SupabaseProductAdapter(client).searchByKeyword(many, { limit: 8, offset: 0 });
+    // 期望來自 plan §4 第 10 格:上限 8(URL 過長會 414 / 被 proxy 砍,而那個失敗長得像「搜不到」)
+    expect(captured.ors).toHaveLength(8);
+    // 🔴 codex MF7:只斷言「八次」的話,改成「留後八個」或「任選八個」都會通過。
+    //    ⇒ 釘住是【前】八個 w0…w7,而且 w8 之後一個都不准在。
+    for (let i = 0; i < 8; i += 1) {
+      expect(captured.ors.some((f) => f.includes(`%w${i}%`)), `w${i} 應該在`).toBe(true);
+    }
+    expect(captured.ors.some((f) => f.includes('%w8%')), 'w8 不該在').toBe(false);
+    expect(captured.ors.some((f) => f.includes('%w19%')), 'w19 不該在').toBe(false);
+  });
+
+  it('🔴🔴 零詞輸入 ⇒ 一句查詢都不准送(不是「送一句沒有條件的」)', async () => {
+    // 🔴 codex MF1:`'\u200B'.trim()` **仍是** `'\u200B'`(Unicode White_Space 不含它)
+    //    ⇒ 它通過空字串短路、切完零詞;只打 `.` / `,` / `()` 同族(sanitize 換成空白)。
+    //    少了 fail-closed ⇒ 送出**沒有任何條件**的查詢 ⇒ 整張 view 第一頁被當成搜尋結果,
+    //    而 `count:'exact'` 順便去數全表。**失敗形狀是【成功】。**
+    // 🛑 判別點是 `ranged` 不是 `ors` —— 兩個世界的 `ors` 都是空的。
+    for (const q of ['', '   ', '　', '\u200B', '.', ',', '()', '""', '\uFEFF']) {
+      const { client, captured } = makeOrCapturingMock();
+      const res = await new SupabaseProductAdapter(client).searchByKeyword(q, {
+        limit: 8,
+        offset: 0,
+      });
+      expect(res, `輸入 ${JSON.stringify(q)}`).toEqual({ items: [], total: 0 });
+      expect(captured.ors, `輸入 ${JSON.stringify(q)} 的 ors`).toHaveLength(0);
+      expect(captured.ranged, `輸入 ${JSON.stringify(q)} 不該送出查詢`).toBe(false);
+    }
+  });
+
+  it('🟢 正對照:有詞的輸入【確實會】送出查詢 —— 證明上面那個 false 不是恆 false', async () => {
+    const { client, captured } = makeOrCapturingMock();
+    await new SupabaseProductAdapter(client).searchByKeyword('rsv4', { limit: 8, offset: 0 });
+    expect(captured.ranged).toBe(true);
+    expect(captured.froms).toEqual(['products_public']);
+  });
+
+  it('🔴 `AP.123` 這種帶符號的料號 ⇒ 切成兩個詞(sanitize 必須在切詞【之前】)', async () => {
+    // 🔴 codex MF2:順序寫反的話 `AP.123` 只會是一個詞、之後變成 `%AP 123%`
+    //    ⇒ 仍然要求同一欄裡連續出現 ⇒ 找不到。**而兩種順序在 diff 上長得一樣。**
+    const { client, captured } = makeOrCapturingMock();
+    await new SupabaseProductAdapter(client).searchByKeyword('AP.123', { limit: 8, offset: 0 });
+    expect(captured.ors).toHaveLength(2);
+    expect(captured.ors.some((f) => f.includes('%AP%'))).toBe(true);
+    expect(captured.ors.some((f) => f.includes('%123%'))).toBe(true);
+    // 🛑 而【不可以】出現含空白的 pattern —— 那正是寫反時的產物
+    expect(captured.ors.some((f) => f.includes('%AP 123%'))).toBe(false);
+  });
+
+  it('🔴 ILIKE 萬用字元仍被轉義,而且【只轉一次】(雙重轉義會讓 `50%` 永遠 0 件)', async () => {
+    // 🔴 codex MF8;而「只轉一次」是我改順序時自己製造的坑:
+    //    sanitize 若跑兩次,`50%` ⇒ `50\%` ⇒ `50\\\%`,不報錯、只回 0 件。
+    const { client, captured } = makeOrCapturingMock();
+    await new SupabaseProductAdapter(client).searchByKeyword('50%', { limit: 8, offset: 0 });
+    expect(captured.ors).toHaveLength(1);
+    expect(captured.ors[0]).toContain('%50\\%%');
+    expect(captured.ors[0]).not.toContain('50\\\\');
+  });
+});
