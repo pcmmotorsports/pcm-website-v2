@@ -1,4 +1,10 @@
-// CartContext.tsx — Phase 1 client-side cart state(localStorage mock、無後端、對齊 NORTHSTAR Phase 1 M-3 結帳前的 stub 範圍)
+// CartContext.tsx — client-side cart state(localStorage 持久化)
+//   ⛔ ~~Phase 1 client-side cart state(localStorage mock、無後端、對齊 NORTHSTAR Phase 1 M-3 結帳前的 stub 範圍)~~
+//   🔵 2026-09-03 訂正(線 `-account` 量,主視窗 `-87` 裁准;純註解、零行為改動)——
+//      「**無後端**」與「**stub 範圍**」**今天為假**,理由與證據同本檔下方 `:21` 起那段訂正。
+//   🔴 **而這一行為什麼要單獨記**:我在 2026-09-03 先訂正了 `:17` 的同一句假話,**而漏掉這一行** ——
+//      它就在同一支檔的第 1 行,是任何人開檔看到的第一句。
+//      📌 **判別句:訂正一句話之前,先在那支檔裡把同一個宣稱 grep 一遍。那一步只要 5 秒。**
 //
 // 範圍 / 不範圍:
 // - 本 Provider 只管「客人手上提籃」型 cart state(items / addItem / removeItem / updateQty / clear)

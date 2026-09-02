@@ -113,8 +113,16 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
  *    🛑 **⇒ 下一個人若要讓系統【自動帶入】經銷價, 那才是撞那道凍結 —— 回去讀 `:6-70`。**
  *
  * 🔴 **而加了它就代表:經銷價【會】被送到瀏覽器。**
- *    ⚠️ **今天還沒有** —— `manual-order-catalog-actions.ts` 零呼叫端(codex R2 must-fix ③:
- *       我原本寫成完成式「已送進 HTML」, 而那不是現況)。接上 UI 的那一天它才會進頁面。
+ *    ⛔ ~~**今天還沒有** —— `manual-order-catalog-actions.ts` 零呼叫端(codex R2 must-fix ③:
+ *       我原本寫成完成式「已送進 HTML」, 而那不是現況)。接上 UI 的那一天它才會進頁面。~~
+ *    🔴🔴 **2026-09-03 訂正(線 `-account` 量,主視窗 `-87` 裁准)—— 已接上,
+ *       所以下面那個警告是【現在式】不是未來式:**
+ *       `apps/admin/src/components/orders/manual-order-catalog-lookup.tsx:4`
+ *         逐字 `import { searchManualOrderCatalogAction } from '@/lib/...'`
+ *       同支元件 `:135` 逐字畫出來:``經銷 {money(h.dealerPriceUntaxed)}(未稅)``
+ *       ⇒ **經銷價現在【真的】會進 Server Action 的回應與瀏覽器記憶體。**
+ *    🛑 **⇒ 訂正的重點不是「它接上了」, 是【時態】** —— 舊字面讓下面那句警告讀起來像
+ *       「以後才要擔心」, 而它從接上的那一刻起就是現況, **而沒有東西在那一刻出聲。**
  *    Server 端鐵則逐字「經銷價絕不傳到一般會員瀏覽器」—— 這裡是**後台**, 員工看得到是對的;
  *    而**誰拿得到那個後台頁面**由 `ADMIN_REQUIRE_REAL_IDENTITY` 那道閘決定, **不是這一支檔**。
  *    ⇒ 那道閘若鬆了, 這一欄就是它多洩漏的東西之一。**寫在這裡, 不要讓它變成無條件的。**
