@@ -454,6 +454,28 @@ export async function GET(request: Request): Promise<Response> {
      *   在那支 RPC 存在之前,這條告警線確實少一隻眼睛。
      * ⚠️ 而它**不會**變成信:那段期間 `count` 是 `null`,進不了 `shouldAlert`(見上面)。
      */
+    /**
+     * ⟦b9-RLSHARDEN⟧ 甲(片B):**「量不到」那一格**。
+     *
+     * 🔴 **`bypassRlsRevoked` 不在這裡** —— 它進 `shouldAlert`,走 LINE + Email 到 Sean。
+     *    這一格處理的是**另一種**:函式不存在(尚未 apply)、或 `service_role` 這個角色不見了。
+     * 🎯 **兩種訊號、兩個觀眾,而這是刻意的**:錢與權限的事吵 Sean;部署/環境的事吵看 cron 的人。
+     *
+     * 🛑 **而它為什麼要 503 而不是靜靜回 200**(沿用本檔上面每一種的成例):
+     *    回 200 + 記成功 ⇒ **「這把量具壞了」被記成「一切健康」** ——
+     *    而本片存在的全部理由,就是不要有一個【看起來正常而實際上瞎了】的狀態。
+     * 🔵 而它**不會**變成信:`bypassRlsUnknown` 時 `bypassRlsRevoked` 是 `false`
+     *    ⇒ 進不了 `shouldAlert`(見 use-case 那道閘)。
+     */
+    if (result.bypassRlsUnknown) {
+      console.error(
+        '[anomaly-alert] 🔴 get_privileged_role_bypassrls_state 讀不到(函式未 apply 或 service_role 不存在)⇒ 權限強化那一格今天是【查不到】不是【沒事】(回 503)',
+        { ...result },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+
     if (result.cronHeartbeatUnknown) {
       console.error(
         '[anomaly-alert] 🔴 get_cron_heartbeat_stale_counts 讀不到 ⇒ 排程心跳今天是【查不到】不是【六支都健康】(回 503)',

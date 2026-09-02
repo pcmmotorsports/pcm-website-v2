@@ -68,6 +68,15 @@ const TS_FILE = path.resolve(__dirname, 'PgAnomalyAlertReaderAdapter.ts');
 const TARGETS = [
   { fn: 'get_payment_anomaly_alert_summary', varName: 'r', pin: 7 },
   { fn: 'get_payment_anomaly_alert_display_ids', varName: 'd', pin: 5 },
+  /**
+   * ⟦b9-RLSHARDEN⟧ 甲片B(2026-09-02)。**分堆是開檔看的, 不是猜的**(本檔上面那句逐字要求):
+   * adapter 對缺鍵的處理是 `brValue === undefined` ⇒ 落 `bypassRlsUnknown`, **它不 throw**
+   * ⇒ 依本檔判準屬 **fail-soft** ⇒ 進 `TARGETS`, 不進 `FAIL_LOUD_RPCS`。
+   * 🔵 而這道閘當場逼出一個真問題:我第一版 SQL 回三個 key 而 TS **只讀一個**
+   *    ⇒ 另外兩個是「回了而沒有人看」的東西。已改成三個都讀(其中 `total_role_count`
+   *    當合理性下界:不是正整數 ⇒ 走 Unknown)。
+   */
+  { fn: 'get_privileged_role_bypassrls_state', varName: 'br', pin: 3 },
 ] as const;
 
 /** SQL 的行註解(`--`)在**每一把尺之前**先剝掉。

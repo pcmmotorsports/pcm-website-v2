@@ -146,6 +146,21 @@ export type CheckAnomalyAlertsResult = {
   cronHeartbeatAbnormalJobs: readonly string[] | null;
   cronHeartbeatUnknown: boolean;
   /**
+   * ⟦b9-RLSHARDEN⟧ 甲:`service_role` 的 `BYPASSRLS` 被收掉了嗎。
+   * 🔴 `Revoked` **進** `shouldAlert`(那是錢與權限的事, 要吵到 Sean);
+   *    `Unknown` **不進**(那是部署/環境問題, 走 log + 503 那條)。
+   * 📌 兩種訊號落在兩個觀眾, 與本檔既有慣例一致。
+   */
+  bypassRlsRevoked: boolean;
+  bypassRlsUnknown: boolean;
+  /** 🔵 讀到的兩個分母。**不直接進 `shouldAlert`** —— 那道閘只看上面兩個旗標。
+   *  ⛔ ~~我第一版寫「**不是判準**」~~ —— R3 nit 打掉(codex R2 也在 domain 那份打過同一句):
+   *     `bypassRlsTotalRoleCount` **確實參與判定**(adapter 拿它當回應合理性下界 ⇒ 走 Unknown)。
+   *  🛑 **而訂正原本只落在兩份副本的其中一份** —— grep「不是判準」的人第一個命中可能是錯的那份。
+   *  🔵 codex R2 must-fix ③:我第一版回了這兩個而**沒有宣告** ⇒ TS2353,型別系統當場攔住。 */
+  bypassRlsPrivilegedCount: number | null;
+  bypassRlsTotalRoleCount: number | null;
+  /**
    * 🔴 M-4a:寄信那支 RPC 是不是【讀不到】(尚未 apply / 權限問題)。
    * route 依它回 **503**,而不是寄一封「尚未啟用」的信(部署問題走部署管道)。
    *
@@ -734,13 +749,48 @@ export function buildAnomalyAlertMessage(
    * 🔴 **主旨要分得出三個世界**:純付款 / 純寄信 / 兩者都有。
    * 而**只有純付款那個世界維持原字面** —— 其餘兩個原本都會被寫成「付款有事」。
    */
-  const subject = !hasPayment && hasEmail
-    ? '⚠️ PCM 寄信有事要你看(與付款無關)'
-    : hasPayment && hasEmail
-      ? '⚠️ PCM 付款與寄信都有事要你看'
-      : !truncated && distinctOrders.size > 0
-        ? `⚠️ PCM 付款有 ${distinctOrders.size} 張單要你看`
-        : '⚠️ PCM 付款有事要你看';
+  /**
+   * 🔴 **codex 2026-09-02 must-fix ①:第四個世界【資料庫權限】** ——
+   *    只有 `bypassRlsRevoked` 為真時, `hasPayment` 與 `hasEmail` **都是 false**
+   *    ⇒ 上面那串三元會掉到最後那一支 `'⚠️ PCM 付款有事要你看'`
+   *    ⇒ 📌 **主旨會說「付款有事」, 而付款一格都沒有事** —— 收信的人會去查訂單、查錢,
+   *       而真正的問題是**他看到的那些數字本身可能是空的**。
+   * 🛑 而它排在**最前面**:權限壞掉時要先講那件事, 不要讓它被另外兩個世界的字面蓋掉。
+   */
+  const hasBypassRls = summary.bypassRlsRevoked;
+  /**
+   * 🔴🔴 **R3(換模型那一輪)must-fix 1:「純心跳」這個世界一直都在, 而它掉到「付款有事」。**
+   *
+   * `cronHeartbeatAbnormalCount > 0` **進 `shouldAlert`**(見下方那道閘), 而它
+   * **不在** `hasPayment` 也不在 `hasEmail` ⇒ 只有它為真時, 主旨掉到最後那一支
+   * `'⚠️ PCM 付款有事要你看'` —— **而付款一格都沒事。**
+   *
+   * 🎯 **而本片自己就會點著它, 這才是 R3 抓到的重點**:
+   *   `bypassRlsUnknown ⇒ route 回 503` 之前先跑 `recordHeartbeatFailure(anomalyAlert)`
+   *   ⇒ `consecutive_failures` +1 ⇒ 而 `pcm-anomaly-alert` **不在**
+   *     `FAILURE_COUNT_MEANINGLESS`(`packages/domain/src/ops/cron-jobs.ts:100` 只有
+   *     `pcm-expire-unpaid-orders`;它自己在 `:66` 的被監控清單裡 —— **我實查過**)
+   *   ⇒ 下一輪 `abnormal_count ≥ 1` ⇒ **進 `shouldAlert` ⇒ 寄 LINE + Email 給 Sean**。
+   *
+   * 🛑 **⇒ 所以我原本寫的「Unknown 不吵 Sean」在【單元層為真、在真系統為假】** ——
+   *    那格測試的分母裡沒有心跳耦合。**兩種訊號兩個觀眾**這句話要收窄成:
+   *    **「Unknown 不會【直接】寄信;而它連續失敗之後會經由心跳那條路寄。」**
+   * 📌 **⇒ 一個在自己那一層完全正確的宣稱, 換一層之後是假的 —— 而它不會被任何單元測試抓到。**
+   */
+  const hasHeartbeat = (summary.cronHeartbeatAbnormalCount ?? 0) > 0;
+  const subject = hasBypassRls && !hasPayment && !hasEmail && !hasHeartbeat
+    ? '⚠️ PCM 資料庫權限有事要你看(與付款無關)'
+    : hasBypassRls
+      ? '⚠️ PCM 資料庫權限有事,而其他也有事要你看'
+      : hasHeartbeat && !hasPayment && !hasEmail
+        ? '⚠️ PCM 背景排程有事要你看(與付款無關)'
+        : !hasPayment && hasEmail
+          ? '⚠️ PCM 寄信有事要你看(與付款無關)'
+          : hasPayment && hasEmail
+            ? '⚠️ PCM 付款與寄信都有事要你看'
+            : !truncated && distinctOrders.size > 0
+              ? `⚠️ PCM 付款有 ${distinctOrders.size} 張單要你看`
+              : '⚠️ PCM 付款有事要你看';
 
   /**
    * 🔴 **寄信那一段放在【最前面】,而這是刻意的**:
@@ -756,6 +806,32 @@ export function buildAnomalyAlertMessage(
    * 🔴 **一定要印出【哪幾支】** —— 一個裸數字("2 支不正常")會逼收信的人自己去後台找,
    *   而這封信存在的理由就是「沒有人去看的時候它來告訴你」。
    */
+  /**
+   * ⟦b9-RLSHARDEN⟧ 甲:權限被收緊那天的那一行。
+   * 🛑 **逐字帶【它證不到什麼】** —— 沒有這一句, 收到告警的人會以為
+   *    「沒叫 = 沒事」, 而那 45 張表的地板還是濕的。
+   */
+  const bypassRlsBlock: string[] = [];
+  if (summary.bypassRlsRevoked) {
+    bypassRlsBlock.push(
+      '【資料庫權限】',
+      '🔴 service_role 的 BYPASSRLS 被收掉了。',
+      // 🔴🔴 **R3 must-fix 2:那句因果有前提, 而那個前提【正在被拆掉】。**
+      //   「被收掉 ⇒ 訂單數 0」只在【那些表還沒補 service_role SELECT policy】時成立,
+      //   而 Sean 已拍 Q15=甲要補它們, 別窗今晚就在加。
+      //   ⇒ 📌 補完之後「收掉 BYPASSRLS」變成**正確的強化動作**, 而這封信會每天叫、
+      //     並宣稱一個不成立的後果 ⇒ **最可能的反應是把那次強化 revert 掉。**
+      //   ⇒ ⇒ **一支用來防「壞的強化」的量具, 會去阻止「好的強化」。**
+      //   ✅ 所以把【前提】與【它失效的訊號】寫進信裡, 而不是只寫結論。
+      '   前提(2026-09-01 唯讀實測):54 張表開了 RLS,其中 45 張還沒有 service_role 的 SELECT 政策',
+      '   ⇒ 在那個前提下,後台會【有客戶而每個人訂單數 0】,不是空白。',
+      '   🔴 而 ⟦Q15甲⟧ 正在補那些政策 —— **補完之後這一行就過期了,而收掉 BYPASSRLS 會變成對的動作。**',
+      '     ⇒ 重新量:docs/probes/2026-08-26-q15-rls-service-role-audit.sql;數字不對就來拆這道閘。',
+      '   ⇒ 本告警答的是【那個屬性還在不在】,不答哪些表會安靜回 0,也**不涵蓋別的成因**',
+      '     (換掉 admin 憑證 / 新表沒補政策 / 加 restrictive policy 都會造成同一個畫面)。',
+    );
+  }
+
   const heartbeatBlock: string[] = [];
   if ((summary.cronHeartbeatAbnormalCount ?? 0) > 0) {
     const names = summary.cronHeartbeatAbnormalJobs ?? [];
@@ -795,7 +871,19 @@ export function buildAnomalyAlertMessage(
               : `${Math.round(manualCustomerSearch.windowSeconds / 60)} 分鐘`
           }客戶搜尋 ${manualCustomerSearch.count} 次,${manualCustomerSearch.actors} 個操作者。`,
         ];
-  const body = [emailBlock, heartbeatBlock, ...blocks, searchBlock].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
+  // 🔴 `bypassRlsBlock` 排在最前面。
+  // ⛔ ~~我第一版寫的理由是「權限壞掉時下面每一格的數字都可能是假的」~~ ——
+  //    **codex 2026-09-02 nit 打掉, 而它是對的**:本 reader 走的是 `payment_confirmer`,
+  //    而那些聚合 RPC 是 `SECURITY DEFINER` ⇒ **它們不依賴 `service_role` 的 BYPASSRLS**
+  //    ⇒ 下面那些數字**不會**因為這件事變假。
+  // ✅ 真正的理由是**截斷方向**:本檔上面那段逐字寫著截斷是「從尾端整行 pop」
+  //    ⇒ 放尾端的最先被丟掉。而「權限被收掉」是這封信裡**最不能被截掉**的一行 ——
+  //    它影響的是**後台畫面對員工說的話**, 而那件事沒有第二個訊號會叫。
+  // 🛑 **而我第一版建了這個陣列卻【沒有接進來】** —— 訊息區塊建好而沒 join,
+  //    `shouldAlert` 照樣 true、信照樣寄、而信裡**一個字都沒有那一塊**。
+  //    ⇒ 抓到它的是「信裡要逐字帶【它證不到什麼】」那一發測試。
+  //    📌 **一個【建好而沒接上】的東西, 與【沒建】在行為上不同、在 diff 上長得一樣合理。**
+  const body = [bypassRlsBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
 
   /**
    * 🔴🔴 **結尾三行是【不可截的】,而這不是排版偏好。**
@@ -1223,7 +1311,15 @@ export async function checkAnomalyAlerts(
      *   ⇒ 📌 一支排程死了三天而第二天起不再提醒, 與「它自己好了」在收件匣裡長得一樣。
      *   ⚠️ **若哪天要加冷卻**, 要先答一個問題:**停止提醒之後, 誰會發現它還死著?**
      */
-    (summary.cronHeartbeatAbnormalCount ?? 0) > 0;
+    (summary.cronHeartbeatAbnormalCount ?? 0) > 0 ||
+    // ⟦b9-RLSHARDEN⟧ 甲:**只有明確的 `true` 才進**。`bypassRlsUnknown` 不在這道閘裡。
+    // 🛑 **而「所以它不吵 Sean」是【錯的】(R3 must-fix 1)** ——
+    //   Unknown ⇒ route 回 503 前先記一次心跳失敗 ⇒ 連續失敗到門檻之後
+    //   `cronHeartbeatAbnormalCount` 會亮 ⇒ **那一格【就在上面這道閘裡】** ⇒ 照樣寄信。
+    // ✅ 正確的說法:**它不會【直接】寄信;而它持續量不到時會【經由心跳那條路】寄。**
+    //   📌 而那其實是對的行為(一支一直失敗的 cron 本來就該被看見)——
+    //     錯的是我原本那句話, 不是這個耦合。
+    summary.bypassRlsRevoked;
 
   let notifiersTotal = 0;
   let notifiersFailed = 0;
@@ -1303,6 +1399,12 @@ export async function checkAnomalyAlerts(
     cronHeartbeatAbnormalCount: summary.cronHeartbeatAbnormalCount,
     cronHeartbeatAbnormalJobs: summary.cronHeartbeatAbnormalJobs,
     cronHeartbeatUnknown: summary.cronHeartbeatUnknown,
+    // ⟦b9-RLSHARDEN⟧ 甲:兩個都要帶出來 —— `Unknown` 不帶出去 ⇒ route 讀不到 ⇒
+    //   **那條「部署問題走部署管道」的路就不存在**(下面那段註解講的正是同一個坑)。
+    bypassRlsRevoked: summary.bypassRlsRevoked,
+    bypassRlsUnknown: summary.bypassRlsUnknown,
+    bypassRlsPrivilegedCount: summary.bypassRlsPrivilegedCount,
+    bypassRlsTotalRoleCount: summary.bypassRlsTotalRoleCount,
     /**
      * 🔴 **這一行是本片【最重要】的一行,而我差點沒寫。**
      * 上面把五格排除在 `shouldAlert` 之外,理由是「部署問題走部署管道」——
