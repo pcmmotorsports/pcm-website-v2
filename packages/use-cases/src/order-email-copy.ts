@@ -54,3 +54,76 @@ export const ORDER_PAID_HTML_LEAD_SENTENCE = '這封信是這筆交易的明細�
 
 /** 兩份共用的收尾指路句。 */
 export const ORDER_MEMBER_CENTER_SENTENCE = '訂單明細與最新狀態請至 PCM 會員中心查看。';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 取消通知信(`order_unpaid_cancelled` —— **未付款的單被【員工】取消**)
+//
+// 🔴 **文案的來源:沒有稿,而我【不發明】。** 2026-09-03 掃過真權威,分母與正對照都留下:
+//    OD 專案 12 支 · 檔名含 email 4 支 ⇒ 含 cancel **0**(🟢 正對照 含 paid **2**)
+//    design-reference `.html` 2 支     ⇒ 提到「取消」**0**(🟢 正對照 提到「購物車」**1**)
+//    ⇒ **那兩個 0 是「真的沒有」,不是「我沒找到」。**
+//
+// ✅ **⇒ 所以「為什麼取消」那一句【不在這裡定義】** —— 它由 `admin_cancel_order` 的七值映射表提供
+//    (`20260830020000` 錨 `WHEN 'customer_request' THEN '依您要求取消'`),而那些字面**本來就是寫給客人看的**、
+//    今天就在 `orders.cancelled_reason` 這一欄裡。⇒ **信件帶那個欄位,零新造文案。**
+// 🛑 **而 `other` 那一格是【沒有審稿的對外字面】** —— 它的內容是員工自己打的,會原封進到信裡。
+//    ⇒ 已端 Sean:建議 `other` 改用一句通用文字,員工打的字只留在後台。**在他回答之前,
+//      呼叫端有責任決定要不要把 `other` 的原文放進來** —— 本檔只提供固定的那幾句。
+//
+// 🔵 **只做純文字、不做 HTML** —— 有先例:出貨信(`order_shipped`)今天就是純文字
+//    (`buildOrderShippedText`),HTML 那條路只服務付款成功信。**與現況一致,不是新設計。**
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 🔴 **這一句是本片唯一「新寫」的對外字面,而它承載的是一個【事實】不是一個說法**:
+ * 這條線的射程是**未付款**的單(Sean 2026-09-03 拍乙)⇒ 客人**從頭到尾沒有付過錢**
+ * ⇒ **信裡不可以提退款**(提了會讓他等一筆不存在的退款)。
+ * ⚠️ 而它與 `order_cancelled`(刷卡且已全額退款)那條線**互斥** —— 那條線的信要講退款,
+ *    而**那封信不歸本檔管**(它的文案沒有稿也沒有拍板,見規格 §10)。
+ */
+export const ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE =
+  '這張訂單尚未付款,不會有任何款項產生。';
+
+/** 取消信的開頭句;`%s` 由呼叫端代入訂單編號(缺編號時走另一句,見 `buildOrderUnpaidCancelledText`)。 */
+export const ORDER_CANCELLED_HEADLINE_WITH_ID = (displayId: string): string =>
+  `您的訂單 ${displayId} 已取消。`;
+
+/** 缺編號時的退化句 —— 🔴 **不印「undefined」也不印空白**(那會直接寄到客人眼前)。 */
+export const ORDER_CANCELLED_HEADLINE_NO_ID = '您的訂單已取消。';
+
+/**
+ * 🔴🔴 **把「員工打的那段字」整理成【一行、有上限、沒有控制字元】的純文字。**
+ *
+ * **為什麼需要它**(codex 2026-09-03 對抗審查,三條 must-fix 同一個根):
+ * `cancelled_reason` 的 `other` 那一格是**員工自己打的自由文字**,而它會**原封**進到寄給客人的信裡。
+ * ```
+ * 換行 / CR / tab            ⇒ 員工可以在信裡【重排段落】, 偽造成像是我們寫的客服指示或連結
+ * 雙向與不可見控制字元        ⇒ 同上, 而且看不見
+ * 無長度上限                  ⇒ 整包送去 provider, 沒有截斷也沒有可預測的失敗
+ * 字面 "undefined" / "null"   ⇒ 它們是合法字串 ⇒ 會直接印在客人眼前(常見於上游 String(undefined))
+ * ```
+ * 🛑 **這不是 HTML 注入(純文字信沒有執行面),是【內容注入】** —— 而內容注入在一封
+ *    「我們寄的」信裡,傷害是**它看起來像我們說的**。
+ *
+ * ⚠️ **它【不管語意】,明寫**:它擋不住員工打「退款將於三日內完成」這種**內容上錯誤**的句子。
+ *    ⇒ 那一格**沒有機制擋得住**,只能靠 ①`other` 改成通用文字(已端 Sean)或 ②人審。
+ *    ⇒ 📌 **不要把本函式讀成「信裡不會出現不該出現的話」** —— 它只保證**形狀**。
+ */
+export const CANCEL_REASON_MAX_LEN = 120;
+
+export function sanitizeCustomerFacingReason(raw: string): string | null {
+  // ① 控制字元與換行 ⇒ 空白(含 CR/LF/TAB、雙向控制、零寬、BOM)
+  const flattened = raw
+    .replace(/[\u0000-\u001F\u007F\u200B-\u200F\u2028\u2029\u202A-\u202E\u2066-\u2069\uFEFF]/g, ' ')
+    // ② 連續空白收成一個(否則上面那步會留下一排空格,看起來像刻意排版)
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (flattened === '') return null;
+  // ③ 🔴 字面 "undefined" / "null" 一律當沒有 —— 它們是合法字串, 而它們出現在客人眼前
+  //    幾乎一定是上游的 bug(String(undefined)), 不是員工真的想說的話。
+  if (flattened === 'undefined' || flattened === 'null') return null;
+  // ④ 上限:超過就截斷並加省略號 —— **截斷要看得出來**, 靜默截斷會讓人以為那就是全部
+  return flattened.length <= CANCEL_REASON_MAX_LEN
+    ? flattened
+    : `${flattened.slice(0, CANCEL_REASON_MAX_LEN)}…`;
+}
