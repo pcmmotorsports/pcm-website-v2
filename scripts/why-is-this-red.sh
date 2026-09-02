@@ -40,6 +40,18 @@
 #           (「在 apps/admin/ 底下用相對於該目錄的路徑跑 ⇒ No test files found」),
 #           同檔 `:3223` 是它的母題(「`rc=1` 有很多種, 而失敗訊息被當成失敗結論」)。
 #           📌 **⇒ 新的那一半只有一件:本支【自己】踩了那個坑, 而檔頭還宣稱它不會藏真紅。**
+#
+#   ✅ **2026-09-03 同日已修(主視窗 `-87` 裁「改, 而範圍收到最小」)**:
+#      `blind_check()` —— 判準是**結構性的**不是字面:**我一列都報不出來, 而這份 log
+#      沒有【健康跑完】的證據**(沒有 `rc=0`, 也沒有 `Test Files … passed`)⇒ 印
+#      「🔴🔴 我看不見這一份」並且**本支自己 `exit 1`**。
+#      🛑 **刻意不去解析 `No test files found` 那個字面** —— 那是在跟下一種沒想到的訊息賽跑。
+#      實測四個世界(重跑, 而這次它們印不同的東西):
+#        手造真紅   ⇒ rc=0 · 真紅 1 支        手造 build 紅 ⇒ rc=0 · build 紅 1 支
+#        **rc=1 那一發 ⇒ rc=1 · 印「我看不見這一份」**   全綠 ⇒ rc=0 · 不叫
+#      ⇒ `--selftest` 從 5 格加到 **9 格**(正 5 / 負 4), 新增四格全在演 `blind_check` 雙向。
+#   ⚠️ **而它仍然不知道【是哪一支測試】沒跑到** —— 它只知道「這份 log 我讀不出健康」。
+#      那一格要人自己看 log 尾巴, 本支不假裝答得出來。
 #   · 它不驗「build 之後真的會綠」。要證那句話,自己 build 完重跑。
 #   · 它不看 CI。CI 的分母與你的不一樣,那正是它存在的理由。
 #
@@ -62,6 +74,20 @@ classify() {   # stdin = vitest log ; stdout = "BUILD<TAB>path" / "REAL<TAB>path
     path != "" && /^(Error|AssertionError|TypeError|ReferenceError):/ {
                   if (seen==0) { print (($0 ~ re) ? "BUILD" : "REAL") "\t" path; seen=1; path="" } }
   ' | sort -u
+}
+
+# 🔴🔴 2026-09-03 補:接住【本支看不見的那一種紅】(線 -account 實測, 主視窗 -87 裁准)
+#   判準是**結構性的**, 不是字面:【我一列都報不出來, 而這份 log 沒有健康跑完的證據】
+#   ⇒ 刻意**不去解析 "No test files found"** —— 那是在跟下一種沒想到的訊息賽跑。
+#   ⇒ fail-closed 的方向:看不見就要說看不見, 不要印 0。
+blind_check() {   # $1=已分類列數  $2=log 檔  ⇒ stdout 0/1
+  _n="$1"; _log="$2"
+  [ "$_n" -gt 0 ] && { echo 0; return; }
+  # 呼叫端若照建議把 rc 存進 log(`echo "rc=$?" >> log`), 那是最硬的證據
+  _rc=$(grep -oE '(^|[^A-Za-z_])rc=[0-9]+' "$_log" 2>/dev/null | grep -oE '[0-9]+$' | tail -1)
+  if [ -n "$_rc" ] && [ "$_rc" != "0" ]; then echo 1; return; fi
+  # 沒有 rc 可看 ⇒ 退而求其次:一份健康跑完的 vitest log 一定有 "Test Files … passed"
+  if grep -qE '^ *Test Files +[0-9]+ passed' "$_log" 2>/dev/null; then echo 0; else echo 1; fi
 }
 
 if [ "${1:-}" = "--selftest" ]; then
@@ -88,7 +114,17 @@ if [ "${1:-}" = "--selftest" ]; then
   # 🔴 負對照二:全綠的 log ⇒ 兩堆都空
   Z=$(printf '%s\n' ' Test Files  737 passed (737)' | classify)
   [ -z "$Z" ] || { echo "❌ 負對照二:全綠的 log 竟然吐出東西"; fail=1; }
-  [ "$fail" = 0 ] && echo "✅ selftest 5 格全過(正 3 / 負 2)" || echo "🔴 selftest 有格沒過"
+  # ── 🔴 2026-09-03 新增:blind_check 的四個世界(它自己也要能雙向表演)──
+  _t=$(mktemp); printf '%s\n' ' RUN  v4.1.5 /x' 'No test files found, exiting with code 1' 'rc=1' > "$_t"
+  [ "$(blind_check 0 "$_t")" = 1 ] || { echo "❌ 世界C:rc=1 而零命中 竟然沒被叫住"; fail=1; }
+  printf '%s\n' ' Test Files  737 passed (737)' 'rc=0' > "$_t"
+  [ "$(blind_check 0 "$_t")" = 0 ] || { echo "❌ 負對照三:全綠竟然被誤叫"; fail=1; }
+  printf '%s\n' ' RUN  v4.1.5 /x' 'No test files found, exiting with code 1' > "$_t"
+  [ "$(blind_check 0 "$_t")" = 1 ] || { echo "❌ 世界D:沒存 rc 也要靠【缺少 passed 摘要】叫住"; fail=1; }
+  printf '%s\n' ' Test Files  1 passed (1)' > "$_t"
+  [ "$(blind_check 1 "$_t")" = 0 ] || { echo "❌ 負對照四:有命中就不該叫"; fail=1; }
+  rm -f "$_t"
+  [ "$fail" = 0 ] && echo "✅ selftest 9 格全過(正 5 / 負 4)" || echo "🔴 selftest 有格沒過"
   exit "$fail"
 fi
 
@@ -111,7 +147,19 @@ echo
 echo "== 🔴 真紅($NR 支)—— 這些才要人去看 =="
 echo "$OUT" | sed -n 's/^REAL\t/  /p'
 echo
+BLIND=$(blind_check "$((NB + NR))" "$LOG")
+if [ "$BLIND" = 1 ]; then
+  echo "== 🔴🔴 我看不見這一份 =="
+  echo "  我一列都報不出來, 而這份 log 沒有【健康跑完】的證據(沒有 rc=0, 也沒有 Test Files … passed)。"
+  echo "  ⇒ 那可能是一種【一行 FAIL 都沒有的失敗】(例:路徑餵錯 ⇒ 沒有任何測試被選到)。"
+  echo "  ⇒ 🔴 **請自己看 log 尾巴**;而下次跑的時候把 rc 一起存進去:"
+  echo "       npx vitest run > /tmp/v.log 2>&1 ; echo \"rc=\$?\" >> /tmp/v.log"
+  echo
+fi
 echo "== 射程 =="
 echo "  · 分母 = 你餵的這份 log。log 不全 ⇒ 上面的數就不全。"
 echo "  · 判不出來的一律歸【真紅】⇒ 它可能多報,不會少報。"
 echo "  · 它【不】驗「build 完真的會綠」。要那句話就自己 build 完重跑。"
+
+[ "$BLIND" = 1 ] && exit 1
+exit 0
