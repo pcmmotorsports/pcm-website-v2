@@ -20,7 +20,7 @@
 //     `https://www.rizoma.com/en/company` **本窗 2026-09-02 實測 404** ——
 //     📌 那是一份誠實的來源檔,而它的來源自己過期了,**而它不會叫**。下一個查 RIZOMA 的人會先看它。
 //
-// 🔴 **事實全數本窗親自 WebFetch 官網當場查證**(不是轉述、不是憑記憶;2026-09-02),逐條原文:
+// 🔴 **事實(除了下面那兩句登記在案的例外)本窗親自 WebFetch 官網當場查證**(不是轉述、不是憑記憶;2026-09-02),逐條原文:
 //   cycle.rizoma.com(單車線 R21 後視鏡)逐字:
 //     "Invisibile nelle proporzioni, precisa nella funzione, immediata nell'utilizzo."
 //     "Perché cambiare un'abitudine non significa imporre qualcosa di nuovo,
@@ -39,15 +39,29 @@
 //     "destined to evolve and expand year over year";涵蓋後視鏡、拉桿、方向燈座、腳踏板、
 //     乘客腳踏、後煞車踏桿、打檔桿(Harley-Davidson 車型)。
 //
-// 🛑 **本片涵蓋的事實只有上面這兩個頁面撐得住的那些。已知未涵蓋**:創立年份 / 創辦人 /
-//   工廠所在地 / 認證 —— 官網查無,而本片不從第三方補。
+//   🟡 **而有兩句的來源【不是那兩個頁面】,登記在這裡**(`-0e` 2026-09-02 R1 F2 抓到):
+//     · `:172`「油箱蓋」—— 那兩個頁面逐字**沒有**它(Americana 品項是後視鏡 / 拉桿 / 方向燈座 /
+//       腳踏板 / 乘客腳踏 / 後煞車踏桿 / 打檔桿)。**佐證是 repo 產品圖**
+//       `brand-assets/assets/brands-prod/rizoma/tank-cap.jpg`(= 本片 `story-range.jpg` 的原檔)
+//       ⇒ 🔴 **那是【我們手上的商品照】, 不是官網文案。**
+//     · `:101`「**義大利的**設計取向部品廠」—— 佐證是官網頁尾的法人識別
+//       「©2026 Rizoma **Srl** … **PI** 02595220125」(`Srl` 與 `PI` 統編都是義大利法人形式)。
+//       ⚠️ 而那不是一句「我們是義大利品牌」的文案 ⇒ **它是推的, 不是抄的。**
+//
+// 🛑 **本片涵蓋的事實只有上面這兩個頁面撐得住的那些(加上剛剛登記的那兩句)。已知未涵蓋**:
+//   創立年份 / 創辦人 / 工廠所在地 / 認證 —— 官網查無,而本片不從第三方補。
 //
 // - 素材:全部是 repo 既有檔的副本(不是新抓的)。
 //   hero.mp4 = `brand-assets/assets/brand-video/rizoma-scrambler.mp4`(1.35MB,sha256 與原檔相同)
 //   🟡 **影片是【暫定】** —— repo 裡另有 `rizoma-fashion.mp4`,而挑哪一支是 Sean 的品味;
 //     主視窗 2026-09-02 判「先做, 做完連同另一支一起端他」。換它是改一個 `src` 字串。
 //   hero-poster.jpg / story-design.jpg / story-range.jpg = `brands-prod/rizoma/` 底下既有圖
-//   logo.png = `brands-trim/rizoma.png` 的副本(sha256 相同)。
+//   logo.png = `brands-trim/rizoma.png` 的副本。
+//   🟢 **五支逐支比過 sha256, 全部與原檔相同**(`-0e` 2026-09-02 指出我原本只附了兩支的):
+//     hero.mp4 ← rizoma-scrambler.mp4 · logo.png ← brands-trim/rizoma.png
+//     hero-poster.jpg  `2ce720710b62…` ← brands-prod/rizoma/video-scrambler.jpg
+//     story-design.jpg `eb1bd2566a25…` ← brands-prod/rizoma/stealth-mirror.jpg
+//     story-range.jpg  `e5a50ef356f5…` ← brands-prod/rizoma/tank-cap.jpg
 //   🔴 刻意留副本、不直接引原檔:`/brands/<slug>/` 是 showcase 的資產(同第 17 家前例)。
 //   ⚠️ 而副檔名是 `.jpg` 不是 `.webp`(第 17 家轉過檔;本片直接用既有圖,沒有轉)。
 //

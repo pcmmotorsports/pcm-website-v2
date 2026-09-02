@@ -24,7 +24,14 @@ describe('RizomaShowcase', () => {
     expect(document.querySelectorAll('.pd-feature-card').length).toBe(3);
   });
 
-  it('N°02:hero 影片帶 + 故事兩段 + 信任狀四格(pd-bs 共用骨架 + 品牌色 modifier)', () => {
+  // 🔴 **敘述 2026-09-02 誠實降級**(`-0e` R1 F1):原本寫「品牌色 modifier」——
+  //    而 `pd-bs--rizoma` 這個 class **在 `product-page.css` 裡不存在**
+  //    (`grep -oE '^\.pd-bs--[a-z0-9-]+'` ⇒ 8 家, 而 tsx 用到的有 10 家;`dna` 早就一樣)。
+  //    🟢 它不壞版:`:1182` `.pd-bs { --bs-accent: var(--c-text); }` ⇒ 退成一般文字色。
+  //    🛑 而這一格斷言的是【class 掛上去了】, 不是【有品牌色】——
+  //       **在「有品牌色」與「沒有品牌色」兩個世界裡, 它印同一個綠。**
+  //    ⇒ 所以敘述改成 `class`。要不要真的給 RIZOMA 一個顏色 = **Sean 的品味題**, 不在本片。
+  it('N°02:hero 影片帶 + 故事兩段 + 信任狀四格(pd-bs 共用骨架 + 品牌色 modifier class)', () => {
     render(<RizomaShowcase />);
     expect(screen.getByRole('heading', { level: 2, name: '好看是門檻，合手才是理由' })).toBeDefined();
     expect(document.querySelector('.pd-bs.pd-bs--rizoma')).not.toBeNull();
