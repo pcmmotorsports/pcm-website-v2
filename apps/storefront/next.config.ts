@@ -86,6 +86,49 @@ const nextConfig: NextConfig = {
 
       '../../node_modules/.pnpm/@fontsource+noto-sans-tc@*/node_modules/@fontsource/noto-sans-tc/files/*-400-normal.woff2',
       '../../node_modules/.pnpm/@fontsource+noto-sans-tc@*/node_modules/@fontsource/noto-sans-tc/files/*-700-normal.woff2',
+
+      // ── 🔴🔴 修法【丙】(2026-09-03 `-ship`;⟦f3-SHIPPDF1⟧ 與 ⟦b4-MAILPDF1⟧ 同一個根因)──
+      //
+      // 🛑 **上面那些路徑全部指向 `.pnpm` 的【實體目錄】,而 Node 的解析器走不到那裡。**
+      //    2026-09-03 正式站逐字:`拒絕產檔 … 內嵌 0 · 拿不到字型檔 0 · 字型套件=null`
+      //    ⇒ 兩個 0 同時成立 = **不是檔案讀不到, 是一個 `@font-face` 都沒宣告**
+      //    ⇒ `fontPkgDir()` 回 `null` ⇒ `require.resolve('@fontsource/noto-sans-tc/package.json')` **throw**。
+      // 🔴 **成因是【檔案在、而模組入口不在】**(當場量):
+      //    · `.next/node_modules/` 有 `@sparticuz/chromium-<hash>` / `pg-<hash>` / `puppeteer-core-<hash>`
+      //      —— 那三個都被 `import()` ⇒ Next 替它們建了**解析得到的入口**;
+      //      而 `ls .next/node_modules/@fontsource` ⇒ **No such file or directory**。
+      //    · `.nft.json` 2,843 筆裡走 `apps/storefront/node_modules` 的 = **0**(2,761 筆走 `.pnpm`)。
+      //    ⇒ 📌 **字型只被 `require.resolve` 碰到(`statement-pdf.ts:48`), 而那是【執行期】的東西,
+      //      Next 不會為它建入口。** 位元組進得去, 解析進不去 —— **兩件事, 而清單上長得一樣。**
+      //
+      // ✅ **所以下面【四條】指的是 app 層那棵 pnpm symlink 樹**(`apps/storefront/node_modules/@fontsource/…`),
+      //    (⛔ ~~原文寫「三條」~~ —— codex 2026-09-03 抓到:實際是四條, 而我在兩處都寫了三。
+      //     數法 `grep -c "'\./node_modules/@fontsource" apps/storefront/next.config.ts` ⇒ 4。)
+      //    那正是 Node 從 route 往上走時**唯一找得到的位置**。
+      // 🔴 **四條要【一起】** —— 解析成功之後 `fontPkgDir()` 回的是**這個路徑**,
+      //    而 `400.css` / `700.css` / `files/*.woff2` 都會從**這裡**讀 ⇒ 只放 `package.json`
+      //    會換來一個新的失敗:**解析成功而 `內嵌 0`**(= `字型套件` 印出一條路徑而字還是沒嵌)。
+      //
+      // ⚠️⚠️ **本條【尚未證明有效】,而它的失敗方式很安靜**:tracing 會不會**保留 symlink**
+      //    (而不是把它解成 `.pnpm` 實體路徑、或整個略過)**我沒有驗過**。
+      //    ⇒ 🔵 **判別讀數(一發就分得出來)**:build 後數 `.nft.json` 裡走
+      //      `apps/storefront/node_modules` 的條目 —— **改前是 0**,那就是現成的負對照。
+      //    ⇒ 🛑 **而本機【必然說謊】**:本機那棵樹本來就在磁碟上 ⇒ `require.resolve` 本機
+      //      **無論如何都會成功** ⇒ **本機三綠全綠證不到這一條有沒有用。**
+      //      ⇒ ⇒ 🔴🔴 **丙成功的定義 —— 而我第一版寫錯了(codex R2 抓到, must-fix)**:
+      //      ⛔ ~~「打一發 ⇒ 那行 log 的 `字型套件` 從 `null` 變成一條路徑」~~
+      //      🛑 **那行 log 只住在 `route.ts` 的【500 分支】** —— 丙成功時 route 回 200,
+      //         而**成功那條路一個字都不印**(唯一的另一筆 `console.warn` 要 `uncovered > 0`
+      //         或 `skippedMissing > 0` 才會出聲)⇒ 📌 **我的驗收條件只在【失敗的世界】印得出東西。**
+      //      ⇒ ⇒ ✅ **正確的觀察值是那張紙本身**:打那個網址 ⇒ **真的下載到一個 PDF**
+      //         **而且打開來中文是【字】不是方框 □□□**。
+      //      🛑 **而「log 裡不再出現 `拒絕產檔`」不算** —— 那是【缺席當證據】:
+      //         沒有人打那條 route 時, 它一樣不會出現。
+      // 🔵 路徑基準 = **app 目錄**(對齊上面那些:`../../` 就是 repo 根)⇒ 這裡用 `./`。
+      './node_modules/@fontsource/noto-sans-tc/package.json',
+      './node_modules/@fontsource/noto-sans-tc/{400,700}.css',
+      './node_modules/@fontsource/noto-sans-tc/files/*-400-normal.woff2',
+      './node_modules/@fontsource/noto-sans-tc/files/*-700-normal.woff2',
     ],
     // 🛑🛑 **`./.next/static/**` 放進來是【沒有用的】—— 同一發實驗量到的:**
     //    同一個 key、同一次 build,`./src/styles/print-a4.css` ⇒ 1 而 `./.next/static/media/*.woff2` ⇒ 0。
