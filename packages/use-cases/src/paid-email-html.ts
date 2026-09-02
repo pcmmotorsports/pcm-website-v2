@@ -39,6 +39,10 @@
  */
 
 import type { PaidEmailContext } from '@pcm/ports';
+import {
+  ORDER_PAID_HTML_LEAD_SENTENCE,
+  ORDER_PAID_NEXT_STEP_SENTENCE,
+} from './order-email-copy';
 
 /**
  * 模板需要、而 `PaidEmailContext` **沒有**的那幾樣。
@@ -346,7 +350,7 @@ ${skuRow ? `              ${skuRow}\n` : ''}            </td>
           我們收到您的付款了
         </div>
         <div class="sub" style="font-family:${SANS};font-size:14px;line-height:1.75;color:#4a5765;padding-top:10px;">
-          這封信是這筆交易的明細。我們會盡快為您安排出貨，出貨後會再寄一封通知給您。
+          ${ORDER_PAID_HTML_LEAD_SENTENCE}${ORDER_PAID_NEXT_STEP_SENTENCE}
         </div>
       </td></tr>
     </table>
