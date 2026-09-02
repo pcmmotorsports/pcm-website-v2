@@ -244,7 +244,7 @@
 
 **改什麼狀態**
 
-`:183` '   全 repo 至少五處不同函式會 SET payment_status=''paid'', 只補一支會漏掉後台手動收款那條路。'
+`:183` '   ⛔ ~~全 repo 至少五處不同函式會 SET payment_status=''paid'', 只補一支會漏掉後台手動收款那條路。~~ '
 
 **允許集合** — 🔴 **本函式體內零命中**(字面比對)⇒ 要嘛它沒有狀態閘、要嘛閘的寫法本腳本抓不到。**開檔確認,不要當成「沒有閘」。**
 
@@ -252,11 +252,11 @@
 
 **改什麼狀態**
 
-`:1100` '🔴 為什麼是 trigger 不是改 confirm_order_payment:全 repo 有【至少五處不同函式】會 SET payment_status=''paid'' '
+`:1101` '⛔ ~~全 repo 有【至少五處不同函式】會 SET payment_status=''paid'' '
 
 **允許集合(逐字)**
 
-`:969` IF NEW.payment_status <> 'paid'::public.payment_status<br>`:970` OR OLD.payment_status <> 'unpaid'::public.payment_status THEN<br>`:1189` AND NEW.payment_status = 'paid'::public.payment_status<br>`:1190` AND OLD.payment_status = 'unpaid'::public.payment_status
+`:969` IF NEW.payment_status <> 'paid'::public.payment_status<br>`:970` OR OLD.payment_status <> 'unpaid'::public.payment_status THEN<br>`:1212` AND NEW.payment_status = 'paid'::public.payment_status<br>`:1213` AND OLD.payment_status = 'unpaid'::public.payment_status
 
 ### `settle_zero_total_order`  ·  `20260901030000_m4b_zero_total_settle.sql`
 
