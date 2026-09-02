@@ -244,3 +244,100 @@ describe('FilterDrawer 0 件但已選中 → 留活口', () => {
     expect(row.className).toContain('is-active');
   });
 });
+
+/**
+ * ⟦fc-FOCUSTRAP⟧ Tab 在抽屜內循環。
+ *
+ * 🔬 **這一族的綠是真的,而我先證過** —— 開工前跑了一支拋棄式探針問 jsdom:
+ *    trap 關 ⇒ 從最後一個按 Tab **不會**回到第一個
+ *    trap 開 ⇒ **會**回到第一個
+ *    ⇒ `discriminates = **true**` ⇒ **jsdom 分得出這兩個世界。**
+ * 🛑 **而同一發探針問 `inert` ⇒ `discriminates = false`**(設了之後 `focus()` 照樣成功)
+ *    ⇒ 所以本檔**故意不驗 `inert`** —— 那種格子在 CI 裡是空的綠。
+ *
+ * ⚠️ **本族守得住什麼、守不住什麼(不要讀成等價物)**:
+ *    ✅ 守得住:Tab / Shift+Tab **走不出抽屜**
+ *    🔴 **守不住:螢幕閱讀器仍然讀得到背景** —— 那要 `inert`,而它在 CI 裡驗不到
+ *    ⇒ 📌 **本族是那件事的替身,不是等價物。** 下一個動這段的人:CI 不會替你看那一半。
+ */
+describe('⟦fc-FOCUSTRAP⟧ Tab 在抽屜內循環', () => {
+  const focusablesIn = (container: HTMLElement) =>
+    [
+      ...(container
+        .querySelector('.fd-drawer')!
+        .querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled])',
+        ) ?? []),
+    ];
+
+  it('🔴 焦點在最後一個 → 按 Tab → 回到第一個(不得走出抽屜)', () => {
+    const { container } = render(<Harness open />);
+    const f = focusablesIn(container);
+    // 🟢 正對照:先證這一格有東西可以繞 —— 少於 2 個時下面的斷言會恆真。
+    expect(f.length, '抽屜裡可聚焦元素少於 2 個 ⇒ 這一格證不到循環').toBeGreaterThan(1);
+    const last = f[f.length - 1]!;
+    last.focus();
+    expect(document.activeElement, '前提:焦點要先真的落在最後一個').toBe(last);
+    fireEvent.keyDown(last, { key: 'Tab' });
+    expect(document.activeElement, 'Tab 走出了抽屜 ⇒ 客人會掉到背後的導覽列/購物車').toBe(f[0]);
+  });
+
+  it('🔴 Shift+Tab 從第一個 → 回到最後一個(反向那一半)', () => {
+    const { container } = render(<Harness open />);
+    const f = focusablesIn(container);
+    expect(f.length).toBeGreaterThan(1);
+    const first = f[0]!;
+    first.focus();
+    fireEvent.keyDown(first, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(f[f.length - 1]!);
+  });
+
+  it('🔵 中間那些不動 —— 這一片沒有把正常的 Tab 弄壞', () => {
+    const { container } = render(<Harness open />);
+    const f = focusablesIn(container);
+    expect(f.length).toBeGreaterThan(2);
+    const middle = f[1]!;
+    middle.focus();
+    fireEvent.keyDown(middle, { key: 'Tab' });
+    // 🔴 只有兩端要被攔;中間那些交給瀏覽器原生行為
+    //    (jsdom 不會自己移動焦點 ⇒ 這裡要看到的是「焦點沒有被我們搬走」)。
+    expect(document.activeElement, '中間的 Tab 被我們攔走了 ⇒ 那不是循環, 是綁架').toBe(middle);
+  });
+
+  it('🔴 開啟時焦點要移進抽屜 —— 而它是循環的【前提】不是額外的禮貌', () => {
+    const { container } = render(<Harness open />);
+    const a = document.activeElement;
+    expect(a && (a as HTMLElement).closest('.fd-drawer'), '開了而焦點留在 body ⇒ 客人要按 30 下 Tab 才進得來 ⇒ 循環等於沒做').not.toBeNull();
+    // 🟢 正對照:證明抽屜裡真的有東西可以被聚焦 —— 沒有的話上面那格會因為別的理由過。
+    expect(container.querySelector('.fd-drawer button:not([disabled])')).not.toBeNull();
+  });
+
+  it('🔴 Escape 要關得掉 —— 焦點被關起來, 就必須有一條出去的路', () => {
+    const onClose = vi.fn();
+    render(<Harness open onClose={onClose} />);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose, '只做循環而不做 Escape = 我們親手把客人關進去了').toHaveBeenCalled();
+  });
+
+  it('🔴 Escape 關掉之後, 全域 Tab 不再被攔(effect 有沒有收掉)', () => {
+    const { rerender } = render(<Harness open />);
+    // 關掉:宿主收回 open ⇒ effect 的 cleanup 應該把 listener 移除
+    rerender(<Harness open={false} />);
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    outside.focus();
+    fireEvent.keyDown(outside, { key: 'Tab' });
+    expect(document.activeElement, '抽屜關了還在吃全站的 Tab ⇒ 那是【只在別的頁面顯形】的 bug').toBe(outside);
+    outside.remove();
+  });
+
+  it('🔵 關著時不掛 listener —— 而它的反面是「關著也在攔全域 Tab」', () => {
+    render(<Harness open={false} />);
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    outside.focus();
+    fireEvent.keyDown(outside, { key: 'Tab' });
+    expect(document.activeElement, '抽屜關著卻攔了全站的 Tab').toBe(outside);
+    outside.remove();
+  });
+});
