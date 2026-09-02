@@ -296,6 +296,16 @@
 
 `:379` IF OLD.cancelled_at IS NOT NULL OR NEW.cancelled_at IS NULL THEN<br>`:403` FROM public.order_cancellations c<br>`:409` FROM public.order_cancellations c<br>`:459` '寫 SET cancelled_at(含 pg_cron 的逾期批次 UPDATE, 而那條路不建 order_cancellations)。'<br>`:466` 'admin_cancel_order 最新代(20260830020000)是先 INSERT order_cancellations(:497)才 UPDATE cancelled_at(:533)。'
 
+### `admin_mark_order_cancelled`  ·  `20260902140000_m4b_mark_order_cancelled.sql`
+
+**改什麼狀態**
+
+`:383` SET cancelled_at            = pg_catalog.now(),
+
+**允許集合(逐字)**
+
+`:307` OR v_order.cancelled_at IS NULL<br>`:316` IF v_order.cancelled_at IS NOT NULL THEN<br>`:450` 🔴 三道閘住在函式裡:cancelled_at IS NULL · payment_method = tappay · payment_status = refunded。
+
 ---
 
 ## 三、自測:本表答得出「已付款的單能不能取消品項」嗎?
