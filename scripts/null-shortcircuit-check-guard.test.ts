@@ -329,6 +329,21 @@ function normalizeSql(sql: string, opts: { strings: boolean } = { strings: true 
     chunks.push(sql.slice(from, to).replace(/[^\n]/g, ' '));
     keep = to;
   };
+  // 🔴 **遞迴進 dollar-quote 本體(只在 `strings:false`)—— 2026-09-03 R2 對抗審查逼出來的第三條路。**
+  //   `--` 在**單引號字串**裡不是註解, 而在 **`$$…$$` 本體裡它【是】—— 當那個本體是【碼】的時候**
+  //   (函式體 / `DO` 區塊)。⚠️ `$$` 也能當**純資料字面**(`INSERT … VALUES ($$a -- b$$)`),
+  //   那時 `-- b` 是資料而本版會抹白它 ⇒ **過剝, 方向是假綠**。R3 量到今天影響 0(275 支三個輸出全不變)。
+  //   ⇒ 只跳過不遞迴 ⇒ 本體裡的 `--` 留著 ⇒ **兩個方向同時壞**:
+  //     漏報 `DO $$ … ALTER … -- note; here ⏎ DROP NOT NULL; …$$`(註解裡的 `;` 卡死 `[^;]*?`)
+  //     誤報 `DO $$ -- ALTER TABLE t … DROP NOT NULL; $$`(**被註解掉的 DDL 被讀成真的**)
+  //   🛑 **我 R2 曾在這裡寫「這個 trade-off 不可避免」—— 那是【推出來的】, 而它是假的。**
+  //     三版對六種形狀:舊版 4/6 · 只跳過 5/6 · **遞迴版 6/6**(見函式旁的表)。
+  //   ✅ **長度仍然保持**(遞迴出來的子字串等長)⇒ `checkBodies` 那兩把座標尺不受影響。
+  const recurse = (from: number, to: number) => {
+    chunks.push(sql.slice(keep, from));
+    chunks.push(normalizeSql(sql.slice(from, to), opts));
+    keep = to;
+  };
   // 🔴🔴 **`opts.strings` 只決定【要不要抹掉】, 【不決定要不要解析】——**
   //    **這是 codex 2026-09-02 抓到的洞, 而它是這一片最毒的一個:**
   //    第一版在 `strings:false` 時**完全不進字串分支** ⇒ 一個字串裡的 `--` 會被當成行註解
@@ -393,6 +408,8 @@ function normalizeSql(sql: string, opts: { strings: boolean } = { strings: true 
         const j = sql.indexOf(tag, i + tag.length);
         const end = j < 0 ? sql.length : j + tag.length;
         if (opts.strings) wipe(i, end);
+        // 🔵 `j < 0` = tag 不成對 ⇒ 照舊整段跳到檔尾, 不遞迴(那一段本來就不是合法本體)。
+        else if (j >= 0) recurse(i + tag.length, j);
         i = end;
       } else {
         i += 1;
@@ -484,34 +501,104 @@ export function enclosingTable(sql: string, at: number): string | null {
  * 正規化掉識別字引號、schema 前綴與多餘空白,讓等價寫法收斂成同一形狀。
  */
 export function dropNotNullTargets(sql: string): { table: string; column: string }[] {
-  // 🛑🛑 **這一支【停在舊寫法】, 而那是一個【已知而未修】的洞 —— 收工時刻意留下, 不假裝修好了。**
+  // ✅ **洞已收(2026-09-03)。而【收它的過程】比修法本身有用, 所以整段留著。**
   //
-  //   🔴 **洞(codex 2026-09-02 抓, 我複核成立)**:
+  //   🔴 **洞(codex 2026-09-02 抓)**:
   //     `SELECT 'x -- y'; ALTER TABLE t ALTER COLUMN c DROP NOT NULL;`
-  //     ⇒ 下面這個刪除式剝註解會從**字串裡**的 `--` 抹到行尾
+  //     ⇒ 舊的刪除式剝註解會從**字串裡**的 `--` 抹到行尾
   //     ⇒ **承重的 NOT NULL 真的被拆掉了, 而這一格全綠。**
+  //     ✅ 現在走 `normalizeSql(sql,{strings:false})` —— 它**解析**字串(所以字串裡的 `--`
+  //       不再是註解)而**不抹白**(所以動態 SQL 字串裡的 `ALTER … DROP NOT NULL` 仍抓得到)。
+  //       🛑 兩半成對:改成 `strings:true` 會關掉後半 ⇒ 那是【漏報】方向, 不要順手改。
   //
-  //   🔬 **而我試了三種修法, 三種都因為【效能】收不掉, 數字全部留著給下一個人:**
-  //     ① 換成 `normalizeSql(sql,{strings:false})` ⇒ 正確, 而這道守門 **12.1s**(上限 15s)
-  //     ② 再加「先照 `;` 切句」+ 把 `[^;]*?` 放寬成 `(.*?)` ⇒ **87.4s**(我順手放寬了邊界, 更糟)
-  //     ③ 切句 + 保留 `[^;]*?` + 字串抹白 ⇒ **53.1s**, 且有一格紅
-  //   🔴 **而【分開量】的結果是這一格最有用的東西**:
-  //     `normalizeSql` 本身 **53ms**(strings:false)/ **122ms**(strings:true),
-  //     而 `dropNotNullTargets` 整支 **12,088ms** ⇒ 📌 **慢的不是正規化, 是這條 regex 的回溯。**
-  //   ⇒ 🎯 **所以下一個人的第一件事不是「換正規化」, 是【把這條 regex 改成不會回溯的形狀】** ——
-  //     換完正規化再說, 否則會像我一樣在三個修法之間繞。
+  //   🛑🛑 **而 2026-09-02 那一晚寫在這裡的診斷【是錯的】—— 舊字面留著加刪除線,**
+  //     **讓搜舊句的人同一發撞到這裡:**
+  //     ~~「慢的不是正規化, 是【這條 regex】的回溯 ⇒ 下一個人的第一件事是把這條 regex 改成
+  //       不會回溯的形狀」~~
+  //     🔬 2026-09-03 **逐段量**(275 支 migration, 合計 **6,620,924 bytes**
+  //       —— 是 `wc -c` 的位元組數, 不是 `du -sh` 的 6.9M 區塊數):
+  //       `normalizeSql(strings:false)` **64ms** · 再加 `"` 剝除 **52ms**
+  //         (⚠️ 加一步而變快 19% ⇒ **這個尺度已被雜訊主導**, 兩個數只當「50-70ms 量級」讀,
+  //          不要拿它們做逐段歸因 —— 真正有判別力的是下一行那個量級差);
+  //       再加 `.replace(/\s*\.\s*/g,'.')` ⇒ **11,167ms** ← 🎯 **11 秒整個住在這一行**
+  //     📌 **成因**:`normalizeSql` 是**長度保持**的(註解換成【空白】不是刪掉)⇒ 一段 5000 字的
+  //       註解變成 5000 個空白;而 `\s*\.\s*` 的前導 `\s*` 會在每一個位置貪婪吃完那 5000 格、
+  //       找不到 `.`、再逐格回溯 ⇒ **O(n²)**。舊寫法快, 只是因為它把註解【刪掉】了。
+  //     ✅ **修法就一件事:把 `\s+`→`' '` 挪到 `\s*\.\s*` 【前面】。**
+  //       **11,167ms ⇒ ~250ms**。`\s+` 先把空白收成單格 ⇒ `\s*` 再也沒有 5000 格可以回溯。
+  //       **基準要跟著數字走**:改之前那一版的 `flat` sha1 是 `82e5d496…`,
+  //       本版是 `0ea6e224…` ⇒ 🔴 **兩者【不同】, 那正是修好的證據**(不是「輸出沒變」)。
   //
-  //   ⚠️ **而為什麼今天不硬收**:留一個紅的工作樹會擋住別人;而把一個「正確但要 12 秒」的
-  //     版本收進去, 等於把一道守門推到逾時邊緣 —— **它下一次會以 `Test timed out` 的樣子紅,**
-  //     **而那個訊息不指向任何一段, 下一個人會從頭猜一遍。**(我今晚就猜了三次)
-  const flat = sql
-    .split('\n')
-    .map((line) => line.replace(/--.*$/, ''))
-    .join('\n')
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+  //   ⚠️⚠️⚠️ **這一格是我今晚在同一個地方連錯【兩次】的紀錄, 兩次方向相反 —— 留著全文:**
+  //     🔴 **錯 ①(R1 抓)**:我一度把 `\s*\.\s*` 換成更窄的 `/ ?\. ?/`(只吃 0-1 格空白),
+  //       並寫下「這樣順序就不是不變式了」。**那是推出來的** —— 我只比了 275 支語料的 sha1。
+  //       R1 造出我沒造的形狀打穿它:窄化之後**順序【是】不變式**, 而失效方向是靜默的:
+  //         `ALTER TABLE public.\tshipments`     正序 `public.shipments` / 反序 `public. shipments`
+  //         `ALTER TABLE public\n  .shipments`   正序 `public.shipments` / 反序 `public .shipments`
+  //       ⇒ **表名錯 ⇒ 對不上 `LOAD_BEARING_NOT_NULL` ⇒ 不紅。**
+  //     🔴 **錯 ②(R3 抓, 而它把 ① 的修法整個推翻)**:我照 R1 的處方去**寫測試釘住順序**,
+  //       而 R3 問了一個前兩輪都沒問的問題 —— **那個窄化到底買到了什麼?**
+  //       實測(暖機後各 5 發, 275 支語料):`/ ?\. ?/` **203-449ms** vs `/\s*\.\s*/` **201-361ms**
+  //       ⇒ 📌 **區間重疊, 買到 ~0** —— 而它是那個靜默失效模式的**唯一來源**。
+  //     ✅ **⇒ 改回 `/\s*\.\s*/`(順序保持)⇒ 那個不變式【連同它要防的東西一起消失】:**
+  //       ```
+  //                        順序寫錯時 →   耗時        結果        誰會看到
+  //         / ?\. ?/                     82ms       ❌ 錯       沒有人
+  //         /\s*\.\s*/(現行)            11,280ms   ✅ 正確     慢 → 可能 Test timed out(紅)
+  //       ```
+  //       ⇒ 🎯 **選的是【失敗方式】不是【速度】** —— 兩者速度一樣, 而一個壞成假綠、一個壞成紅。
+  //         本檔上面自己寫過「假紅可以排隊, 假綠不能」⇒ 這一格就是那句話的價目表。
+  //     ⇒ 🎯 **兩次的共同教訓不是「我猜錯了」, 是【我沒問那一步買到什麼就先接受了它的代價】** ——
+  //       錯 ① 是沒造一發就下斷言;錯 ② 是**照著審查的處方去補防護, 而沒有回頭問那個東西該不該在**。
+  //       📌 **一道補得很漂亮的防護, 防的是一個本來可以不存在的風險。**
+  //     🔴 另一條死路也照實留著:把那條 `ALTER TABLE` regex 改成不回溯的形狀
+  //       (錨點 + `indexOf(';')`)實測 **11,244ms** ⇒ **零效果**
+  //       ⇒ 📌 **照著那句錯診斷做的人, 會花一整晚重寫一條不是瓶頸的 regex。**
+  //     🔬 **前一班的另外兩條死路數字一併留著**(它逐字寫「數字全部留著給下一個人」, 我差點刪掉):
+  //       ② 先照 `;` 切句 + 把 `[^;]*?` 放寬成 `(.*?)` ⇒ **87.4s**  ③ 切句 + `[^;]*?` + 字串抹白 ⇒ **53.1s**
+  //       (①「換 `normalizeSql` ⇒ 12.1s」被本次量測取代, 所以只有它被改寫。)
+  //
+  //   🛑🛑 **R2 對抗審查打穿我第二條, 而這一條我改了【碼】不只改字面:**
+  //     我 R2 版寫:「`strings:false` 會把 dollar-quote 本體跳過 ⇒ 內部的 `--` 不再被剝
+  //     ⇒ 這個 trade-off **不可避免**(`--` 在 SQL 字串裡不是註解)」。
+  //     🔴 **「不可避免」是假的** —— 它把兩件事合成一件:`--` 在**單引號字串**裡確實不是註解,
+  //       而在 **`$$…$$` 本體裡它【是】**(PL/pgSQL 本體就是程式碼)⇒ **第三條路存在**,
+  //       就是上面 `recurse()` 那三行。而「不可避免」四個字的作用是**讓下一個人不去試那三行**。
+  //     🔬 **六種形狀 × 三版**(可重跑, 見下面測試那三格):
+  //       ```
+  //                                        舊版   只跳過   遞迴版
+  //       ① 字串裡的 `--` 吃掉真碼           ❌漏     ✅      ✅
+  //       ② `DO $$ … -- note; here` ⏎ DDL   ✅      ❌漏     ✅
+  //       ③ `DO $$ -- <被註解掉的 DDL>`      ✅      ❌誤報   ✅
+  //       ④⑤⑥ EXECUTE / $q$ / 一般寫法      ✅      ✅      ✅
+  //                                        4/6    5/6     6/6
+  //       ```
+  //     🛑 **而 ③ 是【誤報】方向 —— 那是我 R2 版【新造】的, 舊版沒有。**
+  //       我當時逐字寫「兩邊都是漏報方向」⇒ 也是假的。**代價**:有人看到紅會往
+  //       「真的有人拆 NOT NULL」查, 而不是往「一段被註解掉的碼被讀成真的」查。
+  //     ✅ 全 275 支語料:遞迴版與只跳過版**結果差異 0 檔**, 全跑 **~240ms**。
+  //       🔴 **而這個 0 要帶分母, 否則會被讀成「遞迴幾乎不觸發」**:同一組語料裡
+  //         `normalizeSql(strings:false)` 的**中間輸出在 223 / 275 支上不同**(R3 量)。
+  //         ⇒ 📌 **爆炸半徑 223 檔, 而兩個消費者的結果 0 檔改變** —— 那比一個裸的 0 強。
+  //   ⚠️⚠️ **而這一輪我還被打穿第三條, 它是這一片最該記的:**
+  //     我在這裡寫過「審查者先量、**我再用自己的腳本獨立重量一次, 四個數逐一相同**」。
+  //     🔴 **那句話是真的做了, 而它【不算數】** —— 我的腳本用的是我自己寫的 `$tag$` 掃描器,
+  //       **不是這支檔真正在用的 `normalizeSql`** ⇒ 我量的是另一個東西。
+  //       改用真的 `normalizeSql` 重量 ⇒ **四個數有兩個不一樣**;而我第一次改對尺之前,
+  //       還印出過一組 `275/275/266/65` —— **因為我的判別式把「被抹的註解」也算成字串。**
+  //     📌 **⇒ 三把尺三組答案, 只有中間兩個數(223 / 185)三把都同意。**
+  //       ⇒ 🎯 **所以那四個數【一個都不寫進來】** —— 照本 repo 的規矩:兩把尺不一致要回
+  //         「說不清楚」, 不要挑一個看起來對的。而遞迴版讓那段材料統計**不再需要存在**。
+  //     ⇒ 🎯 **真正的教訓:「我獨立重量過」這句話的作用是【關掉下一個人的重量動作】** ——
+  //       而它只在**用同一把尺**時才成立。用另一把尺得到相同答案, 是巧合不是複驗。
+  //   ⇒ 🎯 **母題:`Test timed out` 不指向任何一段, 而【上一個人留下的診斷】看起來就是那個指向**
+  //     **—— 它比沒有診斷更容易讓人停止量測。逐段量一次要 3 分鐘。**
+  const flat = normalizeSql(sql, { strings: false })
     .replace(/"/g, '')
-    .replace(/\s*\.\s*/g, '.')
-    .replace(/\s+/g, ' ');
+    // 🔵 **順序關乎【效能】, 不關乎【正確性】—— 而那是刻意選的, 見上面 R3 那一段。**
+    //    對調 ⇒ 11,280ms(正確但慢, 失敗方式是 `Test timed out` = 紅);不對調 ⇒ ~250ms。
+    .replace(/\s+/g, ' ')
+    .replace(/\s*\.\s*/g, '.');
   const out: { table: string; column: string }[] = [];
   const re =
     /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?([A-Za-z0-9_.]+)([^;]*?)DROP\s+NOT\s+NULL/gi;
@@ -722,6 +809,58 @@ describe('OR 串 CHECK 的 NULL 短路面守門(#641 ④ 的機制版)', () => {
       }
       expect(dropNotNullTargets('ALTER TABLE shipments ADD COLUMN foo text;')).toEqual([]);
       expect(dropNotNullTargets("ALTER TABLE shipments ALTER COLUMN carrier_code SET DEFAULT 'hct';")).toEqual([]);
+    });
+
+    it('🔴 字串裡的 `--` 不得吃掉後面的真碼(codex 2026-09-02 抓的洞, 2026-09-03 收)', () => {
+      // 舊的刪除式剝註解會從字串裡的 `--` 抹到行尾 ⇒ 後面那句 ALTER 整句消失 ⇒ 回 `[]` 而全綠。
+      // 🔴 這一格的判別力在於它是【漏報】方向:錯的時候沒有人會看到紅。
+      expect(
+        dropNotNullTargets("SELECT 'x -- y'; ALTER TABLE shipments ALTER COLUMN carrier_code DROP NOT NULL;"),
+      ).toEqual([{ table: 'shipments', column: 'carrier_code' }]);
+      // 🔵 而反方向也要釘住:`strings:false` 是刻意的 —— 動態 SQL【字串裡】的那一句仍要抓得到。
+      //    有人把它改成 `strings:true`(字串抹白)⇒ 這一格會紅, 而那正是我們要的訊號。
+      expect(
+        dropNotNullTargets("EXECUTE 'ALTER TABLE shipments ALTER COLUMN carrier_code DROP NOT NULL';"),
+      ).toEqual([{ table: 'shipments', column: 'carrier_code' }]);
+      // 🔴 R3 抓:上面那格是**頂層** `EXECUTE`, 它**走不到** dollar-quote 的遞迴分支
+      //    —— 而動態 DDL 的真實住所就是 PL/pgSQL 本體。把同一句包進去再釘一次。
+      //    (突變 `recurse(…, { strings: true })` ⇒ 只有這一格會紅。)
+      expect(
+        dropNotNullTargets("DO $$ BEGIN EXECUTE 'ALTER TABLE shipments ALTER COLUMN carrier_code DROP NOT NULL'; END $$;"),
+      ).toEqual([{ table: 'shipments', column: 'carrier_code' }]);
+    });
+
+    it('🔵 schema 限定寫法跨行/帶 tab 也要收斂成同一形狀', () => {
+      // 🛑 這兩個形狀是 R1 對抗審查造出來的, 而它們當時打穿的是一個【我後來整個拿掉的修法】
+      //    (窄化成 `/ ?\. ?/`)。現行 `/\s*\.\s*/` 兩種順序都對 ⇒ **這一格不再守順序**。
+      //    ✅ 那它守什麼:守「跨行/tab 的 schema 前綴收斂」本身 —— 語料今天 0 支這樣寫,
+      //       ⇒ 📌 **它是一發【今天沒有分母】的正對照, 而那正是它該存在的理由。**
+      for (const sql of [
+        'ALTER TABLE public.\tshipments ALTER COLUMN carrier_code DROP NOT NULL;',
+        'ALTER TABLE public\n  .shipments ALTER COLUMN carrier_code DROP NOT NULL;',
+        'ALTER TABLE "public" . "shipments" ALTER COLUMN carrier_code DROP NOT NULL;',
+      ]) {
+        expect(dropNotNullTargets(sql), sql).toEqual([{ table: 'shipments', column: 'carrier_code' }]);
+      }
+    });
+
+    it('🔴 dollar-quote 本體【裡面】的註解也要剝(R2 審查逼出來的第三條路, 兩個方向各一格)', () => {
+      // ② 漏報方向:註解裡的 `;` 會卡死那條 regex 的 `[^;]*?` ⇒ 承重的 NOT NULL 被拆掉而不紅。
+      expect(
+        dropNotNullTargets('DO $$ BEGIN ALTER TABLE t ALTER COLUMN c -- note; here\n DROP NOT NULL; END $$;'),
+      ).toEqual([{ table: 't', column: 'c' }]);
+      // ③ 誤報方向:**被註解掉的** DDL 不得被讀成真的。
+      //    🔴 這一格是我 2026-09-03 中途版本【新造】的錯,舊版沒有 —— 留著,不要拿掉。
+      expect(
+        dropNotNullTargets('DO $$ BEGIN\n  -- ALTER TABLE t ALTER COLUMN c DROP NOT NULL;\nEND $$;'),
+      ).toEqual([]);
+      // 🔵 而遞迴不得破壞【長度保持】—— `checkBodies` 的兩把座標尺全靠它。
+      //    🛑 **這一格是【定位提示】, 不是覆蓋** —— R3 實測:區塊註解 / `E'` 分支的加字突變
+      //      只被下面那格(對全 275 支跑同樣兩個宣稱)殺得死, **沒有任何突變是這一格獨力殺得死的**。
+      //      ⇒ 留著的理由只有一個:它紅的時候會把人指向 `recurse()` 而不是 `checkBodies()`。
+      const sql = "DO $$ BEGIN -- x\n  PERFORM 'a -- b'; END $$; SELECT 1;";
+      expect(normalizeSqlForTest(sql, { strings: false })).toHaveLength(sql.length);
+      expect(normalizeSqlForTest(sql, { strings: true })).toHaveLength(sql.length);
     });
   });
 });
