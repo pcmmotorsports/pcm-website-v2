@@ -281,6 +281,55 @@ export function SearchOverlay() {
             </div>
           )}
 
+          {/* 🔴🔴 **等結果的那段時間要說話** —— 而這一格【不是樣式問題,是一個不存在的分支】。
+              `viewFor()` 回三種 kind(錨:該函式的回傳型別那一行),而在本片之前 render 端只有 `failed` / `ok` 兩支
+              ⇒ **`pending` 沒有任何分支** ⇒ 那段時間整片疊層是空的。
+
+              🔴 **而它比「沒有轉圈圈」嚴重一級**:熱門搜尋 chips 也一起消失
+              (它們的條件是 `q` 為空)⇒ **客人看到的是【畫面壞掉】,不是【沒有回饋】。**
+              線上實測(2026-09-03,production,打中文一個字「貼」):
+                300 / 700 / 1100 / 1500 / 2200ms 五格取樣 ⇒ 疊層 innerText 全部是 **2 字元「取消」**
+                🟢 正對照 2500ms ⇒ 250 字元(結果出來了)⇒ 尺會動
+                🔵 同頁量:中文 1934ms vs ASCII `rsv4` 455ms ⇒ 中文那條路真的要等
+                ⚠️ **兩臂各 n=1、單次取樣**(R1 F12);且 `-mail` 的 pg_trgm 索引落地後
+                  這個對比**會反轉** ⇒ **那時要回來重量,不要引用這兩個數字。**
+              (後端那半 = `-mail` 的 pg_trgm 索引線;**本片不碰**,兩者互不衝突:
+               索引讓那段變短,本片讓那段不像壞掉。)
+
+              🔴 **鐵則 1:視覺不是我發明的,是從稿裡搬的。**
+              · 稿 `design-reference/components/SearchOverlay.jsx`(205 行)掃
+                `loading|Loading|spinner|pending|搜尋中|載入|skeleton|shimmer` ⇒ **八個字面全 0**
+                (🟢 正對照同檔 `search-overlay` ⇒ 34、`取消` ⇒ 1 ⇒ 尺是活的)
+                ⚠️ **而查無的成因要寫出來**:稿 `:4` 逐字 `const data = window.PCM_DATA;`
+                ⇒ **稿是同步讀 mock、根本沒有等待期** ⇒ 它不是「決定不畫」,是**沒有這個世界**。
+              · ⇒ 所以我去找稿裡**有等待**的元件。⛔ ~~本段原寫「**唯一**真的有等待的元件」~~
+                **2026-09-03 R1 F2 訂正:那是把 n=1 寫成全稱,而我沒有量過分母。**
+                ✅ 實際數法 `grep -rn "中…" design-reference/components/` ⇒ **3 處 / 2 個元件**:
+                  `StorePickerModal.jsx:151` `{geoState === 'loading' && '定位中…'}`(另 `:43` 逐字
+                    `// idle | loading | ok | error`)
+                  `CheckoutPage.jsx:600` 與 `:677` `{processing ? '處理中…' : …}`
+                ⇒ 🎯 **稿自己的做法是【一句「動詞+中…」的字】,不是轉圈圈圖示** ——
+                  而 n=2 個元件 / 3 處**讓這個歸納比原本更硬**,不是更軟。
+                (`is-loading` 那個 class 在 `design-reference/styles/` 掃 ⇒ **0 條 CSS 規則**。
+                 ⚠️ **而「它的處理就是換字」漏了一半**(R1 F3):同段 `:148` 還有
+                 `disabled={geoState === 'loading'}` ⇒ 稿是**換字 + 禁用**。
+                 本片沒有按鈕 ⇒ 落點不受影響,但那個歸納要寫全。)
+              · ⇒ 本格照搬那個慣例:**「搜尋中…」**。
+              ⚠️ **鐵則 1 的分母我補記(R1 F4)**:`bash scripts/design-ref-check.sh` ⇒ 本樹 submodule
+                已初始化、176 個檔(正對照 README.md 在);OD 那一側磁碟 **12** 個專案,
+                掃 `search-overlay|搜尋中|searchOverlay` 只命中 3 支 `<專案>/source/app/layout.tsx` 的
+                **註解行**(= storefront 原始碼副本、不是稿)⇒ **無競爭權威。**
+
+              🔵 **而版面重用既有的「訊息槽」,零新增 CSS**:`.search-overlay-noresults` 那組
+              (`search-overlay.css:231-243`)本來就是「疊層中央放一句話」的位置,
+              `failed` 與「查無結果」兩支都用它 ⇒ 第三種狀態沒有理由自己開一套。
+              `role="status"` 與 `failed` 那支一致(新出現的內容要唸得到)。 */}
+          {q !== '' && view.kind === 'pending' && (
+            <div className="search-overlay-noresults" role="status">
+              <div className="search-overlay-nores-label">搜尋中…</div>
+            </div>
+          )}
+
           {/* 🔴 「這次查不到」與「真的沒有這件商品」要畫**兩種**字。
               少了這一格,一次 DB 抖動會告訴客人我們沒有這件商品。 */}
           {view.kind === 'failed' && (
