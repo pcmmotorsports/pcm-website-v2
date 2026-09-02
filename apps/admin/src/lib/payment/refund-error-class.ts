@@ -1,3 +1,8 @@
+// 🔴 本檔**唯一**的 import。`@pcm/domain` 已驗**零** `import 'server-only'`
+//    (`grep -rn "^import 'server-only'" packages/domain/src/` ⇒ 0;正對照 apps/admin/src/ ⇒ 41)
+//    ⇒ 不會踩到檔頭那條「一個 import 就讓整支單元測試解析失敗」的坑。
+import { TapPayRefundUnknownStateError } from '@pcm/domain';
+
 // refund-error-class.ts — 把 unknown-state 那條路上抓到的 error,收斂成一個**封閉**的分類碼。
 //
 // ── 為什麼有這支 ───────────────────────────────────────────────────────────
@@ -41,6 +46,17 @@ export const REFUND_ERROR_CLASSES = [
   'aborted_or_timeout',
   'network_or_type',
   'malformed_response',
+  // 🔴🔴 下面兩格的差別**不是分類細不細,是值班的下一步相反**(⟦b4-REFUND10016⟧ 乙):
+  //   accepted_malformed  = TapPay **受理了**、回應形狀壞掉 ⇒ 先查**那一筆**的下落
+  //   unknown_wire_status = TapPay 回了**我們沒實證過的非 0 碼** ⇒ 先查**那個碼是什麼意思**
+  //   🛑 **兩者都是「已送出、狀態未知」⇒ 兩者都不得自動重發、都不該叫人直接重退**(codex R2)。
+  //      ⛔ ~~unknown_wire_status = 錢沒動 ⇒ 要重退~~ 是過度宣稱, 而它過度的方向是**雙退**。
+  //   ⇒ 在此之前兩者都落 `error_unclassified` ⇒ 稽核那一列上長得一樣。
+  // 🛑 **舊列回填不了**:唯一分得出來的東西(錯誤訊息字面)從來沒有被存過
+  //   ⇒ 2026-09-03 之前的列**全部**是 `error_unclassified`,而它們**分不出是哪一種**。
+  //   ⇒ 看那張表的人不要把舊列讀成「那時候都是第三種」。
+  'accepted_malformed',
+  'unknown_wire_status',
   'error_unclassified',
   'other',
 ] as const;
@@ -72,8 +88,35 @@ export function classifyRefundError(error: unknown): RefundErrorClass {
     if (error instanceof TypeError) return 'network_or_type';
     // 回應不是預期格式時的解析失敗。
     if (error instanceof SyntaxError) return 'malformed_response';
-    // 是個 Error,但不在上面任何一格 —— 仍然只回固定字面,不碰它身上的字串。
-    if (error instanceof Error) return 'error_unclassified';
+    // 🔴 兩個 throw 點的金錢意義相反(⟦b4-REFUND10016⟧ 乙)⇒ 必須排在 `instanceof Error` **之前**,
+    //    否則它先被收斂成 `error_unclassified`,而那正是本片要解掉的那一格。
+    // 🛑 **不 import `TapPayRefundUnknownStateError` 去做 `instanceof`**,兩個理由:
+    //    ① 本檔至今**零 import**,而檔頭 :30-35 記著「一個 import 就讓整支單元測試解析失敗」
+    //       的實測(那次是 server-only)⇒ 不為了一個布林值去承擔那個風險。
+    //    ② `instanceof` 跨 bundle 實例會失效(同一個 class 被打包兩份 ⇒ 判 false)
+    //       ⇒ 而它失敗的方向是**靜靜地退回 error_unclassified** ⇒ 與本片沒做一模一樣、零訊號。
+    //    ✅ 改成比對**封閉字面**:值只可能是下面那兩個字串之一,不回傳任何來自外部的字元
+    //       ⇒ 仍然守住本檔「不碰它身上的字串」那條紀律。
+    if (error instanceof Error) {
+      // 🔴🔴 **codex R1 must-fix(2026-09-03)**:我第一版只比對 `outcome` 的字面, 沒有驗身分
+      //    ⇒ **任何**帶 `{outcome:'unknown_wire_status'}` 的 Error(例如某個自訂 abort reason
+      //      剛好用了同名欄位)都會被冠上一個它不該有的分類 ⇒ 值班被送去查錯的東西, 而這條路動的是錢。
+      //    🎯 **而錯的方向不對稱**:誤判會把值班送去錯的地方查, 而動錢那一側的代價是雙退。
+      //      ⇒ 撞名要落在**安全的那一側**(退回「分不出是哪一類」), 而我第一版讓它落在貴的那一側。
+      // 🔴 **codex R2 must-fix**:我 R1 的修法用 `name` 當身分 —— 而 `name` 是一個**可寫欄位**,
+      //    一般 Error 可以同時設 `name` 與 `outcome` ⇒ 雙撞就繞過去了, 而我的測試只撞了單邊。
+      // ✅ 改用 `instanceof` —— **設欄位偽造不了它**。
+      //    ⛔ ~~我原本避開 instanceof 是怕跨 bundle 實例失效~~ ⇒ 那個顧慮**在本 repo 被既有實作否證**:
+      //      `refund-actions.ts:567` 早就在同一個 app 裡對同一個型別做 instanceof, 而它在跑。
+      //    🛑 而 instanceof 若真的因為 bundle 而失效, 它的方向是【退回 error_unclassified】
+      //      —— 那是安全的那一側(多查一次), 不是叫人去重退。
+      const isUnknownState = error instanceof TapPayRefundUnknownStateError;
+      const outcome = (error as { readonly outcome?: unknown }).outcome;
+      if (isUnknownState && outcome === 'accepted_malformed') return 'accepted_malformed';
+      if (isUnknownState && outcome === 'unknown_wire_status') return 'unknown_wire_status';
+      // 是個 Error,但不在上面任何一格 —— 仍然只回固定字面,不碰它身上的字串。
+      return 'error_unclassified';
+    }
     // 連 Error 都不是(throw 了字串 / 物件 / null)。
     return 'other';
   } catch {

@@ -1283,6 +1283,54 @@ describe('#906:refund_id 出得來嗎(唯一變因 = wire.status)', () => {
     expect((err as TapPayRefundUnknownStateError).refundId).toBeNull();
   });
 
+  // ═══ ⟦b4-REFUND10016⟧ 乙:兩個 throw 點的 outcome 相反 ══════════════════════
+  //
+  // 🔴 **期望值從規格推,不是從實作抄**:
+  //    status === 0  ⇒ TapPay **受理了** ⇒ 先查**那一筆退款**的下落
+  //    status !== 0  ⇒ **沒實證過的碼** ⇒ 先查**那個碼是什麼意思**
+  //    🛑 兩者都是「已送出、狀態未知」⇒ 都不得自動重發(codex R2:非 0 不等於錢沒動,
+  //       乾淨拒絕的碼在上游就回 status:'rejected' 了, 走到這裡的是我們沒見過的碼)。
+  //    ⇒ 兩者對調 = 把值班指往錯的地方 ⇒ 下面前兩格的具體值就是釘住那一格的。
+  it('🔴 沒實證過的碼(status 10016)⇒ outcome = unknown_wire_status', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(wireWith({ status: 10016 }))));
+    const err = await new TapPayChargeAdapter(CONFIG)
+      .refund(PARTIAL_PAYLOAD)
+      .catch((e: unknown) => e);
+    expect((err as TapPayRefundUnknownStateError).outcome).toBe('unknown_wire_status');
+  });
+
+  it('🔴 受理但形狀異常(status 0)⇒ outcome = accepted_malformed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse({ status: 0, msg: 'Success', refund_id: DR })),
+    );
+    const err = await new TapPayChargeAdapter(CONFIG)
+      .refund(PARTIAL_PAYLOAD)
+      .catch((e: unknown) => e);
+    expect((err as TapPayRefundUnknownStateError).outcome).toBe('accepted_malformed');
+  });
+
+  // 🛑 **這一格擋的不是「對調」** —— 對調之後兩者仍然不同, 本格照樣綠(2026-09-03 實測:
+  //    對調 ⇒ 上面兩格紅 2 格, 而本格【不紅】)。⇒ 對調由上面那兩格的【具體值】擋。
+  //    本格擋的是另一種:**兩個 throw 點被寫成同一個值**(例如複製貼上時漏改一邊)
+  //    —— 那種錯上面兩格只紅一格, 而它讀起來像「其中一格寫錯了」, 不像「兩者不再有區別」。
+  it('🔴🔴 兩條路的 outcome **必須不同** —— 兩邊被寫成同一個值, 這一格就紅', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(wireWith({ status: 10016 }))));
+    const rejected = await new TapPayChargeAdapter(CONFIG)
+      .refund(PARTIAL_PAYLOAD)
+      .catch((e: unknown) => e);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse({ status: 0, msg: 'Success', refund_id: DR })),
+    );
+    const accepted = await new TapPayChargeAdapter(CONFIG)
+      .refund(PARTIAL_PAYLOAD)
+      .catch((e: unknown) => e);
+    expect((rejected as TapPayRefundUnknownStateError).outcome).not.toBe(
+      (accepted as TapPayRefundUnknownStateError).outcome,
+    );
+  });
+
   it('🔴 而它**不得**與 NotSent 互換 —— 那兩者的下一步相反(一個可重試、一個絕不可)', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(wireWith({ status: 10016 }))));
     const err = await new TapPayChargeAdapter(CONFIG)

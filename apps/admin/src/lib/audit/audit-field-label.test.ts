@@ -262,3 +262,46 @@ describe('字典本身的形狀', () => {
     expect(blank).toEqual([]);
   });
 });
+
+// ═══ ⟦b4-REFUND10016⟧ 乙 · codex R2 must-fix 的回歸格 ═════════════════════════
+//
+// 🔴 我第一版把 `unknown_wire_status` 的文案寫成「錢沒有動, 要重退」—— 而那是**過度宣稱**:
+//    `TapPayChargeAdapter.ts:490` 逐字「其餘非 0 碼(含 kind='full' 的任何非 0 碼 —— 組合未實證)」
+//    ⇒ 非 0 **不等於**乾淨拒絕(乾淨拒絕的碼在上游就回 `status:'rejected'` 了)。
+//    ⇒ 照那句文案去做 = **同一筆退兩次**。
+//
+// 🛑 **而本 repo 早有這條紀律 —— `refund-money-line-forbidden.test.ts`**
+//    ⚠️ 而它只 import `refund-action-state`, **本檔結構上不在它的分母裡**
+//    ⇒ 所以那道守門對這兩句【完全失明】, 而它照樣全綠。這一格就是補那個洞。
+describe('⟦b4-REFUND10016⟧ 這兩個分類碼的文案不得宣稱錢沒動、不得叫人直接重退', () => {
+  const CLAIMS_NO_MONEY_MOVED = /錢沒有動|錢沒動|沒有動到錢|款項未動/;
+  const TELLS_TO_RETRY = /要重退|再退一次(?!)|重新退款/;
+  const CODES = ['accepted_malformed', 'unknown_wire_status'] as const;
+
+  it('兩句都不得宣稱「錢沒有動」', () => {
+    for (const code of CODES) {
+      // 🔴 是 `AUDIT_VALUE_LABEL`(值的中文)不是 `AUDIT_FIELD_LABEL`(欄位名的中文)——
+      //    我第一版引錯, 而它紅在「沒有文案」⇒ 讀起來像【碼沒改到】, 而其實是【尺指錯地方】。
+      // 🔴 `error_class` 這一格本身可能不存在(Record 索引)—— 先斷言它在, 型別才收得住,
+      //    而那一發同時也是「這兩個分類碼真的被登記了」的斷言。
+      const table = AUDIT_VALUE_LABEL.error_class;
+      expect(table, 'error_class 這張表不存在').toBeTruthy();
+      const msg = table?.[code];
+      expect(msg, `${code} 沒有文案`).toBeTruthy();
+      expect(msg, `${code} 不得宣稱錢沒有動`).not.toMatch(CLAIMS_NO_MONEY_MOVED);
+    }
+  });
+
+  it('兩句都不得叫值班直接重退', () => {
+    for (const code of CODES) {
+      expect(AUDIT_VALUE_LABEL.error_class?.[code]).not.toMatch(TELLS_TO_RETRY);
+    }
+  });
+
+  it('🔵 正對照:這把尺抓得到 —— 餵一句違規的字面必須命中', () => {
+    // 🛑 沒有這一格, 上面兩個 not.toMatch 在【尺壞掉】時也會全綠。
+    expect('TapPay 拒絕了 ⇒ 錢沒有動, 要重退').toMatch(CLAIMS_NO_MONEY_MOVED);
+    expect('TapPay 拒絕了 ⇒ 錢沒有動, 要重退').toMatch(TELLS_TO_RETRY);
+  });
+});
+

@@ -429,6 +429,9 @@ export class TapPayChargeAdapter implements ITapPayAdapter {
         throw new TapPayRefundUnknownStateError(
           `TapPay refund 受理回應格式異常(refund_id ${refundId ?? '缺'} / refund_amount ${wire.refundAmount ?? '缺'};狀態未知、不得自動重發;rec ${transactionId} / bank_refund ${bankRefundId})`,
           refundId ?? null,
+          // 🔴 與上面那發 `logRefund` 的 `outcome` **同一個來源、同一個字面**(不重打一份)。
+          //    這一支是 `wire.status === 0` 那條 ⇒ TapPay 受理了 ⇒ **錢可能已經出去**。
+          'accepted_malformed',
         );
       }
       return {
@@ -499,6 +502,12 @@ export class TapPayChargeAdapter implements ITapPayAdapter {
     throw new TapPayRefundUnknownStateError(
       `TapPay refund 未實證回應碼 ${wire.status}(kind ${kind};狀態未知、不得自動重發;rec ${transactionId} / bank_refund ${bankRefundId})`,
       wire.refundId ?? null,
+      // 🔴 這一支是 `wire.status !== 0` 且**該碼未實證**那條 ⇒ **狀態未知**。
+      //    🛑 **不是「錢沒動」**(codex R2):乾淨拒絕的碼在上面就回 `status:'rejected'` 了,
+      //      走到這裡的是**我們沒見過的碼** ⇒ 它動了沒, 這支碼答不出來。
+      //    ⚠️ 與上面那一支的**下一步不同**(先查那個碼 vs 先查那筆已受理的退款);
+      //      對調兩者 = 值班被指往錯的地方(突變測試釘住這一格)。
+      'unknown_wire_status',
     );
   }
 
