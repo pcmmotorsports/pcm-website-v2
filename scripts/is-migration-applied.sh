@@ -58,6 +58,20 @@ printf '======== is-migration-applied ========\n'
 printf '檔  %s\n' "$BASE"
 printf '版本 %s\n\n' "$VER"
 
+# ── 🔴🔴 先剝掉註解, 而【所有抽取都必須讀剝過的那一份】───────────────────────
+# 2026-09-03 實測:本支對正式庫產出了【兩個不存在的欄名】, 而兩個都來自 `--` 註解行:
+#   20260901020000 ⇒ 抽到 `pid4`(:164 的註解「· ADD COLUMN pid4 uuid …」)
+#                     而它真正加的是 `coupon_id`
+#   20260901030000 ⇒ 抽到 `capture_state`(:1621 的註解, 在講【別支】migration)
+#                     而它根本【沒有 ADD COLUMN】
+# ⇒ 📌 產出的查詢問了一個不存在的欄 ⇒ 回 0 ⇒ **而那個 0 被讀成「這支沒貼」。**
+#    一個問錯對象的查詢, 回的是一個【格式完全正確】的錯誤答案。
+# 🛑 而這是同一個病的第二次:我先前只對「函式 body」那條路修過(那次是註解裡的 md5)
+#    ⇒ **修一個被點名的實例, 不等於修那個類別。** 這次剝在源頭, 所有抽取共用。
+NOCMT="${TMPDIR:-/tmp}/is-applied-nocmt-$VER.sql"
+sed 's/--.*$//' "$FILE" > "$NOCMT"
+
+
 # ── 帳本那一格(只印, 不當判準)────────────────────────────
 # 🔴 `grep -c` 命中 0 時【印 0 而 rc=1】⇒ 加 `|| echo 0` 會印出「0\n0」, 而它讀起來像兩列。
 #    那正是本 repo 記過的「一個合法的零會截斷 &&」同一族 ⇒ 用 `; true` 吞 rc, 不要補印。
@@ -73,27 +87,27 @@ FOUND=0
 emit() { FOUND=$((FOUND+1)); printf '%s\n' "$1"; }
 
 # 新表 / 新 index / 新 policy / 新 view / 新 type —— 存在性【有】判別力
-grep -oE '^[[:space:]]*CREATE (UNIQUE )?(TABLE|INDEX|POLICY|VIEW|TYPE|SCHEMA)[[:space:]]+(IF NOT EXISTS[[:space:]]+)?[A-Za-z0-9_."]+' "$FILE" 2>/dev/null \
+grep -oE '^[[:space:]]*CREATE (UNIQUE )?(TABLE|INDEX|POLICY|VIEW|TYPE|SCHEMA)[[:space:]]+(IF NOT EXISTS[[:space:]]+)?[A-Za-z0-9_."]+' "$NOCMT" 2>/dev/null \
 | sed 's/^[[:space:]]*//' | sort -u | while IFS= read -r L; do
   printf '  🟢 %s\n     判別力【有】—— 這是新物件, 沒貼就不存在。\n' "$L"
 done
-CNT_NEW=$(grep -cE '^[[:space:]]*CREATE (UNIQUE )?(TABLE|INDEX|POLICY|VIEW|TYPE|SCHEMA)' "$FILE" 2>/dev/null; true)
+CNT_NEW=$(grep -cE '^[[:space:]]*CREATE (UNIQUE )?(TABLE|INDEX|POLICY|VIEW|TYPE|SCHEMA)' "$NOCMT" 2>/dev/null; true)
 [ "$CNT_NEW" -gt 0 ] && FOUND=$((FOUND+CNT_NEW))
 
 # CREATE OR REPLACE FUNCTION —— 存在性【零】判別力
-grep -oE '^[[:space:]]*CREATE OR REPLACE FUNCTION[[:space:]]+[A-Za-z0-9_."]+' "$FILE" 2>/dev/null \
+grep -oE '^[[:space:]]*CREATE OR REPLACE FUNCTION[[:space:]]+[A-Za-z0-9_."]+' "$NOCMT" 2>/dev/null \
 | sed 's/^[[:space:]]*//' | sort -u | while IFS= read -r L; do
   printf '  🔴 %s\n     判別力【零】—— 舊版新版都在。要問的是 **body 裡有沒有新版才有的字面**。\n' "$L"
 done
-CNT_COR=$(grep -cE '^[[:space:]]*CREATE OR REPLACE FUNCTION' "$FILE" 2>/dev/null; true)
+CNT_COR=$(grep -cE '^[[:space:]]*CREATE OR REPLACE FUNCTION' "$NOCMT" 2>/dev/null; true)
 [ "$CNT_COR" -gt 0 ] && FOUND=$((FOUND+CNT_COR))
 
 # ADD CONSTRAINT + RENAME 舞步 —— 名字【零】判別力
-CNT_REN=$(grep -cE 'RENAME CONSTRAINT' "$FILE" 2>/dev/null; true)
-CNT_ADD=$(grep -cE 'ADD CONSTRAINT' "$FILE" 2>/dev/null; true)
+CNT_REN=$(grep -cE 'RENAME CONSTRAINT' "$NOCMT" 2>/dev/null; true)
+CNT_ADD=$(grep -cE 'ADD CONSTRAINT' "$NOCMT" 2>/dev/null; true)
 if [ "$CNT_ADD" -gt 0 ]; then
   FOUND=$((FOUND+CNT_ADD))
-  grep -oE 'ADD CONSTRAINT[[:space:]]+[A-Za-z0-9_]+' "$FILE" | sort -u | while IFS= read -r L; do
+  grep -oE 'ADD CONSTRAINT[[:space:]]+[A-Za-z0-9_]+' "$NOCMT" | sort -u | while IFS= read -r L; do
     if [ "$CNT_REN" -gt 0 ]; then
       printf '  🔴 %s\n     判別力【零】—— 本檔有 RENAME CONSTRAINT ⇒ 貼完之後名字跟貼之前【一樣】。\n' "$L"
       printf '     要問的是 **約束定義裡有沒有新值**。\n'
@@ -104,10 +118,10 @@ if [ "$CNT_ADD" -gt 0 ]; then
 fi
 
 # ADD COLUMN —— 有判別力
-grep -oE 'ADD COLUMN[[:space:]]+(IF NOT EXISTS[[:space:]]+)?[A-Za-z0-9_]+' "$FILE" 2>/dev/null | sort -u | while IFS= read -r L; do
+grep -oE 'ADD COLUMN[[:space:]]+(IF NOT EXISTS[[:space:]]+)?[A-Za-z0-9_]+' "$NOCMT" 2>/dev/null | sort -u | while IFS= read -r L; do
   printf '  🟢 %s\n     判別力【有】—— 新欄位, 沒貼就不存在。\n' "$L"
 done
-CNT_COL=$(grep -cE 'ADD COLUMN' "$FILE" 2>/dev/null; true)
+CNT_COL=$(grep -cE 'ADD COLUMN' "$NOCMT" 2>/dev/null; true)
 [ "$CNT_COL" -gt 0 ] && FOUND=$((FOUND+CNT_COL))
 
 if [ "$FOUND" -eq 0 ]; then
@@ -124,17 +138,19 @@ printf '      一個都找不到的 ⇒ 它很可能就是這支新加的值。\
 printf '🛑 這是【猜的】。它會漏(新值剛好在舊檔的註解裡出現過)也會多(無關的新字串)。\n'
 printf '   ⇒ 底下每一個候選都要你自己開檔核, 而依據就是它們為什麼被選中。\n\n'
 NOVEL=""
-for LIT in $(grep -oE "'[a-z][a-z0-9_]{3,40}'" "$FILE" | sort -u | tr -d "'"); do
-  HIT=0
-  for OLD in "$MIGDIR"/*.sql; do
-    OB=$(basename "$OLD"); OV=$(printf '%s' "$OB" | sed 's/_.*//')
-    [ "$OV" -lt "$VER" ] 2>/dev/null || continue
-    if grep -q "'$LIT'" "$OLD" 2>/dev/null; then HIT=1; break; fi
-  done
-  if [ "$HIT" -eq 0 ]; then
-    printf '  🔵 候選新字面: %s\n' "$LIT"
-    NOVEL="$NOVEL $LIT"
-  fi
+# 🔴 2026-09-03 改:原本【每個字面】都重掃一次全部 migration ⇒ O(字面 × 檔案)
+#    ⇒ 實測 11 支跑不完 2 分鐘。✅ 改成先串成【一份語料】, 每個字面只查那一份。
+CORPUS="${TMPDIR:-/tmp}/is-applied-corpus-$VER.txt"
+: > "$CORPUS"
+for OLD in "$MIGDIR"/*.sql; do
+  OV=$(basename "$OLD" | sed 's/_.*//')
+  [ "$OV" -lt "$VER" ] 2>/dev/null || continue
+  cat "$OLD" >> "$CORPUS"
+done
+for LIT in $(grep -oE "'[a-z][a-z0-9_]{3,40}'" "$NOCMT" | sort -u | tr -d "'"); do
+  if grep -q "'$LIT'" "$CORPUS" 2>/dev/null; then continue; fi
+  printf '  🔵 候選新字面: %s\n' "$LIT"
+  NOVEL="$NOVEL $LIT"
 done
 [ -n "$NOVEL" ] || printf '  ⚠️ 找不到任何「早於本檔的 migration 都沒出現過」的字面。\n     ⇒ 這支的新東西可能不是一個字串 ⇒ 請人工開檔看。\n'
 printf '\n'
@@ -145,7 +161,7 @@ OUT="${TMPDIR:-/tmp}/is-applied-$VER.sql"
 printf -- '-- 「%s 貼了沒」唯讀查詢 —— 由 scripts/is-migration-applied.sh 產生\n' "$BASE"
 printf -- '-- 🛑 零寫入, 可安全重跑。每一格都附【兩個世界的期望值】。\n'
 printf -- '-- 🔴 回 0 之前先看正對照:正對照不對, 那個 0 是尺沒接上, 不是「沒貼」。\n\n'
-grep -oE '^[[:space:]]*CREATE OR REPLACE FUNCTION[[:space:]]+[A-Za-z0-9_.]+' "$FILE" 2>/dev/null | sed 's/.*FUNCTION[[:space:]]*//' | sort -u | while IFS= read -r FN; do
+grep -oE '^[[:space:]]*CREATE OR REPLACE FUNCTION[[:space:]]+[A-Za-z0-9_.]+' "$NOCMT" 2>/dev/null | sed 's/.*FUNCTION[[:space:]]*//' | sort -u | while IFS= read -r FN; do
   SCH=$(printf '%s' "$FN" | cut -d. -f1); NM=$(printf '%s' "$FN" | cut -d. -f2)
   printf -- '-- 🔵 正對照:函式在不在(期望 1)。回 0 ⇒ 尺沒接上。\n'
   printf -- "SELECT '正對照 %s 存在(期望1)' AS 格, count(*)::text AS 值\n" "$FN"
@@ -172,7 +188,37 @@ grep -oE '^[[:space:]]*CREATE OR REPLACE FUNCTION[[:space:]]+[A-Za-z0-9_.]+' "$F
   printf -- "SELECT '負對照 現造字面(期望0)' AS 格, count(*)::text AS 值\n"
   printf -- "  FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace\n WHERE n.nspname='%s' AND p.proname='%s'\n   AND pg_catalog.pg_get_functiondef(p.oid) LIKE '%%zzq_not_a_real_token_9f%%';\n\n" "$SCH" "$NM"
 done
-grep -oE 'ADD CONSTRAINT[[:space:]]+[A-Za-z0-9_]+' "$FILE" 2>/dev/null | sed 's/.*CONSTRAINT[[:space:]]*//' | sort -u | while IFS= read -r CN; do
+# ── 新物件(表 / view / index / policy / 新欄)—— 存在性【有】判別力, 一發查完 ──────
+# 🔴 2026-09-03 補:本段原本【不存在】⇒ 對「新物件」型的 migration 產出的是一個【只有檔頭的空檔】,
+#    而它照樣印「唯讀 SQL 已產出」⇒ 📌 一個空的產物, 長得跟成功一模一樣。
+grep -oE '^[[:space:]]*CREATE (TABLE|VIEW|MATERIALIZED VIEW)[[:space:]]+(IF NOT EXISTS[[:space:]]+)?[A-Za-z0-9_.]+' "$NOCMT" 2>/dev/null \
+| sed -E 's/.*(TABLE|VIEW)[[:space:]]+(IF NOT EXISTS[[:space:]]+)?//' | sort -u | while IFS= read -r T; do
+  SCH=$(printf '%s' "$T" | awk -F. 'NF>1{print $1} NF==1{print "public"}')
+  NM=$(printf '%s' "$T" | awk -F. '{print $NF}')
+  printf -- '-- 🟢 判別:這張表/view 在不在(1=已貼 / 0=沒貼)。新物件 ⇒ 存在性【有】判別力。\n'
+  printf -- "SELECT '表/view %s 存在(1=已貼)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE n.nspname='%s' AND c.relname='%s';\n\n" "$T" "$SCH" "$NM"
+  printf -- '-- 🔵 正對照:同一把尺去找一張【一定在】的表(期望 1)。回 0 ⇒ 尺沒接上, 上面那個 0 不算數。\n'
+  printf -- "SELECT '正對照 public.orders 存在(期望1)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE n.nspname='public' AND c.relname='orders';\n\n"
+  printf -- '-- 🔵 負對照:現造名(期望 0)。\n'
+  printf -- "SELECT '負對照 現造表名(期望0)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE n.nspname='public' AND c.relname='zzq_not_a_real_table_9f';\n\n"
+done
+grep -oE '^[[:space:]]*CREATE (UNIQUE )?INDEX[[:space:]]+(IF NOT EXISTS[[:space:]]+)?[A-Za-z0-9_]+' "$NOCMT" 2>/dev/null \
+| sed -E 's/.*INDEX[[:space:]]+(IF NOT EXISTS[[:space:]]+)?//' | sort -u | while IFS= read -r IX; do
+  printf -- "SELECT '索引 %s 存在(1=已貼)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_class WHERE relname='%s' AND relkind='i';\n\n" "$IX" "$IX"
+done
+grep -oE '^[[:space:]]*CREATE POLICY[[:space:]]+"?[A-Za-z0-9_ ]+"?' "$NOCMT" 2>/dev/null \
+| sed -E 's/.*POLICY[[:space:]]+//; s/"//g' | sort -u | while IFS= read -r PO; do
+  printf -- "SELECT 'policy %s 存在(1=已貼)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_policy WHERE polname='%s';\n\n" "$PO" "$PO"
+done
+grep -oE 'ADD COLUMN[[:space:]]+(IF NOT EXISTS[[:space:]]+)?[A-Za-z0-9_]+' "$NOCMT" 2>/dev/null \
+| sed -E 's/.*COLUMN[[:space:]]+(IF NOT EXISTS[[:space:]]+)?//' | sort -u | while IFS= read -r CO; do
+  TBL=$(grep -B4 "ADD COLUMN[[:space:]]*\(IF NOT EXISTS[[:space:]]*\)\?$CO" "$NOCMT" | grep -oE 'ALTER TABLE[[:space:]]+[A-Za-z0-9_.]+' | tail -1 | sed 's/.*TABLE[[:space:]]*//;s/.*\.//')
+  printf -- '-- 🟢 判別:這個新欄在不在(1=已貼 / 0=沒貼)。\n'
+  printf -- "SELECT '欄 %s.%s 存在(1=已貼)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_class c ON c.oid=a.attrelid\n WHERE c.relname='%s' AND a.attname='%s' AND a.attnum > 0 AND NOT a.attisdropped;\n\n" "${TBL:-?}" "$CO" "${TBL:-?}" "$CO"
+  printf -- '-- 🔵 正對照:同一張表上一個【一定在】的欄(期望 1)。回 0 ⇒ 表名抽錯了。\n'
+  printf -- "SELECT '正對照 %s.id 存在(期望1)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_class c ON c.oid=a.attrelid\n WHERE c.relname='%s' AND a.attname='id' AND a.attnum > 0;\n\n" "${TBL:-?}" "${TBL:-?}"
+done
+grep -oE 'ADD CONSTRAINT[[:space:]]+[A-Za-z0-9_]+' "$NOCMT" 2>/dev/null | sed 's/.*CONSTRAINT[[:space:]]*//' | sort -u | while IFS= read -r CN; do
   REAL=$(printf '%s' "$CN" | sed 's/_v[0-9]*$//')
   printf -- '-- 🔵 正對照:約束在不在(期望 1)。\n'
   printf -- "-- 🛑 注意本檔有 RENAME ⇒ 貼完之後名字是 %s(不是 %s)⇒ 這一格【零判別力】, 只證尺接上了。\n" "$REAL" "$CN"
@@ -184,7 +230,7 @@ grep -oE 'ADD CONSTRAINT[[:space:]]+[A-Za-z0-9_]+' "$FILE" 2>/dev/null | sed 's/
   #    20260810010000(完全不同的語境)出現過 ⇒ 啟發式把它濾掉 ⇒ **候選裡沒有正確答案**。
   #    ⇒ 📌 一個會漏而不出聲的判別點, 比沒有判別點糟。
   # ✅ 改法:把**這一條 CHECK 裡的每一個值**都問一遍, 不篩。多問幾格不花錢, 漏掉那一格會給錯答案。
-  for LIT in $(grep -A3 "ADD CONSTRAINT[[:space:]]*$CN" "$FILE" | grep -oE "'[a-z][a-z0-9_]*'" | tr -d "'" | sort -u); do
+  for LIT in $(grep -A3 "ADD CONSTRAINT[[:space:]]*$CN" "$NOCMT" | grep -oE "'[a-z][a-z0-9_]*'" | tr -d "'" | sort -u); do
     printf -- "SELECT '定義含 %s(該有=1)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_constraint\n WHERE conname='%s' AND pg_catalog.pg_get_constraintdef(oid) LIKE '%%%s%%';\n\n" "$LIT" "$REAL" "$LIT"
   done
   printf -- '-- 🔴 判讀:上面那組值【全部都是 1】才是已貼。少任何一個 ⇒ 正式庫是舊版。\n'
@@ -201,7 +247,12 @@ WRITES=$(grep -ciE '^[[:space:]]*(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCAT
 printf '──── ③ 唯讀 SQL 已產出 ────\n'
 printf '  路徑 %s\n' "$OUT"
 printf '  行數 %s · 寫入類語句 %s(必須是 0)\n' "$LINES" "$WRITES"
-if [ "$LINES" -le 3 ]; then
+# 🔴 2026-09-03 訂正:原本判 `$LINES -le 3` —— 而光檔頭就 4 行 ⇒ **那道警告結構上永遠不會叫**。
+#    📌 一道不會叫的警告, 與沒有那道警告, 在輸出上長得一模一樣。
+#    ✅ 改成數【真的查詢】:SELECT 的條數。
+SELECTS=$(grep -ci '^SELECT' "$OUT" 2>/dev/null; true)
+printf '  查詢條數 %s\n' "$SELECTS"
+if [ "$SELECTS" -eq 0 ]; then
   printf '  ⚠️ **這支我產不出有意義的查詢** ⇒ 上面 ① 抽不到可查的物件形狀。\n'
   printf '     ⇒ 請人工開檔看。**本支寧可說做不到, 不產一段看起來像答案的 SQL。**\n'
 fi
