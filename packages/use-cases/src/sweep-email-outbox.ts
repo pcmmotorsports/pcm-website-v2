@@ -12,8 +12,12 @@ import type {
 } from '@pcm/ports';
 import { renderPaidEmailHtml } from './paid-email-html';
 import {
+  ORDER_CANCELLED_HEADLINE_NO_ID,
+  ORDER_CANCELLED_HEADLINE_WITH_ID,
   ORDER_MEMBER_CENTER_SENTENCE,
   ORDER_PAID_NEXT_STEP_SENTENCE,
+  ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE,
+  sanitizeCustomerFacingReason,
 } from './order-email-copy';
 import {
   computeEmailBackoff,
@@ -331,6 +335,11 @@ function buildEmailText(job: ClaimedEmailJob, shipped: ShippedEmailContext | nul
   switch (job.eventType) {
     case 'order_created':
       return buildOrderCreatedText(job);
+    case 'order_unpaid_cancelled':
+      // 🔵 **不需要 `shipped` 之類的第二來源** —— 這封信要的東西全在 `payload` 裡
+      //    (訂單編號 + 對客的取消原因),而那是刻意的:**它是一封「事情不會再發生了」的信**,
+      //    不需要品項、不需要金額、不需要箱號。
+      return buildOrderUnpaidCancelledText(job);
     case 'order_shipped':
       // 🔴 **到得了這裡 ⇒ 呼叫端【已經】拿到 `kind:'ok'` 的 context**(三態的另外兩態、
       //    `linesTruncated`、空品項,全部在迴圈裡就 `continue` 掉了,不會走到本行)。
@@ -514,6 +523,58 @@ function buildOrderCreatedText(job: ClaimedEmailJob): string {
  *    📌 **一句寫在碼裡的待辦,沒有任何東西會叫醒它 —— 它與一句寫完就完成了的註解,
  *      在檔案上長得一模一樣。**
  */
+/**
+ * 取消通知信(`order_unpaid_cancelled`)——「**未付款**的單被【員工】取消」。
+ *
+ * 🔴 **射程(Sean 2026-09-03 拍乙)**:只涵蓋**員工在後台按下取消**。
+ *    `expire_unpaid_orders`(pg_cron 自動逾時,一次上限 500 張)**不寄**
+ *    —— 而那件事**不是靠這支函式擋的**,它靠 `scripts/expire-unpaid-orders-no-email.test.ts`
+ *    (那條路一次可取消 500 張單 ⇒ 接上寄信 = 一次寄出上百封,而信收不回來)。
+ *
+ * 🔴 **「為什麼取消」那一句【不由本檔造】** —— 它由 `payload.cancelled_reason` 帶進來,
+ *    而那個欄位的字面來自 `admin_cancel_order` 的七值映射表
+ *    (`20260830020000` 錨 `WHEN 'customer_request' THEN '依您要求取消'`),
+ *    **那些字本來就是寫給客人看的、今天就在 `orders.cancelled_reason` 裡** ⇒ **零新造文案。**
+ *    🛑 **而 `other` 那一格是員工自己打的字**(沒有審稿的對外字面)⇒ 已端 Sean;
+ *      **在他回答之前,enqueue 那一片有責任決定要不要把 `other` 的原文放進 payload。**
+ *      ⇒ 📌 本函式**只印它拿到的東西**,不替那個決定背書。
+ *
+ * 🔵 **只做純文字** —— 出貨信今天就是純文字,HTML 那條路只服務付款成功信(規格 §11)。
+ *
+ * ⚠️ **缺欄位時的行為是刻意的**:
+ *    · 沒有 `display_id` ⇒ 走不含編號的那一句 —— **不印 `undefined`、不印空白**(那會直接到客人眼前)
+ *    · 沒有 `cancelled_reason` ⇒ **整段不印**,而不是印一行空的「取消原因:」
+ *      ⇒ 📌 **少一句話,好過一句沒有內容的話。**
+ */
+function buildOrderUnpaidCancelledText(job: ClaimedEmailJob): string {
+  const payload = job.payload;
+  const readStr = (key: string): string | null => {
+    if (typeof payload !== 'object' || payload === null || !(key in payload)) return null;
+    const v = (payload as Record<string, unknown>)[key];
+    return typeof v === 'string' && v.trim() !== '' ? v : null;
+  };
+  // 🔴 `display_id` 同樣可能是字面 "undefined"(上游 String(undefined))⇒ 走退化句而不是印它
+  const rawDisplayId = readStr('display_id');
+  const displayId =
+    rawDisplayId === null ? null : sanitizeCustomerFacingReason(rawDisplayId);
+  // 🔴 **員工打的那段字要先整形** —— 它是自由文字, 而它會原封進到客人眼前(codex 三條 must-fix)。
+  //    ⚠️ 而整形只管【形狀】不管【語意】:它擋不住「退款將於三日內完成」這種內容上錯的句子。
+  const rawReason = readStr('cancelled_reason');
+  const reason = rawReason === null ? null : sanitizeCustomerFacingReason(rawReason);
+
+  const lines: string[] = [
+    '您好,',
+    '',
+    displayId === null
+      ? ORDER_CANCELLED_HEADLINE_NO_ID
+      : ORDER_CANCELLED_HEADLINE_WITH_ID(displayId),
+  ];
+  if (reason !== null) lines.push('', reason);
+  lines.push('', ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE);
+  lines.push('', ORDER_MEMBER_CENTER_SENTENCE, '', 'PCM重機零件販售');
+  return lines.join('\n');
+}
+
 function buildOrderShippedText(ctx: ShippedEmailContext): string {
   const lines: string[] = [
     '您好,',
