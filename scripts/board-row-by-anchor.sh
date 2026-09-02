@@ -52,6 +52,48 @@ count_wholeline() {
   awk -v a="$anchor" 'index($0, a) > 0 { n++ } END { print n + 0 }' "$board"
 }
 
+# 分母:板上共幾列資料列。查無時要印它 —— 否則「尺沒接上」與「真的沒有」印同一個 0。
+count_rows() {
+  awk -F'|' 'NF > 4 { n++ } END { print n + 0 }' "$1"
+}
+
+# 🔴🔴 **退回檔:錨【不在錨欄】的那些列(2026-09-03 線 -auth 加)**
+#
+#   病灶:本工具原本錨欄查無就印「查無」收工。而板上**每 3 列就有 1 列**的錨
+#   寫在【標題欄】不在錨欄(2026-09-03 實量:資料列 674 / 錨在錨欄 329 /
+#   錨只在別欄 147 / 整列無錨 198;主視窗同日另量得 625/330/143/152 ——
+#   🔵 **兩把尺的資料列定義不同, 兩個數都列著, 不挑一個看起來對的**;
+#   而「每 3 列有 1 列」這個量級兩邊一致)。
+#
+#   🛑 **後果有名字**:一個窗拿錨來查 ⇒ 印「查無」⇒ 合理的讀法是「板上沒有這一列」
+#     ⇒ 它去開一列新的, 做一件已經有人記過的事。
+#     ⇒ 那正是 Sean 2026-09-02 親口點名的六個病之一:「做到一陣子才發現之前做過了」。
+#   📌 **⇒ 失效時它印的是「查無」, 而那跟「這件事不存在」是同一個字。**
+#
+#   ✅ 修的是【工具】不是那 147 列:①動 147 列的爆炸半徑遠大於它解的問題
+#     ②錨寫在標題裡往往是刻意的(標題本來就在講那個錨)③改列 = 改別人的內容。
+#   🛑 **而退回來的結果【不等於】錨欄命中** —— 整行比對會撈到「只是引用那個錨」的列,
+#     所以它一定要帶著那句警告一起印, 不可以靜靜地混進正常輸出。
+lookup_fallback() {
+  local anchor="$1" board="$2" mode="$3"
+  awk -F'|' -v a="$anchor" -v m="$mode" '
+    NF > 4 {
+      inrow = (m == "regex") ? ($0 ~ a) : (index($0, a) > 0)
+      incol = (m == "regex") ? ($3 ~ a) : (index($3, a) > 0)
+      if (inrow && !incol) {
+        state = $2; title = $4
+        gsub(/^[ \t]+|[ \t]+$/, "", state)
+        gsub(/^[ \t]+|[ \t]+$/, "", title)
+        if (state != "open" && state != "done" && state != "doing" && state != "parked") {
+          state = "\u2014(不在主表)"
+        }
+        if (length(title) > 90) { title = substr(title, 1, 90) "…" }
+        printf "%s\t%s\t%s\n", NR, state, title
+      }
+    }
+  ' "$board"
+}
+
 run_query() {
   local anchor="$1" board="$2" mode="$3"
   [ -r "$board" ] || { echo "🛑 讀不到板檔:$board" >&2; return 1; }
@@ -61,14 +103,36 @@ run_query() {
   n="$(printf '%s' "$out" | grep -c . || true)"
 
   if [ "$n" -eq 0 ]; then
-    echo "⇒ 錨欄查無:$anchor"
-    echo "   🔵 而整行比對會撈到 $(count_wholeline "$anchor" "$board") 列 —— 那些是【引用它的列】, 不是它。"
+    local fb fbn
+    fb="$(lookup_fallback "$anchor" "$board" "$mode")"
+    fbn="$(printf '%s' "$fb" | grep -c . || true)"
+
+    if [ "$fbn" -eq 0 ]; then
+      echo "⇒ 查無:$anchor(錨欄 0 列 · 整行比對 0 列)"
+      echo "   🔵 分母:本板共 $(count_rows "$board") 列資料列 —— 印出來是為了讓你看見【尺有接上】。"
+      echo "      (只印一個 0 的話, 「尺壞了」與「真的沒有」是同一個畫面。)"
+      print_scope
+      return 3
+    fi
+
+    echo "⚠️⚠️ 錨欄查無, 而【整行比對找得到 $fbn 列】—— 以下是退回整行比對的結果:"
+    printf '行號\t態\t標題欄(截斷)\n'
+    printf '%s\n' "$fb"
+    cat <<'WARN'
+🔴 **這一列的錨【不在錨欄】—— 我是用整行比對找到的。**
+   整行比對會撈到【只是引用】那個錨的別列, 而「引用它的列」與「是它的列」
+   在整行比對上完全一樣(實量:b4-SHIPGATE1 整行 10 列 / 錨欄 2 列 ⇒ 8 個假陽性)。
+   ⇒ 🛑 **上面每一列都要開檔確認是不是它自己, 不要直接引用。**
+   🔵 而板上每 3 列就有 1 列是這種(錨寫在標題欄)⇒ 這不是異常, 是常態。
+WARN
+    echo "🔵 對照:整行比對 $(count_wholeline "$anchor" "$board") 列 · 錨欄 0 列 · 本板共 $(count_rows "$board") 列"
     print_scope
-    return 3
+    return 0
   fi
 
   printf '行號\t態\t錨欄\n'
   printf '%s\n' "$out"
+  echo "🟢 錨欄命中 —— 這是本工具最強的那一種答案(不經整行比對)。"
   if [ "$n" -ge 2 ]; then
     echo "🔴 多列($n)—— 你要自己看是哪一列。本工具不替你挑第一列。"
   fi
@@ -137,7 +201,42 @@ selftest() {
   na4="$(lookup "b4-MAILHTML1" "$board" str | grep -c . || true)"
   check "④多列 命中 ≥2" "$([ "$na4" -ge 2 ] && echo yes || echo "no($na4)")" "yes"
 
-  echo "── selftest 4 格 / 7 檢查:PASS=$pass FAIL=$fail ──"
+  # ⑤ 退回檔正對照:一個錨【只在別欄】的 ⇒ 必須找得到, 且必須印那句警告。
+  # 🔴 這一格是 2026-09-03 加退回檔的理由本身:在此之前它印「查無」,
+  #    而「查無」與「板上沒有這一列」是同一個字 ⇒ 讀的人會去開一列新的。
+  local fbn5 out5 rc5
+  fbn5="$(lookup_fallback "b4-SQLCOMMENT1" "$board" str | grep -c . || true)"
+  out5="$(run_query "b4-SQLCOMMENT1" "$board" str 2>&1)"; rc5=$?
+  check "⑤退回 錨欄 0 列" "$(lookup "b4-SQLCOMMENT1" "$board" str | grep -c . || true)" "0"
+  check "⑤退回 整行找得到" "$([ "$fbn5" -ge 1 ] && echo yes || echo no)" "yes"
+  check "⑤退回 有印警告" \
+    "$(printf '%s' "$out5" | grep -c '錨【不在錨欄】' | awk '{print ($1>0)?"yes":"no"}')" "yes"
+  check "⑤退回 rc" "$rc5" "0"
+  # 🛑 而它【不得】冒充錨欄命中 —— 那句「🟢 錨欄命中」只能出現在真的錨欄命中時。
+  check "⑤退回 不冒充錨欄命中" \
+    "$(printf '%s' "$out5" | grep -c '🟢 錨欄命中' | awk '{print ($1>0)?"yes":"no"}')" "no"
+
+  # ⑥ 錨欄命中那條路必須【標記自己】—— 否則兩種答案在畫面上長一樣。
+  local out6
+  out6="$(run_query "b4-CAPNULLDEAD" "$board" str 2>&1)"
+  check "⑥錨欄命中 有標記" \
+    "$(printf '%s' "$out6" | grep -c '🟢 錨欄命中' | awk '{print ($1>0)?"yes":"no"}')" "yes"
+  check "⑥錨欄命中 不印退回警告" \
+    "$(printf '%s' "$out6" | grep -c '錨【不在錨欄】' | awk '{print ($1>0)?"yes":"no"}')" "no"
+
+  # ⑦ 真查無:必須印【分母】。
+  # 🔴 沒有分母的 0 = 「尺壞了」與「真的沒有」同一個畫面 —— 這支檔自己記過那個病。
+  local fake7 out7 rc7
+  fake7="zz-none-$(date +%s)-$$"
+  out7="$(run_query "$fake7" "$board" str 2>&1)"; rc7=$?
+  check "⑦查無 rc" "$rc7" "3"
+  check "⑦查無 有印分母" \
+    "$(printf '%s' "$out7" | grep -c '分母:本板共' | awk '{print ($1>0)?"yes":"no"}')" "yes"
+  # 而那個分母必須是【真的數出來的】, 不是寫死的 —— 拿它跟現算的比。
+  check "⑦查無 分母對得上" \
+    "$(printf '%s' "$out7" | sed -n 's/.*分母:本板共 \([0-9]*\) 列.*/\1/p')" "$(count_rows "$board")"
+
+  echo "── selftest 7 格 / 17 檢查:PASS=$pass FAIL=$fail ──"
   [ "$fail" -eq 0 ]
 }
 
