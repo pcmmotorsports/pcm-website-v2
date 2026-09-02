@@ -72,7 +72,7 @@ export const MAX_SEARCH_TERMS = 8;
  *    ⇒ 沒有商品長那樣 ⇒ 線上實測 `rpm rsv4` / `rsv4 油箱貼` **一律 0 件**。
  *
  * 🔴🔴 **順序是【先 sanitize 再切】,而它【不可以】倒過來**(codex 2026-09-03 對抗審查 MF2/MF4)。
- *    `sanitizeSearchInput` 會把 `,` `(` `)` `.` `"` **換成空白** ⇒
+ *    `normalizeSearchInput` 會把 `,` `(` `)` `.` `"` **換成空白** ⇒
  *    ```
  *    先切後 sanitize(錯):`AP.123` ⇒ 一個詞 ⇒ 之後變 `%AP 123%` ⇒ 仍要求同欄連續 ⇒ 找不到
  *    先 sanitize 後切(對):`AP.123` ⇒ `AP 123` ⇒ 切成 ['AP','123'] ⇒ AND ⇒ 命中
@@ -96,7 +96,7 @@ export const MAX_SEARCH_TERMS = 8;
 const TERM_SEPARATORS = /[\s\u3000\u00A0\u202F\u200B\uFEFF]+/;
 
 export function splitSearchTerms(q: string): string[] {
-  const all = sanitizeSearchInput(q)
+  const all = normalizeSearchInput(q)
     .split(TERM_SEPARATORS)
     .filter((t) => t !== '');
   if (all.length > MAX_SEARCH_TERMS) {
@@ -124,12 +124,30 @@ export function splitSearchTerms(q: string): string[] {
  *
  * regex / strip 字元集合為 Code 設計選擇、不歸 PRD 字面源(對齊 lessons §12-3 維度 A)。
  */
-export function sanitizeSearchInput(q: string): string {
-  return q.replace(/[,()."]/g, ' ').replace(/[\\%_]/g, (c) => '\\' + c);
+/**
+ * 🔴🔴 **這支被拆成兩件事了(2026-09-03 code-reviewer must-fix)** ——
+ *    原本它**同時**做兩件事:①把 PostgREST filter 的保留字元換成空白 ②轉義 ILIKE 萬用字元。
+ *    而**②屬於【組 pattern】那一步,不屬於【切詞】那一步**。
+ *
+ * **不拆會怎樣(實測)**:切詞回的是**已經轉義過**的詞(`AP_123` ⇒ `AP\_123`),
+ * 而那些詞被送進 RPC 之後,**SQL 那邊又轉義一次** ⇒ pattern 變成字面
+ * 「`AP` + 反斜線 + `_` + `123`」⇒ 🛑 **含 `_` / `%` / `\` 的查詢在 RPC 那條路【恆 0 筆】,
+ * 而舊路是對的** ⇒ 📌 **兩條路對同一個輸入給不同答案,而畫面上完全正常。**
+ *
+ * ⇒ ✅ 所以本支只做 ①(切詞要用的正規化);**萬用字元的轉義搬到 `buildIlikeOrFilter`。**
+ */
+export function normalizeSearchInput(q: string): string {
+  return q.replace(/[,()."]/g, ' ');
+}
+
+/** ILIKE 萬用字元轉義。🔴 `\` 要先轉,否則 `\%` 會被當成已經轉義過的。 */
+export function escapeIlikeWildcards(term: string): string {
+  return term.replace(/[\\%_]/g, (c) => '\\' + c);
 }
 
 /**
- * 🔴🔴 **`term` 必須是【已經 sanitize 過】的** —— 本函式**不再自己 sanitize**。
+ * 🔴 **`term` 是【切好詞、正規化過】的一個詞**;而**萬用字元的轉義由本函式自己做**
+ *    (2026-09-03 code-reviewer must-fix 之後的分工:切詞不轉義、組 pattern 才轉義)。
  *
  * **為什麼改**:sanitize 現在住在 `splitSearchTerms`(它必須先跑,見該函式的順序說明)。
  * 若這裡再 sanitize 一次 ⇒ **雙重轉義**:`50%` 第一次變 `50\%`、第二次那個 `\` 又被轉義
@@ -137,10 +155,11 @@ export function sanitizeSearchInput(q: string): string {
  * (2026-09-03 我改順序時自己製造的,當場用 node 印出來才看見。)
  *
  * ⇒ **唯一的 sanitize 落點 = `splitSearchTerms`。** 要繞過切詞直接呼叫本函式的人,
- *   自己先呼叫 `sanitizeSearchInput`。
+ *   自己先呼叫 `normalizeSearchInput`(而萬用字元的轉義本支已經自己做了)。
  */
 export function buildIlikeOrFilter(columns: readonly string[], term: string): string {
-  const pattern = `%${term}%`;
+  // 🔴 轉義在**這裡**做(而不是在切詞那一步)—— 見 `normalizeSearchInput` 的說明。
+  const pattern = `%${escapeIlikeWildcards(term)}%`;
   return columns.map((col) => `${col}.ilike.${pattern}`).join(',');
 }
 
