@@ -453,3 +453,58 @@ describe('🔴 出貨明細單 · 串接量測(真 chromium + 編譯後 CSS + pr
     expect(strong(s)).toBe(strong(p));
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴🔴 `printButton` —— 2026-09-03 `-ship` 補(⟦f3-SHIPPDF1⟧ 的前置)
+//
+// **它守的東西**:伺服器產 PDF 那條路會走 `renderToStaticMarkup(<ShippingDoc …>)`,
+// 而 `PrintButton` 是 `'use client'`(`print-button.tsx:1`)⇒ 那條路**沒有 client boundary**。
+// storefront 同型的那一發是**正式站 500**(`c0af4e1c` 逐字
+// `Attempted to call StatementPrintButton() from the server but … is on the client`)。
+//
+// 🛑🛑 **而本組【證不到】那件事 —— 這一句比下面兩格重要,不要讀漏:**
+//    `'use client'` 在 Next 的打包器之外**是一個沒有作用的字串** ⇒ 在 vitest 裡
+//    `PrintButton` 就是一個普通函式元件,`renderToStaticMarkup` **渲染得過**。
+//    ⇒ 📌 **那正是 storefront 那一發【所有測試都綠】的成因** —— 同一棵元件樹、兩條渲染路徑,
+//      而測試只走得到不會炸的那一條。
+//    ⇒ ⇒ **所以下面兩格證的是「這顆 prop 真的把那顆鈕拿掉了」, 不是「PDF 那條路不會炸」。**
+//      後者**只有真部署打一發**答得出來,與 `statement-pdf-tracing.test.ts` 檔頭那三句同一種未知。
+//
+// 🔵 選取器用 `data-slot='print-button'` —— `print-button.tsx:13-14` 逐字寫著它就是為了
+//    「守門要能斷言【這一種狀態下這顆鈕不在】」而加的,而在它之前沒有穩定的選取器。
+describe('🔴 ShippingDoc 的 printButton prop(伺服器產 PDF 的前置)', () => {
+  const markup = (printButton?: boolean) =>
+    renderToStaticMarkup(
+      <ShippingDoc
+        detail={detail()}
+        items={[ITEM, ITEM_UNKNOWN]}
+        reportedTotal={2}
+        shipment={shipment}
+        lines={[{ orderItemId: 'i1', quantity: 2 }] as never}
+        {...(printButton === undefined ? {} : { printButton })}
+      />,
+    );
+  const count = (html: string) =>
+    html.split('data-slot="print-button"').length - 1;
+
+  it('🔴 前提斷言:不傳這顆 prop ⇒ 那顆鈕【在】(否則下面那格恆綠)', () => {
+    // 🛑 這一格是下一格的分母:若 fixture 走進阻印分支(`blocked !== null`),
+    //    那顆鈕本來就不會畫 ⇒ 下一格的 0 會是**假的 0**。
+    expect(count(markup(undefined)), '預設沒畫出那顆鈕 ⇒ fixture 走了阻印分支, 下一格零判別力').toBe(1);
+  });
+
+  it('🔴 `printButton={false}` ⇒ 那顆 client 元件【不在】產出的 HTML 裡', () => {
+    expect(count(markup(false))).toBe(0);
+  });
+
+  it('🔵 `printButton={true}` 與不傳一樣 —— 預設值是 true, 既有那一頁行為不變', () => {
+    expect(count(markup(true))).toBe(count(markup(undefined)));
+  });
+
+  it('🔵 負對照:關掉那顆鈕【只】拿掉那顆鈕, 紙上其餘內容不變', () => {
+    // 🔴 少了這一格,一個「printButton=false ⇒ 回傳空字串」的壞實作也會讓上面那格綠。
+    const off = markup(false);
+    expect(off.length, '關掉鈕之後整張紙不見了').toBeGreaterThan(1000);
+    expect(off).toContain(ITEM.title);
+  });
+});

@@ -565,6 +565,7 @@ export function ShippingDoc({
   reportedTotal,
   shipment,
   lines,
+  printButton = true,
 }: {
   detail: AdminOrderDetail;
   /**
@@ -610,6 +611,23 @@ export function ShippingDoc({
    *    金額仍可能因改價而在兩次列印之間變動 —— 真正的修法是存金額快照,那是另一片。
    *    🔴 Sean 拍甲時**知道這件事**:那句警語寫在問他的那句話裡,不是附件。
    */
+  /**
+   * 要不要畫那顆「列印」鈕。**預設 `true` ⇒ 現行那一頁一個 byte 沒變。**
+   *
+   * 🔴🔴 **它存在的唯一理由是【伺服器產 PDF 那條路會炸】**,而那不是假設 ——
+   *    `c0af4e1c` 逐字記著 storefront 同型的那一發**正式站 500**:
+   *    `Attempted to call StatementPrintButton() from the server but … is on the client`。
+   *    本檔 `import { PrintButton } from './print-button'`,而 `print-button.tsx:1` 是 `'use client'`
+   *    ⇒ HTML 那一頁走 Next 正常的 RSC 管線 ⇒ 200;
+   *      **而 `renderToStaticMarkup(<ShippingDoc …>)` 自己 render、沒有 client boundary ⇒ 炸。**
+   *    ⇒ 📌 **同一棵元件樹, 兩條渲染路徑, 而只有第二條會炸** —— 測試只走第一條的話全綠。
+   * 🛑 **不靠 `@media print` 收掉那顆鈕** —— CSS 是渲染**成功之後**才有機會生效的。
+   * 🔵 **預設 true 是刻意的**:漏傳的那一端是**既有的 HTML 頁**(行為不變),
+   *    而新的那一端(PDF)是**這一顆 prop 唯一的理由** ⇒ 寫它的人不會忘記傳。
+   *    ⚠️ 而那**不是型別擋住的** —— storefront 那邊是把 `order` 收進函式才讓漏傳「構造不出來」;
+   *      本檔還沒有那一層 ⇒ **今天守它的是下面那格測試, 不是型別。**
+   */
+  printButton?: boolean;
 }) {
   // ⚠️ **已登記、本片不修的一條(codex 對抗審查 2026-08-16 指出)**:
   //    頁層分兩次查 —— 先 `findAdminOrderDetail`(拿 `shippedQuantity`)、再 `loadOrderShipments`
@@ -806,7 +824,7 @@ export function ShippingDoc({
                所以警告必須佔滿這個位置**」—— 而現行只有一行 `<Alert>`(下方 `blocked` 分支)。
             ⇒ **已立案 `#601`**(2026-08-17;樣張 §4 清單第 7 項、獨立一片)。
                **登記不等於處置完畢**;在它落地之前,⌘P 印出來的紙仍然只有一行紅字。 */}
-        {blocked === null && <PrintButton label='列印' />}
+        {blocked === null && printButton && <PrintButton label='列印' />}
       </div>
 
       {blocked !== null ? (

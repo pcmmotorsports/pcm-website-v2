@@ -64,6 +64,44 @@ print('  🔴 = 30 分沒動靜  ⚠️ = 15 分  ⇒ 而【安靜】不等於�
 print('  🛑 射程:沒寫心跳的窗在這裡是隱形的 ⇒ 空白不代表沒人做。')
 PY
     ;;
+  --stale)
+    # 🔴 存在理由(Sean 2026-09-03 01:2x 逐字):「如果有視窗超過 25 分鐘沒有回應你任何訊息…
+    #    我們之前就是因為這樣子, 所以停擺非常多次」。
+    # 🛑 而 --who 早就會標 🔴, 缺的不是那個標記, 是【有沒有人去跑它】
+    #    ⇒ 本模式給機器讀:只印超時的窗, 零超時時【印一行明確的話】而不是空白。
+    #    📌 空輸出與「大家都好」印同一個東西 —— 那正是這支檔要解的病本身。
+    init
+    MINS="${2:-25}"
+    NOW=$(date +%s)
+    python3 - "$HB" "$NOW" "$MINS" <<'PY2'
+import io,sys,time
+p,now,lim=sys.argv[1],int(sys.argv[2]),int(sys.argv[3])
+last={}
+for l in io.open(p,encoding='utf-8'):
+    if l.startswith('#') or not l.strip(): continue
+    f=l.rstrip('\n').split('\t')
+    if len(f)<4: continue
+    try: t=time.mktime(time.strptime(f[0][:16],'%Y-%m-%d %H:%M'))
+    except ValueError: continue
+    if f[1] not in last or t>last[f[1]][0]: last[f[1]]=(t,f)
+# 🔴 上界不是裝飾 —— 第一發實測 11 個超時, 而其中 8 個是昨晚就收工的窗。
+# 🛑 一道對常態叫的閘會被關掉(memory:閘死於誤報遠比死於漏報常見)⇒ 沉默【太久】的不是超時, 是【已收工】。
+# ⇒ 上界 = 門檻 x 4(25 分 ⇒ 100 分)。射程:這是一個【選的值】不是量出來的, 改它請連驗收一起改。
+ceil=lim*4
+stale=[(w,int((now-t)//60),f) for w,(t,f) in last.items() if lim<=(now-t)//60<ceil]
+gone=[w for w,(t,f) in last.items() if (now-t)//60>=ceil]
+stale.sort(key=lambda x:-x[1])
+if not stale:
+    print('HEARTBEAT-STALE none (門檻 %d-%d 分, 在班 %d 個窗, 已收工 %d 個不算) — 分母只含【寫過心跳的窗】' % (lim,ceil,len(last)-len(gone),len(gone)))
+    raise SystemExit(0)
+print('🔴 HEARTBEAT-STALE %d 個窗超過 %d 分沒動靜 —— 去敲它, 不要判它:' % (len(stale),lim))
+for w,m,f in stale:
+    print('   %-20s %4d 分前  手上:%s' % (w,m,f[3][:46]))
+print('   🛑 而【沒寫過心跳的窗在這裡是隱形的】⇒ 這個數字是下界, 不是全部。')
+print('   🔵 另有 %d 個窗沉默超過 %d 分 ⇒ 判為【已收工】不在上面(名單:%s)' % (len(gone),ceil,' '.join(sorted(gone)) or '無'))
+raise SystemExit(1)
+PY2
+    ;;
   --selftest)
     T=$(mktemp -d); mkdir -p "$T/pcm-mailbox"; HB="$T/pcm-mailbox/心跳.tsv"; init
     printf '%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M')" "zz-pos" "做完 A" "做 B" "-" >> "$HB"
