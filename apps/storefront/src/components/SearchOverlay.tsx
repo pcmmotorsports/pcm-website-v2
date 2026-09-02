@@ -51,6 +51,11 @@ import { useRouter } from 'next/navigation';
 import { navigateToCatalog } from '@/lib/catalog-navigation';
 
 import { SEARCH_MAX_QUERY_LENGTH, type SearchOverlayItem } from '@/lib/search-shape';
+// 🟢 `lib/search-facets.ts` 是純型別 + 純函式(無 `server-only`、只 `import type`)
+//    ⇒ client 直接吃得到,**不必把同一份契約在 `search-shape.ts` 再抄一份**。
+import type { SearchFacets } from '@/lib/search-facets';
+import { SearchOverlayFacets } from '@/components/SearchOverlayFacets';
+import { SearchOverlayProducts } from '@/components/SearchOverlayProducts';
 
 /** 稿 `SearchOverlay.jsx:74` 的熱門搜尋 chips,逐字照搬。 */
 const POPULAR = ['排氣管', '碳纖維', '腳踏', 'Öhlins', 'Akrapovič', 'CBR600RR'];
@@ -58,37 +63,12 @@ const POPULAR = ['排氣管', '碳纖維', '腳踏', 'Öhlins', 'Akrapovič', 'C
 /** 打字停多久才打 API。太短 = 每個字一發請求;太長 = 客人以為壞了。 */
 const DEBOUNCE_MS = 220;
 
-/**
- * 這一次查詢的結果。`items === null` = **這一次失敗了**(不是「零筆」)。
- */
-export type SearchResultState = { q: string; items: SearchOverlayItem[] | null };
+// 🔵 `SearchResultState` 與 `viewFor` 已搬到 `lib/search-overlay-view.ts`(鐵則 6 拆檔)。
+//    這裡 re-export 保住既有出口位置 —— `SearchOverlay.test.tsx` 與其他呼叫端不必改。
+export { viewFor, type SearchResultState } from '@/lib/search-overlay-view';
+import { viewFor } from '@/lib/search-overlay-view';
+import type { SearchResultState } from '@/lib/search-overlay-view';
 
-/**
- * 現在這個查詢該畫什麼。**render 只吃這一個函式的回傳。**
- *
- * 🔴 **為什麼把 `status` 從 render 判斷裡整個拿掉**(codex 2026-09-02 R2 must-fix 1):
- *   `status` 是一顆**不帶查詢字**的 state ⇒ 它答得出「上一次成功還是失敗」,
- *   答不出「上一次是**哪一個查詢**的成功或失敗」。
- *   R1 的修法只把【成功】那一半綁上查詢,而**失敗那一半漏了** ⇒
- *   搜尋失敗之後改字或清空,effect 跑之前那一次 render 仍然畫著舊的錯誤訊息;
- *   清空時甚至「熱門搜尋」與「搜尋暫時無法使用」**同時出現**。
- * 📌 **⇒ 同一個病修了一半,而修好的那一半讓它更難被看見** ——
- *    R1 之後成功那條路不再出錯了,於是沒有人會再懷疑失敗那條路。
- *
- * 🔴 **抽成具名函式的理由**(2026-09-02 突變實測逼出來的):
- *   這個判斷守的是 **render 與 effect 之間**那一次 render —— React 先 render 再跑 effect,
- *   而 testing-library 看到的永遠是 effect 跑完之後的 DOM ⇒ **那一幀在 DOM 那一端沒有形狀**。
- *   寫在 render 裡的話,拿掉它**測試照樣全綠**。抽出來,測試才有一個【不經過 DOM 的入口】。
- */
-export function viewFor(
-  result: SearchResultState | null,
-  q: string,
-): { kind: 'pending' } | { kind: 'failed' } | { kind: 'ok'; items: SearchOverlayItem[] } {
-  // 沒有結果,或結果屬於別的查詢 ⇒ 一律當「還在路上」,不畫任何舊東西。
-  if (result === null || result.q !== q) return { kind: 'pending' };
-  if (result.items === null) return { kind: 'failed' };
-  return { kind: 'ok', items: result.items };
-}
 
 export function SearchOverlay() {
   const router = useRouter();
@@ -209,9 +189,20 @@ export function SearchOverlay() {
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`, { signal: ac.signal });
         if (!res.ok) throw new Error(`search api ${res.status}`);
-        const data = (await res.json()) as { items: SearchOverlayItem[] };
+        const data = (await res.json()) as { items: SearchOverlayItem[] } & Partial<SearchFacets>;
         // 結果與它所屬的查詢一起寫進去 —— 兩顆分開的 state 表達不了「同一次量測」。
-        setResult({ q, items: data.items ?? [] });
+        // 🔴 `facets` 走同一顆 state 的理由同上;而**舊回應沒有這幾個欄位時**要有預設,
+        //    否則畫的人拿到 `undefined.length` ⇒ 整個疊層炸掉(而它只在部署交錯那幾分鐘發生)。
+        setResult({
+          q,
+          items: data.items ?? [],
+          facets: {
+            brands: data.brands ?? [],
+            categories: data.categories ?? [],
+            vehicles: data.vehicles ?? [],
+            failed: data.failed ?? { brands: false, categories: false, vehicles: false },
+          },
+        });
       } catch (err) {
         if ((err as Error).name === 'AbortError') return;
         console.error('[SearchOverlay] 取結果失敗:', err);
@@ -240,6 +231,15 @@ export function SearchOverlay() {
 
   // 修法本體在 `viewFor`(抽成具名函式的理由見它的 JSDoc:寫在這裡的話那個條件殺不掉突變)。
   const view = viewFor(result, q);
+  // 🔴 稿的外閘 = 四區聯集(`SearchOverlay.jsx:60` `total = products + brands + categories + vehicles`)。
+  //    這裡多算一格 `failed` —— 讀不到的那一區【要出現】並說「讀不到」,而它不該被「沒有找到」蓋掉。
+  const f = result?.facets;
+  const hasAnyResult =
+    (view.kind === 'ok' && view.items.length > 0) ||
+    (f?.brands.length ?? 0) > 0 ||
+    (f?.categories.length ?? 0) > 0 ||
+    Boolean(f?.failed.brands) ||
+    Boolean(f?.failed.categories);
 
   return (
     <div className="search-overlay" role="dialog" aria-modal="true" aria-label="搜尋">
@@ -343,44 +343,40 @@ export function SearchOverlay() {
             </div>
           )}
 
-          {view.kind === 'ok' && view.items.length === 0 && (
+          {/* 🔴🔴 **外閘是【四區的聯集】,不是只有商品**(R1 must-fix 1;2026-09-03 訂正)。
+              ⛔ ~~我第一版寫 `view.items.length === 0` ⇒ 沒有找到~~ —— **那與稿不同,而它是可重現的**:
+              稿 `SearchOverlay.jsx:115/122` 的外閘逐字是 `results.total === 0` / `> 0`,
+              而 `total` 在 `:60` 逐字 = `products.length + brandList.length + categories.length + vehicles.length`;
+              商品那一區**另有自己的內閘** `results.products.length > 0`(`:124`)。
+              🔴 **production 實測那個世界今天就在**:打「服務與其他」⇒ `items` **0** 而 `categories` **1**
+              ⇒ 我第一版會對客人說「沒有找到『服務與其他』相關結果」,**而我們明明有那個分類。**
+              🛑 **而 `failed` 也要算進聯集** —— 否則「品牌讀不到 + 商品 0 筆」時整格不畫,
+              客人看到的是「沒有找到」= plan §5 逐字要避開的那一句。 */}
+          {view.kind === 'ok' && !hasAnyResult && (
             <div className="search-overlay-noresults">
               <div className="search-overlay-nores-label">沒有找到「{q}」相關結果</div>
               <div className="search-overlay-nores-hint">試試「排氣管」、「Öhlins」、或你的車款名稱</div>
             </div>
           )}
 
-          {view.kind === 'ok' && view.items.length > 0 && (
+          {view.kind === 'ok' && hasAnyResult && (
             <>
-              <section className="search-overlay-section">
-                <div className="search-overlay-h">商品 · {view.items.length}</div>
-                <div className="search-overlay-products">
-                  {view.items.map((p) => (
-                    <button
-                      key={p.slug}
-                      type="button"
-                      className="search-overlay-product"
-                      onClick={() => { navigateToCatalog(router, `/products/${p.slug}`); close(); }}
-                    >
-                      <div className="sop-thumb">
-                        {/* 🔴 用原生 `<img>` 是本 repo 的慣例(`ProductImage.tsx:132/152/172` 三處皆是),
-                            而**不要**加 `eslint-disable-next-line @next/next/no-img-element` ——
-                            本 repo 的 eslint **沒有註冊那條規則** ⇒ 加了 disable 反而 lint 紅
-                            (`Definition for rule ... was not found`)。
-                            ⚠️ 這個坑 `ComingSoon.tsx:161` 與 `OrdersTab.tsx:149` 已經各記過一次,
-                               而我今天是第三次踩 —— 📌 記在兩個地方,擋不住第三個人。 */}
-                        {p.image ? <img src={p.image} alt="" loading="lazy" /> : null}
-                      </div>
-                      <div className="sop-meta">
-                        <div className="sop-brand">{p.brand}</div>
-                        <div className="sop-name">{p.name}</div>
-                        {/* 🔴 `null` 印「—」不是「NT$ 0」:0 元是贈品、查不到價格是另一件事。 */}
-                        <div className="sop-price">{p.price === null ? '—' : `NT$ ${p.price.toLocaleString()}`}</div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </section>
+              {/* 🔵 商品那一區的內閘照稿 `:124`(`products.length > 0`)—— 外閘放行不等於商品有東西。 */}
+              {view.items.length > 0 && (
+                <SearchOverlayProducts
+                  items={view.items}
+                  onNavigate={(href) => { navigateToCatalog(router, href); close(); }}
+                />
+              )}
+
+              {/* 🔴 稿的順序是 商品 → 品牌 → 分類 → 車款(`SearchOverlay.jsx:125/148/162/176`)
+                  ⇒ 這裡接在商品之後、footer 之前。**車款那一區刻意不畫,理由見該元件檔頭(題 21)。** */}
+              {result?.facets && (
+                <SearchOverlayFacets
+                  facets={result.facets}
+                  onNavigate={(href) => { navigateToCatalog(router, href); close(); }}
+                />
+              )}
 
               <div className="search-overlay-footer">
                 <button type="button" className="search-overlay-all" onClick={() => submit()}>
