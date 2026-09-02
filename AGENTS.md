@@ -42,6 +42,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 12. **高風險改動 commit 前必過第二視角對抗審查** — 高風險=動到任一(2026-07-22 拍板 C 案):**①錢**(order·payment·refund·pricing·經銷價·會員 tier·儲值金)**②權限**(auth·RLS·GRANT·service_role·server/client 邊界)**③DB 結構與大量/不可逆寫入**(schema·migration·批次匯入)**④平台設定**(next.config·vercel.json·Prisma·CI·env)**⑤對外不可回收**(寄信·對外發布·法律頁)**⑥共用元件 packages/ui 行為改動**(純樣式除外)。跨 3 檔/一般 API/進度單元收尾不自動觸發;Sean 說「Ready for review」必審;milestone 收尾總審一次。不產書面 Packet(07-21 拍板),由執行端直呼另一模型唯讀對抗審查(Claude 端=codex CLI `-s read-only`;你被指派審查時同樣唯讀)。審查模式紀律=`docs/ops/AI_CONTRACT.md` §2:不改檔、不跑寫入工具、不 commit、不 push,只回 findings/風險/是否可繼續。審查重點:安全/權限、schema/migration 破壞面、STATUS/NORTHSTAR/鐵則、backlog/文件。歷史 Packet 格式備查 `docs/patterns/codex-review-packet.md`。
 
 ---
+📎 **鐵則 1/6/11 的病史·實錘·已訂正的舊字面 → `docs/patterns/ironrules-casebook.md`**(2026-09-02 從 `CLAUDE.md` 搬出;本檔這一段留條文)
 
 ## Slice 指令格式 — 六件套(你審 slice 時對照)
 
@@ -72,6 +73,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 - **Submodule**:初始化 `git submodule update --init --recursive`;同步 design `git submodule update --remote design-reference/` → `git add design-reference` commit。
 
 ---
+📎 **共用 index 的暴露期、pathspec 兩種形狀各擋一半 → `docs/runbooks/multi-window-command-workflow.md` 附錄**
 
 ## Busboy / STATUS.md 維護
 
@@ -91,6 +93,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 - **CJK / str_replace**:大塊中文(全形「」():;易誤打半形、byte 不 match)str_replace 易失敗 → 連敗 2 次切策略:① bash sed + anchor(起迄特徵文字非行號)② read→rewrite 整段→write ③ 拆短 anchor;切策略後僅再試 1 次、同一處總嘗試上限 3 次、仍敗停下回報。str_replace 適用:程式碼/英文/短中文 anchor。
 
 ---
+📎 **每一條的實測數字·實錘·射程 → `docs/patterns/zsh-and-bash-traps.md`**(2026-09-02 從 `CLAUDE.md` 搬出)
 
 ## React / Next.js 規則(你審 hooks 時對照)
 
@@ -142,6 +145,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 **slice 結束應有**:☐ **寫 reviewer 標記一律走 `bash scripts/write-reviewer-marker.sh "<片名+輪次或跳審理由>"`, 不要直接寫 `.git/`**(Sean 2026-08-29 拍「加」)—— 🔴 **實錘:有一個窗每一顆都直接寫, 而它說沒有人跟它講過**;⚠️ **而那道閘只驗「有沒有標記 + 釘不釘在當前 HEAD」, 不驗理由是不是真的** ⇒ **一個誠實的跳審理由與一個編的, 在它底下印同一個綠。** ☐ 肉眼驗 ☐ 三綠(動 .ts/.tsx 加 build、不 disable/skip) ☐ 動前台元件 → 補/更新 smoke test(`*.test.tsx`、見 `docs/architecture/testing-strategy.md`) ☐ commit 字面vs事實一致、偏離寫 body ☐ 精準 add ☐ commit 格式對 ☐ STATUS 7 欄更新(同 commit) ☐ 收尾對帳(Sean 拍板逐條 vs 已落檔;漏的補寫成 memory `project_*.md`、含決定/理由/連動、不只 commit body) ☐ busboy-end ☐ 不 push(roadmap/graphify=milestone 收尾或每日一次、不隨每 slice;07-10 拍板)。
 
 ---
+📎 **每一格「為什麼有這一格」的實錘與量測 → `docs/patterns/checklist-casebook.md`**(2026-09-02 從 `CLAUDE.md` 搬出)
 
 ## 突發狀況
 
