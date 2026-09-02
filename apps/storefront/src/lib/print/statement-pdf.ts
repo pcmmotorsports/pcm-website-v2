@@ -29,7 +29,7 @@
 //    🛑 **而那不是 `htmlToPdf` 跑出來的** —— 是用 playwright 的 chromium 跑同一份 HTML。
 //       `@sparticuz/chromium` 在 macOS 上 `spawn ENOEXEC` ⇒ **本函式本機執行不了**
 //       ⇒ ⇒ **Vercel 冷啟還要解壓 66 MB, 這組數字不能拿去回答 `maxDuration` 夠不夠。**
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { createElement } from 'react';
@@ -39,16 +39,132 @@ import { buildStatementHtml, isInsideDir } from '@/lib/print/statement-html';
 
 const require_ = createRequire(import.meta.url);
 
-/** fontsource 那個套件的根目錄 —— 用 node 解析, 不假設 pnpm 的目錄長相。
- *  🔴 **這一行同時是【打包追蹤】的錨** —— `statement-pdf-tracing.test.ts` 逐字寫著
- *     那 1,977 個字型檔進得了函式包, 靠的是這個 `require.resolve`。
- *     ⇒ 它從 route 搬到這裡之後, **追蹤還成不成立由那支測試回答**, 不由這段註解回答。 */
-function fontPkgDir(): string | null {
+/**
+ * fontsource 那個套件的根目錄。**拿不到回 `null`**(呼叫端據此判, 見 `StatementPdfHtml.fontPkgDir`)。
+ *
+ * ══ 為什麼是【候選鏈】而不是一句 `require.resolve` ═══════════════════════════
+ * 🔴🔴 **`require.resolve` 在 Vercel 的函式裡 throw —— 這是量到的, 不是推的**
+ *    (2026-09-03 18:40 正式站, 部署 `dpl_2rjvRX8hRL32Y36gBn67YDpQfR8H`):
+ *      `拒絕產檔 … 內嵌 0 · 拿不到字型檔 0 · 版面 CSS 缺 false · 字型套件=null`
+ *    成因(⚠️ **射程分兩半, 不要讀成同一級**):
+ *      · **量到的**:`require.resolve` 在那邊 throw(`字型套件=null` 是它的直接讀數)。
+ *      · ⛔ ~~「那 212 支 woff2 的位元組**進得了函式包**」~~ ⇒ **那句我寫超過了**
+ *        (code-reviewer must-fix):唯一讀數是**本機 `.nft.json`**(`.pnpm` 底下 2,192 筆),
+ *        而 `statement-pdf-tracing.test.ts` 檔頭逐字「答得出 Next 打算帶哪些檔,
+ *        **答不出 Vercel 真的帶了**」—— **丙就是死在這一格。**
+ *        ✅ 正確說法:**本機清單裡有 2,192 筆;正式站有沒有帶, 未量。**
+ *    **而沒有一個 Node 解析得到的 `node_modules/@fontsource/noto-sans-tc`** ——
+ *    `.next/node_modules/` 只有被 `import()` 的那幾個(chromium / pg / puppeteer-core)。
+ *    ⇒ 🛑 **「位元組在包裡」與「這個套件解析得到」是兩個宣稱。**
+ *
+ * 🎯 **而修法就印在同一行 log 的【綠色那一格】旁邊**:`版面 CSS 缺 false`
+ *    ⇒ 同一支函式裡的 `cssCandidates` 用 `process.cwd()` 相對路徑讀檔, **在正式站成功了**。
+ * 🛑🛑 **而那個佐證【比它看起來的窄】**(code-reviewer 2026-09-03 抓到, 寫出來不要讓下一個人高估):
+ *    `cssCandidates` 走的是 `join(cwd, 'src', 'styles')` —— **全程待在 `apps/storefront` 裡面**;
+ *    而候選② 要**跨出 app 目錄兩層**(`../../node_modules/.pnpm`)。
+ *    ⇒ 📌 **「cwd 相對讀得到」被證實過的只有【往內】那一種, 【往外兩層】那一種正式站讀數 = 0。**
+ *    ⇒ ⚠️ 唯一另一組 `../../` 資源是 chromium 那四支 `.br`, 而 `route.ts` 先 return 500
+ *      ⇒ **正式站從來沒走到過它們** ⇒ **這一步是丁唯一沒有任何正式站讀數的環節。**
+ *    ⇒ ⇒ **所以這裡照抄那個【已經會動】的形狀:給幾個候選、讀不到就回 null。**
+ *    📌 我們盯著那行 log 看了三次都只讀「哪一格是紅的」, 而**綠的那一格說出了修法**。
+ *
+ * ⛔ ~~先前試過【丙】:`next.config.ts` 加 glob 把 app 層那棵 pnpm symlink 樹列進追蹤清單~~
+ *    ⇒ 🔴 **已在正式站證偽**(同上那一發)。**不要再試那條路** —— 理由與實測寫在 `next.config.ts`。
+ *
+ * ⚠️ **本函式【本機必然成功】** —— 本機 `require.resolve` 就過了, 第一個候選就回。
+ *    ⇒ **下面那條 cwd 候選在本機通常【不會被執行到】** ⇒ 🛑 **本機全綠證不到它在 Vercel 上會動。**
+ *    ⇒ 驗收只有一個地方看得到:**打那個網址, 看那張紙上的中文是【字】不是方框。**
+ *      (🔴 **不要看 log** —— 成功時 route 回 200, 而那行只住在 500 分支, 一個字都不印。)
+ */
+/**
+ * 這個目錄**用得上嗎** —— 判的是「執行時真的會讀的那幾支檔在不在」。
+ *
+ * 🔴🔴 **不判 `package.json`**(code-reviewer 2026-09-03 must-fix):執行時讀的是
+ *    `400.css` / `700.css`(下面 `fontCss` 那段)與 `files/*.woff2`(`readFont`)——
+ *    `package.json` 只是「這個套件成立」的**代理**。
+ *    ⇒ 📌 **而這支檔的整段病史就是「位元組在 ≠ 用得到」** —— 拿代理當判準等於再演一次:
+ *      平台若剝掉 `package.json`, 這裡會回 null, **而它旁邊的字型檔全都在**。
+ * 🔵 兩個候選**共用同一道判** —— 否則候選①「解析成功但目錄裡沒有 CSS」時會直接回那條路徑,
+ *    **永遠落不到候選②**(同一位 reviewer 的 must-fix:判的是「非 null」不是「可用」)。
+ */
+function isUsableFontPkg(dir: string): boolean {
+  return existsSync(join(dir, '400.css')) && existsSync(join(dir, '700.css'));
+}
+
+/**
+ * @param resolvePkgJson 候選①的解析器。**收成參數的唯一理由是【測那個接縫】** ——
+ *   本機它一定成功 ⇒ 沒有這個注入點, 「①失敗會不會真的落到②」那一格**測不到**,
+ *   而 reviewer 實測:把候選①改成 `return null` ⇒ **12 格全綠**(我原本三發突變全在②內部)。
+ */
+export function fontPkgDir(
+  resolvePkgJson: () => string = () => require_.resolve('@fontsource/noto-sans-tc/package.json'),
+  cwd: string = process.cwd(),
+): string | null {
+  // 候選①:正常的 Node 解析。本機與一般部署走這條;Vercel 函式裡它 throw。
+  // 🔴🔴 **這一行同時是【打包追蹤】的錨, 不得刪**(原句 2026-09-01 就在, 我改寫 docstring 時
+  //    一度把它弄不見了 —— code-reviewer must-fix 要求搬回來):
+  //    `statement-pdf-tracing.test.ts` 逐字寫著那 1,977 個字型檔進得了函式包,
+  //    **靠的就是這個 `require.resolve`**(本機清單裡 `.pnpm` 那 2,192 筆的來源)。
+  //    ⇒ 🛑 **它今天在 Vercel 上 throw, 而那【不是】把它刪掉的理由** —— 刪了會抽掉追蹤。
   try {
-    return dirname(require_.resolve('@fontsource/noto-sans-tc/package.json'));
+    const dir = dirname(resolvePkgJson());
+    if (isUsableFontPkg(dir)) return dir;
+    // 🔵 解析成功而目錄不可用 ⇒ **繼續往下試**, 不要回一條讀不到東西的路徑。
   } catch {
-    return null;
+    // 落到候選②。**吞掉例外是刻意的** —— 這一格的語意是「這條路找不到」, 不是「壞了」。
   }
+
+  // 候選②:cwd 相對去 pnpm 的 store 裡找。
+  return findFontPkgInPnpmStore(cwd);
+}
+
+/**
+ * 候選② 的本體 —— **抽成具名 export 的唯一理由是【它在本機跑不到】**。
+ *
+ * 🛑🛑 `fontPkgDir()` 的候選① (`require.resolve`) **在本機一定會過** ⇒ 本函式**永遠不會被執行到**
+ *    ⇒ 📌 **它是「只在正式站才走的那條路」, 而那正是最不該只靠肉眼的那一種碼。**
+ *    ⇒ ✅ 收成 `cwd` 參數 + 具名 export ⇒ 測試餵一個**假的 store 佈局**就走得到它,
+ *      **不必等部署**。(⚠️ 而那仍然只證得了【這段邏輯】, 證不到 Vercel 的檔案樹長怎樣。)
+ *
+ * @param cwd 通常是 `process.cwd()`;測試餵臨時目錄。
+ */
+export function findFontPkgInPnpmStore(cwd: string): string | null {
+  // 🔵 兩個 base 對齊 `cssCandidates` 的兩個候選(cwd 是 app 目錄 / 是 repo 根兩種情形)。
+  //    正式站量到 `cwd=/var/task/apps/storefront`, 而追蹤到的 `.pnpm` 落在 repo 根
+  //    ⇒ 第一個 base(`../../`)是那邊會命中的那一個。
+  const storeBases = [
+    join(cwd, '..', '..', 'node_modules', '.pnpm'),
+    join(cwd, 'node_modules', '.pnpm'),
+  ];
+  // 🔴 **版本號不寫死** —— `@fontsource+noto-sans-tc@5.3.0` 那個字串會隨升版變,
+  //    寫死的話升一次版就靜靜地找不到(而失敗形狀是方框, 不是報錯)。
+  const PREFIX = '@fontsource+noto-sans-tc@';
+  const found: string[] = [];
+  for (const base of storeBases) {
+    let entries: string[];
+    try {
+      entries = readdirSync(base);
+    } catch {
+      continue; // 這個 base 不存在 ⇒ 換下一個。
+    }
+    for (const e of entries.filter((n) => n.startsWith(PREFIX)).sort()) {
+      const dir = join(base, e, 'node_modules', '@fontsource', 'noto-sans-tc');
+      // 🔴 **判的是【執行時真的會讀的那幾支檔】, 不是 `package.json`**(見 `isUsableFontPkg`)。
+      //    只看目錄名等於相信 store 的長相;而只看 `package.json` 是拿代理當判準。
+      if (isUsableFontPkg(dir)) found.push(dir);
+    }
+  }
+  // 🛑 **命中多支時的行為要明寫(主視窗-87 要求), 而 pnpm 底下【真的會】多支**:
+  //    兩個套件依賴不同版本時 store 裡會並存。
+  //    ⇒ **取 `found` 的第一支, 而不是「隨便一支」** —— 理由是**決定性**:同一棵樹每次都選同一個,
+  //    ⚠️ **而它的精確語意是【base① 優先, base 內字典序】**(code-reviewer 抓到我原句比實作寬):
+  //      `sort()` 只排**每個 base 內部**, `found` 是跨 base 串接 ⇒ 兩個 base 同時命中時,
+  //      base② 的 `4.9.0` **不會**贏過 base① 的 `5.10.0`。行為仍然決定性, 只是不是全域字典序。
+  //      否則兩次部署可能嵌到不同版本的字型而**沒有任何東西會叫**。
+  //    ⚠️ 這是**字典序**不是語意版本序(`5.9.0` 會排在 `5.10.0` 後面)⇒ **它不保證挑到最新**,
+  //      只保證**每次挑同一個**。要挑最新是另一件事, 而今天 store 裡只有一支(實測)。
+  //    🔵 **而選了哪一支看得見** —— 呼叫端把它印進 log 的 `字型套件=<路徑>`。
+  return found.length > 0 ? (found[0] as string) : null;
 }
 
 function readTextOrNull(p: string): string | null {
