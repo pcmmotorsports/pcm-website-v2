@@ -12,23 +12,22 @@
 //    ⇒ 📌 **不是「IDENTITY 一定會漏」, 是【有人明寫過那一支就乾淨】**
 //    ⇒ ⇒ **所以要的是一道會叫的, 不是一條規則**(規則寫過而復發 —— 板上有紀錄)。
 //
-// ══ 🛑🛑 它的分母比正式庫窄 —— 而【我第一版對這個差的解釋是錯的】═══════════════
-//   本檔掃的是 `supabase/migrations/` 的字面;正式庫實有 **6** 支 IDENTITY 序列。
+// ══ 🛑 分母:**本檔掃到 6 支, 而正式庫實有 6 支** ═══════════════════════════
+//   ✅ **2026-09-02 起兩側相等** —— `646bbeab` 收了 `⟦b4-PFEDDL2⟧` ⇒
+//      `product_fitments_effective_staging` / `..._sync_log` 的建表 DDL 進版控
+//      ⇒ 本檔掃到的從 4 變 **6**;正式庫那個 6 是唯讀查 `pg_class`+`pg_depend`(2026-09-02)。
+//   ⚠️ **而「相等」是一張快照, 這道閘維持不了它**(code-reviewer nit):
+//      本檔掃的是 `CREATE TABLE` 的**字面** ⇒ **只增不減** ——
+//      `DROP TABLE` 不會讓它少一支 ⇒ **正式庫掉到 5 的那一天, 這裡照樣綠。**
 //
-//   🔴 **第一版掃到 3 支, 而我把差的 3 支解釋成「它們的建表 DDL 不在版控裡」。**
-//      **那個解釋有一支是假的**(code-reviewer 2026-09-02 抓、本窗開檔複驗):
-//      `product_fitments` 的建表**早在 2026-07-08 就進版控了**
-//      (`20260708130000_create_product_fitments_index.sql:24`,`:25` 就是 IDENTITY 欄)。
-//   🎯 **真因是我的 regex 要求 `public.` 前綴, 而 repo 裡 60 支 `CREATE TABLE` 只有 43 支帶它。**
-//   📌 **⇒ 我用一個【聽起來很合理、而且把責任推給別人】的故事, 解釋了自己量具的洞。**
-//      **⇒ 而那種故事沒有人會回頭查 —— 它讀起來像已經查過了。**
-//   ✅ 修好前綴之後掃到 **4** 支。
-//
-//   🔵 而**真正還看不到的只有 2 支**(`_staging` / `_sync_log`):它們的建表 DDL 確實不在
-//      `supabase/migrations/` 裡(`20260901170000_m4b_pfe_ddl_into_version_control.sql`
-//      只補進了 `product_fitments_effective` 一張)。
-//   📌 **⇒ 本檔守的是【從 migration 進來的表】—— 那是新表【應該】走的路;**
-//      而繞過版控建的表, 本檔結構上看不到 —— **那是另一列的事, 不是這一道閘失效。**
+//   🔴🔴 **而這一節【前一版是假的】, 而它假掉的方式值得記**:
+//      前一版寫「掃到 4 支 · 真正還看不到的只有 2 支(`_staging`/`_sync_log`),
+//      它們的建表 DDL 確實不在 `supabase/migrations/` 裡」——
+//      而 `20260902210000:98,128` 就是那兩張表。
+//      🛑 **⇒ 我在檔尾改對了(釘住全集), 而檔頭那一節【沒跟著改】** ——
+//      而它**排在前面** ⇒ 📌 **同一支檔兩個命中, 而只有第二個是現況**
+//      ⇒ ⇒ 那與 `print-a4.css` 那個病同族(grep 到第一個命中就停)。
+//   🔵 舊字面不留全文, 只留這段說明 —— 因為它是一段【描述現況】的話, 而不是一個決定。
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -109,6 +108,31 @@ function identitySequencesFromMigrations(): Map<string, { file: string; table: s
  *    ②而那個動態不是隨便寫的 —— 它本身就是在防另一個同族的坑。**
  * 🎯 **⇒ 一把太窄的尺產出的是【假指控】, 而假指控會讓人去「修」一個沒壞的東西。**
  */
+/** 「收乾淨」的兩個條件 —— **模組層只有這一份**, 具名與動態兩條路共用。 */
+const REVOKE_ALL = String.raw`REVOKE\s+ALL(\s+PRIVILEGES)?`;
+const ROLES = String.raw`(?=[^;]*\bPUBLIC\b)(?=[^;]*\banon\b)(?=[^;]*\bauthenticated\b)`;
+
+/**
+ * 🔴🔴 **「收乾淨了沒」那把尺的【唯一一份】判準 —— 自檢與生產碼共用它。**
+ *
+ * 為什麼要抽出來(code-reviewer 2026-09-02 must-fix):
+ *   前一版 `probeRevokeRegex()` 是把這段判準**重打一份**, 不呼叫這裡。
+ *   ⇒ 🔴 **那讓那格「量具自檢」驗不到生產碼** —— 而它本來就是為了防那個 `/i/` 事故而加的
+ *     ⇒ ⇒ **同一個事故今天再發生一次, 自檢那格照樣綠, 而 naked 那格全變 true。**
+ * 🎯 **⇒ 一格叫「自檢」的測試, 若把判準重打一份, 它自檢的是那一份重打的 —— 不是那把尺。**
+ */
+function namedRevokeRegex(seq: string): RegExp {
+  // 🔴 三種權限【全部】要被收掉才算數:序列的完整權限是 SELECT / UPDATE / USAGE
+  //    ⇒ 一發 `REVOKE SELECT … FROM anon` 不該算「收過了」⇒ 只認 `REVOKE ALL`。
+  // 🔴 而角色也要三個都在:`PUBLIC` / `anon` / `authenticated` —— 少一個就不算。
+  // 🔵 中段用 `[^;]` 而不是 `[\s\S]` —— 前者不會跨過分號
+  //    (跨得過去 ⇒ 一發收 service_role 的 REVOKE 後面接一發收 anon 的【別的】REVOKE 會被判成綠)。
+  return new RegExp(
+    REVOKE_ALL + String.raw`[^;]{0,40}?ON\s+SEQUENCE\s+public\.` + seq + String.raw`\b[^;]{0,80}?FROM` + ROLES,
+    'i',
+  );
+}
+
 function revokedSomewhere(seq: string, table: string, col: string): boolean {
   // ⛔ **刻意【不】認 `REVOKE … ON ALL SEQUENCES IN SCHEMA public`**:那個語法只作用於
   //    【當下已存在】的物件 ⇒ 把它當成「這一支被收過了」對它之後才建的序列是**假綠**。
@@ -117,12 +141,7 @@ function revokedSomewhere(seq: string, table: string, col: string): boolean {
   //    `SELECT` / `UPDATE` / `USAGE` ⇒ 一發 `REVOKE SELECT … FROM anon` 不該算「收過了」。
   //    ⇒ 這裡只認 `REVOKE ALL`(含 `ALL PRIVILEGES`), 不認挑單項的寫法。
   // 🔴 而角色也要三個都在:`PUBLIC` / `anon` / `authenticated` —— 少一個就不算。
-  const revokeAll = String.raw`REVOKE\s+ALL(\s+PRIVILEGES)?`;
-  const roles = String.raw`(?=[^;]*\bPUBLIC\b)(?=[^;]*\banon\b)(?=[^;]*\bauthenticated\b)`;
-  const named = new RegExp(
-    revokeAll + String.raw`[^;]{0,40}?ON\s+SEQUENCE\s+public\.` + seq + String.raw`\b[^;]{0,80}?FROM` + roles,
-    'i',
-  );
+  const named = namedRevokeRegex(seq);
   // 動態:同一支檔裡既有 `pg_get_serial_sequence('public.<表>','<欄>')`, 又有一發 `REVOKE ALL … %s … FROM` 三個角色。
   // 🛑 **射程(codex must-fix, 誠實寫)**:本檔【不追變數的來龍去脈】——
   //    同一支檔裡查了兩支序列而只撤其中一支時, 兩支都會被判成綠。
@@ -132,7 +151,7 @@ function revokedSomewhere(seq: string, table: string, col: string): boolean {
     'i',
   );
   const dynRevoke = new RegExp(
-    revokeAll + String.raw`[^;']{0,40}?ON\s+SEQUENCE\s+%s\b[^;']{0,80}?FROM` + roles,
+    REVOKE_ALL + String.raw`[^;']{0,40}?ON\s+SEQUENCE\s+%s\b[^;']{0,80}?FROM` + ROLES,
     'i',
   );
   for (const { sql: raw } of migrations()) {
@@ -155,23 +174,30 @@ function revokedSomewhere(seq: string, table: string, col: string): boolean {
  * ✅ ⇒ 所以這一格不吃外部檔案, 直接餵字串給那把尺, 讓它自己表演兩個世界。
  */
 function probeRevokeRegex(text: string): boolean {
-  const revokeAll = String.raw`REVOKE\s+ALL(\s+PRIVILEGES)?`;
-  const roles = String.raw`(?=[^;]*\bPUBLIC\b)(?=[^;]*\banon\b)(?=[^;]*\bauthenticated\b)`;
-  return new RegExp(
-    revokeAll + String.raw`[^;]{0,40}?ON\s+SEQUENCE\s+public\.zzq_probe_id_seq\b[^;]{0,80}?FROM` + roles,
-    'i',
-  ).test(text);
+  // ✅ **呼叫共用的那一支** —— 而那正是這一格的重點:它驗的是【生產碼在用的那把尺】。
+  return namedRevokeRegex('zzq_probe_id_seq').test(text);
 }
 
 /**
- * 🔴 正式庫有、而本檔【掃不到】的 IDENTITY 序列(2026-09-02 唯讀實查)。
- * 它們的建表 DDL 不在版控裡 ⇒ 本檔的字面掃描結構上看不到。
- * ✅ 而下面那一格會在它們進版控時叫 —— 那時要把它從這裡移掉並確認它有 REVOKE。
+ * 🔵 **本檔【掃得到】的 IDENTITY 序列全集 —— 而它現在與正式庫【一樣多】。**
+ *
+ * ⛔ ~~原本這裡是 `NOT_YET_IN_VERSION_CONTROL`:正式庫有而本檔掃不到的那幾支~~
+ * ✅ **2026-09-02 那個缺口關掉了**:`646bbeab` 收了 `⟦b4-PFEDDL2⟧`
+ *    ⇒ `product_fitments_effective_staging` / `..._sync_log` 的建表 DDL 進版控
+ *    ⇒ 本檔掃到的從 **4** 變 **6**,而正式庫實有 **6**(2026-09-02 唯讀 `pg_class`+`pg_depend`)
+ *    ⇒ 🎯 **repo 這一側的分母,今天第一次等於正式庫那一側。**
+ *
+ * 🔴🔴 **而【把那份清單清空】會讓那一格變成恆綠** —— 一個 `filter(…)` 在空陣列上永遠回 `[]`。
+ *   ⇒ 📌 **一個「缺口關掉了」的好消息, 如果只是把清單清空, 它會同時關掉那道守門。**
+ *   ✅ **所以改成【釘住全集】**:多一支(新表)或少一支(某支變成掃不到)**兩個方向都會紅**。
  */
-const NOT_YET_IN_VERSION_CONTROL: readonly string[] = [
-  // ⛔ ~~'product_fitments_id_seq'~~ —— 它**一直都在版控裡**, 是我的 regex 看不到它。舊字面留著當實例。
+const PINNED_IDENTITY_SEQUENCES: readonly string[] = [
+  'admin_saved_order_views_id_seq',
+  'auth_callback_events_id_seq',
+  'product_fitments_effective_id_seq',
   'product_fitments_effective_staging_id_seq',
   'product_fitments_effective_sync_log_id_seq',
+  'product_fitments_id_seq',
 ] as const;
 
 describe('⟦b4-SEQACL1⟧ public 的 IDENTITY 序列不得對 anon 開著', () => {
@@ -221,14 +247,24 @@ describe('⟦b4-SEQACL1⟧ public 的 IDENTITY 序列不得對 anon 開著', () 
     ).toEqual([]);
   });
 
-  it('🔵 那些【DDL 還不在版控】的序列, 一旦進來就要叫', () => {
-    // 🎯 這一格不是斷言它們安全 —— 它們的權限由 20260902180000 在正式庫上收掉。
-    //    它是在說:**本檔看不到它們**, 而那一天它們變成看得到時, 有人要回來看一眼。
-    const nowVisible = NOT_YET_IN_VERSION_CONTROL.filter((s) => found.has(s));
+  it('🔴 掃得到的 IDENTITY 序列全集要與釘住的那份【全等】—— 兩個方向都會紅', () => {
+    // 🎯 這一格取代了原本的 `NOT_YET_IN_VERSION_CONTROL`(那份清單 2026-09-02 已經空了,
+    //    而**空清單會讓那一格恆綠**)。
+    // 🛑 紅的時候先分方向:
+    //    · **多一支** ⇒ 有人加了新的 IDENTITY 表 ⇒ 先回答「它的序列有沒有人收過權限」
+    //      (上面那一格會一起紅);確認過再把名字加進來。
+    //    · **少一支** ⇒ 🔴 有一支【本來掃得到而現在掃不到】⇒ 那多半是**掃描壞了**,
+    //      不是那張表消失了 ⇒ 先去看 `identitySequencesFromMigrations()` 而不是改這份清單。
+    // 🔵 用 describe 內已經算好的 `found`(nit 6)—— 讓這一格與上面幾格量的是**同一次**掃描。
     expect(
-      nowVisible,
-      `這幾支的建表 DDL 進版控了 ⇒ 把它們從 NOT_YET_IN_VERSION_CONTROL 移掉, ` +
-        `並確認上面那一格對它們也是綠的:${nowVisible.join(', ')}`,
-    ).toEqual([]);
+      [...found.keys()].sort(),
+      '掃得到的 IDENTITY 序列與釘住的那份不一致。' +
+        '**多一支** ⇒ 有人加了新的 IDENTITY 表, 先看上面那格(它的序列有沒有人收過權限), ' +
+        '確認過再把名字加進 PINNED_IDENTITY_SEQUENCES;' +
+        '**少一支** ⇒ 多半是掃描壞了或有人改了既有 migration 的 CREATE TABLE 寫法, ' +
+        '先去看 identitySequencesFromMigrations() 而不是改這份清單。' +
+        '⚠️ 而本檔掃的是【工作樹目錄】不是 git 追蹤集 ⇒ ' +
+        '先確認那支 migration 是不是你自己還沒 commit 的。',
+    ).toEqual([...PINNED_IDENTITY_SEQUENCES].sort());
   });
 });
