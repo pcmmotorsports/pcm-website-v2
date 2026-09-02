@@ -68,8 +68,8 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 要下「查無 / 不存在 / 零命中」這種斷言,而對象是【一個檔案路徑】 | `bash scripts/where-is.sh <path>` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §8** |
 | 要寫或審任何 `.range()` · 翻頁迴圈 · 「撈全部」的迴圈 | `docs/patterns/pagination-loop-review.md`(🔴 **檔頭有證據等級聲明** —— 原文已隨 session 消失、本檔是轉錄版,引用前先讀那一段;五條準則:頁大小嚴格小於 `db-max-rows` / `.range()` 兩端皆含 / 中途失敗要 throw 不得 break / `count` 不當終止判準 / 排序帶唯一鍵) |
 | 要把某供應商商品上架到顧客站 shop.pcmmotorsports.com | `docs/runbooks/supplier-storefront-onboarding.md`(完整流程 + forget-proof preflight,單一入口) |
-| 🔴 **客人打電話說「我收到【兩封不一樣的】出貨通知」/「到底哪一個追蹤號才對」/「你們是不是出了兩次貨」** | `docs/runbooks/duplicate-shipping-email-sop.md` —— 🔵 **這件事是我們知道的、而且是刻意接受的**(Sean 2026-08-31 拍甲, 原話「我用一個**常態的病**換一個**極少數的病** —— 不是零代價, 你要知道」;換掉的是「客人一封都收不到」)。🔴 **而最重要的那一格是【我們查不出來】**:系統裡留下的痕跡**與一切正常的情況長得一模一樣** ⇒ 客服不能靠後台確認客人有沒有踩到它 ⇒ **相信客人、不要承諾去查、把那一通記下來**。📌 **而那通電話是目前【唯一】的發現路徑 —— 沒有任何一支監控會叫。**⚠️ 而「客人說貨其實沒出」是**另一條路**, 處理不同, 見該檔末節。 |
-| 🔴 **客人來要求「查我的資料 / 刪掉我的資料 / 不要再寄信給我」** | `docs/runbooks/data-rights-sop.md` —— 🔴 **隱私政策 `legal-content.ts:199` 已經對客人承諾五種權利、行使方式=客服三管道,而那頁現在就在線上** ⇒ 這不是未來的工作,是已經答應了。含 PII 落點表(分母 58 表/view)、**「刪除」在三個地方不成立**(訂單快照 / 已寄出的信 / 同意證據)、回覆範本。✅ **那三格 Sean 2026-08-21 已全答並落地**(保存期限=不主動刪 / 硬刪 vs 匿名化=匿名化 / 窗口=先不指定;數法 `grep -c '不主動刪' docs/runbooks/data-rights-sop.md` ⇒ 5、`'先不指定'` ⇒ 3、負對照 ⇒ 0)⇒ **不要再拿這三格去問他** |
+| 🔴 **客人打電話說「我收到【兩封不一樣的】出貨通知」/「到底哪一個追蹤號才對」/「你們是不是出了兩次貨」** | `docs/runbooks/duplicate-shipping-email-sop.md` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §21** |
+| 🔴 **客人來要求「查我的資料 / 刪掉我的資料 / 不要再寄信給我」** | `docs/runbooks/data-rights-sop.md` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §22** |
 | 🔴 **多窗同時在跑**:①我要回報進度而主視窗會不會忘記我 ②**收到 push 警示:有人推了 dev 而不是我** / 我 commit 了而它上去了沒 ③我要自己 push | `bash scripts/heartbeat.sh "<窗>" "<剛做完>" "<手上>"` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §9** |
 | 夜跑多窗指揮(哨兵/派工/批次收割/佇列預派/斷線復原) | `docs/runbooks/night-run-command-playbook.md`(2026-08-06 Sean 拍板常設) |
 | 開新施工窗/新 session 主視窗建置/工作流移植他專案 | `docs/runbooks/multi-window-command-workflow.md`(2026-08-09 Sean 拍板常設;§B 主視窗/§C 施工窗啟動提示詞) |
@@ -101,7 +101,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
   > 📌 **⇒ 黑名單在跟下一個沒想到的前綴賽跑。改成【只印名稱】—— 那是白名單, 而它不需要知道值長什麼樣。**
 - **Branch**:`main`←production(Sean 手動 merge)/ `dev`←主開發(slice 都在 dev、線性、暫不開 feature branch)。
 - **Commit 訊息**:`type(scope): subject [milestone]`。type=feat/fix/refactor/docs/chore/test/perf;scope=storefront/medusa/ui/schemas/docs/config;subject=繁中祈使句≤72 字元。
-- **Add 必精準**:`git add <精確路徑>`;**禁 `git add .` / `git add -A`**。🔴 **而「路徑精準」≠「內容精準」**(2026-08-25 拋棄式 repo 雙世界實測):`git add <單一檔案>` 拿的是**那支檔的整個 diff** —— 一支檔被改了兩處(例如另一個窗也動過), `add` 它就兩處全進來。⇒ 動**多窗共用的檔**(`package.json` / `STATUS.md` / 板子)前先 `git diff <檔>` 看清楚。🔴 **而 `git commit -F <msg> -- <pathspec>` 與不帶 pathspec【各擋一半、各對另一半失明】**:帶 pathspec ⇒ 只收指定的檔(擋住別人放進 index 的**其他檔**), **而它收的是【工作樹】那一份** ⇒ 別人在你 `add` 之後對**同一支檔**的編輯會一起被收走;不帶 pathspec ⇒ 收 index(你 `add` 的那版), **而別人的其他檔會一起進去**。⇒ 兩種都不是無條件安全 ⇒ **commit 前 `git diff --cached -- <檔>`、commit 後 `git show HEAD:<檔>` 回核**。<br>🛑 **而【兩邊同時有東西】時(index 有別人的檔、而你要 commit 的那支檔工作樹裡也有別人未 commit 的行), 兩種形狀都不安全 ⇒ 預設動作是【停下來協調、等對方先 commit】, 不要自己動手**(Sean 2026-08-29 拍 `⑦ 補`)。<br>⚠️ **協調不到時有一條路, 而它只被走過一次** —— 五步流程與三道還原守門在 `docs/runbooks/multi-window-command-workflow.md` §v6;**前置條件是【那支檔是尾端追加型、且別人的改動也在尾端】, 中段 ⇒ 不成立, 回到上面那句預設。**
+- **Add 必精準**:`git add <精確路徑>`;**禁 `git add .` / `git add -A`**。 📎 **共用 index 的暴露期、pathspec 兩種形狀各擋一半、兩邊同時有東西時的預設動作 → `docs/runbooks/multi-window-command-workflow.md` 附錄**
 - **不自動 push**:commit + busboy-end 後**不 push**、Sean 手動推=review checkpoint。
 - **Submodule**:初始化 `git submodule update --init --recursive`;同步 design `git submodule update --remote design-reference/` → `git add design-reference` commit。
 
