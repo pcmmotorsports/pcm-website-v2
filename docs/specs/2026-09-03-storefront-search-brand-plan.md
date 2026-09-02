@@ -71,7 +71,46 @@ brands(id, name, slug, premium_extra_pct)
 · ❌ 要 migration ⇒ 鐵則 12③ ⇒ **要 Sean 貼**,而那條佇列今晚量到會塞住
 · ❌ 前台是 `anon`,而後台那支是 `SECURITY DEFINER` 給 `service_role` ⇒ **不可照抄權限模型**(見 §5)
 
-### ⇒ 我的建議:**先花一發把甲量掉,再選。**
+### 🔴🔴 量完了(2026-09-03 03:4x,線 `-mail`,拋棄式 PostgREST)⇒ **甲【不成立】,走乙。**
+
+**環境**:`scripts/storefront-probe/up.sh`,自己的埠(`PG 55545 / PostgREST 3959 / dir /tmp/pcm-mail-probe`)
+—— 🔵 **另一個窗已經有一座在跑,我沒有碰它**,照 `env.sh` 檔頭寫的並行用法另起一座。
+**PostgREST 版本 `postgrest/14.16`**(從回應的 `Server:` 標頭讀的)。
+
+**梯子(每一階都有對照,而 f0 要求的前置在 B/C)**:
+```
+A 純表 products_public?select=id,title&limit=3                        HTTP 200 · 3 列   ✅ 基線
+B embed  select=id,title,brands(name)                                  HTTP 200 · 3 列   ✅ embed 通
+C embed!inner + 過濾品牌 brands.name=ilike.*BONAMICI*                  HTTP 200 · 7 列   ✅ 權限也通
+🔴 D or=(title.ilike.*zzqprbxx*,brands.name.ilike.*BONAMICI*)          HTTP 400          ⇒ 甲不成立
+E 負對照 亂語法 or=(title.zzz.1)                                       HTTP 400          ✅ 尺會叫
+F 負對照 or=(…zzqprbxx…,brands.name.ilike.*zzqprbxx*)                  HTTP 400          ⇒ 與 D 同錯
+```
+🎯 **C 那一階就是 f0 要的前置**:它證明 **embed 過濾與權限都是通的**
+⇒ **所以 D 的 400 不是權限問題,是語法問題** —— 兩者原本都會回空/失敗,而 C 把它們分開了。
+🔵 **而 F 也 400(我原本預期 200/0)** ⇒ 那更乾淨:**它證明 400 來自【語法】,與匹不匹配無關。**
+
+**D 的錯誤原文(逐字)**:
+```json
+{"code":"PGRST100",
+ "message":"\"failed to parse logic tree ((title.ilike.*zzqprbxx*,brands.name.ilike.*BONAMICI*))\" (line 1, column 34)",
+ "details":"unexpected \"a\" expecting \"not\" or operator (eq, gt, ...)"}
+```
+📌 **column 34 落在 `brands.name` 的那個點上** —— 解析器把 `brands` 讀成欄名、把 `name` 讀成運算子。
+⇒ **PostgREST 14.16 的 top-level `or()` 只認【本表的欄】,不認 embed 資源的欄。**
+
+⚠️ **射程,兩格**:
+1. **這是 14.16 的行為**,而**正式站的 PostgREST 版本【未查】**(本 repo 的
+   `SupabaseOrderAdapter.ts` 也自標過同一格「正式站的 PostgREST 版本未查」)⇒ **版本不同要重量。**
+2. 我測的是 **top-level `or()` 引用 embed 欄**;`brands.or=(…)`(對 embed 資源自己下 or)**是另一件事**,
+   它過濾的是**被 embed 的那一側**,答不出「詞命中標題**或**品牌」⇒ **不是甲的替代品。**
+
+### ⇒ 結論:**走乙(RPC + migration),而它進「等 Sean 貼」佇列**
+🛑 **而甲被否掉之後,有一格要明寫**:乙需要 migration ⇒ **這一刀不可能今天上線**。
+⇒ ✅ **而它不擋前置工作**:述詞、測試、驗收表、權限約束都可以先寫完並 commit,
+   等 SQL 貼完再接線。**不要因為「要等」就什麼都不做,也不要假裝它能今天上。**
+
+### (原本的建議,留著看得到推論的過程)⇒ ~~先花一發把甲量掉,再選。~~
 量法**不必猜也不必等人**:本 repo 有現成的拋棄式 PostgREST(片0 就是這樣量出來的,
 `docs/specs/2026-08-15-1-p0-postgrest-or-semantics.md`,commit `b4865c29`,逐字「跑真 PostgREST,非讀文件推」)。
 ⇒ **成立 ⇒ 走甲(今天就能上,零依賴)· 不成立 ⇒ 走乙,而乙本來就要做(§4)。**
@@ -159,6 +198,30 @@ SELECT has_table_privilege('anon', 'public.products_public', 'SELECT');
    **應用層的 select 字串不是那把鎖** —— 這正是本 repo 記過的形狀(`shipments` 那次逐字同款)。
    ⇒ **那不是本片造成的,而本片會【第一次把 brands 放進一條客人打得到的查詢路徑】** ⇒ 要一起回報。
 ③ 鐵則 12② 命中(權限)⇒ **codex 對抗審查不降級。** 鐵則 8 命中 ⇒ 本檔就是 plan,等批。
+
+### 🔴🔴 5-a 授權查證結果(主視窗-87 2026-09-03 正式庫唯讀,原始輸出他整段回貼)
+```
+anon_讀得到_brands = t     正對照 products_public = t     負對照 orders = f
+⇒ 三格都照預期 ⇒ 那個 t 有判別力, 不是恆真
+
+brands 逐欄:id · name · slug · description · logo_url · created_at · updated_at · premium_extra_pct(integer)
+
+欄級授權查詢 ⇒ 0 列
+```
+🛑 **0 列那一格【標未確認,不讀成安全】** —— `information_schema` 對零權限帳號會回 0(本 repo 記過)
+⇒ **那可能是查的人看不到,不是「沒有欄級授權」。**
+🔵 **唯一站得住的讀法**:`has_table_privilege` 回 `t` 是 **table-level** ⇒ **保守讀法:`anon` 讀得到全部 8 欄,含 `premium_extra_pct`。**
+
+### 🔴🔴 5-b ⇒ 硬約束升成兩條(主視窗-87 收緊,我同意並寫成可驗收的形狀)
+```
+① 不動 mapper 的投影
+② 不得在 select / or() 裡【新增】任何 brands 欄位到【回傳路徑】上
+   —— brands.name 只用在【比對條件】, 不放進回傳
+```
+✅ **② 是可驗收的,而判別句是機械的**:改完之後線上 `/api/search` 每一筆的 `Object.keys()`
+**必須逐字仍是** `slug / brand / name / price / image` —— **多一個都不行**。改前改後各打一發比對。
+📌 **理由**:`premium_extra_pct` 是**經銷/加價資訊**,而它在 DB 那一層對 `anon` 是**開著的**
+⇒ **今天唯一擋住它的就是 mapper** ⇒ 🛑 **那不是「深層防護」,那是【最後一道】。**
 
 ---
 
