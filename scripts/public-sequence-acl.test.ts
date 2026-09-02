@@ -111,6 +111,14 @@ function identitySequencesFromMigrations(): Map<string, { file: string; table: s
 /** 「收乾淨」的兩個條件 —— **模組層只有這一份**, 具名與動態兩條路共用。 */
 const REVOKE_ALL = String.raw`REVOKE\s+ALL(\s+PRIVILEGES)?`;
 const ROLES = String.raw`(?=[^;]*\bPUBLIC\b)(?=[^;]*\banon\b)(?=[^;]*\bauthenticated\b)`;
+/**
+ * 🔴 具名與動態兩條路的【中段界線】—— **只有這一份**(`-fc` 2026-09-02 量到)。
+ *   兩條路的字元類必須不同(動態那段住在 `EXECUTE format('…')` 的引號裡 ⇒ 要多排除 `'`),
+ *   **而那兩個數字沒有理由不同** ⇒ 前一版把它們各打一份
+ *   ⇒ 🔴 **改一邊、另一邊不跟 ⇒ 兩條路的鬆緊會分岔, 而分岔【不會紅】。**
+ */
+const GAP_A = 40;
+const GAP_B = 80;
 
 /**
  * 🔴🔴 **「收乾淨了沒」那把尺的【唯一一份】判準 —— 自檢與生產碼共用它。**
@@ -128,7 +136,7 @@ function namedRevokeRegex(seq: string): RegExp {
   // 🔵 中段用 `[^;]` 而不是 `[\s\S]` —— 前者不會跨過分號
   //    (跨得過去 ⇒ 一發收 service_role 的 REVOKE 後面接一發收 anon 的【別的】REVOKE 會被判成綠)。
   return new RegExp(
-    REVOKE_ALL + String.raw`[^;]{0,40}?ON\s+SEQUENCE\s+public\.` + seq + String.raw`\b[^;]{0,80}?FROM` + ROLES,
+    REVOKE_ALL + `[^;]{0,${GAP_A}}?ON\\s+SEQUENCE\\s+public\\.` + seq + `\\b[^;]{0,${GAP_B}}?FROM` + ROLES,
     'i',
   );
 }
@@ -142,24 +150,35 @@ function revokedSomewhere(seq: string, table: string, col: string): boolean {
   //    ⇒ 這裡只認 `REVOKE ALL`(含 `ALL PRIVILEGES`), 不認挑單項的寫法。
   // 🔴 而角色也要三個都在:`PUBLIC` / `anon` / `authenticated` —— 少一個就不算。
   const named = namedRevokeRegex(seq);
+  // 動態那條路 ⇒ 走 `dynRevokedIn()`(下面那支), **而不是在這裡重打一份**。
   // 動態:同一支檔裡既有 `pg_get_serial_sequence('public.<表>','<欄>')`, 又有一發 `REVOKE ALL … %s … FROM` 三個角色。
   // 🛑 **射程(codex must-fix, 誠實寫)**:本檔【不追變數的來龍去脈】——
   //    同一支檔裡查了兩支序列而只撤其中一支時, 兩支都會被判成綠。
   //    ⇒ 要真的分辨得出來, 需要一個能解析 plpgsql 變數流向的東西, 而那不是這一支。
+  for (const { sql: raw } of migrations()) {
+    const sql = stripSqlComments(raw);
+    if (named.test(sql)) return true;
+    if (dynRevokedIn(sql, table, col)) return true;
+  }
+  return false;
+}
+
+/**
+ * 動態那條路的判準 —— **抽成一支可以【直接餵字串】的函式**(`-fc` 2026-09-02 的建議)。
+ * 🎯 抽它的理由不是整潔:前一版它埋在 `revokedSomewhere()` 裡 ⇒
+ *    **只餵得到真檔案** ⇒ 而「餵它一個我知道答案的世界」做不到
+ *    ⇒ ⇒ 那正是本檔自己那條規矩(餵它東西看它答什麼)在動態這條路上**做不到的原因**。
+ */
+function dynRevokedIn(sql: string, table: string, col: string): boolean {
   const dynLookup = new RegExp(
     String.raw`pg_get_serial_sequence\s*\(\s*'public\.` + table + String.raw`'\s*,\s*'` + col + String.raw`'\s*\)`,
     'i',
   );
   const dynRevoke = new RegExp(
-    REVOKE_ALL + String.raw`[^;']{0,40}?ON\s+SEQUENCE\s+%s\b[^;']{0,80}?FROM` + ROLES,
+    REVOKE_ALL + `[^;']{0,${GAP_A}}?ON\\s+SEQUENCE\\s+%s\\b[^;']{0,${GAP_B}}?FROM` + ROLES,
     'i',
   );
-  for (const { sql: raw } of migrations()) {
-    const sql = stripSqlComments(raw);
-    if (named.test(sql)) return true;
-    if (dynLookup.test(sql) && dynRevoke.test(sql)) return true;
-  }
-  return false;
+  return dynLookup.test(sql) && dynRevoke.test(sql);
 }
 
 /**
@@ -227,6 +246,37 @@ describe('⟦b4-SEQACL1⟧ public 的 IDENTITY 序列不得對 anon 開著', () 
     ).toBe(false);
     expect(probeRevokeRegex('REVOKE ALL ON SEQUENCE public.other_id_seq FROM PUBLIC, anon, authenticated;')).toBe(false);
     expect(probeRevokeRegex('這一段裡有字母 i, 而它不是一發 REVOKE'), '🔴 尺死成 /i/ 的那一格').toBe(false);
+  });
+
+  it('🔴 動態那條路的【負對照】—— 查了序列而【沒有收乾淨】必須判 false', () => {
+    // 🔴🔴 **這一格是 `-fc` 2026-09-02 量出來的缺口**(它兩個方向各一發突變):
+    //   · `dynRevoke` 改成【永不命中】⇒ **1 紅** ⇒ 正對照【有】——
+    //     而那個正對照是**意外得來的**:`admin_saved_order_views_id_seq` 與
+    //     `auth_callback_events_id_seq` 這兩支**真實序列靠它才判得成綠** ⇒ 它死掉它們就紅。
+    //     ⇒ 🛑 **所以「尺會動」今天是被【真實資料】守著的, 不是被測試守著的**
+    //       ⇒ 而那是會過期的保護:那兩支改成具名寫法(或表被刪)⇒ 正對照跟著消失。
+    //   · `dynRevoke` 改成【永遠命中】⇒ **6 全綠, 零訊號** ⇒ 負對照【沒有】。
+    // 🎯 **⇒ 判別句(`-fc` 給):一把尺的兩個失效方向, 只有一個會有人來吵 ——**
+    //    **而沒有人吵的那個, 就是它沒有守門的那個。**
+    //    (永不命中 = 假紅, 有人會吵;**永遠命中 = 假綠**, 把沒收的序列判成收了。)
+    // ✅ 而這一格**走 `revokedSomewhere()` 那支**, 不重打判準 —— 照本檔自己那條規矩。
+    const seq = 'zzq_dynneg_id_seq';
+    // 🔵 這一格不吃外部檔案, 而是把兩個世界都造出來餵同一支函式。
+    const oneRole = `DO $s$ BEGIN
+      v := pg_get_serial_sequence('public.zzq_dynneg', 'id');
+      EXECUTE format('REVOKE ALL ON SEQUENCE %s FROM anon', v);
+    END $s$;`;
+    const allRoles = `DO $s$ BEGIN
+      v := pg_get_serial_sequence('public.zzq_dynneg', 'id');
+      EXECUTE format('REVOKE ALL ON SEQUENCE %s FROM PUBLIC, anon, authenticated', v);
+    END $s$;`;
+    expect(dynRevokedIn(oneRole, 'zzq_dynneg', 'id'), '🔴 只收 anon(少兩個角色)⇒ 必須 false').toBe(false);
+    expect(dynRevokedIn(allRoles, 'zzq_dynneg', 'id'), '🟢 三個角色都收 ⇒ 必須 true').toBe(true);
+    expect(
+      dynRevokedIn(`SELECT 1; -- 沒有查序列也沒有 REVOKE，只是含字母 i`, 'zzq_dynneg', 'id'),
+      '🔵 什麼都沒有 ⇒ 必須 false(尺死成恆真時這一格會紅)',
+    ).toBe(false);
+    expect(seq).toBe('zzq_dynneg_id_seq'); // 佔位:讓上面那個常數有用途, 避免 lint
   });
 
   it('🔵 負對照:一個現造的序列名【不】在掃描結果裡', () => {

@@ -223,7 +223,7 @@ compare() {
   #    ⚠️ **限定前 20 行是刻意的** —— 一支檔中段的註解提到這個字面(例如在解釋這個機制)
   #      不該把它自己變成 never-apply。⇒ 標記是【宣告】,不是【提及】。
   #    ⚠️ 而 rev 那條路要從 rev 讀, 不能讀工作樹 —— 否則 `--rev` 會拿今天的檔去判昨天的樹。
-  : > "$W/NEVER"; : > "$W/NOTNEED"; : > "$W/BADMARK"; : > "$W/BOTHMARK"; : > "$W/NOTNEED.why"
+  : > "$W/NEVER"; : > "$W/NOTNEED"; : > "$W/BADMARK"; : > "$W/BOTHMARK"; : > "$W/NOTNEED.why"; : > "$W/DEADPATH"
   while IFS= read -r _f; do
     case "$_f" in
       [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_*.sql) ;;
@@ -250,14 +250,35 @@ compare() {
       _why=$(printf '%s\n' "$_head" | sed -n 's/^--[[:space:]]*pcm:not-needed-now:[[:space:]]*//p' | head -1)
       if [ -z "$_why" ]; then
         printf '%s\n' "${_f%%_*}" >> "$W/BADMARK"
+      elif { printf '%s' "$_why" | grep -qE '(^| )[A-Za-z0-9_./-]+\.(sql|sh|py|ts|tsx|js|mjs)( |$)'; } \
+           && ! { printf '%s' "$_why" | tr ' ' '\n' \
+                  | grep -E '^[A-Za-z0-9_./-]+\.(sql|sh|py|ts|tsx|js|mjs)$' \
+                  | while IFS= read -r _pp; do git cat-file -e "HEAD:$_pp" 2>/dev/null || { echo miss; break; }; done \
+                  | grep -q miss; }; then
+        # 🟢 理由裡提到的每一支檔都在【版控裡】⇒ 合法
+        printf '%s\n' "${_f%%_*}" >> "$W/NOTNEED"
+        printf '%s\t%s\n' "${_f%%_*}" "$_why" >> "$W/NOTNEED.why"
+      elif printf '%s' "$_why" | grep -qE '(^| )[A-Za-z0-9_./-]+\.(sql|sh|py|ts|tsx|js|mjs)( |$)'; then
+        # 🔴 **理由裡有【看起來是檔案路徑】的東西, 而它不在版控裡** ⇒ 不算合法
+        #    ⇒ 🎯 而判準是 `git cat-file -e HEAD:<path>` **不是 `test -e`**(`-15` 收窄):
+        #      `test -e` 問的是「**我這棵樹**上有沒有」⇒ 一支檔在 dev 上有、而在某個施工窗的
+        #      工作樹上沒有(或反過來)⇒ **那會變成一道在某些人機器上紅、在別人機器上綠的閘,
+        #      而它每次紅都是誤報。**
+        #    ✅ `git cat-file -e HEAD:<path>` 問的是「**這支檔進版控了嗎**」——
+        #      而那才是「別人照著跑得動」的真正前提。
+        printf '%s\n' "${_f%%_*}" >> "$W/DEADPATH"
       else
+        # 🔵 **理由裡沒有任何看起來像檔案路徑的東西 ⇒ 不驗路徑, 而【不是】判紅。**
+        #    🎯 規格要的是【可執行的複查方法】, 不是【一定要是一支檔】——
+        #      一句「唯讀查 aclexplode(relacl) 看 anon 在不在」也是可執行的。
+        #    ⇒ 📌 少了這一格, 這道閘會逼所有人都寫成一支檔。
         printf '%s\n' "${_f%%_*}" >> "$W/NOTNEED"
         printf '%s\t%s\n' "${_f%%_*}" "$_why" >> "$W/NOTNEED.why"
       fi
     fi
   done < "$W/R.raw"
   sort -u -o "$W/NEVER" "$W/NEVER"
-  for _x in NOTNEED BADMARK BOTHMARK; do
+  for _x in NOTNEED BADMARK BOTHMARK DEADPATH; do
     [ -f "$W/$_x" ] || : > "$W/$_x"
     sort -u -o "$W/$_x" "$W/$_x"
   done
@@ -376,6 +397,13 @@ compare() {
     sed 's/^/      · /' "$W/BADMARK" >&2
     markbad=1
   fi
+  # 🔴 理由裡的路徑不在版控裡 ⇒ 不算合法(而它比空白難發現:那道閘只檢查非空 ⇒ 它會通過)。
+  if [ -s "$W/DEADPATH" ]; then
+    echo "🔴 複查方法指到【不在版控裡的檔】:這幾支的 not-needed-now 理由裡提到一支路徑, 而 git cat-file -e HEAD:<path> 找不到它" >&2
+    echo "   ⇒ 🎯 判準是【進版控了嗎】不是【我這棵樹上有嗎】—— 後者會變成在某些人機器上紅的閘, 而每次紅都是誤報" >&2
+    sed 's/^/      · /' "$W/DEADPATH" >&2
+    markbad=1
+  fi
   # 🔴 兩個標記同時出現 ⇒ 報錯, 不要挑一個(規格 ③-3):宣告矛盾要吵。
   if [ -s "$W/BOTHMARK" ]; then
     echo "🔴 標記矛盾:這幾支同時帶 -- pcm:never-apply 與 -- pcm:not-needed-now: ⇒ 兩者的意思不同, 請只留一個" >&2
@@ -404,6 +432,24 @@ compare() {
   done
 
   rc=0
+  # ── 🔬 **本支輸出的消費者清單**(2026-09-02 實查;而**寫數法不只寫結論, 因為它會過期**)──
+  #   數法:`git grep -ln 'migration-ledger-divergence' -- . ':!*.md'` ⇒ **13 支**
+  #   ⇒ 而逐支開檔之後, **沒有任何一支【讀特定的 rc 值】**:
+  #     · `.husky/pre-push:66`  ⇒ 真的執行它, **而是用 `&&` 串** ⇒ 它只分【0 / 非 0】
+  #     · `package.json:36`     ⇒ lint-staged 跑 `--selftest` ⇒ 同樣只分 0 / 非 0
+  #     · `scripts/husky-hook-wiring-check.sh:115,177,187` ⇒ 只檢查**這個檔名有沒有出現在 pre-push 裡**, 不執行它
+  #     · `scripts/unreported-work-scan.sh:65,85` ⇒ 🔵 註解說它「對齊本支的 1/2/3」——
+  #        那是**約定**不是消費 ⇒ 加第四個碼不會弄壞它, 而那句話值得知道
+  #     · `b2s2b-tsync-cells.sh` / `pagecount.sh` / `selftest-git-isolation-gate.sh` ⇒ 註解引用
+  #     · 其餘 5 支是 `supabase/` 底下的 migration 與 `APPLIED.tsv` ⇒ 文字提及
+  #   🟢 正對照(同把尺):`git grep -ln 'greenlight.sh' -- . ':!*.md'` ⇒ **5 支** ⇒ 尺會動
+  #
+  # 🛑 **⇒ 所以 rc 的優先序改不改, 對機器沒有差別 —— 而那也表示【改它不會讓人看得更清楚】。**
+  #   🔴 而下面那個 rc=4 有一個【今天就失效】的射程:②⑦ 現在就在紅 ⇒ rc 被 3 蓋過去
+  #     ⇒ **rc 分不出是哪一種。**
+  #   ✅ 而唯一分得開的是上面那三行訊息 ⇒ **紅了要去讀那三行, 不要讀 rc。**
+  #   📌 ⇒ 一個為了【讓人分得出兩種紅】而設計的碼, 在另一種紅同時存在時就失效了 ——
+  #      而它失效時沒有任何訊號, 因為 rc 仍然是一個合法的非零。
   # 🔴 標記類問題(不完整 / 矛盾 / 過期)⇒ 非零。
   #    而它與 ②⑦ 的 rc=3 分開:那兩格是【帳本三方對不上】, 這一格是【標記本身壞了】。
   #    ⇒ 📌 兩種都要擋, 而讀的人要分得出是哪一種 ⇒ 所以用不同的碼。
@@ -642,6 +688,22 @@ if [ "$MODE" = "selftest" ]; then
   ck "🧬 a 理由空 ⇒ 不算⑩" "$(has x '⑩ 目標已達成')" "no"
   ck "🧬 a 理由空 ⇒ rc 非 0" "$([ "$pa" != "0" ] && echo yes || echo no)" "yes"
 
+  # 🔴 (a2) 理由裡的路徑【不在版控裡】⇒ 不算合法(-15 收窄:判準是 git cat-file 不是 test -e)
+  #   📌 而它比空白難發現:空白會被「非空」那一格擋下, 而**一個指到空氣的路徑會通過那一格**。
+  printf -- '-- pcm:not-needed-now: 唯讀跑 docs/probes/zzq-no-such-probe.sql\nSELECT 1;\n' > "$P1/migrations/20260102000000_x.sql"
+  pa2=$(run "$P1")
+  ck "🧬 a2 路徑不在版控 ⇒ 報【複查方法指到】" "$(has x '複查方法指到')" "yes"
+  ck "🧬 a2 路徑不在版控 ⇒ 不算⑩" "$(has x '⑩ 目標已達成')" "no"
+
+  # 🔵 (a3) **理由裡沒有路徑 ⇒ 不驗路徑, 而【不是】判紅** —— 這一格最容易漏。
+  #   🎯 規格要的是【可執行的複查方法】, 不是【一定要是一支檔】
+  #     ⇒ 少了這一格, 這道閘會逼所有人都把複查方法寫成一支檔。
+  printf -- '-- pcm:not-needed-now: 唯讀查 aclexplode(relacl) 看 anon 在不在, 不在就仍不需要\nSELECT 1;\n' > "$P1/migrations/20260102000000_x.sql"
+  pa3=$(run "$P1")
+  ck "🔵 a3 純文字複查方法 ⇒ 仍是⑩" "$(has x '⑩ 目標已達成')" "yes"
+  ck "🔵 a3 純文字複查方法 ⇒ 不報路徑錯" "$(has x '複查方法指到')" "no"
+  ck "🔵 a3 純文字複查方法 ⇒ 不紅" "$pa3" "0"
+
   # 🧬 (b) 兩個標記同時 ⇒ 報錯, 不要挑一個(宣告矛盾要吵)
   printf -- '-- pcm:never-apply\n-- pcm:not-needed-now: 有理由\nSELECT 1;\n' > "$P1/migrations/20260102000000_x.sql"
   pb=$(run "$P1")
@@ -690,8 +752,10 @@ if [ "$MODE" = "selftest" ]; then
   #      ⇒ 📌 那正是它存在的理由:**改動格數的人一定會撞到它, 而那個人正是剛動過那段碼的人。**
   # 🔴 **27 ⇒ 39**:⑩ 那一格加了 12 格(2026-09-02 `-c7` 依 `-15` 規格)——
   #    4 格正世界 + 3 格(a 理由空)+ 2 格(b 兩標記)+ 1 格(c 帳本衝突)+ 2 格(d 負對照)。
+  #    🔵 **39 ⇒ 42**(同日稍晚, `-15` 收窄那一格):+2(a2 路徑不在版控)+3(a3 純文字不驗路徑)
+  #       —— 而 a3 那三格守的是【這道閘不逼人把複查方法寫成一支檔】。
   #    📌 **把「為什麼從 N 變成 M」寫在數字旁邊**(規格 ④-3)—— 而它今晚已經抓到 `-15` 兩次算錯格數。
-  EXPECT=39
+  EXPECT=44
   if [ "$((pass + fail))" != "$EXPECT" ]; then
     echo "  🔴 【格數】不對:跑了 $((pass + fail)) 格 ≠ $EXPECT ⇒ 有格被刪掉或沒跑到(這不是「有格失敗」)"; exit 1
   fi

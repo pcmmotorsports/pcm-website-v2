@@ -1,6 +1,14 @@
 -- ⟦b4-SEQACL1⟧ 收掉「沒登入的陌生人推得動 ID」—— public schema 的 4 支 IDENTITY 序列。
 --
--- pcm:not-needed-now: 跑 npx vitest run scripts/public-sequence-acl.test.ts —— 它綠 ⇒ 仍不需要;而它只看得到【現有序列有沒有人收過】, 真要確認這四支, 唯讀查 aclexplode(relacl) 看 anon/authenticated 在不在
+-- pcm:not-needed-now: 唯讀跑 docs/probes/2026-09-02-seqacl1-recheck.sql —— 第一列必須是 0 而第二列必須 >0;第一列 >0 ⇒ 本支重新需要貼;第二列是 0 ⇒ 那個 0 不算數(尺沒讀到東西)
+--   ⛔ ~~舊那一行:「跑 npx vitest run scripts/public-sequence-acl.test.ts —— 它綠 ⇒ 仍不需要」~~
+--     🔵 **換掉的理由(舊字面留著, 讓搜舊句的人同一發撞到)**:那支測試自己那句話就承認了 ——
+--       **它只看得到【現有序列有沒有人【在 migration 裡】收過】, 它讀不到正式庫。**
+--       ⇒ 🔴 而本支要問的正是【正式庫現在的 ACL】⇒ 那把尺答不出那個問題。
+--     ✅ 而 `-15` 那支探針是唯讀 SQL, 而它**兩個世界驗過**(拋棄式 PG):
+--       乾淨 ⇒ `0 / 3` · 重新給 anon ⇒ `2 / 3`
+--       🔴 而**第三個世界才是關鍵**:連 service_role 也收掉 ⇒ `0 / 0`
+--       ⇒ ⇒ 📌 **那就是「兩個世界印同一個 0」的長相 ⇒ 所以第二列那個正對照不可省。**
 --   ↑ 🔴 **這一行是給機器讀的**(`scripts/migration-ledger-divergence.sh` 的第十格)。
 --     它讓本支從「④ 待套 PENDING」移到「⑩ 目標已達成 ⇒ 目前不需要貼」。
 --     ⚠️ **不要挪到 20 行以外** —— 那支腳本只讀檔頭前 20 行。
