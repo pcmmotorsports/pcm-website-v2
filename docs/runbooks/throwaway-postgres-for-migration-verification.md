@@ -320,6 +320,39 @@ CREATE TYPE member_tier AS ENUM ('general','store','premiumStore');
 
 ---
 
+### 🔴🔴 突變完要把原版【裝回去】時的兩格(⟦15-THROWAWAYPGPREREQ⟧;`-15` 2026-09-02 在**三支不同的 harness 上各撞一次**)
+
+**① 一支寫 `CREATE FUNCTION`(不是 `CREATE OR REPLACE`)的 migration, 直接 `psql -f 原檔` 會炸**
+```
+ERROR:  function ... already exists with same argument types
+```
+✅ **修法**:產一份**只把動詞換成 `CREATE OR REPLACE`** 的還原版, **其餘一字不改**。
+🛑 **「其餘一字不改」是這一格的全部** —— 順手改別的東西, 你還原的就不是原版了,
+   而**它跑得起來**, 所以沒有東西會告訴你。
+
+**② 🔴🔴 而更重的是這一格:「`psql` 跑得起來」不等於「換回去了」。**
+`psql` 的 rc=0 只說**那段 SQL 執行完了**, 它不說**現在庫裡那支函式的本體是哪一版**。
+✅ **回頭讀一次**(這一發不能省):
+```sql
+SELECT pg_get_functiondef('public.<函式名>(<參數型別>)'::regprocedure);
+-- 🟢 正對照:拿還原前【突變版】的特徵字面去比 ⇒ 必須【找不到】
+-- 🔵 負對照:拿一個現造字面去比 ⇒ 也必須找不到(否則這把尺恆真)
+```
+🎯 **⇒ 而這個骨今天是全隊第三次出現**(2026-09-02 同一天):
+```
+「我跑了那個 harness」        ≠ 「那個 harness 到得了那個世界」   (-f3)
+「我有突變測試」              ≠ 「那個突變到得了生產碼」          (-f3)
+「psql 跑完了」               ≠ 「原版裝回去了」                  (-15,本格)
+```
+📌 **三次的骨都是:一個【動作成功】被當成【結果達成】。**
+⇒ 而它們的共同修法也一樣:**回頭讀那個結果, 不要讀那個動作的 rc。**
+📎 改檔案的突變/還原流程本身見 `docs/patterns/mutation-harness-restore.md`
+   (那支檔的來源是「**一份被突變的 migration 被 commit 進正式分支**」——
+    🔴 **病灶不是忘了還原, 是用一個會殺掉還原的方式跑它**)。
+
+⚠️ **本節【不涵蓋】**:上面 §2 的角色前置(`anon` / `authenticated` / `service_role` / `authenticator`)
+   —— 那一格**這份檔早就有了**(見 §2 那段 SQL), 不要以為它是本節新增的。
+
 ### 🔴🔴 而在 bootstrap 之前先問一句 —— **它比上面整段都重要**
 
 > ## **任何一句「我在完整 schema 上驗過」,在這棵 repo 上都要先問:你的 replay 幾支失敗?**
