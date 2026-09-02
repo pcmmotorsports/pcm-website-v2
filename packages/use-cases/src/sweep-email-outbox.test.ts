@@ -1,4 +1,5 @@
 import { CANCEL_REASON_MAX_LEN } from './order-email-copy';
+import { PAID_EMAIL_PDF_ATTACHED_SENTENCE } from './paid-email-html';
 import { describe, expect, it, vi } from 'vitest';
 import type {
   ClaimedEmailJob,
@@ -1147,6 +1148,50 @@ const paidDeps = (r: LoadPaidContextResult, outbox: OutboxFake, sender: IEmailSe
   outbox,
   sender,
   paidContext: paidFake(r),
+});
+
+describe('sweepEmailOutbox — PDF 宣稱守門【接線】那一格(不是函式本身)', () => {
+  // 🔴🔴 **這一格存在的理由,是 code-reviewer 2026-09-03 R1 抓到的一件事**:
+  //    我在 `paid-email-html.test.ts` 驗了 `assertPdfClaimMatchesAttachments` **函式**會動,
+  //    而**把 `sweep-email-outbox.ts` 裡呼叫它的那一行整個刪掉 ⇒ 130 格照樣全綠**。
+  //    ⇒ 📌 **「尺會動」與「尺接在路徑上」是兩個宣稱, 而單元測試只證得了前者。**
+  //    ✅ 我自己重跑過那一發突變確認它說得對(刪掉那行 ⇒ 2 files / 130 passed)。
+  //
+  // 🛑 **而要演這個世界有一個障礙**:呼叫點寫死 `renderPaidEmailHtml(paid, { logoUrl: '' })`,
+  //    測試**翻不到** `hasPdfAttachment` ⇒ 沒有辦法從外面讓 html 印出那句話。
+  // 🎯 **⇒ 槓桿正好是那道守門自己寫在射程裡的第三格**:判準是「html 裡有沒有那句話」,
+  //    而品名走 `esc()` 而那句話**零可逃逸字元** ⇒ **一個逐字叫那句話的品名,會原封進到 html。**
+  //    ⇒ 📌 所以這一格**不改任何 production 碼**就走得到真正的那條路。
+  //    ⚠️ 而它同時是那條射程限制的**現場**:這封信寄不出去是**預期行為**, 不是缺陷。
+  //
+  // 🛑🛑 **給未來把判準收窄的那個人 —— 這一段是寫給你的**(code-reviewer R2 nit):
+  //    你若把守門的判準從 `includes` 改嚴(只認模板產生的那一塊), **這一格會紅**。
+  //    🔴 **而紅的理由與你的意圖相反** —— 你是在【修好】射程③, 而你看到的是一格擋路的測試
+  //    ⇒ 📌 **最省事的動作是刪掉它, 而那會把【唯一一格證明守門真的接在寄信路徑上】的覆蓋一起帶走。**
+  //    ✅ **⇒ 請換一個方式重建接線覆蓋(例如讓呼叫點的 chrome 可注入), 不要刪掉它。**
+  it('🔴 html 裡出現那句宣稱而附件裡沒有 PDF ⇒ 不寄, 計 errors(接線活著)', async () => {
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const ctx = paidCtx({
+      lines: [
+        { title: PAID_EMAIL_PDF_ATTACHED_SENTENCE, variantSku: 'SKU-1', quantity: 1, lineTotal: 1000 as PaidEmailContext['total'] },
+      ],
+    });
+    const r = await sweepEmailOutbox(paidDeps({ kind: 'ok', context: ctx }, outbox, sender), OPTS);
+    expect(r.errors).toBe(1);
+    expect(r.sent).toBe(0);
+    // 🔴 **最重要的一格:sender 一次都沒被呼叫** —— fail-closed 的意思是「沒寄出去」,
+    //    不是「寄了而我們記了一筆錯」。少了這一格, 一個先寄再 throw 的實作也會通過上面兩格。
+    expect(sender.send).not.toHaveBeenCalled();
+  });
+
+  it('🟢 反向世界:品名正常 ⇒ 照寄(證明上面那格紅的是宣稱, 不是「注入 paidContext 就爆」)', async () => {
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const r = await sweepEmailOutbox(paidDeps({ kind: 'ok', context: paidCtx() }, outbox, sender), OPTS);
+    expect(r.sent).toBe(1);
+    expect(r.errors).toBe(0);
+  });
 });
 
 describe('sweepEmailOutbox — 付款信接金額與 HTML(片2)', () => {
