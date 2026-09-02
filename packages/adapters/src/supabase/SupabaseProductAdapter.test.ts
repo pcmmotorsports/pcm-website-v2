@@ -1399,3 +1399,142 @@ describe('SupabaseProductAdapter.searchByKeyword — 多詞 AND + 料號欄(⟦�
     expect(captured.ors[0]).not.toContain('50\\\\');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⟦搜尋-品牌⟧ 2026-09-03 線 `-mail`:**函式還沒貼的今天,行為必須逐字不變**
+//
+// 🔴 那支 RPC(`20260903050000`)**在等 Sean 貼** ⇒ 今天的正式站上**沒有它**。
+//    ⇒ 本片的硬條件:**偵測不到它 ⇒ 走舊路 ⇒ 客人看到的東西零改變。**
+//    ⇒ ✅ 判別句:**SQL 還沒貼的那一天,結果會【變差】,而不是【消失】。**
+//
+// 🔵 兩個「不在」的錯誤碼是**實測**的(拋棄式 PostgREST,兩個世界各打一發):
+//    `PGRST202`(從來沒有過 / cache 剛重載 ⇒ **正式站今天就是這個**)· `42883`(被 DROP 而 cache 未重載)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不在時走舊路', () => {
+  function makeMock(rpcResult: { data: unknown; error: unknown }) {
+    const captured: { ors: string[]; rpcCalls: number; ranged: boolean; ins: string[][] } = {
+      ors: [], rpcCalls: 0, ranged: false, ins: [],
+    };
+    const builder: Record<string, unknown> = {};
+    Object.assign(builder, {
+      select: () => builder,
+      or: (f: string) => { captured.ors.push(f); return builder; },
+      in: (_c: string, v: string[]) => { captured.ins.push(v); return builder; },
+      order: () => builder,
+      range: () => { captured.ranged = true; return Promise.resolve({ data: [], error: null, count: 0 }); },
+      // 🔴 `.in(...).order(...)` 那條鏈**沒有 `.range()` 收尾** ⇒ 它是直接被 await 的
+      //    ⇒ builder 本身要是 thenable, 否則 `rows` 會是 undefined 而測試紅在【我的 mock】上,
+      //      而不是紅在被測的碼上。(第一版就是這樣紅的。)
+      then: (res: (v: { data: unknown[]; error: null }) => unknown) =>
+        res({ data: [], error: null }),
+    });
+    const client = {
+      from: () => builder,
+      // 🔵 `.rpc()` 現在帶第三參數(range)⇒ mock 要收得下, 否則量到的是我的 mock 不是碼
+      rpc: (_fn: string, _args: unknown, _opts?: unknown) => {
+        captured.rpcCalls += 1;
+        return Promise.resolve(rpcResult);
+      },
+    };
+    return { client: client as unknown as SupabaseClient, captured };
+  }
+
+  const NOT_DEPLOYED = [
+    { code: 'PGRST202', message: 'Could not find the function' },   // 正式站今天
+    { code: '42883', message: 'function ... does not exist' },      // 被 DROP 而 cache 未重載
+  ];
+
+  it.each(NOT_DEPLOYED)('🔴🔴 錯誤碼 $code ⇒ 走舊路,而 or() 與今天【逐字相同】', async (err) => {
+    const { client, captured } = makeMock({ data: null, error: err });
+    await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
+    expect(captured.rpcCalls, '應該有試過那支 RPC').toBe(1);
+    // 🎯 判別點:**舊路真的走了**, 而且是今天那個形狀(兩個詞 ⇒ 兩組 or(), 每組含五欄)
+    expect(captured.ors).toHaveLength(2);
+    expect(captured.ors.some((f) => f.includes('%rpm%'))).toBe(true);
+    expect(captured.ors.some((f) => f.includes('%rsv4%'))).toBe(true);
+    for (const f of captured.ors) {
+      expect(f).toContain('title.ilike.');
+      expect(f).toContain('external_id.ilike.');
+    }
+    expect(captured.ranged, '舊路要真的送出查詢').toBe(true);
+    expect(captured.ins, '走舊路時不該用 .in(id)').toHaveLength(0);
+  });
+
+  it('🔴 而【其他】錯誤不得被吞掉 —— 吞掉會安靜地給客人比較差的結果', async () => {
+    // 🛑 這一格擋的是「把 try/catch 寫寬一點」那個很自然的動作。
+    const { client } = makeMock({ data: null, error: { code: '42501', message: 'permission denied' } });
+    await expect(
+      new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 }),
+    ).rejects.toMatchObject({ code: '42501' });
+  });
+
+  it('🟢 RPC 在的時候:用它的 id 走 .in(),而【不】再組 or()', async () => {
+    const ids = [{ id: 'bbb' }, { id: 'aaa' }];
+    const { client, captured } = makeMock({ data: ids, error: null });
+    await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
+    expect(captured.ors, 'RPC 成功時不該再走舊路').toHaveLength(0);
+    // 🔴 `.in()` 不保證順序 ⇒ 自己排過, 才與舊路的 .order('id') 同序
+    expect(captured.ins[0]).toEqual(['aaa', 'bbb']);
+  });
+
+  it('🔴 契約變了(回了列而一列都認不得)⇒ 必須【退回舊路】, 不是回空', async () => {
+    // 🛑 code-reviewer must-fix:逐列驗形狀會把每一列都過濾掉 ⇒ ids 是空的
+    //    ⇒ 而空陣列被讀成「走過了而沒找到」⇒ **客人恆得 0 筆且不退舊路**。
+    //    📌 「我看不懂它回什麼」不是「沒找到」。
+    const { client, captured } = makeMock({ data: [{ ident: 'aaa' }, { ident: 'bbb' }], error: null });
+    await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
+    expect(captured.ors, '認不得就要走舊路').toHaveLength(2);
+    expect(captured.ins, '不該拿一份認不得的清單去 .in()').toHaveLength(0);
+  });
+
+  it('🔴 超過 db-max-rows 上限 ⇒ 退回舊路, 不得拿殘缺清單當全部', async () => {
+    // 🛑 PostgREST 超過 db-max-rows 會【靜默截斷】並回 200 ⇒ 「剛好 N 筆」與「被砍成 N 筆」同形
+    //    ⇒ 多要一筆當尺:拿回來超過 cap ⇒ 知道被截了 ⇒ 退回舊路(舊路的 count 是 exact)。
+    const many = Array.from({ length: 1001 }, (_, i) => ({ id: `id-${i}` }));
+    const { client, captured } = makeMock({ data: many, error: null });
+    await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
+    expect(captured.ors, '被截斷就要走舊路').toHaveLength(2);
+  });
+
+  it('🔴 分頁:offset 不是 0 時要拿【那一頁】的 id, 而不是永遠拿前 N 個', async () => {
+    // 🛑 code-reviewer nit:先前每一格都 offset:0 ⇒ 把 slice(offset, offset+limit)
+    //    改成 slice(0, limit) 四格全綠 ⇒ 分頁那個宣稱沒有任何一格守得住。
+    const ids = Array.from({ length: 20 }, (_, i) => ({ id: `id-${String(i).padStart(2, '0')}` }));
+    const { client, captured } = makeMock({ data: ids, error: null });
+    await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 3, offset: 5 });
+    expect(captured.ins[0]).toEqual(['id-05', 'id-06', 'id-07']);
+  });
+
+  it('🔴 total 是【全部命中數】不是【這一頁的筆數】', async () => {
+    // 🛑 code-reviewer nit:先前那格完全不看回傳值 ⇒ 把 total 改成 pageIds.length 殺不掉。
+    const ids = Array.from({ length: 20 }, (_, i) => ({ id: `id-${String(i).padStart(2, '0')}` }));
+    const { client } = makeMock({ data: ids, error: null });
+    const res = await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', {
+      limit: 3,
+      offset: 0,
+    });
+    expect(res.total, 'total 應為 20(全部命中), 不是 3(這一頁)').toBe(20);
+  });
+
+  it('🟢 client 沒有 rpc 這個方法 ⇒ 也算「今天沒有這條路」, 走舊路而不是炸掉', async () => {
+    // 🛑 code-reviewer nit:這道退路先前只被「既有 mock 沒有 rpc」偶然覆蓋
+    //    ⇒ 哪天有人往共用 mock 補上 rpc, 它就沒有人在看了 ⇒ 給它自己一格。
+    const { client, captured } = makeMock({ data: null, error: null });
+    delete (client as unknown as { rpc?: unknown }).rpc;
+    await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
+    expect(captured.ors, '沒有 rpc 就走舊路').toHaveLength(2);
+  });
+
+  it('🔵 RPC 回【空陣列】≠ RPC 不在 —— 前者直接回空, 不得退回舊路', async () => {
+    // 📌 「這條路走過了而一筆都沒找到」與「今天沒有這條路」是兩件事,
+    //    收斂成同一個會讓「真的沒有這件商品」變成「用比較差的方式再找一次」。
+    const { client, captured } = makeMock({ data: [], error: null });
+    const res = await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', {
+      limit: 8, offset: 0,
+    });
+    // 🔴 而 `expect(res).toEqual({items:[],total:0})` **在兩條路上都成立**(舊路的 mock 也回空)
+    //    ⇒ 那一行是恆真的, 已拿掉。真正有判別力的是下面這兩行。
+    expect(captured.ors, '空結果不該退回舊路').toHaveLength(0);
+    expect(captured.rpcCalls, '應該是走了 RPC 才拿到空的').toBe(1);
+  });
+});

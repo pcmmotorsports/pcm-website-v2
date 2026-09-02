@@ -65,6 +65,18 @@ import {
  * ⚠️ **只讀不寫**:save() 的 upsert payload **不含** sound_clips —— 那一欄由 rpm 同步管線寫,
  *    網站端寫進去等於兩個來源搶同一欄。
  */
+/**
+ * RPC 那條路一次最多認幾個 id。
+ *
+ * 🔴 **它不是效能參數,是【偵測截斷】用的門檻**:PostgREST 有 `db-max-rows`(本 repo 實測 **2000**),
+ *    而超過時它**靜默截斷**、回 HTTP 200 ⇒ 📌 **「剛好 2000 筆」與「被砍成 2000 筆」印同一個東西。**
+ * ⇒ ✅ 所以要 `RPC_ID_CAP + 1` 筆:**拿回來超過 cap ⇒ 就知道被截了** ⇒ 退回舊路(它的 count 是 exact)。
+ * ⚠️ 取 1000(嚴格小於 2000)⇒ 而**餘裕是【設定】給的不是這支碼保證的**:
+ *    `db-max-rows` 若被改到 1000 以下,這道偵測就再次零判別力
+ *    (同族警告見 `helpers/product-query-support.ts` 的 `PAGE_SIZE`)。
+ */
+const RPC_ID_CAP = 1000;
+
 const PRODUCT_SELECT_DETAIL =
   'id, external_id, title, subtitle, description, highlights, manuals, video_url, sound_clips, handle, fitments, images, availability, brand_id, category_id, price_general, created_at, updated_at, brands(id, name, slug, premium_extra_pct), categories(raw_path, segments)';
 
@@ -513,6 +525,62 @@ export class SupabaseProductAdapter implements IProductRepository {
     }
 
     const offset = params.offset ?? 0;
+
+    // ─────────────────────────────────────────────────────────────────────
+    // ⟦搜尋-品牌⟧ 2026-09-03:**先問那支 RPC;它不在就走下面的舊路。**
+    //
+    // 🔴 **為什麼要有這條分岔**:客人打「rpm rsv4」今天回 **0 筆** —— 而那不是碼壞了:
+    //    `rpm` 是**品牌名**、`rsv4` 是**車款名**,而**兩者都不在被搜的四欄裡**
+    //    (正式庫實測:含 `rsv4` 346 / 含 `rpm` 149 / **交集 0** / 全站 22,804)。
+    //    ⇒ 走 `brands` join 之後那個交集是 **41**。
+    //
+    // 🛑 **而那支函式今天【還沒被貼進正式庫】**(`20260903050000`,在等 Sean)
+    //    ⇒ **本段的硬條件:函式不在的今天,客人看到的東西必須【逐字不變】。**
+    //    ⇒ ✅ 判別句:**SQL 還沒貼的那一天,結果會【變差】,而不是【消失】。**
+    //
+    // 🔴 **偵測方式選【乙:每次查詢時判】,而不是【甲:開機探測一次】** ——
+    //    · **甲的代價**:Sean 貼完 SQL **要等我們重新部署**才會生效
+    //      ⇒ 而他半夜貼完看不到效果,會以為貼失敗(今晚已經有一次「照著驗會得到相反結論」)。
+    //    · **乙的代價**:函式還沒貼的期間,**每一次搜尋多一發失敗請求**
+    //      ⇒ 而那一發是 **404,很快**;且今天站上**零客人在搜尋**(2026-09-03 Vercel log 實測)
+    //      ⇒ **今天這個代價的實際值是零。**
+    //    ⇒ 🎯 **選乙 ⇒ 他貼下去的那一刻(schema cache 重載後)就會生效,不必等任何人。**
+    //
+    // 🔴🔴 **而「不在」只認【兩個具名的碼】,不是 try/catch 吞掉一切** ——
+    //    吞掉一切會把**真的壞掉**也讀成「還沒貼」,然後**安靜地**給客人比較差的結果。
+    //    兩個碼是**實測**的,不是查文件推的(2026-09-03 拋棄式 PostgREST):
+    //    ```
+    //    函式從來沒有過 / schema cache 重載後 ⇒ `PGRST202`(HTTP 404)  ← **正式站今天就是這個**
+    //    函式被 DROP 而 cache 還沒重載        ⇒ `42883`
+    //    ```
+    //    ⚠️ 而 Sean 貼完到 PostgREST 重載 cache 之間**還會是 `PGRST202`** ⇒ 那段時間照樣走舊路,
+    //      **重載之後自動生效** —— 這正是選乙換到的東西。
+    const brandIds = await this.trySearchIdsWithBrand(q);
+    if (brandIds !== null) {
+      const wantCountRpc = opts?.countTotal !== false;
+      // 🔴 `.in('id', …)` **不保證順序** ⇒ 自己排,才與舊路的 `.order('id')` 同序。
+      const ordered = [...brandIds].sort();
+      const pageIds = ordered.slice(offset, offset + params.limit);
+      if (pageIds.length === 0) {
+        return wantCountRpc ? { items: [], total: ordered.length } : { items: [] };
+      }
+      const { data: rows, error: rowsErr } = await this.supabase
+        .from('products_public')                 // 🛑 投影與 mapper 一個字不動
+        .select(PRODUCT_SELECT_DETAIL_VIEW)
+        .in('id', pageIds)
+        .order('id', { ascending: true });
+      if (rowsErr) {
+        throw rowsErr;
+      }
+      // 🔴 `rows` 可能是 `null`(PostgREST 允許)⇒ 收斂成空陣列,而**不是**讓它變成 TypeError。
+      //    ⚠️ 而這裡收斂成空是安全的:上面已經確定 `pageIds` 非空 ⇒ 回空只代表那幾個 id 撈不到列,
+      //      那是**資料不一致**而不是「沒有這條路」⇒ 它不該退回舊路, 也不該炸掉整個搜尋。
+      const rpcItems = ((rows ?? []) as unknown as SupabaseProductRow[]).map(
+        mapSupabaseProductToDomain,
+      );
+      return wantCountRpc ? { items: rpcItems, total: ordered.length } : { items: rpcItems };
+    }
+
     // ⟦搜尋-多詞與料號⟧ 2026-09-03:**每個詞各組一組 `.or()`,詞與詞之間是 AND。**
     //
     // 🔴 **為什麼不是把整串包成一個 pattern**(那是修之前的行為):
@@ -593,6 +661,108 @@ export class SupabaseProductAdapter implements IProductRepository {
     // 🔴 沒要數的時候**回 `undefined` 而不是 0** —— 「不知道總數」與「共 0 件」是兩件事,
     //    而 `?? 0` 會讓畫面出現「拿到 8 筆卻說共 0 件」(`search.ts` 那段註解同一條)。
     return wantCount ? { items, total: count ?? 0 } : { items };
+  }
+
+
+  /**
+   * 問那支「把品牌名也算進去」的 RPC。**它不在就回 `null`,由呼叫端走舊路。**
+   *
+   * 🔴 **只有兩個具名的碼算「不在」** —— 其餘一律往上拋。
+   *    吞掉一切會把**真的壞掉**讀成「還沒貼」,然後**安靜地**給客人比較差的結果,
+   *    而那個安靜正是這一片最該避免的東西。
+   * 🔵 兩個碼是**實測**的(2026-09-03 拋棄式 PostgREST,兩個世界各打一發):
+   *    `PGRST202`(HTTP 404,函式從來沒有過 / schema cache 剛重載)· `42883`(被 DROP 而 cache 還沒重載)。
+   * ⚠️ **回傳 `null` = 「今天沒有這條路」;回傳 `[]` = 「這條路走過了,而它一筆都沒找到」** ——
+   *    兩者**不可**收斂成同一個東西:前者要走舊路,後者要直接回空。
+   */
+  private async trySearchIdsWithBrand(q: string): Promise<string[] | null> {
+    const terms = splitSearchTerms(q);
+    if (terms.length === 0) {
+      return null; // 零詞 ⇒ 交回舊路,由它那道 fail-closed 處理
+    }
+    // 🔴🔴 **這個 cast 是【刻意】的,而它本身就是一個訊號** ——
+    //    `database.types.ts` 是**從已部署的 schema 生成的**,而這支函式**還沒被貼**
+    //    ⇒ 生成型別裡沒有它 ⇒ 具名 `.rpc()` 編譯不過。
+    //    📌 **⇒ 編譯器在說一件真話:「你要叫的東西,今天不在那個資料庫上。」**
+    //    ✅ **移除條件寫在這裡,免得它變成永久的縫**:
+    //       Sean 貼完 `20260903050000` 之後**重新生成 `database.types.ts`**,
+    //       這個 cast 就要拿掉、改回具名 `.rpc()`(形狀抄 `payment-repository.ts` 檔頭那段
+    //       「型別縫已拆」——那支就是這樣把 cast 收掉的)。
+    //    🛑 而 cast 只擋住編譯器,**擋不住執行期**:所以下面那兩個具名錯誤碼與形狀檢查
+    //       **一格都不能省** —— 它們才是真正的把關。
+    // 🔴 **`rpc` 本身不在也算「今天沒有這條路」** —— 而這一格是既有測試逼出來的:
+    //    我加完之後 5 格既有測試當場紅, 成因是它們的 mock client **沒有 `rpc`**。
+    //    ⇒ 而我沒有去改那 5 個 mock, 因為**那會把一個真的問題改掉**:
+    //      若哪天 client 真的沒有 `rpc`(換 SDK / 注入了別的東西), 這裡應該**退回舊路**,
+    //      而不是讓整個搜尋 500。⇒ 📌 **同一條原則:結果會變差, 不是消失。**
+    if (typeof (this.supabase as { rpc?: unknown }).rpc !== 'function') {
+      return null;
+    }
+    const rpc = this.supabase.rpc as unknown as (
+      fn: string,
+      args: Record<string, unknown>,
+      opts?: { from: number; to: number },
+    ) => {
+      range: (from: number, to: number) => PromiseLike<{
+        data: unknown;
+        error: { code?: unknown } | null;
+      }>;
+    } & PromiseLike<{ data: unknown; error: { code?: unknown } | null }>;
+    // 🔴🔴 **要帶 `.range()`,否則吃 PostgREST 的 `db-max-rows`(本 repo 實測 2000)**
+    //    ⇒ 寬查詢會被**靜默截成 2000 筆** ⇒ `共 N 件` 印 2000、第 81 頁之後翻不到,
+    //      而**失敗形狀是 HTTP 200、畫面完全正常**(code-reviewer must-fix;同檔另一支 SETOF RPC 記過同一格)。
+    //    ✅ 取 `RPC_ID_CAP + 1`:**多要一筆就是那把尺** —— 拿回來的筆數超過 cap ⇒ 我知道被截了。
+    const { data, error } = await rpc('storefront_search_product_ids', { p_terms: terms }, {
+      from: 0,
+      to: RPC_ID_CAP,
+    });
+    if (error) {
+      const code = typeof error.code === 'string' ? error.code : '';
+      if (code === 'PGRST202' || code === '42883') {
+        // 🔴🔴 **要留一行訊號** —— `PGRST202` 同時代表兩件事(code-reviewer must-fix):
+        //    ①函式**還沒貼**(預期中,今天就是這個)②**貼了,而函式名或參數名打錯**
+        //    ⇒ 兩個世界**印同一個碼、同一個安靜** ⇒ Sean 貼完會看不出到底接上了沒。
+        //    ⇒ ✅ 一行 `warn` 讓第二種在 log 裡有形狀;而它**不影響客人**(照樣走舊路)。
+        console.warn(
+          `[searchByKeyword] storefront_search_product_ids 叫不到(${code})⇒ 退回舊路;` +
+            '若 SQL 已經貼了, 請檢查函式名與參數名 p_terms',
+        );
+        return null;
+      }
+      throw error; // 🔴 其餘是真的錯 ⇒ 不吞
+    }
+    if (!Array.isArray(data)) {
+      return null;
+    }
+    // 🔴 逐列驗形狀,不信 cast:函式的契約是 `TABLE(id uuid)`,而**收到別的形狀代表契約變了**。
+    const rows = data as unknown[];
+    const ids = rows
+      .map((row) =>
+        typeof row === 'object' && row !== null && 'id' in row
+          ? (row as { id: unknown }).id
+          : null,
+      )
+      .filter((id): id is string => typeof id === 'string' && id !== '');
+
+    // 🔴🔴 **契約變了(`id` 改名或換型別)⇒ 上面會把【每一列】都過濾掉 ⇒ `ids` 是空的**
+    //    ⇒ 而空陣列在呼叫端被讀成「**走過了而一筆都沒找到**」⇒ **客人恆得 0 筆,且不退回舊路。**
+    //    📌 那正好違反本檔宣稱的那個區分(`null` = 沒有這條路 · `[]` = 走過了沒找到)
+    //    ⇒ ✅ 判別句:**回了列、卻一列都認不得 ⇒ 那不是「沒找到」,那是「我看不懂它回什麼」**
+    //      ⇒ 當成「沒有這條路」退回舊路(code-reviewer must-fix)。
+    if (rows.length > 0 && ids.length === 0) {
+      console.warn(
+        '[searchByKeyword] storefront_search_product_ids 回了列而一列都認不得(契約可能變了)⇒ 退回舊路',
+      );
+      return null;
+    }
+    if (ids.length > RPC_ID_CAP) {
+      // 🛑 被 `db-max-rows` 截斷 ⇒ **不要拿一份殘缺的清單當全部** ⇒ 退回舊路(它的 count 是 exact)
+      console.warn(
+        `[searchByKeyword] storefront_search_product_ids 回超過 ${RPC_ID_CAP} 筆 ⇒ 可能被截斷 ⇒ 退回舊路`,
+      );
+      return null;
+    }
+    return ids;
   }
 
   /**
