@@ -270,11 +270,22 @@ q -q -c "INSERT INTO public.order_cancellation_items (order_item_id,cancelled_qu
   || { echo "  🔴 種不進取消列 ⇒ 世界⑥ 量的不是它宣稱的東西 ⇒ 作廢"; KEEP=1; FAIL=$((FAIL+1)); }
 w "⑥ 先前被部分取消過 ⇒ 拒(第四道閘)" ERR '先前被部分取消過' \
   "SELECT public.admin_mark_order_cancelled('00000000-0000-0000-0000-0000000000a6','$KEY2','staff_on','out_of_stock',NULL);"
-w "⑥b 而它那 1 列數量沒有被動過(閘擋在寫之前)" OK '^1$' \
+# ⚠️ **這一格的標籤不要寫成「閘擋在寫之前」**(2026-09-02 自審更正):
+#    停掉第四道閘之後它**照樣是 1** —— 因為步7/步10 的摘要斷言**也**保證了同一件事。
+#    ⇒ 📌 **兩個東西各自保證同一個結果 ⇒ 這一格分不出是誰保證的** ⇒ 標籤只能說結果, 不能說功勞。
+w "⑥b 而它那 1 列數量沒有被動過(誰保證的分不出來)" OK '^1$' \
   "SELECT count(*)::text FROM public.order_cancellation_items ci JOIN public.order_items oi ON oi.id=ci.order_item_id WHERE oi.order_id='00000000-0000-0000-0000-0000000000a6';"
-# 🔵 **負對照**:世界① 那張乾淨的單走同一條路 ⇒ **通過** ⇒ 證明這道閘不是「全部都擋」。
-w "⑥c 負對照:乾淨的單走同一條路 ⇒ 通過" OK '^0$' \
-  "SELECT count(*)::text FROM public.order_cancellation_items ci JOIN public.order_items oi ON oi.id=ci.order_item_id WHERE oi.order_id='$OID_A';"
+# 🔴🔴 **⑥c 曾經是一格【惰性格】, 而舊字面留著當證據**:
+#    ~~`w "⑥c 負對照:乾淨的單走同一條路 ⇒ 通過" OK '^0$' "SELECT count(*) … WHERE oi.order_id='$OID_A'"`~~
+#    ⇒ 它讀的是「那張乾淨的單有幾列取消列」= **fixture 本來就保證是 0**
+#    ⇒ **它根本沒有呼叫那支函式** ⇒ 對第四道閘**零判別力**。
+#    🧬 實測(2026-09-02):把第四道閘的 RAISE 停掉 ⇒ ⑥ 由「被擋」翻成「過了」,
+#      **而 ⑥c 一動也不動, 照樣印 ✅** ⇒ 它從來沒有在證任何事。
+#    📌 **⇒ 一個負對照如果不走被測的那條路, 它就不是對照, 是一句裝飾。**
+# ✅ 現在它**真的呼叫那支函式**:一張乾淨的單走同一條路 ⇒ 必須成功。
+seed '00000000-0000-0000-0000-0000000000b1' refunded "'tappay'" NULL
+w "⑥c 負對照:乾淨的單走同一條路 ⇒ 通過" OK '"marked": true' \
+  "SELECT public.admin_mark_order_cancelled('00000000-0000-0000-0000-0000000000b1','$KEY2','staff_on','out_of_stock',NULL);"
 
 echo "── 訊號欄與稽核 ─────────────────────────────────────────────"
 # 🔴 psql 對 boolean 的 `::text` 印的是 **true/false**, 不是 t/f
