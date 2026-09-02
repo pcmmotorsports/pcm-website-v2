@@ -31,4 +31,12 @@
 - **「產生新檔→驗證→覆蓋」**:`cat > /tmp/x <<'EOF'` → `test -s /tmp/x || exit 1` → `mv /tmp/x target`。
 - **不假設非 macOS CLI 已裝**:`jq`/`yq` 用前 `command -v` 確認、或改 Python 內建。
 - **zsh nomatch**:glob 無匹配 exit 1、含 glob 加 `|| true` 或用 `find`。🔴 **而 zsh 【不】對未加引號的變數斷詞**(2026-08-25 `/bin/zsh 5.9` 實測:`for x in $V` 跑 **1 次** / `while IFS= read -r x` 跑 **3 次**)⇒ **迴圈只跑一次而它印出一個乾淨、合理的結論**。⇒ 迴圈一律 `while IFS= read -r f; do … done < 檔案`, **不要 `for f in $VAR`**;路徑一律逐一列出, **禁 `git add $P`**。
-- **CJK / str_replace 切策略**:見常載 `~/.claude/rules/00-work-rules.md` §5(單一權威,此處不重複)。
+- **CJK / str_replace 切策略**:見常載 `~/.claude/rules/00-work-rules.md` §5(單一權威,此處不重複)。- 🔴🔴 **`git show "$ref:apps/…"` 在 zsh 裡是壞的,而它【安靜地回 0】** —— `:a` 被當成參數修飾符
+  (`${ref:a}` = 取絕對路徑)⇒ `HEAD` 變成 `/…/HEAD`、那個 `a` 被吃掉 ⇒ git 噴 `fatal`,
+  而 `2>/dev/null` 把它吞了 ⇒ `grep -c` 印出一個**看起來就是答案**的 `0`。**雙引號救不了,要 `"${ref}:apps/…"`。**
+  📌 **判別句:`2>/dev/null` 把「我問錯了」變成「答案是 0」⇒ 拿到意外的 0,第一個動作是拿掉 `2>/dev/null` 再跑一次。**
+  ⚠️ **本條在這裡只放指標(一處全文、他處指標)** —— 全文含**哪些路徑前綴會安靜壞掉 vs 會大聲報錯**的實測表
+  在 memory `reference_zsh-eats-ref-colon-path-in-git-show`,PCM 版與三個實例在
+  `docs/patterns/guard-and-instrument-traps.md:18352` / `:18446`。
+  🔵 **本行 2026-09-03 由線 `-account` 補** —— 我在這支檔查無而重新發現了一次(`grep -cE 'ref:apps|參數修飾符'` ⇒ **0**),
+  跑 `scripts/traps-neighbours.py` 第一名 **0.5338** 就是那份 memory ⇒ 🎯 **這支檔缺的不是那條教訓,是【指到它的一行】。**
