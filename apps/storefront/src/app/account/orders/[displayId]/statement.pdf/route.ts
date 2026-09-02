@@ -117,7 +117,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ displayId: str
       // 🛑 **而 `displayId` 我刻意留著, 與 codex 的建議不同, 理由寫在這裡讓下一個人可以推翻我**:
       //    它本來就在這條 route 的 URL 裡, 而平台的 access log 一定有它
       //    ⇒ 拿掉它不會讓這筆更不可識別, 只會讓客服拿到客訴時**對不到是哪一張單**。
-      `[statement.pdf] 拒絕產檔 displayId=${displayId} · 內嵌 ${built.embedded} · 拿不到字型檔 ${built.skippedMissing} · 版面 CSS 缺 ${missingCss} · cwd=${process.cwd()}`,
+      `[statement.pdf] 拒絕產檔 displayId=${displayId} · 內嵌 ${built.embedded} · 拿不到字型檔 ${built.skippedMissing} · 版面 CSS 缺 ${missingCss} · 字型套件=${built.fontPkgDir ?? 'null'} · cwd=${process.cwd()}`,
     );
     return new NextResponse(null, { status: 500 });
   }
