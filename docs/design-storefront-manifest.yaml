@@ -1444,7 +1444,7 @@ components:
 
   CartPage:
     storefront:
-      component: "apps/storefront/src/app/cart/page.tsx + apps/storefront/src/components/CartView.tsx + apps/storefront/src/app/cart/actions.ts (M-3-S2-b2-d:server route + client 殼 + resolveCartLines server action)"
+      component: "apps/storefront/src/app/cart/page.tsx + apps/storefront/src/components/CartView.tsx + apps/storefront/src/app/cart/actions.ts (M-3-S2-b2-d:server route + client 殼 + resolveCartLines server action) + apps/storefront/src/components/CartVehicleMixNotice.tsx (2026-09-03 混車橫幅) + apps/storefront/src/lib/cart-vehicle-mix.ts (判準純函式)"
       css: "apps/storefront/src/styles/cart.css + apps/storefront/src/styles/cart-vehicle.css (V-2a CartVehicleField)"
       last_modified_commit: "b565c4c4"  # 記可達祖先=h1 三級收斂片的父 commit(#180 案 A)(前錨 fc78937b)
       last_modified_date: "2026-08-09 [跳商品目錄一律落地在頂 —— Sean 手機回報 D-310-A Bug 2「選完車跳商品頁,首排商品被上方黏頂篩選列蓋掉上半截」]:主視窗在真 DB 環境量到根因(D-315-A ②):`router.push` **保留了來源頁的捲動位置** —— push 前首頁 scrollY 152.5、落地 /products 仍是 152.5;首張 `.pcard` top 154 vs `.pmc-sticky` bottom 169 ⇒ 被蓋 15px;對照組(push 前 scrollY=0)落地 cardTop 307、零遮蔽。被蓋多深 = 來源頁捲了多深,手機 hero 更高 ⇒ Sean 看到半張卡。⚠️ **弔詭點未解釋掉、誠實申報**:那是裸 push、沒帶 `scroll:false`,Next 預設應滾回頂但實測沒滾;`/products` 有 `loading.tsx`(Suspense boundary)、本 repo 也有 Next16 segment cache 實錘,疑似同族但**未證明**(本 worktree 無 DB、重現不了該動線)⇒ 做的是「不論 Next 為何沒滾,我們自己保證落地在頂」。🔴 **不修在 /products 那一端**:在目錄頁掛「進頁就捲到頂」會打壞瀏覽器返回時的捲動還原(客人捲到第 20 個商品→點進去→返回,應回原位)。出口改收斂成單一 helper,守門掃全樹禁止裸 push。 本條目改動:`CartView` 的「繼續購物」改走 `navigateToCatalog`。"
@@ -1461,7 +1461,15 @@ components:
       - "apps/storefront/src/lib/garage-chip.ts"  # V-2a:愛車快選決策腦(V-1e 建、車款欄復用)
       - "apps/storefront/src/lib/vehicle-context.ts"  # V-2a REQUIRED-3:additive brandName/modelName;路徑1 自動帶入來源
       - "apps/storefront/src/components/ProductInfo.tsx"  # V-2a 路徑1:addToCart 讀 context 標 kind:dict source:search
+      - "apps/storefront/src/lib/cart-vehicle-mix.ts"  # 2026-09-03 混車橫幅判準(純函式、無 React/DOM 依賴;不看「目前選的車」)
     business_overrides:
+      - field: "cartVehicleMixNotice"
+        design_value: "稿上【查無】此橫幅 —— net-new 視覺, 不是偏離既有元素。數法(兩把尺都先證明會動):design-reference/components/AccountPages.jsx 掃 `notice|banner|callout|alert` ⇒ 0(正對照同法掃 `cart-head` ⇒ 2);OD pcm-home-redesign/cart-page.html 同法 ⇒ 0(正對照 `cart-head|cart-item` ⇒ 53)"
+        storefront_value: "購物車頂部中性橫幅:一台購物車同時掛著 2 台以上相異車款(僅 kind:dict、不含年份)時出聲, 列出台數與車名。刻意不用 --c-red-*(客人很可能沒做錯任何事);display-only 不擋結帳;不自動改任何一列的車"
+        decided_at: "2026-09-03"
+        decision_source: "Sean 2026-09-03 拍甲「換車之後提醒他購物車裡有別台車的東西」(主視窗-87 轉);plan docs/specs/2026-09-03-cart-vehicle-mix-notice-plan.md(主視窗-87 批准動工)"
+        backlog: "#TBD 文案暫定待 Sean 拍板 / 車庫預填誤報(見 reason)"
+        reason: "🔴 判準刻意【不比目前選的車】—— 那樣寫時沒選車的客人(多數)每一件都會被叫。改比「購物車裡有幾台相異的車」⇒ 判準裡沒有那個變數 ⇒ 結構上不可能對沒選車的人叫。🛑 兩條已知誤報明寫:①真要買兩台份的人仍會被叫一次 ②車庫預填會把我們自己猜的車寫進未填列而它進了分母(CartView.tsx:97-114;source:'garage' 分不出「他選的」與「我們猜的」⇒ 修它要動 CartContext, 超出本 plan 批准範圍)。文案為暫定版、待 Sean 拍板"
       - field: "cartVehicleField"
         design_value: "design CartPage 無車款欄(客人無法標『這件給哪台車』);design 全站零 typeahead/愛車快選先例"
         storefront_value: "購物車加『給哪台車用』欄:頂部整車套用(setAllItemsVehicle)+ 單列覆寫(setItemVehicle);CartVehicleField=VehicleSelect 三層 combobox typeahead + 愛車快選(共用 resolveGarageChip 決策腦)+ 自由輸入 fallback。CartItem.vehicle 判別式 union(kind:'dict' 字典字面 / kind:'free' 自由輸入);純 client/localStorage、不送價不寫 DB(V-3 才落 order_items.vehicle_snapshot)。帶入路徑1=搜尋 context 名稱齊全自動帶 kind:dict source:search、零猜。車種鐵律=picker/快選恆字典字面、free 明標不猜"

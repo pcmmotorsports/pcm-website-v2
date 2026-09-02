@@ -25,6 +25,7 @@ import { CartQtyInput } from '@/components/CartQtyInput';
 import { useResolvedCart } from '@/hooks/useResolvedCart';
 import { isBalancePaymentOnlyCart } from '@/lib/balance-payment';
 import { CartVehicleField } from '@/components/CartVehicleField';
+import { CartVehicleMixNotice } from '@/components/CartVehicleMixNotice';
 import { resolveGaragePrefillVehicle } from '@/lib/garage-chip';
 import { navigateToCatalog } from '@/lib/catalog-navigation';
 import type { GarageChipItem } from '@/components/GarageChips';
@@ -141,6 +142,10 @@ export function CartView({
           </div>
           <div className="cart-head-count">{lines.length} 件商品</div>
         </div>
+
+        {/* 🔵 混車橫幅(plan `docs/specs/2026-09-03-cart-vehicle-mix-notice-plan.md`)。
+            接線與判準都在該元件內 ⇒ 本頁只交出 `lines`(R1 nit 9:接線放這裡時零測試覆蓋)。 */}
+        <CartVehicleMixNotice lines={lines} />
 
         {/* V-2a 整車套用:填一次全列帶入(§2「不造成選擇負擔」預設路);混車時單列可各自改 */}
         <div className="cart-vehicle-top">
