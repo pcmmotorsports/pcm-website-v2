@@ -20,6 +20,12 @@ import {
   unreadableReport,
   type CronHeartbeatReport,
 } from '../lib/dashboard/cron-heartbeat-read';
+import {
+  DEAD_LETTER_SCAN_CAP,
+  loadDeadLetterCount,
+  unreadableCount,
+  type DeadLetterCount,
+} from '../lib/mail/dead-letter-count-read';
 
 // ~~M0-S1 骨架占位頁~~ + M0-S2 具名身分選人。
 // 🔴 **`#16` 今日對帳(2026-08-14,Sean 拍「批」)**:骨架說明卡下架,換成對帳數字。
@@ -127,8 +133,15 @@ export default async function AdminHomePage() {
   //    ⇒ **本片刻意不在這裡修**:要修是給這六支各自加 bounded timeout = 動到另外五支的行為,
   //      那是範圍擴張。⇒ **單獨立一列**,不要順手改。
   //    身分與員工名單失敗**仍照舊往上拋**(它們掛了這頁本來就沒東西可看,不該假裝正常)。
-  const [actorSettled, staffSettled, todaySettled, freshSettled, fitmentSettled, cronSettled] =
-    await Promise.allSettled([
+  const [
+    actorSettled,
+    staffSettled,
+    todaySettled,
+    freshSettled,
+    fitmentSettled,
+    cronSettled,
+    deadLetterSettled,
+  ] = await Promise.allSettled([
       getSessionActorWithSource(),
       listActiveStaff(),
       loadTodaySummary(),
@@ -137,6 +150,9 @@ export default async function AdminHomePage() {
       //    兩件不同的資料, 而在這之前畫面上只有一行字。理由全文在 freshness-read.ts 那一節。
       loadFitmentFreshness(),
       loadCronHeartbeats(),
+      // 🔵 `⟦f3-DEADLETTERCOUNT⟧` 2026-09-02(Sean 拍甲:「把『有幾封卡住』做成看得見的數字」)。
+      //    這個數字**本來就已經被算出來**(告警器每輪都在算),只是沒有任何人類的眼睛看得到它。
+      loadDeadLetterCount(),
     ]);
   if (actorSettled.status === 'rejected') throw actorSettled.reason;
   if (staffSettled.status === 'rejected') throw staffSettled.reason;
@@ -187,6 +203,15 @@ export default async function AdminHomePage() {
   } else {
     console.error('[admin/home] 排程心跳載入失敗', cronSettled.reason);
     cron = unreadableReport('讀取時發生例外');
+  }
+
+  // 死信計數。同一條理由:讀不到也要印,不留白。
+  let deadLetter: DeadLetterCount;
+  if (deadLetterSettled.status === 'fulfilled') {
+    deadLetter = deadLetterSettled.value;
+  } else {
+    console.error('[admin/home] 死信計數載入失敗', deadLetterSettled.reason);
+    deadLetter = unreadableCount('讀取時發生例外');
   }
 
   // 🔴 `max-w-4xl` **刻意留著,不是漏做**(`7f6d0ac1` 那次六支列表頁拿掉時逐支判過):
@@ -259,6 +284,50 @@ export default async function AdminHomePage() {
             有東西在寫我們沒在看的心跳:{cron.unknownJobs.join('、')} —— 白名單過期了,補進去。
           </p>
         )}
+      </section>
+
+      {/* 🔴🔴 這一格**不是新做一個數字** —— 那個數字告警器每輪都在算(`get_email_outbox_deadman_counts`
+          的 `signal2`),而它今天只送去告警器,**沒有任何人類的眼睛看得到它**。
+          ⇒ Sean 2026-09-02 拍甲:「維持人工重排,而把『有幾封卡住』做成看得見的數字」。
+          🔵 **為什麼放在首頁而不是 `settings/mail`**:那一頁是「你已經知道有事才會去」的頁,
+             而這個數字的用途正是**告訴還不知道的人**。
+          🛑 **不做成會叫的告警** —— Sean 2026-09-01 拍過零告警管道。 */}
+      <section data-testid='dead-letter-count' className='rounded-lg border p-4'>
+        <p className='text-sm font-medium'>寄不出去的信</p>
+        {deadLetter.unreadableReason !== null ? (
+          /* 🔴 「讀不到」與「一封都沒有」**不可以長一樣** —— 一個是我們壞了,一個是好消息。 */
+          <p className='text-destructive mt-2 text-xs'>
+            量不到({deadLetter.unreadableReason})—— 這<strong>不代表</strong>一封都沒有。
+          </p>
+        ) : deadLetter.total === 0 ? (
+          <p className='text-muted-foreground mt-2 text-xs'>目前沒有卡住的信。</p>
+        ) : (
+          <>
+            <p className='mt-2 text-xs'>
+              卡住 <strong>{deadLetter.total}</strong> 封 · 其中{' '}
+              <strong className={deadLetter.dead > 0 ? 'text-destructive' : undefined}>
+                {deadLetter.dead}
+              </strong>{' '}
+              封已放棄{deadLetter.deadExact ? '' : '(至少)'} —— 已放棄的要人去重排,才會再寄。
+            </p>
+            {/* 🔴 被截斷的數字**不可以印得像精確值** —— 那就是下一件事故。 */}
+            {!deadLetter.deadExact && (
+              <p className='text-destructive mt-1 text-xs'>
+                卡住的信超過 {DEAD_LETTER_SCAN_CAP} 封,「已放棄」那個數是下界、不是實數。
+              </p>
+            )}
+            {/* 🔵 這一句是【指標不是常數】:板上 ⟦15-SHIPGATE-F1⟧ 記著有一批因停線而死的信還在表裡,
+                而**今天沒有機械方法把它們認出來**(要一支還沒人寫的 migration)。
+                ⇒ 手打「其中 N 封是已知的」會在下次停線之後變成假的,而**過期時零訊號**。
+                ⇒ 所以這裡寫一句不會過期的話,讓「為什麼它一直不歸零」有地方可問。 */}
+            <p className='text-muted-foreground mt-1 text-xs'>
+              這裡面可能含一批舊的、已知還沒清掉的信 —— 這個數字不會自己歸零。
+            </p>
+          </>
+        )}
+        <a className='mt-2 inline-block text-xs underline' href='/settings/mail'>
+          去看是哪幾封
+        </a>
       </section>
 
       {today === null ? (
