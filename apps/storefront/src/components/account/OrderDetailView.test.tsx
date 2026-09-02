@@ -18,7 +18,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { toMoneyAmount, type MemberOrderDetail } from '@pcm/domain';
 import { OrderDetailView } from './OrderDetailView';
-import { ORDER_DETAIL_ITEMS_TRUNCATED_NOTE } from '@/lib/account-order-copy';
+import {
+  ORDER_DETAIL_ITEMS_TRUNCATED_NOTE,
+  ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE,
+} from '@/lib/account-order-copy';
 
 afterEach(cleanup);
 
@@ -32,6 +35,8 @@ const ORDER: MemberOrderDetail = {
   fulfillmentStatus: 'shipped',
   paymentMethod: 'tappay',
   paidAt: '2099-04-18T03:00:00Z', // 🔴 刻意與 createdAt(04-15)【不同日】
+  shippedAt: null,
+  allItemsShipped: false,
   subtotal: money(12000),
   shippingFee: money(100),
   discountTotal: money(0),
@@ -400,4 +405,113 @@ describe('OrderDetailView', () => {
   });
 
 
+});
+
+/**
+ * ⟦b9-SHIPUI⟧ 進度軸「已出貨」那一階 —— 從包裹真相點亮(Sean 2026-09-02 拍**丙**)。
+ *
+ * 🔴 **三格缺一不可, 而【第二格】最容易漏**:
+ *   少了「沒出貨的單一個字都不能變」那一格,
+ *   一個**把每一階都無條件點亮**的錯誤實作**照樣讓第一格通過**。
+ * 📌 ⇒ 一個只驗「該亮的有亮」的測試, 分不出「它會判斷」與「它全部都亮」。
+ */
+describe('⟦b9-SHIPUI⟧ 進度軸「已出貨」', () => {
+  it('🟢 有出貨 ⇒ 那一階亮、印出貨日期,而分批小字出現', () => {
+    render(
+      <OrderDetailView
+        order={{ ...ORDER, shippedAt: '2099-04-20T06:00:00Z', allItemsShipped: false }}
+      />,
+    );
+    expect(screen.getByText('已出貨')).toBeTruthy();
+    /**
+     * 🔴 **日期字面用 `formatOrderDate` 的產出(`YYYY-MM-DD`), 而不是稿的 `MM-DD`。**
+     *   Sean 2026-09-02 的選項字面(`拍板-20260902-上午.md:147`)**逐字**是:亮「已出貨 09-02」
+     *   ⚠️ 上面那串是**原檔的位元組** —— 不加粗體、不換引號。codex 2026-09-02 抓到我第二版
+     *      仍然「宣稱逐字而自己加了 `**` 與 `『』`」⇒ 📌 **「逐字」二字自己也要逐字。**
+     *   ⛔ ~~本行原本寫「逐字是『亮「已出貨 MM-DD」』」~~ —— `MM-DD` 是**我們的轉寫**,不是他打的字
+     *      (code-reviewer R2 抓:`#7` 那一輪我只改了兩處裡的一處,**而漏掉的正是還寫著「逐字」的這處**)。
+     *   而他那個字面是在**描述稿的畫法**
+     *   (稿 `order-detail-page.html:174` 的 `const md = (s) => String(s || '').slice(5, 10);`
+     *    ⚠️ 前一版漏抄了 `|| ''`,codex 2026-09-02 抓 ⇒ **引程式碼字面時連 falsy 防護一起抄**)。
+     * 🎯 而我方進度軸的**前兩階早就用 `formatOrderDate`(en-CA ⇒ `YYYY-MM-DD`)**
+     *   ⇒ 第三階改用 MM-DD 會讓**同一個元件裡三個日期兩種格式**。
+     * ⇒ **我選了與鄰居一致**, 而這個落差寫在這裡讓下一個人看得到、也讓 Sean 可以推翻。
+     *   ⛔ ~~**這是我的判斷不是他的拍板** —— 已同步交主視窗。~~
+     *
+     * ✅ **2026-09-02 結掉了:Sean 拍甲「跟鄰居一致(`2026-09-02`)」**
+     *   落點 `~/pcm-mailbox/拍板-20260902-上午.md:244`(Q31),他逐字「Q:日期格式?」/「A: 甲 跟鄰居一致」。
+     * 🔴 **而 Q11 拍丙的原字面「已出貨 `09-02`」(MM-DD)【已被推翻】** —— Q31 晚於 Q11,
+     *   而且它**專門在答這一格** ⇒ **以 Q31 為準,用 `YYYY-MM-DD`。**
+     *   📌 那個 `09-02` 字面刻意留在這一段裡:**grep 到它的人要在同一發撞到「它被推翻了」。**
+     * ⚠️ 而 Q31 是**拍板當下沒落檔、下游窗查無才補**的(該檔 `:250` 自陳)⇒ 上面那句
+     *   ~~「這是我的判斷不是他的拍板」~~ 在寫下的當天**是對的**,不是 `-5b` 判斷錯。
+     */
+    expect(screen.getByText('2099-04-20')).toBeTruthy();
+    expect(screen.getByText(ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE)).toBeTruthy();
+  });
+
+  /**
+   * 🔴 **這三格 2026-09-02 被 code-reviewer 抓出是【恆真格】,已補實**(`-fc` 實跑複驗):
+   * 原本只 assert 那句小字在不在,而**那句小字自己的渲染條件就含 `shippedAt !== null`**
+   * ⇒ 它對 `ok`(亮不亮)與 `d`(印不印日期)**零判別力**。
+   * 🔬 突變證實:把 `OrderDetailView.tsx` 的 `ok: order.shippedAt !== null` 改成 `ok: true`
+   *    ⇒ **29 passed 全綠**。而測試的名字明寫「那一階不亮」。
+   * ✅ ⇒ 改成 assert `.od-step` 的 `is-done` class,形狀照本檔 `:126` 既有那格。
+   * ⚠️ **本段刻意不寫那兩個行號** —— 第一版寫了 `:166` / `:236`,而**在同一顆 commit 裡**
+   *    就被我自己後續的編輯推成 `:172` / `:242`(code-reviewer R2 抓)。
+   *    📌 **同一支檔裡的行號,連【自己這一輪】都撐不到收工。認字面:`ok: order.shippedAt`、`is-done`。**
+   */
+  it('🔵 **沒出貨 ⇒ 那一階不亮、不印日期、分批小字不出現**(少了這格,「全部都亮」也會過)', () => {
+    const { container } = render(
+      <OrderDetailView order={{ ...ORDER, shippedAt: null, allItemsShipped: false }} />,
+    );
+    const shipStep = Array.from(container.querySelectorAll('.od-step'))[2]!;
+    expect(shipStep.querySelector('.od-step-t')?.textContent).toBe('已出貨');
+    // 🔴 這一行是那個突變唯一殺得死它的地方。
+    expect(shipStep.className).not.toContain('is-done');
+    expect(shipStep.querySelector('.od-step-d')?.textContent).toBe('');
+    expect(screen.queryByText(ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE)).toBeNull();
+  });
+
+  it('🔵 全部出完 ⇒ 那一階亮,而**分批小字不出現**(那句話對它是假的)', () => {
+    const { container } = render(
+      <OrderDetailView
+        order={{ ...ORDER, shippedAt: '2099-04-20T06:00:00Z', allItemsShipped: true }}
+      />,
+    );
+    // ⚠️ `getByText('已出貨')` 那個字串在 ok=true 與 ok=false 時**都在畫面上** ⇒ 零判別力。
+    //    要看的是 class 與日期,而它們與上一格是**相反的世界**。
+    const shipStep = Array.from(container.querySelectorAll('.od-step'))[2]!;
+    // 🔵 錨:進度軸插一階時,`[2]` 會安靜地量錯階段而仍然綠(code-reviewer R2 nit)。
+    expect(shipStep.querySelector('.od-step-t')?.textContent).toBe('已出貨');
+    expect(shipStep.className).toContain('is-done');
+    // 🔴 **`is-now` 那一半原本一格都沒有人測**(codex 對抗審查 2026-09-02):
+    //    把 `nowIdx` 寫死成 0 ⇒ 「已出貨」不再是**目前階段**(客人看到的高亮跑回第一階),
+    //    而在補這一行之前那個突變**全綠**。`is-done` 與 `is-now` 是兩個不同的視覺狀態。
+    expect(shipStep.className).toContain('is-now');
+    expect(
+      Array.from(container.querySelectorAll('.od-step'))[0]!.className,
+      'nowIdx 寫死成 0 ⇒ 高亮會停在「訂單成立」,而那一階與最後一個完成的階段不是同一個',
+    ).not.toContain('is-now');
+    expect(shipStep.querySelector('.od-step-d')?.textContent).toBe('2099-04-20');
+    expect(
+      screen.queryByText(ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE),
+      '全部出完了還說「其餘商品出貨時會再通知您」⇒ 客人會為了等一批不存在的貨而不聯絡我們',
+    ).toBeNull();
+  });
+
+  it('🔵 「已送達」永遠是空心點 —— delivered_at 全 repo 零來源,那是誠實不是漏做', () => {
+    const { container } = render(
+      <OrderDetailView
+        order={{ ...ORDER, shippedAt: '2099-04-20T06:00:00Z', allItemsShipped: true }}
+      />,
+    );
+    // 🛑 它在畫面上要看得到(那一階存在), 而它不得被標成完成。
+    // 🔴 而「看得到」那半**在兩個世界印同一句** ⇒ 承重的是下面那行 class。
+    expect(screen.getByText('已送達')).toBeTruthy();
+    const doneStep = Array.from(container.querySelectorAll('.od-step'))[3]!;
+    expect(doneStep.querySelector('.od-step-t')?.textContent).toBe('已送達');
+    expect(doneStep.className).not.toContain('is-done');
+    expect(doneStep.querySelector('.od-step-d')?.textContent).toBe('');
+  });
 });

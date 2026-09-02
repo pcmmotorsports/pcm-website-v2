@@ -1167,6 +1167,19 @@ export type SupabaseMemberOrderDetailRow = Pick<
       images: unknown;
       products: { images: unknown; brands: { name: string } | null } | null;
     } | null;
+    /**
+     * ⟦b9-SHIPUI⟧ 這一品項被裝進哪幾箱(`shipment_items → shipments`)。
+     *
+     * 🔴 **為什麼要走這條巢狀, 而不是讀 `orders.fulfillment_status`**:那一欄是 stale 出貨軸
+     *    —— 稿 `order-detail-page.html:172` 逐字「拿它點亮『已出貨』等於**對客人說謊**」,
+     *    而 2026-09-02 實查一張真出貨的單, 它仍是 `notOrdered`(item 層才動了)。
+     * 🔴 `deleted_at` 一起取:**作廢的箱不算出貨**。少取它 ⇒ 一張被作廢的出貨單會把客人的
+     *    進度條點亮, 而客人手上沒有貨。
+     * ⚠️ 一個品項可以在多箱裡(分批出貨)⇒ 這是陣列, 不是單一物件。
+     */
+    shipment_items?: {
+      shipments: { shipped_at: string | null; deleted_at: string | null } | null;
+    }[] | null;
   }[];
 };
 
@@ -1217,6 +1230,34 @@ export function mapSupabaseMemberOrderDetailRow(
     unitPrice: { amount: toMoneyAmount(item.unit_price), currency: 'TWD' },
     lineTotal: { amount: toMoneyAmount(item.line_total), currency: 'TWD' },
   }));
+  /**
+   * ⟦b9-SHIPUI⟧ 包裹真相 → 兩個給 UI 的值。
+   *
+   * 🔴 **有效的箱 = `shipped_at` 非空【且】`deleted_at` 為空。** 少任一個條件都會出錯:
+   *    · 少 `shipped_at` ⇒ 一張還沒出的出貨單就把進度條點亮
+   *    · 少 `deleted_at` ⇒ 一張**被作廢的**出貨單把進度條點亮, 而客人手上沒有貨
+   * ⚠️ `shipment_items` 缺(舊資料 / embed 為 null)⇒ 當作沒出貨, **不是**當作未知。
+   *    那是保守方向:寧可少亮一階, 不可對客人宣稱貨已出。
+   */
+  const shippedAtPerItem = row.order_items.map((item) => {
+    const times = (item.shipment_items ?? [])
+      .map((si) => si.shipments)
+      .filter((sh): sh is { shipped_at: string; deleted_at: string | null } =>
+        sh !== null && sh !== undefined && typeof sh.shipped_at === 'string' && sh.shipped_at !== '' && sh.deleted_at === null)
+      .map((sh) => sh.shipped_at)
+      .sort();
+    return times[0] ?? null;
+  });
+  const shippedTimes = shippedAtPerItem.filter((t): t is string => t !== null).sort();
+  // 🔴 **算一次、兩處共用** —— 下面 `itemsTruncated` 用的是同一個運算式。
+  //    分開寫兩份 ⇒ 有人改了門檻而只改一處, 而**兩處會安靜地不一致**。
+  const itemsTruncated = row.order_items.length >= MEMBER_ORDER_DETAIL_ITEMS_EMBED_LIMIT;
+  // 分批出貨取**最早**那一次:客人問的是「開始出了沒」, 而第一箱就回答了那個問題。
+  // ⚠️ **上面兩個 `.sort()` 都是【字典序】** —— 對 PostgREST 回的同一種 ISO 格式是正確的,
+  //    而它**沒有演過混格式的世界**(fixture 全是 `…Z`, 而 PostgREST 實際回 `+00:00`)。
+  //    ⇒ 哪天同一批資料出現兩種時區寫法, 它會**安靜地排錯**(code-reviewer 2026-09-02 nit)。
+  //    ⇒ 要動這裡的話, 排序前先正規化, 不要只是把 `.sort()` 換成 `localeCompare`。
+  const shippedAt = shippedTimes[0] ?? null;
   return {
     id: row.id,
     displayId: row.display_id,
@@ -1225,6 +1266,13 @@ export function mapSupabaseMemberOrderDetailRow(
     fulfillmentStatus: row.fulfillment_status,
     paymentMethod: row.payment_method,
     paidAt: row.paid_at,
+    shippedAt,
+    // 🛑 三個條件缺一不可(見 domain docstring):有品項 · 每一個都出了 · 而且我看得到全部品項。
+    //    `itemsTruncated` 那一格在下面算, 這裡先用同一個判準的來源:要 N 筆拿回剛好 N 筆。
+    allItemsShipped:
+      shippedAtPerItem.length > 0 &&
+      shippedAtPerItem.every((t) => t !== null) &&
+      !itemsTruncated,
     subtotal: { amount: toMoneyAmount(row.subtotal), currency: 'TWD' },
     shippingFee: { amount: toMoneyAmount(row.shipping_fee), currency: 'TWD' },
     discountTotal: { amount: toMoneyAmount(row.discount_total), currency: 'TWD' },
@@ -1241,6 +1289,6 @@ export function mapSupabaseMemberOrderDetailRow(
     }),
     items,
     itemCount: items.reduce((sum, i) => sum + i.quantity, 0),
-    itemsTruncated: row.order_items.length >= MEMBER_ORDER_DETAIL_ITEMS_EMBED_LIMIT,
+    itemsTruncated,
   };
 }

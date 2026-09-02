@@ -75,6 +75,8 @@ const OWN_ORDER: MemberOrderDetail = {
   fulfillmentStatus: 'shipped',
   paymentMethod: 'tappay',
   paidAt: '2099-04-18T03:00:00Z',
+  shippedAt: null,
+  allItemsShipped: false,
   subtotal: money(12000),
   shippingFee: money(100),
   discountTotal: money(0),
