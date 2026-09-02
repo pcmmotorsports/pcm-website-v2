@@ -18,7 +18,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-import { SearchOverlay, freshItems } from './SearchOverlay';
+import { SearchOverlay, viewFor } from './SearchOverlay';
 
 const push = vi.fn();
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
@@ -199,25 +199,117 @@ describe('SearchOverlay', () => {
   //    `'loading'`,而 RTL 看到的永遠是 effect 跑完之後的 DOM。
   //    真正出事的那一格是 **render 與 effect 之間**那一次(客人在真瀏覽器看得到那一閃)。
   // 📌 一個殺不掉突變的守門,與寫對的碼印同一個綠。
-  describe('freshItems(status, result, q)', () => {
+  describe('viewFor(result, q) — DOM 摸不到的那個狀態組合', () => {
     const A = [{ slug: 'a', brand: 'B', name: '排氣管', price: 1, image: null }];
 
-    it('G10 🔴 結果屬於別的查詢 ⇒ null(這一格就是 must-fix 1)', () => {
-      expect(freshItems('ok', { q: '排氣管', items: A }, '碳纖維')).toBeNull();
+    it('G10 🔴 結果屬於【別的】查詢 ⇒ pending(R1 must-fix 1)', () => {
+      expect(viewFor({ q: '排氣管', items: A }, '碳纖維')).toEqual({ kind: 'pending' });
     });
 
-    it('G10-b 🔵 正對照:屬於同一個查詢 ⇒ 原樣回傳(否則上一格用「永遠回 null」也會過)', () => {
-      expect(freshItems('ok', { q: '排氣管', items: A }, '排氣管')).toBe(A);
+    it('G10-b 🔵 正對照:屬於同一個查詢 ⇒ ok + 原樣的 items(否則「永遠回 pending」也會過)', () => {
+      expect(viewFor({ q: '排氣管', items: A }, '排氣管')).toEqual({ kind: 'ok', items: A });
     });
 
-    it('G10-c status 不是 ok(loading / failed / idle)⇒ 一律 null', () => {
-      for (const st of ['idle', 'loading', 'failed'] as const) {
-        expect(freshItems(st, { q: '排氣管', items: A }, '排氣管'), st).toBeNull();
-      }
+    it('G11 🔴 **失敗**也綁查詢:別的查詢失敗過 ⇒ pending,不是 failed(R2 must-fix 1)', () => {
+      // 這一格就是 R1 只修一半的那一半:失敗那條路原本脫離了查詢字。
+      expect(viewFor({ q: '排氣管', items: null }, '碳纖維')).toEqual({ kind: 'pending' });
     });
 
-    it('G10-d 沒有結果 ⇒ null', () => {
-      expect(freshItems('ok', null, '排氣管')).toBeNull();
+    it('G11-b 🔵 正對照:同一個查詢失敗 ⇒ failed(否則上一格用「永遠 pending」也會過)', () => {
+      expect(viewFor({ q: '排氣管', items: null }, '排氣管')).toEqual({ kind: 'failed' });
     });
+
+    it('G10-d 還沒有任何結果 ⇒ pending', () => {
+      expect(viewFor(null, '排氣管')).toEqual({ kind: 'pending' });
+    });
+
+    it('G11-c 🔴 空字串查詢時,舊的失敗不准跟著 —— 清空輸入框必須回到熱門搜尋', () => {
+      expect(viewFor({ q: '排氣管', items: null }, '')).toEqual({ kind: 'pending' });
+      expect(viewFor({ q: '排氣管', items: A }, '')).toEqual({ kind: 'pending' });
+    });
+  });
+
+  // ── G9 的補強:R2 must-fix 4 —— 原本的 G9 是【假綠】 ───────────────────
+  //
+  // 🔴 舊的 G9 只測「焦點原本在疊層外面 ⇒ 被拉回來」,而那條分支與**首尾循環**是
+  //    兩段不同的碼 ⇒ 把 first/last 那兩段刪掉,G9 照樣全綠。
+  //    ⇒ 這是同一片裡的**第三格假綠**(前兩格是 result.q===q 與焦點還原)。
+  // 📌 一道守門守住的是它【走過的那一條分支】,不是那個功能。
+
+  it('G9-b 🔴 焦點在最後一個可聚焦元素時按 Tab ⇒ 回到第一個(不准離開疊層)', async () => {
+    mockFetch(async () => new Response(JSON.stringify(ONE_ITEM), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('排氣管');
+    await screen.findByText('鈦合金全段排氣管');
+    const panel = screen.getByRole('dialog', { name: '搜尋' }).querySelector('.search-overlay-panel')!;
+    const f = panel.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    );
+    expect(f.length, '疊層裡至少要有頭尾兩個不同的可聚焦元素,否則本格零判別力').toBeGreaterThan(1);
+    f[f.length - 1]!.focus();
+    fireEvent.keyDown(window, { key: 'Tab' });
+    expect(document.activeElement, '從最後一個往後 Tab 應該回到第一個').toBe(f[0]);
+  });
+
+  it('G9-c 🔴 焦點在第一個時按 Shift+Tab ⇒ 跳到最後一個', async () => {
+    mockFetch(async () => new Response(JSON.stringify(ONE_ITEM), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('排氣管');
+    await screen.findByText('鈦合金全段排氣管');
+    const panel = screen.getByRole('dialog', { name: '搜尋' }).querySelector('.search-overlay-panel')!;
+    const f = panel.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    );
+    f[0]!.focus();
+    fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement, '從第一個往前 Tab 應該跳到最後一個').toBe(f[f.length - 1]);
+  });
+
+  it('G9-d 🔵 負對照:焦點在【中間】時 Tab 不被攔截(否則上兩格用「永遠攔」也會過)', async () => {
+    mockFetch(async () => new Response(JSON.stringify(ONE_ITEM), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('排氣管');
+    await screen.findByText('鈦合金全段排氣管');
+    const panel = screen.getByRole('dialog', { name: '搜尋' }).querySelector('.search-overlay-panel')!;
+    const f = panel.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    );
+    expect(f.length).toBeGreaterThan(2);
+    const middle = f[1]!;
+    middle.focus();
+    fireEvent.keyDown(window, { key: 'Tab' });
+    // 沒被 preventDefault ⇒ 瀏覽器自己會移動焦點;jsdom 不移動 ⇒ 焦點仍在原處。
+    // 這一格證的是「我們沒有插手」,不是「焦點跑到哪」。
+    expect(document.activeElement, '中間的 Tab 被我們攔了 ⇒ trap 太寬').toBe(middle);
+  });
+
+  // ── G12:鎖背景捲動不准去搶別人的 inline style(R2 must-fix 3)────────────
+  it('G12 🔴 疊層的鎖【不碰】別的 modal 的 body inline style', async () => {
+    mockFetch(async () => new Response(JSON.stringify({ items: [], total: 0 }), { status: 200 }));
+    // 世界:另一支 modal 先開著(本 repo 有 5 支元件在寫這個 inline style)
+    document.body.style.overflow = 'hidden';
+
+    render(<SearchOverlay />);
+    openWith('');
+    expect(document.body.hasAttribute('data-pcm-search-lock'), '疊層沒有上鎖').toBe(true);
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(document.body.hasAttribute('data-pcm-search-lock')).toBe(false));
+    // 🔴 這一行是本格的重點:疊層關掉之後,**別人的鎖必須原封不動**。
+    //    舊寫法(存值/寫回 '')在這裡會把它變成 '' ⇒ 頁面提早解鎖而另一個 modal 還開著。
+    expect(document.body.style.overflow, '疊層關閉時把別人的 body 鎖一起解掉了').toBe('hidden');
+    document.body.style.overflow = '';
+  });
+
+  it('G12-b 🔵 正對照:沒有別人時,疊層自己的鎖確實會加上又拿掉', async () => {
+    mockFetch(async () => new Response(JSON.stringify({ items: [], total: 0 }), { status: 200 }));
+    expect(document.body.hasAttribute('data-pcm-search-lock')).toBe(false);
+    render(<SearchOverlay />);
+    openWith('');
+    expect(document.body.hasAttribute('data-pcm-search-lock')).toBe(true);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(document.body.hasAttribute('data-pcm-search-lock')).toBe(false));
+    // 🔵 而它從頭到尾沒有碰 inline style
+    expect(document.body.style.overflow).toBe('');
   });
 });

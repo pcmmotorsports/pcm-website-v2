@@ -82,4 +82,22 @@ describe('/search', () => {
     await renderAt('腳踏');
     expect(screen.getByText('共 1 件')).toBeTruthy();
   });
+
+  it('S7 🔴 超長 q ⇒ 畫面印的是【截斷後】的字,與實際搜的那個字串相同(R2 must-fix 2)', async () => {
+    searchProducts.mockResolvedValue({ items: [], total: 0, error: false });
+    const long = '排'.repeat(300);
+    await renderAt(long);
+    const label = screen.getByText(/沒有找到/).textContent ?? '';
+    // 畫面上那個字串的長度 = 上限,不是 300
+    expect(label).toContain('排'.repeat(100));
+    expect(label, '畫面印了 300 個字,而實際只搜了 100 ⇒ 那句話描述的不是真正跑過的查詢').not.toContain('排'.repeat(101));
+    // 🔵 而它與傳給 searchProducts 的是【同一個字串】—— 這才是本格真正要證的
+    expect((searchProducts.mock.calls[0] as [string])[0]).toHaveLength(100);
+  });
+
+  it('S7-b 🔵 負對照:沒超過上限的字原樣印,不被截(否則上一格用「永遠截」也會過)', async () => {
+    searchProducts.mockResolvedValue({ items: [], total: 0, error: false });
+    await renderAt('排氣管');
+    expect(screen.getByText(/沒有找到「排氣管」/)).toBeTruthy();
+  });
 });

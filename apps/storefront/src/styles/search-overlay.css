@@ -16,8 +16,22 @@
 
    ⛔ ~~舊字面:「本檔與稿的差異 = 只有這段檔頭註解;規則本體一個字都沒動。
       數法:diff <(tail -n +5 本檔) 稿 ⇒ 空」~~ —— **那句話當時是真的,現在不是了。**
-   ✅ 現在的數法(差異應恰為那 10 行 token 名):
-      diff <(tail -n +21 本檔) design-reference/styles/search-overlay.css | grep -c '^[<>]'  ⇒ 20 */
+   ⛔ ~~「現在的數法:差異應恰為那 10 行 token 名 ⇒ 20」~~ —— **2026-09-02 傍晚起也不對了**:
+      檔尾多了一條稿沒有的 `body[data-pcm-search-lock]`(見檔尾註解)⇒ 那是**第二處**差異。
+   ⛔ ~~我第一版寫的是 `head -n -10 本檔 | tail -n +21`~~ —— **那條在 macOS 上跑不起來**
+      (BSD head 不吃負數:`head: illegal line count -- -10`),而**它印出來的 208 看起來像一個答案**。
+      📌 ⇒ 而第二版改用行數算(`sed -n "21,$((TOTAL-10))p"`)⇒ **算錯一行、印 25**
+         ⇒ **兩個錯法都印出一個像樣的數字。**⇒ 改用【錨點】切,不用行數算。
+   ✅ **現在的數法(在 repo 根跑;兩端都用錨點,頭尾都不靠行號)**:
+      sed -n '/^\/\* SearchOverlay — fullscreen modal \*\/$/,$p' apps/storefront/src/styles/search-overlay.css \
+        | sed '/^\/\* 🔴 疊層開著時鎖背景捲動/,$d' \
+        | sed -e :a -e '/^$/{$d;N;ba' -e '}' \
+        | diff - design-reference/styles/search-overlay.css > /tmp/d.txt
+      grep -c '^[<>]' /tmp/d.txt                                                    ⇒ 20
+      grep '^[<>]' /tmp/d.txt | grep -vc -- '--f-sans\|--f-mono\|--font-sans\|--font-mono'  ⇒ 0
+      🔵 **第二發才是重點**:它證的不是「差 20 行」,是【那 20 行【全部】是 token 名,
+         沒有夾帶任何別的改動進去】。
+      🔵 負對照:把 token 名換成一個現造的字串 ⇒ 必須回 0(2026-09-02 實跑 ⇒ 0)。 */
 /* SearchOverlay — fullscreen modal */
 .search-overlay {
   position: fixed;
@@ -226,3 +240,12 @@
 
 /* Ensure overlay renders outside the mobile bezel when in simulated-mobile mode */
 [data-mobile="true"] .search-overlay { position: fixed; }
+
+/* 🔴 疊層開著時鎖背景捲動 —— **這是本檔與稿的第二處差異(第一處是那 10 個 token 名)**。
+   稿沒有這一條:它在 `SearchOverlay.jsx` 裡直接寫 `document.body.style.overflow = 'hidden'`。
+   而本站有 **5 支元件**在搶那個 inline style,兩種還原寫法都會互蓋(誰後關誰贏)
+   ⇒ 改成一顆只屬於本疊層的屬性,鎖的效力放在這裡。
+   · 別人寫 inline `overflow:''` ⇒ inline 等於沒設 ⇒ 本規則仍然生效
+   · 本疊層移除屬性 ⇒ 完全不碰他們的 inline style
+   ⇒ 兩邊【相加】而不是【互相覆寫】。成因全文在 `SearchOverlay.tsx` 那個 effect 的註解。 */
+body[data-pcm-search-lock] { overflow: hidden; }

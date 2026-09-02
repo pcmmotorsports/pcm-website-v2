@@ -51,27 +51,36 @@ const POPULAR = ['排氣管', '碳纖維', '腳踏', 'Öhlins', 'Akrapovič', 'C
 /** 打字停多久才打 API。太短 = 每個字一發請求;太長 = 客人以為壞了。 */
 const DEBOUNCE_MS = 220;
 
-type Status = 'idle' | 'loading' | 'ok' | 'failed';
+/**
+ * 這一次查詢的結果。`items === null` = **這一次失敗了**(不是「零筆」)。
+ */
+export type SearchResultState = { q: string; items: SearchOverlayItem[] | null };
 
 /**
- * 這批結果屬不屬於【現在這個查詢】。屬於才回它的 items,否則 `null`。
+ * 現在這個查詢該畫什麼。**render 只吃這一個函式的回傳。**
  *
- * 🔴 **為什麼抽成具名函式,而不是寫在 render 裡的一個 `&&`**(2026-09-02 突變實測逼出來的):
- *   寫在 render 裡時,`result.q === q` 這一條**殺不掉突變** —— 因為改字時 effect 也會把
- *   `status` 設成 `'loading'`,而測試看到的永遠是 effect 跑完之後的 DOM
- *   ⇒ 拿掉這一條,測試**照樣全綠**。
- *   而它守的那一格是 **effect 還沒跑的那一次 render**(React 先 render 再跑 effect)——
- *   客人在真瀏覽器裡看得到那一閃:**新的查詢字 + 舊的商品列**;而 RTL 看不到。
- * 📌 **⇒ 判別句:一個只在「render 與 effect 之間」成立的狀態,測試從 DOM 那一端摸不到它。
- *    要測它,就得讓那個判斷有一個【不經過 DOM 的入口】。**
+ * 🔴 **為什麼把 `status` 從 render 判斷裡整個拿掉**(codex 2026-09-02 R2 must-fix 1):
+ *   `status` 是一顆**不帶查詢字**的 state ⇒ 它答得出「上一次成功還是失敗」,
+ *   答不出「上一次是**哪一個查詢**的成功或失敗」。
+ *   R1 的修法只把【成功】那一半綁上查詢,而**失敗那一半漏了** ⇒
+ *   搜尋失敗之後改字或清空,effect 跑之前那一次 render 仍然畫著舊的錯誤訊息;
+ *   清空時甚至「熱門搜尋」與「搜尋暫時無法使用」**同時出現**。
+ * 📌 **⇒ 同一個病修了一半,而修好的那一半讓它更難被看見** ——
+ *    R1 之後成功那條路不再出錯了,於是沒有人會再懷疑失敗那條路。
+ *
+ * 🔴 **抽成具名函式的理由**(2026-09-02 突變實測逼出來的):
+ *   這個判斷守的是 **render 與 effect 之間**那一次 render —— React 先 render 再跑 effect,
+ *   而 testing-library 看到的永遠是 effect 跑完之後的 DOM ⇒ **那一幀在 DOM 那一端沒有形狀**。
+ *   寫在 render 裡的話,拿掉它**測試照樣全綠**。抽出來,測試才有一個【不經過 DOM 的入口】。
  */
-export function freshItems(
-  status: Status,
-  result: { q: string; items: SearchOverlayItem[] } | null,
+export function viewFor(
+  result: SearchResultState | null,
   q: string,
-): SearchOverlayItem[] | null {
-  if (status !== 'ok' || result === null) return null;
-  return result.q === q ? result.items : null;
+): { kind: 'pending' } | { kind: 'failed' } | { kind: 'ok'; items: SearchOverlayItem[] } {
+  // 沒有結果,或結果屬於別的查詢 ⇒ 一律當「還在路上」,不畫任何舊東西。
+  if (result === null || result.q !== q) return { kind: 'pending' };
+  if (result.items === null) return { kind: 'failed' };
+  return { kind: 'ok', items: result.items };
 }
 
 export function SearchOverlay() {
@@ -88,8 +97,7 @@ export function SearchOverlay() {
    * 📌 判別句:兩顆分開的 state 沒有辦法表達「它們是同一次量測」——
    *    而 React 只保證同一顆 state 的更新是原子的。
    */
-  const [result, setResult] = useState<{ q: string; items: SearchOverlayItem[] } | null>(null);
-  const [status, setStatus] = useState<Status>('idle');
+  const [result, setResult] = useState<SearchResultState | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   /** 開疊層之前焦點在誰身上 —— 關閉時要還回去(codex must-fix 4)。 */
@@ -114,17 +122,26 @@ export function SearchOverlay() {
   useEffect(() => {
     if (!open) return;
     const t = setTimeout(() => inputRef.current?.focus(), 50);
-    // 🔴 存**當下的值**再還原,不是無條件寫回 `''`。本 repo 兩種寫法都有:
-    //    `ProductGallery.tsx:119` / `SwatchLightbox.tsx:48` 存值;
-    //    `FilterDrawer.tsx:154` / `MobileVehicleSheet.tsx:103` 無條件寫 `''`。
-    //    後者在「疊層蓋在抽屜上」時會把抽屜的鎖一起解掉。這裡用前者。
-    // ⚠️ **而存值也擋不住相反的順序**(我開著、別的 modal 後開、我先關 ⇒ 還原成 `''`、頁面提早解鎖)。
-    //    那條路徑今天**到不了**:本疊層 `position:fixed; inset:0; z-index:1000` 蓋住全畫面,
-    //    滑鼠點不到任何別的 modal 的觸發器,而**鍵盤那條路被下面的 focus trap 關掉了**。
-    //    ⇒ 真正的通解是一顆共用的鎖計數器(要動另外 4 支元件)⇒ 不在這一刀,已交 backlog。
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
+    // 🔴🔴 **鎖背景捲動:用【自己的 data 屬性 + CSS 規則】,不碰 `body.style.overflow`。**
+    //
+    // 成因(codex 2026-09-02 R1 must-fix 3、R2 判「修了一半」):
+    //   本 repo 有 **5 支元件**在搶同一個 inline style ——
+    //     `FilterDrawer.tsx:154` / `MobileVehicleSheet.tsx:103`      無條件寫回 `''`
+    //     `ProductGallery.tsx:119` / `SwatchLightbox.tsx:48`          存值再還原
+    //   而**兩種寫法都會互蓋**:誰後關,誰的還原值贏。
+    //   ⛔ ~~R1 我用「存值還原」,並主張相反順序那條路徑被 focus trap 關掉了~~
+    //   🔴 **R2 打破了那個主張**:程式自己開的 modal、路由狀態變更、`element.focus()`、
+    //      輔助技術的移動 —— **都不經過滑鼠遮罩,也不經過 Tab**。
+    //      ⇒ 「今天到不了」是一句我證不了的話,而它會叫下一個人不要去查。
+    //
+    // ✅ **改法:不參與那場搶奪。**設一顆只屬於本疊層的屬性,
+    //    鎖的效力由 `search-overlay.css` 的 `body[data-pcm-search-lock]` 提供。
+    //    · 別人寫 inline `overflow:''` ⇒ inline 等於沒設 ⇒ **我的規則仍然生效**(我的鎖不會被解掉)
+    //    · 我移除屬性 ⇒ **完全不碰他們的 inline style** ⇒ 他們的鎖原封不動
+    //    ⇒ 📌 **兩邊變成【相加】而不是【互相覆寫】—— 而那不需要另外 4 支元件先改。**
+    // ⚠️ 而別人若寫 inline `overflow:'hidden'`,那是他們的鎖,本來就該留著。
+    // 🔵 真正的通解仍是一顆共用的鎖計數器(要動那 4 支)⇒ 已交 backlog,不在這一刀。
+    document.body.setAttribute('data-pcm-search-lock', '');
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         close();
@@ -160,7 +177,7 @@ export function SearchOverlay() {
     window.addEventListener('keydown', onKey);
     return () => {
       clearTimeout(t);
-      document.body.style.overflow = prevOverflow;
+      document.body.removeAttribute('data-pcm-search-lock');
       window.removeEventListener('keydown', onKey);
       // 焦點還給打開它的那顆鈕 —— 否則鍵盤使用者關掉之後焦點掉回 <body>,
       // 下一次 Tab 從頁首重來,他失去了原本的位置。
@@ -176,10 +193,8 @@ export function SearchOverlay() {
   useEffect(() => {
     if (!open || q === '') {
       setResult(null);
-      setStatus('idle');
       return;
     }
-    setStatus('loading');
     // 🔴 AbortController 不是效能優化:少了它,先發後回的舊請求會蓋掉新請求的結果
     //    ⇒ 客人看到的是**上一個字**的搜尋結果,而畫面上完全正常。
     const ac = new AbortController();
@@ -190,12 +205,13 @@ export function SearchOverlay() {
         const data = (await res.json()) as { items: SearchOverlayItem[] };
         // 結果與它所屬的查詢一起寫進去 —— 兩顆分開的 state 表達不了「同一次量測」。
         setResult({ q, items: data.items ?? [] });
-        setStatus('ok');
       } catch (err) {
         if ((err as Error).name === 'AbortError') return;
         console.error('[SearchOverlay] 取結果失敗:', err);
-        setResult(null);
-        setStatus('failed');
+        // 🔴 失敗也要記在【它屬於哪個查詢】上,`items: null` = 這一次失敗了。
+        //    R1 這裡寫的是 `setResult(null)` + `setStatus('failed')` ⇒ 失敗脫離了查詢
+        //    ⇒ 改字之後那一次 render 會把舊的錯誤訊息畫在新的查詢底下(R2 must-fix 1)。
+        setResult({ q, items: null });
       }
     }, DEBOUNCE_MS);
     return () => {
@@ -215,9 +231,8 @@ export function SearchOverlay() {
 
   if (!open) return null;
 
-  // must-fix 1 的修法本體在 `freshItems`(抽成具名函式的理由見它的 JSDoc:
-  // 寫在這裡的話那個條件殺不掉突變)。
-  const fresh = freshItems(status, result, q);
+  // 修法本體在 `viewFor`(抽成具名函式的理由見它的 JSDoc:寫在這裡的話那個條件殺不掉突變)。
+  const view = viewFor(result, q);
 
   return (
     <div className="search-overlay" role="dialog" aria-modal="true" aria-label="搜尋">
@@ -268,26 +283,26 @@ export function SearchOverlay() {
 
           {/* 🔴 「這次查不到」與「真的沒有這件商品」要畫**兩種**字。
               少了這一格,一次 DB 抖動會告訴客人我們沒有這件商品。 */}
-          {status === 'failed' && (
+          {view.kind === 'failed' && (
             <div className="search-overlay-noresults" role="status">
               <div className="search-overlay-nores-label">搜尋暫時無法使用</div>
               <div className="search-overlay-nores-hint">請稍後再試一次,或用 LINE 直接問我們</div>
             </div>
           )}
 
-          {fresh !== null && fresh.length === 0 && (
+          {view.kind === 'ok' && view.items.length === 0 && (
             <div className="search-overlay-noresults">
               <div className="search-overlay-nores-label">沒有找到「{q}」相關結果</div>
               <div className="search-overlay-nores-hint">試試「排氣管」、「Öhlins」、或你的車款名稱</div>
             </div>
           )}
 
-          {fresh !== null && fresh.length > 0 && (
+          {view.kind === 'ok' && view.items.length > 0 && (
             <>
               <section className="search-overlay-section">
-                <div className="search-overlay-h">商品 · {fresh.length}</div>
+                <div className="search-overlay-h">商品 · {view.items.length}</div>
                 <div className="search-overlay-products">
-                  {fresh.map((p) => (
+                  {view.items.map((p) => (
                     <button
                       key={p.slug}
                       type="button"

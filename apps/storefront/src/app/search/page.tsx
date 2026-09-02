@@ -21,6 +21,7 @@ import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import { ProductCard } from '@/components/ProductCard';
 import { searchProducts, SEARCH_PAGE_LIMIT } from '@/lib/search';
+import { SEARCH_MAX_QUERY_LENGTH } from '@/lib/search-shape';
 
 // 搜尋字隨 URL 變動、結果隨每日目錄同步變動 ⇒ 不做靜態化。
 export const dynamic = 'force-dynamic';
@@ -40,7 +41,15 @@ export default async function SearchRoute({ searchParams }: Props) {
   const sp = await searchParams;
   // 重複參數取首值(對齊 `/products` route 既有 idiom)。
   const raw = sp.q;
-  const q = (typeof raw === 'string' ? raw : Array.isArray(raw) ? raw[0] ?? '' : '').trim();
+  // 🔴 **截斷要在這裡也做一次,而它不是重複**(codex 2026-09-02 R2 must-fix 2):
+  //    `searchProducts` 截的是【拿去查的字串】,而下面 `<h1>` 與「沒有找到『…』」印的是【這一個】。
+  //    只截前者 ⇒ 貼 300 個字進來,畫面寫「沒有找到『<300 字>』」而**實際只搜了前 100 字**
+  //    ⇒ **畫面上那句話描述的不是真正跑過的那個查詢。**
+  // 📌 判別句:顯示用的字串與查詢用的字串,只要不是同一個運算式算出來的,它們就會分岔。
+  //    ⇒ 所以兩邊吃**同一顆常數**,而不是各寫一個 100。
+  const q = (typeof raw === 'string' ? raw : Array.isArray(raw) ? raw[0] ?? '' : '')
+    .trim()
+    .slice(0, SEARCH_MAX_QUERY_LENGTH);
 
   const { items, total, error } = await searchProducts(q, SEARCH_PAGE_LIMIT);
 
