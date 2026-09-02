@@ -728,14 +728,39 @@ export async function sweepEmailOutbox(
         //    那是動 `IEmailOutbox` 這個**金流鄰居的 port** ⇒ 鐵則 8,要 plan + 批准,
         //    而本片沒有那個批准。⇒ **所以這一格【不寫那段碼】,而不是寫一段違反拍板的碼。**
         //
-        // ⇒ 現況:與 `unavailable` 同路(計 error、不寄、不標記)。**而它的代價要明寫**:
+        // ⛔ ~~⇒ 現況:與 `unavailable` 同路(計 error、不寄、不標記)。**而它的代價要明寫**:
         //    一列持續 `cancelled` 的單會每輪燒一次 attempt、約 5 輪進死信 —— 而那正是 port
         //    警告的那個坑。⚠️ **今天不可達**:①`paidContext` 還沒有人注入(`composition.ts` 未建構)
         //    ②上游逐封閘 `listIneligibleAmong` 的述詞已含 `cancelled_at IS NOT NULL`
-        //    ⇒ 這條只吃得到兩次讀取之間那幾毫秒。
+        //    ⇒ 這條只吃得到兩次讀取之間那幾毫秒。~~
         // 🔴 **而「今天不可達」不是理由,是【期限】** —— 誰把 `paidContext` 接進 composition,
         //    誰就要先把那支新方法開出來。落點:`⟦b4-MAILCANCEL1⟧`(要開)。
-        result.errors++;
+        //
+        // ✅ **2026-09-02:那個期限到了, 而批准也有了 ⇒ 本格改成合約要的樣子。**
+        //    · Sean 11:0x 拍【乙 = 現在做 HTML 付款信】⇒ 而那一片的硬前置就是本格
+        //    · 上面那句「本片沒有那個批准」⇒ **今天有了** ⇒ 舊字面留著加刪除線, 不刪
+        //    🔴 **而它現在標的是【終態】不是 error**:
+        //      `markSkippedOrderCancelled` ⇒ status `skipped_order_ineligible`
+        //      + `last_error_code = 'order_ineligible_at_send'`(態沿用 ⇒ 零 migration;
+        //        而**分得開的是碼不是態** —— 全文在 `IEmailOutbox` 那支的 docstring)
+        //    ⇒ ⇒ 那一列**離開 due 集合** ⇒ 不再每輪 attempts+1 ⇒ **不會進死信**
+        //    🛑 **而它【不計 error】** —— 一張被取消的單不寄信是【正常的業務動作】,
+        //      計 error ⇒ `errors>0` ⇒ route 回 503 ⇒ 有人半夜起來查一件正常的事
+        //      (`IEmailOutbox.ts:344-345` 逐字警告過同一個坑)。
+        //    ⚠️ 而 `unavailable`(系統壞了)那一格**照舊計 error** —— 兩者刻意分開,
+        //      合併它們正是這一刀最容易犯的錯。
+        //    🔵 形狀逐字照抄同檔 `:676-682` 那一格(`markSkippedOrderIneligible`),
+        //      而**三件事都要跟著抄, 少一件就不是同一個保護**:
+        //      ①`try/catch` —— 標記本身失敗要計 error(那是真的壞了)
+        //      ②**CAS 世代柵欄**:回 `false` = 別人接手了 ⇒ `staleMarks++`, **不是** error
+        //      ③計數落在 `skippedIneligible` —— 態相同 ⇒ 同一個計數欄, 而分得開的是 `last_error_code`
+        try {
+          const owned = await outbox.markSkippedOrderCancelled(job.id, job.attempts);
+          if (owned) result.skippedIneligible++;
+          else result.staleMarks++;
+        } catch {
+          result.errors++;
+        }
         continue;
       }
       if (loadedPaid.kind === 'unavailable') {

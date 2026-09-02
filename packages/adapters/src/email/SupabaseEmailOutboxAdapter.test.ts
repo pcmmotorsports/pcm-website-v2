@@ -486,6 +486,30 @@ describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA
     ]);
   });
 
+  // 🔴🔴 **⟦b4-MAILCANCEL1⟧(2026-09-02)—— 而這一格是【突變逼出來的】, 不是想到的。**
+  //    我先寫了 use-case 那三格(不寄 / 不計 error / CAS 柵欄), 三發突變都殺得掉。
+  //    🛑 而第四發:把本 adapter 的 `last_error_code` 從 `order_ineligible_at_send`
+  //      改回 `order_ineligible` ⇒ **全綠, 45 passed, 一格都沒紅。**
+  //    ⇒ 📌 而那正是【唯一承重的那個字面】:兩層落同一個碼 ⇒ 上游那道閘變成看不見的
+  //      (主視窗 2026-08-24 拍乙)⇒ port 要的那個比值永遠算不出來。
+  //    ⇒ ⇒ **use-case 那一層守不住它** —— 那一層只看得到「呼了哪一支方法」,
+  //      看不到那支方法【往 DB 寫了哪個字】。⇒ 只有這一層守得住。
+  it('markSkippedOrderCancelled:同一個 status,而 🔴 last_error_code=order_ineligible_at_send(那個差是承重的)', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
+    expect(await adapter(makeClient(b)).markSkippedOrderCancelled('outbox-1', 1)).toBe(true);
+    const vals = argsOf(b, 'update')[0]![0] as Record<string, unknown>;
+    // 🔵 態【刻意】與上一格相同 —— 沿用既有白名單 ⇒ 零 migration
+    expect(vals.status).toBe('skipped_order_ineligible');
+    // 🔴 而碼【必須】不同 —— 這一行就是那道乙
+    expect(vals.last_error_code).toBe('order_ineligible_at_send');
+    expect(vals.claimed_at).toBeNull();
+    expect(argsOf(b, 'eq')).toEqual([
+      ['id', 'outbox-1'],
+      ['status', 'sending'],
+      ['attempts', 1],
+    ]);
+  });
+
   // 🔴 codex R1 must-fix(8/8):新 mark 出口原本【零正向測試】——
   //    我只在 use-case 那側的 fake 加了「呼到就 reject」, 而那守不住這一層的四件事:
   //    落哪個 status / 稽核碼寫了沒 / claimed_at 有沒有清 / 世代柵欄 CAS 帶對了沒。

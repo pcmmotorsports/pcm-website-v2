@@ -499,6 +499,19 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     });
   }
 
+  // 🔴🔴 **與上面那支【只差 `last_error_code` 一個字面】—— 而那個差是承重的。**
+  //    態相同是刻意的(沿用既有白名單 ⇒ 零 migration;`IPaidEmailContext.ts:208-211` 逐字),
+  //    而**碼必須不同**:兩層落同一個碼 ⇒ 上游那道閘變成看不見的
+  //    (主視窗 2026-08-24 拍【乙】,全文在 `IEmailOutbox` 這支的 docstring)。
+  //    ⇒ 📌 一個「順手把這兩支合併」的重構,會讓 port 要的那個比值永遠算不出來 ——
+  //      而**三綠不會紅、diff 上兩支長得幾乎一樣**。守它的是下面那支測試。
+  async markSkippedOrderCancelled(id: string, claimedAttempts: number): Promise<boolean> {
+    return this.leaveSending(id, claimedAttempts, {
+      status: 'skipped_order_ineligible',
+      last_error_code: 'order_ineligible_at_send',
+    });
+  }
+
   async markSkippedShipmentVoided(
     id: string,
     claimedAttempts: number,
@@ -646,7 +659,8 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     id: string,
     claimedAttempts: number,
     // 🔴 #415 code-reviewer MF4:原本是 `Record<string, unknown>` ⇒ index signature 把欄名檢查整個吃掉,
-    //    mark* 四出口(2026-08-30 由三變四:加了 markSkippedShipmentVoided)寫的
+    //    mark* 五出口(2026-08-30 由三變四:加了 markSkippedShipmentVoided;
+    //    2026-09-02 由四變五:加了 markSkippedOrderCancelled —— codex R2 nit 抓到這個數字舊了)寫的
     //    `status` / `sent_at` / `last_error_code` / `next_retry_at` **打錯完全不紅**
     //    (實測 `sent_at_TYPO` tsc 0 error)。改用生成型別的 Update 形狀 ⇒ 欄名這一層才真的有人守。
     values: Database['public']['Tables']['email_outbox']['Update'],
