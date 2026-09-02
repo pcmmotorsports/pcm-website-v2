@@ -133,7 +133,16 @@ export function RegisterPage({ next }: { next?: string } = {}) {
             </label>
             <label className="auth-field">
               <span>手機（必填）</span>
+              {/* 手機欄叫數字鍵盤 —— 形狀抄 CheckoutStep1.tsx:175-181 的 email 欄(type/inputMode/autoComplete 三件套)。
+                  🔴 autoComplete 用 `tel-national` 不用 `tel`:規格裡 `tel` = 含國碼的完整號碼(+886...),
+                     而 schemas/src/index.ts 的 phone regex 是 /^[\d\s-]{8,}$/ —— **不收 `+`**
+                     ⇒ 用 `tel` 會讓通訊錄存國際格式的人一按自動填入就撞「手機格式不正確」。
+                  不加 pattern:placeholder 就是 `0912 345 678`(帶空白),pattern="[0-9]*" 會擋掉照著打的人;
+                     且本表單是 <form onSubmit>,pattern 失敗會被瀏覽器攔在 submit 前 ⇒ 逐欄 inline error 那條路整條不跑。 */}
               <input
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel-national"
                 value={form.phone}
                 onChange={(e) => { setForm({ ...form, phone: e.target.value }); clearErr('phone'); }}
                 placeholder="0912 345 678"
