@@ -35,13 +35,19 @@ export type * from './IEmailSender';
 // **2026-08-22(M-4b E4-b)起要分三層講**(合成一句就會有一句不成立):
 //   ① 有實作 ✅ `SupabaseShippedEmailContextAdapter`
 //   ② 有注入 ✅ `storefront/lib/email/composition.ts` → `Deps.shippedContext`(選用欄)
-//   ③ 🔴 **沒有人呼叫它** —— `sweepEmailOutbox` 只解構 `{ outbox, sender }`,現況 = 建構後閒置
+//   ③ ⛔ ~~🔴 **沒有人呼叫它** —— `sweepEmailOutbox` 只解構 `{ outbox, sender }`,現況 = 建構後閒置~~
+//      🔵 **2026-09-03 訂正:已被呼叫**(`sweep-email-outbox.ts:938`)—— 詳見該 port 檔頭。
 // ⚠️ ⇒ **一封都不寄**:`buildEmailText` 對 `order_shipped` 仍然 fail-closed throw。
 //    真正呼叫本 port 的是模板那一片(片3)。詳見該 port 檔頭。
 export type * from './IShippedEmailContext';
 // 🔴 M-4b(2026-08-24,Sean 拍板信裡要顯示金額之後):付款信的同款寄送時讀取 port。
 // 🔴 ~~今天三層全是「沒有」:零 adapter / 零注入 / 零呼叫端~~ **2026-08-24 codex M6:①已假**
-// 現況 = **有 adapter(已從 adapters/src/server.ts 匯出)/ 零注入 / 零呼叫端** ⇒ 仍不是一條通路。
+// ⛔ ~~現況 = **有 adapter(已從 adapters/src/server.ts 匯出)/ 零注入 / 零呼叫端** ⇒ 仍不是一條通路。~~
+// 🔴🔴 **2026-09-03 訂正:三層【全部接上】了 ⇒ 「仍不是一條通路」為假。**
+//    有注入 `composition.ts:155` · 有呼叫 `sweep-email-outbox.ts:781` —— 詳見該 port 檔頭。
+// 🎯 **而這一格最該記的是它自己下一行那句**:逐字「這裡不重抄數字;抄兩份 = 兩份各自過期」——
+//    **而上面那一行就是抄的那一份, 而它過期了。** ⇒ 📌 一條「不要抄」的紀律, 被寫在它自己違反的那一行旁邊。
+//    ⇒ ⇒ **所以本次訂正【不重抄數字】, 只留指標與「已為假」四個字。**
 // ⚠️ 數法與完整三層寫在該 port 檔頭;**這裡不重抄數字**(抄兩份 = 兩份各自過期)。
 // ⚠️ 這一行**不會**讓任何客人收到不一樣的信;接上它的是模板那一片(合併 plan 的 S4)。
 export type * from './IPaidEmailContext';
