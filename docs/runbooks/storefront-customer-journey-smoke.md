@@ -196,5 +196,80 @@ async () => { await new Promise(r=>setTimeout(r,3000));
 - 「立即購買」那顆鈕(見 §4)
 - 會員中心 / 訂單查詢 / 退換貨 / 安裝預約 / 合作店家
 - 付款信與出貨信的**實際內容**(那要真的完成一筆交易)
-- 🔴 **全站連結是否都通** —— 本清單走的是**一條動線**,不是一次連結普查。
-  兩者不同,而**「動線走得完」不蘊含「沒有死連結」**。
+- ⛔ ~~🔴 **全站連結是否都通** —— 本清單走的是**一條動線**,不是一次連結普查。~~
+  **⇒ 2026-09-03 補進來了,見 §11**(那一節由線 `-account` 量)。
+  🔵 而原句那半仍然成立、留著:**「動線走得完」不蘊含「沒有死連結」** —— 兩者是兩件事,
+  §11 也只涵蓋**它自己列出的那幾頁**,不是全站爬。
+
+---
+
+## §11 連結普查(線 `-account` 2026-09-03;**寫怎麼量,不寫量到多少**)
+
+> 🎯 這一節與 §2–§9 **是兩件事**:那些走的是**一條動線**,這一節問的是**這一頁上每一個點得下去的地方到不到得了**。
+
+### 11-a 怎麼量(三條規矩,少一條這一節就沒有判別力)
+
+```js
+// 在要普查的那一頁的 console / evaluate 跑。
+// 🔴 規矩一:href 從【畫面上抄】—— 用 querySelectorAll,不要自己打網址(理由見 11-c)
+async () => {
+  const seen = new Map();
+  for (const a of document.querySelectorAll('a[href]')) {
+    const h = a.getAttribute('href');
+    if (!h || h.startsWith('http') || h.startsWith('mailto') || h.startsWith('tel')) continue;
+    const clean = h.split('#')[0];
+    if (clean && !seen.has(clean)) seen.set(clean, (a.textContent||'').trim().slice(0,14));
+  }
+  const bad = []; let ok = 0;
+  for (const [href, label] of seen) {
+    try { const r = await fetch(href, { redirect: 'manual' });
+          r.status === 200 ? ok++ : bad.push({ href, label, status: r.status }); }
+    catch (e) { bad.push({ href, label, status: 'ERR' }); }
+  }
+  // 🔵 規矩二:每一頁都跑一發負對照 —— 它必須回 404
+  let neg = null;
+  try { neg = (await fetch('/zzqprb-not-a-page', { redirect: 'manual' })).status; } catch (e) {}
+  return { total: seen.size, ok, bad, negControl: neg };
+}
+```
+
+**規矩三:`307 → /login` 不算死連結。** `/account` 這種未登入被擋的路徑,`redirect:'manual'`
+下會回 `status 0`(opaqueredirect);拿 `curl -o /dev/null -w '%{http_code} %{redirect_url}'` 打它
+會看到 `307 → /login?next=…` ⇒ **那是對的行為**,把它算成壞的就會每一頁都多報一筆。
+
+### 11-b 掃哪幾頁(**這一節只涵蓋這些,不是全站爬**)
+
+```
+第一層  /
+第二層  /products/<任一商品>  ·  /brands/<任一品牌>  ·  /products  ·  /brands  ·  /stores
+```
+🛑 **沒掃的**:每一個品牌頁、每一張商品卡、頁尾深層、外部連結(`http…` 被上面那段刻意排掉)。
+⇒ **要說「全站沒有死連結」,這一節【不夠】。**
+
+### 11-c 🔴🔴 那四個假 404 —— **這不是缺陷紀錄,是【尺的失效模式】**
+
+> **下一個人會用同一把壞尺,而這一節救的正是他。**
+
+我第一輪從導覽列的**中文名**推英文路徑去打,四個全 404 —— 而**站是好的,壞的是我的網址**:
+
+| 我推的 | 結果 | 而真正的 `href` 是 |
+|---|---|---|
+| `/new` | 404 | `/products?filter=new` |
+| `/partners` | 404 | `/stores` |
+| `/shipping-returns` | 404 | `/info/shipping` |
+| `/contact` | 404 | 頁尾那個是**外部連結**,被 `startsWith('http')` 那行刻意排掉了 |
+
+📌 **判別句(逐字帶走)**:
+> **要斷言「某頁不存在」之前,那個網址必須是【從畫面上抄下來的】,不是【從名字推出來的】。**
+
+🎯 而它的毒在於:**404 是一個看起來就是答案的回應**,不是一個錯誤 ⇒ 四筆假 404 讀起來像四個真缺陷。
+🔵 **同族**:`docs/patterns/zsh-and-bash-traps.md` 那條「`2>/dev/null` 把『我問錯了』變成『答案是 0』」——
+**兩者都是【我問錯了】被回了一個合法的值。**
+
+### 11-d 這一節證不到什麼
+
+- 只涵蓋 11-b 那幾頁的連結,**不是全站爬**。
+- 只驗**到得了**(HTTP 200),**不驗那一頁的內容對不對**。
+- 「即將上線」的空殼頁(`/install` · `/stores`)在這把尺下**是 200 ⇒ 算通** ——
+  🛑 **「連結會通」與「那一頁有東西」是兩件事**,而這一節只答前者。
+- 值不寫在這裡(照 §9 慣例)⇒ 要「上次長這樣」去 §9;**這一節的用途是【怎麼量】。**
