@@ -126,7 +126,7 @@ describe('getSweepEmailOutboxDeps — lazy(module-top 零副作用)', () => {
 });
 
 describe('getSweepEmailOutboxDeps — 呼叫後建 deps', () => {
-  it('🔴 回傳鍵精確 = {outbox, sender, shippedContext, ineligibleScanner}(零告警管道、Q13=A)', () => {
+  it('🔴 回傳鍵精確 = {outbox, sender, shippedContext, ineligibleScanner, paidContext}(零告警管道、Q13=A)', () => {
     // 🔴 **2026-08-22(E4-b)這一格的期望值改過,而改動本身要被讀到**:
     //    ~~`['outbox', 'sender']`~~ ⇒ 多了 `shippedContext`(出貨信的寄送時讀取)。
     //
@@ -157,10 +157,29 @@ describe('getSweepEmailOutboxDeps — 呼叫後建 deps', () => {
     //       而那一行曾經上過 `origin/dev`(全文在 composition.ts 那一段註解)。
     //    ⚠️ **而這一格【不是回到原點】** —— 那一行的歷史留在 `10079aa6`(接上)與這一顆(撤掉),
     //       ⇒ 而下一個要接它的人,兩顆都撈得到。
+    //
+    // ── 🟢 **2026-09-02 傍晚(Sean 拍甲「今晚就做」):第四次改期望值 ⇒ `paidContext` 回來了。** ──
+    //    ⛔ ~~['ineligibleScanner', 'outbox', 'sender', 'shippedContext']~~
+    //    ✅ 照上面那句判過再改:它是**讀取**不是**發送管道**
+    //       ⇒ 這格原本擋的東西(告警管道被注進 sweeper, Sean `Q13`=A)**一個字都沒變**,
+    //         而下面兩行對 `notifiers` / `alertNotifier` 的斷言照舊 —— 那才是本體。
+    //    🔴 **而上面那句「這一次接上去下一輪 cron 的真客人就收到 HTML 信」今天仍然成立**
+    //       ⇒ 那正是本片判【鐵則 12⑤ 對外不可回收】的依據, 而它早就寫在這裡。
+    //       📌 判別句(本片寫的):**這個改動與【客人眼睛看到不同的字】之間, 有沒有人會再看一眼?**
+    //          沒有 ⇒ 它就是對外不可回收。⇒ 高風險片, code-reviewer + codex 不降級。
+    //
+    // 🛑 **而上面那句「codex 判 FAIL 4 條 must-fix 一條都沒修」我查證過, 它【不準】——**
+    //    正本 `docs/reviews/2026-09-01-email-path-codex-findings-triage.md`:
+    //    codex 標 must-fix **43 次** ⇒ 去重 **15 條** ⇒ 三堆後**真 finding 12 條**,
+    //    而**逐條看完:沒有一條是「paidContext 接線」的問題** —— 它們是整條寄信線其他地方的
+    //    (cutoff 繞過 / 死信餓死活信 / fetch 沒 timeout / 收件地址凍住…), 由那份 triage 另排。
+    //    ⚠️ 而「4 條」那個數字**我找不到出處** ⇒ 標**未確認**, 缺的檢查 = 問寫那句的人。
+    //    📌 **舊字面不刪** —— 它讓下一個人看得出「一個碼裡的自陳被當成事實轉述過一次」。
     const deps = getSweepEmailOutboxDeps() as Record<string, unknown>;
     expect(Object.keys(deps).sort()).toEqual([
       'ineligibleScanner',
       'outbox',
+      'paidContext',
       'sender',
       'shippedContext',
     ]);
@@ -194,17 +213,34 @@ describe('getSweepEmailOutboxDeps — 呼叫後建 deps', () => {
    *    而這一把的爆炸半徑比前兩把大 —— 接錯 client ⇒ 讀不到 ⇒ `unavailable` ⇒ **fail-closed 不寄**
    *    ⇒ 📌 **客人不是收到壞掉的信,是【一封都收不到】,而畫面上只有 `errors++`。**
    */
-  // 🛑🛑 **2026-09-02:這一格從「它有被建構」翻成「它【沒有】被建構」——而那是刻意的。**
+  // 🛑🛑 **2026-09-02 上午:這一格從「它有被建構」翻成「它【沒有】被建構」——而那是刻意的。**
   //    ⛔ ~~expect(paidContextCtor).toHaveBeenCalledTimes(1)~~
   //    🔴 **為什麼不是刪掉它**:刪掉之後,下一個人把那一行接回去時【不會有任何東西紅】
   //       ⇒ 而那正是這一次出事的方式(一個保護只寫在人話裡,而沒有東西在守)。
   //    ✅ **翻成反向斷言 ⇒ 接回去的那一刻它會紅 ⇒ 而紅的那個人會被迫讀到下面那句話。**
   //    ⚠️ 要接回去的前置:先關掉 ⟦b4-MAILCANCEL1⟧(markSkippedOrderCancelled),
   //       否則取消單會每輪計 error、燒 attempts、進死信 —— 那是那支被審的碼自己寫的。
-  it('🛑 paidContext 【不得】被建構 —— 接回去之前先關掉 ⟦b4-MAILCANCEL1⟧(2026-09-02 revert)', () => {
+  //
+  // ── 🟢 **2026-09-02 傍晚:它紅了, 而我們是【有意】翻回去的。舊字面全部留著。** ──────────
+  // ⛔ ~~it('🛑 paidContext 【不得】被建構 —— 接回去之前先關掉 ⟦b4-MAILCANCEL1⟧')~~
+  // ⛔ ~~expect(paidContextCtor).not.toHaveBeenCalled();~~
+  // 🎯 **那道紅【正常運作了】** —— 它在正確的時刻叫住了正確的人:接線那一行一放回去它就紅,
+  //    而紅的人(本片作者)被迫讀到上面那句前置, 然後真的去查了那個前置成不成立。
+  //    📌 **⇒ 它不是被繞過的, 是被【滿足】的。而兩者在 diff 上長得一樣 ——**
+  //      **差別只有【翻它的那個人有沒有先去查】, 而那件事只留得下這段註解當證據。**
+  // ✅ **前置今天成立**(三層都在 dev:port `IEmailOutbox` + adapter + `sweep-email-outbox.ts`
+  //    裡真正的 `await outbox.markSkippedOrderCancelled(...)` 呼叫端)
+  //    ⇒ 取消單會離開 due 集合, 不再燒 attempts 進死信 —— **那正是這道煞車在等的東西。**
+  // 🔵 而批准也有了:Sean 2026-09-02 拍【甲 = 今晚就做】。
+  // 🛑 **而這一格現在守的東西換了方向**:從「不准接」變成「**接了就要一直接著**」——
+  //    下一個人如果又把那一行拿掉, 這一格會紅, 而他會被迫讀到這整段。
+  it('paidContext = SupabasePaidEmailContextAdapter(service_role client) —— 接上了, 而前置已滿足', () => {
     getSweepEmailOutboxDeps();
-    expect(paidContextCtor).not.toHaveBeenCalled();
-    // 🟢 正對照:同一發裡【該被建構的那個】仍然被建構 ⇒ 這一格不是恆綠。
+    expect(paidContextCtor).toHaveBeenCalledTimes(1);
+    // 🔴 而**接對 client** 是這一格真正的重點:接錯 ⇒ 讀不到 ⇒ unavailable ⇒ **fail-closed 一封都不寄**
+    //    ⇒ 而畫面上只有 errors++ ⇒ 客人不是收到壞掉的信, 是一封都收不到。
+    expect(paidContextCtor.mock.calls[0]![0]).toBe(SERVICE_CLIENT);
+    // 🟢 正對照:同一發裡另一個該被建構的仍然被建構 ⇒ 這一格不是恆綠。
     expect(shippedContextCtor).toHaveBeenCalledTimes(1);
   });
 

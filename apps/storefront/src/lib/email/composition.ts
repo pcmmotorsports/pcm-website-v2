@@ -106,7 +106,13 @@ export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
   //    ⇒ 📌 **本檔這一行是那條線的最後一格,不是第一格。**
   //
   // 🔴 **而它會讓一些【今天收得到信】的單從此收不到** —— 那是 `IPaidEmailContext` 明文要的
-  //    fail-closed:`unavailable` / `cancelled` / `linesTruncated` / 空品項 ⇒ `errors++`、不寄
+  //    fail-closed:`unavailable` / `cancelled` / `linesTruncated` / 空品項 ⇒ 不寄
+  //    ⛔ ~~四格都 `errors++`~~ —— **2026-09-02 codex 訂正:`cancelled` 那一格【刻意不計 error】。**
+  //      成因:一張被取消的單不寄信是**正常的業務動作** ⇒ 計 error ⇒ `errors>0` ⇒ route 回 503
+  //      ⇒ **有人半夜起來查一件正常的事**(`sweep-email-outbox.ts` 那一格的註解與
+  //        `IEmailOutbox.ts:344-345` 都逐字警告過同一個坑)。
+  //      ⇒ 而它改走 `markSkippedOrderCancelled` ⇒ 標終態、離開 due 集合、**不進死信**。
+  //      📌 **⇒ 所以那四格【不是同一種對待】—— 三格吵、一格安靜, 而分得開它們正是這一刀的重點。**
   //    (那四格在 `sweep-email-outbox.ts` 的 `loadedPaid.kind ===` 與 `loadedPaid.context.linesTruncated`
   //     那幾行,grep 得到)。port 逐字禁止退化成「就把撈到的印上去」——
   //    一封金額是 0 的付款確認信,客人看不出是系統壞了還是他被多收了。
@@ -126,7 +132,28 @@ export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
   //       ⇒ 📌 **一個寫給【人】看的保護,在一條【不看人話】的路上等於不存在**(⟦b9-CLAIMEDPROTECTION⟧ 同族)。
   //    ✅ **要接回來之前,先關掉 ⟦b4-MAILCANCEL1⟧ 那支 `markSkippedOrderCancelled`** ——
   //       那是那支被審的碼自己寫的前置條件,而它今天只以「被點名」的形式存在。
-  return { outbox, sender, shippedContext, ineligibleScanner };
+
+  // ── 🟢 **2026-09-02 18:5x:那一行接回來了。而上面整段【撤掉的紀錄】留著不刪。** ──────
+  // 🔴 **為什麼今天可以接**(三格, 每格都被獨立量過, 不是「感覺可以了」):
+  //   ① 撤它的那顆(`c9e9792a`)自己寫的前置逐字:「要接回來之前, 先關掉 ⟦b4-MAILCANCEL1⟧
+  //      那支 `markSkippedOrderCancelled` —— 而它今天只以【被點名】的形式存在」
+  //      ⇒ ✅ **那個前置已經滿足**:port(`IEmailOutbox.ts`)+ adapter(`SupabaseEmailOutboxAdapter.ts`)
+  //        + **真正的呼叫端**(`sweep-email-outbox.ts` 的 `await outbox.markSkippedOrderCancelled`)
+  //        三層都在 dev 上了。⇒ 一列被取消的單會**離開 due 集合**, 不再每輪燒 attempt 進死信。
+  //   ② `-15` 2026-09-02 逐格量:那支方法**根本不寫 `event_type`**, 而它寫的兩個值
+  //      (`skipped_order_ineligible` / `order_ineligible_at_send`)對正式庫現在的 CHECK 都合法
+  //      ⇒ **零 migration 需求** ⇒ 不必等任何 SQL 被貼。
+  //      🛑 而它明說它**沒有**證的那一格, 照原樣帶著:**「DB 不會擋」與「接上去會對」是兩個宣稱**
+  //         ⇒ 後者由本片的驗收負責(拋棄式 PG 上真的組一封信出來看)。
+  //   ③ 而撤它的理由(「那一行留在 dev, 下次有人把 Production 指過來它就活了」)**今天仍然成立** ——
+  //      🔴 **所以接回來這個動作本身就是那個風險** ⇒ 而它現在有主:Sean 2026-09-02 拍【甲 = 今晚就做】。
+  //      📌 **⇒ 差別不在風險變小了, 在【有人決定承擔它】。上一次沒有那個人。**
+  //
+  // 🛑 而 `composition.test.ts` 有一條**反向斷言**(`expect(paidContextCtor).not.toHaveBeenCalled()`)
+  //    是上一次出事之後**刻意裝的煞車** —— 它會因為這一行而紅。
+  //    ⇒ **翻它是有意的, 不是「測試壞了順手改」。** 理由同上三格。
+  const paidContext = new SupabasePaidEmailContextAdapter(serviceClient);
+  return { outbox, sender, shippedContext, ineligibleScanner, paidContext };
 }
 
 /**
