@@ -119,7 +119,7 @@ if [ "${1:-}" = "--selftest" ]; then
   # ⑤ 🔴 三態分得開嗎 —— 「工具壞了」不可以被印成「你的碼壞了」
   #    (2026-08-29 主視窗問「人分得出是它壞了還是碼壞了嗎」⇒ 當場演出來是【分不出】,才補的。)
   TD2="$(mktemp -d -t glenv)"
-  PATH=/usr/bin:/bin bash "$0" > "$TD2/env.log" 2>&1 ; R=$?
+  PATH=/usr/bin:/bin GL_SELFTEST_CHILD=1 bash "$0" > "$TD2/env.log" 2>&1 ; R=$?
   if [ "$R" = "2" ] && grep -q 'ENV-FAIL' "$TD2/env.log"; then
     printf '  ✅ 三態:工具跑不起來 ⇒ rc=2 且印 ENV-FAIL(不是 RED)\n'
   else printf '  🔴 三態:工具跑不起來時 rc=%s ⇒ 它被讀成「碼壞了」\n' "$R"; SRC=1; fi
@@ -129,7 +129,7 @@ if [ "${1:-}" = "--selftest" ]; then
   #    ⚠️ 而本格用的是【上面 ⑤ 那一發的 log】—— 那一發是 PATH 被剝掉的世界(ENV-FAIL),
   #       它答不了本格。⇒ 所以本格自己再跑一發, 用【正常的 PATH】。
   TD3="$(mktemp -d -t glpart)"
-  bash "$0" > "$TD3/part.log" 2>&1 ; RP=$?
+  GL_SELFTEST_CHILD=1 bash "$0" > "$TD3/part.log" 2>&1 ; RP=$?
   # 🔴 計數先落進變數再印 —— `$(grep -c … || printf 0)` 在【零命中】時會拼出 `00`,
   #    而 `grep -c` 印 0 的同時 rc=1 ⇒ 那一族在 CLAUDE.md 記過(「一個合法的零」)。
   #    ⇒ 而它只在【這一格紅的時候】才會印 ⇒ 那正是最不會被人看到它壞掉的位置。
@@ -268,6 +268,43 @@ printf '\n%s typecheck=%s lint=%s build=%s tests=%s | 涵蓋: turbo + tsc script
   "$VERDICT" "$RC_TC" "$RC_LT" "$RC_BD" "$RC_VT" \
   "$( [ "$RUN_TESTS" -eq 1 ] && printf ' + vitest 餵%s跑%s' "$FED" "$RAN" || printf ' (未跑測試)' )" \
   "$STAMP" "$HEAD_SHA"
+
+# ── 🔵 把【已經算出來的撞窗判斷】落地一行 TSV ─────────────────────────────
+# 🔴 **為什麼**(2026-09-02 線 -7d 量到):本支【早就答得出】「這一發的紅是不是別人造成的」
+#    (`collision_verdict` + `live_builds`,而它自帶正負對照,見 selftest ③)——
+#    🛑 **而那個判斷只印在 stdout,而 stdout 去哪由跑的人決定** ⇒ 跑完就沒了。
+#    ⇒ 📌 於是今晚問「一發三綠有多大機率量到別人的中間狀態」時:
+#       **分子有四個(四個窗的回報),而分母【一個來源都沒有】** —— 四種都試過:
+#       `.next/BUILD_OK` 只留最後一次 · `logs/greenlight*` 不存在 ·
+#       mktemp 那三個是 selftest 的且已清 · `/tmp/gl*.log` 是各窗自己取的檔名(很弱的下界)。
+#    🎯 ⇒ ⇒ **不是沒有人量,是【量了而沒有落地】。**
+# 🔵 而這一行比「每窗一棵 worktree」便宜一個量級:一週之後分子與分母都可數,
+#    再拿數字去決定要不要動流程 —— 而不是拿四個故事去拍板。
+# ⚠️ 射程:它記的是【本支被跑的那些發】。有人不用本支直接跑 `pnpm typecheck` ⇒ 這裡看不到。
+#    ⇒ 所以這個分母是【下界】,不是全部。而那一格要跟著數字走,不要只寫在這裡。
+# 🔴 **selftest 的子跑不准寫進來**(2026-09-02 第一版就踩到):
+#    selftest 會 spawn 兩發子跑(ENV-FAIL 與 PARTIAL 各一)⇒ 它們也會落一行
+#    ⇒ ⇒ 而那兩行**看起來就是真的量測** ⇒ 分母被工具自己的對照組灌水。
+#    📌 同夜線 -7d 撈 log 時撈到 2 支「含撞窗訊號」的, 開檔一看是 `=== greenlight --selftest ===`
+#       ⇒ **真正的分子是 0 不是 2** —— 一模一樣的病, 換一個載體。
+if [ "${GL_SELFTEST_CHILD:-0}" = "1" ] || [ "${1:-}" = "--selftest" ]; then GL_RUNLOG=""; fi
+GL_RUNLOG="${GL_RUNLOG-logs/greenlight-runs.tsv}"
+[ -z "$GL_RUNLOG" ] && GL_RUNLOG=/dev/null
+[ "$GL_RUNLOG" != "/dev/null" ] && mkdir -p "$(dirname "$GL_RUNLOG")" 2>/dev/null || true
+if [ ! -s "$GL_RUNLOG" ]; then
+  printf 'stamp\thead\tverdict\trc_tc\trc_lt\trc_bd\trc_vt\tfed\tran\tlive_builds\tcollide_tc\tcollide_lt\tcollide_bd\n' \
+    >> "$GL_RUNLOG" 2>/dev/null || true
+fi
+GL_LIVE="$(live_builds)"
+# 🔵 逐道各自問一次 —— 而 rc=0 那道問了沒有意義,所以印 `-`(空白會與「判不出來」混在一起)
+gl_col() { [ "$2" = "0" ] && { printf -- '-'; return; }; collision_verdict "$1" "$GL_LIVE"; }
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  "$STAMP" "$HEAD_SHA" "$VERDICT" "$RC_TC" "$RC_LT" "$RC_BD" "$RC_VT" \
+  "$FED" "$RAN" "$GL_LIVE" \
+  "$(gl_col "$D/tc.log" "$RC_TC")" "$(gl_col "$D/lt.log" "$RC_LT")" "$(gl_col "$D/bd.log" "$RC_BD")" \
+  >> "$GL_RUNLOG" 2>/dev/null || true
+[ "$GL_RUNLOG" != "/dev/null" ] && \
+  printf '\n📎 本發已記一行:%s(%s 行)\n' "$GL_RUNLOG" "$(wc -l < "$GL_RUNLOG" 2>/dev/null | tr -d ' ')"
 
 # ── ⚠️ 射程印在眼前,不是躺在檔頭 ──────────────────────────────────────────
 cat <<'SCOPE'
