@@ -127,8 +127,21 @@ const ALLOWLIST = [
   // 📌 **⇒ 所以這兩筆是「尺撈到了測試資料」, 不是「多了一個寫入者」** ——
   //    而那與上面 `20260725120000` 那一筆的成因**同族不同種**:那一筆是註解, 這兩筆是【後置斷言】。
   //    ⇒ ⇒ 兩者都不是「真的寫入者」, 而剝註解救得了前者、救不了後者。
-  '20260902030000_m4b_crossrail_pending_refund_net.sql',
-  '20260902040000_m4b_railcap_red_counts.sql',
+  // ⛔ ~~'20260902030000_m4b_crossrail_pending_refund_net.sql',~~
+  // 🔴 **2026-09-02 移除**:那支檔的後置斷言【整段拿掉了】(Sean 拍板「依照推薦」)——
+  //    它要 `DELETE` 掉自己造的假資料, 而 `order_manual_refunds` / `order_payments`
+  //    **只准新增不准刪**(append-only / no-delete trigger)⇒ 那段在正式庫上跑不起來。
+  //    ⇒ 而它的 `INSERT INTO public.orders` 隨那一段一起消失 ⇒ 它不再是寫入者。
+  // 🎯 **而這道閘【兩個方向都抓得到】**:多一個寫入者會紅, 而【少一個】也會紅。
+  //    ⇒ 📌 後者更容易被當成「清理」而放過 —— 而這一次它讓我回來寫這一段。
+  // ⛔ ~~'20260902040000_m4b_railcap_red_counts.sql',~~
+  // 🔴 **2026-09-02 移除**:那支檔的後置斷言整段拿掉 ——
+  //    ⚠️ 而**它的失敗理由與上一段【不同】**(codex 2026-09-02 nit):它沒有 DELETE,
+  //    它靠 EXCEPTION 子交易回滾 ⇒ 真正的失敗點是【造不出一列合法的測試資料】
+  //    (`orders` NOT NULL 無 default 共 10 欄 + CHECK + 外鍵指到 auth.users)。
+  //    而它的 `INSERT INTO public.orders` 隨那一段一起消失 ⇒ 它不再是寫入者。
+  // 🎯 而這道閘**同一天紅了兩次**(030000 一次、040000 一次)⇒ 兩次都是【少一個】。
+  //    ⇒ 📌 我原本以為它只抓「多冒出一個沒登記的寫入者」。**它兩個方向都抓。**
   '20260604130000_m3_s2b1_create_order_rpc.sql',
   '20260613130000_m3_3ds_0b_cart_session_dedup.sql',
   '20260614130000_m3_create_order_stock_snapshot.sql',
