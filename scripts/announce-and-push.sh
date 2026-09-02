@@ -117,7 +117,28 @@ if ! mkdir "$LOCK" 2>/dev/null; then
   echo "   ⇒ 等它印完 rc 再跑一次。⇒ 而如果它已經死了:rmdir \"$LOCK\""
   exit 4
 fi
-trap 'rmdir "$LOCK" 2>/dev/null' EXIT
+# 🔴🔴 **收工一律回填那一格 —— 不只 happy path**(2026-09-02 17:5x 加, 成因是量到的)
+#   本檔原本已經有【兩條】回填路徑:push 成功(下方 ls-remote 那段)與 push 失敗(rc!=0 那段)。
+#   🛑 **而缺的是第三種:整個 process 被砍。**
+#   實例:2026-09-02 16:52 那一發被前景逾時 SIGTERM ⇒ 預告那一列**永遠停在 `(推中)`**。
+#   🔴 而它的後果不是難看:**一列停在「(推中)」的預告, 對下一個來讀它的窗,
+#      與【正在推】長得一模一樣** ⇒ ⇒ **而那個窗會【等】—— 等一個已經結束的東西。**
+#   📌 **⇒ 「推失敗」「被砍」「還在推」是三個不同的動作, 而它們今天印同一個字。**
+#   ⚠️ **而被砍時我們【不知道】push 成功了沒** —— 所以這一格**不猜**, 它寫「未量」並叫人自己量。
+#      (同日 16:34 那一發就是反例:它被砍而**推其實成功了** ⇒ 猜「失敗」會寫下一個假的。)
+_finish() {
+  rmdir "$LOCK" 2>/dev/null
+  # 還留著 (推中) ⇒ 代表上面兩條回填路徑都沒走到 ⇒ 我們是被砍的那一種
+  grep -qF '| (推中) | — |' "$LEDGER" 2>/dev/null || return 0
+  python3 - "$LEDGER" <<'PY' 2>/dev/null
+import io,sys
+p=sys.argv[1]
+s=io.open(p,encoding='utf-8').read()
+s=s.replace('| (推中) | — |','| ⚠️ 被中斷(未量) | ⚠️ 未知 —— 自己跑 git ls-remote origin refs/heads/dev |',1)
+io.open(p,'w',encoding='utf-8').write(s)
+PY
+}
+trap _finish EXIT
 
 # 預告先落檔, 再 push —— 順序不能反, 反了就不是預告
 printf '| %s | %s | %s | (推中) | — |\n' "$(date '+%H:%M')" "$FROM" "$TIP" >> "$LEDGER"
