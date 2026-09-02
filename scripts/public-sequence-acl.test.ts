@@ -1,0 +1,234 @@
+// ⟦b4-SEQACL1⟧ 的【會叫的那一道】—— 新表長出 IDENTITY 序列而沒有人收它的權限 ⇒ 這裡紅。
+//
+// ══ 🔴 它在防什麼(而它防的不是今天)═══════════════════════════════════════════
+// 2026-09-02 實查正式庫:`public` 底下有 4 支序列讓 `anon` **與** `authenticated`
+// 拿到 `SELECT+UPDATE+USAGE` ⇒ 沒登入的陌生人推得動下一筆資料的編號。
+// 而四支**全部是 `IDENTITY` 自動建的** ——
+//   🎯 `GRANT`/`REVOKE` 我們寫在【表】上, 而 `IDENTITY` 在旁邊【另外生了一個物件】,
+//      **而那個物件不在任何人的視線裡。**
+//
+// 🔵 而分母說明了修法該長什麼樣:`public` 的 IDENTITY 序列 6 支 ⇒ 漏 4、乾淨 2,
+//    而乾淨的那 2 支**每一支都有人明寫過 REVOKE**
+//    ⇒ 📌 **不是「IDENTITY 一定會漏」, 是【有人明寫過那一支就乾淨】**
+//    ⇒ ⇒ **所以要的是一道會叫的, 不是一條規則**(規則寫過而復發 —— 板上有紀錄)。
+//
+// ══ 🛑🛑 它的分母比正式庫窄 —— 而【我第一版對這個差的解釋是錯的】═══════════════
+//   本檔掃的是 `supabase/migrations/` 的字面;正式庫實有 **6** 支 IDENTITY 序列。
+//
+//   🔴 **第一版掃到 3 支, 而我把差的 3 支解釋成「它們的建表 DDL 不在版控裡」。**
+//      **那個解釋有一支是假的**(code-reviewer 2026-09-02 抓、本窗開檔複驗):
+//      `product_fitments` 的建表**早在 2026-07-08 就進版控了**
+//      (`20260708130000_create_product_fitments_index.sql:24`,`:25` 就是 IDENTITY 欄)。
+//   🎯 **真因是我的 regex 要求 `public.` 前綴, 而 repo 裡 60 支 `CREATE TABLE` 只有 43 支帶它。**
+//   📌 **⇒ 我用一個【聽起來很合理、而且把責任推給別人】的故事, 解釋了自己量具的洞。**
+//      **⇒ 而那種故事沒有人會回頭查 —— 它讀起來像已經查過了。**
+//   ✅ 修好前綴之後掃到 **4** 支。
+//
+//   🔵 而**真正還看不到的只有 2 支**(`_staging` / `_sync_log`):它們的建表 DDL 確實不在
+//      `supabase/migrations/` 裡(`20260901170000_m4b_pfe_ddl_into_version_control.sql`
+//      只補進了 `product_fitments_effective` 一張)。
+//   📌 **⇒ 本檔守的是【從 migration 進來的表】—— 那是新表【應該】走的路;**
+//      而繞過版控建的表, 本檔結構上看不到 —— **那是另一列的事, 不是這一道閘失效。**
+import { describe, expect, it } from 'vitest';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const MIG = join(__dirname, '..', 'supabase', 'migrations');
+
+/** 🔴 剝 SQL 註解 —— 註解裡的 `CREATE TABLE` 不是生效敘述, 掃到會變誤報。 */
+function stripSqlComments(sql: string): string {
+  return sql
+    .split('\n')
+    .map((line) => line.replace(/--.*$/, ''))
+    .join('\n')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ');
+}
+
+function migrations(): { file: string; sql: string }[] {
+  return readdirSync(MIG)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+    .map((f) => ({ file: f, sql: readFileSync(join(MIG, f), 'utf8') }));
+}
+
+/**
+ * 從 migration 字面推導出【IDENTITY 會自動建的序列名】。
+ * PG 的命名【通常】是 `<表>_<欄>_seq`。
+ *
+ * 🛑🛑 **而「決定性」那個字是錯的 —— 而本檔自己就引著反例**(codex must-fix):
+ *   `20260828080000:172-178` 逐字寫著:schema 裡若已有【同名的孤兒 sequence】,
+ *   PG 會給 identity 那支一個**帶尾碼的新名字**(`…_seq1`)。
+ *   ⇒ 🔴 **那時本檔推導出來的名字指到【那個舊的】** ——
+ *     而舊的本來就沒權限 ⇒ `revokedSomewhere()` 對它印綠,
+ *     **而真正掛在欄上的那支保留預設 ACL、對 anon 開著。**
+ * 📌 **⇒ 一把靜態尺不能把【推導出來的名字】當成事實。**
+ *   而要真的分辨, 得問 `pg_get_serial_sequence()` —— 那要連資料庫, 不是這一支做得到的。
+ * ✅ **⇒ 所以這個洞由【另一半】接**:`20260902180000` 的驗證④ 在 apply 當下
+ *   掃 catalog 底下 `public` 的**每一支序列**、不看名字 ⇒ 帶尾碼的那支也在它的分母裡。
+ * 🎯 **⇒ 兩半各補對方的盲區:本檔看得到「新表進來了」而看不到真名;
+ *   那一支看得到真名而只在 apply 當下燒一次。**
+ */
+function identitySequencesFromMigrations(): Map<string, { file: string; table: string; col: string }> {
+  const out = new Map<string, { file: string; table: string; col: string }>();
+  for (const { file, sql: raw } of migrations()) {
+    const sql = stripSqlComments(raw);
+    for (const m of sql.matchAll(
+      /CREATE TABLE\s+(?:IF NOT EXISTS\s+)?(?:public\.)?\"?(\w+)\"?\s*\(([\s\S]*?)\n\s*\)/gi,
+    )) {
+      const table = m[1];
+      for (const line of (m[2] ?? '').split('\n')) {
+        const col = line.match(
+          /^\s+"?([a-z_][a-z0-9_]*)"?\s+.*GENERATED\s+(?:ALWAYS|BY DEFAULT)\s+AS IDENTITY/i,
+        );
+        if (table && col?.[1]) out.set(`${table}_${col[1]}_seq`, { file, table, col: col[1] });
+      }
+    }
+    // 🔵 `ALTER TABLE … ADD COLUMN … GENERATED … AS IDENTITY` 也會生一支序列(今日 repo 內 0 支, 潛伏)
+    for (const m of sql.matchAll(
+      /ALTER TABLE\s+(?:IF EXISTS\s+)?(?:ONLY\s+)?(?:public\.)?"?(\w+)"?[\s\S]{0,200}?ADD\s+(?:COLUMN\s+)?(?:IF NOT EXISTS\s+)?"?([a-z_][a-z0-9_]*)"?[^;]{0,200}?GENERATED\s+(?:ALWAYS|BY DEFAULT)\s+AS IDENTITY/gi,
+    )) {
+      if (m[1] && m[2]) out.set(`${m[1]}_${m[2]}_seq`, { file, table: m[1], col: m[2] });
+    }
+  }
+  return out;
+}
+
+/**
+ * 有沒有人明寫過「收掉這一支對 anon 的權限」——**三種寫法都要認**。
+ *
+ * 🔴🔴 **第三種是被這支測試自己的第一發紅逼出來的**(2026-09-02):
+ *   第一版只認【具名】⇒ 它把 `admin_saved_order_views_id_seq` 與 `auth_callback_events_id_seq`
+ *   報成「沒有人收過」—— **而正式庫實查那兩支是乾淨的** ⇒ 那是**假指控**不是漏報。
+ *   成因:那兩支刻意**不寫死名字**,走
+ *     `v_seq := pg_get_serial_sequence('public.<表>','<欄>')`
+ *     `EXECUTE format('REVOKE ALL ON SEQUENCE %s FROM PUBLIC, anon, …', v_seq)`
+ *   而它們**不寫死是有理由的**(`20260828080000:172-178` 逐字):schema 裡若已有同名孤兒 sequence,
+ *   PG 會給 identity 那支一個【帶尾碼的新名字】⇒ 寫死的 REVOKE 會去撤那個舊的、而舊的本來就沒權限
+ *   ⇒ **全綠, 而真正掛在 `id` 上的那支保留預設 ACL。**
+ * 📌 **⇒ 所以這裡的教訓有兩層:①按名字判的尺對動態組出來的名字恆印 0
+ *    ②而那個動態不是隨便寫的 —— 它本身就是在防另一個同族的坑。**
+ * 🎯 **⇒ 一把太窄的尺產出的是【假指控】, 而假指控會讓人去「修」一個沒壞的東西。**
+ */
+function revokedSomewhere(seq: string, table: string, col: string): boolean {
+  // ⛔ **刻意【不】認 `REVOKE … ON ALL SEQUENCES IN SCHEMA public`**:那個語法只作用於
+  //    【當下已存在】的物件 ⇒ 把它當成「這一支被收過了」對它之後才建的序列是**假綠**。
+  //
+  // 🔴 三種權限【全部】要被收掉才算數(codex must-fix):序列的完整權限是
+  //    `SELECT` / `UPDATE` / `USAGE` ⇒ 一發 `REVOKE SELECT … FROM anon` 不該算「收過了」。
+  //    ⇒ 這裡只認 `REVOKE ALL`(含 `ALL PRIVILEGES`), 不認挑單項的寫法。
+  // 🔴 而角色也要三個都在:`PUBLIC` / `anon` / `authenticated` —— 少一個就不算。
+  const revokeAll = String.raw`REVOKE\s+ALL(\s+PRIVILEGES)?`;
+  const roles = String.raw`(?=[^;]*\bPUBLIC\b)(?=[^;]*\banon\b)(?=[^;]*\bauthenticated\b)`;
+  const named = new RegExp(
+    revokeAll + String.raw`[^;]{0,40}?ON\s+SEQUENCE\s+public\.` + seq + String.raw`\b[^;]{0,80}?FROM` + roles,
+    'i',
+  );
+  // 動態:同一支檔裡既有 `pg_get_serial_sequence('public.<表>','<欄>')`, 又有一發 `REVOKE ALL … %s … FROM` 三個角色。
+  // 🛑 **射程(codex must-fix, 誠實寫)**:本檔【不追變數的來龍去脈】——
+  //    同一支檔裡查了兩支序列而只撤其中一支時, 兩支都會被判成綠。
+  //    ⇒ 要真的分辨得出來, 需要一個能解析 plpgsql 變數流向的東西, 而那不是這一支。
+  const dynLookup = new RegExp(
+    String.raw`pg_get_serial_sequence\s*\(\s*'public\.` + table + String.raw`'\s*,\s*'` + col + String.raw`'\s*\)`,
+    'i',
+  );
+  const dynRevoke = new RegExp(
+    revokeAll + String.raw`[^;']{0,40}?ON\s+SEQUENCE\s+%s\b[^;']{0,80}?FROM` + roles,
+    'i',
+  );
+  for (const { sql: raw } of migrations()) {
+    const sql = stripSqlComments(raw);
+    if (named.test(sql)) return true;
+    if (dynLookup.test(sql) && dynRevoke.test(sql)) return true;
+  }
+  return false;
+}
+
+/**
+ * 🔴🔴 **量具自檢:`revokedSomewhere()` 這把尺【自己】要有紅綠兩面。**
+ *
+ * 為什麼要多這一格(2026-09-02, codex 抓到的那一發):
+ *   我修「regex 可以跨分號」時, 把註解與 `String.raw` **寫進了同一行**
+ *   ⇒ `//` 把 `String.raw` 那一段整個註解掉 ⇒ `new RegExp(` 的第一個參數變成 `'i'`
+ *   ⇒ ⇒ 🔴 **`named` 變成 `/i/` —— 任何含字母 i 的檔都命中 ⇒ 每一支序列都被判「已收」。**
+ * 🎯 **⇒ 那把尺死透了, 而它印【5/5 綠】。**
+ * 📌 **⇒ 而我沒有在改完之後重跑那四發突變 —— 我只看了那個綠。**
+ * ✅ ⇒ 所以這一格不吃外部檔案, 直接餵字串給那把尺, 讓它自己表演兩個世界。
+ */
+function probeRevokeRegex(text: string): boolean {
+  const revokeAll = String.raw`REVOKE\s+ALL(\s+PRIVILEGES)?`;
+  const roles = String.raw`(?=[^;]*\bPUBLIC\b)(?=[^;]*\banon\b)(?=[^;]*\bauthenticated\b)`;
+  return new RegExp(
+    revokeAll + String.raw`[^;]{0,40}?ON\s+SEQUENCE\s+public\.zzq_probe_id_seq\b[^;]{0,80}?FROM` + roles,
+    'i',
+  ).test(text);
+}
+
+/**
+ * 🔴 正式庫有、而本檔【掃不到】的 IDENTITY 序列(2026-09-02 唯讀實查)。
+ * 它們的建表 DDL 不在版控裡 ⇒ 本檔的字面掃描結構上看不到。
+ * ✅ 而下面那一格會在它們進版控時叫 —— 那時要把它從這裡移掉並確認它有 REVOKE。
+ */
+const NOT_YET_IN_VERSION_CONTROL: readonly string[] = [
+  // ⛔ ~~'product_fitments_id_seq'~~ —— 它**一直都在版控裡**, 是我的 regex 看不到它。舊字面留著當實例。
+  'product_fitments_effective_staging_id_seq',
+  'product_fitments_effective_sync_log_id_seq',
+] as const;
+
+describe('⟦b4-SEQACL1⟧ public 的 IDENTITY 序列不得對 anon 開著', () => {
+  const found = identitySequencesFromMigrations();
+
+  it('量具自檢:真的掃到 migration 與 IDENTITY 宣告了(空集合會讓下面恆綠)', () => {
+    expect(migrations().length).toBeGreaterThan(50);
+    expect(found.size).toBeGreaterThan(0);
+  });
+
+  it('🟢 正對照:掃得到一支【一定在】的(它的建表 migration 就在版控裡)', () => {
+    expect([...found.keys()]).toContain('admin_saved_order_views_id_seq');
+  });
+
+  it('🔴 量具自檢:那把 REVOKE 尺【自己】要有紅有綠(它死掉的時候會印全綠)', () => {
+    const OK = 'REVOKE ALL PRIVILEGES ON SEQUENCE public.zzq_probe_id_seq FROM PUBLIC, anon, authenticated;';
+    expect(probeRevokeRegex(OK), '🟢 正對照:一發完整的 REVOKE 必須命中').toBe(true);
+    // 🔵 以下每一發都【該不命中】—— 少一個角色 / 只收單項權限 / 跨過分號 / 收到別支序列
+    expect(probeRevokeRegex('REVOKE ALL ON SEQUENCE public.zzq_probe_id_seq FROM PUBLIC, anon;')).toBe(false);
+    expect(probeRevokeRegex('REVOKE SELECT ON SEQUENCE public.zzq_probe_id_seq FROM PUBLIC, anon, authenticated;')).toBe(false);
+    expect(
+      probeRevokeRegex(
+        'REVOKE ALL ON SEQUENCE public.zzq_probe_id_seq FROM service_role;\n' +
+          'REVOKE ALL ON TABLE public.bar FROM PUBLIC, anon, authenticated;',
+      ),
+      '🔴 跨分號那一格 —— 前一版就是在這裡假綠的',
+    ).toBe(false);
+    expect(probeRevokeRegex('REVOKE ALL ON SEQUENCE public.other_id_seq FROM PUBLIC, anon, authenticated;')).toBe(false);
+    expect(probeRevokeRegex('這一段裡有字母 i, 而它不是一發 REVOKE'), '🔴 尺死成 /i/ 的那一格').toBe(false);
+  });
+
+  it('🔵 負對照:一個現造的序列名【不】在掃描結果裡', () => {
+    expect(found.has('zzq_no_such_table_id_seq')).toBe(false);
+  });
+
+  it('🔴 每一支從 migration 進來的 IDENTITY 序列, 都要有人明寫過 REVOKE', () => {
+    const naked = [...found.entries()]
+      .filter(([seq, v]) => !revokedSomewhere(seq, v.table, v.col))
+      .map(([seq, v]) => `${seq}(建於 ${v.file})`)
+      .sort();
+    // 🛑 這一格紅的時候, **不要直接加白名單** —— 去那支 migration 裡補一行:
+    //    REVOKE ALL PRIVILEGES ON SEQUENCE public.<seq> FROM anon, authenticated;
+    //    🔵 而它已 apply ⇒ 另開一支新的收(已 apply 的 migration 連註解都不能再動)。
+    expect(
+      naked,
+      `這些 IDENTITY 序列沒有人收過它對 anon 的權限 —— 表只給讀, 而序列會給「改」:${naked.join(', ')}`,
+    ).toEqual([]);
+  });
+
+  it('🔵 那些【DDL 還不在版控】的序列, 一旦進來就要叫', () => {
+    // 🎯 這一格不是斷言它們安全 —— 它們的權限由 20260902180000 在正式庫上收掉。
+    //    它是在說:**本檔看不到它們**, 而那一天它們變成看得到時, 有人要回來看一眼。
+    const nowVisible = NOT_YET_IN_VERSION_CONTROL.filter((s) => found.has(s));
+    expect(
+      nowVisible,
+      `這幾支的建表 DDL 進版控了 ⇒ 把它們從 NOT_YET_IN_VERSION_CONTROL 移掉, ` +
+        `並確認上面那一格對它們也是綠的:${nowVisible.join(', ')}`,
+    ).toEqual([]);
+  });
+});
