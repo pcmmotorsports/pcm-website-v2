@@ -163,7 +163,21 @@ fi
 
 # 🔴 只有到這裡才量 —— rc 已經印出來了
 ACT="$(git ls-remote origin refs/heads/dev 2>/dev/null | cut -c1-8)"
-if [ "$ACT" = "$TIP" ]; then EQ="✅ 相等"; OUT=0; else EQ="🔴 不相等"; OUT=2; fi
+# 🔴🔴 **終點 ≠ 預告終點時要【列出差集】, 不是只說「不相等」**(2026-09-02 18:0x 加)
+#   成因是量到的:同日 16:34 那一發預告 `5f47d374` 而實際推到 `9c06a72a`
+#   ⇒ 中間又落了 4 顆 commit, 被同一發帶上去 —— 而那 4 顆**沒有任何預告寫過它們**。
+#   🛑 而那一列當時標著「✅ 相等」而兩欄是不同字串 ⇒ **收訊端拿到的是一個【假的放行】**
+#      (這張表的檔頭逐字:「沒有對應那一行 ⇒ 那才要叫」)。
+#   🎯 **⇒ 所以「不相等」這三個字不夠 —— 要答得出【誰被帶上去而沒有預告】。**
+#   ⚠️ 而差集寫在**終端機**不寫進表格(一列多顆會把那一行撐爆);表格只放顆數。
+if [ "$ACT" = "$TIP" ]; then
+  EQ="✅ 相等"; OUT=0
+else
+  EXTRA="$(git rev-list --count "$TIP".."$ACT" 2>/dev/null || echo '?')"
+  EQ="🔵 不相等 —— 多帶 ${EXTRA} 顆(差集見終端機)"; OUT=2
+  echo "🔵 終點與預告不同 ⇒ 預告 $TIP · 實際 $ACT ⇒ 多帶 $EXTRA 顆:"
+  git log --oneline "$TIP".."$ACT" 2>/dev/null | sed 's/^/     /' || echo "     (差集算不出來 —— 本地沒有那些物件?先 git fetch)"
+fi
 
 python3 - "$LEDGER" "$ACT" "$EQ" <<'PY'
 import io,sys
