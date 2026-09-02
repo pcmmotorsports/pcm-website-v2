@@ -249,25 +249,40 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
             <div className="od-step-d">{s.d}</div>
           </div>
         ))}
-        {/**
-          * ⟦b9-SHIPUI⟧ 分批出貨的那句小字(Sean 2026-09-02 拍**丙**:
-          * 亮「已出貨 MM-DD」+ 小字「其餘商品出貨時會再通知您」)。
-          * ⛔ **而那個 `MM-DD` 字面已被他自己推翻** —— Sean 2026-09-02 Q31 拍甲「跟鄰居一致
-          *    (`2026-09-02`)」,落點 `~/pcm-mailbox/拍板-20260902-上午.md:244`;Q31 晚於本題
-          *    且專門在答日期格式 ⇒ **用 `formatOrderDate` 的 `YYYY-MM-DD`**(理由見同名 test 檔)。
-          *
-          * 🔴 **只在【還沒全部出完】時出現** —— 全部出完時那句話對客人是**假的**。
-          * 🛑 而 `allItemsShipped` 在 `itemsTruncated` 時一律 `false`(mapper 的保守方向)
-          *    ⇒ 品項被截斷時**會印**這一句。⛔ ~~那個方向的錯是多印一句**無害**的話~~
-          *       ⇒ **兩個方向都會傷人, 我們選的是比較輕的那一邊**(理由見 domain docstring);
-          *    反過來(宣稱全部出完)會讓客人以為東西都到齊了。
-          */}
-        {order.shippedAt !== null && !order.allItemsShipped && (
-          <p className="acc-order-note" data-od-id="order-partial-shipment-note">
-            {ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE}
-          </p>
-        )}
       </div>
+      {/**
+        * ⟦b9-SHIPUI⟧ 分批出貨的那句小字(Sean 2026-09-02 拍**丙**:
+        * 亮「已出貨 MM-DD」+ 小字「其餘商品出貨時會再通知您」)。
+        * ⛔ **而那個 `MM-DD` 字面已被他自己推翻** —— Sean 2026-09-02 Q31 拍甲「跟鄰居一致
+        *    (`2026-09-02`)」,落點 `~/pcm-mailbox/拍板-20260902-上午.md:244`;Q31 晚於本題
+        *    且專門在答日期格式 ⇒ **用 `formatOrderDate` 的 `YYYY-MM-DD`**(理由見同名 test 檔)。
+        *
+        * 🔴 **只在【還沒全部出完】時出現** —— 全部出完時那句話對客人是**假的**。
+        * 🛑 而 `allItemsShipped` 在 `itemsTruncated` 時一律 `false`(mapper 的保守方向)
+        *    ⇒ 品項被截斷時**會印**這一句。⛔ ~~那個方向的錯是多印一句**無害**的話~~
+        *       ⇒ **兩個方向都會傷人, 我們選的是比較輕的那一邊**(理由見 domain docstring);
+        *    反過來(宣稱全部出完)會讓客人以為東西都到齊了。
+        */}
+      {/**
+        * 🔴🔴 **這一段在 `.od-steps` 之【外】,而它 2026-09-02 是被移出來的。**
+        *
+        * ⛔ ~~原本這個 `<p>` 寫在 `.od-steps` 裡面(四階的後面)~~ ——
+        *    而 `.od-steps` 是 `display: flex` ⇒ **它變成第 5 個 flex item**,
+        *    被【排】在「已送達」右邊,不是【放】在進度軸下面。
+        * 🔬 真瀏覽器實測(`-fc` 2026-09-02 · localhost:3020 · 拋棄式庫):
+        *    · 桌面 1200px:小字 `x=969` = 已送達那格的 `right=969` ⇒ 它就在第 5 格,寬 191px
+        *    · 手機 375px:四階被擠成每格 **38px**(桌面 232px)
+        *      ⇒ 標題折成「訂單成 / 立」、日期折成「2026- / 09-02」
+        *      成因:小字吃掉 375 裡的 **191** —— **超過一半**
+        * 🛑 **而 `scrollWidth === 375` ⇒ 不橫向溢出** ⇒ 任何「有沒有溢出」的尺都看不到它。
+        * 📌 **而 jsdom 那幾格測試【全部通過】** —— 它們問的是「那句字在不在」,而它在。
+        *    ⇒ 這一格只有真瀏覽器量得到(Sean 2026-08-17:「不用再用 artifacts,直接開伺服器做+看」)。
+        */}
+      {order.shippedAt !== null && !order.allItemsShipped && (
+        <p className="acc-order-note" data-od-id="order-partial-shipment-note">
+          {ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE}
+        </p>
+      )}
 
       <div className="acc-section" data-od-id="order-items">
         <div className="acc-section-head">

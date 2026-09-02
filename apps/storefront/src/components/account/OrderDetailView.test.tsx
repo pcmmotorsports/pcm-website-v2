@@ -500,6 +500,40 @@ describe('⟦b9-SHIPUI⟧ 進度軸「已出貨」', () => {
     ).toBeNull();
   });
 
+  /**
+   * 🔴🔴 **這一格守的是【版面結構】,而它是 2026-09-02 真瀏覽器抓到的。**
+   *
+   * 那句小字原本寫在 `.od-steps` 裡面 ⇒ 而 `.od-steps` 是 `display:flex`
+   * ⇒ **它變成第 5 個 flex item**,被排在「已送達」右邊:
+   *   桌面 1200px 佔 191px · **手機 375px 佔 191px(超過一半)⇒ 四階被擠成每格 38px**
+   *   ⇒ 標題折成「訂單成 / 立」、日期折成「2026- / 09-02」
+   * 🛑 **而 jsdom 量不到寬度**(`getBoundingClientRect` 在這裡一律回 0)
+   *    ⇒ 本格只能守【結構】:那個 `<p>` 不得住在 `.od-steps` 裡。
+   * ⚠️ **而結構這一格擋得住這一次,擋不住「有人把別的東西放進去」**
+   *    ⇒ 所以第二個 assert 釘的是 **`.od-steps` 的子節點【只能】是 `.od-step`**,
+   *      而不是只問我這一個 `<p>` 在不在裡面。
+   * 🔵 **真正的行為(每一階的寬度)只有真瀏覽器答得出來** —— 量法與數字寫在
+   *    `OrderDetailView.tsx` 那段註解裡;本格是它在 CI 裡的替身,不是它的等價物。
+   */
+  it('🔴 分批小字**不得**住在 `.od-steps` 裡(它是 flex ⇒ 會變成第 5 階)', () => {
+    const { container } = render(
+      <OrderDetailView
+        order={{ ...ORDER, shippedAt: '2099-04-20T06:00:00Z', allItemsShipped: false }}
+      />,
+    );
+    const note = container.querySelector('[data-od-id="order-partial-shipment-note"]');
+    // 🟢 正對照:先證這一格的尺會動 —— 那句小字這一輪確實有被渲染出來。
+    expect(note, '小字沒渲染 ⇒ 下面兩個 assert 會恆真').not.toBeNull();
+    expect(note!.closest('.od-steps'), '那句小字被排進進度軸那一列 ⇒ 手機上會把四階擠成 38px').toBeNull();
+    // 🔴 更硬的那一半:`.od-steps` 的子節點只能是階段本身。
+    const kids = [...container.querySelector('.od-steps')!.children];
+    expect(kids.length, '進度軸應恰有四階').toBe(4);
+    expect(
+      kids.filter((k) => !k.classList.contains('od-step')).length,
+      '.od-steps 底下混進了不是 .od-step 的東西 ⇒ 它會被 flex 排成額外一格',
+    ).toBe(0);
+  });
+
   it('🔵 「已送達」永遠是空心點 —— delivered_at 全 repo 零來源,那是誠實不是漏做', () => {
     const { container } = render(
       <OrderDetailView
