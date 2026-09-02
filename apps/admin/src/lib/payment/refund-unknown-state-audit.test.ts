@@ -211,6 +211,47 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+// ═══ ⟦b4-REFUND10016⟧ 乙 · codex R3 must-fix 的接縫格 ═══════════════════════
+//
+// 🔴 **R3 打中的那一格**:我原本三組測試分別測了
+//    ①classifyRefundError 認不認得 ②adapter 兩個 throw 各帶什麼 outcome ③文案不得過度宣稱
+//    —— 而**沒有一格測到接縫**:「錯誤丟進來 ⇒ 稽核那一列的 error_class 真的變了嗎」。
+//    🛑 codex 實測:把 `buildAfter()` 永久改回 `error_unclassified`, **那三組全過**。
+//    ⇒ 📌 **三個各自通過的綠, 合起來證不到本片的核心宣稱** —— 每一格的分母都是自己那一層。
+describe('⟦b4-REFUND10016⟧ 乙 — 接縫:錯誤丟進來 ⇒ 稽核那一列真的帶新分類', () => {
+  it('accepted_malformed 走到稽核列上', async () => {
+    const { recordRefundUnknownStateAudit } = await import('./refund-unknown-state-audit');
+    const { TapPayRefundUnknownStateError } = await import('@pcm/domain');
+    recordMock.mockResolvedValueOnce(undefined);
+    await recordRefundUnknownStateAudit({
+      ...BASE,
+      error: new TapPayRefundUnknownStateError('受理回應格式異常', 'r_1', 'accepted_malformed'),
+    });
+    const [entry] = recordMock.mock.calls[0]!;
+    expect((entry.after as Record<string, unknown>).error_class).toBe('accepted_malformed');
+  });
+
+  it('unknown_wire_status 走到稽核列上', async () => {
+    const { recordRefundUnknownStateAudit } = await import('./refund-unknown-state-audit');
+    const { TapPayRefundUnknownStateError } = await import('@pcm/domain');
+    recordMock.mockResolvedValueOnce(undefined);
+    await recordRefundUnknownStateAudit({
+      ...BASE,
+      error: new TapPayRefundUnknownStateError('未實證回應碼 10016', null, 'unknown_wire_status'),
+    });
+    const [entry] = recordMock.mock.calls[0]!;
+    expect((entry.after as Record<string, unknown>).error_class).toBe('unknown_wire_status');
+  });
+
+  it('🔵 負對照:一般 Error 仍落 error_unclassified(證明上面兩格不是恆真)', async () => {
+    const { recordRefundUnknownStateAudit } = await import('./refund-unknown-state-audit');
+    recordMock.mockResolvedValueOnce(undefined);
+    await recordRefundUnknownStateAudit({ ...BASE, error: new Error('plain') });
+    const [entry] = recordMock.mock.calls[0]!;
+    expect((entry.after as Record<string, unknown>).error_class).toBe('error_unclassified');
+  });
+});
+
 describe('recordRefundUnknownStateAudit — 三條分支', () => {
   it('寫成 ⇒ true,而且送出去的那一列形狀正確', async () => {
     const { recordRefundUnknownStateAudit } = await import('./refund-unknown-state-audit');

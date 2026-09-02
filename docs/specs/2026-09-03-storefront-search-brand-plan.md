@@ -71,7 +71,46 @@ brands(id, name, slug, premium_extra_pct)
 · ❌ 要 migration ⇒ 鐵則 12③ ⇒ **要 Sean 貼**,而那條佇列今晚量到會塞住
 · ❌ 前台是 `anon`,而後台那支是 `SECURITY DEFINER` 給 `service_role` ⇒ **不可照抄權限模型**(見 §5)
 
-### ⇒ 我的建議:**先花一發把甲量掉,再選。**
+### 🔴🔴 量完了(2026-09-03 03:4x,線 `-mail`,拋棄式 PostgREST)⇒ **甲【不成立】,走乙。**
+
+**環境**:`scripts/storefront-probe/up.sh`,自己的埠(`PG 55545 / PostgREST 3959 / dir /tmp/pcm-mail-probe`)
+—— 🔵 **另一個窗已經有一座在跑,我沒有碰它**,照 `env.sh` 檔頭寫的並行用法另起一座。
+**PostgREST 版本 `postgrest/14.16`**(從回應的 `Server:` 標頭讀的)。
+
+**梯子(每一階都有對照,而 f0 要求的前置在 B/C)**:
+```
+A 純表 products_public?select=id,title&limit=3                        HTTP 200 · 3 列   ✅ 基線
+B embed  select=id,title,brands(name)                                  HTTP 200 · 3 列   ✅ embed 通
+C embed!inner + 過濾品牌 brands.name=ilike.*BONAMICI*                  HTTP 200 · 7 列   ✅ 權限也通
+🔴 D or=(title.ilike.*zzqprbxx*,brands.name.ilike.*BONAMICI*)          HTTP 400          ⇒ 甲不成立
+E 負對照 亂語法 or=(title.zzz.1)                                       HTTP 400          ✅ 尺會叫
+F 負對照 or=(…zzqprbxx…,brands.name.ilike.*zzqprbxx*)                  HTTP 400          ⇒ 與 D 同錯
+```
+🎯 **C 那一階就是 f0 要的前置**:它證明 **embed 過濾與權限都是通的**
+⇒ **所以 D 的 400 不是權限問題,是語法問題** —— 兩者原本都會回空/失敗,而 C 把它們分開了。
+🔵 **而 F 也 400(我原本預期 200/0)** ⇒ 那更乾淨:**它證明 400 來自【語法】,與匹不匹配無關。**
+
+**D 的錯誤原文(逐字)**:
+```json
+{"code":"PGRST100",
+ "message":"\"failed to parse logic tree ((title.ilike.*zzqprbxx*,brands.name.ilike.*BONAMICI*))\" (line 1, column 34)",
+ "details":"unexpected \"a\" expecting \"not\" or operator (eq, gt, ...)"}
+```
+📌 **column 34 落在 `brands.name` 的那個點上** —— 解析器把 `brands` 讀成欄名、把 `name` 讀成運算子。
+⇒ **PostgREST 14.16 的 top-level `or()` 只認【本表的欄】,不認 embed 資源的欄。**
+
+⚠️ **射程,兩格**:
+1. **這是 14.16 的行為**,而**正式站的 PostgREST 版本【未查】**(本 repo 的
+   `SupabaseOrderAdapter.ts` 也自標過同一格「正式站的 PostgREST 版本未查」)⇒ **版本不同要重量。**
+2. 我測的是 **top-level `or()` 引用 embed 欄**;`brands.or=(…)`(對 embed 資源自己下 or)**是另一件事**,
+   它過濾的是**被 embed 的那一側**,答不出「詞命中標題**或**品牌」⇒ **不是甲的替代品。**
+
+### ⇒ 結論:**走乙(RPC + migration),而它進「等 Sean 貼」佇列**
+🛑 **而甲被否掉之後,有一格要明寫**:乙需要 migration ⇒ **這一刀不可能今天上線**。
+⇒ ✅ **而它不擋前置工作**:述詞、測試、驗收表、權限約束都可以先寫完並 commit,
+   等 SQL 貼完再接線。**不要因為「要等」就什麼都不做,也不要假裝它能今天上。**
+
+### (原本的建議,留著看得到推論的過程)⇒ ~~先花一發把甲量掉,再選。~~
 量法**不必猜也不必等人**:本 repo 有現成的拋棄式 PostgREST(片0 就是這樣量出來的,
 `docs/specs/2026-08-15-1-p0-postgrest-or-semantics.md`,commit `b4865c29`,逐字「跑真 PostgREST,非讀文件推」)。
 ⇒ **成立 ⇒ 走甲(今天就能上,零依賴)· 不成立 ⇒ 走乙,而乙本來就要做(§4)。**
@@ -160,6 +199,30 @@ SELECT has_table_privilege('anon', 'public.products_public', 'SELECT');
    ⇒ **那不是本片造成的,而本片會【第一次把 brands 放進一條客人打得到的查詢路徑】** ⇒ 要一起回報。
 ③ 鐵則 12② 命中(權限)⇒ **codex 對抗審查不降級。** 鐵則 8 命中 ⇒ 本檔就是 plan,等批。
 
+### 🔴🔴 5-a 授權查證結果(主視窗-87 2026-09-03 正式庫唯讀,原始輸出他整段回貼)
+```
+anon_讀得到_brands = t     正對照 products_public = t     負對照 orders = f
+⇒ 三格都照預期 ⇒ 那個 t 有判別力, 不是恆真
+
+brands 逐欄:id · name · slug · description · logo_url · created_at · updated_at · premium_extra_pct(integer)
+
+欄級授權查詢 ⇒ 0 列
+```
+🛑 **0 列那一格【標未確認,不讀成安全】** —— `information_schema` 對零權限帳號會回 0(本 repo 記過)
+⇒ **那可能是查的人看不到,不是「沒有欄級授權」。**
+🔵 **唯一站得住的讀法**:`has_table_privilege` 回 `t` 是 **table-level** ⇒ **保守讀法:`anon` 讀得到全部 8 欄,含 `premium_extra_pct`。**
+
+### 🔴🔴 5-b ⇒ 硬約束升成兩條(主視窗-87 收緊,我同意並寫成可驗收的形狀)
+```
+① 不動 mapper 的投影
+② 不得在 select / or() 裡【新增】任何 brands 欄位到【回傳路徑】上
+   —— brands.name 只用在【比對條件】, 不放進回傳
+```
+✅ **② 是可驗收的,而判別句是機械的**:改完之後線上 `/api/search` 每一筆的 `Object.keys()`
+**必須逐字仍是** `slug / brand / name / price / image` —— **多一個都不行**。改前改後各打一發比對。
+📌 **理由**:`premium_extra_pct` 是**經銷/加價資訊**,而它在 DB 那一層對 `anon` 是**開著的**
+⇒ **今天唯一擋住它的就是 mapper** ⇒ 🛑 **那不是「深層防護」,那是【最後一道】。**
+
 ---
 
 ## §6 驗收(**線上跑**,判準先寫)
@@ -183,3 +246,56 @@ CARK9650 / PED-GP EVO MON SX RS660      ⇒ 不得回歸(今天 1/1)
 · 綁在一起的話,**車款那半卡住,品牌那半也上不了** —— 而品牌那半已經能解掉 Sean 撞到的那一個真實案例。
 ⇒ ✅ **要開第三刀之前,先請有 DB access 的人跑同款的一發**(把 `b.name` 換成適配車款那張表的欄位),
    **非空才排。**
+
+---
+
+## §8 🔴 乙案的形狀 —— **兩個決定,而它們把 §5-b 那兩條硬約束從【紀律】變成【結構】**
+
+### 8-a 決定一:**`SECURITY INVOKER`,不是 `DEFINER`**
+`#347-fuzzy` 那支是 `SECURITY DEFINER` + `SET search_path=''` + 只 `GRANT` 給 `service_role`
+—— **那是後台的權限模型,而前台是 `anon`。**
+🛑 **照抄 `DEFINER` 會是這一片最危險的一個動作**:它會讓函式**以擁有者身分執行** ⇒
+**繞過 RLS、也繞過「`anon` 讀得到什麼」那一層** ⇒ 而**經銷價的物理防線正是「客人這條路只看得到 `products_public`」**。
+✅ **⇒ 用 `SECURITY INVOKER`(預設)**:函式以**呼叫者(anon)**的身分跑
+⇒ **它拿不到任何 anon 今天拿不到的東西** ⇒ 📌 **這一片【不新增任何權限面】。**
+⚠️ 代價明寫:`INVOKER` 之下 `anon` 必須自己讀得到 `products_public` 與 `brands`
+—— **而那兩格 §5-a 已經量到都是 `t`** ⇒ 前提成立。
+
+### 8-b 決定二:🔴🔴 **函式只回 `id`,不回任何欄位**
+```
+函式做的事     = 比對(哪些商品命中這些詞)
+函式【不】做的 = 決定客人看得到什麼欄位
+```
+呼叫端拿到 id 之後,**照舊**用既有的 `PRODUCT_SELECT_DETAIL_VIEW` 對 `products_public`
+下 `.in('id', ids)` 取回 —— **投影一個字都不動。**
+
+🎯 **為什麼這個決定比一條規則好**(這是本節的重點):
+§5-b 那兩條硬約束是「**不要**動 mapper 投影 / **不要**把 brands 欄位放進回傳」——
+🛑 **而「不要做某件事」的規則,靠的是下一個人記得。**
+✅ 改成「函式回傳型別就是 `TABLE(id uuid)`」之後,**要違反它得先改函式簽章**
+⇒ 📌 **從「別做」變成「做不到」** —— 而那正是本 repo 的機制優先律。
+🔵 連帶:**投影仍然只有一份**(`PRODUCT_SELECT_DETAIL_VIEW`)⇒ 不會長出第二份會漂的真相。
+
+⚠️ **代價,兩格,明寫**:
+1. **兩次往返**(先要 id、再取內容)—— 而**第二發是主鍵查詢**,便宜。
+   🔴 **而在那個 1,400ms 的缺口被拆開之前,我不宣稱這樣總體會更快或更慢** —— **未量。**
+2. `.in('id', …)` **不保證順序** ⇒ 排序仍由呼叫端的 `.order('id')` 決定
+   ⇒ **相關性排序要進來時,順序必須由函式回傳(多一欄 rank),而那是另一刀。**
+
+### 8-c 述詞:**每個詞都要中,而一個詞可以中在五個地方任一**
+```
+命中(單一詞 w) ⟺ title ILIKE %w% ∨ subtitle ILIKE %w% ∨ description ILIKE %w%
+                  ∨ external_id ILIKE %w% ∨ brands.name ILIKE %w%
+整體            ⟺ 每一個詞都命中(AND across terms)
+```
+🔵 **形狀照 `#347-fuzzy`:每個詞一個 `UNION` 分支收集候選,外層 `SELECT DISTINCT`**
+(該檔 COMMENT 逐字:`UNION` 非 `UNION ALL` + 外層 `DISTINCT` —— **一筆掛 N 個命中必須只算 1 筆,
+否則吃掉 N 個名額 = 靜默少回**;而 `UNION` 而非一大坨 `OR` 的理由是**實測 127.5ms vs 1.4ms**)。
+🛑 **而 AND across terms 不能用 UNION 表達** —— `UNION` 是聯集。
+⇒ 正確形狀:**每個詞各自算出一個 id 集合,再取交集**(`INTERSECT`,或 `GROUP BY id HAVING count(DISTINCT 詞)=N`)。
+⚠️ **我沒有量過這兩種哪個快** ⇒ **標未確認**,migration 草稿先用 `INTERSECT`(語意最直白),
+   而**上線前要對正式庫 `EXPLAIN` 比一次** —— 那一發要有 access 的人跑。
+
+### 8-d 這一刀**不做**的(明寫,免得被讀成做完了)
+· **不做相關性排序**(那要函式回 rank 欄)· **不做模糊/錯字容錯**(`pg_trgm`)
+· **不做適配車款**(§7,要先證交集)· **不改 mapper、不改投影、不改 `products_public`**
