@@ -184,14 +184,32 @@ function policyStillExists(policy: string, table: string): boolean {
   return exists;
 }
 
-/** 同理:`COMMENT ON` 是【覆寫不是追加】⇒ 只有最後一次算數。 */
+/**
+ * 同理:`COMMENT ON` 是【覆寫不是追加】⇒ 只有最後一次算數。
+ *
+ * 🔴🔴 **前一版的 regex 是 `IS\s+([\s\S]*?);` —— 非貪婪, 停在第一個 `;`。**
+ *   而 SQL 的 `;` **可以住在字串字面裡面** ⇒ 那個 `;` 一出現, 這把尺就在句子中間截斷。
+ *   ⇒ 2026-09-02 真的踩到:後續 migration 把建表片原文併回來, 而那段原文裡有一個
+ *     ASCII 分號(「…只保留最新一次;」)⇒ **本檔只讀到前半段, 後半段的警語看不到 ⇒ 紅。**
+ *   🎯 **⇒ 而那個紅是【尺壞了】不是【碼壞了】** —— 而它印出來的東西與「警語真的不見了」一模一樣。
+ *   🛑 **⇒ 而修法【不能】改那段文字**:「逐字搬回去」正是那支 migration 存在的理由。
+ *
+ * ✅ 本版改成**只認字串字面**:`IS` 之後收一串 `'…'`(含 `''` 跳脫), 直到字面串結束才吃 `;`
+ *   ⇒ 引號裡的 `;` 對它沒有意義, 而 PG 相鄰字面自動連接的語意也被還原了。
+ */
 function lastColumnComment(table: string, col: string): string | null {
   let last: string | null = null;
   for (const { sql: raw } of readMigrations()) {
     for (const m of stripSqlComments(raw).matchAll(
-      new RegExp(String.raw`COMMENT ON COLUMN\s+public\.${table}\.${col}\s+IS\s+([\s\S]*?);`, 'gi'),
+      new RegExp(
+        String.raw`COMMENT ON COLUMN\s+public\.${table}\.${col}\s+IS\s+((?:'(?:[^']|'')*'\s*)+);`,
+        'gi',
+      ),
     )) {
-      last = m[1] ?? null;
+      // 🔵 相鄰字面串接回一整句(PG 的語意), 並把 `''` 還原成一個單引號。
+      last = [...(m[1] ?? '').matchAll(/'((?:[^']|'')*)'/g)]
+        .map((x) => (x[1] ?? '').replace(/''/g, "'"))
+        .join('');
     }
   }
   return last;
