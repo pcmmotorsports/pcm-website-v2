@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { dirname, join, resolve, sep } from 'node:path';
 
 // 片 C3 的守門:**那條 route 的函式包裡,到底有沒有它執行時要讀的那些檔。**
 //
@@ -59,6 +59,11 @@ function stalenessNote(): string | null {
   const guarded = [
     join(__dirname, 'route.ts'),
     join(__dirname, '../../../../../lib/print/statement-pdf.ts'),
+    // 🔴 **2026-09-03 補(codex 抓到, 而它正是本片改的那支檔)**:
+    //    `outputFileTracingIncludes` 就住在 `next.config.ts` ⇒ **改了 glob 而沒重 build,
+    //    下面那組「丙」的守門會拿【舊的 NFT】全綠** —— 而那正是它要擋的那種假綠。
+    //    ⇒ 📌 一把守門, 沒有把「會改變它答案的那支檔」放進新鮮度清單 ⇒ 它守不住自己。
+    join(__dirname, '../../../../../../next.config.ts'),
   ].filter((p) => existsSync(p));
   const newest = Math.max(...guarded.map((p) => statSync(p).mtimeMs));
   if (newest <= nftAt) return null;
@@ -197,5 +202,84 @@ describe('片 C3:statement.pdf 這條 route 的追蹤清單', () => {
       expect(existsSync(abs), `追蹤清單指到一個不存在的檔:${rel}`).toBe(true);
       expect(statSync(abs).size).toBeGreaterThan(0);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴🔴 修法【丙】的守門(2026-09-03 `-ship`)—— 而**它必須用【解析過】的路徑,不能用字串比對**
+//
+// **背景**:正式站逐字 `拒絕產檔 … 內嵌 0 · 拿不到字型檔 0 · 字型套件=null`
+// ⇒ `require.resolve('@fontsource/noto-sans-tc/package.json')` 在函式裡 throw。
+// ⇒ 修法丙 = 讓 **app 層那棵 pnpm symlink 樹**進到追蹤清單裡(`next.config.ts` 那【四條】 `./node_modules/…`;
+//   ⛔ ~~原文寫「三條」~~ —— codex R2 抓到我 R1 只改了 next.config.ts 那兩處、漏了本檔這一處),
+//   因為那是 Node 從 route 往上走時找得到的位置(`.pnpm` 實體目錄**不在**解析路徑上)。
+//
+// 🛑🛑 **這一格的量法是踩過一次坑之後才對的 —— 那個坑值得寫在這裡:**
+//    我第一版用 `/apps[\\/]storefront[\\/]node_modules/` 去 grep 那份清單 ⇒ **改前 0、改後也 0**
+//    ⇒ 我差一點宣告「丙失敗、換乙」。
+//    🔴 **成因:`.nft.json` 裡的路徑是【相對】的(`../../../…`)** ——
+//      它們**結構上不可能**含有 `apps/storefront` 這個字面 ⇒ 那把尺在兩個世界都印 0。
+//    📌 **⇒ 一把在【成功】與【失敗】都印同一個數的尺, 它的 0 不是答案。**
+//    ✅ **⇒ 所以下面先 `resolve` 再比對** —— 量的是「這條路徑指到哪」, 不是「這個字串長什麼樣」。
+//
+// ⚠️ **本組證不到什麼(與檔頭那三句同一種)**:它答得出「Next 打算帶那棵樹」,
+//    答不出「Vercel 真的帶了」, 更答不出「帶了之後 `require.resolve` 成功」。
+//    🔴🔴 **丙成功的定義在正式站, 而我第一版寫錯了(codex R2, must-fix)**:
+//    ⛔ ~~「那行 log 的 `字型套件` 從 `null` 變成一條路徑」~~ —— **那行 log 只在 500 分支**,
+//       丙成功時 route 回 200 而**成功那條路一個字都不印** ⇒ 我的驗收條件只在失敗的世界看得到。
+//    ✅ **正確的觀察值 = 那張紙本身**:真的下載到 PDF, 而且中文是【字】不是方框 □□□。
+//    🛑 「log 裡不再出現 `拒絕產檔`」**不算** —— 沒有人打那條 route 時它一樣不會出現(缺席當證據)。
+//    ⇒ 而**本機必然說謊** —— 本機那棵樹本來就在磁碟上, `require.resolve` 本機無論如何都會成功。
+describe('🔴 修法丙:app 層 node_modules 那棵樹有沒有進到追蹤清單', () => {
+  const ROUTE_DIR = dirname(ROUTE_NFT);
+  const APP_FONT_DIR = resolve(
+    ROUTE_DIR,
+    '../../../../../../../node_modules/@fontsource/noto-sans-tc',
+  );
+  const resolved = () => tracedFiles().map((f) => resolve(ROUTE_DIR, f));
+  // 🔴 **加目錄邊界(codex R2 抓到)**:裸 `startsWith` 會把 `…/noto-sans-tc-evil/x` 也算進來
+  //    ⇒ 一個同前綴的鄰居目錄可以讓下面每一格【假綠】。
+  //    📎 同 `lib/print/statement-html.ts` 的 `isInsideDir` 那一格 —— **同一個坑, 這是第二次。**
+  const underAppFontDir = () =>
+    resolved().filter((p) => p === APP_FONT_DIR || p.startsWith(APP_FONT_DIR + sep));
+
+  it('🟢 量具自檢:那個 app 層目錄真的在磁碟上(不在的話下面每一格都是在量一個不存在的東西)', () => {
+    expect(existsSync(APP_FONT_DIR), `${APP_FONT_DIR} 不存在 ⇒ pnpm 佈局變了, 本組要重寫`).toBe(true);
+  });
+
+  it('🔴 `require.resolve` 要的那支 `package.json` 在清單裡 —— 少了它就是 `字型套件=null`', () => {
+    const got = underAppFontDir().filter((p) => p.endsWith('/package.json'));
+    expect(got, 'app 層的 package.json 沒被追進去 ⇒ 修法丙沒生效').toHaveLength(1);
+  });
+
+  it('🔴 解析成功之後【還要讀得到】的那些也在 —— 只放 package.json 會換來「解析成功而內嵌 0」', () => {
+    const under = underAppFontDir();
+    expect(under.filter((p) => p.endsWith('/400.css'))).toHaveLength(1);
+    expect(under.filter((p) => p.endsWith('/700.css'))).toHaveLength(1);
+    // 🔴 只問「有沒有 woff2」不夠 —— 一支也是有。這張紙要的是成批的中文子集。
+    // 🔴🔴 **完整性用【磁碟實數】比, 不用寫死的門檻(codex R2 抓到)**:
+    //    ⛔ ~~`>50`~~ ⇒ ⛔ ~~`>=100`~~ —— 兩個都是**寫死的數**, 而實測是 106
+    //    ⇒ `>=100` 仍然允許**任意 6 支遺失而全綠**, 那會產出一張**局部缺字**的紙。
+    // ✅ 改成「NFT 裡的支數 === 磁碟上該目錄實際有幾支」⇒ **少一支就紅**,
+    //    而字型套件改版時兩邊一起變 ⇒ **不會變成一把每次升版都誤報的尺。**
+    // 🛑 而這一格的分母是 `readdirSync` ——【磁碟】是它的真相來源, 不是我記得的 106。
+    const onDisk = (suffix: string) =>
+      readdirSync(join(APP_FONT_DIR, 'files')).filter((n) => n.endsWith(suffix)).length;
+    for (const suffix of ['-400-normal.woff2', '-700-normal.woff2']) {
+      const traced = under.filter((p) => p.endsWith(suffix)).length;
+      expect(traced, `${suffix}:NFT ${traced} 支 vs 磁碟 ${onDisk(suffix)} 支`).toBe(onDisk(suffix));
+      // 🔵 而「兩邊都是 0」會讓上面那格通過 ⇒ 分母自檢:磁碟上本來就該有成批的子集。
+      expect(onDisk(suffix), `磁碟上 ${suffix} 是 0 ⇒ 上面那格零判別力`).toBeGreaterThan(50);
+    }
+  });
+
+  it('🔵 負對照:一個現造的同層目錄必須查無(證明上面不是恆真)', () => {
+    const fake = resolve(ROUTE_DIR, '../../../../../../../node_modules/@zzq9137never');
+    expect(resolved().filter((p) => p.startsWith(fake))).toHaveLength(0);
+  });
+
+  it('🟢 正對照:Next 自己建的 `.next/node_modules` 入口也還在(尺對兩種形狀都會動)', () => {
+    const nextOwn = resolve(ROUTE_DIR, '../../../../../../node_modules');
+    expect(resolved().filter((p) => p.startsWith(nextOwn)).length).toBeGreaterThan(0);
   });
 });
