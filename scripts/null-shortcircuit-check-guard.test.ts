@@ -332,7 +332,28 @@ function normalizeSql(sql: string, opts: { strings: boolean } = { strings: true 
   // 🔴 **遞迴進 dollar-quote 本體(只在 `strings:false`)—— 2026-09-03 R2 對抗審查逼出來的第三條路。**
   //   `--` 在**單引號字串**裡不是註解, 而在 **`$$…$$` 本體裡它【是】—— 當那個本體是【碼】的時候**
   //   (函式體 / `DO` 區塊)。⚠️ `$$` 也能當**純資料字面**(`INSERT … VALUES ($$a -- b$$)`),
-  //   那時 `-- b` 是資料而本版會抹白它 ⇒ **過剝, 方向是假綠**。R3 量到今天影響 0(275 支三個輸出全不變)。
+  //   那時 `-- b` 是資料而本版會抹白它 ⇒ **過剝確實會發生**(2026-09-03 構造 4/4 全中)。
+  //   🛑🛑 **而「方向是假綠」那半【我驗過了, 它是錯的】—— 那句話我從 R3 抄下來就寫進檔案,**
+  //     **沒有構造一發。這是我同一夜第三次犯同型的錯, 所以連錯法一起留著。**
+  //     🔬 **怎麼驗的**:對兩個消費者各餵四格,**每格附【真值】**(真值由人判 ——
+  //       `$$…$$` 裡的是**資料**不是邏輯), 比「只跳過版」與「遞迴版」誰答對:
+  //       ```
+  //       isNullShortCircuitShape:  假綠 只跳過 1 格 / 遞迴 0 格
+  //       dropNotNullTargets:       假綠 遞迴 0 格(而它下游是 LOAD_BEARING_NOT_NULL = 金流表)
+  //       ```
+  //     🎯 **成因**:過剝拿掉的只可能是【資料】, 而這兩支尺讀的四個訊號(`OR` / `= '字面'` /
+  //       `COALESCE` / `CASE`)全是【邏輯】—— 邏輯住在 dollar 本體**外面**, 遞迴碰不到它。
+  //       ⇒ **拿掉資料只會讓誤報變少** ⇒ 方向是**假紅**(有人會看到), **不是假綠**。
+  //       實例:`CHECK (body <> $$q -- OR body = 'z'$$)` —— 只跳過版把資料裡的 `OR` 讀成邏輯 ⇒ 誤報;
+  //             遞迴版答對。`INSERT … VALUES ($$ALTER TABLE … DROP NOT NULL$$)` ⇒ **兩版都誤報**
+  //             (資料被當成真 DDL)—— 那是**既有**的假紅, 不是本次造成的, 方向安全。
+  //     ✅ **正對照(照 `scripts/two-controls.sh` 的紀律:先證明尺在該有時會說有)**:
+  //       拿一把「連真邏輯也抹白」的壞尺餵 `CHECK (kind = 'a' OR kind = 'b')`(真值=壞形狀)
+  //       ⇒ 它印 `false` 而遞迴版印 `true` ⇒ **harness 造得出假綠也看得見** ⇒ 上面那兩個 0 有判別力。
+  //       負對照(現造字面 `ZZQPRB<timestamp>`, 無 `OR`)⇒ `false`。
+  //     🛑 **為什麼不為此加一格測試**:要釘的那個方向(真 DDL 藏在 `$$` 本體、同行前面有 `--`)
+  //       **已經有一格了** —— 就是下面 `DO $$ … -- note; here` 那格。而 `$$` 當資料被誤報那一格
+  //       **不加**:釘它等於把一個【我認為錯但今天無害】的行為凍住。⇒ 明寫在這裡,不寫成綠燈。
   //   ⇒ 只跳過不遞迴 ⇒ 本體裡的 `--` 留著 ⇒ **兩個方向同時壞**:
   //     漏報 `DO $$ … ALTER … -- note; here ⏎ DROP NOT NULL; …$$`(註解裡的 `;` 卡死 `[^;]*?`)
   //     誤報 `DO $$ -- ALTER TABLE t … DROP NOT NULL; $$`(**被註解掉的 DDL 被讀成真的**)
@@ -828,6 +849,31 @@ describe('OR 串 CHECK 的 NULL 短路面守門(#641 ④ 的機制版)', () => {
       expect(
         dropNotNullTargets("DO $$ BEGIN EXECUTE 'ALTER TABLE shipments ALTER COLUMN carrier_code DROP NOT NULL'; END $$;"),
       ).toEqual([{ table: 'shipments', column: 'carrier_code' }]);
+    });
+
+    it('🔴 dollar 資料裡的 OR / COALESCE 不得被讀成【邏輯】(2026-09-03 過剝方向的實測結果)', () => {
+      // 🛑 我一度在檔頭寫「`$$` 當純資料字面會過剝 ⇒ 方向是假綠」—— **抄來的, 沒構造。**
+      //   構造之後方向是**反的**:過剝拿掉的只可能是【資料】, 而這支尺讀的四個訊號全是【邏輯】,
+      //   邏輯住在 dollar 本體【外面】⇒ 拿掉資料只會讓**誤報**變少。
+      // ✅ 這兩格是那次構造的常駐版(用真的 `checkBodies` + `isNullShortCircuitShape`,
+      //   不是我當時那支會過期的一次性腳本)。真值由人判, 寫在每一格旁邊。
+      const judge = (sql: string) => checkBodies(sql).map(({ body }) => isNullShortCircuitShape(body));
+
+      // 真值 = false:邏輯只有一個 `<>` 比較, 那個 `OR` 在【資料】裡。
+      //   🔴 沒有遞迴的話這格會是 true(誤報)—— 方向是假紅, 有人看得到。
+      expect(judge("ALTER TABLE t ADD CONSTRAINT c CHECK (body <> $$q -- OR body = 'z'$$);")).toEqual([false]);
+
+      // 真值 = true:那個 COALESCE 在【資料】裡, 不是真兜底 ⇒ 這條 CHECK 仍是壞形狀。
+      //   🔴 沒有遞迴的話這格會是 false —— **那一格才是真的假綠**, 而它在舊版就存在。
+      expect(
+        judge("ALTER TABLE t ADD CONSTRAINT c CHECK (kind = 'a' OR kind = 'b' AND note <> $$z -- COALESCE$$);"),
+      ).toEqual([true]);
+
+      // ✅ 正對照(照 `scripts/two-controls.sh`:先證明尺在該有時會說有)——
+      //    一條貨真價實的壞形狀, 這支尺必須說 true。它印 false ⇒ 上面兩個斷言全部失去判別力。
+      expect(judge("ALTER TABLE t ADD CONSTRAINT c CHECK (kind = 'a' OR kind = 'b');")).toEqual([true]);
+      // 🔵 負對照:沒有 OR ⇒ 必須 false(擋「這支尺恆真」)。
+      expect(judge("ALTER TABLE t ADD CONSTRAINT c CHECK (kind = 'a');")).toEqual([false]);
     });
 
     it('🔵 schema 限定寫法跨行/帶 tab 也要收斂成同一形狀', () => {
