@@ -8,9 +8,10 @@ import type {
   LoadPaidContextResult,
   LoadShippedContextResult,
   PaidEmailContext,
+  SendEmailInput,
   ShippedEmailContext,
 } from '@pcm/ports';
-import { renderPaidEmailHtml } from './paid-email-html';
+import { assertPdfClaimMatchesAttachments, renderPaidEmailHtml } from './paid-email-html';
 import {
   ORDER_CANCELLED_HEADLINE_NO_ID,
   ORDER_CANCELLED_HEADLINE_WITH_ID,
@@ -1090,7 +1091,20 @@ export async function sweepEmailOutbox(
     const html = paid !== null ? renderPaidEmailHtml(paid, { logoUrl: '' }) : null;
 
     try {
-      const outcome = await sender.send({
+      // 🔴 **先把 send input 組成一個物件, 守門讀【同一個物件】, 再送出去。**
+      //    ⛔ ~~原本寫 `assertPdfClaimMatchesAttachments(html, undefined)`~~ ——
+      //    🔴🔴 **code-reviewer 2026-09-03 R1 must-fix:那樣寫會【反向失效】, 不是靜靜失效。**
+      //      未來有人加 `attachments: [pdf]` 並翻開旗標 ⇒ 守門讀到寫死的 `undefined`
+      //      ⇒ **每一封付款信都 throw**、落下面的 `catch`、列卡 `sending`、約 5h20m 進死信,
+      //      而它的外觀與平台 kill **印同一個錯誤碼**。
+      //    📌 **⇒ 病灶是「加附件的那個字面」與「守門看到的那個字面」是兩份。** 組成一個物件
+      //      之後它們是同一份 ⇒ **加附件的人不必知道這道守門存在, 也不可能繞過它。**
+      //    ⚠️ 這正是 repo 已立閘的同型病(`.husky/undefined-assert-gate.sh`:寫死 `undefined`
+      //      讓斷言在兩個世界都通過)—— 而**那道閘只掃測試斷言, 掃不到 production 這一行**。
+      //    🔵 **標成 `SendEmailInput` 是這個修法的一半** —— 少了它, TS 會把物件收窄成
+      //      「今天有的那幾個 key」, 而 `sendInput.attachments` 當場不存在(實測 TS2339)。
+      //      ⇒ 📌 標了型別之後,**未來加附件的人在這裡加一行就會被守門看到**, 不必知道它存在。
+      const sendInput: SendEmailInput = {
         to: job.recipientEmail,
         // 🔴 **主旨一個字都不動**(片2 第一顆刻意保守):`paidEmailSubject(ctx)` 存在而**沒有用**。
         //    主旨是客人在信箱列表看到的那一行 ⇒ 改它 = 又一個對外可見的變數。
@@ -1116,7 +1130,15 @@ export async function sweepEmailOutbox(
         //    ⇒ 🔵 三格不給 ⇒ 模板那幾段不印(`-7a` 做成 optional)⇒ **不造假值**。
         ...(html !== null ? { html } : {}),
         idempotency: { eventType: job.eventType, outboxId: job.id },
-      });
+      };
+      // 🔴 **送出去之前的最後一道**:信裡說了「PDF 已附在這封信裡」而附件裡沒有 PDF ⇒ throw。
+      //    走下面既有的 `catch`:**計 errors、列留 `sending`、不寄** —— 與 `order_shipped`
+      //    的 fail-closed 同一條路(刻意選同一條, 不新開行為;可歸因性差一格:`catch` 不 bind err
+      //    ⇒ 這則訊息到不了 log。那是既有形狀, 本片不動它)。
+      //    🛑 **它今天恆不會 throw**(那句話今天不會印)⇒ **效度不能靠「今天沒紅」證明**,
+      //      由 `paid-email-html.test.ts` 的兩個世界證(說了謊 ⇒ 紅 / 真的附了 ⇒ 綠)。
+      assertPdfClaimMatchesAttachments(sendInput.html ?? null, sendInput.attachments);
+      const outcome = await sender.send(sendInput);
       // 🔴 計數 = provider 裁決當下(mark 落表前;codex 關卡2 R1 must-fix:mark throw 不得
       //    讓「Resend 已接受」從計數上消失)。
       if (outcome.kind === 'sent') {

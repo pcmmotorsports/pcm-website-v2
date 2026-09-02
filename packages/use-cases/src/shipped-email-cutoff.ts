@@ -3,9 +3,26 @@
  *
  * 🛑🛑 **本檔【不掛任何 route】,也不寄任何東西 —— 掛 route 是片3b 的事。**
  *    它是一支純函式:吃一個 env 字串,回一個三態。**它碰不到 outbox、碰不到 Resend、
- *    碰不到任何 I/O。**⇒ 看到這支檔存在,**不代表出貨通知信那條線接上了**
- *    (今天 `enqueueOrderShippedEmails` 的 production 呼叫端仍然是 **0**,
- *     而 `sweep-email-outbox.ts` 對 `order_shipped` 仍然 fail-closed throw)。
+ *    碰不到任何 I/O。**⇒ 看到這支檔存在,**不代表出貨通知信那條線接上了**。
+ *    ⛔ ~~「今天 `enqueueOrderShippedEmails` 的 production 呼叫端仍然是 **0**,
+ *     而 `sweep-email-outbox.ts` 對 `order_shipped` 仍然 fail-closed throw」~~
+ *    🔴 **2026-09-03 訂正 —— 而【只訂正碼路徑那一格, 不要讀成「客人收得到」】**:
+ *      · **碼路徑已接上**:`api/cron/email-sweep/route.ts:425` 有**一個真的 `await`**。
+ *        (grep 命中 3 = 那個 await + 同檔 `:45` import + `route.test.ts:47` fixture
+ *         ⇒ 🔴 **呼叫端是 1, 不是 3** —— 舊字面比的「production 呼叫端 = 0」是另一個分母。)
+ *      · `order_shipped` 的 fail-closed **也還在, 只是變成有條件**:
+ *        `sweep-email-outbox.ts:350` 少了 context 仍 `throw`;`:924` 沒有 `allowOrderShipped` 仍 `continue`。
+ *        ⛔ ~~「不再 throw」~~ 那句話是我把【有條件】寫成【無條件】, 方向與它要修的那個過期註解相同。
+ *    🛑🛑 **而「客人真的會收到」= 未量測, 不要從上面那一格推出來**:
+ *      整條線由 env `SHIPPED_EMAIL_CUTOFF` 控;**沒設 ⇒ `skipped_no_cutoff` ⇒ 一封都不寄**,
+ *      而 `route.ts:396-399` 逐字寫著「**Sean 以為他上膛了, 而一封都不會寄, 且沒有任何東西會吵**」。
+ *      ⇒ 📌 **`git grep` 在「env 有設」與「沒設」兩個世界印【同一個數字】** ⇒ 那把尺對這個問題**零判別力**。
+ *      ⇒ ⛔ ~~判別訊號是 `shippedEnqueueStatus === 'completed'`~~ —— **必要而不充分**
+ *        (code-reviewer R2 nit):`route.ts:408-413` 在 `cutoff.kind === 'ok'` 的**當下**就把它
+ *        設成 `completed`, 只有整段 throw 才翻 `failed` ⇒ **enqueue 了 0 筆與 50 筆印同一個字。**
+ *        📌 **⇒ 我原本寫的訂正, 犯的正是它自己在講的那個病** —— 一個在兩個世界印同一句的量具。
+ *      ⇒ ✅ **判別訊號 = `shippedEnqueueStatus === 'completed'` 【且】同一則 log 的
+ *        `shippedEnqueueCounts.enqueued > 0`**(`pickShippedEnqueueCounts`, 兩個值在同一行 log 裡)。
  *    ⚠️ 這一段是刻意寫的:同一條線上已經有一個「有實作、有注入、**沒有人呼叫**」的
  *    前科(`IShippedEmailContext`),而那個狀態害我們寫了三行才講清楚它到底接上了沒。
  *

@@ -14,7 +14,7 @@
 //   (階段① general-only)、運費統一 5000/未滿 100(Sean 拍 B + #161)、checkout 守門移 /checkout server、
 //   變體識別顯 spec 值(variant 粒度 b2-c)、cart-loading net-new。
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FREE_SHIPPING_THRESHOLD } from '@pcm/domain';
@@ -62,7 +62,78 @@ export function CartView({
 } = {}) {
   const router = useRouter();
 
-  const { items, updateQty, removeItem, setItemVehicle, setAllItemsVehicle } = useCart();
+  const { items, updateQty, removeItem, setItemVehicle, setAllItemsVehicle, cartSessionId } = useCart();
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 🔴🔴 **「有東西被移掉了」要說出來 —— 而在本片之前它是【靜靜】發生的。**
+  //   (2026-09-03 線 `-front`;實測 production:購物車裡的商品查無 ⇒ 畫面逐字
+  //    「購物車是空的 / 還沒選好部品嗎?」⇒ **與「他從來沒加過東西」同一句**,
+  //    而 `localStorage` 也被改寫 ⇒ **連證據都刪了**。)
+  //
+  // 🟢 **移除本身是刻意的、對的** —— `hooks/useResolvedCart.tsx:15-16` 的自我修復
+  //   (#375 / #455):那些行**渲染不出來、客人也刪不掉**,留著只會讓 Header 角標永遠多算。
+  //   ⇒ 🛑 **本片不動那個行為,只補它缺的那句話。**
+  //
+  // 🔴🔴 **而【刻意不動那支 hook】要寫出來,否則下一個人會以為我們沒想到**:
+  //   `useResolvedCart` 的消費端含 `CheckoutView.tsx:93`,而它自己就算 `subtotal` / `total`
+  //   ⇒ **改它的回傳 = 動到結帳與金額那條線** ⇒ 主視窗-87 2026-09-03 裁【甲:只改購物車頁】。
+  //   ⚠️ **已知缺口(甲案的代價,已落板 + manifest override)** —— ⛔ ~~原本寫「若也發生…而我沒驗」~~
+  //      **R1 訂正:從碼判得出來,而且比原句寬**:自我修復寫在 hook 內(`useResolvedCart.tsx:144-148`)
+  //      ⇒ **結帳頁確實會發生同樣的移除**,而 `CheckoutView.tsx:298` 的 `status==='empty'` 那條路
+  //      **全檔零對應訊息**;更寬的那一格是 —— **移除會同時改 `subtotal`/`total`**(`:181-183`)
+  //      ⇒ 🔴 **金額在客人眼前變動,而零訊息。**要補它就是乙案,而乙案要 Sean 拍。
+  //   ⚠️ **另一條【漏報】路徑(方向安全,但要寫下來)**:客人先進 `/checkout`
+  //      ⇒ 那一頁的 hook 先修復完 ⇒ 再回 `/cart` 時 `baseline` 已是清乾淨的筆數
+  //      ⇒ **這一位客人永遠看不到那句話**。同族:hook 的跨實例守衛擋掉 heal 時,`items` 不縮 ⇒ 一樣沒有。
+  //
+  // 🔵 **怎麼在不動 hook 的前提下知道「有東西被移掉」**:
+  //   `items` 是 hook 修復之後的結果 ⇒ 直接看它看不出來。
+  //   ⇒ 本頁**自己記帳**:hydrate 後第一次看到幾筆(`baseline`),
+  //     而**客人自己按刪除的每一筆**由本頁的 handler 記一筆(`userRemoved`)。
+  //     `pruned = baseline − userRemoved − 現在筆數` ⇒ **> 0 就是「不是他刪的」。**
+  //   🛑 **暫用字面,等 Sean 拍(題 25)** —— `~/pcm-mailbox/等Sean拍的題-20260903.md`。
+  // ═══════════════════════════════════════════════════════════════════════════
+  const baselineRef = useRef<number | null>(null);
+  const userRemovedRef = useRef(0);
+  const [prunedCount, setPrunedCount] = useState(0);
+  useEffect(() => {
+    // 🔴 baseline 只在【第一次拿到非空的 items】時定 —— hydrate 前是空陣列,
+    //    那時定 baseline 會讓每一次載入都算出「被移掉 N 筆」(= 對每個客人都誤報)。
+    if (baselineRef.current === null) {
+      if (items.length === 0) return;
+      baselineRef.current = items.length;
+      return;
+    }
+    const pruned = baselineRef.current - userRemovedRef.current - items.length;
+    // 🔵 只往上記、不歸零:**同一車**期間客人刪掉別的東西不該把這句話蓋掉。
+    //   ⛔ ~~原本的理由寫「客人刪掉最後一筆之後那句話不該消失」~~ **R1 訂正:那是假的** ——
+    //      刪到 0 筆 ⇒ `status==='empty'`,而空車那條路由 `CartEmpty` 畫,是另一段碼。
+    setPrunedCount((prev) => (pruned > prev ? pruned : prev));
+  }, [items]);
+
+  // 🔴🔴 **登出 / 換帳號【不是】「已為您移除」**(R1 Critical 3)。
+  //   `CartContext.tsx:394-400`:`A→null`(登出)或 `A→B`(換人)⇒ **`setItems([])`**,
+  //   而那不經 `removeItemByUser` ⇒ 差額法會算出 `pruned = baseline` ⇒
+  //   **一個剛登出的客人會看到「有 3 件商品已不再供應」。**
+  //   🎯 **而它與 prune 的差別有一個現成的訊號**:同一段碼把 `cartSessionId` 一起收掉
+  //      (`setCartSessionId(null)`),而**自我修復的 `removeItem` 從不碰它**
+  //      ⇒ `cartSessionId` 變了 = 換了一車 = 記帳歸零。
+  const prevSessionRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (prevSessionRef.current === undefined) { prevSessionRef.current = cartSessionId; return; }
+    if (prevSessionRef.current === cartSessionId) return;
+    prevSessionRef.current = cartSessionId;
+    baselineRef.current = null;
+    userRemovedRef.current = 0;
+    setPrunedCount(0);
+  }, [cartSessionId]);
+  const removeItemByUser = useCallback(
+    (key: Parameters<typeof removeItem>[0]) => {
+      userRemovedRef.current += 1;
+      removeItem(key);
+    },
+    [removeItem],
+  );
   // ── A4:購物車圖片載不到就破圖(補洞窗)────────────────────────────────────────
   // 病徵:本檔在這之前**全檔零 `onError`** ⇒ 圖載不到就是瀏覽器那個裂掉的圖示,
   //   而且 `line.image` 是空的時候整格是空白 —— 兩種都讓客人看不出那一列是什麼東西。
@@ -126,7 +197,11 @@ export function CartView({
     return <CartUnavailable />;
   }
   if (cart.status === 'empty') {
-    return <CartEmpty onContinue={goContinue} />;
+    // 🔴🔴 **空車那條路【也要】說話 —— 而這正是本片存在的那個世界**(R1 Critical 1)。
+    //   全車被移掉 ⇒ `items.length === 0` ⇒ `status==='empty'`(`useResolvedCart.tsx:190`)
+    //   ⇒ 這一行早返回,而通知掛在下面那個 `return` 裡 ⇒ **它對自己引用的那個病徵零效果。**
+    //   ⇒ 所以把 `prunedCount` 傳進去,由 `CartEmpty` 決定怎麼畫。
+    return <CartEmpty onContinue={goContinue} prunedCount={prunedCount} />;
   }
 
   const { lines, subtotal, shipping, total, freeShipRemaining } = cart;
@@ -143,8 +218,20 @@ export function CartView({
           <div className="cart-head-count">{lines.length} 件商品</div>
         </div>
 
+        {/* 🛑 暫用字面, 等 Sean 拍(題 25)。
+            ⛔ ~~原註解寫「全部被移掉時客人看到的是空購物車 + 這一句」~~
+            **R1 Critical 2 訂正:控制流上那是不可能的** —— 全被移掉會走上面那條早返回,
+            這一段【結構上到不了】。空車那半現在由 `CartEmpty` 自己畫(見上)。 */}
+        {prunedCount > 0 && (
+          <div className="cart-pruned-notice" role="status">
+            有 {prunedCount} 件商品已不再供應,已為您移除。
+          </div>
+        )}
+
         {/* 🔵 混車橫幅(plan `docs/specs/2026-09-03-cart-vehicle-mix-notice-plan.md`)。
-            接線與判準都在該元件內 ⇒ 本頁只交出 `lines`(R1 nit 9:接線放這裡時零測試覆蓋)。 */}
+            接線與判準都在該元件內 ⇒ 本頁只交出 `lines`。
+            ⚠️ **這段註解 2026-09-03 搬回這裡**(R1 nit):pruned 通知那段插在它與它解釋的
+            那一行之間 ⇒ 冷讀的人會把它讀成在講 pruned 通知(鐵則 6:註解跟著它解釋的那段碼)。 */}
         <CartVehicleMixNotice lines={lines} />
 
         {/* V-2a 整車套用:填一次全列帶入(§2「不造成選擇負擔」預設路);混車時單列可各自改 */}
@@ -197,7 +284,7 @@ export function CartView({
                     />
                     <div className="cart-item-actions">
                       <CartQtyInput qty={item.qty} onCommit={(n) => updateQty(item, n)} />
-                      <button className="cart-item-remove" onClick={() => removeItem(item)}>
+                      <button className="cart-item-remove" onClick={() => removeItemByUser(item)}>
                         移除
                       </button>
                     </div>
@@ -283,7 +370,7 @@ function CartUnavailable() {
 }
 
 /** 空車狀態(直接搬 design AccountPages CartPage L58-75)。 */
-function CartEmpty({ onContinue }: { onContinue: () => void }) {
+function CartEmpty({ onContinue, prunedCount = 0 }: { onContinue: () => void; prunedCount?: number }) {
   return (
     <div data-screen-label="Cart" className="ap-page">
       <Header currentPage="cart" />
@@ -296,6 +383,13 @@ function CartEmpty({ onContinue }: { onContinue: () => void }) {
           </svg>
         </div>
         <h2>購物車是空的</h2>
+        {/* 🔴 **這一句是本片的重點**:沒有它,「他的東西被移掉了」與「他從來沒加過東西」
+            印的是同一個畫面(production 實測)。🛑 字面暫用, 等 Sean 拍(題 25)。 */}
+        {prunedCount > 0 && (
+          <p className="cart-pruned-notice" role="status">
+            有 {prunedCount} 件商品已不再供應,已為您移除。
+          </p>
+        )}
         <p>還沒選好部品嗎？去看看本週精選吧。</p>
         <button className="btn-primary" onClick={onContinue}>繼續購物</button>
       </div>

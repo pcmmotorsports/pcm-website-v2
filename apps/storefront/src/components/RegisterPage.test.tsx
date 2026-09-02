@@ -157,4 +157,17 @@ describe('RegisterPage', () => {
     expect(screen.queryByText('請同意服務條款')).toBeNull();
     expect(screen.getByText('請填寫姓名')).toBeDefined(); // 其餘欄不受影響
   });
+  // ── 手機欄要叫得出數字鍵盤(2026-09-03 `-account` 手機走查發現)────────────────
+  // 🔴 這一格【測得到什麼、測不到什麼】要寫清楚, 免得被讀寬:
+  //    測得到 = 那三個屬性各自被拿掉時都會紅(三發突變各跑過一次, 見 commit body)。
+  //    測不到 = 「iPhone 真的跳出數字鍵盤」—— 那要真機, jsdom 沒有鍵盤。
+  //    ⇒ 它守的是【屬性不被無聲刪掉】, 不是行為。
+  // 🔵 autoComplete 是 `tel-national` 不是 `tel`:理由在 RegisterPage.tsx 的手機欄註解。
+  it('手機欄帶 type/inputMode=tel 與 autoComplete=tel-national(拿掉任一就紅)', () => {
+    renderPage();
+    const phone = screen.getByPlaceholderText('0912 345 678');
+    expect(phone.getAttribute('type')).toBe('tel');
+    expect(phone.getAttribute('inputmode')).toBe('tel');
+    expect(phone.getAttribute('autocomplete')).toBe('tel-national');
+  });
 });

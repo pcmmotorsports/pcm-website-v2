@@ -198,6 +198,121 @@ describe('SearchOverlay', () => {
     expect(bothShowing()).toBe(false);
   });
 
+  // ═══ ⟦搜尋-第2刀⟧ 品牌 / 分類兩區(2026-09-03;車款那一區刻意不畫, 見 SearchOverlayFacets 檔頭)═══
+
+  const withFacets = (over: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      ...ONE_ITEM,
+      brands: [{ id: 'akrapovic', name: 'AKRAPOVIČ', count: 648 }],
+      categories: [{ id: 'cat-1', name: '排氣系統', count: 740 }],
+      vehicles: [{ brandId: 'honda', brandName: 'Honda', modelId: 'cbr600', modelName: 'CBR600' }],
+      failed: { brands: false, categories: false, vehicles: false },
+      ...over,
+    });
+
+  it('🔴 G3-a 有品牌/分類 ⇒ 兩區都畫, 標題字面照稿(只有商品那一區帶數字)', async () => {
+    mockFetch(async () => new Response(withFacets(), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('排氣');
+    await waitFor(() => expect(screen.getByText('AKRAPOVIČ')).toBeTruthy());
+    expect(screen.getByText('品牌')).toBeTruthy();   // 稿 :149 —— 不帶數字
+    expect(screen.getByText('分類')).toBeTruthy();   // 稿 :163 —— 不帶數字
+    expect(screen.getByText('排氣系統')).toBeTruthy();
+  });
+
+  it('🔴🔴 G3-b 車款【刻意不畫】—— API 有回而畫面上不得出現(題 21 拍板前)', async () => {
+    // 🎯 這一格釘的不是「還沒做」, 是一個【決定】:
+    //    打 R6 會比中 Honda CBR600(`cbr600` 含 `r6`)⇒ 畫出來客人會以為網站壞了。
+    //    🛑 而它與「空區不畫」在畫面上長得一樣 ⇒ 只有這一格與那段註解分得出來。
+    //    ✅ 題 21 若拍乙(改比對規則)⇒ 這一格要改成「車款區要出現」, 不要直接刪掉它。
+    mockFetch(async () => new Response(withFacets(), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('R6');
+    await waitFor(() => expect(screen.getByText('AKRAPOVIČ')).toBeTruthy()); // 先確認資料真的到了
+    expect(screen.queryByText('車款')).toBeNull();
+    expect(screen.queryByText(/CBR600/)).toBeNull();
+  });
+
+  it('🔵 G3-c 空區不畫(稿 :147/:161 逐字 length > 0 &&)', async () => {
+    mockFetch(async () => new Response(withFacets({ brands: [], categories: [] }), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('排氣');
+    await waitFor(() => expect(screen.getByText('鈦合金全段排氣管')).toBeTruthy());
+    expect(screen.queryByText('品牌')).toBeNull();
+    expect(screen.queryByText('分類')).toBeNull();
+  });
+
+  it('🔴 G3-d failed=true 與「沒有符合的」要畫成兩種東西', async () => {
+    // 🛑 少了這一格, 一次讀取失敗會告訴客人「沒有這個品牌」——
+    //    而資料層早就把兩者分開了(`search-facets.ts:35-39` 三旗標各自一格)。
+    // 🔴 **fixture 刻意讓 `brands` 【非空】而 `failed.brands` 為 true。**
+    //    第一版我寫 `brands: []` ⇒ 而那讓兩個世界印同一個東西:
+    //    拿掉 `!facets.failed.brands` 那道判斷之後,`brands.length > 0` 照樣是 false
+    //    ⇒ **突變全綠,而我以為這一格守住了。**(2026-09-03 實跑那一發突變才發現。)
+    //    ⇒ 🎯 非空 + failed ⇒ 少了那道判斷就會【同時】畫「讀不到」與品牌標籤 ⇒ 抓得到。
+    mockFetch(async () =>
+      new Response(withFacets({ failed: { brands: true, categories: false, vehicles: false } }), { status: 200 }),
+    );
+    render(<SearchOverlay />);
+    openWith('排氣');
+    await waitFor(() => expect(screen.getByText('鈦合金全段排氣管')).toBeTruthy());
+    // 世界:品牌讀不到 ⇒ 那一區要出現且說「讀不到」,而**不得同時畫出品牌標籤**
+    expect(screen.getByText('品牌')).toBeTruthy();
+    expect(screen.getByText('這一區暫時讀不到')).toBeTruthy();
+    expect(screen.queryByText('AKRAPOVIČ')).toBeNull(); // 🔴 這一行才是殺得掉突變的那一行
+    expect(screen.getByText('排氣系統')).toBeTruthy();  // 🟢 正對照:分類沒壞 ⇒ 照舊畫
+  });
+
+  it('🔴🔴 G3-e 商品 0 筆而分類有命中 ⇒ 畫分類, 【不准】說「沒有找到」(R1 must-fix 1)', async () => {
+    // 🎯 稿的外閘是**四區聯集**(`SearchOverlay.jsx:60` total = products+brands+categories+vehicles),
+    //    而我第一版寫成只看商品 ⇒ 這個世界會對客人說「沒有找到」。
+    // 🔴 **這不是假想的**:production 打「服務與其他」⇒ items 0 / categories 1(2026-09-03 實測)。
+    // 🧬 突變:把外閘改回 `view.items.length > 0` ⇒ 本格必須紅。
+    mockFetch(async () =>
+      new Response(withFacets({ items: [], brands: [] }), { status: 200 }),
+    );
+    render(<SearchOverlay />);
+    openWith('服務與其他');
+    await waitFor(() => expect(screen.getByText('排氣系統')).toBeTruthy());
+    expect(screen.queryByText(/沒有找到/)).toBeNull();
+  });
+
+  it('🔴 G3-f 商品 0 筆而品牌【讀不到】⇒ 說「讀不到」, 不准說「沒有找到」(R1 must-fix 2)', async () => {
+    // 🛑 plan §5 逐字:不畫 = 告訴客人「沒有這個品牌」。而「沒有找到」比不畫更糟 —— 它是一句斷言。
+    mockFetch(async () =>
+      new Response(withFacets({ items: [], brands: [], categories: [], failed: { brands: true, categories: false, vehicles: false } }), { status: 200 }),
+    );
+    render(<SearchOverlay />);
+    openWith('排氣');
+    await waitFor(() => expect(screen.getByText('這一區暫時讀不到')).toBeTruthy());
+    expect(screen.queryByText(/沒有找到/)).toBeNull();
+  });
+
+  it('🔴 G3-g 分類讀不到時【不得】同時畫出分類標籤(R1 must-fix 5:那道判斷原本零守門)', async () => {
+    // 🎯 這一格與 G3-d 是鏡像 —— G3-d 守品牌那半, 而分類那半當時【沒有任何測試殺得掉】:
+    //    每個 fixture 的 `failed.categories` 都是 false ⇒ 拿掉 `!facets.failed.categories` 全綠。
+    // 🧬 突變:拿掉 `SearchOverlayFacets.tsx` 的 `!facets.failed.categories &&` ⇒ 本格必須紅。
+    mockFetch(async () =>
+      new Response(withFacets({ failed: { brands: false, categories: true, vehicles: false } }), { status: 200 }),
+    );
+    render(<SearchOverlay />);
+    openWith('排氣');
+    await waitFor(() => expect(screen.getByText('AKRAPOVIČ')).toBeTruthy()); // 🟢 正對照:品牌沒壞 ⇒ 照舊畫
+    expect(screen.getByText('這一區暫時讀不到')).toBeTruthy();
+    expect(screen.queryByText('排氣系統')).toBeNull(); // 🔴 殺得掉突變的那一行
+  });
+
+  it('🔴 G3-h 點分類 ⇒ 導頁用【名稱】不是 id(授權偏離, R1 must-fix 6)', async () => {
+    // 🛑 稿 `:167` 用 `c.id`,而我們的 `?category=` 吃名稱(`lib/brand-products.test.ts:20-22`)。
+    //    沒有這一格,下一個人「照稿修回 c.id」時零訊號 —— 而導錯的下場是靜默的。
+    mockFetch(async () => new Response(withFacets(), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('排氣');
+    await waitFor(() => expect(screen.getByText('排氣系統')).toBeTruthy());
+    fireEvent.click(screen.getByText('排氣系統'));
+    expect(push).toHaveBeenCalledWith(`/products?category=${encodeURIComponent('排氣系統')}`);
+  });
+
   it('G2 API 失敗 ⇒ 畫「暫時無法使用」,而**不是**「沒有找到」', async () => {
     mockFetch(async () => new Response('{}', { status: 503 }));
     render(<SearchOverlay />);
