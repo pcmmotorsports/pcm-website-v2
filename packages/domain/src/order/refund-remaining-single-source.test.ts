@@ -253,27 +253,37 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
   //     這兩支讀的是 `order_payments` + `order_manual_refunds`, **一次都沒有 FROM `order_refunds`**。
   //   ⇒ 🔵 **可證偽**:`grep -c 'FROM public.order_refunds' <該檔>` ⇒ 兩支皆 0。
   '20260902030000_m4b_crossrail_pending_refund_net.sql': {
-    // 🔵 3 ⇒ 4(2026-09-02):後置斷言加了**世界E 同軌部分退款**(`-c7` 指出的缺口)
-    //    ⇒ 那一格自己 INSERT 一筆 `refund_amount` ⇒ 多一處字面。
-    //    🎯 而這道閘**當場紅了**, 而它紅的理由是對的:它逐檔比計數, 不只比檔名集合
-    //    ⇒ 📌 「同一個檔裡多冒出一處」正是它要抓的東西, 而我這一次是那個「多冒出一處」的人。
-    count: 4,
+    // 🔵 3 ⇒ 4(2026-09-02):後置斷言加了**世界E 同軌部分退款**(`-c7` 指出的缺口)。
+    // 🔴 **4 ⇒ 1(2026-09-02 稍晚):那整段後置斷言【拿掉了】**(Sean 拍板「依照推薦」)——
+    //    codex 抓到 8 條 must-fix, 而決定性的兩條是:那段測試要 `DELETE` 掉自己造的假資料,
+    //    而 `order_manual_refunds` / `order_payments` **只准新增不准刪**(append-only / no-delete trigger)。
+    //    ⇒ 📌 而那道守門是刻意的(金流紀錄不准刪)⇒ 為了跑測試去繞它是本末倒置。
+    //    ⇒ ⇒ 所以剩下的 1 處在 `pcm_pending_refund_amounts()` 的減法裡(真的碼)。
+    //    ⛔ ~~原本寫「在 pcm_pending_refund_on_cancel 裡」~~ 🔴 **位置寫錯了**(codex 更正)。
+    //       📌 而兩支函式都在同一支檔裡 ⇒ 「哪一支」這個錯【grep 抓不到】, 只有開檔看得到。
+    // 🎯 而這道閘【兩次都當場紅】(3⇒4 那次、4⇒1 這次)⇒ 它逐檔比計數, 不只比檔名集合
+    //    ⇒ **而增加與減少它都抓得到** —— 後者更容易被當成「清理」而放過。
+    count: 1,
     why:
       '⟦b4-CROSSRAILNET⟧ 修一個【已在正式庫上】的多報缺陷:取消時逐軌算而把負的那一軌丟掉,' +
       '跨軌退款(匯款收的錢用現金退 —— Sean 2026-09-02 拍甲說那是合法的)會讓待退款偏高。' +
-      '三處都在 `pcm_pending_refund_amounts` 的那一段減法裡(SUM(m.refund_amount) 一次、' +
-      '欄位在 COMMENT 裡兩次)⇒ 它算的是【非卡兩軌的淨實收】, 不是「卡片還能退多少」。' +
+      '⛔ 原本寫「三處」⇒ 2026-09-02 拿掉後置斷言之後【剩 1 處】。' +
+      '🔴 而那 1 處在 `pcm_pending_refund_amounts()` 的那一段減法裡(SUM(m.refund_amount))——' +
+      '**不是**在 `pcm_pending_refund_on_cancel()`(codex 2026-09-02 must-fix 更正我寫錯的位置)。' +
+      '⇒ 它算的是【非卡兩軌的淨實收】, 不是「卡片還能退多少」。' +
       '🔵 實跑重現+修好:9 個世界(缺陷本體 / 同軌無回歸 / 兩軌分配 / 走 trigger 那條路 / ' +
       '收過錢而算不出欠款要出聲 / 零收款不准出聲)⇒ scratchpad/crossrail-verify.sh。',
   },
-  '20260902040000_m4b_railcap_red_counts.sql': {
-    count: 2,
-    why:
-      '⟦b4-RAILCAPAUDIENCE⟧ 數「現在有幾張單是紅的」(Sean 2026-09-02 拍甲:那個紅要有觀眾)。' +
-      '兩處都在後置斷言造的假資料裡(INSERT 兩筆 refund_amount),函式本體【一次都沒有碰那個欄】——' +
-      '它只呼叫 pcm_manual_refund_rail_cap()。' +
-      '🔵 可證偽:把後置斷言整段拿掉,這個 count 會變成 0 ⇒ 它與那支函式的算式無關。',
-  },
+  // ⛔ ~~'20260902040000_m4b_railcap_red_counts.sql': { count: 2, … }~~
+  // 🔴 **2026-09-02 移除:那支檔的後置斷言【整段拿掉了】**(Sean 拍板「依照推薦」,
+  //    與姊妹檔 20260902030000 同一刀)—— 它造假訂單再靠一發刻意的 EXCEPTION 回滾,
+  //    而 `orders` 有 NOT NULL 無 default 共 10 欄 + 三條 CHECK + 外鍵一路指到 auth.users
+  //    ⇒ 那段在【正式庫】上跑不起來。
+  // 🎯🎯 **而這一條的 `why` 自己【預言了這件事】, 逐字**:
+  //    「🔵 可證偽:把後置斷言整段拿掉,這個 count 會變成 0 ⇒ 它與那支函式的算式無關。」
+  //    ⇒ 📌 而它成真了 —— 拿掉之後這道閘當場紅, 而紅的正是那個 0。
+  //    ⇒ ⇒ **所以那句可證偽不是裝飾:它把一次【清理】變成一次【確認】。**
+  //    ⇒ ⇒ ⇒ 沒有它, 這一刀看起來只是「少了兩處字面」, 而不是「證實了那兩處與算式無關」。
   '20260902020000_m4b_pcm01_record_not_block.sql': {
     count: 3,
     why:

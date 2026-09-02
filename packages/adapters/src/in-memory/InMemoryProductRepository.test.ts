@@ -491,3 +491,32 @@ describe('InMemoryProductRepository.listCategories — C1 接線(由庫存 produ
     expect(await repo.listCategories()).toEqual([]);
   });
 });
+
+// ⟦搜尋-每字全表掃⟧(2026-09-02,`-f3`)—— `countTotal` 在 InMemory 這一層也要守契約。
+//
+// 🔴 **為什麼這一層也要測, 而它「數起來是零成本」**:
+//    InMemory 把整個集合放在記憶體裡 ⇒ 數它不花錢 ⇒ **很容易被寫成「總是回 total」**。
+//    而那會讓契約在這一層【恆綠】, 真 adapter 那層才爆 ——
+//    📌 **一個只在其中一個實作上成立的契約, 不是契約。**
+describe('InMemoryProductRepository.searchByKeyword — countTotal 分路', () => {
+  it('should count by default', async () => {
+    const repo = new InMemoryProductRepository();
+    await repo.save(createFakeProduct({ name: 'Avon 輪胎' }));
+
+    const res = await repo.searchByKeyword('avon', { limit: 8 });
+
+    expect(res.total).toBe(1);
+  });
+
+  it('should leave total undefined when countTotal is false', async () => {
+    // 🔴 「不知道總數」與「共 0 件」是兩件事 —— 與 SupabaseProductAdapter 同一條。
+    const repo = new InMemoryProductRepository();
+    await repo.save(createFakeProduct({ name: 'Avon 輪胎' }));
+
+    const res = await repo.searchByKeyword('avon', { limit: 8 }, { countTotal: false });
+
+    expect(res.items).toHaveLength(1); // 🟢 證明它真的有查到 ⇒ undefined 不是「沒跑到」
+    expect('total' in res).toBe(false);
+    expect(res.total).not.toBe(0);
+  });
+});

@@ -693,13 +693,32 @@ const getCategoryTreeCached = unstable_cache(
   { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
 );
 
-export async function fetchCategories(): Promise<MockCategory[]> {
+/**
+ * 分類樹, 而**帶 `failed`** —— 逐字鏡射 `tryCatalogBrandTaxonomy`(`:603`)那一支的形狀。
+ *
+ * 🔴 **為什麼補這一支**(2026-09-02 `⟦搜尋-第2刀⟧`, `-0a` 裁「不算範圍擴張」):
+ *    `fetchCategories` 撈失敗回 `[]` —— **與「真的沒有任何分類」同一個回傳值**
+ *    ⇒ 搜尋疊層的分類區會在「這次查不到」與「沒有符合的分類」印**同一個畫面**。
+ *    ⚠️ 而 backlog `⟦搜尋-第2刀⟧` 那一列**只警告了品牌那一支** —— 而這一支與
+ *       `fetchVehicleTaxonomy`(`:841-843`)有**一模一樣的病**。
+ *    📌 **⇒ 一段警告的射程止於它舉的那個名字。⇒ 補它不是加碼, 是把規格的意圖套滿它自己的分母。**
+ *
+ * 🛑 **對外那支 `fetchCategories` 的簽章與行為 byte 不變** —— 新需求走這一支。
+ *    (理由與 `tryCatalogBrandTaxonomy` 上方那段同一條:既有呼叫端把「失敗回 `[]`」寫進前提。)
+ */
+export async function tryCategories(): Promise<{ categories: MockCategory[]; failed: boolean }> {
   try {
-    return await getCategoryTreeCached();
+    return { categories: await getCategoryTreeCached(), failed: false };
   } catch (err) {
-    console.error('[fetchCategories] cached categories fetch failed:', err);
-    return [];
+    // 🔴 前綴用【發出它的那支】:查 log 的人會拿這個字串去 grep 函式名。
+    console.error('[tryCategories] cached categories fetch failed:', err);
+    return { categories: [], failed: true };
   }
+}
+
+export async function fetchCategories(): Promise<MockCategory[]> {
+  // 🔴 行為與簽章 byte 不變(見上面那支的說明):這裡**刻意丟掉** `failed`。
+  return (await tryCategories()).categories;
 }
 
 /**
@@ -835,13 +854,26 @@ const getVehicleTaxonomyCached = unstable_cache(
   { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
 );
 
-export async function fetchVehicleTaxonomy(): Promise<MockMotoBrand[]> {
+/**
+ * 車款樹, 而**帶 `failed`** —— 逐字鏡射 `tryCatalogBrandTaxonomy`(`:603`)那一支的形狀。
+ * 🔴 理由與 `tryCategories` 同一條:撈失敗回 `[]` 與「真的沒有任何車款」是同一個回傳值。
+ * 🛑 對外那支 `fetchVehicleTaxonomy` 的簽章與行為 **byte 不變**。
+ */
+export async function tryVehicleTaxonomy(): Promise<{
+  motoBrands: MockMotoBrand[];
+  failed: boolean;
+}> {
   try {
-    return await getVehicleTaxonomyCached();
+    return { motoBrands: await getVehicleTaxonomyCached(), failed: false };
   } catch (err) {
-    console.error('[fetchVehicleTaxonomy] cached fitments fetch failed:', err);
-    return [];
+    console.error('[tryVehicleTaxonomy] cached fitments fetch failed:', err);
+    return { motoBrands: [], failed: true };
   }
+}
+
+export async function fetchVehicleTaxonomy(): Promise<MockMotoBrand[]> {
+  // 🔴 行為與簽章 byte 不變:這裡**刻意丟掉** `failed`。
+  return (await tryVehicleTaxonomy()).motoBrands;
 }
 
 /**

@@ -140,50 +140,57 @@ END
 $grant_assert$;
 
 
--- ── 後置斷言:三個世界, 而其中兩個是【對照組】 ────────────────────────────────
--- 🔴 它【真的算】, 不是數字面 —— 造假資料、跑那支函式、然後回滾。
-DO $post$
-DECLARE
-  v_a uuid := '00000000-0000-0000-0000-00000000cab1';
-  v_b uuid := '00000000-0000-0000-0000-00000000cab2';
-  v_over int;
-BEGIN
-  SELECT r.over_cap INTO v_over FROM public.pcm_manual_refund_red_counts() r;
-  IF v_over IS NULL THEN
-    RAISE EXCEPTION '後置斷言:函式回了 NULL ⇒ 呼叫端會把它當成 0, 而那是「不知道」不是「沒有」';
-  END IF;
-
-  INSERT INTO public.orders(id) VALUES (v_a), (v_b) ON CONFLICT DO NOTHING;
-  -- 世界A:收 1000 而退 1500 ⇒ cap = −500 ⇒ 應該被數進 over_cap
-  INSERT INTO public.order_payments(order_id, rail, amount) VALUES (v_a, 'bank_transfer', 1000);
-  INSERT INTO public.order_manual_refunds(order_id, rail, refund_amount, reason, actor, occurred_at)
-    VALUES (v_a, 'bank_transfer', 1500, '後置斷言', 'assert', pg_catalog.now());
-  -- 🟢 世界B 對照組:收 1000 而退 300 ⇒ cap = 700 ⇒ **不准**被數進去
-  INSERT INTO public.order_payments(order_id, rail, amount) VALUES (v_b, 'cash', 1000);
-  INSERT INTO public.order_manual_refunds(order_id, rail, refund_amount, reason, actor, occurred_at)
-    VALUES (v_b, 'cash', 300, '後置斷言', 'assert', pg_catalog.now());
-
-  SELECT r.over_cap INTO v_over FROM public.pcm_manual_refund_red_counts() r;
-  IF v_over <> 1 THEN
-    RAISE EXCEPTION
-      '世界A/B:over_cap 應為 1(只有超額那一張), 實得 % ⇒ 它把沒超額的也數進去了, 或漏了超額那張',
-      v_over;
-  END IF;
-
-  -- 🟢 世界C 對照組:把超額那筆作廢 ⇒ 額度還回來 ⇒ over_cap 要變回 0
-  --    ⇒ 少了這一格, 一個「永遠回 1」的實作也會通過上面那格。
-  UPDATE public.order_manual_refunds SET voided_at = pg_catalog.now() WHERE order_id = v_a;
-  SELECT r.over_cap INTO v_over FROM public.pcm_manual_refund_red_counts() r;
-  IF v_over <> 0 THEN
-    RAISE EXCEPTION '世界C(作廢後):over_cap 應為 0, 實得 % ⇒ 這把尺不會動', v_over;
-  END IF;
-
-  RAISE NOTICE '✅ 三個世界都對:超額 1 張(而沒超額的那張沒被數進去)· 作廢後 0 張';
-  RAISE EXCEPTION '後置斷言跑完 —— 刻意回滾這段測試資料(這不是失敗)' USING ERRCODE = 'P0001';
-EXCEPTION WHEN SQLSTATE 'P0001' THEN
-  IF SQLERRM NOT LIKE '後置斷言跑完%' THEN
-    RAISE;
-  END IF;
-  RAISE NOTICE '🔵 測試資料已回滾(那一發 EXCEPTION 是刻意的)';
-END
-$post$;
+-- ══ 🪦 這裡曾經有一段【後置斷言】(三個世界), 而它於 2026-09-02 整段拿掉 ═══════
+--
+-- 🔴 **為什麼拿掉 —— 與 `20260902030000` 同一刀、同一個理由**
+--    Sean 2026-09-02 拍板(逐字「依照推薦」)⇒ 那一族的後置斷言在【正式庫】上跑不起來。
+--
+--    這一段做的是:造兩張假訂單 → 灌收款與人工退款 → 跑那支計數函式 → 用一發刻意的
+--    `RAISE EXCEPTION` 回滾。而它踩得到的至少三格(codex 2026-09-02 對姊妹檔抓到的同一組):
+--      🔴 `INSERT INTO public.orders(id) VALUES (…)` ——
+--         `orders` 有 **NOT NULL 而無 default 共 10 欄**(`-0e` 唯讀正式庫量), 外加三條 CHECK,
+--         而 `customer_user_id` 的外鍵一路指到 `auth.users` ⇒ **補值補不出來**
+--      🔴 `UPDATE public.order_manual_refunds SET voided_at = …` 只填一欄 ⇒
+--         違反 `order_manual_refunds_void_trio`(作廢三欄同生同滅;
+--         而 `20260824010000:86` 有一道前置閘專門在驗那個約束在不在)
+--      🔴 `INSERT INTO public.order_payments(order_id, rail, amount)` 漏 `received_at` / `actor`
+--
+--    🔵 **而它與姊妹檔差一格, 而那一格【推翻了姊妹檔那段墓碑的理由】**:
+--       這一段【沒有 DELETE】—— 它靠 `EXCEPTION` 子交易回滾清場。
+--       ⇒ 🔴 而那正好證明:**「schema 不准刪」不是這一族失敗的原因**
+--         (codex 2026-09-02 nit;姊妹檔那段墓碑已一併更正)。
+--       ✅ **⇒ 真正的失敗點是【造不出一列合法的測試資料】** —— 見上面那三格。
+--       🛑 **而上面那三格已經足以讓它在【貼下去的那一刻】失敗。**
+--
+--    🎯 **⇒ 而順序讓它更糟**:Sean 是照 `030000 → 040000 → 020000` 貼的
+--       ⇒ 第一支過了會建立「這批沒問題」的信心, 然後在**第二支**撞牆。
+--
+-- ══ 🛑 而【這一刀的代價】—— 必須寫在紙上 ══════════════════════════════════════
+--
+-- 🔴 **貼下去的那一刻, 沒有任何東西在驗 `pcm_manual_refund_red_counts()` 數得對。**
+--    本檔現在只驗:①函式建起來了 ②`anon` / `authenticated` 零 EXECUTE、`service_role` 有。
+--    ⇒ **它不驗行為。**
+--
+-- 🔵 **而那三個世界原本要證什麼, 以及那個證據現在住在哪**:
+--    原本的三個世界 = 超額 1 張 · 沒超額的那張不被數進去 · 作廢後 0 張
+--    ⛔ ~~而收權極性是那三個世界之一~~ 🔴 **不是**(codex nit):收權是**獨立的**
+--       `$grant_assert$` 段, 它從來就不在那三個世界裡。
+--    ✅ 而那一段**留下來了**(它零寫入 ⇒ 跑得起來)⇒ 所以「權限收好了」仍然有人驗。
+--    ⇒ 🔴 **而「數得對不對」那兩格沒有替代品** —— 與姊妹檔不同:
+--       `20260902030000` 的行為有兩份拋棄式窮舉背書(本窗 9 世界 + `-c7` 10,201 + 4,913),
+--       **而本檔這支計數函式【沒有人在拋棄式 PG 上跑過】。**
+--    ⇒ ⇒ 📌 **所以本檔的代價比姊妹檔【重一格】, 而我把它寫出來而不是抹平。**
+--
+-- 🎯 **⇒ 而它今天可以接受的理由是【射程小】, 不是【驗過了】**:
+--    這支函式**預定**由首頁那一格讀(`today-read.ts`), 而它讀不到時畫面顯示「讀取失敗」——
+--    ⛔ ~~原本寫「只被首頁那一格讀」~~ 🔴 **現在式是錯的**(codex nit):片A 的 app 半
+--       於 `3ce5f73d` 被按下來了 ⇒ **今天沒有任何 `.rpc()` 在呼叫它。**
+--    ⚠️ **而數法要寫精確, 否則下一個人 grep 會以為這句錯了**(本窗當場踩到):
+--       `grep -rl 'pcm_manual_refund_red_counts' apps packages` ⇒ **1 支檔**
+--       而那 1 支是 `manual-refund-ledger-section.tsx` 的**兩行註解**(`:84` / `:116`), 不是呼叫。
+--       ⇒ 📌 **「零呼叫」與「零命中」是兩個數字, 而只有前者是真的。**
+--    ⇒ 一個**數錯的計數**與一個**讀不到**在畫面上分得出來, 而前者不動錢。
+--    🛑 **⇒ 但那是「錯了也不會賠錢」, 不是「它是對的」。⇒ 兩者不要合成一句。**
+--
+-- ⚠️ **下一個人要補這一格的話**:去拋棄式 PG 上跑, 不要放回 migration 裡 ——
+--    理由與姊妹檔同一段:**這個 schema 刻意不讓你刪掉造出來的資料。**

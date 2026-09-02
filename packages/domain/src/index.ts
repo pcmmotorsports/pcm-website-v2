@@ -149,6 +149,8 @@ export { COUPON_REJECT_REASONS } from './order/coupon';
 // 商品卡去白邊 bbox 共用 parser(trim 線 S4a;兩條卡片資料路單一收斂來源、plan 2026-07-19 §5)
 export type { ImageTrim } from './catalog/image-trim';
 export { parseImageTrim } from './catalog/image-trim';
+// ⟦fc-SUPPLIERPLACEHOLDER⟧ 供應商佔位圖判定 —— mapper 與目錄頁 RPC 兩條路共用同一份清單。
+export { isSupplierPlaceholder, dropSupplierPlaceholders } from './catalog/supplier-placeholder';
 
 // 🔴 排程白名單與門檻的【唯一來源】(2026-08-31 從 apps/admin 搬入)。
 //    儀表板與告警器兩側都從這裡讀 —— 各寫一份會漂, 而漂開時兩邊都不會紅。

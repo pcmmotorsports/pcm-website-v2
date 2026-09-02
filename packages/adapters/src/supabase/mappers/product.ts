@@ -1,4 +1,5 @@
 import {
+  dropSupplierPlaceholders,
   parseImageTrim,
   toMoneyAmount,
   type Brand,
@@ -218,6 +219,7 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
   // premiumStore placeholder(對齊 Q2-clarify=A1:mapper 端構造 placeholder、
   //   真值由 computeEffectivePrice 在 storefront dispatch 時覆蓋)。
   const premiumStore: Money = { amount: toMoneyAmount(0), currency: 'TWD' };
+  const productImages = dropSupplierPlaceholders(row.images);
 
   return {
     id: row.id,
@@ -262,9 +264,15 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
           return acc;
         }, [])
       : [],
-    images: row.images,
+    images: productImages,
     // trim 線 S4a:卡片首圖去白邊 bbox → domain 共用 parseImageTrim 收斂(髒數據/缺鍵/save 路徑=undefined、前端 fallback cover)。
-    cardImageTrim: parseImageTrim(row.card_image_trim) ?? undefined,
+    // 🔴 ⟦fc-SUPPLIERPLACEHOLDER⟧ **首圖被濾掉 ⇒ 這個 bbox 必須一起丟掉。**
+    //    view 的 `card_image_trim` 是 `LEFT JOIN product_image_trim t ON t.url = p.images ->> 0`
+    //    (`20260808000000_products_add_sound_clips_expose_view.sql:86`)⇒ 它釘在【DB 的 images[0]】。
+    //    ⇒ DB images[0]=佔位圖、images[1]=真照片時, 濾完首圖換人, 而 bbox 還是佔位圖那張的
+    //    ⇒ ⇒ **真商品照被套上別張圖的裁切框**(`image-trim.ts` 上限 3× 放大)⇒ 客人看到一張被亂裁的照片。
+    //    🛑 而那個壞法**不會紅、不會報錯、也沒有人會回報** —— 它看起來只是「這張照片拍得很怪」。
+    cardImageTrim: productImages[0] === row.images[0] ? parseImageTrim(row.card_image_trim) ?? undefined : undefined,
     availability: row.availability,
     handle: row.handle,
     subtitle: row.subtitle ?? '',
@@ -324,7 +332,7 @@ export function mapVariantRow(row: SupabaseVariantRow): ProductVariant {
 
   // images guard:元素全 string URL(domain ProductVariant.images: string[];空 [] 合法、16c fallback 商品圖)
   // #264:jsonb images 可為 null → 視為空陣列(靠 16c 商品代表圖 fallback)、不 throw。
-  const images = (row.images ?? []).map((img, i) => {
+  const rawImages = (row.images ?? []).map((img, i) => {
     if (typeof img !== 'string') {
       throw new Error(
         `Variant ${row.sku} images[${i}] 非 string(實際 ${typeof img});domain ProductVariant.images 須 string[]`,
@@ -332,6 +340,7 @@ export function mapVariantRow(row: SupabaseVariantRow): ProductVariant {
     }
     return img;
   });
+  const images = dropSupplierPlaceholders(rawImages);
 
   const general: Money = toMoney({ amount: row.price_general, currency: 'TWD' });
   // store / premiumStore dummy(view 排除 price_store、鏡像 mapSupabaseProductToDomain L139/L143);
@@ -397,6 +406,16 @@ export function mapDomainProductToSupabase(
     price_general: domain.priceByTier.general.amount,
     price_store: domain.priceByTier.store.amount,
     fitments: domain.fitments,
+    // 🛑🛑 ⟦fc-SUPPLIERPLACEHOLDER⟧ **這條路會把供應商原始 URL 永久刪掉。**
+    //    `domain.images` 是 `mapSupabaseProductToDomain` 出來的 ——**已經濾過**。
+    //    ⇒ 任何 read → save 來回一次, base 表 `products.images` 裡那些佔位圖 URL 就沒了,
+    //      而檔頭那句「員工仍然看得到供應商給了什麼」**當場變成假的**。
+    //    🔵 今天不會發生:生產碼對 `SupabaseProductAdapter.save(` 是 **0 命中**
+    //       (`grep -rn '\.save(' --include='*.ts' apps packages | grep -v test` ⇒ 這支 adapter 零呼叫)
+    //       ⇒ **這是埋著的雷, 不是現行 bug。**
+    //    🔴 而它會怎麼引爆:未來有人寫「後台編輯商品」時很自然地 read → 改一欄 → save
+    //       ⇒ 那一次 save 會安靜地清掉那些 URL, 而**沒有任何測試會紅**。
+    //    ⇒ 真要修的話落點是「濾在 adapter 的讀邊界」而不是 mapper, 那是另一片。
     images: domain.images,
     availability: domain.availability,
     brand_id: ids.brandId,

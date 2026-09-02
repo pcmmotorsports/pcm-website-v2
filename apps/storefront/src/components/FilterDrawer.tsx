@@ -35,7 +35,8 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { focusFirstInOverlay, trapTabInOverlay } from '@/lib/overlay-focus';
 import {
   selectCategoryMain,
   selectCategorySub,
@@ -154,6 +155,63 @@ export function FilterDrawer({
     return () => { document.body.style.overflow = ''; };
   }, [open]);
 
+  /**
+   * ⟦fc-FOCUSTRAP⟧ **Tab 在抽屜內循環**(2026-09-02)。
+   *
+   * 🔴 **為什麼這一片存在**:抽屜是 `position:fixed; inset:0` 的全屏層,而它**沒有把背景關起來**
+   *    ⇒ 客人用鍵盤時,Tab 會走出抽屜、落到背後的導覽列 / 會員 / 購物車 / 頁尾。
+   * 🔬 真瀏覽器實測基線(`-fc` 2026-09-02,同族的 `.pd-lightbox`):
+   *    全頁 **52** 個可聚焦元素,而那個全屏層裡只有 **1** 個 ⇒ **背景 51 個全部 Tab 得到**;
+   *    且開啟當下 `document.activeElement` 還是 `BODY` ⇒ **它根本沒有把焦點移進來**。
+   *
+   * 🔵 **做法照抄 `MobileMenu.tsx:127-141`,不發明第二種** —— 而那支自己逐字寫著這一片:
+   *    「只做『Tab 在面板內循環』,**不加背景 inert(相容性未逐一驗證、範圍留給獨立片評估)**」。
+   *
+   * 🛑🛑 **而【為什麼不是 `inert`】要寫清楚,因為那才是這一刀真正的理由**:
+   *    `inert` 是更正確的做法(它同時擋掉螢幕閱讀器),而 🔴 **jsdom 對它零判別力** ——
+   *    `-fc` 2026-09-02 拋棄式探針實測:設 `inert` 前後 `focus()` **都成功**
+   *    (`worldA=true` / `worldB=true` / `discriminates=**false**`)
+   *    ⇒ ⇒ **走 `inert` 那條路的產出會是:動了全站共用容器(鐵則 12 ⑥),換到一格【證不到任何事】的綠。**
+   *    ✅ 而 Tab 循環 jsdom **量得到**(同日探針:`discriminates=**true**`)⇒ **它的綠是真的。**
+   *    ⇒ 📌 所以這不是「選比較小的那條」,是【唯一一條驗得起來的】。
+   *
+   * ⚠️ **而它不是等價物,不要讀成等價物**:
+   *    循環擋得住【Tab 走出去】,**擋不住【螢幕閱讀器讀到背景】**。
+   *    ⇒ `inert` 那一半(含 layout 那一層)另開一列,**是被正確地延後,不是被放棄**。
+   */
+  const drawerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    /**
+     * 🔴 **尺與循環都住在 `@/lib/overlay-focus`,這裡不重打一份。**
+     * 第一版我在這支檔裡把它打了兩份(移入只找 `button`、循環找四種)⇒ **當場就已經不同**,
+     * 而那種分岔**不會紅** —— 三發突變一格都沒抓到,是 code-reviewer 讀 diff 抓的。
+     * ⇒ 抽出去的完整理由、已知不完整那一格(缺 `textarea` / `[tabindex]`)寫在那支檔的檔頭。
+     *
+     * 🔴🔴 **開啟時把焦點移進來 —— 它是循環的【前提】,不是第三件事。**
+     * 不做它 ⇒ 焦點留在 `BODY`(`-fc` 2026-09-02 在同族的 `.pd-lightbox` 上實測到的正是這個)
+     * ⇒ 客人按第一下 Tab 從**整頁最上面**開始走 ⇒ **循環要等 30 下才生效 = 等於沒做。**
+     */
+    focusFirstInOverlay(drawerRef.current);
+    const onKeyDown = (e: KeyboardEvent) => {
+      /**
+       * 🔴🔴 **Escape —— 而它是「把焦點關起來」這個承諾的另一半。**
+       * 焦點被關在裡面 ⇒ **就必須有一條出去的路**;只做循環而不做 Escape
+       * = 我們親手把客人關進去了。⇒ 那是這一片唯一一格【新增的傷害】,不是加碼。
+       */
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      trapTabInOverlay(e, drawerRef.current);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+    // 🔴 `onClose` 進了依賴 —— 宿主若每次 render 都給新的函式,這個 effect 會重掛。
+    //    重掛本身無害(listener 先移除再加),而**焦點移入那一行也會跟著再跑一次** ⇒
+    //    客人打到一半焦點被搶回關閉鈕。⇒ 若日後看到那個症狀,病灶在這裡,不在鍵盤處理。
+  }, [open, onClose]);
+
   if (!open) return null;
 
   const productFilterCount =
@@ -218,7 +276,10 @@ export function FilterDrawer({
   return (
     <>
       <div className="fd-overlay" onClick={onClose} />
-      <div className="fd-drawer">
+      {/* ⟦fc-FOCUSTRAP⟧ ref 掛在 `.fd-drawer` 而**不是** `.fd-overlay` ——
+          overlay 是那塊點了會關閉的背板、裡面零個可聚焦元素;
+          循環要在【有東西可以按的那一塊】裡面繞。 */}
+      <div className="fd-drawer" ref={drawerRef}>
         <div className="fd-head">
           <div className="fd-head-title">
             {SCOPE_TITLE[scope]}

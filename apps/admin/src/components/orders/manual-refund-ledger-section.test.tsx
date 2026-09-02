@@ -356,4 +356,46 @@ describe('ManualRefundLedgerSection — ⟦b4-PCM01RECORD⟧ 超出上限要標�
       cleanup();
     }
   });
+
+  /**
+   * 🔴🔴 **⟦b4-PCM01RECORD⟧ / Q17 · Sean 2026-09-02 拍 `B`(逐字「3. B」)= 兩條紅要【長得不一樣】。**
+   *
+   * 🛑 **而這一格【不能】寫成「兩條同時出現在畫面上」** —— 那個世界不存在:
+   *    `manual-refund-ledger-section.tsx:54/:56` 逐字
+   *      `overCap    = railCap !== null && railCap < 0`
+   *      `capUnknown = railCap === null && (…)`
+   *    ⇒ **一個要求非 null、一個要求 null ⇒ 互斥 ⇒ 員工永遠只會看到其中一條。**
+   *    ⚠️ 而 `-f3` 給 Sean 挑的那份樣張把兩條【並排】畫在一起 —— 那是**挑選用的視圖**,
+   *      不是他將來會看到的畫面。⇒ 所以「不同」的意義是**跨時間認得出來**,不是並排比對。
+   *
+   * 🔵 **而尺要用 className 全等比,不能用 `includes('text-destructive')`** ——
+   *    新的那一條是 `text-destructive-foreground`,而它**含有** `text-destructive` 這個子字串
+   *    ⇒ 那把尺對這兩條會印同一個答案(本檔上面那個 `redAlerts` 就是那把尺,它抓不到本格)。
+   */
+  it('[R12] 🔴 兩條紅的 class 必須【不相同】—— 而它們互斥, 所以要分兩次 render 才量得到', () => {
+    const classOf = (cap: number | null): string => {
+      const { container } = render(
+        <ManualRefundLedgerSection rows={[row()]} {...WIRE} railCap={cap} />,
+      );
+      const el = container.querySelector<HTMLElement>('[role="alert"]');
+      const cls = el?.className ?? '';
+      cleanup();
+      return cls;
+    };
+    const over = classOf(-800);
+    const unknown = classOf(null);
+
+    // 🟢 正對照:兩發都真的渲染出東西了(否則「不相同」會被兩個空字串騙過去 —— 那正是恆綠)
+    expect(over).not.toBe('');
+    expect(unknown).not.toBe('');
+
+    // 🔴 本格的斷言
+    expect(unknown).not.toBe(over);
+
+    // 🔴 而【方向】也要釘:Sean 挑的是 B = 第二條【實心紅】
+    //    不釘方向的話,把第一條改壞也會讓「不相同」成立。
+    expect(over).toContain('bg-destructive/10');
+    expect(unknown).toContain('bg-destructive ');
+    expect(unknown).toContain('text-destructive-foreground');
+  });
 });

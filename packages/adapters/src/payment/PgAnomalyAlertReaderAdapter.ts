@@ -418,9 +418,60 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         }
       }
 
+      /**
+       * ⟦b9-RLSHARDEN⟧ 甲(片B):`service_role` 還帶不帶 `BYPASSRLS`。
+       *
+       * 🔴 **錯誤處理比心跳那支【簡單一格】, 而簡單的理由要寫出來**:
+       *    本函式**零參數、零 `RAISE`** ⇒ 沒有「它自己的參數閘」那條分支要分辨
+       *    ⇒ 只留 `42883`(函式不存在 ⇒ 部署窗口 ⇒ unknown), **其餘一律 throw**。
+       * 🎯 **而「其餘一律 throw」是刻意的, 它就是 codex must-fix ④ 的落點**:
+       *    真的讀不到 `pg_catalog.pg_roles` 時整支 SQL 會**報錯**, 不會回一個帶 0 的 JSON
+       *    ⇒ 那個錯必須**往上冒**、由 route 記成【查不到】(log + 503),
+       *    **不得在這裡被吞成 unknown** —— 吞了就與「函式還沒 apply」印同一個東西。
+       */
+      let bypassRlsRows: Array<Record<string, unknown>> = [];
+      try {
+        const res = await client.query(
+          'SELECT public.get_privileged_role_bypassrls_state() AS result',
+          [],
+        );
+        bypassRlsRows = res.rows;
+      } catch (err) {
+        const code = (err as { code?: unknown } | null)?.code;
+        if (code === UNDEFINED_FUNCTION) {
+          // 🔵 與心跳那支同款的二次確認:`42883` 也可能來自別的東西
+          //    ⇒ 直接問 `to_regprocedure` 才算數, 不憑錯誤碼推。
+          const probe = await client.query(
+            "SELECT to_regprocedure('public.get_privileged_role_bypassrls_state()') IS NULL AS missing",
+            [],
+          );
+          // 函式其實【在】⇒ 那個 42883 來自它內部 ⇒ 它真的壞了 ⇒ 上拋。
+          if (probe.rows[0]?.missing !== true) throw err;
+        } else {
+          /**
+           * 🔴🔴 **R3 consider 2 —— 而我當 must-fix 修, 因為它打的是【最壞的那一天】。**
+           *
+           * ⛔ ~~我第一版寫 `if (code !== UNDEFINED_FUNCTION) throw err;`~~ ⇒
+           *   **任一非 42883 的錯誤會讓【整輪】告警 throw** ⇒ route catch ⇒ 503
+           *   ⇒ ⇒ **那天的雙重扣款 / 退款卡住告警一封都不寄。**
+           * 🎯 **而最現實的那個錯誤, 正好發生在這支探針最該說話的那一天**:
+           *   有人做安全強化時順手 `REVOKE EXECUTE … FROM payment_confirmer` ⇒ **42501**
+           *   ⇒ 📌 **一支用來偵測「權限被收緊」的探針, 會在權限被收緊那天把金流告警一起弄啞。**
+           * 🛑 而它是**本片新增的一條路** —— 每加一支探針就多一條殺掉金流告警的路。
+           * ✅ 這一發是**最後一發、後面沒有查詢** ⇒ 安全地 catch-all:落 Unknown(route 照樣 503),
+           *   **而不把別人的告警拖下水**。
+           * 🔵 log 分開印, 讓「函式沒 apply」與「我沒有權限叫它」在事後分得出來。
+           */
+          console.error(
+            '[anomaly-alert] 🔴 get_privileged_role_bypassrls_state 讀失敗(非 42883)⇒ 權限那一格落【查不到】,而其他告警照常送',
+            { code },
+          );
+        }
+      }
+
       return parseAlertSummary(
         counts.rows, ids, refundRows, emailRows, shippedRows, orderCreatedRows,
-        orderCreatedStuckRows, heartbeatRows,
+        orderCreatedStuckRows, heartbeatRows, bypassRlsRows,
       );
     });
   }
@@ -676,6 +727,7 @@ function parseAlertSummary(
   orderCreatedRows: Array<Record<string, unknown>>,
   orderCreatedStuckRows: Array<Record<string, unknown>>,
   heartbeatRows: Array<Record<string, unknown>>,
+  bypassRlsRows: Array<Record<string, unknown>>,
 ): AnomalyAlertSummary {
   const r = rows[0]?.result as Record<string, unknown> | undefined;
   if (!r || typeof r !== 'object') {
@@ -762,6 +814,73 @@ function parseAlertSummary(
         cronHeartbeatAbnormalJobs: collectHeartbeatJobNames(hb!),
         cronHeartbeatUnknown: false,
       };
+
+  /**
+   * ⟦b9-RLSHARDEN⟧ 甲(片B):`service_role` 還帶不帶 `BYPASSRLS`。
+   *
+   * 🔴 **三態,而它們的【下一步不同】** ——
+   *   `rows = []`     ⇒ undefined ⇒ 函式不存在(部署窗口)⇒ `bypassRlsUnknown`
+   *   `result` 非物件 ⇒ 函式跑了而回了怪東西 ⇒ **那是壞掉, throw**
+   *   正常物件        ⇒ 讀 `service_role_bypassrls`
+   *
+   * 🛑 **而那一欄自己也是三態, 不要壓成 boolean**:
+   *   `true`  ⇒ 屬性還在(今天的正常態)
+   *   `false` ⇒ **被收掉了 ⇒ 這就是要叫的那一格**
+   *   `null`  ⇒ `service_role` 這個角色不存在 ⇒ **【查不到】不是【沒事】**
+   * 📌 ⇒ 所以 `bypassRlsRevoked` 只在**明確拿到 `false`** 時才是 `true`;
+   *    拿到 `null` 走 `bypassRlsUnknown`, **不得 `?? false` 混進正常態**。
+   */
+  const br = bypassRlsRows[0]?.result as Record<string, unknown> | undefined;
+  const brMissing = br === undefined;
+  // 🔴 **`Array.isArray` 那一格是 codex R2 must-fix**:`typeof [] === 'object'` 且 `[] !== null`
+  //    ⇒ 一個回 `[]` 的 RPC **通得過上面兩個條件** ⇒ 不 throw ⇒ 靜靜降級成 Unknown
+  //    ⇒ 而 route 會把它印成「函式未 apply 或 service_role 不存在」—— **那是錯的成因**。
+  // 📌 **⇒ 一個【壞掉的回應】被記成【還沒部署】, 而兩者的下一步完全不同。**
+  if (!brMissing && (br === null || typeof br !== 'object' || Array.isArray(br))) {
+    throw new AnomalyAlertReaderParseError('get_privileged_role_bypassrls_state 回應格式異常');
+  }
+  /**
+   * 🔴 **codex 2026-09-02 must-fix ②:型別要驗, 否則 fail-open。**
+   * 我第一版直接拿 `br!.service_role_bypassrls` 去比 `=== false` ——
+   * ⇒ RPC 若回**字串** `"false"`(而 `total_role_count` 正常)⇒
+   *   `Revoked = false` · `Unknown = false` ⇒ **被當成健康, 靜靜通過**。
+   * 📌 **⇒ 一個「不是我預期的型別」的值, 在 `=== false` 底下與「屬性還在」印同一個答案。**
+   * ✅ 只認 `boolean` 與 `null`;其餘一律當**量不到**(fail-closed)。
+   */
+  const brRaw = brMissing ? undefined : br!.service_role_bypassrls;
+  const brWellTyped = typeof brRaw === 'boolean' || brRaw === null;
+  const brValue = brWellTyped ? (brRaw as boolean | null) : undefined;
+  /**
+   * 🔴 **另外兩欄要【真的讀】, 不能只放在 SQL 裡**(`anomaly-alert-key-contract.test.ts` 逼出來的):
+   *    那道對帳閘比對「SQL 產出的 key」vs「TS 讀取的 key」—— 而我第一版只讀了一欄
+   *    ⇒ 另外兩欄是**回了而沒有人看**的東西。
+   * 🎯 **而它們在這裡有一個真的工作**:`total_role_count` 是**合理性下界** ——
+   *    一個健康的 PostgreSQL 至少存在【當下這個執行角色】⇒ 它必須是正整數。
+   *    不是正整數 ⇒ 這次讀到的東西**不可信** ⇒ 走 `Unknown`(fail-closed), 不當成「屬性還在」。
+   * 🛑 而它**不是** codex 打掉的那句 —— 那句是「`total_role_count = 0` 代表尺沒接上」,
+   *    而真的讀不到 `pg_roles` 是**報錯**不是回 0。這裡守的是【回了一個怪值】那條路。
+   */
+  const brTotal = brMissing ? undefined : br!.total_role_count;
+  const brPrivileged = brMissing ? undefined : br!.privileged_role_count;
+  const brTotalSane = typeof brTotal === 'number' && Number.isInteger(brTotal) && brTotal > 0;
+  const bypassRls = {
+    // 🔴 只認 boolean `false`,**而且要在總數合理的前提下**。
+    //    `null`(角色不存在)與 `undefined`(函式不存在)都不是「被收掉」。
+    // 🔴🔴 **R3 must-fix 3:`brTotalSane` 不得掛在這一半。**
+    //    ⛔ ~~我第一版寫 `brValue === false && brTotalSane`~~ ——
+    //    ⇒ 一個 `{"service_role_bypassrls": false, "total_role_count": "35"}`(字串,
+    //      或哪天有人把那個 count 改成 `::text` / 走另一條序列化)
+    //      ⇒ `brTotalSane = false` ⇒ **Revoked 被降級成 Unknown ⇒ 只有 503, 信不寄**
+    // 🎯 **⇒ 我把一道合理性檢查掛在【壓掉警報】的方向, 而 `false` 是本片唯一承重的訊號。**
+    // ✅ 拿到明確的 `false` 就叫。合理性下界只留在 `Unknown` 那一半(它守的是「別把沒量到當成沒事」)。
+    bypassRlsRevoked: brValue === false,
+    // 🔵 三種都算【查不到】,成因不同 —— route 的 log 會把它們分開印。
+    bypassRlsUnknown:
+      brMissing || !brWellTyped || brValue === null || brValue === undefined || !brTotalSane,
+    // 🔵 診斷用:讓 503 那條 log 印得出「我到底讀到什麼」,而不是只說「讀不到」。
+    bypassRlsPrivilegedCount: typeof brPrivileged === 'number' ? brPrivileged : null,
+    bypassRlsTotalRoleCount: typeof brTotal === 'number' ? brTotal : null,
+  };
   /**
    * 🔴🔴 **三道回應層對帳(codex 2026-08-31 片3 R1 #3/#4)** —— 全部 fail-loud,
    *   因為這一族的失敗形狀是**靜默地看起來健康**, 而那是本片要治的病本身。
@@ -849,6 +968,7 @@ function parseAlertSummary(
     // 🔴 **它必須出得去** —— 沒有這一格, adapter 的 fail-closed 在下游就被 `?? 0` 拆掉了。
     orderCreatedStuckUnknown,
     ...cronHeartbeat,
+    ...bypassRls,
     openCount: parseCount(r.open_count, 'open_count'),
     refundingCount: parseCount(r.refunding_count, 'refunding_count'),
     refundingStuckCount: parseCount(r.refunding_stuck_count, 'refunding_stuck_count'),

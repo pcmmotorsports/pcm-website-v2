@@ -21,6 +21,7 @@
 ## 🔴 ① 已寄出的信裡那句(**已單獨急報,`ed0e7c3f`**)
 ```
 信的全文:「您的訂單 {id} 已付款成功。/ 我們將盡快為您安排出貨；**訂單明細與最新狀態請至 PCM 會員中心查看。**」
+> 🔵 **2026-09-02 補注(只加一行, 上面的字一個都沒改 —— 那是當天的證據)**:上面引的那句純文字信文案**已經改了** ⇒ 現行字面見 `packages/use-cases/src/sweep-email-outbox.ts` 的 `buildOrderCreatedText`;而**客人多數讀到的是 HTML 那一份**(`paid-email-html.ts`), 兩份措辭不同。
 🔴 「訂單【明細】」指向的「查看詳情 →」是**一顆死鈕**（OrdersTab.tsx:74，無 onClick；= backlog #240）
 🔴 而「盡快安排出貨」之後**沒有出貨信** —— `sweep-email-outbox.ts:112` `order_shipped` **直接 throw**
 ⇒ **客人拿到的唯一一封信，一句指向死鈕，一句預告一封永遠不會來的信。**

@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   loadDataFreshness: vi.fn(),
   loadFitmentFreshness: vi.fn(),
   loadCronHeartbeats: vi.fn(),
+  loadDeadLetterCount: vi.fn(),
 }));
 vi.mock('../lib/session/actor-actions', () => ({ selectActorAction: vi.fn() }));
 vi.mock('../lib/session/actor', () => ({
@@ -42,6 +43,10 @@ vi.mock('../lib/dashboard/freshness-read', async (orig) => ({
   loadFitmentFreshness: mocks.loadFitmentFreshness,
 }));
 // 同上:`unreadableReport` **刻意不 mock** —— 它是「量不到長什麼樣」的唯一作者。
+vi.mock('../lib/mail/dead-letter-count-read', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  loadDeadLetterCount: mocks.loadDeadLetterCount,
+}));
 vi.mock('../lib/dashboard/cron-heartbeat-read', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   loadCronHeartbeats: mocks.loadCronHeartbeats,
@@ -78,6 +83,12 @@ beforeEach(() => {
   mocks.loadTodaySummary.mockResolvedValue(SUMMARY);
   mocks.loadDataFreshness.mockResolvedValue({ hoursAgo: 3, stale: false, abnormal: false, unreadableReason: null });
   mocks.loadFitmentFreshness.mockResolvedValue({ hoursAgo: 24, stale: false, abnormal: false, unreadableReason: null });
+  mocks.loadDeadLetterCount.mockResolvedValue({
+    total: 0,
+    dead: 0,
+    deadExact: true,
+    unreadableReason: null,
+  });
   mocks.loadCronHeartbeats.mockResolvedValue({
     jobs: [
       { jobName: 'pcm-settle-sweep', label: '結帳掃描', minutesAgo: 1, consecutiveFailures: 0, abnormal: false, note: '1 分前成功' },
@@ -397,5 +408,68 @@ describe(':247 具名身分那句話 —— 六個世界各講各的話', () => 
     expect(src).toContain('actorSource');
     expect(src).not.toContain('requireRealIdentity');
     expect(src).not.toContain('ADMIN_REQUIRE_REAL_IDENTITY');
+  });
+});
+
+// ⟦f3-DEADLETTERCOUNT⟧ — 首頁那張「寄不出去的信」卡片。
+//
+// 🔴 這三格驗的都是**兩個世界要印不同的東西**,不是「數字有出現」:
+//    ① 讀不到 ≠ 一封都沒有 ② 被截斷的「已放棄」不可以印得像精確值
+//    ③ 而總數要來自 DB 的 count(那一格在 read 層驗,這裡驗它有被畫出來)。
+describe('死信計數卡片', () => {
+  it('should show both the total and how many have been given up', async () => {
+    mocks.loadDeadLetterCount.mockResolvedValue({
+      total: 7,
+      dead: 5,
+      deadExact: true,
+      unreadableReason: null,
+    });
+
+    const { container } = render(await AdminHomePage());
+    const t = container.querySelector('[data-testid="dead-letter-count"]')?.textContent ?? '';
+
+    expect(t).toContain('7');
+    expect(t).toContain('5');
+    expect(t).toContain('已放棄');
+  });
+
+  it('should say it cannot read rather than showing a zero', async () => {
+    // 🔴 「量不到」印成 0 ⇒ 我們壞了會長得像好消息。
+    mocks.loadDeadLetterCount.mockResolvedValue({
+      total: 0,
+      dead: 0,
+      deadExact: false,
+      unreadableReason: '查詢失敗',
+    });
+
+    const { container } = render(await AdminHomePage());
+    const t = container.querySelector('[data-testid="dead-letter-count"]')?.textContent ?? '';
+
+    expect(t).toContain('量不到');
+    expect(t).not.toContain('目前沒有卡住的信');
+  });
+
+  it('should mark the given-up figure as a lower bound once the scan cap is passed', async () => {
+    mocks.loadDeadLetterCount.mockResolvedValue({
+      total: 9999,
+      dead: 2000,
+      deadExact: false,
+      unreadableReason: null,
+    });
+
+    const { container } = render(await AdminHomePage());
+    const t = container.querySelector('[data-testid="dead-letter-count"]')?.textContent ?? '';
+
+    expect(t).toContain('下界');
+  });
+
+  it('should still render the card when the count loader rejects', async () => {
+    mocks.loadDeadLetterCount.mockRejectedValue(new Error('boom'));
+
+    const { container } = render(await AdminHomePage());
+    const box = container.querySelector('[data-testid="dead-letter-count"]');
+
+    expect(box).not.toBeNull();
+    expect(box?.textContent ?? '').toContain('量不到');
   });
 });

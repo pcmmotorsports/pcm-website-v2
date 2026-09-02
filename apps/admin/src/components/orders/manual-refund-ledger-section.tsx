@@ -168,9 +168,20 @@ export function ManualRefundLedgerSection({
         </p>
       )}
       {capUnknown && (
+        // 🔴🔴 **這一條刻意與上面那條【長得不一樣】—— Sean 2026-09-02 拍 `Q17 = B`**(逐字「3. B」)。
+        //    他看的是三個實體版本(`~/pcm-mailbox/樣張-Q17-兩條紅要換成什麼-20260902.html`):
+        //      A 灰(「這不是你做錯了」)· **B 實心紅(「這件更嚴重」)** · C 深色系統訊息
+        //    ⇒ 而「不同」那個要求本身是他更早那一板(2026-09-02 01:2x 第二批 `q4: 甲`,
+        //      原話「一起改, **標一個不同的紅**」)⇒ 上面 :150-156 那段是它的理由。
+        // 🔵 **`text-destructive-foreground` 不是 `text-white`, 而那是承重的**:
+        //    `globals.css` 淺色 `--destructive-foreground:#ffffff`、`.dark` 那一組是 `oklch(0 0 0)`(黑)
+        //    ⇒ 寫死 `text-white` 在深色模式會變成【亮紅底 + 白字】, 而 token 那一對本來就是為對比設計的。
+        //    ⚠️ 而本檔外多數 `bg-destructive` 的用法寫的是 `text-white`(9 處裡 8 處)——
+        //       **那是另一片的事, 本片不動它們**;先例在 `cancel-form-body.tsx:95`。
+        // 🛑 **而同檔 :188 / :203 那兩個 `text-destructive`(載入失敗 / 列被截斷)不在這一題裡, 沒有動。**
         <p
           role='alert'
-          className='border-destructive/40 bg-destructive/10 text-destructive mb-3 rounded-md border px-3 py-2 text-sm'
+          className='border-destructive bg-destructive text-destructive-foreground mb-3 rounded-md border px-3 py-2 text-sm'
         >
           {/* 🔴 單號要在這一句裡 —— 員工看到它會去打電話, 而電話那頭第一句一定是「哪一張」。
               📌 而它與上面那句的差別不只是文案:上面那句員工自己就能處理, 這一句他不能。 */}

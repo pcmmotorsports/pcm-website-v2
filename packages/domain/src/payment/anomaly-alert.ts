@@ -256,6 +256,28 @@ export type AnomalyAlertSummary = {
    */
   cronHeartbeatUnknown: boolean;
   /**
+   * ⟦b9-RLSHARDEN⟧ 甲:`service_role` 的 `BYPASSRLS` 被收掉了嗎。
+   *
+   * 🔴 **兩個旗標而不是一個三態值, 理由是【下一步不同】**:
+   *   `bypassRlsRevoked = true` ⇒ 屬性被收掉 ⇒ **進 `shouldAlert`**(錢與權限, 吵 Sean)
+   *   `bypassRlsUnknown = true` ⇒ 量不到(函式未 apply / `service_role` 不存在)
+   *                              ⇒ **不進 `shouldAlert`**, 走 log + 503(部署問題吵看 cron 的人)
+   * 🛑 **兩者不可互相推導**:`Revoked=false` 有兩種成因(屬性還在 / 我根本沒量到),
+   *    而它們在一個裸 boolean 上長得一模一樣 —— 那正是本片要治的病。
+   * 📌 ⇒ 所以 `Revoked` 只在**明確拿到 `false`** 時為 `true`;`null` 走 `Unknown`。
+   */
+  bypassRlsRevoked: boolean;
+  bypassRlsUnknown: boolean;
+  /** 🔵 讀到的兩個分母。**不直接進 `shouldAlert`** —— 那道閘只看上面兩個旗標。
+   *  ⛔ ~~我第一版寫「它們**不是判準**」~~ —— **codex R2 nit 打掉, 而它是對的**:
+   *     `bypassRlsTotalRoleCount` **確實參與判定** —— adapter 拿它當**回應合理性下界**
+   *     (不是正整數 ⇒ 那次讀到的東西不可信 ⇒ 走 Unknown)。
+   *  📌 **⇒ 「不進 shouldAlert」與「不是判準」是兩句話, 而我把它們寫成了同一句。**
+   *  🔵 `bypassRlsPrivilegedCount` 才是純診斷:它只讓 503 的 log 印得出
+   *     「我到底讀到什麼」, 而不是只說「讀不到」。 */
+  bypassRlsPrivilegedCount: number | null;
+  bypassRlsTotalRoleCount: number | null;
+  /**
    * 🔴 上面五個是不是**讀不到**。
    * ⚠️ **它只代表【函式不存在】(部署窗口),不代表權限問題**(codex 2026-08-29 nit:
    *    原句寫「RPC 尚未 apply / 權限問題」是錯的)—— `42501` 在 adapter 是**原封上拋**,

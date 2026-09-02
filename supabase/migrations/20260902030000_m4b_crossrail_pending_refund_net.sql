@@ -354,104 +354,73 @@ BEGIN
 END;
 $fn$;
 
--- ── 後置斷言:三個世界, 而它們是那支 probe 的縮影 ──────────────────────────────
--- 🔴 這一段【真的算】, 不是數字面 —— 它建拋棄式的假資料、跑那支函式、然後全部回滾。
---    ⇒ 而那正是本支要證的東西:**它算出來的數對不對**, 不是「那幾行字面在不在」。
-DO $post$
-DECLARE
-  v_o    uuid := '00000000-0000-0000-0000-0000000c0de1';
-  v_sum  bigint;
-  v_rows int;
-BEGIN
-  INSERT INTO public.orders(id) VALUES (v_o) ON CONFLICT DO NOTHING;
-  IF NOT EXISTS (SELECT 1 FROM public.orders WHERE id = v_o) THEN
-    RAISE EXCEPTION '後置斷言:造不出測試訂單 ⇒ 這一段【沒有跑】, 而那不等於通過';
-  END IF;
-
-  -- 世界A:匯款收 1000 · 現金退 500 ⇒ 應該恰好一列, 而合計 500
-  INSERT INTO public.order_payments(order_id, rail, amount) VALUES (v_o, 'bank_transfer', 1000);
-  INSERT INTO public.order_manual_refunds(order_id, rail, refund_amount, reason, actor, occurred_at)
-    VALUES (v_o, 'cash', 500, '後置斷言', 'assert', pg_catalog.now());
-  SELECT COALESCE(SUM(amount), 0), count(*) INTO v_sum, v_rows
-    FROM public.pcm_pending_refund_amounts(v_o);
-  IF v_sum <> 500 THEN
-    RAISE EXCEPTION '世界A(跨軌):合計應為 500, 實得 % ⇒ 本支沒有修好那個多報', v_sum;
-  END IF;
-  IF v_rows <> 1 THEN
-    RAISE EXCEPTION '世界A:應恰好 1 列(只有 bank 還有正餘額), 實得 % 列', v_rows;
-  END IF;
-
-  -- 🟢 世界B 正對照:把那筆現金退款作廢 ⇒ 回到「完全沒有退款」⇒ 合計要變回 1000
-  --    ⇒ 少了這一格,一個「永遠回 500」的實作也會通過世界A。
-  -- 🔵 **【R3 nit】帶上 `voided_at IS NULL`** —— 少了它會再碰一次已作廢的那列。
-  --   它今天沒紅是因為 `pg_catalog.now()` 在同一交易內恆等;換成 `clock_timestamp()` 就當場炸。
-  --   ⇒ 📌 **一發「今天剛好不會紅」的寫法, 與一發對的寫法, 在綠燈下長得一樣。**
-  UPDATE public.order_manual_refunds SET voided_at = pg_catalog.now()
-   WHERE order_id = v_o AND voided_at IS NULL;
-  SELECT COALESCE(SUM(amount), 0) INTO v_sum FROM public.pcm_pending_refund_amounts(v_o);
-  IF v_sum <> 1000 THEN
-    RAISE EXCEPTION '世界B(作廢後):合計應為 1000, 實得 % ⇒ 這把尺不會動', v_sum;
-  END IF;
-
-  -- 🟢🟢 世界E 正對照:**同軌部分退款** ⇒ 匯款收 1000、匯款退 500 ⇒ 恰好一列合計 500
-  --    🔴 **這一格是 `-c7` 2026-09-02 指出來的缺口, 而它是本支【最該有】的一格**:
-  --      上面 A/B/C/D 全部沒有演過「一條軌自己收自己退」—— 而那是**平常每天都在發生**的那一種。
-  --      ⇒ 📌 A 證的是「跨軌那一種會算對」;而**沒有東西在證「本來對的那一種沒有被改壞」**。
-  --      ⇒ ⇒ 🛑 **這一片的風險方向是【修過頭】, 不是【沒修到】** —— 而那需要不同的對照。
-  --    🔵 而 `-c7` 自報它就是寫 `WHERE x.amt > 0` 那一行的人, 而它給的形狀是:
-  --      「一個【過濾掉零】的條件, 在有負數的世界裡變成【丟資訊】」
-  --      ⇒ 而它躲過三輪審查的方式:每一輪都在問「這一列該不該開」,
-  --        **沒有人問那個負數去哪了**。
-  --    ⚠️ 本窗的拋棄式 harness 有演過同軌那一格(commit body 的「🟢 同軌 500」),
-  --      **而 migration 自己的後置斷言沒有** ⇒ 📌 **harness 演過, 不等於【貼下去的那一刻】會驗。**
-  --      而 Sean 貼的是這支檔, 不是我的 harness。
-  DELETE FROM public.order_manual_refunds WHERE order_id = v_o;
-  DELETE FROM public.order_payments WHERE order_id = v_o;
-  INSERT INTO public.order_payments(order_id, rail, amount) VALUES (v_o, 'bank_transfer', 1000);
-  INSERT INTO public.order_manual_refunds(order_id, rail, refund_amount, reason, actor, occurred_at)
-    VALUES (v_o, 'bank_transfer', 500, '後置斷言', 'assert', pg_catalog.now());
-  SELECT COALESCE(SUM(amount), 0), count(*) INTO v_sum, v_rows
-    FROM public.pcm_pending_refund_amounts(v_o);
-  IF v_sum <> 500 OR v_rows <> 1 THEN
-    RAISE EXCEPTION
-      '世界E(同軌部分退款):應為 1 列合計 500, 實得 % 列合計 % ⇒ 平常那一種被改壞了',
-      v_rows, v_sum;
-  END IF;
-
-  -- 🟢 世界C 正對照:退款超過收款 ⇒ total <= 0 ⇒ **一列都不准開**
-  INSERT INTO public.order_manual_refunds(order_id, rail, refund_amount, reason, actor, occurred_at)
-    VALUES (v_o, 'cash', 1200, '後置斷言', 'assert', pg_catalog.now());
-  SELECT count(*) INTO v_rows FROM public.pcm_pending_refund_amounts(v_o);
-  IF v_rows <> 0 THEN
-    RAISE EXCEPTION '世界C(退款超過收款):應開 0 列, 實得 % 列 ⇒ 它會開一筆我們不欠的錢', v_rows;
-  END IF;
-
-  -- 🟢 世界D 正對照:**兩軌都有收款而沒有退款** ⇒ 各拿自己的, 而合計恰好等於總收款
-  --    🔴 **這一格是後補的, 而補它的是一個回歸**:第一版的分配式在這個世界裡
-  --      **把 `cash` 那一整列弄不見**(合計 600 而不是 1000)⇒ 而世界A/B/C 三格【全部照過】。
-  --    ⇒ 📌 **世界A 只有一條正軌 ⇒ 它對「多條軌怎麼分」零判別力。**
-  --      ⇒ ⇒ **缺陷本體那一格證不了分配對不對, 而我原本以為它可以。**
-  -- 🔵 **【R3 nit】帶上 `voided_at IS NULL`** —— 少了它會再碰一次已作廢的那列。
-  --   它今天沒紅是因為 `pg_catalog.now()` 在同一交易內恆等;換成 `clock_timestamp()` 就當場炸。
-  --   ⇒ 📌 **一發「今天剛好不會紅」的寫法, 與一發對的寫法, 在綠燈下長得一樣。**
-  UPDATE public.order_manual_refunds SET voided_at = pg_catalog.now()
-   WHERE order_id = v_o AND voided_at IS NULL;
-  INSERT INTO public.order_payments(order_id, rail, amount) VALUES (v_o, 'cash', 400);
-  SELECT COALESCE(SUM(amount), 0), count(*) INTO v_sum, v_rows
-    FROM public.pcm_pending_refund_amounts(v_o);
-  IF v_sum <> 1400 OR v_rows <> 2 THEN
-    RAISE EXCEPTION
-      '世界D(兩軌都有收款、無退款):應為 2 列合計 1400, 實得 % 列合計 % ⇒ 分配式弄丟了一整軌',
-      v_rows, v_sum;
-  END IF;
-
-  RAISE NOTICE '✅ 五個世界都對:跨軌 500(1 列)· 作廢後 1000 · 同軌部分退 500(1 列)· 超退 0 列 · 兩軌 1400(2 列)';
-  RAISE EXCEPTION '後置斷言跑完 —— 刻意回滾這段測試資料(這不是失敗)'
-    USING ERRCODE = 'P0001';
-EXCEPTION WHEN SQLSTATE 'P0001' THEN
-  IF SQLERRM NOT LIKE '後置斷言跑完%' THEN
-    RAISE;
-  END IF;
-  RAISE NOTICE '🔵 測試資料已回滾(那一發 EXCEPTION 是刻意的)';
-END
-$post$;
+-- ⛔ ~~後置斷言:三個世界, 而它們是那支 probe 的縮影~~
+-- ⛔ ~~這一段【真的算】…它建拋棄式的假資料、跑那支函式、然後全部回滾~~
+--    🔴 **那個標題與下面那塊墓碑【直接矛盾】**(codex 2026-09-02 must-fix):
+--       斷言已經不存在了, 而這幾行還在宣稱它「真的算」。
+--    ⇒ 📌 而它是【拿掉一段碼而沒有拿掉介紹那段碼的字】—— 而介紹的字讀起來像現況。
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 🔴🔴 2026-09-02 09:5x 訂正(零刪除, 舊字面在下面的註解裡留著)——
+--    ⛔ ~~`INSERT INTO public.orders(id) VALUES (v_o)`~~ 那一行在【正式庫】上會被擋:
+--       ERROR 23502: null value in column "display_id" ⇒ Sean 09:3x 貼的時候撞到。
+--    🛑 而它在【本機拋棄式庫】上是過的 —— 那個庫沒有那些約束。
+--    📌 ⇒ 而這支檔自己的註解(世界E 那一段)逐字寫過:
+--       「harness 演過, 不等於【貼下去的那一刻】會驗」—— 而它今天說中了自己。
+--    🔴 而正式庫上那一張表要跨【三道】(`-0e` 2026-09-02 唯讀量, 兩把尺交叉):
+--       ① NOT NULL 而無 default 共 10 欄
+--       ② 三條 CHECK:display_id 格式 / 地址白名單(剛好 name+phone+line)/ 發票白名單
+--       ③ 外鍵 orders.customer_user_id → customers.user_id → **auth.users(id)**
+--    🛑 而 ③ 是【補值補不出來的】⇒ 所以只能【撈一個現有的 customers.user_id】,
+--       而不是現建一列(現建要先有一列 auth.users, 那是另一個量級的事)。
+-- ══════════════════════════════════════════════════════════════════════════════
+-- ══ 🪦 這裡曾經有一段【後置斷言】(五個世界), 而它於 2026-09-02 整段拿掉 ═══════
+--
+-- 🔴 **為什麼拿掉 —— 而理由不是「它寫錯了」, 是【它在正式庫上跑不起來】**
+--    codex 2026-09-02 對它抓到 **8 條 must-fix**, 而其中兩條是決定性的:
+--      🔴 `DELETE FROM public.order_manual_refunds` ⇒ 被 **append-only trigger(PCM03)** 擋
+--      🔴 `DELETE FROM public.order_payments`       ⇒ 被 **no-delete trigger** 擋
+--    ⇒ 而那段測試要刪掉自己造的假資料 ⇒ 而那兩張表**只准新增不准刪**。
+--    🛑 **而那道守門是刻意的(金流紀錄不准刪)** ⇒ 為了跑測試去繞它是本末倒置。
+--    🔵 `-0e` 獨立量到同一組 trigger(5 道, 全部含 RAISE EXCEPTION)⇒ 兩個來源同向。
+--    ✅ **Sean 2026-09-02 10:0x 拍板, 逐字「依照推薦」⇒ 整段拿掉。**
+--
+--    其餘六條(記著, 因為它們是「造測試資料」這件事在這個 schema 上的真實難度):
+--      · 三次 `order_payments` INSERT 漏 `received_at` / `actor` / 各軌識別欄
+--      · `order_manual_refunds` 漏無 default 的 NOT NULL 欄
+--      · 作廢只填 `voided_at` ⇒ 違反 `order_manual_refunds_void_trio`(三欄同生同滅)
+--      · 依賴至少一筆現有 `customers` ⇒ **乾淨庫必然失敗**
+--      · `'ZZZZZZ'` 是合法單號且 UNIQUE ⇒ 被用掉之後 `ON CONFLICT DO NOTHING` 會吞掉 INSERT
+--      · 固定 UUID 若已存在 ⇒ 守門誤認建好了 ⇒ **改用既有訂單跑斷言 ⇒ 假綠世界**
+--
+-- ══ 🛑 而【這一刀的代價】—— 必須寫在紙上, 不可以只留「已拿掉」═══════════════
+--
+-- 🔴 **貼下去的那一刻, 【沒有任何東西在驗這支函式算得對】。**
+--    這支 migration 現在只驗「函式建起來了」與「權限收好了」——
+--    它**不驗行為**。而行為的證據住在別的地方(見下)。
+--
+-- 🔵 **而那些證據是真的存在的, 落點寫出來讓下一個人找得到**:
+--    ① 本窗(`-5b`)2026-09-02 拋棄式 PG 17.10, **9 個世界**:
+--       apply / 缺陷本體 500 / 同軌 500 / 無退款 1000 / 兩軌 600+400 /
+--       跨軌 300 且無負列 / 超退 0 列 / **世界G 真的 UPDATE cancelled_at 走 trigger** /
+--       收過錢而不欠要出聲 / 零收款不准出聲
+--    ② `-c7` 獨立複驗(**寫審分離**:缺陷它重現、修法我寫), 拋棄式 PG 17.10 窮舉:
+--       兩軌 nets 各 −50..50 ⇒ **10,201 個世界** ⇒ 合計不符 0 · 零元列 0
+--       三軌 nets 各 −8..8   ⇒ **4,913 個世界** ⇒ 修前不符 126 / 零元列 162 ⇒ 修後 0 / 0
+--       🟢 而它有**負對照**:同一顆 DB 餵修前那版 ⇒ 不符 126 ⇒ **那把尺會動**
+--       📎 全文 `~/pcm-mailbox/量測-那支跨軌修法的分配算式-20260902.md`
+--
+-- 🎯 **⇒ 所以正確的說法是:【行為驗過了, 而驗它的東西不在這支檔裡】。**
+-- 🛑 **⇒ ⇒ 而那與「沒有驗過」在【貼下去的那一刻】看起來一模一樣 ——**
+--    **⇒ ⇒ ⇒ 差別只在有沒有人寫下落點。而這一段就是那個落點。**
+--
+-- ⚠️ **而下一個想把後置斷言加回來的人, 先讀這一段 —— 而【真正的阻礙不是我原本寫的那個】**:
+--    ⛔ ~~問題在【這個 schema 刻意不讓你刪掉造出來的資料】…而今天沒有不留痕的辦法~~
+--    🔴 **那句過度絕對**(codex 2026-09-02 nit):PL/pgSQL 的 `EXCEPTION` 子交易本來就能
+--       回滾 `INSERT` ⇒ **根本不必 DELETE, 也就不會碰到那兩道 trigger。**
+--       ⇒ 而姊妹檔 `20260902040000` 用的正是那個辦法, 而它仍然過不了。
+--    ✅ **⇒ 所以真正的阻礙是【造不出一列合法的測試資料】**:
+--       `orders` 有 NOT NULL 而無 default 共 10 欄 + 三條 CHECK, 而 `customer_user_id`
+--       的外鍵一路指到 **`auth.users`** ⇒ 那不是補幾個欄位能解的。
+--    ⇒ 📌 **而我原本那句會把下一個人送去解錯的問題**(他會去想怎麼繞過 DELETE 守門,
+--       而那道守門根本不在路上)。
+--    ⇒ 🔵 拋棄式 PG 仍然是那個辦法 —— 而它有效的理由是【那裡的 auth.users 是我造的】。

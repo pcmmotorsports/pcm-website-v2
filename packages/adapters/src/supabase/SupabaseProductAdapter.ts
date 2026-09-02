@@ -504,6 +504,7 @@ export class SupabaseProductAdapter implements IProductRepository {
   async searchByKeyword(
     query: string,
     params: PaginationParams,
+    opts?: { countTotal?: boolean },
   ): Promise<Paginated<Product>> {
     const q = query.trim();
     if (q === '') {
@@ -528,9 +529,16 @@ export class SupabaseProductAdapter implements IProductRepository {
     //
     //    選 `id`(PK uuid)而不是 `handle`:現況無排序 ⇒ 客人看到的順序本來就無語意,
     //    用 `id` 是**行為改變最小**的穩定序;改用 `handle` 會讓搜尋結果變成字母序 = 行為改變。
+    // 🔵 `countTotal`(預設 true = 既有行為)。`count: 'exact'` 會讓 PG **數完整個命中集合**
+    //    —— 而疊層那條路只顯示 8 筆、畫面上沒有印總數的地方 ⇒ 那一發是白付的。
+    //    🛑 而 `/search` 要它(`app/search/page.tsx:85` 共 N 件)⇒ **分路,不是刪掉。**
+    const wantCount = opts?.countTotal !== false;
     const { data, error, count } = await this.supabase
       .from('products_public')
-      .select(PRODUCT_SELECT_DETAIL_VIEW, { count: 'exact' })
+      .select(
+        PRODUCT_SELECT_DETAIL_VIEW,
+        wantCount ? { count: 'exact' } : undefined,
+      )
       .or(filter)
       .order('id', { ascending: true })
       .range(offset, offset + params.limit - 1);
@@ -542,7 +550,9 @@ export class SupabaseProductAdapter implements IProductRepository {
     const items = (data as unknown as SupabaseProductRow[]).map(
       mapSupabaseProductToDomain,
     );
-    return { items, total: count ?? 0 };
+    // 🔴 沒要數的時候**回 `undefined` 而不是 0** —— 「不知道總數」與「共 0 件」是兩件事,
+    //    而 `?? 0` 會讓畫面出現「拿到 8 筆卻說共 0 件」(`search.ts` 那段註解同一條)。
+    return wantCount ? { items, total: count ?? 0 } : { items };
   }
 
   /**

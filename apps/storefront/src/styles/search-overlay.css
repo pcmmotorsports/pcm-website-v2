@@ -1,0 +1,281 @@
+/* search-overlay.css — 全站搜尋疊層
+   逐字搬自 design-reference/styles/search-overlay.css(208 行)。鐵則 1:直接搬、不翻譯。
+
+   🔴 **而【逐字】搬進來的第一版是【壞的】,守門抓到的,記在這裡免得有人搬回去**
+      (`styles/products-r1.test.ts` 那條「只有 product-page.css 可以消費 var(--font-sans)」):
+      稿用的 `--font-sans` / `--font-mono` 在本站**只定義在 `product-page.css` 的 `.pd-page` scope 內**
+      (`product-page.css:19/21`,它們是 `--f-sans` / `--f-mono` 的別名)。
+      而本疊層是 `position: fixed` 從 Header 掛出來的,**根本不在 `.pd-page` 底下**
+      ⇒ 那 10 個 `var(--font-*)` 全部取不到值。
+   🔴 **而後果不是「字體變預設」** —— 它們幾乎全寫在 `font:` **簡寫**裡
+      ⇒ 簡寫在 computed-value time 整條被丟棄 ⇒ **連字級與行高一起沒了**
+      (該守門檔頭記著真瀏覽器實測:壞的 16px/normal、好的 13px/13px)。
+   ✅ 修法 = 改用全域真 token `--f-sans` / `--f-mono`(`tokens.css:162/163`),共 10 處。
+   📌 **⇒ 這就是「逐字搬 design 會連它的舊 bug 一起搬」** —— 稿的 token 命名與本站不同,
+      而**搬得越忠實,錯得越徹底**;三綠不會紅、diff 上那 10 行長得完全正常。
+
+   ⛔ ~~舊字面:「本檔與稿的差異 = 只有這段檔頭註解;規則本體一個字都沒動。
+      數法:diff <(tail -n +5 本檔) 稿 ⇒ 空」~~ —— **那句話當時是真的,現在不是了。**
+   ⛔ ~~「現在的數法:差異應恰為那 10 行 token 名 ⇒ 20」~~ —— **2026-09-02 傍晚起也不對了**:
+      檔尾多了一條稿沒有的 `body[data-pcm-search-lock]`(見檔尾註解)⇒ 那是**第二處**差異。
+   ⛔ **這個「與稿的差異」數法我改壞過【四】次,四次都沒有報錯,留著當紀錄**:
+      ~~① `head -n -10 | tail -n +21`~~ ⇒ macOS 的 BSD head 不吃負數 ⇒ 印 208
+      ~~② 改用行數算~~ ⇒ 算錯一行 ⇒ 印 25
+      ~~③ 改用錨點切~~ ⇒ 對了一次,而**下一次改註解就又壞了**(註解被算進差異)
+      ~~④ 改成「剝註解再比」,並把那段 python 寫進本註解~~
+         ⇒ 🔴🔴 **那段 python 裡有一個【星號接斜線】** ⇒ **它把這個 CSS 註解【提前關掉】**
+         ⇒ 後面十行散文變成**真的 CSS**,而瀏覽器要去 parse 它。
+         🎯 抓到它的是那個檢查自己:它印 34 而不是 22。
+      📌 **⇒ 四次的共同點不是我粗心,是【把一條會被執行的規矩寫成散文】** ——
+         散文不會跑,所以它壞掉時沒有東西會叫;而這一次它甚至**弄壞了它所在的那個檔**。
+      🔴🔴 **⑤ 而我在寫上面那段【更正】的當下, 又踩了同一個**:我把那兩個字元
+         原樣打進去當引用 ⇒ **註解又被關掉一次**。⇒ 所以本段一律寫【星號接斜線】五個中文字。
+      📌 **⇒ 正在書寫某條規則的當下, 是它最容易被違反的時刻。**
+      ✅ **⇒ 判準搬進 `search-overlay-design-parity.test.ts`,那是一支會跑的測試。**
+         本註解不再放任何可執行的東西、也不引用任何註解結束符。 */
+/* SearchOverlay — fullscreen modal */
+.search-overlay {
+  position: fixed;
+  inset: 0;
+  /* 🔴🔴 **10001,不是稿的 1000** —— 這是本檔與稿的**第三處**差異,而它是一個真缺陷的修法。
+     線 `-fc` 2026-09-02 在真瀏覽器用鍵盤走到的五步:
+       ① 商品詳情頁開圖片 lightbox(`.pd-lightbox` z-index **10000**)
+       ② 🔴 背景那顆搜尋鈕**仍在 tab 序裡**(背景沒有 inert / aria-hidden)⇒ 鍵盤 focus 得到
+       ③ 按下去 ⇒ 疊層**真的開了**(panel 存在 · display:flex · visibility:visible · 375×214)
+       ④ 🔴 `elementFromPoint(疊層中心)` ⇒ `DIV.pd-lb-stage` ⇒ **疊層被壓在 lightbox 下面**
+       ⑤ 🔴 `document.activeElement` = `INPUT.search-overlay-input`
+     🎯 **⇒ 客人打的字進到一個他看不到的框,而畫面上還是那張放大的圖。**
+     ⛔ ~~我原本寫「那條路徑今天到不了,滑鼠點不到、鍵盤被 focus trap 關掉」~~
+        —— **滑鼠那半是對的**(`elementFromPoint(搜尋鈕)` ⇒ `pd-lb-stage`),
+        **鍵盤那半不成立**:我的 focus trap 只在疊層【已經開了】之後才生效,
+        它擋不住「在別的 modal 底下 tab 到搜尋鈕」。
+
+     ✅ **修法選【抬高】而不是【擋住開啟】,理由**:被打破的不變式是
+        **「拿到鍵盤焦點的東西必須看得見」** —— 恢復它有兩條路:
+          (a) 讓看不見的變成看得見 ⇒ 抬到最上面(本檔這一行)
+          (b) 讓碰不到的變成 focus 不到 ⇒ **每一支 modal 都要把背景 inert**
+        (b) 才是根治,而它住在**別人的元件**裡(lightbox 那一支)、而且要每一支都做
+        ⇒ 已交 backlog。本刀做 (a):**一行、在我自己的檔裡、而且對【所有】覆蓋情況都成立**。
+     ⚠️ **(a) 的代價要明寫**:lightbox 開著時按到搜尋 ⇒ 疊層會蓋在那張圖上面。
+        客人沒打算按它(他看不到)⇒ 那一下仍然是意外的。
+        🔵 **但它現在是【看得見的意外】,而且 Esc 關得掉** —— 而先前是一個**看不見的輸入框**。
+        📌 ⇒ 一個看得見的意外,優於一個安靜的錯。
+     🔵 現況全站 `position:fixed; inset:0` 的全屏層(2026-09-02 掃 `apps/storefront/src/styles/*.css`):
+        `.ft-overlay` 20 · `.fd-overlay` 80 · `.mvs-overlay` 100 · `.pcm-menu-panel` 200
+        · `.pd-lightbox` 10000 · **本層 10001**
+     🛑 **這個數字有一道守門在盯**(`search-overlay-layer.test.ts`)——
+        它比的是**關係**(本層必須嚴格大於其他每一個全屏層),不是這個字面。
+        有人新增一個更高的全屏層 ⇒ 那一格會紅,而不是等客人踩到。 */
+  z-index: 10001;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  animation: soFade 160ms ease-out;
+}
+@keyframes soFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.search-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.42);
+  backdrop-filter: blur(4px);
+}
+.search-overlay-panel {
+  position: relative;
+  width: min(720px, 100%);
+  max-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-surface, #fff);
+  margin-top: 0;
+  animation: soSlide 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes soSlide {
+  from { transform: translateY(-16px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.search-overlay-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--c-border, #e3e3e3);
+}
+.search-overlay-icon { color: var(--c-text-3, #888); flex: 0 0 auto; }
+.search-overlay-input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: 400 22px/1.2 var(--f-sans);
+  color: var(--c-text);
+  padding: 0;
+  min-width: 0;
+}
+.search-overlay-input::placeholder { color: var(--c-text-3, #aaa); }
+.search-overlay-clear {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--c-surface-2, #f0f0f0);
+  border: 0;
+  color: var(--c-text-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.search-overlay-close {
+  border: 0;
+  background: transparent;
+  color: var(--c-text-2);
+  font: 14px/1 var(--f-sans);
+  cursor: pointer;
+  padding: 6px 8px;
+  flex: 0 0 auto;
+}
+.search-overlay-close:hover { color: var(--c-text); }
+
+.search-overlay-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 22px 40px;
+}
+.search-overlay-empty { padding-top: 8px; }
+.search-overlay-h {
+  font: 500 11px/1 var(--f-mono, monospace);
+  letter-spacing: 0.1em;
+  color: var(--c-text-3, #888);
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+
+.search-overlay-chips,
+.search-overlay-tagrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.search-overlay-chip,
+.search-overlay-tag {
+  background: var(--c-surface-2, #f5f5f5);
+  border: 1px solid transparent;
+  padding: 8px 14px;
+  font: 13px/1 var(--f-sans);
+  color: var(--c-text);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.search-overlay-chip:hover,
+.search-overlay-tag:hover {
+  background: var(--c-surface);
+  border-color: var(--c-text);
+}
+
+.search-overlay-section {
+  padding: 18px 0;
+  border-top: 1px solid var(--c-border, #eee);
+}
+.search-overlay-section:first-child { border-top: 0; padding-top: 0; }
+
+.search-overlay-products {
+  display: grid;
+  gap: 4px;
+}
+.search-overlay-product {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 8px;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.search-overlay-product:hover { background: var(--c-surface-2, #f5f5f5); }
+.sop-thumb {
+  flex: 0 0 56px;
+  width: 56px; height: 56px;
+  background: var(--c-surface-2, #f0f0f0);
+  overflow: hidden;
+}
+.sop-thumb img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+}
+.sop-meta { flex: 1; min-width: 0; }
+.sop-brand {
+  font: 500 10px/1 var(--f-mono, monospace);
+  letter-spacing: 0.1em;
+  color: var(--c-text-3, #888);
+  text-transform: uppercase;
+  margin-bottom: 3px;
+}
+.sop-name {
+  font: 400 14px/1.3 var(--f-sans);
+  color: var(--c-text);
+  margin-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sop-price {
+  font: 500 13px/1 var(--f-sans);
+  color: var(--c-text);
+}
+
+.search-overlay-noresults {
+  padding: 40px 0;
+  text-align: center;
+}
+.search-overlay-nores-label {
+  font: 16px/1.4 var(--f-sans);
+  color: var(--c-text);
+  margin-bottom: 6px;
+}
+.search-overlay-nores-hint {
+  font: 13px/1.4 var(--f-sans);
+  color: var(--c-text-3, #888);
+}
+
+.search-overlay-footer {
+  padding-top: 24px;
+  margin-top: 8px;
+  border-top: 1px solid var(--c-border, #eee);
+}
+.search-overlay-all {
+  width: 100%;
+  padding: 16px 20px;
+  background: var(--c-text);
+  color: var(--c-text-inverse, #fff);
+  border: 0;
+  font: 500 14px/1 var(--f-sans);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.search-overlay-all:hover { opacity: 0.85; }
+
+/* Mobile tweaks */
+@media (max-width: 600px) {
+  .search-overlay-panel { max-height: 100%; }
+  .search-overlay-head { padding: 14px 16px; gap: 10px; }
+  .search-overlay-input { font-size: 18px; }
+  .search-overlay-body { padding: 16px 16px 40px; }
+}
+
+/* Ensure overlay renders outside the mobile bezel when in simulated-mobile mode */
+[data-mobile="true"] .search-overlay { position: fixed; }
+
+/* 🔴 疊層開著時鎖背景捲動 —— **這是本檔與稿的第二處差異(第一處是那 10 個 token 名)**。
+   稿沒有這一條:它在 `SearchOverlay.jsx` 裡直接寫 `document.body.style.overflow = 'hidden'`。
+   而本站有 **5 支元件**在搶那個 inline style,兩種還原寫法都會互蓋(誰後關誰贏)
+   ⇒ 改成一顆只屬於本疊層的屬性,鎖的效力放在這裡。
+   · 別人寫 inline `overflow:''` ⇒ inline 等於沒設 ⇒ 本規則仍然生效
+   · 本疊層移除屬性 ⇒ 完全不碰他們的 inline style
+   ⇒ 兩邊【相加】而不是【互相覆寫】。成因全文在 `SearchOverlay.tsx` 那個 effect 的註解。 */
+body[data-pcm-search-lock] { overflow: hidden; }

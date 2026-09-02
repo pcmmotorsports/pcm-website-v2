@@ -165,3 +165,10 @@ else
   exit 1
 fi
 pnpm exec lint-staged
+
+if [ -f .husky/always-loaded-size-gate.sh ]; then
+  sh .husky/always-loaded-size-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/always-loaded-size-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  exit 2
+fi

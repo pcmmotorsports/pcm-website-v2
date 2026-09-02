@@ -170,7 +170,26 @@ export interface IProductRepository {
    * @see backlog #20(分頁簽名)
    * @see backlog #86(contract test、main-b/prep 補)
    */
-  searchByKeyword(query: string, params: PaginationParams): Promise<Paginated<Product>>;
+  /**
+   * 🔵 **`opts.countTotal`(2026-09-02 `⟦搜尋-每字全表掃⟧`)**:要不要順便數命中總數。
+   *
+   * 🔴 **為什麼要這個開關 —— 兩條呼叫端要的東西不一樣**:
+   *    · 搜尋疊層(`/api/search`)只顯示前 8 筆,**畫面上沒有任何地方印總數**
+   *      (`SearchOverlay.tsx` 全檔 `total` ⇒ **0 行**)
+   *    · 結果頁 `/search` **要它** —— `app/search/page.tsx:85` 逐字 `共 {total} 件`
+   *    ⇒ 🎯 **所以這是一個【該分路】的問題,不是一個【該刪】的問題。**
+   *      ⛔ ~~「那筆錢買的是一個沒有人看的數字」~~ —— 那句話只對疊層那條路成立,
+   *      **照字面把 `count` 拿掉會讓 `/search` 的「共 N 件」一起消失。**
+   *
+   * 🛑 **預設 `true` = 維持既有行為** —— 沒傳的呼叫端一格都不會變。
+   * ⚠️ 而 `countTotal: false` 時 `Paginated.total` 是 `undefined`
+   *    ⇒ 呼叫端**不可以** `?? 0`:「不知道總數」與「共 0 件」是兩件事。
+   */
+  searchByKeyword(
+    query: string,
+    params: PaginationParams,
+    opts?: { countTotal?: boolean },
+  ): Promise<Paginated<Product>>;
   /**
    * 儲存 product entity(create / update 統一入口)
    *

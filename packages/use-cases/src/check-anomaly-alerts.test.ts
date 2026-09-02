@@ -14,6 +14,14 @@ const ZERO: AnomalyAlertSummary = {
   cronHeartbeatAbnormalCount: 0,
   cronHeartbeatAbnormalJobs: [],
   cronHeartbeatUnknown: false,
+  // ⟦b9-RLSHARDEN⟧ 甲:基準是【屬性還在, 而且我量到了】——
+  //   🛑 兩個都寫 false 是刻意的, 與上面 `cronHeartbeatUnknown` 同一個理由:
+  //      任一寫 true 都會讓這個 ZERO 同時代表兩個世界。
+  bypassRlsRevoked: false,
+  bypassRlsUnknown: false,
+  // 🔵 基線用正式庫 2026-09-02 真呼叫回來的值,不是我編的。
+  bypassRlsPrivilegedCount: 6,
+  bypassRlsTotalRoleCount: 35,
   openCount: 0,
   refundingCount: 0,
   refundingStuckCount: 0,
@@ -1635,5 +1643,138 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
     expect(failed.text).toContain('讀取失敗');
     // 🔵 負對照:失敗那一版【不得】說「還沒上線」—— 那正是 R3 指的那個誤導
     expect(failed.text).not.toContain('那支查詢還沒上線');
+  });
+});
+
+// ⟦b9-RLSHARDEN⟧ 甲(片B):權限被收緊那天,這道量具會不會叫。
+//
+// 🔴 **這一組的形狀是主視窗釘的:「必須叫,而且【只有那一格】叫」** ——
+//    「有訊息就算過」是一個**恆綠格**:任何一格出問題都會讓訊息非空。
+//    ⇒ 所以下面那發把**其他計數全部留在 ZERO**,再斷言訊息裡**沒有別的區塊**。
+describe('⟦b9-RLSHARDEN⟧ 甲:BYPASSRLS 被收掉那天', () => {
+  it('🔴 屬性被收掉 ⇒ 要叫,而且信裡有那一塊', async () => {
+    const res = await checkAnomalyAlerts(
+      { reader: reader({ ...ZERO, bypassRlsRevoked: true }), notifiers: [okNotifier()] },
+      OPTS,
+    );
+    expect(res.alerted, '屬性被收掉而沒有叫 ⇒ 這一片等於沒做').toBe(true);
+  });
+
+  it('🔴 而【只有那一格】叫 —— 其他區塊一個都不准出現', () => {
+    const msg = buildAnomalyAlertMessage({ ...ZERO, bypassRlsRevoked: true }, 86400, null);
+    expect(msg.text).toContain('【資料庫權限】');
+    // 🛑 這四行才是這一格的判別力所在:少了它們,「有訊息」與「只有這一塊」印同一個綠。
+    expect(msg.text).not.toContain('【背景排程】');
+    expect(msg.text).not.toContain('【待處理】');
+    expect(msg.text).not.toContain('【退款】');
+    expect(msg.text).not.toContain('【寄信】');
+    /**
+     * 🔴🔴 **codex 2026-09-02 must-fix ①:上面四行【不夠】** ——
+     *   我只檢查了 body 的四個標題, **完全沒看 `subject`**。
+     *   ⇒ 而只有這一格叫時 `hasPayment` / `hasEmail` 都是 false
+     *     ⇒ 主旨會掉到 `'⚠️ PCM 付款有事要你看'`
+     *   ⇒ ⇒ 📌 **主旨說「付款有事」而付款一格都沒事** —— 收信的人會去查訂單、查錢,
+     *      而真正的問題是**他看到的那些數字本身可能是空的**。
+     * 🎯 **⇒ 一個錯誤的實作在我原本那四行底下【照樣全綠】。**
+     */
+    /**
+     * 🔴🔴 **codex R2 must-fix:`toContain` 對這個突變是【恆綠】的。**
+     *   刪掉「純權限」那一支 ⇒ 掉進下一支 `'⚠️ PCM 資料庫權限有事,而付款/寄信也有事要你看'`
+     *   ⇒ 它**仍然含「資料庫權限」**、也仍然不含「付款有事要你看」⇒ 我原本兩行照樣過。
+     * 📌 **⇒ 一個【包含】斷言分不出「對的那一支」與「隔壁那一支」。改用 `toBe` 精確比對。**
+     */
+    expect(msg.subject).toBe('⚠️ PCM 資料庫權限有事要你看(與付款無關)');
+  });
+
+  /**
+   * 🔴 **codex R2:「combined worlds 被合併, 確實有世界被吃掉」** ——
+   *   權限+付款 / 權限+寄信 / 三者都有, 目前全走同一支三元。
+   * ⇒ 逐一釘住**可達的四種主旨**, 讓任何一支被改動時有東西會紅。
+   */
+  it.each([
+    [
+      '純權限',
+      { bypassRlsRevoked: true },
+      '⚠️ PCM 資料庫權限有事要你看(與付款無關)',
+    ],
+    [
+      '權限 + 付款',
+      { bypassRlsRevoked: true, openCount: 1, openDisplayIds: displayIds(1) },
+      '⚠️ PCM 資料庫權限有事,而其他也有事要你看',
+    ],
+    [
+      '純付款(對照:沒有權限那一格時不得出現「資料庫權限」)',
+      { openCount: 1, openDisplayIds: displayIds(1) },
+      '⚠️ PCM 付款有 1 張單要你看',
+    ],
+    /**
+     * 🔴🔴 **R3 must-fix 1 的證人:「純心跳」這個世界一直都在, 而它掉到「付款有事」。**
+     *   `cronHeartbeatAbnormalCount` 進 `shouldAlert`, 而它不在 `hasPayment` 也不在 `hasEmail`
+     *   ⇒ 只有它為真時, 主旨會說「付款有事」而付款一格都沒事。
+     * 🎯 **而本片自己會點著它**:`bypassRlsUnknown ⇒ 503` 前先記一次心跳失敗
+     *   ⇒ 連續失敗之後這一格就亮了 ⇒ **我原本「Unknown 不吵 Sean」那句在真系統為假。**
+     */
+    [
+      '純心跳(本片自己會點著它 —— 503 會記心跳失敗)',
+      { cronHeartbeatAbnormalCount: 1, cronHeartbeatAbnormalJobs: ['pcm-anomaly-alert'] },
+      '⚠️ PCM 背景排程有事要你看(與付款無關)',
+    ],
+    [
+      '權限 + 心跳(兩者都亮時以權限為主詞)',
+      {
+        bypassRlsRevoked: true,
+        cronHeartbeatAbnormalCount: 1,
+        cronHeartbeatAbnormalJobs: ['pcm-anomaly-alert'],
+      },
+      '⚠️ PCM 資料庫權限有事,而其他也有事要你看',
+    ],
+  ])('🔴 主旨精確比對 —— %s', (_name, patch, expected) => {
+    const msg = buildAnomalyAlertMessage({ ...ZERO, ...patch }, 86400, null);
+    expect(msg.subject).toBe(expected);
+  });
+
+  it('🛑 信裡要逐字帶【它證不到什麼】—— 沒有它,收到的人會以為「沒叫 = 沒事」', () => {
+    const msg = buildAnomalyAlertMessage({ ...ZERO, bypassRlsRevoked: true }, 86400, null);
+    expect(msg.text).toContain('不答哪些表會安靜回 0');
+    // 🔵 數字帶時點與分母跟著走(2026-09-01 唯讀實測 45 / 54)。
+    expect(msg.text).toContain('45 張');
+    expect(msg.text).toContain('54 張');
+  });
+
+  it('🟢 正對照:屬性還在(今天的正常態)⇒ 靜,而且信裡沒有那一塊', async () => {
+    // 🔵 基線不是我算的:正式庫 2026-09-02 真的呼叫過那支函式 ⇒
+    //    {"total_role_count":35,"privileged_role_count":6,"service_role_bypassrls":true}
+    //    ⇒ 對應到本層就是 ZERO 那兩個 false ⇒ **今天它會叫 0 次。**
+    const res = await checkAnomalyAlerts(
+      { reader: reader({ ...ZERO }), notifiers: [okNotifier()] },
+      OPTS,
+    );
+    expect(res.alerted).toBe(false);
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: displayIds(1) }, 86400, null);
+    expect(msg.text).not.toContain('【資料庫權限】');
+  });
+
+  it('🔴 量不到 ⇒ 這道閘【不直接】叫(而它會經由心跳那條路叫 —— 見下方註解)', async () => {
+    const res = await checkAnomalyAlerts(
+      { reader: reader({ ...ZERO, bypassRlsUnknown: true }), notifiers: [okNotifier()] },
+      OPTS,
+    );
+    // 🎯 這一格若翻成 true, 部署窗口**每天**寄一封給 Sean。
+    // 🛑 **而「所以它不吵 Sean」是錯的(R3 must-fix 1)** —— Unknown ⇒ route 回 503
+    //    前先記一次心跳失敗 ⇒ 連續失敗到門檻 ⇒ `cronHeartbeatAbnormalCount` 亮
+    //    ⇒ **那一格就在 `shouldAlert` 裡** ⇒ 照樣寄。
+    // ✅ 本格證的是**這一個旗標不直接觸發**, 不是「Sean 不會收到信」。
+    //    📌 **兩者差一層, 而我原本把它們寫成同一句。**
+    expect(res.alerted, '量不到就【直接】寄信 ⇒ 部署窗口每天一封').toBe(false);
+  });
+
+  it('🛑 而「被收掉」與「量不到」同時為真時,**以被收掉為準**(要叫)', async () => {
+    // 🔴 這個組合理論上不該出現(adapter 保證互斥), 而測試在這裡釘住【萬一出現時的方向】——
+    //    寧可多叫一次, 不可因為「我也不確定」就靜下來。
+    const res = await checkAnomalyAlerts(
+      { reader: reader({ ...ZERO, bypassRlsRevoked: true, bypassRlsUnknown: true }), notifiers: [okNotifier()] },
+      OPTS,
+    );
+    expect(res.alerted).toBe(true);
   });
 });

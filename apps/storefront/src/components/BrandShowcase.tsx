@@ -33,6 +33,7 @@ import { AkrapovicShowcase } from './AkrapovicShowcase';
 import { KspeedShowcase } from './KspeedShowcase';
 import { ExtremeComponentsShowcase } from './ExtremeComponentsShowcase';
 import { GillesShowcase } from './GillesShowcase';
+import { RizomaShowcase } from './RizomaShowcase';
 
 export type BrandShowcaseProps = { product: MockProduct };
 
@@ -86,6 +87,11 @@ export function BrandShowcase({ product }: BrandShowcaseProps) {
     // 上架第 17 家(2026-08-27):GILLES TOOLING(重量版、對照 Akrapovic:影片帶 + 故事兩段 + 信任狀)
     case 'gilles':
       return <GillesShowcase />;
+    // 上架第 18 家(2026-09-02):RIZOMA(重量版、對照 GILLES:影片帶 + 故事兩段 + 信任狀四格)。
+    //   Sean 2026-09-02 逐字「甲 重量版(跟 Akrapovic / GILLES 一樣)」;內容範圍是他 2026-08-02
+    //   自己點名的「設計理念 + 產品線拓展」。🔴 沿革刻意不寫(官網查無)—— 理由見該元件檔頭。
+    case 'rizoma':
+      return <RizomaShowcase />;
     default:
       // 其餘未知品牌 → 無形象區
       return null;

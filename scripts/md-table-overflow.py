@@ -933,6 +933,11 @@ def main(argv: list[str]) -> int:
         print(f'🔴 {path}:{len(rows)} 列的內容會在渲染時被丟掉,共 {lostc} 字')
         print(f'   形狀A(追記寫在收尾豎線後面)= {a} 列 ⇒ 修法:把它搬到那根 `|` 前面')
         print(f'   形狀B(裸豎線長在反引號裡)  = {b} 列 ⇒ 修法:寫成 \\| 或拆成兩個 code span')
+        # 🔴 2026-09-02 線 `-fc` 加這三行:它花了【兩發】才看懂自己撞到的是什麼。
+        #    成因不是它不小心 —— 是這道閘的訊息指向【那根豎線】, 而真正發生的事在另一層。
+        print('   🔴 **若你剛剛用程式改過這一列 ⇒ 先確認你的字沒有接在別人句子的中間。**')
+        print("      ⇒ 因為 `split('|')` 在【內容含裸豎線】的列上會多切一格 ⇒ 你附加到 cells[N] 的字,")
+        print('        會落在那一列的中間, 而 `grep` / `cat` 讀起來一切正常 —— 只有渲染成表格時才看得出來。')
         for r in sorted(rows, key=lambda x: -x['lost_chars']):
             head = re.sub(r'\s+', ' ', r['lost']).strip()
             print(f"\n  第 {r['line']} 行(表頭在 :{r['header_line']},{r['ncol']} 欄;"

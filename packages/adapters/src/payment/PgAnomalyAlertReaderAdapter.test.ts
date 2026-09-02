@@ -220,6 +220,14 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       cronHeartbeatAbnormalCount: null,
       cronHeartbeatAbnormalJobs: null,
       cronHeartbeatUnknown: true,
+      // ⟦b9-RLSHARDEN⟧ 甲片B:本 fixture 的 dispatcher 沒有分流這支 ⇒ 回預設 `{ rows: [] }`
+      //   ⇒ `bypassRlsUnknown: true`(量不到), 而 `Revoked` 保持 false。
+      // 🛑 **兩者不可互相推導** —— `Revoked: false` 在這裡的意思是「我沒量到」,
+      //    不是「屬性還在」。那正是本片要分開的兩件事。
+      bypassRlsRevoked: false,
+      bypassRlsUnknown: true,
+      bypassRlsPrivilegedCount: null,
+      bypassRlsTotalRoleCount: null,
       emailOutboxUnknown: true,
       openCount: 2,
       refundingCount: 3,
@@ -283,7 +291,22 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
      *   ⇒ 與上面寄信那兩發**同一個形狀** ⇒ 5 + 2 = 7。實跑也是 7。
      * ⇒ 📌 **apply 之後這一格會掉回 6**(每支只剩 1 發)—— 那時要改的是這個數字, 不是碼。
      */
-    expect(query).toHaveBeenCalledTimes(7);
+    /**
+     * 🔵 **7 → 8(2026-09-02 ⟦b9-RLSHARDEN⟧ 甲片B)** —— 而它 **+1 不是 +2**,
+     *    **與上面兩段的算式【不同】,所以我沒有照抄那個形狀**:
+     *    上面兩發是 +2(打它 ⇒ throw `42883` ⇒ 再 `to_regprocedure` 複查),
+     *    而本 fixture 的 `twoQueryClient` 對**沒有分流到的 SQL** 回的是 `resultRows(counts)`
+     *    —— **它不 throw** ⇒ 走不到那條複查 ⇒ 只 +1。
+     *    ⛔ ~~我第一版寫「回預設 `{ rows: [] }`」~~ —— **codex 2026-09-02 nit 打掉**:
+     *       那是 `makeClient` 的預設, 不是 `twoQueryClient` 的。
+     *       🎯 **兩者今天剛好都落 Unknown(一個是空 rows, 一個是 counts 物件裡沒有那個 key)**
+     *       ⇒ 📌 **結論相同而事實宣稱是錯的 —— 而結論相同正是它不會被發現的原因。**
+     * 🎯 **而兩條路的【結論相同】**:空 rows 與 42883 都落到 `bypassRlsUnknown = true`
+     *    ⇒ 行為對,而**成本的算式不同** ⇒ 這裡寫 8。
+     * 🛑 **⇒ 正式庫上若那支函式真的不存在,它會是 +2** —— 這個 8 是**本 fixture 的數字**,
+     *    不是「線上會打幾發」。數字帶著它的世界跟著走。
+     */
+    expect(query).toHaveBeenCalledTimes(8);
     expect(query.mock.calls[1]![0]).toContain('get_payment_anomaly_alert_display_ids');
     expect(query.mock.calls[2]![0]).toContain('get_order_refunds_stuck_summary');
     expect(res.openDisplayIds).toEqual(['PCM-2026-0104']);
@@ -1211,5 +1234,176 @@ describe('⟦b9-ENUMWATCH⟧ R3 的三格', () => {
     const out = await new PgAnomalyAlertReaderAdapter('postgres://x', () => client)
       .getManualCustomerSearchSummary(86400);
     expect(out?.actors).toBe(4);
+  });
+});
+
+/**
+ * ⟦b9-RLSHARDEN⟧ 甲(片B):`service_role` 的 `BYPASSRLS` 三態。
+ *
+ * 🔴 上面既有那 20+ 格覆蓋到的只有【量不到】那一態(dispatcher 回預設空 rows)——
+ *    而**本片存在的理由是另外那一態**:`false`。⇒ 沒有這一組,最重要的那個世界零覆蓋。
+ * 🛑 而三態要**分別**驗:`true`(靜)/ `false`(叫)/ `null`(角色不存在 ⇒ 量不到),
+ *    **不是「有回傳就算過」** —— 那是一個恆綠格。
+ */
+describe('⟦b9-RLSHARDEN⟧ 甲片B:BYPASSRLS 三態', () => {
+  function clientWithBypassState(state: unknown) {
+    return makeClient({
+      query: async (text: string) => {
+        if (text.includes('get_privileged_role_bypassrls_state')) {
+          return resultRows(state);
+        }
+        // 🔴 主計數那支**必須回一份合法的** —— 回空會讓 summary 解析先炸掉,
+        //    而那時上面每一格斷言驗的都不是它宣稱要驗的東西(它們根本沒跑到)。
+        if (text.includes('get_payment_anomaly_alert_summary')) return resultRows(FULL);
+        // 🔵 其餘一律回空 —— 本組只在驗這一支,別的旗標落 unknown 是預期的。
+        return { rows: [] };
+      },
+    });
+  }
+
+  async function readState(state: unknown) {
+    const { client } = clientWithBypassState(state);
+    return new PgAnomalyAlertReaderAdapter('conn', () => client)
+      .getAlertSummary(86400, 43200, 600, null, 900, null, null);
+  }
+
+  it('🔴 false ⇒ Revoked=true、Unknown=false(這是要叫的那一格)', async () => {
+    const res = await readState({
+      service_role_bypassrls: false,
+      privileged_role_count: 5,
+      total_role_count: 35,
+    });
+    expect(res.bypassRlsRevoked).toBe(true);
+    expect(res.bypassRlsUnknown, '被收掉了卻同時說「量不到」⇒ route 會回 503 而信不會寄').toBe(false);
+  });
+
+  it('🟢 正對照:true ⇒ 兩個都 false(今天的正常態,靜)', async () => {
+    // 🔵 這一組的值不是我編的:正式庫 2026-09-02 真的呼叫過那支函式 ⇒
+    //    {"total_role_count":35,"privileged_role_count":6,"service_role_bypassrls":true}
+    const res = await readState({
+      service_role_bypassrls: true,
+      privileged_role_count: 6,
+      total_role_count: 35,
+    });
+    expect(res.bypassRlsRevoked).toBe(false);
+    expect(res.bypassRlsUnknown).toBe(false);
+  });
+
+  it('🔴 null(service_role 這個角色不存在)⇒ Unknown,而【不是】Revoked', async () => {
+    // 🛑 這一格最容易寫錯:`null` 用 `?? false` 收掉的話會變成「屬性還在」⇒ 靜靜通過。
+    //    而它的真相是【我沒量到】—— 那要走 503,不是走「沒事」。
+    const res = await readState({
+      service_role_bypassrls: null,
+      privileged_role_count: 6,
+      total_role_count: 35,
+    });
+    expect(res.bypassRlsRevoked).toBe(false);
+    expect(res.bypassRlsUnknown).toBe(true);
+  });
+
+  it('🔴 codex MF②:回**字串** "false" ⇒ 必須是 Unknown,不得被當成健康', async () => {
+    /**
+     * 🛑 這一格是 codex 2026-09-02 打出來的 **fail-open**:
+     *   我第一版直接 `br.service_role_bypassrls === false` ⇒ 字串 `"false"` 不等於 boolean `false`
+     *   ⇒ `Revoked=false` · `Unknown=false` ⇒ **靜靜通過, 被當成「屬性還在」**。
+     * 📌 **一個不是我預期的型別, 在 `=== false` 底下與「一切正常」印同一個答案。**
+     */
+    const res = await readState({
+      service_role_bypassrls: 'false',
+      privileged_role_count: 6,
+      total_role_count: 35,
+    });
+    expect(res.bypassRlsRevoked).toBe(false);
+    expect(res.bypassRlsUnknown, '型別不對卻說「我量到了」⇒ 那是 fail-open').toBe(true);
+  });
+
+  it('🔴 codex MF④:函式**不存在**(42883 → to_regprocedure)⇒ Unknown,而那條路要真的被走過', async () => {
+    /**
+     * 🛑 上面那些格用的是「回空 rows」來**模擬結果**, 而它**走不到** adapter 的 catch/probe。
+     *   ⇒ codex 實測:把整段 catch/probe 刪掉, 那些格**仍然全綠** ⇒ 那條路零覆蓋。
+     * 🎯 本格丟真的 `42883`, 再讓 `to_regprocedure` 回 `missing=true` ⇒ 逼它走完那條路。
+     */
+    const { client, query } = makeClient({
+      query: async (text: string) => {
+        if (text.includes('to_regprocedure')) return { rows: [{ missing: true }] };
+        if (text.includes('get_privileged_role_bypassrls_state')) {
+          throw Object.assign(new Error('function does not exist'), { code: '42883' });
+        }
+        if (text.includes('get_payment_anomaly_alert_summary')) return resultRows(FULL);
+        return { rows: [] };
+      },
+    });
+    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client)
+      .getAlertSummary(86400, 43200, 600, null, 900, null, null);
+    expect(res.bypassRlsUnknown).toBe(true);
+    expect(res.bypassRlsRevoked).toBe(false);
+    // 🔵 而【那條路真的被走過】要有證據 —— 否則本格與上面那些「模擬結果」的格子沒有差別。
+    const probed = query.mock.calls.some(
+      (c) => typeof c[0] === 'string' && c[0].includes("to_regprocedure('public.get_privileged_role_bypassrls_state()')"),
+    );
+    expect(probed, '沒有打那一發 to_regprocedure ⇒ catch/probe 那段沒被驗到').toBe(true);
+  });
+
+  it('🔴 42883 而函式其實【在】(probe 說沒 missing)⇒ 必須上拋,不得降級', async () => {
+    // 🎯 那個 42883 來自函式**內部**(它自己呼叫了別的不存在的東西)⇒ 那是真的壞了。
+    //    降級成 Unknown 會讓一個壞掉的函式被讀成「還沒 apply」。
+    const { client } = makeClient({
+      query: async (text: string) => {
+        if (text.includes('to_regprocedure')) return { rows: [{ missing: false }] };
+        if (text.includes('get_privileged_role_bypassrls_state')) {
+          throw Object.assign(new Error('function does not exist'), { code: '42883' });
+        }
+        if (text.includes('get_payment_anomaly_alert_summary')) return resultRows(FULL);
+        return { rows: [] };
+      },
+    });
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null, null),
+      // 🔵 訊息被 adapter 包過(`anomaly 告警聚合讀失敗(42883)`)—— 我第一版寫 /does not exist/
+      //    而那是**底層 pg 的原句**。⇒ 斷言要對到【它真的丟出來的那一句】, 不是我以為的那一句。
+    ).rejects.toThrow(/42883/);
+  });
+
+  it('🔴 codex R2:回 **array**(`[]`)也是壞形狀 ⇒ 必須上拋,不得降級成 Unknown', async () => {
+    /**
+     * 🛑 `typeof [] === 'object'` 且 `[] !== null` ⇒ **它通得過我第一版那兩個條件**
+     *   ⇒ 不 throw ⇒ 靜靜降級成 Unknown ⇒ 而 route 會把它印成
+     *     「函式未 apply 或 service_role 不存在」—— **那是錯的成因**。
+     * 📌 **⇒ 一個【壞掉的回應】被記成【還沒部署】, 而兩者的下一步完全不同。**
+     */
+    await expect(readState([])).rejects.toThrow(/回應格式異常/);
+  });
+
+  it('🔴 回傳形狀壞掉 ⇒ throw(不得降級成 unknown)', async () => {
+    // 🎯 「函式不存在」與「函式跑了而回了怪東西」是兩件事:前者是部署窗口(降級),
+    //    後者是**它真的壞了**(fail-closed 上拋)。合併會讓壞掉被讀成「還沒 apply」。
+    await expect(readState('not-an-object')).rejects.toThrow(/回應格式異常/);
+  });
+});
+
+/**
+ * ⟦b9-RLSHARDEN⟧ 甲片B · R3 consider 2(我當 must-fix 修)。
+ * 🎯 **一支用來偵測「權限被收緊」的探針,不可以在權限被收緊那天把金流告警一起弄啞。**
+ */
+describe('⟦b9-RLSHARDEN⟧ 甲片B:非 42883 的錯誤不得拖垮整輪告警', () => {
+  it('🔴 42501(權限不足,強化當天最現實的那個)⇒ 落 Unknown,而其他計數照常回來', async () => {
+    const { client } = makeClient({
+      query: async (text: string) => {
+        if (text.includes('get_privileged_role_bypassrls_state')) {
+          throw Object.assign(new Error('permission denied for function'), { code: '42501' });
+        }
+        if (text.includes('get_payment_anomaly_alert_summary')) return resultRows(FULL);
+        return { rows: [] };
+      },
+    });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client)
+      .getAlertSummary(86400, 43200, 600, null, 900, null, null);
+    expect(res.bypassRlsUnknown).toBe(true);
+    // 🔴 這一行才是本格的重點:**別人的數字要活著回來**。
+    //    我第一版 `throw` ⇒ 整輪炸掉 ⇒ 那天的雙重扣款/退款卡住告警一封都不寄。
+    expect(res.openCount, '權限那一格失敗把整輪拖垮 ⇒ 金流告警當天全啞').toBe(FULL.open_count);
+    expect(JSON.stringify(errSpy.mock.calls)).toContain('非 42883');
+    errSpy.mockRestore();
   });
 });

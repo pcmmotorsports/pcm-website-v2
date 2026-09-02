@@ -232,3 +232,52 @@ describe('FilterTop 自訂價格區間', () => {
     expect(readExtras().price).toBeNull();
   });
 });
+
+/**
+ * ⟦fc-FOCUSTRAP⟧ Tab 在 dropdown 內循環(2026-09-02;樣板 = FilterDrawer)。
+ *
+ * 🔴🔴 **本支的特別之處:它的 keydown【已經存在】(原本只處理 Escape)。**
+ *    循環是**合進那個 handler**,不是再掛第二個 listener ——
+ *    掛第二個會長成「兩個 handler 各判各的鍵,而誰先跑取決於註冊順序」
+ *    ⇒ 📌 那是一個「今天剛好對」的東西,而順序被改動時**不會紅**。
+ * 🔵 而本支**不做「開啟時移入焦點」**:dropdown 是由那顆 chip 點開的,
+ *    焦點本來就在 chip 上、而 chip 在面板外 ⇒ 移入會把它搶走,那是另一個決定。
+ *    ⇒ 已交主視窗;而循環仍然成立:**一旦焦點進到面板裡,它就走不出去。**
+ * ⚠️ 不是等價物:守得住 Tab 走出去,守不住螢幕閱讀器讀到背景(要 `inert`,已另開一列)。
+ */
+describe('⟦fc-FOCUSTRAP⟧ FilterTop', () => {
+  const dropdownFocusables = (container: HTMLElement) =>
+    [...(container.querySelector('.ft-dropdown')?.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled])',
+    ) ?? [])];
+
+  it('🔴 焦點在最後一個 → Tab → 回到第一個(不得走出 dropdown)', () => {
+    const { container } = render(<Harness />);
+    fireEvent.click(screen.getByText('品牌'));
+    const f = dropdownFocusables(container);
+    // 🟢 正對照:少於 2 個 ⇒ 下面那格恆真
+    expect(f.length, 'dropdown 內可聚焦少於 2 個 ⇒ 證不到循環').toBeGreaterThan(1);
+    const last = f[f.length - 1]!;
+    last.focus();
+    fireEvent.keyDown(window, { key: 'Tab' });
+    expect(document.activeElement, 'Tab 走出了 dropdown ⇒ 客人掉到背後的導覽列').toBe(f[0]);
+  });
+
+  it('🔵 既有的 Escape 仍然關得掉(合進去不得弄壞它)', () => {
+    const { container } = render(<Harness />);
+    fireEvent.click(screen.getByText('品牌'));
+    expect(container.querySelector('.ft-dropdown')).not.toBeNull();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(container.querySelector('.ft-dropdown'), '合進循環之後 Escape 失效了').toBeNull();
+  });
+
+  it('🔵 dropdown 關著時不攔全域 Tab', () => {
+    render(<Harness />);
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    outside.focus();
+    fireEvent.keyDown(window, { key: 'Tab' });
+    expect(document.activeElement, '關著卻攔了全站的 Tab').toBe(outside);
+    outside.remove();
+  });
+});

@@ -835,15 +835,25 @@ tr.pd-wait .pd-state {
      ⇒ 寫進 `@page` 會讓**出貨單也長出這條槓** ⇒ 而那正是這一片最不能發生的事。
    ✅ **而 `@page detail` 繼承外層那組 `margin`**（實量:同一個字的右緣 45.809999 逐字相同)
      ⇒ 所以這裡**不重寫 margin** —— 重寫會讓這張紙的邊界與另一張不同。 */
+/* 🔴🔴 2026-09-03:上面那段「具名 page + margin box」**也是假的** —— Sean 實印回報
+   「印出來沒有黑邊,預覽有而已」。⇒ 解開 Chromium 產的 PDF 壓縮串流實測:
+     餵 `@left-middle { content:'ZZMARKZZ'; border-left:3mm solid #1f1f1f }`
+     ⇒ 解出的內容流裡 **ZZMARKZZ 0 命中、#1f1f1f 填色 0 命中**(而同一份 PDF 裡 `ABCD` 找得到)
+   ⇒ ⇒ **Chromium 不支援 `@page` 邊距框** —— 那段 CSS 從頭到尾沒有畫出任何東西。
+   🛑 而我 2026-09-02 那格「真出 PDF」的測試**通過了**, 因為它比的是【兩份 PDF 位元組長度不同】
+      —— 而換一個具名 page 本來就會讓長度不同(18470 vs 12232, 差在字型子集)。
+   ⇒ 📌 **一個比「有沒有差別」的斷言, 答不出「差別是不是我要的那個東西」。**
+
+   ✅ 現行做法:**真元素的 border**(一定會畫、一定會印), 而把 `@page` 左邊退 3mm 補回來
+   ⇒ 內容左緣仍在 12mm、右緣不動 ⇒ **內容寬度一格沒變 ⇒ 頁數不受影響**
+   ⇒ 而槓落在紙緣 9mm 處, 遠離印表機那圈約 4-5mm 的不可印帶 ⇒ **印得出來** */
 .pd-mark-detail {
   page: detail;
+  border-left: 3mm solid #1f1f1f;
 }
 
 @page detail {
-  @left-middle {
-    content: '';
-    border-left: 3mm solid #1f1f1f;
-  }
+  margin-left: 9mm; /* 9 + 3mm 邊框 = 原本的 12mm ⇒ 內容起點不變 */
 }
 
 /* ── 合計(只有訂單明細有)── */

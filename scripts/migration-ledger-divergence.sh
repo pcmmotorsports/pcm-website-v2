@@ -29,6 +29,18 @@
 #   ⑥ R̄ H P̄  幽靈:只有人帳有                                  warn
 #   ⑦ R̄ H̄ P  🔴 平台孤兒版本號(MCP 自派號的殘骸)             ← 擋
 #   ⑧ R̄ H̄ P̄  不存在(構造不出來)
+#   ⑨ ④ 的子集:檔頭帶 `-- pcm:never-apply` ⇒ **刻意不套用**(不是「還沒」)      ok
+#      🔴 為什麼要有它(2026-09-02,而它有一個真的受害者):
+#         `20260901170000` 那支自己第 4 行逐字寫著「本支【不 apply 到正式庫】」,
+#         而它在本表上落在 ④「待套 PENDING(正常,還沒 apply)」
+#         ⇒ **一個【永遠不會被套】的東西,掛在一個寫著「還沒」的態底下**
+#         ⇒ ⇒ 而主視窗當晚把它排進了「要 Sean 手貼」的清單(已撈回;它包在 BEGIN…COMMIT
+#            ⇒ 貼下去會 ERROR + 回捲、零改動 —— 而成本是 Sean 一次不必要的緊張)。
+#      📌 **而真正的病不是「它被歸錯類」**:當晚 ④ 裡 24 支有 23 支是真的還沒套
+#         ⇒ **那個分類對 23/24 是對的** —— 而正因為它幾乎總是對,沒有人會為它建立查證習慣。
+#         ⇒ ⇒ 🔴 **一個 96% 準確的訊號,不會有人去驗;而剩下那 4% 就是會送到 Sean 桌上的東西。**
+#      🛑 **⇒ 所以第九格不是「多一個態」,它是【把那 4% 從那 96% 裡拉出來】。**
+#      🔵 而**編號刻意不重排**:①-⑧ 在別處被引用,重排會讓那些引用悄悄指到另一格。
 #
 # ── exit code(對齊 scripts/where-is.sh 的 1/2/3 慣例)──────────
 #   0 = 三把尺對得上(可能有 warn,但沒有危險組合)
@@ -206,6 +218,71 @@ compare() {
   read_H "$REV" "$TSV" | sed "1s/^${BOM}//" | grep -v '^#' | grep -v '^[[:space:]]*$' > "$W/H.raw"
 
   sed -n 's/^\([0-9]\{14\}\)_.*\.sql$/\1/p' "$W/R.raw" | sort -u > "$W/R"
+
+  # 🔴 第九格的來源:檔頭前 20 行帶 `-- pcm:never-apply` 的那幾支。
+  #    ⚠️ **限定前 20 行是刻意的** —— 一支檔中段的註解提到這個字面(例如在解釋這個機制)
+  #      不該把它自己變成 never-apply。⇒ 標記是【宣告】,不是【提及】。
+  #    ⚠️ 而 rev 那條路要從 rev 讀, 不能讀工作樹 —— 否則 `--rev` 會拿今天的檔去判昨天的樹。
+  : > "$W/NEVER"; : > "$W/NOTNEED"; : > "$W/BADMARK"; : > "$W/BOTHMARK"; : > "$W/NOTNEED.why"; : > "$W/DEADPATH"
+  while IFS= read -r _f; do
+    case "$_f" in
+      [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_*.sql) ;;
+      *) continue ;;
+    esac
+    if [ -n "$REV" ]; then
+      _head=$(git show "$REV:supabase/migrations/$_f" 2>/dev/null | head -20)
+    else
+      _head=$(head -20 "$MIGDIR/$_f" 2>/dev/null)
+    fi
+    _has_never=0; _has_notneed=0
+    case "$_head" in *"-- pcm:never-apply"*) _has_never=1 ;; esac
+    case "$_head" in *"-- pcm:not-needed-now:"*) _has_notneed=1 ;; esac
+    # 🔴 **兩個標記同時出現 ⇒ 報錯, 不要挑一個**(-15 規格 ③-3)——
+    #    一個宣告矛盾要吵出來, 不要被靜靜解決成其中一種。
+    if [ "$_has_never" -eq 1 ] && [ "$_has_notneed" -eq 1 ]; then
+      printf '%s\n' "${_f%%_*}" >> "$W/BOTHMARK"
+    elif [ "$_has_never" -eq 1 ]; then
+      printf '%s\n' "${_f%%_*}" >> "$W/NEVER"
+    elif [ "$_has_notneed" -eq 1 ]; then
+      # 🔴 **冒號後面是空的 ⇒ 不算合法標記**(-15 規格 ③-1)——
+      #    而它**要出聲**, 不要安靜地當它不存在:否則一個打錯的標記
+      #    與一支【真的待套】的檔印同一個結果。
+      _why=$(printf '%s\n' "$_head" | sed -n 's/^--[[:space:]]*pcm:not-needed-now:[[:space:]]*//p' | head -1)
+      if [ -z "$_why" ]; then
+        printf '%s\n' "${_f%%_*}" >> "$W/BADMARK"
+      elif { printf '%s' "$_why" | grep -qE '(^| )[A-Za-z0-9_./-]+\.(sql|sh|py|ts|tsx|js|mjs)( |$)'; } \
+           && ! { printf '%s' "$_why" | tr ' ' '\n' \
+                  | grep -E '^[A-Za-z0-9_./-]+\.(sql|sh|py|ts|tsx|js|mjs)$' \
+                  | while IFS= read -r _pp; do git cat-file -e "HEAD:$_pp" 2>/dev/null || { echo miss; break; }; done \
+                  | grep -q miss; }; then
+        # 🟢 理由裡提到的每一支檔都在【版控裡】⇒ 合法
+        printf '%s\n' "${_f%%_*}" >> "$W/NOTNEED"
+        printf '%s\t%s\n' "${_f%%_*}" "$_why" >> "$W/NOTNEED.why"
+      elif printf '%s' "$_why" | grep -qE '(^| )[A-Za-z0-9_./-]+\.(sql|sh|py|ts|tsx|js|mjs)( |$)'; then
+        # 🔴 **理由裡有【看起來是檔案路徑】的東西, 而它不在版控裡** ⇒ 不算合法
+        #    ⇒ 🎯 而判準是 `git cat-file -e HEAD:<path>` **不是 `test -e`**(`-15` 收窄):
+        #      `test -e` 問的是「**我這棵樹**上有沒有」⇒ 一支檔在 dev 上有、而在某個施工窗的
+        #      工作樹上沒有(或反過來)⇒ **那會變成一道在某些人機器上紅、在別人機器上綠的閘,
+        #      而它每次紅都是誤報。**
+        #    ✅ `git cat-file -e HEAD:<path>` 問的是「**這支檔進版控了嗎**」——
+        #      而那才是「別人照著跑得動」的真正前提。
+        printf '%s\n' "${_f%%_*}" >> "$W/DEADPATH"
+      else
+        # 🔵 **理由裡沒有任何看起來像檔案路徑的東西 ⇒ 不驗路徑, 而【不是】判紅。**
+        #    🎯 規格要的是【可執行的複查方法】, 不是【一定要是一支檔】——
+        #      一句「唯讀查 aclexplode(relacl) 看 anon 在不在」也是可執行的。
+        #    ⇒ 📌 少了這一格, 這道閘會逼所有人都寫成一支檔。
+        printf '%s\n' "${_f%%_*}" >> "$W/NOTNEED"
+        printf '%s\t%s\n' "${_f%%_*}" "$_why" >> "$W/NOTNEED.why"
+      fi
+    fi
+  done < "$W/R.raw"
+  sort -u -o "$W/NEVER" "$W/NEVER"
+  for _x in NOTNEED BADMARK BOTHMARK DEADPATH; do
+    [ -f "$W/$_x" ] || : > "$W/$_x"
+    sort -u -o "$W/$_x" "$W/$_x"
+  done
+  [ -f "$W/NOTNEED.why" ] || : > "$W/NOTNEED.why"
   sed -n 's/^\([0-9]\{14\}\)	.*/\1/p'      "$W/H.raw" | sort -u > "$W/H"
 
   # 🔴 codex R1:形狀對不上的列會【靜默消失】而不觸發任何自檢
@@ -260,7 +337,18 @@ compare() {
   comm -23 "$W/RH" "$W/P" > "$W/c2"       # ② R H P̄  危險
   comm -12 "$W/RH" "$W/P" > "$W/c1"       # ① 正常
   comm -23 "$W/R"  "$W/H" > "$W/RnoH"
-  comm -23 "$W/RnoH" "$W/P" > "$W/c4"     # ④ 待套
+  comm -23 "$W/RnoH" "$W/P" > "$W/c4.all" # ④ 待套(拆之前)
+  # 🔴 ④ 拆兩半:帶標記的進 ⑨, 其餘留 ④。**兩半都要印** ——
+  #    只印 ⑨ 會讓「真的還沒套」那 23 支消失, 而那是這道閘本來的用途。
+  comm -12 "$W/c4.all" "$W/NEVER" > "$W/c9"
+  comm -23 "$W/c4.all" "$W/NEVER" > "$W/c4.rest"
+  # 🔴 ⑩「目標已達成 ⇒ 目前不需要貼」= ④ 的子集(-15 規格)——
+  #    而它與 ⑨ 的差別**不是分類, 是【它有一個還活著的問題】**:
+  #    ⑨ 那幾支在複製正式庫現況 ⇒ 結構上永遠不會變成「要貼」;
+  #    ⑩ 是一支【真的要 apply】的片, 被現況擋下 ⇒ **有人把狀態改回去, 它會重新變成要貼。**
+  #    ⇒ 🎯 所以它必須帶一句【可執行的複查方法】, 而下面那段會把原文印出來。
+  comm -12 "$W/c4.rest" "$W/NOTNEED" > "$W/c10"
+  comm -23 "$W/c4.rest" "$W/NOTNEED" > "$W/c4"
   comm -12 "$W/RnoH" "$W/P" > "$W/c3"     # ③ 做了沒記
   comm -13 "$W/R"  "$W/H" > "$W/HnoR"
   comm -12 "$W/HnoR" "$W/P" > "$W/c5"     # ⑤ 檔不見了
@@ -270,21 +358,66 @@ compare() {
 
   n1=$(wc -l < "$W/c1"|tr -d ' '); n2=$(wc -l < "$W/c2"|tr -d ' '); n3=$(wc -l < "$W/c3"|tr -d ' ')
   n4=$(wc -l < "$W/c4"|tr -d ' '); n5=$(wc -l < "$W/c5"|tr -d ' '); n6=$(wc -l < "$W/c6"|tr -d ' ')
-  n7=$(wc -l < "$W/c7"|tr -d ' ')
+  n7=$(wc -l < "$W/c7"|tr -d ' '); n9=$(wc -l < "$W/c9"|tr -d ' ')
+  n10=$(wc -l < "$W/c10"|tr -d ' ')
 
   # 🔴 分母對帳:八格加總必須等於三把尺的聯集。對不上 ⇒ 有版本掉在格子外面,結論作廢。
   cat "$W/R" "$W/H" "$W/P" | sort -u > "$W/U"
-  nU=$(wc -l < "$W/U"|tr -d ' '); nSum=$((n1+n2+n3+n4+n5+n6+n7))
+  # 🔴 ⑨ 是從 ④ 拆出來的 ⇒ 加總要含它, 否則拆完之後這道自檢會【自己紅】
+  nU=$(wc -l < "$W/U"|tr -d ' '); nSum=$((n1+n2+n3+n4+n5+n6+n7+n9+n10))
   if [ "$nSum" != "$nU" ]; then
-    echo "🔴 自檢 FAIL:八格加總 $nSum ≠ 版本號聯集 $nU ⇒ 有版本掉在格子外,本次輸出作廢" >&2
+    echo "🔴 自檢 FAIL:九格加總 $nSum ≠ 版本號聯集 $nU ⇒ 有版本掉在格子外,本次輸出作廢" >&2
     rm -rf "$W"; return 1
   fi
 
-  echo "── migration 帳本三方比對:repo $nR / 人帳本 $nH / 平台 $nP  (聯集 $nU,八格加總 $nSum ✓)"
+  echo "── migration 帳本三方比對:repo $nR / 人帳本 $nH / 平台 $nP  (聯集 $nU,九格加總 $nSum ✓)"
   if [ -n "$REV" ]; then
     echo "   讀的是 rev $REV 那棵樹(不是工作樹)"
   fi
   echo "   ① 正常已套 $n1   ④ 待套 PENDING $n4"
+  if [ "$n9" -gt 0 ]; then
+    echo "   🔵 ⑨ 刻意不套用(檔頭 -- pcm:never-apply)$n9 —— **這幾支不要放進「要 Sean 貼」的那一疊**"
+    sed 's/^/      · /' "$W/c9"
+  fi
+  # 🔴 ⑩ **分開印, 而且把【複查方法】原文印出來**(-15 規格 ③-2)——
+  #    理由:⑩ 是一份**站著的待複查清單**;併進 ⑨ 就沒有人會再看它。
+  if [ "$n10" -gt 0 ]; then
+    echo "   🟡 ⑩ 目標已達成 ⇒ 目前不需要貼(檔頭 -- pcm:not-needed-now:)$n10"
+    echo "      🛑 **這一格與 ⑨ 不同:⑨ 結構上永遠不會變成「要貼」, 而 ⑩【會】** ——"
+    echo "         有人把狀態改回去, 它就重新需要 ⇒ 所以它必須帶一句可執行的複查方法:"
+    while IFS="$(printf '\t')" read -r _v _w; do
+      printf '      · %s\n        ⇒ 怎麼知道它重新變成要貼:%s\n' "$_v" "$_w"
+    done < "$W/NOTNEED.why"
+  fi
+  markbad=0
+  # 🔴 標記不完整 ⇒ **出聲**, 而那支留在 ④(-15 規格 ③-1)。
+  #    📌 不出聲的話, 一個打錯的標記與一支【真的待套】的檔印同一個結果。
+  if [ -s "$W/BADMARK" ]; then
+    echo "🔴 標記不完整:這幾支帶了 -- pcm:not-needed-now: 而【冒號後面是空的】⇒ 不算合法標記, 它們仍在 ④ 待套裡" >&2
+    sed 's/^/      · /' "$W/BADMARK" >&2
+    markbad=1
+  fi
+  # 🔴 理由裡的路徑不在版控裡 ⇒ 不算合法(而它比空白難發現:那道閘只檢查非空 ⇒ 它會通過)。
+  if [ -s "$W/DEADPATH" ]; then
+    echo "🔴 複查方法指到【不在版控裡的檔】:這幾支的 not-needed-now 理由裡提到一支路徑, 而 git cat-file -e HEAD:<path> 找不到它" >&2
+    echo "   ⇒ 🎯 判準是【進版控了嗎】不是【我這棵樹上有嗎】—— 後者會變成在某些人機器上紅的閘, 而每次紅都是誤報" >&2
+    sed 's/^/      · /' "$W/DEADPATH" >&2
+    markbad=1
+  fi
+  # 🔴 兩個標記同時出現 ⇒ 報錯, 不要挑一個(規格 ③-3):宣告矛盾要吵。
+  if [ -s "$W/BOTHMARK" ]; then
+    echo "🔴 標記矛盾:這幾支同時帶 -- pcm:never-apply 與 -- pcm:not-needed-now: ⇒ 兩者的意思不同, 請只留一個" >&2
+    sed 's/^/      · /' "$W/BOTHMARK" >&2
+    markbad=1
+  fi
+  # 🔴 帶 not-needed-now 而【同時出現在人帳本】⇒ 報錯(規格 ③-4):
+  #    那代表它後來被貼了而標記沒拿掉 ⇒ **一個過期的標記會讓下一個人以為它還沒貼。**
+  comm -12 "$W/NOTNEED" "$W/H" > "$W/NOTNEED.applied"
+  if [ -s "$W/NOTNEED.applied" ]; then
+    echo "🔴 標記過期:這幾支帶 -- pcm:not-needed-now: 而【帳本上已經有它】⇒ 它被貼了而標記沒拿掉" >&2
+    sed 's/^/      · /' "$W/NOTNEED.applied" >&2
+    markbad=1
+  fi
   for k in 3 5 6; do
     eval "n=\$n$k"
     if [ "$n" -gt 0 ]; then
@@ -299,6 +432,28 @@ compare() {
   done
 
   rc=0
+  # ── 🔬 **本支輸出的消費者清單**(2026-09-02 實查;而**寫數法不只寫結論, 因為它會過期**)──
+  #   數法:`git grep -ln 'migration-ledger-divergence' -- . ':!*.md'` ⇒ **13 支**
+  #   ⇒ 而逐支開檔之後, **沒有任何一支【讀特定的 rc 值】**:
+  #     · `.husky/pre-push:66`  ⇒ 真的執行它, **而是用 `&&` 串** ⇒ 它只分【0 / 非 0】
+  #     · `package.json:36`     ⇒ lint-staged 跑 `--selftest` ⇒ 同樣只分 0 / 非 0
+  #     · `scripts/husky-hook-wiring-check.sh:115,177,187` ⇒ 只檢查**這個檔名有沒有出現在 pre-push 裡**, 不執行它
+  #     · `scripts/unreported-work-scan.sh:65,85` ⇒ 🔵 註解說它「對齊本支的 1/2/3」——
+  #        那是**約定**不是消費 ⇒ 加第四個碼不會弄壞它, 而那句話值得知道
+  #     · `b2s2b-tsync-cells.sh` / `pagecount.sh` / `selftest-git-isolation-gate.sh` ⇒ 註解引用
+  #     · 其餘 5 支是 `supabase/` 底下的 migration 與 `APPLIED.tsv` ⇒ 文字提及
+  #   🟢 正對照(同把尺):`git grep -ln 'greenlight.sh' -- . ':!*.md'` ⇒ **5 支** ⇒ 尺會動
+  #
+  # 🛑 **⇒ 所以 rc 的優先序改不改, 對機器沒有差別 —— 而那也表示【改它不會讓人看得更清楚】。**
+  #   🔴 而下面那個 rc=4 有一個【今天就失效】的射程:②⑦ 現在就在紅 ⇒ rc 被 3 蓋過去
+  #     ⇒ **rc 分不出是哪一種。**
+  #   ✅ 而唯一分得開的是上面那三行訊息 ⇒ **紅了要去讀那三行, 不要讀 rc。**
+  #   📌 ⇒ 一個為了【讓人分得出兩種紅】而設計的碼, 在另一種紅同時存在時就失效了 ——
+  #      而它失效時沒有任何訊號, 因為 rc 仍然是一個合法的非零。
+  # 🔴 標記類問題(不完整 / 矛盾 / 過期)⇒ 非零。
+  #    而它與 ②⑦ 的 rc=3 分開:那兩格是【帳本三方對不上】, 這一格是【標記本身壞了】。
+  #    ⇒ 📌 兩種都要擋, 而讀的人要分得出是哪一種 ⇒ 所以用不同的碼。
+  if [ "${markbad:-0}" != "0" ]; then rc=4; fi
   if [ "$n2" -gt 0 ]; then
     rc=3
     {
@@ -346,7 +501,9 @@ if [ "$MODE" = "selftest" ]; then
   #      外層隨即報 `error: invalid object … for 'supabase/migrations/20260101000000_x.sql'`
   #      ⇒ **整批 commit 失敗,而錯誤訊息指著一個那個 repo 裡根本不存在的檔。**
   #    ⇒ 這不是 fixture 的問題,是「自檢從 hook 裡跑」時的真實副作用。
-  unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR GIT_PREFIX 2>/dev/null || true
+  # 🔵 2026-09-02 補兩顆(-15 規格 ④-5 的清單):GIT_ALTERNATE_OBJECT_DIRECTORIES / GIT_NAMESPACE
+  #    ⇒ 一次剝乾淨, 不要逐發包 —— 而那條的實錘是「只覆蓋 6 個呼叫點裡的 4 個時, 底下仍然全綠」。
+  unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE GIT_PREFIX 2>/dev/null || true
   T=$(mktemp -d) || { echo "🔴 建不出暫存目錄(mktemp)⇒ 這不是量測結果, 也不是「乾淨」 ⇒ exit 9" >&2; exit 9; }
   trap 'rm -rf "$T"' EXIT
   pass=0; fail=0
@@ -492,6 +649,97 @@ if [ "$MODE" = "selftest" ]; then
   )
   ck "N symlink 不可冒充 migration ⇒ 仍判⑦=3" "$n_rc" "3"
 
+  # ── ⑨【刻意不套用】那一格:兩個世界 + 兩發突變 ────────────────────────
+  # 🔴 為什麼要兩個世界:只驗「有標記的變 ⑨」會讓另外那 23 支消失而沒有人發現。
+  #    ⇒ ⑨ 是從 ④ 裡【拉出來】的, 所以 ④ 剩下什麼也要被釘住。
+  O1=$(mk never1)
+  printf '   20260101000000 | 20260101000000 | t \n   20260102000000 |                | t \n' >> "$O1/platform.txt"
+  # 20260102 在 repo、不在人帳、不在平台 ⇒ 本來是 ④;給它標記 ⇒ 應該變 ⑨
+  printf -- '-- pcm:never-apply\nSELECT 1;\n' > "$O1/migrations/20260102000000_x.sql"
+  # 🔴 `$(run X; has …)` 會把 run 的 rc 與 has 的答案**串起來**(拿到 "0\nyes")
+  #    ⇒ 分兩步:先 run(它把輸出寫進 $T/out), 再 has。第一版就是這樣白紅四格的。
+  o1rc=$(run "$O1")
+  ck "O1 仍然該綠(⑨ 不是紅)⇒ 0" "$o1rc" "0"
+  ck "O1 帶標記那支 ⇒ 印⑨" "$(has x '⑨ 刻意不套用')" "yes"
+  ck "O1 有印出【具體是哪一支】" "$(has x '20260102000000')" "yes"
+
+  # 🧬 突變一:把標記拿掉 ⇒ 它必須掉回 ④(⑨ 那一行整個不見)
+  printf 'SELECT 1;\n' > "$O1/migrations/20260102000000_x.sql"
+  run "$O1" > /dev/null
+  ck "🧬 拿掉標記 ⇒ ⑨ 消失" "$(has x '⑨ 刻意不套用')" "no"
+
+  # ── ⑩【目標已達成 ⇒ 目前不需要貼】那一格:四個世界(-15 規格 ④-2)──────────
+  # 🔴 而它與 ⑨ 的差別不是分類:⑨ 結構上永遠不會變成「要貼」, 而 ⑩【會】
+  #    ⇒ 所以它必須帶一句可執行的複查方法, 而**沒帶就不算合法標記**。
+  P1=$(mk notneed1)
+  printf '   20260101000000 | 20260101000000 | t \n   20260102000000 |                | t \n' >> "$P1/platform.txt"
+  printf -- '-- pcm:not-needed-now: 跑 scripts/zzq-check.sh, 綠就仍不需要\nSELECT 1;\n' > "$P1/migrations/20260102000000_x.sql"
+  p1rc=$(run "$P1")
+  ck "P1 合法標記 ⇒ 不紅" "$p1rc" "0"
+  ck "P1 ⇒ 印⑩" "$(has x '⑩ 目標已達成')" "yes"
+  ck "P1 ⇒ **把複查方法原文印出來**(否則它就只是另一個分類)" "$(has x 'zzq-check.sh')" "yes"
+  ck "P1 ⇒ 不該印⑨(兩格要分得開)" "$(has x '⑨ 刻意不套用')" "no"
+
+  # 🧬 (a) 冒號後面清空 ⇒ **必須出聲**且那支回到 ④ —— 不可以安靜地當它不存在
+  #    📌 少了這一格, 一個打錯的標記與一支【真的待套】的檔印同一個結果。
+  printf -- '-- pcm:not-needed-now:\nSELECT 1;\n' > "$P1/migrations/20260102000000_x.sql"
+  pa=$(run "$P1")
+  ck "🧬 a 理由空 ⇒ 出聲說標記不完整" "$(has x '標記不完整')" "yes"
+  ck "🧬 a 理由空 ⇒ 不算⑩" "$(has x '⑩ 目標已達成')" "no"
+  ck "🧬 a 理由空 ⇒ rc 非 0" "$([ "$pa" != "0" ] && echo yes || echo no)" "yes"
+
+  # 🔴 (a2) 理由裡的路徑【不在版控裡】⇒ 不算合法(-15 收窄:判準是 git cat-file 不是 test -e)
+  #   📌 而它比空白難發現:空白會被「非空」那一格擋下, 而**一個指到空氣的路徑會通過那一格**。
+  printf -- '-- pcm:not-needed-now: 唯讀跑 docs/probes/zzq-no-such-probe.sql\nSELECT 1;\n' > "$P1/migrations/20260102000000_x.sql"
+  pa2=$(run "$P1")
+  ck "🧬 a2 路徑不在版控 ⇒ 報【複查方法指到】" "$(has x '複查方法指到')" "yes"
+  ck "🧬 a2 路徑不在版控 ⇒ 不算⑩" "$(has x '⑩ 目標已達成')" "no"
+
+  # 🔵 (a3) **理由裡沒有路徑 ⇒ 不驗路徑, 而【不是】判紅** —— 這一格最容易漏。
+  #   🎯 規格要的是【可執行的複查方法】, 不是【一定要是一支檔】
+  #     ⇒ 少了這一格, 這道閘會逼所有人都把複查方法寫成一支檔。
+  printf -- '-- pcm:not-needed-now: 唯讀查 aclexplode(relacl) 看 anon 在不在, 不在就仍不需要\nSELECT 1;\n' > "$P1/migrations/20260102000000_x.sql"
+  pa3=$(run "$P1")
+  ck "🔵 a3 純文字複查方法 ⇒ 仍是⑩" "$(has x '⑩ 目標已達成')" "yes"
+  ck "🔵 a3 純文字複查方法 ⇒ 不報路徑錯" "$(has x '複查方法指到')" "no"
+  ck "🔵 a3 純文字複查方法 ⇒ 不紅" "$pa3" "0"
+
+  # 🧬 (b) 兩個標記同時 ⇒ 報錯, 不要挑一個(宣告矛盾要吵)
+  printf -- '-- pcm:never-apply\n-- pcm:not-needed-now: 有理由\nSELECT 1;\n' > "$P1/migrations/20260102000000_x.sql"
+  pb=$(run "$P1")
+  ck "🧬 b 兩個標記 ⇒ 報標記矛盾" "$(has x '標記矛盾')" "yes"
+  ck "🧬 b 兩個標記 ⇒ 兩格都不印(沒有被靜靜解決成其中一種)" \
+     "$([ "$(has x '⑩ 目標已達成')" = no ] && [ "$(has x '⑨ 刻意不套用')" = no ] && echo yes || echo no)" "yes"
+
+  # 🧬 (c) 帶標記而【帳本上已經有它】⇒ 報錯(標記過期 ⇒ 下一個人會以為它還沒貼)
+  printf -- '-- pcm:not-needed-now: 有理由\nSELECT 1;\n' > "$P1/migrations/20260102000000_x.sql"
+  printf '20260102000000\tzzqhash\t2026-01-02\tselftest\n' >> "$P1/APPLIED.tsv"
+  pc=$(run "$P1")
+  ck "🧬 c 標記 + 帳本有它 ⇒ 報標記過期" "$(has x '標記過期')" "yes"
+
+  # 🔵 (d) 負對照:一支【沒有任何標記】的檔 ⇒ ④ 那格的數字不變(這一格證明上面不是恆紅)
+  P2=$(mk notneed2)
+  printf '   20260101000000 | 20260101000000 | t \n   20260102000000 |                | t \n' >> "$P2/platform.txt"
+  printf 'SELECT 1;\n' > "$P2/migrations/20260102000000_x.sql"
+  p2rc=$(run "$P2")
+  ck "🔵 d 無標記 ⇒ 不紅" "$p2rc" "0"
+  ck "🔵 d 無標記 ⇒ 三種標記錯誤一個都不印" \
+     "$([ "$(has x '標記不完整')" = no ] && [ "$(has x '標記矛盾')" = no ] && [ "$(has x '標記過期')" = no ] && echo yes || echo no)" "yes"
+
+  # 🧬 突變二(反向):標記放在第 25 行(超過檔頭 20 行)⇒ **不算**
+  #    🔴 這一格守的是「標記是【宣告】不是【提及】」—— 少了它, 任何在中段解釋這個機制的檔
+  #      都會把自己變成 never-apply。
+  { i=1; while [ $i -le 24 ]; do printf -- '-- filler\n'; i=$((i+1)); done
+    printf -- '-- pcm:never-apply\nSELECT 1;\n'; } > "$O1/migrations/20260102000000_x.sql"
+  run "$O1" > /dev/null
+  ck "🧬 標記在第 25 行 ⇒ 不算(仍不是⑨)" "$(has x '⑨ 刻意不套用')" "no"
+
+  # 🔵 而 ④ 那一半要自己被釘住:沒有任何標記時, 待套數不可以掉
+  O2=$(mk never2)
+  printf '   20260101000000 | 20260101000000 | t \n   20260102000000 |                | t \n' >> "$O2/platform.txt"
+  run "$O2" > /dev/null
+  ck "O2 零標記 ⇒ ④ 待套 PENDING 1 還在" "$(has x '④ 待套 PENDING 1')" "yes"
+
   echo "  ── selftest: $pass PASS / $fail FAIL"
   # 🔴 codex R1:只驗 fail=0 ⇒ 刪掉任何一格照樣 exit 0。格數要釘死。
   # 🔴 格數守門比的是【跑過幾格】(pass+fail),不是【過了幾格】(pass)——
@@ -499,7 +747,15 @@ if [ "$MODE" = "selftest" ]; then
   #    舊寫法卻印「格數不對:有格被刪掉或沒跑到」⇒ **診斷指錯方向**,
   #    而它印在「17 PASS / 1 FAIL」之後 ⇒ 讀的人最後看到的是錯的那一句。
   #    「一格失敗」與「一格不見了」修法完全不同,不能共用同一個出口。
-  EXPECT=21
+  # 2026-09-02:21 ⇒ **27**(⑨【刻意不套用】那一格新增 6 格:O1×3 + 兩發突變 + O2)
+  #   🔵 而這道閘【自己叫了】—— 我加完格數沒改它, 它當場印「跑了 27 格 ≠ 21」。
+  #      ⇒ 📌 那正是它存在的理由:**改動格數的人一定會撞到它, 而那個人正是剛動過那段碼的人。**
+  # 🔴 **27 ⇒ 39**:⑩ 那一格加了 12 格(2026-09-02 `-c7` 依 `-15` 規格)——
+  #    4 格正世界 + 3 格(a 理由空)+ 2 格(b 兩標記)+ 1 格(c 帳本衝突)+ 2 格(d 負對照)。
+  #    🔵 **39 ⇒ 42**(同日稍晚, `-15` 收窄那一格):+2(a2 路徑不在版控)+3(a3 純文字不驗路徑)
+  #       —— 而 a3 那三格守的是【這道閘不逼人把複查方法寫成一支檔】。
+  #    📌 **把「為什麼從 N 變成 M」寫在數字旁邊**(規格 ④-3)—— 而它今晚已經抓到 `-15` 兩次算錯格數。
+  EXPECT=44
   if [ "$((pass + fail))" != "$EXPECT" ]; then
     echo "  🔴 【格數】不對:跑了 $((pass + fail)) 格 ≠ $EXPECT ⇒ 有格被刪掉或沒跑到(這不是「有格失敗」)"; exit 1
   fi

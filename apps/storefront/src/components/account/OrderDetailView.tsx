@@ -43,7 +43,10 @@ import {
   orderStatusTone,
   paymentMethodLabel,
 } from '@/lib/orders/order-display';
-import { ORDER_DETAIL_ITEMS_TRUNCATED_NOTE } from '@/lib/account-order-copy';
+import {
+  ORDER_DETAIL_ITEMS_TRUNCATED_NOTE,
+  ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE,
+} from '@/lib/account-order-copy';
 
 /**
  * 付款軸 → 徽章三檔(spec 附錄 B-5;來源 = OD 稿 `order-detail-page.html:150-156` 的 tone)。
@@ -151,7 +154,32 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
     //    可以差好幾天 ⇒ 拿 `createdAt` 冒充等於**印一個我們自己編的付款日**,而客人沒有第二個來源可以對。
     //    `paidAt` 為 null ⇒ **那一階不印日期**(狀態仍可標完成),不要退回 createdAt。
     { t: '付款完成', d: order.paidAt === null ? '' : formatOrderDate(order.paidAt), ok: paid },
-    { t: '已出貨', d: '', ok: false },
+    /**
+     * ⟦b9-SHIPUI⟧ **這一階從包裹真相點亮**(Sean 2026-09-02 拍丙)。
+     *
+     * ⛔ ~~原本寫死 `{ d: '', ok: false }`~~ —— 那在**沒有包裹資料**的時候是誠實的
+     *    (稿 `:170-172` 逐字「第 3、4 階在第 1 批一律是未完成的空心點, 這是**誠實的**」),
+     *    而權限與讀取那半 2026-09-02 落地之後, **那個誠實變成了過期**。
+     * 🔴 **來源是 `shippedAt`(包裹), 不是 `fulfillmentStatus`** —— 後者是 stale 出貨軸,
+     *    稿同一段逐字「拿它點亮『已出貨』等於**對客人說謊**」。
+     *
+     * ⚠️ **一個沒有人裁過的組合(code-reviewer 2026-09-02 nit,`-fc` 收下而不自己決定)**:
+     *    `shippedAt` 非空**而** `paidAt` 為空(匯款單先出貨後收款)⇒ 第 3 階亮而第 2 階不亮
+     *    ⇒ **進度軸中間會出現一個洞**,而 `nowIdx`(下面那行 `steps.reduce` 取**最後一個** ok)
+     *       仍指到第 3 階。
+     *    ⇒ 🛑 **那是視覺/文案的板, 不是實作的板** —— 已交主視窗端 Sean;
+     *       **在他拍之前這裡不做特殊處理**(自己補一條規則等於替他決定)。
+     */
+    { t: '已出貨', d: order.shippedAt === null ? '' : formatOrderDate(order.shippedAt), ok: order.shippedAt !== null },
+    /**
+     * 🔵 **「已送達」維持空心點, 而那是【誠實】不是漏做。**
+     * `delivered_at` 在全 repo 的 migration 裡是 **0 個檔**
+     * (🟢 正對照 `grep -rl shipped_at supabase/migrations | wc -l` ⇒ **19**;
+     *  ⛔ ~~18~~ 是原作者寫的、2026-09-02 codex 複量為 19 ⇒ **正對照的數字自己也會過期**,
+     *  而它過期的方向是「看起來仍然合理」)
+     * ⇒ **我們沒有那個資料來源。** 編一個「已送達」出來, 就是稿警告的同一件事。
+     * ⇒ 哪天有了那一欄, 這一行改成與上一行同形即可。
+     */
     { t: '已送達', d: '', ok: false },
   ];
   const nowIdx = steps.reduce((n, s, i) => (s.ok ? i : n), 0);
@@ -222,6 +250,39 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
           </div>
         ))}
       </div>
+      {/**
+        * ⟦b9-SHIPUI⟧ 分批出貨的那句小字(Sean 2026-09-02 拍**丙**:
+        * 亮「已出貨 MM-DD」+ 小字「其餘商品出貨時會再通知您」)。
+        * ⛔ **而那個 `MM-DD` 字面已被他自己推翻** —— Sean 2026-09-02 Q31 拍甲「跟鄰居一致
+        *    (`2026-09-02`)」,落點 `~/pcm-mailbox/拍板-20260902-上午.md:244`;Q31 晚於本題
+        *    且專門在答日期格式 ⇒ **用 `formatOrderDate` 的 `YYYY-MM-DD`**(理由見同名 test 檔)。
+        *
+        * 🔴 **只在【還沒全部出完】時出現** —— 全部出完時那句話對客人是**假的**。
+        * 🛑 而 `allItemsShipped` 在 `itemsTruncated` 時一律 `false`(mapper 的保守方向)
+        *    ⇒ 品項被截斷時**會印**這一句。⛔ ~~那個方向的錯是多印一句**無害**的話~~
+        *       ⇒ **兩個方向都會傷人, 我們選的是比較輕的那一邊**(理由見 domain docstring);
+        *    反過來(宣稱全部出完)會讓客人以為東西都到齊了。
+        */}
+      {/**
+        * 🔴🔴 **這一段在 `.od-steps` 之【外】,而它 2026-09-02 是被移出來的。**
+        *
+        * ⛔ ~~原本這個 `<p>` 寫在 `.od-steps` 裡面(四階的後面)~~ ——
+        *    而 `.od-steps` 是 `display: flex` ⇒ **它變成第 5 個 flex item**,
+        *    被【排】在「已送達」右邊,不是【放】在進度軸下面。
+        * 🔬 真瀏覽器實測(`-fc` 2026-09-02 · localhost:3020 · 拋棄式庫):
+        *    · 桌面 1200px:小字 `x=969` = 已送達那格的 `right=969` ⇒ 它就在第 5 格,寬 191px
+        *    · 手機 375px:四階被擠成每格 **38px**(桌面 232px)
+        *      ⇒ 標題折成「訂單成 / 立」、日期折成「2026- / 09-02」
+        *      成因:小字吃掉 375 裡的 **191** —— **超過一半**
+        * 🛑 **而 `scrollWidth === 375` ⇒ 不橫向溢出** ⇒ 任何「有沒有溢出」的尺都看不到它。
+        * 📌 **而 jsdom 那幾格測試【全部通過】** —— 它們問的是「那句字在不在」,而它在。
+        *    ⇒ 這一格只有真瀏覽器量得到(Sean 2026-08-17:「不用再用 artifacts,直接開伺服器做+看」)。
+        */}
+      {order.shippedAt !== null && !order.allItemsShipped && (
+        <p className="acc-order-note" data-od-id="order-partial-shipment-note">
+          {ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE}
+        </p>
+      )}
 
       <div className="acc-section" data-od-id="order-items">
         <div className="acc-section-head">

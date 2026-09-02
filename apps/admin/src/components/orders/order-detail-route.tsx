@@ -20,9 +20,11 @@ import {
   type ManualRefundRow,
 } from '../../lib/payment/manual-refund-read';
 import { listOrderPayments } from '../../lib/orders/payment-repository';
+import { listOrderEmailLog } from '../../lib/orders/email-log-repository';
 import { listSuppliers } from '../../lib/supplier';
 import { OrderDetail } from './order-detail';
 import type { PaymentListData } from './payment-list';
+import { EmailLogSection, type EmailLogData } from './email-log-section';
 import { ResultBanner } from './result-banner';
 import { getSessionActor } from '../../lib/session/actor';
 import {
@@ -179,6 +181,7 @@ export async function OrderDetailRoute({
     suppliersSettled,
     refundsSettled,
     paymentsSettled,
+    emailLogSettled,
     unregisteredSettled,
     manualRefundsSettled,
   ] = await Promise.allSettled([
@@ -187,6 +190,8 @@ export async function OrderDetailRoute({
       (async () => listOrderRefunds(id))(),
       // #15-B2-c 片1a:收款明細(獨立容錯 —— 讀不到**不是**「沒收過款」,見下方折三態)。
       (async () => listOrderPayments(id))(),
+      // 片A:這張單寄過哪幾封信(獨立容錯 —— 讀不到**不是**「沒寄過信」, 見下方折二態)。
+      (async () => listOrderEmailLog(id))(),
       // 🔴 #445a-3:帳本未登記額**併進這一批平行查**,不放在下面串著等。
       //    它不依賴 `refunds`(445a-3 之後是無條件查)⇒ 沒有理由多一趟往返。
       //    ⚠️ 第一版我寫在 `refundsSettled` 的 fulfilled 區塊裡 `await` ——
@@ -335,6 +340,34 @@ export async function OrderDetailRoute({
       : paymentsSettled.value === null
         ? { status: 'order_not_found' }
         : { status: 'ok', rows: paymentsSettled.value };
+  // 🔴 片A:折**二**態而不是三態 —— 而少的那一態要說明白, 不然下一個人會以為我漏了。
+  //    `listOrderEmailLog` 直查表 ⇒ 訂單不存在時它回**空陣列**, 不是 null
+  //    ⇒ 這裡沒有 `order_not_found` 那一格可折。
+  //    🔴🔴 **R2 nit 訂正:下面這句推理是錯的, 舊字面留著。**
+  //    ⛔ ~~「而『訂單不存在』那一格由上面的 `detail === null → notFound()` 接走
+  //         ⇒ 走到本行時訂單一定存在」~~
+  //    ⇒ **兩個地方都不成立**:①那一行 `if (missing === 'not-found') notFound();`
+  //      **在本行之下**, 不在上面
+  //      ②它只在 `missing === 'not-found'` 時呼叫, 而**面板版刻意不呼叫**
+  //        (檔頭那段「notFound 面板自理」;平行路由槽裡呼叫它會把整頁打成 root 404)
+  //        ⇒ 面板版走到本行時訂單**可以不存在**。
+  //    ✅ 真正接住它的是**渲染那一行**的 `{loadFailed || detail === null ? null : <EmailLogSection`
+  //       ⇒ 訂單不存在時這個區塊根本不掛上去。**行為是對的, 錯的是我寫的理由。**
+  //
+  //    🔴🔴 **R3 must-fix:上面這段原本引的是【本檔自己的行號】(`:360` / `:415`), 而兩個都已經漂了**
+  //       (實查 `notFound()` 在 368、那個三元在 424)—— 而**漂的原因就是我在寫這段註解**。
+  //       🛑 而最毒的一格:那兩個行號, 就寫在下面十行那句「描述這支檔自己的數字, 在寫下它的
+  //          那個動作裡就過期了」的**正上方** ⇒ **我一邊寫下那條規律, 一邊違反它。**
+  //       ✅ ⇒ 引本檔內的位置一律用**程式字面**當錨, 不用行號。字面會跟著搬, 行號不會。
+  //    📌 ⇒ 一段【結論正確而推理錯誤】的註解, 比沒有註解貴 ——
+  //       下一個人會照那個理由去改別的地方, 而那個理由在別的地方不成立。
+  const emailLog: EmailLogData =
+    emailLogSettled.status === 'rejected'
+      ? { status: 'unreadable' }
+      : { status: 'ok', rows: emailLogSettled.value };
+  if (emailLogSettled.status === 'rejected') {
+    console.error('[admin/order-detail] 寄信紀錄載入失敗(顯錯誤態≠沒寄過)', emailLogSettled.reason);
+  }
   if (paymentsSettled.status === 'rejected') {
     console.error('[admin/order-detail] 收款明細載入失敗(顯錯誤態≠查無)', paymentsSettled.reason);
   }
@@ -372,6 +405,35 @@ export async function OrderDetailRoute({
         cancellations={detail?.cancellations ?? null}
         cancellationsTruncated={detail?.cancellationsTruncated ?? true}
       />
+
+      {/* 🔴🔴 片A:「這張單寄過哪幾封信」—— **而它為什麼在這裡而不在 `OrderDetail` 裡面**:
+          `order-detail.tsx:329` 有一條 2026-08-20 的裁定 ——「下一次動這支檔【先抽再改】」,
+          而它逐字寫著「對這支檔的【下一次非一行改動】仍然生效」⇒ 那指的就是本片。
+          ⇒ 本區塊放在 route 是為了【不讓那支檔長大】, **不是為了避開那條裁定** ——
+             那條裁定要防的東西, 這條路本來就不會發生(那支檔一個字都不長)。
+          🛑 而【抽檔】那件**仍然開著, 沒有因為本片而消失** —— 它是 backlog **`#675`**
+             (`docs/phase-1-backlog.md` 搜 `### #675`, 標題逐字「`order-detail.tsx` 該抽下一塊了」)。
+             ⛔ ~~原句寫「主視窗 2026-09-02 已請 `-f3` 開列」~~ —— R1 nit #11 訂正:
+                **那一條【早就存在】, 不需要開新的。**
+             ⛔ ~~而訂正句原本還附了行號 `:24487`~~ —— R3 nit:**板子是多窗共寫檔, 那個行號已漂到 24492**
+                ⇒ **錨(`#675` + 標題)夠用, 行號是會過期的裝飾。**
+             📌 ⇒ 而「宣稱某件事已在 backlog 而實際查無」正是 `#281` 那一條的出生原因
+                ⇒ **指既有編號, 不要指一個還沒生出來的。**
+          🔴 **而本片沒有讓 route 變小 —— 它已過鐵則 6 的 400 線。**
+             ⛔ ~~「它是 487 行」~~ —— R2 must-fix 訂正, 而 R3 又量到一次:
+                **487 ⇒ 494 ⇒ 506**, 三個數字全部是我自己加註解推上去的。
+                ⇒ **本檔行數以當場 `wc -l` 為準**;改前 `git show HEAD:<path> | wc -l` ⇒ 456。
+             📌 **⇒ 一個寫死在檔案裡、描述【這支檔自己】的數字, 在寫下它的那個動作裡就過期了。**
+             🔴 **⇒ 而它與一般的過期不同:一般的過期要等別人來改, 而這一種**
+                **在我按下存檔【之前】就已經錯了。**
+             不拆的理由寫在 commit body(鐵則 6 逐字要求), 不留白。
+          📌 ⇒ 下一個人:看到「有人把區塊放外面」**不要**把它讀成這支檔的新慣例。
+
+          🔵 而位置(常駐、不進分頁)是產品判斷:客服是【接電話當下】在看它
+             ⇒ 常駐比「要先點到某一個分頁」快一步。
+          🔴 代價照留:它不在 `OrderDetail` 的分頁結構裡 ⇒ 版面上是獨立一張卡。
+             ⇒ Sean 開後台看到不喜歡, 那時再搬。 */}
+      {loadFailed || detail === null ? null : <EmailLogSection data={emailLog} />}
 
       {loadFailed || detail === null ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>

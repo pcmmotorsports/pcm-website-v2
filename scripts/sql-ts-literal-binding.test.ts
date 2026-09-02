@@ -17,8 +17,14 @@ import { matchFitmentYear } from '../packages/domain/src/catalog/year-range';
 //       形狀」本身就是要被對抗檢查的宣稱,不是寫完就對。
 //
 // ⚠️ 規格偏差兩處(以 repo 實物為準,記進 commit body):
-//    ① 規格寫 P6 目標=`search_products_by_vehicle` —— 全 migrations 0 命中,
+//    ① 規格寫 P6 目標=`search_products_by_vehicle` —— ⛔ ~~全 migrations 0 命中~~
 //       實物=`search_catalog_by_vehicle`(判定為筆誤)。
+//       🔵 **2026-09-02 訂正(舊字面留著,讓照舊句搜的人同一發撞到)**:那個 0 已經不成立 ——
+//       `20260902200000_m4b_c7_rpc_ddl_into_version_control.sql` 把
+//       `search_products_by_vehicle` 補進版控了(它一直活在正式庫上而版控裡沒有)。
+//       🎯 **⇒ 而「判定為筆誤」那個結論【仍然成立】**:規格那一格指的確實是
+//       `search_catalog_by_vehicle`,而不是「那支函式不存在」。
+//       📌 **⇒ 一個結論可以是對的,而它底下那個【0】同時是暫時的。**
 //    ② 規格寫 P6 live=20260712213000 —— 實際 live=20260811040000(見上)。
 
 const MIG_DIR = join(__dirname, '..', 'supabase', 'migrations');

@@ -92,6 +92,10 @@ const CLEAN_RESULT = {
   cronHeartbeatAbnormalCount: 0,
   cronHeartbeatAbnormalJobs: [],
   cronHeartbeatUnknown: false,
+  bypassRlsRevoked: false,
+  bypassRlsUnknown: false,
+  bypassRlsPrivilegedCount: 6,
+  bypassRlsTotalRoleCount: 35,
   oldestOpenAgeSeconds: null,
   notifiersTotal: 0,
   notifiersFailed: 0,
@@ -913,5 +917,49 @@ describe('⟦b9-ENUMWATCH⟧ 片 2:Unknown 那一行 warn', () => {
       warnSpy.mock.calls.some((c) => String(c[1] && (c[1] as { reason?: string }).reason) === 'manual_customer_search_unknown'),
     ).toBe(false);
     warnSpy.mockRestore();
+  });
+});
+
+/**
+ * ⟦b9-RLSHARDEN⟧ 甲(片B)· route 那一段。
+ *
+ * 🔴 **codex 2026-09-02 must-fix ⑤ 的落點**:我加了 `bypassRlsUnknown ⇒ 503` 那個 `if`,
+ *    而**沒有任何一發測試會因為刪掉它而紅** ⇒ 那一段等於沒有守門。
+ * 📌 **一段【寫對了而沒有人驗】的碼, 與【沒寫】在 diff 上長得一樣完整。**
+ */
+describe('⟦b9-RLSHARDEN⟧ 甲片B:route 的兩個觀眾', () => {
+  it('🔴 bypassRlsUnknown=true ⇒ 503 + 記失敗心跳(不得回 200)', async () => {
+    checkSpy.mockResolvedValueOnce({
+      ...CLEAN_RESULT,
+      bypassRlsUnknown: true,
+      bypassRlsPrivilegedCount: null,
+      bypassRlsTotalRoleCount: null,
+    });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status, '量不到卻回 200 ⇒「這把量具壞了」被記成「一切健康」').toBe(503);
+    expect(hbFailSpy).toHaveBeenCalled();
+    expect(JSON.stringify(errSpy.mock.calls)).toContain('get_privileged_role_bypassrls_state');
+    errSpy.mockRestore();
+  });
+
+  it('🟢 正對照:兩個旗標都 false(今天的正常態)⇒ 200,而且沒有那句 log', async () => {
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    expect(JSON.stringify(errSpy.mock.calls)).not.toContain('get_privileged_role_bypassrls_state');
+    errSpy.mockRestore();
+  });
+
+  it('🔴 屬性被收掉(Revoked=true 而量得到)⇒ **200 不是 503** —— 那條路是寄信,不是部署告警', async () => {
+    /**
+     * 🎯 這一格釘的是**兩個觀眾不要混在一起**:
+     *   被收掉 ⇒ use-case 已經寄了信(LINE + Email 給 Sean)⇒ route 這一層沒事,回 200。
+     *   若這裡也 503, 那支 cron 會被記成失敗 ⇒ **一個成功送出的告警被記成故障。**
+     */
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, bypassRlsRevoked: true, alerted: true });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
   });
 });

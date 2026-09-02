@@ -125,3 +125,63 @@ describe('🔴 catalogRowToUIProduct 不得偽造價格(Sean 2026-08-25 兩板)'
     expect(catalogRowToUIProduct({ ...base, price_general: 6800 }).price).toBe(6800);
   });
 });
+
+// ─────────────────────────────────────────────────────────────
+// ⟦fc-SUPPLIERPLACEHOLDER⟧ 目錄頁 RPC 這條路 —— **它不經過 adapter mapper。**
+//
+// 🔴 `/products` 與品牌頁走 RPC `search_catalog_by_vehicle` ⇒ 直接吃 `row.card_image`
+//    (view 的 `p.images ->> 0`, **未濾**)⇒ 只修 mapper 那一半, 客人最常去的那一頁照樣看到爛圖。
+// 📌 而它是 code-reviewer 2026-09-02 從 diff 讀出來的 —— **我原本的註解逐字寫著
+//    「storefront 五條讀取路徑全部經過 mapper」, 而那句話是假的。**
+// ─────────────────────────────────────────────────────────────
+describe('⟦fc-SUPPLIERPLACEHOLDER⟧ 目錄頁 RPC 路徑', () => {
+  const base = {
+    id: 'p1', title: 'T', subtitle: null, handle: 'h', availability: 'in-stock',
+    price_general: 100, card_image: null, fits: '通用款', brand_name: 'B',
+    brand_slug: 'b', category_raw: 'C',
+  };
+  const G = 'https://www.gillestooling.com/media/01/e4/ac/1711800467/';
+  const trim = { l: 0.1, t: 0.2, w: 0.5, h: 0.6, nw: 1200, nh: 900 };
+
+  it.each([
+    `${G}spareparts-mit-tesxt.png`,
+    `${G}bild-schraube-gilles-tooling.png`,
+    'https://www.extreme-components.com/components/com_virtuemart/assets/images/vmgeneral/noimage.jpg',
+  ])('🔴 供應商佔位圖 ⇒ image = null(下游改顯 PCM 站內卡):%s', (url) => {
+    expect(catalogRowToUIProduct({ ...base, card_image: url }).image).toBeNull();
+  });
+
+  it('🟢 負對照:PCM 自己的卡【不得】被濾掉', () => {
+    const pcm = 'https://quote.pcmmotorsports.com/no-photo.png';
+    expect(catalogRowToUIProduct({ ...base, card_image: pcm }).image).toBe(pcm);
+  });
+
+  // 🔵 附帶行為變化, 而它沒有被任何一格釘住(code-reviewer R2 nit):
+  //    `card_image === ''` 從前給 `''`(⇒ `<img src="">`, 那是壞的), 現在短路成 `null`。
+  //    方向是改善, 但**改回 `row.card_image !== null && !isSupplier…` 不會紅** ⇒ 補這一格釘它。
+  it('🔵 card_image 是空字串 ⇒ null(不得產生 <img src="">)', () => {
+    expect(catalogRowToUIProduct({ ...base, card_image: '' }).image).toBeNull();
+  });
+
+  it('🟢 正對照:真商品照留著(證明這把尺不是恆真)', () => {
+    const real = `${G}carbon-tank-pad.jpg`;
+    expect(catalogRowToUIProduct({ ...base, card_image: real }).image).toBe(real);
+  });
+
+  // 🔴 trim bbox 釘在【那張被丟掉的圖】⇒ 留著它會套到後面換上來的圖。
+  //    拿掉 imageTrim 那個判斷 ⇒ 這一格紅。
+  it('🔴 首圖是佔位圖 ⇒ imageTrim 一起丟掉', () => {
+    const r = catalogRowToUIProduct({ ...base, card_image: `${G}spareparts-mit-tesxt.png`, card_image_trim: trim });
+    expect(r.imageTrim).toBeUndefined();
+  });
+
+  // 🔵 本片不得改「本來就沒圖」那條既有行為(第一版我寫寬了, 當場弄紅一格既有測試)。
+  it('🟢 負對照:card_image 本來就是 null ⇒ trim 照既有行為解析, 不受本片影響', () => {
+    expect(catalogRowToUIProduct({ ...base, card_image: null, card_image_trim: trim }).imageTrim).toEqual(trim);
+  });
+
+  it('🟢 正對照:真圖 ⇒ trim 保留', () => {
+    const r = catalogRowToUIProduct({ ...base, card_image: `${G}real.jpg`, card_image_trim: trim });
+    expect(r.imageTrim).toEqual(trim);
+  });
+});

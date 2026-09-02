@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { computeEffectivePrice } from '@pcm/domain';
+import { computeEffectivePrice, dropSupplierPlaceholders } from '@pcm/domain';
 import {
   mapDomainProductToSupabase,
   mapSupabaseProductToDomain,
@@ -509,5 +509,138 @@ describe('mapSupabaseProductToDomain · soundClips', () => {
     expect(mapSupabaseProductToDomain({ ...baseProductRow, sound_clips: dirty }).soundClips).toEqual([
       { title: null, url: 'https://cdn.example/a.wav' },
     ]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// ⟦fc-SUPPLIERPLACEHOLDER⟧ 供應商佔位圖 → 視為沒有圖
+//
+// 🔴 這一族守的是【客人看到的東西】:GILLES / EXTREME 送來的是他們自家的
+//    「無照片」圖(德文「零件配文字」「螺絲圖」「圖片稍後補上」)。
+//    濾掉 ⇒ images 變空 ⇒ 下游 `product.images[0] ?? null` 給 null
+//    ⇒ ProductImage `showReal === false` ⇒ 客人看到站內 /placeholder-product.png。
+//
+// 🛑 而最重要的一格是【負對照】:PCM 自己的卡不得被濾掉。
+//    一條寬鬆的規則會把 591 支的 PCM「暫無照片」卡也濾掉 —— 換成另一張 PCM 卡,
+//    零收益而多一次同步;而它在畫面上幾乎看不出差別 ⇒ 沒有人會發現規則寫寬了。
+// ─────────────────────────────────────────────────────────────
+describe('⟦fc-SUPPLIERPLACEHOLDER⟧ dropSupplierPlaceholders', () => {
+  const G = 'https://www.gillestooling.com/media/01/e4/ac/1711800467/';
+  const G2 = 'https://www.gillestooling.com/media/7d/cb/33/1740757593/'; // 🔴 另一個目錄段
+  const X = 'https://www.extreme-components.com/components/com_virtuemart/assets/images/vmgeneral/';
+
+  // 🟢 正對照:四條規則各一格。改壞任何一條 ⇒ 對應那格紅。
+  it.each([
+    ['spareparts-mit-tesxt', `${G}spareparts-mit-tesxt.png`],
+    ['bild-schraube-', `${G}bild-schraube-gilles-tooling.png`],
+    ['bild-folgt-in-kurze-', `${G}bild-folgt-in-kurze-gilles-tooling-motorrad.png`],
+    ['noimage.jpg', `${X}noimage.jpg`],
+  ])('🔴 濾掉供應商佔位圖:%s', (_rule, url) => {
+    expect(dropSupplierPlaceholders([url])).toEqual([]);
+  });
+
+  // 🔴 CDN 把同一張圖切成 28 個 hash 檔名 ⇒ 比對必須是 startsWith。
+  //    改成完整檔名相等 ⇒ 這一格紅(而上面那四格照樣綠 ⇒ 所以這一格不可省)。
+  it.each([
+    `${G}spareparts-mit-tesxt01954.png`,
+    `${G}spareparts-mit-tesxt59119dc4380460194e.png`,
+    `${G2}bild-schraube-gilles-toolingpi82encvzt4bx.png`,
+  ])('🔴 hash 尾巴的變體也要濾掉(前綴比對, 不是完整檔名):%s', (url) => {
+    expect(dropSupplierPlaceholders([url])).toEqual([]);
+  });
+
+  // 🔴🔴 負對照:PCM 自己的卡。規則若忘了釘網域或寫太寬 ⇒ 這一格紅。
+  it('🟢 負對照:PCM 自己的「暫無照片」卡【不得】被濾掉', () => {
+    const pcm = 'https://quote.pcmmotorsports.com/no-photo.png';
+    expect(dropSupplierPlaceholders([pcm])).toEqual([pcm]);
+  });
+
+  // 🔴 釘網域那一格單獨守:同一個檔名掛在別的網域上 ⇒ 不濾。
+  //    拿掉 `host === h` 這個條件 ⇒ 只有這一格紅。
+  it('🟢 負對照:同樣的檔名但不是那個網域 ⇒ 留著(規則釘住網域)', () => {
+    const other = 'https://cdn.example.com/vmgeneral/noimage.jpg';
+    expect(dropSupplierPlaceholders([other])).toEqual([other]);
+  });
+
+  // 🔴🔴 **Critical(code-reviewer 2026-09-02 實跑抓到的假綠)**
+  //    生產註解逐字寫著「`bild-` 刻意拆兩條, 不合成一條」—— 而在補這一格之前,
+  //    把兩條併成 `['www.gillestooling.com','bild-']` ⇒ **既有 12 格全綠(0 紅)**;
+  //    把 `startsWith` 換成 `includes` ⇒ **也是 0 紅**。
+  // 📌 ⇒ **那條紅線只寫在註解裡, 而註解不會執行。** 下面兩格才是它。
+  it.each([
+    ['bild- 併成一條會誤傷', `${G}bild-carbon-tank-pad.jpg`],
+    ['includes 取代 startsWith 會誤傷', `${G}photo-of-spareparts-mit-tesxt-shown-here.jpg`],
+  ])('🔴 負對照:真商品照不得被濾掉(%s)', (_why, url) => {
+    expect(dropSupplierPlaceholders([url])).toEqual([url]);
+  });
+
+  // 🔴 Critical:trim bbox 釘在【DB 的 images[0]】(view 的 LEFT JOIN)
+  //    ⇒ 首圖被濾掉 ⇒ bbox 換了主人 ⇒ 真照片被套上別張圖的裁切框。
+  //    拿掉 mapper 那個 `productImages[0] === row.images[0]` 判斷 ⇒ 這一格紅。
+  it('🔴 首圖被濾掉 ⇒ cardImageTrim 一起丟掉(bbox 不得套到換上來的那張)', () => {
+    const real = 'https://cdn.shopify.com/real.jpg';
+    const p2 = mapSupabaseProductToDomain({
+      ...baseProductRow,
+      images: [`${G}spareparts-mit-tesxt.png`, real],
+      card_image_trim: { l: 0.1, t: 0.1, w: 0.8, h: 0.8, nw: 1000, nh: 750 },
+    });
+    expect(p2.images).toEqual([real]);
+    expect(p2.cardImageTrim, 'bbox 還是佔位圖那張的 ⇒ 真照片被亂裁, 而它不會紅也沒有人回報').toBeUndefined();
+  });
+
+  // 🟢 正對照:首圖沒被動 ⇒ bbox 照舊留著(上面那格若是恆真, 這一格會抓到)。
+  it('🟢 正對照:首圖沒被濾掉 ⇒ cardImageTrim 保留', () => {
+    const p2 = mapSupabaseProductToDomain({
+      ...baseProductRow,
+      images: ['https://cdn.shopify.com/real.jpg'],
+      card_image_trim: { l: 0.1, t: 0.1, w: 0.8, h: 0.8, nw: 1000, nh: 750 },
+    });
+    expect(p2.cardImageTrim).toBeDefined();
+  });
+
+  it('🔵 大寫檔名也要濾掉(實測小寫化之前會繞過去)', () => {
+    expect(dropSupplierPlaceholders([`${G}SPAREPARTS-MIT-TESXT.PNG`])).toEqual([]);
+  });
+
+  it('🟢 負對照:真商品照留著;而混在一起時只濾掉該濾的', () => {
+    const real = `${G}carbon-tank-pad-real.jpg`;
+    expect(dropSupplierPlaceholders([real, `${G}spareparts-mit-tesxt.png`])).toEqual([real]);
+  });
+
+  // 🔵 fail-open:解析不了的字串留著。兩個方向都會錯, 而留著是比較輕的那一邊
+  //    (客人看到供應商佔位圖 = 今天的現況;濾掉可能蓋住真照片, 而那沒有人會回報)。
+  it('🔵 解析不了的 URL ⇒ 留著(fail-open, 不得 throw)', () => {
+    expect(dropSupplierPlaceholders(['not-a-url', ''])).toEqual(['not-a-url', '']);
+  });
+
+  // ── 接線:兩個 mapper 各自真的呼叫了它(上面全綠而沒接上 ⇒ 客人那側零改變)
+  it('🔴 接線① 群代表圖:mapSupabaseProductToDomain 濾掉佔位圖 ⇒ images 空', () => {
+    const p = mapSupabaseProductToDomain({ ...baseProductRow, images: [`${G}spareparts-mit-tesxt.png`] });
+    expect(p.images).toEqual([]);
+  });
+
+  it('🔴 接線② 變體圖:mapVariantRow 濾掉佔位圖, 而真圖留著', () => {
+    const real = 'https://cdn.shopify.com/a.jpg';
+    const v = mapVariantRow({ ...baseVariantRow, images: [`${X}noimage.jpg`, real] });
+    expect(v.images).toEqual([real]);
+  });
+
+  // 🔴 既有的 fail-loud guard 不得被濾圖吞掉。
+  //
+  // 🛑 **而我第一版在這裡寫了一句假的**:原本寫「把 dropSupplierPlaceholders 移到 guard 之前
+  //    ⇒ 這一格紅」。**實跑 ⇒ 50 全綠。** 那不是尺守不住, 是**我沒造出那個世界**:
+  //    濾圖是 fail-open ⇒ 非字串元素解析失敗 ⇒ 被【留著】⇒ 後面的 guard 照樣 throw
+  //    ⇒ ⇒ **順序本身是無害的, 而讓它無害的是 fail-open。**
+  // 🔬 三發突變分開來才看得到(2026-09-02):
+  //    · 只移順序                    ⇒ 50 全綠(行為真的沒變)
+  //    · 只把 fail-open 改成 fail-closed ⇒ **1 紅**(上面那格 fail-open 測試)
+  //    · 兩個一起改                  ⇒ **3 紅**(含本格 —— 非字串被靜靜丟掉, 不再 throw)
+  // 📌 ⇒ 所以本格守的是【那兩個決定的組合】, 不是單獨的順序。
+  //    真正危險的改法是「順手把 fail-open 改成丟掉」——它單獨看起來像在收緊,
+  //    而它會讓一個 shape 壞掉的來源**安靜地少一張圖**, 而不是大聲 throw。
+  it('🔴 非 string 元素仍然 throw(濾圖不得吞掉既有的 fail-loud guard)', () => {
+    expect(() =>
+      mapVariantRow({ ...baseVariantRow, images: ['ok.jpg', { url: 'x' } as unknown as string] }),
+    ).toThrow(/images\[1\] 非 string/);
   });
 });

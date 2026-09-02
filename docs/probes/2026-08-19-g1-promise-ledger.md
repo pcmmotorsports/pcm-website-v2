@@ -43,6 +43,7 @@
 ## ③ 🔴 做不到
 ```
 「我們將盡快為您安排出貨」（**信裡 + 訂單完成頁各一次**）
+> 🔵 **2026-09-02 補注(只加一行, 上面的字一個都沒改 —— 那是當天的證據)**:上面引的那句純文字信文案**已經改了** ⇒ 現行字面見 `packages/use-cases/src/sweep-email-outbox.ts` 的 `buildOrderCreatedText`;而**客人多數讀到的是 HTML 那一份**(`paid-email-html.ts`), 兩份措辭不同。
    ⇒ 🔴 **出貨之後沒有任何通知** —— `sweep-email-outbox.ts:112` `order_shipped` **直接 throw**
      （「模板未定義(E4 未落地)、fail-closed 不寄」）⇒ **同一句承諾出現兩次，而都沒有下文**
 「收貨 7 天內用 LINE 告訴我們，我們會負責換貨處理」（rpm-policies）

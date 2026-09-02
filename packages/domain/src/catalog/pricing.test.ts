@@ -161,6 +161,136 @@ describe('computeEffectivePrice', () => {
     });
   });
 
+  // 🔴 這一族釘的是【浮點少算一元】那個回歸(2026-09-02 `-0e`;Sean 拍「那就修好啊」)。
+  //    舊寫法 `Math.round(amount * (1 - pct / 100))` 在這幾組會少算一元;
+  //    ⇒ **把 pricing.ts 那一行改回舊形狀, 這一族必須紅。**
+  //    實例來源:金額 1..300,000 × pct 0..30 逐組與 BigInt 比對, 舊寫法 5,870 組不同。
+  describe('🔴 浮點回歸:恰好落在 .5 的那幾組必須逢半進位', () => {
+    // [store 價, pct, 正確答案] —— 三組都是舊寫法會少算一元的
+    const CASES: ReadonlyArray<readonly [number, number, number]> = [
+      [1075, 6, 1011], // 1075 × 0.94 = 1010.5 ⇒ 舊寫法給 1010
+      [2175, 6, 2045],
+      [4275, 6, 4019],
+    ];
+    for (const [store, pct, want] of CASES) {
+      it(`store=${store} pct=${pct}% ⇒ ${want}(舊寫法會給 ${want - 1})`, () => {
+        const product = createFakeProduct({
+          priceByTier: {
+            general: { amount: toMoneyAmount(store), currency: 'TWD' },
+            store: { amount: toMoneyAmount(store), currency: 'TWD' },
+            // premiumStore 這一格【不會被讀到】—— computeEffectivePrice 是自己算的,
+            // 不是取這個值。放一個明顯錯的數字, 讓「它其實有被讀」變成看得見的紅。
+            premiumStore: { amount: toMoneyAmount(999999), currency: 'TWD' },
+          },
+          brand: { id: 'b', name: 'B', slug: 'b', premium_extra_pct: pct },
+        });
+        expect(computeEffectivePrice(product, 'premiumStore').amount).toBe(toMoneyAmount(want));
+      });
+    }
+
+    // 🔴 codex R1 #1/#2/#4:上面三組都是 pct=6 且恰好 .5 ⇒ 辨識力不夠。
+    //    補「剛低於 / 剛高於 .5」「不同 pct」「amount=0」與兩個【前提被破壞】的世界。
+    const MORE: ReadonlyArray<readonly [number, number, number, string]> = [
+      [1000, 10, 900, '整除 ⇒ 沒有小數可爭'],
+      [1001, 10, 901, '900.9 ⇒ 進位'],
+      [1005, 10, 905, '904.5 ⇒ 恰好 .5 ⇒ 逢半進位'],
+      [1004, 10, 904, '903.6 ⇒ 進位'],
+      [1002, 10, 902, '901.8 ⇒ 進位'],
+      [333, 3, 323, '323.01 ⇒ 剛高於整數 ⇒ 捨去'],
+      [0, 30, 0, 'amount=0 ⇒ 0(不能因為守門而回別的東西)'],
+      [1, 30, 1, '最小非零金額 ⇒ 0.7 ⇒ 進位成 1'],
+      // 🔴 codex R2 #3:上面沒有一格的餘數是 **49** ⇒ 把 `+ 50` 突變成 `+ 51` 抓不到。
+      //    51 × 99 = 5049 ⇒ +50 = 5099 ⇒ /100 floor = **50**(而 +51 會給 51)。
+      [51, 1, 50, '餘數 49 ⇒ 剛低於 .5 ⇒ 捨去(這一格釘住 `+ 50` 那個常數)'],
+    ];
+    for (const [store, pct, want, why] of MORE) {
+      it(`store=${store} pct=${pct}% ⇒ ${want}(${why})`, () => {
+        const product = createFakeProduct({
+          priceByTier: {
+            general: { amount: toMoneyAmount(store), currency: 'TWD' },
+            store: { amount: toMoneyAmount(store), currency: 'TWD' },
+            premiumStore: { amount: toMoneyAmount(999999), currency: 'TWD' },
+          },
+          brand: { id: 'b', name: 'B', slug: 'b', premium_extra_pct: pct },
+        });
+        expect(computeEffectivePrice(product, 'premiumStore').amount).toBe(toMoneyAmount(want));
+      });
+    }
+
+    // 🔴 前提被破壞的世界(codex R1 #1/#3)——【不 throw、退回 store 原價】。
+    //    而它們的存在理由:DB CHECK 只擋 DB 那一側,mock / fixture / 外部來源進得來。
+    const BAD: ReadonlyArray<readonly [unknown, string]> = [
+      [16.4, '非整數 pct ⇒ 100−16.4 本身是浮點, 會算出 313 而正確是 314'],
+      // 🔴 16.4 那一格【不是被整數守門接住的】—— 突變實測(拿掉整數守門)它仍然綠,
+      //    因為 375×83.6 = 31349.999999999996 ⇒ 被 **safe-integer 守門** 擋下,是運氣。
+      //    ⇒ 而 16.8 會滑過去:375×83.2 = 31200 **剛好是整數** ⇒ safe-integer 接不住
+      //    ⇒ ⇒ 所以那一格只有【整數守門】接得住 ⇒ 它在下面單獨立一個 it()。
+      [16.8, '非整數 pct 而乘積剛好是整數 ⇒ 只有整數守門接得住'],
+      [-10, '負 pct ⇒ 會變成【加價】'],
+      [151, '>100 ⇒ 會算出負金額, 而 toMoneyAmount 才 throw(太晚)'],
+      [31, '超出 DB CHECK 上限 30'],
+      ['6', '字串 ⇒ 型別是 unknown 進得來'],
+    ];
+    for (const [pct, why] of BAD) {
+      it(`🔴 pct=${String(pct)} ⇒ 退回 store 原價 375(${why})`, () => {
+        const product = createFakeProduct({
+          priceByTier: {
+            general: { amount: toMoneyAmount(375), currency: 'TWD' },
+            store: { amount: toMoneyAmount(375), currency: 'TWD' },
+            premiumStore: { amount: toMoneyAmount(999999), currency: 'TWD' },
+          },
+          brand: { id: 'b', name: 'B', slug: 'b', premium_extra_pct: pct as number },
+        });
+        expect(computeEffectivePrice(product, 'premiumStore').amount).toBe(toMoneyAmount(375));
+      });
+    }
+
+    // 🔴 codex R2 #2:上面沒有一格命中【safe-integer 守門】⇒ 單獨刪掉那兩行, 29 格仍全綠。
+    //    ⇒ 這兩格各釘一道。金額用 MAX_SAFE_INTEGER 附近的值 —— 現實不會有,
+    //      而守門的存在理由就是「型別擋不住的那個世界」。
+    it('🔴 amount 超出 safe integer ⇒ 退回 store 原價(釘 isSafeInteger(amount))', () => {
+      const huge = Number.MAX_SAFE_INTEGER; // 9007199254740991
+      const product = createFakeProduct({
+        priceByTier: {
+          general: { amount: toMoneyAmount(huge), currency: 'TWD' },
+          store: { amount: toMoneyAmount(huge), currency: 'TWD' },
+          premiumStore: { amount: toMoneyAmount(999999), currency: 'TWD' },
+        },
+        brand: { id: 'b', name: 'B', slug: 'b', premium_extra_pct: 6 },
+      });
+      // huge 本身是 safe;而 huge × 94 遠超過 2^53 ⇒ 由第二道(numerator)擋下
+      expect(computeEffectivePrice(product, 'premiumStore').amount).toBe(toMoneyAmount(huge));
+    });
+
+    it('🟢 對照組:剛好落在 safe 範圍內的大金額 ⇒ 正常算(證明上面那格不是「大就擋」)', () => {
+      // 90000000000000 × 94 = 8.46e15 < 2^53(9.007e15)⇒ 兩道守門都過
+      const big = 90000000000000;
+      const product = createFakeProduct({
+        priceByTier: {
+          general: { amount: toMoneyAmount(big), currency: 'TWD' },
+          store: { amount: toMoneyAmount(big), currency: 'TWD' },
+          premiumStore: { amount: toMoneyAmount(999999), currency: 'TWD' },
+        },
+        brand: { id: 'b', name: 'B', slug: 'b', premium_extra_pct: 6 },
+      });
+      expect(computeEffectivePrice(product, 'premiumStore').amount).toBe(toMoneyAmount(84600000000000));
+    });
+
+    // 🟢 對照組:一組【舊寫法也會對】的 —— 否則上面全紅時分不出
+    //    「修法壞了」與「這一族本來就該紅」。
+    it('🟢 對照組:store=1000 pct=10% ⇒ 900(新舊寫法都對 ⇒ 它不該因本次改動而變)', () => {
+      const product = createFakeProduct({
+        priceByTier: {
+          general: { amount: toMoneyAmount(1000), currency: 'TWD' },
+          store: { amount: toMoneyAmount(1000), currency: 'TWD' },
+          premiumStore: { amount: toMoneyAmount(999999), currency: 'TWD' },
+        },
+        brand: { id: 'b', name: 'B', slug: 'b', premium_extra_pct: 10 },
+      });
+      expect(computeEffectivePrice(product, 'premiumStore').amount).toBe(toMoneyAmount(900));
+    });
+  });
+
   describe('currency 對齊 store tier', () => {
     it('premiumStore 返 Money.currency 從 store tier 拿', () => {
       const product = createFakeProduct({

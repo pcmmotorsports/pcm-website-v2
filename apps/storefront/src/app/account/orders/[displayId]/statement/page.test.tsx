@@ -78,6 +78,8 @@ function orderFixture(over: Partial<MemberOrderDetail> = {}): MemberOrderDetail 
     fulfillmentStatus: 'shipped',
     paymentMethod: 'tappay',
     paidAt: '2099-04-18T03:00:00Z',
+    shippedAt: null,
+    allItemsShipped: false,
     subtotal: twd(12000),
     shippingFee: twd(100),
     discountTotal: twd(0),

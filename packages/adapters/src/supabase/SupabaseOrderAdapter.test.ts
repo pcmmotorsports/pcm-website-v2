@@ -2694,9 +2694,48 @@ const MEMBER_DETAIL_ROW = {
 };
 
 describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_SELECT 守門', () => {
+  /**
+   * ⟦b9-SHIPUI⟧ **`shipment_items(shipments(shipped_at, deleted_at))` 是 2026-09-02 加進來的**,
+   * 而 `deleted_at` 被【刻意】留在投影裡。下面這段是那個決定的來源,不要憑「少讀一欄比較乾淨」改掉它。
+   *
+   * 🔴 **它讀進來只為了過濾, 而【本應用這條明細路徑不會把 raw row 序列化給客人】** —— 三格量測(2026-09-02):
+   *    ⛔ ~~本段第一版寫「它【不會到客人端】」~~ —— **那句話是錯的, 而且與本段下面自己寫的東西矛盾**
+   *       (codex 對抗審查 2026-09-02 抓):下面逐字寫著「客人拿自己的 JWT 讀得到自己那幾箱的每一欄」。
+   *    📌 **⇒ 成立的宣稱只有一個:【這條路不送】。而【他拿不到】是假的。**
+   *    ⇒ 兩者差很多:前者是我們的責任範圍, 後者是一句我們給不出的保證。
+   *    · `apps/storefront/.../[displayId]/page.tsx:61` 是 **server component**,
+   *      連線來自 `composition.ts:86` 的 `createServerSupabaseClient()`(**不持 service_role**)
+   *    · `OrderDetailView.tsx` 沒有 `'use client'`(🟢 正對照:同樹下 LoginPage/RegisterPage 有)
+   *      ⇒ `order` 這個物件**不會序列化進瀏覽器**
+   *    · `MemberOrderDetail` 型別裡**沒有** `deleted_at` —— mapper 讀完就丟
+   *    ⇒ **代價明寫、不藏**:它會從 DB 走到我們的 Node 記憶體。**那不是「送到客人端」。**
+   *
+   * 🔴🔴 **而【把它從投影拿掉】收緊的東西, 遠小於它拆掉的那道保護:**
+   *    ⛔ ~~第一版寫「並不會收緊任何東西」~~ —— **過度延伸**(codex 2026-09-02):
+   *       拿掉它**確實會**縮小 DB→Node 的投影面, 而「最小投影」本身是一條原則,
+   *       **GRANT 開著不能拿來取消它**。⇒ 它換到的收緊是真的, 只是**代價是下面那道保護**。
+   *    · `supabase/migrations/20260902060000_m4b_c7_shipments_select_own.sql:98` 逐字
+   *      `GRANT SELECT ON TABLE public.shipments TO authenticated;` ⇒ **table-level, 不是欄級**
+   *      ⛔ ~~`:83`~~ —— 寫下的當天它**真的在 `:83`**,而 `-c7` 隨後補了 16 行 ACL 註解把它推到 `:98`。
+   *      📌 **一個在寫的時候正確的座標, 會因為別人改了同一支檔而變假 —— 而它不會發出任何訊號。**
+   *      ⇒ 引用前自己 `grep -n 'GRANT SELECT ON TABLE public.shipments'`,不要信這個行號。
+   *      ⇒ 客人拿自己的 JWT 對 PostgREST 直接發, 讀得到自己那幾箱的**每一欄**
+   *      ⇒ ⇒ **這個字串不是那把鎖。鎖在 GRANT 那一層。**
+   *    · 改走 PostgREST 巢狀 embedded filter ⇒ 若沒生效是 **fail-open 而且全綠**:
+   *      作廢的箱被當成已出貨、進度條亮起來, **而沒有任何東西會紅**。
+   *    ⇒ 📌 **判準是【失效時往哪個方向倒】, 不是【哪一層比較乾淨】。**
+   *    ⇒ 過濾留在 mapper, 由本檔「作廢的箱」那一格守住(拿掉那道過濾, 那一格必紅)。
+   *
+   * 🔴🔴 **而上面那串漏了最強的一格(code-reviewer 2026-09-02 補、`-fc` 開檔複驗)**:
+   *    同一支 migration 的 `shipments_select_own` policy(`:107-109`)逐字
+   *    `USING (customer_user_id = (select auth.uid()))` —— **它沒有排除 `deleted_at IS NULL`**
+   *    (🟢 數法:該檔 `grep -c deleted_at` ⇒ **1**,而那一次不在任何 policy 裡)
+   *    ⇒ ⇒ **作廢的箱【真的會】回到客人這一側** ⇒ **mapper 那道過濾不是死碼, 它每天都在擋東西。**
+   *    📌 前面那串講的是「拿掉它不會更安全」;**這一格講的是「不裝它會出事」—— 兩個不同的宣稱。**
+   */
   it('🔴 鐵則 12:MEMBER_ORDER_DETAIL_SELECT byte-equal 白名單【唯一擋「漏欄／偷偷加欄」的守門,不得弱化成 toContain】', () => {
     expect(MEMBER_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, cancelled_at, cancelled_reason, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, vehicle_snapshot, product_variants(images, products(images, brands(name))))',
+      'id, display_id, created_at, payment_status, fulfillment_status, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, cancelled_at, cancelled_reason, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, vehicle_snapshot, product_variants(images, products(images, brands(name))), shipment_items(shipments(shipped_at, deleted_at)))',
     );
   });
 
@@ -2751,6 +2790,11 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
       fulfillmentStatus: 'shipped',
       paymentMethod: 'tappay',
       paidAt: '2099-04-18T03:00:00Z',
+      // ⟦b9-SHIPUI⟧ 這個 fixture **沒有** `shipment_items` ⇒ 當作沒出貨(保守方向:寧可少亮一階)。
+      // 🔴 而 `allItemsShipped` 在這裡是 `false` 而不是 `true` —— 一個品項、零有效的箱,
+      //    「全部出完」對它不成立。`[].every()` 回 `true` 那個陷阱在 mapper 已擋。
+      shippedAt: null,
+      allItemsShipped: false,
       subtotal: { amount: 12000, currency: 'TWD' },
       shippingFee: { amount: 100, currency: 'TWD' },
       discountTotal: { amount: 0, currency: 'TWD' },
@@ -2776,6 +2820,128 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
       itemCount: 2, // Σquantity,從**實際撈到的**品項算
       itemsTruncated: false, // 1 筆 << 上限 200
     });
+  });
+
+  /**
+   * ⟦b9-SHIPUI⟧ **包裹真相 → 進度軸**。這一族守的是 `shippedAt` / `allItemsShipped` 兩個值,
+   * 而它們決定客人看到的「已出貨」那一階亮不亮、以及那句分批小字出不出現。
+   *
+   * 🔴 **本族最重要的是「作廢的箱」那一格** —— 它是 `deleted_at` 留在投影裡的**唯一理由**。
+   *    ⇒ 驗收方式不是「它綠」, 是【拿掉 mapper 那道 `sh.deleted_at === null` 過濾 ⇒ 它必須紅】。
+   *    ⇒ 不紅 ⇒ 那道過濾沒有任何世界殺得死它, 等於沒有保護。
+   */
+  const shipBox = (shippedAt: string | null, deletedAt: string | null) => ({
+    shipments: { shipped_at: shippedAt, deleted_at: deletedAt },
+  });
+  /** 兩個品項各自帶自己的箱(`null` = 這個品項完全沒有出貨紀錄)。 */
+  const rowWithBoxes = (boxesPerItem: ReturnType<typeof shipBox>[][]) => ({
+    ...MEMBER_DETAIL_ROW,
+    order_items: boxesPerItem.map((boxes, i) => ({
+      ...MEMBER_DETAIL_ROW.order_items[0],
+      id: `oi${i + 1}`,
+      shipment_items: boxes,
+    })),
+  });
+  const detailOf = async (row: unknown) => {
+    const { client } = makeMemberDetailClient({ data: row, error: null });
+    return new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+  };
+
+  it('🔴🔴 作廢的箱不算出貨:`shipped_at` 有值【而 `deleted_at` 非空】⇒ 進度條不得亮', async () => {
+    const res = await detailOf(rowWithBoxes([[shipBox('2099-05-01T00:00:00Z', '2099-05-02T00:00:00Z')]]));
+    // 🔴 一張**被作廢**的出貨單把進度條點亮 = 對客人說「貨出了」而他手上沒有貨。
+    expect(res!.shippedAt).toBeNull();
+    expect(res!.allItemsShipped).toBe(false);
+  });
+
+  it('🟢 正對照(證明上一格的尺會動):同一箱【`deleted_at` 為 null】⇒ 進度條亮', async () => {
+    const res = await detailOf(rowWithBoxes([[shipBox('2099-05-01T00:00:00Z', null)]]));
+    // 沒有這一格,上面那個 toBeNull 在「這條路根本沒接上」時也會全綠。
+    expect(res!.shippedAt).toBe('2099-05-01T00:00:00Z');
+    expect(res!.allItemsShipped).toBe(true);
+  });
+
+  it('🔴 還沒出的箱(`shipped_at` 為 null)也不算 —— 兩個條件缺一不可', async () => {
+    const res = await detailOf(rowWithBoxes([[shipBox(null, null)]]));
+    expect(res!.shippedAt).toBeNull();
+    expect(res!.allItemsShipped).toBe(false);
+  });
+
+  it('分批出貨:取**最早**那一次,而未出完的品項讓 `allItemsShipped` 為 false', async () => {
+    const res = await detailOf(rowWithBoxes([
+      [shipBox('2099-05-09T00:00:00Z', null), shipBox('2099-05-03T00:00:00Z', null)], // 同品項兩箱
+      [], // 🔴 這個品項一箱都沒有 ⇒ 還沒出完
+    ]));
+    // 客人問的是「開始出了沒」, 而第一箱就回答了那個問題。
+    expect(res!.shippedAt).toBe('2099-05-03T00:00:00Z');
+    // ⇒ 那句「其餘商品出貨時會再通知您」要出現, 而它靠這個 false。
+    expect(res!.allItemsShipped).toBe(false);
+  });
+
+  /**
+   * 🔴 **本格是 code-reviewer 2026-09-02 抓的**:上面那幾格每一格**最多只有一個品項有有效的箱**
+   * ⇒ `shippedTimes` 長度永遠 ≤ 1 ⇒ **外層那個 `.sort()` 沒有任何世界殺得死它**。
+   * 🔬 `-fc` 實跑證實:拿掉 `mappers/order.ts:1251` 的**外層** `.sort()` ⇒ **119 passed 全綠**。
+   *    ⚠️ 那支檔有**兩個** `.sort()`(`:1248` 內層、`:1251` 外層)⇒ 認字面不要認行號:
+   *    外層那個是 `const shippedTimes = …filter(…).sort();`。
+   * ⇒ 這一格讓兩個品項各自有效、而且**時間倒序**,外層排序才開始承重。
+   */
+  it('🔴 兩個品項各自有效而時間倒序 ⇒ 仍取**最早**(殺得死外層那個 .sort())', async () => {
+    const res = await detailOf(rowWithBoxes([
+      [shipBox('2099-05-09T00:00:00Z', null)], // 先出現的是**晚**的
+      [shipBox('2099-05-03T00:00:00Z', null)],
+    ]));
+    expect(res!.shippedAt).toBe('2099-05-03T00:00:00Z');
+    // 🟢 而兩個品項都出了 ⇒ 這一格同時證明 allItemsShipped 在多品項下也對。
+    expect(res!.allItemsShipped).toBe(true);
+  });
+
+  /**
+   * 🔴 **兩道保守閘原本一格測試都沒有**(code-reviewer 2026-09-02):
+   * domain docstring 逐字宣稱「`itemsTruncated` 時一律 false」「零品項時也是 false」,
+   * 而 fixture 全是 1-2 個品項、上限 200 ⇒ **宣稱有保護,而沒有東西守得住**。
+   */
+  it('🛑 品項被截斷(撈滿上限)⇒ `allItemsShipped` 一律 false —— 我看不到全部品項', async () => {
+    // 每一個品項都有有效的箱 ⇒ 若沒有 `!itemsTruncated` 那道閘, 它會宣稱「全部出完」。
+    const boxes = Array.from({ length: 200 }, () => [shipBox('2099-05-01T00:00:00Z', null)]);
+    const res = await detailOf(rowWithBoxes(boxes));
+    expect(res!.itemsTruncated).toBe(true);
+    expect(res!.shippedAt).toBe('2099-05-01T00:00:00Z'); // 亮 —— 它確實出了
+    expect(res!.allItemsShipped).toBe(false); // 而不得宣稱全部出完
+  });
+
+  /**
+   * 🔴 **`shipments` 為 null 這個世界原本沒有測試**(codex 對抗審查 2026-09-02):
+   * 型別是 `{ shipments: … | null }[]`,而它**真的會發生** —— RLS 只藏掉父列(`shipments`)
+   * 而 `shipment_items` 那一列仍回得來時,embed 就是 `null`。
+   * ⇒ 沒有這一格,日後有人把那道 null guard 弱化成 `si.shipments!.shipped_at`,
+   *   **它會直接拋錯而測試全綠**(因為所有 fixture 都給了物件)。
+   */
+  it('🛑 `shipments` embed 為 null(RLS 藏掉父列)⇒ 當作沒出貨, 不得拋錯', async () => {
+    const res = await detailOf({
+      ...MEMBER_DETAIL_ROW,
+      order_items: [{ ...MEMBER_DETAIL_ROW.order_items[0], shipment_items: [{ shipments: null }] }],
+    });
+    expect(res!.shippedAt).toBeNull();
+    expect(res!.allItemsShipped).toBe(false);
+  });
+
+  it('🛑 零品項 ⇒ `allItemsShipped` 為 false —— `[].every()` 回 true 是那個陷阱', async () => {
+    const res = await detailOf(rowWithBoxes([]));
+    expect(res!.items).toHaveLength(0);
+    expect(res!.shippedAt).toBeNull();
+    // 「沒有品項」不是「全部出完」。
+    expect(res!.allItemsShipped).toBe(false);
+  });
+
+  it('🛑 混合:一個品項的箱被作廢、另一個品項正常 ⇒ 亮, 但**不得**宣稱全部出完', async () => {
+    const res = await detailOf(rowWithBoxes([
+      [shipBox('2099-05-01T00:00:00Z', '2099-05-02T00:00:00Z')], // 作廢
+      [shipBox('2099-05-04T00:00:00Z', null)],                   // 有效
+    ]));
+    // 🔴 最早那一次要**跳過作廢的** —— 取到 05-01 就是把作廢的箱算進來了。
+    expect(res!.shippedAt).toBe('2099-05-04T00:00:00Z');
+    expect(res!.allItemsShipped).toBe(false);
   });
 
   // 🔴 **商品下架 ⇒ 客人端 join 不到它**(products_select_public qual = delisted_at IS NULL)。
