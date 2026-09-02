@@ -76,5 +76,17 @@ export async function loadDeadLetterCount(): Promise<DeadLetterCount> {
 
   const rows = data ?? [];
   const dead = rows.filter((r) => r.attempts >= r.max_attempts).length;
-  return { total, dead, deadExact: total <= DEAD_LETTER_SCAN_CAP, unreadableReason: null };
+  // 🔴🔴 **`deadExact` 問的是「我撈完了嗎」,而唯一答得出來的是【手上這幾列】。**
+  //
+  //    ⛔ ~~舊寫法 `deadExact: total <= DEAD_LETTER_SCAN_CAP`~~(`-fc` 2026-09-02 R1 must-fix 1)
+  //    🔴 **失敗情境**:PostgREST 的 `db-max-rows` 若小於 SCAN_CAP(板上兩處實測**互相矛盾**:
+  //       `docs/phase-1-backlog.md:10629` 說 2000、`:18519` 說 1000),
+  //       `.limit(2000)` 會被伺服器砍到 1000 列**而 supabase-js 不報錯**
+  //       ⇒ `total = 1500` 時 `dead` 只在 1000 列上算(是下界),
+  //         而舊式子算出 `1500 <= 2000 = true` ⇒ **把下界印成精確值。**
+  //    📌 ⇒ 那正是本檔上面自己寫的那句:「一個被截斷的數字若印得像精確值,它就是下一件事故。」
+  //
+  //    ✅ **改成比【實得列數】** —— 它不必知道 `db-max-rows` 是多少,
+  //       也不必知道 SCAN_CAP 是多少:**撈回來的列數蓋得住總數,才叫撈完。**
+  return { total, dead, deadExact: rows.length >= total, unreadableReason: null };
 }

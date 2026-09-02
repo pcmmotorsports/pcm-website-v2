@@ -77,12 +77,33 @@ describe('loadDeadLetterCount', () => {
     expect((await loadDeadLetterCount()).deadExact).toBe(false);
   });
 
-  it('should still call the dead count exact when the total sits exactly on the cap', async () => {
-    // 邊界:`total <= CAP` ⇒ 撈得完 ⇒ 精確。差一格就會把一個精確的數字標成不精確。
-    const { client } = makeClient({ data: [row(5, 5)], error: null, count: DEAD_LETTER_SCAN_CAP });
+  it('should call the dead count exact only when the rows in hand cover the total', async () => {
+    // ⛔ ~~原本這一格餵 `count: CAP` 配【一列】而期待 `true`~~
+    //    —— 那是把舊式子(`total <= CAP`)當成規格抄了一份 ⇒ **測試在替那個 bug 背書。**
+    //    (`-fc` 2026-09-02 R1 must-fix 1;`-f3` 改測試不是為了讓它綠,是它本來就在問錯問題。)
+    // ✅ 真正的問題是「**我撈完了嗎**」⇒ 唯一答得出來的是手上這幾列。
+    const { client } = makeClient({ data: [row(5, 5), row(1, 5)], error: null, count: 2 });
     createSupabaseServiceClient.mockReturnValue(client);
 
     expect((await loadDeadLetterCount()).deadExact).toBe(true);
+  });
+
+  it('should not call it exact when the server hands back fewer rows than the total', async () => {
+    // 🔴 **本片最承重的一格**:PostgREST 的 `db-max-rows` 可能小於 SCAN_CAP,
+    //    而它砍列的時候 **supabase-js 不報錯** ⇒ 兩個世界只有這一格分得開。
+    //    ⇒ 舊式子在這裡會算出 `true`(1500 <= 2000)⇒ 把下界印成精確值。
+    const { client } = makeClient({
+      data: Array.from({ length: 1000 }, () => row(5, 5)),
+      error: null,
+      count: 1500,
+    });
+    createSupabaseServiceClient.mockReturnValue(client);
+
+    const res = await loadDeadLetterCount();
+
+    expect(res.total).toBe(1500);
+    expect(res.dead).toBe(1000);
+    expect(res.deadExact).toBe(false);
   });
 
   it('should ask the database for an exact count and cap what it drags back', async () => {

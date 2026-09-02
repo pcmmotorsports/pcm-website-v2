@@ -300,7 +300,16 @@ export default async function AdminHomePage() {
             量不到({deadLetter.unreadableReason})—— 這<strong>不代表</strong>一封都沒有。
           </p>
         ) : deadLetter.total === 0 ? (
-          <p className='text-muted-foreground mt-2 text-xs'>目前沒有卡住的信。</p>
+          /* 🔵 **帶一格範圍, 而不是加一個數字**(`-fc` 2026-09-02 nit 2 · `-f3` 判)。
+             🔴 這個數字只數 `pending` / `failed` ⇒ 一封被 claim 之後 worker 掛掉的信留在
+                `sending`, **不在這個數裡** ⇒ 而卡片會【主動說好消息】而不是留白。
+             ⇒ 那是有上界的盲窗(`sweep-email-outbox.ts:26` 每輪 lease 回收 stale sending → failed,
+                `:119` lease 硬下界 1 小時), 不是永久看不到 —— 但盲窗期間那句話會騙人。
+             🔵 **所以補範圍不補計數**:一句話不會過期, 而一個 `sending` 的計數會把讀的人
+                拉進「那個數字要怎麼解讀」的第五個世界。 */
+          <p className='text-muted-foreground mt-2 text-xs'>
+            目前沒有等待重試的信。(正在寄送中的不計)
+          </p>
         ) : (
           <>
             <p className='mt-2 text-xs'>
