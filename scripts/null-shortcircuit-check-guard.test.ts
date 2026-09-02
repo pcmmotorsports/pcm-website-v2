@@ -84,6 +84,12 @@ const MIGRATIONS_DIR = process.env.NULL_SHORTCIRCUIT_GUARD_MIGRATIONS_DIR
  *    每一列都對應一發 weak 表 INSERT 成功的實測,不是看 schema 推的。
  */
 const LOAD_BEARING_NOT_NULL: readonly (readonly [string, string])[] = [
+  // 🔴 2026-09-02 `-15`:`pfes_provenance_valid` 的 NULL 短路面是【開的】,
+  //    關著它的是這三個欄位的 NOT NULL(實測見 PROBED_OR_CHECKS 裡那條的註解)。
+  //    ⇒ 少了這三列, 未來有人 DROP NOT NULL 時本檔不會紅(codex 抓, 我原本只寫在註解裡)。
+  ['product_fitments_effective_staging', 'match_source'],
+  ['product_fitments_effective_staging', 'model_code'],
+  ['product_fitments_effective_staging', 'source_model_code'],
   ['product_image_trim', 'status'],
   ['payment_charge_attempts', 'status'],
   ['payment_charge_attempts', 'capture_state'],
@@ -137,6 +143,23 @@ const PROBED_OR_CHECKS: readonly string[] = [
   //       有 CHECK:`success+reason_code` 與 `failure+NULL` **兩發都被擋**(check constraint 違反);
   //       DROP 掉那條 CHECK 後:**同樣兩發都進得去**(壞形狀 2 列 / 總 4 列)
   //       ⇒ 擋它們的確實是這條 CHECK,不是別的約束。收攤後叢集已刪、工作樹 dirty=0。
+  // 🔴 2026-09-02 線 `-15` 實測補進(⟦b4-PFEDDL2⟧ 把兩張既有表補進版控)。
+  //    形狀:`(ms='direct' AND smc = mc) OR (ms='inherited' AND smc <> mc)`
+  //    🛑 **NULL 短路面是【開的】** —— `=` 與 `<>` 對 NULL 都求值成 NULL ⇒ 兩個分支都 NULL
+  //       ⇒ 整條 CHECK 求值成 NULL ⇒ **PG 的 CHECK 求值成 NULL 就放行。**
+  //    🎯 **⇒ 擋住它的不是這條 CHECK, 是 `match_source`/`model_code`/`source_model_code` 的 `NOT NULL`。**
+  //       ⛔ ~~原本寫 `moto_brand`~~ **作廢**(codex 抓)—— `moto_brand` **根本不在這條 CHECK 裡**
+  //         ⇒ 📌 **一個正確的機制描述, 配了一組錯的欄位名 —— 而句子讀起來完全通順,**
+  //           **因為那三個名字都真的存在、也都真的是 NOT NULL。**
+  //       ⇒ 📌 **承重的是那三個 `NOT NULL`** —— 有人把 `source_model_code` 改成可空,
+  //         **這條 CHECK 會對 NULL 靜靜放行, 而它自己一個字都沒變。**
+  //    ✅ **兩個世界實跑(不是推的)**:拋棄式 PG 17.10,同一條 CHECK 兩張表 ——
+  //       `t_real`(smc NOT NULL)⇒ `('direct','A',NULL)` **被擋**;
+  //       `t_weak`(smc 可空)⇒ **同一發進得去** ⇒ 承重的確實是 NOT NULL。
+  //       可複跑:`bash scripts/pfeddl2-verify.sh` 的 ②b 兩格(harness 20 格全綠)。
+  //    🔵 **而那個 `NOT NULL` 有被釘住**:該 migration 的事後閘① 逐字比對 staging 每一欄的
+  //       `column_name:is_nullable`(配了突變「run_id 改可空 ⇒ 閘① 要叫」)⇒ 改可空會當場紅。
+  'pfes_provenance_valid',
   'auth_callback_events_outcome_reason_pair',
   'coupons_percent_range',
   'bbox_complete',
