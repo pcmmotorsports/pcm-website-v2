@@ -1,0 +1,101 @@
+// search-facets.ts — 搜尋疊層的另三區(品牌 / 分類 / 車款)· ⟦搜尋-第2刀⟧ 2a
+//
+// 🔴 **稿是權威, 而它的形狀在 `design-reference/components/SearchOverlay.jsx:34-58`**:
+//    四區在同一個 `useMemo` 裡算完, 各區上限 **商品 8 / 品牌 6 / 分類 6 / 車款 6**。
+//    ⇒ 那個 6 是**視覺決定**(疊層裡塞得下幾列)⇒ 照抄, 不在這裡發明一個數字。
+//
+// 🔵 **為什麼過濾寫成純函式**:route 那一層要 mock 三支 server 端 taxonomy 才測得到,
+//    而「打某個字會不會命中」與「資料怎麼來」是兩件事 ⇒ 分開之後這一半用真資料測得起來。
+//
+// 🛑 **本檔【不】決定「查不到」怎麼畫** —— 它只把 `failed` 原樣帶出去。
+//    理由:三區的 `failed` **必須各自回**(`-0a` 2026-09-02 明令 + 一發突變守著):
+//    合成一個在型別上完全合法, 而它壞掉的方式是**品牌查不到 ⇒ 三區都說查不到**。
+
+import type { MockBrand } from '@/data/mock-brands';
+import type { MockCategory } from '@/data/mock-categories';
+import type { MockMotoBrand } from '@/data/mock-moto-brands';
+
+/** 各區上限。稿 `SearchOverlay.jsx:40/46/57` 逐字 `.slice(0, 6)`。 */
+export const SEARCH_FACET_LIMIT = 6;
+
+export type SearchBrandHit = { id: string; name: string; count: number };
+export type SearchCategoryHit = { id: string; name: string; count: number };
+export type SearchVehicleHit = {
+  brandId: string;
+  brandName: string;
+  modelId: string;
+  modelName: string;
+};
+
+export type SearchFacets = {
+  brands: SearchBrandHit[];
+  categories: SearchCategoryHit[];
+  vehicles: SearchVehicleHit[];
+  /**
+   * 🔴 **三個旗標各自一格, 不合成一個。**
+   * `true` = 這一區**這次查不到**(≠「沒有符合的」)。
+   * 畫的人必須把兩者畫成不同的東西 —— 而合成一個會讓一區壞掉時三區一起說謊。
+   */
+  failed: { brands: boolean; categories: boolean; vehicles: boolean };
+};
+
+/** 稿 `:32` 逐字 `const match = (s) => s && s.toLowerCase().includes(q)`。 */
+function match(haystack: string | undefined | null, q: string): boolean {
+  return typeof haystack === 'string' && haystack.toLowerCase().includes(q);
+}
+
+export function filterFacets(
+  query: string,
+  data: {
+    brands: { brands: MockBrand[]; failed: boolean };
+    categories: { categories: MockCategory[]; failed: boolean };
+    vehicles: { motoBrands: MockMotoBrand[]; failed: boolean };
+  },
+): SearchFacets {
+  const q = query.trim().toLowerCase();
+  const empty: SearchFacets = {
+    brands: [],
+    categories: [],
+    vehicles: [],
+    failed: {
+      brands: data.brands.failed,
+      categories: data.categories.failed,
+      vehicles: data.vehicles.failed,
+    },
+  };
+  // 🔴 空字串短路 —— 而**旗標照樣帶出去**:查詢是空的不代表那三支沒壞。
+  if (q === '') return empty;
+
+  const brands = data.brands.brands
+    .filter((b) => match(b.name, q) || match(b.id, q))
+    .slice(0, SEARCH_FACET_LIMIT)
+    .map((b) => ({ id: b.id, name: b.name, count: b.count }));
+
+  const categories = data.categories.categories
+    .filter((c) => match(c.name, q) || match(c.id, q))
+    .slice(0, SEARCH_FACET_LIMIT)
+    .map((c) => ({ id: c.id, name: c.name, count: c.count }));
+
+  // 稿 `:47-54`:逐 brand 逐 model,而 **model 名或 brand 名任一命中就算**
+  // ⇒ 打「YAMAHA」要撈得出它旗下的車款,不是只有名字裡有 YAMAHA 的那些型號。
+  const vehicles: SearchVehicleHit[] = [];
+  for (const b of data.vehicles.motoBrands) {
+    for (const m of b.models) {
+      if (match(m.name, q) || match(b.name, q)) {
+        vehicles.push({
+          brandId: b.id,
+          brandName: b.name,
+          modelId: m.id,
+          modelName: m.name,
+        });
+      }
+    }
+  }
+
+  return {
+    brands,
+    categories,
+    vehicles: vehicles.slice(0, SEARCH_FACET_LIMIT),
+    failed: empty.failed,
+  };
+}

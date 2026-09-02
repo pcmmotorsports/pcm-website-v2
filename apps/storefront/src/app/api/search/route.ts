@@ -42,6 +42,8 @@
 
 import { NextResponse } from 'next/server';
 
+import { tryCatalogBrandTaxonomy, tryCategories, tryVehicleTaxonomy } from '@/lib/products';
+import { filterFacets } from '@/lib/search-facets';
 import { searchProducts, SEARCH_OVERLAY_LIMIT } from '@/lib/search';
 import type { SearchOverlayItem } from '@/lib/search-shape';
 
@@ -64,7 +66,19 @@ export async function GET(request: Request) {
   //    疊層畫面上**沒有任何地方印總數**(`SearchOverlay.tsx` 全檔 `total` ⇒ 0 行),
   //    而 `count: 'exact'` 會讓 PG 數完整個命中集合。⇒ 這條路不要付那筆錢。
   //    🛑 而 `/search` 那條路**照舊要數**(`app/search/page.tsx:85` 共 N 件)⇒ 分路,不是刪掉。
-  const { items, total, error } = await searchProducts(q, SEARCH_OVERLAY_LIMIT, 0, false);
+  // 🔵 **四區一起回, 不另開 route**(`⟦搜尋-第2刀⟧` 2a · `-0a` 2026-09-02 批)——
+  //    稿 `SearchOverlay.jsx:34-58` 就是**一個 `useMemo` 算四區**;而另開 route ⇒
+  //    疊層每打一個字發**兩發**請求 ⇒ 與同日 `⟦搜尋-每字全表掃⟧` 減成本的方向相反。
+  //    🟢 而成本那一格查過了:三支 taxonomy 都是 server 端 + `unstable_cache`
+  //       (`CATALOG_REVALIDATE_SECONDS`)⇒ **每個按鍵是快取命中, 不是 DB 查詢。**
+  //    🔴 而它們與商品那一發**併發**跑 —— 串著跑等於白等三次 round-trip。
+  const [productPage, brandTax, categoryTax, vehicleTax] = await Promise.all([
+    searchProducts(q, SEARCH_OVERLAY_LIMIT, 0, false),
+    tryCatalogBrandTaxonomy(),
+    tryCategories(),
+    tryVehicleTaxonomy(),
+  ]);
+  const { items, total, error } = productPage;
   if (error) {
     // 🔴 503 不是 200 空陣列:「這次查不到」與「真的沒有這個商品」在疊層裡該畫兩種字,
     //    而回 200 空陣列會讓兩者長成同一個畫面(= 告訴客人我們沒有這件商品)。
@@ -78,5 +92,14 @@ export async function GET(request: Request) {
     price: p.price,
     image: p.image ?? null,
   }));
-  return NextResponse.json({ items: payload, total }, { headers: NO_STORE });
+  // 🔴 三個 `failed` **各自回**, 不合成一個(`-0a` 明令 + `search-facets.test.ts` 有一發突變守著)。
+  //    合成一個在型別上完全合法, 而它壞掉的方式是【品牌查不到 ⇒ 三區都說查不到】。
+  const facets = filterFacets(q, {
+    brands: brandTax,
+    categories: categoryTax,
+    vehicles: vehicleTax,
+  });
+  // 🛑 三區任一 `failed` **不**讓整發變 503 —— 商品那一區是主體, 它好的時候要照樣給。
+  //    (而商品那一區自己 `error` 時上面已經 503 過了。)
+  return NextResponse.json({ items: payload, total, ...facets }, { headers: NO_STORE });
 }
