@@ -68,6 +68,13 @@ export async function searchProducts(
   query: string,
   limit: number,
   offset = 0,
+  /**
+   * 🔵 **要不要順便數命中總數**(預設 `true` = 既有行為)。
+   * 疊層那條路傳 `false` —— 它畫面上沒有印總數的地方(`SearchOverlay.tsx` 全檔 `total` ⇒ 0 行),
+   * 而 `count: 'exact'` 會讓 DB **數完整個命中集合**。
+   * 🛑 `/search` 那條路**要它**(`app/search/page.tsx:85` 逐字 `共 {total} 件`)⇒ 不要一起關掉。
+   */
+  countTotal = true,
 ): Promise<SearchResult> {
   const q = query.trim().slice(0, SEARCH_MAX_QUERY_LENGTH);
   if (q === '') {
@@ -75,7 +82,7 @@ export async function searchProducts(
   }
   try {
     const adapter = new SupabaseProductAdapter(createSupabaseAnonClient());
-    const page = await adapter.searchByKeyword(q, { limit, offset });
+    const page = await adapter.searchByKeyword(q, { limit, offset }, { countTotal });
     return {
       items: page.items.map((p) => toUIProduct(p, 'general')),
       total: page.total ?? null,

@@ -234,7 +234,11 @@ export class InMemoryProductRepository implements IProductRepository {
 
   async searchByKeyword(
     query: string,
-    params: PaginationParams
+    params: PaginationParams,
+    // 🔵 `countTotal`(預設 true = 既有行為)。本實作把整個集合放在記憶體裡,
+    //    數它是零成本 —— 但**契約要一致**:`false` 時就不能回 `total`,
+    //    否則 contract test 在這一層恆綠,而真 adapter 那層才會爆。
+    opts?: { countTotal?: boolean }
   ): Promise<Paginated<Product>> {
     // M-1-02-audit M2 empty query reject:trim 後空字串 → 返回空 Paginated 包
     // (對齊 RESTful 慣例「空查詢 = 無結果」、storefront 顯示「請輸入關鍵字」由 UI 層處理、
@@ -250,7 +254,8 @@ export class InMemoryProductRepository implements IProductRepository {
     );
     const offset = params.offset ?? 0;
     const items = matched.slice(offset, offset + params.limit);
-    return { items, total: matched.length };
+    // 🔴 與真 adapter 同一條:沒要數就回 `undefined`,不要回 0。
+    return opts?.countTotal === false ? { items } : { items, total: matched.length };
   }
 
   /**

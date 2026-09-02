@@ -1131,3 +1131,89 @@ describe('SupabaseProductAdapter.listByBrand', () => {
     expect(result).toHaveLength(4);
   });
 });
+
+// ════════════════════════════════════════════════════════════════
+// searchByKeyword 的 `countTotal` 分路 —— ⟦搜尋-每字全表掃⟧(2026-09-02,`-f3`)
+//
+// 🔴 **為什麼這兩格寫在【這裡】而不是 contract**:
+//    `packages/ports/src/IProductRepository.contract.ts` 的 `searchByKeyword` 有一個 `it.todo`,
+//    而 `runProductRepositoryContract()` **全 repo 零真呼叫端**(該檔 `:10` 自己逐字寫著)
+//    ⇒ 那些 `it.todo` 從來沒有被 vitest 收集過,**連「skipped」都不會出現在報告裡**。
+//    ⇒ 📌 寫進那裡 = **寫一道沒有接上的保護,而它與沒寫的行為相同、只是更貴。**
+//    ⇒ ✅ 照 2026-09-01 `listByBrand` 那次的先例(主視窗裁【甲】):寫在 adapter 自己的測試裡。
+//
+// 🛑 **這兩格證不到什麼**:它們釘的是「**有沒有送出 `count: 'exact'`**」與「**回不回 `total`**」,
+//    **不是**「那一發真的比較快」——(那要 `EXPLAIN ANALYZE`,而線 `-fc` 2026-09-02 已在正式庫量過)。
+// ════════════════════════════════════════════════════════════════
+describe('SupabaseProductAdapter.searchByKeyword — countTotal 分路', () => {
+  function makeMock() {
+    const captured: { countOption?: string; selectCalls: number } = { selectCalls: 0 };
+    const builder = {
+      select(_cols: string, options?: { count?: string }) {
+        captured.selectCalls += 1;
+        captured.countOption = options?.count;
+        return builder;
+      },
+      or: () => builder,
+      order: () => builder,
+      range: () => Promise.resolve({ data: [], error: null, count: 7 }),
+    };
+    return {
+      client: { from: () => builder } as unknown as SupabaseClient,
+      captured,
+    };
+  }
+
+  it('should ask the database to count when no option is passed', async () => {
+    // 🔴 預設維持既有行為 —— `/search` 那條路(`app/search/page.tsx:85` 共 N 件)靠這一格。
+    //    有人日後把預設翻成「不數」⇒ 客人看得到的「共 N 件」會消失,而**沒有別的東西會紅**。
+    const { client, captured } = makeMock();
+    const res = await new SupabaseProductAdapter(client).searchByKeyword('avon', {
+      limit: 8,
+      offset: 0,
+    });
+
+    expect(captured.countOption).toBe('exact');
+    expect(res.total).toBe(7);
+  });
+
+  it('should not ask the database to count when countTotal is false', async () => {
+    // 🔴 這一格是本片的本體:疊層那條路每打一個字都在數一個【它不顯示】的總數。
+    const { client, captured } = makeMock();
+    const res = await new SupabaseProductAdapter(client).searchByKeyword(
+      'avon',
+      { limit: 8, offset: 0 },
+      { countTotal: false },
+    );
+
+    expect(captured.countOption).toBeUndefined();
+    expect(captured.selectCalls).toBe(1); // 🟢 證明 select 真的被呼叫過 ⇒ undefined 不是「沒跑到」
+    expect(res.total).toBeUndefined();
+  });
+
+  it('should leave total undefined rather than zero when it did not count', async () => {
+    // 🔴 「不知道總數」與「共 0 件」是**兩件事**。
+    //    回 0 會讓畫面出現「拿到 8 筆卻說共 0 件」(`search.ts` 的 SearchResult 那段同一條)。
+    const { client } = makeMock();
+    const res = await new SupabaseProductAdapter(client).searchByKeyword(
+      'avon',
+      { limit: 8, offset: 0 },
+      { countTotal: false },
+    );
+
+    expect('total' in res).toBe(false);
+    expect(res.total).not.toBe(0);
+  });
+
+  it('should still count when countTotal is explicitly true', async () => {
+    // 邊界:`opts` 有傳而值是 true ⇒ 走數的那條(判準是 `!== false`,不是 truthy)。
+    const { client, captured } = makeMock();
+    await new SupabaseProductAdapter(client).searchByKeyword(
+      'avon',
+      { limit: 8, offset: 0 },
+      { countTotal: true },
+    );
+
+    expect(captured.countOption).toBe('exact');
+  });
+});

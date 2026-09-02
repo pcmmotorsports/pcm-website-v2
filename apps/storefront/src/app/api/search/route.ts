@@ -60,7 +60,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ items: [], total: 0 }, { headers: NO_STORE });
   }
 
-  const { items, total, error } = await searchProducts(q, SEARCH_OVERLAY_LIMIT);
+  // 🔵 第四個參數 `countTotal: false`(`⟦搜尋-每字全表掃⟧` 2026-09-02)——
+  //    疊層畫面上**沒有任何地方印總數**(`SearchOverlay.tsx` 全檔 `total` ⇒ 0 行),
+  //    而 `count: 'exact'` 會讓 PG 數完整個命中集合。⇒ 這條路不要付那筆錢。
+  //    🛑 而 `/search` 那條路**照舊要數**(`app/search/page.tsx:85` 共 N 件)⇒ 分路,不是刪掉。
+  const { items, total, error } = await searchProducts(q, SEARCH_OVERLAY_LIMIT, 0, false);
   if (error) {
     // 🔴 503 不是 200 空陣列:「這次查不到」與「真的沒有這個商品」在疊層裡該畫兩種字,
     //    而回 200 空陣列會讓兩者長成同一個畫面(= 告訴客人我們沒有這件商品)。
