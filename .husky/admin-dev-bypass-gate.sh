@@ -164,6 +164,28 @@ trap 'rm -f "$_LIST1"; echo "🔴 admin-dev-bypass-gate:被中斷 ⇒ 擋下(不
 git diff --cached --name-only --diff-filter=ACMR -z > "$_LIST1" || {
   echo "🔴 admin-dev-bypass-gate:git diff --cached 失敗 ⇒ 擋下(不放行)" >&2
   exit 1; }
+
+# ── 🔴 說出我讀的是哪一份, 而且說出它與另一份一不一樣(2026-09-03 加)──────────
+#
+# 🎯 **為什麼要有這一行**:本閘全程走 `git diff --cached` ⇒ 它讀的是 **index**,
+#    而人改完檔案【還沒 git add】的時候, index 裡是**舊的那一份**
+#    ⇒ 📌 **它會誠實地印綠, 而綠的是舊內容。**
+#    memory `feedback_restage-after-edit-lint-staged-trap.md` 記過三次復發
+#    (2026-09-01 · 2026-09-02 acl-drift-gate · 更早一次), 全部是這個形狀。
+#
+# 🛑 **只說「我讀 index」不夠** —— 那句話對「index 是舊的」那個世界**零判別力**:
+#    兩個世界它都印同一句。⇒ 所以要印的是【兩份一不一樣】。
+#    形狀抄 `scripts/md-table-overflow.py`(它印「讀的是 index, 而它與工作樹相同」)。
+#
+# 🔵 **這一段【不改變本閘擋什麼】** —— 純輸出。拿掉它, 擋/不擋一格都不動。
+#    ⇒ 那正是它不落在鐵則 12 ④ 的理由。
+_ADBG_UNSTAGED=$(git diff --name-only --diff-filter=ACMR 2>/dev/null | grep -c '' || true)
+if [ "${_ADBG_UNSTAGED:-0}" -gt 0 ]; then
+  echo "⚠️ admin-dev-bypass-gate:我讀的是 **index 那一份**,而工作樹上還有 ${_ADBG_UNSTAGED} 支檔沒 stage" >&2
+  echo "   ⇒ 🔴 下面那個結論說的是【index 那一份】,不是你剛改的那一份。改完要先 git add。" >&2
+else
+  echo "✅ admin-dev-bypass-gate:我讀的是 index 那一份,而它與工作樹相同。" >&2
+fi
 while IFS= read -r -d '' f; do
   # 本檔自己會在註解/程式碼裡字面提到這兩個字串(它就是在檢查它們)⇒ 排除自己,不然會擋自己
   [ "$f" = ".husky/admin-dev-bypass-gate.sh" ] && continue
