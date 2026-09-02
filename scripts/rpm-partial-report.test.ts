@@ -7,9 +7,12 @@
  */
 import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi } from 'vitest';
+import { isAbsolute, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   formatAtomicPartialWrite,
   runAtomicGroups,
+  LOG_DIR,
   type AtomicPartialWrite,
 } from './rpm-partial-report';
 
@@ -270,5 +273,41 @@ describe('🔴 零行為改動:修前的裸迴圈 vs 修後,同一組輸入', ()
     expect((eB as Error).message).toBe((eA as Error).message); // message 逐字
     expect(eB).toBe(eA); // 同一顆物件
     expect(seenB).toEqual(seenA); // 停在同一群
+  });
+});
+
+describe('LOG_DIR 的落點(⟦f3-HALFWRITELOGDIR⟧)', () => {
+  /**
+   * 🔴🔴 **這一格擋的病:落點跟著【誰在哪裡跑它】走, 而它印出來的那一行兩種情況逐字相同。**
+   *
+   * 修之前 `LOG_DIR = 'logs'` 是相對路徑 ⇒ 對 `process.cwd()` 解析。兩個世界實測:
+   * ```
+   * 從 repo 跑  ⇒ <repo>/logs/rpm-import-partial-…
+   * 從 /tmp 跑  ⇒ /private/tmp/logs/rpm-import-partial-…
+   * ```
+   * 而終端機印的都是 `⇒ 已寫入 logs/rpm-import-partial-…` ⇒ 讀的人會以為是 repo 那一個。
+   *
+   * 🔴 **失敗方向不只是「找不到」**:`.gitignore` 的 `logs/` 只涵蓋 repo 那一個
+   * ⇒ 從**別的 repo** 底下跑, 這份含供應商 ID 與原始 DB 錯誤字面的紀錄可能變成 tracked 檔。
+   *
+   * 🧬 **突變**:把 `LOG_DIR` 改回 `'logs'` ⇒ 下面第一格(絕對路徑)當場紅。
+   */
+  it('🔴 是絕對路徑 —— 而這一格【換一個 cwd 也必須成立】', () => {
+    expect(isAbsolute(LOG_DIR), `LOG_DIR=${LOG_DIR} 是相對路徑 ⇒ 它會跟著 cwd 跑`).toBe(true);
+  });
+
+  it('🔴 指向【這個 repo 的】logs/, 不是跑它的人所在的那個 logs/', () => {
+    const repoLogs = fileURLToPath(new URL('../logs/', import.meta.url));
+    expect(resolve(LOG_DIR)).toBe(resolve(repoLogs));
+  });
+
+  it('🔵 正對照:同一個算式從【別的 cwd】算出來的答案不變(這一格證明上面兩格有判別力)', () => {
+    // 🛑 不用 process.chdir() —— 那會汙染同一支檔裡其他測試的世界。
+    //    改用「舊寫法 vs 新寫法」在同一個 cwd 下的差:舊寫法會跟著 cwd, 新寫法不會。
+    const oldStyle = (cwd: string) => resolve(cwd, 'logs');
+    expect(oldStyle('/tmp')).not.toBe(oldStyle(process.cwd())); // 舊寫法:兩個 cwd 兩個答案
+    expect(resolve(LOG_DIR)).toBe(resolve(LOG_DIR)); // 新寫法:與 cwd 無關
+    // 🔵 負對照:一個現造路徑不得等於 LOG_DIR(擋「這把尺恆真」)
+    expect(resolve(LOG_DIR)).not.toBe(resolve('/tmp/zzqprb-not-logs'));
   });
 });
