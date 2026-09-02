@@ -265,11 +265,25 @@ GRANT SELECT ON TABLE public.product_fitments_effective_sync_log TO pcm_readonly
 -- 🔴🔴 **identity 欄會【另外】生一支 sequence, 而表上的 REVOKE 收不到它**(codex 抓;
 --    這正是 memory 那條已知坑:「表上兩道 REVOKE 收不到 IDENTITY 另建的 sequence,
 --    而 anon 可 nextval, 且 RLS 擋不到」)。
--- 🛑 **而這一節【沒有正本】** —— Sean 2026-09-02 跑的那發 ACL 查詢只查了 **表**,
---    `information_schema.role_table_grants` **不涵蓋 sequence** ⇒ 那兩支 sequence 的權限, 本窗不知道。
---    ⇒ 📌 **所以下面這四行與上面那些【不是同一種東西】** —— 上面是抄正本, 這裡是選一個方向。
---    ✅ 方向照舊:**錯了會出聲的那一邊**(收乾淨, 只開給 service_role)。
---    📋 **⇒ 缺的那一發已寫進 `~/pcm-mailbox/查詢-那兩張表的ACL-20260902.md` 的追加節。**
+-- ✅✅ **這一節【有正本】** —— 2026-09-02 21:0x Sean 在 SQL Editor 跑
+--    `~/pcm-mailbox/查詢-那兩張表的ACL-20260902.md` **末節**(唯讀, 帶負對照 ⇒ 實得 0)。
+--    正本逐字:兩支 sequence 各 **`postgres` SELECT/UPDATE/USAGE**(它是 owner)
+--    · **`service_role` SELECT/UPDATE/USAGE**;**`anon`/`authenticated`/`PUBLIC` 一個都沒有。**
+--
+-- 🔴🔴 **而這一節【一小時前是猜的】—— 舊字面留著, 而它與上面表那一層是【同一個模式】:**
+--    ⛔ ~~「本節沒有正本。那發 ACL 查詢只查了表, `role_table_grants` 不涵蓋 sequence
+--        ⇒ 那兩支 sequence 的權限本窗不知道 ⇒ 這裡是選一個方向不是抄正本。」~~
+--    ⛔ ~~當時寫的:`GRANT USAGE, SELECT … TO service_role`(**少了 `UPDATE`**)~~
+--
+--    🎯 **比對**:`anon`/`authenticated`/`PUBLIC` 零 ⇒ **猜對**;
+--       而漏的是 **`service_role` 的 `UPDATE`**(以及 owner `postgres` 那三格)。
+--    🔵 **⇒ 而這是【第二次】猜, 而兩次漏的都是「該有而沒給」**:
+--       表那一層漏 `pcm_readonly` 的 SELECT · 這一層漏 `service_role` 的 UPDATE。
+--       ⇒ 🎯 **兩次都是【我沒想到要列的那個角色/那格權限】, 而兩次都是正本補上的。**
+--       ⇒ ⇒ 📌 **而那正好證實方向選對了:選「錯了會出聲」那一邊, 漏的就會是【該有而沒給】——**
+--         **它會有人跑不動而叫。若選另一邊, 漏的會是【不該有而給了】—— 而那不會叫。**
+--    🛑 **而「兩次都漏」本身也是一個讀數**:它說的不是「我不夠仔細」,
+--       是 **「憑推理列角色」這個方法本身有一個固定的失效方向** —— 而正本一發就補完。
 DO $$
 DECLARE v_seq text;
 BEGIN
@@ -280,8 +294,21 @@ BEGIN
     IF v_seq IS NULL THEN
       RAISE EXCEPTION 'identity sequence 找不到 ⇒ 那兩支 sequence 的權限沒被收 ⇒ 不要放行';
     END IF;
-    EXECUTE format('REVOKE ALL PRIVILEGES ON SEQUENCE %s FROM PUBLIC, anon, authenticated', v_seq);
-    EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE %s TO service_role', v_seq);
+    -- 🔴 codex R3:`service_role` **也要先收**。若 default ACL 已經給過它 `WITH GRANT OPTION`,
+    --    後面那句普通 `GRANT` **收不掉那個 option** ⇒ 它留著可轉授, 而閘⑨ 當時忽略 is_grantable
+    --    ⇒ 一個【可轉授】的權限會被判成與正本相同。⇒ 先收乾淨再給。
+    EXECUTE format('REVOKE ALL PRIVILEGES ON SEQUENCE %s FROM PUBLIC, anon, authenticated, service_role', v_seq);
+    -- 🔴 `UPDATE` 是正本上有的, 而我第一版漏了 —— 少了它 `setval()` 會被拒。
+    EXECUTE format('GRANT USAGE, SELECT, UPDATE ON SEQUENCE %s TO service_role', v_seq);
+    -- ⚠️ **而 `UPDATE` 讓 `service_role` 可以 `setval()`** —— 那能把流水號推走或重設,
+    --    **而 `setval` 不隨交易回滾**。🛑 **本片【不判斷那是不是好設計】** ——
+    --    正本上它就是這樣, 而本支的工作是複製現況。⇒ 📌 **「與正式庫相同」不等於「安全」,**
+    --    **而把後者讀進前者是這一整支檔最容易被誤讀的一句。**
+    -- 🔵 **owner(`postgres`)那三格【不寫 GRANT】, 而它在正本上是有的** ——
+    --    建立者本來就會拿到, 上面那道 REVOKE 只收 PUBLIC/anon/authenticated ⇒ 它不受影響。
+    --    ⇒ 📌 **寫一句 no-op 的 `GRANT … TO postgres` 比不寫更糟:它讀起來像【本片處理過這一格】,**
+    --      **而下一個人會以為「owner 的權限是我們給的」⇒ 收掉它就會以為只要刪那一行。**
+    --    ⇒ ✅ 所以這裡只留這行註解, 而下面的事後閘⑨ **把 owner 排除在比對之外**(理由同閘⑦)。
   END LOOP;
 END
 $$;
@@ -476,20 +503,49 @@ BEGIN
   END IF;
 
   -- ⑨ identity sequence 的 ACL(這一格【沒有正本】—— 見 3.5 節末段)
+  -- 🔴 codex R3 兩格:① 排除 owner 之後, **owner 自己缺了那三格也會被藏掉**
+  --    (owner 可以自己 REVOKE, global default ACL 也能改掉建立時的權限)
+  --    ② 排除的是 `relowner` 而**沒有驗那個 owner 是誰** ⇒ 用別的角色重放時, 非正式庫的 owner 被直接藏掉。
+  --    ⇒ 兩格一起補:先釘 owner 的名字與它那三格, 再比非 owner 的部分。
+  FOR v_rel IN
+    SELECT unnest(ARRAY[
+      pg_catalog.pg_get_serial_sequence('public.product_fitments_effective_staging',  'id'),
+      pg_catalog.pg_get_serial_sequence('public.product_fitments_effective_sync_log', 'id')])
+  LOOP
+    SELECT pg_catalog.pg_get_userbyid(relowner) INTO v_got
+      FROM pg_catalog.pg_class WHERE oid = v_rel::regclass;
+    IF v_got IS DISTINCT FROM 'postgres' THEN
+      RAISE EXCEPTION '事後閘⑨a:% 的 owner 是 %, 而正本上是 postgres ⇒ 下面「排除 owner」那一步會藏掉一個我們沒預期的角色', v_rel, v_got;
+    END IF;
+    SELECT coalesce(string_agg(a.privilege_type, ',' ORDER BY a.privilege_type), '(空)')
+      INTO v_got
+      FROM pg_catalog.pg_class c, pg_catalog.aclexplode(c.relacl) a
+     WHERE c.oid = v_rel::regclass AND a.grantee = c.relowner;
+    IF v_got IS DISTINCT FROM 'SELECT,UPDATE,USAGE' THEN
+      RAISE EXCEPTION '事後閘⑨b:% 的 owner 不是正本那三格(SELECT,UPDATE,USAGE)⇒ 實得 %', v_rel, v_got;
+    END IF;
+  END LOOP;
+
   SELECT coalesce(string_agg(g || '=' || pv, ',' ORDER BY s, g, pv), '(空)')
     INTO v_got
-    FROM (SELECT sq AS s, coalesce(r.rolname, 'PUBLIC') AS g, a.privilege_type AS pv
+    FROM (SELECT sq AS s, coalesce(r.rolname, 'PUBLIC') AS g,
+                 -- 🔴 codex R3:閘⑦ 已經帶 is_grantable 而這裡當時漏了 —— 同一條 finding 我只修了它點名的那處。
+                 a.privilege_type || CASE WHEN a.is_grantable THEN '(可轉授)' ELSE '' END AS pv
             FROM unnest(ARRAY[
                    pg_catalog.pg_get_serial_sequence('public.product_fitments_effective_staging',  'id'),
                    pg_catalog.pg_get_serial_sequence('public.product_fitments_effective_sync_log', 'id')]) AS sq,
                  pg_catalog.pg_class c,
                  pg_catalog.aclexplode(c.relacl) a
             LEFT JOIN pg_catalog.pg_roles r ON r.oid = a.grantee
-           WHERE c.oid = sq::regclass
-             AND coalesce(r.rolname, 'PUBLIC') <> 'postgres') q2;
-  v_want := 'service_role=SELECT,service_role=USAGE,service_role=SELECT,service_role=USAGE';
+           -- 🔴 排除 owner 用 `c.relowner` 不是名字 `postgres` —— 閘⑦ 已經改了而這裡當時漏掉,
+           --    ⇒ 📌 **同一條 codex finding, 我只修了它點名的那一處。**
+           --      而 owner 的隱含權限本來就不該進比對(正本上那三格是 owner 自動拿的, 不是誰給的)。
+             WHERE c.oid = sq::regclass
+               AND a.grantee <> c.relowner) q2;
+  v_want := 'service_role=SELECT,service_role=UPDATE,service_role=USAGE,'
+         || 'service_role=SELECT,service_role=UPDATE,service_role=USAGE';
   IF v_got IS DISTINCT FROM v_want THEN
-    RAISE EXCEPTION '事後閘⑨:兩支 identity sequence 的 ACL 不是【只有 service_role 的 USAGE+SELECT】 ||期待|| % ||實得|| %',
+    RAISE EXCEPTION '事後閘⑨:兩支 identity sequence 的 ACL 與正本不符(已排除 owner) ||正本|| % ||實得|| %',
       v_want, v_got;
   END IF;
 
@@ -503,7 +559,7 @@ BEGIN
   --      ⇒ 而本支存在的**唯一理由**就是防後者。
   --    ⚠️ **而誤報的訊息必須自己說得出這件事** ⇒ 上面每一格失敗時都把【正本】與【實得】兩串一起印,
   --      讀的人可以當場看出「差的只是括號/空白」還是「真的變成別的東西」。
-  RAISE NOTICE '事後閘通過(九格, 每一格都比【定義字面】不是【存不存在】):①②兩表欄形狀含型別/預設/identity ③staging 五條 CHECK + FK 的 constraintdef 全文 ④sync_log 的 CHECK 全文 ⑤三個索引的 indexdef 全文(含 NULLS NOT DISTINCT 與欄序)⑥RLS 開著且各 0 policy ⑦表 ACL 逐 grantee 比正本(已排除 owner)⑧schema USAGE ⑨sequence ACL。🛑 **它們證不到的**:(a)本支是空庫重放用的 ⇒ 它證的是「重放出來的形狀對」, **不證正式庫今天長這樣**(正本是 2026-09-02 那一刻的快照);(b)`NULLS NOT DISTINCT` 是 PG15+ 語法 ⇒ 更舊的 PG 上本支【建不起來】, 那是環境不是碼;(c)本檔**不驗**任何呼叫端 —— 那三支函式在別支 migration;(d)🔴 **第⑨格【沒有正本】** —— 那發 ACL 查詢只查了表, `role_table_grants` 不涵蓋 sequence ⇒ 它證的是「我寫的那組跑對了」, **不是「與正式庫相同」**, 而這兩件事在這行輸出上長得完全一樣。';
+  RAISE NOTICE '事後閘通過(九格, 每一格都比【定義字面】不是【存不存在】):①②兩表欄形狀含型別/預設/identity ③staging 五條 CHECK + FK 的 constraintdef 全文 ④sync_log 的 CHECK 全文 ⑤三個索引的 indexdef 全文(含 NULLS NOT DISTINCT 與欄序)⑥RLS 開著且各 0 policy ⑦表 ACL 逐 grantee 比正本(已排除 owner)⑧schema USAGE ⑨sequence ACL。🛑 **它們證不到的**:(a)本支是空庫重放用的 ⇒ 它證的是「重放出來的形狀對」, **不證正式庫今天長這樣**(正本是 2026-09-02 那一刻的快照);(b)`NULLS NOT DISTINCT` 是 PG15+ 語法 ⇒ 更舊的 PG 上本支【建不起來】, 那是環境不是碼;(c)本檔**不驗**任何呼叫端 —— 那三支函式在別支 migration;(d)✅ **第⑨格今天也有正本了**(2026-09-02 21:0x)⇒ 五節全部有正本、同一天同一個人跑的;而它證的仍然只是【我抄對了】, 不證正式庫明天還是這樣。';
 END
 $$;
 COMMIT;

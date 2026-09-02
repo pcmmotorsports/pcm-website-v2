@@ -12,13 +12,21 @@
 #         而漏的方向正是當時那個判準預測的:「收太緊 ⇒ 有人跑不動 ⇒ 它會叫」。
 #         ⇒ 📌 **不是「我猜錯了」, 是【我選的方向讓錯誤可見, 而正本在它出聲之前就到了】。**
 #       🛑 **而第①條照舊成立** —— 有正本只證明【我抄對了】, 不證明正式庫明天還是這樣。
+#    ②b **2026-09-02 21:0x sequence 那一層的正本也回來了** ⇒ **五節全部有正本。**
+#       🔴 **而它【又】救了一格**:我漏了 `service_role` 的 `UPDATE`(少了它 `setval()` 會被拒)。
+#       🎯 **⇒ 兩次猜, 兩次漏的都是【該有而沒給】**(表那層漏 `pcm_readonly` · 這層漏 `UPDATE`)
+#         ⇒ 📌 **那不是「我不夠仔細」, 是「憑推理列角色」這個方法有一個【固定的失效方向】**
+#         ⇒ ⇒ **而那個方向正是我選的那一邊:錯了會有人跑不動而叫。**
 #    ③ 本機是 PG 17;`NULLS NOT DISTINCT` 在 PG15 以下建不起來 ⇒ 那是環境不是碼。
 set -uo pipefail
 cd "$(cd "$(dirname "$0")/.." && pwd)"
 MIG=supabase/migrations/20260902210000_m4b_pfeddl2_staging_and_sync_log.sql
 D=$(mktemp -d); trap 'pg_ctl -D "$D/pg" -m immediate stop >/dev/null 2>&1; rm -rf "$D"' EXIT
-PASS=0; FAIL=0; EXPECT_TOTAL=31
-# 🔵 31 = 25 + 6(codex R2 抓的:閘④⑧⑨ 三格沒有任何突變在打 + CREATE ROLE 那條分支零覆蓋)
+PASS=0; FAIL=0; EXPECT_TOTAL=34
+# 🔵 34 = 25 + 6(codex R2 抓的)+ 3(sequence 正本回來 + codex R3 抓的)
+#    🔴 而上一版這一行寫「32 = 25 + 6」而常數是 32 ⇒ **算式與結果自相矛盾**(codex R3 nit 抓)
+#    ⇒ 📌 一個沒有人會去驗算的註解, 在它旁邊那個數字被改過之後就變成假的 —— 而它讀起來仍然像來源。
+# 🛑 舊註記留著:(codex R2 抓的:閘④⑧⑨ 三格沒有任何突變在打 + CREATE ROLE 那條分支零覆蓋)
 #    🔴 R2 那條逐字:「刪壞 status CHECK、schema USAGE 或 sequence ACL 斷言後, 25/25 仍可能全綠」
 #    ⇒ 📌 **一格沒有突變在打的閘, 與一格不存在的閘, 在總分上印同一個數字。**(ACL 正本回來之後補的:pcm_readonly ×2 / anon 反向 ×1 / 拿掉那行 GRANT 的突變 ×1)
 #    🔴🔴 **而我又算錯了一次** —— 我寫 23、實跑 24(3 格 ACL 我數成 3, 而它是 2+1 再加突變那格)。
@@ -111,6 +119,20 @@ ck "②a sync_log 的 ACL 上 pcm_readonly 恰好只有 SELECT" \
    "$(acl pcm_readonly product_fitments_effective_sync_log)" "SELECT"
 ck "②a 🔵 反向:anon 在 staging 的 ACL 上【一格都沒有】⇒ 證明上面不是恆真" \
    "$(acl anon product_fitments_effective_staging)" "(無)"
+# 🔴 sequence 那一層【獨立再讀一次】—— 閘⑨ 在 migration 裡面比, 這裡在外面比。
+#    ⇒ 📌 兩個讀數同源(同一顆庫), 而它們**經過的程式碼不同** ⇒ 我寫錯 v_want 時這一格會不一樣。
+#    正本(2026-09-02 21:0x)service_role ⇒ SELECT/UPDATE/USAGE。我第一版漏了 UPDATE。
+# 🔴 codex R3:第一版只讀 staging 那一支 ⇒ **sync_log 那支錯了而閘⑨ 也同步寫錯時, 這格照樣綠**
+#    ⇒ 📌 一個叫「獨立檢查」而只覆蓋一半的格子, 對另一半是零判別力。⇒ 兩支各一格。
+seqacl(){ "${PSQL[@]}" -c "SELECT coalesce(string_agg(pv,'+' ORDER BY pv),'(無)') FROM (
+   SELECT a.privilege_type pv FROM pg_class c, aclexplode(c.relacl) a
+   LEFT JOIN pg_roles r ON r.oid=a.grantee
+   WHERE c.oid = pg_get_serial_sequence('public.$1','id')::regclass
+     AND coalesce(r.rolname,'PUBLIC')='service_role') q;" 2>/dev/null; }
+ck "②a staging 的 sequence 上 service_role 恰好三格(第一版漏了 UPDATE)" \
+   "$(seqacl product_fitments_effective_staging)" "SELECT+UPDATE+USAGE"
+ck "②a sync_log 的 sequence 上 service_role 恰好三格" \
+   "$(seqacl product_fitments_effective_sync_log)" "SELECT+UPDATE+USAGE"
 
 echo "── ②b NULL 短路面:那條 provenance CHECK 靠【誰】擋住 NULL ───────"
 # 🔴 這一段是 `scripts/null-shortcircuit-check-guard.test.ts` 逼出來的, 而它問對了問題:
@@ -163,11 +185,15 @@ mut "sync_log 少一欄(note)⇒ 閘② 要叫" "  note        text,
 " "" "事後閘②"
 mut "拿掉 pcm_readonly 那兩行 GRANT ⇒ 閘⑦(ACL 逐 grantee)要叫" "GRANT SELECT ON TABLE public.product_fitments_effective_staging TO pcm_readonly;
 " "" "事後閘⑦"
+# 🔴 codex R3:突變只測過「整行 GRANT 消失」⇒ 【可轉授】那條路沒有任何一發在打。
+#    ⚠️ 而 owner 被換 / owner 三格被撤那兩種, 本 harness **造不出來**(它一律以 postgres 重放)
+#    ⇒ 閘⑨a/⑨b 目前**沒有突變在打**, 照實寫在這裡, 不要當它們被驗過。
+mut "sequence 的 GRANT 加上 WITH GRANT OPTION ⇒ 閘⑨ 要叫" "ON SEQUENCE %s TO service_role', v_seq);" "ON SEQUENCE %s TO service_role WITH GRANT OPTION', v_seq);" "事後閘⑨"
 mut "把 SELECT 開給 anon ⇒ 閘⑦ 要叫" "GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE public.product_fitments_effective_staging TO service_role;" "GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE public.product_fitments_effective_staging TO service_role;
 GRANT SELECT ON TABLE public.product_fitments_effective_staging TO anon;" "事後閘⑦"
 
 mut "sync_log 的 status 值改掉 ⇒ 閘④ 要叫" "CHECK (status IN ('success', 'abort'))" "CHECK (status IN ('success', 'aborted'))" "事後閘④"
-mut "拿掉 sequence 的 GRANT ⇒ 閘⑨ 要叫" "    EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE %s TO service_role', v_seq);
+mut "拿掉 sequence 的 GRANT ⇒ 閘⑨ 要叫" "    EXECUTE format('GRANT USAGE, SELECT, UPDATE ON SEQUENCE %s TO service_role', v_seq);
 " "" "事後閘⑨"
 
 echo "── ⑤ 兩個【底座】世界:它們不是改檔, 是把環境弄成別的樣子 ─────"

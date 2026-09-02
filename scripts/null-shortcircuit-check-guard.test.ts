@@ -159,22 +159,22 @@ const PROBED_OR_CHECKS: readonly string[] = [
   //       可複跑:`bash scripts/pfeddl2-verify.sh` 的 ②b 兩格(harness 20 格全綠)。
   //    🔵 **而那個 `NOT NULL` 有被釘住**:該 migration 的事後閘① 逐字比對 staging 每一欄的
   //       `column_name:is_nullable`(配了突變「run_id 改可空 ⇒ 閘① 要叫」)⇒ 改可空會當場紅。
-  'pfes_provenance_valid',
-  'auth_callback_events_outcome_reason_pair',
-  'coupons_percent_range',
-  'bbox_complete',
-  'bbox_null_unless_ok',
-  'order_notes_contact_fields_required',
-  'order_notes_internal_fields_absent',
-  'order_refunds_failed_detail_only_failed',
-  'orders_tappay_rec_channel_check',
-  'payment_charge_attempts_capture_read_pair_chk',
-  'payment_charge_attempts_released_closed_status_chk',
-  'shipments_hct_evidence_carrier',
-  'shipments_hct_status_carrier',
-  'shipments_hct_submitted_evidence',
-  'shipments_shipped_needs_tracking',
-  'wallet_amount_sign',
+  'product_fitments_effective_staging.pfes_provenance_valid',
+  'auth_callback_events.auth_callback_events_outcome_reason_pair',
+  'coupons.coupons_percent_range',
+  'product_image_trim.bbox_complete',
+  'product_image_trim.bbox_null_unless_ok',
+  'order_notes.order_notes_contact_fields_required',
+  'order_notes.order_notes_internal_fields_absent',
+  'order_refunds.order_refunds_failed_detail_only_failed',
+  'orders.orders_tappay_rec_channel_check',
+  'payment_charge_attempts.payment_charge_attempts_capture_read_pair_chk',
+  'payment_charge_attempts.payment_charge_attempts_released_closed_status_chk',
+  'shipments.shipments_hct_evidence_carrier',
+  'shipments.shipments_hct_status_carrier',
+  'shipments.shipments_hct_submitted_evidence',
+  'shipments.shipments_shipped_needs_tracking',
+  'customer_wallet_ledger.wallet_amount_sign',
   // 🔴 2026-09-02 線 `-c7` 實測補進(它自己寫的 `20260901080000_m4b_autorefund_pending_refunds.sql:246-249`)。
   //    形狀:`(voided_at IS NULL) = (void_reason IS NULL)
   //           AND (void_reason IS NULL OR btrim(void_reason, <字集>) <> '')`
@@ -195,7 +195,7 @@ const PROBED_OR_CHECKS: readonly string[] = [
   //    🎯 **⇒ 所以它是【自身安全】不是【條件安全】**(`-0e` 2026-09-02 複審給的區分,而那個區分承重):
   //       理由要寫成「**這條運算式構造不出 NULL**」,**不是「我試過了它擋得住」** ——
   //       後者只涵蓋我試過的那幾發,前者涵蓋所有輸入。⇒ 而上面那五格 NULL 組合就是在證前者。
-  'order_pending_refunds_void_needs_reason',
+  'order_pending_refunds.order_pending_refunds_void_needs_reason',
 ] as const;
 
 /**
@@ -210,20 +210,20 @@ const PROBED_OR_CHECKS: readonly string[] = [
  * 移一列到上面那張清單的門檻:**跑過一發壞形狀**,不是讀過覺得沒問題。
  */
 const SHAPE_MATCHED_NOT_YET_PROBED: readonly string[] = [
-  'order_item_procurement_contact_channel_nonempty',
-  'order_item_procurement_exception_reason_nonempty',
-  'order_refunds_deferred_clean',
-  'order_refunds_processing_clean',
-  'orders_invoice_number_len',
-  'orders_notification_email_valid',
-  'orj_correction_triple_paired',
-  'orj_shape_completed',
-  'orj_shape_dead',
-  'orj_shape_failed',
-  'orj_shape_processing',
-  'orj_shape_queued',
-  'orj_shape_reconciling',
-  'orj_shape_submitted',
+  'order_item_procurement.order_item_procurement_contact_channel_nonempty',
+  'order_item_procurement.order_item_procurement_exception_reason_nonempty',
+  'order_refunds.order_refunds_deferred_clean',
+  'order_refunds.order_refunds_processing_clean',
+  'orders.orders_invoice_number_len',
+  'orders.orders_notification_email_valid',
+  'order_refund_jobs.orj_correction_triple_paired',
+  'order_refund_jobs.orj_shape_completed',
+  'order_refund_jobs.orj_shape_dead',
+  'order_refund_jobs.orj_shape_failed',
+  'order_refund_jobs.orj_shape_processing',
+  'order_refund_jobs.orj_shape_queued',
+  'order_refund_jobs.orj_shape_reconciling',
+  'order_refund_jobs.orj_shape_submitted',
   // 🔴🔴 `pfe_provenance_valid` —— **它留在【待驗】這一欄是刻意的,而它與上面那些不同族**。
   //    出處 `20260901170000_m4b_pfe_ddl_into_version_control.sql`(commit `4356010f`;
   //    ⚠️ 作者欄全窗共用 probe ⇒ **查不出是誰寫的**)。**不是 `-c7` 寫的。**
@@ -241,7 +241,7 @@ const SHAPE_MATCHED_NOT_YET_PROBED: readonly string[] = [
   //       **哪天有人把那三欄任一欄改成 nullable ⇒ 這條 CHECK 當場靜靜放行,而沒有任何東西會叫。**
   //       ⇒ 那一次要叫 codex —— 它動的是**可達性**,不是樣式。
   //    📌 **⇒ 而理由寫在這裡而不是寫「已確認」,是因為【白名單本身會變成關掉下一個人查證動作的東西】。**
-  'pfe_provenance_valid',
+  'product_fitments_effective.pfe_provenance_valid',
 ] as const;
 
 /**
@@ -312,6 +312,29 @@ export function constraintNameBefore(sql: string, at: number): string | null {
 }
 
 /**
+ * 往前找最近的 `CREATE TABLE <t>` / `ALTER TABLE <t>`,回傳表名(去 schema、去引號、小寫)。
+ *
+ * 🔴 **為什麼需要它**:白名單原本只用【約束名】當鍵,而約束名在 PG 裡只在【同一張表內】唯一。
+ *    ⇒ 另一張表新增一條**同名、而 NULL 短路面是開的** CHECK ⇒ 借用既有白名單 ⇒ **直接通過, 零訊號。**
+ * 📌 **而這不是白名單設計不良, 是【一次沒做完的修改】**:同一支檔裡的
+ *    `LOAD_BEARING_NOT_NULL` 早就用 `(表, 欄)` 當鍵了 —— **一半的地方修好了而另一半沒跟上。**
+ *
+ * 🛑 **它答不出什麼**(照著用之前先讀):
+ *   ① 動態 SQL(`EXECUTE format('… CHECK …')`)裡的約束 —— 那段字面上沒有 CREATE/ALTER TABLE 在前面
+ *      ⇒ 它會歸給【更前面那一張表】⇒ **歸錯**。
+ *   ② 一支檔完全沒有 CREATE/ALTER TABLE 而有 CHECK(例如只有 DO 區塊)⇒ 回 `null`。
+ *   🔵 **而兩種失效的方向都是【誤報】不是【漏報】**:歸錯或歸不到 ⇒ 那條白名單對不上 ⇒ **下次掃到它會紅**。
+ *      ⇒ 那是選這個修法的理由之一, 不是事後安慰。
+ */
+export function enclosingTable(sql: string, at: number): string | null {
+  const src = stripComments(sql).slice(0, at);
+  const ms = [...src.matchAll(/\b(?:CREATE|ALTER)\s+TABLE\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?(?:ONLY\s+)?("?[A-Za-z0-9_]+"?(?:\s*\.\s*"?[A-Za-z0-9_]+"?)?)/gi)];
+  const raw = ms.at(-1)?.[1];
+  if (!raw) return null;
+  return raw.replace(/"/g, '').replace(/\s+/g, '').split('.').pop()!.toLowerCase();
+}
+
+/**
  * 抓出「拆掉 NOT NULL」的敘述,回傳 (表, 欄)。
  * 正規化掉識別字引號、schema 前綴與多餘空白,讓等價寫法收斂成同一形狀。
  */
@@ -331,6 +354,38 @@ export function dropNotNullTargets(sql: string): { table: string; column: string
     out.push({ table, column });
   }
   return out;
+}
+
+/**
+ * 掃一批 SQL, 回傳【白名單以外】的 OR 串 CHECK 鍵(`表.約束名`)與匿名的那些。
+ *
+ * 🔴 **抽成具名函式的理由不是整潔, 是【讓 fixture 與正式掃描走同一條程式碼路徑】。**
+ *    ⇒ 📌 若 fixture 自己重打一份判斷邏輯, 那麼**改壞生產碼時 fixture 照樣綠**
+ *      —— 殺不掉突變的 fixture 與寫對的碼印同一個綠。
+ */
+export function unlistedOrCheckKeys(
+  migrations: { file: string; sql: string }[],
+  whitelist: readonly string[],
+): { unlisted: string[]; anonymous: string[]; allKeys: string[] } {
+  const found = new Set<string>();
+  const anonymous: string[] = [];
+  for (const { file, sql } of migrations) {
+    for (const { at, body } of checkBodies(sql)) {
+      if (!isNullShortCircuitShape(body)) continue;
+      const name = constraintNameBefore(sql, at);
+      // 🔴 鍵是 `<表>.<約束名>` 不是裸的約束名 —— 約束名在 PG 裡只在【同一張表內】唯一,
+      //    而裸名當鍵時, 另一張表的同名 CHECK 會借用既有白名單**直接通過, 零訊號**。
+      //    ⚠️ 歸不到表 ⇒ 用 `(歸不到表)` 佔位, **不要 fallback 成裸名** ——
+      //      那會把這道修法在最需要它的那一種檔(動態 SQL)上原地還原。
+      if (name) found.add(`${enclosingTable(sql, at) ?? '(歸不到表)'}.${name}`);
+      else anonymous.push(`${file}: ${body.replace(/\s+/g, ' ').slice(0, 80)}`);
+    }
+  }
+  return {
+    unlisted: [...found].filter((k) => !whitelist.includes(k)).sort(),
+    anonymous,
+    allKeys: [...found].sort(),
+  };
 }
 
 function readMigrations(): { file: string; sql: string }[] {
@@ -363,21 +418,20 @@ describe('OR 串 CHECK 的 NULL 短路面守門(#641 ④ 的機制版)', () => {
   });
 
   it('🔴 掃到白名單以外的 OR 串 CHECK ⇒ 紅(人工釘的清單會靜靜少算一個,所以用掃描比對)', () => {
-    const found = new Set<string>();
-    const anonymous: string[] = [];
-    for (const { file, sql } of migrations) {
-      for (const { at, body } of checkBodies(sql)) {
-        if (!isNullShortCircuitShape(body)) continue;
-        const name = constraintNameBefore(sql, at);
-        if (name) found.add(name);
-        else anonymous.push(`${file}: ${body.replace(/\s+/g, ' ').slice(0, 80)}`);
-      }
-    }
+    const { unlisted, anonymous, allKeys } = unlistedOrCheckKeys(migrations, KNOWN_OR_CHECKS);
     // 判別力前提:真的掃到東西。掃到 0 就是正規式/括號配對壞了,而空集合比空集合會綠。
-    expect(found.size, '掃到 0 支 ⇒ 掃描器本身壞了,不是「repo 很乾淨」').toBeGreaterThan(0);
+    expect(allKeys.length, '掃到 0 支 ⇒ 掃描器本身壞了,不是「repo 很乾淨」').toBeGreaterThan(0);
+    // 🔴 而「歸不到表」要自己成為一格 —— 它會安靜地變成一條永遠對不上的鍵,
+    //    而那條鍵的紅看起來像「有人新增了 CHECK」, 不像「enclosingTable 沒歸到」。
     expect(
-      [...found].filter((n) => !KNOWN_OR_CHECKS.includes(n)).sort(),
-      '新的 OR 串 CHECK。先跑一發壞形狀確認它真的擋得住(方法見 H2-12支CHECK 那份交件),再加進白名單。',
+      allKeys.filter((k) => k.startsWith('(歸不到表).')),
+      'enclosingTable 歸不到表 ⇒ 去補它(動態 SQL / 沒有 CREATE|ALTER TABLE 在前), 不要把表名亂填一個',
+    ).toEqual([]);
+    expect(
+      unlisted,
+      '新的 OR 串 CHECK。先跑一發壞形狀確認它真的擋得住(方法見 H2-12支CHECK 那份交件),'
+        + '再加進白名單 —— 🔴 **格式是 `表.約束名`**(2026-09-02 改鍵;裸名會讓另一張表的同名 CHECK 借用)。'
+        + '而印出 `(歸不到表).xxx` ⇒ 那是 enclosingTable 歸不到, 去補它、不要把表名亂填一個。',
     ).toEqual([]);
     expect(
       anonymous.filter((a) => !KNOWN_ANONYMOUS_OR_CHECKS.includes(a)).sort(),
@@ -399,6 +453,58 @@ describe('OR 串 CHECK 的 NULL 短路面守門(#641 ④ 的機制版)', () => {
     it('註解裡的舊寫法不會被誤報(B5 草稿那次就是這樣誤中的)', () => {
       const sql = "-- 舊版寫成 CHECK (kind = 'a' OR kind = 'b'),已作廢\nSELECT 1;";
       expect(checkBodies(sql)).toEqual([]);
+    });
+
+    // 🔴🔴 **這一格是【先證明洞是真的】那一發** —— 它在改鍵之前就寫好了, 而當時它是紅的。
+    //    ⇒ 📌 **一個「我覺得會有問題」與一個【現在的版本真的放行了】是兩個宣稱**,
+    //      而只有後者能讓下一個人相信這一片不是空跑。
+    it('🔴 同名而不同表:借用既有白名單那條路要被堵死(改鍵前它是【通的】)', () => {
+      const sql = [
+        "CREATE TABLE a_tbl (s text NOT NULL, x text NOT NULL,",
+        "  CONSTRAINT dup_name CHECK ((s = 'p' AND x = '1') OR (s = 'q' AND x <> '1')));",
+        "CREATE TABLE b_tbl (s text NOT NULL, x text,",
+        "  CONSTRAINT dup_name CHECK ((s = 'p' AND x = '1') OR (s = 'q' AND x <> '1')));",
+      ].join('\n');
+      // ⚠️ 走的是【正式掃描那條路】—— 餵字串給同一組函式, 不另外寫一份判斷邏輯。
+      //    否則殺不掉突變的 fixture 與寫對的碼會印同一個綠。
+      const keys = checkBodies(sql)
+        .filter(({ body }) => isNullShortCircuitShape(body))
+        .map(({ at }) => `${enclosingTable(sql, at)}.${constraintNameBefore(sql, at)}`);
+      expect(keys).toEqual(['a_tbl.dup_name', 'b_tbl.dup_name']);
+      // 🎯 改鍵【前】這兩條都收斂成 `dup_name` 一個字串 ⇒ 白名單放行 a 就等於放行 b。
+      //    而 b_tbl 的 `x` 是**可空**的 ⇒ 它的 NULL 短路面是【開的】⇒ 那正是本守門要抓的東西。
+      expect(new Set(keys).size, '兩張表的同名約束必須是兩個不同的鍵').toBe(2);
+      // 🔵 負對照:兩條的【約束名】確實相同 ⇒ 證明上面那個 2 是表名帶來的, 不是名字本來就不同。
+      expect(new Set(checkBodies(sql).map(({ at }) => constraintNameBefore(sql, at))).size).toBe(1);
+    });
+
+    it('🔴 而【白名單過濾那條路】也要真的堵住 —— 走 unlistedOrCheckKeys 本尊, 不重打邏輯', () => {
+      const sql = [
+        "CREATE TABLE a_tbl (s text NOT NULL, x text NOT NULL,",
+        "  CONSTRAINT dup_name CHECK ((s = 'p' AND x = '1') OR (s = 'q' AND x <> '1')));",
+        "CREATE TABLE b_tbl (s text NOT NULL, x text,",
+        "  CONSTRAINT dup_name CHECK ((s = 'p' AND x = '1') OR (s = 'q' AND x <> '1')));",
+      ].join('\n');
+      const mig = [{ file: 'fixture.sql', sql }];
+      // 🔴 白名單只放了 a_tbl 那一條 ⇒ b_tbl 的必須被報出來。
+      expect(unlistedOrCheckKeys(mig, ['a_tbl.dup_name']).unlisted).toEqual(['b_tbl.dup_name']);
+      // ⛔ **改鍵【前】的行為**:白名單是裸名 ⇒ 放行 a 就等於放行 b ⇒ **零報告**。
+      //    這一行是把舊行為寫成證人:它證明上面那個 `['b_tbl.dup_name']` 不是本來就會有的。
+      expect(unlistedOrCheckKeys(mig, ['dup_name']).unlisted).toEqual(['a_tbl.dup_name', 'b_tbl.dup_name']);
+      // 🔵 負對照:兩條都在白名單 ⇒ 空 ⇒ 證明它不是變成恆紅。
+      expect(unlistedOrCheckKeys(mig, ['a_tbl.dup_name', 'b_tbl.dup_name']).unlisted).toEqual([]);
+    });
+
+    it('enclosingTable 的四種寫法都歸得到表, 而歸不到時回 null(不是猜一個)', () => {
+      const cases: [string, string | null][] = [
+        ["CREATE TABLE foo (x text CHECK (x = 'a' OR x = 'b'));", 'foo'],
+        ['CREATE TABLE IF NOT EXISTS public.foo (', 'foo'],
+        ['ALTER TABLE ONLY "public" . "foo" ADD CONSTRAINT c CHECK (true);', 'foo'],
+        ['SELECT 1;', null],
+      ];
+      for (const [sql, want] of cases) {
+        expect(enclosingTable(sql, sql.length), sql).toBe(want);
+      }
     });
 
     it('DROP NOT NULL 的四種等價寫法都抓得到,而無關的 ALTER 不誤報', () => {
