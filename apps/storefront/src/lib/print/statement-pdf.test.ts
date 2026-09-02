@@ -1,9 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { toMoneyAmount, type MemberOrderDetail } from '@pcm/domain';
-import { buildStatementPdfHtml } from './statement-pdf';
+import { buildStatementPdfHtml, findFontPkgInPnpmStore, fontPkgDir } from './statement-pdf';
 // 🛑 ⛔ ~~`import { htmlToPdf }`~~ **拿掉了**(codex R1 must-fix):我 import 了它而**一次都沒呼叫**
 //    ⇒ 📌 一個「被 import 的函式」讀起來像被測過了, 而那支函式的覆蓋率是 **0**。
 //    ⇒ 它為什麼測不到、以及我改用什麼守它, 見本檔最下面那一組。
@@ -171,6 +172,194 @@ describe('htmlToPdf · 本機執行不了 ⇒ 只釘得住它的形狀', () => {
       'await browser.close()',   // 漏掉 ⇒ 殘留行程(平台強殺時本來就不保證, 更不能自己也漏)
     ]) {
       expect({ [must]: src.includes(must) }).toEqual({ [must]: true });
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴🔴 `findFontPkgInPnpmStore` —— 修法【丁】的本體,而**它在本機跑不到**
+//
+// `fontPkgDir()` 的候選①(`require.resolve`)在本機**一定會過** ⇒ 候選②永遠不被執行到。
+// 🛑 **而候選② 正是【只在 Vercel 才走】的那條路** —— 2026-09-03 18:40 正式站逐字
+//    `拒絕產檔 … 內嵌 0 · 拿不到字型檔 0 · 版面 CSS 缺 false · 字型套件=null`
+//    ⇒ 那邊 `require.resolve` throw, 而**同一支函式裡 `process.cwd()` 相對讀檔是成功的**
+//      (`版面 CSS 缺 false` 就是它的讀數)⇒ 丁照抄那個已經會動的形狀。
+//
+// ⇒ ✅ 收成 `cwd` 參數 + 具名 export ⇒ **餵一個假的 store 佈局就走得到它, 不必等部署。**
+// 🛑🛑 **而本組證不到什麼(寫在最前面, 不要讀漏)**:
+//    它證的是**這段挑選邏輯**對得起來;**證不到 Vercel 的函式裡那棵檔案樹長什麼樣**。
+//    ⇒ 丙就是死在那一格(本機 `.nft.json` 讀數是好的, 而正式站仍然 `null`)。
+//    ⇒ **丁成功的定義仍然在正式站:打那個網址, 那張紙上的中文是【字】不是方框。**
+//      🔴 **不要看 log** —— 成功時 route 回 200, 而那行只住在 500 分支。
+describe('findFontPkgInPnpmStore · 丁的本體(本機跑不到的那條路)', () => {
+  const PREFIX = '@fontsource+noto-sans-tc@';
+  /**
+   * 造一棵假的 pnpm store。`usable=false` ⇒ **目錄在而執行時要讀的檔不在**。
+   * 🔴 造的是 `400.css` / `700.css` **而不是 `package.json`** —— 判準 2026-09-03 改了
+   *    (code-reviewer must-fix:`package.json` 是代理, 執行時真正讀的是這兩支)。
+   */
+  const makeStore = (versions: string[], usable = true) => {
+    const root = mkdtempSync(join(tmpdir(), 'pcm-fontstore-'));
+    // cwd 會是 <root>/apps/storefront ⇒ `../../node_modules/.pnpm` 就是 <root>/node_modules/.pnpm
+    const cwd = join(root, 'apps', 'storefront');
+    mkdirSync(cwd, { recursive: true });
+    for (const v of versions) {
+      const dir = join(root, 'node_modules', '.pnpm', PREFIX + v, 'node_modules', '@fontsource', 'noto-sans-tc');
+      mkdirSync(dir, { recursive: true });
+      if (usable) {
+        writeFileSync(join(dir, '400.css'), '');
+        writeFileSync(join(dir, '700.css'), '');
+      }
+    }
+    return { root, cwd };
+  };
+
+  it('🟢 前提斷言:真的 repo 佈局找得到(否則下面每一格都在測一個假世界)', () => {
+    // 🔴 這一格餵的是**真的 apps/storefront**, 走的是 base①(`../../node_modules/.pnpm`)——
+    //    也就是正式站量到 `cwd=/var/task/apps/storefront` 的那一種形狀。
+    const got = findFontPkgInPnpmStore(resolve(process.cwd(), 'apps/storefront'));
+    expect(got, '真 repo 上都找不到 ⇒ 丁的路徑推導本身就錯了').not.toBeNull();
+    expect(got).toContain(PREFIX);
+  });
+
+  it('🔴 假 store · 一支版本 ⇒ 回那一支', () => {
+    const { root, cwd } = makeStore(['5.3.0']);
+    try {
+      expect(findFontPkgInPnpmStore(cwd)).toBe(
+        join(root, 'node_modules', '.pnpm', PREFIX + '5.3.0', 'node_modules', '@fontsource', 'noto-sans-tc'),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('🔴 命中多支 ⇒ 決定性地取排序後第一支(不是「隨便一支」)', () => {
+    // 🛑 這一格釘的是**決定性**, 不是「挑到最新」—— 註解裡寫明了它是字典序。
+    //    兩次部署嵌到不同版本的字型, 是一個**沒有任何東西會叫**的壞法。
+    const { root, cwd } = makeStore(['5.3.0', '4.9.0', '5.10.0']);
+    try {
+      expect(findFontPkgInPnpmStore(cwd)).toContain(PREFIX + '4.9.0');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('🔴 目錄在而【要讀的那兩支 CSS】不在 ⇒ 回 null(不要回一條讀不到東西的路徑)', () => {
+    // 🎯 這正是丙的失敗形狀:**位元組/目錄在, 而那個套件不成立。**
+    const { root, cwd } = makeStore(['5.3.0'], false);
+    try {
+      expect(findFontPkgInPnpmStore(cwd)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('🔵 負對照:store 裡沒有這個套件 ⇒ null(證明上面不是恆真)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'pcm-fontstore-empty-'));
+    const cwd = join(root, 'apps', 'storefront');
+    mkdirSync(join(root, 'node_modules', '.pnpm', '@zzq9137never@1.0.0'), { recursive: true });
+    mkdirSync(cwd, { recursive: true });
+    try {
+      expect(findFontPkgInPnpmStore(cwd)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('🔵 base② 也要會動:cwd 就是 repo 根的那一種佈局', () => {
+    // 🔴 兩個 base 對齊 `cssCandidates` 的兩個候選 ⇒ 只驗 base① 的話, 第二條是死碼而沒人知道。
+    const root = mkdtempSync(join(tmpdir(), 'pcm-fontstore-root-'));
+    const dir = join(root, 'node_modules', '.pnpm', PREFIX + '5.3.0', 'node_modules', '@fontsource', 'noto-sans-tc');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, '400.css'), '');
+    writeFileSync(join(dir, '700.css'), '');
+    try {
+      expect(findFontPkgInPnpmStore(root)).toBe(dir);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴🔴 `fontPkgDir` 的【候選①→②接縫】—— code-reviewer 2026-09-03 must-fix
+//
+// **它為什麼要單獨一組**:我原本三發突變**全在 `findFontPkgInPnpmStore` 內部**,
+// 而 reviewer 實測「把候選① 改成 `return null` ⇒ **12 格全綠**」
+// ⇒ 📌 **沒有任何一格證明 `fontPkgDir()` 真的接上了候選②。**
+// ⇒ ⇒ 🎯 **我為候選②做的推理(「只在正式站走 ⇒ 要能餵它」)在【往上一層】停了一步** ——
+//    測得到那個函式, 不等於測得到「有沒有人呼叫它」。
+describe('fontPkgDir · 候選①→② 的接縫', () => {
+  const PREFIX = '@fontsource+noto-sans-tc@';
+  const makeUsable = () => {
+    const root = mkdtempSync(join(tmpdir(), 'pcm-seam-'));
+    const cwd = join(root, 'apps', 'storefront');
+    mkdirSync(cwd, { recursive: true });
+    const dir = join(root, 'node_modules', '.pnpm', PREFIX + '5.3.0', 'node_modules', '@fontsource', 'noto-sans-tc');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, '400.css'), '');
+    writeFileSync(join(dir, '700.css'), '');
+    return { root, cwd, dir };
+  };
+
+  it('🔴 候選① throw(= Vercel 那一種)⇒ 真的落到候選②', () => {
+    const { root, cwd, dir } = makeUsable();
+    try {
+      expect(
+        fontPkgDir(() => {
+          throw new Error('MODULE_NOT_FOUND');
+        }, cwd),
+      ).toBe(dir);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('🔴 候選①【成功但目錄不可用】⇒ 也要落到候選②(不是回那條讀不到東西的路徑)', () => {
+    // 🎯 這一格是 reviewer 的第一條 must-fix:判「非 null」與判「可用」是兩件事。
+    const { root, cwd, dir } = makeUsable();
+    const emptyDir = mkdtempSync(join(tmpdir(), 'pcm-seam-empty-'));
+    try {
+      expect(fontPkgDir(() => join(emptyDir, 'package.json'), cwd)).toBe(dir);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(emptyDir, { recursive: true, force: true });
+    }
+  });
+
+  it('🟢 正對照:候選① 可用 ⇒ 用它, 不往下走(否則上面兩格可能是恆真)', () => {
+    const { root, cwd, dir } = makeUsable();
+    const winner = mkdtempSync(join(tmpdir(), 'pcm-seam-win-'));
+    writeFileSync(join(winner, '400.css'), '');
+    writeFileSync(join(winner, '700.css'), '');
+    try {
+      expect(fontPkgDir(() => join(winner, 'package.json'), cwd)).toBe(winner);
+      expect(fontPkgDir(() => join(winner, 'package.json'), cwd)).not.toBe(dir);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(winner, { recursive: true, force: true });
+    }
+  });
+
+  it('🔵 兩個 base 同時命中 ⇒ base① 贏(釘住註解那句「base① 優先」)', () => {
+    // 🔴 reviewer nit:我原句寫「取排序後第一支」而實作是「base① 優先, base 內字典序」
+    //    ⇒ 這一格把【實作的語意】釘住, 免得下次有人照註解改。
+    const root = mkdtempSync(join(tmpdir(), 'pcm-seam-2base-'));
+    const cwd = join(root, 'apps', 'storefront');
+    mkdirSync(cwd, { recursive: true });
+    const mk = (base: string, v: string) => {
+      const d = join(base, 'node_modules', '.pnpm', PREFIX + v, 'node_modules', '@fontsource', 'noto-sans-tc');
+      mkdirSync(d, { recursive: true });
+      writeFileSync(join(d, '400.css'), '');
+      writeFileSync(join(d, '700.css'), '');
+      return d;
+    };
+    const base1 = mk(root, '5.10.0'); // ../../ 那個 base
+    mk(cwd, '4.9.0'); // cwd 自己底下那個 base
+    try {
+      expect(findFontPkgInPnpmStore(cwd)).toBe(base1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
