@@ -336,3 +336,74 @@ Sean 拍了「不做後台可編輯」⇒ **改文案一定是改碼** ⇒ **這
 🛑 反過來 ⇒ 一樣不寄, 而它會累積 error 與死信 ⇒ 兩種都不寄, 差別在噪音
 ```
 ⚠️ **而「誰在什麼時候寫那一列」還沒有答案** —— 它等 §1/§2 那兩題(射程 / 逾時信)。
+
+---
+
+## §10 🔴🔴 **正式庫已經領先程式碼一個值,而那是【現在】的狀態**(2026-09-03 03:5x,線 `-mail` 量到)
+
+```
+DB  :email_outbox.event_type 的 CHECK 自 2026-09-02 起含 order_cancelled
+      (主視窗-87 對正式庫唯讀讀 pg_get_constraintdef 逐字確認,見 §0-A-3)
+TS  :grep -rn "order_cancelled" packages/{ports,adapters,use-cases}/src --include='*.ts'
+      排除測試檔 ⇒ **0 命中**
+      🟢 正對照 同一把尺問 order_shipped ⇒ **47 命中** ⇒ 尺會動,那個 0 是真的
+```
+🎯 **⇒ `EmailOutboxEventType` 這個 union 今天仍是兩值** —— `'order_created' | 'order_shipped'`
+(`packages/ports/src/IEmailOutbox.ts` 錨 `export type EmailOutboxEventType`)。
+
+📌 **這正是 `20260902120000` 自己預言的那個形狀**,它逐字寫著:
+「**『DB 先加了新 event_type、code 還沒跟上』是這個 repo 明文預期會發生的順序**
+(`IEmailOutbox` 的 `EmailOutboxEventType` 是**手抄的 union**)」。
+⇒ 🛑 **而它今天不是預言了,它是現況。**
+
+### 🟢 而今天不會出事,理由是量到的、不是樂觀
+1. **沒有任何寫入端** —— 片②(`admin_mark_order_cancelled`)**未 apply**,而它是唯一預定寫那一列的東西
+   ⇒ outbox 裡今天**不會有** `order_cancelled` 的列。
+2. **就算有,失敗方向是安全的** —— `sweep-email-outbox.ts` 的 `buildEmailText` `default` 是 `throw`
+   (錨 `未知 event_type、fail-closed 不寄`)⇒ **計 error、列留 sending、不寄** ⇒ **不會寄出垃圾**。
+   ✅ 而那一格是**刻意**的:同檔逐字記著,原本 `satisfies never` 編譯後整個消失
+   ⇒ 執行期會**把 event_type 字串當成信件內文寄給真客人**。
+
+### 🔴 而它在什麼時候會咬人 —— **寫下來,因為那一刻不會有人記得**
+```
+片②(admin_mark_order_cancelled)被 apply 的【那一刻】
+⇒ 員工按下取消 ⇒ 寫一列 order_cancelled ⇒ sweeper 認不得 ⇒ 計 error、列卡在 sending
+⇒ 耗盡 attempts 進死信 ⇒ 🛑 **而客人【沒有收到信】,畫面上沒有任何東西說這件事**
+```
+🛑 **⇒ 部署順序那條硬約束(模板先於 enqueue)在 `order_cancelled` 這條線上【已經被打破一半】**
+—— 值域開了、寫入端在排隊,而**模板從來沒有做**。
+⚠️ **而我這一片只做 `order_unpaid_cancelled`** ⇒ 我加我的值與模板,**不會順手補 `order_cancelled` 的模板**:
+那是**另一條線的射程**(刷卡且已全額退款),而它的文案沒有稿、沒有拍板 ⇒ **我不發明它。**
+✅ **⇒ 這一格要有人接,而它不是我的** —— 已回報主視窗-87,列進待派。
+
+---
+
+## §11 🔴 取消信的文案:**沒有稿,而我不發明** —— 掃過的分母寫在這裡
+
+鐵則 1 要求動客人看得到的字之前先解析真權威。**掃了,查無**:
+```
+OD 專案(磁碟數)                 12
+OD 裡檔名含 email 的              4   ⇒ 其中含 cancel 的 **0** · 🟢 正對照 含 paid 的 **2**
+design-reference 的 .html 檔       2   ⇒ 其中提到「取消」的 **0** · 🟢 正對照 提到「購物車」的 **1**
+```
+⇒ 🎯 **兩個分母、各自帶正對照 ⇒ 那兩個 0 是「真的沒有」,不是「我沒找到」。**
+
+### ⇒ 兩個決定(第一個有先例,第二個要人拍)
+🟢 **① 只做純文字,不做 HTML** —— **有先例**:出貨信(`order_shipped`)今天就是純文字
+(`buildOrderShippedText`,而 HTML 那條路只服務付款成功信)。⇒ **與現況一致,不是我發明的。**
+🔴 **② 文案本身要 Sean 過目** —— 而它**不是「請他寫」**,是**請他看**:
+Sean 2026-09-03 拍「文案工程師改、不做後台可編輯」⇒ **我寫草稿是被授權的**;
+而鐵則 12⑤(對外不可回收)+ 這一族的既有紀律(付款信那句話**改了兩次都要有依據**)
+⇒ **草稿要有依據,不能是我覺得順。**
+
+✅ **而依據找得到 —— 用【既有的、已經在對客的】字面,不要新造**:
+`admin_cancel_order` 的七值映射表(`20260830020000:154-162` 逐字)本來就是**寫給客人看的**:
+```
+customer_request  依您要求取消          out_of_stock    商品供貨中斷,已為您取消
+long_leadtime     交期無法配合,已為您取消  price_change    訂單已取消,詳情請洽客服
+duplicate_order   重複訂單,已為您取消      internal_error  訂單已取消,詳情請洽客服
+other             員工自己打的字(reason_detail)
+```
+⇒ 📌 **信裡的「為什麼取消」那一句直接帶這個欄位,而不是我另寫一套** ⇒ **零新造文案。**
+🛑 **而 `other` 那一格要單獨拍**:它的文字是**員工自己打的**,會**原封**進到寄給客人的信裡
+⇒ **那是一個沒有審稿的對外字面。** 建議:`other` 的信改用一句通用文字,員工打的字只留在後台。
