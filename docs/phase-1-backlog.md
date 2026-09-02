@@ -8242,6 +8242,20 @@ order by n desc, 1;
   - 定保留政策(建議:`sent` / `skipped_*` 終態列保留 N 天後刪或匿名化 `recipient_email`;`failed` 死列保留較久供追查)。
   - 走 owner 排程(pg_cron,與 E2b 同族)或 owner-only SECURITY DEFINER 清理函式;**不放寬 service_role 的 DELETE**(否則等於為了清理擴大 blast radius)。
   - 一併評估 `cron.job_run_details` 清理(見 #282)。
+  - 🔴🔴 **2026-09-02 新增一個這條原本不知道的消費者:後台訂單詳情頁的「通知信」區塊**
+    (`apps/admin/src/components/orders/email-log-section.tsx`,片A)。
+    ⇒ **本條一實作開始刪 `email_outbox` ⇒ 那個區塊會少列, 而【少列】與【沒寄過】在畫面上長得一模一樣**
+      —— 那正是片A 存在的理由(客人說沒收到, 而後台查不到那封信)。
+    ⇒ ✅ **做本條的人要做的**:先決定保留政策, **並且**在那個區塊補一句「N 天前的紀錄已清理」。
+      🛑 **不要只加清理排程就收工** —— 排程加完那天, 畫面上不會有任何東西提醒你它變得不完整。
+    🔵 而片A 當天量到的現況(2026-09-02 14:13 唯讀正式庫):`email_outbox` 的 DELETE 權限
+      anon / authenticated / service_role / payment_confirmer **四者皆 false**,owner=postgres。
+      ⛔ ~~「今天沒有任何一條路刪得掉它」~~ —— R2 訂正:**那是一句全稱句, 而我只量了四個 role。**
+      ✅ 正確說法:**四個應用 role 皆無 DELETE;而 owner(= SQL Editor)仍刪得掉**
+        —— 而 Sean 本人做事走的就是 SQL Editor。
+      🔵 另一格已掃過:`supabase/migrations` 內 `DELETE FROM ... email_outbox` ⇒ **0 命中**
+        ⇒ 沒有 SECURITY DEFINER 的刪除路徑。
+      📌 ⇒ **「四個 role 都沒有」推不出「沒有任何一條路」—— 分母是我挑的, 而全稱句不認分母。**
 - **不修會痛在:**
   - bug 可追蹤性:PII 無限期滯留 → 個資範圍隨時間單調擴大,日後要回答「我們存了誰的信箱、多久」時查無政策可引。
   - 可維護性:等到表大了才補刪除,得先補 owner 路徑 + 保留期決策 + 回填式清理,比現在定政策貴得多。
