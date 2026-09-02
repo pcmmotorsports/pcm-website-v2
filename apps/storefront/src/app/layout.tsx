@@ -62,6 +62,7 @@ import '../styles/coming-soon.css'; // 第2批:/coming-soon /stores /install(.cs
 import '../styles/favorites.css'; // M-4b #191:收藏寫入失敗提示(.fav-error;獨立 class 零 cascade 交互)
 import '../styles/brand-availability.css'; // 線E:品牌「有沒有商品」讀不到時那一行(.brand-avail-note;三面共用、獨立 class 零 cascade 交互)
 import '../styles/tier.css';
+import '../styles/search-overlay.css'; // 全站搜尋疊層(.search-overlay-* / .sop-*;整支逐字搬自 design-reference/styles/search-overlay.css)。序放在這裡=獨立 class 家族、與上面任何一支零 cascade 交互;檔頭 :11 註解四個月前就把它列進待引入清單了
 import '../styles/mobile-tabbar.css';
 // 🔴 **必須排在所有樣式的最後一支**:它靠「同 specificity 時 source order 勝出」蓋掉各表單自訂的
 //    14/13/15px 欄位字級(iOS Safari 聚焦 <16px 的欄位會自動放大整頁、且不會自己復原)。

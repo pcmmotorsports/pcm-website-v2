@@ -22,6 +22,7 @@ import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import type { MouseEvent } from 'react';
 import { useCart } from '@/contexts/CartContext';
+import { SearchOverlay } from './SearchOverlay';
 import { useServerMobile } from '@/contexts/MobileContext';
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { MobileMenu } from '@/components/MobileMenu';
@@ -89,7 +90,17 @@ export function Header({
              而讀的人看到的是**主句**(「只寫進 memory」), 不是那個括號。
         🛑 **⇒ 所以要動搜尋線的人:先開 `ADR-0004` §2.1-a, 那裡是現況。**
            而**仍然成立的是**:那條路線**還沒有人重新拍** ⇒ 這條線缺的是一個拍板, 不是工。 */
-  const SEARCH_ENTRY_ENABLED = false;
+  /* 🔵 **2026-09-02 更正(只加不刪;上面那整段一個字沒動,讓搜舊句的人同一發撞到這裡)**
+     ⛔ ~~上面末行「這條線缺的是一個拍板, 不是工」~~ ⇒ **那個拍板 2026-09-02 拍了。**
+     Sean 逐字:「先不用藏,直接繼續把這個做完,反正還沒上線 趕快做就好」
+     🔴 而上面那條「導到 /products = 更具體的謊」的裁定,**前提是【客人看得到】** ——
+        還沒上線 ⇒ 前提不成立 ⇒ 它沒有被推翻,是它的射程不涵蓋今天。
+     ✅ 而 `ADR-0004` 那面牆量過了:它擋的是【排得準不準】(分詞),不是【搜不搜得到】——
+        同檔 §2.1 Q3=A1 逐字「dev 期 ILIKE / 上線後切」,而 `searchByKeyword` 本體就是 ILIKE。
+        分詞路線待 Sean 重新拍(`ADR-0004:80`)= M-6 的題,不是這一刀的。理由全文 `lib/search.ts` 檔頭。
+     ✅ 照上面 `:72` 那條指示執行:`openSearch()` / 事件名 / `searchQuery` state **一個字都沒改**,
+        缺的監聽器長在新的 `SearchOverlay.tsx` 裡。 */
+  const SEARCH_ENTRY_ENABLED = true;
 
   const openSearch = (q: string = '') => {
     if (typeof window === 'undefined') return;
@@ -196,6 +207,7 @@ export function Header({
   };
 
   return (
+    <>
     <header className="pcm-header">
       <div className="pcm-header-inner">
         {isMobile ? (
@@ -281,5 +293,10 @@ export function Header({
         )}
       </div>
     </header>
+    {/* 🔴 掛在這裡而不是 root layout:Header 由各頁各自 import(`app/` 底下無 nested layout)
+        ⇒ 疊層跟著 Header 走,Header 在哪一頁,搜尋就在哪一頁。
+        吃同一顆旗標 —— 入口關著時不掛監聽器,零行為。 */}
+    {SEARCH_ENTRY_ENABLED && <SearchOverlay />}
+    </>
   );
 }

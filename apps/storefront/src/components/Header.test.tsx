@@ -107,27 +107,45 @@ describe('Header', () => {
         (導向 = 使用者期待搜尋卻拿到沒篩選的列表 = 一個更具體的謊)。
      ⚠️ **原本那兩格可及性斷言(桌機 `aria-label="搜尋"` + 手機搜尋鈕)【沒有刪掉,只是改成前提句】**
         —— 入口回來時要連同那兩條一起復原。**它們是 R2-3 的驗收條款,不是順手加的。** */
-  describe('搜尋入口暫時隱藏', () => {
+  /* 🔵 **2026-09-02 更正(只加不刪;上面那整段一個字沒動)** —— `Q-SEARCH-0 = 乙` 的前提沒了。
+     Sean 2026-09-02 逐字:「先不用藏,直接繼續把這個做完,反正還沒上線 趕快做就好」
+     🔴 而上面那條「導向 = 一個更具體的謊」的裁定**沒有被推翻,是它的射程不涵蓋今天** ——
+        它的前提是【客人看得到】,而還沒上線 ⇒ 前提不成立。
+     ✅ 而它擔心的那件事這次真的解決了:**監聽器補上了**(`SearchOverlay.tsx`),
+        點下去會開疊層、送出會到 `/search`,不再是「點下去什麼都不會發生」。
+     ⇒ ⇒ 本族兩格從「必須不在」翻成「必須在」,**而正向/反向對照的結構一格都沒拆** ——
+        原本用對照證明「不是整棵樹沒渲染」,現在用同一組對照證明「不是隨便撈到什麼都算數」。
+     ⚠️ **舊的斷言字面刻意留在下面的註解裡**:哪天又要藏起來,不必重新發明它。 */
+  describe('搜尋入口已打開(2026-09-02 Sean 拍板;原「暫時隱藏」)', () => {
     /**
      * 🔴 **反向斷言要配正向對照,否則選擇器打錯也會綠。**
      * 這裡的對照 = **另一個確定存在的 header 元素**:
      *   桌機 → 會員鈕(`aria-label="會員"`)   手機 → 購物車(`aria-label="購物車"`)
      * ⇒ 「找不到搜尋」與「什麼都找不到」分得開。
      */
-    it('🔴 桌機:搜尋框不在 DOM(而其他 header 元素仍在)', () => {
+    // ⛔ ~~舊斷言(藏起來時)~~:`.pcm-search` 應為 `null`、`getByLabelText('搜尋')` 應為 `null`。
+    it('🔴 桌機:搜尋框在 DOM(而負向對照證明查詢器沒有亂答)', () => {
       const { container } = renderWithCart(<Header isMobile={false} />);
-      expect(container.querySelector('.pcm-search'), '搜尋框應已隱藏').toBeNull();
-      expect(screen.queryByLabelText('搜尋'), '搜尋輸入框應已隱藏').toBeNull();
-      // 正向對照:同一棵樹裡確定存在的東西
-      expect(screen.queryByLabelText('會員'), '對照組不見了 ⇒ 是整棵樹沒渲染,不是搜尋被藏').not.toBeNull();
+      expect(container.querySelector('.pcm-search'), '桌機搜尋框應該在').not.toBeNull();
+      expect(screen.queryByLabelText('搜尋'), '搜尋輸入框應該在').not.toBeNull();
+      // 🔵 負向對照:一個永遠不存在的 label 必須找不到 —— 否則這把查詢器在亂答,上面兩行不算數。
+      expect(screen.queryByLabelText('這個標籤永遠不存在zzz')).toBeNull();
     });
 
-    it('🔴 手機:搜尋鈕不在 DOM(而其他 header 元素仍在)', () => {
+    // ⛔ ~~舊斷言(藏起來時)~~:`getByLabelText('搜尋商品')` 應為 `null`。
+    it('🔴 手機:搜尋鈕在 DOM(而負向對照證明查詢器沒有亂答)', () => {
       renderWithCart(<Header isMobile />);
-      expect(screen.queryByLabelText('搜尋商品'), '手機搜尋鈕應已隱藏').toBeNull();
-      // 正向對照
+      expect(screen.queryByLabelText('搜尋商品'), '手機搜尋鈕應該在').not.toBeNull();
       expect(screen.queryByLabelText('購物車'), '對照組不見了 ⇒ 是整棵樹沒渲染').not.toBeNull();
+      // 🔵 負向對照(同上格):查詢器沒有見人就給。
+      expect(screen.queryByLabelText('這個標籤永遠不存在zzz')).toBeNull();
     });
+
+    /* 🔴 **兩個入口吃同一顆旗標**(`Header.tsx:74` 逐字:「只藏一個的話另一個仍然是死的」)——
+       上面兩格分開站在桌機/手機兩個世界,合起來才證明**兩個都打開了**。
+       ⚠️ 它們證不到的:點下去**有沒有人在聽**。那一格在 `SearchOverlay.test.tsx` 的 G1
+          (拿掉 addEventListener ⇒ 該檔 7 格全紅,2026-09-02 突變實測)。
+       📌 **入口在、監聽器不在 —— 那正是這片修的病,而它在 Header 這一層是量不到的。** */
   });
 
   /* 🔴 **R2-3 那條可及性驗收【沒有作廢,只是暫時不適用】**(入口隱藏中)。
@@ -156,7 +174,13 @@ describe('Header', () => {
         造成失敗,**這一格會安靜地繼續綠,而它守的那件事早就無關了。**
      ✅ **處置不是放棄 `it.fails`,是把「為什麼失敗」的一半釘住** —— 見下一格
         (斷言 render 沒壞、而且同一把查詢器找得到別的 label)。**少了下一格,本格是半盲的。** */
-  it.fails('🔴 R2-3:桌機搜尋框有 aria-label「搜尋」(入口隱藏中,復原時一併打開)', () => {
+  /* ✅ **2026-09-02:`.fails` 拿掉了 —— 而它是【自己紅出來】的,不是有人想起來。**
+     上面那段逐字寫著「入口回來 ⇒ 斷言通過 ⇒ `it.fails` 判定它竟然沒失敗 ⇒ 紅在有人能處理的那一刻」。
+     **今天就是那一刻**:翻開旗標之後這一格報 `Error: Expect test to fail`,而我是因為它紅才回來讀這段的。
+     ⇒ 📌 **那個機制成立了 —— 一個為了「將來某天」而設計的訊號,真的在那一天叫了。**
+     ⚠️ 而上面記載的 `it.fails` 那個洞(對失敗原因是盲的)**從此不再適用於本格** ——
+        它現在是一般斷言,失敗就指名失敗;下一格那個量具自檢仍然留著、仍然有用。 */
+  it('🔴 R2-3:桌機搜尋框有 aria-label「搜尋」(2026-09-02 入口打開、已復原)', () => {
     renderWithCart(<Header isMobile={false} />);
     const input = screen.getByLabelText('搜尋');
     expect(input.getAttribute('placeholder')).toBe('搜尋商品 / 車款 / 品牌...');
