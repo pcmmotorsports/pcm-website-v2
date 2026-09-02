@@ -16,6 +16,8 @@
 //     導錯了客人會拿到一個沒篩選的列表(那正是主視窗當初裁定要避開的「更具體的謊」)。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { SearchOverlay, viewFor } from './SearchOverlay';
@@ -122,6 +124,78 @@ describe('SearchOverlay', () => {
     fireEvent.change(screen.getByLabelText('搜尋商品 / 品牌 / 車款'), { target: { value: '' } });
     await waitFor(() => expect(screen.getByText('熱門搜尋')).toBeTruthy());
     expect(screen.queryByText('搜尋中…')).toBeNull();
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 🔴🔴 **G1-f/G1-g:把守門綁在【不變式】上,而不是綁在【某一支 kind】上**
+  //   (2026-09-03,主視窗-87 指定;起因是我自己弄出來的 R1 F1)
+  //
+  //   **為什麼要換一種綁法**:F1 那次,本檔既有 23 格**全綠而零守門** ——
+  //   因為那些格子問的是「`failed` 畫對了嗎」「`ok` 畫對了嗎」,
+  //   ⇒ 🎯 **它們綁在【已知的那幾支 kind】上;而我加的是【第三支】** ⇒ 結構上碰不到。
+  //   📌 **⇒ 一個綁在列舉上的守門,對【列舉多一項】永遠是瞎的。**
+  //   ⇒ 所以下面兩格:一格釘住**列舉本身**(多一支 kind 就紅),一格掃**每一個世界**。
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  it('🔴 G1-f 元件裡 render 的 kind 集合必須就是這三支 —— 多一支就紅,而那時請把它加進 G1-g', () => {
+    // 🎯 這一格【不是】在測行為,是在測「G1-g 的分母有沒有過期」。
+    //    照 `showcase-dispatch-coverage.test.ts` 的先例:掃原始碼字面、不執行元件。
+    // 🔴 這裡不用 `import.meta.url` —— 本 project 的 `import.meta.url` **不是 file: scheme**
+    //    (實測 `fileURLToPath` 丟 `TypeError: The URL must be of scheme file`)。
+    //    改用 vitest 的 root(= repo 根)拼相對路徑,而下面那個 `size > 0` 自檢會抓到讀錯檔。
+    const src = readFileSync(
+      resolve(process.cwd(), 'apps/storefront/src/components/SearchOverlay.tsx'),
+      'utf-8',
+    );
+    const kinds = new Set(
+      [...src.matchAll(/view\.kind === '(\w+)'/g)].map((m) => m[1]!),
+    );
+    // 🟢 自檢:抽取邏輯要先證明它抓得到東西,否則下面那個 toEqual 對空集合也會過
+    expect(kinds.size, '抽取結果是空的 ⇒ 正規式與檔案對不上,本格會恆真').toBeGreaterThan(0);
+    expect([...kinds].sort()).toEqual(['failed', 'ok', 'pending']);
+  });
+
+  it('🔴 G1-g 不變式:任何一個世界裡,「熱門搜尋」與狀態訊息都不得同框', async () => {
+    // 🛑 這是 F1 真正違反的那條 —— 而它與「pending 有沒有畫」是兩件事。
+    const bothShowing = () =>
+      screen.queryByText('熱門搜尋') !== null &&
+      (screen.queryByText('搜尋中…') !== null ||
+        screen.queryByText(/暫時無法使用/) !== null ||
+        screen.queryByText(/沒有找到/) !== null);
+
+    // 世界①:空查詢 ⇒ 只有熱門搜尋
+    mockFetch(async () => new Response(JSON.stringify(ONE_ITEM), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('');
+    expect(screen.getByText('熱門搜尋')).toBeTruthy(); // 🟢 正對照:這個世界真的畫了 chips
+    expect(bothShowing()).toBe(false);
+    cleanup();
+
+    // 世界②:有字而還沒回 ⇒ 只有「搜尋中…」
+    let release!: (r: Response) => void;
+    const deferred = new Promise<Response>((res) => { release = res; });
+    mockFetch(() => deferred.then((r) => r.clone()));
+    render(<SearchOverlay />);
+    openWith('貼');
+    await waitFor(() => expect(screen.getByText('搜尋中…')).toBeTruthy());
+    expect(bothShowing()).toBe(false);
+    release(new Response(JSON.stringify(ONE_ITEM), { status: 200 }));
+    cleanup();
+
+    // 世界③:失敗 ⇒ 只有「暫時無法使用」
+    mockFetch(async () => new Response('{}', { status: 503 }));
+    render(<SearchOverlay />);
+    openWith('排氣管');
+    await waitFor(() => expect(screen.getByText(/暫時無法使用/)).toBeTruthy());
+    expect(bothShowing()).toBe(false);
+    cleanup();
+
+    // 世界④:成功零筆 ⇒ 只有「沒有找到」
+    mockFetch(async () => new Response(JSON.stringify({ items: [], total: 0 }), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('不存在的東西zzz');
+    await waitFor(() => expect(screen.getByText(/沒有找到/)).toBeTruthy());
+    expect(bothShowing()).toBe(false);
   });
 
   it('G2 API 失敗 ⇒ 畫「暫時無法使用」,而**不是**「沒有找到」', async () => {
