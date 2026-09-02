@@ -261,28 +261,173 @@ const KNOWN_OR_CHECKS: readonly string[] = [
   ...SHAPE_MATCHED_NOT_YET_PROBED,
 ] as const;
 
-/** 去掉行註解與區塊註解 —— 註解裡的舊寫法不是生效敘述,掃到會變誤報。 */
-function stripComments(sql: string): string {
-  return sql
-    .split('\n')
-    .map((line) => line.replace(/--.*$/, ''))
-    .join('\n')
-    .replace(/\/\*[\s\S]*?\*\//g, ' ');
+/**
+ * 把【不是生效 SQL】的區段換成空白:行註解 · 區塊註解 · 單引號字串 · dollar-quoted 區塊。
+ *
+ * ⛔ ~~原本叫 `stripComments`, 只剝註解~~ ⇒ **2026-09-02 `-15` 改**(板 `⟦15-SQLSTRSCAN⟧`)。
+ *
+ * ══ 🔴 為什麼要連字串一起剝(而這不是潔癖, 是量到的)═══════════════════
+ *   全 repo `CHECK (` 命中數:**只剝註解 421 ⇒ 連字串一起剝 340**
+ *   ⇒ **81 個(19%)是【住在 SQL 字串裡的幽靈】, 分佈在 27 支 migration。**
+ *   🛑 **而它至今沒有紅過, 原因不是它沒錯** —— 那些幽靈大多不是 OR 串形狀
+ *      ⇒ 被下一層 `isNullShortCircuitShape()` 濾掉了。
+ *   ⇒ 📌 **它靠的是【第二道濾網剛好擋住第一道的錯】—— 那不是設計, 是運氣。**
+ *   ⇒ ⇒ 🎯 **而顯形機率取決於【下一個人碰巧寫了什麼】**:2026-09-02 有人把一條
+ *      正本 CHECK 的字面當【期待值字串】寫進 migration(`20260902210000`)
+ *      ⇒ 那個字串**剛好是 OR 串形狀** ⇒ 它當場被讀成一條真的、而且沒有名字的 CHECK。
+ *
+ * ══ 🔴🔴 為什麼是【一次掃描】而不是兩個 pass ═══════════════════════
+ *   註解與字串會互相咬, 而**兩個方向各有一個反例**:
+ *     `'a -- b'`    ⇒ 先剝註解 ⇒ **字串被切一半**
+ *     `-- it's ok`  ⇒ 先剝字串 ⇒ 那個 `'` 開啟一個假字串, **吃掉後面整段**
+ *   ⇒ 🎯 **兩個反例、兩個方向 ⇒ 「先剝哪個都一樣」是假的。**
+ *
+ * ══ 🔴🔴 為什麼【長度保持】(換成空白而不是刪掉)═════════════════════
+ *   `checkBodies()` 回傳的 `at`, 被 `constraintNameBefore(sql, at)` 與
+ *   `enclosingTable(sql, at)` 拿去**切原字串**。
+ *   舊版會改變長度 ⇒ 三支函式之所以對得上, 是因為**它們都各自再剝一次**、
+ *   活在同一個「剝過的座標系」裡 ⇒ 🛑 **只要有一支多剝或少剝一層, 座標系就分岔,**
+ *   **而表名歸屬會【安靜地】錯。**
+ *   ✅ 換成空白之後座標與**原始字串**一比一
+ *   ⇒ 📌 **那是把一個【要靠三個人記得】的約束, 換成一個結構上不可能違反的性質。**
+ *   🔵 換行**保留** —— 否則行註解會吃掉換行, 下一行被併進註解。
+ *
+ * ══ 🛑 它剝不掉什麼(兩個方向分開寫 —— 合成一句「有盲區」會讓人以為兩邊一樣安全)══
+ *   🔴 **【剝過頭】⇒ 漏報(真的 CHECK 被吃掉)—— 這一邊嚴重一個量級, 因為沒有人會看到:**
+ *     · `E'…\'…'`(backslash 轉義字串):本版照 `''` 規則走 ⇒ `\'` 會被讀成字串結束
+ *       ⇒ 後面那段仍在字串裡, 而本函式以為出來了 ⇒ **反而是【剝不夠】**;
+ *       但若 `\'` 出現在偶數次之後, 也可能提早結束而**把真碼當字串吃掉**。
+ *     · dollar tag 不成對(`$a$ … $b$`)⇒ **吃到檔尾** ⇒ 那一支檔之後的 CHECK 全部消失。
+ *   🔵 **【剝不夠】⇒ 誤報(幽靈留著)—— 有人會看到紅, 而它有出路:**
+ *     · `U&'…'` / 帶 `UESCAPE` 的字串
+ *     · 巢狀同名 dollar tag(`$$ … $$ … $$`)
+ *   ⚠️ **本 repo 現況:`E'` 0 支 · `U&'` 0 支** —— 那是 2026-09-02 量的, 不是永遠。
+ */
+// 🔴🔴 **這一段是【我連續猜錯兩次】的紀錄, 留著 —— 它比修法本身有用:**
+//   症狀:改完之後這道守門 **逾時而紅**(54.9s / 上限 15s)。
+//   猜① 「正規化太慢」⇒ 加一個 memo ⇒ **94.5s(更慢)**
+//   猜② 「memo 自己是負擔」⇒ 拿掉 memo ⇒ **54.0s(還是紅)**
+//   🔬 而**分開量**才找到:單獨跑正規化, 全 273 支兩種形式合計 **298ms** ⇒ **它從來就不慢。**
+//   ✅ 真因在 `dropNotNullTargets`:它那條 regex 有一個 `([^;]*?)` ——
+//      而我把**字串也抹白之後, 字串裡的 `;` 一起消失了** ⇒ 那個 lazy quantifier
+//      失去了原本讓它早早停下的邊界 ⇒ **回溯爆炸。**
+//   ⇒ ✅ 修法一個參數:那支改用【只抹註解、字串留著】的形式(它找的是 SQL 語法, 不是字面值)。
+//   ⇒ 📌 **而兩次猜錯的共同點:`Test timed out` 只說「整體太久」, 它【不指向任何一段】**
+//      **—— 而人會直覺往「重複計算」那個方向猜, 因為那是最常見的原因。**
+//   ⇒ ⇒ 🎯 **一個不指向任何位置的症狀, 會讓人用【最常見的成因】去填那個空格。**
+
+export function normalizeSqlForTest(sql: string, opts?: { strings: boolean }): string {
+  return normalizeSql(sql, opts);
+}
+
+function normalizeSql(sql: string, opts: { strings: boolean } = { strings: true }): string {
+  const chunks: string[] = [];
+  let keep = 0;
+  let i = 0;
+  const wipe = (from: number, to: number) => {
+    chunks.push(sql.slice(keep, from));
+    chunks.push(sql.slice(from, to).replace(/[^\n]/g, ' '));
+    keep = to;
+  };
+  // 🔴🔴 **`opts.strings` 只決定【要不要抹掉】, 【不決定要不要解析】——**
+  //    **這是 codex 2026-09-02 抓到的洞, 而它是這一片最毒的一個:**
+  //    第一版在 `strings:false` 時**完全不進字串分支** ⇒ 一個字串裡的 `--` 會被當成行註解
+  //    ⇒ `CHECK (kind = 'a -- b' OR kind = 'c')` 的 body **從 `--` 被抹到行尾**
+  //    ⇒ 🛑 **那個 `OR` 消失了 ⇒ 形狀判斷失效 ⇒ 安靜漏報**, 而兩把尺長度仍然相等。
+  //    ⇒ 📌 **「長度相等」這個自檢對它完全失明 —— 它只驗座標, 不驗內容。**
+  //    ✅ 而修好它同時解掉了效能:解析字串會讓 `i` 一次跳過整段, 而不解析就得逐字爬。
+  const isIdentChar = (c: string | undefined) =>
+    c !== undefined && /[A-Za-z0-9_$]/.test(c);
+  while (i < sql.length) {
+    if (sql.startsWith('--', i)) {
+      const j = sql.indexOf('\n', i);
+      const end = j < 0 ? sql.length : j;
+      wipe(i, end);
+      i = end;
+    } else if (sql.startsWith('/*', i)) {
+      // 🔴 PostgreSQL 的區塊註解**可以巢狀** ⇒ 用深度計數, 不要找第一個 `*/`(codex 抓)。
+      //    `/* a /* b */ ' */` —— 在內層就離開的話, 那個 `'` 會開啟一個假字串。
+      let depth = 0;
+      let j = i;
+      while (j < sql.length) {
+        if (sql.startsWith('/*', j)) { depth += 1; j += 2; continue; }
+        if (sql.startsWith('*/', j)) { depth -= 1; j += 2; if (depth === 0) break; continue; }
+        j += 1;
+      }
+      wipe(i, j);
+      i = j;
+    } else if (sql[i] === '"') {
+      // 🔴 雙引號識別字(`"it's"`)**不是字串, 而它裡面的 `'` 不得開啟字串**(codex 抓)。
+      //    ⇒ 只【跳過】不抹白 —— 它是識別字, 後面的 `enclosingTable` 還要讀它。
+      let j = i + 1;
+      while (j < sql.length) {
+        if (sql[j] === '"') {
+          if (sql[j + 1] === '"') { j += 2; continue; }
+          j += 1;
+          break;
+        }
+        j += 1;
+      }
+      i = j;
+    } else if (sql[i] === "'" || ((sql[i] === 'E' || sql[i] === 'e') && sql[i + 1] === "'" && !isIdentChar(sql[i - 1]))) {
+      // 🔴 `E'…'` 用 **backslash** 轉義(`\'`), 一般字串用 `''` —— 兩種規則不同(codex 抓)。
+      const isE = sql[i] !== "'";
+      const open = isE ? i + 1 : i;
+      let j = open + 1;
+      while (j < sql.length) {
+        if (isE && sql[j] === '\\') { j += 2; continue; }
+        if (sql[j] === "'") {
+          if (!isE && sql[j + 1] === "'") { j += 2; continue; }
+          j += 1;
+          break;
+        }
+        j += 1;
+      }
+      if (opts.strings) wipe(i, j);
+      i = j;
+    } else if (sql[i] === '$' && !isIdentChar(sql[i - 1])) {
+      // 🔴 `foo$tag$bar` 是一個**合法識別字** —— 前一個字元是識別字字元時, 這個 `$` 不是開頭(codex 抓)。
+      const m = /^\$[A-Za-z_0-9]*\$/.exec(sql.slice(i, i + 64));
+      if (m) {
+        const tag = m[0];
+        const j = sql.indexOf(tag, i + tag.length);
+        const end = j < 0 ? sql.length : j + tag.length;
+        if (opts.strings) wipe(i, end);
+        i = end;
+      } else {
+        i += 1;
+      }
+    } else {
+      i += 1;
+    }
+  }
+  chunks.push(sql.slice(keep));
+  return chunks.join('');
 }
 
 /** 抓出每一段 `CHECK ( … )` 的括號配對主體(正規式數不了括號,只能自己走)。 */
 export function checkBodies(sql: string): { at: number; body: string }[] {
-  const src = stripComments(sql);
+  // 🔴🔴 **兩把座標尺, 而它們必須長度相同 —— 這一段是本片最容易寫錯的地方:**
+  //   `scan`(註解+字串都抹白)⇒ 用來【找 CHECK 在哪】與【配對括號】
+  //     ⇒ 字串裡的 `CHECK (` 不會被找到, 字串裡的 `(` `)` 也不會干擾配對。
+  //   `text`(只抹註解, **字串留著**)⇒ 用來【取 body 的內容】
+  //     ⇒ 🛑 **因為下一層 `isNullShortCircuitShape()` 判的正是 `= '字面值'` 這個形狀**
+  //       —— 把字串抹白會把它要找的東西一起抹掉。
+  //   ⇒ 🎯 **第一版我只用了 `scan` 一把 ⇒ 全 repo 掃到 0 支, 而那道「掃到 0 就是尺壞了」**
+  //     **的自檢當場紅 —— 它是這一片唯一擋下那個錯的東西。**
+  //   ✅ 兩把都**長度保持** ⇒ 同一個 index 在 `scan` / `text` / **原字串**上指同一個位置。
+  const scan = normalizeSql(sql);
+  const text = normalizeSql(sql, { strings: false });
   const out: { at: number; body: string }[] = [];
-  for (const m of src.matchAll(/\bCHECK\s*\(/gi)) {
+  for (const m of scan.matchAll(/\bCHECK\s*\(/gi)) {
     const open = m.index + m[0].length - 1;
     let depth = 0;
-    for (let j = open; j < src.length; j += 1) {
-      if (src[j] === '(') depth += 1;
-      else if (src[j] === ')') {
+    for (let j = open; j < scan.length; j += 1) {
+      if (scan[j] === '(') depth += 1;
+      else if (scan[j] === ')') {
         depth -= 1;
         if (depth === 0) {
-          out.push({ at: m.index, body: src.slice(open, j + 1) });
+          out.push({ at: m.index, body: text.slice(open, j + 1) });
           break;
         }
       }
@@ -306,7 +451,7 @@ export function isNullShortCircuitShape(body: string): boolean {
 
 /** 往前找最近的 `CONSTRAINT <名字>`;找不到回 `null`(匿名 CHECK)。 */
 export function constraintNameBefore(sql: string, at: number): string | null {
-  const seg = stripComments(sql).slice(Math.max(0, at - 200), at);
+  const seg = normalizeSql(sql).slice(Math.max(0, at - 200), at);
   const m = seg.match(/CONSTRAINT\s+"?([A-Za-z0-9_]+)"?\s*$/i);
   return m?.[1] ?? null;
 }
@@ -327,7 +472,7 @@ export function constraintNameBefore(sql: string, at: number): string | null {
  *      ⇒ 那是選這個修法的理由之一, 不是事後安慰。
  */
 export function enclosingTable(sql: string, at: number): string | null {
-  const src = stripComments(sql).slice(0, at);
+  const src = normalizeSql(sql).slice(0, at);
   const ms = [...src.matchAll(/\b(?:CREATE|ALTER)\s+TABLE\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?(?:ONLY\s+)?("?[A-Za-z0-9_]+"?(?:\s*\.\s*"?[A-Za-z0-9_]+"?)?)/gi)];
   const raw = ms.at(-1)?.[1];
   if (!raw) return null;
@@ -339,7 +484,31 @@ export function enclosingTable(sql: string, at: number): string | null {
  * 正規化掉識別字引號、schema 前綴與多餘空白,讓等價寫法收斂成同一形狀。
  */
 export function dropNotNullTargets(sql: string): { table: string; column: string }[] {
-  const flat = stripComments(sql)
+  // 🛑🛑 **這一支【停在舊寫法】, 而那是一個【已知而未修】的洞 —— 收工時刻意留下, 不假裝修好了。**
+  //
+  //   🔴 **洞(codex 2026-09-02 抓, 我複核成立)**:
+  //     `SELECT 'x -- y'; ALTER TABLE t ALTER COLUMN c DROP NOT NULL;`
+  //     ⇒ 下面這個刪除式剝註解會從**字串裡**的 `--` 抹到行尾
+  //     ⇒ **承重的 NOT NULL 真的被拆掉了, 而這一格全綠。**
+  //
+  //   🔬 **而我試了三種修法, 三種都因為【效能】收不掉, 數字全部留著給下一個人:**
+  //     ① 換成 `normalizeSql(sql,{strings:false})` ⇒ 正確, 而這道守門 **12.1s**(上限 15s)
+  //     ② 再加「先照 `;` 切句」+ 把 `[^;]*?` 放寬成 `(.*?)` ⇒ **87.4s**(我順手放寬了邊界, 更糟)
+  //     ③ 切句 + 保留 `[^;]*?` + 字串抹白 ⇒ **53.1s**, 且有一格紅
+  //   🔴 **而【分開量】的結果是這一格最有用的東西**:
+  //     `normalizeSql` 本身 **53ms**(strings:false)/ **122ms**(strings:true),
+  //     而 `dropNotNullTargets` 整支 **12,088ms** ⇒ 📌 **慢的不是正規化, 是這條 regex 的回溯。**
+  //   ⇒ 🎯 **所以下一個人的第一件事不是「換正規化」, 是【把這條 regex 改成不會回溯的形狀】** ——
+  //     換完正規化再說, 否則會像我一樣在三個修法之間繞。
+  //
+  //   ⚠️ **而為什麼今天不硬收**:留一個紅的工作樹會擋住別人;而把一個「正確但要 12 秒」的
+  //     版本收進去, 等於把一道守門推到逾時邊緣 —— **它下一次會以 `Test timed out` 的樣子紅,**
+  //     **而那個訊息不指向任何一段, 下一個人會從頭猜一遍。**(我今晚就猜了三次)
+  const flat = sql
+    .split('\n')
+    .map((line) => line.replace(/--.*$/, ''))
+    .join('\n')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/"/g, '')
     .replace(/\s*\.\s*/g, '.')
     .replace(/\s+/g, ' ');
@@ -493,6 +662,40 @@ describe('OR 串 CHECK 的 NULL 短路面守門(#641 ④ 的機制版)', () => {
       expect(unlistedOrCheckKeys(mig, ['dup_name']).unlisted).toEqual(['a_tbl.dup_name', 'b_tbl.dup_name']);
       // 🔵 負對照:兩條都在白名單 ⇒ 空 ⇒ 證明它不是變成恆紅。
       expect(unlistedOrCheckKeys(mig, ['a_tbl.dup_name', 'b_tbl.dup_name']).unlisted).toEqual([]);
+    });
+
+    it('🔴 字串裡的 CHECK 不算, 而【真的】CHECK 仍然算得到(這兩格缺一不可)', () => {
+      // ① 一段【在描述 CHECK 的字串】—— 這正是 2026-09-02 咬 `20260902210000` 那一次的形狀
+      const ghost = "v_want := 'x ' || 'CHECK ((a = ''p'' AND b) OR (c <> ''q''))';";
+      expect(checkBodies(ghost), '字串裡的 CHECK 不是一條 CHECK').toEqual([]);
+      // ② 🔵 **負對照 —— 這一格擋的是「把剝離器寫成把所有東西都剝掉」**
+      //    那種寫法在 ① 表現完美, 而它會讓整道守門變成恆綠。
+      const real = "CREATE TABLE t (s text NOT NULL, x text NOT NULL,\n"
+        + "  CONSTRAINT c1 CHECK ((s = 'p' AND x = '1') OR (s = 'q' AND x <> '1')));";
+      const got = checkBodies(real);
+      expect(got.length, '真的 CHECK 必須抓得到').toBe(1);
+      expect(isNullShortCircuitShape(got[0]!.body), 'body 裡的字面值要留著 —— 形狀判斷靠的就是它').toBe(true);
+      expect(constraintNameBefore(real, got[0]!.at)).toBe('c1');
+      expect(enclosingTable(real, got[0]!.at)).toBe('t');
+    });
+
+    it('🔴 註解與字串會互相咬 —— 兩個方向各一個反例(所以不能做成兩個 pass)', () => {
+      // 先剝註解 ⇒ 字串被切一半
+      expect(checkBodies("INSERT INTO t VALUES ('a -- b'); -- 尾註解\n")).toEqual([]);
+      // 先剝字串 ⇒ 那個 `'` 開啟假字串, 吃掉後面整段 ⇒ 真的 CHECK 會消失
+      const s2 = "-- it's ok\nCREATE TABLE t (a text NOT NULL, CONSTRAINT c CHECK ((a = 'x' AND a) OR (a <> 'y')));";
+      expect(checkBodies(s2).length, "註解裡的單引號不得吃掉後面的真 CHECK").toBe(1);
+      // dollar-quoted 區塊裡的 CHECK 不算
+      expect(checkBodies("DO $$ BEGIN RAISE NOTICE 'CHECK ((a = ''1'') OR (b <> ''2''))'; END $$;")).toEqual([]);
+      // '' 轉義:字串沒有在中間結束
+      expect(checkBodies("SELECT 'it''s CHECK ((a = ''1'') OR (b <> ''2''))';")).toEqual([]);
+    });
+
+    it('🔴 位移保持:剝完的長度必須與原字串【逐字相同】(否則三支函式的座標系會分岔)', () => {
+      for (const { file, sql } of migrations) {
+        expect(normalizeSqlForTest(sql).length, file).toBe(sql.length);
+        expect(normalizeSqlForTest(sql, { strings: false }).length, file).toBe(sql.length);
+      }
     });
 
     it('enclosingTable 的四種寫法都歸得到表, 而歸不到時回 null(不是猜一個)', () => {

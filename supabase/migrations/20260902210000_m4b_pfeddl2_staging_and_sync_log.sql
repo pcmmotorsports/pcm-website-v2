@@ -338,16 +338,20 @@ COMMENT ON TABLE public.product_fitments_effective_sync_log IS
 DO $$
 DECLARE
   v_got text; v_want text; v_rel text;
-  -- 🔴🔴 **這個常數不是為了漂亮, 是為了不騙一把掃描器。**
-  --    `scripts/null-shortcircuit-check-guard.test.ts` 直接讀 migration 原文找 `CHECK (`,
-  --    它**剝註解、但不剝 SQL 字串** ⇒ 下面那些「期待值字串」裡的 `CHECK ((…OR…)` 會被它
-  --    讀成【一條真的、而且沒有名字的 OR 串 CHECK】⇒ 它當場紅, 而紅的是一個不存在的東西。
-  --    ⇒ 📌 **與今晚另一次同一個母題**(一段註解裡的 `CREATE OR REPLACE VIEW` 被別的守門
-  --      數成第四個候選)—— **一把讀原文的尺, 分不出【一條 CHECK】與【一段在描述 CHECK 的字】。**
-  --    ⇒ ✅ 把 `CHECK ` 拆出來當常數 ⇒ 字面上不再有 `CHECK (` 這個相鄰形狀。
-  --    🛑 **而這是遷就量具, 不是修好量具** —— 真正的修法是讓那把尺剝掉 SQL 字串,
-  --      而那要動別人的守門檔 ⇒ 不在本片範圍。**寫下來, 免得下一個人以為這是風格。**
-  k constant text := 'CHECK ';
+  -- ✅✅ **那個繞法【已經拆掉了】—— 而整段留著, 因為它是 `⟦15-SQLSTRSCAN⟧` 那一列的來源。**
+  --    ⛔ ~~原本這裡有一個 `k constant text := 'CHECK ';`, 而下面六處寫成 `'…' || k || '((…'`~~
+  --    ⛔ ~~理由:`scripts/null-shortcircuit-check-guard.test.ts` 讀原文找 `CHECK (`,
+  --        它**剝註解、但不剝 SQL 字串** ⇒ 下面那些「期待值字串」裡的 `CHECK ((…OR…)`
+  --        被讀成【一條真的、而且沒有名字的 OR 串 CHECK】⇒ 它當場紅, 而紅的是一個不存在的東西。~~
+  --    ⛔ ~~而那是遷就量具不是修好量具;真正的修法要動別人的守門檔 ⇒ 不在本片範圍。~~
+  --    ✅ **2026-09-02 那把尺修好了**(`⟦15-SQLSTRSCAN⟧`)—— 它現在會把 SQL 字串一起抹掉
+  --      ⇒ 這裡恢復成**直白的字面**, 而它仍然綠。
+  --    🎯 **⇒ 而這一發【就是那一片的端到端證明】**:selftest 證的是「剝離器會剝」,
+  --      **這裡證的是「那個繞法不再需要」—— 兩個不同的宣稱。**
+  --    🔬 而順帶量到的分母值得記:全 repo `CHECK (` 命中 **421 ⇒ 剝掉字串後 340**
+  --      ⇒ **81 個(19%)是住在字串裡的幽靈, 分佈在 27 支 migration**
+  --      ⇒ 🛑 **那把尺一直在誤讀五分之一, 而它從來沒紅過** —— 因為那些幽靈大多不是 OR 串形狀,
+  --        被下一層濾掉了。⇒ 📌 **它靠的是第二道濾網剛好擋住第一道的錯, 而那不是設計是運氣。**
   -- 🔴 這份清單同時是 `scripts/migration-static-checks.sh` 規則③要的「收權斷言清單」。
   --    它防的是【忘記收權】, 不防【忘記列】⇒ 新增可授權物件時這裡要同步加。
   v_relations text[] := ARRAY[
@@ -402,11 +406,11 @@ BEGIN
    -- 🔴 codex R2:原本只收 c/f ⇒ 把具名 PRIMARY KEY 改成同名 UNIQUE, `indexdef` 相同、兩閘全綠。
    WHERE conrelid = 'public.product_fitments_effective_staging'::regclass AND contype IN ('c','f','p','u');
   v_want :=
-    'pfes_match_source_valid ' || k || '((match_source = ANY (ARRAY[''direct''::text, ''inherited''::text])))' || chr(10) ||
-    'pfes_nonblank_valid ' || k || '(((btrim(moto_brand) <> ''''::text) AND (btrim(model_code) <> ''''::text) AND (btrim(source_model_code) <> ''''::text)))' || chr(10) ||
-    'pfes_provenance_valid ' || k || '((((match_source = ''direct''::text) AND (source_model_code = model_code)) OR ((match_source = ''inherited''::text) AND (source_model_code <> model_code))))' || chr(10) ||
-    'pfes_year_interval_valid ' || k || '(((year_start IS NULL) OR (year_end IS NULL) OR (year_end >= year_start)))' || chr(10) ||
-    'pfes_year_state_valid ' || k || '(((year_start IS NOT NULL) OR (year_end IS NULL)))' || chr(10) ||
+    'pfes_match_source_valid CHECK ((match_source = ANY (ARRAY[''direct''::text, ''inherited''::text])))' || chr(10) ||
+    'pfes_nonblank_valid CHECK (((btrim(moto_brand) <> ''''::text) AND (btrim(model_code) <> ''''::text) AND (btrim(source_model_code) <> ''''::text)))' || chr(10) ||
+    'pfes_provenance_valid CHECK ((((match_source = ''direct''::text) AND (source_model_code = model_code)) OR ((match_source = ''inherited''::text) AND (source_model_code <> model_code))))' || chr(10) ||
+    'pfes_year_interval_valid CHECK (((year_start IS NULL) OR (year_end IS NULL) OR (year_end >= year_start)))' || chr(10) ||
+    'pfes_year_state_valid CHECK (((year_start IS NOT NULL) OR (year_end IS NULL)))' || chr(10) ||
     'product_fitments_effective_staging_pkey PRIMARY KEY (id)' || chr(10) ||
     'product_fitments_effective_staging_product_id_fkey FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE';
   IF v_got IS DISTINCT FROM v_want THEN
@@ -418,7 +422,7 @@ BEGIN
     INTO v_got FROM pg_catalog.pg_constraint
    WHERE conrelid = 'public.product_fitments_effective_sync_log'::regclass AND contype IN ('c','f','p','u');
   v_want := 'product_fitments_effective_sync_log_pkey PRIMARY KEY (id)' || chr(10) ||
-            'product_fitments_effective_sync_log_status_check ' || k || '((status = ANY (ARRAY[''success''::text, ''abort''::text])))';
+            'product_fitments_effective_sync_log_status_check CHECK ((status = ANY (ARRAY[''success''::text, ''abort''::text])))';
   IF v_got IS DISTINCT FROM v_want THEN
     RAISE EXCEPTION '事後閘④:sync_log 的 CHECK 定義與正本不符 ||正本|| % ||實得|| %', v_want, v_got;
   END IF;
