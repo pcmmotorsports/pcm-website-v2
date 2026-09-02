@@ -292,16 +292,40 @@ GL_RUNLOG="${GL_RUNLOG-logs/greenlight-runs.tsv}"
 [ -z "$GL_RUNLOG" ] && GL_RUNLOG=/dev/null
 [ "$GL_RUNLOG" != "/dev/null" ] && mkdir -p "$(dirname "$GL_RUNLOG")" 2>/dev/null || true
 if [ ! -s "$GL_RUNLOG" ]; then
-  printf 'stamp\thead\tverdict\trc_tc\trc_lt\trc_bd\trc_vt\tfed\tran\tlive_builds\tcollide_tc\tcollide_lt\tcollide_bd\n' \
+  printf 'stamp\thead\tverdict\trc_tc\trc_lt\trc_bd\trc_vt\tfed\tran\tlive_builds\tcollide_tc\tcollide_lt\tcollide_bd\ttests_shape\n' \
     >> "$GL_RUNLOG" 2>/dev/null || true
 fi
 GL_LIVE="$(live_builds)"
 # 🔵 逐道各自問一次 —— 而 rc=0 那道問了沒有意義,所以印 `-`(空白會與「判不出來」混在一起)
 gl_col() { [ "$2" = "0" ] && { printf -- '-'; return; }; collision_verdict "$1" "$GL_LIVE"; }
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+# 🔴 **`tests_shape` 是 2026-09-02 21:1x 補的, 而它是【量出來的缺口】**:
+#    當晚頭七發裡 **三發 RED, 而三發全部紅在 `tests`**(`rc_vt=1`, 而 tc/lt/bd 皆 0)
+#    ⇒ 而 `collide_*` 只涵蓋 tc/lt/bd ⇒ 🔴 **那三欄對這七發全部印 `-`**
+#    ⇒ ⇒ 📌 **最常紅的那一道, 沒有任何一欄在描述它。**
+#    🔵 而 `-0e` 讀那份 log 時指出「全 `-` 有兩種讀法:沒撞車 / 根本沒接上」——
+#       而真相是第三種:**接上了, 而它問的那一道今晚沒紅過。**
+# 🎯 而當晚 `-0e` 手工分類出的那個差別是可機械判的:
+#    `Test timed out` / `Hook timed out` ⇒ **併跑搶不到資源**(單跑會綠)
+#    `AssertionError`                    ⇒ **真紅**(單跑一樣紅)
+#    🔴 而兩者混在同一發時, 只要有一個 AssertionError 就不准說「只是逾時」⇒ 印 `mixed`(fail-closed)
+# ⚠️ 射程:它讀的是 log 的**字面** ⇒ 第三種形狀 ⇒ 印 `other`,
+#    而 **`other` 不得被讀成「不是我的」** —— 它的意思是「這支腳本沒見過這一種」。
+gl_tests_shape() {  # <vitest log> <rc>
+  [ "$2" = "0" ] && { printf -- '-'; return; }
+  [ -s "$1" ] || { printf -- 'no-log'; return; }
+  local T=0 A=0
+  grep -qE 'Test timed out|Hook timed out' "$1" && T=1
+  grep -q 'AssertionError' "$1" && A=1
+  if [ "$A" = "1" ] && [ "$T" = "1" ]; then printf -- 'mixed'
+  elif [ "$A" = "1" ]; then printf -- 'assert'
+  elif [ "$T" = "1" ]; then printf -- 'timeout'
+  else printf -- 'other'; fi
+}
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
   "$STAMP" "$HEAD_SHA" "$VERDICT" "$RC_TC" "$RC_LT" "$RC_BD" "$RC_VT" \
   "$FED" "$RAN" "$GL_LIVE" \
   "$(gl_col "$D/tc.log" "$RC_TC")" "$(gl_col "$D/lt.log" "$RC_LT")" "$(gl_col "$D/bd.log" "$RC_BD")" \
+  "$( [ "$RUN_TESTS" -eq 1 ] && gl_tests_shape "$D/vt.log" "$RC_VT" || printf -- '-' )" \
   >> "$GL_RUNLOG" 2>/dev/null || true
 [ "$GL_RUNLOG" != "/dev/null" ] && \
   printf '\n📎 本發已記一行:%s(%s 行)\n' "$GL_RUNLOG" "$(wc -l < "$GL_RUNLOG" 2>/dev/null | tr -d ' ')"
