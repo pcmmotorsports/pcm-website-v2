@@ -48,6 +48,7 @@
 // 🔴 **本檔零 client JS、零互動、零寫入。** 它只把 server 給的值排出來。
 
 import type { WalletLedgerEntry } from '@pcm/domain';
+import { PROFILE_UNREADABLE_NOTE } from '@/lib/account-profile-copy';
 
 /**
  * 餘額數字底下那一行。**Sean 2026-08-26 `Q-錢包-3=乙`:只留「永久有效」。**
@@ -140,7 +141,7 @@ export function WalletTab({
           {balanceFailed ? (
             /* 🔴 讀不到就說讀不到 —— **不得印 0**。印 0 = 告訴客人他沒有錢。 */
             <div className="wal-balance-amt">
-              <span className="wal-balance-num">餘額暫時讀不到</span>
+              <span className="wal-balance-num">餘額讀不到</span>
             </div>
           ) : (
             <>
@@ -154,7 +155,15 @@ export function WalletTab({
         </div>
         <div className="wal-balance-r">
           {/* q5=乙:不留白。而**不承諾時程** —— 見檔頭。 */}
-          <p className="wal-balance-soon">{WALLET_UNAVAILABLE_NOTE}</p>
+          {/* 🔴 **這一行是一次【拍板文案的條件性撤下】, 不是接線細節。**
+              上面那句 `WALLET_UNAVAILABLE_NOTE` 的依據是 Sean `q5=乙` + `Q-錢包-3=乙`(見它旁邊的檔頭);
+              而它說「**目前可查看餘額與明細**」—— 在 `balanceFailed` 這個世界, **餘額正是讀不到的那個東西**
+              ⇒ 兩句同時出現 = 對客人講兩件相反的事。
+              🛑 而 Sean 拍 `q5=乙` 時**沒有人問過他失敗世界要印什麼** ⇒ 這不是推翻他的板, 是一個他沒被問到的世界。
+              📌 落檔在 manifest `business_overrides` 的 `walletUnavailableNoteReplacedOnFailure`
+                 —— **因為「照拍板」與「偏離拍板」在 diff 上長得一樣, 差別只在有沒有那一筆。**
+              ⚠️ 暫用字面, 定稿等 Sean(backlog `#964`)。 */}
+          <p className="wal-balance-soon">{balanceFailed ? PROFILE_UNREADABLE_NOTE : WALLET_UNAVAILABLE_NOTE}</p>
         </div>
       </div>
 
