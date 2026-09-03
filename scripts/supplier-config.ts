@@ -396,7 +396,10 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     supplierSlug: 'dbk',
     brandSlug: 'dbk', // identity(不像 kspeed→k-speed 那種拼法分岔)
     handlePrefix: 'dbk', // 17/17 既有慣例 = supplierSlug 同名
-    syncDescription: true, // 3,570/3,727 列有繁中 description
+    // 🔵 2026-09-04 補群層(F7:列層會答錯問題 —— 同一筆 dbk 的 appendManualFilename 就是這樣量錯過一次)
+    syncDescription: true, // 列層 3,570/3,727 = 95.8% · **群層 1,441/1,508 = 95.6%**
+    //   ⚠️ 而 95.6% 是所有 syncDescription=true 的家裡**最低**的 ⇒ 約 67 群商品頁沒有描述段。
+    //   🔵 旗標值仍然對(有描述的就同步), 而缺的那 67 群是**源頭資料缺口**, 不是這個旗標的錯。
     syncInstallResources: true, // 實查 2,420 列有 pdf_urls
     //   🔴 而 runbook 原本那句「有 pdf/video 來源才 true(靜態無附件 = false)」**與既有設定不符** ——
     //   本窗拿它去預測既有 17 家 ⇒ **對 12 · 錯 5**(eazigrip/samco/motogadget/front3d/materya
