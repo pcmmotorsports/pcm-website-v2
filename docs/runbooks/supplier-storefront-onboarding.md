@@ -125,6 +125,22 @@ ba53294  2026-08-29  「硬刪改到 upsert 之後」
 > ⇒ 🔵 **抓到第三次的不是任何一道閘, 是我手癢 `SELECT` 了十二列出來【看】** —— 而看到的第一眼就是 `no-photo.png`。
 > ⇒ ✅ **⇒ 可機械化的替代品是 `COUNT(DISTINCT …)`**:它問的是「這些值彼此不同嗎」, 而**假資料最常見的形狀就是全部一樣**。
 
+🔴🔴 **而 2026-09-03 夜(線【帳號】接 L4 時)量到【第三種】—— 它比前兩種都寬, 而第 4 列擋不住它**:
+> **整份 preflight 掛在同一個 `WHERE supplier_slug='<slug>'` 上 —— slug 打錯 ⇒ 母體 0 列 ⇒ 每一列都印 0 ⇒ 全部過。**
+
+```
+🔬 兩個世界並排實測(同一發 SQL, UNION ALL):
+   打錯的 slug  總列數 0 · 第2列 0 · 第3列 0 · 第3列補 0 · 第4列 0 · 第6列 0  ⇒ 逐格【全部符合期望】
+   真的 wrs     總列數 1082 · 第2列 0 · 第3列 0 · 第3列補 37 · 第4列 1082 · 第6列 544
+```
+🛑 **⇒ 而第 4 列在這一種底下【也過】** —— 它的期望值是「`= 總數`」, 而空母體時 **0 = 0**。
+🎯 **⇒ 所以「第 4 列是正確樣板」這句話只對【上一種】成立** —— 📌 **一個免疫於某種失效模式的檢查, 不會因此免疫於另一種;而它讀起來一樣安全。**
+⇒ 🔵 **它與前兩種的差別**:前兩種是**一格**壞掉, 這一種是**整張表的分母**壞掉 ⇒ **沒有任何一列會不一致** ⇒ 🔴 **連「總數對不上」那個抓到上一種的訊號都消失了。**
+⇒ ✅ **修法 = 上表新增的第 0 列**(先證明分母 > 0 且 slug 在名單裡)。
+⇒ 📌 **而這個修法不是新發明的** —— 報價單 repo 的 `fetchers`…`scripts/variant_contract_scan.py` **2026-08-25 就寫過同一道閘**(`check_population`), 它的 docstring 逐字寫著:
+> 「撈空/撈殘時 exit 1 且不印合計行, 否則『掃描壞掉』會跟『全站乾淨』印出同一句話」
+🛑 **⇒ 正解在隔壁 repo 躺了 9 天, 而這份 runbook 沒有接到它。** 📌 **⇒ 下次發現一個坑, 先問「別人是不是已經修過同型的」, 再問「怎麼修」。**
+
 ---
 
 ## 1. ★ Preflight 清單(源頭資料就緒;每列漏掉 = 乾跑 abort 或上架後出包)
@@ -134,6 +150,7 @@ ba53294  2026-08-29  「硬刪改到 upsert 之後」
 
 | # | 檢查 | 怎麼查(MCP execute_sql,除非註明) | 期望 | 沒過怎麼修 |
 |---|---|---|---|---|
+| **0** | 🔴🔴 **分母不是 0**(先跑, 不然底下每一列都會過) | `SELECT count(*) FROM storefront_catalog_v WHERE supplier_slug='<slug>'` —— **再對一次** `SELECT DISTINCT supplier_slug FROM storefront_catalog_v` 確認拼法在名單裡 | **> 0**, 且與 §1-6 的指紋同一個數 | slug 拼錯 / 源頭還沒灌 → **停**。⚠️ 不要往下跑:下面每一列在空母體上**全部印 0 = 全部過** |
 | 1 | **品牌列存在**(網站庫) | `SELECT slug FROM brands WHERE slug='<brandSlug>'` | 1 列 | 缺 → seed migration `INSERT INTO brands ... ON CONFLICT (slug) DO NOTHING`,MCP `apply_migration` 或 Sean db push。**先確定 brandSlug 拼法**(§2 註) |
 | 2 | **價格四價齊**(源頭) | `COUNT(*) FILTER (WHERE price_retail IS NULL OR price_retail=0)` | 0 | 有 pricing_rules 的家跑完 fetcher 必接 報價單 repo:`uv run python scripts/recompute_supplier.py <slug>`(重跑 fetcher 會清空四價,見 [[feedback_fetcher_rerun_wipes_computed_prices]]) |
 | 3 | **圖片協定 = https** | ⛔ ~~`COUNT(*) FILTER (WHERE images::text ILIKE '%http://%')`~~ ⇒ 🔴 **那一版在 `images IS NULL` 時靜靜放行**(`NULL ILIKE …` 回 **NULL** 不是 FALSE ⇒ 不進 FILTER)。✅ 改用 `COUNT(*) FILTER (WHERE coalesce(images::text,'') ILIKE '%http://%')` **再加一格** **兩格一起看**:`COUNT(*) FILTER (WHERE images IS NULL)` 與 `COUNT(DISTINCT image_url) FILTER (WHERE images IS NULL)`。🔴 **不設件數門檻** —— 理由見下方(N≥5 會漏掉 rizoma 3 件, 而那正是上架中的一家)。🔴 **2026-09-03 這一列我改了三次, 前兩次都錯 —— 而三次錯的是同一件事。**⛔ ~~二訂版:「那 40 列 image_url 都有值 ⇒ 它們有圖」~~ **也是錯的。**🔬 三訂實查:那 1,011 列**在 `FILTER (WHERE images IS NULL)` 這個子集裡**逐家 `COUNT(DISTINCT image_url)` = **1**(⚠️ 射程:不是「整家所有列共用一個網址」), 而網址逐字是 `no-photo.png` / `noimage.jpg` / `no-image-2048-….gif` ⇒ 🛑 **那是供應商站的「查無圖片」佔位圖, 不是商品圖。**⇒ 🎯 **⇒ 那 1,011 列【全部】沒有真圖(含 wrs 37/37 · rizoma 3/3), 而不是 10 列。**⇒ 🔴 **判準**:`COUNT(DISTINCT image_url)=1` —— **80 件不同商品不可能共用一張照片。**⇒ 🛑 **不要維護佔位圖檔名黑名單**(no-photo / noimage / no-image 已經三種寫法)—— 黑名單在跟下一家的下一種寫法賽跑;`DISTINCT=1` 不需要知道它叫什麼。⇒ 🔵 **怎麼讀這兩格**:`images IS NULL` 本身就是異常子集 ⇒ **只要 > 0 就停下來看**;`DISTINCT` 那格說是**哪一種** —— **= 1 ⇒ 整家共用一個網址 ⇒ 佔位圖**;> 1 ⇒ 另一種, 開檔看。
