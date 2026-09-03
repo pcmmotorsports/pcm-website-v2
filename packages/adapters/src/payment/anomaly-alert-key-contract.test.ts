@@ -337,6 +337,32 @@ const FAIL_LOUD_RPCS = [
    *   ⇒ 兩者在本檔的分堆上是不同的東西, 而混起來會把一支 fail-loud 的錯歸進 fail-soft。
    */
   'get_order_created_stuck_count',
+  /**
+   * 🔵 `⟦b4-NORECIPIENTWINDOW⟧` 那一片(`20260903070000`, Sean 2026-09-03 本人已貼)。
+   *   **分堆是開檔看的, 不是猜的**(本檔上面那句逐字要求):
+   * ```
+   * PgAnomalyAlertReaderAdapter.ts 的 unpaidCancelledCount(key)
+   *   ⇒ parseCount(ucg![key], key, UNPAID_CANCELLED_FN)
+   * 而 parseCount:v === undefined ⇒ n = NaN ⇒ !Number.isFinite(NaN) ⇒ **throw**
+   * ⇒ 缺鍵 = fail-loud ⇒ 屬這一堆
+   * ```
+   * 🔴 **而我沒有停在讀碼** —— 同族的 `PgAnomalyAlertReaderAdapter.test.ts` 有一格
+   *   `[U5] 缺鍵 ⇒ throw`, 它**真的餵一個少一把鍵的回應進去**。
+   *   ⇒ 📌 **那一格才是這裡這個字串的來源**;沒有它, 這一行是一個【推論】被寫進一張註冊表。
+   * 🛑 **而它有一條【不是缺鍵】的 null 路徑, 不改變分堆**:
+   *   RPC 還沒 apply(`42883` 且 `to_regprocedure` 回 NULL)⇒ `unpaidCancelledGapUnknown`
+   *   ⇒ 三格回 `null` = 查不到。那是**部署窗口**, 不是「鍵不見了」。
+   *   ⇒ 🎯 同 `get_manual_customer_search_summary` 那格記過的那句:
+   *     **分堆問的是【鍵不見時會不會叫】, 不是【這支函式會不會回 null】。**
+   *
+   * 🔬 **而「放錯堆會不會被抓到」我實測過**(主視窗指定):把它從這一堆移到 `TARGETS`
+   *   (帶假的 `varName` / 空 `pin`)⇒ **三格紅**(兩把尺撈得到 · 帳本記著已 apply ·
+   *   SQL 的每個 key 都有人讀)⇒ ✅ **這道閘不只擋「有沒有登記」, 也擋「隨手登記到錯的堆」。**
+   * 🛑 **而我沒測到的那一格要寫出來**:若有人放進 `TARGETS` 而**把 varName 與 pin 都填對**,
+   *   會不會過?**我沒有測。** ⇒ 📌 那是「認真地放錯」, 與我這一發的「隨手放錯」不同,
+   *   而**它們在這句話裡很容易被讀成同一件事**。
+   */
+  'get_order_unpaid_cancelled_gap_counts',
 ] as const;
 
 describe('屬性名與錯誤訊息字面(`-eb` 2026-08-31 併入)', () => {
