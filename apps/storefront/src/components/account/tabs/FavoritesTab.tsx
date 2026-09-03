@@ -23,6 +23,7 @@
 
 import Link from 'next/link';
 import type { FavoriteListItem } from '@pcm/domain';
+import { ProductImage } from '@/components/ProductImage';
 
 export type FavoritesTabProps = {
   /** page.tsx getFavoritesRepo→listByCustomer 算好傳入。 */
@@ -56,9 +57,21 @@ export function FavoritesTab({ favorites, loadFailed }: FavoritesTabProps) {
         <div className="acc-fav-grid">
           {favorites.map(({ favorite, product }) => (
             <Link key={favorite.productId} className="acc-fav" href={`/products/${product.handle}`}>
-              {/* 沒有圖就不渲 <img>:`.acc-fav img` 有 `background: var(--c-surface-2)`,
-                  空 src 會變成一塊「像是壞掉」的灰;少一張圖比一塊破圖好。 */}
-              {product.imageUrl && <img src={product.imageUrl} alt={product.title} />}
+              {/* ⛔ ~~「沒有圖就不渲 `<img>`:`.acc-fav img` 有 `background: var(--c-surface-2)`,
+                  **空 src 會變成一塊「像是壞掉」的灰**;少一張圖比一塊破圖好。」~~
+                  🔵 **那句判斷【沒有被推翻】, 它解的是一個現在不存在的問題** ——
+                     它比較的是「**空 `src`**」與「不渲染」兩者;
+                     而 `ProductImage` 給的是**第三個選項**:一張**真的存在的圖**
+                     (`/placeholder-product.png`)或品牌 logo, 疊在漸層底上。
+                  🎯 **⇒ 它要防的那塊「壞掉的灰」在這條路上不會出現** ⇒ 那不是推翻, 是**滿足它的理由**。
+                  🔴 **2026-09-04 改走 `ProductImage`(⟦ship-ORDERIMG⟧ 甲案)** ——
+                     成因:同一批商品客人在三個地方看到三種東西(站內佔位圖 / 空框 / 什麼都沒有),
+                     而那個不一致**不是濾掉供應商佔位圖那一片製造的**, 它本來就在。
+                  🛑 外層那個 `div` 是必要的:`.acc-fav img` 自己帶 `aspect-ratio`,
+                     而 `ProductImage` 是 `width/height: 100%` ⇒ 沒有人給它尺寸它會塌成 0。 */}
+              <div style={{ width: '100%', aspectRatio: '1' }}>
+                <ProductImage image={product.imageUrl} label={product.title} />
+              </div>
               <div className="acc-fav-body">
                 <div className="acc-fav-brand">{product.brandName}</div>
                 <div className="acc-fav-name">{product.title}</div>
