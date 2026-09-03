@@ -80,6 +80,24 @@ export type ListUnpaidCancelledWithoutEmailInput = {
    * 只看這個時點之後被取消的單。
    * 🔴 **與出貨信的 cutoff 同一個理由**:上線那一刻之前的舊單**一律不補寄** ——
    *    否則第一次跑會對一批早就忘了這件事的人寄出一堆信。
+   *
+   * 🛑🛑 **2026-09-03 訂正:上面那句話與實作【不一致】, 而實作比它窄**(codex must-fix)。
+   *    實作(本檔的 adapter 與 `get_order_unpaid_cancelled_gap_counts`)兩道閘都下:
+   *    `cancelled_at >= cutoff` **且** `created_at >= cutoff`。
+   *    ⇒ 📌 **差在這一種單**:**建立於 cutoff 之前、而在 cutoff 之後才被員工取消**
+   *      —— 契約說要納入(它「在這個時點之後被取消」), 而**實作把它排除**
+   *      ⇒ 🔴 **那位客人不會收到取消通知, 而沒有任何東西會叫。**
+   *
+   *    🔬 **我量到的(拋棄式 PG 17.10, 2026-09-03)**:
+   *    在真實不變式 `cancelled_at >= created_at` 之下,`created_at >= cutoff`
+   *    **蘊含** `cancelled_at >= cutoff` ⇒ **`cancelled_at` 那道閘在任何一列合法資料上
+   *    都沒有判別力** —— 拿掉它, 八列的測試結果**一格都不變**。
+   *    只有一列「取消早於建立」的**不可能資料**隔離得出它(本尊 0 / 拿掉它 1)。
+   *    ⇒ 🎯 **⇒ 真正在決定收件範圍的是 `created_at`, 而契約寫的是 `cancelled_at`。**
+   *
+   *    ⚠️ **本次【不改行為】** —— 改它會改變誰收得到信, 那是 Sean 的決定不是我的;
+   *    而 `created_at` 那道閘在姊妹線有明確理由(PRD §5 R3:晚翻 paid 的舊單會被誤寄),
+   *    在取消這條線上**沒有人寫過理由**。⇒ 已交主視窗開列。
    */
   cutoff: string;
   /** 單輪上限(route 端常數、零 client 輸入)。 */
