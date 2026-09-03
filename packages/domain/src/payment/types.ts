@@ -175,13 +175,49 @@ export class TapPayRefundNotSentError extends Error {
  *    ✅ 判別動作:那一態的 adapter log 有 `refundId` 欄 —— **先看 log 再決定去哪裡找**。
  *    ⇒ 而要在型別層分開這兩種,得再加一個 discriminator;**本片沒有做**,它是另一片。
  */
+/**
+ * 兩個 throw 點的**金錢意義相反**,而它們在稽核那一列上原本長得一樣。
+ *
+ * 🛑🛑 **兩者都是「已送出、狀態未知」—— 兩者都【不得】自動重發, 也都不該叫人直接重退。**
+ *    ⛔ ~~`unknown_wire_status` = 錢沒動 ⇒ 要重退~~ ⇒ **codex R2 打掉, 而它是對的**:
+ *      adapter `:490` 逐字「其餘非 0 碼(含 kind='full' 的任何非 0 碼 —— **組合未實證**)」
+ *      ⇒ 非 0 **不等於**乾淨拒絕。**乾淨拒絕的碼會走上面 `status:'rejected'` 那條路, 不會走到這裡。**
+ *      ⇒ 說「錢沒動」是**過度宣稱**, 而它過度的方向正是**雙退**。
+ *      (本 repo 早有這條紀律:`apps/admin/src/lib/payment/refund-money-line-forbidden.test.ts`)
+ *
+ * 🎯 **它們真正的差別是【先去哪裡找】, 不是【錢動了沒】**:
+ * 🔴 `accepted_malformed` = TapPay **受理了**(`wire.status === 0`)、回應形狀壞掉
+ *    ⇒ TapPay 那一側**已經接受了這筆退款** ⇒ 先去查**那一筆**的下落。
+ * 🔴 `unknown_wire_status` = TapPay 回了一個**我們從來沒實證過的非 0 碼**(`wire.status !== 0`)
+ *    ⇒ 先去查**那個碼代表什麼**(它可能是乾淨拒絕, 也可能不是)—— 查清楚之前不要動錢。
+ *
+ * 🛑 **這兩個字面不是本片發明的** —— adapter 的 `logRefund` 從一開始就在印它們
+ *    (`TapPayChargeAdapter.ts:421` / `:491`)。本片只是讓**程式**也拿得到,
+ *    而在此之前它只到 `console.info`,零消費端。
+ */
+export type TapPayRefundUnknownStateOutcome = 'accepted_malformed' | 'unknown_wire_status';
+
 export class TapPayRefundUnknownStateError extends Error {
   /** TapPay 這一次回的 `refund_id`;`null` = **它沒給**(不是我們弄丟)。 */
   readonly refundId: string | null;
-  constructor(message: string, refundId: string | null) {
+  /**
+   * 🔴 **哪一個 throw 點丟的** —— 而它承重的不是分類好看,是**值班的下一步相反**。
+   *
+   * 🛑 **必填,不給預設值**:給預設 = 日後新增第三個 throw 點的人會**靜靜地**繼承一個
+   *    語意錯誤的值,而型別層不會紅。⇒ 新的呼叫點**必須自己回答**它是哪一種。
+   * ⚠️ 而它**不區分** docstring 上面那段講的「`refundId` 為 null 的兩種原因」——
+   *    那是另一個 discriminator、另一片,本片沒有做。**不要把兩件事讀成同一件。**
+   */
+  readonly outcome: TapPayRefundUnknownStateOutcome;
+  constructor(
+    message: string,
+    refundId: string | null,
+    outcome: TapPayRefundUnknownStateOutcome,
+  ) {
     super(message);
     this.name = 'TapPayRefundUnknownStateError';
     this.refundId = refundId;
+    this.outcome = outcome;
   }
 }
 

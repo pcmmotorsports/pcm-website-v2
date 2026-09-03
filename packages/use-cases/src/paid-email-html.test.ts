@@ -16,6 +16,8 @@ import {
   GMAIL_CLIP_BYTES,
   PCM_EMAIL_LOGO_URL,
   paidEmailOrderUrl,
+  assertPdfClaimMatchesAttachments,
+  PAID_EMAIL_PDF_ATTACHED_SENTENCE,
 } from './paid-email-html';
 
 const m = (n: number) => n as MoneyAmount;
@@ -343,5 +345,49 @@ describe('🛑 本模板【不】檢查 linesTruncated —— 那是呼叫端的
     //    型別檔 :63-64 逐字要求呼叫端 fail-closed;若改成這裡丟例外,
     //    那道保護會變成「模板有沒有被呼叫到」的副作用,而那不可靠。
     expect(() => renderPaidEmailHtml(c, {})).not.toThrow();
+  });
+});
+
+describe('assertPdfClaimMatchesAttachments —— 信裡說附了 PDF 而其實沒附 ⇒ 不准寄', () => {
+  // 🔴 **這一族要兩個世界都演** —— 一個「該紅的紅」加一個「該綠的綠」。
+  //    少了後者, 一支 `throw new Error()` 寫死的函式也會通過前者。
+  const withClaim = `<div>${PAID_EMAIL_PDF_ATTACHED_SENTENCE}</div>`;
+  const withoutClaim = '<div>訂單金額</div>';
+
+  it('🔴 說了「已附在這封信裡」而附件是 undefined ⇒ throw', () => {
+    expect(() => assertPdfClaimMatchesAttachments(withClaim, undefined)).toThrow(/沒有 \.pdf/);
+  });
+
+  it('🔴 說了那句話而附件裡只有非 PDF ⇒ throw(不是只看「有沒有附件」)', () => {
+    expect(() =>
+      assertPdfClaimMatchesAttachments(withClaim, [{ filename: 'logo.png' }]),
+    ).toThrow(/沒有 \.pdf/);
+  });
+
+  it('🟢 說了那句話而真的附了 PDF ⇒ 放行(該綠的那一側)', () => {
+    expect(() =>
+      assertPdfClaimMatchesAttachments(withClaim, [{ filename: 'statement.PDF' }]),
+    ).not.toThrow();
+  });
+
+  it('🟢 沒說那句話 ⇒ 不管附件有沒有都放行(這道尺不管別的事)', () => {
+    expect(() => assertPdfClaimMatchesAttachments(withoutClaim, undefined)).not.toThrow();
+    expect(() => assertPdfClaimMatchesAttachments(null, undefined)).not.toThrow();
+  });
+
+  // 🔴🔴 **這一格驗的是【模板與守門共用同一個常數】** ——
+  //    少了它, 有人改了模板那句話而守門仍在找舊字串 ⇒ **守門不再守任何東西, 而它全綠。**
+  //    ⇒ 📌 這一格就是那個病的正對照:**尺與被量的東西之間那條線, 也要有東西量它。**
+  it('🔴 模板真的印出那個常數(守門找的就是模板印的那一句)', () => {
+    const html = renderPaidEmailHtml(ctxWithDiscount(), { hasPdfAttachment: true });
+    expect(html).toContain(PAID_EMAIL_PDF_ATTACHED_SENTENCE);
+    // 而不翻旗標時不印 ⇒ 反向世界
+    expect(renderPaidEmailHtml(ctxWithDiscount(), {})).not.toContain(PAID_EMAIL_PDF_ATTACHED_SENTENCE);
+  });
+
+  // 🎯 **而這一格是整族的重點:把兩者接起來, 演一次真正會發生的事故。**
+  it('🔴 翻開旗標而沒附 PDF ⇒ 那封信會被擋下來(模板 → 守門 一整條)', () => {
+    const html = renderPaidEmailHtml(ctxWithDiscount(), { hasPdfAttachment: true });
+    expect(() => assertPdfClaimMatchesAttachments(html, undefined)).toThrow();
   });
 });

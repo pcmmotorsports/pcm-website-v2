@@ -1391,3 +1391,70 @@ admin 的**客戶管理**會打 `client.auth.admin.*` —— 而本鑽機原本*
 `email UNIQUE` —— 建客人的**冪等靠它**(同一個佔位信箱重送 ⇒ 撞唯一鍵 ⇒ 那不是失敗)。
 **三個世界自檢**(起站後跑):不存在的 uuid ⇒ **404** · 真的存在的 ⇒ **200** 且帶 `app_metadata` · 亂字串 ⇒ **400**。
 ⚠️ **仍然證不了**:真登入流程(票是手貼的)。
+
+---
+
+## §14 🔴🔴 顧客站鑽機上**搜尋整條是壞的**,而它的症狀讀起來像「功能沒做完」(2026-09-03 線 `-front`)
+
+**你會看到的**(打任何字進搜尋疊層):
+
+```
+畫面:  「搜尋暫時無法使用 / 請稍後再試一次,或用 LINE 直接問我們」
+network: GET /api/search?q=… ⇒ 503  {"error":"search_failed"}
+next.log:
+  [searchProducts] searchByKeyword failed: TypeError: Cannot read properties of undefined (reading 'rest')
+    at SupabaseProductAdapter.trySearchIdsWithBrand (…/SupabaseProductAdapter.ts:715)
+    at searchProducts (src/lib/search.ts) → GET (src/app/api/search/route.ts)
+```
+
+🔴 **這【不是】你的碼壞了,也不是搜尋做壞了。**
+成因:那條路呼叫 RPC **`storefront_search_product_ids`**(`20260903050000_m4b_storefront_search_product_ids.sql`),
+而**鑽機的庫沒有它** —— `up.sh` 自己印過那句:「**其餘 fail 的 migration 沒有被修**」。
+⇒ 📌 **正式站有那支 RPC**(2026-09-03 實測 `/api/search` 全部 200)⇒ **這是鑽機與正式站的差,不是缺陷。**
+
+**⇒ 所以在鑽機上你【驗不了】**:搜尋結果、品牌/分類那兩區的真資料、`/search` 結果頁。
+✅ **驗得了的**(不經那支 RPC):`搜尋中…` 那個等待態、空查詢的熱門搜尋、疊層開關與 focus。
+🔵 **要看那兩區長什麼樣**:在 console 把 `window.fetch` 對 `/api/search` 攔掉、回一份 fixture。
+🛑 **而那證的是【畫面畫得對】,不是【資料路徑會動】** —— 交件時這個射程要跟著走。
+
+---
+
+## §15 🔴🔴 一台**舊鑽機**與一台新的**在畫面上長得一模一樣**(2026-09-03 線 `-front` 收掉一台)
+
+**實例**:`/tmp/pcm-g3-probe`(埠 3020)起於 **2026-09-02 16:54**、`HEAD 9c06a72a`,
+而它的主人那個窗早已收工(**shell pid 32177 實查已不存在**,心跳表零 `g3` 命中)。
+⇒ 🔴 **它沒有壞。它好好地服務著兩天前的碼。**
+⇒ 🎯 **誰打開 `localhost:3020` 去驗一個剛改好的東西,都會看到舊畫面而不知道** ——
+   而他的下一步是「回去修一個已經修好的東西」。
+
+**⇒ 動作(給下一個要用鑽機的人)**
+
+```
+🔴 用之前先讀 owner.txt 的 HEAD, 而且【比對它與今天的 dev】:
+    cat /tmp/<你的 probe dir>/owner.txt        # 看 HEAD 那一行
+    git rev-parse --short origin/dev           # 今天的 dev
+  ⇒ 不同 ⇒ 那台鑽機驗不了你今天的碼, 不要用它
+🟢 而 up.sh 起自己那台時會印「✅ 起站樹與主樹 HEAD 相同(<sha>)」—— 那一格【有比過】
+  ⇒ 📌 而【接手別人那台】沒有那一格 ⇒ 這一節就是補那個缺口
+```
+
+**收掉別人那台之前**:🔴 **`owner.txt` 是那台鑽機唯一的紀錄,`down.sh` 會連 datadir 一起刪。**
+⇒ **先把它整份抄進你的回報**,再收。用**那台自己的那組埠**跑 `down.sh`
+(不帶同一組 ⇒ 它會拿預設埠去查、**每一格都印綠而那台還活著**)。
+
+---
+
+## §16 ⚠️ `up.sh` 建議的並行埠 `3030` 今天是**撞的**(2026-09-03)
+
+`up.sh` 在「已經有一份鑽機在跑」時印的並行範例逐字建議 `STOREFRONT_PROBE_WEB=3030`,
+而 **`-mail` 的鑽機今天就用 3030**(`/tmp/pcm-mail-probe/owner.txt` 起於 05:28)。
+⇒ 🔴 **照著那個建議做的人,會撞上別人的鑽機。**
+🛑 **本節只記錄,沒有改 `up.sh`** —— 改建議埠是行為改動,要先報主視窗。
+✅ **自己挑一組沒人用的**,並且**收的時候帶同一組**:
+
+```
+STOREFRONT_PROBE_DIR=/tmp/pcm-<你的窗名>-probe \
+STOREFRONT_PROBE_PG=555xx STOREFRONT_PROBE_PREST=39xx STOREFRONT_PROBE_PROXY=39xx \
+STOREFRONT_PROBE_WEB=30xx STOREFRONT_PROBE_CORS=39xx \
+  bash scripts/storefront-probe/up.sh
+```

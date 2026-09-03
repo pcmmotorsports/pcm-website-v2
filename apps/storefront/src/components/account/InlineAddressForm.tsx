@@ -178,7 +178,11 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
       </label>
       <label>
         <span>手機</span>
+        {/* 手機欄叫數字鍵盤 —— 與 RegisterPage.tsx 的手機欄同形狀,`tel-national` 的理由見那裡的註解。 */}
         <input
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel-national"
           value={phone}
           onChange={(e) => {
             setPhone(e.target.value);

@@ -139,6 +139,17 @@ rm -rf "$S" && mkdir -p "$S"   # 🔴 引號:`${ADMIN_PROBE_DIR:-…}` 只擋空
   echo "shell  : pid $$  tty $(tty 2>/dev/null || echo '?')"
   echo "datadir: $S"
   echo "埠     : web $WEB / proxy $PROXY / prest $PREST / pg $PG"
+  # 🔴 **這兩行 2026-09-03 線 `-auth` 補** —— 逐字抄自 `scripts/storefront-probe/up.sh` 的同一段, 不自己發明。
+  #   成因:本支與 storefront-probe 是**兩支獨立的腳本**(不是同一支的兩個分支),
+  #   而那一支一直有這兩行、本支一直沒有 ⇒ **同一個家族產出兩種形狀的 `owner.txt`**。
+  #   🎯 **代價是【下一次判孤兒時會缺一格】**:判一台鑽機是不是孤兒的條件之一是
+  #     「它的 HEAD 停在幾天前」(線 `-front` 2026-09-02 收掉一台時用的),
+  #     而**那個條件在本支起的機器上用不了** —— 因為那一行不存在。
+  #   ⚠️ 而 2026-09-03 06:4x 實測到的就是這個:
+  #     `/tmp/pcm-admin-probe-db/owner.txt` 缺 REPO/HEAD · `/tmp/pcm-mail-probe/owner.txt` 兩行都有。
+  #   🛑 **只加這兩行, 既有欄位一個都沒動** —— 別人的尺在讀它們(`down.sh` 讀埠與 datadir)。
+  echo "REPO   : $REPO"
+  echo "HEAD   : $(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 } > $S/owner.txt
 
 # ── ① 拋棄式 Postgres ────────────────────────────────────────────────────

@@ -16,6 +16,8 @@
 //     導錯了客人會拿到一個沒篩選的列表(那正是主視窗當初裁定要避開的「更具體的謊」)。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { SearchOverlay, viewFor } from './SearchOverlay';
@@ -64,6 +66,251 @@ describe('SearchOverlay', () => {
     render(<SearchOverlay />);
     openWith('排氣管');
     expect((screen.getByLabelText('搜尋商品 / 品牌 / 車款') as HTMLInputElement).value).toBe('排氣管');
+  });
+
+  // 🔴🔴 **G1-c:等結果的那段時間畫「搜尋中…」**(2026-09-03 線 `-front`)。
+  //   在本片之前 render 端**沒有 `pending` 分支** ⇒ 中文查詢那 ~2 秒疊層是空的
+  //   (線上實測五格取樣全部只有「取消」兩個字;而中文 1934ms vs ASCII 455ms)。
+  //   🎯 **兩個世界印不同的東西**:請求還沒回 ⇒ 有「搜尋中…」;回來了 ⇒ 沒有「搜尋中…」而有結果。
+  //   🧬 **突變**:把 `SearchOverlay.tsx` 的 `view.kind === 'pending'` 那一格拿掉 ⇒ 本格必須紅。
+  it('G1-c 有查詢字而結果還沒到 ⇒ 畫「搜尋中…」;回來之後那句消失、結果出現', async () => {
+    // 一個「我來決定它什麼時候回」的 fetch ⇒ 才拿得到中間那個狀態。
+    // 🔴 deferred 要建在 **mockFetch 之外** —— 建在 executor 裡的話,
+    //    `release` 只有在 fetch【真的被呼叫】之後才存在;而下面第一個 waitFor
+    //    在 debounce 還沒發出請求時就會過(`result === null` 也是 pending)
+    //    ⇒ 那時 `release` 還是 undefined ⇒ TypeError。**這一格我自己踩過一次。**
+    let release!: (r: Response) => void;
+    const deferred = new Promise<Response>((res) => { release = res; });
+    // 🔴 `.clone()`(R1 F7):`() => deferred` 每次回**同一個 Response 實例** ⇒ 將來若真有第二發請求,
+    //    `res.json()` 會 body-already-read ⇒ 走 catch ⇒ **靜靜變 `failed`,而本格照樣綠**。
+    mockFetch(() => deferred.then((r) => r.clone()));
+    render(<SearchOverlay />);
+    openWith('貼');
+
+    // 世界 A:還在等 ⇒ 那句在,而結果與「沒有找到」都不在
+    await waitFor(() => expect(screen.getByText('搜尋中…')).toBeTruthy());
+    expect(screen.queryByText(/沒有找到/)).toBeNull();
+    expect(screen.queryByText(/暫時無法使用/)).toBeNull();
+
+    // 世界 B:回來了 ⇒ 那句消失、**而且結果真的出現**
+    // 🔴 「結果出現」那半是 R1 F6 補的:原本只斷言「那句消失」⇒
+    //    一個「回來之後什麼都不畫」的世界也會過。
+    release(new Response(JSON.stringify(ONE_ITEM), { status: 200 }));
+    await waitFor(() => expect(screen.queryByText('搜尋中…')).toBeNull());
+    expect(screen.getByText('鈦合金全段排氣管')).toBeTruthy();
+  });
+
+  // 🔴🔴 **G1-d:空查詢【不准】出現「搜尋中…」**(2026-09-03 R1 F1 —— 而那是我自己弄出來的)。
+  //   `q === ''` 時 effect 早退並 `setResult(null)` ⇒ `viewFor` 恆回 `pending`,
+  //   **而那時根本沒有請求在飛** ⇒ 我第一版只判 `view.kind === 'pending'`
+  //   ⇒ 「熱門搜尋」與「搜尋中…」**同時**畫,而且是**穩態不是一幀**。
+  //   🎯 而本檔 `codex R2 must-fix 1` 修過的正是同一個病(訊息與熱門搜尋同框)——
+  //      **我把它用另一支 kind 復刻了一次。**
+  //   🧬 突變:把 `SearchOverlay.tsx` 那格的 `q !== '' &&` 拿掉 ⇒ 本格必須紅。
+  it('G1-d 空查詢 ⇒ 畫「熱門搜尋」而【不】畫「搜尋中…」(兩者不同框)', async () => {
+    mockFetch(async () => new Response(JSON.stringify(ONE_ITEM), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('');
+    // 🟢 正對照:熱門搜尋在(否則下一行對「整片空白」也會過)
+    expect(screen.getByText('熱門搜尋')).toBeTruthy();
+    expect(screen.queryByText('搜尋中…')).toBeNull();
+  });
+
+  it('G1-e 查完之後把輸入框清空 ⇒ 回到熱門搜尋, 不是「搜尋中…」', async () => {
+    mockFetch(async () => new Response(JSON.stringify(ONE_ITEM), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('排氣管');
+    await waitFor(() => expect(screen.getByText('鈦合金全段排氣管')).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('搜尋商品 / 品牌 / 車款'), { target: { value: '' } });
+    await waitFor(() => expect(screen.getByText('熱門搜尋')).toBeTruthy());
+    expect(screen.queryByText('搜尋中…')).toBeNull();
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 🔴🔴 **G1-f/G1-g:把守門綁在【不變式】上,而不是綁在【某一支 kind】上**
+  //   (2026-09-03,主視窗-87 指定;起因是我自己弄出來的 R1 F1)
+  //
+  //   **為什麼要換一種綁法**:F1 那次,本檔既有 23 格**全綠而零守門** ——
+  //   因為那些格子問的是「`failed` 畫對了嗎」「`ok` 畫對了嗎」,
+  //   ⇒ 🎯 **它們綁在【已知的那幾支 kind】上;而我加的是【第三支】** ⇒ 結構上碰不到。
+  //   📌 **⇒ 一個綁在列舉上的守門,對【列舉多一項】永遠是瞎的。**
+  //   ⇒ 所以下面兩格:一格釘住**列舉本身**(多一支 kind 就紅),一格掃**每一個世界**。
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  it('🔴 G1-f 元件裡 render 的 kind 集合必須就是這三支 —— 多一支就紅,而那時請把它加進 G1-g', () => {
+    // 🎯 這一格【不是】在測行為,是在測「G1-g 的分母有沒有過期」。
+    //    照 `showcase-dispatch-coverage.test.ts` 的先例:掃原始碼字面、不執行元件。
+    // 🔴 這裡不用 `import.meta.url` —— 本 project 的 `import.meta.url` **不是 file: scheme**
+    //    (實測 `fileURLToPath` 丟 `TypeError: The URL must be of scheme file`)。
+    //    改用 vitest 的 root(= repo 根)拼相對路徑,而下面那個 `size > 0` 自檢會抓到讀錯檔。
+    const src = readFileSync(
+      resolve(process.cwd(), 'apps/storefront/src/components/SearchOverlay.tsx'),
+      'utf-8',
+    );
+    const kinds = new Set(
+      [...src.matchAll(/view\.kind === '(\w+)'/g)].map((m) => m[1]!),
+    );
+    // 🟢 自檢:抽取邏輯要先證明它抓得到東西,否則下面那個 toEqual 對空集合也會過
+    expect(kinds.size, '抽取結果是空的 ⇒ 正規式與檔案對不上,本格會恆真').toBeGreaterThan(0);
+    expect([...kinds].sort()).toEqual(['failed', 'ok', 'pending']);
+  });
+
+  it('🔴 G1-g 不變式:任何一個世界裡,「熱門搜尋」與狀態訊息都不得同框', async () => {
+    // 🛑 這是 F1 真正違反的那條 —— 而它與「pending 有沒有畫」是兩件事。
+    const bothShowing = () =>
+      screen.queryByText('熱門搜尋') !== null &&
+      (screen.queryByText('搜尋中…') !== null ||
+        screen.queryByText(/暫時無法使用/) !== null ||
+        screen.queryByText(/沒有找到/) !== null);
+
+    // 世界①:空查詢 ⇒ 只有熱門搜尋
+    mockFetch(async () => new Response(JSON.stringify(ONE_ITEM), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('');
+    expect(screen.getByText('熱門搜尋')).toBeTruthy(); // 🟢 正對照:這個世界真的畫了 chips
+    expect(bothShowing()).toBe(false);
+    cleanup();
+
+    // 世界②:有字而還沒回 ⇒ 只有「搜尋中…」
+    let release!: (r: Response) => void;
+    const deferred = new Promise<Response>((res) => { release = res; });
+    mockFetch(() => deferred.then((r) => r.clone()));
+    render(<SearchOverlay />);
+    openWith('貼');
+    await waitFor(() => expect(screen.getByText('搜尋中…')).toBeTruthy());
+    expect(bothShowing()).toBe(false);
+    release(new Response(JSON.stringify(ONE_ITEM), { status: 200 }));
+    cleanup();
+
+    // 世界③:失敗 ⇒ 只有「暫時無法使用」
+    mockFetch(async () => new Response('{}', { status: 503 }));
+    render(<SearchOverlay />);
+    openWith('排氣管');
+    await waitFor(() => expect(screen.getByText(/暫時無法使用/)).toBeTruthy());
+    expect(bothShowing()).toBe(false);
+    cleanup();
+
+    // 世界④:成功零筆 ⇒ 只有「沒有找到」
+    mockFetch(async () => new Response(JSON.stringify({ items: [], total: 0 }), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('不存在的東西zzz');
+    await waitFor(() => expect(screen.getByText(/沒有找到/)).toBeTruthy());
+    expect(bothShowing()).toBe(false);
+  });
+
+  // ═══ ⟦搜尋-第2刀⟧ 品牌 / 分類兩區(2026-09-03;車款那一區刻意不畫, 見 SearchOverlayFacets 檔頭)═══
+
+  const withFacets = (over: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      ...ONE_ITEM,
+      brands: [{ id: 'akrapovic', name: 'AKRAPOVIČ', count: 648 }],
+      categories: [{ id: 'cat-1', name: '排氣系統', count: 740 }],
+      vehicles: [{ brandId: 'honda', brandName: 'Honda', modelId: 'cbr600', modelName: 'CBR600' }],
+      failed: { brands: false, categories: false, vehicles: false },
+      ...over,
+    });
+
+  it('🔴 G3-a 有品牌/分類 ⇒ 兩區都畫, 標題字面照稿(只有商品那一區帶數字)', async () => {
+    mockFetch(async () => new Response(withFacets(), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('排氣');
+    await waitFor(() => expect(screen.getByText('AKRAPOVIČ')).toBeTruthy());
+    expect(screen.getByText('品牌')).toBeTruthy();   // 稿 :149 —— 不帶數字
+    expect(screen.getByText('分類')).toBeTruthy();   // 稿 :163 —— 不帶數字
+    expect(screen.getByText('排氣系統')).toBeTruthy();
+  });
+
+  it('🔴🔴 G3-b 車款【刻意不畫】—— API 有回而畫面上不得出現(題 21 拍板前)', async () => {
+    // 🎯 這一格釘的不是「還沒做」, 是一個【決定】:
+    //    打 R6 會比中 Honda CBR600(`cbr600` 含 `r6`)⇒ 畫出來客人會以為網站壞了。
+    //    🛑 而它與「空區不畫」在畫面上長得一樣 ⇒ 只有這一格與那段註解分得出來。
+    //    ✅ 題 21 若拍乙(改比對規則)⇒ 這一格要改成「車款區要出現」, 不要直接刪掉它。
+    mockFetch(async () => new Response(withFacets(), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('R6');
+    await waitFor(() => expect(screen.getByText('AKRAPOVIČ')).toBeTruthy()); // 先確認資料真的到了
+    expect(screen.queryByText('車款')).toBeNull();
+    expect(screen.queryByText(/CBR600/)).toBeNull();
+  });
+
+  it('🔵 G3-c 空區不畫(稿 :147/:161 逐字 length > 0 &&)', async () => {
+    mockFetch(async () => new Response(withFacets({ brands: [], categories: [] }), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('排氣');
+    await waitFor(() => expect(screen.getByText('鈦合金全段排氣管')).toBeTruthy());
+    expect(screen.queryByText('品牌')).toBeNull();
+    expect(screen.queryByText('分類')).toBeNull();
+  });
+
+  it('🔴 G3-d failed=true 與「沒有符合的」要畫成兩種東西', async () => {
+    // 🛑 少了這一格, 一次讀取失敗會告訴客人「沒有這個品牌」——
+    //    而資料層早就把兩者分開了(`search-facets.ts:35-39` 三旗標各自一格)。
+    // 🔴 **fixture 刻意讓 `brands` 【非空】而 `failed.brands` 為 true。**
+    //    第一版我寫 `brands: []` ⇒ 而那讓兩個世界印同一個東西:
+    //    拿掉 `!facets.failed.brands` 那道判斷之後,`brands.length > 0` 照樣是 false
+    //    ⇒ **突變全綠,而我以為這一格守住了。**(2026-09-03 實跑那一發突變才發現。)
+    //    ⇒ 🎯 非空 + failed ⇒ 少了那道判斷就會【同時】畫「讀不到」與品牌標籤 ⇒ 抓得到。
+    mockFetch(async () =>
+      new Response(withFacets({ failed: { brands: true, categories: false, vehicles: false } }), { status: 200 }),
+    );
+    render(<SearchOverlay />);
+    openWith('排氣');
+    await waitFor(() => expect(screen.getByText('鈦合金全段排氣管')).toBeTruthy());
+    // 世界:品牌讀不到 ⇒ 那一區要出現且說「讀不到」,而**不得同時畫出品牌標籤**
+    expect(screen.getByText('品牌')).toBeTruthy();
+    expect(screen.getByText('這一區暫時讀不到')).toBeTruthy();
+    expect(screen.queryByText('AKRAPOVIČ')).toBeNull(); // 🔴 這一行才是殺得掉突變的那一行
+    expect(screen.getByText('排氣系統')).toBeTruthy();  // 🟢 正對照:分類沒壞 ⇒ 照舊畫
+  });
+
+  it('🔴🔴 G3-e 商品 0 筆而分類有命中 ⇒ 畫分類, 【不准】說「沒有找到」(R1 must-fix 1)', async () => {
+    // 🎯 稿的外閘是**四區聯集**(`SearchOverlay.jsx:60` total = products+brands+categories+vehicles),
+    //    而我第一版寫成只看商品 ⇒ 這個世界會對客人說「沒有找到」。
+    // 🔴 **這不是假想的**:production 打「服務與其他」⇒ items 0 / categories 1(2026-09-03 實測)。
+    // 🧬 突變:把外閘改回 `view.items.length > 0` ⇒ 本格必須紅。
+    mockFetch(async () =>
+      new Response(withFacets({ items: [], brands: [] }), { status: 200 }),
+    );
+    render(<SearchOverlay />);
+    openWith('服務與其他');
+    await waitFor(() => expect(screen.getByText('排氣系統')).toBeTruthy());
+    expect(screen.queryByText(/沒有找到/)).toBeNull();
+  });
+
+  it('🔴 G3-f 商品 0 筆而品牌【讀不到】⇒ 說「讀不到」, 不准說「沒有找到」(R1 must-fix 2)', async () => {
+    // 🛑 plan §5 逐字:不畫 = 告訴客人「沒有這個品牌」。而「沒有找到」比不畫更糟 —— 它是一句斷言。
+    mockFetch(async () =>
+      new Response(withFacets({ items: [], brands: [], categories: [], failed: { brands: true, categories: false, vehicles: false } }), { status: 200 }),
+    );
+    render(<SearchOverlay />);
+    openWith('排氣');
+    await waitFor(() => expect(screen.getByText('這一區暫時讀不到')).toBeTruthy());
+    expect(screen.queryByText(/沒有找到/)).toBeNull();
+  });
+
+  it('🔴 G3-g 分類讀不到時【不得】同時畫出分類標籤(R1 must-fix 5:那道判斷原本零守門)', async () => {
+    // 🎯 這一格與 G3-d 是鏡像 —— G3-d 守品牌那半, 而分類那半當時【沒有任何測試殺得掉】:
+    //    每個 fixture 的 `failed.categories` 都是 false ⇒ 拿掉 `!facets.failed.categories` 全綠。
+    // 🧬 突變:拿掉 `SearchOverlayFacets.tsx` 的 `!facets.failed.categories &&` ⇒ 本格必須紅。
+    mockFetch(async () =>
+      new Response(withFacets({ failed: { brands: false, categories: true, vehicles: false } }), { status: 200 }),
+    );
+    render(<SearchOverlay />);
+    openWith('排氣');
+    await waitFor(() => expect(screen.getByText('AKRAPOVIČ')).toBeTruthy()); // 🟢 正對照:品牌沒壞 ⇒ 照舊畫
+    expect(screen.getByText('這一區暫時讀不到')).toBeTruthy();
+    expect(screen.queryByText('排氣系統')).toBeNull(); // 🔴 殺得掉突變的那一行
+  });
+
+  it('🔴 G3-h 點分類 ⇒ 導頁用【名稱】不是 id(授權偏離, R1 must-fix 6)', async () => {
+    // 🛑 稿 `:167` 用 `c.id`,而我們的 `?category=` 吃名稱(`lib/brand-products.test.ts:20-22`)。
+    //    沒有這一格,下一個人「照稿修回 c.id」時零訊號 —— 而導錯的下場是靜默的。
+    mockFetch(async () => new Response(withFacets(), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('排氣');
+    await waitFor(() => expect(screen.getByText('排氣系統')).toBeTruthy());
+    fireEvent.click(screen.getByText('排氣系統'));
+    expect(push).toHaveBeenCalledWith(`/products?category=${encodeURIComponent('排氣系統')}`);
   });
 
   it('G2 API 失敗 ⇒ 畫「暫時無法使用」,而**不是**「沒有找到」', async () => {

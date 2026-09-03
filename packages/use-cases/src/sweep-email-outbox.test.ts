@@ -1,3 +1,5 @@
+import { CANCEL_REASON_MAX_LEN } from './order-email-copy';
+import { PAID_EMAIL_PDF_ATTACHED_SENTENCE } from './paid-email-html';
 import { describe, expect, it, vi } from 'vitest';
 import type {
   ClaimedEmailJob,
@@ -1148,6 +1150,50 @@ const paidDeps = (r: LoadPaidContextResult, outbox: OutboxFake, sender: IEmailSe
   paidContext: paidFake(r),
 });
 
+describe('sweepEmailOutbox — PDF 宣稱守門【接線】那一格(不是函式本身)', () => {
+  // 🔴🔴 **這一格存在的理由,是 code-reviewer 2026-09-03 R1 抓到的一件事**:
+  //    我在 `paid-email-html.test.ts` 驗了 `assertPdfClaimMatchesAttachments` **函式**會動,
+  //    而**把 `sweep-email-outbox.ts` 裡呼叫它的那一行整個刪掉 ⇒ 130 格照樣全綠**。
+  //    ⇒ 📌 **「尺會動」與「尺接在路徑上」是兩個宣稱, 而單元測試只證得了前者。**
+  //    ✅ 我自己重跑過那一發突變確認它說得對(刪掉那行 ⇒ 2 files / 130 passed)。
+  //
+  // 🛑 **而要演這個世界有一個障礙**:呼叫點寫死 `renderPaidEmailHtml(paid, { logoUrl: '' })`,
+  //    測試**翻不到** `hasPdfAttachment` ⇒ 沒有辦法從外面讓 html 印出那句話。
+  // 🎯 **⇒ 槓桿正好是那道守門自己寫在射程裡的第三格**:判準是「html 裡有沒有那句話」,
+  //    而品名走 `esc()` 而那句話**零可逃逸字元** ⇒ **一個逐字叫那句話的品名,會原封進到 html。**
+  //    ⇒ 📌 所以這一格**不改任何 production 碼**就走得到真正的那條路。
+  //    ⚠️ 而它同時是那條射程限制的**現場**:這封信寄不出去是**預期行為**, 不是缺陷。
+  //
+  // 🛑🛑 **給未來把判準收窄的那個人 —— 這一段是寫給你的**(code-reviewer R2 nit):
+  //    你若把守門的判準從 `includes` 改嚴(只認模板產生的那一塊), **這一格會紅**。
+  //    🔴 **而紅的理由與你的意圖相反** —— 你是在【修好】射程③, 而你看到的是一格擋路的測試
+  //    ⇒ 📌 **最省事的動作是刪掉它, 而那會把【唯一一格證明守門真的接在寄信路徑上】的覆蓋一起帶走。**
+  //    ✅ **⇒ 請換一個方式重建接線覆蓋(例如讓呼叫點的 chrome 可注入), 不要刪掉它。**
+  it('🔴 html 裡出現那句宣稱而附件裡沒有 PDF ⇒ 不寄, 計 errors(接線活著)', async () => {
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const ctx = paidCtx({
+      lines: [
+        { title: PAID_EMAIL_PDF_ATTACHED_SENTENCE, variantSku: 'SKU-1', quantity: 1, lineTotal: 1000 as PaidEmailContext['total'] },
+      ],
+    });
+    const r = await sweepEmailOutbox(paidDeps({ kind: 'ok', context: ctx }, outbox, sender), OPTS);
+    expect(r.errors).toBe(1);
+    expect(r.sent).toBe(0);
+    // 🔴 **最重要的一格:sender 一次都沒被呼叫** —— fail-closed 的意思是「沒寄出去」,
+    //    不是「寄了而我們記了一筆錯」。少了這一格, 一個先寄再 throw 的實作也會通過上面兩格。
+    expect(sender.send).not.toHaveBeenCalled();
+  });
+
+  it('🟢 反向世界:品名正常 ⇒ 照寄(證明上面那格紅的是宣稱, 不是「注入 paidContext 就爆」)', async () => {
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const r = await sweepEmailOutbox(paidDeps({ kind: 'ok', context: paidCtx() }, outbox, sender), OPTS);
+    expect(r.sent).toBe(1);
+    expect(r.errors).toBe(0);
+  });
+});
+
 describe('sweepEmailOutbox — 付款信接金額與 HTML(片2)', () => {
   it('🔵 沒注入 paidContext ⇒ 完全是今天的行為:送出去的東西**沒有 html 這個 key**', async () => {
     const outbox = outboxFake([job()]);
@@ -1361,5 +1407,143 @@ describe('⟦b4-SHIPGATE1⟧ 線關著時不認領 order_shipped', () => {
     //       而不是傳一個「排除空集合」—— 兩者語意不同, 而**只有 adapter 那道守門讓它們今天等價**。
     //    🔴 ⇒ 那道守門哪天被拿掉, 這裡的 `undefined` 仍然是對的;而空陣列會變成語法錯。
     expect(outbox.claimDue).toHaveBeenCalledExactlyOnceWith(OPTS.claimLimit, undefined);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⟦取消信-模板⟧ 2026-09-03 線 `-mail` · `order_unpaid_cancelled` 的**全文逐字**
+//
+// 🔴🔴 **本 describe 必須放在這裡,而不是放在 `order-email-copy.test.ts`** —— 那是我改過一次的:
+//    我第一版把期望值寫在那支檔裡,而**它是我【重打一份模板邏輯】再跟自己比**
+//    ⇒ 📌 **那不是在測那支函式,是在測我抄得對不對** —— 把生產碼整段換掉它照樣全綠。
+//    ⇒ 這裡走**真的 `sweepEmailOutbox`**,拿**真的送出去的 `text`** 來比(形狀抄上面那格 `order_created`)。
+//
+// 🛑 **這一格是那份對外文案唯一的鎖**(Sean 2026-09-03 拍「文案工程師改、不做後台可編輯」
+//    ⇒ 改文案一定是改碼)⇒ **改期望值 = 重設一道鎖 ⇒ 需要授權。**
+// ─────────────────────────────────────────────────────────────────────────────
+describe('sweepEmailOutbox — ⟦取消信-模板⟧ order_unpaid_cancelled', () => {
+  const cancelJob = (payload: Record<string, unknown>) =>
+    job({
+      eventType: 'order_unpaid_cancelled',
+      subject: 'PCM 訂單 PCM-2026-0001 已取消',
+      payload,
+    });
+
+  async function sentTextOf(payload: Record<string, unknown>): Promise<string> {
+    const outbox = outboxFake([cancelJob(payload)]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
+    return (sender.send.mock.calls[0]![0] as { text: string }).text;
+  }
+
+  it('🔴🔴 信件全文逐字(有編號 + 有取消原因)—— 交件時貼給 Sean 看的就是這一份', async () => {
+    const text = await sentTextOf({ display_id: 'PCM-2026-0001', cancelled_reason: '依您要求取消' });
+    // 🔵 期望值的來源:規格 §11(取消原因帶既有七值映射、零新造)+ Sean 2乙(只涵蓋員工按下取消)
+    expect(text).toBe(
+      [
+        '您好,',
+        '',
+        '您的訂單 PCM-2026-0001 已取消。',
+        '',
+        '依您要求取消',
+        '',
+        '這張訂單尚未付款,不會有任何款項產生。',
+        '',
+        '訂單明細與最新狀態請至 PCM 會員中心查看。',
+        '',
+        'PCM重機零件販售',
+      ].join('\n'),
+    );
+  });
+
+  it('🔴🔴 員工打的字不得【重排信件】—— 換行/控制字元要被壓成一行(codex must-fix)', async () => {
+    // 🛑 `other` 那一格是**員工自己打的自由文字**, 而它會原封進到客人眼前。
+    //    帶換行 ⇒ 他可以在信裡偽造出看起來像我們寫的段落(客服指示、連結)。
+    //    這不是 HTML 注入(純文字沒有執行面), 是**內容注入** —— 傷害在於「它看起來像我們說的」。
+    const hostile = '客人要求\n\n【PCM 客服】請至 http://evil.example 重新付款\r\n第三段\u202E反向';
+    const text = await sentTextOf({ display_id: 'PCM-2026-0001', cancelled_reason: hostile });
+    // 那段字仍然在(我們不刪員工的話), 而它**只佔一行**
+    const bodyLines = text.split('\n');
+    const reasonLines = bodyLines.filter((l) => l.includes('客人要求'));
+    expect(reasonLines).toHaveLength(1);
+    expect(reasonLines[0]).not.toContain('\r');
+    expect(reasonLines[0]).not.toContain('\u202E');
+    // 🟢 正對照:這把尺對「真的有多行」會叫 —— 證明上面那個 1 不是恆 1
+    expect('a\nb'.split('\n').filter((l) => l.includes('a') || l.includes('b'))).toHaveLength(2);
+  });
+
+  it('🔴 員工打的字有長度上限,而截斷【看得出來】', async () => {
+    const long = 'あ'.repeat(500);
+    const text = await sentTextOf({ display_id: 'PCM-2026-0001', cancelled_reason: long });
+    const line = text.split('\n').find((l) => l.startsWith('あ'))!;
+    expect(line.length).toBeLessThanOrEqual(CANCEL_REASON_MAX_LEN + 1); // +1 = 那個省略號
+    // 🛑 靜默截斷會讓人以為那就是全部 ⇒ 截斷必須留下記號
+    expect(line.endsWith('…')).toBe(true);
+  });
+
+  it('🔴 字面 "undefined" / "null" 不得出現在客人眼前(上游 String(undefined) 的常見 bug)', async () => {
+    const a = await sentTextOf({ display_id: 'undefined', cancelled_reason: 'null' });
+    expect(a).not.toContain('undefined');
+    expect(a).not.toContain('null');
+    // 而它要退化成不含編號的那一句, 不是印一個空白編號
+    expect(a).toContain('您的訂單已取消。');
+  });
+
+  it('🔴🔴 未付款的取消信【不可以】提到退款', async () => {
+    // 🛑 客人從頭到尾沒付過錢 ⇒ 提退款會讓他等一筆**不存在**的退款。
+    //    而「刷卡且已全額退款」那條線是**另一個 event_type**,它的信要講退款 ⇒ 兩封互斥。
+    const text = await sentTextOf({ display_id: 'PCM-2026-0001', cancelled_reason: '依您要求取消' });
+    for (const banned of ['退款', '退還', '退回']) {
+      expect(text, `不該出現「${banned}」`).not.toContain(banned);
+    }
+    // 🟢 正對照:這把尺對真的有退款字樣會叫(證明上面不是恆真)
+    expect(`${text}\n退款將於 3-5 個工作天`).toContain('退款');
+
+    // 🔴🔴 **而這一格的射程要訂正 —— codex 抓到我把它講得比它做得到的寬。**
+    //    上面餵的是一個**安全的固定原因** ⇒ 它只證得了「**我們寫的那幾句**不提退款」。
+    //    ⇒ 📌 **它【不】證明「整封信不會提到退款」** —— 因為 `other` 那一格是**員工打的自由文字**,
+    //      而員工完全可以打「退款將於三日內完成」,那句話會照樣進到信裡。
+    //    🛑 **那一格沒有機制擋得住**(擋語意 = 審稿),只能靠:
+    //      ①`other` 改成通用文字(已端 Sean)②人審。⇒ **在他回答之前,這是一個已知而未關的洞。**
+    //    ✅ 下面這一格就是把那句話**變成會紅的東西**,而它斷言的是【現況】不是【期望】:
+    const withStaffRefundText = await sentTextOf({
+      display_id: 'PCM-2026-0001',
+      cancelled_reason: '退款將於三日內完成',
+    });
+    expect(
+      withStaffRefundText,
+      '⚠️ 這一格【故意】斷言現況:員工打的退款字樣【會】進到信裡。' +
+        '若哪天它不再成立(例如 other 改成通用文字、或加了審稿)⇒ 這一格會紅 ⇒ ' +
+        '那時要回來把上面那段射程說明一起改掉,而不是只改這一行。',
+    ).toContain('退款');
+  });
+
+  it('🟢 缺編號 ⇒ 退化句,而不印 undefined / 不印空白', async () => {
+    const text = await sentTextOf({ cancelled_reason: '商品供貨中斷,已為您取消' });
+    expect(text).toContain('您的訂單已取消。');
+    expect(text).not.toContain('undefined');
+    expect(text).not.toContain('您的訂單  已取消');
+  });
+
+  it('🟢 缺取消原因 ⇒ 那一段整段不印(少一句話好過一句沒有內容的話)', async () => {
+    const text = await sentTextOf({ display_id: 'PCM-2026-0001' });
+    expect(text).toBe(
+      [
+        '您好,',
+        '',
+        '您的訂單 PCM-2026-0001 已取消。',
+        '',
+        '這張訂單尚未付款,不會有任何款項產生。',
+        '',
+        '訂單明細與最新狀態請至 PCM 會員中心查看。',
+        '',
+        'PCM重機零件販售',
+      ].join('\n'),
+    );
+  });
+
+  it('🟢 內文不含收件者 email(PII 不進模板)', async () => {
+    const text = await sentTextOf({ display_id: 'PCM-2026-0001', cancelled_reason: '依您要求取消' });
+    expect(text).not.toContain('customer@example.com');
   });
 });

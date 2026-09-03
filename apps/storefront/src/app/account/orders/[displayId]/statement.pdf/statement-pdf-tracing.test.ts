@@ -230,7 +230,14 @@ describe('片 C3:statement.pdf 這條 route 的追蹤清單', () => {
 //    ✅ **正確的觀察值 = 那張紙本身**:真的下載到 PDF, 而且中文是【字】不是方框 □□□。
 //    🛑 「log 裡不再出現 `拒絕產檔`」**不算** —— 沒有人打那條 route 時它一樣不會出現(缺席當證據)。
 //    ⇒ 而**本機必然說謊** —— 本機那棵樹本來就在磁碟上, `require.resolve` 本機無論如何都會成功。
-describe('🔴 修法丙:app 層 node_modules 那棵樹有沒有進到追蹤清單', () => {
+// 🔴🔴 **2026-09-03 18:40 更新:修法丙【已在正式站證偽】** —— 完整實測(部署 ID / 時刻 / 三格判別力)
+//    在 `apps/storefront/next.config.ts` 那段 `🔴🔴🔴 丙已在正式站證偽` 註解裡。
+//    🛑 **下面這五格【不是現行修法的守門】** —— 現行走的是【丁】(`statement-pdf.ts` 的候選鏈:
+//       `require.resolve` 失敗就 cwd 相對去 pnpm store 找)。
+//    ⇒ 那為什麼留著:那四條 glob 主視窗-87 裁不 revert(零行為風險 · 這五格是資產 ·
+//      **revert 會讓「試過丙而它沒用」從碼裡消失, 下一個人會再試一次**)⇒ 五格跟著留。
+//    ⇒ 📌 **讀到這裡的人要知道:它們綠, 【不代表】那張紙上的中文會是字。**
+describe('📎 修法丙(已證偽, 保留為紀錄):app 層 node_modules 那棵樹有沒有進到追蹤清單', () => {
   const ROUTE_DIR = dirname(ROUTE_NFT);
   const APP_FONT_DIR = resolve(
     ROUTE_DIR,

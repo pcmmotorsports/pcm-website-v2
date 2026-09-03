@@ -50,7 +50,9 @@ const DESIGN_CONTRACT_FIXTURE = resolve(HERE, 'wallet-design-contract.fixture.tx
  * `scripts/commit-pack-preflight.sh` 用 `git worktree add --detach` 建乾淨沙箱 ⇒ 沙箱裡沒有它
  * ⇒ 這一格在那裡會**硬紅**,而紅的理由與「字面打錯了」長得一樣。(2026-08-27 preflight 實際抓到。)
  *
- * ⚠️ **本檔是全 repo 唯一在 runtime 讀 design-reference 檔案的測試**(2026-08-27 重量)
+ * ⛔ ~~**本檔是全 repo 唯一在 runtime 讀 design-reference 檔案的測試**(2026-08-27 重量)~~
+ *    🔴 **2026-09-03 起不成立 —— 現在是 2 支。訂正全文見本段下方那一格。**
+ *    (這一行原地標記, 是因為拿錨 grep 進來的人正好落在這裡, 而訂正在 29 行之後。)
  *    ⇒ 沒有既有慣例可循,這個取捨是本片新造的。
  *
  * 🔴 **我第一版在這裡寫的數法是【假的】,而它旁邊的結論是真的** ——
@@ -78,6 +80,29 @@ const DESIGN_CONTRACT_FIXTURE = resolve(HERE, 'wallet-design-contract.fixture.tx
  * ⚠️ **這個結論的殘留缺口(附不出檢查的就明寫)**:動態組出來的路徑
  *    (變數拼接、`process.env`、glob)我的候選集掃得到那支檔,而②的人工分類**可能看漏**。
  *    ⇒ 標**未確認**;它若被打破,方向是「不只本檔」,而本檔的 `skipIf` 處置不受影響。
+ *
+ * ⛔⛔ **2026-09-03 訂正(線 `-auth`):上面那句「全 repo 唯一」【已經不成立】, 而它自己預告了方向。**
+ *    `apps/storefront/src/styles/search-overlay-design-parity.test.ts`(2026-09-02 出生, `aa0161ed`;
+ *    而那句「唯一」寫在本檔 `grep -n '全 repo 唯一在 runtime 讀' <本檔>` 那一行)
+ *    也在 runtime 讀 `design-reference/styles/search-overlay.css` ⇒ **現在是 2 支, 不是 1 支。**
+ *    🔴 **而它出生時沒有跟上本檔的 `skipIf` 處置** ⇒ 在 CI 上 **4 格全紅**
+ *    (`gh run 33677207412` 逐字 `ENOENT … design-reference/styles/search-overlay.css`)——
+ *    ⇒ 已於 2026-09-03 照本檔那一格的形狀補上 `skipIf`
+ *      (定位:`grep -n 'it.skipIf(!HAS_DESIGN_SUBMODULE)' <本檔>` ——
+ *       🔴 **不寫行號**:我第一版寫了 `:282`, 而**同一筆 diff 在它上面加了 12 行, 當場漂成 :294**;
+ *       `.github/workflows/ci.yml` 對這件事有明文
+ *       `grep -n '用 grep 定位不用行號' .github/workflows/ci.yml`)。
+ *    🛑 而**它只搬了本檔的一半**:本檔是 fixture(A, 恆跑)+ skipIf(B), 那一支只有 (B)
+ *      ⇒ **CI 上沒有任何一格在比對它與稿**。理由寫在該檔檔頭, 那是取捨不是疏漏。
+ *    📌 **⇒ 這一格的教訓不是那個數字錯了, 是【它預告了「若被打破方向是不只本檔」而沒有東西在看】** ——
+ *      本檔當時就標了「未確認」, 而**標了未確認之後, 沒有任何機制會在它被打破時出聲。**
+ *      🔵 分母重量(2026-09-03)。**數法帶範圍與對照(本檔上面剛講過「附了數法而數法錯更難推翻」)**:
+ *        `grep -rln design-reference apps/<app>/src packages/<pkg>/src --include=<test glob>` ⇒ **9 支**
+ *        (🔴 不寫真 glob 字面 —— 它含【星號接斜線】會提前關掉區塊註解;真字面見 commit body);🟢 正對照 同一把尺打 `search-overlay` ⇒ 非 0(尺會動);
+ *        🔵 負對照 打一個現造字串 ⇒ 0。
+ *        ⇒ 逐支開檔後**真的在 runtime 讀的只有 2 支**;其餘 7 支是註解 / 測試名字裡的字串 /
+ *        把它**排除**在目錄走訪之外(`packages/domain/src/ops/cron-jobs.test.ts` 裡那份排除清單)
+ *        ⇒ **9 是「提到」不是「讀」。**
  *
  * 🔴 **取捨(ponytail:寫下天花板)**:沒有 submodule 時 **skip 而不是紅**。
  *    · 代價 = **它在乾淨沙箱與 CI 上不生效** —— 那是一個 fail-open,我不假裝它不是。

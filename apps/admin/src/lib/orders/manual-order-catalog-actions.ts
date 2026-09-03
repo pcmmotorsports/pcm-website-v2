@@ -17,8 +17,17 @@
 //          ⇒ 兩者的差別在【讀者拿它去做什麼】。
 // 🔴🔴 **而安全警告本身仍然成立, 它不隨拍板消失**:
 //    Server 端鐵則逐字「經銷價絕不傳到一般會員瀏覽器」。這裡是後台、員工看得到是對的;
-//    而它**會進 Server Action 的回應與瀏覽器記憶體**(⚠️ 今天零呼叫端 ⇒ **還沒有**進任何頁面,
-//    見下面那段「沒有呼叫端」;接上 UI 的那一天才會)。
+//    而它**會進 Server Action 的回應與瀏覽器記憶體**(⛔ ~~⚠️ 今天零呼叫端 ⇒ **還沒有**進任何頁面,
+//    見下面那段「沒有呼叫端」;接上 UI 的那一天才會~~)。
+//    🔴🔴 **2026-09-03 訂正(線 `-account` 量,主視窗 `-87` 裁准)—— 已接上 ⇒ 上面那句是【現在式】:**
+//       `apps/admin/src/components/orders/manual-order-catalog-lookup.tsx:4` 逐字
+//       `import { searchManualOrderCatalogAction } from '@/lib/...'`;同支 `:135` 逐字畫
+//       ``經銷 {money(h.dealerPriceUntaxed)}(未稅)`` ⇒ **經銷價現在真的會進瀏覽器。**
+//    🟢 **保護在**(照抄查到的,不放寬):`apps/admin/src/lib/session/session.ts:175` 逐字
+//       `process.env.ADMIN_REQUIRE_REAL_IDENTITY === '1'`;`apps/admin/src/lib/session/actor.ts:25`
+//       逐字「**2026-08-25 起(含今天)** `ADMIN_REQUIRE_REAL_IDENTITY` 已被設為 `1`」。
+//    🛑 **而【正式站上那顆 env 現在是不是 `1`】沒有人在本次驗過** —— 我讀的是**碼與註解**,
+//       不是部署環境。**不要讀成「有人查過了」。**(該格已交主視窗 `-87` 用 Vercel API 查。)
 //    ⇒ 誰拿得到那個後台頁面由 `ADMIN_REQUIRE_REAL_IDENTITY` 那道閘決定, **不是這一支檔**。
 //    📌 **⇒ 拍板改變的是「要不要送」, 沒有改變「送了會被誰看到」。兩件事不要合成一句。**
 // ⚠️ 而 `price_store` 是**未稅**、`price_general` 是**含稅** ——

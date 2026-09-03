@@ -24,6 +24,9 @@ const { cartRef, resolveMock, pushMock } = vi.hoisted(() => ({
       items: [] as CartItem[],
       totalQty: 0,
       isHydrated: true,
+      // 🔴 `cartSessionId`:登出/換人時 CartContext 會把它一起收掉, 而自我修復的 removeItem 不碰它
+      //    ⇒ 那是「換了一車」與「東西被移掉」唯一分得開的訊號(見 CartView 的歸零 effect)。
+      cartSessionId: 'sess-default' as string | null,
       addItem: vi.fn(),
       removeItem: vi.fn(),
       updateQty: vi.fn(),
@@ -76,7 +79,7 @@ afterEach(() => {
   pushMock.mockReset();
 });
 
-function setCart(items: CartItem[], opts: { isHydrated?: boolean } = {}) {
+function setCart(items: CartItem[], opts: { isHydrated?: boolean; cartSessionId?: string | null } = {}) {
   const updateQty = vi.fn();
   const removeItem = vi.fn();
   const setItemVehicle = vi.fn();
@@ -85,6 +88,7 @@ function setCart(items: CartItem[], opts: { isHydrated?: boolean } = {}) {
     items,
     totalQty: items.reduce((s, i) => s + i.qty, 0),
     isHydrated: opts.isHydrated ?? true,
+    cartSessionId: opts.cartSessionId ?? 'sess-default',
     addItem: vi.fn(),
     removeItem,
     updateQty,
@@ -113,6 +117,82 @@ function resolvedLine(over: Partial<ResolvedCartLine> & { productId: string }): 
 }
 
 describe('CartView(M-3-S2-b2-d)', () => {
+  // ═══ ⟦b4-NOVARIANT-CHECKOUTMSG⟧ 實例④:有東西被移掉了要說出來(2026-09-03 線 `-front`)═══
+  //   🛑 **甲案 —— 只改購物車頁,`useResolvedCart` 零改動**(它的消費端含 `CheckoutView`,
+  //      而它自己算 `subtotal`/`total` ⇒ 動它 = 動結帳與金額,主視窗-87 裁不做)。
+  //   ⚠️ **已知缺口**:結帳頁若也發生同樣的移除,**它仍然沒有訊息** —— 而那一格【未驗】。
+  //   🛑 字面是暫用的,等 Sean 題 25。
+
+  it('🔴 有東西【不是他刪的】而消失 ⇒ 說出來', async () => {
+    // 世界:hydrate 後先看到 2 筆 ⇒ 下一輪只剩 1 筆,而客人沒有按過刪除
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }, { productId: 'gone-1', variantId: 'v9', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    const { rerender } = render(<CartView />);
+    await screen.findByText('碳纖維車台護蓋');
+    // hook 的自我修復把查無那筆移掉 ⇒ items 變 1 筆
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    rerender(<CartView />);
+    await waitFor(() => expect(screen.getByText(/已為您移除/)).toBeTruthy());
+    expect(screen.getByText(/1 件商品已不再供應/)).toBeTruthy();
+  });
+
+  it('🔴🔴 全車被移掉(空車那條路)⇒ 那句話【也要】出現 —— R1 Critical 1 的那個世界', async () => {
+    // 🎯 這一格是本片存在的理由:production 實測就是這個世界(整車查無 ⇒ 畫面「購物車是空的」)。
+    //    而第一版的通知掛在 `status!=='empty'` 那個 return 裡 ⇒ **對這個世界零效果, 而 22 格全綠。**
+    // 🧬 突變:把 `<CartEmpty … prunedCount={prunedCount} />` 的傳值拿掉 ⇒ 本格必須紅。
+    setCart([{ productId: 'gone-1', variantId: 'v9', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'gone-1', variantId: 'v9', found: false })]);
+    const { rerender } = render(<CartView />);
+    await waitFor(() => expect(screen.getByText('購物車是空的')).toBeTruthy());
+    setCart([]); // hook 的自我修復把它移掉
+    rerender(<CartView />);
+    await waitFor(() => expect(screen.getByText(/已為您移除/)).toBeTruthy());
+    // 🟢 而空車那句話還在 —— 兩句要並存, 不是互相取代
+    expect(screen.getByText('購物車是空的')).toBeTruthy();
+  });
+
+  it('🔴🔴 登出 / 換帳號清空 ⇒ 那句話【不得】出現 —— R1 Critical 3', async () => {
+    // 🛑 `CartContext.tsx:394-400` 登出走 setItems([]) 且把 cartSessionId 一起收掉,
+    //    而自我修復的 removeItem 從不碰 cartSessionId ⇒ 那就是分得開的訊號。
+    //    少了它:一個剛登出的客人會看到「有 N 件商品已不再供應」。
+    // 🧬 突變:把 cartSessionId 那支歸零 effect 拿掉 ⇒ 本格必須紅。
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }, { productId: 'rpm-2', variantId: 'v2', qty: 1 }], { cartSessionId: 'sess-A' });
+    resolveMock.mockResolvedValue([
+      resolvedLine({ productId: 'rpm-1', variantId: 'v1' }),
+      resolvedLine({ productId: 'rpm-2', variantId: 'v2', name: '第二件' }),
+    ]);
+    const { rerender } = render(<CartView />);
+    await screen.findByText('第二件');
+    setCart([], { cartSessionId: null }); // 登出:品項清空 + 去重子收掉
+    rerender(<CartView />);
+    await waitFor(() => expect(screen.getByText('購物車是空的')).toBeTruthy());
+    expect(screen.queryByText(/已為您移除/)).toBeNull();
+  });
+
+  it('🔵 負對照:沒有東西被移掉 ⇒ 那句話【不在】(否則它對每個客人都會出現)', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    render(<CartView />);
+    await screen.findByText('碳纖維車台護蓋');
+    expect(screen.queryByText(/已為您移除/)).toBeNull();
+  });
+
+  it('🔴 客人【自己按刪除】⇒ 那句話不得出現(否則我們把他自己的動作說成是我們移的)', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }, { productId: 'rpm-2', variantId: 'v2', qty: 1 }]);
+    resolveMock.mockResolvedValue([
+      resolvedLine({ productId: 'rpm-1', variantId: 'v1' }),
+      resolvedLine({ productId: 'rpm-2', variantId: 'v2', name: '第二件' }),
+    ]);
+    const { rerender } = render(<CartView />);
+    await screen.findByText('第二件');
+    fireEvent.click(screen.getAllByText('移除')[1]!); // 客人按的那一顆
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    rerender(<CartView />);
+    await waitFor(() => expect(screen.queryByText('第二件')).toBeNull());
+    expect(screen.queryByText(/已為您移除/)).toBeNull();
+  });
+
   it('hydrate 前 → 載入態「載入購物車…」', () => {
     setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }], { isHydrated: false });
     render(<CartView />);

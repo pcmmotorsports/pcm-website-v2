@@ -154,8 +154,13 @@ export function buildOrderExportRows(orders: AdminOrderSummary[]): string[][] {
     //      那正是本 repo 反覆記到的形狀:**把訊號關掉, 而關掉的方式看起來像變得更安全。**
     //    ⇒ 正解是**去修那些 fixture**(`app/orders/page.test.tsx` 與
     //      `app/@panel/order-panel-wiring.test.ts` 各補上這一欄), 不是在生產碼上長一個假的守門。
-    const recipientName = order.shippingAddress.name ?? EMPTY;
-    const recipientPhone = order.shippingAddress.phone ?? EMPTY;
+    // 🔴 `||` 不是 `??`(⟦b4-PICKPHONE1⟧ · code-reviewer 2026-09-03 must-fix)——
+    //    ⛔ ~~我原本判「`?? EMPTY` 結果一樣所以不必改」~~ **那個前提是假的**:
+    //    同檔 `:111` 逐字 `const EMPTY = '—'`(**不是空字串**)
+    //    ⇒ phone 是 `''` 時 `'' ?? EMPTY` 得到 `''` ⇒ **CSV 的電話欄印一片空白**, 而不是 `—`
+    //    ⇒ 📌 我把一個沒查過的假設當成了「結果一樣」, 而那正是這一片在修的同一個病。
+    const recipientName = order.shippingAddress.name || EMPTY;
+    const recipientPhone = order.shippingAddress.phone || EMPTY;
     const recipientLine = order.shippingAddress.line ?? EMPTY;
     // 🔴🔴 **品項是空陣列時, 這張單【整筆從 CSV 消失】—— 2026-08-27 補審抓到的。**
     //    ~~原本直接 `order.lines.forEach(...)`~~ ⇒ `lines: []` 跑零次 ⇒ 這一單一列都不產出,

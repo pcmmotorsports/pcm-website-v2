@@ -126,3 +126,59 @@
 /* V-2a2:「+ 選擇車款」鈕顯眼化(未填時的主要行動點) */
 .cart-item-body .cvf-add { font-weight: 600; color: var(--c-text); }
 .cvf-done { align-self: flex-start; }
+
+/* ============================================================
+   CartVehicleMixNotice — 「這車裡有 N 台車的東西」中性橫幅
+   plan: docs/specs/2026-09-03-cart-vehicle-mix-notice-plan.md
+   🔴 刻意【不用 --c-red-*】—— 客人很可能沒做錯任何事(他就是有兩台車)。
+      隔壁 .cvf-mismatch 用紅色, 那一句指名某一件「可能不適用」= 真的有風險;
+      本橫幅只是陳述「你車上有兩台車的東西」⇒ 兩者分寸不同, 顏色跟著不同。
+   ============================================================ */
+.cart-mix-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+  border-left: 3px solid var(--c-text-3);
+  border-radius: 10px;
+}
+.cart-mix-notice-head {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+.cart-mix-notice-list {
+  font-size: 13px;
+  color: var(--c-text-2);
+}
+/* 手機:提示句自己一行, 不與車名擠在同一行(390px 實測基準) */
+.cart-mix-notice-hint {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--c-text-3);
+}
+
+/* ============================================================
+   CartView — 「有 N 件商品已不再供應,已為您移除」
+   板列 ⟦b4-NOVARIANT-CHECKOUTMSG⟧ 實例④ · 文案等 Sean 拍(題 25)
+   🔴 與隔壁 .cart-mix-notice 用同一套骨架, 而【左邊那條線用警示色】——
+      混車橫幅是「你車上有兩台車的東西」(他多半沒做錯);
+      本條是「有東西被移掉了」(那是一件他該知道的損失)⇒ 分寸不同。
+   ============================================================ */
+.cart-pruned-notice {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+  /* 🔴 fallback 對齊本站 token 實值(`tokens.css` 的 --c-red-dark = #c4470c 熔橘)——
+     R1 nit:原本寫 #b3261e 是 Material 紅, 而 token 若被改名會靜靜掉回一個【不是本站】的顏色。 */
+  border-left: 3px solid var(--c-red-dark, #c4470c);
+  border-radius: 10px;
+}

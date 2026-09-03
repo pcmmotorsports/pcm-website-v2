@@ -48,7 +48,27 @@
  *     ⇒ 處置改成「不改它, 而把矛盾寫在讀得到的地方」。
  */
 
-export type EmailOutboxEventType = 'order_created' | 'order_shipped';
+/**
+ * 🔴🔴 **這個 union 是【手抄的】,而 DB 的 CHECK 才是值域的權威。**
+ *    ⇒ 兩者分岔是本 repo **明文預期會發生**的順序(`20260902120000` 逐字:
+ *      「『DB 先加了新 event_type、code 還沒跟上』是這個 repo 明文預期會發生的順序」)。
+ *
+ * ⚠️ **2026-09-03 量到的分岔,寫下來不要當它不存在**:
+ *    DB 的 CHECK 自 2026-09-02 起含 **`order_cancelled`**,而本 union **沒有它**
+ *    (量法 `grep -rn "order_cancelled" packages/{ports,adapters,use-cases}/src --include='*.ts'`
+ *     排除測試 ⇒ **0 命中**;🟢 正對照同一把尺問 `order_shipped` ⇒ **47**)。
+ *    🛑 **那不是漏改,是【那條線的模板還沒有人做】** —— `order_cancelled` 屬於「刷卡且已全額退款」
+ *      那條線,它的文案沒有稿、沒有拍板 ⇒ **本片不發明它**(規格 `2026-09-03-cancel-email-scope-spec-draft.md` §10)。
+ *    ⇒ 加進 union **必須**同時在 `buildEmailText` 補 case(`satisfies never` 會逼你),
+ *      而補 case 需要文案 ⇒ **順序是:先有文案,再進 union。**
+ *
+ * 🔵 而在它進來之前,失敗方向是安全的:`buildEmailText` 的 `default` 是 `throw`
+ *    ⇒ 計 error、列留 sending、**不寄**,而不是把 event_type 字串當內文寄出去。
+ */
+export type EmailOutboxEventType =
+  | 'order_created'
+  | 'order_shipped'
+  | 'order_unpaid_cancelled';
 
 /**
  * 有限錯誤碼 allowlist(對齊 DB CHECK `^[a-z0-9_]{1,64}$`;E2a 依此決定退避/告警)。

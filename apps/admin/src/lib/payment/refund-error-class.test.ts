@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { TapPayRefundUnknownStateError } from '@pcm/domain';
 import {
   REFUND_ERROR_CLASSES,
   UNKNOWN_VALUE_TYPES,
@@ -167,5 +168,74 @@ describe('describeUnknownValue — 封閉描述,零字元來自那個值(F1/F2/F
       expect(TYPES.has(got.type), `type ${got.type} 不在字集裡`).toBe(true);
       expect(got.length === null || typeof got.length === 'number').toBe(true);
     }
+  });
+});
+
+// ═══ ⟦b4-REFUND10016⟧ 乙:兩個 throw 點的金錢意義相反 ═══════════════════════════
+//
+// 🔴 **期望值從【規格】推,不是從實作抄** —— 下面兩格的第二欄是「值班要做什麼」,
+//    而分類碼是第三欄。先答第二欄,分類碼才有意義。
+//    (抄實作 = 讓被測的碼自己出考題;那格測試從出生起就抓不到它的缺陷。)
+//
+//   TapPay 受理了(status === 0)、回應形狀壞掉 ⇒ 先查**那一筆退款**的下落
+//   TapPay 回了**沒實證過的非 0 碼**            ⇒ 先查**那個碼是什麼意思**
+// 🛑 **兩格都是「已送出、狀態未知」⇒ 都不得自動重發、都不該叫人直接重退**(codex R2 打掉我原本的
+//    「錢沒動 ⇒ 要重退」—— 乾淨拒絕的碼走的是別條路, 走到這裡的是我們沒見過的碼)。
+//
+// 🛑 這兩件事**共用同一列稽核資料**,在本片之前都落 `error_unclassified`。
+describe('⟦b4-REFUND10016⟧ 乙 — 兩條路的【先查哪裡】不同,必須分得出來', () => {
+  it('TapPay 受理了 ⇒ 先查那一筆退款的下落 ⇒ accepted_malformed', () => {
+    const err = new TapPayRefundUnknownStateError('受理回應格式異常', 'r_1', 'accepted_malformed');
+    expect(classifyRefundError(err)).toBe('accepted_malformed');
+  });
+
+  it('TapPay 回了沒實證過的碼 ⇒ 先查那個碼 ⇒ unknown_wire_status', () => {
+    const err = new TapPayRefundUnknownStateError('未實證回應碼 10016', null, 'unknown_wire_status');
+    expect(classifyRefundError(err)).toBe('unknown_wire_status');
+  });
+
+  it('🔴 兩者不得相等 —— 這一格才是本片存在的理由', () => {
+    const accepted = new TapPayRefundUnknownStateError('a', null, 'accepted_malformed');
+    const rejected = new TapPayRefundUnknownStateError('b', null, 'unknown_wire_status');
+    expect(classifyRefundError(accepted)).not.toBe(classifyRefundError(rejected));
+  });
+
+  it('🔵 負對照:一般 Error 不受影響,仍是 error_unclassified', () => {
+    expect(classifyRefundError(new Error('plain'))).toBe('error_unclassified');
+  });
+
+  it('🔵 負對照:帶一個【不在字集裡】的 outcome ⇒ 不得穿透,退回 error_unclassified', () => {
+    // 🔴 JS 呼叫端繞過型別層塞進來的值。本函式對外的承諾是「回傳值恆在字集內」,
+    //    而**穿透**(把外來字串原樣回傳)是本檔真正在防的那件事。
+    const weird = Object.assign(new Error('x'), { outcome: 'sk_live_LEAKED' });
+    const got = classifyRefundError(weird);
+    expect(got).toBe('error_unclassified');
+    expect(CLASSES.has(got)).toBe(true);
+  });
+
+  it('🔴🔴 codex R1 must-fix:【撞名】的 Error 不得被判成 unknown_wire_status', () => {
+    // 情境(codex 給的):某個自訂 abort reason 剛好也有 `outcome` 欄, 值恰好撞上。
+    // 🛑 若它被判成 unknown_wire_status ⇒ 值班被送去查錯的東西, 而這條路動的是錢。
+    // 🎯 撞名必須落在安全的那一側(退回「分不出是哪一類」)—— 動錢那一側的代價是雙退。
+    const impostor = Object.assign(new Error('some other failure'), {
+      outcome: 'unknown_wire_status',
+    });
+    expect(classifyRefundError(impostor)).toBe('error_unclassified');
+    expect(classifyRefundError(impostor)).not.toBe('unknown_wire_status');
+  });
+
+  it('🔴 而【身分對而值不對】也不得穿透', () => {
+    const wrongValue = Object.assign(new Error('x'), {
+      name: 'TapPayRefundUnknownStateError',
+      outcome: 'sk_live_LEAKED',
+    });
+    const got = classifyRefundError(wrongValue);
+    expect(got).toBe('error_unclassified');
+    expect(CLASSES.has(got)).toBe(true);
+  });
+
+  it('🔵 兩個新分類碼都在封閉字集裡', () => {
+    expect(CLASSES.has('accepted_malformed')).toBe(true);
+    expect(CLASSES.has('unknown_wire_status')).toBe(true);
   });
 });

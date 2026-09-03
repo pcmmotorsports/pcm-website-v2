@@ -397,7 +397,12 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
                   defaultChecked={c.userId === justCreatedId}
                 />
                 <span>
-                  {c.name}({c.phone ?? '沒有電話'})
+                  {/* 🔴 `||` 不是 `??`:`customers.phone` 可能是空字串(schema 沒有 `<> ''` 約束,
+                      而【不准空字串】那種 CHECK 全 repo 172 條、phone 佔 0 條 ——
+                      數法 `python3 -c "…count(chr(60)+chr(62)+\" ''\")"` 對 supabase/migrations/*.sql;
+                      🛑 那與「全部 CHECK 有幾條」(608)是**兩個不同的問題**, 不要混用)⇒ `??` 會讓這裡顯示
+                      一個【空括號】而不是「沒有電話」⇒ 員工分不出「沒填」與「畫面壞了」。⟦b4-PICKPHONE1⟧ */}
+                  {c.name}({c.phone || '沒有電話'})
                   {c.isManual ? ' · 後台開的帳號' : ''}
                 </span>
               </label>

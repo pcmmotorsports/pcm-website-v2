@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ORDER_CANCELLED_HEADLINE_NO_ID,
+  ORDER_CANCELLED_HEADLINE_WITH_ID,
   ORDER_MEMBER_CENTER_SENTENCE,
   ORDER_PAID_HTML_LEAD_SENTENCE,
   ORDER_PAID_NEXT_STEP_SENTENCE,
+  ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE,
 } from './order-email-copy';
 import { renderPaidEmailHtml } from './paid-email-html';
 import type { PaidEmailContext } from '@pcm/ports';
@@ -55,6 +58,14 @@ describe('訂單信文案:一份定義、兩邊各自取用(Sean 2026-09-03 拍�
     expect(html).not.toContain('我們會盡快為您安排出貨,');
   });
 
+  // ✅ **這一格被證明會叫的方式(2026-09-03 自我稽核,兩個消費端【各突變一次】)**:
+  //    · `paid-email-html.ts` 改回手打同樣的字面 ⇒ 🔴 本格紅(而 `toContain` 那兩格仍綠)
+  //    · `sweep-email-outbox.ts` 改回手打同樣的字面 ⇒ 🔴 本格紅
+  //    🔴 **而第二發是稽核時才補的** —— 我原本只突變了 HTML 那一端就收工,
+  //      ⇒ 📌 **「這把尺會叫」與「它對【每一個】它宣稱涵蓋的對象都會叫」是兩個宣稱。**
+  //      一個只掃到第一個 consumer 的實作,在只突變第一個 consumer 的稽核下**完美通過**。
+  //    🔵 而那一發突變本身也被自己的自檢擋過一次:錨字串同時命中 **import 那一行**與模板本體
+  //      ⇒ 腳本 assert 命中數 = 1 失敗而停 ⇒ **它沒有靜靜改到 import**(那會是「突變沒落在目標上」第五種)。
   it('🔴🔴 production 裡【不准有第二份手打副本】—— 這一格才證得了「來源」', async () => {
     // 🔴 codex 2026-09-03 兩條 must-fix 的根:`toContain` 只證「那個值出現在產出裡」,
     //    **證不了它是從常數來的** —— 把消費端改成手打同樣的字面,上面那兩格照樣全綠。
@@ -87,5 +98,44 @@ describe('訂單信文案:一份定義、兩邊各自取用(Sean 2026-09-03 拍�
     // 證明上面兩格不是恆真 —— 一個刻意錯的字面必須對不上。
     expect(ORDER_PAID_NEXT_STEP_SENTENCE).not.toBe('我們會盡快為您安排出貨,出貨後會再寄一封通知給您。');
     expect(ORDER_MEMBER_CENTER_SENTENCE).not.toBe('');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⟦取消信-模板⟧ 2026-09-03 · `order_unpaid_cancelled` 的**全文逐字**
+//
+// 🔴 **這一格就是那份文案唯一的鎖。** Sean 2026-09-03 拍「文案工程師改、不做後台可編輯」
+//    ⇒ **改文案一定是改碼** ⇒ 沒有這一格,對外字面可以無聲改變,而 cron 會直接把它寄給客人。
+// 🛑 **改這個期望值 = 把鎖重設,而重設一道鎖需要授權** —— 下一個想改的人:
+//    先找到你的兩格(**統一/內容的拍板** + **依據**),沒有就不要改。
+//    「測試過期了順手更新」**不是依據**。
+//
+// 🔵 而期望值**從規格推,不從實作抄**:規格 = `docs/specs/2026-09-03-cancel-email-scope-spec-draft.md`
+//    §11(取消原因帶既有七值映射、不新造)+ Sean 2乙(只涵蓋員工按下取消)。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('⟦取消信-文案常數⟧ order_unpaid_cancelled 的字面', () => {
+  // 🔴🔴 **本 describe 原本還有四格,而我把它們刪掉了 —— 因為它們什麼都沒測。**
+  //    那四格的期望值是我**在測試裡重打一份模板組裝邏輯**再跟自己比
+  //    ⇒ 📌 **測的是「我抄得對不對」,不是那支函式** ⇒ 把生產碼整段換掉,它們照樣全綠。
+  //    ✅ **全文逐字那一族已搬到 `sweep-email-outbox.test.ts`**,在那裡走**真的 `sweepEmailOutbox`**、
+  //      拿**真的送出去的 `text`** 來比(錨:`⟦取消信-模板⟧ order_unpaid_cancelled`)。
+  //    🔵 **這裡只留【常數本身的字面】** —— 那是本檔測得到的東西:它們是**寄出去的那些字**。
+
+  it('🔴 三塊常數逐字', () => {
+    expect(ORDER_CANCELLED_HEADLINE_WITH_ID('PCM-2026-0001')).toBe('您的訂單 PCM-2026-0001 已取消。');
+    expect(ORDER_CANCELLED_HEADLINE_NO_ID).toBe('您的訂單已取消。');
+    expect(ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE).toBe('這張訂單尚未付款,不會有任何款項產生。');
+  });
+
+  it('🔴 那三塊自己都不可以出現退款字樣', () => {
+    // 未付款的單 ⇒ 客人從頭到尾沒付過錢 ⇒ 提退款會讓他等一筆不存在的退款。
+    const all = [
+      ORDER_CANCELLED_HEADLINE_WITH_ID('X'),
+      ORDER_CANCELLED_HEADLINE_NO_ID,
+      ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE,
+    ].join('\n');
+    for (const banned of ['退款', '退還', '退回']) expect(all).not.toContain(banned);
+    // 🟢 正對照:尺對真的有那些字會叫
+    expect(`${all}\n退款`).toContain('退款');
   });
 });

@@ -18,8 +18,19 @@
 # 用法:  bash 草稿-row-evidence.sh <錨或關鍵字> [末段行數, 預設 15]
 #        bash 草稿-row-evidence.sh --selftest
 set -uo pipefail
-REPO="$(cd "$(dirname "$0")" && pwd)"
-[ -d "$REPO/.git" ] || REPO=/Users/sean_1/pcm-website-v2
+# 🔴🔴 **這兩行原本有【兩個】疊在一起的錯, 而它們互相遮住**(⟦f3-ENVROOTFAMILY⟧, 2026-09-03 線 `-auth`)
+#   ⛔ 舊版 ~~`REPO="$(cd "$(dirname "$0")" && pwd)"`~~ ⇒ 那是 **`scripts/` 目錄**, 不是 repo 根(少了 `/..`)
+#   ⛔ 舊版 ~~`[ -d "$REPO/.git" ] || REPO=/Users/sean_1/pcm-website-v2`~~
+#      ⇒ `scripts/.git` 永遠不存在 ⇒ **每一次都掉進那個寫死的主樹路徑**
+#   🎯 **⇒ 於是它【一直是對的】—— 在主樹上。而在 worktree 裡跑, 它讀的是【主樹的板子】不是你的。**
+#   📌 **兩個錯互相遮住:少了 `/..` 被 fallback 蓋掉, 而 fallback 被「它一直能跑」蓋掉。**
+#
+#   ⚠️ **而 `-d "$REPO/.git"` 這個判準對 worktree 本來就是瞎的**:
+#      worktree 的 `.git` 是**一個檔案**不是目錄(實測)⇒ 就算 `/..` 補回來, `-d` 仍然回 false。
+#   ✅ 改用 `git rev-parse --show-toplevel`(這一支要的是**你自己這棵樹**的板子)。
+# 🔴 括號不可省:`a || b && c` 在 shell 裡是 `(a || b) && c` ⇒ git 成功時 `pwd` 【照樣跑】
+#    ⇒ REPO 會拿到【兩行】。本窗 2026-09-03 第一版就是這樣, 而 selftest 當場紅。
+REPO="$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null || (cd "$(dirname "$0")/.." && pwd))"
 BOARD="$REPO/docs/launch-todo.md"
 ASK="$REPO/scripts/before-asking-sean.sh"
 

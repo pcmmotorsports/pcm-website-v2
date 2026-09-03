@@ -90,6 +90,13 @@ export function filterFacets(
 
   // 稿 `:47-54`:逐 brand 逐 model,而 **model 名或 brand 名任一命中就算**
   // ⇒ 打「YAMAHA」要撈得出它旗下的車款,不是只有名字裡有 YAMAHA 的那些型號。
+  // 🔴🔴 **`vehicles` 今天【算了而沒有人畫】—— 那是刻意的,不是 dead code。**
+  //    (2026-09-03;R1 nit 12:指標原本只寫在畫的那一端,而**會刪掉這段的人打開的是這支檔**。)
+  //    疊層那一區被 `SearchOverlayFacets.tsx` 刻意不畫,因為 `match()` 是子字串比對
+  //    ⇒ 打 `R6` 會比中 `CBR600`(`cbr600` 裡含 `r6`)⇒ 客人會以為網站壞了。
+  //    📎 **等 Sean 拍**:`~/pcm-mailbox/等Sean拍的題-20260903.md` **題 21** · 板列 `⟦f3-VEHICLEMATCH⟧`。
+  //    🛑 **拍板前不要刪這段** —— 刪了之後那一區要接上來時得重寫,而 `SearchOverlay.test.tsx`
+  //      的 G3-b 斷言的是「畫面上不得出現」⇒ **刪掉資料源它照樣綠,不會叫。**
   const vehicles: SearchVehicleHit[] = [];
   for (const b of data.vehicles.motoBrands) {
     for (const m of b.models) {

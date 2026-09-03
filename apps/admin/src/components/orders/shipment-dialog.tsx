@@ -381,7 +381,16 @@ export function ShipmentDialog({
 
         <div className='space-y-3 px-4 py-3'>
           <p className='text-muted-foreground text-xs'>
-            收件:{recipient.name ?? '—'} · {recipient.phone ?? '—'} · {recipient.line ?? '—'}
+            {/* 🔴 `||` 不是 `??`(⟦b4-PICKPHONE1⟧)。
+                ⛔ ~~我原本寫「來源是 `lib/shipping/recipient.ts:41`」~~ —— **那是錯的**
+                   (code-reviewer 2026-09-03 must-fix):`recipient.ts` 產的是 `:292` 餵 RPC 的
+                   `recipientSnapshot`, **與這一格是兩條不同的路**。照那條註解去動 recipient.ts
+                   的人, 會改到一條與這一格無關的東西。
+                ✅ 這一格的 recipient 是 **props**(型別 `:92`), 來源是訂單快照
+                   `orders.shipping_address_snapshot` —— 而那一層在 DB 就走 `coalesce(v_addr.phone, '')`
+                   (`supabase/migrations/20260604130000:98`)⇒ **它結構上不可能是 null, 只可能是空字串**
+                ⇒ 🎯 所以原本的 `??` 是【死碼】, `||` 才是唯一有作用的形狀。 */}
+            收件:{recipient.name || '—'} · {recipient.phone || '—'} · {recipient.line || '—'}
           </p>
 
           <ul className='divide-y rounded-md border'>

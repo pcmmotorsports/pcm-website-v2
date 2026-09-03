@@ -423,7 +423,14 @@ function normalizeSql(sql: string, opts: { strings: boolean } = { strings: true 
       i = j;
     } else if (sql[i] === '$' && !isIdentChar(sql[i - 1])) {
       // 🔴 `foo$tag$bar` 是一個**合法識別字** —— 前一個字元是識別字字元時, 這個 `$` 不是開頭(codex 抓)。
-      const m = /^\$[A-Za-z_0-9]*\$/.exec(sql.slice(i, i + 64));
+      // 🔴 **視窗要吃得下【最長的合法 tag】** —— PG 的 tag 跟未加引號識別字同規則,
+      //    上限 `NAMEDATALEN-1` = **63 bytes** ⇒ `$` + 63 + `$` = **65 字元**。
+      //    ⛔ 舊值 ~~`i + 64`~~ **吃不下** ⇒ 2026-09-03 實測邊界**恰好落在 63**:
+      //      tag 1/10/60/61/62 字 ⇒ 認得;**63/64/70 字 ⇒ 不認得**(走成頂層行註解)。
+      //    ⇒ 而 63 正是**合法上限本身** ⇒ 我們漏掉的剛好是那一格。
+      //    🔵 語料現況:最長 tag **22** 字(`20260810160000…:op3_gate_release_order`)、
+      //      >=63 字的 **0** 個 ⇒ **今天零影響**;而 `66` 留了餘裕, 且它不吃更長的東西。
+      const m = /^\$[A-Za-z_0-9]*\$/.exec(sql.slice(i, i + 66));
       if (m) {
         const tag = m[0];
         const j = sql.indexOf(tag, i + tag.length);
@@ -874,6 +881,53 @@ describe('OR 串 CHECK 的 NULL 短路面守門(#641 ④ 的機制版)', () => {
       expect(judge("ALTER TABLE t ADD CONSTRAINT c CHECK (kind = 'a' OR kind = 'b');")).toEqual([true]);
       // 🔵 負對照:沒有 OR ⇒ 必須 false(擋「這支尺恆真」)。
       expect(judge("ALTER TABLE t ADD CONSTRAINT c CHECK (kind = 'a');")).toEqual([false]);
+    });
+
+    it('🔴 dollar-quote 的 tag 文法 —— 對照 PG 官方 §4.1.2.4 親讀的七條', () => {
+      // 🔴🔴 **這一格是 ⟦b4-DOLLARGRAMMAR1⟧ 的落點**:我們手寫的狀態機 vs PG 定義的文法,
+      //   差多少【沒有人查過】。2026-09-03 查官方文件逐條餵, 而**三個紙上分歧只有一個是真的**。
+      //
+      // 🛑 **第一發我的尺是壞的, 照實留**:我拿「輸出有沒有變」當「有沒有被當成 dollar-quote」的代理
+      //   ⇒ 而 `-- y` 被當**頂層行註解**剝掉也會讓輸出變 ⇒ **兩個世界印同一件事**, 17 格裡有 2 格假分歧。
+      //   ✅ 換成【在構造後面放一句真 DDL, 問它還在不在】才分得開。
+      //   📌 **⇒ 又一次:代理指標量的是另一件事, 而它給的數字看起來完全合理。**
+      const DDL = 'ALTER TABLE shipments ALTER COLUMN carrier_code DROP NOT NULL;';
+      const swallowed = (prefix: string) => dropNotNullTargets(prefix + DDL).length === 0;
+
+      // 🟢 正對照:裸 DDL 必須抓得到, 否則下面每一格都零判別力。
+      expect(swallowed(''), '裸 DDL 都抓不到 ⇒ 這一格整個沒接上').toBe(false);
+
+      // ② 官方:tag 跟未加引號識別字同規則 ⇒ **不得以數字開頭** ⇒ `$1$` 不是 tag(`$1` 是位置參數)。
+      //    ⛔ 我原本在板上推測 ~~「我們接受 `$1$` ⇒ 會把後面的真 DDL 吞掉(漏報方向)」~~
+      //    🔴 **實測:不會。** 我們雖然認得 `$1$`, 而它成對閉合 ⇒ 後面那句 DDL 仍在外面。
+      //    ⇒ **紙上的分歧不等於行為上的分歧** —— 這一格就是釘住那個「不會吞」。
+      expect(swallowed('SELECT $1$ a $1$; ')).toBe(false);
+      expect(swallowed('SELECT $12$ a $12$; ')).toBe(false);
+      expect(swallowed('SELECT $1 + 1; ')).toBe(false);
+      // ⑥ 官方:dollar-quote 緊接在識別字後面時, 那個 `$` 屬於前一個識別字 ⇒ 不開字串。
+      expect(swallowed('SELECT foo$$ a $$; ')).toBe(false);
+      // ③ 官方:tag 大小寫敏感 ⇒ `$TAG$…$tag$` 不成對 ⇒ PG 會讀成未閉合(整段吃到檔尾)。
+      //    🔵 而我們**不吞** ⇒ 那句 DDL 仍被報出來 ⇒ **誤報方向(有人看得到), 不是漏報。**
+      //    🛑 這是刻意記下來的**已知分歧**, 不是宣稱我們與 PG 一致。
+      expect(swallowed('SELECT $TAG$ a $tag$; ')).toBe(false);
+      expect(swallowed('SELECT $$ a ; ')).toBe(false);
+
+      // ⑦ 官方:tag 上限 = `NAMEDATALEN-1` = 63 bytes。
+      //    🔴 **而這一格抓到一個真的 bug**:視窗原本是 `i + 64`, 而 `$`+63+`$` = 65
+      //    ⇒ 實測邊界恰好落在 63 —— **合法上限本身那一格認不得**。已改成 `i + 66`。
+      //    🧬 突變:把 66 改回 64 ⇒ 下面「63 字」那一發必須紅。
+      const tagged = (n: number) => {
+        const tag = '$' + 'a'.repeat(n) + '$';
+        const out = normalizeSqlForTest('SELECT ' + tag + ' q -- ' + tag + '\nZZEND;', {
+          strings: false,
+        });
+        return out.split(tag).length - 1 === 2;   // 開與閉都還在 = 被當成 dollar 本體
+      };
+      expect(tagged(1), 'tag 1 字認不得 ⇒ 這把尺沒接上').toBe(true);   // 🟢 正對照
+      expect(tagged(62)).toBe(true);
+      expect(tagged(63), 'PG 的合法上限就是 63 —— 認不得它等於漏掉最長的合法 tag').toBe(true);
+      // 🔵 負對照:64 以上在 PG 已經不是合法識別字 ⇒ 不認得它是對的, 而這一格證明尺會分。
+      expect(tagged(70)).toBe(false);
     });
 
     it('🔵 schema 限定寫法跨行/帶 tab 也要收斂成同一形狀', () => {

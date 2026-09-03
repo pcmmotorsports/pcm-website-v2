@@ -16,7 +16,14 @@ import type { MoneyAmount } from '@pcm/domain';
  * ```
  * ① 有實作嗎？   ✅ **有** —— `SupabasePaidEmailContextAdapter`,且已從 `adapters/src/server.ts` 匯出
  *                (數法 `grep -c SupabasePaidEmailContextAdapter packages/adapters/src/server.ts` ⇒ 2)
- * ② 被建構了嗎？ 🔴 **沒有** —— 除了它自己的測試,零處 `new`
+ * ② 被建構了嗎？ ⛔ ~~🔴 **沒有** —— 除了它自己的測試,零處 `new`~~
+ *                🔵 **2026-09-03 訂正:已被建構。**
+ *                `apps/storefront/src/lib/email/composition.ts:155` 逐字
+ *                `const paidContext = new SupabasePaidEmailContextAdapter(serviceClient);`
+ *                (檔頭自己的數法 `grep -c "new SupabasePaidEmailContextAdapter" …/composition.ts`
+ *                 ⇒ **2**,其中非註解 **1**;`:126` 那個是被劃掉的舊版)
+ *                📌 那一行 2026-09-02 被 revert 過、後來有人明知風險重新接上,
+ *                   理由寫在 `composition.ts:126-155`(逐字「差別不在風險變小了, 在【有人決定承擔它】」)。
  * ③ 被呼叫了嗎？ ✅ **有**(2026-09-01 片2)—— `sweepEmailOutbox` 的 `paidContext?` dep,
  *                `order_created` 時呼 `loadPaidContext` 並把 ok 的 context 餵給
  *                `renderPaidEmailHtml`(數法 `grep -c loadPaidContext
@@ -24,7 +31,16 @@ import type { MoneyAmount } from '@pcm/domain';
  *                ⛔ ~~原本:**沒有** —— 零 `loadPaidContext` 呼叫端(`sweepEmailOutbox` 仍只解構
  *                `{ outbox, sender }`)~~ ⇒ 那句話在片2 之後為假(code-reviewer 2026-09-01 抓到)。
  * ```
- * ⇒ **本檔今天仍不是一條通路** —— ②仍然斷著:`apps/storefront/src/lib/email/composition.ts`
+ * ⛔ ~~⇒ **本檔今天仍不是一條通路** —— ②仍然斷著:`apps/storefront/src/lib/email/composition.ts`~~
+ * 🔴🔴 **2026-09-03 訂正:上面那個結論倒了 —— 三層今天【全部接上】。**
+ *    而它是這份摘要裡**唯一會讓人停止查證的那一句**,所以單獨標出來。
+ * 🎯 **而「客人收到的信一個字都沒變」這句要看【受詞】** —— 主視窗 `-87` 2026-09-03 唯讀查:
+ *    `email_outbox` 全部 **3 列**,`sent_at` 最晚 **2026-09-02 11:30(台北)**;
+ *    而新文案 **2026-09-03 02:36** 才進 `main`。
+ *    ⇒ **作為【對客人的描述】它今天碰巧仍為真**(舊的那種,因為新的還沒有機會寄)
+ *    ⇒ **作為【對碼的描述】它為假**(通路已通)。
+ *    📌 **一句話同時是對的與錯的, 差在它的受詞** ⇒ 引用它的人要先問「你在講碼還是講客人」。
+ * ⛔ ~~(以下為原文, 保留)~~ `apps/storefront/src/lib/email/composition.ts`
  *   還沒有 `new SupabasePaidEmailContextAdapter`(數法同上,對 composition.ts ⇒ 0)。
  *   ⇒ 📌 **而那正是「不給 dep = 維持今天的行為」那條路** ⇒ 客人收到的信目前一個字都沒變。
  *   接上它的是模板那一片(合併 plan 的 S4)。

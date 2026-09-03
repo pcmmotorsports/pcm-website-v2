@@ -18,11 +18,21 @@
 #      格③④⑤⑥ 爆 = 段二未接線路徑(今天沒人用)   → 開索引片、不接段二、不 rollback
 set -uo pipefail
 
-# .env.local 不在 git 裡、且各 worktree 各有一份 ⇒ 依序找,不寫死單一絕對路徑。
+# 🔴 `.env.local` 不在 git 裡 ⇒ 依序找, 不寫死單一絕對路徑。
+#   ⛔ 而本行原註 ~~「且各 worktree 各有一份」~~ **今天為假**(2026-09-03 線 `-auth` 實測):
+#      主樹有 · worktree `pcm-wt-auth` **沒有** ⇒ 📌 **worktree 靠的一直是下面那個 fallback。**
+#   ⛔ 而那個 fallback 舊版是**寫死的絕對路徑** ~~`/Users/sean_1/pcm-website-v2/...`~~
+#      ⇒ 換機器 / 換使用者名稱就壞, 而壞的方式是「找不到 .env.local」= 與真的沒有那個檔同一句話。
+#   ✅ 改成 `git rev-parse --git-common-dir` 的父目錄 —— 它從**任何一棵 worktree** 都回主樹,
+#      從主樹自己跑則回自己(⟦f3-ROKEYWORKTREE⟧ 四個世界實測過)⇒ **把那個寫死的路徑推導出來。**
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo .)
+MAIN_ROOT=""
+if GCD=$(git rev-parse --git-common-dir 2>/dev/null); then
+  MAIN_ROOT="$(cd "$GCD/.." 2>/dev/null && pwd)"
+fi
 ENV_FILE=""
 for cand in "$REPO_ROOT/apps/storefront/.env.local" \
-            "/Users/sean_1/pcm-website-v2/apps/storefront/.env.local"; do
+            "${MAIN_ROOT:-/nonexistent}/apps/storefront/.env.local"; do
   [ -r "$cand" ] && { ENV_FILE="$cand"; break; }
 done
 [ -n "$ENV_FILE" ] || { echo "找不到 apps/storefront/.env.local(試過 repo 內與主樹)"; exit 1; }
