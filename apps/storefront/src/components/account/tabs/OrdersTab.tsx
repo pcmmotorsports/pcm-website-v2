@@ -28,6 +28,7 @@ import {
   //    而兩份各自維護的文案，下次只會改到一邊。
   ORDER_DETAIL_ITEMS_TRUNCATED_NOTE,
 } from '@/lib/account-order-copy';
+import { ProductImage } from '@/components/ProductImage';
 
 export type OrdersTabProps = {
   orders: OrderListItem[];
@@ -142,17 +143,19 @@ export function OrdersTab({ orders }: OrdersTabProps) {
                     {o.items.map((it, i) => (
                       <div className="acc-order-item" key={`${o.id}-${i}`}>
                         <div className="acc-order-thumb">
-                          {it.imageUrl ? (
-                            // 🔴 用原生 `<img>` 不用 `next/image`:訂單歷史圖是外部 URL、
-                            //    尺寸固定 46px,不需要最佳化;而本 repo storefront 這樣用是慣例
-                            //    (`BonamiciShowcase.tsx` 等多處)。
-                            // ⚠️ ~~我原本在這裡加了 `eslint-disable-next-line @next/next/no-img-element`~~
-                            //    ⇒ **那條規則這個 repo 沒有裝** ⇒ lint 直接報
-                            //    「Definition for rule … was not found」而**紅掉**。
-                            //    🔴 而那正是我今晚稍早盤點到的那一族(8 個死 disable、其中 5 個指向
-                            //       從未安裝的規則)—— **我差一點寫下第 9 個**。
-                            <img src={it.imageUrl} alt={it.title ?? ''} loading="lazy" />
-                          ) : null}
+                          {/* ⛔ ~~原生 `<img>` + `{it.imageUrl ? … : null}`(沒有圖 ⇒ **空框**)~~
+                              🔴 **2026-09-04 改走 `ProductImage`(⟦ship-ORDERIMG⟧ 甲案)** ——
+                              成因:同一批商品客人在三個地方看到三種東西 ——
+                              明細走 `ProductImage`(站內佔位圖)· 這裡空框 · 收藏什麼都沒有。
+                              🎯 而那個不一致**不是這一片製造的**, 它在濾掉供應商佔位圖之前就在了;
+                                 這一片只是把它收斂成一種。
+                              🔵 原註解那段留著, 因為它記著一件仍然成立的事:
+                                 「用原生 `<img>` 不用 `next/image`(外部 URL、46px)」——
+                                 而 `ProductImage` 內部就是原生 `<img>`, 所以那個理由沒有被推翻。
+                              ⚠️ ~~我原本在這裡加了 `eslint-disable-next-line @next/next/no-img-element`~~
+                                 ⇒ **那條規則這個 repo 沒有裝** ⇒ lint 直接報
+                                 「Definition for rule … was not found」而**紅掉**。 */}
+                          <ProductImage image={it.imageUrl} label={it.title ?? 'PRODUCT'} />
                         </div>
                         <div>
                           {it.brand ? <div className="acc-order-item-b">{it.brand}</div> : null}
