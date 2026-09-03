@@ -136,7 +136,7 @@ async function renderPartial(): Promise<string> {
   };
   return renderToStaticMarkup(
     <>
-      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER} items={[item]} />
+      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER} items={[item]} shipmentWarning={{ blocked: false }} />
       <PartialCancelItemControl orderId={ORDER} item={item} />
     </>,
   );

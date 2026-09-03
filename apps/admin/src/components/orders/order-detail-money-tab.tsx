@@ -12,6 +12,7 @@
 import type { AdminOrderDetail } from '@pcm/domain';
 import { OrderHiddenNotice } from './order-hidden-notice';
 import { DangerZoneDetails } from './danger-zone-details';
+import type { CancelShipmentWarning } from '../../lib/orders/cancel-shipment-warning';
 import { OrderCancelBlock } from './order-cancel-block';
 import { RefundSection } from './refund-section';
 import { RefundLedgerSection } from './refund-ledger-section';
@@ -50,6 +51,7 @@ export function OrderDetailMoneyTab({
   refundEnabled,
   cancelFormsAllowed,
   refundLedgerAbnormal,
+  shipmentWarning,
 }: {
   detail: AdminOrderDetail;
   returnTo: string;
@@ -69,6 +71,15 @@ export function OrderDetailMoneyTab({
   refundEnabled: boolean;
   cancelFormsAllowed: boolean;
   refundLedgerAbnormal: boolean;
+  /**
+   * 這張單「有沒有貨已經在路上」的判定(頁層算好, 一路傳到 `OrderCancelBlock`)。
+   *
+   * 🔴 **必填、無預設** —— 同 `OrderCancelBlock` 那格的理由:
+   *    給預設值等於「忘了接就靜默把閘關掉」, 而那個症狀在測試裡看起來完全正常。
+   * 🔵 **本層只是轉手, 不看它的內容** —— 判準只有一份(`cancel-shipment-warning.ts`),
+   *    這裡多讀一次就會變成第二份會漂移的規格。
+   */
+  shipmentWarning: CancelShipmentWarning;
 }) {
   const cancelled = detail.cancelledAt !== null;
 
@@ -367,6 +378,7 @@ export function OrderDetailMoneyTab({
                   {/* 🔴 片 B:`payments` 是「現金/匯款可取消、刷卡不行」的唯一輸入 ——
                       必填無預設,忘了傳會編不過(理由見 cancel-view.ts 的 payments 欄)。 */}
                   <OrderCancelBlock
+                    shipmentWarning={shipmentWarning}
                     detail={detail}
                     payments={payments}
                     returnTo={returnTo}

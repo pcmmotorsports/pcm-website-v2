@@ -240,6 +240,12 @@ async function bundleFor(elementExpression: string): Promise<string> {
 }
 
 /**
+ * 🔴 **2026-09-03 加 `shipmentWarning`(必填無預設)**:這支是**真瀏覽器 hydration** 測試,
+ *    而它把元件字串組進一個真的頁面 —— 少了必填 prop, React 在 hydrate 時就炸,
+ *    ⇒ 🛑 **症狀是 `waitForHydration` 逾時 15 秒**, 不是「缺少 prop」那種好讀的錯。
+ *    ⇒ 📌 **typecheck 看不到它** —— 這裡的 JSX 住在一個【字串模板】裡。
+ *    ⇒ ⇒ 而抓到它的是**跑整個 orders 面**那一發, 不是我改的那幾支檔。
+ * 🔵 這裡固定餵「不擋」:本檔測的是 reset 那條路, 與出貨警示無關。
  * 🔴🔴 **片C(取消介面搬家):照 production 的新形狀組**——`PartialCancelForm`(shell)與
  * `PartialCancelItemControl`(checkbox/數量欄)現在是**並排的兩個元件**,靠原生 `form` 屬性
  * 跨 DOM 樹關聯,不再是父子(HTML 表單不能巢狀,是唯一原生做法)。
@@ -250,7 +256,7 @@ async function bundleFor(elementExpression: string): Promise<string> {
  */
 const ITEM_VIEW = `{ orderItemId: '${ITEM}', quantity: 5, instockQuantity: 0, cancelledQuantity: 0, maxCancellable: 2 }`;
 const REAL_PARTIAL = `<>
-  <PartialCancelForm returnTo='${RETURN_TO}' orderId='${ORDER}' items={[${ITEM_VIEW}]} />
+  <PartialCancelForm returnTo='${RETURN_TO}' orderId='${ORDER}' items={[${ITEM_VIEW}]} shipmentWarning={{ blocked: false }} />
   <PartialCancelItemControl orderId='${ORDER}' item={${ITEM_VIEW}} />
 </>`;
 
