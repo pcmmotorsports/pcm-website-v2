@@ -14,6 +14,10 @@
 
 import { foldSearchTerm, foldEquals, foldStartsWith } from './search-terms-fold';
 import { synonymFor, type SearchSynonym } from '@/data/search-synonyms';
+// 🔴 分隔符**共用同一個定義** —— 而今天這個缺陷的成因就是「好幾個生產者不共用」
+//    (實查五個寫入點, 清單與 grep 指令見下方 `category` 欄位的註解)。
+//    (那支檔零 hook、無 `use client`, 純解析層 ⇒ server 端 import 安全。)
+import { CATEGORY_URL_SEPARATOR } from '@/components/products-url-parsers';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { MockBrand } from '@/data/mock-brands';
 import type { MockCategory } from '@/data/mock-categories';
@@ -23,7 +27,29 @@ export type ParsedFacets = {
   readonly vehicle: string | null;
   /** 產品品牌的 id,對齊 `?pbrands=a,b`。 */
   readonly brandIds: readonly string[];
-  /** 分類**名稱**,對齊 `?category=<名稱>`。 */
+  /**
+   * 🔴🔴 **`?category=` 的值 —— 而【子分類要帶全路徑】`大類 · 子類`, 不是短名。**
+   *
+   * ⛔ ~~原本這裡回子分類的短名~~ ⇒ **那讓每一顆分類膠囊都回 0 件**, 2026-09-04 修。
+   * 🔬 成因(兩端都量過, 正式站唯讀):
+   *    · RPC 只認兩種:`category_raw = p_category` 或 `category_raw LIKE p_category || ' · %'`
+   *      (`20260827180000_…_new_arrivals_exclude_repair_parts.sql:103`)
+   *    · 而 `category_raw` 的真實形狀是 `父 · 子`(24,312 件裡 24,020 件兩層)
+   *    ⇒ 短名 `油箱止滑貼` ⇒ **0 件** · 全路徑 `止滑貼與保護膜 · 油箱止滑貼` ⇒ **614 件**
+   *    ⇒ 🔵 而 113 個分類名裡只有 **17 個**短名有貨 —— 而那 17 個逐字就是 `category_raw` 的頂層段
+   * 🛑 **而它為什麼沒有人發現**:同一個 `?category=` 有【好幾個生產者】——
+   *    ⛔ ~~我原本寫「兩個」~~ ⇒ 🔴 **code-reviewer 2026-09-04 實查是【五個寫入點】**:
+   *      `app/products/page.tsx:149`(本函式)· `components/use-catalog-filter-url-sync.tsx:181`
+   *      · `components/ProductsPage.tsx:430` · `components/CategoryGrid.tsx` · `lib/brand-url.ts`
+   *    🔵 而後三個**恰好只送頂層名** ⇒ 今天安全 —— 🛑 **而「恰好」不是保證。**
+   *    ⇒ 📌 側欄那條**拼全路徑, 是對的**;本函式只有一個名字可拼 ⇒ 送短名。
+   *    ⇒ ⇒ 🎯 **⇒ 對的那幾條路的綠, 掩護了這一條的紅。**
+   *    ⇒ ⇒ ⇒ 🔴 **下一個人要動 `?category=` 的值:先 grep `set('category'`, 不要信這段的清單。**
+   * 🔵 顯示**從壞的變成好的**(不是「不受影響」—— 我原本那句往低估自己的方向偏):
+   *    修法前送短名 ⇒ `products-url-parsers.ts` 的 exact 比對只掃**頂層**、短名又無分隔符
+   *    ⇒ `parseCategoryFromUrl` 回 `null` ⇒ **那顆膠囊本來就畫不出來**。
+   *    修法後全路徑拆得回 `{main, sub}` ⇒ 膠囊才真的出得來。
+   */
   readonly category: string | null;
   /** 🔴 **沒有被任何一顆膠囊用掉的字** —— 它要被畫出來。 */
   readonly leftover: readonly string[];
@@ -92,13 +118,21 @@ export function parseSearchFacets(query: string, src: FacetSources): ParsedFacet
   // 🔵 分類吃三種:完全相同 / 前綴(`排氣` ⇒ `排氣管`)/ 字典(`油箱貼` ⇒ `油箱止滑貼`)。
   //    🔴 而**字典排最後** —— 能靠格式對上的就不要動用字典(檔頭那條判別句)。
   let category: string | null = null;
-  const allCats = src.categories.flatMap((c) => [c, ...c.children]);
+  // 🔴 `name` 用來比對(客人打的是短名), `path` 才是要寫進 `?category=` 的東西。
+  //    ⚠️ **兩者不可以合成一個** —— 比對要短名, 網址要全路徑, 而那正是這個缺陷的形狀。
+  const allCats: { readonly name: string; readonly path: string }[] = src.categories.flatMap((c) => [
+    { name: c.name, path: c.name },
+    ...c.children.map((s) => ({
+      name: s.name,
+      path: `${c.name}${CATEGORY_URL_SEPARATOR}${s.name}`,
+    })),
+  ]);
   for (let i = 0; i < words.length && category === null; i += 1) {
     if (used.has(i)) continue;
     const w = words[i]!;
     const direct = allCats.find((c) => foldEquals(w, c.name) || foldStartsWith(c.name, w));
     if (direct) {
-      category = direct.name;
+      category = direct.path;
       used.add(i);
       break;
     }
@@ -108,7 +142,7 @@ export function parseSearchFacets(query: string, src: FacetSources): ParsedFacet
       //    而**死的字典列不會有任何東西叫**(見 `search-synonyms.ts` 的 `土除` 那一列)。
       const real = allCats.find((c) => foldEquals(syn.to, c.name));
       if (real) {
-        category = real.name;
+        category = real.path;
         usedSynonyms.push(syn);
         used.add(i);
       }
