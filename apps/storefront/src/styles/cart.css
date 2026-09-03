@@ -367,3 +367,118 @@
 [data-mobile="true"] .cart-item-price-main { font-size: 15px; }
 [data-mobile="true"] .cart-item-actions { gap: 14px; }
 [data-mobile="true"] .cart-summary { position: static; padding: 20px; }
+
+/* ==========================================================
+   手機底部固定結帳列(⟦f3-MOBCHECKOUTFOLD⟧;Sean 2026-09-03 拍 Q26=乙)
+   ==========================================================
+   🔴 **net-new,稿沒有** —— 稿的購物車頁沒有固定底列(`.cart-checkout` 是內文裡的一顆鈕)。
+      形狀抄本 repo 自己的 `checkout.css:709` 手機 buybar(同站兩頁一致),不是抄稿。
+   🔴 **斷點用 1079 不是 900**:結帳頁那條用 ≤900,而本檔全篇的手機段是 ≤1079
+      (檔頭 `#192 A1` 慣例),且 `.mobile-tabbar` 也是 ≤1079 ⇒ 三者對齊。
+      ⚠️ 兩頁斷點不同是**刻意的**,不是漏抄。
+   🔴 **`[data-mobile="true"]` 那一路照本檔慣例雙寫**(SSR UA hint / dev-preview 兜底)。 */
+.cart-mobile-buybar { display: none; }
+
+@media (max-width: 1079px) {
+  .cart-mobile-buybar {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0; right: 0;
+    z-index: 100;
+    background: var(--c-surface);
+    border-top: 1px solid var(--c-text);
+    padding: 12px 16px;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.06);
+  }
+  .cart-mobile-buybar-info { flex: 1; min-width: 0; }
+  .cart-mobile-buybar-info .ap-mono { font-size: 10px; letter-spacing: 0.15em; color: var(--c-text-2); }
+  .cart-mobile-buybar-price {
+    font-family: "Noto Serif TC", serif;
+    font-size: 22px; font-weight: 500;
+    color: var(--c-red-dark);
+    font-variant-numeric: tabular-nums;
+    margin-top: 2px;
+  }
+  .cart-mobile-buybar-btn {
+    padding: 14px 24px;
+    flex: 0 0 auto;
+    min-width: 140px;
+  }
+
+  /* 🔴 **這一條的存在理由與結帳頁那條完全同型**:`<HomeFooter />` 是 `</main>` 的
+   * **後兄弟**(`CartView.tsx:334`)⇒ 只給 `.cart-main` 加 padding-bottom **保護不到頁尾**,
+   * 而這條列是 `position: fixed` ⇒ 不補這條,手機購物車的版權列會**永久壓在列底下**,
+   * 連 iOS 安全區也一起沒了。
+   * 🔴 **而那個數字是【量出來的】不是抄結帳頁的 80** —— 見本段下方的實量註記。 */
+  /* 🔴 **80 是【結帳頁的】數字, 這裡【不可以照抄】** —— 本片實量(真瀏覽器, 本 repo 鑽機
+   * `storefront-probe`, 2026-09-03 10:0x):**390px 寬 ⇒ 73.0px · 880px 寬 ⇒ 81.0px**
+   * (880 那一格吃下面 600-1079 那段的加大 padding)⇒ **取上界 81**。
+   * 🛑 **我第一版寫 80(照抄結帳頁), 而實量是 81 ⇒ 頁尾被蓋掉【剛好 1px】** ——
+   *   捲到底實測 `footer.bottom - buybar.top = -1`。⇒ 📌 **差 1px 的錯, 眼睛看不出來,
+   *   而它與差 20px 是同一個病:抄了一個不是為這條列量的數字。**
+   * 🛑 **改了這條列的 padding / 字級 / 鈕高 ⇒ 回來重量這個數字。** 測試只釘字面、不會紅。
+   *
+   * 🔵 **窄機 + 大金額那一格,對抗審查要我去量, 而它【沒有發生】**(C2 原文推測 320px 會換行
+   *    ⇒ 列高 ~101px ⇒ 頁尾永久被蓋):實量 **320px 寬 · `NT$ 132,600`(6 位數)**
+   *    ⇒ 列高仍是 **73.0**、金額那行高 **32**(單行未換)、頁尾間距 **+8**、`footerCovered` **false**。
+   * ⚠️ **而射程要跟著數字走**:我量到的上界是**6 位數 @ 320px**。7 位數沒有量過
+   *    (本機種子最貴一件 8,840 × 99 也才 875,160,而那要單品加到 99 件)。
+   *    ⇒ 📌 **所以這一格是「量到不換行」, 不是「證明不會換行」。** 沒有加 `white-space: nowrap`
+   *    —— 那會把「換行」換成「溢出」, 而我沒有量過那一種的長相。 */
+  body:has(.cart-mobile-buybar),
+  html[data-mobile="true"] body:has(.cart-mobile-buybar) {
+    padding-bottom: calc(81px + env(safe-area-inset-bottom));
+  }
+}
+
+/* 平板段:與 `checkout.css:843` 同斷點同數值 —— 兩頁的底列在同一台裝置上要長一樣。
+   🔴 不寫這段的話, 平板上購物車那條會是**手機尺寸**而結帳那條是平板尺寸(實量 73 vs 80)。 */
+@media (min-width: 600px) and (max-width: 1079px) {
+  .cart-mobile-buybar { padding: 14px 24px; }
+  .cart-mobile-buybar-info .ap-mono { font-size: 11px; }
+  .cart-mobile-buybar-price { font-size: 24px; }
+  .cart-mobile-buybar-btn { padding: 15px 28px; min-width: 170px; font-size: 15px; }
+}
+
+/* ══ 🔴🔴 藏 TabBar —— **條件是【這條列在不在】, 不是【在不在 /cart】**(對抗審查 MF5)
+   ══════════════════════════════════════════════════════════════════════════
+   站上已經有一條固定底欄 `.mobile-tabbar`(`position:fixed; bottom:0; height:64px`, ≤1079px)
+   ⇒ 兩條都 `bottom:0` 會疊。
+   ⛔ **我第一版是在 `MobileTabBar.tsx` 加第四個 `pathname === '/cart'`** ——
+   🛑 而審查抓到:**藏它的條件比長出這條列的條件【寬】**。這條列只在 `ready` 那個分支渲染,
+      而購物車有**三個**早返回(載入中 / 讀不到 / 空車)⇒ 那三態**兩條列一條都沒有**
+      ⇒ 手機版 Header 只有搜尋 / logo / 購物車 ⇒ **零前進動線**;
+      而 `mobile-tabbar.css` 那條 `body { padding-bottom: 70px }` 沒有東西歸零
+      ⇒ **頁尾下方 70px 死空間, 而那裡沒有列。**
+   ✅ **改成用 `:has()` 掛在【這條列的存在】上** ⇒ 兩個條件變成**同一個**, 結構上不可能再分岔。
+      ⇒ 📌 而它同時把共用元件那半整個還原了 —— **這一片不再動 `MobileTabBar.tsx`。**
+   🔵 形狀抄 `checkout.css` 那條 `body:has(.co-page)`(同一個問題、同一種解法),
+      而**條件換成這條列自己**, 因為結帳頁四個畫面都掛 `.co-page`, 購物車三態卻沒有共用鉤子。
+   🔴 **specificity(R2 訂正過一格)**:
+      `html[data-mobile="true"] body:has(...) .mobile-tabbar` = **(0,3,2)** 勝
+      `mobile-tabbar.css:42` 的 `html[data-mobile="true"] .mobile-tabbar` = (0,2,1) ✅
+      ⛔ ~~裸那條 (0,2,1) 勝 @media 內的 .mobile-tabbar (0,1,1)~~
+      🔴 `@media` 內那條是 **(0,1,0)** 不是 (0,1,1);而**裸那條與 `:42` 是【平手】**
+      ⇒ 📌 **贏的是第二條 (0,3,2), 不是裸的那條。** 兩條都要在。
+   ⚠️ **`:has()` 不支援時的退化方向, 與結帳頁【不同】—— 這一格要明寫**(R2 F4):
+      結帳頁退化 = 多 70px 空白(無害);**購物車退化 = 兩條 fixed 列疊在 `bottom:0`**,
+      buybar(z-index 100)蓋住 TabBar(40)⇒ **全站導覽整條點不到**, 頁尾也被蓋 8~11px。
+      🔵 Baseline 自 2023-12 起 ⇒ 殘餘風險小, **而它不是零, 所以寫在這裡而不是省略。** */
+/* 🔴🔴 **R2 F1:這兩條【必須】關在 `@media ≤1079` 裡, 而我第一版把它們寫在頂層。**
+   🛑 那個 bug 是【我修 MF5 的時候自己造出來的】—— **同一個症狀, 換了一根軸**:
+      MF5 的軸是【路徑】(藏它的條件比長出列的條件寬);
+      這一版的軸是【寬度】—— 藏 TabBar 在**所有寬度**生效, 而 buybar 只在 ≤1079 出現。
+   ⇒ 世界:`data-mobile="true"` 且 viewport **≥1080**(Android 平板橫向, 真實存在 ——
+      `mobile-tabbar.css` 自己寫著這台機器)⇒ **TabBar 被藏 · buybar 不出現**
+      ⇒ 🔴 **零導覽 + 70px 死空間** —— 而**改動前那台機器上 TabBar 是好的** ⇒ 這是本片新造的。
+   ⇒ ✅ 關進 `@media` 之後兩個條件真的變成同一個(同一個斷點 + 同一個 `:has()`)。
+   📌 **⇒ 而「把兩個條件變成同一個」這個想法是對的, 錯在我只對齊了一根軸就宣告它們同一個。** */
+@media (max-width: 1079px) {
+  body:has(.cart-mobile-buybar) .mobile-tabbar,
+  html[data-mobile="true"] body:has(.cart-mobile-buybar) .mobile-tabbar {
+    display: none;
+  }
+}

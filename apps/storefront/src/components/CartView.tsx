@@ -20,6 +20,7 @@ import { useRouter } from 'next/navigation';
 import { FREE_SHIPPING_THRESHOLD } from '@pcm/domain';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
+import { CartMobileBuybar } from '@/components/CartMobileBuybar';
 import { useCart } from '@/contexts/CartContext';
 import { CartQtyInput } from '@/components/CartQtyInput';
 import { useResolvedCart } from '@/hooks/useResolvedCart';
@@ -331,6 +332,9 @@ export function CartView({
           </aside>
         </div>
       </main>
+      {/* 掛 `</main>` 後、`<HomeFooter />` 前:它與頁尾的讓位關係在讀碼時就看得到。
+          🛑 桌機靠 CSS 藏、**不用條件渲染** —— 條件渲染會讓 `body:has()` 選不到它。 */}
+      <CartMobileBuybar total={total} onCheckout={goCheckout} />
       <HomeFooter />
     </div>
   );
