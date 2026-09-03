@@ -408,7 +408,17 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     //   ⚠️ 而**列層量會答錯問題** —— 旗標作用在【合併變體之後的群】上,本窗先量列層才發現。
     categoryStrategy: { kind: 'per-group' }, // 13 大類 / 59 子類(不是 rpm 那種單一大類 ⇒ 不用 fixed)
     variantImages: 'per-variant', // 平均每群 2.47 變體(20 家裡非 rpm 最高)⇒ 每變體自身圖
-    writeAllowed: false, // 🔴 fail-closed、過夜零寫入;乾跑全綠 + **Sean 明確批首灌**後才翻 true
+    // ✅ 2026-09-04 06:xx Sean 逐字「甲 上」批首灌後開寫
+    //    (落點 ~/pcm-mailbox/等Sean拍的題-20260903.md:2648;授權射程 = 只此一家、只此一次)。
+    //    翻 true 當下的前置狀態(當場重量、非沿用):
+    //      源頭 2026-09-03 18:09:19 UTC ⇒ 3,727 列 / 1,508 群 / 缺中文名 0 / 缺價 0
+    //        / 缺 v2 大類 0 / 完全沒有圖 0
+    //      網站庫 18:09:53 UTC ⇒ dbk 商品 0 / 變體 0(首灌前狀態)· 站上商品 22,804 / 品牌 18 家
+    //    🔴 而「乾跑全綠」照 runbook §3-b 打折:首灌 target=0 ⇒ 價格離群與來源消失對賬【恆綠】、
+    //      handle 與 pv_spec 對 target 那半無分母 ⇒ 真證據是四格(分類對上 / handle 批內唯一
+    //      / pv_spec 批內撞鍵 0 / 新品驗價 M1 逐筆相符);M2 群數指紋 1508 = 1508。
+    //      🟢 負對照當場跑過:--expect-groups=9999 ⇒ 印 ALERT 而 rc 兩個世界都是 0。
+    writeAllowed: true,
   },
   // 🔴 永久 guard 測試靶(非真供應商、Sean 2026-07-24 拍板放行):所有真品牌已 writeAllowed=true
   //   → rpm-import CLI 的 writeAllowed 硬鎖守衛失去「真實未授權樣本」;保留此永久 false 樣本讓
