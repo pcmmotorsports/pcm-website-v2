@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { SEARCH_CATEGORY_NAMES, SEARCH_CATEGORY_NAMES_SNAPSHOT } from './search-category-names';
+import {
+  SEARCH_CATEGORY_AMBIGUOUS_NAMES,
+  SEARCH_CATEGORY_NAMES,
+  SEARCH_CATEGORY_NAMES_SNAPSHOT,
+} from './search-category-names';
 import { SEARCH_SYNONYMS, synonymFor } from './search-synonyms';
 import { foldEquals, foldSearchTerm, foldStartsWith } from '@/lib/search-terms-fold';
 
@@ -84,6 +88,25 @@ describe('SEARCH_SYNONYMS — 這張表自己要站得住', () => {
       ).toBeUndefined();
     },
   );
+
+  it.each(SEARCH_SYNONYMS.filter((s) => s.kind === 'category'))(
+    '🔴 `to` 不得指向【同名掛在不同父分類】的那幾個(名字不是唯一鍵, 會選到哪一列不知道):%s',
+    (syn) => {
+      expect(
+        SEARCH_CATEGORY_AMBIGUOUS_NAMES.includes(syn.to),
+        `「${syn.from} ⇒ ${syn.to}」的 to 是同名分類(正式庫有多列同名)` +
+          ' ⇒ foldEquals 會回先出現的那一列, 而你不知道是哪一列。換一個名字, 或停下來報主視窗。',
+      ).toBe(false);
+    },
+  );
+
+  it('🟢 正對照:那份同名清單不是空的(空的話上面那組等於沒驗)', () => {
+    expect(SEARCH_CATEGORY_AMBIGUOUS_NAMES.length).toBeGreaterThan(0);
+    // 🔵 而它們每一個都真的在快照裡 —— 否則這張清單自己就過期了
+    for (const n of SEARCH_CATEGORY_AMBIGUOUS_NAMES) {
+      expect(SEARCH_CATEGORY_NAMES.includes(n), `${n} 不在分類名快照裡 ⇒ 清單過期了`).toBe(true);
+    }
+  });
 
   it('🟢 正對照:那份快照不是空的, 也不是恆真', () => {
     // 🔴 少了這一格, 快照若變成空陣列 ⇒ 上面那組 it.each 會【每一格都紅】而看起來像資料壞了;
