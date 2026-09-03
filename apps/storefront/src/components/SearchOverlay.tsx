@@ -221,9 +221,26 @@ export function SearchOverlay() {
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
     if (!q) return;
-    // 稿 :66 是 `onNav('products', { search })`,而 `/products` 走的 RPC 沒有關鍵字參數
-    // ⇒ 主視窗判 A 案:另開 `/search`。理由全文在 `lib/search.ts` 檔頭。
-    router.push(`/search?q=${encodeURIComponent(q)}`);
+    // 🔴🔴 **落點 = `/products`,而這是【對回稿】不是改規格**(⟦搜尋-落點換 /products⟧ 2026-09-03)。
+    //    稿 `design-reference/components/SearchOverlay.jsx:67` 逐字
+    //      `onNav('products', { search: query.trim() });`
+    //    而稿裡**沒有 `/search` 這個頁**(掃 `onNav('search'` / `page === 'search'` ⇒ 0 命中)。
+    //    🔵 Sean 2026-09-03 逐字:「我以為搜尋會直接在我們商品目錄顯示誒」
+    //       ⇒ 📌 **他以為的就是稿說的** —— 偏離的是我們。
+    //
+    // ⛔ ~~`router.push('/search?q=' + …)`~~ ⇒ ~~主視窗 2026-09-02 判 A 案:另開 `/search`~~
+    //    🔴 **那個拍板在 2026-09-03 被 Sean 本人推翻**(主視窗批 甲/Q1=A/Q2=A)。
+    //    🟢 而**它的判準沒有被推翻** —— 逐字「一個看得見的缺,永遠優於一個安靜的錯」
+    //       (`lib/search.ts` 檔頭)。新落點靠 `SearchKeywordChip` 把「facet 沒生效」畫出來,
+    //       所以那個判準活著,只是換了一種活法。
+    //    🔵 `/search` 那一頁**留著**(Sean Q1=A):舊書籤/外連還活著,只是不再是落點。
+    //
+    // 🔴 用 `navigateToCatalog` 不用裸 `router.push` —— 理由見本檔 :39 那段
+    //    (`router.push` 不會把捲動歸零;而 `catalog-navigation.test.ts` 有一道全樹守門盯這個字面)。
+    // 🔵 `q.trim()` —— 稿 `:67` 逐字就是 `query.trim()`(code-reviewer nit)。
+    //    ⚠️ 不 trim **不會出錯**(`parseCatalogQuery` server 端也 trim), 但網址列會留下 `%20`
+    //    ⇒ 而那個網址是客人會**複製分享**的東西 ⇒ 照稿。
+    navigateToCatalog(router, `/products?search=${encodeURIComponent(q.trim())}`);
     close();
   };
 

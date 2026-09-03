@@ -12,8 +12,14 @@
 // G3:**`price: null` 印「—」不是「NT$ 0」**(catalog-page.ts:80 那條拍板:null 與 0 處置相反)。
 //     一行 `?? 0` 會把兩半黏回去,而**畫面上看不出來** ⇒ 只有這格量得到。
 //
-// G4:**「查看所有結果」導到 `/search?q=`**,不是 `/products` —— A 案的落點就在這一格,
-//     導錯了客人會拿到一個沒篩選的列表(那正是主視窗當初裁定要避開的「更具體的謊」)。
+// G4:**「查看所有結果」導到 `/products?search=`** —— ⟦搜尋-落點換 /products⟧ 2026-09-03。
+//     ⛔ ~~原本這一格釘的是 `/search?q=`,不是 `/products`~~
+//     🔴 **2026-09-03 Sean 本人推翻了那個落點**,而它其實是**對回稿**:
+//        `design-reference/components/SearchOverlay.jsx:67` 逐字
+//        `onNav('products', { search: query.trim() })`,而稿裡**沒有 `/search` 這個頁**。
+//        Sean 逐字:「我以為搜尋會直接在我們商品目錄顯示誒」⇒ 他以為的就是稿說的。
+//     🟢 而舊拍板的**判準**沒有被推翻(逐字「一個看得見的缺,永遠優於一個安靜的錯」)——
+//        新落點靠 `SearchKeywordChip` 把「facet 沒生效」畫出來,判準換了一種活法。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -344,15 +350,22 @@ describe('SearchOverlay', () => {
     expect(screen.getByText('NT$ 0')).toBeTruthy();
   });
 
-  it('G4 「查看所有結果」導到 /search?q=,不是 /products', async () => {
+  it('G4 「查看所有結果」導到 /products?search=(2026-09-03 落點對回稿)', async () => {
     mockFetch(async () => new Response(JSON.stringify(ONE_ITEM), { status: 200 }));
     render(<SearchOverlay />);
     openWith('排氣管');
     const all = await screen.findByText(/查看「排氣管」的所有結果/);
     fireEvent.click(all);
-    expect(push).toHaveBeenCalledWith('/search?q=%E6%8E%92%E6%B0%A3%E7%AE%A1');
-    // 🔵 負向斷言:任何一發都不准指向 /products —— 導錯了畫面上完全正常。
-    expect(push.mock.calls.every(([url]) => !String(url).startsWith('/products?'))).toBe(true);
+    expect(push).toHaveBeenCalledWith('/products?search=%E6%8E%92%E6%B0%A3%E7%AE%A1');
+    // 🔴🔴 **負向斷言【換邊了】,而它仍然要在** —— 現在不准掉回舊落點。
+    //    ⚠️ 少了這一行,一個「兩邊都 push」的實作照樣全綠,而客人會看到兩次導覽。
+    expect(
+      push.mock.calls.every(([url]) => !String(url).startsWith('/search?')),
+      '掉回舊落點 /search ⇒ 客人拿到一個沒有左側分類與排序的頁',
+    ).toBe(true);
+    // 🔵 而參數名是 `search` 不是 `q` —— 稿用的是 `{ search: … }`,
+    //    而 `/products` 那頁認的也是 `search`(`lib/catalog-query.ts`)。打錯名字 ⇒ 靜靜給全站。
+    expect(String(push.mock.calls[0]?.[0])).toContain('?search=');
   });
 
   it('G5 Esc 關閉疊層(稿 :20 的行為)', async () => {

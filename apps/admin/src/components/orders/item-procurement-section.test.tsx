@@ -5,6 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { AdminOrderDetail, AdminOrderItemProcurement } from '@pcm/domain';
 import type { ProcurementActionState } from '../../lib/orders/procurement-action-state';
+// 🔵 `#450` 兩個**必填無預設**的 prop —— 大多數格子測的不是到貨列表,
+//    給「沒有到貨、沒有包裹」讓行為與加這一片之前逐字相同。
+//    🛑 而它們**不是**給 `null`:`null` 在下游是「讀不到」⇒ 會讓判準回「擋」、列表畫錯誤句
+//       ⇒ 那會讓一堆與本片無關的格子開始渲染一段紅字。**空陣列才是「沒有」。**
+const NO_RECEIPTS: [] = [];
+const NO_SHIPMENT_GROUPS: [] = [];
+
 
 vi.mock('server-only', () => ({}));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
@@ -60,7 +67,7 @@ function ItemProcurementSection({
     <>
       <ItemProcurementOrderNotices detail={d} suppliersFailed={suppliersFailed} />
       {d.items.map((item) => (
-        <ItemProcurementBlock
+        <ItemProcurementBlock receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS}
           key={item.id}
           detail={d}
           item={item}

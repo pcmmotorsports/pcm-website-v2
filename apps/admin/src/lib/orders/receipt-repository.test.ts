@@ -16,8 +16,10 @@ import {
   findDuplicateOutcome,
   findProcurementRemaining,
   findReceiptIdByRequestId,
+  listOrderItemReceipts,
   listProcurementChoices,
   recordItemReceipt,
+  ORDER_RECEIPT_ROWS_LIMIT,
 } from './receipt-repository';
 
 const ARGS = {
@@ -344,5 +346,124 @@ describe('findReceiptIdByRequestId — 撤銷唯一拿得到 receipt id 的路',
   it('🔴 查詢本身失敗要拋,不得回 null(fail-closed:回 null 會被讀成查無)', async () => {
     ledger(null, { message: 'boom' });
     await expect(findReceiptIdByRequestId('k-1')).rejects.toBeTruthy();
+  });
+});
+
+// ── `#450` 逐筆到貨列表:它唯一的資料來源 ────────────────────────────
+// 🔴🔴 **本片修的病就是「靜默少列」** ⇒ 這一組驗的不是「有沒有撈到」,
+//    是**撈不全的時候它會不會說**。少了它們, 這支函式的每一條少列路徑都零訊號。
+describe('listOrderItemReceipts — 撈不全就要說「算不出來」', () => {
+  /** 串接式 builder:最後一段是 `.limit()`。 */
+  function builder(rows: unknown[] | null, error: unknown = null) {
+    const calls: Array<[string, unknown[]]> = [];
+    const chain: Record<string, unknown> = {};
+    for (const m of ['select', 'in', 'order', 'limit']) {
+      chain[m] = vi.fn((...args: unknown[]) => {
+        calls.push([m, args]);
+        return m === 'limit' ? { data: rows, error } : chain;
+      });
+    }
+    return { chain, calls };
+  }
+
+  function row(over: Record<string, unknown> = {}) {
+    return {
+      id: 'rc-1',
+      quantity: 3,
+      surplus_quantity: 0,
+      received_at: '2026-09-01T00:00:00.000Z',
+      received_by: 'sean',
+      note: null,
+      order_item_procurement: { order_item_id: 'item-1' },
+      ...over,
+    };
+  }
+
+  it('🔵 零個品項 ⇒ 不查 DB, 回空陣列(而不是 null)', async () => {
+    await expect(listOrderItemReceipts([])).resolves.toEqual([]);
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it('🔵 正常路:內嵌是【單物件】⇒ 攤平成 orderItemId', async () => {
+    mocks.from.mockReturnValue(builder([row()]).chain);
+    await expect(listOrderItemReceipts(['item-1'])).resolves.toEqual([
+      {
+        id: 'rc-1',
+        orderItemId: 'item-1',
+        quantity: 3,
+        surplusQuantity: 0,
+        receivedAt: '2026-09-01T00:00:00.000Z',
+        receivedBy: 'sean',
+        note: null,
+      },
+    ]);
+  });
+
+  it('🔵 內嵌是【陣列】⇒ 也要接得出來(生成型別對 many-to-one 推斷不穩)', async () => {
+    mocks.from.mockReturnValue(
+      builder([row({ order_item_procurement: [{ order_item_id: 'item-9' }] })]).chain,
+    );
+    const out = await listOrderItemReceipts(['item-9']);
+    expect(out?.[0]?.orderItemId).toBe('item-9');
+  });
+
+  // 🔴🔴 **codex 2026-09-03 must-fix ③ 的那一格。**
+  //    ⛔ ~~接不出來就 `continue`~~ ⇒ 回一個**非 null 的部分清單**
+  //    ⇒ 畫面對「少了一列」與「本來就只有這些」印同一個東西 = 本片要修的病本身。
+  it.each([
+    ['id 不是字串', row({ id: 42 })],
+    ['內嵌整個不見', row({ order_item_procurement: undefined })],
+    ['內嵌是空陣列', row({ order_item_procurement: [] })],
+    ['order_item_id 不是字串', row({ order_item_procurement: { order_item_id: null } })],
+  ])('🔴 %s ⇒ 整個回 null(**不得**回少一列的清單)', async (_label, bad) => {
+    mocks.from.mockReturnValue(builder([row({ id: 'ok-1' }), bad]).chain);
+    await expect(listOrderItemReceipts(['item-1'])).resolves.toBeNull();
+  });
+
+  it('🔴 筆數超過上限 ⇒ 回 null(截斷要看得見)', async () => {
+    const many = Array.from({ length: ORDER_RECEIPT_ROWS_LIMIT + 1 }, (_v, i) =>
+      row({ id: `rc-${i}` }),
+    );
+    mocks.from.mockReturnValue(builder(many).chain);
+    await expect(listOrderItemReceipts(['item-1'])).resolves.toBeNull();
+  });
+
+  it('🔵 負對照:剛好【等於】上限 ⇒ 正常回, 不誤報截斷', async () => {
+    const exact = Array.from({ length: ORDER_RECEIPT_ROWS_LIMIT }, (_v, i) => row({ id: `rc-${i}` }));
+    mocks.from.mockReturnValue(builder(exact).chain);
+    const out = await listOrderItemReceipts(['item-1']);
+    expect(out).toHaveLength(ORDER_RECEIPT_ROWS_LIMIT);
+  });
+
+  it('🔴 多要一筆:limit 一定要是「上限 + 1」, 否則那把尺量不到截斷', async () => {
+    const { chain, calls } = builder([]);
+    mocks.from.mockReturnValue(chain);
+    await listOrderItemReceipts(['item-1']);
+    expect(calls.find(([m]) => m === 'limit')![1]).toEqual([ORDER_RECEIPT_ROWS_LIMIT + 1]);
+  });
+
+  it('🔴 filter 掛在【內嵌欄位】上, 參數逐字比對(掛錯欄 ⇒ 撈到別張單)', async () => {
+    const { chain, calls } = builder([]);
+    mocks.from.mockReturnValue(chain);
+    await listOrderItemReceipts(['a', 'b']);
+    expect(calls.find(([m]) => m === 'in')![1]).toEqual([
+      'order_item_procurement.order_item_id',
+      ['a', 'b'],
+    ]);
+  });
+
+  it('🔴 排序帶唯一鍵(received_at 可能相同 ⇒ 沒唯一鍵時「前 N 筆」跨請求是不同子集)', async () => {
+    const { chain, calls } = builder([]);
+    mocks.from.mockReturnValue(chain);
+    await listOrderItemReceipts(['item-1']);
+    expect(calls.filter(([m]) => m === 'order').map(([, a]) => a[0])).toEqual([
+      'received_at',
+      'id',
+    ]);
+  });
+
+  it('🔴 DB 錯誤 ⇒ 往外拋, **不得**吞成空清單', async () => {
+    mocks.from.mockReturnValue(builder(null, { message: 'boom' }).chain);
+    await expect(listOrderItemReceipts(['item-1'])).rejects.toBeTruthy();
   });
 });

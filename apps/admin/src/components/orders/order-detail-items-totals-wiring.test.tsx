@@ -23,6 +23,13 @@ import type { AdminOrderDetail } from '@pcm/domain';
 vi.mock('server-only', () => ({}));
 
 import { ItemsTable } from './order-detail-items-table';
+// 🔵 `#450` 兩個**必填無預設**的 prop —— 大多數格子測的不是到貨列表,
+//    給「沒有到貨、沒有包裹」讓行為與加這一片之前逐字相同。
+//    🛑 而它們**不是**給 `null`:`null` 在下游是「讀不到」⇒ 會讓判準回「擋」、列表畫錯誤句
+//       ⇒ 那會讓一堆與本片無關的格子開始渲染一段紅字。**空陣列才是「沒有」。**
+const NO_RECEIPTS: [] = [];
+const NO_SHIPMENT_GROUPS: [] = [];
+
 
 afterEach(cleanup);
 
@@ -57,7 +64,7 @@ function detailWith(quantitySummary: unknown): AdminOrderDetail {
 describe('🔴 拆檔片呼叫端守門:搬進 support 檔的東西,ItemsTable 還在渲染它們', () => {
   it('🔴 總計區(ItemsTotals):小計/運費/總計三個標籤與金額都回到畫面上', () => {
     const { container } = render(
-      <ItemsTable
+      <ItemsTable receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS}
         detail={detailWith(null)}
         payments={PAYMENTS}
         returnTo='/orders'
@@ -73,7 +80,7 @@ describe('🔴 拆檔片呼叫端守門:搬進 support 檔的東西,ItemsTable �
 
   it('🔴 三軸缺值(ItemAxisMissingNote + ItemAxisValue):「尚未就緒」那句與三個「—」都在', () => {
     const { container } = render(
-      <ItemsTable
+      <ItemsTable receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS}
         detail={detailWith(null)}
         payments={PAYMENTS}
         returnTo='/orders'
@@ -91,7 +98,7 @@ describe('🔴 拆檔片呼叫端守門:搬進 support 檔的東西,ItemsTable �
   it('🔴 已取消(ItemCancelledNote):cancelledQuantity > 0 ⇒ 那行紅字在;= 0 ⇒ 不在(負對照)', () => {
     const summary = { quantity: 3, orderedQuantity: 3, instockQuantity: 1, shippedQuantity: 0, cancelledQuantity: 2 };
     const { container } = render(
-      <ItemsTable
+      <ItemsTable receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS}
         detail={detailWith(summary)}
         payments={PAYMENTS}
         returnTo='/orders'
@@ -103,7 +110,7 @@ describe('🔴 拆檔片呼叫端守門:搬進 support 檔的東西,ItemsTable �
     cleanup();
     const zero = { ...summary, cancelledQuantity: 0 };
     const { container: c2 } = render(
-      <ItemsTable
+      <ItemsTable receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS}
         detail={detailWith(zero)}
         payments={PAYMENTS}
         returnTo='/orders'

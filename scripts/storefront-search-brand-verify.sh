@@ -102,6 +102,54 @@ eq "E4 authenticated 執行得到" "$(p "select has_function_privilege('authenti
 # 🔵 負對照:一個【沒有被 GRANT】的角色必須是 f —— 否則上面那些 t 沒有判別力
 eq "E5 負對照 pcm_readonly 執行不到" "$(p "select has_function_privilege('pcm_readonly','public.storefront_search_product_ids(text[])','EXECUTE')")" "f"
 
+echo "── F 🔴 料號:不同打法要指向同一顆(⟦search-PARTNOSEPINDIGITS⟧ 20260903230000)──"
+# 🔴🔴 **這一族是 adversarial-reviewer M5 逼出來的:本檔原本零料號案例**
+#    (數法:`rg '0010|料號|regexp_replace' scripts/storefront-search-brand-verify.sh` ⇒ 0)。
+#    ⇒ 而那讓 230000 那支 migration **不留下任何可重跑的檢查**。
+#
+# 🛑 **而 M5 點名的假綠世界要先擋掉**:本檔上面那段在函式不存在時會**自己 apply 050000**
+#    ⇒ 那樣它會對著**舊那一代**全綠。⇒ 所以這裡先問「庫上那支是不是【含料號分支】的那一代」,
+#      不是問「函式在不在」。
+MIG_PN="$REPO/supabase/migrations/20260903230000_m4b_storefront_search_partno_normalized.sql"
+HASPN=$(p "select position('PARTNOSEPINDIGITS' in pg_get_functiondef(p.oid)) > 0 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='storefront_search_product_ids'")
+if [ "$HASPN" != "t" ]; then
+  if [ -f "$MIG_PN" ]; then
+    psql -h 127.0.0.1 -p "$PORT" -U postgres -v ON_ERROR_STOP=1 -q -f "$MIG_PN" >/dev/null 2>&1 \
+      && echo "🔵 庫上是舊那一代 ⇒ 本檔 apply 了 230000" \
+      || { echo "🔴 230000 apply 不過 ⇒ F 族跳過(而這【不是綠】)"; FAIL=$((FAIL+1)); }
+  else
+    echo "🔴 找不到 $MIG_PN ⇒ F 族跳過(而這【不是綠】)"; FAIL=$((FAIL+1))
+  fi
+fi
+# 🟢 這一格必須綠, 否則下面每一格量的是【舊那一代】—— 那正是 M5 講的假綠。
+eq "F0 前置:庫上是含料號分支的那一代" \
+   "$(p "select position('PARTNOSEPINDIGITS' in pg_get_functiondef(p.oid)) > 0 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='storefront_search_product_ids'")" "t"
+
+# 🔴 自己造料號世界:**分隔號要在【數字中間】** —— 那才是正式站真實料號的形狀
+#    (`G3-0010`)。⚠️ 我第一版的語料是 `AB-123`(分隔號在字母↔數字交界),
+#    而那種形狀**用舊碼就會中** ⇒ 拿它當案例的話這一族恆綠。
+PID2=$(p "select id from products order by id offset 1 limit 1")
+[ -n "$PID2" ] || { echo "🔴 撈不到第二支商品 ⇒ ENV-FAIL"; exit 2; }
+p "update products set external_id='ZZ7-0042', title='料號測試件', subtitle='', description='' where id='$PID2'" >/dev/null
+
+eq "F1 完整打法 ZZ7-0042"   "$(p "select count(*) from storefront_search_product_ids(ARRAY['ZZ7-0042'])")" "1"
+eq "F2 小寫 zz7-0042"       "$(p "select count(*) from storefront_search_product_ids(ARRAY['zz7-0042'])")" "1"
+eq "F3 空白(呼叫端會切兩詞)" "$(p "select count(*) from storefront_search_product_ids(ARRAY['ZZ7','0042'])")" "1"
+# 🔴🔴 **F4 是這一族唯一會因為本片而變的那一格** —— 舊那一代在這裡回 0。
+eq "F4 無分隔號 zz70042"    "$(p "select count(*) from storefront_search_product_ids(ARRAY['zz70042'])")" "1"
+eq "F5 負對照 不存在的料號" "$(p "select count(*) from storefront_search_product_ids(ARRAY['zz70043xx'])")" "0"
+
+# 🔴🔴 **F6 是最貴的那一格:中文詞正規化之後是【空字串】** ——
+#    而 `LIKE '' || '%'` = `LIKE '%'` ⇒ **命中每一列**。
+#    ⇒ 📌 客人打「油箱貼」就會拿到全站商品, 而 HTTP 200、畫面完全正常。
+CJK=$(p "select count(*) from storefront_search_product_ids(ARRAY['油箱貼'])")
+[ "$CJK" -lt "$TOTAL" ] && ok "F6 中文詞不得回全表" "$CJK 列 < 分母 $TOTAL" \
+  || bad "F6 中文詞不得回全表" "回了 $CJK 列 = 分母 $TOTAL ⇒ 守衛破了"
+# 🔵 F7 負對照:單一字母也不得打開料號那道閘(它要求同時有字母與數字)
+LETTER=$(p "select count(*) from storefront_search_product_ids(ARRAY['z'])")
+[ "$LETTER" -lt "$TOTAL" ] && ok "F7 單字母不得回全表" "$LETTER 列 < 分母 $TOTAL" \
+  || bad "F7 單字母不得回全表" "回了 $LETTER 列 = 分母 $TOTAL"
+
 echo "──────────────────────────────────────────────────────────────"
 printf '結果:PASS=%s FAIL=%s\n' "$PASS" "$FAIL"
 echo "🛑 射程:本機拋棄式庫 ⇒ 證不出正式庫的行為;**不驗效能**(那要對正式庫 EXPLAIN)。"

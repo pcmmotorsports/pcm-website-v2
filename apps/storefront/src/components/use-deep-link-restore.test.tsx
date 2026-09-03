@@ -73,7 +73,15 @@ const EXTRAS = { price: null, priceRange: undefined, colors: [], inStock: false,
 let actions: CascadeFilterAction[] = [];
 
 /** ProductsPage 車輛線的最小組合(hook 序對齊 ProductsPage.tsx:242-280 的五支)。 */
-function Harness({ motoBrands = BRANDS }: { motoBrands?: MockMotoBrand[] }) {
+function Harness({
+  motoBrands = BRANDS,
+  // 🔵 ⟦搜尋-落點換 /products⟧ R2 must-fix:預設 `false` = **既有行為**,
+  //    所有既有格子逐字不變;只有本片新增的兩格會傳 `true`。
+  keywordActive = false,
+}: {
+  motoBrands?: MockMotoBrand[];
+  keywordActive?: boolean;
+}) {
   const searchParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const [cascade, rawDispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
   const dispatch = useCallback((a: CascadeFilterAction) => {
@@ -98,6 +106,7 @@ function Harness({ motoBrands = BRANDS }: { motoBrands?: MockMotoBrand[] }) {
     dispatch,
     skipPageResetOnce,
     brandAppliedOnce,
+    keywordActive,
   });
   useVehicleUrlSync(cascade.vehicle, motoBrands);
   useCatalogFilterUrlSync(cascade, EXTRAS, restoreSources);
@@ -108,15 +117,30 @@ function Harness({ motoBrands = BRANDS }: { motoBrands?: MockMotoBrand[] }) {
     filterResetKeyRef,
   );
 
-  return <output data-testid="s">{JSON.stringify({ vehicle: cascade.vehicle, page })}</output>;
+  // 🔵 `category` 是 2026-09-03 加的(R2 must-fix 那組要斷言它)—— 加一個觀察欄,
+  //    而**既有格子沒有一個在讀它** ⇒ 加了不影響任何既有斷言。
+  return (
+    <output data-testid="s">
+      {JSON.stringify({ vehicle: cascade.vehicle, category: cascade.category, page })}
+    </output>
+  );
 }
 
-type Observed = { vehicle: CascadeFilterState['vehicle']; page: number };
+type Observed = {
+  vehicle: CascadeFilterState['vehicle'];
+  category: CascadeFilterState['category'];
+  page: number;
+};
 
 /** 掛 harness 於指定 URL;`url` = 導覽終態(最後送出的 replace,沒送過則維持進站網址)。 */
-function mountAt(initial: string, opts: { strict?: boolean; motoBrands?: MockMotoBrand[] } = {}) {
+function mountAt(
+  initial: string,
+  opts: { strict?: boolean; motoBrands?: MockMotoBrand[]; keywordActive?: boolean } = {},
+) {
   window.history.replaceState(null, '', initial);
-  const tree = (mb?: MockMotoBrand[]) => <Harness motoBrands={mb} />;
+  const tree = (mb?: MockMotoBrand[]) => (
+    <Harness motoBrands={mb} keywordActive={opts.keywordActive} />
+  );
   const wrap = (mb?: MockMotoBrand[]) =>
     opts.strict ? <StrictMode>{tree(mb)}</StrictMode> : tree(mb);
   const { rerender } = render(wrap(opts.motoBrands));
@@ -151,6 +175,50 @@ afterEach(() => {
   cleanup();
   window.sessionStorage.removeItem(VEHICLE_CONTEXT_KEY);
   window.history.replaceState(null, '', '/products');
+});
+
+// ── ⟦搜尋-落點換 /products⟧ 2026-09-03 · R2 must-fix ─────────────────────────
+//
+// 🔴🔴 **關鍵字結果頁上, facet 不得被還原進 cascade。**
+//    `/products?search=` 走關鍵字資料路, 而**那條路吃不到任何 facet**。
+//    而 `cascade` 一被灌進去, 它就同時餵給 `FilterSide`(checkbox 打勾)/
+//    `CascadeFilterTop` / `ProductsMobileControls` / **`PageHeader`(頁面標題!)**
+//    ⇒ 📌 每一個都聲稱那個條件生效了, 而清單根本沒被它縮過。
+//
+// 🛑 **而我第一版只在 ProductsPage 把 `ActiveChips` 藏起來** —— 那是修被點名的實例,
+//    不是修那個類別。R2 逐字抓到 `FilterSide` 照樣打勾。
+describe('useDeepLinkRestore × 關鍵字結果頁不還原 facet(R2 must-fix)', () => {
+  it('🔴 有關鍵字 + URL 有車 ⇒ cascade.vehicle 保持空(標題與側欄才不會說謊)', () => {
+    const h = mountAt('/products?search=cark9650&vehicle=yamaha:mt-09:2022', {
+      keywordActive: true,
+    });
+    expect(h.state.vehicle ?? null).toBeNull();
+  });
+
+  it('🔴 有關鍵字 + URL 有分類 ⇒ cascade.category 保持空', () => {
+    const h = mountAt('/products?search=cark9650&category=操控部品', { keywordActive: true });
+    expect(h.state.category ?? null).toBeNull();
+  });
+
+  // 🔴🔴 **這一格比 R2 抓到的那個更糟, 因為它【不需要網址上有任何 facet】。**
+  //    本 hook 逐字 `const v = urlVehicle ?? vehicleFromContext(motoBrands);`
+  //    ⇒ URL 沒有 vehicle 時**回退讀全站選車鏡**
+  //    ⇒ 客人先選了車、再搜一個關鍵字 ⇒ 網址乾乾淨淨 `/products?search=X`
+  //    ⇒ ⇒ **標題印「YAMAHA MT-09」而商品是關鍵字撈的、完全沒按那台車過濾。**
+  //    ⇒ 📌 R2 那個要手打網址;**這一格是正常動線**(自審 2026-09-03 抓到)。
+  it('🔴🔴 有關鍵字 + 鏡有車(網址乾淨)⇒ 鏡【不得】被套上, URL 也不得被改寫', () => {
+    seedMirror({ brandId: 'yamaha', modelId: 'mt-09', year: 2022 });
+    const h = mountAt('/products?search=cark9650', { keywordActive: true });
+    expect(h.state.vehicle ?? null, '鏡被套上 ⇒ 標題會印一台沒有在過濾的車').toBeNull();
+    expect(h.url, '還把車寫回 URL ⇒ 那個謊會被客人分享出去').not.toContain('vehicle=');
+  });
+
+  // 🔵🔵 **負對照 —— 而它擋的是「把整支 hook 關掉」那種修法。**
+  it('🔵 負對照:沒有關鍵字 ⇒ 鏡照樣套上(§6-2 的既有行為零變動)', () => {
+    seedMirror({ brandId: 'yamaha', modelId: 'mt-09', year: 2022 });
+    const h = mountAt('/products', { keywordActive: false });
+    expect(h.state.vehicle).toMatchObject({ brand: 'YAMAHA', model: 'MT-09', year: 2022 });
+  });
 });
 
 describe('useDeepLinkRestore × 全站選車鏡(Q28①)', () => {

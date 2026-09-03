@@ -54,6 +54,7 @@ import { useFacetCountResolver } from '@/lib/vehicle-facet-display';
 import { useServerMobile } from '@/contexts/MobileContext';
 import { ProductCard } from './ProductCard';
 import { ActiveChips } from './ActiveChips';
+import { SearchKeywordChip } from './SearchKeywordChip';
 import { Pagination } from './Pagination';
 import { makeInitialExtraFilters, type ProductExtraFilters } from './filter-state';
 import { SORT_OPTIONS } from '@/lib/sort-options';
@@ -100,6 +101,14 @@ export type ProductsPageProps = {
   motoBrands: MockMotoBrand[];
   /** V-1e:登入會員愛車(RLS own、序列化收窄;未登入/讀取失敗=[]、「我的愛車」鈕不顯示) */
   garage?: GarageChipItem[];
+  /**
+   * `?search=` 那個關鍵字(⟦搜尋-落點換 /products⟧ 2026-09-03)。有值 = **本頁的商品
+   * 是關鍵字撈的、不是 RPC 撈的** ⇒ 左側 facet / 排序**沒有生效**。
+   *
+   * 🔴 **它必須被畫出來**(`SearchKeywordChip`)—— 不畫的話,客人看到的是一個
+   *    「篩選條件都在、但點了沒反應」的目錄頁,而**那是安靜的錯**。
+   */
+  searchKeyword?: string;
 };
 
 // PageHeader — 頁首標題 + 麵包屑(標題依 cascade 已選分類 / 車輛推導)
@@ -191,7 +200,7 @@ function SortBar({
 // 三個獨立入口」,單顆 FAB 開一個六 tab 混合抽屜正是被否決的形狀。
 // 現行手機入口 = ProductsMobileControls(含 MobileVehicleSheet 與兩個 scope 的 FilterDrawer)。
 
-export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands, garage = [] }: ProductsPageProps) {
+export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands, garage = [], searchKeyword }: ProductsPageProps) {
   // searchParams 先取(#6:page/sort/perPage lazy init 讀 URL;server render 與 client 首繪同源、零 hydration 分歧)
   const searchParams = useSearchParams();
   // ── A2(2026-08-03):`?pick=vehicle` 落地開燈(Sean 拍 B 案「同落地 + 開燈」)──
@@ -216,7 +225,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   const pickVehicle = searchParams.get('pick') === 'vehicle';
   const [cascade, rawDispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
   const [extras, setExtrasRaw] = useState<ProductExtraFilters>(makeInitialExtraFilters);
-  const { sort, setSort: setSortRaw, page, setPage, perPage, setPerPage } = useBrowseUrlState(searchParams);
+  const { sort, setSort: setSortRaw, page, setPage, perPage, setPerPage } = useBrowseUrlState(searchParams, searchKeyword !== undefined);
   // Sean 2026-07-31:篩選動作確認後一律回頁首,排序同辦(拍板 A;詳 products-scroll-top.tsx;
   // 🔴 只有篩選 UI 吃包裝版,URL 還原走下方 useDeepLinkRestore 的 rawDispatch、不捲頁)
   const { dispatch, setExtras, setSort } = useFilterScrollTop(rawDispatch, setExtrasRaw, extras, setSortRaw);
@@ -249,6 +258,8 @@ export function ProductsPage({ products, total, error, categories, brands: serve
     dispatch: rawDispatch,
     skipPageResetOnce: urlVehicleInitRef,
     brandAppliedOnce: urlBrandInitRef,
+    // 🔴 有關鍵字 ⇒ 不把 facet 還原進 cascade(理由全文在該 hook 的 `keywordActive` JSDoc)。
+    keywordActive: searchKeyword !== undefined,
   });
 
   // S1:cascade.vehicle → URL(短版 ?vehicle=)→ server 以 RPC 重查(車款篩選下推 DB、
@@ -300,7 +311,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   const displayed = products;
 
   // #6:page/sort/perPage 同步回 URL(原生 replaceState 零 server 往返;詳 products-url-state.tsx)
-  useBrowseUrlSync(currentPage, sort, perPage);
+  useBrowseUrlSync(currentPage, sort, perPage, searchKeyword !== undefined);
 
   const changePage = (n: number) => {
     setPage(Math.max(1, Math.min(totalPages, n)));
@@ -361,13 +372,27 @@ export function ProductsPage({ products, total, error, categories, brands: serve
         />
         <main className="pp-main">
           <PageHeader cascade={cascade} />
-          <ActiveChips
-            data={data}
-            cascade={cascade}
-            dispatch={dispatch}
-            extras={extras}
-            setExtras={setExtras}
-          />
+          {/* 🔴 關鍵字膠囊排在 `ActiveChips` **前面** —— 它是這一頁商品的**來源**,
+              而 ActiveChips 那些是「本來會生效、現在沒生效」的東西。順序講的是因果。 */}
+          <SearchKeywordChip keyword={searchKeyword} />
+          {/* 🔴🔴 **有關鍵字時不畫 facet 膠囊** —— code-reviewer 2026-09-03 must-fix。
+            * 直接開 `/products?search=cark9650&vehicle=yamaha:mt-07` 時(不必點任何東西),
+            * `ActiveChips` 會從 URL 還原出一顆「Yamaha MT-07 ✕」
+            * ⇒ 📌 **那顆膠囊聲稱清單被那台車縮過, 而商品其實是關鍵字撈的、完全沒被縮。**
+            * ⇒ 🛑 一句靜態提示擋不住它:提示說「篩選要先移除關鍵字才生效」,
+            *   而膠囊就在那句話正下方說「我已經生效了」—— **兩個聲明互相矛盾, 而客人信膠囊。**
+            * ⇒ ✅ 關鍵字在的時候, 唯一該出現的膠囊就是關鍵字自己那顆。
+            * 🔵 而 facet 控制項(左側 / 頂部)**照樣可點**(Q2=A)—— 點下去會清掉關鍵字
+            *   (`use-catalog-filter-url-sync.tsx` 的 `filtersChanged` 那一格),膠囊隨即回來。 */}
+          {searchKeyword === undefined && (
+            <ActiveChips
+              data={data}
+              cascade={cascade}
+              dispatch={dispatch}
+              extras={extras}
+              setExtras={setExtras}
+            />
+          )}
           <SortBar
             count={displayCount}
             gridCols={gridCols}
