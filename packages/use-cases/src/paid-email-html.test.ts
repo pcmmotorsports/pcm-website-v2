@@ -19,6 +19,13 @@ import {
   assertPdfClaimMatchesAttachments,
   PAID_EMAIL_PDF_ATTACHED_SENTENCE,
 } from './paid-email-html';
+import {
+  ORDER_CONTACT_LEAD,
+  PCM_COMPANY_ADDRESS,
+  PCM_COMPANY_LINE,
+  PCM_LINE_ID,
+  PCM_LINE_URL,
+} from './order-email-copy';
 
 const m = (n: number) => n as MoneyAmount;
 
@@ -144,6 +151,29 @@ describe('🔴 稿上那句「PDF 已附在這封信裡」是事實宣稱,預設
   it('明確說有附 ⇒ 才印', () => {
     const html = renderPaidEmailHtml(ctxWithDiscount(), { hasPdfAttachment: true });
     expect(html).toContain('訂單明細 PDF 已附在這封信裡');
+  });
+});
+
+describe('🔴 排版那份的頁尾對外字面【要有鎖】—— 而它今天沒有', () => {
+  // 🔴🔴 **這一族的存在理由**:我 2026-09-03 把「回覆這封信」那半句從共用常數拿掉
+  //    (Sean 答那個信箱沒人收)⇒ **1,001 格全綠, 一格都沒紅。**
+  //    ⇒ 📌 **一句寄給每一個客人、而且收不回來的話, 可以被安靜地改掉。**
+  //    ⇒ 🎯 純文字那半有 exact-match 鎖(`sweep-email-outbox.test.ts` 的 `EXPECTED_..._BODY`),
+  //      **而排版那半沒有** —— 兩份的保護不對稱, 而沒有東西指出這件事。
+  // 🛑 **本格不做 exact-match 整封 HTML**(那會被每一次 style 微調弄紅、然後被人改成寬鬆的)——
+  //    只釘**客人讀得到的那幾句**與**它們的字面來源**。
+  it('🔴 頁尾三樣都在, 而且來自共用常數(不是這裡重打一份)', () => {
+    const html = renderPaidEmailHtml(ctxWithDiscount(), {});
+    for (const s of [ORDER_CONTACT_LEAD, PCM_LINE_ID, PCM_LINE_URL, PCM_COMPANY_LINE, PCM_COMPANY_ADDRESS]) {
+      expect(html).toContain(s);
+    }
+  });
+
+  it('🔴 而「回覆這封信」今天【不得出現】—— 那個信箱沒有人收(Sean 2026-09-03 答 A3)', () => {
+    const html = renderPaidEmailHtml(ctxWithDiscount(), {});
+    expect(html).not.toContain('回覆這封信');
+    // 🔵 而它【會回來】:`info@` alias + Resend reply-to 上線之後(板列 ⟦b4-REPLYTO1⟧, 態 parked)
+    //    ⇒ 那一天這一格要跟著改, 而**它會紅** —— 那正是我要的:加回來的人被迫看到這一段。
   });
 });
 
