@@ -399,6 +399,24 @@ const ALLOWLIST = [
   //      `payment_status` / `payment_method` / `paid_at`。它照樣被這張表收,因為
   //      **本白名單的分母是【檔】不是【函式】**,而這支檔裡有 `create_order` 的 INSERT。
   '20260901030000_m4b_zero_total_settle.sql',
+  // 🔴🔴 `20260904020000`(2026-09-04 登錄, 線【信】段 1-A)——
+  //    **這一支是 `CREATE`(新簽名)不是 `CREATE OR REPLACE`** ⇒ 它與舊那支 `create_order`
+  //    **並存**(三步部署的中間態:A 建新的 ⇒ 部署 TS ⇒ C DROP 舊的)。
+  //
+  //    ✅ **它為什麼有資格寫那三欄**:它是舊那支的**逐 byte 副本 + 三處改動**
+  //      (簽名多一個 `p_payment_channel` / 一道白名單 / INSERT 多帶那一欄)——
+  //      🔴 **`subtotal` / `line_total` 的算法一個字元都沒有動。**
+  //      🔬 而那不是我宣稱的, 是量到的:本檔 apply 當下有一道 `prosrc` 逐 byte 指紋斷言
+  //        (事後⑥, md5 `8cb6104e…`), 而它的基準線(套用前)= 正式庫那一份逐字相同。
+  //    🛑 **而這道閘【判不出】那件事** —— 它比對的是語句、不是值域(見上面 `20260825130000`
+  //      那一格逐字記過的同一個限制)⇒ ⇒ 📌 **所以上面那個「算法沒動」要由指紋背書, 不是由這一列。**
+  //
+  //    🔴🔴 **而 C 那一步要回來改這一列**:C 會 `DROP` 舊的 10 參數版
+  //      ⇒ 那時 `20260604130000` 那一族的舊條目**是否還算寫入者**要重判
+  //      ⇒ 🎯 **而這道閘【兩個方向都抓】**(上面逐字記過:同一天紅兩次、兩次都是「少一個」)
+  //      ⇒ ⇒ 🛑 **所以 C 不改這裡的話, 它會紅** —— 已寫進
+  //        `supabase/migrations/PENDING-C-drop-create-order-10arg.sql.txt` 的檔頭。
+  '20260904020000_m4b_create_order_payment_channel.sql',
 ] as const;
 
 function scanWriters(dir: string): string[] {
