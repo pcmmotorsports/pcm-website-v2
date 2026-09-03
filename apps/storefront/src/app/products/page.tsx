@@ -24,6 +24,8 @@ import {
   fetchCategories,
   fetchVehicleTaxonomy,
 } from '@/lib/products';
+import { searchProducts } from '@/lib/search';
+import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { parseVehicleFromUrl } from '@/lib/vehicle-url';
 import { parseCatalogQuery } from '@/lib/catalog-query';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -100,8 +102,50 @@ export default async function ProductsRoute({ searchParams }: Props) {
   ]);
   const vehicle = hasVehicleParam ? parseVehicleFromUrl({ get: spGet }, motoBrands) : null;
 
-  // P4:只回當頁公開 card DTO + total；車款仍走 direct + inherited RPC 語意。
-  const { products, total, error } = await fetchCatalogPage(catalogQuery, vehicle);
+  // ── ⟦搜尋-落點換 /products⟧ 2026-09-03:**同一頁,兩條資料路** ────────────────
+  //
+  // 🔴🔴 **為什麼是兩條路而不是把關鍵字加進 query** —— 這不是偷懶,是量到的牆:
+  //    `/products` 的商品走 RPC `search_catalog_by_vehicle`,而**那支沒有關鍵字參數**。
+  //    數法(自己重跑得到同一組數,不要引用這行字):
+  //      grep -rln "search_catalog_by_vehicle" supabase/migrations/ | while IFS= read -r f; do
+  //        echo "$(grep -c -iE 'p_(keyword|search|q)\b|ILIKE' "$f")  $f"; done
+  //    ⇒ 10 個定義檔**全 0**;🟢 正對照 `p_vehicle|p_brand|p_category` ⇒ 3~25 命中(尺是活的)。
+  //    ⇒ 📌 **直接把 `?search=` 交給 RPC 會被【完全忽略】⇒ 顯示全部商品** —— 那比舊的
+  //      `/search`(「共 668 件」)糟,而畫面上完全正常。
+  //
+  // 🔵 稿的落點本來就是這裡:`design-reference/components/SearchOverlay.jsx:67` 逐字
+  //    `onNav('products', { search: query.trim() })`;而稿裡**沒有 `/search` 這個頁**
+  //    (掃 `onNav('search'` / `page === 'search'` ⇒ 0 命中)⇒ 本片是**對回稿**,不是新功能。
+  //
+  // 🛑 **代價明寫:關鍵字這條路吃不到 facet**(品牌/價格/分類/車款都在 RPC 那條路上)。
+  //    ⇒ 不讓它安靜:`searchKeyword` 往下傳,畫成一顆**可 ✕ 的膠囊 + 一句提示**。
+  //    ⇒ 這保住了 2026-09-02 那個拍板的判準逐字:
+  //      **「一個看得見的缺,永遠優於一個安靜的錯」**(`lib/search.ts` 檔頭)。
+  //
+  // ⚠️ **排序/分類/價格在關鍵字路上不生效,而分頁【生效】** —— `searchProducts` 吃
+  //    limit/offset,所以第 2 頁是真的第 2 頁。這個不對稱是刻意的:分頁不生效會讓
+  //    客人**看不到第 25 筆以後的東西**,那是漏資料;facet 不生效只是沒縮小範圍。
+  // 🔵 顯式標型別:兩條路各自回 `MockProduct[]` 與 `CatalogCardProduct[]`,而
+  //    `CatalogCardProduct = Omit<MockProduct,'price'> & { price: number|null }`
+  //    ⇒ 前者**是**後者的子型別(`number` ⊂ `number|null`),只是 TS 不會自動把
+  //      兩個【陣列】的 union 收斂 ⇒ 這裡標一次,不要用 `as any` 把差異蓋掉。
+  const { products, total, error }: {
+    products: CatalogCardProduct[];
+    total: number | undefined;
+    error: boolean;
+  } = catalogQuery.search
+    ? await (async () => {
+        const r = await searchProducts(
+          catalogQuery.search as string,
+          catalogQuery.perPage,
+          (catalogQuery.page - 1) * catalogQuery.perPage,
+        );
+        // 🔴 `total: null` = **不知道總數**,不是 0 —— 往下傳 `undefined`,
+        //    讓 `ProductsPage` 的 optional prop 走「不印件數」而不是印一個編出來的 0。
+        return { products: r.items, total: r.total ?? undefined, error: r.error };
+      })()
+    : // P4:只回當頁公開 card DTO + total；車款仍走 direct + inherited RPC 語意。
+      await fetchCatalogPage(catalogQuery, vehicle);
   return (
     <>
       {/* backlog #314:設計稿的品牌介紹連結字面是 `/products?pbrand=X#brand-about`,而
@@ -116,6 +160,7 @@ export default async function ProductsRoute({ searchParams }: Props) {
         brands={brands}
         motoBrands={motoBrands}
         garage={garage}
+        searchKeyword={catalogQuery.search}
       />
     </>
   );

@@ -2,6 +2,9 @@
 //    ⇒ 客人選「最新上架」會被靜默回退成 recommend、畫面完全沒變。守門見 `catalog-query.test.ts`。
 //    server 端真正做得到它,是因為 migration `20260811040000` 讓 RPC 支援 `p_sort='new'`
 //    (依 `created_at DESC`)。**這一行與那支 migration 是綁在一起的**:RPC 若被 rollback,這裡要一起退。
+// 🔵 上限本體住在 `search-shape.ts`(client 也讀得到)—— **同一個常數**餵顯示端與查詢端。
+import { SEARCH_MAX_QUERY_LENGTH } from './search-shape';
+
 export const CATALOG_SORT_VALUES = ['recommend', 'price-asc', 'price-desc', 'new'] as const;
 
 /**
@@ -49,6 +52,22 @@ export type CatalogQuery = {
    *   真正的 `p_new_since` 在 `products.ts` 的 cached callback 內才算(見該處)。
    */
   filter?: CatalogFilter;
+  /**
+   * `?search=` 自由關鍵字(⟦搜尋-落點換 /products⟧ 2026-09-03,Sean 逐字
+   * 「我以為搜尋會直接在我們商品目錄顯示誒」)。
+   *
+   * 🔴🔴 **它與其他每一格【不同層】,而那個差別是這一整片的根**:
+   *    其他格都送進 RPC `search_catalog_by_vehicle`,而**那支沒有關鍵字參數** ——
+   *    10 個 migration 定義檔掃 `p_(keyword|search|q)`/`ILIKE` ⇒ 全 0
+   *    (🟢 正對照同一批檔掃 `p_vehicle|p_brand|p_category` ⇒ 3~25 命中 ⇒ 尺是活的)。
+   * ⇒ 📌 有 `search` 時 route 走**另一條資料路**(`lib/search.ts` 的 ILIKE),
+   *    而那條路**吃不到 facet**。
+   * 🛑 **所以它不能像其他格那樣靜靜地被塞進 query 就算數** ——
+   *    呼叫端要把「現在是關鍵字結果、facet 沒生效」**畫在畫面上**
+   *    (`SearchKeywordChip`)。理由是 2026-09-02 那個拍板的逐字:
+   *    **「一個看得見的缺,永遠優於一個安靜的錯」**。
+   */
+  search?: string;
 };
 
 const PRICE_LABEL_BOUNDS: Record<string, readonly [number, number | null]> = {
@@ -181,6 +200,24 @@ export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery 
     (value): value is number => value !== undefined && value !== null,
   );
   const priceMax = candidateMax.length > 0 ? Math.min(...candidateMax) : undefined;
+  // 🔴 `trim()` 之後才判空 —— 只打空白送出時,`' '` 是 truthy 而它不是一個查詢
+  //    ⇒ 沒有這一步,`?search=%20` 會走進關鍵字路、ILIKE `%%` ⇒ **撈回整張 view**
+  //    ⇒ 而那正是主視窗點名不准的「安靜地給他全站」。
+  // 🔴🔴 **長度截斷【也要在這裡】做一次 —— 而我第一版把它省掉了(自審抓到)。**
+  //    ⛔ ~~原本寫「長度截斷不在這裡:它住在 `lib/search.ts`(兩條路都經過那一層)」~~
+  //    🛑 那句話對【查詢】那半是對的, 對【顯示】那半是錯的:
+  //       `SearchKeywordChip` 印的是**本函式回的這個值**, 而截斷發生在更下游
+  //       ⇒ 搜 150 個字 ⇒ 膠囊印 150 個字, 而實際只查了前 100 個
+  //       ⇒ 📌 畫面上那句「目前顯示『…』的關鍵字結果」**指的不是實際跑的那個查詢**。
+  //    🔴 而這個病 `search-shape.ts:28-31` **逐字預言過**, 判別句也在那裡:
+  //       **「顯示用的字串與實際查詢的字串, 只要不是同一個運算式, 它們就會分岔。」**
+  //    ⇒ ✅ 所以截斷搬進來:回傳值**就是**被查的那個字串 ⇒ 顯示端與查詢端吃同一個運算式。
+  //    🔵 `lib/search.ts` 那道**保留**(不是重複)—— 疊層那條路不經過本函式。
+  const searchValue = (searchParams.get('search')?.trim() ?? '').slice(
+    0,
+    SEARCH_MAX_QUERY_LENGTH,
+  );
+  const search = searchValue === '' ? undefined : searchValue;
   const vehicleValue = searchParams.get('vehicle');
   const vehicle = vehicleValue && SAFE_VEHICLE.test(vehicleValue) ? vehicleValue : undefined;
   return {
@@ -193,5 +230,6 @@ export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery 
     ...(priceMax !== undefined ? { priceMax } : {}),
     ...(vehicle ? { vehicle } : {}),
     ...(filter ? { filter } : {}),
+    ...(search ? { search } : {}),
   };
 }

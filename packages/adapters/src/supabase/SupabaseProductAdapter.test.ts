@@ -20,6 +20,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ProductId } from '@pcm/domain';
 import { SupabaseProductAdapter } from './SupabaseProductAdapter';
 import type { SupabaseProductRow } from './mappers/product';
+import { partNumberPattern, buildIlikeOrFilter } from './helpers/product-query-support';
 
 const DEALER_COLUMNS = ['price_store', 'price_by_tier', 'metadata', 'cost'];
 
@@ -1625,5 +1626,88 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
     //    ⇒ 那一行是恆真的, 已拿掉。真正有判別力的是下面這兩行。
     expect(captured.ors, '空結果不該退回舊路').toHaveLength(0);
     expect(captured.rpcCalls, '應該是走了 RPC 才拿到空的').toBe(1);
+  });
+});
+
+// ── ⟦搜尋-料號正規化⟧ 2026-09-03 · Sean 逐字「打料號【一定要有】」──────────────
+//
+// 🔴 語氣分級不可合併(他同一分鐘內講的兩句):
+//    料號「**一定要有**, 而且要有- 無- 有空格無空格等等方式」⇒ 硬要求
+//    膠囊「**盡量就好**, 字詞、詞彙我們慢慢追加」            ⇒ best-effort
+describe('partNumberPattern — 料號的不同打法要指向同一顆', () => {
+  // 🔴🔴 **這一格是【唯一真的缺口】** —— 我量過四種打法才知道只缺這一種:
+  //    資料是 `AB-123` 時, 本函式之前 `AB-123`/`AB 123`/`ab-123` 三種**本來就會中**
+  //    (ILIKE 大小寫無關 · 空白會被切成兩詞 AND)⇒ **只有無分隔號那種不中。**
+  //    ⇒ 📌 少了這個認識, 很容易寫一個「四種都修」的大東西去修一個一格的病。
+  it('🔴 無分隔號的打法要切得開(這是唯一真的缺口)', () => {
+    expect(partNumberPattern('ab123')).toBe('ab%123%');
+  });
+
+  it('🔵 有分隔號/空白/底線 ⇒ 與無分隔號【產生同一個 pattern】', () => {
+    // 🎯 「同一個」才是 Sean 那句話的意思 —— 不是「都找得到」, 是**指向同一顆**。
+    const want = 'AB%123%';
+    for (const typed of ['AB-123', 'AB 123', 'AB_123', 'AB.123', 'AB/123']) {
+      expect(partNumberPattern(typed), `打法 ${typed}`).toBe(want);
+    }
+  });
+
+  // 🔴🔴 **錨定那一格 —— 主視窗擋下來要我先量, 而他是對的。**
+  //    未錨定版 `%ab%123%` 會撈進 `CRAB-99123` / `LAB-X-40123` / `GRAB-123MM` /
+  //    `SLAB123` / `FAB-1230`(語料 31 筆實測:10 件 vs 錨定版 5 件)。
+  //    ⇒ 📌 而料號搜尋最貴的失敗**不是漏掉, 是撈進一堆不相干的** —— 一頁雜訊等於沒找到。
+  it('🔴🔴 pattern **不得**以 % 開頭(開頭放 % ⇒ CRAB/LAB/GRAB 那一族全部會中)', () => {
+    const p = partNumberPattern('ab123');
+    expect(p).not.toBeNull();
+    expect(p!.startsWith('%'), '開頭有 % = 未錨定 = 雜訊那一族回來了').toBe(false);
+    expect(p!.endsWith('%'), '結尾要留 % —— 料號後面可能還有尾碼').toBe(true);
+  });
+
+  // 🛑 fail-closed 那一族:不適用時回 null, 呼叫端就只送原本那一發。
+  it.each([
+    ['純字母', 'akrapovic'],
+    ['純數字', '9650'],
+    ['中文', '油箱貼'],
+    ['中英混', 'mt07油箱'],
+    ['切不出兩段', 'a1'.slice(0, 1)],
+  ])('🔵 %s ⇒ 回 null(不適用, 不是出錯)', (_label, term) => {
+    expect(partNumberPattern(term)).toBeNull();
+  });
+
+  it('🔴 萬用字元【逐段轉義】—— 先串再整串轉義會讓 pattern 恆 0 筆', () => {
+    // 🛑 若先 join 再 escape, 我自己放的 `%` 會被轉成字面百分號
+    //    ⇒ 變成在找一個真的含 `%` 的料號 ⇒ **恆 0 筆, 而它不會報錯。**
+    const p = partNumberPattern('a%b1');
+    expect(p).toBe('a\\%b%1%');
+  });
+});
+
+describe('buildIlikeOrFilter — 料號那一發只掛在 external_id 上', () => {
+  // 🔴🔴 **為什麼不是每一欄**:`ab%123%` 比 `%ab123%` 寬。掛在 `description` 上時
+  //    「AB 車系適用, 長度 123mm」這種句子會中 ⇒ 關鍵字搜尋開始噴無關的東西。
+  it('🔴 額外那一發的欄位是 external_id, 不是 title/description', () => {
+    const f = buildIlikeOrFilter(['title', 'description', 'external_id'], 'ab123');
+    const extra = f.split(',').filter((c) => c.endsWith('ab%123%'));
+    expect(extra, '應該只多一發').toHaveLength(1);
+    expect(extra[0]).toBe('external_id.ilike.ab%123%');
+  });
+
+  it('🔵 負對照:欄位清單裡沒有 external_id ⇒ 一發都不加', () => {
+    const f = buildIlikeOrFilter(['title', 'description'], 'ab123');
+    expect(f.includes('ab%123%'), '沒有那一欄就不該憑空生一個 clause').toBe(false);
+  });
+
+  it('🔵 負對照:不像料號的詞 ⇒ 欄位數 = clause 數(沒有多送)', () => {
+    const cols = ['title', 'subtitle', 'description', 'external_id'];
+    expect(buildIlikeOrFilter(cols, 'akrapovic').split(',')).toHaveLength(cols.length);
+  });
+
+  it('🔴 像料號的詞 ⇒ 恰好多一發, 而原本那 N 發【一個都沒有被改掉】', () => {
+    const cols = ['title', 'subtitle', 'description', 'external_id'];
+    const parts = buildIlikeOrFilter(cols, 'ab123').split(',');
+    expect(parts).toHaveLength(cols.length + 1);
+    // 🎯 原本那幾發要**原封不動** —— 加功能不得順手改掉既有行為。
+    for (const col of cols) {
+      expect(parts).toContain(`${col}.ilike.%ab123%`);
+    }
   });
 });
