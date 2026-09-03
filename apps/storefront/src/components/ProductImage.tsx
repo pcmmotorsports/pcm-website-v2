@@ -22,7 +22,9 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
+import { hasNoRealImage } from '@pcm/domain';
 import type { UIImageTrim } from '@/data/mock-products';
+import { brandLogoSrc } from '@/lib/brand-logo';
 import { computeTrimStyle } from '@/lib/image-trim-style';
 
 // 🔴 2026-08-22:這裡原本是 15 個 Unsplash photo id + `productGallery(seed)` ——
@@ -63,6 +65,11 @@ const PALETTES: Record<Tone, [string, string]> = {
 type ProductImageProps = {
   tone?: Tone | string;
   label?: string;
+  /**
+   * 品牌 slug(`MockProduct.brandSlug`)—— **無真照片時拿它去取品牌 logo**。
+   * 🔴 給 slug 不給 logo 路徑:路徑的副檔名每家不同, 拼字串對 6 家會 404(見 `lib/brand-logo.ts`)。
+   */
+  brandSlug?: string | null;
   hover?: boolean;
   /**
    * M-1-16c-1:商品真圖 URL(toUIProduct ← domain product.images[0])。
@@ -97,13 +104,21 @@ type ProductImageProps = {
 // 原句保留,因為它記著「OD 稿完全沒有【無真圖】狀態」這個仍然成立的事實 ——
 // **底下那層漸層的顏色仍然沒有設計權威**,本片沒有動它,只換了疊在它上面的那張圖。
 
-export function ProductImage({ tone = 'neutral', label = 'PRODUCT', hover = false, image = null, trim }: ProductImageProps) {
+export function ProductImage({ tone = 'neutral', label = 'PRODUCT', hover = false, image = null, trim, brandSlug = null }: ProductImageProps) {
   // hooks 一律置頂、不可條件呼叫(react-hooks/rules-of-hooks error);real-image 分支與 fallback
   // 共用同一組 hook、僅 render 內 branch。
   const [placeholderFailed, setPlaceholderFailed] = useState(false);
+  const [logoFailed, setLogoFailed] = useState(false);
   const [realFailed, setRealFailed] = useState(false);
   const [c1, c2] = PALETTES[tone as Tone] ?? PALETTES.neutral;
-  const showReal = !!image && !realFailed;
+  // 🔴🔴 `hasNoRealImage`:`image` 有值【不等於】有照片 —— 2026-09-03 量到來源 1,011 列的
+  //   `image_url` 是「查無圖片」的卡(882 列是 PCM 自己那張、119 列是供應商的、10 列沒網址)。
+  //   ⇒ 少了這一句, 那 1,011 件會走「真圖」分支, 把一張「暫無照片」的卡當商品照片放大顯示,
+  //     而**下面整個無真圖分支對它們永遠到不了**(那正是 `rpm-transform.ts` repImage 的同一個病)。
+  //   🛑 判斷住在 `@pcm/domain`, 不在這裡 —— 每個消費端各判一次就會分岔, 而分岔不會紅。
+  const showReal = !!image && !realFailed && !hasNoRealImage(image);
+  // 無真照片時的品牌 logo(查無回 null ⇒ 退回站內佔位圖, 不硬拼路徑)。
+  const logoSrc = brandLogoSrc(brandSlug);
   // trim 線 S4b:有 bbox 且縮放在上限內 → 去白邊置中模式;否則 undefined = contain fallback 路徑
   const trimStyle = showReal && trim ? computeTrimStyle(trim) : undefined;
   return (
@@ -168,7 +183,47 @@ export function ProductImage({ tone = 'neutral', label = 'PRODUCT', hover = fals
         //   換成站內佔位圖之後【只有一張】—— 三張之間的淡入淡出對同一張圖沒有意義。
         //   佔位圖自己也載不到(它是 public/ 底下的站內檔, 不該發生)⇒ 只剩底下那層漸層,
         //   而那正是這個分支原本就有的最後一層。
-        placeholderFailed ? null : (
+        // 🔴 Sean 2026-09-03 拍甲:「放該品牌的 LOGO 是不是比放【暫無照片】更好」
+        //    ⇒ **品牌 logo + 底下小字「暫無照片」**。字體規格照 design 的 `.ph`
+        //    (`design-reference/styles/tokens.css:76` 斜紋佔位:mono / 11px / 大寫 / letter-spacing .04em /
+        //     var(--c-text-3))—— 🎯 **稿裡本來就有「沒有圖」的樣式, 我沒有自己發明一套。**
+        //    ⚠️ 底下那層漸層維持不動(OD 稿沒有「無真圖」狀態、其顏色仍無設計權威, 見檔頭)。
+        logoSrc && !logoFailed ? (
+          <div
+            style={{
+              position: 'absolute', inset: 0,
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', gap: '10px',
+            } as CSSProperties}
+          >
+            <img
+              src={logoSrc}
+              alt={label}
+              loading="lazy"
+              onError={() => setLogoFailed(true)}
+              style={{
+                maxWidth: '52%', maxHeight: '34%', objectFit: 'contain',
+                // 🔵 壓一點透明度:這是「沒有照片」的狀態, logo 不該搶得比真商品卡還亮。
+                opacity: 0.72,
+                transform: hover ? 'scale(1.04)' : 'scale(1)',
+                transition: 'transform 1.4s cubic-bezier(0.2,0.7,0.1,1)',
+              } as CSSProperties}
+            />
+            <span
+              style={{
+                // ⚠️ 這四個值與站內 `styles/tokens.css` 的 `.ph` 逐字相同(已比過)——
+              //    這裡沒有直接套 `.ph`, 因為它自帶斜紋底, 而本處底層已經是漸層。
+              //    🔴 **代價:稿改字級時這一份不會跟** ⇒ 改 `.ph` 的人要記得掃這裡(grep `--f-mono`)。
+              fontFamily: 'var(--f-mono)', fontSize: '11px', letterSpacing: '0.04em',
+                color: 'var(--c-text-3)',
+              } as CSSProperties}
+            >
+              暫無照片
+            </span>
+          </div>
+        ) : placeholderFailed ? null : (
+          // 🛑 最後一層:這家沒有 logo 檔(或 logo 載不到)⇒ 退回站內佔位圖。
+          //    🔴 **不退成「什麼都不畫」** —— 那一格原本守的是「一定要有一張圖」, 那件事沒有變。
           <img
             src={PLACEHOLDER_IMAGE}
             alt={label}

@@ -104,7 +104,9 @@
  *   ⇒ ⇒ 而**那個壞法不會有人回報**。(🟢 負對照:今天掃 `/bild-` 在那兩條之外 = **0 支**——
  *   那是【今天】的讀數, 不是保證, 所以規則仍然分兩條。)
  *
- * 🛑 **`quote.pcmmotorsports.com/no-photo.png`(591 支)【不在】這張表裡** —— 那是 **PCM 自己的卡**
+ * 🛑 **`quote.pcmmotorsports.com/no-photo.png`(591 支 —— ⚠️ **射程未標**:那是 2026-09-02 的讀數,
+ *   哪個庫哪一層當時沒寫下來;2026-09-04 在**報價庫 `storefront_catalog_v`** 量到的是 **882 列**。
+ *   🔴 兩個數字都留著, 而**引用前先問是哪一個庫哪一層** —— 不要拿它們相減)【不在】這張表裡** —— 那是 **PCM 自己的卡**
  *   (親眼開圖:PCM logo + 紅色分隔線 + 「暫無照片」+ 「PCM MOTORSPORTS」)。
  *   濾掉它只會把一張 PCM 卡換成另一張 PCM 卡:零收益, 而多一個會漂的字面。
  *
@@ -115,13 +117,34 @@
  *   它是四條字面規則;供應商換一個檔名、或第五家供應商放一張新的佔位圖 ⇒ 它就漏,
  *   而客人那一側看起來完全正常。**監控那半沒有做**, 已另開一列。
  */
-const SUPPLIER_PLACEHOLDERS: ReadonlyArray<
+/**
+ * 🔴 **匯出是為了讓測試【由這張表驅動】** —— 加第五條規則時, `hasNoRealImage` 那幾格會自動涵蓋它。
+ *   不匯出的話, 測試只能自己重打一份樣本 ⇒ **而那份樣本不會跟著表長大**(那正是本檔警告過的分岔)。
+ */
+export const SUPPLIER_PLACEHOLDERS: ReadonlyArray<
   readonly [host: string, filePrefix: string]
 > = [
   ['www.gillestooling.com', 'spareparts-mit-tesxt'],
   ['www.gillestooling.com', 'bild-schraube-'],
   ['www.gillestooling.com', 'bild-folgt-in-kurze-'],
   ['www.extreme-components.com', 'noimage.jpg'],
+  // 🔴 2026-09-03 補三家(線【身分】量到:這三家共 39 列在用自家的 no-image 圖, 而它們不在表裡
+  //    ⇒ 客人看到【別家公司的「無圖」圖】, 而且我們外連他們的伺服器)。
+  //    🔬 **網址逐字**(2026-09-04 `SELECT DISTINCT` 撈回來貼上, 不是我打的 —— 三來源律):
+  //       `https://www.gbracing.eu/templates/GBRacing/Images/no-image-300x300.jpg`            (8 列)
+  //       `https://www.motogadget.com/cdn/shopifycloud/storefront/assets/no-image-2048-a2addb12_grande.gif` (4 列)
+  //       `https://rpmcarbon.com/cdn/shopifycloud/storefront/assets/no-image-2048-a2addb12_600x600_crop_center.gif` (27 列)
+  //    🔴 **`rpmcarbon.com` 沒有 `www.` —— 那不是漏打**(上面那一發撈回來就是這樣);
+  //       而 `:161` 是 `host === h` **嚴格相等** ⇒ 多打一個 `www.` 那 27 列一條都接不住,
+  //       🛑 而 `it.each(SUPPLIER_PLACEHOLDERS)` 是**拿表自己組 URL** ⇒ 對「字面填錯」**零判別力, 不會紅**。
+  //    🔵 **誤傷檢查**(同一發):全庫含 `no-image`/`noimage`/`no-photo` 的網址只有 **5 種**,
+  //       五種全是佔位圖 ⇒ 今天沒有任何真商品圖叫這個名字。⚠️ 那是**今天的讀數**, 不是保證。
+  //    ⚠️ 前綴用 `no-image-`(帶尾巴的橫線)而不是 `no-image`:
+  //       前者釘住「這是一個檔名前綴」, 後者會連 `no-imagery-carbon.jpg` 這種真商品圖一起濾掉
+  //       —— 同檔上方 `bild-` 那段記過同一個坑(供應商明天放一張真照片叫那個名字)。
+  ['www.gbracing.eu', 'no-image-'],
+  ['www.motogadget.com', 'no-image-'],
+  ['rpmcarbon.com', 'no-image-'],
 ];
 
 /**
@@ -147,6 +170,53 @@ export function isSupplierPlaceholder(url: string): boolean {
   return SUPPLIER_PLACEHOLDERS.some(
     ([h, prefix]) => host === h && file.startsWith(prefix),
   );
+}
+
+/**
+ * PCM 自己的「暫無照片」卡(2026-09-03 量:報價庫 `storefront_catalog_v` 有 **882 列**用它)。
+ * 卡面 = PCM logo + 紅線 + 「暫無照片」+ 「PCM MOTORSPORTS」。
+ *
+ * 🛑 **它【刻意不在】`SUPPLIER_PLACEHOLDERS` 裡** —— 那張表的用途是「濾掉別人家的爛圖」,
+ *   而濾掉我們自己的卡只會把一張 PCM 卡換成另一張 PCM 卡(零收益 + 多一個會漂的字面)。
+ *   負對照測試 `apps/storefront/src/lib/catalog-page.test.ts` 釘著「PCM 自己的卡不得被濾掉」。
+ * ⇒ 🎯 **所以它住在這裡, 只給 `hasNoRealImage` 用。兩個謂詞回答兩個不同的問題。**
+ */
+const PCM_OWN_NO_PHOTO_CARD = ['quote.pcmmotorsports.com', 'no-photo.png'] as const;
+
+/**
+ * **這一筆有沒有【真的照片】** —— 與 `isSupplierPlaceholder` 是**兩個不同的謂詞**, 不要混用:
+ *
+ * ```
+ * isSupplierPlaceholder = 「這是【別人家】的佔位圖, 該濾掉」   119 列
+ * hasNoRealImage        = 「這一筆【沒有真照片】」             1,011 列
+ *                       = 前者 OR PCM 自己的卡 OR 根本沒有網址
+ * ```
+ * (數字為 2026-09-03 對報價庫 `storefront_catalog_v` `WHERE images IS NULL` 的量測,
+ *  拆開 = 882 PCM 卡 + 80 extreme(在表內)+ 39 不在表內 + 10 無網址。)
+ *
+ * 🔴 **它【必須】呼叫 `isSupplierPlaceholder`, 不得自己重打一份判斷** ——
+ *   本檔開頭警告過「複製成兩份清單 ⇒ 它們會分岔, 而分岔不會紅」。
+ *   ✅ 而那不是靠紀律:`supplier-placeholder.test.ts` 有一組 `it.each(SUPPLIER_PLACEHOLDERS)`,
+ *      **由那張表驅動** ⇒ 重打一份就會有格子紅。
+ *      🔬 **實測**(2026-09-03):把本函式改成自己重打一份、刻意少一條規則 ⇒ **1 紅 / 35**
+ *      —— 紅的正是被漏掉的那一條(`bild-folgt-in-kurze-`)。
+ *      ⚠️ **紅幾格 = 你漏了幾條規則**, 不是固定值;⛔ ~~本註解初稿寫「4 紅」~~ —— **那是我沒量就寫的數字。**
+ *
+ * 🛑 **fail-open 的方向是刻意的**:網址解析不了 ⇒ 回 `false`(當成「有圖」)。
+ *   理由:回 `true` 會讓畫面**拿品牌 logo 蓋掉一張真照片** ——
+ *   ⇒ 🎯 **這個謂詞的誤報成本比漏報高**, 所以它往「保留原圖」那一側倒。
+ *   (⚠️ 與 preflight 那一側相反 —— 那裡是「叫人去看」, 寧可多叫。**同一件事, 兩個消費端, 兩個方向。**)
+ */
+export function hasNoRealImage(url: string | null | undefined): boolean {
+  if (url === null || url === undefined || url.trim() === '') return true;
+  if (isSupplierPlaceholder(url)) return true;
+  try {
+    const u = new URL(url);
+    const file = u.pathname.slice(u.pathname.lastIndexOf('/') + 1).toLowerCase();
+    return u.hostname === PCM_OWN_NO_PHOTO_CARD[0] && file === PCM_OWN_NO_PHOTO_CARD[1];
+  } catch {
+    return false; // fail-open,理由見上
+  }
 }
 
 /**
