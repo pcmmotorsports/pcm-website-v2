@@ -18,7 +18,7 @@ import type {
   OrderSource,
   PaymentChannel,
 } from '@pcm/domain';
-import { toMoneyAmount, orderCancelKindOf } from '@pcm/domain';
+import { toMoneyAmount, orderCancelKindOf, hasNoRealImage } from '@pcm/domain';
 import { narrowMemberTier } from './member-tier';
 import type { Database } from '../database.types';
 import {
@@ -1196,10 +1196,37 @@ function pickShippingAddress(raw: unknown): MemberOrderDetail['shippingAddress']
  * jsonb string array 的第一個元素(正式庫實查:`products.images` / `product_variants.images`
  * 皆為 `array` of `string`)。非陣列 / 空 / 首元素非字串 / 空字串 → null。
  */
+/**
+ * 第一張**真照片**的網址;沒有 ⇒ `null`。
+ *
+ * 🔴🔴 **`hasNoRealImage` 那一道是 2026-09-04 補的(⟦ship-ORDERIMG⟧)** ——
+ *    在那之前, 客人的**訂單頁**會顯示**供應商的「無圖」圖**, 而其中 39 列是
+ *    **外連他家伺服器**(線【身分】2026-09-03 量)。
+ *    🔵 而商品卡 / PDP / 搜尋 / JSON-LD / OG **早就修好了** —— 它們走 `mappers/product.ts`
+ *    的 `dropImagesWithoutRealPhoto` ⇒ 🎯 **漏的是【各自直讀 base 表】的那兩條路。**
+ *
+ * ⛔ ~~「訂單存的是下單當時的快照 ⇒ 改它是改寫歷史」~~ —— **2026-09-04 那個理由被推翻了**:
+ *    `order_items.product_snapshot` 的 CHECK 是 **exact key set `{title, sku, spec}`**
+ *    (`order_items_snapshot_whitelist`, 拋棄式庫實查)⇒ 🔴 **圖【結構上】不在快照裡**;
+ *    這裡 join 的是**現在的商品列** ⇒ **今天換一張商品圖, 舊訂單卡片本來就跟著換。**
+ *    ⇒ 📌 **所以那個顧慮不存在** —— 而它曾經是一個拍過板的理由(主視窗 2026-09-04 收回)。
+ *
+ * 🛑 **判斷必須呼叫 `hasNoRealImage`, 不得在這裡重打一份** ——
+ *    那支檔自己警告過「複製成兩份 ⇒ 它們會分岔, 而分岔不會紅」。
+ * 🔵 而**兩段 fallback 的語意因此變好了**:變體圖是佔位圖 ⇒ 落到母商品圖;
+ *    兩層都是佔位圖 ⇒ `null` ⇒ 顯示端走站內佔位圖那條路。
+ */
 function pickFirstImage(raw: unknown): string | null {
   if (!Array.isArray(raw)) return null;
-  const first = raw[0];
-  return typeof first === 'string' && first !== '' ? first : null;
+  // 🔴 **掃整個陣列, 不是只看 `[0]`**(codex 關卡2 R1 must-fix, 2026-09-04):
+  //    我第一版寫的是「`[0]` 是佔位圖 ⇒ 回 null」⇒ 🎯 **`[佔位圖, 真照片]` 會把那張真照片丟掉**,
+  //    而函式名與 docstring 都寫著「第一張**真照片**」⇒ **字面與行為不一致。**
+  //    ✅ 而這也**對齊目錄那一側**:它是 `dropImagesWithoutRealPhoto(images)` 然後取 `[0]`
+  //    ⇒ 同一個語意, 兩處不再分岔。
+  const real = raw.find(
+    (x): x is string => typeof x === 'string' && x !== '' && !hasNoRealImage(x),
+  );
+  return real ?? null;
 }
 
 /**

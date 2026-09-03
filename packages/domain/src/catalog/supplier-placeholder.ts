@@ -18,12 +18,18 @@
 //    ✅ 本片修的:
 //      ① `packages/adapters/…/mappers/product.ts`(詳情 / 精選 / 相關 / 搜尋)
 //      ② `apps/storefront/src/lib/catalog-page.ts`(`/products` 目錄頁與品牌頁, 走 RPC, **不經過 mapper**)
-//    🔴 **本片【沒有】修的**(code-reviewer R2 2026-09-02 抓到, 我開檔驗過):
-//      ③ `SupabaseFavoritesAdapter.ts:80` —— `row.products.images[0]` 直讀 base 表
+//    ⛔ ~~**本片【沒有】修的**(code-reviewer R2 2026-09-02 抓到)~~
+//      ③ `SupabaseFavoritesAdapter.ts` —— `row.products.images[0]` 直讀 base 表
 //         ⇒ `FavoritesTab.tsx:61` 客人的**收藏清單**
-//      ④ `mappers/order.ts:272` 與 `:1226` —— `pickFirstImage(...products?.images)`
+//      ④ `mappers/order.ts` 的 `pickFirstImage` —— 兩個呼叫端(列表卡片列 / 明細品項)
 //         ⇒ `OrdersTab.tsx:154` / `OrderDetailView.tsx` 客人的**訂單卡片與明細**
-//      🛑 ④ 動到 order 面 ⇒ **鐵則 12①** ⇒ 那不是順手補, 是另一片, 已交主視窗。
+//    ✅ 🔴 **2026-09-04 ③④ 都接上了**(⟦ship-ORDERIMG⟧, 線 `-ship`;鐵則 12① ⇒ codex 對抗審查已跑)
+//       ⇒ 🛑 **而「本片沒有修」那句話留著加刪除線是刻意的** —— 它記著一個
+//          **正確而會過期**的狀態句;而**沒有任何機制會在它過期的時候回來叫它**
+//          (與本檔下面「零收益」「改寫歷史」兩格同族, 這是第三格)。
+//       📌 而明細那條 `OrderDetailView` **本來就已經被 `ProductImage` 擋住了**
+//          (它自己呼叫 `hasNoRealImage`)⇒ ④ 真正漏的是**列表卡片**那一條。
+//          🔵 接上 adapter 那一層是縱深, 不是重複:判斷住在【資料出口】才管得到未來的顯示端。
 //      ⚠️ 而 ③④ 只證實**路徑存在**, **沒有**查「今天有沒有 GILLES 商品被收藏 / 被下單」。
 //
 // 🛑🛑 **⛔ ~~我原本在這裡寫「它有【兩個】消費者」~~ —— 而那是本檔第二次犯同一個病。**
@@ -253,9 +259,17 @@ export function hasNoRealImage(url: string | null | undefined): boolean {
  *    —— 而**沒有任何機制會在前提變的時候回來叫它**。
  * ─────────────────────────────────────────────────────────────
  *
- * 🛑 **快照不受本函式管**:購物車 / 訂單 / 收藏存的是**下單當時**的網址,
- *    不走這條路 ⇒ 它們仍會顯示當時那張卡。**那是刻意的 —— 改它是改寫歷史。**
- *    (板列 `⟦front-SNAPSHOTPLACEHOLDER⟧`)
+ * ⛔ ~~「快照不受本函式管:購物車 / 訂單 / 收藏存的是**下單當時**的網址, 不走這條路
+ *    ⇒ 它們仍會顯示當時那張卡。**那是刻意的 —— 改它是改寫歷史。**」~~
+ * 🔴🔴 **2026-09-04 那段話被實查推翻(⟦ship-ORDERIMG⟧;主視窗收回它自己拍過的板)**:
+ *    `order_items.product_snapshot` 的 CHECK 是 **exact key set `{title, sku, spec}`**
+ *    (`order_items_snapshot_whitelist` —— 拋棄式庫實撞:多一個 `brand` 鍵就被擋下)
+ *    ⇒ 🎯 **圖【結構上】不在快照裡。** 訂單頁與收藏是 **join 到現在的商品列**
+ *    (`mappers/order.ts` 的 `pickFirstImage` · `SupabaseFavoritesAdapter.ts` 的 `row.products.images[0]`)
+ *    ⇒ ⇒ 🔴 **今天換一張商品圖, 舊訂單卡片本來就跟著換** ⇒ 「改寫歷史」那個顧慮**不存在**。
+ *    ✅ 那兩處已於 2026-09-04 接上本函式。
+ * 📌 **而這段舊字面留著不刪是刻意的** —— 它是一個**推理正確、而前提後來變了**的例子,
+ *    與上面「零收益」那一格同族:**沒有任何機制會在前提變的時候回來叫它。**
  */
 export function dropImagesWithoutRealPhoto(images: readonly string[]): string[] {
   return images.filter((url) => !hasNoRealImage(url));

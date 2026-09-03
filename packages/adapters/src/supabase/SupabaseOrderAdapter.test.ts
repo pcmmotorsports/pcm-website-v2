@@ -2992,6 +2992,111 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
     expect(res2!.items[0]!.imageUrl).toBeNull();
   });
 
+  /**
+   * ⟦ship-ORDERIMG⟧ **列表**那條路(訂單記錄卡片的小縮圖)—— 而它與明細是**兩個呼叫端**。
+   *
+   * 🔴 **codex 關卡2 R1 must-fix**:我第一版只守了明細 ⇒ 把 `order.ts:271-273`(列表那兩行)
+   *    改回直接取 `images[0]`, **明細與收藏兩格仍然全綠, 而訂單列表漏網**。
+   *    📌 兩個呼叫端共用 `pickFirstImage` 是對的, **而「共用」不等於「兩邊都被守著」** ——
+   *       守門的分母是【呼叫端】, 不是【被呼叫的那支函式】。
+   */
+  it('🔴 列表卡片:供應商佔位圖 ⇒ null;PCM 自家無圖卡 ⇒ null;而真照片逐字不變', async () => {
+    const REAL = 'https://quote.pcmmotorsports.com/real-product-01.jpg';
+    const mk = (imgs: unknown) => ({
+      id: 'o1',
+      display_id: 'PCM-2099-0007',
+      created_at: '2099-04-15T10:00:00Z',
+      payment_status: 'paid',
+      fulfillment_status: 'shipped',
+      total: 12345,
+      cancelled_at: null,
+      cancelled_reason: null,
+      order_items: [
+        {
+          quantity: 1,
+          line_total: 100,
+          product_snapshot: { title: 'A', sku: 'A-1', spec: {} },
+          product_variants: { images: imgs, products: { images: null, brands: null } },
+        },
+      ],
+    });
+    const img = async (imgs: unknown) => {
+      const { client } = makeListClient({ data: [mk(imgs)], error: null });
+      const out = await new SupabaseOrderAdapter(client).listSummariesByCustomer('c1');
+      return out[0]!.items[0]!.imageUrl;
+    };
+    expect(await img(['https://www.gillestooling.com/bild-schraube-1.jpg']),
+      '供應商佔位圖進到客人的訂單列表卡片了').toBeNull();
+    // 🔴 這一格擋的是「換成較弱的 isSupplierPlaceholder」—— 它不認 PCM 自家那張卡。
+    expect(await img(['https://quote.pcmmotorsports.com/no-photo.png']),
+      'PCM 自家的無圖卡漏出來了 ⇒ 這道濾網被換成 isSupplierPlaceholder 了?').toBeNull();
+    // 🔴 只看 [0] 的版本會把後面那張真照片丟掉。
+    expect(await img(['https://www.gillestooling.com/bild-schraube-1.jpg', REAL]),
+      '只看 [0] ⇒ 把一張真照片丟掉了').toBe(REAL);
+    expect(await img([REAL]), '🔵 負對照:真照片被濾掉了 ⇒ 客人的卡片變空框, 而沒有人會回報').toBe(REAL);
+  });
+
+  /**
+   * ⟦ship-ORDERIMG⟧ 客人的**訂單頁**不得顯示供應商的「無圖」圖(2026-09-04)。
+   *
+   * 🔬 病:商品卡 / PDP / 搜尋 / JSON-LD / OG 早就修好了(走 `dropImagesWithoutRealPhoto`),
+   *    而**訂單這條路 join 到現在的商品列、直讀 base 表** ⇒ 客人的訂單頁上是
+   *    **別家公司的「無圖」圖**, 其中 39 列**外連他家伺服器**(線【身分】2026-09-03 量)。
+   *
+   * ⛔ ~~「訂單存的是下單當時的快照 ⇒ 改它是改寫歷史」~~ ⇒ **那個理由 2026-09-04 被推翻**:
+   *    `order_items_snapshot_whitelist` 是 exact key set `{title, sku, spec}`
+   *    ⇒ 🔴 **圖結構上不在快照裡** ⇒ 今天換一張商品圖, 舊訂單卡片本來就跟著換。
+   *
+   * 🛑 **三個方向, 而第三個是這一格的重點**:
+   *    · 變體圖是佔位圖 ⇒ **落到母商品圖**(fallback 的語意因此變好了)
+   *    · 兩層都是佔位圖 ⇒ `null`
+   *    · 🔵 **負對照:一張真照片 ⇒ 逐字不變** —— 少了它,「一律回 null」也會通過,
+   *      而那個版本會拿站內佔位圖蓋掉每一張真商品照, **且沒有人會回報**。
+   */
+  it('🔴 供應商佔位圖:變體是佔位圖 ⇒ 退母商品圖;兩層都是 ⇒ null;而真照片逐字不變', async () => {
+    const PLACEHOLDER = 'https://www.gillestooling.com/bild-folgt-in-kurze-x.jpg';
+    const REAL = 'https://quote.pcmmotorsports.com/real-product-01.jpg';
+    const mk = (variantImgs: string[], productImgs: string[]) => ({
+      ...MEMBER_DETAIL_ROW,
+      order_items: [
+        {
+          ...MEMBER_DETAIL_ROW.order_items[0],
+          product_variants: { images: variantImgs, products: { images: productImgs, brands: null } },
+        },
+      ],
+    });
+
+    const a = makeMemberDetailClient({ data: mk([PLACEHOLDER], [REAL]), error: null });
+    expect(
+      (await new SupabaseOrderAdapter(a.client).findOrderDetailForCustomer('d', 'c1'))!.items[0]!.imageUrl,
+      '變體是佔位圖時沒有退到母商品那張真照片',
+    ).toBe(REAL);
+
+    const b = makeMemberDetailClient({ data: mk([PLACEHOLDER], ['https://rpmcarbon.com/cdn/x/no-image-2048-a.gif']), error: null });
+    expect(
+      (await new SupabaseOrderAdapter(b.client).findOrderDetailForCustomer('d', 'c1'))!.items[0]!.imageUrl,
+      '兩層都是供應商佔位圖, 而它進到客人的訂單頁了(其中一部分還外連他家伺服器)',
+    ).toBeNull();
+
+    const pcmCard = makeMemberDetailClient({ data: mk(['https://quote.pcmmotorsports.com/no-photo.png'], []), error: null });
+    expect(
+      (await new SupabaseOrderAdapter(pcmCard.client).findOrderDetailForCustomer('d', 'c1'))!.items[0]!.imageUrl,
+      'PCM 自家的無圖卡漏出來了 ⇒ 這道濾網被換成較弱的 isSupplierPlaceholder 了?',
+    ).toBeNull();
+
+    const arr = makeMemberDetailClient({ data: mk([PLACEHOLDER, REAL], []), error: null });
+    expect(
+      (await new SupabaseOrderAdapter(arr.client).findOrderDetailForCustomer('d', 'c1'))!.items[0]!.imageUrl,
+      '只看 [0] ⇒ 把同一個陣列後面那張真照片丟掉了',
+    ).toBe(REAL);
+
+    const c = makeMemberDetailClient({ data: mk([REAL], []), error: null });
+    expect(
+      (await new SupabaseOrderAdapter(c.client).findOrderDetailForCustomer('d', 'c1'))!.items[0]!.imageUrl,
+      '🔵 負對照:一張真照片被濾掉了 ⇒ 客人看到佔位圖蓋住真商品照, 而沒有人會回報',
+    ).toBe(REAL);
+  });
+
   it('收件快照壞形狀 ⇒ 三欄各自 null(不炸頁)', async () => {
     const broken = { ...MEMBER_DETAIL_ROW, shipping_address_snapshot: null };
     const { client } = makeMemberDetailClient({ data: broken, error: null });
