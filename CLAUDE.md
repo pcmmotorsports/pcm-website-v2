@@ -125,7 +125,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 - **多步驟用 `&&` 串接、禁裸換行 batch**;🔴 **而 `&&` 會被一個【合法的零】截斷**(`grep -c` 印 0 而 rc=1)⇒ 量測鏈不要用 `&&` 串。
 - **「產生新檔→驗證→覆蓋」**:`cat > /tmp/x <<'EOF'` → `test -s /tmp/x || exit 1` → `mv /tmp/x target`。
 - **不假設非 macOS CLI 已裝**:`jq`/`yq` 用前 `command -v` 確認、或改 Python 內建。
-- **zsh nomatch**:glob 無匹配 exit 1、含 glob 加 `|| true` 或用 `find`;🔴 **而 zsh 【不】對未加引號的變數斷詞** ⇒ 迴圈一律 `while IFS= read -r`,禁 `for f in $VAR`、禁 `git add $P`。
+- **zsh nomatch**:glob 無匹配 exit 1、含 glob 加 `|| true` 或用 `find`;🔴 **而 zsh 【不】對未加引號的變數斷詞** ⇒ 迴圈一律 `while IFS= read -r`,禁 `for f in $VAR`、禁 `git add $P`。🔴 **射程 = 【你在終端機打的那一行】** —— 那裡是 zsh;而 `scripts/` 底下的 `.sh` 幾乎全是 bash/sh(**跑 zsh 的 0 支**)⇒ **那裡的 `for x in $VAR` 是【對的】,不要照本條去改它們。**⚠️ **而這不是放寬** —— **你打的每一行照樣禁**;補的是「別去改一批本來就對的檔」。
 - **CJK / str_replace 切策略**:見常載 `~/.claude/rules/00-work-rules.md` §5(單一權威,此處不重複)。
 📎 **每一條的實測數字、實錘、射程與已被訂正的舊字面 → `docs/patterns/zsh-and-bash-traps.md`**
 
