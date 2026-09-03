@@ -745,6 +745,30 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     expect(cartRef.current.clear).not.toHaveBeenCalled();
   });
 
+  // 🔴🔴 **codex must-fix 2:上面那格 ⑪ 只驗 `/缺少規格資訊/`,而【兩個世界都印那句】** ——
+  //    把 `CheckoutView.tsx` 的 `lineName` 整段刪掉、或讓它永遠回 `undefined`,
+  //    ⑪ 照樣綠、hook 那邊新增的測試也照樣綠(它們自己餵 `lineName`)
+  //    ⇒ 📌 **正式接線斷掉而沒有人會知道** —— 那正是「尺量的是我自己餵進去的東西」。
+  //    ✅ 這一格走**真的那條接線**:名字要從 `resolveMock` 的解析結果一路傳到畫面上。
+  it('🔴 缺 variantId 時, 畫面上那句話要【叫得出商品名】—— 守 CheckoutView 那條真接線', async () => {
+    setCart([{ productId: 'rpm-1', qty: 1 }]); // 無 variantId
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', name: '碳纖維車台護蓋' })]);
+    getPrimeMock.mockResolvedValue('prime_test');
+    const { container } = renderCheckout();
+    await gotoStep2Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+
+    // 🎯 判別點:**那個名字要出現在【錯誤訊息那一句】裡**。
+    // 🔴 不能用 `findByText(/碳纖維車台護蓋/)` —— 商品名**同時也印在右側訂單摘要上**
+    //    ⇒ 那樣寫會「找到多個」而紅, 而紅的理由與本格要驗的事無關(我第一版就是這樣紅的)。
+    //    ⇒ 📌 **一個會紅的測試不代表它在驗對的東西。**
+    const errorLine = await screen.findByText(/缺少規格資訊/);
+    expect(errorLine.textContent).toContain('碳纖維車台護蓋');
+    // 而擋下來這件事不受影響(接線斷了也要擋)。
+    expect(chargeMock).not.toHaveBeenCalled();
+    expect(cartRef.current.clear).not.toHaveBeenCalled();
+  });
+
   it('⑫ getPrime 失敗(null)→ 友善錯誤、零 action 呼叫、可重試', async () => {
     setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
