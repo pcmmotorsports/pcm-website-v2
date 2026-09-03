@@ -227,7 +227,8 @@ export function CartView({
           <div className="cart-head-count">{lines.length} 件商品</div>
         </div>
 
-        {/* 🛑 暫用字面, 等 Sean 拍(題 25)。
+        {/* ✅ 字面已定案:Sean 2026-09-03 拍【題 25 甲】「移掉, 並且說一句」
+            ⇒ 本行的行為就是甲 ⇒ 行為零改動。落點 等Sean拍的題-20260903.md:1414。
             ⛔ ~~原註解寫「全部被移掉時客人看到的是空購物車 + 這一句」~~
             **R1 Critical 2 訂正:控制流上那是不可能的** —— 全被移掉會走上面那條早返回,
             這一段【結構上到不了】。空車那半現在由 `CartEmpty` 自己畫(見上)。 */}
@@ -396,7 +397,11 @@ function CartEmpty({ onContinue, prunedCount = 0 }: { onContinue: () => void; pr
         </div>
         <h2>購物車是空的</h2>
         {/* 🔴 **這一句是本片的重點**:沒有它,「他的東西被移掉了」與「他從來沒加過東西」
-            印的是同一個畫面(production 實測)。🛑 字面暫用, 等 Sean 拍(題 25)。 */}
+            印的是同一個畫面(production 實測)。
+            ✅ **字面已定案**:Sean 2026-09-03 拍【題 25 甲】(落點 等Sean拍的題-20260903.md:1414)。
+            🔴 **而甲只涵蓋【下架移除】這一句** —— `prunedCount === 0` 的空車(含【登出清空】)
+               今天仍然掉進上面那句「購物車是空的」= 與他從來沒加過同一句。
+               那一句**還沒有人擬過**, 而它不在題 25 的射程裡。 */}
         {prunedCount > 0 && (
           <p className="cart-pruned-notice" role="status">
             有 {prunedCount} 件商品已不再供應,已為您移除。

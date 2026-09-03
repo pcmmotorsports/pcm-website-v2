@@ -414,3 +414,115 @@ describe('useChargePayment', () => {
     );
   });
 });
+
+// ⟦b9-Q15GAP⟧ Sean 2026-09-03 拍 `Q15 = 甲`:那句擋人的話要指名是哪一件。
+// 🔴 **本 describe 存在的理由**:上面 ④ 那格只驗「缺 variantId ⇒ 整單拒、零 action」,
+//    而**它對「訊息裡有沒有名字」「有幾件被列出來」完全盲** —— 突變證過:
+//    把 `missing` 改成 `.slice(0, 1)`(= 退回舊行為「撞到第一件就 return」)⇒ **23 格全綠。**
+describe('缺規格那句話 —— 指名 + 一次講完(Q15 = 甲)', () => {
+  it('🔴 兩件都缺 ⇒ 訊息把【兩件】都列出來, 不是只講第一件', async () => {
+    setCart([
+      { productId: 'p1', qty: 1 },
+      { productId: 'p2', qty: 1 },
+    ]);
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit({
+        ...ARGS,
+        lineName: ({ productId }) => (productId === 'p1' ? '碳纖維護蓋' : '全段排氣'),
+      });
+    });
+    const state = result.current.state;
+    expect(state.status).toBe('error');
+    const msg = state.status === 'error' ? state.message : '';
+    // 🎯 判別點:**兩個名字都要在**。舊行為(撞到第一件就 return)只會有一個。
+    expect(msg).toContain('碳纖維護蓋');
+    expect(msg).toContain('全段排氣');
+    expect(msg).toContain('2 件');
+  });
+
+  // 🔴 **叫得出一半 ⇒ 整句退回不指名版**(code-reviewer must-fix 1)。
+  //    少了這一格, `canNameAll` 那個判斷可以整個刪掉而全綠 —— 而它擋的是:
+  //    訊息說「1 件」而實際擋下 2 件 ⇒ **客人處理完那一件, 以為好了, 再按又被擋。**
+  //    📌 一個**少報件數**的訊息, 比一個不指名的訊息更會讓他以為他處理完了。
+  it('🔴 兩件被擋而只叫得出一件的名字 ⇒ 整句退回不指名版, 不得講「1 件」', async () => {
+    setCart([
+      { productId: 'p1', qty: 1 },
+      { productId: 'p2', qty: 1 },
+    ]);
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit({
+        ...ARGS,
+        // p2 叫不出名字(模擬它不在 cart.lines 裡 —— useResolvedCart 會濾掉 !found 的列)
+        lineName: ({ productId }) => (productId === 'p1' ? '碳纖維護蓋' : undefined),
+      });
+    });
+    const state = result.current.state;
+    const msg = state.status === 'error' ? state.message : '';
+    // 🎯 判別點:**不得出現「1 件」那種少報**, 也不得只列一個名字當成全部。
+    expect(msg).not.toContain('1 件');
+    expect(msg).not.toContain('碳纖維護蓋');
+    expect(msg).toContain('購物車有商品缺少規格資訊');
+    expect(msg, '退回不指名版也要留著出路').toContain('聯繫客服 LINE');
+  });
+
+  // 🔴🔴 **codex must-fix 1 的守門, 而它【差一點沒被加上】——**
+  //    我跑突變時把 try/catch 拿掉 ⇒ **27 格全綠** ⇒ 那一格原本零守門。
+  //    而同一發突變的「還原」我用了一個**過期的備份**(它早於 try/catch 那次修改)
+  //    ⇒ 🛑 **修法被靜靜還原掉了, 而測試不會紅** —— 兩個病剛好互相掩護。
+  //    ⇒ 📌 **一個沒有守門的修法, 在還原出錯時連「它不見了」都沒有訊號。**
+  it('🔴 lineName 自己 throw ⇒ 仍要擋下、仍要有訊息(不可以把整條路弄啞)', async () => {
+    setCart([{ productId: 'p1', qty: 1 }]);
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      const ok = await result.current.submit({
+        ...ARGS,
+        lineName: () => {
+          throw new Error('呼叫端的解析壞了');
+        },
+      });
+      // 🎯 判別點一:**不可以往上丟** —— 丟出去 ⇒ 付款 action 零呼叫而畫面一句話都沒有。
+      expect(ok).toBe(false);
+    });
+    const state = result.current.state;
+    // 🎯 判別點二:畫面上要有話, 而且是退回不指名的那一版 + 出路還在。
+    expect(state.status).toBe('error');
+    const msg = state.status === 'error' ? state.message : '';
+    expect(msg).toContain('購物車有商品缺少規格資訊');
+    expect(msg).toContain('聯繫客服 LINE');
+  });
+
+  // 🔴🔴 **這一格是 code-reviewer must-fix 3 —— 而它守的是【錢】那一側,不是文案。**
+  //    本片把 `inFlightRef.current = false` 搬到新分支上, 而**缺規格三格各只呼叫一次 `submit`**
+  //    ⇒ 把那一行刪掉 ⇒ **三格全綠**。而它掉了的後果:
+  //    第二發 `submit` 走 `return true`(已上鎖)⇒ `CheckoutView` 的 `finally if (!terminal)`
+  //    不解鎖 ⇒ **付款鈕永久 disabled** —— 本檔上方逐字記著的那個「永久鎖死」。
+  //    ⇒ 📌 **一行搬家, 而承重的是它;而三綠對它零判別力。**
+  it('🔴 被擋下之後【鎖要放掉】—— 客人改完再按一次要能真的送出(不是永久 disabled)', async () => {
+    setCart([{ productId: 'p1', qty: 1 }]);
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      expect(await result.current.submit(ARGS), '第一發:缺規格 ⇒ 擋下, 回 false').toBe(false);
+    });
+    // 🎯 第二發是判別點:鎖沒放掉的話這裡會拿到 `true`(= 「已上鎖, 呼叫端不得釋放自身鎖」),
+    //    而畫面上的付款鈕就再也按不下去。
+    await act(async () => {
+      expect(await result.current.submit(ARGS), '第二發:鎖已放掉 ⇒ 仍走驗證、仍回 false').toBe(false);
+    });
+  });
+
+  it('🔵 負對照:呼叫端沒給 lineName ⇒ 退回不指名的版本, 而**仍然擋下來**', async () => {
+    setCart([{ productId: 'p1', qty: 1 }]);
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit(ARGS);
+    });
+    const state = result.current.state;
+    expect(state.status).toBe('error');
+    const msg = state.status === 'error' ? state.message : '';
+    expect(msg).toContain('購物車有商品缺少規格資訊');
+    // 🔴 而出路那半在兩個世界都要有 —— 少了這行, 一個「叫不出名字就不給出路」的實作會全綠。
+    expect(msg).toContain('聯繫客服 LINE');
+  });
+});

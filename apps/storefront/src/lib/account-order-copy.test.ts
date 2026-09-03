@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ORDER_ITEM_COUNT_TRUNCATED_NOTE } from './account-order-copy';
+import { ORDER_ITEM_COUNT_TRUNCATED_NOTE, RETRY_PROMISE_WORD_ROOTS } from './account-order-copy';
 
 // `#636` —— 客人面「? 件」那句話的守門。
 //
@@ -13,7 +13,9 @@ describe('ORDER_ITEM_COUNT_TRUNCATED_NOTE(`#636` 客人面截斷文案)', () => 
     // 🔴 `稍候`(U+5019)與 `稍後`(U+5F8C)**是不同字** —— 審查當場實測前者穿透。
     //    ⚠️ 這份清單擋的是【已知說法】不是【所有說法】(檔頭列了七種仍會全綠的寫法)
     //      ⇒ **真正扛住段②的是下面那格正向斷言**,這裡是第二道。
-    for (const bad of ['重新整理', '重新載入', '重整', '刷新', '重試', '再試', '稍後', '稍候']) {
+    // 🔴 2026-09-03:清單搬進 `account-order-copy.ts` 成為 export(單一權威)——
+    //    因為 `account-profile-copy.test.ts` 重打了一份【比較窄】的, 而窄化在 diff 上看不出來。
+    for (const bad of RETRY_PROMISE_WORD_ROOTS) {
       expect(
         ORDER_ITEM_COUNT_TRUNCATED_NOTE,
         `截斷是【寫死的上限】造成的,叫客人「${bad}」會讓他一直做一件不會成功的事`,

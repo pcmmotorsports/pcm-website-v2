@@ -29,6 +29,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { WalletLedgerEntry } from '@pcm/domain';
 import { WalletTab } from './WalletTab';
+import { PROFILE_UNREADABLE_NOTE } from '@/lib/account-profile-copy';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 /**
@@ -479,7 +480,7 @@ describe('WalletTab — 🔴 餘額讀不到, 不得印 0', () => {
     const { container } = render(
       <WalletTab balance={0} entries={[entry()]} total={1} balanceFailed />,
     );
-    expect(screen.getByText('餘額暫時讀不到')).toBeTruthy();
+    expect(screen.getByText('餘額讀不到')).toBeTruthy();
     expect(container.querySelector('.wal-balance-cur')).toBeNull();
     expect(container.querySelector('.wal-balance-meta')).toBeNull();
     // 而明細仍要看得到 —— 兩發查詢, 一發失敗不該把另一發帶走
@@ -488,7 +489,29 @@ describe('WalletTab — 🔴 餘額讀不到, 不得印 0', () => {
 
   it('對照組:balanceFailed 未設 ⇒ 照常印餘額', () => {
     render(<WalletTab balance={0} entries={[]} total={0} />);
-    expect(screen.queryByText('餘額暫時讀不到')).toBeNull();
+    expect(screen.queryByText('餘額讀不到')).toBeNull();
     expect(screen.getByText('0')).toBeTruthy();
+  });
+
+  // ── Q28 · code-reviewer M2 ────────────────────────────────
+  // 🔴 **這一半原本零測試** —— `WalletTab.tsx` 的
+  //    `balanceFailed ? PROFILE_UNREADABLE_NOTE : WALLET_UNAVAILABLE_NOTE`
+  //    把它改成恆印 `WALLET_UNAVAILABLE_NOTE`(= 這一片在 WalletTab 完全沒做), **70 格照樣全綠**。
+  //    ⇒ 📌 我只修了 OverviewTab 那一半的假綠, 而**同一個修法在隔壁那半根本沒有人在看**。
+  it('🔴 balanceFailed ⇒ `.wal-balance-soon` 改印那句話', () => {
+    render(<WalletTab balance={0} entries={[]} total={0} balanceFailed />);
+    expect(screen.getByText(PROFILE_UNREADABLE_NOTE)).toBeTruthy();
+  });
+
+  it('🔴 balanceFailed ⇒ 那句拍板文案(q5=乙)**被取代**, 不得同時出現', () => {
+    // 🛑 兩句同時出現 = 對客人講兩件相反的事(「可查看餘額」vs「餘額讀不到」)。
+    render(<WalletTab balance={0} entries={[]} total={0} balanceFailed />);
+    expect(screen.queryByText('目前可查看餘額與明細;儲值與折抵尚未開放')).toBeNull();
+  });
+
+  it('對照組:未失敗 ⇒ 印拍板文案, 且【不】出現那句話', () => {
+    render(<WalletTab balance={0} entries={[]} total={0} />);
+    expect(screen.getByText('目前可查看餘額與明細;儲值與折抵尚未開放')).toBeTruthy();
+    expect(screen.queryByText(PROFILE_UNREADABLE_NOTE)).toBeNull();
   });
 });
