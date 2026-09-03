@@ -20,6 +20,18 @@ import type { AdminOrderDetail } from '@pcm/domain';
 
 vi.mock('server-only', () => ({}));
 
+// 🔴 **2026-09-04:app router mock —— 而理由與本檔要測的品牌行【無關】。**
+//    本檔 fixture 是 `quantitySummary: null`, 而片乙的 `defaultOpen` 把「不知道」算進「要展開」
+//    ⇒ 這棵樹開始 mount `ItemProcurementForm` ⇒ 它 `useRouter()` ⇒ 沒 mock 就炸。
+//    📎 **完整理由(含「為什麼這不是放寬」與那個爆炸半徑的形狀)寫在**
+//       `order-detail-items-totals-wiring.test.tsx` 的同一段 —— 這裡不重複第二份全文。
+//    🔴 而**這是第三支**撞到同一件事的檔(另兩支:`procurement-wiring` · `…-totals-wiring`)
+//       ⇒ 🛑 **刻意【不】改成全域 mock**:全域給每支測試一個 router,
+//          會把「這棵樹開始用 router 了」這個訊號一併關掉 —— 而那正是今天抓到它的東西。
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+}));
+
 import { ItemsTable } from './order-detail-items-table';
 // 🔵 `#450` 兩個**必填無預設**的 prop —— 大多數格子測的不是到貨列表,
 //    給「沒有到貨、沒有包裹」讓行為與加這一片之前逐字相同。
