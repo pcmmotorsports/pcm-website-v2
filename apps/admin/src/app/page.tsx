@@ -16,6 +16,12 @@ import {
   type DataFreshness,
 } from '../lib/dashboard/freshness-read';
 import {
+  loadStuckPaymentCount,
+  stuckPaymentLabel,
+  unreadableStuckPayment,
+  type StuckPaymentCount,
+} from '../lib/dashboard/stuck-payment-read';
+import {
   loadCronHeartbeats,
   unreadableReport,
   type CronHeartbeatReport,
@@ -141,6 +147,7 @@ export default async function AdminHomePage() {
     fitmentSettled,
     cronSettled,
     deadLetterSettled,
+    stuckPaymentSettled,
   ] = await Promise.allSettled([
       getSessionActorWithSource(),
       listActiveStaff(),
@@ -153,6 +160,10 @@ export default async function AdminHomePage() {
       // 🔵 `⟦f3-DEADLETTERCOUNT⟧` 2026-09-02(Sean 拍甲:「把『有幾封卡住』做成看得見的數字」)。
       //    這個數字**本來就已經被算出來**(告警器每輪都在算),只是沒有任何人類的眼睛看得到它。
       loadDeadLetterCount(),
+      // 🔵 2026-09-03 線 `-db` 加(主視窗派, L1):一張扣款重試被放棄的單, 在這之前**後台沒有任何畫面看得到** ——
+      //    那個標記只出現在【取消】流程的一道閘上, 而訂單列表沒有「系統放棄了」這一軸
+      //    ⇒ 員工要已經點進那一張單才看得到, 而他不會知道要點哪一張。理由全文在 stuck-payment-read.ts。
+      loadStuckPaymentCount(),
     ]);
   if (actorSettled.status === 'rejected') throw actorSettled.reason;
   if (staffSettled.status === 'rejected') throw staffSettled.reason;
@@ -194,6 +205,15 @@ export default async function AdminHomePage() {
   } else {
     console.error('[admin/home] 車款搜尋同步新鮮度載入失敗', fitmentSettled.reason);
     fitment = unreadable('讀取時發生例外');
+  }
+
+  // 系統放棄的付款(2026-09-03)。**同一條理由**:讀不到也要印,不留白。
+  let stuckPayment: StuckPaymentCount;
+  if (stuckPaymentSettled.status === 'fulfilled') {
+    stuckPayment = stuckPaymentSettled.value;
+  } else {
+    console.error('[admin/home] 扣款重試已放棄筆數載入失敗', stuckPaymentSettled.reason);
+    stuckPayment = unreadableStuckPayment('讀取時發生例外');
   }
 
   // 排程心跳(3a)。同一條理由:讀不到也要印,不留白。
@@ -247,6 +267,23 @@ export default async function AdminHomePage() {
         className={fitment.abnormal ? 'text-destructive text-xs' : 'text-muted-foreground text-xs'}
       >
         {fitmentFreshnessLabel(fitment)}
+      </p>
+
+      {/* 🔴🔴 2026-09-03:**零張時它印「0 張」, 不是什麼都不印** —— 那是本片的驗收條件不是風格。
+          同一天量到三個「該叫才叫」的東西(車款排程 / 兩顆 env / 雙扣告警), 共同病是
+          **沉默有兩種意思而收訊端分不出來**:「今天沒事」與「它壞了」印同一個空白。
+          ⇒ 所以這一格是儀表:它每天都印一個值。
+          🔴 顏色判準只讀 `count` 那一格, 不在這裡自己再組一次(同上面兩行那條 R1 must-fix)——
+             而 `count === null`(量不到)也要亮, 因為那是「我們壞了」不是好消息。 */}
+      <p
+        data-testid='stuck-payment-count'
+        className={
+          stuckPayment.count === null || stuckPayment.count > 0
+            ? 'text-destructive text-xs'
+            : 'text-muted-foreground text-xs'
+        }
+      >
+        {stuckPaymentLabel(stuckPayment)}
       </p>
 
       {/* 🔴🔴 這一區**不是「監控做好了」,它是「有一個地方看得到」** —— 沒人登入後台就沒人看見。
