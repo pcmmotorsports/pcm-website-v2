@@ -162,7 +162,12 @@ ba53294  2026-08-29  「硬刪改到 upsert 之後」
 - `brandSlug`:**網站 `brands.slug`,🔴 可能 ≠ supplierSlug**(kspeed→`k-speed`、rpm→`rpm-carbon`、eazigrip→`eazi-grip`)。MCP 實查 brands 表、勿憑記憶。
 - `handlePrefix`:handle = `${prefix}-${mainSku.toLowerCase()}`。
 - `syncDescription`:來源有繁中描述就 true。
-- `syncInstallResources`:有 pdf/video 來源才 true(靜態無附件 = false)。
+- `syncInstallResources`:⛔ ~~有 pdf/video 來源才 true(靜態無附件 = false)~~ ⇒ 🔴 **那句話與既有設定不符**
+  (2026-09-03 線【帳號】拿它去預測既有 17 家:**對 12 · 錯 5**,`eazigrip` / `samco` / `motogadget` /
+  `front3d` / `materya` 都是 **`true` 而附件 0 列**)。✅ **實際的規律是【不對稱】的**:
+  **設 `false` 的 4 家(`rpm`/`extreme`/`dna`/`gilles`)附件【全部是 0】—— 這一側零例外。**
+  🎯 **⇒ 因為兩種錯的代價不一樣**:`true` 而沒東西 = 同步 0 筆(無害);`false` 而有東西 = **真的漏掉那些 pdf**。
+  ⇒ ✅ **填法:預設 `true`;只有在【實測附件 = 0】時才可以填 `false`(而填 `true` 也照樣對)。**
 - `categoryStrategy`:多數 `{ kind: 'per-group' }`。
 - `variantImages`:多變體家 = `'per-variant'`。
 - `writeAllowed`:**先 `false`**(fail-closed、過夜零寫入),乾跑全綠 + Sean 批首灌後才翻 `true`。
