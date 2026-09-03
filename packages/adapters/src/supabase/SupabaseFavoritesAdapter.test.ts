@@ -99,6 +99,51 @@ describe('SupabaseFavoritesAdapter', () => {
     expect(out[0]!.product.imageUrl).toBe('a.jpg');
   });
 
+  /**
+   * ⟦ship-ORDERIMG⟧ 收藏清單**不得顯示供應商的「無圖」圖**(2026-09-04)。
+   *
+   * 🔬 病:商品卡 / PDP / 搜尋 / JSON-LD / OG 早就修好了(走 `dropImagesWithoutRealPhoto`),
+   *    而**收藏這條路直讀 base 表** ⇒ 客人的收藏清單上是**別家公司的「無圖」圖**,
+   *    而其中 39 列是**外連他家伺服器**(線【身分】2026-09-03 量)。
+   *
+   * 🛑 **兩個方向都要有, 而第二個是這一格的重點**:
+   *    · 佔位圖 ⇒ `null`
+   *      ⛔ ~~「(下游走站內佔位圖)」~~ —— **codex R1 nit:那句是錯的。**
+   *      `FavoritesTab.tsx:61` 是 `{product.imageUrl && <img/>}` ⇒ **`null` 時它一張圖都不渲染**
+   *      (那是刻意的:`.acc-fav img` 有底色, 空 `src` 會變成一塊「像壞掉」的灰)。
+   *    · 🔵 **負對照:一張【真照片】⇒ 逐字不變** —— 少了它,「一律回 null」也會通過,
+   *      而那個版本會**拿佔位圖蓋掉每一張真照片**, 且沒有人會回報。
+   *      ⇒ 那一行的網址是線【身分】2026-09-04 補回來的同一個形狀。
+   */
+  it('🔴 `[佔位圖, 真照片]` ⇒ 取【後面那張真的】, 不是回 null', async () => {
+    const REAL = 'https://quote.pcmmotorsports.com/real-product-01.jpg';
+    const { client } = makeFakeClient([
+      row(['https://www.gillestooling.com/bild-schraube-1.jpg', REAL]),
+    ]);
+    const out = await new SupabaseFavoritesAdapter(client).listByCustomer('u-1');
+    expect(out[0]!.product.imageUrl, '只看 [0] ⇒ 把一張真照片丟掉了').toBe(REAL);
+  });
+
+  it.each([
+    ['gillestooling 佔位圖', 'https://www.gillestooling.com/bild-folgt-in-kurze-x.jpg', null],
+    ['rpmcarbon 無 www 佔位圖', 'https://rpmcarbon.com/cdn/x/no-image-2048-a.gif', null],
+    // 🔴 codex R1 must-fix:少了這一格, 把 `hasNoRealImage` 換成【較弱的】
+    //    `isSupplierPlaceholder` 兩格測試仍然全綠 —— 而 PCM 自家的「無圖卡」會重新流出。
+    //    📌 兩個謂詞不同:前者含 PCM 自己那張卡, 後者只認別人家的。
+    ['PCM 自家無圖卡', 'https://quote.pcmmotorsports.com/no-photo.png', null],
+    // 🔴 codex R1 must-fix:只看 `[0]` 會把後面那張真照片丟掉。
+    ['🔵 負對照:真照片', 'https://quote.pcmmotorsports.com/real-product-01.jpg', 'https://quote.pcmmotorsports.com/real-product-01.jpg'],
+  ])('🔴 %s ⇒ imageUrl = %s', async (_label, url, expected) => {
+    const { client } = makeFakeClient([row([url])]);
+    const out = await new SupabaseFavoritesAdapter(client).listByCustomer('u-1');
+    expect(
+      out[0]!.product.imageUrl,
+      expected === null
+        ? '供應商的「無圖」圖進到客人的收藏清單了(而其中一部分還外連他家伺服器)'
+        : '一張真照片被濾掉了 ⇒ 客人看到站內佔位圖蓋住真商品照, 而沒有人會回報',
+    ).toBe(expected);
+  });
+
   it.each([
     ['null', null],
     ['空陣列', []],

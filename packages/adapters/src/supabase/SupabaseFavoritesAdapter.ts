@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { IFavoritesRepository } from '@pcm/ports';
 import type { CustomerId, FavoriteListItem, FavoriteProductId } from '@pcm/domain';
+import { hasNoRealImage } from '@pcm/domain';
 import type { Database } from './database.types';
 
 /**
@@ -77,9 +78,19 @@ export class SupabaseFavoritesAdapter implements IFavoritesRepository {
         priceGeneral: row.products.price_general,
         // images 是 jsonb ⇒ 可能是 null / 非陣列 / 元素非 string。這裡**收斂不丟錯**:
         // 一張圖讀不出來不該讓整個收藏清單掛掉(對齊 `mappers/product.ts:326` 對 null 的處置)。
-        imageUrl: Array.isArray(row.products.images) && typeof row.products.images[0] === 'string'
-          ? row.products.images[0]
-          : null,
+        // 🔴🔴 **`hasNoRealImage` 是 2026-09-04 補的(⟦ship-ORDERIMG⟧)** —— 在那之前,
+        //    收藏清單顯示的是**供應商的「無圖」圖**(其中 39 列外連他家伺服器)。
+        //    🔵 商品卡 / PDP / 搜尋 / JSON-LD / OG 早就修好了(走 `dropImagesWithoutRealPhoto`)
+        //    ⇒ 🎯 **漏的是這一條【直讀 base 表】的路。**
+        //    🛑 **不得在這裡重打一份判斷** —— 那支檔警告過「兩份會分岔, 而分岔不會紅」。
+        //    🔴 **掃整個陣列不是只看 `[0]`**(codex R1 must-fix):`[佔位圖, 真照片]`
+        //       只看 `[0]` 會把那張真照片丟掉 —— 與目錄那側 `dropImagesWithoutRealPhoto` 語意對齊。
+        imageUrl:
+          (Array.isArray(row.products.images)
+            ? (row.products.images.find(
+                (x): x is string => typeof x === 'string' && x !== '' && !hasNoRealImage(x),
+              ) ?? null)
+            : null),
       },
     }));
   }
