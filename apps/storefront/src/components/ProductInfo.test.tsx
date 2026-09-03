@@ -72,16 +72,19 @@ const specialProduct: MockProduct = {
 };
 
 describe('ProductInfo', () => {
-  // M-1-16c-4a:料號顯真 sku(有變體)/ slug(無變體 fallback)、不再顯 PCM-{hash}
-  it('should render SKU line with selected variant sku when product has variants', () => {
-    renderInfo(variantProduct);
-    expect(screen.getByText(`${variantProduct.brand} · A-G-F`)).toBeDefined();
+  // ⛔ ~~M-1-16c-4a:料號顯真 sku(有變體)/ slug(無變體 fallback)~~
+  // 🔴 **Sean 2026-09-03 重答 `Q23 = 甲`:商品頁只印【原廠料號】(`productCode`)。**
+  //    ⇒ 這一行**不再隨變體連動** —— 那是這個決定的代價, 見 `ProductInfo.tsx` 那段註解。
+  it('有變體時, 那一行印的是【原廠料號】而不是變體的 sku', () => {
+    const p = { ...variantProduct, productCode: 'ISS118' };
+    renderInfo(p);
+    expect(screen.getByText(`${p.brand} · 原廠料號 ISS118`)).toBeDefined();
   });
 
-  it('should fallback SKU line to slug when product has no variants', () => {
+  it('沒有 productCode ⇒ 退回 slug, 而標籤仍在', () => {
     const product = MOCK_PRODUCTS[0]!;
     renderInfo(product);
-    expect(screen.getByText(`${product.brand} · ${product.slug}`)).toBeDefined();
+    expect(screen.getByText(`${product.brand} · 原廠料號 ${product.slug}`)).toBeDefined();
   });
 
   it('should render product title as h1', () => {
@@ -227,8 +230,12 @@ describe('ProductInfo', () => {
     expect(screen.getByText('顏色')).toBeDefined();
     fireEvent.click(screen.getByRole('button', { name: 'Pramac 黑色' }));
     expect(screen.getByText('NT$ 10,800')).toBeDefined();
-    // 料號隨選中變體連動
-    expect(screen.getByText(`${cncProduct.brand} · CA210BPR`)).toBeDefined();
+    // ⛔ ~~料號隨選中變體連動~~
+    // 🔴 **Sean 2026-09-03 重答甲之後, 那一行改印【原廠料號】⇒ 它【不再隨變體連動】。**
+    //    🛑 而本格原本靠那一行當「選了變體有反應」的第二個證據 ——
+    //       上面那行價格斷言(NT$ 10,800)仍然守著連動, 所以本格沒有失去它的判別力。
+    //    ⇒ 📌 **拿掉一個斷言之前, 先確認它守的那件事還有沒有別人在守。**
+    expect(screen.getByText(`${cncProduct.brand} · 原廠料號 ${cncProduct.productCode ?? cncProduct.slug}`)).toBeDefined();
   });
 
   it('should NOT render RPM swatch preview card for non-RPM spec shapes (W2 降級)', () => {
@@ -551,38 +558,41 @@ describe('ProductInfo — A5 加購被上限夾掉要明說', () => {
 
 // ⟦Q23 = 丙⟧ Sean 2026-09-03:兩個編號都印並標清楚。
 // 🛑 **丙不會讓料號變成搜得到** —— 它只讓客人知道該抄哪一個。真正的修法是甲(要貼 SQL)。
-describe('Q23 丙 · 兩個編號都印', () => {
-  // 🔵 沿用本檔既有的 `variantProduct` 形狀(它的 variant 有完整 spec ——
-  //    我第一版用 `MOCK_PRODUCTS[0]` 硬拼一個 variant, 而它沒有 `spec`
-  //    ⇒ 選擇器渲染時 `'weave' in undefined` 當場丟 TypeError。
-  //    ⇒ 📌 **fixture 缺一個欄位, 而紅的訊息指向的是元件內部, 不是我的 fixture。**)
-  const twoCodes: MockProduct = { ...variantProduct, productCode: 'ISS118' };
-  const sameCode: MockProduct = {
-    ...variantProduct,
-    productCode: 'A-G-F', // 與第一個變體的 sku 相同
-  };
+describe('Q23 · 商品頁只印【原廠料號】(Sean 2026-09-03 重答甲)', () => {
+  // ⛔ ~~丙:兩個編號都印, 暫用標籤「搜尋用」~~(commit c68cc9fe)
+  // 🔴 **同日 Sean 重答甲** —— 而丙**沒有錯**:它要解的病(客人抄了搜不到)仍然成立,
+  //    換掉的是解法。他給了一句業務事實:「我們工作基本上都是用原廠料號在工作」
+  //    ⇒ 而搜尋比對的剛好就是那一個 ⇒ **問題不是要印兩個, 是印錯了那一個。**
+  const p: MockProduct = { ...variantProduct, productCode: 'ISS118' };
 
-  it('🔴 兩個號【不同】⇒ 兩個都要印(客人抄得到搜得到的那一個)', () => {
-    const { container } = renderInfo(twoCodes);
-    // 頁上那一行(客人一定抄這個)= variant.sku
-    expect(screen.getByText(`${twoCodes.brand} · A-G-F`)).toBeTruthy();
-    // 🎯 判別點:**搜得到的那一個(productCode)也要在畫面上** —— 少了它, 客人抄了就搜不到。
-    const extra = container.querySelector('.pd-sku-searchable')?.textContent ?? '';
-    expect(extra).toContain('ISS118');
+  it('🔴 印的是【原廠料號】(productCode), 不是變體個別料號(sku)', () => {
+    const { container } = renderInfo(p);
+    const line = container.querySelector('.pd-sku')?.textContent ?? '';
+    expect(line).toContain('ISS118');
+    // 🎯 判別點:**變體那一串不得再出現在這一行** —— 它正是客人抄了會搜不到的那個。
+    expect(line).not.toContain('A-G-F');
   });
 
-  it('🔵 負對照:兩個號【相同】⇒ 只印一次(印兩次會讓客人以為那是兩件事)', () => {
-    const { container } = renderInfo(sameCode);
-    // 🔴 少了這一格, 一個「無條件多印一行」的實作照樣通過上面那格。
+  it('🔴 標籤逐字是「原廠料號」—— 那是 Sean 自己的用語, 已定稿不是暫用', () => {
+    const { container } = renderInfo(p);
+    const line = container.querySelector('.pd-sku')?.textContent ?? '';
+    // 🛑 改成**釘住必須有這四個字**, 而不是先前那種「不得出現某些詞」的禁詞式守門:
+    //    禁詞擋得住我選錯一個名字, 擋不住有人把標籤整個拿掉。
+    expect(line).toContain('原廠料號');
+  });
+
+  it('🔵 負對照:沒有 productCode ⇒ 退回 slug, 而【標籤仍在】(不得變成一串沒有名字的碼)', () => {
+    const noCode: MockProduct = { ...variantProduct, productCode: undefined };
+    const { container } = renderInfo(noCode);
+    const line = container.querySelector('.pd-sku')?.textContent ?? '';
+    expect(line).toContain('原廠料號');
+    expect(line).toContain(noCode.slug);
+  });
+
+  it('🔵 負對照:那條「兩個都印」的路已經拿掉 ⇒ 畫面上不得再有第二行編號', () => {
+    const { container } = renderInfo(p);
+    // 🔴 少了這一格, 把丙那一行加回來不會有任何東西紅。
     expect(container.querySelectorAll('.pd-sku-searchable')).toHaveLength(0);
-  });
-
-  it('🛑 暫用標籤【不得】用「料號」或「產品型號」—— 那兩個名字是 Sean 要拍的', () => {
-    const { container } = renderInfo(twoCodes);
-    const line = container.querySelector('.pd-sku-searchable')?.textContent ?? '';
-    expect(line).not.toContain('料號');
-    expect(line).not.toContain('產品型號');
-    // 而它要說出「這個是拿來搜的」—— 那正是客人現在缺的那一件事。
-    expect(line).toContain('搜尋');
+    expect(container.querySelectorAll('.pd-sku')).toHaveLength(1);
   });
 });
