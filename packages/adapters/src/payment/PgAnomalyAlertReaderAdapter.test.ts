@@ -89,6 +89,13 @@ function twoQueryClient(
    */
   stuck?: unknown,
   stuckProbeMissing = true,
+  /**
+   * 🔵 **未付款取消信線的收件人計數**(⟦b4-NORECIPIENTWINDOW⟧, 2026-09-03)。
+   * 🔴 **預設 `undefined` = 尚未 apply(42883)⇒ 降級 unknown** —— 而那個預設
+   *    **就是今天正式庫的真實狀態**, 不是為了讓既有測試好過。
+   *    ⇒ 📌 本檔上面那段記著「預設值與理由曾經不一致」的教訓;這一次我把理由寫在旁邊。
+   */
+  unpaidCancelled?: unknown,
 ) {
   return makeClient({
     query: async (text: string) => {
@@ -122,6 +129,15 @@ function twoQueryClient(
           throw Object.assign(new Error('function does not exist'), { code: '42883' });
         }
         return { rows: [{ result: heartbeat }] };
+      }
+      // 🔵 `get_order_unpaid_cancelled_gap_counts` 與底下兩支**不共用前綴**
+      //   (`get_order_created_` vs `get_order_unpaid_`)⇒ 這一格的順序不是分流的一部分。
+      //   ⚠️ 寫出來, 免得下一個人以為它跟底下那格一樣「順序就是分流本身」。
+      if (text.includes('get_order_unpaid_cancelled_gap_counts')) {
+        if (unpaidCancelled === undefined) {
+          throw Object.assign(new Error('function does not exist'), { code: '42883' });
+        }
+        return resultRows(unpaidCancelled);
       }
       // 🔴 **必須排在 `get_order_created_gap_counts` 之前** —— 兩個名字共用前綴
       //   `get_order_created_`, 而 `includes` 只看有沒有出現 ⇒ 順序就是分流本身。
@@ -204,6 +220,13 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       shippedUnsendableCount: null,
       shipmentsTotalCount: null,
       shippedGapUnknown: true,
+      // 🔵 未付款取消信線那三格(⟦b4-NORECIPIENTWINDOW⟧)。這一格是**窮舉比對**
+      //   ⇒ 它會抓到「新增欄位而忘了接線」那種改法 —— 所以三欄都要在, 不是只寫 unknown。
+      //   🔴 而值是 `true` / `null`:本測項的世界裡那支 RPC **尚未 apply**(stub 預設)
+      //   ⇒ **不得寫成 0** ——「讀不到」與「一切正常」在裸數字上長得一模一樣。
+      unpaidCancelledPendingCount: null,
+      unpaidCancelledNoRecipientCount: null,
+      unpaidCancelledGapUnknown: true,
       /**
        * 🔵 訊號 4 三格。本案例 `orderCreatedCutoffIso` 傳 `null` ⇒ **不呼叫那支 RPC**
        * ⇒ `orderCreatedRows` 空 ⇒ unknown = true、兩個 count 是 `null`。
@@ -1405,5 +1428,94 @@ describe('⟦b9-RLSHARDEN⟧ 甲片B:非 42883 的錯誤不得拖垮整輪告警
     expect(res.openCount, '權限那一格失敗把整輪拖垮 ⇒ 金流告警當天全啞').toBe(FULL.open_count);
     expect(JSON.stringify(errSpy.mock.calls)).toContain('非 42883');
     errSpy.mockRestore();
+  });
+});
+
+/**
+ * ⟦b4-NORECIPIENTWINDOW⟧ 未付款取消信線的收件人計數(2026-09-03)。
+ *
+ * 🔴🔴 **為什麼要有這一族, 而理由逐字寫在本檔上面**:
+ *    「既有 41 處呼叫的第 7 個參數全是 `null` ⇒ adapter 根本不呼叫這支
+ *      ⇒ **那一整段新碼的測試分母是 0**。」
+ *    ⇒ 📌 我加了一段新的 adapter 路徑, 而 stub 的預設是「尚未 apply」
+ *      ⇒ **不補這一族的話, 我的新路徑同樣一次都沒被執行過**
+ *      ⇒ RPC 名稱打錯 / 參數順序錯 / 回應鍵拼錯, **測試全部照樣綠**。
+ *    🎯 **那條教訓就寫在我改的這支檔裡, 而它是【上一個人】留給我的。**
+ */
+describe('🔵 未付款取消信線的收件人計數(⟦b4-NORECIPIENTWINDOW⟧)', () => {
+  it('[U1] 起始線有值 ⇒ 真的呼叫那支 RPC, 三格映射出來', async () => {
+    const c = twoQueryClient(
+      FULL, undefined, true, undefined, true, undefined, true, undefined, true,
+      { paid_no_email_count: 7, no_recipient_count: 2, orders_total_count: 23 }, false,
+      // 🔵 heartbeat(12,13)· stuck(14,15)兩對都要佔位, 第 16 個才是本族的參數。
+      //   🛑 我第一版少了一對 ⇒ 我的物件落在 `stuck` 的位置 ⇒ **U1 紅、而錯的是我不是碼**。
+      undefined, true, undefined, true,
+      { pending_count: 5, no_recipient_count: 3, orders_total_count: 23 },
+    );
+    const r = await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600, null, 900, '2026-08-22T00:00:00.000Z', null);
+    expect(r.unpaidCancelledPendingCount).toBe(5);
+    expect(r.unpaidCancelledNoRecipientCount).toBe(3);
+    expect(r.unpaidCancelledGapUnknown).toBe(false);
+    // 🔵 **兩條線不得互相汙染** —— 它們共用同一顆 cutoff, 而值必須各自來自各自那支 RPC。
+    //   🛑 這一格會抓到「複製貼上時忘了改變數名」那種改法(兩邊都讀 `oc`)。
+    expect(r.orderCreatedNoRecipientCount).toBe(2);
+    // 🔵 別族不受影響 —— 逐字比值, 不是 >= 0
+    expect(r.openCount).toBe(2);
+  });
+
+  it('[U2] 🔴 負對照:起始線是 null ⇒ 【根本不呼叫】那支 RPC ⇒ unknown', async () => {
+    /**
+     * 🛑 少了這一格, 一個「不管有沒有起始線都去呼叫」的實作會讓 U1 全綠 ——
+     *   而那支 RPC 的參數無 DEFAULT、它自己的閘會對 NULL 直接 RAISE ⇒ 每天炸一次。
+     */
+    const seen: string[] = [];
+    const c = makeClient({
+      query: async (text: string) => {
+        seen.push(text);
+        if (text.includes('to_regprocedure')) return { rows: [{ missing: true }] };
+        if (text.includes('get_payment_anomaly_alert_summary')) return { rows: [{ result: FULL }] };
+        throw Object.assign(new Error('function does not exist'), { code: '42883' });
+      },
+    }).client;
+    const r = await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600, null, 900, null, null);
+    expect(seen.some((t) => t.includes('get_order_unpaid_cancelled_gap_counts'))).toBe(false);
+    expect(r.unpaidCancelledGapUnknown).toBe(true);
+    // 🔴 **不得寫成 0** ——「沒查」與「今天沒有卡住的單」在裸數字上長得一模一樣。
+    expect(r.unpaidCancelledNoRecipientCount).toBeNull();
+  });
+
+  it('[U3] 🔴 RPC 尚未 apply(42883)⇒ 降級成 unknown, 而其他告警照常', async () => {
+    const c = twoQueryClient(
+      FULL, undefined, true, undefined, true, undefined, true, undefined, true,
+      { paid_no_email_count: 7, no_recipient_count: 2, orders_total_count: 23 }, false,
+      // 🔵 heartbeat(12,13)· stuck(14,15)兩對都要佔位, 第 16 個才是本族的參數。
+      //   🛑 我第一版少了一對 ⇒ 我的物件落在 `stuck` 的位置 ⇒ **U1 紅、而錯的是我不是碼**。
+      undefined, true, undefined, true,
+      undefined,
+    );
+    const r = await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600, null, 900, '2026-08-22T00:00:00.000Z', null);
+    expect(r.unpaidCancelledGapUnknown).toBe(true);
+    expect(r.unpaidCancelledNoRecipientCount).toBeNull();
+    // 🔵 **整支告警不得因此死掉** —— 這正是本片降級處置存在的理由。
+    expect(r.orderCreatedNoRecipientCount).toBe(2);
+    expect(r.openCount).toBe(2);
+  });
+
+  it('[U4] 🔴 函式在而回了非物件 ⇒ throw, 不是安靜地當成 unknown', async () => {
+    /**
+     * 🛑 分辨兩個世界:**函式不存在**(部署窗口, 可以降級)與
+     *   **函式在而回應形狀壞了**(那是真的壞了, 安靜降級會讓它永遠沒人發現)。
+     */
+    const c = twoQueryClient(
+      FULL, undefined, true, undefined, true, undefined, true, undefined, true,
+      { paid_no_email_count: 7, no_recipient_count: 2, orders_total_count: 23 }, false,
+      // 🔵 heartbeat(12,13)· stuck(14,15)兩對都要佔位, 第 16 個才是本族的參數。
+      //   🛑 我第一版少了一對 ⇒ 我的物件落在 `stuck` 的位置 ⇒ **U1 紅、而錯的是我不是碼**。
+      undefined, true, undefined, true,
+      'not-an-object',
+    );
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600, null, 900, '2026-08-22T00:00:00.000Z', null),
+    ).rejects.toThrow(/get_order_unpaid_cancelled_gap_counts/);
   });
 });

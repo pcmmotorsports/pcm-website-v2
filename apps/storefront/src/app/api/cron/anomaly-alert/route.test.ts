@@ -88,6 +88,12 @@ const CLEAN_RESULT = {
   orderCreatedPaidNoEmailCount: 0,
   orderCreatedNoRecipientCount: 0,
   orderCreatedGapUnknown: false,
+  // 🔵 未付款取消信線那三格(⟦b4-NORECIPIENTWINDOW⟧, 2026-09-03)。
+  // 🔴 **codex 抓到的正是【漏了這三欄】** —— 少了它們, route 那道新的 503 判斷
+  //    在測試裡讀到 `undefined` ⇒ falsy ⇒ **永遠不會觸發** ⇒ 測試照綠而保護不存在。
+  unpaidCancelledPendingCount: 0,
+  unpaidCancelledNoRecipientCount: 0,
+  unpaidCancelledGapUnknown: false,
   // 🔵 心跳(片3):基準是【讀得到而六支健康】。
   //    🛑 寫 `Unknown: true` 會讓每一格都走 503 那條路 ⇒ 這份 CLEAN 就不 clean 了。
   cronHeartbeatAbnormalCount: 0,
@@ -416,6 +422,32 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
     expect(JSON.stringify(errSpy.mock.calls)).toContain('get_order_created_gap_counts');
     errSpy.mockRestore();
     delete process.env.B4_DEPLOY_CUTOFF;
+  });
+
+  it('[取消信收件人] 🔴🔴 起始線有設而新 RPC 讀不到 ⇒ 503(不得安靜回 200)', async () => {
+    /**
+     * 🔴 **codex 2026-09-03 must-fix** —— 我把三格接進 summary / shouldAlert / 訊息 / result,
+     *   **而漏了 route 這一層** ⇒ cutoff 有設、RPC 還沒 apply ⇒ 回 200 + 一片綠。
+     * 🎯 而「安靜」與「這道告警根本沒裝上」印同一個畫面 —— 那正是我自己寫進 plan 的驗收條件。
+     */
+    process.env.B4_DEPLOY_CUTOFF = '2026-08-22T00:00:00.000Z';
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, unpaidCancelledGapUnknown: true });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    expect(hbFailSpy).toHaveBeenCalled();
+    expect(JSON.stringify(errSpy.mock.calls)).toContain('get_order_unpaid_cancelled_gap_counts');
+    errSpy.mockRestore();
+    delete process.env.B4_DEPLOY_CUTOFF;
+  });
+
+  it('[取消信收件人] 🔵 負對照:起始線【沒設】而 unknown=true ⇒ 200(不得 503)', async () => {
+    // 🛑 少了這一格, 一個「凡 unknown 就 503」的實作會讓上一格全綠 ——
+    //   而那會讓一個【還沒上膛】的功能每天把整支 cron 弄紅一次。
+    delete process.env.B4_DEPLOY_CUTOFF;
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, unpaidCancelledGapUnknown: true });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
   });
 
   it('[訊號4] 🔵 負對照:起始線【沒設】而 unknown=true ⇒ 200(不得 503)', async () => {

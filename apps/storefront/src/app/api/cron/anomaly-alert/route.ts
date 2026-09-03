@@ -517,6 +517,20 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
     }
 
+    // 🔴🔴 **codex 2026-09-03 must-fix**:我把三格接進 summary / shouldAlert / result,
+    //    **而漏了這一層** ⇒ cutoff 有設、新 RPC 還沒 apply ⇒ `unpaidCancelledGapUnknown = true`
+    //    而 route 照回 200、信裡是一片綠 ⇒ 📌 **「安靜」與「這道告警沒裝上」印同一個畫面。**
+    // 🎯 而那正是我自己在 plan §8 寫下的驗收條件 —— **我寫了它, 然後沒有做它。**
+    //    ⇒ 一句寫在計畫裡的話, 不會讓自己被實作。
+    if (orderCreatedCutoffIso !== null && result.unpaidCancelledGapUnknown) {
+      console.error(
+        '[anomaly-alert] 🔴 起始線有設而 get_order_unpaid_cancelled_gap_counts 讀不到 ⇒ 取消信收件人那一段今天是【查不到】不是【0】(回 503)',
+        { ...result },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+
     if (shippedCutoffIso !== null && result.shippedGapUnknown) {
       console.error(
         '[anomaly-alert] 🔴 起始線有設而 get_shipped_email_gap_counts 讀不到 ⇒ 出貨缺口那一段今天是【查不到】不是【0】(回 503)',

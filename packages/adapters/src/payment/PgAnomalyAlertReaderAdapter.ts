@@ -336,6 +336,51 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
        *   `orderCreatedStuckMinutes` 沒設 = 那條線**還沒上膛**
        *   ⇒ 📌 **這一格就是「落地」與「Sean 去填那顆 env」脫鉤的地方。**
        */
+      /**
+       * 🔵 **未付款取消信線的同一支**(⟦b4-NORECIPIENTWINDOW⟧, 2026-09-03)。
+       * 🔴 **共用 `orderCreatedCutoffIso`, 而那不是偷懶** —— 寄信端那三條線本來就共用
+       *    同一顆 `B4_DEPLOY_CUTOFF`(`email-sweep/route.ts` 逐字「與 B-5 共用同一顆 cutoff」),
+       *    兩邊問的是同一件事:「上線那一刻之後才算」。
+       *    ⇒ 📌 **共用意味著:那顆沒設 ⇒ 這一段也不查** ⇒ 落 unknown、不叫。**那是刻意的。**
+       * ⚠️ 降級處置**逐字沿用**姊妹那支:RAISE / 函式不存在 ⇒ 降級成【查不到】,
+       *    **不讓整支告警死掉** —— 其他告警照常送。
+       */
+      let unpaidCancelledRows: Array<Record<string, unknown>> = [];
+      if (orderCreatedCutoffIso !== null) {
+        try {
+          const res = await client.query(
+            'SELECT public.get_order_unpaid_cancelled_gap_counts($1::timestamptz) AS result',
+            [orderCreatedCutoffIso],
+          );
+          unpaidCancelledRows = res.rows;
+        } catch (err) {
+          const code = (err as { code?: unknown } | null)?.code;
+          if (code === RAISE_EXCEPTION) {
+            const looksLikeOwnGate =
+              typeof (err as { message?: unknown }).message === 'string' &&
+              (err as { message: string }).message.includes(`${UNPAID_CANCELLED_FN}:`);
+            console.error(
+              looksLikeOwnGate
+                ? '[anomaly-alert] 🔴 get_order_unpaid_cancelled_gap_counts 自己 RAISE 了(參數閘)⇒ 取消信收件人那一段降級成【查不到】,而其他告警照常送'
+                : '[anomaly-alert] 🔴 get_order_unpaid_cancelled_gap_counts 拋了 P0001 而【訊息不像它自己的參數閘】⇒ 仍降級成【查不到】(不改控制流),但這一格值得有人去看',
+              {
+                code: RAISE_EXCEPTION,
+                reason: looksLikeOwnGate
+                  ? 'unpaid_cancelled_gap_rpc_raised'
+                  : 'unpaid_cancelled_gap_rpc_raised_unexpected_shape',
+              },
+            );
+          } else {
+            if (code !== UNDEFINED_FUNCTION) throw err;
+            const probe = await client.query(
+              "SELECT to_regprocedure('public.get_order_unpaid_cancelled_gap_counts(timestamptz)') IS NULL AS missing",
+              [],
+            );
+            if (probe.rows[0]?.missing !== true) throw err;
+          }
+        }
+      }
+
       let orderCreatedStuckRows: Array<Record<string, unknown>> = [];
       if (orderCreatedCutoffIso !== null && orderCreatedStuckMinutes !== null) {
         try {
@@ -471,7 +516,7 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
 
       return parseAlertSummary(
         counts.rows, ids, refundRows, emailRows, shippedRows, orderCreatedRows,
-        orderCreatedStuckRows, heartbeatRows, bypassRlsRows,
+        unpaidCancelledRows, orderCreatedStuckRows, heartbeatRows, bypassRlsRows,
       );
     });
   }
@@ -633,6 +678,7 @@ const REFUNDS_FN = 'get_order_refunds_stuck_summary';
 const EMAIL_FN = 'get_email_outbox_deadman_counts';
 const SHIPPED_FN = 'get_shipped_email_gap_counts';
 const ORDER_CREATED_FN = 'get_order_created_gap_counts';
+const UNPAID_CANCELLED_FN = 'get_order_unpaid_cancelled_gap_counts';
 /** PG `raise_exception` —— plpgsql 的 `RAISE EXCEPTION` 預設就是這個 SQLSTATE。 */
 const RAISE_EXCEPTION = 'P0001';
 
@@ -725,6 +771,7 @@ function parseAlertSummary(
   emailRows: Array<Record<string, unknown>>,
   shippedRows: Array<Record<string, unknown>>,
   orderCreatedRows: Array<Record<string, unknown>>,
+  unpaidCancelledRows: Array<Record<string, unknown>>,
   orderCreatedStuckRows: Array<Record<string, unknown>>,
   heartbeatRows: Array<Record<string, unknown>>,
   bypassRlsRows: Array<Record<string, unknown>>,
@@ -922,6 +969,18 @@ function parseAlertSummary(
   const orderCreatedCount = (key: string): number | null =>
     orderCreatedGapUnknown ? null : parseCount(oc![key], key, ORDER_CREATED_FN);
 
+  // 🔵 未付款取消信線的同一組。`undefined` = **沒查**(cutoff 沒設 / 函式尚未 apply)
+  //   🔴 ⇒ 三格回 `null`, **不是 0** ——「讀不到」與「一切正常」在裸數字上長得一模一樣。
+  const ucg = unpaidCancelledRows[0]?.result as Record<string, unknown> | undefined;
+  const unpaidCancelledGapUnknown = ucg === undefined;
+  if (!unpaidCancelledGapUnknown && (ucg === null || typeof ucg !== 'object')) {
+    throw new AnomalyAlertReaderParseError(
+      `${UNPAID_CANCELLED_FN} 回應格式異常(函式存在但回了 NULL 或非物件)`,
+    );
+  }
+  const unpaidCancelledCount = (key: string): number | null =>
+    unpaidCancelledGapUnknown ? null : parseCount(ucg![key], key, UNPAID_CANCELLED_FN);
+
   const ocs = orderCreatedStuckRows[0]?.result as Record<string, unknown> | undefined;
   // 🔴 `undefined` = **沒查**(兩顆 env 任一沒設 / 函式尚未 apply)⇒ 兩格都回 null, **不是 0**。
   const orderCreatedStuckUnknown = ocs === undefined;
@@ -961,6 +1020,11 @@ function parseAlertSummary(
     orderCreatedPaidNoEmailCount: orderCreatedCount('paid_no_email_count'),
     orderCreatedNoRecipientCount: orderCreatedCount('no_recipient_count'),
     orderCreatedGapUnknown,
+    // 🔵 未付款取消信線那三格(⟦b4-NORECIPIENTWINDOW⟧, 2026-09-03)。
+    //   🔴 **不寫成 0** —— 而這一格今天【一定會走到】:那支 RPC 還沒 apply 到正式庫。
+    unpaidCancelledPendingCount: unpaidCancelledCount('pending_count'),
+    unpaidCancelledNoRecipientCount: unpaidCancelledCount('no_recipient_count'),
+    unpaidCancelledGapUnknown,
     // 🔵 訊號4 持續失敗那兩格。null = 沒查(兩顆 env 任一沒設)或函式尚未 apply
     //   🔴 **不寫成 0** ——「還沒上膛」與「今天沒有卡住的單」在一個裸數字上長得一模一樣。
     orderCreatedStuckCount: stuckNum('stuck_count'),
