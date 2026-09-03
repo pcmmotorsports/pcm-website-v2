@@ -59,7 +59,9 @@ import {
   buildOrderCreatedPayload,
   buildOrderShippedPayload,
   orderCreatedSubject,
+  buildOrderUnpaidCancelledPayload,
   orderShippedSubject,
+  orderUnpaidCancelledSubject,
 } from './order-email-assembly';
 
 /** PostgREST unique_violation(需再查核同事件才可回 duplicate,見 enqueue)。 */
@@ -226,7 +228,10 @@ function mapRowToJob(row: OutboxJobRow): ClaimedEmailJob {
  *    在 **typecheck 當場紅**,而不是等到執行時把新事件寄成舊模板。
  */
 function composeEvent(input: EnqueueEmailInput): {
-  payload: OrderCreatedEmailPayload | OrderShippedEmailPayload;
+  payload:
+    | OrderCreatedEmailPayload
+    | OrderShippedEmailPayload
+    | ReturnType<typeof buildOrderUnpaidCancelledPayload>;
   subject: string;
   dedupKey: string;
 } {
@@ -249,6 +254,21 @@ function composeEvent(input: EnqueueEmailInput): {
         payload,
         subject: orderShippedSubject(payload.display_id, payload.shipment_reference),
         dedupKey: `${input.shipmentId}:${input.orderId}`,
+      };
+    }
+    case 'order_unpaid_cancelled': {
+      const payload = buildOrderUnpaidCancelledPayload({
+        displayId: input.displayId,
+        cancelledAt: input.cancelledAt,
+        cancelledReason: input.cancelledReason,
+      });
+      return {
+        payload,
+        subject: orderUnpaidCancelledSubject(payload.display_id),
+        // 🔴 **dedup 用 orderId** —— 一張單只會被取消一次(a8a1 有已取消守門)⇒ 與 order_created 同形。
+        //    🛑 而**不用 cancelledAt**:時刻會變, 而那會讓同一張單重排兩封。
+        //    (出貨信用 shipmentId 是因為一張單真的會分批出貨;取消不會。)
+        dedupKey: input.orderId,
       };
     }
     default:
