@@ -113,7 +113,33 @@ ba53294  2026-08-29  「硬刪改到 upsert 之後」
 ⇒ 🛑 **而正對照在這一格【也印 0】**(全 20 家跑同一把尺 ⇒ 全 0)⇒ 它證不了任何事。
 ⇒ ✅ **解法是換一個軸:不問「有幾個壞的」, 問「該有值的有幾列」** —— 因為後者有一個**獨立算得出來的期望值(總列數)**, 而它會自己打自己的臉。
 ⇒ 🟢 而 §1 第 4 列(`COUNT(*) FILTER (… IS NOT NULL)` = 總數)**本來就是這個形狀** —— 📌 **正確的樣板就在同一張表的下一列。**
-⇒ 🔵 逐列掃過的結果:**第 2 列安全**(它明寫 `IS NULL`)· **第 3 列有洞**(已修)· **第 4 列免疫**。
+⇒ 🔵 逐列掃過的結果:**第 2 列安全**(它明寫 `IS NULL`)· **第 3 列有洞** · **第 4 列免疫**。
+🔴 **而第 3 列我修了三次, 前兩次都沒修對 —— 那一格本身就是這一節在講的病**:
+> 我把 `ILIKE` 換成 `coalesce(...)` 並補了 `images IS NULL`, **而它仍然只讀 `images` 一欄** ⇒ 那把尺答的是
+> 「`images` 欄空不空」, 不是「這件商品有沒有圖」—— 🎯 **換了寫法, 沒換問題。**
+> ⇒ 而它比原版更危險:原版靜靜印 0(漏報), 我那版會把 **1,011 列有圖的商品報成沒圖**(誤報),
+> ⇒ ⇒ 🛑 **而誤報會讓人去關掉這道閘。**
+> ⇒ 📌 **判別句(三訂後改寫)**:我這道檢查在問「**這個欄位有沒有被填**」, 還是「**裡面那個東西是不是真的**」?
+> ⇒ 🎯 **三次我問的都是前者** —— ①`NULL ILIKE` 回 NULL(問有沒有壞值)②只讀 `images` 一欄(問這欄空不空)③`image_url` 非 NULL(問這欄有沒有值)。
+> ⇒ 🛑 **每一次我都換了寫法、沒換問題, 而三次都自認為修好了。**
+> ⇒ 🔵 **抓到第三次的不是任何一道閘, 是我手癢 `SELECT` 了十二列出來【看】** —— 而看到的第一眼就是 `no-photo.png`。
+> ⇒ ✅ **⇒ 可機械化的替代品是 `COUNT(DISTINCT …)`**:它問的是「這些值彼此不同嗎」, 而**假資料最常見的形狀就是全部一樣**。
+
+🔴🔴 **而 2026-09-03 夜(線【帳號】接 L4 時)量到【第三種】—— 它比前兩種都寬, 而第 4 列擋不住它**:
+> **整份 preflight 掛在同一個 `WHERE supplier_slug='<slug>'` 上 —— slug 打錯 ⇒ 母體 0 列 ⇒ 每一列都印 0 ⇒ 全部過。**
+
+```
+🔬 兩個世界並排實測(同一發 SQL, UNION ALL):
+   打錯的 slug  總列數 0 · 第2列 0 · 第3列 0 · 第3列補 0 · 第4列 0 · 第6列 0  ⇒ 逐格【全部符合期望】
+   真的 wrs     總列數 1082 · 第2列 0 · 第3列 0 · 第3列補 37 · 第4列 1082 · 第6列 544
+```
+🛑 **⇒ 而第 4 列在這一種底下【也過】** —— 它的期望值是「`= 總數`」, 而空母體時 **0 = 0**。
+🎯 **⇒ 所以「第 4 列是正確樣板」這句話只對【上一種】成立** —— 📌 **一個免疫於某種失效模式的檢查, 不會因此免疫於另一種;而它讀起來一樣安全。**
+⇒ 🔵 **它與前兩種的差別**:前兩種是**一格**壞掉, 這一種是**整張表的分母**壞掉 ⇒ **沒有任何一列會不一致** ⇒ 🔴 **連「總數對不上」那個抓到上一種的訊號都消失了。**
+⇒ ✅ **修法 = 上表新增的第 0 列**(先證明分母 > 0 且 slug 在名單裡)。
+⇒ 📌 **而這個修法不是新發明的** —— 報價單 repo 的 `fetchers`…`scripts/variant_contract_scan.py` **2026-08-25 就寫過同一道閘**(`check_population`), 它的 docstring 逐字寫著:
+> 「撈空/撈殘時 exit 1 且不印合計行, 否則『掃描壞掉』會跟『全站乾淨』印出同一句話」
+🛑 **⇒ 正解在隔壁 repo 躺了 9 天, 而這份 runbook 沒有接到它。** 📌 **⇒ 下次發現一個坑, 先問「別人是不是已經修過同型的」, 再問「怎麼修」。**
 
 ---
 
@@ -124,9 +150,24 @@ ba53294  2026-08-29  「硬刪改到 upsert 之後」
 
 | # | 檢查 | 怎麼查(MCP execute_sql,除非註明) | 期望 | 沒過怎麼修 |
 |---|---|---|---|---|
+| **0** | 🔴🔴 **分母不是 0**(先跑, 不然底下每一列都會過) | `SELECT count(*) FROM storefront_catalog_v WHERE supplier_slug='<slug>'` —— **再對一次** `SELECT DISTINCT supplier_slug FROM storefront_catalog_v` 確認拼法在名單裡 | **> 0**, 且與 §1-6 的指紋同一個數 | slug 拼錯 / 源頭還沒灌 → **停**。⚠️ 不要往下跑:下面每一列在空母體上**全部印 0 = 全部過** |
 | 1 | **品牌列存在**(網站庫) | `SELECT slug FROM brands WHERE slug='<brandSlug>'` | 1 列 | 缺 → seed migration `INSERT INTO brands ... ON CONFLICT (slug) DO NOTHING`,MCP `apply_migration` 或 Sean db push。**先確定 brandSlug 拼法**(§2 註) |
 | 2 | **價格四價齊**(源頭) | `COUNT(*) FILTER (WHERE price_retail IS NULL OR price_retail=0)` | 0 | 有 pricing_rules 的家跑完 fetcher 必接 報價單 repo:`uv run python scripts/recompute_supplier.py <slug>`(重跑 fetcher 會清空四價,見 [[feedback_fetcher_rerun_wipes_computed_prices]]) |
-| 3 | **圖片協定 = https** | ⛔ ~~`COUNT(*) FILTER (WHERE images::text ILIKE '%http://%')`~~ ⇒ 🔴 **那一版在 `images IS NULL` 時靜靜放行**(`NULL ILIKE …` 回 **NULL** 不是 FALSE ⇒ 不進 FILTER)。✅ 改用 `COUNT(*) FILTER (WHERE coalesce(images::text,'') ILIKE '%http://%')` **再加一格** `COUNT(*) FILTER (WHERE images IS NULL)`(2026-09-03 實測 wrs **37** / rizoma **3** 件完全沒有圖, 而舊那一版兩家都印 0) | 兩格都 0 | http 外部網域 = mixed content 破圖 → 源頭轉存 Cloudflare R2、DB 存乾淨 https(Lightech 前例);新 host 另加網站 image-hosts 白名單 + middleware |
+| 3 | **圖片協定 = https** | ⛔ ~~`COUNT(*) FILTER (WHERE images::text ILIKE '%http://%')`~~ ⇒ 🔴 **那一版在 `images IS NULL` 時靜靜放行**(`NULL ILIKE …` 回 **NULL** 不是 FALSE ⇒ 不進 FILTER)。✅ 改用 `COUNT(*) FILTER (WHERE coalesce(images::text,'') ILIKE '%http://%')` **再加一格** **兩格一起看**:`COUNT(*) FILTER (WHERE images IS NULL)` 與 `COUNT(DISTINCT image_url) FILTER (WHERE images IS NULL)`。🔴 **不設件數門檻** —— 理由見下方(N≥5 會漏掉 rizoma 3 件, 而那正是上架中的一家)。🔴 **2026-09-03 這一列我改了三次, 前兩次都錯 —— 而三次錯的是同一件事。**⛔ ~~二訂版:「那 40 列 image_url 都有值 ⇒ 它們有圖」~~ **也是錯的。**🔬 三訂實查:那 1,011 列**在 `FILTER (WHERE images IS NULL)` 這個子集裡**逐家 `COUNT(DISTINCT image_url)` = **1**(⚠️ 射程:不是「整家所有列共用一個網址」), 而網址逐字是 `no-photo.png` / `noimage.jpg` / `no-image-2048-….gif` ⇒ 🛑 **那是供應商站的「查無圖片」佔位圖, 不是商品圖。**⇒ 🎯 **⇒ 那 1,011 列【全部】沒有真圖(含 wrs 37/37 · rizoma 3/3), 而不是 10 列。**⇒ 🔴 **判準**:`COUNT(DISTINCT image_url)=1` —— **80 件不同商品不可能共用一張照片。**⇒ 🛑 **不要維護佔位圖檔名黑名單**(no-photo / noimage / no-image 已經三種寫法)—— 黑名單在跟下一家的下一種寫法賽跑;`DISTINCT=1` 不需要知道它叫什麼。⇒ 🔵 **怎麼讀這兩格**:`images IS NULL` 本身就是異常子集 ⇒ **只要 > 0 就停下來看**;`DISTINCT` 那格說是**哪一種** —— **= 1 ⇒ 整家共用一個網址 ⇒ 佔位圖**;> 1 ⇒ 另一種, 開檔看。
+
+🔴 **而【不要】加件數門檻 —— 這是量出來的**:
+> 主視窗提過 `DISTINCT=1 AND 列數 ≥ 5`(理由:2 件共用一張可能是真的、80 件不可能)。**理由成立, 而它在真實資料上漏接。**
+> 🔬 實測該門檻對 **motogadget 4 件**與 🔴 **rizoma 3 件**不叫 —— 而 **rizoma 正是這次要上架的三家之一**。
+> ⇒ 🎯 **一個理由完全成立的門檻, 剛好漏在我們最在意的那一家底下。**
+> ⇒ 📌 它的前提是「小群共用一張圖可能是真的」—— **而我們已經先篩了 `images IS NULL`** ⇒ **前提在這個子集裡不適用。**
+
+🔵 **兩把尺盲區互補, 所以都留**:
+> · 黑名單(`no-photo`/`noimage`/`no-image`)⇒ 🟢 今天抓 **1,001 / 1,011**(🔴 **不是 1,011** —— 另外 10 列 `image_url` 是 NULL, 黑名單接不到, 靠 `image_url IS NULL` 那半接);🔴 **會被下一種寫法穿過**(已三種)
+> · `DISTINCT = 1` ⇒ 🟢 **不需知道檔名、不會過期**;🔴 **家數少時訊號弱**(rizoma 3 / motogadget 4)
+> ⇒ 🛑 **兩把都不完整, 而漏的東西不同 ⇒ 缺一不可。**
+
+🛑 **這一片的判準一句話:空圖庫比假圖庫好** —— 「補回第一張圖」在這裡實際上是**製造一批假的圖**;故 `rpm-transform.ts` 的 `ownVariantImages` **刻意不做 image_url fallback**(檔頭有完整理由與量測, 並有一格測試釘住)。
+🔵 **而 rpm 那 10 列(兩欄都空)是【另一件事】, 分開記**:連佔位圖都沒有, 由黑名單那格的 `image_url IS NULL` 接住(rpm 37 = 27 佔位 + 10 全空 ⇒ 兩格數字對得起來) | **三格各有各的期望, 不是「都 0」**:<br>①`http://` ⇒ **0**(硬性)<br>②`images IS NULL` 的**列數** ⇒ **記下來, 不是 0**(9 家現役全都不是 0)<br>③`COUNT(DISTINCT image_url)` ⇒ **不可能是 0**;**= 1 ⇒ 佔位圖**(去做④)· **> 1 ⇒ 開檔看** | **①http 外部網域** = mixed content 破圖 → 源頭轉存 Cloudflare R2、DB 存乾淨 https(Lightech 前例);新 host 另加網站 image-hosts 白名單 + middleware。<br>🔴 **②③ 命中(這家有一批沒有真照片)的出路 —— 沒有這一段的話這道閘會死於誤報**:<br>· **先分辨是哪一種卡**(2026-09-03 量, 1,011 列拆四種):`quote.pcmmotorsports.com/no-photo.png` = 🟢 **PCM 自己的卡**(882 列, 我們自己的網域, 卡面已有「暫無照片」)⇒ **可以上架, 不必擋**;供應商自己的 no-image(119 列)⇒ 🔴 **外連他家伺服器** ⇒ 要進 `SUPPLIER_PLACEHOLDERS`;`image_url` 也是 NULL(10 列)⇒ 連卡都沒有。<br>· **既有落點**(不要做第二份清單):`packages/domain/src/catalog/supplier-placeholder.ts` 的 `SUPPLIER_PLACEHOLDERS`(host + 檔名前綴);負對照測試 `apps/storefront/src/lib/catalog-page.test.ts:154-157`「PCM 自己的卡【不得】被濾掉」。<br>· **數量大到不像正常**(如 lightech 726)⇒ 🛑 **停下來問 Sean 要不要上這批**, 不要自己決定。 |
 | 3 | **變體規格軸不撞鍵(pv_spec)** | 報價單 repo:`uv run python scripts/variant_contract_scan.py`(看該家 `違規=0`) | `違規=0`(incomplete_spec / mergeable_duplicate 皆 0) | ①同群多變體 spec 全空/含 null → 源頭 fetcher 補「區分變體的軸」進 `raw_jsonb["spec"]`(ebc 材質軸 / Extreme 打檔·版本·顏色·快排;`{"英文key":"中文值"}`,fail-loud 不靜默 null)。②只有一軸卻含 null 值(如 `{"color":null}`)→ fetcher 改**條件式**寫該鍵(值空就不寫)。**products.spec 是 `raw_jsonb->'spec'` 的 GENERATED 欄、view 直投,改完 raw_jsonb re-sync 即生效,免 refresh** |
 | 4 | **v2 分類回填**(否則全落未分類) | `COUNT(*) FILTER (WHERE major_category_v2_zh IS NOT NULL)` = 總數 | = 總數 | 新供應商 v2 恆 NULL → ①先有 `category_taxonomy_map` seed(該家 `products.category` → v2 大類·子類 pair;akrapovic/extreme 前例)②報價單 repo 跑 `uv run python scripts/taxonomy_v2_recompute.py`(先 dry-run 看「搬動既有分類 0 列」確認只補空、不動別家)`--apply`。**這是純分類寫入、不碰價格** |
 | 5 | **商品名定案** | 抽查 `product_name / product_name_zh` | 不帶車款(akrapovic 拍板);變體描述若入名須與英文原文一致 | 中文名翻錯(如英文 reverse 卻寫正打)→ 由官方英文重生、patch 源頭 fixture + DB。用 targeted SQL 改 `product_name_zh`(勿重跑 fetcher = 洗四價) |
