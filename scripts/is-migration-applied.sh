@@ -34,11 +34,76 @@ MIGDIR="$REPO/supabase/migrations"
 
 die() { printf '🔴 %s\n' "$1" >&2; exit 2; }
 
-# ── 解析參數 ───────────────────────────────────────────────
-[ $# -ge 1 ] || die "要給一個 migration 檔名。用法: bash scripts/is-migration-applied.sh <檔名>"
+# ── selftest ──────────────────────────────────────────────
+# 🔴 2026-09-03:本支的檔頭【逐字寫著】`--selftest`, 而在此之前
+#    `SELFTEST` 這個變數被設好之後**再也沒有被讀過一次** ⇒ 那個旗標是死的,
+#    而單獨跑 `--selftest` 會 rc=2 ⇒ 📌 **一個【單獨跑會失敗】的 selftest 等於沒有 selftest**,
+#    而下一個人跑到 rc=2, 會讀成「這支工具壞了」—— 與【工具真的壞了】印同一個非零 rc。
+ST_PASS=0
+ST_FAIL=0
+OUTSQL=""
+chk() {  # chk <描述> <有|無> <字面>
+  if grep -qF "$3" "$OUTSQL" 2>/dev/null; then HIT=1; else HIT=0; fi
+  if [ "$2" = "有" ]; then
+    if [ "$HIT" = "1" ]; then ST_PASS=$((ST_PASS+1)); printf '  ✅ %s\n' "$1"
+    else ST_FAIL=$((ST_FAIL+1)); printf '  🔴 FAIL %s ⇒ 產出裡【找不到】: %s\n' "$1" "$3"; fi
+  else
+    if [ "$HIT" = "1" ]; then ST_FAIL=$((ST_FAIL+1)); printf '  🔴 FAIL %s ⇒ 產出裡【不該有】卻有: %s\n' "$1" "$3"
+    else ST_PASS=$((ST_PASS+1)); printf '  ✅ %s\n' "$1"; fi
+  fi
+}
 
-if [ "$1" = "--selftest" ]; then SELFTEST=1; shift; else SELFTEST=0; fi
-[ $# -ge 1 ] || die "--selftest 之後仍然要給檔名, 或單獨跑 --selftest"
+selftest() {
+  # 🔴 第一件事:剝掉【繼承來的】git 環境。`git -C` 擋不住這幾個。
+  #    (本 repo `.husky/selftest-git-isolation-gate.sh` 要求;
+  #     「在我自己樹上跑是綠的」是觸發條件, 不是通過條件。)
+  unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY \
+        GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE
+
+  ST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ima-selftest-XXXXXX") || return 2
+  ST_FIX="$ST_DIR/19700101000000_selftest_fixture.sql"
+  # 🔵 版本號刻意用 1970 ⇒ 「比本檔早的 migration」是空集合 ⇒ 語料掃描不吃時間。
+  cat > "$ST_FIX" <<'FIXEOF'
+CREATE TABLE public.zz_sel_tbl (id uuid primary key); -- ADD COLUMN zz_from_comment text
+-- 🔵 上面那個【行尾】註解是刻意的:註解要寫成【行尾】才測得到剝註解那一格。
+--    寫成整行註解 ⇒ `^[[:space:]]*CREATE` 本來就不匹配 ⇒ 那個負向檢查【不可能紅】。
+CREATE INDEX zz_sel_idx ON public.zz_sel_tbl (id);
+CREATE POLICY zz_sel_policy ON public.zz_sel_tbl FOR SELECT USING (true);
+ALTER TABLE public.zz_sel_tbl ADD COLUMN zz_new_col text;
+FIXEOF
+
+  printf '======== is-migration-applied --selftest ========\n'
+  if ! bash "$0" "$ST_FIX" > "$ST_DIR/run.log" 2>&1; then
+    printf '🔴 本體對 fixture 跑不起來 ⇒ %s\n' "$ST_DIR/run.log"; return 1
+  fi
+  OUTSQL="${TMPDIR:-/tmp}/is-applied-19700101000000.sql"
+  [ -s "$OUTSQL" ] || { printf '🔴 產出是空的或不存在:%s\n' "$OUTSQL"; return 1; }
+
+  # 🔴🔴 這一格是【本次事故的回歸守門】:抽取式的字元類曾經含一個空白,
+  #    把 `CREATE POLICY <名> ON public.<表>` 整段吃成政策名 ⇒ 查詢在兩個世界都回 0。
+  chk 'policy 名抽對了(不含 ON)'        有 "polname='zz_sel_policy'"
+  chk '🔴 政策名【沒有】吃掉 ON public' 無 "polname='zz_sel_policy ON"
+  chk 'policy 有 join 回它所在的表'      有 "c.relname='zz_sel_tbl'"
+  chk 'policy 帶正對照(表存在且開 RLS)' 有 '正對照 public.zz_sel_tbl 存在且開 RLS'
+  chk 'policy 帶負對照'                  有 '負對照 現造政策名'
+  chk '表/view 這一型有查'               有 '表/view public.zz_sel_tbl 存在(1=已貼)'
+  chk '索引這一型有查'                   有 '索引 zz_sel_idx 存在(1=已貼)'
+  chk '索引帶正對照'                     有 '正對照 public 底下的索引數'
+  chk '新欄這一型有查'                   有 '欄 zz_sel_tbl.zz_new_col 存在(1=已貼)'
+  # 🔴 這一格原本寫成 `有 '正對照'` —— 那個字串【任何一段】的正對照都會命中
+  #    ⇒ 它會在「新欄這一型根本沒有正對照」的世界裡照樣印綠 ⇒ 釘住完整字面。
+  chk '新欄帶正對照(釘住完整字面)'       有 '正對照 zz_sel_tbl.id 存在(期望1)'
+  # 🔵 負向:註解裡的 CREATE POLICY 不得被抽出來 —— 剝註解那一格的回歸守門。
+  chk '🔵 註解裡的物件沒有被抽進來'      無 'zz_from_comment'
+
+  rm -rf "$ST_DIR"
+  printf '\n通過 %s / 失敗 %s\n' "$ST_PASS" "$ST_FAIL"
+  [ "$ST_FAIL" -eq 0 ]
+}
+
+# ── 解析參數 ───────────────────────────────────────────────
+if [ "${1:-}" = "--selftest" ]; then selftest; exit $?; fi
+[ $# -ge 1 ] || die "要給一個 migration 檔名。用法: bash scripts/is-migration-applied.sh <檔名>"
 
 ARG=$1
 if [ -f "$ARG" ]; then FILE=$ARG
@@ -197,6 +262,10 @@ grep -oE '^[[:space:]]*CREATE (TABLE|VIEW|MATERIALIZED VIEW)[[:space:]]+(IF NOT 
   NM=$(printf '%s' "$T" | awk -F. '{print $NF}')
   printf -- '-- 🟢 判別:這張表/view 在不在(1=已貼 / 0=沒貼)。新物件 ⇒ 存在性【有】判別力。\n'
   printf -- "SELECT '表/view %s 存在(1=已貼)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE n.nspname='%s' AND c.relname='%s';\n\n" "$T" "$SCH" "$NM"
+  # 🔵 2026-09-03 註:這個正對照刻意用 `public.orders`(我們自己的表)而不是一個【任何 PG 都有】的物件。
+  #   理由:它要答的是「這把尺指到【我們的庫】了嗎」——
+  #   拿 `pg_class` 之類當正對照的話, 對著一個**空的陌生庫**也會過 ⇒ 那把尺就沒有判別力了。
+  #   ⚠️ 代價:在**拋棄式 PG**上跑, 這一格會回 0 ⇒ 而那是【正確行為】(它在說:這不是那個庫)。
   printf -- '-- 🔵 正對照:同一把尺去找一張【一定在】的表(期望 1)。回 0 ⇒ 尺沒接上, 上面那個 0 不算數。\n'
   printf -- "SELECT '正對照 public.orders 存在(期望1)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE n.nspname='public' AND c.relname='orders';\n\n"
   printf -- '-- 🔵 負對照:現造名(期望 0)。\n'
@@ -204,11 +273,30 @@ grep -oE '^[[:space:]]*CREATE (TABLE|VIEW|MATERIALIZED VIEW)[[:space:]]+(IF NOT 
 done
 grep -oE '^[[:space:]]*CREATE (UNIQUE )?INDEX[[:space:]]+(IF NOT EXISTS[[:space:]]+)?[A-Za-z0-9_]+' "$NOCMT" 2>/dev/null \
 | sed -E 's/.*INDEX[[:space:]]+(IF NOT EXISTS[[:space:]]+)?//' | sort -u | while IFS= read -r IX; do
+  printf -- '-- 🟢 判別:這個索引在不在(1=已貼 / 0=沒貼)。\n'
   printf -- "SELECT '索引 %s 存在(1=已貼)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_class WHERE relname='%s' AND relkind='i';\n\n" "$IX" "$IX"
+  # 🔴 2026-09-03 補:本型原本【沒有正對照】⇒ 一個 0 分不出「沒貼」與「尺沒接上」。
+  printf -- '-- 🔵 正對照:同一把尺去找一個【一定在】的索引(期望 >=1)。回 0 ⇒ 尺沒接上。\n'
+  printf -- "SELECT '正對照 public 底下的索引數(期望>0)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE c.relkind='i' AND n.nspname='public';\n\n"
 done
-grep -oE '^[[:space:]]*CREATE POLICY[[:space:]]+"?[A-Za-z0-9_ ]+"?' "$NOCMT" 2>/dev/null \
-| sed -E 's/.*POLICY[[:space:]]+//; s/"//g' | sort -u | while IFS= read -r PO; do
-  printf -- "SELECT 'policy %s 存在(1=已貼)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_policy WHERE polname='%s';\n\n" "$PO" "$PO"
+# 🔴🔴 **POLICY 這一型 2026-09-03 之前是【壞的】, 而它往危險那一側單向壞掉。**
+#   舊寫法 `"?[A-Za-z0-9_ ]+"?` 的字元類裡**有一個空白** ⇒ 它把
+#   `CREATE POLICY <名> ON public.<表>` 抓成 `<名> ON public`
+#   ⇒ `polname='<名> ON public'` ⇒ 🔴 **在【已貼】與【沒貼】兩個世界都回 0。**
+#   ⇒ 📌 一把只會印「沒貼」的尺, 會讓人去【重貼一支已經貼過的東西】—— 而那是對正式庫的寫入。
+#   ✅ 改法:名字與表分開抓, 並 join pg_class/pg_namespace 比對真正的 polname + 所在表。
+grep -oE '^[[:space:]]*CREATE POLICY[[:space:]]+"?[A-Za-z0-9_]+"?[[:space:]]+ON[[:space:]]+[A-Za-z0-9_."]+' "$NOCMT" 2>/dev/null \
+| sed -E 's/.*POLICY[[:space:]]+//; s/"//g' | sort -u | while IFS= read -r PAIR; do
+  PO=$(printf '%s' "$PAIR" | awk '{print $1}')
+  REL=$(printf '%s' "$PAIR" | awk '{print $3}')
+  SCH=$(printf '%s' "$REL" | awk -F. 'NF>1{print $1} NF==1{print "public"}')
+  TBL=$(printf '%s' "$REL" | awk -F. '{print $NF}')
+  printf -- '-- 🟢 判別:這條 policy 在不在(1=已貼 / 0=沒貼)。新物件 ⇒ 存在性【有】判別力。\n'
+  printf -- "SELECT 'policy %s ON %s.%s 存在(1=已貼)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_policy p\n  JOIN pg_catalog.pg_class c ON c.oid=p.polrelid\n  JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE n.nspname='%s' AND c.relname='%s' AND p.polname='%s';\n\n" "$PO" "$SCH" "$TBL" "$SCH" "$TBL" "$PO"
+  printf -- '-- 🔵 正對照:那張表存在且開了 RLS(期望 t)。不是 t ⇒ 上面那個 0 不算數。\n'
+  printf -- "SELECT '正對照 %s.%s 存在且開 RLS(期望t)' AS 格, c.relrowsecurity::text AS 值\n  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE n.nspname='%s' AND c.relname='%s';\n\n" "$SCH" "$TBL" "$SCH" "$TBL"
+  printf -- '-- 🔵 負對照:現造政策名(期望 0)。\n'
+  printf -- "SELECT '負對照 現造政策名(期望0)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_policy WHERE polname='zzq_no_such_policy_9f';\n\n"
 done
 grep -oE 'ADD COLUMN[[:space:]]+(IF NOT EXISTS[[:space:]]+)?[A-Za-z0-9_]+' "$NOCMT" 2>/dev/null \
 | sed -E 's/.*COLUMN[[:space:]]+(IF NOT EXISTS[[:space:]]+)?//' | sort -u | while IFS= read -r CO; do
