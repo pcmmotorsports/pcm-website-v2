@@ -36,6 +36,18 @@ export {
 //    而客人端從 `#249` 起也要讀它(列表要把「已取消」與「已逾期」分開標)。
 //    storefront import 不到 apps/admin ⇒ 搬進來,admin 那支改 re-export。
 export { PAYMENT_EXPIRED_CANCEL_REASON, orderCancelKindOf } from './order/order-cancel-reason';
+// 🔵 匯款收款資訊 + 匯款期限(Sean 2026-09-03 拍板)。**兩個落點**:下單信(段 4)與
+//    顧客站選了匯款之後的畫面(段 1)—— 兩段都還沒做, 而資料先有一個家。
+//    🔴 `PCM_REMITTANCE_EXPIRE_DAYS` 與 migration 的 `interval '5 days'` 由
+//       `remittance-info.test.ts` 綁在一起(兩種語言, 做不到單一來源 ⇒ 用一道會叫的閘)。
+export {
+  PCM_REMITTANCE_ACCOUNT_NAME,
+  PCM_REMITTANCE_ACCOUNT_NO,
+  PCM_REMITTANCE_BANK_NAME,
+  PCM_REMITTANCE_BRANCH,
+  PCM_REMITTANCE_EXPIRE_DAYS,
+  PCM_REMITTANCE_MEMO_INSTRUCTION,
+} from './order/remittance-info';
 export type { OrderCancelKind } from './order/order-cancel-reason';
 export { CARRIER_LABEL, CARRIER_OPTIONS, carrierLabelOf } from './order/carrier-label';
 export type { CarrierCode } from './order/carrier-label';
