@@ -143,7 +143,26 @@ export type OrderDetailViewProps = {
 };
 
 export function OrderDetailView({ order }: OrderDetailViewProps) {
-  const paid = order.paymentStatus === 'paid';
+  /**
+   * ⟦ship-REFUNDEDPAIDSTEP⟧ **「付款完成」那一階問的是【他付過沒】, 不是【現在的狀態】。**
+   *
+   * ⛔ ~~`const paid = order.paymentStatus === 'paid'`~~ ⇒ 🔴 **`refunded` 的單它是 `false`**,
+   *    即使 `paidAt` 有值、客人**真的付過** ⇒ 那一階在畫面上是灰的。
+   * 🎯 **Sean 2026-09-04 拍甲**(他複誦了理由, 不只回了字母):逐字
+   *    「**他確實付過, 那是發生過的事實**」;而端他的理由是 ——
+   *    那條軸講的是**發生過什麼**, 不是現在的狀態(「訂單成立」也不會因為取消了就變灰);
+   *    而維持灰的代價是:**客人剛收到退款, 而畫面說我們沒收到錢 ⇒ 兩個訊息打架。**
+   * 🛑 **丙(打勾 + 多一格「已退款」)他沒選** ⇒ 不做:那是多一個狀態、多一份文案、多一個形狀。
+   *
+   * 🔵 **而 `partiallyRefunded` 是我加的, 不是他拍的** —— 理由要寫出來讓它可被推翻:
+   *    它的定義是「**退了一部分**、訂單仍有保留品項」(`types.ts:34-35`)⇒ **它蘊含之前已全額付款**
+   *    ⇒ 對它維持灰, 與 `refunded` 是**同一句錯話**。
+   *    🛑 而 `partiallyPaid`(只收了訂金)**不在裡面** —— 那個人**還欠錢**, 打勾會是謊。
+   */
+  const paymentCompleted =
+    order.paymentStatus === 'paid' ||
+    order.paymentStatus === 'refunded' ||
+    order.paymentStatus === 'partiallyRefunded';
   // 🔴🔴 **`#249`(2026-08-24):這一頁對【已取消 / 已逾期】的單從今天起才走得到。**
   //    在此之前 adapter 的 `.neq('payment_status','unpaid')` 把它們全濾掉了
   //    ⇒ **下面三格是「一段從來沒有人走過的路」被點亮之後才暴露出來的**,不是新做的功能:
@@ -160,7 +179,7 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
     // 🔴 日期只能用 `paidAt`(codex 關卡2 must-fix):延後付款或重試成功時,下單日與付款日
     //    可以差好幾天 ⇒ 拿 `createdAt` 冒充等於**印一個我們自己編的付款日**,而客人沒有第二個來源可以對。
     //    `paidAt` 為 null ⇒ **那一階不印日期**(狀態仍可標完成),不要退回 createdAt。
-    { t: '付款完成', d: order.paidAt === null ? '' : formatOrderDate(order.paidAt), ok: paid },
+    { t: '付款完成', d: order.paidAt === null ? '' : formatOrderDate(order.paidAt), ok: paymentCompleted },
     /**
      * ⟦b9-SHIPUI⟧ **這一階從包裹真相點亮**(Sean 2026-09-02 拍丙)。
      *
@@ -209,9 +228,10 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
   //    即使 `paidAt` 有值、客人**真的付過**。⇒ 只用 `s.ok` 過濾會**把付款日整格丟掉**,
   //    而那正是 code-reviewer 打掉第一版的同一個理由(丟掉真事實), 換一個位置再犯一次。
   //    ✅ ⇒ 判準改成「**有 `ok` 或有日期**」= 這件事**留下了痕跡**。
-  // ⚠️ **而我【不動】沒取消那條路的 `ok: paid`** —— 一張 `refunded` 而**沒取消**的單,
-  //    今天的軸上「付款完成」是**未完成態**(而客人真的付過)。🔴 **那是一個相鄰的缺陷,**
-  //    **而它不在這一片的範圍** ⇒ 已開列回報, 不順手改(改它會動到每一張退款單的畫面)。
+  // ✅ **而那個相鄰缺陷已經修掉了**(⟦ship-REFUNDEDPAIDSTEP⟧, Sean 2026-09-04 拍甲):
+  //    `ok:` 現在吃 `paymentCompleted`(:139)⇒ `refunded` / `partiallyRefunded` 也算付過。
+  //    🔵 ⇒ 所以下面這個 `happened` 判準與它**是同一條規則的兩個射程**, 不是兩套邏輯:
+  //       「這件事**發生過**嗎」—— 一個管取消單要不要**顯示**那一階, 一個管那一階要不要**打勾**。
   const happened = (s: (typeof steps)[number]) => s.ok || s.d !== '';
   // 取消單上, 留下來的每一階都是**已經發生的事實** ⇒ 一律 done(它們不會再有進展)。
   const shownSteps = cancelled ? steps.filter(happened).map((s) => ({ ...s, ok: true })) : steps;

@@ -176,9 +176,13 @@ export function isSupplierPlaceholder(url: string): boolean {
  * PCM 自己的「暫無照片」卡(2026-09-03 量:報價庫 `storefront_catalog_v` 有 **882 列**用它)。
  * 卡面 = PCM logo + 紅線 + 「暫無照片」+ 「PCM MOTORSPORTS」。
  *
- * 🛑 **它【刻意不在】`SUPPLIER_PLACEHOLDERS` 裡** —— 那張表的用途是「濾掉別人家的爛圖」,
- *   而濾掉我們自己的卡只會把一張 PCM 卡換成另一張 PCM 卡(零收益 + 多一個會漂的字面)。
- *   負對照測試 `apps/storefront/src/lib/catalog-page.test.ts` 釘著「PCM 自己的卡不得被濾掉」。
+ * 🛑 **它【刻意不在】`SUPPLIER_PLACEHOLDERS` 裡** —— 那張表的用途是「濾掉**別人家**的爛圖」,
+ *   而這張卡是我們自己的 ⇒ 兩件事分開判。
+ * ⛔ ~~原本這裡寫「濾掉它只會把一張 PCM 卡換成另一張, 零收益」+ 指向 catalog-page.test.ts 的
+ *   『PCM 自己的卡不得被濾掉』負對照~~ —— 🔴 **兩句都過期了**(2026-09-04):
+ *   那三份負對照**全部翻面**(見 `dropImagesWithoutRealPhoto` 的 docstring), 而「零收益」的前提已消滅。
+ * ✅ **現在守這個網域不被寫太寬的是**:本檔測試的
+ *   「PCM 網域上的**真商品圖** ⇒ `hasNoRealImage` 必為 false」那一格。
  * ⇒ 🎯 **所以它住在這裡, 只給 `hasNoRealImage` 用。兩個謂詞回答兩個不同的問題。**
  */
 const PCM_OWN_NO_PHOTO_CARD = ['quote.pcmmotorsports.com', 'no-photo.png'] as const;
@@ -220,14 +224,39 @@ export function hasNoRealImage(url: string | null | undefined): boolean {
 }
 
 /**
- * 陣列版:濾掉供應商佔位圖。全部濾光 ⇒ 回 `[]`。
+ * 陣列版:濾掉**沒有真照片**的網址(供應商佔位圖 + PCM 自己的卡)。全部濾光 ⇒ 回 `[]`。
  *
- * 🔴 **兩條讀取路徑必須用【同一份】`SUPPLIER_PLACEHOLDERS`**:
+ * 🔴 **兩條讀取路徑必須用【同一個判斷】**:
  *   · adapter mapper(詳情 / 精選 / 相關 / 搜尋)⇒ 用本函式
- *   · `/products` 目錄頁與品牌頁走 RPC ⇒ 那邊拿到的是**單一** `card_image` ⇒ 用 `isSupplierPlaceholder`
- *   ⇒ ⇒ 📌 **複製成兩份清單 ⇒ 它們會分岔, 而分岔不會紅** ——
+ *   · `/products` 目錄頁與品牌頁走 RPC ⇒ 那邊拿到的是**單一** `card_image` ⇒ 直接用 `hasNoRealImage`
+ *   ⇒ ⇒ 📌 **複製成兩份判斷 ⇒ 它們會分岔, 而分岔不會紅** ——
  *      修好一半、另一半沒跟上, 而客人只會在其中一頁看到爛圖。
+ *
+ * ─────────────────────────────────────────────────────────────
+ * 🔴🔴 **2026-09-04 推翻一個先前的拍板:PCM 自己的卡【現在也濾】。**
+ *
+ * ⛔ ~~原本叫 `dropSupplierPlaceholders`, 只濾別人家的;而 PCM 自己的卡刻意留著~~。
+ *    當時的理由逐字(`packages/adapters/.../product.test.ts` 檔頭):
+ *    「換成另一張 PCM 卡, **零收益**而多一次同步;而它在畫面上幾乎看不出差別」
+ *    🟢 **那個理由在當時是對的** —— 那時「沒有圖」的畫面就是另一張 PCM 卡。
+ *
+ * 🔴 **而兩件事讓它不再成立**:
+ *    ① Sean 2026-09-03 拍「無真照片 ⇒ **品牌 logo** + 小字暫無照片」
+ *       ⇒ 濾掉之後客人看到的是**那個品牌的 logo**, 不是另一張一樣的卡 ⇒ **收益不再是零**
+ *    ② 🔴🔴 **更重要**:`product.images` 有兩個**對外**的消費端 ——
+ *       `lib/product-jsonld.ts`(報給 Google)與 `app/products/[slug]/page.tsx`(OG 社群卡)。
+ *       它們**不呼叫** `hasNoRealImage` ⇒ 那 882 列會把「查無圖片」的卡**報給外部, 而外部會快取**。
+ *       ⇒ 🛑 **在顯示層逐處補判斷救不了它們** —— 漏掉一處不會紅, 而那正是先前漏掉這兩處的原因。
+ *    ⇒ 🎯 **⇒ 所以判斷要住在【資料出口】, 不是住在【每一個畫面】。**
+ *
+ * ⚠️ **而「零收益」那個理由的形狀值得記**:它不是錯的推理, 是**它的前提後來變了**
+ *    —— 而**沒有任何機制會在前提變的時候回來叫它**。
+ * ─────────────────────────────────────────────────────────────
+ *
+ * 🛑 **快照不受本函式管**:購物車 / 訂單 / 收藏存的是**下單當時**的網址,
+ *    不走這條路 ⇒ 它們仍會顯示當時那張卡。**那是刻意的 —— 改它是改寫歷史。**
+ *    (板列 `⟦front-SNAPSHOTPLACEHOLDER⟧`)
  */
-export function dropSupplierPlaceholders(images: readonly string[]): string[] {
-  return images.filter((url) => !isSupplierPlaceholder(url));
+export function dropImagesWithoutRealPhoto(images: readonly string[]): string[] {
+  return images.filter((url) => !hasNoRealImage(url));
 }
