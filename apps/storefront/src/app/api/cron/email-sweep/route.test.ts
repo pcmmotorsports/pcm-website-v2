@@ -390,6 +390,17 @@ describe('GET email-sweep — options/deps 注入(不採信外部輸入)', () =>
       leaseSeconds: 3600,
       // 🔴 env 沒設(本檔 beforeEach 清掉)⇒ 出貨線沒上膛 ⇒ false。
       allowOrderShipped: false,
+      // 🔴🔴 **這一格是本測試【設計上要抓的東西, 抓到了我】**(2026-09-03)。
+      //    我在 `route.ts` 加了 `siteUrl` 而**沒有跑本檔** ⇒ 它當場紅, 而我對主視窗報的是「全綠」。
+      //    ⇒ 📌 **我餵給 vitest 的是 2 條 use-cases 路徑, 而爆炸半徑是 5 支檔跨 2 個 package。**
+      //      抓到它的是 codex, 不是我的三綠 —— 三綠不跑測試, 而我挑的測試檔沒有涵蓋 route。
+      //    ✅ 而本格上面那句「保持全等寫法, 不要改成 toMatchObject」**正是它會叫的原因** ——
+      //      **一道正確的閘, 在它抓到的那一刻看起來像是擋路。**
+      // ⚠️ 值是 `http://localhost:3000`:本檔 `beforeEach` 清掉 env、`NODE_ENV !== 'production'`
+      //    ⇒ `resolveSiteUrl()` 回那個預設(**不是 `undefined`** —— `lib/site-url.ts:27`)。
+      //    🛑 **而它到不了客人** —— `paidEmailOrderUrl` 那道 hostname 閘會擋掉整段連結。
+      //      ⇒ 這一格證的是「route 傳了什麼」,擋在哪裡是那支函式自己的測試在證。
+      siteUrl: 'http://localhost:3000',
     });
     // 🔴 `expect.any(Number)` **只證得出它是個數字** —— 傳 `0`、傳去年的時刻、
     //    傳 `Date.now() + 一小時`,三種都會過。⇒ 再夾一次區間,這一格才有判別力:
