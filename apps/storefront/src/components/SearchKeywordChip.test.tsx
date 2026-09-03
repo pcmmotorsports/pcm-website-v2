@@ -29,6 +29,27 @@ describe('SearchKeywordChip — 關鍵字要看得見、而且拿得掉', () => 
     expect(container.textContent).toBe('');
   });
 
+  // ── ⟦search-CAPSULEPARSE⟧ 2026-09-03:「丟掉的字要看得見」──────────────
+  it('🔴🔴 有【沒用到的字】⇒ 要把那幾個字印出來', () => {
+    const { container } = render(<SearchKeywordChip unmatchedWords='好看的' />);
+    expect(container.textContent).toContain('好看的');
+    expect(container.textContent, '沒說「沒有用到」⇒ 客人會以為它在過濾').toContain('沒有用到');
+  });
+
+  it('🔵 負對照:沒有沒用到的字, 也沒有關鍵字 ⇒ 整區不畫', () => {
+    const { container } = render(
+      <SearchKeywordChip keyword={undefined} unmatchedWords={undefined} />,
+    );
+    expect(container.textContent).toBe('');
+  });
+
+  // 🛑 兩種模式互斥 —— 有 keyword 時走關鍵字那一套(它要有 ✕ 與提示句)。
+  it('🔵 有 keyword ⇒ 走關鍵字模式(有 ✕ 可按), 不是「沒用到」那一句', () => {
+    const { container } = render(<SearchKeywordChip keyword='mt07' />);
+    expect(container.querySelectorAll('.ac-chip')).toHaveLength(1);
+    expect(container.textContent).not.toContain('沒有用到');
+  });
+
   it('🔴 有關鍵字 ⇒ 印出那個字, 而且帶「搜尋:」前綴', () => {
     const { container } = render(<SearchKeywordChip keyword='akrapovic' />);
     // 🎯 前綴是必要的 —— 少了它, 這顆與旁邊的品牌/分類膠囊長得一模一樣,

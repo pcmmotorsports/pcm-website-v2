@@ -26,14 +26,48 @@
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 
-export function SearchKeywordChip({ keyword }: { keyword?: string }) {
+export function SearchKeywordChip({
+  keyword,
+  unmatchedWords,
+}: {
+  keyword?: string;
+  /** 解析器沒有用到的字。🔴 **不參與過濾** —— 見 `parse-search-facets.ts`。 */
+  unmatchedWords?: string;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
   // 🔴 **無條件呼叫完 hooks 才 early-return** —— React hooks 規則:
   //    return 寫在 hooks 前面的話,`keyword` 一有一無就會改變 hook 數量 ⇒ 整頁炸。
-  if (keyword === undefined || keyword === '') return null;
+  // 🔴 兩種模式:①`keyword` = 整句都當關鍵字(一顆膠囊都沒解析出來)
+  //              ②`unmatchedWords` = 解析出了膠囊, 而這幾個字沒被用到
+  //    ⇒ 兩者**互斥**(route 只會給其中一個), 而兩個都沒有就整區不畫。
+  if (
+    (keyword === undefined || keyword === '') &&
+    (unmatchedWords === undefined || unmatchedWords === '')
+  ) {
+    return null;
+  }
+  if (keyword === undefined || keyword === '') {
+    // 🔴🔴 **「丟掉的字要看得見」的那一半**(⟦search-CAPSULEPARSE⟧)。
+    //    走到這裡 ⟺ 解析器**認出了東西**(所以沒有 `keyword`),而這幾個字它認不得。
+    //    ⇒ 認得的那些**已經以膠囊的形式在畫面上**(`ActiveChips` 畫),所以這裡只講認不得的。
+    //    🛑 少了它, 客人看到的是「我打了五個字, 而畫面只認了兩個」——
+    //      而他**不知道剩下三個字有沒有在過濾**。
+    //    ⇒ 📌 **一個「懂了一半」的系統, 比「完全沒懂」的更難用** —— 他不知道要重打哪一段。
+    // ⚠️ **這段註解原本掛在下面那個 `keyword` 分支上,而那是錯的**
+    //    (code-reviewer 2026-09-04 minor):那個分支**永遠不畫 `unmatchedWords`** ——
+    //    它只在「整句都沒解析出東西」時出現。
+    //    ⇒ 🎯 **一段描述與它所掛的分支對不上, 下一個維護者會照那段描述去改錯的地方。**
+    return (
+      <div className="ac-bar">
+        <span className="ac-note">
+          🔍 這幾個字沒有用到:「{unmatchedWords}」—— 上面的篩選條件是我們認得的那部分。
+        </span>
+      </div>
+    );
+  }
 
   const clear = () => {
     const next = new URLSearchParams(searchParams.toString());

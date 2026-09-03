@@ -221,6 +221,15 @@ export function useCatalogFilterUrlSync(
     //    ⇒ 掛在 `filtersChanged` 上正好:**只有使用者真的動了 facet 才清**,
     //      深連結還原波(state 剛追上 URL)不會誤清。
     if (filtersChanged) params.delete('search');
+    // 🔴🔴 **`unmatched` 也要一起清 —— 少了這一行它會變成【孤兒參數】。**
+    //    (code-reviewer 2026-09-04 Important 1)
+    //    它是「這幾個字我們沒有用到」那句話的來源。客人點掉車款/分類膠囊、或按「清除全部」
+    //    之後,那句話**會永久卡在畫面上**,而它講的是一個已經不存在的搜尋。
+    //    ⇒ 🎯 **那正是本片存在的理由(看得見的缺 > 安靜的錯)自己做出來的那種安靜的錯 ——
+    //      只是延遲發生。**
+    // 🔵 而它與 `search` 同一格是對的:兩者都是「這一次搜尋的產物」,
+    //    而使用者動了 facet ⇒ 那一次搜尋就結束了。
+    if (filtersChanged) params.delete('unmatched');
     const qs = params.toString();
     const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
     // 🔴 #287 實作首件(plan §6 標為「沒驗」的那條):`normalizedQuery` 收斂品牌軸之後,**這一處
