@@ -231,6 +231,21 @@ export function CheckoutView({
         prime,
         agreed,
         ...(notificationEmailEnabled ? { notificationEmail } : {}),
+        // 🔴 **Sean 拍 `Q15 = 甲`**:讓那句擋人的話**叫得出是哪一件商品**。
+        //    品名來自**這一次 render 已經解析好的那一份**(`cart.lines`)——
+        //    🛑 **不重查** :重查會多一條可能與畫面不一致的來源, 而客人要對照的正是畫面上那幾列。
+        //    🔵 找不到那一列 ⇒ 回 `undefined` ⇒ hook 那端整句退回不指名的版本。
+        //    ⛔ ~~我原本寫「`found === false` 的列拿不到真名字(`actions.ts:130` 的 `name: ''`)」~~
+        //    🔴 **那個機制描述是假的**(code-reviewer 開檔核):`!found` 的列**根本進不了 `cart.lines`**
+        //       —— `useResolvedCart.tsx:174` 先濾掉了;而另一條 found:false 的路
+        //       (`actions.ts:145-158`)帶的是 `name: product.name` **真名字**。
+        //    ⇒ 📌 **`|| undefined` 可以留, 而它守的不是我原本宣稱的那件事。**
+        //       真正會回 `undefined` 的是「那一列不在 `cart.lines` 裡」, 而 hook 那端
+        //       用 `names.length === missing.length` 接住它。
+        lineName: ({ productId, variantId }) =>
+          cart.lines.find(
+            (l) => l.item.productId === productId && l.item.variantId === variantId,
+          )?.resolved.name || undefined,
       });
     } finally {
       if (!terminal) {

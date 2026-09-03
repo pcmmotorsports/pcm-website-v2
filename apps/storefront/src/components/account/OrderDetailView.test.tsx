@@ -360,6 +360,123 @@ describe('OrderDetailView', () => {
     };
     const EXPIRED = { ...CANCELLED, cancelKind: 'expired' as const };
 
+    /**
+     * ⟦ship-CANCELSTEPS⟧ 取消單的進度軸(2026-09-04)。
+     *
+     * 🔬 **病灶是量出來的** —— 修法之前拿 `CANCELLED` 渲染, 四個子節點實際是:
+     *    `od-step is-done is-now │ 訂單成立 …` / `od-step │ 付款完成` / `已出貨` / `已送達`
+     *    ⇒ 🎯 已取消的單, 軸上有三格「還沒完成」的待辦, 而 `is-now` 落在第一格
+     *    ⇒ 而同一頁徽章寫著「已取消」⇒ **一頁兩句相反的話, 而圖形贏過文字。**
+     *
+     * 🔵 **印那份 DOM 本身踩過一個坑, 記在這裡**:第一發用 `console.log` 印,
+     *    **vitest 把它吞掉了** ⇒ 畫面全空 ⇒ 🔴 **而「空白」會被讀成「那裡沒有東西」。**
+     *    ✅ 改用 `throw new Error(...)` 才看得到。
+     *    📌 **一個正確的探針印出空白, 與一個沒接上的探針, 長得一模一樣。**
+     *
+     * ⛔ ~~第一版的修法是「取消單整條軸不畫」~~ ⇒ 🔴 **code-reviewer 打掉了, 而它是對的**:
+     *    `paidAt` / `shippedAt` **只住在那條軸上**, 頁面沒有第二個顯示位置
+     *    ⇒ 對一張「部分出貨 + 全額退款 + 標記取消」的單(`admin_mark_order_cancelled`
+     *      `20260902140000:316-330` **零出貨閘** ⇒ 構造得出來), 整條不畫會**丟掉兩個真事實**。
+     *    ✅ 改成:**只留真的發生過的那幾階, 而且沒有 `is-now`。**
+     *    📌 **⇒ 我第一版把「不該說未來式」修成了「什麼都不說」—— 另一個方向的錯。**
+     *
+     * 🛑 **三種單、三個方向, 缺一這道守門就沒有判別力**:
+     *    · 未付款就取消 ⇒ 軸上**只剩一階**、零 `is-now`
+     *    · 🔴 **已付款已出貨才被取消** ⇒ 三階都在(**真事實不得被吃掉**)、零 `is-now`、
+     *      而「已送達」與分批小字都**不得出現**(那兩句對死掉的單是假的)
+     *    · 🔵 **正對照:沒取消的單 ⇒ 軸【逐字不變】** —— 少了它,「整段刪掉」也會全綠
+     */
+    const SHIPPED_CANCELLED = {
+      ...ORDER,
+      paymentStatus: 'refunded' as const,
+      paidAt: '2099-04-20T00:00:00Z',
+      shippedAt: '2099-04-25T00:00:00Z',
+      allItemsShipped: false,
+      cancelledAt: '2099-05-01T00:00:00Z',
+      cancelKind: 'cancelled' as const,
+    };
+
+    it('🔴 未付款就取消 ⇒ 軸上只剩【真的發生過的】那一階, 而且沒有「現在這一步」', () => {
+      for (const [name, o] of [
+        ['cancelled', CANCELLED],
+        ['expired', EXPIRED],
+      ] as const) {
+        const { container } = render(<OrderDetailView order={o} />);
+        const steps = container.querySelector('[data-od-id="order-steps"]');
+        expect(steps, `${name}:軸整個不見了 ⇒ 真事實被吃掉`).not.toBeNull();
+        expect(
+          Array.from(steps!.children).map((el) => el.className),
+          [
+            `${name}:已取消的單軸上還有【還沒完成】的階。`,
+            '🔴 那會把「付款完成 / 已出貨 / 已送達」畫成待辦, 而 `is-now` 落在第一格',
+            '   ⇒ 讀起來是「才剛開始, 下一步等付款」。',
+            '🛑 而同一頁的徽章寫著「已取消」⇒ **一頁兩句相反的話, 而圖形贏過文字。**',
+          ].join('\n'),
+        ).toEqual(['od-step is-done']);
+        expect(steps!.textContent, `${name}:未付款的單不得出現「付款完成」`).not.toContain('付款完成');
+      }
+    });
+
+    it('🔴🔴 已付款已出貨才被取消 ⇒ 那三個【真事實】要留著, 而未來式的兩句要消失', () => {
+      const { container } = render(<OrderDetailView order={SHIPPED_CANCELLED} />);
+      const steps = container.querySelector('[data-od-id="order-steps"]');
+      expect(
+        Array.from(steps!.children).map((el) => el.className),
+        '真事實被吃掉了 ⇒ 客人再也看不到他何時付款 / 何時出貨(頁面沒有第二個顯示位置)',
+      ).toEqual(['od-step is-done', 'od-step is-done', 'od-step is-done']);
+      const txt = steps!.textContent ?? '';
+      expect(txt, '付款日是真的, 不得消失').toContain('2099-04-20');
+      expect(txt, '出貨日是真的, 不得消失').toContain('2099-04-25');
+      expect(txt, '「已送達」對一張取消單是假的').not.toContain('已送達');
+      expect(
+        container.querySelector('[data-od-id="order-partial-shipment-note"]'),
+        '「其餘商品出貨時會再通知您」對一張死掉的單是假的 —— 而它與進度軸是同一個病',
+      ).toBeNull();
+    });
+
+    /**
+     * ⟦ship-REFUNDEDPAIDSTEP⟧ 「付款完成」問的是**他付過沒**, 不是**現在的狀態**。
+     * Sean 2026-09-04 拍甲(逐字「他確實付過, 那是發生過的事實」)。
+     *
+     * 🔴 **三個方向, 而中間那個是我加的、要能被推翻**:
+     *    · `refunded`         ⇒ 打勾(他拍的)
+     *    · `partiallyRefunded` ⇒ 打勾(**我加的** —— 它蘊含之前已全額付款)
+     *    · 🛑 `partiallyPaid`  ⇒ **不得打勾**(只收了訂金, 那個人還欠錢)⇒ 打勾會是謊
+     * 🔵 而**第三格就是這一片的負對照** —— 少了它,「一律打勾」也會通過。
+     */
+    it.each([
+      ['refunded', true],
+      ['partiallyRefunded', true],
+      ['partiallyPaid', false],
+    ] as const)('🔴 %s 的單 ⇒ 「付款完成」打勾 = %s', (status, shouldTick) => {
+      const { container } = render(
+        <OrderDetailView
+          order={{ ...ORDER, paymentStatus: status, paidAt: '2099-04-20T00:00:00Z' }}
+        />,
+      );
+      const steps = Array.from(
+        container.querySelector('[data-od-id="order-steps"]')!.children,
+      );
+      const step = steps.find((el) => el.textContent?.includes('付款完成'));
+      expect(step, '「付款完成」那一階不見了 ⇒ 這一格已經不是在量同一個東西').toBeDefined();
+      expect(
+        step!.className.includes('is-done'),
+        shouldTick
+          ? `${status}:客人真的付過, 而畫面把「付款完成」畫成灰的 ⇒ 他剛收到退款而我們說沒收到錢, 兩個訊息打架`
+          : `${status}:只收了訂金而打勾 ⇒ 那是一句謊(他還欠錢)`,
+      ).toBe(shouldTick);
+    });
+
+    it('🔵 正對照:沒取消的單 ⇒ 進度軸四格【逐字不變】', () => {
+      const { container } = render(<OrderDetailView order={ORDER} />);
+      const steps = container.querySelector('[data-od-id="order-steps"]');
+      expect(steps, '沒取消的單也被改了 ⇒ 上面那兩格變成恆綠').not.toBeNull();
+      expect(
+        Array.from(steps!.children).map((el) => el.className),
+        '進度軸的形狀被改了 ⇒ 上面那兩格守的東西已經不是同一個',
+      ).toEqual(['od-step is-done', 'od-step is-done is-now', 'od-step', 'od-step']);
+    });
+
     it('🔴 徽章不得是 `is-action`(那一檔是【催客人去付款】的顏色)', () => {
       const { container } = render(<OrderDetailView order={CANCELLED} />);
       const badge = container.querySelector('.od-status');

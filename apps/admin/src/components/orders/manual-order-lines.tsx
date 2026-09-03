@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { ManualOrderLinePriceCheck } from './manual-order-line-price-check';
 import {
   MANUAL_ORDER_LINE_QTY_BASE,
   MANUAL_ORDER_LINE_SKU_BASE,
@@ -183,6 +184,14 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
               </button>
             )}
           </div>
+
+          {/* 🔴 ⟦b4-PURCHTAX1⟧ 甲案:比對型錄的權威含稅價。**它問一句, 不擋送出、不回寫欄位。**
+              🛑 **刻意做成獨立元件** —— 本檔有一條不變式(送出的值不由 client state 產生或回寫)
+                 與三道原始碼層守門在守它(`manual-order-lines.test.tsx:105-118`)。
+                 我第一版把比價 state 寫進本檔 ⇒ 兩道當場紅 ⇒ **我沒有去改守門**(那是動驗證本身),
+                 改成搬出去。那支元件**不渲染任何帶 `name=` 的 input** ⇒ 不變式仍然逐字成立。
+              🔴 而它對**代購品項無效**(沒有權威價可比)⇒ 上面那句安全標籤仍是那一半唯一的保護。 */}
+          <ManualOrderLinePriceCheck index={index} />
         </div>
       ))}
 

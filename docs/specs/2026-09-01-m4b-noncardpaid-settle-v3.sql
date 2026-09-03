@@ -118,6 +118,29 @@ BEGIN
                     '本檔重建的版本含心跳 ⇒ 貼下去等於順便把那一片也上了, 而那不是本片的授權範圍。'
                     '先確認要對哪一代下手(scripts/latest-definition-of.sh expire_unpaid_orders)。拒繼續';
   END IF;
+
+  -- 🔴🔴 **2026-09-04 線【信】加的一道前置閘 —— 本檔的業務邏輯一個字都沒動。**
+  --   成因:本檔 `CREATE OR REPLACE` 的 `expire_unpaid_orders` 是**依 `payment_channel` 分流【之前】**
+  --   的那一代(它的 WHERE 寫死 `interval '1 day'`、全檔 `payment_channel` 命中 0),
+  --   而它對這支函式的既有前置閘**只問「有沒有心跳」** ⇒ 分流版身上也有心跳 ⇒ **那道閘會放行**。
+  --   ⇒ 🛑 **貼下去會把 Sean 2026-09-03 的拍板(匯款/現金 5 天)靜靜還原成一律 1 天**,
+  --     而本檔既有的四道事後 `strpos` 閘**一道都不會叫**(它們檢的字面在兩版都在)。
+  --   🎯 **⇒ 而那個洞是【分流那一片】的作者(線信)自己漏的**:他用 `md5(prosrc)` 守住了
+  --     「別人先上、我後上」那個方向, **而沒有守「我先上、別人後上」** ——
+  --     📌 **一個不變式有兩個方向, 而他只想到會傷害自己的那一個。**
+  --   ⚠️ **本閘只擋、不修** —— 要不要分流、天數多少, 那是 ⟦b4-NONCARDPAID1⟧ 與 Sean 的事。
+  IF pg_catalog.strpos(
+       (SELECT p.prosrc FROM pg_catalog.pg_proc p
+         WHERE p.oid = 'pcm_cron.expire_unpaid_orders(integer)'::regprocedure),
+       'payment_channel') > 0 THEN
+    RAISE EXCEPTION '前置:正式庫的 expire_unpaid_orders 已經【依 payment_channel 分流】'
+                    '(supabase/migrations/20260903080000_m4b_expire_unpaid_by_payment_channel.sql:'
+                    ' tappay 1 天 / bank_transfer 與 cash 5 天, Sean 2026-09-03 逐字拍板)。'
+                    '而本檔重建的是分流【之前】那一版 ⇒ 貼下去會把那個拍板靜靜還原成一律 1 天, '
+                    '而本檔的四道事後 strpos 閘不會叫。'
+                    '出路二選一:①把 20260903080000 的那段 CASE 分流合進本檔的函式體 '
+                    '②先貼本檔、再貼 20260903080000(它自己的 md5 前置閘會擋住順序錯誤)。拒繼續';
+  END IF;
 END
 $pre$;
 

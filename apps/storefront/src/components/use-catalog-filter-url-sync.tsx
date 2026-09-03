@@ -195,6 +195,10 @@ export function useCatalogFilterUrlSync(
     //    🔴 安全前提(勿破壞):`params` 是 `window.location.search` 的原樣拷貝,本 effect 只改寫
     //    品牌軸(`pbrands` + 舊的 `pbrand`)/category/price/pmin/pmax 五軸;外來鍵
     //    (vehicle/sort/per/filter/from)兩側恆等,故此比對 ⟺「五軸已全數與 state 一致」。
+    // 🔴 **`search` 不在那串外來鍵裡, 而它【是刻意的】**(⟦搜尋-落點換 /products⟧ 2026-09-03):
+    //    本 effect 會在**這一行之後**刪掉它(見下方 `filtersChanged` 那格)。
+    //    ⇒ 📌 所以它在**這道比對**的兩側仍然恆等(比對之前沒有人動過它)⇒ 上面那句話仍然成立。
+    //    ⚠️ 而下一個加軸的人要知道:`search` 是**唯一一個「不是五軸、卻會被本 effect 刪」的鍵**。
     //    **不得**在本行之前再新增任何 `params.set/delete`。
     //    URL 本來就是正確結果 → 直接收手。缺這道判斷時,還原波會被 `filtersChanged` 誤判為
     //    使用者操作而刪掉 page:實測終態 = 內容第 1 頁 + 分頁 UI 停在第 2 頁、且**不會自癒**
@@ -206,6 +210,26 @@ export function useCatalogFilterUrlSync(
     //    vehicle/sort/perPage(那些由 useBrowseUrlSync 收);兩者本就不同步、非漂移(R2 nit-1)。
     //    新增**會寫進本 effect URL** 的軸時才需同步 `filterKey`,代價是多一次往返、非停在舊頁碼。
     if (filtersChanged) params.delete('page');
+    // 🔴🔴 **點 facet ⇒ 清掉關鍵字**(⟦搜尋-落點換 /products⟧ Q2=A 的**後半**)。
+    //    主視窗 2026-09-03 拍板逐字:「提示句;facet 仍可點, **點了就清掉關鍵字**」
+    //    ⛔ 我第一版只做了前半(提示句)⇒ code-reviewer 抓到:
+    //       關鍵字還在 URL 上, 而 `ActiveChips` 已經畫出一顆「已選」的膠囊
+    //       ⇒ 📌 **畫面聲稱清單被那個 facet 縮過, 而商品其實是關鍵字撈的。**
+    //       ⇒ 那正是本片要修的病(安靜的錯), 我在修它的過程裡又造了一個。
+    // 🔵 插在這裡而**不是**上面那道相等比對之前 —— 那一段逐字寫著
+    //    「不得在本行之前再新增任何 `params.set/delete`」, 因為外來鍵兩側恆等是它的前提。
+    //    ⇒ 掛在 `filtersChanged` 上正好:**只有使用者真的動了 facet 才清**,
+    //      深連結還原波(state 剛追上 URL)不會誤清。
+    if (filtersChanged) params.delete('search');
+    // 🔴🔴 **`unmatched` 也要一起清 —— 少了這一行它會變成【孤兒參數】。**
+    //    (code-reviewer 2026-09-04 Important 1)
+    //    它是「這幾個字我們沒有用到」那句話的來源。客人點掉車款/分類膠囊、或按「清除全部」
+    //    之後,那句話**會永久卡在畫面上**,而它講的是一個已經不存在的搜尋。
+    //    ⇒ 🎯 **那正是本片存在的理由(看得見的缺 > 安靜的錯)自己做出來的那種安靜的錯 ——
+    //      只是延遲發生。**
+    // 🔵 而它與 `search` 同一格是對的:兩者都是「這一次搜尋的產物」,
+    //    而使用者動了 facet ⇒ 那一次搜尋就結束了。
+    if (filtersChanged) params.delete('unmatched');
     const qs = params.toString();
     const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
     // 🔴 #287 實作首件(plan §6 標為「沒驗」的那條):`normalizedQuery` 收斂品牌軸之後,**這一處

@@ -1,4 +1,7 @@
 import Link from 'next/link';
+import { cancelShipmentWarning } from '../../lib/orders/cancel-shipment-warning';
+import { loadOrderShipments } from '../../lib/shipping/order-shipments';
+import { listOrderItemReceipts } from '../../lib/orders/receipt-repository';
 import { notFound } from 'next/navigation';
 import type { AdminOrderDetail } from '@pcm/domain';
 import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
@@ -254,6 +257,55 @@ export async function OrderDetailRoute({
     }
   }
 
+  // 🔴🔴 **取消已出貨的單要擋一次 —— 出貨資料在這一層讀, 往下傳三層。**
+  //    ⛔ ~~原作把 `OrderCancelBlock` 改成 `async` 讓它自己讀~~
+  //    🛑 而它的**三層祖先沒有一支是 async**(`order-detail-route` 是, 但中間兩支不是)
+  //       ⇒ 同步渲染一個 async 元件會拿到 Promise ⇒ **什麼都沒 render, 43 格紅**。
+  //    ✅ 本層本來就是 `async`(`:55`)⇒ 在這裡讀一次, 三層轉手下去。
+  //
+  // 🔴🔴 **讀不到出貨 ⇒ 走 `cancelShipmentWarning(null)` ⇒ 它回【擋】(kind `unreadable`)。**
+  //
+  // ⛔ ~~我第一版讓它退成 `cancelShipmentWarning([])` = 不擋~~,理由寫的是
+  //    「畫面是警示不是閘, 讀取失敗不該攔住員工」。
+  // 🛑 **而 codex 抓到那是一個【解不開的迴圈】**:
+  //    server 端那道**自己重讀一次**, 它讀到失敗時是【擋】(同一支判準對 `null` 就是擋)
+  //    ⇒ 畫面說「不擋」⇒ **不畫那個確認格**
+  //    ⇒ 而那個確認格是 server 放行的**唯一** ack
+  //    ⇒ ⇒ 🔴 **員工按取消 → 被 server 擋回來 → 頁面上仍然沒有可以勾的東西 → 再按 → 再被擋。**
+  //    ⇒ 📌 **兩邊對同一個世界給了相反的答案, 而那個不一致【只在失敗時】顯形。**
+  // ✅ **修法:兩邊同向** —— 讀不到就兩邊都當「擋」, 而畫面把確認格畫出來
+  //    ⇒ 員工看得到發生什麼事, 也有一條走得出去的路(勾了還是能取消)。
+  //    🔵 而它仍然**不是硬擋**:勾一下就過。這一格要的是「他知道」, 不是「他不能」。
+  // 🔵 `#450`:逐筆到貨列表要的兩份資料【都在這一層讀】——
+  //    ① 包裹分組(下面那發本來就在讀, 給取消閘用)⇒ **零額外查詢**, 直接共用
+  //    ② 逐筆到貨(新的一發)
+  //    🛑 而 `null` 在兩份裡都是「**讀不到 / 被截斷**」不是「沒有」——
+  //       下游的判準與列表各自對 `null` fail-closed。
+  let receiptRows: Awaited<ReturnType<typeof listOrderItemReceipts>> = null;
+  let shipmentGroups: Awaited<ReturnType<typeof loadOrderShipments>> | null = null;
+
+  let shipmentWarning = cancelShipmentWarning(null);
+  if (detail !== null) {
+    try {
+      receiptRows = await listOrderItemReceipts(detail.items.map((it) => it.id));
+    } catch (e) {
+      console.error('[admin/order-detail] 逐筆到貨載入失敗(那一區畫成一句話, 不靜靜少列)', e);
+      receiptRows = null;
+    }
+    try {
+      shipmentWarning = cancelShipmentWarning(
+        // 🔵 只餵 id 與 title 兩欄 —— 不把整包 detail(帶成交價)交給資料層。
+        //    形狀抄隔壁 `shipment-section.tsx`, 不自創第二種寫法。
+        (shipmentGroups = await loadOrderShipments(
+          new Map(detail.items.map((it) => [it.id, it.title])),
+        )),
+      );
+    } catch (e) {
+      // 🔴 這裡**不改回不擋** —— 見上面那段。讀不到就是讀不到, 而那要讓員工看見。
+      console.error('[admin/order-detail] 出貨狀態載入失敗(畫面走「讀不到」那一種警示)', e);
+    }
+  }
+
   if (suppliersSettled.status === 'fulfilled') {
     suppliers = suppliersSettled.value;
   } else {
@@ -442,6 +494,9 @@ export async function OrderDetailRoute({
       ) : (
         <OrderDetail
           detail={detail}
+          shipmentWarning={shipmentWarning}
+          receiptRows={receiptRows}
+          shipmentGroups={shipmentGroups}
           returnTo={returnTo}
           correctNoteId={correctNoteId}
           suppliers={suppliers}

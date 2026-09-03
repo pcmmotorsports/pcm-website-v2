@@ -29,6 +29,7 @@ export function RefundLedgerSection({
   rowsTruncated = false,
   loadFailed = false,
   nowMs,
+  cardPayment,
 }: {
   rows: readonly OrderRefundRow[];
   /** `pcm_order_refundable_remaining`;查無訂單 → null(顯示「查無」而非 0)。 */
@@ -41,6 +42,26 @@ export function RefundLedgerSection({
   loadFailed?: boolean;
   /** 列級異常判定的「現在」;由呼叫端(server component render 期)供給,可測。 */
   nowMs: number;
+  /**
+   * 這張單**有沒有一筆刷卡(`rail === 'card'`)收款列** —— 三態, 不是布林。
+   *
+   * 🔴🔴 **為什麼是「有沒有刷卡列」而不是「有沒有收款列」**(codex must-fix, 而它也是規格原話):
+   *    「請以 TapPay Record 對帳」這句話**只在有刷卡收款時才對得出來**。
+   *    ⛔ ~~我第一版用「零筆收款紀錄」~~ ⇒ **漏掉第三個世界**:
+   *       一張**只有現金/匯款收款列**的單, `rows.length > 0` ⇒ 被我判成「有收款」
+   *       ⇒ 照樣印「請以 TapPay Record 對帳」⇒ **一樣把員工指去查不存在的紀錄。**
+   *
+   * 🔴 **而它必須是三態, 不是布林**(codex must-fix):
+   *    `PaymentListData` 刻意分 `ok` / `order_not_found` / `unreadable`,
+   *    而後兩者逐字是**「不知道有沒有」不是「沒有」**。
+   *    ⇒ 🛑 把它們壓成 `false`(= 當成有刷卡)⇒ 讀不到時我們仍然宣稱有 TapPay 紀錄可對
+   *       ⇒ **那是一句我們證不到的話。**
+   *
+   * ⇒ `'card'` = 有刷卡列 · `'none'` = 讀得到而沒有刷卡列 · `'unknown'` = 讀不到 / 查無此單
+   *
+   * 🛑 **必填無預設**:給預設值等於「忘了接就把那句錯話留著」。
+   */
+  cardPayment: 'card' | 'none' | 'unknown';
 }) {
   if (loadFailed) {
     return (
@@ -148,9 +169,23 @@ export function RefundLedgerSection({
           ) : unregisteredAmount === null ? (
             <span className='font-medium tabular-nums'>查無</span>
           ) : unregisteredAmount < 0 ? (
+            /* 🔴🔴 **異常態的三個世界 —— 它們要說三句不同的話。**
+             * ⇒ 病灶不是「紅字該不該消」(帳本真的超額了), 是**它指員工去查什麼**。
+             * 🛑 原本無條件寫「請以 TapPay Record 對帳」⇒ 現金/匯款單那個世界根本沒有那筆紀錄
+             *    ⇒ 對不出來 ⇒ 回到畫面上唯一按得動的「作廢」⇒ **作廢一筆真實發生過的退款。**
+             * 🔴 **字面是暫用的, 等 Sean 定稿** —— 文案是他的板, 已進待定稿清單。 */
             <span className='text-destructive font-medium tabular-nums'>
               對帳異常(帳本登記已超過訂單總額 NT$ {formatOrderAmount(-unregisteredAmount)};
-              請以 TapPay Record 對帳,勿再發起退款)
+              {cardPayment === 'card'
+                ? '請以 TapPay Record 對帳,勿再發起退款)'
+                : cardPayment === 'none'
+                  ? /* 🔵 讀得到收款而沒有刷卡列 ⇒ 這筆錢不是刷卡收的 ⇒ 指向上方那張登錄表單。
+                     * 📌 **不宣稱它是現金單**(我們只知道「沒有刷卡列」), 而**位置寫「上方」** ——
+                     *    `order-detail-money-tab.tsx:134` 的 `PaymentSection` 在退款區(`:263`)**之前**。
+                     *    (我第一版寫「下方」, codex 抓到 —— 把人指錯方向與不指路一樣沒用。) */
+                    '這張單沒有刷卡收款紀錄 —— 若這筆錢是現金/匯款收的,請在上方「收款」區登錄那筆收款,勿再發起退款)'
+                  : /* 🛑 讀不到 ⇒ **兩句都不能說** —— 我們不知道有沒有刷卡紀錄。 */
+                    '目前讀不到這張單的收款紀錄,無法判斷要對哪一份;請先重新整理,勿再發起退款)'}
             </span>
           ) : (
             <span className='font-medium tabular-nums'>
@@ -158,9 +193,23 @@ export function RefundLedgerSection({
             </span>
           )}
         </span>
+        {/* 🔴🔴 **這句附註也提 TapPay Record, 而它原本是【無條件】印的。**
+         * ⇒ 而它與上面那句犯的是**同一個錯**:現金/匯款單根本沒有 TapPay 紀錄可對。
+         * 🎯 **抓到它的不是規格, 是我為上面那句寫的測試** —— 規格只點名了紅字那一句,
+         *    而 `not.toContain('TapPay Record')` 掃的是整塊, 於是這句自己跳出來。
+         *    ⇒ 📌 **一個「這個詞不得出現」的斷言, 比「那一句要改成 X」多抓到一處。**
+         * 🔵 兩個世界各說各的:有收款列才提對帳來源;零收款時只說本系統帳本的範圍。 */}
         <span className='text-muted-foreground text-xs'>
-          僅計本系統帳本(處理中+已受理佔額);Portal 場外退款不在其中,
-          真實可退額以 TapPay Record 對帳為準、只會 ≤ 此數。
+          {/* 🔴 這句附註原本也**無條件**寫「真實可退額以 TapPay Record 對帳為準、只會 ≤ 此數」——
+            * 兩個錯:①沒有刷卡列時那份紀錄不存在 ②**未登記額為負時「只會 ≤ 此數」不成立**
+            *   (此數是負的, 而「可退額 ≤ 負數」是一句沒有意義的話)。兩格都是 codex 抓的。 */}
+          {cardPayment === 'card' && (unregisteredAmount ?? 0) >= 0
+            ? '僅計本系統帳本(處理中+已受理佔額);Portal 場外退款不在其中,真實可退額以 TapPay Record 對帳為準、只會 ≤ 此數。'
+            : cardPayment === 'card'
+              ? '僅計本系統帳本(處理中+已受理佔額);Portal 場外退款不在其中,真實可退額以 TapPay Record 對帳為準。'
+              : cardPayment === 'none'
+                ? '僅計本系統帳本(處理中+已受理佔額);這張單沒有刷卡收款紀錄。'
+                : '僅計本系統帳本(處理中+已受理佔額);目前讀不到這張單的收款紀錄。'}
         </span>
       </div>
 

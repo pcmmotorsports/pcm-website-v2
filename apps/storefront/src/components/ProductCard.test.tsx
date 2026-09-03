@@ -104,10 +104,15 @@ describe('ProductCard', () => {
   //    ⇒ 客人看到破圖, 而我們沒有任何控制權。Sean 2026-08-22 答「甲」⇒ 改用站內佔位圖。
   //    ⚠️ **這格原本在擋什麼?擋「無真圖時什麼都不渲染」。那件事沒有變** ——
   //       它仍然在守「一定要有一張圖」, 只是那張圖從別人家的變成我們自己的。
-  it('should fall back to the local placeholder image when p.image is absent', () => {
+  it('should show the brand logo + 「暫無照片」 when p.image is absent', () => {
     render(<ProductCard p={product} />);
     const imgs = screen.getAllByAltText(product.brand);
-    expect(imgs.some((el) => el.getAttribute('src') === '/placeholder-product.png')).toBe(true);
+    // 🔴🔴 2026-09-03 這一格【又翻了一次】—— Sean 拍甲:無真照片改顯示【品牌 logo + 小字「暫無照片」】。
+    //    ⚠️ **這格原本在擋什麼?擋「無真圖時什麼都不渲染」。那件事仍然沒有變** ——
+    //       它還是在守「一定要有一張圖」, 只是那張圖從站內佔位圖換成了品牌 logo。
+    //    🔵 而沒有 logo 的品牌仍然退回站內佔位圖(另一格釘住)⇒ 兩條路都有圖, 不變式沒破。
+    expect(imgs.some((el) => el.getAttribute('src') === '/brands/lightech/logo.png')).toBe(true);
+    expect(screen.getByText('暫無照片')).toBeTruthy();
     // 🔴 負向那半:不准再有任何東西打向外部圖庫(這條在 unsplash 整支刪掉前是紅的)
     expect(imgs.some((el) => el.getAttribute('src')?.includes('unsplash'))).toBe(false);
   });
@@ -153,12 +158,57 @@ describe('ProductCard', () => {
     }
   });
 
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴🔴 image 有值【不等於】有照片(2026-09-03 量:來源 1,011 列的 image_url 是「查無圖片」的卡)
+  // ══════════════════════════════════════════════════════════════════════
+  const PCM_CARD = 'https://quote.pcmmotorsports.com/no-photo.png';
+  const SUPPLIER_PH = 'https://www.extreme-components.com/x/noimage.jpg';
+
+  it.each([
+    ['PCM 自己的卡', PCM_CARD],
+    ['供應商的佔位圖', SUPPLIER_PH],
+  ])('🔴 image 是【%s】⇒ 走無真照片分支(顯示品牌 logo, 不把那張卡當商品照片放大)', (_k, url) => {
+    // 🎯 這一格是這一片的本體。少了 ProductImage 的 hasNoRealImage(image),
+    //    這些商品會走「真圖」分支 ⇒ 客人看到一張「暫無照片」的卡被當成商品照片顯示,
+    //    而下面整個無真圖分支對它們永遠到不了。
+    render(<ProductCard p={{ ...product, image: url }} />);
+    const imgs = screen.getAllByAltText(product.brand);
+    expect(imgs.some((el) => el.getAttribute('src') === '/brands/lightech/logo.png')).toBe(true);
+    expect(screen.getByText('暫無照片')).toBeTruthy();
+    // 🔴 而那張佔位圖本身【不准】被渲染出來
+    expect(imgs.some((el) => el.getAttribute('src') === url)).toBe(false);
+  });
+
+  it('🟢 反向那半:真圖照樣是真圖(證明上面那把尺不是恆真)', () => {
+    const real = 'https://cdn.shopify.com/s/files/real-carbon.jpg';
+    render(<ProductCard p={{ ...product, image: real }} />);
+    const imgs = screen.getAllByAltText(product.brand);
+    expect(imgs.some((el) => el.getAttribute('src') === real)).toBe(true);
+    expect(imgs.some((el) => el.getAttribute('src') === '/brands/lightech/logo.png')).toBe(false);
+    expect(screen.queryByText('暫無照片')).toBeNull();
+  });
+
+  it('🛑 品牌沒有 logo 檔 ⇒ 退回站內佔位圖(不得破圖、不得只剩文字)', () => {
+    // 「一定要有一張圖」這個不變式沒有變 —— 只是有 logo 的走 logo、沒有的走原本那張。
+    // 🔴 用 `WRS` 而不是中文假品牌:`brandToSlug('沒有這個品牌')` 會回**空字串**
+    //    ⇒ 打到的是 `brandLogoSrc` 的 `if (!slug)` 早退, **不是「slug 在而表裡沒有」那條**。
+    //    而 WRS 是真的有這個情況的那一家(它有 brands-dark 檔而刻意不入表)。
+    // 🔴 2026-09-04:原本用 `WRS` —— 而 **wrs 現在有 logo 了**(從 brands-trim 補上)⇒ 這一格會綠得沒意義。
+    //    改用一個**形狀合法但不在表裡**的 slug:`brandToSlug('ZZZ TEST') = 'zzz-test'`
+    //    ⇒ 打到的是「查表落空」那條, 不是 `if (!slug)` 的早退(空字串會走早退, 那是另一回事)。
+    render(<ProductCard p={{ ...product, image: null, brand: 'ZZZ TEST', brandSlug: undefined }} />);
+    const imgs = screen.getAllByAltText('ZZZ TEST');
+    expect(imgs.some((el) => el.getAttribute('src') === '/placeholder-product.png')).toBe(true);
+  });
+
   // 圖框白底(2026-08-06 拍 A)· 漸層 placeholder 分支釘住不變(本片刻意不動、見 ProductCard.tsx 元件註解)
   it('should keep the colored gradient background for the no-real-image placeholder path (untouched by 08-06 white-card change)', () => {
     render(<ProductCard p={{ ...product, image: null }} />);
     // 🔴 2026-08-22:取法從「找 unsplash 那張」改成「找佔位圖那張」——
     //    同一個目的(拿到 placeholder 分支渲染出來的那張圖), 只是它的 src 換了。
-    const img = screen.getAllByAltText(product.brand).find((el) => el.getAttribute('src') === '/placeholder-product.png')!;
+    // 🔴 2026-09-03:取法第三次改 —— unsplash 那張 → 站內佔位圖 → **品牌 logo**。
+    //    目的始終是同一個:拿到【無真圖分支】渲染出來的那張圖, 只是它的 src 換了三次。
+    const img = screen.getAllByAltText(product.brand).find((el) => el.getAttribute('src') === '/brands/lightech/logo.png')!;
     const gallery = img.closest('.pcard-gallery') as HTMLElement;
     expect(gallery.style.background, '前提(非獨立防線,被下面的 toContain 嚴格蘊含):gallery 有算出 background(非空字串)').not.toBe('');
     expect(gallery.style.background, 'placeholder 分支應仍是 linear-gradient、不是純白').toContain('linear-gradient');

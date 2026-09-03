@@ -377,6 +377,59 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     //    (:214 `isWrite: !DRY_RUN`,餵 9999 實測印 ALERT 而 rc=0)⇒ 那四格才是真的證據。
     writeAllowed: true,
   },
+  // DBK。2026-09-04 線【帳號】走 ④ 上架線登記。**preflight 八格全綠**(三家待上架佇列裡唯一沒有已知阻塞的)。
+  //
+  // 🔴🔴 **下面每個數字都是快照, 不是契約** —— 照 `gilles` 那塊的教訓(它兩分鐘內量到兩組不同的值):
+  //   **`--expect-groups` 必須在跑乾跑/首灌的那一刻【重量】, 絕對不要沿用這裡的數字。**
+  //   本窗 2026-09-03 16:25:04 UTC 單一 SQL 同一時點實查:
+  //     3,727 列 / 1,508 群 / 缺中文名 0 / 缺價 0 / 缺 v2 大類 0 / 圖非 https 0 / 完全沒有圖 0
+  //     有描述 3,570 · 有 pdf 2,420 · 有影片 0
+  //   pv_spec 變體合約:incomplete_spec 0 / mergeable_duplicate 0 / spec_missing_axis 0
+  //     ⚠️ **證據等級**:那三個數是本窗照 `fetchers/variant_contract.py` 的 R1/R2/R3 規則
+  //     用**唯讀** MCP 重寫成 SQL 量的,**不是**正牌 `variant_contract_scan.py`
+  //     (它要 `SUPABASE_DB_PASSWORD` = 全權密碼,而本窗只有唯讀授權 ⇒ 沒有用它)。
+  //     🟢 而那把尺**會叫**:同一發掃 20 家 ⇒ rizoma 2 · materya 1 · 其餘 18 家 0,分母零損失。
+  //
+  // 🔵 `handlePrefix='dbk'`:既有 **17/17 家逐字 == supplierSlug**(本窗求值比對、零例外)⇒ 沿用唯一慣例, 不是選擇題。
+  // 🔵 `brandSlug='dbk'`:唯讀實查**網站庫** `brands` 有這一列且該品牌商品數 0(= 首灌前狀態)。
+  dbk: {
+    supplierSlug: 'dbk',
+    brandSlug: 'dbk', // identity(不像 kspeed→k-speed 那種拼法分岔)
+    handlePrefix: 'dbk', // 17/17 既有慣例 = supplierSlug 同名
+    // 🔵 2026-09-04 補群層(F7:列層會答錯問題 —— 同一筆 dbk 的 appendManualFilename 就是這樣量錯過一次)
+    syncDescription: true, // 列層 3,570/3,727 = 95.8% · **群層 1,441/1,508 = 95.6%**
+    //   ⚠️ 而 95.6% 是所有 syncDescription=true 的家裡**最低**的 ⇒ 約 67 群商品頁沒有描述段。
+    //   🔵 旗標值仍然對(有描述的就同步), 而缺的那 67 群是**源頭資料缺口**, 不是這個旗標的錯。
+    syncInstallResources: true, // 實查 2,420 列有 pdf_urls
+    //   🔴 而 runbook 原本那句「有 pdf/video 來源才 true(靜態無附件 = false)」**與既有設定不符** ——
+    //   本窗拿它去預測既有 17 家 ⇒ **對 12 · 錯 5**(eazigrip/samco/motogadget/front3d/materya
+    //   都是 `true` 而附件 0 列)。而**反方向零例外**:設 `false` 的 4 家附件全部是 0。
+    //   ⇒ 真正的規律是**不對稱**的, 而理由是**代價不對稱**:`true` 而沒東西 = 同步 0 筆(無害);
+    //     `false` 而有東西 = **真的漏掉那些 pdf**。⇒ runbook 該欄已同步訂正。
+    appendManualFilename: false, // 🔴 量到的不是猜的:dbk **群層**每群最多 1 份 pdf、多份的群 0 個
+    //   (895 個有 pdf 的群、平均 1.00)⇒ 本旗標**在這一家無作用**。
+    //   ⚠️ 而**列層量會答錯問題** —— 旗標作用在【合併變體之後的群】上,本窗先量列層才發現。
+    categoryStrategy: { kind: 'per-group' }, // 13 大類 / 59 子類(不是 rpm 那種單一大類 ⇒ 不用 fixed)
+    // 🔴 2026-09-04 訂正:原本這一行的理由是【推的】(「平均每群 2.47 變體 ⇒ 每變體自身圖」)——
+    //   而變體【數】答不出圖是不是每變體一張。code-reviewer F1 點名, 而其餘多變體家都留了實測字面。
+    // ✅ 實測(唯讀, 2026-09-04):dbk **906 個多變體群** ⇒
+    //     每變體都有自己的圖 **900** 群 · 整群共用一張 4 群 · 部分共用 2 群
+    //   ⇒ 99.3% 是 per-variant 形狀, **不是 rpm 那種群共用圖池**(型別註解 :95-99 講的那個差別)。
+    //   抽樣三個最大群(CCDV01 / CCDV02 / CCDV04, 各 16 變體)⇒ 16 支 image_url 【全不相同】。
+    //   ⚠️ 那 6 群(4+2)在 per-variant 之下只是同一張圖顯示多次 —— 無害, 不是選色不換圖。
+    variantImages: 'per-variant',
+    // ✅ 2026-09-04 06:xx Sean 逐字「甲 上」批首灌後開寫
+    //    (落點 ~/pcm-mailbox/等Sean拍的題-20260903.md:2648;授權射程 = 只此一家、只此一次)。
+    //    翻 true 當下的前置狀態(當場重量、非沿用):
+    //      源頭 2026-09-03 18:09:19 UTC ⇒ 3,727 列 / 1,508 群 / 缺中文名 0 / 缺價 0
+    //        / 缺 v2 大類 0 / 完全沒有圖 0
+    //      網站庫 18:09:53 UTC ⇒ dbk 商品 0 / 變體 0(首灌前狀態)· 站上商品 22,804 / 品牌 18 家
+    //    🔴 而「乾跑全綠」照 runbook §3-b 打折:首灌 target=0 ⇒ 價格離群與來源消失對賬【恆綠】、
+    //      handle 與 pv_spec 對 target 那半無分母 ⇒ 真證據是四格(分類對上 / handle 批內唯一
+    //      / pv_spec 批內撞鍵 0 / 新品驗價 M1 逐筆相符);M2 群數指紋 1508 = 1508。
+    //      🟢 負對照當場跑過:--expect-groups=9999 ⇒ 印 ALERT 而 rc 兩個世界都是 0。
+    writeAllowed: true,
+  },
   // 🔴 永久 guard 測試靶(非真供應商、Sean 2026-07-24 拍板放行):所有真品牌已 writeAllowed=true
   //   → rpm-import CLI 的 writeAllowed 硬鎖守衛失去「真實未授權樣本」;保留此永久 false 樣本讓
   //   「未授權 --confirm-write 於連線前被擋」的安全回歸測試持續有效(rpm-import-cli.test.ts)。

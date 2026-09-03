@@ -9,6 +9,14 @@ import {
 } from '../../lib/payment/refund-ledger-view';
 import { RefundLedgerSection } from './refund-ledger-section';
 
+// 🔴 **「這一格不是在測那三個世界」** —— `cardPayment` 是**必填無預設**的三態 prop
+//    (理由見 `refund-ledger-section.tsx` 那格 docstring:給預設值等於忘了接就把那句錯話留著)。
+//    ⇒ 📌 每個呼叫點被逼著明講它要哪一種, 而**大多數格子測的是別的東西**
+//       ⇒ 它們給 `'card'`(有刷卡列), 讓行為與加這一片之前逐字相同。
+//    🧪 而**三個世界有它們自己的 describe**(本檔最下方)。
+const CARD_PAYMENT = 'card' as const;
+
+
 // M-3 A7c RW3:退款帳本區塊(server component,jsdom 直接 render —— 無 hook 無 context)。
 
 const NOW = Date.parse('2026-08-04T12:00:00+08:00');
@@ -36,7 +44,7 @@ afterEach(() => {
 describe('RefundLedgerSection — RW3', () => {
   it('[1] 零列且未失敗 → 整區不渲染', () => {
     const { container } = render(
-      <RefundLedgerSection rows={[]} unregisteredAmount={null} nowMs={NOW} />,
+      <RefundLedgerSection cardPayment={CARD_PAYMENT} rows={[]} unregisteredAmount={null} nowMs={NOW} />,
     );
     expect(container.innerHTML).toBe('');
   });
@@ -47,7 +55,7 @@ describe('RefundLedgerSection — RW3', () => {
   //    ⇒ 這格紅的時候是誰讓它紅的:把失敗分支挪到 `rows.length === 0` 早退**之後**。
   it('[1b] 🔴 零列 + 未登記額讀取失敗 → 要看得到說明,不得整區不渲染', () => {
     const { container } = render(
-      <RefundLedgerSection rows={[]} unregisteredAmount={null} unregisteredFailed nowMs={NOW} />,
+      <RefundLedgerSection cardPayment={CARD_PAYMENT} rows={[]} unregisteredAmount={null} unregisteredFailed nowMs={NOW} />,
     );
     expect(container.innerHTML).not.toBe('');
     expect(container.textContent).toContain('讀取失敗');
@@ -67,14 +75,14 @@ describe('RefundLedgerSection — RW3', () => {
   // §6-33:零列 + 成功 ⇒ 行為與現況一致,不因刪短路多冒一個空區塊出來。
   it('[1c] 零列 + 讀取成功(拿到數字)→ 仍然整區不渲染', () => {
     const { container } = render(
-      <RefundLedgerSection rows={[]} unregisteredAmount={1000} nowMs={NOW} />,
+      <RefundLedgerSection cardPayment={CARD_PAYMENT} rows={[]} unregisteredAmount={1000} nowMs={NOW} />,
     );
     expect(container.innerHTML).toBe('');
   });
 
   it('[2] 載入失敗 → 警告(不靜默;明寫勿在此期間發起退款)', () => {
     const { container } = render(
-      <RefundLedgerSection rows={[]} unregisteredAmount={null} loadFailed nowMs={NOW} />,
+      <RefundLedgerSection cardPayment={CARD_PAYMENT} rows={[]} unregisteredAmount={null} loadFailed nowMs={NOW} />,
     );
     expect(container.textContent).toContain('退款帳本載入失敗');
     expect(container.textContent).toContain('勿在此期間發起退款');
@@ -82,7 +90,7 @@ describe('RefundLedgerSection — RW3', () => {
 
   it('[3] 列渲染:金額/狀態字面/原因/失敗說明/發起人', () => {
     const { container } = render(
-      <RefundLedgerSection
+      <RefundLedgerSection cardPayment={CARD_PAYMENT}
         rows={[
           row({ kind: 'full', refundAmount: 4500 }),
           row({
@@ -109,7 +117,7 @@ describe('RefundLedgerSection — RW3', () => {
 
   it('[4] 🔴 措辭鐵律(F25):顯示「帳本未登記額」,不得出現「還能退」「剩餘可退」', () => {
     const { container } = render(
-      <RefundLedgerSection rows={[row()]} unregisteredAmount={500} nowMs={NOW} />,
+      <RefundLedgerSection cardPayment={CARD_PAYMENT} rows={[row()]} unregisteredAmount={500} nowMs={NOW} />,
     );
     const text = container.textContent!;
     expect(text).toContain('帳本未登記額');
@@ -128,7 +136,7 @@ describe('RefundLedgerSection — RW3', () => {
   //    ⇒ 那格會變成「永遠綠的守門」。正向那條就是用來證明我們真的取到那段文字。
   it('[4b] 🔴 `confirmed` 的字面 = 「退款完成」,不得回頭寫「已受理」', () => {
     const { container } = render(
-      <RefundLedgerSection rows={[row({ status: 'confirmed' })]} unregisteredAmount={500} nowMs={NOW} />,
+      <RefundLedgerSection cardPayment={CARD_PAYMENT} rows={[row({ status: 'confirmed' })]} unregisteredAmount={500} nowMs={NOW} />,
     );
     // 🔴 **只取狀態格,不掃整個區塊** —— 區塊的劃界小字裡有「處理中+已受理佔額」這個**合法**的
     //    「已受理」(`refund-ledger-section.tsx:91`);掃整塊會讓下面那條負向恆紅,而它守的是
@@ -156,14 +164,14 @@ describe('RefundLedgerSection — RW3', () => {
 
   it('[5] 未登記額 null → 顯「查無」而非 0(0 是會被照著操作的數字)', () => {
     const { container } = render(
-      <RefundLedgerSection rows={[row()]} unregisteredAmount={null} nowMs={NOW} />,
+      <RefundLedgerSection cardPayment={CARD_PAYMENT} rows={[row()]} unregisteredAmount={null} nowMs={NOW} />,
     );
     expect(container.textContent).toContain('查無');
   });
 
   it('[5b] 未登記額讀取失敗 → 紅色錯誤態、不得顯成「查無」(codex MF2:查無會被照著操作)', () => {
     const { container } = render(
-      <RefundLedgerSection rows={[row()]} unregisteredAmount={null} unregisteredFailed nowMs={NOW} />,
+      <RefundLedgerSection cardPayment={CARD_PAYMENT} rows={[row()]} unregisteredAmount={null} unregisteredFailed nowMs={NOW} />,
     );
     expect(container.textContent).toContain('讀取失敗');
     expect(container.textContent).toContain('勿依本頁發起退款');
@@ -172,7 +180,7 @@ describe('RefundLedgerSection — RW3', () => {
 
   it('[5c] 未登記額為負 → 對帳異常態、不得當普通金額顯示(codex MF3:「真實可退 ≤ 此數」對負值不成立)', () => {
     const { container } = render(
-      <RefundLedgerSection rows={[row()]} unregisteredAmount={-1000} nowMs={NOW} />,
+      <RefundLedgerSection cardPayment={CARD_PAYMENT} rows={[row()]} unregisteredAmount={-1000} nowMs={NOW} />,
     );
     expect(container.textContent).toContain('對帳異常');
     expect(container.textContent).toContain('1,000');
@@ -187,7 +195,7 @@ describe('RefundLedgerSection — RW3', () => {
   //       它當時是對的 —— 錯的不是那行警示,是警示下面還有一張可以照著算的表。
   it('[5d] 帳本列截斷 → 整區失敗、一列都不印(Sean 2026-08-17 Q2＝甲 推翻 0a3e2a44 的原設計)', () => {
     const { container } = render(
-      <RefundLedgerSection rows={[row()]} unregisteredAmount={500} rowsTruncated nowMs={NOW} />,
+      <RefundLedgerSection cardPayment={CARD_PAYMENT} rows={[row()]} unregisteredAmount={500} rowsTruncated nowMs={NOW} />,
     );
     // 正向對照:這把尺量得到東西 —— 該出現的說明真的在。
     expect(container.textContent).toContain('不顯示任何一列');
@@ -206,7 +214,7 @@ describe('RefundLedgerSection — RW3', () => {
   //    ⇒ 本格釘住「不准再寫回去」。與 :69-75 那條(誤稱退款按鈕被關掉)同族。
   it('[5e] 截斷文案不得宣稱錢沒動 / 沒有退款被取消(元件看不到被藏起來的列,證明不了)', () => {
     const { container } = render(
-      <RefundLedgerSection rows={[row()]} unregisteredAmount={500} rowsTruncated nowMs={NOW} />,
+      <RefundLedgerSection cardPayment={CARD_PAYMENT} rows={[row()]} unregisteredAmount={500} rowsTruncated nowMs={NOW} />,
     );
     const text = container.textContent ?? '';
     expect(text).not.toContain('錢沒有');
@@ -224,7 +232,7 @@ describe('RefundLedgerSection — RW3', () => {
     });
     const fresh = row({ id: 'r-fresh', status: 'processing' });
     const { container } = render(
-      <RefundLedgerSection rows={[stale, fresh]} unregisteredAmount={500} nowMs={NOW} />,
+      <RefundLedgerSection cardPayment={CARD_PAYMENT} rows={[stale, fresh]} unregisteredAmount={500} nowMs={NOW} />,
     );
     const links = container.querySelectorAll('a[href="/orders/refund-exceptions"]');
     expect(links).toHaveLength(1);
@@ -244,7 +252,7 @@ describe('RefundLedgerSection — RW3', () => {
 
   it('[6b] 🔴 卡住的人工判定列 → 訂單頁也掛徽章(原本只有清單看得見)', () => {
     const { container } = render(
-      <RefundLedgerSection rows={[stuckRow()]} unregisteredAmount={500} nowMs={NOW} />,
+      <RefundLedgerSection cardPayment={CARD_PAYMENT} rows={[stuckRow()]} unregisteredAmount={500} nowMs={NOW} />,
     );
     const badge = container.querySelector('a[href="/orders/refund-exceptions"]');
     expect(container.querySelectorAll('a[href="/orders/refund-exceptions"]')).toHaveLength(1);
@@ -260,7 +268,7 @@ describe('RefundLedgerSection — RW3', () => {
     // 清單那支查詢**不看** failed_detail(只看 status + failed_reason)⇒ UI 若偷加
     // `&& row.failedDetail !== null`,清單收得到、訂單頁卻不掛 = 兩頁再次漂移。
     const { container } = render(
-      <RefundLedgerSection
+      <RefundLedgerSection cardPayment={CARD_PAYMENT}
         rows={[stuckRow({ failedDetail: null })]}
         unregisteredAmount={500}
         nowMs={NOW}
@@ -273,7 +281,7 @@ describe('RefundLedgerSection — RW3', () => {
     // [6d] 只證了「今天已知的兩個正常碼不掛」⇒ 把判定式改成「排除那兩碼」的 blocklist
     // 照樣全綠,而未來新增一個 failed_reason 就會被誤標成卡住。這格釘 allowlist 語意。
     const { container } = render(
-      <RefundLedgerSection
+      <RefundLedgerSection cardPayment={CARD_PAYMENT}
         rows={[
           stuckRow({ id: 'r-future', failedReason: 'some_future_reason_2027' }),
           stuckRow({ id: 'r-unknown-status', status: 'some_future_status' }),
@@ -294,7 +302,7 @@ describe('RefundLedgerSection — RW3', () => {
 
   it('[6c] 🔴 兩顆徽章措辭不同:卡住的那顆不得說「待對帳處理」(它沒有事可做)', () => {
     const { container } = render(
-      <RefundLedgerSection rows={[stuckRow()]} unregisteredAmount={500} nowMs={NOW} />,
+      <RefundLedgerSection cardPayment={CARD_PAYMENT} rows={[stuckRow()]} unregisteredAmount={500} nowMs={NOW} />,
     );
     // 🔴 **分母守門(2026-08-28 量到這一族是恆綠的)**:整區空渲染時
     //    `querySelectorAll(...)` 是 0、`textContent` 是 `''`
@@ -314,7 +322,7 @@ describe('RefundLedgerSection — RW3', () => {
 
   it('[6d] 🔴 其他 failed_reason 不掛這顆徽章 —— 它們是正常的失敗結果、不是卡住', () => {
     const { container } = render(
-      <RefundLedgerSection
+      <RefundLedgerSection cardPayment={CARD_PAYMENT}
         rows={[
           stuckRow({ id: 'r-ns', failedReason: 'not_sent' }),
           stuckRow({ id: 'r-oor', failedReason: 'rejected_out_of_range' }),
@@ -340,7 +348,7 @@ describe('RefundLedgerSection — RW3', () => {
       createdAt: new Date(NOW - REFUND_EXCEPTION_STALL_MS - 60_000).toISOString(),
     });
     const { container } = render(
-      <RefundLedgerSection rows={[stale, stuckRow()]} unregisteredAmount={500} nowMs={NOW} />,
+      <RefundLedgerSection cardPayment={CARD_PAYMENT} rows={[stale, stuckRow()]} unregisteredAmount={500} nowMs={NOW} />,
     );
     expect(container.querySelectorAll('a[href="/orders/refund-exceptions"]')).toHaveLength(2);
     const text = container.textContent ?? '';
@@ -351,14 +359,14 @@ describe('RefundLedgerSection — RW3', () => {
   it('[7] G7-hold(有受理證據)→ 不等 30 分、立即標異常(fable N4)', () => {
     const held = row({ id: 'r-held', status: 'processing', providerEvidence: 'DR999' });
     const { container } = render(
-      <RefundLedgerSection rows={[held]} unregisteredAmount={500} nowMs={NOW} />,
+      <RefundLedgerSection cardPayment={CARD_PAYMENT} rows={[held]} unregisteredAmount={500} nowMs={NOW} />,
     );
     expect(container.querySelectorAll('a[href="/orders/refund-exceptions"]')).toHaveLength(1);
   });
 
   it('[8] 未知狀態(S6 未來值)→ 原樣顯示、不猜語意', () => {
     const { container } = render(
-      <RefundLedgerSection
+      <RefundLedgerSection cardPayment={CARD_PAYMENT}
         rows={[row({ status: 'some_future_status' })]}
         unregisteredAmount={500}
         nowMs={NOW}
@@ -379,5 +387,72 @@ describe('isRefundException — §4-1 判準矩陣', () => {
     ['createdAt 壞掉 → fail-closed 進清單', { ...base, createdAt: 'not-a-date' }, true],
   ])('%s → %s', (_label, input, expected) => {
     expect(isRefundException(input, NOW)).toBe(expected);
+  });
+});
+
+// ⟦Q13b 甲⟧ Sean 2026-09-03 拍甲:那句「請以 TapPay Record 對帳」在【零收款紀錄】那個世界是錯的。
+//
+// 🔴🔴 **病灶不是「紅字該不該消」** —— 紅字是對的(帳本登記真的超過訂單總額)。
+//    錯的是它**指員工去查一筆不存在的紀錄**:這張單可能是現金/匯款收的, 而那時沒有 TapPay 紀錄。
+//    ⇒ 對不出來 ⇒ 他回到畫面上唯一按得動的那顆「作廢」
+//    ⇒ 🛑 **作廢一筆真實發生過的退款 = 把真訊號換成假資料。**
+describe('對帳異常那句話 —— 三個世界要說三句不同的話', () => {
+  // 🔴🔴 **病灶不是「紅字該不該消」** —— 紅字是對的(帳本登記真的超過訂單總額)。
+  //    錯的是它**指員工去查一筆不存在的紀錄**:沒有刷卡收款時就沒有 TapPay Record。
+  //    ⇒ 對不出來 ⇒ 他回到畫面上唯一按得動的那顆「作廢」
+  //    ⇒ 🛑 **作廢一筆真實發生過的退款 = 把真訊號換成假資料。**
+  const NEG = -1000;
+
+  it("🔴 有刷卡列('card')⇒ TapPay Record 那句要留著(那時它才對得出來)", () => {
+    const { container } = render(
+      <RefundLedgerSection cardPayment='card' rows={[row()]} unregisteredAmount={NEG} nowMs={NOW} />,
+    );
+    expect(container.textContent).toContain('請以 TapPay Record 對帳');
+    expect(container.textContent).not.toContain('沒有刷卡收款紀錄');
+  });
+
+  it("🔴 讀得到而沒有刷卡列('none')⇒ 指他去【上方】登錄, 且不得提 TapPay Record", () => {
+    const { container } = render(
+      <RefundLedgerSection cardPayment='none' rows={[row()]} unregisteredAmount={NEG} nowMs={NOW} />,
+    );
+    // 🎯 判別點一:**不得**把他指去查一筆不存在的紀錄。
+    expect(container.textContent).not.toContain('請以 TapPay Record 對帳');
+    // 🎯 判別點二:要說出事實 + 指路, 而**方向要對** —— 收款區在退款區【上方】
+    //    (`order-detail-money-tab.tsx` 的 PaymentSection :134 < RefundLedgerSection :263)。
+    //    ⛔ 我第一版寫「下方」⇒ 把人指錯方向, 與不指路一樣沒用(codex 抓)。
+    expect(container.textContent).toContain('沒有刷卡收款紀錄');
+    expect(container.textContent).toContain('上方');
+    expect(container.textContent).not.toContain('請在下方');
+    // 🛑 而它**不宣稱這是現金單** —— 我們只知道「沒有刷卡列」。
+    expect(container.textContent).not.toContain('這是現金單');
+  });
+
+  it("🔴 讀不到('unknown')⇒ **兩句都不能說**(不知道有沒有 ≠ 沒有)", () => {
+    const { container } = render(
+      <RefundLedgerSection
+        cardPayment='unknown'
+        rows={[row()]}
+        unregisteredAmount={NEG}
+        nowMs={NOW}
+      />,
+    );
+    expect(container.textContent).not.toContain('請以 TapPay Record 對帳');
+    expect(container.textContent).not.toContain('沒有刷卡收款紀錄');
+    expect(container.textContent).toContain('讀不到');
+  });
+
+  it('🔵 負對照:未登記額【非負】⇒ 異常那半整段不出現(它只屬於異常態)', () => {
+    const { container } = render(
+      <RefundLedgerSection cardPayment='none' rows={[row()]} unregisteredAmount={500} nowMs={NOW} />,
+    );
+    expect(container.textContent).not.toContain('對帳異常');
+    expect(container.textContent).not.toContain('請在上方');
+  });
+
+  it('🔴 未登記額為負時, 附註不得再宣稱「只會 ≤ 此數」(此數是負的, 那句不成立)', () => {
+    const { container } = render(
+      <RefundLedgerSection cardPayment='card' rows={[row()]} unregisteredAmount={NEG} nowMs={NOW} />,
+    );
+    expect(container.textContent).not.toContain('只會 ≤ 此數');
   });
 });

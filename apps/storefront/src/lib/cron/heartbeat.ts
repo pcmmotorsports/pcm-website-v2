@@ -313,6 +313,15 @@ export async function recordHeartbeatSuccess(
   //    ⇒ **註解說「最壞仍 2000ms」而實作不保證** —— timer 延遲時整支的 wall-clock 會超過。
   //    ⇒ 改成 `min(startedAt + 總預算, 現在 + ping 預算)`:**兩個上界同時成立**。
   const startedAt = Date.now();
+  // 🔵 ⟦b4-CRON6⟧:這兩個在 try 【外面】宣告 —— DB 那半自己一個 try 是刻意的控制流隔離
+  //    (本檔 :317-322 記過理由)⇒ 我不動那個隔離, 只把讀數帶出來。
+  //    🔴 而預設值要分得出「沒跑到」與「跑了而是 0」⇒ 用 -1 當「這一半沒走到」。
+  let dbMs = -1;
+  let dbResult: 'ok' | 'timeout' | 'write_error' | 'threw' = 'threw';
+  // 🔴 **起點在 try 【外面】**(codex must-fix 1):`s.write()` 直接 reject 時,
+  //    try 裡那行 `dbMs = …` **跑不到** ⇒ 那一筆停在 `-1`
+  //    ⇒ 📌 **而 reject 正是我們最想量的那一類**(「它多快就爆掉」也是資料)。
+  const dbStartedAt = Date.now();
 
   // ══ 🔴🔴 DB 那一半【自己一個 try】—— 它的任何失敗都不得跳過下面那發 ping ══
   //    (codex R2 must-fix 1):上一版兩件事在同一個 try 裡,而 `store.write()` **直接 reject**
@@ -336,15 +345,25 @@ export async function recordHeartbeatSuccess(
     //    📌 而它在正式站的形狀一樣:env 掉了 ⇒ **監控把被監控的弄死** —— 正是檔頭那句話要防的事。
     const s = store ?? getHeartbeatStore();
     // 🔴 成功那一發**不碰** `last_failure_at` —— 碰了會把上一次真的失敗抹掉。
+    // 🔵 ⟦b4-CRON6⟧ 耗時量測(Sean 2026-09-03 批「先量再調」):量【DB 那半】的 wall-clock。
     const r = await withCap(
       s.write({ job_name: jobName, last_success_at: nowIso, consecutive_failures: 0, updated_at: nowIso }),
       deadlineAt,
       (e) => console.error(`[heartbeat] ${jobName} 成功心跳逾時後才失敗`, e),
     );
+    dbMs = Date.now() - dbStartedAt;
     // 🔴 印的是【DB 那一半的預算】不是總預算(codex nit):印 2000 會讓事故判讀誤認 DB 吃光了整體。
+    // 🔴 **`{ error }` 不得標成 `ok`**(codex must-fix 2):`store.write` 契約是
+    //    「**不拋** —— 錯誤用回傳值表達」(`composition.ts:80`)⇒ 寫入失敗時 `r.error` 有值。
+    //    ⇒ 📌 標成 `ok` 會**把寫入失敗混進成功樣本**, 而這一片的全部價值就在
+    //      「成功側才是有資訊的那一側」⇒ **汙染成功側等於毀掉這次量測。**
+    dbResult = r === 'timeout' ? 'timeout' : r.error ? 'write_error' : 'ok';
     if (r === 'timeout') console.error(`[heartbeat] ${jobName} 成功心跳寫入逾時(${HEARTBEAT_DB_MS}ms)`);
     else if (r.error) console.error(`[heartbeat] ${jobName} 成功心跳寫入失敗`, r.error);
   } catch (err) {
+    // 🔴 codex must-fix 1:走到這裡代表 `write()` 直接 reject(或建 store 就炸)
+    //    ⇒ 把耗時補上, 否則這一類樣本永遠是 `-1`。
+    if (dbMs < 0) dbMs = Date.now() - dbStartedAt;
     // transport 層 reject(網路斷 / DNS)也吃掉 —— 見檔頭「不往上拋」。
     console.error(`[heartbeat] ${jobName} 成功心跳寫入拋錯`, err);
   }
@@ -357,7 +376,37 @@ export async function recordHeartbeatSuccess(
   try {
     // 🔴 **兩個上界同時成立**:總預算不得超過 `HEARTBEAT_MAX_MS`,
     //    而 ping 自己也不吃超過 `HEARTBEAT_PING_MS`(DB 快的時候不因此變寬)。
+    // 🔵 ⟦b4-CRON6⟧ 量【ping 那半】的 wall-clock。**在這裡量而不是在 ping 裡面**:
+    //    `pingImpl` 是可注入的(`heartbeat.test.ts` 用 spy 注入)⇒ 改它的回傳型別會動到那些 spy。
+    //    ⇒ 📌 在呼叫端量, 拿得到同一個數字而**不動任何既有簽章**。
+    const pingStartedAt = Date.now();
     await pingImpl(jobName, Math.min(startedAt + HEARTBEAT_MAX_MS, Date.now() + HEARTBEAT_PING_MS));
+    const pingMs = Date.now() - pingStartedAt;
+
+    // ══ 🔴🔴 這一行的用途, 以及它【答不出】什麼 ══════════════════════════════
+    //  Sean 2026-09-03 批「先讓它印出那一發花了多久, 收幾輪真數字再調」。
+    //
+    //  🛑 **成功那一發也印** —— 而理由不是完整性:
+    //     ping 是 `AbortSignal.timeout(HEARTBEAT_PING_MS)` ⇒ **逾時那些量到的 ≈ 800**
+    //     ⇒ 🎯 那不是它真正要花的時間, **是我們把它砍斷的位置**
+    //     ⇒ 📌 **失敗側是被截斷的分佈** ⇒ **成功側才是有資訊的那一側**。
+    //
+    //  🎯 **所以這一行答的不是「該設多少」, 是【該不該用拉大值來修】**:
+    //     · 成功側集中在 100-300ms 而失敗率高 ⇒ 🔴 **雙峰**(冷啟動那一類)⇒ 拉大值可能沒用
+    //     · 成功側集中在 600-790ms          ⇒ 🟢 就是太趕 ⇒ 拉大值直接有效
+    //
+    //  🛑 **零 URL、零 err.message、零 err.cause** —— 本行只有兩個數字與一個既有的分類名。
+    //     理由見本檔 `pingExternalHeartbeat` 的 catch:
+    //     「一個為了好除錯而印出來的錯誤物件, 與一次憑證外洩, 長得一模一樣。」
+    //     ⚠️ 而 ping URL 那一串 uuid **就是那支 check 的寫入憑證** —— 拿到的人可以冒充排程
+    //     說「我還活著」⇒ **真的掛掉那天面板仍然是綠的**。
+    //
+    //  🔵 收樣停止條件(判準寫在數字之前):成功側連續兩批(每批 10)p95 差 < 50ms,
+    //     且四支各至少 20 筆成功樣本。**不寫「要涵蓋一次冷啟動」—— 我們證不到某一輪是不是冷啟。**
+    // ═══════════════════════════════════════════════════════════════════
+    console.error(
+      `[heartbeat] ${jobName} db=${dbMs}ms ping=${pingMs}ms db_result=${dbResult}`,
+    );
   } catch (err) {
     // `pingExternalHeartbeat` 自己永不拋;但**注入的替身可能拋** ⇒ 這一層是給測試與未來的呼叫端的。
     const kind = err instanceof Error ? err.name : typeof err;

@@ -1,3 +1,4 @@
+import { SUPPRESS_WHEN_ORDER_INELIGIBLE } from '@pcm/ports';
 import type { IEmailOutbox, IIneligibleOrderEmailScanner } from '@pcm/ports';
 
 /**
@@ -46,7 +47,12 @@ export type ApplyOrderIneligibleGateOptions = {
 
 /** counts-only(零 PII)。 */
 export type ApplyOrderIneligibleGateResult = {
-  /** scanner 回的候選數(訂單已不合格的 due 列)。 */
+  /**
+   * 🔴 **【篩過之後】該處理的列數 —— 不是 scanner 掃到幾列**(2026-09-03 語意改變)。
+   *    取消信不走這道閘 ⇒ 它們**不進這個數**。
+   *    ⚠️ 讀 route JSON 的人讀的是這一句 —— 而我第一版只改了函式內的註解, 這裡仍寫「候選數」
+   *      ⇒ 同一顆 diff 裡兩句相反(code-reviewer C2)。
+   */
   scanned: number;
   /** 成功標記 `skipped_order_ineligible` 的筆數。 */
   markedIneligible: number;
@@ -65,7 +71,19 @@ export async function applyOrderIneligibleGate(
   deps: ApplyOrderIneligibleGateDeps,
   options: ApplyOrderIneligibleGateOptions,
 ): Promise<ApplyOrderIneligibleGateResult> {
-  const candidates = await deps.scanner.listDueIneligible(options.limit);
+  const dueRows = await deps.scanner.listDueIneligible(options.limit);
+  // 🔴🔴 **取消信不走這道閘**(Q10 前置;code-reviewer R1 C2)。
+  //    這條路**排程更密(2 分 vs 5 分)⇒ 多數情況下先撈到**(不是順序保證)把列標成 `skipped_order_ineligible` ——
+  //    ⇒ 只修寄送那條 = 修了一半, 而取消信仍然會被這裡先撈走、標成終態、**沒有自動告警在看**(後台 `email-log-view.ts` 逐單查得到,而那要有人去查)。
+  //    ✅ 判斷與寄送那條**同一份來源** `SUPPRESS_WHEN_ORDER_INELIGIBLE`(窮舉 `Record`)
+  //      ⇒ 加新 event_type 而沒標 ⇒ typecheck 當場紅(實測 `Property '…' is missing`)。
+  //    ⚠️ **`scanned` 數的是【篩過之後】的分母** —— 那是刻意的:
+  //      它要答的是「這一輪【該處理】幾列」, 而不是「掃到幾列」。
+  // 🔵 **這一層是第二道, 而【承重的那道在 adapter 裡】(在 .slice() 之前)** ——
+  //    理由見那裡:濾在 slice 之後會讓取消信吃掉名額再被丟掉 ⇒ 既有兩封信被餓死。
+  //    ⇒ 📌 留這一層是為了**不依賴某個 adapter 實作記得濾** —— port 合約說了, 而合約靠這裡兌現。
+  //    🛑 未知 event_type ⇒ 當成該擋(`!== false`), 與 adapter 同一個方向。
+  const candidates = dueRows.filter((row) => SUPPRESS_WHEN_ORDER_INELIGIBLE[row.eventType] !== false);
 
   const result: ApplyOrderIneligibleGateResult = {
     scanned: candidates.length,

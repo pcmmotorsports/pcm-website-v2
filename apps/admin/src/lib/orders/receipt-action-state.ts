@@ -39,6 +39,19 @@ export const RCPT_RECEIVED_AT_LOCAL_FIELD = 'received_at_local';
 export const RCPT_REQUEST_ID_FIELD = 'request_id';
 
 /**
+ * 直接指名要撤哪一筆到貨(`#450` 逐筆列表用)。
+ *
+ * 🔴 **為什麼要多這一個欄, 而不是沿用 `request_id`**:
+ *    冪等鍵只活在「剛剛登錄那一次」的 React state 裡 ⇒ 重整 / 離開就沒了
+ *    ⇒ 而逐筆列表的整個重點就是**離開之後還撤得掉**。
+ * 🛑 **而安全不靠這個欄**:action 那道
+ *    `findOrderItemIdForReceipt(receiptId) === 表單送來的 orderItemId` 交叉檢查
+ *    **兩條路都要過** —— 它證的是「被刪的那筆屬於這個品項」, 與 id 從哪來無關。
+ *    ⇒ 📌 所以多這條路**沒有多開一個洞**;少了那道交叉檢查才會。
+ */
+export const RCPT_RECEIPT_ID_FIELD = 'receipt_id';
+
+/**
  * 🔴 **彈窗模式旗標**(#352-b-2 入口 2;主視窗 2026-08-11 裁 E1)。值 `'1'` = 這次送出來自出貨彈窗。
  *
  * 差別**只有成功那一半**:彈窗模式成功時 action **回 state 不 redirect**。

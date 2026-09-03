@@ -57,6 +57,8 @@ import {
   ItemProcurementOrderNotices,
 } from './item-procurement-section';
 import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
+import type { OrderItemReceiptRow } from '../../lib/orders/receipt-repository';
+import type { OrderShipmentGroup } from '../../lib/shipping/order-shipments';
 
 // 🔴 葉元件與純判斷(三軸小元件 / `resolveAmountEditBlock` / 兩個 colSpan 常數 / 總計區)
 //    2026-08-24 拆檔片整塊搬到 `order-detail-items-support.tsx`(鐵則 6:本檔當時 591 行)。
@@ -69,6 +71,8 @@ export function ItemsTable({
   suppliers,
   suppliersFailed,
   cancelFormsAllowed,
+  receiptRows,
+  shipmentGroups,
 }: {
   detail: AdminOrderDetail;
   payments: PaymentListData;
@@ -87,6 +91,10 @@ export function ItemsTable({
    * 同名 prop 的檔頭:忘記接的症狀不能是「靜默把控制項開回去」)。
    */
   cancelFormsAllowed?: boolean;
+  /** `#450` 逐筆到貨(`null` = 讀不到 / 被截斷)。**必填無預設**, 只轉手不看內容。 */
+  receiptRows: readonly OrderItemReceiptRow[] | null;
+  /** `#450` 包裹分組(`null` = 讀不到)。**必填無預設**, 只轉手不看內容。 */
+  shipmentGroups: readonly OrderShipmentGroup[] | null;
 }) {
   const amountEditBlock = resolveAmountEditBlock(detail, payments);
   // 🔴 兩道都要成立才給取消控制項(與 `OrderCancelBlock:63` 的 `showForms` 同一組判準,
@@ -368,6 +376,8 @@ export function ItemsTable({
                   兩個狀態的分家在 `item-amount-row.tsx` 的 `amountEditId` 那段。 */
             body={
               <ItemProcurementBlock
+                receiptRows={receiptRows}
+                shipmentGroups={shipmentGroups}
                 detail={detail}
                 item={item}
                 returnTo={returnTo}

@@ -85,11 +85,21 @@ describe('ReceiptUndoBar', () => {
     );
   });
 
-  it('🔴 界線寫在畫面上:員工要看得到「只能撤剛剛這筆」', () => {
-    // 🔴 沒有這句,他會以為到貨隨時都撤得掉,等真要撤三天前那筆時才發現沒入口
-    //    (Sean 另一句「其實要先給另外一個訂單」= 事後才發現,本片不覆蓋)。
+  it('🔴 界線寫在畫面上, 而它要指向【現在真的存在的那條路】', () => {
+    // 🔴 沒有這句,他會以為到貨隨時都撤得掉,等真要撤三天前那筆時才發現沒入口。
+    //
+    // ⛔ ~~原本斷言 `/只能撤掉剛剛這一筆/`~~ ⇒ 2026-09-03 `#450` 蓋了逐筆清單之後,
+    //    畫面那句舊話(「更早的到貨紀錄目前還沒有撤銷入口」)**變成假的**。
+    // 🔴🔴 **而這一格【全綠】** —— 因為它只認前半句, 而前半句在兩個世界裡都是真的。
+    //    ⇒ 📌 codex must-fix 逐字:「測試只斷言含『到貨紀錄』,所以這句反話照樣全綠」。
+    //    ⇒ ⇒ **一句話在【做了】與【沒做】兩個世界裡是同一個字串, 它就不是宣稱, 是標籤。**
+    // ✅ 修法:斷言那句話**指得出出路**, 而且**逐字擋掉舊的那句反話**。
     renderBar();
-    expect(document.body.textContent).toMatch(/只能撤掉剛剛這一筆/);
+    expect(document.body.textContent).toMatch(/只撤得掉剛剛那一筆/);
+    // 🎯 出路要在 —— 少了它, 這句話只剩「你不能」, 而他其實可以。
+    expect(document.body.textContent).toMatch(/到貨紀錄」清單裡各自撤/);
+    // 🛑 負對照:舊的那句反話回來 ⇒ 這一格要紅。
+    expect(document.body.textContent).not.toMatch(/還沒有撤銷入口/);
   });
 
   it('🔴 `blocked` 之後鈕也要留著(R2 must-fix 2:DB 原文叫他處理完包裹再回來刪)', async () => {
@@ -132,6 +142,46 @@ describe('ReceiptUndoBar', () => {
     ).not.toBeNull();
   });
 
+  // ⛔ ~~`blocked` 要先告訴他「離開就沒了」~~
+  // 🔴🔴 **2026-09-03 這一格翻面了 —— 而翻它的是【那句話的前提被做掉了】, 不是我改期望值。**
+  //    `#450` 做完之後:**離開之後撤得掉了**(到貨紀錄列表, 每一筆各自可撤)
+  //    ⇒ 「離開就沒了」變成一句假話, 而它會**主動關掉員工的下一個動作**。
+  //    🛑 而**這一格原本守的東西沒有消失, 它換了受詞**:
+  //       原本守「要先告訴他【入口會消失】」⇒ 現在守「要告訴他【去哪裡撤】」。
+  //       兩者是同一條紀律:**DB 那句話把他送走, 而我們要負責他回得來。**
+  it('🔴 `blocked` 要告訴他【離開之後去哪裡撤】—— DB 那句話把他送走, 我們要讓他回得來', async () => {
+    action.mockResolvedValue({ status: 'blocked', message: P4A03_MESSAGE });
+    renderBar();
+    click();
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeNull());
+    // 🔵 讀 `textContent` 而不是 `getByText` —— 那個 `<p>` 裡有 **多個文字節點**
+    //    (DB 訊息 + 分隔 + 這一句),`getByText` 會找不到。這是本檔既有兩格的同一個做法。
+    // 🔵 期望值**硬寫字面, 不從元件 import** —— 今天實測過:期望值與被測值同一個常數時,
+    //    改文案不會有任何一格紅(那種格子測的是接線, 不是內容)。
+    expect(
+      screen.getByRole('alert').textContent ?? '',
+      '拿掉那句話 ⇒ 員工照 DB 訊息離開這一頁, 而沒有人告訴他回來要去哪裡撤',
+    ).toContain('到貨紀錄');
+    // 🛑 而**舊的那句不得再出現** —— 它現在是假的(`#450` 之後離開也撤得掉)。
+    expect(screen.getByRole('alert').textContent ?? '').not.toContain('只在這一頁有效');
+  });
+
+  it('🔵 對照組:`blocked` 以外不印那句話(它只在「他即將被送走」那一刻才成立)', async () => {
+    action.mockResolvedValue({ status: 'undone' });
+    renderBar();
+    click();
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeNull());
+    expect(document.body.textContent ?? '').not.toContain('這個撤銷入口只在這一頁有效');
+  });
+
+  // 🔴🔴 **這一格必須留在本 describe 的【最後】—— 它是承重的順序, 不是排版。**
+  //    它設的是一個**永遠不 resolve 的 promise**, 而那個 pending 狀態會活過 `cleanup`
+  //    ⇒ **排在它後面的每一格都會停在 pending**、`role='alert'` / `role='status'` 永遠不出現。
+  //    🔬 實測(不是推的):我把兩格新測寫在它後面 ⇒ `expected null not to be null` 兩紅;
+  //       單獨跑那一格 ⇒ 綠 ⇒ **證明是前一格污染, 不是新測寫錯**。
+  //    ⚠️ 而我第一次的修法是在新測裡加 `action.mockReset()` —— **拿掉它複跑, 11 格照樣全綠**
+  //       ⇒ 📌 **那個修法從來沒有生效過, 而它「看起來」修好了(因為我同時也調了順序)。**
+  //       ⇒ 🎯 兩件事一起改 ⇒ 我以為是 A, 其實是 B。**要知道是哪一個, 只能把 A 拿掉再跑一次。**
   it('送出中鈕要 disabled(連點會送出第二次撤銷)', async () => {
     action.mockImplementation(() => new Promise(() => {}));
     renderBar();
@@ -139,5 +189,32 @@ describe('ReceiptUndoBar', () => {
     await waitFor(() =>
       expect((screen.getByText('撤銷中…') as HTMLButtonElement).disabled).toBe(true),
     );
+  });
+
+  // 🔴🔴 `blocked` 那則 DB 原文逐字叫他「要先把那些包裹作廢…才能刪掉」⇒ **它把員工送離這一頁**,
+  //    而撤銷入口的鑰匙是 `receipt-record-form.tsx` 的 React state ⇒ 導航/重整就沒了。
+  //    ⇒ 📌 **那句話承諾了一個回程, 而系統沒有回程。** 這一格釘的是「畫面有沒有先講」。
+  //    🎯 病名見元件那段註解引的 OD FIX-76:**過期/不完整的說明會主動關掉使用者的下一個動作。**
+});
+
+// ⟦#450⟧ 2026-09-03:逐筆到貨列表做掉之後, 這一列原本那句話變成【假的】。
+//
+// ⛔ 舊字面逐字:「這個撤銷入口只在這一頁有效 —— 離開或重新整理之後就沒有了,
+//    **到時候要找工程師處理**。」
+// 🛑 而它變假之後留著會**比沒有這句話更糟** —— 本檔上方引的 `FIX-76` 逐字:
+//    **「過期的說明比沒有說明更糟, 它會主動關掉使用者的下一個動作,
+//      而且『他按了沒反應』與『他讀完沒按』在我這邊長得一模一樣」**
+// ⇒ 📌 員工讀到「要找工程師」就**不會去試**那件現在做得到的事。
+describe('#450 之後:那句過期的話不得再出現', () => {
+  it('🔴 畫面上不得再說「到時候要找工程師處理」', () => {
+    const { container } = renderBar();
+    expect(container.textContent).not.toContain('到時候要找工程師處理');
+    expect(container.textContent).not.toContain('只在這一頁有效');
+  });
+
+  it('🔵 而要說出【現在真的做得到的那件事】—— 不是只把話刪掉', () => {
+    // 🛑 只刪不換 ⇒ 員工仍然不知道離開之後撤得掉 ⇒ 那條路等於沒開。
+    const { container } = renderBar();
+    expect(container.textContent).toContain('到貨紀錄');
   });
 });

@@ -33,6 +33,7 @@ import type { FeaturedResult } from '@/lib/products';
 import type { MockProduct } from '@/data/mock-products';
 import { toMoneyAmount, type OrderListItem } from '@pcm/domain';
 import { ORDER_ITEM_COUNT_TRUNCATED_NOTE } from '@/lib/account-order-copy';
+import { PROFILE_UNREADABLE_NOTE } from '@/lib/account-profile-copy';
 
 afterEach(cleanup);
 
@@ -279,6 +280,31 @@ describe('OverviewTab(g-2 真資料、對齊 design AccountPages.jsx L467-535)',
       const { container } = renderTab({ recentOrders: truncated });
       const titles = [...container.querySelectorAll('[title]')].map((el) => el.getAttribute('title'));
       expect(titles).not.toContain(ORDER_ITEM_COUNT_TRUNCATED_NOTE);
+    });
+  });
+
+  // ── Q28:會員資料讀不到 ────────────────────────────────────
+  describe('balanceFailed(customers 那一列讀不到)', () => {
+    it('🔴 讀不到 ⇒ 印「讀不到」, 而畫面上不得出現那個 0', () => {
+      const { container } = renderTab({ stats: { tier: 'general', walletBalance: 0, orderCount: 0 }, balanceFailed: true });
+      expect(screen.getByText('讀不到')).toBeDefined();
+      // 🛑 印 0 = 告訴客人他沒有錢。這一格與 WalletTab 同名那格是同一條規矩。
+      expect(container.textContent).not.toContain('NT$ 0');
+    });
+
+    it('🔴 讀不到 ⇒ 要講【結帳】—— 只講餘額會讓他以為只是少一個數字', () => {
+      renderTab({ balanceFailed: true });
+      expect(screen.getByText(PROFILE_UNREADABLE_NOTE)).toBeDefined();
+    });
+
+    it('對照組:沒失敗 ⇒ 照常印金額, 而且【不】出現那句話', () => {
+      renderTab({ balanceFailed: false });
+      expect(screen.queryByText(PROFILE_UNREADABLE_NOTE)).toBeNull();
+    });
+
+    it('🔵 明細按鈕【留著】—— 明細是另一發查詢, 讀不讀得到與這裡無關', () => {
+      renderTab({ balanceFailed: true });
+      expect(screen.getByText('查看明細 →')).toBeDefined();
     });
   });
 });

@@ -73,10 +73,34 @@ describe('FavoritesTab(M-4b #191)', () => {
     );
   });
 
-  it('🔴 沒有圖就不渲 <img>(空 src 會變成一塊看起來壞掉的灰底)', () => {
+  /**
+   * ⛔ ~~「沒有圖就不渲 `<img>`(空 src 會變成一塊看起來壞掉的灰底)」~~
+   * 🔵 **那個判斷【沒有被推翻】—— 它解的是一個現在不存在的問題**:
+   *    它比較的是「**空 `src`**」與「不渲染」;而 2026-09-04 起這裡走 `ProductImage`,
+   *    它給的是**第三個選項** —— 一張**真的存在的圖**(`/placeholder-product.png`)疊在漸層底上。
+   *    ⇒ 🎯 **它要防的那塊「壞掉的灰」在這條路上不會出現。**
+   * 🔴 **而改的理由是一致性**(⟦ship-ORDERIMG⟧ 甲案):同一批商品客人在三個地方看到三種東西
+   *    —— 明細站內佔位圖 / 訂單卡片空框 / 收藏什麼都沒有。
+   * 🛑 **兩個方向都要有**:沒有圖 ⇒ 仍然有一個**有內容的**版位;有真照片 ⇒ **逐字不變**。
+   */
+  it('🔴 沒有圖 ⇒ 走 ProductImage(有版位、有一張真的存在的圖), 不是空白也不是空 src', () => {
     const { container } = render(<FavoritesTab favorites={[item({ imageUrl: null })]} />);
     expect(container.querySelector('a.acc-fav')).toBeTruthy();
-    expect(container.querySelector('.acc-fav img')).toBeNull();
+    const img = container.querySelector('.acc-fav img');
+    expect(img, '版位塌了 ⇒ 客人看到一張沒有圖的卡, 而那正是這一片要收斂掉的三種樣子之一').toBeTruthy();
+    expect(
+      img!.getAttribute('src'),
+      '🔴 空 `src` ⇒ 那正是原本那句判斷在防的「像壞掉的灰」',
+    ).toBe('/placeholder-product.png');
+  });
+
+  it('🔵 負對照:有真照片 ⇒ 那個網址逐字不變(不得被佔位圖蓋掉)', () => {
+    const REAL = 'https://quote.pcmmotorsports.com/real-product-01.jpg';
+    const { container } = render(<FavoritesTab favorites={[item({ imageUrl: REAL })]} />);
+    expect(
+      container.querySelector('.acc-fav img')!.getAttribute('src'),
+      '一張真照片被佔位圖蓋掉了 ⇒ 而那沒有人會回報',
+    ).toBe(REAL);
   });
 
   it('🔴 MAIN-035 ①-1:讀取失敗與「沒有收藏」必須是【兩個畫面】', () => {

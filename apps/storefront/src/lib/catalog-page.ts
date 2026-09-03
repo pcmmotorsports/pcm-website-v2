@@ -1,4 +1,4 @@
-import { isSupplierPlaceholder, parseImageTrim } from '@pcm/domain';
+import { hasNoRealImage, parseImageTrim } from '@pcm/domain';
 
 import type { MockProduct, UIFitment } from '@/data/mock-products';
 
@@ -110,7 +110,7 @@ export function catalogRowToUIProduct(row: CatalogListRow): CatalogCardProduct {
     //    ⇒ ⇒ 🎯 **只修 mapper 那一半 ⇒ 客人最常去的那一頁照樣看到供應商的德文佔位圖**,
     //      而那個狀態**沒有人會回報** —— 客人只會覺得這家店的照片很爛。
     //    ✅ 兩處共用 `@pcm/domain` 的**同一份** `SUPPLIER_PLACEHOLDERS`(不複製清單:兩份會分岔, 而分岔不會紅)。
-    image: row.card_image && !isSupplierPlaceholder(row.card_image) ? row.card_image : null,
+    image: row.card_image && !hasNoRealImage(row.card_image) ? row.card_image : null,
     // trim 線 S4a:與 adapter mapper 同一顆 domain parseImageTrim 收斂(單一來源、髒數據=undefined → cover fallback)。
     // 🔴 ⟦fc-SUPPLIERPLACEHOLDER⟧ **首圖被判成佔位圖 ⇒ 這個 bbox 必須一起丟掉**(與 mapper 那一處同一個理由):
     //    `card_image_trim` 是 `LEFT JOIN product_image_trim t ON t.url = p.images ->> 0`
@@ -119,7 +119,7 @@ export function catalogRowToUIProduct(row: CatalogListRow): CatalogCardProduct {
     //    `card_image` 本來就是 `null`(商品沒有任何圖)時, 既有行為是照樣解析 trim,
     //    而那與本片無關 ⇒ **不改它**(第一版我寫寬了, 當場弄紅一格既有測試)。
     imageTrim:
-      row.card_image && isSupplierPlaceholder(row.card_image)
+      row.card_image && hasNoRealImage(row.card_image)
         ? undefined
         : parseImageTrim(row.card_image_trim) ?? undefined,
     originalPrice: null,

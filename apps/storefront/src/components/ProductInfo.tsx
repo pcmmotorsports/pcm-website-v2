@@ -266,9 +266,36 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
 
   return (
     <aside className="pd-info">
-      {/* M-1-16c-4a:料號顯選中變體真 sku(隨 selectSpec 連動;Sean Q1=A、取代原 PCM-{id hash} 亂碼數)。
-          無變體 mock fallback 用 slug(sane、非 hash;design VariantCFull.jsx L81 原 PCM-XXXXX 格式退場)。 */}
-      <div className="pd-sku">{product.brand} · {selectedVariant?.sku ?? product.slug}</div>
+      {/* 🔴🔴 **Sean 2026-09-03 【重答】Q23 = 甲:商品頁只印「原廠料號」。**
+          ⛔ ~~原本(M-1-16c-4a):印選中變體的真 `sku`,隨 selectSpec 連動~~
+          ⛔ ~~同日稍早的丙:兩個編號都印,暫用標籤「搜尋用」(commit `c68cc9fe`)~~
+
+          🎯 **為什麼推翻 —— 而丙那一版的【存在理由仍然成立, 換掉的是解法】**:
+             丙要解的病是「客人照商品頁上那一串抄去搜 ⇒ 0 筆」。**那個病沒有變。**
+             而 Sean 給了一句我們沒有的業務事實,逐字:
+             **「但是其實我們不太會用商品編號耶 我們工作基本上都是用原廠料號在工作」**
+             ⇒ 📌 他們工作上只用原廠料號,而**顧客站搜尋比對的剛好就是那一個**
+             ⇒ ⇒ **所以問題不是「要印兩個」, 是【我們印錯了那一個】。**
+          ⇒ 🛑 **下一個讀 `c68cc9fe` 的人:丙沒有錯 —— 是前提換了。**
+
+          🔬 **「原廠料號」是哪一個欄位 —— 這一格我用 repo 自己的字面判, 不是猜**:
+             `packages/domain/src/catalog/types.ts:283` 逐字稱 `productCode` 是
+             **「vendor 來源料號(如 RPM 的 `RPM-DCC01`)」**、← wire `products.external_id`;
+             `:288` 稱 `ProductVariant.sku` 是「各變體個別料號」。
+             ⇒ 而搜尋比對的 `SEARCHABLE_COLUMNS` 正是 `external_id`
+             ⇒ ✅ 兩邊指向同一個:**原廠料號 = `productCode`**。
+
+          ⚠️ **代價照實記**:這一頁**不再印變體個別料號**(`sku`)。
+             ⇒ 同一支商品不同規格的號從畫面上消失了 —— 而規格本身仍看得到(選擇器在)。
+             ⇒ 🛑 **哪天發現出貨單 / 揀貨單 / 發票上對帳靠的是那個變體號, 這一片要重議。**
+                (主視窗 `-87` 明說:那是**它的判讀不是 Sean 的字** —— 他選甲, 它讀成
+                 「紙上不是靠那個號對帳」。這一格留著, 因為它是這片唯一沒有被證實的假設。)
+
+          🔵 **叫法定案 = 「原廠料號」**(Sean 自己的用語)⇒ 這不再是暫用字面, TODO 已收。
+             🛑 而**站上另外六處**「料號 / 產品型號」混用**本片不動** —— 那是另一片, 已標進板子。 */}
+      <div className="pd-sku">
+        {product.brand} · 原廠料號 {product.productCode ?? product.slug}
+      </div>
 
       <h1 className="pd-title">{product.name}</h1>
 

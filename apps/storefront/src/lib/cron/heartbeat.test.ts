@@ -11,6 +11,7 @@ vi.mock('server-only', () => ({}));
 const comp = vi.hoisted(() => ({ getHeartbeatStore: vi.fn(() => { throw new Error('BOOM: 建 store 就炸'); }) }));
 vi.mock('./composition', () => ({ getHeartbeatStore: comp.getHeartbeatStore }));
 
+import type { HeartbeatStore } from './composition';
 import {
   CRON_JOB_NAME,
   HEARTBEAT_DB_MS,
@@ -518,5 +519,120 @@ describe('外部存活訊號 · DB 兩種死法都要照送', () => {
     //    ⇒ t0 + 5000 + 800 = t0 + 5800 ⇒ 遠遠越過總預算 ⇒ 這裡紅。
     //    而正確版 `min(startedAt + 2000, now + 800)` ⇒ 夾在 t0 + 2000。
     expect(budgets[0]!).toBe(t0 + HEARTBEAT_MAX_MS);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// ⟦b4-CRON6⟧ 耗時量測(Sean 2026-09-03 批「先量再調」)
+//
+// 🛑 這一族守的是【那一行印得出東西】, 而**不是**「那個數字是多少」——
+//    數字是環境給的, 釘住它等於把測試變成一個會隨機紅的東西。
+// ══════════════════════════════════════════════════════════════════════
+describe('⟦b4-CRON6⟧ 心跳耗時那一行', () => {
+  function lines(spy: { mock: { calls: unknown[][] } }): string[] {
+    return spy.mock.calls.map((c) => String(c[0]));
+  }
+
+  it('🔴 成功那一發【也要】印 —— 失敗側是被截斷的, 成功側才是有資訊的那一側', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const store = fakeStore();
+    await recordHeartbeatSuccess(CRON_JOB_NAME.settleSweep, store.store, async () => {});
+    const hit = lines(spy).find((l) => l.includes('db=') && l.includes('ping='));
+    spy.mockRestore();
+    expect(hit, '成功那一發沒有印耗時 ⇒ 我們只會收到「超過 800 的那些」= 截斷分佈').toBeDefined();
+  });
+
+  it('🔴 兩半要【分開】印 —— 不知道是哪一半在超, 就不知道該調哪一個', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const store = fakeStore();
+    await recordHeartbeatSuccess(CRON_JOB_NAME.emailSweep, store.store, async () => {});
+    const hit = lines(spy).find((l) => l.includes('db=') && l.includes('ping='));
+    spy.mockRestore();
+    // 🔵 只斷言【形狀】不斷言值:`db=<數字>ms` 與 `ping=<數字>ms` 各出現一次。
+    expect(hit).toMatch(/\bdb=\d+ms\b/);
+    expect(hit).toMatch(/\bping=\d+ms\b/);
+  });
+
+  it('🔴 ping 那半【也要】釘住真的有量 —— 我上一版只修了 db 那一個實例', async () => {
+    // 🔴🔴 codex must-fix 3:把 `pingMs` 寫死 0 ⇒ 形狀斷言 `/\bping=\d+ms\b/` **照樣全綠**。
+    //    📌 而我前一版已經為 `db` 補過同一格 —— **修的是那個實例, 不是那個類別。**
+    //    ⇒ 那正是本 repo 記過的:「修一個被點名的實例, 不等於修那個類別」。
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const store = fakeStore();
+    // 🔵 讓 ping 那一發**真的花時間**(80ms)⇒ 一個壞掉的碼錶會印 0, 而它必須紅。
+    await recordHeartbeatSuccess(CRON_JOB_NAME.settleSweep, store.store, async () => {
+      await new Promise((r) => setTimeout(r, 80));
+    });
+    const hit = lines(spy).find((l) => l.includes('db=') && l.includes('ping='));
+    spy.mockRestore();
+    const pingMs = Number(/\bping=(\d+)ms\b/.exec(hit ?? '')?.[1] ?? '-1');
+    expect(pingMs, '碼錶壞了會印 ping=0ms, 而它的形狀完全正確').toBeGreaterThan(50);
+  });
+
+  it('🔴🔴 那一行【不得】含任何 URL —— ping URL 就是那支 check 的寫入憑證', async () => {
+    // 🔴🔴 codex must-fix 4:上一版**沒有把憑證放進這個世界** ——
+    //    env 沒設 ⇒ ping 那條路根本走不到有 URL 的地方 ⇒ 📌 **那個 not.toContain 恆綠**,
+    //    它守的是一個**不存在的風險**。⇒ 這一版把一個【真的長得像憑證】的 URL 放進 env,
+    //    走**真的** `pingExternalHeartbeat`(不注入假的), 再斷言那一行沒有它。
+    const SECRET = 'https://hc-ping.com/11111111-2222-3333-4444-555555555555';
+    const ENV = 'HEALTHCHECKS_PING_URL_PCM_CAPTURE_RECHECK';
+    const prev = process.env[ENV];
+    process.env[ENV] = SECRET;
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const store = fakeStore();
+    try {
+      // 🔵 `fetch` 換成直接拋 —— 讓它走 catch 那條(**最可能把 err 帶進 log 的那條路**)。
+      await recordHeartbeatSuccess(CRON_JOB_NAME.captureRecheck, store.store, (job, deadline) =>
+        pingExternalHeartbeat(job, deadline, () => {
+          throw new Error(`connect ECONNREFUSED ${SECRET}`);
+        }),
+      );
+      const all = lines(spy).join('\n');
+      // 🛑 拿到它的人可以冒充排程說「我還活著」⇒ **真的掛掉那天面板仍然是綠的**。
+      // 🔴 斷言範圍是**這一輪印的每一行**, 不只那一行 —— 憑證從哪一行漏出去都一樣糟。
+      expect(all, 'UUID 進 log ⇒ 那就是憑證外洩').not.toContain('11111111-2222-3333-4444');
+      expect(all).not.toContain('hc-ping.com');
+    } finally {
+      spy.mockRestore();
+      if (prev === undefined) delete process.env[ENV];
+      else process.env[ENV] = prev;
+    }
+  });
+
+  it('🔴 寫入失敗【不得】標成 ok —— 那會把失敗混進成功樣本', async () => {
+    // 🔴🔴 我修了碼而**沒有寫這一格** ⇒ 🧬 實測:把 `write_error` 改回 `ok` ⇒ **30 格全過**。
+    //    📌 **一個沒有測試守著的修法, 與沒有修過, 在下一個人手上是同一件事。**
+    //    而這一格特別重要:這一片的全部價值在「成功側才是有資訊的那一側」
+    //    ⇒ **把 write_error 混進 ok, 等於毀掉這次量測要收的那批樣本。**
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const store = fakeStore({ writeError: { message: 'boom' } });
+    await recordHeartbeatSuccess(CRON_JOB_NAME.emailSweep, store.store, async () => {});
+    const hit = lines(spy).find((l) => l.includes('db=') && l.includes('ping='));
+    spy.mockRestore();
+    expect(hit).toContain('db_result=write_error');
+  });
+
+  it('🔵 DB 逾時的時候, 那一行要說得出來(db_result=timeout)', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // 🔴 `fakeStore` **沒有**「永不 resolve」這個選項(我第一版憑印象寫了一個不存在的
+    //    `writeNeverResolves` ⇒ 那一格當場紅)⇒ 這裡直接給一個掛住的 store。
+    const hangingStore: HeartbeatStore = {
+      readFailureCount: async () => null,
+      // 🔴 回傳型別是 `{ error: unknown }`(見 composition.ts:81)—— 而它**永不 resolve**。
+      write: () => new Promise<{ error: unknown }>(() => {}),
+    };
+    await recordHeartbeatSuccess(CRON_JOB_NAME.orderIneligibleGate, hangingStore, async () => {});
+    const hit = lines(spy).find((l) => l.includes('db=') && l.includes('ping='));
+    spy.mockRestore();
+    expect(hit).toContain('db_result=timeout');
+
+    // 🔴🔴 **而「有印」與「真的量到」是兩個宣稱。**
+    //    上面那格 `/\bdb=\d+ms\b/` 對 `db=0ms` **照樣綠** ——
+    //    🧬 實測:把 `dbMs = Date.now() - dbStartedAt` 改成 `dbMs = 0` ⇒ **29 格全過**。
+    //    ⇒ 📌 一個壞掉的碼錶會印出一個形狀完全正確的 0。
+    // ✅ 這一格釘住那個差別:這個 store **永不 resolve** ⇒ 它跑滿了 DB 那半的預算
+    //    ⇒ 那個數字**必然遠大於 0**。用 100ms 當下限(預算 1200,留足夠餘裕不誤報)。
+    const dbMs = Number(/\bdb=(\d+)ms\b/.exec(hit ?? '')?.[1] ?? '-1');
+    expect(dbMs, '碼錶壞了會印 db=0ms, 而它的形狀完全正確').toBeGreaterThan(100);
   });
 });

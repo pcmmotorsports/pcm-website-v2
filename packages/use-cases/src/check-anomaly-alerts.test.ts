@@ -55,6 +55,12 @@ const ZERO: AnomalyAlertSummary = {
   orderCreatedPaidNoEmailCount: 0,
   orderCreatedNoRecipientCount: 0,
   orderCreatedGapUnknown: false,
+  // 🔵 未付款取消信線那三格。基準 = 【查得到而沒有卡住的單】——
+  //   🛑 與上面 cronHeartbeat 同一個理由:寫 `Unknown: true` 會讓 ZERO 同時代表
+  //      「一切正常」與「讀不到」兩個世界, 而那正是這一片要分開的東西。
+  unpaidCancelledPendingCount: 0,
+  unpaidCancelledNoRecipientCount: 0,
+  unpaidCancelledGapUnknown: false,
   orderCreatedStuckCount: 0,
   orderCreatedStuckOldestMinutes: null,
   orderCreatedStuckUnknown: false,
@@ -167,6 +173,10 @@ describe('checkAnomalyAlerts — 門檻矩陣', () => {
     // 🔴 訊號4 的【持續失敗】那一格(板 ⟦b4-SIG4ERRORS⟧, 2026-09-01)。
     //   它守的是一個今天零告警的缺口:enqueue 每一輪都失敗 ⇒ errors 只落在 cron 回應 body。
     ['orderCreatedStuckCount', { ...ZERO, orderCreatedStuckCount: 1 }],
+    // 🔴 **未付款取消信線的主詞**(⟦b4-NORECIPIENTWINDOW⟧, 2026-09-03)。
+    //   它守的是:把 `shouldAlert` 那一項拿掉 ⇒ **這一格必須紅**。
+    //   ⇒ 📌 沒有它, 「讓狀態看得見」是一句話不是一個保護。
+    ['unpaidCancelledNoRecipientCount', { ...ZERO, unpaidCancelledNoRecipientCount: 1 }],
   ] as const)('%s>0 → 告警 + 呼 notifier', async (_label, summary) => {
     const n = okNotifier();
     const res = await checkAnomalyAlerts({ reader: reader(summary), notifiers: [n] }, OPTS);
@@ -1776,5 +1786,63 @@ describe('⟦b9-RLSHARDEN⟧ 甲:BYPASSRLS 被收掉那天', () => {
       OPTS,
     );
     expect(res.alerted).toBe(true);
+  });
+});
+
+/**
+ * ⟦b4-NORECIPIENTWINDOW⟧ 未付款取消信線的收件人訊號(2026-09-03)。
+ *
+ * 🔴 **這一組守的東西, 和上面那格矩陣不一樣**:矩陣證「一封就叫」,
+ *    這一組證的是**兩條線分得開**、以及**安靜與壞掉分得開**。
+ */
+describe('未付款取消信 · 找不到收件人', () => {
+  it('pending>0 而 noRecipient=0 → 不叫(那是正常的:下一輪 scanner 就排掉)', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: reader({ ...ZERO, unpaidCancelledPendingCount: 5 }), notifiers: [n] },
+      OPTS,
+    );
+    // 🛑 這一格是【負對照】:拿 pending 當判準 = 有生意就叫, 那不是告警。
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+  });
+
+  it('unknown → 不叫, 而旗標必須出得來(否則「安靜」與「沒裝上」印同一個畫面)', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: reader({
+          ...ZERO,
+          unpaidCancelledPendingCount: null,
+          unpaidCancelledNoRecipientCount: null,
+          unpaidCancelledGapUnknown: true,
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.alerted).toBe(false);
+    // 🔴 旗標要出得來 —— 否則 route 讀不到它, 那道 fail-closed 在下游就被 `?? 0` 拆掉。
+    expect(res.unpaidCancelledGapUnknown).toBe(true);
+    expect(res.unpaidCancelledNoRecipientCount).toBeNull();
+  });
+
+  it('兩條線各自的訊息獨立成行 —— 併成一行看信的人不知道去哪一條線', async () => {
+    const n = okNotifier();
+    await checkAnomalyAlerts(
+      {
+        reader: reader({
+          ...ZERO,
+          orderCreatedNoRecipientCount: 2,
+          unpaidCancelledNoRecipientCount: 3,
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    const msg = (n.notify.mock.calls[0]![0] as { text: string }).text;
+    // 🔴 兩句都要在, 而且是【兩句】—— 這一格會抓到「順手合併成一行」那種改法。
+    expect(msg).toContain('訂單成立了而【那張單兩個信箱都是空的】');
+    expect(msg).toContain('訂單被取消了而【那張單兩個信箱都是空的】');
   });
 });

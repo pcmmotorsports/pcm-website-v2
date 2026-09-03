@@ -180,20 +180,33 @@ describe('🔴 開窗的前置閘 — 兩種情況都不給開,而且各有自�
   //    入口 2 之後,`not_arrived` 的品項在窗裡**有事可做**(按「貨到了」登記到貨)
   //    ⇒ 它不再屬於「開了也是全灰」那一類,fixture 因此改用 `cancelled`。
   //    要守的東西一字未改:**別開一個什麼都按不動的彈窗給員工**。
-  // ══ 2026-09-04 · L3 走查卡點乙1:說了原因而沒說出路 ══════════════════════
-  // 🔬 走查逐字(`-account` 09-03)+ 我 09-04 在 admin-probe 上**真的按了那顆鈕**:
-  //    「這些訂單目前沒有任何一件出得了(2件的數量資料尚未就緒)。」—— 就這一句。
-  // 🎯 這三格守的是:**每個原因帶自己的下一步**, 而**終態不編一個出來**。
-  it('🔴 出不了時,每個出現的原因都要帶自己的【下一步】', async () => {
+  // ══ 兩份獨立實作合起來的測試(2026-09-04)══════════════════════════════
+  // 🔬 `62775f03`(線【帳號】09-03 23:28)與 `d4b46f0c`(線 `-db` 09-04)**同一夜各寫了一次**
+  //    ⇒ 收割時撞成 conflict。下面記哪一格採了誰:
+  //    ① **結構採 `62775f03` 的 `it.each`** —— 一個 reason 一列, 加第三種原因時只多一列。
+  //    ② **`cancelled` 那格的斷言採 `d4b46f0c`** —— 理由見那一格自己的註解(它比較寬)。
+  //    ③ **混合那一格是 `d4b46f0c` 獨有**, 對方沒有 ⇒ 保留。
+  //
+  // 🔴 走查逐字(`-account` 09-03)+ `-db` 09-04 在 admin-probe 上**真的按了那顆鈕**:
+  //    「這些訂單目前沒有任何一件出得了(2件的數量資料尚未就緒)。」—— 就這一句, 沒有下一步。
+  //    而答案就在 `picking-doc.tsx:78`「出貨必先到貨、無直送」—— 那是拍板, 而畫面沒說出來。
+  //
+  // 🔴 **這一組刻意【不用】 `not_arrived` 當 fixture** —— 呼叫端的閘是
+  //    `!anyShippable && !anyAwaiting`, 而 `anyAwaiting` = 有任何一件 not_arrived
+  //    ⇒ 🎯 **有 not_arrived 就開窗了, 這條訊息根本印不出來。**
+  //    ⇒ 📌 `-db` 第一版真的用了它 ⇒ 兩格紅 ⇒ **而那個紅是對的:世界造錯了, 不是尺壞了。**
+  it.each([
+    // 🔴 **括號要跳脫** —— 畫面上那個 h3 逐字是 `採購(向供應商訂貨)`, 而那對括號是
+    //    **半形**(`item-procurement-section.tsx:145` 實查 code point `0x28`)。
+    //    ⇒ 🎯 **⇒ 直接把文案貼進 regex, 那對括號會變成【捕獲群組】** ⇒ 它去找
+    //       「採購向供應商訂貨」(沒有括號的那串)⇒ **找不到 ⇒ 紅。**
+    //    ⇒ 📌 **⇒ 一段文案抄進 regex 的那一刻, 它就不再是字面了 —— 而看起來一模一樣。**
+    //    (2026-09-04 實撞:兩個字串 code point 逐字相同, 而測試紅。)
+    ['尚未就緒 ⇒ 叫他去那張單的採購區下訂', 'unknown' as const, /在商品清單裡的「採購\(向供應商訂貨\)」那一區下訂/],
+    ['已裝箱 ⇒ 叫他去出貨紀錄找', 'all_boxed' as const, /請到那張訂單的出貨紀錄找那一箱/],
+  ])('🔴 擋下時要說出【下一步】:%s', async (_label, reason, next) => {
     fetchShipmentCandidates.mockResolvedValue({
-      items: [
-        // 🔴 **這裡刻意【不用】 `not_arrived`** —— 呼叫端的閘 `:150` 是
-        //    `!anyShippable && !anyAwaiting`, 而 `anyAwaiting` = 有任何一件 not_arrived
-        //    ⇒ 🎯 **有 not_arrived 就開窗了, 這條訊息根本印不出來。**
-        //    ⇒ 📌 我第一版真的用了它 ⇒ 兩格紅 ⇒ **而那個紅是對的:世界造錯了, 不是尺壞了。**
-        { ...CANDIDATE, orderItemId: 'a', remaining: 0, blockedReason: 'all_boxed' },
-        { ...CANDIDATE, orderItemId: 'b', remaining: 0, blockedReason: 'unknown' },
-      ],
+      items: [{ ...CANDIDATE, remaining: 0, blockedReason: reason }],
       customerUserId: 'cu-A',
       recipient: RECIPIENT,
     });
@@ -201,18 +214,19 @@ describe('🔴 開窗的前置閘 — 兩種情況都不給開,而且各有自�
     click();
     await waitFor(() => expect(screen.queryByText(/沒有任何一件出得了/)).not.toBeNull());
     expect(
-      screen.queryByText(/要出貨請到它所在的那一箱/),
-      'all_boxed 出現了而沒說出路 ⇒ 員工知道「已裝進其他箱子」卻不知道要去哪一箱。',
-    ).not.toBeNull();
-    expect(
-      screen.queryByText(/最常見的原因是還沒跟供應商下訂/),
-      'unknown 出現了而沒說出路 ⇒ 而這正是走查那一發撞到的那一格。',
+      screen.queryByText(next),
+      '只說「出不了」而不說要做什麼 ⇒ 員工知道自己卡住了,不知道卡在哪一關 —— ' +
+        '而「出貨必先到貨」是拍板規則,不告訴他就是把規則藏起來。',
     ).not.toBeNull();
   });
 
-  // 🔴🔴 **這一格是負對照, 而它守的是「不要編一個出路」** ——
-  //    `cancelled` 是終態。給它一句下一步 = 把員工指去做白工, 而那比沒有下一步糟。
-  it('🔴 全部都是【已取消】→ **不出現「接下來」** —— 終態沒有出路,不編一個', async () => {
+  // 🔴🔴 **負對照:不要編一個出路** —— `cancelled` 是終態, 給它一句下一步 = 指員工去做白工。
+  //    少了它,一個「無條件附上下一步」的實作會照樣讓上面兩格全綠。
+  //
+  // 🔵 **斷言用 `/接下來:/` 而不是列舉那兩句話**(⛔ ~~`/請先到|請到那張訂單/`~~)——
+  //    列舉的版本只擋得住**今天這兩句**;哪天有人加第三句下一步而錯掛在 cancelled 上,
+  //    ⇒ 🎯 **列舉版照樣綠, 而這個版本會紅。**
+  it('🔴 全部已取消 ⇒ **不附下一步**(取消的單沒有下一步,不編一句出來)', async () => {
     fetchShipmentCandidates.mockResolvedValue({
       items: [
         { ...CANDIDATE, orderItemId: 'a', remaining: 0, blockedReason: 'cancelled' },
@@ -226,7 +240,8 @@ describe('🔴 開窗的前置閘 — 兩種情況都不給開,而且各有自�
     await waitFor(() => expect(screen.queryByText(/沒有任何一件出得了/)).not.toBeNull());
     expect(
       screen.queryByText(/接下來:/),
-      '對「已取消」也印一句下一步 ⇒ 那是編出來的:單子取消了, 員工做什麼都不會讓它出得了。',
+      '對一張全取消的單附上下一步 = 編一個看起來合理的東西, 而它是錯的:' +
+        '單子取消了, 員工做什麼都不會讓它出得了。',
     ).toBeNull();
   });
 
@@ -247,7 +262,7 @@ describe('🔴 開窗的前置閘 — 兩種情況都不給開,而且各有自�
     expect(t, '混合時「接下來」該出現而沒出現 ⇒ 有活路的那一件被終態拖著一起沉默。').toContain('接下來:');
     expect(
       t.match(/接下來:(.*)$/)?.[1] ?? '',
-      '「接下來」裡混進了終態的句子 ⇒ 而 cancelled 那一格的下一步是 null, 不該有字。',
+      '「接下來」裡混進了終態的句子 ⇒ 而 cancelled 那一格的下一步是空字串, 不該有字。',
     ).not.toContain('已取消');
   });
 

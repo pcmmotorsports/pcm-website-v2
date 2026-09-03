@@ -112,6 +112,13 @@ function OrderLine({ item }: { item: MemberOrderDetailItem }) {
             (改 src 會再觸發 load ⇒ 佔位圖也載不到時變成無限迴圈)。不另發明一條取圖路徑。
             ⚠️ imageUrl 為 null 的兩個成因(商品無圖 / **商品已下架 join 不到**)在這裡
                長得一樣,而兩者都該退到佔位圖 ⇒ 不分流。 */}
+        {/* 🔴 2026-09-03 **行為改變, 明寫**:`ProductImage` 現在用 `hasNoRealImage(image)` 判「有沒有真照片」
+            ⇒ 本頁那些 `imageUrl` 是「查無圖片」卡的品項, 從【顯示那張卡】改成【顯示站內佔位圖】。
+            🔵 兩者都是「沒有照片」的畫面, 而站內佔位圖是我們自己的、講得出「暫無照片」。
+            🛑 **而本頁【不傳 brandSlug】⇒ 永遠不會顯示品牌 logo**(卡片那條路會)。
+               理由:訂單品項只有 `item.brand`(顯示名), 而由顯示名衍生 slug 對 7 家會對不上
+               (`BONAMICI RACING`→`bonamici-racing` 而 key 是 `bonamici`)⇒ 猜一個會 404 的路徑不如不猜。
+               ✅ 要讓訂單頁也顯示 logo ⇒ 得先讓訂單品項帶 `brand_slug` 下來, 那是另一片。 */}
         <ProductImage image={item.imageUrl} label={item.title ?? item.variantSku} />
       </div>
       <div>
@@ -136,7 +143,26 @@ export type OrderDetailViewProps = {
 };
 
 export function OrderDetailView({ order }: OrderDetailViewProps) {
-  const paid = order.paymentStatus === 'paid';
+  /**
+   * ⟦ship-REFUNDEDPAIDSTEP⟧ **「付款完成」那一階問的是【他付過沒】, 不是【現在的狀態】。**
+   *
+   * ⛔ ~~`const paid = order.paymentStatus === 'paid'`~~ ⇒ 🔴 **`refunded` 的單它是 `false`**,
+   *    即使 `paidAt` 有值、客人**真的付過** ⇒ 那一階在畫面上是灰的。
+   * 🎯 **Sean 2026-09-04 拍甲**(他複誦了理由, 不只回了字母):逐字
+   *    「**他確實付過, 那是發生過的事實**」;而端他的理由是 ——
+   *    那條軸講的是**發生過什麼**, 不是現在的狀態(「訂單成立」也不會因為取消了就變灰);
+   *    而維持灰的代價是:**客人剛收到退款, 而畫面說我們沒收到錢 ⇒ 兩個訊息打架。**
+   * 🛑 **丙(打勾 + 多一格「已退款」)他沒選** ⇒ 不做:那是多一個狀態、多一份文案、多一個形狀。
+   *
+   * 🔵 **而 `partiallyRefunded` 是我加的, 不是他拍的** —— 理由要寫出來讓它可被推翻:
+   *    它的定義是「**退了一部分**、訂單仍有保留品項」(`types.ts:34-35`)⇒ **它蘊含之前已全額付款**
+   *    ⇒ 對它維持灰, 與 `refunded` 是**同一句錯話**。
+   *    🛑 而 `partiallyPaid`(只收了訂金)**不在裡面** —— 那個人**還欠錢**, 打勾會是謊。
+   */
+  const paymentCompleted =
+    order.paymentStatus === 'paid' ||
+    order.paymentStatus === 'refunded' ||
+    order.paymentStatus === 'partiallyRefunded';
   // 🔴🔴 **`#249`(2026-08-24):這一頁對【已取消 / 已逾期】的單從今天起才走得到。**
   //    在此之前 adapter 的 `.neq('payment_status','unpaid')` 把它們全濾掉了
   //    ⇒ **下面三格是「一段從來沒有人走過的路」被點亮之後才暴露出來的**,不是新做的功能:
@@ -153,7 +179,7 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
     // 🔴 日期只能用 `paidAt`(codex 關卡2 must-fix):延後付款或重試成功時,下單日與付款日
     //    可以差好幾天 ⇒ 拿 `createdAt` 冒充等於**印一個我們自己編的付款日**,而客人沒有第二個來源可以對。
     //    `paidAt` 為 null ⇒ **那一階不印日期**(狀態仍可標完成),不要退回 createdAt。
-    { t: '付款完成', d: order.paidAt === null ? '' : formatOrderDate(order.paidAt), ok: paid },
+    { t: '付款完成', d: order.paidAt === null ? '' : formatOrderDate(order.paidAt), ok: paymentCompleted },
     /**
      * ⟦b9-SHIPUI⟧ **這一階從包裹真相點亮**(Sean 2026-09-02 拍丙)。
      *
@@ -182,7 +208,33 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
      */
     { t: '已送達', d: '', ok: false },
   ];
-  const nowIdx = steps.reduce((n, s, i) => (s.ok ? i : n), 0);
+  // ⟦ship-CANCELSTEPS⟧ 取消單**沒有「現在這一步」** —— 它沒有下一步了。
+  const nowIdx = cancelled ? -1 : steps.reduce((n, s, i) => (s.ok ? i : n), 0);
+  /**
+   * ⟦ship-CANCELSTEPS⟧ 取消單**只留真的發生過的那幾階**。
+   *
+   * ⛔ ~~第一版寫的是「取消單整條軸不畫」, 而註解逐字寫著「不畫不會少掉任何事實」~~
+   *    🔴 **code-reviewer 2026-09-04 把那句打掉了, 而它是對的**:`paidAt` 與 `shippedAt`
+   *    **只住在這條軸上**(:156 / :173), 頁面沒有第二個顯示位置。
+   *    ⇒ 而那不是理論 —— `admin_mark_order_cancelled`(`20260902140000:316-330`)的三道閘是
+   *      `cancelled_at IS NULL` / `payment_method='tappay'` / `payment_status='refunded'`,
+   *      🔴 **零出貨相關的閘** ⇒ **一張部分出貨、全額退款之後被標記取消的單, 構造得出來。**
+   *    ⇒ ⇒ 🎯 **對那張單「整條不畫」會默默丟掉「何時付款 / 何時出貨」兩個【真事實】。**
+   * 📌 ⇒ 我第一版把「不該說未來式」修成了「什麼都不說」, 而那是**另一個方向的錯**。
+   */
+  //
+  // 🔴🔴 **而「發生過」的判準【不是 `s.ok`】—— 那一格是實跑逼出來的, 不是想出來的**:
+  //    `ok: paid` 而 `paid = paymentStatus === 'paid'`(:139)⇒ 🔴 **`refunded` 的單 `paid` 是 false**,
+  //    即使 `paidAt` 有值、客人**真的付過**。⇒ 只用 `s.ok` 過濾會**把付款日整格丟掉**,
+  //    而那正是 code-reviewer 打掉第一版的同一個理由(丟掉真事實), 換一個位置再犯一次。
+  //    ✅ ⇒ 判準改成「**有 `ok` 或有日期**」= 這件事**留下了痕跡**。
+  // ✅ **而那個相鄰缺陷已經修掉了**(⟦ship-REFUNDEDPAIDSTEP⟧, Sean 2026-09-04 拍甲):
+  //    `ok:` 現在吃 `paymentCompleted`(:139)⇒ `refunded` / `partiallyRefunded` 也算付過。
+  //    🔵 ⇒ 所以下面這個 `happened` 判準與它**是同一條規則的兩個射程**, 不是兩套邏輯:
+  //       「這件事**發生過**嗎」—— 一個管取消單要不要**顯示**那一階, 一個管那一階要不要**打勾**。
+  const happened = (s: (typeof steps)[number]) => s.ok || s.d !== '';
+  // 取消單上, 留下來的每一階都是**已經發生的事實** ⇒ 一律 done(它們不會再有進展)。
+  const shownSteps = cancelled ? steps.filter(happened).map((s) => ({ ...s, ok: true })) : steps;
   // 🔴 取消單一律走中性字面(見上面 ②)。`'訂單金額'` 是這張表裡既有的中性值,不是新造的字。
   const amountLabel = cancelled ? '訂單金額' : AMOUNT_LABEL[order.paymentStatus];
   // 收件三欄缺值印 `—`:**這裡缺值是異常、要看得出來**(與品牌那格刻意相反)。
@@ -239,8 +291,42 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
         </div>
       </div>
 
+      {/**
+        * ⟦ship-CANCELSTEPS⟧ 🔴🔴 **取消單【不畫進度軸】**(2026-09-04)。
+        *
+        * 🔬 **病灶是量到的, 不是讀碼推的** —— 拿既有的 `CANCELLED` fixture 渲染,
+        *    把 `[data-od-id="order-steps"]` 每個子節點的 class 與文字印出來, 實際是:
+        *      `od-step is-done is-now │ 訂單成立 2099-04-15`
+        *      `od-step               │ 付款完成`   ← 沒有 is-done
+        *      `od-step               │ 已出貨`     ← 沒有 is-done
+        *      `od-step               │ 已送達`     ← 沒有 is-done
+        *    ⇒ 🎯 **一張已經取消的單, 軸上有三格「還沒完成」的待辦, 而 `is-now` 落在第一格**
+        *      ⇒ 讀起來是「才剛開始, 下一步等付款」。
+        *    ⇒ 🔴 **而同一頁上方的徽章寫著「已取消」·`is-done`** ⇒ **一頁兩句相反的話。**
+        *    📌 而客人會信哪一個:**進度軸是圖形, 徽章是文字 —— 圖形贏。**
+        *
+        * 🔵 **它與 `#249` 是同一族, 而那正是這一格的內容**:`#249`(Sean 2026-08-24 拍甲)
+        *    逐字「一張已作廢的單在列表上與還付得了的單**逐欄相同**」。那次修好的是
+        *    **標題字**(`orderStatusLabel`)與**顏色**(`orderStatusTone`)—— 兩半都做了,
+        *    🛑 **而它正下方這條軸沒有被那次修法涵蓋。**
+        *    ⇒ 📌 **修一個被點名的實例不等於修那個類別** —— 而漏掉的那個**就在同一個畫面上**。
+        *
+        * ✅ **為什麼是【不畫】而不是【畫一條取消態的軸】—— 那是兩件急迫性差一個量級的事**:
+        *    · 「這條軸不該顯示成進行中」= **事實正確性**, 不需要任何設計決定 ⇒ 現在就做
+        *    · 「取消單**應該**顯示什麼」= 設計題 ⇒ 已端主視窗轉 Sean, **不在這一片**
+        *    ⇒ 🎯 **先拿掉錯的, 再問對的長什麼樣。**
+        * 🛑 而稿**答不出**這一格:`design-reference` grep(分母 176 檔, 本樹 submodule
+        *    原本未初始化 ⇒ init 之後才算數)只撈到 `HANDOFF.md:149` 的狀態字,
+        *    **不是進度軸的取消態** ⇒ 🔴 **那是【查無】, 不是【稿說要照印】。**
+        *
+        * ⛔ ~~「不畫【不會少掉任何事實】—— 軸上唯一為真的那格是『訂單成立 + 日期』,
+        *    而 `.od-head-meta` 已經印過」~~ ⇒ 🔴 **那句話是假的**(code-reviewer 2026-09-04):
+        *    `paidAt` / `shippedAt` **只住在這條軸上**, 頁面沒有第二個顯示位置。
+        *    ⇒ 所以修法從「整條不畫」改成「**只留真的發生過的那幾階、而且沒有 `is-now`**」。
+        *    📌 **⇒ 我第一版把「不該說未來式」修成了「什麼都不說」—— 另一個方向的錯。**
+        */}
       <div className="od-steps" data-od-id="order-steps">
-        {steps.map((s, i) => (
+        {shownSteps.map((s, i) => (
           <div
             key={s.t}
             className={`od-step${s.ok ? ' is-done' : ''}${i === nowIdx ? ' is-now' : ''}`}
@@ -278,7 +364,13 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
         * 📌 **而 jsdom 那幾格測試【全部通過】** —— 它們問的是「那句字在不在」,而它在。
         *    ⇒ 這一格只有真瀏覽器量得到(Sean 2026-08-17:「不用再用 artifacts,直接開伺服器做+看」)。
         */}
-      {order.shippedAt !== null && !order.allItemsShipped && (
+      {/* 🔴 ⟦ship-CANCELSTEPS⟧ **取消單不印這一句** —— 它與進度軸是同一個病:
+          「其餘商品出貨時會再通知您」對一張死掉的單是**假的**。
+          🔬 而它構造得出來(code-reviewer 2026-09-04 證的, 不是我猜的):
+          `admin_mark_order_cancelled` 零出貨閘 ⇒ 部分出貨 + 全額退款 ⇒ 可標記取消
+          ⇒ `shippedAt` 非空 · `allItemsShipped` 為 false · `cancelKind` = cancelled。
+          📌 而我第一版**只修了進度軸、指名了這一格卻沒動它** —— 那正是本片自己在講的病。 */}
+      {!cancelled && order.shippedAt !== null && !order.allItemsShipped && (
         <p className="acc-order-note" data-od-id="order-partial-shipment-note">
           {ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE}
         </p>

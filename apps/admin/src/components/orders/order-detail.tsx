@@ -29,6 +29,9 @@ import { OrderDetailTabs } from './order-detail-tabs';
 import { OrderDetailHeader } from './order-detail-header';
 import { OrderDetailMoneyTab } from './order-detail-money-tab';
 import { resolveOrderDetailTabFlags } from './order-detail-tab-routing';
+import type { CancelShipmentWarning } from '../../lib/orders/cancel-shipment-warning';
+import type { OrderItemReceiptRow } from '../../lib/orders/receipt-repository';
+import type { OrderShipmentGroup } from '../../lib/shipping/order-shipments';
 import { ShipmentSection } from './shipment-section';
 import type { PaymentListData } from './payment-list';
 import type { OrderRefundRow } from '../../lib/payment/refund-read';
@@ -113,6 +116,9 @@ export function OrderDetail({
   cancelFormsAllowed = false,
   customerHref = null,
   payments,
+  shipmentWarning,
+  receiptRows,
+  shipmentGroups,
 }: {
   detail: AdminOrderDetail;
   /**
@@ -199,6 +205,21 @@ export function OrderDetail({
    *    `unreadable` 說「讀取失敗」(對一個其實讀得到的頁面亂報錯)。忘了接**必須編不過**。
    */
   payments: PaymentListData;
+  /**
+   * 這張單「有沒有貨已經在路上」的判定(`OrderDetailRoute` 算好後往下傳)。
+   * 🔴 **必填、無預設**;本層只轉手不看內容(判準只有一份)。
+   */
+  shipmentWarning: CancelShipmentWarning;
+  /**
+   * 這張單的逐筆到貨紀錄(`#450`)。**`null` = 讀不到 / 被截斷**, 不是「沒有到貨」。
+   * 🔴 必填無預設 —— 給預設 `[]` 等於「忘了接就靜靜地說這張單沒有到貨過」。
+   */
+  receiptRows: readonly OrderItemReceiptRow[] | null;
+  /**
+   * 本單的包裹分組(`#450` 用來判「這個品項的到貨撤不撤得掉」)。**`null` = 讀不到。**
+   * 🔴 必填無預設;`null` 時判準回「擋」(量不到 ≠ 沒有包裹)。
+   */
+  shipmentGroups: readonly OrderShipmentGroup[] | null;
 }) {
   // 🔴 codex R2(拆檔片):原本這裡還算一顆 `cancelled` —— 消費端已全部隨 header/money 搬檔
   //    (兩支各自就地重算),主檔那份變成【零消費的死計算】而 typecheck 對它沉默。已刪;
@@ -329,6 +350,8 @@ export function OrderDetail({
                   『下一次動這支檔先抽再改』那條裁定,主視窗 2026-08-20 對【本次這一行】豁免;
                   對這支檔的【下一次非一行改動】仍然生效,不因本次豁免而作廢。 */}
               <ItemsTable
+                receiptRows={receiptRows}
+                shipmentGroups={shipmentGroups}
                 detail={detail}
                 payments={payments}
                 returnTo={returnTo}
@@ -381,6 +404,7 @@ export function OrderDetail({
                各段註解(危險操作沉底/兩顆鈕/收款位置的決策史)逐字在那裡。
                key/label/hashes 刻意留在本檔(MF-2 契約端與 #cancel 認領,源碼守門讀這裡)。 */
             <OrderDetailMoneyTab
+              shipmentWarning={shipmentWarning}
               detail={detail}
               returnTo={returnTo}
               payments={payments}

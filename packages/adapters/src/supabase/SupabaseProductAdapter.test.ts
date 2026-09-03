@@ -20,6 +20,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ProductId } from '@pcm/domain';
 import { SupabaseProductAdapter } from './SupabaseProductAdapter';
 import type { SupabaseProductRow } from './mappers/product';
+import { partNumberPattern, buildIlikeOrFilter } from './helpers/product-query-support';
 
 const DEALER_COLUMNS = ['price_store', 'price_by_tier', 'metadata', 'cost'];
 
@@ -1412,8 +1413,14 @@ describe('SupabaseProductAdapter.searchByKeyword — 多詞 AND + 料號欄(⟦�
 // ─────────────────────────────────────────────────────────────────────────────
 describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不在時走舊路', () => {
   function makeMock(rpcResult: { data: unknown; error: unknown }) {
-    const captured: { ors: string[]; rpcCalls: number; ranged: boolean; ins: string[][] } = {
-      ors: [], rpcCalls: 0, ranged: false, ins: [],
+    // 🔴 `rpcRanged` / `rpcRange` 與 `ranged` **刻意分開**(code-reviewer must-fix 3):
+    //    原本兩條路共寫同一個 `ranged` ⇒ RPC 先跑過 `.range()` 之後,
+    //    「舊路要真的送出查詢」那格**恆為 true** ⇒ 它標籤說的那件事已經量不到。
+    const captured: {
+      ors: string[]; rpcCalls: number; ranged: boolean; ins: string[][];
+      rpcRanged: boolean; rpcRange: [number, number] | null;
+    } = {
+      ors: [], rpcCalls: 0, ranged: false, ins: [], rpcRanged: false, rpcRange: null,
     };
     const builder: Record<string, unknown> = {};
     Object.assign(builder, {
@@ -1430,10 +1437,28 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
     });
     const client = {
       from: () => builder,
-      // 🔵 `.rpc()` 現在帶第三參數(range)⇒ mock 要收得下, 否則量到的是我的 mock 不是碼
-      rpc: (_fn: string, _args: unknown, _opts?: unknown) => {
+      // 🔴🔴 **2026-09-03 正式站故障之後改形狀 —— 而【舊的這個 mock 正是故障看不見的原因】**:
+      //    ⛔ ~~`rpc: (_fn, _args, _opts) => Promise.resolve(rpcResult)`~~
+      //       ↑ 收第三個參數、直接回 Promise ⇒ **它剛好長得跟【當時那份壞掉的碼】一樣**
+      //    🛑 而真的 `supabase-js@2.105.3` 是:第三參 `{head,get,count}`、
+      //       回一個 `PostgrestFilterBuilder`(`dist/index.d.mts:536`), `.range()` 掛在它身上。
+      //    ⇒ 📌 **mock 照著被測的碼長, 而不是照著真的 SDK 長 ⇒ 它只會確認「碼跟它自己一致」。**
+      //       那天正式站 503 了 11 次, 而這裡全綠。
+      //    ✅ 現在的形狀**跟著 SDK 走**:回 builder、`.range()` 才 resolve;
+      //       而 `rpc` 是**掛在 client 上的方法**(不是箭頭常數)⇒ 碼若再把它拆下來,
+      //       `this` 一樣會不見 ⇒ 下面那格 throw 測試會紅。
+      rpc(_fn: string, _args: unknown) {
         captured.rpcCalls += 1;
-        return Promise.resolve(rpcResult);
+        // 🔴 摸一下 `this` —— 這是「方法有沒有被拆下來」的**唯一**判別點。
+        //    拆下來呼叫時 `this` 是 undefined ⇒ 這一行就丟 TypeError(與真 SDK 同一種死法)。
+        void (this as unknown as { from: unknown }).from;
+        return {
+          range: (from: number, to: number) => {
+            captured.rpcRanged = true;
+            captured.rpcRange = [from, to];   // 🔴 記下兩端 —— 沒有這格, 改 `.range()` 的參數不會紅
+            return Promise.resolve(rpcResult);
+          },
+        };
       },
     };
     return { client: client as unknown as SupabaseClient, captured };
@@ -1525,6 +1550,71 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
     expect(captured.ors, '沒有 rpc 就走舊路').toHaveLength(2);
   });
 
+  // 🔴 **`.range()` 的兩端與 `RPC_ID_CAP` 那個哨兵, 在 2026-09-03 之前【零覆蓋】**
+  //    (code-reviewer important 4:`grep -n RPC_ID_CAP` 在本檔 0 命中,
+  //     而 mock 的 `range` 把兩個參數丟掉)⇒ 把 `.range(0, CAP)` 改成 `.range(0, 5)`
+  //     或整段刪掉 cap 哨兵, **全綠**。這兩格是那把尺。
+  it('🔴 RPC 要帶 `.range(0, RPC_ID_CAP)` —— 少了它會吃 PostgREST 的 db-max-rows 靜默截斷', async () => {
+    const { client, captured } = makeMock({ data: [], error: null });
+    await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
+    expect(captured.rpcRanged, '.range() 要真的被呼叫').toBe(true);
+    // 🔴 兩端都釘死:`.range()` 兩端皆含 ⇒ 0..1000 是 1001 筆 = cap + 1,
+    //    而「多要一筆」正是下面那格用來判斷「有沒有被截」的尺。
+    expect(captured.rpcRange).toEqual([0, 1000]);
+  });
+
+  it('🔴 RPC 回超過 cap(1001 筆)⇒ 可能被截 ⇒ 退回舊路, 不拿一份可能不完整的 id 清單', async () => {
+    const ids = Array.from({ length: 1001 }, (_, i) => ({ id: `p${i}` }));
+    const { client, captured } = makeMock({ data: ids, error: null });
+    await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
+    expect(captured.ors, '超過 cap 要走舊路').toHaveLength(2);
+  });
+
+  // 🔵 **nit 6 的守門**:`makeMock` 裡那個 `rpc(){}` 是本片對「方法被拆下來」的唯一判別點,
+  //    而它自己沒有人守 —— 誰把它改回 `rpc: () => {}`, 守門就無聲消失、零測試會紅。
+  it('🔵 mock 的 rpc 必須是【掛在 client 上的方法】—— 拆下來呼叫要當場 throw', () => {
+    const { client } = makeMock({ data: [], error: null });
+    const { rpc } = client as unknown as { rpc: (f: string, a: unknown) => unknown };
+    // ESM 恆 strict ⇒ 拆下來呼叫時 this 是 undefined ⇒ 與真 SDK 同一種死法。
+    expect(() => rpc('storefront_search_product_ids', {})).toThrow();
+  });
+
+  // 🔴🔴 **這一格是 2026-09-03 正式站故障(11 次 503)留下的守門。**
+  //    當時的退路只接得住**回傳的 `error` 物件**;而真正發生的是一個 **`throw`**
+  //    (方法被從 client 上拆下來 ⇒ `this` 不見 ⇒ `TypeError: … reading 'rest'`)
+  //    ⇒ 它**穿過整條退路**, 讓 `/api/search` 回 503。
+  //    📌 **⇒ 一道只接住其中一種失敗形狀的退路, 在另一種形狀上等於不存在 ——
+  //       而那兩種形狀在測試裡長得完全不一樣, 所以「有退路」不等於「接得住」。**
+  it('🔴 RPC 那條路【throw】⇒ 仍然退回舊路, 不得讓整個搜尋炸掉(正式站 503 的那一格)', async () => {
+    const { client, captured } = makeMock({ data: null, error: null });
+    (client as unknown as { rpc: unknown }).rpc = () => {
+      throw new TypeError("Cannot read properties of undefined (reading 'rest')");
+    };
+    // 🔴 第一個斷言:**它不可以往上丟**。少了這一行, 下面那行在 throw 時根本跑不到,
+    //    而 vitest 會把它報成「測試失敗」而不是「這個行為壞了」—— 診斷會指錯方向。
+    const res = await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', {
+      limit: 8, offset: 0,
+    });
+    expect(res).toBeDefined();
+    // 🎯 第二個斷言:**舊路真的走了**(兩個詞 ⇒ 兩組 or)—— 這才分得出
+    //    「沒炸掉」與「炸掉但被別人吞了」。
+    expect(captured.ors, 'throw 之後要走舊路').toHaveLength(2);
+  });
+
+  // 🔵 **負對照**:`.range()` 那一段丟出來的東西也要接得住 —— throw 可能發生在**兩個位置**
+  //    (呼叫 `rpc()` 當下、或 await 那個 builder 的時候), 而只擋前者會漏掉後者。
+  it('🔵 `.range()` 階段才 throw ⇒ 一樣退回舊路', async () => {
+    const { client, captured } = makeMock({ data: null, error: null });
+    (client as unknown as { rpc: unknown }).rpc = () => ({
+      range: () => Promise.reject(new Error('連線在 range 階段斷了')),
+    });
+    const res = await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', {
+      limit: 8, offset: 0,
+    });
+    expect(res).toBeDefined();
+    expect(captured.ors, 'range 階段 throw 之後也要走舊路').toHaveLength(2);
+  });
+
   it('🔵 RPC 回【空陣列】≠ RPC 不在 —— 前者直接回空, 不得退回舊路', async () => {
     // 📌 「這條路走過了而一筆都沒找到」與「今天沒有這條路」是兩件事,
     //    收斂成同一個會讓「真的沒有這件商品」變成「用比較差的方式再找一次」。
@@ -1536,5 +1626,94 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
     //    ⇒ 那一行是恆真的, 已拿掉。真正有判別力的是下面這兩行。
     expect(captured.ors, '空結果不該退回舊路').toHaveLength(0);
     expect(captured.rpcCalls, '應該是走了 RPC 才拿到空的').toBe(1);
+  });
+});
+
+// ── ⟦搜尋-料號正規化⟧ 2026-09-03 · Sean 逐字「打料號【一定要有】」──────────────
+//
+// 🔴 語氣分級不可合併(他同一分鐘內講的兩句):
+//    料號「**一定要有**, 而且要有- 無- 有空格無空格等等方式」⇒ 硬要求
+//    膠囊「**盡量就好**, 字詞、詞彙我們慢慢追加」            ⇒ best-effort
+describe('partNumberPattern — 料號的不同打法要指向同一顆', () => {
+  // 🔴🔴 **這一格是【唯一真的缺口】** —— 我量過四種打法才知道只缺這一種:
+  //    資料是 `AB-123` 時, 本函式之前 `AB-123`/`AB 123`/`ab-123` 三種**本來就會中**
+  //    (ILIKE 大小寫無關 · 空白會被切成兩詞 AND)⇒ **只有無分隔號那種不中。**
+  //    ⇒ 📌 少了這個認識, 很容易寫一個「四種都修」的大東西去修一個一格的病。
+  it('🔴 無分隔號的打法要切得開(這是唯一真的缺口)', () => {
+    expect(partNumberPattern('ab123')).toBe('ab%123%');
+  });
+
+  it('🔵 有分隔號/空白/底線 ⇒ 與無分隔號【產生同一個 pattern】', () => {
+    // 🎯 「同一個」才是 Sean 那句話的意思 —— 不是「都找得到」, 是**指向同一顆**。
+    const want = 'AB%123%';
+    for (const typed of ['AB-123', 'AB 123', 'AB_123', 'AB.123', 'AB/123']) {
+      expect(partNumberPattern(typed), `打法 ${typed}`).toBe(want);
+    }
+  });
+
+  // 🔴🔴 **錨定那一格 —— 主視窗擋下來要我先量, 而他是對的。**
+  //    未錨定版 `%ab%123%` 會撈進 `CRAB-99123` / `LAB-X-40123` / `GRAB-123MM` /
+  //    `SLAB123` / `FAB-1230`(語料 31 筆實測:10 件 vs 錨定版 5 件)。
+  //    ⇒ 📌 而料號搜尋最貴的失敗**不是漏掉, 是撈進一堆不相干的** —— 一頁雜訊等於沒找到。
+  it('🔴🔴 pattern **不得**以 % 開頭(開頭放 % ⇒ CRAB/LAB/GRAB 那一族全部會中)', () => {
+    const p = partNumberPattern('ab123');
+    expect(p).not.toBeNull();
+    expect(p!.startsWith('%'), '開頭有 % = 未錨定 = 雜訊那一族回來了').toBe(false);
+    expect(p!.endsWith('%'), '結尾要留 % —— 料號後面可能還有尾碼').toBe(true);
+  });
+
+  // 🛑 fail-closed 那一族:不適用時回 null, 呼叫端就只送原本那一發。
+  it.each([
+    ['純字母', 'akrapovic'],
+    ['純數字', '9650'],
+    ['中文', '油箱貼'],
+    ['中英混', 'mt07油箱'],
+    // 🔴🔴 **這一格換過內容 —— 原本餵 `'a1'.slice(0,1)` = `'a'`, 而那是【假綠】:**
+    //    它被上面「沒有數字」那道守門攔掉, **從來沒有到過 `segments.length < 2` 那一行**。
+    // ✅ 現在餵真的反例:`A#1` 含字母、含數字、純 ASCII, 而 `#` 卡在中間
+    //    ⇒ 字母與數字**不相鄰** ⇒ 那一刀切不下去 ⇒ 恆 1 段。
+    //    (`A+1` / `A(1` / `x$9` 同族;node 實測見 `product-query-support.ts` 那段。)
+    ['含字母數字而【不相鄰】(# 卡在中間)', 'A#1'],
+    ['同族:加號', 'A+1'],
+  ])('🔵 %s ⇒ 回 null(不適用, 不是出錯)', (_label, term) => {
+    expect(partNumberPattern(term)).toBeNull();
+  });
+
+  it('🔴 萬用字元【逐段轉義】—— 先串再整串轉義會讓 pattern 恆 0 筆', () => {
+    // 🛑 若先 join 再 escape, 我自己放的 `%` 會被轉成字面百分號
+    //    ⇒ 變成在找一個真的含 `%` 的料號 ⇒ **恆 0 筆, 而它不會報錯。**
+    const p = partNumberPattern('a%b1');
+    expect(p).toBe('a\\%b%1%');
+  });
+});
+
+describe('buildIlikeOrFilter — 料號那一發只掛在 external_id 上', () => {
+  // 🔴🔴 **為什麼不是每一欄**:`ab%123%` 比 `%ab123%` 寬。掛在 `description` 上時
+  //    「AB 車系適用, 長度 123mm」這種句子會中 ⇒ 關鍵字搜尋開始噴無關的東西。
+  it('🔴 額外那一發的欄位是 external_id, 不是 title/description', () => {
+    const f = buildIlikeOrFilter(['title', 'description', 'external_id'], 'ab123');
+    const extra = f.split(',').filter((c) => c.endsWith('ab%123%'));
+    expect(extra, '應該只多一發').toHaveLength(1);
+    expect(extra[0]).toBe('external_id.ilike.ab%123%');
+  });
+
+  it('🔵 負對照:欄位清單裡沒有 external_id ⇒ 一發都不加', () => {
+    const f = buildIlikeOrFilter(['title', 'description'], 'ab123');
+    expect(f.includes('ab%123%'), '沒有那一欄就不該憑空生一個 clause').toBe(false);
+  });
+
+  it('🔵 負對照:不像料號的詞 ⇒ 欄位數 = clause 數(沒有多送)', () => {
+    const cols = ['title', 'subtitle', 'description', 'external_id'];
+    expect(buildIlikeOrFilter(cols, 'akrapovic').split(',')).toHaveLength(cols.length);
+  });
+
+  it('🔴 像料號的詞 ⇒ 恰好多一發, 而原本那 N 發【一個都沒有被改掉】', () => {
+    const cols = ['title', 'subtitle', 'description', 'external_id'];
+    const parts = buildIlikeOrFilter(cols, 'ab123').split(',');
+    expect(parts).toHaveLength(cols.length + 1);
+    // 🎯 原本那幾發要**原封不動** —— 加功能不得順手改掉既有行為。
+    for (const col of cols) {
+      expect(parts).toContain(`${col}.ilike.%ab123%`);
+    }
   });
 });

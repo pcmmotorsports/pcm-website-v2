@@ -18,12 +18,18 @@
 //    ✅ 本片修的:
 //      ① `packages/adapters/…/mappers/product.ts`(詳情 / 精選 / 相關 / 搜尋)
 //      ② `apps/storefront/src/lib/catalog-page.ts`(`/products` 目錄頁與品牌頁, 走 RPC, **不經過 mapper**)
-//    🔴 **本片【沒有】修的**(code-reviewer R2 2026-09-02 抓到, 我開檔驗過):
-//      ③ `SupabaseFavoritesAdapter.ts:80` —— `row.products.images[0]` 直讀 base 表
+//    ⛔ ~~**本片【沒有】修的**(code-reviewer R2 2026-09-02 抓到)~~
+//      ③ `SupabaseFavoritesAdapter.ts` —— `row.products.images[0]` 直讀 base 表
 //         ⇒ `FavoritesTab.tsx:61` 客人的**收藏清單**
-//      ④ `mappers/order.ts:272` 與 `:1226` —— `pickFirstImage(...products?.images)`
+//      ④ `mappers/order.ts` 的 `pickFirstImage` —— 兩個呼叫端(列表卡片列 / 明細品項)
 //         ⇒ `OrdersTab.tsx:154` / `OrderDetailView.tsx` 客人的**訂單卡片與明細**
-//      🛑 ④ 動到 order 面 ⇒ **鐵則 12①** ⇒ 那不是順手補, 是另一片, 已交主視窗。
+//    ✅ 🔴 **2026-09-04 ③④ 都接上了**(⟦ship-ORDERIMG⟧, 線 `-ship`;鐵則 12① ⇒ codex 對抗審查已跑)
+//       ⇒ 🛑 **而「本片沒有修」那句話留著加刪除線是刻意的** —— 它記著一個
+//          **正確而會過期**的狀態句;而**沒有任何機制會在它過期的時候回來叫它**
+//          (與本檔下面「零收益」「改寫歷史」兩格同族, 這是第三格)。
+//       📌 而明細那條 `OrderDetailView` **本來就已經被 `ProductImage` 擋住了**
+//          (它自己呼叫 `hasNoRealImage`)⇒ ④ 真正漏的是**列表卡片**那一條。
+//          🔵 接上 adapter 那一層是縱深, 不是重複:判斷住在【資料出口】才管得到未來的顯示端。
 //      ⚠️ 而 ③④ 只證實**路徑存在**, **沒有**查「今天有沒有 GILLES 商品被收藏 / 被下單」。
 //
 // 🛑🛑 **⛔ ~~我原本在這裡寫「它有【兩個】消費者」~~ —— 而那是本檔第二次犯同一個病。**
@@ -50,8 +56,24 @@
  *      (`scripts/` 底下有子目錄)⇒ **那個 0 的分母比句子窄, 不要拿它當依據**
  *      —— `s1a-verify.sh` 的供應商名種子清單, **不是同步腳本** ⇒ 結論不變。
  *      🔴 兩個數字都留著:一個沒帶 pattern 與大小寫的「零命中」, 下一個人複量會撞到而懷疑自己。)
- *     那半在報價單那邊。`rpm-transform.ts` 的 `?? PLACEHOLDER_IMAGE` 只管 **RPM Carbon 一家**
- *     (`rpm-transform.ts:2` 逐字「RPM Carbon 同步」)⇒ 它對這一族**結構上到不了**。
+ *     那半在報價單那邊。⛔ ~~`rpm-transform.ts` 的 `?? PLACEHOLDER_IMAGE` 只管 **RPM Carbon 一家**~~
+ *     ⛔ ~~(`rpm-transform.ts:2` 逐字「RPM Carbon 同步」)⇒ 它對這一族**結構上到不了**。~~
+ *     🔴🔴 **2026-09-03 訂正(線【身分】查 1,011 列缺圖時撞到, code-reviewer 抓出這一段)——
+ *        上面【整段】的前提不成立, 而它是本檔選落點的三個理由之一。**
+ *        🔬 `scripts/supplier-config.ts` 逐字有 `lightech:`(:177) `extreme:`(:281) `dna:`(:323) `gilles:`(:359);
+ *        🔬 `.github/workflows/rpm-sync.yml:72` 的 matrix 逐字含 `lightech` / `dna` / `gilles`
+ *           (註記「🔴 dna+gilles 2026-08-27 Sean 拍甲補入」)⇒ **gilles 每天都在跑這支檔。**
+ *        ⇒ 🎯 **`rpm-transform.ts` 是【config 驅動的共用 transform】, 檔名只是歷史(rpm 是第一家)。**
+ *        ⚠️ **只有 extreme 那半仍成立**:它刻意不進每日 matrix(靜態一次性 fixture)—— 而它**仍在 supplier-config 裡**,
+ *           首灌時照樣經過本檔的上游 ⇒ **『結構上到不了』對 extreme 也只對「每日排程」那一半成立。**
+ *
+ *        🔴 **而【那把尺為什麼印 1】才是要記的**:它 grep 的是**網域字面**(`gillestooling|extreme-components`),
+ *        而同步腳本是**泛用的、以 slug 為鍵**(`supplier-config.ts` 的 `gilles:`)⇒ 🛑 **它結構上永遠不會提到網域。**
+ *        ⇒ 🎯 **那把尺問的是「`scripts/` 裡有沒有出現這個網域」, 而要答的是「這家有沒有同步路徑」。**
+ *        ⇒ 📌 **換一個字面再問一次就會分岔** —— 拿 slug 去 grep ⇒ 立刻命中。
+ *        ⇒ ⇒ 🔵 而那正是本檔第 88 行那一族的同一個母題:**一個誠實的讀數, 答的是另一個問題。**
+ *        🛑 **落點結論(mapper)本身沒有被推翻** —— 渲染層那個理由仍然成立;
+ *           但**不得再拿「同步層到不了」當理由**, 而**是否要在同步層【也】處理, 現在是一個開著的題**。
  *   · 渲染層:storefront 有**多支元件**渲染商品圖, 其中**多處是裸 `<img src={…}>`**
  *     (我數到 7 支 / 5 處, 而 code-reviewer 獨立數到 5 支 / 8 處 ⇒ **兩個數字都不複現**
  *      ⇒ 🔴 **數法未確認, 引用前自己數**;而結論不依賴那個數:只要 >1 處, 改渲染層就會漏)
@@ -88,7 +110,9 @@
  *   ⇒ ⇒ 而**那個壞法不會有人回報**。(🟢 負對照:今天掃 `/bild-` 在那兩條之外 = **0 支**——
  *   那是【今天】的讀數, 不是保證, 所以規則仍然分兩條。)
  *
- * 🛑 **`quote.pcmmotorsports.com/no-photo.png`(591 支)【不在】這張表裡** —— 那是 **PCM 自己的卡**
+ * 🛑 **`quote.pcmmotorsports.com/no-photo.png`(591 支 —— ⚠️ **射程未標**:那是 2026-09-02 的讀數,
+ *   哪個庫哪一層當時沒寫下來;2026-09-04 在**報價庫 `storefront_catalog_v`** 量到的是 **882 列**。
+ *   🔴 兩個數字都留著, 而**引用前先問是哪一個庫哪一層** —— 不要拿它們相減)【不在】這張表裡** —— 那是 **PCM 自己的卡**
  *   (親眼開圖:PCM logo + 紅色分隔線 + 「暫無照片」+ 「PCM MOTORSPORTS」)。
  *   濾掉它只會把一張 PCM 卡換成另一張 PCM 卡:零收益, 而多一個會漂的字面。
  *
@@ -99,13 +123,46 @@
  *   它是四條字面規則;供應商換一個檔名、或第五家供應商放一張新的佔位圖 ⇒ 它就漏,
  *   而客人那一側看起來完全正常。**監控那半沒有做**, 已另開一列。
  */
-const SUPPLIER_PLACEHOLDERS: ReadonlyArray<
+/**
+ * 🔴 **匯出是為了讓測試【由這張表驅動】** —— 加第五條規則時, `hasNoRealImage` 那幾格會自動涵蓋它。
+ *   不匯出的話, 測試只能自己重打一份樣本 ⇒ **而那份樣本不會跟著表長大**(那正是本檔警告過的分岔)。
+ */
+export const SUPPLIER_PLACEHOLDERS: ReadonlyArray<
   readonly [host: string, filePrefix: string]
 > = [
   ['www.gillestooling.com', 'spareparts-mit-tesxt'],
   ['www.gillestooling.com', 'bild-schraube-'],
   ['www.gillestooling.com', 'bild-folgt-in-kurze-'],
   ['www.extreme-components.com', 'noimage.jpg'],
+  // 🔴 2026-09-03 補三家(線【身分】量到:這三家共 39 列在用自家的 no-image 圖, 而它們不在表裡
+  //    ⇒ 客人看到【別家公司的「無圖」圖】, 而且我們外連他們的伺服器)。
+  //    🔬 **網址逐字**(2026-09-04 `SELECT DISTINCT` 撈回來貼上, 不是我打的 —— 三來源律):
+  //       `https://www.gbracing.eu/templates/GBRacing/Images/no-image-300x300.jpg`            (8 列)
+  //       `https://www.motogadget.com/cdn/shopifycloud/storefront/assets/no-image-2048-a2addb12_grande.gif` (4 列)
+  //       `https://rpmcarbon.com/cdn/shopifycloud/storefront/assets/no-image-2048-a2addb12_600x600_crop_center.gif` (27 列)
+  //    🔴 **`rpmcarbon.com` 沒有 `www.` —— 那不是漏打**(上面那一發撈回來就是這樣);
+  //       而 `:161` 是 `host === h` **嚴格相等** ⇒ 多打一個 `www.` 那 27 列一條都接不住,
+  //       🛑 而 `it.each(SUPPLIER_PLACEHOLDERS)` 是**拿表自己組 URL** ⇒ 對「字面填錯」**零判別力, 不會紅**。
+  //    🔵 **誤傷檢查**(同一發):全庫含 `no-image`/`noimage`/`no-photo` 的網址只有 **5 種**,
+  //       五種全是佔位圖 ⇒ 今天沒有任何真商品圖叫這個名字。⚠️ 那是**今天的讀數**, 不是保證。
+  //    🔴🔴 **2026-09-04 補:上面那一發的分母裡【結構上沒有 dbk】** —— 量它的時候
+  //       `dbk` 在網站庫是 **0 商品**(首灌前), 而首灌之後它是 3,727 列。
+  //       ⇒ 🎯 **一個「全庫只有 5 種」的讀數, 在有東西被加進來之後就不再是全庫。**
+  //       ✅ **對 dbk 重跑同一發**(唯讀, 2026-09-04 首灌後):七個 pattern
+  //          (`no-image`/`noimage`/`no-photo`/`nophoto`/`placeholder`/`default.jpg`/`coming-soon`)
+  //          ⇒ **dbk 命中 0** · `image_url` 為 NULL **0** · 非 https **0**
+  //       🟢 **而那個 0 有正對照**:同一組 pattern 掃全庫 ⇒ **命中 1,001 列 / 60,299**
+  //          ⇒ 📌 **尺會動, 所以 dbk 的 0 是真的 0。**
+  //       ⚠️ **而它仍然只是【今天的讀數】** —— dbk 每日同步已接上(`rpm-sync.yml` matrix),
+  //          來源哪天換一張佔位圖, 這張表照樣漏, 而**那正是本段開頭警告的那件事**。
+  //       🔵 **另記一個事實**(不是缺陷, 而它會影響那一列的優先度):dbk 3,727 列的圖
+  //          **全部外連 `www.dbkspecialparts.com` 單一主機**(相異主機數 = 1)⇒ 我們沒有轉存。
+  //    ⚠️ 前綴用 `no-image-`(帶尾巴的橫線)而不是 `no-image`:
+  //       前者釘住「這是一個檔名前綴」, 後者會連 `no-imagery-carbon.jpg` 這種真商品圖一起濾掉
+  //       —— 同檔上方 `bild-` 那段記過同一個坑(供應商明天放一張真照片叫那個名字)。
+  ['www.gbracing.eu', 'no-image-'],
+  ['www.motogadget.com', 'no-image-'],
+  ['rpmcarbon.com', 'no-image-'],
 ];
 
 /**
@@ -134,14 +191,98 @@ export function isSupplierPlaceholder(url: string): boolean {
 }
 
 /**
- * 陣列版:濾掉供應商佔位圖。全部濾光 ⇒ 回 `[]`。
+ * PCM 自己的「暫無照片」卡(2026-09-03 量:報價庫 `storefront_catalog_v` 有 **882 列**用它)。
+ * 卡面 = PCM logo + 紅線 + 「暫無照片」+ 「PCM MOTORSPORTS」。
  *
- * 🔴 **兩條讀取路徑必須用【同一份】`SUPPLIER_PLACEHOLDERS`**:
- *   · adapter mapper(詳情 / 精選 / 相關 / 搜尋)⇒ 用本函式
- *   · `/products` 目錄頁與品牌頁走 RPC ⇒ 那邊拿到的是**單一** `card_image` ⇒ 用 `isSupplierPlaceholder`
- *   ⇒ ⇒ 📌 **複製成兩份清單 ⇒ 它們會分岔, 而分岔不會紅** ——
- *      修好一半、另一半沒跟上, 而客人只會在其中一頁看到爛圖。
+ * 🛑 **它【刻意不在】`SUPPLIER_PLACEHOLDERS` 裡** —— 那張表的用途是「濾掉**別人家**的爛圖」,
+ *   而這張卡是我們自己的 ⇒ 兩件事分開判。
+ * ⛔ ~~原本這裡寫「濾掉它只會把一張 PCM 卡換成另一張, 零收益」+ 指向 catalog-page.test.ts 的
+ *   『PCM 自己的卡不得被濾掉』負對照~~ —— 🔴 **兩句都過期了**(2026-09-04):
+ *   那三份負對照**全部翻面**(見 `dropImagesWithoutRealPhoto` 的 docstring), 而「零收益」的前提已消滅。
+ * ✅ **現在守這個網域不被寫太寬的是**:本檔測試的
+ *   「PCM 網域上的**真商品圖** ⇒ `hasNoRealImage` 必為 false」那一格。
+ * ⇒ 🎯 **所以它住在這裡, 只給 `hasNoRealImage` 用。兩個謂詞回答兩個不同的問題。**
  */
-export function dropSupplierPlaceholders(images: readonly string[]): string[] {
-  return images.filter((url) => !isSupplierPlaceholder(url));
+const PCM_OWN_NO_PHOTO_CARD = ['quote.pcmmotorsports.com', 'no-photo.png'] as const;
+
+/**
+ * **這一筆有沒有【真的照片】** —— 與 `isSupplierPlaceholder` 是**兩個不同的謂詞**, 不要混用:
+ *
+ * ```
+ * isSupplierPlaceholder = 「這是【別人家】的佔位圖, 該濾掉」   119 列
+ * hasNoRealImage        = 「這一筆【沒有真照片】」             1,011 列
+ *                       = 前者 OR PCM 自己的卡 OR 根本沒有網址
+ * ```
+ * (數字為 2026-09-03 對報價庫 `storefront_catalog_v` `WHERE images IS NULL` 的量測,
+ *  拆開 = 882 PCM 卡 + 80 extreme(在表內)+ 39 不在表內 + 10 無網址。)
+ *
+ * 🔴 **它【必須】呼叫 `isSupplierPlaceholder`, 不得自己重打一份判斷** ——
+ *   本檔開頭警告過「複製成兩份清單 ⇒ 它們會分岔, 而分岔不會紅」。
+ *   ✅ 而那不是靠紀律:`supplier-placeholder.test.ts` 有一組 `it.each(SUPPLIER_PLACEHOLDERS)`,
+ *      **由那張表驅動** ⇒ 重打一份就會有格子紅。
+ *      🔬 **實測**(2026-09-03):把本函式改成自己重打一份、刻意少一條規則 ⇒ **1 紅 / 35**
+ *      —— 紅的正是被漏掉的那一條(`bild-folgt-in-kurze-`)。
+ *      ⚠️ **紅幾格 = 你漏了幾條規則**, 不是固定值;⛔ ~~本註解初稿寫「4 紅」~~ —— **那是我沒量就寫的數字。**
+ *
+ * 🛑 **fail-open 的方向是刻意的**:網址解析不了 ⇒ 回 `false`(當成「有圖」)。
+ *   理由:回 `true` 會讓畫面**拿品牌 logo 蓋掉一張真照片** ——
+ *   ⇒ 🎯 **這個謂詞的誤報成本比漏報高**, 所以它往「保留原圖」那一側倒。
+ *   (⚠️ 與 preflight 那一側相反 —— 那裡是「叫人去看」, 寧可多叫。**同一件事, 兩個消費端, 兩個方向。**)
+ */
+export function hasNoRealImage(url: string | null | undefined): boolean {
+  if (url === null || url === undefined || url.trim() === '') return true;
+  if (isSupplierPlaceholder(url)) return true;
+  try {
+    const u = new URL(url);
+    const file = u.pathname.slice(u.pathname.lastIndexOf('/') + 1).toLowerCase();
+    return u.hostname === PCM_OWN_NO_PHOTO_CARD[0] && file === PCM_OWN_NO_PHOTO_CARD[1];
+  } catch {
+    return false; // fail-open,理由見上
+  }
+}
+
+/**
+ * 陣列版:濾掉**沒有真照片**的網址(供應商佔位圖 + PCM 自己的卡)。全部濾光 ⇒ 回 `[]`。
+ *
+ * 🔴 **兩條讀取路徑必須用【同一個判斷】**:
+ *   · adapter mapper(詳情 / 精選 / 相關 / 搜尋)⇒ 用本函式
+ *   · `/products` 目錄頁與品牌頁走 RPC ⇒ 那邊拿到的是**單一** `card_image` ⇒ 直接用 `hasNoRealImage`
+ *   ⇒ ⇒ 📌 **複製成兩份判斷 ⇒ 它們會分岔, 而分岔不會紅** ——
+ *      修好一半、另一半沒跟上, 而客人只會在其中一頁看到爛圖。
+ *
+ * ─────────────────────────────────────────────────────────────
+ * 🔴🔴 **2026-09-04 推翻一個先前的拍板:PCM 自己的卡【現在也濾】。**
+ *
+ * ⛔ ~~原本叫 `dropSupplierPlaceholders`, 只濾別人家的;而 PCM 自己的卡刻意留著~~。
+ *    當時的理由逐字(`packages/adapters/.../product.test.ts` 檔頭):
+ *    「換成另一張 PCM 卡, **零收益**而多一次同步;而它在畫面上幾乎看不出差別」
+ *    🟢 **那個理由在當時是對的** —— 那時「沒有圖」的畫面就是另一張 PCM 卡。
+ *
+ * 🔴 **而兩件事讓它不再成立**:
+ *    ① Sean 2026-09-03 拍「無真照片 ⇒ **品牌 logo** + 小字暫無照片」
+ *       ⇒ 濾掉之後客人看到的是**那個品牌的 logo**, 不是另一張一樣的卡 ⇒ **收益不再是零**
+ *    ② 🔴🔴 **更重要**:`product.images` 有兩個**對外**的消費端 ——
+ *       `lib/product-jsonld.ts`(報給 Google)與 `app/products/[slug]/page.tsx`(OG 社群卡)。
+ *       它們**不呼叫** `hasNoRealImage` ⇒ 那 882 列會把「查無圖片」的卡**報給外部, 而外部會快取**。
+ *       ⇒ 🛑 **在顯示層逐處補判斷救不了它們** —— 漏掉一處不會紅, 而那正是先前漏掉這兩處的原因。
+ *    ⇒ 🎯 **⇒ 所以判斷要住在【資料出口】, 不是住在【每一個畫面】。**
+ *
+ * ⚠️ **而「零收益」那個理由的形狀值得記**:它不是錯的推理, 是**它的前提後來變了**
+ *    —— 而**沒有任何機制會在前提變的時候回來叫它**。
+ * ─────────────────────────────────────────────────────────────
+ *
+ * ⛔ ~~「快照不受本函式管:購物車 / 訂單 / 收藏存的是**下單當時**的網址, 不走這條路
+ *    ⇒ 它們仍會顯示當時那張卡。**那是刻意的 —— 改它是改寫歷史。**」~~
+ * 🔴🔴 **2026-09-04 那段話被實查推翻(⟦ship-ORDERIMG⟧;主視窗收回它自己拍過的板)**:
+ *    `order_items.product_snapshot` 的 CHECK 是 **exact key set `{title, sku, spec}`**
+ *    (`order_items_snapshot_whitelist` —— 拋棄式庫實撞:多一個 `brand` 鍵就被擋下)
+ *    ⇒ 🎯 **圖【結構上】不在快照裡。** 訂單頁與收藏是 **join 到現在的商品列**
+ *    (`mappers/order.ts` 的 `pickFirstImage` · `SupabaseFavoritesAdapter.ts` 的 `row.products.images[0]`)
+ *    ⇒ ⇒ 🔴 **今天換一張商品圖, 舊訂單卡片本來就跟著換** ⇒ 「改寫歷史」那個顧慮**不存在**。
+ *    ✅ 那兩處已於 2026-09-04 接上本函式。
+ * 📌 **而這段舊字面留著不刪是刻意的** —— 它是一個**推理正確、而前提後來變了**的例子,
+ *    與上面「零收益」那一格同族:**沒有任何機制會在前提變的時候回來叫它。**
+ */
+export function dropImagesWithoutRealPhoto(images: readonly string[]): string[] {
+  return images.filter((url) => !hasNoRealImage(url));
 }

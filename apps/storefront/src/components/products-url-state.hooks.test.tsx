@@ -182,7 +182,73 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
     expect(hoisted.refresh).toHaveBeenCalledTimes(1);
   });
 
-  it('⑥ server 回新 props(restoreSources 換 identity)但篩選未變 → 不得動 URL、不得洗掉 page', () => {
+  // ── ⟦搜尋-落點換 /products⟧ 2026-09-03 · Q2=A 的**後半** ────────────────────
+  //
+  // 🔴🔴 主視窗拍板逐字:「提示句;facet 仍可點, **點了就清掉關鍵字**」
+  //    ⛔ 我第一版只做了前半(提示句)⇒ code-reviewer 抓到:
+  //       關鍵字留在 URL 上, 而 `ActiveChips` 已經畫出一顆「已選」的膠囊
+  //       ⇒ 📌 **畫面聲稱清單被那個 facet 縮過, 而商品其實是關鍵字撈的、完全沒縮。**
+  it('⑲ 使用者動了 facet(關鍵字還在 URL 上)→ **必須清掉 search**', () => {
+    window.history.replaceState(null, '', '/products?search=cark9650&page=3');
+
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: null as CascadeFilterState['category'] } },
+    );
+    rerender({ category: { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'] });
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url, '沒有送出導覽 ⇒ 這一格什麼都沒驗到').toBeDefined();
+    expect(qs(url).get('search'), '關鍵字沒被清掉 ⇒ 膠囊會說謊').toBeNull();
+    // 🎯 而分類要真的寫進去 —— 少了這行, 一個「把整串 query 清空」的實作也會綠。
+    expect(qs(url).get('category')).toBe('操控部品');
+  });
+
+  // 🔴 code-reviewer 2026-09-04 Important 1:`unmatched` 是孤兒參數 —— 沒有任何路徑清它。
+  it('㉑ 使用者動了 facet → **必須**連 `unmatched` 一起清(否則那句話永久卡著)', () => {
+    window.history.replaceState(null, '', '/products?unmatched=%E5%A5%BD%E7%9C%8B%E7%9A%84&page=3');
+
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: null as CascadeFilterState['category'] } },
+    );
+    rerender({ category: { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'] });
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url, '沒送出導覽 ⇒ 這一格什麼都沒驗到').toBeDefined();
+    expect(qs(url).get('unmatched'), '沒清掉 ⇒ 「這幾個字沒用到」會講一個已經不存在的搜尋').toBeNull();
+  });
+
+  it('⑳ 🔵 負對照:URL 還沒追上 state 的那一拍(指紋未變)→ **不得**清掉 search', () => {
+    // 🔴🔴 **這一格是【第二版】—— 第一版到不了要測的那個世界, 而突變告訴了我。**
+    //    ⛔ 第一版構造「server 回新 props、URL 有 search」然後斷言 `replace` 沒被呼叫。
+    //    🛑 而那條路走的是**等值早退**, 根本到不了刪 search 那一行
+    //       ⇒ 無條件 `params.delete('search')` 在那個世界裡**行為完全相同**
+    //       ⇒ 📌 突變 M8(改成無條件)⇒ **20/20 全綠** = 那一格什麼都沒守。
+    //    ⇒ ✅ 改抄 ⑱ 的構造(它是專門為了「到得了寫入那一行」而造的):
+    //       `router.replace` 是非同步的 ⇒ 出現「state 有分類、URL 只有 page」這一拍,
+    //       此時**指紋沒變**(不是使用者操作)⇒ 會走到寫入, 而 search 必須留著。
+    //    📌 **一個到不了目標世界的測試, 在正向那一側會誠實地印綠。**
+    window.history.replaceState(null, '', '/products?search=cark9650&page=2');
+    const picked = { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'];
+    const sourcesA = { ...RESTORE_SOURCES };
+    const sourcesB = { ...RESTORE_SOURCES }; // 值同、identity 不同(= server 回新 props)
+
+    const { rerender } = renderHook(
+      ({ sources }: { sources: typeof sourcesA }) =>
+        useCatalogFilterUrlSync(cascade([], picked), EXTRAS, sources),
+      { initialProps: { sources: sourcesA } },
+    );
+    rerender({ sources: sourcesB });
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url, '沒走到寫入 ⇒ 這一格又到不了目標世界了').toBeDefined();
+    expect(qs(url).get('search'), '關鍵字被憑空清掉 —— 客人沒有動任何 facet').toBe('cark9650');
+  });
+
+  it('⑥ server 回新 props(restoreSources 換 identity)但篩選未變 → 不得洗掉 page', () => {
     // 🔴 分頁失效回歸守門(2026-07-19):本 effect 的 deps 含 restoreSources,而它在 ProductsPage
     // 是 useMemo(..., [categories, brands]) —— server 每回一次新 props 就換 identity。
     // 舊版無條件 `params.delete('page')` 於是把使用者剛翻到的 ?page=2 洗掉 → 內容退回第 1 頁。

@@ -25,6 +25,7 @@ import 'server-only';
 import type {
   ApplyOrderIneligibleGateDeps,
   EnqueueOrderCreatedEmailsDeps,
+  EnqueueOrderUnpaidCancelledEmailsDeps,
   EnqueueOrderShippedEmailsDeps,
   SweepEmailOutboxDeps,
 } from '@pcm/use-cases';
@@ -33,6 +34,7 @@ import {
   SupabaseEmailOutboxAdapter,
   SupabasePaidEmailContextAdapter,
   SupabasePaidOrderScannerAdapter,
+  SupabaseUnpaidCancelledOrderScannerAdapter,
   SupabaseIneligibleOrderEmailScannerAdapter,
   SupabaseShippedEmailContextAdapter,
   SupabaseShippedOrderScannerAdapter,
@@ -197,6 +199,26 @@ export function getEnqueueOrderShippedDeps(): EnqueueOrderShippedEmailsDeps {
       isSyntheticEmail: isSyntheticEmailDomain,
     }),
     scanner: new SupabaseShippedOrderScannerAdapter(createSupabaseServiceClient()),
+  };
+}
+
+/**
+ * 未付款被【員工】取消的通知信 —— 掃描端 deps(Sean 2026-09-03 拍甲)。
+ *
+ * 🔴 **刻意不共用 `getSweepEmailOutboxDeps()`** —— 與另外兩支同一個理由:
+ *    那支帶 Resend sender,而**排信這一步不該碰得到寄送管道**。
+ * 🛑 射程(不含逾時自動取消)寫在 `IUnpaidCancelledOrderScanner` 檔頭,這裡不重寫。
+ * 🔴 **位置**:本函式刻意放在 `getEnqueueOrderShippedDeps` 【之後】——
+ *    ⛔ 我第一版插在它的 JSDoc 與它自己之間 ⇒ **出貨那支變成零註解**,
+ *      而那段「scanner 讀 shipments / orders / customers」被我的函式接收了,**對它為假**。
+ *    📌 鐵則 6:註解必須跟著它解釋的那段碼(code-reviewer must-fix 3)。
+ */
+export function getEnqueueOrderUnpaidCancelledDeps(): EnqueueOrderUnpaidCancelledEmailsDeps {
+  return {
+    outbox: new SupabaseEmailOutboxAdapter(createSupabaseServiceClient(), {
+      isSyntheticEmail: isSyntheticEmailDomain,
+    }),
+    scanner: new SupabaseUnpaidCancelledOrderScannerAdapter(createSupabaseServiceClient()),
   };
 }
 

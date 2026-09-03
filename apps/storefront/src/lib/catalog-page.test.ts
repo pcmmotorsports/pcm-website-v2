@@ -151,9 +151,17 @@ describe('⟦fc-SUPPLIERPLACEHOLDER⟧ 目錄頁 RPC 路徑', () => {
     expect(catalogRowToUIProduct({ ...base, card_image: url }).image).toBeNull();
   });
 
-  it('🟢 負對照:PCM 自己的卡【不得】被濾掉', () => {
+  // 🔴🔴 **2026-09-04 這一格翻面 —— 而它是【同一個負對照的第三份】。**
+  //    ⛔ ~~原本:「負對照:PCM 自己的卡【不得】被濾掉」~~。同樣的斷言另外兩份在
+  //    `packages/domain/.../supplier-placeholder.test.ts` 與 `packages/adapters/.../product.test.ts`。
+  //    🛑 **我改了前兩份就以為改完了 —— 而三綠全綠(typecheck/lint/build 不跑測試), 是跑測試才紅的。**
+  //    📌 ⇒ **同一個規格散成三份斷言時, 改的人沒有任何東西會告訴他還有第三份** ——
+  //       抓到它的不是守門, 是我把測試也跑了一遍。
+  //    理由(全文在 `supplier-placeholder.ts` 該函式 docstring):Sean 拍「無真照片 ⇒ 品牌 logo」
+  //    ⇒ 濾掉不再是「零收益」;且 JSON-LD / OG 兩個對外消費端不呼叫 `hasNoRealImage`。
+  it('🔴 PCM 自己的卡【現在也濾】⇒ image = null(規格 2026-09-04 翻面)', () => {
     const pcm = 'https://quote.pcmmotorsports.com/no-photo.png';
-    expect(catalogRowToUIProduct({ ...base, card_image: pcm }).image).toBe(pcm);
+    expect(catalogRowToUIProduct({ ...base, card_image: pcm }).image).toBeNull();
   });
 
   // 🔵 附帶行為變化, 而它沒有被任何一格釘住(code-reviewer R2 nit):

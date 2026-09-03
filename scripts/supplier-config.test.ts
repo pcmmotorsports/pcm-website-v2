@@ -4,6 +4,8 @@
 // 任何改動這四個值 → CI 紅燈,防止參數化過程靜默回歸 1,117 個線上 RPM 頁。
 // 次要 = 試點兩家的對照值(brandSlug ≠ supplierSlug)與 fail-closed throw 路徑。
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { getSupplierConfig, SUPPLIER_CONFIGS } from './supplier-config';
 
@@ -128,7 +130,7 @@ describe('getSupplierConfig', () => {
     expect(cfg.variantImages).toBe('per-variant'); // 222 群多變體、最大群 7
   });
 
-  it('should register exactly the pilot set + 品牌放量 8 家(2026-07-10)+ akrapovic(07-19)+ extreme/kspeed(07-24)+ dna(08-20)+ gilles(08-27)', () => {
+  it('should register exactly the pilot set + 品牌放量 8 家(2026-07-10)+ akrapovic(07-19)+ extreme/kspeed(07-24)+ dna(08-20)+ gilles(08-27)+ dbk(09-04)', () => {
     // 防呆:誰未查證就多塞一家 → 這條逼他改測試同時面對「已 MCP 查證了嗎」。
     // 2026-07-24 品牌上架第三批補 extreme(第 15 家、commit 9a2f62a/d756651)+ kspeed(第 16 家、
     //   commit 2b5cba1;supplierSlug='kspeed'、brandSlug='k-speed' 拼法分岔)並開寫首灌。
@@ -140,11 +142,90 @@ describe('getSupplierConfig', () => {
     //   而 supplier-config.ts 那側的註解數的是【真供應商】⇒ 同一家會有兩個編號。
     //   實量(2026-08-27):登記表總鍵數 18 / 真供應商 17 / gilles 是第 17 家真供應商。
     //   ⇒ 要引用數量請用這三個量到的數字,不要用序數。
+    // 2026-09-04 補 dbk(第 18 家真供應商;supplierSlug=brandSlug='dbk',拼法未分岔),
+    //   ⛔ ~~writeAllowed=false 起手(fail-closed 零寫入)~~ ⇒ 🔴 **2026-09-04 06:xx Sean 逐字
+    //   「甲 上」批首灌 ⇒ 已翻 true**(落點 `~/pcm-mailbox/等Sean拍的題-20260903.md:2648`;
+    //   授權射程 = 只此一家、只此一次)。**舊字面留著劃掉**, 讓搜「待 Sean 批」的人同一發撞到。
+    //   🔬 首灌實測(獨立查網站庫, 非採信腳本自印):dbk 商品 **1,508** / 變體 **3,727** / 落未分類 **0**;
+    //     站上 22,804 ⇒ **24,312** · 變體 54,016 ⇒ **57,743** · 有商品的品牌 18 ⇒ **19**。
+    //   翻 true 之前 preflight 八格全綠 + 乾跑四格有判別力的
+    //   關卡全綠(分類 1508/0 未對上 · handle 批內唯一 · pv_spec 撞鍵 0 · 新品驗價 M1 逐筆相符),
+    //   M2 群數指紋 1508 = 1508。
+    //   🔴 而「乾跑全綠」照 runbook §3-b 打折:首灌 target=0 ⇒ 價格離群與來源消失對賬【恆綠】
+    //   (本次輸出逐字印 `target 現存上架: 0`)、handle 與 pv_spec 對 target 那半無分母。
+    //   🟢 負對照當場跑過:`--expect-groups=9999` ⇒ 印 `🔴 ALERT 群數指紋 abort`,而 **rc 兩個世界都是 0**
+    //   ⇒ 這道閘要看畫面、不能看 rc(runbook §3-a 復現)。
     // __gated_canary__ = 永久 guard 測試靶(非真供應商、writeAllowed 恆 false);底線排序在字母前。
     expect(Object.keys(SUPPLIER_CONFIGS).sort()).toEqual([
       '__gated_canary__',
-      'akrapovic', 'bonamici', 'cncracing', 'dna', 'eazigrip', 'ebc', 'evotech', 'extreme',
+      'akrapovic', 'bonamici', 'cncracing', 'dbk', 'dna', 'eazigrip', 'ebc', 'evotech', 'extreme',
       'front3d', 'gbracing', 'gilles', 'kspeed', 'lightech', 'materya', 'motogadget', 'rpm', 'samco',
     ]);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 supplier-config.ts ↔ rpm-sync.yml 對帳(2026-09-04 線【帳號】立)
+//
+// 病灶【逐字引自 .github/workflows/rpm-sync.yml】:
+//   「dna+gilles 2026-08-27 Sean 拍甲補入 —— 兩家【首灌後漏加】, 顧客站價格凍在首灌快照
+//     而來源每天更新;病灶 = 決定寫在 supplier-config.ts 那句『起排入每日班』
+//     而沒寫進本檔, **兩支之間零對帳**」
+//
+// 🎯 那個坑咬過【兩次】, 而兩次都是「灌完之後」漏的 —— 而漏掉時**沒有任何東西會叫**:
+//    兩份檔各自都是對的, 壞的是它們【之間】。⇒ 這一格就是那個「叫」。
+//
+// 🔴 而它為什麼是一道測試而不是一句提醒:提醒要有人記得看, 而首灌那一刻沒有人會回頭看。
+//    翻 writeAllowed=true 的那一秒, 這一格就紅 —— 而那正是該補 matrix 的那一秒。
+// ══════════════════════════════════════════════════════════════════════════
+describe('supplier-config ↔ rpm-sync matrix 對帳', () => {
+  /**
+   * 🔴 刻意不進每日 matrix 的家, 與**理由**。
+   * ⚠️ 這不是「白名單」而是【對帳的另一端】—— 下面用【嚴格相等】比,
+   *    所以多一家漏加會紅, **少一家(有人把 extreme 加進 matrix)也會紅**。
+   *    ⇒ 這張表自己不會靜靜過期。
+   */
+  const DELIBERATE_EXCLUSIONS: Record<string, string> = {
+    extreme: '靜態一次性 fixture、無每日更新來源(supplier-config.ts 該筆註解 + rpm-sync.yml 逐字「刻意不列」)',
+  };
+
+  function matrixSuppliers(): string[] {
+    const yml = readFileSync(join(__dirname, '..', '.github', 'workflows', 'rpm-sync.yml'), 'utf-8');
+    const m = /supplier:\s*\[([^\]]*)\]/.exec(yml);
+    // 自檢:抽不到就是正規式與檔案格式對不上 ⇒ 下面整段會恆真
+    expect(m, 'rpm-sync.yml 抽不到 matrix.supplier ⇒ 正規式與檔案格式對不上, 本組會恆真').not.toBeNull();
+    const list = m![1]!.split(',').map((x) => x.trim()).filter(Boolean);
+    expect(list.length, 'matrix 抽出 0 家 ⇒ 同上, 本組會恆真').toBeGreaterThan(5);
+    return list;
+  }
+
+  it('🔴 writeAllowed=true 的每一家都要在每日 matrix 裡(漏加 ⇒ 價格凍在首灌快照, 而沒有東西會叫)', () => {
+    const wa = Object.values(SUPPLIER_CONFIGS).filter((c) => c.writeAllowed).map((c) => c.supplierSlug);
+    const mat = new Set(matrixSuppliers());
+    const missing = wa.filter((s) => !mat.has(s)).sort();
+    expect(
+      missing,
+      `這幾家已開寫而不在每日 matrix ⇒ 顧客站價格會凍在首灌快照。` +
+        `若是刻意不列, 把它加進 DELIBERATE_EXCLUSIONS 並寫理由;否則補進 rpm-sync.yml。`,
+    ).toEqual(Object.keys(DELIBERATE_EXCLUSIONS).sort());
+  });
+
+  it('🔴 matrix 裡的每一家都要 writeAllowed=true(否則那個 job 會【天天紅】)', () => {
+    // 🔬 量到的:rpm-import.ts:149 `if (CONFIRM_WRITE && !config.writeAllowed) throw`
+    //    ⇒ 排進 matrix 而沒開寫 = 每日 job exit 1 ⇒ 一道對常態發的警報, 而它會被關掉。
+    const wa = new Set(Object.values(SUPPLIER_CONFIGS).filter((c) => c.writeAllowed).map((c) => c.supplierSlug));
+    const extra = matrixSuppliers().filter((s) => !wa.has(s)).sort();
+    expect(extra, '這幾家排進了每日 matrix 而 writeAllowed=false ⇒ 那個 job 會天天 exit 1').toEqual([]);
+  });
+
+  it('🔴 例外表自己不會過期:每個例外都要仍然存在且仍然 writeAllowed=true', () => {
+    for (const [slug, why] of Object.entries(DELIBERATE_EXCLUSIONS)) {
+      expect(SUPPLIER_CONFIGS[slug], `例外表列了「${slug}」而它已經不在 SUPPLIER_CONFIGS 裡 ⇒ 刪掉這個例外`).toBeDefined();
+      expect(
+        SUPPLIER_CONFIGS[slug]!.writeAllowed,
+        `例外表列了「${slug}」而它現在 writeAllowed=false ⇒ 它本來就不該進 matrix, 這個例外是多餘的`,
+      ).toBe(true);
+      expect(why.length, `例外「${slug}」沒有寫理由`).toBeGreaterThan(10);
+    }
   });
 });

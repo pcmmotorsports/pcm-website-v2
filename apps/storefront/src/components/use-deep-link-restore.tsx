@@ -42,8 +42,34 @@ export function useDeepLinkRestore(opts: {
   dispatch: Dispatch<CascadeFilterAction>;
   skipPageResetOnce: MutableRefObject<boolean>;
   brandAppliedOnce: MutableRefObject<boolean>;
+  /**
+   * 🔴🔴 **關鍵字結果頁 ⇒ 整支不還原**(⟦搜尋-落點換 /products⟧ R2 must-fix,2026-09-03)。
+   *
+   * `/products?search=` 走的是關鍵字資料路(`lib/search.ts` 的 ILIKE),而**那條路吃不到
+   * 任何 facet**(品牌/分類/價格/車款都在 RPC 那條路上)。而本 hook 會把 URL 上的 facet
+   * 灌進 `cascade`,而 `cascade` 被傳給 `FilterSide` / `CascadeFilterTop` /
+   * `ProductsMobileControls` / **`PageHeader`(頁面標題!)** ——
+   * ⇒ 📌 **每一個都會把它畫成「已選」, 而清單根本沒被它縮過。**
+   *
+   * ⛔ ~~我第一版只在 `ProductsPage` 把 `ActiveChips` 藏起來~~
+   * 🛑 **那是修了被點名的那一個實例, 不是修那個類別** —— R2 逐字抓到 `FilterSide` 的
+   *    checkbox 照樣打勾(`FilterSide.tsx:149-156` 的 `selected.includes`)。
+   *
+   * 🔴🔴 **而我自己另外量到一格比 R2 那個更糟, 因為它【不需要網址上有任何 facet】**:
+   *    本 hook 逐字 `const v = urlVehicle ?? vehicleFromContext(motoBrands);`
+   *    ⇒ URL 沒有 vehicle 時**回退讀全站選車鏡**
+   *    ⇒ 客人先選了車、再搜一個關鍵字 ⇒ 網址乾乾淨淨 `/products?search=X`
+   *    ⇒ ⇒ **標題印「Yamaha MT-07」而商品是關鍵字撈的、完全沒按那台車過濾。**
+   *    ⇒ 📌 R2 那個要手打網址;**這一格是正常動線。**
+   *
+   * ✅ 所以閘在**這裡**(源頭)而不是在五個消費端:`cascade` 保持空
+   *   ⇒ 膠囊/側欄/標題/手機控制項**自動全部一致**。改一處, 不是改五處。
+   */
+  keywordActive: boolean;
 }): void {
   useEffect(() => {
+    // 🔴 這一行必須在**所有**還原動作之前(含 `vehicleFromContext` 那個回退)。
+    if (opts.keywordActive) return;
     const { searchParams, motoBrands, categories, productBrands, dispatch, skipPageResetOnce, brandAppliedOnce } = opts;
     const urlVehicle = parseVehicleFromUrl(searchParams, motoBrands);
     // Q28①:URL 沒有車才回退讀全站選車鏡(URL 恆為第一真相、鏡不得覆蓋)。

@@ -27,6 +27,13 @@ vi.mock('next/navigation', () => ({
   }),
   // M-1-13I Bug 1:ProductsPage useSearchParams 讀 URL vehicle(+#6 page/sort/per lazy init)
   useSearchParams: () => hoisted.search,
+  // ⟦搜尋-落點換 /products⟧ 2026-09-03:`SearchKeywordChip` 的 ✕ 要組回同一頁的網址
+  // ⇒ 它讀 `usePathname()`。**缺這一鍵 ⇒ 本檔【每一格】都紅**(實測 35 紅),
+  //    而錯誤訊息是 `No "usePathname" export is defined on the "next/navigation" mock`
+  //    ⇒ 與上面 `refresh` 那一鍵是同一族的坑:**這個 mock 是白名單,元件多讀一支 hook 就炸。**
+  // 🔵 而它回固定字串就夠 —— 本檔沒有一格在驗「✕ 之後導去哪」
+  //    (那一格在 `SearchKeywordChip.test.tsx`,它自己 mock 自己的)。
+  usePathname: () => '/products',
 }));
 
 import { ProductsPage } from './ProductsPage';
@@ -262,6 +269,57 @@ describe('ProductsPage', () => {
 });
 
 // #6:page/sort/perPage URL round-trip(back 回列表不重置;Sean 2026-07-03 實測回報)
+// ── ⟦搜尋-落點換 /products⟧ 2026-09-03 · code-reviewer must-fix ──────────────
+//
+// 🔴🔴 **關鍵字在的時候, facet 膠囊不得出現。**
+//    直接開 `/products?search=X&vehicle=Y`(不必點任何東西)時, `ActiveChips` 會從 URL
+//    還原出一顆「已選」的膠囊 ⇒ 📌 **它聲稱清單被那個條件縮過, 而商品是關鍵字撈的、
+//    完全沒被縮。** 而一句靜態提示擋不住它 —— 提示說「篩選要先移除關鍵字才生效」,
+//    膠囊就在那句正下方說「我已經生效了」⇒ **兩個聲明互相矛盾, 而客人信膠囊。**
+// ⚠️ 用 `category=駐車架` 而不是 `vehicle=` —— 本檔 `MOTO_BRANDS` 是**空 fixture**,
+//    車輛 slug 解析不出東西 ⇒ 造不出膠囊。**我第一版就是拿 vehicle 寫的, 負對照當場紅了。**
+//    ⇒ 📌 那格紅的價值:它告訴我「我以為造出了那個世界, 而我沒有」。
+describe('ProductsPage × 關鍵字結果不得畫 facet 膠囊', () => {
+  // 🔴 **本 describe 自帶分類 fixture** —— 外層那份 `CATEGORIES` 裡沒有「駐車架」,
+  //    而分類解析不到 ⇒ 膠囊造不出來 ⇒ **負對照會紅**(我第一版就是這樣紅的兩次:
+  //    先拿 `vehicle=`(MOTO_BRANDS 是空 fixture)、再拿外層 CATEGORIES)。
+  //    ⇒ 📌 那兩次紅的價值一模一樣:**它們告訴我「我以為造出了那個世界, 而我沒有」。**
+  //    ⇒ ⇒ 而若我當初只寫正向那格, 它會**直接綠** —— 因為「膠囊不存在」正是它要的答案。
+  //      🛑 **一個造不出目標世界的測試, 在正向那一側會誠實地印綠。**
+  const CATS_WITH_STAND = [{ id: 'cat-stand', name: '駐車架', count: 1, children: [] }];
+
+  it('🔴 有 searchKeyword + URL 有車 ⇒ 車輛膠囊【不出現】, 而關鍵字那顆要在', () => {
+    hoisted.search = new URLSearchParams('search=cark9650&category=駐車架');
+    const { container } = render(
+      <ProductsPage
+        products={FIXTURE}
+        error={false}
+        categories={CATS_WITH_STAND}
+        motoBrands={MOTO_BRANDS}
+        searchKeyword='cark9650'
+      />,
+    );
+    expect(container.textContent).toContain('搜尋:cark9650');
+    // 🎯 `.ac-chip` 是 ActiveChips 與關鍵字膠囊共用的 class ⇒ 數它:只該有關鍵字那一顆。
+    expect(container.querySelectorAll('.ac-chip')).toHaveLength(1);
+  });
+
+  it('🔵 負對照:沒有 searchKeyword + URL 有分類 ⇒ 膠囊【照樣出現】(既有行為零變動)', () => {
+    hoisted.search = new URLSearchParams('category=駐車架');
+    const { container } = render(
+      <ProductsPage
+        products={FIXTURE}
+        error={false}
+        categories={CATS_WITH_STAND}
+        motoBrands={MOTO_BRANDS}
+      />,
+    );
+    // 🛑 少了這一格, 一個「把 ActiveChips 整個拿掉」的實作也會讓上面那格綠。
+    expect(container.querySelectorAll('.ac-chip').length).toBeGreaterThan(0);
+    expect(container.textContent).not.toContain('搜尋:');
+  });
+});
+
 describe('ProductsPage #6 browse-state URL round-trip', () => {
   // 30 件 fixture:預設每頁 25 → 2 頁,可觀察 page 還原/重置
   const MANY: MockProduct[] = Array.from({ length: 30 }, (_, i) => ({
@@ -282,6 +340,42 @@ describe('ProductsPage #6 browse-state URL round-trip', () => {
     // 🔴 正向斷言必用 getByText(absent 即 throw);queryByText(...).toBeDefined() 是空斷言(回 null 仍過)
     expect(screen.getByText('碳纖維部品30號')).toBeDefined();
     expect(screen.queryByText('碳纖維部品1號')).toBeNull();
+  });
+
+  // 🔴🔴 **R2 must-fix:排序在關鍵字路上【不生效】, 所以畫面不得聲稱它生效。**
+  //    `searchByKeyword(query, params, opts)` **沒有 sort 那一格**(逐字看過簽名)
+  //    ⇒ 而還原 `?sort=price-asc` 會讓 `<select>` 顯示「價格低到高」已選
+  //    ⇒ 📌 **那是一個「已經照這個排了」的聲明, 而清單根本沒排。**
+  it('🔴 有 searchKeyword + ?sort= ⇒ 排序選單顯示【預設】, 不得顯示 URL 上那個', () => {
+    hoisted.search = new URLSearchParams('search=cark9650&sort=price-asc');
+    render(
+      <ProductsPage
+        products={MANY.slice(0, 25)}
+        total={30}
+        error={false}
+        categories={CATEGORIES}
+        motoBrands={MOTO_BRANDS}
+        searchKeyword='cark9650'
+      />,
+    );
+    expect(screen.getByDisplayValue('推薦排序'), '顯示 URL 上的排序 = 承諾了做不到的事').toBeDefined();
+    expect(screen.queryByDisplayValue('價格低到高')).toBeNull();
+  });
+
+  it('🔵 負對照:沒有 searchKeyword + ?sort= ⇒ 照樣還原(既有行為零變動)', () => {
+    // 🛑 少了這一格, 一個「永遠不還原 sort」的實作也會讓上面那格綠 ——
+    //    而那會打壞客人分享的排序連結, 而畫面上完全正常。
+    hoisted.search = new URLSearchParams('sort=price-asc');
+    render(
+      <ProductsPage
+        products={MANY.slice(0, 25)}
+        total={30}
+        error={false}
+        categories={CATEGORIES}
+        motoBrands={MOTO_BRANDS}
+      />,
+    );
+    expect(screen.getByDisplayValue('價格低到高')).toBeDefined();
   });
 
   it('should fall back to defaults on invalid params (fail-safe 白名單)', () => {

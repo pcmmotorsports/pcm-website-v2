@@ -71,6 +71,43 @@ function mapImages(images: ({ url: string } | string)[] | null | undefined): str
  * - 'per-variant'(bonamici/cncracing/gbracing、2026-07-04 view 實測):view.images 已是該變體
  *   自己的圖組、直接全用不過濾(RPM 前綴規則對這些家檔名永遠 miss —— sku 後跟 / . _ 而非 '-',
  *   過濾會把全部變體圖丟成 [] = 選色不換圖)。
+ *
+ * ─────────────────────────────────────────────────────────────
+ * 🛑 **不要在這裡加「images 空就退回 v.image_url」的 fallback** —— 2026-09-03 量過, 那會製造假圖。
+ *
+ * 來源 view `storefront_catalog_v` 有 **1,011 列 `images IS NULL`**(2026-09-03 量, 9 家:
+ * lightech 726 · gilles 96 · extreme 80 · wrs 37 · rpm 37 · dna 20 · gbracing 8 · motogadget 4 · rizoma 3)。
+ * 🔬 **在 `FILTER (WHERE images IS NULL)` 這個子集裡**逐家 `COUNT(DISTINCT image_url)` = **1**
+ *    ⇒ 整家共用同一個網址 ⇒ 🎯 **80 件不同商品不可能共用一張照片** ⇒ 那不是照片, 是「查無圖片」的卡。
+ *    ⚠️ 射程:這個 1 是**該子集內**的, 不是「lightech 全家共用一個網址」。
+ *
+ * 🔴 **而那 1,011 列【不是同一種東西】, 拆開才看得懂**(2026-09-03 量):
+ *   · **882** `https://quote.pcmmotorsports.com/no-photo.png` ⇒ 🟢 **PCM 自己的卡**(我們自己的網域;
+ *     卡面 = PCM logo + 紅線 + 「暫無照片」)。**不是供應商的圖, 沒有外連別人。**
+ *     ⛔ ~~本註解初版寫「那是供應商站上的佔位圖」/「我們外連他家伺服器」~~ —— **那兩句對這 882 列是錯的。**
+ *     📎 來源不是我推的:`packages/domain/src/catalog/supplier-placeholder.ts:90-92`(有人親眼開過圖)。
+ *   · **80** extreme-components.com/noimage.jpg ⇒ 供應商佔位圖, **已被既有黑名單擋掉**。
+ *   · **39** gbracing / motogadget / rpm 的 no-image ⇒ 🔴 供應商佔位圖 **不在黑名單** ⇒ **真缺口**(外連他家伺服器)。
+ *   · **10** rpm, `image_url` 也是 NULL ⇒ 連卡都沒有。
+ *
+ * 🔴 **既有答案在別處, 先讀它再動手** —— `packages/domain/src/catalog/supplier-placeholder.ts`
+ *    已上線的 `SUPPLIER_PLACEHOLDERS`(host + 檔名前綴, 4 條, 兩條讀取路徑在用),
+ *    並有負對照測試 `apps/storefront/src/lib/catalog-page.test.ts:154-157`「PCM 自己的卡【不得】被濾掉」。
+ *    🛑 **不要再做第二份清單** —— 該檔自己警告過「複製成兩份 ⇒ 它們會分岔, 而分岔不會紅」。
+ *    ⛔ ~~本註解初版寫「不要維護佔位圖檔名黑名單」~~ —— **那句在這裡是錯的建議**:黑名單已經是這個 repo 的既有設計,
+ *    而它與 `DISTINCT=1` **盲區互補**(黑名單會被下一種檔名穿過;DISTINCT 在家數少時訊號弱)⇒ **兩把都留。**
+ *
+ * ⇒ 🛑 **退回 image_url = 把「查無圖片」的卡當商品圖塞進變體圖庫。空圖庫比假圖庫好。**
+ * ⇒ 🔴 **而群封面那條路已經吃到它了**:`repImage` 第一順位就是 `variants.find(v => v.image_url)?.image_url`,
+ *      而卡片網址是非空字串 ⇒ 命中 ⇒ **`PLACEHOLDER_IMAGE` 對這 1,011 列永遠到不了**(見 repImage 處註解)。
+ *
+ * ⚠️ **射程**:`wrs` / `rizoma` **尚未登記進 `supplier-config.ts`**(`getSupplierConfig` fail-closed throw)
+ *    ⇒ 那 40 列**目前結構上不經過本檔**;上面列它們是因為那是**來源 view 的分佈**, 不是本檔管得到的範圍。
+ *
+ * 📌 **這一族的判別句**(我在同一個假設上錯了四次才寫下來):
+ *    **我這道檢查在問「這個欄位有沒有被填」, 還是「裡面那個東西是不是真的」?**
+ *    ①`NULL ILIKE` 回 NULL ②只讀 images 一欄 ③`image_url` 非 NULL 就算有圖 ④以為封面會走我們自己的 placeholder
+ *    ⇒ **四次都換了寫法, 沒換問題。**
  */
 function ownVariantImages(v: SourceProductRow, strategy: VariantImageStrategy): string[] {
   if (strategy === 'per-variant') return mapImages(v.images);
@@ -321,6 +358,11 @@ export function transformGroup(
   //   ⇒ 處置照鐵則 10 進 backlog(不修未來會痛在哪:客人看到一件要錢的商品標 NT$ 0)。
   const priceGeneral = roundTwd(basis.price_retail); // 🔴 view.price_retail → 網站 price_general(零售)
   // 群代表圖:第一個非空 image_url → 任一變體 images[0] → placeholder
+  // 🔴 2026-09-03 量到的缺口(未修, 待 Sean 拍板上架方式後一起處理):
+  //    來源 1,011 列的 image_url 是供應商站的「查無圖片」佔位圖(no-photo.png / noimage.jpg / no-image-….gif),
+  //    而它是**非空字串** ⇒ 第一順位就命中 ⇒ 🛑 **下面那個 PLACEHOLDER_IMAGE 對這些列永遠到不了。**
+  //    ⇒ 後果兩層:①商品封面顯示的是**別家公司的**「無圖」圖 ②我們**外連他家伺服器**(他們換路徑就破圖)
+  //    ⇒ 📌 而這條 fallback 鏈讀起來完全正確 —— 錯的不是鏈, 是「image_url 有值 = 有圖」這個假設。
   const repImage =
     variants.find((v) => v.image_url)?.image_url ??
     variants.flatMap((v) => mapImages(v.images))[0] ??

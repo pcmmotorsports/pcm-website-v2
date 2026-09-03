@@ -37,7 +37,13 @@ export const SEARCH_PAGE_LIMIT = 25;
 
 // 🔴 上限本體住在 `search-shape.ts`(client 也讀得到)—— 疊層要用**同一個值**顯示,
 //    否則畫面上那句「沒有找到『…』」指的不是實際跑的那個查詢。
-//    而截斷【動作】只發生在本檔,因為疊層與 `/search` 兩條路都經過這裡
+//    ⚠️ **2026-09-03 訂正:截斷【不只】發生在本檔了。**
+//    `lib/catalog-query.ts` 的 `parseCatalogQuery` **也截一次**,而那**不是遺留、是刻意**:
+//      `/products?search=` 那條路的**顯示端**(`SearchKeywordChip`)讀的是 parser 的回傳值,
+//      而它必須與被查的字串是**同一個運算式**(否則膠囊印 150 字而只查了前 100)。
+//    ⇒ 📌 兩處吃**同一個常數**(`search-shape.ts`),對已截斷的字串再截一次是 idempotent。
+//    ⇒ 🔵 本檔這一道**留著**的理由:疊層那條路**不經過 parser**。
+//    而截斷【動作】在本檔仍然覆蓋所有經過本檔的路徑,因為疊層與 `/search` 兩條路都經過這裡
 //    (codex 2026-09-02 must-fix 2:截斷做在 route ⇒ 兩個畫面對同一輸入給相反答案)。
 // 📌 判別句:一條規矩要放在【所有路徑都會經過】的那一層,不是放在你剛好在改的那一層。
 export { SEARCH_MAX_QUERY_LENGTH } from '@/lib/search-shape';

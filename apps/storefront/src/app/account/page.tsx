@@ -232,7 +232,9 @@ export default async function AccountPage(
     //      沒有 N 就是讀取失敗,不是「總數 0」** —— 靜默轉 0 會印出「顯示 20 筆 / 共 0 筆」。
     if (ledgerError || ledgerRows === null || ledgerCount === null) {
       // 🔴 **讀不到 ≠ 沒有交易** —— 退化成空陣列會讓畫面對客人說「尚無交易紀錄」,而那是說謊。
-      //    ⇒ 帶一個獨立旗標上去,由 `WalletTab` 顯示「暫時讀不到」。頁面仍 200、不倒其他分頁。
+      //    ⇒ 帶一個獨立旗標上去,由 `WalletTab` 顯示「讀不到」。頁面仍 200、不倒其他分頁。
+      //    🔴 2026-09-03 訂正舊字面 ~~「暫時讀不到」~~ —— **「暫時」在 PGRST116(那一列不存在)那個世界是假的**;
+      //    完整判準與那句話為什麼要提【結帳】,在 `lib/account-profile-copy.ts`(單一權威)。
       console.error('[account/page] 儲值金明細讀取失敗:', {
         error: ledgerError,
         rowsIsNull: ledgerRows === null,
@@ -268,7 +270,11 @@ export default async function AccountPage(
   let phone = '';
   let birthday = '';
   let gender = '';
-  if (customerError) {
+  // 🔴 2026-09-03(code-reviewer nit)加上 `|| !customerRow` —— **同一支檔 :233 對 ledger 早就這樣守了**
+  //    (那一格的註解逐字寫著它是對抗審查的 must-fix:「① error 有值 ② data 是 null 而 error 也是 null」)。
+  //    ⚠️ **誠實標注**:`.single()` 語意下「兩個都 null」我**沒能證明可達** ⇒ 這是防禦性的, 不是修一個已知 bug。
+  //    ✅ 而它是 fail-safe 的:錯的方向只會多講一句話, 不會少講 —— 而少講那一側的代價是客人結不了帳。
+  if (customerError || !customerRow) {
     // PGRST116(row missing、trigger handle_new_auth_user 應已建、極罕)或 RLS/session 異常 → 退化、不 500
     console.error('[account/page] customers row 讀取失敗、退化 general/0/metadata-name:', customerError);
     // 🔴 餘額那一格改成「讀不到」而不是「0」—— 見上面 `walletBalanceFailed` 的理由。
