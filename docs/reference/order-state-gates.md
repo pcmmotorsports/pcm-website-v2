@@ -21,7 +21,7 @@
 | 函式 | 代數 | 各代 (檔:行) | 🔴 live 那代 |
 |---|---|---|---|
 | `admin_add_shipment_items` | **4** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:119<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:631<br>20260807180000_m4b_e10_b2_w3b2_add_shipment_items.sql:83<br>20260807230000_m4b_e10_b2_w4b_impl_extract_and_no_batch.sql:294 | `20260807230000_m4b_e10_b2_w4b_impl_extract_and_no_batch.sql:294` |
-| `admin_cancel_order` | **4** | 20260804180000_m4b_e10_a8a1_admin_cancel_order.sql:83<br>20260805100000_m4b_e10_a8a2_partial_cancel.sql:80<br>20260820030000_m4b_e10_a8a3_cancel_gate_noncard.sql:253<br>20260830020000_m4b_e10_cancel_reason_neutral.sql:115 | `20260830020000_m4b_e10_cancel_reason_neutral.sql:115` |
+| `admin_cancel_order` | **5** | 20260804180000_m4b_e10_a8a1_admin_cancel_order.sql:83<br>20260805100000_m4b_e10_a8a2_partial_cancel.sql:80<br>20260820030000_m4b_e10_a8a3_cancel_gate_noncard.sql:253<br>20260830020000_m4b_e10_cancel_reason_neutral.sql:115<br>20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:79 | `20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:79` |
 | `admin_compute_order_settlement` | **3** | 20260811030000_m4b_e10_op6a_compute_order_settlement.sql:50<br>20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356<br>20260901030000_m4b_zero_total_settle.sql:1646 | `20260901030000_m4b_zero_total_settle.sql:1646` |
 | `admin_create_manual_order` | **3** | 20260824020000_m4b_858_admin_create_manual_order.sql:186<br>20260829140000_m4b_b2c_manual_order_explicit_tax_total.sql:97<br>20260831180000_m4b_spec1_manual_order_authoritative_spec.sql:100 | `20260831180000_m4b_spec1_manual_order_authoritative_spec.sql:100` |
 | `admin_create_saved_order_view` | **2** | 20260828080000_m4b_b4views1_saved_order_views.sql:301<br>20260828090000_m4b_b4views1a_request_id_gate.sql:52 | `20260828090000_m4b_b4views1a_request_id_gate.sql:52` |
@@ -30,6 +30,7 @@
 | `admin_finalize_order_refund` | **2** | 20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:612<br>20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql:245 | `20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql:245` |
 | `admin_initiate_order_refund` | **2** | 20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:423<br>20260812170000_m4b_lifecycle_l5b2_2f_initiate_advisory.sql:480 | `20260812170000_m4b_lifecycle_l5b2_2f_initiate_advisory.sql:480` |
 | `admin_list_saved_order_views` | **2** | 20260828080000_m4b_b4views1_saved_order_views.sql:260<br>20260828090000_m4b_b4views1a_request_id_gate.sql:510 | `20260828090000_m4b_b4views1a_request_id_gate.sql:510` |
+| `admin_mark_order_cancelled` | **2** | 20260902140000_m4b_mark_order_cancelled.sql:206<br>20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:593 | `20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:593` |
 | `admin_mark_shipment_shipped` | **4** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:140<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:659<br>20260807190000_m4b_e10_b2_w3c3_mark_shipped.sql:110<br>20260808100000_m4b_e10_b2_w7d1_ship_deadlock_retry.sql:177 | `20260808100000_m4b_e10_b2_w7d1_ship_deadlock_retry.sql:177` |
 | `admin_record_item_receipt` | **3** | 20260810233000_m4b_e10_352a2_receipt_write_rpcs.sql:53<br>20260811010000_m4b_e10_352c_item_level_room_guard.sql:23<br>20260814100000_m4b_e10_452_2a2a_adjacent_writers_voided_split.sql:608 | `20260814100000_m4b_e10_452_2a2a_adjacent_writers_voided_split.sql:608` |
 | `admin_record_manual_payment` | **2** | 20260810200000_m4b_e10_op5_record_manual_payment.sql:106<br>20260812150000_m4b_e10_423_payment_audit.sql:74 | `20260812150000_m4b_e10_423_payment_audit.sql:74` |
@@ -306,6 +307,26 @@
 **允許集合(逐字)**
 
 `:307` OR v_order.cancelled_at IS NULL<br>`:316` IF v_order.cancelled_at IS NOT NULL THEN<br>`:450` 🔴 三道閘住在函式裡:cancelled_at IS NULL · payment_method = tappay · payment_status = refunded。
+
+### `admin_cancel_order`  ·  `20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql`
+
+**改什麼狀態**
+
+`:483` INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)<br>`:488` INSERT INTO public.order_cancellation_items (cancellation_id, order_id, order_item_id, cancelled_quantity)<br>`:493` INSERT INTO public.order_cancellation_items (cancellation_id, order_id, order_item_id, cancelled_quantity)<br>`:519` SET cancelled_at = pg_catalog.now(),
+
+**允許集合(逐字)**
+
+`:223` FROM public.order_cancellations<br>`:244` IF (v_order.cancelled_at IS NOT NULL) <> (NOT EXISTS (<br>`:251` IF v_order.cancelled_at IS NULL THEN<br>`:276` JOIN public.order_cancellations c ON c.id = (g.after->>'cancellation_id')::uuid<br>`:313` IF (v_order.payment_status <> 'unpaid'::public.payment_status<br>`:314` AND NOT (v_order.payment_status = 'paid'::public.payment_status<br>`:320` WHERE pa.order_id = p_order_id AND pa.status <> 'failed') THEN<br>`:349` OR v_audit.before->>'payment_status' NOT IN ('unpaid', 'paid')<br>`:373` IF v_closed AND v_order.cancelled_at IS NULL THEN<br>`:381` IF v_order.cancelled_at IS NOT NULL THEN<br>`:389` OR EXISTS (SELECT 1 FROM public.order_cancellations c<br>`:410` IF (v_order.payment_status <> 'unpaid'::public.payment_status<br>`:411` AND NOT (v_order.payment_status = 'paid'::public.payment_status<br>`:417` WHERE a.order_id = p_order_id AND a.status <> 'failed') THEN<br>`:483` INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)
+
+### `admin_mark_order_cancelled`  ·  `20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql`
+
+**改什麼狀態**
+
+`:782` SET cancelled_at            = pg_catalog.now(),
+
+**允許集合(逐字)**
+
+`:706` OR v_order.cancelled_at IS NULL<br>`:715` IF v_order.cancelled_at IS NOT NULL THEN
 
 ---
 
