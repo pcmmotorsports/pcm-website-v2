@@ -164,7 +164,7 @@ describe('⟦b4-CANCELKINDBYCONTENT⟧ · 員工打的字不得撞上保留字�
   // 🔵🔵 **這一格【曾經是 `it.fails`】, 而它在本 commit 轉正。**
   //    當時的形狀:洞還在 ⇒ 內層斷言失敗 ⇒ `it.fails` 綠(不把 CI 弄紅);
   //    而修法一進 repo, 它就變紅 —— 而它真的叫了。
-  //    ⇒ ✅ 修法落地(`20260903070000_m4b_b4cancelkind_reject_reserved_reason.sql`)之後轉成正常 `it`,
+  //    ⇒ ✅ 修法落地(`20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql`)之後轉成正常 `it`,
   //      所以**未來有人把那道拒絕拿掉時, 它會再叫一次**。
   //    🔴 **而 `it.fails` 那段歷史留在這裡是刻意的** —— 它記著一件只有跑過才知道的事:
   //      `it.fails` 變紅時 vitest **只印 `Error: Expect test to fail`**,

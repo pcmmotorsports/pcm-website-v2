@@ -1,4 +1,4 @@
--- 20260903070000_m4b_b4cancelkind_reject_reserved_reason.sql
+-- 20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql
 -- ⟦b4-CANCELKINDBYCONTENT⟧ · 員工原文不得撞上機器碼 `payment_expired`
 --
 -- 🔴 **病**:`orders.cancelled_reason` 那一欄裝的是**中文散文**(七值映射),
@@ -562,7 +562,7 @@ BEGIN
   IF v_old IS NULL THEN
     RAISE EXCEPTION 'COMMENT 附加:讀不到既有 COMMENT ⇒ 停下(不要用一句新的蓋掉三代契約)';
   END IF;
-  IF pg_catalog.position('20260903070000' in v_old) > 0 THEN
+  IF pg_catalog.position('20260903093000' in v_old) > 0 THEN
     RAISE EXCEPTION 'COMMENT 附加:看起來已經附加過 ⇒ forward-only,拒重跑';
   END IF;
   EXECUTE pg_catalog.format(
@@ -573,7 +573,7 @@ BEGIN
           || '拒絕而不改寫:改寫會讓冪等回放端的 IS DISTINCT FROM 比對爆掉。'
           || '🛑 射程=精確、大小寫敏感、不正規化(對齊讀端 JS ===);'
           || '而**未關單的 partial cancel 也一樣擋** —— 它不寫對客欄,擋它是刻意的過度涵蓋,'
-          || '理由是那個字對員工從來就不是一個合法的說明。落點 20260903070000。');
+          || '理由是那個字對員工從來就不是一個合法的說明。落點 20260903093000。');
 END
 $$;
 
@@ -848,14 +848,14 @@ BEGIN
   IF v_old IS NULL THEN
     RAISE EXCEPTION 'COMMENT 附加:admin_mark_order_cancelled 讀不到既有 COMMENT ⇒ 停下';
   END IF;
-  IF pg_catalog.position('20260903070000' in v_old) > 0 THEN
+  IF pg_catalog.position('20260903093000' in v_old) > 0 THEN
     RAISE EXCEPTION 'COMMENT 附加:看起來已經附加過 ⇒ forward-only,拒重跑';
   END IF;
   EXECUTE pg_catalog.format(
     'COMMENT ON FUNCTION public.admin_mark_order_cancelled(uuid,uuid,text,text,text) IS %L',
     v_old || ' 🔴 2026-09-03(⟦b4-CANCELKINDBYCONTENT⟧):p_reason_code=''other'' 的員工原文'
           || '不得逐字等於 `payment_expired`(理由與射程同 admin_cancel_order 同日那段)。'
-          || '🛑 兩支函式的這道拒絕**必須同字面** —— 只改一支等於沒改。落點 20260903070000。');
+          || '🛑 兩支函式的這道拒絕**必須同字面** —— 只改一支等於沒改。落點 20260903093000。');
 END
 $$;
 
