@@ -1519,3 +1519,39 @@ describe('🔵 未付款取消信線的收件人計數(⟦b4-NORECIPIENTWINDOW�
     ).rejects.toThrow(/get_order_unpaid_cancelled_gap_counts/);
   });
 });
+
+/**
+ * 🔴 `[U5]` —— **這一格的存在理由是【別的檔要引用它】**。
+ *
+ * `anomaly-alert-key-contract.test.ts` 的 `FAIL_LOUD_RPCS` 是一張註冊表,
+ * 而那張表逐字要求「**分堆是開檔看的, 不是猜的**」。
+ * 🛑 而「開檔看」得到的是一個**推論**(`parseCount(undefined)` ⇒ NaN ⇒ throw),
+ *    ⇒ 📌 **一個推論被寫進註冊表之後, 它與量到的事實長得一模一樣。**
+ * ✅ 所以這一格**真的餵一個少一把鍵的回應**進去, 讓那個分堆有一個量到的來源。
+ */
+describe('🔵 未付款取消線:缺鍵的分堆依據(給 key-contract 那張註冊表用)', () => {
+  it('[U5] RPC 在、而回應【少一把鍵】⇒ throw(= fail-loud, 不是安靜變 null)', async () => {
+    const c = twoQueryClient(
+      FULL, undefined, true, undefined, true, undefined, true, undefined, true,
+      { paid_no_email_count: 7, no_recipient_count: 2, orders_total_count: 23 }, false,
+      undefined, true, undefined, true,
+      // 🔴 少了 `pending_count` —— 其餘兩把鍵都在, 所以這一格量的是【缺鍵】本身,
+      //    不是「回了垃圾」(那是 [U4] 那一格)。
+      { no_recipient_count: 3, orders_total_count: 23 },
+    );
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600, null, 900, '2026-08-22T00:00:00.000Z', null),
+    ).rejects.toThrow(/get_order_unpaid_cancelled_gap_counts/);
+  });
+
+  it('[U6] 🔵 負對照:三把鍵都在 ⇒ 不 throw(否則 U5 的紅可能來自別的原因)', async () => {
+    const c = twoQueryClient(
+      FULL, undefined, true, undefined, true, undefined, true, undefined, true,
+      { paid_no_email_count: 7, no_recipient_count: 2, orders_total_count: 23 }, false,
+      undefined, true, undefined, true,
+      { pending_count: 5, no_recipient_count: 3, orders_total_count: 23 },
+    );
+    const r = await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600, null, 900, '2026-08-22T00:00:00.000Z', null);
+    expect(r.unpaidCancelledPendingCount).toBe(5);
+  });
+});
