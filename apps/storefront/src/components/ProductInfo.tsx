@@ -267,8 +267,31 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
   return (
     <aside className="pd-info">
       {/* M-1-16c-4a:料號顯選中變體真 sku(隨 selectSpec 連動;Sean Q1=A、取代原 PCM-{id hash} 亂碼數)。
-          無變體 mock fallback 用 slug(sane、非 hash;design VariantCFull.jsx L81 原 PCM-XXXXX 格式退場)。 */}
+          無變體 mock fallback 用 slug(sane、非 hash;design VariantCFull.jsx L81 原 PCM-XXXXX 格式退場)。
+
+          🔴🔴 **Sean 2026-09-03 拍 `Q23 = 丙`:兩個編號都印並標清楚。**
+          🛑 **而丙【不會讓料號變成搜得到】—— 它只是讓客人知道該抄哪一個。**
+             真正的修法是甲(要貼 SQL, 排在丙之後)。⇒ **不要拿本片去說「料號搜尋修好了」。**
+
+          🔬 **病灶(量到的)**:這一行印的是 `variant.sku`,而顧客站搜尋比對的是
+             `products.external_id`(= `product.productCode`)——
+             `product-query-support.ts` 的 `SEARCHABLE_COLUMNS` 只有
+             title / subtitle / description / external_id, **`sku` 結構上不在 `products_public` 上**。
+          ⇒ 📌 **客人照著這一行抄去搜, 搜不到。** 而它**有時候搜得到**(兩個號剛好相同時)
+             ⇒ **客人分不出這一次是哪一種。**
+
+          ⚠️ **標籤那兩個字是【暫用】, 等 Sean 定** —— 他批的是「兩個都印」,
+             而題目第③格逐字寫著「料號 / 產品型號兩個叫法六個地方在用而**沒有任何一筆拍板**,
+             你順手定一下叫法」⇒ **他沒答那一格。**
+          🛑 **暫用字面刻意【不用】「料號」或「產品型號」任一個** —— 那兩個名字正是他要拍的東西,
+             用了就是替他選了一個。這裡用「搜尋用」:它描述**功能**不是**命名**,
+             而它同時就是客人現在最需要知道的那件事(該抄哪一個)。
+          📌 **TODO(等 Sean 拍叫法)**:兩個標籤定案後回來換掉這裡的字面。 */}
       <div className="pd-sku">{product.brand} · {selectedVariant?.sku ?? product.slug}</div>
+      {/* 🔵 只在【兩個號不同】時才多印一行 —— 相同時多印一次會讓客人以為那是兩件事。 */}
+      {product.productCode && product.productCode !== (selectedVariant?.sku ?? product.slug) ? (
+        <div className="pd-sku pd-sku-searchable">{product.productCode}(搜尋用)</div>
+      ) : null}
 
       <h1 className="pd-title">{product.name}</h1>
 

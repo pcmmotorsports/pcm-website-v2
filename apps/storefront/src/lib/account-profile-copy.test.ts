@@ -15,6 +15,27 @@ import { describe, expect, it } from 'vitest';
 import { PROFILE_UNREADABLE_NOTE } from './account-profile-copy';
 import { RETRY_PROMISE_WORD_ROOTS } from './account-order-copy';
 
+describe('RETRY_PROMISE_WORD_ROOTS 這把尺自己', () => {
+  // 🔴🔴 **R2 nit:那把尺【自己】沒有守門。**
+  //    兩個消費點都只是【遍歷】它 ⇒ 從 array 裡刪掉 `'刷新'`:
+  //    兩支測試各少跑一格、**0 紅**(116 ⇒ 115)—— 而**沒有任何東西在斷言 116 這個數**。
+  //    🎯 **一把靠遍歷來用的清單, 縮短它不會讓任何一格變紅 —— 它只會讓覆蓋面安靜地變小。**
+  //    ⇒ 📌 這與 R1 M1(窄化副本)是同一個病的**第二層**:
+  //       M1 修掉的是「兩份清單不同步」, 而這一格修的是「唯一那份被縮短」。
+  it('🔴 釘住完整內容 —— 少一個詞就要紅', () => {
+    expect(RETRY_PROMISE_WORD_ROOTS).toEqual([
+      '重新整理',
+      '重新載入',
+      '重整',
+      '刷新',
+      '重試',
+      '再試',
+      '稍後',
+      '稍候',
+    ]);
+  });
+});
+
 describe('PROFILE_UNREADABLE_NOTE 的規矩', () => {
   // 🔴🔴 **清單來自 `account-order-copy.ts` 的 export, 不是本檔重打一份。**
   //    首版我在這裡自己列了 5 個詞, 少掉 `重新載入`/`重整`/`刷新`/`重試`,
@@ -45,6 +66,17 @@ describe('PROFILE_UNREADABLE_NOTE 的規矩', () => {
       expect(PROFILE_UNREADABLE_NOTE).not.toContain(word);
     },
   );
+
+  // 🔴🔴 **R2:我判「不承諾折抵」那道不必轉移, 而【理由是錯的】——**
+  //    我說「那道講的是未開放功能的描述, 失敗世界那句話不在描述功能」。
+  //    🛑 審查者指出:**它是【禁令】, 而禁令跟著插槽走** —— 與「不承諾時程」一模一樣,
+  //       而我自己用同一條邏輯讓新常數扛了時程。
+  //    🔴 它現在不咬我的真正原因是 `WalletTab.test.tsx` 那格斷的是 `.wal-balance-meta`,
+  //       **而那個節點在失敗世界根本不渲染** —— 不是因為它對失敗世界不適用。
+  //    🎯 **⇒ 結論恰好對, 而理由是錯的。照著那個理由做下一個判斷就會錯。**
+  it('🔴 借用插槽 ⇒ 一併扛它的「不承諾折抵」拍板:不含「折抵」', () => {
+    expect(PROFILE_UNREADABLE_NOTE).not.toContain('折抵');
+  });
 
   // 🔴🔴 正向斷言才是真正扛住的那一道(`account-order-copy.ts` 逐字:禁詞清單只是第二道)。
   //    少了這格:把常數換成「結帳時如需協助請聯絡客服。」⇒ 禁詞全過, 而**客人被告知的內容整個不見了**。

@@ -548,3 +548,41 @@ describe('ProductInfo — A5 加購被上限夾掉要明說', () => {
     expect(screen.getByText('已達購買上限 99,這次少加了 1 件')).toBeDefined();
   });
 });
+
+// ⟦Q23 = 丙⟧ Sean 2026-09-03:兩個編號都印並標清楚。
+// 🛑 **丙不會讓料號變成搜得到** —— 它只讓客人知道該抄哪一個。真正的修法是甲(要貼 SQL)。
+describe('Q23 丙 · 兩個編號都印', () => {
+  // 🔵 沿用本檔既有的 `variantProduct` 形狀(它的 variant 有完整 spec ——
+  //    我第一版用 `MOCK_PRODUCTS[0]` 硬拼一個 variant, 而它沒有 `spec`
+  //    ⇒ 選擇器渲染時 `'weave' in undefined` 當場丟 TypeError。
+  //    ⇒ 📌 **fixture 缺一個欄位, 而紅的訊息指向的是元件內部, 不是我的 fixture。**)
+  const twoCodes: MockProduct = { ...variantProduct, productCode: 'ISS118' };
+  const sameCode: MockProduct = {
+    ...variantProduct,
+    productCode: 'A-G-F', // 與第一個變體的 sku 相同
+  };
+
+  it('🔴 兩個號【不同】⇒ 兩個都要印(客人抄得到搜得到的那一個)', () => {
+    const { container } = renderInfo(twoCodes);
+    // 頁上那一行(客人一定抄這個)= variant.sku
+    expect(screen.getByText(`${twoCodes.brand} · A-G-F`)).toBeTruthy();
+    // 🎯 判別點:**搜得到的那一個(productCode)也要在畫面上** —— 少了它, 客人抄了就搜不到。
+    const extra = container.querySelector('.pd-sku-searchable')?.textContent ?? '';
+    expect(extra).toContain('ISS118');
+  });
+
+  it('🔵 負對照:兩個號【相同】⇒ 只印一次(印兩次會讓客人以為那是兩件事)', () => {
+    const { container } = renderInfo(sameCode);
+    // 🔴 少了這一格, 一個「無條件多印一行」的實作照樣通過上面那格。
+    expect(container.querySelectorAll('.pd-sku-searchable')).toHaveLength(0);
+  });
+
+  it('🛑 暫用標籤【不得】用「料號」或「產品型號」—— 那兩個名字是 Sean 要拍的', () => {
+    const { container } = renderInfo(twoCodes);
+    const line = container.querySelector('.pd-sku-searchable')?.textContent ?? '';
+    expect(line).not.toContain('料號');
+    expect(line).not.toContain('產品型號');
+    // 而它要說出「這個是拿來搜的」—— 那正是客人現在缺的那一件事。
+    expect(line).toContain('搜尋');
+  });
+});
