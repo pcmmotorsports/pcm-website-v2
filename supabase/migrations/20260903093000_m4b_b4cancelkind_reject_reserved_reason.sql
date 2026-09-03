@@ -48,6 +48,17 @@
 --    ✅ **現在的驗收訊號 = 那支測試【綠】, 而它在下列任一世界會紅**:
 --       拒絕被拿掉 / 被搬到賦值之後 / 字面大小寫被改 / 只剩註解裡的擋 / 兩支只改了一支。
 --
+-- 🔴🔴 **語法眉角(2026-09-04 Sean 貼下去當場 42601, 而答案 8 月就寫在本 repo 裡)**:
+--    ⛔ ~~`pg_catalog.position('X' in v_def)`~~ ⇒ ✅ **`pg_catalog.strpos(v_def, 'X')`**
+--    成因:`position(A in B)` 是**語法**不是函式呼叫 ⇒ 加了 `pg_catalog.` 之後 Postgres
+--    改用函式呼叫文法去 parse ⇒ `'X' in v_def` 變成一個 `IN` 運算式而 `IN` 後面要括號
+--    ⇒ 🎯 `ERROR: 42601: syntax error at or near "v_old"`。
+--    🛑 **不要改成兩參 `position(a, b)`** —— 那個的**參數順序是相反的**。
+--    📎 逐字出處 `20260809020000_m4b_e10_b2_w7d3_recompute_structural_anchors.sql:55-57`
+--       (W7d-1 踩過、寫下來了)⇒ 🔴 **而它沒有接到需要它的那一步, 成本轉嫁給 Sean。**
+--       📌 ⇒ 教訓不是「有人沒查」, 是**一個寫在別支 migration 註解裡的語法警告,
+--          沒有任何機制會在寫同一種碼的人面前出現**。⇒ 所以它現在也寫在這裡一份。
+--
 -- 🔴🔴 **本檔是 codex 關卡2 R1 的【FAIL】修完之後的版本** —— R1 抓到 8 條 must-fix。
 --    其中兩條是**真的會壞掉**(①防重跑閘撞死、②只擋了兩支裡的一支),
 --    三條是**閘不夠緊**(⑤overload/形狀、⑧ACL 沒重驗、⑥測試 regex 太鬆),
@@ -562,7 +573,7 @@ BEGIN
   IF v_old IS NULL THEN
     RAISE EXCEPTION 'COMMENT 附加:讀不到既有 COMMENT ⇒ 停下(不要用一句新的蓋掉三代契約)';
   END IF;
-  IF pg_catalog.position('20260903093000' in v_old) > 0 THEN
+  IF pg_catalog.strpos(v_old, '20260903093000') > 0 THEN
     RAISE EXCEPTION 'COMMENT 附加:看起來已經附加過 ⇒ forward-only,拒重跑';
   END IF;
   EXECUTE pg_catalog.format(
@@ -848,7 +859,7 @@ BEGIN
   IF v_old IS NULL THEN
     RAISE EXCEPTION 'COMMENT 附加:admin_mark_order_cancelled 讀不到既有 COMMENT ⇒ 停下';
   END IF;
-  IF pg_catalog.position('20260903093000' in v_old) > 0 THEN
+  IF pg_catalog.strpos(v_old, '20260903093000') > 0 THEN
     RAISE EXCEPTION 'COMMENT 附加:看起來已經附加過 ⇒ forward-only,拒重跑';
   END IF;
   EXECUTE pg_catalog.format(
@@ -900,7 +911,7 @@ BEGIN
     v_def := pg_catalog.pg_get_functiondef(v_oid);
 
     -- 正對照:那道拒絕在不在(訊息字面)
-    IF pg_catalog.position('取消說明不可使用系統保留字' in v_def) = 0 THEN
+    IF pg_catalog.strpos(v_def, '取消說明不可使用系統保留字') = 0 THEN
       RAISE EXCEPTION 'b4cancelkind 事後閘:% 的定義裡找不到那道拒絕 ⇒ 沒裝上', v_sig;
     END IF;
     -- 🔴 **形狀 + 順序**:判斷式本身要在, 而且要在賦值【之前】——
@@ -911,8 +922,8 @@ BEGIN
     --    📌 **那三發都是「看起來還在、實際不生效」** —— 與本片其他五發同一類, 而它們沒被涵蓋。
     --    ⚠️ **天花板要寫明**:把真閘包進一個到不了的分支(`IF FALSE THEN … END IF;`, 或 `ELSIF` 接在恆真分支之後)**這把尺仍然綠** ——
     --       「這段碼到得了嗎」不是文字尺答得出來的問題。那一格今天沒有守門。
-    v_p_if  := pg_catalog.position('IF v_detail = ''payment_expired'' THEN' in v_def);
-    v_p_asg := pg_catalog.position('v_reason_txt := v_detail;' in v_def);
+    v_p_if  := pg_catalog.strpos(v_def, 'IF v_detail = ''payment_expired'' THEN');
+    v_p_asg := pg_catalog.strpos(v_def, 'v_reason_txt := v_detail;');
     IF v_p_if = 0 THEN
       RAISE EXCEPTION 'b4cancelkind 事後閘:% 找不到整句 `IF v_detail = ''payment_expired'' THEN` ⇒ 條件被改寫過(NOT / AND false / 只剩訊息)', v_sig;
     END IF;
@@ -926,14 +937,14 @@ BEGIN
     --    把它換成 `RAISE NOTICE`(訊息一個字不動)⇒ 員工照樣打得進去, 而本閘原本【照樣通過】。
     --    🎯 而本閘是**唯一讀「真的被貼進去的那份」**的尺(TS 那把讀的是 repo 檔,
     --       而 apply 是人手貼 SQL Editor ⇒ 兩者可以不同)⇒ 這一格漏掉, 就沒有第二個人會發現。
-    IF pg_catalog.position('RAISE EXCEPTION' in
-         pg_catalog.substr(v_def, v_p_if, v_p_asg - v_p_if)) = 0 THEN
+    IF pg_catalog.strpos(
+         pg_catalog.substr(v_def, v_p_if, v_p_asg - v_p_if), 'RAISE EXCEPTION') = 0 THEN
       RAISE EXCEPTION 'b4cancelkind 事後閘:% 判斷式與賦值之間沒有 RAISE EXCEPTION(被換成 NOTICE / WARNING?)⇒ 那不是一道拒絕', v_sig;
     END IF;
 
     -- 🔵 負對照:既有行為字面還在(證明沒把整支抄掉一半)
-    IF pg_catalog.position('未知取消原因碼' in v_def) = 0
-       OR pg_catalog.position('非 other 不得填說明' in v_def) = 0 THEN
+    IF pg_catalog.strpos(v_def, '未知取消原因碼') = 0
+       OR pg_catalog.strpos(v_def, '非 other 不得填說明') = 0 THEN
       RAISE EXCEPTION 'b4cancelkind 事後閘:% 既有的驗證句不見了 ⇒ 抄壞了', v_sig;
     END IF;
 
