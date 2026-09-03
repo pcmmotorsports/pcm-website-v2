@@ -2,6 +2,8 @@ import { cancelOrderAction } from '../../lib/orders/cancel-actions';
 import {
   CANCEL_ITEM_FIELD,
   CANCEL_MODE_FIELD,
+  CANCEL_SHIPMENT_ACK_FIELD,
+  CANCEL_SHIPMENT_ACK_VALUE,
   CANCEL_ORDER_ID_FIELD,
   CANCEL_REQUEST_TOKEN_FIELD,
   cancelItemQtyField,
@@ -13,6 +15,7 @@ import { generateCancelRequestToken } from '../../lib/orders/cancel-request-toke
 import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
 import { isItemSelectable, type CancelItemView } from '../../lib/orders/cancel-view';
 import { CancelFormBody } from './cancel-form-body';
+import type { CancelShipmentWarning } from '../../lib/orders/cancel-shipment-warning';
 
 // cancel-order-forms.tsx — M-4b E10 **A13b D4**:取消訂單的**兩支獨立表單**(整單 / 部分)。
 //
@@ -112,6 +115,7 @@ function CancelFormShell({
   mode,
   submitLabel,
   formId,
+  shipmentWarning,
   children,
 }: {
   orderId: string;
@@ -128,6 +132,15 @@ function CancelFormShell({
    * 用原生 `form` 屬性從外面關聯回來。只有 partial 需要(整單那支零外部控制項)。
    */
   formId?: string;
+  /**
+   * 這張單有沒有貨在路上(2026-09-03, Sean 拍甲)。
+   *
+   * 🔴🔴 **必填、無預設** —— 給預設值等於「忘了接就靜默把閘關掉」,
+   *    而那個症狀在測試裡看起來完全正常(表單是對的、只是少一格)。
+   *    同本檔 `returnTo` 與 `OrderCancelBlock.formsAllowed` 的 fail-closed 紀律。
+   * 🛑 **判準與文案本檔一個字都不重算** —— 唯一作者是 `lib/orders/cancel-shipment-warning.ts`。
+   */
+  shipmentWarning: CancelShipmentWarning;
   children?: React.ReactNode;
 }) {
   const requestToken = generateCancelRequestToken();
@@ -147,6 +160,28 @@ function CancelFormShell({
         🔴 `requireItemSelection` 只有 partial 是 true:整單那支天生零 `cancel_item`,
            傳 true 會讓它的送出鈕在 hydration 之後被永久鎖死(關卡1 R2 #3)。
       */}
+      {/* 🔴🔴 貨在路上 ⇒ 印出後果 + 一格【預設不勾】的確認。
+          🛑 而它**擋的是誤按, 擋不住繞過** ⇒ server 端(`cancel-actions.ts`)
+             自己再讀一次出貨、不信這一格。兩邊呼叫同一支判準, 不各寫一份。 */}
+      {shipmentWarning.blocked && (
+        <div
+          data-testid='cancel-shipment-warning'
+          className='rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm'
+        >
+          <p className='text-destructive font-medium'>{shipmentWarning.message}</p>
+          <label className='mt-2 flex items-start gap-2'>
+            {/* 🔴 `defaultChecked` 一個字都不要加 —— 預設不勾是這一格的全部意義。 */}
+            <input
+              type='checkbox'
+              name={CANCEL_SHIPMENT_ACK_FIELD}
+              value={CANCEL_SHIPMENT_ACK_VALUE}
+              className='mt-0.5'
+              data-testid='cancel-shipment-ack'
+            />
+            <span>我知道了,還是要取消這張單。</span>
+          </label>
+        </div>
+      )}
       <CancelFormBody submitLabel={submitLabel} requireItemSelection={mode === 'partial'}>
         {children}
       </CancelFormBody>
@@ -164,9 +199,12 @@ function CancelFormShell({
 export function FullCancelForm({
   orderId,
   returnTo,
+  shipmentWarning,
 }: {
   orderId: string;
   returnTo: string;
+  /** 🔴 必填無預設 —— 理由同 `CancelFormShell` 那一格。 */
+  shipmentWarning: CancelShipmentWarning;
 }) {
   return (
     <section className={CARD}>
@@ -175,7 +213,13 @@ export function FullCancelForm({
       <p className='text-muted-foreground mb-3 text-sm'>
         會把這張單<strong>還沒取消的數量全部</strong>取消掉。取消是永久紀錄,送出後不能刪。
       </p>
-      <CancelFormShell orderId={orderId} returnTo={returnTo} mode='full' submitLabel='整單取消' />
+      <CancelFormShell
+        orderId={orderId}
+        returnTo={returnTo}
+        mode='full'
+        submitLabel='整單取消'
+        shipmentWarning={shipmentWarning}
+      />
     </section>
   );
 }
@@ -197,10 +241,13 @@ export function PartialCancelForm({
   orderId,
   returnTo,
   items,
+  shipmentWarning,
 }: {
   orderId: string;
   returnTo: string;
   items: readonly CancelItemView[];
+  /** 🔴 必填無預設 —— 理由同 `CancelFormShell` 那一格。 */
+  shipmentWarning: CancelShipmentWarning;
 }) {
   // 🔴 **「勾得動」的判定共用 `cancel-view.ts` 的 `isItemSelectable`**(R1 must-fix 5):
   //    原本這裡自己寫了一份逐字相同的條件,而本檔同時宣稱「判定不在這裡」——
@@ -227,6 +274,7 @@ export function PartialCancelForm({
         mode='partial'
         submitLabel='取消勾選的品項'
         formId={partialCancelFormId(orderId)}
+        shipmentWarning={shipmentWarning}
       />
     </section>
   );

@@ -13,6 +13,7 @@ import {
   MANUAL_ORDER_SOURCE_FIELD,
 } from '@/lib/orders/manual-order-form';
 import { ManualCustomerPicker } from './manual-customer-picker';
+import { MANUAL_ORDER_FORM_ID, ManualOrderLeaveGuard } from './manual-order-leave-guard';
 import { ManualOrderSubmit } from './manual-order-submit';
 import { createManualOrderAction } from '@/lib/orders/manual-order-actions';
 import { ManualOrderCatalogLookup } from './manual-order-catalog-lookup';
@@ -108,7 +109,12 @@ export function ManualOrderFormBody({
              它當初是為了擋「搜尋導頁會把已填的運費與地址清光」(codex R1 must-fix)。
              搜尋不再導頁 ⇒ 那個時間窗不存在 ⇒ 兩段式自然消失。
           ⇒ 細節與不變式在 `manual-customer-picker.tsx` 檔頭。 */}
-      <form action={createManualOrderAction} className='space-y-4'>
+      {/* 🔴 `id` 只給 ManualOrderLeaveGuard 找得到這張表單用(Q32 甲)。
+          🛑 而那支 guard **不持有任何值** —— 它當場問 DOM「有沒有被動過」, 不留副本。
+          理由:`manual-order-lines.tsx:17-20` 的不變式禁止 client state 回寫送出值,
+          而 Sean 2026-09-03 看過代價後選了不拆(`等Sean拍的題-20260903.md:1841`)。 */}
+      <form id={MANUAL_ORDER_FORM_ID} action={createManualOrderAction} className='space-y-4'>
+        <ManualOrderLeaveGuard formId={MANUAL_ORDER_FORM_ID} />
         {/* 🔴 冪等鍵。**同一張表單重按送出要送同一顆** —— 它由頁面決定、表單只是帶著走。 */}
         <input type='hidden' name={MANUAL_ORDER_REQUEST_ID_FIELD} value={manualRequestId} />
         {inPanel && (

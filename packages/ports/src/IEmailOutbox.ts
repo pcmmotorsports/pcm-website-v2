@@ -319,7 +319,34 @@ export type EnqueueOrderShippedEmailInput = EnqueueEmailInputBase & {
  * 那個顧慮**由 union 本身解掉**:事件⇔payload 綁定在型別上,兩個分支不共用自由欄,
  * 而 dedup_key 由落表邊界依 `eventType` 分派(呼叫端碰不到)。
  */
-export type EnqueueEmailInput = EnqueueOrderCreatedEmailInput | EnqueueOrderShippedEmailInput;
+/**
+ * 🔴🔴 **未付款被【員工】取消的通知信**(Sean 2026-09-03 拍甲;理由逐字「那是客人唯一一封信」)。
+ *
+ * 🛑 **射程只涵蓋【員工按取消】那一批,不含逾時自動取消。**
+ *    ⇒ 判準與它的脆弱點寫在 `IUnpaidCancelledOrderScanner` 檔頭(**一處全文,這裡只留指標**)。
+ *
+ * 🛑🛑 **而那不是待決事項 —— Sean 2026-09-03 拍過乙**,逐字(已寫進正式庫 COMMENT,
+ *    `20260903040000_...:100-102`):「`expire_unpaid_orders`(一次上限 **500 張**)【不涵蓋】——
+ *    **不寄, 只有員工按下取消才寄**」。
+ *    ⛔ ~~我原本在這裡寫「Sean 未拍板(題 2)」+「他若答要寄:改法是一處, 拿掉那道閘」~~
+ *    🔴 **兩句都假,而第二句指向一個會傷到客人的動作**:照它做 ⇒ 一輪寄出上百封不可回收的信。
+ */
+export type EnqueueOrderUnpaidCancelledEmailInput = EnqueueEmailInputBase & {
+  eventType: 'order_unpaid_cancelled';
+  /** 取消時刻(事件時點快照)。 */
+  cancelledAt: string;
+  /**
+   * 員工選的理由(七值之一;`other` 時是他打的自由文字)。
+   * 🔴 **它會原封進到客人眼前** ⇒ 落表邊界一律過 `sanitizeCustomerFacingReason`(整形只管形狀不管語意)。
+   * 🔵 `null` = 沒有理由 ⇒ 信裡那一段不印(而不是印一個空白或 `null`)。
+   */
+  cancelledReason: string | null;
+};
+
+export type EnqueueEmailInput =
+  | EnqueueOrderCreatedEmailInput
+  | EnqueueOrderShippedEmailInput
+  | EnqueueOrderUnpaidCancelledEmailInput;
 
 export type EnqueueEmailResult =
   /** 已入列(status=pending、寫入即到期,可被立即認領)。 */

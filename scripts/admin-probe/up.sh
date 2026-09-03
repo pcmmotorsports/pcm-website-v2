@@ -448,6 +448,53 @@ if [ "$FAILED" = "0" ]; then
   echo "         它靠 layout 傳下去(見 app-sidebar.tsx 檔頭那段量法)。"
   echo ""
   echo "   收攤:  bash scripts/admin-probe/down.sh"
+
+  # ══════════════════════════════════════════════════════════════════════
+  # 🔴🔴 **空表清單 —— 印在【最後一行】, 而它是提醒不是閘。**
+  #
+  # 為什麼存在(2026-09-03 量的):這台機器 **55 張表有 42 張是空的(76%)**。
+  #   ⇒ 而那 42 張**沒有被任何人決定過** —— `seed.sql` 全檔零範圍聲明,
+  #     它被種過的唯一方式是【有人被卡住之後回頭補一張】
+  #     (commit `e7b9aeab` 逐字:「而它擋了那一格**九天**」)。
+  #   ⇒ 同一天兩個窗各撞一次:一個撞「料號查無」、一個撞「比價零判別力」
+  #     —— 📌 **同一個成因的兩個症狀。**
+  #
+  # 🎯 **而它要防的那句話是**:
+  #    「一台【驗不到】的機器, 與一台【驗過了】的機器,
+  #      在報告上都寫『我開了探針走過一次』。」
+  #
+  # 🛑 **為什麼是提醒不是閘**:探針的用途本來就包含「驗不需要資料的東西」
+  #    (版面、文案、錯誤態、旗標)⇒ 擋下來會擋掉正當用途,
+  #    而**閘死於誤報遠比死於漏報常見**。
+  # 🛑 **為什麼印在最後**:中間那幾行會被捲走, 而人只看最後一畫面。
+  # ══════════════════════════════════════════════════════════════════════
+  # 🔴🔴 **用【精確計數】不用 `n_live_tup`** —— 後者是**統計估計值**, 由 stats collector 非同步更新。
+  #    它今天與精確版**都回 41**(我兩把尺並排量過)—— 🛑 而**兩把尺今天一致, 不代表它們永遠一致**,
+  #    而它們**會用不同的方式壞**:估計值在 `DELETE`/`TRUNCATE` 之後可能還留著舊的非零值
+  #    ⇒ 📌 那個方向會把一張**空表**印成「有資料」⇒ **警告被靜靜關掉**, 而那正是這一格要防的事。
+  #    ⇒ ✅ 這裡是拋棄式小庫, 精確 `count(*)` 的成本可以忽略 ⇒ **不要為了省那個成本收下一個會反向壞的估計值。**
+  _EMPTY_Q="select t.relname from pg_stat_user_tables t where t.schemaname='public' and (xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', t.schemaname, t.relname), false, true, '')))[1]::text::int = 0"
+  _NEMPTY=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "select count(*) from ($_EMPTY_Q) z;" 2>/dev/null || true)
+  _NALL=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "select count(*) from pg_stat_user_tables where schemaname='public';" 2>/dev/null || true)
+  _EMPTY=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "select string_agg(relname, ' ' order by relname) from ($_EMPTY_Q) z;" 2>/dev/null || true)
+  echo
+  # 🔴 標籤由【結果】決定, 不無條件印 —— 一句寫死的「以下是空表」在零空表時照樣印。
+  if [ -z "$_NEMPTY" ] || [ -z "$_NALL" ]; then
+    echo "   ⚠️ **空表清單這一格沒量到**(psql 沒回值)"
+    echo "      ⇒ 🔴 那【不是】「沒有空表」, 是**這一格失效了**。兩者不要讀成同一件事。"
+  elif [ "$_NEMPTY" = "0" ]; then
+    echo "   🟢 這台機器 $_NALL 張表**都有資料** —— 空表清單這一格今天沒有東西要說。"
+  else
+    echo "   🔴🔴 **這台機器有 $_NEMPTY / $_NALL 張表是空的** ——"
+    echo "      🎯 **你要驗的那個東西, 它的表在不在下面這串裡?**"
+    echo "         **在 ⇒ 那一發是【零判別力】, 不是【通過】。**"
+    echo "         (畫面會印「沒有資料」, 而那與「功能壞了」長得一樣。)"
+    echo
+    echo "      $_EMPTY"
+    echo
+    echo "      🔵 要補:寫一支自己的種子(例 scripts/admin-probe/seed-catalog-price-check.sql),"
+    echo "         **不要改 seed.sql** —— 它全窗共用, 多幾筆可能動到別片的期望值。"
+  fi
 else
   echo "🔴 自檢沒過 —— **不要拿這個環境下任何結論**。log 在 $S/"
   exit 1

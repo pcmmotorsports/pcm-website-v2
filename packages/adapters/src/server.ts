@@ -104,6 +104,13 @@ export {
   type PaidOrderScannerClient,
   type ScanStage,
 } from './email/SupabasePaidOrderScannerAdapter';
+
+// 未付款被【員工】取消的通知信 —— 掃描端(Sean 2026-09-03 拍甲;逾時那批不在射程內)
+export {
+  SupabaseUnpaidCancelledOrderScannerAdapter,
+  UnpaidCancelledScanQueryError,
+  type UnpaidCancelledOrderScannerClient,
+} from './email/SupabaseUnpaidCancelledOrderScannerAdapter';
 // 🔴 M-4b E4-a(2026-08-22):出貨線的同款窄讀 adapter。**一列 = 一個 (箱, 單) 配對 = 一封信。**
 // 同樣回兩個 email 欄(PII)⇒ server-only + service_role。差集在 SQL view 裡(見該檔檔頭)。
 export {

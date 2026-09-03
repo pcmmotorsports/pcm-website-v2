@@ -444,7 +444,12 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       ...[...CANCEL_NOT_SENT_CODES, ...CANCEL_SENT_CODES].map(toOrderCancelResultCode),
     ];
 
-    expect(allCancelCodes).toHaveLength(7);
+    // 🔴 **這個數字是寫死的, 而那是刻意的** —— 加一顆碼就會紅, 逼一個人回來看一眼
+    //    「新的碼有沒有歸線、有沒有登錄進 banner」。
+    //    ⛔ ~~7~~ ⇒ 🔵 **8**(2026-09-03 加 `shipment_unconfirmed`:取消已出貨的單擋一次)。
+    //    🟢 **而它今天真的接住了東西**:同一片漏了把那顆碼登錄進 `MESSAGES`
+    //       ⇒ 員工會看到一片空白。這一格與上面那格逐碼掃的斷言一起把它逼出來。
+    expect(allCancelCodes).toHaveLength(8);
     expect(allCancelCodes.filter((c) => otherLines.includes(c))).toEqual([]);
   });
 });

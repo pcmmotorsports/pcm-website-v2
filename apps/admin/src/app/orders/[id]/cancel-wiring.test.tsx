@@ -107,6 +107,14 @@ vi.mock('../../../components/orders/shipment-section', () => ({
 import OrderDetailPage from './page';
 import { OrderDetail } from '../../../components/orders/order-detail';
 import { OrderCancelBlock } from '../../../components/orders/order-cancel-block';
+import type { CancelShipmentWarning } from '../../../lib/orders/cancel-shipment-warning';
+
+// 🔴 **「這一格不是在測出貨那道提醒」** —— `shipmentWarning` 是**必填無預設**的 prop
+//    (理由見 `order-cancel-block.tsx` 那格 docstring:給預設值等於忘了接就靜默把閘關掉)。
+//    ⇒ 📌 所以每個呼叫點都**被逼著明講**它要哪一種, 而下面這個常數就是那句「不擋」。
+//    🛑 **不要把它改成預設值來省掉這些字** —— 那正是這條紀律要防的動作。
+const NO_SHIPMENT: CancelShipmentWarning = { blocked: false };
+
 
 /**
  * 🔴 片 B:`payments` 必填無預設 ⇒ 每個渲染點都要給。
@@ -400,7 +408,7 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
   it('🔴 直接渲染 OrderDetail 且不傳 cancelFormsAllowed ⇒ 零取消表單', () => {
     // `payments` 與本格無關,給「訂單在、零收款列」的中性值(#15-B2-c 片1a 起為必填 prop)。
     const { container } = render(
-      <OrderDetail refundsTruncated={false} stuckVerdicts={new Map()} detail={detail()} returnTo='/orders/ord-1' payments={{ status: 'ok', rows: [] }} />,
+      <OrderDetail shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()} detail={detail()} returnTo='/orders/ord-1' payments={{ status: 'ok', rows: [] }} />,
     );
     // 正向對照:證明元件真的畫出來了(否則「零表單」是恆真)。
     expect(container.textContent).toContain('ABC123');
@@ -415,14 +423,14 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
     //    原本**全綠存活** —— 因為 `OrderDetail` 自己的預設值是 `false`,
     //    區塊**永遠收不到 `undefined`** ⇒ 它自己那道嚴格比對從來沒被走到。
     //    兩層各自 fail-closed 是縱深,但**沒被測到的縱深等於不存在**;直接渲染區塊才量得到。
-    const { container } = render(<OrderCancelBlock payments={PAY_UNREADABLE} returnTo='/orders?panel=x' detail={detail()} />);
+    const { container } = render(<OrderCancelBlock shipmentWarning={NO_SHIPMENT} payments={PAY_UNREADABLE} returnTo='/orders?panel=x' detail={detail()} />);
     // 正向對照:複核區塊有畫出來(否則「零表單」是恆真)。
     expect(container.textContent).toContain('取消訂單');
     expect(cancelFormCount(container)).toBe(0);
   });
 
   it('OrderCancelBlock 明確傳 true ⇒ 表單出現(對照組)', () => {
-    const { container } = render(<OrderCancelBlock payments={PAY_UNREADABLE} returnTo='/orders?panel=x' detail={detail()} formsAllowed />);
+    const { container } = render(<OrderCancelBlock shipmentWarning={NO_SHIPMENT} payments={PAY_UNREADABLE} returnTo='/orders?panel=x' detail={detail()} formsAllowed />);
     expect(cancelFormCount(container)).toBeGreaterThan(0);
   });
 
@@ -444,7 +452,7 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
 
   it('同一份資料明確傳 true ⇒ 表單出現(證明上一格不是因為資料不可取消)', () => {
     const { container } = render(
-      <OrderDetail refundsTruncated={false} stuckVerdicts={new Map()}
+      <OrderDetail shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={detail()}
         returnTo='/orders/ord-1'
         cancelFormsAllowed
@@ -564,7 +572,7 @@ describe('片C 驗收:商品卡的取消 checkbox 與危險區的表單共用同
 
   it('🔴 直接渲染 OrderDetail 不傳 cancelFormsAllowed ⇒ 商品卡零 checkbox(fail-closed)', () => {
     const { container } = render(
-      <OrderDetail refundsTruncated={false} stuckVerdicts={new Map()} detail={detail()} returnTo='/orders/ord-1' payments={{ status: 'ok', rows: [] }} />,
+      <OrderDetail shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()} detail={detail()} returnTo='/orders/ord-1' payments={{ status: 'ok', rows: [] }} />,
     );
     expect(container.textContent).toContain('ABC123');
     // 🔴 補審(2026-08-29)抓到:這幾格【不走 renderPage()】⇒ 沒有拿到那 21 個呼叫點的錨,
@@ -601,7 +609,7 @@ describe('片C 驗收:商品卡的取消 checkbox 與危險區的表單共用同
       ] as never,
     });
     const { container } = render(
-      <OrderDetail refundsTruncated={false} stuckVerdicts={new Map()}
+      <OrderDetail shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={withOddId}
         returnTo='/orders/ord-1'
         cancelFormsAllowed
@@ -689,5 +697,166 @@ describe("#808 gate='stuck' 的單,員工在畫面上讀得到「系統已經停
     expectPageRendered(container);
     expectCancelBlockRendered(container);
     expect(container.textContent).not.toContain(STUCK_LINE);
+  });
+});
+
+// ⟦取消已出貨的單擋一次⟧ Sean 2026-09-03 拍甲。接手 `-db` 的 patch。
+//
+// 🔴🔴 **這個 describe 存在的理由 —— 而它是本片交接時【唯一沒有人守的那一段】**:
+//    判準那一支(`cancel-shipment-warning.ts`)有 11 格自己的測試,server 端那道也有;
+//    **而「blocked 的值有沒有真的一路傳到畫面上」中間三層轉手, 零測試。**
+//    ⇒ 📌 而本檔其餘 6 個呼叫點全部餵 `NO_SHIPMENT`(不擋)
+//       ⇒ **那條 blocked 的路在整個測試套件裡從來沒有被走過。**
+//    ⇒ ⇒ 🛑 少了這幾格, 任何一層漏接 `shipmentWarning` 都是**必填 prop 擋得住編譯、
+//       而【傳成常數 false】擋不住** —— 而那正是「靜默把閘關掉」的形狀。
+describe('出貨警示 —— blocked 的值要真的走到畫面上', () => {
+  const BLOCKED: CancelShipmentWarning = {
+    blocked: true,
+    kind: 'shipped',
+    message: '這張單已經出貨了。我們不會自動通知新竹攔件 —— 要攔的話請自己打電話給貨運。',
+  };
+
+  it('🔴 blocked ⇒ 表單上出現那句話 + 一個【預設不勾】的確認格', () => {
+    const { container } = render(
+      <OrderCancelBlock
+        shipmentWarning={BLOCKED}
+        payments={{ status: 'ok', rows: [] }}
+        returnTo='/orders/ord-1'
+        detail={detail()}
+        formsAllowed
+      />,
+    );
+    const box = container.querySelector<HTMLInputElement>('[data-testid="cancel-shipment-ack"]');
+    expect(box, '確認格要在').not.toBeNull();
+    // 🔴 **預設不勾是這一格的全部意義** —— 勾好的話它只是一段裝飾。
+    expect(box!.checked).toBe(false);
+    expect(container.textContent).toContain('我們不會自動通知新竹攔件');
+    // 🛑 而那句話**不得**寫成「攔不下來」:新竹有取消託運的介面(線 `-ship` 打過正式主機實測),
+    //    只是我們沒接線。寫死成「攔不了」會讓員工不去打那通電話。
+    expect(container.textContent).not.toContain('攔不下來');
+    expect(container.textContent).not.toContain('攔不了');
+  });
+
+  it('🔵 負對照:不 blocked ⇒ 那一整塊都不在(沒有這格, 「無條件顯示」也會通過上面那格)', () => {
+    const { container } = render(
+      <OrderCancelBlock
+        shipmentWarning={NO_SHIPMENT}
+        payments={{ status: 'ok', rows: [] }}
+        returnTo='/orders/ord-1'
+        detail={detail()}
+        formsAllowed
+      />,
+    );
+    expect(container.querySelector('[data-testid="cancel-shipment-ack"]')).toBeNull();
+    expect(container.textContent).not.toContain('我們不會自動通知新竹攔件');
+  });
+
+  it('🔴 那個值要穿過【三層轉手】—— 從 OrderDetail 一路到表單上', () => {
+    // 🎯 這一格與上面兩格的差別:上面直接渲染最底層, 這一格走**真的那條鏈**
+    //    OrderDetail → OrderDetailMoneyTab → OrderCancelBlock → 表單。
+    //    ⇒ 中間任何一層忘了往下傳, 上面兩格都還是綠的, 而這一格會紅。
+    const { container } = render(
+      <OrderDetail
+        shipmentWarning={BLOCKED}
+        refundsTruncated={false}
+        stuckVerdicts={new Map()}
+        detail={detail()}
+        returnTo='/orders/ord-1'
+        payments={{ status: 'ok', rows: [] }}
+        cancelFormsAllowed
+      />,
+    );
+    expect(container.querySelector('[data-testid="cancel-shipment-ack"]')).not.toBeNull();
+  });
+});
+
+// ⟦Q13b 甲⟧ 對帳異常那句話的【觸發來源】要釘住 —— 而它是 wiring 那一層, 元件測試看不到。
+//
+// 🔴🔴 **為什麼要這一格**:`refund-ledger-section.test.tsx` 那三格自己餵 `hasNoPaymentRows`
+//    ⇒ 它們證明「拿到 true 會說對的話」, 而**證不到「那個 true 是從哪來的」**。
+//    ⇒ 📌 呼叫端改成從 `payment_channel` 算, 那三格照樣全綠 —— 而那正是本片要修的錯。
+//    🔬 而 `payment_channel` 不能用(線 `-auth` 2026-09-03 實量):
+//       `DEFAULT='tappay'`、正式庫 19/19 全是它(含 9 張從未收款的 unpaid 單)
+//       ⇒ **它是常數不是資料**;該欄 COLUMN COMMENT 自己寫著「勿用本欄」。
+describe('對帳異常那句話的觸發來源 —— 要來自【收款列的 rail】而不是別的欄', () => {
+  // 🔴 一筆**刷卡**收款列 —— 這一格的存在理由:codex 抓到我原本只有「零列」與「讀不到」兩格,
+  //    ⇒ 把正式條件突變成 `payments.status === 'ok'`(不看 rail)那兩格照樣過。
+  const CARD_ROW = {
+    id: 'p-1',
+    rail: 'card',
+    amount: 500,
+    receivedAt: new Date(Date.now() - 60_000).toISOString(),
+    createdAt: new Date(Date.now() - 60_000).toISOString(),
+    actor: 'sean',
+    bankReference: null,
+    recTradeId: 'rt-1',
+    payerNote: null,
+    reversesPaymentId: null,
+    reversalReason: null,
+    isReversal: false,
+  } as const;
+
+  const REFUND_ROW = {
+    id: 'r-1',
+    kind: 'partial',
+    status: 'confirmed',
+    refundAmount: 100,
+    reason: '缺貨退款',
+    actor: 'sean',
+    createdAt: new Date(Date.now() - 60_000).toISOString(),
+    failedReason: null,
+    failedDetail: null,
+    providerEvidence: null,
+  } as const;
+
+  const NEGATIVE = -1000;
+
+  function renderWith(payments: Parameters<typeof OrderDetail>[0]['payments']) {
+    return render(
+      <OrderDetail
+        shipmentWarning={NO_SHIPMENT}
+        refundsTruncated={false}
+        stuckVerdicts={new Map()}
+        detail={detail()}
+        returnTo='/orders/ord-1'
+        payments={payments}
+        refunds={[REFUND_ROW]}
+        refundUnregisteredAmount={NEGATIVE}
+      />,
+    );
+  }
+
+  it("🔴 零收款列 ⇒ 'none' ⇒ 指他去上方登錄, 不提 TapPay Record", () => {
+    const { container } = renderWith({ status: 'ok', rows: [] });
+    expect(container.textContent).toContain('沒有刷卡收款紀錄');
+    expect(container.textContent).not.toContain('請以 TapPay Record 對帳');
+  });
+
+  it("🔴 有收款列【而不是刷卡】⇒ 一樣是 'none' —— 這是我第一版漏掉的第三個世界", () => {
+    // 🎯 codex 逐字:「只有現金／匯款收款列時 hasNoPaymentRows=false, 仍指向不存在的 TapPay Record」。
+    const { container } = renderWith({
+      status: 'ok',
+      rows: [{ ...CARD_ROW, id: 'p-2', rail: 'cash' as const, recTradeId: null }],
+    });
+    expect(container.textContent).toContain('沒有刷卡收款紀錄');
+    expect(container.textContent).not.toContain('請以 TapPay Record 對帳');
+  });
+
+  it("🔵 正對照:有刷卡列 ⇒ 'card' ⇒ TapPay Record 那句要在(證明上面兩格擋的是 rail)", () => {
+    const { container } = renderWith({ status: 'ok', rows: [CARD_ROW] });
+    expect(container.textContent).toContain('請以 TapPay Record 對帳');
+    expect(container.textContent).not.toContain('沒有刷卡收款紀錄');
+  });
+
+  it("🔵 負對照:讀不到 ⇒ 'unknown' ⇒ 兩句都不說(不知道有沒有 ≠ 沒有)", () => {
+    const { container } = renderWith({ status: 'unreadable' });
+    expect(container.textContent).not.toContain('沒有刷卡收款紀錄');
+    expect(container.textContent).not.toContain('請以 TapPay Record 對帳');
+  });
+
+  it("🔵 負對照:查無此單 ⇒ 也是 'unknown'(它與「沒有收款」是兩件事)", () => {
+    const { container } = renderWith({ status: 'order_not_found' });
+    expect(container.textContent).not.toContain('沒有刷卡收款紀錄');
+    expect(container.textContent).not.toContain('請以 TapPay Record 對帳');
   });
 });

@@ -12,6 +12,7 @@
 import type { AdminOrderDetail } from '@pcm/domain';
 import { OrderHiddenNotice } from './order-hidden-notice';
 import { DangerZoneDetails } from './danger-zone-details';
+import type { CancelShipmentWarning } from '../../lib/orders/cancel-shipment-warning';
 import { OrderCancelBlock } from './order-cancel-block';
 import { RefundSection } from './refund-section';
 import { RefundLedgerSection } from './refund-ledger-section';
@@ -50,6 +51,7 @@ export function OrderDetailMoneyTab({
   refundEnabled,
   cancelFormsAllowed,
   refundLedgerAbnormal,
+  shipmentWarning,
 }: {
   detail: AdminOrderDetail;
   returnTo: string;
@@ -69,6 +71,15 @@ export function OrderDetailMoneyTab({
   refundEnabled: boolean;
   cancelFormsAllowed: boolean;
   refundLedgerAbnormal: boolean;
+  /**
+   * 這張單「有沒有貨已經在路上」的判定(頁層算好, 一路傳到 `OrderCancelBlock`)。
+   *
+   * 🔴 **必填、無預設** —— 同 `OrderCancelBlock` 那格的理由:
+   *    給預設值等於「忘了接就靜默把閘關掉」, 而那個症狀在測試裡看起來完全正常。
+   * 🔵 **本層只是轉手, 不看它的內容** —— 判準只有一份(`cancel-shipment-warning.ts`),
+   *    這裡多讀一次就會變成第二份會漂移的規格。
+   */
+  shipmentWarning: CancelShipmentWarning;
 }) {
   const cancelled = detail.cancelledAt !== null;
 
@@ -256,6 +267,20 @@ export function OrderDetailMoneyTab({
                     rowsTruncated={refundsTruncated}
                     loadFailed={refundsFailed}
                     nowMs={Date.now()}
+/* 🔴 **三態, 不是布林**(codex must-fix):
+                     * `PaymentListData` 刻意分 `ok` / `order_not_found` / `unreadable`,
+                     * 而後兩者逐字是**「不知道有沒有」不是「沒有」**(該型別自己的 docstring)。
+                     * ⇒ 🛑 壓成布林 ⇒ 讀不到時我們會說一句證不到的話。
+                     * 🔴 而判的是**有沒有刷卡列**不是「有沒有收款列」——
+                     *    「請以 TapPay Record 對帳」只在有刷卡收款時才對得出來;
+                     *    一張只有現金/匯款列的單 `rows.length > 0`, 而它一樣沒有 TapPay 紀錄。 */
+                    cardPayment={
+                      payments.status !== 'ok'
+                        ? 'unknown'
+                        : payments.rows.some((r) => r.rail === 'card')
+                          ? 'card'
+                          : 'none'
+                    }
                   />
 
                   {/* M-4b E10 D3:非卡退款登記列表(唯讀、不吃旗標,同上一塊的立場)。
@@ -367,6 +392,7 @@ export function OrderDetailMoneyTab({
                   {/* 🔴 片 B:`payments` 是「現金/匯款可取消、刷卡不行」的唯一輸入 ——
                       必填無預設,忘了傳會編不過(理由見 cancel-view.ts 的 payments 欄)。 */}
                   <OrderCancelBlock
+                    shipmentWarning={shipmentWarning}
                     detail={detail}
                     payments={payments}
                     returnTo={returnTo}

@@ -87,6 +87,8 @@ export {
 export {
   checkAnomalyAlerts,
   buildAnomalyAlertMessage,
+  buildAnomalyQuietHeartbeatMessage,
+  ANOMALY_QUIET_HEARTBEAT_SUBJECT,
   type CheckAnomalyAlertsDeps,
   type CheckAnomalyAlertsOptions,
   type CheckAnomalyAlertsResult,
@@ -119,6 +121,14 @@ export {
   type EnqueueOrderCreatedEmailsOptions,
   type EnqueueOrderCreatedEmailsResult,
 } from './enqueue-order-created-emails';
+
+// 未付款被【員工】取消的通知信(Sean 2026-09-03 拍甲;逾時那批不在射程內 —— 題 2 未拍板)。
+export {
+  enqueueOrderUnpaidCancelledEmails,
+  type EnqueueOrderUnpaidCancelledEmailsDeps,
+  type EnqueueOrderUnpaidCancelledEmailsOptions,
+  type EnqueueOrderUnpaidCancelledEmailsResult,
+} from './enqueue-order-unpaid-cancelled-emails';
 
 // 🔴 M-4b E4-a(2026-08-22):出貨線的同款掃描式 enqueue。**一列 = 一個 (箱, 單) 配對 = 一封信**
 // (Sean 2026-08-17「一箱兩單就兩封」)。
