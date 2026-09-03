@@ -1412,8 +1412,14 @@ describe('SupabaseProductAdapter.searchByKeyword — 多詞 AND + 料號欄(⟦�
 // ─────────────────────────────────────────────────────────────────────────────
 describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不在時走舊路', () => {
   function makeMock(rpcResult: { data: unknown; error: unknown }) {
-    const captured: { ors: string[]; rpcCalls: number; ranged: boolean; ins: string[][] } = {
-      ors: [], rpcCalls: 0, ranged: false, ins: [],
+    // 🔴 `rpcRanged` / `rpcRange` 與 `ranged` **刻意分開**(code-reviewer must-fix 3):
+    //    原本兩條路共寫同一個 `ranged` ⇒ RPC 先跑過 `.range()` 之後,
+    //    「舊路要真的送出查詢」那格**恆為 true** ⇒ 它標籤說的那件事已經量不到。
+    const captured: {
+      ors: string[]; rpcCalls: number; ranged: boolean; ins: string[][];
+      rpcRanged: boolean; rpcRange: [number, number] | null;
+    } = {
+      ors: [], rpcCalls: 0, ranged: false, ins: [], rpcRanged: false, rpcRange: null,
     };
     const builder: Record<string, unknown> = {};
     Object.assign(builder, {
@@ -1430,10 +1436,28 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
     });
     const client = {
       from: () => builder,
-      // 🔵 `.rpc()` 現在帶第三參數(range)⇒ mock 要收得下, 否則量到的是我的 mock 不是碼
-      rpc: (_fn: string, _args: unknown, _opts?: unknown) => {
+      // 🔴🔴 **2026-09-03 正式站故障之後改形狀 —— 而【舊的這個 mock 正是故障看不見的原因】**:
+      //    ⛔ ~~`rpc: (_fn, _args, _opts) => Promise.resolve(rpcResult)`~~
+      //       ↑ 收第三個參數、直接回 Promise ⇒ **它剛好長得跟【當時那份壞掉的碼】一樣**
+      //    🛑 而真的 `supabase-js@2.105.3` 是:第三參 `{head,get,count}`、
+      //       回一個 `PostgrestFilterBuilder`(`dist/index.d.mts:536`), `.range()` 掛在它身上。
+      //    ⇒ 📌 **mock 照著被測的碼長, 而不是照著真的 SDK 長 ⇒ 它只會確認「碼跟它自己一致」。**
+      //       那天正式站 503 了 11 次, 而這裡全綠。
+      //    ✅ 現在的形狀**跟著 SDK 走**:回 builder、`.range()` 才 resolve;
+      //       而 `rpc` 是**掛在 client 上的方法**(不是箭頭常數)⇒ 碼若再把它拆下來,
+      //       `this` 一樣會不見 ⇒ 下面那格 throw 測試會紅。
+      rpc(_fn: string, _args: unknown) {
         captured.rpcCalls += 1;
-        return Promise.resolve(rpcResult);
+        // 🔴 摸一下 `this` —— 這是「方法有沒有被拆下來」的**唯一**判別點。
+        //    拆下來呼叫時 `this` 是 undefined ⇒ 這一行就丟 TypeError(與真 SDK 同一種死法)。
+        void (this as unknown as { from: unknown }).from;
+        return {
+          range: (from: number, to: number) => {
+            captured.rpcRanged = true;
+            captured.rpcRange = [from, to];   // 🔴 記下兩端 —— 沒有這格, 改 `.range()` 的參數不會紅
+            return Promise.resolve(rpcResult);
+          },
+        };
       },
     };
     return { client: client as unknown as SupabaseClient, captured };
@@ -1523,6 +1547,71 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
     delete (client as unknown as { rpc?: unknown }).rpc;
     await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
     expect(captured.ors, '沒有 rpc 就走舊路').toHaveLength(2);
+  });
+
+  // 🔴 **`.range()` 的兩端與 `RPC_ID_CAP` 那個哨兵, 在 2026-09-03 之前【零覆蓋】**
+  //    (code-reviewer important 4:`grep -n RPC_ID_CAP` 在本檔 0 命中,
+  //     而 mock 的 `range` 把兩個參數丟掉)⇒ 把 `.range(0, CAP)` 改成 `.range(0, 5)`
+  //     或整段刪掉 cap 哨兵, **全綠**。這兩格是那把尺。
+  it('🔴 RPC 要帶 `.range(0, RPC_ID_CAP)` —— 少了它會吃 PostgREST 的 db-max-rows 靜默截斷', async () => {
+    const { client, captured } = makeMock({ data: [], error: null });
+    await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
+    expect(captured.rpcRanged, '.range() 要真的被呼叫').toBe(true);
+    // 🔴 兩端都釘死:`.range()` 兩端皆含 ⇒ 0..1000 是 1001 筆 = cap + 1,
+    //    而「多要一筆」正是下面那格用來判斷「有沒有被截」的尺。
+    expect(captured.rpcRange).toEqual([0, 1000]);
+  });
+
+  it('🔴 RPC 回超過 cap(1001 筆)⇒ 可能被截 ⇒ 退回舊路, 不拿一份可能不完整的 id 清單', async () => {
+    const ids = Array.from({ length: 1001 }, (_, i) => ({ id: `p${i}` }));
+    const { client, captured } = makeMock({ data: ids, error: null });
+    await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
+    expect(captured.ors, '超過 cap 要走舊路').toHaveLength(2);
+  });
+
+  // 🔵 **nit 6 的守門**:`makeMock` 裡那個 `rpc(){}` 是本片對「方法被拆下來」的唯一判別點,
+  //    而它自己沒有人守 —— 誰把它改回 `rpc: () => {}`, 守門就無聲消失、零測試會紅。
+  it('🔵 mock 的 rpc 必須是【掛在 client 上的方法】—— 拆下來呼叫要當場 throw', () => {
+    const { client } = makeMock({ data: [], error: null });
+    const { rpc } = client as unknown as { rpc: (f: string, a: unknown) => unknown };
+    // ESM 恆 strict ⇒ 拆下來呼叫時 this 是 undefined ⇒ 與真 SDK 同一種死法。
+    expect(() => rpc('storefront_search_product_ids', {})).toThrow();
+  });
+
+  // 🔴🔴 **這一格是 2026-09-03 正式站故障(11 次 503)留下的守門。**
+  //    當時的退路只接得住**回傳的 `error` 物件**;而真正發生的是一個 **`throw`**
+  //    (方法被從 client 上拆下來 ⇒ `this` 不見 ⇒ `TypeError: … reading 'rest'`)
+  //    ⇒ 它**穿過整條退路**, 讓 `/api/search` 回 503。
+  //    📌 **⇒ 一道只接住其中一種失敗形狀的退路, 在另一種形狀上等於不存在 ——
+  //       而那兩種形狀在測試裡長得完全不一樣, 所以「有退路」不等於「接得住」。**
+  it('🔴 RPC 那條路【throw】⇒ 仍然退回舊路, 不得讓整個搜尋炸掉(正式站 503 的那一格)', async () => {
+    const { client, captured } = makeMock({ data: null, error: null });
+    (client as unknown as { rpc: unknown }).rpc = () => {
+      throw new TypeError("Cannot read properties of undefined (reading 'rest')");
+    };
+    // 🔴 第一個斷言:**它不可以往上丟**。少了這一行, 下面那行在 throw 時根本跑不到,
+    //    而 vitest 會把它報成「測試失敗」而不是「這個行為壞了」—— 診斷會指錯方向。
+    const res = await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', {
+      limit: 8, offset: 0,
+    });
+    expect(res).toBeDefined();
+    // 🎯 第二個斷言:**舊路真的走了**(兩個詞 ⇒ 兩組 or)—— 這才分得出
+    //    「沒炸掉」與「炸掉但被別人吞了」。
+    expect(captured.ors, 'throw 之後要走舊路').toHaveLength(2);
+  });
+
+  // 🔵 **負對照**:`.range()` 那一段丟出來的東西也要接得住 —— throw 可能發生在**兩個位置**
+  //    (呼叫 `rpc()` 當下、或 await 那個 builder 的時候), 而只擋前者會漏掉後者。
+  it('🔵 `.range()` 階段才 throw ⇒ 一樣退回舊路', async () => {
+    const { client, captured } = makeMock({ data: null, error: null });
+    (client as unknown as { rpc: unknown }).rpc = () => ({
+      range: () => Promise.reject(new Error('連線在 range 階段斷了')),
+    });
+    const res = await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', {
+      limit: 8, offset: 0,
+    });
+    expect(res).toBeDefined();
+    expect(captured.ors, 'range 階段 throw 之後也要走舊路').toHaveLength(2);
   });
 
   it('🔵 RPC 回【空陣列】≠ RPC 不在 —— 前者直接回空, 不得退回舊路', async () => {
