@@ -197,6 +197,10 @@ grep -oE '^[[:space:]]*CREATE (TABLE|VIEW|MATERIALIZED VIEW)[[:space:]]+(IF NOT 
   NM=$(printf '%s' "$T" | awk -F. '{print $NF}')
   printf -- '-- 🟢 判別:這張表/view 在不在(1=已貼 / 0=沒貼)。新物件 ⇒ 存在性【有】判別力。\n'
   printf -- "SELECT '表/view %s 存在(1=已貼)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE n.nspname='%s' AND c.relname='%s';\n\n" "$T" "$SCH" "$NM"
+  # 🔵 2026-09-03 註:這個正對照刻意用 `public.orders`(我們自己的表)而不是一個【任何 PG 都有】的物件。
+  #   理由:它要答的是「這把尺指到【我們的庫】了嗎」——
+  #   拿 `pg_class` 之類當正對照的話, 對著一個**空的陌生庫**也會過 ⇒ 那把尺就沒有判別力了。
+  #   ⚠️ 代價:在**拋棄式 PG**上跑, 這一格會回 0 ⇒ 而那是【正確行為】(它在說:這不是那個庫)。
   printf -- '-- 🔵 正對照:同一把尺去找一張【一定在】的表(期望 1)。回 0 ⇒ 尺沒接上, 上面那個 0 不算數。\n'
   printf -- "SELECT '正對照 public.orders 存在(期望1)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE n.nspname='public' AND c.relname='orders';\n\n"
   printf -- '-- 🔵 負對照:現造名(期望 0)。\n'
@@ -204,11 +208,30 @@ grep -oE '^[[:space:]]*CREATE (TABLE|VIEW|MATERIALIZED VIEW)[[:space:]]+(IF NOT 
 done
 grep -oE '^[[:space:]]*CREATE (UNIQUE )?INDEX[[:space:]]+(IF NOT EXISTS[[:space:]]+)?[A-Za-z0-9_]+' "$NOCMT" 2>/dev/null \
 | sed -E 's/.*INDEX[[:space:]]+(IF NOT EXISTS[[:space:]]+)?//' | sort -u | while IFS= read -r IX; do
+  printf -- '-- 🟢 判別:這個索引在不在(1=已貼 / 0=沒貼)。\n'
   printf -- "SELECT '索引 %s 存在(1=已貼)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_class WHERE relname='%s' AND relkind='i';\n\n" "$IX" "$IX"
+  # 🔴 2026-09-03 補:本型原本【沒有正對照】⇒ 一個 0 分不出「沒貼」與「尺沒接上」。
+  printf -- '-- 🔵 正對照:同一把尺去找一個【一定在】的索引(期望 >=1)。回 0 ⇒ 尺沒接上。\n'
+  printf -- "SELECT '正對照 public 底下的索引數(期望>0)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE c.relkind='i' AND n.nspname='public';\n\n"
 done
-grep -oE '^[[:space:]]*CREATE POLICY[[:space:]]+"?[A-Za-z0-9_ ]+"?' "$NOCMT" 2>/dev/null \
-| sed -E 's/.*POLICY[[:space:]]+//; s/"//g' | sort -u | while IFS= read -r PO; do
-  printf -- "SELECT 'policy %s 存在(1=已貼)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_policy WHERE polname='%s';\n\n" "$PO" "$PO"
+# 🔴🔴 **POLICY 這一型 2026-09-03 之前是【壞的】, 而它往危險那一側單向壞掉。**
+#   舊寫法 `"?[A-Za-z0-9_ ]+"?` 的字元類裡**有一個空白** ⇒ 它把
+#   `CREATE POLICY <名> ON public.<表>` 抓成 `<名> ON public`
+#   ⇒ `polname='<名> ON public'` ⇒ 🔴 **在【已貼】與【沒貼】兩個世界都回 0。**
+#   ⇒ 📌 一把只會印「沒貼」的尺, 會讓人去【重貼一支已經貼過的東西】—— 而那是對正式庫的寫入。
+#   ✅ 改法:名字與表分開抓, 並 join pg_class/pg_namespace 比對真正的 polname + 所在表。
+grep -oE '^[[:space:]]*CREATE POLICY[[:space:]]+"?[A-Za-z0-9_]+"?[[:space:]]+ON[[:space:]]+[A-Za-z0-9_."]+' "$NOCMT" 2>/dev/null \
+| sed -E 's/.*POLICY[[:space:]]+//; s/"//g' | sort -u | while IFS= read -r PAIR; do
+  PO=$(printf '%s' "$PAIR" | awk '{print $1}')
+  REL=$(printf '%s' "$PAIR" | awk '{print $3}')
+  SCH=$(printf '%s' "$REL" | awk -F. 'NF>1{print $1} NF==1{print "public"}')
+  TBL=$(printf '%s' "$REL" | awk -F. '{print $NF}')
+  printf -- '-- 🟢 判別:這條 policy 在不在(1=已貼 / 0=沒貼)。新物件 ⇒ 存在性【有】判別力。\n'
+  printf -- "SELECT 'policy %s ON %s.%s 存在(1=已貼)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_policy p\n  JOIN pg_catalog.pg_class c ON c.oid=p.polrelid\n  JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE n.nspname='%s' AND c.relname='%s' AND p.polname='%s';\n\n" "$PO" "$SCH" "$TBL" "$SCH" "$TBL" "$PO"
+  printf -- '-- 🔵 正對照:那張表存在且開了 RLS(期望 t)。不是 t ⇒ 上面那個 0 不算數。\n'
+  printf -- "SELECT '正對照 %s.%s 存在且開 RLS(期望t)' AS 格, c.relrowsecurity::text AS 值\n  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE n.nspname='%s' AND c.relname='%s';\n\n" "$SCH" "$TBL" "$SCH" "$TBL"
+  printf -- '-- 🔵 負對照:現造政策名(期望 0)。\n'
+  printf -- "SELECT '負對照 現造政策名(期望0)' AS 格, count(*)::text AS 值\n  FROM pg_catalog.pg_policy WHERE polname='zzq_no_such_policy_9f';\n\n"
 done
 grep -oE 'ADD COLUMN[[:space:]]+(IF NOT EXISTS[[:space:]]+)?[A-Za-z0-9_]+' "$NOCMT" 2>/dev/null \
 | sed -E 's/.*COLUMN[[:space:]]+(IF NOT EXISTS[[:space:]]+)?//' | sort -u | while IFS= read -r CO; do
