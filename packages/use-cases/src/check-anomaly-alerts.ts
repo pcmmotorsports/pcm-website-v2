@@ -365,6 +365,87 @@ function isEmailOutboxSilentlyEmpty(summary: AnomalyAlertSummary): boolean {
  *   ③ 🔴 **「本訊息零個資、僅計數」那句已經拿掉,而那是必須的** ——
  *      帶了單號之後它就是**假的**,而一句假的隱私聲明比沒有更糟。
  */
+/**
+ * 安靜日心跳信(2026-09-03;Sean 拍甲「分兩區」的第一半)。
+ *
+ * 🔴🔴 **它裡面刻意【沒有任何計數】** —— 連「長期存量」都不印。
+ *    理由:那些數字**永遠不為零**(`packages/domain/src/payment/anomaly-alert.ts:82` 那格終態,
+ *    正式庫 2026-08-24 量到 4), 而每天把它們端出去 ⇒ 三天後沒有人讀
+ *    ⇒ **一個每天都在響而沒有人看的東西**。它們的排版是**片2** 的事。
+ *
+ * 🔴 **為什麼帶時刻**:收信這件事本身就證明它跑了 —— 而**時刻分得出「今天這封」與
+ *    「昨天那封延遲到現在才到」**。少了它, 一封遲到的信讀起來與一封準時的信一模一樣。
+ *
+ * 🛑🛑 **它【不在這一層寄】—— 而那是本片最重要的一格**(codex 2026-09-03 R1+R2 兩輪):
+ *    我第一版在這支 use-case 裡直接寄, 並自己抄了一份「route 什麼時候會回 503」的清單來擋。
+ *    ⇒ 🔴 **R2 逐條打回:那份副本抄不全也抄不準** ——
+ *      `orderCreatedGapUnknown` / `shippedGapUnknown` 在 cutoff 有設時**會** 503 而我沒擋;
+ *      `orderCreatedStuckUnknown` 要兩顆設定都有才 503 而我**無條件**擋;
+ *      `SHIPPED_EMAIL_CUTOFF` 格式錯也 503 而**這一層看不到那顆 env**。
+ *    ⇒ 🎯 **⇒ 我做的是一份 503 條件的副本, 而副本住在一個看不到那些 env 的地方。**
+ *    ⇒ ⇒ 📌 **用一個【代理】去回答一個問題, 而代理與本尊會漂開。**
+ *    ✅ **正解**:這一層只回 `alerted`(不另開旗標 —— codex R3 nit,理由見下),
+ *      **由 route 在所有 503 檢查都過了、`return 200` 的正前面才寄** ——
+ *      那樣耦合只有一個地方, 不會有兩份清單。
+ *
+ * 🔵 **而 route 判斷的依據就是 `result.alerted` 本身, 不另開一個旗標**(codex R3 nit):
+ *    我原本加了一個 `quietHeartbeatEligible`, 理由是「將來規則可能分家」——
+ *    🛑 而它現在**完全等於 `!alerted`**, 而複製一份狀態本身就有代價
+ *    (契約上兩個旗標可以同時為 true ⇒ 那一天會同輪寄紅燈與綠燈)。
+ *    ⇒ 📌 **真的出現獨立規則那天再加欄位** —— 那時候它會有一個真的理由。
+ */
+export function buildAnomalyQuietHeartbeatMessage(
+  now: Date,
+  /**
+   * 這一輪有哪幾項**讀不到**(而它們自己不會讓 route 回 503)。
+   *
+   * 🔴🔴 **為什麼要帶進來, 而不是「讀不到就別寄」**(codex R3 must-fix, 而修法與它建議的不同):
+   *    codex 說「不符合【全健康才寄】」—— 對, 而**擋掉會製造一個新的沉默**:
+   *    `manualCustomerSearchUnknown` 那一項 route **只 warn 然後回 200**(`route.ts:567`)
+   *    ⇒ 拿它擋心跳 ⇒ 那一天**既沒有信、也沒有 503** ⇒ 我親手做出這一片要消滅的東西。
+   * ✅ **⇒ 所以照寄, 而【把它說出來】** —— 這封信不再宣稱「全部都好」,
+   *    它宣稱的是「沒有需要你處理的事, 而有 N 項這一輪讀不到」。
+   *    ⇒ 📌 **不要宣稱超過你量到的東西** —— 而那與「不要製造沉默」可以同時成立。
+   */
+  unreadable: readonly string[] = [],
+): AnomalyAlertMessage {
+  // 🔴 台北時刻:這封信的讀者在台灣, 而 `toISOString()` 是 UTC ——
+  //    印 UTC 會讓「今天早上 9 點」讀起來像半夜, 而沒有人會去換算。
+  const taipei = new Intl.DateTimeFormat('zh-TW', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(now);
+  return {
+    subject: ANOMALY_QUIET_HEARTBEAT_SUBJECT,
+    // 🔴 「0 筆」與「沒有這封信」要是**兩件看得出來的事** —— 那正是這一片的全部目的。
+    text: [
+      '今天沒有需要你處理的付款異常。',
+      '',
+      `這一輪跑完的時刻(台北):${taipei}`,
+      // 🔴 讀不到的項目**逐項列出來** —— 這封信不宣稱「全部都好」, 只宣稱「沒有要你處理的事」。
+      //    ⚠️ 這裡列的**不是計數**, 是「哪一項這一輪沒讀到」⇒ 不違反「信裡零計數」那條。
+      ...(unreadable.length > 0
+        ? ['', `⚠️ 這一輪有 ${unreadable.length} 項讀不到:${unreadable.join('、')}`,
+           '(它們不會讓這支排程失敗,所以你只會在這裡看到)']
+        : []),
+      '',
+      '⚠️ 這封信只證明巡檢跑完而且寄得出去。',
+      '沒收到這封信 = 那條線可能停了,而不是「今天沒事」。',
+    ].join('\n'),
+  };
+}
+
+/**
+ * 心跳主旨的**唯一字面來源**。
+ * 🔴 route 與測試都引用它, **沒有第二個地方打這串字** —— 兩份字面遲早會分岔。
+ */
+export const ANOMALY_QUIET_HEARTBEAT_SUBJECT = '[PCM] 付款異常巡檢:今天 0 筆';
+
 export function buildAnomalyAlertMessage(
   summary: AnomalyAlertSummary,
   refundingStuckSeconds: number,
