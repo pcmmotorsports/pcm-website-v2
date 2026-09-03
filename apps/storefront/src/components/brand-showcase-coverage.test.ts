@@ -141,7 +141,10 @@ describe('BrandShowcase 覆蓋率 vs. 已開放寫入(writeAllowed)的供應商'
   });
 
   it('負對照 ①:名單裡的品牌【真的未登記】—— 前提垮掉時要紅,不能靜靜變成恆真', () => {
-    const zeroProductBrands = ['dbk', 'kineo', 'rizoma', 'wrs'];
+    // 🔴 2026-09-04:`dbk` 移出 —— 它當天登記進 SUPPLIER_CONFIGS(`writeAllowed: false`)。
+    //   照本條失敗訊息自己指的前例(gilles 2026-08-27)。⚠️ **移出這一格不代表它需要 showcase** ——
+    //   主閘的分母是 `writeAllowed === true`,而 dbk 是 false ⇒ 它現在歸【負對照②】管。
+    const zeroProductBrands = ['kineo', 'rizoma', 'wrs'];
     const registeredBrandSlugs = new Set(Object.values(SUPPLIER_CONFIGS).map((c) => c.brandSlug));
     for (const slug of zeroProductBrands) {
       expect(
