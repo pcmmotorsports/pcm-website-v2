@@ -108,3 +108,49 @@ function requireUuid(value: unknown, field: string, event: string): string {
   }
   return v;
 }
+
+/**
+ * 未付款取消信的 subject 固定模板(Q1 拍乙:未付款那種另開一條線)。
+ *
+ * 🔴 **唯一允許的動態欄是 `display_id`** —— 與另外兩封同一條紀律:
+ *    subject 是客人在信箱列表看到的那一行,而它**不夾任何客戶欄**(檔頭 §2)。
+ * 🛑 **不寫「退款」二字** —— 這條線的客人**從來沒有付過錢**,提退款會讓他等一筆不存在的錢。
+ */
+export function orderUnpaidCancelledSubject(displayId: string): string {
+  return `PCM 訂單 ${displayId} 已取消`;
+}
+
+/** 事件版本(與另外兩封同形)。 */
+export const ORDER_UNPAID_CANCELLED_EVENT_VERSION = 1 as const;
+
+/**
+ * 未付款取消信的 payload。
+ *
+ * 🔴 **allowlist 就是這幾個欄** —— 呼叫端物理上塞不進別的東西(檔頭 §3 那道紀律)。
+ * ⚠️ `cancelled_reason` 是**員工打的自由文字**,而它會原封進到客人眼前
+ *    ⇒ **整形在模板層**(`sanitizeCustomerFacingReason`),不在這裡 ——
+ *    這裡只負責「不讓不該落表的欄位進來」,不負責語意。
+ */
+export function buildOrderUnpaidCancelledPayload(src: {
+  displayId: string;
+  cancelledAt: string;
+  cancelledReason: string | null;
+}): {
+  display_id: string;
+  cancelled_at: string;
+  cancelled_reason: string | null;
+  event_version: typeof ORDER_UNPAID_CANCELLED_EVENT_VERSION;
+} {
+  return {
+    // 🔴🔴 **兩個必填欄要過 `requireNonEmptyString`, 而我第一版沒過**(codex 第二輪 must-fix)——
+    //    ⇒ 空的 `displayId` 會寄出一封主旨是「**PCM 訂單  已取消**」的信(中間兩個空格),
+    //      而空的 `cancelledAt` 會被**永久寫進 outbox**。
+    //    📌 **⇒ 而本檔檔頭宣稱「落表邊界有 runtime 防線」—— 那句話對另外兩封成立, 對我這封不成立。**
+    //    🎯 兩支姊妹(`:52-53` / `:89-94`)都過, 而我鏡像它們的時候**漏了這一格**。
+    display_id: requireNonEmptyString(src.displayId, 'displayId', 'order_unpaid_cancelled'),
+    cancelled_at: requireNonEmptyString(src.cancelledAt, 'cancelledAt', 'order_unpaid_cancelled'),
+    // 🔵 而 `cancelled_reason` **刻意不過** —— 它是選填(`null` = 沒有理由 ⇒ 信裡那段不印)。
+    cancelled_reason: src.cancelledReason,
+    event_version: ORDER_UNPAID_CANCELLED_EVENT_VERSION,
+  };
+}

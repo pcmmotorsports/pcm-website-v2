@@ -267,6 +267,20 @@ export function OrderDetailMoneyTab({
                     rowsTruncated={refundsTruncated}
                     loadFailed={refundsFailed}
                     nowMs={Date.now()}
+/* 🔴 **三態, 不是布林**(codex must-fix):
+                     * `PaymentListData` 刻意分 `ok` / `order_not_found` / `unreadable`,
+                     * 而後兩者逐字是**「不知道有沒有」不是「沒有」**(該型別自己的 docstring)。
+                     * ⇒ 🛑 壓成布林 ⇒ 讀不到時我們會說一句證不到的話。
+                     * 🔴 而判的是**有沒有刷卡列**不是「有沒有收款列」——
+                     *    「請以 TapPay Record 對帳」只在有刷卡收款時才對得出來;
+                     *    一張只有現金/匯款列的單 `rows.length > 0`, 而它一樣沒有 TapPay 紀錄。 */
+                    cardPayment={
+                      payments.status !== 'ok'
+                        ? 'unknown'
+                        : payments.rows.some((r) => r.rail === 'card')
+                          ? 'card'
+                          : 'none'
+                    }
                   />
 
                   {/* M-4b E10 D3:非卡退款登記列表(唯讀、不吃旗標,同上一塊的立場)。

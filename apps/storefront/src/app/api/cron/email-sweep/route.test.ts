@@ -22,6 +22,7 @@ vi.mock('server-only', () => ({}));
 const {
   sweepSpy, getDepsSpy, enqueueSpy, getEnqueueDepsSpy, hbOkSpy, hbFailSpy,
   shippedEnqueueSpy, getShippedDepsSpy,
+  unpaidCancelSpy, getUnpaidCancelDepsSpy,
 } = vi.hoisted(() => ({
   hbOkSpy: vi.fn(),
   hbFailSpy: vi.fn(),
@@ -33,6 +34,12 @@ const {
   // 🔴 M-4b E4 片3b:出貨線那半同樣自己一套(自己的 env、自己的 deps、自己的 try/catch)。
   shippedEnqueueSpy: vi.fn(),
   getShippedDepsSpy: vi.fn(),
+  // 🔴 2026-09-03 第三條線(未付款取消信)同樣自己一套。
+  //    ⚠️ **少了這兩格, route 會真的去建 Supabase client ⇒ 那一段 throw**
+  //    ⇒ `unpaidCancelStatus='failed'` ⇒ **整支測試檔回 503 而不是 200**。
+  //    🎯 而那是我這一片新加的 503 判準在做它該做的事 —— 測試還不知道有第三條線而已。
+  unpaidCancelSpy: vi.fn(),
+  getUnpaidCancelDepsSpy: vi.fn(),
 }));
 
 // 🔴 **`resolveShippedEmailCutoff` 刻意【不 mock】** —— 它是一支純函式,而
@@ -45,11 +52,13 @@ vi.mock('@pcm/use-cases', async (orig) => ({
   sweepEmailOutbox: sweepSpy,
   enqueueOrderCreatedEmails: enqueueSpy,
   enqueueOrderShippedEmails: shippedEnqueueSpy,
+  enqueueOrderUnpaidCancelledEmails: unpaidCancelSpy,
 }));
 vi.mock('@/lib/email/composition', () => ({
   getSweepEmailOutboxDeps: getDepsSpy,
   getEnqueueOrderCreatedDeps: getEnqueueDepsSpy,
   getEnqueueOrderShippedDeps: getShippedDepsSpy,
+  getEnqueueOrderUnpaidCancelledDeps: getUnpaidCancelDepsSpy,
 }));
 
 // b4-CRON6 片1:心跳寫入端。mock 掉的是 IO,不是判斷 —— 判斷(哪一條路寫)在 route 裡。
@@ -105,6 +114,12 @@ beforeEach(() => {
   delete process.env.SHIPPED_EMAIL_CUTOFF;
   shippedEnqueueSpy.mockReset();
   getShippedDepsSpy.mockReset().mockReturnValue({ outbox: {}, scanner: {} });
+  // 🔴 第三條線:預設回一份【乾淨的零】—— 不設的話它回 undefined ⇒ 讀 .enqErrors 會炸
+  unpaidCancelSpy.mockReset().mockResolvedValue({
+    scanned: 0, scannedPages: 1, truncated: false, enqueued: 0,
+    skippedNoRealEmail: 0, duplicate: 0, noRecipient: 0, errors: 0,
+  });
+  getUnpaidCancelDepsSpy.mockReset().mockReturnValue({ outbox: {}, scanner: {} });
 });
 
 afterEach(() => {
@@ -337,6 +352,12 @@ describe('GET email-sweep — 🔴 counts allowlist(不 blind spread ...result�
         // 🔴 片3b 多出來的兩欄:sweep 那一份的作廢計數 + 出貨線 enqueue 的四態旗標。
         //    (env 沒設 ⇒ `shippedEnqueueStatus: 'skipped_no_cutoff'`、其餘 `shp*` 欄不出現。)
         'skippedShipmentVoided', 'shippedEnqueueStatus',
+        // 🔴 2026-09-03 未付款取消信那條線多出來的一欄(四態互斥, 與上面兩支同形)。
+        //    env 沒設 ⇒ `unpaidCancelStatus: 'skipped_no_cutoff'`、其餘 `unpaidCancel_*` 欄不出現。
+        // 🎯 **而這一格擋到我了** —— 我加了一欄而沒來宣告, 它當場紅。
+        //    ⇒ 📌 那正是這道 allowlist 的設計意圖:**任何新欄都必須有人【明說】**,
+        //      而不是靠「我記得回應裡不要有 PII」。**一道正確的閘, 在它抓到你的那一刻像擋路。**
+        'unpaidCancelStatus',
       ].sort(),
     );
     errSpy.mockRestore();
@@ -1113,3 +1134,43 @@ describe('GET email-sweep — 🔴 cutoff 同時控【排信】與【寄信】(�
     });
   });
 });
+describe('未付款取消信那條線的【接線】(codex 第二輪 must-fix:預設 mock 證不到接線)', () => {
+  // 🔴🔴 **我第一版只加了「預設乾淨 mock」+ allowlist 一欄** ——
+  //    ⇒ **把 route 裡呼叫新線的那幾行整段刪掉, 那些斷言仍然全綠。**
+  //    📌 **「它不會弄壞別人」與「它真的被接上了」是兩個宣稱** —— 我只證了前者。
+  // 🔴 **用本檔既有的 `makeReq` / `bearer`(:100 / :106)—— 不要自己再定義一份。**
+  //    ⛔ 我第一版在這裡影子定義了一個回【物件】的 bearer, 而真正的簽章收【字串】
+  //    ⇒ 認證失敗 ⇒ route 提早回 401 ⇒ **spy 呼叫數 0** ⇒ 三格全紅。
+  //    📌 **與我今天造第二個常數、第二個同名 class 是同一族:先 grep, 不要再造一份。**
+
+  it('🔴 真的被呼叫、真的拿到 cutoff 與 limit', async () => {
+    process.env.B4_DEPLOY_CUTOFF = '2026-08-19T03:14:00.000Z';
+    await GET(makeReq(bearer()));
+    expect(unpaidCancelSpy).toHaveBeenCalledWith(expect.anything(), {
+      cutoff: '2026-08-19T03:14:00.000Z',
+      limit: 50,
+    });
+  });
+
+  it('🔴 它的 errors 會讓整支回 503(而不是 200 ok:true)', async () => {
+    process.env.B4_DEPLOY_CUTOFF = '2026-08-19T03:14:00.000Z';
+    unpaidCancelSpy.mockResolvedValue({
+      scanned: 1, scannedPages: 1, truncated: false, enqueued: 0,
+      skippedNoRealEmail: 0, duplicate: 0, noRecipient: 0, errors: 1,
+    });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+  });
+
+  it('🔴 它整段 throw ⇒ 回 503, 而【不擋 sweeper】(sweeper 仍被呼叫)', async () => {
+    process.env.B4_DEPLOY_CUTOFF = '2026-08-19T03:14:00.000Z';
+    unpaidCancelSpy.mockRejectedValue(new Error('boom'));
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    // 🎯 最重要的一格:**它炸掉不能讓既有的 sweeper 不跑**
+    expect(sweepSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+});
+

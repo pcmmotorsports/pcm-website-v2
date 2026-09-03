@@ -43,6 +43,7 @@ import { resolveSiteUrl } from '@/lib/site-url';
 import { timingSafeEqual } from 'node:crypto';
 import {
   enqueueOrderCreatedEmails,
+  enqueueOrderUnpaidCancelledEmails,
   enqueueOrderShippedEmails,
   readDeployCutoff,
   resolveShippedEmailCutoff,
@@ -54,11 +55,12 @@ import {
 } from '@pcm/use-cases';
 import {
   getEnqueueOrderCreatedDeps,
+  getEnqueueOrderUnpaidCancelledDeps,
   getEnqueueOrderShippedDeps,
   getSweepEmailOutboxDeps,
 } from '@/lib/email/composition';
 // eslint-disable-next-line no-restricted-imports -- 受控例外:只取型別守衛用的錯誤類別(不建任何 adapter);它只帶 stage/code 兩個固定欄、零 PII。
-import { ScanQueryError } from '@pcm/adapters/server';
+import { ScanQueryError, UnpaidCancelledScanQueryError } from '@pcm/adapters/server';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
 import { CRON_JOB_NAME, recordHeartbeatSuccess, recordHeartbeatFailure } from '@/lib/cron/heartbeat';
 
@@ -351,7 +353,57 @@ export async function GET(request: Request): Promise<Response> {
       });
     }
   }
-  const enqueueSection = { enqueueStatus, ...(enqueueCounts ?? {}) };
+  // ── 未付款被【員工】取消的通知信:排信(Sean 2026-09-03 拍甲)────────────────
+  // 🛑🛑 **時間預算:本片把第三條【序列】的 enqueue 疊進同一個 `maxDuration = 60`**
+  //    (codex 第二輪 must-fix)⇒ 最壞情況下它可能吃掉出貨線與 sweeper 的時間,
+  //    而**被平台 kill 的那一發不會回 503、也不會寫失敗心跳** ⇒ 靜靜地什麼都沒跑。
+  // 🔵 **今天的量級**:本檔上面那段容量估算逐字「**PCM 量級 10-30 封/日 << 50**」,
+  //    而取消單遠少於訂單
+  //    ⇒ 三條線加起來仍遠小於窗口。**而那是【量級論證】, 不是機制。**
+  // 🔴 **⇒ 已知缺口, 不在本片修**(修它要把三條線改成共用一個剩餘預算閘,
+  //    而 sweeper 自己已經有 `outOfBudget()` —— 那是一片獨立的改動)。
+  //    ⇒ 📌 **判別訊號**:cron log 的整輪耗時逼近 60s ⇒ 那一天要回來做它。**已回報主視窗。**
+  // 🔴 **與 B-5 共用同一顆 cutoff** —— 兩者要問的是同一件事:「上線那一刻之後才算」。
+  //    ⇒ 而共用意味著:那顆 env 沒設 ⇒ **這一段也不跑**(與 B-5 同一個降級方向)。
+  // 🛑 射程(不含逾時自動取消 —— Sean 未拍板)寫在 `IUnpaidCancelledOrderScanner` 檔頭。
+  // 🔴 **整段失敗不擋 sweeper** —— 與另外兩支同形:計 errors、本輪最後回 503。
+  let unpaidCancelCounts: ReturnType<typeof pickEnqueueCounts> | null = null;
+  let unpaidCancelStatus: 'skipped_no_cutoff' | 'skipped_bad_cutoff' | 'completed' | 'failed' =
+    cutoffRead.kind === 'unset'
+      ? 'skipped_no_cutoff'
+      : cutoffRead.kind === 'invalid'
+        ? 'skipped_bad_cutoff'
+        : 'completed';
+  if (cutoffRead.kind === 'ok') {
+    try {
+      unpaidCancelCounts = pickEnqueueCounts(
+        await enqueueOrderUnpaidCancelledEmails(getEnqueueOrderUnpaidCancelledDeps(), {
+          cutoff: cutoffRead.cutoff,
+          limit: ENQUEUE_LIMIT,
+        }),
+      );
+    } catch (err) {
+      unpaidCancelStatus = 'failed';
+      // 🔴 用**新 adapter 自己那支** —— 兩支同名時 instanceof 比的是身分不是名字
+      const scan =
+        err instanceof UnpaidCancelledScanQueryError ? { stage: err.stage, code: err.code } : {};
+      console.error('[email-sweep] 🔴 未付款取消信 enqueue 整段失敗(不擋 sweeper;本輪最後回 503)', {
+        reason: 'unpaid_cancel_scan_throw',
+        ...scan,
+      });
+    }
+  }
+
+  const enqueueSection = {
+    enqueueStatus,
+    ...(enqueueCounts ?? {}),
+    unpaidCancelStatus,
+    ...(unpaidCancelCounts === null
+      ? {}
+      : Object.fromEntries(
+          Object.entries(unpaidCancelCounts).map(([k, v]) => [`unpaidCancel_${k}`, v]),
+        )),
+  };
 
   // ── 1d. 🔴 M-4b E4 片3b:出貨通知信的掃描式 enqueue ────────────────────────────
   //     **與上面那一段完全平行**(自己的 deps、自己的 try/catch、自己的 env),
@@ -572,7 +624,14 @@ export async function GET(request: Request): Promise<Response> {
       //    ⚠️ 而 `skipped_no_cutoff` **不在裡面** —— 那是「還沒上膛」的正常狀態,不是失敗。
       shippedStatus === 'failed' ||
       shippedStatus === 'skipped_bad_cutoff' ||
-      (shippedCounts?.shpErrors ?? 0) > 0
+      (shippedCounts?.shpErrors ?? 0) > 0 ||
+      // 🔴🔴 **新線的失敗也要進這裡 —— 而我第一版漏了,而我的註解說它「本輪最後回 503」**
+      //    (codex 對抗審查 must-fix)⇒ scanner 或單筆 enqueue 炸掉 ⇒ 仍回 200 · ok:true
+      //    · 心跳記成功 ⇒ 🎯 **那正是這一整條線在修的那個病, 而這次是我寫的。**
+      //    📌 三條線的判準必須逐字同形, 否則「哪一條漏了」在畫面上看不出來。
+      unpaidCancelStatus === 'failed' ||
+      unpaidCancelStatus === 'skipped_bad_cutoff' ||
+      (unpaidCancelCounts?.enqErrors ?? 0) > 0
     ) {
       console.error('[email-sweep] 🔴 本輪有失敗(回 503;不吞成 200 偽裝成功)', {
         ...counts,
