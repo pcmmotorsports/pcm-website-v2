@@ -62,7 +62,7 @@ describe('SEARCH_SYNONYMS — 這張表自己要站得住', () => {
   );
 
   // 🔴🔴 **2026-09-04 補:一列可以【完全合法而永遠不會被讀到】。**
-  //    `parse-search-facets.ts:100` 先試 `foldEquals(w, c.name) || foldStartsWith(c.name, w)`,
+  //    `parse-search-facets.ts` 的 `const direct = allCats.find` 那一行先試 `foldEquals(w, c.name) || foldStartsWith(c.name, w)`,
   //    中了就 `break` —— **在 `synonymFor` 之前**。
   //    ⇒ 🎯 所以 `from` 若是某個分類名的**前綴**, 前綴那條先中, **字典這一列從來沒有被讀到**。
   //    🛑 而**上面那格「from 與 to 不得折成同一個」看不到這一種** —— 它擋的是【重複】,
