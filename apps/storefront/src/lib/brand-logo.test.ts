@@ -59,6 +59,26 @@ describe('BRAND_LOGO_SRC ↔ 磁碟(雙向)', () => {
       .toEqual([...KNOWN_NO_LOGO].sort());
   });
 
+  // 🔴🔴 **③ 這才是【完整】的分母, 而我是第四次換尺才找到它。**
+  //    `brand-assets/assets/brands-trim/<slug>.png` 是**其他家 logo 的來源**
+  //    (rizoma / dbk / gilles 三家實測:它與 `brands/<slug>/logo.png` 逐位元組相同)。
+  //    ✅ 而它**以品牌 slug 命名**(裡面是 `k-speed.png`, 不是 `kspeed.png`)
+  //       ⇒ 🎯 **它與表的 key 是同一個命名空間** —— 那正是 `readdirSync('public/brands')` 那版缺的東西,
+  //         而拿它當分母, 當初那個 `kspeed` 的錯**會直接紅**。
+  //    ⇒ 📌 分母的四個版本:目錄名(錯) → mock-brands 17 家(漏 k-speed) → supplier-config
+  //       writeAllowed(對, 而漏 wrs/kineo) → **brands-trim(完整)**。前三個都印過綠。
+  const TRIM_DIR = join(PUBLIC_DIR, 'brand-assets', 'assets', 'brands-trim');
+
+  it('③ brands-trim 裡每一家都在表裡(這是最完整的分母)', () => {
+    const trimSlugs = readdirSync(TRIM_DIR)
+      .filter((f) => f.endsWith('.png'))
+      .map((f) => f.replace(/\.png$/, ''))
+      .sort();
+    expect(trimSlugs.length).toBeGreaterThan(15); // 正對照:分母不是空的
+    const missing = trimSlugs.filter((slug) => !(slug in BRAND_LOGO_SRC));
+    expect(missing, `brands-trim 有而表裡沒有: ${missing.join(', ')}`).toEqual([]);
+  });
+
   it('③ 例外清單是空的 —— 加任何一家進去之前, 先在 brand-logo.ts 寫下理由', () => {
     // 這一格擋的是「為了讓②變綠, 順手把缺的那家加進例外清單」。
     expect(KNOWN_NO_LOGO).toHaveLength(0);
@@ -77,13 +97,10 @@ describe('brandLogoSrc', () => {
     expect(brandLogoSrc('lightech')).toBe('/brands/lightech/logo.png');
   });
 
-  it('🛑 wrs ⇒ null(它有 brands-dark 檔, 而那是【淺色 logo】, 放淺底卡片上看不見)', () => {
-    // 🔴 這一格擋的是一個很自然的「順手補上」:`public/brands-dark/wrs.png` 就在那裡, 拿來用一行就好。
-    //    而它是給深色背景的版本 ⇒ 卡片底是淺色漸層 ⇒ 看不見 ⇒ 比退回站內佔位圖更糟。
-    //    ✅ 解除條件:補上原色版 `public/brands/wrs/logo.*`, 屆時把 wrs 加進表、改這一格。
-    expect(brandLogoSrc('wrs')).toBeNull();
-    // 🔴 kineo 同一種情況(brands/ 沒有它、brands-dark 有)—— 先前這裡只寫在註解裡而沒有格子,
-    //    ⇒ 宣稱比證據寬一家。補上。
-    expect(brandLogoSrc('kineo')).toBeNull();
+  it('🟢 wrs 有原色 logo(2026-09-04 從 brands-trim 複製, 與其他家同一個做法)', () => {
+    // ⛔ ~~本格初版斷言 `toBeNull()`~~ —— 當時我只掃了兩個目錄, 判「wrs 只有深色版」。
+    //    🔬 實際上 `brand-assets/assets/brands-trim/wrs.png` 是原色深字版, 而那正是其他家 logo 的來源。
+    //    📌 查一個【路徑】不等於查那個【東西】——「`public/brands/` 底下沒有 wrs」與「wrs 沒有 logo」不是同一件事。
+    expect(brandLogoSrc('wrs')).toBe('/brands/wrs/logo.png');
   });
 });
