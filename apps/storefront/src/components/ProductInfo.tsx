@@ -266,32 +266,36 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
 
   return (
     <aside className="pd-info">
-      {/* M-1-16c-4a:料號顯選中變體真 sku(隨 selectSpec 連動;Sean Q1=A、取代原 PCM-{id hash} 亂碼數)。
-          無變體 mock fallback 用 slug(sane、非 hash;design VariantCFull.jsx L81 原 PCM-XXXXX 格式退場)。
+      {/* 🔴🔴 **Sean 2026-09-03 【重答】Q23 = 甲:商品頁只印「原廠料號」。**
+          ⛔ ~~原本(M-1-16c-4a):印選中變體的真 `sku`,隨 selectSpec 連動~~
+          ⛔ ~~同日稍早的丙:兩個編號都印,暫用標籤「搜尋用」(commit `c68cc9fe`)~~
 
-          🔴🔴 **Sean 2026-09-03 拍 `Q23 = 丙`:兩個編號都印並標清楚。**
-          🛑 **而丙【不會讓料號變成搜得到】—— 它只是讓客人知道該抄哪一個。**
-             真正的修法是甲(要貼 SQL, 排在丙之後)。⇒ **不要拿本片去說「料號搜尋修好了」。**
+          🎯 **為什麼推翻 —— 而丙那一版的【存在理由仍然成立, 換掉的是解法】**:
+             丙要解的病是「客人照商品頁上那一串抄去搜 ⇒ 0 筆」。**那個病沒有變。**
+             而 Sean 給了一句我們沒有的業務事實,逐字:
+             **「但是其實我們不太會用商品編號耶 我們工作基本上都是用原廠料號在工作」**
+             ⇒ 📌 他們工作上只用原廠料號,而**顧客站搜尋比對的剛好就是那一個**
+             ⇒ ⇒ **所以問題不是「要印兩個」, 是【我們印錯了那一個】。**
+          ⇒ 🛑 **下一個讀 `c68cc9fe` 的人:丙沒有錯 —— 是前提換了。**
 
-          🔬 **病灶(量到的)**:這一行印的是 `variant.sku`,而顧客站搜尋比對的是
-             `products.external_id`(= `product.productCode`)——
-             `product-query-support.ts` 的 `SEARCHABLE_COLUMNS` 只有
-             title / subtitle / description / external_id, **`sku` 結構上不在 `products_public` 上**。
-          ⇒ 📌 **客人照著這一行抄去搜, 搜不到。** 而它**有時候搜得到**(兩個號剛好相同時)
-             ⇒ **客人分不出這一次是哪一種。**
+          🔬 **「原廠料號」是哪一個欄位 —— 這一格我用 repo 自己的字面判, 不是猜**:
+             `packages/domain/src/catalog/types.ts:283` 逐字稱 `productCode` 是
+             **「vendor 來源料號(如 RPM 的 `RPM-DCC01`)」**、← wire `products.external_id`;
+             `:288` 稱 `ProductVariant.sku` 是「各變體個別料號」。
+             ⇒ 而搜尋比對的 `SEARCHABLE_COLUMNS` 正是 `external_id`
+             ⇒ ✅ 兩邊指向同一個:**原廠料號 = `productCode`**。
 
-          ⚠️ **標籤那兩個字是【暫用】, 等 Sean 定** —— 他批的是「兩個都印」,
-             而題目第③格逐字寫著「料號 / 產品型號兩個叫法六個地方在用而**沒有任何一筆拍板**,
-             你順手定一下叫法」⇒ **他沒答那一格。**
-          🛑 **暫用字面刻意【不用】「料號」或「產品型號」任一個** —— 那兩個名字正是他要拍的東西,
-             用了就是替他選了一個。這裡用「搜尋用」:它描述**功能**不是**命名**,
-             而它同時就是客人現在最需要知道的那件事(該抄哪一個)。
-          📌 **TODO(等 Sean 拍叫法)**:兩個標籤定案後回來換掉這裡的字面。 */}
-      <div className="pd-sku">{product.brand} · {selectedVariant?.sku ?? product.slug}</div>
-      {/* 🔵 只在【兩個號不同】時才多印一行 —— 相同時多印一次會讓客人以為那是兩件事。 */}
-      {product.productCode && product.productCode !== (selectedVariant?.sku ?? product.slug) ? (
-        <div className="pd-sku pd-sku-searchable">{product.productCode}(搜尋用)</div>
-      ) : null}
+          ⚠️ **代價照實記**:這一頁**不再印變體個別料號**(`sku`)。
+             ⇒ 同一支商品不同規格的號從畫面上消失了 —— 而規格本身仍看得到(選擇器在)。
+             ⇒ 🛑 **哪天發現出貨單 / 揀貨單 / 發票上對帳靠的是那個變體號, 這一片要重議。**
+                (主視窗 `-87` 明說:那是**它的判讀不是 Sean 的字** —— 他選甲, 它讀成
+                 「紙上不是靠那個號對帳」。這一格留著, 因為它是這片唯一沒有被證實的假設。)
+
+          🔵 **叫法定案 = 「原廠料號」**(Sean 自己的用語)⇒ 這不再是暫用字面, TODO 已收。
+             🛑 而**站上另外六處**「料號 / 產品型號」混用**本片不動** —— 那是另一片, 已標進板子。 */}
+      <div className="pd-sku">
+        {product.brand} · 原廠料號 {product.productCode ?? product.slug}
+      </div>
 
       <h1 className="pd-title">{product.name}</h1>
 

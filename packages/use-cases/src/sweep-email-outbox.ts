@@ -11,6 +11,7 @@ import type {
   SendEmailInput,
   ShippedEmailContext,
 } from '@pcm/ports';
+import { SUPPRESS_WHEN_ORDER_INELIGIBLE } from '@pcm/ports';
 import {
   assertPdfClaimMatchesAttachments,
   paidEmailOrderUrl,
@@ -950,7 +951,21 @@ export async function sweepEmailOutbox(
     //      而它把窗口真的收到【這一封的讀取與 send 之間】。
     let ineligible: boolean;
     try {
-      ineligible = (await ineligibleScanner.listIneligibleAmong([job.orderId])).length > 0;
+      // 🔴🔴 **取消信【不問這道閘】—— 而那不是例外, 是規則的形狀**(Q10 前置;R1 C2)。
+      //    那道閘擋的是「已取消/已退款的單, 不要再寄通知」;
+      //    🎯 **而取消通知本身正是那條規則的例外** —— 擋它 = 擋掉我們唯一要說的那句話。
+      //    ⛔ ~~原本無條件問~~ ⇒ 每一封取消信 100% 被標 `skipped_order_ineligible`,
+      //      **而那是終態、不計 error、【沒有自動告警在看】**(⚠️ 不是「查不到」——後台 `email-log-view.ts` 逐單看得到,而那要有人去查;codex nit 2 訂正我原本過度絕對的字面) ⇒ 一整條做完的線看起來像做完了, 而一封都沒寄。
+      //    ✅ 判斷來自 `SUPPRESS_WHEN_ORDER_INELIGIBLE`(窮舉 `Record`)⇒ **加新 event_type
+      //      而沒標那一格 ⇒ typecheck 當場紅**(實測:`Property 'zzq_fake_event' is missing`)。
+      //    ⚠️ 而**既有兩封信的行為逐字不變** —— 它們兩個都標 `true`。
+      //    🛑 **未知 event_type ⇒ 當成【該擋】**(`!== false`)—— 而我第一版寫成 `[…] ?` 是 **fail-open**,
+      //      它就寫在下面那段「讀不到 ⇒ fail-closed」的正上方(code-reviewer N6 / codex nit 3)。
+      //      ⚠️ DB 先加值而 code 還沒跟上是本 repo **明文預期**的順序(見 `IEmailOutbox` 檔頭)
+      //      ⇒ 那一刻不該讓它悄悄溜過這道閘。
+      ineligible = SUPPRESS_WHEN_ORDER_INELIGIBLE[job.eventType] !== false
+        ? (await ineligibleScanner.listIneligibleAmong([job.orderId])).length > 0
+        : false;
     } catch {
       // 🔴 **讀不到 ⇒ 這一封不寄(fail-closed)**,而不是「當作合格」:
       //    這道閘唯一的用途就是攔住不該寄的信 —— 讀失敗時放行,等於它在最需要它的那一刻消失。

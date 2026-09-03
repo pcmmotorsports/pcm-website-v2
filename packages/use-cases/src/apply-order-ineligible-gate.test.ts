@@ -7,7 +7,10 @@ import type { ClaimedEmailJob, DueIneligibleEmailJob, IEmailOutbox, IIneligibleO
 import { applyOrderIneligibleGate } from './apply-order-ineligible-gate';
 
 function candidate(over: Partial<DueIneligibleEmailJob> = {}): DueIneligibleEmailJob {
-  return { id: 'outbox-1', orderId: 'order-1', ...over };
+  // 🔴 預設 `order_created` = **該被擋**的那個世界(既有測項跑的全是它)。
+  //    ⚠️ 而**那是一個世界, 不是一個中性預設** ⇒ 另一個世界(取消信 ⇒ 不該被擋)
+  //    有它專屬的一節, 不靠這個預設代表它。
+  return { id: 'outbox-1', orderId: 'order-1', eventType: 'order_created', ...over };
 }
 
 function claimedJob(over: Partial<ClaimedEmailJob> = {}): ClaimedEmailJob {
@@ -114,3 +117,44 @@ describe('applyOrderIneligibleGate — 寄送前 gate', () => {
     expect(res).toEqual({ scanned: 3, markedIneligible: 2, raceLost: 1, errors: 0 });
   });
 });
+describe('取消信不走這道閘(Q10 前置;而【既有兩封信行為必須逐字不變】)', () => {
+  // 🔴🔴 這條路**比寄送那條更早**把列標成 `skipped_order_ineligible` ——
+  //    只修寄送那條 = 修了一半, 而取消信仍然被這裡先撈走、標成終態、**沒有人在看**。
+  it.each([
+    ['order_cancelled', 'order_cancelled' as const],
+    ['order_unpaid_cancelled', 'order_unpaid_cancelled' as const],
+  ])('🔴 %s ⇒ 不被撈進來(scanned = 0, 一列都沒標)', async (_l, eventType) => {
+    const outbox = {
+      claimById: vi.fn(),
+      markSkippedOrderIneligible: vi.fn(),
+    } as unknown as IEmailOutbox;
+    const scanner: IIneligibleOrderEmailScanner = {
+      listDueIneligible: async () => [candidate({ eventType })],
+      listIneligibleAmong: async () => ['order-1'],
+    };
+    const r = await applyOrderIneligibleGate({ outbox, scanner }, { limit: 30 });
+    expect(r.scanned).toBe(0);
+    expect(r.markedIneligible).toBe(0);
+    // 🎯 最重要的一格:**它一次都沒被認領** —— 沒被認領就不會被標成終態
+    expect(outbox.claimById).not.toHaveBeenCalled();
+  });
+
+  // 🟢 **反向世界非做不可** —— 少了它,「一律不撈」的實作也會通過上面兩格
+  it.each([
+    ['order_created', 'order_created' as const],
+    ['order_shipped', 'order_shipped' as const],
+  ])('🟢 %s ⇒ 照舊被撈進來(既有行為逐字不變)', async (_l, eventType) => {
+    const outbox = {
+      claimById: vi.fn(async () => null),
+      markSkippedOrderIneligible: vi.fn(),
+    } as unknown as IEmailOutbox;
+    const scanner: IIneligibleOrderEmailScanner = {
+      listDueIneligible: async () => [candidate({ eventType })],
+      listIneligibleAmong: async () => ['order-1'],
+    };
+    const r = await applyOrderIneligibleGate({ outbox, scanner }, { limit: 30 });
+    expect(r.scanned).toBe(1);
+    expect(outbox.claimById).toHaveBeenCalledTimes(1);
+  });
+});
+
