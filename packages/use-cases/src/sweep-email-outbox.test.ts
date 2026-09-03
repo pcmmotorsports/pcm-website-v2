@@ -17,6 +17,11 @@ import { sweepEmailOutbox, type SweepEmailOutboxOptions } from './sweep-email-ou
 const NOW = new Date('2026-07-17T10:00:00.000Z');
 
 const OPTS: SweepEmailOutboxOptions = {
+  // 🔴 **給一個站台網址 = 「A4 那條連結印得出來」的那個世界**(Sean 2026-09-03 勾 A4)。
+  //    ⚠️ 而**缺 `siteUrl` 是【另一個世界】, 不是一個更中性的預設** —— production 缺
+  //    `NEXT_PUBLIC_SITE_URL` 時 `resolveSiteUrl()` 回 `undefined` ⇒ 連結整段不印。
+  //    ⇒ 📌 **那個世界有它自己的一格**(見「siteUrl 缺席」那一節), 不靠這裡的預設代表它。
+  siteUrl: 'https://shop.pcmmotorsports.com',
   // 🔴 預設 `true` = 「出貨線已上膛」的那個世界 —— 絕大多數測項跑的是它。
   //    ⚠️ 而**那是一個世界,不是一個中性預設** ⇒ 另一個世界(線關著)必須有專屬的一節,
   //       否則這道閘在測試層等於沒有被量過(同 `eligibleAll()` 那一格的理由)。
@@ -248,8 +253,29 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
       '我們會盡快為您安排出貨，出貨後會再寄一封通知給您。',
       '',
       '訂單明細與最新狀態請至 PCM 會員中心查看。',
+      // 🔴🔴 **2026-09-03:這一格【又重設了一次】,而這一次的授權是 Sean 本人勾的 A1/A2/A4。**
+      //    ⛔ ~~原本這裡直接接 `'', 'PCM重機零件販售'` 就結束~~
+      //    **他勾的是**(`~/pcm-mailbox/清單-信件文案要改什麼-20260903.md` A 區):
+      //      · **A1** 純文字那份補金額與品項  · **A2** 純文字那份補聯絡方式
+      //      · **A4** 會員中心那句附網址      · **A5** LOGO 加回(那格在 HTML 那側)
+      //    🛑 **而本格自己寫著「重設這道鎖需要授權」** —— 這一次授權在:
+      //      清單是我列的、**而勾的是他**;而 2026-09-02 那次被判 must-fix 的差別正是
+      //      **那句話當時只出現在我自己的提案裡, 零依據。**
+      //    📌 **⇒ 所以這一格的判別句不是「文案有沒有改」, 是【誰批的、批的字面在哪裡】。**
+      //
+      //    ⚠️ **而本格是 `paid === null` 的世界**(這一發沒注入 `paidContext`)
+      //      ⇒ **金額與品項那一段【不印】, 那是刻意的** —— A1 只在拿得到明細時成立。
+      //      ⇒ 🎯 而**聯絡資訊那一段【照印】** —— A2 與有沒有明細無關, 客人任何時候都要找得到我們。
+      '',
+      // 🔴 **逗號是全形 `U+FF0C`** —— code-reviewer R1 must-fix:我第一版打半形,
+      //    而 A2 的授權字面是「字面**可以照抄**排版那份」⇒ **照抄不會產生一個半形逗號**。
+      //    ⇒ 📌 那一個字元等於替 Sean 答了 A7(標點統一往哪邊), 而 **A7 是他沒答的格**。
+      '加入官方 LINE @pcmmoto',
+      'https://lin.ee/egsf1Jy',
       '',
       'PCM重機零件販售',
+      '派達有限公司　統一編號 90003020',
+      '新北市新莊區化成路736巷18號1樓',
     ].join('\n');
     expect(sentText).toBe(EXPECTED_ORDER_CREATED_BODY);
     expect(outbox.markSent).toHaveBeenCalledExactlyOnceWith('outbox-1', 3);
@@ -1131,10 +1157,15 @@ function paidCtx(over: Partial<PaidEmailContext> = {}): PaidEmailContext {
   const m = (n: number) => n as PaidEmailContext['total'];
   return {
     orderDisplayId: 'PCM-2026-0001',
-    lines: [{ title: '排氣管', variantSku: 'SKU-1', quantity: 1, lineTotal: m(1000) }],
+    // 🔴🔴 **四個數字【互不相同】是刻意的**(codex 對抗審查 must-fix):
+    //    ⛔ 原本 `lineTotal` 與 `subtotal` 同為 1000 ⇒ **兩欄互換, 斷言照樣全過。**
+    //    ⇒ 📌 **一個 fixture 裡重複的值, 會讓所有用到它的斷言【分不出欄位】。**
+    //    ✅ 現在:單項 940 · 小計 940 · 運費 160 · 折扣 0 · 總額 1100 —— 任兩欄互換都會紅。
+    //    ⚠️ 而小計與單項相同是**規格要求的**(單一品項)⇒ 那一格靠「品名+數量」那條斷言分。
+    lines: [{ title: '排氣管', variantSku: 'SKU-1', quantity: 1, lineTotal: m(940) }],
     linesTruncated: false,
-    subtotal: m(1000),
-    shippingFee: m(100),
+    subtotal: m(940),
+    shippingFee: m(160),
     discountTotal: m(0),
     total: m(1100),
     ...over,
@@ -1148,6 +1179,300 @@ const paidDeps = (r: LoadPaidContextResult, outbox: OutboxFake, sender: IEmailSe
   outbox,
   sender,
   paidContext: paidFake(r),
+});
+
+describe('取消信不被【寄送當下】那道閘擋掉(Q10 前置;路A)', () => {
+  // 🔴🔴 那道閘擋的是「已取消/已退款的單, 不要再寄通知」——
+  //    而**取消通知本身正是那條規則的例外**:擋它 = 擋掉我們唯一要說的那句話。
+  //    ⛔ 修之前:每一封取消信 100% 被標 `skipped_order_ineligible`
+  //      ⇒ **終態、不計 error、沒有人在看** ⇒ 一整條做完的線看起來像做完了, 而一封都沒寄。
+  const ineligibleAll = () => ({ listIneligibleAmong: async () => ['order-1'] }) as never;
+
+  it.each([
+    ['order_cancelled', 'order_cancelled' as const],
+    ['order_unpaid_cancelled', 'order_unpaid_cancelled' as const],
+  ])('🔴 %s ⇒ 訂單已不合格也【照寄】', async (_l, eventType) => {
+    const outbox = outboxFake([job({ eventType, payload: { display_id: 'PCM-2026-0001' } })]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const r = await sweepEmailOutbox({ ineligibleScanner: ineligibleAll(), outbox, sender }, OPTS);
+    expect(r.sent).toBe(1);
+    expect(r.skippedIneligible).toBe(0);
+  });
+
+  // 🟢 **反向世界** —— 少了它,「閘整個拿掉」也會通過上面兩格
+  it.each([
+    ['order_created', 'order_created' as const],
+    ['order_shipped', 'order_shipped' as const],
+  ])('🟢 %s ⇒ 訂單已不合格 ⇒ 照舊【不寄】(既有行為逐字不變)', async (_l, eventType) => {
+    const outbox = outboxFake([job({ eventType })]);
+    // 🔴 **預設的 fake 對 `markSkippedOrderIneligible` 是【reject】的** —— 它的訊息逐字寫著
+    //    「本測項的世界是【全部合格】」⇒ 那是一個**刻意的地雷**, 用來抓「不該被擋卻被擋了」。
+    //    ⇒ 而本格的世界【就是要它被擋】⇒ 要把那顆地雷換掉, 否則我量到的會是 `errors`。
+    //    ⚠️ 我第一版沒換 ⇒ 這一格紅了 ⇒ **而紅的是我的斷言, 不是碼。**
+    outbox.markSkippedOrderIneligible = vi.fn(async () => true);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const r = await sweepEmailOutbox({ ineligibleScanner: ineligibleAll(), outbox, sender }, OPTS);
+    expect(r.sent).toBe(0);
+    expect(r.skippedIneligible).toBe(1);
+  });
+});
+
+describe('order_cancelled —— 刷卡且已全額退款的取消信(Q10)', () => {
+  // 🔴 這封信的存在理由:今天這種單的客人**什麼都收不到, 而錢已經退回去了**。
+  const cancelledJob = (payload: Record<string, unknown>) =>
+    job({ eventType: 'order_cancelled', payload });
+
+  const textOf = async (payload: Record<string, unknown>) => {
+    const outbox = outboxFake([cancelledJob(payload)]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
+    const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    return String(input.text);
+  };
+
+  // 🔴🔴 **全文逐字鎖 —— 而它是這一族唯一擋得住「有人在信中間插一段話」的東西**
+  //    (code-reviewer R1 must-fix):我原本只有 `toContain` / `not.toContain` + 一份黑名單,
+  //    而**插一段新的話、換段落順序、動空行, 那些格子全部照綠**;
+  //    而黑名單本身也在跟下一個沒想到的說法賽跑(「下個對帳日」「約需一週」「預計月底前」全部繞得過)。
+  //    ⇒ 📌 它的雙胞胎 `order_unpaid_cancelled` 一個螢幕之外就有這道鎖, 而我沒給新的這封。
+  // 🛑 **改這格期望值 = 重設一道對外文案的鎖 ⇒ 需要授權**(同 `EXPECTED_ORDER_CREATED_BODY` 那格)。
+  it('🔴 全文逐字(對外文案的鎖;改它需要授權)', async () => {
+    const text = await textOf({
+      display_id: 'PCM-2026-0142',
+      cancelled_reason: '這張單的商品供應商缺貨,補不到貨',
+      refund_kind: 'full',
+      refunded_amount: 12800,
+    });
+    expect(text).toBe(
+      [
+        '您好,',
+        '',
+        '您的訂單 PCM-2026-0142 已取消。',
+        '',
+        '這張單的商品供應商缺貨,補不到貨',
+        '',
+        '您支付的款項已全額退回原付款方式。',
+        '退款金額  NT$ 12,800',
+        '',
+        '訂單明細與最新狀態請至 PCM 會員中心查看。',
+        'https://shop.pcmmotorsports.com/account/orders/PCM-2026-0142',
+        '',
+        '有任何問題，加入官方 LINE @pcmmoto',
+        'https://lin.ee/egsf1Jy',
+        '',
+        'PCM重機零件販售',
+        '派達有限公司　統一編號 90003020',
+        '新北市新莊區化成路736巷18號1樓',
+      ].join('\n'),
+    );
+  });
+
+  it('🔴 有金額 ⇒ 講退款、印金額、給會員中心連結', async () => {
+    const text = await textOf({ display_id: 'PCM-2026-0001', refund_kind: 'full', refunded_amount: 2400 });
+    expect(text).toContain('您的訂單 PCM-2026-0001 已取消。');
+    expect(text).toContain('您支付的款項已全額退回原付款方式。');
+    expect(text).toContain('退款金額  NT$ 2,400');
+    expect(text).toContain('/account/orders/PCM-2026-0001');
+  });
+
+  it('🔴 金額缺了 ⇒ 那一行不印, 而【退款那句話仍然完整】', async () => {
+    // 🎯 少了這一格, 一個把 `undefined` 印成 "NT$ undefined" 的實作也會過上面那格
+    const text = await textOf({ display_id: 'PCM-2026-0001', refund_kind: 'full' });
+    expect(text).toContain('您支付的款項已全額退回原付款方式。');
+    expect(text).not.toContain('退款金額');
+    expect(text).not.toContain('undefined');
+    expect(text).not.toContain('NaN');
+  });
+
+  it.each([
+    ['refunded_amount 是字串', { display_id: 'X', refund_kind: 'full', refunded_amount: '2400' }],
+    ['refunded_amount 是 0', { display_id: 'X', refund_kind: 'full', refunded_amount: 0 }],
+    ['refunded_amount 是負數', { display_id: 'X', refund_kind: 'full', refunded_amount: -2400 }],
+    ['refunded_amount 是小數', { display_id: 'X', refund_kind: 'full', refunded_amount: 24.5 }],
+  ])('🔴 %s ⇒ 當缺, 不印那一行(印一個猜的金額比不印糟)', async (_label, payload) => {
+    const text = await textOf(payload);
+    expect(text).not.toContain('退款金額');
+  });
+
+  // 🛑🛑 **這三格鎖的是「不可以出現的東西」, 而它們比上面那些重要**
+  it('🔴 不寫到帳天數 —— 那是發卡行決定的, 不是我們', async () => {
+    const text = await textOf({ display_id: 'PCM-2026-0001', refund_kind: 'full', refunded_amount: 2400 });
+    for (const s of ['工作天', '個工作日', '天內', '小時內', '請稍後']) {
+      expect(text).not.toContain(s);
+    }
+  });
+
+  it('🔴 不假設他收過付款成功信(有一半的人沒收到過)', async () => {
+    const text = await textOf({ display_id: 'PCM-2026-0001', refund_kind: 'full', refunded_amount: 2400 });
+    for (const s of ['先前', '付款成功後', '如您所知', '再次']) {
+      expect(text).not.toContain(s);
+    }
+  });
+
+  it('🔴 不含「回覆這封信」(那個信箱沒人收)、也不含「尚未付款」那句(互斥)', async () => {
+    const text = await textOf({ display_id: 'PCM-2026-0001', refund_kind: 'full', refunded_amount: 2400 });
+    expect(text).not.toContain('回覆這封信');
+    // 🎯 兩句同時出現 = 有人接錯 event_type ——「沒付過錢」與「錢已退回」不可能同時為真
+    expect(text).not.toContain('尚未付款');
+  });
+
+  it.each([
+    ['refund_kind 缺席', {}],
+    ['refund_kind = partial', { refund_kind: 'partial' }],
+    ['refund_kind = 空字串', { refund_kind: '' }],
+  ])('🔴 %s ⇒ 【全額退回那句與金額都不印】(fail-closed)', async (_l, extra) => {
+    // 🔴🔴 code-reviewer R1 must-fix:那句原本**無條件印**
+    //    ⇒ 寫入端只要有一次把部分退款排進來, 客人就會收到一封說「全額退回」的信,
+    //      而**模板結構上擋不住**。而部分退款要不要寄 **Sean 沒拍過**。
+    //    🎯 ⇒ 在他拍之前, 不是 'full' 就什麼都不說 —— **印一個可能是假的說法, 比不印糟。**
+    const text = await textOf({ display_id: 'PCM-2026-0001', refunded_amount: 2400, ...extra });
+    expect(text).not.toContain('全額退回');
+    expect(text).not.toContain('退款金額');
+    // 🟢 而【信仍然寄, 而且仍然說得出這張單被取消了】—— 不是整封不寄
+    expect(text).toContain('您的訂單 PCM-2026-0001 已取消。');
+  });
+
+  it('🔴 員工打的原因要過整形(它會原封進客人眼前)', async () => {
+    const text = await textOf({
+      display_id: 'PCM-2026-0001',
+      cancelled_reason: '缺貨\n\n\n' + 'x'.repeat(300),
+    });
+    expect(text).not.toContain('\n\n\n');
+    expect(text).toContain('…');
+  });
+});
+
+describe('付款信【兩份】都要拿得到金額與品項(A1;而這一族的病灶就是兩份不一致)', () => {
+  // 🔴🔴 **為什麼這一族要存在 —— 病灶不是「純文字沒有明細」, 是【兩份不一致而沒人看得到】**:
+  //    付款信寄出去是**兩份**(`text` 純文字 + `html` 有排版), **兩份都送**,
+  //    而**客人的收信軟體挑哪一份顯示是【他那端】決定的, 不是我們。**
+  //    ⇒ 而在 A1 之前:`html` 有整張明細表、`text` 一個數字都沒有,
+  //      **且 `html` 開頭逐字說「這封信是這筆交易的明細」**
+  //      ⇒ 🎯 **有一半機率, 客人收到一封宣稱自己是明細、而看不到買什麼付多少的信。**
+  //
+  // 🛑 **⇒ 所以斷言必須【同時】問兩份, 而不是各自問各自的。**
+  //    只驗 `text` 的一格, 在「有人把 `html` 那半拿掉」時**照樣全綠**;反之亦然。
+  //    ⇒ 📌 **這一格鎖的是【兩份之間的一致】, 那是任何單獨一份的測試結構上碰不到的東西。**
+  it('🔴 text 與 html 【兩份都】拿得到金額與品項', async () => {
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    await sweepEmailOutbox(paidDeps({ kind: 'ok', context: paidCtx() }, outbox, sender), OPTS);
+    const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    const text = String(input.text);
+    const html = String(input.html);
+
+    // 品名與數量 —— 兩份都要有
+    for (const half of [text, html]) {
+      expect(half).toContain('排氣管');
+      expect(half).toContain('SKU-1');
+    }
+    // 金額 —— 兩份都要有,而**用同一個格式函式產出的字面**(1000 ⇒ '1,000')
+    for (const half of [text, html]) {
+      expect(half).toContain('940');
+    }
+    // 🔴🔴 **總額要問【值】, 不能只問 label**(code-reviewer R1 must-fix):
+    //    我第一版只有 `toContain('訂單金額')` —— 而**把 `paid.total` 換成 `paid.subtotal`**
+    //    ⇒ 客人收到「訂單金額 NT$ 1,000」而他實付 **1,100** ⇒ **135 格全綠。**
+    //    📌 **⇒ describe 標題說「都要拿得到金額」, 而它拿得到的是四個中文字。**
+    //    ✅ fixture:小計 1,000 · 運費 100 · 折扣 0 ⇒ 總額 **1,100**;三個數字互不相同 ⇒ 換錯欄會紅。
+    for (const half of [text, html]) {
+      expect(half).toContain('1,100');
+    }
+    expect(text).toContain(`訂單金額  NT$ 1,100`);
+    expect(text).toContain(`運費  NT$ 160`);
+    // 🔴 而純文字那半要**逐項**問, 否則「html 有而 text 只有一個總數」也會通過上面那圈。
+    // 🛑 **而「訂單明細」要比【整行】, 不能用 `toContain`** —— 我第一版就是 `toContain` 而它假綠:
+    //    收尾那句「**訂單明細**與最新狀態請至 PCM 會員中心查看。」**本來就含這四個字**
+    //    ⇒ 📌 **那句話恆印 ⇒ 這條斷言在明細沒印的世界【也會過】** ⇒ 尺量不到它要量的東西。
+    //    (抓到它的是下面那格反向世界紅了, 不是我看出來的。)
+    expect(text.split('\n')).toContain('訂單明細');
+    expect(text).toContain('小計');
+    // 🔴 **A4 在純文字那半也要有正向尺**(code-reviewer R1 must-fix):我第一版只驗了
+    //    「缺 siteUrl ⇒ 不印連結」那個世界 ⇒ **把 `memberCenter` 改回無條件那句 ⇒ 全綠**,
+    //    而 A4 在純文字這半等於沒做。(唯一的正向斷言當時在 html 那格。)
+    expect(text).toContain('/account/orders/PCM-2026-0001');
+    expect(text).toContain('運費');
+    expect(text).toContain('訂單金額');
+  });
+
+  it('🔴 有折扣 ⇒ 印負號那一行(這條線在本片之前【從來沒有被跑過】)', async () => {
+    // 🔴 code-reviewer R1 must-fix:`discountTotal` 在本檔 fixture 恆為 0 ⇒ 那一行是唯一會印
+    //    **負號**的對客金額行, 而它**第一次上場會是在客人的信裡**。減號用的是 U+2212(−)不是 ASCII。
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    // 🔴 **總額要跟著折扣走** —— 我第一版只改 `discountTotal` 而沒動 `total`
+    //    ⇒ 940 + 160 − 150 = 950 ≠ 1100 ⇒ **新的算術守門把整段明細擋掉了, 這一格當場紅。**
+    //    🎯 **那是守門在做它該做的事** —— 它抓到的第一個「兜不攏的帳」是我自己寫的 fixture。
+    const ctx = paidCtx({
+      discountTotal: 150 as PaidEmailContext['total'],
+      total: 950 as PaidEmailContext['total'],
+    });
+    await sweepEmailOutbox(paidDeps({ kind: 'ok', context: ctx }, outbox, sender), OPTS);
+    const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    expect(String(input.text)).toContain('折扣  −NT$ 150');
+    // 🟢 而 0 那個世界不印 —— 否則「無條件印一行折扣」也會通過上面那條
+    const outbox2 = outboxFake([job()]);
+    const sender2 = senderFake([{ kind: 'sent' }]);
+    await sweepEmailOutbox(paidDeps({ kind: 'ok', context: paidCtx() }, outbox2, sender2), OPTS);
+    const input2 = (sender2.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    expect(String(input2.text)).not.toContain('折扣');
+  });
+
+  it('🔴 加不起來(例:有稅額)⇒ 整段明細不印, 而信照寄', async () => {
+    // 🔴🔴 **codex 對抗審查 must-fix 的那個世界** —— 而它今天【還不存在於資料裡】:
+    //    DB 等式是 `total = subtotal + shipping_fee - discount_total + tax_total`
+    //    (`20260828100000_...sql:281`), 而 `PaidEmailContext` **沒有稅額那一欄**
+    //    ⇒ 有稅的那一天, 明細會列出三個數字而總額是第四個算出來的 ⇒ **客人加不起來。**
+    // 🎯 **而我沒有去補「印稅額」** —— 我今天知道的漏項是稅, 而**下一個被加進 total 的欄位,
+    //    我今天不知道它叫什麼**。⇒ 問「加不加得起來」對任何我沒想到的欄位都成立。
+    // ✅ **模擬那個世界的方法**:讓 total 比三項之和多出一截(那一截就是稅)。
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const taxed = paidCtx({ total: 1155 as PaidEmailContext['total'] }); // 940+160-0=1100, 多 55 = 稅
+    await sweepEmailOutbox(paidDeps({ kind: 'ok', context: taxed }, outbox, sender), OPTS);
+    const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    const text = String(input.text);
+    // 🛑 明細整段不印 —— 一張看不到明細的帳, 比一張兜不攏的帳好
+    expect(text.split('\n')).not.toContain('訂單明細');
+    expect(text).not.toContain('訂單金額');
+    expect(text).not.toContain('1,155');
+    // ✅ 而【信照寄】—— 不是 fail-closed 到不寄, 客人仍拿得到訂單編號與會員中心那句
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect(text).toContain('您的訂單 PCM-2026-0001 已付款成功。');
+    expect(text).toContain('訂單明細與最新狀態請至 PCM 會員中心查看。');
+  });
+
+  it('🟢 反向世界:沒注入 paidContext ⇒ 明細那段【不印】(而聯絡資訊照印)', async () => {
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
+    const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    const text = String(input.text);
+    // 🎯 少了這一格, 一支「無條件印死字串」的實作也會通過上面那一格
+    // 🔴 比【整行】不比子字串 —— 理由見上一格(收尾那句本來就含「訂單明細」四個字)
+    expect(text.split('\n')).not.toContain('訂單明細');
+    expect(text).not.toContain('訂單金額');
+    // 🟢 而收尾那句仍在 ⇒ 證明上面那條紅的是【明細那段】, 不是整封信空了
+    expect(text).toContain('訂單明細與最新狀態請至 PCM 會員中心查看。');
+    // 而 A2 與有沒有明細無關 ⇒ 照印
+    expect(text).toContain('@pcmmoto');
+    expect(text).toContain('派達有限公司');
+  });
+
+  it('🔴 siteUrl 缺席 ⇒ 會員中心那句照印, 而【不印半個連結】(死入口比沒入口糟)', async () => {
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const { siteUrl: _drop, ...noSite } = OPTS;
+    await sweepEmailOutbox(
+      paidDeps({ kind: 'ok', context: paidCtx() }, outbox, sender),
+      noSite,
+    );
+    const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    expect(String(input.text)).toContain('請至 PCM 會員中心查看');
+    expect(String(input.text)).not.toContain('/account/orders/');
+    // html 那半的按鈕也整塊不印
+    expect(String(input.html)).not.toContain('到會員中心查看訂單');
+  });
 });
 
 describe('sweepEmailOutbox — PDF 宣稱守門【接線】那一格(不是函式本身)', () => {
@@ -1229,7 +1554,13 @@ describe('sweepEmailOutbox — 付款信接金額與 HTML(片2)', () => {
   //     模板那一支驗「不給 logoUrl ⇒ 用預設」⇒ **那正是它要的行為, 不會紅**
   //   ⇒ ⇒ 📌 **一個跨檔的假設, 沒有任何一支測試守得住它 —— 因為每一支的分母都是自己那支檔。**
   //   ✅ 所以這一格的分母刻意是【呼叫點吐出來的那份 html】, 不是任何一邊的內部行為。
-  it('🔴 送出去的 html **不含 `<img>`** —— 第一次上線刻意只讓變數有一個', async () => {
+  // 🔴🔴 **2026-09-03:本格【翻面了】,而授權是 Sean 勾的 A5(LOGO)與 A4(會員中心連結)。**
+  //    ⛔ ~~原標題「送出去的 html **不含 `<img>`** —— 第一次上線刻意只讓變數有一個」~~
+  //    📌 **那個決定當時是對的**(只讓對外變數有一個, 出事好歸因)—— **它不是錯了, 是被批准了。**
+  //    🛑 **而【不是整格作廢】** —— `付款時間` 那一條**留著**:`paidAtText` 不在 A1~A6 裡,
+  //      而 Sean 2026-08-30 逐字「沒有那個欄位就不要印, 不要拿成立時間頂替」⇒ **不夾帶。**
+  //    ⇒ 🎯 **所以本格從「三樣都不准印」變成「兩樣要印、一樣仍不准」** —— 而那一樣才是它現在鎖住的東西。
+  it('🔴 LOGO 與會員中心連結【要印】(A4/A5 已批);而【付款時間】仍然不准印(不在 A1~A6 裡)', async () => {
     const outbox = outboxFake([job()]);
     const sender = senderFake([{ kind: 'sent' }]);
     await sweepEmailOutbox(paidDeps({ kind: 'ok', context: paidCtx() }, outbox, sender), OPTS);
@@ -1237,13 +1568,17 @@ describe('sweepEmailOutbox — 付款信接金額與 HTML(片2)', () => {
     const html = String(input.html);
     // 🔵 先證這把尺【量得到東西】—— 否則 html 是空字串時下面兩格恆過。
     expect(html.length).toBeGreaterThan(1000);
-    expect(html).not.toContain('<img');
-    expect(html).not.toContain('pcm-logo.png');
+    // ✅ A5:LOGO 印出來了
+    expect(html).toContain('<img');
+    expect(html).toContain('pcm-logo.png');
     // 🔴 而【付款時間 / CTA】那兩格也一起釘 —— 它們今天不印的理由各自不同
     //    (付款時間:沒查那個欄位, 而 Sean 拍過「沒有就不要印」;CTA:多一個對外連結他還沒點頭),
     //    而**兩個理由都不是「模板做不到」** ⇒ 哪天有人給了值, 這幾格會一起變, 要有人看過。
+    // 🛑 **這一條【不動】** —— `paidAtText` 不在 A1~A6 裡, Sean 08-30 那條拍板仍然有效。
     expect(html).not.toContain('付款時間');
-    expect(html).not.toContain('到會員中心查看訂單');
+    // ✅ A4:會員中心那顆按鈕印出來了, 而且它的網址是真的
+    expect(html).toContain('到會員中心查看訂單');
+    expect(html).toContain('/account/orders/PCM-2026-0001');
   });
 
   it('🔴 unavailable ⇒ **不寄**、計 error(port 明文;這會讓今天收得到信的單收不到)', async () => {
@@ -1422,6 +1757,7 @@ describe('⟦b4-SHIPGATE1⟧ 線關著時不認領 order_shipped', () => {
 //    ⇒ 改文案一定是改碼)⇒ **改期望值 = 重設一道鎖 ⇒ 需要授權。**
 // ─────────────────────────────────────────────────────────────────────────────
 describe('sweepEmailOutbox — ⟦取消信-模板⟧ order_unpaid_cancelled', () => {
+
   const cancelJob = (payload: Record<string, unknown>) =>
     job({
       eventType: 'order_unpaid_cancelled',

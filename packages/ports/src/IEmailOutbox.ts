@@ -53,19 +53,59 @@
  *    ⇒ 兩者分岔是本 repo **明文預期會發生**的順序(`20260902120000` 逐字:
  *      「『DB 先加了新 event_type、code 還沒跟上』是這個 repo 明文預期會發生的順序」)。
  *
- * ⚠️ **2026-09-03 量到的分岔,寫下來不要當它不存在**:
- *    DB 的 CHECK 自 2026-09-02 起含 **`order_cancelled`**,而本 union **沒有它**
- *    (量法 `grep -rn "order_cancelled" packages/{ports,adapters,use-cases}/src --include='*.ts'`
- *     排除測試 ⇒ **0 命中**;🟢 正對照同一把尺問 `order_shipped` ⇒ **47**)。
- *    🛑 **那不是漏改,是【那條線的模板還沒有人做】** —— `order_cancelled` 屬於「刷卡且已全額退款」
- *      那條線,它的文案沒有稿、沒有拍板 ⇒ **本片不發明它**(規格 `2026-09-03-cancel-email-scope-spec-draft.md` §10)。
- *    ⇒ 加進 union **必須**同時在 `buildEmailText` 補 case(`satisfies never` 會逼你),
- *      而補 case 需要文案 ⇒ **順序是:先有文案,再進 union。**
+ * 🔵🔵 **2026-09-03 稍晚:下面那段【已經被做掉了一半】—— Q10 Sean 拍甲「補一封信」。**
+ *    `order_cancelled` **已進本 union**,而它的模板與 `buildEmailText` 的 case 同一顆 commit 落地。
+ *    ⛔ ~~「那條線的模板還沒有人做」~~ ⇒ ✅ **做了**;而**寫入端(掃描式 enqueue)是下一片** ——
+ *    📌 **順序是刻意的:模板必須先於寫入端**,否則信會卡進死信而客人一樣收不到,只是多一批死信
+ *    (那條順序約束本檔下面自己就寫著)。
+ *
+ * ⚠️ **2026-09-03 早上量到的分岔 —— 下面【整段】今天已為假,舊字面逐句劃掉不刪**
+ *    (code-reviewer R1 抓到:我原本只在上面新增一段,而**被訂正的這幾行仍是平直的現在式斷言**
+ *     ⇒ 冷讀的人讀到的是一句今天為假的話,**而標題向他保證了那裡有刪除線**):
+ *    ⛔ ~~DB 的 CHECK 自 2026-09-02 起含 `order_cancelled`,而本 union **沒有它**~~
+ *      (⛔ ~~那個量法今天跑會**命中**,不再是 0~~)
+ *    ⛔ ~~**那不是漏改,是【那條線的模板還沒有人做】** —— 它的文案沒有稿、沒有拍板 ⇒ 本片不發明它~~
+ *      ⇒ ✅ **Sean 2026-09-03 拍甲「補一封信」⇒ 文案有了、模板有了、case 有了。**
+ *    ✅ **而【仍然成立】的只有這一句(它是規律不是現況)**:加進 union **必須**同時補
+ *      `buildEmailText` 的 case(`satisfies never` 會逼你),而補 case 需要文案
+ *      ⇒ **順序是:先有文案,再進 union。**(本片就是照這個順序走的。)
  *
  * 🔵 而在它進來之前,失敗方向是安全的:`buildEmailText` 的 `default` 是 `throw`
  *    ⇒ 計 error、列留 sending、**不寄**,而不是把 event_type 字串當內文寄出去。
  */
+/**
+ * 🔴🔴 **訂單失效(已取消/已退款)時,這一種信【該不該被擋下來】。**
+ *
+ * **為什麼這一格存在**(2026-09-03,Q10 片 B 前置;code-reviewer R1 C2 抓到):
+ * 寄送前有一道閘 —— 「已取消/已退款的單,不要再寄通知」。它**不分 event_type**,
+ * 而**取消通知本身正是那條規則的例外** ⇒ 沒有這一格的話,
+ * **每一封取消信都會被標成 `skipped_order_ineligible`** ——
+ * 🛑 **而那是終態、不計 error、【沒有自動告警在看】**(⚠️ 不是「查不到」——後台 `email-log-view.ts` 逐單看得到,而那要有人去查;codex nit 2 訂正我原本過度絕對的字面) ⇒ **一整條做完的線看起來像做完了,而一封都沒寄。**
+ *
+ * 🎯 **判別句(加新 event_type 時照這句填)**:
+ * ```
+ * 這封信講的是「這張單【還會發生什麼】」⇒ true (單失效了 ⇒ 那句話變成假的 ⇒ 該擋)
+ * 這封信講的是「這張單【的終局本身】」  ⇒ false(單失效【就是】我們要說的那件事 ⇒ 擋它 = 擋掉唯一要說的話)
+ * ```
+ *
+ * 🔵 **為什麼是 `Record<EmailOutboxEventType, …>` 而不是一份清單**:
+ * `Record` 對 union 是**窮舉**的 ⇒ **加一個新 event_type 而沒標這一格 ⇒ typecheck 當場紅。**
+ * ⇒ 📌 從「下一個人要記得去改一份清單」變成「**不標就編不過**」。
+ * ⚠️ 而**這一格只管【被閘擋不擋】** —— 它不決定要不要寄、也不決定內容。
+ */
+export const SUPPRESS_WHEN_ORDER_INELIGIBLE: Record<EmailOutboxEventType, boolean> = {
+  // 這張單被取消了 ⇒ 那正是這封信要講的事
+  order_cancelled: false,
+  // 「付款成功」在單被取消之後是假的 ⇒ 該擋
+  order_created: true,
+  // 「已出貨」在單被取消之後是假的 ⇒ 該擋
+  order_shipped: true,
+  // 同 order_cancelled:取消本身就是內容
+  order_unpaid_cancelled: false,
+};
+
 export type EmailOutboxEventType =
+  | 'order_cancelled'
   | 'order_created'
   | 'order_shipped'
   | 'order_unpaid_cancelled';
@@ -279,7 +319,34 @@ export type EnqueueOrderShippedEmailInput = EnqueueEmailInputBase & {
  * 那個顧慮**由 union 本身解掉**:事件⇔payload 綁定在型別上,兩個分支不共用自由欄,
  * 而 dedup_key 由落表邊界依 `eventType` 分派(呼叫端碰不到)。
  */
-export type EnqueueEmailInput = EnqueueOrderCreatedEmailInput | EnqueueOrderShippedEmailInput;
+/**
+ * 🔴🔴 **未付款被【員工】取消的通知信**(Sean 2026-09-03 拍甲;理由逐字「那是客人唯一一封信」)。
+ *
+ * 🛑 **射程只涵蓋【員工按取消】那一批,不含逾時自動取消。**
+ *    ⇒ 判準與它的脆弱點寫在 `IUnpaidCancelledOrderScanner` 檔頭(**一處全文,這裡只留指標**)。
+ *
+ * 🛑🛑 **而那不是待決事項 —— Sean 2026-09-03 拍過乙**,逐字(已寫進正式庫 COMMENT,
+ *    `20260903040000_...:100-102`):「`expire_unpaid_orders`(一次上限 **500 張**)【不涵蓋】——
+ *    **不寄, 只有員工按下取消才寄**」。
+ *    ⛔ ~~我原本在這裡寫「Sean 未拍板(題 2)」+「他若答要寄:改法是一處, 拿掉那道閘」~~
+ *    🔴 **兩句都假,而第二句指向一個會傷到客人的動作**:照它做 ⇒ 一輪寄出上百封不可回收的信。
+ */
+export type EnqueueOrderUnpaidCancelledEmailInput = EnqueueEmailInputBase & {
+  eventType: 'order_unpaid_cancelled';
+  /** 取消時刻(事件時點快照)。 */
+  cancelledAt: string;
+  /**
+   * 員工選的理由(七值之一;`other` 時是他打的自由文字)。
+   * 🔴 **它會原封進到客人眼前** ⇒ 落表邊界一律過 `sanitizeCustomerFacingReason`(整形只管形狀不管語意)。
+   * 🔵 `null` = 沒有理由 ⇒ 信裡那一段不印(而不是印一個空白或 `null`)。
+   */
+  cancelledReason: string | null;
+};
+
+export type EnqueueEmailInput =
+  | EnqueueOrderCreatedEmailInput
+  | EnqueueOrderShippedEmailInput
+  | EnqueueOrderUnpaidCancelledEmailInput;
 
 export type EnqueueEmailResult =
   /** 已入列(status=pending、寫入即到期,可被立即認領)。 */

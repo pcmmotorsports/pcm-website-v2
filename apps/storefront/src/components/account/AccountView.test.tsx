@@ -272,7 +272,7 @@ describe('AccountView(會員中心殼 g-1a + g-2 真資料)', () => {
   it('🔴 `walletEntriesFailed` 轉交成 `loadFailed`,而**不是**接到餘額那條線', () => {
     // 🔴 **這一格的第一版是瞎的**(R1 抓到、我用真·雙向接反複跑確認):
     //    我原本斷 `textContent).toContain('讀不到')` —— 而畫面上有【兩句】含「讀不到」
-    //    (`WalletTab` 的「交易紀錄暫時讀不到」與「餘額暫時讀不到」)⇒ 旗標接反時它照樣命中;
+    //    (`WalletTab` 的「交易紀錄暫時讀不到」與「餘額讀不到」)⇒ 旗標接反時它照樣命中;
     //    第二道斷 `.wal-balance-num` 存在,而那個節點在 `balanceFailed` 世界【也還在】(裡面換成句子)
     //    ⇒ 兩道都過。**兩個旗標互換的世界裡,只有下一格會紅,這一格是綠的。**
     //    📌 而我在這裡寫過「兩格互為對照、單獨看任一格都還是綠的」—— **那句話本身是錯的**,
@@ -293,7 +293,7 @@ describe('AccountView(會員中心殼 g-1a + g-2 真資料)', () => {
     // ⚠️ `.wal-balance-num` 這個節點【還在】,裡面換成一句話 ⇒ 要量的是 `NT$` 前綴不見了、
     //    而且那一格印的是句子不是數字。(我第一版對 `.wal-balance-num` 斷言 null,那是我量錯位置。)
     expect(container.querySelector('.wal-balance-cur')).toBeNull();
-    expect(container.querySelector('.wal-balance-num')?.textContent).toBe('餘額暫時讀不到');
+    expect(container.querySelector('.wal-balance-num')?.textContent).toBe('餘額讀不到');
     // 而明細那一半沒失敗 ⇒ 走「真的沒交易」而不是「讀不到」
     expect(container.textContent).toContain('尚無交易紀錄');
   });

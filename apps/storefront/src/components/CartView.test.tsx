@@ -268,12 +268,16 @@ describe('CartView(M-3-S2-b2-d)', () => {
     resolveMock.mockResolvedValue([
       resolvedLine({ productId: 'rpm-2', name: '小料件', unitPrice: 2400 }),
     ]);
-    render(<CartView />);
+    const { container } = render(<CartView />);
     expect(await screen.findByText('小料件')).toBeTruthy();
     expect(screen.getByText('NT$ 100')).toBeTruthy();
     expect(screen.getByText('再買 NT$ 2,600 享免運')).toBeTruthy();
     // 總計 = 2400 + 100 = 2,500
-    expect(screen.getByText('NT$ 2,500')).toBeTruthy();
+    // 🔴 2026-09-03 收窄成 `.cart-grand`(原本是 `getByText('NT$ 2,500')`)——
+    //    ⟦f3-MOBCHECKOUTFOLD⟧ 之後同一個總計**印在兩個地方**(頁內 `.cart-grand` +
+    //    手機固定列),`getByText` 會撞「找到多個」。**斷言的東西沒有變, 只是指名了哪一個。**
+    //    🔵 而「兩處同源」由本檔下方那格獨立守(固定列不自己重算金額)。
+    expect(container.querySelector('.cart-grand')?.textContent).toContain('NT$ 2,500');
   });
 
   it('qty + → updateQty(item, qty+1);qty=1 時 minus disabled;移除 → removeItem(item)', async () => {
@@ -297,10 +301,14 @@ describe('CartView(M-3-S2-b2-d)', () => {
   it('前往結帳 → /checkout;繼續購物 → /products', async () => {
     setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
-    render(<CartView />);
+    const { container } = render(<CartView />);
     await screen.findByText('碳纖維車台護蓋');
 
-    fireEvent.click(screen.getByRole('button', { name: /前往結帳/ }));
+    // 🔴 2026-09-03 收窄成 `.cart-checkout`(原本是 `getByRole(name:/前往結帳/)`)——
+    //    ⟦f3-MOBCHECKOUTFOLD⟧ 之後頁上有**兩顆**「前往結帳」(頁內 + 手機固定列)。
+    //    🛑 真站上兩顆不會同時看得到(固定列在桌機 `display:none`),而 **jsdom 不算
+    //    media query** ⇒ 這裡兩顆都在。本格守的是**頁內那顆**, 固定列那顆由下方獨立一格守。
+    fireEvent.click(container.querySelector<HTMLButtonElement>('.cart-checkout')!);
     expect(pushMock).toHaveBeenCalledWith('/checkout');
 
     fireEvent.click(screen.getByRole('button', { name: '繼續購物' }));
@@ -481,5 +489,65 @@ describe('CartView — A2 讀不到購物車', () => {
     render(<CartView />);
     expect(await screen.findByText('購物車是空的')).toBeDefined();
     expect(screen.queryByText('暫時讀不到你的購物車')).toBeNull();
+  });
+});
+
+// ⟦f3-MOBCHECKOUTFOLD⟧ 手機底部固定結帳列(Sean 2026-09-03 拍 `Q26 = 乙`)。
+// 🔴 **這裡只驗「有沒有渲染 + 顯示什麼 + 按了會不會走同一條路」** —— 它「在手機才出現」
+//    那一半是 CSS(`cart.css` 的 `@media`),元件測試看不到 media query
+//    ⇒ 📌 **那一半由 `apps/storefront/src/styles/cart-buybar.test.ts` 釘,不要在這裡假裝驗過。**
+describe('CartView — 手機底部固定結帳列', () => {
+  it('有商品 ⇒ 固定列在,且印的總計與頁面上那個 .cart-grand 是同一個數', async () => {
+    setCart([{ productId: 'p1', qty: 2 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'p1', unitPrice: 1500 })]);
+    const { container } = render(<CartView />);
+    const bar = await waitFor(() => {
+      const el = container.querySelector('.cart-mobile-buybar');
+      if (!el) throw new Error('還沒渲染');
+      return el;
+    });
+    // 🔴🔴 **第一版這一格是【假綠】**(對抗審查 MF4,實跑突變證出來的):
+    //    原本斷言 `barPrice !== ''` 且 `grand.contains(barPrice)`
+    //    ⇒ 把 `NT$ {total}` 改成只剩 `NT$`, `barPrice = "NT$"` ⇒ 兩條**都過**
+    //    ⇒ 📌 **這一片存在的唯一理由(手機上看得到總計)被拔掉, 而四格全綠。**
+    //    ✅ 改成**把數字抽出來比等值** —— 抽不到就是紅。
+    const amount = (el: Element | null): string =>
+      (el?.textContent ?? '').replace(/[^\d]/g, '');
+    const grandAmt = amount(container.querySelector('.cart-grand'));
+    const barAmt = amount(bar.querySelector('.cart-mobile-buybar-price'));
+    // 🔴 先釘「真的有數字」—— 少了這行, 兩邊都空字串時 `toBe` 會過。
+    expect(barAmt, '固定列要印得出金額數字').not.toBe('');
+    expect(grandAmt, '頁內總計要印得出金額數字').not.toBe('');
+    // 🎯 同源:固定列不自己重算一次金額(有人改成 subtotal ⇒ 這一格紅)。
+    expect(barAmt).toBe(grandAmt);
+  });
+
+  it('🔵 負對照:空車 ⇒ 固定列**不在**(沒有東西可結帳、也不該讓位)', async () => {
+    setCart([]);
+    resolveMock.mockResolvedValue([]);
+    const { container } = render(<CartView />);
+    expect(await screen.findByText('購物車是空的')).toBeDefined();
+    expect(container.querySelector('.cart-mobile-buybar')).toBeNull();
+  });
+
+  it('🔵 負對照:讀不到購物車 ⇒ 固定列也**不在**(錯誤態不給結帳入口)', async () => {
+    setCart([{ productId: 'p1', qty: 1 }]);
+    resolveMock.mockRejectedValue(new Error('network down'));
+    const { container } = render(<CartView />);
+    expect(await screen.findByText('暫時讀不到你的購物車')).toBeDefined();
+    expect(container.querySelector('.cart-mobile-buybar')).toBeNull();
+  });
+
+  it('按固定列的鈕 ⇒ 走 /checkout(與頁面上那顆 .cart-checkout 同一條路, 不另開一條)', async () => {
+    setCart([{ productId: 'p1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'p1', unitPrice: 1500 })]);
+    const { container } = render(<CartView />);
+    const btn = await waitFor(() => {
+      const el = container.querySelector<HTMLButtonElement>('.cart-mobile-buybar-btn');
+      if (!el) throw new Error('還沒渲染');
+      return el;
+    });
+    fireEvent.click(btn);
+    expect(pushMock).toHaveBeenCalledWith('/checkout');
   });
 });

@@ -43,6 +43,22 @@ export const CANCEL_MODE_FIELD = 'cancel_mode';
 /** 🔴 **可重複**欄位,每個被勾選的品項一筆,值 = `<order_item_id>:<quantity>`(見解析器)。 */
 export const CANCEL_ITEM_FIELD = 'cancel_item';
 export const CANCEL_REQUEST_TOKEN_FIELD = 'request_token';
+/**
+ * 「這張單有貨在路上,我知道了」那一格的勾選欄(2026-09-03,Sean 拍甲)。
+ *
+ * 🔴🔴 **它不是裝飾** —— 判準與文案的**唯一作者**是 `cancel-shipment-warning.ts`,
+ *    而**前端與 server 端呼叫的是同一支**。兩邊各寫一份的話,不一致時沒有人在比。
+ * 🛑 **預設不勾**:沒有這一欄 = 沒有確認過 ⇒ server 端擋下來。
+ *    ⇒ 前端那格擋得住**誤按**,擋不住**繞過** ⇒ 所以 server 端要自己再讀一次出貨,不信這一欄。
+ */
+export const CANCEL_SHIPMENT_ACK_FIELD = 'shipment_ack';
+/**
+ * 那個 checkbox 的 `value`。
+ * 🔴 **server 端比對這個值, 不是「欄位在不在」**(codex must-fix):
+ *    只判存在的話, 任何字串都算確認 —— 含 `''` —— 而一個同名的常駐 hidden 欄位
+ *    就能讓員工沒勾也靜默繞過。⇒ **兩邊共用這個字面, 不各寫一份。**
+ */
+export const CANCEL_SHIPMENT_ACK_VALUE = '1';
 
 /**
  * 數量覆寫欄的名字(每個品項各一,`cancel_item_qty__<order_item_id>`)。
@@ -157,7 +173,12 @@ export function isCancelRequestToken(value: string): boolean {
  */
 // 🔴 `Object.freeze`(關卡2 R2):`as const` 只在**編譯期**唯讀 —— 執行期 `Reflect.set()` 改得動陣列,
 //    而型別是編譯期產物、不會跟著變 ⇒ 上面「型別與執行期是同一份東西」那句宣稱會破功。
-export const CANCEL_NOT_SENT_CODES = Object.freeze(['denied', 'invalid'] as const);
+export const CANCEL_NOT_SENT_CODES = Object.freeze([
+  'denied',
+  'invalid',
+  // 🔵 2026-09-03:這張單有貨在路上,而送出的表單沒有帶那格確認 ⇒ **沒送到 RPC**。
+  'shipment_unconfirmed',
+] as const);
 export const CANCEL_SENT_CODES = Object.freeze(['rejected', 'retry', 'bug', 'error'] as const);
 
 export type CancelNotSentCode = (typeof CANCEL_NOT_SENT_CODES)[number];
@@ -261,6 +282,12 @@ export function cancelledResultQuery(requestToken: string): string {
 const FAILURE_MESSAGES_SOURCE: Record<CancelFailureCode, string> = {
   denied: '沒有權限或登入已失效,取消沒有送出。',
   invalid: '表單內容不正確,取消沒有送出。',
+  // 🔴 這一則刻意**說出後果**而不只說「被擋下」——
+  //    員工看到它時要知道【下一步可以做什麼】(打電話給貨運),而不是只知道自己被擋。
+  //    ⚠️ 而它**不說「攔不下來」**:新竹有取消託運的介面(`-ship` 2026-09-03 實測伺服器自列 24 支,
+  //    其中有 `TransDataCancel_Json`),只是我們沒接線 ⇒ 寫「攔不了」會讓他不去打那通電話。
+  shipment_unconfirmed:
+    '這張單有貨在路上,取消沒有送出。請先確認那一格(我們不會自動通知新竹攔件,要攔請自己打電話給貨運)。',
   rejected:
     '這張單目前不能取消(狀態可能剛變動)。請重新整理本單確認後再決定,不要重複按。',
   // 🔴 本行的「可能已經寫進去了」**是精確的、不是保守措辭**(關卡2 R3 提矛盾 → R4 推翻 R3):

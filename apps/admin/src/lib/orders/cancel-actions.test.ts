@@ -3,6 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 
 const mocks = vi.hoisted(() => ({
+  // 🔵 `listOrderItemsForPrint` = **撈到盡**那支(不吃 `ORDER_ITEMS_EMBED_LIMIT = 200` 的內嵌上限)。
+  //    ⛔ ~~原本 mock 的是 `findAdminOrderDetail`~~ ⇒ 那份品項被 200 夾住
+  //    ⇒ 第 201 項那箱出貨看不到 ⇒ 判成沒出貨 ⇒ 取消 + 自動退款(codex must-fix)。
+  listOrderItemsForPrint: vi.fn(
+    async (): Promise<{ items: { id: string; title: string }[] }> => ({ items: [] }),
+  ),
+  loadOrderShipments: vi.fn(async (..._a: unknown[]): Promise<unknown> => []),
   authorizeAdminMutation: vi.fn(),
   getRequestId: vi.fn(),
   cancelOrder: vi.fn(),
@@ -33,6 +40,24 @@ vi.mock('next/navigation', () => ({
 }));
 vi.mock('@pcm/adapters/server', () => ({ createSupabaseServiceClient: vi.fn() }));
 
+// 🔴🔴 **2026-09-03「取消已出貨的單擋一次」加的**:`cancelOrderAction` 現在會
+//    **先讀這張單的出貨**(`cancel-actions.ts`:`listOrderItemsForPrint` → `loadOrderShipments`),
+//    而那一步在 `failRedirect` **之前** ⇒ 本檔既有的每一格都會走到它。
+//    ⛔ 不 mock 的話它去打真的 Supabase ⇒ 丟 `NEXT_PUBLIC_SUPABASE_URL not set`
+//       ⇒ 🛑 而那個錯**長得像測試壞了**, 不像「被測的碼多了一次查詢」。
+//    ✅ 預設回**沒有出貨**(空陣列)⇒ 既有各格的行為與加這一片之前**逐字相同**;
+//       要測「有出貨」那條路的格子自己覆寫這兩個 mock。
+// 🔴 **可覆寫**:預設回「沒有出貨」, 而 blocked 那條路的格子自己換掉 `mocks.loadOrderShipments`。
+//    ⛔ 第一版把它寫死成 `async () => []` ⇒ **整段 server 閘刪掉, 全套測試照樣綠**
+//       (codex must-fix:blocked / 缺 ack / 有 ack / null / throw 五種世界全樹零覆蓋)。
+vi.mock('./order-repository', () => ({
+  getAdminOrderRepository: () => ({ listOrderItemsForPrint: mocks.listOrderItemsForPrint }),
+}));
+vi.mock('../shipping/order-shipments', () => ({
+  loadOrderShipments: (...a: unknown[]) => mocks.loadOrderShipments(...a),
+}));
+
+
 vi.mock('./cancel-repository', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./cancel-repository')>();
   return { ...actual, cancelOrder: mocks.cancelOrder };
@@ -46,6 +71,8 @@ import {
   CANCEL_ITEM_FIELD,
   CANCEL_MODE_FIELD,
   CANCEL_ORDER_ID_FIELD,
+  CANCEL_SHIPMENT_ACK_FIELD,
+  CANCEL_SHIPMENT_ACK_VALUE,
   CANCEL_REASON_CODE_FIELD,
   CANCEL_REASON_DETAIL_FIELD,
   CANCEL_REQUEST_TOKEN_FIELD,
@@ -570,5 +597,93 @@ describe('A13b E1:數量覆寫欄走完整條接線(段 1 = action → repositor
       ),
     ).rejects.toThrow('NEXT_REDIRECT');
     expect(mocks.cancelOrder).not.toHaveBeenCalled();
+  });
+});
+
+// ⟦取消已出貨的單擋一次⟧ Sean 2026-09-03 拍甲。
+//
+// 🔴🔴 **這個 describe 是 codex 對抗審查逼出來的 —— 在它之前, 那道 server 閘【刪掉全綠】。**
+//    成因:本檔的出貨 mock 原本寫死回「零出貨」⇒ `blocked` 恆 false ⇒ 那個 `if` 從來沒被走進去。
+//    ⇒ 📌 **一個永遠不成立的條件, 與一段被刪掉的碼, 在測試上印同一個綠。**
+describe('cancelOrderAction — 已出貨要擋一次(而勾了就放行)', () => {
+  const SHIPPED = [
+    { shipment: { shippedAt: '2026-09-01T00:00:00Z', trackingNumber: 'HCT123', voidedAt: null } },
+  ];
+
+  it('🔴 已出貨 + 沒勾確認 ⇒ 擋下來、導回 shipment_unconfirmed、**零 RPC**', async () => {
+    mocks.listOrderItemsForPrint.mockResolvedValue({ items: [{ id: 'i1', title: '零件' }] });
+    mocks.loadOrderShipments.mockResolvedValue(SHIPPED);
+
+    await expect(cancelOrderAction(cancelForm())).rejects.toThrow('NEXT_REDIRECT');
+
+    // 🎯 最重要的一格:**取消的 RPC 一次都不能被呼叫** —— 它會連帶自動退款。
+    expect(mocks.cancelOrder).not.toHaveBeenCalled();
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      expect.stringContaining(notSentResultQuery('shipment_unconfirmed')),
+      'replace',
+    );
+  });
+
+  it('🔴 已出貨 + 勾了確認 ⇒ **放行**(這道是提醒不是禁止;少了這格會做成永遠取消不了)', async () => {
+    mocks.listOrderItemsForPrint.mockResolvedValue({ items: [{ id: 'i1', title: '零件' }] });
+    mocks.loadOrderShipments.mockResolvedValue(SHIPPED);
+
+    await expect(
+      cancelOrderAction(cancelForm({ [CANCEL_SHIPMENT_ACK_FIELD]: CANCEL_SHIPMENT_ACK_VALUE })),
+    ).rejects.toThrow('NEXT_REDIRECT');
+
+    // 🎯 判別點:勾了就真的走到 RPC。這一格擋的是「做成硬擋」那種回歸。
+    expect(mocks.cancelOrder).toHaveBeenCalled();
+  });
+
+  it('🔵 負對照:ack 欄位在【而值不對】⇒ 仍然擋(不是「有欄位就算確認」)', async () => {
+    mocks.listOrderItemsForPrint.mockResolvedValue({ items: [{ id: 'i1', title: '零件' }] });
+    mocks.loadOrderShipments.mockResolvedValue(SHIPPED);
+
+    // 🔴 空字串 —— 一個同名的常駐 hidden 欄位就會送出這個。
+    await expect(cancelOrderAction(cancelForm({ [CANCEL_SHIPMENT_ACK_FIELD]: '' }))).rejects.toThrow(
+      'NEXT_REDIRECT',
+    );
+    expect(mocks.cancelOrder).not.toHaveBeenCalled();
+  });
+
+  it('🔴 讀不到出貨(loader throw)⇒ 也要擋(量不到 ≠ 沒有出貨)', async () => {
+    mocks.listOrderItemsForPrint.mockResolvedValue({ items: [{ id: 'i1', title: '零件' }] });
+    mocks.loadOrderShipments.mockRejectedValue(new Error('db down'));
+
+    await expect(cancelOrderAction(cancelForm())).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.cancelOrder).not.toHaveBeenCalled();
+  });
+
+  it('🔴 撈品項那支丟 ⇒ 也要擋(量不到 ≠ 沒有出貨)', async () => {
+    mocks.listOrderItemsForPrint.mockRejectedValue(new Error('db down'));
+
+    await expect(cancelOrderAction(cancelForm())).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.cancelOrder).not.toHaveBeenCalled();
+  });
+
+  // 🔴🔴 **這一格釘的是【品項從哪來】, 不是某個行為。**
+  //    ⛔ ~~第一版:用 `detail.items`, 而在它被截斷時退成「擋」~~ —— 那只是止血。
+  //    ✅ 改走 `listOrderItemsForPrint`(撈到盡)⇒ 第 201 項也看得到 ⇒ **不需要退成擋。**
+  //    🔬 為什麼:`ORDER_ITEMS_EMBED_LIMIT = 200`, 而 Sean 2026-08-17 逐字說一張單
+  //       「可能到 200 個品項」⇒ 那是**正常業務的上緣**, 不是假想。
+  //    🎯 而這條路 repo 早就留過:`lib/shipping/shipment-candidates.ts:183` 逐字寫著
+  //       「品項【不】從 `detail.items` 來」⇒ **抄隔壁, 不自創第二種。**
+  it('🔴 品項要走【撈到盡】那支 —— 不得回頭用被 200 夾住的內嵌那份', async () => {
+    mocks.listOrderItemsForPrint.mockResolvedValue({ items: [{ id: 'i1', title: '零件' }] });
+    mocks.loadOrderShipments.mockResolvedValue(SHIPPED);
+
+    await expect(cancelOrderAction(cancelForm())).rejects.toThrow('NEXT_REDIRECT');
+    // 🎯 判別點:改回 `findAdminOrderDetail` 時這個 mock 一次都不會被呼叫 ⇒ 這一格紅。
+    expect(mocks.listOrderItemsForPrint, '要走撈到盡那支').toHaveBeenCalledWith(ORDER_ID);
+    expect(mocks.cancelOrder).not.toHaveBeenCalled();
+  });
+
+  it('🔵 負對照:沒有出貨 ⇒ 照常放行(證明上面那些擋的是【出貨】, 不是恆擋)', async () => {
+    mocks.listOrderItemsForPrint.mockResolvedValue({ items: [{ id: 'i1', title: '零件' }] });
+    mocks.loadOrderShipments.mockResolvedValue([]);
+
+    await expect(cancelOrderAction(cancelForm())).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.cancelOrder).toHaveBeenCalled();
   });
 });

@@ -132,6 +132,37 @@ describe('ReceiptUndoBar', () => {
     ).not.toBeNull();
   });
 
+  it('🔴 `blocked` 要先告訴他「離開就沒了」—— 否則他照著 DB 那句話走掉, 回來沒有入口', async () => {
+    action.mockResolvedValue({ status: 'blocked', message: P4A03_MESSAGE });
+    renderBar();
+    click();
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeNull());
+    // 🔵 讀 `textContent` 而不是 `getByText` —— 那個 `<p>` 裡有 **多個文字節點**
+    //    (DB 訊息 + 分隔 + 這一句),`getByText` 會找不到。這是本檔既有兩格的同一個做法。
+    // 🔵 期望值**硬寫字面, 不從元件 import** —— 今天實測過:期望值與被測值同一個常數時,
+    //    改文案不會有任何一格紅(那種格子測的是接線, 不是內容)。
+    expect(
+      screen.getByRole('alert').textContent ?? '',
+      '拿掉那句話 ⇒ 員工照 DB 訊息離開這一頁, 回來時撤銷列不在, 而他不知道為什麼',
+    ).toContain('這個撤銷入口只在這一頁有效');
+  });
+
+  it('🔵 對照組:`blocked` 以外不印那句話(它只在「他即將被送走」那一刻才成立)', async () => {
+    action.mockResolvedValue({ status: 'undone' });
+    renderBar();
+    click();
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeNull());
+    expect(document.body.textContent ?? '').not.toContain('這個撤銷入口只在這一頁有效');
+  });
+
+  // 🔴🔴 **這一格必須留在本 describe 的【最後】—— 它是承重的順序, 不是排版。**
+  //    它設的是一個**永遠不 resolve 的 promise**, 而那個 pending 狀態會活過 `cleanup`
+  //    ⇒ **排在它後面的每一格都會停在 pending**、`role='alert'` / `role='status'` 永遠不出現。
+  //    🔬 實測(不是推的):我把兩格新測寫在它後面 ⇒ `expected null not to be null` 兩紅;
+  //       單獨跑那一格 ⇒ 綠 ⇒ **證明是前一格污染, 不是新測寫錯**。
+  //    ⚠️ 而我第一次的修法是在新測裡加 `action.mockReset()` —— **拿掉它複跑, 11 格照樣全綠**
+  //       ⇒ 📌 **那個修法從來沒有生效過, 而它「看起來」修好了(因為我同時也調了順序)。**
+  //       ⇒ 🎯 兩件事一起改 ⇒ 我以為是 A, 其實是 B。**要知道是哪一個, 只能把 A 拿掉再跑一次。**
   it('送出中鈕要 disabled(連點會送出第二次撤銷)', async () => {
     action.mockImplementation(() => new Promise(() => {}));
     renderBar();
@@ -140,4 +171,9 @@ describe('ReceiptUndoBar', () => {
       expect((screen.getByText('撤銷中…') as HTMLButtonElement).disabled).toBe(true),
     );
   });
+
+  // 🔴🔴 `blocked` 那則 DB 原文逐字叫他「要先把那些包裹作廢…才能刪掉」⇒ **它把員工送離這一頁**,
+  //    而撤銷入口的鑰匙是 `receipt-record-form.tsx` 的 React state ⇒ 導航/重整就沒了。
+  //    ⇒ 📌 **那句話承諾了一個回程, 而系統沒有回程。** 這一格釘的是「畫面有沒有先講」。
+  //    🎯 病名見元件那段註解引的 OD FIX-76:**過期/不完整的說明會主動關掉使用者的下一個動作。**
 });

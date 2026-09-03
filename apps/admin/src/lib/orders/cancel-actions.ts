@@ -8,6 +8,8 @@ import { authorizeAdminMutation } from '../session/authorize';
 import { parseOrderCancelForm } from './cancel-form';
 import {
   CANCEL_ORDER_ID_FIELD,
+  CANCEL_SHIPMENT_ACK_FIELD,
+  CANCEL_SHIPMENT_ACK_VALUE,
   cancelledResultQuery,
   notSentResultQuery,
   sentResultQuery,
@@ -20,6 +22,9 @@ import {
 } from './order-return-to';
 import { revalidateOrderViews } from './order-revalidate';
 import { cancelOrder } from './cancel-repository';
+import { cancelShipmentWarning } from './cancel-shipment-warning';
+import { getAdminOrderRepository } from './order-repository';
+import { loadOrderShipments } from '../shipping/order-shipments';
 
 // cancel-actions.ts — M-4b E10 A9d2-2c:取消訂單 server action。
 //
@@ -168,6 +173,74 @@ export async function cancelOrderAction(formData: FormData): Promise<void> {
   //    要嘛留 client state(正是本線換路要殺掉的東西)。
   if (!parsed.ok) failRedirect(returnTo, notSentResultQuery('invalid'));
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // 🔴🔴 出貨閘(2026-09-03, Sean 拍甲)—— **貨在路上就擋下來, 要他先確認過**
+  // ══════════════════════════════════════════════════════════════════════════
+  //
+  // 🔴 **為什麼 server 端要自己讀, 不能只看表單那一格**:
+  //    前端那格 checkbox 擋得住【誤按】, 擋不住【繞過】—— 而這是錢:
+  //    取消會觸發退款, 而**貨照樣送到客人家**(我們對新竹零呼叫)。
+  //    ⇒ 📌 所以這裡**先自己讀一次出貨**, 讀到要擋才去看那一格有沒有帶來。
+  //
+  // 🔴🔴 **判準與文案的唯一作者是 `cancel-shipment-warning.ts`** ——
+  //    前端與這裡呼叫的是**同一支**。兩邊各寫一份的話, 不一致時**沒有人在比**。
+  //
+  // ⚠️ **多一次 DB 讀**(detail + shipments)。判為值得:
+  //    它只在【真的按下取消】那一刻跑一次, 不是每次頁面載入;
+  //    而它擋的是「錢與貨同時出去」。
+  //
+  // 🛑 **誰按了確認要留痕** ⇒ 下面 `order_cancel.attempt` 那筆 log 帶 `shipment_ack`。
+  //    ⚠️ 而**稽核 actor 那條線有已知缺口**(首頁 picker 自選、零驗證)
+  //    ⇒ **本片不解它** —— 這一格的 `actor` 可信度受那個缺口限制, 照實標明。
+  // 🔴🔴 **比對【那個值】, 不是「有沒有這個欄位」**(codex must-fix)。
+  //    ⛔ ~~`readSingleString(...) !== null`~~ ⇒ 任何字串都算確認, 含 `''` / `'false'` / `'0'`
+  //    ⇒ 🛑 哪天表單重構多一個**常駐的 hidden 欄位**同名, 員工沒勾也會靜默繞過這道警示
+  //    ⇒ 📌 而那個繞過**不會有任何東西叫** —— 它長得跟「員工確認過了」一模一樣。
+  //    ✅ checkbox 的 `value='1'`(`cancel-order-forms.tsx`)⇒ 這裡就釘那一個值。
+  //    🛑 兩邊是**成對的**:改了那個 `value` 就要改這裡, 而 `CANCEL_SHIPMENT_ACK_VALUE`
+  //       讓它們共用同一個字面, 不各寫一份。
+  const shipmentAck =
+    readSingleString(formData, CANCEL_SHIPMENT_ACK_FIELD) === CANCEL_SHIPMENT_ACK_VALUE;
+  // 🔴 查不到單 ⇒ **當成要擋**, 不是當成沒有出貨。
+  //    (同 `cancel-shipment-warning` 對 `null` 的處理:量不到 ≠ 沒有出貨。)
+  //
+  // 🔴🔴 **而【丟出來】也要當成要擋 —— 不是讓它變成 500**(codex must-fix):
+  //    ⛔ 原本這兩發沒有包 ⇒ repository 或 loader 一丟, 整個 action 500
+  //    ⇒ 🛑 **而那個 500 連【已經勾了確認】的員工也擋掉** —— 錯誤持續多久,
+  //       所有訂單就取消不了多久。⇒ 那是**回歸**, 不是防護。
+  //    ✅ 收成 `null` ⇒ 判準回「讀不到 ⇒ 擋」⇒ 而**勾了就能過**。
+  //    ⇒ 📌 **失敗要收斂成「多按一次」, 不是收斂成「今天不能做事」。**
+  let shipmentGroups: Awaited<ReturnType<typeof loadOrderShipments>> | null = null;
+  try {
+    // 🔴🔴 **品項走 `listOrderItemsForPrint`(撈到盡), 不用 `findAdminOrderDetail` 的那份。**
+    //    ⛔ ~~我第一版用 `detail.items`, 而在它被截斷時退成「擋」~~ —— 那只是止血。
+    //    🔬 `detail.items` 是**內嵌**撈的, 夾在 `ORDER_ITEMS_EMBED_LIMIT = 200`
+    //       (`SupabaseOrderAdapter.ts:1232`), 而 **Sean 2026-08-17 逐字說一張單「可能到 200 個品項」**
+    //       ⇒ 📌 **那是正常業務的上緣, 不是「未來可能發生」。**
+    //    🛑 若只有第 201 項那一箱出貨了 ⇒ 只看前 200 項 ⇒ **判成沒出貨 ⇒ 取消 + 自動退款。**
+    //    ✅ **而這個 repo 早就為這件事留過路**:`lib/shipping/shipment-candidates.ts:183` 逐字
+    //       「品項【不】從 `detail.items` 來 —— 那份被 200 夾住;呼叫端改餵 `listOrderItemsForPrint`」
+    //       ⇒ 🎯 **抄隔壁既有的做法, 不自創第二種**(線 `-db` 自己回頭找到這一段)。
+    //    ⚠️ **多一趟查詢** —— 判為可接受:它擋的是「錢與貨同時出去」, 而它只在按取消時跑一次。
+    const repo = getAdminOrderRepository();
+    const { items: allItems } = await repo.listOrderItemsForPrint(parsed.orderId);
+    shipmentGroups = await loadOrderShipments(
+      new Map(allItems.map((it) => [it.id, it.title])),
+    );
+  } catch (e) {
+    console.error('[admin/orders/cancel] 出貨狀態讀取失敗(當成「讀不到」⇒ 擋一次, 勾了可過)', e);
+    shipmentGroups = null;
+  }
+  const shipmentWarning = cancelShipmentWarning(shipmentGroups);
+  if (shipmentWarning.blocked && !shipmentAck) {
+    console.info('[admin/orders/cancel] order_cancel.shipment_blocked', {
+      order_id: parsed.orderId,
+      actor: authorization.actorId,
+      kind: shipmentWarning.kind,
+    });
+    failRedirect(returnTo, notSentResultQuery('shipment_unconfirmed'));
+  }
+
   const httpRequestId = await getRequestId();
   // 🔴 **不記 `reasonDetail` 全文**(員工打的營運內容),只記長度 —— 同備註片 `:104` 的慣例。
   // 🔴 兩個 id 都記:冪等鍵是表單 token、不等於 HTTP `x-request-id`,兩者都留才對得回去。
@@ -182,6 +255,12 @@ export async function cancelOrderAction(formData: FormData): Promise<void> {
     // 🔴 `null` = 整單取消。記筆數而不是品項內容:品項 id 對除錯沒用,筆數看得出模式對不對。
     mode: parsed.items === null ? 'full' : 'partial',
     item_count: parsed.items === null ? null : parsed.items.length,
+    // 🔴 留痕:這張單當下有沒有貨在路上、以及他有沒有按過那格確認。
+    //    ⚠️ `actor` 的可信度受稽核那條線的既有缺口限制(首頁 picker 自選、零驗證)——
+    //    **本片不解它**, 只照實標明。
+    shipment_blocked: shipmentWarning.blocked,
+    shipment_kind: shipmentWarning.blocked ? shipmentWarning.kind : null,
+    shipment_ack: shipmentAck,
   });
 
   const outcome = await cancelOrder({

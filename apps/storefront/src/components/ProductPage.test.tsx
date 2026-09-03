@@ -168,9 +168,14 @@ describe('ProductPage', () => {
     //   紅未被抓、commit body 測試狀態與完整 vitest 不符;16c-4a v2 修此斷言 + 重跑完整 pnpm test 全綠。
     const productInfo = document.querySelector('.pd-info');
     expect(productInfo).not.toBeNull();
+    // 🔴 **2026-09-03:Sean 重答 `Q23 = 甲` ⇒ 那一行改印【原廠料號】+ 標籤。**
+    //    `MOCK_PRODUCTS[0]` 沒有 `productCode` ⇒ 走 slug fallback, 而**標籤仍在**。
+    // 🎯 **而抓到這一格的是 `vitest related`, 不是我跑 ProductInfo.test.tsx 那一發** ——
+    //    ⇒ 📌 而本格上方那段註解記著:16c-4a 那次**正是漏跑完整套件、讓這一格的紅溜過去**。
+    //    ⇒ ⇒ **同一支檔、同一種漏法, 而這次被第二個分母接住了。**
     expect(
       within(productInfo as HTMLElement).getByText(
-        `${product.brand} · ${product.slug}`,
+        `${product.brand} · 原廠料號 ${product.slug}`,
       ),
     ).toBeDefined();
   });

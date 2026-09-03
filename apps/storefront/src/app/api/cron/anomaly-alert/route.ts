@@ -141,6 +141,7 @@ import {
   type CheckAnomalyAlertsDeps,
 } from '@pcm/use-cases';
 import { getAnomalyAlertDeps } from '@/lib/payment/composition';
+import { buildAnomalyQuietHeartbeatMessage } from '@pcm/use-cases';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
 import { safeErrorName } from '@/lib/safe-log';
 import { CRON_JOB_NAME, recordHeartbeatSuccess, recordHeartbeatFailure } from '@/lib/cron/heartbeat';
@@ -569,6 +570,50 @@ export async function GET(request: Request): Promise<Response> {
         '[anomaly-alert] 🔵 客戶搜尋計數查不到 ⇒ 那支 RPC 還沒 apply, 或它讀取失敗(失敗那一種在 use-case 另有一行 error log)',
         { reason: 'manual_customer_search_unknown' },
       );
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // 🔵 安靜日心跳(2026-09-03;Sean 拍甲)—— **位置就是它的正確性**
+    // ════════════════════════════════════════════════════════════════════════
+    //
+    // 🔴🔴 **它為什麼一定要在【這裡】, 不能在 use-case 裡**(codex R1+R2 兩輪打出來的):
+    //    這封信說的是「今天沒有需要你處理的事」, 而**那句話的前提是我們讀得到**。
+    //    ⇒ 上面**每一個 503 分支**都是「我們讀不到 / 設定壞了」——
+    //      在它們之前寄 ⇒ **收信人拿到綠燈, 而 route 隨後回 503** ⇒ 一封說謊的信。
+    //    ⛔ 我第一版把它做在 use-case 裡, 並在那邊**自己抄一份「什麼時候會 503」的清單**來擋。
+    //       🔴 R2 逐條打回:那份副本**抄不全也抄不準** ——
+    //         `orderCreatedGapUnknown`/`shippedGapUnknown` 在 cutoff 有設時會 503 而沒擋;
+    //         `orderCreatedStuckUnknown` 要兩顆設定都有才 503 而被無條件擋;
+    //         `SHIPPED_EMAIL_CUTOFF` 格式錯也 503 而 **use-case 看不到那顆 env**。
+    //    🎯 **⇒ 那是一份【代理】, 而代理與本尊會漂開。**
+    //    ✅ **⇒ 放在這裡, 條件不必抄:能走到這一行, 就代表全部檢查都過了。**
+    //
+    // 🛑🛑 **不要把這一段往上搬** —— 往上一行都會讓某一種 503 先被綠燈蓋掉。
+    //    守門:`route.test.ts` 那格「任一 503 條件成立 ⇒ 一封心跳都不寄」。
+    //
+    // 🔴 心跳寄不出去 ⇒ **503**(與告警信同一條紀律):一封心跳送不出去 = 告警管道壞了 = 該紅。
+    //    ⚠️ 而它**不改 `result`** —— `result.errors` 是 use-case 那一輪的數,
+    //    這裡另外回一個 `heartbeat` 欄位, 兩者不混。
+    if (!result.alerted) {
+      // 🔴 只列【自己不會讓 route 回 503】的那些讀不到項 —— 會 503 的那幾種根本走不到這一行。
+      //    ⇒ 所以這個清單與上面那些 503 分支【互補】, 不重疊。
+      const unreadable = result.manualCustomerSearchUnknown ? ['客戶搜尋計數'] : [];
+      const heartbeat = buildAnomalyQuietHeartbeatMessage(new Date(), unreadable);
+      const sent = await Promise.allSettled(deps.notifiers.map((n) => n.notify(heartbeat)));
+      const heartbeatFailed = sent.filter((r) => r.status === 'rejected').length;
+      if (heartbeatFailed > 0 || deps.notifiers.length === 0) {
+        // 🔴 零 notifier 也算故障:那不是「今天沒事」, 是**沒有任何管道可以告訴你今天沒事**。
+        console.error('[anomaly-alert] 🔴 安靜日心跳送不出去 ⇒ 告警管道不可用', {
+          reason: 'quiet_heartbeat_undeliverable',
+          notifiersTotal: deps.notifiers.length,
+          heartbeatFailed,
+        });
+        await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+        return Response.json(
+          { ok: false, enabled: true, ...result, heartbeatFailed },
+          { status: 503 },
+        );
+      }
     }
 
     // 5. 認證過 + enabled + 無錯 → 200 + 計數摘要(零 PII counts)。

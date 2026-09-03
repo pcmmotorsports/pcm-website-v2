@@ -30,7 +30,7 @@
 
 import { useRef, useState } from 'react';
 import type { ShippingMethod } from '@pcm/domain';
-import { CART_LINE_MISSING_VARIANT_MESSAGE } from '@/lib/checkout/checkout-messages';
+import { cartLineMissingVariantMessage } from '@/lib/checkout/checkout-messages';
 import { useCart, type CartItemVehicle } from '@/contexts/CartContext';
 import { chargePaymentAction, type ChargePaymentActionResult } from '@/app/checkout/charge-actions';
 import type { InvoiceDraft } from '@/components/CheckoutStep2';
@@ -47,6 +47,15 @@ export type ChargeArgs = {
   agreed: boolean;
   /** B-3 flag-on 才存在；server 仍會以同一份 schema 重新驗證。 */
   notificationEmail?: string;
+  /** 🔴 **⟦b9-Q15GAP⟧ / Sean 拍 `Q15 = 甲`**:把一列購物車翻成**客人看得懂的名字**。
+   *
+   *  **為什麼要從外面傳進來**:本 hook 只拿得到 `useCart()` 的 `items`
+   *  (`{ productId, variantId?, qty }` —— **線契約刻意不存標題/圖/價**,見 `CartContext.tsx` 檔頭),
+   *  而品名住在**已解析**的那一份(`useResolvedCart`),那是 `CheckoutView` 才有的東西。
+   *  ⇒ 📌 **不在這裡重查一次** —— 重查會多一條可能與畫面不一致的來源。
+   *
+   *  🔵 **選填**:給不出來(或呼叫端沒傳)⇒ 訊息**退回不指名的版本**, 不假裝叫得出名字。 */
+  lineName?: (key: { productId: string; variantId?: string }) => string | undefined;
 };
 
 export type ChargeState =
@@ -136,11 +145,54 @@ export function useChargePayment(): UseChargePayment {
     }
     // V-3a:line 帶上該列「給哪台車用」(CartItemVehicle、選填;server schema 判別式驗+RPC 白名單
     //   重組 → order_items.vehicle_snapshot;🔴 純 metadata 不含價/tier、缺=不帶)。
+    // 🔴 **先掃一遍、把【全部】缺規格的列收齊, 再一次講完**(Sean 拍 `Q15 = 甲`)。
+    //    ⛔ ~~舊行為:撞到第一列就 return~~ ⇒ 客人處理完那一件、再按一次、又被擋在下一件
+    //    ⇒ 📌 **一次擋一件, 而他不知道還有幾件** —— 那正是「沒有給他一件做得到的事」的另一半。
+    const missing = items.filter((it) => !it.variantId);
+    if (missing.length > 0) {
+      inFlightRef.current = false;
+      // 🔵 品名:呼叫端給得出就指名, 給不出就退回不指名的版本(不假裝叫得出)。
+      //
+      // 🔴🔴 **⛔ ~~去重(`new Set`)~~ —— code-reviewer must-fix, 而它的理由是反的**:
+      //    同 `productId` + 無變體在 `CartContext.tsx` 的 `addItem` 就**已經併成一列**了
+      //    ⇒ 去重**唯一會 fire 的世界, 就是【同名不同件】** —— 而那正是它會出錯的世界:
+      //    兩件不同的商品剛好同名 ⇒ 吃掉一個 ⇒ 客人讀到「2 件」而只看到 1 個名字。
+      //    ⇒ 📌 **一個防護的唯一觸發世界, 就是它會做錯事的那個世界 ⇒ 它不是防護。**
+      // 🔴🔴 **`lineName` 是【呼叫端傳進來的 callback】⇒ 它會 throw**(codex must-fix)。
+      //    ⛔ 不包的話:錯誤直接逸出 `submit` ⇒ **付款 action 零呼叫, 而畫面上一句話都沒有**
+      //    ⇒ 客人按了付款, 什麼都沒發生。(鎖那一格沒事 —— 上面已經先放掉了。)
+      //    ⇒ 📌 **一個【只為了把話講得更好】的東西, 不可以有能力把整條路弄啞。**
+      let names: string[] = [];
+      try {
+        names = missing
+          .map((it) => args.lineName?.({ productId: it.productId, variantId: it.variantId }))
+          .filter((n): n is string => typeof n === 'string' && n.trim() !== '');
+      } catch {
+        // 叫名字失敗 ⇒ 退回不指名的版本。**擋下來這件事不受影響。**
+        names = [];
+      }
+      // 🔴🔴 **叫得出【全部】才指名 —— 叫得出一半就退回不指名版**(code-reviewer must-fix)。
+      //    ⛔ ~~原本無條件把 `names` 餵進去~~ ⇒ 而訊息裡的件數是 `names.length`,
+      //       被擋的卻是 `missing.length` ⇒ **兩者發散時沒有任何訊號**。
+      //    🔬 可達路徑不只同名碰撞:`useResolvedCart.tsx:174` 把 `!found` 的列**濾出 `cart.lines`**,
+      //       而 `items` 裡仍有它 ⇒ 該列進 `missing` 卻拿不到名字
+      //       ⇒ 車上 2 列被擋, 而畫面說「這件商品」。
+      //    ⇒ ✅ **寧可整句退回不指名, 也不要講一個【數不對】的句子** ——
+      //       一個少報件數的訊息, 比一個不指名的訊息更會讓客人以為他處理完了。
+      const canNameAll = names.length === missing.length;
+      setState({
+        status: 'error',
+        message: cartLineMissingVariantMessage(canNameAll ? names : []),
+      });
+      return false;
+    }
     const lines: { variantId: string; quantity: number; vehicle?: CartItemVehicle }[] = [];
     for (const it of items) {
       if (!it.variantId) {
+        // 🛑 **到不了** —— 上面那一發已經擋掉。留著是 fail-closed:
+        //    型別上 `variantId` 仍是 optional, 而 `lines` 那個陣列要求它是 string。
         inFlightRef.current = false;
-        setState({ status: 'error', message: CART_LINE_MISSING_VARIANT_MESSAGE });
+        setState({ status: 'error', message: cartLineMissingVariantMessage([]) });
         return false;
       }
       lines.push({

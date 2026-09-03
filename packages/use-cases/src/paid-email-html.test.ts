@@ -19,6 +19,13 @@ import {
   assertPdfClaimMatchesAttachments,
   PAID_EMAIL_PDF_ATTACHED_SENTENCE,
 } from './paid-email-html';
+import {
+  ORDER_CONTACT_LEAD,
+  PCM_COMPANY_ADDRESS,
+  PCM_COMPANY_LINE,
+  PCM_LINE_ID,
+  PCM_LINE_URL,
+} from './order-email-copy';
 
 const m = (n: number) => n as MoneyAmount;
 
@@ -144,6 +151,62 @@ describe('🔴 稿上那句「PDF 已附在這封信裡」是事實宣稱,預設
   it('明確說有附 ⇒ 才印', () => {
     const html = renderPaidEmailHtml(ctxWithDiscount(), { hasPdfAttachment: true });
     expect(html).toContain('訂單明細 PDF 已附在這封信裡');
+  });
+});
+
+describe('🔴 排版那份的頁尾對外字面【要有鎖】—— 而它今天沒有', () => {
+  // 🔴🔴 **這一族的存在理由**:我 2026-09-03 把「回覆這封信」那半句從共用常數拿掉
+  //    (Sean 答那個信箱沒人收)⇒ **1,001 格全綠, 一格都沒紅。**
+  //    ⇒ 📌 **一句寄給每一個客人、而且收不回來的話, 可以被安靜地改掉。**
+  //    ⇒ 🎯 純文字那半有 exact-match 鎖(`sweep-email-outbox.test.ts` 的 `EXPECTED_..._BODY`),
+  //      **而排版那半沒有** —— 兩份的保護不對稱, 而沒有東西指出這件事。
+  // 🛑 **本格不做 exact-match 整封 HTML**(那會被每一次 style 微調弄紅、然後被人改成寬鬆的)——
+  //    只釘**客人讀得到的那幾句**與**它們的字面來源**。
+  it('🔴 頁尾三樣都在, 而且來自共用常數(不是這裡重打一份)', () => {
+    const html = renderPaidEmailHtml(ctxWithDiscount(), {});
+    for (const s of [ORDER_CONTACT_LEAD, PCM_LINE_ID, PCM_LINE_URL, PCM_COMPANY_LINE, PCM_COMPANY_ADDRESS]) {
+      expect(html).toContain(s);
+    }
+  });
+
+  it('🔴 而「回覆這封信」今天【不得出現】—— 那個信箱沒有人收(Sean 2026-09-03 答 A3)', () => {
+    const html = renderPaidEmailHtml(ctxWithDiscount(), {});
+    expect(html).not.toContain('回覆這封信');
+    // 🔵 而它【會回來】:`info@` alias + Resend reply-to 上線之後(板列 ⟦b4-REPLYTO1⟧, 態 parked)
+    //    ⇒ 那一天這一格要跟著改, 而**它會紅** —— 那正是我要的:加回來的人被迫看到這一段。
+  });
+});
+
+describe('🔴 內網位址不進客人的信(codex 對抗審查 must-fix;而這道閘【原本零測試】)', () => {
+  // 🔴🔴 **這一族的存在理由是一發【活下來的突變】**:我把 `if (isLoopbackOrPrivate)` 改成
+  //    `if (false)` ⇒ **119 格全綠。** ⇒ 📌 **那道閘擋的是「真客人收到內網連結」, 而沒有任何東西在證它。**
+  //    ⇒ 「尺會動」與「尺接在路徑上」是兩個宣稱 —— 而這一格連前者都還沒證過。
+  //
+  // ⚠️ **失敗路徑是真的**:`lib/site-url.ts:27` 在非 production 且缺 env 時回
+  //    `'http://localhost:3000'`(**不是 `undefined`**)⇒ 有人在本機對真資料打那條 cron
+  //    ⇒ 真客人收到一個連到他自己電腦的連結。
+  it.each([
+    ['http://localhost:3000', 'localhost'],
+    ['http://127.0.0.1:3000', '回送位址'],
+    ['http://127.0.0.2', '🔴 整個 127/8 都是回送 —— 前綴黑名單漏掉的那一種'],
+    ['http://10.0.0.5', '🔴 內網 10/8'],
+    ['http://192.168.1.20', '🔴 內網 192.168/16'],
+    ['http://172.20.0.3', '🔴 內網 172.16-31 —— 邊界最容易寫錯的那一段'],
+    ['http://169.254.1.1', '🔴 link-local'],
+    ['http://user@127.0.0.1', '🔴 認證資訊在前 ⇒ 字串前綴比對看到的是 user@'],
+    ['https://[::1]/', '🔴 IPv6 回送'],
+    ['not-a-url', '解析不了 ⇒ fail-closed'],
+  ])('%s ⇒ 不印連結(%s)', (url) => {
+    expect(paidEmailOrderUrl(url, 'PCM-2026-0001')).toBeUndefined();
+  });
+
+  // 🟢 **反向世界非做不可** —— 少了它,一支 `return undefined` 寫死的函式也會通過上面十格。
+  it.each([
+    'https://shop.pcmmotorsports.com',
+    'https://www.pcmmotorsports.com',
+    'http://10.example.com',
+  ])('🟢 %s ⇒ 照印(證明它擋的是主機不是「看起來像內網的字」)', (url) => {
+    expect(paidEmailOrderUrl(url, 'PCM-2026-0001')).toContain('/account/orders/PCM-2026-0001');
   });
 });
 

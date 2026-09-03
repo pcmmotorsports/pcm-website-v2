@@ -32,7 +32,7 @@
 | `G2` | 後台訂單(訂單頁 + 截斷家族 + 後台 UI) | `G2-` | `claude-opus-5` | high |
 | `G3` | 顧客站(文字 + 版面 + 使用者體驗) | `G3-` | `claude-opus-5` | medium |
 | `G4` | 通知信收件人 + 上線前安全缺口 | `G4-` | `claude-opus-5` | high |
-| `GR` | **複審窗:按需開、審完就關**,唯讀不施工 | `GR-` | 🔴 `claude-fable-5` | high |
+| `GR` | **複審窗:按需開、審完就關**,唯讀不施工 | `GR-` | 🔴 `claude-fable-5-1`(⛔ ~~`claude-fable-5`~~ 2026-09-03 Sean 訂正) | high |
 
 **三條這張表以外的規矩**
 

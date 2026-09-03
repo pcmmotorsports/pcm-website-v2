@@ -94,6 +94,7 @@ import {
   findCategorySemanticMismatches,
   printCategorySemanticReport,
 } from './rpm-preflight';
+import { printTitleLanguageReport } from './rpm-title-language';
 
 // ── constants ──
 // P0-A-3:orchestrator 全量由 supplier-config 驅動(scope/brand/category/handle/subtitle/description)。
@@ -394,6 +395,13 @@ async function main(): Promise<void> {
   //      要先去看 #261 的未對上分類彙整,不是收下這個綠燈。
   const categorySemanticMismatches = findCategorySemanticMismatches(categorySemanticRows);
   printCategorySemanticReport(categorySemanticRows, categorySemanticMismatches); // 收列陣列、兩個分母由它自己算(R1 DN-1)
+  // Q31(Sean 2026-09-03 拍甲):沒中文名的商品會靜靜用英文名上架, 而今天沒有地方看得到有幾件。
+  //   🔴 分母刻意用 productRows【不是】categorySemanticRows —— 兩者今天 1:1, 而借別的 gate 的陣列
+  //      當自己的分母正是 rpm-preflight.ts:390-394 記的那個病(話對、數字錯, 而畫面上分不出來)。
+  //   🔴 分母是【本次轉換出的商品數】—— 而 --group/--limit 下它不是全量, 所以要把 FULL_MODE 傳進去
+  //      (照 :333 的既有慣用法;不傳的話 `--limit 5` 會印出一個看起來很乾淨的假全綠)。
+  //   🛑 只印不擋(warn)—— 那一格有測試釘住, 不要改成擋。
+  printTitleLanguageReport(productRows, FULL_MODE);
   if (categorySemanticMismatches.length && !DRY_RUN) {
     throw new Error(
       `#789 分類語意違規 ${categorySemanticMismatches.length} 筆、abort 不寫(看上方表:名字明說的種類與掛進去的分類相剋;` +

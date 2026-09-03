@@ -289,11 +289,32 @@ export function ManualRefundLedgerSection({
                         <p className='max-w-[16rem]'>理由:{row.voidReason ?? '(未記錄)'}</p>
                       </div>
                     ) : (
-                      <ManualRefundVoidButton
-                        refundId={row.id}
-                        orderId={orderId}
-                        returnTo={returnTo}
-                      />
+                      <>
+                        {/* 🔴🔴 **超額那個狀態下, 把那句提醒放在【按鈕旁邊】。**
+                         * ⇒ 區塊頂端**已經有**一段寫得很好的警告(`:161-168`), 而它在**畫面上方** ——
+                         *   員工捲到這一列要按的時候, 那段話已經不在視線裡。
+                         * ⇒ 📌 **警告要在動作旁邊, 不是在頁面頂端** —— 一段沒有被讀到的正確警告,
+                         *   與沒有那段話, 在行為上是同一件事。
+                         * 🛑 **而按鈕【沒有】被拿掉, 那是刻意的**:
+                         *   `manual-refund-void-button.tsx` 自己的 docstring 逐字寫「作廢不動錢,
+                         *   它說的是**這筆登記本身記錯了**」⇒ 而**超額正是登記記錯最可能發生的時候**
+                         *   (例如同一筆退款被登記兩次)⇒ 在這個狀態拿掉它, 會讓一個
+                         *   **真的記錯的登記變成改不掉**。
+                         * ⇒ 🔵 所以做的是「換成說明」那一半, 不是「拿掉」那一半。
+                         *   **而要不要真的拿掉是 Sean 的板** —— 已回報主視窗。 */}
+                        {overCap && (
+                          <p className='text-destructive mb-1 max-w-[16rem] text-xs'>
+                            這張單的退款登記超出可退上限。
+                            <strong>若這筆退款屬實,不要用作廢消除提示</strong>
+                            ——先確認收款有沒有登錄齊全。
+                          </p>
+                        )}
+                        <ManualRefundVoidButton
+                          refundId={row.id}
+                          orderId={orderId}
+                          returnTo={returnTo}
+                        />
+                      </>
                     )}
                   </td>
                 </tr>

@@ -216,7 +216,12 @@ export type ManualOrderParse = { ok: true; values: ManualOrderValues } | { ok: f
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** 十進位非負整數字面;`+3` / `3.0` / ` 3 ` / `3e0` 全拒(RPC 那側 `::integer` 會收其中幾種,本層更嚴)。 */
-const NON_NEG_INT_RE = /^\d+$/;
+/**
+ * 「0 或正整數」的**單一權威**。⚠️ 2026-09-03 從 `const` 改成 `export`:
+ * `manual-order-line-price-check.tsx` 要用**同一把尺**判「這個字串會不會被送出解析器接受」。
+ * 🔴 **不要在別處重打一份** —— 今天實測過同型:重打的那份會比原本窄, 而窄化在 diff 上看不出來。
+ */
+export const NON_NEG_INT_RE = /^\d+$/;
 
 /**
  * 產一顆新的建單冪等鍵。

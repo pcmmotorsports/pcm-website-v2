@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// 🔴 本檔【零斷言改動】—— 只加這一行 mock。
+//    成因:本元件現在渲染 `ManualOrderLinePriceCheck`(⟦b4-PURCHTAX1⟧ 甲案),
+//    而它那條 import 鏈上有 `server-only` ⇒ jsdom 載不動整支檔(`Tests no tests`)。
+//    形狀抄隔壁 `manual-order-catalog-lookup.test.tsx:12`, 不自己發明一套。
+//    🛑 **這不是放寬守門** —— 下面那三道原始碼層守門(:105-118)一個字都沒動, 而且仍然要綠。
+vi.mock('server-only', () => ({}));
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 import { ManualOrderLines } from './manual-order-lines';
@@ -112,6 +119,82 @@ describe('🔴 原始碼層:不變式 (i) —— 送出值不由 client state �
   it('🔴 全檔【恰好一個】 `useState`(多一個就可能是裝值的那個)', () => {
     // 失敗情境:有人加第二個 state 裝草稿值 ⇒ `useState<number[]>` 那格照樣綠。
     expect(CODE.match(/useState/g) ?? []).toHaveLength(2); // import 一次 + 呼叫一次
+  });
+
+  // ══════════════════════════════════════════════════════════════════
+  // 🔴🔴 **這一格是 codex 對抗審查逼出來的(2026-09-03, ⟦b4-PURCHTAX1⟧ 甲案)。**
+  //
+  // 上面那三道守門**只掃這一支檔**。而本片把比價那段搬進了子元件
+  // `manual-order-line-price-check.tsx` ——
+  // 🛑 **搬完之後, 那三道守門對子元件是失明的**:子元件日後新增一個具名欄位、
+  //    或去寫 `form.elements[...].value`, **三道全綠**, 而不變式已經破了。
+  //
+  // 🎯 **⇒ 我搬碼的當下沒有弄壞不變式, 而我把守門的涵蓋面縮小了 —— 那兩件事不一樣。**
+  // ⇒ 📌 所以這一格把子元件拉進同一個分母。**不是因為它今天有問題, 是因為守門要跟著碼走。**
+  // ══════════════════════════════════════════════════════════════════
+  //
+  // 🔴🔴 **2026-09-03 第二次同一件事(線【帳號】`-account` 補)**:
+  //    Q32 甲那片新增了 `manual-order-leave-guard.tsx` —— 它**握著 `form.elements` 裡的每一顆節點**,
+  //    而它當時不在這個分母裡 ⇒ 有人在那裡寫一行回寫, **這三道守門全綠**。
+  //    🎯 **而那一片的作者(我)當時拿「這 23 格沒紅」當「不變式沒破」的證據** ——
+  //       R1 finding 9 逐字擊破:那個分母裡**沒有那支檔** ⇒ **那個綠沒有判別力**。
+  //    📌 ⇒ 與上面那段是同一課:**碼搬到哪裡, 守門的分母就要跟到哪裡** ——
+  //       而它不會自己跟, 也不會有東西叫。
+  const strip = (name: string) =>
+    readFileSync(join(__dirname, name), 'utf8')
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('//'))
+      .join('\n');
+
+  /** 這道守門的分母:所有【摸得到這張表單的控制項】而不是它自己那支檔的元件。 */
+  const SIBLINGS: ReadonlyArray<readonly [string, string]> = [
+    ['manual-order-line-price-check.tsx', strip('manual-order-line-price-check.tsx')],
+    ['manual-order-leave-guard.tsx', strip('manual-order-leave-guard.tsx')],
+  ];
+  const CHILD = SIBLINGS[0]![1];
+
+  // 🔴🔴 **這條 regex 的兩個放寬與一個【已知邊界】(2026-09-04 線【權限登入】`-auth` 驗出來的)**:
+  //    我原本只寫 `=[^=]` ⇒ 🔴 **複合指派全部漏掉, 而它們都是【寫】**:
+  //      `el.value += x` · `el.value ??= x` · `el.value ||= x` ⇒ 三個都沒命中
+  //    ✅ 現在收 `[+\-*/%|&^?]{1,2}=` 那一族。
+  //    🟢 而它不誤殺【讀】—— 兩個世界各實跑過:
+  //       該抓的 6 種(= += ??= ||= &&= *=)全中 · 該放的 5 種(!== === >= 賦值到別處)全放
+  it.each(SIBLINGS)('🔴 %s 不回寫任何 input(分母:摸得到表單的都算)', (_name, code) => {
+    expect(code, '寫 `.value =` / `+=` / `??=` ⇒ 那就是回寫 ⇒ 不變式破了').not.toMatch(
+      /\.value\s*(=[^=]|[+\-*/%|&^?]{1,2}=)/,
+    );
+  });
+
+  // ⚠️ **這把尺的已知邊界(`-auth` 2026-09-04 指出;刻意不補)**:
+  //    它只認【小寫開頭的原生標籤】⇒ `<input name=…>` 抓得到,而 `<Input name=…>` **穿得過去**。
+  //    🛑 **而補它會變成一個看起來有守、實際靠運氣的東西** —— 要判「那個自訂元件會不會渲染 name」,
+  //       不是字面尺做得到的事。⇒ **已知,不是漏。** 下一個撞到的人:那是邊界,不是 bug。
+  it.each(SIBLINGS)('🔴 %s 不渲染任何具名欄位(原生標籤那一層)', (_name, code) => {
+    expect(code, '出現 `name=` ⇒ 它開始送值了').not.toMatch(/<[a-z][^>]*\sname=/);
+  });
+
+  it('🟢 正對照:剝註解之後兩支檔的碼都還在(否則上面四格是假綠)', () => {
+    for (const [name, code] of SIBLINGS) {
+      expect(code.length, `${name} 剝完只剩 ${code.length} 字元 ⇒ 尺多剝了`).toBeGreaterThan(400);
+    }
+  });
+
+  it('🔴 子元件【不渲染任何具名欄位】—— 它只說話, 不參與送出', () => {
+    expect(CHILD, "出現 `name=` ⇒ 它開始送值了, 而上面三道守門看不到它").not.toMatch(
+      /<[a-z][^>]*\sname=/,
+    );
+  });
+
+  it('🔴 子元件【不回寫】任何 input(Sean 2026-08-31 拍丙:查到的自己抄, 不回寫)', () => {
+    expect(CHILD, '寫 `.value =` ⇒ 那就是回寫').not.toMatch(/\.value\s*=[^=]/);
+  });
+
+  it('🔴 負對照:這把尺量得到子元件裡真的有的東西(否則上面兩格是空的)', () => {
+    // 缺這一格 ⇒ 檔案讀錯路徑/讀成空字串時, 上面兩格照樣全綠。
+    expect(CHILD, '讀到的不是那支檔').toContain('resolveLinePriceCheck');
+    expect(CHILD).toContain("'focusout'");
   });
 });
 

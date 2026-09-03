@@ -40,8 +40,15 @@
 
 import type { PaidEmailContext } from '@pcm/ports';
 import {
+  formatOrderAmount,
+  ORDER_CONTACT_LEAD,
+  ORDER_LINE_TITLE_MISSING,
   ORDER_PAID_HTML_LEAD_SENTENCE,
   ORDER_PAID_NEXT_STEP_SENTENCE,
+  PCM_COMPANY_ADDRESS,
+  PCM_COMPANY_LINE,
+  PCM_LINE_ID,
+  PCM_LINE_URL,
 } from './order-email-copy';
 
 /**
@@ -146,6 +153,45 @@ export function paidEmailOrderUrl(
   const base = siteUrl.trim().replace(/\/+$/, '');
   if (!/^https?:\/\//.test(base)) return undefined;
   // 🔴 單號進網址要 encode —— 它今天是 `[A-Z0-9]`,而**那是今天的產號規則不是欄位約束**。
+  // 🔴🔴 **本機位址一律不進客人的信**(code-reviewer R1 追加 must-fix)。
+  //    **失敗路徑是真的, 不是理論**:`lib/site-url.ts:27` 在 `NODE_ENV !== 'production'`
+  //    且 `NEXT_PUBLIC_SITE_URL` 未設時回 **`'http://localhost:3000'`**(不是 `undefined`),
+  //    而上面那道只檢 `^https?://` ⇒ **放行**。
+  //    ⇒ 🎯 有人照 `docs/runbooks/local-admin-with-real-data-probe.md` 在本機對真資料打這條
+  //      cron route ⇒ **真客人收到一個連到他自己電腦的連結。**
+  //    📌 **⇒ 而我原本只在 route 那側寫了「production 缺 env ⇒ 不印」——**
+  //      **那是兩種形狀裡【會擋的那一半】, 而我只記錄了那一半。**
+  //    🛑 擋在**這裡**不擋在呼叫端:呼叫端會有第二個第三個, 而這支函式是所有人的必經之路。
+  // 🔴🔴 **改成解析 URL 比 hostname, 不比字串前綴**(codex 對抗審查 must-fix)。
+  //    ⛔ ~~我第一版是 `/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])/`~~ —— **那是一份黑名單,**
+  //      而它漏掉:`127.0.0.2`(整個 127/8 都是回送)· `10.x` · `192.168.x` · `172.16-31.x`,
+  //      以及 `http://user@127.0.0.1`(**認證資訊在前, 前綴比對看到的是 `user@…`**)。
+  //    📌 **⇒ 黑名單在跟下一個沒想到的形狀賽跑** —— 而本 repo 已經記過同一句(token 前綴那條)。
+  //    ✅ **改成:解析出真正的 hostname, 再問它是不是內網。**
+  //    🛑 而**解析失敗 ⇒ 不印**(fail-closed):一個我看不懂的網址, 不該出現在客人的信裡。
+  let host: string;
+  try {
+    host = new URL(base).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  } catch {
+    return undefined;
+  }
+  // 🔴 **先問「它是不是一個 IPv4 字面」, 再問「它是不是內網」** ——
+  //    ⛔ ~~我第一版直接 `/^10\./.test(host)`~~ ⇒ 🔴 **`http://10.example.com` 這種【合法網域】被擋掉。**
+  //      抓到它的是我自己那一格反向世界 —— **而少了反向世界, 一道「什麼都擋」的閘會全綠。**
+  //    📌 ⇒ 這一格是那條紀律的實例:**只驗「該擋的擋了」, 一支 `return undefined` 也會通過。**
+  const isIpv4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+  const isLoopbackOrPrivate =
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host === '::1' ||
+    /^f[cd][0-9a-f]{2}:/.test(host) ||
+    (isIpv4 &&
+      (/^127\./.test(host) ||
+        /^10\./.test(host) ||
+        /^192\.168\./.test(host) ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+        /^169\.254\./.test(host)));
+  if (isLoopbackOrPrivate) return undefined;
   return `${base}/account/orders/${encodeURIComponent(orderDisplayId)}`;
 }
 
@@ -164,7 +210,15 @@ function esc(s: string): string {
  * 🔴 稿上「訂單金額」旁邊的「新臺幣」是**模板的靜態標籤**,不跟著數字走(型別檔 `:90` 逐字)。
  */
 function money(n: number): string {
-  return Math.trunc(n).toLocaleString('en-US');
+  // 🔴🔴 **委派到共用來源(2026-09-03 A1)** —— 而這一刀【第一次做的時候沒有落地】:
+  //    我那一發 python 在後面一個 assert 就中止了, **而中止發生在寫檔之前** ⇒ 這一段沒被改到,
+  //    **而我在 `order-email-copy.ts` 留下的註解已經寫著「排版那份也委派到這裡」。**
+  //    ⇒ 📌 **一個沒發生的寫入 + 一句描述意圖的註解 = 一個宣稱, 而三綠看不到它**
+  //      (`noUnusedLocals` 沒開 ⇒ 未使用的 import 不紅;code-reviewer R1 才抓到)。
+  //    🎯 **⇒ 我描述的是我的意圖, 不是那個動作的結果。**
+  //    ✅ **為什麼非委派不可**:純文字那份也要印同一筆金額;兩份各一個實作 ⇒ 有人給其中一個
+  //      加了小數位 ⇒ **同一封信裡兩個數字**, 而客人看到哪一份不是我們決定的。
+  return formatOrderAmount(n);
 }
 
 const SANS =
@@ -250,7 +304,7 @@ export function renderPaidEmailHtml(ctx: PaidEmailContext, chrome: PaidEmailChro
   //    空白那一列與「這張單只有兩項」長得一樣。
   const lineRows = ctx.lines
     .map((l) => {
-      const title = l.title === null ? '(品名未記錄)' : esc(l.title);
+      const title = l.title === null ? ORDER_LINE_TITLE_MISSING : esc(l.title);
       const skuRow =
         l.variantSku === null
           ? ''
@@ -451,13 +505,13 @@ ${ctaBlock}${pdfBlock}
       <tr><td class="px hair" style="padding:24px 28px 30px;">
         <div style="border-top:1px solid #dde3ea;padding-top:16px;">
           <div class="sub" style="font-family:${SANS};font-size:12px;line-height:1.85;color:#5c6b7a;">
-            有任何問題，回覆這封信或加入官方 LINE
-            <a href="https://lin.ee/egsf1Jy" style="color:#2d5f8f;text-decoration:underline;">@pcmmoto</a>，
+            ${ORDER_CONTACT_LEAD}
+            <a href="${PCM_LINE_URL}" style="color:#2d5f8f;text-decoration:underline;">${PCM_LINE_ID}</a>，
             並告訴我們訂單編號 ${id}。
           </div>
           <div class="sub" style="font-family:${SANS};font-size:11px;line-height:1.8;color:#647079;padding-top:12px;">
-            派達有限公司　統一編號 90003020<br>
-            新北市新莊區化成路736巷18號1樓
+            ${PCM_COMPANY_LINE}<br>
+            ${PCM_COMPANY_ADDRESS}
           </div>
         </div>
       </td></tr>

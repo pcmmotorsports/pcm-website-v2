@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   loadFitmentFreshness: vi.fn(),
   loadCronHeartbeats: vi.fn(),
   loadDeadLetterCount: vi.fn(),
+  loadStuckPaymentCount: vi.fn(),
 }));
 vi.mock('../lib/session/actor-actions', () => ({ selectActorAction: vi.fn() }));
 vi.mock('../lib/session/actor', () => ({
@@ -46,6 +47,10 @@ vi.mock('../lib/dashboard/freshness-read', async (orig) => ({
 vi.mock('../lib/mail/dead-letter-count-read', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   loadDeadLetterCount: mocks.loadDeadLetterCount,
+}));
+vi.mock('../lib/dashboard/stuck-payment-read', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  loadStuckPaymentCount: mocks.loadStuckPaymentCount,
 }));
 vi.mock('../lib/dashboard/cron-heartbeat-read', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
@@ -83,6 +88,8 @@ beforeEach(() => {
   mocks.loadTodaySummary.mockResolvedValue(SUMMARY);
   mocks.loadDataFreshness.mockResolvedValue({ hoursAgo: 3, stale: false, abnormal: false, unreadableReason: null });
   mocks.loadFitmentFreshness.mockResolvedValue({ hoursAgo: 24, stale: false, abnormal: false, unreadableReason: null });
+  // 🔵 預設【零張】—— 而這個預設值本身就是本片的重點:零張要印 0, 不是不印。
+  mocks.loadStuckPaymentCount.mockResolvedValue({ count: 0, unreadableReason: null });
   mocks.loadDeadLetterCount.mockResolvedValue({
     total: 0,
     dead: 0,
@@ -161,6 +168,46 @@ describe('AdminHomePage', () => {
     const sup = container.querySelector('[data-testid="data-freshness"]');
     expect(sup?.textContent).toContain('供應商資料最後更新:3 小時前');
     expect(sup?.className).toContain('text-muted-foreground');
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 🆕 2026-09-03 線 `-db`:系統放棄的付款 —— **接線那一半的守門**
+  // 🔴🔴 這三格在的理由:模組層的測試證得了「函式回 0」, **證不到「畫面上有那行字」**。
+  //    而本片要防的病正好就住在那個縫裡:**東西算出來了, 而沒有人的眼睛看得到它。**
+  // ══════════════════════════════════════════════════════════════════════
+  it('🔴🔴 零張 ⇒ 畫面上【印「0 張」】而不是消失(本片存在的全部理由)', async () => {
+    const { container } = render(await AdminHomePage());
+    const el = container.querySelector('[data-testid="stuck-payment-count"]');
+    expect(el).not.toBeNull();
+    expect(el?.textContent).toBe('扣款重試已放棄:0 張');
+    // 🔴 零張是好消息 ⇒ 灰的, 不搶注意力。而它【還是印出來了】—— 那才是重點。
+    expect(el?.className).toContain('text-muted-foreground');
+  });
+
+  it('🔴 有卡單 ⇒ 同一行轉警示色(而字照樣在)', async () => {
+    mocks.loadStuckPaymentCount.mockResolvedValue({ count: 2, unreadableReason: null });
+    const { container } = render(await AdminHomePage());
+    const el = container.querySelector('[data-testid="stuck-payment-count"]');
+    expect(el?.textContent).toBe('扣款重試已放棄:2 張');
+    expect(el?.className).toContain('text-destructive');
+  });
+
+  it('🔴🔴 那支拋錯 ⇒ 印「量不到」並【亮燈】, 而不是印 0 也不是留白', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.loadStuckPaymentCount.mockRejectedValue(new Error('boom'));
+
+    const { container } = render(await AdminHomePage());
+
+    const el = container.querySelector('[data-testid="stuck-payment-count"]');
+    expect(el?.textContent).toContain('量不到');
+    expect(el?.textContent?.trim()).not.toBe('');
+    // 🔴 這一格最重:**「量不到」不可以長得像「0 張」** —— 一個是我們壞了, 一個是好消息。
+    expect(el?.textContent).not.toContain('0 張');
+    expect(el?.className).toContain('text-destructive');
+    // 失敗隔離:它掛掉不得把隔壁那些行帶走
+    expect(container.textContent).toContain('供應商資料最後更新:3 小時前');
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   it('🔴 車款搜尋那支拋錯 ⇒ 印「量不到」不留白,而供應商那行與對帳照舊', async () => {
