@@ -1,55 +1,40 @@
-// search-category-names.ts — 字典 `to` 的**合法值域快照**(2026-09-04 從 migrations 抽出)
+// search-category-names.ts — 字典 `to` 的**合法值域快照**
 //
 // 🔴 **為什麼需要它**:`SEARCH_SYNONYMS` 的 `to` 若打成一個不存在的分類名,
-//    **今天沒有任何東西會紅** —— 三綠全綠、那支逐列測試也全綠(它只驗格式, 不驗指得到東西)。
+//    **先前沒有任何東西會紅** —— 三綠全綠、那支逐列測試也全綠(它只驗格式, 不驗指得到東西)。
 //    ⇒ 🎯 而既有那一列 `土除 ⇒ 前擋泥板` 就是這樣活到今天的:**不是誰寫錯了, 是沒有東西在檢查。**
 //
-// ## 怎麼產生的(可重跑, 不必任何資料庫權限)
+// ## 來源(照天花板第 ② 條的規矩, 自己標)
 // ```
-// for f in supabase/migrations/{20260712120000_seed_taxonomy_v2_categories,\
-//            20260601005859_seed_rpm_brands_category,\
-//            20260703120000_p0b_seed_16_major_categories,\
-//            20260811120000_m4b_storefront_412_service_other_category,\
-//            20260820080000_dna_intake_and_oil_filter_categories}.sql; do
-//   grep -oE "\('[^']+',\s*'[^']+'" "$f" | sed "s/^('//;s/',.*//"
-// done | sort -u
+// 主視窗讀【唯讀正式庫】:SELECT name FROM categories ORDER BY name;
+// 2026-09-04 02:5x · 回 117 列 · 原始檔 ~/pcm-mailbox/網站庫分類名-117-20260904.txt
 // ```
+// 🔵 本檔去重後 **113** 個(原始 117 列裡有 **4** 個重名 —— 同一個名字掛在不同父分類下,
+//    例如「維修零件」。對 `includes` 檢查沒有影響, 而**數字對不上時要知道為什麼**)。
 //
-// ## 🛑 天花板(明寫, 不要讀成「這份是對的」)
-// 1. 🔴 **這是 migrations 的【超集】**:本檔 **134** 個名字, 而 2026-09-04 主視窗讀
-//    **唯讀正式庫**量到 `categories` 實際只有 **117 列** ⇒ **本檔多 17 個**。
-//    ⇒ 🎯 **⇒ 那 17 個會【靜靜放行】** —— 這道閘防的是**打錯字**, 不是「這個分類真的還在嗎」。
-//    ⇒ 🔵 而它今天仍然值得裝:**我 2026-09-04 那五列裡四個錯的 `to`(後照鏡 / 車身防倒球 /
-//       握把套 / 前擋泥板)全部不在本清單裡 ⇒ 四個都會紅。**(第五個 `水箱護網` 本來就是對的。)
-// 2. 🔴 **快照會過期**(分類新增 / 改名)⇒ 那時某一列會突然紅
-//    ⇒ **那是對的行為, 不是誤報** —— 去核那個分類是不是被改名了, 不要把名字加進本檔了事。
+// ## 🔴🔴 而這份快照的第一版是【從 migrations 抽的】, 而它錯了 —— 記在這裡
+// ```
+// 初版:五支 seed 抽出去重 ⇒ 134 個 ⇒ 我寫「這是 117 的超集, 多 17 個會靜靜放行」
+// 🔬 拿到正式庫清單之後對帳:134 − 多抓 23 + 漏抓 6 = 117  ✅ 守恆
+//    · 多抓 23:`seed_rpm_brands_category.sql` 裡的**品牌名**(AKRAPOVIČ / BREMBO / …)
+//              被我的 regex 當成分類名, 另有 2 個是 raw_path(含 ` · `)不是 name
+//    · 🔴 **漏抓 6**:水管束環 · 煞車皮 · 維修零件 · 防爆水管組(以及重名)
+// ```
+// 🛑 **⇒ 所以它從來不是「超集」, 它是一個【重疊但兩邊都有缺】的集合。**
+//    ⇒ 🎯 而我寫的那個天花板(「多 17 個會靜靜放行」)**兩個方向都寫錯了**:
+//      數字錯(不是 17), 而且**完全漏掉了另一個方向** —— 漏抓的那 6 個會讓**合法的分類名被誤判成錯的**。
+//    ⇒ 📌 **⇒ 一個「我只會放太鬆」的天花板, 讓人不會去想「它會不會太緊」。**
+//
+// ## 🛑 現在的天花板(這一版)
+// 1. 🔴 **快照會過期**(分類新增 / 改名 / 下架)⇒ 那時某一列會突然紅
+//    ⇒ **那是對的行為, 不是誤報** —— 去核那個分類是不是被改名了, **不要把名字加進本檔了事**。
+// 2. 🔴 **重抽要用正式庫, 不要用 migrations** —— 見上面那段對帳:migrations 抽出來的是另一個集合。
 // 3. ⚠️ 兩個庫的分類名**不是同一組**:報價庫 `storefront_catalog_v.category_zh`(那裡 `土除`
 //    是一個分類名)與網站庫 `categories`(那裡沒有)⇒ **只有後者是解析器讀的那一組**。
 //    📌 我 2026-09-04 就是拿前者當值域填了五列, 而五列裡四列的 `to` 不存在。
 
-/** 合法分類名快照。🔴 產生方式與天花板見檔頭。 */
+/** 合法分類名快照(去重)。🔴 來源與天花板見檔頭。 */
 export const SEARCH_CATEGORY_NAMES: readonly string[] = [
-  'AKRAPOVIČ',
-  'BONAMICI RACING',
-  'BREMBO',
-  'CNC RACING',
-  'DBK SPECIAL PARTS',
-  'EAZI-GRIP',
-  'EVOTECH PERFORMANCE',
-  'EXTREME COMPONENTS',
-  'FRONT 3D',
-  'GB RACING',
-  'GILLES TOOLING',
-  'KINEO',
-  'LIGHTECH',
-  'MATERYA',
-  'MOTOGADGET',
-  'RIZOMA',
-  'RPM CARBON',
-  'SAMCO SPORT',
-  'TERMIGNONI',
-  'WRS',
-  'ÖHLINS',
   '三角台',
   '保護貼套裝組合',
   '傳動齒比',
@@ -92,7 +77,6 @@ export const SEARCH_CATEGORY_NAMES: readonly string[] = [
   '整流罩與下導流',
   '方向燈',
   '服務與其他',
-  '服務與其他 · 維修零件',
   '服飾配備',
   '未分類',
   '機油孔蓋',
@@ -106,6 +90,7 @@ export const SEARCH_CATEGORY_NAMES: readonly string[] = [
   '油箱蓋',
   '消音塞',
   '濾芯保養品',
+  '煞車皮',
   '煞車皮(來令片)',
   '煞車碟盤',
   '煞車系統',
@@ -122,6 +107,7 @@ export const SEARCH_CATEGORY_NAMES: readonly string[] = [
   '精品螺帽',
   '精品螺絲組',
   '精品螺絲與螺帽',
+  '維修零件',
   '腳踏後移組',
   '腳踏後移與傳動',
   '腳踏翅膀',
@@ -143,7 +129,6 @@ export const SEARCH_CATEGORY_NAMES: readonly string[] = [
   '進氣上蓋',
   '進氣套件',
   '進氣系統',
-  '進氣系統 · 空氣濾芯',
   '進氣與水箱導管',
   '避震器',
   '鏈條蓋與齒盤護蓋',
@@ -168,7 +153,7 @@ export const SEARCH_CATEGORY_NAMES: readonly string[] = [
 /** 這份快照是哪一天、從哪裡抽的 —— 🔴 沒有它就數不出它躺多久。 */
 export const SEARCH_CATEGORY_NAMES_SNAPSHOT = {
   takenAt: '2026-09-04',
-  source: 'supabase/migrations 的五支 categories seed(見檔頭的重跑指令)',
-  /** 🔴 同日主視窗讀唯讀正式庫量到的真實列數 ⇒ 本檔比它多 17 個。 */
-  liveRowCountOnThatDay: 117,
+  source: '唯讀正式庫 categories 表(SELECT name FROM categories ORDER BY name;)',
+  /** 原始回傳列數(含重名);本檔去重後較少。 */
+  liveRowCount: 117,
 } as const;
