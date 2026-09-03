@@ -152,7 +152,7 @@ export { parseImageTrim } from './catalog/image-trim';
 // ⟦fc-SUPPLIERPLACEHOLDER⟧ 供應商佔位圖判定 —— mapper 與目錄頁 RPC 兩條路共用同一份清單。
 export {
   isSupplierPlaceholder,
-  dropSupplierPlaceholders,
+  dropImagesWithoutRealPhoto,
   hasNoRealImage,
   SUPPLIER_PLACEHOLDERS,
 } from './catalog/supplier-placeholder';

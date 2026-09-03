@@ -1,5 +1,5 @@
 import {
-  dropSupplierPlaceholders,
+  dropImagesWithoutRealPhoto,
   parseImageTrim,
   toMoneyAmount,
   type Brand,
@@ -219,7 +219,7 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
   // premiumStore placeholder(對齊 Q2-clarify=A1:mapper 端構造 placeholder、
   //   真值由 computeEffectivePrice 在 storefront dispatch 時覆蓋)。
   const premiumStore: Money = { amount: toMoneyAmount(0), currency: 'TWD' };
-  const productImages = dropSupplierPlaceholders(row.images);
+  const productImages = dropImagesWithoutRealPhoto(row.images);
 
   return {
     id: row.id,
@@ -340,7 +340,7 @@ export function mapVariantRow(row: SupabaseVariantRow): ProductVariant {
     }
     return img;
   });
-  const images = dropSupplierPlaceholders(rawImages);
+  const images = dropImagesWithoutRealPhoto(rawImages);
 
   const general: Money = toMoney({ amount: row.price_general, currency: 'TWD' });
   // store / premiumStore dummy(view 排除 price_store、鏡像 mapSupabaseProductToDomain L139/L143);

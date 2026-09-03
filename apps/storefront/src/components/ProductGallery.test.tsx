@@ -214,7 +214,10 @@ describe('ProductGallery', () => {
       ['PCM 自己的卡', PCM_CARD],
       ['供應商的佔位圖', SUPPLIER_PH],
     ])('🔴 只有【%s】⇒ hero 顯示站內佔位圖, 不是那張卡', (_k, url) => {
-      // 🛑 mapper 那層的 dropSupplierPlaceholders **刻意保留 PCM 自己的卡** ⇒ 它到得了這裡。
+      // ⛔ ~~原本寫「mapper 那層的 `dropSupplierPlaceholders` 刻意保留 PCM 自己的卡 ⇒ 它到得了這裡」~~
+      //    🔴 **兩半都過期了**(2026-09-04):函式已改名為 `dropImagesWithoutRealPhoto`, 而它**現在也濾那張卡**。
+      // 🔵 現況:mapper 那層已先濾一次 ⇒ 正常路徑到不了這裡 ⇒ **本格守的是這個元件自己的行為契約**
+      //    (有人改壞 mapper 時這裡會紅)。少了 `hasNoRealImage`, 這張卡會當 hero 全尺寸顯示、進縮圖列、還能放大。
       //    少了 hasNoRealImage, 這張卡會當 hero 全尺寸顯示、進縮圖列、還能點開放大。
       const p = { ...MOCK_PRODUCTS[0]!, images: [url], variants: [] };
       const { container } = render(<ProductGallery product={p} />);
