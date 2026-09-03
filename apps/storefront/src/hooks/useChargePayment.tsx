@@ -279,6 +279,24 @@ export function useChargePayment(): UseChargePayment {
           inFlightRef.current = false;
           setState({ status: 'error', message: res.message });
           return false;
+        default:
+          /**
+           * 🔴🔴 **這一格是機制不是禮貌 —— 而它【原本沒有】。**
+           *
+           * 在此之前這個 `switch` 沒有 `default`、也沒有窮舉檢查
+           * ⇒ 📌 **`ChargePaymentActionResult` 多一個 `payment` 變體時, 它會【安靜地掉出去】**:
+           *   typecheck 不紅 · 測試不紅 · 而**客人按了「確認訂購」畫面沒有反應**。
+           * 🎯 而我發現它是因為我正要加一個(匯款那條路的 `awaiting_remittance`)
+           *   ⇒ 🛑 **而先加變體、後加窮舉的話, 加完之後這道守門看起來一直都在。**
+           *   ⇒ ⇒ ✅ **所以順序是【先加這一格, 再加變體】。**
+           * 🔵 而它保護的不只是我:下一個加 LINE Pay / 超商代碼的人漏了分支 ⇒ **當場 typecheck 紅**。
+           * 📎 同款成例:`packages/use-cases/src/sweep-email-outbox.ts` 的模板分派
+           *   (該檔逐字「E4 增員 union 時本 switch 少 case → typecheck 必紅」)。
+           */
+          res satisfies never;
+          inFlightRef.current = false;
+          setState({ status: 'error', message: GENERIC_FAIL });
+          return false;
       }
     }
     // 驗證層(fieldErrors / formError;零扣款)。
