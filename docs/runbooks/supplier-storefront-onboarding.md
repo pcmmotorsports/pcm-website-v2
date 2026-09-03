@@ -115,6 +115,22 @@ ba53294  2026-08-29  「硬刪改到 upsert 之後」
 ⇒ 🟢 而 §1 第 4 列(`COUNT(*) FILTER (… IS NOT NULL)` = 總數)**本來就是這個形狀** —— 📌 **正確的樣板就在同一張表的下一列。**
 ⇒ 🔵 逐列掃過的結果:**第 2 列安全**(它明寫 `IS NULL`)· **第 3 列有洞**(已修)· **第 4 列免疫**。
 
+🔴🔴 **而 2026-09-03 夜(線【帳號】接 L4 時)量到【第三種】—— 它比前兩種都寬, 而第 4 列擋不住它**:
+> **整份 preflight 掛在同一個 `WHERE supplier_slug='<slug>'` 上 —— slug 打錯 ⇒ 母體 0 列 ⇒ 每一列都印 0 ⇒ 全部過。**
+
+```
+🔬 兩個世界並排實測(同一發 SQL, UNION ALL):
+   打錯的 slug  總列數 0 · 第2列 0 · 第3列 0 · 第3列補 0 · 第4列 0 · 第6列 0  ⇒ 逐格【全部符合期望】
+   真的 wrs     總列數 1082 · 第2列 0 · 第3列 0 · 第3列補 37 · 第4列 1082 · 第6列 544
+```
+🛑 **⇒ 而第 4 列在這一種底下【也過】** —— 它的期望值是「`= 總數`」, 而空母體時 **0 = 0**。
+🎯 **⇒ 所以「第 4 列是正確樣板」這句話只對【上一種】成立** —— 📌 **一個免疫於某種失效模式的檢查, 不會因此免疫於另一種;而它讀起來一樣安全。**
+⇒ 🔵 **它與前兩種的差別**:前兩種是**一格**壞掉, 這一種是**整張表的分母**壞掉 ⇒ **沒有任何一列會不一致** ⇒ 🔴 **連「總數對不上」那個抓到上一種的訊號都消失了。**
+⇒ ✅ **修法 = 上表新增的第 0 列**(先證明分母 > 0 且 slug 在名單裡)。
+⇒ 📌 **而這個修法不是新發明的** —— 報價單 repo 的 `fetchers`…`scripts/variant_contract_scan.py` **2026-08-25 就寫過同一道閘**(`check_population`), 它的 docstring 逐字寫著:
+> 「撈空/撈殘時 exit 1 且不印合計行, 否則『掃描壞掉』會跟『全站乾淨』印出同一句話」
+🛑 **⇒ 正解在隔壁 repo 躺了 9 天, 而這份 runbook 沒有接到它。** 📌 **⇒ 下次發現一個坑, 先問「別人是不是已經修過同型的」, 再問「怎麼修」。**
+
 ---
 
 ## 1. ★ Preflight 清單(源頭資料就緒;每列漏掉 = 乾跑 abort 或上架後出包)
@@ -124,6 +140,7 @@ ba53294  2026-08-29  「硬刪改到 upsert 之後」
 
 | # | 檢查 | 怎麼查(MCP execute_sql,除非註明) | 期望 | 沒過怎麼修 |
 |---|---|---|---|---|
+| **0** | 🔴🔴 **分母不是 0**(先跑, 不然底下每一列都會過) | `SELECT count(*) FROM storefront_catalog_v WHERE supplier_slug='<slug>'` —— **再對一次** `SELECT DISTINCT supplier_slug FROM storefront_catalog_v` 確認拼法在名單裡 | **> 0**, 且與 §1-6 的指紋同一個數 | slug 拼錯 / 源頭還沒灌 → **停**。⚠️ 不要往下跑:下面每一列在空母體上**全部印 0 = 全部過** |
 | 1 | **品牌列存在**(網站庫) | `SELECT slug FROM brands WHERE slug='<brandSlug>'` | 1 列 | 缺 → seed migration `INSERT INTO brands ... ON CONFLICT (slug) DO NOTHING`,MCP `apply_migration` 或 Sean db push。**先確定 brandSlug 拼法**(§2 註) |
 | 2 | **價格四價齊**(源頭) | `COUNT(*) FILTER (WHERE price_retail IS NULL OR price_retail=0)` | 0 | 有 pricing_rules 的家跑完 fetcher 必接 報價單 repo:`uv run python scripts/recompute_supplier.py <slug>`(重跑 fetcher 會清空四價,見 [[feedback_fetcher_rerun_wipes_computed_prices]]) |
 | 3 | **圖片協定 = https** | ⛔ ~~`COUNT(*) FILTER (WHERE images::text ILIKE '%http://%')`~~ ⇒ 🔴 **那一版在 `images IS NULL` 時靜靜放行**(`NULL ILIKE …` 回 **NULL** 不是 FALSE ⇒ 不進 FILTER)。✅ 改用 `COUNT(*) FILTER (WHERE coalesce(images::text,'') ILIKE '%http://%')` **再加一格** `COUNT(*) FILTER (WHERE images IS NULL)`(2026-09-03 實測 wrs **37** / rizoma **3** 件完全沒有圖, 而舊那一版兩家都印 0) | 兩格都 0 | http 外部網域 = mixed content 破圖 → 源頭轉存 Cloudflare R2、DB 存乾淨 https(Lightech 前例);新 host 另加網站 image-hosts 白名單 + middleware |
