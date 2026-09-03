@@ -667,9 +667,16 @@ export class SupabaseProductAdapter implements IProductRepository {
   /**
    * 問那支「把品牌名也算進去」的 RPC。**它不在就回 `null`,由呼叫端走舊路。**
    *
-   * 🔴 **只有兩個具名的碼算「不在」** —— 其餘一律往上拋。
+   * 🔴 **【回傳的 error 物件】只有兩個具名的碼算「不在」** —— 其餘一律往上拋。
    *    吞掉一切會把**真的壞掉**讀成「還沒貼」,然後**安靜地**給客人比較差的結果,
    *    而那個安靜正是這一片最該避免的東西。
+   * 🛑 **而【throw 出來的】一律吞成走舊路,不分是哪一種** —— 這一句 2026-09-03 才補,
+   *    ⛔ ~~原文只寫「其餘一律往上拋」~~,而那句話當時**對 throw 那一半是假的**:
+   *    退路只接得住回傳的 error 物件,而正式站掛掉那次丟的是 `TypeError`
+   *    ⇒ 它穿過整條退路、`/api/search` 回 503(11 次)。
+   *    ⚠️ **代價照實記**:權限錯 / 網路斷 / 逾時若是 throw 來的, 現在會**靜靜降級走舊路**,
+   *    只留一行 `console.warn`。⇒ **這是刻意的取捨** —— 客人搜得到(結果差一點)
+   *    優先於「讓錯誤大聲」。要改回大聲, 就得先有一條不會讓整站搜尋 503 的路。
    * 🔵 兩個碼是**實測**的(2026-09-03 拋棄式 PostgREST,兩個世界各打一發):
    *    `PGRST202`(HTTP 404,函式從來沒有過 / schema cache 剛重載)· `42883`(被 DROP 而 cache 還沒重載)。
    * ⚠️ **回傳 `null` = 「今天沒有這條路」;回傳 `[]` = 「這條路走過了,而它一筆都沒找到」** ——
@@ -698,24 +705,57 @@ export class SupabaseProductAdapter implements IProductRepository {
     if (typeof (this.supabase as { rpc?: unknown }).rpc !== 'function') {
       return null;
     }
-    const rpc = this.supabase.rpc as unknown as (
-      fn: string,
-      args: Record<string, unknown>,
-      opts?: { from: number; to: number },
-    ) => {
-      range: (from: number, to: number) => PromiseLike<{
-        data: unknown;
-        error: { code?: unknown } | null;
-      }>;
-    } & PromiseLike<{ data: unknown; error: { code?: unknown } | null }>;
+    // 🔴🔴 **2026-09-03 正式站故障修復 —— 這裡原本把方法【從物件上拆下來】**:
+    //    ⛔ ~~`const rpc = this.supabase.rpc as unknown as (…)` 然後 `rpc(fn, args, {from, to})`~~
+    //    🛑 `SupabaseClient.rpc()` 內部是 `return this.rest.rpc(…)` ⇒ 拆下來之後 `this` 是
+    //       `undefined` ⇒ 執行期丟 `TypeError: Cannot read properties of undefined (reading 'rest')`。
+    //    🔬 實錘(Vercel runtime errors,`dpl_6TSmVSKzeo25kXnyUHMR1JXfWrnD`,首次 2026-09-03T02:12:34Z,
+    //       11 次,routes `/search` `/api/search`):正式站搜尋 **HTTP 503 `search_failed`**;
+    //       🟢 正對照 首頁同時 200 ⇒ 不是整站掛。
+    //    ⇒ ✅ **改回在物件上呼叫**(cast 的是**整個 client**,不是那個方法)——
+    //       呼叫點在結構上就是 method call ⇒ `this` **不可能**再掉一次,
+    //       而且不需要有人記得補 `.bind()`。(code-reviewer important 5)
+    //
+    // 🔴 **而這裡原本【還有第二個錯】,它被第一個蓋住了**:
+    //    ⛔ ~~第三個參數傳 `{ from, to }`~~ —— **`rpc()` 的第三參是 `{head, get, count}`**
+    //    (實查 `@supabase/supabase-js@2.105.3` 的 `dist/index.d.mts:536`,不是憑記憶)。
+    //    ⇒ 那個物件會被**當成 options 靜靜忽略** ⇒ **`.range()` 從來沒有生效過**
+    //    ⇒ 📌 而 `:711` 的註解自己寫著「要帶 `.range()`」—— **碼與註解不一致, 而註解是對的。**
+    //    ✅ `rpc()` 回的是 `PostgrestFilterBuilder`(同上 `:536` 的回傳型別)⇒ `.range()` 掛在它身上。
+    const sb = this.supabase as unknown as {
+      rpc: (
+        fn: string,
+        args: Record<string, unknown>,
+      ) => {
+        range: (from: number, to: number) => PromiseLike<{
+          data: unknown;
+          error: { code?: unknown } | null;
+        }>;
+      };
+    };
     // 🔴🔴 **要帶 `.range()`,否則吃 PostgREST 的 `db-max-rows`(本 repo 實測 2000)**
     //    ⇒ 寬查詢會被**靜默截成 2000 筆** ⇒ `共 N 件` 印 2000、第 81 頁之後翻不到,
     //      而**失敗形狀是 HTTP 200、畫面完全正常**(code-reviewer must-fix;同檔另一支 SETOF RPC 記過同一格)。
     //    ✅ 取 `RPC_ID_CAP + 1`:**多要一筆就是那把尺** —— 拿回來的筆數超過 cap ⇒ 我知道被截了。
-    const { data, error } = await rpc('storefront_search_product_ids', { p_terms: terms }, {
-      from: 0,
-      to: RPC_ID_CAP,
-    });
+    // 🔴🔴 **`try` 是這一片的第二個修法, 而它與 `this` 那個【一樣重要】**:
+    //    下面 `if (error)` 那整段退路**只接得住【回傳的 error 物件】**。
+    //    🛑 而上面那個 `TypeError` 是 **`throw` 出來的** ⇒ **穿過整條退路** ⇒ 整個搜尋 503。
+    //    📌 **⇒ 我在 `:693-698` 寫過「結果會變差, 不是消失」—— 那句話在這一格上【沒有成立】,
+    //       而當時測試全綠。** 一道只接住其中一種失敗形狀的退路, 在另一種形狀上等於不存在。
+    //    ✅ 任何從 RPC 那條路丟出來的東西 ⇒ 記一行 ⇒ **退回舊路**, 不讓它上升成 500/503。
+    let data: unknown;
+    let error: { code?: unknown } | null;
+    try {
+      ({ data, error } = await sb
+        .rpc('storefront_search_product_ids', { p_terms: terms })
+        .range(0, RPC_ID_CAP));
+    } catch (thrown) {
+      console.warn(
+        '[searchByKeyword] storefront_search_product_ids 那條路 throw 了 ⇒ 退回舊路:',
+        thrown,
+      );
+      return null;
+    }
     if (error) {
       const code = typeof error.code === 'string' ? error.code : '';
       if (code === 'PGRST202' || code === '42883') {
