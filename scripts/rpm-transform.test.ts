@@ -295,6 +295,23 @@ describe('W3(#267):variantImages 策略 — 非 RPM per-variant 直用、RPM 前
     expect(row.images[0]).toContain('variante/1200x/CA210B.jpg'); // 首張 = 乾淨變體圖
   });
 
+  // ── images 為 NULL 的 1,011 列(2026-09-03 量, 9 家)
+  const noImagesRow: SourceProductRow = {
+    ...boVariant,
+    images: null,
+    // ⚠️ **本格只釘「不得有 fallback」, 它對 image_url 的【值】不敏感** —— 換成一張真圖 URL 這格照樣綠。
+    //    佔位圖的判定住在 `packages/domain/src/catalog/supplier-placeholder.ts`, 不在這裡。
+    //    ⚠️ 而這個 fixture 網址是 **PCM 自己的卡**(該模組刻意不把它當供應商佔位圖)⇒ 別拿它當「佔位圖判定」的樣本。
+    image_url: 'https://quote.pcmmotorsports.com/no-photo.png',
+  };
+
+  it('🛑 images 為 NULL ⇒ 變體圖庫維持 [] — 不得退回 image_url(那是佔位圖, 見 ownVariantImages 檔頭)', () => {
+    // 這一格擋的是一個【看起來很對】的修法:「有 image_url 幹嘛不用」。
+    // 用了就會把「查無圖片」那張圖當商品圖塞進 1,011 個變體圖庫 ⇒ 空圖庫比假圖庫好。
+    expect(transformVariant(noImagesRow, NOW, 0, 'per-variant').images).toEqual([]);
+    expect(transformVariant(noImagesRow, NOW, 0, 'sku-prefix-pool').images).toEqual([]);
+  });
+
   it('RPM byte 錨:sku-prefix-pool 前綴過濾行為與既有 golden 一致(APRILIA 圖池)', () => {
     // 既有 byte 鎖測試走 runGroup default('sku-prefix-pool');此處顯式斷言過濾語意不變
     const rpmV: SourceProductRow = {

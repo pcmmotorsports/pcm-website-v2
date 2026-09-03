@@ -50,8 +50,24 @@
  *      (`scripts/` 底下有子目錄)⇒ **那個 0 的分母比句子窄, 不要拿它當依據**
  *      —— `s1a-verify.sh` 的供應商名種子清單, **不是同步腳本** ⇒ 結論不變。
  *      🔴 兩個數字都留著:一個沒帶 pattern 與大小寫的「零命中」, 下一個人複量會撞到而懷疑自己。)
- *     那半在報價單那邊。`rpm-transform.ts` 的 `?? PLACEHOLDER_IMAGE` 只管 **RPM Carbon 一家**
- *     (`rpm-transform.ts:2` 逐字「RPM Carbon 同步」)⇒ 它對這一族**結構上到不了**。
+ *     那半在報價單那邊。⛔ ~~`rpm-transform.ts` 的 `?? PLACEHOLDER_IMAGE` 只管 **RPM Carbon 一家**~~
+ *     ⛔ ~~(`rpm-transform.ts:2` 逐字「RPM Carbon 同步」)⇒ 它對這一族**結構上到不了**。~~
+ *     🔴🔴 **2026-09-03 訂正(線【身分】查 1,011 列缺圖時撞到, code-reviewer 抓出這一段)——
+ *        上面【整段】的前提不成立, 而它是本檔選落點的三個理由之一。**
+ *        🔬 `scripts/supplier-config.ts` 逐字有 `lightech:`(:177) `extreme:`(:281) `dna:`(:323) `gilles:`(:359);
+ *        🔬 `.github/workflows/rpm-sync.yml:72` 的 matrix 逐字含 `lightech` / `dna` / `gilles`
+ *           (註記「🔴 dna+gilles 2026-08-27 Sean 拍甲補入」)⇒ **gilles 每天都在跑這支檔。**
+ *        ⇒ 🎯 **`rpm-transform.ts` 是【config 驅動的共用 transform】, 檔名只是歷史(rpm 是第一家)。**
+ *        ⚠️ **只有 extreme 那半仍成立**:它刻意不進每日 matrix(靜態一次性 fixture)—— 而它**仍在 supplier-config 裡**,
+ *           首灌時照樣經過本檔的上游 ⇒ **『結構上到不了』對 extreme 也只對「每日排程」那一半成立。**
+ *
+ *        🔴 **而【那把尺為什麼印 1】才是要記的**:它 grep 的是**網域字面**(`gillestooling|extreme-components`),
+ *        而同步腳本是**泛用的、以 slug 為鍵**(`supplier-config.ts` 的 `gilles:`)⇒ 🛑 **它結構上永遠不會提到網域。**
+ *        ⇒ 🎯 **那把尺問的是「`scripts/` 裡有沒有出現這個網域」, 而要答的是「這家有沒有同步路徑」。**
+ *        ⇒ 📌 **換一個字面再問一次就會分岔** —— 拿 slug 去 grep ⇒ 立刻命中。
+ *        ⇒ ⇒ 🔵 而那正是本檔第 88 行那一族的同一個母題:**一個誠實的讀數, 答的是另一個問題。**
+ *        🛑 **落點結論(mapper)本身沒有被推翻** —— 渲染層那個理由仍然成立;
+ *           但**不得再拿「同步層到不了」當理由**, 而**是否要在同步層【也】處理, 現在是一個開著的題**。
  *   · 渲染層:storefront 有**多支元件**渲染商品圖, 其中**多處是裸 `<img src={…}>`**
  *     (我數到 7 支 / 5 處, 而 code-reviewer 獨立數到 5 支 / 8 處 ⇒ **兩個數字都不複現**
  *      ⇒ 🔴 **數法未確認, 引用前自己數**;而結論不依賴那個數:只要 >1 處, 改渲染層就會漏)
