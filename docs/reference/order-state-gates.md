@@ -306,6 +306,14 @@
 
 `:307` OR v_order.cancelled_at IS NULL<br>`:316` IF v_order.cancelled_at IS NOT NULL THEN<br>`:450` 🔴 三道閘住在函式裡:cancelled_at IS NULL · payment_method = tappay · payment_status = refunded。
 
+### `(檔案層 DO block / 非函式內)`  ·  `20260903080000_m4b_expire_unpaid_by_payment_channel.sql`
+
+**改什麼狀態**
+
+`:185` SET cancelled_at     = pg_catalog.now(),
+
+**允許集合** — 🔴 **本函式體內零命中**(字面比對)⇒ 要嘛它沒有狀態閘、要嘛閘的寫法本腳本抓不到。**開檔確認,不要當成「沒有閘」。**
+
 ---
 
 ## 三、自測:本表答得出「已付款的單能不能取消品項」嗎?
