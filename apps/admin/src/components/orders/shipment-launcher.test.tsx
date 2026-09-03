@@ -180,6 +180,45 @@ describe('🔴 開窗的前置閘 — 兩種情況都不給開,而且各有自�
   //    入口 2 之後,`not_arrived` 的品項在窗裡**有事可做**(按「貨到了」登記到貨)
   //    ⇒ 它不再屬於「開了也是全灰」那一類,fixture 因此改用 `cancelled`。
   //    要守的東西一字未改:**別開一個什麼都按不動的彈窗給員工**。
+  // 🔴 **2026-09-03 線【帳號】L3 走查**:上一格守「有沒有說出原因」,本組守「有沒有說出**下一步**」。
+  //    我在真後台建了一張手動單,畫面回「(1件的數量資料尚未就緒)」⇒ 它說了不行、沒說怎麼才行,
+  //    而答案就在 `picking-doc.tsx:78`「出貨必先到貨、無直送」—— 那是拍板,而畫面沒說出來。
+  // 🔴 **`cancelled` 那一格是【負】的那半**:全取消**沒有下一步** ⇒ 不准編一句出來。
+  //    少了它,一個「無條件附上下一步」的實作會照樣讓另外兩格全綠。
+  it.each([
+    ['尚未就緒 ⇒ 叫他去採購下訂', 'unknown' as const, /請先到【採購】下訂/],
+    ['已裝箱 ⇒ 叫他去出貨紀錄找', 'all_boxed' as const, /請到那張訂單的出貨紀錄找那一箱/],
+  ])('🔴 擋下時要說出【下一步】:%s', async (_label, reason, next) => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [{ ...CANDIDATE, remaining: 0, blockedReason: reason }],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+    });
+    render(<OrderShipButton orderId='o1' />);
+    click();
+    await waitFor(() => expect(screen.queryByText(/沒有任何一件出得了/)).not.toBeNull());
+    expect(
+      screen.queryByText(next),
+      '只說「出不了」而不說要做什麼 ⇒ 員工知道自己卡住了,不知道卡在哪一關 —— ' +
+        '而「出貨必先到貨」是拍板規則,不告訴他就是把規則藏起來。',
+    ).not.toBeNull();
+  });
+
+  it('🔴 全部已取消 ⇒ **不附下一步**(取消的單沒有下一步,不編一句出來)', async () => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [{ ...CANDIDATE, remaining: 0, blockedReason: 'cancelled' }],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+    });
+    render(<OrderShipButton orderId='o1' />);
+    click();
+    await waitFor(() => expect(screen.queryByText(/沒有任何一件出得了/)).not.toBeNull());
+    expect(
+      screen.queryByText(/請先到|請到那張訂單/),
+      '對一張全取消的單說「請去下訂」= 編一個看起來合理的下一步,而它是錯的。',
+    ).toBeNull();
+  });
+
   it('🔴 品項都在、但一件都出不了 → 一樣不開窗(不是開一個全灰的彈窗給他)', async () => {
     fetchShipmentCandidates.mockResolvedValue({
       items: [{ ...CANDIDATE, remaining: 0, blockedReason: 'cancelled' }],

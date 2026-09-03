@@ -136,6 +136,20 @@ export type CheckAnomalyAlertsResult = {
    */
   orderCreatedPaidNoEmailCount: number | null;
   orderCreatedNoRecipientCount: number | null;
+  /**
+   * 🔵 **未付款取消信線的同一組**(⟦b4-NORECIPIENTWINDOW⟧, 2026-09-03)。
+   * 🔴 **為什麼要獨立三格而不是併進上面那兩格**:它們是**兩條線**,
+   *    修法不同(一條要補信箱、一條可能要補取消流程), 併成一個數字會讓收信的人
+   *    看到「3 張」而不知道要去看哪一條線。
+   * 🛑 `pending` **不進 `shouldAlert`**(它 >0 是正常的);`noRecipient` 才是主詞 —— 同姊妹線。
+   * 🔴 `unknown` 為 true 時上面兩個是 `null` —— **不得寫成 0**。
+   * ⚠️ **它與訊號4 共用 `B4_DEPLOY_CUTOFF`**(寄信端那三條線也共用同一顆)
+   *    ⇒ 那顆沒設 ⇒ **這一格是安靜的**, 而那是刻意的(還沒上膛的線不該每天寄信)。
+   *    🛑 而「安靜」必須與「壞掉」分得開 ⇒ `unpaidCancelledGapUnknown` 要被 route 印出來。
+   */
+  unpaidCancelledPendingCount: number | null;
+  unpaidCancelledNoRecipientCount: number | null;
+  unpaidCancelledGapUnknown: boolean;
   /** 🔵 訊號4 持續失敗那三格 —— 信裡印了而 result 沒有 ⇒ 事後對不了帳。 */
   orderCreatedStuckCount: number | null;
   orderCreatedStuckOldestMinutes: number | null;
@@ -807,6 +821,13 @@ export function buildAnomalyAlertMessage(
     summary.orderCreatedNoRecipientCount,
     '🔴 訂單成立了而【那張單兩個信箱都是空的】⇒ 通知信永遠不會被建出來',
   );
+  // 🔴 **獨立一行, 不與上面那行合併** —— 兩條線的修法不同:
+  //   上面那行要看「為什麼下單沒留信箱」, 這一行要看「那張被取消的單是誰的」。
+  //   ⇒ 合成一個數字會讓看信的人不知道要去哪一條線。
+  emailPush(
+    summary.unpaidCancelledNoRecipientCount,
+    '🔴 訂單被取消了而【那張單兩個信箱都是空的】⇒ 取消通知永遠不會被建出來',
+  );
   // 🔴 這一行【不走 emailPush】—— 它不是「幾封信」, 它是「一封都沒有」。
   //   ⇒ 文案刻意寫成兩種可能, **不猜是哪一種**:「這張表是空的」與「讀不到資料」
   //     在這一格底下**分不出來**, 而寫死其中一個會把人送去修錯的東西。
@@ -1358,6 +1379,12 @@ export async function checkAnomalyAlerts(
      */
     (summary.orderCreatedNoRecipientCount ?? 0) > 0 ||
     /**
+     * 🔵 **未付款取消信線的同一格**(⟦b4-NORECIPIENTWINDOW⟧)。理由與上面那格逐字相同:
+     *   那張單沒有信箱 ⇒ **它不會自己好** ⇒ 叫一次就是一件真的待辦。
+     * 🛑 `?? 0` 在這裡同樣是安全的:cutoff 沒設 / RPC 還沒 apply ⇒ adapter 回 `null` ⇒ 不叫。
+     */
+    (summary.unpaidCancelledNoRecipientCount ?? 0) > 0 ||
+    /**
      * 🔴🔴 **訊號4 的【持續失敗】那一格(板 `⟦b4-SIG4ERRORS⟧`)**。
      * 🛑 它與上面 `paidNoEmail` 的差別是【年齡】, 而那個差別就是它能不能當判準:
      *   `paidNoEmail > 0` 是正常的(新單進來就被數到一次, 下一輪 scanner 就排掉)
@@ -1476,6 +1503,11 @@ export async function checkAnomalyAlerts(
     orderCreatedStuckOldestMinutes: summary.orderCreatedStuckOldestMinutes,
     orderCreatedStuckUnknown: summary.orderCreatedStuckUnknown,
     orderCreatedNoRecipientCount: summary.orderCreatedNoRecipientCount,
+    unpaidCancelledPendingCount: summary.unpaidCancelledPendingCount,
+    unpaidCancelledNoRecipientCount: summary.unpaidCancelledNoRecipientCount,
+    // 🔴 **它必須出得去** —— 沒有這一格, adapter 的 fail-closed 在下游就被 `?? 0` 拆掉了
+    //   ⇒ 而「安靜」與「這道告警根本沒裝上」會印同一個畫面。
+    unpaidCancelledGapUnknown: summary.unpaidCancelledGapUnknown,
     orderCreatedGapUnknown: summary.orderCreatedGapUnknown,
     cronHeartbeatAbnormalCount: summary.cronHeartbeatAbnormalCount,
     cronHeartbeatAbnormalJobs: summary.cronHeartbeatAbnormalJobs,

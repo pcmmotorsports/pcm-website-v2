@@ -104,6 +104,17 @@ ba53294  2026-08-29  「硬刪改到 upsert 之後」
 不存在於這份清單裡(見該節開頭的因果說明)。**下次盤點這份 runbook 還有沒有別的隱形缺格,
 先問:哪一步的產出是「一支新檔案」,不是「一個填好的欄位」?那種步驟最容易被漏。**
 
+🔴 **而 2026-09-03 找到【另一種】隱形缺格,形狀不同,要分開問**:
+> **一道會過的檢查,而它問的不是我們以為的那個問題。**
+
+§1 第 3 列原本問「有沒有不安全的 `http://`」,而**它答不出「有沒有圖」** —— `images IS NULL` 時 `NULL ILIKE` 回 NULL ⇒ 不進 `FILTER` ⇒ **那一列照樣印 0**。
+⇒ 🎯 **抓到它的不是那道檢查, 是【總數對不上】**:60,299 列裡 `price` / `分類` / `中文名` 三項都是 60,299,
+而含 `https://` 的只有 **59,288** ⇒ **差 1,011 列**。
+⇒ 🛑 **而正對照在這一格【也印 0】**(全 20 家跑同一把尺 ⇒ 全 0)⇒ 它證不了任何事。
+⇒ ✅ **解法是換一個軸:不問「有幾個壞的」, 問「該有值的有幾列」** —— 因為後者有一個**獨立算得出來的期望值(總列數)**, 而它會自己打自己的臉。
+⇒ 🟢 而 §1 第 4 列(`COUNT(*) FILTER (… IS NOT NULL)` = 總數)**本來就是這個形狀** —— 📌 **正確的樣板就在同一張表的下一列。**
+⇒ 🔵 逐列掃過的結果:**第 2 列安全**(它明寫 `IS NULL`)· **第 3 列有洞**(已修)· **第 4 列免疫**。
+
 ---
 
 ## 1. ★ Preflight 清單(源頭資料就緒;每列漏掉 = 乾跑 abort 或上架後出包)
@@ -115,7 +126,7 @@ ba53294  2026-08-29  「硬刪改到 upsert 之後」
 |---|---|---|---|---|
 | 1 | **品牌列存在**(網站庫) | `SELECT slug FROM brands WHERE slug='<brandSlug>'` | 1 列 | 缺 → seed migration `INSERT INTO brands ... ON CONFLICT (slug) DO NOTHING`,MCP `apply_migration` 或 Sean db push。**先確定 brandSlug 拼法**(§2 註) |
 | 2 | **價格四價齊**(源頭) | `COUNT(*) FILTER (WHERE price_retail IS NULL OR price_retail=0)` | 0 | 有 pricing_rules 的家跑完 fetcher 必接 報價單 repo:`uv run python scripts/recompute_supplier.py <slug>`(重跑 fetcher 會清空四價,見 [[feedback_fetcher_rerun_wipes_computed_prices]]) |
-| 3 | **圖片協定 = https** | `COUNT(*) FILTER (WHERE images::text ILIKE '%http://%')` | 0 | http 外部網域 = mixed content 破圖 → 源頭轉存 Cloudflare R2、DB 存乾淨 https(Lightech 前例);新 host 另加網站 image-hosts 白名單 + middleware |
+| 3 | **圖片協定 = https** | ⛔ ~~`COUNT(*) FILTER (WHERE images::text ILIKE '%http://%')`~~ ⇒ 🔴 **那一版在 `images IS NULL` 時靜靜放行**(`NULL ILIKE …` 回 **NULL** 不是 FALSE ⇒ 不進 FILTER)。✅ 改用 `COUNT(*) FILTER (WHERE coalesce(images::text,'') ILIKE '%http://%')` **再加一格** `COUNT(*) FILTER (WHERE images IS NULL)`(2026-09-03 實測 wrs **37** / rizoma **3** 件完全沒有圖, 而舊那一版兩家都印 0) | 兩格都 0 | http 外部網域 = mixed content 破圖 → 源頭轉存 Cloudflare R2、DB 存乾淨 https(Lightech 前例);新 host 另加網站 image-hosts 白名單 + middleware |
 | 3 | **變體規格軸不撞鍵(pv_spec)** | 報價單 repo:`uv run python scripts/variant_contract_scan.py`(看該家 `違規=0`) | `違規=0`(incomplete_spec / mergeable_duplicate 皆 0) | ①同群多變體 spec 全空/含 null → 源頭 fetcher 補「區分變體的軸」進 `raw_jsonb["spec"]`(ebc 材質軸 / Extreme 打檔·版本·顏色·快排;`{"英文key":"中文值"}`,fail-loud 不靜默 null)。②只有一軸卻含 null 值(如 `{"color":null}`)→ fetcher 改**條件式**寫該鍵(值空就不寫)。**products.spec 是 `raw_jsonb->'spec'` 的 GENERATED 欄、view 直投,改完 raw_jsonb re-sync 即生效,免 refresh** |
 | 4 | **v2 分類回填**(否則全落未分類) | `COUNT(*) FILTER (WHERE major_category_v2_zh IS NOT NULL)` = 總數 | = 總數 | 新供應商 v2 恆 NULL → ①先有 `category_taxonomy_map` seed(該家 `products.category` → v2 大類·子類 pair;akrapovic/extreme 前例)②報價單 repo 跑 `uv run python scripts/taxonomy_v2_recompute.py`(先 dry-run 看「搬動既有分類 0 列」確認只補空、不動別家)`--apply`。**這是純分類寫入、不碰價格** |
 | 5 | **商品名定案** | 抽查 `product_name / product_name_zh` | 不帶車款(akrapovic 拍板);變體描述若入名須與英文原文一致 | 中文名翻錯(如英文 reverse 卻寫正打)→ 由官方英文重生、patch 源頭 fixture + DB。用 targeted SQL 改 `product_name_zh`(勿重跑 fetcher = 洗四價) |

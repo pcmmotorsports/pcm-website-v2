@@ -37,23 +37,47 @@ import type { ShipmentCandidates } from '../../lib/shipping/shipment-candidates'
  *    而這片存在的理由正是「說出原因」;原因就在 `items[].blockedReason` 手上,丟掉它很浪費。
  * 🔴 零品項的訂單**另外講**:對一張根本沒有品項的單說「未到貨或已取消」,三個理由全是編的。
  *    (這片自己的標準:不知道就說不知道,不編一個看起來合理的原因。)
+ *
+ * 🔴 **2026-09-03(線【帳號】走 L3 手動建單走查時撞到的):說了原因,而沒說【下一步】。**
+ *    員工看到的是「這些訂單目前沒有任何一件出得了(1件的數量資料尚未就緒)」——
+ *    ⇒ 它說了「不行」,而**沒說要做什麼才會行**;而那個答案就在同一個 repo 裡:
+ *    `picking-doc.tsx:78` 逐字寫著「**出貨必先到貨、無直送**」= 這是拍板不是缺陷。
+ *    ⇒ 🛑 **而畫面從來沒有把那條規則說出來** ⇒ 員工只知道自己卡住了,不知道卡在哪一關。
+ * 🔴 **下一步跟著【原因】走,不是跟著訊息走** —— 三個擋下原因裡只有兩個有下一步:
+ *    `unknown`(還沒下訂 ⇒ 去採購)· `all_boxed`(已在別箱 ⇒ 去出貨紀錄找)·
+ *    `cancelled`(**沒有下一步** ⇒ 不編一句,同上一段的標準)。
+ *    ⚠️ `not_arrived` **不在這裡** —— 它現在**開得了窗**(窗裡有「貨到了」),
+ *    走不到本函式。改動時不要順手替它補一句,那句話沒有任何人看得到。
+ * 🔵 **文案調性歸 Sean**(2026-09-03 已端給他定稿);這裡先用會動的版本,不空等。
  */
 function noneShippableMessage(items: ShipmentCandidates['items']): string {
   if (items.length === 0) return '這些訂單裡沒有任何品項。';
   const buckets = [
-    ['not_arrived', '件未到貨'],
-    ['all_boxed', '件已裝進其他箱子'],
-    ['cancelled', '件已取消'],
-    ['unknown', '件的數量資料尚未就緒'],
+    ['not_arrived', '件未到貨', ''],
+    ['all_boxed', '件已裝進其他箱子', '這些東西已經裝進別的箱子了 —— 請到那張訂單的出貨紀錄找那一箱。'],
+    ['cancelled', '件已取消', ''],
+    [
+      'unknown',
+      '件的數量資料尚未就緒',
+      '這幾項還沒跟供應商下訂 —— 請先到【採購】下訂,到貨登錄之後這裡才會出現可出貨的數量。',
+    ],
   ] as const;
-  const parts = buckets
-    .map(([reason, word]) => [items.filter((i) => i.blockedReason === reason).length, word] as const)
-    .filter(([n]) => n > 0)
-    .map(([n, word]) => `${n}${word}`);
+  const hit = buckets
+    .map(([reason, word, next]) => ({
+      n: items.filter((i) => i.blockedReason === reason).length,
+      word,
+      next,
+    }))
+    .filter(({ n }) => n > 0);
+  const parts = hit.map(({ n, word }) => `${n}${word}`);
+  // 🔴 去重:兩個 bucket 日後給同一句下一步時,不要把它印兩次。
+  const steps = [...new Set(hit.map(({ next }) => next).filter((t) => t !== ''))];
   // 理由全空只可能是契約破了(remaining 0 卻沒帶原因)⇒ 不編一個出來。
-  return parts.length === 0
-    ? '這些訂單目前沒有任何一件出得了。'
-    : `這些訂單目前沒有任何一件出得了(${parts.join('、')})。`;
+  const why =
+    parts.length === 0
+      ? '這些訂單目前沒有任何一件出得了。'
+      : `這些訂單目前沒有任何一件出得了(${parts.join('、')})。`;
+  return steps.length === 0 ? why : `${why}${steps.join('')}`;
 }
 
 export type ShipmentLauncher = {
