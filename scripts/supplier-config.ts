@@ -396,7 +396,10 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     supplierSlug: 'dbk',
     brandSlug: 'dbk', // identity(不像 kspeed→k-speed 那種拼法分岔)
     handlePrefix: 'dbk', // 17/17 既有慣例 = supplierSlug 同名
-    syncDescription: true, // 3,570/3,727 列有繁中 description
+    // 🔵 2026-09-04 補群層(F7:列層會答錯問題 —— 同一筆 dbk 的 appendManualFilename 就是這樣量錯過一次)
+    syncDescription: true, // 列層 3,570/3,727 = 95.8% · **群層 1,441/1,508 = 95.6%**
+    //   ⚠️ 而 95.6% 是所有 syncDescription=true 的家裡**最低**的 ⇒ 約 67 群商品頁沒有描述段。
+    //   🔵 旗標值仍然對(有描述的就同步), 而缺的那 67 群是**源頭資料缺口**, 不是這個旗標的錯。
     syncInstallResources: true, // 實查 2,420 列有 pdf_urls
     //   🔴 而 runbook 原本那句「有 pdf/video 來源才 true(靜態無附件 = false)」**與既有設定不符** ——
     //   本窗拿它去預測既有 17 家 ⇒ **對 12 · 錯 5**(eazigrip/samco/motogadget/front3d/materya
@@ -407,7 +410,14 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     //   (895 個有 pdf 的群、平均 1.00)⇒ 本旗標**在這一家無作用**。
     //   ⚠️ 而**列層量會答錯問題** —— 旗標作用在【合併變體之後的群】上,本窗先量列層才發現。
     categoryStrategy: { kind: 'per-group' }, // 13 大類 / 59 子類(不是 rpm 那種單一大類 ⇒ 不用 fixed)
-    variantImages: 'per-variant', // 平均每群 2.47 變體(20 家裡非 rpm 最高)⇒ 每變體自身圖
+    // 🔴 2026-09-04 訂正:原本這一行的理由是【推的】(「平均每群 2.47 變體 ⇒ 每變體自身圖」)——
+    //   而變體【數】答不出圖是不是每變體一張。code-reviewer F1 點名, 而其餘多變體家都留了實測字面。
+    // ✅ 實測(唯讀, 2026-09-04):dbk **906 個多變體群** ⇒
+    //     每變體都有自己的圖 **900** 群 · 整群共用一張 4 群 · 部分共用 2 群
+    //   ⇒ 99.3% 是 per-variant 形狀, **不是 rpm 那種群共用圖池**(型別註解 :95-99 講的那個差別)。
+    //   抽樣三個最大群(CCDV01 / CCDV02 / CCDV04, 各 16 變體)⇒ 16 支 image_url 【全不相同】。
+    //   ⚠️ 那 6 群(4+2)在 per-variant 之下只是同一張圖顯示多次 —— 無害, 不是選色不換圖。
+    variantImages: 'per-variant',
     // ✅ 2026-09-04 06:xx Sean 逐字「甲 上」批首灌後開寫
     //    (落點 ~/pcm-mailbox/等Sean拍的題-20260903.md:2648;授權射程 = 只此一家、只此一次)。
     //    翻 true 當下的前置狀態(當場重量、非沿用):
