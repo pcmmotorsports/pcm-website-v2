@@ -1,0 +1,13 @@
+# pre-push 鏈上的閘 —— 基準集(2026-09-03 從 .husky/pre-push 自己 parse 出來, 不是手打)
+#
+# 🔴🔴 這份檔回答的是【昨天有的, 今天還在嗎】—— 它【不】回答「該有的閘都在嗎」。
+#    那兩個是不同的問題, 而只有第一個有機械答案。
+#    ⇒ 「pre-push 少了一道本來該有的閘」是另一題, 本檔從來沒有宣稱過它。
+#
+# 🔵 怎麼更新:新增一道閘之後, 跑 `sh scripts/husky-hook-wiring-check.sh --update-baseline`
+#    ⇒ 集合【變大】本來就不紅;更新這份檔只是讓下一次的「不准變短」以新的為準。
+# 🛑 而【手改這份檔】= 你在宣告「那一道本來就不該在」—— 那是一個決定, 不是維護動作。
+.husky/always-loaded-size-gate.sh
+scripts/deploy-order-gate.sh
+scripts/migration-ledger-divergence.sh
+scripts/selftest-git-isolation-gate.sh
