@@ -40,20 +40,57 @@ import type { ShipmentCandidates } from '../../lib/shipping/shipment-candidates'
  */
 function noneShippableMessage(items: ShipmentCandidates['items']): string {
   if (items.length === 0) return '這些訂單裡沒有任何品項。';
+  // 🔴🔴 **每個原因帶自己的下一步**(2026-09-04;L3 走查卡點乙1)——
+  //    ⛔ ~~原本四個原因共用一句「出不了」~~ ⇒ 員工看到「出不了」而**不知道要做什麼**。
+  //    🔬 走查逐字(`-account` 2026-09-03)+ 我 09-04 在鑽機上**真的按了那顆鈕**看到的:
+  //       「這些訂單目前沒有任何一件出得了(2件的數量資料尚未就緒)。」—— 就這一句, 沒有下一步。
+  //    ⇒ 🎯 **⇒ 而這一片存在的理由本來就是「說出原因」;說了原因而不說出路只做了一半。**
+  //
+  // 🔴 **`cancelled` 刻意沒有下一步** —— 它是終態, 編一個出來就是把員工指去做白工。
+  //    ⇒ 所以下面那個 map 的值可以是 `null`, 而 `null` 不是遺漏、是**這一格真的沒有出路**。
+  //    ⇒ 🛑 全部都是 `cancelled` 時整句「接下來」**不出現**。那是對的, 不是漏了。
+  //
+  // 🔴 **`unknown` 那句用「最常見的原因是」而不是斷言** —— 抄 `order-focal-row.tsx:140` 的形狀,
+  //    而理由在那裡逐字寫著:程式自己承認「摘要列真的不存在」與「投影壞掉讀不到」
+  //    **在畫面上長得一樣**(`lib/orders/order-status-axes.ts:244-246`)
+  //    ⇒ 寫成「這代表還沒下訂」是一句它證明不了的話。
+  //
+  // 🔴 **順序與上面的原因清單一致** —— 兩串分開讀時要對得起來;打亂會讓員工自己去配對。
+  //
+  // 🔴🔴 **而 `not_arrived` 這一格【今天到不了】—— 而我是寫完之後才發現的, 所以寫下來**:
+  //    本函式今天**只有一個呼叫端**(同檔 `:150`), 而它的閘逐字是
+  //    `if (!anyShippable && !anyAwaiting)`, 其中 `anyAwaiting = 有任何一件 not_arrived`
+  //    ⇒ 🎯 **⇒ 只要有一件未到貨, 窗就開了, 根本走不到這裡。**
+  //    ⇒ ⇒ 📌 **⇒ 所以那一列的 `'件未到貨'` 從 2026-08-11 放寬閘之後就是死的, 不是我加的。**
+  //    ⚠️ **而我【留著】它而不是刪掉**:本函式是純函式, 它不該假設呼叫端的閘長什麼樣;
+  //       閘哪天再動一次, 刪掉的那一格會變成「有原因而沒有出路」。
+  //    🛑 **⇒ 而下一個人要知道的是:改這一句【不會有人看到】。**
+  //       真正會被看到的是 `all_boxed` / `cancelled` / `unknown` 這三格
+  //       (2026-09-04 在 admin-probe 上實際按到的那一發是 `unknown`)。
   const buckets = [
-    ['not_arrived', '件未到貨'],
-    ['all_boxed', '件已裝進其他箱子'],
-    ['cancelled', '件已取消'],
-    ['unknown', '件的數量資料尚未就緒'],
+    ['not_arrived', '件未到貨', '還在等的那幾件,貨到了先在訂單頁按「貨到了」登記到貨。'],
+    ['all_boxed', '件已裝進其他箱子', '已經配箱的那幾件,要出貨請到它所在的那一箱。'],
+    ['cancelled', '件已取消', null],
+    [
+      'unknown',
+      '件的數量資料尚未就緒',
+      '數量算不出來的那幾件,最常見的原因是還沒跟供應商下訂 —— 請打開那張單看商品清單。',
+    ],
   ] as const;
-  const parts = buckets
-    .map(([reason, word]) => [items.filter((i) => i.blockedReason === reason).length, word] as const)
-    .filter(([n]) => n > 0)
-    .map(([n, word]) => `${n}${word}`);
+  const present = buckets
+    .map(([reason, word, next]) => [items.filter((i) => i.blockedReason === reason).length, word, next] as const)
+    .filter(([n]) => n > 0);
+  const parts = present.map(([n, word]) => `${n}${word}`);
+  // 🔵 用 flatMap 不用 `filter` + 型別述詞 —— 述詞寫 `n is string` 會 TS2677:
+  //    `as const` 讓 `next` 的型別是【那幾個字面字串的聯集 | null】, 而 `string` 不是它的子型別。
+  //    flatMap 自然收斂, 不必 cast。
+  const nextSteps = present.flatMap(([, , next]) => (next === null ? [] : [next]));
   // 理由全空只可能是契約破了(remaining 0 卻沒帶原因)⇒ 不編一個出來。
-  return parts.length === 0
-    ? '這些訂單目前沒有任何一件出得了。'
-    : `這些訂單目前沒有任何一件出得了(${parts.join('、')})。`;
+  const head =
+    parts.length === 0
+      ? '這些訂單目前沒有任何一件出得了。'
+      : `這些訂單目前沒有任何一件出得了(${parts.join('、')})。`;
+  return nextSteps.length === 0 ? head : `${head}接下來:${nextSteps.join('')}`;
 }
 
 export type ShipmentLauncher = {

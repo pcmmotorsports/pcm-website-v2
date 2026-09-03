@@ -180,6 +180,77 @@ describe('🔴 開窗的前置閘 — 兩種情況都不給開,而且各有自�
   //    入口 2 之後,`not_arrived` 的品項在窗裡**有事可做**(按「貨到了」登記到貨)
   //    ⇒ 它不再屬於「開了也是全灰」那一類,fixture 因此改用 `cancelled`。
   //    要守的東西一字未改:**別開一個什麼都按不動的彈窗給員工**。
+  // ══ 2026-09-04 · L3 走查卡點乙1:說了原因而沒說出路 ══════════════════════
+  // 🔬 走查逐字(`-account` 09-03)+ 我 09-04 在 admin-probe 上**真的按了那顆鈕**:
+  //    「這些訂單目前沒有任何一件出得了(2件的數量資料尚未就緒)。」—— 就這一句。
+  // 🎯 這三格守的是:**每個原因帶自己的下一步**, 而**終態不編一個出來**。
+  it('🔴 出不了時,每個出現的原因都要帶自己的【下一步】', async () => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [
+        // 🔴 **這裡刻意【不用】 `not_arrived`** —— 呼叫端的閘 `:150` 是
+        //    `!anyShippable && !anyAwaiting`, 而 `anyAwaiting` = 有任何一件 not_arrived
+        //    ⇒ 🎯 **有 not_arrived 就開窗了, 這條訊息根本印不出來。**
+        //    ⇒ 📌 我第一版真的用了它 ⇒ 兩格紅 ⇒ **而那個紅是對的:世界造錯了, 不是尺壞了。**
+        { ...CANDIDATE, orderItemId: 'a', remaining: 0, blockedReason: 'all_boxed' },
+        { ...CANDIDATE, orderItemId: 'b', remaining: 0, blockedReason: 'unknown' },
+      ],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+    });
+    render(<OrderShipButton orderId='o1' />);
+    click();
+    await waitFor(() => expect(screen.queryByText(/沒有任何一件出得了/)).not.toBeNull());
+    expect(
+      screen.queryByText(/要出貨請到它所在的那一箱/),
+      'all_boxed 出現了而沒說出路 ⇒ 員工知道「已裝進其他箱子」卻不知道要去哪一箱。',
+    ).not.toBeNull();
+    expect(
+      screen.queryByText(/最常見的原因是還沒跟供應商下訂/),
+      'unknown 出現了而沒說出路 ⇒ 而這正是走查那一發撞到的那一格。',
+    ).not.toBeNull();
+  });
+
+  // 🔴🔴 **這一格是負對照, 而它守的是「不要編一個出路」** ——
+  //    `cancelled` 是終態。給它一句下一步 = 把員工指去做白工, 而那比沒有下一步糟。
+  it('🔴 全部都是【已取消】→ **不出現「接下來」** —— 終態沒有出路,不編一個', async () => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [
+        { ...CANDIDATE, orderItemId: 'a', remaining: 0, blockedReason: 'cancelled' },
+        { ...CANDIDATE, orderItemId: 'b', remaining: 0, blockedReason: 'cancelled' },
+      ],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+    });
+    render(<OrderShipButton orderId='o1' />);
+    click();
+    await waitFor(() => expect(screen.queryByText(/沒有任何一件出得了/)).not.toBeNull());
+    expect(
+      screen.queryByText(/接下來:/),
+      '對「已取消」也印一句下一步 ⇒ 那是編出來的:單子取消了, 員工做什麼都不會讓它出得了。',
+    ).toBeNull();
+  });
+
+  // 🔵 混合:有終態也有活路 ⇒ 「接下來」要出現, 而**裡面不含終態那一格**。
+  it('🔴 已取消 + 已配箱 → 「接下來」只講已配箱那一條(終態那格不出聲)', async () => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [
+        { ...CANDIDATE, orderItemId: 'a', remaining: 0, blockedReason: 'cancelled' },
+        { ...CANDIDATE, orderItemId: 'b', remaining: 0, blockedReason: 'all_boxed' },
+      ],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+    });
+    render(<OrderShipButton orderId='o1' />);
+    click();
+    const el = await screen.findByText(/沒有任何一件出得了/);
+    const t = el.textContent ?? '';
+    expect(t, '混合時「接下來」該出現而沒出現 ⇒ 有活路的那一件被終態拖著一起沉默。').toContain('接下來:');
+    expect(
+      t.match(/接下來:(.*)$/)?.[1] ?? '',
+      '「接下來」裡混進了終態的句子 ⇒ 而 cancelled 那一格的下一步是 null, 不該有字。',
+    ).not.toContain('已取消');
+  });
+
   it('🔴 品項都在、但一件都出不了 → 一樣不開窗(不是開一個全灰的彈窗給他)', async () => {
     fetchShipmentCandidates.mockResolvedValue({
       items: [{ ...CANDIDATE, remaining: 0, blockedReason: 'cancelled' }],
