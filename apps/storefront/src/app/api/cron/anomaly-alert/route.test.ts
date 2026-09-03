@@ -48,6 +48,7 @@ vi.mock('@/lib/cron/heartbeat', async (orig) => ({
 
 import * as route from './route';
 import { CRON_RATE_MAX_HITS, resetCronRateLimit } from '@/lib/cron/rate-limit';
+import { ANOMALY_QUIET_HEARTBEAT_SUBJECT } from '@pcm/use-cases';
 
 const { GET } = route;
 
@@ -100,9 +101,15 @@ const CLEAN_RESULT = {
   notifiersTotal: 0,
   notifiersFailed: 0,
   errors: 0,
+  // 🔵 2026-09-03:安靜日心跳的【資格】。`CLEAN_RESULT` 是「沒踩門檻」的常態 ⇒ true。
+  //    🔴 少了這一格 ⇒ route 那段 `if (result.quietHeartbeatEligible)` 恆假
+  //    ⇒ **整段心跳在測試裡是死碼, 而 18 格照樣全綠。** 那正是這一片要防的形狀。
+  quietHeartbeatEligible: true,
 };
 
-const DEPS = { reader: {}, notifiers: [{}] };
+// 🔵 notifier 要是**可觀察**的 —— 舊的 `[{}]` 只是佔位, 收不到「有沒有寄」。
+const okNotify = vi.fn(async () => undefined);
+const DEPS = { reader: {}, notifiers: [{ notify: okNotify }] };
 
 function makeReq(authorization?: string): Request {
   const headers: Record<string, string> = {};
@@ -927,6 +934,79 @@ describe('⟦b9-ENUMWATCH⟧ 片 2:Unknown 那一行 warn', () => {
  *    而**沒有任何一發測試會因為刪掉它而紅** ⇒ 那一段等於沒有守門。
  * 📌 **一段【寫對了而沒有人驗】的碼, 與【沒寫】在 diff 上長得一樣完整。**
  */
+// ══════════════════════════════════════════════════════════════════════════════
+// 🔵 安靜日心跳(2026-09-03;Sean 拍甲)—— **這一組是這次修法的唯一證據**
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// 🔴🔴 **為什麼一定要在 route 這一層測**:第一版把心跳做在 use-case 裡, 而
+//    `check-anomaly-alerts.test.ts` 那邊**全綠** —— 因為那一層看不到 route 的 503 條件。
+//    ⇒ 🎯 那個缺陷是 codex 兩輪打出來的, 而**它在 use-case 的測試裡結構上驗不到**。
+//    ⇒ ⇒ 📌 **修法搬了位置, 而證據也必須跟著搬。** 否則那道耦合仍然沒有人在驗。
+describe('安靜日心跳 —— 位置就是它的正確性', () => {
+  it('🟢 沒踩門檻 + 全部檢查都過 ⇒ 寄一封心跳, 而 route 回 200', async () => {
+    const res = await GET(makeReq(bearer(SECRET)));
+    expect(res.status).toBe(200);
+    expect(okNotify).toHaveBeenCalledTimes(1);
+    const msg = (okNotify.mock.calls as unknown as { subject: string; text: string }[][])[0]?.[0];
+    expect(msg?.subject).toBe(ANOMALY_QUIET_HEARTBEAT_SUBJECT);
+    // 🔴 信裡**不准有任何計數** —— 那是片2 的事(理由:那些數字永遠不為零)。
+    expect(msg?.text).not.toMatch(/\d+\s*筆(?!$)/);
+  });
+
+  it('🔴 踩了門檻(alerted)⇒ **不寄心跳**(那天寄的是告警信, 不是綠燈)', async () => {
+    checkSpy.mockResolvedValue({ ...CLEAN_RESULT, alerted: true, quietHeartbeatEligible: false });
+    await GET(makeReq(bearer(SECRET)));
+    expect(okNotify).not.toHaveBeenCalled();
+  });
+
+  // 🔴🔴 **承重格** —— 把心跳往上搬一行, 這一格就紅。
+  // ⚠️ **射程要講準**(codex R3 nit):它只餵了 `cronHeartbeatUnknown` 這一種 503。
+  //    ✅ 它成立的理由是【位置】:心跳排在所有 503 分支之後 ⇒ 任何一種都到不了它。
+  //    🛑 **而未來若有人在心跳【之後】新增一種 503, 這一格仍會全綠** —— 那是它的邊界,
+  //       而擋那一天的是碼裡那句「不要把這一段往上搬」與這一格合起來, 不是這一格自己。
+  it('🔴🔴 503 條件(以 cronHeartbeatUnknown 為代表)成立 ⇒ **一封心跳都不寄**', async () => {
+    // `cronHeartbeatUnknown` 是 route 的 503 分支之一(它自己讀不到排程心跳)。
+    checkSpy.mockResolvedValue({ ...CLEAN_RESULT, cronHeartbeatUnknown: true });
+    const res = await GET(makeReq(bearer(SECRET)));
+    expect(res.status).toBe(503);
+    // 🎯 這一行是整組的核心:503 那天**收信人不該收到任何綠燈**。
+    expect(okNotify).not.toHaveBeenCalled();
+  });
+
+  // 🔴🔴 codex R3 must-fix:那一項讀不到而 route 仍回 200 ⇒ 心跳照寄, **而必須說出來**。
+  //    🛑 修法刻意【不是】擋掉它 —— `manualCustomerSearchUnknown` 只 warn 不 503,
+  //       擋掉的話那一天既沒有信也沒有 503 ⇒ 那正是這一片要消滅的沉默。
+  it('🔴🔴 有項目讀不到(而它不會 503)⇒ 照寄, 而信裡要【指名】那一項', async () => {
+    checkSpy.mockResolvedValue({ ...CLEAN_RESULT, manualCustomerSearchUnknown: true });
+    const res = await GET(makeReq(bearer(SECRET)));
+    expect(res.status).toBe(200);
+    expect(okNotify).toHaveBeenCalledTimes(1);
+    const msg = (okNotify.mock.calls as unknown as { subject: string; text: string }[][])[0]?.[0];
+    // 🔴 不准只寫「今天沒事」就結束 —— 那會把一個讀取失敗蓋掉。
+    expect(msg?.text).toContain('讀不到');
+    expect(msg?.text).toContain('客戶搜尋計數');
+  });
+
+  it('🟢 負對照:全部讀得到 ⇒ 信裡【不出現】那一段(它不是恆印)', async () => {
+    await GET(makeReq(bearer(SECRET)));
+    const msg = (okNotify.mock.calls as unknown as { subject: string; text: string }[][])[0]?.[0];
+    expect(msg?.text).not.toContain('讀不到');
+  });
+
+  it('🔴 心跳寄不出去 ⇒ 503(一封心跳送不出去 = 告警管道壞了 = 該紅)', async () => {
+    okNotify.mockRejectedValueOnce(new Error('channel down'));
+    const res = await GET(makeReq(bearer(SECRET)));
+    expect(res.status).toBe(503);
+    expect(hbFailSpy).toHaveBeenCalled();
+  });
+
+  it('🔴 零 notifier ⇒ 503(那不是「今天沒事」, 是沒有任何管道能告訴你今天沒事)', async () => {
+    getDepsSpy.mockReturnValue({ reader: {}, notifiers: [] });
+    const res = await GET(makeReq(bearer(SECRET)));
+    expect(res.status).toBe(503);
+  });
+});
+
 describe('⟦b9-RLSHARDEN⟧ 甲片B:route 的兩個觀眾', () => {
   it('🔴 bypassRlsUnknown=true ⇒ 503 + 記失敗心跳(不得回 200)', async () => {
     checkSpy.mockResolvedValueOnce({

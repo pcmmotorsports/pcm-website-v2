@@ -87,6 +87,8 @@ export {
 export {
   checkAnomalyAlerts,
   buildAnomalyAlertMessage,
+  buildAnomalyQuietHeartbeatMessage,
+  ANOMALY_QUIET_HEARTBEAT_SUBJECT,
   type CheckAnomalyAlertsDeps,
   type CheckAnomalyAlertsOptions,
   type CheckAnomalyAlertsResult,
