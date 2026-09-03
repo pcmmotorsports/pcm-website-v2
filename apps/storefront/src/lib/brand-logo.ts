@@ -49,20 +49,27 @@ export const BRAND_LOGO_SRC: Readonly<Record<string, string>> = {
   //    而 `catalog-page.ts:75` 填進卡片的是 `row.brand_slug` = `k-speed`。
   //    ⇒ 🛑 **key 寫成 `kspeed` 的話, K-SPEED 商品永遠拿不到 logo** —— 而它是真的在賣的供應商。
   'k-speed': '/brands/kspeed/logo.png',
+  // 🔵 kineo 與 wrs 同一批補上(2026-09-04):同樣是我初版漏掉的 —— `public/brands/` 底下沒有它們的目錄,
+  //    而 `brand-assets/assets/brands-trim/` 兩家都在。照同一個做法複製。
+  kineo: '/brands/kineo/logo.png',
   lightech: '/brands/lightech/logo.png',
   materya: '/brands/materya/logo.png',
   motogadget: '/brands/motogadget/logo.svg',
   rizoma: '/brands/rizoma/logo.png',
   'rpm-carbon': '/brands/rpm-carbon/logo.avif',
   samco: '/brands/samco/logo.png',
-  // 🛑 **wrs 刻意【不在】這張表裡, 而它【有】一個 logo 檔** —— 這一行是為了擋掉「補上去」這個很自然的動作。
-  //    🔬 2026-09-03 我開圖看了:`public/brands-dark/wrs.png` 是**接近白色的淺灰字**(給深色背景用的版本),
-  //       而卡片無真照片時的底是**淺色漸層**(`ProductImage.tsx` 的 PALETTES 六色全是淺色)
-  //       ⇒ 🎯 **放上去等於看不見。**
-  //    ⇒ 🛑 **一個看不見的 logo 比退回站內佔位圖【更糟】** —— 佔位圖至少講得出「暫無照片」,
-  //       而一片空白會被讀成「這張卡壞了」。⇒ 查無 ⇒ 回 null ⇒ 退回站內佔位圖(= 今天的行為, 零退步)。
-  //    ✅ **解除條件**:有人補上原色版 `public/brands/wrs/logo.*` ⇒ 那時候下面那格測試會要求把它加進來。
-  //    (⚠️ 對照組:`brands/lightech/logo.png` 是深色+黃, 在淺底上清楚 —— 兩套的差別是【設計給哪種底】, 不是新舊。)
+  // 🔴 **wrs 這一格改過兩次, 而第一次是【我掃的範圍不夠】**(2026-09-04):
+  //    ⛔ ~~初版:「wrs 刻意不在這張表裡 —— 它只有 `brands-dark/wrs.png`, 那是給深色背景的淺色版,
+  //       放在淺色卡片上看不見 ⇒ 退回站內佔位圖」~~
+  //    🛑 **那個推理沒錯, 錯的是前提** —— 我只看了 `public/brands/` 與 `public/brands-dark/` 兩個目錄。
+  //    🔬 別條線 `find -iname '*wrs*'` 撈到**四個位置**, 其中兩份是**原色深字版**:
+  //       `design-reference/assets/logos/wrs.png` · `public/brand-assets/assets/brands-trim/wrs.png`
+  //    ✅ 而 `brands-trim/<slug>.png` 正是**其他家 logo 的來源**(rizoma / dbk / gilles 三家實測:
+  //       `brands-trim/<slug>.png` 與 `brands/<slug>/logo.png` **逐位元組相同**)
+  //       ⇒ 照同一個做法複製一份到 `public/brands/wrs/logo.png` ⇒ 這一格與其他 19 家再無差別。
+  //    📌 **⇒ 教訓不是「要多找幾個目錄」, 是【查一個路徑不等於查那個東西】** ——
+  //       `ls public/brands/` 回「沒有 wrs」與「wrs 沒有 logo」讀起來一模一樣, 而它們差很多。
+  wrs: '/brands/wrs/logo.png',
 };
 
 /**
