@@ -193,8 +193,11 @@ describe('ProductCard', () => {
     // 🔴 用 `WRS` 而不是中文假品牌:`brandToSlug('沒有這個品牌')` 會回**空字串**
     //    ⇒ 打到的是 `brandLogoSrc` 的 `if (!slug)` 早退, **不是「slug 在而表裡沒有」那條**。
     //    而 WRS 是真的有這個情況的那一家(它有 brands-dark 檔而刻意不入表)。
-    render(<ProductCard p={{ ...product, image: null, brand: 'WRS', brandSlug: undefined }} />);
-    const imgs = screen.getAllByAltText('WRS');
+    // 🔴 2026-09-04:原本用 `WRS` —— 而 **wrs 現在有 logo 了**(從 brands-trim 補上)⇒ 這一格會綠得沒意義。
+    //    改用一個**形狀合法但不在表裡**的 slug:`brandToSlug('ZZZ TEST') = 'zzz-test'`
+    //    ⇒ 打到的是「查表落空」那條, 不是 `if (!slug)` 的早退(空字串會走早退, 那是另一回事)。
+    render(<ProductCard p={{ ...product, image: null, brand: 'ZZZ TEST', brandSlug: undefined }} />);
+    const imgs = screen.getAllByAltText('ZZZ TEST');
     expect(imgs.some((el) => el.getAttribute('src') === '/placeholder-product.png')).toBe(true);
   });
 
