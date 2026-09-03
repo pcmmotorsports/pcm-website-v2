@@ -273,6 +273,52 @@ beforeAll(() => {
     copiedTruthFiles.push(rel);
   }
 
+  // 🔴🔴 **第二支依賴真實檔的消費者:`python3 scripts/verify-cron6-md5.py`**
+  //    `ee4bdf27` 把 glob 放寬成 `supabase/migrations/*.sql` 之後, 本檔餵進去的新 migration
+  //    也會叫起它;而 `1720f25e` 把它從「寫死六支」改成【基準集決定成員】之後,
+  //    它要讀的是 **`scripts/migration-self-md5-baseline.txt` 裡列的每一支 + 校準塊 `L3A`**。
+  //    ⇒ 那些檔不在 scratch 裡 ⇒ `FileNotFoundError` ⇒ 整條 lint-staged 紅
+  //    ⇒ 🛑 而本檔 `stageAndRunGate` 會認出它並 throw「fixture:…」——
+  //       **那不是誤報, 是它正確地拒絕在量不到的時候印綠。**(實錘:CI run 33780749129)
+  //
+  //  ⚠️ **兩條我沒選的路, 明寫**:
+  //    甲 = 讓 `verify-cron6-md5.py` 對「檔不存在」改成 skip ⇒ 🔴 **fail-open** ——
+  //         而那正是基準集這個設計要防的那件事(基準集的存在理由就是【集合不得變短】)。
+  //    乙 = 把 package.json 那條 glob 收回具名 ⇒ 撤銷 `ee4bdf27` 的用意, 且不在本窗檔案面。
+  //  ⇒ ✅ 選丙 = 跟 truth-sync 同一個做法:**把它要讀的檔一起搬進 scratch**。
+  //
+  //  🔵 **而這裡【刻意不釘數量】**, 與上面 truth-sync 那格不同 ——
+  //     truth-sync 的路徑常數變動 = 異常;而**基準集【本來就會長】**(加一行 = 多保護一支)。
+  //     釘住它 ⇒ 每次有人合法加一行, 本檔就紅一次 ⇒ 🛑 **那種閘會死於誤報, 然後被關掉。**
+  //     ⇒ 取而代之:抽到 0 支才 throw(那代表抽法壞了, 不是集合空了)。
+  const cronSrc = readFileSync(join(REPO, 'scripts/verify-cron6-md5.py'), 'utf8');
+  const baselineSrc = readFileSync(join(REPO, 'scripts/migration-self-md5-baseline.txt'), 'utf8');
+  const cronDeps = [
+    // 校準塊:`L3A = 'supabase/migrations/…sql'`
+    ...[...cronSrc.matchAll(/^[A-Z][A-Z0-9_]*\s*=\s*'(supabase\/migrations\/[^']+)'/gm)].map((m) => m[1]),
+    // 基準集:一行一格 `<migration 檔名>\t<函式名>`,取第一欄
+    ...baselineSrc
+      .split('\n')
+      .filter((l) => l.trim() !== '' && !l.trimStart().startsWith('#'))
+      .map((l) => `supabase/migrations/${l.split('\t')[0]!.trim()}`),
+  ].filter((v, i, a): v is string => typeof v === 'string' && a.indexOf(v) === i);
+  if (cronDeps.length === 0) {
+    throw new Error(
+      'fixture:從 verify-cron6-md5.py + 基準集抽到 0 支 migration 依賴。' +
+        '⇒ 抽法壞了(常數改名 / 基準集格式變了), **不是**「它不再依賴真實檔」。' +
+        '🔴 不要把這個 throw 改成 skip —— 那會讓本檔在量不到的時候印綠。',
+    );
+  }
+  for (const rel of cronDeps) {
+    mkdirSync(join(scratch, dirname(rel)), { recursive: true });
+    try {
+      copyFileSync(join(REPO, rel), join(scratch, rel));
+    } catch (e) {
+      throw new Error(`fixture 複製 ${rel} 失敗:${String(e)} —— 這不是閘壞了, 是 fixture 建不起來。`);
+    }
+    copiedTruthFiles.push(rel);
+  }
+
   writeFileSync(join(scratch, 'README.md'), '# mig gate e2e\n', 'utf8');
   must('add README', ['add', 'README.md']);
   // 進 init commit。⚠️ **理由不是「不然會紅」** —— code-reviewer 2026-08-27 實測:
