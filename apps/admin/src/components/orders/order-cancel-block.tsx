@@ -9,6 +9,7 @@ import 'server-only';
 import type { AdminOrderDetail } from '@pcm/domain';
 import { buildOrderCancelView, type CancelViewPayments } from '../../lib/orders/cancel-view';
 import { CancelReviewSection } from './cancel-review-section';
+import type { CancelShipmentWarning } from '../../lib/orders/cancel-shipment-warning';
 import { FullCancelForm, PartialCancelForm } from './cancel-order-forms';
 
 // order-cancel-block.tsx — M-4b E10 **A13b D6-a**:訂單明細頁上的取消區塊(複核 + 兩支表單)。
@@ -28,6 +29,7 @@ export function OrderCancelBlock({
   payments,
   returnTo,
   formsAllowed,
+  shipmentWarning,
 }: {
   detail: AdminOrderDetail;
   /**
@@ -55,6 +57,26 @@ export function OrderCancelBlock({
    *    面板出現的那一次渲染 = 結果頁 ⇒ 不給;員工重新整理讓網址回 canonical ⇒ 自然回來。
    */
   formsAllowed?: boolean;
+  /**
+   * 這張單「有沒有貨已經在路上」的判定結果(頁層算好後下傳)。
+   *
+   * 🔴🔴 **必填、無預設** —— 與同 props 的 `payments` / `returnTo` 同一條紀律:
+   *    **給預設值等於「忘了接就靜默把閘關掉」**,而那個症狀在測試裡看起來完全正常
+   *    (畫面照常、只是那道確認不見了)。⇒ **忘了接必須編不過。**
+   *    (那句紀律不是這一片發明的:同檔 `returnTo` 與 `formsAllowed` 的 docstring 早就寫著。)
+   *
+   * 🔴 **為什麼從頁層傳而不是本區塊自己讀**(2026-09-03 接手時改的):
+   *    ⛔ ~~原作在本區塊裡 `await loadOrderShipments(...)`, 把元件改成 `async`~~
+   *    🛑 而**兩支祖先都不是 async**(`order-detail.tsx` / `order-detail-money-tab.tsx`
+   *       `export async function` 命中皆 0)⇒ 同步渲染一個 async 元件會拿到 Promise
+   *       ⇒ **什麼都沒 render, 43 格紅**。放哪一層都撞同一件事。
+   *    ✅ 而 `OrderDetailRoute`(`order-detail-route.tsx:55`)**本來就是 async**
+   *       ⇒ 在那裡讀一次、往下傳三層, 本檔回到同步。
+   *    ⚠️ **代價照實記**:多了三個 prop 轉手, 而 `ShipmentSection` 在同一頁**仍會查一次**
+   *       ⇒ 這一頁對出貨是**兩次查詢**。判為可接受(它擋的是錢與貨同時出去);
+   *       🛑 哪天查詢數變成問題, 正解是把兩支合併到頁層一次查, **不是拿掉這一格**。
+   */
+  shipmentWarning: CancelShipmentWarning;
 }) {
   const view = buildOrderCancelView({ ...detail, payments });
   // 🔴 兩道都要成立才給表單:①判定說可以(`buildOrderCancelView` 是唯一真相)②不是結果頁。
@@ -85,9 +107,18 @@ export function OrderCancelBlock({
         <div className='space-y-4'>
           {/* 🔴 整單那支還要多過 `fullCancelAllowed`(有到貨就只能逐品項取消,RPC 會拒)。 */}
           {view.fullCancelAllowed && (
-            <FullCancelForm orderId={detail.id} returnTo={returnTo} />
+            <FullCancelForm
+              orderId={detail.id}
+              returnTo={returnTo}
+              shipmentWarning={shipmentWarning}
+            />
           )}
-          <PartialCancelForm orderId={detail.id} returnTo={returnTo} items={view.items} />
+          <PartialCancelForm
+            orderId={detail.id}
+            returnTo={returnTo}
+            items={view.items}
+            shipmentWarning={shipmentWarning}
+          />
         </div>
       )}
     </div>

@@ -293,6 +293,20 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   // 🔴 文案逐字沿用 `cancel-action-state.ts` 的 `FAILURE_MESSAGES`,不在這裡另寫一份。
   [toOrderCancelResultCode('denied')]: { text: CANCEL_FAILURE_MESSAGES.denied, tone: 'error' },
   [toOrderCancelResultCode('invalid')]: { text: CANCEL_FAILURE_MESSAGES.invalid, tone: 'warn' },
+  // 🔴🔴 **`shipment_unconfirmed`(取消已出貨的單, 2026-09-03)——【差一點漏登錄】。**
+  //    那顆碼加進了 `cancel-action-state.ts` 的 `FAILURE_MESSAGES` 與 `CANCEL_NOT_SENT_CODES`,
+  //    **而沒有加到這張表** ⇒ server 擋下來、導頁帶著那顆碼回來, 而 banner 查不到它
+  //    ⇒ 🛑 **員工看到的是一片空白** —— 他按了取消, 什麼都沒發生, 而畫面一句話都沒有。
+  //    ⇒ 📌 那正是「擋住了人而沒有告訴他下一步」的最壞形狀:**連「被擋住」都沒說。**
+  //    🟢 而抓到它的是 `result-banner.test.tsx` 那格逐碼掃 `CANCEL_NOT_SENT_CODES` 的斷言
+  //       —— 它逐字寫著「先釘【有註冊】:少了這句, 碼被拿掉時 `entry?.tone` 是 undefined、
+  //       `not.toBe('ok')` 照樣綠」。**那一格今天真的接住了東西。**
+  //    🔵 tone 用 `warn` 不是 `error`:這不是系統故障, 是**要他確認一次**;
+  //       而 `error` 的紅框會讓他以為出事了。🛑 而它**不得是 `ok`** —— 失敗不准畫成綠色。
+  [toOrderCancelResultCode('shipment_unconfirmed')]: {
+    text: CANCEL_FAILURE_MESSAGES.shipment_unconfirmed,
+    tone: 'warn',
+  },
   // 🔴 M-4b E10 **#13 片1c-2**:改金額線**只登錄這一顆失敗碼**。
   //    ⚠️ 它的成功/無變更/衝突走**裸碼**(`saved`/`noop`/`conflict`)—— 那三則文案對改金額剛好也對,
   //    為整齊多造三顆是純成本;`invalid`/`denied` 同理(而且它們導去 `/orders`,

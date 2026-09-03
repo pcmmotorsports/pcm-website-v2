@@ -28,6 +28,21 @@ vi.mock('../session/authorize', () => ({ authorizeAdminMutation: mocks.authorize
 vi.mock('../audit/context', () => ({ getRequestId: async () => 'req-1' }));
 vi.mock('./cancel-repository', () => ({ cancelOrder: mocks.cancelOrder }));
 
+// 🔴🔴 **2026-09-03「取消已出貨的單擋一次」加的**:`cancelOrderAction` 現在會
+//    **先讀這張單的出貨**(`cancel-actions.ts`:`findAdminOrderDetail` → `loadOrderShipments`),
+//    而那一步在 `failRedirect` **之前** ⇒ 本檔既有的每一格都會走到它。
+//    ⛔ 不 mock 的話它去打真的 Supabase ⇒ 丟 `NEXT_PUBLIC_SUPABASE_URL not set`
+//       ⇒ 🛑 而那個錯**長得像測試壞了**, 不像「被測的碼多了一次查詢」。
+//    ✅ 預設回**沒有出貨**(空陣列)⇒ 既有各格的行為與加這一片之前**逐字相同**;
+//       要測「有出貨」那條路的格子自己覆寫這兩個 mock。
+// 🔴 **走【撈到盡】那支**(`listOrderItemsForPrint`), 不是 `findAdminOrderDetail`——
+//    後者的品項被 `ORDER_ITEMS_EMBED_LIMIT = 200` 夾住(codex must-fix), 而 cancel-actions
+//    已改成從撈到盡那支取。⇒ mock 要跟著**被替身的那個東西**走, 不是跟著我記得的舊形狀。
+vi.mock('./order-repository', () => ({
+  getAdminOrderRepository: () => ({ listOrderItemsForPrint: async () => ({ items: [] }) }),
+}));
+vi.mock('../shipping/order-shipments', () => ({ loadOrderShipments: async () => [] }));
+
 import { cancelOrderAction } from './cancel-actions';
 import {
   CANCEL_MODE_FIELD,
