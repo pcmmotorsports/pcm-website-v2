@@ -205,14 +205,33 @@ describe('OrdersTab(M-3 真訂單清單)', () => {
       );
       // 列還在
       expect(container.querySelectorAll('.acc-order-item')).toHaveLength(1);
-      // 圖框還在(版位不塌),但沒有 <img>
+      // 圖框還在(版位不塌)
       expect(container.querySelector('.acc-order-thumb')).toBeTruthy();
-      expect(container.querySelector('.acc-order-thumb img')).toBeNull();
+      // ⛔ ~~`expect(container.querySelector('.acc-order-thumb img')).toBeNull()`~~
+      // 🔴 **2026-09-04(⟦ship-ORDERIMG⟧ 甲案)這裡改走 `ProductImage`** ——
+      //    成因:同一批商品客人在三個地方看到三種東西(明細站內佔位圖 / 這裡空框 / 收藏什麼都沒有),
+      //    而那個不一致**不是濾掉供應商佔位圖那一片製造的**, 它本來就在。
+      // ✅ 新的斷言問的是同一件事的另一半:**版位不塌, 而且裡面有一張真的存在的圖**。
+      expect(
+        container.querySelector('.acc-order-thumb img')?.getAttribute('src'),
+        '沒有圖時應該退到站內佔位圖(不是空框、也不是空 src)',
+      ).toBe('/placeholder-product.png');
       // 品牌那行不印;品名退成一句看得懂的話,不是空白
       expect(container.querySelector('.acc-order-item-b')).toBeNull();
       expect(container.querySelector('.acc-order-item-n')?.textContent).toBe('(此品項已無資料)');
       // 數量與小計不受 join 影響(它們是訂單自己的凍結值)
       expect(screen.getByText('NT$ 24,000')).toBeTruthy();
+    });
+
+    it('🔵 負對照:有真照片 ⇒ 那個網址逐字不變(不得被佔位圖蓋掉)', () => {
+      const REAL = 'https://quote.pcmmotorsports.com/real-product-01.jpg';
+      const { container } = render(
+        <OrdersTab orders={[{ ...ORDERS[0]!, items: [{ ...LINE, imageUrl: REAL }] }]} />,
+      );
+      expect(
+        container.querySelector('.acc-order-thumb img')?.getAttribute('src'),
+        '一張真照片被佔位圖蓋掉了 ⇒ 而那沒有人會回報',
+      ).toBe(REAL);
     });
 
     // 🔴🔴 codex R2 must-fix:件數被切時,商品列**也是被切過的**,而畫面要說出來。
