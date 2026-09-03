@@ -98,6 +98,78 @@ check_precommit() {
 }
 
 # $1 = pre-push 檔路徑
+# ── 基準集比對:【鏈沒有變短】(2026-09-03;codex MF8)────────────────────────────
+#
+# 🔴🔴 **它為什麼存在, 而它不是假想的風險**:上面 `check_prepush` 只**寫死列舉兩支**
+#    (`deploy-order-gate.sh` / `migration-ledger-divergence.sh`)——
+#    而 `selftest-git-isolation-gate.sh` 在 pre-push 的鏈上跑了一整天, **本檔零命中**。
+#    ⇒ 🎯 **2026-09-03 下午它真的被刪過一次, 而唯一發現的是刪的那個人自己(我)。**
+#    ⇒ ⇒ 📌 **自己發現不是機制。** 那正是「自抓有三個機制, 而只有無條件對照做得成機制」那一條。
+#
+# 🛑🛑 **本閘證的是【鏈沒有變短】。它證不到『該有的閘都在』。**
+#    ⇒ 基準集是**從 pre-push 自己 parse 出來的** ⇒ 它結構上不可能「相對 pre-push 不完整」,
+#      而它也因此**繼承了 pre-push 當下的缺漏**。⇒ 「該不該有第五道」是人的判斷, 不是本閘的。
+#    ⇒ 🔴 **這一節要跟它抓到什麼一樣顯眼** —— 否則人會把它的沉默讀成背書。
+#
+# ⚠️ **射程:兩個面都釘, 不只那一行 `&&` 鏈。**
+#    pre-push 有兩個面 ——(一)那一行 `&&` 串接(三支 `scripts/*.sh`)
+#    (二)底下一個 `if` 區塊(`.husky/always-loaded-size-gate.sh`)。
+#    ⇒ 🛑 **只 parse 那一行會靜靜漏掉第二面, 而那正是 MF8 本身的病** ⇒ 所以掃全部非註解行。
+#
+# 🔴 **撈子的形狀是量過的, 不是想當然**:`grep -oE '(scripts|\.husky)/…'` 那種**交替式**
+#    在本機實測**靜默少報**(那一行的三支一支都撈不到, 而 `.husky/` 那支撈得到)
+#    ⇒ 改成**兩發分開掃再合併**, 而下面 `_pp_gates` 跑完會印出支數 ⇒ **數字看得到才算量過**。
+_pp_gates() {
+  # $1 = pre-push 路徑。只看非註解行。
+  { grep -v '^[[:space:]]*#' "$1" | grep -oE '[a-zA-Z._$/{}]*scripts/[A-Za-z0-9_.-]+\.sh' | sed 's|.*/scripts/|scripts/|'
+    grep -v '^[[:space:]]*#' "$1" | grep -oE '[a-zA-Z._$/{}]*\.husky/[A-Za-z0-9_.-]+\.sh' | sed 's|.*\.husky/|.husky/|'
+  } | sort -u
+}
+
+check_prepush_baseline() {
+  f="$1"; base="$2"
+  # 🔴 **基準集不見 ⇒ 紅, 不是「什麼都不少 ⇒ 全綠」。**
+  #    那是 fail-open, 而 fail-open 藏住「有沒有裝上」——
+  #    刪掉基準集會讓這道閘變成一句恆真的話, 而畫面上一切正常。
+  if [ ! -s "$base" ]; then
+    echo "🔴 基準集不見或是空的:$base" >&2
+    echo "   ⇒ 沒有基準 = 沒有【昨天】可以比 ⇒ 本閘擋下, 不靜靜通過(fail-closed)。" >&2
+    return 1
+  fi
+  # 🔴🔴 **用暫存檔, 不用 `<(...)`** —— 本檔被 `sh` 呼叫(lint-staged 那條是 `sh scripts/…`),
+  #    而**行程替換不是 POSIX sh**。⚠️ 而它壞掉的方式**不是報錯就停**:
+  #    2026-09-03 第一版就是這樣寫的 ⇒ `sh` 噴 syntax error 到 stderr、
+  #    而 `gone` / `added` 兩個變數**變成空的** ⇒ 本閘印「基準 4 支 · 現在 4 支」並 **return 0**。
+  #    ⇒ 🎯 **它 fail-open 了, 而畫面上看起來完全正常。**
+  #    ⇒ ⇒ 📌 抓到它的不是 rc(rc 是 0), 是**我去讀了它印的東西** ——
+  #      那正是這一族最貴的一格:**該紅而沒紅, 而沒有任何訊號。**
+  _tw="$(mktemp)" || return 2
+  _tn="$(mktemp)" || { rm -f "$_tw"; return 2; }
+  now=$(_pp_gates "$f")
+  want=$(grep -v '^[[:space:]]*#' "$base" | grep -v '^[[:space:]]*$' | sort -u)
+  printf '%s\n' "$want" > "$_tw"
+  printf '%s\n' "$now" > "$_tn"
+  gone=$(comm -23 "$_tw" "$_tn")
+  added=$(comm -13 "$_tw" "$_tn")
+  rm -f "$_tw" "$_tn"
+  echo "── pre-push 鏈上的閘:基準 $(printf '%s\n' "$want" | wc -l | tr -d ' ') 支 · 現在 $(printf '%s\n' "$now" | wc -l | tr -d ' ') 支"
+  if [ -n "$added" ]; then
+    # 🔵 **變多【不紅】** —— 否則每加一道閘都要先餵它, 而那種閘會死於誤報。
+    echo "   🔵 比基準多了(不擋, 而更新基準集才會讓下一次以新的為準):"
+    printf '      + %s\n' $added
+  fi
+  if [ -n "$gone" ]; then
+    echo "🔴 pre-push 的鏈【變短了】—— 基準集裡有而現在沒有:" >&2
+    printf '   - %s\n' $gone >&2
+    echo "   ⇒ 若那是刻意拿掉的, 手改 scripts/husky-pre-push-gate-baseline.txt 並說明理由。" >&2
+    return 1
+  fi
+  # 🛑 這一句與上面那些紅字【一樣顯眼】, 而它是刻意的:讀的人不可以把沉默讀成背書。
+  echo "   🛑 本閘證的是【鏈沒有變短】。它**證不到**「該有的閘都在」——"
+  echo "      基準集是從 pre-push 自己 parse 的 ⇒ 它繼承了 pre-push 當下的缺漏。"
+  return 0
+}
+
 check_prepush() {
   f="$1"
   if [ ! -f "$f" ]; then
@@ -223,4 +295,7 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "🔴 不在 git rep
 rc=0
 check_precommit "$ROOT/.husky/pre-commit" || rc=$?
 check_prepush   "$ROOT/.husky/pre-push"   || { r2=$?; [ "$r2" -gt "$rc" ] && rc=$r2; }
+# 🔵 基準集比對(2026-09-03 加):與上面那道【互補】——
+#    上面問「那兩支寫死的還在嗎」, 這裡問「整條鏈有沒有比昨天短」。
+check_prepush_baseline "$ROOT/.husky/pre-push" "$ROOT/scripts/husky-pre-push-gate-baseline.txt" || { r3=$?; [ "$r3" -gt "$rc" ] && rc=$r3; }
 exit $rc
