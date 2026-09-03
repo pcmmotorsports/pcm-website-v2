@@ -377,6 +377,39 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     //    (:214 `isWrite: !DRY_RUN`,餵 9999 實測印 ALERT 而 rc=0)⇒ 那四格才是真的證據。
     writeAllowed: true,
   },
+  // DBK。2026-09-04 線【帳號】走 ④ 上架線登記。**preflight 八格全綠**(三家待上架佇列裡唯一沒有已知阻塞的)。
+  //
+  // 🔴🔴 **下面每個數字都是快照, 不是契約** —— 照 `gilles` 那塊的教訓(它兩分鐘內量到兩組不同的值):
+  //   **`--expect-groups` 必須在跑乾跑/首灌的那一刻【重量】, 絕對不要沿用這裡的數字。**
+  //   本窗 2026-09-03 16:25:04 UTC 單一 SQL 同一時點實查:
+  //     3,727 列 / 1,508 群 / 缺中文名 0 / 缺價 0 / 缺 v2 大類 0 / 圖非 https 0 / 完全沒有圖 0
+  //     有描述 3,570 · 有 pdf 2,420 · 有影片 0
+  //   pv_spec 變體合約:incomplete_spec 0 / mergeable_duplicate 0 / spec_missing_axis 0
+  //     ⚠️ **證據等級**:那三個數是本窗照 `fetchers/variant_contract.py` 的 R1/R2/R3 規則
+  //     用**唯讀** MCP 重寫成 SQL 量的,**不是**正牌 `variant_contract_scan.py`
+  //     (它要 `SUPABASE_DB_PASSWORD` = 全權密碼,而本窗只有唯讀授權 ⇒ 沒有用它)。
+  //     🟢 而那把尺**會叫**:同一發掃 20 家 ⇒ rizoma 2 · materya 1 · 其餘 18 家 0,分母零損失。
+  //
+  // 🔵 `handlePrefix='dbk'`:既有 **17/17 家逐字 == supplierSlug**(本窗求值比對、零例外)⇒ 沿用唯一慣例, 不是選擇題。
+  // 🔵 `brandSlug='dbk'`:唯讀實查**網站庫** `brands` 有這一列且該品牌商品數 0(= 首灌前狀態)。
+  dbk: {
+    supplierSlug: 'dbk',
+    brandSlug: 'dbk', // identity(不像 kspeed→k-speed 那種拼法分岔)
+    handlePrefix: 'dbk', // 17/17 既有慣例 = supplierSlug 同名
+    syncDescription: true, // 3,570/3,727 列有繁中 description
+    syncInstallResources: true, // 實查 2,420 列有 pdf_urls
+    //   🔴 而 runbook 原本那句「有 pdf/video 來源才 true(靜態無附件 = false)」**與既有設定不符** ——
+    //   本窗拿它去預測既有 17 家 ⇒ **對 12 · 錯 5**(eazigrip/samco/motogadget/front3d/materya
+    //   都是 `true` 而附件 0 列)。而**反方向零例外**:設 `false` 的 4 家附件全部是 0。
+    //   ⇒ 真正的規律是**不對稱**的, 而理由是**代價不對稱**:`true` 而沒東西 = 同步 0 筆(無害);
+    //     `false` 而有東西 = **真的漏掉那些 pdf**。⇒ runbook 該欄已同步訂正。
+    appendManualFilename: false, // 🔴 量到的不是猜的:dbk **群層**每群最多 1 份 pdf、多份的群 0 個
+    //   (895 個有 pdf 的群、平均 1.00)⇒ 本旗標**在這一家無作用**。
+    //   ⚠️ 而**列層量會答錯問題** —— 旗標作用在【合併變體之後的群】上,本窗先量列層才發現。
+    categoryStrategy: { kind: 'per-group' }, // 13 大類 / 59 子類(不是 rpm 那種單一大類 ⇒ 不用 fixed)
+    variantImages: 'per-variant', // 平均每群 2.47 變體(20 家裡非 rpm 最高)⇒ 每變體自身圖
+    writeAllowed: false, // 🔴 fail-closed、過夜零寫入;乾跑全綠 + **Sean 明確批首灌**後才翻 true
+  },
   // 🔴 永久 guard 測試靶(非真供應商、Sean 2026-07-24 拍板放行):所有真品牌已 writeAllowed=true
   //   → rpm-import CLI 的 writeAllowed 硬鎖守衛失去「真實未授權樣本」;保留此永久 false 樣本讓
   //   「未授權 --confirm-write 於連線前被擋」的安全回歸測試持續有效(rpm-import-cli.test.ts)。

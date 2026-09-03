@@ -186,7 +186,12 @@ ba53294  2026-08-29  「硬刪改到 upsert 之後」
 - `brandSlug`:**網站 `brands.slug`,🔴 可能 ≠ supplierSlug**(kspeed→`k-speed`、rpm→`rpm-carbon`、eazigrip→`eazi-grip`)。MCP 實查 brands 表、勿憑記憶。
 - `handlePrefix`:handle = `${prefix}-${mainSku.toLowerCase()}`。
 - `syncDescription`:來源有繁中描述就 true。
-- `syncInstallResources`:有 pdf/video 來源才 true(靜態無附件 = false)。
+- `syncInstallResources`:⛔ ~~有 pdf/video 來源才 true(靜態無附件 = false)~~ ⇒ 🔴 **那句話與既有設定不符**
+  (2026-09-03 線【帳號】拿它去預測既有 17 家:**對 12 · 錯 5**,`eazigrip` / `samco` / `motogadget` /
+  `front3d` / `materya` 都是 **`true` 而附件 0 列**)。✅ **實際的規律是【不對稱】的**:
+  **設 `false` 的 4 家(`rpm`/`extreme`/`dna`/`gilles`)附件【全部是 0】—— 這一側零例外。**
+  🎯 **⇒ 因為兩種錯的代價不一樣**:`true` 而沒東西 = 同步 0 筆(無害);`false` 而有東西 = **真的漏掉那些 pdf**。
+  ⇒ ✅ **填法:預設 `true`;只有在【實測附件 = 0】時才可以填 `false`(而填 `true` 也照樣對)。**
 - `categoryStrategy`:多數 `{ kind: 'per-group' }`。
 - `variantImages`:多變體家 = `'per-variant'`。
 - `writeAllowed`:**先 `false`**(fail-closed、過夜零寫入),乾跑全綠 + Sean 批首灌後才翻 `true`。
@@ -197,8 +202,33 @@ ba53294  2026-08-29  「硬刪改到 upsert 之後」
 
 ```bash
 cd /Users/sean_1/pcm-website-v2
-pnpm exec tsx scripts/rpm-import.ts --dry-run --supplier=<slug>
+pnpm exec tsx scripts/rpm-import.ts --dry-run --supplier=<slug> --expect-groups=<§1-6 記下的群數>
 ```
+
+🔴🔴 **`--expect-groups` 不是選配 —— 而在 2026-09-03 之前這一行【沒有它】**(線【帳號】接 L4 時量到):
+```
+§1-6 逐字:「記下數字 = §3/§4 的 --expect-groups」
+§4 首灌指令:帶了 ✅
+🔴 §3 乾跑指令:【沒帶】 ⇒ 那個被叫去記下來的數字, 只在最後一關才真的被用到
+⇒ 🛑 而乾跑正是「在寫之前抓問題」的那一關 —— 它沒有帶那把尺
+```
+🎯 **⇒ 為什麼要緊:M2 群數指紋是這條線上【唯一】能抓「來源被截斷 / 來源是空的」的東西。**
+`rpm-preflight.ts` 的 docstring 自己講得最清楚(逐字):
+> 「W1 抓取完整性 gate 的結構性盲區:它比的是『target 現存上架 − 本次 source』的差集,
+>  **首灌(target active=0)分母為 0 → shrinkRatio 恆 0 → 恆過**。此時來源只抓到 500/648 也照灌」
+
+🔵 **而 §3 對【slug 打錯】這一種是【免疫】的 —— 而它免疫的理由不在乾跑裡**:
+```
+§1 的 slug = 手打進 SQL 的字串        ⇒ 打錯 = 空母體 = 每一格都印 0 = 全部過(§1 第 0 列在擋)
+§3 的 slug 要先過 getSupplierConfig  ⇒ 打錯 = throw(逐字「未登記 → throw…寧可整條 abort,
+                                       不讓錯 slug 靜默套到別家 scope」)⇒ 走不到任何一關
+```
+📌 **⇒ 同一個病, 兩種結局 —— 差別是【那個名字有沒有經過一份白名單】。**
+🛑 **⇒ 所以 §3 剩下的曝險是「slug 對, 而來源真的空/殘」**(fetcher 沒跑完、來源被截斷)——
+而那時 `分群 0 群` 之後每一關都會印 `0` / `✅`:分類 `0 群未對上` · handle `✅ 0 群全部合法且唯一` ·
+`pv_spec 撞鍵 0` · `新品驗價 0 筆問題` ⇒ **一份全綠的乾跑報告。**
+⇒ ✅ **帶了 `--expect-groups` 就會印 `🔴 ALERT 群數指紋…來源 0 群 ≠ 預期 N 群`**
+　(⚠️ **乾跑只印不 throw** —— `rpm-import.ts:226` 是 `if (!DRY_RUN && …)` ⇒ **看畫面, 別看 `rc`**, 見 3-a)。
 
 ### 3-a 🔴 乾跑的 `rc=0` **不是**「關卡過了」的證據 —— 這一步只能看畫面,不能看退出碼
 
