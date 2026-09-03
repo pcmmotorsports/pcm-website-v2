@@ -769,3 +769,94 @@ describe('出貨警示 —— blocked 的值要真的走到畫面上', () => {
     expect(container.querySelector('[data-testid="cancel-shipment-ack"]')).not.toBeNull();
   });
 });
+
+// ⟦Q13b 甲⟧ 對帳異常那句話的【觸發來源】要釘住 —— 而它是 wiring 那一層, 元件測試看不到。
+//
+// 🔴🔴 **為什麼要這一格**:`refund-ledger-section.test.tsx` 那三格自己餵 `hasNoPaymentRows`
+//    ⇒ 它們證明「拿到 true 會說對的話」, 而**證不到「那個 true 是從哪來的」**。
+//    ⇒ 📌 呼叫端改成從 `payment_channel` 算, 那三格照樣全綠 —— 而那正是本片要修的錯。
+//    🔬 而 `payment_channel` 不能用(線 `-auth` 2026-09-03 實量):
+//       `DEFAULT='tappay'`、正式庫 19/19 全是它(含 9 張從未收款的 unpaid 單)
+//       ⇒ **它是常數不是資料**;該欄 COLUMN COMMENT 自己寫著「勿用本欄」。
+describe('對帳異常那句話的觸發來源 —— 要來自【收款列的 rail】而不是別的欄', () => {
+  // 🔴 一筆**刷卡**收款列 —— 這一格的存在理由:codex 抓到我原本只有「零列」與「讀不到」兩格,
+  //    ⇒ 把正式條件突變成 `payments.status === 'ok'`(不看 rail)那兩格照樣過。
+  const CARD_ROW = {
+    id: 'p-1',
+    rail: 'card',
+    amount: 500,
+    receivedAt: new Date(Date.now() - 60_000).toISOString(),
+    createdAt: new Date(Date.now() - 60_000).toISOString(),
+    actor: 'sean',
+    bankReference: null,
+    recTradeId: 'rt-1',
+    payerNote: null,
+    reversesPaymentId: null,
+    reversalReason: null,
+    isReversal: false,
+  } as const;
+
+  const REFUND_ROW = {
+    id: 'r-1',
+    kind: 'partial',
+    status: 'confirmed',
+    refundAmount: 100,
+    reason: '缺貨退款',
+    actor: 'sean',
+    createdAt: new Date(Date.now() - 60_000).toISOString(),
+    failedReason: null,
+    failedDetail: null,
+    providerEvidence: null,
+  } as const;
+
+  const NEGATIVE = -1000;
+
+  function renderWith(payments: Parameters<typeof OrderDetail>[0]['payments']) {
+    return render(
+      <OrderDetail
+        shipmentWarning={NO_SHIPMENT}
+        refundsTruncated={false}
+        stuckVerdicts={new Map()}
+        detail={detail()}
+        returnTo='/orders/ord-1'
+        payments={payments}
+        refunds={[REFUND_ROW]}
+        refundUnregisteredAmount={NEGATIVE}
+      />,
+    );
+  }
+
+  it("🔴 零收款列 ⇒ 'none' ⇒ 指他去上方登錄, 不提 TapPay Record", () => {
+    const { container } = renderWith({ status: 'ok', rows: [] });
+    expect(container.textContent).toContain('沒有刷卡收款紀錄');
+    expect(container.textContent).not.toContain('請以 TapPay Record 對帳');
+  });
+
+  it("🔴 有收款列【而不是刷卡】⇒ 一樣是 'none' —— 這是我第一版漏掉的第三個世界", () => {
+    // 🎯 codex 逐字:「只有現金／匯款收款列時 hasNoPaymentRows=false, 仍指向不存在的 TapPay Record」。
+    const { container } = renderWith({
+      status: 'ok',
+      rows: [{ ...CARD_ROW, id: 'p-2', rail: 'cash' as const, recTradeId: null }],
+    });
+    expect(container.textContent).toContain('沒有刷卡收款紀錄');
+    expect(container.textContent).not.toContain('請以 TapPay Record 對帳');
+  });
+
+  it("🔵 正對照:有刷卡列 ⇒ 'card' ⇒ TapPay Record 那句要在(證明上面兩格擋的是 rail)", () => {
+    const { container } = renderWith({ status: 'ok', rows: [CARD_ROW] });
+    expect(container.textContent).toContain('請以 TapPay Record 對帳');
+    expect(container.textContent).not.toContain('沒有刷卡收款紀錄');
+  });
+
+  it("🔵 負對照:讀不到 ⇒ 'unknown' ⇒ 兩句都不說(不知道有沒有 ≠ 沒有)", () => {
+    const { container } = renderWith({ status: 'unreadable' });
+    expect(container.textContent).not.toContain('沒有刷卡收款紀錄');
+    expect(container.textContent).not.toContain('請以 TapPay Record 對帳');
+  });
+
+  it("🔵 負對照:查無此單 ⇒ 也是 'unknown'(它與「沒有收款」是兩件事)", () => {
+    const { container } = renderWith({ status: 'order_not_found' });
+    expect(container.textContent).not.toContain('沒有刷卡收款紀錄');
+    expect(container.textContent).not.toContain('請以 TapPay Record 對帳');
+  });
+});

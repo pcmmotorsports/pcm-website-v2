@@ -399,3 +399,35 @@ describe('ManualRefundLedgerSection — ⟦b4-PCM01RECORD⟧ 超出上限要標�
     expect(unknown).toContain('text-destructive-foreground');
   });
 });
+
+// ⟦Q16b 丙⟧ Sean 2026-09-03 拍丙:超額狀態下,那句提醒要在【按鈕旁邊】。
+//
+// 🔴 **為什麼**:區塊頂端本來就有一段寫得對的警告, 而它在**畫面上方** ——
+//    員工捲到那一列要按的時候, 那段話已經不在視線裡。
+//    ⇒ 📌 **一段沒有被讀到的正確警告, 與沒有那段話, 在行為上是同一件事。**
+describe('超額狀態:提醒要在動作旁邊', () => {
+  // 🔴 `overCap = railCap !== null && railCap < 0`(同檔上方那段註解逐字)。
+  //    ⛔ 我第一版寫了兩個**不存在的 helper**(`renderOverCap` / `renderNormal`)——
+  //    ⇒ 📌 **我照著我想像的檔案寫測試, 而不是照著它真正長的樣子。** 改用本檔既有的 `WIRE`。
+  const overCap = (over: Record<string, unknown> = {}) =>
+    render(<ManualRefundLedgerSection rows={[row()]} {...WIRE} railCap={-500} {...over} />);
+
+  it('🔴 超額 ⇒ 作廢鈕旁邊要有那句「不要用作廢消除提示」', () => {
+    const { container } = overCap();
+    const cell = container.querySelector('td:last-child');
+    expect(cell?.textContent ?? '').toContain('不要用作廢消除提示');
+  });
+
+  it('🔵 負對照:沒有超額 ⇒ 按鈕旁邊【不】掛那句(它只屬於超額那個狀態)', () => {
+    const { container } = render(<ManualRefundLedgerSection rows={[row()]} {...WIRE} />);
+    const cell = container.querySelector('td:last-child');
+    expect(cell?.textContent ?? '').not.toContain('不要用作廢消除提示');
+  });
+
+  it('🛑 而作廢鈕【仍然在】—— 超額正是登記真的記錯最可能發生的時候', () => {
+    // 🔴 拿掉它會讓一個真的記錯的登記(例如同一筆退款被登記兩次)變成改不掉。
+    //    (`manual-refund-void-button.tsx` docstring:作廢不動錢, 它說的是這筆登記記錯了。)
+    const { container } = overCap();
+    expect(container.querySelector('td:last-child')?.querySelector('button')).not.toBeNull();
+  });
+});
