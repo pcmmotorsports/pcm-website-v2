@@ -139,7 +139,14 @@ export const MANUAL_ORDER_CATALOG_COLUMNS =
  * 🔴 **上限只設在這裡一處** —— 兩個地方各設一個,改一邊的那天不會有東西紅
  * (理由逐字同 `product-repository.ts:290-292` 的 `MAX_SKU_COUNT`)。
  */
-export const MANUAL_ORDER_CATALOG_LIMIT = 20;
+// 🔴 2026-09-03 搬到 `manual-order-catalog-limit.ts` 並在此 re-export ——
+//    本檔有 `server-only`, 而 client 元件也要用這個數字(理由寫在那支檔)。
+// ⚠️ **要 import 一次再 re-export** —— 只寫 `export { X } from …` 不會把名字帶進本檔的作用域,
+//    而本檔 `:196` 自己在用它。(實測:`pnpm typecheck` 綠、`pnpm build` 才紅 ——
+//    因為我改這一行是在跑完 typecheck 之後。📌 三綠的順序不是裝飾。)
+import { MANUAL_ORDER_CATALOG_LIMIT } from './manual-order-catalog-limit';
+
+export { MANUAL_ORDER_CATALOG_LIMIT };
 
 export type ManualOrderCatalogHit = {
   variantId: string;
