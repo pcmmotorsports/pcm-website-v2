@@ -39,6 +39,7 @@
 // @see docs/specs/2026-07-18-m4a-email-e2a-c-plan.md
 // @see packages/use-cases/src/sweep-email-outbox.ts(E2a-b use-case)
 
+import { resolveSiteUrl } from '@/lib/site-url';
 import { timingSafeEqual } from 'node:crypto';
 import {
   enqueueOrderCreatedEmails,
@@ -467,6 +468,11 @@ export async function GET(request: Request): Promise<Response> {
     const deps: SweepEmailOutboxDeps = getSweepEmailOutboxDeps();
     // 🔴 maxRunSeconds = maxDuration 同一 const(單一來源、不寫第二字面);leaseSeconds/claimLimit = route 端常數。
     const result = await sweepEmailOutbox(deps, {
+      // 🔴 **env 在這一層讀, 不在 use-case 裡讀**(Sean 2026-09-03 勾 A4:信裡會員中心要附連結)。
+      //    ⇒ use-case 是純的:拿到什麼印什麼, 不必知道自己跑在哪個 app 裡。
+      //    ⚠️ `resolveSiteUrl()` 在 production 缺 `NEXT_PUBLIC_SITE_URL` 時回 `undefined`
+      //      ⇒ **那一整段連結不印, 而不是印一個壞的** —— 死入口比沒入口糟。
+      siteUrl: resolveSiteUrl(),
       // 🔴🔴 **同一個 cutoff 同時控【排信】與【寄信】**(codex 2026-08-30 R1 must-fix 1)。
       //    在這一行之前,cutoff 只擋得住 enqueue ⇒ outbox 裡**已經排好的** `order_shipped` 列
       //    會在 env 關著的情況下被 sweeper 照常寄出去

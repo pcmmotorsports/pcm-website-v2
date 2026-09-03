@@ -147,6 +147,39 @@ describe('🔴 稿上那句「PDF 已附在這封信裡」是事實宣稱,預設
   });
 });
 
+describe('🔴 內網位址不進客人的信(codex 對抗審查 must-fix;而這道閘【原本零測試】)', () => {
+  // 🔴🔴 **這一族的存在理由是一發【活下來的突變】**:我把 `if (isLoopbackOrPrivate)` 改成
+  //    `if (false)` ⇒ **119 格全綠。** ⇒ 📌 **那道閘擋的是「真客人收到內網連結」, 而沒有任何東西在證它。**
+  //    ⇒ 「尺會動」與「尺接在路徑上」是兩個宣稱 —— 而這一格連前者都還沒證過。
+  //
+  // ⚠️ **失敗路徑是真的**:`lib/site-url.ts:27` 在非 production 且缺 env 時回
+  //    `'http://localhost:3000'`(**不是 `undefined`**)⇒ 有人在本機對真資料打那條 cron
+  //    ⇒ 真客人收到一個連到他自己電腦的連結。
+  it.each([
+    ['http://localhost:3000', 'localhost'],
+    ['http://127.0.0.1:3000', '回送位址'],
+    ['http://127.0.0.2', '🔴 整個 127/8 都是回送 —— 前綴黑名單漏掉的那一種'],
+    ['http://10.0.0.5', '🔴 內網 10/8'],
+    ['http://192.168.1.20', '🔴 內網 192.168/16'],
+    ['http://172.20.0.3', '🔴 內網 172.16-31 —— 邊界最容易寫錯的那一段'],
+    ['http://169.254.1.1', '🔴 link-local'],
+    ['http://user@127.0.0.1', '🔴 認證資訊在前 ⇒ 字串前綴比對看到的是 user@'],
+    ['https://[::1]/', '🔴 IPv6 回送'],
+    ['not-a-url', '解析不了 ⇒ fail-closed'],
+  ])('%s ⇒ 不印連結(%s)', (url) => {
+    expect(paidEmailOrderUrl(url, 'PCM-2026-0001')).toBeUndefined();
+  });
+
+  // 🟢 **反向世界非做不可** —— 少了它,一支 `return undefined` 寫死的函式也會通過上面十格。
+  it.each([
+    'https://shop.pcmmotorsports.com',
+    'https://www.pcmmotorsports.com',
+    'http://10.example.com',
+  ])('🟢 %s ⇒ 照印(證明它擋的是主機不是「看起來像內網的字」)', (url) => {
+    expect(paidEmailOrderUrl(url, 'PCM-2026-0001')).toContain('/account/orders/PCM-2026-0001');
+  });
+});
+
 describe('🔴 CTA 網址 · paidEmailOrderUrl —— 而它與 LOGO 的取捨【方向相反】', () => {
   it('有基底 ⇒ 組出訂單頁網址', () => {
     expect(paidEmailOrderUrl('https://shop.pcmmotorsports.com', 'XMFPNH')).toBe(

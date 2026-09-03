@@ -11,13 +11,24 @@ import type {
   SendEmailInput,
   ShippedEmailContext,
 } from '@pcm/ports';
-import { assertPdfClaimMatchesAttachments, renderPaidEmailHtml } from './paid-email-html';
 import {
+  assertPdfClaimMatchesAttachments,
+  paidEmailOrderUrl,
+  renderPaidEmailHtml,
+} from './paid-email-html';
+import {
+  formatOrderAmount,
+  orderAmountsBalance,
   ORDER_CANCELLED_HEADLINE_NO_ID,
+  ORDER_LINE_TITLE_MISSING,
   ORDER_CANCELLED_HEADLINE_WITH_ID,
   ORDER_MEMBER_CENTER_SENTENCE,
   ORDER_PAID_NEXT_STEP_SENTENCE,
   ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE,
+  PCM_COMPANY_ADDRESS,
+  PCM_COMPANY_LINE,
+  PCM_LINE_ID,
+  PCM_LINE_URL,
   sanitizeCustomerFacingReason,
 } from './order-email-copy';
 import {
@@ -130,6 +141,14 @@ export type SweepEmailOutboxDeps = {
  * - `now` / `random`:測試注入縫(production 省略 = 系統鐘 + Math.random)。
  */
 export type SweepEmailOutboxOptions = {
+  /**
+   * 顧客站網址(給信裡「會員中心」那句附連結用;Sean 2026-09-03 勾 A4)。
+   *
+   * 🔴 **選填, 而【缺了就不印連結】不是印一個壞的** —— 一顆連到空網址的按鈕比沒有按鈕糟。
+   * ⚠️ 本 use-case **不讀 env** —— 值由 route 那側 `resolveSiteUrl()` 傳進來,
+   *    否則這支純函式就得知道自己跑在哪個 app 裡。
+   */
+  siteUrl?: string;
   /**
    * 🔴🔴 **出貨通知信這條線【上膛了沒】**(codex 2026-08-30 R1 must-fix 1)。
    *
@@ -332,10 +351,15 @@ const SEND_TAIL_ALLOWANCE_SECONDS = 5;
  * per-job catch 計 error、列留 sending → 回收 → 耗盡 attempts → 訊號 2 可見,不靜默吞)。
  * E4 增員 union 時本 switch 少 case → typecheck 必紅(`satisfies never` 窮舉)。
  */
-function buildEmailText(job: ClaimedEmailJob, shipped: ShippedEmailContext | null): string {
+function buildEmailText(
+  job: ClaimedEmailJob,
+  shipped: ShippedEmailContext | null,
+  paid: PaidEmailContext | null,
+  siteUrl: string | undefined,
+): string {
   switch (job.eventType) {
     case 'order_created':
-      return buildOrderCreatedText(job);
+      return buildOrderCreatedText(job, paid, siteUrl);
     case 'order_unpaid_cancelled':
       // 🔵 **不需要 `shipped` 之類的第二來源** —— 這封信要的東西全在 `payload` 裡
       //    (訂單編號 + 對客的取消原因),而那是刻意的:**它是一封「事情不會再發生了」的信**,
@@ -372,7 +396,11 @@ function buildEmailText(job: ClaimedEmailJob, shipped: ShippedEmailContext | nul
  * 三欄之一);payload 形狀異常(理論上不可達,組裝層 runtime 驗過)→ 退回不含編號的通用文案,
  * **不因文案缺欄位就不寄**(付款成功通知的存在比編號重要)。
  */
-function buildOrderCreatedText(job: ClaimedEmailJob): string {
+function buildOrderCreatedText(
+  job: ClaimedEmailJob,
+  paid: PaidEmailContext | null,
+  siteUrl: string | undefined,
+): string {
   const payload = job.payload;
   const displayId =
     typeof payload === 'object' &&
@@ -382,6 +410,52 @@ function buildOrderCreatedText(job: ClaimedEmailJob): string {
       ? (payload as { display_id: string }).display_id
       : null;
   const orderLine = displayId === null ? '您的訂單已付款成功。' : `您的訂單 ${displayId} 已付款成功。`;
+  // 🔴🔴 **金額與品項那一段(Sean 2026-09-03 勾 A1)** —— 而病灶要寫在這裡, 不是只寫做了什麼:
+  //    這封信寄出去是**兩份**(本份純文字 + `renderPaidEmailHtml` 有排版那份), 兩份都送,
+  //    **而客人看到哪一份是他的收信軟體決定的, 不是我們。**
+  //    ⛔ 而在本片之前:排版那份有整張明細表, **本份一個數字都沒有**,
+  //      而排版那份開頭逐字說「這封信是這筆交易的明細」
+  //      ⇒ 🎯 **有一半機率, 客人收到的是一封宣稱自己是明細、而看不到買了什麼付了多少的信。**
+  //    ⚠️ **`paid === null` 時整段不印** —— 那是「沒注入 paidContext」的環境, 行為與本片之前逐字相同。
+  const detail: string[] = [];
+  // 🔴 **加不起來就不印明細**(codex 對抗審查 must-fix):DB 的等式含 `tax_total`,
+  //    而這裡只列 小計/運費/折扣 ⇒ 有稅的那一天客人會收到一張【兜不攏的帳】。
+  //    ⇒ 判準問「加不加得起來」而不是「有沒有稅」—— 後者只擋得住我今天想得到的那一欄。
+  if (paid !== null && orderAmountsBalance(paid)) {
+    detail.push('', '訂單明細');
+    for (const l of paid.lines) {
+      // 🔴 品名從缺時的字面**與排版那份同一句**(`(品名未記錄)`)—— 兩份不可以各講各的。
+      const title = l.title === null ? ORDER_LINE_TITLE_MISSING : l.title;
+      const sku = l.variantSku === null ? '' : ` (${l.variantSku})`;
+      detail.push(`· ${title}${sku} x ${l.quantity}  NT$ ${formatOrderAmount(l.lineTotal)}`);
+    }
+    // 🛑 **`linesTruncated` 在這裡【到不了】—— 而註解要照實說, 不要宣稱它在保護客人**
+    //    (code-reviewer R1 nit):上游 `:978` 已經 `linesTruncated ⇒ errors++ / continue`(不寄)
+    //    ⇒ 走到本行時它**恆為 false**。⛔ ~~我原本寫「少了它客人會以為我們漏算了」~~ ——
+    //    **那個世界到不了這一行。**
+    //    ✅ **留著的理由是【第二道】**:上游那道若哪天被放寬(例如改成「截斷也照寄」),
+    //    這一行讓客人**至少看得到自己看的是部分**, 而不是靜靜地少幾項。
+    //    ⇒ 📌 而它今天**沒有任何一發測試跑得到** —— 那一格是已知的, 不是漏掉的。
+    if (paid.linesTruncated) detail.push('(品項過多,此處僅列出部分;完整明細請至會員中心查看)');
+    detail.push('', `小計  NT$ ${formatOrderAmount(paid.subtotal)}`);
+    // 🔴 折扣 0 不印(印「折扣 −0」會讓客人以為有一筆他沒看到的折抵);
+    //    而**運費 0 照印**(「免運」是他想確認的事)—— 兩條【規則】與排版那份逐條相同。
+    // 🛑 **而【順序】也對齊了**(code-reviewer R1 nit):排版那份是 小計 → 運費 → 折扣 → 訂單金額
+    //    (`shippingRow` 排在 `discountRow` 之前), 而我第一版寫成 小計 → 折扣 → 運費。
+    //    ⇒ 📌 **數字沒錯, 而本片的整個論點就是【兩份不該漂】** —— 順序也是那個「兩份」的一部分。
+    detail.push(`運費  NT$ ${formatOrderAmount(paid.shippingFee)}`);
+    if (paid.discountTotal > 0) detail.push(`折扣  −NT$ ${formatOrderAmount(paid.discountTotal)}`);
+    detail.push(`訂單金額  NT$ ${formatOrderAmount(paid.total)}`);
+  }
+
+  // 🔴 會員中心那句附網址(Sean 勾 A4)。**缺 siteUrl 就只印句子, 不印半個連結。**
+  const orderUrl =
+    paid === null ? undefined : paidEmailOrderUrl(siteUrl, paid.orderDisplayId);
+  const memberCenter =
+    orderUrl === undefined
+      ? ORDER_MEMBER_CENTER_SENTENCE
+      : `${ORDER_MEMBER_CENTER_SENTENCE}\n${orderUrl}`;
+
   return [
     '您好,',
     '',
@@ -449,10 +523,28 @@ function buildOrderCreatedText(job: ClaimedEmailJob): string {
     //    而 HTML 那一份與稿一樣是 `U+FF0C`(全形)⇒ **同一封信的兩份,標點是不同的字元**。
     //    ⇒ 統一的方向是【純文字向稿對齊】(鐵則 1),所以會變的是這一半。
     ORDER_PAID_NEXT_STEP_SENTENCE,
+    ...detail,
     '',
-    ORDER_MEMBER_CENTER_SENTENCE,
+    memberCenter,
+    // 🔴 **聯絡資訊(Sean 勾 A2)** —— 字面全部取自共用來源, 與排版那份同一份。
+    //    ⛔ 本片之前純文字這半 **一個聯絡方式都沒有**(lin.ee / 派達 / 統編 三項全 0,
+    //      而排版那份三項全有)⇒ 收到純文字版的客人, 想問事情時找不到我們。
+    '',
+    // 🔴🔴 **這裡【刻意】不含「回覆這封信」那半句**(codex 對抗審查 must-fix)。
+    //    ⛔ ~~我第一版照抄排版那份的整句, 含「有任何問題,回覆這封信或加入官方 LINE」~~
+    //    🛑 **A2 授權的是「補聯絡方式」;而「回覆這封信」是一個【關於某個信箱的承諾】,**
+    //      **而那個信箱有沒有人收 = A3, 是 Sean 【沒答】的格。**
+    //    ⇒ 📌 **照抄那一整句 = 把一個未決的承諾, 從一份真實信件擴散到第二份。**
+    //      而 A2 的字面涵蓋得到它,不代表它就該被涵蓋 —— **兩件事被綁在同一句話裡, 而只有一半被批准。**
+    //    ✅ ⇒ 純文字只給【找得到我們的方式】(LINE + 公司), 不給那個承諾。
+    //    🔵 而 A3 答了之後:答「有人收」⇒ 這裡可以補上;答「沒人收」⇒ 排版那份要拿掉。
+    //      **兩個答案都只要改一處, 而那正是不擴散換來的。**
+    `加入官方 LINE ${PCM_LINE_ID}`,
+    PCM_LINE_URL,
     '',
     'PCM重機零件販售',
+    PCM_COMPANY_LINE,
+    PCM_COMPANY_ADDRESS,
   ].join('\n');
 }
 
@@ -1088,7 +1180,21 @@ export async function sweepEmailOutbox(
     //      ⇒ ⇒ 📌 **一個跨檔的假設, 沒有任何一支測試守得住它 ——**
     //         **因為每一支測試的分母都是【自己那支檔】。**
     //      ✅ ⇒ 所以本片補了一格**驗這個呼叫點的產物**的測試(見 `sweep-email-outbox.test.ts`)。
-    const html = paid !== null ? renderPaidEmailHtml(paid, { logoUrl: '' }) : null;
+    // 🔵🔵 **2026-09-03 Sean 勾 A4 + A5 ⇒ 這兩格【他點頭了】, 上面那段「不給」的理由到期。**
+    //    ⛔ ~~`{ logoUrl: '' }`(明確不印 LOGO)~~ ⇒ ✅ **不再傳 `logoUrl` ⇒ 吃預設 ⇒ LOGO 印出來。**
+    //      (原因不是那個決定錯了 —— 它當時是對的:第一顆刻意只讓對外變數有一個。**是它被批准了。**)
+    //    ⛔ ~~`orderUrl` 不給, 因為「加一個連結進客人的信是新的對外面, 他還沒點頭」~~
+    //      ⇒ ✅ **他點頭了(A4)** ⇒ 給 `orderUrl` ⇒ 「到會員中心查看訂單」那顆按鈕會印。
+    //    🛑 **而 `paidAtText` 那一格【仍然不給】** —— 它不在 A1~A6 裡, 而 Sean 2026-08-30 逐字
+    //      「沒有那個欄位就不要印, 不要拿成立時間頂替」⇒ **不夾帶。**
+    //    🔴 **而 `orderUrl` 缺 `siteUrl` 時是 `undefined` ⇒ 那顆按鈕整塊不印**,
+    //      **不是印一顆連到空網址的按鈕** —— 死入口比沒入口糟。
+    const html =
+      paid !== null
+        ? renderPaidEmailHtml(paid, {
+            orderUrl: paidEmailOrderUrl(opts.siteUrl, paid.orderDisplayId),
+          })
+        : null;
 
     try {
       // 🔴 **先把 send input 組成一個物件, 守門讀【同一個物件】, 再送出去。**
@@ -1115,7 +1221,7 @@ export async function sweepEmailOutbox(
         //    (Sean 拍「一份定義兩邊取用」+ 鐵則 1 讓給稿)⇒ **動了一個字元。**
         //    ⇒ 下面那句「逐位元與今天相同」講的是**沒注入 `paidContext` 時 html 這個 key 不存在**,
         //      那一格仍然成立;而**它不涵蓋 `text` 的內容**。兩件事不要合起來讀。
-        text: buildEmailText(job, shipped),
+        text: buildEmailText(job, shipped, paid, opts.siteUrl),
         // 🔴 **有 context 才給 html**(選填欄;不給時 POST body 不出現這個 key —— 片1 已釘住)
         //    ⇒ 沒注入 `paidContext` 的環境,寄出去的東西**逐位元與今天相同**。
         // ⚠️ 而 `chrome` 三格**全部不給**,理由逐條:
