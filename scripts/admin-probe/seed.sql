@@ -242,15 +242,62 @@ ON CONFLICT DO NOTHING;
 -- ✅ **種完之後那個正對照就造得出來了**(當場實跑):
 --    `admin_today_payment_total` 今天 ⇒ `(1,1)` · 昨天 ⇒ `(0,0)`;首頁畫面 ⇒ **今日實收(淨) NT$ 1**
 --    ⇒ 🔴 **⇒ 那條管線【看得見資料】** ⇒ **種之前那個 0 是真的 0, 不是尺沒接上。**
+-- 🔴🔴 **2026-09-04:`LIMIT 1` 拿掉 —— 而它原本製造一個【假陽性】。**
+--    🔬 走查實測(線 `-db`):`:112` 那個 ARRAY 把**三張**單設成 `paid`,
+--       而這一段只插**一筆**(`ORDER BY created_at LIMIT 1`)
+--       ⇒ 🎯 **⇒ 另外兩張永遠是「列表寫已收未定 · 明細寫已收 0 元 · 尚未登錄任何收款」**
+--       ⇒ ⇒ 🛑 **⇒ 而那看起來就是「列表與明細互相矛盾」—— 一個很有說服力的缺陷。**
+--       ⇒ ⇒ ⇒ 📌 **⇒ 下一個走這條路的人會撞到同一發, 而他不會知道那是種子造的。**
+--
+-- ✅ **修法選「三張都插」而不是「ARRAY 只設一張 paid」**, 理由:
+--    ① 一張 `paid` 的單**本來就該有收款列** ⇒ 補齊是讓種子更像真的, 縮 ARRAY 是讓世界變小
+--    ② 而縮 ARRAY 會連帶少掉兩個「已付款」的世界 ⇒ **下一個人要測已付款時就沒有樣本**
+--    🔵 而**金額仍然是 1 元**:那是「一眼看得出是假的」那條紀律, 不因為變成三筆就放寬。
+--
+-- ⚠️ **而分母跟著變**:這台鑽機上的 `order_payments` = 種的 **3 筆**(原本 1 筆)+ 真的 0 筆。
 INSERT INTO public.order_payments
   (id, order_id, rail, amount, received_at, bank_reference, request_id, actor, note)
 SELECT gen_random_uuid(), o.id, 'bank_transfer', 1, now(),
-       'ZZQ-PROBE-SEED-20260831', gen_random_uuid(), 'probe_staff',
+       'ZZQ-PROBE-SEED-20260831-' || o.display_id, gen_random_uuid(), 'probe_staff',
        '🔴 探針種子資料(ZZQ-PROBE-SEED)—— 不是真收款。種它的理由見本檔上方註解。'
   FROM public.orders o
  WHERE o.payment_status = 'paid'
- ORDER BY o.created_at
- LIMIT 1
+ON CONFLICT DO NOTHING;
+
+-- ── 一張【付過款又全額退掉】的單(2026-09-04 線 `-db` 種)────────────────────────────
+-- 🔴 **為什麼種它**:走查【後台看錢】撞到 —— 那張 `refunded` 的單**沒有收款列也沒有退款列**
+--    ⇒ 🎯 **⇒ 它是一張「沒付過也沒退過, 而狀態寫已退款」的單** ——
+--       而**那種單在真實世界不存在** ⇒ 拿它走查會量到假的東西。
+--    ⇒ ⇒ 📌 **⇒ 而要驗 Sean 2026-09-04 那句「已退款的單, 付款完成那一格要打勾(他確實付過)」,
+--         前提就是【他真的付過】** ⇒ 沒有收款列的話那一格根本問不出來。
+--
+-- ✅ **所以順序是:先收款、再退款** —— 而兩筆都掛同一張 `refunded` 的單。
+-- 🔵 而**金額對得起來**:收多少就退多少(全額) ⇒ `kind = 'full'`。
+-- ⚠️ 而它一樣**一眼看得出是假的**:`bank_refund_id` / `rec_trade_id` 都帶 `ZZQ-PROBE-SEED`。
+INSERT INTO public.order_payments
+  (id, order_id, rail, amount, received_at, bank_reference, request_id, actor, note)
+SELECT gen_random_uuid(), o.id, 'bank_transfer', o.total, now() - interval '2 days',
+       'ZZQ-PROBE-SEED-REFUNDED-PAID', gen_random_uuid(), 'probe_staff',
+       '🔴 探針種子資料 —— 這張單【先付過】, 下面那筆退款才有前提。'
+  FROM public.orders o
+ WHERE o.payment_status = 'refunded'
+ON CONFLICT DO NOTHING;
+
+-- 🔴🔴 **走【人工退款】那條路, 不是 `order_refunds` —— 而那是 DB 教我的, 不是我讀出來的。**
+--    我第一版插 `order_refunds` ⇒ 連撞兩道閘:
+--      ① 「初態必須是 processing」⇒ 我改成兩步(insert processing ⇒ update confirmed)
+--      ② 而第二道逐字:「訂單 … **沒有 `tappay_rec_trade_id`**(非信用卡交易?),無法登記退款」
+--    ⇒ 🎯 **⇒ `order_refunds` 是【信用卡(TapPay)】那條路。而我種的是【銀行匯款】的單。**
+--    ⇒ ⇒ 📌 **⇒ 所以「已退款」在這個系統裡【至少有兩條路】, 而它們不是同一張表:**
+--         · 刷卡退款 ⇒ `public.order_refunds`(要 `tappay_rec_trade_id` · 有狀態機)
+--         · 人工退款 ⇒ `public.order_manual_refunds`(`rail` 只認 bank_transfer / cash)
+--    ⇒ ⇒ ⇒ 🛑 **⇒ 下一個人拿這張單當 fixture 時要知道它走的是【人工】那條。**
+INSERT INTO public.order_manual_refunds
+  (id, order_id, rail, refund_amount, reason, actor, occurred_at)
+SELECT gen_random_uuid(), o.id, 'bank_transfer', o.total,
+       '探針種子資料:全額退款(不是真退款)', 'probe_staff', now() - interval '1 day'
+  FROM public.orders o
+ WHERE o.payment_status = 'refunded'
 ON CONFLICT DO NOTHING;
 
 -- ── 一張【哨兵訂單】ZZQPRB + 它的哨兵收款(2026-08-31 `-08` 種;主視窗批「丙」)───────────
