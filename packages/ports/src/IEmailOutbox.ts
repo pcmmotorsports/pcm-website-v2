@@ -73,6 +73,37 @@
  * 🔵 而在它進來之前,失敗方向是安全的:`buildEmailText` 的 `default` 是 `throw`
  *    ⇒ 計 error、列留 sending、**不寄**,而不是把 event_type 字串當內文寄出去。
  */
+/**
+ * 🔴🔴 **訂單失效(已取消/已退款)時,這一種信【該不該被擋下來】。**
+ *
+ * **為什麼這一格存在**(2026-09-03,Q10 片 B 前置;code-reviewer R1 C2 抓到):
+ * 寄送前有一道閘 —— 「已取消/已退款的單,不要再寄通知」。它**不分 event_type**,
+ * 而**取消通知本身正是那條規則的例外** ⇒ 沒有這一格的話,
+ * **每一封取消信都會被標成 `skipped_order_ineligible`** ——
+ * 🛑 **而那是終態、不計 error、【沒有自動告警在看】**(⚠️ 不是「查不到」——後台 `email-log-view.ts` 逐單看得到,而那要有人去查;codex nit 2 訂正我原本過度絕對的字面) ⇒ **一整條做完的線看起來像做完了,而一封都沒寄。**
+ *
+ * 🎯 **判別句(加新 event_type 時照這句填)**:
+ * ```
+ * 這封信講的是「這張單【還會發生什麼】」⇒ true (單失效了 ⇒ 那句話變成假的 ⇒ 該擋)
+ * 這封信講的是「這張單【的終局本身】」  ⇒ false(單失效【就是】我們要說的那件事 ⇒ 擋它 = 擋掉唯一要說的話)
+ * ```
+ *
+ * 🔵 **為什麼是 `Record<EmailOutboxEventType, …>` 而不是一份清單**:
+ * `Record` 對 union 是**窮舉**的 ⇒ **加一個新 event_type 而沒標這一格 ⇒ typecheck 當場紅。**
+ * ⇒ 📌 從「下一個人要記得去改一份清單」變成「**不標就編不過**」。
+ * ⚠️ 而**這一格只管【被閘擋不擋】** —— 它不決定要不要寄、也不決定內容。
+ */
+export const SUPPRESS_WHEN_ORDER_INELIGIBLE: Record<EmailOutboxEventType, boolean> = {
+  // 這張單被取消了 ⇒ 那正是這封信要講的事
+  order_cancelled: false,
+  // 「付款成功」在單被取消之後是假的 ⇒ 該擋
+  order_created: true,
+  // 「已出貨」在單被取消之後是假的 ⇒ 該擋
+  order_shipped: true,
+  // 同 order_cancelled:取消本身就是內容
+  order_unpaid_cancelled: false,
+};
+
 export type EmailOutboxEventType =
   | 'order_cancelled'
   | 'order_created'

@@ -1181,6 +1181,42 @@ const paidDeps = (r: LoadPaidContextResult, outbox: OutboxFake, sender: IEmailSe
   paidContext: paidFake(r),
 });
 
+describe('取消信不被【寄送當下】那道閘擋掉(Q10 前置;路A)', () => {
+  // 🔴🔴 那道閘擋的是「已取消/已退款的單, 不要再寄通知」——
+  //    而**取消通知本身正是那條規則的例外**:擋它 = 擋掉我們唯一要說的那句話。
+  //    ⛔ 修之前:每一封取消信 100% 被標 `skipped_order_ineligible`
+  //      ⇒ **終態、不計 error、沒有人在看** ⇒ 一整條做完的線看起來像做完了, 而一封都沒寄。
+  const ineligibleAll = () => ({ listIneligibleAmong: async () => ['order-1'] }) as never;
+
+  it.each([
+    ['order_cancelled', 'order_cancelled' as const],
+    ['order_unpaid_cancelled', 'order_unpaid_cancelled' as const],
+  ])('🔴 %s ⇒ 訂單已不合格也【照寄】', async (_l, eventType) => {
+    const outbox = outboxFake([job({ eventType, payload: { display_id: 'PCM-2026-0001' } })]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const r = await sweepEmailOutbox({ ineligibleScanner: ineligibleAll(), outbox, sender }, OPTS);
+    expect(r.sent).toBe(1);
+    expect(r.skippedIneligible).toBe(0);
+  });
+
+  // 🟢 **反向世界** —— 少了它,「閘整個拿掉」也會通過上面兩格
+  it.each([
+    ['order_created', 'order_created' as const],
+    ['order_shipped', 'order_shipped' as const],
+  ])('🟢 %s ⇒ 訂單已不合格 ⇒ 照舊【不寄】(既有行為逐字不變)', async (_l, eventType) => {
+    const outbox = outboxFake([job({ eventType })]);
+    // 🔴 **預設的 fake 對 `markSkippedOrderIneligible` 是【reject】的** —— 它的訊息逐字寫著
+    //    「本測項的世界是【全部合格】」⇒ 那是一個**刻意的地雷**, 用來抓「不該被擋卻被擋了」。
+    //    ⇒ 而本格的世界【就是要它被擋】⇒ 要把那顆地雷換掉, 否則我量到的會是 `errors`。
+    //    ⚠️ 我第一版沒換 ⇒ 這一格紅了 ⇒ **而紅的是我的斷言, 不是碼。**
+    outbox.markSkippedOrderIneligible = vi.fn(async () => true);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const r = await sweepEmailOutbox({ ineligibleScanner: ineligibleAll(), outbox, sender }, OPTS);
+    expect(r.sent).toBe(0);
+    expect(r.skippedIneligible).toBe(1);
+  });
+});
+
 describe('order_cancelled —— 刷卡且已全額退款的取消信(Q10)', () => {
   // 🔴 這封信的存在理由:今天這種單的客人**什麼都收不到, 而錢已經退回去了**。
   const cancelledJob = (payload: Record<string, unknown>) =>

@@ -22,6 +22,8 @@
  * @see docs/specs/2026-07-16-m4a-email-notify-plan.md §4.1(:329)/ E2a-2 表列(:362)
  * @see packages/adapters/src/email/SupabaseEmailOutboxAdapter.ts(DUE_SCAN_CAP 手法出處)
  */
+import type { EmailOutboxEventType } from '@pcm/ports';
+import { SUPPRESS_WHEN_ORDER_INELIGIBLE } from '@pcm/ports';
 import 'server-only';
 
 import type { IIneligibleOrderEmailScanner, DueIneligibleEmailJob } from '@pcm/ports';
@@ -56,6 +58,8 @@ type DueOutboxRow = {
   order_id: string;
   attempts: number;
   max_attempts: number;
+  /** 🔴 2026-09-03 加:這條路要問「這一種信該不該被擋」(Q10 前置;見 port 那一欄的註解)。 */
+  event_type: EmailOutboxEventType;
 };
 
 export class SupabaseIneligibleOrderEmailScannerAdapter implements IIneligibleOrderEmailScanner {
@@ -69,7 +73,7 @@ export class SupabaseIneligibleOrderEmailScannerAdapter implements IIneligibleOr
     const nowIso = new Date().toISOString();
     const { data: dueRows, error: dueError } = await this.client
       .from('email_outbox')
-      .select('id, order_id, attempts, max_attempts')
+      .select('id, order_id, attempts, max_attempts, event_type')
       .in('status', CLAIMABLE_STATUSES)
       .lte('next_retry_at', nowIso)
       .order('next_retry_at', { ascending: true }) // 🔴 最舊(最可能死透)的列先進窗口,見 DUE_SCAN_CAP 檔頭
@@ -85,10 +89,22 @@ export class SupabaseIneligibleOrderEmailScannerAdapter implements IIneligibleOr
 
     const orderIds = [...new Set(candidates.map((row) => row.order_id))];
     const ineligibleOrderIds = new Set(await this.listIneligibleAmong(orderIds));
+    // 🔴🔴 **取消信在 `.slice()` 【之前】就濾掉 —— 而位置就是這一格的全部**
+    //    (code-reviewer N5 + codex must-fix 1/2,兩把尺從不同角度指到同一行)。
+    //    ⛔ 我第一版把這道 filter 放在 **use-case**(`.slice()` 之後)⇒ **starvation**:
+    //      前 50 筆若都是取消信 ⇒ 它們先吃掉 `limit` 的名額、再被全部濾掉
+    //      ⇒ `scanned: 0 / errors: 0 / ok: true` ⇒ 心跳綠、route 200
+    //      ⇒ 🛑 **而第 51 筆的 `order_created` 永遠進不來** —— 既有兩封信【被餓死】。
+    //    🎯 **⇒ 那正是我宣稱「既有行為逐字不變」的那一格,而我把它弄壞了。**
+    //    ⇒ 📌 **而它的失敗形狀與本片要修的那個病一模一樣:安靜地成功、儀表全綠。**
+    //    ⚠️ 判斷用**與兩條路同一份來源** `SUPPRESS_WHEN_ORDER_INELIGIBLE`,不在這裡另寫一份。
+    //    🛑 **未知 event_type ⇒ 當成【該擋】**(`!== false`)—— fail-closed:
+    //      DB 先加值而 code 還沒跟上是本 repo 明文預期的順序,而那時**不該讓它悄悄溜過這道閘**。
     const result = candidates
       .filter((row) => ineligibleOrderIds.has(row.order_id))
+      .filter((row) => SUPPRESS_WHEN_ORDER_INELIGIBLE[row.event_type] !== false)
       .slice(0, limit)
-      .map((row) => ({ id: row.id, orderId: row.order_id }));
+      .map((row) => ({ id: row.id, orderId: row.order_id, eventType: row.event_type }));
     return result;
   }
 

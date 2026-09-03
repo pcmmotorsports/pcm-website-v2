@@ -285,7 +285,7 @@ describe('E2a-2 ineligible gate — 紅綠雙向組合證明', () => {
     const store = new InMemoryOutbox(seedRow());
     const scanner: IIneligibleOrderEmailScanner = {
       // 模擬 W5/W3-G 的失敗情境:掃描器看到的是「outbox-1 對應的訂單已不合格」。
-      listDueIneligible: vi.fn(async () => [{ id: 'outbox-1', orderId: 'order-1' }]),
+      listDueIneligible: vi.fn(async () => [{ id: 'outbox-1', orderId: 'order-1', eventType: 'order_created' as const }]),
       listIneligibleAmong: async () => ['order-1'],
     };
 
