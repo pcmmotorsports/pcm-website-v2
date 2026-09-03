@@ -23,6 +23,8 @@
 
 'use client';
 
+import { hasNoRealImage } from '@pcm/domain';
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MockProduct, UIVariant } from '@/data/mock-products';
 import { useLightboxSwipe } from '@/hooks/useLightboxSwipe';
@@ -57,7 +59,14 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
     const pool: string[] = [];
     const push = (arr?: readonly string[]) => {
       for (const u of arr ?? []) {
-        if (u && !seen.has(u)) {
+        // 🔴🔴 2026-09-03:`hasNoRealImage` —— 有網址【不等於】有照片。
+        //   來源 1,011 列的圖是「查無圖片」的卡(882 列是 PCM 自己那張、119 列是供應商的)。
+        //   🛑 而 `dropSupplierPlaceholders`(mapper 那層)**刻意保留 PCM 自己的卡**
+        //      (負對照釘在 `packages/adapters/.../product.test.ts`)⇒ 🔴 **它到得了這裡**(所以這一行非有不可)。
+        //   ⇒ 少了這一句, 那張「暫無照片」的卡會在商品詳情頁**當 hero 全尺寸顯示**,
+        //     還會進縮圖列、還能點開 lightbox 放大。⇒ 🎯 **比在卡片上更難看。**
+        //   ⇒ 🔵 全部濾光 ⇒ pool 空 ⇒ 走下面那個站內佔位圖(= 本來就有的最後一層)。
+        if (u && !hasNoRealImage(u) && !seen.has(u)) {
           seen.add(u);
           pool.push(u);
         }

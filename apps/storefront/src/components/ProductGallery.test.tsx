@@ -205,6 +205,43 @@ describe('ProductGallery', () => {
   // 🔴 這條路以前會去跟 `images.unsplash.com` 要【三張示意圖】—— 那是從 design 示意稿
   //   逐字搬進來的,而它被當成正式站的 fallback 用了。對方掛掉或擋流量 ⇒ 客人看到破圖。
   //   ⚠️ 影響幾件商品是量過的:**1 件**(正式庫 21,220 件裡, 群層與變體層都沒有圖的只有 1 件)。
+  // 🔴🔴 2026-09-03:有網址【不等於】有照片(來源 1,011 列的圖是「查無圖片」的卡)
+  describe('圖是「查無圖片」的卡 ⇒ 不得當成商品照片顯示', () => {
+    const PCM_CARD = 'https://quote.pcmmotorsports.com/no-photo.png';
+    const SUPPLIER_PH = 'https://www.extreme-components.com/x/noimage.jpg';
+
+    it.each([
+      ['PCM 自己的卡', PCM_CARD],
+      ['供應商的佔位圖', SUPPLIER_PH],
+    ])('🔴 只有【%s】⇒ hero 顯示站內佔位圖, 不是那張卡', (_k, url) => {
+      // 🛑 mapper 那層的 dropSupplierPlaceholders **刻意保留 PCM 自己的卡** ⇒ 它到得了這裡。
+      //    少了 hasNoRealImage, 這張卡會當 hero 全尺寸顯示、進縮圖列、還能點開放大。
+      const p = { ...MOCK_PRODUCTS[0]!, images: [url], variants: [] };
+      const { container } = render(<ProductGallery product={p} />);
+      const hero = container.querySelector('.pd-hero-slide img') as HTMLImageElement;
+      expect(hero.getAttribute('src')).toBe('/placeholder-product.png');
+      // 🔴 而那張卡【不准】出現在任何一個 img 上(縮圖列與 lightbox 也算)
+      const srcs = [...container.querySelectorAll('img')].map((el) => el.getAttribute('src') ?? '');
+      expect(srcs.some((s) => s === url)).toBe(false);
+    });
+
+    it('🟢 反向那半:真圖照樣顯示(證明這把尺不是恆真)', () => {
+      const real = 'https://cdn.example.com/real-1.jpg';
+      const p = { ...MOCK_PRODUCTS[0]!, images: [real], variants: [] };
+      const { container } = render(<ProductGallery product={p} />);
+      const hero = container.querySelector('.pd-hero-slide img') as HTMLImageElement;
+      expect(hero.getAttribute('src')).toBe(real);
+    });
+
+    it('🔵 混合:真圖 + 佔位圖 ⇒ 只留真圖(佔位圖不佔一格縮圖)', () => {
+      const real = 'https://cdn.example.com/real-1.jpg';
+      const p = { ...MOCK_PRODUCTS[0]!, images: [PCM_CARD, real], variants: [] };
+      const { container } = render(<ProductGallery product={p} />);
+      const hero = container.querySelector('.pd-hero-slide img') as HTMLImageElement;
+      expect(hero.getAttribute('src')).toBe(real);
+    });
+  });
+
   describe('一張圖都沒有 ⇒ 用站內佔位圖, 不向外部圖庫要圖', () => {
     const 沒有圖的商品 = () => ({ ...MOCK_PRODUCTS[0]!, images: [], variants: [] });
 

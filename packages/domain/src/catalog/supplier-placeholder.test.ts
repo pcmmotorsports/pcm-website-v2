@@ -9,7 +9,12 @@
 //    **3/3 都有 sibling test** ⇒ 這支檔缺它是違反既有慣例, 不是風格選擇。
 
 import { describe, expect, it } from 'vitest';
-import { dropSupplierPlaceholders, isSupplierPlaceholder } from './supplier-placeholder';
+import {
+  dropSupplierPlaceholders,
+  hasNoRealImage,
+  isSupplierPlaceholder,
+  SUPPLIER_PLACEHOLDERS,
+} from './supplier-placeholder';
 
 const G = 'https://www.gillestooling.com/media/01/e4/ac/1711800467/';
 const G2 = 'https://www.gillestooling.com/media/7d/cb/33/1740757593/'; // 🔴 另一個目錄段(目錄是 hash 化的)
@@ -82,5 +87,65 @@ describe('dropSupplierPlaceholders', () => {
 
   it('🔵 空陣列 ⇒ 空陣列(不得 throw)', () => {
     expect(dropSupplierPlaceholders([])).toEqual([]);
+  });
+});
+
+describe('hasNoRealImage — 「這一筆沒有真照片」(與 isSupplierPlaceholder 是兩個謂詞)', () => {
+  const PCM_CARD = 'https://quote.pcmmotorsports.com/no-photo.png';
+
+  // 🔴🔴 這一組【由 SUPPLIER_PLACEHOLDERS 那張表驅動】—— 表加第五條, 這裡自動涵蓋。
+  //    而它擋的是:有人把 hasNoRealImage 改成「自己重打一份判斷」⇒ 兩份會分岔, 而分岔不會紅。
+  //    實測突變(重打一份、少一條規則)⇒ 這一組會紅。
+  it.each(SUPPLIER_PLACEHOLDERS)(
+    '🔴 供應商佔位圖規則 [%s / %s] ⇒ hasNoRealImage 必為 true(不得與 isSupplierPlaceholder 分岔)',
+    (host, prefix) => {
+      const url = `https://${host}/x/${prefix}whatever.jpg`;
+      expect(isSupplierPlaceholder(url)).toBe(true);
+      expect(hasNoRealImage(url)).toBe(true);
+    },
+  );
+
+  // 🔴🔴 **真實網址逐字**(2026-09-04 `SELECT DISTINCT` 從報價庫 `storefront_catalog_v` 撈回來貼上)。
+  //    ⇒ 這一組存在的理由:上面那組 `it.each(SUPPLIER_PLACEHOLDERS)` 是**拿表自己組 URL**
+  //      ⇒ 🛑 **對「表裡的字面填錯」零判別力**(host 少一個 `www.`、前綴打錯字, 它照樣全綠)。
+  //    ✅ 而這一組是**外部事實**:表填錯 ⇒ 這裡紅。兩組合起來才蓋得住。
+  //    ⚠️ 射程:這是**那一天**的讀數。供應商換 CDN ⇒ 這裡不會自己更新, 而它也不該 ——
+  //       它紅的時候要去問「是表過期了, 還是來源變了」, 兩個修法不同。
+  const REAL_URLS_FROM_DB: ReadonlyArray<readonly [string, string]> = [
+    ['PCM 自己的卡 (882 列)', 'https://quote.pcmmotorsports.com/no-photo.png'],
+    ['extreme (80 列)', 'https://www.extreme-components.com/components/com_virtuemart/assets/images/vmgeneral/noimage.jpg'],
+    ['rpm (27 列) — 🔴 沒有 www.', 'https://rpmcarbon.com/cdn/shopifycloud/storefront/assets/no-image-2048-a2addb12_600x600_crop_center.gif'],
+    ['gbracing (8 列)', 'https://www.gbracing.eu/templates/GBRacing/Images/no-image-300x300.jpg'],
+    ['motogadget (4 列)', 'https://www.motogadget.com/cdn/shopifycloud/storefront/assets/no-image-2048-a2addb12_grande.gif'],
+  ];
+
+  it.each(REAL_URLS_FROM_DB)(
+    '🔴 正式資料撈回來的網址 [%s] ⇒ hasNoRealImage 必為 true',
+    (_label, url) => {
+      expect(hasNoRealImage(url)).toBe(true);
+    },
+  );
+
+  it('🟢 PCM 自己的卡:isSupplierPlaceholder=false(不濾)而 hasNoRealImage=true(沒有真照片)', () => {
+    // 🎯 這一格就是「兩個謂詞回答兩個不同問題」的本體。任一邊被寫成另一邊, 這裡都會紅。
+    expect(isSupplierPlaceholder(PCM_CARD)).toBe(false);
+    expect(hasNoRealImage(PCM_CARD)).toBe(true);
+  });
+
+  it.each([null, undefined, '', '   '])('沒有網址(%s)⇒ 沒有真照片', (v) => {
+    expect(hasNoRealImage(v as string | null | undefined)).toBe(true);
+  });
+
+  it('🟢 正對照:一張真圖 ⇒ false(證明這把尺不是恆真)', () => {
+    expect(hasNoRealImage('https://www.gillestooling.com/img/real-product-01.jpg')).toBe(false);
+  });
+
+  it('🛑 解析不了的網址 ⇒ false(fail-open, 刻意)', () => {
+    // 回 true 會讓畫面拿品牌 logo 蓋掉一張真照片 ⇒ 這個謂詞的誤報成本比漏報高。
+    expect(hasNoRealImage('not a url')).toBe(false);
+  });
+
+  it('🔵 大寫檔名的 PCM 卡照樣算(與 isSupplierPlaceholder 的大小寫處理一致)', () => {
+    expect(hasNoRealImage('https://quote.pcmmotorsports.com/NO-PHOTO.PNG')).toBe(true);
   });
 });

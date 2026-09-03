@@ -112,6 +112,13 @@ function OrderLine({ item }: { item: MemberOrderDetailItem }) {
             (改 src 會再觸發 load ⇒ 佔位圖也載不到時變成無限迴圈)。不另發明一條取圖路徑。
             ⚠️ imageUrl 為 null 的兩個成因(商品無圖 / **商品已下架 join 不到**)在這裡
                長得一樣,而兩者都該退到佔位圖 ⇒ 不分流。 */}
+        {/* 🔴 2026-09-03 **行為改變, 明寫**:`ProductImage` 現在用 `hasNoRealImage(image)` 判「有沒有真照片」
+            ⇒ 本頁那些 `imageUrl` 是「查無圖片」卡的品項, 從【顯示那張卡】改成【顯示站內佔位圖】。
+            🔵 兩者都是「沒有照片」的畫面, 而站內佔位圖是我們自己的、講得出「暫無照片」。
+            🛑 **而本頁【不傳 brandSlug】⇒ 永遠不會顯示品牌 logo**(卡片那條路會)。
+               理由:訂單品項只有 `item.brand`(顯示名), 而由顯示名衍生 slug 對 7 家會對不上
+               (`BONAMICI RACING`→`bonamici-racing` 而 key 是 `bonamici`)⇒ 猜一個會 404 的路徑不如不猜。
+               ✅ 要讓訂單頁也顯示 logo ⇒ 得先讓訂單品項帶 `brand_slug` 下來, 那是另一片。 */}
         <ProductImage image={item.imageUrl} label={item.title ?? item.variantSku} />
       </div>
       <div>
