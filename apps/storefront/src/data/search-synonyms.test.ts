@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SEARCH_CATEGORY_NAMES, SEARCH_CATEGORY_NAMES_SNAPSHOT } from './search-category-names';
 import { SEARCH_SYNONYMS, synonymFor } from './search-synonyms';
-import { foldSearchTerm } from '@/lib/search-terms-fold';
+import { foldEquals, foldSearchTerm, foldStartsWith } from '@/lib/search-terms-fold';
 
 // ⟦search-CAPSULEPARSE⟧ · code-reviewer 2026-09-04 minor
 //
@@ -58,6 +58,30 @@ describe('SEARCH_SYNONYMS — 這張表自己要站得住', () => {
         `「${syn.from} ⇒ ${syn.to}」的 to 不在合法分類名快照裡(快照 ${SEARCH_CATEGORY_NAMES.length} 個,` +
           ` 取自 ${SEARCH_CATEGORY_NAMES_SNAPSHOT.takenAt})⇒ 這一列今天指不到任何東西`,
       ).toBe(true);
+    },
+  );
+
+  // 🔴🔴 **2026-09-04 補:一列可以【完全合法而永遠不會被讀到】。**
+  //    `parse-search-facets.ts:100` 先試 `foldEquals(w, c.name) || foldStartsWith(c.name, w)`,
+  //    中了就 `break` —— **在 `synonymFor` 之前**。
+  //    ⇒ 🎯 所以 `from` 若是某個分類名的**前綴**, 前綴那條先中, **字典這一列從來沒有被讀到**。
+  //    🛑 而**上面那格「from 與 to 不得折成同一個」看不到這一種** —— 它擋的是【重複】,
+  //       而這一種是 from ≠ to、只是**到不了**。
+  //    🔬 線【前台】2026-09-04 端到端驗出來的:當時 14 列裡有 **4 列**是這樣
+  //       (風鏡 / 手機架 / 齒盤 / 土除)⇒ **真實覆蓋是 10 列, 不是 14。**
+  //    ✅ 而這一格自帶「不會誤殺」的性質:哪天分類改名成不再以那個字開頭,
+  //       這個條件就自動變 false ⇒ **那一列可以合法地加回來, 而閘不會擋。**
+  it.each(SEARCH_SYNONYMS.filter((s) => s.kind === 'category'))(
+    '🔴 `from` 不得是任何分類名的前綴(那樣前綴那條先中, 這一列永遠讀不到):%s',
+    (syn) => {
+      const shadowedBy = SEARCH_CATEGORY_NAMES.find(
+        (name) => foldEquals(syn.from, name) || foldStartsWith(name, syn.from),
+      );
+      expect(
+        shadowedBy,
+        `「${syn.from} ⇒ ${syn.to}」被分類名「${shadowedBy}」的前綴比對搶先命中` +
+          ' ⇒ 這一列永遠不會被讀到。前綴已經處理了它 ⇒ 這一列是純多餘, 刪掉。',
+      ).toBeUndefined();
     },
   );
 
