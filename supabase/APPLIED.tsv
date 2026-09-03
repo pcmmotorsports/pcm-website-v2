@@ -365,3 +365,6 @@
 20260901020000	d1b36392697d9a231de4c90cf7e5aa8d64f6d6ec1b5a40aa981ab6d57023ba7a	2026-09-03	Sean(SQL Editor 本人貼)/ 主視窗 -0(記, 未親自 apply)。**券片 3b 前置 · orders.coupon_id 欄 + orders_discount_needs_coupon CHECK**。🔴 證據等級=【推論】, 理由與上列逐字相同(同一次失敗證不到這兩支)。⚠️ 正式庫未查證。⚠️ 平台 supabase_migrations 未登記。
 20260828100000	9cbc364810d1bfbf7b16b8e558ebd02509cfdb9db25f2a1214615bf2748be71b	2026-09-03	Sean(SQL Editor 本人貼)/ 主視窗 -0(記, 未親自 apply)。⟦b1⟧ orders 稅欄 + invoice_requested。✅ **本列是七支裡唯一有【直接證據】的一支** —— Sean 2026-09-03 逐字回「第六隻貼好了 / Success. No rows returned」。🔵 本支實查**零前置閘**(grep 「先 apply」⇒ 0)⇒ 它不依賴券那條鏈, 這也是它能單獨收工的原因。⚠️ 正式庫未查證。⚠️ 平台 supabase_migrations 未登記。
 20260903070000	b6303fc156b93397a91953ae0f70c3871cae842d557cfb8b54fc969c5f7682be	2026-09-03	Sean(SQL Editor 本人貼, 逐字回「Success. No rows returned」)/ 主視窗 -f0(記, 未親自 apply)。找不到收件人的告警 RPC。
+20260903060000	42774e7e38c49d8b33f8e69db15e03bb2c0f14b0d869dcf152ca883f03080190	2026-09-04	Sean(SQL Editor 本人貼, 逐字回「三隻SQL 都完成 / Success. No rows returned」)/ 主視窗 -f0(記, 未親自 apply)。
+20260903093000	08fe84c4ee6cfab363b48eacf6b412a8a6015016f5de264aefcc8e3906932d5a	2026-09-04	Sean(SQL Editor 本人貼, 逐字回「三隻SQL 都完成 / Success. No rows returned」)/ 主視窗 -f0(記, 未親自 apply)。
+20260903230000	9297295d1d6121eb1a8b59b8f7f2de66150e9857dbd41bc3ecec504049110237	2026-09-04	Sean(SQL Editor 本人貼, 逐字回「三隻SQL 都完成 / Success. No rows returned」)/ 主視窗 -f0(記, 未親自 apply)。
