@@ -82,7 +82,8 @@
     "scripts/pcm01-record-verify.sh": "bash scripts/pcm01-record-verify.sh --selftest",
     "supabase/migrations/20260902020000_m4b_pcm01_record_not_block.sql": "bash scripts/pcm01-record-verify.sh --selftest",
     "scripts/anchor-already-done-hook.py": "python3 scripts/anchor-already-done-hook.py --selftest",
-    "scripts/sql-scan-gate.sh": "bash scripts/sql-scan-gate.sh --selftest"
+    "scripts/sql-scan-gate.sh": "bash scripts/sql-scan-gate.sh --selftest",
+    "scripts/ci-verdict.py": "python3 scripts/ci-verdict.py --selftest"
   },
   "devDependencies": {
     "@pcm/domain": "workspace:^",
