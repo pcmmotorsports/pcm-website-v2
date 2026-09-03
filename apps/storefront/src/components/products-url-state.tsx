@@ -65,8 +65,19 @@ export {
  * page/sort/perPage 以 URL 為初值(back / refresh / 分享還原)。
  * server render 與 client 首繪同讀 searchParams、零 hydration 分歧;之後由 useBrowseUrlSync 回寫。
  */
-export function useBrowseUrlState(searchParams: SearchParamsLike) {
-  const [sort, setSort] = useState(() => parseSortParam(searchParams.get('sort')));
+export function useBrowseUrlState(searchParams: SearchParamsLike, keywordActive = false) {
+  // 🔴🔴 **關鍵字結果頁不還原 `sort`**(⟦搜尋-落點換 /products⟧ R2 must-fix,2026-09-03)。
+  //    關鍵字走的是 `lib/search.ts` 的 ILIKE, 而 `searchByKeyword(query, params, opts)`
+  //    **沒有 sort 那一格**(逐字看過簽名)⇒ 排序在那條路上**不生效**。
+  //    ⇒ 而還原它會讓 `SortBar` 的 `<select>` 顯示「價格由低到高」已選
+  //    ⇒ 📌 **那是一個「已經照這個排了」的聲明, 而清單根本沒排。**
+  // ✅ 不還原 ⇒ 顯示預設(推薦排序)⇒ 畫面沒有做出它做不到的承諾。
+  // 🔵 而客人**改得動它** —— 改了就清掉關鍵字(見 `useBrowseUrlSync`), 那時排序就真的生效。
+  // ⚠️ `page` / `per` **照舊還原** —— 分頁在關鍵字路上**是生效的**(吃 limit/offset)。
+  //    📌 這個不對稱是刻意的:分頁不生效 = 客人看不到第 25 筆以後 = 漏資料。
+  const [sort, setSort] = useState(() =>
+    keywordActive ? DEFAULT_SORT : parseSortParam(searchParams.get('sort')),
+  );
   const [page, setPage] = useState(() => parsePageParam(searchParams.get('page')));
   const [perPage, setPerPage] = useState(() => parsePerPageParam(searchParams.get('per')));
   return { sort, setSort, page, setPage, perPage, setPerPage };
@@ -112,7 +123,12 @@ export function usePageResetOnFilterChange(
  * /products 是 force-dynamic,若走 router.replace 每次翻頁都會重打 server 重抓全量型錄;
  * replaceState 純改網址零往返,back/refresh/分享時由 useBrowseUrlState mount lazy init 讀回。
  */
-export function useBrowseUrlSync(currentPage: number, sort: string, perPage: number): void {
+export function useBrowseUrlSync(
+  currentPage: number,
+  sort: string,
+  perPage: number,
+  keywordActive = false,
+): void {
   const router = useRouter();
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -123,13 +139,20 @@ export function useBrowseUrlSync(currentPage: number, sort: string, perPage: num
     setOrDelete('page', currentPage > 1 ? String(currentPage) : null);
     setOrDelete('sort', sort !== DEFAULT_SORT ? sort : null);
     setOrDelete('per', perPage !== DEFAULT_PER_PAGE ? String(perPage) : null);
+    // 🔴 **改了排序 ⇒ 清掉關鍵字**(對齊 Sean/主視窗 Q2=A「facet 仍可點, 點了就清掉關鍵字」)。
+    //    ⇒ 判準是 `sort !== DEFAULT_SORT` 而**不必**與 URL 比對:
+    //      `useBrowseUrlState` 在關鍵字在的時候**不還原 sort** ⇒ 它一定從預設起跳
+    //      ⇒ 📌 所以「非預設」⟺「客人在這一頁自己改的」。
+    // 🛑 而 `page` / `per` 變動**不得**清掉關鍵字 —— 分頁在關鍵字路上是生效的,
+    //    清掉它等於客人翻第二頁就被踢回全目錄。
+    if (keywordActive && sort !== DEFAULT_SORT) params.delete('search');
     const qs = params.toString();
     const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
     if (next !== `${window.location.pathname}${window.location.search}`) {
       // P4:改成 App Router 導覽，server 依 URL 只取當頁。不可再 replaceState 偽裝為已換頁。
       router.replace(next, { scroll: false });
     }
-  }, [currentPage, sort, perPage, router]);
+  }, [currentPage, sort, perPage, keywordActive, router]);
 }
 
 // ── #341-B:`useCatalogFilterUrlSync` 已搬到 `use-catalog-filter-url-sync.tsx`(純位移)。

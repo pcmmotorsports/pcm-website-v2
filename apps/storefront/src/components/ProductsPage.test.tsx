@@ -342,6 +342,42 @@ describe('ProductsPage #6 browse-state URL round-trip', () => {
     expect(screen.queryByText('碳纖維部品1號')).toBeNull();
   });
 
+  // 🔴🔴 **R2 must-fix:排序在關鍵字路上【不生效】, 所以畫面不得聲稱它生效。**
+  //    `searchByKeyword(query, params, opts)` **沒有 sort 那一格**(逐字看過簽名)
+  //    ⇒ 而還原 `?sort=price-asc` 會讓 `<select>` 顯示「價格低到高」已選
+  //    ⇒ 📌 **那是一個「已經照這個排了」的聲明, 而清單根本沒排。**
+  it('🔴 有 searchKeyword + ?sort= ⇒ 排序選單顯示【預設】, 不得顯示 URL 上那個', () => {
+    hoisted.search = new URLSearchParams('search=cark9650&sort=price-asc');
+    render(
+      <ProductsPage
+        products={MANY.slice(0, 25)}
+        total={30}
+        error={false}
+        categories={CATEGORIES}
+        motoBrands={MOTO_BRANDS}
+        searchKeyword='cark9650'
+      />,
+    );
+    expect(screen.getByDisplayValue('推薦排序'), '顯示 URL 上的排序 = 承諾了做不到的事').toBeDefined();
+    expect(screen.queryByDisplayValue('價格低到高')).toBeNull();
+  });
+
+  it('🔵 負對照:沒有 searchKeyword + ?sort= ⇒ 照樣還原(既有行為零變動)', () => {
+    // 🛑 少了這一格, 一個「永遠不還原 sort」的實作也會讓上面那格綠 ——
+    //    而那會打壞客人分享的排序連結, 而畫面上完全正常。
+    hoisted.search = new URLSearchParams('sort=price-asc');
+    render(
+      <ProductsPage
+        products={MANY.slice(0, 25)}
+        total={30}
+        error={false}
+        categories={CATEGORIES}
+        motoBrands={MOTO_BRANDS}
+      />,
+    );
+    expect(screen.getByDisplayValue('價格低到高')).toBeDefined();
+  });
+
   it('should fall back to defaults on invalid params (fail-safe 白名單)', () => {
     hoisted.search = new URLSearchParams('page=-3&sort=bogus&per=999');
     render(<ProductsPage products={MANY.slice(0, 25)} total={30} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);

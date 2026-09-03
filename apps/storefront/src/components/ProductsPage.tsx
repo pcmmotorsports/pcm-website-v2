@@ -225,7 +225,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   const pickVehicle = searchParams.get('pick') === 'vehicle';
   const [cascade, rawDispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
   const [extras, setExtrasRaw] = useState<ProductExtraFilters>(makeInitialExtraFilters);
-  const { sort, setSort: setSortRaw, page, setPage, perPage, setPerPage } = useBrowseUrlState(searchParams);
+  const { sort, setSort: setSortRaw, page, setPage, perPage, setPerPage } = useBrowseUrlState(searchParams, searchKeyword !== undefined);
   // Sean 2026-07-31:篩選動作確認後一律回頁首,排序同辦(拍板 A;詳 products-scroll-top.tsx;
   // 🔴 只有篩選 UI 吃包裝版,URL 還原走下方 useDeepLinkRestore 的 rawDispatch、不捲頁)
   const { dispatch, setExtras, setSort } = useFilterScrollTop(rawDispatch, setExtrasRaw, extras, setSortRaw);
@@ -258,6 +258,8 @@ export function ProductsPage({ products, total, error, categories, brands: serve
     dispatch: rawDispatch,
     skipPageResetOnce: urlVehicleInitRef,
     brandAppliedOnce: urlBrandInitRef,
+    // 🔴 有關鍵字 ⇒ 不把 facet 還原進 cascade(理由全文在該 hook 的 `keywordActive` JSDoc)。
+    keywordActive: searchKeyword !== undefined,
   });
 
   // S1:cascade.vehicle → URL(短版 ?vehicle=)→ server 以 RPC 重查(車款篩選下推 DB、
@@ -309,7 +311,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   const displayed = products;
 
   // #6:page/sort/perPage 同步回 URL(原生 replaceState 零 server 往返;詳 products-url-state.tsx)
-  useBrowseUrlSync(currentPage, sort, perPage);
+  useBrowseUrlSync(currentPage, sort, perPage, searchKeyword !== undefined);
 
   const changePage = (n: number) => {
     setPage(Math.max(1, Math.min(totalPages, n)));
