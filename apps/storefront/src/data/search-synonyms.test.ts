@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { SEARCH_CATEGORY_NAMES, SEARCH_CATEGORY_NAMES_SNAPSHOT } from './search-category-names';
 import { SEARCH_SYNONYMS, synonymFor } from './search-synonyms';
 import { foldSearchTerm } from '@/lib/search-terms-fold';
 
@@ -43,6 +44,30 @@ describe('SEARCH_SYNONYMS — 這張表自己要站得住', () => {
   });
 
   // 🔴 `draft` = AI 查來未經人核 ⇒ 它**必須**說得出自己是怎麼來的。
+  // 🔴🔴 **這一格是 2026-09-04 補的, 而它擋的是【這張表最會出的錯】**:
+  //    `to` 打成一個**不存在的分類名** ⇒ 那一列什麼都對不到, 而**先前沒有任何東西會紅**
+  //    (上面那幾格只驗格式:非空、不重複、from≠to、draft 有 note)。
+  //    🎯 而既有那一列 `土除 ⇒ 前擋泥板` 就是這樣活到今天的 —— **不是誰寫錯了, 是沒有東西在檢查。**
+  //    🛑 天花板見 `search-category-names.ts` 檔頭:那份快照是 migrations 的**超集**
+  //       (134 vs 正式庫實測 117)⇒ 它防**打錯字**, 不防「這個分類真的還在嗎」。
+  it.each(SEARCH_SYNONYMS.filter((s) => s.kind === 'category'))(
+    "🔴 category 列的 `to` 必須是真的分類名:%s",
+    (syn) => {
+      expect(
+        SEARCH_CATEGORY_NAMES.includes(syn.to),
+        `「${syn.from} ⇒ ${syn.to}」的 to 不在合法分類名快照裡(快照 ${SEARCH_CATEGORY_NAMES.length} 個,` +
+          ` 取自 ${SEARCH_CATEGORY_NAMES_SNAPSHOT.takenAt})⇒ 這一列今天指不到任何東西`,
+      ).toBe(true);
+    },
+  );
+
+  it('🟢 正對照:那份快照不是空的, 也不是恆真', () => {
+    // 🔴 少了這一格, 快照若變成空陣列 ⇒ 上面那組 it.each 會【每一格都紅】而看起來像資料壞了;
+    //    而若 includes 被改成恆真 ⇒ 上面那組會全綠而什麼都沒驗。兩個方向各釘一次。
+    expect(SEARCH_CATEGORY_NAMES.length).toBeGreaterThan(100);
+    expect(SEARCH_CATEGORY_NAMES.includes('這個分類不存在')).toBe(false);
+  });
+
   it('🔴 `draft` 的列一定要有 note 與 added 日期(不然數不出它躺多久)', () => {
     for (const s of SEARCH_SYNONYMS.filter((x) => x.source === 'draft')) {
       expect(s.note.length, `${s.from} 沒寫 note`).toBeGreaterThan(10);
