@@ -25,6 +25,13 @@ vi.mock('../../lib/supplier-repository', () => ({ listSupplierRows: vi.fn() }));
 vi.mock('./item-amount-form', () => ({ ItemAmountForm: () => <div data-testid='amount-form' /> }));
 
 import { ItemsTable } from './order-detail-items-table';
+// 🔵 `#450` 兩個**必填無預設**的 prop —— 大多數格子測的不是到貨列表,
+//    給「沒有到貨、沒有包裹」讓行為與加這一片之前逐字相同。
+//    🛑 而它們**不是**給 `null`:`null` 在下游是「讀不到」⇒ 會讓判準回「擋」、列表畫錯誤句
+//       ⇒ 那會讓一堆與本片無關的格子開始渲染一段紅字。**空陣列才是「沒有」。**
+const NO_RECEIPTS: [] = [];
+const NO_SHIPMENT_GROUPS: [] = [];
+
 
 const SUP = '33333333-3333-4333-8333-333333333333';
 
@@ -83,7 +90,7 @@ function detail(): AdminOrderDetail {
 
 const view = (d: AdminOrderDetail) =>
   render(
-    <ItemsTable
+    <ItemsTable receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS}
       detail={d}
       payments={{ status: 'ok', rows: [] }}
       returnTo='/orders/11111111-1111-4111-8111-111111111111'

@@ -17,6 +17,7 @@ import {
   RCPT_ORDER_ITEM_ID_FIELD,
   RCPT_INLINE_FIELD,
   RCPT_PROCUREMENT_ID_FIELD,
+  RCPT_RECEIPT_ID_FIELD,
   RCPT_REQUEST_ID_FIELD,
   RECEIPT_DUPLICATE_RESULT_CODE,
   RECEIPT_RECORDED_RESULT_CODE,
@@ -254,7 +255,17 @@ export async function undoItemReceiptAction(
   const orderId = readSingleString(formData, RCPT_ORDER_ID_FIELD) ?? '';
   const orderItemId = readSingleString(formData, RCPT_ORDER_ITEM_ID_FIELD) ?? '';
   const consumedKey = readSingleString(formData, RCPT_REQUEST_ID_FIELD) ?? '';
-  if (orderId === '' || orderItemId === '' || consumedKey === '') return receiptUndoFailure('bug');
+  // 🔴🔴 **兩條入口各自帶【一把】鑰匙, 而這道閘要收得下兩種**(`#450`, codex must-fix):
+  //    · 撤銷列(既有)  ⇒ 送 `request_id`(冪等鍵), 不送 receipt id
+  //    · 逐筆列表(新)  ⇒ 送 `receipt_id`, **不送冪等鍵**(那把鍵早就不在了 —— 那正是 `#450` 的起點)
+  //    ⛔ ~~原本這一行無條件要求 `consumedKey !== ''`~~
+  //    ⇒ 🛑 **新入口每按必然回 `bug`, 而它在【讀 receipt_id 之前】就 return** ——
+  //       我加的那條路一次都沒被走到, 而**六格元件測試全綠**(它們都沒有真的呼叫 action)。
+  //    ⇒ 📌 **一條接線沒接上, 而它的兩端各自都測過了。**
+  const directReceiptKey = readSingleString(formData, RCPT_RECEIPT_ID_FIELD) ?? '';
+  if (orderId === '' || orderItemId === '' || (consumedKey === '' && directReceiptKey === '')) {
+    return receiptUndoFailure('bug');
+  }
 
   const requestId = await getRequestId();
 
@@ -282,7 +293,17 @@ export async function undoItemReceiptAction(
 
   // 🔴 由冪等鍵反查 receipt id。查無 = 那把鍵從來沒登錄成功過 ⇒ 沒有東西可撤,
   //    當 `bug`(呼叫端拿了不存在的鍵)而不是 `already_gone`(那會謊稱「本來有、現在沒了」)。
+  // 🔴🔴 **兩條路拿 receipt id, 而它們【共用下面那道交叉檢查】**(`#450`):
+  //    ① 表單直接指名(逐筆列表)—— 離開頁面之後仍然撤得掉, 那是 `#450` 的全部重點
+  //    ② 冪等鍵反查(剛登錄完那一秒的撤銷列)—— 既有那條路, 一個字沒動
+  //    🛑 **安全不在這個分岔上** —— 在下面那道
+  //       `findOrderItemIdForReceipt(receiptId) === orderItemId`:
+  //       它證的是「被刪的那筆**屬於這個品項**」, 與 id 從哪來無關。
+  //    ⇒ 📌 所以多這一條路沒有多開一個洞;**少了下面那道才會。**
   let receiptId: string | null;
+  if (directReceiptKey !== '') {
+    receiptId = directReceiptKey;
+  } else
   try {
     receiptId = await findReceiptIdByRequestId(consumedKey);
   } catch (error) {

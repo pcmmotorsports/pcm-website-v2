@@ -414,3 +414,74 @@ export async function listProcurementChoices(
     };
   });
 }
+
+/** 一筆到貨紀錄(給列表用)。 */
+export type OrderItemReceiptRow = {
+  id: string;
+  orderItemId: string;
+  quantity: number;
+  surplusQuantity: number;
+  receivedAt: string;
+  receivedBy: string;
+  note: string | null;
+};
+
+/**
+ * 這張單的**逐筆到貨紀錄**(backlog `#450`)。
+ *
+ * 🔴🔴 **為什麼是新的一支, 而不是把它塞進 `findAdminOrderDetail` 的內嵌**:
+ *    那份的品項本來就被 `ORDER_ITEMS_EMBED_LIMIT = 200` 夾住, 再往下嵌一層到貨
+ *    ⇒ **兩層上限相乘**, 而截斷會是靜默的。
+ *    ⇒ 📌 抄同 repo 既有的做法:`SupabaseOrderAdapter.listOrderItemsForPrint` 也是
+ *       為了「不吃內嵌上限」而獨立出來的一支(該檔 docstring 逐字)。
+ *
+ * 🔴 **有上限而且【看得見】**:超過就回 `null` = 「算不出來」, 不是「沒有到貨」。
+ *    ⇒ 呼叫端會把它畫成一句話, 而不是靜靜地少列幾筆。
+ *    (同 `loadEmptyShipments` 對 `SHIPMENT_ITEM_ROWS_LIMIT` 的處理形狀。)
+ *
+ * ⚠️ 排序帶唯一鍵(`received_at` 可能相同)—— 沒有唯一鍵時「前 N 筆」跨請求可能是不同子集。
+ */
+export const ORDER_RECEIPT_ROWS_LIMIT = 500;
+
+export async function listOrderItemReceipts(
+  orderItemIds: readonly string[],
+): Promise<OrderItemReceiptRow[] | null> {
+  if (orderItemIds.length === 0) return [];
+  const { data, error } = await createSupabaseServiceClient()
+    .from('order_item_procurement_receipts')
+    .select(
+      'id, quantity, surplus_quantity, received_at, received_by, note, order_item_procurement!inner(order_item_id)',
+    )
+    .in('order_item_procurement.order_item_id', orderItemIds as string[])
+    .order('received_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(ORDER_RECEIPT_ROWS_LIMIT + 1);
+  if (error) throw error;
+  const rows = data ?? [];
+  // 🔴 多要一筆就是那把尺:拿回來超過上限 ⇒ 我知道被截了 ⇒ 回 null(算不出來)。
+  if (rows.length > ORDER_RECEIPT_ROWS_LIMIT) return null;
+  const out: OrderItemReceiptRow[] = [];
+  for (const r of rows as Record<string, unknown>[]) {
+    // 🔴 內嵌 many-to-one 的生成型別對「單物件 / 陣列」推斷不穩(同本檔 `findOrderItemIdForReceipt`
+    //    的慣例)⇒ 兩形都接;接不出字串就**跳過那一列**, 不猜。
+    const embedded = r.order_item_procurement;
+    const parent = Array.isArray(embedded) ? embedded[0] : embedded;
+    const orderItemId = (parent as { order_item_id?: unknown } | undefined)?.order_item_id;
+    // 🔴🔴 **接不出來 ⇒ 整個回 `null`, 不是跳過那一列。**(codex 2026-09-03 must-fix)
+    //    ⛔ ~~原本 `continue`~~ ⇒ 那會回一個**非 null 的部分清單**
+    //    ⇒ 📌 而畫面對「少了一列」與「本來就只有這些」印**同一個東西** ——
+    //       那正是本片要修的病(靜默少列), 我在修它的同一支檔裡又寫了一次。
+    //    ⇒ ✅ 與上面那道截斷同一個形狀:**算不準就說算不準**。
+    if (typeof r.id !== 'string' || typeof orderItemId !== 'string') return null;
+    out.push({
+      id: r.id,
+      orderItemId,
+      quantity: typeof r.quantity === 'number' ? r.quantity : 0,
+      surplusQuantity: typeof r.surplus_quantity === 'number' ? r.surplus_quantity : 0,
+      receivedAt: typeof r.received_at === 'string' ? r.received_at : '',
+      receivedBy: typeof r.received_by === 'string' ? r.received_by : '',
+      note: typeof r.note === 'string' ? r.note : null,
+    });
+  }
+  return out;
+}

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { cancelShipmentWarning } from '../../lib/orders/cancel-shipment-warning';
 import { loadOrderShipments } from '../../lib/shipping/order-shipments';
+import { listOrderItemReceipts } from '../../lib/orders/receipt-repository';
 import { notFound } from 'next/navigation';
 import type { AdminOrderDetail } from '@pcm/domain';
 import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
@@ -275,13 +276,29 @@ export async function OrderDetailRoute({
   // ✅ **修法:兩邊同向** —— 讀不到就兩邊都當「擋」, 而畫面把確認格畫出來
   //    ⇒ 員工看得到發生什麼事, 也有一條走得出去的路(勾了還是能取消)。
   //    🔵 而它仍然**不是硬擋**:勾一下就過。這一格要的是「他知道」, 不是「他不能」。
+  // 🔵 `#450`:逐筆到貨列表要的兩份資料【都在這一層讀】——
+  //    ① 包裹分組(下面那發本來就在讀, 給取消閘用)⇒ **零額外查詢**, 直接共用
+  //    ② 逐筆到貨(新的一發)
+  //    🛑 而 `null` 在兩份裡都是「**讀不到 / 被截斷**」不是「沒有」——
+  //       下游的判準與列表各自對 `null` fail-closed。
+  let receiptRows: Awaited<ReturnType<typeof listOrderItemReceipts>> = null;
+  let shipmentGroups: Awaited<ReturnType<typeof loadOrderShipments>> | null = null;
+
   let shipmentWarning = cancelShipmentWarning(null);
   if (detail !== null) {
+    try {
+      receiptRows = await listOrderItemReceipts(detail.items.map((it) => it.id));
+    } catch (e) {
+      console.error('[admin/order-detail] 逐筆到貨載入失敗(那一區畫成一句話, 不靜靜少列)', e);
+      receiptRows = null;
+    }
     try {
       shipmentWarning = cancelShipmentWarning(
         // 🔵 只餵 id 與 title 兩欄 —— 不把整包 detail(帶成交價)交給資料層。
         //    形狀抄隔壁 `shipment-section.tsx`, 不自創第二種寫法。
-        await loadOrderShipments(new Map(detail.items.map((it) => [it.id, it.title]))),
+        (shipmentGroups = await loadOrderShipments(
+          new Map(detail.items.map((it) => [it.id, it.title])),
+        )),
       );
     } catch (e) {
       // 🔴 這裡**不改回不擋** —— 見上面那段。讀不到就是讀不到, 而那要讓員工看見。
@@ -478,6 +495,8 @@ export async function OrderDetailRoute({
         <OrderDetail
           detail={detail}
           shipmentWarning={shipmentWarning}
+          receiptRows={receiptRows}
+          shipmentGroups={shipmentGroups}
           returnTo={returnTo}
           correctNoteId={correctNoteId}
           suppliers={suppliers}

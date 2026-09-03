@@ -21,6 +21,13 @@ import type { AdminOrderDetail } from '@pcm/domain';
 vi.mock('server-only', () => ({}));
 
 import { ItemsTable } from './order-detail-items-table';
+// 🔵 `#450` 兩個**必填無預設**的 prop —— 大多數格子測的不是到貨列表,
+//    給「沒有到貨、沒有包裹」讓行為與加這一片之前逐字相同。
+//    🛑 而它們**不是**給 `null`:`null` 在下游是「讀不到」⇒ 會讓判準回「擋」、列表畫錯誤句
+//       ⇒ 那會讓一堆與本片無關的格子開始渲染一段紅字。**空陣列才是「沒有」。**
+const NO_RECEIPTS: [] = [];
+const NO_SHIPMENT_GROUPS: [] = [];
+
 
 afterEach(cleanup);
 
@@ -58,7 +65,7 @@ function detailWith(brand: string | null): AdminOrderDetail {
 //    （2026-08-19 收割窗補：w1-order-panel 的基底早於片7，merge 乾淨而 typecheck 紅。）
 describe('🔴 片16:商品列的品牌那一行', () => {
   it('有品牌 ⇒ 印在 .ibrand 裡', () => {
-    const { container } = render(<ItemsTable detail={detailWith('BREMBO')} payments={PAYMENTS} returnTo='/orders' suppliers={[]} suppliersFailed={false} />);
+    const { container } = render(<ItemsTable receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} detail={detailWith('BREMBO')} payments={PAYMENTS} returnTo='/orders' suppliers={[]} suppliersFailed={false} />);
     const el = container.querySelector('.ibrand');
     expect(el, '.ibrand 不見了 ⇒ 品牌那一行沒畫').not.toBeNull();
     expect(el?.textContent).toBe('BREMBO');
@@ -68,7 +75,7 @@ describe('🔴 片16:商品列的品牌那一行', () => {
   });
 
   it('🔴 brand 為 null ⇒ 整行不印(不是印「—」)', () => {
-    const { container } = render(<ItemsTable detail={detailWith(null)} payments={PAYMENTS} returnTo='/orders' suppliers={[]} suppliersFailed={false} />);
+    const { container } = render(<ItemsTable receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} detail={detailWith(null)} payments={PAYMENTS} returnTo='/orders' suppliers={[]} suppliersFailed={false} />);
     // 正向錨:表格本身有渲染。少了它,下面兩條在「元件回 null」時會恆綠。
     expect(container.textContent, '品項表沒渲染 ⇒ 下面兩條會恆綠').toContain(
       'BRM-GP4RX-108-DUC-V4S',
@@ -84,7 +91,7 @@ describe('🔴 片16:商品列的品牌那一行', () => {
   });
 
   it('🔴 品牌行在 `.iline` 之外(它是橫跨整列的一行,不是第七軌)', () => {
-    const { container } = render(<ItemsTable detail={detailWith('BREMBO')} payments={PAYMENTS} returnTo='/orders' suppliers={[]} suppliersFailed={false} />);
+    const { container } = render(<ItemsTable receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} detail={detailWith('BREMBO')} payments={PAYMENTS} returnTo='/orders' suppliers={[]} suppliersFailed={false} />);
     const brand = container.querySelector('.ibrand');
     const line = container.querySelector('.iline');
     expect(brand, '錨不見了').not.toBeNull();
