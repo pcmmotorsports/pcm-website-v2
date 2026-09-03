@@ -430,6 +430,36 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     //      🟢 負對照當場跑過:--expect-groups=9999 ⇒ 印 ALERT 而 rc 兩個世界都是 0。
     writeAllowed: true,
   },
+  // RIZOMA。2026-09-04 線【帳號】登記(**Sean 尚未批首灌 ⇒ writeAllowed: false, 零寫入**)。
+  //
+  // 🔴🔴 **下面每個數字都是快照, 不是契約** —— `--expect-groups` 必須在跑乾跑/首灌的那一刻
+  //   【重量】, 絕對不要沿用這裡的數字(`gilles` 那塊的教訓:它兩分鐘內量到兩組不同的值)。
+  //   本窗 2026-09-03 19:21:47 UTC 單一 SQL 同一時點實查:
+  //     893 列 / 690 群 · 缺價 0 · 圖非 https 0 · 缺 v2 大類 0 · 缺中文名 0 · 缺描述 0
+  //     v2 10 大類 / 26 子類 · 有 pdf 的群 672 · 完全沒有圖 **3** 件
+  //   🔵 那 3 件沒有真照片 **不擋上架**:Sean 2026-09-04 00:0x 逐字「**照上**, 圖的位置 =
+  //     品牌 logo + 底下小字『暫無照片』」(落點 `~/pcm-mailbox/等Sean拍的題-20260903.md:2511`)。
+  //
+  // 🔴 **而有一筆源頭資料是錯的, 板列 `⟦supply-RIZOMASPECWRONG⟧`**:
+  //   `DM-PW101R` / `DM-PW201R` 兩支「紅色」變體的 spec 逐字寫 `{"color":"黑"}`。
+  //   🔵 那 4 支現在 `is_listed = false` ⇒ **view 裡 0 列 ⇒ 灌不上去** ⇒ 它**不擋首灌**。
+  //   🛑 **而擋住它的是一個【會變的旗標】, 不是一道守門** —— 源頭哪天上架它們, 錯的顏色就跟著上。
+  rizoma: {
+    supplierSlug: 'rizoma',
+    brandSlug: 'rizoma', // identity;唯讀實查【網站庫】brands 有這一列且該品牌商品數 0(首灌前狀態)
+    handlePrefix: 'rizoma', // 18/18 既有慣例 = supplierSlug 同名(本窗求值比對、零例外)
+    syncDescription: true, // 群層 690/690 全有(不是列層 —— 列層會答錯問題, dbk 那筆就量錯過一次)
+    syncInstallResources: true, // 672 群有 pdf
+    // 🔴 **量到的不是猜的**:264 個群有【多份】pdf, 而檔名是**不同文件**不是同一份的編號 ——
+    //   決定性的一群 `MA006_009_011`:`MI_MA006_01.pdf` / `MI_MA009_01.pdf` / `MI_MA011_01.pdf`
+    //   ⇒ **同一種文件(MI=安裝說明)、不同料號 ⇒ 客人得挑自己那一支**;
+    //   另有車款專屬的(`Rizoma_Booklet_BMW_R_nine_T_…`)與認證文件(`TUV_` / `ABE_`)。
+    //   ⇒ 🎯 正是合約 v5 §3 那個 `true` 的情境:**客人靠檔名挑自己那台**。
+    appendManualFilename: true,
+    categoryStrategy: { kind: 'per-group' }, // 10 大類 / 26 子類 ⇒ 不是 rpm 那種單一大類
+    variantImages: 'per-variant', // 145 個多變體群裡 142 群每變體都有自己的圖
+    writeAllowed: false, // 🔴 fail-closed、零寫入;**乾跑全綠 + Sean 明確批首灌後才翻 true**
+  },
   // 🔴 永久 guard 測試靶(非真供應商、Sean 2026-07-24 拍板放行):所有真品牌已 writeAllowed=true
   //   → rpm-import CLI 的 writeAllowed 硬鎖守衛失去「真實未授權樣本」;保留此永久 false 樣本讓
   //   「未授權 --confirm-write 於連線前被擋」的安全回歸測試持續有效(rpm-import-cli.test.ts)。
