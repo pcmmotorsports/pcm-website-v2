@@ -161,3 +161,24 @@
   font-size: 12px;
   color: var(--c-text-3);
 }
+
+/* ============================================================
+   CartView — 「有 N 件商品已不再供應,已為您移除」
+   板列 ⟦b4-NOVARIANT-CHECKOUTMSG⟧ 實例④ · 文案等 Sean 拍(題 25)
+   🔴 與隔壁 .cart-mix-notice 用同一套骨架, 而【左邊那條線用警示色】——
+      混車橫幅是「你車上有兩台車的東西」(他多半沒做錯);
+      本條是「有東西被移掉了」(那是一件他該知道的損失)⇒ 分寸不同。
+   ============================================================ */
+.cart-pruned-notice {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+  /* 🔴 fallback 對齊本站 token 實值(`tokens.css` 的 --c-red-dark = #c4470c 熔橘)——
+     R1 nit:原本寫 #b3261e 是 Material 紅, 而 token 若被改名會靜靜掉回一個【不是本站】的顏色。 */
+  border-left: 3px solid var(--c-red-dark, #c4470c);
+  border-radius: 10px;
+}

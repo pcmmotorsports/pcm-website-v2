@@ -304,7 +304,14 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
               <div className='pd-field'>
                 <div className='k'>電話</div>
                 <div className='v code'>
-                  {detail.customer.phone ?? detail.shippingAddress?.phone ?? '—'}
+                  {/* 🔴 `||` 不是 `??` —— `??` 只接 null/undefined, 而 `customers.phone`
+                      在 DB 裡存的是【空字串】(2026-09-03 拋棄式庫實測 `is null=false / length=0`)
+                      ⇒ 第一個 `??` 判它「有值」⇒ 不 fallback ⇒ 這一格印出一片空白,
+                        而收件快照裡那支電話一直都在。
+                      🛑 而 Sean 2026-08-29 拍板逐字要求本頁印電話 ⇒ 那是違反一筆明確拍板。
+                      🔵 寫法抄同 app 既有的 `customers/customer-detail.tsx:194`(`customer.phone || null`),
+                        不自創。⟦b4-PICKPHONE1⟧ */}
+                  {detail.customer.phone || detail.shippingAddress?.phone || '—'}
                 </div>
               </div>
               <div className='pd-field'>
@@ -313,7 +320,11 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                     ⚠️ 而它在既有 fixture 裡【可能整個 undefined】—— 那不是防禦性編程,
                        是量到的:A3-4' 第一版寫 `detail.shippingAddress.line` ⇒ 6 支測試爆
                        `Cannot read properties of undefined`。⇒ 用 `?.`。 */}
-                <div className='v addr'>{detail.shippingAddress?.line ?? '—'}</div>
+                {/* 🔴 `||` 不是 `??` —— 與上面的 phone 同型(⟦b4-PICKPHONE1⟧)。
+                    `recipient.ts:31` 的 `blank()` 對 line 判 `(v ?? '').trim() === ''`,
+                    而 `:17-22` 逐字講「既有的無地址自取單」⇒ `line === ''` 真的會發生。
+                    🛑 少了這一格, 出貨的紙與顧客站對帳單【兩張紙不一致】。 */}
+                <div className='v addr'>{detail.shippingAddress?.line || '—'}</div>
               </div>
             </div>
             <div className='pd-col'>
