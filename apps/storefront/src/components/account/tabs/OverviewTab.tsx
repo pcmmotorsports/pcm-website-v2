@@ -28,6 +28,7 @@ import type { AccountStats } from '@/components/account/AccountView';
 import type { FeaturedResult } from '@/lib/products';
 import { formatOrderDate, orderStatusLabel } from '@/lib/orders/order-display';
 import { ORDER_ITEM_COUNT_TRUNCATED_NOTE } from '@/lib/account-order-copy';
+import { PROFILE_UNREADABLE_NOTE } from '@/lib/account-profile-copy';
 
 export type OverviewTabProps = {
   stats: AccountStats;
@@ -94,9 +95,17 @@ export function OverviewTab({
               上一輪只修了 WalletTab 那一半,而**這裡才是客人第一眼看到的那半** ——
               總覽是預設著陸的分頁。印 `NT$ 0` = 告訴他他沒有錢。 */}
           <div className="acc-stat-v">
-            {balanceFailed ? '暫時讀不到' : `NT$ ${stats.walletBalance.toLocaleString()}`}
+            {/* 🔴 ~~'暫時讀不到'~~ —— 「暫時」承諾會好, 而 PGRST116(那一列不存在)是【永久】的。
+                理由與完整判準寫在 WalletTab.tsx 的 `PROFILE_UNREADABLE_NOTE` 旁邊(單一權威, 不在兩處各寫一份)。 */}
+            {balanceFailed ? '讀不到' : `NT$ ${stats.walletBalance.toLocaleString()}`}
           </div>
           <div className="acc-stat-sub">
+            {/* 🔴 讀不到時多說一句 —— 而它講的不是餘額, 是【結帳】:
+                同一個成因(customers 那一列讀不到)會讓 `create_order` fail-closed 直接 raise
+                ⇒ 📌 這個人下不了單, 而只講「餘額讀不到」會讓他以為只是少看到一個數字。
+                🔵 明細是**另一發查詢**(page.tsx 的 walletEntries), 讀不讀得到與這裡無關
+                ⇒ 所以按鈕【留著】, 只是多一句話。 */}
+            {balanceFailed && <span>{PROFILE_UNREADABLE_NOTE}</span>}
             <button type="button" className="acc-link-btn" onClick={onJumpToWallet}>
               查看明細 →
             </button>
