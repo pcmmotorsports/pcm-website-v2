@@ -150,6 +150,43 @@ LETTER=$(p "select count(*) from storefront_search_product_ids(ARRAY['z'])")
 [ "$LETTER" -lt "$TOTAL" ] && ok "F7 單字母不得回全表" "$LETTER 列 < 分母 $TOTAL" \
   || bad "F7 單字母不得回全表" "回了 $LETTER 列 = 分母 $TOTAL"
 
+echo "── G 🔴🔴 跨兩半的 AND:一個詞只中文字、另一個詞只中料號 ──────────"
+# 🔴🔴 **這一族是【在拆之前寫的】, 而它今天【應該是綠的】。**
+#
+#    ⟦search-CAPSULEPARSE⟧ 之後那支 RPC 的述詞長這樣(29 行 SQL 的骨架):
+#      JOIN t ON ( 五個 ILIKE 分支  OR  料號正規化分支 )
+#      …
+#      HAVING count(DISTINCT t.ord) = n.want      ← **每一個詞都要中**
+#
+#    🎯 **⇒ 而「每個詞都要中」這條 AND 是【跨兩半】的**:
+#      一個詞可以**只靠料號**命中, 而它仍然要算進「都中了」。
+#    🔵 **⇒ 而今天它【由結構保證】** —— 兩半在同一個 `OR` 裡, 所以這件事自然成立,
+#      **所以今天沒有人寫過這一格。**
+#
+# 🛑 **⇒ 而下一步要把料號那半拆出去**(理由:那條表達式讓整個 OR 吃不到 trgm 索引;
+#    鑽機實測 四欄版 BitmapOr=1/1.22ms vs 加了它 Seq Scan/39.9ms)。
+#    ⇒ 🔴 **拆掉結構之後, 就沒有東西保證這條 AND 了。**
+#    ⇒ ⇒ ✅ **所以這一格先寫、先跑、確認它綠;拆的過程中它若變紅 ⇒ 當場知道拆壞了。**
+#    ⇒ ⇒ ⇒ 📌 **而它與平常「先寫一格會紅的守門」相反** ——
+#      這一格是**先寫一格會綠的**, 而它的用途是**在改的過程中變紅**。
+PID3=$(p "select id from products order by id offset 2 limit 1")
+[ -n "$PID3" ] || { echo "🔴 撈不到第三支商品 ⇒ ENV-FAIL"; exit 2; }
+# 造一個【兩半各中一半】的世界:
+#   `ZZTEXTONLY` 只出現在**標題**   ·  `ZZPN-0042` 只出現在**料號**
+p "update products set title='ZZTEXTONLY 跨半測試件', subtitle='', description='', external_id='ZZPN-0042' where id='$PID3'" >/dev/null
+
+eq "G1 詞①只中文字(ZZTEXTONLY)" "$(p "select count(*) from storefront_search_product_ids(ARRAY['ZZTEXTONLY'])")" "1"
+eq "G2 詞②只中料號(無分隔號打法)" "$(p "select count(*) from storefront_search_product_ids(ARRAY['zzpn0042'])")" "1"
+# 🔴🔴 **本族的核心那一格** —— 兩個詞各自只中一半, 而 AND 之後仍然要命中。
+eq "G3 🔴 兩個詞各中一半 ⇒ **仍要命中**" \
+   "$(p "select count(*) from storefront_search_product_ids(ARRAY['ZZTEXTONLY','zzpn0042'])")" "1"
+# 🔵 負對照:換一個【不存在】的第二詞 ⇒ AND 必須把它擋掉(否則 G3 的 1 沒有判別力)
+eq "G4 🔵 負對照 第二詞不存在 ⇒ 0" \
+   "$(p "select count(*) from storefront_search_product_ids(ARRAY['ZZTEXTONLY','zzqprbxx9137never'])")" "0"
+# 🔵 負對照:兩個詞都只中料號那一半的【不同】商品 ⇒ 0(證 AND 是 per-商品 不是 per-詞集合)
+eq "G5 🔵 負對照 料號詞 + 別支商品的文字詞 ⇒ 0" \
+   "$(p "select count(*) from storefront_search_product_ids(ARRAY['zzpn0042','ZZTESTBRAND'])")" "0"
+
 echo "──────────────────────────────────────────────────────────────"
 printf '結果:PASS=%s FAIL=%s\n' "$PASS" "$FAIL"
 echo "🛑 射程:本機拋棄式庫 ⇒ 證不出正式庫的行為;**不驗效能**(那要對正式庫 EXPLAIN)。"
