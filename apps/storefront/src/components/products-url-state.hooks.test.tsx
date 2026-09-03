@@ -205,6 +205,22 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
     expect(qs(url).get('category')).toBe('操控部品');
   });
 
+  // 🔴 code-reviewer 2026-09-04 Important 1:`unmatched` 是孤兒參數 —— 沒有任何路徑清它。
+  it('㉑ 使用者動了 facet → **必須**連 `unmatched` 一起清(否則那句話永久卡著)', () => {
+    window.history.replaceState(null, '', '/products?unmatched=%E5%A5%BD%E7%9C%8B%E7%9A%84&page=3');
+
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: null as CascadeFilterState['category'] } },
+    );
+    rerender({ category: { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'] });
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url, '沒送出導覽 ⇒ 這一格什麼都沒驗到').toBeDefined();
+    expect(qs(url).get('unmatched'), '沒清掉 ⇒ 「這幾個字沒用到」會講一個已經不存在的搜尋').toBeNull();
+  });
+
   it('⑳ 🔵 負對照:URL 還沒追上 state 的那一拍(指紋未變)→ **不得**清掉 search', () => {
     // 🔴🔴 **這一格是【第二版】—— 第一版到不了要測的那個世界, 而突變告訴了我。**
     //    ⛔ 第一版構造「server 回新 props、URL 有 search」然後斷言 `replace` 沒被呼叫。

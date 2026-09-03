@@ -109,6 +109,13 @@ export type ProductsPageProps = {
    *    「篩選條件都在、但點了沒反應」的目錄頁,而**那是安靜的錯**。
    */
   searchKeyword?: string;
+  /**
+   * ⟦search-CAPSULEPARSE⟧:解析器**認不得、因此沒有拿去過濾**的那些字。
+   * 🔴 它**不是**篩選條件 —— 它是一句「這幾個字我們沒有用到」的告白。
+   *    ⇒ 📌 而它必須被畫出來:一個「懂了一半」的系統, 比完全沒懂的更難用,
+   *      因為客人不知道要重打哪一段。
+   */
+  unmatchedWords?: string;
 };
 
 // PageHeader — 頁首標題 + 麵包屑(標題依 cascade 已選分類 / 車輛推導)
@@ -200,7 +207,7 @@ function SortBar({
 // 三個獨立入口」,單顆 FAB 開一個六 tab 混合抽屜正是被否決的形狀。
 // 現行手機入口 = ProductsMobileControls(含 MobileVehicleSheet 與兩個 scope 的 FilterDrawer)。
 
-export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands, garage = [], searchKeyword }: ProductsPageProps) {
+export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands, garage = [], searchKeyword, unmatchedWords }: ProductsPageProps) {
   // searchParams 先取(#6:page/sort/perPage lazy init 讀 URL;server render 與 client 首繪同源、零 hydration 分歧)
   const searchParams = useSearchParams();
   // ── A2(2026-08-03):`?pick=vehicle` 落地開燈(Sean 拍 B 案「同落地 + 開燈」)──
@@ -374,7 +381,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
           <PageHeader cascade={cascade} />
           {/* 🔴 關鍵字膠囊排在 `ActiveChips` **前面** —— 它是這一頁商品的**來源**,
               而 ActiveChips 那些是「本來會生效、現在沒生效」的東西。順序講的是因果。 */}
-          <SearchKeywordChip keyword={searchKeyword} />
+          <SearchKeywordChip keyword={searchKeyword} unmatchedWords={unmatchedWords} />
           {/* 🔴🔴 **有關鍵字時不畫 facet 膠囊** —— code-reviewer 2026-09-03 must-fix。
             * 直接開 `/products?search=cark9650&vehicle=yamaha:mt-07` 時(不必點任何東西),
             * `ActiveChips` 會從 URL 還原出一顆「Yamaha MT-07 ✕」
