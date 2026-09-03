@@ -434,6 +434,39 @@ describe('OrderDetailView', () => {
       ).toBeNull();
     });
 
+    /**
+     * ⟦ship-REFUNDEDPAIDSTEP⟧ 「付款完成」問的是**他付過沒**, 不是**現在的狀態**。
+     * Sean 2026-09-04 拍甲(逐字「他確實付過, 那是發生過的事實」)。
+     *
+     * 🔴 **三個方向, 而中間那個是我加的、要能被推翻**:
+     *    · `refunded`         ⇒ 打勾(他拍的)
+     *    · `partiallyRefunded` ⇒ 打勾(**我加的** —— 它蘊含之前已全額付款)
+     *    · 🛑 `partiallyPaid`  ⇒ **不得打勾**(只收了訂金, 那個人還欠錢)⇒ 打勾會是謊
+     * 🔵 而**第三格就是這一片的負對照** —— 少了它,「一律打勾」也會通過。
+     */
+    it.each([
+      ['refunded', true],
+      ['partiallyRefunded', true],
+      ['partiallyPaid', false],
+    ] as const)('🔴 %s 的單 ⇒ 「付款完成」打勾 = %s', (status, shouldTick) => {
+      const { container } = render(
+        <OrderDetailView
+          order={{ ...ORDER, paymentStatus: status, paidAt: '2099-04-20T00:00:00Z' }}
+        />,
+      );
+      const steps = Array.from(
+        container.querySelector('[data-od-id="order-steps"]')!.children,
+      );
+      const step = steps.find((el) => el.textContent?.includes('付款完成'));
+      expect(step, '「付款完成」那一階不見了 ⇒ 這一格已經不是在量同一個東西').toBeDefined();
+      expect(
+        step!.className.includes('is-done'),
+        shouldTick
+          ? `${status}:客人真的付過, 而畫面把「付款完成」畫成灰的 ⇒ 他剛收到退款而我們說沒收到錢, 兩個訊息打架`
+          : `${status}:只收了訂金而打勾 ⇒ 那是一句謊(他還欠錢)`,
+      ).toBe(shouldTick);
+    });
+
     it('🔵 正對照:沒取消的單 ⇒ 進度軸四格【逐字不變】', () => {
       const { container } = render(<OrderDetailView order={ORDER} />);
       const steps = container.querySelector('[data-od-id="order-steps"]');

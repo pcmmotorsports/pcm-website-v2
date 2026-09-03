@@ -161,7 +161,17 @@ describe('⟦b4-CANCELKINDBYCONTENT⟧ · 員工打的字不得撞上保留字�
     }
   });
 
-  // 🔵🔵 **這一格【曾經是 `it.fails`】, 而它在本 commit 轉正。**
+  // 🔵🔵 **這一格【曾經是 `it.fails`】, 而它在 `b8045eed` 轉正。**
+  //    🔴 **而「洞補好了」這件事有兩個時刻, 不要合成一個**:
+  //      · 碼寫好 = `0534e559` / `f4c82a2d`(改號)/ `a76cc8b2`(語法)
+  //      · 🎯 **真的補上 = 2026-09-04 Sean 把 `20260903093000` 貼進正式站那一刻**
+  //    ✅ **正式庫唯讀複驗(2026-09-04, 只跑 SELECT)—— 兩支函式各一發**:
+  //      · 那道拒絕的字面 ⇒ `admin_cancel_order` 位移 **3053** · `admin_mark_order_cancelled` **2206**
+  //      · 順序 `IF … THEN` 早於 `v_reason_txt := v_detail;` ⇒ **兩支都 true**,
+  //        而兩者之間**確實有 `RAISE EXCEPTION`**(相對位移 44)
+  //      · 函式 COMMENT 含 `20260903093000` ⇒ 兩支都命中 ⇒ **檔尾那兩個 DO 區塊真的跑到了**
+  //      · ACL:`anon` / `authenticated` 皆 **false**、`service_role` **true**
+  //      🔵 負對照:一個不可能存在的字面 ⇒ 兩支都回 **0** ⇒ 那把尺不亂報有。
   //    當時的形狀:洞還在 ⇒ 內層斷言失敗 ⇒ `it.fails` 綠(不把 CI 弄紅);
   //    而修法一進 repo, 它就變紅 —— 而它真的叫了。
   //    ⇒ ✅ 修法落地(`20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql`)之後轉成正常 `it`,
