@@ -172,6 +172,71 @@ describe('chargePaymentAction — 信任邊界(零扣款層)', () => {
     expect(mockConfirmPayment).not.toHaveBeenCalled();
   });
 
+  // ⟦acct-INVOICEFIELDERR⟧ Sean 2026-09-03 拍「要」(Q15b)。**本片只補守門, 不動那條路的行為。**
+  //
+  // 🔴 **這一格在守什麼**:`charge-actions.ts:149-152` 把發票四個子欄各自的錯誤
+  //    搬進 `fieldErrors.invoice.<那一欄>` —— **客人才看得到是哪一欄填錯**。
+  //    而在此之前**本檔對 `fieldErrors.invoice` 的斷言格數 = 0**(開列的人當場量的)
+  //    ⇒ 🛑 那段搬運碼**沒有任何東西在守**。
+  //
+  // 🛑 **而開列的人明寫:證明的是【沒有東西在守它】, 不是【它壞了】** —— 引用時不要合併。
+  //    本片跑完證實:它今天是好的, 而它從今天起有尺。
+  //
+  // 🔵 **`packages/schemas` 那 30 格不涵蓋這一格** —— 它們證明「填錯會被擋下來」,
+  //    而**擋下來之後客人看到什麼**是另一段碼(就是這一段)。
+  //    ⇒ 📌 兩者都綠, 而中間那一步先前沒有人量。
+  //
+  // 🛑 **它若壞掉的形狀**:那段沒搬成功 ⇒ `fieldErrors` 是空的
+  //    ⇒ 掉進 `formError` 的「結帳資料有誤,請返回確認」
+  //    ⇒ **客人被叫去「確認」一個沒有標出是哪一欄的東西** —— 與 `題 15` 同一族的病。
+  it('🔴 公司發票兩欄都錯 ⇒ 各自進 fieldErrors.invoice.<那一欄>, 而【不是】掉進通用 formError', async () => {
+    const action = await getAction();
+    // company + 空抬頭 + 非 8 碼統編 ⇒ schema superRefine 產出兩個 issue,
+    // path 分別是 ['invoice','title'] 與 ['invoice','taxId']。
+    const res = await action(validInput({ invoice: { type: 'company', title: '', taxId: '123' } }));
+
+    // 🎯 判別點一:**兩欄各自有話**(而不是壓成一句)。
+    expect(res).toMatchObject({
+      fieldErrors: { invoice: { title: expect.any(String), taxId: expect.any(String) } },
+    });
+    // 🎯 判別點二:**不得掉進通用 formError** —— 那正是搬運碼壞掉時的長相。
+    expect(res).not.toHaveProperty('formError');
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+  });
+
+  // 🔴🔴 **codex must-fix:上面那格【同時】製造 title 與 taxId 兩個錯 ⇒ 它證不到【逐欄】搬運。**
+  //    一個「遇到任何 invoice issue 就硬塞這兩欄」的實作照樣全綠, 而單欄錯的世界會錯位。
+  //    ⇒ ✅ 補兩格**只錯一欄**的:少了它們, 那個「硬塞兩欄」的突變殺不掉。
+  it('🔴 只有抬頭錯(統編合法)⇒ 只有 title 有訊息, taxId 不得被順手塞一個', async () => {
+    const action = await getAction();
+    const res = await action(
+      validInput({ invoice: { type: 'company', title: '', taxId: '12345678' } }),
+    );
+    expect(res).toMatchObject({ fieldErrors: { invoice: { title: expect.any(String) } } });
+    // 🎯 判別點:**沒錯的那一欄不得有話** —— 客人會去改一個本來就對的欄位。
+    const invoiceErrors = (res as { fieldErrors?: { invoice?: Record<string, unknown> } })
+      .fieldErrors?.invoice;
+    expect(invoiceErrors).not.toHaveProperty('taxId');
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+  });
+
+  it('🔴 捐贈發票缺愛心碼 ⇒ donateCode 那一欄有話(第四個子欄, 先前零覆蓋)', async () => {
+    const action = await getAction();
+    const res = await action(validInput({ invoice: { type: 'donate', donateCode: '' } }));
+    expect(res).toMatchObject({ fieldErrors: { invoice: { donateCode: expect.any(String) } } });
+    // 🔵 而它不得掉進通用 formError —— 那是搬運沒接到這一欄時的長相。
+    expect(res).not.toHaveProperty('formError');
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+  });
+
+  it('🔵 負對照:發票以外的欄位【不得】被搬進 invoice 那一格(擋過寬的搬運)', async () => {
+    const action = await getAction();
+    const res = await action(validInput({ addressId: 'not-uuid' }));
+    // 🔴 少了這一格, 一個「把所有 issue 都塞進 fieldErrors.invoice」的實作也會讓上面那格全綠。
+    expect(res).not.toHaveProperty('fieldErrors.invoice');
+    expect(res).toMatchObject({ fieldErrors: { addressId: expect.any(String) } });
+  });
+
   it('addressId 非 uuid → fieldErrors.addressId、零後續', async () => {
     const action = await getAction();
     const res = await action(validInput({ addressId: 'not-uuid' }));

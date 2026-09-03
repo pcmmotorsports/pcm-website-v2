@@ -1181,6 +1181,131 @@ const paidDeps = (r: LoadPaidContextResult, outbox: OutboxFake, sender: IEmailSe
   paidContext: paidFake(r),
 });
 
+describe('order_cancelled —— 刷卡且已全額退款的取消信(Q10)', () => {
+  // 🔴 這封信的存在理由:今天這種單的客人**什麼都收不到, 而錢已經退回去了**。
+  const cancelledJob = (payload: Record<string, unknown>) =>
+    job({ eventType: 'order_cancelled', payload });
+
+  const textOf = async (payload: Record<string, unknown>) => {
+    const outbox = outboxFake([cancelledJob(payload)]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
+    const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    return String(input.text);
+  };
+
+  // 🔴🔴 **全文逐字鎖 —— 而它是這一族唯一擋得住「有人在信中間插一段話」的東西**
+  //    (code-reviewer R1 must-fix):我原本只有 `toContain` / `not.toContain` + 一份黑名單,
+  //    而**插一段新的話、換段落順序、動空行, 那些格子全部照綠**;
+  //    而黑名單本身也在跟下一個沒想到的說法賽跑(「下個對帳日」「約需一週」「預計月底前」全部繞得過)。
+  //    ⇒ 📌 它的雙胞胎 `order_unpaid_cancelled` 一個螢幕之外就有這道鎖, 而我沒給新的這封。
+  // 🛑 **改這格期望值 = 重設一道對外文案的鎖 ⇒ 需要授權**(同 `EXPECTED_ORDER_CREATED_BODY` 那格)。
+  it('🔴 全文逐字(對外文案的鎖;改它需要授權)', async () => {
+    const text = await textOf({
+      display_id: 'PCM-2026-0142',
+      cancelled_reason: '這張單的商品供應商缺貨,補不到貨',
+      refund_kind: 'full',
+      refunded_amount: 12800,
+    });
+    expect(text).toBe(
+      [
+        '您好,',
+        '',
+        '您的訂單 PCM-2026-0142 已取消。',
+        '',
+        '這張單的商品供應商缺貨,補不到貨',
+        '',
+        '您支付的款項已全額退回原付款方式。',
+        '退款金額  NT$ 12,800',
+        '',
+        '訂單明細與最新狀態請至 PCM 會員中心查看。',
+        'https://shop.pcmmotorsports.com/account/orders/PCM-2026-0142',
+        '',
+        '有任何問題，加入官方 LINE @pcmmoto',
+        'https://lin.ee/egsf1Jy',
+        '',
+        'PCM重機零件販售',
+        '派達有限公司　統一編號 90003020',
+        '新北市新莊區化成路736巷18號1樓',
+      ].join('\n'),
+    );
+  });
+
+  it('🔴 有金額 ⇒ 講退款、印金額、給會員中心連結', async () => {
+    const text = await textOf({ display_id: 'PCM-2026-0001', refund_kind: 'full', refunded_amount: 2400 });
+    expect(text).toContain('您的訂單 PCM-2026-0001 已取消。');
+    expect(text).toContain('您支付的款項已全額退回原付款方式。');
+    expect(text).toContain('退款金額  NT$ 2,400');
+    expect(text).toContain('/account/orders/PCM-2026-0001');
+  });
+
+  it('🔴 金額缺了 ⇒ 那一行不印, 而【退款那句話仍然完整】', async () => {
+    // 🎯 少了這一格, 一個把 `undefined` 印成 "NT$ undefined" 的實作也會過上面那格
+    const text = await textOf({ display_id: 'PCM-2026-0001', refund_kind: 'full' });
+    expect(text).toContain('您支付的款項已全額退回原付款方式。');
+    expect(text).not.toContain('退款金額');
+    expect(text).not.toContain('undefined');
+    expect(text).not.toContain('NaN');
+  });
+
+  it.each([
+    ['refunded_amount 是字串', { display_id: 'X', refund_kind: 'full', refunded_amount: '2400' }],
+    ['refunded_amount 是 0', { display_id: 'X', refund_kind: 'full', refunded_amount: 0 }],
+    ['refunded_amount 是負數', { display_id: 'X', refund_kind: 'full', refunded_amount: -2400 }],
+    ['refunded_amount 是小數', { display_id: 'X', refund_kind: 'full', refunded_amount: 24.5 }],
+  ])('🔴 %s ⇒ 當缺, 不印那一行(印一個猜的金額比不印糟)', async (_label, payload) => {
+    const text = await textOf(payload);
+    expect(text).not.toContain('退款金額');
+  });
+
+  // 🛑🛑 **這三格鎖的是「不可以出現的東西」, 而它們比上面那些重要**
+  it('🔴 不寫到帳天數 —— 那是發卡行決定的, 不是我們', async () => {
+    const text = await textOf({ display_id: 'PCM-2026-0001', refund_kind: 'full', refunded_amount: 2400 });
+    for (const s of ['工作天', '個工作日', '天內', '小時內', '請稍後']) {
+      expect(text).not.toContain(s);
+    }
+  });
+
+  it('🔴 不假設他收過付款成功信(有一半的人沒收到過)', async () => {
+    const text = await textOf({ display_id: 'PCM-2026-0001', refund_kind: 'full', refunded_amount: 2400 });
+    for (const s of ['先前', '付款成功後', '如您所知', '再次']) {
+      expect(text).not.toContain(s);
+    }
+  });
+
+  it('🔴 不含「回覆這封信」(那個信箱沒人收)、也不含「尚未付款」那句(互斥)', async () => {
+    const text = await textOf({ display_id: 'PCM-2026-0001', refund_kind: 'full', refunded_amount: 2400 });
+    expect(text).not.toContain('回覆這封信');
+    // 🎯 兩句同時出現 = 有人接錯 event_type ——「沒付過錢」與「錢已退回」不可能同時為真
+    expect(text).not.toContain('尚未付款');
+  });
+
+  it.each([
+    ['refund_kind 缺席', {}],
+    ['refund_kind = partial', { refund_kind: 'partial' }],
+    ['refund_kind = 空字串', { refund_kind: '' }],
+  ])('🔴 %s ⇒ 【全額退回那句與金額都不印】(fail-closed)', async (_l, extra) => {
+    // 🔴🔴 code-reviewer R1 must-fix:那句原本**無條件印**
+    //    ⇒ 寫入端只要有一次把部分退款排進來, 客人就會收到一封說「全額退回」的信,
+    //      而**模板結構上擋不住**。而部分退款要不要寄 **Sean 沒拍過**。
+    //    🎯 ⇒ 在他拍之前, 不是 'full' 就什麼都不說 —— **印一個可能是假的說法, 比不印糟。**
+    const text = await textOf({ display_id: 'PCM-2026-0001', refunded_amount: 2400, ...extra });
+    expect(text).not.toContain('全額退回');
+    expect(text).not.toContain('退款金額');
+    // 🟢 而【信仍然寄, 而且仍然說得出這張單被取消了】—— 不是整封不寄
+    expect(text).toContain('您的訂單 PCM-2026-0001 已取消。');
+  });
+
+  it('🔴 員工打的原因要過整形(它會原封進客人眼前)', async () => {
+    const text = await textOf({
+      display_id: 'PCM-2026-0001',
+      cancelled_reason: '缺貨\n\n\n' + 'x'.repeat(300),
+    });
+    expect(text).not.toContain('\n\n\n');
+    expect(text).toContain('…');
+  });
+});
+
 describe('付款信【兩份】都要拿得到金額與品項(A1;而這一族的病灶就是兩份不一致)', () => {
   // 🔴🔴 **為什麼這一族要存在 —— 病灶不是「純文字沒有明細」, 是【兩份不一致而沒人看得到】**:
   //    付款信寄出去是**兩份**(`text` 純文字 + `html` 有排版), **兩份都送**,

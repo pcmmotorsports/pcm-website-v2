@@ -92,7 +92,17 @@ describe('⟦outbox-union-vs-DB⟧ 手抄的 union 與 DB 的 CHECK', () => {
     // 🛑 這一格的期望值**不是「空集合」** —— 今天就有一個。
     //    它斷言的是【現況】:清單一變就紅,不論是多了一個沒人做的,還是舊的被做掉了。
     //    ⇒ 📌 把一個「已知缺口」從一段【會過期的散文】變成一格【會叫的東西】。
-    const KNOWN_GAPS = ['order_cancelled'];
+    // 🎉 **2026-09-03:`order_cancelled` 被做掉了 ⇒ 從清單拿掉**(Q10 片 A:模板那一半)。
+    //    ⇒ 這一格照它自己的指示動作:「少了一個 ⇒ 把它從 KNOWN_GAPS 拿掉, 並回頭改
+    //      `docs/specs/2026-09-03-cancel-email-scope-spec-draft.md` §10」—— 兩件都做了。
+    // 🔴🔴 **而它抓到我的方式值得寫下來**:我上一片剛把「手挑測試檔」改成
+    //    `vitest related` 算分母(因為手挑漏過一支紅的)—— 而**本檔 `related` 結構上撈不到**:
+    //    它用 `readFileSync` 讀 `IEmailOutbox.ts`(3 處)、**零 import 那支檔**
+    //    ⇒ 依賴圖上沒有這條邊 ⇒ 42 支/1,013 格那個分母**不可能含它**。
+    //    ⇒ 📌 **兩種分母各有各的盲區**:手挑漏掉「我沒想到的」;`related` 漏掉
+    //      **「用讀檔而不是 import 去驗別人的」那一族** —— 而那一族正是全 repo 掃描型守門的形狀。
+    //    ✅ ⇒ 抓到它的是 code-reviewer, 不是我的三綠也不是我的分母。
+    const KNOWN_GAPS: string[] = [];
     const db = dbEventTypes();
     const ts = tsEventTypes();
     const gaps = db.values.filter((v) => !ts.includes(v)).sort();

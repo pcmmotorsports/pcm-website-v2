@@ -22,6 +22,8 @@ import {
   ORDER_CANCELLED_HEADLINE_NO_ID,
   ORDER_LINE_TITLE_MISSING,
   ORDER_CANCELLED_HEADLINE_WITH_ID,
+  ORDER_CANCELLED_REFUNDED_SENTENCE,
+  ORDER_CONTACT_LEAD,
   ORDER_MEMBER_CENTER_SENTENCE,
   ORDER_PAID_NEXT_STEP_SENTENCE,
   ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE,
@@ -358,6 +360,11 @@ function buildEmailText(
   siteUrl: string | undefined,
 ): string {
   switch (job.eventType) {
+    case 'order_cancelled':
+      // 🔴 **刷卡且已全額退款**(Q10)。與 `order_unpaid_cancelled` 互斥 —— 那條是「沒付過錢」。
+      //    ⚠️ 它**不吃 `paid`**:付款脈絡查的是「這張單現在能不能寄付款信」,而這封信要講的是
+      //    **已經退回去的錢**,兩者不是同一件事。金額從 payload 帶(enqueue 當下的快照)。
+      return buildOrderCancelledText(job, siteUrl);
     case 'order_created':
       return buildOrderCreatedText(job, paid, siteUrl);
     case 'order_unpaid_cancelled':
@@ -665,6 +672,76 @@ function buildOrderUnpaidCancelledText(job: ClaimedEmailJob): string {
   if (reason !== null) lines.push('', reason);
   lines.push('', ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE);
   lines.push('', ORDER_MEMBER_CENTER_SENTENCE, '', 'PCM重機零件販售');
+  return lines.join('\n');
+}
+
+/**
+ * 🔴🔴 **刷卡且【已全額退款】的取消信**(Q10;Sean 2026-09-03 拍甲)。
+ *
+ * **這封信要解的事**:今天這種單的客人**什麼都收不到**,而**錢已經退回去了** ——
+ * 我們動了他的錢,而沒有告訴他。
+ *
+ * 🛑 **三格刻意的限制,少一格這封信就會出事**:
+ * 1. **不寫「X 個工作天到帳」** —— 到帳時間由發卡行決定,不由我們。
+ *    寫了就是一個我們控制不了的承諾(同族:「回覆這封信」「請稍後再試」)。
+ * 2. **不假設他收過付款成功信** —— 量到的:那封信在寄出前會再查一次訂單,查到 `cancelled`
+ *    就整封不寄,而掃描每 5 分鐘一輪 ⇒ **有一半的人沒收到過**。
+ *    ⇒ 開頭不回溯「您先前付款成功後…」,對那一半的人那句話是憑空冒出來的。
+ * 3. **金額缺了就不印那一行** —— 印一個猜的金額比不印糟。而那一行是**選填**:
+ *    `ORDER_CANCELLED_REFUNDED_SENTENCE` 本身不含數字,少了金額它仍然是一句完整而正確的話。
+ *
+ * ⚠️ **員工填的原因一律過 `sanitizeCustomerFacingReason`** —— 它是自由文字而會原封進客人眼前
+ *    (整形只管形狀不管語意:它擋不住「退款將於三日內完成」這種內容上錯的句子)。
+ */
+function buildOrderCancelledText(job: ClaimedEmailJob, siteUrl: string | undefined): string {
+  const payload = job.payload;
+  const readStr = (key: string): string | null => {
+    if (typeof payload !== 'object' || payload === null || !(key in payload)) return null;
+    const v = (payload as Record<string, unknown>)[key];
+    return typeof v === 'string' && v.trim() !== '' ? v : null;
+  };
+  // 🔴 金額只認**有限整數**:`NaN` / `Infinity` / 字串數字一律當缺 ⇒ 不印那一行。
+  const readAmount = (key: string): number | null => {
+    if (typeof payload !== 'object' || payload === null || !(key in payload)) return null;
+    const v = (payload as Record<string, unknown>)[key];
+    return typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? v : null;
+  };
+
+  const rawDisplayId = readStr('display_id');
+  const displayId = rawDisplayId === null ? null : sanitizeCustomerFacingReason(rawDisplayId);
+  const rawReason = readStr('cancelled_reason');
+  const reason = rawReason === null ? null : sanitizeCustomerFacingReason(rawReason);
+  const refunded = readAmount('refunded_amount');
+
+  const lines: string[] = [
+    '您好,',
+    '',
+    displayId === null
+      ? ORDER_CANCELLED_HEADLINE_NO_ID
+      : ORDER_CANCELLED_HEADLINE_WITH_ID(displayId),
+  ];
+  if (reason !== null) lines.push('', reason);
+  // 🔴🔴 **「全額退回」那句是【有條件】的 —— 而它原本無條件印**(code-reviewer R1 must-fix)。
+  //    ⛔ ~~`lines.push('', ORDER_CANCELLED_REFUNDED_SENTENCE)` 不看任何欄位~~
+  //    🛑 **失敗情境是具體的**:寫入端(片 B)只要有一次把**部分退款**排進來,
+  //      客人就會收到一封說「全額退回」的信 —— 而**模板結構上擋不住**。
+  //    ⇒ 📌 而部分退款要不要寄,**Sean 沒拍過**(判準碰巧排除它 ≠ 那是個決定)
+  //      ⇒ 在他拍之前, 這裡要 **fail-closed**:不是 `'full'` ⇒ **那句與那行都不印。**
+  //    ✅ 方向與上面「金額缺了就不印」一致:**印一個可能是假的說法, 比不印糟。**
+  //    ⚠️ 而這是一個**對寫入端的契約**:payload 要帶 `refund_kind`。片 B 要照著填。
+  const refundKind = readStr('refund_kind');
+  if (refundKind === 'full') {
+    lines.push('', ORDER_CANCELLED_REFUNDED_SENTENCE);
+    if (refunded !== null) lines.push(`退款金額  NT$ ${formatOrderAmount(refunded)}`);
+  }
+
+  const orderUrl = displayId === null ? undefined : paidEmailOrderUrl(siteUrl, displayId);
+  lines.push('', ORDER_MEMBER_CENTER_SENTENCE);
+  if (orderUrl !== undefined) lines.push(orderUrl);
+  // 🔴 聯絡資訊與付款信同一份來源(A2 的理由在這裡更強:**他的錢剛被動過**, 而他要找得到我們)。
+  //    🛑 而**不含「回覆這封信」** —— 那個信箱沒有人收(Sean 2026-09-03 答 A3;板列 ⟦b4-REPLYTO1⟧)。
+  lines.push('', `${ORDER_CONTACT_LEAD} ${PCM_LINE_ID}`, PCM_LINE_URL);
+  lines.push('', 'PCM重機零件販售', PCM_COMPANY_LINE, PCM_COMPANY_ADDRESS);
   return lines.join('\n');
 }
 
