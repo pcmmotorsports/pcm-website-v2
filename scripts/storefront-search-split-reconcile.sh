@@ -70,6 +70,12 @@ VALUES ('碳纖維前土除蓋', '副標', '說明', 'FCAP-06', (SELECT id FROM 
 --       ⇒ 搜 `akrapovic` 時, 四欄塊(title)與品牌塊 **同一個 (商品, 詞) 各吐一次**
 INSERT INTO products_public(title, subtitle, description, external_id, brand_id)
 VALUES ('AKRAPOVIČ 全段排氣', '副標', '說明', 'AKR-9', (SELECT id FROM brands WHERE name='AKRAPOVIČ'));
+--    ⑤ 🔴 給【逃脫】用的:標題裡有【字面的 % 與 _】
+--       🛑 少了這兩顆, 「逃脫成功回 0 筆」與「根本沒有東西可以中」**印同一個 0**
+--       ⇒ 📌 那個 0 就變成免責貼紙:它在兩個世界裡都成立。
+INSERT INTO products_public(title, subtitle, description, external_id, brand_id)
+VALUES ('全店折扣 50% 專案', '副標', '說明', 'PCT-1', NULL),
+       ('型號 A_B 轉接座', '副標', '說明', 'UND-1', NULL);
 INSERT INTO products_public(title, subtitle, description, external_id, brand_id)
 VALUES ('尾殼', '副標', '說明', 'TAIL-1', (SELECT id FROM brands WHERE name='Öhlins'));
 
@@ -207,9 +213,12 @@ cnt(){ q "SELECT count(*) FROM $1($2)"; }
 #    ⇒ 📌 **fixture 造不出世界時, 對帳型的檢查【全部】變成恆真。**
 SAME=( "ARRAY['碳纖維']" "ARRAY['akrapov']" "ARRAY['fcap06']" "ARRAY['排氣管','全段']" )
 CROSS=( "ARRAY['akrapov','排氣管']" "ARRAY['fcap06','碳纖維']" )
-EDGE=( "ARRAY[]::text[]" "ARRAY['   ']" "ARRAY['碳纖維','碳纖維']" "NULL::text[]" )
+# 🔴 逃脫那三格:`pat` 重構把三層 replace 搬進 CTE ⇒ **那是逃脫語意的改動面**
+#    少了這三格, 「%」被當萬用字元(命中全表)在對帳上看不出來 —— 舊的也錯的話兩邊一樣錯
+EDGE=( "ARRAY[]::text[]" "ARRAY['   ']" "ARRAY['碳纖維','碳纖維']" "NULL::text[]" \
+       "ARRAY['%']" "ARRAY['_']" "ARRAY['100%']" )
 
-echo "🔬 拆三塊 · 語意對帳(兩張表鑽機 · 埠 $PORT · 4,003 商品 / 25 品牌)"
+echo "🔬 拆三塊 · 語意對帳(兩張表鑽機 · 埠 $PORT · $(q "SELECT count(*) FROM products_public") 商品 / $(q "SELECT count(*) FROM brands") 品牌)"
 echo
 echo "── ① 新舊等價:每一格【兩個方向】的差集都要是 0 ──"
 for a in "${SAME[@]}" "${CROSS[@]}" "${EDGE[@]}"; do
@@ -235,6 +244,16 @@ echo "── ③ 那三顆刻意造的商品, 新案真的要找得到 ──"
 for a in "${CROSS[@]}"; do
   c=$(cnt fn_new "$a")
   [ "$c" -ge 1 ] 2>/dev/null && ok "fn_new $a" "$c 筆" || bad "fn_new $a" "0 筆 ⇒ 跨塊那顆掉了"
+done
+echo
+echo "── ③b 🔴 逃脫的【絕對】判準(只跟舊的比不夠 —— 舊的也錯的話兩邊一樣錯)──"
+TOTAL=$(q "SELECT count(*) FROM products_public")
+# 🔴 兩端都要問:**不得是全表**(沒逃脫)且 **不得是 0**(那與「沒東西可中」同一個讀數)
+for a in "ARRAY['%']" "ARRAY['_']"; do
+  c=$(cnt fn_new "$a")
+  if [ "$c" = "$TOTAL" ]; then bad "fn_new $a" "回 $c 筆 = 全表 ⇒ **萬用字元沒被逃脫**"
+  elif [ "$c" = "0" ]; then bad "fn_new $a" "回 0 筆 ⇒ 那顆帶字面 %/_ 的商品沒中 ⇒ **世界沒造出來, 這個 0 不算通過**"
+  else ok "fn_new $a" "回 $c 筆(全表 $TOTAL)⇒ 當字面比對, 而它真的中到東西"; fi
 done
 echo
 echo "── ④ 🔴 常駐突變:把 HAVING 的 DISTINCT 拿掉 ⇒ 必須有一格紅 ──"
