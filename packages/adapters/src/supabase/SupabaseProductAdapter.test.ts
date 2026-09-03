@@ -584,13 +584,16 @@ describe('SupabaseProductAdapter.listCategories — C1 接線', () => {
     await adapter.listCategories();
 
     // adapter 確實向 DB 請求 sort_order 遞增排序(真實排序由 DB 執行、非靠 mock 預排)
-    // 🔴🔴 **兩個鍵, 而順序不能反** —— 第二個是唯一鍵。
+    // 🔴🔴 **三個鍵, 而順序不能反**:`name` 買「跨得過重灌 seed」(id 是 gen_random_uuid),
+    //    `id` 買「全序」(name 也不唯一 —— 正式站實查 `(sort_order, name)` 還有 3 組平手:
+    //    `水管束環` / `防爆水管組` / `維修零件`)。⇒ 📌 **兩格各買一半, 缺一個都不行。**
     //    少了它, `sort_order` 並列的列回傳順序沒有保證
     //    (正式站實查:117 個分類只有 30 個相異 sort_order ⇒ 87 列撞號)。
     // 🛑 而本格驗的是【我們有沒有【要求】那個順序】, **不是**【DB 有沒有照做】——
     //    後者要真 DB 才驗得到, 而這裡是 mock。⇒ 📌 射程寫出來, 不要讓它假裝更大。
     expect(orderArgs).toEqual([
       ['sort_order', { ascending: true }],
+      ['name', { ascending: true }],
       ['id', { ascending: true }],
     ]);
     // count 查詢確實傳 head:true + count:'exact'(head:true=零 row 傳輸、避 1000-row 截斷)
