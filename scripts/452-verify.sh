@@ -122,7 +122,17 @@ if [ "$MODE" = "provision" ]; then
     [ "$f" = "$FF" ] && psql "$URL" -v ON_ERROR_STOP=1 -q -f scripts/d1-fitments-bootstrap.sql >/dev/null
     psql "$URL" -v ON_ERROR_STOP=1 -q -f "$f" >/dev/null || { echo "🔴 migration 失敗:$f"; exit 1; }
   done
-  ( cd /Users/sean_1/pcm-website-v2 && pnpm exec tsx scripts/d1t2-seed.ts ) > "$WORK/seed.sql"
+  # 🔴🔴 2026-09-04:這一行原本【寫死主樹】(`( … )`)。
+  #   而本檔 :57 已經 `cd "$(dirname "${BASH_SOURCE[0]}")/.."` ⇒ cwd 早就是【呼叫它的那棵樹】的根
+  #   ⇒ 那個 cd 不是保護,是把已經正確的 cwd 覆蓋掉。
+  # 🛑 症狀:migration 讀當前樹(上面那圈是相對路徑),而 seed 跑主樹
+  #   ⇒ 同一支 harness 兩個分母;在施工窗改了 d1t2-seed.ts 再跑這支,驗到的是別人的樹,
+  #   而主樹隨時在別的 commit 上 ⇒ 兩邊來自歷史上兩個不同的點,而畫面全綠。
+  # 🎯 它跑得動 ⇒ 零訊號。一個跑不動的東西會被修,一個跑得動而量錯的不會。
+  # 🔬 拿掉之前實測過(否則會把「說謊」換成「跑不動」):worktree 有 node_modules、
+  #   不 cd 直接跑 rc=0 / 42,118 bytes;兩棵樹今天這支檔同 sha 036a9c836232 ⇒ 輸出逐位元組相同
+  #   ⇒ 📌 這是一個潛伏的洞,不是正在發作的 —— 它等的是兩棵樹不同版的那一天。
+  pnpm exec tsx scripts/d1t2-seed.ts > "$WORK/seed.sql"
   [ -s "$WORK/seed.sql" ] || { echo "🔴 seed 產不出來"; exit 1; }
   psql "$URL" -v ON_ERROR_STOP=1 -q -f "$WORK/seed.sql" >/dev/null
   echo "✅ provision 完成 —— 接著:PORT=${PORT} bash scripts/452-verify.sh run ${WORK}"
