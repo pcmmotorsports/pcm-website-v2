@@ -161,3 +161,82 @@ describe('品牌介紹頁內容覆蓋(上架了而客人點進去 404)', () => {
     ).toBe(false);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 **反方向:`BRAND_CONTENT` 裡的每一個 slug, 都要真的對得到一家供應商。**
+//
+// 上面那個 describe 守的是 **供應商 ⇒ BRAND_CONTENT**(「上架了而客人點進去 404」)。
+// 🎯 **而【回來那一半】今天沒有任何東西在守** —— 這一節補它。
+//
+// **它防什麼(2026-09-05 量到的形狀)**:`BrandDirectoryRoot.tsx` 逐字
+// `isEmpty={!availableSlugs.has(brand.slug)}` ⇒ 📌 **一個在 `BRAND_CONTENT` 裡打錯的 slug,
+// 不會 404、不會報錯 —— 它會被畫成一塊【安靜的 isEmpty 磚】**, 而那與「這個牌子暫時沒貨」
+// 在畫面上**長得一模一樣**。
+//
+// 🔵 **對映用 `brandSlug` 不是 config 的 key** —— 兩者慣例不同(`cncracing` vs `cnc-racing`),
+//    拿 key 去比會紅 5 條, 而那 5 條**只是連字號**。📌 **來源是那個欄位, 不是我自己正規化。**
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** 在 `BRAND_CONTENT` 裡、而**沒有**對應供應商的 slug —— 每一個都要有理由。 */
+const KNOWN_NO_SUPPLIER: ReadonlySet<string> = new Set([
+  // `kineo` 2026-09-05 實查:在正式庫 `brands` 表裡、**0 個商品**、`SUPPLIER_CONFIGS` 裡沒有它。
+  // ⇒ 它是「有介紹頁而還沒進貨」的形狀 —— 客人在品牌目錄看得到那塊磚(isEmpty)。
+  // 🔴 **而這份名單自己就是那道閘**:多一個進來要有人寫理由, 而不是靜靜通過。
+  'kineo',
+]);
+
+function contentSlugsWithoutSupplier(
+  content: ReadonlyArray<{ slug: string }>,
+  supplierBrandSlugs: ReadonlySet<string>,
+  allowed: ReadonlySet<string>,
+): string[] {
+  return content
+    .map((b) => b.slug)
+    .filter((slug) => !supplierBrandSlugs.has(slug) && !allowed.has(slug))
+    .sort();
+}
+
+describe('🔴 反方向:BRAND_CONTENT 的每個 slug 都要對得到供應商', () => {
+  const supplierBrandSlugs = new Set(
+    Object.values(SUPPLIER_CONFIGS).map((c) => c.brandSlug),
+  );
+
+  it('前提:兩邊分母都不是空的(空掉的話下面整段恆綠)', () => {
+    expect(BRAND_CONTENT.length, 'BRAND_CONTENT 是空的 ⇒ 本節恆綠').toBeGreaterThan(10);
+    expect(supplierBrandSlugs.size, 'brandSlug 集合是空的 ⇒ 本節會把每一條都判成缺').toBeGreaterThan(10);
+  });
+
+  it('🔴 主閘:沒有一個 BRAND_CONTENT slug 是對不到供應商的(除了明列的例外)', () => {
+    const orphans = contentSlugsWithoutSupplier(BRAND_CONTENT, supplierBrandSlugs, KNOWN_NO_SUPPLIER);
+    expect(
+      orphans,
+      `這些 slug 在 BRAND_CONTENT 裡而對不到任何供應商的 brandSlug ⇒ 多半是打錯字。` +
+        `它不會 404, 會被畫成一塊安靜的 isEmpty 磚(BrandDirectoryRoot.tsx 的 isEmpty)。` +
+        `若它是「有介紹頁而還沒進貨」, 請加進 KNOWN_NO_SUPPLIER 並寫下理由。`,
+    ).toEqual([]);
+  });
+
+  it('✅ 該綠必綠:今天現況不能因為本閘而紅', () => {
+    expect(
+      contentSlugsWithoutSupplier(BRAND_CONTENT, supplierBrandSlugs, KNOWN_NO_SUPPLIER).length,
+    ).toBe(0);
+  });
+
+  it('🔴 該紅必紅:現造一個打錯的 slug ⇒ 必須被抓到', () => {
+    const typo = [...BRAND_CONTENT.map((b) => ({ slug: b.slug })), { slug: 'zz-fake' }];
+    expect(
+      contentSlugsWithoutSupplier(typo, supplierBrandSlugs, KNOWN_NO_SUPPLIER),
+      '造了一個對不到供應商的 slug 而本閘沒抓到 ⇒ 它對真的打錯也不會叫',
+    ).toEqual(['zz-fake']);
+  });
+
+  it('🔵 負對照:例外名單真的會放行(否則 kineo 會把本閘打成恆紅)', () => {
+    expect(
+      contentSlugsWithoutSupplier([{ slug: 'kineo' }], supplierBrandSlugs, KNOWN_NO_SUPPLIER),
+    ).toEqual([]);
+    // 🔴 而它**只**放行名單裡那個 —— 例外不得變成萬用通行證。
+    expect(
+      contentSlugsWithoutSupplier([{ slug: 'kineo-x' }], supplierBrandSlugs, KNOWN_NO_SUPPLIER),
+    ).toEqual(['kineo-x']);
+  });
+});
