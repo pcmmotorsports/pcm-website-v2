@@ -154,6 +154,25 @@ export type ShipmentLauncher = {
 export function useShipmentLauncher(
   orderIds: readonly string[],
   onDone?: () => void,
+  /**
+   * 「尾款 X 元未收」——**在彈窗裡**印的那一句(Sean 2026-09-04 拍甲)。`null` = 不印。
+   *
+   * 🔴 **只是一個【已經排版好的字串】,不是訂單物件** —— 彈窗的紅線(`shipment-dialog.tsx:10-11`)
+   *   逐字要求 props 不收 `AdminOrderDetail`。算它的地方在 `shipment-section.tsx`
+   *   的 `shipmentBalanceWarning`(server component, 走同一支 `toPaymentSummary`)。
+   *
+   * 🔴🔴 **而【勾單】那個入口今天傳不出這個字 —— 而它比「批次沒有定義」嚴重, 那是我第一版寫輕了。**
+   *   ⛔ ~~原句:「N 張單有 N 個尾款 ⇒ 在那裡沒有定義」~~
+   *   🎯 **codex 2026-09-04 MF7 訂正**:`shipping-selection.tsx:148` 的呼叫端手上是 `s.orderIds`,
+   *      而**勾【一張】單也走這條路** ⇒ 那一張單的尾款**完全定義得出來**, 而畫面上不會有警告。
+   *   ⇒ 🔴 **所以這不只是「批次沒做」, 是【同一張未收尾款的訂單有一條沒有警告的繞道】** ——
+   *      員工從訂單列表勾那一張、按「出貨」, 走到的是同一個彈窗而少了那句話。
+   *   ⇒ 📌 **一個「從詳情頁進得到、從列表進不到」的警告, 在列表那條路上與「它不存在」印同一個東西。**
+   *   🛑 **本片沒有修它**:列表那頁手上沒有 payments(它是 client component, 要多一趟取數),
+   *      而「勾多張時要印什麼」是 Sean 的設計題(逐單列出?只印「其中 N 張尚有尾款」?)。
+   *      ⇒ 已回報主視窗、板列 `⟦ship-BALANCEWARNBYPASS⟧`。**不要把這段刪掉當成做完了。**
+   */
+  balanceWarning?: string | null,
 ): ShipmentLauncher {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -236,6 +255,7 @@ export function useShipmentLauncher(
         candidates={open.data.items}
         recipient={open.data.recipient ?? { name: null, phone: null, line: null }}
         idempotencyKey={open.key}
+        balanceWarning={balanceWarning ?? null}
         onClose={(createdShipment) => {
           setOpen(null);
           // 🔴 半成品箱(建箱成功、掛品項失敗)走**失敗路徑** ⇒ 不會呼叫 `onDone`,
@@ -293,12 +313,21 @@ export function useShipmentLauncher(
  *    revalidate 的是列表那一頁,**不含本詳情頁** ⇒ 不刷的話新箱子不會出現在下面的清單裡,
  *    員工會以為沒建成功而再按一次(第二次是不同的冪等鍵 = 真的第二箱)。
  */
-export function OrderShipButton({ orderId }: { orderId: string }) {
+export function OrderShipButton({
+  orderId,
+  balanceWarning = null,
+}: {
+  orderId: string;
+  /** 「尾款 X 元未收」。由 server component 算好傳進來(見 `useShipmentLauncher` 那個參數的說明)。 */
+  balanceWarning?: string | null;
+}) {
   const router = useRouter();
   // 🔴 陣列要 memo:直接寫 `[orderId]` 每次 render 都是新參考 ⇒ `openDialog` 跟著重建。
   const orderIds = useMemo(() => [orderId], [orderId]);
-  const { loading, error, openDialog, dialog } = useShipmentLauncher(orderIds, () =>
-    router.refresh(),
+  const { loading, error, openDialog, dialog } = useShipmentLauncher(
+    orderIds,
+    () => router.refresh(),
+    balanceWarning,
   );
 
   return (

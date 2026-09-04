@@ -26,14 +26,25 @@ vi.mock('../../lib/shipping/order-shipments', () => ({ loadOrderShipments, loadE
 // 兩顆 client island 各自有守門檔;這裡換成佔位,讓斷言只針對本卡的結構。
 // 🔴 字面對齊 `shipment-launcher.tsx:232` 的 `'出貨'` —— 原本寫「建立包裹」是**改名前**的字,
 //    留著會讓同一顆鈕在本片內出現第三種寫法(見該檔 `:184-196` Sean 08-12 改名紀錄)。
-vi.mock('./shipment-launcher', () => ({ OrderShipButton: () => <button type='button'>出貨</button> }));
+// 🔴 **這個 mock 原本把 props 整個丟掉** —— codex 2026-09-04 抓到(MF5):
+//    那樣的話, 把 `shipment-section.tsx` 傳給它的 `balanceWarning={...}` **整段刪掉**,
+//    本檔新增的每一格都還是綠的, 而彈窗裡那句尾款警告**真的不見了**。
+//    ⇒ 📌 **「我寫了那個傳遞」與「有東西守著那個傳遞」是兩個宣稱。**
+//    ✅ 改成把 props 印進 DOM(`data-*`), 讓下面那一格看得見它到底收到什麼。
+vi.mock('./shipment-launcher', () => ({
+  OrderShipButton: (p: { orderId: string; balanceWarning?: string | null }) => (
+    <button type='button' data-balance-warning={p.balanceWarning ?? ''}>
+      出貨
+    </button>
+  ),
+}));
 vi.mock('./shipment-void-button', () => ({
   ShipmentVoidButton: ({ shipmentReference }: { shipmentReference: string }) => (
     <button type='button'>作廢 {shipmentReference}</button>
   ),
 }));
 
-import { ShipmentSection } from './shipment-section';
+import { ShipmentSection, shipmentBalanceWarning } from './shipment-section';
 
 // 🔴 `total` 補上 —— DB 的 `orders.total` 是 **NOT NULL**(`20260604120000:104`;
 //    `:103` 是 `discount_total`,不是它 —— 原本引錯行,2026-08-19 開檔核過改正),
@@ -461,5 +472,73 @@ describe('🔴 包裹卡單號那一行的字級', () => {
     const line = screen.getByText(/單號/);
     expect(line.className, '單號那行沒有 15px ⇒ 字級被改掉了').toContain('text-[15px]');
     expect(line.className, '單號那行還是舊的 12px(text-xs)⇒ 字級沒有真的改').not.toContain('text-xs');
+  });
+
+  /**
+   * 「尾款 X 元未收」要進**建箱彈窗**(Sean 2026-09-04 拍甲,原話逐字:
+   * 「甲 可以 —— 但那個框裡要明顯寫『尾款 X 元未收』」)。
+   *
+   * 🔴 **本組釘的是【那句字】,不是【看不看得見】** —— jsdom 不算版面、不知道誰在視窗內
+   *   ⇒ 「明顯」那一半**這裡證不到**,要真瀏覽器量。**寫出來,不要讓下一個人以為這組蓋到了。**
+   *
+   * 🔴 **斷言寫【字面值】不寫 import 來的常數** —— 從被測檔 import 期望值,
+   *   等於讓實作自己出考題:改壞了兩邊一起變,而這一格照樣綠。
+   */
+  describe('shipmentBalanceWarning —— 進彈窗的那一句', () => {
+    // detail.total.amount = 5000(本檔上方那個 fixture)
+    const paidRows = (...amounts: number[]) =>
+      ({ status: 'ok', rows: amounts.map((amount, i) => ({ id: `p${i}`, amount })) }) as never;
+
+    it('🔴 還差錢 ⇒ 逐字「尾款 3,000 元未收」(帶「元」= Sean 的字面)', () => {
+      // 🧬 突變:把 short 那一行拿掉 ⇒ 回 null ⇒ 這一格紅。
+      // 🧬 突變:把「元」拿掉(改回頁面上那格的「尾款 N 未收」)⇒ 這一格也紅。
+      expect(shipmentBalanceWarning(detail, paidRows(2000))).toBe('尾款 3,000 元未收');
+    });
+
+    it('🔴 已收足 ⇒ null(彈窗裡什麼都不印)', () => {
+      // 🎯 這一格擋的是「一個恆常出現的提示等於沒有提示」——
+      //    它會讓下一個人以為「這裡有在提醒」而不去查它有沒有在【該叫的時候】叫。
+      // 🧬 突變:讓它無條件回一句話 ⇒ 這一格紅。
+      expect(shipmentBalanceWarning(detail, paidRows(5000))).toBeNull();
+    });
+
+    it('🔵 溢收 ⇒ 也是 null —— 溢收不是出貨的風險', () => {
+      expect(shipmentBalanceWarning(detail, paidRows(6000))).toBeNull();
+    });
+
+    it('⚠️ 讀不到收款明細 ⇒ 出聲,而【這一態是實作者的判斷不是 Sean 的字】', () => {
+      // 🔴 Sean 說的是「尾款 X 元未收」, 而這一態沒有 X。讓它出聲的理由逐字抄自
+      //    `ShipmentBalanceNote` 檔頭:「讀不到明細時算出來的『已收』必然是假的」,
+      //    而在出貨鈕旁邊印一片空白會讓員工以為已收足。
+      // 🛑 要推翻這個判斷 ⇒ 刪掉那個 if, 這一格會紅並指到這裡。
+      const text = shipmentBalanceWarning(detail, PAYMENTS_UNREADABLE as never);
+      expect(text, '讀不到明細時彈窗一句話都不說 ⇒ 與「已收足」在畫面上長一樣').not.toBeNull();
+      expect(text).toContain('尾款未知');
+      expect(text, '不能印出一個數字 —— 那個數字必然是假的').not.toMatch(/\d/);
+    });
+
+    it('🔴🔴 那句話真的被【傳進出貨鈕】了 —— codex MF5:少了這一格, 刪掉那個傳遞也全綠', async () => {
+      // 🎯 上面那幾格證的是「函式算得對」, 而**算得對與有沒有交出去是兩件事**。
+      // 🧬 突變:把 `shipment-section.tsx` 的 `balanceWarning={shipmentBalanceWarning(...)}`
+      //    整行刪掉 ⇒ 這一格紅(其餘每一格都還是綠)。
+      loadOrderShipments.mockResolvedValue([]);
+      loadEmptyShipments.mockResolvedValue([]);
+      const { container } = render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+      const btn = container.querySelector('button[data-balance-warning]');
+      expect(btn, '出貨鈕連這個屬性都沒有 ⇒ props 根本沒傳到').not.toBeNull();
+      expect(
+        btn!.getAttribute('data-balance-warning'),
+        '出貨鈕收到的是空的 ⇒ 那句尾款警告不會進到彈窗裡',
+      ).toContain('尾款');
+    });
+
+    it('🟢 正對照:那個數字真的有參與運算(不是寫死的一句話)', () => {
+      // 🎯 沒有這一格的話,上面那幾格「剛好都對」與「函式回傳寫死」分不開。
+      const a = shipmentBalanceWarning(detail, paidRows(1000));
+      const b = shipmentBalanceWarning(detail, paidRows(2000));
+      expect(a).toBe('尾款 4,000 元未收');
+      expect(b).toBe('尾款 3,000 元未收');
+      expect(a, '兩個不同的已收金額給出同一句話 ⇒ 那個數字沒有真的參與運算').not.toBe(b);
+    });
   });
 });

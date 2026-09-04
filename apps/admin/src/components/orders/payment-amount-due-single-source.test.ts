@@ -4,7 +4,14 @@ import { describe, expect, it } from 'vitest';
 
 import { stripComments } from '../../lib/test-support/strip-comments';
 
-// payment-amount-due-single-source.test.ts —— M-4b「三處『已收/尾款』的來源必須同一個」守門。
+// payment-amount-due-single-source.test.ts —— M-4b「每一處『已收/尾款』的來源必須同一個」守門。
+//
+// 🔴 **2026-09-04 檔頭訂正(codex nit9)**:全檔原本多處寫死「**三處**／3 個呼叫端」,
+//    而 09-04 起是 **4**(`shipment-section.tsx` 多了 `shipmentBalanceWarning`,把那句話送進建箱彈窗)。
+//    ⇒ 📌 **這支檔存在的理由就是「數字與現況脫鉤會沒有人發現」, 而它自己的說明字面正在脫鉤。**
+//    ✅ 處置:**會紅的那一行留數字**(它會叫), **說明字面改成不帶數字**。
+//    ⚠️ 下面那些「三處」字面**沒有全部改掉** —— 它們描述的是當時的病史與推理, 改成 4 會讓那段話變成
+//       另一個時點的假紀錄。**要引用數量, 看會紅的那兩行, 不要看散文。**
 //
 // 🔴🔴 **為什麼需要它**:`toPaymentSummary()` 今天有 **3 個呼叫端**,三處都渲染在**同一頁**
 //    (訂單詳情:頭條 / 付款卡 / 出貨區)。三處**共用那支函式,但【不共用它的第一個引數】** ——
@@ -82,7 +89,7 @@ describe('「尾款/已收」的第一個引數只有一個來源', () => {
     expect(amountDueProps().length).toBeGreaterThan(0);
   });
 
-  it('🔴 `toPaymentSummary` 恰有 3 個呼叫端 —— 多一個就要有人看過這條不變式', () => {
+  it('🔴 `toPaymentSummary` 恰有 4 個呼叫端 —— 多一個就要有人看過這條不變式', () => {
     const sites = callSites();
     expect(
       sites.map((s) => s.file).sort(),
@@ -93,8 +100,16 @@ describe('「尾款/已收」的第一個引數只有一個來源', () => {
       //    整段搬家、逐字未動。
       //    ⚠️ **而「改路徑」與「換掉一個呼叫端」在 diff 上長得一樣** ⇒ 審這一行的人要看的是
       //       下面那格(第一引數同源), 不是這張名單的長度。
+      // 🔴 2026-09-04:`shipment-section.tsx` 從 1 個呼叫端變成 **2 個** ——
+      //    新的那個是 `shipmentBalanceWarning()`,它把「尾款 X 元未收」那句話算出來
+      //    送進**建箱彈窗**(Sean 當天逐字:「甲 可以 —— 但那個框裡要明顯寫『尾款 X 元未收』」)。
+      //    🟢 **而它與同檔那個 `ShipmentBalanceNote` 第一引數逐字相同**(`detail.total.amount`)
+      //       ⇒ 下面那格(第一引數同源)照樣綠 ⇒ **這一行加的是【一個新的顯示面】,不是新的口徑。**
+      //    ⚠️ **本閘當場紅了, 而它紅得對** —— 它逐字說「新增一處請確認它的第一個引數與另外三處
+      //       同源, 然後把數字改成新的值」。📌 **先確認同源、再改數字, 順序不能反。**
       `${ROOT}/components/orders/order-focal-row.tsx`,
       `${ROOT}/components/orders/payment-list.tsx`,
+      `${ROOT}/components/orders/shipment-section.tsx`,
       `${ROOT}/components/orders/shipment-section.tsx`,
     ]);
   });
@@ -134,9 +149,13 @@ describe('第 2 引數:讀不到明細時必須 fail-closed(傳 null,不是傳�
   // ⚠️ **射程(不要讀寬)**:本組是**字面守門**。它擋得住「拿掉那個守衛」與「新呼叫點漏寫守衛」,
   //    **擋不住** `toPaymentSummary` 內部把 `null` 當成 0 來算(那是那支函式自己的測試的事)。
 
-  it('三處的第 2 引數都必須是 `<資料>.status === \'ok\' ? <資料>.rows : null`', () => {
+  it('每一處的第 2 引數都必須是 `<資料>.status === \'ok\' ? <資料>.rows : null`', () => {
     const sites = callSitesWithSecondArg();
-    expect(sites.length, '沒掃到呼叫端 ⇒ 下面的斷言會恆綠').toBe(3);
+    // 🔴 2026-09-04 `3` ⇒ `4`:`shipment-section.tsx` 多了 `shipmentBalanceWarning()`
+    //    (「尾款 X 元未收」送進建箱彈窗)。它的第 2 引數逐字就是上面那個形狀 ⇒ 下面那格照樣綠。
+    //    ⚠️ 標題原本寫死「**三處**」—— 那個字每加一個呼叫端就過期一次而**沒有東西會叫**
+    //    ⇒ 改成不帶數字的說法, 數字只留在這一行(它會紅)。
+    expect(sites.length, '沒掃到呼叫端 ⇒ 下面的斷言會恆綠').toBe(4);
     const shape = /^([A-Za-z_$][\w$]*)\.status === 'ok' \? \1\.rows : null$/;
     const bad = sites.filter((s) => !shape.test(s.secondArg));
     expect(

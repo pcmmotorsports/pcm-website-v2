@@ -1000,3 +1000,91 @@ describe('🔴 #551 貨號格式:擋與警告是【兩種後果】,畫面上不�
     expect((trackingInput() as HTMLInputElement).value).toBe('');
   });
 });
+
+/**
+   * 尾款警告(Sean 2026-09-04 拍甲,原話逐字:
+   * 「甲 可以 —— 但那個框裡要**明顯**寫『尾款 X 元未收』」)。
+   *
+   * 🛑🛑 **本組【證不到】「明顯」** —— jsdom 不算版面、不知道元素在不在視窗內、字有多大。
+   *   它釘得住的只有三件:**那句字在** / **它排在送出鈕【之前】** / **它的字級比鄰居大一級**。
+   *   ⇒ 🔴 **「員工按下去之前真的會看到它」要真瀏覽器量, 而本片有沒有量寫在 commit body 裡。**
+   *   ⇒ 📌 不寫這一段的話, 下一個人會以為這組蓋到了 Sean 的那兩個字。
+   */
+describe('ShipmentDialog — 尾款警告(Sean 2026-09-04 拍甲)', () => {
+    it('🔴 有尾款 ⇒ 那句字進到彈窗裡(這是本片存在的理由)', () => {
+      // 🔬 缺口是量到的:線 -db 2026-09-04 真瀏覽器掃這個 dialog 的 textContent,
+      //    「尾款」/「未收」各 0 次, 而同一頁的標題有「尾款 21,819 未收」
+      //    ⇒ 數字在頁面上, 不在做決定的那個框裡。
+      // 🧬 突變:把 JSX 那個區塊刪掉 ⇒ 這一格紅。
+      const { container } = open({ balanceWarning: '尾款 3,000 元未收' });
+      expect(container.textContent, '彈窗裡看不到那句話 ⇒ 這片等於沒做').toContain(
+        '尾款 3,000 元未收',
+      );
+    });
+
+    it('🔴 沒有尾款 ⇒ 那一塊【整個不在】(不是印一句空的)', () => {
+      // 🎯 一個恆常出現的提示等於沒有提示 —— 它會讓下一個人以為「這裡有在提醒」
+      //    而不去查它有沒有在該叫的時候叫。
+      // 🧬 突變:把條件改成無條件渲染 ⇒ 這一格紅。
+      const { container } = open({ balanceWarning: null });
+      expect(
+        container.querySelector('[data-testid="shipment-balance-warning"]'),
+        '已收足的單也印了警告框 ⇒ 那個提示會被學會忽略',
+      ).toBeNull();
+    });
+
+    it('🔴 它排在送出鈕【之前】—— 判準是「員工按下去之前會讀到」不是「它在 DOM 裡」', () => {
+      const { container } = open({ balanceWarning: '尾款 3,000 元未收' });
+      const note = container.querySelector('[data-testid="shipment-balance-warning"]');
+      const submit = screen.getByRole('button', { name: '建箱並標出貨' });
+      expect(note, '警告框不在 ⇒ 下面那個位置比較恆真').not.toBeNull();
+      // DOCUMENT_POSITION_FOLLOWING = 4:submit 排在 note 之後
+      // 🧬 突變:把那個區塊搬到 footer 後面 ⇒ 這一格紅。
+      expect(
+        note!.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING,
+        '送出鈕排在警告【之前】⇒ 員工可能按完才讀到',
+      ).toBeTruthy();
+    });
+
+    it('🔴 字級比同一個 footer 裡的既有警告【大一級】—— 那是「明顯」唯一量得到的一半', () => {
+      // 🔬 同檔既有兩句警告(單號 / 收件人)是 `text-xs font-medium text-amber-700`。
+      //    本句刻意 `text-sm font-semibold` ⇒ 它不會被鄰居吃掉。
+      // 🧬 突變:把 text-sm 改回 text-xs ⇒ 這一格紅。
+      const { container } = open({ balanceWarning: '尾款 3,000 元未收' });
+      const cls = container.querySelector('[data-testid="shipment-balance-warning"]')!.className;
+      expect(cls, '掉回 text-xs ⇒ 與旁邊那兩句一樣小').toContain('text-sm');
+      expect(cls, '不是 text-xs —— 這一行與上一行成對, 只留一行擋不住「兩個都加上去」').not.toContain(
+        'text-xs',
+      );
+      expect(cls).toContain('font-semibold');
+      // 🔴 琥珀不是紅:紅在本檔是「擋」(你現在過不去), 而 Sean 拍的是**可以出貨**。
+      expect(cls, '變成紅色 ⇒ 它會被讀成「這單不能出」, 而那與拍板相反').toContain('amber');
+      expect(cls).not.toContain('text-red');
+  });
+
+  /**
+   * 🔴🔴 **codex 2026-09-04 MF3:上面那四格【沒有守住「明顯」】。**
+   * 它構造的突變:**刪掉琥珀底 / 刪掉留白 / 加上 `opacity-0`** —— 四格全綠而那句話在畫面上消失或縮成一條線。
+   * ⇒ 📌 **我釘了字級與顏色【文字】, 而沒有釘讓它「成為一整條」的那幾個 class。**
+   * ⚠️ 而這仍然**不是**「明顯」的證明 —— jsdom 量不到版面。它只是把**可以被字面守住的那幾格**補齊。
+   *    真正的量測(座標 / 視窗內 / 與送出鈕的距離)寫在 commit body 裡, 由真瀏覽器跑。
+   */
+  it('🔴 它是【一整條】不是一個小字:底色、留白、不透明度都要在', () => {
+    const { container } = open({ balanceWarning: '尾款 3,000 元未收' });
+    const el = container.querySelector('[data-testid="shipment-balance-warning"]')!;
+    const cls = el.className;
+    // 🧬 突變:拿掉 bg-amber-50 ⇒ 紅(它就不再是一條看得見的帶子)
+    expect(cls, '沒有底色 ⇒ 它會融進彈窗背景, 變成「footer 上面多一行字」').toContain('bg-amber');
+    // 🧬 突變:拿掉 px-4 py-3 ⇒ 紅(貼著邊、擠成一線)
+    expect(cls, '沒有留白 ⇒ 那條帶子會扁掉').toMatch(/px-\d/);
+    expect(cls).toMatch(/py-\d/);
+    // 🧬 突變:加 opacity-0 / hidden / sr-only ⇒ 紅(看不見而 textContent 還在)
+    for (const killer of ['opacity-0', 'hidden', 'sr-only', 'invisible']) {
+      expect(cls, `掛了 ${killer} ⇒ 字還在 DOM 裡而員工看不到, 那正是本片要消滅的症狀`).not.toContain(
+        killer,
+      );
+    }
+    // 🟢 正對照:這把尺讀得到東西(否則上面每一格都恆綠)
+    expect(cls.length, 'className 是空的 ⇒ 這一格什麼都沒檢查').toBeGreaterThan(20);
+  });
+});
