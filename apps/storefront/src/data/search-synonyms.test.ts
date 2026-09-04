@@ -79,12 +79,29 @@ describe('SEARCH_SYNONYMS — 這張表自己要站得住', () => {
   it.each(SEARCH_SYNONYMS.filter((s) => s.kind === 'category'))(
     '🔴 `from` 不得是任何分類名的前綴(那樣前綴那條先中, 這一列永遠讀不到):%s',
     (syn) => {
-      const shadowedBy = SEARCH_CATEGORY_NAMES.find(
+      // 🔴🔴 **2026-09-04 訂正:分母要用【有貨的】分類, 不是全部 113 個。**
+      //    ⛔ ~~原本這一行找的是 `SEARCH_CATEGORY_NAMES`(全部 113 個)~~
+      //    🔬 而執行時 `parse-search-facets.ts:96` 的 `allCats` 來自 `buildCategoryTree`,
+      //       那支是**選項 A:只留有商品的分類**(`app/page.tsx:93` · `ProductsPage.tsx:95` 逐字)
+      //       ⇒ 🛑 **0 件的分類【執行時根本不在那個陣列裡】, 它遮不到任何東西。**
+      //    🎯 拿全部 113 個當分母 ⇒ 這道閘會**誤殺**只被空分類遮住的列。
+      //       實錘:`服飾 ⇒ 騎士服飾` 被 `服飾配備`(0 件)判死、
+      //             `傳動 ⇒ 齒盤與傳動` 被 `傳動齒比`(0 件)判死 ——
+      //             而那兩個詞正是 `-front` 量到「一顆膠囊都沒有」的那兩個。
+      //       ⇒ 📌 **一道閘照著一個【比現實大】的分母, 把唯一的修法擋掉了。**
+      //    ⚠️ **這是放寬, 而放寬的代價要寫出來**:哪天 `服飾配備` 進了貨,
+      //       它就會真的遮住 `服飾` ⇒ 那一列變死。
+      //       ✅ 而那個世界**會叫** —— 進貨的人更新 `SEARCH_CATEGORY_EMPTY_NAMES` 之後,
+      //          這道閘的分母跟著變大, `服飾` 那一列當場紅。兩份快照是綁在一起動的。
+      const liveCats = SEARCH_CATEGORY_NAMES.filter(
+        (n) => !SEARCH_CATEGORY_EMPTY_NAMES.includes(n),
+      );
+      const shadowedBy = liveCats.find(
         (name) => foldEquals(syn.from, name) || foldStartsWith(name, syn.from),
       );
       expect(
         shadowedBy,
-        `「${syn.from} ⇒ ${syn.to}」被分類名「${shadowedBy}」的前綴比對搶先命中` +
+        `「${syn.from} ⇒ ${syn.to}」被【有貨的】分類名「${shadowedBy}」的前綴比對搶先命中` +
           ' ⇒ 這一列永遠不會被讀到。前綴已經處理了它 ⇒ 這一列是純多餘, 刪掉。',
       ).toBeUndefined();
     },

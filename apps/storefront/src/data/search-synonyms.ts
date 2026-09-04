@@ -391,6 +391,22 @@ export const SEARCH_SYNONYMS: readonly SearchSynonym[] = [
     added: '2026-09-04',
     note: 'momo 購物網「機車行車紀錄器車架」搜尋頁 —— 客人不會打正式名「攝影機支架」。',
   },
+  {
+    from: '服飾',
+    to: '騎士服飾',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: '⟦search-ZEROCAPSULE⟧ 實跑追出來的: 服飾 只出現在 騎士服飾 的【結尾】, 而比對只做開頭 ⇒ 一顆膠囊都沒有。',
+  },
+  {
+    from: '傳動',
+    to: '齒盤與傳動',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: '⟦search-ZEROCAPSULE⟧ 同上: 傳動 只出現在 齒盤與傳動 的【結尾】。',
+  },
 ];
 
 /**
