@@ -146,6 +146,23 @@ describe('SEARCH_SYNONYMS — 這張表自己要站得住', () => {
     expect(SEARCH_CATEGORY_NAMES.includes('這個分類不存在')).toBe(false);
   });
 
+  // 🔴🔴 **2026-09-04 補:`from` 帶【空白】的那一列, 永遠對不到。**
+  //    🔬 `parse-search-facets.ts:42` 的 `splitWords` 先把查詢**用空白切開**,
+  //       `:96-100` 那個迴圈是**一個字一個字**拿去查字典(`words[i]`)
+  //       ⇒ 🛑 字典永遠只會被餵到【單一個沒有空白的詞】
+  //       ⇒ 一個寫成 `DB Killer` 的 `from`, **不管客人打什麼都不會命中**。
+  //    🎯 而它與前面兩道死列閘是同一族:**完全合法、拼字正確、指向有貨的分類, 而到不了。**
+  //       ⇒ 📌 三道閘問的是三件不同的事:名字在不在 / 那裡有沒有貨 / **這一列到得了嗎**。
+  //    🔵 這一格是第二波候選撞出來的(有人交了 `DB Killer`)—— 那個俗稱是真的,
+  //       台灣車友確實這樣講, **而我們這條路吃不到它** ⇒ 要它就得改解析器, 不是加字典列。
+  it.each(SEARCH_SYNONYMS)('🔴 `from` 不得含空白(解析器逐字拆 ⇒ 帶空白的永遠對不到):%s', (syn) => {
+    expect(
+      /[\s\u3000\u00a0]/.test(syn.from),
+      `「${syn.from}」含空白 ⇒ splitWords 會把它切成兩個字, 而字典是拿單字去查的` +
+        ' ⇒ 這一列永遠不會命中。改成單一個詞, 或這個俗稱本條路吃不到。',
+    ).toBe(false);
+  });
+
   it('🔴 `draft` 的列一定要有 note 與 added 日期(不然數不出它躺多久)', () => {
     for (const s of SEARCH_SYNONYMS.filter((x) => x.source === 'draft')) {
       expect(s.note.length, `${s.from} 沒寫 note`).toBeGreaterThan(10);
