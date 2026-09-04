@@ -1103,6 +1103,82 @@ describe('🔴 心跳:回應層對帳(壞回應要 throw, 不是靜靜地健康)
 // 🛑🛑 **而【錯誤訊息裡的名字, 是最內層失敗的那個東西, 不是你呼叫的那個】** ——
 //    世界 A 的訊息寫的是那個 helper 的名字 ⇒ 任何「訊息裡有沒有提到我們那支函式」的判斷
 //    在世界 A 會判成「不是我們的問題」而降級 ⇒ **一支壞掉的函式被讀成「今天沒有人搜尋客戶」。**
+describe('⟦b4-NEEDSHUMANNOWATCHER⟧ getStuckBankOrdersHealth — 42883 的兩個世界', () => {
+  // 🔴🔴 **這個 describe 存在的理由是 codex 2026-09-05 must-fix ⑤ 逐字**:
+  //    「現有 adapter 測試零次呼叫此方法;把整個 method body 換成永遠 `return null`,
+  //     現有 use-case 測試仍全綠。」
+  //    ⇒ 🎯 **我驗了 use-case 那一層的三個接點, 而 adapter 那一層【一格都沒有】。**
+  //    🔵 而我查過:`getSearchLogHealth` 也是 0 次 —— **那是模子留下的缺口, 不是本片造成的**,
+  //      而我不拿它當免責。那一格另開板列。
+  const RPC = 'get_stuck_bank_orders_health';
+
+  function stuckClient(opts: { result?: unknown; raise42883?: boolean; probeMissing?: boolean }) {
+    return makeClient({
+      query: async (text: string) => {
+        if (text.includes('to_regprocedure')) {
+          return { rows: [{ missing: opts.probeMissing === true }] };
+        }
+        if (opts.raise42883 === true) {
+          // 🔴 訊息刻意寫【內層 helper 的名字】—— 那是世界 A 的真實形狀
+          //   (`admin_compute_order_settlement` 是本 RPC 逐列呼叫的那一支)。
+          const err = new Error('function public.admin_compute_order_settlement(uuid) does not exist') as Error & { code: string };
+          err.code = '42883';
+          throw err;
+        }
+        return { rows: [{ result: opts.result }] };
+      },
+    });
+  }
+
+  it('🟢 正常:回得出 count 與 oldest', async () => {
+    const { client } = stuckClient({ result: { stuck_count: 3, oldest_created: '2026-09-01T10:00:00.000Z', measured: true } });
+    const out = await new PgAnomalyAlertReaderAdapter('conn', () => client).getStuckBankOrdersHealth();
+    expect(out).toEqual({ stuckCount: 3, oldestCreated: '2026-09-01T10:00:00.000Z' });
+  });
+
+  it('🔵 世界 B(函式真的不存在, probe missing=true)⇒ 回 null, **不 throw**', async () => {
+    const { client, query } = stuckClient({ raise42883: true, probeMissing: true });
+    const out = await new PgAnomalyAlertReaderAdapter('conn', () => client).getStuckBankOrdersHealth();
+    expect(out).toBeNull();
+    const texts = query.mock.calls.map((c) => String(c[0]));
+    expect(texts.some((t) => t.includes(`to_regprocedure('public.${RPC}()')`))).toBe(true);
+  });
+
+  it('🔴🔴 世界 A(函式在而【它呼叫的那支】壞了, probe missing=false)⇒ **不得降級成 null**(而它會被 sanitizeError 重建)', async () => {
+    // ⛔ ~~原本測試名寫「原封上拋」~~ **作廢**(codex R2 nit):`run()` 會經 `sanitizeError()`
+    //    **重建**錯誤 ⇒ 原訊息不會原封傳出去。✅ 這一格真正驗的是【它不得降級成 null】,
+    //    而 SQLSTATE 有被保留在淨化後的訊息裡。
+    // 🎯 這一格是整個 describe 的重點:兩個世界的 SQLSTATE 完全相同,
+    //    而**錯誤訊息裡的名字是【最內層失敗的那個東西】** —— 這裡是 OP6a, 不是我們這支。
+    //    ⇒ 任何「訊息裡有沒有提到我們那支函式」的判法, 在世界 A 會判成「不是我們的問題」而降級
+    //      ⇒ 🔴 **一支壞掉的函式被讀成「今天沒有卡住的單」, 而它不會自己好。**
+    const { client } = stuckClient({ raise42883: true, probeMissing: false });
+    // 🔵 期望的是【它有丟】, 而不是訊息長什麼樣 —— adapter 的 `sanitizeError` 會把原訊息
+    //    淨化成「anomaly 告警聚合讀失敗(<SQLSTATE>)」(那是刻意的:原訊息可能帶 PII)。
+    //    ⚠️ **我第一版寫 /does not exist/ ⇒ 紅了, 而它其實丟了。**
+    //    ⇒ 📌 **一個「期望訊息字面」的斷言, 在中間隔著一層淨化時, 驗的是淨化器不是行為。**
+    await expect(new PgAnomalyAlertReaderAdapter('conn', () => client).getStuckBankOrdersHealth()).rejects.toThrow(/42883/);
+  });
+
+  it('🔴 `measured` 缺鍵 ⇒ **丟**(R3 F4:四格 fixture 全帶 measured:true ⇒ 那道閘沒有量具)', async () => {
+    // 🎯 codex R2 ③ 要我加那道閘, 而**我加了之後四格 fixture 全帶 `measured: true`**
+    //    ⇒ 把整道閘刪掉, 四格照樣全綠 ⇒ 📌 **修法本身沒有量具。**
+    const { client } = stuckClient({ result: { stuck_count: 0, oldest_created: null } });
+    await expect(new PgAnomalyAlertReaderAdapter('conn', () => client).getStuckBankOrdersHealth()).rejects.toThrow(/measured/);
+  });
+
+  it('🔴 `measured: false` ⇒ **丟**(SQL 說它沒量到)', async () => {
+    const { client } = stuckClient({ result: { stuck_count: 0, oldest_created: null, measured: false } });
+    await expect(new PgAnomalyAlertReaderAdapter('conn', () => client).getStuckBankOrdersHealth()).rejects.toThrow(/measured/);
+  });
+
+  it('🔴 count>0 而沒有 oldest ⇒ **丟**(那份資料自己前後矛盾)', async () => {
+    // 📌 一份自己矛盾的資料比一份缺資料危險:它讀起來是完整的。
+    const { client } = stuckClient({ result: { stuck_count: 2, oldest_created: null, measured: true } });
+    await expect(new PgAnomalyAlertReaderAdapter('conn', () => client).getStuckBankOrdersHealth()).rejects.toThrow(/不一致/);
+  });
+});
+
 describe('⟦b9-ENUMWATCH⟧ getManualCustomerSearchSummary — 42883 的兩個世界', () => {
   const RPC = 'get_manual_customer_search_summary';
 

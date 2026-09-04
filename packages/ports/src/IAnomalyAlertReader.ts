@@ -106,4 +106,23 @@ export interface IAnomalyAlertReader {
     readonly anonCanExecute: boolean | null;
   } | null>;
 
+  /**
+   * ⟦b4-NEEDSHUMANNOWATCHER⟧ 卡住的匯款單:**只有匯款軌(bank_transfer)+ 未取消 + 仍 unpaid + 已收淨額 > 0,
+   * 而 OP6a 判 `overpaid` / `needs_human`** 的那一批。
+   *
+   * 🔴 **那兩種是 `20260904230000` 刻意不翻狀態的** —— 錢在庫裡, 而狀態停在 `unpaid`
+   * ⇒ 客人的訂單頁仍顯示「請於 5 天內匯款」+ 銀行帳號(`OrderDetailView.tsx:598`)
+   * ⇒ 🎯 **他會再匯一次。**
+   *
+   * 🛑 而 2026-09-05 實測:`grep -rl needs_human apps/admin/src` ⇒ 2 支, **兩支都是物流**
+   * ⇒ **後台零面在看這件事** ⇒ 這支 RPC 是它的第一個觀眾。
+   *
+   * ⚠️ 讀不到(函式還沒貼)⇒ 回 `null`, 與其他訊號同款 ⇒ 呼叫端走 `*Unknown`。
+   * 🔵 `oldestCreated` 讓讀信的人知道**積了多久**, 而不只是「有幾張」。
+   */
+  getStuckBankOrdersHealth(): Promise<{
+    readonly stuckCount: number;
+    readonly oldestCreated: string | null;
+  } | null>;
+
 }
