@@ -75,7 +75,48 @@ cleanup(){
     return
   fi
   pg_ctl -D "$D/pg" stop -m immediate >/dev/null 2>&1
-  if [ "$KEEP" = 1 ]; then printf '🛑 非綠 ⇒ 逐支 log 保留在 %s/logs\n' "$D"; else rm -rf "$D"; fi; }
+  if [ "$KEEP" = 1 ]; then
+    printf '🛑 非綠 ⇒ 逐支 log 保留在 %s/logs\n' "$D"
+    prune_old_replays
+  else rm -rf "$D"; fi; }
+
+# 🔴🔴 **保留機制的前提在這個環境是【假的】** —— 它是為「失敗很罕見」設計的,
+#    而本樹目前恆常有 40+ 支因環境缺件失敗 ⇒ **每一發都保留** ⇒ 2026-09-05 實測
+#    `$TMPDIR` 裡積了 **38 個目錄 / 1.7 GB**, 而**沒有一個還活著**。
+#    ⇒ 📌 **一道為罕見情況設計的機制, 跑在一個那個情況是常態的世界裡。**
+#    ⇒ ✅ 改成只留最近 3 個(含本發)。
+# 🛑 **而【活著的絕不刪】是這一段的承重條件** —— 八窗並跑時, 別窗可能正握著它的 PG。
+#    判準不是「有沒有 postmaster.pid」(當掉會留下一個死的 pid 檔),
+#    是**那個 pid 現在還在不在**(`kill -0`)。
+prune_old_replays(){
+  local base d pidf pid n=0 freed_kb=0 sz
+  base="${TMPDIR:-/tmp}"
+  local alive=() dead=()
+  while IFS= read -r d; do
+    [ -d "$d" ] || continue
+    pidf="$d/pg/postmaster.pid"
+    if [ -f "$pidf" ]; then
+      pid=$(head -1 "$pidf" 2>/dev/null)
+      if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then alive+=("$d"); continue; fi
+    fi
+    dead+=("$d")
+  done < <(find "$base" -maxdepth 1 -type d -name 'replay.*' -print 2>/dev/null | sort -r)
+  # `sort -r` 對 mktemp 的隨機尾碼不是時間序 ⇒ 用 mtime 重排, 新的在前。
+  if [ "${#dead[@]}" -gt 3 ]; then
+    local sorted=()
+    while IFS= read -r d; do sorted+=("$d"); done < <(
+      for d in "${dead[@]}"; do printf '%s\t%s\n' "$(stat -f %m "$d" 2>/dev/null || echo 0)" "$d"; done \
+        | sort -rn | cut -f2-)
+    for d in "${sorted[@]:3}"; do
+      sz=$(du -sk "$d" 2>/dev/null | awk '{print $1}')
+      rm -rf "$d" && { n=$((n+1)); freed_kb=$((freed_kb + ${sz:-0})); }
+    done
+  fi
+  if [ "$n" -gt 0 ]; then
+    printf '   🧹 順手清掉 %s 個舊的拋棄式 PG 目錄(%s MB);保留最近 3 個, 活著的 %s 個一律不動\n' \
+      "$n" "$((freed_kb/1024))" "${#alive[@]}"
+  fi
+}
 trap cleanup EXIT
 mkdir -p "$D/logs"
 

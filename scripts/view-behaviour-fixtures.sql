@@ -412,7 +412,6 @@ BEGIN
        $q$DELETE FROM public.email_outbox WHERE dedup_key='CNCXBX-unpaid'$q$),
       ('public.pcm_unpaid_cancelled_email_pending','CNCXNR',
        $q$UPDATE public.customers SET email='fixed@example.com' WHERE user_id='22222222-2222-2222-2222-222222222222'$q$),
-      -- C 組
       ('public.pcm_unpaid_cancelled_email_pending','CNCXNC',
        $q$UPDATE public.orders SET cancelled_at=now()-interval '1 hour' WHERE display_id='CNCXNC'$q$),
       -- C 組

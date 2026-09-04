@@ -328,14 +328,25 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO service_role;
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 
--- 🛑🛑 **而 anon / authenticated 的那一半【刻意沒有加】—— 這是一個已知的不忠實。**
---    正式站的 Supabase **也**給 anon/authenticated 預設授權(那正是全樹幾十支 migration
---    要寫 `REVOKE ALL ... FROM PUBLIC, anon, authenticated` 的理由)。
---    ⇒ 🔴 **所以在這顆拋棄式 PG 上, 那些「收權斷言」是【恆綠】的** ——
---      它們在這裡通過, **不代表**那支 migration 真的收乾淨了。
---    ⇒ 📌 加上去會讓每一支忘記 REVOKE 的 migration 當場變紅 —— 那是**真的發現**,
---      而它會一次改變全樹的重放結果 ⇒ **那是一個獨立的決定, 不夾帶在這裡。**
-
+-- 🔴🔴 **anon / authenticated 的預設授權 —— 2026-09-05 補上, 而它是【量完才補】的。**
+--    正式站的 Supabase 就是這樣給的:那正是全樹幾十支 migration 要寫
+--    `REVOKE ALL ... FROM PUBLIC, anon, authenticated` 的理由。
+--    ⇒ 少了這三行, 那些收權斷言是在一個【本來就沒有授權】的世界裡問「還有沒有授權」
+--      ⇒ 📌 **它們恆綠, 而通過不代表那支 migration 真的收乾淨了。**
+--
+--    🟢 **補之前先量了一發(⟦b4-REPLAYREVOKEBLIND⟧, 主視窗裁「先量不改」)**:
+--      · 新紅 **0 支**(`comm -13` 差集為空)⇒ 每一支帶斷言的 migration, REVOKE 都真的收乾淨了
+--      · 轉綠 **1 支** = `20260817080000_m4b_628_revoke_maintain_brands_categories`
+--        🎯 **而那一支就是正對照** —— 它的病構造逐字要求 anon **有** SELECT
+--        (基線錯誤:「#628 異常 — anon 連 SELECT public.brands 都做不到」)
+--        ⇒ **它證明這三行真的到了 DB**, 而不是「沒生效所以當然 0 紅」。
+--      · 第二個獨立證據:`pg_default_acl` 對 anon/authenticated 有 **8** 筆(基線 0)。
+--    ⚠️ **而那個 0 只涵蓋【帶著那道斷言的】那些 migration** —— 一張建了表卻沒寫斷言的,
+--      它漏掉的東西不會讓任何一格變紅。⇒ 當時另做的全表普查(6 張表 / 3 張可寫 / 4 支 view,
+--      **RLS 全開且都有 policy**)寫在板列 `⟦b4-REPLAYREVOKEBLIND⟧`, 不在這裡重抄。
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES    TO anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated;
 
 -- 業務型別(依你要驗的那支 migration 需要什麼再加)
 CREATE TYPE member_tier AS ENUM ('general','store','premiumStore');
