@@ -1,0 +1,81 @@
+分頁顯示已關閉。
+--- Q1 那 7 個物件 RLS 開了沒? 是不是 view? view 是不是 security_invoker? ---
+          relname          | relkind | rls_on | rls_forced | policy_n |      reloptions       
+---------------------------+---------+--------+------------+----------+-----------------------
+ customers                 | r       | t      | f          |        5 | 
+ email_outbox              | r       | t      | f          |        3 | 
+ order_items               | r       | t      | f          |        2 | 
+ orders                    | r       | t      | f          |        2 | 
+ shipment_items            | r       | t      | f          |        2 | 
+ shipments                 | r       | t      | f          |        2 | 
+ sweeper_heartbeat         | r       | t      | f          |        3 | 
+ pcm_shipped_email_pending | v       | f      | f          |        0 | security_invoker=true
+(8 筆資料)
+
+--- Q2 正對照: public 底下有幾張表開了 RLS? (若這裡也是 0, 上面那些 false 就沒有判別力) ---
+ rls_on_tables | public_tables 
+---------------+---------------
+            58 |            58
+(1 筆資料)
+
+分頁顯示已關閉。
+輸出格式為 unaligned。
+欄位分隔符號是 " | "。
+--- Q3 那 7 張表上每一條 policy: 給誰? 管哪個動作? ---
+relname | polname | cmd | permissive | applies_to | using_expr
+customers | customers_delete_service_role | DELETE | t | service_role | true
+customers | customers_insert_service_role | INSERT | t | service_role | true
+customers | customers_select_own | SELECT | t | authenticated | (auth.uid() = user_id)
+customers | customers_select_service_role | SELECT | t | service_role | true
+customers | customers_update_own | UPDATE | t | authenticated | (auth.uid() = user_id)
+email_outbox | email_outbox_insert_service_role | INSERT | t | service_role | true
+email_outbox | email_outbox_select_service_role | SELECT | t | service_role | true
+email_outbox | email_outbox_update_service_role | UPDATE | t | service_role | true
+order_items | order_items_select_own | SELECT | t | authenticated | (EXISTS ( SELECT 1    FROM orders o   WHERE ((o.id = order_items.order_id) AND
+order_items | order_items_select_service_role | SELECT | t | service_role | true
+orders | orders_select_own | SELECT | t | authenticated | (customer_user_id = ( SELECT auth.uid() AS uid))
+orders | orders_select_service_role | SELECT | t | service_role | true
+shipment_items | shipment_items_select_own | SELECT | t | authenticated | (EXISTS ( SELECT 1    FROM shipments s   WHERE ((s.id = shipment_items.shipmen
+shipment_items | shipment_items_select_service_role | SELECT | t | service_role | true
+shipments | shipments_select_own | SELECT | t | authenticated | (customer_user_id = ( SELECT auth.uid() AS uid))
+shipments | shipments_select_service_role | SELECT | t | service_role | true
+sweeper_heartbeat | sweeper_heartbeat_insert_service_role | INSERT | t | service_role | true
+sweeper_heartbeat | sweeper_heartbeat_select_service_role | SELECT | t | service_role | true
+sweeper_heartbeat | sweeper_heartbeat_update_service_role | UPDATE | t | service_role | true
+(19 筆資料)
+--- Q4 分母對帳: public 底下總共幾條 policy? 其中幾條點名 service_role? ---
+all_policies | naming_service_role
+92 | 66
+(1 筆資料)
+--- Q5 全消費者分母(23 個物件): 碼要的動詞 vs service_role policy 給的動詞 ---
+relname | kind | rls | sr_policy_cmds
+admin_audit_log | r | t | S
+admin_order_list_v | v | f | (無)
+admin_sso_login_events | r | t | (無)
+brands | r | t | DISU
+categories | r | t | DISU
+email_outbox | r | t | ISU
+order_item_procurement | r | t | S
+order_item_procurement_receipts | r | t | S
+order_item_receipt_requests | r | t | S
+order_items | r | t | S
+order_manual_refunds | r | t | S
+order_refund_effective_verdict | v | f | (無)
+order_refunds | r | t | S
+orders | r | t | S
+payment_charge_attempts | r | t | S
+product_fitments_effective_sync_log | r | t | S
+product_variants | r | t | DISU
+products | r | t | DISU
+shipment_items | r | t | S
+shipments | r | t | S
+staff | r | t | S
+suppliers | r | t | S
+sweeper_heartbeat | r | t | ISU
+(23 筆資料)
+--- Q5b 對帳: 餵了幾個名字 vs 庫裡回幾列 (不合 = 有名字查無, 那是訊號不是雜訊) ---
+我餵幾個 | 庫裡回幾個
+23 | 23
+(1 筆資料)
+
+rc=0  跑於 2026-09-05 05:21

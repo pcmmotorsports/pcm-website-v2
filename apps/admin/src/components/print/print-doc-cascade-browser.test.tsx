@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 // 同 `orders-column-fit-browser.test.tsx`:真元件間接載入 `server-only` ⇒ 逐檔 mock。
 vi.mock('server-only', () => ({}));
 import { renderToStaticMarkup } from 'react-dom/server';
-import { requireFreshBuild } from '@/lib/build-stamp';
+import { readBuildStamp, requireFreshBuild } from '@/lib/build-stamp';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createServer, type Server } from 'node:http';
@@ -183,6 +183,17 @@ type Sect = { title: string; headAligns: { cls: string; align: string }[]; rows:
 let browser: Browser;
 let compiledCss: string;
 beforeAll(async () => {
+  // 🔴🔴 **這個 `beforeAll` 在【檔案頂層】, 不在任何 describe 裡**
+  //    ⇒ `describe.skipIf` **擋不住它** —— 它照樣跑, 而 `findCompiledCss()` 會 throw
+  //    ⇒ 📌 vitest 把它算成 **suite error**, 而那一欄的「紅格數」是 **0**。
+  //    🎯 **這就是 ⟦c7-BUILDSTAMPRED⟧ 的整個病**:一支報不出失敗的守門,
+  //      與一支沒裝的守門, **在讀數上沒有分別**。
+  //
+  // ⛔ ~~我第一版只加了 `describe.skipIf` ⇒ 負對照實測仍是「14 skipped / 紅 0」~~
+  //    ⇒ 📌 **我只換掉了「怎麼報」, 而沒換掉「在哪裡炸」。**
+  // ✅ 守在這裡:戳記不在就**什麼都不做**(上面那一格已經替它紅了)。
+  //    🔵 而 chromium 也不啟動 —— 反正每一格都被 skip, 啟動它只是多花 120 秒。
+  if (!buildStamp.ok) return;
   compiledCss = findCompiledCss();
   browser = await chromium.launch();
 }, 120_000);
@@ -314,7 +325,28 @@ async function sweep(extraCss = '', media: 'print' | 'screen' = 'print'): Promis
 
 const allCells = (ss: Sect[]): Cell[] => ss.flatMap((s) => s.rows.flatMap((r) => r.cells));
 
-describe('🔴 出貨明細單 · 串接量測(真 chromium + 編譯後 CSS + print media)', () => {
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 **⟦c7-BUILDSTAMPRED⟧ 2026-09-05:缺戳記時, 這支檔【整支 throw 而紅的格數是 0】。**
+//
+// 舊形狀:`beforeAll` 裡的 `requireFreshBuild()` 丟例外 ⇒ vitest 把它算成 suite error
+//   ⇒ 📌 **掃「× N」的人看到的是 0** —— 而 0 與「全過」在那一欄長得一模一樣。
+//   🎯 **一支報不出失敗的守門, 與一支沒裝的守門, 在讀數上沒有分別。**
+//
+// ✅ 新形狀:**戳記在不在, 在【收集階段】就問**(`readBuildStamp()` 不丟例外):
+//   · 不在 ⇒ 下面那一格**紅 1 格**, 訊息逐字說缺 `BUILD_OK`;其餘 `describe.skipIf` **跳過**
+//   · 在   ⇒ 那一格綠, 其餘照跑
+// 🔵 **為什麼其餘是 skip 不是綠**:綠 = 「跑過而且過了」, 而它們**根本沒跑**
+//   ⇒ 📌 **skip 在畫面上與 pass 不一樣, 而讓它們變綠才是真的洞。**
+// ⚠️ **不動 chromium 那半** —— 本次只改「失敗怎麼被報出來」, 不改它量什麼。
+const buildStamp = readBuildStamp();
+
+describe('🔴 前提:這個 app 有成功 build 過(`BUILD_OK` 戳記)', () => {
+  it('🔴 缺戳記 ⇒ 這一格紅(而不是整支 throw 成 0 紅)', () => {
+    expect(buildStamp.ok, buildStamp.ok ? '' : buildStamp.reason).toBe(true);
+  });
+});
+
+describe.skipIf(!buildStamp.ok)('🔴 出貨明細單 · 串接量測(真 chromium + 編譯後 CSS + print media)', () => {
   it('🔴🔴 分母守門:掃到的 section / 列 / 格都不是 0', async () => {
     // 🔴 **這一格必須先過。** 底下每一條都是「對【每一個】…」的全稱句,
     //    而**全稱句在空集合上恆真** —— 掃不到東西時它們會全部變綠,而那正是最壞的情況。
@@ -473,7 +505,7 @@ describe('🔴 出貨明細單 · 串接量測(真 chromium + 編譯後 CSS + pr
 //
 // 🔵 選取器用 `data-slot='print-button'` —— `print-button.tsx:13-14` 逐字寫著它就是為了
 //    「守門要能斷言【這一種狀態下這顆鈕不在】」而加的,而在它之前沒有穩定的選取器。
-describe('🔴 ShippingDoc 的 printButton prop(伺服器產 PDF 的前置)', () => {
+describe.skipIf(!buildStamp.ok)('🔴 ShippingDoc 的 printButton prop(伺服器產 PDF 的前置)', () => {
   const markup = (printButton?: boolean) =>
     renderToStaticMarkup(
       <ShippingDoc

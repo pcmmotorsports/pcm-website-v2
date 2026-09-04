@@ -635,19 +635,22 @@ describe('🔴 第4批 · 突變 M3/M4/M5 抓到的三組「我根本沒寫斷�
 //    (17.5→25.5 / 18.5→26.5,文字 top 位移 0、section-head 列高 29px 不變),
 //    不是在真的會員中心頁量的。真頁面那一格仍是主視窗/Sean 的格。
 // ───────────────────────────────────────────────────────────────────────────
+// 🔵 2026-09-05:本來定義在 `Q3=A 觸控救援` 那個 describe 裡, 提到模組層讓
+//    新增的 `.acc-tier-contact` 那組共用 —— **抄第二份的話, 兩份會漂**。
+/** 取 `padding` / `padding-block` / `margin` / `margin-block` 的上下兩值。 */
+function vertical(body: string, prop: 'padding' | 'margin', label: string): [number, number] {
+  const m = body.match(new RegExp(`(?:^|[;{\\s])${prop}(?:-block)?:\\s*([^;}]+)`));
+  expect(m, `${label} 沒有 ${prop} 宣告 ⇒ 命中區外擴根本沒發生`).toBeTruthy();
+  const parts = (m?.[1] ?? '').trim().split(/\s+/).map((v) => Number(v.replace('px', '')));
+  expect(parts.every((v) => Number.isFinite(v)), `${label} 的 ${prop} 含非 px 值,本守門算不了:${m?.[1]}`).toBe(true);
+  return [parts[0]!, parts.length >= 3 ? parts[2]! : parts[0]!];
+}
+
 describe('Q3=A 觸控救援 · 會員中心小連結(Sean 2026-08-09 拍板,最小兩處之一)', () => {
   const WCAG_MIN = 24; // WCAG 2.2 SC 2.5.8 Target Size (Minimum)
   /** 2026-08-09 真瀏覽器實測(Inter + Noto Sans TC,line-height:normal)。改字級必須重量。 */
   const MEASURED: Record<number, number> = { 12: 17.5, 13: 18.5 };
 
-  /** 取 `padding` / `padding-block` / `margin` / `margin-block` 的上下兩值。 */
-  function vertical(body: string, prop: 'padding' | 'margin', label: string): [number, number] {
-    const m = body.match(new RegExp(`(?:^|[;{\\s])${prop}(?:-block)?:\\s*([^;}]+)`));
-    expect(m, `${label} 沒有 ${prop} 宣告 ⇒ 命中區外擴根本沒發生`).toBeTruthy();
-    const parts = (m?.[1] ?? '').trim().split(/\s+/).map((v) => Number(v.replace('px', '')));
-    expect(parts.every((v) => Number.isFinite(v)), `${label} 的 ${prop} 含非 px 值,本守門算不了:${m?.[1]}`).toBe(true);
-    return [parts[0]!, parts.length >= 3 ? parts[2]! : parts[0]!];
-  }
 
   function assertHit(body: string, fontPx: number, label: string) {
     const base = MEASURED[fontPx]!;
@@ -693,6 +696,41 @@ describe('Q3=A 觸控救援 · 會員中心小連結(Sean 2026-08-09 拍板,最�
 
   it('🔴「查看明細 →」命中區 ≥ 24px、且外擴被等量收回', () => {
     assertHit(block(ACCOUNT, 'account.css', '.acc-link-btn'), 12, '`.acc-link-btn`');
+  });
+});
+
+// ── 2026-09-05 補第三處:`.acc-tier-contact`(總覽頁「用 LINE 聯絡客服升級 →」)──────
+//
+// 🔴 **它在 2026-09-05 之前【全 repo 零 CSS 規則】** —— 只出現在 `OverviewTab.tsx` 的 `className`。
+//    ⇒ 上面那組守門**結構上看不到它**:`block()` 靠選擇器去 `account.css` 裡撈區塊,
+//      而**一個沒有規則的 class, 撈不到就不存在** ⇒ 它從來沒有被這條拍板保護過。
+//
+// 🔬 **量到的**(本機探針 390×844, `elementFromPoint`, 修前/修後同一發):
+//      修前 高 22.5px · 24 方框九點 3/9
+//      修後 高 30.5px · 24 方框九點 9/9
+//      容器高 139.5 / 下一塊 top 592.5 / 頁高 2550 —— **三個數修前修後逐字相同 ⇒ 佔位零變化**
+//    🛑 **22.5 < 24** ⇒ 它**本來就低於** Sean 2026-08-09 Q3=A 拍的那條線。
+//    ⛔ ~~我 05:4x 一度回報「24 ≥ 24 ⇒ 合規」~~ —— **那個 24 是 `Math.round` 來的**,
+//       實際 22.5。📌 **一個被四捨五入抹掉的 1.5px, 把不合規讀成合規。**
+//
+// ⚠️ **為什麼這一格不用上面的 `assertHit`**:它的 `MEASURED` 只有 `{12, 13}` 兩個字級的
+//    真瀏覽器實測值, 而這顆是 **16px**。硬加一個 `16:` 進去 = **我在另一個字體環境
+//    (本機探針不見得載到 Inter + Noto Sans TC)量出來的常數, 冒充真站實測** ⇒ 不做。
+//    ⇒ 這一格改為釘住**修法的形狀**:外擴存在、且被等量負 margin 收回(佔位中性)。
+// 🔵 **正對照**:把 `.acc-tier-contact` 那條規則從 `account.css` 刪掉 ⇒ `block()` 的
+//    `expect(i).toBeGreaterThan(-1)` 會紅(「找不到選擇器」)⇒ 這一格會叫。
+describe('`.acc-tier-contact` 命中區外擴存在, 且佔位中性(2026-09-05 補進 Q3=A 那條線)', () => {
+  it('🔴 有 padding 外擴(≥4px), 且有等量負 margin 收回', () => {
+    const body = block(ACCOUNT, 'account.css', '.acc-tier-contact');
+    const [pt, pb] = vertical(body, 'padding', '`.acc-tier-contact`');
+    const [mt, mb] = vertical(body, 'margin', '`.acc-tier-contact`');
+    expect(
+      Math.min(pt, pb),
+      '`.acc-tier-contact` 的垂直 padding < 4px ⇒ 內容 22.5px 加不到 24(WCAG 2.2 SC 2.5.8)。' +
+        'Sean 2026-08-09 Q3=A 挑的就是這種小連結。',
+    ).toBeGreaterThanOrEqual(4);
+    expect(mt, '上 margin 沒有等量收回 padding ⇒ 版面會被推開(那是改稿, 不是救命中區)').toBe(-pt);
+    expect(mb, '下 margin 沒有等量收回 padding ⇒ 版面會被推開').toBe(-pb);
   });
 });
 

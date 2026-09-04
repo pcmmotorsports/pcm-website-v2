@@ -190,7 +190,7 @@ export const ORDER_MEMBER_CENTER_SENTENCE = '訂單明細與最新狀態請至 P
  *    而**那封信不歸本檔管**(它的文案沒有稿也沒有拍板,見規格 §10)。
  */
 export const ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE =
-  '這張訂單尚未付款,不會有任何款項產生。';
+  '這張訂單尚未付款，不會有任何款項產生。';
 
 /**
  * 🔴🔴 **刷卡且【已全額退款】那條線的錢那一句**(Q10;Sean 2026-09-03 拍甲「補一封信」)。

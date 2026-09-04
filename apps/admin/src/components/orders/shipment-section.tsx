@@ -15,6 +15,7 @@ import type { AdminOrderDetail } from '@pcm/domain';
 import { loadEmptyShipments, loadOrderShipments } from '../../lib/shipping/order-shipments';
 import { OrderShipButton } from './shipment-launcher';
 import { ShipmentHctSubmitButton } from './shipment-hct-submit-button';
+import { ShipmentHctUnknownNotice } from './shipment-hct-unknown-notice';
 import { ShipmentEditTrackingButton } from './shipment-edit-tracking-button';
 import { ShipmentMarkShippedButton } from './shipment-mark-shipped-button';
 import { ShipmentVoidButton } from './shipment-void-button';
@@ -167,6 +168,10 @@ export async function ShipmentSection({
     loadEmptyShipments(detail.id),
   ]);
 
+  // 🔴 ⟦ship-HCTUNKNOWNSTUCK⟧:那一箱的新竹狀態 —— **另開一發窄讀取, 不加寬共用 select**
+  //    (`SHIPMENT_ROW_SELECT` 同時餵顧客站那條路)。
+  //    🔵 這一發**排在 Promise.all 之後**, 因為它要用上面撈到的 shipment id;
+  //      而它只讀 `id, hct_status` 兩欄, 不帶 PII。
   return (
     <section className='rounded-lg border bg-card p-4'>
       {/* 🔴 2026-08-09 Sean 實測後追加:出貨卡要能**直接出貨**,不必先回列表勾單。
@@ -239,7 +244,7 @@ export async function ShipmentSection({
             <span className='text-muted-foreground ml-2 font-normal'>{groups.length} 箱</span>
           </h3>
           <ul className='space-y-3'>
-          {groups.map(({ shipment, lines }) => {
+          {groups.map(({ shipment, lines, hctStatus }) => {
             const voided = shipment.voidedAt !== null;
             const shipped = shipment.shippedAt !== null;
             return (
@@ -309,6 +314,9 @@ export async function ShipmentSection({
                         carrierCode={shipment.carrierCode}
                       />
                     )}
+                    {shipment.carrierCode === 'hct' && !voided ? (
+                      <ShipmentHctUnknownNotice hctStatus={hctStatus} />
+                    ) : null}
                     {shipment.carrierCode === 'hct' && !voided ? (
                       <ShipmentHctSubmitButton
                         shipmentId={shipment.id}

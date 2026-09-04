@@ -15,9 +15,15 @@
   python3 scripts/board-dispatch-triage.py [板子路徑]
   python3 scripts/board-dispatch-triage.py --selftest
 """
-import io, re, sys, collections
+import io, re, sys, os, json, hashlib, datetime, collections
 
 BOARD = 'docs/launch-todo.md'
+# 🔴 留痕(2026-09-05 主視窯-94 裁, ⟦b9-TRIAGESIGNPOST⟧ 第一片修法):
+#   在此之前這支工具【只讀不寫、零留痕】⇒ 「今晚跑了幾次 triage」沒有任何載體記得,
+#   而那讓「拿摘要當內容」這件事【結構上算不出分母】。
+#   ⚠️ 而它治不了另一半:一次「拿摘要當內容而沒有人開檔翻案」依定義仍然不留痕
+#      ⇒ 這支 log 給的是【跑了幾次】那個分母, 不是【錯了幾次】那個分子。
+RUNLOG = 'logs/triage-runs.jsonl'
 MARKERS = ('重驗中', '平行重驗請跳過')
 
 
@@ -175,7 +181,33 @@ def triage(rs):
     return blocked, ready, notopen, nowho, marked
 
 
-def main(path):
+def log_run(path, ready, ak):
+    """append 一行到 RUNLOG。回傳 (成功?, 說明) —— 🔴 兩個世界印不同的東西。"""
+    try:
+        rec = {
+            'at': datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
+            # 誰:窗名優先, 沒有就退回 cwd 末段(它至少分得出 worktree)
+            'who': os.environ.get('PCM_WINDOW') or os.path.basename(os.getcwd()),
+            'board': path,
+            'board_sha256': hashlib.sha256(io.open(path, 'rb').read()).hexdigest()[:12],
+            'ready_n': len(ready),
+            # 🔴 只留前 8 個 —— 目的是「他挑的時候看到的是哪一批」, 不是完整名單。
+            #   ⚠️ 所以 ready_top 【不是】那次派出去的東西, 它是【當時的候選前緣】。
+            'ready_top': [ak[i] for i, _, _ in ready[:8]],
+        }
+        d = os.path.dirname(RUNLOG)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        with io.open(RUNLOG, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + '\n')
+        return True, RUNLOG
+    except Exception as e:
+        # 🛑 不吞。一個安靜失敗的留痕器, 與一個正常運作的留痕器印同一個畫面,
+        #    而【分母少一筆】沒有任何東西會叫。
+        return False, f'{type(e).__name__}: {e}'
+
+
+def main(path, log=True):
     rs = rows(path)
     blocked, ready, notopen, nowho, marked = triage(rs)
     AK = anchors(rs)
@@ -235,6 +267,11 @@ def main(path):
         print(f'   {AK[i3]}  態={st:8s} {what[:60]}')
 
     print('\n📎 射程在最上面那段（刻意不放這裡 —— 放這裡等於沒放）')
+
+    if log:
+        ok, detail = log_run(path, ready, AK)
+        # 🔴 成功與失敗印【不同的字】—— 這一行的存在理由就是那個差別。
+        print(f'🧾 這一跑已記進 {detail}' if ok else f'🛑 留痕失敗, 這一跑【沒有】被記下 —— {detail}')
     return 0
 
 
@@ -290,13 +327,61 @@ def selftest():
         import io as _io, contextlib
         buf = _io.StringIO()
         with contextlib.redirect_stdout(buf):
-            main(p)
+            main(p, log=False)
         printed = buf.getvalue()
         checks_print = [
             ('main() 真的把那一堆印出來了(帶數字)', '沒有「誰」那一欄的資料列 (1 列)' in printed),
             ('而別的表的列連在輸出裡都不該出現', '辛事' not in printed and '壬事' not in printed),
             ('而那一列的標題也印出來了, 不只是一個數字', '庚事' in printed),
         ]
+
+        # 🧾 留痕那三格(2026-09-05)。
+        #   🔴 正對照與負對照都做, 因為「沒寫」與「寫了」在檔案不存在時長得一樣。
+        global RUNLOG
+        real, saved = RUNLOG, RUNLOG
+        fd2, tmplog = tempfile.mkstemp(suffix='.jsonl'); os.close(fd2)
+        os.unlink(tmplog)                       # 讓它一開始【不存在】—— 那才是真實的第一次
+        try:
+            RUNLOG = tmplog
+
+            # 🔴 檔案不存在時回 0, 不要讓它 raise ——
+            #   一個【當掉】的 selftest 與一個【FAIL】的 selftest, 在 rc 上都是 1,
+            #   而只有後者說得出【是哪一格壞了】。實測:拿掉 log_run 呼叫那一發
+            #   原本是 FileNotFoundError 的 traceback, 沒有任何一行寫 FAIL。
+            def nlines():
+                if not os.path.exists(tmplog):
+                    return 0
+                t = io.open(tmplog, encoding='utf-8').read().strip()
+                return len(t.split('\n')) if t else 0
+
+            # 🔴🔴 這一發【不帶旗標】—— 突變測試逼出來的:
+            #   先前這裡寫 main(p, log=True), 於是把 def main(path, log=False)
+            #   的預設值改掉 ⇒ selftest 全過 rc=0。
+            #   🎯 而「把留痕的預設悄悄關掉」正是這一片存在的理由本身。
+            with contextlib.redirect_stdout(_io.StringIO()):
+                main(p)
+            n1 = nlines()
+            rec = json.loads(io.open(tmplog, encoding='utf-8').readline()) if n1 else {}
+            with contextlib.redirect_stdout(_io.StringIO()):
+                main(p, log=False)              # 🔵 負對照:同一支 main, 只有旗標不同
+            n2 = nlines()
+            checks_print += [
+                ('🧾 跑一次 ⇒ 多一行(檔案本來不存在也要能建)', n1 == 1),
+                ('🔵 負對照 log=False ⇒ 不多不少, 還是 1 行', n2 == 1),
+                # 🔴 只驗「有一行」不夠 —— 一行壞掉的 JSON 也是一行。
+                ('🧾 那一行是合法 JSON 且六個欄位都在',
+                 set(rec) == {'at', 'who', 'board', 'board_sha256', 'ready_n', 'ready_top'}),
+                # 🔴 而 ready_top 要真的帶錨, 不是一個空陣列 —— 空陣列在「有候選」與
+                #   「取錯欄」兩個世界印同一個東西。這塊 fixture 的可派名單裡有 A2「乙事」。
+                ('🧾 ready_n 與 ready_top 對得上這塊 fixture',
+                 rec.get('ready_n', 0) >= 1 and len(rec.get('ready_top', [])) >= 1),
+            ]
+        finally:
+            RUNLOG = saved
+            if os.path.exists(tmplog):
+                os.unlink(tmplog)
+        # 🛑 而最重要的一格在 selftest 外面數:--selftest 不得碰【真的】那支檔。
+        checks_print.append(('🔵 真的那支 RUNLOG 路徑沒被改回錯的東西', RUNLOG == real))
     finally:
         os.unlink(p)
     checks += checks_print

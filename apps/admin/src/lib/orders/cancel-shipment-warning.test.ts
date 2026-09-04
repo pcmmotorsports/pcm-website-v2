@@ -20,6 +20,10 @@ import {
 
 function group(over: Partial<OrderShipmentGroup['shipment']>): OrderShipmentGroup {
   return {
+    // 🔵 2026-09-05:`hctStatus` 是 ⟦ship-HCTUNKNOWNSTUCK⟧ 加的欄位。
+    //    這裡固定 `draft` —— **本檔測的是「有沒有貨在路上」, 與新竹狀態無關**;
+    //    📌 若哪天它變得有關, 這一行會是那個改動要來動的地方(而不是靜靜相容)。
+    hctStatus: 'draft',
     shipment: {
       id: 'sid',
       shipmentReference: 'BCDFGH',
