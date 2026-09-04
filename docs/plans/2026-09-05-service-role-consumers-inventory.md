@@ -35,7 +35,8 @@ git rev-list --left-right --count origin/dev...HEAD   ⇒ 落後 202 / 領先 6
 ```
 119  支檔提到 service_role / SUPABASE_SERVICE_ROLE_KEY / PAYMENT_CONFIRMER_DB_URL
  ├─ 60  測試檔                    ← 不進分母(它們不連正式庫)
- ├─ 36  apps/admin                ← 🔴 我上一份【整個漏掉】的那一批
+ ├─ 36  apps/admin  ← 🔴 上一份整個漏掉的那一批。**它們【透過 `createSupabaseServiceClient`
+ │                     工廠】消費, 不直接讀 env 名** ⇒ 只認 env 名的尺在這裡會印 0(見 §4c)
  ├─ 12  supabase/migrations       ← 多半是註解 / GRANT 敘述, 不是消費者
  ├─  5  scripts
  ├─  4  apps/storefront           ← 上一份只看了這 4 支裡的 3 支
@@ -110,6 +111,110 @@ select count(*) filter (where prosecdef) as definer,
    2 處是 HEARTBEAT_TABLE(已在表內)⇒ 這個盲區【這次是小的】,
    而它會隨著有人改用常數而變大
 ```
+🛑 **①②③④ 每一條的偏向都是【少報會壞的】** ⇒ 📌 **這張表的 3 是【下界】,不是總數。**
+
+---
+
+## 4. 對 `⟦b9-RLSHARDEN⟧` 的意思
+
+```
+① 那一刀【不是不能下】—— 23 個物件裡 20 個已經有寫明的 policy
+② 而要先補 3 條 policy(admin_audit_log INSERT · admin_sso_login_events INSERT · staff INSERT+UPDATE)
+③ 補完【再】拿掉 BYPASSRLS —— 順序反了的話, 那三處會【安靜地少寫紀錄】
+④ 補 policy 本身 = 動 RLS = 鐵則 12② ⇒ 要 Sean 拍板 + codex
+```
+🔴 **而 ③ 的「安靜」要寫進 plan 的驗收**:那三處失敗時**不會噴 500**,
+PostgREST 對 RLS 擋掉的 INSERT 回的是 **0 列成功**或 42501,而**呼叫端有沒有檢查回傳,我沒有逐支看**。
+⇒ ✅ **驗收要用「拿掉之後那三張表的列數還會不會長」,不是「畫面有沒有壞」。**
+
+---
+
+## 5. 可重跑
+
+```bash
+bash docs/probes/2026-09-05-rlsharden-prereq.sh          # RLS / policy 那半(唯讀)
+bash docs/probes/2026-09-05-service-role-min-scope.sh     # GRANT 那半(唯讀)
+```
+⚠️ **兩支 probe 的分母都是【當時那一版的碼】** ⇒ 📌 **碼改了要重跑,而不會有東西提醒你。**
+
+---
+
+## 4. 🔵 缺口 ②③ 補完(2026-09-05 線 `-db`;`⟦b9-SRVCONSUMERGAP⟧`)
+
+> **掃的樹**:`git archive dev | tar -x -C /tmp/devtree`(`dev` = `5c1cd0143`,比 `origin/dev` 新)。
+> 🔴 **我第一發解的是 `origin/dev`,而本檔不在上面** ⇒ 查無。而 `where-is.sh` 說「② 在 dev 上」——
+> 　 **兩把尺不一致,而兩把都對**:那支工具的「dev」是**本地 dev**。
+> 　 📌 **`dev` 與 `origin/dev` 是兩個東西,而它們在一句話裡長得一樣。**
+
+### 4a. 結論:這兩個缺口新增 **2 個**會壞
+
+| # | 物件 | 誰碰它 | 座標 | 動詞 |
+|---|---|---|---|---|
+| 1 | `brands` | `scripts/storefront-probe/up.sh` | `:330` `:332` | `SELECT` |
+| 2 | `payment_refund_events` | `scripts/op6a-verify.sh` | `:275` `:391` | `SELECT` · `INSERT` |
+
+兩張都是 **RLS 開著、而沒有 `service_role` 的 SELECT 政策** ⇒ 收 `BYPASSRLS` 之後**讀到 0**。
+
+🔴 **而嚴重度不一樣,不要合併讀**:兩支都是**驗證腳本**不是顧客路徑 ⇒ 壞的是**我們自己的工具**,畫面不會少東西。
+⚠️ 而 `storefront-probe/up.sh` 用的是 **service_role 金鑰**(不是 `SET ROLE`)⇒ 它走 **PostgREST 那一層**;
+　 收 `BYPASSRLS` 之後**它會不會壞我沒有實測**,只證得到「那張表沒有政策」。**這一格標未確認。**
+
+### 4b. 缺口③(兩個 view)⇒ 新增 **0** 個
+
+| view | `security_invoker` | 底層表 | 判定 |
+|---|---|---|---|
+| `admin_order_list_v` | `true` | `orders` · `order_items` · `order_item_quantity_summary` · `order_paid_totals_v` | 前三張**都有** SR 政策;第四張是 view 且 RLS 沒開 |
+| `order_refund_effective_verdict` | `true` | `order_refund_manual_corrections` | **有** SR 政策 |
+
+🛑 **而 `order_paid_totals_v` 是一個側門** —— 它 `security_invoker=false`(`VIEWOPT` 族實測)⇒ 用 **owner 權限**跑
+⇒ 收 `BYPASSRLS` 之後它**照樣讀得到** ⇒ 這裡不算「會壞」,**而它是 `⟦b9-RLSHARDEN⟧` 收後要逐支判的那 4 支之一**。
+
+### 4c. 🔴🔴 **[2026-09-05 `-auth` 訂正 —— 這一小節原本的結論是錯的,而它會抹掉三個真 finding]**
+
+⛔ ~~`apps/admin` 有 58 支檔提到那三個字面,剝掉註解之後只剩 4 支而全是 `.test.ts`
+⇒ **`apps/admin` 沒有任何非測試的 `service_role` 消費者**~~
+⛔ ~~而 §1 的分母寫 `36 apps/admin` —— 那是【提到】的數,不是【消費】的數~~
+
+🛑 **那兩句都是假的,而它們會直接抹掉 §2 那三個「會壞」的 finding** ——
+**因為那三支落點【全部三支都在 `apps/admin`】。** 兩份不可能都對 ⇒ 當場量。
+
+🔬 **逐字面分開量**(`apps/admin/src` 底下、非測試 `.ts/.tsx`、剝掉註解):
+```
+SUPABASE_SERVICE_ROLE_KEY     ⇒  0 支
+createSupabaseServiceClient   ⇒ 36 支      ← 差別全在這裡
+兩者任一                        ⇒ 36 支
+```
+🎯 **⇒ `apps/admin` 不直接讀 env,它走【工廠】** ——
+而那支工廠 `packages/adapters/src/supabase/client.ts:60-63` 逐字
+`createClient(..., requireEnv('SUPABASE_SERVICE_ROLE_KEY'))`。
+⇒ 📌 **只認 env 名字的尺,在 `apps/admin` 上【必然】印 0,而那個 0 是【尺沒接上】不是【沒有消費者】。**
+🟢 **反向驗**:§2 那三支落點(`orders/order-repository.ts` · `sso/login-event.ts` · `staff-repository.ts`)
+**逐支都在那 36 支名單裡**。
+
+✅ **⇒ §1 的 `36 apps/admin` 是對的,而【標籤】要說清楚:它們是【透過 `createSupabaseServiceClient` 工廠消費】。**
+
+### 4c-2. 🎯 而這一格值得單獨記:**兩個窗、兩把尺、各自正確地跑完,而結論相反**
+
+```
+-db  掃 env 名字      ⇒ apps/admin 0 支  ⇒ 結論「沒有消費者」
+-auth 掃工廠函式名     ⇒ apps/admin 36 支 ⇒ 結論「三個會壞」
+```
+🔴 **兩把尺都沒有壞** —— 它們量的是**兩個不同的東西**,而**兩邊都把自己的答案講成「消費者有幾個」**。
+📌 **判別句(比「你掃了幾支」更早分得出來)**:
+> **你掃的是【哪個字面】?那個字面與「我要問的行為」之間差幾層間接?**
+
+⚠️ 而 `-db` 那一節其餘的量測(§4a 的 +2、§4b 的 0、§4d 的分母 19)**與這個錯無關,全部收下** ——
+🛑 **一個結論錯了不代表那份工作沒有價值,而把整節丟掉才是更貴的錯。**
+
+### 4d. 🛑 這一輪證不到什麼
+
+- **我沒有重現 §1 那個「17 支」** —— 同樣三個字面、同樣四個目錄,我掃到 `.sh`/`.sql` **319 支**。
+  ⇒ 我改問一個**更窄而更有意義**的問題:**哪幾支是真的【以 `service_role` 身分動作】**
+  (`SUPABASE_SERVICE_ROLE_KEY` / `PAYMENT_CONFIRMER_DB_URL` / `SET ROLE service_role` / `psql -U service_role`)⇒ **19 支**。
+  📌 **⇒ 上面那個 +2 的分母是【那 19 支】,不是 17,也不是 319。**
+- 表名是**字面抽的**(`FROM|INTO|UPDATE|JOIN` 後面那個識別字)⇒ 動態 SQL、變數表名、`format(%I)` 我看不到。
+- **我沒有實跑** —— 沒有真的收掉 `BYPASSRLS` 再跑那 19 支。本節全部是**靜態比對 + 唯讀查 policy**。
+
 🛑 **①②③④ 每一條的偏向都是【少報會壞的】** ⇒ 📌 **這張表的 3 是【下界】,不是總數。**
 
 ---
