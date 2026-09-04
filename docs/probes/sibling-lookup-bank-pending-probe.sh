@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # ci-self-contained: yes   ← 🔴 這一行是 CI 的【認領標記】,見 .github/workflows/ci.yml
-# sibling-lookup-bank-pending-probe.sh — find_active_sibling_own 的【資料世界】驗證(M-4b 段 1 片 A)
+# sibling-lookup-bank-pending-probe.sh — 匯款單那條路的【資料世界】驗證(M-4b 段 1 片 A + 片 B)
+#   片 A = find_active_sibling_own 看得見未付款匯款單
+#   片 B = begin_charge_attempt 在客人改用刷卡時把它取消
+#   🔵 **片 B 用這支加格子, 不另起一套** —— 📌 一支被第二片用到的探針,
+#      才證明它不是為了通過驗收而寫的。
 #
 # 🔴🔴 **這支探針存在的理由是量到的, 不是預防性的**:
 #   片 A 的三支 TS 測試**都直接 mock `bank_pending`** ⇒ 它們**結構上到不了 SQL**。
@@ -60,13 +64,33 @@ CREATE TABLE public.orders (
   payment_status   public.payment_status NOT NULL DEFAULT 'unpaid',
   payment_channel  text NOT NULL DEFAULT 'tappay',
   cancelled_at     timestamptz,
+  cancelled_reason text,
+  -- 片 B 的取消會寫它(逾期那支同一行也寫)。
+  updated_at       timestamptz NOT NULL DEFAULT now(),
   created_at       timestamptz NOT NULL DEFAULT now()
 );
+-- 片 B 的函式會讀它(取消守門);最小形狀。
+CREATE TABLE public.order_cancellations (order_id uuid PRIMARY KEY);
 CREATE TABLE public.payment_charge_attempts (
-  id       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  order_id uuid NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
-  status   text NOT NULL
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id            uuid NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
+  -- 🔵 真表這一欄有 DEFAULT 'pending'(那支函式的 INSERT 不寫它)⇒ 最小形狀要跟著。
+  status              text NOT NULL DEFAULT 'pending',
+  -- 片 B 的 begin_charge_attempt 會投影這兩欄(needs_settle 帶給上層做 Record 反查鍵)。
+  rec_trade_id        text,
+  bank_transaction_id text,
+  -- per-user 閘會用這兩欄(異單、10 分鐘窗)。
+  customer_user_id    uuid,
+  fallback_token_hash text,
+  created_at          timestamptz NOT NULL DEFAULT now()
 );
+-- 🔵 最小形狀:那道 ON CONFLICT 需要這個部分唯一索引才成立。
+CREATE UNIQUE INDEX pca_one_active ON public.payment_charge_attempts (order_id)
+  WHERE status IN ('pending', 'charged');
+-- 🛑 **樁**:真的那支做雜湊, 而本探針量的不是雜湊。
+--    ⇒ 📌 那也表示**本探針證不了 token 那條路**, 檔頭的天花板那一節涵蓋它。
+CREATE FUNCTION public.charge_attempt_token_hash(t uuid) RETURNS text
+  LANGUAGE sql IMMUTABLE AS \$stub\$ SELECT md5(t::text) \$stub\$;
 SQL
 
 # ── 把那支函式從 migration 檔裡抽出來(不抄一份)───────────────────────────
@@ -78,6 +102,16 @@ if [ "$LINES" -lt 40 ]; then
 fi
 pq -q -f "$D/fn.sql"
 echo "  (抽出 $LINES 行函式定義, 來源 = $(basename "$MIG"))"
+
+# ── 片 B:同樣【從 migration 抽】begin_charge_attempt, 不抄一份 ────────────
+MIGB="$REPO/supabase/migrations/20260904050000_m4b_supersede_bank_order_on_card.sql"
+awk '/^CREATE OR REPLACE FUNCTION public\.begin_charge_attempt/,/^\$fn\$;/' "$MIGB" > "$D/fnb.sql"
+LINESB=$(wc -l < "$D/fnb.sql" | tr -d ' ')
+if [ "$LINESB" -lt 60 ]; then
+  echo "X 片 B 函式只抽到 $LINESB 行, 抽取失敗 ⇒ 不是探針通過, 是探針壞了"; exit 1
+fi
+pq -q -f "$D/fnb.sql"
+echo "  (抽出 $LINESB 行 begin_charge_attempt, 來源 = $(basename "$MIGB"))"
 
 CART='22222222-2222-4222-8222-222222222222'
 reset_data () { pq -q -c "TRUNCATE public.payment_charge_attempts, public.orders CASCADE;"; }
@@ -140,5 +174,86 @@ pq -q -c "INSERT INTO public.orders (customer_user_id, cart_session_id, display_
           VALUES ('${UID_FIXED}','${CART}','PCM-BANK-4','unpaid','bank_transfer', now());"
 check "格7 負對照 已取消的匯款單" "none" "$(kind_of)"
 
+echo "== 片 B:begin_charge_attempt 改用刷卡時取消匯款單 =="
+
+CARD='55555555-5555-4555-8555-555555555555'
+begin_card () { q1 "SELECT public.begin_charge_attempt('${CARD}'::uuid) ->> 'acquired';"; }
+bank_cancelled () { q1 "SELECT (cancelled_at IS NOT NULL)::text FROM public.orders WHERE display_id='PCM-BANK-B';"; }
+bank_reason () { q1 "SELECT COALESCE(cancelled_reason,'<null>') FROM public.orders WHERE display_id='PCM-BANK-B';"; }
+seed_card () { pq -q -c "INSERT INTO public.orders (id, customer_user_id, cart_session_id, display_id, payment_status, payment_channel)
+          VALUES ('${CARD}','${UID_FIXED}','${CART}','PCM-CARD-B','unpaid','tappay');"; }
+seed_bank () { pq -q -c "INSERT INTO public.orders (customer_user_id, cart_session_id, display_id, payment_status, payment_channel)
+          VALUES ('${UID_FIXED}','${CART}','PCM-BANK-B','unpaid','bank_transfer');"; }
+
+# 格8:同車有未付款匯款單 ⇒ 刷卡拿得到鎖, 而那張匯款單被取消
+reset_data; seed_card; seed_bank
+check "格8 刷卡取得鎖" "true" "$(begin_card)"
+check "格8b 匯款單被取消" "true" "$(bank_cancelled)"
+check "格8c 取消原因分得出來" "superseded_by_card" "$(bank_reason)"
+
+# 格9 🔴 不變量:匯款單【有 active attempt】⇒ 不可以被取消(放寬它 = 雙扣)
+reset_data; seed_card
+pq -q -c "INSERT INTO public.orders (id, customer_user_id, cart_session_id, display_id, payment_status, payment_channel)
+          VALUES ('66666666-6666-4666-8666-666666666666','${UID_FIXED}','${CART}','PCM-BANK-B','unpaid','bank_transfer');
+          INSERT INTO public.payment_charge_attempts (order_id, status) VALUES ('66666666-6666-4666-8666-666666666666','pending');"
+begin_card > /dev/null
+check "格9 有 attempt 的匯款單【不可】被取消" "false" "$(bank_cancelled)"
+
+# 格10 正對照:同車有刷卡在途 ⇒ 仍然回 needs_settle(舊行為逐字不變)
+reset_data; seed_card
+pq -q -c "INSERT INTO public.orders (id, customer_user_id, cart_session_id, display_id, payment_status, payment_channel)
+          VALUES ('77777777-7777-4777-8777-777777777777','${UID_FIXED}','${CART}','PCM-CARD-C','unpaid','tappay');
+          INSERT INTO public.payment_charge_attempts (order_id, status) VALUES ('77777777-7777-4777-8777-777777777777','pending');"
+check "格10 正對照 刷卡在途仍 needs_settle" "needs_settle" "$(q1 "SELECT public.begin_charge_attempt('${CARD}'::uuid) ->> 'reason';")"
+
+# 格11 正對照:同車什麼都沒有 ⇒ 刷卡照常拿到鎖
+reset_data; seed_card
+check "格11 正對照 乾淨車" "true" "$(begin_card)"
+
+# ── 片 B 第二批:codex 關卡2 說「探針打不到那些風險」而它對 ──────────────
+# 格12 🔴 released attempt:canonical 條件是 `status <> 'failed'`, 不是 IN('pending','charged')
+reset_data; seed_card
+pq -q -c "INSERT INTO public.orders (id, customer_user_id, cart_session_id, display_id, payment_status, payment_channel)
+          VALUES ('88888888-8888-4888-8888-888888888888','${UID_FIXED}','${CART}','PCM-BANK-B','unpaid','bank_transfer');
+          INSERT INTO public.payment_charge_attempts (order_id, status) VALUES ('88888888-8888-4888-8888-888888888888','released');"
+begin_card > /dev/null
+check "格12 帶 released attempt 的匯款單【不可】被取消" "false" "$(bank_cancelled)"
+
+# 格13 🟢 而 failed 是終態 ⇒ 帶 failed 的匯款單【可以】被取消(證明上一格不是「一律不取消」)
+reset_data; seed_card
+pq -q -c "INSERT INTO public.orders (id, customer_user_id, cart_session_id, display_id, payment_status, payment_channel)
+          VALUES ('99999999-9999-4999-8999-999999999999','${UID_FIXED}','${CART}','PCM-BANK-B','unpaid','bank_transfer');
+          INSERT INTO public.payment_charge_attempts (order_id, status) VALUES ('99999999-9999-4999-8999-999999999999','failed');"
+begin_card > /dev/null
+check "格13 帶 failed 的匯款單可以被取消(尺不是一律不取消)" "true" "$(bank_cancelled)"
+
+# 格14 🔴 早退路徑:目標單被別的 active attempt 佔住(order_locked)⇒ 匯款單【不可】被取消
+reset_data; seed_card; seed_bank
+pq -q -c "INSERT INTO public.payment_charge_attempts (order_id, status) VALUES ('${CARD}','pending');"
+R=$(q1 "SELECT public.begin_charge_attempt('${CARD}'::uuid) ->> 'reason';")
+check "格14a 早退 = order_locked" "order_locked" "$R"
+check "格14b 早退時匯款單【不可】被取消" "false" "$(bank_cancelled)"
+
+# 格15 🔴 跨客人:別人的匯款單不可以被我取消
+reset_data; seed_card
+pq -q -c "INSERT INTO public.orders (customer_user_id, cart_session_id, display_id, payment_status, payment_channel)
+          VALUES ('22222222-1111-4111-8111-111111111111','${CART}','PCM-BANK-B','unpaid','bank_transfer');"
+begin_card > /dev/null
+check "格15 別人的匯款單【不可】被取消" "false" "$(bank_cancelled)"
+
+# 格16 🔴 目標單本身是匯款單 ⇒ 不得開刷卡 attempt(not_card_order)
+reset_data
+pq -q -c "INSERT INTO public.orders (id, customer_user_id, cart_session_id, display_id, payment_status, payment_channel)
+          VALUES ('${CARD}','${UID_FIXED}','${CART}','PCM-BANK-TARGET','unpaid','bank_transfer');"
+check "格16 目標單是匯款單 ⇒ not_card_order" "not_card_order" "$(q1 "SELECT public.begin_charge_attempt('${CARD}'::uuid) ->> 'reason';")"
+
+# 格17 🔵 多張:同車兩張未付款匯款單 ⇒ **兩張都被取消**(明寫這是刻意的, 不是只取消一張)
+reset_data; seed_card
+pq -q -c "INSERT INTO public.orders (customer_user_id, cart_session_id, display_id, payment_status, payment_channel)
+          VALUES ('${UID_FIXED}','${CART}','PCM-BANK-B','unpaid','bank_transfer'),
+                 ('${UID_FIXED}','${CART}','PCM-BANK-B2','unpaid','bank_transfer');"
+begin_card > /dev/null
+check "格17 同車兩張匯款單都被取消" "2" "$(q1 "SELECT count(*)::text FROM public.orders WHERE display_id LIKE 'PCM-BANK-B%' AND cancelled_at IS NOT NULL;")"
+
 if [ "$FAILED" -ne 0 ]; then echo "X 有格子紅了(見上)"; exit 1; fi
-echo "OK 七格全過"
+echo "OK 十七格全過"
