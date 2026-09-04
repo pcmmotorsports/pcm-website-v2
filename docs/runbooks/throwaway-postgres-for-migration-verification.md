@@ -163,11 +163,18 @@ export LC_ALL=C LANG=C                        # 🔴 少這行會 multithreaded 
 # 🔴 窗別自己填(W1/W2/G3/…);沒有窗別就用一個只有你會用的字。**不要沿用別人的。**
 WIN=w1                                        # ← 改這一個字,下面全部跟著走
 D=/tmp/pcm-probe-$WIN                         # 🔴 短路徑;scratchpad 全路徑會超過 socket 103 bytes 上限
-PORT=555$(printf '%02d' $(( $(echo -n "$WIN" | cksum | cut -d' ' -f1) % 90 + 10 )))
-RPORT=$(( PORT + 3000 ))                      # PostgREST 那一層的埠,同樣跟著 WIN 走
+# 🔴🔴 **埠改成【當場取一個沒人聽的】, 不再從 WIN 算**(2026-09-05 ⟦f3-PGPORTCOLLISION⟧)
+#    ⛔ ~~PORT=555$(... cksum $WIN ...)~~ —— 兩個窗取到同一個字母就【必撞】,
+#      而原本的處置是「換 WIN 再來」—— 那是叫人重試, 不是讓它不撞。
+#    🔬 實錘:2026-09-05 線 -db 一個人一夜手工用掉五個埠;七個窗同夜共用一台機器。
+#    🛑 而它只是把【必然相撞】換成【很少相撞】—— bind(0) 取號到 PG 真的 listen 之間有空隙。
+#      ⇒ 所以下面那句 select version() 仍然要跑, 它才是「我真的在這個埠上」的證據。
+read -r PORT RPORT < <(bash scripts/free-port.sh --two)   # 兩個號, 保證不同
+echo "🔵 本次 PG 埠 = $PORT · PostgREST 埠 = $RPORT"   # 🔴 印在第一行 —— 出事時要看得到它是哪一個
 
 # 🔴 出生就檢查:埠被佔 / 目錄已存在 ⇒ 停,不要 rm 別人的東西
-lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1 && { echo "🔴 埠 $PORT 已被佔用,換 WIN 再來"; return 2>/dev/null || exit 1; }
+lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1 && { echo "🔴 埠 $PORT 在取號之後【被別人搶走了】—— 重跑上面那兩行取新號"; return 2>/dev/null || exit 1; }
+#   ⚠️ ⛔ ~~原本這裡寫「換 WIN 再來」~~ —— 埠已經不跟 WIN 走了, 那句話會叫人去改一個【與埠無關】的東西。
 [ -e "$D" ] && { echo "🔴 $D 已存在 —— 可能是【別人的】或【你上次沒收攤的】。自己看過再決定,本檔不替你 rm"; return 2>/dev/null || exit 1; }
 
 mkdir -p "$D"
