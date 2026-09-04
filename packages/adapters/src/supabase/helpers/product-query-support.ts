@@ -157,7 +157,21 @@ export function escapeIlikeWildcards(term: string): string {
  * ⇒ **唯一的 sanitize 落點 = `splitSearchTerms`。** 要繞過切詞直接呼叫本函式的人,
  *   自己先呼叫 `normalizeSearchInput`(而萬用字元的轉義本支已經自己做了)。
  */
-export function buildIlikeOrFilter(columns: readonly string[], term: string): string {
+export function buildIlikeOrFilter(
+  columns: readonly string[],
+  term: string,
+  /**
+   * 🔴🔴 **這個詞對得上的【品牌 id】**(`⟦search-BRANDMULTIWORD⟧` · 2026-09-05)——
+   *   為什麼要有它:退回舊路之後, 比對只剩這張 view 的四欄, 而 **`products_public` 上
+   *   【沒有品牌名】**(只有 `brand_id`;逐欄實查過)⇒ 客人打「DBK SPECIAL PARTS」時
+   *   `SPECIAL` / `PARTS` **在品牌名裡而不在標題裡** ⇒ 對不上 ⇒ **0 筆**。
+   *   🔬 而那是**實證**的:正式站打那個字, 用它自己的 `x-vercel-id` 對 log ⇒ 那一發逐字印
+   *   「回超過 1000 筆 ⇒ 退回舊路」而回 0 筆(型錄裡有 1,508 件)。
+   * 🛑 **不改那張 view 的投影** —— 檔頭那段講得很清楚:`products_public` 物理上沒有經銷價那些欄,
+   *   那是**實體隔離**不是條件式。⇒ ✅ 改成【呼叫端先把品牌名解析成 id】, 這裡只多一個 `in.()`。
+   */
+  brandIds: readonly string[] = [],
+): string {
   // 🔴 轉義在**這裡**做(而不是在切詞那一步)—— 見 `normalizeSearchInput` 的說明。
   const pattern = `%${escapeIlikeWildcards(term)}%`;
   const clauses = columns.map((col) => `${col}.ilike.${pattern}`);
@@ -165,6 +179,11 @@ export function buildIlikeOrFilter(columns: readonly string[], term: string): st
   const pn = partNumberPattern(term);
   if (pn !== null && columns.includes(PART_NUMBER_COLUMN)) {
     clauses.push(`${PART_NUMBER_COLUMN}.ilike.${pn}`);
+  }
+  // 🔵 `in.("uuid","uuid")` —— 加雙引號是為了讓值裡若出現逗號/括號也不會把 filter 切壞。
+  //    今天 brand id 是 uuid(不含那些字元), 而**這一行不依賴那件事**。
+  if (brandIds.length > 0) {
+    clauses.push(`brand_id.in.(${brandIds.map((id) => `"${id}"`).join(',')})`);
   }
   return clauses.join(',');
 }

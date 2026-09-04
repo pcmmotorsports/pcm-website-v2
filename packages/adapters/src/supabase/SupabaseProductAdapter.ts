@@ -664,6 +664,44 @@ export class SupabaseProductAdapter implements IProductRepository {
     //    —— 而疊層那條路只顯示 8 筆、畫面上沒有印總數的地方 ⇒ 那一發是白付的。
     //    🛑 而 `/search` 要它(`app/search/page.tsx:85` 共 N 件)⇒ **分路,不是刪掉。**
     const wantCount = opts?.countTotal !== false;
+    // 🔵 **這一段刻意放在 `base` 之【前】** —— 既有測試斷言的是「最後一次 `select()` 的選項」,
+    //    而把它放在後面會讓那幾格看到 `brands` 那一發的 select ⇒ **它們當場紅了 4 格**。
+    //    📌 那不是測試太脆弱 —— 是我插進了一個【它們沒預期的呼叫順序】, 而順序本來就是它們在守的東西之一。
+    // ══════════════════════════════════════════════════════════════════════
+    // 🔴🔴 **舊路也要比對品牌名**(`⟦search-BRANDMULTIWORD⟧` · 2026-09-05)
+    // ══════════════════════════════════════════════════════════════════════
+    //   🔬 **病是實證的**:正式站打「DBK SPECIAL PARTS」⇒ **0 筆**(型錄裡 1,508 件),
+    //     而用那一發自己的 `x-vercel-id` 對 log ⇒ 它逐字印
+    //     「storefront_search_product_ids 回超過 1000 筆 ⇒ 退回舊路」。
+    //     `DBK` 單獨打 ⇒ 8 筆;`DBK SPECIAL` ⇒ 0 ⇒ 🎯 **多字品牌名一定落在這個洞裡。**
+    //   🔬 成因:RPC 那條路有**品牌那一塊**(它 `JOIN public.brands`), 而**舊路沒有** ——
+    //     `products_public` 上**只有 `brand_id`, 沒有品牌名**(逐欄實查)。
+    //   🛑 **⇒ 這訂正我 2026-09-05 稍早的結論**:我查完 `.range(0, RPC_ID_CAP)` 說
+    //     「那個 cap 沒有壞」—— **對 off-by-one 而言是對的**, 而我**沒有問下一句**:
+    //     **「退回舊路之後, 客人拿到的東西一樣好嗎?」** ⇒ **不一樣。**
+    //   ✅ 修法:**先把每個詞解析成品牌 id**, 再讓那一組 `.or()` 多一支 `brand_id.in.(…)`。
+    //     · 不動 `products_public` 的投影(那是經銷價的**實體隔離**, 不是條件式)
+    //     · `anon` 對 `public.brands` **本來就有 SELECT**(實查 `t`), 而那支 RPC 也是 INVOKER
+    //       ⇒ **沒有多開任何權限。**
+    //     · 品牌表小(**25 列**, 實查)⇒ **一次抓完在 TS 比對**, 不是每個詞打一次。
+    //   🔵 **失敗要降級不要炸**:抓不到品牌就退回「只比四欄」= 今天的行為, 而**留一行痕**
+    //     —— 否則「品牌沒比到」與「這個字真的沒有商品」在客人那端是同一個空結果。
+    let brandRows: Array<{ id: string; name: string }> = [];
+    try {
+      const { data: bd, error: be } = await this.supabase
+        .from('brands')
+        .select('id, name');
+      if (be) throw be;
+      brandRows = (bd ?? []) as Array<{ id: string; name: string }>;
+    } catch (err) {
+      console.warn('[searchByKeyword] 舊路取品牌清單失敗 ⇒ 這一發不比品牌名:', err);
+    }
+    const brandIdsFor = (term: string): string[] => {
+      const t = term.toLowerCase();
+      return brandRows.filter((b) => (b.name ?? '').toLowerCase().includes(t)).map((b) => b.id);
+    };
+
+
     // 🛑 **`.from('products_public')` 不准換** —— 那張 view **物理上**就沒有
     //    `price_store` / 經銷價那些欄(PCM Server 端鐵則)。換成別的投影 =
     //    把一道實體隔離換成一個條件式 ⇒ 另案 + 對抗審查,不在本次射程。
@@ -675,7 +713,7 @@ export class SupabaseProductAdapter implements IProductRepository {
       );
     // 🔴 每個詞疊一道 `.or()` ⇒ 交集(AND);`terms` 為空在上面就已經 return 了。
     const filtered = terms.reduce(
-      (qb, term) => qb.or(buildIlikeOrFilter(SEARCHABLE_COLUMNS, term)),
+      (qb, term) => qb.or(buildIlikeOrFilter(SEARCHABLE_COLUMNS, term, brandIdsFor(term))),
       base,
     );
     const { data, error, count } = await filtered
