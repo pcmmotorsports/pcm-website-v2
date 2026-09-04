@@ -390,7 +390,20 @@ function parseLineEntry(raw: RawLine, index: number): ManualOrderLineInput | str
   let variantId: string | null = null;
   if (raw.variantId !== '') {
     if (!UUID_RE.test(raw.variantId)) {
-      return `${at}的商品編號格式不對,請重新從商品清單挑一次。`;
+      // 🔴🔴 **⛔ ~~「請重新從商品清單挑一次」~~ —— 那句話指向一個【不存在的動作】**
+      //    (`⟦b4-MANUALORDERDEADEND⟧`, 2026-09-05 走查 + 讀碼各驗一次)。
+      //    🔬 ①**那個清單不能挑**:`manual-order-catalog-lookup.tsx:145` 的 `<li>` 沒有 button、
+      //      沒有 role、沒有 onClick(鑽機上點過, 五格 `line_*_0` 全部沒變)。
+      //    🔬 ②**那串編號他從來看不到**:同一支檔 `h.variantId` **全檔 1 命中, 而那一處是
+      //      React 的 `key=`** ⇒ 它從來沒有被印出來過。
+      //    ⇒ 🎯 **所以原句對員工是:「回去挑」而沒有東西可挑、「重新輸入」而他沒看過那個值。**
+      //
+      // 🛑 **而新訊息裡那句警告【不是順手加的】** —— 它擋的是這一格最自然的錯誤動作:
+      //    商品列表是 `.from('products')`(`product-repository.ts:315`), 網址 `/products/{id}`
+      //    帶的是 **product 的 id**;而這一格要的是 **product_variants 的 id**。
+      //    🔴 **兩者都是 UUID、長得一模一樣** ⇒ 貼錯那一種**過得了這道格式檢查**,
+      //      而錯誤會往下走。⇒ 📌 **一個「看起來完全合理」的動作, 會製造一個不會叫的錯。**
+      return `${at}的商品編號格式不對。這一格留白就好(當代購處理);⚠️ 不要把商品頁網址上的編號貼進來,那是另一種編號。`;
     }
     variantId = raw.variantId;
   }
