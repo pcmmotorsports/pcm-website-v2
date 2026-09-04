@@ -137,17 +137,18 @@ export function RegisterPage({ next }: { next?: string } = {}) {
               {/* 手機欄叫數字鍵盤 —— 形狀抄 CheckoutStep1.tsx:175-181 的 email 欄(type/inputMode/autoComplete 三件套)。
                   ⛔ ~~autoComplete 用 `tel-national` 不用 `tel`:因為 phone regex `/^[\d\s-]{8,}$/` 不收 `+`~~
                   🔴🔴 **那個【理由】2026-09-04 起不成立了**(Sean 拍甲:不驗格式 ⇒ `+886` 現在收得下)。
-                  ⚠️ **而值我沒有動** —— `tel` vs `tel-national` 會改變瀏覽器自動填入什麼,
-                     那是 Sean 的品味/行為決定, 不是我順手改的東西。**留著 + 標明理由已失效。**
-                  📌 代價明寫:通訊錄存 `+886…` 的人, 自動填入仍會被降級成國內格式 ——
-                     而**拍板要救的正是這種人**。⇒ 要不要換成 `tel`, 端他。
+                  ✅ **2026-09-04 主視窗-94 裁:換成 `tel`** —— 理由逐字「理由消失就換,
+                     那是拍板要救的人」。⇒ 通訊錄存 `+886…` 的人, 自動填入不再被降級成國內格式。
+                  📌 **而這一行的判準值得記**:`tel-national` 當初不是因為它比較好, 是因為
+                     **舊 regex 收不下 `+`** ⇒ 🎯 **一個為了繞過某道閘而選的值, 那道閘拆掉之後
+                     就沒有人會回來換它** —— 除非有人把「為什麼選它」寫在旁邊。這裡寫了。
                      ⇒ 用 `tel` 會讓通訊錄存國際格式的人一按自動填入就撞「手機格式不正確」。
                   不加 pattern:placeholder 就是 `0912 345 678`(帶空白),pattern="[0-9]*" 會擋掉照著打的人;
                      且本表單是 <form onSubmit>,pattern 失敗會被瀏覽器攔在 submit 前 ⇒ 逐欄 inline error 那條路整條不跑。 */}
               <input
                 type="tel"
                 inputMode="tel"
-                autoComplete="tel-national"
+                autoComplete="tel"
                 value={form.phone}
                 onChange={(e) => { setForm({ ...form, phone: e.target.value }); clearErr('phone'); }}
                 placeholder="0912 345 678"
