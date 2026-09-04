@@ -50,3 +50,24 @@ SELECT count(*) AS all_policies,
   JOIN pg_catalog.pg_class c ON c.oid=p.polrelid
   JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
  WHERE n.nspname='public';
+
+\echo '--- Q5 全消費者分母(23 個物件): 碼要的動詞 vs service_role policy 給的動詞 ---'
+-- 🔴 這一段的物件清單來自【掃 origin/dev 的碼】, 不是我挑的
+--    ⇒ 產出它的做法寫在 docs/plans/2026-09-05-service-role-consumers-inventory.md §1/§2。
+-- 🛑 而清單是【當時那一版碼】的快照 ⇒ 碼改了要重掃, 而不會有東西提醒你。
+SELECT c.relname, c.relkind AS kind, c.relrowsecurity AS rls,
+       coalesce(string_agg(DISTINCT CASE p.polcmd WHEN 'r' THEN 'S' WHEN 'a' THEN 'I'
+                WHEN 'w' THEN 'U' WHEN 'd' THEN 'D' ELSE 'ALL' END, '') FILTER (
+         WHERE EXISTS (SELECT 1 FROM pg_catalog.pg_roles r
+                        WHERE r.oid = ANY(p.polroles) AND r.rolname='service_role')
+            OR p.polroles = '{0}'::oid[]), '(無)') AS sr_policy_cmds
+  FROM pg_catalog.pg_class c
+  JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+  LEFT JOIN pg_catalog.pg_policy p ON p.polrelid=c.oid
+ WHERE n.nspname='public' AND c.relname IN ('admin_audit_log','admin_order_list_v','admin_sso_login_events','brands','categories','email_outbox','order_item_procurement','order_item_procurement_receipts','order_item_receipt_requests','order_items','order_manual_refunds','order_refund_effective_verdict','order_refunds','orders','payment_charge_attempts','product_fitments_effective_sync_log','product_variants','products','shipment_items','shipments','staff','suppliers','sweeper_heartbeat')
+ GROUP BY 1,2,3 ORDER BY 1;
+
+\echo '--- Q5b 對帳: 餵了幾個名字 vs 庫裡回幾列 (不合 = 有名字查無, 那是訊號不是雜訊) ---'
+SELECT 23 AS 我餵幾個,
+       (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+         WHERE n.nspname='public' AND c.relname IN ('admin_audit_log','admin_order_list_v','admin_sso_login_events','brands','categories','email_outbox','order_item_procurement','order_item_procurement_receipts','order_item_receipt_requests','order_items','order_manual_refunds','order_refund_effective_verdict','order_refunds','orders','payment_charge_attempts','product_fitments_effective_sync_log','product_variants','products','shipment_items','shipments','staff','suppliers','sweeper_heartbeat')) AS 庫裡回幾個;
