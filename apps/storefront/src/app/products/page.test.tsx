@@ -176,6 +176,20 @@ describe('/products · 解析成膠囊之後 redirect', () => {
     }
   }
 
+  // 🔴🔴 **R1 對抗審查抓到的 must-fix 的守門**:redirect 之後**兩個鍵都要在**。
+  //    只寫 `categories=` 的話, 畫膠囊那條路(`products-url-parsers` 只讀 `category`)
+  //    ⇒ **一顆膠囊都畫不出來, 而篩選照樣生效** ⇒ Sean 要「兩顆都列」而結果是零顆。
+  //    🛑 **而我第一版就是只寫新鍵, 全套測試【一格都沒紅】** —— 所以要有這一格。
+  it('🔴 解析出分類 ⇒ 網址上 categories 與 category 兩個鍵【都要在】', async () => {
+    vi.mocked(fetchCategories).mockResolvedValue([
+      { id: 'grip', name: '止滑貼與保護膜', count: 3,
+        children: [{ id: 'tank', name: '油箱止滑貼', count: 2 }] },
+    ] as never);
+    const url = await redirectedTo({ search: '油箱貼' });
+    expect(url, 'categories 沒寫 ⇒ server 撈不到那個聯集').toContain('categories=');
+    expect(url, 'category 沒寫 ⇒ 膠囊畫不出來, 而篩選還生效').toMatch(/[?&]category=/);
+  });
+
   it('🔴 「mt07 akrapovic」⇒ 跳到帶膠囊的網址(Sean 原話那個例子)', async () => {
     vi.mocked(fetchVehicleTaxonomy).mockResolvedValue([
       { id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-07', name: 'MT-07', years: [2021] }] },

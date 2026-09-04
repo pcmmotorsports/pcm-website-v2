@@ -29,7 +29,7 @@ import { searchProducts } from '@/lib/search';
 import { parseSearchFacets, hasAnyFacet } from '@/lib/parse-search-facets';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { parseVehicleFromUrl } from '@/lib/vehicle-url';
-import { parseCatalogQuery, isSafeCategoryValue } from '@/lib/catalog-query';
+import { parseCatalogQuery, isSafeCategoryValue, CATEGORIES_PARAM } from '@/lib/catalog-query';
 import { parseCategoryFromUrl, CATEGORY_URL_SEPARATOR } from '@/components/products-url-parsers';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getVehicleRepo } from '@/lib/auth/composition';
@@ -147,7 +147,25 @@ export default async function ProductsRoute({ searchParams }: Props) {
       next.delete('search');
       if (parsed.vehicle !== null) next.set('vehicle', parsed.vehicle);
       if (parsed.brandIds.length > 0) next.set('pbrands', parsed.brandIds.join(','));
-      if (parsed.category !== null) next.set('category', parsed.category);
+      // 🔴 **一個俗稱可以解出多顆分類**(Sean 2026-09-04 拍甲:魚雷管要同時列全段+尾段)
+      //    ⇒ 寫成 `?categories=a,b` 單鍵逗號(形狀與 `pbrands` 同一條理由:重複鍵撞 segment cache)。
+      //
+      // 🔴🔴 **而【兩個鍵都要寫】—— 這一段我第一版寫錯過, 訂正留著**(R1 對抗審查抓到):
+      //    ⛔ ~~舊的 `category` 鍵這裡不再寫;兩個都寫會讓解析層與讀取層各有一份判斷~~
+      //    🛑 **那句話的前半是對的事實, 而它支撐了一個錯的結論。**
+      //    🔬 實查:讀 `categories` 的**全 repo 只有一個** —— `lib/catalog-query.ts` 的 server 過濾。
+      //       而**畫膠囊**走 `products-url-parsers.ts` 的 `searchParams.get('category')`、
+      //       **URL 回寫**走 `use-catalog-filter-url-sync.tsx` 的 `params.delete('category')`
+      //       ⇒ 兩個都**只認舊鍵** ⇒ 只寫新鍵的話 **一顆膠囊都畫不出來, 而篩選照樣生效**
+      //       ⇒ 📌 **Sean 要的是「兩顆都列出來」, 而我那一版做成【零顆】—— 比改之前糟。**
+      //    ✅ 兩個都寫**不會**產生兩份判斷:`categories ⊇ {category}` 是**解析端保證的不變式**
+      //       (見 `parse-search-facets` 的回傳), 而讀取端有 `new Set` ⇒ 不會重複計算。
+      // 🛑 **而多顆【顯示】那一半仍然沒做** —— 膠囊今天只畫得出第一顆。
+      //    那要動 `products-url-parsers` 與 `ActiveChips`, 不在本片。
+      if (parsed.categories.length > 0) {
+        next.set(CATEGORIES_PARAM, parsed.categories.join(','));
+        next.set('category', parsed.categories[0] as string);
+      }
       // 🔴🔴 **沒用到的字放 `unmatched=`,【不是】`search=`** —— 而這一格是我差點寫錯的:
       //    ⛔ ~~本來我把 leftover 塞回 `search=`~~
       //    🛑 而 `search` 有值時 route 會走**關鍵字資料路**, 而那條路**吃不到 facet**
