@@ -282,8 +282,23 @@ tr {
   --pd-paper: #fff;
   --pd-r1: 1pt;
   --pd-r2: 0.5pt;
-  --pd-body: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', 'Helvetica Neue', sans-serif;
-  --pd-disp: 'Helvetica Neue', 'Helvetica', 'PingFang TC', 'Noto Sans TC', sans-serif;
+  /* 🔴 'Noto Sans'(拉丁)排在 'Noto Sans TC' 【前面】—— 而順序就是修法本身。
+     ⟦ship-PRINTCARON1⟧:`Noto Sans TC` 的 woff2 **沒有 `Č`(U+010C)/ `Š`(U+0160)的字形**,
+     而它的 `unicode-range` **宣告了那個範圍** ⇒ 🛑 宣告不是保證。
+     真 PDF 量到(2026-09-04):舊鏈 `Č ⇒ CAAAAA+Helvetica`(靠機器上剛好有);
+     新鏈 `Č ⇒ NotoSans-Regular` · `Š ⇒ NotoSans-Regular` · 🟢 `中 ⇒ NotoSansTC`(中日韓照樣往後落)。
+     🔴🔴 **[2026-09-04 當天訂正 —— 舊字面留著加刪除線, 讓搜它的人同一發撞到]**
+     ⛔ ~~「把 'Noto Sans' 移到 'Noto Sans TC' 後面 ⇒ 拉丁字先被 TC 接走 ⇒ Č 又掉回機器字型」~~
+     ⇒ **那句我【沒量就寫了】。當場量(真 PDF, 單一字元)**:
+       `順序對 ⇒ Č 由 NotoSans 畫` · **`順序錯 ⇒ Č 【還是】由 NotoSans 畫`**
+       (TC 沒有那個字形 ⇒ 往下掉, 而下一個就是 Noto Sans)
+       `完全沒裝拉丁那支 ⇒ Č 由 Helvetica 畫`
+     ✅ **⇒ 承重的是【那個套件在鏈上】, 不是順序。**
+     🔵 **而順序仍然要釘, 理由換一個**:順序錯的整句量到
+       `AKRAPOVI 由 TC 畫 · Č 由 NotoSans 畫` ⇒ 🛑 **同一個字裡兩種字形。**
+     🛑 `--pd-mono` 刻意不動:它只裝數字與拉丁, 補中文字型會讓數字欄位對不齊。 */
+  --pd-body: 'Noto Sans', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', 'Helvetica Neue', sans-serif;
+  --pd-disp: 'Helvetica Neue', 'Helvetica', 'PingFang TC', 'Noto Sans', 'Noto Sans TC', sans-serif;
   --pd-mono: 'SF Mono', 'Menlo', 'Consolas', 'DejaVu Sans Mono', monospace;
   font-family: var(--pd-body);
   color: var(--pd-ink);
