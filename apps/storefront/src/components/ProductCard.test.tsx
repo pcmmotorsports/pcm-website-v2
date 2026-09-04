@@ -302,3 +302,53 @@ describe('🔴 SALE 角標:拿不到價格時不得編造一個折扣(Sean 2026-
     expect(container.textContent ?? '').toContain('-40%');
   });
 });
+
+// ── 2026-09-05 線 `-front`:一格會紅的守門, 釘住那 12 格 `it.skip` 的【前提】 ─────────────
+//
+// 🔴 **它守的不是行為, 是一個【拍板還成不成立】。**
+//    `apps/storefront/src/components/product-card-quick-add.test.tsx` 有 **10 格** `it.skip`
+//    (`:93 :188 :211 :223 :240 :248 :263 :280 :298 :324`), 本檔另有 **2 格**(`:249 :261`)
+//    ⇒ **合計 12 格**(數法:`grep -n '\bit\.skip('` 那兩支檔;🔵 `it.skipIf(...)` 是**另一族**
+//      —— 有條件跳過、有稿才跑, 不要跟這 12 格算在一起;而 `ProductCard.tsx:144` 那一處是**註解**)。
+//
+// 🛑 **那 12 格不是壞掉, 是【前提被拿走了】**:卡片「直接加進購物車」那條路**只服務零變體商品**,
+//    而 **Sean 2026-08-31 拍「一件沒有規格的商品【不賣】」**(板 `⟦b4-NOVARIANT1⟧`)⇒ 那條路關了。
+//
+// 🔴 **而【哪天他改口】, 沒有任何東西會把人指回那 12 格。**本格就是那個東西:
+//    前提若在碼裡被翻開(零變體又能直接加購), **這一格會紅, 而紅訊息逐字指回那 12 格與拍板。**
+//
+// 🔵 **為什麼寫在【這支檔】而不是另開一支掃描型守門**:掃描型守門用 `readFileSync` 讀字串、
+//    **不 import 被測檔** ⇒ `vitest related` 的分母裡**結構上沒有它** ⇒ 改 `ProductCard.tsx` 的人
+//    不會跑到它(板 `⟦b9-NOCARRIER1⟧` 那一族的病)。本檔**已經 import `ProductCard`** ⇒ 進得了分母。
+describe('前提守門 · 零變體商品【不賣】(Sean 2026-08-31 拍板)', () => {
+  const 指回 =
+    '這一格紅了 = 那個前提被翻開了 ⇒ 回去把那些 skip 解掉。' +
+    // 🔴 單位寫清楚, 否則下一個人會數出第四個數(2026-09-05 實測:同一批東西被數成 23 / 12 / 13)。
+    '分佈:product-card-quick-add.test.tsx 10 處(:93 :188 :211 :223 :240 :248 :263 :280 :298 :324)' +
+    ' + 本檔 :249 :261 兩處 + 本檔 :64 一處 it.skip.each(兩列)' +
+    ' ⇒ 【呼叫處 13】=【測項 14】。' +
+    '(數法要吃得下 .each:/\\b(?:it|test|describe)\\.skip(\\.each)?\\s*[([]/ ,並排掉註解行與非測試檔 —— ' +
+    '只寫 it.skip( 會漏掉 :64 那處、又會多抓 ProductCard.tsx:144 的註解與 10 處 it.skipIf)。' +
+    '它們的前提是板 ⟦b4-NOVARIANT1⟧ 與 Sean 2026-08-31「一件沒有規格的商品不賣」。';
+
+  it('🔴 零變體 ⇒ 鈕字面不是加購類(它不會加, 就不能那樣寫)', () => {
+    render(<ProductCard p={{ ...MOCK_PRODUCTS[0]!, variantCount: 0 }} />);
+    const txt = document.body.textContent ?? '';
+    expect(txt, `零變體卡片上出現了加購字面。${指回}`).not.toContain('加入購物車');
+    // 🔵 正面那半:它應該說「查看商品」—— 少了這句, 上面那條在【鈕整個消失】時也會綠。
+    expect(txt, `零變體卡片沒有「查看商品」⇒ 鈕可能整個不見了, 那不是本格要的通過。${指回}`).toContain('查看商品');
+  });
+
+  it('🔴 零變體 ⇒ 點那顆鈕不會把東西放進購物車', () => {
+    const { container } = render(<ProductCard p={{ ...MOCK_PRODUCTS[0]!, variantCount: 0 }} />);
+    // 🔴 **不要用鈕上的【字面】去找它** —— 前提被翻開時字面正是會變的那個東西,
+    //    那時 `getByText` 會先炸在「找不到元素」, 印出 vitest 的通用訊息,
+    //    而**本格的價值全在下面那則指回訊息** ⇒ 紅了卻沒有人被指回去。
+    //    (2026-09-05 實測:第一版就是這樣紅的。)⇒ 改用**結構**定位:卡片裡那顆 quick 鈕。
+    const btn = container.querySelector('button.pcard-quick-btn') ?? container.querySelector('button');
+    expect(btn, `卡片上一顆按鈕都沒有 ⇒ 這一格量不到東西, 不要當成通過。${指回}`).toBeTruthy();
+    fireEvent.click(btn!);
+    const after = document.body.textContent ?? '';
+    expect(after, `點下去之後出現了「已加入」類回饋 ⇒ 那條路被打開了。${指回}`).not.toContain('已加入');
+  });
+});
