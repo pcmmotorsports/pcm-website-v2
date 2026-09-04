@@ -1,4 +1,9 @@
 \pset pager off
+\set ON_ERROR_STOP on
+-- 🔴 **`ON_ERROR_STOP` 不可省** —— `psql -f` 的 rc 在【有 ERROR】與【全對】兩個世界都是 **0**
+--    (2026-09-05 實測:餵一句 `SELECT * FROM 不存在的表` ⇒ rc 仍然 `0`, 只有輸出裡多一行 ERROR)
+--    ⇒ 少了它, 中間某格炸掉之後【後面每一格照樣跑照樣印】⇒ 一份看起來完整的報告裡埋著一個 ERROR。
+--    來源:codex 2026-09-05 finding 3(原本只修在 `130000-after.sql` 一支)。
 -- 🔴 唯讀。20260905110000 貼後對帳。
 -- 🛑 **【函式存在】對本片零判別力** —— 本片不建函式, 只改 proconfig 的 search_path。
 --    ⇒ 判準是【那幾支的 search_path 是不是空字串】, 不是【它們在不在】。
