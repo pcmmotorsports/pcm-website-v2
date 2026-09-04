@@ -2,6 +2,18 @@
 --
 -- 🛑🛑 **本檔是【草稿】。動 RLS = PCM 鐵則 12②(權限)⇒ 要 Sean 拍板 + codex 對抗審查才貼。**
 -- 🟢 **它是【純加 policy】** —— 零 `GRANT`、零 `REVOKE`、零 `ALTER ROLE`、**不建表 / 函式 / 角色**。
+--
+-- 🛑🛑 **而「零行為改變」有一個【例外】, 寫在這裡不藏**(codex R3 F4 抓到, 而歸屬後來換了):
+--    兩支 migration 斷言那兩張表**應為零 policy**:
+--      `20260815020000_m4b_e10_27_d1_admin_audit_log_grant_select.sql:129`
+--      `20260726120000_m4b_e8a1_staff_table.sql:60`
+--    ⇒ 本檔加 policy ⇒ **重跑那兩支會紅。**
+--    🔴 **而【成因不是本檔】**:`admin_audit_log` 與 `staff` 都在**已貼的**
+--      `20260904270000` 的期望名單裡, 那一支 `:345` 就已經各給了一條 SELECT policy
+--      ⇒ 📌 **那兩個斷言在 Sean 2026-09-05 03:1x 貼它的那一刻就【已經】不成立。**
+--    ⇒ ✅ **本檔只是讓那個接縫更明顯, 不是製造它** ⇒ 接縫另開一列 `⟦b9-ZEROPOLICYSEAM⟧`。
+--    ⚠️ **⇒ 所以本檔【不宣稱】零行為改變** —— 它宣稱的是:
+--      **對「今天在跑的那些寫入路徑」零行為改變**(BYPASSRLS 還在 ⇒ policy 不會被走到)。
 --    ⛔ ~~原句寫「不建任何新物件」~~ —— **policy 自己就是新的 DB 物件**(codex R1 nit)。
 --    ⇒ 貼上去**不會讓任何今天能做的事變成不能做**。
 --    🛑 **[R2 nit :6 訂正]** ⛔ ~~原句寫「它把今天靠 BYPASSRLS 過的**改成**靠政策過的」~~ ——
@@ -13,7 +25,14 @@
 -- 為什麼要有它(來源:2026-09-05 線【身分】`-auth` 的兩份唯讀盤點)
 -- ══════════════════════════════════════════════════════════════════════════
 --   `docs/plans/2026-09-05-service-role-consumers-inventory.md` 掃了 `origin/dev` 的碼:
---   **23 個表/view + 26 支函式**由 `service_role` 碰到。其中 **20 個已有涵蓋的 policy**、
+--   **23 個表/view + 26 支函式**由 `service_role` 碰到。
+--   🔴 **[2026-09-05 訂正 · 來源換了]** ⛔ ~~其中 20 個已有涵蓋的 policy(我 09-05 那把尺算的)~~
+--      —— **那把尺不看 `polqual`, 還把 PUBLIC 算成 service_role 的覆蓋** ⇒ 判準是錯的。
+--   ✅ **現在的來源 = 窄判準 + `docs/plans/2026-09-05-service-role-consumers-inventory.md` §6a 那張表**;
+--      判準【抄自】`supabase/migrations/20260904270000…:292-301`(PERMISSIVE 且 qual 是 NULL/true/(true)),
+--      **不是我自己造的**。窄尺重算 23 個 ⇒ 與寬尺逐格相同,
+--      🛑 **而那個「零差異」是因為 `270000` 已貼、把缺口關掉了, 不是我的尺夠好**(§6b)。
+--   其餘 **20 個已有涵蓋的 policy(窄判準下)**、
 --   26 支函式全是 `SECURITY DEFINER`(`prosecdef` 26/0/26),
 --   ⚠️ **[R2 must-fix :14]** ⛔ ~~原句寫「⇒ 免疫」~~ —— **那比事實樂觀**:
 --      `SECURITY DEFINER` 以 **owner** 身分跑, 而 **owner 若不是 superuser / 沒有 BYPASSRLS,
@@ -249,6 +268,8 @@ COMMIT;
 --     DROP POLICY admin_audit_log_insert_service_role ON public.admin_audit_log;
 --   COMMIT;
 --
+-- ⚠️ **[2026-09-05 訂正]** ⛔ ~~本檔在 BYPASSRLS 還在的世界裡是【零行為改變】~~
+--    ⇒ 那句對**今天在跑的寫入路徑**成立, 而**對那兩支可重跑的零-policy 偵測器不成立**(見檔頭)。
 -- 🔵 **rollback 之後行為與今天完全相同** —— 因為今天那三條路是靠 `BYPASSRLS` 過的,
 --    而本檔沒有動 `BYPASSRLS`。⇒ 📌 **本檔在「BYPASSRLS 還在」的世界裡是【零行為改變】**;
 --    它的價值要等 `⟦b9-RLSHARDEN⟧` 那一刀下去才兌現。
