@@ -34422,3 +34422,61 @@ not_required / required · enabled / disabled · paid / unpaid / prepaid
 🔵 codex 只說「那個超集未經拍板」(對), **而沒有問「收窄之後還擋得住嗎」。**
 ⇒ ✅ **判別句**:**「我擋的是一個【轉移】還是一個【終點】?」**
 擋轉移 ⇒ 🔴 **問一次:有沒有一條由合法轉移組成的路徑到得了同一個終點?**
+
+---
+
+## 🔴🔴 `git stash push -- <untracked 檔>` 是【空操作而且回報成功】,而那疊 stash 是**六棵樹共用的**(2026-09-04 線【身分】`-auth`;主視窗 `-94` 指定收進 git 並行族)
+
+> 🔵 **查重跑過了**(`traps-neighbours.py`,分母 2816+)。開了兩條,兩條都**不同族**:
+> ① `reference_stash-pop-conflict-inverts-ours-theirs`(0.5328,第一名)——
+>    它講的是**衝突【怎麼解】**(`--theirs` 是被 stash 的舊內容);**本條講的是【那疊東西不是你的】。**
+> ② `feedback_lint-staged-ate-the-unstaged-half`(0.4943)——
+>    那條是**誰產生了**那些 stash entry(而它正是本條踩到的那幾條的來源);
+>    🎯 **兩條合起來才是完整的故事,而各自單獨讀都不會讓你在 pop 之前停下來。**
+
+### 現場
+
+合併之前想把一支**未 commit 的 migration** 收起來:
+```bash
+git stash push -m "…" -- supabase/migrations/20260904260000_….sql
+```
+🛑 **那支檔是 untracked ⇒ 這一句【什麼都沒做】** —— 它只印一句
+`Did you forget to 'git add'?`,**而 `rc=0`**。
+
+接著:
+```bash
+git merge origin/dev --no-edit
+git stash pop            # ← 我以為它會把我剛收的東西放回來
+```
+⇒ 🔴 **`stash@{0}` 不是我的** —— 它是 lint-staged / 別窗留下的 ⇒ 把**不是我的改動**倒進工作樹,
+在一支**我從來沒碰過**的腳本上撞出兩處衝突。
+
+🟢 **而沒有東西掉**:pop 失敗時 git **保留那個 entry**(實查 stash 仍有 10 條)。
+
+### 🔴 而真正的成因比「我打錯指令」深一層:**stash 是 repo 級的,不是 worktree 級的**
+
+```
+🔬 實測(2026-09-04):
+   git -C ~/pcm-wt-auth      stash list | wc -l   ⇒ 10
+   git -C ~/pcm-website-v2   stash list | wc -l   ⇒ 10
+   git rev-parse --git-common-dir                 ⇒ /Users/sean_1/pcm-website-v2/.git
+   兩棵樹的 refs/stash sha                        ⇒ 完全相同(21d3af0693df)
+```
+🎯 **⇒ 六棵 worktree 看的是【同一疊】** ⇒ **`git stash pop` 永遠可能拿到別窗的東西**,
+而 lint-staged 每一次 pre-commit 失敗都會往那疊上再堆一條。
+🔵 同夜 `-front` 也在 stash 上撞過一次(主視窗轉述)。
+
+### ✅ 判別句(兩句,缺一不可)
+
+> **① stash 之前先 `git stash list | head -1` —— 記住那一條長什麼樣。**
+> **② pop 之前比對:`stash@{0}` 是不是我剛推的那一條?** 不是 ⇒ **不要 pop**。
+
+🔵 而更省事的做法:**untracked 檔本來就不需要 stash** —— `git merge` 不會動它。
+   真的要收 ⇒ `git stash push -u`,或**先 `git add`**。
+
+### 🛑 而最危險的那一格是我運氣好才避開的
+
+我會發現,是因為 `git status` 冒出**一支我沒碰過的檔**帶著 `AA`。
+📌 **如果那支檔剛好是我自己碰過的,我很可能會把它當成【自己的衝突】去解** ——
+而那時我解的是**別人的改動**,而 diff 上看不出來。
+🎯 **⇒ 這個坑的傷害大小,取決於【它剛好落在誰的檔上】。**
