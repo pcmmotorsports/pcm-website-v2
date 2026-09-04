@@ -490,7 +490,7 @@ BEGIN
        --    而 needs_human 的意思正是「這張單的帳我算不清」
        --    ⇒ 📌 **用一個【自己宣告算不清】的函式的中間值去決定「不要取消」, 那是把它的輸出**
        --      **用在它宣告的射程之外。**而我要問的問題窄得多:【這張單淨收到的錢 > 0 嗎】。
-       AND (SELECT pg_catalog.coalesce(pg_catalog.sum(p.amount), 0)
+       AND (SELECT coalesce(pg_catalog.sum(p.amount), 0)
               FROM public.order_payments p
              WHERE p.order_id = o.id) <= 0
      ORDER BY o.created_at                                            -- 最舊的先處理(可預期、便於分批)

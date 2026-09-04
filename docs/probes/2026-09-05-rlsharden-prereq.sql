@@ -1,3 +1,4 @@
+-- ci-self-contained: no — 要餵給【正式庫唯讀】連線, 不自己起庫(跑法見同名 .sh)。
 \pset pager off
 \echo '--- Q1 那 7 個物件 RLS 開了沒? 是不是 view? view 是不是 security_invoker? ---'
 SELECT c.relname, c.relkind, c.relrowsecurity AS rls_on,

@@ -1,4 +1,5 @@
 #!/bin/bash
+# ci-self-contained: no — 走 PCM_READONLY_DATABASE_URL 連【正式庫唯讀】(CI 沒有那把憑證, 也不該有)。
 # ⟦b9-RLSHARDEN⟧ 前置盤點 —— **哪些碼路徑今天【真的依賴】service_role 的 BYPASSRLS?**
 #
 # 🔴 **「用了 service_role」與「用了而且 RLS 會擋它」是兩個宣稱** —— 本檔只答後者。

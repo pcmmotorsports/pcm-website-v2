@@ -1,4 +1,5 @@
 #!/bin/bash
+# ci-self-contained: no — 同上, 需要正式庫唯讀連線 ⇒ CI 跑不了。
 # ⟦b9-SRVMIN⟧ —— storefront 三道 service_role/raw-DB 持有,【實際用到的範圍】有多寬?
 #
 # 🟢 **唯讀、零寫入。** 而唯讀與 apply 是兩個授權,Sean 只給了前一個
