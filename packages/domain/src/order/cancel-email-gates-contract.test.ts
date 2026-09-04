@@ -50,7 +50,8 @@ const CANCEL_EMAIL_MIGRATION = path.resolve(
  * 📌 這是同一族的第 N 次:**用字面比對驗「碼在不在」時, 分母天生包含註解。**
  */
 function codeOnly(sql: string): string {
-  return sql.replace(/--[^\n]*/g, '');
+  // 🔴 先剝【區塊】註解再剝行註解(2026-09-04 `-auth`, ⟦b4-PIECEBGATEGAPS⟧ ②④):只剝 `--` 擋不住 `/* … */`。
+  return sql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '');
 }
 
 describe('取消信的三道閘 · 跨檔契約(M-4b 段 1 片 B 的前提)', () => {
@@ -82,5 +83,48 @@ describe('取消信的三道閘 · 跨檔契約(M-4b 段 1 片 B 的前提)', ()
       "-- 我們檢查 payment_method IS DISTINCT FROM 'tappay' 而這裡沒有真的碼\nSELECT 1;";
     expect(commentOnly).toContain("payment_method IS DISTINCT FROM 'tappay'");
     expect(codeOnly(commentOnly)).not.toContain("payment_method IS DISTINCT FROM 'tappay'");
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴🔴 **`codeOnly` 自己也要有一格 —— 而這一格是 codex 關卡2 R2 的第 ②④ 條**
+  //    (⟦b4-PIECEBGATEGAPS⟧, 2026-09-04 線【身分】`-auth` 收)
+  //    上面那格已經證了「行註解裡的字面不算」;而**區塊註解那一半原本沒有人證**。
+  //    🛑 而它不是假想:同夜我自己寫的兩支 migration **各踩一次**「註解被當成碼」——
+  //       一次是事後閘數到 3(2 真 + 1 註解), 一次是前置閘因為註解裡有那句字面而放行。
+  // ══════════════════════════════════════════════════════════════════════
+  it('🔴 `codeOnly` 必須剝掉【區塊】註解 —— 只剝 `--` 的版本會被它餵綠', () => {
+    const blockOnly = `
+      CREATE OR REPLACE FUNCTION zzz() RETURNS void AS $$
+      BEGIN
+        /* 這一整段是註解, 而它裡面有那句字面:
+           payment_method IS DISTINCT FROM 'tappay'
+           一支【只剝 --】的尺會把它算成「閘還在」。 */
+        RETURN;
+      END $$;
+    `;
+    // 🟢 先證這個世界真的造出來了(原文裡有那句)—— 否則下面在驗一個不存在的東西。
+    expect(blockOnly).toContain("payment_method IS DISTINCT FROM 'tappay'");
+    expect(
+      codeOnly(blockOnly),
+      '區塊註解沒被剝掉 ⇒ 一段【註解裡的正確定義】就能把這把尺餵綠, 而真正的閘可能已經被刪掉。',
+    ).not.toContain("payment_method IS DISTINCT FROM 'tappay'");
+  });
+
+  // 🛑 **而 codex 同一條還點名了【字串常值】, 那一半我【沒有修】** ——
+  //    `'--'` 或 `'/*'` 出現在 SQL 字串常值裡時, 這把尺會把它當成註解起點而**誤剝真碼**。
+  //    🔬 而我實查本檔盯的那支 migration:它的字串常值裡**沒有** `--` 也沒有 `/*`
+  //       ⇒ 今天不會誤剝。⇒ 📌 **那是「今天剛好安全」, 不是「這把尺處理得了」。**
+  //    ⚠️ 要真的處理字串常值, 這把尺得變成一個小型 SQL tokenizer —— 而那是另一片。
+  //    ⇒ 本格把「今天剛好安全」釘住:哪天那支 migration 的字串裡出現 `--`, 它會紅。
+  it('🔵 前提 — 本檔盯的那支 migration, 字串常值裡沒有 `--` 也沒有 `/*`(所以不會誤剝)', () => {
+    const raw = readFileSync(CANCEL_EMAIL_MIGRATION, 'utf8');
+    const literals = raw.match(/'(?:[^']|'')*'/g) ?? [];
+    expect(literals.length, '一個字串常值都沒抓到 ⇒ 這把尺沒接上').toBeGreaterThan(5);
+    const bad = literals.filter((l) => l.includes('--') || l.includes('/*'));
+    expect(
+      bad,
+      '字串常值裡出現了註解起始符 ⇒ codeOnly 會【誤剝真碼】而整支檔的斷言全部失去意義。' +
+        ' ⇒ 那時要把 codeOnly 換成會認字串的版本, 不是把這一格刪掉。',
+    ).toEqual([]);
   });
 });

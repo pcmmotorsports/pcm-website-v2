@@ -88,7 +88,10 @@ const TARGETS = [
  *  ⚠️ **已知天花板:只剝行註解** —— 區塊註解與 dollar-quoted 字串裡的 `--` 沒有處理。
  */
 function stripSqlLineComments(src: string): string {
+  // 🔴 先剝【區塊】註解(它會跨行 ⇒ 必須在 split 之前做)再逐行剝 `--`
+  //    (2026-09-04 `-auth`, ⟦b4-PIECEBGATEGAPS⟧ ②④:只剝 `--` 擋不住 `/* … */`)。
   return src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
     .split('\n')
     .map((l) => l.replace(/--.*$/, ''))
     .join('\n');
