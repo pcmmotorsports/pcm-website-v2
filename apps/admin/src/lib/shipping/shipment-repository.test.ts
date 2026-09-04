@@ -59,9 +59,15 @@ describe('出貨 RPC 呼叫面 · 參數名逐字釘死(GRANT 綁精確簽章)',
     { fn: 'admin_mark_shipment_shipped', params: ['p_idempotency_key', 'p_shipment_id', 'p_tracking_number'] },
     { fn: 'admin_void_shipment', params: ['p_idempotency_key', 'p_shipment_id', 'p_void_reason'] },
     { fn: 'admin_unvoid_shipment', params: ['p_idempotency_key', 'p_shipment_id'] },
+    // 🔴 ⟦5b-TRACKNUMGAP1⟧ 片 A:已出貨的箱更正單號。**五個參數全部必填**——
+    //    `p_actor` / `p_request_id` 是稽核那一列的來源, 少一個 = 稽核長不出來。
+    {
+      fn: 'admin_update_shipment_tracking',
+      params: ['p_idempotency_key', 'p_shipment_id', 'p_tracking_number', 'p_actor', 'p_request_id'],
+    },
   ];
 
-  it('🔴 前提 — 五支 RPC 名稱都真的出現在本檔(改名了下面整組會變恆真)', () => {
+  it('🔴 前提 — 六支 RPC 名稱都真的出現在本檔(改名了下面整組會變恆真)', () => {
     const missing = CONTRACT.filter((c) => !SRC.includes(`'${c.fn}'`)).map((c) => c.fn);
     expect(missing, 'RPC 名稱在 shipment-repository.ts 裡找不到 ⇒ 被改名或刪了,下面的參數斷言失去對象').toEqual([]);
   });
@@ -83,7 +89,16 @@ describe('出貨 RPC 呼叫面 · 參數名逐字釘死(GRANT 綁精確簽章)',
 
   it('🔴 呼叫端不得用 spread / as any 餵引數(那會讓型別與本檔的字面守門同時失效)', () => {
     const calls = [...SRC.matchAll(/\.rpc\('(\w+)',\s*\{([\s\S]*?)\}\s*\)/g)];
-    expect(calls.length, '掃不到任何 `.rpc(name, {…})` 形式的呼叫 ⇒ 呼叫形狀變了,本組守門要重寫').toBe(5);
+    // 🔴 **2026-09-04 訂正:數字改成綁在上面那張清單上, 不再寫死。**
+    //    原本寫死 `5`, 而 ⟦5b-TRACKNUMGAP1⟧ 加第六支時它紅了 —— 紅得對, 而**修法不該是把 5 改成 6**:
+    //    那樣下一支還會再紅一次, 而每一次都要有人判斷「這是新增還是有東西消失了」。
+    //    ✅ 綁清單 ⇒ **少一支照樣紅**(清單沒動而掃到的變少 = 有呼叫被刪或形狀變了),
+    //       而**新增一支時只要在清單裡加一列**, 那一列同時讓它吃到上面的參數名守門。
+    expect(
+      calls.length,
+      '掃到的 `.rpc(name, {…})` 支數與上面那張清單對不上 ⇒ 要嘛有人新增了呼叫而沒進清單(它就沒有參數名守門),' +
+        '要嘛有呼叫被刪掉或改了形狀',
+    ).toBe(CONTRACT.length);
     const bad = calls
       .filter((m) => /\.\.\.\w/.test(m[2] ?? '') || /as\s+any/.test(m[2] ?? ''))
       .map((m) => m[1]);

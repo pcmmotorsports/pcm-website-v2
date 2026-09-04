@@ -4015,6 +4015,20 @@ export type Database = {
         }
         Returns: string
       }
+      admin_update_shipment_tracking: {
+        // 🔴 **手動加的一處(重 gen 後需重貼)** —— ⟦5b-TRACKNUMGAP1⟧ 片 A,
+        //   migration `20260904190000` 尚未 apply 到正式庫 ⇒ 生成器現在產不出它。
+        //   apply 之後重 gen 應該就有了 ⇒ **那時這一段可以退場**(退場條件寫在這裡,
+        //   而不是「哪天有人想起來」)。
+        Args: {
+          p_idempotency_key: string
+          p_shipment_id: string
+          p_tracking_number: string
+          p_actor: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
       admin_upsert_item_procurement: {
         Args: {
           // 🔴 手動校正(重 gen 後需重貼;2026-08-04 A10b 開工補上 —— 呼叫端到此才存在)。
