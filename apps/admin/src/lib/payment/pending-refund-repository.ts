@@ -51,6 +51,8 @@ function parseRow(raw: unknown, index: number): PendingRefundRail {
 // 📌 **這個縫證明不了 RPC 存在, 它只是讓編譯器閉嘴** —— 所以名字另有一格測試釘著
 //    (`pending-refund-repository.test.ts`「RPC 名字逐字對上 migration」)。
 //    型別檔哪天重生成, 這一行與那個 cast 一起刪掉。
+// 📌 **這筆債在板上有一列:`⟦0b-TYPESNOTREGEN⟧`**(`docs/launch-todo.md`)——
+//    寫在那裡是因為【重生成型別檔的人不會打開這支檔】, 而他正是要刪掉這個 cast 的人。
 export const PENDING_REFUND_RPC_NAME = 'pcm_pending_refund_amounts';
 
 export async function listPendingRefundAmounts(orderId: string): Promise<PendingRefundRail[]> {
