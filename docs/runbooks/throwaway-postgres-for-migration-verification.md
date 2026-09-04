@@ -279,7 +279,16 @@ CREATE ROLE authenticator NOLOGIN;
 -- 🔴 codex 2026-08-30 nit(更正,原字面留痕):~~「只需要被 FK 參照的那張表」~~ 已經不對了 ——
 --    下面除了 `auth.users`,還要 `auth.uid()` 與對 schema 的 USAGE。
 CREATE SCHEMA auth;
-CREATE TABLE auth.users (id uuid PRIMARY KEY);
+CREATE TABLE auth.users (
+  id uuid PRIMARY KEY,
+  -- 🔴 `email` / `raw_user_meta_data` 這兩欄**不是裝飾** —— `handle_new_auth_user()`
+  --    (auth.users 上的 AFTER INSERT 觸發器, 由 migration 自己裝)逐欄讀它們。
+  --    少了它們:任何一發 `INSERT INTO auth.users` 都會
+  --    `record "new" has no field "email"` ⇒ 📌 **建不出一個客人 = 建不出任何一張單。**
+  --    ⚠️ 而那個錯**指向那支觸發器**, 看起來像那支 migration 壞了, 實際是這張桌子少兩欄。
+  email text,
+  raw_user_meta_data jsonb
+);
 -- 🔴 **`auth.uid()` 也要**(2026-08-30 線 DB `-08` 量到,拋棄式 PG 17.10)——
 --    同 `authenticator` 那一條的形狀:少了它,`20260523034911_init_customers_and_subtables.sql`
 --    的 RLS policy 就炸 `ERROR: function auth.uid() does not exist`,
@@ -305,6 +314,28 @@ GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
 -- 🔴 extensions schema —— migration 裡寫 `extensions.gin_trgm_ops`,沒有這個 schema 會在 DDL 那行就炸
 CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA extensions;
+-- 🔴 pgcrypto:正式站實查(2026-07-30, `20260730120000:16`)= pgcrypto 1.3 @ schema `extensions`
+--    ⇒ 這裡照同一個 schema 裝。少了它:`pcm_generate_display_id()` 建不起來,
+--      而它是**十幾支下游 migration 的前置** ⇒ 那些會一路連鎖失敗
+--      ⇒ 📌 **而那個失敗數看起來像「這棵樹很多支壞了」, 實際是【少一顆 extension】。**
+CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA extensions;
+
+-- 🔴🔴 **service_role 的預設授權** —— Supabase 平台自己下的, `supabase/migrations/` 裡找不到。
+--    少了它:migration 自己的事後閘會印「service_role 對 orders 的 SELECT 不見了」/ 42501
+--    ⇒ 而那是**環境缺件**, 不是那支 migration 壞了。
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES    TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO service_role;
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+
+-- 🛑🛑 **而 anon / authenticated 的那一半【刻意沒有加】—— 這是一個已知的不忠實。**
+--    正式站的 Supabase **也**給 anon/authenticated 預設授權(那正是全樹幾十支 migration
+--    要寫 `REVOKE ALL ... FROM PUBLIC, anon, authenticated` 的理由)。
+--    ⇒ 🔴 **所以在這顆拋棄式 PG 上, 那些「收權斷言」是【恆綠】的** ——
+--      它們在這裡通過, **不代表**那支 migration 真的收乾淨了。
+--    ⇒ 📌 加上去會讓每一支忘記 REVOKE 的 migration 當場變紅 —— 那是**真的發現**,
+--      而它會一次改變全樹的重放結果 ⇒ **那是一個獨立的決定, 不夾帶在這裡。**
+
 
 -- 業務型別(依你要驗的那支 migration 需要什麼再加)
 CREATE TYPE member_tier AS ENUM ('general','store','premiumStore');
