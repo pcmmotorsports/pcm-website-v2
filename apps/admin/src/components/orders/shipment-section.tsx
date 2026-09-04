@@ -14,6 +14,7 @@ import Link from 'next/link';
 import type { AdminOrderDetail } from '@pcm/domain';
 import { loadEmptyShipments, loadOrderShipments } from '../../lib/shipping/order-shipments';
 import { OrderShipButton } from './shipment-launcher';
+import { ShipmentEditTrackingButton } from './shipment-edit-tracking-button';
 import { ShipmentMarkShippedButton } from './shipment-mark-shipped-button';
 import { ShipmentVoidButton } from './shipment-void-button';
 // 🔴 標籤表已抽到 `lib/shipping/carrier-label.ts`(#10 片3),與出貨單那張紙、建箱彈窗共用同一份。
@@ -287,6 +288,19 @@ export async function ShipmentSection({
                            (能力本來就在 RPC 與 repository 層,缺的只有 action 與這顆入口。)
                         ⚠️ 已出貨的箱**改**單號這支做不到(RPC `:184` `AND shipped_at IS NULL` 是
                            write-once)—— **不是這裡漏給入口**,詳見 `shipment-actions.ts` 那支的 docstring。 */}
+                    {/* 🔴🔴 **已出貨的箱:更正單號**(⟦5b-TRACKNUMGAP1⟧ 片 B)。
+                        它落在上面那段註解的正下方 —— 那段逐字寫著「已出貨的箱**改**單號
+                        這支做不到…**不是這裡漏給入口**」⇒ 本片把那個「做不到」變成做得到。
+                        🔴 `!voided` 承重:作廢的箱單號沒有人會再看到 ⇒ 更正它沒有意義,
+                           而 RPC 那層也擋(兩層都有)。 */}
+                    {shipped && !voided && (
+                      <ShipmentEditTrackingButton
+                        shipmentId={shipment.id}
+                        shipmentReference={shipment.shipmentReference}
+                        carrierCode={shipment.carrierCode}
+                        currentTrackingNumber={shipment.trackingNumber}
+                      />
+                    )}
                     {!voided && !shipped && (
                       <ShipmentMarkShippedButton
                         shipmentId={shipment.id}

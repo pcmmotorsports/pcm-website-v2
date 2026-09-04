@@ -49,11 +49,14 @@ function renderForm(
   return { onSubmit, onClose, onSaved };
 }
 
-// 填必填欄(收件人/地址),使原生 required 驗證放行、form onSubmit 觸發(jsdom 對 required 空欄會擋送出)。
+// 填必填欄(收件人/手機/地址),使原生 required 驗證放行、form onSubmit 觸發(jsdom 對 required 空欄會擋送出)。
 // server zod 仍為權威驗證,required 是 client 層 UX(對齊 design L714/L716);下列 #181/ok 測試驗的是
 // 「server 回應 → 渲染」與 ok 流程,不依賴空欄送出,故先填必填欄讓 submit 真的觸發。
 function fillRequired() {
   fireEvent.change(screen.getByPlaceholderText('王小明'), { target: { value: '王小明' } });
+  // 🔴 2026-09-04 Sean 拍甲:手機改必填 ⇒ 這支 helper 要跟著填, 否則原生 required 擋住送出,
+  //    而**每一格都會紅在「payload 不對」而不是「它被擋住了」** —— 那是很難讀的紅。
+  fireEvent.change(screen.getByPlaceholderText('0912 345 678'), { target: { value: '0912345678' } });
   fireEvent.change(screen.getByPlaceholderText('縣市 / 區 / 路 / 號 / 樓'), { target: { value: '台北市' } });
   fireEvent.change(screen.getByPlaceholderText('example@mail.com'), { target: { value: 'a@b.tw' } });
 }
@@ -169,6 +172,7 @@ describe('InlineAddressForm(g-5b 新增表單)', () => {
     fireEvent.change(screen.getByPlaceholderText('例:賓士機車有限公司'), { target: { value: '賓士機車' } });
     fireEvent.change(screen.getByPlaceholderText('8 碼數字'), { target: { value: '12345678' } });
     fireEvent.change(screen.getByPlaceholderText('王小明'), { target: { value: '甲' } });
+    fireEvent.change(screen.getByPlaceholderText('0912 345 678'), { target: { value: '0912345678' } });
     fireEvent.change(screen.getByPlaceholderText('縣市 / 區 / 路 / 號 / 樓'), { target: { value: '台北' } });
     fireEvent.change(screen.getByPlaceholderText('example@mail.com'), { target: { value: 'a@b.tw' } });
     fireEvent.click(screen.getByRole('button', { name: '儲存' }));
@@ -176,7 +180,8 @@ describe('InlineAddressForm(g-5b 新增表單)', () => {
     expect(onSubmit).toHaveBeenCalledWith({
       isDefault: true,
       name: '甲',
-      phone: '',
+      // 🔴 手機改必填之後 helper 會填它 ⇒ payload 期望值跟著改(不是遷就, 是契約變了)
+      phone: '0912345678',
       line: '台北',
       email: 'a@b.tw',
       invoice: { type: 'company', carrier: '', title: '賓士機車', taxId: '12345678', donateCode: '' },
@@ -439,5 +444,17 @@ describe('InlineAddressForm 手機欄輸入法屬性', () => {
     expect(phone.getAttribute('type')).toBe('tel');
     expect(phone.getAttribute('inputmode')).toBe('tel');
     expect(phone.getAttribute('autocomplete')).toBe('tel-national');
+  });
+
+  // 🔴🔴 **這一格是 R1 對抗審查逼出來的**:我加了 `required` 而**全 repo 對它零斷言**
+  //    ⇒ **把那一行刪掉, 82 檔 1553 測項【全綠】** ⇒ 板列寫「兩半都做」而只有 server 那半有守門。
+  // 🔵 它守的是「屬性不被無聲刪掉」, 不是「瀏覽器真的會擋」——
+  //    真的擋不擋是原生行為, jsdom 只在 `requestSubmit` 那條路上模擬。
+  it('🔴 手機欄是 required(Sean 2026-09-04 拍甲;拿掉這行 ⇒ 本格紅)', () => {
+    renderForm();
+    expect(
+      screen.getByPlaceholderText('0912 345 678').getAttribute('required'),
+      'required 沒了 ⇒ 前台那半靜靜消失, 而 server 那半還在 ⇒ 客人按了才被打回來',
+    ).not.toBeNull();
   });
 });

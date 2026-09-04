@@ -1777,6 +1777,26 @@ export type MemberOrderDetail = {
    */
   paymentMethod: string | null;
   /**
+   * 付款管道(`orders.payment_channel`;`NOT NULL DEFAULT 'tappay'`)——
+   * **M-4b 段 3 新增, 而它只用來【判斷要不要顯示匯款資訊那一塊】。**
+   *
+   * 🔴🔴 **它與 `paymentMethod` 是兩個軸, 而混用會出錯**(同檔 `:1309` 逐字):
+   *   `paymentMethod`  = **金流事實軸**(金流 RPC 寫入、報表算錢用它)—— 而它**付款成功才有值**
+   *   `paymentChannel` = **管理/預期軸** —— 建單當下就有值
+   *   ⇒ 🎯 **一張【還沒匯款】的單, `paymentMethod` 是 `null`**
+   *      ⇒ 📌 **所以「這是不是一張匯款單」只有 `paymentChannel` 答得出來。**
+   *
+   * 🛑 **而它【不印給客人看】** —— 客人看到的是「匯款資訊那一塊出現了」, 不是 `'bank_transfer'` 這個字。
+   *   🔵 揭露的判準是「他會不會因此知道他本來不知道的事」⇒ 否(**客人自己選的匯款**)
+   *      ⇒ 這不是資訊揭露決定。(主視窗 2026-09-04 判。)
+   *
+   * 🔴 **而反過來那一側要守**:`OrderDetailView` 是 **server component**
+   *   (檔頭無 `'use client'`, 當場 grep 過)⇒ 這一欄**不會被序列化送到瀏覽器**。
+   *   🛑 **若哪天那支元件變成 client component, 這一欄就從【條件】變成【資料】** ——
+   *   ⇒ 那時要回來重判, 而**沒有東西會叫**。
+   */
+  paymentChannel: PaymentChannel;
+  /**
    * 付款成功時間(`orders.paid_at`;未付成 → null)。
    *
    * 🔴 **進度軸「付款完成」那一階的日期只能用它,不得拿 `createdAt` 冒充**

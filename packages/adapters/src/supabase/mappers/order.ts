@@ -1149,6 +1149,7 @@ export type SupabaseMemberOrderDetailRow = Pick<
   | 'payment_status'
   | 'fulfillment_status'
   | 'payment_method'
+  | 'payment_channel'
   | 'paid_at'
   | 'subtotal'
   | 'shipping_fee'
@@ -1331,6 +1332,14 @@ export function mapSupabaseMemberOrderDetailRow(
     paymentStatus: row.payment_status,
     fulfillmentStatus: row.fulfillment_status,
     paymentMethod: row.payment_method,
+    // 🔴 段 3:只用來判斷要不要顯示匯款資訊那一塊, **不印給客人看**。
+    //   而它與 paymentMethod 是兩個軸 —— 後者付款成功才有值 ⇒ 未匯款的單那一欄是 null。
+    // 🔵 `as PaymentChannel` **照抄本檔既有兩處**(:477 / :1029)的寫法與理由, 不自己想一個 ——
+    //   而那個理由是「DB `orders_payment_channel_check` 保證值域」。
+    //   ⚠️ 而那道 CHECK 收 **四個**值(tappay/bank_transfer/cash/none, 唯讀正式庫實查),
+    //      比 TS 的 `PaymentChannel`(兩個)寬 ⇒ 🛑 **這個斷言比它的理由講的鬆。**
+    //      🔵 而本片不改它:那是既有的形狀, 動它要一併動另外兩處 ⇒ 已落板 ⟦b4-CHANNELCASTWIDE⟧。
+    paymentChannel: row.payment_channel as PaymentChannel, // DB orders_payment_channel_check 保證值域
     paidAt: row.paid_at,
     shippedAt,
     // 🛑 三個條件缺一不可(見 domain docstring):有品項 · 每一個都出了 · 而且我看得到全部品項。

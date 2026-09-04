@@ -350,8 +350,18 @@ ${skuRow ? `              ${skuRow}\n` : ''}            </td>
 
   // ── 🔴🔴 加不起來就不印金額(2026-09-04 線【帳號】`-account`;`⟦b4-INVOICE5PCT⟧` 第 5 步)──
   //
+  // 🛑🛑 **先讀這兩句, 它們決定你怎麼引用這道閘**(2026-09-04 唯讀實查 + codex R2):
+  //   ① **它【不是】在防髒資料** —— 正式庫有 `orders_total_balances` ⇒
+  //      `CHECK (total = subtotal + shipping_fee - discount_total + tax_total)`
+  //      ⇒ 🎯 **一列不平衡的訂單在 DB 上寫不進去。**
+  //   ② 🔴 **閘守【資料的一致】, 測試守【印出來的東西】—— 兩個機制【不可互相冒充】。**
+  //      **renderer 少印一項 ⇒ 資料四數照樣平衡 ⇒ 本閘不會叫**;攔那個的是測試。
+  //      ⇒ 📌 **一道閘的說明若把測試的功勞算進來, 下一個人會刪掉測試而以為閘還在保護他。**
+  //
   // **病灶**:DB 的等式是 `total = subtotal + shipping_fee - discount_total + tax_total`,
-  // 而本檔的金額區**只列前三項** ⇒ 🔴 **`tax_total > 0` 的那一天, 客人會收到一張【加不起來】的帳。**
+  // 而本檔的金額區 ⛔ ~~**只列前三項**~~ ⇒ 🔴 **`tax_total > 0` 的那一天, 客人會收到一張【加不起來】的帳。**
+  // ✅ **2026-09-04 第 7 步訂正:稅額那一列已經加上了**(見下方 `taxRow`)⇒ **這一段講的是【本片之前】的狀態。**
+  //    🔵 而這道閘**留著** —— 它防的是**下一個被加進 `total` 而沒人記得印的欄位**。
   //
   // 🛑 **而在本片之前, 這道判斷【只裝在純文字那一份】**(`sweep-email-outbox.ts:432`)——
   //    🔬 量到的:`grep -c 'orderAmountsBalance'` 本檔 **0** · 那一支 **2**(🟢 兩個世界印不同的數)。
@@ -364,6 +374,22 @@ ${skuRow ? `              ${skuRow}\n` : ''}            </td>
   // 🛑 **而我【沒有】加一句「明細請至會員中心查看」之類的解釋** —— 那是**文案**, 而文案是 Sean 拍的。
   //    純文字那一份在這條路上也是**沉默的**, 兩份保持一致;要加解釋, 兩份一起加。
   //
+  // 🔴🔴 **這道閘【擋不到資料】—— 它擋的是【我們自己】**(2026-09-04 codex R1 nit ⇒ 唯讀實查確認):
+  //    正式庫上有 `orders_total_balances` ⇒
+  //    `CHECK (total = subtotal + shipping_fee - discount_total + tax_total)`
+  //    ⇒ 🎯 **一列不平衡的訂單在 DB 上【寫不進去】。**
+  //    ⇒ 📌 **所以本閘為真時漏掉的那個世界不存在** —— 它防的**不是髒資料**。
+  //
+  //    🔴🔴 **而它會叫的範圍比我第一版寫的【窄】**(codex 對抗審查 R2 must-fix, 它是對的):
+  //      ⛔ ~~我寫「renderer 少印一項、mapper 少接一欄、判準少一個加數 —— 三種它都攔」~~
+  //      ✅ **實際只攔得到後兩種**:
+  //        · **mapper 少接一欄** ⇒ 那個數字進來是錯的 ⇒ 四數兜不攏 ⇒ **本閘叫** ✅
+  //        · **判準少一個加數** ⇒ 本閘自己就是那個判準 ⇒ 改壞它 ⇒ 測試叫 ✅
+  //        · 🔴 **renderer 少印一項** ⇒ **資料四數照樣平衡** ⇒ **本閘【不會叫】** ❌
+  //      🎯 **⇒ 而「renderer 少印稅」正是本片修的那個 bug** —— 📌 **所以修它的不是這道閘, 是【測試】。**
+  //      ⇒ 🛑 **兩個機制不可互相冒充**:閘守【資料的一致】, 測試守【印出來的東西】。
+  //        一道閘的說明若把測試的功勞算進來, 下一個人會刪掉測試而以為閘還在保護他。
+  //
   // ⚠️ **本段【證不到】什麼**:
   //    ① 證不到 `total` 本身對不對 —— 它只驗**這四個數字之間**的關係(那一支函式檔頭已寫)。
   //    ② 🔴 證不到 **PDF 附件那一份**:`hasPdfAttachment` 為真時信上仍寫「訂單明細 PDF 已附在這封信裡」,
@@ -373,7 +399,25 @@ ${skuRow ? `              ${skuRow}\n` : ''}            </td>
     shippingFee: ctx.shippingFee,
     discountTotal: ctx.discountTotal,
     total: ctx.total,
+    taxTotal: ctx.taxTotal,
   });
+
+  // 🔴 稅額那一列:**有稅才印**(2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 7 步)。
+  //    形狀跟【折扣】同族、與【運費】不同族:
+  //      · 折扣 0 不印 —— 印「折扣 −0」會讓客人以為有一筆他沒看到的折抵
+  //      · 運費 0 照印 —— 「免運」是客人想確認的一件事
+  //      · 🔵 **稅 0 不印** —— 今天每一張單的稅都是 0(價格含稅), 印一列「稅額 0」
+  //        會讓客人以為**這筆交易沒有被課稅**, 而那是錯的:稅**內含在售價裡**。
+  //    🛑 而「稅額」這兩個字**不是我發明的文案** —— Sean 2026-09-04 選項字面逐字:
+  //      「乙 = **稅額**單獨記一欄, 你打的單價原樣保留。」
+  const taxRow =
+    ctx.taxTotal > 0
+      ? `          <tr>
+            <td style="font-family:${SANS};font-size:13px;color:#4a5765;padding:5px 0;" class="sub">稅額</td>
+            <td align="right" class="ink" style="font-family:${MONO};font-size:13px;color:#1f2933;padding:5px 0;">${money(ctx.taxTotal)}</td>
+          </tr>
+`
+      : '';
 
   // 🔴 運費 0 那一列**照印** —— 與折扣不同族:
   //    「免運」是客人想確認的一件事,而空白會讓他懷疑運費是不是漏算了。
@@ -464,7 +508,7 @@ ${lineRows}
             <td align="right" class="ink" style="font-family:${MONO};font-size:13px;color:#1f2933;padding:5px 0;">${money(ctx.subtotal)}</td>
           </tr>
 ${shippingRow}
-${discountRow}          <tr class="hair">
+${discountRow}${taxRow}          <tr class="hair">
             <td style="border-top:1px solid #dde3ea;padding:14px 0 0;">
               <div class="ink" style="font-family:${SANS};font-size:14px;font-weight:700;color:#1f2933;">訂單金額</div>
               <div class="sub" style="font-family:${SANS};font-size:11px;color:#5c6b7a;padding-top:2px;">新臺幣</div>

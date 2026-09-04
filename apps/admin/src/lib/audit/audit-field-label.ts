@@ -43,7 +43,7 @@
 const BOOL: Record<string, string> = { true: '是', false: '否' };
 
 /**
- * 欄位名稱 → 中文。**75 種**(2026-08-24 `#858` 後),分母與量法見檔頭。
+ * 欄位名稱 → 中文。⛔ ~~**75 種**~~ ⇒ **99 種**(2026-09-04 當場重數;⟦5b-TRACKNUMGAP1⟧ 加了 `tracking_number`),分母與量法見檔頭。
  * 🔴 用 Sean 看得懂的話,不用內部語彙(memory `project_admin-ux-operation-intuitiveness`)。
  *    例:`seq` 不寫「序號」寫「第幾次更正」——**前者要先知道它在數什麼才讀得懂**。
  */
@@ -168,6 +168,11 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   is_shared: '是不是共用檢視',
   // ── 跨欄 ──────────────────────────────────────────────────
   request_id: '這次操作的請求編號',
+  // ── 出貨 ────────────────────────────
+  // 🔴 ⟦5b-TRACKNUMGAP1⟧ 片 A:已出貨的箱更正貨運單號時, before/after 記的就是這一欄。
+  //    🔵 用「貨運單號」不用「追蹤碼」—— 後台其他地方(出貨彈窗、出貨單)逐字都寫
+  //    「貨運單號」, 而客人信上寫「追蹤碼」。稽核是給【員工】看的 ⇒ 跟後台的字面走。
+  tracking_number: '貨運單號',
 };
 
 /**

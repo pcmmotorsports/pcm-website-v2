@@ -16,7 +16,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
-import { toMoneyAmount, type MemberOrderDetail } from '@pcm/domain';
+import { PCM_REMITTANCE_EXPIRE_DAYS, toMoneyAmount, type MemberOrderDetail } from '@pcm/domain';
 import { OrderDetailView } from './OrderDetailView';
 import {
   ORDER_DETAIL_ITEM_CANCELLED_MARK,
@@ -37,6 +37,9 @@ const ORDER: MemberOrderDetail = {
   paymentStatus: 'paid',
   fulfillmentStatus: 'shipped',
   paymentMethod: 'tappay',
+  // 🔵 段 3 加欄:這些 fixture 演的是【已付款的刷卡單】⇒ 填 'tappay',
+  //   不是「隨便填一個讓它綠」——填的是這個 fixture 本來就在演的那個世界。
+  paymentChannel: 'tappay' as const,
   paidAt: '2099-04-18T03:00:00Z', // 🔴 刻意與 createdAt(04-15)【不同日】
   shippedAt: null,
   allItemsShipped: false,
@@ -66,6 +69,96 @@ const ORDER: MemberOrderDetail = {
   itemCount: 2,
   itemsTruncated: false,
 };
+
+describe('匯款資訊那一塊(M-4b 段 3)', () => {
+  // 🔴🔴 **這一族裡①最不重要。**
+  //   ① 證明它【會出現】;而 ②③ 證明它【不會出現在錯的地方】——
+  //   而錯的地方那兩條, 後果分別是「客人把我們的帳號當成他該匯的」與「叫他再匯一次全額」。
+  //   📌 一個只驗「有沒有出現」的測試, 對一個不可回收的東西是不夠的。
+  const bank = (over: Partial<MemberOrderDetail> = {}): MemberOrderDetail => ({
+    ...ORDER,
+    paymentChannel: 'bank_transfer' as const,
+    paymentStatus: 'unpaid' as const,
+    paymentMethod: null,
+    paidAt: null,
+    ...over,
+  });
+  const box = () => document.querySelector('[data-od-id="order-remittance"]');
+
+  it('① 匯款 + 未付款 ⇒ 那一塊出現, 而帳號【逐字】是那 12 碼', () => {
+    render(<OrderDetailView order={bank()} />);
+    const el = document.querySelector('[data-od-id="order-remittance-account"]');
+    expect(el).not.toBeNull();
+    // 🔴 **逐字比對**, 不是「有數字就好」—— 錯一碼 = 錢進別人的帳戶。
+    expect(el!.textContent).toBe('200540278354');
+    expect(box()).not.toBeNull();
+  });
+
+  it('🔴 ② 刷卡 + 未付款 ⇒ 那一塊【不可以】出現(刷卡失敗的客人不該看到我們的帳號)', () => {
+    // 🛑 這一格擋的是「用 paymentStatus 當近似判準」那個做法 ——
+    //   刷卡失敗的單也是 unpaid, 而它會把銀行帳號印給一個沒有要匯款的人。
+    render(<OrderDetailView order={bank({ paymentChannel: 'tappay' as const })} />);
+    expect(box()).toBeNull();
+  });
+
+  it('🔴 ③ 匯款 + 已收一部分錢 ⇒ 那一塊【不可以】出現(否則叫他再匯一次全額)', () => {
+    // 🛑 這一格擋的是「用【不等於 paid】當條件」那個做法。
+    //   payment_status 有五個值, 而 partiallyPaid 已收到一部分 ⇒ 印 total 會叫他重匯全額。
+    render(<OrderDetailView order={bank({ paymentStatus: 'partiallyPaid' as const })} />);
+    expect(box()).toBeNull();
+  });
+
+  it('🟢 ④ 正對照:匯款 + 已付款 ⇒ 不出現', () => {
+    render(<OrderDetailView order={bank({ paymentStatus: 'paid' as const })} />);
+    expect(box()).toBeNull();
+  });
+
+  it('⑤ 備註那行帶著【這一單的】單號, 不是寫死的字', () => {
+    // 🔵 而「帶單號」是我們加的, Sean 的原話只有「匯款備註請填寫訂單編號」——
+    //   這一格釘住的是「它是動態的」, 不是那句話本身。
+    render(<OrderDetailView order={bank()} />);
+    expect(box()!.textContent).toContain(ORDER.displayId);
+  });
+
+  it('🔴 ⑦ 已取消的匯款單 ⇒ 那一塊【不可以】出現(reviewer must-fix ①)', () => {
+    // 🛑 兩條取消路徑**都保留** payment_status='unpaid' + payment_channel='bank_transfer'
+    //   ⇒ 少了 `!cancelled`, 同一頁會同時印「訂單已取消」與「請於 5 天內完成匯款」。
+    //   🔴 而 superseded_by_card 那條的客人**剛剛才刷卡付過一次** —— 我們會叫他再匯一次。
+    render(
+      <OrderDetailView
+        order={bank({ cancelledAt: '2026-09-04T00:00:00Z', cancelKind: 'cancelled' as const })}
+      />,
+    );
+    expect(box()).toBeNull();
+  });
+
+  it('🔴 ⑧ 已逾期的匯款單 ⇒ 同樣不可以出現(cancelKind 的另一個值)', () => {
+    // 🔵 `expired` 與 `cancelled` 是兩個值 —— 只擋一個 ⇒ 另一個那條路照樣印。
+    render(
+      <OrderDetailView
+        order={bank({ cancelledAt: '2026-09-04T00:00:00Z', cancelKind: 'expired' as const })}
+      />,
+    );
+    expect(box()).toBeNull();
+  });
+
+  it('🔴 ⑨ 銀行 / 戶名 / 備註三個值逐字正確(reviewer nit ②③)', () => {
+    // 🛑 少了這一格:把「銀行(分行)」寫反成「分行(銀行)」⇒ 六格全綠。
+    //   而備註那格釘的是**常數有被用到** —— 我第一版手打了那句話, 而段 4 那封信用的是常數
+    //   ⇒ 兩份字面從第一天起就會分岔。
+    render(<OrderDetailView order={bank()} />);
+    const q = (id: string) => document.querySelector(`[data-od-id="${id}"]`)!.textContent;
+    expect(q('order-remittance-bank')).toBe('中國信託(城北分行)');
+    expect(q('order-remittance-holder')).toBe('派達有限公司');
+    expect(q('order-remittance-memo')).toContain('匯款備註請填寫訂單編號');
+  });
+
+  it('⑥ 期限那句印的是【常數】, 而常數與 migration 由 remittance-info.test.ts 比對', () => {
+    render(<OrderDetailView order={bank()} />);
+    const note = document.querySelector('[data-od-id="order-remittance-expiry"]');
+    expect(note!.textContent).toContain(String(PCM_REMITTANCE_EXPIRE_DAYS));
+  });
+});
 
 describe('OrderDetailView', () => {
   it('渲染單號 / 成立日 / 件數 / 品名 / 品牌 / 車款 / 金額', () => {
@@ -359,6 +452,12 @@ describe('OrderDetailView', () => {
       paymentStatus: 'unpaid' as const,
       paidAt: null,
       paymentMethod: null,
+      // 🔴 **這一處的註解我第一版寫錯了**(code-reviewer nit ①):
+      //   它上下文是 unpaid / 取消單, **不是「已付款的刷卡單」** ——
+      //   值 'tappay' 站得住(那是它的付款管道), 而**那句理由對這一處是假的**。
+      //   📌 我用一句話覆蓋了 10 處, 而其中 3 處演的是別的世界。
+      //   不是「隨便填一個讓它綠」——填的是這個 fixture 本來就在演的那個世界。
+      paymentChannel: 'tappay' as const,
       cancelledAt: '2099-05-01T00:00:00Z',
       cancelKind: 'cancelled' as const,
     };

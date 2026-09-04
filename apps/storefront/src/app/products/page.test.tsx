@@ -24,6 +24,13 @@ vi.mock('@/lib/supabase/server', () => ({ createServerSupabaseClient: vi.fn() })
 vi.mock('@/lib/auth/composition', () => ({ getVehicleRepo: vi.fn() }));
 // ⟦搜尋-落點換 /products⟧ 2026-09-03:第二條資料路。
 vi.mock('@/lib/search', () => ({ searchProducts: vi.fn() }));
+// 🔴🔴 **`@/lib/search-log` 也要 mock —— 而它是【漏掉這一行】把整支檔弄紅的**(2026-09-04 `-auth`):
+//    `page.tsx` 為了記膠囊那條的語料而 import 它, 而那支檔頭是 `import 'server-only'`
+//    ⇒ 在 jsdom(client)環境載入即 throw `This module cannot be imported from a Client Component`。
+//    🛑 而**我當時沒發現**:`vitest related` 對 `search-facets.ts` 只撈到 2 檔、
+//       而我手挑的那份清單是為【另一片】建的 ⇒ **本檔兩個分母都沒涵蓋到。**
+//    ⇒ 📌 判別句:**我這份測試清單, 是為【這一片動到的檔】建的, 還是我手邊剛好有的那一份?**
+vi.mock('@/lib/search-log', () => ({ logSearchQuery: vi.fn() }));
 // ⟦search-CAPSULEPARSE⟧:`redirect()` 在 server component 是用 throw 實作的
 // ⇒ mock 成 throw 一個認得出來的錯, 才驗得到「有沒有跳、跳去哪」。
 vi.mock('next/navigation', () => ({
@@ -175,6 +182,20 @@ describe('/products · 解析成膠囊之後 redirect', () => {
       throw e;
     }
   }
+
+  // 🔴🔴 **R1 對抗審查抓到的 must-fix 的守門**:redirect 之後**兩個鍵都要在**。
+  //    只寫 `categories=` 的話, 畫膠囊那條路(`products-url-parsers` 只讀 `category`)
+  //    ⇒ **一顆膠囊都畫不出來, 而篩選照樣生效** ⇒ Sean 要「兩顆都列」而結果是零顆。
+  //    🛑 **而我第一版就是只寫新鍵, 全套測試【一格都沒紅】** —— 所以要有這一格。
+  it('🔴 解析出分類 ⇒ 網址上 categories 與 category 兩個鍵【都要在】', async () => {
+    vi.mocked(fetchCategories).mockResolvedValue([
+      { id: 'grip', name: '止滑貼與保護膜', count: 3,
+        children: [{ id: 'tank', name: '油箱止滑貼', count: 2 }] },
+    ] as never);
+    const url = await redirectedTo({ search: '油箱貼' });
+    expect(url, 'categories 沒寫 ⇒ server 撈不到那個聯集').toContain('categories=');
+    expect(url, 'category 沒寫 ⇒ 膠囊畫不出來, 而篩選還生效').toMatch(/[?&]category=/);
+  });
 
   it('🔴 「mt07 akrapovic」⇒ 跳到帶膠囊的網址(Sean 原話那個例子)', async () => {
     vi.mocked(fetchVehicleTaxonomy).mockResolvedValue([

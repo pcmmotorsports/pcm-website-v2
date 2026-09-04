@@ -469,7 +469,15 @@ describe('assertPdfClaimMatchesAttachments —— 信裡說附了 PDF 而其實�
 // 🔵 **本組刻意【不】自己重算平衡** —— 期望值走 `orderAmountsBalance`(與生產碼同一支),
 //    因為「測試自己重打一份判準」正是本 repo 記過的假綠形狀。
 describe('加不起來就不印金額', () => {
-  /** 模擬「稅額欄開始有值」的那一天:`total` 比前三項的和多出稅。 */
+  /**
+   * **一列【DB 寫不進去】的訂單** —— 而那是刻意的。
+   *
+   * 🔴 2026-09-04 唯讀實查:正式庫有 `orders_total_balances`
+   *    ⇒ `CHECK (total = subtotal + shipping_fee - discount_total + tax_total)`
+   *    ⇒ 🎯 **所以這個 fixture 代表的不是「某一天的資料」, 是【我們這一層弄丟了一項】。**
+   *    (codex 對抗審查 R1 nit 指出原註解「模擬稅額開始有值的那一天」不再成立 ⇒ 已改。)
+   * 📌 ⇒ 它要測的是:**當四個數字兜不攏時, 信不要印一張兜不攏的帳。**
+   */
   function ctxWithTax(): PaidEmailContext {
     const base = ctxWithDiscount();
     // 31120 + 150 - 790 = 30480;稅 = ROUND(30480 × 0.05) = 1524 ⇒ total 32004
@@ -519,9 +527,12 @@ describe('加不起來就不印金額', () => {
     expect(verdicts).toContain(true);
     expect(verdicts).toContain(false);
     // 🟢 helper 本身對每一個輸入都要有反應, 不是恆真恆假
-    const zero = { subtotal: 0, shippingFee: 0, discountTotal: 0, total: 0 };
+    const zero = { subtotal: 0, shippingFee: 0, discountTotal: 0, total: 0, taxTotal: 0 };
     expect(orderAmountsBalance(zero)).toBe(true);
     expect(orderAmountsBalance({ ...zero, total: 1 })).toBe(false);
+    // 🔴 而【第四項】也要對判準有影響 —— 否則「加了 taxTotal」與「沒加」印同一個答案。
+    expect(orderAmountsBalance({ ...zero, taxTotal: 1 })).toBe(false);
+    expect(orderAmountsBalance({ ...zero, taxTotal: 1, total: 1 })).toBe(true);
   });
 });
 
@@ -546,5 +557,39 @@ describe('不印明細的那封信, 不可以繼續說自己是明細(codex R1 m
     const html = renderPaidEmailHtml(ctxWithTax2());
     expect(html).toContain('我們收到您的付款了');
     expect(html).toContain(ORDER_PAID_NEXT_STEP_SENTENCE);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴🔴 稅額那一列(2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 7 步;Sean 拍 Q1=乙)
+describe('稅額那一列', () => {
+  /** 稅有值【而且平衡】的世界:31120 + 150 − 790 + 1524 = 32004。 */
+  function ctxTaxed(): PaidEmailContext {
+    const base = ctxWithDiscount();
+    return { ...base, taxTotal: (1524 as typeof base.total), total: (32004 as typeof base.total) };
+  }
+
+  it('🟢 前提:這個 fixture 是平衡的(否則下面測到的是【不印明細】那條路)', () => {
+    expect(orderAmountsBalance(ctxTaxed())).toBe(true);
+  });
+
+  it('🔴 有稅 ⇒ 印「稅額」那一列, 且值是稅額不是別的數字', () => {
+    const html = renderPaidEmailHtml(ctxTaxed());
+    expect(html).toContain('稅額');
+    expect(html).toContain('1,524');
+  });
+
+  it('🔴 稅 0 ⇒ 【不印】那一列 —— 印「稅額 0」會讓客人以為這筆沒被課稅', () => {
+    expect(renderPaidEmailHtml(ctxWithDiscount())).not.toContain('稅額');
+  });
+
+  it('🔴 順序:小計 → 運費 → 折扣 → 稅額 → 訂單金額(兩份不該漂)', () => {
+    const html = renderPaidEmailHtml(ctxTaxed());
+    const at = (s: string) => html.indexOf(s);
+    expect(at('小計')).toBeGreaterThan(-1);
+    expect(at('運費')).toBeGreaterThan(at('小計'));
+    expect(at('折扣')).toBeGreaterThan(at('運費'));
+    expect(at('稅額')).toBeGreaterThan(at('折扣'));
+    expect(at('訂單金額')).toBeGreaterThan(at('稅額'));
   });
 });
