@@ -1,9 +1,11 @@
--- 🛑 **檔頭第一行:本支【可以獨立貼】,不依賴任何其他 SQL、不需要先部署 TS。**
---    呼叫端(TS)一個字都不用改 —— 改的是同一支函式的內部條件, 簽章與回傳型別零變動。
---    ⚠️ 對照:`20260904160000`(多顆膠囊)那支【不能】獨立貼, 它有三步部署順序。本支沒有。
+-- 🛑 **檔頭第一行:本支不需要搭配任何【新的】SQL, 也不需要先部署 TS。**
+--    ⚠️ 🔴 **而它【不是】無條件可貼**(codex 2026-09-04 nit, 原句作廢留痕):
+--    ⛔ ~~「本支可以獨立貼, 不依賴任何其他 SQL」~~ —— 下面的前置閘③④**強制要求**正式庫
+--       已經是 `20260904030000` 那一代。⇒ ✅ 正確說法:**它不新增依賴, 而它有前置代。**
+--    📎 對照:`20260904160000`(多顆膠囊)那支有**三步部署順序**;本支沒有那種順序陷阱。
 -- ============================================================
 -- M-4b · 打料號:【夠長的純數字】也走料號那條路
--- ⟦search-PARTNOSEPINDIGITS⟧ 續集 · 2026-09-04 · 線【身分】`-auth`
+-- ⟦search-PARTNOALLDIGITS⟧ · 2026-09-04 · 線【身分】`-auth`
 -- ============================================================
 -- Sean 原話(逐字):
 --   「但是打料號一定要有,而且要有- 無- 有空格無空格等等方式料號都要能帶出來建議的商品。」
@@ -19,7 +21,6 @@
 --      「少了它, 打 `a` ⇒ 前綴 `A%` ⇒ **命中所有 A 開頭的料號**。」
 --    ⇒ 🔴 全數字的 `010110058` 走不進去;而第①塊的 `ILIKE '%010110058%'`
 --       又對不上原文 `01-0110058`(中間有 `-`)⇒ **兩條路都不通 ⇒ 0 筆。**
---
 --    📌 **那個條件擋的是【短的】, 而它順手擋掉了【長的全數字】。**
 --       ⇒ 本支只把「長的」放回來, **短的原樣不動。**
 --
@@ -39,36 +40,85 @@
 --    而其中 **529 筆今天就撈得到** —— 它們原文本身沒有分隔符 ⇒ 第①塊 `ILIKE '%931%'` 直接命中。
 --    🔬 線上實測:打 `931` ⇒ 6 筆(第一筆 `lightech-931b`)· 打 `0041` ⇒ 3 筆(第一筆 `bonamici-0041`)
 --    ⇒ 📌 **放寬不需要涵蓋短的。短的不是壞的。**
--- ③ **爆炸半徑, 帶正對照**:
+-- ③ **結果集大小(⚠️ 這【不是】效能數字, 見下一節)**:
 --    ```
 --    一個 k 位純數字的詞前綴命中幾筆:k=1 ⇒ 271 · k=3 ⇒ 152 · k=6 ⇒ 10 · k=7 ⇒ 7 · k=9 ⇒ 1
 --    🟢 對照組(今天【已經允許】的詞):有字母又有數字的 2 字詞 ⇒ 最壞 348
 --                                      同樣形狀的 4 字詞      ⇒ 最壞 3,528
---    ⇒ 🎯 門檻 7 的最壞是 7 筆 —— 比今天已經在發生的小【兩個量級】⇒ 不是新風險。
 --    ```
 -- ④ 🔴🔴 **而門檻寫 7 不寫 9, 是刻意的**:
 --    今天全站最短的那一筆是 **9** 位 ⇒ 🛑 **一個剛好等於今天最小值的門檻, 明天就會被撞** ——
 --    下一個供應商送來一個 7 位或 8 位的全數字料號, 那一列就會靜靜地撈不到,
 --    而**撈不到不會有人回報, 客人只會覺得我們沒賣**。
---    ⇒ ✅ 7 留了兩格餘裕, 而它的代價(最壞 7 筆 vs 9 的最壞 1 筆)在上面量過了。
+--    ⇒ ✅ 7 留了兩格餘裕, 而它的代價在下一節量了。
+--
+-- ══════════════════════════════════════════════════════════════════════════
+-- 🔴🔴 效能:而上面那個「最壞 7 筆」**不是**效能證據(codex 2026-09-04 must-fix, 他對)
+-- ══════════════════════════════════════════════════════════════════════════
+--    `upper(regexp_replace(external_id, …))` **沒有對應的運算式索引** ⇒ 這一塊一定是全表掃。
+--    🔬 **正式庫唯讀 `EXPLAIN (ANALYZE)` 實測(2026-09-04 晚, 24,478 件)**:
+--    ```
+--    純數字詞 010110058 走這一塊   ⇒ Seq Scan · 執行 45.8 ms   ← 本支新增的那條路
+--    英數詞   EB12E5    走同一塊   ⇒ Seq Scan · 執行 45.2 ms   🟢 這個成本【今天就在付】
+--    中文詞   碳纖維    走第①塊   ⇒ BitmapOr(四支 trgm)· 22.0 ms  🟢 完全不受影響
+--    ```
+--    ⇒ 🎯 **所以代價說得出來, 不是「應該還好」**:
+--       ① 中文與一般文字搜尋 **零影響** —— 那一塊的 `t.term ~ '[0-9]'` 把它們擋在外面
+--          (030000 的正式站 EXPLAIN 已印 `never executed`)
+--       ② 一個 **7 位以上的純數字詞**, 從今天的「只跑第①塊」變成「多跑一次全表掃」⇒ **約 +46 ms**
+--       ③ 而那正是**英數料號今天已經在付的同一筆錢** —— 不是一種新的成本形狀
+--    🛑 **殘餘風險, 我不自宣接受**:若哪天純數字搜尋變成高頻(例如客人習慣打電話號碼、年份),
+--       那 +46 ms 會變成常態成本。**根治是替那個運算式建索引**, 而那是另一片(要 Sean 拍)。
 --
 -- ══════════════════════════════════════════════════════════════════════════
 -- 🟢 兩個世界各餵一發 —— 而本檔把它寫成【會紅的斷言】, 不是寫成一段話
 -- ══════════════════════════════════════════════════════════════════════════
---    事後閘⑥在同一個交易裡, **貼之前先量一次、貼之後再量一次**, 逐詞比對:
+--    事後閘⑥在同一個交易裡, **貼之前先量一次、貼之後再量一次**, 逐詞比對
+--    **筆數【與】命中的 id 集合**(codex must-fix:只比筆數 ⇒ 換了一批同數量的商品也會全綠):
 --    ```
---    010110058     0 ⇒ 1   🟢 該修好的修好了
---    01022450101   0 ⇒ 1   🟢
---    987654321     0 ⇒ 0   🟢 負對照:一個不存在的 9 位數字仍然回 0(沒有退化成「找最像的」)
---    13 / 100 / 931 / 0041 / 123456   ⇒ 前後【必須完全相等】🟢 該不動的沒動
+--    010110058    (9 位) 0 ⇒ 1  🟢 該修好的
+--    01022450101 (11 位) 0 ⇒ 1  🟢
+--    0102245      (7 位) 0 ⇒ 1  🔴🔴 **門檻的判別詞** —— 見下
+--    01022450     (8 位) 0 ⇒ 1  🔴🔴 同上
+--    987654321    (9 位) 0 ⇒ 0  🟢 負對照:不存在的九位數仍然回 0(沒有退化成「找最像的」)
+--    13 / 100 / 931 / 0041 / 123456 ⇒ 前後的【筆數與 id 集合】必須完全相等 🟢
 --    ```
---    📌 **⇒ 這不是「我唯讀模擬過」, 是這支 SQL 自己會在你的庫上量一遍。對不上就整份回滾。**
+--    🔴🔴 **`0102245` / `01022450` 這兩格是 codex 2026-09-04 must-fix 逼出來的, 而他說得對**:
+--       原本兩個正對照**剛好都是 9 位與 11 位** ⇒ 🛑 **一個寫成 `>= 9` 的錯誤實作會【全綠】。**
+--       ⇒ ✅ 補這兩格之後, `>= 8` 讓 7 位那格紅、`>= 9` 讓兩格都紅 ⇒ **門檻本身被釘住了。**
+--       🔬 而它們是**量出來能判別**才選的:兩者的 `ILIKE` 今天都回 **0**、正規化前綴都恰好 **1** 筆。
+--
+-- ══════════════════════════════════════════════════════════════════════════
+-- 🔬 這些閘【被實測殺過】—— 而哪一格沒有, 我也寫出來
+-- ══════════════════════════════════════════════════════════════════════════
+--    拋棄式 PG(從零起、逐位元組相同的 `prosrc` md5 與函式屬性)· 2026-09-04:
+--    ```
+--    乾淨貼                                          ⇒ rc=0
+--    突變 A  門檻改成 >= 9                            ⇒ 事後閘⑥b 紅(`0102245`)
+--    突變 B  改成 >= 9 而旁邊放一段 /* >= 7 */         ⇒ 事後閘⑥b 紅  ← codex 那條 must-fix 的原場景
+--    突變 C  放行【所有】純數字                        ⇒ 事後閘⑥d 紅(`931` 1 ⇒ 2)
+--    突變 D  在 CREATE 上加 PARALLEL SAFE              ⇒ 事後閘②e 紅
+--    ```
+--    🛑 **而⑥e(id 集合變了而筆數沒變)【沒有被突變殺過】** ——
+--       我構造不出一個「筆數相等而 id 換了一批」的世界:每一發我試過的突變都先讓**筆數**變。
+--       ⇒ 📌 **那不是「它有效」的證據, 是「我沒能驗它」** ——
+--          它的尺本身(排序後 id 串接的 md5)在兩個不同的集合上必然不同, 那是構造上的;
+--          **沒被驗到的是「有沒有一種真實的錯會落進那個世界」。**
+--       ⇒ 🔵 留著它, 因為它便宜;而**不要**把它的綠讀成「已經檢查過商品沒有被換掉」。
+--
+-- ══════════════════════════════════════════════════════════════════════════
+-- 🛑 已知天花板(codex 2026-09-04 must-fix ②;**我修不掉, 所以寫出來**)
+-- ══════════════════════════════════════════════════════════════════════════
+--    前置閘讀 `md5(prosrc)` 與 `CREATE OR REPLACE` 之間**沒有鎖**(PostgreSQL 沒有辦法鎖一支函式,
+--    而 advisory lock 只在**所有寫入者都配合**時才有用 —— 我們的寫入者是「有人在 SQL Editor 手貼」)。
+--    ⇒ 🔴 若真的有第二個人在這兩步之間 REPLACE 了它, 本支會**無聲蓋掉**對方, 而事後閘全綠。
+--    ⇒ 📌 **今天靠的是【只有 Sean 一個人貼 SQL, 而且是序列的】** —— 那是**流程保證, 不是技術保證**。
+--       🛑 **我不自宣接受這個殘餘風險**:兩個人同時貼 SQL 的那天, 這道閘擋不住。
 --
 -- ══════════════════════════════════════════════════════════════════════════
 -- 🔴 回退
 -- ══════════════════════════════════════════════════════════════════════════
 --    把 `20260904030000` 那支的函式本體原樣 `CREATE OR REPLACE` 回去即可(同名同簽章、ACL 不動)。
---    ⚠️ 而本支的前置閘④c 會擋住重貼 ⇒ 回退後想再貼一次, 那道閘會自己放行(條件變回 false)。
 
 BEGIN;
 
@@ -76,8 +126,9 @@ BEGIN;
 DO $$
 DECLARE
   v_def  text;
-  v_code text;   -- v_def 剝掉 `--` 註解之後的樣子
+  v_code text;   -- v_def 剝掉註解之後的樣子
   v_md5  text;
+  r      record;
 BEGIN
   IF to_regclass('public.products_public') IS NULL THEN
     RAISE EXCEPTION '前置閘①:找不到 public.products_public';
@@ -101,10 +152,29 @@ BEGIN
     RAISE EXCEPTION '前置閘③:庫上那支的 prosrc md5 是 % ⇒ 不是我抄的那一代(期望 a5d89aa5dfad14e6cdb9182bb58cdfd6)⇒ 有人改過它 ⇒ 停下來比對, 不要讓 REPLACE 蓋掉別人的改動。', v_md5;
   END IF;
 
-  -- 🔴🔴 **先剝 `--` 註解再找** —— `pg_get_functiondef` 含函式體裡的註解,
-  --    而我的新本體裡就寫著一行講門檻的註解 ⇒ 不剝的話, 貼第二次時這道閘會【放行】。
-  --    📌 那是「註解被當成碼」那一族:一道防它的守門, 長得像那個東西本身。
-  v_code := regexp_replace(v_def, '--[^' || chr(10) || ']*', '', 'g');
+  -- 🔴🔴 **而 `md5(prosrc)` 只釘【函式本體】** —— codex 2026-09-04 must-fix, 他對:
+  --    volatility / parallel / cost / rows / `SET` 都**不在 prosrc 裡**, 而
+  --    `CREATE OR REPLACE` 會把沒寫出來的那些**重設回預設值** ⇒ 有人加了 `PARALLEL SAFE`
+  --    或 `SET search_path` ⇒ 前置閘照樣綠, 而我會**無聲吹掉它**。
+  --    ⇒ ✅ 所以這裡逐欄釘住 2026-09-04 實測到的值。
+  SELECT p.provolatile, p.proparallel, p.procost, p.prorows,
+         p.proconfig, p.proleakproof, p.proisstrict
+    INTO r
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'storefront_search_product_ids';
+  IF r.provolatile <> 's' OR r.proparallel <> 'u' OR r.procost <> 100 OR r.prorows <> 1000
+     OR r.proconfig IS NOT NULL OR r.proleakproof OR r.proisstrict THEN
+    RAISE EXCEPTION '前置閘③b:函式屬性與 2026-09-04 實測不符(volatile=% parallel=% cost=% rows=% config=% leakproof=% strict=%;期望 s/u/100/1000/NULL/f/f)⇒ 有人動過它, 而本支的 CREATE OR REPLACE 會把那些改回預設 ⇒ 停。',
+      r.provolatile, r.proparallel, r.procost, r.prorows, r.proconfig, r.proleakproof, r.proisstrict;
+  END IF;
+
+  -- 🔴🔴 **剝註解要【兩種都剝】** —— codex 2026-09-04 must-fix, 他對:
+  --    只剝 `--` 的話, 一個寫成 `>= 9` 的錯誤實作只要在旁邊放一段 `/* >= 7 */`,
+  --    下面的字面閘就會**放行**。⇒ ✅ 兩種註解都剝掉再找。
+  --    📌 而字面閘本來就擋不住這種事 —— **真正擋住它的是事後閘⑥的 7 位 / 8 位判別詞。**
+  v_code := regexp_replace(
+              regexp_replace(v_def, '/\*.*?\*/', '', 'gs'),
+              '--[^' || chr(10) || ']*', '', 'g');
 
   IF position('regexp_replace(p.external_id' IN v_code) = 0 THEN
     RAISE EXCEPTION '前置閘④a:庫上那支(剝註解後)沒有料號正規化那一塊 ⇒ 它不是 030000 那一代 ⇒ 停。';
@@ -112,7 +182,6 @@ BEGIN
   IF position('b.name' IN v_code) <> 0 THEN
     RAISE EXCEPTION '前置閘④b:庫上那支(剝註解後)還含 `b.name` ⇒ 它是拆三塊【之前】那一代 ⇒ 先貼 20260904030000。';
   END IF;
-  -- ④c 🔴 擋重貼:本支加的東西若已經在庫上, 停。
   IF position('length(regexp_replace(t.term' IN v_code) <> 0 THEN
     RAISE EXCEPTION '前置閘④c:庫上那支已經含長度門檻 ⇒ **本支已經貼過了** ⇒ 不要重貼。';
   END IF;
@@ -121,19 +190,26 @@ $$;
 
 -- ── 🔬 貼之前先量一次(兩個世界的「之前」那一半)────────────────────────────
 --    🔴 `ON COMMIT DROP` ⇒ 這張表只活在本交易裡, 不留痕。
+--    🔴 **`ids` 欄是 codex must-fix 補的**:只比筆數的話, 「換了一批同數量的商品」會全綠。
 CREATE TEMP TABLE _partno_before ON COMMIT DROP AS
-SELECT t.term,
-       (SELECT count(*) FROM public.storefront_search_product_ids(ARRAY[t.term])) AS n
+SELECT t.term, t.expect,
+       (SELECT count(*) FROM public.storefront_search_product_ids(ARRAY[t.term])) AS n,
+       (SELECT md5(coalesce(string_agg(s.id::text, ',' ORDER BY s.id), ''))
+          FROM public.storefront_search_product_ids(ARRAY[t.term]) s)      AS ids
   FROM (VALUES
-          ('010110058'),      -- 🎯 該被修好的(01-0110058)
-          ('01022450101'),    -- 🎯 該被修好的(01022.4501-01)
-          ('987654321'),      -- 🟢 負對照:不存在的 9 位數字
-          ('13'), ('100'), ('931'), ('0041'), ('123456')   -- 🟢 該完全不動的
-       ) AS t(term);
+          ('010110058',   'fix'),   -- 🎯  9 位:01-0110058
+          ('01022450101', 'fix'),   -- 🎯 11 位:01022.4501-01
+          ('0102245',     'fix'),   -- 🔴  7 位判別詞:寫成 >= 8 或 >= 9 ⇒ 本格紅
+          ('01022450',    'fix'),   -- 🔴  8 位判別詞:寫成 >= 9 ⇒ 本格紅
+          ('987654321',   'zero'),  -- 🟢 負對照:不存在的九位數
+          ('13',   'same'), ('100', 'same'), ('931', 'same'),
+          ('0041', 'same'), ('123456', 'same')
+       ) AS t(term, expect);
 
 -- ── 本體 ──────────────────────────────────────────────────────────────────
 -- 🔴 **刻意【不寫】 SECURITY DEFINER** —— 預設 INVOKER, 那是本片的安全前提。
 -- 🔵 **也刻意不寫 `SET search_path`** —— INVOKER + 只讀具名 `public.` 物件、零提權面。
+--    (而「庫上那支現在也沒有 `SET`」由前置閘③b 釘住 ⇒ REPLACE 不會吹掉任何東西。)
 -- 🛑 **本體逐字抄自 2026-09-04 晚正式庫的 `pg_get_functiondef`, 只改了料號那一塊的一個條件。**
 --    其餘每一行註解都是原作者寫的, 一個字都沒動 —— 那些註解裡住著拍板紀錄。
 CREATE OR REPLACE FUNCTION public.storefront_search_product_ids(p_terms text[])
@@ -235,19 +311,18 @@ BEGIN
     RAISE EXCEPTION '收權斷言:本檔宣稱不新建物件, 而清單非空 ⇒ 兩者矛盾, 停下來看。';
   END IF;
 
-  -- ── ① 字面:新條件真的在庫上那支裡(剝註解後看, 免得看到自己寫的那行說明)──
-  SELECT regexp_replace(pg_get_functiondef(p.oid), '--[^' || chr(10) || ']*', '', 'g')
+  -- ── ① 字面:新條件真的在庫上那支裡(兩種註解都剝掉再看)──────────────────
+  SELECT regexp_replace(
+           regexp_replace(pg_get_functiondef(p.oid), '/\*.*?\*/', '', 'gs'),
+           '--[^' || chr(10) || ']*', '', 'g')
     INTO v_code
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'storefront_search_product_ids';
   -- 🛑 **這裡刻意【不數次數】** —— 期望值若是「出現 N 次」, 那個 N 是我照著自己要寫的碼數出來的,
   --    ⇒ 它從出生起就不可能抓到我寫錯的東西。(2026-09-04 多顆膠囊那支第一版就是這樣失敗的。)
-  --    ⇒ ✅ 只問「在不在」, 而**行為那一半交給下面的 ⑥**。
+  -- 🔴 **而字面閘本來就【擋不住門檻寫錯】** —— 那件事由下面的 ⑥ 用 7 位 / 8 位判別詞擋。
   IF position('length(regexp_replace(t.term' IN v_code) = 0 THEN
     RAISE EXCEPTION '事後閘①:長度門檻那個條件不在庫上那支裡 ⇒ REPLACE 沒有貼上我以為的東西。';
-  END IF;
-  IF position('>= 7' IN v_code) = 0 THEN
-    RAISE EXCEPTION '事後閘①b:門檻數字 7 不在庫上那支裡。';
   END IF;
 
   -- ── ② ACL:REPLACE 不該動授權 ──────────────────────────────────────────
@@ -274,6 +349,17 @@ BEGIN
   ) THEN
     RAISE EXCEPTION '事後閘②d:本支是 SECURITY DEFINER ⇒ 那是把客人的查詢升權';
   END IF;
+  -- 🔴 ②e 屬性不得被 REPLACE 吹掉(與前置閘③b 成對:那道問「貼之前是什麼」, 這道問「貼完還是不是」)
+  SELECT p.provolatile, p.proparallel, p.procost, p.prorows,
+         p.proconfig, p.proleakproof, p.proisstrict
+    INTO r
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'storefront_search_product_ids';
+  IF r.provolatile <> 's' OR r.proparallel <> 'u' OR r.procost <> 100 OR r.prorows <> 1000
+     OR r.proconfig IS NOT NULL OR r.proleakproof OR r.proisstrict THEN
+    RAISE EXCEPTION '事後閘②e:函式屬性被改掉了(volatile=% parallel=% cost=% rows=% config=% leakproof=% strict=%)⇒ REPLACE 吹掉了原本的設定。',
+      r.provolatile, r.proparallel, r.procost, r.prorows, r.proconfig, r.proleakproof, r.proisstrict;
+  END IF;
 
   -- ── ③ 原有的兩端行為閘照抄(空詞不得回全表 / 字面 % 不得當萬用字元 / 正對照)──
   SELECT count(*) INTO v_all FROM public.products_public;
@@ -299,39 +385,50 @@ BEGIN
     RAISE EXCEPTION '事後閘③d:拿一筆真料號去搜回了 0 列 ⇒ HAVING 的 DISTINCT 掉了';
   END IF;
 
-  -- ── ⑥ 🔴🔴 **兩個世界各餵一發 —— 貼前 vs 貼後, 逐詞比對** ────────────────
-  --    🎯 這一格是本支的核心斷言:它同時證明「該修好的修好了」與「該不動的沒動」,
-  --       而**兩邊都要**成立 —— 只驗前者的話, 一個「全數字通通放行」的實作也會全綠。
+  -- ── ⑥ 🔴🔴 **兩個世界各餵一發 —— 貼前 vs 貼後, 逐詞比對【筆數與 id 集合】** ──────
+  --    🎯 它同時證明「該修好的修好了」與「該不動的沒動」, 而**兩邊都要**成立:
+  --       只驗前者的話, 一個「全數字通通放行」的實作也會全綠。
+  --    🔴 **`0102245`(7 位)與 `01022450`(8 位)是門檻本身的判別詞** ——
+  --       少了它們, 一個寫成 `>= 9` 的實作**全綠**(codex 2026-09-04 must-fix)。
+  --    🔴 **比 id 不只比筆數** —— 換了一批同數量的商品, 只比筆數會全綠(同一條 must-fix)。
   FOR r IN
-    SELECT b.term, b.n AS n_before,
-           (SELECT count(*) FROM public.storefront_search_product_ids(ARRAY[b.term])) AS n_after
+    SELECT b.term, b.expect, b.n AS n_before, b.ids AS ids_before,
+           (SELECT count(*) FROM public.storefront_search_product_ids(ARRAY[b.term])) AS n_after,
+           (SELECT md5(coalesce(string_agg(s.id::text, ',' ORDER BY s.id), ''))
+              FROM public.storefront_search_product_ids(ARRAY[b.term]) s)            AS ids_after
       FROM _partno_before b
      ORDER BY b.term
   LOOP
-    IF r.term IN ('010110058', '01022450101') THEN
+    IF r.expect = 'fix' THEN
       IF r.n_before <> 0 THEN
         RAISE EXCEPTION '事後閘⑥a:`%` 在貼之前就回了 % 列 ⇒ 前提不成立(它本來就撈得到)⇒ 停下來重新量, 不要照貼。', r.term, r.n_before;
       END IF;
       IF r.n_after <> 1 THEN
-        RAISE EXCEPTION '事後閘⑥b:`%` 貼完回了 % 列(期望 1)⇒ 修法沒有落在目標上。', r.term, r.n_after;
+        RAISE EXCEPTION '事後閘⑥b:`%` 貼完回了 % 列(期望 1)⇒ 門檻沒有落在 7, 或修法沒有落在目標上。', r.term, r.n_after;
       END IF;
-    ELSIF r.term = '987654321' THEN
-      -- 🟢 負對照:一個不存在的 9 位數字必須仍然回 0 —— 否則「放寬」變成了「退化成找最像的」
+    ELSIF r.expect = 'zero' THEN
       IF r.n_after <> 0 THEN
-        RAISE EXCEPTION '事後閘⑥c:負對照 `987654321` 貼完回了 % 列(期望 0)⇒ 放寬變成了亂撈。', r.n_after;
+        RAISE EXCEPTION '事後閘⑥c:負對照 `%` 貼完回了 % 列(期望 0)⇒ 放寬變成了亂撈。', r.term, r.n_after;
       END IF;
     ELSE
-      -- 🟢 該完全不動的:13 / 100 / 931 / 0041 / 123456
       IF r.n_before <> r.n_after THEN
-        RAISE EXCEPTION '事後閘⑥d:短詞 `%` 的結果變了(% ⇒ %)⇒ 門檻沒有守住, 短的被拖進料號那條路了。', r.term, r.n_before, r.n_after;
+        RAISE EXCEPTION '事後閘⑥d:短詞 `%` 的筆數變了(% ⇒ %)⇒ 門檻沒有守住, 短的被拖進料號那條路了。', r.term, r.n_before, r.n_after;
+      END IF;
+      IF r.ids_before <> r.ids_after THEN
+        RAISE EXCEPTION '事後閘⑥e:短詞 `%` 的【筆數一樣而 id 集合換了】⇒ 它換了一批商品, 而只比筆數看不出來。', r.term;
       END IF;
     END IF;
   END LOOP;
 
   -- 🔵 而 ⑥ 自己也需要一格正對照:上面那張表若是空的, 整個 LOOP 一次都不跑而全綠。
   SELECT count(*) INTO v_cnt FROM _partno_before;
-  IF v_cnt <> 8 THEN
-    RAISE EXCEPTION '事後閘⑥e:貼前那張量測表有 % 列(期望 8)⇒ ⑥ 的 LOOP 沒有跑完該跑的世界 ⇒ 它的綠沒有判別力。', v_cnt;
+  IF v_cnt <> 10 THEN
+    RAISE EXCEPTION '事後閘⑥f:貼前那張量測表有 % 列(期望 10)⇒ ⑥ 的 LOOP 沒有跑完該跑的世界 ⇒ 它的綠沒有判別力。', v_cnt;
+  END IF;
+  -- 🔵 而「四個 fix 世界都在」也要有一格 —— 少了任何一個, 門檻就少一個判別點。
+  SELECT count(*) INTO v_cnt FROM _partno_before WHERE expect = 'fix';
+  IF v_cnt <> 4 THEN
+    RAISE EXCEPTION '事後閘⑥g:fix 類的世界只有 % 個(期望 4:9 位 / 11 位 / 7 位 / 8 位)⇒ 門檻本身沒有被釘住。', v_cnt;
   END IF;
 END
 $$;
