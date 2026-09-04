@@ -147,6 +147,8 @@ describe('發票欄位隱藏態(Sean 2026-08-08 拍板「先隱藏」)', () => {
       <InlineAddressForm addr={{ isDefault: false }} onSubmit={onSubmit} onClose={vi.fn()} onSaved={vi.fn()} />,
     );
     fireEvent.change(screen.getByPlaceholderText('王小明'), { target: { value: '陳大文' } });
+    // 🔴 2026-09-04 Sean 拍甲:手機改必填 ⇒ 不填會被原生 required 擋住, 而紅在「onSubmit 沒被呼叫」
+    fireEvent.change(screen.getByPlaceholderText('0912 345 678'), { target: { value: '0912345678' } });
     fireEvent.change(screen.getByPlaceholderText('縣市 / 區 / 路 / 號 / 樓'), { target: { value: '台北市' } });
     fireEvent.change(screen.getByPlaceholderText('example@mail.com'), { target: { value: 'a@b.tw' } });
     fireEvent.click(screen.getByRole('button', { name: '儲存' }));

@@ -465,9 +465,54 @@ describe('🔴 包裹卡單號那一行的字級', () => {
       },
     ]);
     render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
-    const line = screen.getByText(/單號/);
+    // 🔴🔴 **2026-09-04 訂正:`/單號/` 不夠窄了。**
+    //    上面那段註解逐字寫著它靠「把箱設成【已出貨】」來避開「填單號並標記出貨」那顆鈕
+    //    ——⇒ 而 ⟦5b-TRACKNUMGAP1⟧ 片 B 的「**更正單號**」**正好只在已出貨時出現**
+    //    ⇒ 📌 **那個迴避法【被一個新功能弄失效了】, 而它失效的方式是 getByText 撞多個命中。**
+    //    ✅ 改成**錨在行首**:單號那一行是「單號 <號碼>」, 而按鈕是「更正單號」
+    //    ✅ 修法**保留原本那個比對式**, 只把按鈕排除掉 ——
+    //       ⚠️ 我先試過 `/^單號/`, 而那一行的文字**被拆在多個元素裡** ⇒ 抓不到
+    //       ⇒ 用 `selector` 收窄才對, 而這一格原本的力道(15px / 不是 text-xs)一格都沒少。
+    const line = screen.getByText(/單號/, { selector: ':not(button)' });
     expect(line.className, '單號那行沒有 15px ⇒ 字級被改掉了').toContain('text-[15px]');
     expect(line.className, '單號那行還是舊的 12px(text-xs)⇒ 字級沒有真的改').not.toContain('text-xs');
   });
 
+});
+
+describe('⟦5b-TRACKNUMGAP1⟧ 片 B · 更正單號的入口 —— 而它的【條件】是承重的', () => {
+  const box = (over: Record<string, unknown>) => ({
+    shipment: { ...emptyBox('FIXME1'), trackingNumber: '6412345678', ...over },
+    lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }],
+  });
+
+  /**
+   * 🔴🔴 **四個世界, 而只有一個該出現那顆鈕。**
+   * · 未出貨 ⇒ 旁邊那顆「填單號並標記出貨」就是填的地方 ⇒ 給兩個入口他不知道按哪一個
+   * · 已作廢 ⇒ 那個單號不會再被任何人看到 ⇒ 更正它沒有意義
+   * 🛑 而 UI 這一層只是不要讓他白按, **真守門在 RPC** —— 兩層都要有。
+   */
+  it.each([
+    ['已出貨 · 未作廢', { shippedAt: '2026-09-04T02:00:00Z', voidedAt: null }, true],
+    ['未出貨 · 未作廢', { shippedAt: null, voidedAt: null }, false],
+    ['已出貨 · 已作廢', { shippedAt: '2026-09-04T02:00:00Z', voidedAt: '2026-09-04T03:00:00Z', voidReason: '打錯' }, false],
+    ['未出貨 · 已作廢', { shippedAt: null, voidedAt: '2026-09-04T03:00:00Z', voidReason: '打錯' }, false],
+  ])('🔴 %s ⇒ 更正單號入口 %s', async (_n, over, want) => {
+    loadOrderShipments.mockResolvedValue([box(over)]);
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    const found = screen.queryByRole('button', { name: '更正單號' }) !== null;
+    expect(found, want ? '已出貨未作廢的箱【沒有】入口 ⇒ 員工只剩 SQL Editor' : '不該出現入口的世界出現了 ⇒ 他會白按一次而被 RPC 擋').toBe(want);
+  });
+
+  /**
+   * 🔵 **負對照:那顆鈕與旁邊那顆【不會同時出現】。**
+   * 少了這一格, 一個把條件寫成 `!voided`(漏掉 shipped)的實作會讓兩顆並排,
+   * 而員工不知道該按哪一個 —— 那正是本片要避免的。
+   */
+  it('🔵 已出貨時【只有】更正入口, 沒有「填單號並標記出貨」', async () => {
+    loadOrderShipments.mockResolvedValue([box({ shippedAt: '2026-09-04T02:00:00Z' })]);
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    expect(screen.queryByRole('button', { name: '更正單號' })).not.toBeNull();
+    expect(screen.queryByRole('button', { name: '填單號並標記出貨' })).toBeNull();
+  });
 });

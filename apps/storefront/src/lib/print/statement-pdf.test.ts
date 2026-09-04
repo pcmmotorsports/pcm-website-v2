@@ -35,6 +35,8 @@ function orderFixture(itemCount: number): MemberOrderDetail {
     paymentStatus: 'paid',
     fulfillmentStatus: 'shipped',
     paymentMethod: 'tappay',
+    // 🔵 段 3 加欄:此 fixture 演的是【已付款的刷卡單】⇒ 'tappay'。
+    paymentChannel: 'tappay' as const,
     paidAt: '2099-04-18T03:00:00Z',
     shippedAt: null,
     allItemsShipped: false,

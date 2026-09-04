@@ -427,7 +427,9 @@ function buildOrderCreatedText(
   //    ⚠️ **`paid === null` 時整段不印** —— 那是「沒注入 paidContext」的環境, 行為與本片之前逐字相同。
   const detail: string[] = [];
   // 🔴 **加不起來就不印明細**(codex 對抗審查 must-fix):DB 的等式含 `tax_total`,
-  //    而這裡只列 小計/運費/折扣 ⇒ 有稅的那一天客人會收到一張【兜不攏的帳】。
+  //    而這裡 ⛔ ~~只列 小計/運費/折扣~~ ⇒ 有稅的那一天客人會收到一張【兜不攏的帳】。
+  //    ✅ **2026-09-04 第 7 步訂正:稅額那一列已經加上了**(見下方)⇒ 本句講的是**本片之前**的狀態。
+  //    🔵 而這道判斷**留著** —— 它防的是**下一個被加進 `total` 而沒人記得印的欄位**。
   //    ⇒ 判準問「加不加得起來」而不是「有沒有稅」—— 後者只擋得住我今天想得到的那一欄。
   if (paid !== null && orderAmountsBalance(paid)) {
     detail.push('', '訂單明細');
@@ -453,6 +455,12 @@ function buildOrderCreatedText(
     //    ⇒ 📌 **數字沒錯, 而本片的整個論點就是【兩份不該漂】** —— 順序也是那個「兩份」的一部分。
     detail.push(`運費  NT$ ${formatOrderAmount(paid.shippingFee)}`);
     if (paid.discountTotal > 0) detail.push(`折扣  −NT$ ${formatOrderAmount(paid.discountTotal)}`);
+    // 🔴 稅額:**有稅才印**(2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 7 步)——
+    //    與【折扣】同族、與【運費】不同族。稅 0 不印的理由:今天每一張單的稅都是 0(價格含稅),
+    //    印一列「稅額 0」會讓客人以為**這筆交易沒有被課稅**, 而那是錯的:稅**內含在售價裡**。
+    //    🛑 **位置與排版那份逐字對齊**:小計 → 運費 → 折扣 → **稅額** → 訂單金額。
+    //       ⇒ 📌 兩份不該漂, 而順序也是那個「兩份」的一部分(上面那條 nit 的同一句)。
+    if (paid.taxTotal > 0) detail.push(`稅額  NT$ ${formatOrderAmount(paid.taxTotal)}`);
     detail.push(`訂單金額  NT$ ${formatOrderAmount(paid.total)}`);
   }
 
