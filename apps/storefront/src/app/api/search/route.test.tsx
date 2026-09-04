@@ -146,3 +146,43 @@ describe('/api/search 的另三區', () => {
     expect((await res.json()).items).toHaveLength(1); // 🟢 商品照樣給
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════
+// 🔴🔴 「你是不是要找 X?」的候選(`⟦search-BRANDTYPOTRGM⟧` · Sean 2026-09-04 拍甲)
+// ══════════════════════════════════════════════════════════════════════
+describe('/api/search 的品牌候選', () => {
+  const BRANDS = [
+    { id: 'akrapovic', name: 'AKRAPOVIČ', count: 1 },
+    { id: 'rizoma', name: 'RIZOMA', count: 1 },
+  ];
+
+  it('🔴 打錯字 ⇒ 回一個候選, 而且帶著連結用的 slug', async () => {
+    searchProducts.mockResolvedValue({ items: [], total: 0, error: false });
+    tryCatalogBrandTaxonomy.mockResolvedValue({ brands: BRANDS, failed: false });
+    const body = await (await GET(req('akrpovic'))).json();
+    expect(body.suggestion).toEqual({ name: 'AKRAPOVIČ', slug: 'akrapovic' });
+  });
+
+  it('🔴 亂編的字 ⇒ suggestion 是 null(不是 undefined —— 兩者在畫的人那邊不一樣)', async () => {
+    searchProducts.mockResolvedValue({ items: [], total: 0, error: false });
+    tryCatalogBrandTaxonomy.mockResolvedValue({ brands: BRANDS, failed: false });
+    const body = await (await GET(req('zzzzzqqqqq'))).json();
+    expect(body.suggestion).toBeNull();
+  });
+
+  it('🔴 品牌清單讀不到(failed)⇒ null —— 「沒有建議」比「猜一個」誠實', async () => {
+    searchProducts.mockResolvedValue({ items: [], total: 0, error: false });
+    tryCatalogBrandTaxonomy.mockResolvedValue({ brands: [], failed: true });
+    const body = await (await GET(req('akrpovic'))).json();
+    expect(body.suggestion).toBeNull();
+  });
+
+  it('🔵 **有結果的時候也照樣算** —— 判準只有一份, 在 UI 那邊', async () => {
+    // 🛑 少了這一格, 有人「順手」在 route 加一個 `if (有結果) suggestion = null`,
+    //    那就變成同一個判準有兩個實作 ⇒ 它們會漂, 而漂掉不會紅。
+    searchProducts.mockResolvedValue({ items: [FULL_PRODUCT], total: 1, error: false });
+    tryCatalogBrandTaxonomy.mockResolvedValue({ brands: BRANDS, failed: false });
+    const body = await (await GET(req('akrpovic'))).json();
+    expect(body.suggestion).toEqual({ name: 'AKRAPOVIČ', slug: 'akrapovic' });
+  });
+});

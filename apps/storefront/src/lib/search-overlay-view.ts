@@ -29,6 +29,11 @@ export type SearchResultState = {
   /** 🔴 與 `items` **同一顆 state** —— 兩顆分開的 state 表達不了「同一次量測」,
    *  而那正是 `codex R2 must-fix 1` 修過的病(狀態脫離查詢字)。 */
   facets?: SearchFacets;
+  /** 「你是不是要找 X?」的候選(`⟦search-BRANDTYPOTRGM⟧`)。
+   *  🔴 **也走同一顆 state** —— 理由同 `facets`:它必須與**那一次查詢**綁在一起,
+   *  否則會出現「上一個字的建議掛在這一個字底下」。
+   *  🔵 `null` = 這一次沒有候選(而不是「還沒算」)。 */
+  suggestion?: { name: string; slug: string } | null;
 };
 
 /**
