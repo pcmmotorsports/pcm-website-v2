@@ -40,10 +40,13 @@ export type SearchFacets = {
   failed: { brands: boolean; categories: boolean; vehicles: boolean };
 };
 
-/** 稿 `:32` 逐字 `const match = (s) => s && s.toLowerCase().includes(q)`。 */
-function match(haystack: string | undefined | null, q: string): boolean {
-  return typeof haystack === 'string' && haystack.toLowerCase().includes(q);
-}
+// 🔴🔴 **[2026-09-04 `match()` 已刪 —— 舊字面留在這裡, 因為外面有東西引用它的行號]**
+//    ⛔ ~~`/** 稿 :32 逐字 const match = (s) => s && s.toLowerCase().includes(q)。 */`~~
+//    ⛔ ~~`function match(haystack, q) { return typeof haystack === 'string' && haystack.toLowerCase().includes(q); }`~~
+//    ✅ 三區都改用 `foldIncludes`(Sean 2026-09-04 第十七題拍甲)⇒ 它沒有呼叫點了,
+//       而留著一支沒人叫的函式會讓下一個人以為「還有一條路走它」。
+//    🔵 **而稿的那一行仍然是這一區的來源** —— `foldIncludes` 做的還是**子字串**,
+//       只是先把兩端折過(去重音 + 去分隔符)。**語意沒有從子字串變成模糊比對。**
 
 export function filterFacets(
   query: string,
@@ -102,8 +105,11 @@ export function filterFacets(
     .slice(0, SEARCH_FACET_LIMIT)
     .map((b) => ({ id: b.id, name: b.name, count: b.count }));
 
+  // 🔴 **分類這一區 2026-09-04 也換成折兩端**(Sean 第十七題拍甲, 見上面品牌那一段)。
+  //    🔬 **換之前量過分母, 不是換完才想起來**(正式庫唯讀 + 拿【真的】`foldSearchTerm` 跑):
+  //       分類 **83 個唯一名 ⇒ 折後撞名 0 組 · 折成空字串 0** ⇒ 沒有「兩個不同分類被折成一個」的世界。
   const categories = data.categories.categories
-    .filter((c) => match(c.name, q) || match(c.id, q))
+    .filter((c) => foldIncludes(c.name, q) || foldIncludes(c.id, q))
     .slice(0, SEARCH_FACET_LIMIT)
     .map((c) => ({ id: c.id, name: c.name, count: c.count }));
 
@@ -118,14 +124,29 @@ export function filterFacets(
   //        「甲 = 全部不改。 R6 繼續跑出 Honda CBR600, 車款那一區維持不顯示。」
   //      🔴 **引用時務必寫「重出版的甲」** —— **舊版的甲乙【都不對】**:舊版只講車款那一區的代價,
   //        而這支 `match()` **三區共用**(品牌 `:82` / 分類 `:87` / 車款 `:103`)。
+  //        ⚠️ **[2026-09-04 訂正]** `match()` 已刪、三區改用 `foldIncludes` —— **而「三區共用」這件事沒變**,
+  //           它仍然是一支函式管三區。上面那句的**行號已漂**, 不要照它去找。
   //      🛑 **而 2026-09-03 那份答案表的 Q21 那一列(字母說乙 · 說明說不改)【作廢】** —— 那一則被取代了。
   //    🎯 **⇒ 所以這一段不再是「等拍板」, 是【一條拍板的落點】** —— **不改是拍板, 不是沒做。**
+  //    🔴🔴 **[2026-09-04 補 —— 而它【不推翻】上面那一板, 兩者管的是不同的事]**
+  //       上面那板管的是「**過度命中**」(`R6` 跑出 `CBR600`)⇒ 拍**不改** ⇒ 今天仍然不改。
+  //       而 Sean 同日**第十七題**拍的是「**命中不足**」:
+  //         > 「Q-膠囊比對: 打『eazigrip』(少一個橫槓)現在找不到 EAZI-GRIP。要不要讓它找得到? 甲 = 要」
+  //       ⇒ ✅ 三區改用 `foldIncludes`(折重音 + 折分隔符), 而 **`R6` 照樣跑出 `CBR600`、
+  //         車款那一區照樣不顯示** —— 那兩件事一個字都沒動。
+  //    🛑 **我當時停下來問過, 沒有自己解釋那一板** —— 因為本段自己寫著「只講一區」正是上次出錯的方式。
   //    🛑 **拍板前不要刪這段** —— 刪了之後那一區要接上來時得重寫,而 `SearchOverlay.test.tsx`
   //      的 G3-b 斷言的是「畫面上不得出現」⇒ **刪掉資料源它照樣綠,不會叫。**
   const vehicles: SearchVehicleHit[] = [];
   for (const b of data.vehicles.motoBrands) {
     for (const m of b.models) {
-      if (match(m.name, q) || match(b.name, q)) {
+      // 🔴 **車款這一區同上**。分母也量過:車種品牌 **67 個唯一名 ⇒ 撞名 0**;
+      //    車款 **3,536 個「品牌×車款」配對 ⇒ 折後撞名 16 組, 而 16 組【全部同一個品牌】**
+      //    (跨品牌 0)⇒ 🎯 那是**同一台車的兩種寫法**(`NC 700 S` / `NC700S`), 不是兩台車被混成一台
+      //    ⇒ 折了之後兩筆都中, **而那正是客人要的**(板列 `⟦veh-DUPMODELSPELLING⟧` 記著來源資料重複)。
+      // 🛑 **而 `+` 那一族【沒有】被折掉**:`Tracer 9 GT` 與 `Tracer 9 GT+` 是**不同的車**,
+      //    而 `foldSearchTerm` 不剝 `+` ⇒ 它們折了也不撞。**不要「順手」把 `+` 加進剝除字元集。**
+      if (foldIncludes(m.name, q) || foldIncludes(b.name, q)) {
         vehicles.push({
           brandId: b.id,
           brandName: b.name,
