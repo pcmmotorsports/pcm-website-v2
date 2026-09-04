@@ -16,7 +16,8 @@
 // - 雙通道並存(釘死 2):頂部 .auth-err 保留給「帳號層級錯」(此 Email 已註冊 / Email 驗證提示 = formError),
 //   逐欄 .auth-field-err 給「欄位驗證錯」(fieldErrors);兩通道互不取代、可同時顯示。
 // - D-g=A 手機必填(鐵則 1 design override):design L261 presence 放行空手機,業務必填 →「手機（必填）」label
-//   + client/server 皆檢 phone(server RegisterInput.parse phone regex 權威、不改 schema)。
+//   + client/server 皆檢 phone(server `RegisterInput.parse` 權威)
+//     ⛔ ~~phone regex~~ ⇒ **2026-09-04 Sean 拍甲:只擋空、不驗格式**(`⟦b4-PHONEREGEXSPLIT⟧`)。
 
 'use client';
 
@@ -134,8 +135,12 @@ export function RegisterPage({ next }: { next?: string } = {}) {
             <label className="auth-field">
               <span>手機（必填）</span>
               {/* 手機欄叫數字鍵盤 —— 形狀抄 CheckoutStep1.tsx:175-181 的 email 欄(type/inputMode/autoComplete 三件套)。
-                  🔴 autoComplete 用 `tel-national` 不用 `tel`:規格裡 `tel` = 含國碼的完整號碼(+886...),
-                     而 schemas/src/index.ts 的 phone regex 是 /^[\d\s-]{8,}$/ —— **不收 `+`**
+                  ⛔ ~~autoComplete 用 `tel-national` 不用 `tel`:因為 phone regex `/^[\d\s-]{8,}$/` 不收 `+`~~
+                  🔴🔴 **那個【理由】2026-09-04 起不成立了**(Sean 拍甲:不驗格式 ⇒ `+886` 現在收得下)。
+                  ⚠️ **而值我沒有動** —— `tel` vs `tel-national` 會改變瀏覽器自動填入什麼,
+                     那是 Sean 的品味/行為決定, 不是我順手改的東西。**留著 + 標明理由已失效。**
+                  📌 代價明寫:通訊錄存 `+886…` 的人, 自動填入仍會被降級成國內格式 ——
+                     而**拍板要救的正是這種人**。⇒ 要不要換成 `tel`, 端他。
                      ⇒ 用 `tel` 會讓通訊錄存國際格式的人一按自動填入就撞「手機格式不正確」。
                   不加 pattern:placeholder 就是 `0912 345 678`(帶空白),pattern="[0-9]*" 會擋掉照著打的人;
                      且本表單是 <form onSubmit>,pattern 失敗會被瀏覽器攔在 submit 前 ⇒ 逐欄 inline error 那條路整條不跑。 */}

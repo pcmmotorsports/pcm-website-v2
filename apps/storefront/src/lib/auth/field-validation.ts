@@ -95,7 +95,8 @@ function applyZodIssues<F extends string>(
  * - name/email/phone:trim 後空 → 專屬「請填寫…」(蓋過 zod 格式訊息)。
  * - password:trim 後空(含純空白) → 「請填寫密碼」;非空但 <8 → zod「密碼至少 8 碼」;傳 use-case 的值不 trim。
  * - agree:未勾 → zod literal(true) 訊息「請同意服務條款」(本就是專屬字面、直接沿用)。
- * - 非空但格式錯(Email/手機格式) → 沿用 zod 訊息。
+ * - 非空但格式錯(Email) → 沿用 zod 訊息。
+ * ⚠️ **手機那半 2026-09-04 起【沒有這條路】** —— Sean 拍甲:電話只擋空、不驗格式。
  *
  * @returns ok=true(⟺ parsed.success && 無逐欄錯)時 data 為 strip 過的 RegisterData(供 server action 映射 use-case)。
  */
