@@ -148,6 +148,61 @@ function ShipmentBalanceNote({
   return <span className='text-muted-foreground text-xs'>款項已收足</span>;
 }
 
+/**
+ * 「尾款 X 元未收」——**要送進【建箱彈窗】裡的那一句**(Sean 2026-09-04 拍甲)。
+ * 他的原話逐字:「甲 可以 —— 但那個框裡要明顯寫『尾款 X 元未收』」
+ * (落點 `~/pcm-mailbox/Sean拍板-20260904-七題.md` 檔尾,本窗開檔讀的、不是轉述)。
+ *
+ * 🔬 **它解的是一個量到的缺口**:線 `-db` 2026-09-04 真瀏覽器走查 —— 那個 dialog 的
+ *   `textContent` 掃「尾款」/「未收」⇒ **各 0 次**,而頁面標題逐字有「出貨 宅配 尾款 21,819 未收」
+ *   ⇒ 📌 **數字在頁面上,而不在【做決定的那個框】裡。而出貨是不可逆的對外動作。**
+ *
+ * 🔴 **走上面那支 `ShipmentBalanceNote` 的同一個 `toPaymentSummary`,不自己減。**
+ *   板上有一整族守門在守「尾款/已收只有一個來源」(`payment-amount-due-single-source.test.ts`)
+ *   ⇒ 新開一條算法那道閘會紅,**而它紅得對**。
+ *
+ * 🔴 **回 `null` 的那兩態是刻意的,而理由不是「沒事」**:
+ *   `settled` / `over` ⇒ `null` ⇒ 彈窗裡**什麼都不印**。
+ *   📌 **一個恆常出現的提示等於沒有提示** —— 它會讓下一個人以為「這裡有在提醒」
+ *      而不去查它有沒有在**該叫的時候**叫。
+ *   ⚠️ 而**頁面上**那一格(`ShipmentBalanceNote`)照舊印「款項已收足」——
+ *      那是**看板**,本函式是**警告**,兩者的空白意義不同,不要拿去對齊。
+ *
+ * ⚠️🔴 **`unknown` 也回一句,而那是【我的判斷不是他的字】** —— 明寫在這裡讓它可以被推翻:
+ *   Sean 說的是「尾款 X 元未收」,而 `unknown` 沒有 X。我仍然讓它出聲,理由逐字抄自
+ *   上面那支元件的檔頭:「讀不到明細時算出來的『已收』必然是假的」,而在**出貨鈕旁邊**
+ *   印一片空白會讓員工以為已收足。⇒ 要拿掉這一態,刪這個 `if` 即可,測試會紅並指到這裡。
+ *
+ * 🔴 **回傳 `string` 不是 JSX,而那是為了不違反彈窗的紅線**:
+ *   `shipment-dialog.tsx:10-11` 逐字「**props 不收 `AdminOrderSummary` / `AdminOrderDetail`**
+ *   …候選品項走 `ShipmentCandidateItem`(server 端算好的最小 DTO、**零金額**)」
+ *   ⇒ 我把它算成**一句已經排版好的字**再往下傳,而不是把訂單物件交給 client。
+ *   🟢 而這個數字**沒有新增任何暴露面**:本檔是 server component,`ShipmentBalanceNote`
+ *      早就把同一個數字算好、以 HTML 送到同一棵 client 樹上(`:195`)。
+ */
+export function shipmentBalanceWarning(
+  detail: AdminOrderDetail,
+  payments: PaymentListData,
+): string | null {
+  const summary = toPaymentSummary(
+    detail.total.amount,
+    payments.status === 'ok' ? payments.rows : null,
+  );
+  // 🔴 Sean 的字面是「尾款 X 元未收」—— 帶「元」。
+  //    ⚠️ 而**頁面上**那一格逐字是「尾款 N 未收」(設計稿 08-17 `:349` 畫的那種、不帶「元」)
+  //    ⇒ 兩處**刻意不同**:稿管看板那一格,他管彈窗這一格。不要拿去統一。
+  if (summary.kind === 'short') return `尾款 ${formatOrderAmount(summary.gap)} 元未收`;
+  if (summary.kind === 'unknown') {
+    // 🔴 **codex 2026-09-04 MF2 訂正**:⛔ ~~收尾只寫「出貨前請先確認」~~ ——
+    //   它逐字指出 `unknown` 是「無法判定」不是「仍有尾款」, 而**這句話可以被讀向兩個相反的方向**
+    //   (已付清而讀取失敗 ⇒ 員工白停件;或反過來被讀成「那就是還沒收」而其實可以出)。
+    //   ⇒ 📌 **一句在兩個世界都成立的提醒, 不會幫人做決定。**
+    //   ✅ 修法不是把話講死(我們真的不知道), 是**告訴他去哪裡看一眼** —— 讓那句話可以被結束。
+    return '尾款未知(收款明細沒載入)—— 不是「已收足」,也不是「還沒收到錢」。出貨前請到「收款 · 退款」分頁看一眼。';
+  }
+  return null;
+}
+
 export async function ShipmentSection({
   detail,
   payments,
@@ -193,7 +248,12 @@ export async function ShipmentSection({
                  ⇒ **它會直接影響他按不按下去**,
                  所以三態必須分得開,不能塌成兩態。 */}
           <ShipmentBalanceNote detail={detail} payments={payments} />
-          <OrderShipButton orderId={detail.id} />
+          {/* 🔴 尾款那一句要**跟著進彈窗**(Sean 2026-09-04 拍甲)——
+              而它在這裡算好再傳下去, 不是把 detail/payments 交給 client(彈窗紅線, 見 `shipmentBalanceWarning` 檔頭)。 */}
+          <OrderShipButton
+            orderId={detail.id}
+            balanceWarning={shipmentBalanceWarning(detail, payments)}
+          />
         </span>
       </div>
 

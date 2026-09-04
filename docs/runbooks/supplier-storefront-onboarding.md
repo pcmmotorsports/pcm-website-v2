@@ -342,6 +342,38 @@ WHERE b.slug='<brandSlug>' GROUP BY b.slug;
 
 期望:products/variants = 指紋、**uncategorized = 0**。
 
+### 5-b. 🔴 搜尋俗稱字典的死列檢查(**這一步是上架【改變了庫存】才需要跑的,而你剛好就在改**)
+
+**為什麼掛在這裡**:顧客站的俗稱字典(`apps/storefront/src/data/search-synonyms.ts`)每一列把
+一個俗稱指到一個正式分類名。而目錄樹是 `buildCategoryTree`「**只留有商品的分類**」
+⇒ 🛑 **`to` 指到的分類一旦沒有商品,那一列就靜靜地沒有效果 —— 而沒有東西會叫。**
+⇒ 📌 而**上架/下架/清空價格是唯一會改變這件事的動作**,所以檢查掛在這裡,不是掛在別人身上。
+🔵 **它不是「多一件要記得的事」,是「你本來就在跑的 §5 多一行」** ——
+   同 §6-b 的形狀:一個新的義務要活下來,最便宜的方式是掛在一個**已經有人在做的動作**上。
+
+```bash
+# 在 repo 根跑。VALS 是【從字典檔當場長出來的】—— 字典加一列,要檢查的就多一個,
+# 🔴 不需要有人去同步一份寫死的清單(而寫死的清單一定會過期)。
+VALS=$(grep -o "to: '[^']*'" apps/storefront/src/data/search-synonyms.ts   | sed "s/to: '//;s/'$//" | sort -u | sed "s/^/('/;s/$/')/" | paste -sd, -)
+
+psql "$PCM_READONLY_DATABASE_URL" -c "with w(nm) as (values $VALS)
+  select w.nm as 字典指到的分類, coalesce(count(p.id),0) as 件數
+    from w left join public.categories c on c.name = w.nm
+           left join public.products_public p on p.category_id = c.id
+   group by w.nm having coalesce(count(p.id),0) = 0;"
+```
+**期望:回【0 筆資料】。** 有列出來 ⇒ 那幾列字典**現在是死的**,拿去給線【身分】換一個有貨的分類。
+
+🟢 **正對照(這把尺會不會動)** —— 同一發把 `having` 拿掉,**應該回 27 列**(2026-09-04 實測;
+而那個數**會跟著字典長**,所以不要把它寫成判準,只拿它確認「不是餵了個空的」):
+```bash
+psql "$PCM_READONLY_DATABASE_URL" -At -c "with w(nm) as (values $VALS) select count(*) from (select w.nm from w group by w.nm) x;"
+```
+⚠️ **這一格【不】更新 `SEARCH_CATEGORY_EMPTY_NAMES` 那份快照** —— 那是另一件事(見該檔檔頭)。
+   🔴 **兩者的分母不同**:這一格只問**字典指到的那些**(2026-09-04 是 27 個);
+   那份快照是**全部分類**(113 個)。**這一格便宜而且分母自己會長,那一份要人維護。**
+
+
 ---
 
 ## 6-b. 🔴 商品頁品牌形象區(這步不是填欄位,是新建一支檔案 —— 最容易被漏的一步)
