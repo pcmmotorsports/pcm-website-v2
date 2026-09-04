@@ -370,21 +370,21 @@
 
 **改什麼狀態**
 
-`:451` SET cancelled_at     = pg_catalog.now(),<br>`:581` ⇒ 要現值自己跑:grep -rn "SET payment_status" --include='*.sql' --include='*.ts'
+`:475` SET cancelled_at     = pg_catalog.now(),<br>`:605` ⇒ 要現值自己跑:grep -rn "SET payment_status" --include='*.sql' --include='*.ts'
 
 **允許集合(逐字)**
 
-`:379` WHERE o.payment_status = 'unpaid'::public.payment_status<br>`:380` AND o.cancelled_at IS NULL                                    -- 已取消/已失效 → 不重複寫(冪等)<br>`:425` AND a.status <> 'failed'<br>`:571` ⇒ 所以 payment_status <> 'unpaid' 不等於「這張單收到錢了」,<br>`:572` 而 payment_status = 'unpaid' 也不等於「沒收到錢」。
+`:403` WHERE o.payment_status = 'unpaid'::public.payment_status<br>`:404` AND o.cancelled_at IS NULL                                    -- 已取消/已失效 → 不重複寫(冪等)<br>`:449` AND a.status <> 'failed'<br>`:595` ⇒ 所以 payment_status <> 'unpaid' 不等於「這張單收到錢了」,<br>`:596` 而 payment_status = 'unpaid' 也不等於「沒收到錢」。
 
 ### `pcm_noncard_settle_recompute`  ·  `20260904230000_m4b_noncardpaid_settle_and_expire_leg.sql`
 
 **改什麼狀態**
 
-`:265` SET payment_status = v_new,
+`:289` SET payment_status = v_new,
 
 **允許集合(逐字)**
 
-`:196` IF v_status NOT IN ('unpaid'::public.payment_status,<br>`:265` SET payment_status = v_new,<br>`:282` AND o.payment_status = v_status;   -- 🔴 樂觀鎖:狀態被別人改過就不寫
+`:216` IF v_status NOT IN ('unpaid'::public.payment_status,<br>`:289` SET payment_status = v_new,<br>`:306` AND o.payment_status = v_status;   -- 🔴 樂觀鎖:狀態被別人改過就不寫
 
 ---
 
