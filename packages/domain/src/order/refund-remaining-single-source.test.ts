@@ -59,6 +59,31 @@ const REFUND_AMOUNT_COL = /"?\brefund_amount\b"?/g;
 //   ⚠️ 它**不在 CI**,不會自己紅。這一行就是它的兩個落點之一(另一個在該 RPC 的 COMMENT ON FUNCTION)。
 
 const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
+  // ── 2026-09-05 · 線【信】`-mail` 補(⟦b4-NCPCRONRACE⟧;**作者就是我**;
+  //    鐵則 12①③ 的 codex 對抗審查兩輪已跑, 見該 migration 檔頭)──
+  '20260905070000_m4b_pending_refund_on_late_payment.sql': {
+    count: 2,
+    why:
+      // 🔴 why 要答的是「gate 為什麼對【正確的東西】報紅」。
+      // 本檔那兩處**都在 `COMMENT ON COLUMN` 的字串裡**, 一行可執行的碼都沒有碰那個欄位。
+      // 🛑 而它非在不可:`COMMENT ON` 是**覆寫不是追加** ⇒ 要在那段 COMMENT 上補一個新角落
+      //   (⟦b4-NCPCRONRACE⟧:錢比取消晚到時開出的那一列裝什麼金額), 就必須把
+      //   `20260901080000` 的原文【整段帶回來】, 而原文裡就寫著那個口徑公式。
+      //   ⇒ 刪掉它們會讓那個欄位的合約在線上消失 —— 那比報紅糟。
+      // ✅ 結構性反面證據(量到的):本檔零 `order_refunds`(不含 manual_);
+      //   金額**全部**委託 `public.pcm_pending_refund_amounts(p_order_id)` —— 那正是本 gate 保護的單一算式。
+      //
+      // 🔴🔴 **而我第一版把 count 寫成 7, 兩句佐證也都是錯的 —— 成因值得留在這裡**:
+      //   我用【自己的 grep】去數, 得到 7:多出來的 5 個是**函式名 `pcm_pending_refund_amounts`
+      //   撞到子字串**(它含 `refund_amount` + s), 而我還為此寫了一整段分析。
+      //   我另外寫「本檔零 `SUM(`」—— 實測是 **2**(兩個都在同一段 COMMENT 字串裡)。
+      //   ⇒ 📌 **我用自己的尺, 去填一個【別人的閘】要的數字。** 而那道閘的尺比我的準。
+      //   ✅ 判別句:**寫 allowlist 的 count 之前, 先讓那道閘自己報數**(跑它, 讀 diff 的 `+` 那一行),
+      //     不要用自己的 grep 推。
+      '兩處都在 COMMENT ON COLUMN 的字串裡, 零可執行碼碰那個欄位;' +
+      'COMMENT ON 是覆寫不是追加 ⇒ 要補新角落就得把 20260901080000 的原文整段帶回來。' +
+      '本檔零 order_refunds(不含 manual_), 金額全部委託 pcm_pending_refund_amounts —— 那正是本 gate 保護的單一算式。',
+  },
   // ── 2026-09-05 · 線【信】`-mail` 補(⟦b4-MANREFUNDNOOWNER2⟧;**作者就是我**, 寫在這裡
   //    免得下一個人以為有第三方審過 —— 而 codex 對抗審查(鐵則 12①)有跑, 見該 migration 檔頭)──
   '20260905010000_m4b_manual_refund_syncs_payment_status.sql': {
