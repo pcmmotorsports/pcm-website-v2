@@ -19,6 +19,8 @@
 #      ⇒ 內容變了會顯形。⚠️ **而 diff 只說「變了」不說「變成什麼」** —— 那要去查 `pg_get_expr`。
 #      🔴 而它仍看不到:policy 的**順序**(PG 不保證)· 同名 policy 在不同 schema · 欄級授權。
 #   ⑥ `FNCFG` 族記每支函式的 `SECURITY DEFINER/INVOKER` 與 `search_path=` 那一項(2026-09-05 加)
+#   ⑦ `VIEWOPT` 族記每支 view 的 `security_invoker` 與 owner(2026-09-05 加)——
+#      🔴 `(未設)` **等於 false**;前六族在 invoker=true/false 兩個世界印【逐字相同】的東西。
 #      ⇒ `ALTER FUNCTION … SET search_path` 這種手改會顯形。
 #      🔴 而它**只記 `search_path`** —— `proconfig` 的別項(`lock_timeout` 等)不記, 那是刻意的。
 #   ④ `has_*_privilege` 對【欄級授權】少報(那個坑本 repo 記過)⇒ 欄級的改動這裡看不到。
@@ -91,6 +93,21 @@ SELECT 'FNCFG',
   FROM pg_catalog.pg_proc p
   JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
  WHERE n.nspname = 'public'
+UNION ALL
+-- 🔴🔴 第七族:view 的 security_invoker(2026-09-05 加)——
+--    ⛔ 前六族**答不出這一題**:一支 view 授權給 service_role, 而 view 預設走 **owner** 的權限,
+--       ⇒ 它會**繞過底下那些表的 RLS**, 而 REL 族只看得到「service_role 有 SELECT」——
+--       那一行在 security_invoker=true 與 false 兩個世界【逐字相同】。
+--    🛑 今天無所謂(service_role 自己就有 BYPASSRLS), 而**收掉 BYPASSRLS 那一刻**,
+--       這一欄就是「哪幾支 view 仍然是側門」的唯一答案。⇒ ⟦b9-RLSHARDEN⟧ 收後必查。
+--    📌 `(未設)` **等於 false** —— PG 的預設是 owner 權限。不要把「沒寫」讀成「安全」。
+SELECT 'VIEWOPT',
+       n.nspname::text||'.'||c.relname::text||'|'||CASE c.relkind WHEN 'm' THEN 'matview' ELSE 'view' END,
+       COALESCE((SELECT o FROM unnest(c.reloptions) o WHERE o LIKE 'security_invoker=%'), 'security_invoker=(未設)'),
+       pg_catalog.pg_get_userbyid(c.relowner)::text
+  FROM pg_catalog.pg_class c
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+ WHERE n.nspname = 'public' AND c.relkind IN ('v','m')
 UNION ALL
 -- 🔴🔴 第五族:RLS policy(2026-09-05 加)——
 --    ⛔ 第一版**沒有這一欄** ⇒ `20260904270000` 要建的那 40 條 policy 在快照上【零顯形】,
@@ -225,6 +242,18 @@ if [ "${1:-}" = "--selftest" ]; then
     && { echo "  🔴 DEFINER→INVOKER 卻判沒差"; ok=1; } \
     || echo "  ✅ 正對照:DEFINER 改成 INVOKER(search_path 沒變)⇒ 判為有差"
 
+  # 🔴 第七族:security_invoker 翻面要叫 —— 這一格證明 VIEWOPT 真的接上了。
+  #    翻面的方向刻意選 true→(未設), 因為【(未設) 等於 false】而它看起來像「沒改」。
+  printf 'VIEWOPT\tpublic.v|view\tsecurity_invoker=true\tpostgres\n' > "$t/v1"
+  sed 's/security_invoker=true/security_invoker=(未設)/' "$t/v1" > "$t/v2"
+  diff -q "$t/v1" "$t/v2" >/dev/null \
+    && { echo "  🔴 security_invoker true→(未設) 卻判沒差"; ok=1; } \
+    || echo "  ✅ 正對照:security_invoker true 翻成 (未設) ⇒ 判為有差"
+  sed 's/security_invoker=true/security_invoker=false/' "$t/v1" > "$t/v3"
+  diff -q "$t/v1" "$t/v3" >/dev/null \
+    && { echo "  🔴 security_invoker true→false 卻判沒差"; ok=1; } \
+    || echo "  ✅ 正對照:security_invoker true 翻成 false ⇒ 判為有差"
+
   # 🔵 負對照:只有【順序】不同而內容相同 ⇒ 也要判有差
   #    (那是刻意的:排序固定是本支的前提, 順序變了代表 SQL 的 ORDER BY 被動過)
   tac "$t/base" > "$t/reorder" 2>/dev/null || tail -r "$t/base" > "$t/reorder"
@@ -239,7 +268,7 @@ NEW="$(mktemp)"; trap 'rm -f "$NEW"' EXIT
 fetch "$NEW" || exit 2
 LINES=$(grep -c . "$NEW")
 # 🔴 分母要印出來 —— 一份「0 差異」的報告, 若它只有 3 列, 那個 0 沒有意義。
-echo "  🔵 快照 $LINES 列 = 表/view×4角色 + 函式×4角色 + 角色 BYPASSRLS + RLS policy + 函式的 DEFINER/search_path"
+echo "  🔵 快照 $LINES 列 = 表/view×4角色 + 函式×4角色 + 角色 BYPASSRLS + RLS policy + 函式的 DEFINER/search_path + view 的 security_invoker"
 
 if [ "${1:-}" = "--write" ]; then
   cp "$NEW" "$BASE"
