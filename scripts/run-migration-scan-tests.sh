@@ -61,6 +61,28 @@ print('\n'.join(sorted(out)))
 PY
 }
 
+# 🔴 判準抽成具名函式 —— selftest 與正式路徑【呼叫同一支】。
+#    若在 selftest 裡把判準重打一份, 改生產路徑那一份時它不會紅(本 repo 已記過那個形狀)。
+#    $1 = vitest 輸出檔  $2 = 我餵了幾個名字   ⇒ 0 通過 / 2 量具失效
+judge_ran() {
+  _log="$1"; _fed="$2"
+  _ran=$(grep -aoE 'Test Files +[0-9]+ (passed|failed)' "$_log" 2>/dev/null | tail -1 | grep -oE '[0-9]+' | head -1)
+  if [ -z "${_ran:-}" ]; then
+    echo "🔴 量具失效:抓不到 vitest 的 \`Test Files\` 那行"
+    echo "   ⇒ 這【不是】「測試都過了」—— 兩種世界都印不出那行:它根本沒跑 / 它的輸出格式變了。"
+    grep -aE 'No test files found|Error|error' "$_log" 2>/dev/null | head -3 | sed 's/^/   /'
+    return 2
+  fi
+  if [ "$_ran" -lt "$_fed" ]; then
+    echo "🔴 它跑的($_ran)【少於】我餵的($_fed)"
+    echo "   ⇒ 位置參數是子字串過濾 ⇒ 正常情形只會【多撈】, 不會少。少了代表有名字一個都沒撈到。"
+    echo "   ⇒ 常見成因:那支測試檔被改名/刪掉, 而分母是當場算的 ⇒ 名字算得出來、檔案撈不到。"
+    return 2
+  fi
+  echo "  🔵 它跑了 $_ran 支檔(我餵 $_fed)—— 🔴 **它跑的 ≥ 我餵的**(位置參數是子字串過濾, 例 coupon 也撈到 coupon-cap-*)"
+  return 0
+}
+
 if [ "${1:-}" = "--selftest" ]; then
   ok=0
   n=$(list_scan_tests | wc -l | tr -d ' ')
@@ -111,6 +133,18 @@ SQLEOF
     echo "  🔴 正對照:塞了假 migration 而本支仍 rc=0 ⇒ 它只會跑, 不會叫"
     ok=1
   fi
+  # 🔴 第四格:judge_ran 自己會不會動(-ship 2026-09-04 實測那個洞)
+  _t="$(mktemp -d)"
+  printf 'No test files found, exiting with code 0\n' > "$_t/none"
+  judge_ran "$_t/none" 52 > /dev/null 2>&1
+  [ "$?" = "2" ] && echo "  ✅ judge_ran:No test files found ⇒ 2(不是「都過了」)" || { echo "  🔴 judge_ran 對 0 支沒反應"; ok=1; }
+  printf ' Test Files  9 passed (9)\n' > "$_t/few"
+  judge_ran "$_t/few" 52 > /dev/null 2>&1
+  [ "$?" = "2" ] && echo "  ✅ judge_ran:跑 9 < 餵 52 ⇒ 2" || { echo "  🔴 judge_ran 對「跑得比餵的少」沒反應"; ok=1; }
+  printf ' Test Files  71 passed (71)\n' > "$_t/ok"
+  judge_ran "$_t/ok" 52 > /dev/null 2>&1
+  [ "$?" = "0" ] && echo "  🟢 負對照:跑 71 ≥ 餵 52 ⇒ 0(它不是對什麼都紅)" || { echo "  🔴 judge_ran 誤報"; ok=1; }
+  rm -rf "$_t"
   [ "$ok" = "0" ] && echo "全部通過。" || echo "🔴 有格沒過。"
   exit "$ok"
 fi
@@ -125,8 +159,13 @@ echo "  🔵 掃描型測試:餵 $FED 個名字(分母當場算, 不寫死)"
 # 🔴 直接拿 vitest 的 rc —— 不接管線(管線每一段的 rc 是另一族的坑)
 printf '%s\n' "$NAMES" | xargs npx vitest run --maxWorkers=2 > /tmp/mig-scan-tests.log 2>&1
 RC=$?
-RAN=$(grep -aoE 'Test Files +[0-9]+ (passed|failed)' /tmp/mig-scan-tests.log | tail -1 | grep -oE '[0-9]+' | head -1)
-echo "  🔵 它跑了 ${RAN:-?} 支檔 —— 🔴 **它跑的 ≥ 我餵的**(位置參數是子字串過濾, 例 coupon 也撈到 coupon-cap-*)"
+# 🔴🔴 2026-09-04 -ship 實測(而它正好打中本支的第一版):
+# `vitest related --run <多支檔>` 會印 **No test files found** 而 **rc=0、跑 0 支**。
+# ⇒ 第一版把「跑了幾支」**印出來**而【沒有拿它當判準】⇒ 印完就往下走 ⇒ 0 支照樣全綠。
+# 📌 **「印出來」與「拿它當判準」是兩件事, 而在畫面上長得一模一樣。**
+# 🎯 那正是鐵則 11 的第四個數 —— 我把它寫進註解、文件、commit body, 而碼裡只 echo 它。
+#   **規矩寫在會被讀的地方, 判準要寫在會被執行的地方。**
+judge_ran /tmp/mig-scan-tests.log "$FED" || exit 2
 if [ "$RC" != "0" ]; then
   echo "🔴 掃描型測試紅了 —— 而它們【不會被 vitest related 撈到】, 所以你改的那批檔不會提醒你"
   grep -aE 'FAIL|AssertionError|Error:' /tmp/mig-scan-tests.log | head -6 | sed 's/^/   /'
