@@ -34,7 +34,7 @@ const MIGRATION = join(
  */
 function sqlEnumValues(): string[] {
   const raw = readFileSync(MIGRATION, 'utf8');
-  const sql = raw.replace(/--[^\n]*/g, '');
+  const sql = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '');
   const m = /CREATE TYPE public\.coupon_reject_reason AS ENUM\s*\(([\s\S]*?)\)\s*;/.exec(sql);
   if (m === null) {
     throw new Error(
@@ -57,7 +57,7 @@ function alterAddValueHits(): string[] {
     .filter((f) => f.endsWith('.sql'))
     .filter((f) =>
       /ALTER\s+TYPE\s+public\.coupon_reject_reason\s+ADD\s+VALUE/i.test(
-        readFileSync(join(dir, f), 'utf8').replace(/--[^\n]*/g, ''),
+        readFileSync(join(dir, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, ''),
       ),
     );
 }

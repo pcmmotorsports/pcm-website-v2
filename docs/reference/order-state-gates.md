@@ -79,7 +79,8 @@
 | `pcm_pending_refund_on_cancel` | **2** | 20260901080000_m4b_autorefund_pending_refunds.sql:367<br>20260902030000_m4b_crossrail_pending_refund_net.sql:237 | `20260902030000_m4b_crossrail_pending_refund_net.sql:237` |
 | `pcm_refund_ledger_block_truncate` | **2** | 20260725130100_m3_rf2a2_order_refunds_ledger.sql:253<br>20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:422 | `20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:422` |
 | `pcm_sync_order_refund_payment_status` | **2** | 20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql:127<br>20260823020000_m4b_refund_notify_p2a_record_calls_sync.sql:239 | `20260823020000_m4b_refund_notify_p2a_record_calls_sync.sql:239` |
-| `search_catalog_by_vehicle` | **8** | 20260712183000_products_catalog_page_public.sql:37<br>20260712193000_catalog_rpc_expose_fitments.sql:10<br>20260712213000_p4_catalog_rpc_split_generic_plan_replay.sql:8<br>20260719150000_catalog_product_image_trim.sql:73<br>20260811040000_m4b_storefront_269b_catalog_new_arrivals.sql:266<br>20260827150000_m4b_storefront_950_recommend_sort_mid_high_price.sql:84<br>20260827180000_m4b_storefront_new_arrivals_exclude_repair_parts.sql:38<br>20260904160000_m4b_search_catalog_multi_category.sql:74 | `20260904160000_m4b_search_catalog_multi_category.sql:74` |
+| `record_pending_invoice` | **2** | 20260613140000_m3_3ds_0c_bank_txn_pending_invoices.sql:252<br>20260904224500_m4b_invoice_requested_false_blocks_invoicing.sql:348 | `20260904224500_m4b_invoice_requested_false_blocks_invoicing.sql:348` |
+| `search_catalog_by_vehicle` | **9** | 20260712183000_products_catalog_page_public.sql:37<br>20260712193000_catalog_rpc_expose_fitments.sql:10<br>20260712213000_p4_catalog_rpc_split_generic_plan_replay.sql:8<br>20260719150000_catalog_product_image_trim.sql:73<br>20260811040000_m4b_storefront_269b_catalog_new_arrivals.sql:266<br>20260827150000_m4b_storefront_950_recommend_sort_mid_high_price.sql:84<br>20260827180000_m4b_storefront_new_arrivals_exclude_repair_parts.sql:38<br>20260904160000_m4b_search_catalog_multi_category.sql:74<br>20260904260000_m4b_recommend_sort_with_category.sql:199 | `20260904260000_m4b_recommend_sort_with_category.sql:199` |
 | `storefront_search_product_ids` | **4** | 20260903050000_m4b_storefront_search_product_ids.sql:84<br>20260903230000_m4b_storefront_search_partno_normalized.sql:188<br>20260904030000_m4b_storefront_search_split_three_blocks.sql:148<br>20260904180000_m4b_storefront_search_partno_long_numeric.sql:215 | `20260904180000_m4b_storefront_search_partno_long_numeric.sql:215` |
 | `sync_product_variant_group` | **2** | 20260727084801_atomic_variant_group_sync.sql:19<br>20260825120000_m4b_zero_price_allowed_in_variant_sync.sql:58 | `20260825120000_m4b_zero_price_allowed_in_variant_sync.sql:58` |
 
@@ -365,6 +366,26 @@
 **允許集合(逐字)**
 
 `:96` IF v_order.cancelled_at IS NOT NULL<br>`:97` OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id) THEN<br>`:105` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:121` SELECT o.id, o.display_id, (o.payment_status = 'paid'::public.payment_status), a.rec_trade_id, a.bank_transaction_id<br>`:129` AND o.cancelled_at IS NULL<br>`:132` OR o.payment_status = 'paid'::public.payment_status<br>`:133` OR (a.status = 'pending' AND o.payment_status <> 'paid'::public.payment_status)<br>`:135` ORDER BY (o.payment_status = 'paid'::public.payment_status) DESC, (a.status = 'charged') DESC, o.created_at DESC<br>`:163` AND o.payment_status <> 'paid'::public.payment_status<br>`:210` AND o.cancelled_at IS NULL<br>`:216` AND a.status <> 'failed'<br>`:286` OR pg_catalog.strpos(v_code, 'order_cancellations') = 0
+
+### `pcm_noncard_settle_after_payment`  ·  `20260904230000_m4b_noncardpaid_settle_and_expire_leg.sql`
+
+**改什麼狀態**
+
+`:487` SET cancelled_at     = pg_catalog.now(),<br>`:617` ⇒ 要現值自己跑:grep -rn "SET payment_status" --include='*.sql' --include='*.ts'
+
+**允許集合(逐字)**
+
+`:415` WHERE o.payment_status = 'unpaid'::public.payment_status<br>`:416` AND o.cancelled_at IS NULL                                    -- 已取消/已失效 → 不重複寫(冪等)<br>`:461` AND a.status <> 'failed'<br>`:607` ⇒ 所以 payment_status <> 'unpaid' 不等於「這張單收到錢了」,<br>`:608` 而 payment_status = 'unpaid' 也不等於「沒收到錢」。
+
+### `pcm_noncard_settle_recompute`  ·  `20260904230000_m4b_noncardpaid_settle_and_expire_leg.sql`
+
+**改什麼狀態**
+
+`:301` SET payment_status = v_new,
+
+**允許集合(逐字)**
+
+`:215` IF v_status NOT IN ('unpaid'::public.payment_status,<br>`:301` SET payment_status = v_new,<br>`:318` AND o.payment_status = v_status;   -- 🔴 樂觀鎖:狀態被別人改過就不寫
 
 ---
 

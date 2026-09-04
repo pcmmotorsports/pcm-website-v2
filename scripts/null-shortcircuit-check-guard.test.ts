@@ -175,6 +175,23 @@ const PROBED_OR_CHECKS: readonly string[] = [
   'shipments.shipments_hct_submitted_evidence',
   'shipments.shipments_shipped_needs_tracking',
   'customer_wallet_ledger.wallet_amount_sign',
+  // 🔴 2026-09-04 線【帳號】`-account` 實測補進(⟦b4-INVOICE5PCT⟧ Q3, migration `20260904224500`)。
+  //    形狀:invoice_requested OR (invoice_status <> 'issued' AND invoice_number IS NULL AND invoice_amount IS NULL)
+  //
+  //    🔬 **方法同 08-21:同一條 CHECK 建 real / weak 兩張表, 真的塞一發壞形狀進去看誰擋**
+  //       (拋棄式 PG 17.10;壞形狀 = `invoice_requested = NULL` + `invoice_status = 'issued'` + 有號碼)。
+  //    **量到的**:
+  //      · `weak_t`(**沒有** NOT NULL)⇒ 🔴 **`INSERT 0 1` —— 那一列進去了。**
+  //      · `real_t`(**有** NOT NULL)⇒ 被 **`violates not-null constraint`** 擋下 —— **不是被 CHECK 擋的。**
+  //      · 🟢 正對照(`false` 而非 NULL + `issued`)⇒ **兩張表都印 `violates check constraint "c"`** ⇒ CHECK 本身是活的。
+  //      · 🔵 負對照(`true` + `issued`)⇒ **放行** ⇒ 它不是恆擋。
+  //
+  //    🔴 **⇒ 所以:這條 CHECK 的【NULL 短路面是開的】, 撐住它的是 `orders.invoice_requested` 的 NOT NULL。**
+  //    🛑 **⇒ 而那句話的可執行版本是:有人哪天把那一欄改成可為 NULL, 這道 CHECK 會【安靜地】失效**
+  //       —— 因為 PostgreSQL 的 CHECK 求值成 NULL 時**放行**, 而那不會有任何訊息。
+  //    ⚠️ **本列證的是【NULL 那一面】, 不是值域** —— `invoice_status` 的其他值(如 `voided`)通得過,
+  //       那是**刻意的**(本片沒有拍板說作廢該不該擋), 見 `20260904224500` 那道 CHECK 上方的註解。
+  'orders.orders_no_invoice_when_not_requested',
   // 🔴 2026-09-02 線 `-c7` 實測補進(它自己寫的 `20260901080000_m4b_autorefund_pending_refunds.sql:246-249`)。
   //    形狀:`(voided_at IS NULL) = (void_reason IS NULL)
   //           AND (void_reason IS NULL OR btrim(void_reason, <字集>) <> '')`
