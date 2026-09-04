@@ -13,7 +13,9 @@ import {
   buildReceivedAt,
   carryBackPaymentValues,
   INT4_MAX,
+  missingPaymentFieldLabels,
   mintPaymentFormStamp,
+  PAYMENT_FIELD_LABELS,
   parsePaymentForm,
   PAYMENT_SINGLE_FIELDS,
 } from './payment-form';
@@ -326,5 +328,106 @@ describe('印章成組展開(窄確認輪 MF3:降級宣稱之後留下的那一�
     for (const f of fields) {
       expect([...PAYMENT_SINGLE_FIELDS]).toContain(f.name);
     }
+  });
+});
+
+
+describe('⟦b4-DEADENDMSG1⟧ missingPaymentFieldLabels —— 「它說了, 而它說對你為什麼被擋嗎」', () => {
+  const L = PAYMENT_FIELD_LABELS;
+
+  /**
+   * 🔴🔴 **這一格是整組的承重:兩份規則不准漂。**
+   * 本函式與 `parsePaymentForm` 是**兩個函式**, 而它們對同一組輸入必須同意:
+   * 列得出某一欄 ⇒ 解析必須是 `null`;一欄都列不出而輸入是好的 ⇒ 解析必須成功。
+   * 🛑 少了這一格, 兩邊哪天漂了會**安靜地**變成「畫面說缺這欄, 而伺服器其實收得下」。
+   */
+  it.each([
+    ['缺金額', { [PAY_AMOUNT_FIELD]: '' }, [L.amount]],
+    ['金額打了逗號', { [PAY_AMOUNT_FIELD]: '1,180' }, [L.amount]],
+    ['缺銀行入帳日', { [PAY_RECEIVED_DATE_FIELD]: '' }, [L.receivedDate]],
+    ['缺銀行單號', { [PAY_BANK_REFERENCE_FIELD]: '' }, [L.bankReference]],
+    ['缺兩欄', { [PAY_RECEIVED_DATE_FIELD]: '', [PAY_BANK_REFERENCE_FIELD]: '' },
+      [L.receivedDate, L.bankReference]],
+    ['三欄都缺', { [PAY_AMOUNT_FIELD]: '', [PAY_RECEIVED_DATE_FIELD]: '', [PAY_BANK_REFERENCE_FIELD]: '' },
+      [L.amount, L.receivedDate, L.bankReference]],
+  ])('🔴 匯款軌 %s ⇒ 逐欄列出, 而 parse 同時是 null', (_n, over, want) => {
+    const f = bankForm(over);
+    expect(missingPaymentFieldLabels(f)).toEqual(want);
+    // 🔴 承重:少了這一行, 一份「列了欄位而伺服器其實收得下」的實作照樣通過上一行。
+    expect(parsePaymentForm(f), '列得出缺欄, 而解析卻成功 ⇒ 兩份規則漂了').toBeNull();
+  });
+
+  it('🟢 負對照:全部填對 ⇒ 一欄都不列, 而 parse 成功', () => {
+    const f = bankForm();
+    expect(missingPaymentFieldLabels(f), '沒有東西缺卻列了欄 ⇒ 退化成「總是列出必填欄」').toEqual([]);
+    expect(parsePaymentForm(f)).not.toBeNull();
+  });
+
+  it('🟢 負對照:現金軌填對 ⇒ 一欄都不列(那兩欄在現金軌【不存在】)', () => {
+    const f = cashForm();
+    expect(missingPaymentFieldLabels(f)).toEqual([]);
+    expect(parsePaymentForm(f)).not.toBeNull();
+  });
+
+  /**
+   * 🔴🔴 **系統層的失敗【不給欄位名】** —— 這幾種都不是員工填錯:
+   * 對它們說「哪一欄」等於編一個具體原因, 而他會去改一個沒有壞的欄位。
+   */
+  it.each([
+    ['印章不是 ISO 時點', bankForm({ [PAY_CASH_RECEIVED_AT_FIELD]: 'not-a-time' })],
+    ['request_id 不是 uuid', bankForm({ [PAY_REQUEST_ID_FIELD]: 'nope' })],
+    ['rail 不是那兩個字面', bankForm({ [PAY_RAIL_FIELD]: 'zz_no_such_rail' })],
+    // 🔴🔴 **這一格是突變逼出來的**:上面那格的金額是好的 ⇒ 拿不拿掉 `isRail` 那道擋門
+    //    都回空陣列 ⇒ **它對那道擋門零判別力**(2026-09-04 實測:突變 ④ rc=0)。
+    //    ⇒ 要分辨得出來, `rail` 壞掉的同時**金額也要是空的** ——
+    //      沒有那道擋門 ⇒ 會列出「金額」, 而真正的問題是那個偽造的 rail。
+    ['rail 壞掉【而且】金額也空著', bankForm({ [PAY_RAIL_FIELD]: 'zz_no_such_rail', [PAY_AMOUNT_FIELD]: '' })],
+    // 🔴🔴 **下面這組是 codex 對抗審查(2026-09-04)抓到的 must-fix**:
+    //    先前每一格都把「系統層壞掉」與「缺欄」**分開餵** ⇒ 那個交叉漏洞可以完整通過。
+    //    ⇒ 📌 **一個把兩種原因分開測的測試組, 對「兩種同時發生」零判別力。**
+    ['壞 order uuid + 缺金額',
+      bankForm({ [PAY_ORDER_ID_FIELD]: 'not-a-uuid', [PAY_AMOUNT_FIELD]: '' })],
+    ['壞 request uuid + 缺金額',
+      bankForm({ [PAY_REQUEST_ID_FIELD]: 'not-a-uuid', [PAY_AMOUNT_FIELD]: '' })],
+    ['壞印章 + 缺金額',
+      bankForm({ [PAY_CASH_RECEIVED_AT_FIELD]: 'not-a-time', [PAY_AMOUNT_FIELD]: '' })],
+    ['壞印章 + 缺兩個銀行欄',
+      bankForm({ [PAY_CASH_RECEIVED_AT_FIELD]: 'not-a-time', [PAY_RECEIVED_DATE_FIELD]: '', [PAY_BANK_REFERENCE_FIELD]: '' })],
+    ['現金軌帶單號(偽造)+ 缺金額',
+      cashForm({ [PAY_BANK_REFERENCE_FIELD]: '國泰 1', [PAY_AMOUNT_FIELD]: '' })],
+    ['同名欄送兩份 + 缺金額',
+      bankForm({ [PAY_RECEIVED_DATE_FIELD]: ['2026-08-11', '2026-08-12'], [PAY_AMOUNT_FIELD]: '' })],
+    // 🔵 codex R2 nit d:大寫 uuid 兩邊都不收(`UUID_RE` 不帶 `i`)——
+    //    釘住它, 否則哪天只有一邊放寬, 這組測試仍然全綠而兩份規則已經漂了。
+    // 🔴🔴 **用 `REQUEST_ID` 不用 `ORDER_ID`** —— `ORDER_ID` 逐字是 `11111111-2222-…`,
+    //    **一個字母都沒有** ⇒ `.toUpperCase()` 對它是 **no-op** ⇒ 那個「大寫」世界
+    //    **根本沒有被造出來**, 而測試會紅在一個與大寫無關的理由上(2026-09-04 實撞)。
+    //    📌 **一個造不出目標世界的測試, 它的紅與綠都不是關於它宣稱的那件事。**
+    ['大寫 canonical uuid + 缺金額',
+      bankForm({ [PAY_REQUEST_ID_FIELD]: REQUEST_ID.toUpperCase(), [PAY_AMOUNT_FIELD]: '' })],
+    ['同名欄送兩份', bankForm({ [PAY_AMOUNT_FIELD]: ['1180', '9999'] })],
+    ['現金軌帶了單號(偽造 payload)', cashForm({ [PAY_BANK_REFERENCE_FIELD]: '國泰 1' })],
+  ])('🔴 %s ⇒ 回空陣列(維持通用話), 而 parse 仍是 null', (_n, f) => {
+    expect(missingPaymentFieldLabels(f), '對系統層的失敗編一個欄位名給員工').toEqual([]);
+    expect(parsePaymentForm(f)).toBeNull();
+  });
+
+  /**
+   * 🔴 標籤要與**畫面上那幾個** `AdminFormField label=` 逐字相同 ——
+   * 不同的話, 訊息會指到一個他在畫面上**找不到**的欄位。
+   */
+  it('🔴 三個標籤與表單元件上的字面逐字相同', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const src = readFileSync(
+      fileURLToPath(new URL('../../components/orders/payment-record-form.tsx', import.meta.url)),
+      'utf8',
+    );
+    for (const label of [L.amount, L.receivedDate, L.bankReference]) {
+      expect(src, `畫面上沒有 label='${label}' ⇒ 訊息會指到一個找不到的欄位`)
+        .toContain(`label='${label}'`);
+    }
+    // 🟢 正對照:一個現造的標籤在那支檔裡找不到 ⇒ 這把尺不是恆真。
+    expect(src).not.toContain("label='ZZ沒有這一欄QQ'");
   });
 });
