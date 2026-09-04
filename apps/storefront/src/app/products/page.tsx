@@ -193,7 +193,7 @@ export default async function ProductsRoute({ searchParams }: Props) {
   //      兩個【陣列】的 union 收斂 ⇒ 這裡標一次,不要用 `as any` 把差異蓋掉。
   // 🔴🔴 ⟦search-SHORTNAMEZEROFLASH⟧:**首發那一輪也要認得裸【子】分類名。**
   //
-  // 病:server 讀的是**原始網址值**(`catalog-query.ts:193-194` 只驗形狀、不查對照表),
+  // 病:server 讀的是**原始網址值**(`catalog-query.ts` 的 `const categoryValue = searchParams.get('category')` 那兩行 只驗形狀、不查對照表),
   //    而 RPC 只認 `category_raw = X` 或 `LIKE X || ' · %'` ⇒ `?category=機油與濾芯`(子分類短名)
   //    **首發真的撈到 0** ⇒ 要等 client hydration 把網址改寫成全路徑才重撈。
   // 🔬 2026-09-04 本機真瀏覽器實測:`647ms` 印「0 件 / 找不到符合條件的商品」→ `1352ms` 才 4 件
@@ -220,13 +220,30 @@ export default async function ProductsRoute({ searchParams }: Props) {
       : resolvedCategory.main
     : null;
   // 🔴 **解出來的值要再過【同一道】白名單** —— R1 抓到:少了它, 這條新路會繞過
-  //    `catalog-query.ts:194` 的 `isSafeCategoryValue`, 而 RPC 的 `LIKE vc || ' · %'` **未跳脫**
+  //    `catalog-query.ts` 的 `isSafeCategoryValue` 的 `isSafeCategoryValue`, 而 RPC 的 `LIKE vc || ' · %'` **未跳脫**
   //    ⇒ 父分類名若含 `_` 或 `%`, rollup 會多算/錯配, 而**直打同一個名字反而會被擋掉**
   //    ⇒ 📌 #306「兩端同一道白名單」的單一定義點被繞過。
   // ⚠️ **而這是「閘漏掉一種輸入」, 不是已顯形的錯** —— 本窗無正式庫, **證不到今天存不存在這種名字**。
+  // 🔴🔴 **`categories` 要一起換掉, 不能只換 `category`**(R1 對抗審查抓到, Critical):
+  //    少了它, `products.ts` 照送**未解析的裸短名**, 而 RPC 那側把兩個來源併成一份 `v_cats`
+  //    ⇒ 變成「解析後的全路徑」+「裸短名」兩顆。
+  // 🛑 **而那顆裸短名若剛好也是某個【頂層分類】的名字**, RPC 的
+  //    `category_raw = vc OR category_raw LIKE vc || ' · %'` 會把**那整棵頂層樹**一起撈進來
+  //    ⇒ 📌 **比修 ⟦search-SHORTNAMEZEROFLASH⟧ 之前【多撈】** —— 修法製造出一個修之前不存在的形狀。
+  // ⚠️ **那個世界存不存在, 本窗證不到**(要對正式庫問「有沒有頂層名 == 某個子分類短名」)
+  //    ⇒ 所以這裡**不賭它不存在**, 直接把裸短名換掉。
   const effectiveQuery =
     resolvedPath && isSafeCategoryValue(resolvedPath) && resolvedPath !== catalogQuery.category
-      ? { ...catalogQuery, category: resolvedPath }
+      ? {
+          ...catalogQuery,
+          category: resolvedPath,
+          categories: [
+            ...new Set([
+              resolvedPath,
+              ...catalogQuery.categories.filter((c) => c !== catalogQuery.category),
+            ]),
+          ],
+        }
       : catalogQuery;
 
   const { products, total, error }: {
