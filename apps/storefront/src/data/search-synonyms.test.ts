@@ -334,42 +334,34 @@ describe('多目標俗稱 —— 今天待命, 而它要有東西在等它', () 
   //    ⇒ 📌 **一個從「我要寫的那行碼」推出來的期望值, 從出生起就抓不到那行碼的錯。**
   //    ✅ 修法 = 期望值要來自**外面**:寫死今天正式站上真正生效的那個 `to`。
   //       來源 = Sean 2026-09-04 原話裡的兩組數(魚雷管 ⇒ 尾段 319 / 白鐵管 ⇒ 全段 251)。
-  it('🔴 今天生效的那一個 `to` 寫死在這裡(對調兩列 ⇒ 本格紅)', () => {
+  // 🔵🔵 **[2026-09-04 線 `-front` 接上多顆膠囊之後, 照本檔第三格的交代改的 ②]**
+  //    ⛔ ~~原本這一格釘的是「第一列勝」:`synonymFor('魚雷管')?.to` 必須是尾段~~
+  //    🎯 **而那個釘子的存在理由是「順序決定線上行為, 換順序 = 靜靜換掉行為」**——
+  //       解析層改成 collect 之後, **順序不再決定客人看到什麼**(兩個都會出現)
+  //       ⇒ 那個釘子從「保護線上行為」變成「保護一個不再重要的實作細節」。
+  //    ✅ 改成釘【全部都要出現】—— 而它守的是 Sean 逐字要的那件事:
+  //       「魚雷管 / 白鐵管要**同時**列全段+尾段」。
+  //    🛑 **而 `synonymFor` 本身沒有改**(它仍是 `.find()`, 仍只回第一筆)——
+  //       改的是**讀它的那一層**。所以這裡改問字典表本身, 不問 `synonymFor`。
+  it('🔴 兩個俗稱各自的目標【全部】都要在字典裡(不是只有第一個)', () => {
+    const targets = (from: string) =>
+      SEARCH_SYNONYMS.filter((r) => r.from === from).map((r) => r.to).sort();
     expect(
-      synonymFor('魚雷管', foldSearchTerm)?.to,
-      '魚雷管今天在線上解到的是「尾段排氣管(Slip-On)」(Sean 原話 319 件)' +
-        ' ⇒ 換了順序就是靜靜換掉線上行為, 要先問他',
-    ).toBe('尾段排氣管(Slip-On)');
-    expect(
-      synonymFor('白鐵管', foldSearchTerm)?.to,
-      '白鐵管今天在線上解到的是「全段排氣管」(Sean 原話 251 件)',
-    ).toBe('全段排氣管');
+      targets('魚雷管'),
+      'Sean 2026-09-04 逐字:魚雷管要【同時】列全段+尾段 ⇒ 少一個就是少一半結果',
+    ).toEqual(['全段排氣管', '尾段排氣管(Slip-On)'].sort());
+    expect(targets('白鐵管')).toEqual(['全段排氣管', '尾段排氣管(Slip-On)'].sort());
   });
 
   it('🟢 正對照:確實存在多目標的組, 否則上面那格與「表是空的」印同一個綠', () => {
     expect(multi.length, '一組多目標都沒有 ⇒ 這個 describe 整段沒有判別力').toBeGreaterThan(0);
   });
 
-  // 🔴🔴 **一道【會在世界前進時亮】的閘, 而不是一句會過期的註解。**
-  //    今天 `ParsedFacets` 只有單數的 `category` ⇒ 第二列不可能被用到。
-  //    `-front` 把多顆膠囊接上的那一刻, 這一格會紅 ——
-  //    🎯 **而那個紅就是「回來把字典這半接上」的通知**, 它不依賴任何人記得。
-  it('🔴 解析器一旦長出【複數】分類, 本格會紅 ⇒ 那是要回來接字典第二列的訊號', () => {
-    // 🔵 這棵假目錄樹與上面那個 describe 裡的同構(那個是 block-scoped, 這裡自己建一份)。
-    const liveCats = SEARCH_CATEGORY_NAMES.filter((n) => !SEARCH_CATEGORY_EMPTY_NAMES.includes(n));
-    const facetSrc = {
-      motoBrands: [],
-      brands: [],
-      categories: liveCats.map((name, i) => ({ id: `c${i}`, name, count: 1, children: [] })),
-    } as unknown as Parameters<typeof parseSearchFacets>[1];
-    const out = parseSearchFacets('魚雷管', facetSrc);
-    expect(
-      Object.keys(out).some((k) => k === 'categories'),
-      '解析器多了 `categories` ⇒ 多顆膠囊接上了 ⇒ 回來做三件事:' +
-        '①把同 from 的多列 collect 成陣列 ②把上面那格「第一列勝」的釘子改成「全部都要出現」' +
-        '③把本格刪掉(它的任務完成了)。細節見 `docs/patterns/search-synonym-dictionary.md`。',
-    ).toBe(false);
-    // 🟢 正對照:上面那句在【它該說有的時候】說得出有 —— 否則它對什麼都印 false。
-    expect(Object.keys(out).some((k) => k === 'category')).toBe(true);
-  });
+  // 🟢🟢 **[2026-09-04]那一格【交接訊號】已經完成任務, 依它自己的第③條刪掉。**
+  //    它逐字寫著:「`-front` 把多顆膠囊接上的那一刻, 這一格會紅 —— 而那個紅就是
+  //    『回來把字典這半接上』的通知, 它不依賴任何人記得。」
+  // 🎯 **而它真的叫了**:`-front` 合完 `-auth` 的多筆列之後跑測試, 就是它紅的
+  //    ⇒ 📌 **一道會在世界前進時亮的閘, 比一句寫在檔頭的提醒可靠。**
+  // 🛑 刪掉它是它自己交代的, 不是我嫌它吵 —— 而**它交代的三件我都做了**:
+  //    ①collect 成陣列(`parse-search-facets`)②上面那個釘子改成「全部都要出現」③刪本格。
 });

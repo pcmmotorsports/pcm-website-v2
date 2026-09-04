@@ -46,6 +46,24 @@ const SRC: FacetSources = { motoBrands: MOTO, brands: BRANDS, categories: CATS }
 
 const parse = (q: string) => parseSearchFacets(q, SRC);
 
+describe('⟦M-4b 多顆分類膠囊⟧ 真字典 · 一個俗稱兩個目標(不 mock)', () => {
+  // 🔵 用**真的** `SEARCH_SYNONYMS` 驗 —— 合了 `-auth` 的多筆列之後這條路真資料到得了。
+  //    🛑 而它依賴字典裡那兩列還在:少一列 ⇒ 本格紅, 而那個紅是對的(Sean 要「同時列」)。
+  it('🔴 打「魚雷管」⇒ 全段與尾段【兩個都】解出來, 不是只有第一個', () => {
+    const cats = [
+      { id: 'ex', name: '排氣系統', count: 9, children: [
+        { id: 'slip', name: '尾段排氣管(Slip-On)', count: 5 },
+        { id: 'full', name: '全段排氣管', count: 4 },
+      ] },
+    ];
+    const p = parseSearchFacets('魚雷管', { motoBrands: [], brands: [], categories: cats } as never);
+    expect(p.categories.length, '只解出一個 ⇒ 客人少看到一半的排氣管').toBe(2);
+    expect([...p.categories].sort()).toEqual(
+      ['排氣系統 · 全段排氣管', '排氣系統 · 尾段排氣管(Slip-On)'].sort(),
+    );
+  });
+});
+
 describe('parseSearchFacets — Sean 親口給的兩句', () => {
   // 🔵 這兩句是 **Sean 逐字打的**, 不是我編的。
   it('🔴 「mt07 akrapovic」⇒ 車款 + 品牌兩顆膠囊, 零剩字(他原話那個例子)', () => {
