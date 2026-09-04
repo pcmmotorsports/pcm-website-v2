@@ -120,6 +120,8 @@ type OrderRow = {
   created_at: string | null;
   notification_email: string | null;
   customer_email: string | null;
+  // 🔴 片 B:只接出來, 沒有人在用它(分流在片 C)
+  order_source: string | null;
 };
 
 /**
@@ -167,7 +169,7 @@ export class SupabaseUnpaidCancelledOrderScannerAdapter implements IUnpaidCancel
         // 🔵 `payment_status` / `cancelled_at IS NOT NULL` / 身分判準(order_cancellations)
         //    / anti-join —— **四個條件都在 view 裡**了。
         .select(
-          'order_id, display_id, cancelled_at, cancelled_reason, created_at, notification_email, customer_email',
+          'order_id, display_id, cancelled_at, cancelled_reason, created_at, notification_email, customer_email, order_source',
         )
         // 🔴 **兩個 cutoff 留在這裡** —— 它是參數, 烤不進 view。
         // ⚠️ **而 `created_at >= cutoff` 是一個【已知會漏信】的條件**(原檔逐字記著):
@@ -201,6 +203,11 @@ export class SupabaseUnpaidCancelledOrderScannerAdapter implements IUnpaidCancel
         notificationEmail: o.notification_email,
         // 🔵 view 已經 LEFT JOIN 好了 ⇒ 這裡只是搬運, 不再有第二發查詢。
         customerEmail: o.customer_email,
+        // 🔴 R1-F10:另兩支 scanner 走 `nullableStr()`(缺欄會 throw), 這兩支是直接對映。
+        //    `?? null` 讓「欄位沒回來」落在宣告的 `string | null` 裡, 而不是一個型別上
+        //    不存在的 `undefined` —— 📌 片 C 若寫 `=== null` 判斷, 兩種形狀要給同一個答案。
+        //    ⚠️ 而它【不是】parity:那兩支會 throw、這兩支會靜靜給 null。差異明寫在這裡。
+        orderSource: o.order_source ?? null,
       })),
       scannedPages: 1,
       truncated,

@@ -39,7 +39,7 @@ export const TRACKING_CORRECTED_PENDING_VIEW = 'pcm_tracking_corrected_email_pen
 const SELECT_COLUMNS =
   'shipment_id, shipment_reference, tracking_number, carrier_code, tracking_corrected_at, ' +
   'corrected_at_key, ' +
-  'order_id, display_id, notification_email, customer_email';
+  'order_id, display_id, notification_email, customer_email, order_source';
 
 const MAX_LIMIT = 200;
 
@@ -79,6 +79,8 @@ function toRow(raw: unknown): ShipmentWithCorrectedTracking {
     displayId: str('display_id'),
     notificationEmail: nullableStr('notification_email'),
     customerEmail: nullableStr('customer_email'),
+    // 🔴 片 B:只接出來, 沒有人在用它(分流在片 C)
+    orderSource: nullableStr('order_source'),
   };
 }
 

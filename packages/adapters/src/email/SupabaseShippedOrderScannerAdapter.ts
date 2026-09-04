@@ -66,7 +66,7 @@ export type ShippedOrderScannerClient = {
 export const SHIPPED_EMAIL_PENDING_VIEW = 'pcm_shipped_email_pending';
 
 const SELECT_COLUMNS =
-  'shipment_id, shipment_reference, shipped_at, order_id, display_id, notification_email, customer_email';
+  'shipment_id, shipment_reference, shipped_at, order_id, display_id, notification_email, customer_email, order_source';
 
 /**
  * 單輪上限的硬天花板。`limit + 1`(探針)必須遠小於 `db-max-rows`(2026-08-18 量到 = 2000),
@@ -126,6 +126,8 @@ function toRow(raw: unknown): ShippedOrderWithoutShippedEmail {
     displayId: str('display_id'),
     notificationEmail: nullableStr('notification_email'),
     customerEmail: nullableStr('customer_email'),
+    // 🔴 片 B:只接出來, 沒有人在用它(分流在片 C)
+    orderSource: nullableStr('order_source'),
   };
 }
 
