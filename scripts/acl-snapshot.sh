@@ -109,6 +109,30 @@ SELECT 'VIEWOPT',
   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
  WHERE n.nspname = 'public' AND c.relkind IN ('v','m')
 UNION ALL
+-- 🔴🔴 第八族:`storage` schema 的表級授權(2026-09-05 加)——
+--    ⛔ 前七族的 WHERE 全部是 `nspname = 'public'` ⇒ **`storage` 一列都沒有**
+--       (2026-09-05 量:基線 1283 列裡含 `storage` 的 = **0**)。
+--    🔬 而 2026-09-05 唯讀實測:`storage` 底下 8 張表 **RLS 全開而 policy 全 0**,
+--       `anon` / `authenticated` 對 `objects` 與 `buckets_analytics` 是 **SIUDT**(含 `TRUNCATE`)。
+--    🛑 **而 `storage` 是【平台管的 schema】** —— Supabase 升級可能重新授權,
+--       那條路**不經過我們任何一支 migration** ⇒ 📌 **只有這一族看得到它變了。**
+--    ⚠️ 它答不出的:bucket 是不是公開、bucket 裡放了什麼 —— 那要 `storage` 的 `USAGE`,
+--       而 `pcm_readonly` 沒有(實測 `has_schema_privilege` = f)。**本族只看授權形狀。**
+SELECT 'STORAGEACL',
+       n.nspname::text||'.'||c.relname::text||'|'||c.relkind::text,
+       g.rol,
+       (CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'SELECT')   THEN 'S' ELSE '-' END)||
+       (CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'INSERT')   THEN 'I' ELSE '-' END)||
+       (CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'UPDATE')   THEN 'U' ELSE '-' END)||
+       (CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'DELETE')   THEN 'D' ELSE '-' END)||
+       (CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'TRUNCATE') THEN 'T' ELSE '-' END)||
+       '|'||CASE WHEN c.relrowsecurity THEN 'RLS' ELSE '---' END||
+       '|pol='||(SELECT count(*)::text FROM pg_catalog.pg_policy p WHERE p.polrelid = c.oid)
+  FROM pg_catalog.pg_class c
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  CROSS JOIN (VALUES ('anon'),('authenticated'),('service_role'),('payment_confirmer')) AS g(rol)
+ WHERE n.nspname = 'storage' AND c.relkind IN ('r','p','v','m')
+UNION ALL
 -- 🔴🔴 第五族:RLS policy(2026-09-05 加)——
 --    ⛔ 第一版**沒有這一欄** ⇒ `20260904270000` 要建的那 40 條 policy 在快照上【零顯形】,
 --       而那時「diff 只有 8 格」看起來就像「policy 沒建成」。
