@@ -287,7 +287,7 @@ describe('ProductsPage', () => {
   });
 
   // 🔴 **本格的射程**(R1 must-fix 3):mock 的 `replace` 是 `window.history.replaceState`
-  //    (本檔 :22)= **同步**;而真 router 是**非同步**(`use-catalog-filter-url-sync.tsx:108`
+  //    (本檔 :22)= **同步**;而真 router 是**非同步**(`use-catalog-filter-url-sync.tsx` 的 `initialized` 那段
   //    逐字:force-dynamic 要 RSC 往返)。⇒ 本格證明的是「**那顆鈕算出了乾淨的網址並送出去**」,
   //    **不是**「瀏覽器上最終停在那個網址」—— 後者要真瀏覽器才量得到, 本檔到不了那個世界。
   it('③ 按下去 → 送出去的網址不再帶那個【認不得的】參數(清 state 不夠)', () => {

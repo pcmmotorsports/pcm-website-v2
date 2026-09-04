@@ -39,7 +39,7 @@ export type ParsedFacets = {
    *    ⇒ 🔵 而 113 個分類名裡只有 **17 個**短名有貨 —— 而那 17 個逐字就是 `category_raw` 的頂層段
    * 🛑 **而它為什麼沒有人發現**:同一個 `?category=` 有【好幾個生產者】——
    *    ⛔ ~~我原本寫「兩個」~~ ⇒ 🔴 **code-reviewer 2026-09-04 實查是【五個寫入點】**:
-   *      `app/products/page.tsx:149`(本函式)· `components/use-catalog-filter-url-sync.tsx:181`
+   *      `app/products/page.tsx:149`(本函式)· `components/use-catalog-filter-url-sync.tsx`(`params.set('category', category)` 那行)
    *      · `components/ProductsPage.tsx:430` · `components/CategoryGrid.tsx` · `lib/brand-url.ts`
    *    🔵 而後三個**恰好只送頂層名** ⇒ 今天安全 —— 🛑 **而「恰好」不是保證。**
    *    ⇒ 📌 側欄那條**拼全路徑, 是對的**;本函式只有一個名字可拼 ⇒ 送短名。

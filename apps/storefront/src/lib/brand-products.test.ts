@@ -298,7 +298,7 @@ describe('線E · fetchBrandsWithProducts 要分得出【撈失敗】與【真�
       // 現行實作走的那支(失敗被它自己吞掉、回 []);留著,好讓本條紅在斷言而不是紅在 import。
       fetchCatalogBrandTaxonomy: () => Promise.resolve([]),
       // 本片要新增的那支:把「失敗了沒」帶出來,而**不改 fetchCatalogBrandTaxonomy 的簽章**
-      //  —— 它有 3 個 sibling 消費端,其中 `use-catalog-filter-url-sync.tsx:153`
+      //  —— 它有 3 個 sibling 消費端,其中 `use-catalog-filter-url-sync.tsx`
       //     的註解寫死了「撈失敗回 [] 而非 null」。
       tryCatalogBrandTaxonomy: () => Promise.resolve({ brands: [], failed: true }),
     }));
