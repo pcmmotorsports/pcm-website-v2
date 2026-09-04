@@ -45,7 +45,18 @@ import { appendResultQuery } from './order-return-to';
 // 🔴 **這段註解存在的理由**:拍板之前,「沒有人決定過要不要擋」與「決定了不擋」
 //    **在程式碼裡長得一模一樣**(兩者都是「這裡沒有那個 if」)—— 而現在它是後者。
 
-type ResultCode = 'saved' | 'conflict' | 'noop' | 'invalid' | 'denied' | 'error';
+// 🔴 `invoice_blocked` 2026-09-04 加(`⟦b4-INVOICE5PCT⟧` 第 2 步):
+//    這張單建單時決定不開發票, 而有人正在填發票資料 ⇒ DB 的 `CHECK` 擋下。
+//    🎯 **它與 `error` 的差別是【下一步相反】**:`error` 說「再試」, 本碼說「**不要再試**」。
+//    ⇒ 📌 那道 `CHECK` 是**狀態不變式**不是暫時性失敗 ⇒ **重試永遠不會成功。**
+type ResultCode =
+  | 'saved'
+  | 'conflict'
+  | 'noop'
+  | 'invalid'
+  | 'denied'
+  | 'invoice_blocked'
+  | 'error';
 
 /**
  * 結果碼 → returnTo?r=<code>(PRG;returnTo 已由 `parseOrderReturnTo` 限定站內 /orders 路徑)。
@@ -98,7 +109,20 @@ export async function updateOrderWorkflowAction(formData: FormData): Promise<voi
       code: typeof e.code === 'string' ? e.code : undefined,
       message: String(e.message ?? '').slice(0, 200),
     });
-    redirectWith(parsed.returnTo, 'error');
+    // 🔴🔴 **`check_violation` 要有【自己的一句話】, 不能落到「請稍後再試」**
+    //    (2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 2 步;R3 換角度審查的 F1 第二半)
+    //
+    //    🎯 **為什麼**:那個世界是「這張單決定不開發票, 而你正在填發票」——
+    //    **它【永遠不會成功】**(DB 那道 `CHECK` 是狀態不變式, 不是暫時性失敗)。
+    //    ⇒ 🔴 **而「請稍後再試」是在請他一直重試一件永遠不會成功的事。**
+    //    📌 **⇒ 一句話對【暫時性失敗】與【結構性拒絕】說同一件事, 就是在對其中一種說謊。**
+    //
+    //    ⚠️ **而 `23514` 不只有這一條 CHECK** —— 這張表上還有別的。
+    //    ⇒ 所以這裡**不宣稱是哪一條**, 文案只講「發票這件事被規則擋下」並叫他去看那張單,
+    //      **不叫他重試**。(要精確到某一條, 得讓 RPC 回結構化的碼 —— 那是另一片。)
+    //    🛑 而 DB 的原話**仍然只進 log** —— `?r=` 是任何人都打得出來的字。
+    const isCheckViolation = typeof e.code === 'string' && e.code === '23514';
+    redirectWith(parsed.returnTo, isCheckViolation ? 'invoice_blocked' : 'error');
   }
 
   // 成功路徑 revalidate(列表 + 明細);redirect 在 catch 外(不被吞)。

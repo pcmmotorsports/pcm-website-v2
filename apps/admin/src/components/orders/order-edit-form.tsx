@@ -136,6 +136,24 @@ export function OrderEditForm({
           而上方資訊卡(`order-detail-summary-cards.tsx:404`)同一個 `detail.invoiceStatus`
           用的就是「開立狀態」—— 兩者在同一個面板上相距 236px(2026-08-21 真瀏覽器實量),
           同時看得到。⇒ 改的是少數那一邊。 */}
+      {/* ── 🔴🔴 這張單決定【不開發票】時, 下面那三格不出現 ──────────────────────
+          (2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 2 步;R3 換角度審查的 F1, 主視窗 `-94` 收的形狀)
+
+          🎯 **為什麼這三格不能對每一張單都渲染**:一張 `invoice_requested = false` 的單,
+          這裡會顯示「開立狀態:**未開立**」—— 而那**與一張真的在等開票的單逐字相同**。
+          ⇒ 員工看不出差別 ⇒ 他去財政部平台**開了一張真發票** ⇒ 回來填號碼存檔
+          ⇒ 被 DB 那道 `CHECK` 擋下 ⇒ 拿到一句「請稍後再試」⇒ **他會一直重試, 而永遠存不進去。**
+          🛑 **⇒ 那張真發票已經開出去了, 而系統裡零紀錄** —— 對帳結構上看不到它。
+
+          📌 **⇒ 所以這一格不是「順手做的 UX」, 它是那道 DB 鎖的【另一半】**:
+             鎖擋住了錯的資料, **而擋不住員工在財政部按下去那個動作** —— 擋那個的是這裡。
+          ⚠️ **而反過來也要成立**:`true` 的單**一個字都不能變**(下面那三格原樣搬進來, 零修改)。 */}
+      {!detail.invoiceRequested ? (
+        <AdminFormField label='發票'>
+          <p className='text-sm text-[--admin-ink-2]'>此單不開發票(建單時的決定)。要開請作廢重開。</p>
+        </AdminFormField>
+      ) : (
+        <>
       <AdminFormField label='開立狀態'>
         {/* 🔴 選項由 `INVOICE_STATUS_LABEL` 產,**不在這裡再寫一次三態中文** ——
             形狀刻意對齊上面「出貨方式」那格的 `Object.entries(SHIPPING_METHOD_LABELS)`,
@@ -177,6 +195,8 @@ export function OrderEditForm({
           className={ADMIN_INPUT_CLASS}
         />
       </AdminFormField>
+        </>
+      )}
     </AdminForm>
   );
 }
