@@ -93,6 +93,14 @@ describe('搜尋那條路的計時量具', () => {
       .split('\n')
       .find((ln) => ln.includes('[vehicleTaxonomy] cold pages=') && !ln.trimStart().startsWith('//'));
     expect(liveLine, '[vehicleTaxonomy] 那一行不見了(或被註解掉了)⇒ 冷暖就再也看不到').toBeTruthy();
+    // 🔴🔴 **`first=` 與 `restAvg=` 這兩個數是承重的**(2026-09-05)——
+    //    它們要回答的是「那 945ms/頁 的固定成本住在【第一發】還是【每一發】」:
+    //      first ≫ restAvg ⇒ 住在連線層(一次)⇒ RPC 一次往返的收益很大
+    //      兩者相近       ⇒ 每一頁都在付      ⇒ 收益小很多, 整個 RPC 案要重估
+    //    🛑 少了任何一個, 那個問題就【只能用猜的】—— 而我先前就是只能寫「四個候選都沒量」。
+    for (const k of ['first=', 'restAvg=']) {
+      expect(productsRaw, `${k} 不見了 ⇒ 「固定成本住在哪一發」就再也判不出來`).toContain(k);
+    }
     const products = productsRaw;
     expect(products, '找不到那支 cached loader ⇒ 這一格沒有判別力').toContain(
       'const getVehicleTaxonomyCached = unstable_cache(',
