@@ -139,7 +139,10 @@ describe('客人那張紙:稅額列與小計標籤', () => {
 
   it('🔵 負對照:稅 0 時金額區印的是原字面「小計」, 不是空的也不是未稅版', () => {
     const out = html(ORDER);
-    expect(out).toContain('>小計<');
+    // 🔴🔴 **綁 `<td class="k">` —— 不能只寫 `>小計<`**(R4 F3 nit, 它是對的):
+    //    `>小計<` **被品項表的欄頭 `<th class="pd-num">小計</th>` 滿足**
+    //    ⇒ 把金額區那個標籤整個清空, 這一格**照樣綠** ⇒ 📌 那是一個恆真的「負對照」。
+    expect(out).toContain('<td class="k">小計</td>');
     expect(out).not.toContain('小計(未稅)');
   });
 });
