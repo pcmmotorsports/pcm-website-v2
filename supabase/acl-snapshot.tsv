@@ -494,6 +494,10 @@ FN	public.pcm_generate_display_id()	anon	-|DEF
 FN	public.pcm_generate_display_id()	authenticated	-|DEF
 FN	public.pcm_generate_display_id()	payment_confirmer	-|DEF
 FN	public.pcm_generate_display_id()	service_role	-|DEF
+FN	public.pcm_invoice_requested_false_is_final()	anon	-|DEF
+FN	public.pcm_invoice_requested_false_is_final()	authenticated	-|DEF
+FN	public.pcm_invoice_requested_false_is_final()	payment_confirmer	-|DEF
+FN	public.pcm_invoice_requested_false_is_final()	service_role	-|DEF
 FN	public.pcm_js_trim_whitespace()	anon	-|INV
 FN	public.pcm_js_trim_whitespace()	authenticated	-|INV
 FN	public.pcm_js_trim_whitespace()	payment_confirmer	-|INV
@@ -510,6 +514,10 @@ FN	public.pcm_manual_refund_red_counts()	anon	-|DEF
 FN	public.pcm_manual_refund_red_counts()	authenticated	-|DEF
 FN	public.pcm_manual_refund_red_counts()	payment_confirmer	-|DEF
 FN	public.pcm_manual_refund_red_counts()	service_role	X|DEF
+FN	public.pcm_no_pending_invoice_when_not_requested()	anon	-|DEF
+FN	public.pcm_no_pending_invoice_when_not_requested()	authenticated	-|DEF
+FN	public.pcm_no_pending_invoice_when_not_requested()	payment_confirmer	-|DEF
+FN	public.pcm_no_pending_invoice_when_not_requested()	service_role	-|DEF
 FN	public.pcm_noncard_settle_after_payment()	anon	-|DEF
 FN	public.pcm_noncard_settle_after_payment()	authenticated	-|DEF
 FN	public.pcm_noncard_settle_after_payment()	payment_confirmer	-|DEF
@@ -818,10 +826,12 @@ FNCFG	public.pcm_cancellation_ledger_block_truncate()	INVOKER	(未設)
 FNCFG	public.pcm_e13_assert_order_subtotal_matches(p_order_id uuid)	DEFINER	search_path=""
 FNCFG	public.pcm_e13_subtotal_guard()	DEFINER	search_path=""
 FNCFG	public.pcm_generate_display_id()	DEFINER	search_path=""
+FNCFG	public.pcm_invoice_requested_false_is_final()	DEFINER	search_path=""
 FNCFG	public.pcm_js_trim_whitespace()	INVOKER	search_path=""
 FNCFG	public.pcm_manual_refund_rail_cap(p_order_id uuid)	DEFINER	search_path=public, pg_temp
 FNCFG	public.pcm_manual_refund_rail_cap_guard()	DEFINER	search_path=public, pg_temp
 FNCFG	public.pcm_manual_refund_red_counts()	DEFINER	search_path=""
+FNCFG	public.pcm_no_pending_invoice_when_not_requested()	DEFINER	search_path=""
 FNCFG	public.pcm_noncard_settle_after_payment()	DEFINER	search_path=""
 FNCFG	public.pcm_noncard_settle_recompute(p_order_id uuid)	DEFINER	search_path=""
 FNCFG	public.pcm_op2_received_at_not_future()	INVOKER	search_path=pg_catalog, public
@@ -1264,6 +1274,38 @@ ROLE	anon		-
 ROLE	authenticated		-
 ROLE	payment_confirmer		-
 ROLE	service_role		BYPASSRLS
+STORAGEACL	storage.buckets_analytics|r	anon	SIUDT|RLS|pol=0
+STORAGEACL	storage.buckets_analytics|r	authenticated	SIUDT|RLS|pol=0
+STORAGEACL	storage.buckets_analytics|r	payment_confirmer	-----|RLS|pol=0
+STORAGEACL	storage.buckets_analytics|r	service_role	SIUDT|RLS|pol=0
+STORAGEACL	storage.buckets_vectors|r	anon	S----|RLS|pol=0
+STORAGEACL	storage.buckets_vectors|r	authenticated	S----|RLS|pol=0
+STORAGEACL	storage.buckets_vectors|r	payment_confirmer	-----|RLS|pol=0
+STORAGEACL	storage.buckets_vectors|r	service_role	S----|RLS|pol=0
+STORAGEACL	storage.buckets|r	anon	SIUDT|RLS|pol=0
+STORAGEACL	storage.buckets|r	authenticated	SIUDT|RLS|pol=0
+STORAGEACL	storage.buckets|r	payment_confirmer	-----|RLS|pol=0
+STORAGEACL	storage.buckets|r	service_role	SIUDT|RLS|pol=0
+STORAGEACL	storage.migrations|r	anon	-----|RLS|pol=0
+STORAGEACL	storage.migrations|r	authenticated	-----|RLS|pol=0
+STORAGEACL	storage.migrations|r	payment_confirmer	-----|RLS|pol=0
+STORAGEACL	storage.migrations|r	service_role	-----|RLS|pol=0
+STORAGEACL	storage.objects|r	anon	SIUDT|RLS|pol=0
+STORAGEACL	storage.objects|r	authenticated	SIUDT|RLS|pol=0
+STORAGEACL	storage.objects|r	payment_confirmer	-----|RLS|pol=0
+STORAGEACL	storage.objects|r	service_role	SIUDT|RLS|pol=0
+STORAGEACL	storage.s3_multipart_uploads_parts|r	anon	S----|RLS|pol=0
+STORAGEACL	storage.s3_multipart_uploads_parts|r	authenticated	S----|RLS|pol=0
+STORAGEACL	storage.s3_multipart_uploads_parts|r	payment_confirmer	-----|RLS|pol=0
+STORAGEACL	storage.s3_multipart_uploads_parts|r	service_role	SIUDT|RLS|pol=0
+STORAGEACL	storage.s3_multipart_uploads|r	anon	S----|RLS|pol=0
+STORAGEACL	storage.s3_multipart_uploads|r	authenticated	S----|RLS|pol=0
+STORAGEACL	storage.s3_multipart_uploads|r	payment_confirmer	-----|RLS|pol=0
+STORAGEACL	storage.s3_multipart_uploads|r	service_role	SIUDT|RLS|pol=0
+STORAGEACL	storage.vector_indexes|r	anon	S----|RLS|pol=0
+STORAGEACL	storage.vector_indexes|r	authenticated	S----|RLS|pol=0
+STORAGEACL	storage.vector_indexes|r	payment_confirmer	-----|RLS|pol=0
+STORAGEACL	storage.vector_indexes|r	service_role	S----|RLS|pol=0
 VIEWOPT	public.admin_coupon_list_blocks_v|view	security_invoker=(未設)	postgres
 VIEWOPT	public.admin_coupon_list_v|view	security_invoker=(未設)	postgres
 VIEWOPT	public.admin_customer_list_v|view	security_invoker=true	postgres
