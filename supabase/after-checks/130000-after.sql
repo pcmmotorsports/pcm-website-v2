@@ -1,4 +1,8 @@
 \pset pager off
+-- 🔴🔴 **`ON_ERROR_STOP` 不可省**(codex 2026-09-05 finding 3):沒有它, ④ 炸了之後
+--    psql 會**繼續往下跑並且回傳成功狀態** ⇒ 🛑 **這份對帳最重要的那一格失敗, 而整體印綠。**
+--    📌 那正是本片一路撞的同一個形狀:**一份會叫的檢查, 沒有人聽它叫。**
+\set ON_ERROR_STOP on
 -- 🔴 唯讀。`20260905130000`(片 D:`admin_create_manual_order` 第 11 參)貼後對帳。
 --
 -- 🛑🛑 **這支檔存在的理由, 是那支 migration 的五道自我斷言【全部是 catalog 形狀】**
@@ -44,37 +48,79 @@ SELECT (SELECT pg_catalog.count(*) FROM pg_catalog.regexp_matches(
 \echo '    做法:BEGIN → 呼叫 → 讀回那一列的 notification_email → ROLLBACK(零留痕)'
 \echo '    trimmed 那一格要印 a@b.co —— 前後空白與尾端換行都要被剝掉'
 \echo '    🛑 若這一格印出 function ... does not exist ⇒ 上面 ①②③ 全綠也不算通過'
+-- 🔴 **三處輸入是 codex finding 1 訂正的, 而它們原本【走不到 email 那一行】**:
+--    · `customers` 的主鍵是 **`user_id`**, 不是 `id`(`20260523034911:15` 逐字)
+--    · `p_ship_to` 要的鍵是 **`line`**, 不是 `address`(migration `:241`/`:247`)
+--    ⇒ 📌 **一把在更前面就被擋下的尺, 印出來的是【那個更前面的錯】, 而它讀起來像失敗**
+--      —— 我原本會以為是 email 那半壞了, 而真正的原因是我根本沒送對參數。
+-- 🔴 **回查那一列要綁函式回傳的 `order_id`**(finding 2)——
+--    原本用 `ORDER BY created_at DESC LIMIT 1` 撈「最新一張」⇒ 並行建單時會讀到別人的單
+--    ⇒ **假綠與假紅都可能**, 而兩者都不會說出自己讀錯了列。
 BEGIN;
-  SELECT (public.admin_create_manual_order(
-            (SELECT id FROM public.customers LIMIT 1),
+  CREATE TEMP TABLE _chk ON COMMIT DROP AS
+  SELECT ((public.admin_create_manual_order(
+            (SELECT c.user_id FROM public.customers c LIMIT 1),
             pg_catalog.gen_random_uuid(),
-            (SELECT id FROM public.staff WHERE is_active LIMIT 1),
+            (SELECT s.id FROM public.staff s WHERE s.is_active LIMIT 1),
             'manual_phone', 'bank_transfer', 'home',
-            '{"name":"對帳用","phone":"0900000000","address":"對帳用"}'::jsonb,
+            '{"name":"對帳用","phone":"0900000000","line":"對帳用地址"}'::jsonb,
             '{"type":"none"}'::jsonb, 0,
             '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK","unit_price":1,"quantity":1,"spec":{}}]'::jsonb,
             E'  a@b.co\n'
-          ) ->> 'order_id')::uuid AS 建出來的單;
+          )) ->> 'order_id')::uuid AS oid;
   SELECT o.notification_email AS trimmed
-    FROM public.orders o
-   ORDER BY o.created_at DESC LIMIT 1;
+    FROM public.orders o JOIN _chk k ON k.oid = o.id;
 ROLLBACK;
 
 \echo '=== ⑤ 負對照:留白那一發要進 NULL, 不是空字串 ==='
 \echo '    blank_is_null 那一格要印 t。若印 f ⇒ CHECK orders_notification_email_valid 會擋掉整張單'
 BEGIN;
-  SELECT (public.admin_create_manual_order(
-            (SELECT id FROM public.customers LIMIT 1),
+  CREATE TEMP TABLE _chk2 ON COMMIT DROP AS
+  SELECT ((public.admin_create_manual_order(
+            (SELECT c.user_id FROM public.customers c LIMIT 1),
             pg_catalog.gen_random_uuid(),
-            (SELECT id FROM public.staff WHERE is_active LIMIT 1),
+            (SELECT s.id FROM public.staff s WHERE s.is_active LIMIT 1),
             'manual_phone', 'bank_transfer', 'home',
-            '{"name":"對帳用","phone":"0900000000","address":"對帳用"}'::jsonb,
+            '{"name":"對帳用","phone":"0900000000","line":"對帳用地址"}'::jsonb,
             '{"type":"none"}'::jsonb, 0,
             '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK2","unit_price":1,"quantity":1,"spec":{}}]'::jsonb,
             '   '
-          ) ->> 'order_id') IS NOT NULL AS 建得出來;
+          )) ->> 'order_id')::uuid AS oid;
   SELECT (o.notification_email IS NULL) AS blank_is_null
-    FROM public.orders o ORDER BY o.created_at DESC LIMIT 1;
+    FROM public.orders o JOIN _chk2 k ON k.oid = o.id;
+ROLLBACK;
+
+\echo '=== ⑥ 🔴 指紋那一格:同一把冪等鍵、只改 email ⇒ 必須被判 P858B ==='
+\echo '    這一格要印 t。若印 f ⇒ 第 11 參【沒有進指紋】, 而那代表員工改好的 email 會被安靜丟掉'
+\echo '    🛑 codex finding 5:拿掉 v_canonical 裡那一行, 上面每一格都照樣綠 —— 只有這一格會紅'
+BEGIN;
+  CREATE TEMP TABLE _k ON COMMIT DROP AS SELECT pg_catalog.gen_random_uuid() AS rid;
+  SELECT public.admin_create_manual_order(
+           (SELECT c.user_id FROM public.customers c LIMIT 1), (SELECT rid FROM _k),
+           (SELECT s.id FROM public.staff s WHERE s.is_active LIMIT 1),
+           'manual_phone', 'bank_transfer', 'home',
+           '{"name":"對帳用","phone":"0900000000","line":"對帳用地址"}'::jsonb,
+           '{"type":"none"}'::jsonb, 0,
+           '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK3","unit_price":1,"quantity":1,"spec":{}}]'::jsonb,
+           'first@b.co') IS NOT NULL AS 第一次建得出來;
+  DO $chk$
+  DECLARE v_sqlstate text;
+  BEGIN
+    BEGIN
+      PERFORM public.admin_create_manual_order(
+        (SELECT c.user_id FROM public.customers c LIMIT 1), (SELECT rid FROM _k),
+        (SELECT s.id FROM public.staff s WHERE s.is_active LIMIT 1),
+        'manual_phone', 'bank_transfer', 'home',
+        '{"name":"對帳用","phone":"0900000000","line":"對帳用地址"}'::jsonb,
+        '{"type":"none"}'::jsonb, 0,
+        '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK3","unit_price":1,"quantity":1,"spec":{}}]'::jsonb,
+        'second@b.co');
+      RAISE EXCEPTION '⑥ 失敗:同鍵只改 email 竟然沒被擋 ⇒ 第 11 參沒有進指紋';
+    EXCEPTION WHEN SQLSTATE 'P858B' THEN
+      RAISE NOTICE '⑥ 通過:同鍵不同 email 被判 P858B = t';
+    END;
+  END
+  $chk$;
 ROLLBACK;
 
 \echo '=== 🛑 這份對帳【證不到】什麼 ==='
@@ -82,3 +128,5 @@ ROLLBACK;
 \echo '  · 它沒有驗 email 格式(本函式刻意不驗, 由 CHECK 擋;錯字的訊息會是約束名 —— 已知)'
 \echo '  · ③ 是字面尺 ⇒ 對「換一種寫錯的方式」失明, 例如把 NULLIF 拼成另一個不存在的名字'
 \echo '  · 它答不出片 E 送過來的形狀對不對 —— 那要等 E 上線後另外量'
+\echo '  · 它【不驗 PostgREST 快取重載了沒】—— 那一格 SQL 這一側看不到, 要打真的 API 才知道'
+\echo '  · ⑥ 的 P858B 是【錯誤碼】不是文案;錯誤訊息換了字它照樣過, 而那是刻意的'

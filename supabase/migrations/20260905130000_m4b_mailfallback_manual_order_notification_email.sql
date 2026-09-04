@@ -73,6 +73,11 @@
 --    `230000`(斷言紅了, 而壞版本已經寫進去)。
 -- ⇒ ⇒ 📌 **我寫 §1 時想的是「換形狀的兩個代價」(ACL 與 COMMENT), 而漏了【中間那個窗口】** ——
 --    前兩個是「東西掉了」, 這一個是「東西掉了而且沒有東西會把它放回來」。
+-- 🛑🛑 **操作提醒(codex finding 7)**:Sean 用 Supabase SQL Editor 貼。
+--    ⇒ **請把【整支檔一次貼進去按一次 Run】, 不要逐段按。**
+--    逐段按的話 `BEGIN;` 之後那個交易會一直開著等下一段, 中途停下來 = **長時間抱著鎖**
+--    (本檔 DROP 的是後台建單那支函式 ⇒ 抱鎖期間建單會卡住)。
+--    🔵 而 Supabase 官方的 `BEGIN … ROLLBACK` 範例也是**整塊一次執行**的用法。
 BEGIN;
 
 -- ═══ §5 前置閘:確認我要 DROP 的那一支【真的在】,而 11 參那支【還不在】 ═══
@@ -89,6 +94,14 @@ DECLARE
 BEGIN
   IF v_old IS NULL THEN
     RAISE EXCEPTION '片D 前置閘:找不到 10 參那一代 —— 這台庫上的 admin_create_manual_order 不是我以為的形狀, 停下人工對齊';
+  END IF;
+  -- 🔴🔴 **簽章相同 ≠ 同一代**(codex 2026-09-05 finding 6):第 1~4 代**簽章逐字相同**
+  --    (2/3/4 代都走 `CREATE OR REPLACE`)⇒ 只認簽章的閘, 在正式庫**停在第 1 代**時照樣放行,
+  --    而本檔的函式體是從第 4 代抄的 ⇒ 🛑 **會把第 2/3/4 代的改動【靜默夾帶】上去。**
+  --    ⇒ 📌 一個看起來很嚴謹的閘, 對「它不是我以為的那一版」這個問題**完全失明**。
+  -- ✅ 判準用第 4 代獨有的字面:`v_invoice_requested`(實測 gen3 命中 0 / gen4 命中 8)。
+  IF pg_catalog.strpos(pg_catalog.pg_get_functiondef(v_old), 'v_invoice_requested') = 0 THEN
+    RAISE EXCEPTION '片D 前置閘:這台庫上的 admin_create_manual_order 不含 v_invoice_requested ⇒ 它不是第 4 代(20260904251500)。本檔的函式體是從第 4 代抄的, 貼上去會靜默夾帶中間幾代的改動 ⇒ 停下人工對齊';
   END IF;
   IF v_new IS NOT NULL THEN
     RAISE EXCEPTION '片D 前置閘:11 參那一代【已經存在】—— 本檔貼過了, 或有人先建了一支多載, 停下人工對齊';
@@ -841,6 +854,21 @@ BEGIN
   --    而我第一版把 ACL 斷言寫成兩行 inline ⇒ 可授權物件 1 個、清單列了 0 個 ⇒ **閘擋下我**。
   --    ⇒ 📌 **兩種寫法都會在今天叫, 而只有制式那種會在【下一個人加第二個物件時】叫。**
 
+  -- ⑥ 🔴 **參數【名字】與 DEFAULT 也要釘**(codex finding 4):
+  --    改錯參數名或拿掉 `DEFAULT NULL`, 上面每一道都照過 ——
+  --    而 PostgREST 是**具名呼叫**(`{p_notification_email: …}`)⇒ 名字錯 = 片 E 直接壞;
+  --    拿掉 DEFAULT = 舊的十參呼叫端全壞。**兩種都不是 catalog 形狀答得出來的。**
+  SELECT pg_catalog.string_agg(a, ',' ORDER BY o) INTO v_bad
+    FROM pg_catalog.unnest(
+           (SELECT p.proargnames FROM pg_catalog.pg_proc p WHERE p.oid = v_new)
+         ) WITH ORDINALITY AS t(a, o);
+  IF v_bad IS DISTINCT FROM 'p_customer_user_id,p_manual_request_id,p_actor,p_order_source,p_payment_channel,p_shipping_method,p_ship_to,p_invoice,p_shipping_fee,p_lines,p_notification_email' THEN
+    RAISE EXCEPTION '片D 斷言⑥失敗:參數名字串是 [%] —— 與預期不符(PostgREST 走具名呼叫, 名字錯 = 片 E 直接壞)', v_bad;
+  END IF;
+  IF (SELECT p.pronargdefaults FROM pg_catalog.pg_proc p WHERE p.oid = v_new) <> 1 THEN
+    RAISE EXCEPTION '片D 斷言⑥失敗:預設值個數不是 1 —— 少了 DEFAULT NULL, 舊的十參呼叫端會全壞';
+  END IF;
+
   -- ⑤ 🔴 `COMMENT` 回來了沒(§6b)—— DROP 帶走的第二樣東西。
   --    🛑 沒有這一格的話, comment 掉了【零訊號】:函式跑得動、ACL 對、三綠全綠。
   IF pg_catalog.obj_description(v_new, 'pg_proc') IS NULL THEN
@@ -883,6 +911,15 @@ BEGIN
 END
 $grant_assert$;
 
+-- 🔵 **codex finding 9(`SET ROLE` 繞道)—— 本檔【不改】, 而理由要寫出來, 不是略過**:
+--    它說收權斷言只驗直接權限, 沒排除 `anon/authenticated` 經 `SET ROLE` 切到有 EXECUTE 的角色。
+--    ⇒ 那是**真的**, 而它是**全 repo 共用的那一塊**, 不是本片新增的洞:
+--      本檔這個區塊逐字沿用 `20260902030000:207-226` 的制式形狀, 而 `service_role` 帶
+--      `BYPASSRLS` 這件事整個 repo 都建在它上面。
+--    🛑 **在一支換簽章的 migration 裡自創一個更嚴的授權模型 ⇒ 它會與其他 40 支不一致,
+--       而不一致本身就是下一個洞。** ⇒ 已知、接受、不在本片處理;
+--       正本在 `docs/patterns/revoking-function-execute-in-supabase.md`。
+--
 -- ═══ §7b 🔴🔴 上面那五道斷言【證不到什麼】—— 而這一節比它們重要 ═══
 --
 -- 五道全是 **catalog 形狀**(to_regprocedure / count / has_function_privilege / obj_description)
@@ -912,6 +949,9 @@ $grant_assert$;
 
 -- ═══ §8 Rollback ═══
 --   ⛔ **不是 `git revert`** —— 這是 DB 狀態,不是檔案。
+--   🔴 **整套 rollback 也要包在單一 `BEGIN; … COMMIT;` 裡, 並在 COMMIT 前送一次
+--      `NOTIFY pgrst, 'reload schema';`**(codex findings 10)—— 理由與 §4b/§7d 逐字相同:
+--      DROP 與 CREATE 之間一樣有那個窗口, 而 API 快取一樣會停在新簽章。
 --   步驟(逐字):
 --     0. 🔴 **先確認片 E 沒有部署 / 或先把它退回**(code-reviewer nit 7)——
 --        §4 只寫了【前進】的順序。回退時若 E 已上線, 一 DROP 掉 11 參那支,
@@ -928,5 +968,22 @@ $grant_assert$;
 --   🛑 **而回退【不會】回退已經寫進 `orders.notification_email` 的值** ——
 --      那些列是資料不是結構。要清的話單獨評估, **本檔不提供 UPDATE**:
 --      刪錯的代價是一封該寄的信永遠不寄, 而沒有東西會叫。
+--   🔴 **而回退之後還有一個【不會自己消失】的後果**(codex finding 11):
+--      本檔 apply 期間建立的那些單, `manual_request_payload_sha256` 是用**含 email 鍵**的指紋算的
+--      ⇒ 回到第 4 代之後, 拿同一把冪等鍵原樣重送那些單 ⇒ **恆判 `P858B`(同鍵不同內容)**。
+--      ⚠️ 這與 §2 那段講的是**同一個機制、相反的方向**, 兩邊都要看。
+--      ✅ 今天的代價實測 0 人(`manual_*` 訂單 0 張, 線 `-mail` 2026-09-05 唯讀查),
+--         而 **apply 之後就不再是 0** ⇒ 📌 **回退的成本會隨時間長大, 而沒有東西會提醒你。**
+
+-- ═══ §7d 🔴🔴 PostgREST schema cache —— codex finding 8, 我完全漏了這一格 ═══
+--
+-- **簽章變了, 而 PostgREST 快取的是舊的那一份。** 快取沒重載 ⇒ 片 E 送 11 個具名參數
+-- ⇒ `PGRST202`(找不到那支函式)⇒ 🔴 **後台建單壞, 而 DB 這一側每一道斷言都是綠的。**
+-- 📌 **⇒ 這是本檔第三次撞到同一個形狀**:①`pg_catalog.nullif` ②五道 catalog 斷言 ③這一格 ——
+--    **DB 裡對, 不等於呼叫端叫得動。**
+-- ✅ 本 repo 既有慣例, 逐字抄:`20260719120000_m4a_b2_create_order_notification_email.sql:521-523`
+--    「不只依賴 pgrst_ddl_watch / pgrst_drop_watch, 顯式再送一次。
+--      NOTIFY 於 COMMIT 才送達 → 快取在新函式可見之後才重載, 順序天然正確。」
+NOTIFY pgrst, 'reload schema';
 
 COMMIT;
