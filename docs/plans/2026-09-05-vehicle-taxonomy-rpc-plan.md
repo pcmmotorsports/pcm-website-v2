@@ -1,0 +1,107 @@
+# Plan · 車款清單改成一支聚合 RPC(`⟦search-VEHTAXSLOW⟧` 乙案)
+
+> 線【身分】`-auth` · 2026-09-05 · **鐵則 8 + 12③(新 DB 物件)⇒ codex 審 → Sean 批 → Sean 貼**
+> **本檔只到 plan。** 病因與現況見板列 `⟦search-VEHTAXSLOW⟧`。
+
+## 0. 要解的是什麼(一句)
+
+`getVehicleTaxonomyCached` 今天要打 **13 次往返**(12,053 列 ÷ 1000)⇒ 冷 **11.8–12.6 秒**。
+`b4362447d` 已改成分批併行(一批 4 頁)⇒ **13 次沒有變少, 只是不再排隊**。
+🎯 **本案要的是【一次往返】** —— 而它順帶讓分頁準則 ⑤⑥ 變成**不適用**(沒有翻頁就沒有翻頁途中被寫入)。
+
+## 1. 回什麼形狀 —— **量過的, 不是挑的**
+
+正式庫唯讀實測(2026-09-05,`octet_length(...::text)`):
+```
+現況 原始 12,053 列                        482,951 bytes
+甲  巢狀 JSON(品牌 → 車款 → 年份區間)     409,813 bytes   ← 只小 15%
+乙  兩張扁表(品牌 675 + 車款 113,115)     113,790 bytes   ← 小 4.2 倍
+```
+🛑 **而乙【不是等價的】**:它**丟掉年份**,而 `MockMotoModel.years` 是**年份下拉的資料來源**
+(`mock-moto-brands.ts:13-16`;`vehicle-taxonomy.ts` 把區間展開成 `years: number[]`)
+⇒ 📌 **選乙 = 年份下拉要另一支查詢或改設計 ⇒ 那不是效能優化, 是功能改動。**
+
+✅ **推甲(巢狀 JSON)** —— 行為逐格不變, 而**真正的收益不在 bytes, 在「13 次往返 → 1 次」**。
+⚠️ **而 410 KB 不小**:它每次冷抓都要傳。**沒有量過它在 Vercel↔Supabase 之間要多久** ⇒ 見 §7。
+
+## 2. 物件與權限
+
+```sql
+CREATE FUNCTION public.vehicle_taxonomy_agg() RETURNS jsonb
+LANGUAGE sql STABLE
+SECURITY INVOKER          -- 🔴 不是 DEFINER
+SET search_path = ''
+```
+🔴 **為什麼是 INVOKER**:它只讀 `public.vehicle_taxonomy_public`,而**那支 view `anon` 本來就讀得到**
+(顧客站今天就是用 anon client 直接 select 它)⇒ **沒有任何需要提權的地方**。
+🛑 **而 DEFINER 會【擴大】射程** —— 那正是 `revoking-function-execute-in-supabase.md` 記的那一族病:
+一個不需要提權的東西掛上 DEFINER,日後有人改它的 body 就變成一條繞過 RLS 的路。
+```sql
+REVOKE ALL ON FUNCTION public.vehicle_taxonomy_agg() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.vehicle_taxonomy_agg() FROM authenticated;
+REVOKE ALL ON FUNCTION public.vehicle_taxonomy_agg() FROM service_role;
+GRANT EXECUTE ON FUNCTION public.vehicle_taxonomy_agg() TO anon;
+```
+⚠️ **新物件出生就對 PUBLIC 開 EXECUTE ⇒ 先收再給**(本 repo 記過的坑)。
+
+## 3. 事後閘(fail-closed,整檔 ROLLBACK)
+
+```
+① 函式在, 且 prosecdef = false(是 INVOKER)、proconfig 含 search_path=""
+② anon 有 EXECUTE;authenticated / service_role 【沒有】  ← 正反兩向都要
+③ 🔴 內容對帳:SELECT jsonb_array_length(vehicle_taxonomy_agg()) = 67(品牌數)
+   而**車款總數也要對** —— 展開之後 = 3,779
+   🛑 少了這一格, 一支回 `'[]'::jsonb` 的函式會通過①②
+④ 🔵 反向對照:那兩個數【不是寫死的】—— 同一發 migration 裡從 view 現算一次再比,
+   否則型錄一變就永遠紅(而那會讓人把閘關掉)
+```
+
+## 4. app 端
+
+```
+getVehicleTaxonomyCached 的 body 換成一次 rpc('vehicle_taxonomy_agg')
+· 分頁迴圈、PAGE_SIZE / BATCH / MAX_PAGES 整段刪掉
+· [vehicleTaxonomy] cold 那一行【留著】(改印 bytes / ms)—— 它是冷暖判準
+· 回來的 jsonb 要餵進既有的 buildVehicleTaxonomy 之前先轉成 fitments 陣列
+  🛑 或者讓 RPC 直接回 buildVehicleTaxonomy 的輸出形狀 —— **而那把「怎麼展開年份」搬進 DB**,
+     那是**兩份實作**(TS 一份、SQL 一份)⇒ 🔴 **不做**。RPC 只回原始三元組的聚合。
+```
+
+## 5. 回歸測試分母(七個入口)
+
+```
+apps/storefront/src/lib/products-vehicle-taxonomy.test.ts   ← 主要, 那 13 格
+apps/storefront/src/app/page.test.tsx                       首頁
+apps/storefront/src/app/products/page.test.tsx              /products
+apps/storefront/src/app/account/page.test.tsx               /account
+apps/storefront/src/app/account/vehicle/actions.test.ts     車輛設定
+apps/storefront/src/app/api/catalog/facet-counts/route.test.ts
+apps/storefront/src/components/ProductsPage.test.tsx
+🔴 而 /cart 與 PDP 的測試我【還沒查有沒有】⇒ 寫 migration 之前要補這一格
+```
+
+## 6. Rollback
+
+```
+DROP FUNCTION IF EXISTS public.vehicle_taxonomy_agg();
++ app 端 revert 一顆(分頁迴圈整段回來)
+🔵 零資料寫入、零 schema 改動 ⇒ 是可逆的
+🛑 而【部署順序】:函式要先貼, TS 才能上 —— 反過來每一發都 404 退回舊路… 
+   ⚠️ **而這裡沒有舊路** ⇒ 反過來會是【車款下拉整個空掉】。**這一格比搜尋那支嚴重。**
+```
+
+## 7. codex 要審什麼(12③)
+
+```
+· INVOKER 那個選擇對不對(有沒有我沒看到的提權需求)
+· 事後閘③④ 的對帳夠不夠(回 '[]' / 回一半 / 年份掉了 四個世界)
+· 410 KB 的 jsonb 一次回傳:PostgREST 有沒有大小上限?壓縮?超時?
+  🔴 **這一格我完全沒量** —— 只量了 bytes, 沒量【傳它要多久】
+· 部署順序那格(沒有舊路可退)
+```
+
+## 8. 這份證不到什麼
+
+- **沒有量過那支 RPC 會多快** —— 全篇唯一的效能主張是「13 次往返 → 1 次」,**那是結構,不是量測**。
+- **410 KB 的傳輸時間沒量** ⇒ 有可能一次往返傳 410 KB 比 13 次小往返還慢。**要先量再寫 migration。**
+- 兩個數(67 / 3,779)是**今天型錄的性質**,不是約束。
