@@ -21,6 +21,7 @@
 // 「已享店家經銷價」/ general →「一般會員價(升級需聯絡客服)」(用 schemaTierToDesign 收斂)。
 
 import { schemaTierToDesign } from '@pcm/domain';
+import { SOCIAL_URLS } from '@/lib/site-config';
 import type { MemberTier, OrderListItem } from '@pcm/domain';
 import { TierBadge } from '@/components/TierBadge';
 import { ProductRail } from '@/components/ProductRail';
@@ -63,6 +64,24 @@ function tierSubLabel(tier: MemberTier): string {
   return '一般會員價(升級需聯絡客服)';
 }
 
+/**
+ * ⟦b4-DEALERSIGNUPUNSEEN⟧:「升級需聯絡客服」那句話**沒有給他一條路**。
+ * 🔬 2026-09-04 本機真瀏覽器實測:那句**本身不是連結, 而且它那一塊裡零連結**;
+ *    唯一的「聯絡客服」在**頁尾**。⇒ 📌 叫他做一件事, 而做那件事的入口在別的地方。
+ * 🔴 **網址【不自己發明】** —— 用**同一顆 `SOCIAL_URLS.line`**, 與頁尾那顆是同一個常數。
+ *    `HomeFooter.tsx` 檔頭逐字警告過:換帳號要兩個地方一起改, **而現在沒有東西會提醒你**
+ *    ⇒ 📌 **接同一個常數就沒有第二個地方要改** —— 那是修法, 不是紀律。
+ * 🔵 `target` / `rel` 逐字抄頁尾那顆(`HomeFooter.tsx` 的 `聯絡客服` 那一行)。
+ */
+function TierUpgradeHint({ tier }: { tier: MemberTier }) {
+  if (schemaTierToDesign(tier) !== 'general') return null;
+  return (
+    <a className="acc-tier-contact" href={SOCIAL_URLS.line} target="_blank" rel="noopener noreferrer">
+      用 LINE 聯絡客服升級 →
+    </a>
+  );
+}
+
 export function OverviewTab({
   stats,
   featured,
@@ -88,6 +107,7 @@ export function OverviewTab({
             <TierBadge tier={stats.tier} size="lg" />
           </div>
           <div className="acc-stat-sub">{tierSubLabel(stats.tier)}</div>
+          <TierUpgradeHint tier={stats.tier} />
         </div>
         <div className="acc-stat">
           <div className="ap-mono">Stored value</div>
