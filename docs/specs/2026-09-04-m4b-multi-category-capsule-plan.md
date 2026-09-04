@@ -101,7 +101,47 @@ AND (p_categories IS NULL OR cardinality(p_categories) = 0
 🛑 **順序反過來 ⇒ `PGRST202` 打死整條搜尋**(找不到那個簽章)。
 🔴 **而「唯讀」與「apply」是兩個授權, Sean 只給了唯讀** ⇒ **本窗不得 apply, 只能把 SQL 交出去。**
 ✅ **貼完要驗的不是「他說成功了」** —— 是唯讀連線讀 `pg_get_functiondef` 看新簽章在不在(帶正負對照)。
-🔵 **相容做法(建議)**:新參數用 `DEFAULT NULL` **並保留舊的 `p_category`** ⇒ ①③ 之間那段時間兩邊都活得下去, 順序陷阱就不再是懸崖。⚠️ 代價:多一個要在下一片刪掉的參數, 而**「下一片會刪」這種話最會過期** ⇒ 要開一列板。
+### 🔴🔴 [2026-09-04 訂正 —— 我原本寫的相容做法在 Postgres 層是錯的]
+
+⛔ ~~**相容做法(建議)**:新參數用 `DEFAULT NULL` 並保留舊的 `p_category`~~ **⇒ 作廢。**
+
+🔬 **repo 裡今天就有人量過同一件事**(線【信】`-mail`, `supabase/migrations/20260904020000_m4b_create_order_payment_channel.sql:14-40`):
+- **`CREATE OR REPLACE` 改不了參數列** —— 加一個參數是**新增一支多載**, 不是取代 ⇒ 新舊兩支並存。
+- 🔴 **而新參數若給 `DEFAULT`, 兩支都吃得下同一組名字** ⇒ 實測回
+  `PGRST203 Could not choose the best candidate function between: …`
+- ✅ **正確形狀:新參數【刻意不給 DEFAULT】** —— 那是承重的不是風格。
+  🎯 **分辨器不是參數個數(會重疊), 是【名字集合】**:舊那支沒有這個名字, 新那支它必填
+  ⇒ **兩邊各自被一個必填的名字釘死。**
+
+✅ **⇒ 本片照抄那個三步形狀**(而每一步單獨都安全):
+```
+A 本片的 migration:CREATE 帶 p_categories text[](🔴 不給 DEFAULT)那支 ⇒ 兩支並存
+  ⇒ 線上的 TS 送的名字裡沒有 p_categories ⇒ 精準命中舊那支 ⇒ 零影響
+  🔴 貼完立刻 NOTIFY pgrst, 'reload schema';  ← 少了它, B 上線後【第一筆】才炸 PGRST202
+B 部署 TS:名字裡加 p_categories ⇒ 精準命中新那支 ⇒ 零影響
+C 另一支 migration:DROP 舊簽章 ⇒ 此時已無人呼叫
+```
+🎯 **⇒ 三步之間任何一個時刻都只有一個唯一解 —— 不是祈禱, 是結構保證。**
+
+⚠️ **而那個實測的射程要照搬, 不要洗白**(原文逐字):量的是 **PostgREST 14.16 + 本機 PG 17.10**,
+而正式站是 **Supabase 的版本** ⇒ 🛑 **「正式站也一樣」是【推的】, 不是量到的。**
+
+⚠️ **代價**:C 那一步(DROP 舊簽章)**要另一支 migration, 而那又要 Sean 貼**
+⇒ **「下一片會刪」這種話最會過期** ⇒ ✅ **要開一列板**(`⟦search-DROPOLDCATSIG⟧`)。
+
+### 🔬 而【正式庫現在跑哪一代】我量了, 不是查帳本
+`latest-definition-of.sh` 說 repo 最後兩代 `20260827150000` / `20260827180000` **帳本都未記** ——
+🛑 而今天證過**帳本無紀錄 ≠ 沒貼**(`⟦01-LEDGERFALSENEG⟧`)⇒ **不能拿它推**。
+✅ **唯讀正式庫實測**(`pg_get_functiondef`):`c_recommend_band_lo` ⇒ **t**(150000 的特徵)·
+`維修零件` ⇒ **t**(180000 的特徵)· 正對照 `p_brand_slugs` ⇒ **t** · 負對照現造字面 ⇒ **f**。
+🎯 **⇒ 正式庫跑的就是 `20260827180000`(repo 最新那一代), 帳本只是沒記。**
+📌 **⇒ 所以本片的 `CREATE` 要以 `20260827180000` 的內容為底。** 而**這一格若沒量,
+我會在一個不確定的底上疊東西, 而三綠不會叫。**
+
+**今天的簽章(唯讀實測, 11 個參數)**:
+`p_brand text, p_model text, p_year integer, p_offset integer, p_limit integer, p_sort text,
+ p_category text, p_brand_slugs text[], p_price_min integer, p_price_max integer,
+ p_new_since timestamp with time zone`
 
 ---
 
