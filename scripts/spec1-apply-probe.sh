@@ -104,7 +104,7 @@ CALL(){
     "'11111111-1111-1111-1111-111111111111'::uuid, gen_random_uuid(), 'probe'," \
     "'manual_phone', 'bank_transfer', 'home'," \
     "'{\"name\":\"A\",\"phone\":\"0900000000\",\"line\":\"x\"}'::jsonb," \
-    "'{\"type\":\"personal\"}'::jsonb, 0," \
+    "'{\"type\":\"personal\",\"requested\":true}'::jsonb, 0," \
     "'$1'::jsonb);" > "$D/call.sql"
   psql -h 127.0.0.1 -p $PORT -U postgres -tA -f "$D/call.sql" >> "$D/calls.log" 2>&1
 }

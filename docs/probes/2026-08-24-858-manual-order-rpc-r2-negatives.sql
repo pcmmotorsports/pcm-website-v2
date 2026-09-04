@@ -3,7 +3,9 @@
 \pset pager off
 SET client_min_messages = warning;
 
-CREATE OR REPLACE FUNCTION pg_temp.mk2(p_lines jsonb, p_key uuid, p_invoice jsonb DEFAULT '{"type":"personal"}'::jsonb)
+-- 🔴 第④代(20260904251500)起 `p_invoice.requested` 是**必填** ⇒ 預設值要帶它,
+--    否則本檔每一格都會提早撞在那道閘上, 而它們量的是別的東西。
+CREATE OR REPLACE FUNCTION pg_temp.mk2(p_lines jsonb, p_key uuid, p_invoice jsonb DEFAULT '{"type":"personal","requested":true}'::jsonb)
 RETURNS text LANGUAGE plpgsql AS $$
 DECLARE r jsonb; v_state text; v_con text;
 BEGIN
@@ -32,7 +34,7 @@ SELECT 'R2-1a 同鍵、品項【換順序】(期望 IDEMPOTENT)' AS t,
   pg_temp.mk2(jsonb_build_array(pg_temp.ln('X2',2,200), pg_temp.ln('X1',1,100)), 'dddd0001-0000-0000-0000-000000000001') AS r;
 SELECT 'R2-1b 同鍵、發票載具多空白(期望 IDEMPOTENT)' AS t,
   pg_temp.mk2(jsonb_build_array(pg_temp.ln('X1',1,100), pg_temp.ln('X2',2,200)), 'dddd0001-0000-0000-0000-000000000001',
-              '{"type":"personal","carrier":"   "}'::jsonb) AS r;
+              '{"type":"personal","carrier":"   ","requested":true}'::jsonb) AS r;
 SELECT 'R2-1c 同鍵、品名前後多空白(期望 IDEMPOTENT)' AS t,
   pg_temp.mk2(jsonb_build_array(pg_temp.ln('X1',1,100,'  品名-X1  '), pg_temp.ln('X2',2,200)), 'dddd0001-0000-0000-0000-000000000001') AS r;
 SELECT 'R2-1d 同鍵、規格值多空白(先建帶規格的基準)' AS t,
