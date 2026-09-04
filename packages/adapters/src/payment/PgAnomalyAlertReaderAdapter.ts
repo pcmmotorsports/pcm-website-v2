@@ -654,6 +654,8 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
   async getStuckBankOrdersHealth(): Promise<{
     readonly stuckCount: number;
     readonly oldestCreated: string | null;
+    readonly overpaidCount: number;
+    readonly overpaidOldest: string | null;
   } | null> {
     return this.run(async (client) => {
       let raw: unknown;
@@ -690,24 +692,42 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
           `${RPC_STUCK_BANK_HEALTH} measured 不是 true(實得 ${String(bag.measured)})⇒ 那支 RPC 沒有真的量到`,
         );
       }
-      if (typeof bag.stuck_count !== 'number' || !Number.isInteger(bag.stuck_count) || bag.stuck_count < 0) {
-        throw new AnomalyAlertReaderParseError(`${RPC_STUCK_BANK_HEALTH} stuck_count 異常`);
-      }
-      const oldest = bag.oldest_created ?? null;
-      if (oldest !== null && typeof oldest !== 'string') {
-        throw new AnomalyAlertReaderParseError(`${RPC_STUCK_BANK_HEALTH} oldest_created 異常`);
-      }
-      if (oldest !== null && Number.isNaN(new Date(oldest).getTime())) {
-        throw new AnomalyAlertReaderParseError(`${RPC_STUCK_BANK_HEALTH} oldest_created 不是合法時刻`);
-      }
-      // 🔴 **兩者要一致** —— count>0 而沒有最早時刻, 或 count=0 而有時刻, 都表示那支 RPC 壞了。
-      //    ⇒ 📌 一份自己前後矛盾的資料, 比一份缺資料危險:它讀起來是完整的。
-      if ((bag.stuck_count > 0) !== (oldest !== null)) {
-        throw new AnomalyAlertReaderParseError(
-          `${RPC_STUCK_BANK_HEALTH} stuck_count 與 oldest_created 不一致(count=${bag.stuck_count}, oldest=${String(oldest)})`,
-        );
-      }
-      return { stuckCount: bag.stuck_count, oldestCreated: oldest };
+      /**
+       * 🔵 **兩個世界共用同一組檢查** —— 抽成具名函式而不是複製第二份。
+       *    🔬 理由是量出來的形狀:本 repo 記過「一格叫突變的測試若把判準重打一份,
+       *      改生產碼它不會紅」⇒ 同一個道理反過來 —— **複製一份檢查, 兩份會各自漂**,
+       *      而漂掉的那一半在 diff 上與「本來就這樣」長得一樣。
+       * 🔴 世界 A = 仍 unpaid(`stuck_*`)· 世界 B = 已付款而多收(`overpaid_*`)。
+       */
+      const readPair = (countKey: string, oldestKey: string): { count: number; oldest: string | null } => {
+        const c = bag[countKey];
+        if (typeof c !== 'number' || !Number.isInteger(c) || c < 0) {
+          throw new AnomalyAlertReaderParseError(`${RPC_STUCK_BANK_HEALTH} ${countKey} 異常`);
+        }
+        const o = bag[oldestKey] ?? null;
+        if (o !== null && typeof o !== 'string') {
+          throw new AnomalyAlertReaderParseError(`${RPC_STUCK_BANK_HEALTH} ${oldestKey} 異常`);
+        }
+        if (o !== null && Number.isNaN(new Date(o).getTime())) {
+          throw new AnomalyAlertReaderParseError(`${RPC_STUCK_BANK_HEALTH} ${oldestKey} 不是合法時刻`);
+        }
+        // 🔴 **兩者要一致** —— count>0 而沒有最早時刻, 或 count=0 而有時刻, 都表示那支 RPC 壞了。
+        //    ⇒ 📌 一份自己前後矛盾的資料, 比一份缺資料危險:它讀起來是完整的。
+        if ((c > 0) !== (o !== null)) {
+          throw new AnomalyAlertReaderParseError(
+            `${RPC_STUCK_BANK_HEALTH} ${countKey} 與 ${oldestKey} 不一致(count=${c}, oldest=${String(o)})`,
+          );
+        }
+        return { count: c, oldest: o };
+      };
+      const a = readPair('stuck_count', 'oldest_created');
+      const b = readPair('overpaid_count', 'overpaid_oldest');
+      return {
+        stuckCount: a.count,
+        oldestCreated: a.oldest,
+        overpaidCount: b.count,
+        overpaidOldest: b.oldest,
+      };
     });
   }
 

@@ -135,6 +135,14 @@ export type CheckAnomalyAlertsResult = {
    */
   stuckBankCount: number;
   stuckBankOldestCreated: string | null;
+  /**
+   * ⟦b4-PAIDTHENOVERPAID⟧ **第二個世界**(主視窗 2026-09-05 `Q1=乙`)——
+   * 已 `paid` / `partiallyPaid` 而**收到的比該收的多**。
+   * 🛑 **與 `stuckBankCount` 分開, 不合成一個數** —— 兩個世界要打不同的電話:
+   *   A 的客人**畫面還在叫他匯款**(急);B 的客人畫面正常, **而我們欠他錢**(要退)。
+   */
+  stuckBankOverpaidCount: number;
+  stuckBankOverpaidOldest: string | null;
   stuckBankUnknown: boolean;
   /**
    * 🔴 **`stuckBankUnknown` 的兩個成因各有出口**(codex R1 must-fix ④)。
@@ -557,7 +565,12 @@ export function buildAnomalyAlertMessage(
    * 🛑 **`count === 0` ⇒ 不命中零字。**
    * 🔵 `oldestCreated` 讓收信的人知道**積了多久** —— 而它零 PII、零金額、零單號。
    */
-  stuckBank: { readonly count: number; readonly oldestCreated: string | null },
+  stuckBank: {
+    readonly count: number;
+    readonly oldestCreated: string | null;
+    readonly overpaidCount: number;
+    readonly overpaidOldest: string | null;
+  },
 ): AnomalyAlertMessage {
   // 🔴 `Math.round(秒/3600)` 會把 5400 秒(90 分)講成「2 小時」= **報一個錯的門檻給收信人**
   //    (codex R2 nit)。正式路徑目前固定 86400,所以今天走不到 —— 而那不是不修的理由:
@@ -1049,6 +1062,32 @@ export function buildAnomalyAlertMessage(
       '   🛑 而後台目前**沒有一個畫面在列這些單** ⇒ 要查請找施工窗(板列 ⟦b4-NEEDSHUMANNOWATCHER⟧)。',
     );
   }
+  /**
+   * 🔴🔴 **第二個世界:已付款而多匯**(⟦b4-PAIDTHENOVERPAID⟧, 主視窗 2026-09-05)。
+   * 🛑 **與上面那一段【各講各的話】, 不共用文案** —— 那不是排版偏好:
+   *    A 的客人**畫面還在叫他匯款** ⇒ 下一步是「趕快聯絡他, 免得他又匯」;
+   *    B 的客人**畫面正常** ⇒ 下一步是「我們欠他錢, 要退」。
+   *    ⇒ 📌 **合成一句的話, 客服讀完不知道該打哪一種電話。**
+   * 🔵 語氣照上面那一段(【標題】+ 一行事實 + 一行「⇒ 下一步」), 不自創格式。
+   */
+  const stuckBankOverpaidBlock: string[] = [];
+  if (stuckBank.overpaidCount > 0) {
+    stuckBankOverpaidBlock.push(
+      '【匯款單多收了錢】',
+      `🔵 ${stuckBank.overpaidCount} 張匯款單**已經記成付款完成**, 而收到的錢**比該收的多**。`,
+      '   ⇒ 那些客人的畫面是正常的 —— 🔴 **他們不會知道, 而我們欠他們錢。**',
+      '   ⇒ 這一格是**客服要看的** —— 請主動聯絡並安排退款, 不要等他們發現。',
+    );
+    if (stuckBank.overpaidOldest !== null) {
+      stuckBankOverpaidBlock.push(
+        `   ⚠️ 最早那一張是 ${stuckBank.overpaidOldest} 建立的 —— 這件事已經積了一段時間。`,
+      );
+    }
+    stuckBankOverpaidBlock.push(
+      '   🛑 後台一樣**沒有畫面在列這些單**;而這個數字**可能少報** ——',
+      '      它用訂單總額當預篩, 而有退款的單那個總額不會跟著變(板列 ⟦b4-PAIDTHENOVERPAID⟧)。',
+    );
+  }
 
   const heartbeatBlock: string[] = [];
   if ((summary.cronHeartbeatAbnormalCount ?? 0) > 0) {
@@ -1105,7 +1144,7 @@ export function buildAnomalyAlertMessage(
   //    而**沒有加進這個陣列的話, 那段永遠不會出現在信裡**, 且測試會全綠。
   //    ⇒ 📌 「算出來了」「寫進信裡了」「會讓信寄出去」是三個宣稱(線【資料】`-db` 2026-09-05
   //      主動告知它上一片就漏了第三個)⇒ 本片三個接點:此處 · shouldAlert · builder 參數。
-  const body = [bypassRlsBlock, searchLogBlock, stuckBankBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
+  const body = [bypassRlsBlock, searchLogBlock, stuckBankBlock, stuckBankOverpaidBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
 
   /**
    * 🔴🔴 **結尾三行是【不可截的】,而這不是排版偏好。**
@@ -1366,7 +1405,12 @@ export async function checkAnomalyAlerts(
    *   這裡是【同一個值】, 所以綁得住)。
    */
   // ── ⟦b4-NEEDSHUMANNOWATCHER⟧ 卡住的匯款單 ──────────────────────────────
-  let stuckBank: { readonly stuckCount: number; readonly oldestCreated: string | null } | null = null;
+  let stuckBank: {
+    readonly stuckCount: number;
+    readonly oldestCreated: string | null;
+    readonly overpaidCount: number;
+    readonly overpaidOldest: string | null;
+  } | null = null;
   /**
    * 🔴 與「還沒 apply」分開 —— 兩者都讓 `stuckBank` 是 null, 而下一步不同。
    * ✅ 而**分開那一半在 `result` 上**:`stuckBankUnknown`(兩者皆 true)+ `stuckBankFailed`(只有這格)。
@@ -1388,8 +1432,15 @@ export async function checkAnomalyAlerts(
    */
   const stuckBankCountForMessage = stuckBank?.stuckCount ?? 0;
   const stuckBankOldestForMessage = stuckBank?.oldestCreated ?? null;
-  /** 🔵 `stuckBank` 是 null(沒貼 / 讀失敗)時**不告警** —— 與 anonCanExecute 那格同款。 */
-  const stuckBankAlertForMessage = stuckBankCountForMessage > 0;
+  const stuckBankOverpaidCountForMessage = stuckBank?.overpaidCount ?? 0;
+  const stuckBankOverpaidOldestForMessage = stuckBank?.overpaidOldest ?? null;
+  /**
+   * 🔵 `stuckBank` 是 null(沒貼 / 讀失敗)時**不告警** —— 與 anonCanExecute 那格同款。
+   * 🔴 **兩個世界【任一】有東西就要告警** —— ⛔ 少了 `||` 那半的話,
+   *    「A=0 而 B=3」會安靜地不寄信, 而那三個客人是我們欠他錢的那三個。
+   */
+  const stuckBankAlertForMessage =
+    stuckBankCountForMessage > 0 || stuckBankOverpaidCountForMessage > 0;
 
   const searchLogStaleForMessage =
     searchLog !== null &&
@@ -1652,6 +1703,8 @@ export async function checkAnomalyAlerts(
       {
         count: stuckBankCountForMessage,
         oldestCreated: stuckBankOldestForMessage,
+        overpaidCount: stuckBankOverpaidCountForMessage,
+        overpaidOldest: stuckBankOverpaidOldestForMessage,
       },
     );
     notifiersTotal = deps.notifiers.length;
@@ -1706,6 +1759,8 @@ export async function checkAnomalyAlerts(
     searchLogStale: searchLogStaleForMessage,
     stuckBankCount: stuckBankCountForMessage,
     stuckBankOldestCreated: stuckBankOldestForMessage,
+    stuckBankOverpaidCount: stuckBankOverpaidCountForMessage,
+    stuckBankOverpaidOldest: stuckBankOverpaidOldestForMessage,
     // 🔴 兩種成因都算 Unknown:那支 RPC 還沒貼(回 null)· 讀的時候丟例外(readFailed)
     //    ⇒ 📌 而它們與「真的 0 張」在 `stuckBankCount` 上【都印 0】—— 這一欄就是把它們分開的那一格。
     stuckBankUnknown: stuckBank === null || stuckBankReadFailed,

@@ -478,9 +478,15 @@ describe('本檔自己的分母', () => {
  *   · 它只認 `Unknown` / `Failed` 兩種後綴。🔴 **而那【不是】「repo 只有這兩種」** ——
  *     R4 當場量到同一個型別裡還有四個極性欄位在閘外:
  *     `searchLogTableExists` · `searchLogStale` · `searchLogAnonExecuteRevoked` · `bypassRlsRevoked`。
- *     🛑 其中 `searchLogAnonExecuteRevoked` **在 route.ts 一次都沒出現**(它只經 builder 參數進信)
- *     ⇒ **那條路斷掉時這道閘看不到。** ⇒ 板列 ⟦b4-POLARITYSUFFIXGAP⟧。
- *     ⚠️ **不順手擴大後綴表** —— 那四個是別的線的欄位, 擴進來會當場紅而我沒有它們的上下文。
+ *     ⛔ ~~其中 `searchLogAnonExecuteRevoked` 在 route.ts 一次都沒出現 ⇒ 那條路斷掉時這道閘看不到~~
+ *     🔴 **作廢(2026-09-05, 由那四個欄位的作者線【資料】`-db` 推翻)**:
+ *       route 0 命中是**對的**, 因為兩族語意不同 ——
+ *       `*Failed`/`*Unknown` = **儀器健康** ⇒ route 轉 503;
+ *       `searchLogStale` 那族 = **告警內容 + 觸發** ⇒ 走 `shouldAlert` ⇒ 寄信。
+ *       ⇒ 🎯 **它們走另一條路, 而那條路是通的。擴進來會產生兩筆假指控。**
+ *     📌 **留著這段舊字面的理由**:量測(route 0 命中)是對的, 而**推論的前提沒被檢查** ——
+ *       下一個看到「0 命中」的人會走同一條路。
+ *     ⚠️ **所以這道閘【刻意】只認那兩種後綴** —— 那不是偷懶, 是射程。
  */
 describe('result 的 *Unknown / *Failed 欄位, route 一定要讀', () => {
   const USE_CASE = path.resolve(__dirname, '../../../use-cases/src/check-anomaly-alerts.ts');

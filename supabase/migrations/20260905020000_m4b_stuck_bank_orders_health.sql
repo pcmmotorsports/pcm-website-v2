@@ -51,18 +51,23 @@
 --       ⇒ 🛑 **而它會被逾期 cron 的淨額腿保住(不被取消), 然後永遠停在 unpaid。**
 --       ⇒ 🎯 **⇒ 客人的訂單頁會一直顯示「請匯款」** —— 與本片要解的那個病同一個後果, 而**成因不同**。
 --       ⇒ 📎 已開板列 `⟦b4-SETTLERETRYNEVER⟧`;本片**看不到它**(它的 verdict 是 settled)。
---   · 🔴🔴 **只數 `payment_status = 'unpaid'` ⇒ 【已付款的單被多匯】今天零觀眾**
---     (adversarial-reviewer R3 F6;主視窗 2026-09-05 裁乙:分母維持 unpaid)。
---     ⛔ ~~我原本寫「四個條件全部來自 20260904230000 那兩種 verdict 停下來的地方」~~ **那句與碼不符**:
---     🔬 `20260904230000:215-217` 逐字接受**三種**起始狀態(`unpaid` / `paid` / `partiallyPaid`)。
---     ⇒ 🎯 **失敗情境**:客人第一次匯剛好 ⇒ 翻 `paid`;**他再匯一次**(正是本片文案在講的那件事)
---       ⇒ verdict `overpaid` ⇒ 停在 **`paid`** ⇒ **本片的 `WHERE payment_status='unpaid'` 濾掉它。**
---       ⇒ ⇒ 🔴 **錢多收了, 而沒有人看得到。**
---     🔵 **維持 unpaid 是刻意的**:信的文案講「訂單頁顯示請匯款 + 銀行帳號」,
---       而 `OrderDetailView.tsx:598` 逐字 `!cancelled && bank_transfer && unpaid`
---       ⇒ **分母與文案同集合**;擴分母會讓一封信同時講兩種不同的世界,
---       而**那段文案還沒有人寫**(客服稿 Q6 也只涵蓋 unpaid)。
---     ⇒ 📎 板列 `⟦b4-PAIDTHENOVERPAID⟧`。**代價逐字:已付款的單被多匯今天零觀眾。**
+--   · ⛔ ~~🔴🔴 只數 `payment_status = 'unpaid'` ⇒ 【已付款的單被多匯】今天零觀眾~~
+--     ⛔ ~~🔵 維持 unpaid 是刻意的:信的文案講「訂單頁顯示請匯款 + 銀行帳號」…擴分母會讓一封信
+--        同時講兩種不同的世界, 而那段文案還沒有人寫(客服稿 Q6 也只涵蓋 unpaid)。~~
+--     🔴🔴 **以上兩句 2026-09-05 夜【作廢】** —— 那個缺口**已經補掉了, 而這一節沒跟著改**
+--       (code-reviewer must-fix:檔頭與 `WHERE` 子句、`COMMENT`、板列**四處互相矛盾**)。
+--       📌 **⇒ 而它比一個錯的註解糟**:這一節叫「這一版證不到什麼」——
+--         **讀的人來這裡就是為了知道還缺什麼**, 而它會叫他去做一件已經做完的事。
+--       🛑 **舊字面留刪除線不刪** —— 搜「已付款被多匯 零觀眾」的人要同一發撞到訂正。
+--     ✅ **現況(2026-09-05 夜, 主視窗 `Q1=乙` / `Q2=甲`)**:分母是**三態**
+--       (`unpaid` / `paid` / `partiallyPaid`), 而信裡**兩個世界各講各的話**;
+--       客服稿 §⑤ Q6 已補 **⑵b**(「已經顯示付款完成了, 而他又匯了一次」)。
+--     🔴 **而【仍然證不到】的那一半換了形狀, 不是消失了** ——
+--       B 世界用 `已收淨額 > orders.total` 預篩(純算術, 為了不讓每輪 cron 對
+--       **每一張已付款匯款單**叫一次 OP6a)⇒ **會漏掉「`total` 對不上而 OP6a 判 overpaid」的單**
+--       (有退款的單 `total` 不會變而應收會變)。
+--     ⇒ 📎 板列 `⟦b4-PAIDTHENOVERPAID⟧` **仍然開著**, 而它現在記的是**預篩的代價**,
+--       不是原本那個缺口。裁決逐字:**先做甲, 量到漏的那種再改乙(不預篩)。**
 --   · 🔴 **只數 `bank_transfer`** ⇒ **`cash` 那一類卡住時本片看不到**(codex R1 ② 逼出來的收窄)。
 --     🔵 理由是文案:信裡講「訂單頁顯示銀行帳號」, 而現金單的客人看不到那個畫面。
 --     ⇒ 📌 **現金單卡住是【真的缺口】, 只是它需要另一段文案 —— 而那段文案還沒有人寫。**
@@ -80,8 +85,10 @@ SECURITY DEFINER
 SET search_path = ''
 AS $fn$
 DECLARE
-  v_cnt   integer := 0;
-  v_first timestamptz;
+  v_cnt      integer := 0;     -- 世界 A:仍 unpaid(客人的訂單頁還在說「請匯款」)
+  v_first    timestamptz;
+  v_cnt_op   integer := 0;     -- 世界 B:已付款/部分付款而多收(畫面正常, 而錢多了)
+  v_first_op timestamptz;
 BEGIN
   -- 🔴 **分母先收窄, 再逐列算 verdict** —— OP6a 是 STABLE 呼叫得動, 而它不便宜。
   --    四個條件全部來自 `20260904230000` 那兩種 verdict 停下來的地方:
@@ -91,7 +98,9 @@ BEGIN
   --      ④ 已收淨額 > 0 —— 沒收到錢的單不是本片要找的東西
   --    ⇒ 📌 ④ 同時排掉「客人根本沒匯」那一大類, 那是逾期 cron 的事不是本片的。
   WITH candidate AS (
-    SELECT o.id, o.created_at
+    SELECT o.id, o.created_at, o.payment_status, o.total,
+           (SELECT coalesce(pg_catalog.sum(p.amount), 0)
+              FROM public.order_payments p WHERE p.order_id = o.id) AS received
       FROM public.orders o
      -- 🔴 ⛔ ~~`payment_channel <> 'tappay'`~~ **作廢**(codex R1 must-fix ②):
      --    🔬 值域實測是四個:`('tappay', 'bank_transfer', 'cash', 'none')`
@@ -105,17 +114,50 @@ BEGIN
      --      ⇒ 那是另一格, 已寫進本檔「這一版證不到什麼」。
      WHERE o.payment_channel = 'bank_transfer'
        AND o.cancelled_at IS NULL
-       AND o.payment_status = 'unpaid'::public.payment_status
-       AND (SELECT coalesce(pg_catalog.sum(p.amount), 0)
-              FROM public.order_payments p WHERE p.order_id = o.id) > 0
+       -- 🔴🔴 **三態, 不是一態**(主視窗 2026-09-05 `Q1-分母態=乙`;R4 F6 的板列
+       --    ⟦b4-PAIDTHENOVERPAID⟧ 逐字寫著另外兩態被濾掉)。
+       --    🔬 路徑:客人第一次匯剛好 ⇒ 翻 `paid`;**他再匯一次** ⇒ verdict `overpaid`
+       --      ⇒ 而 230000 對 overpaid **刻意不翻狀態** ⇒ 停在 `paid` ⇒ 舊分母看不到。
+       --      `partiallyPaid` 同型(先短匯 ⇒ 補匯補過頭)。
+       --    ⚠️ `refunded` 【不在】三態裡 —— 那條路的錢已經退了, 不是本片要找的東西。
+       AND o.payment_status = ANY (
+             ARRAY['unpaid', 'paid', 'partiallyPaid']::public.payment_status[])
+  ),
+  -- 🔴🔴 **預篩分兩個世界, 而它是【效能】不是口味**(主視窗 2026-09-05 `Q2=甲`):
+  --    🔬 舊分母只有 `unpaid` ⇒ 那個集合本來就小(卡住的才留在 unpaid)。
+  --    🛑 而加上 `paid` 之後, 「淨額 > 0」對**每一張成功付款的匯款單**都成立
+  --      ⇒ candidate = 史上所有已付款匯款單 ⇒ **每張叫一次 OP6a(七條前提的重函式)**
+  --      ⇒ 📌 這支 RPC 的成本會從 O(卡住的單) 變成 O(所有訂單), 而它掛在每輪 cron 上。
+  --    ✅ 所以已付款那半改用**純算術**預篩:`received > total`(overpaid 的定義就是收得比該收的多)。
+  -- ⚠️⚠️ **這個預篩的代價, 逐字寫出來不藏**:
+  --    它用的是 `orders.total`, 而 OP6a 算的是**它自己那一套**(含退款四面 / 帳本覆蓋 / 品項快照)
+  --    ⇒ 🔴 **兩者可能不一致** ⇒ 會漏掉一種「`total` 對不上, 而 OP6a 判 overpaid」的單。
+  --    ⇒ 📌 **那不是理論** —— 有退款的單 `total` 不會變, 而 OP6a 的應收會變。
+  --    🔵 而主視窗裁的是:**先做甲, 量到漏的那種再改乙(不預篩)** ⇒ 板列 ⟦b4-PAIDTHENOVERPAID⟧ 留了那一句。
+  prefiltered AS (
+    SELECT c.* FROM candidate c
+     WHERE (c.payment_status = 'unpaid'::public.payment_status AND c.received > 0)
+        OR (c.payment_status <> 'unpaid'::public.payment_status AND c.received > c.total)
   ),
   judged AS (
-    SELECT c.id, c.created_at,
+    SELECT c.id, c.created_at, c.payment_status,
            public.admin_compute_order_settlement(c.id) ->> 'verdict' AS verdict
-      FROM candidate c
+      FROM prefiltered c
   )
-  SELECT count(*)::integer, min(created_at)
-    INTO v_cnt, v_first
+  -- 🔵 **兩個世界各自數, 因為信裡要各講各的話** ——
+  --    A:客人的訂單頁還在說「請匯款」⇒ **他會再匯一次** ⇒ 急。
+  --    B:畫面正常, 而錢多收了 ⇒ 不急, 而要退給他。
+  --    📌 合成一個數字的話, 讀信的人分不出該打哪一種電話。
+  SELECT
+    count(*) FILTER (
+      WHERE payment_status = 'unpaid'::public.payment_status)::integer,
+    min(created_at) FILTER (
+      WHERE payment_status = 'unpaid'::public.payment_status),
+    count(*) FILTER (
+      WHERE payment_status <> 'unpaid'::public.payment_status)::integer,
+    min(created_at) FILTER (
+      WHERE payment_status <> 'unpaid'::public.payment_status)
+    INTO v_cnt, v_first, v_cnt_op, v_first_op
     FROM judged
    WHERE verdict IN ('overpaid', 'needs_human');
 
@@ -125,13 +167,17 @@ BEGIN
     'oldest_created', v_first,
     -- 🔴 **第三鍵回 boolean 不回 NULL**(`-db` 2026-09-05 明示的那一格):
     --    NULL 會被下游讀成「沒問題」。⇒ 算得出來就是 true, 而算不出來的世界在上面已經 RAISE 了。
+    -- 🔴 世界 B(已付款/部分付款而多收)—— **新鍵**(R4 F6 + 主視窗 2026-09-05)。
+    --    🛑 鍵名不重用 `stuck_*` —— 兩個世界要打不同的電話, 合成一個數字就分不出來了。
+    'overpaid_count',   v_cnt_op,
+    'overpaid_oldest',  v_first_op,
     'measured',       true
   );
 END
 $fn$;
 
 COMMENT ON FUNCTION public.get_stuck_bank_orders_health() IS
-  'M-4b ⟦b4-NEEDSHUMANNOWATCHER⟧:數「**只有匯款軌**(bank_transfer)+ 未取消 + 仍 unpaid + 已收淨額>0, 而 OP6a 判 overpaid/needs_human」的訂單。'
+  'M-4b ⟦b4-NEEDSHUMANNOWATCHER⟧ + ⟦b4-PAIDTHENOVERPAID⟧:數【兩個世界】的匯款單(皆 bank_transfer + 未取消 + OP6a 判 overpaid/needs_human)。A=仍 unpaid 且已收淨額>0(客人的訂單頁還在說請匯款 ⇒ 他會再匯一次);B=已 paid/partiallyPaid 且已收淨額 > orders.total(畫面正常而錢多收了 ⇒ 要退給他)。'
   '🔴 那兩種是 20260904230000 【刻意不翻狀態】的 —— 錢在庫裡而狀態停在 unpaid ⇒ 客人的訂單頁仍顯示「請匯款」⇒ 他會再匯一次。'
   '回 jsonb 三鍵:stuck_count(整數)· oldest_created(最早那張的建立時刻, 可為 NULL 當 count=0)· measured(恆 true, 不回 NULL —— NULL 會被下游讀成沒問題)。'
   '🔵 零 PII、零金額;**帶不帶單號照 2026-08-19 Sean 本人那次的口徑**(他為了查得到而打開了單號)—— 本函式目前不帶, 要帶要再問他一次。'

@@ -1131,9 +1131,44 @@ describe('⟦b4-NEEDSHUMANNOWATCHER⟧ getStuckBankOrdersHealth — 42883 的兩
   }
 
   it('🟢 正常:回得出 count 與 oldest', async () => {
-    const { client } = stuckClient({ result: { stuck_count: 3, oldest_created: '2026-09-01T10:00:00.000Z', measured: true } });
+    const { client } = stuckClient({ result: { stuck_count: 3, oldest_created: '2026-09-01T10:00:00.000Z', overpaid_count: 0, overpaid_oldest: null, measured: true } });
     const out = await new PgAnomalyAlertReaderAdapter('conn', () => client).getStuckBankOrdersHealth();
-    expect(out).toEqual({ stuckCount: 3, oldestCreated: '2026-09-01T10:00:00.000Z' });
+    expect(out).toEqual({ stuckCount: 3, oldestCreated: '2026-09-01T10:00:00.000Z', overpaidCount: 0, overpaidOldest: null });
+  });
+
+  /**
+   * 🔴🔴 ⟦b4-PAIDTHENOVERPAID⟧ 第二個世界的三格(2026-09-05)。
+   * 🛑 **而這幾格的由來值得寫下來**:我用一發正則把「期望值」批次補上了新的兩欄,
+   *    **而 fixture 那一半沒被同一發改到** ⇒ 上面那格當場紅。
+   *    ⇒ 📌 **一個機械修法可以只改到【一半】, 而它在 diff 上看起來完整。**
+   *    🔵 抓到它的不是我更仔細, 是那一格本來就在跑。
+   */
+  it('🟢 兩個世界都有值 ⇒ 四欄各歸各位(不互相冒充)', async () => {
+    const { client } = stuckClient({ result: {
+      stuck_count: 2, oldest_created: '2026-09-01T10:00:00.000Z',
+      overpaid_count: 5, overpaid_oldest: '2026-09-02T08:00:00.000Z', measured: true } });
+    const out = await new PgAnomalyAlertReaderAdapter('conn', () => client).getStuckBankOrdersHealth();
+    expect(out).toEqual({
+      stuckCount: 2, oldestCreated: '2026-09-01T10:00:00.000Z',
+      overpaidCount: 5, overpaidOldest: '2026-09-02T08:00:00.000Z',
+    });
+  });
+
+  it('🔴 `overpaid_count` 缺鍵 ⇒ **丟**(不得當成 0 —— 那會把「沒量到」讀成「零張」)', async () => {
+    const { client } = stuckClient({ result: { stuck_count: 0, oldest_created: null, overpaid_oldest: null, measured: true } });
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getStuckBankOrdersHealth(),
+    ).rejects.toThrow('overpaid_count');
+  });
+
+  it('🔴 `overpaid_count` 與 `overpaid_oldest` 互相矛盾 ⇒ **丟**', async () => {
+    // 🔵 count=0 而有時刻 ⇒ 那支 RPC 壞了。一份自己前後矛盾的資料讀起來是完整的。
+    const { client } = stuckClient({ result: {
+      stuck_count: 0, oldest_created: null,
+      overpaid_count: 0, overpaid_oldest: '2026-09-02T08:00:00.000Z', measured: true } });
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getStuckBankOrdersHealth(),
+    ).rejects.toThrow('不一致');
   });
 
   it('🔵 世界 B(函式真的不存在, probe missing=true)⇒ 回 null, **不 throw**', async () => {

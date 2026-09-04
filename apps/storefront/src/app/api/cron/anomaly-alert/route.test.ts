@@ -140,6 +140,11 @@ const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   searchLogStale: false,
   stuckBankCount: 0,
   stuckBankOldestCreated: null,
+  // 🔵 ⟦b4-PAIDTHENOVERPAID⟧ 第二個世界(2026-09-05)——
+  //    🎯 **這兩欄是被 `CLEAN_RESULT` 的型別逼出來的**, 那正是 R3 F3 那道機制的用途:
+  //      我在 use-case 加了兩個必填欄位, 而 typecheck 當場把每一個 fixture 點名。
+  stuckBankOverpaidCount: 0,
+  stuckBankOverpaidOldest: null,
   stuckBankUnknown: false,
   stuckBankFailed: false,
   searchLogAnonExecuteRevoked: null,
