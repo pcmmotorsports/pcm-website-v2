@@ -99,3 +99,29 @@ export function foldStartsWith(candidate: string, query: string): boolean {
   if (fq === '') return false;
   return foldSearchTerm(candidate).startsWith(fq);
 }
+
+/**
+ * 折過之後,`candidate` 裡**有沒有**出現 `query`(子字串)。
+ *
+ * 🛑🛑 **這一支與上面那支【刻意並存】, 而上面那支的理由【不適用於這裡】** ——
+ *    `foldStartsWith` 的註解逐字說「用前綴不是子字串, 理由與料號那片同一個:
+ *    子字串會讓 `GRAB123MM` 命中 `AB123`」。
+ *    🔴 **而那個量測的對象是【料號】** —— 一串沒有詞界的英數字, 子字串在那裡製造雜訊。
+ *    🎯 **分類名是中文複合詞, 而客人打的詞【本來就常常在中間】** ——
+ *      實測(2026-09-04 正式站 117 個分類):`煞車離合器拉桿` / `水管束環` / `空氣濾芯`
+ *      / `端子後照鏡` / `鏈條蓋與齒盤護蓋` —— 客人打的 `離合` `管束` `濾芯` `後照` `齒盤`
+ *      **一個都不是前綴**。
+ *    ⇒ 📌 **⇒ 所以這是【射程不同】, 不是推翻那一條。**
+ * 🔴 **本支只給【分類名】用。**
+ * ⛔ ~~「料號那條路仍然走 `foldStartsWith`, 不要改它」~~ **⇒ 2026-09-04 R2 實查作廢**:
+ *    `foldStartsWith` 在 storefront 與各 packages 的 src 底下**生產呼叫端是 0**(只剩定義與測試),
+ *    ⚠️ (這一行本來寫成 glob, 而那個 glob 裡的星號斜線**把這個註解區塊提早關掉了** ⇒ 改寫成中文。)
+ *    料號正規化住在 `supabase/migrations/20260903230000_…partno_normalized.sql`(**SQL 層**)。
+ *    🛑 **那句話會讓下一個人以為有一條活的路要保護, 而它不存在。**
+ *    🔵 而**上面那條「前綴 vs 子字串」的量測本身仍然成立** —— 它只是不再有生產消費者。
+ */
+export function foldIncludes(candidate: string, query: string): boolean {
+  const fq = foldSearchTerm(query);
+  if (fq === '') return false;
+  return foldSearchTerm(candidate).includes(fq);
+}
