@@ -47,6 +47,16 @@
 · `gen_random_uuid` 被裸呼叫 ⇒ 它**同時存在於 `pg_catalog`**,空 `search_path` 下照樣解析得到
 · 動態 SQL ⇒ 只有 `rls_auto_enable` 一支(堆 C,本次不動)
 
+✅ **拋棄式 PG 實測(2026-09-05,PG 17.10;四個世界)** —— 把 §4 閘 C 從「推的」變成「量到的」:
+| 世界 | 結果 |
+|---|---|
+| 鎖前,裸引用版 / 帶前綴版 | 兩支都正常回值 |
+| 鎖後,**帶前綴版** | ✅ 照常回值 |
+| 鎖後,**裸引用版** | 🔴 `ERROR: relation "customers" does not exist`(呼叫時才炸) |
+| 下 `ALTER FUNCTION … SET search_path = ''` 的**當下** | **零警告、零錯誤** |
+🔴 **最後一列才是重點**:`ALTER` **不檢查 body** ⇒ 一支會壞的函式,鎖的那一刻**完全安靜**,
+　 migration 全綠、`acl-snapshot` 形狀對,而它下一次被呼叫才炸。**⇒ 閘 B(行為)不是加分項,是唯一的證據。**
+
 🛑 **這個 0 證不到什麼**(逐字寫進 plan,不寫在註解):
 　 ① 字串剝除用的是 `'[^']*'`,遇到 `''` escape 會配對錯 ⇒ 誤差方向**兩邊都有**
 　 ② 尺不含**運算子**(如 pg_trgm 的 `%`)與**自訂 cast**
@@ -70,6 +80,11 @@
 ## 5. Rollback
 
 `ALTER FUNCTION` 只改 `proconfig`,**不動 body、不動 ACL** ⇒ 反向就是把原值寫回去。
+✅ **實測:`ALTER FUNCTION` 受交易保護** —— `BEGIN → ALTER → ROLLBACK` 值退回原狀;`COMMIT` 才留下。
+🔴 **而「把原值寫回去」有一個會靜靜失敗的形狀**:實測 `SET search_path = 'public, pg_temp'`(整串加引號)
+　 存進去是 `search_path="public, pg_temp"`,**與正式庫現況的 `search_path=public, pg_temp`(不加引號)不是同一個字面**。
+　 ⇒ 回滾腳本若把值當成一個字串塞回去,函式**行為會對**而 `acl-snapshot` 的 `FNCFG` 族**會叫**,
+　 　 而那個叫聲會被讀成「有人動了權限」。⇒ 回滾要寫成**不加引號的清單形式**,並在回滾後跑一發快照確認 0 格。
 migration 內先把 39 支的 `(proname, proconfig)` 存進 `public.pcm_definer_searchpath_rollback_<版本>`,該表開一列「**退場:M1+M2 上線滿一週且 B 閘跑過 ⇒ DROP**」(比照 `pcm_rls_rollback_20260904270000`)。
 
 ## 6. Codex 要審什麼(鐵則 12② 權限類,不降級)
