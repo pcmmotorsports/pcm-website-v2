@@ -108,6 +108,12 @@ const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   unpaidCancelledPendingCount: 0,
   unpaidCancelledNoRecipientCount: 0,
   unpaidCancelledGapUnknown: false,
+  // 🔴🔴 **第四條線(2026-09-04)。而【它不在 fixture 裡】正是本檔 :79 記過的那個病, 第三次。**
+  //    少了這一行 ⇒ 它是 `undefined` ⇒ falsy ⇒ **route 那道新分支從來不會被跑到**
+  //    ⇒ 79 格全綠, 而我什麼都沒證明。
+  trackingCorrectedGapUnknown: false,
+  trackingCorrectedPendingCount: 0,
+  trackingCorrectedNoRecipientCount: 0,
   // 🔵 心跳(片3):基準是【讀得到而六支健康】。
   //    🛑 寫 `Unknown: true` 會讓每一格都走 503 那條路 ⇒ 這份 CLEAN 就不 clean 了。
   cronHeartbeatAbnormalCount: 0,
@@ -496,6 +502,40 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
     expect(JSON.stringify(errSpy.mock.calls)).toContain('get_order_unpaid_cancelled_gap_counts');
     errSpy.mockRestore();
     delete process.env.B4_DEPLOY_CUTOFF;
+  });
+
+  it('[更正單號信收件人] 🟢🟢 負對照:這條線【沒上膛】而 unknown=true ⇒ 200(不得 503)', async () => {
+    // 🔴🔴 **這一格是 pre-push 的部署時序閘翻出來的**(主視窗 2026-09-05 批補):
+    //    程式先上、migration 後貼的那個窗口裡, `trackingCorrectedGapUnknown` **保證為真**
+    //    ⇒ 少了 `shippedCutoffIso !== null` 這個前提, 這支 cron **每一發都 503 + 寫失敗心跳**。
+    // 🎯 **不要為一條還沒上膛的線, 抱怨它的儀器不見了** —— 而「還沒上膛」的定義就是那顆 env 沒設。
+    delete process.env.SHIPPED_EMAIL_CUTOFF;
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, trackingCorrectedGapUnknown: true });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    expect(hbFailSpy).not.toHaveBeenCalled();
+  });
+
+  it('[更正單號信收件人] 🔴 unknown=true ⇒ 503 + 心跳失敗 + log 說得出是哪一支', async () => {
+    // 🎯 與姊妹那格同一個病:RPC 還沒 apply ⇒ 三格 null ⇒ 告警恆不叫, 而 route 照回 200
+    //   ⇒ 「安靜」與「這道告警根本沒裝上」印同一個畫面。
+    // 🔴 **本格要先讓這條線【上膛】** —— 2026-09-05 補了 `shippedCutoffIso !== null` 前提之後,
+    //   沒設那顆 env 就不該吵(上面那格負對照守它)。⇒ 這裡設它, 才走得到 503 那條路。
+    delete process.env.B4_DEPLOY_CUTOFF;
+    process.env.SHIPPED_EMAIL_CUTOFF = '2026-09-01T21:30:00+08:00';
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, trackingCorrectedGapUnknown: true });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    expect(hbFailSpy).toHaveBeenCalled();
+    expect(JSON.stringify(errSpy.mock.calls)).toContain('get_tracking_corrected_gap_counts');
+    errSpy.mockRestore();
+  });
+
+  it('[更正單號信收件人] 🟢 負對照:unknown=false ⇒ 200(證明上一格不是恆 503)', async () => {
+    delete process.env.B4_DEPLOY_CUTOFF;
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, trackingCorrectedGapUnknown: false });
+    expect((await GET(makeReq(bearer()))).status).toBe(200);
   });
 
   it('[取消信收件人] 🔵 負對照:起始線【沒設】而 unknown=true ⇒ 200(不得 503)', async () => {

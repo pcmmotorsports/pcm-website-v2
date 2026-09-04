@@ -279,7 +279,16 @@ CREATE ROLE authenticator NOLOGIN;
 -- 🔴 codex 2026-08-30 nit(更正,原字面留痕):~~「只需要被 FK 參照的那張表」~~ 已經不對了 ——
 --    下面除了 `auth.users`,還要 `auth.uid()` 與對 schema 的 USAGE。
 CREATE SCHEMA auth;
-CREATE TABLE auth.users (id uuid PRIMARY KEY);
+CREATE TABLE auth.users (
+  id uuid PRIMARY KEY,
+  -- 🔴 `email` / `raw_user_meta_data` 這兩欄**不是裝飾** —— `handle_new_auth_user()`
+  --    (auth.users 上的 AFTER INSERT 觸發器, 由 migration 自己裝)逐欄讀它們。
+  --    少了它們:任何一發 `INSERT INTO auth.users` 都會
+  --    `record "new" has no field "email"` ⇒ 📌 **建不出一個客人 = 建不出任何一張單。**
+  --    ⚠️ 而那個錯**指向那支觸發器**, 看起來像那支 migration 壞了, 實際是這張桌子少兩欄。
+  email text,
+  raw_user_meta_data jsonb
+);
 -- 🔴 **`auth.uid()` 也要**(2026-08-30 線 DB `-08` 量到,拋棄式 PG 17.10)——
 --    同 `authenticator` 那一條的形狀:少了它,`20260523034911_init_customers_and_subtables.sql`
 --    的 RLS policy 就炸 `ERROR: function auth.uid() does not exist`,
@@ -305,6 +314,39 @@ GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
 -- 🔴 extensions schema —— migration 裡寫 `extensions.gin_trgm_ops`,沒有這個 schema 會在 DDL 那行就炸
 CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA extensions;
+-- 🔴 pgcrypto:正式站實查(2026-07-30, `20260730120000:16`)= pgcrypto 1.3 @ schema `extensions`
+--    ⇒ 這裡照同一個 schema 裝。少了它:`pcm_generate_display_id()` 建不起來,
+--      而它是**十幾支下游 migration 的前置** ⇒ 那些會一路連鎖失敗
+--      ⇒ 📌 **而那個失敗數看起來像「這棵樹很多支壞了」, 實際是【少一顆 extension】。**
+CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA extensions;
+
+-- 🔴🔴 **service_role 的預設授權** —— Supabase 平台自己下的, `supabase/migrations/` 裡找不到。
+--    少了它:migration 自己的事後閘會印「service_role 對 orders 的 SELECT 不見了」/ 42501
+--    ⇒ 而那是**環境缺件**, 不是那支 migration 壞了。
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES    TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO service_role;
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+
+-- 🔴🔴 **anon / authenticated 的預設授權 —— 2026-09-05 補上, 而它是【量完才補】的。**
+--    正式站的 Supabase 就是這樣給的:那正是全樹幾十支 migration 要寫
+--    `REVOKE ALL ... FROM PUBLIC, anon, authenticated` 的理由。
+--    ⇒ 少了這三行, 那些收權斷言是在一個【本來就沒有授權】的世界裡問「還有沒有授權」
+--      ⇒ 📌 **它們恆綠, 而通過不代表那支 migration 真的收乾淨了。**
+--
+--    🟢 **補之前先量了一發(⟦b4-REPLAYREVOKEBLIND⟧, 主視窗裁「先量不改」)**:
+--      · 新紅 **0 支**(`comm -13` 差集為空)⇒ 每一支帶斷言的 migration, REVOKE 都真的收乾淨了
+--      · 轉綠 **1 支** = `20260817080000_m4b_628_revoke_maintain_brands_categories`
+--        🎯 **而那一支就是正對照** —— 它的病構造逐字要求 anon **有** SELECT
+--        (基線錯誤:「#628 異常 — anon 連 SELECT public.brands 都做不到」)
+--        ⇒ **它證明這三行真的到了 DB**, 而不是「沒生效所以當然 0 紅」。
+--      · 第二個獨立證據:`pg_default_acl` 對 anon/authenticated 有 **8** 筆(基線 0)。
+--    ⚠️ **而那個 0 只涵蓋【帶著那道斷言的】那些 migration** —— 一張建了表卻沒寫斷言的,
+--      它漏掉的東西不會讓任何一格變紅。⇒ 當時另做的全表普查(6 張表 / 3 張可寫 / 4 支 view,
+--      **RLS 全開且都有 policy**)寫在板列 `⟦b4-REPLAYREVOKEBLIND⟧`, 不在這裡重抄。
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES    TO anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated;
 
 -- 業務型別(依你要驗的那支 migration 需要什麼再加)
 CREATE TYPE member_tier AS ENUM ('general','store','premiumStore');

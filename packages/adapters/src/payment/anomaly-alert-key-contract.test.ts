@@ -343,6 +343,18 @@ const FAIL_LOUD_RPCS = [
   'get_order_created_gap_counts',
   'get_cron_heartbeat_stale_counts',
   /**
+   * 🔵 ⟦b4-NORECIPIENTWINDOW⟧ **第四條線**(2026-09-04)。
+   * **分堆是開檔看的, 不是猜的**(本檔上面那句逐字要求):
+   *   `get_tracking_corrected_gap_counts` 的三個 key 全部走同檔的 `parseCount`
+   *   (`trackingCorrectedCount` 那個 helper)⇒ 缺鍵直接 `throw` ⇒ 屬 fail-loud 這一堆。
+   * 🛑 **而它與姊妹那幾支一樣有【一條刻意的 fail-soft 路徑, 而那條不是缺鍵】**:
+   *   那支 RPC 還沒 apply 時(`42883` 且 `to_regprocedure` 回 NULL)⇒ 三格回 `null` = 查不到,
+   *   **不是 0** ——「讀不到」與「一切正常」在裸數字上長得一模一樣。
+   * 📌 **而這一格擋到我了** —— 我加了一支 RPC 而沒來登記, 它當場紅並告訴我要放進哪一堆。
+   *   ⇒ 那正是本檔上面那段「第 5 支進來就紅」在做的事。
+   */
+  'get_tracking_corrected_gap_counts',
+  /**
    * 🔵 ⟦b9-ENUMWATCH⟧ 片 2(2026-09-01)。**分堆是開檔看的, 不是猜的**(本檔上面那句逐字要求):
    *   `PgAnomalyAlertReaderAdapter.getManualCustomerSearchSummary` 自己判形狀 ——
    *   回應不是物件 / 計數欄不是數字 ⇒ **`throw`**。
@@ -508,7 +520,16 @@ describe('result 的 *Unknown / *Failed 欄位, route 一定要讀', () => {
      * 🔵 新增一個 `*Unknown`/`*Failed` 欄位時這一格會紅 —— **那是刻意的**:
      *    紅的訊息會叫你回來看「route 接了沒」, 而那正是本 describe 存在的理由。
      */
-    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(15);
+    // 🔴🔴 **15 ⇒ 16(2026-09-05, 而它是 merge 的產物, 不是誰寫錯了)**:
+    //   `origin/dev` 有 14 欄(別的線加了 `trackingCorrectedGapUnknown`),
+    //   本線加了 `stuckBankUnknown` / `stuckBankFailed` ⇒ 各自分支上 14 與 15 都對, **合起來 16**。
+    //   ⇒ 📌 **一個釘死的計數, 在兩條分支各自加欄時【結構上】一定會在 merge 那一刻撞。**
+    //     而那不是缺陷 —— **這一格的職責就是在那一刻把人叫過來**, 問一句「新那欄 route 接了沒」。
+    //   ✅ 這一次的答案:接了。逐欄跑過 —— 16 欄裡 route 沒讀的是 **0**
+    //     (`trackingCorrectedGapUnknown` 由那條線自己接的;`notifiersFailed` 走 `errors` 別名)。
+    //   🛑 **改這個數字之前一定要跑那一發** —— 直接改成「現在幾個」而不看 route,
+    //     等於把這道閘關掉, 而它印的還是綠。
+    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(16);
 
     /**
      * 🔴 **剝掉註解再比**(R4 must-fix 級 consider)——

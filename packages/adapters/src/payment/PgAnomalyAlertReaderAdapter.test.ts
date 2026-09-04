@@ -96,6 +96,13 @@ function twoQueryClient(
    *    ⇒ 📌 本檔上面那段記著「預設值與理由曾經不一致」的教訓;這一次我把理由寫在旁邊。
    */
   unpaidCancelled?: unknown,
+  /**
+   * ⟦b4-NORECIPIENTWINDOW⟧ **第四條線**(2026-09-04):同樣預設 `undefined` = 那支 RPC **尚未 apply**。
+   * 🔴 而這一次的理由也是**當下的事實**:`20260904280000_m4b_e4_tracking_corrected_gap_counts.sql`
+   *    是今天才寫的、**還沒貼**(它自己還有一道前置閘要求 `20260904220000` 先貼)。
+   * ⇒ 📌 預設值讓既有那 20+ 格繼續測【今天線上真的是那個世界】—— 一格期望值都不用動。
+   */
+  trackingCorrected?: unknown,
 ) {
   return makeClient({
     query: async (text: string) => {
@@ -133,6 +140,13 @@ function twoQueryClient(
       // 🔵 `get_order_unpaid_cancelled_gap_counts` 與底下兩支**不共用前綴**
       //   (`get_order_created_` vs `get_order_unpaid_`)⇒ 這一格的順序不是分流的一部分。
       //   ⚠️ 寫出來, 免得下一個人以為它跟底下那格一樣「順序就是分流本身」。
+      // 🔵 `get_tracking_corrected_gap_counts` 與其他幾支**不共用前綴** ⇒ 這一格的位置不是分流的一部分。
+      if (text.includes('get_tracking_corrected_gap_counts')) {
+        if (trackingCorrected === undefined) {
+          throw Object.assign(new Error('function does not exist'), { code: '42883' });
+        }
+        return resultRows(trackingCorrected);
+      }
       if (text.includes('get_order_unpaid_cancelled_gap_counts')) {
         if (unpaidCancelled === undefined) {
           throw Object.assign(new Error('function does not exist'), { code: '42883' });
@@ -227,6 +241,10 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       unpaidCancelledPendingCount: null,
       unpaidCancelledNoRecipientCount: null,
       unpaidCancelledGapUnknown: true,
+      // 🔵 第四條線:同樣三格 null + unknown=true(那支 RPC 尚未 apply)。
+      trackingCorrectedPendingCount: null,
+      trackingCorrectedNoRecipientCount: null,
+      trackingCorrectedGapUnknown: true,
       /**
        * 🔵 訊號 4 三格。本案例 `orderCreatedCutoffIso` 傳 `null` ⇒ **不呼叫那支 RPC**
        * ⇒ `orderCreatedRows` 空 ⇒ unknown = true、兩個 count 是 `null`。
@@ -326,10 +344,18 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
      *       ⇒ 📌 **結論相同而事實宣稱是錯的 —— 而結論相同正是它不會被發現的原因。**
      * 🎯 **而兩條路的【結論相同】**:空 rows 與 42883 都落到 `bypassRlsUnknown = true`
      *    ⇒ 行為對,而**成本的算式不同** ⇒ 這裡寫 8。
-     * 🛑 **⇒ 正式庫上若那支函式真的不存在,它會是 +2** —— 這個 8 是**本 fixture 的數字**,
+     * 🛑 **⇒ 正式庫上若那支函式真的不存在,它會是 +2** —— 這個數是**本 fixture 的數字**,
      *    不是「線上會打幾發」。數字帶著它的世界跟著走。
+     *
+     * 🔴🔴 **⛔ ~~8~~ ⇒ ✅ 10(2026-09-04, ⟦b4-NORECIPIENTWINDOW⟧ 第四條線)。**
+     *    多的那 2 發 = `get_tracking_corrected_gap_counts` 本身 **+1**、
+     *    以及它 42883 之後的 `to_regprocedure` 複查 **+1**
+     *    ⇒ 📌 **正好演了上面那句「函式真的不存在會是 +2」** —— 而這一次是真的走到了那條路,
+     *      因為本 fixture 的 dispatcher 對這支預設 `undefined`(= 尚未 apply)。
+     *    🔵 而它是**唯一**會 +2 的一支:姊妹的 `get_order_unpaid_cancelled_gap_counts`
+     *      被 `if (cutoff !== null)` 包著, 本組沒設 cutoff ⇒ 它 +0。
      */
-    expect(query).toHaveBeenCalledTimes(8);
+    expect(query).toHaveBeenCalledTimes(10);
     expect(query.mock.calls[1]![0]).toContain('get_payment_anomaly_alert_display_ids');
     expect(query.mock.calls[2]![0]).toContain('get_order_refunds_stuck_summary');
     expect(res.openDisplayIds).toEqual(['PCM-2026-0104']);
@@ -963,6 +989,75 @@ describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply
  * ⇒ 📌 **所以那個保護只能長在這裡。** 落點與斷言在
  *   `docs/plans/2026-08-31-cron-heartbeat-into-alerter.md` 片3 那一節先寫死, 再寫這支。
  */
+describe('🔴 更正單號信 gap counts:【成功路徑】—— 而它原本一格都沒有', () => {
+  /**
+   * 🔴🔴 **codex 2026-09-04 must-fix #5**:本檔的 dispatcher 對這支預設 `undefined`
+   *    (= 尚未 apply)⇒ 既有 20+ 格走的**全部是「RPC 不存在」那條路**
+   *    ⇒ 📌 **把成功回傳的解析整段硬寫成 null/unknown, 那些格子照樣全綠。**
+   *    ⇒ 而「不會弄壞別人」與「它真的解析得出來」是兩個宣稱, 我只證了前者。
+   *
+   * 🛑 **這裡【不用 `twoQueryClient`】** —— 它的 `trackingCorrected` 是**第 17 個位置參數**,
+   *    要餵它得先打 15 個 `undefined`。⇒ 那種呼叫**沒有人讀得懂,也沒有東西擋得住數錯一格**
+   *    (型別全是 `unknown`)。⇒ 改成一個只認函式名的本地假 client(形狀抄本檔心跳那組)。
+   */
+  function trackingClient(payload: unknown) {
+    const { client } = makeClient({
+      query: async (text: string) => {
+        if (text.includes('get_tracking_corrected_gap_counts')) return resultRows(payload);
+        if (text.includes('to_regprocedure')) return { rows: [{ missing: true }] };
+        // 🔵 其餘選配 RPC 一律走「尚未 apply」—— 它們各自的回傳鍵不同,
+        //    餵同一份 `FULL` 會被 `parseCount` 的 fail-closed 擋下。
+        for (const fn of [
+          'get_order_refunds_stuck_summary',
+          'get_email_outbox_deadman_counts',
+          'get_shipped_email_gap_counts',
+          'get_order_created_gap_counts',
+          'get_cron_heartbeat_stale_counts',
+          'get_order_created_stuck_count',
+          'get_order_unpaid_cancelled_gap_counts',
+          'get_privileged_role_bypassrls_state',
+          'get_payment_anomaly_alert_display_ids',
+        ]) {
+          if (text.includes(fn)) {
+            throw Object.assign(new Error('function does not exist'), { code: '42883' });
+          }
+        }
+        return resultRows(FULL);
+      },
+    });
+    return client;
+  }
+
+  const run = (payload: unknown) =>
+    new PgAnomalyAlertReaderAdapter('conn', () => trackingClient(payload)).getAlertSummary(
+      86400, 43200, 600, null, 900, null, null,
+    );
+
+  it('🟢 RPC 存在 ⇒ 三格解析成具體的數, 而 unknown=false', async () => {
+    const out = await run({
+      pending_count: 7,
+      no_recipient_count: 2,
+      corrected_shipments_total_count: 9,
+    });
+    // 🔴 承重:把 `trackingCorrectedCount(...)` 硬寫成 null ⇒ 這三行全紅。
+    expect(out.trackingCorrectedPendingCount).toBe(7);
+    expect(out.trackingCorrectedNoRecipientCount).toBe(2);
+    expect(out.trackingCorrectedGapUnknown).toBe(false);
+  });
+
+  it('🔴 少一個 key ⇒ throw(fail-loud), 不是靜靜地變成 0', async () => {
+    await expect(
+      run({ pending_count: 1, corrected_shipments_total_count: 1 }),
+    ).rejects.toThrow(/get_tracking_corrected_gap_counts/);
+  });
+
+  it('🔴 計數是負數 ⇒ throw —— 一個負的積壓數比一個錯的數更該吵', async () => {
+    await expect(
+      run({ pending_count: 1, no_recipient_count: -1, corrected_shipments_total_count: 1 }),
+    ).rejects.toThrow(/no_recipient_count/);
+  });
+});
+
 describe('🔴 心跳:傳給 RPC 的 job 清單 = CRON_JOB_WHITELIST 全部, 沒有被過濾過', () => {
   function captureHeartbeatPayload() {
     const seen: { payload: Array<Record<string, unknown>> | null } = { payload: null };
@@ -982,6 +1077,13 @@ describe('🔴 心跳:傳給 RPC 的 job 清單 = CRON_JOB_WHITELIST 全部, 沒
           'get_shipped_email_gap_counts',
           'get_order_created_gap_counts',
           'get_payment_anomaly_alert_display_ids',
+          // 🔴 ⟦b4-NORECIPIENTWINDOW⟧ 第四條線(2026-09-04)**非加不可**, 而理由與別支不同:
+          //    姊妹的 `get_order_unpaid_cancelled_gap_counts` **不在這張清單上也沒事** ——
+          //    因為 adapter 那邊用 `if (cutoff !== null)` 包著它, 而本組沒設 cutoff ⇒ 它根本不會被呼叫。
+          //    而**我這一支沒有那個守門**(母體天生從空的開始長 ⇒ 不需要 cutoff)
+          //    ⇒ 🎯 **它每一發都會被呼叫** ⇒ 不在這裡降級的話, 它會吃到 `FULL`
+          //      而 `parseCount` 當場 fail-closed(我第一版就是這樣紅了 8 格)。
+          'get_tracking_corrected_gap_counts',
         ]) {
           if (text.includes(fn)) throw Object.assign(new Error('function does not exist'), { code: '42883' });
         }
@@ -1037,6 +1139,8 @@ describe('🔴 心跳:回應層對帳(壞回應要 throw, 不是靜靜地健康)
           'get_order_refunds_stuck_summary', 'get_email_outbox_deadman_counts',
           'get_shipped_email_gap_counts', 'get_order_created_gap_counts',
           'get_payment_anomaly_alert_display_ids',
+          // 🔴 第四條線非加不可 —— 它在 adapter 那邊【沒有 cutoff 守門】⇒ 每一發都會被呼叫。
+          'get_tracking_corrected_gap_counts',
         ]) {
           if (text.includes(fn)) throw Object.assign(new Error('nope'), { code: '42883' });
         }

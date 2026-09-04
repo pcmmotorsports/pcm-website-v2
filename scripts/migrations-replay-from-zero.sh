@@ -26,7 +26,11 @@
 #     runbook 自己逐字說「還是不完整」** ⇒ **失敗的支數裡仍有一部分是【環境缺件】,不是 migration 的錯**
 #     ⇒ 📌 **所以這個數字是【上界】,不是「有幾支真的壞了」。** 要分辨得逐支看錯誤訊息。
 #   · 它答的是「從零重建這條路通不通」,**不答**「正式庫現在長什麼樣」。
-#   · 只比對能不能 apply,**不驗 apply 之後的資料正確性**。
+#   · ⛔ ~~「只比對能不能 apply,**不驗 apply 之後的資料正確性**」~~
+#     🔴 **2026-09-05 起這句話不再為真** —— apply 完之後多跑一段
+#     `scripts/view-behaviour-fixtures.sql`:造資料、把四支寄信掃描 view 的**篩選行為**量一遍。
+#     ⇒ ✅ 正確的說法是:**apply 之外, 它另外驗【那四支 view】的篩選, 而其餘每一支 migration
+#       的行為仍然沒有被驗。** 📌 那一段有沒有跑, 下面會逐字印出來 —— 它跳過時**不算綠**。
 #   · 🔴 codex 抓(寫成已知性質,不改行為):**每一支各自 `psql -f`,沒有把整串包成一個交易**
 #     ⇒ 一支【自己沒寫 BEGIN/COMMIT】的 migration 失敗時,會留下前半段已生效的 DDL,
 #     而那會改變後面幾支的成敗。**⇒ 所以這個數字不是「原子化 replay」的數字。**
@@ -37,7 +41,7 @@
 # ══════════════════════════════════════════════════════════════════════════════
 set -u
 export LC_ALL=C LANG=C
-SELFTEST=0; STUB=0
+SELFTEST=0; STUB=0; KEEPDB=0
 for a in "$@"; do
   case "$a" in
     --selftest) SELFTEST=1 ;;
@@ -47,6 +51,9 @@ for a in "$@"; do
     #      在第一個引用 product_fitments_effective 的 migration 之前。
     #    ⇒ 📌 **「有沒有套這支 stub」與「在哪裡套」是兩個問題,而只有第二個答對了它才有用。**
     --with-fitments-stub) STUB=1 ;;
+    # 🔵 `--keep-db` 只為了【建 fixture 時可以反覆重跑】—— 它不改變任何判定,
+    #    只是不要在結尾把 PG 殺掉, 並把連線參數印出來。
+    --keep-db) KEEPDB=1 ;;
     *) printf '🔴 不認得的參數: %s\n' "$a"; exit 2 ;;
   esac
 done
@@ -60,8 +67,56 @@ D=$(mktemp -d "${TMPDIR:-/tmp}/replay.XXXXXXXX") \
 # 🔴 codex nit:固定埠在八窗並跑時會撞 ⇒ 由 PID 導出,並確認沒人佔用。
 PG=$(( 54000 + ($$ % 900) )); KEEP=0
 while lsof -nP -iTCP:"$PG" -sTCP:LISTEN >/dev/null 2>&1; do PG=$((PG+1)); done
-cleanup(){ pg_ctl -D "$D/pg" stop -m immediate >/dev/null 2>&1
-  if [ "$KEEP" = 1 ]; then printf '🛑 非綠 ⇒ 逐支 log 保留在 %s/logs\n' "$D"; else rm -rf "$D"; fi; }
+cleanup(){
+  if [ "${KEEPDB:-0}" = 1 ]; then
+    printf '\n🔵 --keep-db: PG 沒有停, 目錄沒有刪。反覆跑 fixture 用:\n'
+    printf '   psql -h /tmp -p %s -U postgres -d postgres -v ON_ERROR_STOP=1 -f <你的.sql>\n' "$PG"
+    printf '   收工:  pg_ctl -D %s/pg stop -m immediate ; rm -rf %s\n' "$D" "$D"
+    return
+  fi
+  pg_ctl -D "$D/pg" stop -m immediate >/dev/null 2>&1
+  if [ "$KEEP" = 1 ]; then
+    printf '🛑 非綠 ⇒ 逐支 log 保留在 %s/logs\n' "$D"
+    prune_old_replays
+  else rm -rf "$D"; fi; }
+
+# 🔴🔴 **保留機制的前提在這個環境是【假的】** —— 它是為「失敗很罕見」設計的,
+#    而本樹目前恆常有 40+ 支因環境缺件失敗 ⇒ **每一發都保留** ⇒ 2026-09-05 實測
+#    `$TMPDIR` 裡積了 **38 個目錄 / 1.7 GB**, 而**沒有一個還活著**。
+#    ⇒ 📌 **一道為罕見情況設計的機制, 跑在一個那個情況是常態的世界裡。**
+#    ⇒ ✅ 改成只留最近 3 個(含本發)。
+# 🛑 **而【活著的絕不刪】是這一段的承重條件** —— 八窗並跑時, 別窗可能正握著它的 PG。
+#    判準不是「有沒有 postmaster.pid」(當掉會留下一個死的 pid 檔),
+#    是**那個 pid 現在還在不在**(`kill -0`)。
+prune_old_replays(){
+  local base d pidf pid n=0 freed_kb=0 sz
+  base="${TMPDIR:-/tmp}"
+  local alive=() dead=()
+  while IFS= read -r d; do
+    [ -d "$d" ] || continue
+    pidf="$d/pg/postmaster.pid"
+    if [ -f "$pidf" ]; then
+      pid=$(head -1 "$pidf" 2>/dev/null)
+      if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then alive+=("$d"); continue; fi
+    fi
+    dead+=("$d")
+  done < <(find "$base" -maxdepth 1 -type d -name 'replay.*' -print 2>/dev/null | sort -r)
+  # `sort -r` 對 mktemp 的隨機尾碼不是時間序 ⇒ 用 mtime 重排, 新的在前。
+  if [ "${#dead[@]}" -gt 3 ]; then
+    local sorted=()
+    while IFS= read -r d; do sorted+=("$d"); done < <(
+      for d in "${dead[@]}"; do printf '%s\t%s\n' "$(stat -f %m "$d" 2>/dev/null || echo 0)" "$d"; done \
+        | sort -rn | cut -f2-)
+    for d in "${sorted[@]:3}"; do
+      sz=$(du -sk "$d" 2>/dev/null | awk '{print $1}')
+      rm -rf "$d" && { n=$((n+1)); freed_kb=$((freed_kb + ${sz:-0})); }
+    done
+  fi
+  if [ "$n" -gt 0 ]; then
+    printf '   🧹 順手清掉 %s 個舊的拋棄式 PG 目錄(%s MB);保留最近 3 個, 活著的 %s 個一律不動\n' \
+      "$n" "$((freed_kb/1024))" "${#alive[@]}"
+  fi
+}
 trap cleanup EXIT
 mkdir -p "$D/logs"
 
@@ -198,7 +253,36 @@ done < "$LIST"
 #    ⇒ 它與「這棵樹真的有 N 支跑不起來」印同一個數。⇒ 跑完再驗一次活。
 psql -h /tmp -p "$PG" -U postgres -d postgres -tAc 'select 1' >/dev/null 2>&1 \
   || { printf '🔴 跑完之後 PG 連不上 ⇒ 它中途死了 ⇒ ENV-FAIL(上面每一個數字作廢)\n'; KEEP=1; exit 2; }
-printf '\n── 結果: 分母 %s ｜ 成功 %s ｜ 失敗 %s\n' "$TOTAL" "$OK" "$NG"
+# ── 🔴 apply 之後:四支寄信掃描 view 的【行為】fixture(⟦b4-VIEWSQLUNTESTED⟧)────
+#    🛑 它為什麼在這裡而不是另起一支:那四支 view 要跑在【從零重放出來的】schema 上,
+#      而這顆 PG 就是那個 schema。另起一支 = 另造一份 schema = 兩份會分岔。
+FXSQL="$REPO/scripts/view-behaviour-fixtures.sql"
+FXNG=0
+if [ ! -f "$FXSQL" ]; then
+  printf '\n🔴 view 行為 fixture 不存在(%s)⇒ 這一段【沒有跑】, 不要讀成通過\n' "$FXSQL"; FXNG=1
+else
+  # 🔴 四支 view 有任何一支不在 ⇒ fixture 自己的前置閘會擋下來並說是哪一支。
+  #    ⇒ 它與「跑了而且篩對了」**不會**印同一句話。
+  if psql -h /tmp -p "$PG" -U postgres -d postgres -f "$FXSQL" > "$D/logs/_fixtures.log" 2>&1; then
+    printf '\n── view 行為 fixture: ✅ 通過 %s 格\n' "$(grep -c 'NOTICE:  ✅' "$D/logs/_fixtures.log")"
+    # 🔴 **這裡曾經寫死「集合比對 4 + 突變 4 + 逐條述詞 19」** —— 而 2026-09-05 同一天
+    #    fixture 加了兩格, 那行字面當場過期(它印 4 而實際 5)。
+    #    ⇒ 📌 **一個為了幫助讀者而寫的數字, 在下一次改動就開始誤導讀者。**
+    #    ⇒ ✅ 改成把【格別】當場從 log 數出來, 不寫死任何一個數。
+    printf '   (%s;明細見 %s/logs/_fixtures.log)\n' \
+      "$(awk '/NOTICE:  ✅/{
+             if (/與期望逐一相符/) a++; else if (/突變格/) b++; else if (/逐條述詞/) c++; else d++
+           } END{ printf "集合比對 %d + 整段 WHERE 突變 %d + 逐條述詞 %d + 其他 %d", a, b, c, d }' \
+           "$D/logs/_fixtures.log")" "$D"
+  else
+    FXNG=1
+    printf '\n🔴🔴 view 行為 fixture 失敗 —— 這與「有幾支 migration apply 不起來」是【兩件事】:\n'
+    grep -m3 -E 'ERROR' "$D/logs/_fixtures.log" | sed 's/^/   /'
+  fi
+fi
+
+printf '\n── 結果: 分母 %s ｜ 成功 %s ｜ 失敗 %s ｜ view 行為 fixture %s\n' \
+  "$TOTAL" "$OK" "$NG" "$([ "$FXNG" = 0 ] && echo 通過 || echo 🔴失敗)"
 if [ $((OK+NG)) -ne "$TOTAL" ]; then
   printf '🔴 成功+失敗(%s) 不等於分母(%s) ⇒ 有支沒跑到 ⇒ 本發作廢\n' "$((OK+NG))" "$TOTAL"; KEEP=1; exit 1
 fi
@@ -235,5 +319,6 @@ printf '\n🛑 射程: 本機拋棄式 PG + runbook §2 的 bootstrap(它建了�
 printf '   ⇒ 失敗支數裡有一部分是【環境缺件】而不是 migration 的錯 ⇒ 這個數是【上界】不是「有幾支真的壞了」。\n'
 printf '   ⇒ 它答「從零重建這條路通不通」, 不答「正式庫現在長什麼樣」。\n'
 
+[ "$FXNG" -eq 0 ] || { printf '\n🔴 view 行為 fixture 沒過 ⇒ rc=1(即使 migration 全部 apply 成功)\n'; KEEP=1; exit 1; }
 [ "$NG" -eq 0 ] || { KEEP=1; exit 1; }
 exit 0

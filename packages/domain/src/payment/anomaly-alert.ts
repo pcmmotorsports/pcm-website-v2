@@ -216,6 +216,22 @@ export type AnomalyAlertSummary = {
   unpaidCancelledPendingCount: number | null;
   unpaidCancelledNoRecipientCount: number | null;
   unpaidCancelledGapUnknown: boolean;
+  /**
+   * 🔵 **更正單號信線的同一組**(⟦b4-NORECIPIENTWINDOW⟧ **第四條線**, 2026-09-04)——
+   *    `get_tracking_corrected_gap_counts` 的 `pending_count` / `no_recipient_count`。
+   * 🔴 **這條線的 `noRecipient` 意思與姊妹線【不同】, 而那個差是承重的**:
+   *    要落進這一桶, 得是**出貨信已經寄出去了**(⇒ 客人手上有一個號碼)、
+   *    **號碼後來被更正**(⇒ 他手上那個是錯的)、**而現在兩個信箱都空**
+   *    ⇒ 🎯 **我們知道他拿著錯的號碼, 而我們寄不出更正。**
+   * 📌 **今天它不可能非零** —— 寄得出去就代表當時有信箱。
+   *    而它有一條真實的路:**客人行使刪除權之後那兩個信箱被清空**
+   *    ⇒ 🛑 **一個今天不會亮的計數, 與一個永遠不會亮的計數, 在儀表上長得一樣。**
+   * 🛑 `pending` >0 是【正常】的 ⇒ **不進 `shouldAlert`**;`noRecipient` 才是主詞。
+   * 🔴 `trackingCorrectedGapUnknown` 為 true 時上面兩個是 `null` —— **不得寫成 0**。
+   */
+  trackingCorrectedPendingCount: number | null;
+  trackingCorrectedNoRecipientCount: number | null;
+  trackingCorrectedGapUnknown: boolean;
   // 🔵 ↓↓ 以下回到【訂單成立信】那一族(codex 2026-09-03 nit:我把三欄插在中間,
   //    而下一段開頭那句「上面兩個」原本指的是 orderCreated 那兩欄 —— 字面被我推到指錯欄位)。
   /**

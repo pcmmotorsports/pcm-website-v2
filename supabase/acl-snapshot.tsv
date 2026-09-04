@@ -210,6 +210,10 @@ FN	public.create_order(p_lines jsonb, p_address_id uuid, p_shipping_method text,
 FN	public.create_order(p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb, p_cart_session_id uuid, p_terms_version text, p_client_ip text, p_client_ua text, p_notification_email text, p_coupon_code text)	authenticated	X|DEF
 FN	public.create_order(p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb, p_cart_session_id uuid, p_terms_version text, p_client_ip text, p_client_ua text, p_notification_email text, p_coupon_code text)	payment_confirmer	-|DEF
 FN	public.create_order(p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb, p_cart_session_id uuid, p_terms_version text, p_client_ip text, p_client_ua text, p_notification_email text, p_coupon_code text)	service_role	-|DEF
+FN	public.create_order(p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb, p_cart_session_id uuid, p_terms_version text, p_client_ip text, p_client_ua text, p_payment_channel text, p_notification_email text, p_coupon_code text)	anon	-|DEF
+FN	public.create_order(p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb, p_cart_session_id uuid, p_terms_version text, p_client_ip text, p_client_ua text, p_payment_channel text, p_notification_email text, p_coupon_code text)	authenticated	X|DEF
+FN	public.create_order(p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb, p_cart_session_id uuid, p_terms_version text, p_client_ip text, p_client_ua text, p_payment_channel text, p_notification_email text, p_coupon_code text)	payment_confirmer	-|DEF
+FN	public.create_order(p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb, p_cart_session_id uuid, p_terms_version text, p_client_ip text, p_client_ua text, p_payment_channel text, p_notification_email text, p_coupon_code text)	service_role	-|DEF
 FN	public.expire_stuck_attempts_at_ceiling()	anon	-|DEF
 FN	public.expire_stuck_attempts_at_ceiling()	authenticated	-|DEF
 FN	public.expire_stuck_attempts_at_ceiling()	payment_confirmer	X|DEF
@@ -278,6 +282,14 @@ FN	public.get_shipped_email_gap_counts(p_shipped_cutoff timestamp with time zone
 FN	public.get_shipped_email_gap_counts(p_shipped_cutoff timestamp with time zone, p_grace_seconds integer)	authenticated	-|DEF
 FN	public.get_shipped_email_gap_counts(p_shipped_cutoff timestamp with time zone, p_grace_seconds integer)	payment_confirmer	X|DEF
 FN	public.get_shipped_email_gap_counts(p_shipped_cutoff timestamp with time zone, p_grace_seconds integer)	service_role	-|DEF
+FN	public.get_stuck_bank_orders_health()	anon	-|DEF
+FN	public.get_stuck_bank_orders_health()	authenticated	-|DEF
+FN	public.get_stuck_bank_orders_health()	payment_confirmer	X|DEF
+FN	public.get_stuck_bank_orders_health()	service_role	X|DEF
+FN	public.get_tracking_corrected_gap_counts()	anon	-|DEF
+FN	public.get_tracking_corrected_gap_counts()	authenticated	-|DEF
+FN	public.get_tracking_corrected_gap_counts()	payment_confirmer	X|DEF
+FN	public.get_tracking_corrected_gap_counts()	service_role	-|DEF
 FN	public.handle_new_auth_user()	anon	-|DEF
 FN	public.handle_new_auth_user()	authenticated	-|DEF
 FN	public.handle_new_auth_user()	payment_confirmer	-|DEF
@@ -485,7 +497,7 @@ FN	public.pcm_generate_display_id()	service_role	-|DEF
 FN	public.pcm_js_trim_whitespace()	anon	-|INV
 FN	public.pcm_js_trim_whitespace()	authenticated	-|INV
 FN	public.pcm_js_trim_whitespace()	payment_confirmer	-|INV
-FN	public.pcm_js_trim_whitespace()	service_role	-|INV
+FN	public.pcm_js_trim_whitespace()	service_role	X|INV
 FN	public.pcm_manual_refund_rail_cap(p_order_id uuid)	anon	-|DEF
 FN	public.pcm_manual_refund_rail_cap(p_order_id uuid)	authenticated	-|DEF
 FN	public.pcm_manual_refund_rail_cap(p_order_id uuid)	payment_confirmer	-|DEF
@@ -570,6 +582,14 @@ FN	public.pcm_sync_order_refund_payment_status(p_order_id uuid)	anon	-|DEF
 FN	public.pcm_sync_order_refund_payment_status(p_order_id uuid)	authenticated	-|DEF
 FN	public.pcm_sync_order_refund_payment_status(p_order_id uuid)	payment_confirmer	-|DEF
 FN	public.pcm_sync_order_refund_payment_status(p_order_id uuid)	service_role	-|DEF
+FN	public.pcm_tracking_corrected_at_key(p_corrected_at timestamp with time zone)	anon	-|INV
+FN	public.pcm_tracking_corrected_at_key(p_corrected_at timestamp with time zone)	authenticated	-|INV
+FN	public.pcm_tracking_corrected_at_key(p_corrected_at timestamp with time zone)	payment_confirmer	-|INV
+FN	public.pcm_tracking_corrected_at_key(p_corrected_at timestamp with time zone)	service_role	X|INV
+FN	public.pcm_tracking_corrected_dedup_key(p_shipment_id uuid, p_order_id uuid, p_corrected_at timestamp with time zone)	anon	-|INV
+FN	public.pcm_tracking_corrected_dedup_key(p_shipment_id uuid, p_order_id uuid, p_corrected_at timestamp with time zone)	authenticated	-|INV
+FN	public.pcm_tracking_corrected_dedup_key(p_shipment_id uuid, p_order_id uuid, p_corrected_at timestamp with time zone)	payment_confirmer	-|INV
+FN	public.pcm_tracking_corrected_dedup_key(p_shipment_id uuid, p_order_id uuid, p_corrected_at timestamp with time zone)	service_role	X|INV
 FN	public.pfe_staging_reset()	anon	-|INV
 FN	public.pfe_staging_reset()	authenticated	-|INV
 FN	public.pfe_staging_reset()	payment_confirmer	-|INV
@@ -727,6 +747,7 @@ FNCFG	public.claim_stuck_unsettled_attempts(p_age_seconds integer, p_limit integ
 FNCFG	public.close_released_attempt(p_attempt_id uuid, p_resolution text)	DEFINER	search_path=""
 FNCFG	public.confirm_order_payment(p_order_id uuid, p_amount integer, p_rec_trade_id text)	DEFINER	search_path=""
 FNCFG	public.create_order(p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb, p_cart_session_id uuid, p_terms_version text, p_client_ip text, p_client_ua text, p_notification_email text, p_coupon_code text)	DEFINER	search_path=""
+FNCFG	public.create_order(p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb, p_cart_session_id uuid, p_terms_version text, p_client_ip text, p_client_ua text, p_payment_channel text, p_notification_email text, p_coupon_code text)	DEFINER	search_path=""
 FNCFG	public.expire_stuck_attempts_at_ceiling()	DEFINER	search_path=""
 FNCFG	public.expire_webhook_events_at_ceiling()	DEFINER	search_path=""
 FNCFG	public.find_active_sibling_own(p_cart_session_id uuid)	DEFINER	search_path=""
@@ -744,6 +765,8 @@ FNCFG	public.get_payment_anomaly_alert_summary(p_refunding_stuck_seconds integer
 FNCFG	public.get_privileged_role_bypassrls_state()	INVOKER	search_path=""
 FNCFG	public.get_search_log_health()	DEFINER	search_path=""
 FNCFG	public.get_shipped_email_gap_counts(p_shipped_cutoff timestamp with time zone, p_grace_seconds integer)	DEFINER	search_path=""
+FNCFG	public.get_stuck_bank_orders_health()	DEFINER	search_path=""
+FNCFG	public.get_tracking_corrected_gap_counts()	DEFINER	search_path=""
 FNCFG	public.handle_new_auth_user()	DEFINER	search_path=""
 FNCFG	public.list_charge_attempts_for_capture_recheck(p_cutoff_days integer, p_limit integer)	DEFINER	search_path=""
 FNCFG	public.log_search_query(p_query_raw text, p_path text, p_unmatched text, p_result_count integer)	DEFINER	search_path=""
@@ -816,7 +839,9 @@ FNCFG	public.pcm_spec_text(p jsonb)	INVOKER	(未設)
 FNCFG	public.pcm_staff_touch_updated_at()	INVOKER	search_path=pg_catalog, public
 FNCFG	public.pcm_suppliers_block_delete()	INVOKER	search_path=pg_catalog, public
 FNCFG	public.pcm_suppliers_touch_updated_at()	INVOKER	search_path=pg_catalog, public
-FNCFG	public.pcm_sync_order_refund_payment_status(p_order_id uuid)	DEFINER	search_path=public, pg_temp
+FNCFG	public.pcm_sync_order_refund_payment_status(p_order_id uuid)	DEFINER	search_path=""
+FNCFG	public.pcm_tracking_corrected_at_key(p_corrected_at timestamp with time zone)	INVOKER	search_path=""
+FNCFG	public.pcm_tracking_corrected_dedup_key(p_shipment_id uuid, p_order_id uuid, p_corrected_at timestamp with time zone)	INVOKER	search_path=""
 FNCFG	public.pfe_staging_reset()	INVOKER	search_path=public, pg_temp
 FNCFG	public.pfe_sync_commit(p_run_id uuid, p_source_rows integer, p_orphan_rows integer, p_allow_anomaly boolean, p_note text)	INVOKER	search_path=public, pg_temp
 FNCFG	public.prl_append_only_guard()	INVOKER	search_path=""
@@ -843,6 +868,8 @@ FNCFG	public.supersede_charge_attempt_for_user(p_order_id uuid, p_user_id uuid, 
 FNCFG	public.sync_product_fitments()	INVOKER	(未設)
 FNCFG	public.sync_product_variant_group(p_supplier_slug text, p_external_id text, p_variants jsonb, p_orphan_skus text[])	INVOKER	search_path=""
 FNCFG	public.sync_wallet_balance_on_ledger_insert()	DEFINER	search_path=""
+POL	public.admin_audit_log|admin_audit_log_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.admin_saved_order_views|admin_saved_order_views_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.auth_callback_events|auth_callback_events_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.brands|brands_delete_service_role	service_role	d|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.brands|brands_insert_service_role	service_role	a|PERM|-|b326b5062b2f0e69046810717534cb09
@@ -852,46 +879,84 @@ POL	public.categories|categories_delete_service_role	service_role	d|PERM|b326b50
 POL	public.categories|categories_insert_service_role	service_role	a|PERM|-|b326b5062b2f0e69046810717534cb09
 POL	public.categories|categories_select_public	PUBLIC	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.categories|categories_update_service_role	service_role	w|PERM|b326b5062b2f0e69046810717534cb09|b326b5062b2f0e69046810717534cb09
+POL	public.coupon_redemptions|coupon_redemptions_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.coupons|coupons_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.customer_addresses|addresses_delete_own	authenticated	d|PERM|c01c5f0fccdc20f382b27fc74c71ff2e|-
 POL	public.customer_addresses|addresses_insert_own	authenticated	a|PERM|-|c01c5f0fccdc20f382b27fc74c71ff2e
 POL	public.customer_addresses|addresses_select_own	authenticated	r|PERM|c01c5f0fccdc20f382b27fc74c71ff2e|-
 POL	public.customer_addresses|addresses_update_own	authenticated	w|PERM|c01c5f0fccdc20f382b27fc74c71ff2e|c01c5f0fccdc20f382b27fc74c71ff2e
+POL	public.customer_addresses|customer_addresses_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.customer_favorites|customer_favorites_delete_own	authenticated	d|PERM|c01c5f0fccdc20f382b27fc74c71ff2e|-
 POL	public.customer_favorites|customer_favorites_insert_own	authenticated	a|PERM|-|c01c5f0fccdc20f382b27fc74c71ff2e
 POL	public.customer_favorites|customer_favorites_select_own	authenticated	r|PERM|c01c5f0fccdc20f382b27fc74c71ff2e|-
+POL	public.customer_favorites|customer_favorites_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.customer_vehicles|customer_vehicles_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.customer_vehicles|vehicles_delete_own	authenticated	d|PERM|c01c5f0fccdc20f382b27fc74c71ff2e|-
 POL	public.customer_vehicles|vehicles_insert_own	authenticated	a|PERM|-|c01c5f0fccdc20f382b27fc74c71ff2e
 POL	public.customer_vehicles|vehicles_select_own	authenticated	r|PERM|c01c5f0fccdc20f382b27fc74c71ff2e|-
 POL	public.customer_vehicles|vehicles_update_own	authenticated	w|PERM|c01c5f0fccdc20f382b27fc74c71ff2e|c01c5f0fccdc20f382b27fc74c71ff2e
+POL	public.customer_wallet_ledger|customer_wallet_ledger_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.customer_wallet_ledger|wallet_insert_service_role	service_role	a|PERM|-|b326b5062b2f0e69046810717534cb09
 POL	public.customer_wallet_ledger|wallet_select_own	authenticated	r|PERM|c01c5f0fccdc20f382b27fc74c71ff2e|-
 POL	public.customers|customers_delete_service_role	service_role	d|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.customers|customers_insert_service_role	service_role	a|PERM|-|b326b5062b2f0e69046810717534cb09
 POL	public.customers|customers_select_own	authenticated	r|PERM|19300d155780585259ede73ac370586c|-
+POL	public.customers|customers_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.customers|customers_update_own	authenticated	w|PERM|19300d155780585259ede73ac370586c|19300d155780585259ede73ac370586c
 POL	public.email_outbox|email_outbox_insert_service_role	service_role	a|PERM|-|b326b5062b2f0e69046810717534cb09
 POL	public.email_outbox|email_outbox_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.email_outbox|email_outbox_update_service_role	service_role	w|PERM|b326b5062b2f0e69046810717534cb09|b326b5062b2f0e69046810717534cb09
 POL	public.legal_terms_versions|legal_terms_versions_select_all	anon,authenticated	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.legal_terms_versions|legal_terms_versions_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.order_cancellation_items|order_cancellation_items_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.order_cancellations|order_cancellations_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.order_item_procurement_receipts|order_item_procurement_receipts_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.order_item_procurement_void_requests|order_item_procurement_void_requests_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.order_item_procurement|order_item_procurement_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.order_item_quantity_summary|order_item_quantity_summary_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.order_item_receipt_requests|order_item_receipt_requests_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.order_items|order_items_select_own	authenticated	r|PERM|947a40713efb339db3e4fabade52fae0|-
+POL	public.order_items|order_items_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.order_manual_refunds|order_manual_refunds_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.order_notes|order_notes_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.order_payments|order_payments_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.order_pending_refunds|order_pending_refunds_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.order_refund_items|order_refund_items_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.order_refund_job_items|order_refund_job_items_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.order_refund_jobs|order_refund_jobs_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.order_refund_manual_corrections|order_refund_manual_corrections_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.order_refunds|order_refunds_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.order_status_options|order_status_options_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.orders|orders_select_own	authenticated	r|PERM|41767db22bb3f730527c5144647402da|-
+POL	public.orders|orders_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.payment_charge_attempts|payment_charge_attempts_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.payment_double_charge_anomalies|payment_double_charge_anomalies_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.payment_refunds|payment_refunds_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.pending_invoices|pending_invoices_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.product_fitments_effective_staging|product_fitments_effective_staging_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.product_fitments_effective_sync_log|product_fitments_effective_sync_log_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.product_fitments_effective|product_fitments_effective_select_public	PUBLIC	r|PERM|bf74a71c2bb430f0a9c98e6d94841479|-
+POL	public.product_fitments_effective|product_fitments_effective_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.product_fitments|product_fitments_select_public	PUBLIC	r|PERM|89bf3c5a672e20d201ec75bcf6c354b2|-
+POL	public.product_fitments|product_fitments_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.product_image_trim|product_image_trim_public_read	PUBLIC	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.product_variants|product_variants_delete_service_role	service_role	d|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.product_variants|product_variants_insert_service_role	service_role	a|PERM|-|b326b5062b2f0e69046810717534cb09
 POL	public.product_variants|product_variants_select_public	PUBLIC	r|PERM|38a325c5ff2ee00eabe37e38954ae5b6|-
+POL	public.product_variants|product_variants_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.product_variants|product_variants_update_service_role	service_role	w|PERM|b326b5062b2f0e69046810717534cb09|b326b5062b2f0e69046810717534cb09
 POL	public.products|products_delete_service_role	service_role	d|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.products|products_insert_service_role	service_role	a|PERM|-|b326b5062b2f0e69046810717534cb09
 POL	public.products|products_select_public	PUBLIC	r|PERM|c08d15ab27145279edcded875a2f1a69|-
+POL	public.products|products_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.products|products_update_service_role	service_role	w|PERM|b326b5062b2f0e69046810717534cb09|b326b5062b2f0e69046810717534cb09
 POL	public.search_queries|search_queries_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.shipment_items|shipment_items_select_own	authenticated	r|PERM|def89c3b17a806e510cc0edd839dc587|-
 POL	public.shipment_items|shipment_items_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.shipments|shipments_select_own	authenticated	r|PERM|41767db22bb3f730527c5144647402da|-
 POL	public.shipments|shipments_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.staff|staff_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
+POL	public.suppliers|suppliers_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.sweeper_heartbeat|sweeper_heartbeat_insert_service_role	service_role	a|PERM|-|b326b5062b2f0e69046810717534cb09
 POL	public.sweeper_heartbeat|sweeper_heartbeat_select_service_role	service_role	r|PERM|b326b5062b2f0e69046810717534cb09|-
 POL	public.sweeper_heartbeat|sweeper_heartbeat_update_service_role	service_role	w|PERM|b326b5062b2f0e69046810717534cb09|b326b5062b2f0e69046810717534cb09
@@ -918,7 +983,7 @@ REL	public.admin_order_list_v|v	service_role	S---|---
 REL	public.admin_saved_order_views|r	anon	----|RLS
 REL	public.admin_saved_order_views|r	authenticated	----|RLS
 REL	public.admin_saved_order_views|r	payment_confirmer	----|RLS
-REL	public.admin_saved_order_views|r	service_role	----|RLS
+REL	public.admin_saved_order_views|r	service_role	S---|RLS
 REL	public.admin_sso_login_events|r	anon	----|RLS
 REL	public.admin_sso_login_events|r	authenticated	----|RLS
 REL	public.admin_sso_login_events|r	payment_confirmer	----|RLS
@@ -938,11 +1003,11 @@ REL	public.categories|r	service_role	SIUD|RLS
 REL	public.coupon_redemptions|r	anon	----|RLS
 REL	public.coupon_redemptions|r	authenticated	----|RLS
 REL	public.coupon_redemptions|r	payment_confirmer	----|RLS
-REL	public.coupon_redemptions|r	service_role	----|RLS
+REL	public.coupon_redemptions|r	service_role	S---|RLS
 REL	public.coupons|r	anon	----|RLS
 REL	public.coupons|r	authenticated	----|RLS
 REL	public.coupons|r	payment_confirmer	----|RLS
-REL	public.coupons|r	service_role	----|RLS
+REL	public.coupons|r	service_role	S---|RLS
 REL	public.customer_addresses|r	anon	----|RLS
 REL	public.customer_addresses|r	authenticated	SIUD|RLS
 REL	public.customer_addresses|r	payment_confirmer	----|RLS
@@ -950,7 +1015,7 @@ REL	public.customer_addresses|r	service_role	SIUD|RLS
 REL	public.customer_favorites|r	anon	----|RLS
 REL	public.customer_favorites|r	authenticated	SI-D|RLS
 REL	public.customer_favorites|r	payment_confirmer	----|RLS
-REL	public.customer_favorites|r	service_role	----|RLS
+REL	public.customer_favorites|r	service_role	S---|RLS
 REL	public.customer_vehicles|r	anon	----|RLS
 REL	public.customer_vehicles|r	authenticated	SIUD|RLS
 REL	public.customer_vehicles|r	payment_confirmer	----|RLS
@@ -978,7 +1043,7 @@ REL	public.email_outbox|r	service_role	SIU-|RLS
 REL	public.legal_terms_versions|r	anon	S---|RLS
 REL	public.legal_terms_versions|r	authenticated	S---|RLS
 REL	public.legal_terms_versions|r	payment_confirmer	----|RLS
-REL	public.legal_terms_versions|r	service_role	----|RLS
+REL	public.legal_terms_versions|r	service_role	S---|RLS
 REL	public.order_cancellation_items|r	anon	----|RLS
 REL	public.order_cancellation_items|r	authenticated	----|RLS
 REL	public.order_cancellation_items|r	payment_confirmer	----|RLS
@@ -1030,7 +1095,7 @@ REL	public.order_paid_totals_v|v	service_role	S---|---
 REL	public.order_payments|r	anon	----|RLS
 REL	public.order_payments|r	authenticated	----|RLS
 REL	public.order_payments|r	payment_confirmer	----|RLS
-REL	public.order_payments|r	service_role	----|RLS
+REL	public.order_payments|r	service_role	S---|RLS
 REL	public.order_pending_refunds|r	anon	----|RLS
 REL	public.order_pending_refunds|r	authenticated	----|RLS
 REL	public.order_pending_refunds|r	payment_confirmer	----|RLS
@@ -1074,7 +1139,7 @@ REL	public.payment_charge_attempts|r	service_role	S---|RLS
 REL	public.payment_double_charge_anomalies|r	anon	----|RLS
 REL	public.payment_double_charge_anomalies|r	authenticated	----|RLS
 REL	public.payment_double_charge_anomalies|r	payment_confirmer	----|RLS
-REL	public.payment_double_charge_anomalies|r	service_role	----|RLS
+REL	public.payment_double_charge_anomalies|r	service_role	S---|RLS
 REL	public.payment_double_charge_anomaly_events|r	anon	----|RLS
 REL	public.payment_double_charge_anomaly_events|r	authenticated	----|RLS
 REL	public.payment_double_charge_anomaly_events|r	payment_confirmer	----|RLS
@@ -1090,7 +1155,7 @@ REL	public.payment_refund_events|r	service_role	----|RLS
 REL	public.payment_refunds|r	anon	----|RLS
 REL	public.payment_refunds|r	authenticated	----|RLS
 REL	public.payment_refunds|r	payment_confirmer	----|RLS
-REL	public.payment_refunds|r	service_role	----|RLS
+REL	public.payment_refunds|r	service_role	S---|RLS
 REL	public.payment_webhook_events|r	anon	----|RLS
 REL	public.payment_webhook_events|r	authenticated	----|RLS
 REL	public.payment_webhook_events|r	payment_confirmer	----|RLS
@@ -1099,6 +1164,14 @@ REL	public.pcm_b2_shipping_idempotency|r	anon	----|RLS
 REL	public.pcm_b2_shipping_idempotency|r	authenticated	----|RLS
 REL	public.pcm_b2_shipping_idempotency|r	payment_confirmer	----|RLS
 REL	public.pcm_b2_shipping_idempotency|r	service_role	----|RLS
+REL	public.pcm_order_created_email_pending|v	anon	----|---
+REL	public.pcm_order_created_email_pending|v	authenticated	----|---
+REL	public.pcm_order_created_email_pending|v	payment_confirmer	----|---
+REL	public.pcm_order_created_email_pending|v	service_role	S---|---
+REL	public.pcm_rls_rollback_20260904270000|r	anon	----|RLS
+REL	public.pcm_rls_rollback_20260904270000|r	authenticated	----|RLS
+REL	public.pcm_rls_rollback_20260904270000|r	payment_confirmer	----|RLS
+REL	public.pcm_rls_rollback_20260904270000|r	service_role	----|RLS
 REL	public.pcm_shipped_email_pending|v	anon	----|---
 REL	public.pcm_shipped_email_pending|v	authenticated	----|---
 REL	public.pcm_shipped_email_pending|v	payment_confirmer	----|---
@@ -1107,6 +1180,14 @@ REL	public.pcm_shipped_email_unsendable|v	anon	----|---
 REL	public.pcm_shipped_email_unsendable|v	authenticated	----|---
 REL	public.pcm_shipped_email_unsendable|v	payment_confirmer	----|---
 REL	public.pcm_shipped_email_unsendable|v	service_role	S---|---
+REL	public.pcm_tracking_corrected_email_pending|v	anon	----|---
+REL	public.pcm_tracking_corrected_email_pending|v	authenticated	----|---
+REL	public.pcm_tracking_corrected_email_pending|v	payment_confirmer	----|---
+REL	public.pcm_tracking_corrected_email_pending|v	service_role	S---|---
+REL	public.pcm_unpaid_cancelled_email_pending|v	anon	----|---
+REL	public.pcm_unpaid_cancelled_email_pending|v	authenticated	----|---
+REL	public.pcm_unpaid_cancelled_email_pending|v	payment_confirmer	----|---
+REL	public.pcm_unpaid_cancelled_email_pending|v	service_role	S---|---
 REL	public.pending_invoices|r	anon	----|RLS
 REL	public.pending_invoices|r	authenticated	----|RLS
 REL	public.pending_invoices|r	payment_confirmer	----|RLS
@@ -1183,3 +1264,20 @@ ROLE	anon		-
 ROLE	authenticated		-
 ROLE	payment_confirmer		-
 ROLE	service_role		BYPASSRLS
+VIEWOPT	public.admin_coupon_list_blocks_v|view	security_invoker=(未設)	postgres
+VIEWOPT	public.admin_coupon_list_v|view	security_invoker=(未設)	postgres
+VIEWOPT	public.admin_customer_list_v|view	security_invoker=true	postgres
+VIEWOPT	public.admin_order_list_v|view	security_invoker=true	postgres
+VIEWOPT	public.customer_wallet_balance_check|view	security_invoker=true	postgres
+VIEWOPT	public.order_paid_totals_v|view	security_invoker=false	postgres
+VIEWOPT	public.order_refund_effective_verdict|view	security_invoker=true	postgres
+VIEWOPT	public.payment_refund_effective_terminal|view	security_invoker=true	postgres
+VIEWOPT	public.pcm_order_created_email_pending|view	security_invoker=true	postgres
+VIEWOPT	public.pcm_shipped_email_pending|view	security_invoker=true	postgres
+VIEWOPT	public.pcm_shipped_email_unsendable|view	security_invoker=true	postgres
+VIEWOPT	public.pcm_tracking_corrected_email_pending|view	security_invoker=true	postgres
+VIEWOPT	public.pcm_unpaid_cancelled_email_pending|view	security_invoker=true	postgres
+VIEWOPT	public.product_variants_public|view	security_invoker=true	postgres
+VIEWOPT	public.products_list_public|view	security_invoker=true	postgres
+VIEWOPT	public.products_public|view	security_invoker=true	postgres
+VIEWOPT	public.vehicle_taxonomy_public|view	security_invoker=false	postgres

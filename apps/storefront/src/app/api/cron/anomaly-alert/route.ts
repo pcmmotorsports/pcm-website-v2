@@ -531,6 +531,28 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
     }
 
+    // 🔴 **第四條線同款**(codex 2026-09-04 must-fix #3;⟦b4-NORECIPIENTWINDOW⟧)。
+    //    🎯 它擋的東西與姊妹那格一模一樣:**RPC 還沒 apply ⇒ 三格是 null ⇒ 告警恆不叫**,
+    //      而 route 照回 200 ⇒ 「安靜」與「這道告警沒裝上」印同一個畫面。
+    //
+    // 🔴🔴 **`shippedCutoffIso !== null` 這個前提是【後來補的】, 而理由值得寫出來**
+    //    (主視窗 2026-09-05 批;成因是 pre-push 的部署時序閘擋下那一批時翻出來的):
+    //    ⛔ ~~「本線的母體天生從空的開始長 ⇒ 它不需要起始線 ⇒ 只要 unknown 為真就吵」~~
+    //    🛑 **那句話對【母體】為真, 而對【這條線上膛了沒】為假。**
+    //      更正信這條線整體是被 `SHIPPED_EMAIL_CUTOFF` 開關的(email-sweep route 那一段掛在它底下)
+    //      ⇒ 📌 **那顆 env 沒設 = 這條線一封都不會寄 = 它根本還沒上膛。**
+    //    ⇒ 🎯 **不要為一條還沒上膛的線, 抱怨它的儀器不見了。**
+    //    ⚠️ 而少了這個前提的實際後果是**保證發生**的:程式先上、migration 後貼的那個窗口裡,
+    //      這支 cron **每一發都回 503 + 寫失敗心跳** —— 而那是一個**對常態發的警報**。
+    if (shippedCutoffIso !== null && result.trackingCorrectedGapUnknown) {
+      console.error(
+        '[anomaly-alert] 🔴 get_tracking_corrected_gap_counts 讀不到 ⇒ 更正單號信收件人那一段今天是【查不到】不是【0】(回 503)',
+        { ...result },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+
     if (shippedCutoffIso !== null && result.shippedGapUnknown) {
       console.error(
         '[anomaly-alert] 🔴 起始線有設而 get_shipped_email_gap_counts 讀不到 ⇒ 出貨缺口那一段今天是【查不到】不是【0】(回 503)',

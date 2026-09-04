@@ -228,6 +228,21 @@ describe('⟦ship-HCTCOPYPAIR⟧ 那句話變假的那一天, 這一格會紅', 
     ).toBeGreaterThan(0);
   });
 
+  // 🔴🔴 **2026-09-05 新增 —— 而它補的是【我自己開的洞】。**
+  //    我把主格從「掃全樹」收窄成「只掃取消那條路徑」, 而上面兩格正對照走的是**收窄之前**那把尺
+  //    ⇒ 📌 **它們證明底層的尺會動, 證不到【我新加的那一層 filter 會動】。**
+  //    ⇒ 🎯 而那正是這種修法最常見的失效:**尺還在, 而過濾把它擋在目標之外, 兩者都印綠。**
+  it('🟢 正對照③:那一層 filter 留得住取消路徑, 也擋得掉出貨路徑', () => {
+    const keep = (f: string) =>
+      /\/(orders|components\/orders)\//.test(f) && !/shipment-hct-submit/.test(f);
+    // 該留:取消那條路徑上的檔
+    expect(keep('/x/apps/admin/src/lib/orders/cancel-actions.ts'), '取消路徑被擋掉了').toBe(true);
+    expect(keep('/x/apps/admin/src/components/orders/shipment-section.tsx')).toBe(true);
+    // 該擋:出貨那條路徑 + 送新竹那顆鈕自己
+    expect(keep('/x/apps/admin/src/lib/shipping/shipment-actions.ts'), '出貨路徑沒被擋').toBe(false);
+    expect(keep('/x/apps/admin/src/components/orders/shipment-hct-submit-button.tsx')).toBe(false);
+  });
+
   it('🔵 第二把尺:去註解之後檔案還在(否則整支被吃光, 上下兩格都恆綠)', () => {
     const files = SRC_ROOTS.flatMap((r) => sourceFiles(r));
     expect(files.length, '一支檔都沒收到 ⇒ 路徑錯了').toBeGreaterThan(100);
@@ -252,13 +267,32 @@ describe('⟦ship-HCTCOPYPAIR⟧ 那句話變假的那一天, 這一格會紅', 
     //      **每一個都只有在我們真的去講話時才會出現。**
     // 🧬 **而這個判斷要被證明, 不是被主張** —— 下面那格正對照造了兩支【真的在呼叫】的碼:
     //    一支 `fetch` 到他們的網域、一支讀 `HCT_API_ACCOUNT` ⇒ **兩支都必須讓這一格紅。**
-    const hits = filesMatching(/HCT_API_(ACCOUNT|PASSWORD)|hct\.com\.tw|EDI_WebService/);
+    // 🔴🔴 **2026-09-05 這一格【又叫了】, 而這一次它量對了** ——
+    //    `lib/shipping/shipment-actions.ts` 真的開始讀 `HCT_API_ACCOUNT` / `HCT_API_PASSWORD`
+    //    並把 `runHctSubmit` 接上一顆鈕(`7ddbba166`, Sean 拍甲批准)。
+    //    ⇒ 🎯 **本 docstring 第 138 行預言的那一天到了。**
+    //
+    // ✅ **而照它自己寫的「紅了要做什麼」第③條:重寫這一格, 不刪掉。**
+    //    ⛔ ~~原本掃的是【全樹有沒有任何碼在呼叫新竹】~~ ——
+    //    🔴 那個屬性**從今天起永遠為真** ⇒ 它會**恆紅**, 而恆紅的閘會被關掉。
+    //
+    // 🎯 **而那句文案為真的條件, 從來就不是「全樹零呼叫」, 是【取消那條路徑不通知新竹】。**
+    //    ⇒ 送出託運單**不是攔件**;查貨**不是攔件**。今天我們有前兩者, 一個攔件都沒有。
+    //    ⇒ ✅ 新的尺:**掃【取消】那條路徑上的碼**, 它們對新竹必須零呼叫。
+    //
+    // 🛑 **而那句文案這次【不改】, 理由是本 docstring 第②條逐字寫的**:
+    //    改它的前提是「我們分得出【真的攔到】與【它只是回了個 N】」——
+    //    ⇒ 🔴 **那個前提今天仍然不成立**(那份 ErrMsg 清單還沒有人去收)。
+    //    ⇒ 📌 **接上 API ≠ 分得出攔到沒攔到。** 兩件事之間隔著一份要實測收集的清單。
+    const cancelPath = filesMatching(/HCT_API_(ACCOUNT|PASSWORD)|hct\.com\.tw|EDI_WebService/)
+      .filter((f) => /\/(orders|components\/orders)\//.test(f) && !/shipment-hct-submit/.test(f));
+    const hits = cancelPath;
     expect(
       hits.map((f) => f.split('/src/')[1] ?? f),
       [
-        '有碼開始呼叫新竹了 ⇒ 「我們不會自動通知新竹攔件」這句話的前提已經不成立。',
-        '(⚠️ 純函式層【不算】呼叫 —— 片 A 只把出貨單轉成欄位, 零請求零帳密;',
-        '  而片 B 一接上 client, 這一格就會紅, 那時要回來重讀那句文案。)',
+        '【取消】那條路徑上出現了呼叫新竹的碼 ⇒ 「我們不會自動通知新竹攔件」這句話直接變假。',
+        '(⚠️ 送出託運單與查貨【不算攔件】—— 那兩條 2026-09-05 已經接上,',
+        '  而它們發生在【出貨】那條路徑上, 不在取消這條。)',
         '🛑 不要為了讓這一格變綠就把它刪掉, 也不要直接把文案改成「已通知攔件」——',
         '改它的前提是【我們分得出「真的攔到」與「它只是回了個 N」】, 理由寫在本 describe 的 docstring。',
       ].join(' '),

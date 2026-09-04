@@ -209,3 +209,138 @@ describe('filterFacets', () => {
   });
 
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 **子分類那一層**(`⟦search-CATNAMEQUERY⟧` 2026-09-05 · 線【身分】`-auth`)
+// ══════════════════════════════════════════════════════════════════════════
+//   🔬 病是量到的:正式站打**子分類全名**⇒ 商品 0 筆、分類區 `[]`,
+//     而 `failed.categories = false` ⇒ **那一腿跑了且沒壞, 是真的沒對到。**
+//   🛑 **這四個名字不是我編的** —— 逐字取自
+//     `docs/specs/2026-07-11-category-taxonomy-v1-draft.md:30/31/36`,
+//     件數 1,064 / 5,120 / 1,229 / 567 ⇒ **它們是有貨的真子類, 不是空殼。**
+describe('filterFacets — 子分類那一層(⟦search-CATNAMEQUERY⟧)', () => {
+  /** 逐字照正式庫的層級關係建:大類底下掛真的子類名。 */
+  function withKids(id: string, name: string, kids: Array<[string, string, number]>): MockCategory {
+    return {
+      id,
+      name,
+      count: 100,
+      children: kids.map(([kid, kname, kcount]) => ({ id: kid, name: kname, count: kcount })),
+    };
+  }
+  const TREE: MockCategory[] = [
+    withKids('c-protect', '車身防護與防摔', [
+      ['s-slider', '車身防倒球與滑塊', 1064],
+      ['s-engine', '引擎護蓋與護桿', 567],
+    ]),
+    withKids('c-bolt', '精品螺絲與螺帽', [['s-boltkit', '精品螺絲組', 5120]]),
+    withKids('c-rider', '騎士用品與配件', [['s-phone', '手機架與導航支架', 1229]]),
+    withKids('c-exhaust', '排氣系統', []),
+  ];
+
+  // 🔴 四個子類全名各一格 —— 用 `it.each` 是因為**四個字要分別紅**:
+  //    塞成一格的話, 修好一個就綠了, 而另外三個的失敗被第一個遮住。
+  it.each([
+    ['車身防倒球與滑塊', '車身防護與防摔 · 車身防倒球與滑塊', 1064],
+    ['引擎護蓋與護桿', '車身防護與防摔 · 引擎護蓋與護桿', 567],
+    ['精品螺絲組', '精品螺絲與螺帽 · 精品螺絲組', 5120],
+    ['手機架與導航支架', '騎士用品與配件 · 手機架與導航支架', 1229],
+  ])('🔴 打子類全名 `%s` ⇒ 分類區要有它, 而 path 帶父類', (q, path, count) => {
+    const hits = filterFacets(q, data({ categories: TREE })).categories;
+    // 🛑 **只驗「有一格」不夠** —— 一個「把整棵樹都吐出來」的實作也會過。
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.name).toBe(q);
+    // 🔴 `path` 才是寫進 `?category=` 的東西, 而它**必須帶父類** ——
+    //    只給短名的話那個網址撈不到東西(實測:不存在的子類路徑 ⇒ RSC 裡 0 個 slug)。
+    expect(hits[0]!.path).toBe(path);
+    expect(hits[0]!.count).toBe(count);
+  });
+
+  // 🟢🟢 **負對照 —— 打大類名不得把它底下的子類一起吐出來**
+  //   📌 這一格擋的是「攤平之後 filter 太寬」那個世界:`車身防護與防摔` 是父類名,
+  //     而子類的 `path` 裡**含有父類名** ⇒ 若哪天有人把 filter 改成比 `path`,
+  //     這三格會一起中 ⇒ 疊層被自己的子類洗版。
+  it('🟢 負對照:打大類 `車身防護與防摔` ⇒ 只回它自己, 不回兩個子類', () => {
+    const hits = filterFacets('車身防護與防摔', data({ categories: TREE })).categories;
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.name).toBe('車身防護與防摔');
+    // 🔴 大類的 `path` **逐字等於 `name`** ⇒ 大類那一區的行為一個字都沒變。
+    expect(hits[0]!.path).toBe('車身防護與防摔');
+  });
+
+  // 🟢 **正對照:改之前就會中的那些, 現在還要中**(回歸)
+  it('🟢 正對照:大類 `排氣` 仍然回 `排氣系統`(這是改之前就成立的行為)', () => {
+    const hits = filterFacets('排氣', data({ categories: TREE })).categories;
+    expect(hits.map((c) => c.path)).toEqual(['排氣系統']);
+  });
+
+  // 🔵 **同名子類不去重** —— `⟦search-DUPCATNAMES⟧` 記著正式站有三組同名分類。
+  //   它們的 `path` 不同(父類不同)⇒ **兩格是兩個不同的落點, 合併會丟掉一個。**
+  it('🔵 兩個父類底下有同名子類 ⇒ 兩格都要在, 而 path 不同', () => {
+    const dup: MockCategory[] = [
+      withKids('c-a', '甲大類', [['s-a', '維修零件', 10]]),
+      withKids('c-b', '乙大類', [['s-b', '維修零件', 20]]),
+    ];
+    const hits = filterFacets('維修零件', data({ categories: dup })).categories;
+    expect(hits).toHaveLength(2);
+    expect(hits.map((c) => c.path)).toEqual(['甲大類 · 維修零件', '乙大類 · 維修零件']);
+  });
+
+  // 🔴 **`children` 缺席不得炸掉** —— `filterFacets` 是公開純函式, 它對自己的輸入負責。
+  //   🎯 它壞掉的樣子:throw ⇒ `/api/search` 整發炸掉 ⇒ **疊層全空**(不是少一區)。
+  it('🔴 分類物件沒有 children ⇒ 不得 throw, 大類那一半照常回', () => {
+    const noKids = [{ id: 'c-x', name: '排氣系統', count: 5 } as unknown as MockCategory];
+    expect(() => filterFacets('排氣', data({ categories: noKids }))).not.toThrow();
+    expect(filterFacets('排氣', data({ categories: noKids })).categories).toHaveLength(1);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 **大類命中要排在子類命中前面** —— 而這一格是【preview 實測抓出來的】,
+//    不是我想出來的。`⟦search-CATNAMEQUERY⟧` 2026-09-05。
+// ══════════════════════════════════════════════════════════════════════════
+//   🔬 preview `13a4f020c` 打 `排氣` ⇒ 回 5 格, 而**第一格是
+//     `碳纖維部品 · 引擎與排氣護蓋`**, `排氣系統`(大類)被擠到第二。
+//   🛑 **那是我自己寫的規格第 5 行的後半, 而我沒有實作它** ——
+//     規格逐字:「上限沿用 `SEARCH_FACET_LIMIT`;**大類命中排在子類前**(大類比較不會誤中)。」
+//   🎯 **而上面那 8 格測試一格都沒紅** —— 因為**每一格查詢都只命中一樣東西**,
+//     從來沒有一格【同時命中大類與子類】⇒ 📌 **順序這件事在我的分母裡不存在。**
+//   🔵 而它不是美觀問題:`SEARCH_FACET_LIMIT = 6` ⇒ 打一個常見字時,
+//     子類會把**別的大類**擠出榜, 而客人最可能想去的就是那個大類。
+describe('filterFacets — 大類命中排在子類前(preview 實測抓出來的)', () => {
+  // 逐字照正式庫今天的形狀建:`排氣` 同時命中一個大類與四個子類(其中一個掛在別的大類下)。
+  const TREE: MockCategory[] = [
+    {
+      id: 'c-carbon',
+      name: '碳纖維部品',
+      count: 900,
+      children: [{ id: 's-cover', name: '引擎與排氣護蓋', count: 90 }],
+    },
+    {
+      id: 'c-exhaust',
+      name: '排氣系統',
+      count: 849,
+      children: [
+        { id: 's-slip', name: '尾段排氣管(Slip-On)', count: 400 },
+        { id: 's-full', name: '全段排氣管', count: 300 },
+      ],
+    },
+  ];
+
+  it('🔴 打 `排氣` ⇒ 大類 `排氣系統` 必須排第一, 不得被別的大類的子類擠掉', () => {
+    const hits = filterFacets('排氣', data({ categories: TREE })).categories;
+    // 🛑 **先驗它確實同時命中兩層** —— 否則這一格會在「子類根本沒中」的世界裡假綠。
+    expect(hits.length).toBeGreaterThan(1);
+    expect(hits[0]!.path).toBe('排氣系統');
+  });
+
+  it('🔵 而子類【不得被丟掉】—— 排在後面, 不是不見(順序題不是過濾題)', () => {
+    const paths = filterFacets('排氣', data({ categories: TREE })).categories.map((c) => c.path);
+    expect(paths).toContain('排氣系統 · 尾段排氣管(Slip-On)');
+    expect(paths).toContain('碳纖維部品 · 引擎與排氣護蓋');
+    // 🔴 同一層之內**維持樹的原順序**(穩定排序)—— 不得順手改成別的排法。
+    expect(paths.indexOf('排氣系統 · 尾段排氣管(Slip-On)')).toBeLessThan(
+      paths.indexOf('排氣系統 · 全段排氣管'),
+    );
+  });
+});

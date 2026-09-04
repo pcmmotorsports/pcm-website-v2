@@ -61,6 +61,10 @@ const ZERO: AnomalyAlertSummary = {
   unpaidCancelledPendingCount: 0,
   unpaidCancelledNoRecipientCount: 0,
   unpaidCancelledGapUnknown: false,
+  // 🔵 第四條線(⟦b4-NORECIPIENTWINDOW⟧, 2026-09-04)。預設乾淨:不叫。
+  trackingCorrectedPendingCount: 0,
+  trackingCorrectedNoRecipientCount: 0,
+  trackingCorrectedGapUnknown: false,
   orderCreatedStuckCount: 0,
   orderCreatedStuckOldestMinutes: null,
   orderCreatedStuckUnknown: false,
@@ -179,6 +183,11 @@ describe('checkAnomalyAlerts — 門檻矩陣', () => {
     //   它守的是:把 `shouldAlert` 那一項拿掉 ⇒ **這一格必須紅**。
     //   ⇒ 📌 沒有它, 「讓狀態看得見」是一句話不是一個保護。
     ['unpaidCancelledNoRecipientCount', { ...ZERO, unpaidCancelledNoRecipientCount: 1 }],
+    // 🔴 **更正單號信線的主詞**(⟦b4-NORECIPIENTWINDOW⟧ **第四條線**, 2026-09-04)。
+    //   守的是同一件事:把 `shouldAlert` 那一項拿掉 ⇒ **這一格必須紅**。
+    //   ⇒ 📌 而這一條的後果與姊妹線不同:不是「客人沒收到一封信」,
+    //     是**客人手上有一個我們給他的、而現在是錯的貨運單號**, 而我們寄不出更正。
+    ['trackingCorrectedNoRecipientCount', { ...ZERO, trackingCorrectedNoRecipientCount: 1 }],
   ] as const)('%s>0 → 告警 + 呼 notifier', async (_label, summary) => {
     const n = okNotifier();
     const res = await checkAnomalyAlerts({ reader: reader(summary), notifiers: [n] }, OPTS);
@@ -193,6 +202,56 @@ describe('checkAnomalyAlerts — 門檻矩陣', () => {
    * 下一輪 scanner 就把它排進去了。
    * ⇒ 📌 **拿它當判準 = 有生意就叫 —— 而一個對常態發的警報會訓練所有人跳過它。**
    */
+  /**
+   * 🟢🟢 **第四條線的兩個負對照 —— 而沒有它們, 上面那格在「這支 use-case 什麼都叫」的世界裡也會綠。**
+   */
+  it('🔴 那封信裡要說得出【是哪一件事】—— 而刪掉那行文字, 上面那格照樣綠', async () => {
+    // 🔴🔴 codex 2026-09-04 must-fix #7:上面那格只驗 `alerted` 與 `notify` 被呼叫,
+    //    ⇒ 把 `emailPush(...)` 那一行整段刪掉, 它**照樣綠** —— 而收信的人會看到一封
+    //    說「有異常」而沒說是什麼的信。
+    const n = okNotifier();
+    await checkAnomalyAlerts(
+      { reader: reader({ ...ZERO, trackingCorrectedNoRecipientCount: 3 }), notifiers: [n] },
+      OPTS,
+    );
+    const body = JSON.stringify(n.notify.mock.calls);
+    expect(body).toContain('貨運單號更正');
+    // 🔵 而它要說出**後果**, 不只說出現象 —— 這一條與姊妹線的差別就在這裡。
+    expect(body).toContain('沒有路可以更正');
+  });
+
+  it('🔵 trackingCorrectedPending>0 而 noRecipient=0 → 不告警(有更正不是異常)', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: reader({ ...ZERO, trackingCorrectedPendingCount: 5 }), notifiers: [n] },
+      OPTS,
+    );
+    // 🔴 承重:把 `pending` 也寫進 shouldAlert ⇒ 這一格紅。
+    //   而那個錯法的症狀是**每天都叫** —— 對常態發的警報會訓練所有人跳過它。
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+  });
+
+  it('🔵 trackingCorrected 三格都是 null(RPC 尚未 apply)→ 不告警, 而那【不是】健康', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: reader({
+          ...ZERO,
+          trackingCorrectedPendingCount: null,
+          trackingCorrectedNoRecipientCount: null,
+          trackingCorrectedGapUnknown: true,
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    // 🔴 `?? 0` ⇒ 讀不到時不叫 —— 而**「不叫」與「健康」是兩件事**:
+    //   那個差別由 `trackingCorrectedGapUnknown` 帶到 route 的回應上, 不由這裡叫。
+    expect(res.alerted).toBe(false);
+    expect(res.trackingCorrectedGapUnknown).toBe(true);
+  });
+
   it('🔴 paidNoEmail>0 而 stuck=0 → 不告警(有生意不是異常)', async () => {
     const n = okNotifier();
     const res = await checkAnomalyAlerts(
