@@ -14,13 +14,22 @@
 import type { MockBrand } from '@/data/mock-brands';
 import type { MockCategory } from '@/data/mock-categories';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import { CATEGORY_URL_SEPARATOR } from '@/components/products-url-parsers';
 import { foldIncludes } from '@/lib/search-terms-fold';
 
 /** 各區上限。稿 `SearchOverlay.jsx:40/46/57` 逐字 `.slice(0, 6)`。 */
 export const SEARCH_FACET_LIMIT = 6;
 
 export type SearchBrandHit = { id: string; name: string; count: number };
-export type SearchCategoryHit = { id: string; name: string; count: number };
+/**
+ * 🔴 **`name` 與 `path` 不可以合成一個**(`⟦search-CATNAMEQUERY⟧` 2026-09-05)。
+ *    · `name` = **比對用的短名**(客人打的是 `車身防倒球與滑塊`, 不是它的全路徑)
+ *    · `path` = **寫進 `?category=` 的東西**;大類 `path === name`,
+ *      子類則是 `父類 · 子類`(`CATEGORY_URL_SEPARATOR`, `products-url-parsers.ts:46`)。
+ *    📌 這一條逐字沿用 `parse-search-facets.ts:205-207` 那段註解 —— 它為同一件事寫過一次,
+ *      而**合成一個正是那個缺陷的形狀**。
+ */
+export type SearchCategoryHit = { id: string; name: string; path: string; count: number };
 export type SearchVehicleHit = {
   brandId: string;
   brandName: string;
@@ -108,10 +117,53 @@ export function filterFacets(
   // 🔴 **分類這一區 2026-09-04 也換成折兩端**(Sean 第十七題拍甲, 見上面品牌那一段)。
   //    🔬 **換之前量過分母, 不是換完才想起來**(正式庫唯讀 + 拿【真的】`foldSearchTerm` 跑):
   //       分類 **83 個唯一名 ⇒ 折後撞名 0 組 · 折成空字串 0** ⇒ 沒有「兩個不同分類被折成一個」的世界。
-  const categories = data.categories.categories
+  // 🔴🔴 **子類那一層也要比**(`⟦search-CATNAMEQUERY⟧` 2026-09-05, 線【身分】`-auth`)。
+  //   🔬 **病是量到的**(正式站 `/api/search`):打**子分類全名**`車身防倒球與滑塊` /
+  //     `精品螺絲組` / `手機架與導航支架` / `引擎護蓋與護桿` ⇒ **商品 0 筆、分類區 `[]`**,
+  //     而 `failed.categories = **false**` ⇒ 🔵 **那一腿跑了而且沒壞, 是真的沒對到。**
+  //     而拆開就有(`防倒球` 8 / `滑塊` 8 / `螺絲組` 8)。
+  //   🔬 成因就在下面這一行的**舊版**:它只看 `c.name` / `c.id` = **大類自己**,
+  //     而 `MockCategory` 上一直有 `children`(`data/mock-categories.ts:14-19`)。
+  //     ⇒ 🎯 **子類那一層從來沒有被這個 filter 看過。**
+  //   🟢 **負對照(證明尺會動, 不是資料沒有分類)**:改之前打 `架` ⇒ 回 `懸吊與車架`、
+  //     打 `排氣` ⇒ 回 `排氣系統` —— **大類那一層本來就會中**
+  //     ⇒ 📌 要建的不是「讓查詢命中分類名」(那已經在跑), 是**子類那一層**。
+  //
+  //   ✅ **攤平的形狀逐字沿用 `parse-search-facets.ts:205-212`** —— 那支為膠囊那條路
+  //     解過同一題, 而**它算出來的 `path` 正是 `?category=` 吃的東西**。不另發明一種。
+  //   🔬 **而「子類真的連得到」是實測的, 不是讀碼推的**(2026-09-05 正式站, RSC 裡數不重複 slug):
+  //     ```
+  //     ?category=排氣系統                        ⇒ 50   ← 🟢 正對照(大類, 已知好的)
+  //     ?category=車身防護與防摔 · 車身防倒球與滑塊 ⇒ 50   ← ✅ 子類這條路通
+  //     ?category=車身防護與防摔 · 不存在的子類XYZ  ⇒  0   ← 🔵 負對照(尺不是恆印 50)
+  //     ```
+  //     ⚠️ 而**第一把尺沒有判別力**:數 `href="/products/` ⇒ 三發**全 0**(那一頁是 client 畫的)
+  //     ⇒ 換成數 RSC 裡的 slug 才分得開。**「頁面沒東西」與「我的尺看不到」印同一個 0。**
+  //
+  //   🛑 **`name` 與 `path` 不合成一個** —— 比對要短名(客人打的是短名), 網址要全路徑。
+  //     大類 `path === name` ⇒ **大類那一區的行為逐字不變。**
+  //   🔵 **同名子類不去重** —— `⟦search-DUPCATNAMES⟧` 記著正式站有三組同名分類;
+  //     它們的 `path` **不同**(父類不同)⇒ 兩格 chip 是**兩個不同的落點**, 合併會丟掉一個。
+  //     (膠囊那條路只能挑一個 ⇒ 它用 `pickLargest`;疊層可以兩格都給 ⇒ **不必挑。**)
+  const flatCategories: SearchCategoryHit[] = data.categories.categories.flatMap((c) => [
+    { id: c.id, name: c.name, path: c.name, count: c.count },
+    // 🔴 **`?? []` 不是多餘的, 而它是【既有測試當場撞出來的】**:`search-facets.test.ts:156`
+    //    那一格餵的分類物件**沒有 `children`** ⇒ 加這一段之後它 `TypeError` 紅了。
+    //    🛑 **而型別說 `children` 是必填** ⇒ 那一格在型別上是違約的 —— 我仍然選擇**擋住**,
+    //      因為本檔上面自己寫著「本函式是公開純函式, **它要對自己的輸入負責, 不能假設呼叫端先擋過**」
+    //      (空字串短路那一段)。⇒ 📌 **同一條原則, 換一個受詞。**
+    //    🎯 而它壞掉的樣子不是小事:`filterFacets` throw ⇒ `/api/search` 整發炸掉 ⇒ **疊層全空**。
+    //    🔵 ⇒ 那一格測試現在是這道 guard 的**負對照**:拿掉 `?? []` 它就紅。
+    ...(c.children ?? []).map((s) => ({
+      id: s.id,
+      name: s.name,
+      path: `${c.name}${CATEGORY_URL_SEPARATOR}${s.name}`,
+      count: s.count,
+    })),
+  ]);
+  const categories = flatCategories
     .filter((c) => foldIncludes(c.name, q) || foldIncludes(c.id, q))
-    .slice(0, SEARCH_FACET_LIMIT)
-    .map((c) => ({ id: c.id, name: c.name, count: c.count }));
+    .slice(0, SEARCH_FACET_LIMIT);
 
   // 稿 `:47-54`:逐 brand 逐 model,而 **model 名或 brand 名任一命中就算**
   // ⇒ 打「YAMAHA」要撈得出它旗下的車款,不是只有名字裡有 YAMAHA 的那些型號。

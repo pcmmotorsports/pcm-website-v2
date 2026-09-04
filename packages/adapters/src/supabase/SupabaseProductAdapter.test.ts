@@ -15,7 +15,7 @@ const TEST_POOL_LIMIT = 100;
 // mock 讓 findById/findByHandle 的 .single() 回 PGRST116(not-found)→ findSingle 回 null,
 //   故不需建完整 row、只攔截 SELECT 參數即可。
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ProductId } from '@pcm/domain';
 import { SupabaseProductAdapter } from './SupabaseProductAdapter';
@@ -1846,4 +1846,96 @@ describe('searchByKeyword 舊路 — 品牌名要真的被查進去', () => {
     expect(captured.ors.length).toBe(1);
     expect(captured.ors[0]).not.toContain('brand_id');
   });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 **`brands` 那一發【失敗】時的降級路徑**(⟦search-BRANDMULTIWORD⟧ 的「證不到什麼」②)
+// ══════════════════════════════════════════════════════════════════════════
+//   📌 上面那個 describe 只驗了**成功**那一半。而這一片的 `try/catch` 是**刻意降級**:
+//     抓不到品牌 ⇒ 退回「只比四欄」= 今天的行為。**那條路在交件時逐字寫著「沒有測試」。**
+//   🛑 **它壞掉的方式不是報錯, 是【整支搜尋炸掉】** —— `searchByKeyword` 會 throw ⇒
+//     `/api/search` 上面那一層回 **503**(route.ts 逐字)⇒ 疊層整個空掉。
+//     ⇒ 🎯 **「品牌比不到」應該只少一塊, 不該讓客人連商品都搜不到。**
+//   🔴 **四個宣稱都要驗, 少一個就有一個世界溜過去**:
+//     ① 不得往外丟          少了 ⇒ 炸掉那個世界全綠
+//     ② 搜尋【真的送出去了】 少了 ⇒ 一個「catch 完就 return 空」的實作也會過
+//     ③ or() 裡【沒有】brand_id ⇒ 少了的話, 用空陣列組出 `brand_id.in.()` 那個
+//                              **語法會被 PostgREST 拒絕**的世界照樣過
+//     ④ 【留了痕】            少了 ⇒ 一個 `catch {}` 也會過, 而那時
+//                              「一直失敗」與「一直成功」在 log 裡是同一個安靜
+describe('searchByKeyword 舊路 — brands 那一發失敗時要【降級】不是【炸掉】', () => {
+  /** `mode='error'` = PostgREST 回 `{error}`;`mode='throw'` = 連線層直接 reject。 */
+  function makeBrandFailMock(mode: 'error' | 'throw') {
+    const captured: { froms: string[]; ors: string[]; ranged: boolean } = {
+      froms: [],
+      ors: [],
+      ranged: false,
+    };
+    const productBuilder = {
+      select() {
+        return productBuilder;
+      },
+      or(filter: string) {
+        captured.ors.push(filter);
+        return productBuilder;
+      },
+      order() {
+        return productBuilder;
+      },
+      range() {
+        captured.ranged = true;
+        return Promise.resolve({ data: [], error: null, count: 0 });
+      },
+    };
+    const brandBuilder = {
+      select() {
+        return brandBuilder;
+      },
+      then(res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) {
+        return mode === 'throw'
+          ? Promise.reject(new Error('connection reset')).then(res, rej)
+          : Promise.resolve({ data: null, error: { message: 'permission denied' } }).then(res);
+      },
+    };
+    const client = {
+      from(t: string) {
+        captured.froms.push(t);
+        return t === 'brands' ? brandBuilder : productBuilder;
+      },
+    };
+    return { client: client as unknown as SupabaseClient, captured };
+  }
+
+  for (const mode of ['error', 'throw'] as const) {
+    it(`🔴 brands 回 ${mode} ⇒ 搜尋照跑、不比品牌、而要留痕`, async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { client, captured } = makeBrandFailMock(mode);
+      const adapter = new SupabaseProductAdapter(client);
+
+      // ① 不得往外丟(往外丟 ⇒ /api/search 回 503 ⇒ 疊層整個空掉)
+      const res = await adapter.searchByKeyword('DBK SPECIAL', { limit: 8, offset: 0 });
+      expect(res.items).toEqual([]);
+
+      // ② 搜尋真的送出去了 —— 少了這一格,「catch 完就 return 空」也會過
+      expect(captured.ranged, 'brands 失敗之後【根本沒發搜尋】⇒ 那不是降級, 是炸掉').toBe(true);
+      expect(captured.froms).toContain('products_public');
+      expect(captured.ors.length, '兩個詞都要照樣各組一道 or()').toBe(2);
+
+      // ③ 降級 = 退回今天的行為(只比四欄), **不得**組出 `brand_id.in.()`
+      //    🛑 空陣列若還去組, PostgREST 會拿到 `brand_id.in.()` ⇒ 語法錯 ⇒ 整發失敗。
+      for (const f of captured.ors) {
+        expect(f, `降級了卻還帶品牌那一支:${f}`).not.toContain('brand_id');
+      }
+      // 🔵 **一組 or() 對應【一個詞】, 不是兩個詞塞同一組** —— 我第一版把這一格寫成
+      //    「每一組都要含 `%DBK%`」而它紅了, 而**紅的是我的期望值不是碼**:
+      //    第二組是 `SPECIAL` 的。⇒ 📌 逐詞對位, 才驗得到「四欄那一半沒被降級弄丟」。
+      expect(captured.ors[0]).toContain('title.ilike.%DBK%');
+      expect(captured.ors[1]).toContain('title.ilike.%SPECIAL%');
+
+      // ④ 留了痕 —— 少了這一格, 一個 `catch {}` 也會過
+      expect(warn, '安靜地降級 ⇒ 「一直失敗」與「一直成功」在 log 裡是同一個安靜').toHaveBeenCalled();
+      expect(String(warn.mock.calls[0]?.[0] ?? '')).toContain('[searchByKeyword]');
+      warn.mockRestore();
+    });
+  }
 });
