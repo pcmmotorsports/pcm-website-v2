@@ -6,7 +6,8 @@ import {
   SEARCH_CATEGORY_NAMES_SNAPSHOT,
 } from './search-category-names';
 import { SEARCH_SYNONYMS, synonymFor } from './search-synonyms';
-import { foldEquals, foldSearchTerm, foldStartsWith } from '@/lib/search-terms-fold';
+import { parseSearchFacets } from '@/lib/parse-search-facets';
+import { foldEquals, foldSearchTerm } from '@/lib/search-terms-fold';
 
 // ⟦search-CAPSULEPARSE⟧ · code-reviewer 2026-09-04 minor
 //
@@ -66,44 +67,60 @@ describe('SEARCH_SYNONYMS — 這張表自己要站得住', () => {
     },
   );
 
-  // 🔴🔴 **2026-09-04 補:一列可以【完全合法而永遠不會被讀到】。**
-  //    `parse-search-facets.ts:100` 先試 `foldEquals(w, c.name) || foldStartsWith(c.name, w)`,
-  //    中了就 `break` —— **在 `synonymFor` 之前**。
-  //    ⇒ 🎯 所以 `from` 若是某個分類名的**前綴**, 前綴那條先中, **字典這一列從來沒有被讀到**。
-  //    🛑 而**上面那格「from 與 to 不得折成同一個」看不到這一種** —— 它擋的是【重複】,
-  //       而這一種是 from ≠ to、只是**到不了**。
-  //    🔬 線【前台】2026-09-04 端到端驗出來的:當時 14 列裡有 **4 列**是這樣
-  //       (風鏡 / 手機架 / 齒盤 / 土除)⇒ **真實覆蓋是 10 列, 不是 14。**
-  //    ✅ 而這一格自帶「不會誤殺」的性質:哪天分類改名成不再以那個字開頭,
-  //       這個條件就自動變 false ⇒ **那一列可以合法地加回來, 而閘不會擋。**
+  // 🔴🔴🔴 **2026-09-04 訂正:這一道【呼叫解析器】, 不再複述它的規則。**
+  //
+  //  ⛔ ~~原本這裡是【兩道】閘, 而兩道都是把 `parse-search-facets.ts` 的行為【重打一份】~~:
+  //     · 前綴閘:自己寫 `foldStartsWith(name, syn.from)`  ← 複製 `:100` 的規則
+  //     · 空白閘:自己寫 `/[\s　 ]/`                        ← 複製 `:42` `splitWords` 的行為
+  //  🛑 **而這支測試檔【沒有 import 那支解析器】** ⇒ 它守的是那兩份副本, 不是生產碼。
+  //     ⇒ 🎯 生產碼哪天把 `foldStartsWith` 換成 `foldIncludes`(線【前台】正在做),
+  //       前綴閘**還在測一條已經不存在的規則, 而且全綠** ——
+  //       分母:兩道閘 × 32 列 = **64 格**在同一秒失去意義而不出聲。
+  //  ⇒ 📌 **一道測試若不 import 被測的那支碼, 它守的是它自己的那份副本。**
+  //     (2026-09-04 同一天三個受詞:線【前台】測試重打生產規則 ⇒ 5 列變讀不到而 144 全綠;
+  //      本檔這兩道 ⇒ 還沒發作的假綠 64 格;線【DB】全樹掃描守門與 related 沒有 import 關係。)
+  //  🔴 **而失效時間不由我決定** —— 它在【別人的 commit 落地那一刻】變成假的
+  //     ⇒ 所以這件不能排在別人後面。
+  //
+  //  ✅ **改法:把 `from` 餵進【真的解析器】, 看它是不是靠【這一列】解出 `to` 的。**
+  //     🎯 這一道同時取代了原本那兩道, 而且**嚴格更強** —— 它不管規則長什麼樣,
+  //        只問「客人打這個字, 我們的碼會不會用這一列把他帶到 `to`」。那才是這一列存在的理由。
+  //     🔵 它順帶也擋住了兩件原本要另外寫的事:`to` 不在目錄樹裡 / `to` 沒有商品
+  //        —— 因為 `allCats` 就是有貨的那份(下面 `SRC` 是照 `buildCategoryTree` 的語意造的)。
+  //  ⚠️ **這一格的天花板**:`SRC` 是用快照造的假目錄樹, 不是真的 `buildCategoryTree` 輸出
+  //     ⇒ 它驗得了「規則與字典怎麼互動」, 驗不了「快照跟不跟得上正式庫」——
+  //       後者由 `SEARCH_CATEGORY_EMPTY_NAMES` 那段檔頭寫的「上架後要重跑那行 SQL」負責。
+  const LIVE_CATS = SEARCH_CATEGORY_NAMES.filter((n) => !SEARCH_CATEGORY_EMPTY_NAMES.includes(n));
+  const FACET_SRC = {
+    motoBrands: [],
+    brands: [],
+    // `buildCategoryTree` 的語意:只留有商品的分類。這裡攤平成單層, 解析器對 children 是 flatMap, 等價。
+    categories: LIVE_CATS.map((name, i) => ({ id: `c${i}`, name, children: [] })),
+  } as unknown as Parameters<typeof parseSearchFacets>[1];
+
+  it('🟢 正對照:這把尺量得到東西(假目錄樹非空, 且解析器對【規則就吃得到】的字會回分類)', () => {
+    // 🔴 少了這一格, FACET_SRC 若變成空的 ⇒ 下面每一格都紅, 看起來像字典壞了(而其實是尺壞了)。
+    expect(LIVE_CATS.length).toBeGreaterThan(50);
+    const direct = parseSearchFacets('排氣', FACET_SRC);
+    expect(direct.category, '「排氣」應該靠規則本身就命中, 不需要字典').not.toBeNull();
+    expect(direct.usedSynonyms, '「排氣」不該用到字典').toHaveLength(0);
+  });
+
   it.each(SEARCH_SYNONYMS.filter((s) => s.kind === 'category'))(
-    '🔴 `from` 不得是任何分類名的前綴(那樣前綴那條先中, 這一列永遠讀不到):%s',
+    '🔴 把 `from` 餵進真的解析器, 它必須靠【這一列】解出 `to`:%s',
     (syn) => {
-      // 🔴🔴 **2026-09-04 訂正:分母要用【有貨的】分類, 不是全部 113 個。**
-      //    ⛔ ~~原本這一行找的是 `SEARCH_CATEGORY_NAMES`(全部 113 個)~~
-      //    🔬 而執行時 `parse-search-facets.ts:96` 的 `allCats` 來自 `buildCategoryTree`,
-      //       那支是**選項 A:只留有商品的分類**(`app/page.tsx:93` · `ProductsPage.tsx:95` 逐字)
-      //       ⇒ 🛑 **0 件的分類【執行時根本不在那個陣列裡】, 它遮不到任何東西。**
-      //    🎯 拿全部 113 個當分母 ⇒ 這道閘會**誤殺**只被空分類遮住的列。
-      //       實錘:`服飾 ⇒ 騎士服飾` 被 `服飾配備`(0 件)判死、
-      //             `傳動 ⇒ 齒盤與傳動` 被 `傳動齒比`(0 件)判死 ——
-      //             而那兩個詞正是 `-front` 量到「一顆膠囊都沒有」的那兩個。
-      //       ⇒ 📌 **一道閘照著一個【比現實大】的分母, 把唯一的修法擋掉了。**
-      //    ⚠️ **這是放寬, 而放寬的代價要寫出來**:哪天 `服飾配備` 進了貨,
-      //       它就會真的遮住 `服飾` ⇒ 那一列變死。
-      //       ✅ 而那個世界**會叫** —— 進貨的人更新 `SEARCH_CATEGORY_EMPTY_NAMES` 之後,
-      //          這道閘的分母跟著變大, `服飾` 那一列當場紅。兩份快照是綁在一起動的。
-      const liveCats = SEARCH_CATEGORY_NAMES.filter(
-        (n) => !SEARCH_CATEGORY_EMPTY_NAMES.includes(n),
-      );
-      const shadowedBy = liveCats.find(
-        (name) => foldEquals(syn.from, name) || foldStartsWith(name, syn.from),
-      );
-      expect(
-        shadowedBy,
-        `「${syn.from} ⇒ ${syn.to}」被【有貨的】分類名「${shadowedBy}」的前綴比對搶先命中` +
-          ' ⇒ 這一列永遠不會被讀到。前綴已經處理了它 ⇒ 這一列是純多餘, 刪掉。',
-      ).toBeUndefined();
+      const out = parseSearchFacets(syn.from, FACET_SRC);
+      const usedThis = out.usedSynonyms.some((u) => u.from === syn.from);
+      // 🔵 訊息在【紅的時候】才算, 所以診斷寫在這裡, 平常不花錢。
+      const why =
+        out.category === null
+          ? `解析器回 null —— 可能是 to「${syn.to}」不在目錄樹裡(打錯字 / 那個分類 0 件),` +
+            ` 或 from 含空白(解析器逐字拆 ⇒ 帶空白的永遠餵不進字典)`
+          : usedThis
+            ? `靠這一列解出來了, 但落到「${out.category}」而不是「${syn.to}」`
+            : `落到「${out.category}」而【沒有用到這一列】 ⇒ 規則本身就先命中了` +
+              ` ⇒ 這一列是純多餘, 刪掉(或那個規則改了, 這一列要跟著改)`;
+      expect(usedThis && out.category === syn.to, `「${syn.from} ⇒ ${syn.to}」${why}`).toBe(true);
     },
   );
 
@@ -161,23 +178,6 @@ describe('SEARCH_SYNONYMS — 這張表自己要站得住', () => {
     //    而若 includes 被改成恆真 ⇒ 上面那組會全綠而什麼都沒驗。兩個方向各釘一次。
     expect(SEARCH_CATEGORY_NAMES.length).toBeGreaterThan(100);
     expect(SEARCH_CATEGORY_NAMES.includes('這個分類不存在')).toBe(false);
-  });
-
-  // 🔴🔴 **2026-09-04 補:`from` 帶【空白】的那一列, 永遠對不到。**
-  //    🔬 `parse-search-facets.ts:42` 的 `splitWords` 先把查詢**用空白切開**,
-  //       `:96-100` 那個迴圈是**一個字一個字**拿去查字典(`words[i]`)
-  //       ⇒ 🛑 字典永遠只會被餵到【單一個沒有空白的詞】
-  //       ⇒ 一個寫成 `DB Killer` 的 `from`, **不管客人打什麼都不會命中**。
-  //    🎯 而它與前面兩道死列閘是同一族:**完全合法、拼字正確、指向有貨的分類, 而到不了。**
-  //       ⇒ 📌 三道閘問的是三件不同的事:名字在不在 / 那裡有沒有貨 / **這一列到得了嗎**。
-  //    🔵 這一格是第二波候選撞出來的(有人交了 `DB Killer`)—— 那個俗稱是真的,
-  //       台灣車友確實這樣講, **而我們這條路吃不到它** ⇒ 要它就得改解析器, 不是加字典列。
-  it.each(SEARCH_SYNONYMS)('🔴 `from` 不得含空白(解析器逐字拆 ⇒ 帶空白的永遠對不到):%s', (syn) => {
-    expect(
-      /[\s\u3000\u00a0]/.test(syn.from),
-      `「${syn.from}」含空白 ⇒ splitWords 會把它切成兩個字, 而字典是拿單字去查的` +
-        ' ⇒ 這一列永遠不會命中。改成單一個詞, 或這個俗稱本條路吃不到。',
-    ).toBe(false);
   });
 
   it('🔴 `draft` 的列一定要有 note 與 added 日期(不然數不出它躺多久)', () => {
