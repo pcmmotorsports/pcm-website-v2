@@ -19,6 +19,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { toMoneyAmount, type MemberOrderDetail } from '@pcm/domain';
 import { OrderDetailView } from './OrderDetailView';
 import {
+  ORDER_DETAIL_ITEM_CANCELLED_MARK,
   ORDER_DETAIL_ITEM_SHIPPED_MARK,
   ORDER_DETAIL_ITEMS_TRUNCATED_NOTE,
   ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE,
@@ -840,6 +841,105 @@ describe('⟦b9-SHIPUI⟧ 進度軸「已出貨」', () => {
         ORDER_DETAIL_ITEM_SHIPPED_MARK,
       ]);
       expect(screen.queryByText(ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE)).toBeNull();
+    });
+  });
+  /**
+   * ⟦ship-WHICHITEMSSHIPPED⟧ **一張部分出貨【之後被取消】的單**(Sean 2026-09-04 拍 Q-C 乙)。
+   *
+   * 🎯 **這個縫是逐件標記上線之後才露出來的**:3 列「已出貨」+ 2 列**空白**,
+   *    而那 2 件永遠不會來 —— 而「其餘商品出貨時會再通知您」對取消單是**刻意不印的**
+   *    ⇒ 🛑 在此之前那兩列沒有任何一句話講它。
+   *
+   * 🔴 **本 describe 的斷言【寫字面值, 不寫 import 來的常數】** —— 而那是 2026-09-04
+   *    adversarial-reviewer 打出來的:上面「已出貨」那族三格全部 `import` 常數去比
+   *    ⇒ **把常數的值改掉每一格照樣全綠** ⇒ 🎯 測試問的是「畫面印的與常數一樣嗎」,
+   *    **而沒有人問「常數是他拍的那句話嗎」**。
+   *    ⇒ ✅ 這一族從出生就帶著修法, 不等下一輪審查再補。
+   *    🔵 而**常數那一側另有一格逐字釘**(`account-order-copy.test.ts`)⇒ 兩層各守一半。
+   */
+  describe('⟦ship-WHICHITEMSSHIPPED⟧ 部分出貨之後被取消 ⇒ 沒出的那幾件說得出「不會來了」', () => {
+    const line = (over: Partial<MemberOrderDetail['items'][number]>, i: number) => ({
+      ...ORDER.items[0]!,
+      id: `oc-${i}`,
+      variantSku: `SKU-${i}`,
+      title: `品項${i}`,
+      ...over,
+    });
+    // 出了第 1、3 件之後整張被取消。🔴 刻意讓出貨的兩件【不相鄰】。
+    const PARTIAL_CANCELLED: MemberOrderDetail = {
+      ...ORDER,
+      paymentStatus: 'refunded',
+      paidAt: '2099-04-18T03:00:00Z',
+      shippedAt: '2099-04-25T00:00:00Z',
+      allItemsShipped: false,
+      cancelledAt: '2099-05-01T00:00:00Z',
+      cancelKind: 'cancelled',
+      items: [
+        line({ shipped: true }, 1),
+        line({ shipped: false }, 2),
+        line({ shipped: true }, 3),
+      ],
+    };
+    /** 每一列印的那句話(兩個標記各查一次;都沒有 ⇒ null)。 */
+    const says = (c: HTMLElement) =>
+      Array.from(c.querySelectorAll('.od-line')).map((l) => {
+        const shipped = l.querySelector('[data-od-id="order-line-shipped"]')?.textContent;
+        const cancelled = l.querySelector('[data-od-id="order-line-cancelled"]')?.textContent;
+        // 🔴 兩個同時出現 = 同一列講兩句相反的話 ⇒ 讓它顯形, 不要靜靜取一個
+        if (shipped !== undefined && cancelled !== undefined) return '兩句都印了';
+        return shipped ?? cancelled ?? null;
+      });
+
+    it('🔴 出了的印「已出貨」、沒出的印「已取消」—— 字面寫死, 不從常數 import', () => {
+      const { container } = render(<OrderDetailView order={PARTIAL_CANCELLED} />);
+      // 🔴 這三個字面是【Sean 打的字】, 不是「跟常數一樣就好」。
+      expect(says(container)).toEqual(['已出貨', '已取消', '已出貨']);
+    });
+
+    it('🔵 負對照:同一張單【沒有取消】⇒ 中間那列回到空白(證明它吃的是 cancelled)', () => {
+      const { container } = render(
+        <OrderDetailView
+          order={{ ...PARTIAL_CANCELLED, cancelledAt: null, cancelKind: 'none' }}
+        />,
+      );
+      expect(says(container)).toEqual(['已出貨', null, '已出貨']);
+    });
+
+    /**
+     * 🔵 **整張都沒出就取消 ⇒ 每一列都印它。這是刻意的, 不是溢出。**
+     * 徽章講的是**整張單**, 而客人問的是**這一件會不會來** ⇒ 兩個問題、兩個位置。
+     * ⚠️ 而代價明寫:那種單上這句話**與徽章重複** ⇒ 若 Sean 覺得吵, 那是一個可以縮的板。
+     */
+    it('🔵 整張都沒出就取消 ⇒ 每一列都印「已取消」(刻意, 不是溢出)', () => {
+      const { container } = render(
+        <OrderDetailView
+          order={{
+            ...PARTIAL_CANCELLED,
+            shippedAt: null,
+            items: PARTIAL_CANCELLED.items.map((x) => ({ ...x, shipped: false })),
+          }}
+        />,
+      );
+      expect(says(container)).toEqual(['已取消', '已取消', '已取消']);
+    });
+
+    /**
+     * 🔴 **對一件【已經送到客人手上】的東西印「已取消」是一句假話, 而它比空白糟。**
+     * 這一格單獨釘住那個互斥:少了它, 把條件從 `cancelled && !item.shipped`
+     * 寫成 `cancelled` ⇒ 上面第一格會印「兩句都印了」而**第三格照樣全綠**。
+     */
+    it('🔴 出過的那幾件不得被標成「已取消」—— 那是一句假話', () => {
+      const { container } = render(<OrderDetailView order={PARTIAL_CANCELLED} />);
+      const shippedLines = Array.from(container.querySelectorAll('.od-line')).filter((l) =>
+        l.querySelector('[data-od-id="order-line-shipped"]'),
+      );
+      expect(shippedLines.length, '沒抓到任何一列已出貨 ⇒ 這把尺沒接上').toBe(2);
+      for (const l of shippedLines) {
+        expect(
+          l.querySelector('[data-od-id="order-line-cancelled"]'),
+          '一件已經送到客人手上的東西被標成「已取消」',
+        ).toBeNull();
+      }
     });
   });
 });
