@@ -73,6 +73,37 @@ ba53294  2026-08-29  「硬刪改到 upsert 之後」
 🛑 **⇒ 這一段不再是「已知的風險」,而是「一個【還沒有人看過現行程式】的空白」。**
 ⚠️ 而先前那句「刪除集中在 19:00–20:59 UTC」**也是舊碼的分佈** ⇒ **刪除量與頻率不得沿用**。
 
+🔴🔴 **而【網站側首灌】跑這兩行會撞到一個尖叫的假警報 —— 先讀這一段再跑,不然你會以為首灌失敗了**
+```
+🔬 2026-09-04 rizoma 首灌實測(線【帳號】):
+   after 那一份逐字印「🔴🔴 這次【一個新商品群都沒有進來】… 它【什麼都沒灌成功】」+ rc=1
+   而同一分鐘匯入器印「WRITE 完成:723 商品 / 926 變體」, 唯讀 psql 獨立複驗 723/926/未分類 0
+
+🎯 成因【兩層證據, 分開讀】:
+   ① 讀碼(開檔看到的):`onboarding_headcount.py:97,104` 逐字 FROM products / FROM storefront_catalog_v
+      而 :126 走 SUPABASE_PROJECT_REF ⇒ 這一層只證得了「它連到那個 env 指的庫」
+   ② 🟢 對數(2026-09-04 量的, 這一層才把它釘死):
+      headcount 印 **61,211 料號 / 25,846 群**
+      而唯讀查【報價單庫】⇒ `count(*) FROM products WHERE supplier_slug IS NOT NULL` = **61,211**
+      `count(*) FROM (SELECT DISTINCT supplier_slug, main_sku …)` = **25,846**  ⇒ **兩個數逐字相同**
+      ⇒ 🔴 **它連的就是報價單庫** —— 這不是推的
+   ⚠️ 而「25,747」是 `count(DISTINCT main_sku)`(不分家)⇒ 差 99 ⇒ 📌 **群的鍵是(家, 料號)不是料號**
+
+✅ ⇒ 所以在這條流程裡:
+   · 「新增 0 群」= **預期值**, 不是災難 —— 那一家的群本來就已經在報價單庫裡了
+   · **你要看的是另一半**:before 的群數 == after 的群數 ⇒ 既有那些家一個都沒掉
+   🛑 而那句「它什麼都沒灌成功」在**兩個世界印同一句** ⇒ 不要拿它當首灌成敗的讀數
+   ✅ **首灌成敗看 §5 寫後驗證**(打網站庫), 不看這兩行
+```
+📌 板列 `⟦supply-HEADCOUNTWRONGDB⟧`。**乙案(那支腳本吃一個模式旗標)未做 —— 它在另一個 repo。**
+🔬 **上面那句「它連的是報價單庫」的數法(自己重跑一次,不要照信)**:
+`grep -n 'FROM products\|FROM storefront_catalog_v\|SUPABASE_PROJECT_REF' /Users/sean_1/API大量上架/PCM報價單-V2/scripts/onboarding_headcount.py`
+⇒ 2026-09-04 回 `:97` `:104` `:126` 三行。
+✅ **而「它連的是報價單庫」已由對數釘死**(上面 ②:61,211 與 25,846 兩個數逐字相同)。
+⚠️ **仍未量的那一格(明寫)**:「網站側首灌**不會**寫進報價單庫」這半我沒有直接量 ——
+它是從「匯入器只拿網站庫的連線做寫入」推的。**要證成它得在首灌前後各量一次報價單庫的寫入時戳, 我沒做。**
+🔵 而**實務上不需要它**:首灌成敗看 §5(打網站庫), 而這兩行的用途是「舊的家有沒有掉」。
+
 📌 **`-b6` 給的判別句,值得所有人帶走**:
 > **我這個數字是在哪一顆 commit 上量的?**
 > —— 稽核表**不會告訴你它記錄的是哪一版程式的行為**,而那兩版的行為差很多。
@@ -151,6 +182,7 @@ ba53294  2026-08-29  「硬刪改到 upsert 之後」
 | # | 檢查 | 怎麼查(MCP execute_sql,除非註明) | 期望 | 沒過怎麼修 |
 |---|---|---|---|---|
 | **0** | 🔴🔴 **分母不是 0**(先跑, 不然底下每一列都會過) | `SELECT count(*) FROM storefront_catalog_v WHERE supplier_slug='<slug>'` —— **再對一次** `SELECT DISTINCT supplier_slug FROM storefront_catalog_v` 確認拼法在名單裡 | **> 0**, 且與 §1-6 的指紋同一個數 | slug 拼錯 / 源頭還沒灌 → **停**。⚠️ 不要往下跑:下面每一列在空母體上**全部印 0 = 全部過** |
+| **0-b** | 🔴🔴 **這一家在板子上有沒有【開著的源頭缺陷】**(2026-09-04 新增;它擋的是「有人已經發現過, 而我不知道」) | `grep -n '⟦supply-' docs/launch-todo.md \| grep -i '<slug>'` —— 命中就**逐列開檔看態**(`open` / `parked` / `done`) | **零命中**, 或命中的每一列都是 `done` | 🔴 命中 `open` / `parked` ⇒ **先讀那一列的「關閉條件」**, 它會說這一家哪幾群不能上。<br>🔬 **今天已知的實例**(而它正是本列的來源):`⟦supply-RIZOMASPECWRONG⟧` = **`parked`**, 關閉條件逐字「**那兩群(`DM-PW101` / `DM-PW201`)要上架之前必須先修源頭**」——那兩群的「紅色」變體 spec 寫成「黑」。<br>🛑 **今天擋住它們的是 `is_listed = false` 這個【會變的旗標】, 不是一道守門** ⇒ 源頭哪天上架它們, 錯的顏色就跟著上, 而**首灌流程本身不會叫**。<br>📌 **為什麼這一列要存在**:主視窗 2026-09-04 拍板時明講 ——「**不連進 preflight, 下一個灌它的人不會知道**」;他不會來讀板子那一列, 他會照這份 runbook 走。<br>🔬 **這把尺今天會叫幾次(先量, 不然它會死於誤報)—— 數法就是這一行, 自己重跑**:`grep -n '⟦supply-' docs/launch-todo.md \| grep -ci '<slug>'` ⇒ 2026-09-04 實測 `rizoma` **8** · `cncracing` **1** · 亂打 `zzq-not-a-supplier` **0**(負對照 —— 它證明這把尺不是對誰都回非零)。<br>🛑 **而那 8 列裡【大多數只是「提到 rizoma」不是「rizoma 有缺陷」**(例:`⟦supply-NULLILIKESILENT⟧` 拿 rizoma 3 件當驗證數字)⇒ 🔴 **這是一把會吵的尺, 而吵的那部分是無害的。**<br>　⇒ ✅ **讀法:不要數命中筆數, 去看【那一列在講誰的缺陷】** —— 判準是該列的「事」欄主詞是不是這一家。<br>　⇒ 📌 **寫出來是因為**:一個沒被預告的噪音會讓下一個人第二次就跳過這一列, 而那時它真的抓到東西也沒有人看。 |
 | 1 | **品牌列存在**(網站庫) | `SELECT slug FROM brands WHERE slug='<brandSlug>'` | 1 列 | 缺 → seed migration `INSERT INTO brands ... ON CONFLICT (slug) DO NOTHING`,MCP `apply_migration` 或 Sean db push。**先確定 brandSlug 拼法**(§2 註) |
 | 2 | **價格四價齊**(源頭) | `COUNT(*) FILTER (WHERE price_retail IS NULL OR price_retail=0)` | 0 | 有 pricing_rules 的家跑完 fetcher 必接 報價單 repo:`uv run python scripts/recompute_supplier.py <slug>`(重跑 fetcher 會清空四價,見 [[feedback_fetcher_rerun_wipes_computed_prices]]) |
 | 3 | **圖片協定 = https** | ⛔ ~~`COUNT(*) FILTER (WHERE images::text ILIKE '%http://%')`~~ ⇒ 🔴 **那一版在 `images IS NULL` 時靜靜放行**(`NULL ILIKE …` 回 **NULL** 不是 FALSE ⇒ 不進 FILTER)。✅ 改用 `COUNT(*) FILTER (WHERE coalesce(images::text,'') ILIKE '%http://%')` **再加一格** **兩格一起看**:`COUNT(*) FILTER (WHERE images IS NULL)` 與 `COUNT(DISTINCT image_url) FILTER (WHERE images IS NULL)`。🔴 **不設件數門檻** —— 理由見下方(N≥5 會漏掉 rizoma 3 件, 而那正是上架中的一家)。🔴 **2026-09-03 這一列我改了三次, 前兩次都錯 —— 而三次錯的是同一件事。**⛔ ~~二訂版:「那 40 列 image_url 都有值 ⇒ 它們有圖」~~ **也是錯的。**🔬 三訂實查:那 1,011 列**在 `FILTER (WHERE images IS NULL)` 這個子集裡**逐家 `COUNT(DISTINCT image_url)` = **1**(⚠️ 射程:不是「整家所有列共用一個網址」), 而網址逐字是 `no-photo.png` / `noimage.jpg` / `no-image-2048-….gif` ⇒ 🛑 **那是供應商站的「查無圖片」佔位圖, 不是商品圖。**⇒ 🎯 **⇒ 那 1,011 列【全部】沒有真圖(含 wrs 37/37 · rizoma 3/3), 而不是 10 列。**⇒ 🔴 **判準**:`COUNT(DISTINCT image_url)=1` —— **80 件不同商品不可能共用一張照片。**⇒ 🛑 **不要維護佔位圖檔名黑名單**(no-photo / noimage / no-image 已經三種寫法)—— 黑名單在跟下一家的下一種寫法賽跑;`DISTINCT=1` 不需要知道它叫什麼。⇒ 🔵 **怎麼讀這兩格**:`images IS NULL` 本身就是異常子集 ⇒ **只要 > 0 就停下來看**;`DISTINCT` 那格說是**哪一種** —— **= 1 ⇒ 整家共用一個網址 ⇒ 佔位圖**;> 1 ⇒ 另一種, 開檔看。

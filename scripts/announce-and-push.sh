@@ -35,8 +35,16 @@ FROM="$(git rev-parse --short origin/dev 2>/dev/null)"
 #
 # 🔴 **這一格【不擋 push】** —— 它只印。CI 結果在 push 之後才存在, 所以它不可能是一道閘。
 #    ⇒ 🛑 **⇒ 而那表示它必然可以被忽略。那是這個形狀的天花板, 不是疏漏。**
-# 🔴 **而它自己沒有守門** —— 把下面這幾行刪掉, **不會有任何測試變紅**。
-#    它靠的是【它長在必經之路上】, 而不是靠有東西在看著它。**這句話是誠實的天花板。**
+# 🔴 **而它自己沒有守門 —— 而這是【量到的】, 不是我推的。**
+#    🔬 2026-09-04 實跑那發突變(把下面整段呼叫刪掉):
+#       `bash -n` rc=0 · `shell-dialect --self-check` rc=0 · 全套 **13591 過 / rc=0**
+#       而 `grep -rl announce-and-push scripts/ .husky/` 也**沒有別的檔引用它**。
+#    ⇒ 🛑 **⇒ 一個都沒紅。它靠的是【它長在必經之路上】, 不是靠有東西在看著它。**
+#    ⇒ 📌 **⇒ 這句話是誠實的天花板 —— 寫出來是為了不假裝它是機制。**
+#    ⚠️ **而「必經之路」這個前提自己也會過期**:它只在【push 真的都走這支腳本】時成立。
+#       🔴 2026-09-04 主視窗自陳:那一夜每一發 push 都是**手打**的, 沒跑這支
+#       ⇒ 🎯 **⇒ 所以那天它【一次都沒生效】, 而它在檔案裡看起來完全正常。**
+#       ⇒ ⇒ 📌 **⇒ 「接上了」與「有在跑」是兩個宣稱, 而它們在 diff 上長得一樣。**
 if [ -x scripts/ci-verdict.py ] || [ -f scripts/ci-verdict.py ]; then
   echo "── 上一發(origin/dev = $FROM)的 CI ──"
   python3 scripts/ci-verdict.py "$FROM"
@@ -188,7 +196,15 @@ PY
 fi
 
 # 🔴 只有到這裡才量 —— rc 已經印出來了
-ACT="$(git ls-remote origin refs/heads/dev 2>/dev/null | cut -c1-8)"
+ACT_FULL="$(git ls-remote origin refs/heads/dev 2>/dev/null | awk '{print $1}')"
+ACT="$(git rev-parse --short "$ACT_FULL" 2>/dev/null || printf '%s' "$ACT_FULL" | cut -c1-8)"
+TIP_FULL="$(git rev-parse "$TIP" 2>/dev/null)"
+# 🔴🔴 **比對用【完整 hash】, 不用短 hash**(2026-09-04 09:5x 實測加)
+#   成因量到的:`ACT` 原本寫死 `cut -c1-8`, 而 `TIP` 來自 `git rev-parse --short`
+#   ⇒ 而 **--short 的長度會隨 repo 撞號自動變長**(本 repo 當時已是 **9** 碼)
+#   ⇒ 🛑 `8ad33d10` != `8ad33d109` ⇒ **推成功而印「不相等」+ rc=2**
+#   🎯 而差集算出來是 **0 顆** ⇒ 那句話自己就自相矛盾(不相等而零差集)
+#   ⇒ ⇒ 📌 **⇒ 一道對【正常狀態】叫的閘會被學會忽略 —— 而它下一次真的抓到東西時沒有人看。**
 # 🔴🔴 **終點 ≠ 預告終點時要【列出差集】, 不是只說「不相等」**(2026-09-02 18:0x 加)
 #   成因是量到的:同日 16:34 那一發預告 `5f47d374` 而實際推到 `9c06a72a`
 #   ⇒ 中間又落了 4 顆 commit, 被同一發帶上去 —— 而那 4 顆**沒有任何預告寫過它們**。
@@ -196,10 +212,10 @@ ACT="$(git ls-remote origin refs/heads/dev 2>/dev/null | cut -c1-8)"
 #      (這張表的檔頭逐字:「沒有對應那一行 ⇒ 那才要叫」)。
 #   🎯 **⇒ 所以「不相等」這三個字不夠 —— 要答得出【誰被帶上去而沒有預告】。**
 #   ⚠️ 而差集寫在**終端機**不寫進表格(一列多顆會把那一行撐爆);表格只放顆數。
-if [ "$ACT" = "$TIP" ]; then
+if [ "$ACT_FULL" = "$TIP_FULL" ]; then
   EQ="✅ 相等"; OUT=0
 else
-  EXTRA="$(git rev-list --count "$TIP".."$ACT" 2>/dev/null || echo '?')"
+  EXTRA="$(git rev-list --count "$TIP_FULL".."$ACT_FULL" 2>/dev/null || echo '?')"
   EQ="🔵 不相等 —— 多帶 ${EXTRA} 顆(差集見終端機)"; OUT=2
   echo "🔵 終點與預告不同 ⇒ 預告 $TIP · 實際 $ACT ⇒ 多帶 $EXTRA 顆:"
   git log --oneline "$TIP".."$ACT" 2>/dev/null | sed 's/^/     /' || echo "     (差集算不出來 —— 本地沒有那些物件?先 git fetch)"

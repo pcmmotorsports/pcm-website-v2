@@ -396,7 +396,10 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     supplierSlug: 'dbk',
     brandSlug: 'dbk', // identity(不像 kspeed→k-speed 那種拼法分岔)
     handlePrefix: 'dbk', // 17/17 既有慣例 = supplierSlug 同名
-    syncDescription: true, // 3,570/3,727 列有繁中 description
+    // 🔵 2026-09-04 補群層(F7:列層會答錯問題 —— 同一筆 dbk 的 appendManualFilename 就是這樣量錯過一次)
+    syncDescription: true, // 列層 3,570/3,727 = 95.8% · **群層 1,441/1,508 = 95.6%**
+    //   ⚠️ 而 95.6% 是所有 syncDescription=true 的家裡**最低**的 ⇒ 約 67 群商品頁沒有描述段。
+    //   🔵 旗標值仍然對(有描述的就同步), 而缺的那 67 群是**源頭資料缺口**, 不是這個旗標的錯。
     syncInstallResources: true, // 實查 2,420 列有 pdf_urls
     //   🔴 而 runbook 原本那句「有 pdf/video 來源才 true(靜態無附件 = false)」**與既有設定不符** ——
     //   本窗拿它去預測既有 17 家 ⇒ **對 12 · 錯 5**(eazigrip/samco/motogadget/front3d/materya
@@ -407,8 +410,113 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     //   (895 個有 pdf 的群、平均 1.00)⇒ 本旗標**在這一家無作用**。
     //   ⚠️ 而**列層量會答錯問題** —— 旗標作用在【合併變體之後的群】上,本窗先量列層才發現。
     categoryStrategy: { kind: 'per-group' }, // 13 大類 / 59 子類(不是 rpm 那種單一大類 ⇒ 不用 fixed)
-    variantImages: 'per-variant', // 平均每群 2.47 變體(20 家裡非 rpm 最高)⇒ 每變體自身圖
-    writeAllowed: false, // 🔴 fail-closed、過夜零寫入;乾跑全綠 + **Sean 明確批首灌**後才翻 true
+    // 🔴 2026-09-04 訂正:原本這一行的理由是【推的】(「平均每群 2.47 變體 ⇒ 每變體自身圖」)——
+    //   而變體【數】答不出圖是不是每變體一張。code-reviewer F1 點名, 而其餘多變體家都留了實測字面。
+    // ✅ 實測(唯讀, 2026-09-04):dbk **906 個多變體群** ⇒
+    //     每變體都有自己的圖 **900** 群 · 整群共用一張 4 群 · 部分共用 2 群
+    //   ⇒ 99.3% 是 per-variant 形狀, **不是 rpm 那種群共用圖池**(型別註解 :95-99 講的那個差別)。
+    //   抽樣三個最大群(CCDV01 / CCDV02 / CCDV04, 各 16 變體)⇒ 16 支 image_url 【全不相同】。
+    //   ⚠️ 那 6 群(4+2)在 per-variant 之下只是同一張圖顯示多次 —— 無害, 不是選色不換圖。
+    variantImages: 'per-variant',
+    // ✅ 2026-09-04 06:xx Sean 逐字「甲 上」批首灌後開寫
+    //    (落點 ~/pcm-mailbox/等Sean拍的題-20260903.md:2648;授權射程 = 只此一家、只此一次)。
+    //    翻 true 當下的前置狀態(當場重量、非沿用):
+    //      源頭 2026-09-03 18:09:19 UTC ⇒ 3,727 列 / 1,508 群 / 缺中文名 0 / 缺價 0
+    //        / 缺 v2 大類 0 / 完全沒有圖 0
+    //      網站庫 18:09:53 UTC ⇒ dbk 商品 0 / 變體 0(首灌前狀態)· 站上商品 22,804 / 品牌 18 家
+    //    🔴 而「乾跑全綠」照 runbook §3-b 打折:首灌 target=0 ⇒ 價格離群與來源消失對賬【恆綠】、
+    //      handle 與 pv_spec 對 target 那半無分母 ⇒ 真證據是四格(分類對上 / handle 批內唯一
+    //      / pv_spec 批內撞鍵 0 / 新品驗價 M1 逐筆相符);M2 群數指紋 1508 = 1508。
+    //      🟢 負對照當場跑過:--expect-groups=9999 ⇒ 印 ALERT 而 rc 兩個世界都是 0。
+    writeAllowed: true,
+  },
+  // RIZOMA。2026-09-04 線【帳號】登記。
+  // ⛔ ~~(**Sean 尚未批首灌 ⇒ writeAllowed: false, 零寫入**)~~ —— **同日下午作廢**:Sean 逐字
+  //   「`q3: 上`」批了, 首灌已跑完(見下方 `writeAllowed` 那格)。**舊字面留刪除線, 不刪。**
+  //   📌 codex 對抗審查抓到的:一句寫在檔頭的「尚未批准」與同一支檔 30 行後的 `true` 相反,
+  //     而**讀檔頭的人不會往下讀到那一格**。
+  //
+  // 🔴🔴 **下面每個數字都是快照, 不是契約** —— `--expect-groups` 必須在跑乾跑/首灌的那一刻
+  //   【重量】, 絕對不要沿用這裡的數字(`gilles` 那塊的教訓:它兩分鐘內量到兩組不同的值)。
+  //   本窗 2026-09-03 19:21:47 UTC 單一 SQL 同一時點實查:
+  //     893 列 / 690 群 · 缺價 0 · 圖非 https 0 · 缺 v2 大類 0 · 缺中文名 0 · 缺描述 0
+  //     v2 10 大類 / 26 子類 · 有 pdf 的群 672 · 完全沒有圖 **3** 件
+  //   🔵 那 3 件沒有真照片 **不擋上架**:Sean 2026-09-04 00:0x 逐字「**照上**, 圖的位置 =
+  //     品牌 logo + 底下小字『暫無照片』」(落點 `~/pcm-mailbox/等Sean拍的題-20260903.md:2511`)。
+  //
+  // 🔴 **而有一筆源頭資料是錯的, 板列 `⟦supply-RIZOMASPECWRONG⟧`**:
+  //   `DM-PW101R` / `DM-PW201R` 兩支「紅色」變體的 spec 逐字寫 `{"color":"黑"}`。
+  //   🔵 那 4 支現在 `is_listed = false` ⇒ **view 裡 0 列 ⇒ 灌不上去** ⇒ 它**不擋首灌**。
+  //   🛑 **而擋住它的是一個【會變的旗標】, 不是一道守門** —— 源頭哪天上架它們, 錯的顏色就跟著上。
+  rizoma: {
+    supplierSlug: 'rizoma',
+    brandSlug: 'rizoma', // identity;唯讀實查【網站庫】brands 有這一列且該品牌商品數 0(首灌前狀態)
+    handlePrefix: 'rizoma', // 18/18 既有慣例 = supplierSlug 同名(本窗求值比對、零例外)
+    syncDescription: true, // 群層 690/690 全有(不是列層 —— 列層會答錯問題, dbk 那筆就量錯過一次)
+    syncInstallResources: true, // 672 群有 pdf
+    // 🔴 **量到的不是猜的**:264 個群有【多份】pdf, 而檔名是**不同文件**不是同一份的編號 ——
+    //   決定性的一群 `MA006_009_011`:`MI_MA006_01.pdf` / `MI_MA009_01.pdf` / `MI_MA011_01.pdf`
+    //   ⇒ **同一種文件(MI=安裝說明)、不同料號 ⇒ 客人得挑自己那一支**;
+    //   另有車款專屬的(`Rizoma_Booklet_BMW_R_nine_T_…`)與認證文件(`TUV_` / `ABE_`)。
+    //   ⇒ 🎯 正是合約 v5 §3 那個 `true` 的情境:**客人靠檔名挑自己那台**。
+    appendManualFilename: true,
+    categoryStrategy: { kind: 'per-group' }, // 10 大類 / 26 子類 ⇒ 不是 rpm 那種單一大類
+    variantImages: 'per-variant', // 145 個多變體群裡 142 群每變體都有自己的圖
+    // 🔴 2026-09-04 翻 true —— Sean 逐字「`q3: 上`」(落點 `~/pcm-mailbox/Sean拍板-20260904-七題.md:19`,
+    //    題目「Q3 RIZOMA 上架?」)。⚠️ **授權的射程 = 【這一家】** —— **下一家要再問。**
+    // 🔴 **而「每天自動同步」不是靠這一句授權的**(codex 對抗審查問到這一格, 值得寫死):
+    //    它走的是 2026-07-12 Sean 的常設拍板「**所有品牌每日同步**」(逐字落在
+    //    `.github/workflows/rpm-sync.yml:25,79`)⇒ 🎯 **「上架」與「排進每日班」是同一件事的兩半**,
+    //    dna/gilles 兩家就是**只做了前半**而顧客站價格凍在首灌快照(該檔註解記著)。
+    //    ⇒ 📌 所以本行翻 true 的同一顆 commit 一定要補 matrix, 而那道對帳測試會逼你補。
+    // 🔬 **翻之前的基線(當場量的, 首灌後拿它對帳)**:來源 view 變體 **926** / 群 **723** /
+    //    價缺 0 / v2 已分類 926 = 總數 / 明文 http **0** / 網站庫 target 現存上架 **0**。
+    //    `images IS NULL` **3** 列且 `COUNT(DISTINCT image_url)` = **1**,逐字
+    //    `https://quote.pcmmotorsports.com/no-photo.png` = 🟢 **PCM 自己的卡**(不是外連他家)
+    //    ⇒ 已被 `supplier-placeholder.ts` 的 `PCM_OWN_NO_PHOTO_CARD` 認得 ⇒ 不擋上架。
+    // ⚠️ **而上面那幾行註解裡的群數(690 有描述 / 672 有 pdf / 145 多變體)是 09-03 量的, 今天是 723 群**
+    //    —— 源頭每天在動。**要引用先重量, 不要抄。**
+    writeAllowed: true,
+  },
+  // WRS。2026-09-04 線【帳號】登記(**Sean 尚未批首灌 ⇒ writeAllowed: false, 零寫入**)。
+  //
+  // 🔴🔴 **授權那一格要講清楚, 因為它與 dbk / rizoma 【不同】**:
+  //   Sean 對 dbk 拍過「甲 上」· 對 rizoma 拍過「`q3: 上`」—— 那兩句是**上架授權**。
+  //   而對 WRS 他拍的是 `q4: 甲,` =「**先做品牌形象區**」⇒ 🛑 **那是【順序】, 不是上架授權。**
+  //   ⇒ 📌 **一個「先做 A 再做 B」的拍板, 不含「B 可以做」** —— 而那兩者讀起來很像。
+  //   ⇒ 本筆停在 `writeAllowed: false`。**要灌先問他一個字。**
+  //
+  // 🔴🔴 **下面每個數字都是快照, 不是契約** —— `--expect-groups` 必須在跑乾跑/首灌的那一刻
+  //   【重量】, 絕對不要沿用這裡的數字。本窗 2026-09-04 單一時點實查(報價單庫 view):
+  //     1,131 變體 / 568 群 · 價缺 0 · 明文 http 0 · 缺 v2 大類 0 · 缺中文名 0 · 缺描述 0
+  //     v2 **8 大類 / 15 子類** · 有 pdf 的群 **0** · 完全沒有圖 **33** 件
+  //     群層:568/568 有描述 · 多變體群 **397**, 其中 **394** 群每變體有自己的圖
+  //   🟢 **pv_spec 零違規**(R1 規格不完整 0 / R3 可合併重複 0, 照 `variant_contract.py` 的規則
+  //     重寫成唯讀 SQL 掃 `products` 原表 1,223 列)⇒ **rizoma 那種源頭顏色寫錯的問題 wrs 沒有。**
+  //   🟢 網站庫:`brands` 有 `wrs` 這一列, 該品牌商品數 **0**(首灌前狀態, 唯讀 psql 實查)。
+  //
+  // 🔵 **那 33 件沒有真照片【不擋上架】**:`COUNT(DISTINCT image_url)` = **1**, 逐字
+  //   `https://quote.pcmmotorsports.com/no-photo.png` = 🟢 **PCM 自己的卡**(不是外連他家伺服器)
+  //   ⇒ 已被 `supplier-placeholder.ts` 的 `PCM_OWN_NO_PHOTO_CARD` 認得。
+  //   ⚠️ **而板上寫的是「wrs 37 件」** —— 今天實測 **33** ⇒ 源頭每天在動, 板上那個數字已過期。
+  //
+  // 🔴 `syncInstallResources` 填 `true` 而**實測 pdf = 0**(`pdf_urls` 與 `pdf_docs` 兩欄皆 0 列)——
+  //   這**不是**填錯, 是照 runbook §2 那條**量出來的不對稱**:
+  //     設 `false` 而其實有東西 ⇒ **真的漏掉那些 pdf**;設 `true` 而沒東西 ⇒ 同步 0 筆, 無害。
+  //   ⇒ ✅ 「預設 `true`;只有在實測附件 = 0 時**才可以**填 `false`(而填 `true` 也照樣對)」
+  //   ⇒ 選 `true` 是為了**它哪天開始出 pdf 的那一天** —— 那一天不會有任何東西提醒我們回來改。
+  // 🔵 `appendManualFilename` 今天**沒有作用**(0 份 pdf ⇒ 沒有檔名可以附)。填 `false` = 同類多份用編號,
+  //   那是預設形狀。⚠️ **它哪天真的出現多份 pdf 時要回來重判**(rizoma 就是靠檔名才判成 `true`)。
+  wrs: {
+    supplierSlug: 'wrs',
+    brandSlug: 'wrs', // identity;唯讀實查【網站庫】brands 有這一列且該品牌商品數 0
+    handlePrefix: 'wrs', // 20/20 既有慣例 = supplierSlug 同名(本窗當場求值比對、零例外)
+    syncDescription: true, // 群層 568/568 全有(不是列層 —— 列層會答錯問題, dbk 那筆量錯過一次)
+    syncInstallResources: true, // 實測 pdf 0 而仍填 true, 理由見上方那段不對稱
+    appendManualFilename: false, // 今天無作用(0 份 pdf);出現多份時要回來重判
+    categoryStrategy: { kind: 'per-group' }, // 8 大類 / 15 子類 ⇒ 不是 rpm 那種單一大類
+    variantImages: 'per-variant', // 397 個多變體群裡 394 群每變體都有自己的圖
+    writeAllowed: false, // 🔴 fail-closed、零寫入;**Sean 對 WRS 沒有拍過上架, 見上方授權那段**
   },
   // 🔴 永久 guard 測試靶(非真供應商、Sean 2026-07-24 拍板放行):所有真品牌已 writeAllowed=true
   //   → rpm-import CLI 的 writeAllowed 硬鎖守衛失去「真實未授權樣本」;保留此永久 false 樣本讓

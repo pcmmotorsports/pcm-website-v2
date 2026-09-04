@@ -106,53 +106,142 @@ function barLeftPt(ops: string): number | null {
   return null;
 }
 
-describe('⟦b4-2PAPERS⟧ 訂單明細的側邊標記,在【列印】時要真的存在', () => {
-  const css = readFileSync(CSS_PATH, 'utf8');
+/**
+ * 🔴 **去掉註解之後的 CSS** —— 本檔每一格斷言都吃這一份, 不吃原始檔。
+ *
+ * 🎯 **理由是本 repo 反覆記過的病**:`.pd-mark-detail` 與 `#1f1f1f` 這兩個字面,
+ *    在拿掉那條規則之後**仍然大量留在註解裡**(病史刻意留著給搜舊字面的人)
+ *    ⇒ 🛑 一個直接對原始檔 `toContain` 的斷言, **分不出「規則還在」與「只有註解在講它」**
+ *    ⇒ ⇒ 而那正是舊版第三格的形狀:它 `toContain('pd-mark-detail')` 讀整支 tsx,
+ *      而我 2026-09-04 把 className 拿掉、註解留著 ⇒ **它照樣綠**。
+ */
+function stripComments(css: string): string {
+  return css.replace(/\/\*[\s\S]*?\*\//g, '');
+}
 
-  // 🔴 第一格:那條規則本身要在 CSS 裡,而且是【具名 page】不是全域 `@page`。
-  //    全域 `@page` 會讓**出貨單也長出這條槓** —— 而兩張紙共用同一個 layout,
-  //    所以那是這一片最不能發生的事。
-  it('🔴 那條槓掛在【具名】page 上,不是全域 @page', () => {
-    expect(css, 'pd-mark-detail 不見了 ⇒ 兩張紙又分不出來').toContain('page: detail');
-    expect(css).toMatch(/@page\s+detail\s*\{/);
-    // 🟢 負對照:不得有一個裸的 `@page {` 也帶 left-middle(那會漏到出貨單)
-    const bareWithMark = /@page\s*\{[^}]*@left-middle/s.test(css);
-    expect(bareWithMark, '裸 @page 帶了 margin box ⇒ 出貨單也會長出這條槓').toBe(false);
+describe('⟦b4-2PAPERS⟧ 那條黑線【已經被拍掉了】—— 而它不可以自己回來', () => {
+  const adminCss = readFileSync(CSS_PATH, 'utf8');
+  const storefrontCss = readFileSync(
+    join(SRC, '../../storefront/src/styles/print-a4.css'),
+    'utf8',
+  );
+
+  /**
+   * 🔴🔴 **本 describe 2026-09-04 整個翻面 —— 而翻面的理由是一次拍板, 不是一個缺陷。**
+   *
+   * Sean 原話逐字:`不用黑線...真的沒關係`
+   * (落點 `~/pcm-mailbox/Sean拍板-20260904-七題.md` 檔尾「追加拍板」①)。
+   *
+   * ⛔ ~~舊版三格守的是「那條槓要真的存在」~~ ⇒ **全部作廢**, 而**檔案不刪**:
+   *    🎯 一個守門被拍掉之後**整支刪掉**, 下一個人翻歷史會看到「這件事沒有人管過」;
+   *    而留成**退場守門**, 他會看到「有人管過, 而它被拍掉了, 而且不准偷偷回來」。
+   *
+   * 🛑 **代價明寫**:那個病回來了 —— 員工一眼分不出【訂單明細】與【出貨明細單】。
+   *    🔵 而它可能本來就要消失(Sean 2026-08-29 另拍「揀貨單廢掉、用出貨單取代」)。
+   *    🛑 **不要為了補償而發明新標記** —— 主視窗明文交代, 要做新標記先端他。
+   */
+  it('🔴 兩份 CSS 都不得再有那條槓的規則(而註解裡的字面不算)', () => {
+    for (const [name, raw] of [
+      ['admin', adminCss],
+      ['storefront', storefrontCss],
+    ] as const) {
+      const code = stripComments(raw);
+      expect(code, `${name}: 那條槓的規則回來了 —— Sean 2026-09-04 拍掉它`).not.toContain(
+        'pd-mark-detail',
+      );
+      expect(code, `${name}: 具名 page 回來了 ⇒ 那條槓的載體回來了`).not.toMatch(
+        /@page\s+detail\s*\{/,
+      );
+    }
   });
 
-  // 🔴🔴 第二格:**真出 PDF**,兩個世界只差一個 class ⇒ 位元組必須不同。
-  //    這一格才是「印出來看得到嗎」——前一格只證明「規則寫在檔案裡」。
-  // 🔴🔴 這一格 2026-09-03 重寫過 —— **舊版是假綠**。
-  //    舊版比的是「兩份 PDF 位元組長度不同」⇒ 而換一個具名 page 本來就會讓長度不同
-  //    (實測 18470 vs 12232,差在**字型子集**)⇒ 它在那條槓完全沒被畫出來時照樣通過。
-  //    🛑 而 Sean 實印回報「印出來沒有黑邊,預覽有而已」的時候,這一格是綠的。
-  //    ⇒ 📌 **一個比「有沒有差別」的斷言,答不出「差別是不是我要的那個東西」。**
-  // 🔴🔴 這一格 2026-09-03 重寫過兩次 —— 而**前兩版都是綠的,在紙上什麼都沒有的時候。**
-  //    第一版比「兩份 PDF 位元組長度不同」⇒ 換一個具名 page 本來就會不同(18470 vs 12232,
-  //      差在字型子集)⇒ 📌 一個比「有沒有差別」的斷言,答不出「差別是不是我要的那個東西」。
-  //    第二版比「那條槓在不在」⇒ 🔴 **它在** —— 舊版真的畫了一條,而它畫在 `x = 0`,
-  //      貼著紙緣、落在印表機不可印帶裡 ⇒ **Sean 實印:「印出來沒有黑邊,預覽有而已」。**
-  //    ⇒ ⇒ 🎯 所以問題不是「有沒有畫」,是「**畫在哪**」。
-  it('🔴 真 PDF:那條槓要離紙緣夠遠(不是只有「畫出來」)', async () => {
-    const [marked, plain] = await Promise.all([
-      renderPdf(sheetHtml(css, true)),
-      renderPdf(sheetHtml(css, false)),
+  /**
+   * 🔵 **正對照:證明 `stripComments` 沒有把整支檔吃光。**
+   * 少了這一格, 一支「回空字串」的 `stripComments` 會讓上面每一格恆綠
+   * ⇒ 📌 **而那正是「什麼都沒有被讀成檢查過了」那個形狀。**
+   */
+  it('🔵 正對照:去註解之後 CSS 還在(否則上面那格是恆綠的)', () => {
+    for (const [name, raw] of [
+      ['admin', adminCss],
+      ['storefront', storefrontCss],
+    ] as const) {
+      const code = stripComments(raw);
+      expect(code, `${name}: stripComments 把整支檔吃光了`).toContain('@page');
+      expect(code, `${name}: stripComments 把整支檔吃光了`).toContain('.pd-sheet');
+    }
+  });
+
+  /**
+   * 🔴 **那兩條是【一對】** —— `@page detail{margin-left:9mm}` + `border-left:3mm`
+   * ⇒ `9 + 3 = 12mm` = 原本的邊界。
+   * 🛑 **只拿掉 border 不還原 margin ⇒ 內容左緣從 12mm 縮到 9mm 而右緣不動**
+   *    ⇒ 版面悄悄變寬 3mm ⇒ 🎯 而那是「頁數只差一項的距離」的紙(實量 5 項 1 頁 / 6 項 2 頁)。
+   * ⇒ ✅ 這一格釘住:唯一生效的頁邊距是那組 12mm。
+   */
+  it('🔴 內容邊界回到原本的 12mm(只刪 border 不還原 margin 會悄悄變寬 3mm)', () => {
+    const code = stripComments(adminCss);
+    expect(code, '@page 那組邊距不見了 ⇒ 紙面邊界沒有人定義').toContain(
+      'margin: 12mm 12mm 14mm 12mm',
+    );
+    expect(code, '還有別的 margin-left 在覆寫頁邊距 ⇒ 兩張紙的邊界會不一樣').not.toMatch(
+      /@page[^{]*\{[^}]*margin-left/s,
+    );
+  });
+
+  /**
+   * 🔴 **接線那一半:那張紙有沒有【真的把 class 拿掉】。**
+   *
+   * 🛑 **這一格讀的是 `className` 那一行, 不是整支檔** —— 而那是 2026-09-04 學到的:
+   *    舊版寫 `expect(picking).toContain('pd-mark-detail')` 讀整支 tsx,
+   *    而我拿掉 className、把病史留在註解裡 ⇒ **它照樣綠**。
+   *    ⇒ 📌 **`grep` 分不出「碼在做這件事」與「註解在講這件事」。**
+   */
+  it('🔴 picking-doc 的 className 裡不得再有那個標記(讀 className, 不讀整支檔)', () => {
+    // 🔴🔴 **tsx 這一側也要先去註解, 而這一格是實跑逼出來的, 不是想到的**:
+    //    我在 `picking-doc.tsx` 的註解裡留了一行舊字面 `className='… pd-sheet pd-mark-detail'`
+    //    (刪除線那一行, 給搜舊字面的人看的)⇒ 🎯 **它長得與一個真的 className 一模一樣**
+    //    ⇒ 這一格第一版直接紅, 而**紅的理由是我自己的註解**, 不是碼。
+    //    ⇒ 📌 **同一句話的兩個方向**:上面 CSS 那側是「註解讓斷言假綠」,
+    //      這裡是「註解讓斷言假紅」—— 而**假紅會被修**, 修法很可能是把那行病史刪掉。
+    const picking = stripComments(
+      readFileSync(join(SRC, 'components/print/picking-doc.tsx'), 'utf8'),
+    );
+    const classNames = [...picking.matchAll(/className='([^']*)'/g)].map((m) => m[1]!);
+    expect(classNames.length, '一個 className 都沒抓到 ⇒ 這把尺沒接上').toBeGreaterThan(0);
+    expect(
+      classNames.join(' '),
+      'className 還掛著 pd-mark-detail ⇒ 一個什麼都不做的 class, 下一個人會以為標記還在',
+    ).not.toContain('pd-mark-detail');
+    // 🟢 正對照:同一把尺抓得到還在的那個 class ⇒ 上面那個 not.toContain 不是因為尺壞掉
+    expect(classNames.join(' '), 'pd-sheet 也不見了 ⇒ 這把尺在亂報').toContain('pd-sheet');
+  });
+
+  /**
+   * 🔴🔴 **真 PDF:紙上真的沒有那條槓了。**
+   *
+   * 🛑 **而「找不到槓」與「這把尺壞了」印同一個 `null`** ⇒ 所以這一格自帶正對照:
+   *    同一支 harness 餵一份**自己畫一條粗槓**的 HTML ⇒ 它必須找得到。
+   *    ⇒ 📌 少了那一半, 一支 `renderPdf` 壞掉的世界與「槓拿掉了」的世界**印同一個綠**。
+   * 🔴 而它答**不**出「實體印表機印出來如何」—— 那是墨水與硬體, 不是 PDF。
+   */
+  it('🔴 真 PDF:掛不掛那個 class 都不再有槓(而同一把尺找得到一條真的槓)', async () => {
+    const [wasMarked, plain] = await Promise.all([
+      renderPdf(sheetHtml(adminCss, true)),
+      renderPdf(sheetHtml(adminCss, false)),
     ]);
-    const x = barLeftPt(inkOps(marked));
-    expect(x, '找不到那條槓 ⇒ 印出來不會有').not.toBeNull();
-    // 20pt ≈ 7mm。印表機那圈不可印帶約 4-5mm ⇒ 低於這條線就是「預覽看得到、印不出來」。
-    expect(x!, `那條槓在 x=${x}pt ⇒ 太靠紙緣,印表機會裁掉`).toBeGreaterThan(20);
-    // 🔵 負對照:沒掛標記的那張不得有 —— 少了它,一把「永遠說有」的尺也會通過
-    expect(barLeftPt(inkOps(plain)), '沒掛標記的那張也長出槓 ⇒ 兩張紙又分不出來').toBeNull();
-  }, 60_000);
+    expect(barLeftPt(inkOps(wasMarked)), '槓還在 ⇒ 規則沒拿乾淨').toBeNull();
+    expect(barLeftPt(inkOps(plain)), '沒掛標記的那張長出槓 ⇒ 漏到全域了').toBeNull();
 
-  // 🔴 第三格:機制對了,而【那張紙有沒有掛上它】是另一個宣稱。
-  //    (本檔餵的是最小 HTML ⇒ 它證不到真元件。這一格用讀檔補上。)
-  it('🔴 接線:picking-doc 掛了它,而 shipping-doc【沒有】', () => {
-    const picking = readFileSync(join(SRC, 'components/print/picking-doc.tsx'), 'utf8');
-    const shipping = readFileSync(join(SRC, 'components/print/shipping-doc.tsx'), 'utf8');
-    expect(picking, '訂單明細沒掛標記 ⇒ 員工分不出來').toContain('pd-mark-detail');
-    // 🟢 這一格是負對照:兩張紙都有標記 = 等於沒有標記
-    expect(shipping, '出貨單也掛了標記 ⇒ 兩張紙又長得一樣').not.toContain('pd-mark-detail');
-  });
+    // 🟢 正對照:自己畫一條, 同一支 harness 必須看得見。
+    const control = await renderPdf(
+      `<!doctype html><html><head><style>${adminCss}
+       .zz { border-left: 3mm solid #1f1f1f; }</style></head><body>
+       <div class="print-sheet pd-sheet zz"><h1>對照</h1><p>內容一行。</p></div>
+       </body></html>`,
+    );
+    expect(
+      barLeftPt(inkOps(control)),
+      '連一條真的槓都找不到 ⇒ 這把尺壞了, 上面那兩個 null 什麼都證不到',
+    ).not.toBeNull();
+  }, 90_000);
 });

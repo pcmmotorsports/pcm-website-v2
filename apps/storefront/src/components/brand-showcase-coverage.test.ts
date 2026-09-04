@@ -144,7 +144,16 @@ describe('BrandShowcase 覆蓋率 vs. 已開放寫入(writeAllowed)的供應商'
     // 🔴 2026-09-04:`dbk` 移出 —— 它當天登記進 SUPPLIER_CONFIGS(`writeAllowed: false`)。
     //   照本條失敗訊息自己指的前例(gilles 2026-08-27)。⚠️ **移出這一格不代表它需要 showcase** ——
     //   主閘的分母是 `writeAllowed === true`,而 dbk 是 false ⇒ 它現在歸【負對照②】管。
-    const zeroProductBrands = ['kineo', 'rizoma', 'wrs'];
+    // 🔴 2026-09-04 上午:`rizoma` 移出 —— 它當天登記進 SUPPLIER_CONFIGS(writeAllowed: false)。
+    //   ⛔ ~~而 rizoma 是 false ⇒ 它現在歸【已登記但未開寫】那一格管~~ —— **同日下午作廢**:
+    //   Sean 逐字「`q3: 上`」批首灌 ⇒ `writeAllowed: true` ⇒ 🎯 **它現在歸主閘管**
+    //   (而 `RizomaShowcase.tsx` 早就在 ⇒ 主閘不紅)。**舊字面留刪除線, 不刪。**
+    //   📌 codex 抓到的:一句只在「還沒開寫」那個世界為真的註解, 在開寫之後【安靜地變假】。
+    // 🔴 2026-09-04 下午:`wrs` 移出 —— 它當天登記進 SUPPLIER_CONFIGS(writeAllowed: false)。
+    //   ⚠️ 同 dbk / rizoma 那兩次:移出這一格【不代表它需要 showcase】—— 主閘分母是 writeAllowed === true,
+    //   而 wrs 是 false ⇒ 它現在歸【已登記但未開寫】那一格管(而 `WrsShowcase.tsx` 同一天已經在了)。
+    //   📌 **這個負對照今天叫了第三次, 三次都是對的** —— 它逐字說「請把它移出本清單」。
+    const zeroProductBrands = ['kineo'];
     const registeredBrandSlugs = new Set(Object.values(SUPPLIER_CONFIGS).map((c) => c.brandSlug));
     for (const slug of zeroProductBrands) {
       expect(
@@ -155,32 +164,63 @@ describe('BrandShowcase 覆蓋率 vs. 已開放寫入(writeAllowed)的供應商'
     }
   });
 
-  it('負對照 ②:已登記但 writeAllowed=false 的品牌不在主閘分母裡 —— 這格才會隨上架流程動', () => {
-    const source = readFileSync(BRAND_SHOWCASE_PATH, 'utf-8');
-    const caseSlug = extractShowcaseCaseSlugs(source);
-    const registeredNotWriteAllowed = Object.values(SUPPLIER_CONFIGS)
+  // 🔴🔴 2026-09-04 改寫(code-reviewer F3):dbk 首灌翻 writeAllowed=true 之後,
+  //   「已登記但未開寫」這一群【只剩 __gated_canary__】(永久 false 的守門靶)
+  //   ⇒ 🛑 原本那句 `.toBeGreaterThan(0)` 從此**恆真**, 而它的註解寫著
+  //     「哪天全家都開寫, 這條會紅、提醒改寫它」—— **那一天永遠不會來。**
+  //   ⇒ 🎯 一格永遠不會紅的測試, 與沒有測試是同一件事。
+  //
+  // ✅ 改成【嚴格相等釘住現況】—— 這種形狀抽不乾:兩個方向的變動都會紅。
+  //   · 有人登記一家新供應商而還沒開寫 ⇒ 名單多一個 ⇒ 紅(提醒:它現在歸負對照②管)
+  //   · 有人把 canary 開寫 / 刪掉      ⇒ 名單少一個 ⇒ 紅
+  //   ⇒ 📌 而它今天【綠得有理由】:所有真供應商都已開寫, 這是一個可以被驗證的事實,
+  //     不是一個「湊得出來的通過」。
+  it('🔴 「已登記但未開寫」這一群 = 恰好只有守門靶(多一個少一個都要紅)', () => {
+    const notWriteAllowed = Object.values(SUPPLIER_CONFIGS)
       .filter((c) => !c.writeAllowed)
-      .map((c) => c.brandSlug);
-
-    // 🔴 分母非空才有判別力(今天 = gilles + __gated_canary__)。哪天全家都開寫,這條會紅、提醒改寫它。
+      .map((c) => c.supplierSlug)
+      .sort();
     expect(
-      registeredNotWriteAllowed.length,
-      '沒有任何「已登記但未開寫」的品牌 ⇒ 這條負對照失去判別力,請改寫而不是刪掉。',
-    ).toBeGreaterThan(0);
+      notWriteAllowed,
+      '這一群變了 ⇒ 要嘛有人登記了新供應商還沒開寫(那它歸本格管), ' +
+        '要嘛守門靶被動過。兩種都要有人看一眼, 不要直接改期望值。',
+    ).toEqual(['__gated_canary__', 'wrs']);
+    // ⛔ ~~2026-09-04 上午:`['__gated_canary__', 'rizoma']`~~ —— rizoma 當天下午 Sean 逐字
+    //   「`q3: 上`」批首灌 ⇒ 翻 writeAllowed=true ⇒ 這一格**當場紅**。
+    // ⛔ ~~然後改成 `['__gated_canary__']`~~ —— 而同一天稍晚 `wrs` 登記進來(writeAllowed: false)
+    //   ⇒ **它【第三次】紅**。舊字面全部留刪除線, 不刪。
+    // 🎯 **一天之內同一格紅三次, 而三次都是對的** —— 那不是這格太敏感, 那是它問對了問題:
+    //   **「有沒有一家登記了而沒開寫」** 在上架期間本來就會一直變, 而**每一次變都要有人看一眼**。
+    // 🔵 `wrs` 現在就是它守的那一種:登記了、showcase 做好了、**而 Sean 沒有拍過 WRS 上架**
+    //   (他拍的 `q4: 甲,` 是「先做形象區」= 順序, 不是授權)⇒ writeAllowed 停在 false。
+  });
 
-    const writeAllowedSlugs = new Set(
-      Object.values(SUPPLIER_CONFIGS).filter((c) => c.writeAllowed).map((c) => c.brandSlug),
-    );
-    for (const slug of registeredNotWriteAllowed) {
-      expect(writeAllowedSlugs.has(slug), `${slug} 同時出現在兩邊 = 分類自相矛盾`).toBe(false);
-    }
+  // 🔴 而【分割不變式】才是這一組真正扛事的那一格 —— 它與誰開不開寫無關, 抽不乾。
+  it('🔴 每一家恰好落在一邊(開寫 / 未開寫), 而守門靶永遠不得有 showcase case', () => {
+    const all = Object.values(SUPPLIER_CONFIGS);
+    const wa = new Set(all.filter((c) => c.writeAllowed).map((c) => c.supplierSlug));
+    const nwa = new Set(all.filter((c) => !c.writeAllowed).map((c) => c.supplierSlug));
+    expect(wa.size + nwa.size, '兩邊相加要等於全部 ⇒ 不等於就是有人多了第三種狀態').toBe(all.length);
+    for (const s of wa) expect(nwa.has(s), `${s} 同時出現在兩邊 = 分類自相矛盾`).toBe(false);
 
-    // ✅ 2026-08-27 Sean 批首灌 ⇒ gilles 已開寫,不再屬於「已登記但未開寫」那一群。
-    //    改由主閘負責它(主閘分母 = writeAllowed=true),而下面這條確認交接沒有落空:
-    //    它必須【已開寫】而且【case 在】—— 兩者缺一,客人就會點進一個沒有品牌形象區的商品頁。
+    const caseSlug = extractShowcaseCaseSlugs(readFileSync(BRAND_SHOWCASE_PATH, 'utf-8'));
     expect(
-      !registeredNotWriteAllowed.includes('gilles') && caseSlug.has('gilles'),
-      'gilles 首灌後應為「已開寫 + case 在」;若它掉回未開寫,或 case 不見了,這裡要紅。',
-    ).toBe(true);
+      caseSlug.has('__gated_canary__'),
+      '守門靶拿到了 showcase case ⇒ 它不是真供應商, 那個 case 會是死碼',
+    ).toBe(false);
+  });
+
+  // ✅ 已首灌的家:必須【已開寫】而且【case 在】—— 兩者缺一, 客人就會點進一個沒有品牌形象區的商品頁。
+  //   🔴 gilles 2026-08-27 · dbk 2026-09-04 各自首灌後加入本格(F4:dbk 原本沒有專屬斷言)。
+  it.each([
+    ['gilles', 'gilles'],
+    ['dbk', 'dbk'],
+    ['rizoma', 'rizoma'],
+  ])('🔴 %s 首灌後應為「已開寫 + case 在」', (supplierSlug, brandSlug) => {
+    const cfg = SUPPLIER_CONFIGS[supplierSlug];
+    expect(cfg, `${supplierSlug} 不在 SUPPLIER_CONFIGS 裡`).toBeDefined();
+    expect(cfg!.writeAllowed, `${supplierSlug} 掉回未開寫 ⇒ 首灌的東西會停止同步`).toBe(true);
+    const caseSlug = extractShowcaseCaseSlugs(readFileSync(BRAND_SHOWCASE_PATH, 'utf-8'));
+    expect(caseSlug.has(brandSlug), `${brandSlug} 的 showcase case 不見了 ⇒ 商品頁少一整塊`).toBe(true);
   });
 });

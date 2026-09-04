@@ -52,14 +52,70 @@ import type { ShipmentCandidates } from '../../lib/shipping/shipment-candidates'
  */
 function noneShippableMessage(items: ShipmentCandidates['items']): string {
   if (items.length === 0) return '這些訂單裡沒有任何品項。';
+  // 🔴🔴 **每個原因帶自己的下一步**(2026-09-04;L3 走查卡點乙1)——
+  //    ⛔ ~~原本四個原因共用一句「出不了」~~ ⇒ 員工看到「出不了」而**不知道要做什麼**。
+  //    🔬 走查逐字(`-account` 09-03)+ `-db` 09-04 在 admin-probe 上**真的按了那顆鈕**:
+  //       「這些訂單目前沒有任何一件出得了(2件的數量資料尚未就緒)。」—— 就這一句。
+  //    而答案就在 `picking-doc.tsx:78`「出貨必先到貨、無直送」—— 那是拍板, 而畫面沒說出來。
+  //
+  // 🔴🔴 **這一段是【兩份獨立實作】合起來的, 而兩邊各有一半是對的。**
+  //    `62775f03`(線【帳號】09-03 23:28)與 `d4b46f0c`(線 `-db` 09-04 02:5x)**同一夜各做了一次**
+  //    ⇒ 收割時撞成 conflict。逐格記哪一格採了誰、為什麼 ——
+  //    🛑 **不是「誰的比較好」, 是每一格各有一個【碼自己講得出來】的理由。**
+  //
+  //  ① 結構(`new Set` 去重 + 具名物件)⇒ **採 `62775f03`**
+  //     去重擋的是「兩個 bucket 日後給同一句下一步 ⇒ 印兩次」;
+  //     而 `{n, word, next}` 比位置解構好讀。~~`-db` 原本用 flatMap + `[, , next]`~~。
+  //  ② `unknown` 的**語氣** ⇒ **採 `d4b46f0c`(不斷言)**
+  //     ⛔ ~~「這幾項還沒跟供應商下訂」~~ 是**斷言**, 而 `order-focal-row.tsx:140` 的註解
+  //     逐字承認:「摘要列真的不存在」與「投影壞掉讀不到」**在畫面上長得一樣**
+  //     (`lib/orders/order-status-axes.ts:244-246`)⇒ 🔴 **那句話在第二種情況下是錯的**,
+  //     而**一句自信的錯誤指示比一句誠實的猜測貴** —— 員工會去找一張不存在的採購單。
+  //  ③ `unknown` 的**落點** ⇒ **採 `62775f03` 的方向, 而把地址寫準**
+  //     ⛔ ~~「請先到【採購】下訂」~~ —— 🔴 **側欄沒有叫「採購」的項目**(2026-09-04 在
+  //     admin-probe 上看側欄:總覽/訂單/退款異常/客戶/商品/優惠券/員工管理/供應商/
+  //     寄不出去的信/設定 —— 十項, 沒有採購)。
+  //     ⚠️ **而「採購」這兩個字確實存在, 我一度差點報成假缺陷** —— 它是
+  //     `item-procurement-section.tsx:145` 的 `<h3>「採購(向供應商訂貨)」`,
+  //     **住在訂單頁的商品卡裡面**, 不是一個可以「去」的地方。
+  //     ⇒ 📌 **⇒ 所以寫成「打開那張單 → 商品清單裡的那一區」, 而不是一個像分頁的【採購】。**
+  //     🔵 而 `-db` 原句「請打開那張單看商品清單」位置對而**沒說到那裡要做什麼** ⇒ 補上。
+  //     🔴🔴 **而 2026-09-04 走查【訂貨→到貨】時發現這句話還是不夠**:那一區住在
+  //     **商品項卡片(`<details>`)裡面, 而卡片預設是收合的**(`order-detail-items-table.tsx`
+  //     的 `defaultOpen={stuck.kind === 'stuck' || hasProcurementRows}` —— 一張新單兩者皆否)。
+  //     ⇒ 🎯 **⇒ 員工照這句話打開那張單, 在商品清單上【看不到】「採購」兩個字。**
+  //     ⚠️ 而「全部展開」那顆鈕**救不了他** —— 它展開的是【四個分頁】不是品項卡
+  //     (`order-detail-tabs.tsx:301` 的另一半字面是「收回分頁」;09-04 實測按下去
+  //      四個 tabpanel 全開而畫面上仍然沒有「採購」二字)。
+  //     ⇒ ✅ **⇒ 所以句子裡要有「點開那一項」這個動作**, 不能只給位置。
+  //  ④ `not_arrived` 的下一步 ⇒ **採 `d4b46f0c`(給一句)**, 而 `62775f03` 是空字串。
+  //     🔬 而這一格**今天沒有人看得到**(見下段)⇒ 兩種寫法今天零影響;
+  //     選給一句的理由是:閘哪天再動一次, 空字串會變成「有原因而沒有出路」。
+  //
+  // 🔴 **`cancelled` 刻意沒有下一步** —— 它是終態, 編一個出來就是把員工指去做白工。
+  //    ⇒ 🛑 全部都是 `cancelled` 時整句下一步**不出現**。那是對的, 不是漏了。
+  //
+  // 🔴🔴 **而 `not_arrived` 這一格【今天到不了】**:本函式今天**只有一個呼叫端**(同檔),
+  //    而它的閘逐字是 `if (!anyShippable && !anyAwaiting)`,
+  //    其中 `anyAwaiting` = 有任何一件 `not_arrived`
+  //    ⇒ 🎯 **⇒ 只要有一件未到貨, 窗就開了, 根本走不到這裡。**
+  //    ⇒ ⇒ 📌 **⇒ 所以那一列的 `'件未到貨'` 從 2026-08-11 放寬閘之後就是死的, 不是誰新加的。**
+  //    ⚠️ **留著不刪**:本函式是純函式, 不該假設呼叫端的閘長什麼樣。
+  //    🛑 **⇒ 而下一個人要知道的是:改那一句【不會有人看到】。**
+  //       真正會被看到的是 `all_boxed` / `cancelled` / `unknown` 三格
+  //       (2026-09-04 在 admin-probe 上實際按到的那一發是 `unknown`)。
+  //
+  // 🔴 **順序與上面的原因清單一致** —— 兩串分開讀時要對得起來;打亂會讓員工自己去配對。
   const buckets = [
-    ['not_arrived', '件未到貨', ''],
-    ['all_boxed', '件已裝進其他箱子', '這些東西已經裝進別的箱子了 —— 請到那張訂單的出貨紀錄找那一箱。'],
+    ['not_arrived', '件未到貨', '還在等的那幾件,貨到了先在訂單頁按「貨到了」登記到貨。'],
+    ['all_boxed', '件已裝進其他箱子', '已經裝進別的箱子的那幾件,請到那張訂單的出貨紀錄找那一箱。'],
     ['cancelled', '件已取消', ''],
     [
       'unknown',
       '件的數量資料尚未就緒',
-      '這幾項還沒跟供應商下訂 —— 請先到【採購】下訂,到貨登錄之後這裡才會出現可出貨的數量。',
+      '數量算不出來的那幾件,最常見的原因是還沒跟供應商下訂 —— ' +
+        '請打開那張單,在商品清單裡「點開那一項」,裡面有「採購(向供應商訂貨)」可以下訂;' +
+        '登錄到貨之後這裡才會出現可出貨的數量。',
     ],
   ] as const;
   const hit = buckets
@@ -77,7 +133,7 @@ function noneShippableMessage(items: ShipmentCandidates['items']): string {
     parts.length === 0
       ? '這些訂單目前沒有任何一件出得了。'
       : `這些訂單目前沒有任何一件出得了(${parts.join('、')})。`;
-  return steps.length === 0 ? why : `${why}${steps.join('')}`;
+  return steps.length === 0 ? why : `${why}接下來:${steps.join('')}`;
 }
 
 export type ShipmentLauncher = {
@@ -98,6 +154,25 @@ export type ShipmentLauncher = {
 export function useShipmentLauncher(
   orderIds: readonly string[],
   onDone?: () => void,
+  /**
+   * 「尾款 X 元未收」——**在彈窗裡**印的那一句(Sean 2026-09-04 拍甲)。`null` = 不印。
+   *
+   * 🔴 **只是一個【已經排版好的字串】,不是訂單物件** —— 彈窗的紅線(`shipment-dialog.tsx:10-11`)
+   *   逐字要求 props 不收 `AdminOrderDetail`。算它的地方在 `shipment-section.tsx`
+   *   的 `shipmentBalanceWarning`(server component, 走同一支 `toPaymentSummary`)。
+   *
+   * 🔴🔴 **而【勾單】那個入口今天傳不出這個字 —— 而它比「批次沒有定義」嚴重, 那是我第一版寫輕了。**
+   *   ⛔ ~~原句:「N 張單有 N 個尾款 ⇒ 在那裡沒有定義」~~
+   *   🎯 **codex 2026-09-04 MF7 訂正**:`shipping-selection.tsx:148` 的呼叫端手上是 `s.orderIds`,
+   *      而**勾【一張】單也走這條路** ⇒ 那一張單的尾款**完全定義得出來**, 而畫面上不會有警告。
+   *   ⇒ 🔴 **所以這不只是「批次沒做」, 是【同一張未收尾款的訂單有一條沒有警告的繞道】** ——
+   *      員工從訂單列表勾那一張、按「出貨」, 走到的是同一個彈窗而少了那句話。
+   *   ⇒ 📌 **一個「從詳情頁進得到、從列表進不到」的警告, 在列表那條路上與「它不存在」印同一個東西。**
+   *   🛑 **本片沒有修它**:列表那頁手上沒有 payments(它是 client component, 要多一趟取數),
+   *      而「勾多張時要印什麼」是 Sean 的設計題(逐單列出?只印「其中 N 張尚有尾款」?)。
+   *      ⇒ 已回報主視窗、板列 `⟦ship-BALANCEWARNBYPASS⟧`。**不要把這段刪掉當成做完了。**
+   */
+  balanceWarning?: string | null,
 ): ShipmentLauncher {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -180,6 +255,7 @@ export function useShipmentLauncher(
         candidates={open.data.items}
         recipient={open.data.recipient ?? { name: null, phone: null, line: null }}
         idempotencyKey={open.key}
+        balanceWarning={balanceWarning ?? null}
         onClose={(createdShipment) => {
           setOpen(null);
           // 🔴 半成品箱(建箱成功、掛品項失敗)走**失敗路徑** ⇒ 不會呼叫 `onDone`,
@@ -237,12 +313,21 @@ export function useShipmentLauncher(
  *    revalidate 的是列表那一頁,**不含本詳情頁** ⇒ 不刷的話新箱子不會出現在下面的清單裡,
  *    員工會以為沒建成功而再按一次(第二次是不同的冪等鍵 = 真的第二箱)。
  */
-export function OrderShipButton({ orderId }: { orderId: string }) {
+export function OrderShipButton({
+  orderId,
+  balanceWarning = null,
+}: {
+  orderId: string;
+  /** 「尾款 X 元未收」。由 server component 算好傳進來(見 `useShipmentLauncher` 那個參數的說明)。 */
+  balanceWarning?: string | null;
+}) {
   const router = useRouter();
   // 🔴 陣列要 memo:直接寫 `[orderId]` 每次 render 都是新參考 ⇒ `openDialog` 跟著重建。
   const orderIds = useMemo(() => [orderId], [orderId]);
-  const { loading, error, openDialog, dialog } = useShipmentLauncher(orderIds, () =>
-    router.refresh(),
+  const { loading, error, openDialog, dialog } = useShipmentLauncher(
+    orderIds,
+    () => router.refresh(),
+    balanceWarning,
   );
 
   return (

@@ -70,6 +70,7 @@ import {
 } from '@/lib/payment/composition';
 import { buildCardholder, type BuildCardholderFailReason } from '@/lib/payment/cardholder';
 import { isThreeDSEnabled } from '@/lib/payment/three-ds-flag';
+import { isBankTransferCheckoutEnabled } from '@/lib/payment/bank-transfer-flag';
 import { isCheckoutNotificationEmailEnabled } from '@/lib/email/notification-email-gate';
 import { resolveThreeDSConfig, buildResultUrls, isHttpsUrl } from '@/lib/payment/three-ds-urls';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -138,6 +139,11 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     addressId: raw.addressId,
     shippingMethod: raw.shippingMethod,
     invoice: raw.invoice,
+    // 🔴 段 1-B:付款方式。**必填、無預設** —— client 少送 ⇒ zod 這裡就擋(fail-closed)。
+    //   🛑 而 **TypeScript 在這一格擋不到**:`raw` 是 FormData 來的、沒有型別化的建構點
+    //     (實測:schema 加這個必填欄之後 `typecheck` **零錯誤**, 而 **123 支測試紅**)
+    //   ⇒ 📌 **擋它的是 zod, 不是型別。**
+    paymentChannel: raw.paymentChannel,
     ...(notificationEmailEnabled ? { notificationEmail: raw.notificationEmail } : {}),
   });
   if (!parsedCheckout.success) {
@@ -150,7 +156,12 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
         (p1 === 'carrier' || p1 === 'title' || p1 === 'taxId' || p1 === 'donateCode')
       ) {
         (fieldErrors.invoice ??= {})[p1] = issue.message;
-      } else if (p0 === 'addressId' || p0 === 'shippingMethod' || p0 === 'notificationEmail') {
+      } else if (
+        p0 === 'addressId' ||
+        p0 === 'shippingMethod' ||
+        p0 === 'notificationEmail' ||
+        p0 === 'paymentChannel'
+      ) {
         fieldErrors[p0] = issue.message;
       }
     }
@@ -158,6 +169,42 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
       return { fieldErrors };
     }
     return { formError: '結帳資料有誤,請返回確認' };
+  }
+
+  // ②a-2 🔴 匯款總開關(M-4b 段 1;擋在**任何建單/付款/settle 副作用之前**、與其餘 ②x 同一層)。
+  //   ⛔ ~~原句寫「擋在任何副作用之前」~~ **過強**(codex 關卡2 nit):它上面已經有
+  //      `createServerSupabaseClient()` 與 `auth.getUser()`(:124 附近)—— 那些是讀, 而它們也是副作用。
+  //   flag off 而 client 送 bank_transfer ⇒ 拒。今天 UI 沒有那個選項(radio 仍隱藏)
+  //   ⇒ 走到這裡的只會是**繞過 UI 的請求**,而那正是這道閘要擋的形狀。
+  //
+  // 🔴 **為什麼需要它**(不是滾動發布,是一個會兩邊都付錢的洞):
+  //   begin_charge_attempt 的 cart dedup 述詞看不見「unpaid + 零 attempt」的匯款單
+  //   ⇒ 先建匯款單再回頭刷卡 ⇒ dedup 放行 ⇒ 一張刷卡付掉、一張等匯款。
+  //   全文與啟用條件在 `@/lib/payment/bank-transfer-flag` 的檔頭 + 板列 ⟦b4-BANKORDERINVISIBLE⟧。
+  //
+  // 🛑🛑 **而這道閘的射程只到【這支 action】—— 它不是那個洞的鎖**(codex 關卡2 must-fix ①, 我核過):
+  //   🔬 `20260904020000_m4b_create_order_payment_channel.sql:533` 逐字
+  //      `GRANT EXECUTE ON FUNCTION public.create_order(...) TO authenticated;`
+  //   ⇒ 🔴 **任何登入中的客人都能直接打 PostgREST 的 `/rpc/create_order` 送 `bank_transfer`**,
+  //      而 DB 的白名單(同檔 `:168`)**收它** ⇒ 完全不經過這一行。
+  //   ⇒ ⇒ 📌 **所以「flag off ⇒ 零建單」只對走這支 action 的人成立。不要把它讀成系統性保證。**
+  //
+  // 🔴 **⇒ 所以順序是綁死的:RPC 那一側要有自己的 opt-in 守門, 或 A 不得先於分岔上正式庫。**
+  //    ⚠️ **而「那條繞路今天走不通嗎」是【當日部署狀態】, 不寫在這裡**(codex 關卡2 R2 nit ④)——
+  //    程式註解只放**部署不變式**;會過期的那半在板列 ⟦b4-BANKORDERINVISIBLE⟧ 的「flag 可啟用條件」,
+  //    那裡有量測日期與正負對照。📌 **寫在碼裡的當日狀態, 在它變假的那天沒有人會回來改它。**
+  //
+  // ✅ **而不依賴任何部署狀態的那一道在下面 ⑤c** —— 建出來的單是匯款就不扣款, 一律。
+  //
+  // 🔵 **文案為什麼沿用 '請選擇付款方式'**:那是本 schema 既有的字面
+  //   (`packages/schemas/src/index.ts` paymentChannel enum 的 error)。
+  //   🛑 今天這條路 UI 到不了 ⇒ **新開的頁面**沒有真客人會讀到它 ⇒ **我不在這裡發明對外文案**。
+  //   ⚠️ **而「沒有真客人會讀到」有一個例外, 寫出來免得它被讀成全稱**(codex 關卡2 nit):
+  //      **日後把 flag 從 on 關回 off 時**, 手上還開著舊付款頁的客人會真的送出並看到這一句。
+  //   ⇒ 📌 而 flag 翻 true 的那一天它就變成看得到的字 ⇒ **那時要重新看一次這一句**
+  //      (寫在這裡, 因為那時動這段碼的人打開的是這支檔)。
+  if (parsedCheckout.data.paymentChannel === 'bank_transfer' && !isBankTransferCheckoutEnabled()) {
+    return { fieldErrors: { paymentChannel: '請選擇付款方式' } };
   }
 
   // ②b 購物車線(缺/非法 variantId → REJECT 整單、zod strip 竄改的 unitPrice/tier 等鍵)。
@@ -283,6 +330,10 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
       // 🔴 3DS-7:cart_session_id = client CartContext 穩定 key(②d 已驗 uuid/非空)。信任此非價/tier/身分
       //   去重子(plan §4)、取代 option A 的 server randomUUID → begin cart-instance dedup 由此叫醒生效(治本)。
       cartSessionId,
+      // 🔴 段 1-A 的第 11 個參數。**新舊兩支 `create_order` 靠【名字集合】各自被唯一命中**
+      //   ⇒ 送它 ⇒ 命中新那支;**不送 ⇒ 靜靜掉回舊那支、存成 tappay**。
+      //   ⇒ 🛑 所以它一路到 mapper 都是**必填**, 不是 optional。
+      paymentChannel: parsedCheckout.data.paymentChannel,
       // 🔴 #241 同意紀錄(server 注入、非 client):version 常數 + best-effort IP/UA → create_order 同 transaction 原子寫 order_legal_consents。
       termsVersion: CURRENT_TERMS_VERSION,
       clientIp,
@@ -306,6 +357,66 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     // ⑤ 🔴 server read-back orders.total = 單一金額來源(client 永不送價;null → 拒、此時零扣款)。
     const total = await orderRepo.findTotal(placed.orderId);
     if (!total) {
+      return { formError: MSG.generic };
+    }
+
+    // ⑤b 🔴 server read-back orders.payment_channel = 客人選的付款方式真的寫進去了嗎。
+    //
+    // 🎯 **它守的是一個【兩端都印成功】的世界** —— TS 拿到 order id、DB 有一張合法的單。
+    //    `orders.payment_channel` 是 `NOT NULL DEFAULT 'tappay'`
+    //    (`20260712203000_m4a_orders_admin_columns.sql:48`)⇒ 沒送到那一欄時它**不報錯**,
+    //    安靜地變成 `'tappay'`。客人選了匯款, 而單子上寫刷卡, 然後我們照刷卡的規矩去催他。
+    //
+    // 🔴 **而它【不是】下面那個 `PGRST202` 分支的同一族** —— 兩者各擋一半, 缺一不可:
+    //    ```
+    //    送 11 個名字 · A 未貼 ⇒ 找不到函式 ⇒ PGRST202 ⇒ 大聲 ⇒ 外層 catch 那支擋得到
+    //    送 10 個名字(TS 把 undefined 序列化掉)· 舊 10 參簽名還在
+    //                          ⇒ 解析到【舊的那一版】⇒ INSERT 不含該欄 ⇒ 吃 DEFAULT
+    //                          ⇒ 🛑 安靜成功 ⇒ **只有這一發回查分得出來**
+    //    ```
+    //
+    // 🛑 **為什麼是 `return` 而不是 `throw`(f0 交辦寫的是「丟例外」, 我改了形狀、理由在此)**:
+    //    這一行在外層 `try` 裡 ⇒ **`throw` 會被下面那個 catch 收成 `MSG.generic`**
+    //    ⇒ 客人看到的字面、扣款金額(零)、後續流程, **與這裡直接 return 逐字相同**
+    //    ⇒ 📌 `throw` 買不到任何東西, 只多繞一圈, 而且與本檔既有慣例不一致。
+    //    ✅ **f0 要的是「不可以只 log 然後繼續」, 而 `return` 沒有繼續** ⇒ 意圖照做, 形狀對齊本檔。
+    //    🔴 而**訊號那一半靠 `safeLog`**:少了它, 這道守門擋下來的每一次
+    //       都會與「客人自己放棄結帳」在觀測上長得一模一樣。
+    const storedChannel = await orderRepo.findPaymentChannel(placed.orderId);
+    if (storedChannel !== placeOrderInput.paymentChannel) {
+      // 🔴 PII(#16):只記兩個 enum 值與 orderId,**零 email / 零地址 / 零金額**。
+      safeLog('error', '[checkout] payment_channel read-back 不符', {
+        sent: placeOrderInput.paymentChannel,
+        stored: storedChannel,
+        orderId: placed.orderId,
+      });
+      return { formError: MSG.generic };
+    }
+
+    // ⑤c 🔴🔴 **fail-closed:一張匯款單, 絕不往下走進扣款。**
+    //
+    // 🎯 **它擋的是今天真的存在的一條路**(codex 關卡2 R1 must-fix ② / R2 must-fix ② 逼出來的):
+    //    ```
+    //    flag on + 客人送 bank_transfer ⇒ 過 ②a-2 ⇒ 過 ②c prime
+    //      (⚠️ prime 擋不住 —— **有卡的人選匯款, prime 照樣送得出來**)
+    //    ⇒ placeOrder 建單 ⇒ 真的 DB 把 bank_transfer 正確存下來 ⇒ 上面那道 read-back **相符**
+    //    ⇒ 🔴 繼續往下 ⇒ confirmPayment ⇒ **拿客人的卡, 去扣一張匯款單的錢。**
+    //    ```
+    // 🛑 **⇒ 而上面那道 read-back 擋不到它** —— 它問的是「存的跟送的一不一樣」,
+    //    而這條路上**兩者一樣**。📌 **一道正確的守門, 在它自己的問題上答對, 而放行了另一個問題。**
+    //
+    // 🔵 **為什麼這一格不是「分岔」**:分岔要回 `pendingTransfer` 並把客人送到匯款資訊頁 ——
+    //    那是段 1 的另一片。**這裡只做一件事:不扣款。** 建出來的單靠後台處理。
+    //    ⇒ 🎯 **⇒ 所以它是 fail-closed, 不是功能。** 而它讓那格守門測試**今天就會綠**,
+    //       不必留一格故意紅的測試等分岔(codex R2 逐字:「不要提交故意維持紅色的測試」)。
+    //
+    // 🔴 **而它【不依賴任何部署狀態】** —— 不管 A 貼了沒、flag 開了沒、RPC 有沒有被繞過去,
+    //    只要這支 action 建出來的單是匯款, 它就停在這裡。
+    //    ⇒ 📌 這正是它與「A 還沒 apply 所以今天安全」的差別:**後者會過期, 這一行不會。**
+    if (storedChannel === 'bank_transfer') {
+      safeLog('info', '[checkout] 匯款單建立完成, 不進扣款(段 1 分岔未上)', {
+        orderId: placed.orderId,
+      });
       return { formError: MSG.generic };
     }
 
@@ -379,13 +490,18 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
       //      ⇒ 「簽章對了」不等於「函式本體是我們以為的那一版」—— 那正是這一族的坑。
       //   📌 這是【好消息型的過期】(以為有風險而其實沒有)⇒ **最不會被回頭查的一種**,
       //      而它的成本是讓人為一個不存在的風險繞路。
-      //   🔴 **而那句假話【還留在下面那個字串裡】, 本次沒有動它** —— 理由:那是**執行時會印出去的
+      //   ✅ **2026-09-04 已改掉**(f0 裁「順手訂正, 是 nit 不是片」):
+      //      新字串**不寫死參數個數**, 改指到 `supabase/migrations/` 底下最新那支 create_order migration
+      //      ⇒ 📌 **因為 C 之後它又會變一次, 而寫死的數字每一代都要有人回來改。**
+      //      ⚠️ 而舊字面留在上面那幾行(刪除線), 讓搜「8 參」「verify-create-order-9param」的人同一發撞到訂正。
+      //   ⛔ ~~**而那句假話【還留在下面那個字串裡】, 本次沒有動它** —— 理由:那是**執行時會印出去的
       //      log 訊息, 不是註解**;改它不是零行為改動(實測:剝註解後 sha256 會變)⇒ 依鐵則 12
-      //      的判準它不該由我自己放行。**已端給主視窗,等裁。**
-      //   🛑 **而那個決定也沒有被重新評估**:`fix:` 仍叫人跑那支腳本, 它是否仍為必要, 本次不判。
+      //      的判準它不該由我自己放行。**已端給主視窗,等裁。**~~ ← **裁下來了, 見上。**
+      //   ✓ 而「那支腳本是否仍為必要」也一併結掉:新字串**不再叫任何人跑它**
+      //      (`scripts/verify-create-order-9param.sh` 本身還在, 沒有刪 —— 它只是不再被這行 log 指名)。
       safeLog('error', '[checkout] create_order 簽章不符', {
         code: rpcErrorCode,
-        fix: 'prod 的 create_order 可能仍是 8 參:跑 bash scripts/verify-create-order-9param.sh,只有 exit 0 才可部署',
+        fix: 'create_order 的參數與本次部署不符(正式庫少了這一版):對照 supabase/migrations/ 底下最新那支 create_order migration,確認它已 apply 再部署',
       });
     }
     // 🔴 Q2=A 通用字面、零原始 error 透傳。走到此處的 throw 全屬零扣款路徑

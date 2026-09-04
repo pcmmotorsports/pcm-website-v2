@@ -187,6 +187,63 @@ eq "G4 🔵 負對照 第二詞不存在 ⇒ 0" \
 eq "G5 🔵 負對照 料號詞 + 別支商品的文字詞 ⇒ 0" \
    "$(p "select count(*) from storefront_search_product_ids(ARRAY['zzpn0042','ZZTESTBRAND'])")" "0"
 
+echo "── H 🔴🔴 兩支函式的【文字那半】必須逐字相同(對帳)─────────────────"
+# 🔴🔴 **本族與 `20260904020000` 是【同時寫的】, 不是之後補的。**
+#    ⟦search-TRGMEXPRIDX⟧ 的修法是「把判斷搬到 TS, 依判斷呼叫兩支不同的函式」——
+#    而那買到的東西是:純文字查詢走一份**不含無索引表達式**的 SQL ⇒ 四支 trgm 索引回來
+#    (鑽機:BitmapOr 1⇒0 · 1.22ms⇒39.9ms 那個差)。
+#
+# 🛑 **而代價是:同一段文字邏輯有【兩份】, 而它們會分岔, 而沒有東西會叫。**
+#    ⇒ ✅ **不變式**:對【不含任何料號詞】的輸入, 兩支必須回**逐字相同**的 id 集合
+#      —— 那種輸入根本走不到料號分支 ⇒ 差別在那個世界裡**應該是零**。
+#    ⇒ 🔵 而它用 `EXCEPT` **兩個方向都問** ——
+#      只問一個方向的話,「A 少撈了」與「B 多撈了」其中一種會漏掉。
+HAS_TEXT=$(p "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='storefront_search_product_ids_text'")
+if [ "$HAS_TEXT" != "1" ]; then
+  MIG_TXT="$REPO/supabase/migrations/20260904020000_m4b_storefront_search_text_only.sql"
+  if [ -f "$MIG_TXT" ]; then
+    psql -h 127.0.0.1 -p "$PORT" -U postgres -v ON_ERROR_STOP=1 -q -f "$MIG_TXT" >/dev/null 2>&1 \
+      && echo "🔵 文字支不在 ⇒ 本檔 apply 了 20260904020000" \
+      || { echo "🔴 20260904020000 apply 不過 ⇒ H 族跳過(而這【不是綠】)"; FAIL=$((FAIL+1)); }
+  else
+    echo "🔴 找不到 $MIG_TXT ⇒ H 族跳過(而這【不是綠】)"; FAIL=$((FAIL+1))
+  fi
+fi
+eq "H0 前置:兩支都在" \
+   "$(p "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('storefront_search_product_ids','storefront_search_product_ids_text')")" "2"
+
+# 🔵 挑【不含料號詞】的輸入 —— 中文與純字母, 兩者都進不了料號分支(它要求同時含字母與數字)。
+for TERMS in "ARRAY['ZZTESTBRAND']" "ARRAY['無品牌字樣']" "ARRAY['ZZTESTBRAND','無品牌字樣']" "ARRAY['碳纖維']"; do
+  A2B=$(p "select count(*) from (select * from storefront_search_product_ids($TERMS) except select * from storefront_search_product_ids_text($TERMS)) x")
+  B2A=$(p "select count(*) from (select * from storefront_search_product_ids_text($TERMS) except select * from storefront_search_product_ids($TERMS)) x")
+  if [ "$A2B" = "0" ] && [ "$B2A" = "0" ]; then
+    ok  "H1 對帳 $TERMS" "兩個方向都空"
+  else
+    bad "H1 對帳 $TERMS" "含料號支多 $A2B 列 / 純文字支多 $B2A 列 ⇒ **兩支的文字那半已經分岔**"
+  fi
+done
+
+# 🔴🔴 而**這一格證明上面那些 0 有判別力** ——
+#    餵一個【含料號詞】的輸入:兩支**本來就該不同**(那正是料號支存在的理由)。
+#    ⇒ 🛑 少了它, 「四個對帳都 0」與「這支腳本對什麼都印 0」印同一個綠。
+PN_A=$(p "select count(*) from storefront_search_product_ids(ARRAY['zz70042'])")
+PN_B=$(p "select count(*) from storefront_search_product_ids_text(ARRAY['zz70042'])")
+if [ "$PN_A" != "$PN_B" ]; then
+  ok  "H2 🔵 正對照:料號詞兩支【就該不同】" "含料號支 $PN_A · 純文字支 $PN_B"
+else
+  bad "H2 🔵 正對照:料號詞兩支【就該不同】" "兩支都回 $PN_A ⇒ 對帳那四個 0 沒有判別力"
+fi
+
+# 🔴 而主視窗要我【當場驗】的那一格:**純數字料號**會不會被判成文字而搜不到。
+#    ⇒ 他的推測是「只是慢, 不是搜不到」(文字支的五欄 ILIKE 一樣掃得到料號欄)。
+p "update products set external_id='90210' where id='$PID3'" >/dev/null
+NUM_T=$(p "select count(*) from storefront_search_product_ids_text(ARRAY['90210'])")
+if [ "$NUM_T" -ge 1 ]; then
+  ok  "H3 純數字料號 ⇒ 文字支也找得到" "$NUM_T 列 ⇒ 判錯的代價只是【慢】不是【搜不到】"
+else
+  bad "H3 純數字料號 ⇒ 文字支也找得到" "0 列 ⇒ 🔴 **判錯就搜不到** ⇒ partNumberPattern 的判準要放寬, 停下報主視窗"
+fi
+
 echo "──────────────────────────────────────────────────────────────"
 printf '結果:PASS=%s FAIL=%s\n' "$PASS" "$FAIL"
 echo "🛑 射程:本機拋棄式庫 ⇒ 證不出正式庫的行為;**不驗效能**(那要對正式庫 EXPLAIN)。"

@@ -57,6 +57,27 @@ export interface IOrderRepository {
   findTotal(id: OrderId): Promise<Money | null>;
 
   /**
+   * 建單後窄讀 `orders.payment_channel`(server read-back;查無 / 非本人 → `null`)。
+   *
+   * 🔴 **它守的失效模式,兩端都印成功** —— TS 拿到 order id、DB 有一張合法的單:
+   *   `orders.payment_channel` 是 `NOT NULL DEFAULT 'tappay'`
+   *   (`20260712203000_m4a_orders_admin_columns.sql:48`)⇒ 沒送到那一欄時
+   *   **不會報錯, 會安靜地變成 `'tappay'`**。
+   *
+   * 🔴 **而它不是 `PGRST202` 那一族**(charge-actions 外層 catch 已擋那族):
+   * ```
+   * 送 11 個名字 · A 未貼  ⇒ 找不到函式 ⇒ PGRST202  ⇒ 大聲 ⇒ 既有守門擋得到
+   * 送 10 個名字(undefined 被序列化掉)· 舊簽名還在
+   *                        ⇒ 解析到【舊的 10 參版】⇒ INSERT 不含該欄
+   *                        ⇒ 吃 DEFAULT `'tappay'` ⇒ 🛑 安靜 ⇒ **只有回查分得出來**
+   * ```
+   * ⚠️ 而上面第二條**只在段 1-A 到段 1-C 之間的窗口成立**(舊簽名 DROP 之後就不存在)——
+   *    🔴 **而那正是這道守門不可以跟著 C 一起拿掉的理由寫反的地方**:窗口關了,
+   *    這道回查仍然守著「RPC 寫錯欄」「RLS 讓我讀不到自己剛建的單」那些世界。
+   */
+  findPaymentChannel(id: OrderId): Promise<string | null>;
+
+  /**
    * 查單筆(RLS own-only;查無回 null 不 throw)。
    *
    * 🔴 **deferred stub,而且是【刻意不提供】,不是「待 #217」**(2026-08-18 `#217` 裁定 D):

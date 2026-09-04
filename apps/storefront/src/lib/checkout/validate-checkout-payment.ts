@@ -71,6 +71,16 @@ export type ValidateNonCardInput = {
   notificationEmailEnabled: boolean;
   notificationEmail: string;
   agreed: boolean;
+  /**
+   * 🔴 段 1-B:客人選的付款方式。**由外面傳進來, 不在這裡寫死。**
+   *
+   * 🛑 而它與隔壁那個 `shippingMethod: 'home'` 的處置**刻意不同** ——
+   *   那一個寫死的理由逐字是「UI 無此選項故不可能出錯」;
+   *   ⇒ 而付款方式**UI 就是要讓客人選**(Sean 2026-09-04 拍「客人自己就能選匯款下單」)
+   *   ⇒ 📌 **把它寫死 ⇒ 這道前端驗證會在客人選匯款時驗一個他沒選的東西** ——
+   *     而它仍然會過, 所以**沒有東西會叫**。
+   */
+  paymentChannel: 'tappay' | 'bank_transfer';
 };
 
 /**
@@ -86,11 +96,14 @@ export function validateNonCardFields({
   notificationEmailEnabled,
   notificationEmail,
   agreed,
+  paymentChannel,
 }: ValidateNonCardInput): NonCardValidationResult {
   const schema = createCheckoutInputSchema(notificationEmailEnabled);
   const parsed = schema.safeParse({
     addressId,
     shippingMethod: 'home', // Q1=A 僅宅配;UI 無此選項故不可能出錯,真出錯走 formError fail-closed
+    // 🔴 段 1-B:**用真的那個值**, 不寫死 —— 理由見型別上那一段。
+    paymentChannel,
     invoice,
     ...(notificationEmailEnabled ? { notificationEmail } : {}),
   });

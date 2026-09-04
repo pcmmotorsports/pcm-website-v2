@@ -11,7 +11,7 @@ import {
   FAILED_RETRY_MS,
   nonOkRow,
 } from './image-trim-core';
-import { parseArgs, runPool } from './image-trim-scan';
+import { parseArgs, runPool, shouldAbortOnFailedRate, FAILED_RATE_ABORT } from './image-trim-scan';
 
 async function whiteWithDarkRect(
   w: number,
@@ -176,5 +176,42 @@ describe('parseArgs', () => {
     expect(parseArgs(['--full'])).toEqual({ confirmWrite: false, full: true });
     expect(() => parseArgs(['--limit=0'])).toThrow();
     expect(() => parseArgs(['--nope'])).toThrow();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴 圖片抓取失敗率閘(2026-09-04)—— 而它守的是【一個本來就在收而沒有人讀的數字】。
+//   病史:dbk 首灌當天 Sean 回報「很多圖片都沒顯示」⇒ 實測 40 支 39 支 502、
+//   而**他們的首頁也是 502**;同一發對照組五家 40 支全 200。
+//   🛑 而這支腳本當天照跑、照把它們記成 failed —— 而它只在 upsert 失敗時 exit 1
+//   ⇒ 🎯 「供應商站掛了」與「一切正常」印同一個退出碼。
+//
+// 🔵 這幾格刻意呼叫【生產碼那一支函式】, 不重打門檻 ——
+//   重打一份的話, 改了 FAILED_RATE_ABORT 這些格子不會紅(今晚量過的同型)。
+// ══════════════════════════════════════════════════════════════════════════
+describe('shouldAbortOnFailedRate(圖片抓取失敗率閘)', () => {
+  it('🟢 常態基線 0.14%(26/18,764)⇒ 不叫 —— 這是負對照, 而它必須是綠的', () => {
+    expect(shouldAbortOnFailedRate(26, 18764)).toBe(false);
+  });
+
+  it('🔴 dbk 那天的形狀(39/40 = 97.5%)⇒ 要叫', () => {
+    expect(shouldAbortOnFailedRate(39, 40)).toBe(true);
+  });
+
+  it('🔴 一家全掛混在整批裡(1,508/24,312 ≈ 6.2%)⇒ 要叫 —— 而它只比門檻高一點點', () => {
+    expect(shouldAbortOnFailedRate(1508, 24312)).toBe(true);
+  });
+
+  it('🔵 而【剛好在門檻上】不叫(嚴格大於)—— 寫下來免得有人以為是 >=', () => {
+    expect(shouldAbortOnFailedRate(5, 100)).toBe(false); // 5% 不大於 5%
+    expect(shouldAbortOnFailedRate(6, 100)).toBe(true);
+  });
+
+  it('🛑 掃 0 張 ⇒ 不叫(沒有分母 ⇒ 那是另一種問題, 不歸這一格管)', () => {
+    expect(shouldAbortOnFailedRate(0, 0)).toBe(false);
+  });
+
+  it('🔴 門檻值本身釘住 —— 改它要有人看一眼(它是從 45 天的歷史分佈推出來的)', () => {
+    expect(FAILED_RATE_ABORT).toBe(0.05);
   });
 });

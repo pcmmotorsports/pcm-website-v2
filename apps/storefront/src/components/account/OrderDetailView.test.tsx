@@ -19,8 +19,11 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { toMoneyAmount, type MemberOrderDetail } from '@pcm/domain';
 import { OrderDetailView } from './OrderDetailView';
 import {
+  ORDER_DETAIL_ITEM_CANCELLED_MARK,
+  ORDER_DETAIL_ITEM_SHIPPED_MARK,
   ORDER_DETAIL_ITEMS_TRUNCATED_NOTE,
   ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE,
+  ORDER_DETAIL_UNPAID_SHIPPED_NOTE,
 } from '@/lib/account-order-copy';
 
 afterEach(cleanup);
@@ -57,6 +60,7 @@ const ORDER: MemberOrderDetail = {
       quantity: 2,
       unitPrice: money(6000),
       lineTotal: money(12000),
+      shipped: false,
     },
   ],
   itemCount: 2,
@@ -664,5 +668,278 @@ describe('⟦b9-SHIPUI⟧ 進度軸「已出貨」', () => {
     expect(doneStep.querySelector('.od-step-t')?.textContent).toBe('已送達');
     expect(doneStep.className).not.toContain('is-done');
     expect(doneStep.querySelector('.od-step-d')?.textContent).toBe('');
+  });
+  /**
+   * ⟦ship-AXISHOLE⟧ 進度軸中間那個洞(Sean 2026-09-04 Q7 拍乙:那格變灰色 + 一句「尚未收到匯款」)。
+   *
+   * 🔴🔴 **「那格變灰色」那一半【不可以拿來當驗收條件】** —— 它在改之前也是灰的
+   *    (`ok: paymentCompleted` 為 false ⇒ 沒有 `is-done`)⇒ 🎯 **零判別力**:
+   *    把整個 `unpaidButShipped` 分支刪掉, 一格「是灰的」的斷言照樣全綠。
+   *    ⇒ ✅ **承重的是 `.od-step-d` 的字**, 而下面每一格都釘那一格。
+   *
+   * 🛑 **四格是三個方向 + 一個正對照, 少任一格這道守門就漏一種錯法**:
+   *    · 洞的世界 ⇒ 印那句話(**改對了沒**)
+   *    · 沒出貨的未付款單 ⇒ **不印**(證明它不是無條件印 —— 少了這格,`d: 常數` 寫死也全綠)
+   *    · 付過款的單 ⇒ 印**日期**(證明那句話沒有把一個真事實蓋掉)
+   *    · 🔴 取消單 ⇒ 不印, **而且「付款完成」那一階不得被打勾**
+   */
+  describe('⟦ship-AXISHOLE⟧ 先出貨後收款 ⇒ 付款完成那一格說得出【為什麼是灰的】', () => {
+    // 匯款單:貨出了而錢還沒到。`paidAt` 為 null 是這個世界的定義, 不是順手設的。
+    const UNPAID_SHIPPED = {
+      ...ORDER,
+      paymentStatus: 'unpaid' as const,
+      paidAt: null,
+      shippedAt: '2099-04-25T00:00:00Z',
+      allItemsShipped: true,
+    };
+    // 付款完成 = 第 2 階。🔵 錨:進度軸插一階時 `[1]` 會安靜地量錯階段而仍然綠
+    //    ⇒ 每一格都先斷言標題字, 照本檔既有那幾格的形狀。
+    const payStep = (c: HTMLElement) => {
+      const el = Array.from(c.querySelectorAll('.od-step'))[1]!;
+      expect(el.querySelector('.od-step-t')?.textContent).toBe('付款完成');
+      return el;
+    };
+
+    it('🔴 已出貨而未付款 ⇒ 那一格印「尚未收到匯款」, 而且仍然是灰的', () => {
+      const { container } = render(<OrderDetailView order={UNPAID_SHIPPED} />);
+      const el = payStep(container);
+      expect(el.querySelector('.od-step-d')?.textContent).toBe(
+        ORDER_DETAIL_UNPAID_SHIPPED_NOTE,
+      );
+      // 🛑 這一行本身零判別力(見上面的 docstring), 留著是因為「印了字卻順手打了勾」
+      //    會是一句與那行字**相反**的話 —— 兩者要一起被釘住。
+      expect(el.className).not.toContain('is-done');
+    });
+
+    it('🔵 負對照:還沒出貨的未付款單 ⇒ 那一格【空白】(少了這格, 寫死一個常數也會全綠)', () => {
+      const { container } = render(
+        <OrderDetailView order={{ ...UNPAID_SHIPPED, shippedAt: null, allItemsShipped: false }} />,
+      );
+      expect(payStep(container).querySelector('.od-step-d')?.textContent).toBe('');
+    });
+
+    it('🔵 負對照:付過款的單 ⇒ 那一格印【日期】, 那句話不得蓋掉一個真事實', () => {
+      const { container } = render(
+        <OrderDetailView
+          order={{ ...ORDER, shippedAt: '2099-04-25T00:00:00Z', allItemsShipped: true }}
+        />,
+      );
+      expect(payStep(container).querySelector('.od-step-d')?.textContent).toBe('2099-04-18');
+      expect(screen.queryByText(ORDER_DETAIL_UNPAID_SHIPPED_NOTE)).toBeNull();
+    });
+
+    /**
+     * 🔴🔴 **這一格擋的是我在寫這一片時【差點自己製造】的缺陷, 不是假想的世界。**
+     *
+     * `happened()` 的判準是 `s.ok || s.d !== ''`, 而 `shownSteps` 對取消單把留下來的
+     * 每一階 **一律 `ok: true`** ⇒ 🛑 只要那句話進了取消單的 `d`,
+     * 「付款完成」就會從【整格不顯示】變成【顯示 **而且打勾**】
+     * ⇒ 🎯 **一張從來沒付過錢的單, 畫面上會打勾說他付了** —— 而勾旁邊寫著「尚未收到匯款」。
+     * 📌 **⇒ 一個只負責多印一句話的修法, 透過一個它沒有讀的判準改掉了【打不打勾】。**
+     */
+    it('🔴 取消單 ⇒ 那句話不出現, 而且「付款完成」不得因此被打勾', () => {
+      const CANCELLED_UNPAID_SHIPPED = {
+        ...UNPAID_SHIPPED,
+        cancelledAt: '2099-05-01T00:00:00Z',
+        cancelKind: 'cancelled' as const,
+      };
+      const { container } = render(<OrderDetailView order={CANCELLED_UNPAID_SHIPPED} />);
+      expect(screen.queryByText(ORDER_DETAIL_UNPAID_SHIPPED_NOTE)).toBeNull();
+      // 🔴 承重的一行:拿掉 `unpaidButShipped` 的 `!cancelled` ⇒ 這裡會冒出「付款完成」。
+      expect(
+        Array.from(container.querySelectorAll('.od-step-t')).map((n) => n.textContent),
+        '取消單的軸上只該留【真的發生過】的階段 —— 而這張單從來沒付過錢',
+      ).not.toContain('付款完成');
+    });
+  });
+  /**
+   * ⟦ship-WHICHITEMSSHIPPED⟧ 部分出貨時, 客人看不看得出是【哪幾件】(Sean 2026-09-04 Q5 拍甲)。
+   *
+   * 🔬 **修法之前的畫面是量到的, 不是推的**:真瀏覽器實測一張 5 品項出了 3 件的單
+   *    ⇒ 徽章「處理中」· 進度軸「已出貨」亮 · 小字「其餘商品出貨時會再通知您」都**對**,
+   *    而 🔴 **商品明細五列逐字相同**。⇒ 🎯 客人被告知出了一部分, 而畫面說不出是哪一部分。
+   *
+   * 🛑 **三格是三個方向, 而中間那格是這道守門唯一殺得死「無條件印」的地方**:
+   *    · 出了的那幾列 ⇒ 印(**改對了沒**)
+   *    · 🔴 **沒出的那幾列 ⇒ 不印**(少了它, `{ORDER_DETAIL_ITEM_SHIPPED_MARK}` 寫死不帶條件也全綠)
+   *    · 🔵 **全部沒出 ⇒ 一個都不印**(整張單的負對照)
+   */
+  describe('⟦ship-WHICHITEMSSHIPPED⟧ 部分出貨 ⇒ 客人看得出是哪幾件', () => {
+    // 三件的單:第 1 件與第 3 件出了, 第 2 件沒有。
+    // 🔴 **刻意讓出貨的那兩件【不相鄰】** —— 若接線接成「前 N 件」, 一組相鄰的 fixture 會安靜地全綠。
+    const it3 = (over: Partial<MemberOrderDetail['items'][number]>, i: number) => ({
+      ...ORDER.items[0]!,
+      id: `oi-${i}`,
+      variantSku: `SKU-${i}`,
+      title: `品項${i}`,
+      ...over,
+    });
+    const PARTIAL: MemberOrderDetail = {
+      ...ORDER,
+      shippedAt: '2099-04-25T00:00:00Z',
+      allItemsShipped: false,
+      items: [
+        it3({ shipped: true }, 1),
+        it3({ shipped: false }, 2),
+        it3({ shipped: true }, 3),
+      ],
+    };
+    const marks = (c: HTMLElement) =>
+      Array.from(c.querySelectorAll('.od-line')).map(
+        (l) => l.querySelector('[data-od-id="order-line-shipped"]')?.textContent ?? null,
+      );
+
+    it('🔴 出了第 1、3 件 ⇒ 只有那兩列印「已出貨」, 中間那列不印', () => {
+      const { container } = render(<OrderDetailView order={PARTIAL} />);
+      expect(marks(container)).toEqual([
+        ORDER_DETAIL_ITEM_SHIPPED_MARK,
+        null,
+        ORDER_DETAIL_ITEM_SHIPPED_MARK,
+      ]);
+      // 🔵 而那句「其餘商品出貨時會再通知您」在這個世界裡是**對的** ⇒ 兩者要同時成立。
+      expect(screen.getByText(ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE)).toBeTruthy();
+      /**
+       * 🔴 **它落在【哪一欄】也要釘**(adversarial-reviewer 2026-09-04 nit):
+       * `marks()` 只問「這一列底下有沒有那個節點」⇒ 把那個 `<div>` 搬進 `.od-line-r`(金額那欄)
+       * **三格照樣全綠**, 而畫面上「已出貨」會跑到價格旁邊。
+       * ⇒ ✅ 釘法:它必須與品名 `.od-line-name` **同一個父節點**(中間那一欄)。
+       */
+      const firstLine = container.querySelector('.od-line')!;
+      const mark = firstLine.querySelector('[data-od-id="order-line-shipped"]')!;
+      expect(
+        mark.parentElement,
+        '「已出貨」跑到金額那一欄 ⇒ 客人會把它讀成價格的註解',
+      ).toBe(firstLine.querySelector('.od-line-name')!.parentElement);
+    });
+
+    it('🔵 負對照:一件都沒出 ⇒ 一個「已出貨」都不印(少了這格, 無條件印也會全綠)', () => {
+      const { container } = render(
+        <OrderDetailView
+          order={{
+            ...PARTIAL,
+            shippedAt: null,
+            items: PARTIAL.items.map((x) => ({ ...x, shipped: false })),
+          }}
+        />,
+      );
+      expect(marks(container)).toEqual([null, null, null]);
+    });
+
+    it('🔵 全部出完 ⇒ 每一列都印, 而分批小字不出現(那句話對它是假的)', () => {
+      const { container } = render(
+        <OrderDetailView
+          order={{
+            ...PARTIAL,
+            allItemsShipped: true,
+            items: PARTIAL.items.map((x) => ({ ...x, shipped: true })),
+          }}
+        />,
+      );
+      expect(marks(container)).toEqual([
+        ORDER_DETAIL_ITEM_SHIPPED_MARK,
+        ORDER_DETAIL_ITEM_SHIPPED_MARK,
+        ORDER_DETAIL_ITEM_SHIPPED_MARK,
+      ]);
+      expect(screen.queryByText(ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE)).toBeNull();
+    });
+  });
+  /**
+   * ⟦ship-WHICHITEMSSHIPPED⟧ **一張部分出貨【之後被取消】的單**(Sean 2026-09-04 拍 Q-C 乙)。
+   *
+   * 🎯 **這個縫是逐件標記上線之後才露出來的**:3 列「已出貨」+ 2 列**空白**,
+   *    而那 2 件永遠不會來 —— 而「其餘商品出貨時會再通知您」對取消單是**刻意不印的**
+   *    ⇒ 🛑 在此之前那兩列沒有任何一句話講它。
+   *
+   * 🔴 **本 describe 的斷言【寫字面值, 不寫 import 來的常數】** —— 而那是 2026-09-04
+   *    adversarial-reviewer 打出來的:上面「已出貨」那族三格全部 `import` 常數去比
+   *    ⇒ **把常數的值改掉每一格照樣全綠** ⇒ 🎯 測試問的是「畫面印的與常數一樣嗎」,
+   *    **而沒有人問「常數是他拍的那句話嗎」**。
+   *    ⇒ ✅ 這一族從出生就帶著修法, 不等下一輪審查再補。
+   *    🔵 而**常數那一側另有一格逐字釘**(`account-order-copy.test.ts`)⇒ 兩層各守一半。
+   */
+  describe('⟦ship-WHICHITEMSSHIPPED⟧ 部分出貨之後被取消 ⇒ 沒出的那幾件說得出「不會來了」', () => {
+    const line = (over: Partial<MemberOrderDetail['items'][number]>, i: number) => ({
+      ...ORDER.items[0]!,
+      id: `oc-${i}`,
+      variantSku: `SKU-${i}`,
+      title: `品項${i}`,
+      ...over,
+    });
+    // 出了第 1、3 件之後整張被取消。🔴 刻意讓出貨的兩件【不相鄰】。
+    const PARTIAL_CANCELLED: MemberOrderDetail = {
+      ...ORDER,
+      paymentStatus: 'refunded',
+      paidAt: '2099-04-18T03:00:00Z',
+      shippedAt: '2099-04-25T00:00:00Z',
+      allItemsShipped: false,
+      cancelledAt: '2099-05-01T00:00:00Z',
+      cancelKind: 'cancelled',
+      items: [
+        line({ shipped: true }, 1),
+        line({ shipped: false }, 2),
+        line({ shipped: true }, 3),
+      ],
+    };
+    /** 每一列印的那句話(兩個標記各查一次;都沒有 ⇒ null)。 */
+    const says = (c: HTMLElement) =>
+      Array.from(c.querySelectorAll('.od-line')).map((l) => {
+        const shipped = l.querySelector('[data-od-id="order-line-shipped"]')?.textContent;
+        const cancelled = l.querySelector('[data-od-id="order-line-cancelled"]')?.textContent;
+        // 🔴 兩個同時出現 = 同一列講兩句相反的話 ⇒ 讓它顯形, 不要靜靜取一個
+        if (shipped !== undefined && cancelled !== undefined) return '兩句都印了';
+        return shipped ?? cancelled ?? null;
+      });
+
+    it('🔴 出了的印「已出貨」、沒出的印「已取消」—— 字面寫死, 不從常數 import', () => {
+      const { container } = render(<OrderDetailView order={PARTIAL_CANCELLED} />);
+      // 🔴 這三個字面是【Sean 打的字】, 不是「跟常數一樣就好」。
+      expect(says(container)).toEqual(['已出貨', '已取消', '已出貨']);
+    });
+
+    it('🔵 負對照:同一張單【沒有取消】⇒ 中間那列回到空白(證明它吃的是 cancelled)', () => {
+      const { container } = render(
+        <OrderDetailView
+          order={{ ...PARTIAL_CANCELLED, cancelledAt: null, cancelKind: 'none' }}
+        />,
+      );
+      expect(says(container)).toEqual(['已出貨', null, '已出貨']);
+    });
+
+    /**
+     * 🔵 **整張都沒出就取消 ⇒ 每一列都印它。這是刻意的, 不是溢出。**
+     * 徽章講的是**整張單**, 而客人問的是**這一件會不會來** ⇒ 兩個問題、兩個位置。
+     * ⚠️ 而代價明寫:那種單上這句話**與徽章重複** ⇒ 若 Sean 覺得吵, 那是一個可以縮的板。
+     */
+    it('🔵 整張都沒出就取消 ⇒ 每一列都印「已取消」(刻意, 不是溢出)', () => {
+      const { container } = render(
+        <OrderDetailView
+          order={{
+            ...PARTIAL_CANCELLED,
+            shippedAt: null,
+            items: PARTIAL_CANCELLED.items.map((x) => ({ ...x, shipped: false })),
+          }}
+        />,
+      );
+      expect(says(container)).toEqual(['已取消', '已取消', '已取消']);
+    });
+
+    /**
+     * 🔴 **對一件【已經送到客人手上】的東西印「已取消」是一句假話, 而它比空白糟。**
+     * 這一格單獨釘住那個互斥:少了它, 把條件從 `cancelled && !item.shipped`
+     * 寫成 `cancelled` ⇒ 上面第一格會印「兩句都印了」而**第三格照樣全綠**。
+     */
+    it('🔴 出過的那幾件不得被標成「已取消」—— 那是一句假話', () => {
+      const { container } = render(<OrderDetailView order={PARTIAL_CANCELLED} />);
+      const shippedLines = Array.from(container.querySelectorAll('.od-line')).filter((l) =>
+        l.querySelector('[data-od-id="order-line-shipped"]'),
+      );
+      expect(shippedLines.length, '沒抓到任何一列已出貨 ⇒ 這把尺沒接上').toBe(2);
+      for (const l of shippedLines) {
+        expect(
+          l.querySelector('[data-od-id="order-line-cancelled"]'),
+          '一件已經送到客人手上的東西被標成「已取消」',
+        ).toBeNull();
+      }
+    });
   });
 });

@@ -21,7 +21,7 @@
 //       一個好看的數字最容易被讀成通則, 而它只是一個樣本。
 //
 // ── 🛑🛑 **不必列的那一種:`from` 是分類名的【前綴】** ────────────────
-//    🔬 `parse-search-facets.ts:100` 先試 `foldEquals(w, c.name) || foldStartsWith(c.name, w)`,
+//    🔬 `parse-search-facets.ts` 的 `const direct = allCats.find` 那一行先試 `foldEquals(w, c.name) || foldStartsWith(c.name, w)`,
 //       中了就 `break` —— **在 `synonymFor` 之前**。
 //    ⇒ 🎯 **⇒ 凡 `from` 是某個分類名的前綴者, 前綴那條先中, 這一列【從來不會被讀到】。**
 //    🔴 而它**不是錯的, 是多餘的** —— 結果一樣對, 而那一列在檔案裡看起來與有效的那些一模一樣。

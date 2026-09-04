@@ -42,7 +42,9 @@ function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
     shippingMethod: 'home',
     invoice: { type: 'personal' },
     cartSessionId: '11111111-1111-1111-1111-111111111111',
-    termsVersion: '2026-06-30', // #241 server 注入(必填)
+    termsVersion: '2026-06-30',
+    // 🔵 段 1-B:tappay = 今天線上唯一的付款方式 ⇒ 既有測項的世界不變(而那是一個世界不是中性預設)。
+    paymentChannel: 'tappay', // #241 server 注入(必填)
     ...over,
   };
 }
@@ -75,6 +77,8 @@ describe('SupabaseOrderAdapter.placeOrder', () => {
       p_invoice: { type: 'company', carrier: undefined, title: 'PCM', taxId: '12345678', donateCode: undefined },
       p_cart_session_id: '11111111-1111-1111-1111-111111111111',
       p_terms_version: '2026-06-30', // #241 server 注入
+      // 🔵 段 1-B:第 11 個參數 —— 少了它會命中舊那支 create_order, 而匯款會被存成 tappay。
+      p_payment_channel: 'tappay',
       p_client_ip: null, // #241 best-effort(input fixture 未帶 → null)
       p_client_ua: null,
     });
@@ -94,7 +98,9 @@ describe('SupabaseOrderAdapter.placeOrder', () => {
       'create_order',
       expect.objectContaining({ p_notification_email: null }),
     );
-    expect(Object.keys(rpc.mock.calls[0]![1] as object)).toHaveLength(9);
+    // 🔵 段 1-B:9 ⇒ 10(多了 p_payment_channel)。**這一格是 arity 的守門**:
+    //   它會抓到「有人靜靜多送/少送一個鍵」—— 而那正是新舊兩支 create_order 的分辨器。
+    expect(Object.keys(rpc.mock.calls[0]![1] as object)).toHaveLength(10);
   });
 
   it('RPC error(RAISE / 網路)原樣上拋不吞(對齊既有 adapter 裸 throw)', async () => {
@@ -159,6 +165,44 @@ describe('SupabaseOrderAdapter.findTotal', () => {
   it('🔴 非整數 total(浮點腐壞)→ toMoneyAmount 中央守門 throw、不靜默放行', async () => {
     const { client } = makeQueryClient({ data: { total: 1100.5 }, error: null });
     await expect(new SupabaseOrderAdapter(client).findTotal('o1')).rejects.toThrow();
+  });
+});
+
+// ── findPaymentChannel:建單後 read-back(段 1-B)──
+//
+// 🔴 **這個 describe 是【突變測試逼出來的】, 不是順手補的。**
+//    我先在 `charge-actions.test.ts` 寫了一格「回查回 null → 不當成 tappay」,
+//    並在 adapter 的註解裡寫「若有人把它改成讀不到就回 'tappay', 這一格會紅」。
+//    🛑 **實測:那句話是假的。** 把 adapter 的 `return null` 改成 `return 'tappay'`
+//       ⇒ 兩支檔 **229 格全綠**。
+//    📌 成因:action 層那格 **mock 掉了整個 repo** ⇒ 它結構上碰不到真的 adapter
+//       ⇒ 「action 有測」與「adapter 有測」是兩個宣稱, 而我用前者替後者背書。
+describe('SupabaseOrderAdapter.findPaymentChannel', () => {
+  it('查得 → 回那個字串;查詢鏈 = orders/select payment_channel/eq id', async () => {
+    const { client, from, select, eq } = makeQueryClient({
+      data: { payment_channel: 'bank_transfer' },
+      error: null,
+    });
+    const res = await new SupabaseOrderAdapter(client).findPaymentChannel('o1');
+    expect(res).toBe('bank_transfer');
+    expect(from).toHaveBeenCalledWith('orders');
+    expect(select).toHaveBeenCalledWith('payment_channel'); // 🔴 單欄窄讀
+    expect(eq).toHaveBeenCalledWith('id', 'o1');
+  });
+
+  it('🔴 查無 / 非本人(RLS)→ null,**不得回 tappay** —— 讀不到與讀到 tappay 必須分得開', async () => {
+    const { client } = makeQueryClient({ data: null, error: null });
+    await expect(new SupabaseOrderAdapter(client).findPaymentChannel('o-nope')).resolves.toBeNull();
+  });
+
+  it('形狀非 string(DB/wire 腐壞)→ null fail-closed', async () => {
+    const { client } = makeQueryClient({ data: { payment_channel: 7 }, error: null });
+    await expect(new SupabaseOrderAdapter(client).findPaymentChannel('o1')).resolves.toBeNull();
+  });
+
+  it('查詢 error → 裸 throw(對齊 findTotal 慣例;action 層吞通用字面)', async () => {
+    const { client } = makeQueryClient({ data: null, error: new Error('connection refused') });
+    await expect(new SupabaseOrderAdapter(client).findPaymentChannel('o1')).rejects.toThrow();
   });
 });
 
@@ -2815,6 +2859,9 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
           quantity: 2,
           unitPrice: { amount: 6000, currency: 'TWD' },
           lineTotal: { amount: 12000, currency: 'TWD' },
+          // ⟦ship-WHICHITEMSSHIPPED⟧ 同一個 fixture 沒有 `shipment_items` ⇒ 這一件也是「沒出貨」。
+          // 🔵 與上面訂單層那個 `shippedAt: null` **同源**(逐件那一份就是訂單層那個值的來源)。
+          shipped: false,
         },
       ],
       itemCount: 2, // Σquantity,從**實際撈到的**品項算
@@ -2882,8 +2929,11 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
    * 🔴 **本格是 code-reviewer 2026-09-02 抓的**:上面那幾格每一格**最多只有一個品項有有效的箱**
    * ⇒ `shippedTimes` 長度永遠 ≤ 1 ⇒ **外層那個 `.sort()` 沒有任何世界殺得死它**。
    * 🔬 `-fc` 實跑證實:拿掉 `mappers/order.ts:1251` 的**外層** `.sort()` ⇒ **119 passed 全綠**。
-   *    ⚠️ 那支檔有**兩個** `.sort()`(`:1248` 內層、`:1251` 外層)⇒ 認字面不要認行號:
-   *    外層那個是 `const shippedTimes = …filter(…).sort();`。
+   *    ⚠️ 那支檔有**兩個** `.sort()` ⇒ 認字面不要認行號:外層那個是
+   *    `const shippedTimes = …filter(…).sort();`。
+   *    ⛔ ~~「`:1248` 內層、`:1251` 外層」~~ —— 2026-09-04 ⟦ship-WHICHITEMSSHIPPED⟧ 把**內層**那個
+   *    搬進具名函式 `pickItemShippedAt()`(同檔上方), 而**外層那個沒有動**。
+   *    📌 舊行號留刪除線:碼搬家時**行為零改動、三綠全綠**, 而它會安靜地讓一個指得到的座標指空。
    * ⇒ 這一格讓兩個品項各自有效、而且**時間倒序**,外層排序才開始承重。
    */
   it('🔴 兩個品項各自有效而時間倒序 ⇒ 仍取**最早**(殺得死外層那個 .sort())', async () => {
@@ -2894,6 +2944,45 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
     expect(res!.shippedAt).toBe('2099-05-03T00:00:00Z');
     // 🟢 而兩個品項都出了 ⇒ 這一格同時證明 allItemsShipped 在多品項下也對。
     expect(res!.allItemsShipped).toBe(true);
+  });
+
+  /**
+   * ⟦ship-WHICHITEMSSHIPPED⟧ **逐件那一份**(Sean 2026-09-04 Q5 拍甲:已出貨的那幾列加灰字「已出貨」)。
+   *
+   * 🔵 **這不是新資料** —— 同一段算式本來就在跑, 只是算完只取最小值、逐件那一份被丟掉。
+   *    ⇒ 所以本族守的不是「撈不撈得到」, 是 🔴 **那個保守判準有沒有跟著逐件那一份一起走**。
+   *
+   * 🔴🔴 **最重要的仍然是「作廢的箱」那一格, 而它在逐件這一層【更嚴重】**:
+   *    訂單層弄錯 ⇒ 進度軸多亮一階(一個籠統的錯);
+   *    **逐件弄錯 ⇒ 明細上某一列白紙黑字寫著「已出貨」, 而那個箱子被作廢了** ⇒ 客人手上沒有那件東西。
+   *    ⇒ 驗收方式不是「它綠」, 是【拿掉 `pickItemShippedAt()` 那道 `sh.deleted_at === null` ⇒ 它必須紅】。
+   */
+  it('🔴🔴 作廢的箱 ⇒ 那一【列】不得標成已出貨(逐件這一層弄錯比訂單層嚴重)', async () => {
+    const res = await detailOf(rowWithBoxes([[shipBox('2099-05-01T00:00:00Z', '2099-05-02T00:00:00Z')]]));
+    expect(res!.items.map((i) => i.shipped)).toEqual([false]);
+  });
+
+  it('🟢 正對照(證明上一格的尺會動):同一箱 `deleted_at` 為 null ⇒ 那一列標得出來', async () => {
+    const res = await detailOf(rowWithBoxes([[shipBox('2099-05-01T00:00:00Z', null)]]));
+    expect(res!.items.map((i) => i.shipped)).toEqual([true]);
+  });
+
+  /**
+   * 🔴 **這一格是本族唯一殺得死「逐件被接成訂單層那一個值」的地方。**
+   * 🔬 少了它, 把 `shippedAt: pickItemShippedAt(item)` 改成 `shippedAt: shippedAt`(訂單層那個)
+   *    ⇒ 上面兩格**照樣全綠**(單一品項時兩者恆等)⇒ 而畫面上**每一列都會標成已出貨**。
+   * 🔵 刻意讓出貨的兩件**不相鄰**:接成「前 N 件」的話, 一組相鄰的 fixture 會安靜地全綠。
+   */
+  it('🔴 三件出了第 1、3 件 ⇒ 逐件各自對, 中間那件是 null', async () => {
+    const res = await detailOf(rowWithBoxes([
+      [shipBox('2099-05-09T00:00:00Z', null)],
+      [], // 🔴 這一件一箱都沒有
+      [shipBox('2099-05-03T00:00:00Z', null)],
+    ]));
+    expect(res!.items.map((i) => i.shipped)).toEqual([true, false, true]);
+    // 🟢 而訂單層仍取**最早**那一次 ⇒ 兩個消費者共用同一段算式而各自答對自己的問題。
+    expect(res!.shippedAt).toBe('2099-05-03T00:00:00Z');
+    expect(res!.allItemsShipped).toBe(false);
   });
 
   /**

@@ -16,6 +16,8 @@ describe('CheckoutInput', () => {
   const validBase = {
     addressId: '00000000-0000-4000-8000-000000000000',
     shippingMethod: 'home',
+    // 🔵 段 1-B:必填、無預設(tappay = 今天線上唯一那個世界)。
+    paymentChannel: 'tappay',
     invoice: { type: 'personal' },
   };
 
@@ -176,6 +178,8 @@ describe('CheckoutInvoiceInput(canonical 發票 schema)', () => {
     const r = CheckoutInput.safeParse({
       addressId: '00000000-0000-4000-8000-000000000000',
       shippingMethod: 'home',
+      // 🔵 段 1-B:必填、無預設(tappay = 今天線上唯一那個世界)。
+      paymentChannel: 'tappay',
       invoice: { type: 'company' },
     });
     expect(r.success).toBe(false);
@@ -199,6 +203,8 @@ describe('CheckoutInvoiceInput(canonical 發票 schema)', () => {
     const r = factory(flagOn).safeParse({
       addressId: '00000000-0000-4000-8000-000000000000',
       shippingMethod: 'home',
+      // 🔵 段 1-B:必填、無預設(tappay = 今天線上唯一那個世界)。
+      paymentChannel: 'tappay',
       invoice,
       ...(flagOn ? { notificationEmail: 'a@b.com' } : {}),
     });
@@ -238,6 +244,8 @@ describe('U3a 等價性邊界:fatal 兄弟欄位不再吞掉發票錯誤', () =>
     const r = CheckoutInput.safeParse({
       addressId: uuid,
       shippingMethod: 'cvs',
+      // 🔵 段 1-B:必填、無預設(tappay = 今天線上唯一那個世界)。
+      paymentChannel: 'tappay',
       invoice: { type: 'company' },
     });
     expect(r.success).toBe(false);
