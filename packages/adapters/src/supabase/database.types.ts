@@ -15,6 +15,18 @@
 //      2026-08-24 線4 補劃。形狀:**退場動作只改了條目本身,沒回頭改「引用它的那句話」。**
 //   (🔴 本行是計數的**唯一權威**;下方各段一律寫「見檔頭計數」、不再各自複述數字 ——
 //    2026-08-05 A9d2-2 實查:同一個數字散在四處,改一處漏三處是遲早的事):
+//   🔴🔴 **⑯ `orders.tax_total` 三處(Row / Insert / Update;2026-09-04 線【帳號】`-account`)**
+//      —— **與上面每一條都不同族, 而差別決定了它怎麼退場**:
+//      · ①-⑭ 是「**生成器【寫不出來】的東西**」(必填但可為 null / 可省略且可為 null)⇒ **永遠要重貼**
+//      · ⑮ 曾經是「migration 未 apply ⇒ 生成器【還產不出來】」
+//      · 🔵 **⑯ 是「這個欄位【早就在正式庫】, 而本檔【產得比它舊】」**
+//        🔬 當場量到的(唯讀正式庫):`orders.tax_total` = `integer NOT NULL DEFAULT 0` **存在**;
+//           而本檔掃 `tax_total` ⇒ **0 命中** ⇒ **本檔過期, 不是欄位不存在。**
+//        🛑 **而帳本 `supabase/APPLIED.tsv` 上以 `20260829140000` 開頭的列 = 0**
+//           (🟢 正對照 `20260831180000` ⇒ 1)⇒ 📌 **帳本在這一欄上是【假陰性】**
+//           —— 正如該檔檔頭自己寫的「不在本表上什麼都不代表」。**欄位存不存在要問庫, 不要問帳本。**
+//      ⇒ ✅ **退場條件與其他條【相反】:下一次重 gen 就會自己產生它 ⇒ 那時【直接刪掉本條】, 不要重貼。**
+//      ⚠️ 而它**不計入上面那個「二十八處」** —— 那個數字數的是「生成器寫不出來的」那一族。
 //   ① `create_order.Args` 三處(p_client_ip / p_client_ua / p_notification_email 的 `| null`)
 //   ② `admin_upsert_supplier.Args` 四處(p_supplier_id / p_label / p_is_active / p_note 的 `| null`)
 //   ③ `admin_append_order_note.Args` **三處**(p_channel / p_occurred_at / p_corrects_note_id 的 `| null`;2026-08-02 A6 起)
@@ -2061,6 +2073,7 @@ export type Database = {
           tappay_rec_trade_id: string | null
           tier_at_checkout: Database["public"]["Enums"]["member_tier"]
           total: number
+          tax_total: number
           updated_at: string
           version: number
           workflow_status: string | null
@@ -2100,6 +2113,7 @@ export type Database = {
           tappay_rec_trade_id?: string | null
           tier_at_checkout: Database["public"]["Enums"]["member_tier"]
           total: number
+          tax_total: number
           updated_at?: string
           version?: number
           workflow_status?: string | null
@@ -2139,6 +2153,7 @@ export type Database = {
           tappay_rec_trade_id?: string | null
           tier_at_checkout?: Database["public"]["Enums"]["member_tier"]
           total?: number
+          tax_total?: number
           updated_at?: string
           version?: number
           workflow_status?: string | null

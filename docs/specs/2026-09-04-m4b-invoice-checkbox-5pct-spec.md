@@ -75,9 +75,18 @@ Q3-不開發票怎麼記:
 ─────────────── 以下五步的順序由「誰是誰的先決條件」決定 ───────────────
 5  paid-email-html.ts 補平衡閘      ← 🔴 必須在 tax_total 有值之前
 6  ports + adapter 帶 taxTotal      ← 閘用舊四個數就判得出來, 要【印】才需要這個值
-7  兩份信印稅額 + orderAmountsBalance 加 taxTotal  ← 🔴 必須【同一次】
+7  🔴 **三份**印稅額 + orderAmountsBalance 加 taxTotal  ← 必須【同一次】
+   ⛔ ~~兩份信~~ ⇒ **三份**(主視窗 `-94` 2026-09-04 擴):
+     ① `sweep-email-outbox.ts` 純文字信 ② `paid-email-html.ts` 排版信
+     ③ `apps/storefront/src/components/print/statement-doc.tsx` **顧客站的列印/PDF**
+   🎯 **⇒ 那是【第三份】會兜不攏的東西, 而它不是信** —— 只想「兩份信」會漏掉它,
+      而漏掉的那一份**客人是主動去點開的**(會員中心 ⇒ 明細 ⇒ 列印)。
 8  domain 三處不變式字面            ← 可以晚(零生產呼叫端), 而不得省
 9  RPC 真的算稅                     ← 🔴 最後一步, 沒有例外
+   🔴🔴 **而第 9 步多一道【硬前置】**(codex 對抗審查 R2 指出, 2026-09-04):
+      `apps/storefront/src/components/print/statement-doc.tsx` **也只列 小計/運費/折扣/總額**
+      (`grep -c orderAmountsBalance` ⇒ **0**)⇒ 稅一開始有值, **會員明細頁與 PDF 會立刻兜不攏**。
+      ⇒ **它與第 5 步同一族, 而受詞是【顧客站的列印文件】** —— 第 9 步之前必須補, 不可留到之後。
 ```
 
 🔴 **5→9 不可分兩次上線。** 理由:第 9 步是**唯一**讓 `tax_total > 0` 的動作, 而在第 5 步之前它一上線 ⇒ **排版那份信照印一張加不起來的帳**, 而客人收到哪一份**由他的收信軟體決定**(`sweep-email-outbox.ts:423` 逐字)。

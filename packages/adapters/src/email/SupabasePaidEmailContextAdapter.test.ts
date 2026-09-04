@@ -24,6 +24,11 @@ function head(over: Record<string, unknown> = {}) {
     shipping_fee: 150,
     discount_total: 790,
     total: 30480,
+    // 🔴 `tax_total`(2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 6 步)——
+    //    DB 上是 `integer NOT NULL DEFAULT 0` ⇒ **真實的列一定有值, 不會是 null 也不會缺席**。
+    //    🔵 而它預設 `0` 是【今天的事實】不是佔位:稅還沒有任何一條路寫得進去。
+    //    ⚠️ 要驗「稅那一行印不印」的測試自己用 `over` 蓋掉它。
+    tax_total: 0,
     // 🔴 真實的列**一定有這一欄**（`orders.cancelled_at` 可為 null，不是可缺席）。
     //    預設寫 null 而不是省略 —— 省略的話，「沒被取消」與「這一欄沒撈到」在
     //    fixture 上長得一樣，而那正是本檔要分辨的兩件事。
@@ -122,8 +127,12 @@ describe('SupabasePaidEmailContextAdapter — 🔴 查詢形狀(送出去的條�
     // 🔴 逐字釘住整串，不是「有沒有包含」——
     //    包含式的斷言擋不住「多撈了一欄」，而多撈一欄正是這一格要守的東西。
     //    2026-08-24 從五欄變六欄：`cancelled_at` 只用來判「還該不該寄」，**不會被印出去**。
+    // 🔴 2026-09-04 五欄 ⇒ 六欄 ⇒ **七欄**:`tax_total` 進來(`⟦b4-INVOICE5PCT⟧` 第 6 步)。
+    //    ⛔ ~~'display_id, subtotal, shipping_fee, discount_total, total, cancelled_at'~~
+    //    📌 **這一格紅過才是對的** —— 它就是為了「白名單被改動時有人看過」而存在;
+    //       我改的是**期望值**, 不是把它放寬成包含式。
     expect(queries[0]?.columns).toBe(
-      'display_id, subtotal, shipping_fee, discount_total, total, cancelled_at',
+      'display_id, subtotal, shipping_fee, discount_total, total, tax_total, cancelled_at',
     );
   });
 
@@ -199,6 +208,15 @@ describe('SupabasePaidEmailContextAdapter — 🔴🔴 經銷價零滲入(負向
     expect(Object.keys(ctx.lines[0] ?? {}).sort()).toEqual(['lineTotal', 'quantity', 'title', 'variantSku']);
   });
 
+  // 🔴🔴 **上面那格只證「多了一個鍵會叫」, 證不到那個鍵【接到哪一欄】。**
+  //    ⇒ 📌 一個宣告了而沒接上的欄位, 與一個接錯欄位的欄位, 在鍵集斷言上長得一樣。
+  it('🔴 `taxTotal` 接的是 `tax_total` —— 而那個值與同一列的其他數字【都不同】', async () => {
+    // 🔵 4321 是刻意挑的:與 subtotal 31120 / shipping 150 / discount 790 / total 30480 都不同
+    //    ⇒ 接錯任何一欄都會印出別的數字。(fixture 檔頭那條「四個數字互不相同」的同一條規矩。)
+    const ctx = expectOk(await load(client(ok([line()], { tax_total: 4321 }))));
+    expect(ctx.taxTotal, 'taxTotal 沒有接到 tax_total ⇒ 稅那一行會印錯的數字').toBe(4321);
+  });
+
   it('🔴 表頭列帶經銷價 ⇒ 同樣一個鍵都不進 context', async () => {
     const ctx = expectOk(await load(client([
       { data: [head({ price_store: 999, cost: 888 })], error: null },
@@ -207,8 +225,11 @@ describe('SupabasePaidEmailContextAdapter — 🔴🔴 經銷價零滲入(負向
     const dumped = JSON.stringify(ctx);
     expect(dumped).not.toContain('999');
     expect(dumped).not.toContain('888');
+    // 🔴 2026-09-04 多一個 `taxTotal`(`⟦b4-INVOICE5PCT⟧` 第 6 步)——
+    //    **這一格紅過才是對的**:它是頂層鍵的白名單, 而白名單就該在多一個鍵時叫。
+    //    ⛔ ~~七鍵~~ ⇒ **八鍵**。我改的是期望值, 不是把 `toEqual` 換成包含式。
     expect(Object.keys(ctx).sort()).toEqual([
-      'discountTotal', 'lines', 'linesTruncated', 'orderDisplayId', 'shippingFee', 'subtotal', 'total',
+      'discountTotal', 'lines', 'linesTruncated', 'orderDisplayId', 'shippingFee', 'subtotal', 'taxTotal', 'total',
     ]);
   });
 });
