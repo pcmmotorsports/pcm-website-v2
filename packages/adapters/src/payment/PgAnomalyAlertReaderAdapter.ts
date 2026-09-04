@@ -48,6 +48,7 @@ class AnomalyAlertReaderParseError extends Error {}
 const UNDEFINED_FUNCTION = '42883';
 /** ⟦b9-ENUMWATCH⟧ 片 2:單一來源的 RPC 名(錯誤訊息與探詢字面都從這裡來)。 */
 const RPC_MANUAL_SEARCH = 'get_manual_customer_search_summary';
+const RPC_SEARCH_LOG_HEALTH = 'get_search_log_health';
 
 function defaultClientFactory(connectionString: string): PgClientLike {
   return new Client(buildPgConfig(connectionString)) as unknown as PgClientLike;
@@ -626,6 +627,67 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         // 🔴 回得出 oid ⇒ 那個 42883 來自【函式內部】(世界 A)⇒ **原封上拋**
         if (probe.rows[0]?.missing !== true) throw err;
         // 只有真的不存在(世界 B)才降級
+        return null;
+      }
+    });
+  }
+
+  /**
+   * 搜尋日誌健康度 —— 形狀與 `getManualCustomerSearchSummary` 同一個模子:
+   * 42883 要再 probe 一次才降級(函式【內部】丟的 42883 原封上拋)。
+   *
+   * 🔴 **三個欄位【原封回傳, 不在這裡判斷】** —— 要不要告警是 route 的事。
+   *    理由:`anonCanExecute` 的 `null`(還沒貼)與 `false`(門被關了)在這裡若被
+   *    合併成 boolean, **route 就再也分不出來了**, 而那兩個世界的下一步相反。
+   */
+  async getSearchLogHealth(): Promise<{
+    readonly tableExists: boolean;
+    readonly lastRowAt: string | null;
+    readonly anonCanExecute: boolean | null;
+  } | null> {
+    return this.run(async (client) => {
+      try {
+        const res = await client.query(
+          'SELECT public.get_search_log_health() AS result',
+          [],
+        );
+        const raw = res.rows[0]?.result;
+        if (raw === null || typeof raw !== 'object') {
+          throw new AnomalyAlertReaderParseError(`${RPC_SEARCH_LOG_HEALTH} 回應形狀不符`);
+        }
+        const bag = raw as Record<string, unknown>;
+        if (typeof bag.table_exists !== 'boolean') {
+          throw new AnomalyAlertReaderParseError(`${RPC_SEARCH_LOG_HEALTH} table_exists 異常`);
+        }
+        const last = bag.last_row_at;
+        if (last !== null && typeof last !== 'string') {
+          throw new AnomalyAlertReaderParseError(`${RPC_SEARCH_LOG_HEALTH} last_row_at 異常`);
+        }
+        // 🔴🔴 **codex must-fix:只驗「是字串」不夠**(2026-09-04)——
+        //    非法日期 ⇒ 上層 `new Date(x).getTime()` 是 `NaN` ⇒ `NaN > 86400000` 是 false
+        //    ⇒ **stale 恆 false** ⇒ 📌 **一個壞掉的回應被讀成「健康」。**
+        //    ⇒ 這裡 fail-loud:壞回應要走 `Unknown`(有人看), 不是靜靜地過。
+        if (last !== null && Number.isNaN(new Date(last).getTime())) {
+          throw new AnomalyAlertReaderParseError(
+            `${RPC_SEARCH_LOG_HEALTH} last_row_at 不是合法時刻`,
+          );
+        }
+        const anon = bag.anon_can_execute;
+        if (anon !== null && typeof anon !== 'boolean') {
+          throw new AnomalyAlertReaderParseError(`${RPC_SEARCH_LOG_HEALTH} anon_can_execute 異常`);
+        }
+        return {
+          tableExists: bag.table_exists,
+          lastRowAt: last ?? null,
+          anonCanExecute: anon ?? null,
+        };
+      } catch (err) {
+        if ((err as { code?: unknown } | null)?.code !== UNDEFINED_FUNCTION) throw err;
+        const probe = await client.query(
+          "SELECT to_regprocedure('public.get_search_log_health()') IS NULL AS missing",
+          [],
+        );
+        if (probe.rows[0]?.missing !== true) throw err;
         return null;
       }
     });

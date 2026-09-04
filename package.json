@@ -74,8 +74,10 @@
     "supabase/migrations/*.sql": [
       "bash scripts/migration-new-file-static-checks.sh",
       "python3 scripts/verify-cron6-md5.py",
-      "python3 scripts/migration-version-collision-gate.py"
+      "python3 scripts/migration-version-collision-gate.py",
+      "python3 scripts/definer-search-path-gate.py"
     ],
+    "scripts/definer-search-path-gate.py": "python3 scripts/definer-search-path-gate.py --selftest",
     "scripts/migration-version-collision-gate.py": "python3 scripts/migration-version-collision-gate.py --selftest",
     "scripts/migration-new-file-static-checks.sh": "bash scripts/migration-new-file-static-checks.sh --selftest",
     "scripts/claim-backlog-number.sh": "bash scripts/claim-backlog-number.sh --selftest",

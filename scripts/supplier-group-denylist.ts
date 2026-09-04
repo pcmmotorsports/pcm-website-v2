@@ -11,8 +11,17 @@
  *    這份名單把它變成:那幾群只要走到寫入那一步, **當場 throw**。
  *
  * ══ 天花板:它證不到什麼 ═══════════════════════════════════════════════════
- *   ① 它只擋 `syncVariantGroupAtomic` 這一條路。**手動 SQL、Supabase dashboard、
- *      或任何不經過這支腳本的寫入, 它一句話都不會說。**
+ *   ① ⛔ ~~它只擋 `syncVariantGroupAtomic` 這一條路~~ ⇒ 🔴 **那句話原本是【假的】, 而它是我寫的。**
+ *      我逐字寫過「`syncVariantGroupAtomic` 是全 repo【唯一】寫 `products` 的路」——
+ *      **依據是「`rpc('sync_product_variant_group')` 在 `rpm-load.ts` 只出現一次」**
+ *      🔴 而【那支 RPC 只被呼叫一次】與【products 只有一條寫入路徑】**是兩個宣稱**。
+ *      實際有兩條:`rpm-import.ts` 的 `upsertBatched(target, 'products', …)`(一般群)
+ *                與 `syncVariantGroupAtomic`(transition hazard 群)。
+ *      🛑 **而走哪一條是【資料】決定的** ⇒ 今天擋得住而重灌那天可能擋不住, 中間零訊號。
+ *      ✅ **2026-09-04 已修**:主要那道擋移到**兩條路的共同上游**(`rpm-import.ts` 的
+ *         `productRows` / `variantsByExternalId`, 與 titleGate 同一格);
+ *         `syncVariantGroupAtomic` 裡那道 throw **留著當第二道**。
+ *      ⚠️ **而它仍然擋不到**:手動 SQL、Supabase dashboard、或任何不經過 `rpm-import` 的寫入。
  *   ② 它認的是 `(supplierSlug, externalId)` 這一對**字面**。源頭若換了群編號,
  *      這份名單**當場失效而不會叫** —— 而那正是它最可能靜靜失效的方式。
  *   ③ 它不驗「那個缺陷還在不在」。**關閉條件寫在每一筆的 `closeCondition` 裡, 靠人去跑。**
