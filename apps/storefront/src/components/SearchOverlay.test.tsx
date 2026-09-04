@@ -573,3 +573,90 @@ describe('SearchOverlay', () => {
     expect(document.body.style.overflow).toBe('');
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════
+// 🔴🔴 「你是不是要找 X?」(`⟦search-BRANDTYPOTRGM⟧` · Sean 2026-09-04 拍甲)
+//   原話三個限定詞都要守:**只在 0 筆時** · **客人自己點** · **不自動改字**。
+// ══════════════════════════════════════════════════════════════════════
+describe('SearchOverlay 的品牌候選', () => {
+  const EMPTY_WITH_SUGGESTION = {
+    items: [], total: 0, brands: [], categories: [], vehicles: [],
+    failed: { brands: false, categories: false, vehicles: false },
+    suggestion: { name: 'AKRAPOVIČ', slug: 'akrapovic' },
+  };
+
+  it('🔴 零結果 + 有候選 ⇒ 畫那一行, 而且是【可以點的】', async () => {
+    mockFetch(async () => new Response(JSON.stringify(EMPTY_WITH_SUGGESTION), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('akrpovic');
+    await waitFor(() => expect(screen.getByText(/你是不是要找/)).toBeTruthy());
+    const btn = screen.getByRole('button', { name: 'AKRAPOVIČ' });
+    expect(btn).toBeTruthy();
+  });
+
+  it('🔴 零結果而【沒有】候選 ⇒ 那一行不能出現(空的建議比亂猜好)', async () => {
+    mockFetch(async () => new Response(
+      JSON.stringify({ ...EMPTY_WITH_SUGGESTION, suggestion: null }), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('zzzzzqqqqq');
+    await waitFor(() => expect(screen.getByText(/沒有找到/)).toBeTruthy());
+    expect(screen.queryByText(/你是不是要找/)).toBeNull();
+  });
+
+  it('🔴🔴 **有結果的時候不准出現** —— 而 route 那邊照樣會送 suggestion', async () => {
+    // 🛑 這一格是承重的:判準只有一份(這個元件的 `hasAnyResult`), 而 route 永遠送。
+    //    ⇒ 若有人把那一行搬出零結果那個 block, 這一格會紅。
+    mockFetch(async () => new Response(JSON.stringify({
+      ...ONE_ITEM,
+      suggestion: { name: 'AKRAPOVIČ', slug: 'akrapovic' },
+    }), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('排氣管');
+    await waitFor(() => expect(screen.getByText('鈦合金全段排氣管')).toBeTruthy());
+    expect(screen.queryByText(/你是不是要找/)).toBeNull();
+  });
+
+  it('🔴 點下去 ⇒ 導到那個品牌', async () => {
+    mockFetch(async () => new Response(JSON.stringify(EMPTY_WITH_SUGGESTION), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('akrpovic');
+    const btn = await waitFor(() => screen.getByRole('button', { name: 'AKRAPOVIČ' }));
+    (btn as HTMLButtonElement).click();
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    const href = push.mock.calls.at(-1)?.[0] as string;
+    expect(href).toContain('pbrand=akrapovic');
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴🔴 **「不自動改字」那一格 —— 而它【不能】寫在點下去之後**
+  //   (code-reviewer R1 抓到:我原本的標題寫「輸入框的字不變」而斷言從頭到尾沒讀過 input;
+  //    存活突變 = 在 onClick 加一行 `setQuery(建議的名字)` ⇒ 四格全綠。)
+  //   🛑 而**點下去之後結構上量不到** —— `onClick` 會 `close()`, 疊層 unmount, input 不存在了。
+  //   ✅ 所以改成量【它還在畫面上的時候】的兩件事:
+  //      ① 輸入框仍然是客人打的那個字(建議出現**不會**改寫它)
+  //      ② 沒有第二發請求(建議出現**不會**偷偷重送一次查詢)
+  //
+  // 🛑🛑 **而這一格【證不到】「點下去之後也不改字」—— 實測過, 不是推的**:
+  //    突變「在 `onClick` 加一行 `setQuery(建議的名字)`」⇒ **本檔 40 格全綠**。
+  //    🔬 成因:`onClick` 先 `close()` ⇒ 疊層 unmount ⇒ input 不存在、component state 也重置
+  //       ⇒ **那個世界在這一層結構上量不到。**
+  //    ⇒ 📌 **所以不要把本格讀成「③不自動改字 有測試守著」** —— 它守的是【出現時】那一半。
+  //       點下去那一半今天**沒有東西在守**, 而那要一發真的瀏覽器(或把 close 拆出來注入)才量得到。
+  // ══════════════════════════════════════════════════════════════════════
+  it('🔴 建議出現時:輸入框的字不變, 而且沒有偷偷重送查詢(不自動改字)', async () => {
+    let calls = 0;
+    mockFetch(async () => {
+      calls += 1;
+      return new Response(JSON.stringify(EMPTY_WITH_SUGGESTION), { status: 200 });
+    });
+    render(<SearchOverlay />);
+    openWith('akrpovic');
+    await waitFor(() => expect(screen.getByText(/你是不是要找/)).toBeTruthy());
+    // 🔵 用 placeholder 找 —— 那個 input 有 `type="search"` ⇒ role 是 `searchbox` 不是 `textbox`,
+    //    而我第一版寫 `getByRole('textbox')` **當場紅**(這一格是測試自己抓到的)。
+    const input = screen.getByPlaceholderText('搜尋商品 / 品牌 / 車款...') as HTMLInputElement;
+    expect(input.value).toBe('akrpovic');
+    // 🔵 一次查詢 = 一發請求。變成 2 就代表有人「順手」把建議送出去了。
+    expect(calls).toBe(1);
+  });
+});
