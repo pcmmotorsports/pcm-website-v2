@@ -502,6 +502,13 @@ button.co-success-cta { border: none; cursor: pointer; font-family: inherit; }
   transition: border-color 0.15s;
 }
 .btn-outline:hover { border-color: var(--c-text); }
+/* ⟦b4-DEADENDMSG1⟧①:灰掉的「下一步」旁邊那句為什麼。
+   🔵 刻意放在 `.co-actions` **外面** —— 那一列在手機是 `display:none`(本檔 :761),
+      放進去會讓手機看不到理由, 而手機正是最看不出「鈕是灰的」的裝置。 */
+.co-next-hint {
+  margin: 12px 0 0; text-align: right;
+  font: 13px/1.6 system-ui, sans-serif; color: var(--c-text-3);
+}
 .co-actions {
   display: flex; justify-content: space-between; gap: 12px;
   margin-top: 8px;
