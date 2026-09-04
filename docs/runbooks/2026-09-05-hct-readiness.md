@@ -41,10 +41,20 @@
 
 ## 三、兩顆開關的現況(**只印名稱,不印值**)
 
-| env 名 | 讀它的地方 | 現況 |
-|---|---|---|
-| `HCT_SUBMIT_ENABLED` | `hct-client.ts:57` | **未在本 repo 任何設定檔出現** ⇒ 依 `gateOpen` 的規則 = **關** |
-| `HCT_QUERY_ENABLED` | `hct-client.ts:58` | 同上 = **關** |
+🔴 **2026-09-05 實查了三個地方(只列名稱,一次都沒有印值)**:
+
+| env 名 | 本機 `.env*` | Vercel `pcm-admin` | 判定 |
+|---|---|---|---|
+| `HCT_API_ACCOUNT` | 無 | ✅ **有**(Encrypted · Production + Preview · 4 天前) | 帳密已就位 |
+| `HCT_API_PASSWORD` | 無 | ✅ **有**(同上) | 帳密已就位 |
+| `HCT_SUBMIT_ENABLED` | 無 | 🔴 **沒有** | 依 `gateOpen` = **關** |
+| `HCT_QUERY_ENABLED` | 無 | 🔴 **沒有** | 依 `gateOpen` = **關** |
+| `HCT_DEFAULT_WEIGHT` / `HCT_INVOICE_TYPE` / `HCT_PRODUCT_KIND` | 無 | 🔴 **沒有** | 用碼裡的預設值(而那些值沒人跟新竹確認過) |
+
+🔴🔴 **而我第一發查錯專案** —— 本機 `.vercel/project.json` link 的是 **`pcm-website-v2`(顧客站)**,
+而 HCT 的碼在 `apps/admin` ⇒ env 在 **`pcm-admin`**(`prj_vzKNmbKryBdp4mAenFbyD6gehJjF`)。
+顧客站那 54 個名字裡 `HCT_` **零命中** ⇒ 📌 **那個 0 是【查錯專案】,不是「沒有」。**
+🟢 尺會動的證據:同一把尺在顧客站抓到 **54** 個名字、在 admin 抓到 **18** 個、本機四支 `.env*` 抓到 15/3/24/6。
 
 🔴 `gateOpen`(`hct-client.ts:76`)的四條性質,照抄不改寫:
 ① **只認字面 `'true'`** —— 未設 / `'false'` / `'1'` / `'TRUE'` 全部視為關(打錯的值不會變成開)
@@ -61,7 +71,7 @@
 
 | # | 缺什麼 | 誰做 | 卡在哪 |
 |---|---|---|---|
-| 1 | **跟新竹申請兩張表單 + 金鑰**:查貨 API 與出貨/託運單列印 API 是**兩張分開的表**;並確認客戶代號 `escsno`(11 碼)、出貨站 `esstno`(4 碼)、貨號區間規則 | **Sean → 新竹** | `docs/reference/hct-logistics-api-reference.md:41-50` 逐字列的那張表,**一項都還沒回來** |
+| 1 | ⛔ ~~跟新竹申請兩張表單 + 金鑰~~ ⇒ ✅ **帳密已經給了**(2026-09-05 實查,見 §三)。**還缺**:客戶代號 `escsno`(11 碼)、出貨站 `esstno`(4 碼)、**貨號區間規則** | **Sean → 新竹** | `docs/reference/hct-logistics-api-reference.md:41-50` 那張表**其餘各項未確認**;貨號區間決定「我們自己配號還是系統配」,那會改 `hct-trans-data.ts` |
 | 2 | **把 `runHctSubmit` 接上一個入口**(按鈕或排程),並讓它把結果送進 `admin_record_hct_submit` | **我們** | 這是**實作**,不是設定。⚠️ 板列 `⟦ship-HCTAPI⟧` 原本寫「缺的不是碼」—— **那句不完整**,零呼叫端是量到的 |
 | 3 | **把兩顆 env 放進 production**,並先用**測試帳號**跑一發 | **Sean**(放 env)+ **我們**(驗) | `hct-client.ts:92` `hctMode(account)` 會依帳號判 `test`/`live` ⇒ **先跑 test 那一側** |
 
