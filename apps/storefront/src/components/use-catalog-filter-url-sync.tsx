@@ -6,8 +6,8 @@
 //    (兩份會漂,而漂掉的症狀是「測試全綠、正式站偶發」)。
 // 🔴 副檔名 `.tsx`:repo 的 eslint react-hooks plugin glob 只掛 `**/*.tsx`,含 hook 的檔必須是 .tsx
 //    才受 rules-of-hooks / exhaustive-deps 保護(沿用原檔頭的理由,不是隨手選的)。
-// 回歸鎖:`products-url-state.hooks.test.tsx`(⛔ ~~**18 格**~~ ⇒ ✅ **24 格**;2026-09-04 實跑
-//    `Tests 24 passed` 訂正 —— 18 之後有人加過而沒改這裡,本片再 +3(㉒㉓㉔)。舊字面留刪除線)(窮舉:①②③⑤ = #287 品牌軸四案、
+// 回歸鎖:`products-url-state.hooks.test.tsx`(⛔ ~~**18 格**~~ ⇒ ✅ **25 格**;2026-09-04 實跑
+//    `Tests 25 passed` 訂正 —— 18 之後有人加過而沒改這裡,本片再 +4(㉒㉓㉔㉕)。舊字面留刪除線)(窮舉:①②③⑤ = #287 品牌軸四案、
 //    ④ = 單值 key 不得多餘 refresh、⑥⑦⑧⑨ = 分頁失效四案、⑩⑯ = #289 還原波(舊/新格式各一)、
 //    ⑪⑫⑬⑭⑮ = #315 五案、⑰ = 碰撞守門判別力、⑱ = 條件式刪 page;4+1+4+2+5+1+1 = 18)。
 //    🔴 這個數字 2026-08-11 由 15 改成 18(同日稍早由 11 改成 15;**原本的 11 就已經是錯的**、
@@ -189,16 +189,22 @@ export function useCatalogFilterUrlSync(
     //   ⚠️ 已知代價(**刻意接受, 不是漏掉**;正本 = 板列 `⟦search-CASCADEINMULTI⟧`):
     //   ① 多顆狀態下再用側邊欄選分類, 這裡寫不進網址。**2026-09-04 鑽機當場按過, 代價是真的**
     //     (負對照 = 網址無 `categories` 時同一按活的 ⇒ 那一按本身沒壞, 壞的是這個世界)。
-    //   🔴 ② **代價比①寬, 而這一半是 code-reviewer 抓到的、不是我量的**:多顆狀態下分類軸
-    //     單獨變動時, 下方那道等值早退會命中 ⇒ **`page` / `search` / `unmatched` 三個 delete
-    //     一起不跑**。可達路徑兩條:側邊欄點分類、手機抽屜 scope=`category` 的「清除」。
-    //     ⇒ 📌 具體受害:搜尋 redirect 留下的 `unmatched=`(「這幾個字沒有用到」)**會留在畫面上**。
-    //     ⚠️ 這一半 **Sean 拍甲時看到的選項字面裡沒有** ⇒ 已回報主視窗, 不由本片自行擴張修法。
+    //   ⛔ ~~② 代價比①寬:`page`/`search`/`unmatched` 三個 delete 一起不跑~~
+    //     ⇒ ✅ **2026-09-04 當天就修掉了, 不再是代價**(主視窗-94 裁「一起做」):
+    //     那不是範圍擴張, 是**守衛形狀畫寬了** —— 守衛只該擋住分類軸那兩行。
+    //     修法 = 下方等值早退加 `!categoryAxisSuppressed`。舊字面留刪除線, 讓搜「三個 delete
+    //     一起不跑」的人同一發撞到訂正。⇒ **代價現在只剩①。**
     //   🛑 **不要改成「從 cascade 推出 `categories`」** —— 上面那句「單值」讓那條路結構上不可能對。
+    const category = cascade.category?.sub
+      ? `${cascade.category.main}${CATEGORY_URL_SEPARATOR}${cascade.category.sub}`
+      : cascade.category?.main;
+    // 🔴 **分類軸「被壓下」= 守衛生效【而且它真的擋掉了一個會改變網址的寫入】。**
+    //   兩個條件缺一不可 —— 只看 `params.has(CATEGORIES_PARAM)` 會把**還原波**也算進來
+    //   (那一波 cascade 是從網址上同一個 `category=` 還原來的 ⇒ 兩邊相等 ⇒ 什麼都沒被擋)。
+    //   ⇒ 📌 這個布林就是下方等值早退的**判別力補丁**:見那一段的「⚠️ 而在多顆世界」。
+    const categoryAxisSuppressed =
+      params.has(CATEGORIES_PARAM) && (category ?? null) !== params.get('category');
     if (!params.has(CATEGORIES_PARAM)) {
-      const category = cascade.category?.sub
-        ? `${cascade.category.main}${CATEGORY_URL_SEPARATOR}${cascade.category.sub}`
-        : cascade.category?.main;
       if (category) params.set('category', category);
       // state 沒有分類時,只有「URL 那個值**認得出來**」(= 使用者剛把篩選清掉)才刪;認不得的留著。
       else if (parseCategoryFromUrl(params, restoreSources.categories) !== null) params.delete('category');
@@ -233,7 +239,21 @@ export function useCatalogFilterUrlSync(
     //    URL 本來就是正確結果 → 直接收手。缺這道判斷時,還原波會被 `filtersChanged` 誤判為
     //    使用者操作而刪掉 page:實測終態 = 內容第 1 頁 + 分頁 UI 停在第 2 頁、且**不會自癒**
     //    (`useBrowseUrlSync` deps 此時全未變、effect 不重跑,page 永不寫回)。
-    if (normalizedQuery(window.location.search) === normalizedQuery(params.toString())) return;
+    // ⚠️⚠️ **而在多顆世界, 這一行【自己】失去判別力**(⟦search-CASCADEINMULTI⟧ 代價②,
+    //   主視訊-94 2026-09-04 裁「一起做」):分類軸不從 state 重建 ⇒ 重建結果與網址天然相等
+    //   ⇒ 這裡早退 ⇒ 🔴 **下面 `page` / `search` / `unmatched` 三個 delete 一起不跑。**
+    //   具體受害:搜尋 redirect 留下的 `unmatched=`(「這幾個字沒有用到」)**永久留在畫面上**,
+    //   而那正是本檔下方那一格存在的理由 —— 一個安靜的錯, 只是延遲發生。
+    //   ⇒ ✅ 修法 = 加 `!categoryAxisSuppressed`。**守衛只該擋住分類軸那兩行, 不該把整段跳過。**
+    //   🔵 而它**不會**把 #289 還原波弄回來:還原波的 cascade 是從網址同一個 `category=` 還原的
+    //   ⇒ `categoryAxisSuppressed` 為 false ⇒ 那一格照舊早退(守門 ㉕ 釘住)。
+    //   🔵 也不會多送導覽:真的沒東西可刪時 `next` 與當前網址仍相等 ⇒ 下方那道比對收手。
+    if (
+      !categoryAxisSuppressed &&
+      normalizedQuery(window.location.search) === normalizedQuery(params.toString())
+    ) {
+      return;
+    }
     // 篩選指紋變動才回第 1 頁;server 回新 props 造成的 effect 重跑(指紋未變)不得洗掉頁碼。
     // 🔴 `page` 的**權威寫入者是 `useBrowseUrlSync`**;此處刪除只為省掉「先用舊頁碼查一次再被
     //    更正」的往返。⚠️ `filterKey` 是 `usePageResetOnFilterChange` key 的**刻意子集**——不含

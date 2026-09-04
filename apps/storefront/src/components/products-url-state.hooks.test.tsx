@@ -565,14 +565,14 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
     expect(qs(url).get('categories')).toBe('操控部品'); // 新鍵原樣留著
   });
 
-  it('㉔ 🔵 本片**新造出來**的行為:多顆在網址上 + 分類軸單獨變動 → **一次 replace 都不送**', () => {
-    // 🔴 這格沒有前身 —— 它釘住的是修法**產生**的新狀態,不是修法**保住**的舊狀態。
-    //   守衛讓分類軸不從 state 重建 ⇒ 重建結果與當前 URL 等值 ⇒ 等值早退命中 ⇒ 零導覽。
-    //   ⚠️ **而早退是連坐的**:`page` / `search` / `unmatched` 三個 delete 也一起不跑
-    //   ⇒ 搜尋 redirect 留下的 `unmatched=` 會留在畫面上。那是 `⟦search-CASCADEINMULTI⟧`
-    //   記著的代價的**第二半**(code-reviewer 2026-09-04 抓到, 不是我量的)。
-    //   🛑 將來有人要修 `⟦search-CASCADEINMULTI⟧` 時, **這一格會紅 —— 那是預期的, 不是回歸。**
-    window.history.replaceState(null, '', '/products?categories=A%2CB&unmatched=%E5%B0%BB%E9%8A%98');
+  it('㉔ 多顆在網址上 + 側欄改分類 → **`unmatched` 必須消失**(守衛只擋分類軸, 不擋這三個 delete)', () => {
+    // 🔴 這一格 2026-09-04 **換過形狀**:原本釘的是「一次 replace 都不送」——
+    //   那是把**缺陷本身**當成規格釘住了。主視窗-94 當天裁「一起做」⇒ 現在釘的是修好之後的樣子。
+    //   ⛔ ~~多顆 + 分類軸變動 ⇒ 零導覽~~(那個世界裡 `page`/`search`/`unmatched` 三個 delete
+    //   一起不跑 ⇒ 搜尋留下的「這幾個字沒有用到」會**永久卡在畫面上**)。
+    //   ✅ 現在:等值早退帶 `!categoryAxisSuppressed` ⇒ 三個 delete 照跑, 分類軸仍不被寫。
+    //   🛑 拿掉 `!categoryAxisSuppressed` ⇒ 本格紅。
+    window.history.replaceState(null, '', '/products?categories=A%2CB&unmatched=%E5%B0%BB%E9%8A%98&page=3');
 
     const { rerender } = renderHook(
       ({ category }: { category: CascadeFilterState['category'] }) =>
@@ -581,7 +581,35 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
     );
     rerender({ category: { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'] });
 
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url).toBeDefined();
+    expect(qs(url).get('unmatched')).toBeNull(); // 那句話要跟著這次操作消失
+    expect(qs(url).get('page')).toBeNull(); // 回第 1 頁
+    expect(qs(url).get('categories')).toBe('A,B'); // 🔴 而分類軸仍然不被本 hook 動
+    expect(qs(url).get('category')).toBeNull(); // 舊鍵也不得被寫回
+  });
+
+  it('㉕ 🔵 負對照:多顆世界的**還原波** → 照舊早退, **不得**吃掉 `?page=`(#289 不得回歸)', () => {
+    // 🔴 這格守的是 ㉔ 那個修法**沒有**打破的東西 —— 它與 ㉔ 是一對:
+    //   ㉔ 要「多顆 + 分類軸變動 ⇒ 三個 delete 照跑」,而還原波**看起來一模一樣**
+    //   (cascade 由空變非空、filtersChanged 為真、網址有 `categories`)。
+    //   🎯 分辨它們的是 `categoryAxisSuppressed` 的**第二個條件**:還原波的 cascade 是從網址
+    //   同一個 `category=` 還原來的 ⇒ 兩邊相等 ⇒ **什麼都沒被擋** ⇒ 不是「被壓下」。
+    //   🛑 把那個布林簡化成只看 `params.has(CATEGORIES_PARAM)` ⇒ 本格紅(page 被吃掉)。
+    window.history.replaceState(
+      null,
+      '',
+      '/products?categories=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81&category=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81&page=2',
+    );
+
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: null as CascadeFilterState['category'] } },
+    );
+    // 還原 dispatch 落地:state 追上網址上那個 `category=`
+    rerender({ category: { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'] });
+
     expect(hoisted.replace).not.toHaveBeenCalled();
-    expect(hoisted.refresh).not.toHaveBeenCalled();
   });
 });
