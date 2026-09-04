@@ -12,7 +12,7 @@
 //      ⇒ 所以本函式回的不只是命中,還有 `leftover` —— **它是要被畫出來的,不是內部細節。**
 //    ⇒ ⇒ ⇒ 🎯 **本片的驗收不是命中率,是【沒命中的那些字去哪了】。**
 
-import { foldSearchTerm, foldEquals, foldStartsWith } from './search-terms-fold';
+import { foldSearchTerm, foldEquals, foldIncludes } from './search-terms-fold';
 import { synonymFor, type SearchSynonym } from '@/data/search-synonyms';
 // 🔴 分隔符**共用同一個定義** —— 而今天這個缺陷的成因就是「好幾個生產者不共用」
 //    (實查五個寫入點, 清單與 grep 指令見下方 `category` 欄位的註解)。
@@ -76,6 +76,75 @@ function splitWords(q: string): string[] {
  *    分類名(`排氣管`)最容易誤觸 ⇒ **讓具體的先拿**。
  *    📌 而這是**判斷不是量測** —— 我沒有量過別的順序會差多少。
  */
+/**
+ * 客人打一個詞, 要送他到哪一個分類。
+ *
+ * 🔴🔴 **舊規則是 `allCats.find(名字以這個詞【開頭】)`, 而它有兩個【從碼本身看得出來】的毛病**
+ *    (⚠️ 這兩條是從規則的形狀推的, **不是**從「哪個答案才對」倒推出來的 —— 那個分別很重要, 見下):
+ *    ① **「開頭」是任意的** —— 中文複合分類名把關鍵字放中間是常態:
+ *       `煞車離合器拉桿` / `水管束環` / `空氣濾芯` / `端子後照鏡` / `鏈條蓋與齒盤護蓋`。
+ *       客人打 `離合` `管束` `濾芯` `後照` `齒盤` ⇒ **一個都不是前綴。**
+ *    ② **`find` 取的是【陣列第一個】, 而陣列順序是 `sort_order`** ——
+ *       🎯 **那個欄位不回答「哪一個比較相關」。** ⇒ 落點等於由一個不相干的欄位決定。
+ *
+ * ✅ **新規則三階段(順序在呼叫端)**:① 名字完全相同 ⇒ ② 俗稱字典 ⇒ ③ **本函式**。
+ *    本函式做的是 ③:在**名字含這個詞**的候選裡, 取 **`count` 最大的那一個**
+ *    —— 理由:客人打那個詞, 是要看到**那個詞的東西**;涵蓋最多的那個桶給他最多。
+ *
+ * 🛑🛑 **而這條規則【不是】為了讓某一組答案全中而調的, 那件事我刻意沒做**:
+ *    2026-09-04 有一版「substring + 葉優先 + max-count」在 18 個案例上 **18/18** ——
+ *    🔴 **而那 18/18 是在【調它用的同一組 18 個】上量的 ⇒ 零外推證據 ⇒ 沒有採用。**
+ *    📌 **一個在自己的訓練集上滿分的規則, 它的分數不含任何資訊。**
+ *    ⛔ ~~我原本寫「它在 25 個詞上沒全中 ⇒ 所以它不是調出來的」~~ **⇒ code-reviewer 2026-09-04 判它不成立, 收下**:
+ *      🔴 **我正是拿【同一組 25 個】去淘汰 18/18 那一版的** ⇒ 選規則這個動作本身就用了它
+ *      ⇒ 🎯 **「沒滿分」與「沒調過」不是同一件事。**
+ *    🟡 **撐得住的證據是【結構】不是分數, 而那句話也要收斂**(R2 抓到我又寫過頭):
+ *      ✅ 本規則**零【連續】參數** —— 沒有門檻、沒有權重、沒有例外表。
+ *      ⛔ ~~「沒有可以拿去對答案調的旋鈕」~~ **假** —— 離散選擇至少有:比對函式(前綴/子字串)、
+ *        排序鍵(count / sort_order)、階段順序、要不要葉優先。
+ *      🔴 **而其中「葉優先」那一格, 我確實是看了那 25 個答案之後把它扳掉的。**
+ *      ⇒ 📌 **所以誠實的說法是:沒有連續旋鈕可以微調, 而離散選擇有 N 個、其中一個是對著那組答案扳的。**
+ *      🔵 而「它在自己的評測上失手」只是**與『被調過』不一致**, 它不證明沒調過。
+ *
+ * ⚠️ **已知會被它改變而【不在本片授權範圍】的兩個詞**:`服飾` / `傳動` ——
+ *    它們舊規則下**一顆膠囊都沒有**, 新規則會給它們一顆。⚠️ **而「只批 16 個」這句的來源要講清楚**:
+ *    🔴 拍板正本 `~/pcm-mailbox/Sean拍板-20260904-七題.md` 逐字寫的是 **22**;
+ *      「只修那 16 個選錯的」是**主視窗 `pcm-website-v2-94` 2026-09-04 跨窗轉述**的一則新拍板,
+ *      **而它在我寫這段的當下【還沒有落進那支檔】**。
+ *    ⇒ 🛑 **所以這裡不寫「Sean 明確只批 16」** —— 寫的是:**依主視窗轉述的拍板, 範圍是那 16 個。**
+ *      📌 **一個沒落檔的授權, 不可以在碼的註解裡長成一句他說過的話。**
+ *    ✅ **[2026-09-04 稍後]主視窗已補落檔** —— 正本 `Sean拍板-20260904-七題.md` 的
+ *      「Q-25組(補落檔 · 遲到)」那一節, 原話逐字 `乙 只修那 16 個「選錯」的, 就可以推 main`。
+ *      🔬 我自己驗過:`grep -c '只修那 16 個'` ⇒ **3**(負對照一句現編的 ⇒ **0**)。
+ *    🔴 **而上面那兩行【不拿掉】** —— 它記的是**當時的證據狀態**, 而那比現在的狀態有用:
+ *      下一個讀到這裡的人要看得出「這句話曾經沒有來源, 而是審查去開正本才發現的」。
+ */
+function pickCategory(
+  cats: readonly { readonly name: string; readonly path: string; readonly count: number }[],
+  w: string,
+): { readonly path: string } | null {
+  // 🔵 完全同名那一階段**已經在呼叫端做掉了**(而且排在字典前面)⇒ 這裡只做模糊比對。
+  // 🔴🔴 **`count > 0` 不是裝飾, 它擋的是一個【比沒膠囊更糟】的結果**(R2 抓到):
+  //    🔬 實測 `來令` ⇒ 舊規則沒有膠囊(走全文搜尋), 而本片會給它 `煞車皮(來令片)`
+  //      —— **那個分類 0 件**(`search-synonyms.ts` 自己記著)⇒ 客人拿到一頁空的,
+  //      **而那個詞被吃掉了**(`leftover` 空)⇒ 他連「我打的字沒被用到」都看不到。
+  //    ⇒ 📌 **一顆送到空分類的膠囊, 比一顆都沒有糟** —— 沒有膠囊至少還有全文搜尋那條退路。
+  //    ⚠️ 而階段① ② 不加這道:同名與字典是**明確意圖**, 客人指名要那個分類, 空的也給他看。
+  return pickLargest(cats.filter((c) => c.count > 0 && foldIncludes(c.name, w)));
+}
+
+/** 一組候選裡取 `count` 最大的。🔵 **嚴格大於 ⇒ 並列取先出現的**, 而陣列順序由
+ *  `category-queries.ts` 的 `sort_order → name → id` 釘死 ⇒ 並列的結果**每次都一樣**。 */
+function pickLargest(
+  cats: readonly { readonly path: string; readonly count: number }[],
+): { readonly path: string } | null {
+  let best: { readonly path: string; readonly count: number } | null = null;
+  for (const c of cats) {
+    if (best === null || c.count > best.count) best = c;
+  }
+  return best;
+}
+
 export function parseSearchFacets(query: string, src: FacetSources): ParsedFacets {
   const words = splitWords(query);
   const used = new Set<number>();
@@ -115,36 +184,71 @@ export function parseSearchFacets(query: string, src: FacetSources): ParsedFacet
   }
 
   // ── 分類 ──────────────────────────────────────────────────────────────
-  // 🔵 分類吃三種:完全相同 / 前綴(`排氣` ⇒ `排氣管`)/ 字典(`油箱貼` ⇒ `油箱止滑貼`)。
-  //    🔴 而**字典排最後** —— 能靠格式對上的就不要動用字典(檔頭那條判別句)。
+  // 🔵 分類吃三種, **兩趟**:第一趟 完全相同 + 俗稱字典(`油箱貼` ⇒ `油箱止滑貼`);
+  //    第二趟 子字串取涵蓋最大(⛔ ~~前綴~~ 2026-09-04 換掉;為什麼是兩趟見下方迴圈)。
+  //    ⛔ ~~而**字典排最後** —— 能靠格式對上的就不要動用字典~~ **2026-09-04 作廢**:
+  //       字典現在排在**模糊比對前面**(第一趟)⇒ 只有「完全同名」比它早。
   let category: string | null = null;
   // 🔴 `name` 用來比對(客人打的是短名), `path` 才是要寫進 `?category=` 的東西。
   //    ⚠️ **兩者不可以合成一個** —— 比對要短名, 網址要全路徑, 而那正是這個缺陷的形狀。
-  const allCats: { readonly name: string; readonly path: string }[] = src.categories.flatMap((c) => [
-    { name: c.name, path: c.name },
-    ...c.children.map((s) => ({
-      name: s.name,
-      path: `${c.name}${CATEGORY_URL_SEPARATOR}${s.name}`,
-    })),
-  ]);
-  for (let i = 0; i < words.length && category === null; i += 1) {
-    if (used.has(i)) continue;
-    const w = words[i]!;
-    const direct = allCats.find((c) => foldEquals(w, c.name) || foldStartsWith(c.name, w));
-    if (direct) {
-      category = direct.path;
-      used.add(i);
-      break;
-    }
-    const syn = synonymFor(w, foldSearchTerm);
-    if (syn && syn.kind === 'category') {
-      // 🔴 字典查到的**正式名還是要在目錄裡真的存在** —— 否則那一列是死的,
-      //    而**死的字典列不會有任何東西叫**(見 `search-synonyms.ts` 的 `土除` 那一列)。
-      const real = allCats.find((c) => foldEquals(syn.to, c.name));
-      if (real) {
-        category = real.path;
-        usedSynonyms.push(syn);
+  // 🔴 `count` 帶進來, 因為挑落點要用它(見下方 `pickCategory` 的第二階段)。
+  //    大類的 `count` 已經是 **自身 + 子類加總**(`buildCategoryTree` 做的 rollup)。
+  const allCats: { readonly name: string; readonly path: string; readonly count: number }[] =
+    src.categories.flatMap((c) => [
+      { name: c.name, path: c.name, count: c.count },
+      ...c.children.map((s) => ({
+        name: s.name,
+        path: `${c.name}${CATEGORY_URL_SEPARATOR}${s.name}`,
+        count: s.count,
+      })),
+    ]);
+  // 🔴🔴 **兩趟, 而【為什麼是兩趟】是 R2 抓出來的**:
+  //    這個迴圈**第一個吃到膠囊的詞就 `break`** ⇒ 早出現的詞會遮蔽晚出現的詞。
+  //    🔬 R2 實測:`護網 油箱貼` —— 本片把模糊比對放寬成子字串之後,
+  //      `護網` 先用模糊比對吃到 `大燈與護網` ⇒ **`油箱貼` 那條字典從此讀不到**
+  //      (舊規則下 `護網` 不是任何分類名的前綴 ⇒ 輪得到 `油箱貼` ⇒ `油箱止滑貼`)。
+  //    ⇒ 🛑 **所以「字典排在模糊比對前面」在【單一個詞】裡成立, 在【一句話】裡不成立。**
+  //      ⛔ ~~我原本寫「本片變成加法, 字典一列都沒有失效」~~ **那句是假的, 已刪。**
+  //    ✅ **修法:把「完全同名 + 字典」跑成第一趟, 全部詞都試過都沒有, 才跑第二趟的模糊比對。**
+  //      ⇒ 📌 **這讓「人手寫下來的對應贏猜出來的子字串」變成【對整句成立】, 不只對單一個詞。**
+  for (let pass = 0; pass < 2 && category === null; pass += 1) {
+    for (let i = 0; i < words.length && category === null; i += 1) {
+      if (used.has(i)) continue;
+      const w = words[i]!;
+
+      if (pass === 0) {
+        // ── ① 完全同名 ⇒ 客人打的就是那個分類名, 意圖最明確 ──────────────
+        // 🔴 **同名的也取最大, 不取「陣列第一個」** —— `⟦search-DUPCATNAMES⟧` 記著正式站有
+        //    **三組同名分類**(維修零件×3 / 水管束環×2 / 防爆水管組×2)⇒ 用 `find` 的話
+        //    落點由 `sort_order` 決定, 而**那個欄位不回答「哪一個比較相關」**。
+        const exact = pickLargest(allCats.filter((c) => foldEquals(w, c.name)));
+        if (exact) {
+          category = exact.path;
+          used.add(i);
+          break;
+        }
+        // ── ② 俗稱字典 ⇒ 人工策劃的意圖 ─────────────────────────────────
+        const syn = synonymFor(w, foldSearchTerm);
+        if (syn && syn.kind === 'category') {
+          // 🔴 字典查到的**正式名還是要在目錄裡真的存在** —— 否則那一列是死的,
+          //    而**死的字典列不會有任何東西叫**(見 `search-synonyms.ts` 的 `土除` 那一列)。
+          const real = allCats.find((c) => foldEquals(syn.to, c.name));
+          if (real) {
+            category = real.path;
+            usedSynonyms.push(syn);
+            used.add(i);
+            break;
+          }
+        }
+        continue;
+      }
+
+      // ── ③ 名字含這個詞的候選裡, 取涵蓋最多的 ───────────────────────────
+      const fuzzy = pickCategory(allCats, w);
+      if (fuzzy) {
+        category = fuzzy.path;
         used.add(i);
+        break;
       }
     }
   }
