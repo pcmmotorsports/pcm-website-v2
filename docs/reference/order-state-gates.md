@@ -78,7 +78,7 @@
 | `pcm_order_refundable_remaining` | **5** | 20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:454<br>20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:394<br>20260814190000_m4b_e10_473b1_refund_manual_corrections.sql:403<br>20260820010000_m4b_manual_refunds.sql:213<br>20260820100000_m4b_e10_d3b_void_manual_refund.sql:224 | `20260820100000_m4b_e10_d3b_void_manual_refund.sql:224` |
 | `pcm_pending_refund_on_cancel` | **2** | 20260901080000_m4b_autorefund_pending_refunds.sql:367<br>20260902030000_m4b_crossrail_pending_refund_net.sql:237 | `20260902030000_m4b_crossrail_pending_refund_net.sql:237` |
 | `pcm_refund_ledger_block_truncate` | **2** | 20260725130100_m3_rf2a2_order_refunds_ledger.sql:253<br>20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:422 | `20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:422` |
-| `pcm_sync_order_refund_payment_status` | **2** | 20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql:127<br>20260823020000_m4b_refund_notify_p2a_record_calls_sync.sql:239 | `20260823020000_m4b_refund_notify_p2a_record_calls_sync.sql:239` |
+| `pcm_sync_order_refund_payment_status` | **3** | 20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql:127<br>20260823020000_m4b_refund_notify_p2a_record_calls_sync.sql:239<br>20260905010000_m4b_manual_refund_syncs_payment_status.sql:244 | `20260905010000_m4b_manual_refund_syncs_payment_status.sql:244` |
 | `search_catalog_by_vehicle` | **8** | 20260712183000_products_catalog_page_public.sql:37<br>20260712193000_catalog_rpc_expose_fitments.sql:10<br>20260712213000_p4_catalog_rpc_split_generic_plan_replay.sql:8<br>20260719150000_catalog_product_image_trim.sql:73<br>20260811040000_m4b_storefront_269b_catalog_new_arrivals.sql:266<br>20260827150000_m4b_storefront_950_recommend_sort_mid_high_price.sql:84<br>20260827180000_m4b_storefront_new_arrivals_exclude_repair_parts.sql:38<br>20260904160000_m4b_search_catalog_multi_category.sql:74 | `20260904160000_m4b_search_catalog_multi_category.sql:74` |
 | `storefront_search_product_ids` | **4** | 20260903050000_m4b_storefront_search_product_ids.sql:84<br>20260903230000_m4b_storefront_search_partno_normalized.sql:188<br>20260904030000_m4b_storefront_search_split_three_blocks.sql:148<br>20260904180000_m4b_storefront_search_partno_long_numeric.sql:215 | `20260904180000_m4b_storefront_search_partno_long_numeric.sql:215` |
 | `sync_product_variant_group` | **2** | 20260727084801_atomic_variant_group_sync.sql:19<br>20260825120000_m4b_zero_price_allowed_in_variant_sync.sql:58 | `20260825120000_m4b_zero_price_allowed_in_variant_sync.sql:58` |
@@ -370,21 +370,31 @@
 
 **改什麼狀態**
 
-`:487` SET cancelled_at     = pg_catalog.now(),<br>`:617` ⇒ 要現值自己跑:grep -rn "SET payment_status" --include='*.sql' --include='*.ts'
+`:496` SET cancelled_at     = pg_catalog.now(),<br>`:626` ⇒ 要現值自己跑:grep -rn "SET payment_status" --include='*.sql' --include='*.ts'
 
 **允許集合(逐字)**
 
-`:415` WHERE o.payment_status = 'unpaid'::public.payment_status<br>`:416` AND o.cancelled_at IS NULL                                    -- 已取消/已失效 → 不重複寫(冪等)<br>`:461` AND a.status <> 'failed'<br>`:607` ⇒ 所以 payment_status <> 'unpaid' 不等於「這張單收到錢了」,<br>`:608` 而 payment_status = 'unpaid' 也不等於「沒收到錢」。
+`:424` WHERE o.payment_status = 'unpaid'::public.payment_status<br>`:425` AND o.cancelled_at IS NULL                                    -- 已取消/已失效 → 不重複寫(冪等)<br>`:470` AND a.status <> 'failed'<br>`:616` ⇒ 所以 payment_status <> 'unpaid' 不等於「這張單收到錢了」,<br>`:617` 而 payment_status = 'unpaid' 也不等於「沒收到錢」。
 
 ### `pcm_noncard_settle_recompute`  ·  `20260904230000_m4b_noncardpaid_settle_and_expire_leg.sql`
 
 **改什麼狀態**
 
-`:301` SET payment_status = v_new,
+`:310` SET payment_status = v_new,
 
 **允許集合(逐字)**
 
-`:215` IF v_status NOT IN ('unpaid'::public.payment_status,<br>`:301` SET payment_status = v_new,<br>`:318` AND o.payment_status = v_status;   -- 🔴 樂觀鎖:狀態被別人改過就不寫
+`:215` IF v_status NOT IN ('unpaid'::public.payment_status,<br>`:310` SET payment_status = v_new,<br>`:327` AND o.payment_status = v_status;   -- 🔴 樂觀鎖:狀態被別人改過就不寫
+
+### `pcm_sync_order_refund_payment_status`  ·  `20260905010000_m4b_manual_refund_syncs_payment_status.sql`
+
+**改什麼狀態**
+
+`:311` UPDATE public.orders SET payment_status = v_target::public.payment_status
+
+**允許集合(逐字)**
+
+`:305` IF v_ps NOT IN ('paid', 'partiallyRefunded', 'refunded') THEN<br>`:311` UPDATE public.orders SET payment_status = v_target::public.payment_status
 
 ---
 
