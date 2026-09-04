@@ -61,6 +61,7 @@ function orderFixture(itemCount: number): MemberOrderDetail {
       quantity: 1,
       unitPrice: twd(1000),
       lineTotal: twd(1000),
+      shipped: false,
     })),
     itemCount,
     itemsTruncated: false,

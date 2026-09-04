@@ -44,8 +44,10 @@ import {
   paymentMethodLabel,
 } from '@/lib/orders/order-display';
 import {
+  ORDER_DETAIL_ITEM_SHIPPED_MARK,
   ORDER_DETAIL_ITEMS_TRUNCATED_NOTE,
   ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE,
+  ORDER_DETAIL_UNPAID_SHIPPED_NOTE,
 } from '@/lib/account-order-copy';
 
 /**
@@ -127,6 +129,18 @@ function OrderLine({ item }: { item: MemberOrderDetailItem }) {
         {item.brand !== null && <div className="od-line-brand">{item.brand}</div>}
         <div className="od-line-name">{item.title ?? item.variantSku}</div>
         {fits !== null && <div className="od-line-fits">{fits}</div>}
+        {/* ⟦ship-WHICHITEMSSHIPPED⟧ 這一件出貨了沒(Sean 2026-09-04 Q5 拍甲:已出貨的那幾列加灰字「已出貨」)。
+            🎯 **在此之前, 一張出了 3 件的 5 件單, 五列逐字相同**(真瀏覽器實測)——
+               客人被告知「出了一部分」, 而畫面上沒有任何東西說得出【是哪一部分】。
+            🔴 **沒出貨的那幾列什麼都不印, 而那是刻意的** —— 他那句話裡沒有「準備中」,
+               補一個他沒說的字與改掉他說的字是同一種錯(完整理由在常數的 docstring)。
+            🛑 **不印日期也不印數量** —— 數量摘要不給顧客站是既有政策(板 ⟦b9-SHIPUI⟧ ①),
+               而那條政策今天沒有任何測試擋著、只有人的拍板擋著 ⇒ 更不能順手加。 */}
+        {item.shipped && (
+          <div className="od-line-ship" data-od-id="order-line-shipped">
+            {ORDER_DETAIL_ITEM_SHIPPED_MARK}
+          </div>
+        )}
       </div>
       <div className="od-line-r">
         <div className="od-line-unit">
@@ -173,13 +187,47 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
   const cancelKind = order.cancelKind;
   const cancelled = cancelKind !== 'none';
   const tone = orderStatusTone(order.paymentStatus, order.fulfillmentStatus, cancelKind);
+  /**
+   * ⟦ship-AXISHOLE⟧ **進度軸中間那個洞**(Sean 2026-09-04 Q7 拍**乙**)。
+   *
+   * 🔴 **洞的形狀**:`shippedAt` 非空而付款未完成(匯款單先出貨後收款)
+   *    ⇒ 第 3 階「已出貨」亮、第 2 階「付款完成」灰 ⇒ **軸中間斷一格而沒有任何解釋**。
+   * ✔ 這不是理論世界:上面那段 `⟦b9-SHIPUI⟧` 的註解 2026-09-02 就寫下了它, 
+   *    而那時逐字寫的是「**在他拍之前這裡不做特殊處理**」⇒ 🎯 **他今天拍了。**
+   *
+   * 🔵 **「那格變灰色」不需要程式碼** —— `ok: paymentCompleted` 為 false ⇒ 沒有 `is-done`
+   *    ⇒ **它本來就是灰的**。⇒ 📌 這一改動補的是【那句話】, 不是顏色。
+   *    🛑 **所以驗收不得用「那格是灰的」** —— 它在改之前也是灰的(零判別力)。
+   *
+   * 🔴🔴 **`!cancelled` 那一半是承重的, 不是順手加的**:
+   *    下面 `happened()` 的判準是 `s.ok || s.d !== ''`, 而 `shownSteps` 對取消單
+   *    把留下來的每一階 **一律 `ok: true`**。
+   *    ⇒ 🛑 若這句話寫進取消單的 `d`, 那一階會從【不顯示】變成【顯示且打勾】
+   *      ⇒ 🎯 **一張從來沒付過錢的單子, 「付款完成」會被打勾** —— 而那句話旁邊
+   *      還寫著「尚未收到匯款」⇒ **同一格裡兩句相反的話**。
+   *    📌 ⇒ 一個只負責【多印一句話】的修法, 透過一個它沒有讀的判準改掉了【打不打勾】。
+   */
+  const unpaidButShipped = !cancelled && order.shippedAt !== null && !paymentCompleted;
   // 稿的四階進度軸。前兩階有來源;後兩階在第 1 批一律未完成(見檔頭)。
   const steps = [
     { t: '訂單成立', d: formatOrderDate(order.createdAt), ok: true },
     // 🔴 日期只能用 `paidAt`(codex 關卡2 must-fix):延後付款或重試成功時,下單日與付款日
     //    可以差好幾天 ⇒ 拿 `createdAt` 冒充等於**印一個我們自己編的付款日**,而客人沒有第二個來源可以對。
     //    `paidAt` 為 null ⇒ **那一階不印日期**(狀態仍可標完成),不要退回 createdAt。
-    { t: '付款完成', d: order.paidAt === null ? '' : formatOrderDate(order.paidAt), ok: paymentCompleted },
+    // ⟦ship-AXISHOLE⟧ 洞的世界印他拍的那句話(文案逐字理由在常數的 docstring)。
+    // 🔴 `paidAt` 非空時 **日期優先** —— 那是一個事實, 而這句話只是在解釋一個缺口;
+    //    而 `unpaidButShipped` 本身已含 `!paymentCompleted`, 兩者不會同時為真的世界很窄
+    //    (付款狀態未完成而 `paidAt` 有值, 例如 partiallyPaid 的訂金單)⇒ **排序寫死、不靠互斥**。
+    {
+      t: '付款完成',
+      d:
+        order.paidAt !== null
+          ? formatOrderDate(order.paidAt)
+          : unpaidButShipped
+            ? ORDER_DETAIL_UNPAID_SHIPPED_NOTE
+            : '',
+      ok: paymentCompleted,
+    },
     /**
      * ⟦b9-SHIPUI⟧ **這一階從包裹真相點亮**(Sean 2026-09-02 拍丙)。
      *

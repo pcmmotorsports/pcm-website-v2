@@ -97,6 +97,7 @@ const OWN_ORDER: MemberOrderDetail = {
       quantity: 2,
       unitPrice: money(6000),
       lineTotal: money(12000),
+      shipped: false,
     },
   ],
   itemCount: 2,
