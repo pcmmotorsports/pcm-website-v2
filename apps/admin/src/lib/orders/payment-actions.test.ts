@@ -109,6 +109,34 @@ describe('解析失敗', () => {
     expect(state.status === 'failed' && state.values.amount).toBe('1,180');
     expect(mocks.recordManualPayment).not.toHaveBeenCalled();
   });
+
+  /**
+   * 🔴 ⟦b4-DEADENDMSG1⟧:那句話原本只說「表單內容不正確」——
+   * **它擋對了、也講了後果, 而【少了哪一欄】。**
+   * 🛑 而三個世界要分得出來:缺一欄 / 缺兩欄 / 系統層失敗(不給欄位名)。
+   */
+  it.each([
+    ['缺一欄(單號)', { [PAY_BANK_REFERENCE_FIELD]: '' }, '請檢查:銀行單號 / 末五碼。'],
+    ['缺兩欄', { [PAY_RECEIVED_DATE_FIELD]: '', [PAY_BANK_REFERENCE_FIELD]: '' },
+      '請檢查:銀行入帳日、銀行單號 / 末五碼。'],
+  ])('🔴 %s ⇒ 訊息接上那幾欄, 而兩個世界的字【不一樣】', async (_n, over, tail) => {
+    const state = await recordManualPaymentAction({ status: 'idle' }, bankForm(over));
+    expect(state).toMatchObject({ status: 'failed', code: 'invalid' });
+    expect(state.status === 'failed' && state.message).toBe(
+      `表單內容不正確,這筆收款沒有寫入。${tail}`,
+    );
+    expect(mocks.recordManualPayment).not.toHaveBeenCalled();
+  });
+
+  it('🔴 系統層失敗(壞印章)⇒ 維持通用話, 【不編一個欄位名給員工】', async () => {
+    const state = await recordManualPaymentAction(
+      { status: 'idle' },
+      bankForm({ [PAY_CASH_RECEIVED_AT_FIELD]: 'not-a-time' }),
+    );
+    expect(state.status === 'failed' && state.message).toBe('表單內容不正確,這筆收款沒有寫入。');
+    // 🔴 承重:一個「總是列出必填欄」的實作會在這裡多出一句, 而員工會去改沒壞的欄位。
+    expect(state.status === 'failed' && state.message).not.toContain('請檢查');
+  });
 });
 
 describe('成功路徑', () => {
