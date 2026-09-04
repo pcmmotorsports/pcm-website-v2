@@ -531,6 +531,21 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
     }
 
+    // 🔴 **第四條線同款**(codex 2026-09-04 must-fix #3;⟦b4-NORECIPIENTWINDOW⟧)。
+    //    🛑 **而它【沒有 cutoff 前提】—— 那是與上下兩格唯一的差異, 不是漏了**:
+    //      本線的母體天生從空的開始長(觸發欄是片 C 才新增的)⇒ 它不需要起始線
+    //      ⇒ 📌 **所以只要 `trackingCorrectedGapUnknown` 為真就吵, 不必先問 env 設了沒。**
+    //    🎯 而它擋的東西與姊妹那格一模一樣:**RPC 還沒 apply ⇒ 三格是 null ⇒ 告警恆不叫**,
+    //      而 route 照回 200 ⇒ 「安靜」與「這道告警沒裝上」印同一個畫面。
+    if (result.trackingCorrectedGapUnknown) {
+      console.error(
+        '[anomaly-alert] 🔴 get_tracking_corrected_gap_counts 讀不到 ⇒ 更正單號信收件人那一段今天是【查不到】不是【0】(回 503)',
+        { ...result },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+
     if (shippedCutoffIso !== null && result.shippedGapUnknown) {
       console.error(
         '[anomaly-alert] 🔴 起始線有設而 get_shipped_email_gap_counts 讀不到 ⇒ 出貨缺口那一段今天是【查不到】不是【0】(回 503)',

@@ -379,10 +379,15 @@ WHERE s.shipped_at IS NOT NULL
   AND s.deleted_at IS NULL
   -- 🔴 這一格就是「這個號碼不是第一次出貨那個」。
   AND s.tracking_corrected_at IS NOT NULL
-  AND nullif(pg_catalog.btrim(s.tracking_number), '') IS NOT NULL
+  -- 🔴🔴 **空白定義走 `pcm_js_trim_whitespace()` 單一來源, 不用預設的 `btrim`**
+  --    (codex 2026-09-04 must-fix #1)。⛔ 我第一版寫裸 `btrim(x)` —— 它**只吃空格**,
+  --    而本片的計數面(`20260904280000`)用的是 `btrim(x, JS_WS)`(含 tab / 換行)
+  --    ⇒ 🛑 **一個只有 tab 的信箱:view 判「有收件人」而計數判「沒有」⇒ 【兩邊都算到它】。**
+  --    ⇒ 📌 那兩支宣稱是**互補集**, 而互補集的定義若在兩邊各寫一份, 它們遲早不互補。
+  AND nullif(pg_catalog.btrim(s.tracking_number, public.pcm_js_trim_whitespace()), '') IS NOT NULL
   AND (
-        nullif(pg_catalog.btrim(o.notification_email), '') IS NOT NULL
-     OR nullif(pg_catalog.btrim(c.email), '') IS NOT NULL
+        nullif(pg_catalog.btrim(o.notification_email, public.pcm_js_trim_whitespace()), '') IS NOT NULL
+     OR nullif(pg_catalog.btrim(c.email, public.pcm_js_trim_whitespace()), '') IS NOT NULL
       )
   -- 🔴🔴 **這一句是本 view 最重要的一格 —— 而它不在任何人的驗收條件裡, 是我加的。**
   --    這封信的內容是「**先前**通知您的單號有誤」⇒ 🎯 **它的前提是客人【真的收過】那個錯號碼。**

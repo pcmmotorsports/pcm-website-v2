@@ -381,6 +381,52 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         }
       }
 
+      /**
+       * 🔵 **更正單號信線的同一支**(⟦b4-NORECIPIENTWINDOW⟧ 第四條線, 2026-09-04)。
+       *
+       * 🔴🔴 **它【沒有 cutoff 參數, 也沒有那個 `if (cutoff !== null)` 守門】—— 而那不是漏了。**
+       *    姊妹那三條要 cutoff, 因為它們的母體(`orders` / 已出貨的箱)在功能上線前就存在
+       *    ⇒ 不設起始線就會把歷史全部算進來。
+       *    而本線的觸發欄 `shipments.tracking_corrected_at` 是 2026-09-04 片 C 才新增的
+       *    ⇒ **歷史上每一箱都是 NULL** ⇒ 母體天生從空的開始長。
+       *    ⇒ 📌 **所以本段【不論那顆 env 有沒有設都會查】** —— 這是與上面三段唯一的控制流差異,
+       *      而它值得寫出來:讀的人看到別人都有守門而這裡沒有, 第一個念頭會是「是不是漏了」。**不是。**
+       * ⚠️ 降級處置**逐字沿用**姊妹那支:RAISE / 函式不存在 ⇒ 降級成【查不到】, 不讓整支告警死掉。
+       */
+      let trackingCorrectedRows: Array<Record<string, unknown>> = [];
+      try {
+        const res = await client.query(
+          'SELECT public.get_tracking_corrected_gap_counts() AS result',
+          [],
+        );
+        trackingCorrectedRows = res.rows;
+      } catch (err) {
+        const code = (err as { code?: unknown } | null)?.code;
+        if (code === RAISE_EXCEPTION) {
+          const looksLikeOwnGate =
+            typeof (err as { message?: unknown }).message === 'string' &&
+            (err as { message: string }).message.includes(`${TRACKING_CORRECTED_FN}:`);
+          console.error(
+            looksLikeOwnGate
+              ? '[anomaly-alert] 🔴 get_tracking_corrected_gap_counts 自己 RAISE 了 ⇒ 更正信收件人那一段降級成【查不到】,而其他告警照常送'
+              : '[anomaly-alert] 🔴 get_tracking_corrected_gap_counts 拋了 P0001 而【訊息不像它自己的閘】⇒ 仍降級成【查不到】(不改控制流),但這一格值得有人去看',
+            {
+              code: RAISE_EXCEPTION,
+              reason: looksLikeOwnGate
+                ? 'tracking_corrected_gap_rpc_raised'
+                : 'tracking_corrected_gap_rpc_raised_unexpected_shape',
+            },
+          );
+        } else {
+          if (code !== UNDEFINED_FUNCTION) throw err;
+          const probe = await client.query(
+            "SELECT to_regprocedure('public.get_tracking_corrected_gap_counts()') IS NULL AS missing",
+            [],
+          );
+          if (probe.rows[0]?.missing !== true) throw err;
+        }
+      }
+
       let orderCreatedStuckRows: Array<Record<string, unknown>> = [];
       if (orderCreatedCutoffIso !== null && orderCreatedStuckMinutes !== null) {
         try {
@@ -517,6 +563,7 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
       return parseAlertSummary(
         counts.rows, ids, refundRows, emailRows, shippedRows, orderCreatedRows,
         unpaidCancelledRows, orderCreatedStuckRows, heartbeatRows, bypassRlsRows,
+        trackingCorrectedRows,
       );
     });
   }
@@ -679,6 +726,7 @@ const EMAIL_FN = 'get_email_outbox_deadman_counts';
 const SHIPPED_FN = 'get_shipped_email_gap_counts';
 const ORDER_CREATED_FN = 'get_order_created_gap_counts';
 const UNPAID_CANCELLED_FN = 'get_order_unpaid_cancelled_gap_counts';
+const TRACKING_CORRECTED_FN = 'get_tracking_corrected_gap_counts';
 /** PG `raise_exception` —— plpgsql 的 `RAISE EXCEPTION` 預設就是這個 SQLSTATE。 */
 const RAISE_EXCEPTION = 'P0001';
 
@@ -775,6 +823,10 @@ function parseAlertSummary(
   orderCreatedStuckRows: Array<Record<string, unknown>>,
   heartbeatRows: Array<Record<string, unknown>>,
   bypassRlsRows: Array<Record<string, unknown>>,
+  // 🔵 第四條線(⟦b4-NORECIPIENTWINDOW⟧, 2026-09-04)。**排在最後, 不插進中間** ——
+  //   這是一串**位置參數**, 插中間會讓所有既有呼叫端安靜地錯位一格
+  //   (型別全是同一個 `Array<Record<string, unknown>>` ⇒ 🔴 **typecheck 不會紅**)。
+  trackingCorrectedRows: Array<Record<string, unknown>>,
 ): AnomalyAlertSummary {
   const r = rows[0]?.result as Record<string, unknown> | undefined;
   if (!r || typeof r !== 'object') {
@@ -981,6 +1033,18 @@ function parseAlertSummary(
   const unpaidCancelledCount = (key: string): number | null =>
     unpaidCancelledGapUnknown ? null : parseCount(ucg![key], key, UNPAID_CANCELLED_FN);
 
+  // 🔵 更正單號信線的同一組。`undefined` = **沒查**(函式尚未 apply)
+  //   🔴 ⇒ 三格回 `null`, **不是 0** ——「讀不到」與「一切正常」在裸數字上長得一模一樣。
+  const tcg = trackingCorrectedRows[0]?.result as Record<string, unknown> | undefined;
+  const trackingCorrectedGapUnknown = tcg === undefined;
+  if (!trackingCorrectedGapUnknown && (tcg === null || typeof tcg !== 'object')) {
+    throw new AnomalyAlertReaderParseError(
+      `${TRACKING_CORRECTED_FN} 回應格式異常(函式存在但回了 NULL 或非物件)`,
+    );
+  }
+  const trackingCorrectedCount = (key: string): number | null =>
+    trackingCorrectedGapUnknown ? null : parseCount(tcg![key], key, TRACKING_CORRECTED_FN);
+
   const ocs = orderCreatedStuckRows[0]?.result as Record<string, unknown> | undefined;
   // 🔴 `undefined` = **沒查**(兩顆 env 任一沒設 / 函式尚未 apply)⇒ 兩格都回 null, **不是 0**。
   const orderCreatedStuckUnknown = ocs === undefined;
@@ -1025,6 +1089,11 @@ function parseAlertSummary(
     unpaidCancelledPendingCount: unpaidCancelledCount('pending_count'),
     unpaidCancelledNoRecipientCount: unpaidCancelledCount('no_recipient_count'),
     unpaidCancelledGapUnknown,
+    // 🔵 更正單號信線那三格(⟦b4-NORECIPIENTWINDOW⟧ 第四條線, 2026-09-04)。
+    //   🔴 **不寫成 0** —— 而這一格今天【一定會走到】:那支 RPC 還沒 apply 到正式庫。
+    trackingCorrectedPendingCount: trackingCorrectedCount('pending_count'),
+    trackingCorrectedNoRecipientCount: trackingCorrectedCount('no_recipient_count'),
+    trackingCorrectedGapUnknown,
     // 🔵 訊號4 持續失敗那兩格。null = 沒查(兩顆 env 任一沒設)或函式尚未 apply
     //   🔴 **不寫成 0** ——「還沒上膛」與「今天沒有卡住的單」在一個裸數字上長得一模一樣。
     orderCreatedStuckCount: stuckNum('stuck_count'),
