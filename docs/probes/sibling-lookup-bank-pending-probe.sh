@@ -206,6 +206,41 @@ pq -q -c "INSERT INTO public.orders (id, customer_user_id, cart_session_id, disp
           INSERT INTO public.payment_charge_attempts (order_id, status) VALUES ('77777777-7777-4777-8777-777777777777','pending');"
 check "格10 正對照 刷卡在途仍 needs_settle" "needs_settle" "$(q1 "SELECT public.begin_charge_attempt('${CARD}'::uuid) ->> 'reason';")"
 
+# 格10b 🔴 **格10 的缺口**(codex 關卡2 R2 PARTIAL ③):格10 那個世界【沒有匯款 sibling】
+#   ⇒ 一支「在回 needs_settle 之前就先把匯款單取消掉」的壞碼, 格10 看不到它。
+#   ⇒ 📌 **格10 證的是「回什麼」, 這一格證的是「回那個之前有沒有先動手」。**
+#   🔴 **而我第一版把這三格全寫壞了**(codex R4 抓到, 而它對):我用了四參數簽章
+#      `begin_charge_attempt(id, uid, 't', 'x')` 與一個**從未定義的 `${BANK}`** ——
+#      🔬 而本檔既有形狀是 `begin_charge_attempt('${CARD}'::uuid)` **一個參數**,
+#         那張匯款單用 `display_id='PCM-BANK-B'` 找(見 `bank_cancelled()`), 不是變數。
+#      🎯 **⇒ 我照著 codex 舉例的簽章打, 沒有對照【本檔既有的用法】。**
+#        ⇒ 📌 **一個抄來的座標在它自己的來源那裡是對的, 而它到不了我這裡。**
+#        ⇒ 🔴 **而三格會【全部跑不起來】—— 而跑不起來與跑過了都不會印綠, 是 codex 讀出來的。**
+reset_data; seed_card; seed_bank
+pq -q -c "INSERT INTO public.orders (id, customer_user_id, cart_session_id, display_id, payment_status, payment_channel)
+          VALUES ('77777777-7777-4777-8777-777777777777','${UID_FIXED}','${CART}','PCM-CARD-C','unpaid','tappay');
+          INSERT INTO public.payment_charge_attempts (order_id, status) VALUES ('77777777-7777-4777-8777-777777777777','pending');"
+check "格10b 早退仍是 needs_settle" "needs_settle" \
+  "$(q1 "SELECT public.begin_charge_attempt('${CARD}'::uuid) ->> 'reason'")"
+check "格10b 而匯款單【不可】被取消(needs_settle 前不得動手)" "false" "$(bank_cancelled)"
+
+# 格16b 🔴 **格16 的缺口**(同上 ③):格16 只驗回傳值是 not_card_order, **沒驗零副作用**
+#   ⇒ 一支「先取消了東西、才發現目標是匯款單而回 not_card_order」的壞碼, 格16 印綠。
+#   ⇒ 📌 **早退路徑的驗收要驗兩件:回對了什麼 · 有沒有留下痕跡。**
+#   ⚠️ **射程(codex R4 明寫)**:它只殺得死「先取消再早退」, **殺不死別種副作用**。
+reset_data; seed_card; seed_bank
+BANK_ID=$(q1 "SELECT id::text FROM public.orders WHERE display_id='PCM-BANK-B'")
+BEFORE16=$(q1 "SELECT count(*)::text FROM public.orders WHERE cancelled_at IS NOT NULL")
+q1 "SELECT public.begin_charge_attempt('${BANK_ID}'::uuid) ->> 'reason'" > /dev/null
+check "格16b not_card_order 早退時零副作用(取消數不變)" "$BEFORE16" \
+  "$(q1 "SELECT count(*)::text FROM public.orders WHERE cancelled_at IS NOT NULL")"
+
+# 🛑 **格20(`user_in_flight`)本輪【拿掉, 不留半成品】**
+#   我第一版寫了它, 而 codex R4 指出 fixture **沒有填 attempt 的會員 id** ⇒ **正確的碼也過不了**。
+#   ⇒ 🔴 一格「正確的碼也會紅」的測試, 比沒有那一格糟 —— 它會訓練下一個人去繞過它。
+#   ⇒ 📌 **⇒ 那條路仍然沒有格子, 而我把這件事寫在這裡而不是假裝補上了。**
+#     落點:⟦b4-PIECEBGATEGAPS⟧ ③(`user_in_flight` / `duplicate` 兩條路都還缺格子)。
+
 # 格11 正對照:同車什麼都沒有 ⇒ 刷卡照常拿到鎖
 reset_data; seed_card
 check "格11 正對照 乾淨車" "true" "$(begin_card)"
@@ -247,7 +282,17 @@ pq -q -c "INSERT INTO public.orders (id, customer_user_id, cart_session_id, disp
           VALUES ('${CARD}','${UID_FIXED}','${CART}','PCM-BANK-TARGET','unpaid','bank_transfer');"
 check "格16 目標單是匯款單 ⇒ not_card_order" "not_card_order" "$(q1 "SELECT public.begin_charge_attempt('${CARD}'::uuid) ->> 'reason';")"
 
-# 格17 🔵 多張:同車兩張未付款匯款單 ⇒ **兩張都被取消**(明寫這是刻意的, 不是只取消一張)
+# 格17 🔵 多張:同車兩張未付款匯款單 ⇒ **兩張都被取消**
+#   ⛔ ~~明寫這是刻意的, 不是只取消一張~~ **這句話沒有來源**(codex 關卡2 R3 PARTIAL ⑥, 2026-09-05)。
+#   🔬 我開檔查過規格:`docs/specs/2026-09-04-m4b-bank-transfer-checkout-branch-plan.md` 裡的
+#      「那張」(:148 / :154)講的是**客人看不到那張已建好的匯款單**, **不是「取消哪一張」**
+#      ⇒ 🔴 **規格從來沒有講過取消的單複數。**
+#   🔬 而兩張【真的並存得了】:`20260613130000_m3_3ds_0b_cart_session_dedup.sql`
+#      實測 `CREATE INDEX` 1 處 · `CREATE UNIQUE` **0 處** ⇒ cart 索引不是唯一索引。
+#   🎯 **⇒ 這一格現在只是【把現行行為固定成期望值】, 而它固定的那個行為沒有人授權過。**
+#      🔴 而 codex 指出偏的方向:現行是**多取消一張客人的單**, 不是少取消。
+#   ⇒ 📌 **這格保留(它擋得住「行為悄悄改變」), 而板列要記著它等的是【授權】不是【修碼】。**
+#      ⟦b4-PIECEBGATEGAPS⟧ ⑥。
 reset_data; seed_card
 pq -q -c "INSERT INTO public.orders (customer_user_id, cart_session_id, display_id, payment_status, payment_channel)
           VALUES ('${UID_FIXED}','${CART}','PCM-BANK-B','unpaid','bank_transfer'),
@@ -255,5 +300,34 @@ pq -q -c "INSERT INTO public.orders (customer_user_id, cart_session_id, display_
 begin_card > /dev/null
 check "格17 同車兩張匯款單都被取消" "2" "$(q1 "SELECT count(*)::text FROM public.orders WHERE display_id LIKE 'PCM-BANK-B%' AND cancelled_at IS NOT NULL;")"
 
+# 格18 🔴 `updated_at` 真的被寫了(codex 關卡2 R2 的 PARTIAL ⑤)
+#   🎯 那一項原本【沒有任何格子驗它】⇒ 從 UPDATE 裡刪掉 `updated_at = now()` 這一行,
+#      十七格【全部照樣綠】。
+#   🔵 而這一格刻意**不驗「非 NULL」** —— `updated_at` 本來就 NOT NULL, 那樣寫是恆真。
+#      驗的是【它有沒有跟著這次取消動】:取消前先記下舊值, 取消後必須嚴格變新。
+#   📌 兩個世界會印不同的值:有寫 ⇒ `t`;那一行被刪掉 ⇒ `f`。
+reset_data; seed_card; seed_bank
+#   🔴 **而我第一版這裡也用了未定義的 `${BANK}`**(codex R4;與格10b/16b 同一個病)——
+#      改用本檔既有的做法:`display_id='PCM-BANK-B'`。
+OLD_UPD=$(q1 "SELECT updated_at::text FROM public.orders WHERE display_id='PCM-BANK-B'")
+pq -q -c "SELECT pg_sleep(0.01);"
+begin_card > /dev/null
+check "格18 取消匯款單時 updated_at 有跟著動" "t" \
+  "$(q1 "SELECT (updated_at > '${OLD_UPD}'::timestamptz)::text FROM public.orders WHERE display_id='PCM-BANK-B'")"
+
+# 格19 🟢 格18 的負對照:**沒有被取消的單, updated_at 不該動**
+#   🛑 少了這一格, 一支「無條件把每張單的 updated_at 都刷新」的壞碼會讓格18 印綠。
+#   ⇒ 📌 格18 證的是「有動」, 格19 證的是「只動該動的那張」—— 兩個不同的宣稱。
+#   🔴 **而我第一版寫成 `updated_at > OLD` 期望 `f`** —— codex R4 逐字:
+#      「用【不大於】冒充【完全相等】」⇒ 一個把它改小的壞碼也會印 `f` ⇒ 假綠。
+#      ✅ 改成問**完全相等**。🔵 而 codex 也排除了我擔心的那格:seed / sleep / begin
+#         各是獨立 psql 交易, fixture 是未降精度的 timestamptz ⇒ **不是同交易 now() 的問題。**
+reset_data; seed_card; seed_bank
+OTHER=$(q1 "SELECT updated_at::text FROM public.orders WHERE id='${CARD}'")
+pq -q -c "SELECT pg_sleep(0.01);"
+begin_card > /dev/null
+check "格19 沒被取消的那張 updated_at 完全沒動" "t" \
+  "$(q1 "SELECT (updated_at = '${OTHER}'::timestamptz)::text FROM public.orders WHERE id='${CARD}'")"
+
 if [ "$FAILED" -ne 0 ]; then echo "X 有格子紅了(見上)"; exit 1; fi
-echo "OK 十七格全過"
+echo "OK 二十格全過(格號不連續 —— 10b/16b/20 是後補的, 刻意不重排:重排會讓引用舊格號的紀錄全部指錯)"
