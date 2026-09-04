@@ -73,6 +73,15 @@ admin_reset_hct_to_draft(p_shipment_reference text, p_actor text, p_evidence jso
 
 ## 7. 這份 plan 答不出來的
 
-· **今天有幾箱卡在 unknown?** —— 我沒查(唯讀連線查得到,但那要另一發)。
-  📌 **而那個數字會改變這一片的急迫性,不會改變它的設計。**
+· ⛔ ~~**今天有幾箱卡在 unknown?** —— 我沒查~~ ⇒ 🟢 **2026-09-05 查了:0 箱。**
+  🔴 **而這個 0 的分母是 2,那句一定要跟著走**:整張 `shipments` **只有 2 箱、兩箱都是 `draft`**
+  ⇒ 📌 **那不是「unknown 都被處理掉了」,是【這張表幾乎沒有資料】。**
+  ⇒ 🎯 **「0/2」與「0/500」是完全不同的結論,而它們都印 0。**
+  🟢 尺是活的(不是連錯庫或被 RLS 少報):`current_user = pcm_readonly` 且 `bypassrls = t`;
+  同一把 `count` 尺量到 `orders 1 · order_items 1 · customers 15 · shipments 2`。
+  ⚠️ **明天灌了資料要重跑**:
+  `psql "$PCM_READONLY_DATABASE_URL" -c "SELECT COALESCE(hct_status,'(NULL)'), count(*) FROM public.shipments GROUP BY 1"`
+  🔵 來源:線 `-d0` 唯讀量測(`-94` 派),**而我自己重跑過一次,逐格相同** ——
+  📌 **因為這個數字要寫進一份 Sean 會拿去拍板的 plan,而轉述來的值在那裡不夠。**
+  ⇒ **它改變的是急迫性,不是設計。** 今天 0 箱 ⇒ 這一片**可以排在放 env 之前做完就好**,不必插隊。
 · `hct_request_id` 的 write-once trigger 對 `NULL` 的行為(見 §3)。
