@@ -75,6 +75,7 @@ async function globalSetup(config: FullConfig): Promise<void> {
       totalOk,
       total,
       cardsRendered,
+      countText,
       navTimeoutMs: CONTRACT_NAV_TIMEOUT_MS,
     });
     if (failure) {
