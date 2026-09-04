@@ -3,15 +3,25 @@
 -- 🛑🛑 **本檔是【草稿】。動 RLS = PCM 鐵則 12②(權限)⇒ 要 Sean 拍板 + codex 對抗審查才貼。**
 -- 🟢 **它是【純加 policy】** —— 零 `GRANT`、零 `REVOKE`、零 `ALTER ROLE`、**不建表 / 函式 / 角色**。
 --    ⛔ ~~原句寫「不建任何新物件」~~ —— **policy 自己就是新的 DB 物件**(codex R1 nit)。
---    ⇒ 貼上去**不會讓任何今天能做的事變成不能做**;它只是把「今天靠 BYPASSRLS 過的」
---      改成「靠一條寫明的政策過的」。
+--    ⇒ 貼上去**不會讓任何今天能做的事變成不能做**。
+--    🛑 **[R2 nit :6 訂正]** ⛔ ~~原句寫「它把今天靠 BYPASSRLS 過的**改成**靠政策過的」~~ ——
+--       **那句在今天是假的**:BYPASSRLS 還在的時候, PostgreSQL **根本不會去看 policy**。
+--       ✅ 正確說法:**它先把政策【擺好】, 等 `⟦b9-RLSHARDEN⟧` 拿掉 BYPASSRLS 那一刻才開始被走到。**
+--       ⇒ 📌 本檔今天的價值是【預先鋪路】, 不是【換了一條路】。
 --
 -- ══════════════════════════════════════════════════════════════════════════
 -- 為什麼要有它(來源:2026-09-05 線【身分】`-auth` 的兩份唯讀盤點)
 -- ══════════════════════════════════════════════════════════════════════════
 --   `docs/plans/2026-09-05-service-role-consumers-inventory.md` 掃了 `origin/dev` 的碼:
 --   **23 個表/view + 26 支函式**由 `service_role` 碰到。其中 **20 個已有涵蓋的 policy**、
---   26 支函式全是 `SECURITY DEFINER`(`prosecdef` 26/0/26 ⇒ 免疫),
+--   26 支函式全是 `SECURITY DEFINER`(`prosecdef` 26/0/26),
+--   ⚠️ **[R2 must-fix :14]** ⛔ ~~原句寫「⇒ 免疫」~~ —— **那比事實樂觀**:
+--      `SECURITY DEFINER` 以 **owner** 身分跑, 而 **owner 若不是 superuser / 沒有 BYPASSRLS,
+--      且表開了 `FORCE ROW LEVEL SECURITY`, 函式【仍然】受 policy 限制。**
+--      🔬 **本專案的實測(所以這次成立, 而理由要寫出來)**:那 26 支的 owner 全是 `postgres`,
+--      而 `postgres` 的 `rolbypassrls = t`(2026-09-05 唯讀實查);且那 7 張表
+--      `relforcerowsecurity` 全為 `f`。⇒ **兩個條件都不成立 ⇒ 今天確實免疫。**
+--      🛑 **而這是【量出來的條件】不是【SECDEF 的性質】** —— 有人開了 FORCE RLS 就要重驗。
 --   而**這三張表的寫入路徑今天【只靠 `service_role` 的 `BYPASSRLS`】活著**:
 --
 --     admin_audit_log          碼要 INSERT   而 policy 只有 SELECT
@@ -105,6 +115,37 @@ BEGIN
                     '這表示 ⟦b9-RLSHARDEN⟧ 已經先跑了 —— 順序反了, 停下來重讀本檔開頭那一段。';
   END IF;
 
+  -- ⑥ 前提斷言(R2 must-fix `:99`):**目標表必須真的開著 RLS**。
+  --    🔴 沒有這一格的話:某張表其實沒 ENABLE RLS ⇒ 四條 policy 與全部斷言【照樣全過】,
+  --    而拿掉 BYPASSRLS 之後那張表**完全不受 policy 保護** ⇒ 📌 一個綠色的假保護。
+  FOR i IN 1 .. array_length(expected, 1) LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+                     JOIN pg_catalog.pg_namespace ns ON ns.oid = c.relnamespace
+                    WHERE ns.nspname='public' AND c.relname = expected[i][1]
+                      AND c.relrowsecurity) THEN
+      RAISE EXCEPTION '% 沒有啟用 RLS ⇒ 在它上面加 policy 是【看起來有保護】而實際沒有', expected[i][1];
+    END IF;
+  END LOOP;
+
+  -- ⑦ 前提斷言(R2 must-fix `:171`):**ACL 那一層也要在**。
+  --    🔴 RLS 與 GRANT 是兩道【各自獨立】的閘, 兩道都要過。
+  --    只鎖 policy 而 ACL 少了 INSERT / 欄級 UPDATE / SELECT ⇒ 本檔仍全過,
+  --    而拿掉 BYPASSRLS 之後**寫入或 `.select()` 回讀才失敗** ⇒ 那時沒有人會想到是這裡。
+  IF NOT (has_table_privilege('service_role','public.admin_audit_log','INSERT')
+      AND has_table_privilege('service_role','public.admin_sso_login_events','INSERT')
+      AND has_table_privilege('service_role','public.staff','INSERT')
+      AND has_table_privilege('service_role','public.admin_audit_log','SELECT')
+      AND has_table_privilege('service_role','public.staff','SELECT')) THEN
+    RAISE EXCEPTION 'ACL 前提不成立:三張表的 INSERT / 回讀用的 SELECT 沒有齊 ⇒ 只補 policy 不夠';
+  END IF;
+  -- 🔴 staff 的 UPDATE 是**欄級**的 ⇒ `has_table_privilege` 對它回 false(本檔開頭那段記過)
+  --    ⇒ 這裡要走欄級問法, 而且**三欄逐欄問**(少一欄, 那個欄位的更新就會在 harden 後靜靜失敗)。
+  IF NOT (has_column_privilege('service_role','public.staff','label','UPDATE')
+      AND has_column_privilege('service_role','public.staff','is_manager','UPDATE')
+      AND has_column_privilege('service_role','public.staff','is_active','UPDATE')) THEN
+    RAISE EXCEPTION 'staff 的欄級 UPDATE 前提不成立(label/is_manager/is_active 要三欄都有)';
+  END IF;
+
   -- ① 正向(R1 must-fix ①):逐條驗【表 + 名 + 動詞 + qual + permissive + 角色恰等於 service_role】
   FOR i IN 1 .. array_length(expected, 1) LOOP
     SELECT count(*) INTO n
@@ -133,16 +174,25 @@ BEGIN
   --    🔬 實測:突變「三條 INSERT 改成 `TO PUBLIC, service_role`」⇒ **被 ① 擋下**, ② 沒輪到。
   --    ⇒ 📌 **留著它不是因為它多擋了一個世界, 是因為它的錯誤訊息直接說出「開給了誰」**,
   --      而 ① 的訊息只說「形狀不符」。⇒ 兩個訊息各自把人送到不同的地方。
+  --    🔴 **[R2 nit :130 補]** codex 指出 **③ 也一樣被 ① 推得出來** ⇒ 兩格都不增加阻擋力。
+  --       ✅ 保留的理由同下, 而**兩格都明寫「不算獨立證據」**, 不讓下一個人把它們數成三道網。
   --    ⚠️ **而若哪天有人放寬了 ①(例如改成「含有 service_role 即可」), 這一格會【立刻變成唯一的網】**
   --      ⇒ 那正是留著它的理由;但**今天不要把它算成第二道獨立的證據。**
   --    🔴 改成問【成員資格】不是【陣列相等】—— `TO PUBLIC, service_role` 的 polroles 是
   --       `{0, <oid>}`, 而舊版的 `= '{0}'` 對它回 false ⇒ 那個世界會靜靜通過。
   SELECT count(*) INTO n
     FROM pg_catalog.pg_policy p
-   WHERE p.polname = ANY (ARRAY['admin_audit_log_insert_service_role',
-                                'admin_sso_login_events_insert_service_role',
-                                'staff_insert_service_role',
-                                'staff_update_service_role'])
+    JOIN pg_catalog.pg_class c2 ON c2.oid = p.polrelid
+     JOIN pg_catalog.pg_namespace ns2 ON ns2.oid = c2.relnamespace
+   WHERE ns2.nspname = 'public'
+     -- 🔴 **[R2 must-fix :140]** policy 名字**只在一張表內唯一** ⇒ 別的表可以合法重用同名
+     --    ⇒ 舊版只比 `polname` ⇒ ②會把別表的同名 policy 誤報成公開、③會數成 >4。
+     --    ✅ 綁上 (表, 名) 這一對。
+     AND (c2.relname, p.polname) IN (
+           ('admin_audit_log','admin_audit_log_insert_service_role'),
+           ('admin_sso_login_events','admin_sso_login_events_insert_service_role'),
+           ('staff','staff_insert_service_role'),
+           ('staff','staff_update_service_role'))
      AND (0 = ANY (p.polroles)                       -- 0 = PUBLIC, 用成員資格問
           OR EXISTS (SELECT 1 FROM pg_catalog.pg_roles r
                       WHERE r.oid = ANY (p.polroles)
@@ -157,10 +207,14 @@ BEGIN
   --       ⇒ 若這裡回 0, 表示 ② 那個 0 是【尺不會動】而不是【真的沒有】。
   SELECT count(*) INTO n
     FROM pg_catalog.pg_policy p
-   WHERE p.polname = ANY (ARRAY['admin_audit_log_insert_service_role',
-                                'admin_sso_login_events_insert_service_role',
-                                'staff_insert_service_role',
-                                'staff_update_service_role'])
+    JOIN pg_catalog.pg_class c3 ON c3.oid = p.polrelid
+     JOIN pg_catalog.pg_namespace ns3 ON ns3.oid = c3.relnamespace
+   WHERE ns3.nspname = 'public'
+     AND (c3.relname, p.polname) IN (
+           ('admin_audit_log','admin_audit_log_insert_service_role'),
+           ('admin_sso_login_events','admin_sso_login_events_insert_service_role'),
+           ('staff','staff_insert_service_role'),
+           ('staff','staff_update_service_role'))
      AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles r
                   WHERE r.oid = ANY (p.polroles)
                     AND r.rolname IN ('service_role'));   -- ← 唯一的差別:換成一定會中的角色
@@ -180,10 +234,20 @@ COMMIT;
 -- ══════════════════════════════════════════════════════════════════════════
 -- Rollback(單向門檢查:**本檔不是單向門** —— 四條 policy 都是新加的, 刪掉即回到今天)
 -- ══════════════════════════════════════════════════════════════════════════
---   DROP POLICY staff_update_service_role ON public.staff;
---   DROP POLICY staff_insert_service_role ON public.staff;
---   DROP POLICY admin_sso_login_events_insert_service_role ON public.admin_sso_login_events;
---   DROP POLICY admin_audit_log_insert_service_role ON public.admin_audit_log;
+--   🔴 **[R2 must-fix :181]** 四句要**包在一個交易裡**, 而且**先擋一個世界**:
+--      若 BYPASSRLS 已經被拿掉(= RLSHARDEN 跑過了), **這四個 DROP 會【當場切斷寫入】**。
+--   BEGIN;
+--     DO $r$ BEGIN
+--       IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles
+--                       WHERE rolname='service_role' AND rolbypassrls) THEN
+--         RAISE EXCEPTION 'BYPASSRLS 已經拿掉了 ⇒ 現在 DROP 這四條會切斷 admin 的寫入路徑';
+--       END IF;
+--     END $r$;
+--     DROP POLICY staff_update_service_role ON public.staff;
+--     DROP POLICY staff_insert_service_role ON public.staff;
+--     DROP POLICY admin_sso_login_events_insert_service_role ON public.admin_sso_login_events;
+--     DROP POLICY admin_audit_log_insert_service_role ON public.admin_audit_log;
+--   COMMIT;
 --
 -- 🔵 **rollback 之後行為與今天完全相同** —— 因為今天那三條路是靠 `BYPASSRLS` 過的,
 --    而本檔沒有動 `BYPASSRLS`。⇒ 📌 **本檔在「BYPASSRLS 還在」的世界裡是【零行為改變】**;

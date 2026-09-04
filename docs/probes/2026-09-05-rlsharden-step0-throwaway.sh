@@ -27,6 +27,12 @@ PORT=$(( 54000 + RANDOM % 900 )); D="/tmp/pgthrow-rls-$WIN"
 if [ -d "$D" ]; then echo "🛑 $D 已存在 ⇒ 停, 不動別人的東西"; exit 1; fi
 if lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; then echo "🛑 埠 $PORT 被佔 ⇒ 停"; exit 1; fi
 mkdir -p "$D"
+# 🔴🔴 **[2026-09-05 折 R2 時自己撞到的第三個形狀]**:上面那些 `exit 1` 的早退路徑
+#    **不會收攤** ⇒ 目錄留著 ⇒ **下一發啟動時撞「$D 已存在 ⇒ 停」而【停在一個與真正問題無關的訊息上】**。
+#    🎯 我就是這樣把一發「突變有沒有被抓到」讀成了「目錄已存在」。
+#    ✅ 用 trap:不論從哪一行離開, 叢集與目錄都收乾淨。
+cleanup() { LC_ALL=C pg_ctl -D "$D/data" stop -m fast >/dev/null 2>&1 || true; rm -rf "$D"; }
+trap cleanup EXIT
 initdb -U postgres -A trust --encoding=UTF8 --locale=C "$D/data" > "$D/initdb.log" 2>&1 || { echo "initdb 失敗"; exit 1; }
 LC_ALL=C pg_ctl -D "$D/data" -o "-p $PORT -c listen_addresses=127.0.0.1" -l "$D/pg.log" start >/dev/null 2>&1 \
   || { echo "pg_ctl 起不來, 看 $D/pg.log"; exit 1; }
@@ -69,6 +75,10 @@ one() { # $1=期望 pass|deny  $2=標籤  $3=SQL
        FAILED=$((FAILED+1)); fi
 }
 try() { # $1=這一輪四發的期望(pass|deny)
+  # 🔴🔴 **R2 must-fix `:74`:原版第①輪 staff 是空的、第②輪又把唯一的 `a` 改成 `b`**
+  #    ⇒ 📌 第①③輪的 UPDATE **不論 policy 在不在都是改 0 列** ⇒ 那兩格【零判別力】。
+  #    ✅ 每一輪開始前用 **postgres**(繞過 RLS)種一列 `label='a'`, 讓 UPDATE 永遠有東西可改。
+  P -q -c "DELETE FROM public.staff; INSERT INTO public.staff(label,is_manager,is_active) VALUES ('a',false,true);"
   one "$1" "INSERT admin_audit_log"        "INSERT INTO public.admin_audit_log(note) VALUES ('x');"
   one "$1" "INSERT admin_sso_login_events" "INSERT INTO public.admin_sso_login_events(note) VALUES ('x');"
   one "$1" "INSERT staff"                  "INSERT INTO public.staff(label,is_manager,is_active) VALUES ('a',false,true);"
@@ -77,11 +87,18 @@ try() { # $1=這一輪四發的期望(pass|deny)
   #    ⇒ 用 RETURNING + 要求恰好 1 列, 讓「改到 0 列」與「改到 1 列」印不同的東西。
   local out rc
   out=$(P -c "SET ROLE service_role; UPDATE public.staff SET label='b' WHERE label='a' RETURNING id;" 2>&1); rc=$?
+  # 🔴🔴 **[2026-09-05 折 R2 時自己抓到的]**:原版 pass 那一支用 `grep -c .` 數列數,
+  #    而 `psql -c "SET ROLE …; UPDATE …"` 的輸出**第一行是 `SET`** ⇒ 📌 **即使改到 0 列也會數到 1**
+  #    ⇒ **pass 那一格【永遠不可能失敗】。** 實錘:把 migration 的 `USING (true)` 突變成 `(false)`
+  #    ⇒ 它照樣印「改到 2 列」而全綠;而同一個突變在最小重現裡是 `UPDATE 0`。
+  #    ✅ 兩支都改用 `grep -c '^[0-9]'`(只數 RETURNING 回來的 id 行)—— deny 那支本來就是對的,
+  #      🎯 **而「兩支用不同的數法」正是它能活下來的原因:對的那半掩護了錯的那半。**
+  local rows; rows=$(printf '%s' "$out" | grep -c '^[0-9]')
   if [ "$1" = pass ]; then
-    if [ $rc -eq 0 ] && [ "$(printf '%s' "$out" | grep -c .)" -ge 1 ]; then printf '   ✅ %-34s 期望=pass 實際=改到 %s 列\n' "UPDATE staff" "$(printf '%s' "$out" | grep -c .)"
-    else printf '   🔴 %-34s 期望=pass 實際=rc=%s 改到 %s 列(0 列也算失敗)\n' "UPDATE staff" "$rc" "$(printf '%s' "$out" | grep -c '^[0-9]')"; FAILED=$((FAILED+1)); fi
+    if [ $rc -eq 0 ] && [ "$rows" -ge 1 ]; then printf '   ✅ %-34s 期望=pass 實際=改到 %s 列\n' "UPDATE staff" "$rows"
+    else printf '   🔴 %-34s 期望=pass 實際=rc=%s 改到 %s 列(0 列也算失敗)\n' "UPDATE staff" "$rc" "$rows"; FAILED=$((FAILED+1)); fi
   else
-    if [ $rc -ne 0 ] || [ "$(printf '%s' "$out" | grep -c '^[0-9]')" -eq 0 ]; then printf '   ✅ %-34s 期望=deny 實際=沒改到任何列\n' "UPDATE staff"
+    if [ $rc -ne 0 ] || [ "$rows" -eq 0 ]; then printf '   ✅ %-34s 期望=deny 實際=沒改到任何列\n' "UPDATE staff"
     else printf '   🔴 %-34s 期望=deny 實際=竟然改到了列\n' "UPDATE staff"; FAILED=$((FAILED+1)); fi
   fi
 }
@@ -89,16 +106,19 @@ try() { # $1=這一輪四發的期望(pass|deny)
 echo "--- ① 還沒有 policy(期望:四發全被擋)---"; try deny
 
 echo "--- ② 套上本次 migration 的那四條 policy(期望:成功)---"
-P -q <<'SQL'
-CREATE POLICY admin_audit_log_insert_service_role ON public.admin_audit_log
-  FOR INSERT TO service_role WITH CHECK (true);
-CREATE POLICY admin_sso_login_events_insert_service_role ON public.admin_sso_login_events
-  FOR INSERT TO service_role WITH CHECK (true);
-CREATE POLICY staff_insert_service_role ON public.staff
-  FOR INSERT TO service_role WITH CHECK (true);
-CREATE POLICY staff_update_service_role ON public.staff
-  FOR UPDATE TO service_role USING (true) WITH CHECK (true);
-SQL
+# 🔴🔴 **R2 must-fix `:92`:原版把四條 `CREATE POLICY` 【手抄一份】在這裡。**
+#    ⇒ 📌 正式那支 migration 改成 `WITH CHECK (false)` 時, 探針裡的複本還是 `true`
+#      ⇒ **探針全綠, 而它測的是我的手抄, 不是審查對象。**
+#    ✅ 改成【從那支 migration 檔本身抽出來跑】—— 兩邊不可能再漂。
+MIG="$(cd "$(dirname "$0")/../.." && pwd)/supabase/migrations/20260905090000_m4b_service_role_policies_before_rlsharden.sql"
+if [ ! -f "$MIG" ]; then echo "🛑 找不到 migration:$MIG"; exit 1; fi
+# 只取四條 CREATE POLICY(到分號為止), 不取 BEGIN/DO/COMMIT —— 那幾段要真的 schema 才跑得動
+awk '/^CREATE POLICY/{c=1} c{print} /;[[:space:]]*$/{c=0}' "$MIG" > "$D/policies.sql"
+NPOL=$(grep -c '^CREATE POLICY' "$D/policies.sql")
+# 🟢 正對照:抽到 0 條而還往下跑, 會讓②變成「沒有 policy 也過」⇒ 那是假綠
+if [ "$NPOL" -ne 4 ]; then echo "🛑 從 migration 只抽到 $NPOL 條 CREATE POLICY(期望 4)⇒ 抽取壞了, 停"; exit 1; fi
+echo "   (從 $(basename "$MIG") 抽出 $NPOL 條, 不是手抄)"
+P -q -f "$D/policies.sql"
 try pass
 
 echo "--- ③ 再把 policy 拿掉(期望:又失敗 ⇒ 證明②是那條 policy 給的)---"
@@ -109,9 +129,13 @@ P -q -c "DROP POLICY staff_update_service_role ON public.staff;
 try deny
 
 echo "--- 🧹 收攤 ---"
-LC_ALL=C pg_ctl -D "$D/data" stop -m fast >/dev/null 2>&1; echo "pg_ctl stop rc=$?"
-pgrep -f "pgthrow-rls-$WIN" >/dev/null 2>&1 && echo "🛑 還有殘留程序" || echo "✅ 無殘留程序"
-rm -rf "$D"; [ -d "$D" ] && echo "🛑 目錄還在" || echo "✅ 目錄已刪並驗"
+# 🔴 **R2 must-fix `:111`:原版收攤那三格【只印紅字、不計入 FAILED】**
+#    ⇒ 停不掉 / 有殘留程序 / 目錄刪不掉, 最後照樣 exit 0 ⇒ 📌 一格永遠不會叫的清潔檢查。
+LC_ALL=C pg_ctl -D "$D/data" stop -m fast >/dev/null 2>&1
+SRC=$?; if [ $SRC -eq 0 ]; then echo "✅ pg_ctl stop rc=0"; else echo "🔴 pg_ctl stop rc=$SRC"; FAILED=$((FAILED+1)); fi
+if pgrep -f "pgthrow-rls-$WIN" >/dev/null 2>&1; then echo "🔴 還有殘留程序"; FAILED=$((FAILED+1)); else echo "✅ 無殘留程序"; fi
+rm -rf "$D"
+if [ -d "$D" ]; then echo "🔴 目錄還在"; FAILED=$((FAILED+1)); else echo "✅ 目錄已刪並驗"; fi
 
 # 🔴 **rc 要由結果決定** —— 這是 codex must-fix ① 的核心:
 #    一支「印紅字而 exit 0」的檢查, 在 CI 裡與「全過」是同一個東西。
