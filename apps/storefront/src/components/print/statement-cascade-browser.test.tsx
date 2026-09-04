@@ -88,6 +88,7 @@ const ORDER = {
     quantity: 1,
     unitPrice: twd(6000),
     lineTotal: twd(6000),
+    shipped: false,
   })),
   itemCount: 3,
   itemsTruncated: false,

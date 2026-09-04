@@ -430,7 +430,11 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     //      🟢 負對照當場跑過:--expect-groups=9999 ⇒ 印 ALERT 而 rc 兩個世界都是 0。
     writeAllowed: true,
   },
-  // RIZOMA。2026-09-04 線【帳號】登記(**Sean 尚未批首灌 ⇒ writeAllowed: false, 零寫入**)。
+  // RIZOMA。2026-09-04 線【帳號】登記。
+  // ⛔ ~~(**Sean 尚未批首灌 ⇒ writeAllowed: false, 零寫入**)~~ —— **同日下午作廢**:Sean 逐字
+  //   「`q3: 上`」批了, 首灌已跑完(見下方 `writeAllowed` 那格)。**舊字面留刪除線, 不刪。**
+  //   📌 codex 對抗審查抓到的:一句寫在檔頭的「尚未批准」與同一支檔 30 行後的 `true` 相反,
+  //     而**讀檔頭的人不會往下讀到那一格**。
   //
   // 🔴🔴 **下面每個數字都是快照, 不是契約** —— `--expect-groups` 必須在跑乾跑/首灌的那一刻
   //   【重量】, 絕對不要沿用這裡的數字(`gilles` 那塊的教訓:它兩分鐘內量到兩組不同的值)。
@@ -458,7 +462,21 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     appendManualFilename: true,
     categoryStrategy: { kind: 'per-group' }, // 10 大類 / 26 子類 ⇒ 不是 rpm 那種單一大類
     variantImages: 'per-variant', // 145 個多變體群裡 142 群每變體都有自己的圖
-    writeAllowed: false, // 🔴 fail-closed、零寫入;**乾跑全綠 + Sean 明確批首灌後才翻 true**
+    // 🔴 2026-09-04 翻 true —— Sean 逐字「`q3: 上`」(落點 `~/pcm-mailbox/Sean拍板-20260904-七題.md:19`,
+    //    題目「Q3 RIZOMA 上架?」)。⚠️ **授權的射程 = 【這一家】** —— **下一家要再問。**
+    // 🔴 **而「每天自動同步」不是靠這一句授權的**(codex 對抗審查問到這一格, 值得寫死):
+    //    它走的是 2026-07-12 Sean 的常設拍板「**所有品牌每日同步**」(逐字落在
+    //    `.github/workflows/rpm-sync.yml:25,79`)⇒ 🎯 **「上架」與「排進每日班」是同一件事的兩半**,
+    //    dna/gilles 兩家就是**只做了前半**而顧客站價格凍在首灌快照(該檔註解記著)。
+    //    ⇒ 📌 所以本行翻 true 的同一顆 commit 一定要補 matrix, 而那道對帳測試會逼你補。
+    // 🔬 **翻之前的基線(當場量的, 首灌後拿它對帳)**:來源 view 變體 **926** / 群 **723** /
+    //    價缺 0 / v2 已分類 926 = 總數 / 明文 http **0** / 網站庫 target 現存上架 **0**。
+    //    `images IS NULL` **3** 列且 `COUNT(DISTINCT image_url)` = **1**,逐字
+    //    `https://quote.pcmmotorsports.com/no-photo.png` = 🟢 **PCM 自己的卡**(不是外連他家)
+    //    ⇒ 已被 `supplier-placeholder.ts` 的 `PCM_OWN_NO_PHOTO_CARD` 認得 ⇒ 不擋上架。
+    // ⚠️ **而上面那幾行註解裡的群數(690 有描述 / 672 有 pdf / 145 多變體)是 09-03 量的, 今天是 723 群**
+    //    —— 源頭每天在動。**要引用先重量, 不要抄。**
+    writeAllowed: true,
   },
   // 🔴 永久 guard 測試靶(非真供應商、Sean 2026-07-24 拍板放行):所有真品牌已 writeAllowed=true
   //   → rpm-import CLI 的 writeAllowed 硬鎖守衛失去「真實未授權樣本」;保留此永久 false 樣本讓

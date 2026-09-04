@@ -7,7 +7,10 @@
 > (`supabase/migrations/20260611120000_m3_s2c_confirm_payment_rpc.sql:230` 逐字寫著這件事)。
 > 🔴 **閘是字面比對抽出來的,不是 SQL 語意分析** ⇒ 可能漏掉「用變數繞一手」寫的閘。
 > **每一格都附行號:下判斷前開檔看那一行,不要只信本表。**
-> 🔴 **`docs/` 一律不採信** —— 本表只讀 `supabase/migrations/*.sql`。
+> 🔴 **`docs/` 一律不採信** —— 本表只讀 `supabase/migrations/*.sql`,
+> ⛔ ~~而且是全部~~ **不是全部**:帶 `-- pcm:never-apply` 的檔被排除了 ——
+> **若這次有排除到, §一 末尾會逐支列出;那裡沒有清單就代表這次一支都沒排除。**
+> (刻意寫成兩個世界都成立的句子:上一版無條件指到一份有條件才印的清單, 空世界時它是懸空的。)
 > 今天的病根就是「文件寫的 ≠ 程式碼實際擋的」;文件有述而 code 找不到的,本表標「**docs 有述、code 未見**」。
 >
 > 🔴 **2026-08-27 修過一個抽取 bug(給下一個撞到同族的人)**:當 migration 檔名自己含 `public.<字>`
@@ -16,9 +19,9 @@
 >   ⇒ 若日後表上又冒出看起來像真函式的怪名(例如 `orders`),**先看是不是又有檔名含 `public.<字>`** ——
 >   那種碎片看起來完全正常,不會自己喊。
 
-## 一、同名函式被 CREATE OR REPLACE 過幾代(**只有時間戳最大那代是 live**)
+## 一、同名函式被 CREATE OR REPLACE 過幾代(🔴 **最後一欄是 repo 裡最後一支, 不是線上**)
 
-| 函式 | 代數 | 各代 (檔:行) | 🔴 live 那代 |
+| 函式 | 代數 | 各代 (檔:行) | 🔴 repo 裡最後一支(**不是線上**) |
 |---|---|---|---|
 | `admin_add_shipment_items` | **4** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:119<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:631<br>20260807180000_m4b_e10_b2_w3b2_add_shipment_items.sql:83<br>20260807230000_m4b_e10_b2_w4b_impl_extract_and_no_batch.sql:294 | `20260807230000_m4b_e10_b2_w4b_impl_extract_and_no_batch.sql:294` |
 | `admin_cancel_order` | **5** | 20260804180000_m4b_e10_a8a1_admin_cancel_order.sql:83<br>20260805100000_m4b_e10_a8a2_partial_cancel.sql:80<br>20260820030000_m4b_e10_a8a3_cancel_gate_noncard.sql:253<br>20260830020000_m4b_e10_cancel_reason_neutral.sql:115<br>20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:90 | `20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:90` |
@@ -77,12 +80,29 @@
 | `pcm_refund_ledger_block_truncate` | **2** | 20260725130100_m3_rf2a2_order_refunds_ledger.sql:253<br>20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:422 | `20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:422` |
 | `pcm_sync_order_refund_payment_status` | **2** | 20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql:127<br>20260823020000_m4b_refund_notify_p2a_record_calls_sync.sql:239 | `20260823020000_m4b_refund_notify_p2a_record_calls_sync.sql:239` |
 | `search_catalog_by_vehicle` | **7** | 20260712183000_products_catalog_page_public.sql:37<br>20260712193000_catalog_rpc_expose_fitments.sql:10<br>20260712213000_p4_catalog_rpc_split_generic_plan_replay.sql:8<br>20260719150000_catalog_product_image_trim.sql:73<br>20260811040000_m4b_storefront_269b_catalog_new_arrivals.sql:266<br>20260827150000_m4b_storefront_950_recommend_sort_mid_high_price.sql:84<br>20260827180000_m4b_storefront_new_arrivals_exclude_repair_parts.sql:38 | `20260827180000_m4b_storefront_new_arrivals_exclude_repair_parts.sql:38` |
-| `storefront_search_product_ids` | **4** | 20260903050000_m4b_storefront_search_product_ids.sql:84<br>20260903230000_m4b_storefront_search_partno_normalized.sql:188<br>20260904010000_m4b_storefront_search_partno_indexable.sql:124<br>20260904030000_m4b_storefront_search_split_three_blocks.sql:148 | `20260904030000_m4b_storefront_search_split_three_blocks.sql:148` |
+| `storefront_search_product_ids` | **3** | 20260903050000_m4b_storefront_search_product_ids.sql:84<br>20260903230000_m4b_storefront_search_partno_normalized.sql:188<br>20260904030000_m4b_storefront_search_split_three_blocks.sql:148 | `20260904030000_m4b_storefront_search_split_three_blocks.sql:148` |
 | `sync_product_variant_group` | **2** | 20260727084801_atomic_variant_group_sync.sql:19<br>20260825120000_m4b_zero_price_allowed_in_variant_sync.sql:58 | `20260825120000_m4b_zero_price_allowed_in_variant_sync.sql:58` |
 
 > 只列 **>1 代**的。單代函式不會有「引用到過期世代」的風險,故省略。
 
+> 🔴 **最後一欄回答的是「repo 裡最後一支」,不是「正式庫現在跑的那一版」。**
+> ⚠️ 精確講, 它是 grep 串流的**最後一筆**(本腳本的 `last[key]`), 而不是「時間戳取 max」——
+> 兩者今天相等**只因為 grep 照參數序輸出、而參數是 glob 排序**。換一支行為不同的 grep 就不再相等。
+> 本腳本讀的是 `supabase/migrations/*.sql` —— 它看得到「檔案存在」(扣掉 never-apply 的那幾支),看不到「這支貼了沒」。
+> ✅ **要知道線上跑的是哪一代**:查 `supabase/APPLIED.tsv`,或用唯讀連線讀 `pg_get_functiondef`。
+
+> 🔵 **本表(§一 與 §二 都是)已排除 4 支標了 `-- pcm:never-apply` 的檔**(它們永遠不會貼 ⇒ 不可能是任何一代):
+> · `20260901170000_m4b_pfe_ddl_into_version_control.sql`
+> · `20260902200000_m4b_c7_rpc_ddl_into_version_control.sql`
+> · `20260902210000_m4b_pfeddl2_staging_and_sync_log.sql`
+> · `20260904010000_m4b_storefront_search_partno_indexable.sql`
+> ⚠️ **而排除治不了另一半**:一支「寫好了而還沒貼」的檔照樣會排在最後 ⇒ 照樣不是線上那一代。
+
+
 ## 二、會改訂單狀態的函式 × 它的允許集合(逐字)
+
+> 🔵 **本節與 §一 用同一份分母** —— 那 4 支 `-- pcm:never-apply` 的檔也被排除了(清單在 §一 末尾)。
+> ⚠️ 意思是:**若那幾支檔裡有訂單狀態的閘, 它不會出現在下面**。今天它們對狀態寫入零命中, 所以這一句現在不產生任何差異。
 
 ### `confirm_order_payment`  ·  `20260611120000_m3_s2c_confirm_payment_rpc.sql`
 
