@@ -33,6 +33,7 @@ const ORDER = {
   subtotal: twd(18000),
   shippingFee: twd(100),
   discountTotal: twd(0),
+  taxTotal: twd(0),
   total: twd(18100),
   shippingMethod: 'home',
   shippingAddress: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },

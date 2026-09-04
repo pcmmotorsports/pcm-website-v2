@@ -39,6 +39,7 @@
  */
 
 import type { PaidEmailContext } from '@pcm/ports';
+import { subtotalLabelOf } from '@pcm/domain';
 import {
   formatOrderAmount,
   orderAmountsBalance,
@@ -503,8 +504,18 @@ ${lineRows}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
       <tr><td class="px" style="padding:16px 28px 0;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+          <!-- 🔴 **這裡的「小計」與上面【品項表欄頭】那個「小計」是【兩個不同的東西】**
+               (b4-TAXSURFACES, 2026-09-04 Sean 拍甲):
+               · 欄頭那個 = **行小計**(單價 × 數量), 受詞是「這一列」
+               · 這裡這個 = **訂單小計**, 受詞是「整張單」
+               ⇒ 🛑 **只有這一個要加「(未稅)」** —— Sean 拍板那句講的是這一個。
+               ⚠️ **而行小計那一欄在有稅時【也是未稅的】**(Sean 選乙:單價原樣保留)
+                  ⇒ 📌 那是一題**還沒被問過**的:欄頭要不要也加。**本片不代他決定, 已記板。**
+               🔴🔴 **這段註解裡【不可以出現反引號】** —— 它住在一個 template literal 裡,
+                  反引號會把字串當場切斷。⛔ 我第一版寫了一對包住 b4 那個錨, 而 typecheck 報的是
+                  TS1127 Invalid character、指向註解 ⇒ **看起來像編碼問題, 而其實是字串被切斷了。** -->
           <tr>
-            <td style="font-family:${SANS};font-size:13px;color:#4a5765;padding:5px 0;" class="sub">小計</td>
+            <td style="font-family:${SANS};font-size:13px;color:#4a5765;padding:5px 0;" class="sub">${subtotalLabelOf('小計', ctx.taxTotal)}</td>
             <td align="right" class="ink" style="font-family:${MONO};font-size:13px;color:#1f2933;padding:5px 0;">${money(ctx.subtotal)}</td>
           </tr>
 ${shippingRow}

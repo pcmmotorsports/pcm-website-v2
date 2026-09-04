@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { MemberOrderDetail } from '@pcm/domain';
+import { subtotalLabelOf } from '@pcm/domain';
 import { stripPictographs } from '@/lib/print/strip-pictographs';
 import { LOGO_DATA_URI, QR_DATA_URI } from './print-assets';
 import { StatementPrintButton } from './statement-print-button';
@@ -473,8 +474,13 @@ export function StatementDoc({
               </h2>
               <table>
                 <tbody>
+                  {/* 🔴 **這裡的「小計」與上面【品項表欄頭】那個是兩個不同的東西**
+                      (`⟦b4-TAXSURFACES⟧`, Sean 2026-09-04 拍甲):欄頭是**行小計**(單價 × 數量),
+                      這裡是**訂單小計**。⇒ 只有這一個加「(未稅)」。
+                      ⚠️ 行小計在有稅時**也是未稅的**(Sean 選乙:單價原樣保留)⇒ 那一欄要不要也加,
+                         **還沒有人問過他**。本片不代他決定, 已記板。 */}
                   <tr>
-                    <td className='k'>小計</td>
+                    <td className='k'>{subtotalLabelOf('小計', order.taxTotal.amount)}</td>
                     <td className='v'>{amt(order.subtotal.amount)}</td>
                   </tr>
                   <tr className='line'>
@@ -488,6 +494,18 @@ export function StatementDoc({
                       {/* 🔴 負號用 **ASCII `-`**,不是 `−`(U+2212):那個字元在單色印表機
                           與缺字型的環境下不保證印得出來(後台那張被守門抓過一次)。 */}
                       <td className='v'>-{amt(order.discountTotal.amount)}</td>
+                    </tr>
+                  )}
+                  {/* 🔴 稅額:**有稅才印**(`⟦b4-TAXSURFACES⟧` 第 7 步)。
+                      · 位置與兩封信逐字對齊:小計 → 運費 → 折扣 → **稅額** → 訂單金額
+                      · 🔵 **稅 0 不印** —— 今天每一張單的稅都是 0(價格含稅), 印一列「稅額 0」
+                        會讓客人以為我們算了一筆稅給他。理由與上面那一列「折扣」同一條。
+                      · 🛑 「稅額」這兩個字**不是我發明的文案** —— Sean 2026-09-04 選項字面逐字:
+                        「乙 = **稅額**單獨記一欄, 你打的單價原樣保留。」 */}
+                  {order.taxTotal.amount > 0 && (
+                    <tr className='line'>
+                      <td className='k'>稅額</td>
+                      <td className='v'>{amt(order.taxTotal.amount)}</td>
                     </tr>
                   )}
                   <tr className='grand'>
