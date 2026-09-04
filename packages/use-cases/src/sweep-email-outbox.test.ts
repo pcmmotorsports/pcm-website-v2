@@ -68,6 +68,7 @@ type OutboxFake = IEmailOutbox & {
   //    它與上一行【只差 `last_error_code`】,而那個差是承重的(全文在 `IEmailOutbox` 的 docstring)。
   markSkippedOrderCancelled: ReturnType<typeof vi.fn>;
   markSkippedShipmentVoided: ReturnType<typeof vi.fn>;
+  markSkippedTrackingSuperseded: ReturnType<typeof vi.fn>;
 };
 
 function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEmailOutbox, unknown>> = {}): OutboxFake {
@@ -87,6 +88,9 @@ function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEm
     // 🔴 M-4b E4 片3a 新增。預設 reject 同上:在沒有明講「箱被作廢」的測項裡呼到它就是錯的
     //    ⇒ 大聲炸, 不會安靜地過。要測那條路的測項自己 mockResolvedValue(true)。
     markSkippedShipmentVoided: vi.fn().mockRejectedValue(new Error('未預期地呼叫了 markSkippedShipmentVoided(本測項的世界沒有作廢的箱)')),
+    markSkippedTrackingSuperseded: vi
+      .fn()
+      .mockRejectedValue(new Error('未預期地呼叫了 markSkippedTrackingSuperseded')),
     // 🔴 ⟦b4-MAILCANCEL1⟧ 新增。預設 reject 同上兩支:在沒有明講「單已取消」的測項裡呼到它就是錯的。
     //    ⇒ 📌 而這個預設**同時是一道守門**:一個「把 cancelled 併進 ineligible」的重構
     //      會讓那些測項呼到【另一支】⇒ 而那一支的預設也是 reject ⇒ 兩邊都炸得出來。
@@ -284,6 +288,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
       reclaimed: 0, claimed: 1, sent: 1, failed: 0, budgetExhaustedBeforeClaim: 0,
       deferred: 0, staleMarks: 0, errors: 0, skippedIneligible: 0, eligibilityUnknown: 0, quotaFailed: 0,
       skippedShipmentVoided: 0,
+      skippedTrackingSuperseded: 0,
     });
   });
 
@@ -662,6 +667,7 @@ describe('sweepEmailOutbox — 結果形狀(零 PII 合約)', () => {
       'sent',
       'skippedIneligible',
       'skippedShipmentVoided',
+      'skippedTrackingSuperseded',
       'staleMarks',
     ]);
   });
@@ -945,6 +951,7 @@ describe('sweepEmailOutbox — 🔴 order_shipped 模板(Sean 2026-08-30 `q3: C`
   it('🔴 箱被作廢(voided)⇒ 不寄、落 skipped_shipment_voided 痕跡、**不計 error**', async () => {
     const { r, sender, outbox } = await run({ kind: 'voided' }, {}, {
       markSkippedShipmentVoided: vi.fn().mockResolvedValue(true),
+      markSkippedTrackingSuperseded: vi.fn().mockResolvedValue(true),
     });
     expect(sender.send).not.toHaveBeenCalled();
     expect(outbox.markSkippedShipmentVoided).toHaveBeenCalledWith(
@@ -1979,5 +1986,99 @@ describe('稅額那一列 —— 兩份一起問', () => {
     expect(at('折扣')).toBeGreaterThan(at('運費'));
     expect(at('稅額')).toBeGreaterThan(at('折扣'));
     expect(at('訂單金額')).toBeGreaterThan(at('稅額'));
+  });
+});
+
+describe('⟦5b-TRACKNUMGAP1⟧ 片 C · 寄送當下比對即時值 —— 而它防的是【被我們背書過的錯號碼】', () => {
+  const SHIP_ID = '11111111-2222-3333-4444-555555555555';
+  /** 入隊時 payload 帶的是 B。 */
+  const correctedJob = () =>
+    job({
+      id: 'outbox-trackfix-1',
+      eventType: 'shipment_tracking_corrected',
+      dedupKey: `${SHIP_ID}:B-0002`,
+      subject: 'PCM 訂單 PCM-2026-0001 貨運單號更正(包裹 BCDF23)',
+      payload: {
+        event_version: 1,
+        display_id: 'PCM-2026-0001',
+        shipment_id: SHIP_ID,
+        shipment_reference: 'BCDF23',
+        tracking_number: 'B-0002',
+      },
+    });
+
+  const ctx = (trackingNumber: string | null) => ({
+    kind: 'ok',
+    context: {
+      orderDisplayId: 'PCM-2026-0001',
+      shipmentReference: 'BCDF23',
+      carrierName: '新竹物流',
+      trackingNumber,
+      lines: [{ title: '前煞車來令片', quantity: 1 }],
+      linesTruncated: false,
+      orderHasUnshippedItems: false,
+    },
+  });
+
+  async function run(live: unknown, outboxOverrides: Record<string, unknown> = {}) {
+    const outbox = outboxFake([correctedJob()], outboxOverrides);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const load = vi.fn().mockResolvedValue(live);
+    const r = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender, shippedContext: { loadShippedContext: load } },
+      OPTS,
+    );
+    return { r, sender, outbox, load };
+  }
+
+  /**
+   * 🔴🔴 **主視窗 2026-09-04 指定的那一格:入隊 B、寄前改 C ⇒ 0 封 + 一筆 skipped。**
+   *
+   * 少了這道閘, 那封信會說「正確的貨運單號:B」而那時候正確的是 C ——
+   * 🛑 **而信裡還寫著「請以這一封為準」** ⇒ 客人拿到一個**被我們背書過的**錯號碼, 收不回來。
+   */
+  it('🔴 入隊 B、寄前已改成 C ⇒ 【一封都不寄】, 而落一筆 skippedTrackingSuperseded', async () => {
+    const { r, sender, outbox } = await run(ctx('C-0003'), {
+      markSkippedTrackingSuperseded: vi.fn().mockResolvedValue(true),
+    });
+    expect(sender.send, '寄出去了 ⇒ 客人拿到一個被我們背書過的錯號碼').toHaveBeenCalledTimes(0);
+    expect(r.skippedTrackingSuperseded, '跳過了而【沒有留下紀錄】⇒ 只是把靜默搬到我們這端').toBe(1);
+    // 🔴 承重:鍵要退休 —— 否則「A→B→C→又改回 B」時, B 那把鍵永久佔住 ⇒ 那封信排不進去。
+    expect(outbox.markSkippedTrackingSuperseded).toHaveBeenCalledWith(
+      'outbox-trackfix-1',
+      expect.anything(),
+      `${SHIP_ID}:B-0002`,
+    );
+  });
+
+  /**
+   * 🟢 **負對照:值沒變 ⇒ 照寄。**
+   * 少了這一格, 一個「對誰都跳過」的實作會通過上一格 —— 而那是【一封都不會寄】。
+   */
+  it('🟢 負對照:入隊 B、寄前仍是 B ⇒ 寄出去, 而內文帶的是 B', async () => {
+    const { r, sender } = await run(ctx('B-0002'));
+    expect(sender.send, '值沒變卻不寄 ⇒ 這道閘把功能整個關掉了').toHaveBeenCalledTimes(1);
+    expect(r.skippedTrackingSuperseded).toBe(0);
+    const text = sender.send.mock.calls[0]![0].text as string;
+    expect(text).toContain('B-0002');
+    // 🔵 那句承重的話:少了它, 客人拿舊碼查不到會以為貨出問題 ⇒ 然後打電話。
+    expect(text).toContain('請以這一封為準;先前那個號碼查不到是正常的。');
+  });
+
+  it('🔴 箱作廢了 ⇒ 走既有那條(它的單號不會再被任何人看到), 不是走 superseded', async () => {
+    const { r, sender, outbox } = await run(
+      { kind: 'voided' },
+      { markSkippedShipmentVoided: vi.fn().mockResolvedValue(true) },
+    );
+    expect(sender.send).toHaveBeenCalledTimes(0);
+    expect(r.skippedShipmentVoided).toBe(1);
+    expect(r.skippedTrackingSuperseded, '作廢被算成「被取代」⇒ 兩個原因混成一格, 讀的人分不出來').toBe(0);
+    expect(outbox.markSkippedShipmentVoided).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 即時值讀不到(live 沒有單號)⇒ fail-closed 不寄', async () => {
+    const { r, sender } = await run(ctx(null));
+    expect(sender.send).toHaveBeenCalledTimes(0);
+    expect(r.skippedTrackingSuperseded + r.errors, '兩條路都沒走到 ⇒ 它靜靜地寄出去了?').toBeGreaterThan(0);
   });
 });

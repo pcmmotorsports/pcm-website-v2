@@ -102,13 +102,29 @@ export const SUPPRESS_WHEN_ORDER_INELIGIBLE: Record<EmailOutboxEventType, boolea
   order_shipped: true,
   // 同 order_cancelled:取消本身就是內容
   order_unpaid_cancelled: false,
+  // 🔴 **同 order_shipped ⇒ 擋。** 而理由不是「照抄旁邊那一格」:
+  //    單被取消之後, 客人**從來沒收到過**那封出貨通知(它自己就被擋掉了)
+  //    ⇒ 這時候寄一封「先前那個號碼有誤」= 講一封他沒收過的信 ⇒ 純困惑。
+  shipment_tracking_corrected: true,
 };
 
 export type EmailOutboxEventType =
   | 'order_cancelled'
   | 'order_created'
   | 'order_shipped'
-  | 'order_unpaid_cancelled';
+  | 'order_unpaid_cancelled'
+  // 🔴 ⟦5b-TRACKNUMGAP1⟧ 片 C(2026-09-04):已出貨的箱【更正貨運單號】之後的更正信。
+  //    Sean 逐字「甲 = 做, 改完自動再寄一封對的信給客人」。
+  //    ⚠️ **這個 union 是手抄的** —— DB CHECK 那半在 `20260904220000`, 兩邊要同一次改,
+  //    而 `sweep-email-outbox.ts` 的 `satisfies never` 會在少一邊時當場紅(那是它做對了)。
+  //    🔴🔴 **而這一段註解【不可以出現半形分號】** —— 2026-09-04 實撞兩次:
+  //    `scripts/email-event-type-union-vs-db.test.ts` 用一個**非貪婪到第一個分號為止**的
+  //    regex 抓這個 union ⇒ **註解裡一個分號就把下面的值整個切掉**,
+  //    而那把尺回報的是「DB 有而 TS 沒有」——
+  //    📌 **一個看起來像「我漏加了」的錯, 其實是我的【註解】打斷了別人的解析器。**
+  //    🎯 **而第二次是:我寫這段【解釋分號】的註解時, 把那個 regex 抄了進來 ——**
+  //    **那行 regex 自己就含一個分號。**⇒ 所以這裡只用散文描述它, 不貼原式。
+  | 'shipment_tracking_corrected';
 
 /**
  * 有限錯誤碼 allowlist(對齊 DB CHECK `^[a-z0-9_]{1,64}$`;E2a 依此決定退避/告警)。
@@ -255,6 +271,36 @@ export type OrderCreatedEmailPayload = {
  *   `shipment_reference` = 產號(`shipments_reference_unique`,一經產生不改)
  *   `shipped_at`         = 出貨那一刻的時戳
  */
+/**
+ * 更正單號那封信的 payload(⟦5b-TRACKNUMGAP1⟧ 片 C)。
+ *
+ * 🔴🔴 **這裡【刻意】把 `tracking_number` 存進 payload —— 而它違反 `OrderShippedEmailPayload`
+ *    那一格逐字寫的「追蹤碼不行,存了會過期」。理由與代價都寫在這裡,不要只讀那一句。**
+ *
+ * ✅ **為什麼可以**:對 `order_shipped` 而言追蹤碼是**附帶資訊**(信的主體是「出貨了」)
+ *    ⇒ 存了會過期 ⇒ 該讀即時值。
+ *    而對本事件, **那個號碼【就是事件本身】** —— 這封信的主體是「**那個值換了**」。
+ *    ⇒ 它不是快照過期的問題, 它是**事件的內容**。
+ *
+ * 🔴🔴 **而代價是真的, 我寫出來**:enqueue 到寄出之間有一個窗(掃描器是 cron)。
+ *    若員工在那個窗裡**又改了一次**(A→B→C):
+ *    · B 的列已入隊、payload 帶 B ⇒ 它會寄出一封說「正確的是 B」——**而那時候正確的是 C**。
+ *    ⇒ 🛑 **客人收到一封【主動宣告自己是對的】而其實是錯的信, 而信收不回來。**
+ *    ⇒ 📌 **這一格需要一道「寄送當下比對即時值, 不同就跳過」的閘** —— 而那不在本型別裡,
+ *      它在 sweeper 的認領路徑上(與 `markSkippedOrderCancelled` 同一族)。
+ *    ⚠️ **本註解是那道閘還沒裝的證據** —— 裝好之前, 這一段不要刪。
+ */
+export type ShipmentTrackingCorrectedEmailPayload = {
+  event_version: 1;
+  display_id: string;
+  /** 箱 uuid(同 `OrderShippedEmailPayload` 那一格:不可變, 而寄送時要拿它去比即時值)。 */
+  shipment_id: string;
+  /** 箱號(給客人分辨哪一箱)。 */
+  shipment_reference: string;
+  /** 🔴 **更正當下**的貨運單號 —— 它是這封信的內容, 也是 `dedup_key` 的後半。 */
+  tracking_number: string;
+};
+
 export type OrderShippedEmailPayload = {
   event_version: 1;
   display_id: string;
@@ -352,10 +398,36 @@ export type EnqueueOrderUnpaidCancelledEmailInput = EnqueueEmailInputBase & {
   cancelledReason: string | null;
 };
 
+/**
+ * 🔴🔴 **更正貨運單號的通知信**(⟦5b-TRACKNUMGAP1⟧ 片 C;Sean 2026-09-04 拍甲)。
+ *
+ * 🔴 **`dedup_key` = 箱 + 單號** —— 而那是拍板的形狀不是實作方便:
+ *    主視窗 2026-09-04 拍【乙】, 理由逐字 **「客人要的是【哪一個號碼是對的】, 不是【你改過幾次】」**
+ *    ⇒ 同一個單號值只寄一次;連改兩次(A→B→C)**只寄到 C**。
+ *    ⚠️ 而它與 `order_shipped` 用 `shipment_id` 當前半**不同** —— 那條是「一箱一封」,
+ *    本條是「一個值一封」。**兩者不可互抄。**
+ *
+ * 🛑 **上線第一秒的陷阱**(`ITrackingCorrectedScanner` 檔頭全文):更正信歷史上一封都沒寄過
+ *    ⇒ 差集的「已排過」那一半恆為空 ⇒ **每一箱都長得像該寄** ⇒ **`cutoff` 是必填。**
+ */
+export type EnqueueShipmentTrackingCorrectedEmailInput = EnqueueEmailInputBase & {
+  eventType: 'shipment_tracking_corrected';
+  /** 箱 uuid。`dedup_key` 的前半, **也進 payload**(理由同 `order_shipped` 那一格:它不可變)。 */
+  shipmentId: string;
+  /** 箱號(進 payload;收信人分辨「哪一箱」的唯一依據)。 */
+  shipmentReference: string;
+  /**
+   * **更正後**的貨運單號。`dedup_key` 的後半, 而且是這封信的**全部內容**。
+   * 🔴 它**可變** —— 而那正是它進 dedup_key 的理由:值換了就是一件新事。
+   */
+  trackingNumber: string;
+};
+
 export type EnqueueEmailInput =
   | EnqueueOrderCreatedEmailInput
   | EnqueueOrderShippedEmailInput
-  | EnqueueOrderUnpaidCancelledEmailInput;
+  | EnqueueOrderUnpaidCancelledEmailInput
+  | EnqueueShipmentTrackingCorrectedEmailInput;
 
 export type EnqueueEmailResult =
   /** 已入列(status=pending、寫入即到期,可被立即認領)。 */
@@ -550,6 +622,32 @@ export interface IEmailOutbox {
    *    ⇒ 📌 **原子性是免費的:那一發 UPDATE 本來就存在,只是多帶一個欄位。**
    */
   markSkippedShipmentVoided(
+    id: string,
+    claimedAttempts: number,
+    currentDedupKey: string,
+  ): Promise<boolean>;
+
+  /**
+   * 🔴🔴 **寄送當下發現那個單號【已經被更新過了】⇒ 跳過, 而不是寄一封錯的更正信。**
+   *    (⟦5b-TRACKNUMGAP1⟧ 片 C;主視窗 2026-09-04 拍【甲】。)
+   *
+   * ══ 它防的是什麼 ═══════════════════════════════════
+   * 掃描器是 cron ⇒ enqueue 到寄出之間有一段時間。員工在那段時間裡又改了一次(A→B→C):
+   * B 那一列的 payload 帶著 B ⇒ 它會寄出一封說「正確的貨運單號:B」——**而那時候正確的是 C**。
+   * 🛑 **那封信裡還寫著「請以這一封為準」** ⇒ 客人拿到一個**被我們背書過的錯號碼**, 而信收不回來。
+   *
+   * 🔴 **而它【不是靜默跳過】**(主視窗同一則補的):跳過本身要留一筆看得見的紀錄,
+   *    否則只是把靜默從「客人那端」搬到「我們這端」—— **客人不會收到錯的信了, 而我們一樣不知道發生過。**
+   *
+   * 🔵 **為什麼不新增一個 status**:`email_outbox_status_check` 是 DB 白名單(改它要一支 migration),
+   *    而 `markSkippedOrderCancelled` 已經立過先例 —— **status 是分類桶, 真相住在 `last_error_code`**
+   *    (它只有格式 CHECK `^[a-z0-9_]{1,64}$`, 沒有值域白名單)。⇒ 照抄那個形狀, 不多開一支 migration。
+   *
+   * 🔴 **而 `dedup_key` 要退休** —— 理由與 `markSkippedShipmentVoided` 那一格**不同**:
+   *    那條是「這一箱作廢了」;本條是「A→B→C→**又改回 B**」那個交錯 ——
+   *    不退休的話 B 那把鍵永久佔住 ⇒ **改回 B 時那封信排不進去, 而沒有任何東西會叫。**
+   */
+  markSkippedTrackingSuperseded(
     id: string,
     claimedAttempts: number,
     currentDedupKey: string,
