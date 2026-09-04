@@ -110,6 +110,16 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   noop: { text: '沒有變更(內容與原本相同)。', tone: 'ok' },
   conflict: { text: '這張單在你編輯期間被改過了,已重新載入最新狀態,請確認後再存一次。', tone: 'warn' },
   invalid: { text: '表單內容不正確,未儲存。', tone: 'warn' },
+  // 🔴🔴 **這一句與 `error` 那句必須讓員工做出【相反】的動作**(同本表上面 `concurrent` / `mismatch` 那條紀律):
+  //    · `error`           ⇒「請稍後再試」= **這是暫時性失敗, 再試會成功**
+  //    · `invoice_blocked` ⇒ **不要再試** —— 那張單建單時就決定不開發票, 而那是一個【狀態不變式】
+  //      ⇒ 🔴 **它永遠不會成功。**
+  //    ⇒ 📌 弄反的代價是可算的:唸成「請稍後再試」⇒ 員工一直按 ⇒
+  //      而**他很可能已經在財政部平台開了一張真發票**(那正是這一片要防的事)。
+  invoice_blocked: {
+    text: '這張單建單時決定不開發票,所以不能填發票資料。要開請作廢重開;先不要重試。',
+    tone: 'error',
+  },
   denied: { text: '沒有權限或登入狀態已失效,未儲存。', tone: 'error' },
   not_found: { text: '找不到對象資料(可能已被移除),未儲存。', tone: 'warn' },
   // 🔴🔴 M-4b ⟦b4-NOVARIANT1⟧ 上架前的確認(Sean 2026-08-31 拍 `Q2=甲`;codex R1 #6 must-fix 補這兩則)。

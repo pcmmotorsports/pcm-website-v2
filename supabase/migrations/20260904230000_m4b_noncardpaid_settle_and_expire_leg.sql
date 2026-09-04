@@ -225,7 +225,16 @@ BEGIN
     --    (`20260823020000_m4b_refund_notify_p2a_record_calls_sync.sql`, 檔名逐字
     --     `record_calls_sync`;該檔 :17 逐字「只加這一行, 其餘一字未改」)。
     -- 🔴🔴 **[2026-09-04 訂正]** 上面那句「退款那半自 2026-08-23 起有人管」**疑似不成立** ——
-    --    完整因果與複量見檔頭那段訂正(該支同步器只讀 `order_refunds`, 不讀 `order_manual_refunds`)。
+    --    完整因果與複量見檔頭那段訂正。
+    --    ⛔ ~~「該支同步器只讀 `order_refunds`, 不讀 `order_manual_refunds`」~~
+    --      ⚠️ **只在 `20260905010000` 【貼進正式庫之後】才不成立**(⟦b4-MANREFUNDNOOWNER2⟧)——
+    --      🔴 **本句刻意不寫成「已經不成立」**(codex R2 must-fix):較早的 migration 不能替
+    --        較晚那一支背書 —— **後片若失敗, 正式庫就留下一句假註解, 而沒有東西會叫。**
+    --      ✅ 判法(不要問帳本):`SELECT position('order_manual_refunds' in prosrc) > 0
+    --        FROM pg_proc WHERE proname = 'pcm_sync_order_refund_payment_status'`
+    --    🔵 ⇒ **本片檔頭最早那句「退款那半有人管」現在【又成立了】** —— 而它繞了一圈:
+    --      09-04 我寫它為真 ⇒ 同夜證實為假 ⇒ 09-05 把它做成真的。
+    --      📌 三句都留著不刪, 因為**中間那句假的時候, 有人可能已經照它做過決定**。
     --    🛑 **本片的動作不變**(一律 RETURN, 那是安全的);**變假的是理由。**
     --    ⇒ 板列 `⟦b4-MANREFUNDNOOWNER2⟧`。舊字面留著不刪。
     -- 🎯 codex 演出的後果:total=1000, 先人工退 400(v2 寫 partiallyRefunded), 之後卡片再退 600
@@ -617,7 +626,10 @@ $c$這一欄【不是】「錢收到了沒」的單一真相。要問錢, 去看
    ⇒ 要現值自己跑:grep -rn "SET payment_status" --include='*.sql' --include='*.ts'
 
 📌 所以這一欄的正確用法是:當成【狀態機的狀態】, 不要當成【錢的事實】。
-   要判斷錢, 一律回 order_payments / order_refunds 加總。
+   要判斷錢, ⛔ ~~一律回 order_payments / order_refunds 加總~~ **2026-09-05 訂正:漏了一張表** ——
+   正確的三張是 **order_payments(收)/ order_refunds(卡片退)/ order_manual_refunds(人工退)**。
+   🔴 而漏掉第三張的後果不是少算一點:人工退款是**匯款/現金**那條路的唯一退款帳本
+     ⇒ 只看前兩張, 一張全額人工退款的單會被讀成「錢還在我們這裡」。
 
 ⛔ ~~上面那句「人工匯款收款【不會】把這一欄變成 'paid'」~~ **2026-09-04 起不再成立**(`20260904230000`)。
    `order_payments` 現在掛著 AFTER INSERT trigger `pcm_noncard_settle_after_payment_ai`

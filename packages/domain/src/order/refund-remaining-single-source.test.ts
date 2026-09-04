@@ -59,6 +59,32 @@ const REFUND_AMOUNT_COL = /"?\brefund_amount\b"?/g;
 //   ⚠️ 它**不在 CI**,不會自己紅。這一行就是它的兩個落點之一(另一個在該 RPC 的 COMMENT ON FUNCTION)。
 
 const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
+  // ── 2026-09-05 · 線【信】`-mail` 補(⟦b4-MANREFUNDNOOWNER2⟧;**作者就是我**, 寫在這裡
+  //    免得下一個人以為有第三方審過 —— 而 codex 對抗審查(鐵則 12①)有跑, 見該 migration 檔頭)──
+  '20260905010000_m4b_manual_refund_syncs_payment_status.sql': {
+    count: 2,
+    why:
+      // 🔴 why 要答的是「gate 為什麼對【正確的東西】報紅」。
+      // 本 gate 掃 `refund_amount` 這個【欄位字面】(寬 = fail-closed)
+      // ⇒ 它分不出「有人自己再算一次【還能退多少】」與「有人在算【另一個問題】而剛好碰到同一個欄」。
+      '本檔算的是【另一個問題】:這張單的退款【總額】有沒有達到 total ——' +
+      '答案只用來決定 payment_status 該是 partiallyRefunded 還是 refunded。它不回答「還能退多少」。' +
+      // ✅ 結構性反面證據(不是宣稱, 是量到的):
+      //   🔬 被保護的 `pcm_order_refundable_remaining`(最新代 20260820100000, 函式體 932 字元):
+      //        order_refunds = 2 · order_manual_refunds = 1 · **payment_status = 0**
+      //   🔬 而本檔改的 `pcm_sync_order_refund_payment_status`(函式體 1,474 字元):
+      //        order_refunds = 1 · order_manual_refunds = 1 · **payment_status = 8**
+      //   ⇒ ⇒ **兩支讀同樣兩張表, 而【輸出端完全不相交】** —— 一支回數字給人決定「還能退多少」,
+      //      一支只寫 payment_status。本檔**從不回傳金額給任何呼叫端**(RETURNS text, 回的是狀態字串)。
+      //   ⇒ 📌 而那正是本 gate 要防的形狀(「另一份算式看不到更正 ⇒ 報出的數比實際多 ⇒ 重複退款」)——
+      //      **一個不回傳金額的函式, 結構上沒有那個出口。**
+      '兩處分兩種:`:122` 是【原文逐字】(卡片軌那半, 2026-08-23 就在, 本片一字未改);' +
+      '`:126` 是本片新增的那一句(加總 order_manual_refunds, voided_at IS NULL)。' +
+      // ⚠️ 而本片存在的理由就是那個 gate 防不到的另一半:
+      //   人工退款登記進去之後 payment_status 從來沒有被改過(掃描:全 repo 六支活寫入端
+      //   對 order_manual_refunds 全部 0 次)⇒ 本片讓它開始被算進來。
+      '⚠️ 本 allowlist 只涵蓋「本檔加總退款金額」這件事;它【不背書】本檔的並發、ACL 或前置閘 —— 那些走 codex 與拋棄式庫。',
+  },
   // ── 2026-09-02 · 線【出貨】`-0e` 補(而**那支 migration 不是我寫的** ——
   //    `3b546a59` 才是它的第一顆, 而我今晚的錨一個都沒命中它。
   //    `-5b` 請我寫這一筆, 理由是那個技術判斷要有人做; 我做, 而**作者不是我**這件事寫在這裡,

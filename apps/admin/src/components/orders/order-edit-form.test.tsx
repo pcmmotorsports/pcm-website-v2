@@ -36,7 +36,15 @@ const detail = {
   invoiceStatus: 'issued',
   invoiceNumber: null,
   invoiceAmount: null,
+  // 🔴 2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 2 步:本 fixture 用 `as unknown as` 繞過型別
+  //    ⇒ 少一欄不會被 typecheck 抓到, 而**少了它整組會走進「此單不開發票」那一枝**
+  //    ⇒ 上面那幾格測的是【正常那一格】, 所以這裡必須明寫 `true`。
+  //    📌 **而那正是 `as unknown as` 的代價** —— 它把「這個型別要什麼」這件事變成人要記得的。
+  invoiceRequested: true,
 } as unknown as AdminOrderDetail;
+
+/** 決定【不開發票】的那張單。 */
+const notRequested = { ...detail, invoiceRequested: false } as unknown as AdminOrderDetail;
 
 afterEach(cleanup);
 
@@ -72,6 +80,36 @@ describe('開票狀態:三態中文只有一份來源', () => {
         `<option> 裡出現硬寫的「${label}」⇒ 三態中文又有第二份副本了。` +
           '接 INVOICE_STATUS_LABEL(照同檔出貨方式那格的 Object.entries 形狀)。',
       ).toBeUndefined();
+    }
+  });
+});
+
+describe('🔴🔴 決定不開發票的單:那三格不出現(⟦b4-INVOICE5PCT⟧ 第 2 步)', () => {
+  // 🎯 這一組不是 UX —— 它是那道 DB 鎖的【另一半】。
+  //    鎖擋得住錯的資料, **而擋不住員工在財政部平台按下去那個動作** ——
+  //    而讓他按下去的正是「開立狀態:未開立」這句話(它與真的在等開票的單逐字相同)。
+  it('🔴 false ⇒ 開立狀態 / 發票號碼 / 發票金額 三個 input 都不在', () => {
+    const { container } = render(<OrderEditForm detail={notRequested} returnTo='/x' />);
+    for (const name of [INVOICE_STATUS_FIELD, 'invoice_number', 'invoice_amount']) {
+      expect(container.querySelector(`[name="${name}"]`), `${name} 不該被渲染`).toBeNull();
+    }
+  });
+
+  it('🔴 而它要【說出為什麼】—— 一格空白與「這張單不開發票」是兩件事', () => {
+    const { container } = render(<OrderEditForm detail={notRequested} returnTo='/x' />);
+    expect(container.textContent).toContain('此單不開發票');
+    expect(container.textContent).toContain('作廢重開');
+  });
+
+  it('🔴 而它【不得】出現「未開立」—— 那正是會讓員工去開一張真發票的那句話', () => {
+    const { container } = render(<OrderEditForm detail={notRequested} returnTo='/x' />);
+    expect(container.textContent).not.toContain('未開立');
+  });
+
+  it('🟢 正對照:true 的單那三格【原樣都在】—— 否則上面三格只證明它什麼都不渲染', () => {
+    const { container } = render(<OrderEditForm detail={detail} returnTo='/x' />);
+    for (const name of [INVOICE_STATUS_FIELD, 'invoice_number', 'invoice_amount']) {
+      expect(container.querySelector(`[name="${name}"]`), `${name} 應該在`).not.toBeNull();
     }
   });
 });
