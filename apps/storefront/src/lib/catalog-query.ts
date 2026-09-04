@@ -172,6 +172,29 @@ function parseNonNegativeInteger(raw: string | null): number | undefined {
  * 將不受信任 URL 參數收斂為 catalog 的安全、可快取 query shape。
  * 不認得的值一律回預設；排序與每頁數只接受 UI 白名單。
  */
+/**
+ * ⟦M-4b 多顆分類膠囊⟧ 把 `?categories=a,b` 與舊的 `?category=` 合成一份聯集。
+ *
+ * 🔴 **切成獨立一支的理由**:膠囊列(`ActiveChips`)現在也要讀它 —— 而**膠囊與 server 過濾
+ *    必須看到【同一份】解析**。各寫一份的那天不會有東西叫:兩邊都「有畫面、有結果」,
+ *    只是畫的那幾顆與撈的那幾顆不是同一組。
+ * 🔴 **每一顆各自過白名單**, 不是整串過一次 —— RPC 那側是 `category_raw LIKE vc || ' · %'`
+ *    (**未跳脫**)⇒ 一顆帶 `%` 會污染整組;而壞的**只丟那一顆**。
+ */
+export function categoriesFromParams(searchParams: SearchParamsLike): string[] {
+  const legacy = searchParams.get('category');
+  return [
+    ...new Set(
+      [
+        ...(searchParams.get(CATEGORIES_PARAM) ?? '').split(','),
+        ...(legacy !== null ? [legacy] : []),
+      ]
+        .map((value) => value.trim())
+        .filter((value) => value !== '' && isSafeCategoryValue(value)),
+    ),
+  ];
+}
+
 export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery {
   const page = parsePositiveInteger(searchParams.get('page'), 1);
   const requestedPerPage = parsePositiveInteger(searchParams.get('per'), CATALOG_DEFAULT_PER_PAGE);
@@ -207,13 +230,7 @@ export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery 
   //    `isSafeCategoryValue` 擋的是 `%` `_` 與控制字元(見本檔 `isSafeCategoryValue` 的定義), 而 RPC 那側是
   //    `category_raw LIKE vc || ' · %'`(**未跳脫**)⇒ 只要有一顆帶 `%`, 整組結果就會被它污染。
   // 🔵 壞的那一顆**只丟那一顆**, 不整組失效 —— 驗收⑤ 逐字要的就是這個。
-  const categories = [
-    ...new Set(
-      [...(searchParams.get(CATEGORIES_PARAM) ?? '').split(','), ...(category ? [category] : [])]
-        .map((value) => value.trim())
-        .filter((value) => value !== '' && isSafeCategoryValue(value)),
-    ),
-  ];
+  const categories = categoriesFromParams(searchParams);
   const sliderMin = parseNonNegativeInteger(searchParams.get('pmin'));
   const sliderMax = parseNonNegativeInteger(searchParams.get('pmax'));
   const labelBounds = priceBoundsForLabel(searchParams.get('price'));
