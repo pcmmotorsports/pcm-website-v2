@@ -857,6 +857,12 @@ const getVehicleTaxonomyCached = unstable_cache(
     //   ⑥**集合在翻頁途中被寫入** ⇒ OFFSET 位移 ⇒ 靜默跳列:❌ **本片沒有解**(見上面 keyset 那段)。
     //     🔵 而**併行讓這一格【變好一點】**:13 頁從「跨 12 秒」變成「跨約 1 秒」⇒ 被寫入的窗口小了一個量級。
     //     🛑 **但那是【變小】不是【消失】** —— 不要讀成解掉了。
+    // ⏱️ **這一行在 `unstable_cache` 的【內側】**(`⟦search-VEHTAXSLOW⟧` · 2026-09-05)——
+    //   🔴 **所以「它有印」本身就是「這一發是冷的」** ⇒ 冷暖是**看到的**, 不是從 x-vercel-id 前綴**推的**。
+    //   🛑 **而那個推法今天被反證過**:五發搜尋的前綴**全都不同**(照該規則「五發全冷」),
+    //     而其中兩發的 `vehicles` 是 33ms / 40ms —— **暖的**。⇒ `unstable_cache` 未必是純程序記憶體。
+    //   📌 **⇒ 判準改成「有沒有這一行」, 因為那是【觀察】。**
+    const tVeh = performance.now();
     const PAGE_SIZE = 1000;
     const BATCH = 4; // 一次併行幾頁(保守:不是 13 頁全開)
     const MAX_PAGES = 50; // 防呆:與 adapter listAllByCategory 同上限
@@ -934,6 +940,11 @@ const getVehicleTaxonomyCached = unstable_cache(
         `[fetchVehicleTaxonomy] 撞到 MAX_PAGES=${MAX_PAGES} 仍是滿頁,車輛下拉可能被截斷`,
       );
     }
+
+    console.info(
+      `[vehicleTaxonomy] cold pages=${pages.length} rows=${pages.reduce((n, p) => n + p.length, 0)} ` +
+        `batch=${BATCH} ms=${Math.round(performance.now() - tVeh)}`,
+    );
 
     for (const rows of pages) {
       for (const r of rows) {
