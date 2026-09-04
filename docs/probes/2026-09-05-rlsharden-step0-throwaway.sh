@@ -1,4 +1,5 @@
 #!/bin/bash
+# ci-self-contained: yes — 自己 initdb 起拋棄式叢集、跑完自己收攤, 不碰正式庫。
 # ⟦b9-RLSHARDEN⟧ 第 0 步的探針 —— **那四條 policy 真的讓寫入過得去嗎?**
 #
 # 🟢 **拋棄式 Postgres,完全不碰正式庫。** 起叢集 → 建三張表 → 建一個【沒有 BYPASSRLS】的
