@@ -159,12 +159,29 @@ _existing = [] if EXISTING else [f for f, _ in pairs if re.search(r"^    from: '
 if _existing:
     sys.exit('🔴 這些 from 【已經在字典裡】了, 這台機器答不了它們:' + ' · '.join(_existing) +
              '\n   它問的是「加這一列會不會改變什麼」⇒ 對已經在裡面的列, 兩欄都會是「有那列」的世界。'
-             '\n   ⇒ 要量既有列的價值, 是把它【拿掉】再量, 不是再加一份。')
+             '\n   ⇒ 要量既有列的價值, 是把它【拿掉】再量, 不是再加一份。'
+             '\n'
+             '\n   🔴🔴 **而【多目標】那一種也走這條路, 理由不一樣, 寫清楚免得被讀成同一件事**:'
+             '\n   Sean 2026-09-04 裁「並聯」⇒ 一個 from 可以有多列(魚雷管 / 白鐵管 各兩列)。'
+             '\n   🛑 而 `synonymFor` 用 `.find()`【第一列勝】, `ParsedFacets.category` 今天是單數'
+             '\n      ⇒ 第二列在解析器那一層【還沒有出口】⇒ 有它沒它印同一個數'
+             '\n      ⇒ 這台機器會印【純冗餘】, 而那句話是假的 —— 它答的是「今天用不到」不是「沒有價值」。'
+             '\n   ⇒ 📌 第二目標列的價值, 要等 `-front` 把多顆膠囊接上之後才量得到。'
+             '\n      在那之前它由 `search-synonyms.test.ts` 的「多目標俗稱」那組守著, 不由本機器守。')
 
 before_sha = sha(DICT)
 if EXISTING:
     # 有那些列 = 現況;沒那些列 = 全部拿掉
     with_ = run(words)
+    # 🔴 `--existing` 的拿掉法是 `count=1` ⇒ **一個 from 有多列時, 它只拿掉第一列**
+    #    ⇒ 另一列還在 ⇒ 「沒那列」那一欄根本不是沒有它 ⇒ 兩欄一樣 ⇒ 又是一個假的「純冗餘」。
+    #    ⇒ 🛑 撞到多列的 from 就停, 不要給一個看起來合理的數。
+    _multi = sorted({f for f, _t in pairs
+                     if len(re.findall(r"^    from: '" + re.escape(f) + r"',$", orig, re.M)) > 1})
+    if _multi:
+        sys.exit('🔴 這些 from 在字典裡有【多列】(多目標), 而本機器一次只拿得掉一列:'
+                 + ' · '.join(_multi)
+                 + '\n   ⇒ 拿掉一列之後另一列還在 ⇒ 兩欄會印一樣的數 ⇒ 判定會是假的「純冗餘」。')
     stripped = orig
     for f, _t in pairs:
         stripped = re.sub(r"  \{\n    from: '" + re.escape(f) + r"',\n(?:.*\n)*?  \},\n", '', stripped, count=1)
