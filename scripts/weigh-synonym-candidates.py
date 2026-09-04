@@ -15,6 +15,16 @@
    這台機器是之後每一條字典列的**唯一背書**, 而它原本只活在某個 session 的暫存目錄裡
    ⇒ **字典列會留下來, 而機器會消失** ⇒ 下一個想加列的人手上沒有它 ⇒ **他會憑感覺加。**
 
+🔴🔴 **它擋不掉什麼 —— 這一格比它擋得掉什麼重要**(主視窗 2026-09-04 指出,而我原本沒寫):
+
+    它量的是【召回變多還是變少】, 不是【這個俗稱是不是真的指那個東西】。
+    ⇒ 🛑 一條【語意不對, 而它指的那個分類剛好件數很多】的列, **這台機器會給它 ✅。**
+    ⇒ 🎯 例:若有人交「牛角 ⇒ 手機架與導航支架(1326)」——
+         沒那列什麼都撈不到 · 有那列 1326 件 ⇒ 它照樣印「✅ 加」。
+         而客人打「牛角」想找的根本不是手機架。
+    ⇒ 📌 **⇒ 所以【來源】那一關不能省** —— 那台機器不會替你查證那個俗稱是不是真的。
+       而**湊出來的俗稱比沒有俗稱貴**:它把客人導到錯的分類, 而畫面上完全正常。
+
 ⚠️ **它會【動】`search-synonyms.ts` 然後還原** —— 每次跑完印 sha256 比對,
    而**開跑前若那支檔已經是 dirty 就直接拒跑**(不要在別人改到一半的檔上做這件事)。
 """
@@ -29,6 +39,9 @@ FIX  = os.path.join(REPO, 'apps/storefront/src/data/search-prefix-largest.test.t
 TMP  = os.path.join(REPO, 'apps/storefront/src/data/__weigh.test.ts')
 
 def sha(p): return hashlib.sha256(io.open(p,'rb').read()).hexdigest()
+
+
+def orig_peek(): return io.open(DICT, encoding='utf-8').read()
 
 def run(words):
     """把 words 餵進真的解析器, 回 {word: (落點, 件數)}"""
@@ -115,7 +128,18 @@ if '--selftest' in sys.argv[1:]:
     print('⚠️ 而它【只驗判定邏輯】—— 「它量不量得到」那一半靠每一次真的拿它去量時被驗。')
     sys.exit(0)
 
-pairs = [tuple(a.split('=>')) for a in sys.argv[1:]]
+EXISTING = '--existing' in sys.argv[1:]
+
+if EXISTING:
+    # 🔴 【既有列】要反過來量:把它【拿掉】再量, 不是再加一份(見下方那道拒答閘的理由)。
+    #    ⚠️ 而這裡一次拿掉【全部】再量, 而不是一條一條 ——
+    #       前提:`synonymFor` 是【對整個詞的精確比對】⇒ A 列不影響 B 詞的查詢。
+    #       🔴 那是一個【前提】不是事實 ⇒ 下面 `--existing` 跑完會自己抽驗一條做對照。
+    pairs = re.findall(r"^    from: '([^']+)',\n    to: '([^']+)',", orig_peek(), re.M)
+    if not pairs:
+        sys.exit('🔴 字典裡一列都讀不到 ⇒ 尺壞了, 不要讀成「字典是空的」')
+else:
+    pairs = [tuple(a.split('=>')) for a in sys.argv[1:]]
 if not pairs: sys.exit('用法:weigh-candidates.py "俗稱=>正式名" ...')
 words = [f for f, _ in pairs]
 
@@ -131,24 +155,51 @@ orig = io.open(DICT, encoding='utf-8').read()
 #    ⇒ 對一條【已經在字典裡】的 from, 「沒這列」那一欄根本不是沒那列, 它照樣被舊的那列命中
 #    ⇒ 🛑 兩欄會印成一樣, 而判定會印【純冗餘】—— **那句話是假的, 它答的是「再加一份重複的沒差」。**
 #    📌 這一格是 2026-09-04 commit 完之後拿一條【剛加進去的】列去量, 當場撞出來的。
-_existing = [f for f, _ in pairs if re.search(r"^    from: '" + re.escape(f) + r"',$", orig, re.M)]
+_existing = [] if EXISTING else [f for f, _ in pairs if re.search(r"^    from: '" + re.escape(f) + r"',$", orig, re.M)]
 if _existing:
     sys.exit('🔴 這些 from 【已經在字典裡】了, 這台機器答不了它們:' + ' · '.join(_existing) +
              '\n   它問的是「加這一列會不會改變什麼」⇒ 對已經在裡面的列, 兩欄都會是「有那列」的世界。'
              '\n   ⇒ 要量既有列的價值, 是把它【拿掉】再量, 不是再加一份。')
 
 before_sha = sha(DICT)
-without = run(words)
+if EXISTING:
+    # 有那些列 = 現況;沒那些列 = 全部拿掉
+    with_ = run(words)
+    stripped = orig
+    for f, _t in pairs:
+        stripped = re.sub(r"  \{\n    from: '" + re.escape(f) + r"',\n(?:.*\n)*?  \},\n", '', stripped, count=1)
+    io.open(DICT, 'w', encoding='utf-8').write(stripped)
+    try:
+        without = run(words)
+    finally:
+        io.open(DICT, 'w', encoding='utf-8').write(orig)
+    # 🟢 抽驗那個前提:單獨拿掉【第一條】, 它的讀數要與「全部拿掉」那一發相同
+    f0, _ = pairs[0]
+    one = re.sub(r"  \{\n    from: '" + re.escape(f0) + r"',\n(?:.*\n)*?  \},\n", '', orig, count=1)
+    io.open(DICT, 'w', encoding='utf-8').write(one)
+    try:
+        solo = run([f0])
+    finally:
+        io.open(DICT, 'w', encoding='utf-8').write(orig)
+    if (solo[f0]['leaf'], solo[f0]['n']) != (without[f0]['leaf'], without[f0]['n']):
+        print(f"🔴 前提被推翻:單獨拿掉「{f0}」得到 {solo[f0]['leaf']}({solo[f0]['n']}),"
+              f" 而全部拿掉時是 {without[f0]['leaf']}({without[f0]['n']}) ⇒ 字典列之間會互相影響,"
+              ' 這一發的讀數不可信。')
+        sys.exit(1)
+    print(f"🟢 前提抽驗過:單獨拿掉「{f0}」與全部拿掉時讀數相同 ⇒ 字典列之間不互相影響。")
+else:
+    without = run(words)
 
-rows = ''.join(
+rows = '' if EXISTING else ''.join(
     "  {\n    from: '%s',\n    to: '%s',\n    kind: 'category',\n    source: 'draft',\n"
     "    added: '2026-09-04',\n    note: '量測用暫時列, 跑完移除。',\n  },\n" % (f, t) for f, t in pairs)
-i = orig.rindex('];')
-io.open(DICT,'w',encoding='utf-8').write(orig[:i] + rows + orig[i:])
-try:
-    with_ = run(words)
-finally:
-    io.open(DICT,'w',encoding='utf-8').write(orig)
+if not EXISTING:
+    i = orig.rindex('];')
+    io.open(DICT,'w',encoding='utf-8').write(orig[:i] + rows + orig[i:])
+    try:
+        with_ = run(words)
+    finally:
+        io.open(DICT,'w',encoding='utf-8').write(orig)
 
 after_sha = sha(DICT)
 print('✅ 字典逐位元組還原' if before_sha == after_sha else f'🔴 還原失敗 {before_sha[:12]} vs {after_sha[:12]}')

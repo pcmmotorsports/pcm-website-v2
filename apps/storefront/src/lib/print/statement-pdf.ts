@@ -40,6 +40,22 @@ import { buildStatementHtml, isInsideDir } from '@/lib/print/statement-html';
 const require_ = createRequire(import.meta.url);
 
 /**
+ * 兩個字型套件 —— 🔴 **順序就是修法本身**(⟦ship-PRINTCARON1⟧, 2026-09-04)。
+ *
+ * `noto-sans-tc` 的 woff2 **沒有 `Č`(U+010C)/ `Š`(U+0160)的字形**,
+ * 而它的 `unicode-range` **宣告了**那個範圍 ⇒ 🛑 **宣告不是保證**。
+ * 真 PDF 量到(後台那條同款鏈):舊鏈 `Č ⇒ CAAAAA+Helvetica`(靠機器上剛好有);
+ * 新鏈 `Č ⇒ NotoSans-Regular` · 🟢 `中 ⇒ NotoSansTC`(中日韓照樣往後落)。
+ *
+ * 🛑 **而這條路【不能只改 CSS 的字體鏈】** —— 這裡是伺服器裡的無頭 chromium,
+ *    字型是**讀位元組 base64 內嵌**進去的。CSS 指名一支沒有被內嵌的字型 ⇒
+ *    要嘛落到容器的系統字型(**而那個容器有什麼字型沒有人量過**)、要嘛整格沒作用。
+ *    ⇒ 📌 **所以兩個套件都要出現在下面 `fontCss` 與 `readFont` 兩個地方。**
+ */
+const LATIN_PKG = '@fontsource/noto-sans';
+const TC_PKG = '@fontsource/noto-sans-tc';
+
+/**
  * fontsource 那個套件的根目錄。**拿不到回 `null`**(呼叫端據此判, 見 `StatementPdfHtml.fontPkgDir`)。
  *
  * ══ 為什麼是【候選鏈】而不是一句 `require.resolve` ═══════════════════════════
@@ -97,8 +113,9 @@ function isUsableFontPkg(dir: string): boolean {
  *   而 reviewer 實測:把候選①改成 `return null` ⇒ **12 格全綠**(我原本三發突變全在②內部)。
  */
 export function fontPkgDir(
-  resolvePkgJson: () => string = () => require_.resolve('@fontsource/noto-sans-tc/package.json'),
+  resolvePkgJson: () => string = () => require_.resolve(`${TC_PKG}/package.json`),
   cwd: string = process.cwd(),
+  pkgName: string = TC_PKG,
 ): string | null {
   // 候選①:正常的 Node 解析。本機與一般部署走這條;Vercel 函式裡它 throw。
   // 🔴🔴 **這一行同時是【打包追蹤】的錨, 不得刪**(原句 2026-09-01 就在, 我改寫 docstring 時
@@ -115,7 +132,7 @@ export function fontPkgDir(
   }
 
   // 候選②:cwd 相對去 pnpm 的 store 裡找。
-  return findFontPkgInPnpmStore(cwd);
+  return findFontPkgInPnpmStore(cwd, pkgName);
 }
 
 /**
@@ -128,7 +145,12 @@ export function fontPkgDir(
  *
  * @param cwd 通常是 `process.cwd()`;測試餵臨時目錄。
  */
-export function findFontPkgInPnpmStore(cwd: string): string | null {
+export function findFontPkgInPnpmStore(cwd: string, pkgName: string = TC_PKG): string | null {
+  // 🔴 `pkgName` 是 2026-09-04 加的 —— ⟦ship-PRINTCARON1⟧ 之後**這條路要帶兩個套件**
+  //    (拉丁那支有 `Č` / `Š` 的字形, 中日韓那支【沒有】而它的 `unicode-range` 宣告了那個範圍)。
+  //    ⚠️ 預設值保持中日韓那支 ⇒ 既有呼叫端與測試字面不變。
+  const storeKey = pkgName.replace('/', '+');
+  const bare = pkgName.split('/')[1]!;
   // 🔵 兩個 base 對齊 `cssCandidates` 的兩個候選(cwd 是 app 目錄 / 是 repo 根兩種情形)。
   //    正式站量到 `cwd=/var/task/apps/storefront`, 而追蹤到的 `.pnpm` 落在 repo 根
   //    ⇒ 第一個 base(`../../`)是那邊會命中的那一個。
@@ -138,7 +160,7 @@ export function findFontPkgInPnpmStore(cwd: string): string | null {
   ];
   // 🔴 **版本號不寫死** —— `@fontsource+noto-sans-tc@5.3.0` 那個字串會隨升版變,
   //    寫死的話升一次版就靜靜地找不到(而失敗形狀是方框, 不是報錯)。
-  const PREFIX = '@fontsource+noto-sans-tc@';
+  const PREFIX = `${storeKey}@`;
   const found: string[] = [];
   for (const base of storeBases) {
     let entries: string[];
@@ -148,7 +170,7 @@ export function findFontPkgInPnpmStore(cwd: string): string | null {
       continue; // 這個 base 不存在 ⇒ 換下一個。
     }
     for (const e of entries.filter((n) => n.startsWith(PREFIX)).sort()) {
-      const dir = join(base, e, 'node_modules', '@fontsource', 'noto-sans-tc');
+      const dir = join(base, e, 'node_modules', '@fontsource', bare);
       // 🔴 **判的是【執行時真的會讀的那幾支檔】, 不是 `package.json`**(見 `isUsableFontPkg`)。
       //    只看目錄名等於相信 store 的長相;而只看 `package.json` 是拿代理當判準。
       if (isUsableFontPkg(dir)) found.push(dir);
@@ -244,15 +266,23 @@ export async function buildStatementPdfHtml(
     .filter((css, i, all) => all.indexOf(css) === i)
     .join('\n');
 
-  const pkg = fontPkgDir();
+  // 🔴 **兩個套件, 而【拉丁排前面】** —— 理由與量測在 `LATIN_PKG` 的 docstring。
+  //    ⚠️ 這裡的順序只影響 `fontCss` 裡 `@font-face` 的先後;真正決定紙上用哪支的是
+  //    `print-a4.css` 的 `--pd-body` / `--pd-disp` 字體鏈, 而那兩張紙**逐位元組共用同一份**。
+  const pkgLatin = fontPkgDir(
+    () => require_.resolve(`${LATIN_PKG}/package.json`),
+    process.cwd(),
+    LATIN_PKG,
+  );
+  const pkgTc = fontPkgDir();
+  // 🛑 **解析不到的那一支【跳過】而不是整個回空** —— 少一支子集不該讓整張單產不出來
+  //    (與 `readFont` 的 docstring 同一條原則)。
+  const pkgs = [pkgLatin, pkgTc].filter((d): d is string => d !== null);
   // 400 + 700 —— 那張紙上有 22 條 `font-weight: 700`(`print-a4.css`)。
-  const fontCss =
-    pkg === null
-      ? ''
-      : ['400.css', '700.css']
-          .map((f) => readTextOrNull(join(pkg, f)))
-          .filter((css): css is string => css !== null)
-          .join('\n');
+  const fontCss = pkgs
+    .flatMap((dir) => ['400.css', '700.css'].map((f) => readTextOrNull(join(dir, f))))
+    .filter((css): css is string => css !== null)
+    .join('\n');
 
   // 🔴 `react-dom/server` 只能【動態】import —— Next 的 App Router 對它有一道靜態 import 閘。
   const { renderToStaticMarkup } = await import('react-dom/server');
@@ -273,11 +303,17 @@ export async function buildStatementPdfHtml(
     pageCss,
     fontCss,
     readFont: (rel) => {
-      if (pkg === null) return null;
-      const p = resolve(pkg, rel);
-      // 🔴 防目錄逃逸 —— `p.startsWith(pkg)` **不是目錄邊界**(`isInsideDir` 有自己的測試)。
-      if (!isInsideDir(pkg, p)) return null;
-      return existsSync(p) ? new Uint8Array(readFileSync(p)) : null;
+      // 🔴 **兩個套件的 `src:url()` 都是 `./files/…`** ⇒ 同一個 `rel` 要在兩個目錄裡各試一次。
+      //    🟢 而檔名不會撞:拉丁那支叫 `noto-sans-latin-…`, 中日韓那支叫 `noto-sans-tc-…`
+      //    ⇒ 一個 `rel` 最多命中一支。**而即使哪天撞了, 先命中的贏 —— 順序是決定性的。**
+      for (const dir of pkgs) {
+        const p = resolve(dir, rel);
+        // 🔴 防目錄逃逸 —— `p.startsWith(dir)` **不是目錄邊界**(`isInsideDir` 有自己的測試)。
+        //    🛑 **每一支各判一次** —— 用其中一支的邊界去判另一支等於沒判。
+        if (!isInsideDir(dir, p)) continue;
+        if (existsSync(p)) return new Uint8Array(readFileSync(p));
+      }
+      return null;
     },
   });
 
@@ -287,7 +323,11 @@ export async function buildStatementPdfHtml(
     skippedMissing: built.skippedMissing,
     uncovered: built.uncovered.length,
     missingCss: pageCss.length === 0,
-    fontPkgDir: pkg,
+    // 🔵 這一欄只給 log 讀(它【不參與任何判斷】, 見型別上的 docstring)。
+    //    ⚠️ 兩個套件之後它報的仍是**中日韓那支** —— 因為它存在的理由是分辨
+    //    「`require.resolve` 失敗」與「解析成功而 CSS 讀不到」, 而那個病兩支同構。
+    //    🛑 **拉丁那支解析失敗時這一欄看不出來** —— 那是已知缺口, 不是它壞了。
+    fontPkgDir: pkgTc,
   };
 }
 
