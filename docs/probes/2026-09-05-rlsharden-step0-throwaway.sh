@@ -43,21 +43,50 @@ ALTER TABLE public.staff                  ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT ON public.admin_audit_log, public.admin_sso_login_events, public.staff TO service_role;
 GRANT UPDATE (label, is_manager, is_active) ON public.staff TO service_role;   -- 照正式庫:欄級
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role;
+-- 🔴 **staff 要有 SELECT policy, 而這是 codex R1 must-fix ③ 逼出來的**:
+--    RLS 之下 UPDATE 先要「看得到那一列」。沒有 SELECT policy ⇒ 看不到任何列
+--    ⇒ UPDATE 影響 0 列而**回傳成功** ⇒ 📌 拿掉 staff_update_service_role 之後
+--      第二格仍然 rc=0, 卻印「四發寫入都過」。⇒ 那一格原本【零判別力】。
+CREATE POLICY staff_select_service_role ON public.staff
+  FOR SELECT TO service_role USING (true);
 SQL
 
-# 🔴 每一發都印【它在成立與不成立兩個世界會不同的東西】= SQLSTATE, 不是「成功/失敗」四個字
-try() { # $1=標籤
+# 🔴🔴 **`try()` 改寫 —— codex R1 抓到兩個【它會把假的成功印成成功】的洞**
+#   ① must-fix `:49` 原版**只列印、不斷言** ⇒ 三格全錯也會跑到最後 exit 0
+#      ⇒ 📌 而它已經標 `ci-self-contained: yes`(CI 會跑)⇒ **一支永遠不會紅的 CI 檢查。**
+#   ② must-fix `:51` 原版把四句塞進一個 `psql -c` ⇒ **第一句 42501 就停**
+#      ⇒ ①③ 只證明了 `admin_audit_log` 被擋, **另外三條 policy 一個都沒被測到。**
+#   ✅ 修法:**逐句各跑一發**(四個獨立的 psql), 每一發各自比對期望, 不合就記一筆並讓 rc 非 0。
+FAILED=0
+one() { # $1=期望 pass|deny  $2=標籤  $3=SQL
+  local out rc got
+  out=$(P -c "SET ROLE service_role; $3" 2>&1); rc=$?
+  if [ $rc -eq 0 ]; then got=pass; else
+    case "$out" in *"row-level security"*|*42501*) got=deny;; *) got="其他錯";; esac
+  fi
+  if [ "$got" = "$1" ]; then printf '   ✅ %-34s 期望=%-4s 實際=%s\n' "$2" "$1" "$got"
+  else printf '   🔴 %-34s 期望=%-4s 實際=%s  %s\n' "$2" "$1" "$got" "$(printf '%s' "$out" | head -1 | cut -c1-70)"
+       FAILED=$((FAILED+1)); fi
+}
+try() { # $1=這一輪四發的期望(pass|deny)
+  one "$1" "INSERT admin_audit_log"        "INSERT INTO public.admin_audit_log(note) VALUES ('x');"
+  one "$1" "INSERT admin_sso_login_events" "INSERT INTO public.admin_sso_login_events(note) VALUES ('x');"
+  one "$1" "INSERT staff"                  "INSERT INTO public.staff(label,is_manager,is_active) VALUES ('a',false,true);"
+  # 🔴 UPDATE 那一發要**驗它真的改到列**, 不是「沒報錯」——
+  #    RLS 之下「看不到列」也會回成功而影響 0 列(codex must-fix ③ 就是這個)。
+  #    ⇒ 用 RETURNING + 要求恰好 1 列, 讓「改到 0 列」與「改到 1 列」印不同的東西。
   local out rc
-  out=$(P -c "SET ROLE service_role;
-              INSERT INTO public.admin_audit_log(note) VALUES ('x');
-              INSERT INTO public.admin_sso_login_events(note) VALUES ('x');
-              INSERT INTO public.staff(label,is_manager,is_active) VALUES ('a',false,true);
-              UPDATE public.staff SET label='b' WHERE label='a';" 2>&1); rc=$?
-  if [ $rc -eq 0 ]; then printf '%-22s rc=0  ✅ 四發寫入都過\n' "$1"
-  else printf '%-22s rc=%s 🔴 %s\n' "$1" "$rc" "$(printf '%s' "$out" | grep -oE '42501|SQLSTATE[^ ]*|錯誤:.*|ERROR:.*' | head -1)"; fi
+  out=$(P -c "SET ROLE service_role; UPDATE public.staff SET label='b' WHERE label='a' RETURNING id;" 2>&1); rc=$?
+  if [ "$1" = pass ]; then
+    if [ $rc -eq 0 ] && [ "$(printf '%s' "$out" | grep -c .)" -ge 1 ]; then printf '   ✅ %-34s 期望=pass 實際=改到 %s 列\n' "UPDATE staff" "$(printf '%s' "$out" | grep -c .)"
+    else printf '   🔴 %-34s 期望=pass 實際=rc=%s 改到 %s 列(0 列也算失敗)\n' "UPDATE staff" "$rc" "$(printf '%s' "$out" | grep -c '^[0-9]')"; FAILED=$((FAILED+1)); fi
+  else
+    if [ $rc -ne 0 ] || [ "$(printf '%s' "$out" | grep -c '^[0-9]')" -eq 0 ]; then printf '   ✅ %-34s 期望=deny 實際=沒改到任何列\n' "UPDATE staff"
+    else printf '   🔴 %-34s 期望=deny 實際=竟然改到了列\n' "UPDATE staff"; FAILED=$((FAILED+1)); fi
+  fi
 }
 
-echo "--- ① 還沒有 policy(期望:失敗 42501)---"; try "沒有 policy"
+echo "--- ① 還沒有 policy(期望:四發全被擋)---"; try deny
 
 echo "--- ② 套上本次 migration 的那四條 policy(期望:成功)---"
 P -q <<'SQL'
@@ -70,16 +99,21 @@ CREATE POLICY staff_insert_service_role ON public.staff
 CREATE POLICY staff_update_service_role ON public.staff
   FOR UPDATE TO service_role USING (true) WITH CHECK (true);
 SQL
-try "有 policy"
+try pass
 
 echo "--- ③ 再把 policy 拿掉(期望:又失敗 ⇒ 證明②是那條 policy 給的)---"
 P -q -c "DROP POLICY staff_update_service_role ON public.staff;
          DROP POLICY staff_insert_service_role ON public.staff;
          DROP POLICY admin_sso_login_events_insert_service_role ON public.admin_sso_login_events;
          DROP POLICY admin_audit_log_insert_service_role ON public.admin_audit_log;"
-try "policy 拿掉之後"
+try deny
 
 echo "--- 🧹 收攤 ---"
 LC_ALL=C pg_ctl -D "$D/data" stop -m fast >/dev/null 2>&1; echo "pg_ctl stop rc=$?"
 pgrep -f "pgthrow-rls-$WIN" >/dev/null 2>&1 && echo "🛑 還有殘留程序" || echo "✅ 無殘留程序"
 rm -rf "$D"; [ -d "$D" ] && echo "🛑 目錄還在" || echo "✅ 目錄已刪並驗"
+
+# 🔴 **rc 要由結果決定** —— 這是 codex must-fix ① 的核心:
+#    一支「印紅字而 exit 0」的檢查, 在 CI 裡與「全過」是同一個東西。
+if [ "$FAILED" -ne 0 ]; then echo "🔴 有 $FAILED 格與期望不符 ⇒ rc=1"; exit 1; fi
+echo "✅ 三輪 × 四發全部符合期望"; exit 0

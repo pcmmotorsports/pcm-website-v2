@@ -1,7 +1,8 @@
 -- ⟦b9-RLSHARDEN⟧ 第 0 步:補上三張表缺的 service_role 寫入 policy
 --
 -- 🛑🛑 **本檔是【草稿】。動 RLS = PCM 鐵則 12②(權限)⇒ 要 Sean 拍板 + codex 對抗審查才貼。**
--- 🟢 **它是【純加 policy】** —— 零 `GRANT`、零 `REVOKE`、零 `ALTER ROLE`、不建任何新物件。
+-- 🟢 **它是【純加 policy】** —— 零 `GRANT`、零 `REVOKE`、零 `ALTER ROLE`、**不建表 / 函式 / 角色**。
+--    ⛔ ~~原句寫「不建任何新物件」~~ —— **policy 自己就是新的 DB 物件**(codex R1 nit)。
 --    ⇒ 貼上去**不會讓任何今天能做的事變成不能做**;它只是把「今天靠 BYPASSRLS 過的」
 --      改成「靠一條寫明的政策過的」。
 --
@@ -75,58 +76,100 @@ CREATE POLICY staff_update_service_role ON public.staff
   WITH CHECK (true);
 
 -- ══════════════════════════════════════════════════════════════════════════
--- 事後斷言 —— 🔴 **雙向:該有的要有(正向), 而【不該被順手放寬的】要仍然關著(反向)**
---   只寫正向的話, 一支「把三張表對所有人開放」的 migration 也會全過。
+-- 事後斷言 —— 🔴 **codex R1 FAIL 之後重寫的第二版**
+--   R1 抓到的四個洞, 每一個都是「兩個世界印同一個東西」:
+--     ① :85 原版只驗【名字 + 有 service_role】⇒ 動詞改錯 / `USING(false)` / 多掛一個角色, 照樣過
+--     ② :101 原版用 `polroles = '{0}'` 比【相等】⇒ `TO PUBLIC, service_role` 的陣列是 `{0, oid}`
+--            ⇒ **正反兩格都會過, 而 PUBLIC 世界與 service_role-only 世界印同一個結果**
+--     ③ :118 原版的「正對照」驗的是**另一條 policy 的名字存在** ⇒ 它與上面兩格**不走同一條路**
+--            ⇒ 📌 一個正對照若不與被驗對象共用程式路徑, 它證明不了那把尺會動
+--     ④ :48 「零行為改變」**只在 `service_role` 帶 BYPASSRLS 時成立** ⇒ 而原版沒有斷言那個前提
 -- ══════════════════════════════════════════════════════════════════════════
 DO $$
 DECLARE
   n int;
+  expected CONSTANT text[][] := ARRAY[
+    ['admin_audit_log',        'admin_audit_log_insert_service_role',        'a'],
+    ['admin_sso_login_events', 'admin_sso_login_events_insert_service_role', 'a'],
+    ['staff',                  'staff_insert_service_role',                  'a'],
+    ['staff',                  'staff_update_service_role',                  'w']
+  ];
+  i int;
 BEGIN
-  -- ① 正向:四條 policy 都在, 而且都只給 service_role
-  SELECT count(*) INTO n
-    FROM pg_catalog.pg_policy p
-    JOIN pg_catalog.pg_class c ON c.oid = p.polrelid
-    JOIN pg_catalog.pg_namespace ns ON ns.oid = c.relnamespace
-   WHERE ns.nspname = 'public'
-     AND p.polname IN ('admin_audit_log_insert_service_role',
-                       'admin_sso_login_events_insert_service_role',
-                       'staff_insert_service_role',
-                       'staff_update_service_role')
-     AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles r
-                  WHERE r.oid = ANY(p.polroles) AND r.rolname = 'service_role');
-  IF n <> 4 THEN
-    RAISE EXCEPTION '本檔要建的四條 policy 只認到 % 條(期望 4)', n;
+  -- ④ 前提斷言(R1 must-fix ④):本檔宣稱「零行為改變」, 而**那句只在 BYPASSRLS 還在時成立**。
+  --    若 apply 的環境已經收掉了 BYPASSRLS, 這四條 policy 會**當場把今天擋著的寫入放行**
+  --    ⇒ 那就不是「零行為改變」, 而是一個沒有人審過的行為改變。⇒ 停下來, 讓人重讀順序。
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles
+                  WHERE rolname = 'service_role' AND rolbypassrls) THEN
+    RAISE EXCEPTION 'service_role 已經沒有 BYPASSRLS ⇒ 本檔的「零行為改變」前提不成立。'
+                    '這表示 ⟦b9-RLSHARDEN⟧ 已經先跑了 —— 順序反了, 停下來重讀本檔開頭那一段。';
   END IF;
 
-  -- ② 反向:這四條【不得】對 PUBLIC / anon / authenticated 開
-  --    🔴 `polroles = '{0}'` 就是 PUBLIC, 而 pg_roles 裡沒有 oid 0
-  --       ⇒ 用 JOIN 去找會【靜靜漏掉 PUBLIC 那一種】, 所以這裡直接比陣列。
+  -- ① 正向(R1 must-fix ①):逐條驗【表 + 名 + 動詞 + qual + permissive + 角色恰等於 service_role】
+  FOR i IN 1 .. array_length(expected, 1) LOOP
+    SELECT count(*) INTO n
+      FROM pg_catalog.pg_policy p
+      JOIN pg_catalog.pg_class c  ON c.oid = p.polrelid
+      JOIN pg_catalog.pg_namespace ns ON ns.oid = c.relnamespace
+     WHERE ns.nspname = 'public'
+       AND c.relname  = expected[i][1]
+       AND p.polname  = expected[i][2]
+       AND p.polcmd   = expected[i][3]::"char"      -- 動詞:'a'=INSERT 'w'=UPDATE
+       AND p.polpermissive                           -- 必須是 permissive, 不是 restrictive
+       -- 🔴 角色**恰等於** {service_role}:多一個少一個都不算
+       AND p.polroles = ARRAY[(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='service_role')]::oid[]
+       -- 🔴 qual 要真的是 true, 不是 false 也不是別的表達式
+       AND coalesce(pg_catalog.pg_get_expr(p.polwithcheck, p.polrelid), 'true') = 'true'
+       AND coalesce(pg_catalog.pg_get_expr(p.polqual,      p.polrelid), 'true') = 'true';
+    IF n <> 1 THEN
+      RAISE EXCEPTION '% 上的 % 不符期望形狀(表/動詞/qual/permissive/角色恰等於 service_role)⇒ 數到 % 條',
+        expected[i][1], expected[i][2], n;
+    END IF;
+  END LOOP;
+
+  -- ② 反向(R1 must-fix ②):不得對 PUBLIC / anon / authenticated 開。
+  --    🛑🛑 **誠實標記:這一格【被 ① 涵蓋了, 它不可能單獨叫】** ——
+  --    ① 已經要求 `polroles` **恰等於** `{service_role}` ⇒ 0(PUBLIC)與 anon 都不可能在裡面。
+  --    🔬 實測:突變「三條 INSERT 改成 `TO PUBLIC, service_role`」⇒ **被 ① 擋下**, ② 沒輪到。
+  --    ⇒ 📌 **留著它不是因為它多擋了一個世界, 是因為它的錯誤訊息直接說出「開給了誰」**,
+  --      而 ① 的訊息只說「形狀不符」。⇒ 兩個訊息各自把人送到不同的地方。
+  --    ⚠️ **而若哪天有人放寬了 ①(例如改成「含有 service_role 即可」), 這一格會【立刻變成唯一的網】**
+  --      ⇒ 那正是留著它的理由;但**今天不要把它算成第二道獨立的證據。**
+  --    🔴 改成問【成員資格】不是【陣列相等】—— `TO PUBLIC, service_role` 的 polroles 是
+  --       `{0, <oid>}`, 而舊版的 `= '{0}'` 對它回 false ⇒ 那個世界會靜靜通過。
   SELECT count(*) INTO n
     FROM pg_catalog.pg_policy p
-   WHERE p.polname IN ('admin_audit_log_insert_service_role',
-                       'admin_sso_login_events_insert_service_role',
-                       'staff_insert_service_role',
-                       'staff_update_service_role')
-     AND (p.polroles = '{0}'::oid[]
+   WHERE p.polname = ANY (ARRAY['admin_audit_log_insert_service_role',
+                                'admin_sso_login_events_insert_service_role',
+                                'staff_insert_service_role',
+                                'staff_update_service_role'])
+     AND (0 = ANY (p.polroles)                       -- 0 = PUBLIC, 用成員資格問
           OR EXISTS (SELECT 1 FROM pg_catalog.pg_roles r
-                      WHERE r.oid = ANY(p.polroles)
+                      WHERE r.oid = ANY (p.polroles)
                         AND r.rolname IN ('anon','authenticated')));
   IF n <> 0 THEN
     RAISE EXCEPTION '有 % 條 policy 開給了 PUBLIC/anon/authenticated —— 本檔只該開給 service_role', n;
   END IF;
 
-  -- ③ 🟢 正對照:證明上面那把尺【會動】—— 它在同一組條件下數得到既有的那些
-  --    少了這一格, 一個永遠回 0 的查詢也會讓 ② 過。
+  -- ③ 正對照(R1 must-fix ③):**與 ② 走同一條程式路徑**, 只是餵一個【已知會命中】的輸入。
+  --    🔴 舊版驗的是「另一條 policy 的名字存在」⇒ 那與 ② 的查詢形狀不同 ⇒ 證明不了 ② 會動。
+  --    ✅ 這一版把 ② 的條件原樣拿來, 只把「不該中的角色集合」換成【一定會中的】
+  --       ⇒ 若這裡回 0, 表示 ② 那個 0 是【尺不會動】而不是【真的沒有】。
   SELECT count(*) INTO n
     FROM pg_catalog.pg_policy p
-   WHERE p.polname = 'email_outbox_select_service_role';
-  IF n <> 1 THEN
-    RAISE EXCEPTION '正對照失敗:既有的 email_outbox_select_service_role 數到 % 條(期望 1)⇒ 上面那些 0 沒有判別力', n;
+   WHERE p.polname = ANY (ARRAY['admin_audit_log_insert_service_role',
+                                'admin_sso_login_events_insert_service_role',
+                                'staff_insert_service_role',
+                                'staff_update_service_role'])
+     AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles r
+                  WHERE r.oid = ANY (p.polroles)
+                    AND r.rolname IN ('service_role'));   -- ← 唯一的差別:換成一定會中的角色
+  IF n <> 4 THEN
+    RAISE EXCEPTION '正對照失敗:同一個查詢形狀餵【一定會中】的角色只數到 % 條(期望 4)⇒ 上面那個 0 沒有判別力', n;
   END IF;
 
-  -- ④ 🔴 本檔【不得】動 GRANT ⇒ 那三張表的表級 UPDATE 應該仍然【不是】表級授權
-  --    (staff 的 UPDATE 是欄級的 ⇒ has_table_privilege 本來就回 false;
-  --     若這裡變 true, 表示有人順手加了一道表級 GRANT)
+  -- ⑤ 本檔【不得】動 GRANT ⇒ staff 的表級 UPDATE 應仍【不是】表級授權
+  --    (它是欄級的 ⇒ has_table_privilege 本來就回 false;變 true 表示有人加了表級 GRANT)
   IF has_table_privilege('service_role','public.staff','UPDATE') THEN
     RAISE EXCEPTION 'staff 的 UPDATE 變成【表級】授權了 —— 本檔不動 GRANT, 這表示有別的東西放寬了它';
   END IF;
