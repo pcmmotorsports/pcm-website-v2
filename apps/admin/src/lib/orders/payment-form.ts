@@ -186,6 +186,82 @@ export function parsePaymentForm(form: FormData): ParsedPaymentForm | null {
 }
 
 /**
+ * 畫面上那幾個欄位的**標籤**(⟦b4-DEADENDMSG1⟧ 那一族)。
+ *
+ * 🔴 **用【畫面標籤】不是欄位名** —— 員工看得到的是「銀行單號 / 末五碼」,
+ *    他從來沒看過 `bank_reference`。這裡的字面要與 `payment-record-form.tsx`
+ *    的 `AdminFormField label=` 逐字相同, 否則訊息會指到一個他找不到的欄位。
+ */
+export const PAYMENT_FIELD_LABELS = {
+  amount: '金額(新臺幣元)',
+  receivedDate: '銀行入帳日',
+  bankReference: '銀行單號 / 末五碼',
+} as const;
+
+/**
+ * `parsePaymentForm` 回 `null` 時,**哪幾欄是員工自己補得回來的**。
+ *
+ * ══ 為什麼不是「列出所有讓 parse 失敗的原因」════════════════════════════
+ * 🔴🔴 **`null` 有很多種成因, 而大部分【不是員工填錯】**:
+ *    · `anyMalformed`(同名欄送兩份)· `orderId` / `requestId` 不是 uuid
+ *    · `rail` 不是那兩個字面 · 印章 `cashReceivedAt` 不是 ISO 時點
+ *    · 現金軌**帶了**單號(正常 UI 沒有那一欄 ⇒ 那是偽造 payload)
+ *    ⇒ 🛑 **對這些說「哪一欄」等於編一個具體原因給員工** —— 他會去改一個沒有壞的欄位,
+ *      而真正的問題在別的地方。📌 **把不知道偽裝成事實, 比只說一句通用話更貴。**
+ *      (同一條紀律的先例:`shipment-dialog-copy.ts` 的 `default` 走「數量資料尚未就緒」
+ *       而不是「未到貨」。)
+ * ⇒ ✅ **所以本函式只回【空著或格式不對、而他自己填得回來】的那幾欄;
+ *      一格都認不出來就回空陣列 ⇒ 呼叫端維持那句通用話。**
+ *
+ * 🔴 **判準與 `parsePaymentForm` 共用同一批原語**(`one` / `toAmount` / `isRealDate` / `orNull`)
+ *    ⇒ 兩邊不會各寫一份規則。而**它們仍然是兩個函式** ⇒ `payment-form.test.ts` 有一格
+ *    對同一組輸入同時問兩邊:**本函式列出某一欄 ⇒ `parsePaymentForm` 必須是 `null`;
+ *    全部填對 ⇒ 本函式必須是空的、而 `parsePaymentForm` 必須非 `null`。**
+ *    🛑 少了那一格, 這兩份規則哪天漂了會**安靜地**變成「畫面說缺這欄, 而伺服器其實收得下」。
+ */
+export function missingPaymentFieldLabels(form: FormData): string[] {
+  // 🔴🔴 **系統層【全部】先擋 —— 而擋的【集合】與 `parsePaymentForm` 相同。**
+  //    ⚠️ ⛔ ~~「順序逐條對齊」~~ ⇒ **那句我寫超過了**(codex R2 nit b):
+  //    parser 先驗金額再驗印章, 這裡先驗印章再驗金額。**結果無差異**(兩邊都是全過才往下),
+  //    而**承重的是【集合相同】不是【順序相同】** —— 寫成順序會讓下一個人以為順序有意義。
+  //
+  // ⛔ ~~第一版只擋了 `anyMalformed` 與 `isRail`~~ ⇒ 🔴 **codex 對抗審查 2026-09-04 抓到 must-fix**:
+  //    壞 uuid / 壞印章 / 現金軌帶單號, **只要同時還缺金額**, 就會印出「金額」——
+  //    而真正的成因是那個偽造的 payload。📌 **它指了一個沒有壞的欄位, 而員工會去改它。**
+  // 🛑 **⇒ 判準不是「擋掉我想得到的那幾種」, 是【所有系統閘都過了才診斷欄位】。**
+  //    ⚠️ 而這一段與 `parsePaymentForm` 的系統層檢查**必須同步** ——
+  //    那邊多一道而這邊沒有 ⇒ 同一個病立刻回來。`payment-form.test.ts` 有一組交叉格釘住它。
+  if (anyMalformed(form, PAYMENT_SINGLE_FIELDS)) return [];
+
+  const orderId = one(form, PAY_ORDER_ID_FIELD);
+  const requestId = one(form, PAY_REQUEST_ID_FIELD);
+  if (!UUID_RE.test(orderId) || !UUID_RE.test(requestId)) return [];
+
+  const rail = one(form, PAY_RAIL_FIELD);
+  if (!isRail(rail)) return [];
+
+  // 印章:兩軌都驗(與 `parsePaymentForm` 同一條理由)。
+  if (!isIsoInstant(one(form, PAY_CASH_RECEIVED_AT_FIELD))) return [];
+
+  // 🔴 現金軌帶了單號 = 偽造 payload(正常 UI 沒有那一欄)⇒ 不是漏填, 不給欄位名。
+  if (rail === 'cash' && orNull(one(form, PAY_BANK_REFERENCE_FIELD)) !== null) return [];
+
+  const missing: string[] = [];
+  if (toAmount(one(form, PAY_AMOUNT_FIELD)) === null) missing.push(PAYMENT_FIELD_LABELS.amount);
+
+  // 🔵 現金軌**沒有**下面那兩欄(表單根本不渲染)⇒ 它們的缺席不是「漏填」。
+  if (rail === 'bank_transfer') {
+    if (!isRealDate(one(form, PAY_RECEIVED_DATE_FIELD))) {
+      missing.push(PAYMENT_FIELD_LABELS.receivedDate);
+    }
+    if (orNull(one(form, PAY_BANK_REFERENCE_FIELD)) === null) {
+      missing.push(PAYMENT_FIELD_LABELS.bankReference);
+    }
+  }
+  return missing;
+}
+
+/**
  * 送進 RPC 的 `p_received_at`(plan §3.6)。
  *
  * 🔴 **兩軌構造方式不同,而且都不碰裝置時區**:
