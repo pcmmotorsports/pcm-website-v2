@@ -15,8 +15,9 @@
 #   ② 它比的是【兩次快照之間】的差 ⇒ **改了又改回來, 它看不到。**
 #   ③ 它只看 `public` 這個 schema, 只看那四個角色 ⇒ **別的 schema / 別的角色不在分母裡。**
 #      ⚠️ 而 `POL` 那一族是【全部角色】(policy 的 roles 原樣印)—— 那一族不受「四個角色」限制。
-#   ⑤ 🔴 `POL` 只記 policy 的【名字 / 角色 / cmd / permissive】—— **不記 `USING` 子句的內容**
-#      ⇒ 有人把 `USING (true)` 改成 `USING (false)`, 這份快照【看不到】。那是已知缺口。
+#   ⑤ `POL` 記到 `USING` / `WITH CHECK` 的**內容雜湊**(2026-09-05 補)——
+#      ⇒ 內容變了會顯形。⚠️ **而 diff 只說「變了」不說「變成什麼」** —— 那要去查 `pg_get_expr`。
+#      🔴 而它仍看不到:policy 的**順序**(PG 不保證)· 同名 policy 在不同 schema · 欄級授權。
 #   ④ `has_*_privilege` 對【欄級授權】少報(那個坑本 repo 記過)⇒ 欄級的改動這裡看不到。
 #
 # 用法:bash scripts/acl-snapshot.sh            比對(有差 rc=1)
@@ -82,7 +83,15 @@ SELECT 'POL',
        -- 🔵 roles 排序固定 —— 不排的話 catalog 的順序變動會讓每次都「有差」
        COALESCE((SELECT string_agg(r2.rolname::text, ',' ORDER BY r2.rolname)
                    FROM pg_catalog.pg_roles r2 WHERE r2.oid = ANY(p.polroles)), 'PUBLIC'),
+       -- 🔴 2026-09-05 補【內容雜湊】—— 第一版只記名字/角色/cmd/permissive
+       --    ⇒ 有人把 `USING (true)` 改成 `USING (false)`, 那一列【逐字相同】⇒ 快照看不到。
+       --    🛑 用 md5 不用原文:`USING` 子句可能很長(本庫最長的那條含子查詢),
+       --       原文會讓基線膨脹而且 diff 難讀;而**雜湊要的只是「變了沒」**。
+       --    ⚠️ 代價要明寫:**diff 只會說「那條 policy 的內容變了」, 不會說變成什麼** ——
+       --       要看變成什麼, 去查 `pg_get_expr` 或那支 migration。
        p.polcmd::text||'|'||CASE WHEN p.polpermissive THEN 'PERM' ELSE 'REST' END
+       ||'|'||COALESCE(md5(pg_catalog.pg_get_expr(p.polqual, p.polrelid)), '-')
+       ||'|'||COALESCE(md5(pg_catalog.pg_get_expr(p.polwithcheck, p.polrelid)), '-')
   FROM pg_catalog.pg_policy p
   JOIN pg_catalog.pg_class c ON c.oid = p.polrelid
   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -164,6 +173,23 @@ if [ "${1:-}" = "--selftest" ]; then
   diff -q "$t/pol" "$t/pol3" >/dev/null \
     && { echo "  🔴 PERMISSIVE→RESTRICTIVE 卻判沒差"; ok=1; } \
     || echo "  ✅ 正對照:PERMISSIVE 改成 RESTRICTIVE ⇒ 判為有差(名字沒變也抓得到)"
+
+  # 🔴 `USING (true)` → `USING (false)`:名字/角色/cmd/permissive **一格都沒變**,
+  #    只有內容雜湊變 ⇒ 這一格證明第五族的【內容那半】真的接上了。
+  #    🔬 真值:md5('true') = b326b5062b2f0e69046810717534cb09(基線裡 22 條是這個)
+  #            md5('false') = 68934a3e9455fa72420237eb05902327
+  printf 'POL\tpublic.a|a_sel\tservice_role\tr|PERM|b326b5062b2f0e69046810717534cb09|-\n' > "$t/q1"
+  sed 's/b326b5062b2f0e69046810717534cb09/68934a3e9455fa72420237eb05902327/' "$t/q1" > "$t/q2"
+  if diff -q "$t/q1" "$t/q2" >/dev/null; then
+    echo "  🔴 USING 內容突變沒套上 ⇒ 這一格作廢"; ok=1
+  else
+    echo "  ✅ 正對照:USING (true)→(false)(前三欄一格未動)⇒ 判為有差"
+  fi
+  # 🔵 負對照:同一條 policy 完全沒動 ⇒ 不得判有差(它不是對什麼都紅)
+  cp "$t/q1" "$t/q3"
+  diff -q "$t/q1" "$t/q3" >/dev/null \
+    && echo "  🔵 負對照:同一條 policy 沒動 ⇒ 判沒差" \
+    || { echo "  🔴 沒動卻判有差"; ok=1; }
 
   # 🔵 負對照:只有【順序】不同而內容相同 ⇒ 也要判有差
   #    (那是刻意的:排序固定是本支的前提, 順序變了代表 SQL 的 ORDER BY 被動過)
