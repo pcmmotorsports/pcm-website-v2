@@ -5,6 +5,8 @@
 > 🟢 **2026-09-05 深夜訂正**:呼叫端**已經接上了**(`7ddbba166`,Sean 拍甲批准的步驟②),
 > 六支 migration 也**全部貼進正式庫**了。⇒ ✅ **現在的一句話是:**
 > **碼與 DB 都到位,而【開關仍然是關的】,且那三個送單預設值還沒跟新竹確認過。**
+> 🔴 **而放 env 之前還有兩件**:①新竹的**連線網址**(`HCT_API_ENDPOINT`,今天不存在,只有 Sean 問得到)
+> ②`⟦ship-HCTUNKNOWNSTUCK⟧`(卡在 unknown 的箱**沒有出口**)—— **兩件都不是「開了就好」。**
 > 本檔唯讀量測,**沒有改任何碼、沒有翻任何開關、沒有印任何 env 的值**。
 > ⚠️ 量測基準 = `agent/line-ship` @ 2026-09-05,**並在 `origin/dev`(比本分支新 71 顆)上複驗過關鍵那兩發**。
 
@@ -75,7 +77,7 @@
 | # | 缺什麼 | 誰做 | 卡在哪 |
 |---|---|---|---|
 | 1 | ⛔ ~~跟新竹申請兩張表單 + 金鑰~~ ⇒ ✅ **帳密已經給了**(2026-09-05 實查,見 §三)。**還缺**:客戶代號 `escsno`(11 碼)、出貨站 `esstno`(4 碼)、**貨號區間規則** | **Sean → 新竹** | `docs/reference/hct-logistics-api-reference.md:41-50` 那張表**其餘各項未確認**;貨號區間決定「我們自己配號還是系統配」,那會改 `hct-trans-data.ts` |
-| 2 | ✅ **已完成**(`7ddbba166`,Sean 2026-09-05 拍甲批准 plan `cae1b84f6` 後接的):獨立「送新竹」鈕 → action → `runHctSubmit` → `admin_record_hct_submit`,送出前寫 `unknown` 佔位 | **我們** | 🔴 **而它多需要一顆 env:`HCT_API_ENDPOINT`** —— `HctClientDeps.endpoint` 是呼叫端傳進去的,而 repo 與 Vercel 都**沒有任何 endpoint 來源**;廠商檔那幾個 URL 分測試/正式也分服務 ⇒ **挑哪一個是 Sean 與新竹之間的事**。缺它 ⇒ fail-closed 回 `disabled`,**連 `runHctSubmit` 都不呼叫** |
+| 2 | ✅ **已完成**(`7ddbba166` + 兩輪審查修訂 `f1b3e8461`;Sean 2026-09-05 拍甲批准 plan `cae1b84f6` 後接的):獨立「送新竹」鈕 → action → `runHctSubmit` → `admin_record_hct_submit`,送出前寫 `unknown` 佔位 | **我們** | 🔴 **而它多需要一顆 env:`HCT_API_ENDPOINT`** —— `HctClientDeps.endpoint` 是呼叫端傳進去的,而 repo 與 Vercel 都**沒有任何 endpoint 來源**;廠商檔那幾個 URL 分測試/正式也分服務 ⇒ **挑哪一個是 Sean 與新竹之間的事**。缺它 ⇒ fail-closed 回 `disabled`,**連 `runHctSubmit` 都不呼叫**(空字串與空白也算缺)<br> 　🛑 **而它帶著一個已知缺口 `⟦ship-HCTUNKNOWNSTUCK⟧`**:送出前寫的 `unknown` 佔位,在「寫完而 HTTP 還沒發出去就被砍」時會讓那一箱**永久卡在 unknown**,而**今天沒有任何 UI 把它推回 draft**。📌 **那不是 bug,是「寧可誤判成送過了」的另一面** —— 反過來的代價是**客人收到兩箱**。⚠️ **在放 env 之前要先做掉它**,否則第一次卡住就要 Sean 手動改 DB |
 | 3 | **把兩顆 env 放進 production**,並先用**測試帳號**跑一發 | **Sean**(放 env)+ **我們**(驗) | `hct-client.ts:92` `hctMode(account)` 會依帳號判 `test`/`live` ⇒ **先跑 test 那一側** |
 
 🛑 **順序不能換**:2 沒做完就放 env ⇒ 開關開著而沒有人會走到那條路(**零效果,而它看起來像上線了**);
