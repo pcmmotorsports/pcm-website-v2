@@ -108,7 +108,12 @@ PEND="$(for f in supabase/migrations/*.sql; do
           grep -v '^#' supabase/APPLIED.tsv 2>/dev/null | cut -f1 | grep -qx "$v" || echo "${f##*/}"
         done)"
 if [ -z "$PEND" ]; then
-  ok "supabase/APPLIED.tsv 已涵蓋所有 migration(零未 apply)"
+  ok "supabase/APPLIED.tsv 已涵蓋所有 migration(帳本層零未記)"
+  # 🔴 2026-09-05:這一句原本寫「零未 apply」, 而它是【帳本層】的讀數不是正式庫的。
+  #   帳本假 0(貼了而沒記)⇒ 上面那個 else 多報一則 note = 誤報成本;
+  #   🛑 而**帳本假 1(記了而其實沒貼)⇒ 就是這一句 all-clear** ⇒ 那個方向是【放行】不是【多擋】。
+  note "🛑 而【帳本記了不等於貼了】—— 這一句是帳本層的 all-clear, 不是正式庫的。"
+  note "   ✅ 要確定某一支:bash scripts/is-migration-applied.sh <版本號>"
 else
   note "以下檔案未 apply,下次 db push 會一起上正式站:"
   printf '       %s\n' $PEND

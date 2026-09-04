@@ -59,6 +59,10 @@ describe('出貨 RPC 呼叫面 · 參數名逐字釘死(GRANT 綁精確簽章)',
     { fn: 'admin_mark_shipment_shipped', params: ['p_idempotency_key', 'p_shipment_id', 'p_tracking_number'] },
     { fn: 'admin_void_shipment', params: ['p_idempotency_key', 'p_shipment_id', 'p_void_reason'] },
     { fn: 'admin_unvoid_shipment', params: ['p_idempotency_key', 'p_shipment_id'] },
+    // 🔴 ⟦ship-HCTAPI⟧ 步驟②:把送出結果寫回 DB(`20260904170000`)。
+    //    ⚠️ **它沒有 `p_idempotency_key`** —— 而那不是漏掉:它的冪等來自
+    //    `hct_request_id` 的 **write-once trigger**, 不是來自一顆鑰匙。
+    { fn: 'admin_record_hct_submit', params: ['p_shipment_reference', 'p_status', 'p_request_id', 'p_raw'] },
     // 🔴 ⟦5b-TRACKNUMGAP1⟧ 片 A:已出貨的箱更正單號。**五個參數全部必填**——
     //    `p_actor` / `p_request_id` 是稽核那一列的來源, 少一個 = 稽核長不出來。
     {

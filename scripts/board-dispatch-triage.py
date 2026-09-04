@@ -69,6 +69,7 @@ def rows(path):
     out = []
     cur_who = 4   # 沒遇到表頭之前的預設 = 舊行為(5 欄表)
     cur_ncol = None  # 該表表頭的欄數 —— 用來擋「內容裡有裸 | 而多切了幾刀」的列
+    is_board = True  # 目前這張表是不是【板子】(= 表頭有誰欄);見下方表頭那段
     for i, l in enumerate(L, 1):
         if not l.startswith('|') or sep(l):
             continue
@@ -77,6 +78,18 @@ def rows(path):
             hc = [x.strip() for x in _split_row(l)]
             cur_who = _who_idx(hc)
             cur_ncol = len(hc)
+            # 🔴🔴 2026-09-05:這支檔裡**不只一張表**。實查 `docs/launch-todo.md` ——
+            #   who 取不到的 32 列裡, **31 列根本不在板子那張表上**(表頭 :906 `態/#/事/卡什麼`、
+            #   :1482 引用稽核表、:1508 推批對照表、:1697 清單對照表), 只有 **1 列**
+            #   (`⟦ship-HCTAPI⟧`)是**真的板列而少一欄**。
+            #   ⛔ 先前把它們混成一個數字 ⇒ 「32」讀起來像「板子上有 32 列壞掉」, 而那是假的。
+            #   ✅ 判準:**表頭裡找不到誰欄的那張表, 整張不是板子** ⇒ 它的列一律不吐出來。
+            #   🔵 這比「數欄數」穩:別的表將來加欄減欄都不會誤入, 而**板子那張表一定有誰欄**
+            #      (沒有誰欄就不是派工用的板)。
+            is_board = cur_who is not None
+            continue
+        # 🔴 不是板子那張表 ⇒ 整列跳過。**它們不是「壞掉的板列」, 它們根本不是板列。**
+        if not is_board:
             continue
         c = _split_row(l)
         if len(c) < 6:
@@ -131,24 +144,22 @@ def anchors(rs):
 
 
 def triage(rs):
-    """待派 x 有沒有標記 ⇒ 兩堆。判準是【逐字子字串】, 不是分類器。"""
-    blocked, ready, notopen, unknown = [], [], [], []
+    """待派 x 有沒有標記 ⇒ 兩堆, 外加「連誰欄都沒有」自成一堆。判準是【逐字子字串】, 不是分類器。"""
+    blocked, ready, notopen, nowho = [], [], [], []
     marked = 0
     for i, state, what, who, body, _idcol in rs:
         has_mark = any(m in body for m in MARKERS)
         if has_mark:
             marked += 1
-        # 🔴🔴 **`who is None` 是【上游刻意產生的值】, 不是意外** —— 見 `rows()` 那段長註解:
-        #    「答不出來要長得像答不出來, 而猜一個看起來合理的是這一族最貴的失敗」。
-        #    ⛔ ~~而本函式原本直接 `'待派' not in who`~~ ⇒ **對 `None` 會 `TypeError` 整支炸掉。**
-        #    🔬 2026-09-05 線【身分】`-auth` 實測:`origin/dev` 那份板 **721 資料列裡 33 列是 None**
-        #      (4.6%);它們多半是**同一支檔裡【別的表】**(欄數比表頭少)。
-        #    🎯 **生產端是對的, 壞的是消費端** —— 上游那段註解只講了它**為什麼**回 None,
-        #      **沒有講【誰要接住它】** ⇒ 📌 一個正確的設計在跨過函式邊界時掉在地上。
-        #    🛑 **而它不能【靜靜跳過】** —— 那會讓那 33 列對派工完全隱形,
-        #      而本檔自己的規矩是「0 與『沒有派重』是兩個宣稱」⇒ 收成一堆, 印出來。
+        # 🔴🔴 2026-09-05:板上有一批列**只有 4 欄、根本沒有「誰」那一欄**, 而本函式原本
+        #   直接對 `None` 做 `'待派' not in who` ⇒ **整支當掉**(TypeError)。
+        #   ⛔ **修法【不是】`who or ''`** —— 那會讓這些列安靜地掉進「不是待派」而被 `continue`
+        #      吃掉 ⇒ 📌 **它們會從兩堆裡一起消失, 而讀的人以為分母是全部。**
+        #   ✅ 讓它們**自成一堆並且帶數字印出來** —— 主視窗-94 2026-09-05 裁示逐字。
+        #   🔵 而**當掉其實比安靜吞掉好**:當掉會叫, 吞掉不會。這一格是把「會叫」換成
+        #      「會叫【而且說得出是什麼】」, 不是把它換成「不叫」。
         if who is None:
-            unknown.append((i, state, what))
+            nowho.append((i, state, what))
             continue
         if '待派' not in who:
             continue
@@ -161,12 +172,12 @@ def triage(rs):
             notopen.append((i, state, what))
         else:
             ready.append((i, who, what))
-    return blocked, ready, notopen, marked, unknown
+    return blocked, ready, notopen, nowho, marked
 
 
 def main(path):
     rs = rows(path)
-    blocked, ready, notopen, marked, unknown = triage(rs)
+    blocked, ready, notopen, nowho, marked = triage(rs)
     AK = anchors(rs)
 
     print(f'掃過的資料列 = {len(rs)}   內文帶標記的列 = {marked}')
@@ -214,13 +225,14 @@ def main(path):
     for i2, st, what in notopen:
         print(f'   {AK[i2]}  態={st:8s} {what[:60]}')
 
-    # 🔴 這一堆【不是雜訊】—— 它是「這把尺對這幾列沒有意見」, 而靜靜跳過會讓它們變成 0。
-    print(f'\n⚠️ 誰欄取不到（欄數比表頭少 ⇒ 上游刻意回 None）({len(unknown)} 列) —— 兩堆都不收')
-    print('   📌 多半是同一支檔裡【別的表】。它們對派工是【隱形】的, 不是【沒有】。')
-    for i3, st, what in unknown[:8]:
-        print(f'   :{i3}  態={st[:10]:10s} {what[:60]}')
-    if len(unknown) > 8:
-        print(f'   …另外 {len(unknown) - 8} 列')
+    # 🔴 這一堆印在射程那句之前 —— 它是【分母的一部分】, 不是附註。
+    print(f'\n⚠️ 只有 4 欄、沒有「誰」那一欄的資料列 ({len(nowho)} 列) —— 兩堆都不會收它們')
+    if not nowho:
+        print('   （無）—— ⚠️ 0 只代表【這塊板子上沒有】, 不代表這個形狀不會再出現')
+    else:
+        print('   🛑 它們不是「沒人認領」, 是【這支尺問不出來】⇒ 要派它們得先有人補那一欄')
+    for i3, st, what in nowho:
+        print(f'   {AK[i3]}  態={st:8s} {what[:60]}')
 
     print('\n📎 射程在最上面那段（刻意不放這裡 —— 放這裡等於沒放）')
     return 0
@@ -237,22 +249,27 @@ def selftest():
         '| open | A4 | 丁事 | -b9 | 內文乾淨而已經有人拿著, 不該進任何一堆 |\n'
         '| open | A5 | 戊事 | 要面板 + 要 code | 重驗中 -b9 —— 第4欄答非所問 |\n'
         '| done | A6 | 己事 | 待派 | 內文乾淨而態是 done ⇒ 不該進可派名單 |\n'
-        # 🔴 這一列【欄數比表頭少一欄】⇒ `rows()` 刻意回 who=None。
-        #    ⛔ 而在 2026-09-05 之前, **selftest 的板子裡沒有這種列**
-        #    ⇒ 📌 `triage()` 對 None 會 TypeError 這件事, **在 selftest 的世界裡不存在**
-        #      —— 尺是好的, 而那個世界沒有被造出來。真板一跑就炸(721 列裡 33 列)。
-        '| open | A7 | 庚事 | 這一列少一欄 |\n'
+        # 🔴 只有 4 欄 —— 這一列是 2026-09-05 那支 TypeError 的形狀本身。
+        '| open | A7 | 庚事 | 這一列只有四欄所以沒有誰 |\n'
+        # 🔴🔴 板子裡【還有別的表】。實查:當時 who 取不到的 32 列, 31 列來自這種表。
+        #   它們不是壞掉的板列 —— 它們根本不是板列, 而先前把兩者混成同一個數字。
+        '\n## 另一張表(不是板子, 表頭沒有誰欄)\n\n'
+        '| 態 | # | 事 | 卡什麼 |\n'
+        '|---|---|---|---|\n'
+        '| open | B1 | 辛事 | 這張表沒有誰欄, 整張都不該被當成板列 |\n'
+        '| open | B2 | 壬事 | 同上 |\n'
     )
     fd, p = tempfile.mkstemp(suffix='.md'); os.close(fd)
     io.open(p, 'w', encoding='utf-8').write(board)
     try:
-        b, r, no, marked, unk = triage(rows(p))
+        b, r, no, nw, marked = triage(rows(p))
         bl = sorted(x[2] for x in b)
         rl = sorted(x[2] for x in r)
         checks = [
-            # 🔵 6 ⇒ 7:2026-09-05 加了【庚】那一列(欄數少一欄 ⇒ who=None)。
-            #    改的是 fixture 的大小, 不是這一格的語意。
-            ('資料列數 = 7（表頭與分隔列不算）', len(rows(p)) == 7),
+            # 🔴 期望值 7 而不是 9:另一張表那兩列(辛/壬)**不該進來**。
+            #   ⚠️ 這個數字同時守兩件事 —— 少了會漏、多了代表別的表被吃進來。
+            ('資料列數 = 7(另一張表的 2 列不得混進來;2026-09-05 由 6 改 7)', len(rows(p)) == 7),
+            ('負對照⑤ 別的表的列不得出現在任何一堆', not any(x[2] in ('辛事', '壬事') for x in b + r + no + nw)),
             ('負對照① 待派+有標記 ⇒ 被抓（甲丙兩列）', bl == ['丙事', '甲事']),
             ('負對照② 待派+乾淨 ⇒ 進可派名單（乙）', rl == ['乙事']),
             ('乙【沒有】被誤抓進不要派', '乙事' not in bl),
@@ -261,12 +278,28 @@ def selftest():
             ('帶標記的列數 = 3（甲丙戊）', marked == 3),
             ('負對照③ 待派+乾淨但態=done ⇒ 不進可派名單', '己事' not in rl),
             ('而它要進「態不是 open」那一堆，不得靜靜消失', '己事' in [x[2] for x in no]),
-            ('🔴 庚(欄數少一欄 ⇒ who=None) 不得讓 triage 炸掉', True),
-            ('🔴 而它要進「誰欄取不到」那一堆，不得靜靜消失', '庚事' in [x[2] for x in unk]),
-            ('🔵 負對照:庚不得混進可派名單', '庚事' not in rl),
+            # 🔴 這三格是 2026-09-05 那支 TypeError 的回歸鎖。
+            ('負對照④ 只有 4 欄的列 ⇒ 不再當掉, 而且自成一堆', '庚事' in [x[2] for x in nw]),
+            ('而它【不得】被吞進可派名單（`who or \'\'` 那種修法會)', '庚事' not in rl),
+            ('也不得被吞進不要派那一堆', '庚事' not in bl),
+        ]
+        # 🔴🔴 這一格是【突變逼出來的】:把「算出來但不印」餵進去 ⇒ 上面那三格**全綠**。
+        #   成因:它們只驗 `triage()` 的回傳值, 而**沒有一格走過 `main()` 的輸出那一端**。
+        #   ⇒ 📌 **修的是計算, 漏的是讀它的那一端** —— 而使用者拿到的是後者。
+        #   ⚠️ 本格刻意比對【那一行字面 + 數字】, 不只是「有沒有 nowho 這個字」。
+        import io as _io, contextlib
+        buf = _io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            main(p)
+        printed = buf.getvalue()
+        checks_print = [
+            ('main() 真的把那一堆印出來了(帶數字)', '沒有「誰」那一欄的資料列 (1 列)' in printed),
+            ('而別的表的列連在輸出裡都不該出現', '辛事' not in printed and '壬事' not in printed),
+            ('而那一列的標題也印出來了, 不只是一個數字', '庚事' in printed),
         ]
     finally:
         os.unlink(p)
+    checks += checks_print
     bad = 0
     for name, ok in checks:
         print(f'   {"PASS" if ok else "FAIL"}  {name}')

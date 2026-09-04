@@ -159,7 +159,7 @@ describe('FilterTop 自訂價格區間', () => {
   });
 
   // 🔴 只填最低時上限不能用 Infinity:網址同步寫 `pmax=String(...)`
-  // (`use-catalog-filter-url-sync.tsx:182`),而回程的 `parseNonNegativeInteger`
+  // (`use-catalog-filter-url-sync.tsx` 的 `params.set('pmax', …)` 那行),而回程的 `parseNonNegativeInteger`
   // (`lib/catalog-query.ts:130-139`)要求 `Number.isInteger` —— `Infinity` 過不了
   // ⇒ **重整之後上限會安靜消失**。這一條釘住「上限必須是能來回的整數」。
   // 突變:把 `Number.MAX_SAFE_INTEGER` 換回 `Infinity` ⇒ 只有這一條紅。

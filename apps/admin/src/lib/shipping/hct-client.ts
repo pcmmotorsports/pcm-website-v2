@@ -89,6 +89,22 @@ function gateOpen(read: () => string | undefined): boolean {
  * ✅ **所以唯一的判別式是帳號本身** —— 而**我不讀值**, 由碼在執行期判。
  * 🛑 **刻意不用第二顆 env 宣告環境**:兩顆 env 會不一致, 而**不一致時沒有東西會叫**。
  */
+/**
+ * 🔴🔴 **把那道閘【也】暴露成一個可以先問的述詞 —— code-reviewer 2026-09-05 MF1。**
+ *
+ * 病:呼叫端在送出【之前】先寫一列 `unknown` 佔位(擋重送), 而閘關著時
+ *    `submitTransData` 走到一半才回 `disabled` ⇒ **零 HTTP, 而 `hct_status` 已經被推成 unknown**
+ *    ⇒ 下一次 `admin_record_hct_submit` 對 old=unknown,new=unknown **RAISE**
+ *      (`20260904170000:163-169` 逐字)⇒ 🛑 **那一箱卡死, 要人工改 DB 才救得回來。**
+ * ⇒ 📌 **「閘在建依賴之前」這個性質, 對【呼叫端在閘之前做的事】完全無效** ——
+ *   它保護的是這支檔裡的東西, 而佔位那一步發生在這支檔之外。
+ * ⇒ ✅ 讓呼叫端問得到, 它才能把閘判定排在自己的副作用之前。
+ * 🔵 它與 `gateOpen` 共用同一支函式 ⇒ **不會有兩份判定漂開。**
+ */
+export function hctSubmitGateOpen(): boolean {
+  return gateOpen(readSubmitGate);
+}
+
 export function hctMode(account: string): 'test' | 'live' {
   return account === 'test' ? 'test' : 'live';
 }

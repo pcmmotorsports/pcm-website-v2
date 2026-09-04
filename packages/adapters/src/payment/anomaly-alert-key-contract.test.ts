@@ -325,6 +325,18 @@ const FAIL_LOUD_RPCS = [
   'get_order_created_gap_counts',
   'get_cron_heartbeat_stale_counts',
   /**
+   * 🔵 ⟦b4-NORECIPIENTWINDOW⟧ **第四條線**(2026-09-04)。
+   * **分堆是開檔看的, 不是猜的**(本檔上面那句逐字要求):
+   *   `get_tracking_corrected_gap_counts` 的三個 key 全部走同檔的 `parseCount`
+   *   (`trackingCorrectedCount` 那個 helper)⇒ 缺鍵直接 `throw` ⇒ 屬 fail-loud 這一堆。
+   * 🛑 **而它與姊妹那幾支一樣有【一條刻意的 fail-soft 路徑, 而那條不是缺鍵】**:
+   *   那支 RPC 還沒 apply 時(`42883` 且 `to_regprocedure` 回 NULL)⇒ 三格回 `null` = 查不到,
+   *   **不是 0** ——「讀不到」與「一切正常」在裸數字上長得一模一樣。
+   * 📌 **而這一格擋到我了** —— 我加了一支 RPC 而沒來登記, 它當場紅並告訴我要放進哪一堆。
+   *   ⇒ 那正是本檔上面那段「第 5 支進來就紅」在做的事。
+   */
+  'get_tracking_corrected_gap_counts',
+  /**
    * 🔵 ⟦b9-ENUMWATCH⟧ 片 2(2026-09-01)。**分堆是開檔看的, 不是猜的**(本檔上面那句逐字要求):
    *   `PgAnomalyAlertReaderAdapter.getManualCustomerSearchSummary` 自己判形狀 ——
    *   回應不是物件 / 計數欄不是數字 ⇒ **`throw`**。

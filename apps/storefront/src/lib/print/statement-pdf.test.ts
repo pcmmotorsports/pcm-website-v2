@@ -43,6 +43,7 @@ function orderFixture(itemCount: number): MemberOrderDetail {
     subtotal: twd(12000),
     shippingFee: twd(100),
     discountTotal: twd(0),
+    taxTotal: twd(0),
     total: twd(12100),
     shippingMethod: 'home',
     shippingAddress: {

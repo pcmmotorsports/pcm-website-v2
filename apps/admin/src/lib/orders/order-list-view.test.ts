@@ -2,7 +2,10 @@
 // 訂單專屬:searchParams 白名單守門 / buildOrderListHref / 標籤覆蓋 / 格式化。
 // 通用分頁數學 / parsePage 的測試在 ../shared/list-params.test.ts。
 
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, it, expect } from 'vitest';
+import { MANUAL_PAYMENT_CHANNELS } from './manual-order-form';
 import type { AdminOrderFilter } from '@pcm/domain';
 import {
   MEMBER_TIER_LABEL,
@@ -783,5 +786,62 @@ describe('🔴 `#742` nit(W6):回聲與 reader 對【同一個鍵】的規則必
     const raw = { customer: [UUID_A, UUID_B] };
     expect(readOpenCustomerPanelId(raw)).toBeNull();
     expect(buildCarriedUrlValues(raw).customer).toBeUndefined();
+  });
+});
+
+/**
+ * 🔴 **`PAYMENT_CHANNEL_VALUES` 在 TS 裡有【四份】字面**(2026-09-05 盤點, 板列 `⟦b4-CHANNELCASTWIDE⟧`):
+ * ```
+ * @pcm/domain     types.ts:284   四值  ← canonical(mapper 每次讀單都 cast 到它)
+ * @pcm/schemas    index.ts:317   兩值  ← 結帳輸入的 zod enum(只給兩個選項, 差是刻意的)
+ * 本檔的來源       order-list-view.ts:156  四值  ← 自己抄的一份
+ * manual-order-form.ts:143       兩值  ← MANUAL_PAYMENT_CHANNELS(手動建單的子集)
+ * ```
+ * 🛑 **而本檔這一份【不搬去 domain】**(主視窗 2026-09-05 拍丙):
+ *    `:303 PAYMENT_CHANNEL_OPTIONS = toOptions(PAYMENT_CHANNEL_VALUES, …)` ——
+ *    **那個陣列的順序就是後台下拉選單的順序**, 使用者看得到。
+ *    搬去 `domain` 會把「UI 的顯示順序」變成 domain 的**隱性契約**:
+ *    下一個人改 `types.ts` 那行的順序, 會靜靜改掉後台的下拉, 而沒有東西會叫。
+ * ⇒ 🎯 **要的是「不同步時會叫」, 不是「字面只有一份」** —— 下面兩格拿的是前者。
+ *
+ * ⚠️ **而 `satisfies readonly PaymentChannel[]` 給不到這個** —— 它擋得住「多寫一個不存在的值」,
+ *    **擋不住少寫一個**。少了 `none`, TS 一樣過。📌 一個看起來像在守的語法, 保證比它看起來小。
+ */
+describe('付款管道值域 · admin 那份 ↔ domain 四值(⟦b4-CHANNELCASTWIDE⟧ 丙)', () => {
+  /** 🔴 讀【字面】不 import:domain 的 `PaymentChannel` 是純型別 union, 執行期不存在。 */
+  function domainChannelValues(): string[] {
+    const p = path.resolve(__dirname, '../../../../../packages/domain/src/order/types.ts');
+    const m = readFileSync(p, 'utf8').match(/export type PaymentChannel\s*=\s*([^;]*);/);
+    return [...(m?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map((x) => x[1]!);
+  }
+
+  it('🔵 前提:尺抓得到東西(抓不到 ⇒ 是尺壞了, 不是「兩邊一致」)', () => {
+    expect(domainChannelValues().length).toBeGreaterThan(0);
+    expect(PAYMENT_CHANNEL_VALUES.length).toBeGreaterThan(0);
+  });
+
+  it('🔴 本檔那份與 domain 四值【集合相等】—— 多一個少一個都要紅', () => {
+    // 順序【不比】—— 那是 UI 的(見上面的說明), 而集合才是契約。
+    expect([...PAYMENT_CHANNEL_VALUES].sort()).toEqual([...domainChannelValues()].sort());
+  });
+
+  it('🔴 而那個相等不是空對空 —— 四個值逐字都要在', () => {
+    for (const v of ['tappay', 'bank_transfer', 'cash', 'none']) {
+      expect(PAYMENT_CHANNEL_VALUES).toContain(v);
+      expect(domainChannelValues()).toContain(v);
+    }
+  });
+
+  it('🔴 MANUAL_PAYMENT_CHANNELS ⊂ domain 四值(手動建單是子集, 不是另一套值域)', () => {
+    // 🔵 它【刻意】比較窄(手動建單只收匯款/現金)⇒ 這裡釘的是「⊂」不是「=」。
+    const domain = domainChannelValues();
+    for (const v of MANUAL_PAYMENT_CHANNELS) expect(domain).toContain(v);
+    expect(MANUAL_PAYMENT_CHANNELS.length).toBeLessThan(domain.length);
+  });
+
+  it('🔵 尺會動:把 domain 抽出來的集合去掉一個 ⇒ 上面那格必須翻面', () => {
+    // 🔴 沒有這一格,「兩邊一致」與「抽取器回了空的」印同一個綠。
+    const shrunk = domainChannelValues().filter((v) => v !== 'cash');
+    expect([...PAYMENT_CHANNEL_VALUES].sort()).not.toEqual([...shrunk].sort());
   });
 });

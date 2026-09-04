@@ -603,7 +603,7 @@ const getCatalogBrandTaxonomyCached = unstable_cache(
  *    (同一句判別句 `contexts/FavoritesContext.tsx:50` 逐字寫過,標 `MAIN-035 ①-1`【必修】。)
  *
  * 🔴🔴 **為什麼不直接把 `fetchCatalogBrandTaxonomy` 改成回 `null`** —— 它有 3 個 sibling 消費端,
- *    而其中一個把這個行為**寫死在註解裡當前提**:`components/use-catalog-filter-url-sync.tsx:153`
+ *    而其中一個把這個行為**寫死在註解裡當前提**:`components/use-catalog-filter-url-sync.tsx`
  *    逐字「撈失敗回 `[]` 而非 null」。改簽章會**安靜地**打到它與
  *    `app/products/page.tsx` 側欄、`app/api/catalog/facet-counts/route.ts`(失敗要 503)。
  *    ⇒ 對外那支的簽章與行為 **byte 不變**,新需求走這一支。

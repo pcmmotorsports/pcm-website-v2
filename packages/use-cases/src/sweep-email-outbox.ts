@@ -12,6 +12,7 @@ import type {
   ShippedEmailContext,
 } from '@pcm/ports';
 import { SUPPRESS_WHEN_ORDER_INELIGIBLE } from '@pcm/ports';
+import { subtotalLabelOf } from '@pcm/domain';
 import {
   assertPdfClaimMatchesAttachments,
   paidEmailOrderUrl,
@@ -343,6 +344,35 @@ function readShipmentId(payload: unknown): string | null {
  *    而那封信的全部內容就是那個號碼 ⇒ **它該被當成沒有**。
  *    ⇒ 📌 兩邊都是 fail-closed 方向(拿不到 ⇒ 不寄), 所以嚴的那一邊不會產生假寄。
  */
+/**
+ * 把 DB 回的 ISO 時間字串轉成 SQL 側那把鑰匙的**同一個 20 位數形狀**(`YYYYMMDDHH24MISSUS`, UTC)。
+ *
+ * 🔴🔴 **為什麼不是「兩邊各自轉成毫秒再比」**(codex R2 must-fix #3/#4/#5 —— 上一版就是那樣):
+ *    · **毫秒截斷**:SQL 那把鑰匙到**微秒**, 截成毫秒之後**同一毫秒內的兩次更正身分相同**
+ *      ⇒ A→B→C→B 若發生在同一毫秒, 舊的 B 與最新的 B 會**兩封都寄**。
+ *    · **方向**:上一版寫 `live > job` 才算過期 ⇒ **live 比 job 舊**(時鐘回撥 / 讀到舊快照)
+ *      而號碼又剛好相同 ⇒ **照樣寄**。⇒ 身分「不相等」就不該放行, 不分方向。
+ *    ⇒ ✅ 改成**逐字比對同一個 20 位數字串**, 精度不掉、方向不用管。
+ *
+ * 🛑 **只收 UTC**(`Z` / `+00:00` / `+00`)。收到帶其他偏移的字串 ⇒ 回 `null` ⇒ 呼叫端 fail-closed。
+ *    📌 **那是刻意的**:我可以寫時區換算, 而**一個算錯的時區會安靜地寄出一封過期的更正信**;
+ *      一個 `null` 會吵。⇒ 今天 DB 是 UTC, 而**「今天是」不等於「永遠是」** —— 所以擋在這裡, 不是假設。
+ * 🔴 形狀不符一律 `null`。**不要猜。**
+ */
+function isoToCorrectedKey(iso: string): string | null {
+  const m =
+    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|\+00:00|\+00)$/.exec(iso);
+  if (m === null) return null;
+  const frac = (m[7] ?? '').padEnd(6, '0');
+  return `${m[1]}${m[2]}${m[3]}${m[4]}${m[5]}${m[6]}${frac}`;
+}
+
+function readTrackingCorrectedKey(payload: unknown): string | null {
+  if (typeof payload !== 'object' || payload === null) return null;
+  const v = (payload as Record<string, unknown>).tracking_corrected_key;
+  return typeof v === 'string' && v.trim() !== '' ? v : null;
+}
+
 function readTrackingNumber(payload: unknown): string | null {
   if (typeof payload !== 'object' || payload === null) return null;
   const v = (payload as Record<string, unknown>).tracking_number;
@@ -475,7 +505,10 @@ function buildOrderCreatedText(
     //    這一行讓客人**至少看得到自己看的是部分**, 而不是靜靜地少幾項。
     //    ⇒ 📌 而它今天**沒有任何一發測試跑得到** —— 那一格是已知的, 不是漏掉的。
     if (paid.linesTruncated) detail.push('(品項過多,此處僅列出部分;完整明細請至會員中心查看)');
-    detail.push('', `小計  NT$ ${formatOrderAmount(paid.subtotal)}`);
+    // 🔴 有稅時小計是【未稅】的 ⇒ 標籤要說得出來(`⟦b4-TAXSURFACES⟧`, Sean 2026-09-04 拍甲)。
+    //    共用 `subtotalLabelOf` 而不在這裡寫死 —— 五個面要逐字相同, 而抄五份時
+    //    下一個人只會改他打開的那一份。
+    detail.push('', `${subtotalLabelOf('小計', paid.taxTotal)}  NT$ ${formatOrderAmount(paid.subtotal)}`);
     // 🔴 折扣 0 不印(印「折扣 −0」會讓客人以為有一筆他沒看到的折抵);
     //    而**運費 0 照印**(「免運」是他想確認的事)—— 兩條【規則】與排版那份逐條相同。
     // 🛑 **而【順序】也對齊了**(code-reviewer R1 nit):排版那份是 小計 → 運費 → 折扣 → 訂單金額
@@ -961,7 +994,14 @@ export async function sweepEmailOutbox(
        */
       jobs = await outbox.claimDue(
         opts.claimLimit,
-        opts.allowOrderShipped ? undefined : { excludeEventTypes: ['order_shipped'] },
+        // 🔴 **⟦5b-TRACKNUMGAP1⟧ 片 C 一起進來**(codex 對抗審查 must-fix):
+        //    更正信是**出貨線的下游** —— 它的前提就是「客人收過出貨信」。
+        //    ⇒ 🎯 「設了 env、看到不對、把它拿掉」的意思是【整條出貨線停下來】,
+        //      而少了這一格, **已經入隊的更正信照樣被認領、照樣寄出去**, 而信收不回來。
+        //    🛑 我在 route 那一層擋了 enqueue, 而**那只擋得住還沒進佇列的**。
+        opts.allowOrderShipped
+          ? undefined
+          : { excludeEventTypes: ['order_shipped', 'shipment_tracking_corrected'] },
       );
     } catch {
       result.errors++;
@@ -1138,6 +1178,21 @@ export async function sweepEmailOutbox(
       }
     }
 
+    // 🔴🔴 **更正信共用同一支剎車**(codex 對抗審查 must-fix;⟦5b-TRACKNUMGAP1⟧ 片 C)。
+    //    與 order_shipped 那道同形、同理由:**不認領是省成本, 不寄是保正確。**
+    //    🔴 **它必須排在【比對即時值】那道之前** —— 那一道會 `loadShippedContext()` 去查主表,
+    //      而線關著的時候**不該去查這一封信要用的那幾張表**(這一格是測試逼出來的:我第一版放在它後面,
+    //      ⚠️ ⛔ ~~「連查主表都不該發生」~~ **那句太寬**(codex R2 nit #10):本閘在 **ineligible scan 之後**
+    //      ⇒ 那一發 DB 查詢照樣發生。📌 精確的宣稱是「不查這一封的那幾張表」, 不是「不碰 DB」。
+    //      斷言「不該查主表」當場紅)。
+    //    上面 `claimDue` 已經把它排除掉了 ⇒ 正常情況下這一格不會被走到;
+    //    ⇒ 📌 **它守的是【實作違約】** —— adapter 忽略 `excludeEventTypes`、
+    //      或換一個沒實作它的 port。⇒ 兩道一起錯的世界只有「旗標本身讀錯」那一種。
+    if (job.eventType === 'shipment_tracking_corrected' && !opts.allowOrderShipped) {
+      result.errors++;
+      continue;
+    }
+
     // 🔴🔴 **更正單號那封信:寄送當下比對即時值**(⟦5b-TRACKNUMGAP1⟧ 片 C;主視窗 2026-09-04 拍甲)。
     //
     //    掃描器是 cron ⇒ enqueue 到寄出之間有一段時間。員工在那段時間裡又改了一次(A→B→C):
@@ -1149,7 +1204,13 @@ export async function sweepEmailOutbox(
     if (job.eventType === 'shipment_tracking_corrected') {
       const shipmentId = readShipmentId(job.payload);
       const enqueuedTracking = readTrackingNumber(job.payload);
-      if (deps.shippedContext === undefined || shipmentId === null || enqueuedTracking === null) {
+      const enqueuedKey = readTrackingCorrectedKey(job.payload);
+      if (
+        deps.shippedContext === undefined ||
+        shipmentId === null ||
+        enqueuedTracking === null ||
+        enqueuedKey === null
+      ) {
         // 🔴 拿不到比對的兩端 ⇒ **不寄**(fail-closed)。少了任何一端, 我們就不知道它是不是還對。
         result.errors++;
         continue;
@@ -1176,7 +1237,26 @@ export async function sweepEmailOutbox(
         result.errors++;
         continue;
       }
-      if (live.context.trackingNumber !== enqueuedTracking) {
+      // 🔴🔴 **比的是【這一次更正的身分】, 不是號碼**(主視窗 2026-09-04 拍 Q1 甲的另一半)。
+      //    ⛔ ~~原本比 `live.context.trackingNumber !== enqueuedTracking`~~ —— 那個比法
+      //      在 **A→B、B→C、再改回 B** 之下會**寄兩封**:第一封與第三封的號碼相同,
+      //      而它們是**兩次不同的更正**。⇒ 拍板要的是「只寄最後對的那封」。
+      //    ✅ 改成:庫裡的最後一次更正時點 **晚於** 這份工作單的那一次 ⇒ 它被取代了。
+      // 🛑 **兩端拿不到就 fail-closed** —— 少了任何一端我們就不知道它還是不是最新的,
+      //    而寄一封過期的更正信 = 我們親手背書一個錯號碼。
+      const liveKey =
+        live.context.trackingCorrectedAt === null
+          ? null
+          : isoToCorrectedKey(live.context.trackingCorrectedAt);
+      if (liveKey === null) {
+        // 🔴 拿不到庫裡那一次更正的身分 ⇒ 我們不知道這份工作單還算不算數 ⇒ 不寄。
+        result.errors++;
+        continue;
+      }
+      // 🔴 **不相等就不放行, 不分方向**(codex R2 must-fix #5):
+      //    上一版只擋 `live 比較新`, 而 **live 比較舊**(時鐘回撥 / 讀到舊快照)+ 號碼剛好相同
+      //    ⇒ 照樣寄。而「不確定它是不是最新的」與「它確定是舊的」對客人是同一件事。
+      if (liveKey !== enqueuedKey) {
         // 🔴 **被更新的號碼取代** —— 跳過, 而**留下一筆看得見的紀錄**(主視窗明文要求:不是靜默跳)。
         try {
           const owned = await outbox.markSkippedTrackingSuperseded(
@@ -1189,6 +1269,19 @@ export async function sweepEmailOutbox(
         } catch {
           result.errors++;
         }
+        continue;
+      }
+
+      // 🔴🔴 **第二道:號碼本身也要對得上**(測試逼出來的回歸)。
+      //    上面那道改成比【時點】之後, 「庫裡根本沒有號碼」這個世界就漏掉了 ——
+      //    ⛔ 舊的比號碼版本靠 `null !== 'B-0002'` 順手擋住它, 而**那是副作用不是設計**。
+      //    ⇒ 📌 這封信的內容就是那個號碼;庫裡是空的而我們寄出「正確的單號是 B」,
+      //      等於我們**替一個已經不存在的值背書**。⇒ fail-closed, 不寄。
+      // 🔵 而它與上面那道的差別要講清楚:
+      //    · 上面 = **預期中的狀態**(有更新的更正)⇒ 落 skipped、留紀錄、不計 error
+      //    · 這裡 = **對不上的狀態**(不該發生)⇒ 計 error、讓它吵
+      if (live.context.trackingNumber !== enqueuedTracking) {
+        result.errors++;
         continue;
       }
     }

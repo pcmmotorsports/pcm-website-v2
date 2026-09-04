@@ -61,6 +61,10 @@ const ZERO: AnomalyAlertSummary = {
   unpaidCancelledPendingCount: 0,
   unpaidCancelledNoRecipientCount: 0,
   unpaidCancelledGapUnknown: false,
+  // 🔵 第四條線(⟦b4-NORECIPIENTWINDOW⟧, 2026-09-04)。預設乾淨:不叫。
+  trackingCorrectedPendingCount: 0,
+  trackingCorrectedNoRecipientCount: 0,
+  trackingCorrectedGapUnknown: false,
   orderCreatedStuckCount: 0,
   orderCreatedStuckOldestMinutes: null,
   orderCreatedStuckUnknown: false,
@@ -178,6 +182,11 @@ describe('checkAnomalyAlerts — 門檻矩陣', () => {
     //   它守的是:把 `shouldAlert` 那一項拿掉 ⇒ **這一格必須紅**。
     //   ⇒ 📌 沒有它, 「讓狀態看得見」是一句話不是一個保護。
     ['unpaidCancelledNoRecipientCount', { ...ZERO, unpaidCancelledNoRecipientCount: 1 }],
+    // 🔴 **更正單號信線的主詞**(⟦b4-NORECIPIENTWINDOW⟧ **第四條線**, 2026-09-04)。
+    //   守的是同一件事:把 `shouldAlert` 那一項拿掉 ⇒ **這一格必須紅**。
+    //   ⇒ 📌 而這一條的後果與姊妹線不同:不是「客人沒收到一封信」,
+    //     是**客人手上有一個我們給他的、而現在是錯的貨運單號**, 而我們寄不出更正。
+    ['trackingCorrectedNoRecipientCount', { ...ZERO, trackingCorrectedNoRecipientCount: 1 }],
   ] as const)('%s>0 → 告警 + 呼 notifier', async (_label, summary) => {
     const n = okNotifier();
     const res = await checkAnomalyAlerts({ reader: reader(summary), notifiers: [n] }, OPTS);
@@ -192,6 +201,56 @@ describe('checkAnomalyAlerts — 門檻矩陣', () => {
    * 下一輪 scanner 就把它排進去了。
    * ⇒ 📌 **拿它當判準 = 有生意就叫 —— 而一個對常態發的警報會訓練所有人跳過它。**
    */
+  /**
+   * 🟢🟢 **第四條線的兩個負對照 —— 而沒有它們, 上面那格在「這支 use-case 什麼都叫」的世界裡也會綠。**
+   */
+  it('🔴 那封信裡要說得出【是哪一件事】—— 而刪掉那行文字, 上面那格照樣綠', async () => {
+    // 🔴🔴 codex 2026-09-04 must-fix #7:上面那格只驗 `alerted` 與 `notify` 被呼叫,
+    //    ⇒ 把 `emailPush(...)` 那一行整段刪掉, 它**照樣綠** —— 而收信的人會看到一封
+    //    說「有異常」而沒說是什麼的信。
+    const n = okNotifier();
+    await checkAnomalyAlerts(
+      { reader: reader({ ...ZERO, trackingCorrectedNoRecipientCount: 3 }), notifiers: [n] },
+      OPTS,
+    );
+    const body = JSON.stringify(n.notify.mock.calls);
+    expect(body).toContain('貨運單號更正');
+    // 🔵 而它要說出**後果**, 不只說出現象 —— 這一條與姊妹線的差別就在這裡。
+    expect(body).toContain('沒有路可以更正');
+  });
+
+  it('🔵 trackingCorrectedPending>0 而 noRecipient=0 → 不告警(有更正不是異常)', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: reader({ ...ZERO, trackingCorrectedPendingCount: 5 }), notifiers: [n] },
+      OPTS,
+    );
+    // 🔴 承重:把 `pending` 也寫進 shouldAlert ⇒ 這一格紅。
+    //   而那個錯法的症狀是**每天都叫** —— 對常態發的警報會訓練所有人跳過它。
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+  });
+
+  it('🔵 trackingCorrected 三格都是 null(RPC 尚未 apply)→ 不告警, 而那【不是】健康', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: reader({
+          ...ZERO,
+          trackingCorrectedPendingCount: null,
+          trackingCorrectedNoRecipientCount: null,
+          trackingCorrectedGapUnknown: true,
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    // 🔴 `?? 0` ⇒ 讀不到時不叫 —— 而**「不叫」與「健康」是兩件事**:
+    //   那個差別由 `trackingCorrectedGapUnknown` 帶到 route 的回應上, 不由這裡叫。
+    expect(res.alerted).toBe(false);
+    expect(res.trackingCorrectedGapUnknown).toBe(true);
+  });
+
   it('🔴 paidNoEmail>0 而 stuck=0 → 不告警(有生意不是異常)', async () => {
     const n = okNotifier();
     const res = await checkAnomalyAlerts(
@@ -1946,6 +2005,78 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
       { reader: readerWithHealth(h), notifiers: [okNotifier()] },
       OPTS,
     );
+
+  /**
+   * 🔴🔴 **這三格補的是【那個修法自己有沒有守門】**(2026-09-05, 線 `-db`)。
+   *
+   * 病史:`check-anomaly-alerts.ts:1345-1349` 的註解逐字寫著 ——
+   *   「這兩格原本【沒有進 shouldAlert】⇒ 只有搜尋日誌異常時 `shouldAlert` 是 false
+   *     ⇒ **那封信根本不會寄** ⇒ 我把那兩行寫進了信的【內容】, 而沒有寫進【要不要寄】
+   *     —— 而 `buildAnomalyAlertMessage` 的測試全綠, 因為它只驗『文字對不對』。」
+   * 🛑 **而那個修法【本身沒有守門】** —— 當場量:
+   *    本檔含 `searchLogStale` 的斷言 5 格, **全部在驗它的【值】**;
+   *    而「只有它為真 ⇒ 信會寄出去」**零格**
+   *    (🟢 正對照:同一把尺找 `notifiersTotal` ⇒ 別的欄位有這種格子, 例 :255)
+   * ⇒ 🎯 **把那兩行從 `shouldAlert` 拿掉, 上面那五格照樣全綠** —— 病會原封回來。
+   *
+   * 📌 一般化:**「算出來了」「寫進信的內容了」「會讓信寄出去」是三個宣稱** ——
+   *    而只驗前兩個的測試, 在第三個壞掉時是綠的。
+   */
+  it('🔴 只有 `searchLogStale` 為真(其餘全乾淨)⇒ **信要真的寄出去**', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: readerWithHealth({
+          tableExists: true,
+          lastRowAt: new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString(),
+          anonCanExecute: true,
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.searchLogStale).toBe(true);
+    // 🔴 這兩行才是這一格的重點 —— 上面那行五格已經在驗了。
+    expect(res.alerted, 'stale 為真而 alerted=false ⇒ 那兩行沒進 shouldAlert').toBe(true);
+    expect(n.notify, 'alerted 為真而 notify 沒被叫 ⇒ 中間還有一層把它吃掉').toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 只有 `searchLogAnonExecuteRevoked === true` 為真 ⇒ **信要真的寄出去**', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: readerWithHealth({
+          tableExists: true,
+          lastRowAt: new Date().toISOString(), // 🔵 不 stale ⇒ 觸發只能來自 anon 那一格
+          anonCanExecute: false,               // false = 門被關上了(有人做了事)
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.searchLogStale).toBe(false);
+    expect(res.alerted, 'anonRevoked 為真而 alerted=false ⇒ 它沒進 shouldAlert').toBe(true);
+    expect(n.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔵 負對照:兩格都不為真(表在、不 stale、anon 仍可執行)⇒ **不寄**', async () => {
+    // 🔴 沒有這一格, 上面兩格在「shouldAlert 恆真」的世界裡也全綠。
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: readerWithHealth({
+          tableExists: true,
+          lastRowAt: new Date().toISOString(),
+          anonCanExecute: true,
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.searchLogStale).toBe(false);
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+  });
 
   it('🔵 世界①該綠 · 表【還沒貼】⇒ 不是異常, stale 必須 false', async () => {
     const res = await run({ tableExists: false, lastRowAt: null, anonCanExecute: null });

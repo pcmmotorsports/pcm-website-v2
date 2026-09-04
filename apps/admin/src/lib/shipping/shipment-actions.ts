@@ -24,6 +24,9 @@ import { authorizeAdminMutation } from '../session/authorize';
 import { toMessage } from './error-message';
 import { RECIPIENT_NAME_REQUIRED, toRecipientSnapshot } from './recipient';
 import { loadShipmentCandidates, type ShipmentCandidates } from './shipment-candidates';
+import { buildHctTransData } from './hct-trans-data';
+import { runHctSubmit, type HctCurrentStatus } from './hct-submit-flow';
+import { hctSubmitGateOpen } from './hct-client';
 import {
   addShipmentItems,
   createShipment,
@@ -35,6 +38,8 @@ import {
   type CarrierCode,
   type RecipientSnapshot,
   type ShipmentItemInput,
+  getHctShipment,
+  recordHctSubmit,
 } from './shipment-repository';
 
 export type SubmitShipmentInput = {
@@ -439,5 +444,228 @@ export async function markShipmentShippedAction(args: {
   } catch (e) {
     auditLog('shipment.mark_shipped', auth, 'fail', { shipment_id: args.shipmentId });
     return { ok: false, message: toMessage(e) };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⟦ship-HCTAPI⟧ 步驟②:把 `runHctSubmit` 接上入口(Sean 2026-09-05 拍甲批准)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type HctSubmitActionResult =
+  | { ok: true; kind: 'submitted' | 'recovered'; requestId: string | null }
+  | {
+      ok: false;
+      kind: 'needs_confirm';
+      message: string;
+      truncated: readonly string[];
+      /** 🔴 第二次按要原樣送回來 —— 它是「你看到的就是我現在算出來的」那個證據。 */
+      confirmToken: string;
+    }
+  | { ok: false; kind: 'disabled' | 'failed' | 'unknown' | 'refused' | 'needs_human'; message: string };
+
+/**
+ * 🔴🔴 **`HCT_API_ENDPOINT` 是本片【新引進】的 env 名 —— 而它今天不存在。**
+ *    量到的(2026-09-05, 只列名稱不印值):`pcm-admin` 上有 `HCT_API_ACCOUNT` / `HCT_API_PASSWORD`,
+ *    **沒有 endpoint**;而 `hct-client.ts` 的 `HctClientDeps.endpoint` 是**呼叫端傳進去的**
+ *    ⇒ 📌 **這一格在 repo 裡沒有任何來源, 而我不會編一個網址** ——
+ *      廠商檔列的那幾個 URL(`hct-logistics-api-reference.md:77` 等)**分測試/正式、也分服務**,
+ *      挑哪一個是 Sean 與新竹之間的事, 不是我讀文件推得出來的。
+ * ✅ **fail-closed**:三顆任一缺 ⇒ 回 `disabled`(與開關關著同一條路)⇒ **不會打任何外部端點**。
+ * 🔵 而它與開關的 `disabled` **給不同的訊息** —— 否則「還沒開通」與「設定漏了一顆」印同一句話。
+ */
+function readHctDeps(): { fetchImpl: typeof fetch; endpoint: string; account: string; password: string } | null {
+  // 🔴 **codex 2026-09-05:`=== undefined` 讓【空字串】過關** ——
+  //    `HCT_API_ENDPOINT=''` 之後 fetch 會因無效 URL 失敗, 而**佔位列已經寫了**
+  //    ⇒ 📌 **「根本沒送」被記成 unknown。** 空白也一樣(一顆貼歪的 env 常常是空白)。
+  const endpoint = (process.env.HCT_API_ENDPOINT ?? '').trim();
+  const account = (process.env.HCT_API_ACCOUNT ?? '').trim();
+  const password = (process.env.HCT_API_PASSWORD ?? '').trim();
+  if (endpoint === '' || account === '' || password === '') return null;
+  return { fetchImpl: fetch, endpoint, account, password };
+}
+
+/**
+ * 從新竹回來的原始回應裡撈一句人看得懂的。
+ * 🔵 **撈不到就說撈不到** —— 一句編出來的「未知錯誤」比一句「回應裡沒有錯誤訊息」沒用。
+ */
+function hctErrHint(raw: unknown): string {
+  if (typeof raw === 'string') return raw.slice(0, 200);
+  if (raw !== null && typeof raw === 'object') {
+    for (const k of ['ErrMsg', 'errMsg', 'message', 'msg']) {
+      const v = (raw as Record<string, unknown>)[k];
+      if (typeof v === 'string' && v.trim() !== '') return v.slice(0, 200);
+    }
+  }
+  return '(它的回應裡沒有可讀的錯誤訊息)';
+}
+
+const HCT_STATUSES = ['draft', 'submitted', 'failed', 'unknown'] as const;
+
+function toCurrent(raw: string): HctCurrentStatus {
+  // 🔴 DB 的值域由 CHECK 約束保證, 而**保證是別人給的** ⇒ 這裡自己再收一次。
+  //    收不到 ⇒ 當 'unknown'(最保守的那一格:它會先去查, 不會直接送)。
+  return (HCT_STATUSES as readonly string[]).includes(raw) ? (raw as HctCurrentStatus) : 'unknown';
+}
+
+export async function submitShipmentToHctAction(args: {
+  shipmentId: string;
+  /** 員工看過「哪幾欄會被截」之後再按一次 ⇒ 把上一次拿到的 `confirmToken` 原樣帶回來。 */
+  confirmTruncated?: string;
+}): Promise<HctSubmitActionResult> {
+  const auth = await authorizeAdminMutation();
+  if (auth === null) return { ok: false, kind: 'needs_human', message: NO_ACTOR_MESSAGE };
+  auditLog('shipment.hct_submit', auth, 'attempt', { shipment_id: args.shipmentId });
+
+  const deps = readHctDeps();
+  if (deps === null) {
+    auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
+    return {
+      ok: false,
+      kind: 'disabled',
+      message: '新竹未開通(缺 HCT_API_ENDPOINT / HCT_API_ACCOUNT / HCT_API_PASSWORD 其中之一)',
+    };
+  }
+
+  try {
+    const row = await getHctShipment(args.shipmentId);
+    // 🔵 codex:這幾條早退路徑原本【沒有終局稽核】⇒ log 上看起來像「按了然後執行中斷」。
+    if (row === null) {
+      auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
+      return { ok: false, kind: 'needs_human', message: '找不到這一箱' };
+    }
+    if (row.voidedAt !== null) {
+      auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
+      return { ok: false, kind: 'refused', message: '這一箱已作廢,不能送新竹' };
+    }
+
+    const built = buildHctTransData({
+      displayId: row.shipmentReference,
+      recipient: row.recipientSnapshot,
+      // ⚠️ **`itemCount: 1` 是一個【假設】, 不是量到的**(code-reviewer nit⑤):
+      //    它是新竹的「件數」= **幾個包裹**, 不是幾件商品。今天後台一次建一箱
+      //    ⇒ 1 是對的;而**多箱合寄那天這裡會靜靜報錯的件數**。
+      //    🔵 修法不是在這裡猜, 是等那個功能出現時把箱數傳進來。
+      itemCount: 1,
+      ...(row.carrierNote === null ? {} : { note: row.carrierNote }),
+    });
+
+    // 🔴🔴 **閘判定必須排在【任何副作用之前】—— code-reviewer 2026-09-05 MF1。**
+    //    `gateOpen` 住在 `hct-client.ts` 裡, 而它是在 `submitTransData` 走到一半才判的
+    //    ⇒ 舊版:閘關著 ⇒ **零 HTTP, 而佔位已經把 hct_status 推成 unknown**
+    //    ⇒ 下次 `admin_record_hct_submit` 對 old=unknown,new=unknown **RAISE**
+    //    ⇒ 🛑 **那一箱卡死, 要人工改 DB。** 📌 一個為了「不重送」而做的保護, 把單子鎖死了。
+    if (!hctSubmitGateOpen()) {
+      auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
+      return { ok: false, kind: 'disabled', message: '新竹未開通(HCT_SUBMIT_ENABLED 未設為 true)' };
+    }
+
+    // 🔴🔴 **截斷要被看見 —— code-reviewer MF3。**
+    //    `hct-trans-data.ts` 的契約逐字:「呼叫端要把它**印在員工按下去之前看得到的地方**」。
+    //    舊版只取 `built.fields`, `truncated` 零讀取 ⇒ **姓名/電話/地址超長時靜默截斷送出去。**
+    //    ✅ 而不能改成「太長就拒絕」—— 同一段契約逐字說**拒絕的代價落在客人身上**。
+    //    ⇒ 改成:第一次按 ⇒ **不送**, 回哪幾欄會被截;員工看過再按第二次才送。
+    // 🔴🔴 **codex 2026-09-05:`confirmTruncated: true` 是一張【空白支票】** ——
+    //    第一次顯示 A 版、資料改成 B 版後第二次只帶 true;甚至可以**第一次就直接帶 true**
+    //    ⇒ 📌 **server 證明不了員工看過【這一次】的內容。**
+    //    ✅ 改成帶【那一次看到的清單】, 而 server 拿它與**現在算出來的**比對。
+    const truncatedNow = [...built.truncated].sort().join(',');
+    if (built.truncated.length > 0 && (args.confirmTruncated ?? '') !== truncatedNow) {
+      auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
+      return {
+        ok: false,
+        kind: 'needs_confirm',
+        message: `這幾欄超長、送出去會被截掉:${built.truncated.join(' / ')} —— 看過再按一次就送`,
+        truncated: built.truncated,
+        confirmToken: truncatedNow,
+      };
+    }
+
+    // 🔴🔴 **佔位列 —— plan 第 3 節那個單向門的緩解(Sean 拍甲時一起批的)。**
+    //    送出成功而寫 DB 之前行程死掉 ⇒ 新竹收到了而我們沒紀錄 ⇒ 下次 `current` 還是 draft ⇒ **重送**。
+    //    ⇒ 送出【之前】先把狀態推成 `unknown`:那一格的語意逐字是「送出去了而不知道結果 ⇒ 不得重送」。
+    //    🛑 **佔位不得帶 request_id** —— `hct_request_id` 是 write-once(`20260904170000:81`),
+    //      帶了之後真正的 id 就覆寫不進去。
+    // 🛑🛑 **codex 2026-09-05 must-fix,而我【沒有修掉它】—— 因為它是這個設計的代價本身。**
+    //    寫完佔位、HTTP 發出去【之前】行程被砍 ⇒ **新竹從來沒收到, 而 DB 永久是 unknown。**
+    //    ⇒ 📌 **這不是 bug, 是「寧可誤判成送過了」那個選擇的另一面** ——
+    //      反過來的設計(送完才寫)會在**新竹已經收到**時漏記, 而那一面的代價是**重送一張真的託運單**。
+    //    ⇒ 🎯 **兩種都會錯, 而它們錯的方向不同:一種讓單子卡住(要人救), 一種讓客人收到兩箱。**
+    //      Sean 拍甲批的 plan 選了前者。
+    // 🔴 **而「要人救」目前【沒有那個人可以按的東西】** —— 那才是真的缺口:
+    //    `queryEdelno` 查到「查無此單」就證明沒送出去, 而**今天沒有任何 UI 把 unknown 推回 draft**
+    //    ⇒ 已開板列 `⟦ship-HCTUNKNOWNSTUCK⟧`。**在那之前, 卡住的箱要 Sean 手動改 DB。**
+    const current = toCurrent(row.hctStatus);
+    if (current === 'draft' || current === 'failed') {
+      await recordHctSubmit({
+        shipmentReference: row.shipmentReference,
+        status: 'unknown',
+        requestId: null,
+        raw: { placeholder: true, at: new Date().toISOString() },
+      });
+    }
+
+    const result = await runHctSubmit({
+      deps,
+      current,
+      fields: built.fields,
+      epino: row.shipmentReference,
+    });
+
+    switch (result.kind) {
+      case 'recorded':
+        await recordHctSubmit({
+          shipmentReference: row.shipmentReference,
+          status: result.status,
+          requestId: result.requestId,
+          raw: result.raw,
+        });
+        revalidatePath('/orders');
+        // 🔴🔴 **codex must-fix:舊版三種 status 都記 `ok`** ——
+        //    而 action 隨後回 failed / unknown ⇒ 📌 **稽核把失敗寫成成功。**
+        auditLog('shipment.hct_submit', auth, result.status === 'submitted' ? 'ok' : 'fail', {
+          shipment_id: args.shipmentId,
+        });
+        if (result.status === 'submitted') {
+          return { ok: true, kind: 'submitted', requestId: result.requestId };
+        }
+        return result.status === 'failed'
+          ? {
+              ok: false,
+              kind: 'failed',
+              // 🔴 **codex must-fix:新竹拒絕的【原因】原本被吞掉了。**
+              //    「公司名稱或密碼錯誤」與「地址格式不合」都印同一句「可以再按一次」
+              //    ⇒ 員工會一直按, 而按幾次都不會變。
+              message: `新竹回了失敗:${hctErrHint(result.raw)} —— 修好再按一次`,
+            }
+          : {
+              ok: false,
+              kind: 'unknown',
+              message: '送出去了而不知道結果 —— 不要重按,請用查詢補問新竹貨號',
+            };
+      case 'recovered':
+        await recordHctSubmit({
+          shipmentReference: row.shipmentReference,
+          status: 'submitted',
+          requestId: result.requestId,
+          raw: result.raw,
+        });
+        revalidatePath('/orders');
+        auditLog('shipment.hct_submit', auth, 'ok', { shipment_id: args.shipmentId });
+        return { ok: true, kind: 'recovered', requestId: result.requestId };
+      // 🔵 nit②:這三種也要留稽核 —— 少了它, 「有人按了而沒送成」在 log 上是**一片空白**,
+      //    而空白與「沒有人按過」是同一個東西。
+      case 'disabled':
+        auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
+        return { ok: false, kind: 'disabled', message: '新竹未開通' };
+      case 'refused':
+        auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
+        return { ok: false, kind: 'refused', message: result.reason };
+      case 'needs_human':
+        auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
+        return { ok: false, kind: 'needs_human', message: result.reason };
+    }
+  } catch (e) {
+    auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
+    return { ok: false, kind: 'needs_human', message: toMessage(e) };
   }
 }

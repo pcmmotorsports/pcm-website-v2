@@ -1736,7 +1736,10 @@ describe('⟦b4-SHIPGATE1⟧ 線關著時不認領 order_shipped', () => {
       { ...OPTS, allowOrderShipped: false },
     );
     expect(outbox.claimDue).toHaveBeenCalledExactlyOnceWith(OPTS.claimLimit, {
-      excludeEventTypes: ['order_shipped'],
+      // 🔴 ⟦5b-TRACKNUMGAP1⟧ 片 C 2026-09-04 加入第二個:更正信是出貨線的**下游**,
+      //    同一顆 env 拔掉的意思是【整條出貨線停下來】, 不是「出貨信停、更正信照寄」。
+      //    📌 **這一格擋到我了** —— 它釘的是完整字面 ⇒ 我一加事件它當場紅, 而那是對的。
+      excludeEventTypes: ['order_shipped', 'shipment_tracking_corrected'],
     });
   });
 
@@ -1953,7 +1956,18 @@ describe('稅額那一列 —— 兩份一起問', () => {
       expect(half).toContain('1,524');
     }
     // 🔴 排版那份:逐列問【標籤 → 它那一格的值】—— 互換任兩欄都會紅
-    expect(htmlRowValue(html, '小計')).toBe('940');
+    // 🔴🔴 **有稅的世界裡, 金額區那個標籤是「小計(未稅)」不是「小計」**
+    //    (`⟦b4-TAXSURFACES⟧`, Sean 2026-09-04 拍甲)。
+    //    ⛔ 這一格**曾經因為只寫「小計」而紅過一次**, 而**紅得對**:`htmlRowValue` 用
+    //    `lastIndexOf('>小計</td>')`, 標籤改了之後它撞到的是**品項表的欄頭**
+    //    ⇒ 回傳「小計(未稅)」那格標籤本身, 不是 940。
+    //    ⇒ 📌 **一把靠字面定位的尺, 在字面改動時會安靜地指到別的地方** —— 而它回的不是 null,
+    //       是一個看起來很合理的字串。這一格是那件事的實例。
+    expect(htmlRowValue(html, '小計(未稅)')).toBe('940');
+    // 🔵 **鎖現況**:本片沒有動欄頭那個(行小計)。
+    // 🛑 這一句鎖的是【今天的形狀】, 不是【那題的答案】(codex R2 must-fix 1)——
+    //    Sean 若拍甲(欄頭也加), 這一句要跟著翻面, 而那時它會紅, 那正是要的。
+    expect(html).toContain('>小計</td>');
     expect(htmlRowValue(html, '運費')).toBe('160');
     expect(htmlRowValue(html, '折扣')).toBe('−150');
     expect(htmlRowValue(html, '稅額')).toBe('1,524');
@@ -1976,6 +1990,20 @@ describe('稅額那一列 —— 兩份一起問', () => {
     for (const half of [text, html]) expect(half).not.toContain('稅額');
   });
 
+  it('🔴 有稅 ⇒ 兩份【都】把小計講成未稅(⟦b4-TAXSURFACES⟧, Sean 2026-09-04 拍甲)', async () => {
+    const { text, html } = await bothHalves(taxed());
+    for (const half of [text, html]) expect(half).toContain('小計(未稅)');
+    // 🔴 純文字那份要驗【值跟著同一行】—— 只問「有沒有那四個字」的話,
+    //    一個把標籤印在別行的實作會全綠。
+    expect(text).toContain('小計(未稅)  NT$ 940');
+  });
+
+  it('🔵 稅 0 ⇒ 兩份【都】維持原字面, 不得出現未稅版', async () => {
+    const { text, html } = await bothHalves(paidCtx());
+    for (const half of [text, html]) expect(half).not.toContain('小計(未稅)');
+    expect(text).toContain('小計  NT$');
+  });
+
   it('🔴 順序與排版那份對齊:小計 → 運費 → 折扣 → 稅額 → 訂單金額', async () => {
     const { text } = await bothHalves(taxed());
     const at = (s: string) => text.indexOf(s);
@@ -1991,29 +2019,48 @@ describe('稅額那一列 —— 兩份一起問', () => {
 
 describe('⟦5b-TRACKNUMGAP1⟧ 片 C · 寄送當下比對即時值 —— 而它防的是【被我們背書過的錯號碼】', () => {
   const SHIP_ID = '11111111-2222-3333-4444-555555555555';
-  /** 入隊時 payload 帶的是 B。 */
-  const correctedJob = () =>
-    job({
-      id: 'outbox-trackfix-1',
+  // ── 🔴🔴 剎車:更正信與出貨信共用同一顆 `allowOrderShipped` ────────────────
+  //    (codex 對抗審查 2026-09-04 must-fix)
+  //    🎯 「設了 env、看到不對、把它拿掉」的意思是【整條出貨線停下來】,
+  //      而我原本只在 route 那一層擋 enqueue —— **那只擋得住還沒進佇列的**。
+  //      ⇒ 已經排好的更正信照樣被認領、照樣寄出去, 而信收不回來(鐵則 12⑤)。
+
+  // 🔴 三次更正的時點。SQL 側的形狀是 `YYYYMMDDHH24MISSUS`(UTC、20 位數)。
+  const T1 = '20260904100000000000'; // A→B
+  const T2 = '20260904110000000000'; // B→C
+  const T3 = '20260904120000000000'; // C→B(**改回一個用過的號碼**)
+  const ISO = { [T1]: '2026-09-04T10:00:00.000Z', [T2]: '2026-09-04T11:00:00.000Z',
+                [T3]: '2026-09-04T12:00:00.000Z' } as Record<string, string>;
+
+  /** 一份「某一次更正」的工作單。預設是第一次(B, T1)。 */
+  const correctedJob = (over: { id?: string; tracking?: string; key?: string } = {}) => {
+    const key = over.key ?? T1;
+    const tracking = over.tracking ?? 'B-0002';
+    return job({
+      id: over.id ?? 'outbox-trackfix-1',
       eventType: 'shipment_tracking_corrected',
-      dedupKey: `${SHIP_ID}:B-0002`,
+      dedupKey: `${SHIP_ID}:${key}`,
       subject: 'PCM 訂單 PCM-2026-0001 貨運單號更正(包裹 BCDF23)',
       payload: {
         event_version: 1,
         display_id: 'PCM-2026-0001',
         shipment_id: SHIP_ID,
         shipment_reference: 'BCDF23',
-        tracking_number: 'B-0002',
+        tracking_number: tracking,
+        tracking_corrected_key: key,
       },
     });
+  };
 
-  const ctx = (trackingNumber: string | null) => ({
+  /** 庫裡【現在】的樣子。`correctedKey` = 最後一次更正的時點。 */
+  const ctx = (trackingNumber: string | null, correctedKey: string | null = T1) => ({
     kind: 'ok',
     context: {
       orderDisplayId: 'PCM-2026-0001',
       shipmentReference: 'BCDF23',
       carrierName: '新竹物流',
       trackingNumber,
+      trackingCorrectedAt: correctedKey === null ? null : ISO[correctedKey]!,
       lines: [{ title: '前煞車來令片', quantity: 1 }],
       linesTruncated: false,
       orderHasUnshippedItems: false,
@@ -2038,7 +2085,7 @@ describe('⟦5b-TRACKNUMGAP1⟧ 片 C · 寄送當下比對即時值 —— 而�
    * 🛑 **而信裡還寫著「請以這一封為準」** ⇒ 客人拿到一個**被我們背書過的**錯號碼, 收不回來。
    */
   it('🔴 入隊 B、寄前已改成 C ⇒ 【一封都不寄】, 而落一筆 skippedTrackingSuperseded', async () => {
-    const { r, sender, outbox } = await run(ctx('C-0003'), {
+    const { r, sender, outbox } = await run(ctx('C-0003', T2), {
       markSkippedTrackingSuperseded: vi.fn().mockResolvedValue(true),
     });
     expect(sender.send, '寄出去了 ⇒ 客人拿到一個被我們背書過的錯號碼').toHaveBeenCalledTimes(0);
@@ -2047,7 +2094,7 @@ describe('⟦5b-TRACKNUMGAP1⟧ 片 C · 寄送當下比對即時值 —— 而�
     expect(outbox.markSkippedTrackingSuperseded).toHaveBeenCalledWith(
       'outbox-trackfix-1',
       expect.anything(),
-      `${SHIP_ID}:B-0002`,
+      `${SHIP_ID}:${T1}`,
     );
   });
 
@@ -2076,9 +2123,92 @@ describe('⟦5b-TRACKNUMGAP1⟧ 片 C · 寄送當下比對即時值 —— 而�
     expect(outbox.markSkippedShipmentVoided).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * 🔴🔴 **主視窗 2026-09-04 拍 Q1 甲時【指定的那一格】:A→B→C→B 只寄最後對的那封。**
+   *
+   * 三次更正各自入隊(鍵 = 箱 + 更正時點 ⇒ 三把不同的鑰匙, 三份工作單);
+   * 而 sweeper 跑的時候庫裡已經是**第三次之後**的樣子(號碼 B、時點 T3)。
+   * ⇒ ✅ 只有 T3 那一份還算數, T1 與 T2 都被取代。
+   *
+   * 🛑 **這一格同時證明了「不能拿號碼去比」** ——
+   *    T1 與 T3 的號碼**都是 B**, 而它們是兩件事。
+   *    ⇒ 舊的比號碼版本會讓 T1 也通過(`live B === payload B`)⇒ **寄兩封**。
+   *    ⇒ 📌 而兩封的內容都「正確」⇒ 沒有任何斷言會因為內容錯而紅 ⇒ 只有**數量**抓得到。
+   */
+  it('🔴🔴 A→B→C→B 三份工作單 ⇒ 【只寄一封】, 而且是最後那一次(T1 與 T3 號碼相同)', async () => {
+    const outbox = outboxFake(
+      [
+        correctedJob({ id: 'tf-1', tracking: 'B-0002', key: T1 }),
+        correctedJob({ id: 'tf-2', tracking: 'C-0003', key: T2 }),
+        correctedJob({ id: 'tf-3', tracking: 'B-0002', key: T3 }),
+      ],
+      { markSkippedTrackingSuperseded: vi.fn().mockResolvedValue(true) },
+    );
+    const sender = senderFake([{ kind: 'sent' }, { kind: 'sent' }, { kind: 'sent' }]);
+    // 庫裡現在:號碼 B、最後一次更正是 T3。
+    const load = vi.fn().mockResolvedValue(ctx('B-0002', T3));
+
+    const r = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender, shippedContext: { loadShippedContext: load } },
+      OPTS,
+    );
+
+    // 🔴 承重①:數量。比號碼的實作在這裡會是 2。
+    expect(sender.send, 'T1 與 T3 的號碼都是 B ⇒ 比號碼的實作會寄兩封').toHaveBeenCalledTimes(1);
+    expect(r.sent).toBe(1);
+    // 🔴 承重②:被跳過的那兩份要**留下紀錄**, 不是靜默。
+    expect(r.skippedTrackingSuperseded).toBe(2);
+    expect(outbox.markSkippedTrackingSuperseded).toHaveBeenCalledTimes(2);
+    // 🔴 承重③:寄出去的**必須是 T3 那一份** —— 少了這行, 一個「只寄第一份」的實作照樣過①②。
+    const sentIds = (outbox.markSent as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    expect(sentIds).toEqual(['tf-3']);
+  });
+
+  it('🟢 負對照:庫裡就停在 T1(沒有後續更正)⇒ 那一份【照樣寄】', async () => {
+    // 🔴 沒有這一格, 上面那格在「這道閘把每一份都跳過」的世界裡也會綠(只是 sent 會是 0)——
+    //    而它證的是**這道閘不是無條件跳過**。
+    const { r, sender } = await run(ctx('B-0002', T1));
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect(r.sent).toBe(1);
+    expect(r.skippedTrackingSuperseded).toBe(0);
+  });
+
   it('🔴 即時值讀不到(live 沒有單號)⇒ fail-closed 不寄', async () => {
     const { r, sender } = await run(ctx(null));
     expect(sender.send).toHaveBeenCalledTimes(0);
     expect(r.skippedTrackingSuperseded + r.errors, '兩條路都沒走到 ⇒ 它靜靜地寄出去了?').toBeGreaterThan(0);
   });
+
+  it('🔴🔴 出貨線關著 ⇒ 更正信【不寄】、計 error(實作違約時第二道閘仍擋得住)', async () => {
+    const outbox = outboxFake([correctedJob()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const load = vi.fn().mockResolvedValue(ctx('B-0002'));
+
+    const r = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender, shippedContext: { loadShippedContext: load } },
+      { ...OPTS, allowOrderShipped: false },
+    );
+
+    // ⬇️ 這一行是「線關著就真的不寄」的證據 —— 不是 counts, 是那支 spy。
+    expect(sender.send).not.toHaveBeenCalled();
+    // 🔴 線關著時連查主表都不該發生(擋在讀取【之前】)。
+    expect(load).not.toHaveBeenCalled();
+    expect(r.sent).toBe(0);
+    expect(r.errors).toBe(1);
+  });
+
+  it('🔵 正對照:同一份工作單, 只把旗標翻成 true ⇒ **它就寄了**', async () => {
+    // 🔴 沒有這一格, 上面那格在「這支 use-case 整個壞掉、什麼都不寄」的世界裡也會綠。
+    const outbox = outboxFake([correctedJob()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const load = vi.fn().mockResolvedValue(ctx('B-0002'));
+
+    const r = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender, shippedContext: { loadShippedContext: load } },
+      { ...OPTS, allowOrderShipped: true },
+    );
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect(r.sent).toBe(1);
+  });
+
 });

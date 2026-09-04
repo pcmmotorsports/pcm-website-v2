@@ -583,11 +583,36 @@ describe('稅額那一列', () => {
     expect(renderPaidEmailHtml(ctxWithDiscount())).not.toContain('稅額');
   });
 
+  it('🔴 有稅 ⇒ 金額區那個「小計」變成「小計(未稅)」(Sean 2026-09-04 拍甲)', () => {
+    expect(renderPaidEmailHtml(ctxTaxed())).toContain('小計(未稅)');
+  });
+
+  it('🔵 稅 0 ⇒ 維持「小計」, 不得出現未稅版', () => {
+    expect(renderPaidEmailHtml(ctxWithDiscount())).not.toContain('小計(未稅)');
+  });
+
+  it('🔵 **鎖現況**:本片沒有動品項表欄頭那個「小計」(行小計)', () => {
+    // 🔴🔴 **這一格鎖的是【今天的形狀】, 不是【那題的答案】**(codex R2 must-fix 1)。
+    //    ⛔ 我第一版寫「**不得**跟著變」—— 那等於**替 Sean 選了乙**, 而同一片另一處寫著「待拍板」
+    //       ⇒ 📌 兩句話互相矛盾, 而測試那句會贏。
+    //    ✅ 今天的用途只有一個:擋住「把檔案裡每個『小計』都加後綴」那種**沒有人決定過**的改動。
+    //    🛑 **Sean 若拍甲(欄頭也加), 這一格要跟著翻面**, 而那時它會紅 —— 那正是要的。
+    const html = renderPaidEmailHtml(ctxTaxed());
+    // 欄頭那一格帶 letter-spacing:.12em(表頭專用), 金額區那一格帶 class="sub"。
+    expect(html).toContain('letter-spacing:.12em;color:#5c6b7a;padding:0 0 8px;border-bottom:1px solid #dde3ea;">小計</td>');
+  });
+
   it('🔴 順序:小計 → 運費 → 折扣 → 稅額 → 訂單金額(兩份不該漂)', () => {
     const html = renderPaidEmailHtml(ctxTaxed());
     const at = (s: string) => html.indexOf(s);
-    expect(at('小計')).toBeGreaterThan(-1);
-    expect(at('運費')).toBeGreaterThan(at('小計'));
+    // 🔴🔴 **量的是「小計(未稅)」不是「小計」**(codex R2 must-fix 2)——
+    //    ⛔ 原本寫 `at('小計')`, 而**品項表欄頭那個「小計」在文件更前面**
+    //    ⇒ 它量到的是欄頭的座標 ⇒ 📌 **把金額區的小計搬到運費甚至稅額後面, 這一格照樣綠。**
+    //    🎯 那不是尺壞了 —— 是那個標籤在同一份文件裡出現兩次, 而我沒說要哪一個。
+    //    ⚠️ 而這一格因此**只在有稅的世界裡成立**(無稅時金額區印的是「小計」, 與欄頭同字)
+    //       ⇒ 本 describe 的 fixture 是 `ctxTaxed()`, 前提成立。
+    expect(at('小計(未稅)')).toBeGreaterThan(-1);
+    expect(at('運費')).toBeGreaterThan(at('小計(未稅)'));
     expect(at('折扣')).toBeGreaterThan(at('運費'));
     expect(at('稅額')).toBeGreaterThan(at('折扣'));
     expect(at('訂單金額')).toBeGreaterThan(at('稅額'));

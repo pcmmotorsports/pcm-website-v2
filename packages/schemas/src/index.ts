@@ -64,12 +64,49 @@ export const GENDER_LABEL: Record<GenderCode, string> = {
   undisclosed: '不透露',
 };
 
+// ── 電話欄的【單一定義點】(Sean 2026-09-04 拍甲:「跟地址頁一樣」)────────────
+//
+// 🔬 **為什麼要收成一支**:`⟦b4-PHONEREGEXSPLIT⟧` —— 同一支電話, 客人在**地址頁填得進、
+//    註冊頁填不進**。成因是兩套規則:地址頁只擋空, 而註冊/個資頁用 `/^[\d\s-]{8,}$/`
+//    ⇒ 🔴 **那條 regex 的字元類裡沒有 `+`** ⇒ 拒掉 `+886…`;也拒掉分機 `#12`。
+//
+// ✅ **Sean 拍甲 = 放寬, 跟地址頁一樣** ⇒ **只擋空白, 不驗格式**。
+//    理由(照他要的方向講):`+886` / `02-1234-5678` / 分機 / 市話都是真客人會打的東西,
+//    而**一道猜錯格式的閘會把真客人擋在門外** —— 那個代價比「收到一支怪電話」大。
+//
+// 🛑 **而【必填與否】不在這裡決定** —— 三個消費端各自不同, 那是各自的業務決定:
+//    註冊必填 · 收件地址必填(2026-09-04 拍) · 個資頁選填(#197)。
+//    ⇒ 📌 **這支只回答「什麼樣的字串算合法電話」, 不回答「可不可以不填」。**
+// 🔵 而它**不是**一個「沒有規則」的空殼:它釘住了 **`.trim()`**(兩版都做)——
+//    下一個想加格式驗證的人, 會在這裡看到為什麼今天沒有。
+// ⚠️ **而錯誤字面只有【必填版】用得到** —— 選填版永遠不會失敗, 所以它沒有訊息可講。
+//    (我第一版寫「兩件都釘住」, 那對選填版不成立。R1 抓到。)
+//
+// 🔴🔴 **而【這不是全 repo 唯一的電話規則】—— 我第一版寫「三處走同一支」是【錯的】。**
+//    第四套在 `apps/admin/src/lib/customers/manual-customer.ts` 的 `MIN_PHONE_DIGITS = 8`
+//    (員工**建新帳號**那條路)。⇒ 📌 **今天是【四處收斂三處】。**
+//    🔵 那一處**刻意留著**:它的理由是 codex R4「防 `phone='1'` 建出刪不掉的 auth user」——
+//       **與 Sean 這題不同受詞**(他講的是格式, 那條擋的是垃圾資料)。
+//    🛑 **而它讓「同一支電話員工存不進」在【建帳號】那一格仍然成立** ⇒ 那要單獨問 Sean, 不在本片。
+const PHONE_ERROR = '請填寫電話';
+/** 必填版:`.trim()` 後不得為空;**不驗格式**(理由見上)。 */
+const phoneRequired = () => z.string().trim().min(1, { error: PHONE_ERROR });
+/**
+ * 選填版:空字串合法。
+ * ⛔ ~~`.refine((v) => v.trim() === '' || v.trim().length > 0)`~~
+ * 🔴 **那個條件是【恆真】的**(兩邊互補窮盡)⇒ **那行等於沒有**, 而 `PHONE_ERROR` 在選填版永不觸發。
+ *    R1 對抗審查抓到。📌 **一個看起來在驗東西、而其實對任何輸入都放行的守衛。**
+ * ✅ 改成 `.trim()` —— 它做的是**真的事**:必填版有 trim 而選填版沒有的話, `'   '` 會原樣寫進 DB。
+ */
+const phoneOptional = () => z.string().trim().default('');
+
 // RegisterInput — design AccountPages L256-299(欄位順序對齊 design:name→email→phone→password→agree)
 export const RegisterInput = z.object({
   // #201 刻意不 trim:design RegisterPage L261 `!form.name` 無 .trim()、storefront 不比 design 嚴(鐵則 1);要擴須 backlog 另立。
   name: z.string().min(1, { error: '請填寫姓名' }),
   email: z.email({ error: 'Email 格式不正確' }),
-  phone: z.string().regex(/^[\d\s-]{8,}$/, { error: '手機格式不正確' }),
+  // ⛔ ~~`/^[\d\s-]{8,}$/`(拒掉 `+886` 與分機)~~ ⇒ Sean 2026-09-04 拍甲, 改走單一定義點。
+  phone: phoneRequired(),
   password: z.string().min(8, { error: '密碼至少 8 碼' }),
   agree: z.literal(true, { error: '請同意服務條款' }),
   // 🔵 性別 = **選填**(Sean 2026-08-31 答甲之下 `-2d` 定的;必填會強迫 Email 註冊的人填一個
@@ -176,7 +213,7 @@ export const AddressInput = z.object({
   // ⚠️ **DB 端不一致, 明寫**:`customer_addresses.phone` 在 `20260523034911` 是
   //    `text DEFAULT ''`(**可 NULL、無 CHECK**)⇒ **這道閘純 app 層**。
   //    DB 端加 NOT NULL 會撞既有列 ⇒ 不做。
-  phone: z.string().trim().min(1, { error: '請填寫電話' }),
+  phone: phoneRequired(),
   line: z.string().trim().min(1, { error: '請填寫地址' }),
   // M-4b:付款驗證需要真實 Email(LINE 合成信箱 64 字元恆超 TapPay 40 上限 => 3DS 啟動被拒)。
   // 必填在此執法 —— `customer_addresses.email` DB 端 nullable 只為既有列,新寫入一律要有值。
@@ -227,12 +264,11 @@ export const ProfileInput = z.object({
   // #197:phone/birthday 選填(空字串合法;birthday 空→null 在 action 層 normalize〔codex k1 Critical 1〕)。
   // 填了則 server 端驗格式,早於 DB 給精準欄位錯——否則格式錯(如 birthday 'abc'/'2026/1/1')穿到 DB
   // date 欄才炸、被 action try/catch 吞成通用「儲存失敗」、使用者看不出是哪欄錯。
-  // phone 沿用 RegisterInput.phone /^[\d\s-]{8,}$/(數字/空白/連字號、≥8);birthday 對齊 design
+  // ⛔ ~~phone 沿用 RegisterInput.phone /^[\d\s-]{8,}$/(數字/空白/連字號、≥8)~~
+  //    ⇒ Sean 2026-09-04 拍甲作廢, 改走本檔上方的單一定義點。birthday 對齊 design
   //   <input type="date"> 的 YYYY-MM-DD(原生 input 保證真實日期、regex 為 server 端格式 backstop)。
-  phone: z
-    .string()
-    .default('')
-    .refine((v) => v === '' || /^[\d\s-]{8,}$/.test(v), { error: '手機格式不正確' }),
+  // ⛔ ~~同一條 regex 的第三份~~ ⇒ 改走單一定義點;**選填照舊**(#197, 那是業務決定不是格式)。
+  phone: phoneOptional(),
   birthday: z
     .string()
     .default('')

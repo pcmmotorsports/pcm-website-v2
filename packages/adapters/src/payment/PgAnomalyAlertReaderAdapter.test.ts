@@ -96,6 +96,13 @@ function twoQueryClient(
    *    ⇒ 📌 本檔上面那段記著「預設值與理由曾經不一致」的教訓;這一次我把理由寫在旁邊。
    */
   unpaidCancelled?: unknown,
+  /**
+   * ⟦b4-NORECIPIENTWINDOW⟧ **第四條線**(2026-09-04):同樣預設 `undefined` = 那支 RPC **尚未 apply**。
+   * 🔴 而這一次的理由也是**當下的事實**:`20260904280000_m4b_e4_tracking_corrected_gap_counts.sql`
+   *    是今天才寫的、**還沒貼**(它自己還有一道前置閘要求 `20260904220000` 先貼)。
+   * ⇒ 📌 預設值讓既有那 20+ 格繼續測【今天線上真的是那個世界】—— 一格期望值都不用動。
+   */
+  trackingCorrected?: unknown,
 ) {
   return makeClient({
     query: async (text: string) => {
@@ -133,6 +140,13 @@ function twoQueryClient(
       // 🔵 `get_order_unpaid_cancelled_gap_counts` 與底下兩支**不共用前綴**
       //   (`get_order_created_` vs `get_order_unpaid_`)⇒ 這一格的順序不是分流的一部分。
       //   ⚠️ 寫出來, 免得下一個人以為它跟底下那格一樣「順序就是分流本身」。
+      // 🔵 `get_tracking_corrected_gap_counts` 與其他幾支**不共用前綴** ⇒ 這一格的位置不是分流的一部分。
+      if (text.includes('get_tracking_corrected_gap_counts')) {
+        if (trackingCorrected === undefined) {
+          throw Object.assign(new Error('function does not exist'), { code: '42883' });
+        }
+        return resultRows(trackingCorrected);
+      }
       if (text.includes('get_order_unpaid_cancelled_gap_counts')) {
         if (unpaidCancelled === undefined) {
           throw Object.assign(new Error('function does not exist'), { code: '42883' });
@@ -227,6 +241,10 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       unpaidCancelledPendingCount: null,
       unpaidCancelledNoRecipientCount: null,
       unpaidCancelledGapUnknown: true,
+      // 🔵 第四條線:同樣三格 null + unknown=true(那支 RPC 尚未 apply)。
+      trackingCorrectedPendingCount: null,
+      trackingCorrectedNoRecipientCount: null,
+      trackingCorrectedGapUnknown: true,
       /**
        * 🔵 訊號 4 三格。本案例 `orderCreatedCutoffIso` 傳 `null` ⇒ **不呼叫那支 RPC**
        * ⇒ `orderCreatedRows` 空 ⇒ unknown = true、兩個 count 是 `null`。
@@ -326,10 +344,18 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
      *       ⇒ 📌 **結論相同而事實宣稱是錯的 —— 而結論相同正是它不會被發現的原因。**
      * 🎯 **而兩條路的【結論相同】**:空 rows 與 42883 都落到 `bypassRlsUnknown = true`
      *    ⇒ 行為對,而**成本的算式不同** ⇒ 這裡寫 8。
-     * 🛑 **⇒ 正式庫上若那支函式真的不存在,它會是 +2** —— 這個 8 是**本 fixture 的數字**,
+     * 🛑 **⇒ 正式庫上若那支函式真的不存在,它會是 +2** —— 這個數是**本 fixture 的數字**,
      *    不是「線上會打幾發」。數字帶著它的世界跟著走。
+     *
+     * 🔴🔴 **⛔ ~~8~~ ⇒ ✅ 10(2026-09-04, ⟦b4-NORECIPIENTWINDOW⟧ 第四條線)。**
+     *    多的那 2 發 = `get_tracking_corrected_gap_counts` 本身 **+1**、
+     *    以及它 42883 之後的 `to_regprocedure` 複查 **+1**
+     *    ⇒ 📌 **正好演了上面那句「函式真的不存在會是 +2」** —— 而這一次是真的走到了那條路,
+     *      因為本 fixture 的 dispatcher 對這支預設 `undefined`(= 尚未 apply)。
+     *    🔵 而它是**唯一**會 +2 的一支:姊妹的 `get_order_unpaid_cancelled_gap_counts`
+     *      被 `if (cutoff !== null)` 包著, 本組沒設 cutoff ⇒ 它 +0。
      */
-    expect(query).toHaveBeenCalledTimes(8);
+    expect(query).toHaveBeenCalledTimes(10);
     expect(query.mock.calls[1]![0]).toContain('get_payment_anomaly_alert_display_ids');
     expect(query.mock.calls[2]![0]).toContain('get_order_refunds_stuck_summary');
     expect(res.openDisplayIds).toEqual(['PCM-2026-0104']);
@@ -963,6 +989,75 @@ describe('🔴 寄信計數 RPC 已 apply 之後(今天走不到,而按下 apply
  * ⇒ 📌 **所以那個保護只能長在這裡。** 落點與斷言在
  *   `docs/plans/2026-08-31-cron-heartbeat-into-alerter.md` 片3 那一節先寫死, 再寫這支。
  */
+describe('🔴 更正單號信 gap counts:【成功路徑】—— 而它原本一格都沒有', () => {
+  /**
+   * 🔴🔴 **codex 2026-09-04 must-fix #5**:本檔的 dispatcher 對這支預設 `undefined`
+   *    (= 尚未 apply)⇒ 既有 20+ 格走的**全部是「RPC 不存在」那條路**
+   *    ⇒ 📌 **把成功回傳的解析整段硬寫成 null/unknown, 那些格子照樣全綠。**
+   *    ⇒ 而「不會弄壞別人」與「它真的解析得出來」是兩個宣稱, 我只證了前者。
+   *
+   * 🛑 **這裡【不用 `twoQueryClient`】** —— 它的 `trackingCorrected` 是**第 17 個位置參數**,
+   *    要餵它得先打 15 個 `undefined`。⇒ 那種呼叫**沒有人讀得懂,也沒有東西擋得住數錯一格**
+   *    (型別全是 `unknown`)。⇒ 改成一個只認函式名的本地假 client(形狀抄本檔心跳那組)。
+   */
+  function trackingClient(payload: unknown) {
+    const { client } = makeClient({
+      query: async (text: string) => {
+        if (text.includes('get_tracking_corrected_gap_counts')) return resultRows(payload);
+        if (text.includes('to_regprocedure')) return { rows: [{ missing: true }] };
+        // 🔵 其餘選配 RPC 一律走「尚未 apply」—— 它們各自的回傳鍵不同,
+        //    餵同一份 `FULL` 會被 `parseCount` 的 fail-closed 擋下。
+        for (const fn of [
+          'get_order_refunds_stuck_summary',
+          'get_email_outbox_deadman_counts',
+          'get_shipped_email_gap_counts',
+          'get_order_created_gap_counts',
+          'get_cron_heartbeat_stale_counts',
+          'get_order_created_stuck_count',
+          'get_order_unpaid_cancelled_gap_counts',
+          'get_privileged_role_bypassrls_state',
+          'get_payment_anomaly_alert_display_ids',
+        ]) {
+          if (text.includes(fn)) {
+            throw Object.assign(new Error('function does not exist'), { code: '42883' });
+          }
+        }
+        return resultRows(FULL);
+      },
+    });
+    return client;
+  }
+
+  const run = (payload: unknown) =>
+    new PgAnomalyAlertReaderAdapter('conn', () => trackingClient(payload)).getAlertSummary(
+      86400, 43200, 600, null, 900, null, null,
+    );
+
+  it('🟢 RPC 存在 ⇒ 三格解析成具體的數, 而 unknown=false', async () => {
+    const out = await run({
+      pending_count: 7,
+      no_recipient_count: 2,
+      corrected_shipments_total_count: 9,
+    });
+    // 🔴 承重:把 `trackingCorrectedCount(...)` 硬寫成 null ⇒ 這三行全紅。
+    expect(out.trackingCorrectedPendingCount).toBe(7);
+    expect(out.trackingCorrectedNoRecipientCount).toBe(2);
+    expect(out.trackingCorrectedGapUnknown).toBe(false);
+  });
+
+  it('🔴 少一個 key ⇒ throw(fail-loud), 不是靜靜地變成 0', async () => {
+    await expect(
+      run({ pending_count: 1, corrected_shipments_total_count: 1 }),
+    ).rejects.toThrow(/get_tracking_corrected_gap_counts/);
+  });
+
+  it('🔴 計數是負數 ⇒ throw —— 一個負的積壓數比一個錯的數更該吵', async () => {
+    await expect(
+      run({ pending_count: 1, no_recipient_count: -1, corrected_shipments_total_count: 1 }),
+    ).rejects.toThrow(/no_recipient_count/);
+  });
+});
+
 describe('🔴 心跳:傳給 RPC 的 job 清單 = CRON_JOB_WHITELIST 全部, 沒有被過濾過', () => {
   function captureHeartbeatPayload() {
     const seen: { payload: Array<Record<string, unknown>> | null } = { payload: null };
@@ -982,6 +1077,13 @@ describe('🔴 心跳:傳給 RPC 的 job 清單 = CRON_JOB_WHITELIST 全部, 沒
           'get_shipped_email_gap_counts',
           'get_order_created_gap_counts',
           'get_payment_anomaly_alert_display_ids',
+          // 🔴 ⟦b4-NORECIPIENTWINDOW⟧ 第四條線(2026-09-04)**非加不可**, 而理由與別支不同:
+          //    姊妹的 `get_order_unpaid_cancelled_gap_counts` **不在這張清單上也沒事** ——
+          //    因為 adapter 那邊用 `if (cutoff !== null)` 包著它, 而本組沒設 cutoff ⇒ 它根本不會被呼叫。
+          //    而**我這一支沒有那個守門**(母體天生從空的開始長 ⇒ 不需要 cutoff)
+          //    ⇒ 🎯 **它每一發都會被呼叫** ⇒ 不在這裡降級的話, 它會吃到 `FULL`
+          //      而 `parseCount` 當場 fail-closed(我第一版就是這樣紅了 8 格)。
+          'get_tracking_corrected_gap_counts',
         ]) {
           if (text.includes(fn)) throw Object.assign(new Error('function does not exist'), { code: '42883' });
         }
@@ -1037,6 +1139,8 @@ describe('🔴 心跳:回應層對帳(壞回應要 throw, 不是靜靜地健康)
           'get_order_refunds_stuck_summary', 'get_email_outbox_deadman_counts',
           'get_shipped_email_gap_counts', 'get_order_created_gap_counts',
           'get_payment_anomaly_alert_display_ids',
+          // 🔴 第四條線非加不可 —— 它在 adapter 那邊【沒有 cutoff 守門】⇒ 每一發都會被呼叫。
+          'get_tracking_corrected_gap_counts',
         ]) {
           if (text.includes(fn)) throw Object.assign(new Error('nope'), { code: '42883' });
         }
@@ -1553,5 +1657,129 @@ describe('🔵 未付款取消線:缺鍵的分堆依據(給 key-contract 那張�
     );
     const r = await new PgAnomalyAlertReaderAdapter('conn', () => c).getAlertSummary(86400, 43200, 600, null, 900, '2026-08-22T00:00:00.000Z', null);
     expect(r.unpaidCancelledPendingCount).toBe(5);
+  });
+});
+
+/**
+ * `getSearchLogHealth` —— 2026-09-05 補。
+ *
+ * 🔴 **它到今天為止零測試**(當場量:本檔 `grep -c getSearchLogHealth` ⇒ **0**)。
+ *    而它是 `⟦search-LOGSILENTZERO⟧` 那條線的讀取端:**搜尋日誌靜靜歸零時就靠它出聲**。
+ *    ⇒ 📌 **一個負責「東西沒聲音時發出聲音」的元件, 自己沒有東西在盯它。**
+ *
+ * 🛑 **而這四格的模子是 `-mail` 在 `getStuckBankOrdersHealth` 上先做的** ——
+ *    我**沒有讀到他那支檔**(2026-09-05 當場找:`git grep -l getStuckBankOrdersHealth --all` ⇒ 查無,
+ *    他還沒推)⇒ **這四格是照主視窗轉述的四個世界寫的, 不是照他的碼抄的。**
+ *    ⇒ 兩邊形狀若有出入, 以他那支為準(他是那個模子的作者), 而**這一句要留著** ——
+ *      否則下一個人會以為兩支是對過的。
+ */
+function searchLogClient(result: unknown, probeMissing = true) {
+  return makeClient({
+    query: async (text: string) => {
+      if (text.includes('to_regprocedure')) {
+        return { rows: [{ missing: probeMissing }] };
+      }
+      if (text.includes('get_search_log_health')) {
+        if (result === undefined) {
+          // 🔴 模擬 PG 的 42883:那支函式不存在(部署窗口)
+          const e = new Error('function public.get_search_log_health() does not exist') as Error & {
+            code?: string;
+          };
+          e.code = '42883';
+          throw e;
+        }
+        return { rows: [{ result }] };
+      }
+      return { rows: [] };
+    },
+  });
+}
+
+describe('PgAnomalyAlertReaderAdapter.getSearchLogHealth(⟦search-LOGSILENTZERO⟧ 的讀取端)', () => {
+  it('① 正常:三個鍵原封回傳(snake→camel), 不在這裡判斷要不要告警', async () => {
+    const { client } = searchLogClient({
+      table_exists: true,
+      last_row_at: '2026-09-05T01:23:45.000Z',
+      anon_can_execute: false,
+    });
+    const r = await new PgAnomalyAlertReaderAdapter('conn', () => client).getSearchLogHealth();
+    expect(r).toEqual({
+      tableExists: true,
+      lastRowAt: '2026-09-05T01:23:45.000Z',
+      // 🔴 `false` 要原封留著 —— 它與 `null` 的下一步【相反】:
+      //    false = 門被關上了(有人做了事) / null = 還沒貼(沒有人做過事)。
+      anonCanExecute: false,
+    });
+  });
+
+  it('①b `anon_can_execute: null` 不得被壓成 false —— 那兩個世界的下一步相反', async () => {
+    const { client } = searchLogClient({
+      table_exists: false,
+      last_row_at: null,
+      anon_can_execute: null,
+    });
+    const r = await new PgAnomalyAlertReaderAdapter('conn', () => client).getSearchLogHealth();
+    expect(r?.anonCanExecute).toBeNull();
+    expect(r?.lastRowAt).toBeNull();
+  });
+
+  it('② 世界 B:函式【真的不存在】(42883 + probe 說 missing)⇒ 回 null(降級, 不是壞掉)', async () => {
+    const { client } = searchLogClient(undefined, true);
+    const r = await new PgAnomalyAlertReaderAdapter('conn', () => client).getSearchLogHealth();
+    // 🔴 `null` = 「還沒貼」⇒ 上層走 Unknown, 而不是「查得到而且沒事」。
+    expect(r).toBeNull();
+  });
+
+  it('③ 世界 A:42883 來自函式【內部】(probe 說函式在)⇒ **原封上拋**, 不得降級', async () => {
+    const { client } = searchLogClient(undefined, false);
+    // 🔴 這一格是世界 A 與世界 B 的分界:同一個 42883, 兩種成因, 兩個相反的下一步。
+    //    少了它, 一個【函式內部炸掉】的世界會被靜靜讀成「還沒貼」⇒ 沒有人會叫。
+    //
+    // 🛑 **而斷言【不比對 pg 的原文】** —— 我第一版寫 `.toThrow(/does not exist/)` 當場紅:
+    //    `sanitizeError` **刻意**把 pg 原文重造掉(防洩漏 token / SQL)⇒ 我等於在測一個
+    //    **設計上被移除的東西**。📌 一個測試紅了, 有時是它問錯了問題, 不是碼壞了。
+    // ✅ 改比它**刻意保留**的那一格:`code` 要活下來 —— 那才是值班的人分得出成因的依據。
+    const err = await new PgAnomalyAlertReaderAdapter('conn', () => client)
+      .getSearchLogHealth()
+      .then(
+        (v) => { throw new Error(`世界 A 竟然沒有丟, 回了 ${JSON.stringify(v)}`); },
+        (e: unknown) => e as { code?: unknown; message?: string },
+      );
+    expect(err.code).toBe('42883');
+    expect(err.message).toMatch(/42883/);
+  });
+
+  it('④ 矛盾要丟:`last_row_at` 是字串而【不是合法時刻】⇒ 丟, 不得放行', async () => {
+    // 🔴 只驗「是字串」不夠:非法日期 ⇒ 上層 `new Date(x).getTime()` 是 NaN
+    //    ⇒ `NaN > 86400000` 為 false ⇒ **stale 恆 false** ⇒ 壞回應被讀成「健康」。
+    const { client } = searchLogClient({
+      table_exists: true,
+      last_row_at: '不是時刻',
+      anon_can_execute: false,
+    });
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getSearchLogHealth(),
+    ).rejects.toThrow(/last_row_at 不是合法時刻/);
+  });
+
+  it('④b 型別不符也要丟(table_exists 不是 boolean / anon_can_execute 不是 boolean)', async () => {
+    const bad1 = searchLogClient({ table_exists: 'yes', last_row_at: null, anon_can_execute: null });
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => bad1.client).getSearchLogHealth(),
+    ).rejects.toThrow(/table_exists 異常/);
+    const bad2 = searchLogClient({ table_exists: true, last_row_at: null, anon_can_execute: 1 });
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => bad2.client).getSearchLogHealth(),
+    ).rejects.toThrow(/anon_can_execute 異常/);
+  });
+
+  it('⑤ 連線一定收掉(end 被呼叫)—— 即使走的是丟出去那條路', async () => {
+    const { client, end } = searchLogClient({ table_exists: true, last_row_at: '壞的', anon_can_execute: null });
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getSearchLogHealth(),
+    ).rejects.toThrow();
+    // 🔴 per-request `new Client()` + `finally end()` —— 錯誤路徑漏掉 end 會慢慢吃光連線,
+    //    而它的症狀出現在【很久以後、別的地方】。
+    expect(end).toHaveBeenCalledTimes(1);
   });
 });

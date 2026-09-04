@@ -1,3 +1,13 @@
+-- ⛔⛔ **[2026-09-04] 本檔已被 `supabase/migrations/20260904230000_m4b_noncardpaid_settle_and_expire_leg.sql` 取代 —— 不得貼。**
+--   🔴 **貼下去的後果不是「重複做一次」, 是【把 Sean 拍的「匯款 5 天」靜靜翻回 1 天】** ——
+--      本檔也 `CREATE OR REPLACE` 同一支 `pcm_cron.expire_unpaid_orders`, 而它寫死 `interval '1 day'`、
+--      全檔 `payment_channel` 命中 0 ⇒ 分流那三行會被整段蓋掉, **而本檔自己的事後閘全綠、沒有東西會叫。**
+--   🛑 **而擋它的【不是這段橫幅】** —— 板列 `⟦b4-V3REVERTS5DAYS⟧`:
+--      本檔在此之前**就已經有一段「不得貼、不得 apply」的橫幅**, 而那個洞照樣被開出來。
+--      ⇒ 📌 **橫幅擋不住這件事。真正擋得住的是 `fab3234bd` 加進本檔的【前置閘】** ——
+--        它會在正式庫已經是分流版時 `RAISE` 拒絕繼續。
+--      ⇒ 🎯 **所以這一段的作用是【指路】, 不是防線** —— 防線在碼裡, 而它已經裝上了。
+--   🔵 要做本檔想做的那件事 ⇒ 去看 `20260904230000`(它是 `20260903080000` 的逐字超集 + 淨額腿)。
 -- ============================================================
 -- 🛑🛑🛑 **草稿。codex R1 判 `FAIL(9 個 must-fix + 2 nit)` ⇒ 不要 apply、不要搬回 supabase/migrations/。**
 -- ------------------------------------------------------------
@@ -480,7 +490,7 @@ BEGIN
        --    而 needs_human 的意思正是「這張單的帳我算不清」
        --    ⇒ 📌 **用一個【自己宣告算不清】的函式的中間值去決定「不要取消」, 那是把它的輸出**
        --      **用在它宣告的射程之外。**而我要問的問題窄得多:【這張單淨收到的錢 > 0 嗎】。
-       AND (SELECT pg_catalog.coalesce(pg_catalog.sum(p.amount), 0)
+       AND (SELECT coalesce(pg_catalog.sum(p.amount), 0)
               FROM public.order_payments p
              WHERE p.order_id = o.id) <= 0
      ORDER BY o.created_at                                            -- 最舊的先處理(可預期、便於分批)

@@ -153,7 +153,7 @@ describe('🔴🔴 codex R1:選了既有客人 ⇒ 「同上」帶【那位】, 
       truncated: false,
       shouldWarnDuplicates: false,
     });
-    fireEvent.change(screen.getByLabelText('客人電話'), { target: { value: '0912345678' } });
+    fireEvent.change(screen.getByLabelText('找客人(電話 / 姓名 / Email)'), { target: { value: '0912345678' } });
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '找客人' }));
     });
@@ -190,7 +190,7 @@ describe('🔴🔴 codex R1:選了既有客人 ⇒ 「同上」帶【那位】, 
       truncated: false,
       shouldWarnDuplicates: false,
     });
-    fireEvent.change(screen.getByLabelText('客人電話'), { target: { value: '0912345678' } });
+    fireEvent.change(screen.getByLabelText('找客人(電話 / 姓名 / Email)'), { target: { value: '0912345678' } });
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '找客人' }));
     });

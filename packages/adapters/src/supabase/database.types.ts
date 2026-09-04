@@ -1,5 +1,11 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十二個函式、共二十八處**手動校正,
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十三個函式、共二十九處**手動校正,
+// ⛔ ~~十二個函式、共二十八處~~ ⇒ 2026-09-05 線 -ship 補 ⑰ `admin_record_hct_submit`(**整段**)後 +1。
+//    🔴 **而我第一版把訂正寫在【同一行】的「本體另有」與「**」之間** ——
+//    `database-types-manual-count.test.ts:55` 的正規式是 `本體另有\*\*(.+?)個函式`,
+//    它先剝 `~~…~~` 再比對 ⇒ 剝完中間還剩 `⛔  ⇒ ` ⇒ **抓不到, 那支測試三格全紅。**
+//    ⇒ 📌 **一個為了留痕而加的刪除線, 打斷了另一支測試賴以定位的字面。**
+//      而它紅得對:那一行**逐字寫著它是「計數的唯一權威」**。
 //   (~~十三個函式、共二十九處~~ ⇒ **2026-08-24 線4:⑬ 走完退場後減一**,數字回到 `92436630` 那一版)
 //   **外加一張表的兩個欄位**(⑮ `admin_sso_login_events.actor_kind` / `.actor_staff_id`,2026-08-24 B5-a):
 //    ~~migration `20260824030000` **未 apply** ⇒ 現在重 gen 不會產生它們~~
@@ -69,6 +75,15 @@
 //      ⇒ NULL 是設計上合法輸入;同檔 :118-120 寫明它是刻意選填。與 ⑦ 同款。)
 //      ⚠️ **不得讀成「校正漏貼都會被抓到」** —— 這層保護只對「呼叫端真的會傳 null」的校正成立;
 //      其餘各處的防線仍然只有「人重貼」+ 外部檢查腳本(缺口已立 backlog `#518`))
+//   ⑰ `admin_record_hct_submit` **整段**〔主migration=20260904170000〕(2026-09-05 線 -ship;⟦ship-HCTAPI⟧ 步驟②)——
+//      ⛔ ~~我原本編成 ⑯~~ 🔴 **撞號**:`:24` 的 ⑯ 是【帳號】線 2026-09-04 先用的(`orders.tax_total`)。
+//      ⇒ 📌 **兩節各自編號 ⇒ 同一個號在同一支檔裡有兩個意思, 而那支計數測試的正規式只吃得到其中一節** ——
+//        它數到 13(對), 卻**看不到撞號**。⇒ 先用先贏, 我改 ⑰。
+//      🔴 **它不是「校正」, 是【生成器沒產出來】**:`20260904170000` **已 apply**(在 `supabase/APPLIED.tsv`)
+//      (Sean 2026-09-04 本人貼, 那一列自帶簽章複驗 + 正負對照)⇒ 它在正式庫裡, 只是本檔還沒重 gen。
+//      ⇒ 不補這一支, `.rpc('admin_record_hct_submit', …)` 會 typecheck 紅, 而繞過它的
+//      `as never` / `@ts-expect-error` **會把整個參數形狀的檢查一起關掉**。
+//      ⚠️ 重 gen 之後它應該自己產得出來 ⇒ 屆時本條可退場(與 ⑮ 同款)。
 // ─────────────────────────────────────────────────────────────────────────────
 // 🔴 **以下是【已退場】的條目留痕,不計入上面的計數。**
 // 🔴🔴 **留痕的寫法有一條【承重的不變式】,而在 2026-08-24 夜之前沒有一句話講過它**:
@@ -3144,6 +3159,7 @@ export type Database = {
           recipient_snapshot: Json
           shipment_reference: string
           shipped_at: string | null
+          tracking_corrected_at: string | null
           tracking_number: string | null
           updated_at: string
           void_reason: string | null
@@ -3161,6 +3177,7 @@ export type Database = {
           recipient_snapshot: Json
           shipment_reference: string
           shipped_at?: string | null
+          tracking_corrected_at?: string | null
           tracking_number?: string | null
           updated_at?: string
           void_reason?: string | null
@@ -3178,6 +3195,7 @@ export type Database = {
           recipient_snapshot?: Json
           shipment_reference?: string
           shipped_at?: string | null
+          tracking_corrected_at?: string | null
           tracking_number?: string | null
           updated_at?: string
           void_reason?: string | null
@@ -3276,6 +3294,29 @@ export type Database = {
       }
     }
     Views: {
+      pcm_unpaid_cancelled_email_pending: {
+        Row: {
+          cancelled_at: string | null
+          cancelled_reason: string | null
+          created_at: string | null
+          customer_email: string | null
+          display_id: string | null
+          notification_email: string | null
+          order_id: string | null
+        }
+        Relationships: []
+      }
+      pcm_order_created_email_pending: {
+        Row: {
+          created_at: string | null
+          customer_email: string | null
+          display_id: string | null
+          notification_email: string | null
+          order_id: string | null
+          paid_at: string | null
+        }
+        Relationships: []
+      }
       admin_customer_list_v: {
         Row: {
           active_order_count: number | null
@@ -3850,6 +3891,21 @@ export type Database = {
           p_tracking_number?: string
         }
         Returns: Json
+      }
+      admin_record_hct_submit: {
+        // 🔴🔴 **手動補一支(⑰)—— 而它不是「校正」, 是【生成器沒產出來】。**
+        //   `20260904170000` 已在 `supabase/APPLIED.tsv`(Sean 2026-09-04 本人貼, 那一列自帶
+        //   簽章複驗 + 正負對照)⇒ **它在正式庫裡, 只是本檔還沒重 gen。**
+        //   ⇒ 📌 **不補這一支, `.rpc('admin_record_hct_submit', …)` 會 typecheck 紅**
+        //     ——而繞過它的方法(`as never` / `@ts-expect-error`)會**把整個參數形狀的檢查一起關掉**。
+        //   ⚠️ 重 gen 之後這一段會被沖掉, 而**那時它應該已經自己產得出來** ⇒ 屆時本段可退場。
+        Args: {
+          p_raw: Json
+          p_request_id: string | null
+          p_shipment_reference: string
+          p_status: string
+        }
+        Returns: undefined
       }
       admin_record_item_receipt: {
         // 🔴 手動校正一處(重 gen 後需重貼;2026-08-11 #352-b 開工補上 —— 呼叫端到此才存在)。

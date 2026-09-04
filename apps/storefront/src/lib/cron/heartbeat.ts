@@ -127,12 +127,32 @@ export const HEARTBEAT_MAX_MS = 2_000;
  * 📌 **一個為了不吃掉別人預算而做的共用,讓兩個訊號在同一個世界裡一起沉默** ——
  *    而共用的**收益**(最壞不變兩倍)當時寫進了註解,**代價沒有**(R1 nit 7)。
  *
- * ⚠️ **兩個數字都沒有量測依據**(`HEARTBEAT_MAX_MS` 檔頭自陳如此,本刀只是把它切開):
- *    DB 那半是同區一發 upsert;ping 那半是**到境外 `hc-ping.com` 的 HTTPS 來回**,
- *    **而那個 round trip 沒有人量過**(R1 nit 11)。要調先去量,不要憑感覺。
+ * ⛔ ~~**兩個數字都沒有量測依據**…**那個 round trip 沒有人量過**(R1 nit 11)。要調先去量,不要憑感覺。~~
+ * ✅ **2026-09-04 量了, 而它說預算切反了**(⟦b4-EXTPINGTIMEOUT1⟧;主視窗同日批)。
+ *    舊字面留刪除線 —— 搜「沒有量測依據」的人要在同一發撞到這裡。
+ *
+ * ── 🔬 讀數(帶著它的環境走, 照 §6-b:數字離開量測現場就得帶著環境)──────────────
+ *    **來源**:Vercel runtime log 原始行, production, deployment `dpl_6q2eomSTNGVVZXLf7vM28hmLz8bW`,
+ *    2026-09-04 14:30-14:55 UTC 那 25 分鐘, 四支 cron 全收。
+ *      ping 成功樣本 **n = 22** ⇒ 🔴 **雙峰**:257-286ms **7 筆** · 732-774ms **15 筆**
+ *                                    ⇒ **400-700 之間一筆都沒有**
+ *      db  樣本 **n = 26** ⇒ max **474ms**(第二大 260ms)
+ *    ⇒ 🛑 **ping 的最大值 774ms 離舊預算 800ms 只剩 26 毫秒**, 而 db 離它的 1200ms 還剩 726 毫秒。
+ *    ⇒ 📌 **那 26 毫秒就是那 15% 逾時的全部成因** —— 不是網路壞掉, 是**預算切在錯的地方**。
+ *      (同窗實測 `外部存活訊號送出失敗` email-sweep 11 次 / 總輪數 72;
+ *       負對照:同一把尺查 `(TypeError)` 回空 ⇒ 失敗**全部**是 `TimeoutError`。)
+ *
+ * ── 🔴 而這一刀【沒有】讓 cron 的最壞情況變長 ────────────────────────────────
+ *    `HEARTBEAT_MAX_MS` **維持 2000**, 只是把餘裕從不需要的那一半搬到需要的那一半。
+ *    新的餘裕:db 800 − 474 = **326ms** · ping 1200 − 774 = **426ms**。
+ *
+ * ⚠️ **那個雙峰的【成因】沒有查**(看起來像冷連線 / DNS, 而我沒有證據)。
+ *    ⇒ 而這一刀**不依賴**知道成因:兩個峰都遠在 1200 以下。
+ * ⚠️ **樣本是 25 分鐘的一個窗** —— 它答不出「一天之內會不會有更慢的時段」。
+ *    ⇒ 判別訊號:部署之後回去重跑同一個查詢, 失敗數應該從 11/72 掉到接近 0。**沒掉就是這一刀錯了。**
  */
-export const HEARTBEAT_DB_MS = 1_200;
-export const HEARTBEAT_PING_MS = HEARTBEAT_MAX_MS - HEARTBEAT_DB_MS; // 800
+export const HEARTBEAT_DB_MS = 800;
+export const HEARTBEAT_PING_MS = HEARTBEAT_MAX_MS - HEARTBEAT_DB_MS; // 1200
 
 /**
  * 給一個 promise 套硬上界。逾時回 `'timeout'`,而**底下那發並不會被取消**(JS 沒有那個東西)。
@@ -307,6 +327,23 @@ export async function recordHeartbeatSuccess(
   jobName: CronJobName,
   store?: HeartbeatStore,
   pingImpl: typeof pingExternalHeartbeat = pingExternalHeartbeat,
+  /**
+   * 🔴🔴 **整輪的起點**(⟦b4-CRON60SDOGPILE⟧ 2026-09-04)—— 給了就在下面那行 log 多印一格
+   * `round=<整輪毫秒>ms`。**沒給就一個字都不多印**, 既有呼叫端那一行**逐位元不變**。
+   *
+   * 🎯 **為什麼掛在這裡而不是新開一行 log**:那一行**本來就會印**(它已經印 `db=` 與 `ping=`)
+   *    ⇒ 多一個欄位**零新增音量**。而板上否決過的是「新增一條無條件印的 log」, 不是這個。
+   *
+   * 🔴 **它解掉的是一個【量不到】的問題, 不是一個效能問題**:
+   *    `maxDuration = 60` 的那支 cron, 被平台 kill 的那一發**不回 503、不寫心跳**
+   *    ⇒ 而 Vercel runtime log **沒有耗時欄位**(2026-09-04 我自己讀原始行確認過)
+   *    ⇒ 📌 **今天只答得出「這一輪跑完了沒」, 答不出「離 60 秒還有多遠」。**
+   *    ⇒ 而那個差別是:**撞到之前完全沒有預警。**
+   *
+   * ⚠️ 它量的是**從 route 進來到這一行**的 wall-clock, **不含**平台的冷啟動與回應寫出。
+   *    ⇒ 它是**下界**, 不是平台那把碼表。兩者的差沒有人量過。
+   */
+  roundStartedAtMs?: number,
 ): Promise<void> {
   // 🔴🔴 **整支函式的起點,而它是【總預算】的錨**(codex R2 must-fix 3):
   //    上一版把 ping 的截止寫成 `Date.now() + HEARTBEAT_PING_MS`(在 DB 之後才算)
@@ -404,8 +441,12 @@ export async function recordHeartbeatSuccess(
     //  🔵 收樣停止條件(判準寫在數字之前):成功側連續兩批(每批 10)p95 差 < 50ms,
     //     且四支各至少 20 筆成功樣本。**不寫「要涵蓋一次冷啟動」—— 我們證不到某一輪是不是冷啟。**
     // ═══════════════════════════════════════════════════════════════════
+    // 🔵 `round=` 只在呼叫端給了起點時才出現 ⇒ 沒給的呼叫端那一行**逐位元不變**
+    //    (而那是承重的:板上那個「數完成輪數」的量法就是 grep 這一行的 `db=`)。
+    const round =
+      roundStartedAtMs === undefined ? '' : ` round=${Date.now() - roundStartedAtMs}ms`;
     console.error(
-      `[heartbeat] ${jobName} db=${dbMs}ms ping=${pingMs}ms db_result=${dbResult}`,
+      `[heartbeat] ${jobName} db=${dbMs}ms ping=${pingMs}ms db_result=${dbResult}${round}`,
     );
   } catch (err) {
     // `pingExternalHeartbeat` 自己永不拋;但**注入的替身可能拋** ⇒ 這一層是給測試與未來的呼叫端的。

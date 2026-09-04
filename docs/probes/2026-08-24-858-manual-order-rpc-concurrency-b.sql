@@ -8,7 +8,8 @@ BEGIN
     'probe_alice',
     'manual_phone','bank_transfer','home',
     '{"name":"王小明","phone":"0912000111","line":"台北市測試路1號"}'::jsonb,
-    '{"type":"personal"}'::jsonb, 100,
+    -- 🔴 第④代起 `requested` 必填(見 20260904251500)。
+    '{"type":"personal","requested":true}'::jsonb, 100,
     '[{"sku":"Z1","title":"併發測試品","qty":1,"unit_price":100,"spec":{}}]'::jsonb);
   RAISE WARNING '🔴 併發竟然成功了 => 守門沒開火';
 EXCEPTION WHEN OTHERS THEN
