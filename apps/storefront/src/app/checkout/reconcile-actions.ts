@@ -53,6 +53,18 @@ const RECONCILE_THROTTLE_SECONDS = 10;
 export type ReconcileResult =
   | { status: 'paid'; displayId: string }
   | { status: 'failed'; displayId?: string }
+  /**
+   * `pendingTransfer`:反查到的是一張**未付款的匯款單**(M-4b 段 1 片 A, 2026-09-04)。
+   *
+   * 🎯 **它補的是 ⟦b4-BANKORDERINVISIBLE⟧ 的第三個受詞**:建單之後回應掉了(關頁 / 斷網),
+   *   客人重進結帳頁 ⇒ 本片之前這裡回 `pending` ⇒ **他看不到那張已經建好的單。**
+   *
+   * 🛑 **而【客人看得到什麼】那一半不在片 A** —— 那一頁(收款帳號 / 期限 / 備註填單號)是段 3,
+   *   而它需要 Design。⇒ 📌 **本片把 server 這端答對, 並留一個有型別的接縫;
+   *   客人那端今天仍看到與本片之前相同的畫面。**
+   *   ⇒ 🔴 **這句話要寫出來, 免得「reconcile 修好了」被讀成「客人撈得回他的單了」。**
+   */
+  | { status: 'pendingTransfer'; displayId: string }
   | { status: 'pending' };
 
 /**
@@ -81,6 +93,11 @@ export async function reconcileCartSession(cartSessionId: unknown): Promise<Reco
     const sibling = await (await getSiblingLookup()).lookup(cartSessionId);
     if (sibling.kind === 'none') {
       return { status: 'pending' };
+    }
+    if (sibling.kind === 'bank_pending') {
+      // 🔴 段 1 片 A:未付款的匯款單 ⇒ 明確回 pendingTransfer, **不要落到 pending**。
+      //   🛑 **不打 Record、不 settle** —— 它沒有卡片交易(SiblingLookupResult 的註解寫了為什麼)。
+      return { status: 'pendingTransfer', displayId: sibling.displayId };
     }
     if (sibling.kind === 'paid') {
       // DB 確定成交 → 直接回 paid、不打 Record(對齊 payment-status route paid 短路)。

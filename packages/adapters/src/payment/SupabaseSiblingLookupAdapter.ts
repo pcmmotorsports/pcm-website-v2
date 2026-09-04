@@ -5,7 +5,7 @@
  * JWT 的 authenticated client(`createServerSupabaseClient()`、由 composition 注入)→ `find_active_sibling_own`
  * 內 `auth.uid()` 歸屬反查同會員兄弟單;無 JWT → RPC 回 `{kind:'none'}`(own-only fail-safe)。
  *
- * 🔴 RPC 回 jsonb discriminated union(camelCase 鍵直映):`{kind:'paid'|'active'|'none', existingOrderId?,
+ * 🔴 RPC 回 jsonb discriminated union(camelCase 鍵直映):`{kind:'paid'|'active'|'bank_pending'|'none', existingOrderId?,
  * attemptId?, displayId?}`;`active` 分支**不含** recTradeId/bankTransactionId(資料最小化 round6 一、§4 R1a2)。
  * 形狀不符 → fail-closed throw(不靜默轉 none、比 RPC 寬鬆 coercion 更嚴、強化付款路徑 bug 可追蹤性)。
  *
@@ -50,6 +50,15 @@ function parseSiblingLookup(data: unknown): SiblingLookupResult {
       throw new SiblingLookupParseError('find_active_sibling_own 回應格式異常');
     }
     return { kind: 'paid', existingOrderId: o.existingOrderId, displayId: o.displayId };
+  }
+  if (o.kind === 'bank_pending') {
+    // 🔴 段 1 片 A:未付款的匯款單。**沒有 attemptId, 而那是它的定義不是缺欄** ——
+    //   要求 attemptId 會讓這一格永遠 throw, 而 throw 在上層是 fail-closed hold
+    //   ⇒ 那會把「讓他刷卡」(Sean 拍的乙)靜靜變成「擋住他」(甲)。
+    if (typeof o.existingOrderId !== 'string' || typeof o.displayId !== 'string') {
+      throw new SiblingLookupParseError('find_active_sibling_own 回應格式異常');
+    }
+    return { kind: 'bank_pending', existingOrderId: o.existingOrderId, displayId: o.displayId };
   }
   if (o.kind === 'active') {
     // 🔴 active 不含 rec/bank(資料最小化);只取 existingOrderId/attemptId/displayId。
