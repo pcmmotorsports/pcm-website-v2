@@ -190,5 +190,33 @@ check "格12 🟢 正對照:同一張單改傳 true ⇒ 金額變成 1000" "1000
 #    而**那條路沒有自己的測試** —— 要驗它得故意跑一發壞 SQL, 而那會把整支探針弄紅。
 #    ⇒ 它是「有寫」不是「驗過」。下一個人要驗:暫時加一行 `pq -c "SELECT 1/0;"` 看它是否轉紅。
 
+
+# ── 🔴🔴 **本檔寫死的 migration 檔名, 必須是那支函式【最新的一代】**(R4 nit ④;主視窗裁乙)──
+#   問題:本檔用 awk 從寫死的檔名抽函式 ⇒ 日後有人 `CREATE OR REPLACE` 掉它, 本檔仍測舊版而印綠。
+#   🔵 基準用【既有的】 `scripts/latest-definition-of.sh`(路由表 §20 那支), 不另寫一把尺。
+assert_latest () { # $1=函式名 $2=本檔寫死的版本號
+  local newest
+  newest=$("$REPO/scripts/latest-definition-of.sh" "$1" 2>/dev/null | grep -oE '^newest = [0-9]+' | grep -oE '[0-9]+' | head -1)
+  if [ -z "$newest" ]; then
+    printf '  FAIL 版本釘住檢查 %s ⇒ latest-definition-of.sh 回不出 newest(尺沒接上, 不是通過)\n' "$1"
+    FAILED=1; return
+  fi
+  check "版本釘住:$1 抽自最新一代" "$2" "$newest"
+}
+echo "── 🔵 本檔抽的那兩支函式, 是不是【最新的一代】──"
+assert_latest pcm_pending_refund_amounts   20260902030000
+assert_latest pcm_pending_refund_open_for  20260905070000
+# 🟢 **正對照:這把尺【看得見 REPLACE】** —— pcm_pending_refund_on_cancel 有兩代
+#    (20260901080000 建、20260902030000 REPLACE)⇒ 它的 newest 必須【不是】第一代。
+#    少了這一格, 一把「永遠回第一代」或「回空」的尺會讓上面兩格全綠。
+ONC=$("$REPO/scripts/latest-definition-of.sh" pcm_pending_refund_on_cancel 2>/dev/null | grep -oE '^newest = [0-9]+' | grep -oE '[0-9]+' | head -1)
+if [ "$ONC" = "20260901080000" ] || [ -z "$ONC" ]; then
+  printf '  FAIL 🟢 正對照:這把尺看不見 REPLACE(on_cancel newest=%s, 期望不是 20260901080000 也不是空)\n' "$ONC"
+  FAILED=1
+else
+  printf '  OK   🟢 正對照:這把尺看得見 REPLACE ⇒ on_cancel newest = %s\n' "$ONC"
+  PASSED=$((PASSED+1))
+fi
+
 if [ "$FAILED" -ne 0 ]; then echo "X 有格子紅了(見上)"; exit 1; fi
 echo "OK 全過:$PASSED 格"
