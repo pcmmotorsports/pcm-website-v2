@@ -81,6 +81,30 @@ describe('/products · 兩條資料路(⟦搜尋-落點換 /products⟧)', () =>
     expect(searchProducts, '沒搜尋卻走了關鍵字路 = 整個目錄頁換了資料來源').not.toHaveBeenCalled();
   });
 
+  // ── ⟦search-SHORTNAMEZEROFLASH⟧ 首發要認得裸【子】分類名 ──
+  // 🔴🔴 **這兩格存在的理由**:本檔的 `stubSidebars()` 把 `fetchCategories` 餵成 `[]`
+  //    ⇒ `parseCategoryFromUrl` 在**其餘每一格裡恆回 null** ⇒ 🛑 **那 15 格對這條新分支
+  //      【零判別力】** —— 有人把 `effectiveQuery` 改回 `catalogQuery`, 三綠全綠、沒有東西會紅。
+  //    ⇒ 📌 **所以要餵一棵【真的有子分類的樹】, 那條分支才進得去。**(R1 對抗審查抓到)
+  const DUP_TREE = [
+    { id: 'atv', name: '四輪 ATV/UTV', count: 22, children: [{ id: 'atv-hose', name: '水管束環', count: 22 }] },
+    { id: 'eng', name: '引擎與冷卻', count: 690, children: [{ id: 'eng-hose', name: '水管束環', count: 690 }] },
+  ];
+
+  it('🔴 裸【子】分類名 ⇒ 首發就送【全路徑】進 RPC(而且取件數最大那個父)', async () => {
+    vi.mocked(fetchCategories).mockResolvedValue(DUP_TREE as never);
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
+    await run({ category: '水管束環' });
+    expect(vi.mocked(fetchCatalogPage).mock.calls[0]?.[0].category).toBe('引擎與冷卻 · 水管束環');
+  });
+
+  it('🔵 負對照:誰都不是的名字 ⇒ 原封送出, 不可以退化成「挑一個最像的」', async () => {
+    vi.mocked(fetchCategories).mockResolvedValue(DUP_TREE as never);
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
+    await run({ category: 'QQ9Z7XKW' });
+    expect(vi.mocked(fetchCatalogPage).mock.calls[0]?.[0].category).toBe('QQ9Z7XKW');
+  });
+
   it('🔴 有 search ⇒ 走 searchProducts, 而**完全不碰** fetchCatalogPage', async () => {
     vi.mocked(searchProducts).mockResolvedValue({ items: [], total: 0, error: false });
     await run({ search: 'akrapovic' });
