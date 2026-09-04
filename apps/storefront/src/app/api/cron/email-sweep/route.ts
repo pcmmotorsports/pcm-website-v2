@@ -726,7 +726,20 @@ export async function GET(request: Request): Promise<Response> {
     }
 
     // 4. 認證過 + 無錯 → 200 + 計數摘要(零 PII counts;含 deferred 供調參可見度)。
-    await recordHeartbeatSuccess(CRON_JOB_NAME.emailSweep);
+    // 🔴 ⟦b4-CRON60SDOGPILE⟧ 2026-09-04:把整輪起點交出去 ⇒ 心跳那行多印 `round=<毫秒>ms`。
+    //    🎯 **它解的是「量不到」不是「太慢」** —— 2026-09-04 實測(當前 deployment、近 6 小時):
+    //      `/api/cron/email-sweep` **72 發, 而心跳那行也是 72 行 ⇒ 0 輪被 kill**
+    //      (正對照:同一把尺換一個字串回 11 不是 72 ⇒ 它真的在讀 log 內容)。
+    //    🛑 **而那個 0 只答得出「有沒有撞到」, 答不出「離 60 秒還有多遠」**
+    //      ⇒ 而片 C 讓這裡變成**第四條**序列 enqueue ⇒ 📌 **撞到之前完全沒有預警。**
+    //    ⚠️ `invocationStartedAtMs` 是 GET 的第一行 ⇒ 這個數**不含平台的冷啟動與回應寫出**
+    //      ⇒ 它是**下界**, 不是平台那把碼表(而 `maxDuration` 算的是後者)。
+    await recordHeartbeatSuccess(
+      CRON_JOB_NAME.emailSweep,
+      undefined,
+      undefined,
+      invocationStartedAtMs,
+    );
     return Response.json({ ok: true, ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection }, { status: 200 });
   } catch {
     // deps/env 缺(requireEnv throw)或非預期 throw(如 lease 下界違反)→ 503 fail-closed(不偽 200)。
