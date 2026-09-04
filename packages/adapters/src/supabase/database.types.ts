@@ -3279,6 +3279,17 @@ export type Database = {
       }
     }
     Views: {
+      pcm_order_created_email_pending: {
+        Row: {
+          created_at: string | null
+          customer_email: string | null
+          display_id: string | null
+          notification_email: string | null
+          order_id: string | null
+          paid_at: string | null
+        }
+        Relationships: []
+      }
       admin_customer_list_v: {
         Row: {
           active_order_count: number | null
