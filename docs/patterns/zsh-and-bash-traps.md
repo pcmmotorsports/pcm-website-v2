@@ -135,3 +135,26 @@ PY
 🛑 **而它壞掉時的樣子照舊**:zsh 印幾行 `command not found` / `no matches found`,
 **`rc` 不紅**, 而檔案**寫了一半或掉了主詞** ⇒ 🔴 **一定要回頭 `grep -c '<剛寫的字面>'` 驗。**
 ✅ 我這次是**有備份 + 逐字比對**才發現的 —— 那兩步不能省。
+## 🔴 `pnpm --filter X <不存在的 script>` ⇒ 印「沒有這個 script」而 **`rc=0`**
+
+📎 **全文在 memory `reference_pnpm-filter-test-silent-skip-fake-green.md`**(2026-08-09 記, 講的是 `test`)。
+**這裡只放【第二個實例】與一句指標** —— 不複製全文(`00-work-rules` §4:同一教訓一處全文、他處單行指標)。
+🔴 **而它放在這裡的理由是【抽屜可達性】**:那條住在 memory, 而**打指令的人不會在敲 `pnpm --filter` 之前去查 memory**。
+
+```
+2026-09-05 實測(線 -front, 修 dev E2E 那一片時):
+  $ pnpm --filter storefront e2e:prod
+  None of the selected packages has a "e2e:prod" script
+  rc=0                                      ← 🔴 這裡
+  真正的名字是 test:e2e:prod
+```
+🎯 **⇒「我跑了那個指令而它綠了」在這裡【完全成立】, 而它什麼都沒跑。**
+📌 **與 2026-08-09 那條是同一個機制**(script 不存在 ⇒ pnpm 不當成錯誤), **兩個受詞**:`test` / `e2e:prod`。
+⚠️ **而第二次是【別人給我指令名】造成的** —— 我沒打錯字, 我照抄了一個不存在的名字 ⇒ 🛑 **抄來的指令名也要驗。**
+
+### ✅ 修法:跑之前先問「那個名字在不在」
+```
+pnpm --filter <pkg> run                    # 列出該套件所有 script
+grep '"<script-name>"' apps/<pkg>/package.json    # 或直接問那個名字
+```
+🔵 **而最可靠的來源是 CI 自己**:我是讀 `.github/workflows/e2e-prod.yml:77`(逐字 `run: pnpm test:e2e:prod`)才知道真名的 —— 📌 **要跑「CI 跑的那個」, 就去讀 CI 怎麼叫它, 不要靠別人轉述。**
