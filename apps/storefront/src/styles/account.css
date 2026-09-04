@@ -716,6 +716,50 @@
 }
 .acc-btn-ghost:hover { background: var(--c-bg-2, #f5f5f5); }
 
+/* ══ 命中區外擴(2026-09-05 線 `-front`;視覺零改動)══
+ * 🔬 **量到的**(preview `939c7ecf8`, 真瀏覽器 390×844, `elementFromPoint` 九點法):
+ *    `.acc-logout` **64×41** · `.acc-btn-ghost` **123×41** ⇒ 高度差 44 有 **3px**,
+ *    而九點裡命中 <60%(那是【真死角】,不是被 `label` 接走的那種)。
+ *    `.acc-logout` 在每一頁的帳號區都有 ⇒ 手機上最常被戳的那顆之一。
+ *
+ * 🛑 **鐵則 1 查了稿:稿【沒有】給這兩顆高度** —— `design-reference/styles/account.css`
+ *    `.acc-logout`(:514)與 `.acc-btn-ghost`(:977)都只給 `padding: 10px 18px` + `font-size`,
+ *    **41px 是算出來的, 不是稿指定的** ⇒ 外擴命中區不違反鐵則 1(盒子與視覺一個像素都沒動)。
+ *
+ * 🔴 **為什麼用 `::after` 而不是加 `min-height`** —— `min-height: 44px` 會**改變版面**
+ *    (鈕變高、跟旁邊的東西對不齊)⇒ 那是改稿。`::after` 只擴**可點區域**, 畫面逐字相同。
+ *
+ * 🔴 **而量它要用對的尺**:`getBoundingClientRect()` **看不到 `::after` 的外擴** ——
+ *    這一改在那把尺上【完全不存在】(它照樣印 `64x41`)。同夜實錘見板列
+ *    `⟦f3-DEVPREVIEWWALK0905⟧`:我先用那把尺量, 差點下結論說修法沒生效。
+ *    ✅ 要用 `elementFromPoint` 問「手指落這裡誰接到」。
+ *
+ * 📌 分母是 **2 條基底規則**(`.acc-logout` / `.acc-btn-ghost`);`:909` 的
+ *    `.acc-inline-actions .acc-btn-ghost` 是同一個 class 的覆寫, **跟著走, 不必另寫**。
+ */
+.acc-logout,
+.acc-btn-ghost {
+  position: relative;
+}
+.acc-logout::after,
+.acc-btn-ghost::after {
+  content: '';
+  position: absolute;
+  /* ⛔ ~~41 + 2 + 2 = 45 ⇒ 過 44~~ —— 🔴 **那個算式錯了, 而它錯在一個不會被看見的地方。**
+   *    絕對定位的 `::after`, `top`/`bottom` 是相對**padding box**, 不是 border box;
+   *    這兩顆有 `border: 1px` ⇒ **邊框把外擴吃掉 1px**。
+   *    🔬 實測(本機探針 390, `elementFromPoint` 九點法):`-2px` 版 ⇒ **3/9**,
+   *       上下四角逐點回的是 `div.acc-head`(盒子 y=164 h=41 ⇒ 需要碰到 162 與 206,
+   *       而 padding box 是 165..204, `-2px` 只到 163..206)。
+   *    ✅ `-4px` ⇒ 161..208, 兩端都涵蓋。左右本來就 ≥44(64 / 123)⇒ 只擴上下。
+   *    📌 **這一格是我推的算式與量到的讀數不一致 —— 而先信讀數。** */
+  top: -4px;
+  bottom: -4px;
+  left: 0;
+  right: 0;
+}
+
+
 .acc-inline-form {
   border: 1px solid var(--c-border, #e4e4e7);
   border-top: 3px solid var(--c-text, #0a0a0a);

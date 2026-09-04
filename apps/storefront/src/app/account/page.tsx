@@ -104,7 +104,8 @@ import { AccountView } from '@/components/account/AccountView';
 // 🔴 **分頁清單從 `account-nav.ts` 拿, 不從 `AccountView` 拿**(2026-08-27 真瀏覽器抓到):
 //    `AccountView` 有 `'use client'` ⇒ 從 server component import 它的普通 export
 //    拿到的是 client reference 不是陣列 ⇒ 執行期 500, 而**單元測試全綠**(vitest 沒有 RSC 邊界)。
-import { ACCOUNT_TAB_IDS, type AccountTabId } from '@/components/account/account-nav';
+import { ACCOUNT_TAB_IDS, NAV, type AccountTabId } from '@/components/account/account-nav';
+import type { Metadata } from 'next';
 import { fetchFeaturedProducts, fetchVehicleTaxonomy } from '@/lib/products';
 import { LINE_SYNTHETIC_EMAIL_DOMAIN } from '@/lib/auth/line';
 import { toMemberTier } from '@pcm/domain';
@@ -146,6 +147,33 @@ function tabFromSearchParams(raw: string | string[] | undefined): AccountTabId |
   const v = Array.isArray(raw) ? raw[0] : raw;
   if (typeof v !== 'string') return undefined;
   return ACCOUNT_TAB_IDS.includes(v as AccountTabId) ? (v as AccountTabId) : undefined;
+}
+
+/**
+ * 分頁標題 —— 2026-09-05 線 `-front` 補。
+ *
+ * 🔴 **這一頁原本【沒有】自己的 `<title>`**:preview 實測 `document.title` 逐字是
+ *    「`PCM重機零件販售 — Made for those who ride differently.`」= **首頁那句**
+ *    (🟢 正對照:同一把尺量 `/cart` ⇒ 「`購物車 — PCM重機零件販售`」⇒ 尺是好的, 是這頁真的沒設)。
+ *    ⇒ 分頁列與書籤認不出這是帳號頁。
+ *
+ * 🛑 **設計稿【沒有】給這頁的標題字面** —— `design-reference/` 全樹只有 2 個 `<title>`,
+ *    兩個都是稿本身的(`PCM Motorsports — Design Handoff` / `— Redesign`);
+ *    OD 12 個專案也沒有帳號頁專屬的那一支。⇒ **對齊 `/cart` 的形狀 `X — PCM重機零件販售`**,
+ *    而 `X` **取自本站自己的字**, 不自己發明文案。
+ *
+ * 🔴 **標題從 `NAV` 求, 不另立第二份清單** —— 本檔 `tabFromSearchParams` 上方的註解
+ *    逐字警告過「兩份清單會漂」。這裡照那句做:分頁標題與畫面上那顆分頁鈕**同一個來源**,
+ *    漂不了。新增分頁時標題自動跟上, 不需要有人記得回來改這裡。
+ */
+export async function generateMetadata(
+  // 簽名與 `AccountPage` 一致(含「整個參數選填」那條理由)—— 不一致會讓測試以零引數呼叫時紅。
+  props?: { searchParams?: Promise<Record<string, string | string[] | undefined>> },
+): Promise<Metadata> {
+  const tab = tabFromSearchParams((await props?.searchParams)?.tab);
+  // `overview` 與「沒帶 tab」是同一個畫面 ⇒ 同一個標題;其餘取該分頁的 label。
+  const label = tab && tab !== 'overview' ? NAV.find((n) => n.id === tab)?.label : undefined;
+  return { title: `${label ?? '會員中心'} — PCM重機零件販售` };
 }
 
 export default async function AccountPage(
