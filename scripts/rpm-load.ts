@@ -10,6 +10,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { VariantRow } from './rpm-transform';
+import { findDeniedGroup, deniedGroupMessage } from './supplier-group-denylist';
 
 // ── constants ──
 const BATCH_SIZE = 500;
@@ -165,6 +166,16 @@ export async function syncVariantGroupAtomic(
   variants: VariantRow[],
   orphanSkus: string[],
 ): Promise<number> {
+  // 🔴 不准上架名單 —— 放在【最前面】, 在任何 payload 組裝之前。
+  //    理由:這一支是全 repo【唯一】寫 products 的路(`rpc('sync_product_variant_group')`
+  //    在本檔只出現一次)⇒ 擋在這裡等於擋在咽喉。
+  //    🛑 而它取代的是一個【會變的旗標】(`is_listed = false`)——
+  //       旗標翻回來的時候沒有東西會叫, 而這一行會 throw。
+  const denied = findDeniedGroup(supplierSlug, externalId);
+  if (denied) {
+    throw new Error(deniedGroupMessage(denied));
+  }
+
   const payload = variants.map(({ supplier_slug, ...variant }) => {
     if (supplier_slug !== supplierSlug) {
       throw new Error(
