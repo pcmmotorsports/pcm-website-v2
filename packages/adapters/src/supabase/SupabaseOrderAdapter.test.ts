@@ -2714,6 +2714,11 @@ const MEMBER_DETAIL_ROW = {
   payment_status: 'paid',
   fulfillment_status: 'shipped',
   payment_method: 'tappay',
+  // 🔴🔴 **刻意填 `bank_transfer` 而不是 `tappay`**(code-reviewer 2026-09-04 must-fix ④):
+  //   那一欄的 DB 預設值是 `'tappay'` ⇒ 填 `'tappay'` 的話, **把 mapper 那行改成寫死 `'tappay'`
+  //   仍然全綠** —— 這一格就殺不掉那個突變。
+  //   📌 **一個等於預設值的 fixture, 對「它有沒有真的被讀出來」是零判別力的。**
+  payment_channel: 'bank_transfer',
   paid_at: '2099-04-18T03:00:00Z', // 🔴 刻意與 created_at(04-15)【不同日】
   subtotal: 12000,
   shipping_fee: 100,
@@ -2779,7 +2784,12 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
    */
   it('🔴 鐵則 12:MEMBER_ORDER_DETAIL_SELECT byte-equal 白名單【唯一擋「漏欄／偷偷加欄」的守門,不得弱化成 toContain】', () => {
     expect(MEMBER_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, cancelled_at, cancelled_reason, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, vehicle_snapshot, product_variants(images, products(images, brands(name))), shipment_items(shipments(shipped_at, deleted_at)))',
+      // 🔴 **M-4b 段 3 加了 `payment_channel`, 而這道閘當場把我攔下來** ——
+      //   它的存在理由就是這個:**加一欄不可以是偷偷來的, 得有人在這裡簽名。**
+      //   🔵 而那一欄**不印給客人看**, 只用來判斷「要不要顯示匯款資訊那一塊」
+      //      (`MemberOrderDetail.paymentChannel` 的註解寫了為什麼那不是資訊揭露)。
+      //   🛑 而它**不是**採購/供應商那族的欄位 ⇒ 下方那條「對客投影不得含採購 token」不受影響。
+      'id, display_id, created_at, payment_status, fulfillment_status, payment_method, payment_channel, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, cancelled_at, cancelled_reason, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, vehicle_snapshot, product_variants(images, products(images, brands(name))), shipment_items(shipments(shipped_at, deleted_at)))',
     );
   });
 
@@ -2833,6 +2843,8 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
       paymentStatus: 'paid',
       fulfillmentStatus: 'shipped',
       paymentMethod: 'tappay',
+      // 🔴 **少了這一行, vitest 的 `toEqual` 會忽略 `undefined`** ⇒ 那條 row→domain 的線零覆蓋。
+      paymentChannel: 'bank_transfer',
       paidAt: '2099-04-18T03:00:00Z',
       // ⟦b9-SHIPUI⟧ 這個 fixture **沒有** `shipment_items` ⇒ 當作沒出貨(保守方向:寧可少亮一階)。
       // 🔴 而 `allItemsShipped` 在這裡是 `false` 而不是 `true` —— 一個品項、零有效的箱,
