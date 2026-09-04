@@ -77,10 +77,12 @@
       "python3 scripts/migration-version-collision-gate.py",
       "python3 scripts/definer-search-path-gate.py",
       "python3 scripts/migration-txn-wrap-gate.py",
-      "python3 scripts/pg-catalog-prefix-gate.py"
+      "python3 scripts/pg-catalog-prefix-gate.py",
+      "bash scripts/run-migration-scan-tests.sh"
     ],
     "scripts/pg-catalog-prefix-gate.py": "python3 scripts/pg-catalog-prefix-gate.py --selftest",
     "scripts/migration-txn-wrap-gate.py": "python3 scripts/migration-txn-wrap-gate.py --selftest",
+    "scripts/run-migration-scan-tests.sh": "bash scripts/run-migration-scan-tests.sh --selftest",
     "packages/adapters/src/payment/PgAnomalyAlertReaderAdapter.ts": "npx vitest run packages/adapters/src/payment/anomaly-alert-key-contract.test.ts",
     "scripts/definer-search-path-gate.py": "python3 scripts/definer-search-path-gate.py --selftest",
     "scripts/migration-version-collision-gate.py": "python3 scripts/migration-version-collision-gate.py --selftest",
