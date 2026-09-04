@@ -61,6 +61,7 @@ function detailWith(quantitySummary: unknown): AdminOrderDetail {
     subtotal: { amount: 5000, currency: 'TWD' },
     shippingFee: { amount: 120, currency: 'TWD' },
     discountTotal: { amount: 0, currency: 'TWD' },
+    taxTotal: { amount: 0, currency: 'TWD' },
     total: { amount: 5120, currency: 'TWD' },
     itemsTruncated: false,
     items: [

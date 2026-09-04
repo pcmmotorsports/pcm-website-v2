@@ -192,8 +192,21 @@ def main(argv):
                           capture_output=True, text=True).stdout.strip() or '.'
     if '--audit' in argv:
         import glob
-        files = sorted(glob.glob(os.path.join(root, MIG_DIR, '*.sql'))
-                       + glob.glob(os.path.join(root, 'scripts', '*.sql')))
+        # 🔴🔴 **分母對齊 lint-staged 那條路**(2026-09-05,主視窗量到)——
+        #    ⛔ ~~glob 只吃 `supabase/migrations/*.sql` + `scripts/*.sql`~~ ⇒ **336 / 380**,
+        #       漏掉 `docs/specs`(17)· `docs/probes`(10)· `supabase/after-checks`(9)·
+        #       `scripts/admin-probe`(3)· 其餘子目錄(5)—— **共 44 支結構上看不到**。
+        #    🔬 實錘:`docs/specs/2026-09-01-…-migration-draft.sql:493` 有一個 `pg_catalog.coalesce`,
+        #       **lint-staged 那條路會紅,而 `--audit` 印綠** ⇒ 有人想用 `--audit` 全樹掃就掃不到它。
+        #    📌 **兩條路問的不是同一組檔, 而它們印的是同一種綠。**
+        #    ✅ 改用 `git ls-files '*.sql'` —— 它與 lint-staged 的分母同源(都是版控裡的檔)。
+        #    ⚠️ 而它答不出【沒進版控的 .sql】—— 那一類本閘結構上看不到, 兩條路都一樣。
+        r = subprocess.run(['git', 'ls-files', '*.sql'],
+                           cwd=root, capture_output=True, text=True)
+        if r.returncode != 0:
+            print(f'🔴 量具失效:git ls-files 回 rc={r.returncode} ⇒ 這【不是】「沒有違規」')
+            sys.exit(2)
+        files = sorted(os.path.join(root, f) for f in r.stdout.split('\n') if f.strip())
     else:
         files = [os.path.join(root, f) for f in staged()]
     # 🔴🔴 **codex 2026-09-05 must-fix:讀的必須是【index 裡那一版】, 不是工作樹那一版。**

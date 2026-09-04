@@ -612,4 +612,64 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
 
     expect(hoisted.replace).not.toHaveBeenCalled();
   });
+
+  // ═══ ⟦search-REDUNDANTREPLACE⟧(主視窗-94 2026-09-05 拍乙)═══
+  // 🔴 **本格【先寫、當時是紅的】** —— 那是它存在的理由:它釘的是一個當時還不成立的行為。
+  //   病:`⟦search-SHORTNAMEZEROFLASH⟧` 之後 server 自己把**裸子分類名**解成全路徑, 而回寫段
+  //   仍然無條件用 `${main} · ${sub}` 重建 ⇒ 與網址上的裸短名**不等** ⇒ 等值早退不命中
+  //   ⇒ 送一次多餘的 `router.replace`, 而同一輪 `filtersChanged` 為真 ⇒ **`page` 被一起刪掉**。
+  // 🔬 **鑽機 2026-09-05 實走(四格, 比解碼後的參數值)**:
+  //   裸子名 ⇒ 網址被改寫 · 裸子名+`page=2` ⇒ **改寫且 page 掉了**
+  //   🟢 而全路徑那兩格(負對照)**兩個都沒變** ⇒ 差別只有分類名是裸的還是全的。
+  // ✅ 修法:`normalizedQuery` 把分類軸也收斂 —— **裸子名與它解出來的全路徑視為同一個篩選**。
+  //   🛑 那是「把比對改寬」, 而板列曾警告過這條路。**方向的理由**:那道早退 firing **更多**是往
+  //   **安全**走 —— #289 那個「不會自癒」的終態是它**沒有** firing 時產生的(見上方 ⑩⑯)。
+  it('㉖ 裸子分類名進站 + `?page=2` → **不得**多送一次 replace, `page` 必須活著', () => {
+    // 樹要有子分類, 預設的 RESTORE_SOURCES 是 childless ⇒ 那份餵下去本格恆綠 = 零判別力。
+    const tree = {
+      ...RESTORE_SOURCES,
+      categories: [
+        { id: 'gear', name: '騎士用品與配件', children: [{ id: 'mount', name: '攝影機支架', count: 4 }] },
+      ],
+    };
+    setUrl('?category=%E6%94%9D%E5%BD%B1%E6%A9%9F%E6%94%AF%E6%9E%B6&page=2');
+    const resolved = {
+      mainId: 'gear', main: '騎士用品與配件', subId: 'mount', sub: '攝影機支架',
+    } as CascadeFilterState['category'];
+
+    // 三個 render:① mount 早退 ② 還原窗口消化 ③ state 已等於網址解出來的那個分類
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, tree),
+      { initialProps: { category: resolved } },
+    );
+    rerender({ category: resolved });
+    rerender({ category: resolved });
+
+    expect(hoisted.replace).not.toHaveBeenCalled();
+  });
+
+  it('㉗ 🔵 負對照:**認不得**的裸名不得被收斂 —— 照舊送導覽(#315 的值仍原樣留著)', () => {
+    // 🔴 少了本格, ㉖ 的修法可以寫成「分類軸整個不比對」而照樣全綠 —— 那會讓 #315 的
+    //   「認不得的值留在網址上」與「使用者剛清掉篩選」變成同一件事。
+    const tree = {
+      ...RESTORE_SOURCES,
+      categories: [
+        { id: 'gear', name: '騎士用品與配件', children: [{ id: 'mount', name: '攝影機支架', count: 4 }] },
+      ],
+    };
+    setUrl('?category=%E5%B7%B2%E4%B8%8B%E6%9E%B6%E7%9A%84%E5%88%86%E9%A1%9E');
+    const picked = { mainId: 'gear', main: '騎士用品與配件' } as CascadeFilterState['category'];
+
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, tree),
+      { initialProps: { category: null as CascadeFilterState['category'] } },
+    );
+    rerender({ category: picked });
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url, '認不得的裸名被當成已解析 ⇒ 導覽沒送出去').toBeDefined();
+    expect(qs(url).get('category')).toBe('騎士用品與配件');
+  });
 });

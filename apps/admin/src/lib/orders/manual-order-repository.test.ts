@@ -79,6 +79,7 @@ const VALUES: ManualOrderValues = {
   shippingMethod: 'home',
   shipTo: { name: '王小明', phone: '0912345678', line: '台北市中山區某路 1 號' },
   invoice: { type: 'personal', carrier: '/ABC1234' },
+  invoiceRequested: true,
   shippingFee: 100,
   lines: [
     { sku: 'RPM-001', title: '碳纖維車台護蓋', qty: 2, unit_price: 14600, variant_id: null, spec: {} },
@@ -123,7 +124,7 @@ describe('createManualOrder — wire(逐欄具名送、不 spread)', () => {
       p_payment_channel: 'bank_transfer',
       p_shipping_method: 'home',
       p_ship_to: { name: '王小明', phone: '0912345678', line: '台北市中山區某路 1 號' },
-      p_invoice: { type: 'personal', carrier: '/ABC1234' },
+      p_invoice: { type: 'personal', carrier: '/ABC1234', requested: true },
       p_shipping_fee: 100,
       p_lines: VALUES.lines,
     });

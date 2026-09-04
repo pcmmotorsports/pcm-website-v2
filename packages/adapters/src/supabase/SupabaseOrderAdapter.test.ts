@@ -914,6 +914,8 @@ const DETAIL_ROW = {
   subtotal: 5000,
   shipping_fee: 200,
   discount_total: 0,
+  // 🔴 刻意挑一個【誰都不等於】的數 —— 0 的話「根本沒讀這一欄」的 mapper 會照樣全綠。
+  tax_total: 888,
   total: 10200,
   shipping_method: 'home',
   shipping_address_snapshot: { name: '王小明', phone: '0912345678', line: '台北市信義區 1 號' },
@@ -1082,7 +1084,7 @@ function assertNoCustomerIdLeak(select: string): void {
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
   it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出;🔴 A9w3 起 order_items 的 workflow_status+version 亦退出(明細頁九碼下拉已下架);A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);🔴 #808 加 needs_manual_review(布林旗標、非金流識別碼;gate 拆四態要它才分得出「還在跑」與「系統已放棄」);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取;🔴 OD 片 2 加 customer_user_id(客人明細入口需求 §0-J J-4,orders 自己的欄、非成本欄);🔴 #476 片1 採購內嵌加 voided_at+void_reason(⚠️ 名稱只到「**帶得到**」為止 —— 本片**不含**任何分流,下游 find/some/length 全部仍未認作廢,那是片2/3/4;成對取 = DB void_pair 同進同出))', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, invoice_requested, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
+      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, invoice_requested, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
     );
     // 🔴 A9d2-2b:`idempotency_key` 進來了、`payload_hash` **沒有**,而且兩者當初是同一句話裡的
     //    「內部機制」—— 只改判其中一顆是刻意的。byte-equal 那條把兩者一起釘住,但它紅的時候
@@ -1565,6 +1567,7 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       subtotal: { amount: 5000, currency: 'TWD' },
       shippingFee: { amount: 200, currency: 'TWD' },
       discountTotal: { amount: 0, currency: 'TWD' },
+      taxTotal: { amount: 888, currency: 'TWD' },
       total: { amount: 10200, currency: 'TWD' },
       shippingMethod: 'home',
       shippingAddress: { name: '王小明', phone: '0912345678', line: '台北市信義區 1 號' },
@@ -2723,6 +2726,11 @@ const MEMBER_DETAIL_ROW = {
   subtotal: 12000,
   shipping_fee: 100,
   discount_total: 0,
+  // 🔴 **刻意填一個【誰都不等於】的數**(605)—— 照上面那句「等於預設值的 fixture 零判別力」:
+  //    0 的話, 一個「根本沒讀這一欄」的 mapper 會照樣全綠。605 與 12000 / 100 / 0 / 12100 都不同。
+  //    ⚠️ 它**故意不平衡**(12000+100-0+605 ≠ 12100)—— 本 fixture 量的是【欄位有沒有被讀出來】,
+  //       不是金額等式;那個等式在 `order-email-copy` 那條線上有自己的閘。
+  tax_total: 605,
   total: 12100,
   shipping_method: 'home',
   shipping_address_snapshot: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
@@ -2789,7 +2797,15 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
       //   🔵 而那一欄**不印給客人看**, 只用來判斷「要不要顯示匯款資訊那一塊」
       //      (`MemberOrderDetail.paymentChannel` 的註解寫了為什麼那不是資訊揭露)。
       //   🛑 而它**不是**採購/供應商那族的欄位 ⇒ 下方那條「對客投影不得含採購 token」不受影響。
-      'id, display_id, created_at, payment_status, fulfillment_status, payment_method, payment_channel, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, cancelled_at, cancelled_reason, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, vehicle_snapshot, product_variants(images, products(images, brands(name))), shipment_items(shipments(shipped_at, deleted_at)))',
+      //
+      // 🔴🔴 **2026-09-05 `⟦b4-TAXSURFACES⟧` 第 7 步加了 `tax_total`, 而這道閘【又當場把我攔下來】。**
+      //   🎯 而值得寫下來的不是「它抓到了」, 是**我怎麼差點錯過它**:
+      //      我改完之後跑的是我自己挑的那五支測試檔 ⇒ **全綠**;typecheck 也 `rc=0`。
+      //      ⇒ 📌 **一個我自己選的分母, 對「我沒想到會受影響的東西」結構上失明** ——
+      //         而這正是鐵則 11 第四個數要問的那件事, 只是那個數也是我自己餵的。
+      //   🔵 而 `tax_total` 為什麼可以進來:它是**訂單本身的金額欄**, 與 `subtotal` / `discount_total`
+      //      同族, 不是價格表欄、不是 PII、不是採購 token ⇒ 下方 forbidden-token 那格不受影響。
+      'id, display_id, created_at, payment_status, fulfillment_status, payment_method, payment_channel, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, shipping_method, shipping_address_snapshot, cancelled_at, cancelled_reason, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, vehicle_snapshot, product_variants(images, products(images, brands(name))), shipment_items(shipments(shipped_at, deleted_at)))',
     );
   });
 
@@ -2854,6 +2870,8 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
       subtotal: { amount: 12000, currency: 'TWD' },
       shippingFee: { amount: 100, currency: 'TWD' },
       discountTotal: { amount: 0, currency: 'TWD' },
+      // 🔴 605 是 fixture 裡刻意挑的【誰都不等於】的數 ⇒ 換錯欄、或根本沒讀這一欄, 這裡都會紅。
+      taxTotal: { amount: 605, currency: 'TWD' },
       total: { amount: 12100, currency: 'TWD' },
       shippingMethod: 'home',
       shippingAddress: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },

@@ -481,6 +481,8 @@ function detailRow(
     subtotal: 1000,
     shipping_fee: 0,
     discount_total: 0,
+  // 🔴 刻意填一個【誰都不等於】的數 —— 0 的話「根本沒讀這一欄」的 mapper 會照樣全綠。
+  tax_total: 777,
     total: 1000,
     shipping_method: 'home',
     shipping_address_snapshot: null,

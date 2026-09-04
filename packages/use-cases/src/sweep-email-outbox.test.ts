@@ -224,7 +224,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     //      **要問的是「它現在【鎖住】什麼」—— 對一道守門而言, 後者才算數。**
     //    ⇒ 全文與來源在 `sweep-email-outbox.ts` 的 `buildOrderCreatedText` 那段註解。
     const EXPECTED_ORDER_CREATED_BODY = [
-      '您好,',
+      '您好，',
       '',
       '您的訂單 PCM-2026-0001 已付款成功。',
       // 🟢 **2026-09-02 20:5x:期望值跟著改 —— 而這一次【有依據】, 與今天下午那次不同。**
@@ -1256,7 +1256,7 @@ describe('order_cancelled —— 刷卡且已全額退款的取消信(Q10)', () 
     });
     expect(text).toBe(
       [
-        '您好,',
+        '您好，',
         '',
         '您的訂單 PCM-2026-0142 已取消。',
         '',
@@ -1791,13 +1791,13 @@ describe('sweepEmailOutbox — ⟦取消信-模板⟧ order_unpaid_cancelled', (
     // 🔵 期望值的來源:規格 §11(取消原因帶既有七值映射、零新造)+ Sean 2乙(只涵蓋員工按下取消)
     expect(text).toBe(
       [
-        '您好,',
+        '您好，',
         '',
         '您的訂單 PCM-2026-0001 已取消。',
         '',
         '依您要求取消',
         '',
-        '這張訂單尚未付款,不會有任何款項產生。',
+        '這張訂單尚未付款，不會有任何款項產生。',
         '',
         '訂單明細與最新狀態請至 PCM 會員中心查看。',
         '',
@@ -1879,11 +1879,11 @@ describe('sweepEmailOutbox — ⟦取消信-模板⟧ order_unpaid_cancelled', (
     const text = await sentTextOf({ display_id: 'PCM-2026-0001' });
     expect(text).toBe(
       [
-        '您好,',
+        '您好，',
         '',
         '您的訂單 PCM-2026-0001 已取消。',
         '',
-        '這張訂單尚未付款,不會有任何款項產生。',
+        '這張訂單尚未付款，不會有任何款項產生。',
         '',
         '訂單明細與最新狀態請至 PCM 會員中心查看。',
         '',
@@ -1956,7 +1956,18 @@ describe('稅額那一列 —— 兩份一起問', () => {
       expect(half).toContain('1,524');
     }
     // 🔴 排版那份:逐列問【標籤 → 它那一格的值】—— 互換任兩欄都會紅
-    expect(htmlRowValue(html, '小計')).toBe('940');
+    // 🔴🔴 **有稅的世界裡, 金額區那個標籤是「小計(未稅)」不是「小計」**
+    //    (`⟦b4-TAXSURFACES⟧`, Sean 2026-09-04 拍甲)。
+    //    ⛔ 這一格**曾經因為只寫「小計」而紅過一次**, 而**紅得對**:`htmlRowValue` 用
+    //    `lastIndexOf('>小計</td>')`, 標籤改了之後它撞到的是**品項表的欄頭**
+    //    ⇒ 回傳「小計(未稅)」那格標籤本身, 不是 940。
+    //    ⇒ 📌 **一把靠字面定位的尺, 在字面改動時會安靜地指到別的地方** —— 而它回的不是 null,
+    //       是一個看起來很合理的字串。這一格是那件事的實例。
+    expect(htmlRowValue(html, '小計(未稅)')).toBe('940');
+    // 🔵 **鎖現況**:本片沒有動欄頭那個(行小計)。
+    // 🛑 這一句鎖的是【今天的形狀】, 不是【那題的答案】(codex R2 must-fix 1)——
+    //    Sean 若拍甲(欄頭也加), 這一句要跟著翻面, 而那時它會紅, 那正是要的。
+    expect(html).toContain('>小計</td>');
     expect(htmlRowValue(html, '運費')).toBe('160');
     expect(htmlRowValue(html, '折扣')).toBe('−150');
     expect(htmlRowValue(html, '稅額')).toBe('1,524');
@@ -1977,6 +1988,20 @@ describe('稅額那一列 —— 兩份一起問', () => {
   it('🔴 稅 0 ⇒ 兩份【都】不印那一列', async () => {
     const { text, html } = await bothHalves(paidCtx());
     for (const half of [text, html]) expect(half).not.toContain('稅額');
+  });
+
+  it('🔴 有稅 ⇒ 兩份【都】把小計講成未稅(⟦b4-TAXSURFACES⟧, Sean 2026-09-04 拍甲)', async () => {
+    const { text, html } = await bothHalves(taxed());
+    for (const half of [text, html]) expect(half).toContain('小計(未稅)');
+    // 🔴 純文字那份要驗【值跟著同一行】—— 只問「有沒有那四個字」的話,
+    //    一個把標籤印在別行的實作會全綠。
+    expect(text).toContain('小計(未稅)  NT$ 940');
+  });
+
+  it('🔵 稅 0 ⇒ 兩份【都】維持原字面, 不得出現未稅版', async () => {
+    const { text, html } = await bothHalves(paidCtx());
+    for (const half of [text, html]) expect(half).not.toContain('小計(未稅)');
+    expect(text).toContain('小計  NT$');
   });
 
   it('🔴 順序與排版那份對齊:小計 → 運費 → 折扣 → 稅額 → 訂單金額', async () => {

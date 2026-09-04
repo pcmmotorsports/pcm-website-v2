@@ -163,11 +163,18 @@ export LC_ALL=C LANG=C                        # 🔴 少這行會 multithreaded 
 # 🔴 窗別自己填(W1/W2/G3/…);沒有窗別就用一個只有你會用的字。**不要沿用別人的。**
 WIN=w1                                        # ← 改這一個字,下面全部跟著走
 D=/tmp/pcm-probe-$WIN                         # 🔴 短路徑;scratchpad 全路徑會超過 socket 103 bytes 上限
-PORT=555$(printf '%02d' $(( $(echo -n "$WIN" | cksum | cut -d' ' -f1) % 90 + 10 )))
-RPORT=$(( PORT + 3000 ))                      # PostgREST 那一層的埠,同樣跟著 WIN 走
+# 🔴🔴 **埠改成【當場取一個沒人聽的】, 不再從 WIN 算**(2026-09-05 ⟦f3-PGPORTCOLLISION⟧)
+#    ⛔ ~~PORT=555$(... cksum $WIN ...)~~ —— 兩個窗取到同一個字母就【必撞】,
+#      而原本的處置是「換 WIN 再來」—— 那是叫人重試, 不是讓它不撞。
+#    🔬 實錘:2026-09-05 線 -db 一個人一夜手工用掉五個埠;七個窗同夜共用一台機器。
+#    🛑 而它只是把【必然相撞】換成【很少相撞】—— bind(0) 取號到 PG 真的 listen 之間有空隙。
+#      ⇒ 所以下面那句 select version() 仍然要跑, 它才是「我真的在這個埠上」的證據。
+read -r PORT RPORT < <(bash scripts/free-port.sh --two)   # 兩個號, 保證不同
+echo "🔵 本次 PG 埠 = $PORT · PostgREST 埠 = $RPORT"   # 🔴 印在第一行 —— 出事時要看得到它是哪一個
 
 # 🔴 出生就檢查:埠被佔 / 目錄已存在 ⇒ 停,不要 rm 別人的東西
-lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1 && { echo "🔴 埠 $PORT 已被佔用,換 WIN 再來"; return 2>/dev/null || exit 1; }
+lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1 && { echo "🔴 埠 $PORT 在取號之後【被別人搶走了】—— 重跑上面那兩行取新號"; return 2>/dev/null || exit 1; }
+#   ⚠️ ⛔ ~~原本這裡寫「換 WIN 再來」~~ —— 埠已經不跟 WIN 走了, 那句話會叫人去改一個【與埠無關】的東西。
 [ -e "$D" ] && { echo "🔴 $D 已存在 —— 可能是【別人的】或【你上次沒收攤的】。自己看過再決定,本檔不替你 rm"; return 2>/dev/null || exit 1; }
 
 mkdir -p "$D"
@@ -189,6 +196,9 @@ psql -h 127.0.0.1 -p $PORT -U postgres -tAc "select version()"
 | **角色名不能 `pg_` 開頭** | `ERROR:  role name "pg_cf_test" is reserved` | 探針/世界用的角色改別的前綴(`cf_`、`w1_`…) | 正對照 `CREATE ROLE cf_test` ⇒ `CREATE ROLE` |
 | **PG15+ `public` schema 對非 owner 預設無 CREATE** | 用非 postgres 的角色 `CREATE TABLE` ⇒ `ERROR:  permission denied for schema public` | 在**每個新 DB** 裡 `GRANT CREATE ON SCHEMA public TO <角色>` | 同一句 GRANT 之後 ⇒ `CREATE TABLE` |
 | 🔴 **角色是【叢集】層級的,`DROP DATABASE` 不會帶走它** | 換一個 DB 之後 `pg_roles` 裡上一個世界的角色**還在** ⇒ 第二個世界 `CREATE ROLE service_role` 直接 `already exists`;而**先 `DROP ROLE` 再 `DROP DATABASE`** 會撞 `role cannot be dropped because some objects depend on it` | 世界之間**先 `DROP DATABASE`、再 `DROP ROLE`**,順序不能反;每個世界開頭都做 | `SELECT count(*) FROM pg_roles WHERE rolname='cf_app'` 在新 DB ⇒ **1**;負對照 `zzz_nope` ⇒ 0;`DROP ROLE` 後 ⇒ 0 |
+| 🔴🔴 **`LC_ALL=C` 會讓 psql 的 client encoding 變 `SQL_ASCII`** | `ERROR:  conversion between UTF8 and SQL_ASCII is not supported` —— ⚠️ **而它不是一支炸,是【每一支含中文註解的 migration 都炸】** ⇒ 失敗數看起來像「這棵 repo 壞了」。(2026-09-05 線 `-db` 實測:同一輪 **134 支失敗**,設了之後掉到 **63**) | 起 PG 要 `LC_ALL=C`(PG 17 在 macOS 沒它拒絕啟動),而**跑 psql 時另外設 `PGCLIENTENCODING=UTF8`** —— 兩個要同時在 | 正對照:餵一支含中文註解的 migration ⇒ 設之前紅、設之後綠(**同一支檔、同一個庫**,只差這個變數) |
+| 🔴 **`cron.job` 不存在**(拋棄式 PG 沒有 pg_cron) | `20260828060000_m4b_b4cron6_expire_unpaid_orders_heartbeat.sql:479` ⇒ `ERROR:  relation "cron.job" does not exist` ⇒ 🛑 **而它的下游是連鎖的**:那支沒過 ⇒ `expire_unpaid_orders` 留在**舊的那一代** ⇒ `20260903080000` 與 `20260904230000` 的前置閘各自擋下 ⇒ 最後 `-mail` 的 `20260905070000` 也貼不上。**四支的錯訊息各不相同,而根因是同一個。** | 照本檔造 `auth` 的做法,造一個最小 fixture:<br>`CREATE SCHEMA cron;`<br>`CREATE TABLE cron.job(jobid bigserial PRIMARY KEY, schedule text, command text, nodename text DEFAULT 'localhost', nodeport int DEFAULT 5432, database text, username text, active boolean DEFAULT true, jobname text UNIQUE);`<br>再插一列:`schedule='0 * * * *'` · `command='SELECT pcm_cron.expire_unpaid_orders(500)'` · `username='postgres'` · `active=true` · `jobname='pcm-expire-unpaid-orders'`(**那四個值是那支閘逐欄比對的,少一個就擋**) | 正對照:補完 fixture 之後那三支依序重跑 ⇒ **rc 全 0**;負對照:把 `schedule` 改一個字 ⇒ 該支印「排程那一列與預期不符」 |
+| 🔴🔴 **§2 的 bootstrap 【不要用 awk 掃著抽】** | 2026-09-05 線 `-db` 抽 §2 時**多抓了兩行別處的範例**,其中一行是 `CREATE TYPE member_tier AS ENUM (…)` ⇒ 它與 `20260523034911_init_customers_and_subtables.sql:8` 自己的 `CREATE TYPE` 撞 **`already exists`** ⇒ 🛑 **第一支就中止,而後面 214 支連鎖垮** ⇒ 畫面是「這棵 repo 有 214 支跑不起來」。 | 手打或**只抽 §2 那一個 ```sql 區塊**,抽完**逐行看一遍**(它只有 10 句)。⚠️ 判別句:**bootstrap 裡不該有任何 migration 自己會建的東西** | 負對照:抽完 `grep -c 'CREATE TYPE' <抽出來的檔>` ⇒ **必須是 0**(§2 的 bootstrap 一個型別都不建) |
 
 📌 第三個坑的形狀:**rc 一樣是非零,而兩個世界沒建成的原因不同** —— 只看 rc 會讀成「探針壞了」。2026-08-27 cf 的三世界 harness 第一發就是這樣死的(三個世界 rows 全 0)。
 

@@ -501,7 +501,20 @@ export type ConfirmPaymentOutcome =
   | { kind: 'settlement_required'; dedup: SettlementRequiredContext };
 
 /** begin_charge_attempt 拒絕理由(②-③a RPC `{acquired:false, reason}` 對應、plan v6 §2)。 */
-export type ChargeLockReason = 'user_in_flight' | 'order_locked' | 'not_unpaid';
+export type ChargeLockReason =
+  | 'user_in_flight'
+  | 'order_locked'
+  | 'not_unpaid'
+  // 🔴 **`not_card_order`:目標單本身是匯款單 ⇒ 不得開刷卡 attempt。**
+  //    來源 `supabase/migrations/20260904050000_m4b_supersede_bank_order_on_card.sql`(已 commit、未 apply)。
+  //    ⛔ ~~原本這裡只有三個值~~ —— 而 DB 那側 2026-09-04 起會回第四個
+  //    ⇒ `PgChargeAttemptAdapter` 的值域檢查會判它「回應格式異常」而 **throw**
+  //    ⇒ 🎯 **客人看到的是通用錯誤, 而真正的原因(你在刷一張匯款單)被吃掉了。**
+  //    🔵 一般刷卡流程不受影響 —— 壞的是**異常分支的訊息品質**。
+  //    (codex 關卡2 R2 判 PARTIAL ①, 板列 ⟦b4-PIECEBGATEGAPS⟧。)
+  //    ⚠️ **而 TS 這一半可以先上** —— 多認一個值在 DB 還沒 apply 時是 no-op:
+  //       那個值根本不會出現, 所以不會有行為改變。
+  | 'not_card_order';
 
 /**
  * InFlightSettleContext:`user_in_flight` 擋下時,那張**在途單**的 server-only 識別(M-4b L4;

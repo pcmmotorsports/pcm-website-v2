@@ -299,6 +299,7 @@ function detail(itemCount: number, withQuantity = false): AdminOrderDetail {
     subtotal: { amount: 222549 * itemCount, currency: 'TWD' },
     shippingFee: { amount: 611, currency: 'TWD' },
     discountTotal: { amount: 0, currency: 'TWD' },
+    taxTotal: { amount: 0, currency: 'TWD' },
     total: { amount: 222549 * itemCount + 611, currency: 'TWD' },
     itemsTruncated: false,
   } as unknown as AdminOrderDetail;

@@ -1332,6 +1332,17 @@ export type AdminOrderDetail = {
   subtotal: Money;
   shippingFee: Money;
   discountTotal: Money;
+  /**
+   * 稅額(`orders.tax_total` 原值;`⟦b4-TAXSURFACES⟧` 題 B, Sean 2026-09-05 拍甲)。
+   *
+   * 🔴 **今天每一張單都是 0** —— 價格含稅。而 `⟦b4-INVOICE5PCT⟧` 第 9 步一上線它就會有值。
+   * 🛑 **有稅的時候 `subtotal` 的語意會變** —— 它變成【未稅】的小計(稅基 = 折後小計 + 運費)
+   *    ⇒ 顯示端把標籤改成「小計(未稅)」, 共用 `subtotalLabelOf`。
+   * 🔬 **三個消費端**(它們是題 B 的受詞, 而**同一條 select 一次都通**):
+   *    出貨單 `print/shipping-doc.tsx` · 訂單明細 `print/picking-doc.tsx` ·
+   *    後台訂單詳情 `orders/order-detail-items-support.tsx` 的 `ItemsTotals`。
+   */
+  taxTotal: Money;
   total: Money;
   /** 出貨方式(既有欄、結帳寫入;現值 'home',Slice C 起 admin 可改) */
   shippingMethod: string;
@@ -1886,6 +1897,20 @@ export type MemberOrderDetail = {
   subtotal: Money;
   shippingFee: Money;
   discountTotal: Money;
+  /**
+   * 稅額(`orders.tax_total` 原值;`⟦b4-TAXSURFACES⟧` 第 7 步)。
+   *
+   * 🔴 **今天每一張單都是 0** —— 價格含稅, 稅內含在售價裡。而 `⟦b4-INVOICE5PCT⟧`
+   *    第 9 步一上線它就會有值 ⇒ 📌 **這一欄是為了「那一天不用再動這條線」而先接的。**
+   * 🛑 **有稅的時候, `subtotal` 的語意會變** —— 它變成【未稅】的小計
+   *    (稅基 = 折後小計 + 運費)⇒ 顯示端要把標籤改成「小計(未稅)」
+   *    (Sean 2026-09-04 拍甲, 共用 `subtotalLabelOf`)。
+   *    ⇒ 那不是文案偏好, 是**同一個標籤在兩種單上意思不同**。
+   * ⚠️ **本欄【只】在會員這一側** —— `AdminOrderDetail` 目前沒有它,
+   *    而出貨單(紙)那一面要它 ⇒ 那要動 `ADMIN_ORDER_DETAIL_SELECT`(四個消費端 + byte-equal 守門)
+   *    ⇒ 🔴 **走鐵則 8, 另提 plan**(`docs/plans/2026-09-05-b4-taxsurfaces-shipping-doc-plan.md`)。
+   */
+  taxTotal: Money;
   total: Money;
   /** 配送方式(orders.shipping_method;現值 home/store) */
   shippingMethod: string;

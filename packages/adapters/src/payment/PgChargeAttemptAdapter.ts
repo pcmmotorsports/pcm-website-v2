@@ -358,7 +358,14 @@ function parseBeginResult(rows: Array<Record<string, unknown>>): BeginChargeAtte
       existingBankTransactionId: typeof bank === 'string' ? bank : null,
     };
   }
-  if (r.reason !== 'user_in_flight' && r.reason !== 'order_locked' && r.reason !== 'not_unpaid') {
+  // 🔴 值域四個(2026-09-05 補 `not_card_order`)—— 見 `ChargeLockReason` 那段的因果。
+  //    ⛔ ~~原本三個~~ ⇒ DB 回第四個時這裡會 throw「回應格式異常」, 把真正的原因吃掉。
+  if (
+    r.reason !== 'user_in_flight' &&
+    r.reason !== 'order_locked' &&
+    r.reason !== 'not_unpaid' &&
+    r.reason !== 'not_card_order'
+  ) {
     throw new ChargeAttemptParseError('begin_charge_attempt 回應格式異常');
   }
   // 🔴 M-4b L4:user_in_flight 帶在途單 order id(migration 20260809210000)。三態,刻意不對稱:

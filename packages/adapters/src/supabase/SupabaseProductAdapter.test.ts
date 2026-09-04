@@ -15,7 +15,7 @@ const TEST_POOL_LIMIT = 100;
 // mock 讓 findById/findByHandle 的 .single() 回 PGRST116(not-found)→ findSingle 回 null,
 //   故不需建完整 row、只攔截 SELECT 參數即可。
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ProductId } from '@pcm/domain';
 import { SupabaseProductAdapter } from './SupabaseProductAdapter';
@@ -1211,7 +1211,11 @@ describe('SupabaseProductAdapter.searchByKeyword — countTotal 分路', () => {
     );
 
     expect(captured.countOption).toBeUndefined();
-    expect(captured.selectCalls).toBe(1); // 🟢 證明 select 真的被呼叫過 ⇒ undefined 不是「沒跑到」
+    // 🔵 **2026-09-05 起是 2, 不是 1** —— 舊路多了一發 `from('brands').select('id, name')`
+    //    (`⟦search-BRANDMULTIWORD⟧`:那張 view 上沒有品牌名, 而多字品牌名必須靠它才對得上)。
+    //    🛑 **這一格仍然承重**:它守的是「`select` 真的被呼叫過 ⇒ `undefined` 不是【沒跑到】」,
+    //    而**數字從 1 變 2 是一個【真的多了一次查詢】**, 不是測試變脆弱 ⇒ 照實改數字, 不改語意。
+    expect(captured.selectCalls).toBe(2);
     expect(res.total).toBeUndefined();
   });
 
@@ -1398,7 +1402,12 @@ describe('SupabaseProductAdapter.searchByKeyword — 多詞 AND + 料號欄(⟦�
     const { client, captured } = makeOrCapturingMock();
     await new SupabaseProductAdapter(client).searchByKeyword('rsv4', { limit: 8, offset: 0 });
     expect(captured.ranged).toBe(true);
-    expect(captured.froms).toEqual(['products_public']);
+    // 🔵 **2026-09-05 起舊路先問一次 `brands`**(`⟦search-BRANDMULTIWORD⟧`)——
+    //    順序是刻意的:品牌那一發在前, 商品那一發在後(既有幾格斷言的是【最後一次 select 的選項】)。
+    // 🛑 **而 `products_public` 那個字面仍然承重** —— 它守的是「不准換投影表」
+    //    (那張 view 物理上沒有經銷價欄, 是實體隔離不是條件式)⇒ 這裡【列出全部】而不是只看有沒有它,
+    //    這樣有人偷偷多打一張表也會紅。
+    expect(captured.froms).toEqual(['brands', 'products_public']);
   });
 
   it('🔴 `AP.123` 這種帶符號的料號 ⇒ 切成兩個詞(sanitize 必須在切詞【之前】)', async () => {
@@ -1739,4 +1748,194 @@ describe('buildIlikeOrFilter — 料號那一發只掛在 external_id 上', () =
       expect(parts).toContain(`${col}.ilike.%ab123%`);
     }
   });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 **舊路要比對品牌名**(`⟦search-BRANDMULTIWORD⟧` · 2026-09-05)
+//   病是實證的:正式站打「DBK SPECIAL PARTS」⇒ 0 筆(型錄 1,508 件), 而那一發的
+//   `x-vercel-id` 對 log ⇒ 逐字「回超過 1000 筆 ⇒ 退回舊路」。
+//   舊路只比 `products_public` 那四欄, 而**那張 view 上沒有品牌名** ⇒ 多字品牌名必然落空。
+// ══════════════════════════════════════════════════════════════════════════
+describe('buildIlikeOrFilter — 品牌那一支', () => {
+  const COLS = ['title', 'subtitle'] as const;
+
+  it('🔴 有品牌 id ⇒ 多一支 brand_id.in.()', () => {
+    const f = buildIlikeOrFilter(COLS, 'SPECIAL', ['b1', 'b2']);
+    expect(f).toContain('title.ilike.%SPECIAL%');
+    // 🛑 釘的是【它多了那一支】, 而不只是「字串裡有 brand_id」——
+    //    值也要在裡面, 否則一個永遠回 `brand_id.in.()` 的實作也會過。
+    expect(f).toContain('brand_id.in.("b1","b2")');
+  });
+
+  it('🔴 沒有品牌 id ⇒ 【不得】多出那一支(空的 in.() 會把整個 filter 弄壞)', () => {
+    const f = buildIlikeOrFilter(COLS, 'SPECIAL', []);
+    expect(f).not.toContain('brand_id');
+  });
+
+  it('🔵 不傳第三個參數 ⇒ 行為與改動前逐字相同(既有呼叫端不受影響)', () => {
+    // 🛑 少了這一格, 一個「預設就加空 in.()」的實作會靜靜改掉所有既有查詢。
+    expect(buildIlikeOrFilter(COLS, 'x')).toBe(buildIlikeOrFilter(COLS, 'x', []));
+  });
+
+  it('🔴 值用雙引號包起來 —— 值裡若有逗號/括號不會把 filter 切壞', () => {
+    const f = buildIlikeOrFilter(COLS, 'x', ['a,b']);
+    expect(f).toContain('brand_id.in.("a,b")');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 **接線那一格 —— 而它是【突變活下來】才補的**(`⟦search-BRANDMULTIWORD⟧` · 2026-09-05)
+//   我先寫了 `buildIlikeOrFilter` 的四格(純函式), 三綠全過, 而突變
+//   「把 adapter 裡的 `brandRows` 改成恆空」⇒ **87 格全綠**。
+//   ⇒ 🎯 **尺是好的, 而它沒有接到被測的那條線上** —— 純函式測得到「會不會組出 brand_id」,
+//     測不到「adapter 有沒有真的把品牌 id 交給它」。這一格補的就是那一段接線。
+// ══════════════════════════════════════════════════════════════════════════
+describe('searchByKeyword 舊路 — 品牌名要真的被查進去', () => {
+  function makeBrandMock() {
+    const captured: { froms: string[]; ors: string[] } = { froms: [], ors: [] };
+    const builder = {
+      select() {
+        return builder;
+      },
+      or(filter: string) {
+        captured.ors.push(filter);
+        return builder;
+      },
+      order() {
+        return builder;
+      },
+      range() {
+        return Promise.resolve({ data: [], error: null, count: 0 });
+      },
+      then(res: (v: { data: unknown[]; error: null }) => unknown) {
+        // 🔵 `from('brands').select(...)` 沒有 `.range()` ⇒ 它直接被 await ⇒ 要是 thenable。
+        return Promise.resolve({
+          data: [{ id: 'b-dbk', name: 'DBK SPECIAL PARTS' }],
+          error: null,
+        }).then(res);
+      },
+    };
+    const client = {
+      from(t: string) {
+        captured.froms.push(t);
+        return builder;
+      },
+    };
+    return { client: client as unknown as SupabaseClient, captured };
+  }
+
+  it('🔴 打「DBK SPECIAL」⇒ 兩個詞的 or() 都要帶 brand_id.in.()', async () => {
+    const { client, captured } = makeBrandMock();
+    const adapter = new SupabaseProductAdapter(client);
+    await adapter.searchByKeyword('DBK SPECIAL', { limit: 8, offset: 0 });
+
+    expect(captured.froms).toContain('brands');
+    // 🛑 **兩個詞都要** —— 只有第一個帶的話, `SPECIAL` 仍然對不上, 而那正是線上那個 0 筆。
+    expect(captured.ors.length).toBe(2);
+    for (const f of captured.ors) {
+      expect(f, `這一組 or() 沒有品牌那一支 ⇒ 多字品牌名還是會 0 筆:${f}`).toContain(
+        'brand_id.in.("b-dbk")',
+      );
+    }
+  });
+
+  it('🔵 品牌對不上的詞 ⇒ 那一組【不帶】brand_id(不得無條件加)', async () => {
+    const { client, captured } = makeBrandMock();
+    const adapter = new SupabaseProductAdapter(client);
+    await adapter.searchByKeyword('排氣管', { limit: 8, offset: 0 });
+    expect(captured.ors.length).toBe(1);
+    expect(captured.ors[0]).not.toContain('brand_id');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 **`brands` 那一發【失敗】時的降級路徑**(⟦search-BRANDMULTIWORD⟧ 的「證不到什麼」②)
+// ══════════════════════════════════════════════════════════════════════════
+//   📌 上面那個 describe 只驗了**成功**那一半。而這一片的 `try/catch` 是**刻意降級**:
+//     抓不到品牌 ⇒ 退回「只比四欄」= 今天的行為。**那條路在交件時逐字寫著「沒有測試」。**
+//   🛑 **它壞掉的方式不是報錯, 是【整支搜尋炸掉】** —— `searchByKeyword` 會 throw ⇒
+//     `/api/search` 上面那一層回 **503**(route.ts 逐字)⇒ 疊層整個空掉。
+//     ⇒ 🎯 **「品牌比不到」應該只少一塊, 不該讓客人連商品都搜不到。**
+//   🔴 **四個宣稱都要驗, 少一個就有一個世界溜過去**:
+//     ① 不得往外丟          少了 ⇒ 炸掉那個世界全綠
+//     ② 搜尋【真的送出去了】 少了 ⇒ 一個「catch 完就 return 空」的實作也會過
+//     ③ or() 裡【沒有】brand_id ⇒ 少了的話, 用空陣列組出 `brand_id.in.()` 那個
+//                              **語法會被 PostgREST 拒絕**的世界照樣過
+//     ④ 【留了痕】            少了 ⇒ 一個 `catch {}` 也會過, 而那時
+//                              「一直失敗」與「一直成功」在 log 裡是同一個安靜
+describe('searchByKeyword 舊路 — brands 那一發失敗時要【降級】不是【炸掉】', () => {
+  /** `mode='error'` = PostgREST 回 `{error}`;`mode='throw'` = 連線層直接 reject。 */
+  function makeBrandFailMock(mode: 'error' | 'throw') {
+    const captured: { froms: string[]; ors: string[]; ranged: boolean } = {
+      froms: [],
+      ors: [],
+      ranged: false,
+    };
+    const productBuilder = {
+      select() {
+        return productBuilder;
+      },
+      or(filter: string) {
+        captured.ors.push(filter);
+        return productBuilder;
+      },
+      order() {
+        return productBuilder;
+      },
+      range() {
+        captured.ranged = true;
+        return Promise.resolve({ data: [], error: null, count: 0 });
+      },
+    };
+    const brandBuilder = {
+      select() {
+        return brandBuilder;
+      },
+      then(res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) {
+        return mode === 'throw'
+          ? Promise.reject(new Error('connection reset')).then(res, rej)
+          : Promise.resolve({ data: null, error: { message: 'permission denied' } }).then(res);
+      },
+    };
+    const client = {
+      from(t: string) {
+        captured.froms.push(t);
+        return t === 'brands' ? brandBuilder : productBuilder;
+      },
+    };
+    return { client: client as unknown as SupabaseClient, captured };
+  }
+
+  for (const mode of ['error', 'throw'] as const) {
+    it(`🔴 brands 回 ${mode} ⇒ 搜尋照跑、不比品牌、而要留痕`, async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { client, captured } = makeBrandFailMock(mode);
+      const adapter = new SupabaseProductAdapter(client);
+
+      // ① 不得往外丟(往外丟 ⇒ /api/search 回 503 ⇒ 疊層整個空掉)
+      const res = await adapter.searchByKeyword('DBK SPECIAL', { limit: 8, offset: 0 });
+      expect(res.items).toEqual([]);
+
+      // ② 搜尋真的送出去了 —— 少了這一格,「catch 完就 return 空」也會過
+      expect(captured.ranged, 'brands 失敗之後【根本沒發搜尋】⇒ 那不是降級, 是炸掉').toBe(true);
+      expect(captured.froms).toContain('products_public');
+      expect(captured.ors.length, '兩個詞都要照樣各組一道 or()').toBe(2);
+
+      // ③ 降級 = 退回今天的行為(只比四欄), **不得**組出 `brand_id.in.()`
+      //    🛑 空陣列若還去組, PostgREST 會拿到 `brand_id.in.()` ⇒ 語法錯 ⇒ 整發失敗。
+      for (const f of captured.ors) {
+        expect(f, `降級了卻還帶品牌那一支:${f}`).not.toContain('brand_id');
+      }
+      // 🔵 **一組 or() 對應【一個詞】, 不是兩個詞塞同一組** —— 我第一版把這一格寫成
+      //    「每一組都要含 `%DBK%`」而它紅了, 而**紅的是我的期望值不是碼**:
+      //    第二組是 `SPECIAL` 的。⇒ 📌 逐詞對位, 才驗得到「四欄那一半沒被降級弄丟」。
+      expect(captured.ors[0]).toContain('title.ilike.%DBK%');
+      expect(captured.ors[1]).toContain('title.ilike.%SPECIAL%');
+
+      // ④ 留了痕 —— 少了這一格, 一個 `catch {}` 也會過
+      expect(warn, '安靜地降級 ⇒ 「一直失敗」與「一直成功」在 log 裡是同一個安靜').toHaveBeenCalled();
+      expect(String(warn.mock.calls[0]?.[0] ?? '')).toContain('[searchByKeyword]');
+      warn.mockRestore();
+    });
+  }
 });

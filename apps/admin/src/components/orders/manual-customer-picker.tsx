@@ -324,15 +324,22 @@ export function ManualCustomerPicker({ customerRequestId }: ManualCustomerPicker
 
       {/* 🔴 `type='button'` **只擋滑鼠**;鍵盤那半由 `onEnter` 擋(見上面那段)。兩個都要。 */}
       <div className='flex flex-wrap items-end gap-2'>
+        {/* 🔴🔴 **這一格 2026-09-05 從「只吃電話」放寬**(`⟦b4-FINDCUSTOMERPHONE⟧`)——
+            而放寬的**不是後端**:`admin_search_customers` 本來就吃 name / email / phone 三軸,
+            是中間那一層先把查詢輾成數字(見 `manual-customer.ts` 的 `isPhoneLikeQuery`)。
+
+            ⚠️ **`inputMode` 也要跟著改, 而這一格差點被漏掉**:原本是 `'tel'`
+            ⇒ 手機上會叫出**數字鍵盤** ⇒ 📌 **員工在手機上根本打不出「王小明」** ——
+            那會讓「我們放寬了」這件事在最需要它的裝置上不成立, 而畫面上看不出來。 */}
         <label className='block text-sm' htmlFor={phoneInputId}>
-          客人電話
+          找客人(電話 / 姓名 / Email)
           <input
             id={phoneInputId}
             name='customer_phone_lookup'
             autoComplete='off'
             onKeyDown={onEnter(runSearch)}
-            inputMode='tel'
-            placeholder='用電話找客人'
+            inputMode='text'
+            placeholder='電話 / 姓名 / Email'
             className='mt-1 block w-56 rounded-md border px-2 py-1'
           />
         </label>

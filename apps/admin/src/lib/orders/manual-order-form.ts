@@ -46,6 +46,19 @@ export const MANUAL_ORDER_SHIPPING_FEE_FIELD = 'shipping_fee';
 export const MANUAL_ORDER_SHIP_TO_NAME_FIELD = 'ship_to_name';
 export const MANUAL_ORDER_SHIP_TO_PHONE_FIELD = 'ship_to_phone';
 export const MANUAL_ORDER_SHIP_TO_LINE_FIELD = 'ship_to_line';
+/**
+ * 🔴🔴 **「要不要開發票」那顆勾選**(2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 2 步;Sean 第十八題拍甲)。
+ *
+ * 🛑 **它與下面那五個 `invoice_*` 是【兩件事】** —— 那五個講的是「**開的話, 抬頭寫誰**」,
+ *    本欄講的是「**開不開**」。⇒ 📌 勾了才輪得到那五個;沒勾, 那五個講的是一張不會存在的發票。
+ *
+ * ⚠️ **HTML checkbox 的形狀**:沒勾的時候**這個欄位根本不會出現在 payload 裡**
+ *    ⇒ 🔴 **「沒勾」與「這個表單版本沒有這一格」在解析端【是同一個空白】。**
+ *    ⇒ ✅ 修法**不在解析端**:表單那邊搭一個**同名 hidden(`off`)**, 讓這一欄永遠出現
+ *       ⇒ 解析端用 **`getAll()`** 取最後一個值, 三個世界(不在 / off / on)才真的分得開。
+ *       (⛔ ~~原本這裡寫「用 `has()` 而不是 `get()`」~~ —— 那是我第一版的寫法, 實碼從來不是。)
+ */
+export const MANUAL_ORDER_INVOICE_REQUESTED_FIELD = 'invoice_requested';
 export const MANUAL_ORDER_INVOICE_TYPE_FIELD = 'invoice_type';
 export const MANUAL_ORDER_INVOICE_CARRIER_FIELD = 'invoice_carrier';
 export const MANUAL_ORDER_INVOICE_TITLE_FIELD = 'invoice_title';
@@ -203,6 +216,11 @@ export type ManualOrderValues = {
   shippingMethod: ManualShippingMethod;
   shipTo: ManualOrderShipTo;
   invoice: ManualOrderInvoice;
+  /**
+   * 🔴 **這張單要不要開發票**(勾選欄;沒勾 = `false`)。
+   * 🛑 與 `invoice` 是兩件事:那個講「開的話抬頭寫誰」, 本欄講「開不開」。
+   */
+  invoiceRequested: boolean;
   shippingFee: number;
   lines: ManualOrderLineInput[];
 };
@@ -390,7 +408,20 @@ function parseLineEntry(raw: RawLine, index: number): ManualOrderLineInput | str
   let variantId: string | null = null;
   if (raw.variantId !== '') {
     if (!UUID_RE.test(raw.variantId)) {
-      return `${at}的商品編號格式不對,請重新從商品清單挑一次。`;
+      // 🔴🔴 **⛔ ~~「請重新從商品清單挑一次」~~ —— 那句話指向一個【不存在的動作】**
+      //    (`⟦b4-MANUALORDERDEADEND⟧`, 2026-09-05 走查 + 讀碼各驗一次)。
+      //    🔬 ①**那個清單不能挑**:`manual-order-catalog-lookup.tsx:145` 的 `<li>` 沒有 button、
+      //      沒有 role、沒有 onClick(鑽機上點過, 五格 `line_*_0` 全部沒變)。
+      //    🔬 ②**那串編號他從來看不到**:同一支檔 `h.variantId` **全檔 1 命中, 而那一處是
+      //      React 的 `key=`** ⇒ 它從來沒有被印出來過。
+      //    ⇒ 🎯 **所以原句對員工是:「回去挑」而沒有東西可挑、「重新輸入」而他沒看過那個值。**
+      //
+      // 🛑 **而新訊息裡那句警告【不是順手加的】** —— 它擋的是這一格最自然的錯誤動作:
+      //    商品列表是 `.from('products')`(`product-repository.ts:315`), 網址 `/products/{id}`
+      //    帶的是 **product 的 id**;而這一格要的是 **product_variants 的 id**。
+      //    🔴 **兩者都是 UUID、長得一模一樣** ⇒ 貼錯那一種**過得了這道格式檢查**,
+      //      而錯誤會往下走。⇒ 📌 **一個「看起來完全合理」的動作, 會製造一個不會叫的錯。**
+      return `${at}的商品編號格式不對。這一格留白就好(當代購處理);⚠️ 不要把商品頁網址上的編號貼進來,那是另一種編號。`;
     }
     variantId = raw.variantId;
   }
@@ -487,6 +518,42 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
     return { ok: false, error: '沒有選發票類型(個人 / 公司 / 捐贈)。' };
   }
   const invoice: ManualOrderInvoice = { type: invoiceType as ManualInvoiceType };
+
+  // 🔴🔴 **checkbox 的「沒勾」與「表單壞了」在 payload 上是【同一個空白】**
+  //   (2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 2 步)
+  //   HTML 的 checkbox **沒勾的時候整個欄位不出現** ⇒ 那與「**這個表單版本根本沒有這一格**」
+  //   印同一個空白, 而兩者的正確答案**相反**(一個是他決定不開, 一個是**我不知道**)。
+  //
+  //   ✅ **⇒ 修法不是在解析端猜, 是讓那個欄位【永遠存在】**:表單那邊在 checkbox 前面
+  //      放一個**同名的 hidden(值 `off`)** ⇒ 三個世界從此真的分得開。
+  //
+  //   🔴 **而三個世界的處置, 是 codex R1 五條 must-fix 改過的**(原本我寫錯兩件事):
+  //     ① `[]`(欄位整個不在)⇒ **拒絕建單**。
+  //        ⛔ ~~原本寫「fail-closed 退回常態 `true`」~~ —— **那個字用錯了**:`true` = 開發票 =
+  //        **多做一件事**, 那是 **fail-open**。而它會在表單壞掉時**安靜地替他做一個決定**,
+  //        且錯的方向剛好是「客人拿到一張他沒要的發票」。⇒ 錢路徑上, 契約壞掉要**停**, 不要猜。
+  //     ② 值只認**逐字** `on` / `off` 兩種。⛔ ~~原本「最後一個值是不是 `on`」~~ ⇒
+  //        `off, 亂碼` 也會安靜變成 `false`。錢路徑不接受「看不懂就當作沒勾」。
+  //   📌 **⇒ 這一格是「兩個世界要印不同的東西」套在【HTML 表單】上** ——
+  //      而 checkbox 天生違反它, 那個 hidden 就是把它補回來。
+  const invoiceRequestedRaw = form
+    .getAll(MANUAL_ORDER_INVOICE_REQUESTED_FIELD)
+    .map((v) => String(v));
+  if (invoiceRequestedRaw.length === 0) {
+    return {
+      ok: false,
+      error:
+        '這張表單少了「要不要開發票」那一格,不能建單。請重新開一張空白建單表單;還是這樣就找工程師。',
+    };
+  }
+  const invoiceRequestedLast = invoiceRequestedRaw[invoiceRequestedRaw.length - 1];
+  if (invoiceRequestedLast !== 'on' && invoiceRequestedLast !== 'off') {
+    return {
+      ok: false,
+      error: '「要不要開發票」那一格的值看不懂,不能建單。請重新開一張空白建單表單。',
+    };
+  }
+  const invoiceRequested = invoiceRequestedLast === 'on';
   const optionalInvoice = [
     [MANUAL_ORDER_INVOICE_CARRIER_FIELD, 'carrier', '載具'],
     [MANUAL_ORDER_INVOICE_TITLE_FIELD, 'title', '抬頭'],
@@ -543,6 +610,7 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
       shippingMethod: shippingMethod as ManualShippingMethod,
       shipTo: { name, phone, line },
       invoice,
+      invoiceRequested,
       shippingFee,
       lines,
     },

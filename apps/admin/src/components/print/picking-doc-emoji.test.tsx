@@ -34,6 +34,7 @@ function detailWithName(name: string | null): AdminOrderDetail {
     subtotal: money(12000),
     shippingFee: money(100),
     discountTotal: money(50),
+    taxTotal: money(0),
     total: money(12050),
     shippingMethod: 'home',
     shippingAddress: { name: '收件人', phone: '0912345678', line: '新北市新莊區化成路736巷18號' },

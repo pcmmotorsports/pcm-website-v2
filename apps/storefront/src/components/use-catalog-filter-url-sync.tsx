@@ -47,13 +47,57 @@ import {
  * ⚠️ 收斂同時吃掉重複值(`?pbrand=dbk&pbrand=dbk` → `dbk`)⇒ 那種網址現在**連收斂導覽都不送**、
  *   原樣留在網址上(server 端 `parseCatalogQuery` 一樣去重,結果相同)。
  */
-const normalizedQuery = (search: string) => {
+// 🔴🔴 ⟦search-REDUNDANTREPLACE⟧(主視窗-94 2026-09-05 拍乙):**分類軸也要收斂。**
+//   病:`⟦search-SHORTNAMEZEROFLASH⟧` 之後 server 自己把**裸子分類名**(`?category=攝影機支架`)
+//   解成全路徑, 而下方回寫段仍然無條件用 `${main} · ${sub}` 重建 ⇒ 兩邊字面不等
+//   ⇒ 等值早退不命中 ⇒ 多送一次 `router.replace`, 而同一輪 `filtersChanged` 為真
+//   ⇒ 🎯 **`page` 被一起刪掉:客人帶 `?page=2` 進站, 首發真的看到第 2 頁, 然後被打回第 1 頁。**
+//   🔬 鑽機 2026-09-05 四格實走:裸子名 ⇒ 網址被改寫 · 裸子名+`page=2` ⇒ 改寫且 page 掉;
+//      🟢 全路徑那兩格(負對照)**兩個都沒變** ⇒ 差別只有分類名是裸的還是全的。
+//   ✅ 修法 = 在**比對這一層**把「裸子名」與「它解出來的全路徑」視為同一個篩選。
+//   🛑 **而這是「把比對改寬」, 板列曾逐字警告過這條路** —— 方向的理由寫在這裡:
+//      那道早退 firing **更多**是往**安全**走 —— #289 那個「不會自癒」的終態是它
+//      **沒有** firing 時產生的(見 `products-url-state.hooks.test.tsx` ⑩⑯)。
+//   🔴 **`categories` 是 optional, 而那不是隨手加的**:缺它時**行為與本片之前逐字相同**
+//      (分類軸不收斂)⇒ 沒有呼叫端會因為漏傳而靜靜改變行為。
+//   ⚠️ **認不得的值不收斂**:`parseCategoryFromUrl` 回 null 時原樣留著 —— 那是 #315
+//      刻意的政策(Sean 2026-08-11 Q1=A), 收斂它會讓「垃圾參數」與「使用者剛清掉」變同一件事。
+//      回歸鎖 = 同檔 ㉗。
+const normalizedQuery = (
+  search: string,
+  // 🔵 與 hook 參數 `restoreSources.categories` 同一個形狀 —— 這裡【複述】而不是 import 一個型別,
+  //    理由是那個型別今天是 hook 簽章裡的行內物件、沒有名字。⚠️ 兩邊漂掉時 typecheck 會叫。
+  categories?: { id: string; name: string; children?: { id: string; name: string }[] }[],
+) => {
   const params = new URLSearchParams(search);
   const brands = parseBrandSlugsFromUrl(params).sort();
+  // 🔴🔴 **收斂的射程窄到只剩【裸子分類名】這一種, 而那是被一格既有的測試逼出來的。**
+  //   ⛔ 我的第一版是「只要解得出來就換成全路徑」⇒ **⑧「分類變動 → 必須刪 page」當場紅。**
+  //   🔬 成因:`RESTORE_SOURCES` 那棵樹的 `children` 是**空的** ⇒ `操控部品 · 腳踏後移與傳動`
+  //      解析時 sub 找不到 ⇒ `parseCategoryFromUrl` **回一個【沒有 sub】的結果**
+  //      ⇒ 兩邊都收斂成 `操控部品` ⇒ 判定相等 ⇒ 早退 ⇒ **一個真的分類變動被吞掉。**
+  //   ⇒ 🎯 **收斂會【丟資訊】, 而丟掉的那一半在字面上看不出來。**
+  //      而那不只是測試的假樹:taxonomy RPC 中斷時樹就是空的(見同檔 ⑮ 的病史)
+  //      ⇒ **中斷期客人動篩選, 網址會靜靜不更新。**
+  //   ✅ 所以只在**兩個條件同時成立**時才收斂:①原始值**不含分隔符**(= 它是裸名)
+  //      ②解出來的東西**有 sub**(= 它真的是某個父的子)。其餘一律原樣保留。
+  //   📌 **判別句:收斂之後那個字串, 是不是還帶著原本那個值的全部資訊?**
+  const rawCategory = params.get('category');
+  const resolvedCategory = categories ? parseCategoryFromUrl(params, categories) : null;
+  const canonicalCategory =
+    rawCategory !== null &&
+    !rawCategory.includes(CATEGORY_URL_SEPARATOR) &&
+    resolvedCategory?.sub
+      ? `${resolvedCategory.main}${CATEGORY_URL_SEPARATOR}${resolvedCategory.sub}`
+      : null;
   const entries = [...params.entries()].filter(
-    ([key]) => key !== BRANDS_PARAM && key !== LEGACY_BRAND_PARAM,
+    ([key]) =>
+      key !== BRANDS_PARAM &&
+      key !== LEGACY_BRAND_PARAM &&
+      !(canonicalCategory !== null && key === 'category'),
   );
   if (brands.length > 0) entries.push([BRANDS_PARAM, brands.join(',')]);
+  if (canonicalCategory !== null) entries.push(['category', canonicalCategory]);
   return JSON.stringify(
     entries.sort((a, b) => (a[0] === b[0] ? a[1].localeCompare(b[1]) : a[0].localeCompare(b[0]))),
   );
@@ -250,7 +294,8 @@ export function useCatalogFilterUrlSync(
     //   🔵 也不會多送導覽:真的沒東西可刪時 `next` 與當前網址仍相等 ⇒ 下方那道比對收手。
     if (
       !categoryAxisSuppressed &&
-      normalizedQuery(window.location.search) === normalizedQuery(params.toString())
+      normalizedQuery(window.location.search, restoreSources.categories) ===
+        normalizedQuery(params.toString(), restoreSources.categories)
     ) {
       return;
     }
@@ -289,7 +334,10 @@ export function useCatalogFilterUrlSync(
     //    輸入,所以也寫不出會紅的負測 —— 拿掉它零測試變化)。留著的理由是可讀性與防禦:
     //    上方那段若日後被改成「某些情況不早退」,本行就是最後一道「沒差別就不要送導覽」。
     //    ⇒ 不要把它當成一道**有效的**守門引用,也不要因為「有這行」而放心刪上面那段。
-    if (normalizedQuery(window.location.search) !== normalizedQuery(next.split('?')[1] ?? '')) {
+    if (
+      normalizedQuery(window.location.search, restoreSources.categories) !==
+      normalizedQuery(next.split('?')[1] ?? '', restoreSources.categories)
+    ) {
       // 🔴 2026-07-19 修「取消其中一個品牌,該品牌商品不消失」(Sean 回報)。全貌 = backlog #287。
       // 根因(實測 + 讀 node_modules 內 Next 16.2.6 原始碼坐實):`route-params.js`
       // `getCacheKeyForDynamicParam` 以 `Object.fromEntries(new URLSearchParams(...))` 產 page
