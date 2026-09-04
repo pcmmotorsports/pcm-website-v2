@@ -90,6 +90,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 🔴 **板上寫著 `open` 而我不確定 · 有人跟我說「那件早就做掉了」而我想自己驗 · 我要說「這件沒有人做」之前** | `python3 scripts/what-happened-to.py <錨>` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §15** |
 | 🔴 **我要端一題給 Sean 之前**(任何決策題、任何「要他拍板」的東西) | `bash scripts/before-asking-sean.sh "<他會講的話>"` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §16** |
 | 🔴 **要抄一支既有的 DB 函式來改 / 要寫 `CREATE OR REPLACE` 之前 / 有人給你一個「那支函式在這裡」的行號** | `bash scripts/latest-definition-of.sh <物件名>` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §20** |
+| 🔴🔴 **我想知道「這支 migration 貼進正式庫了沒」/ 我 grep `APPLIED.tsv` 拿到 0** | ⛔ **帳本的 0 不是答案** —— `supabase/APPLIED.tsv` 檔頭逐字「不在本表上**什麼都不代表**」。✅ 改用 `bash scripts/is-migration-applied.sh <版本號>`(產帶正負對照的唯讀 SQL);`scripts/migrations-not-in-ledger.sh` 列差集。🛑 「物件在不在」對 `CREATE OR REPLACE` **零判別力**。📎 病史 → 板列 `⟦01-LEDGERFALSENEG⟧` |
 | 制度/檔案盤整(過期清理/歸屬/skill 化;每 milestone 收尾跑) | `~/.claude/skills/pcm-housekeeping/SKILL.md`(2026-08-12 Sean 拍板常設) |
 | 🔴 **我在自己的工作區跑全套測試, 紅了一堆不像我弄的 / 有人說 CI 綠而我這邊紅** | `bash scripts/why-is-this-red.sh <vitest log>` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §17** |
 

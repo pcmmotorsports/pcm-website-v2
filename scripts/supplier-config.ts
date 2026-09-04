@@ -478,6 +478,46 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     //    —— 源頭每天在動。**要引用先重量, 不要抄。**
     writeAllowed: true,
   },
+  // WRS。2026-09-04 線【帳號】登記(**Sean 尚未批首灌 ⇒ writeAllowed: false, 零寫入**)。
+  //
+  // 🔴🔴 **授權那一格要講清楚, 因為它與 dbk / rizoma 【不同】**:
+  //   Sean 對 dbk 拍過「甲 上」· 對 rizoma 拍過「`q3: 上`」—— 那兩句是**上架授權**。
+  //   而對 WRS 他拍的是 `q4: 甲,` =「**先做品牌形象區**」⇒ 🛑 **那是【順序】, 不是上架授權。**
+  //   ⇒ 📌 **一個「先做 A 再做 B」的拍板, 不含「B 可以做」** —— 而那兩者讀起來很像。
+  //   ⇒ 本筆停在 `writeAllowed: false`。**要灌先問他一個字。**
+  //
+  // 🔴🔴 **下面每個數字都是快照, 不是契約** —— `--expect-groups` 必須在跑乾跑/首灌的那一刻
+  //   【重量】, 絕對不要沿用這裡的數字。本窗 2026-09-04 單一時點實查(報價單庫 view):
+  //     1,131 變體 / 568 群 · 價缺 0 · 明文 http 0 · 缺 v2 大類 0 · 缺中文名 0 · 缺描述 0
+  //     v2 **8 大類 / 15 子類** · 有 pdf 的群 **0** · 完全沒有圖 **33** 件
+  //     群層:568/568 有描述 · 多變體群 **397**, 其中 **394** 群每變體有自己的圖
+  //   🟢 **pv_spec 零違規**(R1 規格不完整 0 / R3 可合併重複 0, 照 `variant_contract.py` 的規則
+  //     重寫成唯讀 SQL 掃 `products` 原表 1,223 列)⇒ **rizoma 那種源頭顏色寫錯的問題 wrs 沒有。**
+  //   🟢 網站庫:`brands` 有 `wrs` 這一列, 該品牌商品數 **0**(首灌前狀態, 唯讀 psql 實查)。
+  //
+  // 🔵 **那 33 件沒有真照片【不擋上架】**:`COUNT(DISTINCT image_url)` = **1**, 逐字
+  //   `https://quote.pcmmotorsports.com/no-photo.png` = 🟢 **PCM 自己的卡**(不是外連他家伺服器)
+  //   ⇒ 已被 `supplier-placeholder.ts` 的 `PCM_OWN_NO_PHOTO_CARD` 認得。
+  //   ⚠️ **而板上寫的是「wrs 37 件」** —— 今天實測 **33** ⇒ 源頭每天在動, 板上那個數字已過期。
+  //
+  // 🔴 `syncInstallResources` 填 `true` 而**實測 pdf = 0**(`pdf_urls` 與 `pdf_docs` 兩欄皆 0 列)——
+  //   這**不是**填錯, 是照 runbook §2 那條**量出來的不對稱**:
+  //     設 `false` 而其實有東西 ⇒ **真的漏掉那些 pdf**;設 `true` 而沒東西 ⇒ 同步 0 筆, 無害。
+  //   ⇒ ✅ 「預設 `true`;只有在實測附件 = 0 時**才可以**填 `false`(而填 `true` 也照樣對)」
+  //   ⇒ 選 `true` 是為了**它哪天開始出 pdf 的那一天** —— 那一天不會有任何東西提醒我們回來改。
+  // 🔵 `appendManualFilename` 今天**沒有作用**(0 份 pdf ⇒ 沒有檔名可以附)。填 `false` = 同類多份用編號,
+  //   那是預設形狀。⚠️ **它哪天真的出現多份 pdf 時要回來重判**(rizoma 就是靠檔名才判成 `true`)。
+  wrs: {
+    supplierSlug: 'wrs',
+    brandSlug: 'wrs', // identity;唯讀實查【網站庫】brands 有這一列且該品牌商品數 0
+    handlePrefix: 'wrs', // 20/20 既有慣例 = supplierSlug 同名(本窗當場求值比對、零例外)
+    syncDescription: true, // 群層 568/568 全有(不是列層 —— 列層會答錯問題, dbk 那筆量錯過一次)
+    syncInstallResources: true, // 實測 pdf 0 而仍填 true, 理由見上方那段不對稱
+    appendManualFilename: false, // 今天無作用(0 份 pdf);出現多份時要回來重判
+    categoryStrategy: { kind: 'per-group' }, // 8 大類 / 15 子類 ⇒ 不是 rpm 那種單一大類
+    variantImages: 'per-variant', // 397 個多變體群裡 394 群每變體都有自己的圖
+    writeAllowed: false, // 🔴 fail-closed、零寫入;**Sean 對 WRS 沒有拍過上架, 見上方授權那段**
+  },
   // 🔴 永久 guard 測試靶(非真供應商、Sean 2026-07-24 拍板放行):所有真品牌已 writeAllowed=true
   //   → rpm-import CLI 的 writeAllowed 硬鎖守衛失去「真實未授權樣本」;保留此永久 false 樣本讓
   //   「未授權 --confirm-write 於連線前被擋」的安全回歸測試持續有效(rpm-import-cli.test.ts)。

@@ -156,6 +156,15 @@ else
   printf '%s\n' '   復原:git checkout -- .husky/md-table-overflow-gate.sh' >&2
   exit 2
 fi
+if [ -f .husky/design-blind-gate.sh ]; then
+  sh .husky/design-blind-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/design-blind-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   它守的是「這一棵樹沒有 design-reference ⇒ 每一發 grep 都回零命中」——' >&2
+  printf '%s\n' '   而「稿裡真的沒有」與「這棵樹沒有稿」印同一個東西:零。' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/design-blind-gate.sh' >&2
+  exit 2
+fi
 if [ -f .husky/view-apply-gate.sh ]; then
   sh .husky/view-apply-gate.sh || exit $?
 else

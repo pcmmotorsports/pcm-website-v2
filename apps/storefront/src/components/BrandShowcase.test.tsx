@@ -7,10 +7,15 @@
 //   ⇒ 🎯 而它壞掉的方式是:**畫面只是少一整區,不會報錯、不會紅、console 乾淨**。
 //      —— 元件寫好了、測試全綠、而客人在商品頁上看不到它。
 //
-// ✅ **2026-09-03 線 `-auth` 補完 ⟦f3-SHOWCASEREGNOGUARD⟧:19 家【全部】各一格。**
+// ✅ **2026-09-03 線 `-auth` 補完 ⟦f3-SHOWCASEREGNOGUARD⟧:每一家【全部】各一格。**
 //   ⛔ 本檔原註 ~~「涵蓋 `rizoma` 與 `dbk` 兩格。已知未涵蓋:其餘 17 家」~~ 今天不再成立。
-//   ⚠️ 而那一列板上寫「dispatcher 有 **18** 家」也已過期 —— **實數 19**(`dbk` 2026-09-03 上架)。
-//     數法:`grep -c "^    case " BrandShowcase.tsx` ⇒ 18,**加上 `RPM_CARBON_BRAND_SLUG` 那一支** = 19。
+//   ⚠️ 而那一列板上寫「dispatcher 有 **18** 家」也已過期 —— ⛔ ~~實數 19~~ ⇒ **2026-09-04 起 20**
+//     (`dbk` 09-03 上架 · `wrs` 09-04 加入)。
+//   🔴🔴 **而這個數字上一輪就是這樣過期的, 這一輪又過期一次** —— code-reviewer 抓到它(M6)。
+//     ⇒ 📌 **本檔存在的理由就是防「數字與 switch 脫鉤」, 而它自己的檔頭一直在脫鉤。**
+//     ✅ **所以【不要引用這個數字】** —— 下面那格 `:註冊表的分母要跟著 switch 走` 是唯一權威,
+//        它當場 parse `BrandShowcase.tsx` ⇒ 它不會過期。本行寫數字只是給人讀的, 當場重數才算數。
+//     數法:`grep -c "^    case '" BrandShowcase.tsx` + `grep -c "^    case RPM_CARBON_BRAND_SLUG:"`。
 //     📌 那個 `+1` 正是最容易被漏掉的一格 —— 它是唯一**不用 `'字面'` 而用具名常數**的 case。
 //
 // 🔴 **為什麼第 19 家非跟上這個前例不可**(2026-09-03 `-front` R1 F3 量到):
@@ -48,6 +53,7 @@ import { ExtremeComponentsShowcase } from './ExtremeComponentsShowcase';
 import { GillesShowcase } from './GillesShowcase';
 import { RizomaShowcase } from './RizomaShowcase';
 import { DbkShowcase } from './DbkShowcase';
+import { WrsShowcase } from './WrsShowcase';
 
 // 各家 showcase 都是重元件(影片 / IntersectionObserver / 大量標記)——
 // 本檔只問「有沒有分派到」,不問「它畫了什麼」(那是各家自己那支 test 的事)。
@@ -127,6 +133,10 @@ describe('BrandShowcase dispatcher', () => {
     ['gilles', GillesShowcase],
     ['rizoma', RizomaShowcase],
     ['dbk', DbkShowcase],
+    // 🟢 2026-09-04 加入第 20 家 —— 而**加它進來的不是我記得要加, 是下面那道分母閘當場紅**:
+    //    逐字「switch 有 20 支分支, 而本檔的註冊表只釘了 19 支 ⇒ 那一家現在零守門」。
+    //    📌 這正是它註解裡預告的第 ⑤ 種突變, 而它在真實的第 20 家身上第一次被兌現。
+    ['wrs', WrsShowcase],
   ] as const;
 
   it.each(REGISTRY)('🔴 brandSlug=%s ⇒ 分派到【那一家】的元件(不是別家、不是 null)', (slug, Comp) => {
@@ -151,7 +161,10 @@ describe('BrandShowcase dispatcher', () => {
   });
 
   it('🔵 註冊表的分母要跟著 switch 走 —— 不是我手打的一個數字', () => {
-    // 🔴 這一格擋的是本檔自己最可能的壞法:**有人新增第 20 家而沒有回來加一行。**
+    // 🔴 這一格擋的是本檔自己最可能的壞法:**有人新增下一家而沒有回來加一行。**
+    //   ⛔ ~~「新增第 20 家」~~ ⇒ 2026-09-04 第 20 家(`wrs`)已經在了, 而**它就是被這一格逼進來的**
+    //     (逐字紅了一發:「switch 有 20 支分支, 而本檔的註冊表只釘了 19 支」)。
+    //   ✅ **這一句刻意改成不帶序號** —— 帶序號的句子每來一家就過期一次, 而沒有東西會叫。
     //    ⇒ 那時上面 18 格【全綠】,而新那一家零守門 —— 與本列原本的病一模一樣。
     // 數法:`case '…':`(字面)+ `case RPM_CARBON_BRAND_SLUG:`(具名常數)= switch 的全部分支。
     // 🔴 **不能用 `new URL('./…', import.meta.url)`** —— 本檔跑在 `jsdom` 環境, 而那裡的
