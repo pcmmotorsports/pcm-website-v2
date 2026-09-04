@@ -35,6 +35,7 @@ import { ExtremeComponentsShowcase } from './ExtremeComponentsShowcase';
 import { GillesShowcase } from './GillesShowcase';
 import { RizomaShowcase } from './RizomaShowcase';
 import { DbkShowcase } from './DbkShowcase';
+import { WrsShowcase } from './WrsShowcase';
 
 export type BrandShowcaseProps = { product: MockProduct };
 
@@ -98,6 +99,10 @@ export function BrandShowcase({ product }: BrandShowcaseProps) {
     //   (repo 內 DBK 無 mp4、只有官方 YouTube),不是配置降級。事實逐條見該元件檔頭。
     case 'dbk':
       return <DbkShowcase />;
+    // 🔴 wrs 2026-09-04 加入 —— Sean 逐字「q4: 甲,」拍【先做形象區再上架】。
+    //    ⚠️ 而 wrs 此刻**還沒首灌**(網站庫 0 筆)⇒ 這個 case 今天走不到, 而那是刻意的順序。
+    case 'wrs':
+      return <WrsShowcase />;
     default:
       // 其餘未知品牌 → 無形象區
       return null;
