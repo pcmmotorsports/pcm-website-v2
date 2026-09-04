@@ -236,6 +236,61 @@ describe('ProductsPage', () => {
     expect(screen.getByText('找不到符合條件的商品')).toBeDefined();
   });
 
+  // ── ⟦b4-DEADENDMSG1⟧ 實例③:零結果的死路要有一個【客人做得到的事】 ──
+  // 🔴 這四格是【成對】的:1 證明鈕會出現, 2/3 是兩個負對照(它不該出現的兩個世界),
+  //    4 守的是「清不掉」那一半 —— 只 dispatch 不改 URL 的話, 按完還是 0 筆。
+
+  it('③ 篩選在生效而 0 筆 → 出路現身, 而且說得出【為什麼是空的】', () => {
+    hoisted.search = new URLSearchParams('category=這個分類已經改名了');
+    render(<ProductsPage products={[]} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    expect(screen.getByText('清除所有篩選')).toBeDefined();
+    // ③ 的核心不是那顆鈕, 是那句話:原字面對【篩選壞了】與【剛好沒貨】兩個世界說同一句。
+    expect(screen.getByText(/目前有篩選條件在生效/)).toBeDefined();
+  });
+
+  it('🔴 負對照:有篩選【而且有結果】→ 那顆鈕不可以出現', () => {
+    hoisted.search = new URLSearchParams('category=這個分類已經改名了');
+    render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    expect(screen.queryByText('清除所有篩選')).toBeNull();
+  });
+
+  it('🔴 負對照:零篩選而 0 筆(目錄真的空的)→ 沒有東西可清, 不得亂給出路', () => {
+    hoisted.search = new URLSearchParams('page=2&sort=recommend&per=24&pick=vehicle');
+    render(<ProductsPage products={[]} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    expect(screen.queryByText('清除所有篩選')).toBeNull();
+    expect(screen.getByText('找不到符合條件的商品')).toBeDefined();
+  });
+
+  // 🔴 **本格的射程**(R1 must-fix 3):mock 的 `replace` 是 `window.history.replaceState`
+  //    (本檔 :22)= **同步**;而真 router 是**非同步**(`use-catalog-filter-url-sync.tsx:108`
+  //    逐字:force-dynamic 要 RSC 往返)。⇒ 本格證明的是「**那顆鈕算出了乾淨的網址並送出去**」,
+  //    **不是**「瀏覽器上最終停在那個網址」—— 後者要真瀏覽器才量得到, 本檔到不了那個世界。
+  it('③ 按下去 → 送出去的網址不再帶那個【認不得的】參數(清 state 不夠)', () => {
+    hoisted.search = new URLSearchParams('category=這個分類已經改名了');
+    window.history.replaceState(null, '', '/products?category=這個分類已經改名了');
+    render(<ProductsPage products={[]} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    fireEvent.click(screen.getByText('清除所有篩選'));
+    expect(window.location.search).toBe('');
+    expect(window.location.pathname).toBe('/products');
+  });
+
+  // ⚠️ **本格的判別力已量過, 而它比標題看起來窄**:把 `ProductsPage.tsx` 那幾行
+  //    「帶走 sort/per」換回裸的 `router.replace('/products')` ⇒ **本格照樣綠**
+  //    (回寫 effect 會把 sort/per 補回 URL)⇒ 它守的是【終態帶著 sort/per】,
+  //    **不是**「那幾行還在」。要守那幾行, 得先有一個回寫 effect 到不了的世界。
+  it('🔴 清完篩選之後, sort/per 要還在而 page 要歸零(終態守門, 非行守門)', () => {
+    hoisted.search = new URLSearchParams('category=改名了&sort=price-asc&per=100&page=3');
+    window.history.replaceState(null, '', '/products?category=改名了&sort=price-asc&per=100&page=3');
+    render(<ProductsPage products={[]} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    fireEvent.click(screen.getByText('清除所有篩選'));
+    const next = new URLSearchParams(window.location.search);
+    expect(next.get('sort')).toBe('price-asc');
+    expect(next.get('per')).toBe('100');
+    // 而 page 要丟掉:清完條件停在第 3 頁 = 又一個空畫面。
+    expect(next.get('page')).toBeNull();
+    expect(next.get('category')).toBeNull();
+  });
+
   it('C4a+C3:零件分類 + 品牌側欄現身(解除 hideCategory/hideBrand);顏色/其他仍隱藏、保留價格範圍', () => {
     render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
     // C4a:零件分類樹解除隱藏 → accordion 標題 + 真分類名(碳纖維部品)現身於側欄(ProductCard 不渲染 category、故唯一)
