@@ -79,12 +79,57 @@ public.sweeper_heartbeat         SELECT, INSERT, UPDATE   ← `.upsert(onConflic
 | **乙** | 維持 PostgREST,但簽一把 **`role` claim = 專用角色** 的 JWT | ✅ 會(若成立) | 幾乎不動碼,只換 key | ⚠️ **未驗證** |
 | **丙** | 只收 `service_role` 的表級 `GRANT`,不換角色 | ❌ **不會** | 最小 | 撞 `⟦b9-RLSHARDEN⟧` |
 
-🔴 **推薦【乙】,而它有一個【我沒有驗證的前提】** —— PostgREST 會照 JWT 的 `role` claim 去 `SET ROLE`,
-所以理論上可以簽一把 `role = pcm_email_writer` 的金鑰。
-🛑 **但我【沒有】在這個專案上實測過它** ⇒ 📌 **這是【推論不是量測】。**
-⇒ ✅ **所以乙的第一步不是動工,是【花 20 分鐘證明它成立】**:建一個零權限測試角色、簽一把 key、打一發、
-看它回 42501(權限不足)還是 200。**回 200 ⇒ 乙成立;回別的 ⇒ 退甲。**
-⚠️ 而 Supabase 近年推的 publishable/secret key 是否仍走同一條 JWT 路徑,**我也沒查** ⇒ 一起在那 20 分鐘裡驗。
+### 🟢🟢 **[2026-09-05 · 那個前提【驗掉了】—— 而只驗掉一半]**
+
+⛔ ~~推薦【乙】,而它有一個我沒有驗證的前提~~ ⇒ ✅ **本機拋棄式 PG + PostgREST 實測(不碰正式庫)。**
+
+**做法**:PG 17.10 拋棄式叢集 → 一張表 `api.secret_stuff` → 三個角色
+(`web_anon` 零權限 / `narrow_reader` 有 `SELECT` / `zero_perm` 零權限)→ 起 PostgREST、自簽 HS256 JWT。
+
+```
+這一發                              http   回什麼
+① 無 token(= web_anon, 零權限)      401    42501 permission denied
+② JWT role=narrow_reader(有 SELECT)  200    [{"id":1,"note":"客人資料"}, …]   ← 🎯 真的拿到資料
+③ JWT role=zero_perm(零權限)         403    42501 permission denied
+```
+🎯 **⇒ PostgREST 確實照 `role` claim 去 `SET ROLE`,而那個角色的權限【真的生效】。乙成立。**
+🔴 **③ 才是關鍵那一格** —— 只有 ② 的話,「claim 生效」與「claim 被忽略而它用了某個寬鬆身分」
+**會印同一個 200**。③ 印 403 ⇒ 證明它**真的切過去了**。
+🔵 地面真相對照(同一發 `has_table_privilege`):`narrow_reader` = `t` · `zero_perm` = `f`,與 ②③ 一致。
+🧹 收攤已驗:`pg_ctl stop rc=0` · 無殘留程序 · 目錄已刪並驗。
+
+**官方文件那一半**(`https://supabase.com/docs/guides/getting-started/api-keys`,經 Supabase docs 搜尋當場讀):
+> `role` **must be set to an existing Postgres role in your database**, such as `anon`, `authenticated`, or `service_role`.
+
+🎯 **「an existing Postgres role in your database」是【開放式】的**,`such as` 後面那三個是舉例不是窮舉
+⇒ **自訂角色與官方措辭相容**,而我本機也證明了機制成立。
+
+### 🔴🔴 **而【另一半】沒驗掉,它會改變乙的壽命**
+
+官方逐字:新的 `sb_publishable_...` / `sb_secret_...` **「no longer are based on the JWT signing key」**,
+而它們被推出的理由之一逐字是:
+> Tight coupling between the JWT secret (**which itself can be compromised, if you mint your own JWTs**),
+> the `anon` / `service_role` / `authenticated` Postgres roles.
+
+⇒ 🛑 **乙這條路【就是「mint your own JWTs」】,而那正是官方在勸退的那件事。**
+⇒ ⚠️ **`sb_secret_...` 能不能對應到一個【自訂 Postgres 角色】—— 我查的那幾頁【沒有寫】⇒【未確認】。**
+　**缺哪一道檢查**:要嘛在 Dashboard `Settings > API Keys` 開一把 secret key 看它有沒有「選角色」那一格,
+　要嘛找到官方寫明它綁哪個角色的那一頁。**兩件我都沒做。**
+🔵 而官方對 `sb_secret_...` 只寫到:它**取代 `service_role` key**、在瀏覽器用會回 401、
+**可以「run a separate key per service」** —— 📌 **「每個服務一把 key」與「每把 key 一個自訂角色」不是同一件事**,
+而前者被寫下來、後者沒有。
+
+### ⇒ 所以推薦要改成兩層
+
+```
+乙-now  用【legacy JWT secret】自簽 role claim ⇒ ✅ 今天可行(上面實測)
+        ⚠️ 而它騎在 Supabase 正在勸退的機制上 ⇒ 那是【技術債, 要寫進 commit body】
+乙-next 若 sb_secret_ 能綁自訂角色 ⇒ 改用它, 不必自簽
+        ⇒ 🛑 而那一格【未確認】, 動工前先去 Dashboard 看一眼(那是 Sean 的操作, 一分鐘)
+```
+🎯 **⇒ 端 Sean 的那一題不變(甲/乙),而【要多帶一句】:選乙的話,
+我們會先用一個官方正在勸退的機制,換到一把不能繞過 RLS 的鑰匙。**
+📌 **那個交換划不划算是他的判斷,不是我的** —— 我的責任是把兩邊都寫出來。
 
 🔵 **丙不推** —— 它讓下一個人以為「收窄做完了」,而**最危險的那一半(繞過 RLS)原封不動**。
 📌 **一個做了一半而看起來像做完的安全改動,比沒做危險。**
@@ -160,7 +205,11 @@ Sean   拍板才動(§3 甲/乙/丙 是一題;§5 的順序是另一題)
 ## 9. 這份 plan 證不到什麼
 
 ```
-① §3 乙那條路【我沒有實測】—— 那是推論。第一步就是去證它, 不是照它動工。
+⛔ ~~① §3 乙那條路【我沒有實測】—— 那是推論~~ ✅ **[2026-09-05 驗掉了]** 本機拋棄式 PG + PostgREST 三發
+   (401 / 200 帶資料 / 403), 而 ③ 那一格證明 claim 是【真的切過去】不是被忽略。
+   🔴 **而【另一半】仍然未確認**:`sb_secret_...` 能不能綁自訂角色 —— 官方那幾頁沒寫,
+      缺的檢查是「去 Dashboard `Settings > API Keys` 看有沒有選角色那一格」(Sean 一分鐘)。
+   ⚠️ 而已驗的那一半騎在【官方正在勸退的 legacy JWT secret】上 ⇒ 那是技術債, 已寫進 §3。
 ② 「這些權限夠不夠跑完一次真實流程」我答不出 —— 我數的是【碼用到什麼】,
    而那與【跑起來需要什麼】差一個「函式內部還碰了誰」(DEFINER 之下那是 owner 的事)。
 ③ SUPABASE_SERVICE_ROLE_KEY 還有幾個消費者, 沒數過(§4)。
