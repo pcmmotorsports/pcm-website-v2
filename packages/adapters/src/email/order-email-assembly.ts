@@ -11,7 +11,11 @@
  *
  * 品項/金額/地址等渲染資料**寄信時即時查主表**(E2a/E3),不進 payload(可後台改的欄存了會過期)。
  */
-import type { OrderCreatedEmailPayload, OrderShippedEmailPayload } from '@pcm/ports';
+import type {
+  OrderCreatedEmailPayload,
+  OrderShippedEmailPayload,
+  ShipmentTrackingCorrectedEmailPayload,
+} from '@pcm/ports';
 
 /**
  * subject 固定模板(唯一允許的動態欄 = display_id)。
@@ -100,6 +104,44 @@ export function buildOrderShippedPayload(src: {
  * uuid 形狀檢查(8-4-4-4-12 十六進位)。
  * ⚠️ **它只驗形狀,不驗那個箱存不存在** —— 後者只有查 DB 才知道,而那是寄送時的事。
  */
+/**
+ * 更正單號的信主旨(⟦5b-TRACKNUMGAP1⟧ 片 C)。
+ *
+ * 🔴 **主旨要自己說得出「這是更正」** —— 客人收件匣裡會有兩封講同一箱的信,
+ *    而他多半**只看主旨**就決定要不要點開。
+ * 🛑 **所以「更正」兩個字不能只寫在內文。**
+ */
+export function trackingCorrectedSubject(displayId: string, shipmentReference: string): string {
+  return `PCM 訂單 ${displayId} 貨運單號更正(包裹 ${shipmentReference})`;
+}
+
+export const SHIPMENT_TRACKING_CORRECTED_EVENT_VERSION = 1 as const;
+
+export function buildShipmentTrackingCorrectedPayload(src: {
+  displayId: string;
+  shipmentId: string;
+  shipmentReference: string;
+  trackingNumber: string;
+}): ShipmentTrackingCorrectedEmailPayload {
+  return {
+    event_version: SHIPMENT_TRACKING_CORRECTED_EVENT_VERSION,
+    display_id: requireNonEmptyString(src.displayId, 'displayId', 'shipment_tracking_corrected'),
+    shipment_id: requireUuid(src.shipmentId, 'shipmentId', 'shipment_tracking_corrected'),
+    shipment_reference: requireNonEmptyString(
+      src.shipmentReference,
+      'shipmentReference',
+      'shipment_tracking_corrected',
+    ),
+    // 🔴 **空字串在這裡要當場炸** —— 這封信的全部內容就是這個號碼;
+    //    一封「正確的單號是(空白)」比不寄糟, 而寄出去收不回來。
+    tracking_number: requireNonEmptyString(
+      src.trackingNumber,
+      'trackingNumber',
+      'shipment_tracking_corrected',
+    ),
+  };
+}
+
 function requireUuid(value: unknown, field: string, event: string): string {
   const v = requireNonEmptyString(value, field, event);
   if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(v)) {

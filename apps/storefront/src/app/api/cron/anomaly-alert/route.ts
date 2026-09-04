@@ -579,6 +579,28 @@ export async function GET(request: Request): Promise<Response> {
      * ⚠️ **而【誰在讀這一行】沒有解決** —— 它與 `⟦b9-ENUMWATCH⟧` 這一列本身是同一個病的下一層。
      *    ⇒ 那要等這個計數真的接進告警判斷之後才收得掉。**明寫,不假裝這一行等於有人在看。**
      */
+    // 🔴🔴 **codex 2026-09-04 must-fix ③:route 原本【完全沒有消費】這兩格** ——
+    //    RPC 讀取失敗 ⇒ 只留一行 log、照樣回 200、照樣記「今天健康」
+    //    ⇒ 📌 **一個「我讀不到」的世界被回報成「一切正常」。**
+    //    ⇒ 而兩格的處置【不同】, 這正是先前把它們拆開的理由:
+    //      `searchLogFailed`  = 真的壞了 ⇒ 🔴 **回 503**(與其他讀取失敗同款, 監控看得到)
+    //      `searchLogUnknown` 而沒 failed = 那支 RPC 還沒 apply ⇒ 🔵 只 warn, 回 200
+    //      (部署窗口是預期中的;為它回 503 會讓「還沒貼」變成每輪一次的假紅)
+    if (result.searchLogFailed) {
+      console.error(
+        '[anomaly-alert] 🔴 搜尋日誌健康度讀取失敗 ⇒ 回 503(不是「一切正常」)',
+        { reason: 'search_log_health_read_failed' },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+    if (result.searchLogUnknown) {
+      console.warn(
+        '[anomaly-alert] 🔵 搜尋日誌健康度查不到 ⇒ get_search_log_health 還沒 apply',
+        { reason: 'search_log_health_unknown' },
+      );
+    }
+
     if (result.manualCustomerSearchUnknown) {
       console.warn(
         '[anomaly-alert] 🔵 客戶搜尋計數查不到 ⇒ 那支 RPC 還沒 apply, 或它讀取失敗(失敗那一種在 use-case 另有一行 error log)',
