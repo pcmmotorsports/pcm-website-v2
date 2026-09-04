@@ -4,8 +4,12 @@
 #    那兩個是不同的問題, 而只有第一個有機械答案。
 #    ⇒ 「pre-push 少了一道本來該有的閘」是另一題, 本檔從來沒有宣稱過它。
 #
-# 🔵 怎麼更新:新增一道閘之後, 跑 `sh scripts/husky-hook-wiring-check.sh --update-baseline`
+# 🔵 怎麼更新:新增一道閘之後, **在本檔手加一行**(那一道的路徑, 與鏈上的字面一致)。
 #    ⇒ 集合【變大】本來就不紅;更新這份檔只是讓下一次的「不准變短」以新的為準。
+#    ⛔ ~~跑 `sh scripts/husky-hook-wiring-check.sh --update-baseline`~~ —— **那個旗標不存在**
+#       (2026-09-04 實跑:`✗ 不認得的參數:--update-baseline`;用法只有 `[--selftest]`)。
+#       🔴 一份指到不存在旗標的操作說明, 失效方式是**照著做的人以為自己做錯了**。
+#       主視窗裁定:改註解、不加旗標。舊字面留刪除線, 讓搜它的人同一發撞到這裡。
 # 🛑 而【手改這份檔】= 你在宣告「那一道本來就不該在」—— 那是一個決定, 不是維護動作。
 .husky/always-loaded-size-gate.sh
 scripts/deploy-order-gate.sh

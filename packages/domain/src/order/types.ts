@@ -721,10 +721,19 @@ export type AdminOrderSummary = {
    *    `packages/adapters/src/supabase/SupabaseOrderAdapter.ts:827-849` 與同檔 `:148` 起的 select docstring)。
    *
    * 🔴 三態是 `not_issued` / `issued` / `voided`,**沒有「不需開立」** —— 「客人沒填開票需求」與
-   * 「有需求但還沒開」在本欄都是 `not_issued`,要分只能推論 `invoice` jsonb 是否為空(推論、非欄位)。
-   * Q2b=A 明文不分。
+   * 「有需求但還沒開」在本欄都是 `not_issued`。Q2b=A 明文不分。
+   *
+   * ⛔ ~~要分只能推論 `invoice` jsonb 是否為空(推論、非欄位)~~
+   * 🔴 **2026-09-04 訂正:那句話已經不成立** —— `orders.invoice_requested`(boolean)
+   *    **從 2026-08-28 起就是那個欄位**,而它 2026-09-03 已上正式庫。見下方 `invoiceRequested`。
+   *    📌 **⇒ 這是同一個根因的第三個受害者**:一欄被加進去了,而**每一處說「沒有這個欄位」的話
+   *    都留在原地** —— 而它們讀起來完全正常,沒有任何東西會叫。
+   *    (另兩處:`⟦b4-INVOICE5PCT⟧` 的選項表把它寫成「假想方案」;Q3 第一版整支做在錯的欄位上。)
    */
   invoiceStatus: InvoiceStatus;
+  //    ⚠️ **而本型別(訂單【清單】)刻意【不帶】 `invoiceRequested`** —— 它住在 `AdminOrderDetail`。
+  //    🔴 我第一版加錯了位置:我照著 `invoiceStatus` 這個【名字】下錨, 沒確認它住在哪一個型別裡。
+  //    📌 **⇒ 一個欄名在兩個型別上都叫同一個字, 而「它在這裡」不蘊含「我要的那個也在這裡」。**
   /** 該單品項展開(M-4a Slice D-1a「每商品一列」、同單分組顯示;空陣列顯示端兜一列「—」)。 */
   lines: AdminOrderLine[];
   /**
@@ -1373,6 +1382,20 @@ export type AdminOrderDetail = {
   invoiceNumber: string | null;
   invoiceAmount: Money | null;
   invoiceStatus: InvoiceStatus;
+  /**
+   * `orders.invoice_requested` —— **這張單【要不要】開發票, 下單當下的決定。**
+   *
+   * 🔴 **與同表另外兩層是三件事, 不可互相取代**(那一欄的 DB `COMMENT` 逐字):
+   *   · `invoice` jsonb   = 客人的開票**需求**(抬頭 / 統編 / 載具)
+   *   · `invoiceStatus`   = 實際的開票**紀錄**(我們開了沒)
+   *   · **本欄**          = **他要不要**
+   *
+   * 🔴 **`false` 是終局**:`20260904224500` 那道 trigger 擋下 `false ⇒ true`
+   *   (Sean 2026-09-04 拍「任何改動都擋, 要改就作廢重開」)。
+   * ⚠️ **而那道鎖守的是【紀錄】不是【結果】** —— 一張 `false` 的單今天**仍然開得出發票**
+   *   (後台 workflow RPC 與 `record_pending_invoice()` 都不讀本欄)。**擴不擴已端 Sean。**
+   */
+  invoiceRequested: boolean;
   cancelledAt: string | null;
   /** 取消原因=可對客文案(會員可見自己單此欄;內部原因在 admin_audit_log) */
   cancelledReason: string | null;

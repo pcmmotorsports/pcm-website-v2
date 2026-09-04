@@ -277,7 +277,26 @@ export function ProductsPage({ products, total, error, categories, brands: serve
         openVehicleOnMount={pickVehicle && isMobileUA}
       />
 
-      <div className="pp-layout has-side" data-filter-style="cascade">
+      {/* ⟦supply-BRANDFILTERZERO⟧ **下一次紅的時候, 要分得出是哪一個世界。**
+          🔬 已知的事實(2026-09-04 `-front` 開檔量):**client 【不】過濾** —— 本檔 `displayed = products`
+             ⇒ 📌 **「server 回 723 而畫面 0」在【同一次渲染】裡不可能發生**;那必然是**兩次不同的載入**。
+          🎯 **所以要留的證據不是「client 算錯了嗎」, 是【這一次渲染, server 到底回了什麼】。**
+          🔵 **不改任何行為** —— 只是把四個已經在手上的值寫進 DOM:
+             `total`(server 說幾件)· `products.length`(這一頁實際拿到幾件)
+             · 品牌篩選鍵(舊 `?pbrand=` 與新 `?pbrands=` 都收)· **品牌對照表的大小**
+          🔴 **對照表大小那一格是刻意加的**:`fetchCatalogBrandTaxonomy` 中斷時它會是 **0**,
+             而那正是「有效品牌卻撈不到」最可能的成因(見 `use-catalog-filter-url-sync` 對空表的註解)。
+             ⇒ **沒有它, 下一次紅了還是只能猜。** */}
+      <div
+        className="pp-layout has-side"
+        data-filter-style="cascade"
+        data-diag-total={String(total ?? 'undefined')}
+        data-diag-rows={String(products.length)}
+        data-diag-brandkey={
+          searchParams.get('pbrands') ?? searchParams.get('pbrand') ?? ''
+        }
+        data-diag-brandtable={String(brands.length)}
+      >
         {/* #220-B1:真資料單一品牌 RPM CARBON/全 silver/無促銷 → 隱藏假篩選(留價格;
             僅現貨=#161 不在此;視覺細節 Sean 後續 design skill 調)。
             hideVehicle:S1 曾解除、Sean 2026-07-03 實測 feedback 恢復 —— 車輛選擇集中頂部

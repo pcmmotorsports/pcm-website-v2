@@ -327,6 +327,9 @@ function adminRow(item: AdminItemEmbed): SupabaseAdminOrderRow {
     //    `as SupabaseAdminOrderRow` 把「必填欄缺席」壓了下去 ⇒ mapper 會輸出 `undefined`
     //    卻仍宣稱型別是 `InvoiceStatus`,而且沒有任何測試看得見(全綠)。給真值把那條路徑補上。
     invoice_status: 'voided', // 刻意用第三態:用 DB 預設 `not_issued` 會與「根本沒讀到」難以分辨
+    // ⚠️ 本 fixture 是【訂單清單】那一列, 它的 Pick **沒有** `invoice_requested` —— 不要加。
+    //    🔴 我加過一次:照著 `invoice_status` 這個【欄名】下錨, 而沒看它住在哪一個 Row 型別裡。
+    //    📌 同一個欄名出現在兩個型別上, 而「它在這裡」不蘊含「我要的那個也在這裡」。(今天第三次)
     customers: null,
     order_items: [item],
   } as SupabaseAdminOrderRow;
@@ -489,6 +492,8 @@ function detailRow(
     //    本檔沒有任何斷言讀這欄,所以這個契約外的值一直被遮著。A9c 讓 `InvoiceStatus` 在列表側
     //    開始承重 ⇒ 順手改成合法值,免得被當成「原來 pending 也可以」的先例。
     invoice_status: 'issued',
+    // 🔵 刻意用 false ——用 DB 預設 true 的話,「決定不開」與「根本沒讀到」在斷言上長一樣。
+    invoice_requested: false,
     cancelled_at: null,
     cancelled_reason: null,
     version: 1,

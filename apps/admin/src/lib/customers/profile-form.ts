@@ -4,7 +4,8 @@
 //
 // 🔴 **兩層防線各管各的**(主視窗 2026-08-14 裁定 A,理由不是「zod 比較好」):
 //   ① **形狀層走 admin 房規**:`anyMalformed` + `readSingleString`(同名欄位送兩份 = 形狀錯,不採第一筆);
-//   ② **語意層走共用的 `ProfileInput`**(`@pcm/schemas`)—— phone / birthday 兩條 regex 已被審過,
+//   ② **語意層走共用的 `ProfileInput`**(`@pcm/schemas`)—— ⚠️ **phone 那條 2026-09-04 起
+//      只擋空、不驗格式**(Sean 拍甲);birthday 仍是 regex 已被審過,
 //      抄第二份 = 這個 repo 已經付過一次學費的形狀(`schemas/src/index.ts:54` 記著 AddressInput 與
 //      CheckoutInputBase「各抄一份…靠兩處同步」,後來收斂成共用)。
 //
