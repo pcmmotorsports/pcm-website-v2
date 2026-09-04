@@ -44,7 +44,7 @@ export type CatalogQuery = {
   category?: string;
   /**
    * ⟦M-4b 多顆分類膠囊⟧ Sean 2026-09-04 拍甲(聯集)。`?categories=a,b` —— **單鍵逗號分隔**。
-   * 🔵 形狀跟著 `pbrands` 走, 而那是有理由的:本檔 :101-110 逐字記著重複鍵 `?a=1&a=2` 會讓
+   * 🔵 形狀跟著 `pbrands` 走, 而那是有理由的:本檔 `BRANDS_PARAM` 上方那段註解逐字記著重複鍵 `?a=1&a=2` 會讓
    *    **Next segment cache key 碰撞 ⇒ `router.replace` 不重抓 RSC** ⇒ 當初才從重複鍵改單鍵。
    *    📌 同一個坑不踩第二次。
    * 🛑 **舊的 `category` 欄不動、繼續讀得懂** —— 客人分享出去的連結、站內既有連結都是舊格式。
@@ -204,7 +204,7 @@ export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery 
   const categoryValue = searchParams.get('category');
   const category = categoryValue && isSafeCategoryValue(categoryValue) ? categoryValue : undefined;
   // 🔴 **每一顆都要各自過同一道白名單** —— 不是整串過一次:
-  //    `isSafeCategoryValue` 擋的是 `%` `_` 與控制字元(見 :88-95), 而 RPC 那側是
+  //    `isSafeCategoryValue` 擋的是 `%` `_` 與控制字元(見本檔 `isSafeCategoryValue` 的定義), 而 RPC 那側是
   //    `category_raw LIKE vc || ' · %'`(**未跳脫**)⇒ 只要有一顆帶 `%`, 整組結果就會被它污染。
   // 🔵 壞的那一顆**只丟那一顆**, 不整組失效 —— 驗收⑤ 逐字要的就是這個。
   const categories = [

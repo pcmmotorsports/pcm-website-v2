@@ -140,7 +140,7 @@ export function useCatalogFilterUrlSync(
     //   理由:「垃圾參數」與「客人手打的舊連結/改名殘連結」在 URL 上長得一模一樣 —— 程式手上
     //   只有「在不在對照表裡」這一個位元(`products-url-parsers.ts:94` 的 `.filter`),**沒有任何
     //   欄位能分辨意圖**;而清掉的代價是**靜默顯示全站商品**(server 只驗形狀不驗對照表,
-    //   `lib/catalog-query.ts:161`)⇒ 客人以為還在看 DBK。留著 = 0 筆 + 空狀態,看得見、可自我解釋。
+    //   `lib/catalog-query.ts` 的 `parseCatalogQuery` docblock)⇒ 客人以為還在看 DBK。留著 = 0 筆 + 空狀態,看得見、可自我解釋。
     // 🔴 它同時是本修法的支點,而且方向是**更安全**不是更危險:保留後重建結果與當前 URL 在
     //   **值層等值**(`normalizedQuery` 排序後比對、忽略參數順序)⇒ 下方的等值早退通常命中
     //   ⇒ 連 `router.replace` 都不送。
