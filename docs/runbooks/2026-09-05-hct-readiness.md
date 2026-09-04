@@ -51,7 +51,7 @@
 |---|---|---|---|
 | `HCT_API_ACCOUNT` | 無 | ✅ **有**(Encrypted · Production + Preview · 4 天前) | 帳密已就位 |
 | `HCT_API_PASSWORD` | 無 | ✅ **有**(同上) | 帳密已就位 |
-| 🔴 `HCT_API_ENDPOINT` | 無 | 🔴 **沒有** | **2026-09-05 步驟②【新引進】的名字** —— 沒有它,那顆鈕按下去回 `disabled`(連 `runHctSubmit` 都不呼叫)。⚠️ **值只有 Sean 與新竹之間問得到**:廠商檔那幾個 URL 分測試/正式、也分服務,我不從文件推一個出來 |
+| 🔴 `HCT_API_ENDPOINT` | 無 | 🔴 **沒有**(而 2026-09-05 深夜**位址已知一半**,見 §六) | **2026-09-05 步驟②【新引進】的名字** —— 沒有它,那顆鈕按下去回 `disabled`(連 `runHctSubmit` 都不呼叫)。⚠️ **值只有 Sean 與新竹之間問得到**:廠商檔那幾個 URL 分測試/正式、也分服務,我不從文件推一個出來 |
 | `HCT_SUBMIT_ENABLED` | 無 | 🔴 **沒有** | 依 `gateOpen` = **關** |
 | `HCT_QUERY_ENABLED` | 無 | 🔴 **沒有** | 依 `gateOpen` = **關** |
 | `HCT_DEFAULT_WEIGHT` / `HCT_INVOICE_TYPE` / `HCT_PRODUCT_KIND` | 無 | 🔴 **沒有** | 用碼裡的預設值(而那些值沒人跟新竹確認過) |
@@ -89,3 +89,34 @@
 · 它不答「新竹那邊審過了沒」——那只有 Sean 問得到。
 · ⚠️ 「未在本 repo 任何設定檔出現」**不等於**「正式站沒有」:env 本來就不進 git。
   ⇒ 📌 **要知道正式站現況,得有人去 Vercel 看一眼,而那是【名稱】層就答得出來的事,不必印值。**
+
+## 六、endpoint:Sean 給了三條網址,而**只對得上一半**(2026-09-05 深夜,唯讀比對,零真請求)
+
+Sean 逐字給的第三條是 `https://hctrt.hct.com.tw/EDI_WebService2/Service1.asmx`(`.asmx` = ASP.NET WebService)。
+
+**✅ 對得上的兩件**
+- **不必處理 SOAP envelope**:廠商參考檔 `:78` 逐字「每支服務都有 `_Json` 與 `_XML` 變體 ⇒ 可走 JSON」
+  ⇒ `hct-client.ts` 送 `Content-Type: application/json` 並 `res.json()` **是對的方向**。
+- **認證欄位**:參考檔 `:88`「`Company` + `password` 兩個字串參數」
+  ⇒ client 逐字送 `{ Company: …, password: … }` **相符**。
+
+**🔴 對不上的一件 —— 而它是 endpoint 的【粒度】**
+`.asmx` 的 JSON 變體是**一個服務一個網址**,要帶方法名:
+```
+Sean 給的      …/Service1.asmx                 ← 服務的【根】
+要放進 env 的  …/Service1.asmx/TransData_Json  ← 那支方法(名稱依參考檔 :172 `addrCompare_Json` 的命名慣例)
+```
+⚠️ **那個方法名我【沒有證實】** —— 參考檔 `:82` 只寫服務叫 `TransData()`,
+`_Json` 後綴是我從 `:172` 的另一支服務推的。**要從 PDF §2.2 確認,或用測試帳號實打一次。**
+⚠️ 另一格也**未確認**:client 的外層是 `{ Company, password, data: [ …欄位… ] }`,
+而參考檔 §3 只列**欄位**,沒列 JSON 的**外層鍵名**(`data` 這個字)。
+
+**🛑 而這件事的代價不是「試一下就知道」**
+endpoint 錯 ⇒ HTTP 非 2xx 或 200 而 body 不是 JSON ⇒ `hct-client.ts` 兩條路都回 **`unknown`**
+(它刻意如此:那兩種情況「它可能收了」)⇒ 📌 **那一箱當場卡住**,
+而卡住的出口(`⟦ship-HCTUNKNOWNSTUCK⟧`)**還沒做**。
+⇒ 🔴 **所以順序是:先做完那個出口,再放 env,再送第一箱。**
+🔵 **而第一箱一定要用測試帳號**(參考檔 `:89`:公司名稱 `test` / 密碼 `test1`;
+`hct-client.ts` 的 `hctMode()` 就是靠帳號字面判 test/live)。
+
+**⇒ 給 Sean 的一句**:「新竹那個網址後面還要接一段方法名 —— 麻煩問他們 `TransData` 的 JSON 版完整網址。」
