@@ -351,24 +351,57 @@ WHERE b.slug='<brandSlug>' GROUP BY b.slug;
 🔵 **它不是「多一件要記得的事」,是「你本來就在跑的 §5 多一行」** ——
    同 §6-b 的形狀:一個新的義務要活下來,最便宜的方式是掛在一個**已經有人在做的動作**上。
 
+🔴🔴 **[2026-09-04 訂正 —— 下面這一版的查法有【兩個錯,而它們今天剛好互相抵銷】]**
+
+⛔ ~~原本的查法:`left join public.products_public p on p.category_id = c.id`,期望回 0 筆~~
+它 2026-09-04 誠實地回了 **0 筆**,而那個 0 是**兩個相反的錯加起來的**:
+
+```
+🔴 錯一(往【漏抓】偏):跑這一發的帳號 pcm_readonly 有 rolbypassrls = t
+   ⇒ 它看得穿 RLS ⇒ `products_public` 這個 view(security_invoker=true)
+     對它【連已下架的也照出】⇒ 一個分類的商品**全部下架**了, 這把尺照樣印非零 ⇒ 說它活著
+🔴 錯二(往【誤殺】偏):它只數【直接掛在那個分類底下】的商品,
+   而 `buildCategoryTree` 的父層件數是**子類的加總** ⇒ 一個自己 0 件、子類有貨的父分類
+     在目錄樹裡是**活的**, 而這把尺會把它報成死列
+   🔬 實例:`碳纖維部品` 自己 0 件, 含子類 **2,326** 件
+⇒ 📌 而 2026-09-04 這兩個錯剛好抵銷成一個乾淨的「0 筆」。
+   🎯 **一個對得上的總數, 可以是兩個方向相反的錯加起來的。**
+```
+
+✅ **改成這一版(兩個錯都修掉:只算客人看得到的 + 含子類加總)**:
+
 ```bash
-# 在 repo 根跑。VALS 是【從字典檔當場長出來的】—— 字典加一列,要檢查的就多一個,
+# 在 repo 根跑。VALS 是【從字典檔當場長出來的】—— 字典加一列, 要檢查的就多一個,
 # 🔴 不需要有人去同步一份寫死的清單(而寫死的清單一定會過期)。
-VALS=$(grep -o "to: '[^']*'" apps/storefront/src/data/search-synonyms.ts   | sed "s/to: '//;s/'$//" | sort -u | sed "s/^/('/;s/$/')/" | paste -sd, -)
+VALS=$(grep -o "to: '[^']*'" apps/storefront/src/data/search-synonyms.ts | sed "s/to: '//;s/'$//" | sort -u | sed "s/^/('/;s/$/')/" | paste -sd, -)
 
 psql "$PCM_READONLY_DATABASE_URL" -c "with w(nm) as (values $VALS)
-  select w.nm as 字典指到的分類, coalesce(count(p.id),0) as 件數
-    from w left join public.categories c on c.name = w.nm
-           left join public.products_public p on p.category_id = c.id
-   group by w.nm having coalesce(count(p.id),0) = 0;"
+select w.nm as 字典指到的分類,
+  (select count(*) from public.products p join public.categories c on c.id = p.category_id
+    where p.delisted_at is null
+      and (c.raw_path = w.nm or c.raw_path like w.nm || ' · %' or c.name = w.nm)) as 含子類的活件數
+from w order by 2, 1;"
 ```
-**期望:回【0 筆資料】。** 有列出來 ⇒ 那幾列字典**現在是死的**,拿去給線【身分】換一個有貨的分類。
+🔴 **注意它【不用 `products_public`】而直接讀 `products` + 自己寫 `delisted_at is null`** ——
+因為跑這一發的帳號看得穿 RLS,**那個 view 對它不是過濾器**。
 
-🟢 **正對照(這把尺會不會動)** —— 同一發把 `having` 拿掉,**應該回 27 列**(2026-09-04 實測;
-而那個數**會跟著字典長**,所以不要把它寫成判準,只拿它確認「不是餵了個空的」):
+**判準:每一列的「含子類的活件數」都必須 > 0。** 有 0 ⇒ 那一列字典**現在是死的**,
+拿去給線【身分】換一個有貨的分類。
+🔬 **2026-09-04 實測:36 個 `to`,最小 8 件(`濾芯保養品`),0 個死列。**
+
+🟢 **正對照(這把尺會不會動)** —— 餵一個**一定不存在**的分類名進去,它必須印 0:
 ```bash
-psql "$PCM_READONLY_DATABASE_URL" -At -c "with w(nm) as (values $VALS) select count(*) from (select w.nm from w group by w.nm) x;"
+psql "$PCM_READONLY_DATABASE_URL" -At -c "with w(nm) as (values ('這個分類一定不存在zzz'))
+select (select count(*) from public.products p join public.categories c on c.id = p.category_id
+         where p.delisted_at is null
+           and (c.raw_path = w.nm or c.raw_path like w.nm || ' · %' or c.name = w.nm)) from w;"
 ```
+🔴 **而它與「數了幾個」是兩件事** —— 也順手確認 `VALS` 不是空的:
+```bash
+psql "$PCM_READONLY_DATABASE_URL" -At -c "with w(nm) as (values $VALS) select count(*) from w;"
+```
+⇒ 2026-09-04 是 **36**(而那個數**會跟著字典長**,所以不要把它寫成判準)。
+
 ⚠️ **這一格【不】更新 `SEARCH_CATEGORY_EMPTY_NAMES` 那份快照** —— 那是另一件事(見該檔檔頭)。
    🔴 **兩者的分母不同**:這一格只問**字典指到的那些**(2026-09-04 是 27 個);
    那份快照是**全部分類**(113 個)。**這一格便宜而且分母自己會長,那一份要人維護。**
