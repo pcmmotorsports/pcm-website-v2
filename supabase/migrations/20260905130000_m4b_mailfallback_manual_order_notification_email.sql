@@ -869,6 +869,18 @@ BEGIN
     RAISE EXCEPTION '片D 斷言⑥失敗:預設值個數不是 1 —— 少了 DEFAULT NULL, 舊的十參呼叫端會全壞';
   END IF;
 
+  -- ⑦ 🔴 **可達性**(codex R2 #9):`has_function_privilege` 答的是直接權限,
+  --    而 `pg_has_role(..., 'USAGE')` 答的是「它能不能 `SET ROLE` 變成那個角色」。
+  --    🛑 兩者在「anon 是 service_role 的成員」那個世界**印相反的答案**, 而只有後者是對的。
+  IF pg_catalog.pg_has_role('anon', 'service_role', 'USAGE')
+     OR pg_catalog.pg_has_role('authenticated', 'service_role', 'USAGE') THEN
+    RAISE EXCEPTION '片D 斷言⑦失敗:anon/authenticated 可以 SET ROLE 成 service_role ⇒ 三道 REVOKE 形同虛設';
+  END IF;
+  IF pg_catalog.pg_has_role('anon', (SELECT p.proowner FROM pg_catalog.pg_proc p WHERE p.oid = v_new), 'USAGE')
+     OR pg_catalog.pg_has_role('authenticated', (SELECT p.proowner FROM pg_catalog.pg_proc p WHERE p.oid = v_new), 'USAGE') THEN
+    RAISE EXCEPTION '片D 斷言⑦失敗:anon/authenticated 可以 SET ROLE 成本函式的 owner ⇒ 繞得過 ACL';
+  END IF;
+
   -- ⑤ 🔴 `COMMENT` 回來了沒(§6b)—— DROP 帶走的第二樣東西。
   --    🛑 沒有這一格的話, comment 掉了【零訊號】:函式跑得動、ACL 對、三綠全綠。
   IF pg_catalog.obj_description(v_new, 'pg_proc') IS NULL THEN
@@ -911,14 +923,15 @@ BEGIN
 END
 $grant_assert$;
 
--- 🔵 **codex finding 9(`SET ROLE` 繞道)—— 本檔【不改】, 而理由要寫出來, 不是略過**:
---    它說收權斷言只驗直接權限, 沒排除 `anon/authenticated` 經 `SET ROLE` 切到有 EXECUTE 的角色。
---    ⇒ 那是**真的**, 而它是**全 repo 共用的那一塊**, 不是本片新增的洞:
---      本檔這個區塊逐字沿用 `20260902030000:207-226` 的制式形狀, 而 `service_role` 帶
---      `BYPASSRLS` 這件事整個 repo 都建在它上面。
---    🛑 **在一支換簽章的 migration 裡自創一個更嚴的授權模型 ⇒ 它會與其他 40 支不一致,
---       而不一致本身就是下一個洞。** ⇒ 已知、接受、不在本片處理;
---       正本在 `docs/patterns/revoking-function-execute-in-supabase.md`。
+-- 🔴🔴 **codex finding 9(`SET ROLE` 繞道)—— R1 我寫「不改」, 而 R2 說那個理由不成立。它是對的。**
+--    ⛔ ~~我的理由:「在一支換簽章的 migration 裡自創更嚴的授權模型 ⇒ 會與其他 40 支不一致」~~
+--    ✅ **而我把兩件事混成一件了**:
+--       · **改授權模型** = 動 GRANT/REVOKE 的形狀 ⇒ 那確實不該在這支檔做
+--       · **加一道可達性斷言** = 只是**多問一個問題**, 一行 GRANT 都沒動
+--    ⇒ 📌 **「不改模型」推不出「不加斷言」** —— 我用一個成立的理由,擋掉了一件它沒涵蓋的事。
+--    🔵 而 `has_function_privilege` 答的是**直接有效權限**;
+--       `anon` 若是某個有 EXECUTE 的角色的成員, 它 `SET ROLE` 過去就叫得動,
+--       而上面那三道**印同一個綠**。⇒ 下面補第 ⑦ 道。
 --
 -- ═══ §7b 🔴🔴 上面那五道斷言【證不到什麼】—— 而這一節比它們重要 ═══
 --
@@ -952,7 +965,9 @@ $grant_assert$;
 --   🔴 **整套 rollback 也要包在單一 `BEGIN; … COMMIT;` 裡, 並在 COMMIT 前送一次
 --      `NOTIFY pgrst, 'reload schema';`**(codex findings 10)—— 理由與 §4b/§7d 逐字相同:
 --      DROP 與 CREATE 之間一樣有那個窗口, 而 API 快取一樣會停在新簽章。
---   步驟(逐字):
+--   步驟(逐字 —— 🔴 **R2 #10:前言講了要包交易, 而步驟裡沒有那幾行 ⇒ 照著貼的人一樣會漏。**
+--     **講在前言的約束, 對只讀步驟的人等於不存在。** 所以現在寫進步驟本身):
+--     0a. `BEGIN;`
 --     0. 🔴 **先確認片 E 沒有部署 / 或先把它退回**(code-reviewer nit 7)——
 --        §4 只寫了【前進】的順序。回退時若 E 已上線, 一 DROP 掉 11 參那支,
 --        PostgREST 送 11 個參數會找不到函式 ⇒ **後台建單一樣全壞, 只是壞在另一個方向。**

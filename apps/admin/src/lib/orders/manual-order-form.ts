@@ -575,8 +575,22 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
   const invoiceRequested = invoiceRequestedLast === 'on';
 
   // 🔴 **驗證重用 `@pcm/schemas` 的 `NotificationEmailInput`, 不在這裡寫第二份。**
-  //    它的四個條件(可列印 ASCII / ≤254 octet / 單一 @ 兩側非空且 domain 含點 / 禁合成域)
-  //    與 `orders_notification_email_valid`(`20260718120000:128-134`)**逐條對齊**。
+  //    它的四個條件:可列印 ASCII / ≤254 octet / 單一 @ 兩側非空且 domain 含點 / 禁合成域。
+  //
+  // ⛔ ~~「與 `orders_notification_email_valid`(`20260718120000:128-134`)**逐條對齊**」~~
+  // 🔴🔴 **那句話是我寫的, 而它【不成立】**(codex R2 抓到, 我開檔複驗屬實):
+  //    · DB 那條只禁 `line.pcmmotorsports.local` 與它的子網域(`:132-133`)
+  //    · 而 `isSyntheticEmailDomain`(`packages/schemas/src/notification-email.ts:68-72`)
+  //      禁的是**整個 `pcmmotorsports.local` 基底域**與它的**任何**子網域
+  //    ⇒ 例:`u@manual.pcmmotorsports.local` —— **表單拒、DB 收。**
+  // ✅ **而我【不把表單放寬去對齊 DB】**, 三個理由:
+  //    ① 方向:表單比 DB 嚴 ⇒ 擋掉的是「DB 會收但寄不出去」的位址(`.local` 不可路由)
+  //       ⇒ 放寬 = 讓一封注定寄不到的信被登記成「會寄」。**那是往壞的方向對齊。**
+  //    ② `isSyntheticEmailDomain` 是**多處共用**的那一份(註冊擋、outbox 閘都在用)
+  //       ⇒ 為了本片放寬它, 會同時放寬那兩處。
+  //    ③ 兩邊不一致的**代價**只有一種:員工被表單擋下來、看得到一句人話。**那是可接受的。**
+  // 🔬 而這個不一致現在**有測試釘著**(見 `manual-order-form.test.ts` 那族的基底域兩格)
+  //    ⇒ 📌 **它從「我沒發現的分岔」變成「寫下來的選擇」。**
   // 🛑 **寫第二份的代價不是多幾行, 是【兩份會分岔而沒有東西會叫】** ——
   //    而分岔的方向若是「這裡比 DB 寬」⇒ 員工看到的錯誤訊息會是一個約束名。
   // 🔵 用 `readSingle` 而不是 `get()`:它把**缺欄**與**同名欄出現兩次**分開回報,

@@ -660,6 +660,12 @@ describe('parseManualOrderForm:「通知 email」那一格(`⟦f3-MAILFALLBACKVS
     ['帶全形字', 'a＠b.co'],
     ['LINE 合成域', 'u123@line.pcmmotorsports.local'],
     ['合成域的子網域', 'u123@x.line.pcmmotorsports.local'],
+    // 🔴🔴 **這兩格釘的是【表單比 DB 嚴】那個【刻意的】不一致**(codex R2 抓到我漏測):
+    //    DB 的 CHECK(`20260718120000:132-133`)**只**禁 `line.pcmmotorsports.local` 一支,
+    //    而表單禁**整個基底域**。⇒ 下面兩個是 **DB 會收、表單會拒** 的。
+    //    🛑 少了這兩格, 哪天有人把表單「對齊」成 DB 那條, **上面每一格都照樣綠**。
+    ['合成基底域本身', 'u123@pcmmotorsports.local'],
+    ['非 line 的合成子網域', 'u123@manual.pcmmotorsports.local'],
   ])('🔴 格式不對就拒(%s)', (_n, v) => {
     const r = parseManualOrderForm(withEmail(v));
     expect(r.ok).toBe(false);
