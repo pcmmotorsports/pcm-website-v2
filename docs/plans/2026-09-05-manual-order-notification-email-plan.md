@@ -85,7 +85,7 @@ DB     4 個 pending view 各加一欄 order_source(CREATE OR REPLACE VIEW)
 
 | 片 | 內容 | 片型 | 驗收 |
 |---|---|---|---|
-| **A** | 一支 migration:4 個 view 各加 `order_source` 欄 | 高風險(鐵則 12③) | 拋棄式 PG 起 view + 自帶斷言(四個 view 都查得到那一欄);**碼一行不動** ⇒ 貼上去也不改行為 |
+| **A** | 一支 migration:4 個 view 各加 `order_source` 欄。🔴 **它要先 apply, 片 B 的碼才能上**(碼先上 ⇒ PostgREST 42703 ⇒ 四條通知線整段停) | 高風險(鐵則 12③) | 拋棄式 PG 起 view + 自帶斷言(四個 view 都查得到那一欄);**碼一行不動** ⇒ 貼上去也不改行為 |
 | **B** | ports + adapters:4 支 scanner 多撈一欄、型別加 `orderSource` | 標準 | 三綠 + 4 支 scanner 測試各補一格「撈得到 order_source」 |
 | **C** | use-cases:4 處分流 + **雙向測試** | 標準 | 見 §6 |
 | **D** | migration:`admin_create_manual_order` 加第 11 參(`DEFAULT NULL` ⇒ 舊呼叫端不壞) | 高風險(鐵則 12③) | 自帶斷言:11 參那一代存在、10 參那一代已 drop |
@@ -120,28 +120,32 @@ E ⇒ git revert(純碼)
 D ⇒ 反向 migration:DROP 11 參那一代、CREATE 回 10 參那一代(檔案已在 repo, 逐字可抄)
 C ⇒ git revert(純碼)⇒ 行為立刻回到「一律 fallback」
 B ⇒ git revert(純碼;view 多一欄不會壞舊 adapter)
-A ⇒ CREATE OR REPLACE VIEW 回原定義(原定義在那四支 migration 裡, 逐字可抄)
+A ⇒ 🔴 **DROP VIEW 再 CREATE VIEW**(⛔ ~~CREATE OR REPLACE 回原定義~~ —— **做不到:CREATE OR REPLACE 不能【減少】欄位**;R1-F4 抓到本 plan 與 migration 檔尾互相矛盾)。🛑 而 `DROP` 會一起帶走 **ACL 與 `COMMENT ON VIEW`** ⇒ 回退腳本要把 REVOKE/GRANT 與四段 COMMENT 一起貼回(原文在那四支 migration 裡, 逐字可抄)
 ```
 🔵 **A 與 B 可以留著不回退** —— 它們**不改任何行為**,只是多帶一欄。
 
 ---
 
-## 8. 要 Sean 拍的(**只有一題**,其餘照他已拍的做)
+## 8. ~~要 Sean 拍的~~ ⇒ **已量,零題**
 
+🔬 **2026-09-05 唯讀正式庫實查(主視窗-94 指定「先補那一發」)**:
 ```
-Q-舊手動單:C 片落地那一刻, 【已經建好的】手動單 notification_email 全部是 NULL
-           ⇒ 它們會從「一定寄」變成「一定不寄」。
-
-甲  照新規則走 —— 舊手動單也不寄(乾淨, 而客人可能等不到出貨通知)
-乙  只對新單生效 —— C 片加一個時間界線, 界線前的手動單照舊 fallback
-                    (安全, 而多一條會過期的分支住在碼裡)
-
-推薦:甲。理由 = 乙那條分支【沒有人會回來拆掉它】, 而它的存在本身要靠註解解釋;
-      而甲的代價是可量的 —— 開工前先數「正式庫有幾張 manual_* 的單還沒出貨」。
-      🛑 而那個數我【還沒量】(要查正式庫)⇒ 端這題之前先補那一發。
+manual_* 未出貨未取消      0 張
+manual_* 【總共】          0 張
+🟢 正對照 order_source 全部值   只有 web(1 張)
+🔵 負對照 zzz_never_a_source    0
+訂單活列總數 1(那一張:web / refunded / notOrdered / 通知信箱有值)
 ```
+🎯 **⇒ 原本那題(舊手動單會從「一定寄」變成「一定不寄」)的代價 = 0 人受影響**
+⇒ ✅ **直接走甲(照新規則), 不端給 Sean**(主視窗-94 2026-09-05 裁「不端」)。
 
----
+🔴🔴 **而這一發差一點報錯 —— 記在這裡因為下一個查正式庫的人會撞到同一格**:
+`pg_class.reltuples` 說 `orders` ≈ **20**, 而我數到 **1** ⇒ 看起來像我被 RLS 擋住了。
+🟢 但 `products` 數到 25,038 = 統計 25,038(**尺是好的**), 且 `pcm_readonly` 的 `rolbypassrls = t`(**繞得過 RLS**)。
+✅ **決勝的是 `pg_stat_user_tables`**:`orders` 的 `n_live_tup` = **1**, 而 `last_analyze` 是 **2026-08-12**
+⇒ 🎯 **那個 20 是三週前的過期統計, 不是我看不到的 19 張單。**
+📌 **⇒ 「被擋住」與「那些單早就被清掉」印同一個形狀** ——
+分開它們的不是更仔細地數, 是**去問一個那兩個世界會給不同答案的問題**。
 
 ## 9. 本 plan 證不到什麼
 
