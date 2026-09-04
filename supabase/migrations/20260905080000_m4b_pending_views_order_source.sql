@@ -19,7 +19,11 @@
 --    ✅ 這一片仍然安全, 而**理由是另一個**:`o.order_source` **函數相依於已經在清單裡的 `o.id`**
 --    ⇒ 同一個 `order_id` 的兩列, 新欄的值必然相同 ⇒ 摺疊結果不變。
 --    🛑 **⇒ 下一個照「WHERE 沒動」這句話加欄的人會出事** —— 例如加 `s.tracking_number`
---       (它不相依於清單裡任何鍵)會靜默改列數, 而三綠與探針都不會叫。
+--       —— ⛔ ~~例如加 `s.tracking_number`~~ **那個反例不成立**(codex 2026-09-05 nit:
+--       清單裡已經有 `s.id`, 而 tracking_number 同樣函數相依於它)。
+--       ✅ 真正的反例是**被摺疊掉的那一側**:`oi.id` / `si.order_item_id` ——
+--       一次出貨有多個品項, 而它們**不在** SELECT 清單裡, 正是 DISTINCT 在摺的東西
+--       ⇒ 把它加進來會讓「一次出貨」變成「一個品項一列」, 而三綠與探針都不會叫。
 --    🔬 探針格 2b/6b 造了「同一張單、同一次出貨、兩個品項」⇒ 底層 2 列、view 1 列,
 --       貼前貼後都是 1 ⇒ **那是這件事唯一會現形的形狀。**
 -- 分流的判斷寫在 use-case 那一片(片 C), 它要等 Sean 那一題。
@@ -288,6 +292,42 @@ BEGIN
     RAISE EXCEPTION '自證④:service_role 叫不動 public.pcm_tracking_corrected_dedup_key() ⇒ tracking view 會查一次錯一次';
   END IF;
 
+  -- 🔴🔴 **而「service_role 叫得動」只答了一半** —— codex 2026-09-05 MF1:
+  --    另一半是「**anon 叫不動**」。這四支函式若經 PUBLIC 讓 anon 執行, 那是一條沒人看著的路。
+  --    🔬 **正式庫 2026-09-05 唯讀實查:四支 anon 全 f、service_role 全 t** ⇒ 下面四格今天成立,
+  --       它們釘的是【現況】, 不是一個願望。
+  --    ⚠️ 而本支【沒有動任何 GRANT/REVOKE 去讓它成立】—— 它本來就是那樣。
+  --       ⇒ 📌 這幾行的作用是:**哪天有人放寬了它, 下一支 migration 會在這裡紅。**
+  IF pg_catalog.has_function_privilege(
+       'anon', 'public.pcm_js_trim_whitespace()'::regprocedure, 'EXECUTE') THEN
+    RAISE EXCEPTION '自證⑤:anon 叫得動 public.pcm_js_trim_whitespace() ⇒ invoker view 的函式對外開著';
+  END IF;
+  IF pg_catalog.has_function_privilege(
+       'anon', 'public.pcm_shipped_email_dedup_key(uuid,uuid)'::regprocedure, 'EXECUTE') THEN
+    RAISE EXCEPTION '自證⑤:anon 叫得動 public.pcm_shipped_email_dedup_key() ⇒ invoker view 的函式對外開著';
+  END IF;
+  IF pg_catalog.has_function_privilege(
+       'anon', 'public.pcm_tracking_corrected_at_key(timestamptz)'::regprocedure, 'EXECUTE') THEN
+    RAISE EXCEPTION '自證⑤:anon 叫得動 public.pcm_tracking_corrected_at_key() ⇒ invoker view 的函式對外開著';
+  END IF;
+  IF pg_catalog.has_function_privilege(
+       'anon', 'public.pcm_tracking_corrected_dedup_key(uuid,uuid,timestamptz)'::regprocedure, 'EXECUTE') THEN
+    RAISE EXCEPTION '自證⑤:anon 叫得動 public.pcm_tracking_corrected_dedup_key() ⇒ invoker view 的函式對外開著';
+  END IF;
+
+  -- 🔴 而真正的曝露邊界是【view 本身】—— 函式叫不叫得動, 只有在他先看得到 view 時才有意義。
+  --    🔬 正式庫實查:四個 view 對 anon 皆 f。
+  SELECT pg_catalog.count(*) INTO v_n
+    FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname = 'public' AND c.relkind = 'v'
+     AND c.relname IN ('pcm_order_created_email_pending','pcm_shipped_email_pending',
+                       'pcm_tracking_corrected_email_pending','pcm_unpaid_cancelled_email_pending')
+     AND (pg_catalog.has_table_privilege('anon', c.oid, 'SELECT')
+       OR pg_catalog.has_table_privilege('authenticated', c.oid, 'SELECT'));
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION '自證⑥:有 % 個 view 對 anon/authenticated 開著 SELECT(它們含 PII 兩個 email 欄)', v_n;
+  END IF;
+
   -- 🔵 負對照:一個現造的欄名必須【零】命中 —— 沒有這一格, 上面那個 4 可能來自一把恆真的尺。
   SELECT pg_catalog.count(*) INTO v_n
     FROM pg_catalog.pg_class c
@@ -308,21 +348,21 @@ COMMIT;
 -- 把四個 view 各自 CREATE OR REPLACE 回「沒有 order_source」那一版。
 -- 🔴 而 CREATE OR REPLACE **不能減少欄位** ⇒ 回退要先 DROP VIEW 再 CREATE。
 --    ⚠️ DROP 會把 ACL 一起帶走 ⇒ 回退腳本必須把上面那組 REVOKE/GRANT 一起重跑。
--- 逐字定義:本檔上面那四段, 各自刪掉 `o.order_source AS order_source` 那一行(以及它前面那個逗號)。
--- 🔴🔴 **而 DROP 帶走的不只 ACL —— 還有 `COMMENT ON VIEW`**(R1-F5)。
---    那四段 COMMENT 裡住著 Sean 的拍板、⟦b4-JSWSNARROWER⟧ 的已知缺口、
---    以及「這個 view 與 gap_counts 是互補集, 改一支必須改另一支」——
---    🛑 **而本檔【一個 COMMENT 都沒有】**(`CREATE OR REPLACE` 會保留既有註解, 所以不必重述)
---    ⇒ 📌 **照這段回退的人, 會靜默刪掉四份文件。**
---    ✅ 回退腳本必須把四段 `COMMENT ON VIEW` 一起貼回 —— 原文在:
+-- ✅ **回退腳本已經寫好而且【跑過】**:`scripts/20260905080000-down.sql`(220 行)。
+--    ⛔ ~~逐字定義:本檔上面那四段, 各自刪掉那一行即可~~ —— codex 2026-09-05 MF2:
+--    **一份要人手工拼四段註解的回退指示, 在急著回退的那一刻等於沒有。**
+-- 🔴 `DROP VIEW` 帶走的不只 ACL, 還有四段 `COMMENT ON VIEW`(裡面住著 Sean 的拍板、
+--    ⟦b4-JSWSNARROWER⟧ 的已知缺口、「與 gap_counts 是互補集」那句)⇒ down.sql 逐字貼回。
+--    四段是**機械抄的**(regex 抓整段), 來源逐段標在 down.sql 裡:
 --       order_created      ⇒ 20260905020000_m4b_e4_order_created_pending_view.sql
 --       shipped            ⇒ 20260905040000_m4b_e4_shipped_email_js_whitespace.sql
---                            (⚠️ 20260822010000 也有一份【舊的】—— 要抄【新的】那一份)
+--                            (⚠️ 20260822010000 也有一份【舊的】)
 --       tracking_corrected ⇒ 20260904220000_m4b_outbox_shipment_tracking_corrected_event.sql
---                            (⛔ ~~20260904280000~~ —— R2-M1 抓到我指錯檔:那支零個 COMMENT ON VIEW,
---                             照它去找的人會【查無】, 而查無會被讀成「本來就沒有註解」)
+--                            (⛔ ~~20260904280000~~ 指錯檔, R2-M1 抓到)
 --       unpaid_cancelled   ⇒ 20260905030000_m4b_e4_unpaid_cancelled_pending_view.sql
---    🔬 四個座標都是 `git grep -l "COMMENT ON VIEW public.<view名>"` 當場查的
---       (🔵 負對照:一個現造的 view 名 ⇒ 0 支)。
--- ⚠️ `DROP VIEW` 不加 `CASCADE`:R1 查過**沒有其他 view 依賴這四支**, 三支 gap_counts 是
---    plpgsql 不建 catalog 相依 ⇒ DROP 不會被擋。(這句話會在有人加 view 那天變假。)
+-- 🔬 探針格14/15 **真的跑了它一次** —— rc=0 且回退後 order_source 欄數回到 0。
+--    📌 一支從來沒被執行過的回退腳本, 與一段回退【說明】是同一個東西:
+--       都要在最需要它的那一刻才第一次被讀。
+-- ⚠️ `DROP VIEW` 不加 CASCADE:2026-09-05 查過沒有其他 view 依賴這四支
+--    (三支 gap_counts 是 plpgsql, 不建 catalog 相依)⇒ DROP 不會被擋。
+--    這句話會在有人加 view 那天變假。

@@ -65,6 +65,18 @@ CREATE FUNCTION public.pcm_shipped_email_dedup_key(uuid,uuid) RETURNS text LANGU
 CREATE FUNCTION public.pcm_tracking_corrected_dedup_key(uuid,uuid,timestamptz) RETURNS text LANGUAGE sql IMMUTABLE AS \$\$ SELECT \$1::text||':'||\$2::text||':'||\$3::text \$\$;
 CREATE FUNCTION public.pcm_tracking_corrected_at_key(timestamptz) RETURNS text LANGUAGE sql IMMUTABLE AS \$\$ SELECT \$1::text \$\$;
 CREATE ROLE service_role; CREATE ROLE anon; CREATE ROLE authenticated;
+-- 🔴🔴 fixture 要鏡射【正式庫的權限形狀】, 不是 PG 的預設形狀(2026-09-05 唯讀實查:
+--    四支函式對 anon 皆 f、service_role 皆 t;四個 view 對 anon/authenticated 皆 f)。
+--    ⇒ 不收掉 PUBLIC 的預設 EXECUTE 的話, migration 的自證⑤ 會在【只有這個 fixture 才有】
+--      的世界裡紅 —— 📌 而那不是它抓到缺陷, 是我的 fixture 與被測世界不同。
+REVOKE EXECUTE ON FUNCTION public.pcm_js_trim_whitespace() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.pcm_shipped_email_dedup_key(uuid,uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.pcm_tracking_corrected_at_key(timestamptz) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.pcm_tracking_corrected_dedup_key(uuid,uuid,timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.pcm_js_trim_whitespace() TO service_role;
+GRANT EXECUTE ON FUNCTION public.pcm_shipped_email_dedup_key(uuid,uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.pcm_tracking_corrected_at_key(timestamptz) TO service_role;
+GRANT EXECUTE ON FUNCTION public.pcm_tracking_corrected_dedup_key(uuid,uuid,timestamptz) TO service_role;
 CREATE TABLE public.customers (user_id uuid PRIMARY KEY, email text);
 CREATE TABLE public.orders (id uuid PRIMARY KEY, display_id text, paid_at timestamptz, created_at timestamptz,
   cancelled_at timestamptz, cancelled_reason text, notification_email text, customer_user_id uuid,
@@ -151,7 +163,7 @@ chk "格6c DISTINCT 那支的新欄值" "$DSRC" "manual_line"
 
 # ── 負向 ──────────────────────────────────────────────────────
 Q -f "$MIG" > "$D/again.log" 2>&1; RC2=$?
-chk_ne "格7 🔵 重貼一次 rc(前置閘要擋)" "$RC2" 0
+chk_ne "格7 🔵 重貼一次 rc(前置閘要擋)" "$RC2" 0   # 🔵 而【紅在哪一句】由格8 判
 if grep -qF '已經有 order_source 欄' "$D/again.log"; then chk "格8 🔵 它紅在【對的那一句】" yes yes; else chk "格8 🔵 它紅在【對的那一句】" no yes; fi
 
 # 🧬 格11:自證④(invoker view 的 EXECUTE 斷言)—— 收掉一支函式的 EXECUTE ⇒ 它要紅。
@@ -163,9 +175,37 @@ Q -c "REVOKE EXECUTE ON FUNCTION public.pcm_shipped_email_dedup_key(uuid,uuid) F
 Q -f "$MIG" > "$D/acl.log" 2>&1; RC4=$?
 chk_ne "格11 🧬 收掉一支函式的 EXECUTE ⇒ 貼上去 rc" "$RC4" 0
 if grep -qF '自證④' "$D/acl.log"; then chk "格11b 🧬 而它紅在【自證④】那一句" yes yes; else chk "格11b 🧬 而它紅在【自證④】那一句" no yes; fi
-Q -c "GRANT EXECUTE ON FUNCTION public.pcm_shipped_email_dedup_key(uuid,uuid) TO PUBLIC" > /dev/null
+# 🔴 還原要回到【fixture 原本那個狀態】(收掉 PUBLIC + 給 service_role),
+#    而我第一版寫 `TO PUBLIC` ⇒ 那是 PG 的預設狀態, 不是被測世界的狀態
+#    ⇒ 它讓 anon 又叫得動那支函式, 而下游的格13 就紅在【格11 留下的髒狀態】上。
+#    📌 抓到它的是新加的自證⑤ —— 一個守門在它自己的測試裡抓到了測試的錯。
+Q -c "GRANT EXECUTE ON FUNCTION public.pcm_shipped_email_dedup_key(uuid,uuid) TO service_role" > /dev/null
 
 # 突變:把新欄插在【中間】而不是最後 ⇒ 自證② 要紅
+# 🧬 格12/12b:自證⑤(anon 叫不動)與自證⑥(anon 看不到 view)—— 證它們不是恆綠。
+#    🔴 fixture 現在鏡射正式庫 ⇒ 那兩格在正常世界必然通過 ⇒ 必須各有一發突變把它們打紅,
+#      否則「它們通過」與「它們根本沒被評估」印同一個東西。
+Q -c "DROP VIEW public.pcm_order_created_email_pending, public.pcm_shipped_email_pending, public.pcm_tracking_corrected_email_pending, public.pcm_unpaid_cancelled_email_pending" > /dev/null
+Q -f "$D/before.sql" > /dev/null
+Q -c "GRANT EXECUTE ON FUNCTION public.pcm_tracking_corrected_at_key(timestamptz) TO anon" > /dev/null
+Q -f "$MIG" > "$D/anon1.log" 2>&1; RC5=$?
+chk_ne "格12 🧬 讓 anon 叫得動一支函式 ⇒ 貼上去 rc" "$RC5" 0
+if grep -qF '自證⑤' "$D/anon1.log"; then chk "格12b 🧬 而它紅在【自證⑤】那一句" yes yes; else chk "格12b 🧬 而它紅在【自證⑤】那一句" no yes; fi
+Q -c "REVOKE EXECUTE ON FUNCTION public.pcm_tracking_corrected_at_key(timestamptz) FROM anon" > /dev/null
+
+# 🧬 格13/13b:自證⑥ —— 🔴 而【只 GRANT 給 anon】打不到它:
+#    本檔的 REVOKE 就排在自證之前, 它會把那個 GRANT 收掉 ⇒ 自證⑥ 看到 0 ⇒ 綠。
+#    📌 那不是自證⑥ 壞了, 是**我的突變沒有落在目標上** —— 它其實證明了 REVOKE 有效。
+#    ✅ 要打到自證⑥, 突變得【同時】拿掉那一行 REVOKE:那才是「REVOKE 寫錯/漏寫」的世界。
+Q -c "GRANT SELECT ON public.pcm_shipped_email_pending TO anon" > /dev/null
+sed 's|^REVOKE ALL ON public.pcm_shipped_email_pending .*$||' "$MIG" > "$D/norevoke.sql"
+test -s "$D/norevoke.sql" || { echo "🔴 突變檔是空的"; exit 1; }
+Q -f "$D/norevoke.sql" > "$D/anon2.log" 2>&1; RC6=$?
+chk_ne "格13 🧬 漏寫一行 REVOKE 而 anon 看得到那個 view ⇒ 貼上去 rc" "$RC6" 0
+if grep -qF '自證⑥' "$D/anon2.log"; then chk "格13b 🧬 而它紅在【自證⑥】那一句" yes yes; else chk "格13b 🧬 而它紅在【自證⑥】那一句" no yes; fi
+grep -m1 -E "^psql:.*ERROR" "$D/anon2.log" | sed 's/^/     實際紅在: /'
+Q -c "REVOKE ALL ON public.pcm_shipped_email_pending FROM PUBLIC, anon, authenticated" > /dev/null
+
 # 🔵 R2-N1:下面那個 replace 的縮排字面同時命中 view ①②④(三段逐字相同), ③ 不中
 #    ⇒ 這一發突變【動了三支】, 不是一支。功能上仍是「把新欄插到中間」, 而數字要說對。
 python3 - "$MIG" > "$D/mut.sql" <<'PY'
@@ -179,16 +219,42 @@ Q -c "DROP VIEW public.pcm_order_created_email_pending, public.pcm_shipped_email
 Q -f "$D/before.sql" > /dev/null
 Q -f "$D/mut.sql" > "$D/mut.log" 2>&1; RC3=$?
 chk_ne "格9 🧬 把新欄插在中間 rc" "$RC3" 0
-echo "格10 🧬 而它紅在哪一句(逐字, 不由我貼標籤):"
+# 🔴🔴 codex 2026-09-05 MF3:格9 只判「有失敗」⇒ 因【別的錯】失敗一樣算過;
+#    而格10 只 echo 不更新 FAILED ⇒ 錯誤原因變了它不會叫。
+#    📌 「它紅了」與「它紅在我要的那一句」是兩個宣稱, 而只有後者說得出守到了什麼。
+echo "格10 🧬 它紅在哪一句(逐字):"
 grep -m1 -E '^psql:.*ERROR' "$D/mut.log" | sed 's/^/     /'
+if grep -qF 'cannot change name of view column' "$D/mut.log"; then
+  chk "格10 🧬 而它紅在【欄序】那一句(不是別的錯)" yes yes
+else
+  chk "格10 🧬 而它紅在【欄序】那一句(不是別的錯)" no yes
+fi
 
+
+# 🧬 格14/15:**回退真的跑得動嗎** —— codex MF2 逼出來的那支 down.sql。
+#    🔴 一支從來沒被執行過的回退腳本, 與一段回退【說明】是同一個東西:
+#      都要在最需要它的那一刻才第一次被讀。⇒ 在這裡先跑一次。
+DOWN="$REPO_ROOT/scripts/20260905080000-down.sql"
+if [ -f "$DOWN" ]; then
+  Q -c "DROP VIEW public.pcm_order_created_email_pending, public.pcm_shipped_email_pending, public.pcm_tracking_corrected_email_pending, public.pcm_unpaid_cancelled_email_pending" > /dev/null
+  Q -f "$D/before.sql" > /dev/null
+  Q -f "$MIG" > /dev/null 2>&1
+  Q -f "$DOWN" > "$D/down.log" 2>&1; RC7=$?
+  chk "格14 🧬 回退腳本跑得動 rc" "$RC7" 0
+  [ "$RC7" -ne 0 ] && grep -m2 -E '^psql:.*(ERROR|錯誤)' "$D/down.log" | sed 's/^/     /'
+  [ "$RC7" -ne 0 ] && sed -n '1,6p' "$D/down.log" | sed 's/^/     log: /' 
+  BACK_N=$(Q -Atc "SELECT count(*) FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='v' AND a.attname='order_source' AND a.attnum>0 AND NOT a.attisdropped")
+  chk "格15 🧬 回退之後 order_source 欄數" "$BACK_N" 0
+else
+  echo "  🔴 找不到回退腳本 $DOWN"; FAILED=$((FAILED + 1))
+fi
 
 "$PG_CTL" -D "$D/pg" -w stop > /dev/null 2>&1
 rm -rf "$D"
 
 # 🔴 rc 由【結果】決定 —— 這一段就是 R2-M2 的修法本體。
 if [ "$FAILED" -eq 0 ]; then
-  echo "🟢 全部 15 格通過"
+  echo "🟢 全部 22 格通過"
   exit 0
 fi
 echo "🔴 有 $FAILED 格不符預期 ⇒ 本探針判 FAIL"
