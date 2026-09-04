@@ -8,6 +8,9 @@
 // - M-1-12 Codex review 修正:篩選 / 排序純函式拆 products-filter-logic.ts、
 //   ActiveChips / Pagination 拆同名檔(鐵則 6:元件檔 >400 行必拆);本檔保留
 //   主元件 + PageHeader / SortBar / MobileFab 三個小型版面子元件。
+// - #341-C(2026-09-04)再拆:~~PageHeader / SortBar~~ 已搬出為 `ProductsPageHeader.tsx` /
+//   `ProductsSortBar.tsx`,訊息態樣式與 `hasCatalogFilterParam` 搬去 `products-message-state.tsx`。
+//   🔴 **上一行的舊字面留著** —— 搜 `PageHeader` 想在本檔找到它的人,要在同一發撞到這裡。
 //
 // 字面 vs 事實揭示:
 // - design 的 tweaks / onNav / window.PCM_DATA / 4-variant filterStyle 開關 /
@@ -55,6 +58,11 @@ import { useFacetCountResolver } from '@/lib/vehicle-facet-display';
 import { useServerMobile } from '@/contexts/MobileContext';
 import { ProductCard } from './ProductCard';
 import { ActiveChips } from './ActiveChips';
+// #341-C(鐵則 6 拆檔片, 2026-09-04):以下三支是從本檔**原樣搬出**的 ——
+// 函式本體與註解一個字沒改, 每一刀的理由寫在那三支自己的檔頭。
+import { MESSAGE_STATE_STYLE, hasCatalogFilterParam } from './products-message-state';
+import { ProductsPageHeader } from './ProductsPageHeader';
+import { ProductsSortBar } from './ProductsSortBar';
 import { SearchKeywordChip } from './SearchKeywordChip';
 import { Pagination } from './Pagination';
 import { makeInitialExtraFilters, type ProductExtraFilters } from './filter-state';
@@ -77,31 +85,6 @@ import type { MockBrand } from '@/data/mock-brands';
 import { buildBrandTaxonomy } from '@/lib/brand-taxonomy';
 import type { GarageChipItem } from './GarageChips';
 
-// 訊息態(載入失敗 / 找不到商品)共用樣式;沿用原空狀態 inline 字面、不新增 CSS 檔。
-const MESSAGE_STATE_STYLE: CSSProperties = {
-  padding: '64px 0',
-  textAlign: 'center',
-  color: 'var(--c-text-3)',
-  font: '14px/1.6 system-ui, sans-serif',
-};
-
-// ⟦b4-DEADENDMSG1⟧ 實例③:零結果時要不要給「清除所有篩選」這個出路。
-// 判準 = 「**這一頁的 0 是篩選造成的嗎**」, 而那要問【server 拿什麼去撈】, 不是問畫面上有幾顆
-// chip —— 認不得的 `?category=<改名殘連結>` 會**留在 URL 上**(#315 Sean 2026-08-11 Q1=A,
-// `use-catalog-filter-url-sync.tsx:139`)而**進不了 cascade** ⇒ ActiveChips 的 `chips.length === 0`
-// ⇒ 整條 chip 列(連同它那顆既有的「清除全部」)`return null` ⇒ 🔴 **篩選生效、看不見、清不掉。**
-//
-// 🔴 **這裡刻意用【黑名單】(排掉非篩選參數), 而不是白名單列出篩選參數** —— 與 CLAUDE.md
-//    credential 那條相反, 因為**兩邊漏掉一個新參數的後果方向相反**:
-//    · 白名單漏掉一個【日後新增的篩選參數】⇒ 出路又消失, 而**沒有東西會叫**(這一列復發)
-//    · 黑名單多算一個【不影響結果的雜參數】⇒ 空目錄時多出一顆按不壞的鈕
-//    ⇒ 取後者。
-const NON_FILTER_PARAMS = new Set(['page', 'per', 'sort', 'pick']);
-
-function hasCatalogFilterParam(params: { keys(): IterableIterator<string> }): boolean {
-  for (const key of params.keys()) if (!NON_FILTER_PARAMS.has(key)) return true;
-  return false;
-}
 
 export type ProductsPageProps = {
   /** server-resolved 真目錄商品(toUIProduct 'general' strip、零經銷價;#220 列表遷真;
@@ -137,90 +120,7 @@ export type ProductsPageProps = {
   unmatchedWords?: string;
 };
 
-// PageHeader — 頁首標題 + 麵包屑(標題依 cascade 已選分類 / 車輛推導)
-function PageHeader({ cascade }: { cascade: CascadeFilterState }) {
-  const title =
-    cascade.category?.sub ??
-    cascade.category?.main ??
-    (cascade.vehicle
-      ? cascade.vehicle.model != null
-        ? vehicleLabel(cascade.vehicle.brand, cascade.vehicle.model)
-        : cascade.vehicle.brand
-      : '全部商品');
 
-  return (
-    <div className="pp-head">
-      <div className="pp-head-row">
-        <h1 className="pp-title">{title}</h1>
-        <nav className="pp-breadcrumb" aria-label="麵包屑導航">
-          <Link href="/">首頁</Link>
-          <span>›</span>
-          {cascade.category ? <Link href="/products">商品目錄</Link> : <span>商品目錄</span>}
-          {cascade.category?.main && (
-            <>
-              <span>›</span>
-              <span>{cascade.category.main}</span>
-            </>
-          )}
-          {cascade.category?.sub && (
-            <>
-              <span>›</span>
-              <span>{cascade.category.sub}</span>
-            </>
-          )}
-        </nav>
-      </div>
-    </div>
-  );
-}
-
-// SortBar — 商品數 + grid 欄數切換 + 排序下拉(cascade 版面無 drawer 篩選鈕)
-function SortBar({
-  count,
-  gridCols,
-  setGridCols,
-  sort,
-  setSort,
-}: {
-  count: number | null;   // null = 撈不到，不是 0 件（見 displayCount 的註解）
-  gridCols: number;
-  setGridCols: (n: number) => void;
-  sort: string;
-  setSort: (value: string) => void;
-}) {
-  return (
-    <div className="pp-sortbar">
-      <div className="pp-sortbar-left">
-        <span className="pp-count">{count === null ? '件數未能載入' : `${count} 件商品`}</span>
-      </div>
-      <div className="pp-sortbar-right">
-        <div className="pp-grid-toggle">
-          {[3, 4, 5].map((n) => (
-            <button key={n}
-              className={gridCols === n ? 'is-active' : ''}
-              onClick={() => setGridCols(gridCols === n ? 0 : n)}
-              aria-label={`每排 ${n} 欄`}
-              data-tip={`每排 ${n} 欄`}>
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                {[...Array(n).keys()].map((i) => (
-                  <rect key={i} x={i * (16 / n) + 1} y="1" width={16 / n - 2} height="14" />
-                ))}
-              </svg>
-            </button>
-          ))}
-        </div>
-        <div className="ft-divider" />
-        {/* 選項來自 lib/sort-options 單一定義點(手機的排序面板吃同一份;value 同時是 ?sort= 契約)。
-            手機不顯示本下拉(products-mobile.css 隱藏)= 排序改走上方工具列的獨立入口。 */}
-        <select className="ft-sort" value={sort} onChange={(e) => setSort(e.target.value)}>
-          {SORT_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-      </div>
-    </div>
-  );
-}
 
 // ~~MobileFab~~(手機浮動篩選鈕)已於 ADR-0007 退場:Sean 拍板手機改「分類 / 篩選 / 排序
 // 三個獨立入口」,單顆 FAB 開一個六 tab 混合抽屜正是被否決的形狀。
@@ -400,7 +300,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
           setExtras={setExtras}
         />
         <main className="pp-main">
-          <PageHeader cascade={cascade} />
+          <ProductsPageHeader cascade={cascade} />
           {/* 🔴 關鍵字膠囊排在 `ActiveChips` **前面** —— 它是這一頁商品的**來源**,
               而 ActiveChips 那些是「本來會生效、現在沒生效」的東西。順序講的是因果。 */}
           <SearchKeywordChip keyword={searchKeyword} unmatchedWords={unmatchedWords} />
@@ -422,7 +322,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
               setExtras={setExtras}
             />
           )}
-          <SortBar
+          <ProductsSortBar
             count={displayCount}
             gridCols={gridCols}
             setGridCols={setGridCols}
