@@ -2167,6 +2167,23 @@ git author  ⇒ 用【作者自報】或【那一列的事欄文字】,不要用
 
 🔴 **而「路徑精準」≠「內容精準」**(2026-08-25 拋棄式 repo 雙世界實測):`git add <單一檔案>` 拿的是**那支檔的整個 diff** —— 一支檔被改了兩處(例如另一個窗也動過), `add` 它就兩處全進來。⇒ 動**多窗共用的檔**(`package.json` / `STATUS.md` / 板子)前先 `git diff <檔>` 看清楚。🔴 **而 `git commit -F <msg> -- <pathspec>` 與不帶 pathspec【各擋一半、各對另一半失明】**:帶 pathspec ⇒ 只收指定的檔(擋住別人放進 index 的**其他檔**), **而它收的是【工作樹】那一份** ⇒ 別人在你 `add` 之後對**同一支檔**的編輯會一起被收走;不帶 pathspec ⇒ 收 index(你 `add` 的那版), **而別人的其他檔會一起進去**。⇒ 兩種都不是無條件安全 ⇒ **commit 前 `git diff --cached -- <檔>`、commit 後 `git show HEAD:<檔>` 回核**。<br>🛑 **而【兩邊同時有東西】時(index 有別人的檔、而你要 commit 的那支檔工作樹裡也有別人未 commit 的行), 兩種形狀都不安全 ⇒ 預設動作是【停下來協調、等對方先 commit】, 不要自己動手**(Sean 2026-08-29 拍 `⑦ 補`)。<br>⚠️ **協調不到時有一條路, 而它只被走過一次** —— 五步流程與三道還原守門在 `docs/runbooks/multi-window-command-workflow.md` §v6;**前置條件是【那支檔是尾端追加型、且別人的改動也在尾端】, 中段 ⇒ 不成立, 回到上面那句預設。**
 
+## 附錄 · `git cherry` 比 `git log --oneline` 少一顆 —— 而那是**對的**
+
+`git cherry origin/dev HEAD` **不列 merge 顆**(它比的是 patch-id,而 merge 沒有自己的 patch)。
+⇒ 交件時對帳會看到兩個數:
+
+```
+git rev-list --count origin/dev..HEAD   ⇒ 6
+git cherry origin/dev HEAD | wc -l      ⇒ 5
+```
+
+🔴 **兩個數不一樣是對的, 不要當成掉了一顆去查。** 差額 = 這段區間裡的 merge 顆數。
+🛑 而反過來也要記:**`git cherry` 的 `+` 是「這個 patch 還沒進 dev」** ——
+   一顆被 rebase / cherry-pick 過的 commit,hash 不同而 patch 相同 ⇒ 它會印 `-`(已進)。
+   ⇒ 📌 **要問「我的東西進去了沒」用 `git cherry`;要問「我還有幾顆沒推」用 `rev-list --count`。**
+   兩把尺答的是**兩個不同的問題**,而它們的數字剛好常常一樣 ⇒ 平常看不出來差別。
+🔬 實錘 2026-09-05 線 `-account`:step7 合完 `agent/line-account` 之後,
+   `rev-list` 6 / `cherry` 5,差的那一顆正是那次 merge commit。
 ---
 
 ## 附錄 · 跨窗回報**數字**:數字 + 產生它的那一行指令(2026-09-05 拍板,`⟦ship-BOARDCOUNTMOMENT⟧`)
