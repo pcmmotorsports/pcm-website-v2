@@ -259,7 +259,16 @@ if diff -q "$BASE" "$NEW" >/dev/null 2>&1; then
   exit 0
 fi
 echo "🔴 權限矩陣與基線不同 —— 有人改過, 而 repo 裡沒有那一筆:"
-diff "$BASE" "$NEW" | grep -E '^[<>]' | head -40
-echo "   ⇒ `<` 是基線、`>` 是現在。逐格看:是不是有人在 dashboard / SQL Editor 動了權限?"
+DIFFTMP="$(mktemp)"
+diff "$BASE" "$NEW" | grep -E '^[<>]' > "$DIFFTMP" || true
+# 🔴 先印【每族幾格】再印明細 —— 舊版直接 head -40, 而那個 40 剛好與這次的期望值同數,
+#    ⇒ 一個被截斷的清單長得跟一個剛好 40 筆的清單一模一樣(2026-09-05 實測:漏印 REL 那 8 格)。
+echo "   逐族格數(< 基線只有 / > 現在才有):"
+awk '{sub(/^[<>] /,"&"); tag=substr($0,1,1); sub(/^[<>] /,""); split($0,a,"\t"); print tag" "a[1]}' "$DIFFTMP" \
+  | sort | uniq -c | sed 's/^/     /'
+echo "   明細(全部 $(grep -c . "$DIFFTMP") 行, 不截斷):"
+cat "$DIFFTMP"
+rm -f "$DIFFTMP"
+echo '   ⇒ 左側 < 是基線、右側 > 是現在。逐格看:是不是有人在 dashboard / SQL Editor 動了權限?'
 echo "   ⇒ 確認那些改動【是被批准的】之後, 才跑 --write 重寫基線。"
 exit 1
