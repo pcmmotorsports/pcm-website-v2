@@ -149,6 +149,42 @@ export async function markShipmentShipped(args: {
   return toWriteResult(data, 'admin_mark_shipment_shipped');
 }
 
+/**
+ * 更正【已出貨】包裹的貨運單號(⟦5b-TRACKNUMGAP1⟧ 片 A)。
+ *
+ * 🔴 **這是唯一一支【出貨後】還能動 `tracking_number` 的路** —— 而在它之前,
+ *    唯一的補救路是**一個人在 SQL Editor 手打 `UPDATE`**(零守門、零稽核)。
+ * 🔵 回傳信封含 `changed` —— 片 C 靠它決定要不要重寄出貨信(`changed:false` 不寄)。
+ */
+export async function updateShipmentTracking(args: {
+  idempotencyKey: string;
+  shipmentId: string;
+  trackingNumber: string;
+  actor: string;
+  requestId: string;
+}): Promise<ShipmentWriteResult & { changed: boolean }> {
+  const { data, error } = await createSupabaseServiceClient().rpc('admin_update_shipment_tracking', {
+    p_idempotency_key: args.idempotencyKey,
+    p_shipment_id: args.shipmentId,
+    p_tracking_number: args.trackingNumber,
+    p_actor: args.actor,
+    p_request_id: args.requestId,
+  });
+  if (error) throw error;
+  const base = toWriteResult(data, 'admin_update_shipment_tracking');
+  // 🔴🔴 **`changed` 要在型別上真的存在, 否則「片 C 靠它」只是一句註解**(codex R2 F1)。
+  //    而它**必須缺了就炸** —— 一個回 `undefined` 的世界會讓片 C 讀成「沒變 ⇒ 不寄」,
+  //    ⇒ 📌 **單號改了而客人永遠收不到更正信, 而畫面上一切正常。**
+  const changed = (data as Record<string, unknown> | null)?.changed;
+  if (typeof changed !== 'boolean') {
+    throw new Error(
+      `admin_update_shipment_tracking:回傳缺少 boolean 欄位 changed(實得 ${JSON.stringify(changed)})` +
+        ' —— 片 C 靠它決定要不要重寄更正信,缺了它就分不出「改了」與「沒變」。',
+    );
+  }
+  return { ...base, changed };
+}
+
 /** 作廢這箱(W3-c1)。原因必填。作廢後不可再掛品項、不可出貨;要重出得開新的一箱。 */
 export async function voidShipment(args: {
   idempotencyKey: string;
