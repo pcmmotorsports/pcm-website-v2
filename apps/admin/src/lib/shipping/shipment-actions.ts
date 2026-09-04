@@ -30,6 +30,7 @@ import {
   listCustomerUserIdsByOrderItemIds,
   markShipmentShipped,
   unvoidShipment,
+  updateShipmentTracking,
   voidShipment,
   type CarrierCode,
   type RecipientSnapshot,
@@ -373,9 +374,54 @@ export async function unvoidShipmentAction(args: {
  * ⚠️ **已出貨的箱【改】單號這支做不到**:RPC `:184` `AND shipped_at IS NULL` 是 write-once,
  * `:153` 會直接 RAISE「已經寄出了」。
  * 🔴 而 X8 明文不凍結 `tracking_number`、註解寫「單號可改」——
- * **DB 層允許改、RPC 層不給改,兩層意圖不一致。** 那個落差本片不修(要新 RPC ⇒ migration),
- * 已回報主視窗立 backlog。**不要以為這裡漏做。**
+ * ⛔ ~~**DB 層允許改、RPC 層不給改,兩層意圖不一致。** 那個落差本片不修(要新 RPC ⇒ migration),
+ *   已回報主視窗立 backlog。**不要以為這裡漏做。**~~
+ * ✅ **2026-09-04 補上了**(`⟦5b-TRACKNUMGAP1⟧` 片 A/B, Sean 逐字「甲 = 做, 改完自動再寄一封對的信給客人」):
+ *   已出貨的箱改單號走 `updateShipmentTrackingAction` ⇒ `admin_update_shipment_tracking`。
+ *   🔵 **這一支仍然只做「標記出貨」** —— 兩個動作分開, 理由在那支 action 的檔頭。
+ *   📌 而舊字面留著加刪除線:搜「兩層意圖不一致」的人會同一發撞到這裡, 知道它已經被解掉了。
  */
+/**
+ * 更正【已出貨】包裹的貨運單號(⟦5b-TRACKNUMGAP1⟧ 片 B 的 server 端)。
+ *
+ * 🔴🔴 **它與 `markShipmentShippedAction` 是【兩個動作】, 不是同一個的兩種模式**:
+ *    · 出貨   = 一件事第一次發生(而且不可回收:客人收到信)
+ *    · 更正單號 = **修一個已經發生的事實**, 而客人手上那封信【已經寄出去了】
+ *    ⇒ 📌 所以它有自己的冪等命名空間(`trackfix`)、自己的稽核動作碼, 而不是多一個參數。
+ *
+ * 🔵 回傳含 `changed` —— 片 C(自動重寄更正信)靠它:**單號沒真的變就不寄**,
+ *    否則員工重按一次就轟炸客人一封。
+ */
+export async function updateShipmentTrackingAction(args: {
+  idempotencyKey: string;
+  shipmentId: string;
+  trackingNumber: string;
+}): Promise<VoidResult> {
+  const auth = await authorizeAdminMutation();
+  if (auth === null) return { ok: false, message: NO_ACTOR_MESSAGE };
+  auditLog('shipment.tracking_update', auth, 'attempt', { shipment_id: args.shipmentId });
+  try {
+    await updateShipmentTracking({
+      ...args,
+      // 🔴 稽核那一列的 `actor` 由【這裡】給, 不由 client 送 —— client 送得了任何字串。
+      actor: auth.actorId,
+      // 🔴🔴 **動態 import, 而這【不是】風格選擇。**
+      //    `../audit/context` 讀 `next/headers` ⇒ 它是 server-only;
+      //    而**本檔會被 client 元件 import**(那幾顆鈕都是 `'use client'`)
+      //    ⇒ 頂層 import 會讓整支檔在 client 那一側炸:
+      //    `This module cannot be imported from a Client Component module.`
+      //    🔬 **實測**:我第一版寫成頂層 import ⇒ `shipment-actions.test.ts` 33 格紅。
+      requestId: await (await import('../audit/context')).getRequestId(),
+    });
+    revalidatePath('/orders');
+    auditLog('shipment.tracking_update', auth, 'ok', { shipment_id: args.shipmentId });
+    return { ok: true };
+  } catch (e) {
+    auditLog('shipment.tracking_update', auth, 'fail', { shipment_id: args.shipmentId });
+    return { ok: false, message: toMessage(e) };
+  }
+}
+
 export async function markShipmentShippedAction(args: {
   idempotencyKey: string;
   shipmentId: string;

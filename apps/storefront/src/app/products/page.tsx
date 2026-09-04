@@ -27,6 +27,7 @@ import {
 import { redirect } from 'next/navigation';
 import { searchProducts } from '@/lib/search';
 import { parseSearchFacets, hasAnyFacet } from '@/lib/parse-search-facets';
+import { logSearchQuery } from '@/lib/search-log';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { parseVehicleFromUrl } from '@/lib/vehicle-url';
 import { parseCatalogQuery, isSafeCategoryValue, CATEGORIES_PARAM } from '@/lib/catalog-query';
@@ -176,6 +177,17 @@ export default async function ProductsRoute({ searchParams }: Props) {
       // 🔵 而那是誠實的:那些字**確實沒有被用來過濾** —— 我們算不出「facet AND 關鍵字」
       //    (RPC 那條路與 ILIKE 那條路是互斥的)⇒ **就不要假裝它在過濾。**
       if (parsed.leftover.length > 0) next.set('unmatched', parsed.leftover.join(' '));
+      // 🔴🔴 **記語料要在 `redirect()` 【之前】** —— `redirect()` 是用 throw 實作的,
+      //    寫在它後面的每一行**永遠不會執行**, 而那件事在 diff 上長得像「我寫了」。
+      //    🔵 這條路記的是**膠囊那一種**:`unmatched` 就是「我們的分類缺什麼」的直接訊號,
+      //       而它是本線(俗稱字典)真正要的那一欄。
+      //    🛑 這裡**沒有** `resultCount` —— 商品還沒撈, 而**編一個 0 比留空糟**
+      //       (一個代表「沒有」的值會被讀成「真的 0 筆」)。
+      logSearchQuery({
+        path: 'capsule',
+        query: catalogQuery.search,
+        unmatched: parsed.leftover.length > 0 ? parsed.leftover.join(' ') : null,
+      });
       redirect(`/products?${next.toString()}`);
     }
   }

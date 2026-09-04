@@ -24,6 +24,13 @@ vi.mock('@/lib/supabase/server', () => ({ createServerSupabaseClient: vi.fn() })
 vi.mock('@/lib/auth/composition', () => ({ getVehicleRepo: vi.fn() }));
 // ⟦搜尋-落點換 /products⟧ 2026-09-03:第二條資料路。
 vi.mock('@/lib/search', () => ({ searchProducts: vi.fn() }));
+// 🔴🔴 **`@/lib/search-log` 也要 mock —— 而它是【漏掉這一行】把整支檔弄紅的**(2026-09-04 `-auth`):
+//    `page.tsx` 為了記膠囊那條的語料而 import 它, 而那支檔頭是 `import 'server-only'`
+//    ⇒ 在 jsdom(client)環境載入即 throw `This module cannot be imported from a Client Component`。
+//    🛑 而**我當時沒發現**:`vitest related` 對 `search-facets.ts` 只撈到 2 檔、
+//       而我手挑的那份清單是為【另一片】建的 ⇒ **本檔兩個分母都沒涵蓋到。**
+//    ⇒ 📌 判別句:**我這份測試清單, 是為【這一片動到的檔】建的, 還是我手邊剛好有的那一份?**
+vi.mock('@/lib/search-log', () => ({ logSearchQuery: vi.fn() }));
 // ⟦search-CAPSULEPARSE⟧:`redirect()` 在 server component 是用 throw 實作的
 // ⇒ mock 成 throw 一個認得出來的錯, 才驗得到「有沒有跳、跳去哪」。
 vi.mock('next/navigation', () => ({

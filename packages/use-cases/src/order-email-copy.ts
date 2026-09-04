@@ -114,12 +114,19 @@ export const PCM_COMPANY_ADDRESS = '新北市新莊區化成路736巷18號1樓';
  * **病灶**:DB 的等式是
  * `total = subtotal + shipping_fee - discount_total + tax_total`
  * (`20260828100000_..._orders_tax_and_invoice_requested.sql:281` 逐字),
- * 而信裡的明細**只列前三項** ⇒ 🔴 **`tax_total > 0` 的那一天,客人會收到一張【加不起來】的帳。**
+ * 而信裡的明細⛔ ~~**只列前三項**~~ ⇒ 🔴 **`tax_total > 0` 的那一天,客人會收到一張【加不起來】的帳。**
  *
- * 🛑 **而我【沒有】改成「把稅額也印出來」,理由是這個判斷更耐久**:
+ * ✅ **2026-09-04 訂正(`⟦b4-INVOICE5PCT⟧` 第 7 步;Sean 拍 Q1=乙)**:
+ *    **稅額已經印出來了** —— 兩份信都在「折扣」之後、「訂單金額」之前多一列「稅額」(有稅才印)。
+ *    而**本判準也已經加上第四項** ⇒ `subtotal + shippingFee - discountTotal + taxTotal === total`。
+ *
+ * 🔵 **而下面那段【當時的理由】留著, 因為它仍然成立**:
+ * 🛑 ~~**而我【沒有】改成「把稅額也印出來」**~~,理由是這個判斷更耐久:
  *    我今天知道的漏項是稅;而**下一個被加進 `total` 的欄位,我今天不知道它叫什麼**。
  *    ⇒ 📌 **列舉漏項的修法, 只擋得住我已經想到的那一個。**
- *    ⇒ ✅ **改成問「加不加得起來」** —— 它對**任何**我沒想到的新欄位都成立。
+ *    ⇒ ✅ **問「加不加得起來」** —— 它對**任何**我沒想到的新欄位都成立。
+ *    🎯 **⇒ 兩件事並存不矛盾:【印出來】是給客人看的, 【問加不加得起來】是給下一個加欄的人準備的。**
+ *      而 2026-09-04 那次正是它預言的情形發生了 —— **只是這一次我們知道漏的是哪一項。**
  *
  * ✅ **加不起來時的動作 = 不印明細**(整段跳過),而不是印一個錯的或猜一個差額:
  *    信照寄、金額那段留白、客人仍看得到訂單編號與會員中心那句。
@@ -133,8 +140,20 @@ export function orderAmountsBalance(ctx: {
   shippingFee: number;
   discountTotal: number;
   total: number;
+  /**
+   * 🔴🔴 **2026-09-04 加(`⟦b4-INVOICE5PCT⟧` 第 7 步;Sean 拍 Q1=乙)。**
+   *
+   * ⛔ ~~判準原本是 `subtotal + shippingFee - discountTotal === total`~~ ——
+   *    那個式子**漏掉 DB 等式的第四項**, 而在稅恆為 0 的世界裡它**永遠是對的**
+   *    ⇒ 📌 **一個漏項的判準, 在漏掉的那一項恆為 0 時, 與正確的判準【印同一個答案】。**
+   *
+   * 🔴 **它【必填】** —— 選填的話, 忘了帶的呼叫端會回到舊行為(把稅當 0)
+   *    ⇒ **而那正是本片要修的那個 bug, 只是換了發生地點。**
+   *    ⇒ ✅ 必填讓每一個呼叫端在 typecheck 那一刻被點名。
+   */
+  taxTotal: number;
 }): boolean {
-  return ctx.subtotal + ctx.shippingFee - ctx.discountTotal === ctx.total;
+  return ctx.subtotal + ctx.shippingFee - ctx.discountTotal + ctx.taxTotal === ctx.total;
 }
 
 export function formatOrderAmount(n: number): string {

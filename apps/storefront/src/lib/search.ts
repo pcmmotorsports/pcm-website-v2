@@ -28,6 +28,7 @@ import { SupabaseProductAdapter, createSupabaseAnonClient } from '@pcm/adapters'
 import type { MockProduct } from '@/data/mock-products';
 import { SEARCH_MAX_QUERY_LENGTH } from '@/lib/search-shape';
 import { toUIProduct } from '@/lib/products';
+import { logSearchQuery } from '@/lib/search-log';
 
 /** 疊層即時結果一次最多幾筆(對齊稿 `SearchOverlay.jsx:36` 的 `.slice(0, 8)`)。 */
 export const SEARCH_OVERLAY_LIMIT = 8;
@@ -89,6 +90,29 @@ export async function searchProducts(
   try {
     const adapter = new SupabaseProductAdapter(createSupabaseAnonClient());
     const page = await adapter.searchByKeyword(q, { limit, offset }, { countTotal });
+    // 🔴🔴 **三個閘一起成立才記**(plan v5 §5;每一個都是量出來的, 不是想到的):
+    //    `countTotal === true` 排掉【疊層】—— `/api/search` 逐字傳 `false`,
+    //       而疊層是**邊打字邊呼叫** ⇒ 記它等於把「碳 / 碳纖 / 碳纖維」三筆前綴當成三次搜尋。
+    //    `offset === 0`        排掉【翻頁】—— `products/page.tsx` 每翻一頁重呼一次 ⇒ 次數會灌水。
+    //    (第三個閘 `error === false` 在結構上已經成立:這一行在 `try` 的成功路徑上,
+    //       失敗那條走下面的 `catch` ⇒ 那裡不記。
+    //       ⇒ 🛑 **理由要寫出來** —— 撈失敗回 `{total:0,error:true}`,
+    //         記下去會存成「客人搜的我們都沒有」= 一筆假的缺貨商機。)
+    // 🔵 而它**不 await** —— 記 log 不得讓客人多等(`logSearchQuery` 自己包 `after()`)。
+    // 🔴🔴 **自己包一層 try** —— 而這一格是**測試逼出來的, 不是我想到的**:
+    //    這一行在外層 `try` 裡面 ⇒ `logSearchQuery` 若同步 throw, 會被下面那個 `catch` 接走
+    //    ⇒ **回 `{error:true}` ⇒ 客人看到「搜尋失敗」** ⇒ 📌 那正是 Sean 明令不准的
+    //      「寫入失敗不得影響搜尋回應」。
+    //    🛑 而 `logSearchQuery` 自己**已經**保證不 throw ⇒ 這一層看起來是多餘的 ——
+    //       ✅ 它不是:兩道保證的差別在**誰壞掉時還撐得住**。內層那道由那支檔的作者維護,
+    //          這一道由**這個呼叫點**維護, 而爆炸半徑落在這裡。
+    if (countTotal && offset === 0) {
+      try {
+        logSearchQuery({ query: q, path: 'keyword', resultCount: page.total ?? null });
+      } catch (err) {
+        console.error('[searchProducts] 記語料那一發 throw 了(搜尋不受影響):', err);
+      }
+    }
     return {
       items: page.items.map((p) => toUIProduct(p, 'general')),
       total: page.total ?? null,

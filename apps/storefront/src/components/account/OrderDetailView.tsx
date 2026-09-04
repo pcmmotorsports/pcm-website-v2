@@ -36,6 +36,14 @@
 
 import Link from 'next/link';
 import type { MemberOrderDetail, MemberOrderDetailItem, OrderItemVehicleSnapshot, PaymentStatus } from '@pcm/domain';
+import {
+  PCM_REMITTANCE_ACCOUNT_NAME,
+  PCM_REMITTANCE_ACCOUNT_NO,
+  PCM_REMITTANCE_BANK_NAME,
+  PCM_REMITTANCE_BRANCH,
+  PCM_REMITTANCE_EXPIRE_DAYS,
+  PCM_REMITTANCE_MEMO_INSTRUCTION,
+} from '@pcm/domain';
 import { ProductImage } from '@/components/ProductImage';
 import {
   formatOrderDate,
@@ -513,6 +521,116 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
           </div>
         </div>
       </div>
+
+      {/* 🔴🔴 **鐵則 1:這一塊的【版面】是自創的, 而稿上查無 —— 附掃過的分母**
+          (code-reviewer 2026-09-04 must-fix ⑤;以下每個數字都是我自己重量的, 不是抄它的)
+          ```
+          design-reference/           命中 3 支 / 分母 **177** 支 —— 而三支全是「ATM 轉帳」那四個字
+                                      (CheckoutPage.jsx:432 / :538 · WalletTab.jsx:199 ·
+                                       design-handoff/HANDOFF-v2.0.md:268)
+                                      ⇒ 🛑 **那是【結帳頁的付款方式選項】, 不是訂單詳情頁的收款資訊區塊。**
+          OD 磁碟 12 個專案            grep 匯款 ⇒ 命中 **2 個**(pcm-524f · pcm-admin-order-ui)
+                                      —— 而**兩個都是後台**(order-detail-states / overview-desktop-bmw-m)
+          顧客站訂單詳情的真權威       `pcm-home-redesign/order-detail-page.html` ⇒ 匯款/轉帳/銀行 **0 命中**
+          ```
+          🔵 **⇒ 而 reviewer 說「OD 只命中 1 個專案」, 我量到 2 個** —— 我開檔看了第 2 個,
+             它是 `pcm-524f/order-detail-states.html`(**後台**訂單狀態頁)⇒ **不影響它的結論。**
+          ⚠️ **而我第一發量 `pcm-home-redesign` 得到「14 支命中」** ——
+             開檔看才發現那 14 支是 `checkout-page.html` / 資料檔 / `.file-versions/` 舊版 / playwright 快照,
+             ⇒ 🔴 **訂單詳情那一支自己是 0。**
+             📌 **一個「專案層」的命中數, 答不出「那一頁有沒有」** —— 而它讀起來像答得出。
+
+          🎯 **⇒ 所以這一塊是【自創版面】, 不是照稿搬** —— 而它需要有人知道:
+             ⇒ Sean 2026-09-04 Q-B 拍**乙**「授權自畫, 照信用卡那格, 事後補稿」(那題講的是結帳頁,
+                而**訂單詳情這一塊他沒被問過**)⇒ 已落板 ⟦design-ATMBACKFILL⟧ 與本片的板列。
+             🛑 **不要把它讀成「稿說要這樣做」。**
+
+          🔴🔴 **匯款資訊(M-4b 段 3)—— 它是這條線上唯一【不可回收】的東西。**
+          客人照著這一塊把錢匯出去, 而**印錯一碼 = 錢進了別人的帳戶**。
+          ⇒ 📌 所以那五個值**一個字都不重打**:全部 import 自
+             `packages/domain/src/order/remittance-info.ts`(段 2 落的檔, 記著 Sean 的原話)。
+          ⇒ 🔬 而那 12 碼帳號我**對過**(不是眼睛看):`等Sean拍的題-20260903.md:2391` 逐字
+             「帳號: 200540278354」· `:2491`「甲 它是對的 ⇒ 帳號確認」;
+             ⚪ 負對照:改一碼 ⇒ 在信箱裡找不到 ⇒ **那把尺分得出真假**。
+
+          🔴 **顯示條件是【兩個 AND】, 而少任何一個都會印錯人**:
+          ```
+          paymentChannel === 'bank_transfer'  ← 只有它答得出「這是匯款單」
+                                                (paymentMethod 付款成功才有值 ⇒ 未匯款時是 null)
+          paymentStatus  === 'unpaid'(精確)  ← 🛑 不可以用「不等於 paid」
+          ```
+          🛑 **為什麼是精確 `unpaid`**:`payment_status` 有五個值
+             (unpaid / paid / partiallyPaid / refunded / partiallyRefunded)——
+             而 `partiallyPaid` 的單**已經收到一部分錢** ⇒ 印 `order.total` 會叫客人**再匯一次全額**。
+             ⇒ 📌 **一個否定式條件的射程是【剩下全部】, 而剩下全部會隨 enum 增值而變大。**
+             ⇒ ⇒ 而在「印一個可能錯的數」與「不印」之間, 對不可回收的東西**永遠選不印**。
+
+          🔴🔴 **`!cancelled` 那一格是 code-reviewer 2026-09-04 must-fix ①, 而我第一版漏了它**:
+             🔬 兩條取消路徑**都保留** `payment_status='unpaid'` + `payment_channel='bank_transfer'`
+                (`20260903080000_..._by_payment_channel.sql:185-186`, 該檔 `:244` 逐字「不動 payment_status」;
+                 `20260904050000_..._supersede_bank_order_on_card.sql:203-212` 同款)
+             ⇒ 🛑 少了它 ⇒ 同一頁同時印「訂單已取消」與「請於 5 天內完成匯款」
+             ⇒ ⇒ 🔴 而 `superseded_by_card` 那條的客人**剛剛才刷卡付過一次** —— 我們會叫他再匯一次。
+             📌 **一個「還沒付款」的旗標, 在單子死掉之後仍然是 true。**
+
+          🔴🔴 **而【`unpaid` 不等於「還沒匯款」】—— 這一格本片修不掉, 明寫**
+             (code-reviewer must-fix ②):
+             🔬 板列 ⟦b4-NONCARDPAID1⟧(`docs/launch-todo.md`, 態 `doing`)逐字:
+                **「登記匯款/現金收款【不會】把 `payment_status` 翻成 paid」**
+             ⇒ 🛑 **一個【已經匯過款】的客人打開這一頁, 仍然看到帳號 + 全額 + 逾期警告** ⇒ 重複匯款。
+             ⇒ 📌 **而下面那段「五個值逐一推過」讀起來像窮舉, 它不是** ——
+                那個世界是 `unpaid` 的**子集**, 不在那個列舉裡。
+             ⇒ ⇒ 🔵 修法在 ⟦b4-NONCARDPAID1⟧ 那一列(讓登記收款翻狀態), **不在本片**;
+                而在那之前, 這一塊對「已匯款但沒登記」的客人是錯的。
+
+          🔵 **金額用 `order.total`** —— `types.ts:159` 逐字「訂單總額 = subtotal + shippingFee − discountTotal」
+             ⇒ 那就是客人要付的數(而 partiallyPaid 已被上面那個條件擋在外面)。
+             ⚠️ **而排掉 partiallyPaid 的代價**:那個客人**看不到尾款要匯去哪**(reviewer nit ⑦)——
+                已落板, 不在本片修。
+
+          ⚠️ **兩處字面是我加的, 不是 Sean 的原話**(主視窗 2026-09-04 過, 未端他):
+             · 備註那行帶上**單號本身** —— 他的原話只有「匯款備註請填寫訂單編號」
+               ⇒ 加它的理由:他要客人填的那個東西就在旁邊, 客人不必回上一頁找
+             · 「金額」那一列 —— 他沒提過;而匯款要打金額, 少了它客人得回去翻
+          🔵 而「{PCM_REMITTANCE_EXPIRE_DAYS} 天後自動取消」**不是文案是事實** ——
+             Sean 2026-09-03 逐字「乙 5天」, 而系統真的會做(`20260903080000` 的 `interval '5 days'`);
+             那個常數與那支 migration 由 `remittance-info.test.ts` 比對, 分岔的那一刻會紅。 */}
+      {!cancelled && order.paymentChannel === 'bank_transfer' && order.paymentStatus === 'unpaid' && (
+        <div className="acc-section od-info" data-od-id="order-remittance">
+          {/* 🔴 `od-info` 那個 class 是**樣式的祖先**, 不是裝飾(code-reviewer must-fix ③):
+              稿上那組 dl 的規則是**後代選擇器** `.od-info dl / dt / dd`
+              (`apps/storefront/src/styles/order-detail.css:289-291`)——
+              ⛔ ~~我第一版寫 `<dl className="od-info-dl">`~~ ⇒ 🛑 **全 repo 零條規則命中那個名字**
+              ⇒ dd 保留瀏覽器預設的 `margin-inline-start:40px`、dt/dd 各自成行
+              ⇒ ⇒ 🔴 **那 12 碼帳號會印在一個沒有樣式的縮排清單裡。**
+              📌 **我發明了一個 class 名字, 而發明一個名字不會讓樣式跟著出現。** */}
+          <div className="acc-section-head">
+            <h2>匯款資訊</h2>
+          </div>
+          <dl>
+            <dt>銀行</dt>
+            <dd data-od-id="order-remittance-bank">
+              {PCM_REMITTANCE_BANK_NAME}({PCM_REMITTANCE_BRANCH})
+            </dd>
+            <dt>戶名</dt>
+            <dd data-od-id="order-remittance-holder">{PCM_REMITTANCE_ACCOUNT_NAME}</dd>
+            <dt>帳號</dt>
+            <dd data-od-id="order-remittance-account">{PCM_REMITTANCE_ACCOUNT_NO}</dd>
+            <dt>金額</dt>
+            <dd data-od-id="order-remittance-amount">{nt(order.total.amount)}</dd>
+            <dt>備註</dt>
+            {/* 🔵 `PCM_REMITTANCE_MEMO_INSTRUCTION` 是段 2 落的常數(reviewer nit ②:我第一版手打了它)
+                ⇒ 用常數 ⇒ 這一頁與段 4 那封信從第一天起是**同一份字面**。
+                ⚠️ 而**單號本身是我們加的**, 不在他的原話裡(主視窗 2026-09-04 過, 未端 Sean)。 */}
+            <dd data-od-id="order-remittance-memo">
+              {PCM_REMITTANCE_MEMO_INSTRUCTION} {order.displayId}
+            </dd>
+          </dl>
+          <p className="acc-order-note" data-od-id="order-remittance-expiry">
+            請於 {PCM_REMITTANCE_EXPIRE_DAYS} 天內完成匯款,逾期訂單將自動取消。
+          </p>
+        </div>
+      )}
 
       {cancelled && (
         <div className="acc-section" data-od-id="order-cancelled">
