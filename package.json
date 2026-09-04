@@ -84,6 +84,7 @@
     "scripts/migration-txn-wrap-gate.py": "python3 scripts/migration-txn-wrap-gate.py --selftest",
     "scripts/run-migration-scan-tests.sh": "bash scripts/run-migration-scan-tests.sh --selftest",
     "scripts/invoker-view-execute-gate.py": "python3 scripts/invoker-view-execute-gate.py --selftest",
+    "scripts/acl-snapshot.sh": "bash scripts/acl-snapshot.sh --selftest",
     "scripts/rls-swap-expected-block.py": "bash scripts/rls-service-role-select-verify.sh",
     "packages/adapters/src/payment/PgAnomalyAlertReaderAdapter.ts": "npx vitest run packages/adapters/src/payment/anomaly-alert-key-contract.test.ts",
     "scripts/definer-search-path-gate.py": "python3 scripts/definer-search-path-gate.py --selftest",

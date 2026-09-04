@@ -1,0 +1,168 @@
+#!/bin/bash
+# `public` 底下的權限矩陣快照 —— **讓 dashboard / SQL Editor 的手改【被看見】。**
+#
+# ══ 🛑 它【不擋】人手改, 只讓手改被看見 ══════════════════════════════════════
+#   板列 `:469` 逐字:「ACL 漂移守門裝上了, 而【路⑤ dashboard / SQL Editor 手動改權限】
+#   仍然完全沒有人守」。那條路走的是 Supabase 的網頁介面 —— **repo 裡不會留下任何一個字**
+#   ⇒ 既有的字面守門結構上看不到它。
+#   ✅ 本支的做法:**把正式庫當下的權限矩陣落成一份基線**, 下次跑時比對。
+#      🔴 **它不阻止任何人改** —— 它只讓「改過了」這件事**有一個會叫的地方**。
+#      📌 而那正是這一列缺的東西:今天手改之後, **沒有任何一刻會有人發現。**
+#
+# ══ 🔴 它證不到什麼(讀輸出的人要知道)═══════════════════════════════════════
+#   ① **它只在有人跑它的時候會叫** —— 沒掛任何 hook(矩陣要連正式庫, 掛 hook 等於每次 commit 連線)
+#      ⇒ 它是「盤點工具」不是「守門」。⚠️ 那是刻意的, 不是漏掉。
+#   ② 它比的是【兩次快照之間】的差 ⇒ **改了又改回來, 它看不到。**
+#   ③ 它只看 `public` 這個 schema, 只看那四個角色 ⇒ **別的 schema / 別的角色不在分母裡。**
+#   ④ `has_*_privilege` 對【欄級授權】少報(那個坑本 repo 記過)⇒ 欄級的改動這裡看不到。
+#
+# 用法:bash scripts/acl-snapshot.sh            比對(有差 rc=1)
+#       bash scripts/acl-snapshot.sh --write    重寫基線(= 你在宣告那些差是【被批准的】)
+#       bash scripts/acl-snapshot.sh --selftest
+# 出口:0 沒差 / 1 有差 / 2 ENV-FAIL(這【不是】「沒差」)
+set -uo pipefail
+export LC_ALL=C LANG=C
+
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+BASE="$REPO/supabase/acl-snapshot.tsv"
+# 🔴 主樹(`.env.local` 住的地方)—— 與 0905查證/run.sh 同一條路, 而**絕不印連線字串**。
+ENVROOT="/Users/sean_1/pcm-website-v2"
+
+# ── 產出快照的 SQL(排序固定 —— 否則每次跑都會「有差」)──
+snapshot_sql() {
+  cat <<'SQL'
+\pset pager off
+\pset tuples_only on
+\pset format unaligned
+\pset fieldsep '\t'
+-- 🔴🔴 `UNION` 的欄位型別由【第一個分支】決定 —— 而第一支的 `r.rolname` 是 `name`
+--    ⇒ **整個 obj 欄被降成 `name` ⇒ 每一列在 63 字元被截斷**, 包含下面兩支明轉過 text 的。
+--    🔬 2026-09-05 實測:`admin_add_shipment_items(...)` 完整長 90, 而快照裡第 2 欄長 63。
+--    🎯 **我第一次改的是下面兩支(在它們自己那一層完全正確), 而型別不由它們決定。**
+--    📌 一個在【它自己那一層是對的】修法, 可以完全不生效 —— 而它在 diff 上看起來就是修好了。
+--    🛑 截斷的危險不是不好看:兩支長前綴相同的函式會**塌成同一列** ⇒ 改其中一支這份快照看不到。
+SELECT 'ROLE' AS kind, r.rolname::text AS obj, '' AS priv,
+       CASE WHEN r.rolbypassrls THEN 'BYPASSRLS' ELSE '-' END AS val
+  FROM pg_catalog.pg_roles r
+ WHERE r.rolname IN ('anon','authenticated','service_role','payment_confirmer')
+UNION ALL
+-- 🔴 `nspname` / `relname` 是 `name` 型別 ⇒ `name || name` 仍是 `name` ⇒ **在 63 字元被截斷**
+--    (2026-09-05 實測:一支長函式名在快照裡斷成 `…p_shipm`)⇒ 每一段都明轉 text。
+--    🛑 而截斷的危險不是「不好看」—— 兩支長前綴相同的函式會**塌成同一列**,
+--       那時改其中一支, 這份快照【看不到】。今天量到重複 key = 0, 而那是運氣不是保證。
+       SELECT 'REL', n.nspname::text||'.'||c.relname::text||'|'||c.relkind::text, g.rol,
+       CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'SELECT') THEN 'S' ELSE '-' END ||
+       CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'INSERT') THEN 'I' ELSE '-' END ||
+       CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'UPDATE') THEN 'U' ELSE '-' END ||
+       CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'DELETE') THEN 'D' ELSE '-' END ||
+       CASE WHEN c.relrowsecurity THEN '|RLS' ELSE '|---' END
+  FROM pg_catalog.pg_class c
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  CROSS JOIN (VALUES ('anon'),('authenticated'),('service_role'),('payment_confirmer')) AS g(rol)
+ WHERE n.nspname = 'public' AND c.relkind IN ('r','v','m','p')
+UNION ALL
+SELECT 'FN', n.nspname::text||'.'||p.proname::text||'('||pg_catalog.pg_get_function_identity_arguments(p.oid)||')', g.rol,
+       CASE WHEN pg_catalog.has_function_privilege(g.rol, p.oid, 'EXECUTE') THEN 'X' ELSE '-' END ||
+       CASE WHEN p.prosecdef THEN '|DEF' ELSE '|INV' END
+  FROM pg_catalog.pg_proc p
+  JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+  CROSS JOIN (VALUES ('anon'),('authenticated'),('service_role'),('payment_confirmer')) AS g(rol)
+ WHERE n.nspname = 'public'
+ORDER BY 1, 2, 3;
+SQL
+}
+
+fetch() { # $1 = 輸出檔
+  local sqlf out
+  sqlf="$(mktemp)" || return 2
+  snapshot_sql > "$sqlf"
+  # 🔴 走 0905查證/run.sh 同一條路的做法:載 .env.local 取唯讀連線, **絕不印連線字串**。
+  # 🔴 `.env.local` 只在【主樹】—— 施工窗的 worktree 沒有它(2026-09-05 實測:
+  #    /Users/sean_1/pcm-website-v2 有 · /Users/sean_1/pcm-wt-db 無)。
+  #    ⇒ 走主樹那份, 與 `~/pcm-mailbox/0905查證/run.sh` 同一條路(它也是寫死主樹)。
+  #    🛑 而**載不到就 exit 2**, 不得往下跑 —— 「沒有查」與「查無」不是同一件事。
+  ( cd "$ENVROOT" || exit 2
+    set -a; . ./.env.local > /dev/null 2>&1; set +a
+    [ -n "${PCM_READONLY_DATABASE_URL:-}" ] || { echo "🔴 沒載到 PCM_READONLY_DATABASE_URL ⇒ 沒有查, 不是查無" >&2; exit 2; }
+    /opt/homebrew/bin/psql "$PCM_READONLY_DATABASE_URL" -f "$sqlf" 2>&1 )  > "$1"
+  out=$?
+  rm -f "$sqlf"
+  # 🔴 空的 / 只有錯誤 ⇒ ENV-FAIL, **不得當成「沒差」**
+  # 🔴🔴 2026-09-05 實測:第一版這道守門【沒抓到一個真的失敗】——
+  #    psql 把錯誤印成 `psql:/tmp/xxx:28: ERROR: …`(**有前綴**)⇒ `grep -q '^ERROR'` 零命中
+  #    ⇒ 它印「基線已重寫」而檔裡只有 7 列(其中 3 列還是 `\pset` 的回音)。
+  #    🎯 **抓到它的不是這道守門, 是我在上面印了【列數】** —— 而 7 遠小於我算過的近千。
+  #    📌 **一個把分母印出來的動作, 比一道抓錯 pattern 的守門有用。**
+  # ✅ 三件一起:錯誤不綁行首 · 過濾 psql 的 meta 回音 · 列數下限當硬閘。
+  sed -i '' -e '/^Pager usage/d' -e '/^Output format/d' -e '/^Field separator/d' "$1" 2>/dev/null || true
+  if [ "$out" -ne 0 ] || [ ! -s "$1" ] || grep -qE 'ERROR:|FATAL:' "$1"; then
+    echo "🔴 ENV-FAIL:取不到快照(rc=$out)⇒ 這【不是】「沒差」" >&2
+    grep -E 'ERROR:|FATAL:' "$1" 2>/dev/null | head -3 >&2 || head -3 "$1" >&2
+    return 2
+  fi
+  # 🔴 列數下限:算過 71 表/view + 169 函式, 各 × 4 角色 + 4 個角色列 ⇒ 近千。
+  #    設 200 是【寬鬆的下界】—— 它擋的是「幾乎沒抓到東西而印成功」那一種, 不是精確比對。
+  if [ "$(grep -c . "$1")" -lt 200 ]; then
+    echo "🔴 快照只有 $(grep -c . "$1") 列 ⇒ 遠低於預期(表/view+函式 各 ×4 角色 ⇒ 數百列)" >&2
+    echo "   ⇒ 這【不是】「權限很少」, 是那一發沒抓到東西。不寫基線。" >&2
+    head -3 "$1" >&2
+    return 2
+  fi
+  return 0
+}
+
+if [ "${1:-}" = "--selftest" ]; then
+  ok=0
+  # 🔴 selftest 不連 DB —— 它驗的是【比對邏輯會不會叫】, 不是正式庫的內容。
+  t="$(mktemp -d)"; trap 'rm -rf "$t"' EXIT
+  printf 'REL\tpublic.a|r\tanon\tS---|RLS\nFN\tpublic.f()\tanon\t-|DEF\n' > "$t/base"
+  cp "$t/base" "$t/same"
+  diff -q "$t/base" "$t/same" >/dev/null \
+    && echo "  ✅ 相同 ⇒ 判為沒差" || { echo "  🔴 相同卻判有差"; ok=1; }
+  # 🔴 正對照:改【一行】基線 ⇒ 必須紅(主視窗指定的那一格)
+  sed 's/S---|RLS/SIUD|---/' "$t/base" > "$t/drift"
+  if diff -q "$t/base" "$t/drift" >/dev/null; then
+    echo "  🔴 突變沒套上 ⇒ 這一格作廢"; ok=1
+  else
+    diff "$t/base" "$t/drift" >/dev/null 2>&1 \
+      && { echo "  🔴 改了一行卻判沒差"; ok=1; } \
+      || echo "  ✅ 正對照:改一行基線 ⇒ 判為有差(它會叫)"
+  fi
+  # 🔵 負對照:只有【順序】不同而內容相同 ⇒ 也要判有差
+  #    (那是刻意的:排序固定是本支的前提, 順序變了代表 SQL 的 ORDER BY 被動過)
+  tac "$t/base" > "$t/reorder" 2>/dev/null || tail -r "$t/base" > "$t/reorder"
+  diff -q "$t/base" "$t/reorder" >/dev/null \
+    && { echo "  🔴 順序不同卻判沒差 ⇒ 排序前提壞了而它不會叫"; ok=1; } \
+    || echo "  🔵 負對照:順序不同 ⇒ 也判有差(排序是本支的前提)"
+  [ "$ok" = "0" ] && echo "全部通過。" || echo "🔴 有格沒過。"
+  exit "$ok"
+fi
+
+NEW="$(mktemp)"; trap 'rm -f "$NEW"' EXIT
+fetch "$NEW" || exit 2
+LINES=$(grep -c . "$NEW")
+# 🔴 分母要印出來 —— 一份「0 差異」的報告, 若它只有 3 列, 那個 0 沒有意義。
+echo "  🔵 快照 $LINES 列(public 的表/view × 4 角色 + 函式 × 4 角色 + 4 個角色的 BYPASSRLS)"
+
+if [ "${1:-}" = "--write" ]; then
+  cp "$NEW" "$BASE"
+  echo "  ✅ 基線已重寫:$BASE"
+  echo "  🛑 **你剛剛宣告了「現在這個樣子是對的」** —— 那是一個決定。"
+  echo "     commit body 要寫下你比對過什麼、為什麼那些差是被批准的。"
+  exit 0
+fi
+
+if [ ! -f "$BASE" ]; then
+  echo "🔴 沒有基線($BASE)⇒ 先跑一次 --write。**這不是「沒差」。**" >&2
+  exit 2
+fi
+
+if diff -q "$BASE" "$NEW" >/dev/null 2>&1; then
+  echo "  ✅ 與基線相同 —— ⚠️ 而它只證【兩次快照之間沒差】, 不證沒有人改過(改了又改回來看不到)"
+  exit 0
+fi
+echo "🔴 權限矩陣與基線不同 —— 有人改過, 而 repo 裡沒有那一筆:"
+diff "$BASE" "$NEW" | grep -E '^[<>]' | head -40
+echo "   ⇒ `<` 是基線、`>` 是現在。逐格看:是不是有人在 dashboard / SQL Editor 動了權限?"
+echo "   ⇒ 確認那些改動【是被批准的】之後, 才跑 --write 重寫基線。"
+exit 1
