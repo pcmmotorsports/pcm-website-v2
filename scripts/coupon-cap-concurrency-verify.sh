@@ -324,7 +324,10 @@ if [ "$TOTAL" -ne "$EXPECT_TOTAL" ]; then
   KEEP=1; FAIL=$((FAIL+1)); TOTAL=$(( PASS + FAIL ))
 fi
 printf '結果:PASS=%s FAIL=%s(共 %s 格, 應有 %s)\n' "$PASS" "$FAIL" "$TOTAL" "$EXPECT_TOTAL"
-printf '🛑 射程:拋棄式庫;而 20260831160000 **不在 APPLIED.tsv** ⇒ 正式庫還沒有這支函式。\n'
+printf '🛑 射程:拋棄式庫。而 20260831160000 **帳本 APPLIED.tsv 未記**\n'
+printf '   ⛔ ~~⇒ 正式庫還沒有這支函式~~ ⇒ 那是【無效推論】(2026-09-05 訂正):\n'
+printf '   帳本答的是「有沒有人【記】」, 不是「東西在不在」—— 實測有整支跑過正式庫而帳本零紀錄的。\n'
+printf '   ✅ 要確定:bash scripts/is-migration-applied.sh 20260831160000\n'
 printf '🛑 兩交易的交錯是 pg_sleep 逼出來的 ⇒ 答得出「這個交錯下會怎樣」, 答不出「真實負載下多久撞一次」。\n'
 printf '🛑 不驗 min_spend(純算術、不讀 redemptions ⇒ 與併發無關)。\n'
 [ "$FAIL" = 0 ] || exit 1

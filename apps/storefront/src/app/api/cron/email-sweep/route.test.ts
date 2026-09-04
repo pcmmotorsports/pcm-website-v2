@@ -700,7 +700,16 @@ describe('GET email-sweep — 心跳三態', () => {
     sweepSpy.mockResolvedValue({ ...CLEAN_RESULT });
     const res = await GET(makeReq(bearer()));
     expect(res.status).toBe(200);
-    expect(hbOkSpy).toHaveBeenCalledWith('pcm-email-sweep');
+    // 🔴 ⟦b4-CRON60SDOGPILE⟧ 2026-09-04:第四個參數是**整輪起點**, 心跳那行靠它印 `round=`。
+    //    📌 **這一格擋到我了** —— 它釘的是完整參數列 ⇒ 我一多傳一個它當場紅, 而那是對的。
+    //    🔴 而我把它改成【也驗那個值】而不是放寬成 `expect.anything()`:
+    //      放寬的話, 一個把起點寫成 `Date.now()`(⇒ round 恆為 0)的實作照樣過。
+    const hbArgs = hbOkSpy.mock.calls[0]!;
+    expect(hbArgs[0]).toBe('pcm-email-sweep');
+    expect(typeof hbArgs[3], '沒把整輪起點交出去 ⇒ 那一行印不出 round=').toBe('number');
+    // 🔵 起點必須在【這一發請求開始之後、現在之前】—— 一個寫死的常數或未來的時刻都會紅。
+    expect(hbArgs[3] as number).toBeLessThanOrEqual(Date.now());
+    expect(hbArgs[3] as number).toBeGreaterThan(Date.now() - 60_000);
     expect(hbFailSpy).not.toHaveBeenCalled();
   });
 

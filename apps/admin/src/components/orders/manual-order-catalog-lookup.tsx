@@ -86,7 +86,20 @@ export function ManualOrderCatalogLookup({ searchAction }: ManualOrderCatalogLoo
 
   return (
     <section className='rounded-md border p-3' data-testid='manual-order-catalog-lookup'>
-      <p className='text-sm font-medium'>查商品(查到的資料顯示在下面,請自己填進上面那幾格)</p>
+      {/* 🔴🔴 **⛔ ~~「請自己填進【上面】那幾格」~~ —— 那句指錯方向**(⟦b4-LOOKUPCOPYDIR⟧,
+          2026-09-05 本機後台走查當場撞到)。
+          🔬 兩邊逐字讀過:`manual-order-form-body.tsx:220` 的碼註寫著「查商品排在品項列【上面】
+             —— 員工的動線是『先查到資料, **再往下填**』」, 而渲染順序確實是本元件在前、
+             `<ManualOrderLines/>` 在後 ⇒ 📌 **要填的格子在【下面】, 而畫面上的字說「上面」。**
+
+          🛑 **而修法【不是】把「上面」換成「下面」** —— 那樣同一句話裡會有兩個「下面」
+             (結果在下面、格子也在下面), 而它們指的是不同的東西。
+          ✅ **改成點名那一區的【名字】**:`manual-order-lines.tsx:72` 的 `<legend>` 逐字就是「品項」。
+             🎯 理由不是好聽:**方向詞會在下一次有人調整版面順序時再次變成假的, 而區塊名不會。**
+             ⇒ 這一格順手把「同一個病下次還會發生」關掉, 不只修這一次。 */}
+      <p className='text-sm font-medium' data-testid='catalog-lookup-hint'>
+        查商品(查到的資料顯示在下面,請自己抄進「品項」那幾格)
+      </p>
       <div className='mt-2 flex gap-2'>
         <input
           aria-label='要查的料號'

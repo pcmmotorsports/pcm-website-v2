@@ -612,6 +612,71 @@ describe('⟦b4-CRON6⟧ 心跳耗時那一行', () => {
     expect(hit).toContain('db_result=write_error');
   });
 
+  // ── ⟦b4-EXTPINGTIMEOUT1⟧ 2026-09-04:預算對調(主視窗批)──────────────────
+  it('🔴 兩個子預算加起來【必須】等於總上限 —— 否則那個總上限就不是上限了', () => {
+    // 🔴 承重:有人「順手」把 ping 調大而沒動 db ⇒ 整支心跳的最壞會超過 HEARTBEAT_MAX_MS,
+    //    而那顆常數的存在理由就是「不吃掉 cron 的 60 秒」。這一格是那個不變式。
+    expect(HEARTBEAT_DB_MS + HEARTBEAT_PING_MS).toBe(HEARTBEAT_MAX_MS);
+  });
+
+  it('🔴 預算字面釘樁:db=800 / ping=1200 / max=2000', () => {
+    // 🔵 這三個數是**量出來的**, 不是猜的(讀數與環境寫在 heartbeat.ts 那三個常數上面)。
+    //    ⇒ 📌 釘字面是為了讓「有人憑感覺改回去」這件事**會紅** ——
+    //      而那支檔的舊註解逐字寫過「**要調先去量, 不要憑感覺**」。
+    // 🛑 而它釘的是**字面不是判斷** —— 哪天有新的量測要調, 改這一格是**應該的**,
+    //    而改它的人會被迫看到上面那段讀數。
+    expect(HEARTBEAT_MAX_MS).toBe(2_000);
+    expect(HEARTBEAT_DB_MS).toBe(800);
+    expect(HEARTBEAT_PING_MS).toBe(1_200);
+  });
+
+  it('🔴 ping 的預算必須【大於】實測到的最慢一次(774ms)—— 那 26ms 就是病灶', () => {
+    // 🔬 2026-09-04 實測:ping 雙峰 257-286ms(7 筆)/ 732-774ms(15 筆), max 774。
+    //    舊預算 800 ⇒ 只剩 26ms ⇒ 15% 逾時。
+    // 🔴 承重:任何把 ping 調回 800 以下的改動, 這一格會紅並說出為什麼。
+    expect(HEARTBEAT_PING_MS).toBeGreaterThan(774);
+    // 🔵 而 db 那半也要留得住實測最大值 474ms。
+    expect(HEARTBEAT_DB_MS).toBeGreaterThan(474);
+  });
+
+  // ── ⟦b4-CRON60SDOGPILE⟧ 2026-09-04:整輪耗時掛在這一行上 ──────────────────
+  //    🎯 它解的是**量不到**, 不是慢:被平台 kill 的那一發不回 503、不寫心跳,
+  //      而 Vercel runtime log **沒有耗時欄位** ⇒ 今天只答得出「跑完了沒」,
+  //      答不出「離 60 秒還有多遠」⇒ **撞到之前完全沒有預警。**
+  it('🔴 給了整輪起點 ⇒ 那一行多印 round=<毫秒>ms, 而且是【真的量到的數】', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const store = fakeStore({});
+    // 🔴 起點往前推 1234ms ⇒ 印出來的數必須 >= 1234。
+    //    📌 承重:一個把它寫死成 0 或印 `Date.now()` 的實作, 只有這個下界殺得死。
+    await recordHeartbeatSuccess(
+      CRON_JOB_NAME.emailSweep,
+      store.store,
+      async () => {},
+      Date.now() - 1234,
+    );
+    const hit = lines(spy).find((l) => l.includes('db=') && l.includes('ping='));
+    spy.mockRestore();
+    const m = /round=(\d+)ms/.exec(hit ?? '');
+    expect(m, '那一行沒有 round= ⇒ 這一格的整個目的落空').not.toBeNull();
+    expect(Number(m![1])).toBeGreaterThanOrEqual(1234);
+  });
+
+  it('🟢 **沒給起點 ⇒ 那一行一個字都不多印**(既有呼叫端逐位元不變)', async () => {
+    // 🔴🔴 這一格是承重的, 而理由不在本檔:
+    //    板 `⟦b4-CRON60SDOGPILE⟧` 那個「數完成輪數」的量法, 就是去 grep 這一行的 `db=`
+    //    ⇒ 我在這一行上多加東西, **有可能把那把尺弄壞**。
+    //    ⇒ 📌 所以「沒給起點時逐位元不變」不是潔癖, 是**別人的量具還能不能用**。
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const store = fakeStore({});
+    await recordHeartbeatSuccess(CRON_JOB_NAME.settleSweep, store.store, async () => {});
+    const hit = lines(spy).find((l) => l.includes('db=') && l.includes('ping='));
+    spy.mockRestore();
+    expect(hit).not.toContain('round=');
+    // 🔵 而那把尺要的字面還在。
+    expect(hit).toContain('db=');
+    expect(hit).toContain('db_result=');
+  });
+
   it('🔵 DB 逾時的時候, 那一行要說得出來(db_result=timeout)', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     // 🔴 `fakeStore` **沒有**「永不 resolve」這個選項(我第一版憑印象寫了一個不存在的

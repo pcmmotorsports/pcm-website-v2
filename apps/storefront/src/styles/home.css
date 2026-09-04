@@ -207,10 +207,20 @@
    **43px**,比這行註解自己宣稱的 44 少 1px。這是**註解宣稱與實際值的自我矛盾**、不是品味問題,
    ⇒ 直接補正成 `-20.5px`(3 + 20.5×2 = **44**)。
    `.5` 的理由與頁首 padding 同款:整數只能得到 43 或 45,而 44 正是那條底線本身。
-   守門釘的是**算出來的高度**、不是這兩個字面(見 `home.test.ts`),換算法照樣擋得住。 */
+   守門釘的是**算出來的高度**、不是這兩個字面(見 `home.test.ts`),換算法照樣擋得住。
+   🔴🔴 2026-09-05 ⟦f3-MOBTAP44⟧:**上面整段只處理了【高】** —— `left/right: 0` = 水平零外擴,
+   而本體寬 34px ⇒ 命中區一直是 **34×44**。真瀏覽器實測(390×844 正式站)逐字 `34x44`。
+   🛑 而**守門也只問了高**(`barH + top + bottom`)⇒ 實跑突變:寬 34 改 10px ⇒ **82 格全綠**。
+   📌 **一個只答了一半的修法, 配一道只問了一半的守門, 合起來讀起來像做完了。**
+   ⇒ ✅ 補水平外擴 `-4px`。🔴 **而 44 在這個版面上【數學上做不到】, 這不是保守**:
+      `.b-hero-nav` 的 `gap: 8px` ⇒ 相鄰兩條的中心間距 = 34 + 8 = **42px**
+      ⇒ 要 44 就得讓兩條的命中區**互相重疊**, 而重疊區只會歸其中一條(DOM 後者贏)
+      ⇒ 那不會變成 44, 只會讓前一條變成 42 而後一條吃到 46。
+   ⇒ 🎯 **所以 `-4px` 是【把間距用完】的那個值:34 + 4×2 = 42, 與 8px 的 gap 剛好貼齊、零重疊。**
+      **要真的到 44 必須把 `gap` 從 8 改成 ≥10 —— 那是【看得見】的版面改動 ⇒ 本片不做, 端出去。** */
 .b-hero-tick::after {
   content: "";
-  position: absolute; left: 0; right: 0; top: -20.5px; bottom: -20.5px;
+  position: absolute; left: -4px; right: -4px; top: -20.5px; bottom: -20.5px;
 }
 /* 🔴 深色場的焦點框要換色(OD :52-53):預設的 `--c-ember-ink`(#c4470c)壓在照片上看不清楚。
    切換條是鍵盤使用者唯一能操作的東西,焦點框看不見等於不能用。 */
@@ -1107,7 +1117,13 @@
 .b-select-title .ed-mono { color: var(--ed-c-ink-mute); }
 .b-select-actions { display: flex; align-items: center; gap: 20px; }
 .b-select-nav { display: flex; gap: 8px; }
+/* 🔴 2026-09-05 ⟦f3-MOBTAP44⟧:本體 36×36 是**看得見的**(有 border 有底色)⇒ 不動它,
+   改用與 `.b-hero-tick` 同一招:`::after` 外擴命中區, 畫面零改動。
+   36 + 4×2 = **44**;`.b-select-nav` 的 `gap: 8px` ⇒ 兩顆的外擴剛好貼齊、零重疊。
+   🔵 與 hero tick 的差別值得記:那邊 34 + 8 = 42 **到不了 44**, 這邊 36 + 8 = 44 **剛好到**
+   —— 📌 同一招在兩個地方,一個成立一個不成立,而差別只在本體寬度差 2px。 */
 .b-select-arrow {
+  position: relative;
   width: 36px;
   height: 36px;
   border: 1px solid var(--ed-c-rule-control);
@@ -1121,6 +1137,11 @@
 /* 🔴 OD 有畫 `:disabled` 態卻**沒有接線**(原型裡兩顆箭頭是死的,全檔零 JS 命中)——
    本 repo 接了(捲到頭 / 到底時 disabled),否則就是兩顆看起來能按、按了沒反應的按鈕。 */
 .b-select-arrow:disabled { opacity: 0.35; cursor: not-allowed; }
+/* 命中區外擴:純命中區、零視覺(無背景無邊框)。⚠️ `:disabled` 的鈕本來就不可按, 這一格不改變那件事。 */
+.b-select-arrow::after {
+  content: "";
+  position: absolute; left: -4px; right: -4px; top: -4px; bottom: -4px;
+}
 .b-carousel-wrap {
   position: relative;
   overflow: hidden;

@@ -417,6 +417,21 @@ const ALLOWLIST = [
   //      ⇒ ⇒ 🛑 **所以 C 不改這裡的話, 它會紅** —— 已寫進
   //        `supabase/migrations/PENDING-C-drop-create-order-10arg.sql.txt` 的檔頭。
   '20260904020000_m4b_create_order_payment_channel.sql',
+  // 🔴🔴 `20260904251500`(2026-09-05 登錄, 線【帳號】`⟦b4-INVOICE5PCT⟧` 第 2 步)——
+  //    `admin_create_manual_order` 的**第④代**(`CREATE OR REPLACE`, 簽名一個字沒動)。
+  //
+  //    ✅ **它為什麼有資格寫那幾欄**:本體是從第③代 `20260831180000:100-692`
+  //      **用程式切下來原樣抄**的, 只動四處(DECLARE / 驗 `p_invoice.requested` / 指紋 / INSERT 多一欄)
+  //      —— 🔴 **`subtotal` / `line_total` / `total` 的算法一個字元都沒有動。**
+  //      🔬 而那不是我宣稱的:當時做過機械 diff —— 新增 32 行、刪除 1 行(空行),
+  //        非註解新增只有那 11 行, 每一行都在四處改動的原地。
+  //    🛑 **而這道閘【判不出】那件事**(同上一項那個已知限制:它比對語句、不是值域)
+  //      ⇒ 📌 **「算法沒動」由那次 diff 背書, 不是由這一列。**
+  //
+  //    🔵 **本項是【它合進 dev 之後才紅】的那一發** —— 而它紅得對:
+  //      這支 migration 是新的寫入者、而沒有人登記它。
+  //      ⚠️ 而我當初沒看到, 是因為**我挑的測試分母沒有涵蓋這支檔**(我餵三支自己選的)。
+  '20260904251500_m4b_invoice5pct_manual_order_invoice_requested.sql',
 ] as const;
 
 function scanWriters(dir: string): string[] {
