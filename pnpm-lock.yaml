@@ -104,6 +104,12 @@ importers:
       '@base-ui/react':
         specifier: ^1.6.0
         version: 1.6.0(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@fontsource/noto-sans':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/noto-sans-tc':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@pcm/adapters':
         specifier: workspace:*
         version: link:../../packages/adapters
@@ -690,6 +696,9 @@ packages:
 
   '@fontsource/noto-sans-tc@5.3.0':
     resolution: {integrity: sha512-+0MguVH2vIxkVJLiaMHVKHk+yJZmZvMU9d8z88JdUx8C2CgMLOtm7WNloi3HYlvCNy7TpuvjIUvh5iiGp6INxQ==}
+
+  '@fontsource/noto-sans@5.3.0':
+    resolution: {integrity: sha512-fBCog2PY7DiVVTEEqtI/Qdinx/knobHYfoGpjFXdfBX5RoJaBp1Prw2G75p0OIsdlMZg3cLo0c+YbIUYOxnQJw==}
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -3374,6 +3383,8 @@ snapshots:
   '@floating-ui/utils@0.2.12': {}
 
   '@fontsource/noto-sans-tc@5.3.0': {}
+
+  '@fontsource/noto-sans@5.3.0': {}
 
   '@humanfs/core@0.19.2':
     dependencies:
