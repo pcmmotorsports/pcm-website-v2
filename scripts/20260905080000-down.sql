@@ -14,7 +14,36 @@
 -- ⚠️ 四段註解是**機械抄的**(regex 抓 `COMMENT ON VIEW … ;` 整段), 不是我重打的。
 --    來源檔逐段標在下面。
 
+-- ══ 🔴🔴 執行順序:**先退【碼】, 再退【DB】**(codex R2-MF2)═════════════════
+-- 片 B 的四支 scanner 會在 `.select()` 裡要 `order_source`。
+-- ⇒ **DB 先退而碼還在線上** ⇒ PostgREST 回 **42703 undefined_column** ⇒ `ScanQueryError`
+--   ⇒ 🛑 **四條通知線整段停** —— 而那正是這一片一開始要避免的事, 只是方向相反。
+--
+-- ✅ **正確順序(三步, 缺一不可)**:
+--    ① 先把片 B 的碼退掉並**等它部署完**(revert `fa97ea3a0` 那顆 / 或退回沒有 `order_source`
+--       的那一版 adapter)—— 🔴 **等【部署完】, 不是等 commit。**
+--    ② 跑本檔。
+--    ③ 🔴 **把帳本改回去** —— 本支的版本號要從 `supabase/APPLIED.tsv` 移除,
+--       否則 `deploy-order-gate.sh` / `is-migration-applied.sh` 會把一個**已經回退的 DB**
+--       讀成「已套」⇒ 下一個人據此判斷, 而他不會知道。
+--       ⚠️ 而 Supabase 平台那側若也記了一筆(`supabase_migrations.schema_migrations`),
+--          同樣要清 —— **兩本帳, 而它們不會互相同步。**
+--
+-- 🛑 **下面那道閘就是在擋 ①**:它擋不住你說謊, 但它擋得住你【忘記】。
+--    跑法:`psql "$CONN" -c "SET pcm.code_reverted = 'yes'" -f scripts/20260905080000-down.sql`
+--    或在同一個 session 先下 `SET pcm.code_reverted = 'yes';` 再 `\i` 本檔。
+
 BEGIN;
+
+DO $$
+BEGIN
+  IF pg_catalog.current_setting('pcm.code_reverted', true) IS DISTINCT FROM 'yes' THEN
+    RAISE EXCEPTION E'回退前置閘:片 B 的碼退了嗎?\n'
+      '  🔴 DB 先退而碼還在線上 ⇒ PostgREST 42703 ⇒ 四條通知線整段停。\n'
+      '  ⇒ 先退碼、等部署完, 然後帶著 SET pcm.code_reverted = ''yes'' 再跑一次。\n'
+      '  (這道閘擋不住你說謊, 它擋的是你忘記。)';
+  END IF;
+END $$;
 
 DROP VIEW public.pcm_order_created_email_pending;
 DROP VIEW public.pcm_shipped_email_pending;

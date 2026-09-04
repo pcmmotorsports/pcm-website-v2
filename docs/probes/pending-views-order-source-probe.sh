@@ -231,6 +231,24 @@ else
 fi
 
 
+# 🧬 格13c/13d:codex R2-MF1 —— 【欄級】授權。
+#    🔴 `has_table_privilege` 對 `GRANT SELECT (欄) ON view TO anon` 回 false,
+#      而那個角色已經讀得到那一欄(而那一欄就是 email)。
+#    ⇒ 這一發突變只給【一欄】, 不給整張表:表級尺看不到它, 而自證⑥ 必須看到。
+Q -c "DROP VIEW public.pcm_order_created_email_pending, public.pcm_shipped_email_pending, public.pcm_tracking_corrected_email_pending, public.pcm_unpaid_cancelled_email_pending" > /dev/null
+Q -f "$D/before.sql" > /dev/null
+Q -c "GRANT SELECT (customer_email) ON public.pcm_shipped_email_pending TO anon" > /dev/null
+TBL=$(Q -Atc "SELECT pg_catalog.has_table_privilege('anon','public.pcm_shipped_email_pending','SELECT')")
+COL=$(Q -Atc "SELECT pg_catalog.has_any_column_privilege('anon','public.pcm_shipped_email_pending','SELECT')")
+chk "格13c 🔴 只給一欄時, 【表級】尺看得到嗎(它該看不到 = 這就是 MF1)" "$TBL" f
+chk "格13c2 ✅ 而【欄級】尺看得到" "$COL" t
+sed 's|^REVOKE ALL ON public.pcm_shipped_email_pending .*$||' "$MIG" > "$D/norevoke2.sql"
+test -s "$D/norevoke2.sql" || { echo "🔴 突變檔是空的"; exit 1; }
+Q -f "$D/norevoke2.sql" > "$D/col.log" 2>&1; RC8=$?
+chk_ne "格13d 🧬 只給一欄 + 漏寫 REVOKE ⇒ 貼上去 rc" "$RC8" 0
+if grep -qF '自證⑥' "$D/col.log"; then chk "格13d2 🧬 而它紅在【自證⑥】那一句" yes yes; else chk "格13d2 🧬 而它紅在【自證⑥】那一句" no yes; fi
+Q -c "REVOKE ALL ON public.pcm_shipped_email_pending FROM PUBLIC, anon, authenticated" > /dev/null
+
 # 🧬 格14/15:**回退真的跑得動嗎** —— codex MF2 逼出來的那支 down.sql。
 #    🔴 一支從來沒被執行過的回退腳本, 與一段回退【說明】是同一個東西:
 #      都要在最需要它的那一刻才第一次被讀。⇒ 在這裡先跑一次。
@@ -239,7 +257,12 @@ if [ -f "$DOWN" ]; then
   Q -c "DROP VIEW public.pcm_order_created_email_pending, public.pcm_shipped_email_pending, public.pcm_tracking_corrected_email_pending, public.pcm_unpaid_cancelled_email_pending" > /dev/null
   Q -f "$D/before.sql" > /dev/null
   Q -f "$MIG" > /dev/null 2>&1
-  Q -f "$DOWN" > "$D/down.log" 2>&1; RC7=$?
+  # 🔵 codex R2-MF2 加了一道前置閘 ⇒ 先證它【會擋】, 再帶旗標跑一次證它【會過】。
+  Q -f "$DOWN" > "$D/down-noflag.log" 2>&1; RCG=$?
+  chk_ne "格13e 🧬 不帶旗標跑回退 ⇒ rc(前置閘要擋)" "$RCG" 0
+  if grep -qF '片 B 的碼退了嗎' "$D/down-noflag.log"; then chk "格13f 🧬 而它紅在【回退前置閘】那一句" yes yes; else chk "格13f 🧬 而它紅在【回退前置閘】那一句" no yes; fi
+  { echo "SET pcm.code_reverted = 'yes';"; cat "$DOWN"; } > "$D/down-run.sql"
+  Q -f "$D/down-run.sql" > "$D/down.log" 2>&1; RC7=$?
   chk "格14 🧬 回退腳本跑得動 rc" "$RC7" 0
   [ "$RC7" -ne 0 ] && grep -m2 -E '^psql:.*(ERROR|錯誤)' "$D/down.log" | sed 's/^/     /'
   [ "$RC7" -ne 0 ] && sed -n '1,6p' "$D/down.log" | sed 's/^/     log: /' 
@@ -254,7 +277,7 @@ rm -rf "$D"
 
 # 🔴 rc 由【結果】決定 —— 這一段就是 R2-M2 的修法本體。
 if [ "$FAILED" -eq 0 ]; then
-  echo "🟢 全部 22 格通過"
+  echo "🟢 全部 28 格通過"
   exit 0
 fi
 echo "🔴 有 $FAILED 格不符預期 ⇒ 本探針判 FAIL"

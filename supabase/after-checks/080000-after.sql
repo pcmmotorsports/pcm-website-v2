@@ -68,9 +68,10 @@ SELECT pg_catalog.count(*) AS 負對照_zzz
 \echo '=== ④ ACL:這四個 view 只該給 service_role SELECT ==='
 \echo '    預期:四列都是 t(anon / authenticated / PUBLIC 一個都不該有)'
 SELECT c.relname AS view名,
-       NOT pg_catalog.has_table_privilege('anon', c.oid, 'SELECT')          AS anon看不到,
-       NOT pg_catalog.has_table_privilege('authenticated', c.oid, 'SELECT') AS authed看不到,
-       pg_catalog.has_table_privilege('service_role', c.oid, 'SELECT')      AS service_role看得到
+       -- 🔴 codex R2-MF1:表級那一支對【欄級授權】少報 ⇒ 一律用 has_any_column_privilege
+       NOT pg_catalog.has_any_column_privilege('anon', c.oid, 'SELECT')          AS anon看不到,
+       NOT pg_catalog.has_any_column_privilege('authenticated', c.oid, 'SELECT') AS authed看不到,
+       pg_catalog.has_any_column_privilege('service_role', c.oid, 'SELECT')      AS service_role看得到
   FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
  WHERE n.nspname='public' AND c.relkind='v'
    AND c.relname IN ('pcm_order_created_email_pending','pcm_shipped_email_pending',
@@ -81,4 +82,4 @@ SELECT c.relname AS view名,
 \echo '=== 🛑 這一份【證不到】什麼 ==='
 \echo '    · 它證欄位在, 不證那一欄【填對了值】—— 要那個, 去看實際資料'
 \echo '    · 它不證行為沒變。行為那一半由片 A 的探針(拋棄式 PG, 貼前貼後各數一次列)答'
-\echo '    · has_table_privilege 對【欄級授權】會少報 —— 這裡問的是表級, 夠用而不是全部'
+\echo '    · ⛔ ~~has_table_privilege 對欄級授權會少報~~ ⇒ 已全部換成 has_any_column_privilege(codex R2-MF1)'

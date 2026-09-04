@@ -322,8 +322,14 @@ BEGIN
    WHERE n.nspname = 'public' AND c.relkind = 'v'
      AND c.relname IN ('pcm_order_created_email_pending','pcm_shipped_email_pending',
                        'pcm_tracking_corrected_email_pending','pcm_unpaid_cancelled_email_pending')
-     AND (pg_catalog.has_table_privilege('anon', c.oid, 'SELECT')
-       OR pg_catalog.has_table_privilege('authenticated', c.oid, 'SELECT'));
+     -- 🔴🔴 codex R2-MF1:⛔ ~~`has_table_privilege`~~ **對【欄級授權】少報** ——
+     --    `GRANT SELECT (customer_email) ON <view> TO anon` 之下它回 false,
+     --    而那個角色**已經讀得到那一欄**(而那一欄就是 email)。
+     --    ✅ `has_any_column_privilege` 同時涵蓋表級與欄級 ⇒ 這裡要用它。
+     --    📌 這正是本 repo memory 記過的那一格:「has_*_privilege 對欄級授權少報」——
+     --       而我上一版照樣用了表級那一支。
+     AND (pg_catalog.has_any_column_privilege('anon', c.oid, 'SELECT')
+       OR pg_catalog.has_any_column_privilege('authenticated', c.oid, 'SELECT'));
   IF v_n <> 0 THEN
     RAISE EXCEPTION '自證⑥:有 % 個 view 對 anon/authenticated 開著 SELECT(它們含 PII 兩個 email 欄)', v_n;
   END IF;
