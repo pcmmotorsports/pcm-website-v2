@@ -13,7 +13,7 @@
 //    ⇒ ⇒ ⇒ 🎯 **本片的驗收不是命中率,是【沒命中的那些字去哪了】。**
 
 import { foldSearchTerm, foldEquals, foldIncludes } from './search-terms-fold';
-import { synonymFor, type SearchSynonym } from '@/data/search-synonyms';
+import { SEARCH_SYNONYMS, type SearchSynonym } from '@/data/search-synonyms';
 // 🔴 分隔符**共用同一個定義** —— 而今天這個缺陷的成因就是「好幾個生產者不共用」
 //    (實查五個寫入點, 清單與 grep 指令見下方 `category` 欄位的註解)。
 //    (那支檔零 hook、無 `use client`, 純解析層 ⇒ server 端 import 安全。)
@@ -51,9 +51,20 @@ export type ParsedFacets = {
    *    修法後全路徑拆得回 `{main, sub}` ⇒ 膠囊才真的出得來。
    */
   readonly category: string | null;
+  /**
+   * ⟦M-4b 多顆分類膠囊⟧ Sean 2026-09-04 拍甲(聯集)——「魚雷管 / 白鐵管要**同時**列全段+尾段」。
+   * 🔴 **一個俗稱可以對到多個正式名**:字典那側是**同一個 `from` 多筆列**(`-auth` 的線),
+   *    而**讀它的那一行原本是 `.find()`** ⇒ 只回第一筆 ⇒ 📌 **第二筆會被安靜丟掉。**
+   * 🔵 `category` 保留 = 這裡的第一顆(舊呼叫端不動);新的呼叫端讀 `categories`。
+   * ⚠️ **而「第一顆」是 `SEARCH_SYNONYMS` 的【陣列序】** —— 那是資料檔的偶然, **不是規格**:
+   *    字典是手維護的, 重排是零成本動作, 而重排之後客人拿到的第一顆會變, **沒有東西會叫**。
+   */
+  readonly categories: readonly string[];
   /** 🔴 **沒有被任何一顆膠囊用掉的字** —— 它要被畫出來。 */
   readonly leftover: readonly string[];
   /** 用到了哪幾條字典(給畫面標「這是猜的」用;空 = 全靠格式正規化)。 */
+  /** ⚠️ **一個詞可能 push 多筆**(同一個 `from` 對到多個正式名)⇒ 拿 `.length` 當
+   *  「幾個詞用了字典」會多算。今天全 repo 只有測試在讀它。 */
   readonly usedSynonyms: readonly SearchSynonym[];
 };
 
@@ -189,6 +200,7 @@ export function parseSearchFacets(query: string, src: FacetSources): ParsedFacet
   //    ⛔ ~~而**字典排最後** —— 能靠格式對上的就不要動用字典~~ **2026-09-04 作廢**:
   //       字典現在排在**模糊比對前面**(第一趟)⇒ 只有「完全同名」比它早。
   let category: string | null = null;
+  let categories: string[] = [];
   // 🔴 `name` 用來比對(客人打的是短名), `path` 才是要寫進 `?category=` 的東西。
   //    ⚠️ **兩者不可以合成一個** —— 比對要短名, 網址要全路徑, 而那正是這個缺陷的形狀。
   // 🔴 `count` 帶進來, 因為挑落點要用它(見下方 `pickCategory` 的第二階段)。
@@ -228,14 +240,37 @@ export function parseSearchFacets(query: string, src: FacetSources): ParsedFacet
           break;
         }
         // ── ② 俗稱字典 ⇒ 人工策劃的意圖 ─────────────────────────────────
-        const syn = synonymFor(w, foldSearchTerm);
-        if (syn && syn.kind === 'category') {
+        // 🔴 **`.filter` 不是 `.find`** —— 同一個 `from` 的每一筆都要收。
+        //    而 `synonymFor` 那支(字典檔裡的)**維持原樣不動**:它是 `-auth` 的線,
+        //    我動的是【讀它的這一段】。
+        // 🔵 **空字串守衛跟著搬過來** —— 原本的 `synonymFor` 有 `if (f === '') return null`,
+        //    而我第一版漏了(R1 nit)。今天 42 列全是 CJK ⇒ 行為零差異;而哪天字典加一列
+        //    fold 之後變空字串的(純標點), 客人打任何純標點詞都會命中它。
+        const foldedWord = foldSearchTerm(w);
+        const syns =
+          foldedWord === ''
+            ? []
+            : SEARCH_SYNONYMS.filter(
+                (candidate) =>
+                  candidate.kind === 'category' && foldSearchTerm(candidate.from) === foldedWord,
+              );
+        // 🔵 `kind` 已在上面篩掉 ⇒ 這裡只判「有沒有」(原本再判一次 kind 是恆真, R1 nit)。
+        if (syns.length > 0) {
           // 🔴 字典查到的**正式名還是要在目錄裡真的存在** —— 否則那一列是死的,
           //    而**死的字典列不會有任何東西叫**(見 `search-synonyms.ts` 的 `土除` 那一列)。
-          const real = allCats.find((c) => foldEquals(syn.to, c.name));
-          if (real) {
-            category = real.path;
-            usedSynonyms.push(syn);
+          // 🔵 **每一筆都各自去目錄裡對** —— 字典寫得出來不代表目錄裡有那個分類
+          //    (死的字典列不會有任何東西叫)⇒ 對不到的那一筆**只丟那一筆**。
+          const resolved: string[] = [];
+          for (const candidate of syns) {
+            const hit = allCats.find((c) => foldEquals(candidate.to, c.name));
+            if (hit && !resolved.includes(hit.path)) {
+              resolved.push(hit.path);
+              usedSynonyms.push(candidate);
+            }
+          }
+          if (resolved.length > 0) {
+            category = resolved[0] ?? null;
+            categories = resolved;
             used.add(i);
             break;
           }
@@ -257,6 +292,9 @@ export function parseSearchFacets(query: string, src: FacetSources): ParsedFacet
     vehicle,
     brandIds,
     category,
+    // 🔵 只解析出一顆時 `categories` 就是那一顆 —— 讓呼叫端**只讀一個欄位**就夠,
+    //    不必自己判「要看 category 還是 categories」(那種判斷會有人漏掉)。
+    categories: categories.length > 0 ? categories : category !== null ? [category] : [],
     leftover: words.filter((_w, i) => !used.has(i)),
     usedSynonyms,
   };
@@ -264,5 +302,5 @@ export function parseSearchFacets(query: string, src: FacetSources): ParsedFacet
 
 /** 有沒有解析出**任何**東西。🔵 沒有 ⇒ 呼叫端照舊走關鍵字路(那條退路不准動)。 */
 export function hasAnyFacet(p: ParsedFacets): boolean {
-  return p.vehicle !== null || p.brandIds.length > 0 || p.category !== null;
+  return p.vehicle !== null || p.brandIds.length > 0 || p.categories.length > 0;
 }

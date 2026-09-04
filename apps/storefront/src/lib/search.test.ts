@@ -26,9 +26,17 @@ vi.mock('@pcm/adapters', () => ({
 }));
 vi.mock('@/lib/products', () => ({ toUIProduct: (p: unknown) => p }));
 
+// 🔴 記語料那一發在這裡換成 spy —— 本檔要驗的是【什麼時候記】, 不是【怎麼記】。
+//    (怎麼記由 `search-log.test.ts` 顧;那支驗「失敗不得弄壞搜尋」。)
+const logSearchQuery = vi.fn();
+vi.mock('@/lib/search-log', () => ({ logSearchQuery: (...a: unknown[]) => logSearchQuery(...a) }));
+
 const { searchProducts, SEARCH_MAX_QUERY_LENGTH } = await import('./search');
 
-beforeEach(() => searchByKeyword.mockReset());
+beforeEach(() => {
+  searchByKeyword.mockReset();
+  logSearchQuery.mockReset();
+});
 
 describe('searchProducts', () => {
   it('🔴 超過上限的關鍵字在【這一層】被截斷(兩條路因此拿到同一個查詢)', async () => {
@@ -69,5 +77,46 @@ describe('searchProducts', () => {
     const { readFileSync } = await import('node:fs');
     const src = readFileSync(new URL('./search.ts', import.meta.url), 'utf8');
     expect(src, "server-only 被拿掉了 ⇒ 這支可能被打包進 client bundle").toContain("import 'server-only'");
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴🔴 搜尋語料:**什麼時候記** —— 三個閘都是量出來的, 不是想到的(plan v5 §5)
+  // ══════════════════════════════════════════════════════════════════════
+  it('🔴 一般搜尋(countTotal=true · offset=0)⇒ 記一筆 keyword', async () => {
+    searchByKeyword.mockResolvedValue({ items: [], total: 7 });
+    await searchProducts('排氣管', 8);
+    expect(logSearchQuery).toHaveBeenCalledTimes(1);
+    expect(logSearchQuery.mock.calls[0]![0]).toEqual({
+      query: '排氣管',
+      path: 'keyword',
+      resultCount: 7,
+    });
+  });
+
+  it('🔴 疊層(countTotal=false)⇒ 不記 —— 它是【邊打字邊呼叫】, 記它等於把前綴當成三次搜尋', async () => {
+    searchByKeyword.mockResolvedValue({ items: [], total: 7 });
+    await searchProducts('排氣管', 8, 0, false);
+    expect(logSearchQuery).not.toHaveBeenCalled();
+  });
+
+  it('🔴 翻頁(offset > 0)⇒ 不記 —— 每翻一頁重呼一次, 記它會讓次數灌水', async () => {
+    searchByKeyword.mockResolvedValue({ items: [], total: 7 });
+    await searchProducts('排氣管', 8, 8);
+    expect(logSearchQuery).not.toHaveBeenCalled();
+  });
+
+  it('🔴 撈失敗 ⇒ 不記 —— 記下去會存成「客人搜的我們都沒有」= 一筆假的缺貨商機', async () => {
+    searchByKeyword.mockRejectedValue(new Error('boom'));
+    await searchProducts('排氣管', 8);
+    expect(logSearchQuery).not.toHaveBeenCalled();
+  });
+
+  it('🔵 而記語料【不得】改變回傳值 —— 它是 fire-and-forget', async () => {
+    searchByKeyword.mockResolvedValue({ items: [], total: 7 });
+    logSearchQuery.mockImplementation(() => {
+      throw new Error('就算它整支炸了');
+    });
+    // 🛑 這一格若紅, 代表記 log 的失敗會冒到客人那邊 ⇒ 那正是 Sean 明令不准的。
+    await expect(searchProducts('排氣管', 8)).resolves.toMatchObject({ error: false, total: 7 });
   });
 });

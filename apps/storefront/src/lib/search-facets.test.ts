@@ -110,4 +110,57 @@ describe('filterFacets', () => {
     expect(couldNotRead.categories).toEqual(nothingMatched.categories); // 兩個世界的【結果】相同
     expect(couldNotRead.failed.categories).not.toBe(nothingMatched.failed.categories); // 而旗標不同
   });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴🔴 品牌那一區改用 `foldIncludes`(2026-09-04 線【身分】`-auth`)
+  //    每一格都對應線上量到的一個真實缺口, 不是我想出來的形狀:
+  //    `~/pcm-mailbox/量-品牌打錯字-20260904-auth.md`
+  // ══════════════════════════════════════════════════════════════════════
+  it('🔴 去掉分隔符也要中(eazigrip / cncracing —— 線上這兩格今天是 0)', () => {
+    const d = data({ brands: [brand('eazi-grip', 'EAZI-GRIP'), brand('cnc-racing', 'CNC RACING')] });
+    expect(filterFacets('eazigrip', d).brands.map((b) => b.id)).toEqual(['eazi-grip']);
+    expect(filterFacets('cncracing', d).brands.map((b) => b.id)).toEqual(['cnc-racing']);
+  });
+
+  it('🔴 分隔符【換一種】也要中(eazi grip —— 線上這格商品有 8 筆而膠囊是空的)', () => {
+    const d = data({ brands: [brand('eazi-grip', 'EAZI-GRIP')] });
+    // 🛑 這一格修的不只是「少一顆膠囊」, 是**兩層對同一個輸入給相反的答案**。
+    expect(filterFacets('eazi grip', d).brands.map((b) => b.id)).toEqual(['eazi-grip']);
+  });
+
+  it('🔴 重音要折掉 —— 而它要靠【名字】中, 不可以只靠 slug 剛好長對', () => {
+    // 🎯 線上今天 `akrapovic` 會中, 而**那是因為 slug 就叫 akrapovic** ——
+    //    名字那一半實測 `name ILIKE '%akrapovic%'` ⇒ 0 筆(Č ≠ C)。
+    //    ⇒ 這裡把 slug 換成一個對不上的字, 逼它非靠名字不可。
+    const d = data({ brands: [brand('zzz-slug-does-not-help', 'AKRAPOVIČ')] });
+    expect(filterFacets('akrapovic', d).brands).toHaveLength(1);
+  });
+
+  it('🟢 負對照:編造的品牌字仍然 0 —— 折兩端【不是】變成模糊比對', () => {
+    const d = data({ brands: [brand('akrapovic', 'AKRAPOVIČ'), brand('lightech', 'LIGHTECH')] });
+    expect(filterFacets('zzqbrandnotreal', d).brands).toEqual([]);
+    // 🔴 而**打錯一個字母照樣 0** —— 那一半要 pg_trgm, 不在本片。
+    //    寫成會紅的斷言, 免得有人把「今天做到哪」讀成「已經模糊比對了」。
+    expect(filterFacets('akrpovic', d).brands, 'akrpovic 中了 ⇒ 有人偷偷加了模糊比對, 那要另外驗').toEqual([]);
+  });
+
+  it('🔴 分類與車種那兩區【行為不變】—— 它們是另一個分母, 本片刻意不動', () => {
+    const d = data({
+      categories: [{ id: 'c1', name: '尾段排氣管(Slip-On)', count: 1 } as never],
+      motoBrands: [{ id: 'y', name: 'YAMAHA', models: [{ id: 'mt-07', name: 'MT-07' }] } as never],
+    });
+    // 🔴🔴 **這一格原本寫成「打完整分類名要中」—— 而那在【折與不折】兩個世界裡都是 true**
+    //    ⇒ 實測:把折法擴到分類區, 它照樣綠(rc=0)⇒ **它對這件事零判別力。**
+    //    ✅ 換成一個**兩個世界會不同**的輸入:真實分類名 `尾段排氣管(Slip-On)` 含 `(` `-` `)`,
+    //       而 `slipon` 只在【折了】之後才對得上。
+    expect(
+      filterFacets('slipon', d).categories,
+      'slipon 中了 ⇒ 分類區被改成折的了, 而本片沒有量過那個分母(分類名是中文, 折法會剝中文標點)',
+    ).toEqual([]);
+    // 🟢 正對照:分類區今天【仍然會動】—— 否則上面那個空陣列與「分類區壞掉了」印同一個綠。
+    expect(filterFacets('尾段排氣管', d).categories).toHaveLength(1);
+    // 🛑 而車種那區仍然是**未折的子字串** ⇒ `mt07` 不中(`MT-07` 沒被折)。
+    //    這一格若哪天綠了, 代表有人把折法擴到了車種那區 ⇒ **那要重新量一次分母。**
+    expect(filterFacets('mt07', d).vehicles, 'mt07 中了 ⇒ 車種那區被改成折的了, 而本片沒有量過那個分母').toEqual([]);
+  });
 });

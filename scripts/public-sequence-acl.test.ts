@@ -217,6 +217,10 @@ const PINNED_IDENTITY_SEQUENCES: readonly string[] = [
   'product_fitments_effective_staging_id_seq',
   'product_fitments_effective_sync_log_id_seq',
   'product_fitments_id_seq',
+  // 🔵 2026-09-04 線【身分】`-auth`:搜尋語料表(`20260904200000`)。
+  //    它的序列走**動態** REVOKE(`pg_get_serial_sequence` + `format`)——
+  //    上面那格「每一支都要有人明寫過 REVOKE」跑的是 `revokedSomewhere()`, 它認得動態那條路。
+  'search_queries_id_seq',
 ] as const;
 
 describe('⟦b4-SEQACL1⟧ public 的 IDENTITY 序列不得對 anon 開著', () => {

@@ -14,6 +14,7 @@
 import type { MockBrand } from '@/data/mock-brands';
 import type { MockCategory } from '@/data/mock-categories';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import { foldIncludes } from '@/lib/search-terms-fold';
 
 /** 各區上限。稿 `SearchOverlay.jsx:40/46/57` 逐字 `.slice(0, 6)`。 */
 export const SEARCH_FACET_LIMIT = 6;
@@ -78,8 +79,26 @@ export function filterFacets(
   //    ⚠️ 而旗標仍然帶出去(不是回 `false`)—— **「沒查」不可以印成「查過而沒壞」。**
   if (q === '') return empty;
 
+  // 🔴🔴 **品牌這一區改用 `foldIncludes`(2026-09-04 線【身分】`-auth`)—— 而【只有這一區】。**
+  //    Sean 逐字:「反正就是盡可能的兼容, 模糊搜尋但是盡可能地接近」
+  //    🔬 而它修的是量到的四格(線上實測, `~/pcm-mailbox/量-品牌打錯字-20260904-auth.md`):
+  //    ```
+  //    eazigrip   膠囊 ❌ ⇒ slug 是 `eazi-grip`, 而 'eazi-grip'.includes('eazigrip') = false
+  //    cncracing  膠囊 ❌ ⇒ 同上, 空格
+  //    eazi grip  🔴 商品 8 筆【而膠囊空的】—— 兩層互相矛盾, 而客人看得到那個矛盾
+  //    AKRAPOVIČ  名字比對永遠 0(Č ≠ C)⇒ 今天會中【只是因為 slug 剛好叫 akrapovic】
+  //    ```
+  //    ⇒ 🎯 **`foldSearchTerm` 早就存在(NFD 去重音 + 去分隔符), 只是沒有接到這一區。**
+  //
+  //    🛑 **而【分類/車種那兩區刻意不動】, 理由不是「我懶」**:
+  //       `foldSearchTerm` 逐字「把 `[\s\-_./()[\]{}·,、]` 剝掉」⇒ 它會**剝掉中文標點**,
+  //       而分類名是中文(`腳踏後移與傳動`)、車種名混中英 ⇒ **那是另一個分母, 要另外量。**
+  //       ⇒ 📌 一次只換一區的尺, 否則出事時分不出是哪一區換壞的。
+  //
+  //    🔵 **它仍然是【子字串】, 不是模糊比對** —— 打錯一個字母(`akrpovic`)照樣 0。
+  //       那一半要 `pg_trgm` 的相似度 ⇒ 是一支 migration ⇒ 不在本片。
   const brands = data.brands.brands
-    .filter((b) => match(b.name, q) || match(b.id, q))
+    .filter((b) => foldIncludes(b.name, q) || foldIncludes(b.id, q))
     .slice(0, SEARCH_FACET_LIMIT)
     .map((b) => ({ id: b.id, name: b.name, count: b.count }));
 
