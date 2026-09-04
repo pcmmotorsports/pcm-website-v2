@@ -25007,6 +25007,36 @@ products        25,038 列  ← 尺絕對接得到資料
 📎 **同族**:memory `feedback_the-positive-control-is-the-one-that-catches-a-broken-ruler`
 逐字已經寫著「拿一個**同類的、你知道答案的**東西餵進去」——
 🎯 **而本端補的是那句話的失敗模式:我挑了同類的, 而那個「你知道答案」我其實不知道。**
+### 🔵 第三個實例:對照組【不存在】時,`IS DISTINCT FROM` 把「不見了」翻譯成「通過」(2026-09-05,線 `-db`,codex 抓)
+
+> **來源屬性**:codex 唯讀 R1 的 must-fix,我照著開檔複核並在拋棄式 PG 造出那個世界實測。
+> **查重留痕**:最高分 0.2878(`memory/feedback_absence-needs-a-positive-control-of-the-same-kind`),
+> 本節 `:24786` 排第 5(0.2753)⇒ **開檔讀了才判同族** —— 分數不是判準,母題才是。
+
+```sql
+SELECT (…proconfig…) INTO v_sp FROM pg_proc WHERE oid = to_regprocedure('public.rls_auto_enable()');
+IF v_sp IS DISTINCT FROM 'search_path=""' THEN
+  RAISE NOTICE '🔵 負對照通過';        -- ← 對照組不存在時, 走的是這一支
+```
+
+🛑 函式不存在 ⇒ `to_regprocedure` 回 `NULL` ⇒ 那個 `SELECT` **沒有列** ⇒ `v_sp` 留在 `NULL`,
+　 而 **`NULL IS DISTINCT FROM '…'` 是 `true`** ⇒ **負對照在「對照組根本不存在」的世界裡印通過。**
+
+📌 **與本節前兩個實例的差別**:前兩個是**對照組是假的**(內容錯);這一個是**對照組不在了**,
+　 而 **SQL 的三值邏輯替它補了一個「通過」** —— 沒有人寫過那一行,它是語意的預設值。
+　 ⇒ 🎯 **同一個母題多一種來源:讓你以為尺是活的,可以不是誰寫錯,是語言幫你填的空。**
+
+✅ **修法兩步,少一步都不夠**:①先斷言對照組**存在**(`IS NULL ⇒ RAISE`)
+　 ②再斷言值**精確等於**那個常數,不要用 `IS DISTINCT FROM`。
+　 ⚠️ 那個常數會過期 ⇒ 旁邊要寫「哪一天在哪裡量到的」。
+
+🔵 **判別句(可機械執行,補在本節原有那句旁邊)**:
+　 **我的對照組,在【它要對照的那個東西不見了】的時候,印的是什麼?**
+　 印通過 ⇒ 它不是對照組,是裝飾。
+
+📎 實例:`supabase/migrations/20260905100000_m4b_definer_searchpath_lock_m1a.sql` 事後斷言段(修後版)。
+　 突變實測:把對照組函式改名 ⇒ 修前印「負對照通過」、修後印「對照組不存在 ⇒ 拒 COMMIT」。
+
 
 ## 🔴🔴 一道為了低摩擦而**刻意不留痕**的閘,代價是「那件事後來有沒有補做」**永遠事後查不到**(2026-08-25,cf 線;**不是缺陷,是設計選擇的已知代價**)
 
