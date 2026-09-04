@@ -9,6 +9,7 @@
 //     (refundingStuckSeconds=86400)⑥ 零 PII(log counts only)。
 
 import { readFileSync } from 'node:fs';
+import type { CheckAnomalyAlertsResult } from '@pcm/use-cases';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -54,8 +55,21 @@ const { GET } = route;
 
 const SECRET = 'a'.repeat(48); // ≥32
 
-/** 乾淨結果(alerted=false、errors=0;Phase I 無流量常態)。 */
-const CLEAN_RESULT = {
+/**
+ * 乾淨結果(alerted=false、errors=0;Phase I 無流量常態)。
+ *
+ * 🔴🔴 **標型別是刻意的**(adversarial-reviewer R3 F3 + 結構建議①, 2026-09-05)。
+ *   ⛔ ~~原本是【裸物件】~~ ⇒ `CheckAnomalyAlertsResult` 新增欄位時這裡**不會紅**
+ *     ⇒ 那些欄位在測試裡是 `undefined` ⇒ falsy ⇒ **新加的 route 分支永遠不執行。**
+ *   🔬 而這一支檔 `:66-92` 已經為同一個病寫過**三次**警告 —— 而它仍然發生了第四次。
+ *   ⇒ 🎯 **⇒ 警告寫在正確的位置, 而它擋不住「沒想到要來看」的人。**
+ *   ✅ **標了型別之後**:result 一加必填欄, 這個 fixture **當場 typecheck 紅**
+ *     ⇒ 「加了 `*Unknown` / `*Failed` 而 route 沒接」變成**必須有人動這裡**,
+ *       而動這裡的人才寫得出對應那兩格測試。
+ *   🛑 **天花板**:它只封閉「新欄位有沒有進 fixture」, **不保證有人為它寫分支測試** ——
+ *     那一跳由本檔末的 `*Unknown`/`*Failed` 對帳 describe 接(見 `anomaly-alert-key-contract.test.ts`)。
+ */
+const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   alerted: false,
   openCount: 0,
   refundingCount: 0,
@@ -113,10 +127,44 @@ const CLEAN_RESULT = {
   notifiersTotal: 0,
   notifiersFailed: 0,
   errors: 0,
-  // 🔵 2026-09-03:安靜日心跳的【資格】。`CLEAN_RESULT` 是「沒踩門檻」的常態 ⇒ true。
-  //    🔴 少了這一格 ⇒ route 那段 `if (result.quietHeartbeatEligible)` 恆假
-  //    ⇒ **整段心跳在測試裡是死碼, 而 18 格照樣全綠。** 那正是這一片要防的形狀。
-  quietHeartbeatEligible: true,
+  // 🔴🔴 **⛔ ~~`quietHeartbeatEligible: true`~~ 整格移除**(2026-09-05, 標型別當場逼出來的)。
+  //    🔬 那個欄位**已經從 `CheckAnomalyAlertsResult` 拿掉了** ——
+  //      `check-anomaly-alerts.ts:455` 逐字:「我原本加了一個 `quietHeartbeatEligible` …
+  //      而它現在完全等於 `!alerted`, 而複製一份狀態本身就有代價」。
+  //    🔬 而 route 現在**零處讀它**(`grep -c` ⇒ 0)。
+  //    ⇒ 🎯 **⇒ 這個 fixture 欄位與它上面那三行【替它辯護的註解】, 都在講一個不存在的東西。**
+  //      而它們活了兩天, 因為**這個物件沒有型別** —— 那正是本次標型別要防的事。
+  //      ⇒ 📌 **一個裸物件不只讓【少的】溜過去, 也讓【多的】留下來。**
+  // 🔴 以下 23 格是【標型別當場逼出來的】—— 它們在裸物件時是 `undefined`,
+  //    而 route 讀它們的那些分支因此【從來沒有執行過】(R3 F3)。
+  manualCustomerSearchCount: null,
+  manualCustomerSearchActors: null,
+  searchLogUnknown: false,
+  searchLogFailed: false,
+  searchLogTableExists: null,
+  searchLogLastRowAt: null,
+  searchLogStale: false,
+  stuckBankCount: 0,
+  stuckBankOldestCreated: null,
+  // 🔵 ⟦b4-PAIDTHENOVERPAID⟧ 第二個世界(2026-09-05)——
+  //    🎯 **這兩欄是被 `CLEAN_RESULT` 的型別逼出來的**, 那正是 R3 F3 那道機制的用途:
+  //      我在 use-case 加了兩個必填欄位, 而 typecheck 當場把每一個 fixture 點名。
+  stuckBankOverpaidCount: 0,
+  stuckBankOverpaidOldest: null,
+  stuckBankUnknown: false,
+  stuckBankFailed: false,
+  searchLogAnonExecuteRevoked: null,
+  manualCustomerSearchUnknown: false,
+  manualCustomerSearchFailed: false,
+  orderCreatedStuckCount: null,
+  orderCreatedStuckOldestMinutes: null,
+  orderCreatedStuckUnknown: false,
+  emailOutboxUnknown: false,
+  emailOverdueCount: null,
+  emailDeadLetterCount: null,
+  emailStuckSendingCount: null,
+  emailQuotaConfirmedCount: null,
+  emailQuotaSuspectedCount: null,
 };
 
 // 🔵 notifier 要是**可觀察**的 —— 舊的 `[{}]` 只是佔位, 收不到「有沒有寄」。
@@ -152,6 +200,15 @@ afterEach(() => {
   // 🔴 訊號 4 那顆也要清(codex 2026-08-31 R1 nit)—— 同上一行的理由:
   //    一個只在成功路徑上執行的清理等於沒有清理, 而殘值會讓後面的案例讀到別人的世界。
   delete process.env.B4_DEPLOY_CUTOFF;
+  /**
+   * 🔴🔴 **adversarial-reviewer R4 must-fix ③** —— 這顆原本只在**各案例尾端**還原,
+   *    而那三行寫在 `expect` 【之後】⇒ 案例紅掉時那一行不會跑 ⇒ flag 留成 `'true'` 給下一個案例。
+   * 🎯 **而它與 must-fix ② 成鏈**:我量突變紅幾格時, 第一格紅掉會汙染後面的世界
+   *    ⇒ 📌 **「我記錯了數字」最合理的機制, 就是這顆沒清的 env。**
+   *    🔬 而本檔 §afterEach 上面兩段逐字寫過同一句話兩次
+   *      (`SHIPPED_EMAIL_CUTOFF` / `B4_DEPLOY_CUTOFF`)⇒ **我讀過它, 然後寫了第三個實例。**
+   */
+  delete process.env.BANK_TRANSFER_CHECKOUT_ENABLED;
   vi.clearAllMocks();
 });
 
@@ -946,6 +1003,86 @@ describe('🔴 寄信計數讀不到 ⇒ route 回 503(部署管道)', () => {
  *   而那正是「**量具壞了被記成健康**」那個病。
  */
 describe('[心跳] unknown ⇒ 要有可靠的失敗訊號', () => {
+  /**
+   * ⟦b4-NEEDSHUMANNOWATCHER⟧ 三格(adversarial-reviewer R3 F3, 2026-09-05)。
+   * 🔴 **在此之前 route 那三條新分支【零格】** —— 整段刪掉全綠。
+   *
+   * 🔬 **突變實測(2026-09-05 真的跑過, 不是推的;每發從備份還原並比 sha256)**:
+   * ```
+   *                          補 S3 斷言【前】   補【後】
+   * 🔵 正對照 不突變              紅 0            紅 0    ← 尺在該綠時是綠的
+   *    只刪 S1(flag 開+Unknown)   紅 1            紅 1
+   *    只刪 S2(Failed ⇒ 503)      紅 1            紅 1
+   * 🔴 只刪 S3(flag 關 ⇒ warn)    紅 0            紅 1    ← 補的就是這一格
+   *    三段一起刪                  紅 2            紅 3
+   * ```
+   * 🛑 **兩欄都留著, 而【左欄才是這段話的證據】** —— 只留右欄的話,
+   *    「S3 原本沒有守門」這件事就沒有任何痕跡, 而下一個人會以為它一直都有。
+   * ⚠️ **而我寫完左欄那一版之後, 補了 S3 斷言 ⇒ 那張表當場過期** ——
+   *    📌 **一個量測會被【我為了回應它而做的修改】變成假的, 而它不會出聲。**
+   * ⛔ ~~舊字面「三段一起刪 ⇒ 只紅 1 / 只刪中間 ⇒ 紅 2」~~ **作廢 —— 那兩個數字是我寫的, 不是量的,
+   *    而它們與實測【方向相反】**(adversarial-reviewer R4 must-fix ②:它讀碼逐格推演,
+   *    推出 2 和 1, 與我寫的相反 ⇒ 我去真的跑, 它對)。
+   * 🎯 📌 **一個被寫進 repo 的量測, 只要沒有人重跑, 它就永遠是那份紀錄。**
+   *    而它讀起來完全合理 —— 我還為它寫了一段成因分析。**成因分析會讓錯的數字更難被懷疑。**
+   * 🛑 **補之前, 三段一起刪只紅 2(不是 3)** ⇒ 下面那格「flag 關著 ⇒ 200」的負對照,
+   *    在【整段功能被拿掉】的世界裡照樣印綠 ⇒ **突變的粒度會改變判別力, 要逐段刪。**
+   *    🔵 補了 reason 斷言之後它變成 3 ⇒ **那個「粒度陷阱」在這一格已經消失**,
+   *      而**留著這段話**是因為它會在下一個「只有狀態碼斷言」的分支重演。
+   *
+   * 🔴🔴 **S3 逐段刪 ⇒ 紅 0 = 那一段【沒有守門】**(R4 逐格推演先抓到, 實測證實)。
+   *    它是板列 ⟦b4-STUCKBANKBLINDWINDOW⟧ 在碼裡的唯一痕跡, 刪掉或改詞零訊號。
+   *    ⇒ ✅ 已補:下面那格「⇒ 200」加上 `console.warn` 的 reason 字面斷言。
+   */
+  it('🔴 stuckBankFailed=true ⇒ 503, **而且 flag 關著也一樣**(讀壞了 ≠ 沒貼)', async () => {
+    const prev = process.env.BANK_TRANSFER_CHECKOUT_ENABLED;
+    delete process.env.BANK_TRANSFER_CHECKOUT_ENABLED; // ← flag 關著
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, stuckBankUnknown: true, stuckBankFailed: true });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status, 'flag 關著而【讀壞了】⇒ 仍要 503').toBe(503);
+    expect(hbFailSpy).toHaveBeenCalled();
+    expect(JSON.stringify(errSpy.mock.calls)).toContain('get_stuck_bank_orders_health');
+    errSpy.mockRestore();
+    if (prev !== undefined) process.env.BANK_TRANSFER_CHECKOUT_ENABLED = prev;
+  });
+
+  it('🔴 flag 開著 + stuckBankUnknown(只是沒貼)⇒ 503', async () => {
+    const prev = process.env.BANK_TRANSFER_CHECKOUT_ENABLED;
+    process.env.BANK_TRANSFER_CHECKOUT_ENABLED = 'true';
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, stuckBankUnknown: true, stuckBankFailed: false });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    errSpy.mockRestore();
+    if (prev === undefined) delete process.env.BANK_TRANSFER_CHECKOUT_ENABLED;
+    else process.env.BANK_TRANSFER_CHECKOUT_ENABLED = prev;
+  });
+
+  /**
+   * 🟢 **負對照** —— 少了這一格,「凡是 Unknown 都 503」的實作會讓上兩格全綠,
+   *    而那正是主視窗 2026-09-05 裁掉的那個選項(乙:一律 503)。
+   *    🔬 他的理由逐字:「窗口幾天、每天一封假警報會被關掉, 而**關掉的閘比安靜的漏更難回來**。」
+   */
+  it('🟢 flag 關著 + 只是沒貼(Failed=false)⇒ **200 而且要留下那一行 warn**', async () => {
+    delete process.env.BANK_TRANSFER_CHECKOUT_ENABLED;
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, stuckBankUnknown: true, stuckBankFailed: false });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status, '部署窗口不吵').toBe(200);
+    /**
+     * 🔴 **這一行斷言是 R4 補的** —— 在它之前, 把整段 S3 刪掉是 **紅 0 格**(實測)。
+     * 🎯 因為「⇒ 200」在【S3 存在】與【S3 整段消失】兩個世界裡是**同一個值**
+     *    ⇒ 📌 **一個負對照, 對「這段碼在不在」零判別力。**
+     * ✅ 而 reason 字面只有 S3 產得出來 ⇒ 它區分得了那兩個世界。
+     */
+    expect(
+      JSON.stringify(warnSpy.mock.calls),
+      'flag 關著仍要留一行 —— 讓翻開 flag 的人回頭看 cron log 時知道這件事在翻開前就查不到',
+    ).toContain('stuck_bank_health_unknown_flag_off');
+    warnSpy.mockRestore();
+  });
+
   it('🔴 cronHeartbeatUnknown=true ⇒ 503 + 記失敗心跳(不得回 200)', async () => {
     checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, cronHeartbeatUnknown: true, cronHeartbeatAbnormalCount: null, cronHeartbeatAbnormalJobs: null });
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -1026,7 +1163,10 @@ describe('安靜日心跳 —— 位置就是它的正確性', () => {
   });
 
   it('🔴 踩了門檻(alerted)⇒ **不寄心跳**(那天寄的是告警信, 不是綠燈)', async () => {
-    checkSpy.mockResolvedValue({ ...CLEAN_RESULT, alerted: true, quietHeartbeatEligible: false });
+    // 🔵 ⛔ ~~`quietHeartbeatEligible: false`~~ 一併移除(R4 nit:死欄位只清掉一半)。
+    //    🔴 typecheck 沒紅的原因:`checkSpy` 是裸 `vi.fn()` ⇒ **標型別只保護 fixture 本身,
+    //    保護不到 mock 的【呼叫點】** —— 那是 F3 那個修法的天花板, 寫在這裡免得下一個人以為標了就全包。
+    checkSpy.mockResolvedValue({ ...CLEAN_RESULT, alerted: true });
     await GET(makeReq(bearer(SECRET)));
     expect(okNotify).not.toHaveBeenCalled();
   });
