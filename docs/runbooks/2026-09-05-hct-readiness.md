@@ -100,7 +100,33 @@ Sean 逐字給的第三條是 `https://hctrt.hct.com.tw/EDI_WebService2/Service1
 - **認證欄位**:參考檔 `:88`「`Company` + `password` 兩個字串參數」
   ⇒ client 逐字送 `{ Company: …, password: … }` **相符**。
 
-**🔴 對不上的一件 —— 而它是 endpoint 的【粒度】**
+### 🟢 2026-09-05 深夜補:**讀了 Sean 給的那份 PDF(公開文件,27 頁),方法名確定了**
+
+`pdftotext -layout` 抽出逐字(下面每一條都附 PDF 文字行號,可自己重抽複核):
+
+| PDF 逐字 | 行 |
+|---|---|
+| `TransData _Json(string Company, string password, string json)` | :384 |
+| `string QueryEDELNO_Json(string company, string password, string json)` | :766 |
+| `TransData _Json()` / `QueryEDELNO_Json()` 在服務一覽表 | :219 / :228 |
+
+⇒ ✅ **endpoint = 根 + `/TransData_Json`(送單)、根 + `/QueryEDELNO_Json`(查貨號)。**
+   📌 **兩支是【不同的網址】** —— 若只放一顆 `HCT_API_ENDPOINT`,查貨那條會打到送單那支。
+
+🟢 **而有一件我們【早就對了】**:`TransData` 的第一個參數是大寫 `Company`,
+`QueryEDELNO` 是**小寫 `company`** —— 而 `hct-client.ts` `:145` 送大寫、`:207` 送小寫。
+⇒ 📌 **那個不對稱不是意外,是前一輪的人讀過文件。**
+
+🔴 **而第三個參數對不上 —— 這一格今天會讓第一箱直接失敗**:
+```
+PDF        第三個參數叫 `json`, 型別是 **string**
+我們送的   `data: [fields]`(送單, :145)/ `data: epino`(查貨, :207)
+```
+⇒ **鍵名錯(`data` vs `json`)、而且送單那邊型別也錯(陣列 vs 字串)** ——
+  `.asmx` 的 JSON 端點會把它當成一個 **JSON 字串參數**,所以要 `JSON.stringify([...])` 再放進去。
+⚠️ **而這一格沒有人會在測試裡發現** —— 我們的測試餵的是假 fetch,它不在乎鍵叫什麼。
+
+**🔴 原本以為對不上的那件 —— 而它其實是 endpoint 的【粒度】**
 `.asmx` 的 JSON 變體是**一個服務一個網址**,要帶方法名:
 ```
 Sean 給的      …/Service1.asmx                 ← 服務的【根】
