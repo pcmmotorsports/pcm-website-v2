@@ -24,6 +24,8 @@ import { authorizeAdminMutation } from '../session/authorize';
 import { toMessage } from './error-message';
 import { RECIPIENT_NAME_REQUIRED, toRecipientSnapshot } from './recipient';
 import { loadShipmentCandidates, type ShipmentCandidates } from './shipment-candidates';
+import { buildHctTransData } from './hct-trans-data';
+import { runHctSubmit, type HctCurrentStatus } from './hct-submit-flow';
 import {
   addShipmentItems,
   createShipment,
@@ -35,6 +37,8 @@ import {
   type CarrierCode,
   type RecipientSnapshot,
   type ShipmentItemInput,
+  getHctShipment,
+  recordHctSubmit,
 } from './shipment-repository';
 
 export type SubmitShipmentInput = {
@@ -439,5 +443,133 @@ export async function markShipmentShippedAction(args: {
   } catch (e) {
     auditLog('shipment.mark_shipped', auth, 'fail', { shipment_id: args.shipmentId });
     return { ok: false, message: toMessage(e) };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⟦ship-HCTAPI⟧ 步驟②:把 `runHctSubmit` 接上入口(Sean 2026-09-05 拍甲批准)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type HctSubmitActionResult =
+  | { ok: true; kind: 'submitted' | 'recovered'; requestId: string | null }
+  | { ok: false; kind: 'disabled' | 'failed' | 'unknown' | 'refused' | 'needs_human'; message: string };
+
+/**
+ * 🔴🔴 **`HCT_API_ENDPOINT` 是本片【新引進】的 env 名 —— 而它今天不存在。**
+ *    量到的(2026-09-05, 只列名稱不印值):`pcm-admin` 上有 `HCT_API_ACCOUNT` / `HCT_API_PASSWORD`,
+ *    **沒有 endpoint**;而 `hct-client.ts` 的 `HctClientDeps.endpoint` 是**呼叫端傳進去的**
+ *    ⇒ 📌 **這一格在 repo 裡沒有任何來源, 而我不會編一個網址** ——
+ *      廠商檔列的那幾個 URL(`hct-logistics-api-reference.md:77` 等)**分測試/正式、也分服務**,
+ *      挑哪一個是 Sean 與新竹之間的事, 不是我讀文件推得出來的。
+ * ✅ **fail-closed**:三顆任一缺 ⇒ 回 `disabled`(與開關關著同一條路)⇒ **不會打任何外部端點**。
+ * 🔵 而它與開關的 `disabled` **給不同的訊息** —— 否則「還沒開通」與「設定漏了一顆」印同一句話。
+ */
+function readHctDeps(): { fetchImpl: typeof fetch; endpoint: string; account: string; password: string } | null {
+  const endpoint = process.env.HCT_API_ENDPOINT;
+  const account = process.env.HCT_API_ACCOUNT;
+  const password = process.env.HCT_API_PASSWORD;
+  if (endpoint === undefined || account === undefined || password === undefined) return null;
+  return { fetchImpl: fetch, endpoint, account, password };
+}
+
+const HCT_STATUSES = ['draft', 'submitted', 'failed', 'unknown'] as const;
+
+function toCurrent(raw: string): HctCurrentStatus {
+  // 🔴 DB 的值域由 CHECK 約束保證, 而**保證是別人給的** ⇒ 這裡自己再收一次。
+  //    收不到 ⇒ 當 'unknown'(最保守的那一格:它會先去查, 不會直接送)。
+  return (HCT_STATUSES as readonly string[]).includes(raw) ? (raw as HctCurrentStatus) : 'unknown';
+}
+
+export async function submitShipmentToHctAction(args: {
+  shipmentId: string;
+}): Promise<HctSubmitActionResult> {
+  const auth = await authorizeAdminMutation();
+  if (auth === null) return { ok: false, kind: 'needs_human', message: NO_ACTOR_MESSAGE };
+  auditLog('shipment.hct_submit', auth, 'attempt', { shipment_id: args.shipmentId });
+
+  const deps = readHctDeps();
+  if (deps === null) {
+    auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
+    return {
+      ok: false,
+      kind: 'disabled',
+      message: '新竹未開通(缺 HCT_API_ENDPOINT / HCT_API_ACCOUNT / HCT_API_PASSWORD 其中之一)',
+    };
+  }
+
+  try {
+    const row = await getHctShipment(args.shipmentId);
+    if (row === null) return { ok: false, kind: 'needs_human', message: '找不到這一箱' };
+    if (row.voidedAt !== null) return { ok: false, kind: 'refused', message: '這一箱已作廢,不能送新竹' };
+
+    const built = buildHctTransData({
+      displayId: row.shipmentReference,
+      recipient: row.recipientSnapshot,
+      itemCount: 1,
+      ...(row.carrierNote === null ? {} : { note: row.carrierNote }),
+    });
+
+    // 🔴🔴 **佔位列 —— plan 第 3 節那個單向門的緩解(Sean 拍甲時一起批的)。**
+    //    送出成功而寫 DB 之前行程死掉 ⇒ 新竹收到了而我們沒紀錄 ⇒ 下次 `current` 還是 draft ⇒ **重送**。
+    //    ⇒ 送出【之前】先把狀態推成 `unknown`:那一格的語意逐字是「送出去了而不知道結果 ⇒ 不得重送」。
+    //    🛑 **佔位不得帶 request_id** —— `hct_request_id` 是 write-once(`20260904170000:81`),
+    //      帶了之後真正的 id 就覆寫不進去。
+    const current = toCurrent(row.hctStatus);
+    if (current === 'draft' || current === 'failed') {
+      await recordHctSubmit({
+        shipmentReference: row.shipmentReference,
+        status: 'unknown',
+        requestId: null,
+        raw: { placeholder: true, at: new Date().toISOString() },
+      });
+    }
+
+    const result = await runHctSubmit({
+      deps,
+      current,
+      fields: built.fields,
+      epino: row.shipmentReference,
+    });
+
+    switch (result.kind) {
+      case 'recorded':
+        await recordHctSubmit({
+          shipmentReference: row.shipmentReference,
+          status: result.status,
+          requestId: result.requestId,
+          raw: result.raw,
+        });
+        revalidatePath('/orders');
+        auditLog('shipment.hct_submit', auth, 'ok', { shipment_id: args.shipmentId });
+        if (result.status === 'submitted') {
+          return { ok: true, kind: 'submitted', requestId: result.requestId };
+        }
+        return result.status === 'failed'
+          ? { ok: false, kind: 'failed', message: '新竹回了失敗 —— 可以再按一次' }
+          : {
+              ok: false,
+              kind: 'unknown',
+              message: '送出去了而不知道結果 —— 不要重按,請用查詢補問新竹貨號',
+            };
+      case 'recovered':
+        await recordHctSubmit({
+          shipmentReference: row.shipmentReference,
+          status: 'submitted',
+          requestId: result.requestId,
+          raw: result.raw,
+        });
+        revalidatePath('/orders');
+        auditLog('shipment.hct_submit', auth, 'ok', { shipment_id: args.shipmentId });
+        return { ok: true, kind: 'recovered', requestId: result.requestId };
+      case 'disabled':
+        return { ok: false, kind: 'disabled', message: '新竹未開通' };
+      case 'refused':
+        return { ok: false, kind: 'refused', message: result.reason };
+      case 'needs_human':
+        return { ok: false, kind: 'needs_human', message: result.reason };
+    }
+  } catch (e) {
+    auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
+    return { ok: false, kind: 'needs_human', message: toMessage(e) };
   }
 }

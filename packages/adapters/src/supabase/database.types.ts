@@ -1,5 +1,5 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十二個函式、共二十八處**手動校正,
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有 ⛔ ~~十二個函式、共二十八處~~ ⇒ **十三個函式、共二十九處**手動校正(2026-09-05 線 -ship 補 ⑯ `admin_record_hct_submit` 整支),
 //   (~~十三個函式、共二十九處~~ ⇒ **2026-08-24 線4:⑬ 走完退場後減一**,數字回到 `92436630` 那一版)
 //   **外加一張表的兩個欄位**(⑮ `admin_sso_login_events.actor_kind` / `.actor_staff_id`,2026-08-24 B5-a):
 //    ~~migration `20260824030000` **未 apply** ⇒ 現在重 gen 不會產生它們~~
@@ -3876,6 +3876,21 @@ export type Database = {
           p_tracking_number?: string
         }
         Returns: Json
+      }
+      admin_record_hct_submit: {
+        // 🔴🔴 **手動補一支(⑯)—— 而它不是「校正」, 是【生成器沒產出來】。**
+        //   `20260904170000` 已在 `supabase/APPLIED.tsv`(Sean 2026-09-04 本人貼, 那一列自帶
+        //   簽章複驗 + 正負對照)⇒ **它在正式庫裡, 只是本檔還沒重 gen。**
+        //   ⇒ 📌 **不補這一支, `.rpc('admin_record_hct_submit', …)` 會 typecheck 紅**
+        //     ——而繞過它的方法(`as never` / `@ts-expect-error`)會**把整個參數形狀的檢查一起關掉**。
+        //   ⚠️ 重 gen 之後這一段會被沖掉, 而**那時它應該已經自己產得出來** ⇒ 屆時本段可退場。
+        Args: {
+          p_raw: Json
+          p_request_id: string | null
+          p_shipment_reference: string
+          p_status: string
+        }
+        Returns: undefined
       }
       admin_record_item_receipt: {
         // 🔴 手動校正一處(重 gen 後需重貼;2026-08-11 #352-b 開工補上 —— 呼叫端到此才存在)。

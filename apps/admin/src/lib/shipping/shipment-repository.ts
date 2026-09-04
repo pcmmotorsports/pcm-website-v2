@@ -333,6 +333,76 @@ export async function listShipmentsByIds(ids: readonly string[]): Promise<Shipme
   }));
 }
 
+/**
+ * 送新竹那條路要讀的一箱 —— ⟦ship-HCTAPI⟧ 步驟②。
+ *
+ * 🔴🔴 **刻意【不用】 `SHIPMENT_ROW_SELECT`** —— 那個常數同時餵
+ *    `listShipmentsByCustomer`(顧客站那條路)⇒ 往它加一欄, 就是往**客人讀得到的投影**加一欄。
+ *    ⇒ 📌 **一個「只是多讀一欄」的改動, 它的爆炸半徑由【誰共用那個常數】決定, 不由我改了幾個字決定。**
+ *    ⇒ ✅ 本函式自己列一份最小欄位,只有後台這條路會走到。
+ * ⚠️ `.select()` 必須是**單一字串常值** —— 拆成變數拼接會讓產生的型別塌成 `GenericStringError`。
+ */
+export type HctShipmentRow = {
+  id: string;
+  shipmentReference: string;
+  carrierCode: string;
+  carrierNote: string | null;
+  trackingNumber: string | null;
+  shippedAt: string | null;
+  voidedAt: string | null;
+  hctStatus: string;
+  recipientSnapshot: RecipientSnapshot;
+};
+
+export async function getHctShipment(shipmentId: string): Promise<HctShipmentRow | null> {
+  const { data, error } = await createSupabaseServiceClient()
+    .from('shipments')
+    .select(
+      'id, shipment_reference, carrier_code, carrier_note, tracking_number, shipped_at, deleted_at, hct_status, recipient_snapshot',
+    )
+    .eq('id', shipmentId)
+    .maybeSingle();
+  if (error !== null) throw new Error(error.message);
+  if (data === null) return null;
+  return {
+    id: data.id,
+    shipmentReference: data.shipment_reference,
+    carrierCode: data.carrier_code,
+    carrierNote: data.carrier_note,
+    trackingNumber: data.tracking_number,
+    shippedAt: data.shipped_at,
+    voidedAt: data.deleted_at,
+    hctStatus: data.hct_status,
+    // 🔴 `toRecipientSnapshot` 回 `RecipientSnapshot | null` —— null 代表那筆快照不成形。
+    //    ⇒ 這裡**不折成空物件**:折了之後「沒有收件人」會變成「收件人三欄都是空字串」,
+    //      而後者送得出去(DB CHECK 收空字串)⇒ 一張寄不到的託運單。丟出去讓呼叫端擋。
+    recipientSnapshot: (() => {
+      const r = toRecipientSnapshot(data.recipient_snapshot);
+      if (r === null) throw new Error('這一箱的收件人快照不成形,不能送新竹');
+      return r;
+    })(),
+  };
+}
+
+/**
+ * 把送出結果寫回 DB(`admin_record_hct_submit`, `20260904170000`)。
+ * 🔴 `p_status` 只收 submitted / failed / unknown —— DB 那側自己會擋別的值。
+ */
+export async function recordHctSubmit(args: {
+  shipmentReference: string;
+  status: 'submitted' | 'failed' | 'unknown';
+  requestId: string | null;
+  raw: unknown;
+}): Promise<void> {
+  const { error } = await createSupabaseServiceClient().rpc('admin_record_hct_submit', {
+    p_shipment_reference: args.shipmentReference,
+    p_status: args.status,
+    p_request_id: args.requestId,
+    p_raw: (args.raw ?? {}) as never,
+  });
+  if (error !== null) throw new Error(error.message);
+}
+
 /** 某位客人的所有包裹(建箱動線用:看他還有哪些箱在路上)。 */
 export async function listShipmentsByCustomer(customerUserId: string): Promise<ShipmentRow[]> {
   const { data, error } = await createSupabaseServiceClient()

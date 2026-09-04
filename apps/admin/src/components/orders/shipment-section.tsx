@@ -14,6 +14,7 @@ import Link from 'next/link';
 import type { AdminOrderDetail } from '@pcm/domain';
 import { loadEmptyShipments, loadOrderShipments } from '../../lib/shipping/order-shipments';
 import { OrderShipButton } from './shipment-launcher';
+import { ShipmentHctSubmitButton } from './shipment-hct-submit-button';
 import { ShipmentEditTrackingButton } from './shipment-edit-tracking-button';
 import { ShipmentMarkShippedButton } from './shipment-mark-shipped-button';
 import { ShipmentVoidButton } from './shipment-void-button';
@@ -308,6 +309,12 @@ export async function ShipmentSection({
                         carrierCode={shipment.carrierCode}
                       />
                     )}
+                    {shipment.carrierCode === 'hct' && !voided ? (
+                      <ShipmentHctSubmitButton
+                        shipmentId={shipment.id}
+                        shipmentReference={shipment.shipmentReference}
+                      />
+                    ) : null}
                     <ShipmentVoidButton
                       shipmentId={shipment.id}
                       shipmentReference={shipment.shipmentReference}
