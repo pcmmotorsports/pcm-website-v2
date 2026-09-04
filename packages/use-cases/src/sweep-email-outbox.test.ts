@@ -224,7 +224,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     //      **要問的是「它現在【鎖住】什麼」—— 對一道守門而言, 後者才算數。**
     //    ⇒ 全文與來源在 `sweep-email-outbox.ts` 的 `buildOrderCreatedText` 那段註解。
     const EXPECTED_ORDER_CREATED_BODY = [
-      '您好,',
+      '您好，',
       '',
       '您的訂單 PCM-2026-0001 已付款成功。',
       // 🟢 **2026-09-02 20:5x:期望值跟著改 —— 而這一次【有依據】, 與今天下午那次不同。**
@@ -1256,7 +1256,7 @@ describe('order_cancelled —— 刷卡且已全額退款的取消信(Q10)', () 
     });
     expect(text).toBe(
       [
-        '您好,',
+        '您好，',
         '',
         '您的訂單 PCM-2026-0142 已取消。',
         '',
@@ -1791,13 +1791,13 @@ describe('sweepEmailOutbox — ⟦取消信-模板⟧ order_unpaid_cancelled', (
     // 🔵 期望值的來源:規格 §11(取消原因帶既有七值映射、零新造)+ Sean 2乙(只涵蓋員工按下取消)
     expect(text).toBe(
       [
-        '您好,',
+        '您好，',
         '',
         '您的訂單 PCM-2026-0001 已取消。',
         '',
         '依您要求取消',
         '',
-        '這張訂單尚未付款,不會有任何款項產生。',
+        '這張訂單尚未付款，不會有任何款項產生。',
         '',
         '訂單明細與最新狀態請至 PCM 會員中心查看。',
         '',
@@ -1879,11 +1879,11 @@ describe('sweepEmailOutbox — ⟦取消信-模板⟧ order_unpaid_cancelled', (
     const text = await sentTextOf({ display_id: 'PCM-2026-0001' });
     expect(text).toBe(
       [
-        '您好,',
+        '您好，',
         '',
         '您的訂單 PCM-2026-0001 已取消。',
         '',
-        '這張訂單尚未付款,不會有任何款項產生。',
+        '這張訂單尚未付款，不會有任何款項產生。',
         '',
         '訂單明細與最新狀態請至 PCM 會員中心查看。',
         '',

@@ -503,7 +503,7 @@ function buildOrderCreatedText(
     //    ✅ **留著的理由是【第二道】**:上游那道若哪天被放寬(例如改成「截斷也照寄」),
     //    這一行讓客人**至少看得到自己看的是部分**, 而不是靜靜地少幾項。
     //    ⇒ 📌 而它今天**沒有任何一發測試跑得到** —— 那一格是已知的, 不是漏掉的。
-    if (paid.linesTruncated) detail.push('(品項過多,此處僅列出部分;完整明細請至會員中心查看)');
+    if (paid.linesTruncated) detail.push('(品項過多，此處僅列出部分;完整明細請至會員中心查看)');
     detail.push('', `小計  NT$ ${formatOrderAmount(paid.subtotal)}`);
     // 🔴 折扣 0 不印(印「折扣 −0」會讓客人以為有一筆他沒看到的折抵);
     //    而**運費 0 照印**(「免運」是他想確認的事)—— 兩條【規則】與排版那份逐條相同。
@@ -530,7 +530,7 @@ function buildOrderCreatedText(
       : `${ORDER_MEMBER_CENTER_SENTENCE}\n${orderUrl}`;
 
   return [
-    '您好,',
+    '您好，',
     '',
     orderLine,
     // 🛑🛑 **2026-09-02:這一句【提出過改法, 而最後【沒有改】】—— 而不改是刻意的, 全文在這裡。**
@@ -729,7 +729,7 @@ function buildOrderUnpaidCancelledText(job: ClaimedEmailJob): string {
   const reason = rawReason === null ? null : sanitizeCustomerFacingReason(rawReason);
 
   const lines: string[] = [
-    '您好,',
+    '您好，',
     '',
     displayId === null
       ? ORDER_CANCELLED_HEADLINE_NO_ID
@@ -780,7 +780,7 @@ function buildOrderCancelledText(job: ClaimedEmailJob, siteUrl: string | undefin
   const refunded = readAmount('refunded_amount');
 
   const lines: string[] = [
-    '您好,',
+    '您好，',
     '',
     displayId === null
       ? ORDER_CANCELLED_HEADLINE_NO_ID
@@ -813,6 +813,16 @@ function buildOrderCancelledText(job: ClaimedEmailJob, siteUrl: string | undefin
 
 function buildOrderShippedText(ctx: ShippedEmailContext): string {
   const lines: string[] = [
+  // 🔴🔴 **本函式的半形逗號【刻意不改】—— 而它現在是全站唯一的一族, 請不要順手統一掉。**
+  //    2026-09-05 A7「標點跟稿走全形」把其餘 6 處對外句改成了全形(付款/取消/未付款取消/
+  //    追蹤更正/三封共用句), **而這裡的三處(`:您好` · `本批為自取／自送` · `分批出貨`)沒動。**
+  //    🛑 理由不是遺漏:**本函式的字面 Sean 2026-08-30 看過全文並逐字答「可以」**
+  //      ⇒ 改它的標點 = 改一個他拍過的東西, 而 A7 那份端給他的清單
+  //      **沒有告訴他 A7 會動到這三句** ⇒ 📌 他同意的是「這類問題你們決定」,
+  //      不是「改我拍過的那三句」。
+  //    ⚠️ **而代價明寫**:出貨信因此成為**唯一還用半形逗號的一封** ——
+  //      A7 原本要解的就是不一致, 而這個切法**把不一致從「多對一」變成「一對多」**。
+  //    ⏰ **什麼時候可以統一**:下一次 Sean 本人看這封信的全文時, 一併問他一句。
     '您好,',
     '',
     `您的訂單 ${ctx.orderDisplayId} 有一批商品已出貨。`,
@@ -1586,7 +1596,7 @@ function buildTrackingCorrectedText(job: ClaimedEmailJob): string {
   }
 
   const lines: string[] = [
-    '您好,',
+    '您好，',
     '',
     displayId === null
       ? '您先前那封出貨通知上的貨運單號有誤。'
