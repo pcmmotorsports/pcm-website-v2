@@ -50,6 +50,7 @@ import type {
   EmailSendErrorCode,
   OrderCreatedEmailPayload,
   OrderShippedEmailPayload,
+  ShipmentTrackingCorrectedEmailPayload,
 } from '@pcm/ports';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -60,7 +61,9 @@ import {
   buildOrderShippedPayload,
   orderCreatedSubject,
   buildOrderUnpaidCancelledPayload,
+  buildShipmentTrackingCorrectedPayload,
   orderShippedSubject,
+  trackingCorrectedSubject,
   orderUnpaidCancelledSubject,
 } from './order-email-assembly';
 
@@ -231,6 +234,7 @@ function composeEvent(input: EnqueueEmailInput): {
   payload:
     | OrderCreatedEmailPayload
     | OrderShippedEmailPayload
+    | ShipmentTrackingCorrectedEmailPayload
     | ReturnType<typeof buildOrderUnpaidCancelledPayload>;
   subject: string;
   dedupKey: string;
@@ -254,6 +258,25 @@ function composeEvent(input: EnqueueEmailInput): {
         payload,
         subject: orderShippedSubject(payload.display_id, payload.shipment_reference),
         dedupKey: `${input.shipmentId}:${input.orderId}`,
+      };
+    }
+    case 'shipment_tracking_corrected': {
+      const payload = buildShipmentTrackingCorrectedPayload({
+        displayId: input.displayId,
+        shipmentId: input.shipmentId,
+        shipmentReference: input.shipmentReference,
+        trackingNumber: input.trackingNumber,
+      });
+      return {
+        payload,
+        subject: trackingCorrectedSubject(payload.display_id, payload.shipment_reference),
+        // 🔴🔴 **dedup_key = 箱 + 【單號】, 不是箱 + 訂單。**
+        //    主視窗 2026-09-04 拍【乙】, 理由逐字:
+        //    **「客人要的是【哪一個號碼是對的】, 不是【你改過幾次】」**
+        //    ⇒ 同一個單號值只寄一次;連改兩次(A→B→C)**只寄到 C**。
+        //    ⚠️ 而 `order_shipped` 那格是 `shipmentId:orderId`(一箱一單一封)——
+        //    **兩者不可互抄**:那條的單位是「箱」, 本條的單位是「值」。
+        dedupKey: `${input.shipmentId}:${payload.tracking_number}`,
       };
     }
     case 'order_unpaid_cancelled': {
@@ -529,6 +552,24 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     return this.leaveSending(id, claimedAttempts, {
       status: 'skipped_order_ineligible',
       last_error_code: 'order_ineligible_at_send',
+    });
+  }
+
+  /**
+   * ⟦5b-TRACKNUMGAP1⟧ 片 C:寄送當下那個單號已被更新 ⇒ 跳過 + 退休鍵。
+   * 🔵 `status` 借用 `skipped_order_ineligible` 這個桶(形同 `markSkippedOrderCancelled`),
+   *    **真相在 `last_error_code`** —— 它沒有值域白名單, 只有格式 CHECK。
+   * 🔴 而 `:superseded:` 這個中綴讓那一列**在 DB 裡自己說得出為什麼**(而不是靠有人記得)。
+   */
+  async markSkippedTrackingSuperseded(
+    id: string,
+    claimedAttempts: number,
+    currentDedupKey: string,
+  ): Promise<boolean> {
+    return this.leaveSending(id, claimedAttempts, {
+      status: 'skipped_order_ineligible',
+      last_error_code: 'tracking_superseded',
+      dedup_key: `${currentDedupKey}:superseded:${id}`,
     });
   }
 

@@ -104,6 +104,39 @@ export type CheckAnomalyAlertsResult = {
    */
   manualCustomerSearchCount: number | null;
   manualCustomerSearchActors: number | null;
+  /**
+   * 搜尋日誌健康度(⟦search-LOGSILENTZERO⟧)。**五個欄位, 而它們代表【不同的世界】不是程度**:
+   * ```
+   * searchLogUnknown        那支 RPC 還沒 apply / 讀不到  ⇒ 與其他 Unknown 同款
+   * searchLogTableExists    false = 那張表還沒貼          ⇒ 印「未貼」【不告警】
+   * searchLogLastRowAt      null 而表在 = 還沒開始收      ⇒ 【不告警】(主視窗裁乙)
+   * searchLogStale          有列而最後一列 > 24h          ⇒ 🔴 告警
+   * searchLogAnonCanExecute null = 函式沒貼(不告警) · false = 🔴 門被關掉了(告警)
+   * ```
+   * ⛔ **原提案「近 24h 0 列就告警」被推翻** —— 逐字:「甲每天半夜假紅一次,
+   *    假紅會被人關掉(閘死於誤報比漏報常見)」。
+   */
+  searchLogUnknown: boolean;
+  /**
+   * 🔴 **與 `searchLogUnknown` 分開 —— 兩者的成因不同而回傳值原本是同一格。**
+   *   `Unknown` 有兩種世界:①那支 RPC 還沒 apply(部署窗口, 預期中)②它真的壞了(要有人看)
+   *   ⛔ ~~我原本只有 Unknown 一格~~ ⇒ 唯一分得開它們的是一行 log,
+   *      而 **同一個 type 往下幾行的 R3 must-fix 1 逐字判過這個形狀**:
+   *      「把那行 log 刪掉, 測試照樣全綠 ⇒ 那個『分得開』沒有量具」。
+   *   ⇒ 照 sibling(`manualCustomerSearchFailed`)補這一格, 讓它有量具。
+   */
+  searchLogFailed: boolean;
+  searchLogTableExists: boolean | null;
+  searchLogLastRowAt: string | null;
+  searchLogStale: boolean;
+  /**
+   * 🔴 **命名的極性與 `searchLogStale` 對齊(true = 要看)**——
+   *   ⛔ ~~原名 `searchLogAnonCanExecute`(false = 要看)~~ ⇒ route 自然會寫
+   *      `!searchLogAnonCanExecute`, 而那在【函式還沒貼】那段期間 **每天假紅**
+   *      —— 正是主視窗裁乙要避開的那件事。
+   *   `null` = 那支函式還沒貼(不告警) · `true` = 🔴 那道門被關掉了(告警)
+   */
+  searchLogAnonExecuteRevoked: boolean | null;
   manualCustomerSearchUnknown: boolean;
   /**
    * 🔴🔴 **R3 must-fix 1:「讀取失敗」與「還沒 apply」必須在【回傳值】上分得開。**
@@ -492,6 +525,16 @@ export function buildAnomalyAlertMessage(
    * `true` = 讀取失敗(有人要去看)· `false` = 那支 RPC 還沒 apply(預期中,不必動作)。
    */
   searchReadFailedForMessage = false,
+  /**
+   * 搜尋日誌健康度(⟦search-LOGSILENTZERO⟧)。**第五個參數, 理由與第三個同一條**:
+   * 它來自**另一支 RPC**(`get_search_log_health`), 塞進 `AnomalyAlertSummary` 會讓那個型別
+   * 不再對應任何一支 RPC 的回傳。
+   *
+   * 🔴 **沒有預設值 —— 漏傳就當場 typecheck 紅**(與 `manualCustomerSearch` 同一個理由:
+   *    有預設值的話, 漏傳 = 「一切正常」而零紅)。
+   * 🛑 兩格都是 `boolean`, 而**它們只在 true 時才進信** ⇒ 不命中零字。
+   */
+  searchLogFlags: { readonly stale: boolean; readonly anonRevoked: boolean },
 ): AnomalyAlertMessage {
   // 🔴 `Math.round(秒/3600)` 會把 5400 秒(90 分)講成「2 小時」= **報一個錯的門檻給收信人**
   //    (codex R2 nit)。正式路徑目前固定 86400,所以今天走不到 —— 而那不是不修的理由:
@@ -934,6 +977,31 @@ export function buildAnomalyAlertMessage(
     );
   }
 
+  /**
+   * ⟦search-LOGSILENTZERO⟧:搜尋日誌那一行。
+   * 🔴 **主視窗 2026-09-04 裁①**:進既有這封信、**只在命中時多一行, 不命中零字**。
+   *    理由逐字:「②『靠有人去看』= 今天沒有人在看 ⇒ 等於沒做;而這兩格一年出不了幾次,
+   *    不會變成每天一封。收件人不是他也沒關係 —— 他是唯一會轉給工程的人。」
+   * 🛑 而**兩格都不告訴 Sean 要做什麼** —— 它們是工程要看的 ⇒ 信裡明寫「轉給施工窗」。
+   */
+  const searchLogBlock: string[] = [];
+  if (searchLogFlags.stale) {
+    searchLogBlock.push(
+      '【搜尋日誌】',
+      '🔴 搜尋日誌超過 24 小時沒有新列 —— 客人搜尋的紀錄可能停止寫入了。',
+      '   ⇒ 這一格是工程要看的, 請【轉給施工窗】。',
+      '   ⚠️ 而它也可能是【真的一天沒有人搜尋】—— 那時候該看的是網站, 不是這支。',
+    );
+  }
+  if (searchLogFlags.anonRevoked) {
+    searchLogBlock.push(
+      '【搜尋日誌】',
+      '🔴 顧客站寫搜尋日誌的那道權限被收掉了(log_search_query 的 anon EXECUTE)。',
+      '   ⇒ 這一格是工程要看的, 請【轉給施工窗】。',
+      '   ⚠️ 它與上面那行的差別:這一行是【門被關了】, 上面那行是【沒有東西進來】。',
+    );
+  }
+
   const heartbeatBlock: string[] = [];
   if ((summary.cronHeartbeatAbnormalCount ?? 0) > 0) {
     const names = summary.cronHeartbeatAbnormalJobs ?? [];
@@ -985,7 +1053,7 @@ export function buildAnomalyAlertMessage(
   //    `shouldAlert` 照樣 true、信照樣寄、而信裡**一個字都沒有那一塊**。
   //    ⇒ 抓到它的是「信裡要逐字帶【它證不到什麼】」那一發測試。
   //    📌 **一個【建好而沒接上】的東西, 與【沒建】在行為上不同、在 diff 上長得一樣合理。**
-  const body = [bypassRlsBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
+  const body = [bypassRlsBlock, searchLogBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
 
   /**
    * 🔴🔴 **結尾三行是【不可截的】,而這不是排版偏好。**
@@ -1219,6 +1287,42 @@ export async function checkAnomalyAlerts(
     );
   }
 
+  // 🔴 搜尋日誌健康度 —— 與上面 `searchSummary` 同款收口:次要觀測不得帶走主要功能。
+  let searchLog: {
+    readonly tableExists: boolean;
+    readonly lastRowAt: string | null;
+    readonly anonCanExecute: boolean | null;
+  } | null = null;
+  /** 🔴 與「還沒 apply」分開 —— 兩者都讓 `searchLog` 是 null, 而下一步不同。 */
+  let searchLogReadFailed = false;
+  try {
+    searchLog = await deps.reader.getSearchLogHealth();
+  } catch (err) {
+    // 🛑 不得靜默。而 log 之外【還要有一格 result】—— 只靠 log 的話, 把 log 刪掉測試照樣全綠。
+    console.error('[anomaly-alert] get_search_log_health 讀取失敗 ⇒ 落 Unknown', {
+      reason: 'search_log_health_read_failed',
+      code: (err as { code?: unknown } | null)?.code ?? null,
+    });
+    searchLog = null;
+    searchLogReadFailed = true;
+  }
+
+  /**
+   * 🔴 **信裡那兩格與 result 那兩格用【同一個常數】, 不是各算一次。**
+   *   各算一次的話, 有人改了其中一邊 ⇒ 信說「日誌停了」而 result 說沒停,
+   *   而**兩邊都不會紅**(那正是本 repo 記過的「兩半各自呼叫同一函式 ≠ 兩半綁在一起」的反面:
+   *   這裡是【同一個值】, 所以綁得住)。
+   */
+  const searchLogStaleForMessage =
+    searchLog !== null &&
+    searchLog.tableExists &&
+    searchLog.lastRowAt !== null &&
+    Date.now() - new Date(searchLog.lastRowAt).getTime() > 24 * 60 * 60 * 1000;
+  const searchLogAnonRevokedForMessage =
+    searchLog?.anonCanExecute === undefined || searchLog?.anonCanExecute === null
+      ? null
+      : !searchLog.anonCanExecute;
+
   /**
    * 🔴 **F-004 加了第六項,而它是一個【被明知接受的代價】,不是順手加的。**
    *
@@ -1238,6 +1342,13 @@ export async function checkAnomalyAlerts(
    *    ⇒ 部署問題走部署管道:route 依 `orderRefundsStuckUnknown` 回 503(監控看得到)。
    */
   const shouldAlert =
+    // 🔴🔴 **codex 2026-09-04 must-fix ①:這兩格原本【沒有進 shouldAlert】**
+    //    ⇒ 只有搜尋日誌異常時 `shouldAlert` 是 false ⇒ **那封信根本不會寄**
+    //    ⇒ 📌 我把那兩行寫進了信的【內容】, 而沒有寫進【要不要寄】
+    //      —— 而 `buildAnomalyAlertMessage` 的測試全綠, 因為它只驗「文字對不對」。
+    //    🎯 **一片「加了一個告警」的改動, 在它自己的測試底下【完全看不出來它不會叫】。**
+    searchLogStaleForMessage ||
+    searchLogAnonRevokedForMessage === true ||
     summary.openCount > 0 ||
     summary.refundingStuckCount > 0 ||
     summary.attemptManualReviewCount > 0 ||
@@ -1445,6 +1556,12 @@ export async function checkAnomalyAlerts(
       // 🔴 直接傳 adapter 回的那個物件 —— **不再由這一層拼一個 windowSeconds 上去**(R3 must-fix 2)。
       searchSummary,
       searchReadFailed,
+      // 🔴 只把【兩個 boolean】傳進去 —— 信裡不需要 lastRowAt 那種細節,
+      //    而把 null 留在 result 那一層(值班的人看 cron 回應才需要它)。
+      {
+        stale: searchLogStaleForMessage,
+        anonRevoked: searchLogAnonRevokedForMessage === true,
+      },
     );
     notifiersTotal = deps.notifiers.length;
     // 🔴 **這一行講的是【送】那個階段**:各管道各自送、一管道掛掉不影響另一管道
@@ -1489,6 +1606,15 @@ export async function checkAnomalyAlerts(
     orderRefundsManualFailedCount: summary.orderRefundsManualFailedCount,
     manualCustomerSearchCount: searchSummary?.count ?? null,
     manualCustomerSearchActors: searchSummary?.actors ?? null,
+    searchLogUnknown: searchLog === null,
+    searchLogFailed: searchLogReadFailed,
+    searchLogTableExists: searchLog?.tableExists ?? null,
+    searchLogLastRowAt: searchLog?.lastRowAt ?? null,
+    // 🔴 只有【表在 + 有過列 + 最後一列超過 24h】才算 stale。
+    //    表不在 ⇒ false(還沒貼)· 有表沒列 ⇒ false(還沒開始收)—— 兩者都不是異常。
+    searchLogStale: searchLogStaleForMessage,
+    // 🔴 極性翻過來:true = 那道門被關掉了(要看)· null = 函式還沒貼(不看)
+    searchLogAnonExecuteRevoked: searchLogAnonRevokedForMessage,
     manualCustomerSearchUnknown: searchSummary === null,
     manualCustomerSearchFailed: searchReadFailed,
     orderRefundsStuckUnknown: summary.orderRefundsStuckUnknown,
