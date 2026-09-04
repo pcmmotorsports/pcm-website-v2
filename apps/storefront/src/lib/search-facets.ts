@@ -161,8 +161,22 @@ export function filterFacets(
       count: s.count,
     })),
   ]);
+  // 🔴🔴 **大類命中排在子類前 —— 而這一段是【preview 實測補上的】, 不是原版就有。**
+  //   ⛔ ~~第一版沒有這個排序~~ ⇒ 🔬 preview `13a4f020c` 打 `排氣` 回 5 格, 而**第一格是
+  //     `碳纖維部品 · 引擎與排氣護蓋`**, `排氣系統`(大類)被擠到第二。
+  //   🛑 **那是本片規格第 5 行的後半, 而我漏做了** —— 規格逐字「大類命中排在子類前」。
+  //   🎯 **而那 8 格新測試一格都沒紅** —— 因為**每一格查詢都只命中一樣東西**,
+  //     從來沒有一格【同時命中大類與子類】⇒ 📌 **順序這件事在我的分母裡結構上不存在。**
+  //     ⇒ 🔵 抓到它的**不是更仔細, 是把碼放到真的資料上跑一發**。
+  //   🔵 **不是美觀問題**:`SEARCH_FACET_LIMIT = 6` ⇒ 打常見字時子類會把**別的大類**擠出榜,
+  //     而客人最可能想去的就是那個大類。
+  //   🛑 **`sort` 必須穩定, 而且只比「是不是大類」這一個鍵** —— 多比一個(例如 `count`)
+  //     會**順手改掉同層之間的順序**, 而那個順序是樹給的(`sort_order`), 不是我的。
+  //     Node 的 `Array#sort` 自 V8 7.0 起保證穩定 ⇒ 回 0 的兩格維持原相對位置。
+  const isTop = (c: SearchCategoryHit): boolean => c.path === c.name;
   const categories = flatCategories
     .filter((c) => foldIncludes(c.name, q) || foldIncludes(c.id, q))
+    .sort((a, b) => Number(isTop(b)) - Number(isTop(a)))
     .slice(0, SEARCH_FACET_LIMIT);
 
   // 稿 `:47-54`:逐 brand 逐 model,而 **model 名或 brand 名任一命中就算**

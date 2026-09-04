@@ -63,6 +63,63 @@ def row_key(line):
     return ('literal', line.strip())
 
 
+# ── 逐句合併(2026-09-05 加;-front `d910c6afd` 的整段被較長版蓋掉)────────────
+# 🔴 病灶:同錨兩版只取【較長那份】⇒ 短的那份裡【對方沒有的句子】整段消失,
+#    而 commit 還在(git log 找得到)、內容不在(板上讀不到)。
+#    📌 「commit 在而內容不在」是最難查的一種:作者去查 git 會看到自己做了,
+#       去讀板子會看到沒有 —— 而兩邊都不會叫。
+SENT_RE = re.compile(r'[^。;]*?(?:。|;)|[^。;]+$')
+
+
+def sentences(text):
+    """把一格內容切成句。以「。」「;」結尾切, 並把 ` · ` 當成句界。
+
+    ⚠️ 這是【啟發式】不是文法:它切不出括號裡的分號, 也切不開沒有標點的長句。
+       ⇒ 切太粗的後果是【追加得比需要的多】(冗餘), 不是漏掉 —— 那個方向是安全的。
+    """
+    out = []
+    for chunk in text.split(' · '):
+        for m in SENT_RE.finditer(chunk):
+            t = m.group(0).strip()
+            if t:
+                out.append(t)
+    return out
+
+
+def merge_sentences(base, other):
+    """以 base 為底, 把 other 有而 base 沒有的句子追加到【最後一格】。
+
+    回 (合併後的行, 追加了幾句)。
+    🔴 追加到最後一格 = 欄數不變 ⇒ 表格不會壞。
+    🔴 比對用【整行】而不是逐格 —— 同一句話搬到別格也算已經有了, 不重複追加。
+    """
+    # 🔴🔴 只吃【欄位內容】, 絕不吃整行 —— 整行含 `|`,
+    #    把它當一句追加回去會【多出格線】⇒ 欄數變了 ⇒ 表格壞掉。
+    #    (第一版就是這樣壞的, 而 selftest 世界④⑥ 當場抓到。)
+    # 🔴🔴 逐【格】切句, 不把整列黏成一條 —— 黏起來之後那條字串在 base 裡永遠找不到
+    #    (base 的格之間隔著 `|`)⇒ 每一次都會誤判成「對方獨有」而整列追加回去。
+    #    (第一版黏了整列, selftest 世界④⑥ 當場抓到。)
+    base_text = ' '.join(c for c in split_cells(base) if c.strip())
+    extra = []
+    for cell in split_cells(other):
+        for t in sentences(cell):
+            if len(t) >= 4 and t not in base and t not in base_text:
+                extra.append(t.replace('|', '/'))
+    if not extra:
+        return base, 0
+    cells = base.rstrip().rstrip('|').split('|')
+    if len(cells) < 2:
+        return base, 0
+    cells[-1] = cells[-1].rstrip() + '<br> 🔀 **[合併自同錨的另一版]** ' + ' '.join(extra) + ' '
+    return '|'.join(cells) + '|', len(extra)
+
+
+def state_of(line):
+    """態欄(第 2 格)。回不到就回空字串。"""
+    f = split_cells(line)
+    return f[1].strip() if len(f) > 1 else ''
+
+
 def merge_block(ours, theirs):
     """逐列合併一個衝突塊。回 (合併後的行, 說明清單)。
 
@@ -87,9 +144,17 @@ def merge_block(ours, theirs):
                 notes.append(('identical', k[1][:40]))
                 out.append(l)
             else:
-                keep = other if len(other) > len(l) else l
-                notes.append(('longer:' + ('theirs' if keep is other else 'ours'), k[1][:40]))
-                out.append(keep)
+                keep, drop = (other, l) if len(other) > len(l) else (l, other)
+                merged, n_added = merge_sentences(keep, drop)
+                # 🔴 態欄取【較新那版】= 進來的那一側(theirs)。
+                #    ⚠️ 而「較新」是【由 merge 的方向推的】, 不是從內容量到的 ——
+                #       兩側態不同時本支會印出來, 讓人自己看一眼。
+                st_ours, st_theirs = state_of(l), state_of(other)
+                if st_ours != st_theirs:
+                    notes.append(('state-differs:%s|%s' % (st_ours, st_theirs), k[1][:40]))
+                notes.append((('longer:' + ('theirs' if keep is other else 'ours')
+                               + ('+%d句' % n_added if n_added else '')), k[1][:40]))
+                out.append(merged)
         else:
             notes.append(('ours-only', k[1][:40]))
             out.append(l)
@@ -196,6 +261,37 @@ def selftest():
         ['| open | ⟦zzq-A⟧ | 甲 | 待派 | x |'],
         ['| open | ~~⟦zzq-OLD⟧~~ ⟦zzq-A⟧ | 甲而更長更長更長更長 | 待派 | x |'],
         ['| open | ~~⟦zzq-OLD⟧~~ ⟦zzq-A⟧ | 甲而更長更長更長更長 | 待派 | x |'])
+    # ═══ 逐句合併(2026-09-05 加;-front d910c6afd 整段被蓋掉那個病)═══════
+    # 🟢 正對照:A 有一句 B 沒有 ⇒ 合併後【兩句都要在】
+    long_side  = '| open | ⟦zzq-M⟧ | 這一列本來就很長很長很長很長很長很長。而它講的是甲那件事。 | 待派 | x |'
+    short_side = '| open | ⟦zzq-M⟧ | 而 -front 今晚補了一句只有它有的話。 | 待派 | x |'
+    got, _ = merge_block([long_side], [short_side])
+    both = ('很長很長' in got[0]) and ('-front 今晚補了一句只有它有的話' in got[0])
+    print(('  ✅ ' if both else '  🔴 ') + '世界⑦·A 有 B 沒有的一句 ⇒ 合併後兩句都在(這就是那個 bug)')
+    if not both:
+        print('     得到 ' + got[0]); ok = False
+    # 🔴 而欄數不得變 —— 追加若帶進 `|` 就會多出格線
+    same_cols = got[0].count('|') == long_side.count('|')
+    print(('  ✅ ' if same_cols else '  🔴 ') + '世界⑦b·追加之後欄數不變(帶進 | 會弄壞表格)')
+    if not same_cols:
+        print('     格線數 %d vs %d' % (got[0].count('|'), long_side.count('|'))); ok = False
+
+    # 🔵 負對照:逐字相同 ⇒ 一句都不該追加
+    got2, _ = merge_block([long_side], [long_side])
+    no_dup = '合併自同錨的另一版' not in got2[0]
+    print(('  ✅ ' if no_dup else '  🔴 ') + '世界⑧·兩版逐字相同 ⇒ 不重複追加')
+    if not no_dup:
+        print('     得到 ' + got2[0]); ok = False
+
+    # 🔵 負對照之二:短的那句【已經在】長版裡(只是被包在更長的句子中)⇒ 不追加
+    contained = '| open | ⟦zzq-N⟧ | 而 -front 今晚補了一句只有它有的話。加上更多更多更多內容。 | 待派 | x |'
+    part      = '| open | ⟦zzq-N⟧ | 而 -front 今晚補了一句只有它有的話。 | 待派 | x |'
+    got3, _ = merge_block([contained], [part])
+    no_dup2 = '合併自同錨的另一版' not in got3[0]
+    print(('  ✅ ' if no_dup2 else '  🔴 ') + '世界⑧b·那句已經在長版裡 ⇒ 不重複追加')
+    if not no_dup2:
+        print('     得到 ' + got3[0]); ok = False
+
     print('全部通過。' if ok else '🔴 有格沒過。')
     return 0 if ok else 1
 
