@@ -282,17 +282,55 @@ function countSamePhone(candidates: ManualCustomerCandidate[], normalizedPhone: 
  *
  * ⚠️ **效度限制,畫面要照實說**:那支 RPC 是**子字串**比對 ⇒ 搜 `0912345678` 也會命中
  *    `10912345678` 這種包含它的號碼。**候選清單是「像的人」,不是「同一個人」。**
+ *
+ * 🔴🔴 **2026-09-05 起這個名字【比行為窄】** —— 它現在也吃姓名與 email(見下方 `isPhoneLikeQuery`)。
+ *    ⚠️ **沒有改名的理由是範圍**:`findCustomerCandidatesByPhone` 有 **5 支檔** 在用
+ *    ⇒ 改名是一支**零行為改動的機械片**, 不夾帶在這一片裡。**已記板。**
+ *    🛑 而在它被改名之前, **這一段就是那個名字唯一的訂正** —— 讀到名字的人不一定讀到這裡, 已知。
  */
+/**
+ * 🔴🔴 **查詢字串是不是【一支電話】**(`⟦b4-FINDCUSTOMERPHONE⟧`, 2026-09-05)。
+ *
+ * 🔬 **為什麼需要它**:`admin_search_customers` **本來就吃三軸**
+ *    (`20260816010000_...:99/110/121` 以 `UNION` 併起來:`name` / `email` / `phone`),
+ *    **而且姓名那一軸有索引**。而這支函式上一版第一件事就是 `normalizeManualPhone(rawPhone)`
+ *    —— 它逐字是 `raw.replace(/\D/g, '')` ⇒ 🛑 **打「王小明」得到空字串 ⇒ 直接回空,
+ *    RPC 根本沒有被呼叫。** ⇒ 📌 **一個已經做好、已經建了索引的能力, 被一行正規化丟掉了。**
+ *
+ * ⚠️ **而那一行不是寫錯的** —— 它是為了讓存成 `0912-345-678` 的客人也找得到(去非數字再比)。
+ *    **它同時做了兩件事:正規化電話、以及把非電話查詢變成空的** —— 而第二件是副作用。
+ *
+ * 🔵 **判準:拿掉【人會打進電話裡的那些符號】之後, 剩下的是不是全是數字。**
+ *    ⇒ `0912-345-678` · `(02) 2345 6789` · `+886 912345678` **都算電話**;
+ *      `王小明` · `a@b.com` · `0912abc` **都不算**。
+ *    🛑 **不可以只判「有沒有非數字」** —— 那樣 `+886 912345678` 會被送去搜姓名, 而它是一支電話。
+ */
+export function isPhoneLikeQuery(raw: string): boolean {
+  const stripped = raw.replace(/[\s\-()+]/g, '');
+  return stripped !== '' && /^\d+$/.test(stripped);
+}
+
 export async function findCustomerCandidatesByPhone(
   client: ManualCustomerClient,
   rawPhone: string,
 ): Promise<CandidateLookupResult> {
+  // 🔴 **兩條路, 而它們送給 RPC 的東西不同**:
+  //    · 電話 ⇒ 送**正規化後的數字**(RPC 那一軸也把存起來的電話去非數字再比)
+  //    · 其他 ⇒ 送**原字串**(去頭尾空白), 讓 RPC 的 name / email 兩軸接手
+  const isPhone = isPhoneLikeQuery(rawPhone);
   const phone = normalizeManualPhone(rawPhone);
-  if (phone === '') {
+  const query = isPhone ? phone : rawPhone.trim();
+  // 🔴🔴 **「有沒有內容」要問【字或數字】, 不是問「空不空」**(既有測試當場抓到, 而它是對的)。
+  //    🔬 病:放寬之後 `'-'` 這種只有符號的輸入 `trim()` 之後**不是空字串**
+  //       ⇒ 會帶著 `'-'` 去打 RPC ⇒ `name LIKE '%-%'` 可能掃出一堆人。
+  //    ⛔ 而舊版不會 —— 舊版把一切輾成數字, `'-'` 變成 `''` ⇒ 那個保護是**副作用給的**。
+  //    ⇒ 📌 **拿掉副作用的時候, 要把它順手提供的保護【明著補回來】** —— 否則那是一個
+  //       沒有人決定過、而且不會有東西紅的放寬。(這一格是既有測試「沒有電話 ⇒ 不打 RPC」逼出來的。)
+  if (!/[\p{L}\p{N}]/u.test(query)) {
     return { candidates: [], truncated: false, samePhoneCount: 0, shouldWarnDuplicates: false };
   }
 
-  const res = await client.rpc('admin_search_customers', { p_query: phone, p_limit: CANDIDATE_LIMIT });
+  const res = await client.rpc('admin_search_customers', { p_query: query, p_limit: CANDIDATE_LIMIT });
   if (res.error) throw res.error;
   const payload = res.data as { ids?: unknown; truncated?: unknown } | null;
   if (typeof payload !== 'object' || payload === null || !Array.isArray(payload.ids)) {
@@ -324,7 +362,14 @@ export async function findCustomerCandidatesByPhone(
       isManual: (user.data.user?.app_metadata ?? {}).pcm_provider === MANUAL_PROVIDER,
     });
   }
-  const samePhoneCount = countSamePhone(candidates, phone);
+  // 🔴🔴 **重複警告只在【電話查詢】時算得出來, 而這不是偷懶。**
+  //    `countSamePhone` 比的是「候選的電話正規化後 === 我查的那支電話」。
+  //    🛑 用姓名查時 `phone` 是空字串 ⇒ 它會把**每一個沒有電話的候選**都算成「同號」
+  //       ⇒ 一個**假的**重複警告。⇒ 那比不警告糟:員工會學會忽略它。
+  //    ⇒ ✅ 非電話查詢時算 0, **而截斷那條 fail-safe 照舊**(下一行)。
+  //    ⚠️ **代價寫出來**:用姓名查到兩個長得一樣的人時, **沒有東西會警告他**。
+  //       📌 那是一個**新的缺口**(舊版根本查不到姓名, 所以它不存在)—— 已記板, 不藏。
+  const samePhoneCount = isPhone ? countSamePhone(candidates, phone) : 0;
   return {
     candidates,
     truncated: payload.truncated === true,

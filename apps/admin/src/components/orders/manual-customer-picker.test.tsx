@@ -36,7 +36,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 async function search(phone = '0912345678') {
-  fireEvent.change(screen.getByLabelText('客人電話'), { target: { value: phone } });
+  fireEvent.change(screen.getByLabelText('找客人(電話 / 姓名 / Email)'), { target: { value: phone } });
   await act(async () => {
     fireEvent.click(screen.getByRole('button', { name: '找客人' }));
   });
@@ -310,7 +310,7 @@ describe('🔴🔴 R4-MF1:在這一塊按 Enter,不得送出整張訂單', () =>
   //    🔴 真瀏覽器那一格是**分開的一發**(驗收條 A-1b),**本族綠不代表那一格綠。**
   it('Enter 被擋下來(事件 cancelled),而且改跑「找客人」', async () => {
     render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    const input = screen.getByLabelText('客人電話');
+    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
     fireEvent.change(input, { target: { value: '0912345678' } });
 
     // `fireEvent` 回 false = 這一發被 `preventDefault()` 掉了 = 瀏覽器不會拿它去送表單。
@@ -324,7 +324,7 @@ describe('🔴🔴 R4-MF1:在這一塊按 Enter,不得送出整張訂單', () =>
 
   it('🔴 對照組:按【別的鍵】不擋、也不查(不然這道閘就是恆擋、量不出判別力)', async () => {
     render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    const input = screen.getByLabelText('客人電話');
+    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
     let cancelled = false;
     await act(async () => {
       cancelled = !fireEvent.keyDown(input, { key: 'a' });
@@ -361,7 +361,7 @@ describe('🔴🔴 R4-MF3:action 自己 throw(不是回 ok:false)時,不得炸�
     render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
     await search();
     expect(screen.getByTestId('manual-customer-picker-notice').textContent).toContain('連不上系統');
-    expect(screen.getByLabelText('客人電話')).toBeTruthy();
+    expect(screen.getByLabelText('找客人(電話 / 姓名 / Email)')).toBeTruthy();
   });
 
   it('建客人 throw ⇒ 文案必須叫他【先不要再按一次】(帳號可能已經建出來了)', async () => {
@@ -736,7 +736,7 @@ describe('🔴🔴 R5-F3:中文輸入法組字中的那一下 Enter,不算「執
   //    📌 這條在英數輸入下**永遠不會發生** ⇒ 開發時測不到,而 Sean 的客人全是中文名字。
   it('組字中(isComposing)的 Enter ⇒ 不擋、也不執行', async () => {
     render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    const input = screen.getByLabelText('客人電話');
+    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
     let cancelled = false;
     await act(async () => {
       cancelled = !fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
@@ -747,7 +747,7 @@ describe('🔴🔴 R5-F3:中文輸入法組字中的那一下 Enter,不算「執
 
   it('🔴 對照組:組字結束後的同一下 Enter ⇒ 照常執行(不然這道閘變成把功能關掉)', async () => {
     render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    const input = screen.getByLabelText('客人電話');
+    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
     await act(async () => {
       fireEvent.keyDown(input, { key: 'Enter', isComposing: false });
     });
@@ -771,7 +771,7 @@ describe('🔴🔴 R5-F2:兩發搜尋並行時,慢的舊那發不得蓋掉新結
       .mockImplementationOnce(async () => found(hit(USER_B, '新電話的人')));
 
     render(<ManualCustomerPicker customerRequestId={CUSTOMER_KEY} />);
-    const input = screen.getByLabelText('客人電話');
+    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
     // 🔴 兩發都用 Enter 發 —— 第一發還在跑時「找客人」那顆是 disabled(顯示「找…」),
     //    而 Enter 這條路**不看 pending** ⇒ 這正是員工真的會做出兩發並行的那條路。
     await act(async () => {
@@ -841,7 +841,7 @@ describe('🔴🔴 R6:IME 那道要在【兩層一起在場】時量 —— 只 
 
   it('組字中的 Enter:兩層都在場時,那一發【不得】被取消,也不得去查', async () => {
     renderBoth();
-    const input = screen.getByLabelText('客人電話');
+    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
     let cancelled = false;
     await act(async () => {
       cancelled = !fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
@@ -852,7 +852,7 @@ describe('🔴🔴 R6:IME 那道要在【兩層一起在場】時量 —— 只 
 
   it('🔴 對照組:組字結束的同一發 ⇒ 被取消(不送出)而且有去查', async () => {
     renderBoth();
-    const input = screen.getByLabelText('客人電話');
+    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
     let cancelled = false;
     await act(async () => {
       cancelled = !fireEvent.keyDown(input, { key: 'Enter', isComposing: false });
@@ -884,7 +884,7 @@ describe('🔴🔴 R6:序號要同時協調【搜尋 vs 建立】,不只是搜�
     await search();
 
     // 第二發搜尋:慢的,而且用 Enter 發(不看 pending)
-    const input = screen.getByLabelText('客人電話');
+    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
     await act(async () => {
       fireEvent.change(input, { target: { value: '0988777666' } });
       fireEvent.keyDown(input, { key: 'Enter' });
@@ -937,7 +937,7 @@ describe('🔴🔴 R6:序號要同時協調【搜尋 vs 建立】,不只是搜�
       fireEvent.keyDown(screen.getByLabelText('客人姓名'), { key: 'Enter' });
     });
 
-    const input = screen.getByLabelText('客人電話');
+    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
     await act(async () => {
       fireEvent.change(input, { target: { value: '0988777666' } });
       fireEvent.keyDown(input, { key: 'Enter' });
@@ -992,7 +992,7 @@ describe('🔴🔴 R6:序號要同時協調【搜尋 vs 建立】,不只是搜�
       fireEvent.keyDown(screen.getByLabelText('客人姓名'), { key: 'Enter' });
     });
     // ② 建立還在飛的時候,員工又發了一發搜尋(也慢)⇒ 它的序號【比建立大】
-    const input = screen.getByLabelText('客人電話');
+    const input = screen.getByLabelText('找客人(電話 / 姓名 / Email)');
     await act(async () => {
       fireEvent.change(input, { target: { value: '0988777666' } });
       fireEvent.keyDown(input, { key: 'Enter' });
