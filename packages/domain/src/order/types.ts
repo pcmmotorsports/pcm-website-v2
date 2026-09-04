@@ -1599,6 +1599,17 @@ export type PlaceOrderInput = {
   invoice: OrderInvoice;
   cartSessionId: string;
   /**
+   * 顧客站選的付款方式(段 1-B, 2026-09-04)。`'tappay' | 'bank_transfer'`。
+   *
+   * 🔴 **必填、無預設** —— 而那與 DB 那一側「`p_payment_channel` 不給 DEFAULT」是同一個理由的兩半:
+   *   給了預設 ⇒ 少送時會**安靜地變成刷卡**, 而客人選的是匯款。
+   * 🛑 **而 TypeScript 在這一層【擋不到】client 少送** —— 它是從 FormData `safeParse` 來的,
+   *   沒有型別化的建構點(實測:schema 加必填欄之後 `typecheck` **零錯誤**, 而 **123 支測試紅**)。
+   *   ⇒ 📌 **⇒ 擋它的是 zod, 不是型別。而【送對了但寫錯了】連 zod 也擋不到** ——
+   *     那一格靠 `charge-actions` 建完之後的 read-back。
+   */
+  paymentChannel: 'tappay' | 'bank_transfer';
+  /**
    * 🔴 #241 同意條款版本(server 注入 `CURRENT_TERMS_VERSION`、**非 client 送**;對齊 create_order
    * 舊 8 鍵路徑的 `p_terms_version`)。create_order 路徑必填(NULL/空 → RPC RAISE「無 consent 不生 order」、
    * 同 transaction 原子寫 order_legal_consents)。

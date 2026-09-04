@@ -35,6 +35,8 @@ function baseInput(over: Partial<Parameters<typeof validateNonCardFields>[0]> = 
     notificationEmailEnabled: false,
     notificationEmail: '',
     agreed: true,
+    // 🔵 段 1-B:tappay = 今天線上唯一那個世界(而它是一個世界不是中性預設)。
+    paymentChannel: 'tappay' as const,
     ...over,
   };
 }
