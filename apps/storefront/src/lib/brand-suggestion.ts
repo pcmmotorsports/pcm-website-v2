@@ -70,6 +70,29 @@ export function trigramSimilarity(a: string, b: string): number {
 export type BrandCandidate = { readonly name: string; readonly slug: string };
 
 /**
+ * 🔴🔴 **建議的地板** —— 低於這個分數就不建議。
+ *
+ * 🛑 **Sean 2026-09-04 拍的是「不設門檻」, 而那是【依 B 堆那張重疊表】下的**;
+ *    本地板依的是 **2026-09-05 的新資料**(code-reviewer R1 量到第三堆:車款代號 / 太短的字)
+ *    ⇒ **主視窗 09-05 裁的「先加 0.2」, 臨時、可逆;`Q-建議地板` 已排 Sean 早上佇列。**
+ *    ⇒ 📌 **他若拍「不要」, 把這個常數改成 0 就好 —— 一行。**
+ *
+ * 🔬 **而 0.2 這個值是【在我這把尺上】量的, 不是抄他那個 0.227**
+ *    (他量的是 Postgres `similarity()`, 我是 TS 三連字元 Jaccard ⇒ 兩把尺不可互相引用)。
+ *    線上品牌清單 19 個(`/api/search` 掃 a–z 取聯集;⚠️ DB `brands` 表有 25 列,
+ *    而 `catalog_brand_counts()` 只回**有可見商品**的品牌 ⇒ 19 與 25 的差**沒有查證是哪一種**):
+ *    ```
+ *    真的品牌錯字(必須活著)  最低 evotch 0.500 · akrpovic 0.583 · akrapovi 0.727 · 其餘到 1.000
+ *    該殺掉的(車款/太短/亂編) 最高 r1 0.111 · a 0.091 · mt07 0.083 · co 0.077 · cbr600rr 0.053
+ *    ```
+ *    ⇒ 🎯 **兩堆之間有一段空的:0.111 ~ 0.500。0.2 在正中間**
+ *      —— 對噪音有 **1.8 倍**餘裕、對真錯字有 **2.5 倍**餘裕。
+ * ⚠️ **證不到什麼**:①樣本是我自己挑的, 不是流量 ②19 個品牌是今天的清單, **新增品牌會改變分數**
+ *    ③這一族(品牌錯字)之外的查詢**沒有量過**。
+ */
+export const SUGGESTION_FLOOR = 0.2;
+
+/**
  * 從品牌清單挑一個最像的。**沒有門檻** —— 理由見檔頭。
  *
  * 🔵 回 `null` 的三種情況:查詢是空的 · 清單是空的 · 所有候選分數都是 0
@@ -92,5 +115,7 @@ export function suggestBrand(
       best = b;
     }
   }
-  return bestScore > 0 ? best : null;
+  // 🔵 `> 0` 那一格仍然要在 —— 地板改成 0 的那天(Sean 若拍「不要」),
+  //    「一個三連字元都沒對上」還是不該建議。**兩個條件各擋一種東西。**
+  return bestScore > 0 && bestScore >= SUGGESTION_FLOOR ? best : null;
 }

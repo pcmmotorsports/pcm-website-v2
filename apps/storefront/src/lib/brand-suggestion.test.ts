@@ -5,7 +5,7 @@
 //    ⇒ 📌 **所以本檔證的是「這支函式的行為符合它自己的規格」, 不是「它在他的樣本上也對」。**
 
 import { describe, expect, it } from 'vitest';
-import { suggestBrand, trigramSimilarity, type BrandCandidate } from './brand-suggestion';
+import { suggestBrand, trigramSimilarity, SUGGESTION_FLOOR, type BrandCandidate } from './brand-suggestion';
 
 // 站上實際的品牌(2026-09-05 唯讀正式庫實查:`brands` 共 25 列)—— 這裡取一個子集。
 const BRANDS: readonly BrandCandidate[] = [
@@ -91,5 +91,41 @@ describe('變音符號', () => {
     // 🔬 壞掉的版本(直接 replace 非英數)算出來:`Öhlins` 的 Ö 整個消失 ⇒ 與 `ohlins` 分數偏低。
     expect(trigramSimilarity('ohlins', 'Öhlins')).toBe(1);
     expect(trigramSimilarity('akrapovic', 'AKRAPOVIČ')).toBe(1);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// 🔴🔴 **地板 0.2**(主視窗 2026-09-05 裁, 臨時可逆;`Q-建議地板` 在 Sean 早上佇列)
+//   🔬 值是在【這把尺】上量的:真錯字最低 0.500 · 噪音最高 0.111 ⇒ 中間那段是空的。
+// ══════════════════════════════════════════════════════════════════════
+describe('建議地板', () => {
+  // 線上實際品牌清單的一個子集(2026-09-05 掃 /api/search a–z 取聯集)。
+  const LIVE: readonly BrandCandidate[] = [
+    { name: 'AKRAPOVIČ', slug: 'akrapovic' },
+    { name: 'EVOTECH PERFORMANCE', slug: 'evotech' },
+    { name: 'RIZOMA', slug: 'rizoma' },
+    { name: 'CNC RACING', slug: 'cnc-racing' },
+    { name: 'MATERYA', slug: 'materya' },
+    { name: 'SAMCO SPORT', slug: 'samco' },
+  ];
+
+  it('🔴 三個【假的】要被殺掉:車款代號 / 太短 / 兩個字母', () => {
+    // 🔬 這三個在這把尺上分別是 0.083 / 0.111 / 0.077 ⇒ 全在地板下。
+    expect(suggestBrand('mt07', LIVE)).toBeNull();
+    expect(suggestBrand('r1', LIVE)).toBeNull();
+    expect(suggestBrand('co', LIVE)).toBeNull();
+  });
+
+  it('🔴 兩個【真的品牌錯字】要活著 —— 地板不能砍到它們', () => {
+    // 🔬 0.583 與 0.500 ⇒ 離地板 2.5 倍以上。
+    expect(suggestBrand('akrpovic', LIVE)?.slug).toBe('akrapovic');
+    expect(suggestBrand('evotch', LIVE)?.slug).toBe('evotech');
+  });
+
+  it('🔵 地板是【常數一個】—— 改成 0 就回到「不設門檻」(Sean 若拍不要)', () => {
+    // 🛑 這一格釘的是「它是可調的」這件事本身:
+    //    若有人把地板寫死進條件式, 這個 import 會不存在 ⇒ typecheck 紅。
+    expect(SUGGESTION_FLOOR).toBeGreaterThan(0);
+    expect(SUGGESTION_FLOOR).toBeLessThan(0.5);
   });
 });
