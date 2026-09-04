@@ -1,123 +1,22 @@
--- M-4b · ⟦f3-MAILFALLBACKVSRULING⟧ 片 D:`admin_create_manual_order` 加第 11 參
---   `p_notification_email text DEFAULT NULL`(第 5 代)
+-- ROLLBACK · `20260905130000`(片 D:`admin_create_manual_order` 第 11 參)⇒ 退回第 4 代
 --
--- plan:`docs/plans/2026-09-05-manual-order-notification-email-plan.md`(線 `-mail` 出, `ba05071fe`)§5 片 D。
--- 語意照 Sean 已拍的「可以不填 = 不寄」,本片不重問。
--- 前一代:`20260904251500_m4b_invoice5pct_manual_order_invoice_requested.sql:156`(10 參,已 apply)。
+-- 🔴🔴 **這支檔存在的理由**:原本 rollback 是 migration 檔尾的**十步散文**,
+--    而 R3(換角度, 2026-09-05)判它「一個沒有這一夜脈絡的人回不去」——
+--    最可能卡在「重貼 `COMMENT ON`」那一步:**第 4 代的檔案裡沒有那段字面**
+--    (第 2/3/4 代都走 `CREATE OR REPLACE`, 保留 comment ⇒ 沒有人需要重貼 ⇒ 它只在第 1 代的檔裡)
+--    ⇒ 📌 **照著第 4 代抄的人, 結構上看不到他漏了什麼。**
+-- ⇒ ✅ 改成**一支貼下去就跑完的檔**。散文留在 migration 裡當說明, 而**執行看這支**。
 --
--- ═══ §1 🔴🔴 為什麼是 `DROP` + 裸 `CREATE`,而【不是】`CREATE OR REPLACE` ═══
---
--- 交辦時寫的是「`CREATE OR REPLACE` 整支」。**照做會壞,而且壞得很安靜。**
--- PostgreSQL 用 **(名字, 參數型別串)** 認函式 ⇒ 多一個參數 = **另一支函式**。
---   ⇒ `CREATE OR REPLACE` 不會取代 10 參那一代,它會**多建一支 11 參的多載**。
---   ⇒ 🛑 而 `admin_create_manual_order(<10 個引數>)` 這個呼叫**兩支都符合**
---     (11 參那支的第 11 個有 DEFAULT)⇒ PostgreSQL 回
---     `function ... is not unique` ⇒ **後台建單整個壞掉**,而 migration 本身是綠的。
---   ⇒ 📌 **這正是「apply 成功 ≠ 斷言通過」那一族**:貼進去不報錯,壞在下一個呼叫端。
---
--- ✅ **本 repo 已經有正確前例,逐字可抄**:
---    `20260805100000_m4b_e10_a8a2_partial_cancel.sql:78-80`
---    「-- ── 1. 換函式:DROP 5 參數版(A8a1)→ CREATE 6 參數版 ──」
---    `DROP FUNCTION public.admin_cancel_order(uuid, uuid, text, text, text);`
---    ⇒ 同一個問題(取消那支也是加一個參數),同一個解法。
---
--- ⚠️ **而 DROP 會把 ACL 一起帶走** —— 這是換形狀的代價,不是可選項:
---    `CREATE OR REPLACE` 保留 ACL,所以第 4 代(`20260904251500`)**整支檔零 `GRANT`**
---    (實查 `grep -c 'GRANT EXECUTE ON FUNCTION public.admin_create_manual_order'` ⇒ 0)。
---    🔴 **⇒ 改成 DROP+CREATE 的那一刻,那份「看不見的 ACL」必須被明文寫回來**,
---       否則新函式出生就只有 owner 能執行、`service_role` 叫不動 ⇒ 建單一樣壞。
---    ⇒ 授權字面逐字抄第 1 代 `20260824020000:642-644`(下方 §5)。
---
--- ═══ §2 第 11 參【要】進冪等指紋 ═══
---
--- 同檔 `v_canonical`(第 4 代 `:500-527`)已經裝著 `invoice_requested`(那是我 2026-09-04 加的),
--- 而 `p_actor` **不進**(`:160` 逐字「它不進指紋」)。⇒ 判準不是「是不是新參數」,是:
---   **它描述的是【這張單是什麼】,還是【誰在什麼時候送的】?**
---   · `p_actor` = 誰送的        ⇒ 不進
---   · `notification_email` = 這張單的通知要寄到哪 ⇒ **進**(與 `invoice_requested` 同族)
---
--- 🔬 **兩個世界都想過,而選這一邊的理由是【錯法哪一種會出聲】**:
---   · **不進指紋**:員工打錯 email ⇒ 建單成功 ⇒ 改好 email 用同一把冪等鍵重送
---     ⇒ 指紋相同 ⇒ 回傳既有那張單 ⇒ 🛑 **改好的 email 被安靜地丟掉,而畫面顯示成功。**
---   · **進指紋**:同鍵不同 email ⇒ 指紋不符 ⇒ 函式**當場拒絕並說「同鍵不同內容」**
---     ⇒ 員工看得到、知道要重開一張。
---   ⇒ 📌 **兩種都會擋下第二次送出,而只有一種【告訴他】。**
---
--- ⚠️ **而進指紋有一個代價, 這裡要重述一次**(第 4 代 `:451-460` 為 `invoice_requested` 寫過同一段,
---    而那段註解物理上貼在它那一行上 ⇒ 讀的人不一定會把它套到下一把鍵。code-reviewer nit 6):
---    **本檔 apply 之前建立的那些單, 它們的 `manual_request_payload_sha256` 是用【舊指紋】算的**
---    ⇒ 落表之後不重算 ⇒ 🔴 **拿同一把冪等鍵原樣重送一張舊單, 會恆判「同鍵不同內容」(`P858B`)。**
---    ✅ 而今天的代價實測是 **0 人**:線 `-mail` 2026-09-05 唯讀正式庫查, `manual_*` 訂單共 **0 張**。
---
--- ═══ §3 `''` 必須收斂成 NULL(不是防禦性寫法,是會炸) ═══
---
--- `orders_notification_email_valid`(`20260718120000:125-127`)的 `~ '^[!-~]+$'`
--- 對**空字串不成立**(`+` 要求至少一個字元)⇒ 直接寫 `''` ⇒ CHECK 違反 ⇒ 整張單建不出來。
--- 而 HTML 表單的空欄送出來的就是 `''`,不是 NULL ⇒ **「留白」這個最常見的路徑會炸**。
--- ⇒ 本片在指紋【之前】做 `nullif(btrim(...), '')`,理由同 `:420` 對規格鍵值 trim 的那條。
---
--- ═══ §4 apply 順序(🔴 這一條比本檔的任何一行 SQL 重要) ═══
---
--- 🛑 **片 E 的碼(表單欄 + repository 送第 11 參)不得在本檔貼進正式庫【之前】進 dev。**
---    PostgREST 送一個函式不認得的參數 ⇒ 直接拒 ⇒ **後台建單整個壞**。
---    ⇒ 順序:**本檔 apply → 確認 → 才合 E**。E 留在分支上,板列寫「等這支貼」。
+-- 🛑 **貼之前先確認片 E 沒有部署 / 或先退回它** —— E 送 11 個具名參數,
+--    這支檔退回 10 參之後, E 會對著一支不存在的簽章送 ⇒ **後台建單一樣全壞, 只是壞在另一個方向。**
+-- 🛑 **整支一次貼、按一次 Run。** 逐段按會讓交易開著抱鎖。
 
--- ═══ §4b 🔴🔴 整支包在交易裡 —— 而這一格是 `migration-txn-wrap-gate` 擋下我才補的 ═══
---
--- 本檔是 `DROP` 然後 `CREATE`(§1)⇒ **兩者之間有一個「這個函式不存在」的窗口**。
--- 🛑 沒有交易包著的話, `CREATE` 或 §7 任何一道斷言失敗 ⇒ **`DROP` 已經生效且留在庫裡**
---    ⇒ 🔴 **正式庫上的 `admin_create_manual_order` 直接消失, 後台建單全壞。**
--- 📌 **而那正是我五道斷言擋不住的那一種** —— 它們跑在 DROP 【之後】;
---    **一道會叫的斷言, 在沒有交易包著時, 擋不住它自己前面那幾句。**(閘的原話)
--- 🔬 閘引的兩次實錘都在 2026-09-04 同一晚:`190000`(DROP 後失敗 ⇒ 留下無 CHECK 空窗)、
---    `230000`(斷言紅了, 而壞版本已經寫進去)。
--- ⇒ ⇒ 📌 **我寫 §1 時想的是「換形狀的兩個代價」(ACL 與 COMMENT), 而漏了【中間那個窗口】** ——
---    前兩個是「東西掉了」, 這一個是「東西掉了而且沒有東西會把它放回來」。
--- 🛑🛑 **操作提醒(codex finding 7)**:Sean 用 Supabase SQL Editor 貼。
---    ⇒ **請把【整支檔一次貼進去按一次 Run】, 不要逐段按。**
---    逐段按的話 `BEGIN;` 之後那個交易會一直開著等下一段, 中途停下來 = **長時間抱著鎖**
---    (本檔 DROP 的是後台建單那支函式 ⇒ 抱鎖期間建單會卡住)。
---    🔵 而 Supabase 官方的 `BEGIN … ROLLBACK` 範例也是**整塊一次執行**的用法。
 BEGIN;
 
--- ═══ §5 前置閘:確認我要 DROP 的那一支【真的在】,而 11 參那支【還不在】 ═══
--- 🔴 不用 `pg_get_functiondef` 的 md5 比對(那是 `20260805100000:60-73` 的做法)——
---    那些 md5 是**在活的 DB 上量出來的**,而本片是在沒有 DB access 的窗裡寫的。
---    ⇒ **寫一個我沒量過的雜湊 = 一個永遠會炸或永遠會過的閘**,兩種都比沒有閘糟。
---    ✅ 改成兩個我**答得出來**的斷言:舊的在、新的不在。
-DO $$
-DECLARE
-  v_old oid := pg_catalog.to_regprocedure(
-    'public.admin_create_manual_order(uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb)');
-  v_new oid := pg_catalog.to_regprocedure(
-    'public.admin_create_manual_order(uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb, text)');
-BEGIN
-  IF v_old IS NULL THEN
-    RAISE EXCEPTION '片D 前置閘:找不到 10 參那一代 —— 這台庫上的 admin_create_manual_order 不是我以為的形狀, 停下人工對齊';
-  END IF;
-  -- 🔴🔴 **簽章相同 ≠ 同一代**(codex 2026-09-05 finding 6):第 1~4 代**簽章逐字相同**
-  --    (2/3/4 代都走 `CREATE OR REPLACE`)⇒ 只認簽章的閘, 在正式庫**停在第 1 代**時照樣放行,
-  --    而本檔的函式體是從第 4 代抄的 ⇒ 🛑 **會把第 2/3/4 代的改動【靜默夾帶】上去。**
-  --    ⇒ 📌 一個看起來很嚴謹的閘, 對「它不是我以為的那一版」這個問題**完全失明**。
-  -- ✅ 判準用第 4 代獨有的字面:`v_invoice_requested`(實測 gen3 命中 0 / gen4 命中 8)。
-  -- 🔴 **給第 6 代的人**(R3 nit N3):Sean 2026-09-05 第二題(單價改未稅、`tax_total` 從單價算,
-  --    落在 `⟦b4-PRICECOPYTAX⟧`)會需要**同一支函式的第 6 代** ⇒ 又一次 DROP+CREATE。
-  --    🛑 **那時這一行的判準字面要換成 `v_notification_email`** —— 否則它認的是第 4 代,
-  --    而正式庫已經是第 5 代 ⇒ 閘會擋下一個合法的升級, 而訊息會指向錯的原因。
-  IF pg_catalog.strpos(pg_catalog.pg_get_functiondef(v_old), 'v_invoice_requested') = 0 THEN
-    RAISE EXCEPTION '片D 前置閘:這台庫上的 admin_create_manual_order 不含 v_invoice_requested ⇒ 它不是第 4 代(20260904251500)。本檔的函式體是從第 4 代抄的, 貼上去會靜默夾帶中間幾代的改動 ⇒ 停下人工對齊';
-  END IF;
-  IF v_new IS NOT NULL THEN
-    RAISE EXCEPTION '片D 前置閘:11 參那一代【已經存在】—— 本檔貼過了, 或有人先建了一支多載, 停下人工對齊';
-  END IF;
-END
-$$;
-
--- ── 換函式:DROP 10 參版(第 4 代)→ CREATE 11 參版(第 5 代)。理由見 §1 ──
 DROP FUNCTION public.admin_create_manual_order(
-  uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb);
+  uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb, text);
 
-CREATE FUNCTION public.admin_create_manual_order(
+CREATE OR REPLACE FUNCTION public.admin_create_manual_order(
   p_customer_user_id uuid,
   p_manual_request_id uuid,
   -- 🔴 F1(R3):**誰建的這張單。** 位置鏡像 `20260820021000:144`(退款登記那支)。
@@ -129,11 +28,7 @@ CREATE FUNCTION public.admin_create_manual_order(
   p_ship_to          jsonb,
   p_invoice          jsonb,
   p_shipping_fee     integer,
-  p_lines            jsonb,
-  -- 🔴 **第 11 參, 帶 `DEFAULT NULL`** —— 而它【不是】為了向後相容而加的預設:
-  --    `DEFAULT NULL` 在這裡是**語意**(Sean 拍「可以不填 = 不寄」), 不是遷移期的緩衝。
-  --    ⚠️ 兩者長得一樣, 而它們的日落條件相反:相容用的預設**該被拿掉**, 語意用的**不該**。
-  p_notification_email text DEFAULT NULL
+  p_lines            jsonb
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -171,10 +66,6 @@ DECLARE
   -- codex R1 `:143`/`:248`:正規化後的整包輸入 + 它的指紋
   v_canonical   jsonb;
   v_payload_sha text;
-  -- 🔴 `''` 必須收斂成 NULL:`orders_notification_email_valid`(`20260718120000:125-127`)的
-  --    `~ '^[!-~]+$'` 對空字串**不成立** ⇒ 直接寫 `''` 會被 CHECK 擋、整張單建不出來。
-  --    而員工「留白」送過來的就是 `''`(HTML 表單的空欄不是 NULL)。
-  v_notification_email text;
   -- codex R1 `:138`:兩個**業務上限**。
   -- 🔴 **這兩個數字是我挑的,Sean 沒有拍過。** 挑法=比實務用量大一個數量級、
   --    又小到擋得住「一發打爆」:電話單實務上個位數筆、單筆數量兩位數。
@@ -469,20 +360,6 @@ BEGIN
   --       ⇒ 它是**常態,不是邊角**。~~原本寫「併發時」~~ 那個限定把常態寫成了例外。
   --    ✅ 而這**不是缺陷**:B 沒有建單。`admin_audit_log` 記的是「**建單**」事件,不是「**請求**」事件
   --       ⇒ 不記 B 是**一致的**。⚠️ 但「誰碰過這張單」這條線索**確實不在系統裡** —— 要就得另立事件。
-  -- 🔴🔴 **正規化要在指紋【之前】** —— 否則 `'a@b.c'` 與 `' a@b.c '` 會算出兩個指紋,
-  --    而它們是**同一個請求** ⇒ 合法重送被判成「同鍵不同內容」而被拒。
-  --    📌 這與同檔 `:420` 對規格鍵值做 trim 的理由**逐字是同一條**(codex R2 `N1`)。
-  -- 🔴🔴 **`NULLIF` 不加 `pg_catalog.` 前綴 —— 它是【SQL 語法構造】, 不是函式。**
-  --    ⚠️ **本檔 `:245-247` 逐字警告過這一格, 而我照樣寫成了 `pg_catalog.nullif(...)`**
-  --       ⇒ code-reviewer 2026-09-05 抓到(must-fix 1)。它會在**執行期**炸
-  --         `function pg_catalog.nullif(text, unknown) does not exist` —— 而 **apply 全綠**。
-  --    📌 **一段寫在同一支檔裡、講得完全正確的警告, 沒有阻止寫它的那個人再犯一次。**
-  --       ⇒ 擋住它的不是那段字, 是一發【真的呼叫】(§7b)。
-  -- 🔵 `btrim` 的字元集對齊同檔 `p_actor`(`:163`/`:168`)—— 只剝空格會讓
-  --    貼上時帶進來的尾端換行留著, 而 CHECK 的 `~ '^[!-~]+$'` 不成立 ⇒ 整張單被擋、
-  --    訊息只有約束名。fail-closed, 而那不是我們要給員工看的訊息。(nit 3)
-  v_notification_email := NULLIF(pg_catalog.btrim(p_notification_email, E' \t\r\n'), '');
-
   v_canonical := pg_catalog.jsonb_build_object(
     'customer_user_id', p_customer_user_id,
     'order_source',     p_order_source,
@@ -504,7 +381,6 @@ BEGIN
     --    🛑 **但那是一個【業務面的判斷】, 不是資料面的保證** —— 真的撞到 `P858B` 的人看到的
     --       是「內容不同」而他明明沒改東西 ⇒ 📌 那句錯誤訊息在這個情境下會誤導他。已知, 未修。
     'invoice_requested', v_invoice_requested,
-    'notification_email', v_notification_email,
     -- 🔴🔴 codex R2 `N1`:上一版直接把 `v_items` **照員工送來的順序**丟進指紋
     --    ⇒ 同樣的品項換個順序 ⇒ 指紋不同 ⇒ **合法重放被判成「內容不同」而拒絕**。
     --    ⇒ 排序後再算。排序鍵用 `x::text`:jsonb 轉文字時鍵已排序、重複鍵已消
@@ -587,16 +463,14 @@ BEGIN
         --    ⚠️ **而本函式今天沒有任何參數說得出「這張是定價單還是經銷單」** ——
         --       那顆切換要加參數 ⇒ 而 `CREATE OR REPLACE` 加不了參數 ⇒ 要 `DROP + CREATE`。
         tax_total,
-        order_source, payment_channel, manual_request_id, manual_request_payload_sha256,
-        notification_email
+        order_source, payment_channel, manual_request_id, manual_request_payload_sha256
       ) VALUES (
         v_display_id, p_customer_user_id, NULL, v_ship_to, v_tier,
         v_subtotal::integer, p_shipping_fee, 0, v_total::integer, p_shipping_method, v_invoice,
         v_invoice_requested,  -- 🔴 顯式寫入,**不是走 DEFAULT** —— 走 DEFAULT 就等於忽略員工那一勾。
         0,  -- tax_total:見上方欄位表那段。**顯式的 0,不是預設的 0。**
         -- 🔴 這兩欄顯式寫。不寫的後果見檔頭 §2。
-        p_order_source, p_payment_channel, p_manual_request_id, v_payload_sha,
-        v_notification_email
+        p_order_source, p_payment_channel, p_manual_request_id, v_payload_sha
       )
       RETURNING id INTO v_order_id;
       EXIT;
@@ -803,206 +677,54 @@ BEGIN
     'order_id', v_order_id, 'display_id', v_display_id, 'idempotent', false);
 END;
 $fn$;
--- ═══ §6 ACL:逐字抄第 1 代 `20260824020000:642-644`,只換簽名 ═══
--- 🔴 **DROP 帶走了 ACL(§1)⇒ 這三行不是重複, 是唯一的來源。**
---    三道 REVOKE 不是兩道的加強版:`PUBLIC` 與具名角色是**兩套授權**,
---    收掉 PUBLIC 不會收掉一個曾被直接 GRANT 過的 `anon`。
-REVOKE ALL ON FUNCTION public.admin_create_manual_order(
-  uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb, text) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.admin_create_manual_order(
-  uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb, text) FROM anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.admin_create_manual_order(
-  uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb, text) TO service_role;
 
--- ═══ §6b `COMMENT ON` —— 🔴 `DROP` 也把它帶走了(線 `-mail` 2026-09-05 對抗審查 F4 點名的同款坑)═══
--- 🔬 **這一格是【被別人指出來的】, 不是我自己想到的** —— 我原本只補了 ACL。
---    實查:第 1 代 `20260824020000:634` 有 `COMMENT ON FUNCTION`,而第 2/3/4 代都是 `CREATE OR REPLACE`
---    ⇒ 那三代**不需要**重貼(OR REPLACE 保留 comment)⇒ 📌 **所以那段字面只出現在第 1 代的檔裡**,
---    而照著第 4 代抄的人(= 我)**結構上看不到它**。
--- ⚠️ 逐字沿用第 1 代的字面, 只換簽章(內容描述的是那十道守門, 本片沒有改它們)。
--- 🔴 **而那份字面【已經落後兩代】**(code-reviewer nit 5 實測:與第 1 代逐字相同、各 1088 字元,
---    0 次提到 `invoice_requested`(第 4 代加的)、0 次提到 `notification_email`(本片加的))。
---    ⇒ 📌 **第 2/3/4 代走 `OR REPLACE` 所以不必重貼 ⇒ 沒有人被迫回頭看它 ⇒ 它安靜地過期。**
---    🛑 **本片【不趁機改它】** —— 改 comment 內容是另一件事, 混進一支換簽章的 migration 裡
---       會讓 diff 同時裝著兩個意圖。已記在 backlog 那一列, 由下一片單獨處理。
-COMMENT ON FUNCTION public.admin_create_manual_order(uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb, text) IS
+-- ── ACL:`DROP` 帶走了它, 逐字抄第 1 代 `20260824020000:642-644`, 簽章換回 10 參 ──
+REVOKE ALL ON FUNCTION public.admin_create_manual_order(
+  uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.admin_create_manual_order(
+  uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_create_manual_order(
+  uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb) TO service_role;
+
+-- ── COMMENT:`DROP` 帶走的第二樣。🔴 **這一段只在第 1 代的檔裡** ──
+COMMENT ON FUNCTION public.admin_create_manual_order(uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb) IS
   '#858 後台手動建單(SECURITY DEFINER、search_path='''';service_role only)。十道守門:G1 逐格輸入驗(含 **actor 必填且須為啟用中 staff** + tappay 具名拒 + **品項筆數上限 50**)→ G3 客人存在 + 取當下 tier → G4 收件快照逐鍵白名單重組 → G5 發票逐鍵白名單 → G6 品項逐筆驗(含 **單筆數量上限 9999**、**spec 值型別與價格欄名自驗**、**跨列去重**)+ **server 自算金額**(不信 client 合計;variant_id 可 NULL = 代購品項)→ **G6.5 冪等格:同 manual_request_id 且**內容指紋相同**才回 idempotent:true,內容不同一律拒絕**(合約對齊 20260820021000)→ G7 建單(order_source / payment_channel **顯式寫**、display_id 有界重試 5 次、**併發撞冪等索引=拒絕並請重試,不回 idempotent**)→ G8 品項落表 + 筆數守 → **G9 稽核落列**(`admin_audit_log`,action=`order.manual_create`、target=`order:<id>`、request_id=冪等鍵、before=NULL、after=訂單層欄+品項筆數、source_app=admin、筆數守;🔴 落不進去整筆回滾 —— **不接受沒有經手人紀錄的單**;重送那條路不落 audit,一張單恰一列)。🔴 `p_actor` **不進內容指紋**(誰按送出不改變那張單;同事重送同一包內容應得 idempotent)。🔴 **不寫 order_legal_consents**(手動單無同意動作)。🔴 **不碰 create_order**。🔴🔴 **呼叫端合約(給程式讀的兩個代碼)**:`P858A` / `pcm_858_manual_order_concurrent_request` = 併發撞鍵 ⇒ **保留同一顆 manual_request_id 原樣重送**,**絕不可換新 id**(那一刻很可能已經建好一張單,換 id 會建出第二張真訂單);`P858B` / `pcm_858_manual_order_payload_mismatch` = 同鍵不同內容 ⇒ **不要重送**,要改單就去那張單上改、要開新單就重開表單拿新 id。';
 
--- ═══ §7 事後斷言(每一條都要在【它不成立的世界】印不同的東西)═══
-DO $$
+-- ── 事後斷言:退回去了沒(而不是「有沒有報錯」)──
+DO $rb$
 DECLARE
-  v_new oid;
+  v_old oid;
   v_dup integer;
-  v_bad text;
 BEGIN
-  -- ① 新的在
-  v_new := pg_catalog.to_regprocedure(
-    'public.admin_create_manual_order(uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb, text)');
-  IF v_new IS NULL THEN
-    RAISE EXCEPTION '片D 斷言①失敗:11 參那一代沒建起來';
+  v_old := pg_catalog.to_regprocedure(
+    'public.admin_create_manual_order(uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb)');
+  IF v_old IS NULL THEN
+    RAISE EXCEPTION 'rollback 斷言失敗:10 參那一代沒建回來';
   END IF;
-
-  -- ② 🔴🔴 **【只剩一支】** —— 這一條才是 §1 那個病的守門。
-  --    ①單獨成立是不夠的:`CREATE OR REPLACE` 那條錯路**也會讓①通過**,
-  --    而它留下兩支 ⇒ 呼叫端拿到 `function is not unique`。
   SELECT pg_catalog.count(*) INTO v_dup
-    FROM pg_catalog.pg_proc p
-    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+    FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'admin_create_manual_order';
   IF v_dup <> 1 THEN
-    RAISE EXCEPTION '片D 斷言②失敗:public.admin_create_manual_order 有 % 支(期望恰好 1)—— 多載會讓呼叫端拿到 function is not unique', v_dup;
+    RAISE EXCEPTION 'rollback 斷言失敗:有 % 支(期望恰好 1)—— 11 參那支沒 DROP 掉?', v_dup;
   END IF;
-
-  -- ③④ 的 ACL 那兩道**移到下方制式的收權斷言區塊**(`migration-new-file-static-checks` ③ 要的形狀)。
-  --    🔴 **它防的不是「忘記收權」, 是「忘記列」** —— 那個迴圈只檢查你列出來的物件,
-  --    而我第一版把 ACL 斷言寫成兩行 inline ⇒ 可授權物件 1 個、清單列了 0 個 ⇒ **閘擋下我**。
-  --    ⇒ 📌 **兩種寫法都會在今天叫, 而只有制式那種會在【下一個人加第二個物件時】叫。**
-
-  -- ⑥ 🔴 **參數【名字】與 DEFAULT 也要釘**(codex finding 4):
-  --    改錯參數名或拿掉 `DEFAULT NULL`, 上面每一道都照過 ——
-  --    而 PostgREST 是**具名呼叫**(`{p_notification_email: …}`)⇒ 名字錯 = 片 E 直接壞;
-  --    拿掉 DEFAULT = 舊的十參呼叫端全壞。**兩種都不是 catalog 形狀答得出來的。**
-  SELECT pg_catalog.string_agg(a, ',' ORDER BY o) INTO v_bad
-    FROM pg_catalog.unnest(
-           (SELECT p.proargnames FROM pg_catalog.pg_proc p WHERE p.oid = v_new)
-         ) WITH ORDINALITY AS t(a, o);
-  IF v_bad IS DISTINCT FROM 'p_customer_user_id,p_manual_request_id,p_actor,p_order_source,p_payment_channel,p_shipping_method,p_ship_to,p_invoice,p_shipping_fee,p_lines,p_notification_email' THEN
-    RAISE EXCEPTION '片D 斷言⑥失敗:參數名字串是 [%] —— 與預期不符(PostgREST 走具名呼叫, 名字錯 = 片 E 直接壞)', v_bad;
+  IF pg_catalog.strpos(pg_catalog.pg_get_functiondef(v_old), 'p_notification_email') > 0 THEN
+    RAISE EXCEPTION 'rollback 斷言失敗:退回去的那一支裡還有 p_notification_email ⇒ 貼錯代了';
   END IF;
-  IF (SELECT p.pronargdefaults FROM pg_catalog.pg_proc p WHERE p.oid = v_new) <> 1 THEN
-    RAISE EXCEPTION '片D 斷言⑥失敗:預設值個數不是 1 —— 少了 DEFAULT NULL, 舊的十參呼叫端會全壞';
+  IF NOT pg_catalog.has_function_privilege('service_role', v_old, 'EXECUTE') THEN
+    RAISE EXCEPTION 'rollback 斷言失敗:service_role 沒有 EXECUTE ⇒ DROP 帶走的 ACL 沒補回來';
   END IF;
-
-  -- ⑦ 🔴 **可達性**(codex R2 #9):`has_function_privilege` 答的是直接權限,
-  --    而 `pg_has_role(..., 'USAGE')` 答的是「它能不能 `SET ROLE` 變成那個角色」。
-  --    🛑 兩者在「anon 是 service_role 的成員」那個世界**印相反的答案**, 而只有後者是對的。
-  IF pg_catalog.pg_has_role('anon', 'service_role', 'USAGE')
-     OR pg_catalog.pg_has_role('authenticated', 'service_role', 'USAGE') THEN
-    RAISE EXCEPTION '片D 斷言⑦失敗:anon/authenticated 可以 SET ROLE 成 service_role ⇒ 三道 REVOKE 形同虛設';
-  END IF;
-  IF pg_catalog.pg_has_role('anon', (SELECT p.proowner FROM pg_catalog.pg_proc p WHERE p.oid = v_new), 'USAGE')
-     OR pg_catalog.pg_has_role('authenticated', (SELECT p.proowner FROM pg_catalog.pg_proc p WHERE p.oid = v_new), 'USAGE') THEN
-    RAISE EXCEPTION '片D 斷言⑦失敗:anon/authenticated 可以 SET ROLE 成本函式的 owner ⇒ 繞得過 ACL';
-  END IF;
-
-  -- ⑤ 🔴 `COMMENT` 回來了沒(§6b)—— DROP 帶走的第二樣東西。
-  --    🛑 沒有這一格的話, comment 掉了【零訊號】:函式跑得動、ACL 對、三綠全綠。
-  IF pg_catalog.obj_description(v_new, 'pg_proc') IS NULL THEN
-    RAISE EXCEPTION '片D 斷言⑤失敗:新函式沒有 COMMENT —— DROP 帶走的第二樣東西沒補回來(§6b)';
-  END IF;
-
-  -- ④ 🔴 而 ③ 的反面也要問 —— 一個「誰都沒有權限」的世界會讓 ③ 通過, 而建單一樣壞。
-  IF NOT pg_catalog.has_function_privilege('service_role', v_new, 'EXECUTE') THEN
-    RAISE EXCEPTION '片D 斷言④失敗:service_role 沒有 EXECUTE —— DROP 帶走的 ACL 沒有補回來(§1)';
+  IF pg_catalog.obj_description(v_old, 'pg_proc') IS NULL THEN
+    RAISE EXCEPTION 'rollback 斷言失敗:沒有 COMMENT ⇒ DROP 帶走的第二樣沒補回來';
   END IF;
 END
-$$;
+$rb$;
 
--- ═══ §7c 收權斷言(制式清單;`migration-new-file-states-checks` ③ 認的形狀)═══
--- 🔴 簽章逐字從上面的 `CREATE FUNCTION` 抄 —— `to_regprocedure` 對參數型別逐字比對,
---   打錯會**回 NULL**, 而第一道 IF 就是讓那件事 fail-loud、不靜默通過。
--- 🔴 結尾的 `::text[]` 不能拿掉(清單清空時 `ARRAY[]` 無法推斷型別)。
-DO $grant_assert$
-DECLARE
-  v_functions text[] := ARRAY[
-    'public.admin_create_manual_order(uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb, text)'
-  ]::text[];
-  v_fn oid;
-  r    text;
-BEGIN
-  FOREACH r IN ARRAY v_functions LOOP
-    v_fn := pg_catalog.to_regprocedure(r);
-    IF v_fn IS NULL THEN
-      RAISE EXCEPTION '收權斷言失敗:找不到函式 %(簽名打錯或沒建成)⇒ 拒繼續', r;
-    END IF;
-    IF pg_catalog.has_function_privilege('anon', v_fn, 'EXECUTE')
-       OR pg_catalog.has_function_privilege('authenticated', v_fn, 'EXECUTE') THEN
-      RAISE EXCEPTION '收權斷言失敗:% 對 anon/authenticated 開著 EXECUTE(三道 REVOKE 少了一道?)', r;
-    END IF;
-    -- 🔴 反面也要問:一個「誰都沒有權限」的世界會讓上一道通過, 而建單一樣壞(42501)。
-    IF NOT pg_catalog.has_function_privilege('service_role', v_fn, 'EXECUTE') THEN
-      RAISE EXCEPTION '收權斷言失敗:% 對 service_role 沒有 EXECUTE —— DROP 帶走的 ACL 沒補回來(§1)', r;
-    END IF;
-  END LOOP;
-END
-$grant_assert$;
-
--- 🔴🔴 **codex finding 9(`SET ROLE` 繞道)—— R1 我寫「不改」, 而 R2 說那個理由不成立。它是對的。**
---    ⛔ ~~我的理由:「在一支換簽章的 migration 裡自創更嚴的授權模型 ⇒ 會與其他 40 支不一致」~~
---    ✅ **而我把兩件事混成一件了**:
---       · **改授權模型** = 動 GRANT/REVOKE 的形狀 ⇒ 那確實不該在這支檔做
---       · **加一道可達性斷言** = 只是**多問一個問題**, 一行 GRANT 都沒動
---    ⇒ 📌 **「不改模型」推不出「不加斷言」** —— 我用一個成立的理由,擋掉了一件它沒涵蓋的事。
---    🔵 而 `has_function_privilege` 答的是**直接有效權限**;
---       `anon` 若是某個有 EXECUTE 的角色的成員, 它 `SET ROLE` 過去就叫得動,
---       而上面那三道**印同一個綠**。⇒ 下面補第 ⑦ 道。
---
--- ═══ §7b 🔴🔴 上面那五道斷言【證不到什麼】—— 而這一節比它們重要 ═══
---
--- 五道全是 **catalog 形狀**(to_regprocedure / count / has_function_privilege / obj_description)
--- ⇒ 它們答得出「函式在不在、有幾支、誰能執行、有沒有 comment」,
--- 🔴 **答不出「它跑得動嗎」** —— plpgsql 到【被呼叫】才解析函式名稱。
---
--- 🔬 **這不是理論, 是本片自己撞的**(code-reviewer 2026-09-05 must-fix 2):
---    第一版把 `NULLIF` 寫成 `pg_catalog.nullif(...)` ⇒ **apply rc=0、五道斷言全過**,
---    而每一發建單都會炸 `function pg_catalog.nullif(text, unknown) does not exist`。
---    ⇒ 📌 **那個綠是誠實的 —— 尺沒壞, 它只是沒接到目標上。**
---    ⇒ ⇒ 🛑 **而我當時寫下「五道斷言全過」時, 以為那就是驗過了。**
---
--- ✅ **有判別力的那一格住在 `supabase/after-checks/130000-after.sql`**:
---    它 `BEGIN → 真的呼叫一次 → 讀回 notification_email → ROLLBACK`(零留痕)。
---    🔴 **貼完本檔之後【必須】跑它** —— 那是驗收條件, 不是加分題。
---
--- 🔵 **而修好之後的證據(拋棄式 PG 17.10, 算式【從本檔抽出來】跑, 不是重打一份)**:
---    · 餵 `'  a@b.co  '`   ⇒ `a@b.co`(is_null=f)
---    · 餵 `'  '` / `''`    ⇒ NULL(is_null=t)
---    · 🔵 負對照 舊寫法 `pg_catalog.nullif(...)` ⇒ **ERROR function does not exist**
---    · 🔵 負對照 舊 btrim 字元集 餵 `E'a@b.co\n'` ⇒ 長度 7、**通不過 CHECK**(nit 3 是真的)
---    · 新寫法 餵同一個 ⇒ 長度 6、通得過 CHECK
---
--- ⚠️ **斷言編號的兩個已知瑕疵**(code-reviewer nit 8, 不改, 記著):
---    · ① 被 ② 涵蓋(函式不存在時 `v_dup = 0` ⇒ ② 也會叫)⇒ ① 是冗餘的, 留著當可讀性。
---    · 檔案裡的順序是 ①②③⑤④(⑤ 排在 ④ 之前)⇒ 對照回報時容易數錯。
-
--- ═══ §8 Rollback ═══
---   ⛔ **不是 `git revert`** —— 這是 DB 狀態,不是檔案。
---   🔴 **整套 rollback 也要包在單一 `BEGIN; … COMMIT;` 裡, 並在 COMMIT 前送一次
---      `NOTIFY pgrst, 'reload schema';`**(codex findings 10)—— 理由與 §4b/§7d 逐字相同:
---      DROP 與 CREATE 之間一樣有那個窗口, 而 API 快取一樣會停在新簽章。
---   步驟(逐字 —— 🔴 **R2 #10:前言講了要包交易, 而步驟裡沒有那幾行 ⇒ 照著貼的人一樣會漏。**
---     **講在前言的約束, 對只讀步驟的人等於不存在。** 所以現在寫進步驟本身):
---     0a. `BEGIN;`
---     0. 🔴 **先確認片 E 沒有部署 / 或先把它退回**(code-reviewer nit 7)——
---        §4 只寫了【前進】的順序。回退時若 E 已上線, 一 DROP 掉 11 參那支,
---        PostgREST 送 11 個參數會找不到函式 ⇒ **後台建單一樣全壞, 只是壞在另一個方向。**
---        📌 **一個只寫了單向的順序約束, 在回退那天是不存在的。**
---     1. `DROP FUNCTION public.admin_create_manual_order(
---          uuid, uuid, text, text, text, text, jsonb, jsonb, integer, jsonb, text);`
---     2. 把 `20260904251500_m4b_invoice5pct_manual_order_invoice_requested.sql:156-816`
---        **原樣再貼一次**(它是 `CREATE OR REPLACE`,而此刻沒有同名函式 ⇒ 效果等同 CREATE)。
---     3. 🔴 **第 4 代那一段【沒有 GRANT】(§1)** ⇒ 回退之後 ACL 一樣是空的
---        ⇒ **必須再貼一次 §6 那三行,只把最後的 `, text` 拿掉。**
---     3b. 🔴 **`COMMENT ON FUNCTION` 也要貼回去**(§6b)—— 同樣只在第 1 代的檔裡。
---        ⚠️ **這一步最容易漏** —— 因為第 4 代的檔案裡沒有它, 照著那支檔抄的人不會看到。
---   🛑 **而回退【不會】回退已經寫進 `orders.notification_email` 的值** ——
---      那些列是資料不是結構。要清的話單獨評估, **本檔不提供 UPDATE**:
---      刪錯的代價是一封該寄的信永遠不寄, 而沒有東西會叫。
---   🔴 **而回退之後還有一個【不會自己消失】的後果**(codex finding 11):
---      本檔 apply 期間建立的那些單, `manual_request_payload_sha256` 是用**含 email 鍵**的指紋算的
---      ⇒ 回到第 4 代之後, 拿同一把冪等鍵原樣重送那些單 ⇒ **恆判 `P858B`(同鍵不同內容)**。
---      ⚠️ 這與 §2 那段講的是**同一個機制、相反的方向**, 兩邊都要看。
---      ✅ 今天的代價實測 0 人(`manual_*` 訂單 0 張, 線 `-mail` 2026-09-05 唯讀查),
---         而 **apply 之後就不再是 0** ⇒ 📌 **回退的成本會隨時間長大, 而沒有東西會提醒你。**
-
--- ═══ §7d 🔴🔴 PostgREST schema cache —— codex finding 8, 我完全漏了這一格 ═══
---
--- **簽章變了, 而 PostgREST 快取的是舊的那一份。** 快取沒重載 ⇒ 片 E 送 11 個具名參數
--- ⇒ `PGRST202`(找不到那支函式)⇒ 🔴 **後台建單壞, 而 DB 這一側每一道斷言都是綠的。**
--- 📌 **⇒ 這是本檔第三次撞到同一個形狀**:①`pg_catalog.nullif` ②五道 catalog 斷言 ③這一格 ——
---    **DB 裡對, 不等於呼叫端叫得動。**
--- ✅ 本 repo 既有慣例, 逐字抄:`20260719120000_m4a_b2_create_order_notification_email.sql:521-523`
---    「不只依賴 pgrst_ddl_watch / pgrst_drop_watch, 顯式再送一次。
---      NOTIFY 於 COMMIT 才送達 → 快取在新函式可見之後才重載, 順序天然正確。」
+-- 🔴 簽章換回去了 ⇒ PostgREST 快取要重載, 否則片 E 之外的呼叫端會對著舊簽章送。
 NOTIFY pgrst, 'reload schema';
 
 COMMIT;
+
+-- 🛑 **這支檔【不會】回退已經寫進 `orders.notification_email` 的值** —— 那些是資料不是結構。
+--    而**本檔 apply 期間建的單, 指紋是用【含 email 鍵】算的** ⇒ 退回第 4 代之後,
+--    拿同一把冪等鍵原樣重送那些單會**恆判 `P858B`**。
+--    ⚠️ **那個成本會隨時間長大, 而沒有東西會提醒你。**

@@ -628,9 +628,19 @@ describe('parseManualOrderForm:「通知 email」那一格(`⟦f3-MAILFALLBACKVS
   //    空字串會被 `orders_notification_email_valid` 的 `~ '^[!-~]+$'` 擋掉 ⇒ **整張單建不出來**,
   //    而那個失敗的訊息是一個約束名 —— 員工看不懂、也不知道是哪一格。
   //    ⇒ 📌 所以「留白 ⇒ `null`」是**行為**不是實作細節,要有自己的一格。
-  it('有填 ⇒ 原樣帶出去(而前後空白被剝掉)', () => {
+  // ⛔ ~~原本這格叫「原樣帶出去」~~ —— 🔴 **那個名字說謊**(R3 nit N1):
+  //    `canonicalizeNotificationEmail`(`packages/schemas/src/notification-email.ts:44-51`)
+  //    會把 **domain 轉小寫**;而我當時的測資 `a@b.co` 本來就是小寫
+  //    ⇒ 📌 **那一格對「會不會被正規化」這件事零判別力, 而名字讓人以為它守著。**
+  it('有填 ⇒ 前後空白剝掉, 而 domain 會被轉成小寫(不是原樣)', () => {
     const r = ok(parseManualOrderForm(withEmail('  a@b.co  ')));
     expect(r.notificationEmail).toBe('a@b.co');
+  });
+
+  it('🔴 domain 大寫 ⇒ 轉小寫(這一格才守得住正規化)', () => {
+    const r = ok(parseManualOrderForm(withEmail('Sean@EXAMPLE.CO')));
+    // 🔵 只有 domain 轉小寫;local part 大小寫**保留**(RFC 上它是有意義的)。
+    expect(r.notificationEmail).toBe('Sean@example.co');
   });
 
   it('🔴 留白 ⇒ `null`, 不是空字串', () => {
