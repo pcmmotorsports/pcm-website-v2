@@ -82,9 +82,17 @@ THEN RAISE
   而**兩份會漂**。⇒ 閘只問「**有沒有**」, 不問「**多少**」。
   ⚠️ 那也與現行閘的既有紀律一致:該檔 `:415-417` 逐字「**刻意不看淨額**」——
   理由是並行下 `SUM(amount) > 0` 會翻面(codex 關卡1 R2 的 E-1)。**照抄那個理由, 不要推翻它。**
-- ⚠️ **主視窗給的名字 `pcm_pending_refund_open_for` 在 repo 裡【零命中】** ——
-  真正的兩支是 `pcm_pending_refund_on_cancel`(`20260901080000`)與
-  `pcm_pending_refund_amounts`(`20260902030000`)。**接的是前者的 trigger, 不是一支可呼叫的函式。**
+- ⚠️ **`pcm_pending_refund_open_for` 這個名字:它【存在】, 而它還沒進 dev。**
+  🔬 當場量到:`git grep -l pcm_pending_refund_open_for agent/line-mail` ⇒
+  **`agent/line-mail:supabase/migrations/20260905070000_m4b_pending_refund_on_late_payment.sql`**。
+  ⛔ ~~我第一版寫「全 repo 零命中」~~ —— **那句話的射程只到【我這棵分支】**, 而它讀起來像「不存在」。
+  🎯 **⇒ 多分支的 repo 裡, 「查無」是【相對於你站在哪一棵樹】的** ——
+     而「這裡沒有」與「哪裡都沒有」在 `grep` 的輸出上長得一模一樣。
+  ✅ **⇒ 這一片動手前要先確認 `agent/line-mail` 那支合進來了沒**:
+     · 合進來了 ⇒ 用它, **不要自己再寫一支**
+     · 還沒合  ⇒ 這一片**不得**依賴它(否則會依賴一個線上不存在的東西)
+  🔵 而**今天已經在 dev 上、可以依賴的**是這兩支:`pcm_pending_refund_on_cancel`(trigger,
+     `20260901080000`)與 `pcm_pending_refund_amounts`(`20260902030000`)。
 
 ## 4. 影響面
 `admin_cancel_order` 第 6 代 ⇒ 全站唯一的取消入口(`cancel-repository.ts` 1 個非測試呼叫端)。
