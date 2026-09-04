@@ -43,6 +43,7 @@
 import { NextResponse } from 'next/server';
 
 import { tryCatalogBrandTaxonomy, tryCategories, tryVehicleTaxonomy } from '@/lib/products';
+import { suggestBrand } from '@/lib/brand-suggestion';
 import { filterFacets } from '@/lib/search-facets';
 import { searchProducts, SEARCH_OVERLAY_LIMIT } from '@/lib/search';
 import type { SearchOverlayItem } from '@/lib/search-shape';
@@ -117,7 +118,30 @@ export async function GET(request: Request) {
     categories: categoryTax,
     vehicles: vehicleTax,
   });
+  // ── 「你是不是要找 X?」的候選(`⟦search-BRANDTYPOTRGM⟧` · Sean 2026-09-04 拍甲)──────
+  // 🔴🔴 **這裡【永遠算, 而由 UI 決定要不要畫】** —— 而那是刻意的:
+  //    「零結果」的判準是**四區的聯集**, 而那個判準**已經在 `SearchOverlay.tsx` 裡了**
+  //    (`hasAnyResult`, 稿 `SearchOverlay.jsx:60` 的 `total`)。
+  //    🛑 **在這裡再寫一份「算不算零結果」= 同一個判準有兩個實作** ⇒ 它們會漂,
+  //       而漂掉的症狀是【有結果卻也印建議】或【零結果卻不印】, 兩邊都不會紅。
+  //    ⇒ 📌 **判準留一份, 放在已經有它的那一邊。** 這裡只負責「最像的是誰」。
+  // 🔵 成本:25 個品牌的字串比對, 而它與那四發併發請求在同一個 handler 裡 ⇒ 量級上是零。
+  // ⚠️ **`brandTax.failed` 時 `brands` 是空的 ⇒ 回 null** —— 那是對的:
+  //    品牌清單讀不到的時候, 「沒有建議」比「猜一個」誠實。
+  const suggestion = suggestBrand(
+    q,
+    brandTax.brands.map((b) => ({ name: b.name, slug: b.id })),
+  );
   // 🛑 三區任一 `failed` **不**讓整發變 503 —— 商品那一區是主體, 它好的時候要照樣給。
   //    (而商品那一區自己 `error` 時上面已經 503 過了。)
-  return NextResponse.json({ items: payload, total, ...facets }, { headers: NO_STORE });
+  return NextResponse.json(
+    {
+      items: payload,
+      total,
+      ...facets,
+      // 🔵 回 `{ name, slug }` 而不是只回名字 —— 連結要 `pbrand=<id>`(同 `SearchOverlayFacets.tsx:90`)。
+      suggestion: suggestion ? { name: suggestion.name, slug: suggestion.slug } : null,
+    },
+    { headers: NO_STORE },
+  );
 }
