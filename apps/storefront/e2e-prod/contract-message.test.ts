@@ -18,6 +18,7 @@ const base: ContractProbe = {
   totalOk: true,
   total: 1234,
   cardsRendered: true,
+  countText: '1234 件商品',
   navTimeoutMs: 45_000,
 };
 
@@ -27,10 +28,14 @@ describe('e2e-prod 資料合約:紅的時候說哪一句', () => {
   });
 
   it('🔴 卡片有而【件數沒有】⇒ 指向件數查詢, 而**不得**說「DB 未連通」', () => {
-    const msg = contractFailureMessage({ ...base, totalOk: false, total: 0 });
+    const msg = contractFailureMessage({
+      ...base, totalOk: false, total: 0, countText: '件數未能載入',
+    });
     expect(msg).toContain('商品卡=100');
     expect(msg).toContain('件數');
     expect(msg).toContain('不是 DB 未連通');
+    // 🔴 原文必須印出來 —— 沒有它, 三種世界(null / 抓不到 / 真的 0 件)印同一句
+    expect(msg).toContain('件數未能載入');
     // 🔴 這一條是本片存在的理由:那四發紅拿到的就是下面這句, 而它指錯方向。
     expect(msg).not.toContain('疑似 DB 未連通或冷快取為空');
   });
@@ -47,6 +52,14 @@ describe('e2e-prod 資料合約:紅的時候說哪一句', () => {
     });
     expect(msg).toContain('疑似 DB 未連通或冷快取為空');
     expect(msg).toContain('商品卡=0');
+  });
+
+  it('🔴 那三種世界靠【原文】分得開 —— 訊息裡要看得到它', () => {
+    const worlds = ['件數未能載入', '', '0 件商品'];
+    const msgs = worlds.map((c) =>
+      contractFailureMessage({ ...base, totalOk: false, total: 0, countText: c }));
+    expect(new Set(msgs).size).toBe(3);   // 三種世界三句不同
+    expect(msgs[2]).toContain('0 件商品');
   });
 
   it('🔵 四個世界回四個【互不相同】的東西(少了這一格, 上面四格可能都在讀同一句)', () => {

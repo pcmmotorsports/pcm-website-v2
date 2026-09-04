@@ -21,6 +21,18 @@ export type ContractProbe = {
   totalOk: boolean;
   /** `totalOk` 為 true 時的那個數 */
   total: number;
+  /**
+   * 🔴 `.pp-count` 的**原始文字**(截斷)。
+   * 加它的理由(2026-09-04, 線 `-front` 讀碼推翻了我的結論):
+   *   `totalOk = false` 有**三種**世界, 而原本的訊息對三種印同一句:
+   *     (a) count === null ⇒ 畫面是「件數未能載入」
+   *     (b) 那一刻抓不到元素 ⇒ `innerText()` 拋 ⇒ `''`
+   *     (c) count === 0     ⇒ 畫面是「0 件商品」⇒ total=0, 而閘要 `> 0`
+   *   🛑 **而我在報告與 commit body 裡把 (a) 當成事實寫了** —— 而 `-front` 讀碼指出
+   *      (a) 與「商品卡 100 張」在碼上不相容(兩條 catch 都回空清單)。
+   *   ⇒ 📌 **我分不出來, 因為【那個字從來沒有被印出來】。** 印它, 下一次就分得出來。
+   */
+  countText: string;
   /** 第一張商品卡在預算內 visible 了嗎 */
   cardsRendered: boolean;
   /** 等商品卡用掉的預算(毫秒), 只為了寫進訊息 */
@@ -44,10 +56,11 @@ export function contractFailureMessage(p: ContractProbe): string | null {
   if (p.cardCount >= 1 && !p.totalOk) {
     return (
       `[e2e-prod 資料合約] /products 商品卡=${p.cardCount}(DB 有回應、目錄查得到)` +
-      `但【件數】解析不出來 — 畫面上那一格是「件數未能載入」` +
-      `(\`ProductsSortBar\` 在 count 為 null 時的字面)⇒ **疑似【件數那個查詢】失敗,` +
-      `不是 DB 未連通**。先中止整套 E2E。` +
-      `\n  🔵 客人也看得到這一格 ⇒ 它不只是測試環境的問題。`
+      `但【件數】解析不出來 — \`.pp-count\` 的原文是 ${JSON.stringify(p.countText.slice(0, 60))}` +
+      ` ⇒ **不是 DB 未連通**(DB 明顯有回應)。先中止整套 E2E。` +
+      `\n  🔵 三種世界靠上面那個原文分:` +
+      `「件數未能載入」= count 為 null · 空字串 = 那一刻抓不到那個元素 · 「0 件商品」= 真的 0 件。` +
+      `\n  🛑 **不要從這一句推出是哪一種 —— 看那個原文。**`
     );
   }
 
