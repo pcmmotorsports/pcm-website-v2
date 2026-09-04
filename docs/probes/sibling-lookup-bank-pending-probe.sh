@@ -117,8 +117,9 @@ CART='22222222-2222-4222-8222-222222222222'
 reset_data () { pq -q -c "TRUNCATE public.payment_charge_attempts, public.orders CASCADE;"; }
 kind_of () { q1 "SELECT public.find_active_sibling_own('${CART}'::uuid) ->> 'kind';"; }
 FAILED=0
+PASSED=0
 check () { # $1=格名 $2=期望 $3=實得
-  if [ "$2" = "$3" ]; then printf '  OK   %s ⇒ %s\n' "$1" "$3"
+  if [ "$2" = "$3" ]; then printf '  OK   %s ⇒ %s\n' "$1" "$3"; PASSED=$((PASSED+1))
   else printf '  FAIL %s ⇒ 期望 %s 而得到 %s\n' "$1" "$2" "$3"; FAILED=1; fi
 }
 
@@ -138,7 +139,10 @@ K=$(kind_of)
 if [ "$K" = "bank_pending" ]; then
   printf '  FAIL 格2 已部分收款的匯款單被判成 bank_pending(= bug①)⇒ 它會放行一張刷卡單\n'; FAILED=1
 else
-  printf '  OK   格2 已部分收款的匯款單 ⇒ %s(不是 bank_pending)\n' "$K"
+  # 🔴 這一格【不走 check】(它的判準是「不等於某值」而不是「等於某值」)
+  #    ⇒ 📌 所以計數要在這裡自己加一次。**少了這一行, 那個總數會少報一格,
+  #      而它印出來的仍然是一個合理的數字** —— 那正是本檔今晚修掉的同一種病。
+  printf '  OK   格2 已部分收款的匯款單 ⇒ %s(不是 bank_pending)\n' "$K"; PASSED=$((PASSED+1))
 fi
 
 # 格3 🔴 殺 bug②:同一車【刷卡在途】+【未付款匯款單】⇒ 必須是 active(刷卡那張優先裁決)
@@ -316,7 +320,15 @@ reset_data; seed_card; seed_bank
 OLD_UPD=$(q1 "SELECT updated_at::text FROM public.orders WHERE display_id='PCM-BANK-B'")
 pq -q -c "SELECT pg_sleep(0.01);"
 begin_card > /dev/null
-check "格18 取消匯款單時 updated_at 有跟著動" "t" \
+# 🔴🔴 **CI 從 2026-09-05 17:14 UTC 起每發紅, 紅在這兩格**(主視窗抓到, 逐字:
+#      `FAIL 格18 … 期望 t 而得到 true`)。
+#   🎯 成因:**psql 對【裸 boolean】印 `t`, 而加了 `::text` 之後印的是 `true`。**
+#      ⇒ 我把「psql 印 boolean 的樣子」記成一種, 而它其實取決於**有沒有轉型**。
+#   ✅ 修法照**本檔既有慣例**(全檔 9 處都是 `::text` + `"true"`/`"false"`,
+#      只有我這兩格寫 `"t"`)⇒ 改期望值, 不動 SQL。
+#   🛑 **為什麼不是拿掉 `::text`**:那會讓這兩格與全檔另外 9 處長得不一樣,
+#      而**下一個人抄哪一種是隨機的**。⇒ 📌 統一形狀比省一個轉型重要。
+check "格18 取消匯款單時 updated_at 有跟著動" "true" \
   "$(q1 "SELECT (updated_at > '${OLD_UPD}'::timestamptz)::text FROM public.orders WHERE display_id='PCM-BANK-B'")"
 
 # 格19 🟢 格18 的負對照:**沒有被取消的單, updated_at 不該動**
@@ -330,8 +342,15 @@ reset_data; seed_card; seed_bank
 OTHER=$(q1 "SELECT updated_at::text FROM public.orders WHERE id='${CARD}'")
 pq -q -c "SELECT pg_sleep(0.01);"
 begin_card > /dev/null
-check "格19 沒被取消的那張 updated_at 完全沒動" "t" \
+check "格19 沒被取消的那張 updated_at 完全沒動" "true" \
   "$(q1 "SELECT (updated_at = '${OTHER}'::timestamptz)::text FROM public.orders WHERE id='${CARD}'")"
 
 if [ "$FAILED" -ne 0 ]; then echo "X 有格子紅了(見上)"; exit 1; fi
-echo "OK 二十格全過(格號不連續 —— 10b/16b/20 是後補的, 刻意不重排:重排會讓引用舊格號的紀錄全部指錯)"
+# 🔴🔴 **這一行原本寫死「二十格全過」, 而 2026-09-05 實跑是【24 格】** ——
+#   而它還提到「格20」, 🛑 **那一格今晚已經被移掉了**(它半殘, 移掉比留著好)。
+#   ⇒ 📌 **一句寫死的總結, 在格子被增刪時【不會有任何東西叫】** ——
+#     它在 20 格與 24 格的世界裡印同一句話。
+#   ✅ 改成【自己數】:數的是本次真的印出來的 OK 行, 所以它不可能過期。
+#   🔵 格號仍然不連續(10b / 16b / 8b / 8c / 14a / 14b 是後補的), **刻意不重排** ——
+#     重排會讓引用舊格號的紀錄全部指錯。
+echo "OK 全過:$PASSED 格(格號不連續, 刻意不重排 —— 重排會讓引用舊格號的紀錄全部指錯)"
