@@ -653,6 +653,9 @@ export type SupabaseAdminOrderDetailRow = Pick<
   | 'invoice_number'
   | 'invoice_amount'
   | 'invoice_status'
+  // 🔴 `invoice_requested` —— **這張單要不要開發票(下單當下的決定)**。
+  //    與上面 `invoice`(客人的需求)與 `invoice_status`(我們開了沒)是**三件事**。
+  | 'invoice_requested'
   | 'cancelled_at'
   | 'cancelled_reason'
   | 'version'
@@ -1071,6 +1074,10 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
         ? null
         : { amount: toMoneyAmount(row.invoice_amount), currency: 'TWD' },
     invoiceStatus: narrowInvoiceStatus(row.invoice_status),
+    // 🔴 **直接帶原值, 不做防禦性收斂** —— 它是 `boolean NOT NULL`, 沒有「意外值」那個世界。
+    //    ⚠️ 而**同一支檔對 `invoice_status` 做了收斂**(`narrowInvoiceStatus` 把不認得的值吞成 `not_issued`)
+    //    ⇒ 📌 **那個收斂是那一欄有【三值 CHECK】才成立的;本欄是布林, 抄它反而會製造一個假的預設。**
+    invoiceRequested: row.invoice_requested,
     cancelledAt: row.cancelled_at,
     cancelledReason: row.cancelled_reason,
     version: row.version, // M-4a Slice C:明細頁改單表單帶此值當樂觀鎖條件
