@@ -513,6 +513,46 @@ def rank(query, secs, n=TOP_N):
     return scored[:n]
 
 
+# 🔴 **天花板門檻**(2026-09-05 線 `-db` 立;三個實例都是【已知失效 ⑦】)。
+#    來源 = 當場量到的分數,不是挑一個好看的數:
+#      2026-08-28 `-c8`  正本 `:227` 第 451 名 / `:12156` 第 921 名  —— 真同族而排不進前八
+#      2026-09-05 `-db`  草稿「正對照的時刻軸」最高 **0.3842**,而真正該寫分界的 `:11666`
+#                        八名內【零命中】—— 尺二撈到的
+#      2026-09-05 `-db`  草稿「比預期更好的答案」最高 **0.2184**,而主視窗直接點名的
+#                        兩條近親【一條都沒進前八】
+#    ⇒ 門檻取 **0.25** —— 落在最後那發(0.2184, 該叫)與前一發(0.3842, 不該叫)之間。
+#    🛑 **而它是一條【提醒】不是一條【判定】**:高於門檻不代表沒漏(0.3842 那發就漏了)。
+#       ⇒ 所以只在【低於】時多印一行,不在高於時印任何「安全」的字 ——
+#          一句「看起來沒有近親」會關掉下一個人的尋找動作。
+CEILING_LOW = 0.25
+
+
+def ceiling_warning(ranked):
+    """最高分低於門檻時回一段字, 否則回 None。
+
+    🔴 抽成純函式的理由與 collision_warnings 同:
+       「該叫的會叫」與「不該叫的不叫」是兩個世界, 寫在 main 裡印一印驗不了後者。
+    """
+    if not ranked:
+        return None
+    top = ranked[0][0]
+    if top >= CEILING_LOW:
+        return None
+    return ('🔴 **最高分 %.4f < %.2f:這【不是】「沒有近親」, 是「尺沒接上」。**\n'
+            '   📌 分數低有兩種完全不同的成因, 而它們印同一個數字:\n'
+            '     ① 真的沒有人寫過 ⇒ 開新條\n'
+            '     ② 🔴 有人寫過, 而它與你的草稿【字面重疊接近零】(母題級通則 / 換了一套詞彙)\n'
+            '   ⇒ **這一格分不出①②** ⇒ 在你判「沒有近親」之前, 至少再做一件事:\n'
+            '     · 尺二:`grep -n \'^## \' docs/patterns/guard-and-instrument-traps.md`'
+            ' 再用你那條的【機制關鍵字】過濾(上面已幫你抽好)\n'
+            '     · memory 兩族關鍵字:`grep -n \'品質\\|流程\' MEMORY.md` 那兩行的關鍵字串\n'
+            '     · 問一個在場的人 —— 2026-09-05 那發就是【主視窗直接點名】才接住的,'
+            '兩把尺都沒有\n'
+            '   ⚠️ 而**高於門檻也可能漏**(同日 0.3842 那發漏掉了真正的近親)⇒ 本行只在低於時出現,'
+            '不代表沒出現就安全。'
+            % (top, CEILING_LOW))
+
+
 def selfcheck(secs):
     """五個世界都要表演。第三個是 2026-08-22 補的:沒有它,
     「母體加了 inbox」與「加了但沒生效」印一模一樣的答案。
@@ -784,9 +824,26 @@ def selfcheck(secs):
           % ('是' if h9a else '否', d_src, d_n, d_from,
              '是' if h9b else '否', '是' if h9c else '否'))
 
+    # ---- 世界十:天花板提醒(2026-09-05 線 `-db`)。兩半各自表演 ----
+    # 🔴 **正對照這一半【很容易】, 要講出來**:餵的是母體裡的原文 ⇒ 分數約 1.0
+    #    ⇒ 它證明的是【高分時那一行不會亂叫】, **不證明門檻 0.25 放對位置**。
+    #    門檻的來源是 CEILING_LOW 上面那三個【當場量到】的實例, 不是這一格。
+    # 🔴 **負對照用無關字元, 而它是【替身】**:真實的那一發(2026-09-05, 0.2184)
+    #    是一段【正常的中文散文】而不是亂碼 ⇒ 替身證明得了分支會動, 證明不了
+    #    「真實的孤兒草稿會落在門檻下」。那件事只有下一次真的撞到才知道。
+    #    ⚠️ 而**不能拿當天那份草稿當靶** —— 它已經併進 memory 進了母體, 現在餵它會高分。
+    #    🔴 **而這句是【當場量到】的, 不是推的** —— 我寫完這行之後還是餵了它一發:
+    #      同一份草稿 **0.2184 ⇒ 0.3544**, 而新的第一名正是我剛併進去的那支 memory。
+    #      📌 **⇒ 一個負對照會因為【世界前進】變成正對照, 而它失效時印的是【通過】。**
+    #      ⇒ 這一族的負對照只能用【不隨母體長大的東西】(亂碼), 代價就是上面那句「替身」。
+    hit_j = (ceiling_warning(wa) is None) and (ceiling_warning(wb) is not None)
+    print('世界十 天花板提醒            ⇒ 高分【不叫】%s(%.4f) / 低分【會叫】%s(%.4f)'
+          % ('是' if ceiling_warning(wa) is None else '否', wa[0][0],
+             '是' if ceiling_warning(wb) is not None else '否', wb[0][0]))
+
     ok = (hit_a and not hit_b and hit_c and hit_d and hit_e and hit_f and hit_g
-          and hit_h and hit_i)
-    print('⇒ 自檢 %s' % ('PASS(九個世界印出不同答案)' if ok else 'FAIL(尺沒有判別力)'))
+          and hit_h and hit_i and hit_j)
+    print('⇒ 自檢 %s' % ('PASS(十個世界印出不同答案)' if ok else 'FAIL(尺沒有判別力)'))
     return 0 if ok else 1
 
 
@@ -974,6 +1031,10 @@ def main():
     warns = collision_warnings(ranked, n_self)
     for w in warns:
         print('\n' + w)
+
+    cw = ceiling_warning(ranked)
+    if cw:
+        print('\n' + cw)
 
     lp = write_log(root, (draft_path or '<stdin>'), (n_canon, n_inbox, n_mem),
                    n_self, ranked, bool(warns))
