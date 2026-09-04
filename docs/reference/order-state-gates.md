@@ -366,6 +366,26 @@
 
 `:96` IF v_order.cancelled_at IS NOT NULL<br>`:97` OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id) THEN<br>`:105` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:121` SELECT o.id, o.display_id, (o.payment_status = 'paid'::public.payment_status), a.rec_trade_id, a.bank_transaction_id<br>`:129` AND o.cancelled_at IS NULL<br>`:132` OR o.payment_status = 'paid'::public.payment_status<br>`:133` OR (a.status = 'pending' AND o.payment_status <> 'paid'::public.payment_status)<br>`:135` ORDER BY (o.payment_status = 'paid'::public.payment_status) DESC, (a.status = 'charged') DESC, o.created_at DESC<br>`:163` AND o.payment_status <> 'paid'::public.payment_status<br>`:210` AND o.cancelled_at IS NULL<br>`:216` AND a.status <> 'failed'<br>`:286` OR pg_catalog.strpos(v_code, 'order_cancellations') = 0
 
+### `pcm_noncard_settle_after_payment`  ·  `20260904230000_m4b_noncardpaid_settle_and_expire_leg.sql`
+
+**改什麼狀態**
+
+`:451` SET cancelled_at     = pg_catalog.now(),<br>`:581` ⇒ 要現值自己跑:grep -rn "SET payment_status" --include='*.sql' --include='*.ts'
+
+**允許集合(逐字)**
+
+`:379` WHERE o.payment_status = 'unpaid'::public.payment_status<br>`:380` AND o.cancelled_at IS NULL                                    -- 已取消/已失效 → 不重複寫(冪等)<br>`:425` AND a.status <> 'failed'<br>`:571` ⇒ 所以 payment_status <> 'unpaid' 不等於「這張單收到錢了」,<br>`:572` 而 payment_status = 'unpaid' 也不等於「沒收到錢」。
+
+### `pcm_noncard_settle_recompute`  ·  `20260904230000_m4b_noncardpaid_settle_and_expire_leg.sql`
+
+**改什麼狀態**
+
+`:265` SET payment_status = v_new,
+
+**允許集合(逐字)**
+
+`:196` IF v_status NOT IN ('unpaid'::public.payment_status,<br>`:265` SET payment_status = v_new,<br>`:282` AND o.payment_status = v_status;   -- 🔴 樂觀鎖:狀態被別人改過就不寫
+
 ---
 
 ## 三、自測:本表答得出「已付款的單能不能取消品項」嗎?
