@@ -246,6 +246,32 @@
 }
 .acc-link-btn:hover { color: var(--c-text); }
 
+/* ══ `.acc-tier-contact`(總覽頁「用 LINE 聯絡客服升級 →」)══
+ * 🔴 **這個 class 在本 commit 之前【全 repo 零 CSS 規則】** —— 只出現在
+ *    `components/account/tabs/OverviewTab.tsx` 的 `className`。
+ *    (🟢 正對照:同一把尺找 `^.acc-logout {` ⇒ storefront 與 design 各 1 命中 ⇒ 尺會動。)
+ *
+ * 🔬 **量到的**(本機探針 390×844):`display: block` · `font-size: 16px` ·
+ *    `line-height: normal` · `padding: 0` ⇒ 盒子 **320 × 22.5**, 九點法 **3/9**。
+ *    🛑 **22.5 < 24** ⇒ **它【低於】Sean 2026-08-09 Q3=A 拍的那條線**
+ *    (WCAG 2.2 SC 2.5.8 Target Size Minimum;守門在 `styles/auth-account.test.ts`)。
+ *    ⛔ ~~我 05:4x 回報過「24 ≥ 24 ⇒ 合規」~~ —— **那個 24 是四捨五入來的**,
+ *       實際 22.5。📌 一個被 `Math.round` 抹掉的 1.5px, 讓一個不合規變成合規。
+ *
+ * ✅ **修法沿用本檔既有的那一招**(`.acc-link-btn` 上方, 同一條 Q3=A 拍板):
+ *    **padding 外擴 + 等量負 margin** ⇒ 命中區 22.5 + 4 + 4 = **30.5 ≥ 24**,
+ *    而 `display: block` 的垂直 margin 會被收回 ⇒ **佔位零變化**。
+ *    🔴 **不是** `min-height: 24px`:那只擋得住「盒子太矮」, 擋不住**命中區**,
+ *       而且會在別的字級下多出一段空白 ⇒ 改版面 = 改稿。
+ *
+ * 🛑 **兩個環境的讀數不一樣, 兩個都記著**:本機探針 **22.5**、preview **24**(四捨五入前未知)。
+ *    差在**字體有沒有載到**(真站是 Inter + Noto Sans TC)⇒ **這一格跨過 24 那條線**。
+ *    ⇒ 選 4px 而不是剛好夠的 1px:**兩個世界都要過**。 */
+.acc-tier-contact {
+  padding: 4px 0;
+  margin: -4px 0;
+}
+
 /* ══ 訂單卡 ══════════════════════════════════════════════
    🔴 2026-08-29:整組換成 OD 稿 `pcm-home-redesign/pcm-account.css:358-427` 的三段式卡
    (稿 sha256 前 12 = 88f9b3085d16 · 841 行 · mtime 2026-08-07 11:28,動工前複對相符)。
