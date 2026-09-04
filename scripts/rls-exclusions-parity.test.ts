@@ -144,14 +144,35 @@ describe('RLS service_role 排除名單:清單檔 與 migration 內嵌必須逐�
     expect(b).toBeLessThan(end);
   });
 
-  it('🔴 排除名單只剩【一份】—— 事後斷言不得再抄一次', () => {
-    // codex R2 must-fix ⑦:第三份住在斷言⑧ 裡, 而 parity 只守 txt 與目標區塊。
-    // 修法是讓斷言⑧ 讀 pcm_rls_exclusions ⇒ 這一格驗那件事成立。
+  it('🔴 排除名單只剩【一份】—— 沒有第二份【名單】(而不是「每個名字只出現一次」)', () => {
+    // 🔴🔴 2026-09-05 訂正:第一版寫 `每個名字在全檔只出現 1 次` ⇒ 收割時當場紅
+    //    (`pcm_rls_rollback_20260904270000` 出現 2 次:排除區塊 :131 與收權斷言的
+    //     `v_relations text[] := ARRAY['pcm_rls_rollback_…']` :545)。
+    //    🛑 **而那第二處【不是】第二份名單** —— 它是那張表在【另一個用途】上被點名一次。
+    //    📌 我把「沒有第二份名單」這個宣稱, 量成了「沒有第二次提到任一個名字」——
+    //       **後者比前者嚴, 而嚴的方向製造的是假指控。**
+    // ✅ 真正的宣稱:**排除區塊以外, 沒有任何一個敘述同時列出 2 個以上的排除名字。**
+    //    一份真的副本必然會列很多個;而一次合法的單獨點名只會列一個。
+    const names = listNames();
     const raw = readFileSync(MIG, 'utf8');
-    for (const n of listNames()) {
-      expect(raw.split(`'${n}'`).length - 1).toBe(1);
-    }
-    expect(raw).toContain('c.relname IN (SELECT relname FROM pcm_rls_exclusions)');
+    const i = raw.indexOf('PCM-EXCLUSIONS-BLOCK-BEGIN');
+    const j = raw.indexOf('PCM-EXCLUSIONS-BLOCK-END');
+    const outside = stripSqlComments(raw.slice(0, i) + raw.slice(j));
+    const offenders = outside
+      .split('\n')
+      .map((l, n) => ({ n, hits: names.filter((x) => l.includes(`'${x}'`)) }))
+      .filter((r) => r.hits.length >= 2);
+    expect(offenders).toEqual([]);
+    // 🔴 而排除區塊【以外】仍然不得出現 `IN (` 硬寫的排除名單 —— 要走那張暫存表
+    expect(outside).toContain('c.relname IN (SELECT relname FROM pcm_rls_exclusions)');
+  });
+
+  it('🔵 上一格的尺會動:造一行同時列 3 個排除名字 ⇒ 必須被抓出來', () => {
+    // 沒有這一格, 上一格在「判準寫壞」與「真的沒有第二份」兩個世界印同一個綠。
+    const names = listNames();
+    const fake = `  AND c.relname IN ('${names[0]}', '${names[1]}', '${names[2]}')`;
+    const hits = names.filter((x) => fake.includes(`'${x}'`));
+    expect(hits.length).toBeGreaterThanOrEqual(2);
   });
 
   it('🔴 期望名單(40 張)也要與它自己的錨一致, 且不得與排除名單重疊', () => {
