@@ -1,3 +1,8 @@
+-- 🔴🔴 **這是【第二版】—— 2026-09-04 第一次貼【失敗了, 而那不是你做錯】** 🔴🔴
+--    第一次回的是 `ERROR: P0001: 斷言③失敗…p_category 出現 3 次(該是 2)` ⇒ **整份回滾, 你的庫零改動。**
+--    🔬 失敗的是**我寫的期望值**(我數「行」而那把尺數「出現次數」), **不是這支 SQL 的功能**。
+--    ✅ 已修並重驗。**這一份可以直接整份再貼一次。**
+-- ============================================================
 -- 🛑🛑 **貼這一支之前先讀這三行 —— 它【不能】獨立貼, 有順序依賴** 🛑🛑
 -- ① 貼完之後**同一份 SQL 的最後有一行 `NOTIFY pgrst, 'reload schema';`** —— **不要跳過它**
 --    (它已經寫在檔尾的 `COMMIT` 之前, 你整份貼就會跑到, 不必另外做事)
@@ -444,9 +449,22 @@ BEGIN
            'public.search_catalog_by_vehicle(text[],text,text,int,int,int,text,text,text[],int,int,timestamptz)'::regprocedure
          ) INTO v_def;
   v_def := pg_catalog.regexp_replace(v_def, '--[^' || chr(10) || ']*', '', 'g');
-  IF (SELECT count(*) FROM pg_catalog.regexp_matches(v_def, 'p_category[^a-z_]', 'g')) <> 2 THEN
-    RAISE EXCEPTION '斷言③失敗:剝註解後 p_category 出現 % 次(該是 2:參數宣告 + 合流那一行)⇒ 有分支漏改',
-      (SELECT count(*) FROM pg_catalog.regexp_matches(v_def, 'p_category[^a-z_]', 'g'));
+  -- 🔴🔴 **[2026-09-04 第一次貼失敗於本格 —— 而失敗的是【期望值】不是碼]**
+  --    ⛔ ~~原本數的是【出現次數】而期望值寫 2~~ ⇒ Sean 貼下去回:
+  --      `ERROR: P0001: 斷言③失敗:剝註解後 p_category 出現 3 次(該是 2…)` ⇒ **整份回滾, 正式庫零改動。**
+  --    🔬 成因(自己重量過):函式裡 `p_category` 在 **2 行**上, 而**合流那一行自己含兩個**
+  --      (`WHEN p_category IS NULL … ELSE ARRAY[p_category]`)⇒ **次數 3 / 行數 2**。
+  --    🎯 **⇒ 我的期望值數的是【行】, 而那把尺數的是【出現次數】—— 兩個各自正確, 而它們數的不是同一種東西。**
+  --    ✅ **修法不是把 2 改成 3** —— 那會讓這道斷言變成「數一個我不知道為什麼是這個數的數」。
+  --      **改成數【行】, 那才對得上原本的意圖(只剩兩個【地方】讀它)**;
+  --      🔵 而它的好處是:合流那一行以後若改寫法(次數變), 這道斷言**不會假紅**。
+  IF (
+    SELECT count(*) FROM pg_catalog.regexp_split_to_table(v_def, chr(10)) AS ln
+     WHERE ln ~ 'p_category[^a-z_]'
+  ) <> 2 THEN
+    RAISE EXCEPTION '斷言③失敗:剝註解後【有 % 行】讀 p_category(該是 2 行:參數宣告 + 合流那一行)⇒ 有分支漏改',
+      (SELECT count(*) FROM pg_catalog.regexp_split_to_table(v_def, chr(10)) AS ln
+        WHERE ln ~ 'p_category[^a-z_]');
   END IF;
 
   -- ③ 🔴🔴 **行為斷言:呼叫【那支函式】, 不是重打一份述詞**
