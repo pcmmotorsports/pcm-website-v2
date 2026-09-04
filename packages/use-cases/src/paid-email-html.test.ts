@@ -20,6 +20,9 @@ import {
   PAID_EMAIL_PDF_ATTACHED_SENTENCE,
 } from './paid-email-html';
 import {
+  orderAmountsBalance,
+  ORDER_PAID_HTML_LEAD_SENTENCE,
+  ORDER_PAID_NEXT_STEP_SENTENCE,
   ORDER_CONTACT_LEAD,
   PCM_COMPANY_ADDRESS,
   PCM_COMPANY_LINE,
@@ -452,5 +455,94 @@ describe('assertPdfClaimMatchesAttachments —— 信裡說附了 PDF 而其實�
   it('🔴 翻開旗標而沒附 PDF ⇒ 那封信會被擋下來(模板 → 守門 一整條)', () => {
     const html = renderPaidEmailHtml(ctxWithDiscount(), { hasPdfAttachment: true });
     expect(() => assertPdfClaimMatchesAttachments(html, undefined)).toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴🔴 加不起來就不印金額(2026-09-04 線【帳號】`-account`;`⟦b4-INVOICE5PCT⟧` 第 5 步)
+//
+// 🔬 **為什麼需要**:DB 的等式含 `tax_total`, 而本檔的金額區只列前三項
+//    ⇒ `tax_total > 0` 的那一天, 客人會收到一張【加不起來】的帳。
+//    而在本片之前這道判斷**只裝在純文字那一份** ⇒ 兩份信會**各出一種病**。
+// 🔵 **本組刻意【不】自己重算平衡** —— 期望值走 `orderAmountsBalance`(與生產碼同一支),
+//    因為「測試自己重打一份判準」正是本 repo 記過的假綠形狀。
+describe('加不起來就不印金額', () => {
+  /** 模擬「稅額欄開始有值」的那一天:`total` 比前三項的和多出稅。 */
+  function ctxWithTax(): PaidEmailContext {
+    const base = ctxWithDiscount();
+    // 31120 + 150 - 790 = 30480;稅 = ROUND(30480 × 0.05) = 1524 ⇒ total 32004
+    return { ...base, total: (base.total + 1524) as typeof base.total };
+  }
+
+  it('🟢 正對照:平衡時金額區【印得出來】(否則下面每一格都證明不了東西)', () => {
+    const c = ctxWithDiscount();
+    expect(orderAmountsBalance(c), '這個 fixture 本來就該是平衡的').toBe(true);
+    const html = renderPaidEmailHtml(c);
+    expect(html).toContain('訂單金額');
+    expect(html).toContain('小計');
+    expect(html).toContain(c.lines[0]!.title);
+  });
+
+  it('🔴 不平衡時:金額區與品項表【兩塊一起不見】', () => {
+    const c = ctxWithTax();
+    expect(orderAmountsBalance(c), '這個 fixture 就是要不平衡').toBe(false);
+    const html = renderPaidEmailHtml(c);
+    expect(html, '總額那一行還在 ⇒ 客人會收到一張加不起來的帳').not.toContain('訂單金額');
+    expect(html, '品項表還在 ⇒ 有小計沒總額, 客人一樣會自己加').not.toContain(c.lines[0]!.title);
+  });
+
+  it('🔵 而【信照寄】—— 訂單編號與到會員中心那顆鈕都還在', () => {
+    const html = renderPaidEmailHtml(ctxWithTax(), { orderUrl: 'https://x.test/o/1' });
+    expect(html).toContain('XMFPNH');
+    expect(html).toContain('到會員中心查看訂單');
+    expect(html).toContain(PCM_COMPANY_LINE);
+  });
+
+  // 🔴🔴 **這一格的標題原本比它證明的【寬】**(codex 對抗審查 R2 nit, 2026-09-04):
+  //    ⛔ ~~原標題「判準與純文字那一份【共用同一支函式】—— 兩份不得各判各的」~~
+  //    而它**只直接呼叫 helper** ⇒ 🔴 **任一 renderer 哪天不再用那支 helper, 這一格照樣綠。**
+  //    ⇒ 📌 **檔名與標題也是一個宣稱, 而它比證據寬的時候沒有東西會紅。**
+  // ✅ **改成證得到的形狀**:把 renderer 的【輸出】與 helper 的【裁決】綁在一起逐例比對。
+  it('🔴 renderer 印不印金額, 逐例等於 helper 的裁決(不是各判各的)', () => {
+    const cases: PaidEmailContext[] = [ctxWithDiscount(), ctxWithTax(), ctxNoDiscountFreeShipping()];
+    for (const c of cases) {
+      const verdict = orderAmountsBalance(c);
+      expect(
+        renderPaidEmailHtml(c).includes('訂單金額'),
+        `helper 說 ${String(verdict)} 而 renderer 的輸出不一致 ⇒ 兩邊各判各的`,
+      ).toBe(verdict);
+    }
+    // 🟢 而這三例必須【同時含真與假】—— 否則上面那個迴圈只驗了一個世界
+    const verdicts = cases.map((c) => orderAmountsBalance(c));
+    expect(verdicts).toContain(true);
+    expect(verdicts).toContain(false);
+    // 🟢 helper 本身對每一個輸入都要有反應, 不是恆真恆假
+    const zero = { subtotal: 0, shippingFee: 0, discountTotal: 0, total: 0 };
+    expect(orderAmountsBalance(zero)).toBe(true);
+    expect(orderAmountsBalance({ ...zero, total: 1 })).toBe(false);
+  });
+});
+
+describe('不印明細的那封信, 不可以繼續說自己是明細(codex R1 must-fix)', () => {
+  function ctxWithTax2(): PaidEmailContext {
+    const base = ctxWithDiscount();
+    return { ...base, total: (base.total + 1524) as typeof base.total };
+  }
+
+  it('🔴 不平衡 ⇒ 開頭那句「這封信是這筆交易的明細」不得出現', () => {
+    const html = renderPaidEmailHtml(ctxWithTax2());
+    expect(html, '明細被拿掉了而信還在說自己是明細 ⇒ 那一句是假的').not.toContain(
+      ORDER_PAID_HTML_LEAD_SENTENCE,
+    );
+  });
+
+  it('🟢 正對照:平衡時那一句【照印】(否則上面那格證明不了東西)', () => {
+    expect(renderPaidEmailHtml(ctxWithDiscount())).toContain(ORDER_PAID_HTML_LEAD_SENTENCE);
+  });
+
+  it('🔵 而信的用途沒變 —— 「我們收到您的付款了」與下一步那句都還在', () => {
+    const html = renderPaidEmailHtml(ctxWithTax2());
+    expect(html).toContain('我們收到您的付款了');
+    expect(html).toContain(ORDER_PAID_NEXT_STEP_SENTENCE);
   });
 });
