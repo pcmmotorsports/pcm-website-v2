@@ -34,6 +34,19 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './e2e-prod',
+  // 🔴🔴 **2026-09-05:這一行是【必要的】, 不是防禦性的** —— 少了它 CI 的 E2E 每一發都紅。
+  //   病史:Playwright 的**預設** `testMatch` 同時吃 `.spec.ts` **與 `.test.ts`**
+  //   (實測:不加本行時 `playwright test --list` 直接噴
+  //    `Error: Vitest cannot be imported in a CommonJS module using require()` at `contract-message.test.ts:1`,
+  //    而且 **`Total: 0 tests in 0 files`** ⇒ 🛑 **一支檔載不動, 整套一支都跑不了。**)
+  //   ⇒ 而 `e2e-prod/` 裡**現在住著一支 vitest 測試**(`contract-message.test.ts`, `a46b9a8eb`),
+  //     它被放在這裡是因為被測的 `contract-message.ts` 在這裡, 而 vitest 的 exclude
+  //     2026-09-04 已從「整個 `e2e-prod/`」**收窄成只排 `**/e2e-prod/**/*.spec.ts`**(見 root `vitest.config.ts`)。
+  //   🎯 **⇒ 兩道門必須【形狀互補】, 而 09-04 那一片只收窄了其中一道**:
+  //     vitest 排 `.spec.ts` / playwright 只收 `.spec.ts` ⇒ 同一個目錄, 兩種副檔名, 各歸各的 runner。
+  //   🛑 **不要把它改回「不設 testMatch」** —— 那等於把 `.test.ts` 交給 Playwright, 而它 require 不動 vitest。
+  //   ⚠️ 而**它的失敗方式不是漏跑, 是【整套零檔】** ⇒ 記在這裡, 因為零檔在某些 reporter 下看起來像通過。
+  testMatch: '**/*.spec.ts',
   fullyParallel: false, // 共用單一 production server,序列跑避免互相干擾
   forbidOnly: !!process.env.CI,
   retries: 0, // 守門用途:紅就是紅,不靠重試掩蓋 flaky
