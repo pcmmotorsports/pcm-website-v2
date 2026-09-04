@@ -1947,6 +1947,78 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
       OPTS,
     );
 
+  /**
+   * 🔴🔴 **這三格補的是【那個修法自己有沒有守門】**(2026-09-05, 線 `-db`)。
+   *
+   * 病史:`check-anomaly-alerts.ts:1345-1349` 的註解逐字寫著 ——
+   *   「這兩格原本【沒有進 shouldAlert】⇒ 只有搜尋日誌異常時 `shouldAlert` 是 false
+   *     ⇒ **那封信根本不會寄** ⇒ 我把那兩行寫進了信的【內容】, 而沒有寫進【要不要寄】
+   *     —— 而 `buildAnomalyAlertMessage` 的測試全綠, 因為它只驗『文字對不對』。」
+   * 🛑 **而那個修法【本身沒有守門】** —— 當場量:
+   *    本檔含 `searchLogStale` 的斷言 5 格, **全部在驗它的【值】**;
+   *    而「只有它為真 ⇒ 信會寄出去」**零格**
+   *    (🟢 正對照:同一把尺找 `notifiersTotal` ⇒ 別的欄位有這種格子, 例 :255)
+   * ⇒ 🎯 **把那兩行從 `shouldAlert` 拿掉, 上面那五格照樣全綠** —— 病會原封回來。
+   *
+   * 📌 一般化:**「算出來了」「寫進信的內容了」「會讓信寄出去」是三個宣稱** ——
+   *    而只驗前兩個的測試, 在第三個壞掉時是綠的。
+   */
+  it('🔴 只有 `searchLogStale` 為真(其餘全乾淨)⇒ **信要真的寄出去**', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: readerWithHealth({
+          tableExists: true,
+          lastRowAt: new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString(),
+          anonCanExecute: true,
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.searchLogStale).toBe(true);
+    // 🔴 這兩行才是這一格的重點 —— 上面那行五格已經在驗了。
+    expect(res.alerted, 'stale 為真而 alerted=false ⇒ 那兩行沒進 shouldAlert').toBe(true);
+    expect(n.notify, 'alerted 為真而 notify 沒被叫 ⇒ 中間還有一層把它吃掉').toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 只有 `searchLogAnonExecuteRevoked === true` 為真 ⇒ **信要真的寄出去**', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: readerWithHealth({
+          tableExists: true,
+          lastRowAt: new Date().toISOString(), // 🔵 不 stale ⇒ 觸發只能來自 anon 那一格
+          anonCanExecute: false,               // false = 門被關上了(有人做了事)
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.searchLogStale).toBe(false);
+    expect(res.alerted, 'anonRevoked 為真而 alerted=false ⇒ 它沒進 shouldAlert').toBe(true);
+    expect(n.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔵 負對照:兩格都不為真(表在、不 stale、anon 仍可執行)⇒ **不寄**', async () => {
+    // 🔴 沒有這一格, 上面兩格在「shouldAlert 恆真」的世界裡也全綠。
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: readerWithHealth({
+          tableExists: true,
+          lastRowAt: new Date().toISOString(),
+          anonCanExecute: true,
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.searchLogStale).toBe(false);
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+  });
+
   it('🔵 世界①該綠 · 表【還沒貼】⇒ 不是異常, stale 必須 false', async () => {
     const res = await run({ tableExists: false, lastRowAt: null, anonCanExecute: null });
     expect(res.searchLogTableExists).toBe(false);
