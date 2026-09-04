@@ -28,7 +28,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync, symlinkSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join, resolve, dirname } from 'node:path';
+import { join, resolve } from 'node:path';
 
 // 🔎 **在 debug「怎麼寫到別的 repo / 別棵樹去了」「git 的設定被誰改掉了」的人:你要找的就是這一段。**
 //    (症狀字寫在這裡是刻意的 —— 會來查的人搜的是【症狀】, 不是 `GIT_DIR` 這個變數名。)
@@ -134,12 +134,23 @@ beforeAll(() => {
   // 被呼叫的腳本路徑**從命令字串抽**,不硬編 —— 主 repo 改檔名時這裡要跟著,
   // 否則 tsx 找不到檔 → 壞檔格全綠(訊號在但紅錯地方)。
   const cmd = mainPkg['lint-staged'][GLOB_KEY];
+  // 🔵 這一段【不再用來決定要連哪支檔】(整包 `scripts/` 已經連過去了),
+  //    它現在的用途是**斷言那個 glob key 仍然指著一支 .ts** ——
+  //    主 repo 若把它改成別的東西, 本檔要當場 throw, 而不是安靜地測一個不存在的東西。
   const scriptRel = cmd?.split(/\s+/).find((t) => t.endsWith('.ts'));
   if (!scriptRel) throw new Error(`從 lint-staged 命令抽不出腳本路徑:${cmd}`);
 
   symlinkSync(join(REPO, 'node_modules'), join(scratch, 'node_modules'));
-  mkdirSync(join(scratch, dirname(scriptRel)), { recursive: true });
-  symlinkSync(join(REPO, scriptRel), join(scratch, scriptRel));
+  // 🔴🔴 **整個 `scripts/` 連過去, 不是只連本檔那一支**(2026-09-05 修)。
+  //    病灶:上面把【整份 lint-staged 設定】搬進來, 而這裡只備了【一支】腳本
+  //    ⇒ 別人往設定裡加一條指向 `scripts/*.py` 的規則, 那支在 scratch 裡【不存在】
+  //      ⇒ 它一跑就失敗 ⇒ 本檔的「好檔要放行」那格變紅, **而紅的原因與本檔無關**。
+  //    🔬 實錘:-ship 2026-09-05 把 `pg-catalog-prefix-gate.py` 從
+  //      `supabase/migrations/*.sql` 搬到全 repo 的 `*.sql` ⇒ 本檔兩格當場紅。
+  //    📌 **搬整份設定而只備一支腳本 —— 那個不對稱本身就是缺陷**,
+  //      而它要等到有人動設定才顯形, 所以在那之前一直是綠的。
+  //    ✅ 連整包之後, 之後誰再加 gate 都不必來改本檔。
+  symlinkSync(join(REPO, 'scripts'), join(scratch, 'scripts'));
 
   // lint-staged 需要 HEAD 才能做 stash 備份。scratch repo 沒有 .husky,故不需要也不該用 --no-verify。
   writeFileSync(join(scratch, 'README.md'), '# gate e2e\n', 'utf8');

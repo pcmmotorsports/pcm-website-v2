@@ -37,12 +37,63 @@ FN_RE = re.compile(r'\bpublic\.([a-z_][a-z0-9_]*)\s*\(', re.I)
 ASSERT_RE = re.compile(r'has_function_privilege\s*\([^)]*', re.I)
 
 
+# 🔴🔴 只取【那支 invoker view 自己的 body】—— 2026-09-05 誤擋修正。
+#    ⛔ 第一版拿【整支檔】去找 `public.<fn>(` ⇒ 同一支 migration 裡別段的函式、
+#       甚至 `INSERT INTO public.admin_audit_log (` 這種【表名後面接括號】的寫法,
+#       全被算成「這支 view 呼叫的函式」。
+#    🔬 實錘:`20260904220000` 那支 view 的 body 只呼叫 **1** 支函式,
+#       而第一版報 **10** 支 —— 其中 `admin_audit_log` 根本不是函式, 是 INSERT 的目標表。
+#    📌 ⇒ 一把尺太寬產出的不是漏報, 是**假指控** —— 而假指控會讓人去補一堆不需要的斷言,
+#       或者(更常見)**直接把閘關掉**。
+VIEW_START_RE = re.compile(
+    r'CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+[^\s(]+\s*'      # CREATE VIEW <名>
+    r'WITH\s*\([^)]*security_invoker\s*=\s*true[^)]*\)\s*'  # WITH (security_invoker = true)
+    r'AS\b', re.I)
+
+
+def _invoker_view_bodies(body: str):
+    """回 body 裡每一支 invoker view 的定義段(從 AS 之後到該敘述的 `;`)。
+
+    🔴 找結尾的 `;` 要跳過【括號內】與【字串常值內】的分號 ——
+       否則一個 `WHERE x IN (…;…)` 或 `'a;b'` 會讓段落提早結束, 而**提早結束是漏報方向**。
+    """
+    out = []
+    for m in VIEW_START_RE.finditer(body):
+        i = m.end()
+        depth, in_str, j = 0, False, i
+        while j < len(body):
+            ch = body[j]
+            if in_str:
+                if ch == "'":
+                    in_str = False
+            elif ch == "'":
+                in_str = True
+            elif ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+            elif ch == ';' and depth <= 0:
+                break
+            j += 1
+        out.append(body[i:j])
+    return out
+
+
 def analyse(sql: str):
-    """回 (invoker_view?, body 裡呼叫的函式, 已被事後斷言涵蓋的函式)。"""
+    """回 (invoker_view?, view body 裡呼叫的函式, 已被事後斷言涵蓋的函式)。"""
     body = strip_comments(sql)
     if not INVOKER_RE.search(body):
         return False, set(), set()
-    called = {m.group(1).lower() for m in FN_RE.finditer(body)}
+    bodies = _invoker_view_bodies(body)
+    if not bodies:
+        # 🛑 檔裡有 `security_invoker = true` 這串字, 而抽不出任何 view 定義段
+        #    ⇒ **不是放行**:那代表我的 regex 沒認得那種寫法, 而那正是要有人看一眼的時候。
+        #    (放行=安靜地失效;報出來=有人會來修這把尺。)
+        print('🔴 檔裡有 `security_invoker = true` 而抽不出 view 定義段 ⇒ 本閘的抽取式沒認得這種寫法。')
+        return True, {'<抽取失敗:請看這支檔的 CREATE VIEW 寫法>'}, set()
+    called = set()
+    for b in bodies:
+        called |= {m.group(1).lower() for m in FN_RE.finditer(b)}
     asserted = set()
     for m in ASSERT_RE.finditer(body):
         seg = m.group(0)
@@ -76,6 +127,55 @@ def check(path: str, sql: str) -> bool:
     print(f"        IF NOT pg_catalog.has_function_privilege('service_role',")
     print(f"             'public.{missing[0]}()'::regprocedure, 'EXECUTE') THEN RAISE EXCEPTION …")
     return False
+
+
+LEDGER = 'supabase/APPLIED.tsv'
+
+
+def applied_versions():
+    """回帳本上記著「已 apply 到正式庫」的版本號集合。
+
+    🔴🔴 **只用它的【命中】, 絕不用它的【0】** —— `APPLIED.tsv` 檔頭逐字寫著
+       「不在本表上**什麼都不代表**」(它自己就列著兩支已 apply 而不在表上的)。
+       ⇒ 命中 ⇒ 那支是歷史, 跳過(它已經在正式庫上了, 擋它沒有任何人能行動)。
+       ⇒ 沒命中 ⇒ **照常檢查**。這個方向讓帳本過期時本閘偏【嚴】不偏【鬆】。
+    🛑 而這道跳過**不是**本次誤擋的解藥 —— 解藥是上面那個抽取範圍。
+       實測 2026-09-05:-ship 那六支在帳本上**一支都沒有**(帳本更新還沒推),
+       ⇒ 若只做這一半, 六支照樣被擋。
+    """
+    # 🔴🔴 讀【index 那一份】, 不是工作樹那一份 —— 2026-09-05 自檢時抓到。
+    #    選檔用的是 `git diff --cached`(index), 而第一版讀帳本用 io.open(工作樹)
+    #    ⇒ **同一發裡兩個來源**。那個不一致往【鬆】的方向錯:
+    #       一筆還沒 stage 的帳本新列, 會讓一支檔被靜靜跳過, 而 commit 出去的帳本裡沒有那一列。
+    #    ✅ index 讀不到才退回工作樹, 並【印出用了哪一份】—— 讀輸出的人要知道尺站在哪。
+    text, src = None, ''
+    try:
+        r = subprocess.run(['git', 'show', f':{LEDGER}'], capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout:
+            text, src = r.stdout, 'index'
+    except Exception:
+        pass
+    if text is None:
+        try:
+            text, src = io.open(LEDGER, encoding='utf-8').read(), '工作樹(index 讀不到)'
+        except OSError:
+            return set()
+    out = set()
+    for ln in text.split('\n'):
+        if ln.startswith('#') or not ln.strip():
+            continue
+        v = ln.split('\t', 1)[0].strip()
+        if v:
+            out.add(v)
+    if out:
+        print(f'  🔵 帳本來源:{src}({len(out)} 個版本號)')
+    return out
+
+
+def version_of(path: str) -> str:
+    base = os.path.basename(path)
+    m = re.match(r'(\d{8,})_', base)
+    return m.group(1) if m else ''
 
 
 def staged_new_sql():
@@ -144,6 +244,32 @@ def selftest() -> int:
         print('  🟡 SKIP ⑥ 真檔正對照:-ship 那支 20260905020000 不在本樹')
         print('       ⇒ 這【不是通過】, 是沒驗。它合併進來之後要重跑本 selftest。')
 
+
+    # ═══ ⑦ 抽取範圍(2026-09-05 誤擋的那一格)═══════════════════════════
+    #    🔴 這一格證明「同檔別段的東西不會被算進 view 的帳」。
+    #       突變方向刻意選【把別段搬進 view body】—— 那樣它【必須】被算到。
+    same_file = (
+        "CREATE FUNCTION public.helper_a() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql;\n"
+        "INSERT INTO public.admin_audit_log (actor, note) VALUES ('x','y');\n"
+        "CREATE VIEW public.v WITH (security_invoker = true) AS\n"
+        "  SELECT public.in_body_fn(t.c) FROM public.t;\n"
+        "SELECT public.after_the_view_fn();\n")
+    _, called, _ = analyse(same_file)
+    ck('⑦a view 段外的函式/表名不得入帳(只該有 in_body_fn)', called == {'in_body_fn'}, True)
+    moved = same_file.replace("SELECT public.in_body_fn(t.c) FROM public.t;",
+                              "SELECT public.in_body_fn(t.c), public.helper_a() FROM public.t;")
+    _, called2, _ = analyse(moved)
+    ck('⑦b 把別段那支【搬進 view body】⇒ 必須被算到(突變要殺得死)', 'helper_a' in called2, True)
+
+    # ═══ ⑧ 抽不出 view 段要【出聲】, 不得靜靜放行 ═══════════════════════
+    weird = "CREATE VIEW public.v /* security_invoker = true 寫在別處 */ AS SELECT 1;\n" \
+            "-- security_invoker = true\n"
+    ck('⑧ 有 invoker 字面而抽不出 view 段 ⇒ 擋(不是放行)', check('weird.sql', weird), False)
+
+    # ═══ ⑨ 帳本跳過:只認命中, 不認 0 ═══════════════════════════════════
+    ck('⑨a 版本號解析', version_of('supabase/migrations/20260904220000_x.sql') == '20260904220000', True)
+    ck('⑨b 沒有版本號前綴 ⇒ 空字串(不會誤中帳本)', version_of('a/b/notaversion.sql') == '', True)
+
     print('全部通過。' if ok == 0 else '🔴 有格沒過。')
     return ok
 
@@ -156,7 +282,13 @@ def main(argv) -> int:
         print('  🔵 invoker-view 閘:本次沒有新增的 migration ⇒ 不適用(這不是「檢查過沒問題」)')
         return 0
     bad = 0
+    ledger = applied_versions()
     for p in files:
+        v = version_of(p)
+        if v and v in ledger:
+            print(f'  🔵 {os.path.basename(p)}:已 apply, 歷史(帳本 {LEDGER} 有這一列)⇒ 跳過')
+            print( '     🛑 那不是「它沒問題」—— 是【擋它沒有任何人能行動】, 它已經在正式庫上了。')
+            continue
         try:
             sql = io.open(p, encoding='utf-8').read()
         except OSError as e:
