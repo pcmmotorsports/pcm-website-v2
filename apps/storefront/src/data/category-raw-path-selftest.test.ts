@@ -1,4 +1,4 @@
-// 把 `scripts/category-sibling-name-collision.py --selftest` 拉進測試套件。
+// 把 `scripts/category-raw-path-consistency.py --selftest` 拉進測試套件。
 //
 // 🔴 形狀與理由同 `weigh-synonym-candidates-selftest.test.ts`:那支腳本**不是測試檔** ⇒ 全套跑不到它,
 //    而**它壞掉的時候仍然會輸出** —— 下一個用它的人拿到的是一句看起來正常的「✅ 沒有同名」。
@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const REPO = join(__dirname, '..', '..', '..', '..');
-const SCRIPT = join(REPO, 'scripts', 'category-sibling-name-collision.py');
+const SCRIPT = join(REPO, 'scripts', 'category-raw-path-consistency.py');
 
 function envWithoutGit(): NodeJS.ProcessEnv {
   const e = { ...process.env };
@@ -37,11 +37,11 @@ function run(): { ok: boolean; out: string } {
   }
 }
 
-describe('scripts/category-sibling-name-collision.py --selftest', () => {
+describe('scripts/category-raw-path-consistency.py --selftest', () => {
   const r = run();
 
   it('🔴 那支自檢自己要 rc=0(失敗時把它印的理由帶出來)', () => {
-    expect(r.ok, `category-sibling-name-collision.py --selftest 沒過:\n${r.out}`).toBe(true);
+    expect(r.ok, `category-raw-path-consistency.py --selftest 沒過:\n${r.out}`).toBe(true);
   });
 
   it('🔴 四個世界都判對(而不是只印一句「通過」)', () => {
@@ -49,9 +49,14 @@ describe('scripts/category-sibling-name-collision.py --selftest', () => {
     expect(r.out).toContain('四個世界');
   });
 
-  it('🔵 而【跨父層同名不該叫】那一格有被跑到 —— 那是它每天要用的那一側', () => {
+  it('🔵 而【不該叫】那一側有被跑到 —— 那是它每天要用的那一側', () => {
     // 🔴 一把只驗過「該叫時會叫」的尺, 它的【不該叫】那一側從來沒有被跑過,
     //    而那正是它每天拿來說「今天沒事」的方向。
-    expect(r.out).toContain('跨父層同名');
+    expect(r.out).toContain('跨父層同名而路徑各自正確');
+  });
+
+  it('🔴 而【真的造一列歪掉的】那一格有被跑到 —— 那是它存在的理由', () => {
+    // 🔵 那一種正是 UNIQUE(raw_path) 抓不到的:路徑與父子關係脫鉤。
+    expect(r.out).toContain('手寫歪掉');
   });
 });
