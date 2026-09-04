@@ -29,6 +29,7 @@ vi.mock('next/link', () => ({
 }));
 
 import { OverviewTab } from './OverviewTab';
+import { SOCIAL_URLS } from '@/lib/site-config';
 import type { FeaturedResult } from '@/lib/products';
 import type { MockProduct } from '@/data/mock-products';
 import { toMoneyAmount, type OrderListItem } from '@pcm/domain';
@@ -87,6 +88,24 @@ describe('OverviewTab(g-2 真資料、對齊 design AccountPages.jsx L467-535)',
     renderTab();
     expect(screen.getByText('一般會員')).toBeTruthy();
     expect(screen.getByText('一般會員價(升級需聯絡客服)')).toBeTruthy();
+  });
+
+  // ── ⟦b4-DEALERSIGNUPUNSEEN⟧:那句話要給他一條路 ──
+  // 🔬 走查實測:「升級需聯絡客服」本身不是連結、那一塊裡零連結, 唯一入口在頁尾。
+  it('🔴 tier=general ⇒ 那句話旁邊要有一顆【按得到的】LINE 連結', () => {
+    renderTab();
+    const a = screen.getByRole('link', { name: /聯絡客服升級/ });
+    expect(a.getAttribute('href'), '不是同一顆常數 ⇒ 換 LINE 帳號那天會漏掉這裡').toBe(SOCIAL_URLS.line);
+    // 🔵 外連三件套逐字抄頁尾那顆
+    expect(a.getAttribute('target')).toBe('_blank');
+    expect(a.getAttribute('rel')).toBe('noopener noreferrer');
+  });
+
+  // 🔴 負對照:已經是店家會員的人【不該】看到「升級」——
+  //    少了這一格, 一個無條件渲染的連結也會讓上面那格全綠。
+  it('🔵 負對照:tier=store ⇒ 那顆升級連結不出現', () => {
+    renderTab({ stats: { tier: 'store', walletBalance: 0, orderCount: 0 } });
+    expect(screen.queryByRole('link', { name: /聯絡客服升級/ })).toBeNull();
   });
 
   it('tier=store:badge 店家會員 + sub「已享店家經銷價」', () => {
