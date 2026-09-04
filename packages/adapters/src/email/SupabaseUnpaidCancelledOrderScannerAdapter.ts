@@ -108,14 +108,34 @@ async function safeQuery<T>(
  */
 const MAX_LIMIT = 200;
 
+/**
+ * 🔴 2026-09-05(⟦b4-NORECIPIENTWINDOW⟧ 甲 · 第二條線):改讀 view
+ * ⇒ `customer_email` 由 SQL 給, `customer_user_id` 不再需要(它只是第二發查詢的鑰匙)。
+ */
 type OrderRow = {
-  id: string;
+  order_id: string;
   display_id: string;
   cancelled_at: string | null;
   cancelled_reason: string | null;
+  created_at: string | null;
   notification_email: string | null;
-  customer_user_id: string;
+  customer_email: string | null;
 };
+
+/**
+ * 🔴🔴 **掃描面從 `orders` 換成一個 view**(⟦b4-NORECIPIENTWINDOW⟧ 甲, 2026-09-05;主視窗批)。
+ *
+ * **它解的病**:兩個信箱都空的單, 掃到 ⇒ use-case 算成 `noRecipient` ⇒ `continue`
+ * ⇒ **不寫任何 outbox 列** ⇒ 下一輪再撈一次, **永遠** ⇒ 累積夠多就把單輪名額佔滿。
+ *
+ * 🔴 **為什麼非得走 view**:`customers.email` 原本是第二發查詢才拿到的
+ * ⇒ 掃描那一發**結構上看不到它** ⇒ 「至少一個信箱非空」在 PostgREST 那一層寫不出來。
+ *
+ * 🛑 **`!inner` 那個身分判準也搬進 view 了, 而它在那裡是 `EXISTS`** ——
+ * 語意相同而**不會讓父列重複**(`!inner` 對一對多會複製父列;EXISTS 不會)。
+ * ⚠️ 而「那張表對一張單是否可能多列」我**沒有查** ⇒ 🔵 **EXISTS 讓那個問題不必回答。**
+ */
+const PENDING_VIEW = 'pcm_unpaid_cancelled_email_pending';
 
 export class SupabaseUnpaidCancelledOrderScannerAdapter implements IUnpaidCancelledOrderScanner {
   constructor(private readonly client: UnpaidCancelledOrderScannerClient) {}
@@ -136,50 +156,21 @@ export class SupabaseUnpaidCancelledOrderScannerAdapter implements IUnpaidCancel
 
     const page = await safeQuery('orders', () =>
       this.client
-        .from('orders')
+        .from(PENDING_VIEW)
+        // 🔵 `payment_status` / `cancelled_at IS NOT NULL` / 身分判準(order_cancellations)
+        //    / anti-join —— **四個條件都在 view 裡**了。
         .select(
-          'id, display_id, cancelled_at, cancelled_reason, notification_email, customer_user_id, order_cancellations!inner(order_id), email_outbox!left(order_id)',
+          'order_id, display_id, cancelled_at, cancelled_reason, created_at, notification_email, customer_email',
         )
-        .eq('payment_status', 'unpaid')
-        .not('cancelled_at', 'is', null)
-        // ⛔ ~~「**這一行**是射程本身 —— 逾時自動取消那批不寄(Sean **未拍板**)」~~
-        //    🔴 **兩處都錯**(code-reviewer nit 8 + must-fix 2):
-        //      ① 射程不在這一行, 在**上面的 `.select()`**(那個 `!inner`)
-        //      ② 而逾時不寄是 **Sean 2026-09-03 拍過的乙**, 不是未拍板 —— 見 port 檔頭全文
-        // 🔴🔴 **射程靠【那一列存不存在】, 不靠任何欄位的值。**
-        //    ⛔ ~~第一版用 `.neq('cancelled_reason', 'payment_expired')`~~ ——
-        //      **codex 對抗審查打穿它**:員工選 `other` 時, `cancelled_reason` **就是他打的字**
-        //      (a8a1 `:129-136` `v_reason_txt := v_detail`)⇒ 他打 `payment_expired`
-        //      ⇒ 他的取消被判成逾時 ⇒ **那封信安靜地不寄**。
-        //    📌 **⇒ 病灶不是「不太可能」, 是【判準的種類錯了】—— 我拿【內容】當【身分】。**
-        //    ✅ **判別句(下一個人照這句挑)**:
-        //      **「這個值有沒有任何一條路徑是【人】填得到的?」有 ⇒ 不能當身分。**
-        //
-        //    🎯 **而 `order_cancellations` 那一列通過那句話**:
-        //      · 員工取消(a8a1)⇒ `INSERT INTO public.order_cancellations`(該檔 3 處)
-        //      · 逾時自動取消(`20260828060000`)⇒ 該表命中 **0**
-        //      ⇒ 🔵 **我不讀它任何欄位, 只問【存不存在】** —— 而它存不存在,
-        //        由**哪一支函式跑過**決定, 不由任何人填。
-        //    🔵 而它**不需要 migration**:那張表 `20260730130000` 就在,
-        //      `GRANT SELECT … TO service_role`(`:203`)、FK 指向 `orders(id)`(`:72`)
-        //      ⇒ embed 得到,而形狀與下面判「還沒排過信」那一組**完全相同**。
-        //    🛑 **而過濾是 `!inner` 那個 join 自己做的**(見上面的 `.select`)——
-        //      我一度在這裡再加一道 `.not('order_cancellations','is',null)`,
-        //      而**那道是多餘的**:`!inner` 已經只回有那一列的單。
-        //      ⇒ 📌 **一道不做事的過濾比沒有更糟 —— 它看起來像保護。** 拿掉了。
+        // 🔴 **兩個 cutoff 留在這裡** —— 它是參數, 烤不進 view。
+        // ⚠️ **而 `created_at >= cutoff` 是一個【已知會漏信】的條件**(原檔逐字記著):
+        //    它漏掉「cutoff 之前建立、之後被員工取消」的單。今天無害(未付款單 1 天就 expire),
+        //    🛑 而它會在【有人給這條線一顆新 cutoff 的那天】開始靜靜漏。
+        //    ⇒ 📌 **本片沒有改變也沒有解掉它** —— 原樣搬過來, 不順手動它。
         .gte('cancelled_at', input.cutoff)
-        // ⛔ ~~「與付款信同一個理由:少了它, 一張很舊的單今天才被取消 ⇒ 會被當成新單寄出去」~~
-        // 🔴 **那個理由是從付款信整段搬來的, 而它對取消信不成立**(code-reviewer nit 4)——
-        //    這封信不是「新單」信。⇒ 而這道閘**實際上會漏掉**
-        //    「cutoff 之前建立、cutoff 之後被員工取消」的單 ⇒ **那些人收不到信**。
-        // 🔵 今天無害:未付款單 1 天就被 expire(`20260828060000:214`)⇒ 窗口 ≤ 1 天,
-        //    而共用的 `B4_DEPLOY_CUTOFF` 早已過去 ⇒ **實際 no-op**。
-        // 🛑🛑 **而它會在【Sean 給這條線一顆新 cutoff 的那一天】開始靜靜漏信** ——
-        //    那顆 env 正在等他決定(見 route 那一段)⇒ **給了新 cutoff 就要回來刪掉這一行。**
         .gte('created_at', input.cutoff)
-        .eq('email_outbox.event_type', 'order_unpaid_cancelled')
-        .is('email_outbox', null)
-        .order('id', { ascending: true })
+        // 🔴 排序鍵改成 view 的欄名 `order_id`(仍是唯一鍵 ⇒ 翻頁不跳列)。
+        .order('order_id', { ascending: true })
         .limit(probeLimit),
     );
 
@@ -190,26 +181,19 @@ export class SupabaseUnpaidCancelledOrderScannerAdapter implements IUnpaidCancel
       return { rows: [], scannedPages: 1, truncated: false };
     }
 
-    const customers = await safeQuery('customers', () =>
-      this.client
-        .from('customers')
-        .select('user_id, email')
-        .in('user_id', [...new Set(rows.map((o) => o.customer_user_id))]),
-    );
-    const customerEmailById = new Map<string, string | null>();
-    for (const c of customers ?? []) {
-      customerEmailById.set(c.user_id, c.email);
-    }
-
+    // 🔴🔴 **那第二發查詢【整段刪掉了】**(⟦b4-NORECIPIENTWINDOW⟧ 甲, 2026-09-05)——
+    //    `customer_email` 現在由 view LEFT JOIN 好直接給 ⇒ 判斷仍然只留一處(use-case),
+    //    而**少了一發查詢、也少了一個 Map**。
     return {
       rows: rows.map((o) => ({
-        orderId: o.id,
+        orderId: o.order_id,
         displayId: o.display_id,
         // 🔴 `?? ''` 而不是 `!`:述詞已經保證非 null,而**斷言會在述詞哪天被改時安靜地爆**
         cancelledAt: o.cancelled_at ?? '',
         cancelledReason: o.cancelled_reason,
         notificationEmail: o.notification_email,
-        customerEmail: customerEmailById.get(o.customer_user_id) ?? null,
+        // 🔵 view 已經 LEFT JOIN 好了 ⇒ 這裡只是搬運, 不再有第二發查詢。
+        customerEmail: o.customer_email,
       })),
       scannedPages: 1,
       truncated,

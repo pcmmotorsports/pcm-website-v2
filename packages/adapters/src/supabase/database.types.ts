@@ -3279,6 +3279,18 @@ export type Database = {
       }
     }
     Views: {
+      pcm_unpaid_cancelled_email_pending: {
+        Row: {
+          cancelled_at: string | null
+          cancelled_reason: string | null
+          created_at: string | null
+          customer_email: string | null
+          display_id: string | null
+          notification_email: string | null
+          order_id: string | null
+        }
+        Relationships: []
+      }
       pcm_order_created_email_pending: {
         Row: {
           created_at: string | null
