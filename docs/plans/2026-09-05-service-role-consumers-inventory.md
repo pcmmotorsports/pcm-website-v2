@@ -312,8 +312,13 @@ supabase/migrations/20260726120000_m4b_e8a1_staff_table.sql:60
 ```
 物件                                   kind RLS  寬尺   窄尺   判定
 admin_audit_log                        r    t    S      S      缺 I(第 0 步要補)
-admin_order_list_v                     v    f    —      —      view, RLS 不掛它身上
+admin_order_list_v                     v    f    —      —      🔴 見下方 [R4 A2]
+order_refund_effective_verdict         v    f    —      —      🔴 見下方 [R4 A2]
 admin_sso_login_events                 r    t    (無)   (無)   缺 I(而它刻意無 SELECT)
+staff                                  r    t    S      S      缺 I+U(第 0 步要補)
+   🔴 **[R4 A1 補]** ⛔ ~~上一版這張表【漏了 staff】~~ —— 而它是本案最核心的那一列。
+      ⇒ 📌 「23 個逐格相同」那句當時只涵蓋 **22 個**, 而漏掉的正是要補 I+U 的那一張。
+      🎯 **一張用來支持結論的表, 漏掉的偏偏是結論講的那一列** —— 而它讀起來完全正常。
 brands / categories / product_variants  r    t    DISU   DISU   已涵蓋
 products                               r    t    DISU   DISU   已涵蓋 ← 🔴 見 6b
 email_outbox / sweeper_heartbeat        r    t    ISU    ISU    已涵蓋
@@ -324,9 +329,19 @@ payment_charge_attempts /
 order_item_procurement(+receipts) /
 order_item_receipt_requests /
 product_fitments_effective_sync_log    r    t    S      S      已涵蓋(碼只讀)
-order_refund_effective_verdict         v    f    —      —      view
 ```
 🎯 **⇒ 23 個裡,寬尺與窄尺【逐格相同】,零差異。**
+
+### 🔴🔴 **[R4 A2] 那兩個 view 的「不算」理由是【錯的】,不只是措辭**
+
+⛔ ~~view, RLS 不掛它身上 ⇒ 不用管~~
+🔬 **R4 實查**:`admin_order_list_v` 與 `order_refund_effective_verdict` 兩支的
+`reloptions = {security_invoker=true}`(而 `public` 的 17 支 view 裡 **15 支**有這個選項)
+⇒ 📌 **`security_invoker` 的 view 會把【呼叫者】在底表上的 RLS 套下去** ——
+**它不是一道遮罩,它是一片玻璃。**
+⇒ 🛑 **所以那兩列不能寫「不用管」,要寫「要看它的底表」** —— 而**底表我沒有逐一追**
+(`-db` 的 §4b 追過一次,結論新增 0;而它那次用的是 `dev` 的樹,不是今天這一版)。
+⚠️ **⇒ 這兩列的判定現在是【未確認】,不是【已涵蓋】。**
 
 ### 6b. 🛑 **而那個「零差異」不是我的尺變好了 —— 是【世界變了】**
 
