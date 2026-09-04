@@ -23,6 +23,8 @@ function ctx(): PaidEmailContext {
     shippingFee: m(0),
     discountTotal: m(0),
     total: m(100),
+    // 🔵 今天恆為 0(⟦b4-INVOICE5PCT⟧ 第 6 步加的必填欄)。
+    taxTotal: m(0),
   };
 }
 

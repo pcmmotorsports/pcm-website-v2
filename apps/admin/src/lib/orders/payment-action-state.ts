@@ -274,8 +274,22 @@ export function paymentFailureCodeForThrown(error: unknown): PaymentFailureCode 
 export function paymentFailure(
   code: PaymentFailureCode,
   values: PaymentFormValues,
+  /**
+   * 接在訊息表那句後面的**補充句**(⟦b4-DEADENDMSG1⟧:「它說了, 而它說對你為什麼被擋嗎」)。
+   *
+   * 🔴 **訊息表仍然擁有那句主文** —— 這裡只接後面, 所以「新增碼卻忘了寫訊息會轉紅」那條不變。
+   * 🛑 **而它是【可選】的**:算不出具體原因時**不傳**, 維持通用句 ——
+   *    📌 編一個原因給員工比不說更貴(理由在 `missingPaymentFieldLabels` 的 docstring)。
+   */
+  hint?: string,
 ): PaymentActionState {
-  return { status: 'failed', code, message: FAILURE_MESSAGES[code], values };
+  const base = FAILURE_MESSAGES[code];
+  return {
+    status: 'failed',
+    code,
+    message: hint === undefined || hint === '' ? base : `${base}${hint}`,
+    values,
+  };
 }
 
 /** 表單印章:冪等鍵 + 現金軌時點。🔴 **整組兩格必填**,型別上不存在「只傳一半」。 */

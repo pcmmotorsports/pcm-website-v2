@@ -35,9 +35,38 @@ describe('SEARCH_SYNONYMS — 這張表自己要站得住', () => {
     }
   });
 
-  it('🔴 `from` 不得重複(重複 ⇒ 後面那列永遠查不到,而不會有人發現)', () => {
-    const seen = SEARCH_SYNONYMS.map((s) => foldSearchTerm(s.from));
-    expect(new Set(seen).size, `重複的 from:${seen.join(',')}`).toBe(seen.length);
+  // 🔴🔴 **2026-09-04 這一格的判準【換過了】,而舊字面留在下面** ——
+  //    ⛔ ~~「`from` 不得重複(重複 ⇒ 後面那列永遠查不到, 而不會有人發現)」~~
+  //    ✅ Sean 2026-09-04 逐字裁「魚雷管 / 白鐵管 兩個搜尋出來都是 全段排氣管 尾段排氣管**並聯**」
+  //       ⇒ 一個俗稱**可以**指多個分類 ⇒ 重複的 `from` 從此是**合法的**。
+  //    🛑 **而舊字面裡那個危險【一個字都沒有消失】**:`synonymFor` 用 `.find()` ⇒ **第一列勝**,
+  //       第二列今天確實查不到 —— 差別只在**現在那是刻意的, 而且下面有一格釘住順序**。
+  //    ⇒ 📌 判準改成:**重複可以, 而【同一個 `from` 底下的 `to` 不得重複】** ——
+  //       那才是真正「寫了等於沒寫」的那一種。
+  it('🔴 同一個 `from` 底下的 `to` 不得重複(那才是真的沒有效果的那一列)', () => {
+    const byFrom = new Map<string, string[]>();
+    for (const s of SEARCH_SYNONYMS) {
+      const k = foldSearchTerm(s.from);
+      byFrom.set(k, [...(byFrom.get(k) ?? []), foldSearchTerm(s.to)]);
+    }
+    for (const [from, tos] of byFrom) {
+      expect(new Set(tos).size, `「${from}」底下有重複的 to:${tos.join(',')}`).toBe(tos.length);
+    }
+  });
+
+  // 🔵 而多目標只對 `category` 有意義 —— 別的 kind 今天沒有「並聯」這個概念。
+  it('🔴 一個 `from` 有多列時, 每一列都必須是 `category`', () => {
+    const byFrom = new Map<string, typeof SEARCH_SYNONYMS>();
+    for (const s of SEARCH_SYNONYMS) {
+      const k = foldSearchTerm(s.from);
+      byFrom.set(k, [...(byFrom.get(k) ?? []), s]);
+    }
+    for (const [from, rows] of byFrom) {
+      if (rows.length === 1) continue;
+      for (const r of rows) {
+        expect(r.kind, `「${from}」是多目標而其中一列 kind=${r.kind}`).toBe('category');
+      }
+    }
   });
 
   it('🔴 `from` 與 `to` 不得折成同一個 —— 那樣這一列什麼都沒做', () => {
@@ -164,8 +193,20 @@ describe('SEARCH_SYNONYMS — 這張表自己要站得住', () => {
     expect(direct.usedSynonyms, '「排氣」不該用到字典').toHaveLength(0);
   });
 
-  it.each(SEARCH_SYNONYMS.filter((s) => s.kind === 'category'))(
-    '🔴 把 `from` 餵進真的解析器, 它必須靠【這一列】解出 `to`:%s',
+  // 🔴🔴 **2026-09-04:這一格從「每一列」改成「每個 `from` 的【第一列】」** ——
+  //    多目標進來之後, `synonymFor` 的 `.find()` 只會回第一列 ⇒ 拿第二列來要求解析器解出它,
+  //    是**在要求一件今天結構上做不到的事**, 而那種紅會被讀成「資料壞了」。
+  //    ✅ 所以這一格改成釘住**順序**:第一列的 `to` 必須就是解析器今天解出來的那一個。
+  //    🎯 **⇒ 它同時擋住了那個最安靜的錯:把新列排到舊列【前面】** ——
+  //       那會靜靜換掉線上行為, 而三綠全綠、diff 看起來只是「加了一列」。
+  it.each(
+    SEARCH_SYNONYMS.filter(
+      (s, i, all) =>
+        s.kind === 'category' &&
+        all.findIndex((o) => foldSearchTerm(o.from) === foldSearchTerm(s.from)) === i,
+    ),
+  )(
+    '🔴 把 `from` 餵進真的解析器, 它必須靠【這一列(同名的第一列)】解出 `to`:%s',
     (syn) => {
       const out = parseSearchFacets(syn.from, FACET_SRC);
       const usedThis = out.usedSynonyms.some((u) => u.from === syn.from);
@@ -251,5 +292,84 @@ describe('SEARCH_SYNONYMS — 這張表自己要站得住', () => {
     // 🛑 空的一律查不到 —— 否則它會命中表上第一列。
     expect(synonymFor('', foldSearchTerm)).toBeNull();
     expect(synonymFor('---', foldSearchTerm)).toBeNull();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 多目標俗稱(Sean 2026-09-04「並聯」)—— 而它今天【只有一半在線上】
+// ══════════════════════════════════════════════════════════════════════════
+// Sean 原話逐字:「魚雷管 尾段排氣管 319 / 白鐵管 全段排氣管 251 /
+//                **這兩個搜尋出來都是 全段排氣管 尾段排氣管 並聯**」
+//
+// 分工(主視窗 `-94` 2026-09-04 裁):
+//   字典層(本檔)  一個俗稱 ⇒ **多筆列**(同 from、不同 to), 不是一列 to 陣列
+//   解析層(`-front`)同一個 from 的多筆 collect 成陣列 ⇒ `?categories=a,b`
+//   DB 層          ✅ **已上線** —— Sean 09-04 貼了 `20260904160000_..._multi_category.sql`
+//
+// 🛑 **所以本檔的第二列今天是【待命】不是【失效】** —— 差別在有沒有人在等它。
+describe('多目標俗稱 —— 今天待命, 而它要有東西在等它', () => {
+  const groups = new Map<string, typeof SEARCH_SYNONYMS>();
+  for (const s of SEARCH_SYNONYMS) {
+    const k = foldSearchTerm(s.from);
+    groups.set(k, [...(groups.get(k) ?? []), s]);
+  }
+  const multi = [...groups.entries()].filter(([, rows]) => rows.length > 1);
+
+  it('🔴 這兩個俗稱必須是多目標(有人「整理」掉其中一列 ⇒ 本格紅)', () => {
+    for (const from of ['魚雷管', '白鐵管']) {
+      const rows = groups.get(foldSearchTerm(from)) ?? [];
+      expect(
+        rows.map((r) => r.to).sort(),
+        `「${from}」該有兩個目標(全段 + 尾段), 而現在是 ${rows.length} 個` +
+          ' ⇒ Sean 2026-09-04 逐字裁「並聯」, 刪任一列要先問他',
+      ).toEqual(['全段排氣管', '尾段排氣管(Slip-On)']);
+    }
+  });
+
+  // 🔴🔴 **這一格是被一發突變逼出來的, 而它教的東西比它擋的東西大。**
+  //    我原本寫的是「解析器解出來的, 必須等於【同名第一列】的 to」——
+  //    🛑 **而那兩邊會【一起動】**:把兩列對調, 第一列變成另一個 `to`,
+  //       `synonymFor` 的 `.find()` 也回同一個 ⇒ **兩邊還是相等 ⇒ 全綠。**
+  //    🔬 實測:對調兩列 ⇒ `pnpm vitest run` **rc=0, 187 全過**。
+  //    ⇒ 📌 **一個從「我要寫的那行碼」推出來的期望值, 從出生起就抓不到那行碼的錯。**
+  //    ✅ 修法 = 期望值要來自**外面**:寫死今天正式站上真正生效的那個 `to`。
+  //       來源 = Sean 2026-09-04 原話裡的兩組數(魚雷管 ⇒ 尾段 319 / 白鐵管 ⇒ 全段 251)。
+  it('🔴 今天生效的那一個 `to` 寫死在這裡(對調兩列 ⇒ 本格紅)', () => {
+    expect(
+      synonymFor('魚雷管', foldSearchTerm)?.to,
+      '魚雷管今天在線上解到的是「尾段排氣管(Slip-On)」(Sean 原話 319 件)' +
+        ' ⇒ 換了順序就是靜靜換掉線上行為, 要先問他',
+    ).toBe('尾段排氣管(Slip-On)');
+    expect(
+      synonymFor('白鐵管', foldSearchTerm)?.to,
+      '白鐵管今天在線上解到的是「全段排氣管」(Sean 原話 251 件)',
+    ).toBe('全段排氣管');
+  });
+
+  it('🟢 正對照:確實存在多目標的組, 否則上面那格與「表是空的」印同一個綠', () => {
+    expect(multi.length, '一組多目標都沒有 ⇒ 這個 describe 整段沒有判別力').toBeGreaterThan(0);
+  });
+
+  // 🔴🔴 **一道【會在世界前進時亮】的閘, 而不是一句會過期的註解。**
+  //    今天 `ParsedFacets` 只有單數的 `category` ⇒ 第二列不可能被用到。
+  //    `-front` 把多顆膠囊接上的那一刻, 這一格會紅 ——
+  //    🎯 **而那個紅就是「回來把字典這半接上」的通知**, 它不依賴任何人記得。
+  it('🔴 解析器一旦長出【複數】分類, 本格會紅 ⇒ 那是要回來接字典第二列的訊號', () => {
+    // 🔵 這棵假目錄樹與上面那個 describe 裡的同構(那個是 block-scoped, 這裡自己建一份)。
+    const liveCats = SEARCH_CATEGORY_NAMES.filter((n) => !SEARCH_CATEGORY_EMPTY_NAMES.includes(n));
+    const facetSrc = {
+      motoBrands: [],
+      brands: [],
+      categories: liveCats.map((name, i) => ({ id: `c${i}`, name, count: 1, children: [] })),
+    } as unknown as Parameters<typeof parseSearchFacets>[1];
+    const out = parseSearchFacets('魚雷管', facetSrc);
+    expect(
+      Object.keys(out).some((k) => k === 'categories'),
+      '解析器多了 `categories` ⇒ 多顆膠囊接上了 ⇒ 回來做三件事:' +
+        '①把同 from 的多列 collect 成陣列 ②把上面那格「第一列勝」的釘子改成「全部都要出現」' +
+        '③把本格刪掉(它的任務完成了)。細節見 `docs/patterns/search-synonym-dictionary.md`。',
+    ).toBe(false);
+    // 🟢 正對照:上面那句在【它該說有的時候】說得出有 —— 否則它對什麼都印 false。
+    expect(Object.keys(out).some((k) => k === 'category')).toBe(true);
   });
 });
