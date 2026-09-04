@@ -144,23 +144,68 @@ describe('filterFacets', () => {
     expect(filterFacets('akrpovic', d).brands, 'akrpovic 中了 ⇒ 有人偷偷加了模糊比對, 那要另外驗').toEqual([]);
   });
 
-  it('🔴 分類與車種那兩區【行為不變】—— 它們是另一個分母, 本片刻意不動', () => {
-    const d = data({
-      categories: [{ id: 'c1', name: '尾段排氣管(Slip-On)', count: 1 } as never],
-      motoBrands: [{ id: 'y', name: 'YAMAHA', models: [{ id: 'mt-07', name: 'MT-07' }] } as never],
-    });
-    // 🔴🔴 **這一格原本寫成「打完整分類名要中」—— 而那在【折與不折】兩個世界裡都是 true**
-    //    ⇒ 實測:把折法擴到分類區, 它照樣綠(rc=0)⇒ **它對這件事零判別力。**
-    //    ✅ 換成一個**兩個世界會不同**的輸入:真實分類名 `尾段排氣管(Slip-On)` 含 `(` `-` `)`,
-    //       而 `slipon` 只在【折了】之後才對得上。
-    expect(
-      filterFacets('slipon', d).categories,
-      'slipon 中了 ⇒ 分類區被改成折的了, 而本片沒有量過那個分母(分類名是中文, 折法會剝中文標點)',
-    ).toEqual([]);
-    // 🟢 正對照:分類區今天【仍然會動】—— 否則上面那個空陣列與「分類區壞掉了」印同一個綠。
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴🔴 **2026-09-04 Sean 第十七題拍甲 ⇒ 三區都折。而這一段原本是【相反的斷言】**
+  //    ⛔ ~~「分類與車種那兩區行為不變 —— 它們是另一個分母, 本片刻意不動」~~
+  //    ⇒ 那時我停下來問(因為同日另一板寫著「全部不改」), 他回「甲 = 要」⇒ 三區照做。
+  //    📌 **兩板管的不是同一件事**:那一板管【過度命中】(R6 跑出 CBR600, 維持不改);
+  //       第十七題管【命中不足】(eazigrip 找不到 EAZI-GRIP)。
+  // ══════════════════════════════════════════════════════════════════════
+  it('🔴 分類那一區也要折(`slipon` 對 `尾段排氣管(Slip-On)`)', () => {
+    const d = data({ categories: [{ id: 'c1', name: '尾段排氣管(Slip-On)', count: 1 } as never] });
+    expect(filterFacets('slipon', d).categories).toHaveLength(1);
+    // 🟢 正對照:沒折也會中的那一種仍然要中 —— 否則上面那格與「什麼都中」印同一個綠。
     expect(filterFacets('尾段排氣管', d).categories).toHaveLength(1);
-    // 🛑 而車種那區仍然是**未折的子字串** ⇒ `mt07` 不中(`MT-07` 沒被折)。
-    //    這一格若哪天綠了, 代表有人把折法擴到了車種那區 ⇒ **那要重新量一次分母。**
-    expect(filterFacets('mt07', d).vehicles, 'mt07 中了 ⇒ 車種那區被改成折的了, 而本片沒有量過那個分母').toEqual([]);
+    // 🔵 負對照:不相干的字仍然 0。
+    expect(filterFacets('zzq不存在的分類', d).categories).toEqual([]);
   });
+
+  it('🔴 車款那一區也要折(`mt07` 對 `MT-07`)', () => {
+    const d = data({
+      motoBrands: [{ id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-07', name: 'MT-07' }] } as never],
+    });
+    expect(filterFacets('mt07', d).vehicles).toHaveLength(1);
+    expect(filterFacets('zzq不存在的車', d).vehicles).toEqual([]);
+  });
+
+  // 🔴🔴 **正對照用【正式庫真的有的那一對】—— 不是我編的形狀。**
+  //    2026-09-04 正式庫唯讀 + 拿【真的】`foldSearchTerm` 跑 3,536 個「品牌×車款」配對:
+  //    折後撞名 **16 組, 而 16 組全部同一個品牌**(跨品牌 0)⇒ 那是**同一台車的兩種寫法**。
+  //    🎯 而 Sean 要的就是「兩種寫法都中」⇒ 這一格把它釘住。
+  it('🔴 同一台車的兩種寫法(NC 700 S / NC700S)⇒ 折後【兩筆都要中】', () => {
+    const d = data({
+      motoBrands: [
+        {
+          id: 'honda',
+          name: 'Honda',
+          models: [
+            { id: 'nc-700-s', name: 'NC 700 S' },
+            { id: 'nc700s', name: 'NC700S' },
+          ],
+        } as never,
+      ],
+    });
+    expect(filterFacets('nc700s', d).vehicles.map((v) => v.modelName).sort()).toEqual(['NC 700 S', 'NC700S']);
+  });
+
+  // 🛑🛑 **而 `+` 那一族【不可以】被折在一起 —— 它們是不同的車。**
+  //    `Tracer 9 GT`(226 件)與 `Tracer 9 GT+`(48 件)是兩台車, 而 `foldSearchTerm` 不剝 `+`。
+  //    ⇒ 這一格會在有人「順手」把 `+` 加進剝除字元集的那一刻紅。
+  it('🔴 `+` 不得被折掉 —— Tracer 9 GT 與 Tracer 9 GT+ 是【不同的車】', () => {
+    const d = data({
+      motoBrands: [
+        {
+          id: 'yamaha',
+          name: 'YAMAHA',
+          models: [
+            { id: 'tracer-9-gt', name: 'Tracer 9 GT' },
+            { id: 'tracer-9-gt-plus', name: 'Tracer 9 GT+' },
+          ],
+        } as never,
+      ],
+    });
+    // 打帶 `+` 的那個 ⇒ 只該中它自己
+    expect(filterFacets('tracer 9 gt+', d).vehicles.map((v) => v.modelName)).toEqual(['Tracer 9 GT+']);
+  });
+
 });
