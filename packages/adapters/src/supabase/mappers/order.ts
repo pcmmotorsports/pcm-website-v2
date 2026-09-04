@@ -646,6 +646,8 @@ export type SupabaseAdminOrderDetailRow = Pick<
   | 'subtotal'
   | 'shipping_fee'
   | 'discount_total'
+  // 🔴 `⟦b4-TAXSURFACES⟧` 題 B:後台三個面(出貨單 / 訂單明細 / 詳情金額區)共用這一條。
+  | 'tax_total'
   | 'total'
   | 'shipping_method'
   | 'shipping_address_snapshot'
@@ -1035,6 +1037,7 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
     subtotal: { amount: toMoneyAmount(row.subtotal), currency: 'TWD' },
     shippingFee: { amount: toMoneyAmount(row.shipping_fee), currency: 'TWD' },
     discountTotal: { amount: toMoneyAmount(row.discount_total), currency: 'TWD' },
+    taxTotal: { amount: toMoneyAmount(row.tax_total), currency: 'TWD' },
     total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
     shippingMethod: row.shipping_method,
     shippingAddress: {

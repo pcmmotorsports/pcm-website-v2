@@ -1,5 +1,6 @@
 import { stripPictographs } from '@/lib/print/strip-pictographs';
 import type { AdminOrderDetail, AdminOrderDetailItem } from '@pcm/domain';
+import { subtotalLabelOf } from '@pcm/domain';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
 import { BlockedSheet } from './blocked-sheet';
@@ -540,7 +541,7 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                   <table>
                     <tbody>
                       <tr>
-                        <td className='k'>小計</td>
+                        <td className='k'>{subtotalLabelOf('小計', detail.taxTotal.amount)}</td>
                         <td className='v'>{formatOrderAmount(detail.subtotal.amount)}</td>
                       </tr>
                       <tr className='line'>
@@ -557,6 +558,18 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                             單色印表機與缺字型的環境下不保證印得出來。⇒ 改用 ASCII `-`。
                             📌 這一格是【守門抓到作者】, 不是作者想到的。 */}
                         <td className='v'>-{formatOrderAmount(detail.discountTotal.amount)}</td>
+                        </tr>
+                      )}
+                      {/* 🔴 稅額:**有稅才印**(`⟦b4-TAXSURFACES⟧` 題 B)。位置與其餘四個面對齊:
+                          小計 → 運費 → 折扣 → **稅額** → 訂單金額。🔵 稅 0 不印, 理由同上面折扣那一列。
+                          ⚠️ 稿上**查無「稅額」這個字面**(當場量:`design-reference` 176 檔 0 命中 /
+                          OD 12 專案 0 個;🟢 正對照「小計」5 檔 / 7 個)。
+                          🛑 ⛔ ~~原本寫「稿上沒有這一列」~~ —— **字面搜尋答不出「有沒有這一列」**
+                          (codex must-fix)。✅ 這一列是 Sean 2026-09-05 拍甲授權的, 不靠查無成立。 */}
+                      {detail.taxTotal.amount > 0 && (
+                        <tr className='line'>
+                          <td className='k'>稅額</td>
+                          <td className='v'>{formatOrderAmount(detail.taxTotal.amount)}</td>
                         </tr>
                       )}
                       <tr className='grand'>

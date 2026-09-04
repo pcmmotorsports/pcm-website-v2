@@ -156,6 +156,7 @@ function detail(over: Partial<AdminOrderDetail> = {}): AdminOrderDetail {
     subtotal: { amount: 500, currency: 'TWD' },
     shippingFee: { amount: 0, currency: 'TWD' },
     discountTotal: { amount: 0, currency: 'TWD' },
+    taxTotal: { amount: 0, currency: 'TWD' },
     total: { amount: 500, currency: 'TWD' },
     shippingMethod: 'home',
     shippingAddress: { name: null, phone: null, line: null },

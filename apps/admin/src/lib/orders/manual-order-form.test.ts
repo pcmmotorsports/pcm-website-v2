@@ -511,6 +511,50 @@ describe('newManualRequestId', () => {
   });
 });
 
+describe('⟦b4-MANUALORDERDEADEND⟧ 商品編號那句訊息 —— 不得指向不存在的動作', () => {
+  // 🔬 病史(2026-09-05 走查 + 讀碼各驗一次):原句是
+  //    「…商品編號格式不對, **請重新從商品清單挑一次**。」
+  //    ① 那個清單**不能挑**:`manual-order-catalog-lookup.tsx:145` 的 `<li>` 沒有 button / role / onClick
+  //    ② 那串編號他**從來看不到**:同檔 `h.variantId` 全檔 1 命中, 而那一處是 React 的 `key=`
+  //    ⇒ 🎯 原句對員工是「回去挑」而沒有東西可挑、「重新輸入」而他沒看過那個值。
+
+  function bad() {
+    // 🔴 **要 `drop` 掉原本那一格再放新的** —— `base(over)` 是**追加**不是取代,
+    //    同名欄送兩份會撞到另一條路(「品項那幾欄對不起來了」)⇒ 這幾格會紅在無關的理由上。
+    //    📌 我第一版就是這樣, 而三格同時紅 —— **紅的理由與它們要守的東西無關。**
+    return parseManualOrderForm(base([[FIELDS.lineVariant, 'not-a-uuid']], [FIELDS.lineVariant]));
+  }
+
+  it('🔴 舊字面不得再出現', () => {
+    const r = bad();
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).not.toContain('請重新從商品清單挑一次');
+  });
+
+  it('🔴 新訊息要給【做得到的】下一步 —— 這一格留白', () => {
+    const r = bad();
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('留白');
+  });
+
+  it('🔴🔴 而它要擋掉那個【最自然的錯誤動作】:貼商品頁網址上的編號', () => {
+    // 🛑 商品列表是 `.from('products')`(`product-repository.ts:315`), 網址 `/products/{id}`
+    //    帶的是 **product id**;這一格要的是 **product_variants id**。
+    //    🔴 兩者都是 UUID ⇒ 貼錯那一種**過得了格式檢查**, 而錯誤往下走、不會叫。
+    //    ⇒ 少了這一格, 一個「只把舊句改成『請重新輸入』」的修法會全綠, 而它沒有擋住那個動作。
+    const r = bad();
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('商品頁網址');
+  });
+
+  it('🔵 負對照:合法 uuid 不得被這道擋下(否則上面三格對「永遠失敗」也全綠)', () => {
+    const r = parseManualOrderForm(
+      base([[FIELDS.lineVariant, '33333333-3333-4333-8333-333333333333']], [FIELDS.lineVariant]),
+    );
+    expect(r.ok).toBe(true);
+  });
+});
+
 describe('parseManualOrderForm:「要不要開發票」那顆勾選(`⟦b4-INVOICE5PCT⟧` 第 2 步)', () => {
   // 🔴🔴 **這一族要測的是【三個世界】, 不是兩個。**
   //   HTML 的 checkbox 沒勾時**整個欄位不出現** ⇒ 那與「表單根本沒有這一格」印同一個空白,
