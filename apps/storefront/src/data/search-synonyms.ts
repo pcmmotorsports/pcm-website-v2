@@ -539,6 +539,22 @@ export const SEARCH_SYNONYMS: readonly SearchSynonym[] = [
     added: '2026-09-04',
     note: 'Mobile01「仿賽排氣管便當盒問題」討論串, 文中「便當盒(中段消音器)」—— 指中段那顆盒狀消音室, 不是尾段可拆的罐。',
   },
+  {
+    from: '碼表',
+    to: '儀表與控制器',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: 'Mobile01「碼表線? 碼表齒輪?」與「機車時速表不會動嗎? 更換碼錶線教學」—— 車友討論儀表故障/更換時一律用「碼表」, 與正式名一個字都不重疊。',
+  },
+  {
+    from: '油壺',
+    to: '油杯與油杯蓋',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: 'Mobile01「VESPA 300 煞車油油壺蓋滲油」+ GO機車商城標題把「油杯 / 油壺 / 總泵 / 主缸」並列同賣 —— 業界與車友通用的另一種叫法。',
+  },
 ];
 
 /**
