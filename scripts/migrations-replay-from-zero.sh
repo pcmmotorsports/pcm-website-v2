@@ -265,7 +265,15 @@ else
   #    ⇒ 它與「跑了而且篩對了」**不會**印同一句話。
   if psql -h /tmp -p "$PG" -U postgres -d postgres -f "$FXSQL" > "$D/logs/_fixtures.log" 2>&1; then
     printf '\n── view 行為 fixture: ✅ 通過 %s 格\n' "$(grep -c 'NOTICE:  ✅' "$D/logs/_fixtures.log")"
-    printf '   (集合比對 4 + 整段 WHERE 突變 4 + 逐條述詞 19;明細見 %s/logs/_fixtures.log)\n' "$D"
+    # 🔴 **這裡曾經寫死「集合比對 4 + 突變 4 + 逐條述詞 19」** —— 而 2026-09-05 同一天
+    #    fixture 加了兩格, 那行字面當場過期(它印 4 而實際 5)。
+    #    ⇒ 📌 **一個為了幫助讀者而寫的數字, 在下一次改動就開始誤導讀者。**
+    #    ⇒ ✅ 改成把【格別】當場從 log 數出來, 不寫死任何一個數。
+    printf '   (%s;明細見 %s/logs/_fixtures.log)\n' \
+      "$(awk '/NOTICE:  ✅/{
+             if (/與期望逐一相符/) a++; else if (/突變格/) b++; else if (/逐條述詞/) c++; else d++
+           } END{ printf "集合比對 %d + 整段 WHERE 突變 %d + 逐條述詞 %d + 其他 %d", a, b, c, d }' \
+           "$D/logs/_fixtures.log")" "$D"
   else
     FXNG=1
     printf '\n🔴🔴 view 行為 fixture 失敗 —— 這與「有幾支 migration apply 不起來」是【兩件事】:\n'

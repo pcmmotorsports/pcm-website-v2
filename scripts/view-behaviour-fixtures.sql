@@ -41,7 +41,8 @@ BEGIN
   FOREACH v IN ARRAY ARRAY['public.pcm_order_created_email_pending',
                            'public.pcm_unpaid_cancelled_email_pending',
                            'public.pcm_shipped_email_pending',
-                           'public.pcm_tracking_corrected_email_pending'] LOOP
+                           'public.pcm_tracking_corrected_email_pending',
+                           'public.pcm_shipped_email_unsendable'] LOOP
     IF to_regclass(v) IS NULL THEN v_missing := v_missing || v; END IF;
   END LOOP;
   IF cardinality(v_missing) > 0 THEN
@@ -242,11 +243,12 @@ BEGIN
   -- ❌ 排除:兩個信箱都是半形空白(⇒ btrim() 也判得出來)
   v := fx.mk_order('SHPXNR', '33333333-3333-3333-3333-333333333333', false, false, NULL);   -- 通知信箱只能是 NULL 或合法信箱(orders_notification_email_valid)
   PERFORM fx.mk_shipment(v, 'CCCCCH', true, false, 'TRACK-C5', NULL);
-  -- 🔴🔴 ✅【該進, 而它是一個已知的不一致】:信箱只有 NBSP。
-  --    本 view 用的是**沒帶字元集的 `btrim()`**(= 只剝半形空白),
-  --    而 A/B/D 三支用 `pcm_js_trim_whitespace()`(認得 NBSP)。
-  --    ⇒ 📌 **同一種信箱, 四支 view 判出兩種答案。** 這一列把它釘成會紅的東西:
-  --      有人只補齊其中一邊, 這一格立刻紅。
+  -- 🔴 ❌【該排除 —— 而 2026-09-05 之前它是【該進】的】:信箱只有 NBSP。
+  --    ⛔ ~~本 view 用沒帶字元集的 `btrim()`(只剝半形空白), 而 A/B/D 三支用
+  --      `pcm_js_trim_whitespace()` ⇒ 同一種信箱, 四支 view 判出兩種答案。~~
+  --    ✅ `20260905040000`(⟦b4-SHIPPEDBTRIMNARROW⟧)把這兩支出貨信 view 改成同一支 helper
+  --      ⇒ **四支現在給同一個答案**, 而這一列從「釘住不一致」翻成「釘住一致」。
+  --    🔵 它同時是 `pcm_shipped_email_unsendable` 的期望列 —— 📌 **離開掃描面不等於消失**。
   v := fx.mk_order('SHPNBS', '22222222-2222-2222-2222-222222222222', false, false, NULL);   -- 🔴 不是 NBSP:orders_notification_email_valid 不准通知信箱是空白, 真實形狀是 NULL
   PERFORM fx.mk_shipment(v, 'CCCCCJ', true, false, 'TRACK-C6', NULL);
 END $$;
@@ -293,10 +295,20 @@ END $$;
 -- ══ 6. 斷言:實得集合 = 期望集合(雙向)═══════════════════════════════════
 CREATE FUNCTION fx.assert_view(p_view text, p_expect text[]) RETURNS void
 LANGUAGE plpgsql AS $$
-DECLARE v_got text[]; v_extra text[]; v_miss text[];
+DECLARE v_got text[]; v_extra text[]; v_miss text[]; v_rows bigint;
 BEGIN
   EXECUTE format('SELECT coalesce(array_agg(DISTINCT display_id ORDER BY display_id), ARRAY[]::text[]) FROM %s', p_view)
     INTO v_got;
+  -- 🔴🔴 **codex 2026-09-05 must-fix**:`array_agg(DISTINCT …)` 把**同一張單的多列折成一個標籤**。
+  --    ⇒ 出貨那兩支的一列是 **(箱, 單)** 配對 —— 一張單兩箱時該回 2 列,
+  --      而回 1 列(少一箱的信)與回 2 列**在標籤集合上完全相同** ⇒ 那一格對它失明。
+  --    ✅ 補原始列數。本 fixture 裡每張單剛好一箱 ⇒ 列數 = 標籤數;
+  --    🔵 **而有人日後加第二箱時, 這一格會紅並強迫他把期望寫清楚** —— 那正是要的。
+  EXECUTE format('SELECT count(*) FROM %s', p_view) INTO v_rows;
+  IF v_rows <> cardinality(p_expect) THEN
+    RAISE EXCEPTION E'❌ % 的【列數】是 %, 而期望的標籤有 % 個\n   ⇒ 有標籤重複出現(同一單多列)或少了列 —— 標籤集合看不到這件事\n   實得標籤: %',
+      p_view, v_rows, cardinality(p_expect), v_got;
+  END IF;
   SELECT coalesce(array_agg(x ORDER BY x), ARRAY[]::text[]) INTO v_extra
     FROM unnest(v_got) x WHERE NOT x = ANY(p_expect);
   SELECT coalesce(array_agg(x ORDER BY x), ARRAY[]::text[]) INTO v_miss
@@ -312,10 +324,65 @@ DO $$
 BEGIN
   PERFORM fx.assert_view('public.pcm_order_created_email_pending',    ARRAY['CRTPSS','CRTPS2']);
   PERFORM fx.assert_view('public.pcm_unpaid_cancelled_email_pending', ARRAY['CNCPSS']);
-  -- 🔴 SHPNBS 在期望裡 —— 見上面那段:本 view 的空白定義比另外三支窄。
-  PERFORM fx.assert_view('public.pcm_shipped_email_pending',          ARRAY['SHPPSS','SHPNBS']);
+  -- 🔴 SHPNBS **不再**在期望裡(20260905040000 之後)—— 它移到 unsendable 那一格。
+  PERFORM fx.assert_view('public.pcm_shipped_email_pending',          ARRAY['SHPPSS']);
+  -- 🔴🔴 補集那一支:**離開掃描面的單必須出現在這裡** ——
+  --    少了這一格, 「不寄」與「消失」印同一個東西, 而 get_shipped_email_gap_counts
+  --    的 no_recipient 是從這支數的(`20260831020000:89-90`)。
+  PERFORM fx.assert_view('public.pcm_shipped_email_unsendable',       ARRAY['SHPXNR','SHPNBS']);
   PERFORM fx.assert_view('public.pcm_tracking_corrected_email_pending', ARRAY['TRKPSS']);
 END $$;
+
+-- ══ 6b. 🔴 四支對【同一個信箱】給同一個答案(⟦b4-SHIPPEDBTRIMNARROW⟧ 的正向釘子)══
+--
+-- 🛑 上面第 6 節是**每支 view 各自**的集合比對 —— 📌 **四支各自都對, 仍然可以彼此不一致**
+--    (2026-09-05 之前就是那個狀態:出貨信那支用裸 `btrim`, 另三支用 JS 版)。
+--    ⇒ 🎯 **「每一支都篩對了」與「四支對同一個輸入給同一個答案」是兩個宣稱。**
+--
+-- 兩格, 各答不同的問題:
+--   ① **資料層**:同一個「只有 NBSP」的信箱, 在四支裡都必須【不出現】。
+--   ② **定義層**:四支的定義裡都要有 `pcm_js_trim_whitespace`, 且都不許留下裸 btrim 的形式。
+--      ⚠️ ② 是字面檢查, 它**擋不住 `OR TRUE`** —— 而那一半由 ① 與第 7/8 節守。
+DO $$
+DECLARE v text; v_n int; v_def text; v_bad text[] := ARRAY[]::text[];
+  c_views text[] := ARRAY['public.pcm_order_created_email_pending',
+                          'public.pcm_unpaid_cancelled_email_pending',
+                          'public.pcm_shipped_email_pending',
+                          'public.pcm_tracking_corrected_email_pending'];
+  c_nbsp  text[] := ARRAY['CRTXNR','CNCXNR','SHPNBS','TRKXNR'];
+BEGIN
+  -- ① 資料層
+  FOREACH v IN ARRAY c_views LOOP
+    EXECUTE format('SELECT count(*) FROM %s WHERE display_id = ANY($1)', v)
+      INTO v_n USING c_nbsp;
+    IF v_n <> 0 THEN v_bad := v_bad || format('%s 收了 %s 列', v, v_n); END IF;
+  END LOOP;
+  IF cardinality(v_bad) > 0 THEN
+    RAISE EXCEPTION '❌ 四支一致性(資料層):只有 NBSP 的信箱應該四支都排除, 而 % —— 那一支的空白定義與其餘不同', v_bad;
+  END IF;
+  -- 🟢 正對照:那四張單真的存在(否則「四支都是 0」與「我打錯了 display_id」印同一個東西)
+  SELECT count(*) INTO v_n FROM public.orders WHERE display_id = ANY(c_nbsp);
+  IF v_n <> 4 THEN
+    RAISE EXCEPTION '四支一致性(正對照):那四張「只有 NBSP」的單只找到 % 張, 期望 4 ⇒ 上面那四個 0 不算數', v_n;
+  END IF;
+  -- ② 定義層
+  FOREACH v IN ARRAY c_views LOOP
+    v_def := pg_catalog.pg_get_viewdef(v::regclass, true);
+    IF pg_catalog.strpos(v_def, 'pcm_js_trim_whitespace') = 0 THEN
+      RAISE EXCEPTION '❌ 四支一致性(定義層):% 的定義裡沒有 pcm_js_trim_whitespace', v;
+    END IF;
+    IF pg_catalog.strpos(v_def, 'btrim(o.notification_email)') > 0
+       OR pg_catalog.strpos(v_def, 'btrim(c.email)') > 0 THEN
+      RAISE EXCEPTION '❌ 四支一致性(定義層):% 裡還留著不帶字元集的 btrim ⇒ 那一處只剝半形空白', v;
+    END IF;
+  END LOOP;
+  RAISE NOTICE '✅ 四支一致性(不出現那一半)+ 定義層 4 支';
+END $$;
+
+-- 🔵 **反向那一半(「把信箱修好就出現」)在第 8 節的尾巴** ——
+--    它要用 `fx.assert_fixup_appears`, 而那支函式在第 8 節才建。
+--    📌 **這一格自己就是證據**:第一版我把它寫在這裡, 而 fixture 當場紅
+--      `function fx.assert_fixup_appears(text,text,text) does not exist` ⇒ **閘會叫。**
 
 -- ══ 7. 🔴 突變格:把每一支的 WHERE 整段拿掉, 它必須紅 ══════════════════════
 --    這一格證的是【上面那四格會動】, 不是【這棵樹乾淨】。
@@ -444,6 +511,28 @@ BEGIN
     PERFORM fx.assert_fixup_appears(r.v, r.lbl, r.fixup);
   END LOOP;
 END $fx$;
+
+-- 🔴🔴 **codex 2026-09-05 must-fix:上面那一格只證了「四支都不收它」。**
+--    ⇒ 📌 **而「因為信箱是空的所以不收」與「因為別的條件所以不收」印同一個 0。**
+--      有人在 pending 上加一條與信箱無關、剛好排除 SHPNBS 的條件 ⇒ 上面那格照樣全綠。
+--    ✅ 補反向那一半:**把那個信箱換成一個合法的, 它就必須出現。**
+--      這一格與第 8 節共用 `fx.assert_fixup_appears` —— 同一個機制, 換一組受詞。
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN
+    SELECT * FROM (VALUES
+      ('public.pcm_order_created_email_pending','CRTXNR','22222222-2222-2222-2222-222222222222'),
+      ('public.pcm_unpaid_cancelled_email_pending','CNCXNR','22222222-2222-2222-2222-222222222222'),
+      ('public.pcm_shipped_email_pending','SHPNBS','22222222-2222-2222-2222-222222222222'),
+      ('public.pcm_tracking_corrected_email_pending','TRKXNR','22222222-2222-2222-2222-222222222222')
+    ) AS t(v, lbl, uid)
+  LOOP
+    PERFORM fx.assert_fixup_appears(r.v, r.lbl,
+      format($q$UPDATE public.customers SET email='fixed@example.com' WHERE user_id=%L$q$, r.uid));
+  END LOOP;
+  RAISE NOTICE '✅ 四支一致性(修好就出現那一半):4 支 × 1 標籤';
+END $$;
 
 -- 🔴 分母對帳:上面那張表少一列, 迴圈照樣全綠而沒有東西會叫。
 DO $$
