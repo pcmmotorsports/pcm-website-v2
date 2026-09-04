@@ -8,6 +8,7 @@ import {
   parseSortParam,
 } from './products-url-state';
 import { parseBrandSlugsFromUrl } from '@/lib/catalog-query';
+import { parseCategoryFromUrl } from './products-url-parsers';
 
 // #341-A 回歸鎖 —— **拆檔之前先立**(主視窗裁定「先立回歸鎖再拆」)。
 //
@@ -143,5 +144,56 @@ describe('#341-A parseSortParam / parsePerPageParam / parsePageParam —— 值�
   it('🔴 page 吃 `2abc` 這種前綴數字(parseInt 語意)—— 釘住今天的寬鬆面', () => {
     // 特徵測試:不主張這是對的,但拆檔不該改變它。真要收緊是另一條 backlog。
     expect(parsePageParam('2abc')).toBe(2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⟦01-CATPATHSHORTNAME⟧ 消費端那一半 · 2026-09-04
+//
+// 🔴 **這組 fixture 的形狀抄自 2026-09-04 唯讀正式庫實查** —— `水管束環` 真的有兩列:
+//    `引擎與冷卻` 底下 690 件 · `四輪 ATV/UTV` 底下 22 件(`防爆水管組` 769 / 22 同型)。
+//    🛑 **它們不是重複列, 是【兩個不同的分類】**(機車一個 / 四輪一個)⇒ 合併是錯的。
+// 🔬 而**同一層裡名字是唯一的**(實查:頂層同名 0 筆 · 同父同名子 0 筆)
+//    ⇒ 所以歧義**只發生在「客人只給了子分類的短名、沒有給父」**的時候。
+const DUP_CATS = [
+  { id: 'atv', name: '四輪 ATV/UTV', count: 44, children: [
+    { id: 'atv-hose', name: '水管束環', count: 22 },
+  ] },
+  { id: 'eng', name: '引擎與冷卻', count: 1459, children: [
+    { id: 'eng-hose', name: '水管束環', count: 690 },
+  ] },
+];
+
+describe('⟦01-CATPATHSHORTNAME⟧ 裸【子】分類名 —— 舊版一顆膠囊都畫不出來', () => {
+  it('🔴 只給子分類短名 ⇒ 找得到(舊版回 null ⇒ 篩選生效而畫面上看不見)', () => {
+    const r = parseCategoryFromUrl(sp('category=水管束環'), DUP_CATS);
+    expect(r).not.toBeNull();
+    expect(r?.sub).toBe('水管束環');
+  });
+
+  it('🔴 而同名的有兩個時, 取【件數最大】那一個 —— 不是陣列第一個', () => {
+    // 🛑 fixture 刻意把 22 件那個排在前面:「取第一個」會把找機車零件的人送去四輪那一類。
+    // ✅ 與 `lib/parse-search-facets.ts` 的 `pickLargest` 同一把尺
+    //    —— 同一個 repo 裡兩個地方用相反的消歧規則, 比兩個都不完美更糟。
+    const r = parseCategoryFromUrl(sp('category=水管束環'), DUP_CATS);
+    expect(r?.main).toBe('引擎與冷卻');
+    expect(r?.subId).toBe('eng-hose');
+  });
+
+  it('🔵 負對照:誰都不是的名字仍然回 null —— 不可以退化成「挑一個最像的」', () => {
+    expect(parseCategoryFromUrl(sp('category=ZZ不存在的分類ZZ'), DUP_CATS)).toBeNull();
+  });
+
+  it('🟢 回歸:完整路徑與頂層名【不准被弄壞】', () => {
+    const full = parseCategoryFromUrl(sp('category=' + encodeURIComponent('引擎與冷卻 · 水管束環')), DUP_CATS);
+    expect(full?.main).toBe('引擎與冷卻');
+    expect(full?.sub).toBe('水管束環');
+    const top = parseCategoryFromUrl(sp('category=' + encodeURIComponent('四輪 ATV/UTV')), DUP_CATS);
+    expect(top?.main).toBe('四輪 ATV/UTV');
+    expect(top?.sub).toBeUndefined();
+    // 🛑 而【父對而子不存在】的路徑仍然只回父(舊行為, 不動它)
+    const badSub = parseCategoryFromUrl(sp('category=' + encodeURIComponent('引擎與冷卻 · ZZ沒有這個子ZZ')), DUP_CATS);
+    expect(badSub?.main).toBe('引擎與冷卻');
+    expect(badSub?.sub).toBeUndefined();
   });
 });
