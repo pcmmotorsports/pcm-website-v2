@@ -131,12 +131,24 @@ describe('updateProfileAction(g-4a server action)', () => {
     expect(patch.birthday).toBe('1990-12-31');
   });
 
-  it('#197 phone 格式錯(非空、太短)→ fieldErrors.phone「手機格式不正確」+ 不呼叫 updateProfile', async () => {
+  // ⛔ ~~#197 phone 格式錯(非空、太短)→ fieldErrors.phone「手機格式不正確」~~
+  // 🔴 **Sean 2026-09-04 拍甲作廢**(`⟦b4-PHONEREGEXSPLIT⟧`:同一支電話兩頁行為相反)。
+  //    電話改成「跟地址頁一樣」= 只擋空、不驗格式。
+  // ✅ 取代它的是這格:個資頁的電話是**選填**, 而放寬的是格式不是必填 —— 兩件事分開驗。
+  it('🔴 拍甲之後:個資頁 +886 / 分機 / 短號都存得下(選填欄, 空也合法)', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
     const action = await getSUT();
-    const res = await action({ name: '王', phone: '0911', birthday: '' });
-    expect(res.fieldErrors?.phone).toBe('手機格式不正確');
-    expect(mockUpdateProfile).not.toHaveBeenCalled();
+    for (const v of ['+886-912-345-678', '02-1234-5678 #12', '0911', '']) {
+      mockUpdateProfile.mockClear();
+      const res = await action({ name: '王', phone: v, birthday: '' });
+      expect(res.fieldErrors?.phone, `擋掉了 ${JSON.stringify(v)}`).toBeUndefined();
+      // 🔴 **「沒被擋」不等於「存得下」** —— R1 抓到:我原本只驗前者, 而標題說的是後者
+      //    ⇒ 一個把 phone 從 patch 靜靜丟掉的實作照樣全綠。這裡驗【那個值真的送到 use-case】。
+      // 🔵 use-case 簽章是 (repo, userId, patch) ⇒ patch 是第【三】個參數。
+      //    我第一版把它當成第一個 ⇒ 斷言紅了 —— 而那個紅是【我的斷言形狀錯】不是碼錯, 修斷言不放寬它。
+      expect(mockUpdateProfile.mock.calls.at(-1)?.[2], `${JSON.stringify(v)} 沒被送進 use-case`)
+        .toEqual(expect.objectContaining({ phone: v }));
+    }
   });
 
   it('#197 birthday 格式錯(非空、非 YYYY-MM-DD)→ fieldErrors.birthday「生日格式不正確」+ 不呼叫 updateProfile', async () => {
