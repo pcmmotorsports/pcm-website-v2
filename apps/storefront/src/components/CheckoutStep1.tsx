@@ -221,9 +221,31 @@ export function CheckoutStep1({
         </div>
       </section>
 
+      {/* ⟦b4-DEADENDMSG1⟧ 那一族的第一層:**一個擋住人的東西, 有沒有說為什麼**。
+          🔬 2026-09-04 本機真瀏覽器實測:這顆鈕 disabled 時 `title` / `aria-label` / 旁邊文字
+             **三個全空** ⇒ 客人只看到一顆灰的鈕。
+          🔵 而它**不是死路**(畫面上唯一亮著的就是「＋ 新增收件人地址」)⇒ 缺的是【為什麼】。
+          🎯 **所以這句話不是新文案 —— 它就是那顆亮著的鈕的名字。**(主視窗-94 裁修法, 不端 Sean。)
+          🔴 **而它只能這樣寫, 是因為【今天 `nextDisabled` 只有一個成因】**:
+             `CheckoutView.tsx:339` 逐字 `const nextDisabled = step === 1 && !shippingAddrId;`
+             ⇒ 灰 = 沒地址, 沒有第二種。
+          🛑 **若哪天有人在那個旗標上加第二個成因(例如載入中), 這句話會【對著另一個世界說謊】**
+             ⇒ 那時要把成因帶過來, 不是在這裡多加一個 `&&`。 */}
+      {nextDisabled && (
+        <p className="co-next-hint" id="co-next-hint">請先新增收件人地址</p>
+      )}
       <div className="co-actions">
         <button className="btn-outline co-btn-back" onClick={onBack}>← 返回購物車</button>
-        <button className="btn-primary co-btn-next" onClick={onNext} disabled={nextDisabled}>
+        {/* 🔴 **刻意【不】用 `aria-label`** —— 那會改掉這顆鈕的【無障礙名稱】, 而站內是靠
+            名稱找它的:實測一加上去, 既有那格「無地址 → 下一步 disabled」**當場紅了**。
+            ⇒ `aria-describedby` 給的是【描述】不是【名字】, 名稱原封不動。
+            📌 一個為了幫助讀螢幕的人而做的改動, 差一點把所有靠名字找它的東西弄壞。 */}
+        <button
+          className="btn-primary co-btn-next"
+          onClick={onNext}
+          disabled={nextDisabled}
+          title={nextDisabled ? '請先新增收件人地址' : undefined}
+          aria-describedby={nextDisabled ? 'co-next-hint' : undefined}>
           {/* 字面跟著發票顯示狀態走(理由同 CheckoutStepIndicator 的 STEPS 註解)。 */}
           下一步:{INVOICE_FIELDS_HIDDEN ? '付款' : '發票與付款'} <span>→</span>
         </button>

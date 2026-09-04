@@ -52,6 +52,7 @@ function renderStep1(
     shipping?: number;
     addresses?: CustomerAddress[];
     shippingAddrId?: string;
+    nextDisabled?: boolean;
   } = {},
 ) {
   const onNotificationEmailChange = vi.fn();
@@ -72,7 +73,7 @@ function renderStep1(
       onNotificationEmailChange={onNotificationEmailChange}
       onBack={onBack}
       onNext={onNext}
-      nextDisabled={false}
+      nextDisabled={opts.nextDisabled ?? false}
     />,
   );
 
@@ -80,6 +81,26 @@ function renderStep1(
 }
 
 describe('CheckoutStep1', () => {
+  // ── ⟦b4-DEADENDMSG1⟧①:灰掉的「下一步」要說得出為什麼 ──
+  // 🔴 **兩格成對**:一格證明它會出現, 一格(負對照)證明它**不該出現時真的不出現**。
+  //    少了負對照, 一句無條件印出來的提示也會讓第一格全綠。
+  it('🔴 鈕是灰的 ⇒ 旁邊要說為什麼, 而 title / aria-label 都要帶那句', () => {
+    renderStep1(false, { nextDisabled: true });
+    expect(screen.getByText('請先新增收件人地址')).toBeDefined();
+    const btn = screen.getByRole('button', { name: /下一步/ });
+    expect(btn.getAttribute('title')).toBe('請先新增收件人地址');
+    // 🔴 用 describedby 不用 label:名稱要原封不動(加 aria-label 會弄紅既有那格)
+    expect(btn.getAttribute('aria-describedby')).toBe('co-next-hint');
+  });
+
+  it('🔵 負對照:鈕亮著 ⇒ 那句話不可以出現(也不可以留在 title / aria 上)', () => {
+    renderStep1(false, { nextDisabled: false });
+    expect(screen.queryByText('請先新增收件人地址')).toBeNull();
+    const btn = screen.getByRole('button', { name: /下一步/ });
+    expect(btn.getAttribute('title')).toBeNull();
+    expect(btn.getAttribute('aria-describedby')).toBeNull();
+  });
+
   it('一般結帳:配送區顯宅配 + 滿額免運提示', () => {
     renderStep1(false);
     expect(screen.getByText('貨運宅配')).toBeTruthy();

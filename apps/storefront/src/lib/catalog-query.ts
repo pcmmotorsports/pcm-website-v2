@@ -42,6 +42,15 @@ export type CatalogQuery = {
   sort: CatalogSort;
   brandSlugs: string[];
   category?: string;
+  /**
+   * ⟦M-4b 多顆分類膠囊⟧ Sean 2026-09-04 拍甲(聯集)。`?categories=a,b` —— **單鍵逗號分隔**。
+   * 🔵 形狀跟著 `pbrands` 走, 而那是有理由的:本檔 :101-110 逐字記著重複鍵 `?a=1&a=2` 會讓
+   *    **Next segment cache key 碰撞 ⇒ `router.replace` 不重抓 RSC** ⇒ 當初才從重複鍵改單鍵。
+   *    📌 同一個坑不踩第二次。
+   * 🛑 **舊的 `category` 欄不動、繼續讀得懂** —— 客人分享出去的連結、站內既有連結都是舊格式。
+   *    兩個同時出現時:`categories` 贏(它是新的、明確的), 而舊值**仍然被收進聯集**, 不丟掉。
+   */
+  categories: string[];
   priceMin?: number;
   priceMax?: number;
   vehicle?: string;
@@ -110,6 +119,8 @@ export function isSafeCategoryValue(value: string): boolean {
  *   ⇒ 讀取端兩種都吃、**寫出端只產新格式**。
  */
 export const BRANDS_PARAM = 'pbrands';
+/** ⟦M-4b 多顆分類膠囊⟧ 單鍵逗號分隔;理由與 `BRANDS_PARAM` 同一條(見 CatalogQuery.categories)。 */
+export const CATEGORIES_PARAM = 'categories';
 export const LEGACY_BRAND_PARAM = 'pbrand';
 
 /**
@@ -192,6 +203,17 @@ export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery 
     .sort();
   const categoryValue = searchParams.get('category');
   const category = categoryValue && isSafeCategoryValue(categoryValue) ? categoryValue : undefined;
+  // 🔴 **每一顆都要各自過同一道白名單** —— 不是整串過一次:
+  //    `isSafeCategoryValue` 擋的是 `%` `_` 與控制字元(見 :88-95), 而 RPC 那側是
+  //    `category_raw LIKE vc || ' · %'`(**未跳脫**)⇒ 只要有一顆帶 `%`, 整組結果就會被它污染。
+  // 🔵 壞的那一顆**只丟那一顆**, 不整組失效 —— 驗收⑤ 逐字要的就是這個。
+  const categories = [
+    ...new Set(
+      [...(searchParams.get(CATEGORIES_PARAM) ?? '').split(','), ...(category ? [category] : [])]
+        .map((value) => value.trim())
+        .filter((value) => value !== '' && isSafeCategoryValue(value)),
+    ),
+  ];
   const sliderMin = parseNonNegativeInteger(searchParams.get('pmin'));
   const sliderMax = parseNonNegativeInteger(searchParams.get('pmax'));
   const labelBounds = priceBoundsForLabel(searchParams.get('price'));
@@ -225,6 +247,7 @@ export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery 
     perPage,
     sort,
     brandSlugs,
+    categories,
     ...(category ? { category } : {}),
     ...(priceMin > 0 || labelBounds ? { priceMin } : {}),
     ...(priceMax !== undefined ? { priceMax } : {}),
