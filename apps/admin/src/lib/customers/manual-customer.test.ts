@@ -144,6 +144,69 @@ describe('findCustomerCandidatesByPhone(本模組不認人,只列候選)', () =>
     expect(rpcArgs).toEqual([{ p_query: '0912345678', p_limit: 20 }]);
   });
 
+  // ══ ⟦b4-FINDCUSTOMERPHONE⟧ 2026-09-05:非電話的查詢要送到 RPC 的 name / email 軸 ══
+  //   🔬 病:上一版第一件事是 `normalizeManualPhone` = `raw.replace(/\D/g,'')`
+  //      ⇒ 打「王小明」得到空字串 ⇒ **直接回空, RPC 根本沒被呼叫**。
+  //      而那支 RPC **本來就吃三軸而且姓名有索引** ⇒ 能力是被丟掉的, 不是沒做。
+  it('🔴 打【姓名】⇒ 原字串送進 RPC(不是被輾成空字串)', async () => {
+    const { client, rpcArgs } = makeClient({ rpcData: { ids: [], truncated: false } });
+    await findCustomerCandidatesByPhone(client, '  王小明  ');
+    // 🔵 去頭尾空白, 而中間的字一個都不動
+    expect(rpcArgs).toEqual([{ p_query: '王小明', p_limit: 20 }]);
+  });
+
+  it('🔴 打【email】⇒ 原字串送進 RPC', async () => {
+    const { client, rpcArgs } = makeClient({ rpcData: { ids: [], truncated: false } });
+    await findCustomerCandidatesByPhone(client, 'ming@gmail.com');
+    expect(rpcArgs).toEqual([{ p_query: 'ming@gmail.com', p_limit: 20 }]);
+  });
+
+  it('🔵 而【帶符號的電話】仍然走數字那條 —— 放寬不得把它推去搜姓名', async () => {
+    // 🛑 這一格擋的是一個很自然的錯修法:「有非數字就當姓名」
+    //    ⇒ `+886 912345678` 與 `(02) 2345 6789` 都會被送去搜姓名, 而它們是電話。
+    for (const [raw, expected] of [
+      ['0912-345-678', '0912345678'],
+      ['(02) 2345 6789', '0223456789'],
+      ['+886 912345678', '886912345678'],
+    ] as const) {
+      const { client, rpcArgs } = makeClient({ rpcData: { ids: [], truncated: false } });
+      await findCustomerCandidatesByPhone(client, raw);
+      expect(rpcArgs, `輸入 ${raw}`).toEqual([{ p_query: expected, p_limit: 20 }]);
+    }
+  });
+
+  it('🔴🔴 姓名查詢【不得】報重複警告 —— 那個計數在這條路上算不出來', async () => {
+    // 🛑 `countSamePhone` 比的是「候選電話正規化後 === 我查的那支電話」。
+    //    姓名查詢時那支電話是空字串 ⇒ 它會把**每一個沒有電話的候選**算成同號 ⇒ 假警告。
+    //    📌 而假警告比不警告糟:員工會學會忽略它。
+    const { client } = makeClient({
+      rpcData: { ids: ['u-a', 'u-b'], truncated: false },
+      rows: [
+        { user_id: 'u-a', name: '王小明', email: 'a@x.com', phone: null },
+        { user_id: 'u-b', name: '王小明', email: 'b@x.com', phone: null },
+      ],
+      metaByUser: {},
+    });
+    const r = await findCustomerCandidatesByPhone(client, '王小明');
+    expect(r.candidates.length).toBe(2);
+    expect(r.samePhoneCount).toBe(0);
+    expect(r.shouldWarnDuplicates).toBe(false);
+  });
+
+  it('🟢 負對照:同一組候選【用電話查】時, 那個計數會動', async () => {
+    // 🔴 少了這一格,「姓名查詢回 0」與「這個計數永遠是 0」印同一個東西。
+    const { client } = makeClient({
+      rpcData: { ids: ['u-a', 'u-b'], truncated: false },
+      rows: [
+        { user_id: 'u-a', name: '王小明', email: 'a@x.com', phone: '0912345678' },
+        { user_id: 'u-b', name: '王小明', email: 'b@x.com', phone: '0912-345-678' },
+      ],
+      metaByUser: {},
+    });
+    const r = await findCustomerCandidatesByPhone(client, '0912345678');
+    expect(r.samePhoneCount).toBe(2);
+  });
+
   it('🔴🔴 候選同時包含【後台開的】與【客人自己註冊的】—— 後者正是 C-F1 那個會被漏掉的人', async () => {
     const { client } = makeClient({
       rpcData: { ids: ['u-manual', 'u-web'], truncated: false },
