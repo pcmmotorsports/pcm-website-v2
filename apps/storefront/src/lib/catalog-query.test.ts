@@ -9,6 +9,33 @@ function params(input: string) {
 }
 
 describe('parseCatalogQuery', () => {
+  // ── ⟦M-4b 多顆分類膠囊⟧ Sean 2026-09-04 拍甲(聯集)——「魚雷管要同時列全段+尾段」──
+  it('🔴 ?categories=a,b ⇒ 兩顆都收下(單鍵逗號, 形狀跟 pbrands 走)', () => {
+    expect(parseCatalogQuery(params('categories=全段排氣管,尾段排氣管(Slip-On)')).categories)
+      .toEqual(['全段排氣管', '尾段排氣管(Slip-On)']);
+  });
+
+  it('🔵 舊的 ?category= 繼續讀得懂, 而且【被收進聯集】不是被丟掉(客人的舊連結)', () => {
+    const q = parseCatalogQuery(params('category=全段排氣管'));
+    expect(q.category).toBe('全段排氣管');
+    expect(q.categories).toEqual(['全段排氣管']);
+  });
+
+  it('🔵 兩種同時出現 ⇒ 併起來去重, 舊值不掉', () => {
+    expect(parseCatalogQuery(params('categories=A,B&category=B')).categories).toEqual(['A', 'B']);
+  });
+
+  // 🔴 **驗收⑤ 逐字**:壞的那一顆只丟那一顆, 不整組失效。
+  //    而「壞」的定義來自 `isSafeCategoryValue`(本檔 :88-95):`%` `_` 與控制字元 ——
+  //    因為 RPC 那側是 `category_raw LIKE vc || ' · %'` **未跳脫** ⇒ 一顆帶 `%` 會污染整組。
+  it('🔴 負對照:一顆帶 % 的 ⇒ 只丟那一顆, 好的那顆照樣在', () => {
+    expect(parseCatalogQuery(params('categories=全段排氣管,壞%的')).categories).toEqual(['全段排氣管']);
+  });
+
+  it('🔵 空字串 / 多餘逗號不會變成一顆空的分類', () => {
+    expect(parseCatalogQuery(params('categories=,,A,')).categories).toEqual(['A']);
+  });
+
   it('normalizes valid page, sort, brands, price range, and vehicle parameters', () => {
     expect(
       parseCatalogQuery(
@@ -20,6 +47,8 @@ describe('parseCatalogQuery', () => {
       sort: 'price-desc',
       category: '車身套件',
       brandSlugs: ['cnc-racing', 'gb-racing'],
+      // 🔴 這一格【不是形狀改動】—— 舊的 ?category= 現在會被收進聯集, 而那正是本片要的。
+      categories: ['車身套件'],
       priceMin: 3000,
       priceMax: 10000,
       vehicle: 'yamaha:mt-09-sp:2021',
@@ -47,6 +76,8 @@ describe('parseCatalogQuery', () => {
       perPage: 50,
       sort: 'price-asc',
       brandSlugs: [],
+      // ⟦M-4b 多顆分類膠囊⟧ 新增的必填欄:整個物件比對的格子要跟著帶。
+      categories: [],
     });
     expect(result).not.toHaveProperty('priceMax');
     expect(result).not.toHaveProperty('priceMin');
@@ -75,6 +106,7 @@ describe('parseCatalogQuery', () => {
       perPage: 50,
       sort: 'recommend',
       brandSlugs: ['gb-racing'],
+      categories: [],
     });
   });
 

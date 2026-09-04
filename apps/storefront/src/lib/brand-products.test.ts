@@ -220,6 +220,8 @@ describe('fetchBrandTopProducts / fetchBrandsWithProducts 本體', () => {
       perPage: BRAND_PRODUCT_SLOTS,
       sort: 'recommend',
       brandSlugs: ['akrapovic'],
+      // ⟦M-4b 多顆分類膠囊⟧ 新增的必填欄:整個物件比對的格子要跟著帶。
+      categories: [],
     });
   });
 
