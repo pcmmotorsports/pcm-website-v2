@@ -47,7 +47,15 @@ const SHARED_EXCLUDE = [
   '**/.next/**',
   'design-reference/**',
   '**/e2e/**',
-  '**/e2e-prod/**',
+  // 🔴 **2026-09-04 收窄**:~~`'**/e2e-prod/**'`(整個目錄)~~ ⇒ 只排 `.spec.ts`。
+  //    **理由是上面那段註解自己寫的**:排除的原因逐字是「vitest include 的 `.spec` glob
+  //    會誤抓 @playwright/test 的檔 = 假紅」⇒ **針對的是 `.spec.ts`, 不是整個目錄。**
+  //    ⇒ 收窄是把它改成【它自己說的形狀】, 不是放寬。
+  //    🛑 **而改 exclude 的錯法是【靜靜少收】** —— 少收的那些檔不會紅, 它們只是不存在,
+  //       而畫面上是綠的。⇒ 所以驗收條件不是「我那支會跑」, 是
+  //       **`npx vitest list --filesOnly` 前後【恰好 +1】而且多的那一支是我新增的那支**。
+  //       實測 2026-09-04:**817 ⇒ 818**, 差集逐字 = `apps/storefront/e2e-prod/contract-message.test.ts`。
+  '**/e2e-prod/**/*.spec.ts',
 ];
 
 export default defineConfig({
