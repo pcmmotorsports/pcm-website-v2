@@ -240,3 +240,63 @@ bash docs/probes/2026-09-05-rlsharden-prereq.sh          # RLS / policy 那半(�
 bash docs/probes/2026-09-05-service-role-min-scope.sh     # GRANT 那半(唯讀)
 ```
 ⚠️ **兩支 probe 的分母都是【當時那一版的碼】** ⇒ 📌 **碼改了要重跑,而不會有東西提醒你。**
+
+---
+
+## 5. 🔴🔴 **[2026-09-05 · 用【版控裡已有的窄判準】重做 —— 而它訂正了 §2**
+
+> 主視窗 `-94` 派(R3 推翻前提之後)。**只讀,零 apply。** 掃的樹 = `git archive origin/dev`(`c624bc557`)。
+> 🟢 正對照:解完拿 `20260904270000` 撈 ⇒ 命中 1;migration 共 315 支。
+
+### 5a. 🛑 §2 的「20 個已涵蓋」是用【寬判準】算的 —— 舊結論加刪除線
+
+⛔ ~~23 個物件裡 **20 個已有涵蓋的 policy**,缺的是那 3 張~~
+🔴 **那把尺不看 `polqual`,還把 `polroles='{0}'`(PUBLIC)算成 service_role 覆蓋。**
+🔬 **而正確的判準【2026-09-04 就寫在版控裡】,比我早一天**——
+`supabase/rls-service-role-select-exclusions.txt:12-15` 逐字:
+> ⛔ ~~扣完實測剩 36~~ **已作廢(codex R2)**:那是用【寬判準】算的。判準收窄成
+> 「**PERMISSIVE 且 `qual` 是 `true`/NULL**」之後,扣完實測 **40** —— 多的 4 張是目錄表
+> (`products` / `product_variants` / `product_fitments` / `product_fitments_effective`),
+> 它們現有的 policy 帶 `delisted_at IS NULL` 過濾 ⇒ **收 BYPASSRLS 之後後台會看不到 559 筆下架商品。**
+
+🎯 **⇒ 我 09-05 用一把更寬的尺重做了一遍、得到更樂觀的答案,而且沒有先去看它。**
+
+### 5b. ✅ 主視窗問的三張表,逐張回答
+
+| 表 | 在 `20260904270000` 的哪一邊 | 那支給了什麼 | **本片(第 0 步)還缺什麼** |
+|---|---|---|---|
+| `admin_audit_log` | **期望名單(40 張)之一** | `admin_audit_log_select_service_role`(`:345` `FOR SELECT … USING (true)`) | **缺 INSERT** |
+| `staff` | **期望名單之一** | `staff_select_service_role` | **缺 INSERT + UPDATE** |
+| `admin_sso_login_events` | **排除清單(5 張)之一** | **什麼都不給**(理由逐字「寫進去就不再讀」) | **缺 INSERT** |
+
+🔬 **數法**(`git archive origin/dev` 之後,對那支 migration 抽兩個錨之間的 `('name')`):
+排除清單 **5** 張 · 期望名單 **40** 張;三張逐一比對如上表。
+🎯 **⇒ `20260904270000` 管的是 `polcmd IN ('r','*')`(`:152` `:180` `:297`)= 【只有 SELECT】。**
+✅ **⇒ 本片補的 INSERT/UPDATE【不是重工】** —— 那半在版控裡確實沒有人做。
+🔵 而 `admin_sso_login_events` **不需要 SELECT**:R3 獨立確認 `login-event.ts:209,253` 兩發 insert **都沒鏈 `.select()`**。
+
+### 5c. 🔴🔴 而 F4 的【責任歸屬換了】—— 那兩支漂移偵測器不是被我弄紅的
+
+```
+supabase/migrations/20260815020000_m4b_e10_27_d1_admin_audit_log_grant_select.sql:129
+  RAISE EXCEPTION 'D0 異常 — admin_audit_log 應為零 policy,實 % 條;拒繼續'
+supabase/migrations/20260726120000_m4b_e8a1_staff_table.sql:60
+  「4. RLS zero-policy + table ACL(client 全鎖、server 最小權限)」
+```
+🎯 **而 `admin_audit_log` 與 `staff` 都在 `20260904270000` 的【期望名單】裡**
+⇒ 📌 **那一支貼下去就會給它們各一條 SELECT policy ⇒ 那兩個「應為零 policy」的斷言【在那一刻就已經不成立】,與本片無關。**
+🔬 而 `20260904270000` 全檔 **零處**提到 `20260815020000` / `20260726120000` / 「零 policy」
+(數法:`grep -nE '20260815020000|20260726120000|零 policy|zero-policy'` ⇒ 0 命中)。
+🛑 **⇒ 那是一個【還沒有人接的接縫】,而它比本片早。** 本片會讓它更明顯,**而不是它的成因**。
+⇒ ✅ **「零 policy 縱深要不要正式退場」仍然是拍板題**,而**該問的人不只是本片的作者**。
+
+### 5d. ⚠️ 本節證不到什麼
+
+```
+① 我沒有查 20260904270000【貼了沒】—— 帳本的 0 不是答案(CLAUDE.md 路由逐字),
+   而 is-migration-applied.sh 要唯讀連線, 本節是純碼面比對 ⇒ 未確認。
+   📌 而它決定 5c 是「已經發生」還是「將要發生」。
+② §2 那張表其餘 20 個判定, 我【沒有】用窄判準逐一重算 —— 本節只回答被問的三張。
+   ⇒ 5a 已證明那把尺是寬的 ⇒ 🔴 那 20 個裡有幾個是錯的, 沒有人量過。
+③ 目錄表那 4 張(products 等)的影響本節沒追 —— 它在 exclusions.txt 裡已有結論。
+```
