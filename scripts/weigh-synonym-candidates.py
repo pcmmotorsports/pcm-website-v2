@@ -126,6 +126,17 @@ if _st.stdout.strip():
     sys.exit('🔴 search-synonyms.ts 現在是 dirty ⇒ 拒跑。先把它 commit 或還原, 不要在別人改到一半的檔上做這件事。')
 
 orig = io.open(DICT, encoding='utf-8').read()
+
+# 🔴🔴 **這台機器問的是「【加】這一列會不會改變什麼」** ——
+#    ⇒ 對一條【已經在字典裡】的 from, 「沒這列」那一欄根本不是沒那列, 它照樣被舊的那列命中
+#    ⇒ 🛑 兩欄會印成一樣, 而判定會印【純冗餘】—— **那句話是假的, 它答的是「再加一份重複的沒差」。**
+#    📌 這一格是 2026-09-04 commit 完之後拿一條【剛加進去的】列去量, 當場撞出來的。
+_existing = [f for f, _ in pairs if re.search(r"^    from: '" + re.escape(f) + r"',$", orig, re.M)]
+if _existing:
+    sys.exit('🔴 這些 from 【已經在字典裡】了, 這台機器答不了它們:' + ' · '.join(_existing) +
+             '\n   它問的是「加這一列會不會改變什麼」⇒ 對已經在裡面的列, 兩欄都會是「有那列」的世界。'
+             '\n   ⇒ 要量既有列的價值, 是把它【拿掉】再量, 不是再加一份。')
+
 before_sha = sha(DICT)
 without = run(words)
 
