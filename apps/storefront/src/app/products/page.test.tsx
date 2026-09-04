@@ -98,6 +98,16 @@ describe('/products · 兩條資料路(⟦搜尋-落點換 /products⟧)', () =>
     expect(vi.mocked(fetchCatalogPage).mock.calls[0]?.[0].category).toBe('引擎與冷卻 · 水管束環');
   });
 
+  // 🔴🔴 **R1 對抗審查抓到的 Critical 的守門**:解析出全路徑之後, **裸短名不可以留在 `categories` 裡**。
+  //    留著的話 RPC 那側會把兩顆併成一份 `v_cats` ⇒ 而那顆裸短名若剛好也是某個【頂層分類】的名字,
+  //    `category_raw = vc OR LIKE vc || ' · %'` 會把**整棵頂層樹**撈進來 ⇒ 比修之前【多撈】。
+  it('🔴 裸子分類名解析後, categories 裡只剩全路徑 —— 裸短名不可以跟著送進去', async () => {
+    vi.mocked(fetchCategories).mockResolvedValue(DUP_TREE as never);
+    vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
+    await run({ category: '水管束環' });
+    expect(vi.mocked(fetchCatalogPage).mock.calls[0]?.[0].categories).toEqual(['引擎與冷卻 · 水管束環']);
+  });
+
   it('🔵 負對照:誰都不是的名字 ⇒ 原封送出, 不可以退化成「挑一個最像的」', async () => {
     vi.mocked(fetchCategories).mockResolvedValue(DUP_TREE as never);
     vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });

@@ -413,7 +413,7 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
 //
 // 病灶:改名殘連結 / 客人手打的 `?pbrand=dbk` 會被寫回段清掉 ⇒ 網址變成沒有篩選的 `/products`
 // ⇒ **靜默顯示全站商品**,客人以為還在看 DBK。留著則是 0 筆 + 空狀態(server 只驗形狀不驗對照表,
-// `lib/catalog-query.ts:161`)——看得見、可自我解釋。
+// `lib/catalog-query.ts` 的 `parseCatalogQuery` docblock)——看得見、可自我解釋。
 //
 // 🔴 ⑭ 是**正向對照、不是湊數**:⑪⑫⑬ 全部只證「留得住」,把 delete 整條拿掉也會全綠;
 //    要靠 ⑭ 才分得出「認不得才留」與「一律不刪」。
