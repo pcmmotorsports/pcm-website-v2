@@ -76,9 +76,9 @@
       "python3 scripts/verify-cron6-md5.py",
       "python3 scripts/migration-version-collision-gate.py",
       "python3 scripts/definer-search-path-gate.py",
-      "python3 scripts/migration-txn-wrap-gate.py",
-      "python3 scripts/pg-catalog-prefix-gate.py"
+      "python3 scripts/migration-txn-wrap-gate.py"
     ],
+    "*.sql": "python3 scripts/pg-catalog-prefix-gate.py",
     "scripts/pg-catalog-prefix-gate.py": "python3 scripts/pg-catalog-prefix-gate.py --selftest",
     "scripts/migration-txn-wrap-gate.py": "python3 scripts/migration-txn-wrap-gate.py --selftest",
     "scripts/run-migration-scan-tests.sh": "bash scripts/run-migration-scan-tests.sh --selftest",

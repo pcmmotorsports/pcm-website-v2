@@ -455,6 +455,31 @@ BEGIN
   RAISE NOTICE '✅ 逐條述詞 % :補回去就出現 ⇒ 那條述詞承重', p_label;
 END $$;
 
+-- 🔵 鏡像:**改了之後它必須【仍然不在】** —— 給「換一種空白字元」那種問題用。
+CREATE FUNCTION fx.assert_fixup_absent(p_view text, p_label text, p_fixup text, p_why text)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_n int := -1; v_err text;
+BEGIN
+  BEGIN
+    EXECUTE p_fixup;
+    EXECUTE format('SELECT count(*) FROM %s WHERE display_id = $1', p_view)
+      INTO v_n USING p_label;
+    RAISE EXCEPTION 'fx_rollback_sentinel';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'fx_rollback_sentinel' THEN
+      v_err := SQLERRM;
+      RAISE EXCEPTION '%(% / %):那個動作自己就失敗了(%)⇒ 這一格沒有量到任何東西', p_why, p_view, p_label, v_err;
+    END IF;
+  END;
+  IF v_n < 0 THEN
+    RAISE EXCEPTION '%(% / %):計數根本沒被填 ⇒ 這一格沒跑到', p_why, p_view, p_label;
+  END IF;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION '❌ %:% 出現在 % 裡(% 列)⇒ 那個空白字元沒有被判成空', p_why, p_label, p_view, v_n;
+  END IF;
+  RAISE NOTICE '✅ % —— % 不在 % 裡', p_why, p_label, p_view;
+END $$;
+
 DO $fx$
 DECLARE r record;
 BEGIN
@@ -533,6 +558,66 @@ BEGIN
   END LOOP;
   RAISE NOTICE '✅ 四支一致性(修好就出現那一半):4 支 × 1 標籤';
 END $$;
+
+-- ══ 8b. 🔴 U+202F:⟦b4-JSWSNARROWER⟧ 補的那兩個碼位 ═══════════════════════
+--
+-- 🛑 `pcm_js_trim_whitespace()` 2026-09-05 之前比 JS 的 `trim()` **窄兩個碼位**
+--    (U+202F 窄式不斷行空格 / U+205F 中等數學空格)。
+--    ⇒ 只含這種字元的信箱:**JS 判空**(永遠不 enqueue)而 **SQL 判非空**(不被排除)
+--    ⇒ 📌 **每一輪重撈、永遠不會停 = 永久誤報。**
+--
+-- 兩格, 而**兩格都必須有**:
+--   ① 把那個客人的信箱換成【只有 U+202F】⇒ 四支 view 都必須【仍然不收】
+--   ② 換成一個合法信箱 ⇒ 必須【出現】
+--   🔴 少了 ② , 第一格與「那一列因為別的條件而不在」印同一個 0。
+--   (② 與 6b 的反向那半是同一組斷言, 這裡重跑是因為 ① 動的是【不同的字元】。)
+DO $fx$
+DECLARE r record;
+BEGIN
+  FOR r IN
+    SELECT * FROM (VALUES
+      ('public.pcm_order_created_email_pending','CRTXNR'),
+      ('public.pcm_unpaid_cancelled_email_pending','CNCXNR'),
+      ('public.pcm_shipped_email_pending','SHPNBS'),
+      ('public.pcm_tracking_corrected_email_pending','TRKXNR')
+    ) AS t(v, lbl)
+  LOOP
+    PERFORM fx.assert_fixup_absent(r.v, r.lbl,
+      $q$UPDATE public.customers SET email = U&'\202f'
+          WHERE user_id='22222222-2222-2222-2222-222222222222'$q$,
+      'U+202F 必須被判成空');
+  END LOOP;
+END $fx$;
+
+-- 🟢 **正對照:那個字元真的被寫進去了。**
+--    少了這一格, 一個「UPDATE 沒改到任何列」會讓上面四格印出四個誠實的 0
+--    ⇒ 📌 而那四個 0 說的是「NBSP 那一版仍然被判空」, 不是「U+202F 被判空」。
+DO $fx$
+DECLARE v_len int; v_cp int;
+BEGIN
+  UPDATE public.customers SET email = U&'\202f'
+   WHERE user_id='22222222-2222-2222-2222-222222222222';
+  SELECT pg_catalog.length(email), pg_catalog.ascii(email) INTO v_len, v_cp
+    FROM public.customers WHERE user_id='22222222-2222-2222-2222-222222222222';
+  IF v_len <> 1 OR v_cp <> x'202f'::int THEN
+    RAISE EXCEPTION '正對照:那個客人的信箱不是單一個 U+202F(長度 %, 第一個碼位 %)⇒ 上面四格量的不是我以為的東西', v_len, v_cp;
+  END IF;
+  -- 🔴 而 helper 自己也要答得出來 —— 這一格量的是【函式】, 上面四格量的是【view】。
+  IF nullif(pg_catalog.btrim(U&'\202f', public.pcm_js_trim_whitespace()), '') IS NOT NULL THEN
+    RAISE EXCEPTION '正對照:pcm_js_trim_whitespace() 剝不掉 U+202F ⇒ 20260905050000 沒貼或被蓋掉';
+  END IF;
+  IF nullif(pg_catalog.btrim(U&'\205f', public.pcm_js_trim_whitespace()), '') IS NOT NULL THEN
+    RAISE EXCEPTION '正對照:pcm_js_trim_whitespace() 剝不掉 U+205F';
+  END IF;
+  -- 🛑 負向:U+200B 必須【剝不掉】(JS 的 trim() 不剝它)
+  IF nullif(pg_catalog.btrim(U&'\200b', public.pcm_js_trim_whitespace()), '') IS NULL THEN
+    RAISE EXCEPTION '正對照(負向):U+200B 被剝掉了 ⇒ 與 JS 不一致, 那是永久誤報那個方向';
+  END IF;
+  RAISE NOTICE '✅ U+202F / U+205F 剝得掉, U+200B 剝不掉(量的是 helper 本身)';
+  -- 把信箱換回 NBSP, 不影響後面的分母對帳。
+  UPDATE public.customers SET email = U&'\00a0'
+   WHERE user_id='22222222-2222-2222-2222-222222222222';
+END $fx$;
 
 -- 🔴 分母對帳:上面那張表少一列, 迴圈照樣全綠而沒有東西會叫。
 DO $$
