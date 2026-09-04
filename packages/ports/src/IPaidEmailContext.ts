@@ -111,6 +111,18 @@ export type PaidEmailContext = {
   discountTotal: MoneyAmount;
   /** 稿上「訂單金額」= `orders.total`。**幣別字樣是模板的靜態標籤,不是這裡的資料。** */
   total: MoneyAmount;
+  /**
+   * `orders.tax_total`。**今天恆為 0**,而它在這裡是為了讓三份明細印得出稅那一行
+   * (`⟦b4-INVOICE5PCT⟧` 第 6 步;Sean 2026-09-04 拍 Q1=乙:稅額單獨記一欄)。
+   *
+   * 🔴 **它【必填】不是選填** —— 選填的話, 忘了帶的呼叫端會拿到 `undefined`,
+   *    而 `undefined` 在算術裡變 `NaN`、在模板裡印成空白 ⇒ **兩種失敗都不出聲**。
+   *    ⇒ 📌 必填讓「忘了帶」在 **typecheck** 那一刻就紅, 而不是在客人的信箱裡。
+   *
+   * ⚠️ **而 `total` 已經含它**(DB 等式 `total = subtotal + shipping_fee - discount_total + tax_total`)
+   *    ⇒ 印的時候是**把它列出來**, 不是再加一次。
+   */
+  taxTotal: MoneyAmount;
 };
 
 /**

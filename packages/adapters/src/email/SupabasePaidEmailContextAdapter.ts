@@ -98,7 +98,7 @@ export class SupabasePaidEmailContextAdapter implements IPaidEmailContext {
         // 🔴 `cancelled_at` 是 2026-08-24 加的**第六欄**,而它**不進信裡** ——
         //    它只用來判「這封信還該不該寄」(見下方 `cancelled` 那一段)。
         //    ⇒ 白名單的原則沒有鬆動:**多撈的這一欄不會被印出去**。
-        .select('display_id, subtotal, shipping_fee, discount_total, total, cancelled_at')
+        .select('display_id, subtotal, shipping_fee, discount_total, total, tax_total, cancelled_at')
         .eq('id', input.orderId)
         .limit(1),
     );
@@ -184,6 +184,14 @@ export class SupabasePaidEmailContextAdapter implements IPaidEmailContext {
         discountTotal: toMoneyAmount(order.discount_total),
         // 🔴 直接用 DB 的 `total`,**不重算**(理由見檔頭)。
         total: toMoneyAmount(order.total),
+        // 🔴🔴 `tax_total`(`⟦b4-INVOICE5PCT⟧` 第 6 步, 2026-09-04)——
+        //   **今天恆為 0**, 而它在這裡是為了讓三份明細印得出稅那一行。
+        //   🛑 **白名單只加了這一欄, 沒有改成 `*`** —— 該檔 `:9-10` 逐字:
+        //      `select('*')` 之後在 TS 挑欄位, **經銷價已經到過這個 process**。
+        //      ⇒ 而那道防線由 `SupabasePaidEmailContextAdapter.test.ts:126`(逐字釘整串)
+        //        與 `:130`(禁 `price_store` / `price_by_tier` / `cost` / `price_general` / `*`)守著
+        //        ⇒ **加這一欄會讓 `:126` 那格紅, 而那正是它該做的事** —— 我改了期望字串, 沒有把它放寬。
+        taxTotal: toMoneyAmount(order.tax_total),
       },
     };
   }

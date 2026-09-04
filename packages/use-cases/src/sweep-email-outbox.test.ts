@@ -1168,6 +1168,10 @@ function paidCtx(over: Partial<PaidEmailContext> = {}): PaidEmailContext {
     shippingFee: m(160),
     discountTotal: m(0),
     total: m(1100),
+    // 🔵 今天恆為 0(⟦b4-INVOICE5PCT⟧ 第 6 步加的必填欄)。
+    //    🔴 而它**不參與上面那個「四個數字互不相同」的設計** —— 0 是它今天唯一合法的值,
+    //       要驗「稅那一行印不印」的測試自己用 `over` 蓋掉它。
+    taxTotal: m(0),
     ...over,
   };
 }
