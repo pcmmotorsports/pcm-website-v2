@@ -117,7 +117,12 @@ describe('/api/search 的另三區', () => {
     searchProducts.mockResolvedValue({ items: [], total: null, error: false });
     tryCatalogBrandTaxonomy.mockResolvedValue({ brands: [], failed: true });
     tryCategories.mockResolvedValue({ categories: [], failed: false });
-    tryVehicleTaxonomy.mockResolvedValue({ motoBrands: [], failed: true });
+    // 🔴🔴 **車款那一腿 2026-09-05 從這條路上拿掉了**(`⟦search-TRGMEXPRIDX⟧`)——
+    //    量到它佔 route total 的 92%(冷 11.8~12.6 秒), 而這條路上【沒有人畫它】。
+    //    ⇒ 所以這裡不再 mock 它;`failed.vehicles` 從此**恆 false**。
+    //    🛑 **而這一格的判別力沒有變弱**:它要擋的是「三個 failed 被合成一個」,
+    //       而 `brands=true` / `categories=false` **兩者不同**就已經讓
+    //       `a||b` 與 `a&&b` 兩種合成法各自紅一種。**車款那一格本來就是多的。**
 
     const res = await GET(req('brembo'));
     const body = await res.json();
@@ -126,7 +131,7 @@ describe('/api/search 的另三區', () => {
     //    —— 下一個人會像 `-c7` 一樣以為沒守。(它原本被 `body.failed` 那格【間接】守著:
     //    變 503 的話 body 會是 `{error:'search_failed'}` ⇒ toEqual 必紅。)
     expect(res.status).toBe(200);
-    expect(body.failed).toEqual({ brands: true, categories: false, vehicles: true });
+    expect(body.failed).toEqual({ brands: true, categories: false, vehicles: false });
   });
 
   it('R6 三區任一 failed 不讓整發變 503 —— 商品那一區是主體', async () => {

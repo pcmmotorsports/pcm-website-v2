@@ -54,9 +54,18 @@ describe('搜尋那條路的計時量具', () => {
 
   it('🔴 route:四條腿各自要有數字, 否則只量得到其中一條', () => {
     expect(route, '找不到那發 Promise.all ⇒ 這一格沒有判別力').toContain('Promise.all([');
-    for (const leg of ['products=', 'brands=', 'categories=', 'vehicles=']) {
+    for (const leg of ['products=', 'brands=', 'categories=']) {
       expect(route, `${leg} 不見了 ⇒ 那條腿變回零儀器`).toContain(leg);
     }
+    // 🔴🔴 **車款那一腿 2026-09-05 從搜尋這條路上拿掉了**(`⟦search-TRGMEXPRIDX⟧`)——
+    //    量到它佔 route total 的 92%(冷 11.8~12.6 秒), 而這條路上沒有人畫它。
+    //    ✅ **而 log 裡那個欄位【留著】, 值改成 `skipped`** ——
+    //       直接刪掉的話, 讀 log 的人分不出「這一腿很快」與「這一腿根本沒跑」。
+    //    🛑 所以這一格釘的是 `vehicles=skipped` **這個字面**, 不是 `vehicles=` 前綴:
+    //       有人把它改回去撈, 這一格會紅 ⇒ 而那正是我要他停下來讀板列的時候。
+    expect(route, 'vehicles=skipped 不見了 ⇒ 有人把那一腿加回搜尋了, 先讀 ⟦search-TRGMEXPRIDX⟧').toContain(
+      'vehicles=skipped',
+    );
     expect(countInfo(route)).toBe(1);
   });
 

@@ -42,7 +42,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { tryCatalogBrandTaxonomy, tryCategories, tryVehicleTaxonomy } from '@/lib/products';
+import { tryCatalogBrandTaxonomy, tryCategories } from '@/lib/products';
 import { suggestBrand } from '@/lib/brand-suggestion';
 import { filterFacets } from '@/lib/search-facets';
 import { searchProducts, SEARCH_OVERLAY_LIMIT } from '@/lib/search';
@@ -84,18 +84,38 @@ export async function GET(request: Request) {
   let msProducts = -1;
   let msBrand = -1;
   let msCat = -1;
-  let msVeh = -1;
   const tR0 = performance.now();
   const lap = () => Math.round(performance.now() - tR0);
-  const [productPage, brandTax, categoryTax, vehicleTax] = await Promise.all([
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴🔴 **車款那一腿【拿掉了】—— 而它是量出來的, 不是猜的**(`⟦search-TRGMEXPRIDX⟧`, 2026-09-05)
+  // ══════════════════════════════════════════════════════════════════════
+  //   🔬 dev preview 逐發實測(五發, 各自對 `x-vercel-id`):
+  //     `route total` **逐字等於** `vehicles` 那一腿 —— 冷 **11,803~12,601ms**、暖 **33~40ms**;
+  //     而 `products`(真正的搜尋)只有 **388~991ms**。
+  //   🎯 ⇒ **12 秒裡有 92% 是這一腿**, 而它在這條路上【沒有人用】:
+  //     · `SearchOverlay.tsx` 的 `hasAnyResult` **不含 vehicles**
+  //     · `SearchOverlayFacets.tsx` 檔頭逐字:「vehicles 有資料而沒畫 …… 是 Sean 2026-09-04 拍的重出版甲」
+  //   🔬 成因(`lib/products.ts:786` 起):`vehicle_taxonomy_public` **12,053 列**,
+  //     而那支 loader 是**循序 `await`** 的 13 頁 × 1000 ⇒ 12,280ms ÷ 13 ≈ **945ms/頁**。
+  //     (它還是 `OFFSET` 分頁 ⇒ 第 N 頁重掃 N×1000 ⇒ 全程約 78,000 列重掃。)
+  //
+  // 🛑 **拿掉它的三格代價, 逐字寫在這裡**:
+  //   ① `facets.vehicles` 從此**恆為空陣列**、`failed.vehicles` 恆 `false`
+  //      ⇒ 而**今天沒有東西讀它們**(上面兩處逐處驗過)。
+  //   ② **Sean 日後若決定重新畫車款區, 這一腿要加回來** —— 而那時它仍然是 12 秒,
+  //      🔴 **除非先修好那個迴圈**(板列 `⟦search-VEHTAXSLOW⟧`)。
+  //   ③ 這一片**只修搜尋這條路** —— 首頁 / 商品頁 / `/products` / `/cart` / `/account` /
+  //      `api/catalog/facet-counts` **照樣各自付那 12 秒**(它們是真的要用車款清單)。
+  const [productPage, brandTax, categoryTax] = await Promise.all([
     searchProducts(q, SEARCH_OVERLAY_LIMIT, 0, false).then((r) => ((msProducts = lap()), r)),
     tryCatalogBrandTaxonomy().then((r) => ((msBrand = lap()), r)),
     tryCategories().then((r) => ((msCat = lap()), r)),
-    tryVehicleTaxonomy().then((r) => ((msVeh = lap()), r)),
   ]);
+  // 🔵 `vehicles=skipped` 是【刻意留在 log 裡】的 —— 直接把那個欄位刪掉的話,
+  //    下一個讀 log 的人分不出「這一腿很快」與「這一腿根本沒跑」。
   console.info(
     `[api/search] qlen=${q.length} products=${msProducts}ms brands=${msBrand}ms ` +
-      `categories=${msCat}ms vehicles=${msVeh}ms total=${lap()}ms`,
+      `categories=${msCat}ms vehicles=skipped total=${lap()}ms`,
   );
   const { items, total, error } = productPage;
   if (error) {
@@ -116,7 +136,8 @@ export async function GET(request: Request) {
   const facets = filterFacets(q, {
     brands: brandTax,
     categories: categoryTax,
-    vehicles: vehicleTax,
+    // 🔴 見上面那一段:這一腿不再撈。給空的, 而**不是**不傳 —— `filterFacets` 的三區形狀不變。
+    vehicles: { motoBrands: [], failed: false },
   });
   // ── 「你是不是要找 X?」的候選(`⟦search-BRANDTYPOTRGM⟧` · Sean 2026-09-04 拍甲)──────
   // 🔴🔴 **這裡【永遠算, 而由 UI 決定要不要畫】** —— 而那是刻意的:
