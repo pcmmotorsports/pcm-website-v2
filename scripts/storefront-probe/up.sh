@@ -191,6 +191,16 @@ for f in "$REPO"/supabase/migrations/*.sql; do   # 🔴 引號包在 glob 外:�
   then ok=$((ok+1)); else fail=$((fail+1)); echo "FAIL $f" >> $S/apply.log; fi
 done
 echo "migration ok=$ok fail=$fail  (判準不是全綠,是你要用的表在不在)"
+# 🔴 **失敗要叫得出【是誰】** —— 原本只印一個數字, 而那個數字對「我要用的東西在不在」零判別力。
+#    ⚠️ 而**不能**把「有失敗」當成致命:今天實測 **fail=61**(檔頭那句「27 支」自己也過期了)
+#    ⇒ 一律 rc≠0 會讓鑽機對所有人罷工。⇒ **只印, 不擋**;致命判準見下方「要用的物件在不在」。
+if [ "$fail" -gt 0 ]; then
+  grep '^FAIL ' $S/apply.log | sed 's#.*/##' | head -8 | while IFS= read -r ff; do
+    printf '  fail: %s\n' "$ff"
+  done
+  echo "  ($fail 支失敗, 上面最多列 8 支;全部見 $S/apply.log)"
+  echo "  🔵 多數是【從零重放的順序問題】, 不是那支 migration 壞了 —— 而你要用的東西在不在, 看下面那幾行"
+fi
 
 # == 重放後修補(2026-09-02 -0e)=========================================
 # 從零重放會製造出兩個【正式庫上沒有】的問題, 而兩個都是安靜的。
@@ -265,7 +275,20 @@ done
 #    舊那支一直都在, 所以「函式在不在」對這件事零判別力。
 MCNT=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "SELECT count(*) FROM pg_proc WHERE proname='search_catalog_by_vehicle' AND 'p_categories' = ANY(proargnames);" 2>/dev/null)
 if [ "${MCNT:-0}" -ge 1 ]; then echo "重放修補3:p_categories 多載 = $MCNT(多顆分類膠囊那條路可以驗)"
-else echo "重放修補3:p_categories 多載 = ${MCNT:-讀不到} <== 搜尋那條路會回 PGRST202、顧客站印「件數未能載入」。去看 $S/apply.log 的斷言訊息, 不要當成碼壞了"; fi
+else
+  echo "重放修補3:p_categories 多載 = ${MCNT:-讀不到}"
+  # 🔴🔴 **這裡【非致命不可】** —— 主視窗-94 要的效果是「鑽機落後正式庫要會叫」。
+  #    ⚠️ 而致命判準**不能**是「有 migration 失敗」(今天 61 支失敗是常態)
+  #    ⇒ 改成問**你要用的那個物件在不在**:多載不在 ⇒ 搜尋那條路必回 PGRST202、
+  #      顧客站每一個沒被快取的查詢都印「件數未能載入」⇒ **拿它驗搜尋的人會誤判成碼壞了。**
+  # 🔴 這一行【不可以用反引號】—— 雙引號內的反引號會被當成指令替換吃掉,
+  #    而句子還讀得通(2026-09-04 實測:函式名整個消失、訊息看起來只是少了幾個字)。
+  echo "🔴 鑽機落後正式庫 —— search_catalog_by_vehicle 少了 p_categories 那支多載。"
+  echo "   去看 $S/apply.log 裡 20260904160000 的斷言訊息;**那不是碼壞了**。"
+  echo "   若你不需要搜尋那條路, 用 down.sh 收掉再自己起, 不要把這個紅忽略掉。"
+  bash "$(dirname "$0")/down.sh" > /dev/null 2>&1 || true
+  exit 4
+fi
 
 
 # -- 選車自檢(2026-09-02 -0e):種子的車款有沒有真的流進那條路 --------------
