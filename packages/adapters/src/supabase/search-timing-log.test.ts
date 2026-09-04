@@ -25,6 +25,7 @@ const ROUTE = new URL(
   '../../../../apps/storefront/src/app/api/search/route.ts',
   import.meta.url,
 );
+const PRODUCTS = new URL('../../../../apps/storefront/src/lib/products.ts', import.meta.url);
 
 /** 剝掉註解 —— 🔴 少了它, 一行【被註解掉的】log 會被算成還在。 */
 function stripComments(ts: string): string {
@@ -77,6 +78,34 @@ describe('搜尋那條路的計時量具', () => {
     ] as const) {
       expect(code, `${name} 沒有用 performance.now()`).toContain('performance.now()');
     }
+  });
+
+  it('🔴 車款清單那支:冷的時候要印一行, 而它必須在 unstable_cache 的【內側】', () => {
+    // 🔴🔴 **這一行的存在【就是】「這一發是冷的」那個判準**(`⟦search-VEHTAXSLOW⟧`)——
+    //    寫在外側的話它每一發都印 ⇒ **冷暖就再也分不出來**, 而那正是我們要量的東西。
+    // 🛑 **這一支【不能】用上面那個 `stripComments`** —— 我試過, 它把整檔吃成空白:
+    //    `products.ts` 裡有 `/*` 出現在字串/URL 裡, 而那個粗暴的區塊註解 regex 會從那裡
+    //    一路吞到下一個 `*/`。⇒ 📌 **一把在別的檔上好用的尺, 換一個檔就可能整個壞掉**,
+    //    而它壞掉的樣子是「什麼都找不到」= 與「那一行真的不見了」**印同一個紅**。
+    // ✅ 改法:讀原文, 而**逐行**確認那一行不是被 `//` 註解掉的。
+    const productsRaw = readFileSync(PRODUCTS, 'utf8');
+    const liveLine = productsRaw
+      .split('\n')
+      .find((ln) => ln.includes('[vehicleTaxonomy] cold pages=') && !ln.trimStart().startsWith('//'));
+    expect(liveLine, '[vehicleTaxonomy] 那一行不見了(或被註解掉了)⇒ 冷暖就再也看不到').toBeTruthy();
+    const products = productsRaw;
+    expect(products, '找不到那支 cached loader ⇒ 這一格沒有判別力').toContain(
+      'const getVehicleTaxonomyCached = unstable_cache(',
+    );
+    // 🛑 釘「它在內側」:那一行必須出現在 `unstable_cache(` 之後、而且在同一個 call 的參數裡
+    //    —— 用「它在 `['vehicle-taxonomy-v3']` 那個 key 之前」來釘(那是該 call 的第二參數)。
+    const openIdx = products.indexOf('const getVehicleTaxonomyCached = unstable_cache(');
+    const logIdx = products.indexOf('[vehicleTaxonomy] cold pages=');
+    const keyIdx = products.indexOf("['vehicle-taxonomy-v3']");
+    expect(keyIdx, '找不到那個 cache key ⇒ 這一格沒有判別力').toBeGreaterThan(0);
+    expect(logIdx > openIdx && logIdx < keyIdx, '那一行跑到 unstable_cache 外面了 ⇒ 每發都印 ⇒ 冷暖分不出來').toBe(
+      true,
+    );
   });
 
   it('🔵 負對照:這把尺在【該說沒有】的時候會說沒有', () => {
