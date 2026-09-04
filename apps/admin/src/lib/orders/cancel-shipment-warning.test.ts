@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { OrderShipmentGroup } from '../shipping/order-shipments';
 import {
@@ -117,5 +120,102 @@ describe('cancelShipmentWarning', () => {
       expect(m).not.toContain('攔不下來');
       expect(m).not.toContain('不會被攔');
     }
+  });
+});
+
+/**
+ * ⟦ship-HCTCOPYPAIR⟧ **一句今天為真的話, 會在【接上新竹】那天靜靜變成假的 —— 這一格就是它的訊號。**
+ *
+ * 那句話:`我們不會自動通知新竹攔件 —— 要攔的話請自己打電話給貨運。`
+ * 🟢 **它今天為真, 而【為真的理由】不是文案寫得好, 是**:我們對新竹**零呼叫**
+ *    (⟦ship-HCTAPI⟧ 2026-09-04 重量:三個子任務碼全 0、連 `*hct*` 檔案都零個)。
+ *
+ * 🔴🔴 **⇒ 所以訊號要綁在【那個理由】上, 不是綁在文案上。**
+ *    綁在文案上(例如「這句話不准被改」)擋的是**改它的人**,
+ *    而真正的危險是 —— 🎯 **沒有人去改它**:接線的人動的是別支檔, 而這句話原地不動、原地變假。
+ *    📌 **一句話變假的時候, 它自己不會動。**
+ *
+ * 🛑 **它變假的訊號長這樣**(這一格紅了就是那一天到了):
+ *    **任何一支【非測試】的碼開始讀 `HCT_API_*`, 或出現真的新竹端點字面。**
+ *    ⇒ 那表示「我們對新竹零呼叫」這個前提**已經不成立**, 而那句話的真值**必須被重新裁一次**。
+ *
+ * ⚠️ **紅了要做什麼(寫在這裡, 否則紅的人只會想辦法讓它變綠)**:
+ *    ① **不要直接改成「已通知攔件」** —— 那比現在糟:改成假的之後**員工不會打那通電話**,
+ *      而貨照樣送出去。⛔ 「已通知」我們證得到(我們發過那一發),「已攔下」要靠貨況
+ *      ⇒ 🔴 **兩句話, 不要合成一句。**
+ *    ② 而改它的**前提不是「API 接上了」**, 是 **【我們分得出「真的攔到」與「它只是回了個 N」】** ——
+ *      🔬 `-ship` 2026-09-03 實測:`success: "N"` 在多個世界印**同一個值**
+ *      (單號打錯 / 已經上車 / 不是這個帳號的單 / 格式錯)⇒ 要靠 `ErrMsg` 的字面才分得開,
+ *      而那份清單參考檔沒有、主機也不會列 ⇒ **必須實測收集。**
+ *    ③ 收完之後把這一格連同那句文案一起重寫, 而**不是把這一格刪掉**。
+ *
+ * 🔵 **為什麼不是掃「有沒有 `hct` 這個字」**:那個字在**註解裡到處都是**
+ *    (整段病史刻意留著)⇒ 🔴 掃原始檔會**恆紅**, 而一個恆紅的閘會被關掉。
+ *    ⇒ ✅ 所以本格**先去註解再掃**, 而且掃的是【會呼叫外部服務的字面】不是主題字。
+ */
+const SRC_ROOTS = [
+  fileURLToPath(new URL('../../../../../apps/admin/src', import.meta.url)),
+  fileURLToPath(new URL('../../../../../packages', import.meta.url)),
+];
+
+/** 去掉區塊與行註解 —— 註解裡在【講】這件事, 不是在【做】這件事。 */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+}
+
+/** 遞迴收 `.ts` / `.tsx`,跳過測試檔與建置產物。 */
+function sourceFiles(dir: string, out: string[] = []): string[] {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const e of entries) {
+    if (e.name === 'node_modules' || e.name === '.next' || e.name === 'dist') continue;
+    const full = join(dir, e.name);
+    if (e.isDirectory()) sourceFiles(full, out);
+    else if (/\.tsx?$/.test(e.name) && !/\.test\./.test(e.name)) out.push(full);
+  }
+  return out;
+}
+
+function filesMatching(re: RegExp): string[] {
+  return SRC_ROOTS.flatMap((r) => sourceFiles(r)).filter((f) =>
+    re.test(stripComments(readFileSync(f, 'utf8'))),
+  );
+}
+
+describe('⟦ship-HCTCOPYPAIR⟧ 那句話變假的那一天, 這一格會紅', () => {
+  /**
+   * 🟢 **正對照先跑** —— 而它必須**先於**下面那個 0 出現在檔案裡,
+   * 因為 🔴 **一個 0 要成立, 得先證明這把尺在【該有時】會說有。**
+   * ⚠️ 而正對照挑的是**同類**:一個**真的在讀外部服務金鑰**的 env 名字。
+   */
+  it('🟢 正對照:這把尺找得到【真的在讀外部金鑰】的碼(否則下面那個 0 什麼都證不到)', () => {
+    const hits = filesMatching(/TAPPAY_PARTNER_KEY/);
+    expect(
+      hits.length,
+      '連 TAPPAY_PARTNER_KEY 都掃不到 ⇒ 這把尺沒接上, 下面那格的綠是假的',
+    ).toBeGreaterThan(0);
+  });
+
+  it('🔵 第二把尺:去註解之後檔案還在(否則整支被吃光, 上下兩格都恆綠)', () => {
+    const files = SRC_ROOTS.flatMap((r) => sourceFiles(r));
+    expect(files.length, '一支檔都沒收到 ⇒ 路徑錯了').toBeGreaterThan(100);
+    const stripped = stripComments(readFileSync(files[0]!, 'utf8'));
+    expect(stripped.trim().length, 'stripComments 把整支檔吃光了').toBeGreaterThan(0);
+  });
+
+  it('🔴 我們對新竹仍然零呼叫 —— 紅了代表那句「不會自動通知攔件」要重新裁一次', () => {
+    const hits = filesMatching(/HCT_API_(ACCOUNT|PASSWORD)|hct\.com\.tw|EDI_WebService|TransData/);
+    expect(
+      hits.map((f) => f.split('/src/')[1] ?? f),
+      [
+        '有碼開始呼叫新竹了 ⇒ 「我們不會自動通知新竹攔件」這句話的前提已經不成立。',
+        '🛑 不要為了讓這一格變綠就把它刪掉, 也不要直接把文案改成「已通知攔件」——',
+        '改它的前提是【我們分得出「真的攔到」與「它只是回了個 N」】, 理由寫在本 describe 的 docstring。',
+      ].join(' '),
+    ).toEqual([]);
   });
 });
