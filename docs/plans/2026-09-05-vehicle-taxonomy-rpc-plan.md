@@ -84,7 +84,7 @@ apps/storefront/src/components/ProductsPage.test.tsx
      🟢 正對照:首頁 `app/page` 被 **4** 支測試 import ⇒ **尺是活的**
    ⇒ 🛑 **這兩個入口在回歸分母裡【結構上不存在】** —— 而它們都會叫 `fetchVehicleTaxonomy`
    ⇒ 📌 **本案改壞它們, 三綠與 `vitest related` 都不會紅。**
-   ✅ **⇒ 寫 migration 之前要先補這兩支的 smoke test**(至少「頁面渲染得出來 + 車款下拉非空」)。
+   🟢 **2026-09-05 補了**:`app/cart/page.test.tsx`(3 格)· `app/products/[slug]/page.test.tsx`(4 格)。🔬 兩發突變:①cart 不叫 taxonomy ⇒ **2 格紅** ②PDP 改成無條件呼叫 ⇒ **1 格紅**。🔵 而 PDP 那支順帶釘住一個**已經在、卻沒人守著的優化**:`hasVehicleParam || hasFitments` 才撈 —— 沒 fitments 又沒帶車的商品頁**不付那筆錢**。⚠️ 而我第一版把參數名寫成 `v`, **那一格當場紅** —— 實際是 `vehicle`(`page.tsx:97-98`)。
 ```
 
 ## 6. Rollback
