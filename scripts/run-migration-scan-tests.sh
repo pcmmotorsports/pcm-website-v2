@@ -81,7 +81,18 @@ PY
 #    $1 = vitest 輸出檔  $2 = 我餵了幾個名字   ⇒ 0 通過 / 2 量具失效
 judge_ran() {
   _log="$1"; _fed="$2"
-  _ran=$(grep -aoE 'Test Files +[0-9]+ (passed|failed)' "$_log" 2>/dev/null | tail -1 | grep -oE '[0-9]+' | head -1)
+  # 🔴🔴 2026-09-05 訂正(-mail 自己重量後推翻我們原本的成因):
+  #    第一版抓 `Test Files +[0-9]+ (passed|failed)` 的【第一個數字】——
+  #    全綠世界那行是 `Test Files  55 passed (55)`   ⇒ 第一個數字 = 跑幾支 ✅
+  #    🛑 有紅世界那行是 `Test Files  1 failed | 71 passed (72)` ⇒ 第一個數字 = **紅幾支** 🔴
+  #    ⇒ -mail 那棵樹有一支真的紅, 而本支印「跑 1 < 餵 53」——
+  #      **它仍然擋住了(rc≠0), 而它報的原因是錯的。**
+  #    📌 **一把在兩個世界讀到【不同語意】的尺 —— 而它在其中一個世界剛好是對的。**
+  #      那正是最難發現的一種:全綠時它每次都對。
+  # ✅ 改讀【括號裡的總數】`(N)` —— 那一格在兩個世界都是「總共幾支」。
+  _ran=$(grep -aoE 'Test Files.*\([0-9]+\)' "$_log" 2>/dev/null | tail -1 | grep -oE '\([0-9]+\)' | tail -1 | tr -d '()')
+  # 🔵 而【有紅】要單獨說 —— 「跑的支數對」與「它們都過了」是兩個宣稱。
+  _red=$(grep -aoE 'Test Files +[0-9]+ failed' "$_log" 2>/dev/null | tail -1 | grep -oE '[0-9]+' | head -1)
   if [ -z "${_ran:-}" ]; then
     echo "🔴 量具失效:抓不到 vitest 的 \`Test Files\` 那行"
     echo "   ⇒ 這【不是】「測試都過了」—— 兩種世界都印不出那行:它根本沒跑 / 它的輸出格式變了。"
@@ -94,6 +105,11 @@ judge_ran() {
     echo "   ⇒ 少了:那支檔被改名/刪掉(分母當場算, 名字算得出來而檔案撈不到),"
     echo "     或 vitest 整批落空(-mail 2026-09-05 在 basename 版遇過:餵 53 跑 1)。"
     echo "   ⇒ 多了:有路徑意外匹配到別支 ⇒ 分母的算法要看一眼。"
+    return 2
+  fi
+  if [ -n "${_red:-}" ] && [ "$_red" != "0" ]; then
+    echo "🔴 支數對得上($_ran = $_fed), **而其中 $_red 支是紅的**"
+    echo "   ⇒ 這兩件事要分開讀:分母沒問題, 是【測試本身紅了】。去看 $_log。"
     return 2
   fi
   echo "  🔵 它跑了 $_ran 支檔(我餵 $_fed)⇒ **嚴格相等**(餵完整路徑, 一條只匹配它自己)"
@@ -162,6 +178,16 @@ SQLEOF
   printf ' Test Files  71 passed (71)\n' > "$_t/many"
   judge_ran "$_t/many" 52 > /dev/null 2>&1
   [ "$?" = "2" ] && echo "  ✅ judge_ran:跑 71 ≠ 餵 52(多)⇒ 2(路徑版不該多撈)" || { echo "  🔴 judge_ran 對「多撈」沒反應"; ok=1; }
+  # 🔴 -mail 2026-09-05 那個世界:有 1 支紅 ⇒ 那行是 `1 failed | 71 passed (72)`
+  #    舊版讀第一個數字 ⇒ 印「跑 1」;新版讀 (72) ⇒ 支數對, 而要報【有紅】。
+  printf ' Test Files  1 failed | 71 passed (72)\n' > "$_t/red"
+  judge_ran "$_t/red" 72 > "$_t/redout" 2>&1
+  _rc=$?
+  if [ "$_rc" = "2" ] && grep -q '其中 1 支是紅的' "$_t/redout"; then
+    echo "  ✅ judge_ran:1 紅 71 綠(共 72)⇒ 讀到【72】不是 1, rc=2 且原因寫「有紅」"
+  else
+    echo "  🔴 judge_ran 對「有紅」的世界讀錯:rc=$_rc / $(head -1 "$_t/redout")"; ok=1
+  fi
   printf ' Test Files  52 passed (52)\n' > "$_t/ok"
   judge_ran "$_t/ok" 52 > /dev/null 2>&1
   [ "$?" = "0" ] && echo "  🟢 負對照:跑 52 = 餵 52 ⇒ 0(它不是對什麼都紅)" || { echo "  🔴 judge_ran 誤報"; ok=1; }
