@@ -8358,7 +8358,18 @@ order by n desc, 1;
 
 ### #286. 📮 死信人工重送工具(Email outbox)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ⛔ ~~⏳ 待執行~~ ⇒ 🟢 **已做完, 而且在正式站上活著**(2026-09-04 `-ship` 實查訂正)
+  - UI `apps/admin/src/app/settings/mail/page.tsx:131`(`<form action={requeueDeadEmailAction}>`)
+  - Action `lib/mail/dead-letter-actions.ts:44` —— 管理者專用閘、稽核先寫、
+    `status ∈ {pending, failed}` 且 `attempts >= maxAttempts` 才收
+  - RPC `admin_requeue_dead_email(p_outbox_id uuid)` —— 🔬 **正式庫唯讀實查存在**
+    (2026-09-03 20:06 UTC;落點 `20260831040000`,`APPLIED.tsv` 有記)
+  - 首頁死信計數 `app/page.tsx:374` 連得過去
+  - 🔬 而**今天有幾封死信** ⇒ **0**(`email_outbox` 全表 3 列全是 `sent`、`attempts` 全為 1)
+    ⇒ 📌 **那個工具還沒有被用過** —— 它存在, 而**沒有人驗過它在真的死信上會怎樣**
+- **⚠️ 這一列為什麼拖到今天才訂正:** 三個地方同時寫著「沒有這個工具」——
+  本列、`IEmailOutbox.ts:216` 的誠實揭示、以及 `-ship` 2026-09-04 依它們寫的一份報告。
+  🎯 **而那三處互相引用, 所以【看起來像三個獨立來源】。**
 - **優先級:** 🟡 低(E3 上線後升 🟠 中 — 屆時才有真信會死)
 - **問題:**
   - outbox 列 `attempts >= max_attempts` 後即為**死信**:不進 due 索引、不會再被認領、**對帳補寄看到列已存在就不補寄** → 該客人永遠收不到信。目前**無任何工具可救回**(無 reset attempts、無手動重送入口)。

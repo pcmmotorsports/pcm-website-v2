@@ -144,7 +144,12 @@ describe('BrandShowcase 覆蓋率 vs. 已開放寫入(writeAllowed)的供應商'
     // 🔴 2026-09-04:`dbk` 移出 —— 它當天登記進 SUPPLIER_CONFIGS(`writeAllowed: false`)。
     //   照本條失敗訊息自己指的前例(gilles 2026-08-27)。⚠️ **移出這一格不代表它需要 showcase** ——
     //   主閘的分母是 `writeAllowed === true`,而 dbk 是 false ⇒ 它現在歸【負對照②】管。
-    const zeroProductBrands = ['kineo', 'rizoma', 'wrs'];
+    // 🔴 2026-09-04 上午:`rizoma` 移出 —— 它當天登記進 SUPPLIER_CONFIGS(writeAllowed: false)。
+    //   ⛔ ~~而 rizoma 是 false ⇒ 它現在歸【已登記但未開寫】那一格管~~ —— **同日下午作廢**:
+    //   Sean 逐字「`q3: 上`」批首灌 ⇒ `writeAllowed: true` ⇒ 🎯 **它現在歸主閘管**
+    //   (而 `RizomaShowcase.tsx` 早就在 ⇒ 主閘不紅)。**舊字面留刪除線, 不刪。**
+    //   📌 codex 抓到的:一句只在「還沒開寫」那個世界為真的註解, 在開寫之後【安靜地變假】。
+    const zeroProductBrands = ['kineo', 'wrs'];
     const registeredBrandSlugs = new Set(Object.values(SUPPLIER_CONFIGS).map((c) => c.brandSlug));
     for (const slug of zeroProductBrands) {
       expect(
@@ -176,6 +181,9 @@ describe('BrandShowcase 覆蓋率 vs. 已開放寫入(writeAllowed)的供應商'
       '這一群變了 ⇒ 要嘛有人登記了新供應商還沒開寫(那它歸本格管), ' +
         '要嘛守門靶被動過。兩種都要有人看一眼, 不要直接改期望值。',
     ).toEqual(['__gated_canary__']);
+    // ⛔ ~~2026-09-04 上午:`['__gated_canary__', 'rizoma']`~~ —— rizoma 當天下午 Sean 逐字
+    //   「`q3: 上`」批首灌 ⇒ 翻 writeAllowed=true ⇒ **這一格如上一則註解預告的【再紅了一次】**,
+    //   而那正是它存在的理由:兩個方向的變動都會紅, 抽不乾。**舊字面留刪除線, 不刪。**
   });
 
   // 🔴 而【分割不變式】才是這一組真正扛事的那一格 —— 它與誰開不開寫無關, 抽不乾。
@@ -198,6 +206,7 @@ describe('BrandShowcase 覆蓋率 vs. 已開放寫入(writeAllowed)的供應商'
   it.each([
     ['gilles', 'gilles'],
     ['dbk', 'dbk'],
+    ['rizoma', 'rizoma'],
   ])('🔴 %s 首灌後應為「已開寫 + case 在」', (supplierSlug, brandSlug) => {
     const cfg = SUPPLIER_CONFIGS[supplierSlug];
     expect(cfg, `${supplierSlug} 不在 SUPPLIER_CONFIGS 裡`).toBeDefined();

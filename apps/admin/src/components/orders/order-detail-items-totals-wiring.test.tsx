@@ -22,6 +22,26 @@ import type { AdminOrderDetail } from '@pcm/domain';
 
 vi.mock('server-only', () => ({}));
 
+// 🔴🔴 **2026-09-04:本檔新增 app router 的 mock —— 而它【不是】為了配合某個改動。**
+//    本檔的 fixture 走的是 `quantitySummary: null`(那正是它要測的世界),
+//    而片乙給 `defaultOpen` 加了「還有件數沒有登記來源 ⇒ 也展開」, 其中 `null` 算「不知道 ⇒ 開」
+//    ⇒ 🎯 **⇒ 於是這棵渲染樹開始 mount `ItemProcurementForm`, 而它 `useRouter()`。**
+//    ⇒ ⇒ 🛑 **⇒ 沒有 mock ⇒ `invariant expected app router to be mounted` ⇒ 整格炸掉。**
+//
+//    ⚠️ **那它原本為什麼不用?** —— 因為那棵樹以前不 mount 那支元件。
+//    ⇒ 📌 **⇒ 所以補這個 mock 不是「放寬」, 是【它渲染的世界變寬了】** ——
+//       它現在真的渲染一棵會用到 router 的樹, 那就該給它一個 router。
+//    🔴 **而反過來那半也要成立**:把片乙那個條件拿掉之後, 本檔應該**仍然全綠**
+//       —— 否則表示這個 mock 掛錯地方(它變成在測片乙, 而不是在測總計區)。已實跑驗過。
+//
+// 🛑 而**這一整件最值得記的**:改一個 `defaultOpen` ⇒ **一整棵子樹開始 mount**
+//    ⇒ 🎯 爆炸半徑是「那棵子樹裡所有元件的 hook 需求」, 而**那在 diff 上完全看不見**;
+//       `vitest related` 與手挑都看 **import 圖**, 而本檔**不 import** 被改的那支
+//    ⇒ ⇒ 📌 **⇒ 它是被【渲染樹】牽動的, 不是被 import 牽動的 ⇒ 那一族結構上撈不到。**
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+}));
+
 import { ItemsTable } from './order-detail-items-table';
 // 🔵 `#450` 兩個**必填無預設**的 prop —— 大多數格子測的不是到貨列表,
 //    給「沒有到貨、沒有包裹」讓行為與加這一片之前逐字相同。

@@ -494,9 +494,21 @@ function makeCategoriesClient(
         selectCalls.push(cols);
         return b;
       },
+      // 🔴 原本這裡**直接 resolve** ⇒ 串第二個 `.order()` 會炸(`.order is not a function`)。
+      //    改成回 builder + thenable(supabase 的 builder 本來就是 thenable)——
+      //    ⇒ 📌 而**這個 mock 的形狀本身就是一道限制**:它只允許一個 `.order()`,
+      //      所以「加第二個排序鍵」這件事**在改 mock 之前是測不出來的**。
       order(col: string, opts: unknown) {
         orderArgs.push([col, opts]);
-        return Promise.resolve({ data: categories, error: null });
+        return b;
+      },
+      // ⚠️ **而這個 `then` 讓守門變薄了一格, 寫出來**:
+      //    舊 mock 的 `select()` 回**非 thenable** ⇒ 一個 `.order()` 都不呼叫時 `await` 拿到 builder 本身、
+      //    `data` 是 undefined ⇒ **連映射那格測試也會紅**(兩格擋)。
+      //    新 mock 把 `then` 掛在 builder 上 ⇒ **完全不排序照樣回全量資料** ⇒ 只剩下面 `orderArgs`
+      //    那一格擋得住。⇒ 📌 **我的突變只拿掉一個 `.order`, 沒測「兩個都拿掉」那個形狀。**
+      then(resolve: (v: { data: CatRegistryRow[]; error: null }) => unknown) {
+        return Promise.resolve({ data: categories, error: null }).then(resolve);
       },
     };
     return b;
@@ -572,7 +584,18 @@ describe('SupabaseProductAdapter.listCategories — C1 接線', () => {
     await adapter.listCategories();
 
     // adapter 確實向 DB 請求 sort_order 遞增排序(真實排序由 DB 執行、非靠 mock 預排)
-    expect(orderArgs).toEqual([['sort_order', { ascending: true }]]);
+    // 🔴🔴 **三個鍵, 而順序不能反**:`name` 買「跨得過重灌 seed」(id 是 gen_random_uuid),
+    //    `id` 買「全序」(name 也不唯一 —— 正式站實查 `(sort_order, name)` 還有 3 組平手:
+    //    `水管束環` / `防爆水管組` / `維修零件`)。⇒ 📌 **兩格各買一半, 缺一個都不行。**
+    //    少了它, `sort_order` 並列的列回傳順序沒有保證
+    //    (正式站實查:117 個分類只有 30 個相異 sort_order ⇒ 87 列撞號)。
+    // 🛑 而本格驗的是【我們有沒有【要求】那個順序】, **不是**【DB 有沒有照做】——
+    //    後者要真 DB 才驗得到, 而這裡是 mock。⇒ 📌 射程寫出來, 不要讓它假裝更大。
+    expect(orderArgs).toEqual([
+      ['sort_order', { ascending: true }],
+      ['name', { ascending: true }],
+      ['id', { ascending: true }],
+    ]);
     // count 查詢確實傳 head:true + count:'exact'(head:true=零 row 傳輸、避 1000-row 截斷)
     expect(countSelectOpts).toEqual(
       CATS.map(() => ({ count: 'exact', head: true })),

@@ -213,7 +213,16 @@ export type EmailSendErrorCode =
    * 不假設確切時刻**(故仍每日重試 = 帳期若重置即自動成功,無需人工)。
    * **E2a 退避 = 比照 daily(+24h)+ dead-man 訊號 5 每日告警**(Sean 2026-07-17 拍 Q9=A)。
    * 理由:升 Pro 後額度即恢復 → 下次重試自動全寄;5 天緩衝(每日告警)、5 天無處置 → 死信。
-   * 🔴 **誠實揭示:目前無「死信人工重送」工具**(Sean 已知悉此缺口才拍;backlog **#286**)。
+   * ⛔ ~~🔴 **誠實揭示:目前無「死信人工重送」工具**(Sean 已知悉此缺口才拍;backlog **#286**)。~~
+   * 🟢 **2026-09-04 這句已經不成立 —— 那個工具做好了, 而且在正式站上活著**:
+   *   · UI `apps/admin/src/app/settings/mail/page.tsx:131` 一個 `<form action={requeueDeadEmailAction}>`
+   *   · Action `lib/mail/dead-letter-actions.ts:44` —— **管理者專用閘**、稽核**先寫**、
+   *     `status ∈ {pending, failed}` 且 `attempts >= maxAttempts` 才收
+   *   · RPC `admin_requeue_dead_email(p_outbox_id uuid)` —— 🔬 **正式庫唯讀實查存在**
+   *     (2026-09-03 20:06 UTC;落點 `20260831040000`, `APPLIED.tsv` 有記)
+   *   · 首頁那格死信計數 `app/page.tsx:374` **連得過去**
+   * 📌 **而舊字面留著加刪除線是刻意的** —— 我 2026-09-04 自己引用過這一句去寫一份報告,
+   *    而**它當時已經假了三天**。⇒ 🎯 **一句誠實揭示過期之後, 讀起來與它還成立時一模一樣。**
    */
   | 'quota_monthly_exceeded'
   /** transport 層失敗(fetch reject / 逾時);與 HTTP 狀態碼互斥。 */

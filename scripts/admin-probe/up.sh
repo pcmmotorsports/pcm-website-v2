@@ -499,3 +499,43 @@ else
   echo "🔴 自檢沒過 —— **不要拿這個環境下任何結論**。log 在 $S/"
   exit 1
 fi
+
+# ══ 收尾閘:這條鏈的每一段【真的在聽嗎】 ═══════════════════════════════════════
+# 🔴🔴 **這一段存在的理由是一次實錘(2026-09-04 線 `-ship`)**:
+#    這支腳本回 **rc=0**,而 `proxy.log` 裡是 `OSError: [Errno 48] Address already in use`
+#    —— **proxy 根本沒起來**。⇒ 🎯 而那之後讀到的每一個畫面都是【無效量測】,
+#    **而它們看起來完全正常**(頁面 200、側欄有數字、空表提示照印)。
+# 🔴 **而那一次的前置埠檢查【印了綠】** —— 檢查完到綁埠之間,別窗把那個埠拿走了。
+#    📌 **⇒ 檢查與使用之間有時間差,而檢查那一刻是誠實的。**
+#    ⇒ ✅ **所以判準不能是「起之前埠空著」,要是「起完之後它真的在聽」。**
+# 🛑 **而這一段【不 exit 1】** —— 它印紅、講清楚,而把要不要用交給人:
+#    有些片(純看版面)在 proxy 死掉時仍然做得下去,而**把它們一起擋掉會讓人想繞過這道閘**。
+echo
+_LISTEN_BAD=0
+for _p in "$WEB" "$PROXY" "$PREST" "$PG"; do
+  # 🔴 `[.*]` 是刻意的:綁 127.0.0.1 印成 `127.0.0.1.3061`,綁全介面印成 `*.3979`
+  #    ⇒ 只認 `\.` 會漏掉後者,而**漏掉的方向是「以為它沒起來」**(那個方向會叫,還好)。
+  _n=$(netstat -an -p tcp 2>/dev/null | grep LISTEN | grep -c "[.*]$_p " || true)
+  if [ "${_n:-0}" = "0" ]; then
+    echo "🔴 埠 $_p **沒有人在聽** —— 這條鏈少了一段。"
+    _LISTEN_BAD=1
+  fi
+done
+# 🔴 **`grep -c` 印 0 的時候 rc=1** —— 而本檔是 `set -euo pipefail`
+#    ⇒ 沒有 `|| true` 的話, **這道閘會在「一切正常」時把整支腳本殺掉**(2026-09-04 實撞:
+#    我加完這段, up 回 rc=1 而閘一個字都沒印)⇒ 📌 **一道守門死在它自己要守的那個綠上。**
+_E48=$( { grep -c "Address already in use" "$S"/*.log 2>/dev/null || true; } \
+        | awk -F: '{s+=$NF} END {print s+0}' )
+if [ "${_E48:-0}" != "0" ]; then
+  echo "🔴 log 裡有 $_E48 次 \`Address already in use\` ⇒ **有東西沒搶到埠**。"
+  _LISTEN_BAD=1
+fi
+if [ "$_LISTEN_BAD" = "0" ]; then
+  echo "🟢 收尾閘:$WEB / $PROXY / $PREST / $PG **四個都在聽**,且 log 零 \`Address already in use\`。"
+else
+  echo "🛑 **上面那幾格是紅的 ⇒ 這台鑽機【只有一部分起來了】。**"
+  echo "   🔴 **而這支腳本仍然會回 rc=0** —— 那不是漏洞,是刻意:紅的那幾格由你判要不要往下做。"
+  echo "   ⇒ 🎯 **而【rc=0】不代表起來了。** 換一組埠重跑:"
+  echo "        ADMIN_PROBE_WEB=3062 ADMIN_PROBE_PROXY=3892 ADMIN_PROBE_PREST=3893 ADMIN_PROBE_PG=55854 \\"
+  echo "          bash scripts/admin-probe/up.sh"
+fi

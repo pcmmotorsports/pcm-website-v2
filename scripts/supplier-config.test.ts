@@ -130,7 +130,7 @@ describe('getSupplierConfig', () => {
     expect(cfg.variantImages).toBe('per-variant'); // 222 群多變體、最大群 7
   });
 
-  it('should register exactly the pilot set + 品牌放量 8 家(2026-07-10)+ akrapovic(07-19)+ extreme/kspeed(07-24)+ dna(08-20)+ gilles(08-27)+ dbk(09-04)', () => {
+  it('should register exactly the pilot set + 品牌放量 8 家(2026-07-10)+ akrapovic(07-19)+ extreme/kspeed(07-24)+ dna(08-20)+ gilles(08-27)+ dbk(09-04)+ rizoma(09-04)', () => {
     // 防呆:誰未查證就多塞一家 → 這條逼他改測試同時面對「已 MCP 查證了嗎」。
     // 2026-07-24 品牌上架第三批補 extreme(第 15 家、commit 9a2f62a/d756651)+ kspeed(第 16 家、
     //   commit 2b5cba1;supplierSlug='kspeed'、brandSlug='k-speed' 拼法分岔)並開寫首灌。
@@ -142,6 +142,11 @@ describe('getSupplierConfig', () => {
     //   而 supplier-config.ts 那側的註解數的是【真供應商】⇒ 同一家會有兩個編號。
     //   實量(2026-08-27):登記表總鍵數 18 / 真供應商 17 / gilles 是第 17 家真供應商。
     //   ⇒ 要引用數量請用這三個量到的數字,不要用序數。
+    // 2026-09-04 補 rizoma(第 19 家真供應商;supplierSlug=brandSlug='rizoma')
+    //   writeAllowed=false 起手 —— **Sean 尚未批首灌**, 零寫入。登記本身不寫任何資料。
+    //   🔴 而它有一筆源頭資料是錯的(⟦supply-RIZOMASPECWRONG⟧:兩支紅色變體 spec 寫「黑」),
+    //     而那 4 支 is_listed=false ⇒ view 裡 0 列 ⇒ 灌不上去 ⇒ 不擋首灌;
+    //     🛑 而擋住它的是【會變的旗標】不是守門。
     // 2026-09-04 補 dbk(第 18 家真供應商;supplierSlug=brandSlug='dbk',拼法未分岔),
     //   ⛔ ~~writeAllowed=false 起手(fail-closed 零寫入)~~ ⇒ 🔴 **2026-09-04 06:xx Sean 逐字
     //   「甲 上」批首灌 ⇒ 已翻 true**(落點 `~/pcm-mailbox/等Sean拍的題-20260903.md:2648`;
@@ -159,7 +164,8 @@ describe('getSupplierConfig', () => {
     expect(Object.keys(SUPPLIER_CONFIGS).sort()).toEqual([
       '__gated_canary__',
       'akrapovic', 'bonamici', 'cncracing', 'dbk', 'dna', 'eazigrip', 'ebc', 'evotech', 'extreme',
-      'front3d', 'gbracing', 'gilles', 'kspeed', 'lightech', 'materya', 'motogadget', 'rpm', 'samco',
+      'front3d', 'gbracing', 'gilles', 'kspeed', 'lightech', 'materya', 'motogadget',
+      'rizoma', 'rpm', 'samco',
     ]);
   });
 });
