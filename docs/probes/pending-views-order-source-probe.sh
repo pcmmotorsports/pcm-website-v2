@@ -29,6 +29,15 @@ PSQL=$(pick psql)     || exit 1
 export LC_ALL=C LANG=C
 # 🔴 R1-F12:寫死的 port 會與別支並行的 probe 撞 ⇒ 可覆寫
 D=$(mktemp -d); P="${PGPORT_PROBE:-54329}"
+# 🔴 R3-N1:本檔有多處 early `exit 1`(fixture 失敗 / 突變檔是空的 …)
+#    ⇒ 沒有 trap 的話, 那些路徑會**留下一個還在跑的 postmaster 與一個暫存目錄**,
+#      而下一次跑會撞 port ⇒ 症狀是「起不來」, 而成因是【上一次沒收乾淨】。
+#    📌 那個症狀與「本機根本沒裝 PG」長得一樣, 而它們的下一步完全不同。
+cleanup() {
+  [ -d "$D/pg" ] && "${PG_CTL:-pg_ctl}" -D "$D/pg" -w stop > /dev/null 2>&1
+  rm -rf "$D"
+}
+trap cleanup EXIT INT TERM
 export PGHOST="$D" PGPORT="$P" PGDATABASE=postgres
 "$INITDB" -D "$D/pg" -U postgres --no-sync -A trust > /dev/null 2>&1
 "$PG_CTL" -D "$D/pg" -o "-k $D -h '' -p $P" -l "$D/log" -w start > /dev/null 2>&1 || { echo "起不來"; cat "$D/log"; exit 1; }
@@ -134,7 +143,37 @@ INSERT INTO public.shipment_items VALUES
   ('00000000-0000-0000-0000-0000000000f1','00000000-0000-0000-0000-0000000000a1'),
   ('00000000-0000-0000-0000-0000000000f1','00000000-0000-0000-0000-0000000000a2');
 " > /dev/null
-RAW=$(Q -Atc "SELECT count(*) FROM public.shipments s JOIN public.shipment_items si ON si.shipment_id=s.id")
+# 🔴 R3-N2:view ③(tracking_corrected)同樣是 SELECT DISTINCT, 而先前【零格】造它的世界
+#    ⇒ 「加一欄不改列數」那個宣稱, 對 ③ 只是推的不是量的。這裡把它的世界也造出來。
+#    它多要三個條件:tracking_corrected_at 有值 · tracking_number 非空 ·
+#    以及一筆【已寄出且早於更正時刻】的 order_shipped outbox 列(客人真的收過那個錯號碼)。
+# 🔴 ③ 的世界要用【自己的一張單】—— 我第一版把它蓋在 ② 那張出貨上,
+#    而 ② 的條件是「還沒寄過 order_shipped」⇒ 我一插那筆 outbox, ② 當場掉到 0 格。
+#    📌 又一次:我為了造一個世界而【弄壞了另一個我正在量的世界】, 而探針當場叫。
+Q -c "
+INSERT INTO public.orders (id,display_id,created_at,customer_user_id,payment_status,order_source)
+VALUES ('00000000-0000-0000-0000-000000000004','T1',now(),'00000000-0000-0000-0000-0000000000c1','paid','manual_line');
+INSERT INTO public.order_items VALUES
+  ('00000000-0000-0000-0000-0000000000b1','00000000-0000-0000-0000-000000000004'),
+  ('00000000-0000-0000-0000-0000000000b2','00000000-0000-0000-0000-000000000004');
+INSERT INTO public.shipments (id,shipment_reference,shipped_at,tracking_number,carrier_code,tracking_corrected_at)
+VALUES ('00000000-0000-0000-0000-0000000000f2','SHIP-2',now(),'TRK-1','hct',now());
+INSERT INTO public.shipment_items VALUES
+  ('00000000-0000-0000-0000-0000000000f2','00000000-0000-0000-0000-0000000000b1'),
+  ('00000000-0000-0000-0000-0000000000f2','00000000-0000-0000-0000-0000000000b2');
+INSERT INTO public.email_outbox (order_id, event_type, dedup_key, status, sent_at)
+VALUES ('00000000-0000-0000-0000-000000000004', 'order_shipped',
+        public.pcm_shipped_email_dedup_key('00000000-0000-0000-0000-0000000000f2',
+                                           '00000000-0000-0000-0000-000000000004'),
+        'sent', now() - interval '1 hour');
+" > /dev/null
+TRK_RAW=$(Q -Atc "SELECT count(*) FROM public.shipments s JOIN public.shipment_items si ON si.shipment_id=s.id WHERE s.tracking_corrected_at IS NOT NULL")
+TRK_BEFORE=$(Q -Atc "SELECT count(*) FROM public.pcm_tracking_corrected_email_pending")
+chk "格2c-③ 底層配對(它也要是 DISTINCT 世界)" "$TRK_RAW" 2
+chk "格2c2-③ view 貼前撈到" "$TRK_BEFORE" 1
+
+# 🔵 這一格數的是【② 那張出貨】的配對 —— 加了 ③ 的 fixture 之後, 不加條件會數到兩張單的 4。
+RAW=$(Q -Atc "SELECT count(*) FROM public.shipments s JOIN public.shipment_items si ON si.shipment_id=s.id WHERE s.id='00000000-0000-0000-0000-0000000000f1'")
 DIST_BEFORE=$(Q -Atc "SELECT count(*) FROM public.pcm_shipped_email_pending")
 chk "格2b-底層配對(fixture 要真的造出 DISTINCT 世界)" "$RAW" 2
 chk "格2b-DISTINCT 那支貼前撈到" "$DIST_BEFORE" 1
@@ -144,7 +183,7 @@ chk "格2b-DISTINCT 那支貼前撈到" "$DIST_BEFORE" 1
 #    看起來像「加一欄改了行為」, 而真正的成因是我自己中途換了世界。
 #    📌 前後兩個讀數要來自同一個世界, 否則差值不是我要的那個差值。
 ROWS_BEFORE=$(Q -Atc "SELECT count(*) FROM public.pcm_order_created_email_pending")
-chk "格2 貼之前那個 view 撈到幾列" "$ROWS_BEFORE" 3
+chk "格2 貼之前那個 view 撈到幾列" "$ROWS_BEFORE" 4
 
 # ── 正向 ──────────────────────────────────────────────────────
 Q -f "$MIG" > "$D/apply.log" 2>&1; RC=$?
@@ -155,9 +194,13 @@ chk "格4 貼之後 order_source 欄數" "$AFTER_N" 4
 ROWS_AFTER=$(Q -Atc "SELECT count(*) FROM public.pcm_order_created_email_pending")
 chk "格5 貼之後那個 view 撈到幾列(🔴 行為不得改變)" "$ROWS_AFTER" "$ROWS_BEFORE"
 SRC=$(Q -Atc "SELECT string_agg(order_source, ',' ORDER BY display_id) FROM public.pcm_order_created_email_pending")
-chk "格6 新欄真的帶出值" "$SRC" "manual_phone,manual_line,web"
+chk "格6 新欄真的帶出值" "$SRC" "manual_phone,manual_line,manual_line,web"
 DIST_AFTER=$(Q -Atc "SELECT count(*) FROM public.pcm_shipped_email_pending")
 chk "格6b 🔴 DISTINCT 那支貼後撈到(加一欄不得改列數)" "$DIST_AFTER" "$DIST_BEFORE"
+TRK_AFTER=$(Q -Atc "SELECT count(*) FROM public.pcm_tracking_corrected_email_pending")
+chk "格6d-③ DISTINCT 那支【第二個】貼後撈到(加一欄不得改列數)" "$TRK_AFTER" "$TRK_BEFORE"
+TRKSRC=$(Q -Atc "SELECT string_agg(order_source, ',') FROM public.pcm_tracking_corrected_email_pending")
+chk "格6e-③ 它的新欄值" "$TRKSRC" "manual_line"
 DSRC=$(Q -Atc "SELECT string_agg(order_source, ',') FROM public.pcm_shipped_email_pending")
 chk "格6c DISTINCT 那支的新欄值" "$DSRC" "manual_line"
 
@@ -272,12 +315,11 @@ else
   echo "  🔴 找不到回退腳本 $DOWN"; FAILED=$((FAILED + 1))
 fi
 
-"$PG_CTL" -D "$D/pg" -w stop > /dev/null 2>&1
-rm -rf "$D"
+# 🔵 收尾交給上面那個 trap(它涵蓋 early exit;這裡再收一次會變成收兩次)
 
 # 🔴 rc 由【結果】決定 —— 這一段就是 R2-M2 的修法本體。
 if [ "$FAILED" -eq 0 ]; then
-  echo "🟢 全部 28 格通過"
+  echo "🟢 全部 32 格通過"
   exit 0
 fi
 echo "🔴 有 $FAILED 格不符預期 ⇒ 本探針判 FAIL"

@@ -87,7 +87,30 @@ SELECT c.relname AS view名,
  ORDER BY 1;
 
 \echo ''
+\echo '=== ⑤ 🔴 那四支函式 service_role 還叫得動嗎(R3-C1)==='
+\echo '    預期:四列皆 t。任何一個 f ⇒ 這四個 invoker view【查一次錯一次】而上面每一格照樣綠'
+\echo '    (它們是 security_invoker view ⇒ body 裡的函式用【呼叫者】權限跑)'
+SELECT p.proname AS 函式,
+       pg_catalog.has_function_privilege('service_role', p.oid, 'EXECUTE') AS service_role叫得動,
+       NOT pg_catalog.has_function_privilege('anon', p.oid, 'EXECUTE')     AS anon叫不動
+  FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+ WHERE n.nspname = 'public'
+   AND p.proname IN ('pcm_js_trim_whitespace','pcm_shipped_email_dedup_key',
+                     'pcm_tracking_corrected_at_key','pcm_tracking_corrected_dedup_key')
+ ORDER BY 1;
+
+\echo ''
+\echo '=== 🟢 正對照:同一把尺問一支【一定叫得動】的函式 ⇒ 該 t ==='
+\echo '    預期:t(若它是 f, 上面那四個 t 沒有意義 —— 那表示這把尺在這裡不會動)'
+SELECT pg_catalog.has_function_privilege('service_role', 'pg_catalog.now()'::regprocedure, 'EXECUTE') AS 正對照_now;
+
+\echo ''
 \echo '=== 🛑 這一份【證不到】什麼 ==='
 \echo '    · 它證欄位在, 不證那一欄【填對了值】—— 要那個, 去看實際資料'
 \echo '    · 它不證行為沒變。行為那一半由片 A 的探針(拋棄式 PG, 貼前貼後各數一次列)答'
+\echo '    · 🔴 ⑤ 那格問的是【現在】—— 而它答不出「明天有人收緊 EXECUTE 之後會怎樣」'
+\echo '      那要等下一支 migration 的自證④ 去擋, 或等有人再跑一次本檔'
+\echo '    · 🔴 它不看 ALTER DATABASE / ALTER ROLE ... SET 那一層(R3-C3 同族)——'
+\echo '      一個在角色層改掉的預設, 本檔每一格照樣綠'
+\echo '    · 它問的是【權限】不是【資料】—— 那一欄有沒有填對, 這一份一個字都答不出來' 
 \echo '    · ⛔ ~~has_table_privilege 對欄級授權會少報~~ ⇒ 已全部換成 has_any_column_privilege(codex R2-MF1)'
