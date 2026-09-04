@@ -178,7 +178,6 @@ DECLARE
   v_res      jsonb;
   v_verdict  text;
   v_received bigint;
-  v_manual   bigint;
   v_new      public.payment_status;
   v_hit      integer;
 BEGIN
@@ -233,14 +232,27 @@ BEGIN
     --    ⇒ 兩本退款帳合計已達 1000, 而卡片 helper 只看自己的 600
     --    ⇒ **狀態永久停在 partiallyRefunded, 不會成為 refunded。而它不報錯。**
     -- 🔵 voided_at 非空 = 那筆退款被作廢 ⇒ 錢沒有真的離開 ⇒ 不算退款活動。
-    SELECT coalesce(pg_catalog.sum(m.refund_amount), 0) INTO v_manual
-      FROM public.order_manual_refunds m
-     WHERE m.order_id = p_order_id
-       AND m.voided_at IS NULL;
-
-    IF v_manual > 0 THEN
-      RAISE LOG '[pcm_noncard_settle] order=% 有退款活動(manual=%) ⇒ 交還退款管線, 本片不寫',
-                p_order_id, v_manual;
+    -- 🔴🔴 **[2026-09-05 改成 EXISTS, 不再加總金額]**
+    --    ⛔ ~~原本 `SELECT coalesce(sum(m.refund_amount), 0) INTO v_manual`~~ **作廢**。
+    --    🔬 成因:`packages/domain/src/order/refund-remaining-single-source.test.ts`
+    --      (⟦#473b-1⟧「已退/還能退」單一來源守門)判本檔紅 —— 逐字
+    --      「如果它自己算『已退 / 還能退』, 那就是要防的繞路」。
+    --    ✅ **而它抓對了一半:我確實在 SUM 退款金額** —— 🔵 **而那個和從來沒有被當成金額用**:
+    --      剝註解後全檔 `v_manual` 只出現在 ①宣告 ②這一句 ③`> 0` ④一行 log。
+    --    🎯 **⇒ 我要的一直是「有沒有」, 而我寫成了「多少」** ——
+    --      ⇒ 📌 **多算出來的那個數字沒有用途, 而它讓一道正確的守門對我叫。**
+    --      ⇒ ⇒ 🔴 **正確的修法不是去 allowlist 開一個例外, 是【不要算那個和】。**
+    --        (開例外要寫 why 且要有人審 ⇒ 那是把一個我造出來的問題轉成別人的閱讀成本。)
+    --    🔵 語意零改變:`sum(...) > 0` 與 `EXISTS` 在 `refund_amount > 0` 這個 CHECK 下等價
+    --      —— 🔬 `20260820010000` 建表逐字 `refund_amount integer NOT NULL CHECK (refund_amount > 0)`
+    --      ⇒ 不可能有 0 或負數列讓兩者分岔。
+    IF EXISTS (
+      SELECT 1 FROM public.order_manual_refunds m
+       WHERE m.order_id = p_order_id
+         AND m.voided_at IS NULL
+    ) THEN
+      RAISE LOG '[pcm_noncard_settle] order=% 有未作廢的人工退款 ⇒ 交還退款管線, 本片不寫',
+                p_order_id;
       RETURN;
     END IF;
 
