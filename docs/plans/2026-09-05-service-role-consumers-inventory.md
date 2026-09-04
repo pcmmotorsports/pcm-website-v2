@@ -300,3 +300,87 @@ supabase/migrations/20260726120000_m4b_e8a1_staff_table.sql:60
    ⇒ 5a 已證明那把尺是寬的 ⇒ 🔴 那 20 個裡有幾個是錯的, 沒有人量過。
 ③ 目錄表那 4 張(products 等)的影響本節沒追 —— 它在 exclusions.txt 裡已有結論。
 ```
+
+---
+
+## 6. 🔬 **窄判準重算全部 23 個(2026-09-05,主視窗派的 ②)**
+
+**判準【抄自】`supabase/migrations/20260904270000…:292-301`,不是我自己造的** ——
+`PERMISSIVE` 且 `polqual IS NULL / 'true' / '(true)'` 且 `polroles` 含 PUBLIC(0) 或 `service_role`。
+🟢 同一發把**寬尺**(我 09-05 用的、不看 qual)與**窄尺**並排印出來,才看得到差在哪。
+
+```
+物件                                   kind RLS  寬尺   窄尺   判定
+admin_audit_log                        r    t    S      S      缺 I(第 0 步要補)
+admin_order_list_v                     v    f    —      —      🔴 見下方 [R4 A2]
+order_refund_effective_verdict         v    f    —      —      🔴 見下方 [R4 A2]
+admin_sso_login_events                 r    t    (無)   (無)   缺 I(而它刻意無 SELECT)
+staff                                  r    t    S      S      缺 I+U(第 0 步要補)
+   🔴 **[R4 A1 補]** ⛔ ~~上一版這張表【漏了 staff】~~ —— 而它是本案最核心的那一列。
+      ⇒ 📌 「23 個逐格相同」那句當時只涵蓋 **22 個**, 而漏掉的正是要補 I+U 的那一張。
+      🎯 **一張用來支持結論的表, 漏掉的偏偏是結論講的那一列** —— 而它讀起來完全正常。
+brands / categories / product_variants  r    t    DISU   DISU   已涵蓋
+products                               r    t    DISU   DISU   已涵蓋 ← 🔴 見 6b
+email_outbox / sweeper_heartbeat        r    t    ISU    ISU    已涵蓋
+order_items / orders / shipments /
+shipment_items / order_refunds /
+order_manual_refunds / suppliers /
+payment_charge_attempts /
+order_item_procurement(+receipts) /
+order_item_receipt_requests /
+product_fitments_effective_sync_log    r    t    S      S      已涵蓋(碼只讀)
+```
+🎯 **⇒ 23 個裡,寬尺與窄尺【逐格相同】,零差異。**
+
+### 🔴🔴 **[R4 A2] 那兩個 view 的「不算」理由是【錯的】,不只是措辭**
+
+⛔ ~~view, RLS 不掛它身上 ⇒ 不用管~~
+🔬 **R4 實查**:`admin_order_list_v` 與 `order_refund_effective_verdict` 兩支的
+`reloptions = {security_invoker=true}`(而 `public` 的 17 支 view 裡 **15 支**有這個選項)
+⇒ 📌 **`security_invoker` 的 view 會把【呼叫者】在底表上的 RLS 套下去** ——
+**它不是一道遮罩,它是一片玻璃。**
+⇒ 🛑 **所以那兩列不能寫「不用管」,要寫「要看它的底表」** —— 而**底表我沒有逐一追**
+(`-db` 的 §4b 追過一次,結論新增 0;而它那次用的是 `dev` 的樹,不是今天這一版)。
+⚠️ **⇒ 這兩列的判定現在是【未確認】,不是【已涵蓋】。**
+
+### 6b. 🛑 **而那個「零差異」不是我的尺變好了 —— 是【世界變了】**
+
+R3 的 F1 說 `products` 只有 `USING (delisted_at IS NULL)` 那條,**而那在它讀的時候是對的**。
+🔬 現在逐條列 `products` 的 policy:
+```
+products_select_public         SELECT  (delisted_at IS NULL)   PUBLIC      ← 舊的那條, 還在
+products_select_service_role   SELECT  true                    service_role ← 🎯 270000 加的
+products_insert/update/delete_service_role                     service_role
+```
+⇒ 📌 **`20260904270000` 已由 Sean 2026-09-05 03:1x 貼進正式庫(主視窗確認)⇒ 它把那個缺口關掉了。**
+
+🔴🔴 **⇒ 所以「我的寬尺今天給出正確答案」是【碰巧】,不是【它夠好】**:
+· 寬尺會把 `products_select_public`(PUBLIC + 帶過濾)**算成覆蓋** —— 那正是 F1 指出的錯。
+· 而今天它剛好也命中 `products_select_service_role`(真的 `true`)⇒ **兩把尺印同一個答案。**
+· 🛑 **在 `270000` 貼進去之前,同一把寬尺會給出【錯的】答案** ——
+  而我 09-05 跑它的時候,那一支**已經貼了** ⇒ 我拿到對的答案,**而我的尺沒有變。**
+⇒ 🎯 **這一格要記的是:一把壞掉的尺在世界修好之後會開始印對的答案,而它壞的事實沒有改變。**
+　　(同族:memory `feedback_a-negative-control-becomes-a-positive-control-when-the-world-moves-on` 那一類。)
+
+### 6c. ✅ 第 0 步要不要復活 —— 我的判斷:**要,而且射程要縮**
+
+```
+仍然成立的:三張表的【寫入】那半, 版控裡確實沒有人做
+  admin_audit_log         缺 INSERT
+  staff                   缺 INSERT + UPDATE
+  admin_sso_login_events  缺 INSERT(而它刻意不需要 SELECT)
+要改的:
+  ① 檔頭「23 個裡 20 個已涵蓋」的來源要改成【窄判準 + 6a 這張表】, 不是我原本那把寬尺
+  ② 「零行為改變」對【那兩支零-policy 偵測器】為假 —— 而 F4 的成因是 270000 不是本片
+     ⇒ 改成:本片不製造那個接縫, 而它會讓那個接縫更明顯;接縫本身另開一列
+  ③ R2 補的七道前提斷言(RLS 開著 / ACL 齊 / 欄級三欄)全部保留 —— 6a 證明它們仍然需要
+```
+⚠️ **而我不自己復活它** —— 暫停是主視窗裁的,復活也該他裁。本節只給判斷與理由。
+
+### 6d. 本節證不到什麼
+```
+① 我沒有重算【23 之外】的東西 —— 這 23 個的來源仍然是 §2 那把「.from() 字面」的尺,
+   而它的已知盲區(embedded resource、動態表名)R3 的 F5 已經指出, 本節沒有補。
+② 「已涵蓋」只答【policy 那一層】—— GRANT 那層在 §2 的 probe 裡, 兩層都要過。
+③ 我沒有實跑任何一條路徑 —— 全部是唯讀查目錄 + 讀碼。
+```
