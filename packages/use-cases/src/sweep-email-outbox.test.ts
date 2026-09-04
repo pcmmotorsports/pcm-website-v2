@@ -1887,3 +1887,97 @@ describe('sweepEmailOutbox — ⟦取消信-模板⟧ order_unpaid_cancelled', (
     expect(text).not.toContain('customer@example.com');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴🔴 稅額那一列 —— **兩份一起問**(2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 7 步;Sean 拍 Q1=乙)
+//
+// 🛑 **這一組刻意沿用上面那格的形狀**:只驗 `text` 的一格, 在「有人把 `html` 那半拿掉」時照樣全綠。
+//    ⇒ 📌 本片的整個論點就是【兩份不該漂】—— 而**只問一份的測試, 結構上碰不到那件事**。
+describe('稅額那一列 —— 兩份一起問', () => {
+  /**
+   * 稅有值【而且平衡】:940 + 160 − **150** + **1524** = **2474**。五個數字互不相同 ⇒ 換錯欄會紅。
+   *
+   * 🔴🔴 **第一版是 `taxTotal: 55` 而 `discountTotal` 沿用預設的 0** —— codex 對抗審查兩條 must-fix:
+   *   ① **折扣是 0 ⇒ 把「稅額」搬到「折扣」前面, 順序那格照樣全綠**
+   *      (折扣那一列根本沒印, 而 `indexOf` 對不存在的字回 `-1`)。
+   *   ② **稅只有兩位數 ⇒ 把 `formatOrderAmount` 換成直接印數字, 千分位那格照樣全綠**
+   *      (`55` 有沒有逗號長得一樣)。
+   *   ⇒ 📌 **兩條是同一個病:fixture 的值域【比它要守的行為窄】** ——
+   *      而窄掉的那一維上, 突變與正確碼印同一個東西。
+   */
+  const taxed = () =>
+    paidCtx({ discountTotal: 150 as never, taxTotal: 1524 as never, total: 2474 as never });
+
+  async function bothHalves(ctx: ReturnType<typeof paidCtx>) {
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    await sweepEmailOutbox(paidDeps({ kind: 'ok', context: ctx }, outbox, sender), OPTS);
+    const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    return { text: String(input.text), html: String(input.html) };
+  }
+
+  /**
+   * 從排版那份挑出【某個標籤那一列的值】。
+   *
+   * 🔴🔴 **為什麼需要它**(codex 對抗審查 R2 兩條 must-fix):
+   *   ⛔ ~~原本是 `toContain('稅額')` 與 `toContain('1,524')` 兩條【各自獨立】的斷言~~
+   *   ⇒ 🎯 **標籤在、數字也在, 而它們【不必在同一列】** ⇒ 下面兩種突變全綠:
+   *     ① 稅額那一列印成負號 / 拿掉千分位 ⇒ 兩份不一致, 而 `1,524` 仍出現在別處
+   *     ② **只在 HTML 互換「小計」與「運費」的值** ⇒ 兩個數字都還在、平衡式也不變
+   *        ⇒ 📌 **兩份信已經不一致, 而測試全綠** —— 而「任兩欄互換都會紅」正是它宣稱的東西。
+   *   ✅ ⇒ 改成把【標籤與它那一列的值】綁在一起問。
+   * ⚠️ 射程:它認的是本模板的 `<td>標籤</td> … <td>值</td>` 形狀;模板改版要一起改。
+   */
+  function htmlRowValue(html: string, label: string): string | null {
+    // 🔴 用 `lastIndexOf` 不是 `indexOf` —— 「小計」在**表頭那一列也出現一次**
+    //    (品項 / 數量 / 小計), 而金額區在文件的後面。
+    //    ⛔ 我第一版用 `indexOf` ⇒ 撞到表頭 ⇒ 回傳 `'小計'` 而不是 `'940'`。
+    //    📌 **一個標籤在同一份文件裡出現兩次, 而我只想要其中一個** —— 那不是尺壞了, 是我沒說清楚要哪一個。
+    const at = html.lastIndexOf(`>${label}</td>`);
+    if (at < 0) return null;
+    const m = /<td[^>]*>([^<]*)<\/td>/.exec(html.slice(at + label.length + 6));
+    return m === null ? null : m[1]!.trim();
+  }
+
+  it('🔴 有稅 ⇒ 兩份【都】印稅額, 而值與【它那一列】綁在一起', async () => {
+    const { text, html } = await bothHalves(taxed());
+    for (const half of [text, html]) {
+      expect(half).toContain('稅額');
+      expect(half).toContain('1,524');
+    }
+    // 🔴 排版那份:逐列問【標籤 → 它那一格的值】—— 互換任兩欄都會紅
+    expect(htmlRowValue(html, '小計')).toBe('940');
+    expect(htmlRowValue(html, '運費')).toBe('160');
+    expect(htmlRowValue(html, '折扣')).toBe('−150');
+    expect(htmlRowValue(html, '稅額')).toBe('1,524');
+    // 🛑 「訂單金額」那一列的值不在 `<td>` 裡(它是 `<div>` + `<span class="amt">`)
+    //    ⇒ **本尺量不到它** ⇒ 那一格用整份 `toContain` 顧, 而**這一句要寫出來**,
+    //    免得下一個人以為上面四格涵蓋了全部五列。
+    expect(html).toContain('2,474');
+    // 🟢 而這把尺要對【不存在的標籤】回 null, 否則上面每一格都可能是它自己編的
+    expect(htmlRowValue(html, 'zzz_不存在的標籤')).toBeNull();
+    // 🔴 **帶千分位的字面** —— 稅額四位數才守得住 `formatOrderAmount` 被換掉那一發(codex must-fix ②)
+    expect(text).toContain('稅額  NT$ 1,524');
+    // 🟢 而總額要跟著變 —— 否則「印了稅」與「稅沒進總額」分不出來
+    expect(text).toContain('訂單金額  NT$ 2,474');
+    // 🟢 而折扣那一列必須真的印出來, 否則下面順序那格會拿 -1 當座標(codex must-fix ①)
+    expect(text).toContain('折扣  −NT$ 150');
+  });
+
+  it('🔴 稅 0 ⇒ 兩份【都】不印那一列', async () => {
+    const { text, html } = await bothHalves(paidCtx());
+    for (const half of [text, html]) expect(half).not.toContain('稅額');
+  });
+
+  it('🔴 順序與排版那份對齊:小計 → 運費 → 折扣 → 稅額 → 訂單金額', async () => {
+    const { text } = await bothHalves(taxed());
+    const at = (s: string) => text.indexOf(s);
+    expect(at('小計')).toBeGreaterThan(-1);
+    expect(at('運費')).toBeGreaterThan(at('小計'));
+    // 🔴 折扣那一列【必須存在】才量得到順序 —— 不存在時 indexOf 回 -1, 而 -1 比任何座標都小
+    //    ⇒ 那會讓「稅額排在折扣前面」這個突變【照樣通過】。(codex must-fix ①)
+    expect(at('折扣')).toBeGreaterThan(at('運費'));
+    expect(at('稅額')).toBeGreaterThan(at('折扣'));
+    expect(at('訂單金額')).toBeGreaterThan(at('稅額'));
+  });
+});

@@ -1,4 +1,5 @@
 import { chromium, type FullConfig } from '@playwright/test';
+import { contractFailureMessage } from './contract-message';
 
 /**
  * production-build E2E 資料合約 fail-fast(#288-b;plan = docs/specs/2026-07-20-catalog-prod-build-e2e-plan.md §7.1 / §10.1)
@@ -65,21 +66,20 @@ async function globalSetup(config: FullConfig): Promise<void> {
     const total = Number(countText.replace(/[^\d]/g, ''));
     const totalOk = Number.isFinite(total) && total > 0;
 
-    if (cardCount < 1 || !totalOk) {
-      if (totalOk && !cardsRendered) {
-        // 件數解析成功(代表這一頁確實查得到真資料)、但商品卡等滿預算仍未渲染出來——
-        // 這不是 DB 未連通(DB 明顯有回應),更像 streaming 卡住或前端渲染壞掉,訊息不可混為一談。
-        throw new Error(
-          `[e2e-prod 資料合約] /products 件數=${total}(DB 有回應)但商品卡在 ` +
-            `${CONTRACT_NAV_TIMEOUT_MS / 1000}s 內未渲染完成 — 疑似 streaming/前端渲染卡住` +
-            `(非 DB 未連通),先中止整套 E2E。`,
-        );
-      }
-      throw new Error(
-        `[e2e-prod 資料合約] /products 回 2xx 但無目錄資料` +
-          `(商品卡=${cardCount}、件數=${totalOk ? total : '不可解析'})` +
-          ` — 疑似 DB 未連通或冷快取為空,先中止整套 E2E 避免逐測噴難懂的逾時。`,
-      );
+    // 🔴 挑哪一句抽進 `contract-message.ts` —— 三個分支寫在這個 async 函式裡時,
+    //    要驗「哪個世界印哪一句」得起一顆真瀏覽器 ⇒ **實際上沒有人在驗它**,
+    //    而 2026-09-04 那四發紅全部落在最泛用的那一句(「疑似 DB 未連通」),
+    //    🛑 **而同一發裡商品卡渲染了 100 張。** 行為零改動, 動的只有訊息。
+    const failure = contractFailureMessage({
+      cardCount,
+      totalOk,
+      total,
+      cardsRendered,
+      countText,
+      navTimeoutMs: CONTRACT_NAV_TIMEOUT_MS,
+    });
+    if (failure) {
+      throw new Error(failure);
     }
 
     // 成功訊息走 stderr(與 preflight 一致、非測試輸出);只含非敏感計數。

@@ -110,4 +110,102 @@ describe('filterFacets', () => {
     expect(couldNotRead.categories).toEqual(nothingMatched.categories); // 兩個世界的【結果】相同
     expect(couldNotRead.failed.categories).not.toBe(nothingMatched.failed.categories); // 而旗標不同
   });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴🔴 品牌那一區改用 `foldIncludes`(2026-09-04 線【身分】`-auth`)
+  //    每一格都對應線上量到的一個真實缺口, 不是我想出來的形狀:
+  //    `~/pcm-mailbox/量-品牌打錯字-20260904-auth.md`
+  // ══════════════════════════════════════════════════════════════════════
+  it('🔴 去掉分隔符也要中(eazigrip / cncracing —— 線上這兩格今天是 0)', () => {
+    const d = data({ brands: [brand('eazi-grip', 'EAZI-GRIP'), brand('cnc-racing', 'CNC RACING')] });
+    expect(filterFacets('eazigrip', d).brands.map((b) => b.id)).toEqual(['eazi-grip']);
+    expect(filterFacets('cncracing', d).brands.map((b) => b.id)).toEqual(['cnc-racing']);
+  });
+
+  it('🔴 分隔符【換一種】也要中(eazi grip —— 線上這格商品有 8 筆而膠囊是空的)', () => {
+    const d = data({ brands: [brand('eazi-grip', 'EAZI-GRIP')] });
+    // 🛑 這一格修的不只是「少一顆膠囊」, 是**兩層對同一個輸入給相反的答案**。
+    expect(filterFacets('eazi grip', d).brands.map((b) => b.id)).toEqual(['eazi-grip']);
+  });
+
+  it('🔴 重音要折掉 —— 而它要靠【名字】中, 不可以只靠 slug 剛好長對', () => {
+    // 🎯 線上今天 `akrapovic` 會中, 而**那是因為 slug 就叫 akrapovic** ——
+    //    名字那一半實測 `name ILIKE '%akrapovic%'` ⇒ 0 筆(Č ≠ C)。
+    //    ⇒ 這裡把 slug 換成一個對不上的字, 逼它非靠名字不可。
+    const d = data({ brands: [brand('zzz-slug-does-not-help', 'AKRAPOVIČ')] });
+    expect(filterFacets('akrapovic', d).brands).toHaveLength(1);
+  });
+
+  it('🟢 負對照:編造的品牌字仍然 0 —— 折兩端【不是】變成模糊比對', () => {
+    const d = data({ brands: [brand('akrapovic', 'AKRAPOVIČ'), brand('lightech', 'LIGHTECH')] });
+    expect(filterFacets('zzqbrandnotreal', d).brands).toEqual([]);
+    // 🔴 而**打錯一個字母照樣 0** —— 那一半要 pg_trgm, 不在本片。
+    //    寫成會紅的斷言, 免得有人把「今天做到哪」讀成「已經模糊比對了」。
+    expect(filterFacets('akrpovic', d).brands, 'akrpovic 中了 ⇒ 有人偷偷加了模糊比對, 那要另外驗').toEqual([]);
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴🔴 **2026-09-04 Sean 第十七題拍甲 ⇒ 三區都折。而這一段原本是【相反的斷言】**
+  //    ⛔ ~~「分類與車種那兩區行為不變 —— 它們是另一個分母, 本片刻意不動」~~
+  //    ⇒ 那時我停下來問(因為同日另一板寫著「全部不改」), 他回「甲 = 要」⇒ 三區照做。
+  //    📌 **兩板管的不是同一件事**:那一板管【過度命中】(R6 跑出 CBR600, 維持不改);
+  //       第十七題管【命中不足】(eazigrip 找不到 EAZI-GRIP)。
+  // ══════════════════════════════════════════════════════════════════════
+  it('🔴 分類那一區也要折(`slipon` 對 `尾段排氣管(Slip-On)`)', () => {
+    const d = data({ categories: [{ id: 'c1', name: '尾段排氣管(Slip-On)', count: 1 } as never] });
+    expect(filterFacets('slipon', d).categories).toHaveLength(1);
+    // 🟢 正對照:沒折也會中的那一種仍然要中 —— 否則上面那格與「什麼都中」印同一個綠。
+    expect(filterFacets('尾段排氣管', d).categories).toHaveLength(1);
+    // 🔵 負對照:不相干的字仍然 0。
+    expect(filterFacets('zzq不存在的分類', d).categories).toEqual([]);
+  });
+
+  it('🔴 車款那一區也要折(`mt07` 對 `MT-07`)', () => {
+    const d = data({
+      motoBrands: [{ id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-07', name: 'MT-07' }] } as never],
+    });
+    expect(filterFacets('mt07', d).vehicles).toHaveLength(1);
+    expect(filterFacets('zzq不存在的車', d).vehicles).toEqual([]);
+  });
+
+  // 🔴🔴 **正對照用【正式庫真的有的那一對】—— 不是我編的形狀。**
+  //    2026-09-04 正式庫唯讀 + 拿【真的】`foldSearchTerm` 跑 3,536 個「品牌×車款」配對:
+  //    折後撞名 **16 組, 而 16 組全部同一個品牌**(跨品牌 0)⇒ 那是**同一台車的兩種寫法**。
+  //    🎯 而 Sean 要的就是「兩種寫法都中」⇒ 這一格把它釘住。
+  it('🔴 同一台車的兩種寫法(NC 700 S / NC700S)⇒ 折後【兩筆都要中】', () => {
+    const d = data({
+      motoBrands: [
+        {
+          id: 'honda',
+          name: 'Honda',
+          models: [
+            { id: 'nc-700-s', name: 'NC 700 S' },
+            { id: 'nc700s', name: 'NC700S' },
+          ],
+        } as never,
+      ],
+    });
+    expect(filterFacets('nc700s', d).vehicles.map((v) => v.modelName).sort()).toEqual(['NC 700 S', 'NC700S']);
+  });
+
+  // 🛑🛑 **而 `+` 那一族【不可以】被折在一起 —— 它們是不同的車。**
+  //    `Tracer 9 GT`(226 件)與 `Tracer 9 GT+`(48 件)是兩台車, 而 `foldSearchTerm` 不剝 `+`。
+  //    ⇒ 這一格會在有人「順手」把 `+` 加進剝除字元集的那一刻紅。
+  it('🔴 `+` 不得被折掉 —— Tracer 9 GT 與 Tracer 9 GT+ 是【不同的車】', () => {
+    const d = data({
+      motoBrands: [
+        {
+          id: 'yamaha',
+          name: 'YAMAHA',
+          models: [
+            { id: 'tracer-9-gt', name: 'Tracer 9 GT' },
+            { id: 'tracer-9-gt-plus', name: 'Tracer 9 GT+' },
+          ],
+        } as never,
+      ],
+    });
+    // 打帶 `+` 的那個 ⇒ 只該中它自己
+    expect(filterFacets('tracer 9 gt+', d).vehicles.map((v) => v.modelName)).toEqual(['Tracer 9 GT+']);
+  });
+
 });

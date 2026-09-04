@@ -125,6 +125,11 @@ const REGISTERED: Record<string, number> = {
   //    ⚠️ 這一顆是**被本守門抓出來才登記的**(寫元件時照抄作廢鈕的模式,沒想到要來登記)
   //    ⇒ 守門有效,留痕不刪。
   'apps/admin/src/components/orders/shipment-mark-shipped-button.tsx': 1,
+  // 🔴 ⟦5b-TRACKNUMGAP1⟧ 片 B:已出貨的箱【更正單號】的冪等鍵。
+  //    **是 token**(與旁邊那顆同一個理由):鍵在「按下去」那一刻鑄一次、存進 state,
+  //    重試沿用同一把 ⇒ 連按兩次是同一個操作。每次送出各生一把 ⇒ 冪等就沒了。
+  //    🔵 而它與那顆是**兩個動作**(標記出貨 vs 更正一個已經對外的事實)⇒ 各自一把鍵。
+  'apps/admin/src/components/orders/shipment-edit-tracking-button.tsx': 1,
   'apps/admin/src/components/orders/receipt-record-form.tsx': 3,
   'apps/admin/src/components/ui/sidebar.tsx': 1,
 };

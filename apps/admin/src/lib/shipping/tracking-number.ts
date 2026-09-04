@@ -32,7 +32,10 @@
 //          **論證成立不代表事實已驗** —— 下一個人不要把它讀成「已查證新竹會改規則」。
 //
 // ⚠️ **`TrackingIssue` 的 `block` 分支保留但【目前沒有生產者】**:**兩個**消費端的 block 管線不可達。
-//    數法:`git grep -ln trackingNumberIssue -- apps packages | grep -v test` ⇒ 2
+//    數法:`git grep -ln trackingNumberIssue -- apps packages | grep -v test` ⇒ **3**(2026-09-04 當場重數)
+//    🔴 ⛔ ~~**兩個**消費端(`shipment-dialog` / `shipment-mark-shipped-button`)~~ ⇒ **三個** ——
+//       第三個是 `shipment-edit-tracking-button.tsx`(⟦5b-TRACKNUMGAP1⟧ 片 B)。
+//       舊字面留刪除線, 讓搜「兩個」的人同一發撞到訂正。
 //    (`shipment-dialog.tsx` / `shipment-mark-shipped-button.tsx`)。
 //    🔴 我原本寫「三處」而沒數 —— R2 抓到。**升級點會引用這個數字,所以它得是量出來的。**
 //    留著是為了升級點(有人拿真託運單對過之後),⇒ **它現在零渲染測試**,真要升級前得先補那格。
