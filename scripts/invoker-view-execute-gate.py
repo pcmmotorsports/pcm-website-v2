@@ -143,16 +143,32 @@ def applied_versions():
        實測 2026-09-05:-ship 那六支在帳本上**一支都沒有**(帳本更新還沒推),
        ⇒ 若只做這一半, 六支照樣被擋。
     """
-    out = set()
+    # 🔴🔴 讀【index 那一份】, 不是工作樹那一份 —— 2026-09-05 自檢時抓到。
+    #    選檔用的是 `git diff --cached`(index), 而第一版讀帳本用 io.open(工作樹)
+    #    ⇒ **同一發裡兩個來源**。那個不一致往【鬆】的方向錯:
+    #       一筆還沒 stage 的帳本新列, 會讓一支檔被靜靜跳過, 而 commit 出去的帳本裡沒有那一列。
+    #    ✅ index 讀不到才退回工作樹, 並【印出用了哪一份】—— 讀輸出的人要知道尺站在哪。
+    text, src = None, ''
     try:
-        for ln in io.open(LEDGER, encoding='utf-8'):
-            if ln.startswith('#') or not ln.strip():
-                continue
-            v = ln.split('\t', 1)[0].strip()
-            if v:
-                out.add(v)
-    except OSError:
+        r = subprocess.run(['git', 'show', f':{LEDGER}'], capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout:
+            text, src = r.stdout, 'index'
+    except Exception:
         pass
+    if text is None:
+        try:
+            text, src = io.open(LEDGER, encoding='utf-8').read(), '工作樹(index 讀不到)'
+        except OSError:
+            return set()
+    out = set()
+    for ln in text.split('\n'):
+        if ln.startswith('#') or not ln.strip():
+            continue
+        v = ln.split('\t', 1)[0].strip()
+        if v:
+            out.add(v)
+    if out:
+        print(f'  🔵 帳本來源:{src}({len(out)} 個版本號)')
     return out
 
 
