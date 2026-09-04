@@ -564,23 +564,22 @@ describe('OrderShipButton — 成功只被處理一次(N1 守門)', () => {
   /**
    * 🔴🔴 **尾款警告的【轉傳】守門 —— codex 2026-09-04 MF6 逼出來的。**
    *
-   * 那句「尾款 X 元未收」要走三段:
-   *   `shipment-section.tsx`(算)→ `OrderShipButton`(收)→ `useShipmentLauncher`(轉)→ `ShipmentDialog`(印)
-   * 而**每一段各自都有測試, 卻沒有一格跨過中間那兩段**:
-   *   · section 那支 mock 掉了整個 launcher
-   *   · dialog 那支直接把 prop 塞給元件
-   *   ⇒ 📌 **抽掉 launcher 裡任一段轉傳, 兩邊【各自】全綠, 而彈窗裡那句話真的不見了。**
-   * 🧬 突變:刪掉 `useShipmentLauncher` 的 `balanceWarning` 參數、
-   *    或刪掉 `<ShipmentDialog balanceWarning={...}>`、或刪掉 `OrderShipButton` 那一路
-   *    ⇒ **這一格紅**。
+   * ⛔ ~~那句話走三段:`shipment-section.tsx`(算)→ `OrderShipButton`(收)→ hook(轉)→ 彈窗(印)~~
+   * 🔴 **2026-09-04 同日改過形狀, 上面那段已作廢**(codex 第二輪 nit 抓到這段沒跟上):
+   *   Sean 拍「列表那條路也要顯示」⇒ 那句話改由 **`loadShipmentCandidates`(server)算進候選回傳**
+   *   ⇒ 現在的鏈是:`fetchShipmentCandidates` → `open.data.balanceWarning` → `<ShipmentDialog>`。
+   *   ⇒ 📌 **一個生產者、兩個入口** —— 詳情頁與列表勾單走的是同一份資料。
+   * 🧬 突變:刪掉 `<ShipmentDialog balanceWarning={...}>` 那一行 ⇒ **這一格紅**
+   *    (而 dialog 自己那支與 section 那支**各自全綠** —— 那正是本格存在的理由)。
    */
   it('🔴 尾款那句話從 OrderShipButton 一路傳到彈窗裡(跨過 launcher 的整合守門)', async () => {
     fetchShipmentCandidates.mockResolvedValue({
       items: [{ ...CANDIDATE, orderItemId: 'a', remaining: 2, blockedReason: null }],
       customerUserId: 'cu-A',
       recipient: RECIPIENT,
+      balanceWarning: '尾款 3,000 元未收',
     });
-    render(<OrderShipButton orderId='o1' balanceWarning='尾款 3,000 元未收' />);
+    render(<OrderShipButton orderId='o1' />);
     click();
     await waitFor(() => expect(screen.queryByText(/建立包裹/)).not.toBeNull());
     const note = document.querySelector('[data-testid="shipment-balance-warning"]');
@@ -594,6 +593,7 @@ describe('OrderShipButton — 成功只被處理一次(N1 守門)', () => {
       items: [{ ...CANDIDATE, orderItemId: 'a', remaining: 2, blockedReason: null }],
       customerUserId: 'cu-A',
       recipient: RECIPIENT,
+      balanceWarning: null,
     });
     render(<OrderShipButton orderId='o1' />);
     click();

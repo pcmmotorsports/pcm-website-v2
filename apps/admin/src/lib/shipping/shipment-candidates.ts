@@ -6,7 +6,27 @@ import 'server-only';
 //    `AdminOrderDetail.items` 帶成交價(`unitPrice` / `lineTotal`)與客人 PII。
 //    彈窗只需要**單號 + 品名 + 料號 + 還能出幾件**,所以本檔吐的是一個**刻意很窄的 DTO**:
 //    `{ orderId, orderItemId, orderDisplayId, variantSku, title, remaining, blockedReason }`
-//    —— 沒有任何金額欄位。
+//    —— 品項那一層沒有任何金額欄位。
+//
+// 🔴🔴 **2026-09-04 訂正:⛔ ~~「沒有任何金額欄位」~~ 這句話【現在是假的】, 而它是我寫的。**
+//    頂層多了一個 `balanceWarning: string | null`, 而它在「還差錢」時的字面是
+//    **「尾款 3,000 元未收」—— 那就是一個可解析的金額。**
+//    ⛔ 我第一版的辯解是「它是一句排版好的**字串**不是**數字**」⇒ 🛑 **codex 第二輪 MF1 打掉了它**:
+//       已知總額可反推已收、已知已收可反推總額;重複開窗還能推算新增的收款。
+//    ⇒ 📌 **那個辯解正是這條紅線存在的理由所要防的東西 —— 用「它換了個型別」換掉「它是同一類資訊」。**
+//
+//    ✅ **而這個欄位【留著】, 因為它是 Sean 兩次拍板的內容, 不是我的方便**:
+//      「甲 可以 —— 但那個框裡要**明顯**寫『尾款 X 元未收』」/「甲 也要顯示 —— 那條路要去拿到金額」
+//      ⇒ **那個數字【必須】到得了瀏覽器**, 否則那句話印不出來。**無法兩全, 而他拍了。**
+//    ⇒ 所以本檔的紅線改寫成**帶例外的形狀**, 而不是假裝例外不存在:
+//      🔴 **除了 `balanceWarning` 這一個【拍板放行的】欄位, 不得有第二個金額面。**
+//      🔴 而它的邊界是**逐條可查的**:只在勾一張單時有值(多張是一句不含金額的提示)、
+//         `settled` / `over` 一律 `null`(推不出「已收足」以外的東西)、`unknown` 一個數字都沒有。
+//      ⚠️ **暴露面實話**:詳情頁那條路本來就已經把同一個數字以 HTML 送到同一棵 client 樹上
+//         (`ShipmentBalanceNote`)⇒ 那條路**零新增**;而**列表勾單**那條路是**真的新增**的一面。
+//         員工本來就打得開那張單的詳情頁 ⇒ 它不跨授權邊界, 但**不要把「不跨邊界」寫成「沒有新增」**。
+//    🟢 **守門跟著改**:`shipment-candidates.test.ts` 那格從「掃禁用欄名」加上
+//       **頂層鍵的白名單**(codex MF1b:欄名黑名單擋不住「把金額編進一個新字串欄」)。
 //
 // 🔴 **「窄」的判準是資訊類別,不是欄位數**(2026-08-11 主視窗裁 D1 時補明,免得被讀成「不可增欄」):
 //    這條不變式守的是**價格 / 客人 PII / 供應商身分**這三類不得跨到 client;
@@ -71,6 +91,8 @@ import {
 // 🔴 上限常數住在【沒有 server-only】的 `shipment-limits.ts`,因為 client 端的文案也要用同一個值。
 //    抄成兩份的話,兩邊會各自漂而**沒有任何東西會紅**。
 import { MAX_SHIPMENT_CANDIDATE_ORDERS } from './shipment-limits';
+import { listOrderPayments } from '../orders/payment-repository';
+import { shipmentBalanceWarning, type BalancePayments } from './shipment-balance-warning';
 
 export { MAX_SHIPMENT_CANDIDATE_ORDERS };
 
@@ -127,6 +149,25 @@ export type ShipmentCandidates = {
    * (`pcm_b2_w3a_recipient_shape` 多一個少一個都退件)。
    */
   recipient: { name: string | null; phone: string | null; line: string | null } | null;
+  /**
+   * 建箱彈窗裡那句話;`null` = 不印。
+   *
+   * 🔴🔴 **它在「還差錢」時【帶著一個真的金額】(「尾款 3,000 元未收」)。**
+   *   ⛔ ~~本欄原本的說明寫「已經排版好的字串, **不是金額**」~~ ⇒ **那是我的辯解, codex 打掉了它**:
+   *      已知總額可反推已收、已知已收可反推總額。**換型別換不掉它是同一類資訊。**
+   *   ✅ 它留著是因為 **Sean 兩次拍板都要那個數字出現在框裡** —— 邊界與暴露面逐條寫在檔頭。
+   *   🔴 **⇒ 不得有第二個金額面。** 頂層鍵有白名單守門(`shipment-candidates.test.ts`)。
+   *
+   * 🔴 **三種值, 而【沒有一種是沉默】**:
+   *   · 勾一張 ⇒ 那一單的四態(short 帶數字 / unknown 一句話 / settled·over ⇒ `null`)
+   *   · 勾多張 ⇒ ⛔ ~~恆 `null`~~ ⇒ ✅ **一句不含金額的提示**(codex MF3:`null` 與「都收齊了」
+   *     在彈窗裡**完全同形** ⇒ 勾入第二張單, 第一張那句警告就消失, 而員工把沉默讀成收齊了)
+   *   · 沒有任何單 ⇒ `null`
+   *   🛑 **而「勾多張要印什麼格式」(逐張列?只印張數?)Sean 沒有拍** ⇒ 那句提示刻意只說
+   *      「這裡不顯示」, 不挑格式、不宣稱任何一張的狀態。板列 `⟦ship-BALANCEWARNBYPASS⟧`
+   *      **沒有關掉**, 它從「列表整條路都沒有」**縮小**成「勾多張時看不到金額」。
+   */
+  balanceWarning: string | null;
 };
 
 /**
@@ -247,7 +288,7 @@ function itemsOf(
 export async function loadShipmentCandidates(
   orderIds: readonly string[],
 ): Promise<ShipmentCandidates> {
-  if (orderIds.length === 0) return { items: [], customerUserId: null, recipient: null };
+  if (orderIds.length === 0) return { items: [], customerUserId: null, recipient: null, balanceWarning: null };
 
   // 🔴 **輸入長度上限 —— 必須在下面那個 `Promise.all` 【之前】。**
   //
@@ -331,7 +372,7 @@ export async function loadShipmentCandidates(
   const details = (
     await Promise.all(uniqueOrderIds.map((id) => repo.findAdminOrderDetail(id)))
   ).filter((d): d is AdminOrderDetail => d !== null);
-  if (details.length === 0) return { items: [], customerUserId: null, recipient: null };
+  if (details.length === 0) return { items: [], customerUserId: null, recipient: null, balanceWarning: null };
 
   // 🔴🔴 **品項改走頂層分頁查詢撈到盡**(`D2` 甲,Sean 2026-08-17 批;plan §3 的 A)。
   //    `detail.items` 是**內嵌**撈的、被 `ORDER_ITEMS_EMBED_LIMIT = 200`
@@ -436,5 +477,81 @@ export async function loadShipmentCandidates(
       .sort((a, b) => Number(a.remaining === 0) - Number(b.remaining === 0)),
     customerUserId: complete ? [...distinct][0]! : null,
     recipient: details[0]!.shippingAddress,
+    balanceWarning: await balanceWarningOf(details),
   };
 }
+
+/**
+ * 「尾款 X 元未收」—— **兩個入口共用的那一份**(Sean 2026-09-04 逐字「甲 也要顯示 —— 那條路要去拿到金額」)。
+ *
+ * 🔴 **只有勾【一張】單時才算得出來**:N 張單有 N 個尾款, 而「勾多張要印什麼」**Sean 還沒拍**
+ *   ⇒ 多張回 `null`。🛑 **那是「未拍板」不是「不需要」** —— 板列 `⟦ship-BALANCEWARNBYPASS⟧` 沒關掉。
+ *
+ * 🔴🔴 **讀不到收款明細【不得擋住出貨】** —— 所以整段包在 try/catch 裡:
+ *   `listOrderPayments` 對「權限/連線/形狀不符」是 **throw**(它的檔頭逐字說那**不是**「沒有收款」)。
+ *   ⇒ 讓它冒上來會把**整個彈窗打不開**, 而 Sean 拍的是「可以出貨」⇒ 那會是比沒警告更糟的回歸。
+ *   ✅ 接住之後走 `unreadable` ⇒ 印「尾款未知…請到『收款 · 退款』分頁看一眼」。
+ *   ⇒ 📌 **fail-safe 的方向是【照樣開窗、但說出我不知道】, 不是【裝作已收足】也不是【擋住他】。**
+ *
+ * ⚠️ **代價明寫(codex 第二輪 nit:我第一版只寫了一句「多一次」, 而它有三格)**:
+ *   ① **多一次 `admin_list_order_payments`**(單張時)。多張**不查** ⇒ 勾 50 張不會變成 50 次。
+ *   ② **它是【串行】的**:排在品項、配箱量、客人三組查詢**全部完成之後**才發
+ *      ⇒ 它整段加在「按下出貨到彈窗開起來」的關鍵路徑上, 不是並行藏起來的。
+ *      🔵 沒有改成並行是刻意的:它要 `details[0]`(前面那組的產物)。**要改就得先把 detail 拆出來。**
+ *   ③ **詳情頁那條路會查兩次**:那一頁 render 時已經取過 payments(`ShipmentBalanceNote`),
+ *      而點「出貨」開窗時**再查一次**。⇒ 📌 一個生產者換來的代價就是這一格, 寫出來不要藏。
+ *   🔴 **而三格都【未量】** —— 我沒有量開窗變慢多少。要引用「慢不慢」得先有那個數字。
+ */
+async function balanceWarningOf(details: readonly AdminOrderDetail[]): Promise<string | null> {
+  if (details.length === 0) return null;
+  // 🔴🔴 **勾多張:不能【沉默】—— codex 第二輪 MF3。**
+  //   ⛔ 我第一版讓多張回 `null` ⇒ 而 `null` 在彈窗裡與「**全部已收足**」**完全同形**
+  //   ⇒ 🎯 **勾入第二張單, 第一張那句明顯的警告就消失了** —— 而員工會把那個沉默讀成「都收齊了」。
+  //   ⇒ 📌 這與本片一直在講的是同一條:**一句在兩個世界印同一個東西的話, 不是提醒。**
+  //   🛑 而**「勾多張要印什麼」Sean 沒有拍** ⇒ 我**不挑格式**(逐張列?只印張數?那是他的)。
+  //     ✅ 我只做一件他沒有反對而且不需要格式決定的事:**說出「這裡不顯示」**, 讓沉默不再是答案。
+  //     ⚠️ **這一句是我的判斷不是他的字** —— 要換掉它, 改這裡, 測試會紅並指到這一段。
+  if (details.length > 1) return MULTI_ORDER_BALANCE_NOTICE;
+  const detail = details[0]!;
+  // 🔴🔴 **`try` 只包住【那一次查詢】, 不包住後面那支函式。**
+  //   ⛔ 第一版把兩件事一起包進 `try`, 而 `catch` 裡**又呼叫同一支函式** ——
+  //      ⇒ 例外若來自那支函式(不是查詢), catch 會再丟一次, **而那一次沒有人接**。
+  //   🔬 這不是假想:候選測試的 fixture 沒給 `total` ⇒ `detail.total.amount` 當場 TypeError
+  //      ⇒ **24 格一起紅**, 而錯誤指向的是我的新碼。是 vitest 抓到的, 不是我看出來的。
+  //   ⇒ 📌 **一個「捕捉之後重試同一件事」的 catch, 對「錯在那件事本身」這一類完全無效。**
+  try {
+    const rows = await listOrderPayments(detail.id);
+    // `null` = 訂單不存在(那支的契約);對本函式而言與「讀不到」同一種處置:說我不知道。
+    const payments: BalancePayments =
+      rows === null ? { status: 'order_not_found' } : { status: 'ok', rows };
+    return shipmentBalanceWarning(detail, payments);
+  } catch {
+    // 🔴🔴 **catch 裡【不可以】再呼叫 `shipmentBalanceWarning`** —— codex 第二輪 MF2:
+    //   例外不只來自查詢, 也可能來自 `shipmentBalanceWarning` / `toPaymentSummary` /
+    //   `formatOrderAmount` 自己(例:fixture 或線上資料少了 `total`)⇒ **catch 會再丟一次而沒有人接**
+    //   ⇒ 整個候選 load reject ⇒ **彈窗打不開**, 而 Sean 拍的是「可以出貨」。
+    //   ⛔ 我第一版只把 `try` 包在查詢上, 第二版才把整段包進來 —— **兩版都是它抓到的。**
+    //   ⇒ ✅ 這裡回一個**寫死的常數字串**, 不再呼叫任何會算東西的函式。
+    return BALANCE_UNKNOWN_FALLBACK;
+  }
+}
+
+/**
+ * 讀不到收款時的那一句。**刻意與 `shipmentBalanceWarning` 的 `unknown` 分支【逐字相同】** ——
+ * 兩處字面由 `shipment-candidates.test.ts` 的一格釘住, 改一邊會紅。
+ *
+ * 🔴 **為什麼要有第二份而不是呼叫那支函式**:這裡是 catch, 而那支函式**正是可能丟例外的那一個**。
+ *   ⇒ 📌 **一個「捕捉之後重試同一件事」的 catch, 對「錯在那件事本身」這一類完全無效。**
+ */
+const BALANCE_UNKNOWN_FALLBACK =
+  '尾款未知(收款明細沒載入)—— 不是「已收足」,也不是「還沒收到錢」。出貨前請到「收款 · 退款」分頁看一眼。';
+
+/**
+ * 勾多張時印的那一句。**不含任何金額, 也不宣稱任何一張的狀態。**
+ *
+ * 🔴 它存在的唯一理由:**沉默與「都收齊了」在彈窗裡同形**(codex 第二輪 MF3)。
+ * 🛑 **它不是 Sean 拍的格式** —— 他拍的是「那條路要去拿到金額」, 而那句話解掉的是【單張】。
+ *   「勾多張要印什麼」仍未確認 ⇒ 板列 `⟦ship-BALANCEWARNBYPASS⟧` 沒有關掉, 只是縮小。
+ */
+const MULTI_ORDER_BALANCE_NOTICE =
+  '一次出多張訂單時,這裡不顯示尾款 —— 請逐張確認每一單的收款狀況再出貨。';
