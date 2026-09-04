@@ -51,6 +51,7 @@ function ctxWithDiscount(): PaidEmailContext {
     shippingFee: m(150),
     discountTotal: m(790),
     total: m(30480),
+    taxTotal: m(0),   // 今天恆為 0
   };
 }
 
@@ -64,6 +65,7 @@ function ctxNoDiscountFreeShipping(): PaidEmailContext {
     shippingFee: m(0),
     discountTotal: m(0),
     total: m(5000),
+    taxTotal: m(0),   // 今天恆為 0
   };
 }
 
