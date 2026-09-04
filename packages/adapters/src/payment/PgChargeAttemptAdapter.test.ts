@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 // node env;mock 'server-only'(adapter 檔頭 import 'server-only')。
 import { describe, it, expect, vi } from 'vitest';
 
@@ -839,5 +841,92 @@ describe('PgChargeAttemptAdapter.listForCaptureRecheck(⟦b4-MONEY2⟧ 補測)',
     //    ⇒ 把 `await client.end()` 從 `finally` 搬進 `try`,**全檔照樣全綠**。
     //    ⇒ 而這條掃描每 10 分鐘跑、遇壞列必 throw ⇒ 📌 **那會每次漏一條 pg 連線。**
     expect(end).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * `begin_charge_attempt` 的 reason 值域 · **三邊契約**(2026-09-05, 板列 `⟦b4-PIECEBGATEGAPS⟧` ①)。
+ *
+ * 🔴 **為什麼要有它**:板上 ① 原本寫「`not_card_order` TS 那側不認識」——
+ *    而它**已經被 `51c99010b` 補掉了**(-mail 09-05 順手收, 板未動)。
+ *    🛑 **而它留下的是**:那組值域**一個測試都沒有在守**
+ *    (當場量:`grep -rl not_card_order --include='*.test.ts'` ⇒ **0**;
+ *     🟢 正對照 同尺找 `user_in_flight` ⇒ **4** ⇒ 尺會動)。
+ *    ⇒ 📌 **它剛被修好一次, 而【下一次同樣的事發生時, 還是沒有東西會叫】。**
+ *
+ * 🔬 **而 adapter 那側是【兩段】不是一段** —— 我第一版差點報成缺陷:
+ * ```
+ * DB(20260904050000 的 begin_charge_attempt)回【六個】reason
+ * :323 duplicate      早退 return   ┐
+ * :335 needs_settle   早退 return   ┘ 這兩個【不在】:361 的白名單裡, 而那是對的
+ * :361 白名單四個:user_in_flight / order_locked / not_unpaid / not_card_order
+ * ```
+ * ⇒ 🎯 **所以契約不是「DB 六值 = 白名單」, 是【DB 六值 = 早退兩值 ∪ 白名單四值】。**
+ *    這樣寫的好處:DB **多回任何一個新 reason**, 不論它該走哪一條分支, 這一格都會紅。
+ *
+ * 🛑 **天花板**:三邊都是讀【repo 裡的字面】——
+ *    ① SQL 那邊是 migration 檔, **不是正式庫**(Sean 手貼, 檔與庫可以分岔而本格印綠)
+ *    ② TS 兩邊是原始碼字面, 不是編譯後的型別(`ChargeLockReason` 是純型別 union, 執行期不存在)
+ */
+describe('begin_charge_attempt reason 值域 · DB ↔ adapter ↔ domain 三邊', () => {
+  const ROOT = path.resolve(__dirname, '../../../..');
+  const MIG = path.join(ROOT, 'supabase/migrations/20260904050000_m4b_supersede_bank_order_on_card.sql');
+  const ADAPTER = path.join(ROOT, 'packages/adapters/src/payment/PgChargeAttemptAdapter.ts');
+  const DOMAIN = path.join(ROOT, 'packages/domain/src/payment/types.ts');
+
+  /** 🔴 先剝【區塊】再剝【行】註解 —— 反過來會讓 `--` 吃掉區塊的結尾標記。 */
+  const codeOnly = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '');
+
+  function dbReasons(): string[] {
+    const body = codeOnly(readFileSync(MIG, 'utf8'));
+    return [...new Set([...body.matchAll(/'reason',\s*'([a-z_]+)'/g)].map((m) => m[1]!))].sort();
+  }
+  function adapterEarly(): string[] {
+    const body = readFileSync(ADAPTER, 'utf8').replace(/\/\/[^\n]*/g, '');
+    return [...new Set([...body.matchAll(/r\.reason === '([a-z_]+)'/g)].map((m) => m[1]!))].sort();
+  }
+  function adapterWhitelist(): string[] {
+    const body = readFileSync(ADAPTER, 'utf8').replace(/\/\/[^\n]*/g, '');
+    return [...new Set([...body.matchAll(/r\.reason !== '([a-z_]+)'/g)].map((m) => m[1]!))].sort();
+  }
+  function domainUnion(): string[] {
+    const body = readFileSync(DOMAIN, 'utf8').replace(/\/\/[^\n]*/g, '');
+    const m = body.match(/export type ChargeLockReason\s*=([\s\S]*?);/);
+    return [...new Set([...(m?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map((x) => x[1]!))].sort();
+  }
+
+  it('🔵 前提:四把尺都抓得到東西(抓不到 ⇒ 是尺壞了, 不是「三邊一致」)', () => {
+    expect(dbReasons().length).toBeGreaterThan(0);
+    expect(adapterEarly().length).toBeGreaterThan(0);
+    expect(adapterWhitelist().length).toBeGreaterThan(0);
+    expect(domainUnion().length).toBeGreaterThan(0);
+  });
+
+  it('🔴 DB 的 reason 值域 = adapter 的【早退分支 ∪ 白名單】—— 多一個少一個都要紅', () => {
+    // 🎯 這樣寫 ⇒ DB 多回任何一個新 reason, 不論它該走哪條分支, 這一格都會紅。
+    expect([...new Set([...adapterEarly(), ...adapterWhitelist()])].sort()).toEqual(dbReasons());
+  });
+
+  it('🔴 adapter 的白名單四值 = domain 的 ChargeLockReason union', () => {
+    // 🔵 早退那兩個【不在】union 裡 —— 它們有自己的回傳形狀(帶 existing_* 欄位)。
+    expect(adapterWhitelist()).toEqual(domainUnion());
+  });
+
+  it('🔴 而那些相等不是空對空 —— 六個值逐字都要在 DB 那邊', () => {
+    for (const v of ['user_in_flight', 'order_locked', 'not_unpaid', 'not_card_order', 'duplicate', 'needs_settle']) {
+      expect(dbReasons()).toContain(v);
+    }
+  });
+
+  it('🔵 尺會動:把 DB 那組去掉一個 ⇒ 上面那格必須翻面', () => {
+    // 🔴 沒有這一格,「三邊一致」與「抽取器回了空的」印同一個綠。
+    const shrunk = dbReasons().filter((v) => v !== 'not_card_order');
+    expect([...new Set([...adapterEarly(), ...adapterWhitelist()])].sort()).not.toEqual(shrunk);
+  });
+
+  it('🔵 剝註解那步真的在做事:註解裡的假 reason 不得被抽到', () => {
+    const fake = "-- RETURN jsonb_build_object('reason', 'zzq_ghost')\nRETURN x('reason', 'real');";
+    const got = [...codeOnly(fake).matchAll(/'reason',\s*'([a-z_]+)'/g)].map((m) => m[1]!);
+    expect(got).toEqual(['real']);
   });
 });
