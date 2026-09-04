@@ -606,3 +606,125 @@ describe('片 C · 稅額那一列與頁尾(真 chromium · 列印媒體)', () =
   });
 
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+// 片 D(2026-09-05)· **多品項 + 有稅**:金額表會不會被切到第二頁
+//
+// 🔴🔴 **這一段是【找到一個既有缺陷】的地方, 不只是守本片的改動。**
+//    量到的(真 chromium, 列印媒體, 真 `page.pdf({format:'A4'})`):
+//      品項數  稅    紙高      金額表 [top, bottom]      PDF 頁數
+//        3     0    250mm     [214.7, 250]                1
+//        3    905   250mm     [207.7, 250]                1
+//       12     0    293.1mm   [257.7, 293.1]              2
+//       12    905   300.1mm   [257.7, 300.1]              2
+//       20     0    392.7mm   [357.4, 392.7]              2
+//       30     0    517.3mm   [482,   517.3]              2
+//
+//    🔴 **每頁內容高 = 297 − 12(上) − 14(下) = 271mm**(`@page` 邊距被
+//       `print-a4-css.test.ts` 釘死)。
+//    ⇒ 🛑 **12 個品項那一列:`257.7 < 271 < 293.1` ⇒ 金額表【跨過分頁線】** ——
+//       客人拿到的紙上, 小計在第一頁而總額在第二頁。
+//    ⇒ 📌 **而這在【今天、沒有稅】的世界就已經成立** —— 不是本片造成的。
+//       本片做的是讓那一塊**再高 7mm**(多一列)⇒ 它讓這件事更容易發生, 而不是開始發生。
+//
+//    🔬 成因(讀 CSS 讀出來的):`print-a4.css` 只給 `tr` 與 `.pd-blocker` 下了
+//       `break-inside: avoid`;**`.pd-bottom` / `.pd-money` 一條都沒有**
+//       ⇒ 那一塊可以在任意兩列之間被切開。
+//
+// 🛑 **本片【不修它】, 而理由不是我懶**:修法是給 `.pd-bottom` 加 `break-inside: avoid`,
+//    而那會把整塊金額表推到第二頁 ⇒ **第一頁下半變成空白** ⇒ 那是**版面的取捨, 要 Sean 看**。
+//    ⇒ 已記板, 且**下面沒有一格假裝它不存在**。
+describe('片 D · 多品項 + 有稅:金額表與分頁(真 chromium + 真 PDF)', () => {
+  let browserD: Browser;
+  type Geo = { sheetMm: number; topMm: number; botMm: number; pdfPages: number };
+  const got: Record<string, Geo> = {};
+
+  /** 🔴 每頁內容高。它不是我挑的:A4 297 − `@page` 上 12 − 下 14。 */
+  const PAGE_CONTENT_MM = 271;
+
+  beforeAll(async () => {
+    const layoutCss = compiledCss('.mobile-tabbar-btn');
+    const pageCss = compiledCss('.stmt-page');
+    browserD = await chromium.launch();
+
+    // 🔴 有稅的樣本**必須平衡**:18000 + 100 − 0 + tax = total。
+    const mk = (n: number, tax: number) =>
+      ({
+        ...ORDER,
+        items: Array.from({ length: n }, (_, i) => ({ ...ORDER.items[0]!, id: `d${i}` })),
+        itemCount: n,
+        taxTotal: twd(tax),
+        total: twd(18000 + 100 + tax),
+      }) as MemberOrderDetail;
+
+    for (const [n, tax] of [
+      [3, 0],
+      [3, 905],
+      [12, 0],
+      [12, 905],
+    ] as const) {
+      const page = await browserD.newPage();
+      await page.setContent(
+        `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">` +
+          `<style>${layoutCss}</style><style>${pageCss}</style></head>` +
+          `<body>${renderToStaticMarkup(<StatementDoc order={mk(n, tax)} />)}</body></html>`,
+      );
+      await page.emulateMedia({ media: 'print' });
+      const g = await page.evaluate(() => {
+        const mm = (px: number) => Math.round((px / 96) * 25.4 * 10) / 10;
+        const sheet = document.querySelector('.stmt-page');
+        const bot = document.querySelector('.pd-bottom');
+        if (sheet === null || bot === null) return { sheetMm: -1, topMm: -1, botMm: -1 };
+        const s = sheet.getBoundingClientRect();
+        const b = bot.getBoundingClientRect();
+        return { sheetMm: mm(s.height), topMm: mm(b.top - s.top), botMm: mm(b.bottom - s.top) };
+      });
+      // 🔴 **真的產一份 PDF 來數頁** —— 不是從高度推的。
+      //    數法:PDF 裡的 `/Type /Page`(後面不接 `s`, 避開 `/Pages`)。
+      const pdf = await page.pdf({ format: 'A4', printBackground: true });
+      const pdfPages = (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length;
+      got[`${n}-${tax}`] = { ...g, pdfPages };
+      await page.close();
+    }
+  }, 120_000);
+
+  afterAll(async () => {
+    await browserD?.close();
+  }, 60_000);
+
+  it('🔴 分母:四個世界都量到了(節點不在會回 -1)', () => {
+    for (const k of ['3-0', '3-905', '12-0', '12-905']) {
+      expect(got[k]!.sheetMm).toBeGreaterThan(0);
+      expect(got[k]!.pdfPages).toBeGreaterThan(0);
+    }
+  });
+
+  it('🔵 少品項(3 件):有稅 / 無稅都還是【一頁】, 而稅額列沒有把它推成兩頁', () => {
+    expect(got['3-0']!.pdfPages).toBe(1);
+    expect(got['3-905']!.pdfPages).toBe(1);
+  });
+
+  it('🔴 而稅額列【確實讓那一塊變高了】—— 否則上一格是拿一個沒發生的改動在慶祝', () => {
+    // 3 件那一組:紙高不變(250mm 有餘裕), 而金額表的**頂端往上跑了 7mm**。
+    expect(got['3-905']!.topMm).toBeLessThan(got['3-0']!.topMm);
+    expect(got['3-0']!.topMm - got['3-905']!.topMm).toBeGreaterThanOrEqual(5);
+  });
+
+  it('🟢 負對照:12 件會變成【兩頁】—— 證明這把數頁的尺不是恆為 1', () => {
+    expect(got['12-0']!.pdfPages).toBe(2);
+    expect(got['12-905']!.pdfPages).toBe(2);
+  });
+
+  it('🛑 **既有缺陷存證**:12 件時金額表【跨過分頁線】—— 而它在【沒有稅】時就已經如此', () => {
+    // 🔴🔴 這一格**不是在慶祝**, 它是把一個**客人看得到的既有缺陷釘在這裡**,
+    //    讓它不會因為沒有人記得而消失。
+    //    ⇒ 修好的那一天這一格會紅, **而那正是要的** —— 到時候把它翻面成「不得跨線」。
+    const straddles = (g: Geo) =>
+      Math.floor(g.topMm / PAGE_CONTENT_MM) !== Math.floor((g.botMm - 0.1) / PAGE_CONTENT_MM);
+    expect(straddles(got['12-0']!)).toBe(true); // ⚠️ 無稅就已經跨線 ⇒ 不是本片造成的
+    expect(straddles(got['12-905']!)).toBe(true);
+    // 🔵 而少品項那一組**不跨線** ⇒ 這把尺不是恆回 true
+    expect(straddles(got['3-0']!)).toBe(false);
+    expect(straddles(got['3-905']!)).toBe(false);
+  });
+});
