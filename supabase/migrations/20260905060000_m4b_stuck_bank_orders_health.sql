@@ -286,7 +286,7 @@ BEGIN
     RAISE EXCEPTION '事後⑤失敗:anon 或 authenticated 可以切成本函式的 owner ⇒ 它們執行得了, 而②④兩格都看不到。';
   END IF;
 
-  RAISE NOTICE '[20260905020000] 五組事後斷言全數通過。';
+  RAISE NOTICE '[20260905060000] 五組事後斷言全數通過。';
 END
 $gate$;
 
