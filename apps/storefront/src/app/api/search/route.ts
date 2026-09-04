@@ -72,12 +72,30 @@ export async function GET(request: Request) {
   //    🟢 而成本那一格查過了:三支 taxonomy 都是 server 端 + `unstable_cache`
   //       (`CATALOG_REVALIDATE_SECONDS`)⇒ **每個按鍵是快取命中, 不是 DB 查詢。**
   //    🔴 而它們與商品那一發**併發**跑 —— 串著跑等於白等三次 round-trip。
+  // ⏱️ **四條腿各自計時**(2026-09-05 `-auth`;板列 `⟦search-TRGMEXPRIDX⟧`)——
+  //    🔴 **它存在的理由是 code-reviewer R1 的 must-fix**:adapter 那一層的計時只量得到
+  //       **第一條腿**, 而 route 的牆鐘 = **四腿的 max**;另外三腿走 `unstable_cache`(60s TTL)
+  //       ⇒ 📌 **只看 adapter 那行的人, 會把「不在 DB」讀成「不在伺服器」。**
+  //    🛑 **`Promise.all` 併發 ⇒ 四個數【加起來會遠大於 total】, 那是預期, 不是算錯。**
+  //       要看的是**誰最接近 total** —— 那條就是這一發的瓶頸。
+  //    ⚠️ 它證不到什麼:`unstable_cache` 命中與否**這裡看不出來**(只看得到快或慢);
+  //       而 60s TTL 的 miss 節奏是「同一個詞時快時慢」目前**最像**的解釋, **未證實**。
+  let msProducts = -1;
+  let msBrand = -1;
+  let msCat = -1;
+  let msVeh = -1;
+  const tR0 = performance.now();
+  const lap = () => Math.round(performance.now() - tR0);
   const [productPage, brandTax, categoryTax, vehicleTax] = await Promise.all([
-    searchProducts(q, SEARCH_OVERLAY_LIMIT, 0, false),
-    tryCatalogBrandTaxonomy(),
-    tryCategories(),
-    tryVehicleTaxonomy(),
+    searchProducts(q, SEARCH_OVERLAY_LIMIT, 0, false).then((r) => ((msProducts = lap()), r)),
+    tryCatalogBrandTaxonomy().then((r) => ((msBrand = lap()), r)),
+    tryCategories().then((r) => ((msCat = lap()), r)),
+    tryVehicleTaxonomy().then((r) => ((msVeh = lap()), r)),
   ]);
+  console.info(
+    `[api/search] qlen=${q.length} products=${msProducts}ms brands=${msBrand}ms ` +
+      `categories=${msCat}ms vehicles=${msVeh}ms total=${lap()}ms`,
+  );
   const { items, total, error } = productPage;
   if (error) {
     // 🔴 503 不是 200 空陣列:「這次查不到」與「真的沒有這個商品」在疊層裡該畫兩種字,
