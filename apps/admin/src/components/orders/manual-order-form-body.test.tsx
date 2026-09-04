@@ -167,6 +167,11 @@ describe('🔴 表單送不出 actor —— 那一格在型別與 DOM 上都不�
     //    (客人那一格住在 picker 裡,本檔把它換成探針 ⇒ 不在這張清單上。)
     expect(names.sort()).toEqual(
       [
+        // 🔴 **`invoice_requested` 出現【兩次】是刻意的** —— 一個 hidden(`off`)+ 一個 checkbox,
+        //    同名。少了 hidden, 「沒勾」與「這一格不見了」在 payload 上就變成同一個空白。
+        //    ⇒ 這張清單是**唯一**會因為 hidden 被刪掉而紅的東西。
+        'invoice_requested',
+        'invoice_requested',
         'manual_request_id',
         'order_source',
         'payment_channel',

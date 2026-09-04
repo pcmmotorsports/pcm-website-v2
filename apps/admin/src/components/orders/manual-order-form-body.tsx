@@ -5,6 +5,7 @@ import {
   MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD,
   MANUAL_ORDER_INVOICE_TAX_ID_FIELD,
   MANUAL_ORDER_INVOICE_TITLE_FIELD,
+  MANUAL_ORDER_INVOICE_REQUESTED_FIELD,
   MANUAL_ORDER_INVOICE_TYPE_FIELD,
   MANUAL_ORDER_PAYMENT_CHANNEL_FIELD,
   MANUAL_ORDER_REQUEST_ID_FIELD,
@@ -192,6 +193,38 @@ export function ManualOrderFormBody({
 
           <fieldset className='space-y-2 rounded-md border p-3'>
             <legend className='px-1 text-sm'>發票</legend>
+            {/* 🔴🔴 **這顆勾選與下面那五格是【兩件事】**(2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 2 步;
+                Sean 第十八題拍甲):下面五格講「**開的話抬頭寫誰**」, 這一顆講「**開不開**」。
+
+                🔴 **前面那個 hidden 不是多餘的** —— HTML 的 checkbox **沒勾時整個欄位不會出現**
+                ⇒ 解析端讀到的空白, 與「**這個表單版本根本沒有這一格**」是同一個東西。
+                ⇒ 📌 而那兩個世界的正確結果**相反**(一個是「他決定不開」, 一個是「我不知道」)。
+                ⇒ ✅ 同名 hidden 讓那個欄位**永遠存在** ⇒ 三個世界真的分得開。
+                ⚠️ **順序不可調**:hidden 要在 checkbox **前面** —— 解析端取的是**最後一個值**。
+
+                🔴🔴 **`defaultChecked`(預設打勾)這件事【沒有被 Sean 拍過】**(codex R3 must-fix)。
+                他的逐字只涵蓋**顧客站**:「要不要開發票在網站(顧客站)都是要預設開發票」
+                —— 逐字與存證見 `supabase/migrations/20260828100000_...:210-224`,
+                而**那一段同時記著:2026-08-29 曾有人把「他說現在其實都有開」宣告成拍板, 而他沒說過。**
+                ⇒ 🛑 **所以這裡不編一個拍板出來。**
+
+                ✅ **這裡選 `defaultChecked` 的理由只有一個, 而它不是業務判斷:**
+                   `orders.invoice_requested` 今天的 DEFAULT 就是 `true`
+                   ⇒ 打勾 = **與今天完全一致** ⇒ 這一片**不改變任何既有行為**。
+                ⚠️ **而代價要寫出來, 因為它會影響錢**:「員工沒注意到這一格」與
+                   「員工看了、決定要開」在資料上是**同一個 `true`** ——
+                   而 +5% 那一片會讀這個欄位 ⇒ 📌 **這是一題要端給 Sean 的決策題**
+                   (甲:維持預設打勾 / 乙:改成必選、不給預設), **本片不代他決定。** */}
+            <label className='flex items-center gap-2 text-sm'>
+              <input type='hidden' name={MANUAL_ORDER_INVOICE_REQUESTED_FIELD} value='off' />
+              <input
+                type='checkbox'
+                autoComplete='off'
+                defaultChecked
+                name={MANUAL_ORDER_INVOICE_REQUESTED_FIELD}
+              />
+              <span>這張單要開發票</span>
+            </label>
             <select
               autoComplete='off'
               name={MANUAL_ORDER_INVOICE_TYPE_FIELD}
