@@ -14,6 +14,9 @@
 #      ⇒ 它是「盤點工具」不是「守門」。⚠️ 那是刻意的, 不是漏掉。
 #   ② 它比的是【兩次快照之間】的差 ⇒ **改了又改回來, 它看不到。**
 #   ③ 它只看 `public` 這個 schema, 只看那四個角色 ⇒ **別的 schema / 別的角色不在分母裡。**
+#      ⚠️ 而 `POL` 那一族是【全部角色】(policy 的 roles 原樣印)—— 那一族不受「四個角色」限制。
+#   ⑤ 🔴 `POL` 只記 policy 的【名字 / 角色 / cmd / permissive】—— **不記 `USING` 子句的內容**
+#      ⇒ 有人把 `USING (true)` 改成 `USING (false)`, 這份快照【看不到】。那是已知缺口。
 #   ④ `has_*_privilege` 對【欄級授權】少報(那個坑本 repo 記過)⇒ 欄級的改動這裡看不到。
 #
 # 用法:bash scripts/acl-snapshot.sh            比對(有差 rc=1)
@@ -67,6 +70,22 @@ SELECT 'FN', n.nspname::text||'.'||p.proname::text||'('||pg_catalog.pg_get_funct
   FROM pg_catalog.pg_proc p
   JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
   CROSS JOIN (VALUES ('anon'),('authenticated'),('service_role'),('payment_confirmer')) AS g(rol)
+ WHERE n.nspname = 'public'
+UNION ALL
+-- 🔴🔴 第五族:RLS policy(2026-09-05 加)——
+--    ⛔ 第一版**沒有這一欄** ⇒ `20260904270000` 要建的那 40 條 policy 在快照上【零顯形】,
+--       而那時「diff 只有 8 格」看起來就像「policy 沒建成」。
+--    🛑 而它與 `service_role` 有沒有 `BYPASSRLS` **無關** —— 是【這一欄不存在】, 不是被繞過。
+--    📌 一份權限快照少了 policy 那一半, 在 RLS 開著的庫裡等於只看了一半的門。
+SELECT 'POL',
+       n.nspname::text||'.'||c.relname::text||'|'||p.polname::text,
+       -- 🔵 roles 排序固定 —— 不排的話 catalog 的順序變動會讓每次都「有差」
+       COALESCE((SELECT string_agg(r2.rolname::text, ',' ORDER BY r2.rolname)
+                   FROM pg_catalog.pg_roles r2 WHERE r2.oid = ANY(p.polroles)), 'PUBLIC'),
+       p.polcmd::text||'|'||CASE WHEN p.polpermissive THEN 'PERM' ELSE 'REST' END
+  FROM pg_catalog.pg_policy p
+  JOIN pg_catalog.pg_class c ON c.oid = p.polrelid
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
  WHERE n.nspname = 'public'
 ORDER BY 1, 2, 3;
 SQL
@@ -128,6 +147,24 @@ if [ "${1:-}" = "--selftest" ]; then
       && { echo "  🔴 改了一行卻判沒差"; ok=1; } \
       || echo "  ✅ 正對照:改一行基線 ⇒ 判為有差(它會叫)"
   fi
+  # 🔴 改一條 policy 的【名字】⇒ 必須有差(主視窗 2026-09-05 指定)
+  #    那是最容易被靜靜換掉的一格:policy 改名之後, 表層 GRANT 一格都沒動
+  #    ⇒ 沒有 POL 那一族的話, 這種改動在快照上【完全不顯形】。
+  printf 'POL\tpublic.a|a_select_service_role\tservice_role\tr|PERM\n' > "$t/pol"
+  sed 's/a_select_service_role/a_select_renamed/' "$t/pol" > "$t/pol2"
+  if diff -q "$t/pol" "$t/pol2" >/dev/null; then
+    echo "  🔴 policy 改名的突變沒套上 ⇒ 這一格作廢"; ok=1
+  else
+    diff -q "$t/pol" "$t/pol2" >/dev/null 2>&1 \
+      && { echo "  🔴 policy 改名卻判沒差"; ok=1; } \
+      || echo "  ✅ 正對照:改一條 policy 名 ⇒ 判為有差"
+  fi
+  # 🔴 同一族第二格:polcmd / permissive 被改(名字沒變)⇒ 也要有差
+  sed 's/r|PERM/r|REST/' "$t/pol" > "$t/pol3"
+  diff -q "$t/pol" "$t/pol3" >/dev/null \
+    && { echo "  🔴 PERMISSIVE→RESTRICTIVE 卻判沒差"; ok=1; } \
+    || echo "  ✅ 正對照:PERMISSIVE 改成 RESTRICTIVE ⇒ 判為有差(名字沒變也抓得到)"
+
   # 🔵 負對照:只有【順序】不同而內容相同 ⇒ 也要判有差
   #    (那是刻意的:排序固定是本支的前提, 順序變了代表 SQL 的 ORDER BY 被動過)
   tac "$t/base" > "$t/reorder" 2>/dev/null || tail -r "$t/base" > "$t/reorder"
@@ -142,7 +179,7 @@ NEW="$(mktemp)"; trap 'rm -f "$NEW"' EXIT
 fetch "$NEW" || exit 2
 LINES=$(grep -c . "$NEW")
 # 🔴 分母要印出來 —— 一份「0 差異」的報告, 若它只有 3 列, 那個 0 沒有意義。
-echo "  🔵 快照 $LINES 列(public 的表/view × 4 角色 + 函式 × 4 角色 + 4 個角色的 BYPASSRLS)"
+echo "  🔵 快照 $LINES 列 = 表/view×4角色 + 函式×4角色 + 4 個角色的 BYPASSRLS + RLS policy 各一列"
 
 if [ "${1:-}" = "--write" ]; then
   cp "$NEW" "$BASE"
