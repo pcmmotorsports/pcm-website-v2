@@ -17,6 +17,7 @@ const mockHeadersGet = vi.fn(); // 🔴 #241:next/headers headers().get(name) mo
 const mockConfirmPayment = vi.fn();
 const mockInitiatePayment = vi.fn();
 const mockSettleCharge = vi.fn(); // 3DS-7 7c-2:settlement_required needs_settle 即時裁決
+const mockFindPaymentChannel = vi.fn(); // 段 1-B:建單後回查 payment_channel
 const mockPreflightReleaseSibling = vi.fn(); // 🔴 R3:立即重刷 preflight(§2.3、placeOrder 前)
 const mockFindTotal = vi.fn();
 const mockGetOrderRepo = vi.fn();
@@ -119,6 +120,10 @@ function validInput(over: Record<string, unknown> = {}) {
     prime: 'prime_abc',
     cartSessionId: CART_SESSION, // 3DS-7:client 送穩定 key(7b 後 server 必驗、缺/非法 fail-closed)
     agreed: true, // 🔴 #241:同意條款(②e server 驗、缺/false → formError 零副作用);負測顯式 override
+    // 🔵 段 1-B:付款方式(必填、無預設)。這裡放 tappay = **今天線上唯一的那個世界**
+    //   🛑 而它是【一個世界不是中性預設】—— 匯款那個世界要有自己的測項, 不靠這個預設代表它。
+    //   🔴 而「缺這個鍵」也要有自己的負測(client 少送 ⇒ zod fail-closed), 顯式 override。
+    paymentChannel: 'tappay',
     ...over,
   };
 }
@@ -126,7 +131,9 @@ function validInput(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1', email: 'a@b.com' } } });
-  mockGetOrderRepo.mockResolvedValue({ findTotal: mockFindTotal });
+  mockGetOrderRepo.mockResolvedValue({ findTotal: mockFindTotal, findPaymentChannel: mockFindPaymentChannel });
+  // 🔵 預設 = 回查與送出相符(= 正常世界)。不符那個世界由它自己那一格顯式 override。
+  mockFindPaymentChannel.mockResolvedValue('tappay');
   mockGetCustomerRepo.mockResolvedValue({});
   mockGetAddressRepo.mockResolvedValue({});
   mockGetTapPayAdapter.mockReturnValue({ tag: 'tappay' });
@@ -334,7 +341,14 @@ describe('chargePaymentAction — 信任邊界(零扣款層)', () => {
       expect(res).toEqual({ formError: '付款失敗,請稍後再試或聯繫客服 LINE' });
       expect(spy).toHaveBeenCalledWith(
         '[checkout] create_order 簽章不符',
-        expect.objectContaining({ code, fix: expect.stringContaining('verify-create-order-9param.sh') }),
+        expect.objectContaining({
+          code,
+          // 🔴 2026-09-04:斷言改成釘住**不會每一代都變的那半**。
+          //    ⛔ ~~原本斷言 `verify-create-order-9param.sh`~~ —— 那句話寫死了參數個數(9),
+          //    而它已經錯過一次(正式庫是 10 參), A 貼下去是 11 參, C 之後又會變。
+          //    📌 **寫死數字的訊息, 每一代都要有人回來改 —— 而沒有人會。**
+          fix: expect.stringContaining('supabase/migrations/'),
+        }),
       );
       spy.mockRestore();
     },
@@ -407,6 +421,58 @@ describe('chargePaymentAction — 信任邊界(零扣款層)', () => {
     mockFindTotal.mockResolvedValue(null);
     const action = await getAction();
     const res = await action(validInput());
+    expect(res).toMatchObject({ formError: expect.stringContaining('付款失敗') });
+    expect(mockConfirmPayment).not.toHaveBeenCalled();
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 段 1-B · payment_channel 的兩個世界 —— 🔴 **它們守的不是同一件事, 所以分開命名**
+  //
+  //   ① 【客人端少送】     ⇒ zod 在【進 DB 之前】擋掉      ⇒ 零建單
+  //   ② 【送了而 DB 存成別的】⇒ zod 看不到(它只看 input)⇒ 只有 read-back 擋得到
+  //
+  // 🛑 而**合成一格會製造假保護**:①過了會讓人以為②也有人守, 而②是那個
+  //    「兩端都印成功」的世界 —— 它才是這一族真正危險的那一半。
+  // ══════════════════════════════════════════════════════════════════════════
+
+  it('【世界①·zod】client 少送 paymentChannel → formError、零 placeOrder(連單都不建)', async () => {
+    const action = await getAction();
+    // 🔴 走**真的那條路**:整個鍵拿掉, 讓它經過真的 safeParse ——
+    //    不是直接呼叫函式、也不是塞 undefined 值。因為要守的正是
+    //    「TS 把 undefined 序列化掉之後, 那個鍵根本不存在」那個世界。
+    const input = validInput();
+    delete (input as Record<string, unknown>).paymentChannel;
+    const res = await action(input);
+
+    // 🔵 實測回的是 **fieldErrors 那一句具體的**, 不是通用 formError ——
+    //    比我原本斷言的更好(客人看得到是哪一欄), 所以斷言跟著事實走、不是把事實改成斷言。
+    expect(res).toMatchObject({ fieldErrors: { paymentChannel: '請選擇付款方式' } });
+    // 🔴 最重要的那一格:**零建單** —— 它擋在 placeOrder 之前, 不是之後補救。
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+    expect(mockConfirmPayment).not.toHaveBeenCalled();
+  });
+
+  it('【世界②·read-back】送 bank_transfer 而 DB 存成 tappay → formError、零 confirmPayment', async () => {
+    // 🎯 這就是「兩端都印成功」那個世界:placeOrder **成功回了 order id**,
+    //    DB 也**真的有一張合法的單** —— 而那張單上的付款方式是錯的。
+    //    (真實成因:舊 10 參簽名還在 ⇒ 解析到舊版 ⇒ 該欄吃 DEFAULT 'tappay'。)
+    mockFindPaymentChannel.mockResolvedValue('tappay');
+    const action = await getAction();
+    const res = await action(validInput({ paymentChannel: 'bank_transfer' }));
+
+    expect(res).toMatchObject({ formError: expect.stringContaining('付款失敗') });
+    // 🔴 建了單(所以這不是 zod 那一格能守的)⇒ 而**錢一毛沒動**。
+    expect(mockPlaceOrder).toHaveBeenCalled();
+    expect(mockConfirmPayment).not.toHaveBeenCalled();
+  });
+
+  it('【世界②·read-back】回查回 null(RLS 讀不到自己剛建的單)→ 拒, 不當成 tappay', async () => {
+    // 🛑 負對照:讀不到 ≠ 讀到 tappay。若哪天有人把 adapter 改成
+    //    「讀不到就回 'tappay'」, 這一格會紅 —— 而那正是這道守門會被弄壞的方式。
+    mockFindPaymentChannel.mockResolvedValue(null);
+    const action = await getAction();
+    const res = await action(validInput({ paymentChannel: 'tappay' }));
+
     expect(res).toMatchObject({ formError: expect.stringContaining('付款失敗') });
     expect(mockConfirmPayment).not.toHaveBeenCalled();
   });

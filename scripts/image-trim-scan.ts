@@ -84,6 +84,21 @@ async function fetchImage(url: string): Promise<Buffer> {
 }
 
 /** 全域 ≤8、同 host ≤2 的簡易排程(順序不保證;結果各自獨立無妨;export 供單測注入假 worker) */
+/**
+ * 🔴 抽成【具名匯出的純函式】的理由:`main()` 沒有匯出 ⇒ 那個判準測不到,
+ *   而**測試若自己重打一份門檻, 改了生產碼它不會紅**(今晚量過的同型:一格叫突變的測試
+ *   把判準重打一份 ⇒ 改生產碼四格全綠)。⇒ ✅ 讓守門格與突變格呼叫**同一支函式**。
+ *
+ * 門檻 5% 的來源:`product_image_trim` 全表歷史分佈(唯讀查網站庫 2026-09-04,
+ * 涵蓋 2026-07-19~09-02):ok 16,069 / no_trim 2,669 / **failed 26 = 0.14%**
+ * ⇒ 5% ≈ 常態的 35 倍 ⇒ 🎯 **負對照:今天會叫 0 次。**
+ */
+export const FAILED_RATE_ABORT = 0.05;
+export function shouldAbortOnFailedRate(failed: number, scanned: number): boolean {
+  if (scanned <= 0) return false; // 掃 0 張 ⇒ 沒有分母 ⇒ 不叫(那是另一種問題, 不歸這一格管)
+  return failed / scanned > FAILED_RATE_ABORT;
+}
+
 export async function runPool(
   urls: readonly string[],
   worker: (url: string) => Promise<void>,
@@ -228,6 +243,57 @@ async function main() {
     `done scanned=${results.length} ok=${counts.ok} no_trim=${counts.no_trim} failed=${counts.failed} upsert_failures=${upsertFailures}`,
   );
   if (upsertFailures > 0) process.exit(1);
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 🔴🔴 2026-09-04:`failed` 這個數字【本來就在收】, 而【沒有任何東西在讀它】。
+  //
+  // 病史:dbk 首灌當天 Sean 本人回報「很多圖片都沒顯示」——
+  //   🔬 實測 40 支 dbk 圖 ⇒ **39 支 502**;而**他們的首頁也是 502** ⇒ 掛的是供應商整個網站。
+  //   🟢 同一發對照組(cncracing / bonamici / gilles / extreme / lightech)**40 支全 200**。
+  //   🛑 而這支腳本當天照跑, 它會把那些記成 `failed` ⇒ **而它只在 upsert 失敗時才 exit 1**
+  //      ⇒ 🎯 **⇒ 一個「供應商站掛了」與一個「一切正常」印同一個退出碼。**
+  //
+  // 🔵 **門檻怎麼來的(不是拍腦袋)**:讀 `product_image_trim` 全表的歷史分佈
+  //   (唯讀查網站庫, 2026-09-04;涵蓋 2026-07-19 ~ 09-02):
+  //     ok 16,069(85.64%) · no_trim 2,669(14.22%) · **failed 26(0.14%)**
+  //   ⇒ 45 天的常態失敗率是 **0.14%** ⇒ 取 **5%** = 常態的 ~35 倍
+  //   ⇒ 🎯 **⇒ 負對照的答案:這道閘在正常狀態【今天會叫 0 次】。**
+  //   ⚠️ 而 5% 是**整批混合**的比率 —— 一家全掛(如 dbk 1,508/24,312 ≈ 6.2%)剛好過線,
+  //      **而兩家一起掛才會明顯** ⇒ 📌 **這道閘偏向【晚叫】, 不是早叫。**
+  //
+  // 🛑 **天花板(明寫, 不要讀成保證)**:
+  //   ① 它是**抽樣式增量掃**(CI 帶 `--limit=800`)⇒ 剛好沒抽到壞的那一批就不會叫 ⇒ **有偽陰**。
+  //   ② 🔴🔴 **今天【沒有人會看到它】—— 這一格是量出來的, 不是保守估計。**
+  //      🔬 `rpm-sync.yml:112` 的 `continue-on-error: true` 掛在 **job 層**(`image-trim-scan:`)
+  //         ⇒ 這個 job 失敗**不會讓 workflow run 變成 failure** ⇒ 🛑 **連 GitHub 的預設失敗信都不會發。**
+  //      🔬 而那支 workflow 唯一的告警管道就是它(該檔 `:29` 逐字:「告警:失敗走 GitHub Actions
+  //         預設 email(寄給上次改本檔者);LINE/webhook 升級留 follow-up」)。
+  //      🔬 而 repo 內**零腳本在讀** `Supplier Daily Sync` 的 run 結果(掃 `scripts/` + `docs/` + `.husky/`
+  //         ⇒ 命中全是**文件在提到那個名字**, 不是讀取端)。
+  //      🔬 而它與 push 那條路**結構上接不上**:`scripts/ci-verdict.py:35` 釘 `WORKFLOW = 'CI'`、
+  //         `:87` 用 `head_sha` 查 —— 而本 workflow 名叫 `Supplier Daily Sync` 且是 **schedule 觸發,
+  //         沒有 commit 可以綁**。⇒ 硬接等於造第二條資料路(主視窗 2026-09-04 裁「讀不到就不要硬接」)。
+  //      ⇒ 🎯 **⇒ 所以這道閘現在的用途是:【有人去 Actions 頁面看的時候, 那一步是紅的】。**
+  //      ⇒ ⇒ 📌 **一個沒有人讀的告警, 與沒有那個告警, 印同一個結果 —— 而前者更貴。**
+  //         **這一句留在這裡, 直到它有一個真的收訊者為止。**
+  //      🔵 而 `continue-on-error` **刻意不動**(主視窗 2026-09-04 裁):拿掉它 ⇒ 一家供應商的站掛了
+  //         就會擋掉**其餘 16 家的價格同步** ⇒ 那個代價比它買到的大, 而觸發它的是我們控制不了的外部因素。
+  //   ③ 它答不出「圖片內容對不對」—— 只答「那個網址現在給不給」。
+  //
+  // ✅ **出路寫在訊息裡**(而「紅了沒有出路會被整支刪掉」是量過的):
+  //   訊息直接指到板列 ⟦supply-DBKIMGHOTLINK⟧, 讓看到紅的人知道下一步去哪, 而不是來關掉這一格。
+  // ══════════════════════════════════════════════════════════════════════════
+  if (shouldAbortOnFailedRate(counts.failed, results.length)) {
+    const rate = counts.failed / results.length;
+    console.error(
+      `🔴 ALERT 圖片抓取失敗率 ${(rate * 100).toFixed(1)}% (${counts.failed}/${results.length}) ` +
+        `超過 ${FAILED_RATE_ABORT * 100}% 上限。\n` +
+        `   常態基線 0.14%(product_image_trim 全表 2026-07-19~09-02、26/18,764)⇒ 這不是雜訊。\n` +
+        `   🔵 下一步不是關掉這一格:先確認是不是某一家供應商的站掛了\n` +
+        `      (判法與前例:板列 ⟦supply-DBKIMGHOTLINK⟧ —— 打那家的【首頁】, 502 就是他們掛了)。`,
+    );
+    process.exit(1);
+  }
 }
 
 // 直跑才執行(單測 import parseArgs 不觸發副作用)

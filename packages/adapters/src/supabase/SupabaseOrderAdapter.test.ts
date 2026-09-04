@@ -42,7 +42,9 @@ function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
     shippingMethod: 'home',
     invoice: { type: 'personal' },
     cartSessionId: '11111111-1111-1111-1111-111111111111',
-    termsVersion: '2026-06-30', // #241 server 注入(必填)
+    termsVersion: '2026-06-30',
+    // 🔵 段 1-B:tappay = 今天線上唯一的付款方式 ⇒ 既有測項的世界不變(而那是一個世界不是中性預設)。
+    paymentChannel: 'tappay', // #241 server 注入(必填)
     ...over,
   };
 }
@@ -75,6 +77,8 @@ describe('SupabaseOrderAdapter.placeOrder', () => {
       p_invoice: { type: 'company', carrier: undefined, title: 'PCM', taxId: '12345678', donateCode: undefined },
       p_cart_session_id: '11111111-1111-1111-1111-111111111111',
       p_terms_version: '2026-06-30', // #241 server 注入
+      // 🔵 段 1-B:第 11 個參數 —— 少了它會命中舊那支 create_order, 而匯款會被存成 tappay。
+      p_payment_channel: 'tappay',
       p_client_ip: null, // #241 best-effort(input fixture 未帶 → null)
       p_client_ua: null,
     });
@@ -94,7 +98,9 @@ describe('SupabaseOrderAdapter.placeOrder', () => {
       'create_order',
       expect.objectContaining({ p_notification_email: null }),
     );
-    expect(Object.keys(rpc.mock.calls[0]![1] as object)).toHaveLength(9);
+    // 🔵 段 1-B:9 ⇒ 10(多了 p_payment_channel)。**這一格是 arity 的守門**:
+    //   它會抓到「有人靜靜多送/少送一個鍵」—— 而那正是新舊兩支 create_order 的分辨器。
+    expect(Object.keys(rpc.mock.calls[0]![1] as object)).toHaveLength(10);
   });
 
   it('RPC error(RAISE / 網路)原樣上拋不吞(對齊既有 adapter 裸 throw)', async () => {
@@ -159,6 +165,44 @@ describe('SupabaseOrderAdapter.findTotal', () => {
   it('🔴 非整數 total(浮點腐壞)→ toMoneyAmount 中央守門 throw、不靜默放行', async () => {
     const { client } = makeQueryClient({ data: { total: 1100.5 }, error: null });
     await expect(new SupabaseOrderAdapter(client).findTotal('o1')).rejects.toThrow();
+  });
+});
+
+// ── findPaymentChannel:建單後 read-back(段 1-B)──
+//
+// 🔴 **這個 describe 是【突變測試逼出來的】, 不是順手補的。**
+//    我先在 `charge-actions.test.ts` 寫了一格「回查回 null → 不當成 tappay」,
+//    並在 adapter 的註解裡寫「若有人把它改成讀不到就回 'tappay', 這一格會紅」。
+//    🛑 **實測:那句話是假的。** 把 adapter 的 `return null` 改成 `return 'tappay'`
+//       ⇒ 兩支檔 **229 格全綠**。
+//    📌 成因:action 層那格 **mock 掉了整個 repo** ⇒ 它結構上碰不到真的 adapter
+//       ⇒ 「action 有測」與「adapter 有測」是兩個宣稱, 而我用前者替後者背書。
+describe('SupabaseOrderAdapter.findPaymentChannel', () => {
+  it('查得 → 回那個字串;查詢鏈 = orders/select payment_channel/eq id', async () => {
+    const { client, from, select, eq } = makeQueryClient({
+      data: { payment_channel: 'bank_transfer' },
+      error: null,
+    });
+    const res = await new SupabaseOrderAdapter(client).findPaymentChannel('o1');
+    expect(res).toBe('bank_transfer');
+    expect(from).toHaveBeenCalledWith('orders');
+    expect(select).toHaveBeenCalledWith('payment_channel'); // 🔴 單欄窄讀
+    expect(eq).toHaveBeenCalledWith('id', 'o1');
+  });
+
+  it('🔴 查無 / 非本人(RLS)→ null,**不得回 tappay** —— 讀不到與讀到 tappay 必須分得開', async () => {
+    const { client } = makeQueryClient({ data: null, error: null });
+    await expect(new SupabaseOrderAdapter(client).findPaymentChannel('o-nope')).resolves.toBeNull();
+  });
+
+  it('形狀非 string(DB/wire 腐壞)→ null fail-closed', async () => {
+    const { client } = makeQueryClient({ data: { payment_channel: 7 }, error: null });
+    await expect(new SupabaseOrderAdapter(client).findPaymentChannel('o1')).resolves.toBeNull();
+  });
+
+  it('查詢 error → 裸 throw(對齊 findTotal 慣例;action 層吞通用字面)', async () => {
+    const { client } = makeQueryClient({ data: null, error: new Error('connection refused') });
+    await expect(new SupabaseOrderAdapter(client).findPaymentChannel('o1')).rejects.toThrow();
   });
 });
 

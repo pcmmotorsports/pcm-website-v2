@@ -75,6 +75,13 @@ type CreateOrderRpcInvoice = {
    而結帳這條唯一的建單路徑 `charge-actions.ts` 已無條件帶鍵。 */
 export type CreateOrderRpcArgs = {
   p_lines: CreateOrderRpcLine[];
+  /**
+   * 🔴 段 1-A 的第 11 個參數(`20260904020000`)。**必填、DB 那側無 DEFAULT。**
+   * 🎯 而**新舊兩支 `create_order` 靠【名字集合】各自被唯一命中** ——
+   *   送這個名字 ⇒ 只配得上新那支;不送 ⇒ 只配得上舊那支。
+   *   ⇒ 🛑 **所以這個鍵【不可以是 optional】** —— 少送一次就會靜靜掉回舊那支、存成 tappay。
+   */
+  p_payment_channel: 'tappay' | 'bank_transfer';
   p_address_id: string;
   p_shipping_method: 'home' | 'store';
   p_invoice: CreateOrderRpcInvoice;
@@ -146,6 +153,7 @@ function mapInvoice(invoice: OrderInvoice): CreateOrderRpcInvoice {
 export function mapPlaceOrderToCreateOrderArgs(input: PlaceOrderInput): CreateOrderRpcArgs {
   return {
     p_lines: input.lines.map(mapLine),
+    p_payment_channel: input.paymentChannel,
     p_address_id: input.addressId,
     p_shipping_method: input.shippingMethod,
     p_invoice: mapInvoice(input.invoice),

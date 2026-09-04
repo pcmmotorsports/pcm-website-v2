@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import {
+  SEARCH_CATEGORY_AMBIGUOUS_NAMES,
+  SEARCH_CATEGORY_NAMES,
+  SEARCH_CATEGORY_NAMES_SNAPSHOT,
+} from './search-category-names';
 import { SEARCH_SYNONYMS, synonymFor } from './search-synonyms';
-import { foldSearchTerm } from '@/lib/search-terms-fold';
+import { foldEquals, foldSearchTerm, foldStartsWith } from '@/lib/search-terms-fold';
 
 // ⟦search-CAPSULEPARSE⟧ · code-reviewer 2026-09-04 minor
 //
@@ -43,6 +48,73 @@ describe('SEARCH_SYNONYMS — 這張表自己要站得住', () => {
   });
 
   // 🔴 `draft` = AI 查來未經人核 ⇒ 它**必須**說得出自己是怎麼來的。
+  // 🔴🔴 **這一格是 2026-09-04 補的, 而它擋的是【這張表最會出的錯】**:
+  //    `to` 打成一個**不存在的分類名** ⇒ 那一列什麼都對不到, 而**先前沒有任何東西會紅**
+  //    (上面那幾格只驗格式:非空、不重複、from≠to、draft 有 note)。
+  //    🎯 而既有那一列 `土除 ⇒ 前擋泥板` 就是這樣活到今天的 —— **不是誰寫錯了, 是沒有東西在檢查。**
+  //    🛑 天花板見 `search-category-names.ts` 檔頭:那份快照是 migrations 的**超集**
+  //       (134 vs 正式庫實測 117)⇒ 它防**打錯字**, 不防「這個分類真的還在嗎」。
+  it.each(SEARCH_SYNONYMS.filter((s) => s.kind === 'category'))(
+    "🔴 category 列的 `to` 必須是真的分類名:%s",
+    (syn) => {
+      expect(
+        SEARCH_CATEGORY_NAMES.includes(syn.to),
+        `「${syn.from} ⇒ ${syn.to}」的 to 不在合法分類名快照裡(快照 ${SEARCH_CATEGORY_NAMES.length} 個,` +
+          ` 取自 ${SEARCH_CATEGORY_NAMES_SNAPSHOT.takenAt})⇒ 這一列今天指不到任何東西`,
+      ).toBe(true);
+    },
+  );
+
+  // 🔴🔴 **2026-09-04 補:一列可以【完全合法而永遠不會被讀到】。**
+  //    `parse-search-facets.ts` 的 `const direct = allCats.find` 那一行先試 `foldEquals(w, c.name) || foldStartsWith(c.name, w)`,
+  //    中了就 `break` —— **在 `synonymFor` 之前**。
+  //    ⇒ 🎯 所以 `from` 若是某個分類名的**前綴**, 前綴那條先中, **字典這一列從來沒有被讀到**。
+  //    🛑 而**上面那格「from 與 to 不得折成同一個」看不到這一種** —— 它擋的是【重複】,
+  //       而這一種是 from ≠ to、只是**到不了**。
+  //    🔬 線【前台】2026-09-04 端到端驗出來的:當時 14 列裡有 **4 列**是這樣
+  //       (風鏡 / 手機架 / 齒盤 / 土除)⇒ **真實覆蓋是 10 列, 不是 14。**
+  //    ✅ 而這一格自帶「不會誤殺」的性質:哪天分類改名成不再以那個字開頭,
+  //       這個條件就自動變 false ⇒ **那一列可以合法地加回來, 而閘不會擋。**
+  it.each(SEARCH_SYNONYMS.filter((s) => s.kind === 'category'))(
+    '🔴 `from` 不得是任何分類名的前綴(那樣前綴那條先中, 這一列永遠讀不到):%s',
+    (syn) => {
+      const shadowedBy = SEARCH_CATEGORY_NAMES.find(
+        (name) => foldEquals(syn.from, name) || foldStartsWith(name, syn.from),
+      );
+      expect(
+        shadowedBy,
+        `「${syn.from} ⇒ ${syn.to}」被分類名「${shadowedBy}」的前綴比對搶先命中` +
+          ' ⇒ 這一列永遠不會被讀到。前綴已經處理了它 ⇒ 這一列是純多餘, 刪掉。',
+      ).toBeUndefined();
+    },
+  );
+
+  it.each(SEARCH_SYNONYMS.filter((s) => s.kind === 'category'))(
+    '🔴 `to` 不得指向【同名掛在不同父分類】的那幾個(名字不是唯一鍵, 會選到哪一列不知道):%s',
+    (syn) => {
+      expect(
+        SEARCH_CATEGORY_AMBIGUOUS_NAMES.includes(syn.to),
+        `「${syn.from} ⇒ ${syn.to}」的 to 是同名分類(正式庫有多列同名)` +
+          ' ⇒ foldEquals 會回先出現的那一列, 而你不知道是哪一列。換一個名字, 或停下來報主視窗。',
+      ).toBe(false);
+    },
+  );
+
+  it('🟢 正對照:那份同名清單不是空的(空的話上面那組等於沒驗)', () => {
+    expect(SEARCH_CATEGORY_AMBIGUOUS_NAMES.length).toBeGreaterThan(0);
+    // 🔵 而它們每一個都真的在快照裡 —— 否則這張清單自己就過期了
+    for (const n of SEARCH_CATEGORY_AMBIGUOUS_NAMES) {
+      expect(SEARCH_CATEGORY_NAMES.includes(n), `${n} 不在分類名快照裡 ⇒ 清單過期了`).toBe(true);
+    }
+  });
+
+  it('🟢 正對照:那份快照不是空的, 也不是恆真', () => {
+    // 🔴 少了這一格, 快照若變成空陣列 ⇒ 上面那組 it.each 會【每一格都紅】而看起來像資料壞了;
+    //    而若 includes 被改成恆真 ⇒ 上面那組會全綠而什麼都沒驗。兩個方向各釘一次。
+    expect(SEARCH_CATEGORY_NAMES.length).toBeGreaterThan(100);
+    expect(SEARCH_CATEGORY_NAMES.includes('這個分類不存在')).toBe(false);
+  });
+
   it('🔴 `draft` 的列一定要有 note 與 added 日期(不然數不出它躺多久)', () => {
     for (const s of SEARCH_SYNONYMS.filter((x) => x.source === 'draft')) {
       expect(s.note.length, `${s.from} 沒寫 note`).toBeGreaterThan(10);

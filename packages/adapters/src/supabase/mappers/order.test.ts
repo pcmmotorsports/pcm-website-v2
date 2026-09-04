@@ -20,7 +20,9 @@ function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
     shippingMethod: 'home',
     invoice: { type: 'personal' },
     cartSessionId: '11111111-1111-1111-1111-111111111111',
-    termsVersion: '2026-06-30', // #241 server 注入(必填)
+    termsVersion: '2026-06-30',
+    // 🔵 段 1-B:tappay = 今天線上唯一的付款方式 ⇒ 既有測項的世界不變(而那是一個世界不是中性預設)。
+    paymentChannel: 'tappay', // #241 server 注入(必填)
     ...over,
   };
 }
@@ -48,6 +50,9 @@ describe('mapPlaceOrderToCreateOrderArgs', () => {
         'p_client_ua',
         'p_invoice',
         'p_lines',
+        // 🔵 段 1-B:第 11 個參數。**它一定要在** —— 少了它就會命中【舊那支】create_order,
+        //   而那一支不認得 payment_channel ⇒ 客人選的匯款會安靜地存成 tappay。
+        'p_payment_channel',
         'p_shipping_method',
         'p_terms_version',
       ].sort(),
@@ -65,6 +70,9 @@ describe('mapPlaceOrderToCreateOrderArgs', () => {
         'p_client_ua',
         'p_invoice',
         'p_lines',
+        // 🔵 段 1-B:第 11 個參數。**它一定要在** —— 少了它就會命中【舊那支】create_order,
+        //   而那一支不認得 payment_channel ⇒ 客人選的匯款會安靜地存成 tappay。
+        'p_payment_channel',
         'p_notification_email',
         'p_shipping_method',
         'p_terms_version',
