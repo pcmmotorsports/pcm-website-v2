@@ -132,12 +132,24 @@ def anchors(rs):
 
 def triage(rs):
     """待派 x 有沒有標記 ⇒ 兩堆。判準是【逐字子字串】, 不是分類器。"""
-    blocked, ready, notopen = [], [], []
+    blocked, ready, notopen, unknown = [], [], [], []
     marked = 0
     for i, state, what, who, body, _idcol in rs:
         has_mark = any(m in body for m in MARKERS)
         if has_mark:
             marked += 1
+        # 🔴🔴 **`who is None` 是【上游刻意產生的值】, 不是意外** —— 見 `rows()` 那段長註解:
+        #    「答不出來要長得像答不出來, 而猜一個看起來合理的是這一族最貴的失敗」。
+        #    ⛔ ~~而本函式原本直接 `'待派' not in who`~~ ⇒ **對 `None` 會 `TypeError` 整支炸掉。**
+        #    🔬 2026-09-05 線【身分】`-auth` 實測:`origin/dev` 那份板 **721 資料列裡 33 列是 None**
+        #      (4.6%);它們多半是**同一支檔裡【別的表】**(欄數比表頭少)。
+        #    🎯 **生產端是對的, 壞的是消費端** —— 上游那段註解只講了它**為什麼**回 None,
+        #      **沒有講【誰要接住它】** ⇒ 📌 一個正確的設計在跨過函式邊界時掉在地上。
+        #    🛑 **而它不能【靜靜跳過】** —— 那會讓那 33 列對派工完全隱形,
+        #      而本檔自己的規矩是「0 與『沒有派重』是兩個宣稱」⇒ 收成一堆, 印出來。
+        if who is None:
+            unknown.append((i, state, what))
+            continue
         if '待派' not in who:
             continue
         if has_mark:
@@ -149,12 +161,12 @@ def triage(rs):
             notopen.append((i, state, what))
         else:
             ready.append((i, who, what))
-    return blocked, ready, notopen, marked
+    return blocked, ready, notopen, marked, unknown
 
 
 def main(path):
     rs = rows(path)
-    blocked, ready, notopen, marked = triage(rs)
+    blocked, ready, notopen, marked, unknown = triage(rs)
     AK = anchors(rs)
 
     print(f'掃過的資料列 = {len(rs)}   內文帶標記的列 = {marked}')
@@ -202,6 +214,14 @@ def main(path):
     for i2, st, what in notopen:
         print(f'   {AK[i2]}  態={st:8s} {what[:60]}')
 
+    # 🔴 這一堆【不是雜訊】—— 它是「這把尺對這幾列沒有意見」, 而靜靜跳過會讓它們變成 0。
+    print(f'\n⚠️ 誰欄取不到（欄數比表頭少 ⇒ 上游刻意回 None）({len(unknown)} 列) —— 兩堆都不收')
+    print('   📌 多半是同一支檔裡【別的表】。它們對派工是【隱形】的, 不是【沒有】。')
+    for i3, st, what in unknown[:8]:
+        print(f'   :{i3}  態={st[:10]:10s} {what[:60]}')
+    if len(unknown) > 8:
+        print(f'   …另外 {len(unknown) - 8} 列')
+
     print('\n📎 射程在最上面那段（刻意不放這裡 —— 放這裡等於沒放）')
     return 0
 
@@ -217,15 +237,22 @@ def selftest():
         '| open | A4 | 丁事 | -b9 | 內文乾淨而已經有人拿著, 不該進任何一堆 |\n'
         '| open | A5 | 戊事 | 要面板 + 要 code | 重驗中 -b9 —— 第4欄答非所問 |\n'
         '| done | A6 | 己事 | 待派 | 內文乾淨而態是 done ⇒ 不該進可派名單 |\n'
+        # 🔴 這一列【欄數比表頭少一欄】⇒ `rows()` 刻意回 who=None。
+        #    ⛔ 而在 2026-09-05 之前, **selftest 的板子裡沒有這種列**
+        #    ⇒ 📌 `triage()` 對 None 會 TypeError 這件事, **在 selftest 的世界裡不存在**
+        #      —— 尺是好的, 而那個世界沒有被造出來。真板一跑就炸(721 列裡 33 列)。
+        '| open | A7 | 庚事 | 這一列少一欄 |\n'
     )
     fd, p = tempfile.mkstemp(suffix='.md'); os.close(fd)
     io.open(p, 'w', encoding='utf-8').write(board)
     try:
-        b, r, no, marked = triage(rows(p))
+        b, r, no, marked, unk = triage(rows(p))
         bl = sorted(x[2] for x in b)
         rl = sorted(x[2] for x in r)
         checks = [
-            ('資料列數 = 6（表頭與分隔列不算）', len(rows(p)) == 6),
+            # 🔵 6 ⇒ 7:2026-09-05 加了【庚】那一列(欄數少一欄 ⇒ who=None)。
+            #    改的是 fixture 的大小, 不是這一格的語意。
+            ('資料列數 = 7（表頭與分隔列不算）', len(rows(p)) == 7),
             ('負對照① 待派+有標記 ⇒ 被抓（甲丙兩列）', bl == ['丙事', '甲事']),
             ('負對照② 待派+乾淨 ⇒ 進可派名單（乙）', rl == ['乙事']),
             ('乙【沒有】被誤抓進不要派', '乙事' not in bl),
@@ -234,6 +261,9 @@ def selftest():
             ('帶標記的列數 = 3（甲丙戊）', marked == 3),
             ('負對照③ 待派+乾淨但態=done ⇒ 不進可派名單', '己事' not in rl),
             ('而它要進「態不是 open」那一堆，不得靜靜消失', '己事' in [x[2] for x in no]),
+            ('🔴 庚(欄數少一欄 ⇒ who=None) 不得讓 triage 炸掉', True),
+            ('🔴 而它要進「誰欄取不到」那一堆，不得靜靜消失', '庚事' in [x[2] for x in unk]),
+            ('🔵 負對照:庚不得混進可派名單', '庚事' not in rl),
         ]
     finally:
         os.unlink(p)
