@@ -71,6 +71,9 @@ const ARGS = {
   invoice: { type: 'personal' as const, carrier: '', title: '', taxId: '', donateCode: '' },
   prime: 'prime_test',
   agreed: true, // 🔴 #241:同意條款(送 server action 重驗)
+  // 🔵 段 1-B:tappay = 今天線上唯一的付款方式 ⇒ 既有測項的世界不變。
+  //   🛑 而它是【一個世界不是中性預設】—— 匯款那個世界要有自己的測項。
+  paymentChannel: 'tappay' as const,
 };
 
 afterEach(() => {
@@ -90,6 +93,10 @@ describe('useChargePayment', () => {
       await result.current.submit(ARGS);
     });
     expect(chargeMock).toHaveBeenCalledWith(expect.objectContaining({ agreed: true }));
+    // 🔴 段 1-B:**這一行是為了一個真的漏掉而加的**(codex plan 關卡1 must-fix ①)——
+    //    hook 收了 `paymentChannel` 而**沒有轉送**, 而全套 7090 格是綠的。
+    //    📌 它守的是「**收了 ≠ 送了**」, 而那個差別只在【這一支檔】看得見。
+    expect(chargeMock).toHaveBeenCalledWith(expect.objectContaining({ paymentChannel: 'tappay' }));
     expect(chargeMock.mock.calls[0]![0]).not.toHaveProperty('notificationEmail');
   });
 

@@ -237,10 +237,32 @@ export type ProfileInput = z.infer<typeof ProfileInput>;
 //    本 schema 只驗「結帳填寫表單」(地址 + 配送 + 發票 + flag-on 通知 Email)。
 // invoice 跨欄位驗證與 AddressInput **共用同一個** canonical schema(U3a;見 CheckoutInvoiceInput
 //    的說明,含等價性邊界與「消費端不得用 issues[0]」硬規則)。改發票規則只需改那一處。
+/**
+ * 顧客站結帳的付款方式(段 1-B, 2026-09-04)。
+ *
+ * 🔴🔴 **這兩個值與 DB 的白名單是【同一個集合】, 而它們在兩種語言裡**:
+ *   SQL `20260904020000_m4b_create_order_payment_channel.sql` 的
+ *     `p_payment_channel NOT IN ('tappay', 'bank_transfer') ⇒ RAISE`
+ *   TS  本 enum
+ *   ⇒ 🛑 **「只寫一次」物理上做不到** ⇒ ✅ 而做得到的是讓它們分岔的那一刻有東西會紅:
+ *     `payment-channel-contract.test.ts` 直接讀那支 migration 的字面對帳。
+ *   📌 **⇒ 同 `PCM_REMITTANCE_EXPIRE_DAYS` 那一格的形狀** —— 一個「單一來源」做不到的地方,
+ *     退而求其次的不是「小心一點」, 是一道會叫的閘。
+ *
+ * 🔵 **為什麼只有兩個**:`cash` 是**員工手動建單**那條路的值(`admin_create_manual_order`),
+ *   顧客站給不了;`none` 今天**零寫入端**、沒有人拍過它的語意。
+ */
+export const PAYMENT_CHANNEL_VALUES = ['tappay', 'bank_transfer'] as const;
+export type PaymentChannel = (typeof PAYMENT_CHANNEL_VALUES)[number];
+
 const CheckoutInputBase = z.object({
   addressId: z.uuid({ error: '請選擇收件地址' }),
   shippingMethod: z.enum(['home', 'store'], { error: '請選擇配送方式' }),
   invoice: CheckoutInvoiceInput,
+  // 🔴 **必填、無預設** —— 而那與 DB 那一側「不給 DEFAULT」是同一個理由的兩半:
+  //   給了預設 ⇒ client 少送時會**安靜地變成刷卡**, 而客人選的是匯款。
+  //   ⇒ 📌 這個失效模式在兩端都印成功 ⇒ 只有 server 的 read-back 分得出來(見 charge-actions)。
+  paymentChannel: z.enum(PAYMENT_CHANNEL_VALUES, { error: '請選擇付款方式' }),
 });
 
 // U3a 起這是純別名(原本承載 invoice superRefine、已移入 CheckoutInvoiceInput);

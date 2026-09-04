@@ -45,6 +45,17 @@ export type ChargeArgs = {
   /** 🔴 #241 同意服務條款 checkbox 狀態;送 server action 重驗(不信任 client)。
    *  ⚠️ 2026-07-22 U3b:前端已改為「未勾也可按、按下顯示錯誤」→ server guard 是唯一權威。 */
   agreed: boolean;
+  /**
+   * 🔴 段 1-B(2026-09-04):付款方式。**必填、無預設。**
+   *
+   * 而「無預設」在這一層與 DB 那一層是**同一個理由的兩半**:
+   * 新舊兩支 `create_order` 靠【名字集合】各自被唯一命中 ⇒ 這個鍵少送一次,
+   * 請求會**靜靜掉回舊那支、把匯款存成 tappay**。
+   * 🛑 而那個失效模式**在兩端都印成功**:client 收到 order id · DB 有一張合法的單
+   * ⇒ 📌 **只有 server 建完之後的 read-back 分得出來。**
+   * ⇒ ✅ 所以這裡寫成必填, 是為了讓「漏送」在**型別層**就先被擋一道。
+   */
+  paymentChannel: 'tappay' | 'bank_transfer';
   /** B-3 flag-on 才存在；server 仍會以同一份 schema 重新驗證。 */
   notificationEmail?: string;
   /** 🔴 **⟦b9-Q15GAP⟧ / Sean 拍 `Q15 = 甲`**:把一列購物車翻成**客人看得懂的名字**。
@@ -215,6 +226,14 @@ export function useChargePayment(): UseChargePayment {
           prime: args.prime,
           cartSessionId, // 🔴 3DS-7:client CartContext 穩定 key(server 驗 uuid/非空;空車不可達此=items>0 已保證生成)
           agreed: args.agreed, // 🔴 #241:同意條款 → server action 重驗(不信任 client)
+          // 🔴🔴 段 1-B:**少了這一行, 每一筆結帳都會在建單【之前】被 zod 擋掉**
+          //    (schema 必填無預設 ⇒ 回 fieldErrors.paymentChannel「請選擇付款方式」)。
+          // 🛑 而我第一版**真的漏了它**, 而 7090 格測試**全綠** ——
+          //    成因:`charge-actions.test.ts` 直接餵 action(它自己的 fixture 有這個鍵),
+          //    而本檔的測試只斷言 `agreed` / `cartSessionId` 兩個鍵
+          //    ⇒ 📌 **兩支檔各自的分母裡都沒有「hook 有沒有把它轉送出去」這件事。**
+          //    ⇒ codex 對抗審查抓到(2026-09-04, plan 關卡1 must-fix ①)。
+          paymentChannel: args.paymentChannel,
           ...(args.notificationEmail !== undefined
             ? { notificationEmail: args.notificationEmail }
             : {}),

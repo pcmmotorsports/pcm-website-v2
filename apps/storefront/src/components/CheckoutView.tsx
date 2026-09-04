@@ -188,6 +188,10 @@ export function CheckoutView({
       notificationEmailEnabled,
       notificationEmail,
       agreed,
+      // 🔴 段 1-B:與下面送給 server 的那個值**必須是同一份** ——
+      //   前端驗一個、後端存另一個, 兩邊都不會叫。(下一個增量把它換成畫面上的狀態時,
+      //   要**同時**換這兩處, 而它們相距約 60 行。)
+      paymentChannel: 'tappay' as const,
     });
     payErrors.applyValidation(validation);
     // 🔴 卡片閘與非卡片閘**同時求值、一起擋**(design §7.2「同一次 submit 找到的所有錯誤全部顯示,
@@ -230,6 +234,17 @@ export function CheckoutView({
         invoice,
         prime,
         agreed,
+        /**
+         * 🔴 段 1-B(2026-09-04):付款方式。**今天只送得出 `'tappay'`** ——
+         * 而那不是預設值, 是**現況**:`CheckoutStep2` 目前只渲染一個 radio
+         * (`CheckoutStep2.tsx` 逐字「ATM 轉帳不做(plan §3.2 隱藏)」, 而 Sean 09-04 推翻了它)。
+         * 🛑 **這一格是【接線】不是【功能】** —— 把 channel 一路送到 `create_order` 的第 11 個參數,
+         *   而**讓客人選得到**是下一個增量(解除那個隱藏 + 第二個 radio)。
+         * ⇒ 📌 拆成兩步是刻意的:**接線壞掉與選項沒出現, 症狀完全不同** ——
+         *   而合成一步的話, 客人選了匯款卻存成刷卡, 會被讀成「選項壞了」。
+         * 🔴 而它**寫死在這裡是暫時的**;下一個增量要把它換成畫面上的狀態, 不要在別處再寫一份。
+         */
+        paymentChannel: 'tappay' as const,
         ...(notificationEmailEnabled ? { notificationEmail } : {}),
         // 🔴 **Sean 拍 `Q15 = 甲`**:讓那句擋人的話**叫得出是哪一件商品**。
         //    品名來自**這一次 render 已經解析好的那一份**(`cart.lines`)——
