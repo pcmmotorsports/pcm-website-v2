@@ -130,7 +130,7 @@ describe('getSupplierConfig', () => {
     expect(cfg.variantImages).toBe('per-variant'); // 222 群多變體、最大群 7
   });
 
-  it('should register exactly the pilot set + 品牌放量 8 家(2026-07-10)+ akrapovic(07-19)+ extreme/kspeed(07-24)+ dna(08-20)+ gilles(08-27)+ dbk(09-04)+ rizoma(09-04)', () => {
+  it('should register exactly the pilot set + 品牌放量 8 家(2026-07-10)+ akrapovic(07-19)+ extreme/kspeed(07-24)+ dna(08-20)+ gilles(08-27)+ dbk(09-04)+ rizoma(09-04)+ wrs(09-04)', () => {
     // 防呆:誰未查證就多塞一家 → 這條逼他改測試同時面對「已 MCP 查證了嗎」。
     // 2026-07-24 品牌上架第三批補 extreme(第 15 家、commit 9a2f62a/d756651)+ kspeed(第 16 家、
     //   commit 2b5cba1;supplierSlug='kspeed'、brandSlug='k-speed' 拼法分岔)並開寫首灌。
@@ -160,12 +160,23 @@ describe('getSupplierConfig', () => {
     //   (本次輸出逐字印 `target 現存上架: 0`)、handle 與 pv_spec 對 target 那半無分母。
     //   🟢 負對照當場跑過:`--expect-groups=9999` ⇒ 印 `🔴 ALERT 群數指紋 abort`,而 **rc 兩個世界都是 0**
     //   ⇒ 這道閘要看畫面、不能看 rc(runbook §3-a 復現)。
+    // 2026-09-04 補 wrs(第 20 家真供應商;supplierSlug=brandSlug=handlePrefix='wrs',拼法未分岔)
+    //   writeAllowed=false 起手,零寫入。🔴 **而它與 dbk / rizoma 的差別在【授權】不在資料**:
+    //   Sean 對 dbk 拍「甲 上」· 對 rizoma 拍「`q3: 上`」= **上架授權**;
+    //   而對 WRS 他拍的是 `q4: 甲,` =「**先做品牌形象區**」⇒ 🛑 **那是順序, 不是上架授權。**
+    //   📌 **一個「先做 A 再做 B」的拍板不含「B 可以做」, 而那兩者讀起來很像。**
+    //   🔬 preflight 實測(2026-09-04 單一時點):1,131 變體 / 568 群 · 價缺 0 · 明文 http 0 ·
+    //     v2 已分類 = 總數 · 缺中文名 0 · 缺描述 0 · 8 大類 15 子類 · 有 pdf 的群 **0** ·
+    //     沒有真照片 **33** 件(`DISTINCT image_url`=1, 逐字 `quote.pcmmotorsports.com/no-photo.png`
+    //     = PCM 自己的卡 ⇒ 不擋上架)· 多變體群 397 其中 394 每變體有圖 ·
+    //     **pv_spec 零違規**(R1 0 / R3 0, 掃 `products` 原表 1,223 列)· 網站庫 brands 有列、商品 0。
+    //   ⚠️ 而板上寫「wrs 37 件無圖」—— 今天實測 **33** ⇒ 源頭每天在動, 板上那個數字已過期。
     // __gated_canary__ = 永久 guard 測試靶(非真供應商、writeAllowed 恆 false);底線排序在字母前。
     expect(Object.keys(SUPPLIER_CONFIGS).sort()).toEqual([
       '__gated_canary__',
       'akrapovic', 'bonamici', 'cncracing', 'dbk', 'dna', 'eazigrip', 'ebc', 'evotech', 'extreme',
       'front3d', 'gbracing', 'gilles', 'kspeed', 'lightech', 'materya', 'motogadget',
-      'rizoma', 'rpm', 'samco',
+      'rizoma', 'rpm', 'samco', 'wrs',
     ]);
   });
 });
