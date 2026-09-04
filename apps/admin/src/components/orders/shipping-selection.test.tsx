@@ -472,7 +472,11 @@ describe('🔴🔴 鐵則 12 — launcher 同樣不得收整包訂單', () => {
     ).toEqual([]);
   });
 
-  it('🔴 出貨卡只傳訂單 id 進 client 元件(不是整包 detail)', () => {
+  // 🔴 **2026-09-04 標題訂正(codex nit10)**:⛔ ~~「**只**傳訂單 id」~~ —— 那句話今天不成立:
+  //    出貨卡現在合法地多傳一個 `balanceWarning`(一句**已經排版好的字串**, 見 `shipmentBalanceWarning`)。
+  //    而**本格從頭到尾禁的就只有「整包 detail」** —— 它從來沒有真的檢查「有幾個 prop」
+  //    ⇒ 📌 **標題比斷言寬, 而寬的那一半會被下一個人當成規矩去遵守(或去違反而不知道)。**
+  it('🔴 出貨卡不得把整包 detail 傳進 client 元件(多傳已排版好的字串是允許的)', () => {
     const call = SECTION.match(/<OrderShipButton([^/>]*)\/>/)?.[1] ?? '';
     expect(call, 'shipment-section.tsx 掃不到 <OrderShipButton … /> ⇒ 入口不見了或掛法變了').not.toBe('');
     expect(
