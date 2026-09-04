@@ -560,4 +560,44 @@ describe('OrderShipButton — 成功只被處理一次(N1 守門)', () => {
     expect(fetchShipmentCandidates.mock.calls.length).toBeLessThanOrEqual(2);
     expect(fetchItemProcurementChoices.mock.calls.length).toBeLessThanOrEqual(2);
   });
+
+  /**
+   * 🔴🔴 **尾款警告的【轉傳】守門 —— codex 2026-09-04 MF6 逼出來的。**
+   *
+   * 那句「尾款 X 元未收」要走三段:
+   *   `shipment-section.tsx`(算)→ `OrderShipButton`(收)→ `useShipmentLauncher`(轉)→ `ShipmentDialog`(印)
+   * 而**每一段各自都有測試, 卻沒有一格跨過中間那兩段**:
+   *   · section 那支 mock 掉了整個 launcher
+   *   · dialog 那支直接把 prop 塞給元件
+   *   ⇒ 📌 **抽掉 launcher 裡任一段轉傳, 兩邊【各自】全綠, 而彈窗裡那句話真的不見了。**
+   * 🧬 突變:刪掉 `useShipmentLauncher` 的 `balanceWarning` 參數、
+   *    或刪掉 `<ShipmentDialog balanceWarning={...}>`、或刪掉 `OrderShipButton` 那一路
+   *    ⇒ **這一格紅**。
+   */
+  it('🔴 尾款那句話從 OrderShipButton 一路傳到彈窗裡(跨過 launcher 的整合守門)', async () => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [{ ...CANDIDATE, orderItemId: 'a', remaining: 2, blockedReason: null }],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+    });
+    render(<OrderShipButton orderId='o1' balanceWarning='尾款 3,000 元未收' />);
+    click();
+    await waitFor(() => expect(screen.queryByText(/建立包裹/)).not.toBeNull());
+    const note = document.querySelector('[data-testid="shipment-balance-warning"]');
+    expect(note, '彈窗開了而警告框不在 ⇒ 中間某一段轉傳掉了').not.toBeNull();
+    expect(note!.textContent).toContain('尾款 3,000 元未收');
+  });
+
+  it('🔵 負對照:沒給那句話 ⇒ 彈窗裡不長出一個空的警告框', async () => {
+    // 🎯 沒有這一格的話, 上面那格與「無條件渲染一個框」分不開。
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [{ ...CANDIDATE, orderItemId: 'a', remaining: 2, blockedReason: null }],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+    });
+    render(<OrderShipButton orderId='o1' />);
+    click();
+    await waitFor(() => expect(screen.queryByText(/建立包裹/)).not.toBeNull());
+    expect(document.querySelector('[data-testid="shipment-balance-warning"]')).toBeNull();
+  });
 });
