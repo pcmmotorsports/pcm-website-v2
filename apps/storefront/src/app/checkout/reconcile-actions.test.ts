@@ -98,6 +98,32 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+describe('reconcileCartSession — bank_pending(M-4b 段 1 片 A)', () => {
+  const CART_OK = '11111111-2222-4333-8444-555555555555';
+
+  it('🔴 lookup 回 bank_pending → { status: pendingTransfer, displayId },而 throttle / settle 各 0 次', async () => {
+    // 🎯 這一格補的是 ⟦b4-BANKORDERINVISIBLE⟧ 的第三個受詞:
+    //   建單之後回應掉了(關頁 / 斷網)⇒ 本片之前這裡回 pending ⇒ 客人看不到那張已經建好的單。
+    // 🛑 而【客人看得到什麼】那一半不在片 A —— 那一頁是段 3。本格驗的是 server 這端答對了。
+    lookupSpy.mockResolvedValue({
+      kind: 'bank_pending',
+      existingOrderId: 'order-bank-1',
+      displayId: 'PCM-2026-BANK',
+    });
+    const res = await reconcileCartSession(CART_OK);
+    expect(res).toEqual({ status: 'pendingTransfer', displayId: 'PCM-2026-BANK' });
+    // 🔴 不打 Record、不 settle —— 匯款單沒有卡片交易可以問。
+    expect(throttleSpy).not.toHaveBeenCalled();
+    expect(settleSpy).not.toHaveBeenCalled();
+  });
+
+  it('🟢 正對照:lookup 回 none 仍然是 pending(舊行為逐字不變)', async () => {
+    // 🛑 少了這一格, 一個「什麼都回 pendingTransfer」的實作也會讓上一格通過。
+    lookupSpy.mockResolvedValue({ kind: 'none' });
+    expect(await reconcileCartSession(CART_OK)).toEqual({ status: 'pending' });
+  });
+});
+
 describe('reconcileCartSession — 零信任形狀', () => {
   it('非 UUID cartSessionId → pending、不建 client、不反查', async () => {
     expect(await reconcileCartSession('not-a-uuid')).toEqual({ status: 'pending' });
