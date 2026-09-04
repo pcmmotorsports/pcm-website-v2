@@ -220,6 +220,10 @@ COMMENT ON COLUMN public.order_pending_refunds.amount_at_cancel IS
   '✅ **要知道【現在】還欠多少, 不要讀本欄 —— 呼叫 public.pcm_manual_refund_rail_cap(order_id)**'
   '(`20260824010000:117`):它 SUM public.order_payments.amount(rail IN (bank_transfer, cash))'
   '減掉 SUM public.order_manual_refunds.refund_amount(voided_at IS NULL), 兩段皆 COALESCE(...,0)。'
+  '⚠️ 差別:那支函式是【兩軌合計】, 本欄是【逐軌】⇒ 逐軌要自己加 rail 條件。'
+  '🔴 而本表的金額【不在】那支函式的分母裡 —— 見 COMMENT ON TABLE。'
+  '🔴 **第四種會讓本欄與事實分岔的情形(2026-09-05 補)**:取消【之後】又收到一筆錢 ——'
+  '本欄停在第一次算出來的數, 而客人已經多付了。前三種見上(登記退款 / 沖銷收款 / 作廢退款)。'
   '🆕 **2026-09-05 新增一個角落(⟦b4-NCPCRONRACE⟧)**:錢比取消【晚】落帳時,'
   'pcm_pending_refund_open_for 會補開一列, 而那一列裝的**不是取消當下的金額**(那時是 0),'
   '是**我們第一次算得出來時的金額**。⇒ 它仍然是快照, 只是那個「當下」晚了一點。';
@@ -312,6 +316,11 @@ BEGIN
     --   🔵 而 plpgsql 的 BEGIN…EXCEPTION 自帶 savepoint ⇒ 這裡吞掉的只有這一行, 不含外面那筆 INSERT。
     BEGIN
       PERFORM public.pcm_pending_refund_open_for(p_order_id, false);
+    -- 🛑 **`WHEN OTHERS` 吞的是什麼, 寫清楚**(R4 nit ①):它涵蓋一般錯誤
+    --    (`deadlock_detected` / `lock_timeout` / 約束違反 / 權限),
+    --    **而依 PostgreSQL 定義【不接】`query_canceled`(57014)與 `assert_failure`**
+    --    ⇒ statement_timeout 或人工 cancel 仍會穿透這裡、連帶回滾外面那筆收款
+    --      (那是既有的 ⟦b4-NCPCANCELROLLBACK⟧, 本片沒有修掉它)。
     EXCEPTION WHEN OTHERS THEN
       RAISE LOG '[pcm_noncard_settle] order=% 補開待退款失敗(%), 狀態重算照常進行',
                 p_order_id, SQLERRM;
@@ -600,14 +609,24 @@ COMMIT;
 --        ⛔ 本片貼上去之後, 它的 newest 會是【本支 20260905070000】⇒ 它會把你指回你要退的那一版。
 --        📌 **一支答「repo 最新」的工具, 在你要退版的那一刻剛好答錯。**
 --      ✅ **可執行的做法(貼本片【之前】先做, 那才來得及)**:
+--        🔵 唯讀連線走 `~/pcm-mailbox/0905查證/run.sh` 那條路(R4 nit ②)——
+--          🛑 **它只有唯讀授權** ⇒ 不得拿它 apply 任何東西;跑不動是【對的】不是壞掉;
+--            絕不把連線字串印進對話。
 --        用唯讀連線把線上那兩支的現況存下來 ——
 --          SELECT pg_get_functiondef('public.pcm_pending_refund_on_cancel()'::regprocedure);
 --          SELECT pg_get_functiondef('public.pcm_noncard_settle_recompute(uuid)'::regprocedure);
 --        把兩段輸出各存成一個 .sql 檔。**那兩份就是真正的「上一版」。**
 --      ⚠️ **貼完之後才想退版**:線上已經是新版了 ⇒ 上面那兩發撈到的是新的。
 --        這時唯一的來源是 repo 檔:`20260902030000`(on_cancel)與 `20260904230000`(recompute)
---        ⇒ 用 awk 把那兩支的函式全文抽出來, 把開頭的 `CREATE FUNCTION` 改成 `CREATE OR REPLACE FUNCTION`。
+--        ⇒ 用 awk 把那兩支的函式全文抽出來。
+--        ⚠️ **而「改成 CREATE OR REPLACE」只適用 `pcm_noncard_settle_recompute`**(R4 nit ③)——
+--          `pcm_pending_refund_on_cancel` 在 `20260902030000` 裡**本來就是** `CREATE OR REPLACE`。
 --        🛑 而那**只在「線上跑的就是那兩支」時正確** —— 貼之前沒存快照, 這一點就無法證明。
+--        ✅ **而它有一個【帳本級】的判法**(R4 consider ③;帳本級 = 比不上實查, 而比沒有好):
+--          · `docs/reference/order-state-gates.md` 的代數表(它由 index 視圖重產, 反映 repo 現況)
+--          · `supabase/APPLIED.tsv` 上那兩支的 sha256 列
+--          🔴 **而 `APPLIED.tsv` 的【缺席】什麼都不代表**(⟦01-LEDGERFALSENEG⟧)——
+--            它只在「有記」時提供證據, 不在「沒記」時提供反證。
 --   ② 確認那兩支的 prosrc 都不再含 'pcm_pending_refund_open_for'(否則第③步會炸)。
 --   ③ 才 DROP FUNCTION public.pcm_pending_refund_open_for(uuid, boolean);
 -- 🔴🔴 **⛔ ~~本片不動任何 trigger 定義、不動任何表、不建索引 ⇒ 沒有 DDL 要回滾~~ 那句是假的**

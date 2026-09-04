@@ -130,6 +130,10 @@ PAY=$!
 sleep 0.6
 ( psql -h 127.0.0.1 -p "$PORT" -U postgres -v ON_ERROR_STOP=0 -c "
     BEGIN;
+    -- 🔴 與四支正式取消寫入端【同形】:它們都先 FOR UPDATE 再 UPDATE
+    --    (20260904230000:493 SKIP LOCKED · 20260903093000:222 · 同檔:677 · 20260904050000:91)
+    --    ⇒ 少了這一發, fixture 比正式【更不保護】 —— 而那會讓缺陷看起來是真的。
+    SELECT 1 FROM public.orders WHERE id='$C' FOR UPDATE;
     UPDATE public.orders SET cancelled_at = now() WHERE id='$C';
     INSERT INTO public.order_cancellations (order_id, created_at)
       SELECT '$C', cancelled_at FROM public.orders WHERE id='$C';
@@ -160,6 +164,10 @@ P2=$!
 sleep 0.6
 ( psql -h 127.0.0.1 -p "$PORT" -U postgres -v ON_ERROR_STOP=0 -c "
     BEGIN;
+    -- 🔴 與四支正式取消寫入端【同形】:它們都先 FOR UPDATE 再 UPDATE
+    --    (20260904230000:493 SKIP LOCKED · 20260903093000:222 · 同檔:677 · 20260904050000:91)
+    --    ⇒ 少了這一發, fixture 比正式【更不保護】 —— 而那會讓缺陷看起來是真的。
+    SELECT 1 FROM public.orders WHERE id='$C2' FOR UPDATE;
     UPDATE public.orders SET cancelled_at = now() WHERE id='$C2';
     INSERT INTO public.order_cancellations (order_id, created_at)
       SELECT '$C2', cancelled_at FROM public.orders WHERE id='$C2';
@@ -168,13 +176,20 @@ K2=$!
 wait "$P2"; wait "$K2"
 check "格3c-0 🟢【世界造出來了】那筆溢付真的落帳" "1" \
   "$(q1 "SELECT count(*)::text FROM public.order_payments WHERE order_id='$C2'")"
-check "格3c 🔴【缺陷】溢付 + 兩連線同時 ⇒ 零列待退款(修好之後這格會紅, 那時把期望改成 1)" "0" "$(rows "$C2")"
+# 🔴 R4 F2:只驗付款落帳不夠 —— **取消那一發若失敗, 缺陷與「世界沒造出來」印同一個數字。**
+check "格3c-0b 🟢【世界造出來了】那張單真的被取消" "true" \
+  "$(q1 "SELECT (cancelled_at IS NOT NULL)::text FROM public.orders WHERE id='$C2'")"
+check "格3c 溢付 + 兩連線同時 ⇒ 有一列待退款" "1" "$(rows "$C2")"
 
 echo "── 🔴 世界 D(兩連線, 反過來):取消先開始, 付款中途插進來 ──"
 # 🛑 **少了這一格, 我只造了【一個】時序** —— 而 lost-wakeup 的兩種排法是兩個世界。
 G=$(q1 "SELECT gen_random_uuid()"); mk "$G"
 ( psql -h 127.0.0.1 -p "$PORT" -U postgres -v ON_ERROR_STOP=0 -c "
     BEGIN;
+    -- 🔴 與四支正式取消寫入端【同形】:它們都先 FOR UPDATE 再 UPDATE
+    --    (20260904230000:493 SKIP LOCKED · 20260903093000:222 · 同檔:677 · 20260904050000:91)
+    --    ⇒ 少了這一發, fixture 比正式【更不保護】 —— 而那會讓缺陷看起來是真的。
+    SELECT 1 FROM public.orders WHERE id='$G' FOR UPDATE;
     UPDATE public.orders SET cancelled_at = now() WHERE id='$G';
     INSERT INTO public.order_cancellations (order_id, created_at)
       SELECT '$G', cancelled_at FROM public.orders WHERE id='$G';
@@ -203,7 +218,12 @@ echo "     (deadlock 字樣:$DLD)"
 #   ✅ 判別法:轉紅時**先確認那筆付款真的落在取消提交【之前】** ——
 #     看 `$D/d-pay.log` 與 `$D/d-cancel.log` 的時序, 不要只看 rows。
 # ⏰ 修法在板列 ⟦b4-NCPCRONRACE⟧:事後掃描器(與 ⟦b4-SETTLERETRYNEVER⟧ 同一支)。
-check "格3b 🔴【缺陷仍在】反過來的時序 ⇒ 零列待退款(修好之後這格會紅, 那時把期望改成 1)" "0" "$(rows "$G")"
+# 🔴 R4 F2:世界 D 原本【零】「世界造出來了」對照(我先前補的是 C 與 C2)。
+check "格3b-0 🟢【世界造出來了】那筆付款真的落帳" "1" \
+  "$(q1 "SELECT count(*)::text FROM public.order_payments WHERE order_id='$G'")"
+check "格3b-0b 🟢【世界造出來了】那張單真的被取消" "true" \
+  "$(q1 "SELECT (cancelled_at IS NOT NULL)::text FROM public.orders WHERE id='$G'")"
+check "格3b 反過來的時序 ⇒ 有一列待退款" "1" "$(rows "$G")"
 check "格4b 🟢 而且沒有死結" "0" "$DLD"
 
 echo "── 🔴 世界 E:【兩筆併發付款】打同一張已取消的單(戊 的鎖升級風險就在這裡)──"
