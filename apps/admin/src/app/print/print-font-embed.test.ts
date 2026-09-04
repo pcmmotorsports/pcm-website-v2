@@ -60,15 +60,17 @@ describe('⟦ship-PRINTNOFONT1⟧ 字型要【帶在紙上】, 不靠對方機�
       expect(line, `${v} 這一行找不到 ⇒ 這把尺量錯檔了`).toBeTruthy();
       expect(line, `${v} 的鏈上沒有 Noto Sans TC ⇒ 中文會掉回機器字型`).toContain('Noto Sans TC');
       /**
-       * 🔴🔴 **順序就是修法本身**(⟦ship-PRINTCARON1⟧)。
-       * `Noto Sans TC` 的 woff2 **沒有 `Č` / `Š` 的字形**, 而它的 `unicode-range` 宣告了那個範圍
-       * ⇒ 🛑 **宣告不是保證**。拉丁那支排在後面 ⇒ 拉丁字先被 TC 接走 ⇒ `Č` 又掉回機器字型,
-       * 而**那台機器上剛好有** ⇒ 在這裡看起來對。
+       * 🔴🔴 **兩件事, 而它們承重的不是同一格**(⟦ship-PRINTCARON1⟧;2026-09-04 訂正)。
+       * · **`'Noto Sans'` 在不在鏈上** ⇒ 承重的是這個。拿掉它 ⇒ `Č` 掉回機器字型
+       *   (真 PDF `CAAAAA+Helvetica` —— 而**那台機器上剛好有** ⇒ 在這裡看起來對)。
+       * · **順序** ⇒ ⛔ ~~「排後面 Č 就沒救到」~~ **當場量:排後面 `Č` 仍由 NotoSans 畫**
+       *   (TC 沒有那個字形 ⇒ 往下掉)。順序守的是**同一個字裡不要有兩種字形**:
+       *   順序錯的整句量到 `AKRAPOVI 由 TC 畫 · Č 由 NotoSans 畫`。
        */
       const la = line!.indexOf(`'Noto Sans'`);
       const tc = line!.indexOf(`'Noto Sans TC'`);
       expect(la, `${v} 的鏈上沒有 'Noto Sans'(拉丁那支)⇒ Č / Š 會掉回機器字型`).toBeGreaterThan(-1);
-      expect(la, `${v}:'Noto Sans' 排在 'Noto Sans TC' 後面 ⇒ 拉丁字先被 TC 接走 ⇒ Č 沒救到`)
+      expect(la, `${v}:'Noto Sans' 排在 'Noto Sans TC' 後面 ⇒ 同一個字裡兩種字形(AKRAPOVI 由 TC 畫、Č 由 Noto Sans 畫)`)
         .toBeLessThan(tc);
     }
     // 🟢 負對照:mono 那條鏈【不該】有 —— 它有的話是有人把字型問題換成了數字對不齊。

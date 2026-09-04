@@ -32,7 +32,9 @@
 // 🔴 **兩個套件, 而順序的意義在 CSS 那邊**(`print-a4.css` 的 `--pd-body` 註解):
 //    `noto-sans` = 拉丁, `noto-sans-tc` = 中日韓。
 //    ⟦ship-PRINTCARON1⟧:TC 那支的 woff2 **沒有 `Č` / `Š` 的字形**, 而它的 `unicode-range`
-//    **宣告了那個範圍** ⇒ 🛑 **宣告不是保證** ⇒ 拉丁那支要排在前面才接得住。
+//    **宣告了那個範圍** ⇒ 🛑 **宣告不是保證** ⇒ **拉丁那支要【在鏈上】才接得住**
+//    (⛔ ~~「要排在前面才接得住」~~ ⇒ 2026-09-04 當場量:順序錯時 `Č` 仍由 NotoSans 畫;
+//     順序守的是**同一個字裡不要有兩種字形**, 見 `print-a4.css` 那段訂正)。
 import '@fontsource/noto-sans/400.css';
 import '@fontsource/noto-sans/700.css';
 import '@fontsource/noto-sans-tc/400.css';
