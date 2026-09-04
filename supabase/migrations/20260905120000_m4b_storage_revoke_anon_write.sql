@@ -1,4 +1,32 @@
 -- ═══════════════════════════════════════════════════════════════════════════
+-- ⛔⛔ **作廢 —— 不要貼。留著是為了讓下一個想做同一件事的人少走一遍。**(2026-09-05)
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 🔴 **為什麼作廢:`postgres` 收不掉 `supabase_storage_admin` 給出去的權限。**
+--    PG 的規則:REVOKE 只收得掉【你自己(或你所屬角色)給出去的】那些。
+--
+--    正式庫實測(2026-09-05 唯讀):
+--      `storage.buckets` / `buckets_analytics` / `objects` 的 owner = `supabase_storage_admin`
+--      ACL 的 grantor 也是它(`anon=arwdDxtm/supabase_storage_admin`)
+--      `pg_has_role('postgres','supabase_storage_admin','MEMBER')` ⇒ **f**
+--      `pg_roles.rolsuper` for `postgres`                        ⇒ **f**(只有 BYPASSRLS)
+--    ⇒ 🛑 **Sean 在 SQL Editor 以 `postgres` 貼,這三行 REVOKE 一個都收不掉。**
+--
+--    拋棄式 PG 同形實證(表由 `storage_admin` 建、用一個非 superuser 非成員的角色 REVOKE):
+--      `ERROR:  permission denied for table objects` ⇒ `anon` 的 TRUNCATE 仍是 **true**
+--
+-- 🔴🔴 **而我第一輪的拋棄式驗證是【假綠】,這一格比作廢本身值得記**:
+--    我的 fixture 裡那些表是 **`postgres` 自己建的** ⇒ grantor 就是 `postgres` ⇒ REVOKE 當然成功。
+--    📌 **fixture 與真實世界差的那一格,正好是這一片成立與否的那一格。**
+--    ⇒ 我當時報的「貼前 SIUDT ⇒ 貼後 S----、兩發突變都殺得死」**每一個讀數都是真的**,
+--      而它們證的是**另一個世界**。⇒ 🎯 **尺是好的,是【世界造錯了】。**
+--
+-- ⇒ 主視窗 2026-09-05 裁:走【丙】(上板記成平台管的殘餘風險)+【甲】進 Sean 佇列
+--   (他去 dashboard / support 問那條路存不存在);**乙不做** —— 改用 RLS policy 擋
+--   **解不掉這個洞**,因為 **`TRUNCATE` 不受 RLS 管**。
+-- 📎 板列 `⟦0e-STORAGEACL⟧`。
+-- ═══════════════════════════════════════════════════════════════════════════
+-- (以下為原內容,零刪除)
+-- ═══════════════════════════════════════════════════════════════════════════
 -- 收掉 `anon` / `authenticated` 對 `storage` 的【寫入與清空】權(保留 SELECT)
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 🔴🔴 **草稿 —— 等 Sean 對 `Q-檔案儲存區權限` 拍甲才貼。板列 `⟦0e-STORAGEACL⟧`。**

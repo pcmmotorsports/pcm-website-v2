@@ -34808,3 +34808,62 @@ feedback_a-green-mutation-has-two-causes          「斷言太弱 / 突變沒壞
 
 ⚠️ **而三句都做完仍然會漏** —— 第 4 次是**我自己的字串處理**壞掉,它不在上面任何一格裡。
 　 ⇒ 那一種只有**「這個結果不合理」**攔得住:兩支檔都說「不同」時,**先懷疑尺,不要先寫報告**。
+
+
+## 🔴🔴 尺是好的、突變殺得死、每個讀數都是真的 —— 而【世界造錯了】(2026-09-05,線 `-db`,codex R2 攔下)
+
+> **查重留痕**:最高分 `:347`「恆綠格」0.4085 ·
+> memory `feedback_my-fixture-drifts-toward-my-conclusion` 0.3497 ·
+> 🔴 **而第 4 名 `memory/reference_supabase-postgres-not-superuser-cannot-revoke`(0.3420)才是本條真正的鄰居** ——
+> 　 見下面「而它 2026-07-23 就記過了」那節。**排名沒把它排第一,開檔才看到。**
+
+### 當天的事
+
+我要收掉 `anon` 對 `storage` 三張表的寫入權,寫了一支 migration,在拋棄式 PG 上驗:
+```
+貼前 anon SIUDT ×3   ⇒  貼後 S---- ×3, 而 service_role 未動
+突變① 順手收 SELECT      ⇒ 事後斷言 WARNING
+突變② 順手收 service_role ⇒ 負對照拒 COMMIT
+突變③ 拿掉 default 那段  ⇒ 事後斷言拒 COMMIT
+```
+**四格全綠、三發突變全殺得死。** 我回報了。
+
+### 而它在正式庫貼不動
+
+`storage` 那三張表的 **owner 與 ACL 的 grantor 都是 `supabase_storage_admin`**,
+而 `postgres`(Sean 貼板的身分)**不是它的成員**(`pg_has_role` ⇒ f)、**也不是 superuser**(`rolsuper` ⇒ f)。
+PG 的規則:**`REVOKE` 只收得掉你自己(或你所屬角色)給出去的。**
+⇒ 同形實證:`ERROR: permission denied for table objects`,`anon` 的 `TRUNCATE` 仍是 `true`。
+
+### 🎯 病灶不在尺,在世界
+
+```
+我的 fixture:  表由 postgres 建  ⇒ grantor = postgres  ⇒ REVOKE 當然成功
+真實世界:      表由 storage_admin 建 ⇒ grantor = storage_admin ⇒ postgres 收不掉
+```
+📌 **fixture 與真實差的那一格,正好是這件事成立與否的那一格。**
+🛑 **而前面每一個讀數都是真的** —— 尺沒壞、突變落在目標上、負對照會叫。
+　 **它們證的是另一個世界。**
+
+⇒ 🔴 **與本檔那一族「尺沒接上」的差別**:那一族的受詞是**尺**,這一條的受詞是**世界**。
+　 **而後者更難發現** —— 尺壞了會有另一個讀數與它衝突;**世界造錯了,整個世界都自洽。**
+
+### ✅ 判別句(可機械執行)
+
+> **我的 fixture 與真實,在【這件事賴以成立的那個屬性】上一不一樣?**
+
+先寫下「這件事為什麼會成立」那一句(這裡是:**因為執行者收得掉那個權限**),
+再逐字問:**那句話裡的每一個名詞,在我的 fixture 裡是不是同一個東西?**
+(這裡:「執行者」是同一個嗎?「那個權限」是同一個人給的嗎?⇒ **第二個就不是。**)
+
+### 🔴🔴 而它 2026-07-23 就記過了 —— 這一格比上面整段重要
+
+`memory/reference_supabase-postgres-not-superuser-cannot-revoke` 逐字寫著:
+> 「REVOKE 只能撤『自己(grantor)授的權』… **物理不可行**;寫了會靜默失效」
+
+**那條在 `MEMORY-supabase.md` 分冊裡,而【主索引那一族的關鍵字串沒有它】**
+(2026-09-05 量:該族關鍵字串含 `REVOKE`/`grantor`,**不含 `superuser`、不含 `收不掉`、不含 `storage`**)。
+⇒ 📌 **主索引改成「族名 + 關鍵字串」之後,撈得到的只有關鍵字串裡有的那些字** ——
+　 **一支存在的、正確的、而且逐字預言了今天的 memory,對「動手前 grep 一次」而言等於不存在。**
+⇒ ✅ 已把 `postgres不是superuser…物理不可行` 與 `storage八張表…TRUNCATE` 補進該族關鍵字串。
+🛑 **而修法不是「以後更小心」** —— 是:**每寫一支 memory,把它的關鍵字補進所屬族那一行**(索引規矩第 15 條已經寫了這句,而**這次沒有人做**)。
