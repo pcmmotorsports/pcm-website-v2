@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   SEARCH_CATEGORY_AMBIGUOUS_NAMES,
+  SEARCH_CATEGORY_EMPTY_NAMES,
   SEARCH_CATEGORY_NAMES,
   SEARCH_CATEGORY_NAMES_SNAPSHOT,
 } from './search-category-names';
@@ -80,6 +81,26 @@ describe('SEARCH_SYNONYMS — 這張表自己要站得住', () => {
   it.each(SEARCH_SYNONYMS.filter((s) => s.kind === 'category'))(
     '🔴 `from` 不得【完全等於】任何分類名(那樣階段① 先中, 這一列永遠讀不到):%s',
     (syn) => {
+      // 🔴🔴 **2026-09-04 訂正:分母要用【有貨的】分類, 不是全部 113 個。**
+      //    ⛔ ~~原本這一行找的是 `SEARCH_CATEGORY_NAMES`(全部 113 個)~~
+      //    🔬 而執行時 `parse-search-facets.ts:96` 的 `allCats` 來自 `buildCategoryTree`,
+      //       那支是**選項 A:只留有商品的分類**(`app/page.tsx:93` · `ProductsPage.tsx:95` 逐字)
+      //       ⇒ 🛑 **0 件的分類【執行時根本不在那個陣列裡】, 它遮不到任何東西。**
+      //    🎯 拿全部 113 個當分母 ⇒ 這道閘會**誤殺**只被空分類遮住的列。
+      //       實錘:`服飾 ⇒ 騎士服飾` 被 `服飾配備`(0 件)判死、
+      //             `傳動 ⇒ 齒盤與傳動` 被 `傳動齒比`(0 件)判死 ——
+      //             而那兩個詞正是 `-front` 量到「一顆膠囊都沒有」的那兩個。
+      //       ⇒ 📌 **一道閘照著一個【比現實大】的分母, 把唯一的修法擋掉了。**
+      //    ⚠️ **這是放寬, 而放寬的代價要寫出來**:哪天 `服飾配備` 進了貨,
+      //       它就會真的遮住 `服飾` ⇒ 那一列變死。
+      //       ✅ 而那個世界**會叫** —— 進貨的人更新 `SEARCH_CATEGORY_EMPTY_NAMES` 之後,
+      //          這道閘的分母跟著變大, `服飾` 那一列當場紅。兩份快照是綁在一起動的。
+      // ── 🔴🔴 合併說明(`-front` 2026-09-04 手動解此衝突)────────────────────────
+      //    上面那段是 `-auth` 修的【分母】(只有有貨的分類才遮得到);
+      //    下面那段是 `-front` 修的【比對方式】(只剩完全同名會遮蔽)。
+      //    🎯 **兩邊改的不是同一件事, 而且正交** ⇒ 取聯集:`liveCats` × `foldEquals`。
+      //    🛑 **兩段病史都留著, 一段都不刪** —— 它們記的是兩個不同的病,
+      //      而「搬走的那一半是義務」這件事在 diff 上沒有形狀。
       // 🔴🔴 **2026-09-04 訂正:這道尺【重打了一份生產規則】, 而生產碼改了它沒跟上。**
       //    當時生產碼是 `foldEquals || foldStartsWith`, 本格照抄。
       //    ⇒ 🛑 而生產碼改成子字串之後, **這份副本比被量的窄** ⇒ code-reviewer 實測
@@ -90,10 +111,14 @@ describe('SEARCH_SYNONYMS — 這張表自己要站得住', () => {
       // ✅ **而最後的修法不是把這把尺改寬, 是把生產碼的【順序】改對**:
       //    完全同名 ⇒ **俗稱字典** ⇒ 子字串。字典排在模糊比對前面 ⇒ **一列都不會被吃掉**。
       //    ⇒ 🎯 **所以今天只剩【完全同名】這一種遮蔽** —— 前綴/子字串都不再遮蔽字典。
-      const shadowedBy = SEARCH_CATEGORY_NAMES.find((name) => foldEquals(syn.from, name));
+      const liveCats = SEARCH_CATEGORY_NAMES.filter(
+        (n) => !SEARCH_CATEGORY_EMPTY_NAMES.includes(n),
+      );
+      // 🔴 只用 `foldEquals` —— 前綴那半由 `-front` 拿掉(生產碼順序已改成字典先於模糊)。
+      const shadowedBy = liveCats.find((name) => foldEquals(syn.from, name));
       expect(
         shadowedBy,
-        `「${syn.from} ⇒ ${syn.to}」被分類名「${shadowedBy}」的完全同名比對搶先命中` +
+        `「${syn.from} ⇒ ${syn.to}」被【有貨的】分類名「${shadowedBy}」的完全同名比對搶先命中` +
           ' ⇒ 這一列永遠不會被讀到。完全同名已經處理了它 ⇒ 這一列是純多餘, 刪掉。',
       ).toBeUndefined();
     },
@@ -110,6 +135,36 @@ describe('SEARCH_SYNONYMS — 這張表自己要站得住', () => {
     },
   );
 
+  // 🔴🔴 **2026-09-04 補:`to` 指到一個【沒有商品】的分類, 那一列也是死的。**
+  //    🛑 而它與上面那道「to 必須是真的分類名」**不是同一件事** ——
+  //       分類名**存在**、拼字**完全正確**、上面那格**全綠**, 而 `buildCategoryTree`
+  //       走的是「只留有商品的分類」⇒ 沒商品的分類**不在目錄樹裡** ⇒ 解析器找不到它。
+  //    🔬 **這一格是我自己踩出來的**:同日 `64014acc6` 我一次加了 16 列, 而其中 **9 列**
+  //       指向 排氣系統 / 煞車系統 / 精品螺絲與螺帽 —— 三個都是 **0 件**。
+  //       ⇒ 上面那格**對這 9 列印了綠**, 因為它問的是「名字在不在」不是「那裡有沒有東西」。
+  //    ⇒ 📌 **判別句:我這道閘問的是「這個名字存在嗎」, 還是「那個名字底下有東西嗎」?**
+  //    ⚠️ 天花板:`SEARCH_CATEGORY_EMPTY_NAMES` 是**快照**(見該檔註解)。
+  //       它過期的方向是單向的:分類進貨而清單沒更新 ⇒ **這一格誤殺** ⇒ 會紅、會被看到;
+  //       分類被清空而清單沒更新 ⇒ **這一格漏抓** ⇒ 安靜 ⇒ 所以上架後要重跑那行 SQL。
+  it.each(SEARCH_SYNONYMS.filter((s) => s.kind === 'category'))(
+    '🔴 `to` 底下必須真的有商品(空分類不會進目錄樹 ⇒ 那一列指不到東西):%s',
+    (syn) => {
+      expect(
+        SEARCH_CATEGORY_EMPTY_NAMES.includes(syn.to),
+        `「${syn.from} ⇒ ${syn.to}」的 to 在 2026-09-04 的正式庫是 0 件 ⇒ 它不會出現在目錄樹裡` +
+          ' ⇒ 這一列沒有效果。換一個有貨的分類, 或等它進貨後把它從 EMPTY 清單移除。',
+      ).toBe(false);
+    },
+  );
+
+  it('🟢 正對照:那份【0 件分類】清單不是空的, 而且每一個都真的是分類名', () => {
+    // 🔴 少了這一格, EMPTY 若變成空陣列 ⇒ 上面那組全綠而什麼都沒擋。
+    expect(SEARCH_CATEGORY_EMPTY_NAMES.length).toBeGreaterThan(10);
+    for (const n of SEARCH_CATEGORY_EMPTY_NAMES) {
+      expect(SEARCH_CATEGORY_NAMES.includes(n), `${n} 不在分類名快照裡 ⇒ 這份清單自己過期了`).toBe(true);
+    }
+  });
+
   it('🟢 正對照:那份同名清單不是空的(空的話上面那組等於沒驗)', () => {
     expect(SEARCH_CATEGORY_AMBIGUOUS_NAMES.length).toBeGreaterThan(0);
     // 🔵 而它們每一個都真的在快照裡 —— 否則這張清單自己就過期了
@@ -123,6 +178,23 @@ describe('SEARCH_SYNONYMS — 這張表自己要站得住', () => {
     //    而若 includes 被改成恆真 ⇒ 上面那組會全綠而什麼都沒驗。兩個方向各釘一次。
     expect(SEARCH_CATEGORY_NAMES.length).toBeGreaterThan(100);
     expect(SEARCH_CATEGORY_NAMES.includes('這個分類不存在')).toBe(false);
+  });
+
+  // 🔴🔴 **2026-09-04 補:`from` 帶【空白】的那一列, 永遠對不到。**
+  //    🔬 `parse-search-facets.ts:42` 的 `splitWords` 先把查詢**用空白切開**,
+  //       `:96-100` 那個迴圈是**一個字一個字**拿去查字典(`words[i]`)
+  //       ⇒ 🛑 字典永遠只會被餵到【單一個沒有空白的詞】
+  //       ⇒ 一個寫成 `DB Killer` 的 `from`, **不管客人打什麼都不會命中**。
+  //    🎯 而它與前面兩道死列閘是同一族:**完全合法、拼字正確、指向有貨的分類, 而到不了。**
+  //       ⇒ 📌 三道閘問的是三件不同的事:名字在不在 / 那裡有沒有貨 / **這一列到得了嗎**。
+  //    🔵 這一格是第二波候選撞出來的(有人交了 `DB Killer`)—— 那個俗稱是真的,
+  //       台灣車友確實這樣講, **而我們這條路吃不到它** ⇒ 要它就得改解析器, 不是加字典列。
+  it.each(SEARCH_SYNONYMS)('🔴 `from` 不得含空白(解析器逐字拆 ⇒ 帶空白的永遠對不到):%s', (syn) => {
+    expect(
+      /[\s\u3000\u00a0]/.test(syn.from),
+      `「${syn.from}」含空白 ⇒ splitWords 會把它切成兩個字, 而字典是拿單字去查的` +
+        ' ⇒ 這一列永遠不會命中。改成單一個詞, 或這個俗稱本條路吃不到。',
+    ).toBe(false);
   });
 
   it('🔴 `draft` 的列一定要有 note 與 added 日期(不然數不出它躺多久)', () => {

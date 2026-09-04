@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
+  ORDER_DETAIL_ITEM_CANCELLED_MARK,
   ORDER_DETAIL_ITEM_SHIPPED_MARK,
   ORDER_DETAIL_UNPAID_SHIPPED_NOTE,
   ORDER_ITEM_COUNT_TRUNCATED_NOTE,
@@ -126,6 +127,35 @@ describe('⟦ship-AXISHOLE⟧ / ⟦ship-WHICHITEMSSHIPPED⟧ 2026-09-04 Sean 拍
       'var(--c-text-3)',
     );
     expect(rule, '灰字也要比正文小一號, 否則它會跟品名搶').toContain('font-size: 12px');
+  });
+
+  // Q-C 乙的字面:乙:灰字「已取消」
+  it('🔴 那句「不會來了」的字, 逐字是他打的三個字', () => {
+    expect(
+      ORDER_DETAIL_ITEM_CANCELLED_MARK,
+      'Sean Q-C 拍乙的字面是「灰字『已取消』」;改成「已作廢」「不出貨」都是改一板',
+    ).toBe('已取消');
+  });
+
+  /**
+   * 🔴 **「已取消」那三個字也必須是灰的 —— 而它與「已出貨」【共用同一條規則】。**
+   *
+   * 🔵 **共用是 Sean 那句話的內容, 不是我省事**:他拍 Q-C 乙時逐字說
+   *    「與 Q5 甲的『已出貨』**同一組視覺語言**」。
+   * 🛑 ⇒ 所以這一格釘的不只是「它是灰的」, 是**兩者在同一條規則上**:
+   *    拆成兩條一模一樣的規則 ⇒ 下一個人改其中一條, **兩者會悄悄分家而沒有東西會紅**。
+   */
+  it('🔴 「已取消」與「已出貨」共用同一條灰字規則(分家了沒有東西會紅)', () => {
+    const css = readFileSync(
+      path.join(__dirname, '..', 'styles', 'order-detail.css'),
+      'utf8',
+    );
+    const rule = css.split('\n').find((l) => l.trim().startsWith('.od-line-ship'));
+    expect(rule, '.od-line-ship 那條規則不見了').toBeTruthy();
+    expect(
+      rule,
+      '.od-line-cancel 不在同一條規則裡 ⇒ 兩個標記的灰會分家, 而分家時沒有東西會紅',
+    ).toContain('.od-line-cancel');
   });
 
   /**

@@ -44,6 +44,7 @@ import {
   paymentMethodLabel,
 } from '@/lib/orders/order-display';
 import {
+  ORDER_DETAIL_ITEM_CANCELLED_MARK,
   ORDER_DETAIL_ITEM_SHIPPED_MARK,
   ORDER_DETAIL_ITEMS_TRUNCATED_NOTE,
   ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE,
@@ -104,7 +105,16 @@ function formatVehicle(v: OrderItemVehicleSnapshot | null): string | null {
   return v.kind === 'dict' ? `${v.brand} ${v.model}${year}` : `${v.raw}${year}`;
 }
 
-function OrderLine({ item }: { item: MemberOrderDetailItem }) {
+function OrderLine({
+  item,
+  cancelled,
+}: {
+  item: MemberOrderDetailItem;
+  /** ⟦ship-WHICHITEMSSHIPPED⟧ 這張【單】取消了沒(Sean 2026-09-04 Q-C 乙)。
+   *  🔴 它是**訂單層**的事實, 而它決定的是**這一列**要說什麼 ⇒ 必須從上面傳下來,
+   *     `MemberOrderDetailItem` 裡沒有、也不該有這一欄(那會讓同一個事實有兩份)。 */
+  cancelled: boolean;
+}) {
   const fits = formatVehicle(item.vehicle);
   return (
     <div className="od-line">
@@ -139,6 +149,18 @@ function OrderLine({ item }: { item: MemberOrderDetailItem }) {
         {item.shipped && (
           <div className="od-line-ship" data-od-id="order-line-shipped">
             {ORDER_DETAIL_ITEM_SHIPPED_MARK}
+          </div>
+        )}
+        {/* ⟦ship-WHICHITEMSSHIPPED⟧ **這一件不會來了**(Sean 2026-09-04 拍 Q-C 乙:灰字「已取消」)。
+            🔴 **判準是「單取消了 **而且** 這一件沒出」** —— 出過的那幾件仍印「已出貨」,
+               因為**它確實出了**;對一件已送到客人手上的東西印「已取消」是**一句假話**, 比空白糟。
+            🎯 **它補的縫**:一張 5 件出 3 件之後被取消的單, 原本是 3 列「已出貨」+ 2 列**空白**,
+               而那 2 件永遠不會來 —— 而「其餘商品出貨時會再通知您」對取消單是**刻意不印的**
+               ⇒ 🛑 **在此之前那兩列沒有任何一句話講它。**
+            🔵 兩個標記**互斥**(`shipped` / `cancelled && !shipped`)⇒ 同一列不會同時出現兩句話。 */}
+        {cancelled && !item.shipped && (
+          <div className="od-line-cancel" data-od-id="order-line-cancelled">
+            {ORDER_DETAIL_ITEM_CANCELLED_MARK}
           </div>
         )}
       </div>
@@ -432,7 +454,7 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
           <p className="acc-order-note">{ORDER_DETAIL_ITEMS_TRUNCATED_NOTE}</p>
         )}
         {order.items.map((item) => (
-          <OrderLine key={item.id} item={item} />
+          <OrderLine key={item.id} item={item} cancelled={cancelled} />
         ))}
 
         <div className="od-sums" data-od-id="order-sums">

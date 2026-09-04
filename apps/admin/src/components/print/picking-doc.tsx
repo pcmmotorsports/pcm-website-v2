@@ -144,15 +144,18 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
        📎 Sean 逐字「出貨單都是 A4」⇒ **揀貨單一起吃**,兩張紙同一套版面。 */
     <div
       data-slot='picking-doc'
-      /* 🔴 `pd-mark-detail` = ⟦b4-2PAPERS⟧,Sean 2026-08-31 拍【甲】(視覺標記,不動任何字)。
-         **只有這張紙掛它** —— 出貨單那支一個字都沒動。
-         ⚠️ 而它為什麼不是背景色:`print-a4.css:250-251` 逐字寫著
-            `print-color-adjust:exact` **蓋不掉使用者的「背景圖形」勾選框**
-            ⇒ 📌 **一個掛在 background 上的標記,在關掉那個勾選框的印表機上【不存在】。**
-            ⇒ 所以它是 `border`(邊框一定會印),而且是深色 ⇒ 黑白印表機也看得見。
+      /* 🔴🔴 2026-09-04 **`pd-mark-detail` 拿掉了 —— Sean 拍的**,原話逐字:`不用黑線...真的沒關係`
+         (落點 `~/pcm-mailbox/Sean拍板-20260904-七題.md` 檔尾「追加拍板」①)。
+         ⛔ ~~`className='… pd-sheet pd-mark-detail'`~~ ⇒ 現在只剩 `pd-sheet`。
+         🔵 **class 與 CSS 規則【一起】拿掉, 不留一個什麼都不做的 class** ——
+            留著它的話, 下一個人 grep 得到它、以為標記還在, 而紙上什麼都沒有。
+         🛑 **代價明寫**:⟦b4-2PAPERS⟧ 那個病回來了 —— 員工一眼分不出【訂單明細】與【出貨明細單】。
+            🔵 而它可能本來就要消失(Sean 2026-08-29 另拍「揀貨單廢掉、用出貨單取代」)
+            ⇒ 🛑 **不要為了補償而發明新標記** —— 主視窗明文交代, 要做新標記先端他。
+         📌 病史(為什麼那條線一開始存在、三代修法怎麼失敗的)留在 `print-a4.css` 同名那一段。
          🛑 而 Sean 明文拍過相反的三件,這一片一件都沒碰:
             改名(「不用改名,依照現在」)· 改檔名/路由(`-48` 明令)· 統一兩張紙(⟦b9-2DOCS1⟧ 禁止)。 */
-      className='print-sheet mx-auto max-w-3xl space-y-4 p-6 print:max-w-none pd-sheet pd-mark-detail'
+      className='print-sheet mx-auto max-w-3xl space-y-4 p-6 print:max-w-none pd-sheet'
     >
       {/* 🔴 A3-2'(2026-08-29):這張紙改吃【與出貨單同一套】的抬頭 ——
           Sean 2026-08-23 拍板(壓縮轉述, 原話見 memory `project_0823-sean-shipping-doc-server-render.md:19-20`)

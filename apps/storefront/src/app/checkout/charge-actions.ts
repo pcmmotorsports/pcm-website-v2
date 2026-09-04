@@ -70,6 +70,7 @@ import {
 } from '@/lib/payment/composition';
 import { buildCardholder, type BuildCardholderFailReason } from '@/lib/payment/cardholder';
 import { isThreeDSEnabled } from '@/lib/payment/three-ds-flag';
+import { isBankTransferCheckoutEnabled } from '@/lib/payment/bank-transfer-flag';
 import { isCheckoutNotificationEmailEnabled } from '@/lib/email/notification-email-gate';
 import { resolveThreeDSConfig, buildResultUrls, isHttpsUrl } from '@/lib/payment/three-ds-urls';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -168,6 +169,42 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
       return { fieldErrors };
     }
     return { formError: '結帳資料有誤,請返回確認' };
+  }
+
+  // ②a-2 🔴 匯款總開關(M-4b 段 1;擋在**任何建單/付款/settle 副作用之前**、與其餘 ②x 同一層)。
+  //   ⛔ ~~原句寫「擋在任何副作用之前」~~ **過強**(codex 關卡2 nit):它上面已經有
+  //      `createServerSupabaseClient()` 與 `auth.getUser()`(:124 附近)—— 那些是讀, 而它們也是副作用。
+  //   flag off 而 client 送 bank_transfer ⇒ 拒。今天 UI 沒有那個選項(radio 仍隱藏)
+  //   ⇒ 走到這裡的只會是**繞過 UI 的請求**,而那正是這道閘要擋的形狀。
+  //
+  // 🔴 **為什麼需要它**(不是滾動發布,是一個會兩邊都付錢的洞):
+  //   begin_charge_attempt 的 cart dedup 述詞看不見「unpaid + 零 attempt」的匯款單
+  //   ⇒ 先建匯款單再回頭刷卡 ⇒ dedup 放行 ⇒ 一張刷卡付掉、一張等匯款。
+  //   全文與啟用條件在 `@/lib/payment/bank-transfer-flag` 的檔頭 + 板列 ⟦b4-BANKORDERINVISIBLE⟧。
+  //
+  // 🛑🛑 **而這道閘的射程只到【這支 action】—— 它不是那個洞的鎖**(codex 關卡2 must-fix ①, 我核過):
+  //   🔬 `20260904020000_m4b_create_order_payment_channel.sql:533` 逐字
+  //      `GRANT EXECUTE ON FUNCTION public.create_order(...) TO authenticated;`
+  //   ⇒ 🔴 **任何登入中的客人都能直接打 PostgREST 的 `/rpc/create_order` 送 `bank_transfer`**,
+  //      而 DB 的白名單(同檔 `:168`)**收它** ⇒ 完全不經過這一行。
+  //   ⇒ ⇒ 📌 **所以「flag off ⇒ 零建單」只對走這支 action 的人成立。不要把它讀成系統性保證。**
+  //
+  // 🔴 **⇒ 所以順序是綁死的:RPC 那一側要有自己的 opt-in 守門, 或 A 不得先於分岔上正式庫。**
+  //    ⚠️ **而「那條繞路今天走不通嗎」是【當日部署狀態】, 不寫在這裡**(codex 關卡2 R2 nit ④)——
+  //    程式註解只放**部署不變式**;會過期的那半在板列 ⟦b4-BANKORDERINVISIBLE⟧ 的「flag 可啟用條件」,
+  //    那裡有量測日期與正負對照。📌 **寫在碼裡的當日狀態, 在它變假的那天沒有人會回來改它。**
+  //
+  // ✅ **而不依賴任何部署狀態的那一道在下面 ⑤c** —— 建出來的單是匯款就不扣款, 一律。
+  //
+  // 🔵 **文案為什麼沿用 '請選擇付款方式'**:那是本 schema 既有的字面
+  //   (`packages/schemas/src/index.ts` paymentChannel enum 的 error)。
+  //   🛑 今天這條路 UI 到不了 ⇒ **新開的頁面**沒有真客人會讀到它 ⇒ **我不在這裡發明對外文案**。
+  //   ⚠️ **而「沒有真客人會讀到」有一個例外, 寫出來免得它被讀成全稱**(codex 關卡2 nit):
+  //      **日後把 flag 從 on 關回 off 時**, 手上還開著舊付款頁的客人會真的送出並看到這一句。
+  //   ⇒ 📌 而 flag 翻 true 的那一天它就變成看得到的字 ⇒ **那時要重新看一次這一句**
+  //      (寫在這裡, 因為那時動這段碼的人打開的是這支檔)。
+  if (parsedCheckout.data.paymentChannel === 'bank_transfer' && !isBankTransferCheckoutEnabled()) {
+    return { fieldErrors: { paymentChannel: '請選擇付款方式' } };
   }
 
   // ②b 購物車線(缺/非法 variantId → REJECT 整單、zod strip 竄改的 unitPrice/tier 等鍵)。
@@ -351,6 +388,33 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
       safeLog('error', '[checkout] payment_channel read-back 不符', {
         sent: placeOrderInput.paymentChannel,
         stored: storedChannel,
+        orderId: placed.orderId,
+      });
+      return { formError: MSG.generic };
+    }
+
+    // ⑤c 🔴🔴 **fail-closed:一張匯款單, 絕不往下走進扣款。**
+    //
+    // 🎯 **它擋的是今天真的存在的一條路**(codex 關卡2 R1 must-fix ② / R2 must-fix ② 逼出來的):
+    //    ```
+    //    flag on + 客人送 bank_transfer ⇒ 過 ②a-2 ⇒ 過 ②c prime
+    //      (⚠️ prime 擋不住 —— **有卡的人選匯款, prime 照樣送得出來**)
+    //    ⇒ placeOrder 建單 ⇒ 真的 DB 把 bank_transfer 正確存下來 ⇒ 上面那道 read-back **相符**
+    //    ⇒ 🔴 繼續往下 ⇒ confirmPayment ⇒ **拿客人的卡, 去扣一張匯款單的錢。**
+    //    ```
+    // 🛑 **⇒ 而上面那道 read-back 擋不到它** —— 它問的是「存的跟送的一不一樣」,
+    //    而這條路上**兩者一樣**。📌 **一道正確的守門, 在它自己的問題上答對, 而放行了另一個問題。**
+    //
+    // 🔵 **為什麼這一格不是「分岔」**:分岔要回 `pendingTransfer` 並把客人送到匯款資訊頁 ——
+    //    那是段 1 的另一片。**這裡只做一件事:不扣款。** 建出來的單靠後台處理。
+    //    ⇒ 🎯 **⇒ 所以它是 fail-closed, 不是功能。** 而它讓那格守門測試**今天就會綠**,
+    //       不必留一格故意紅的測試等分岔(codex R2 逐字:「不要提交故意維持紅色的測試」)。
+    //
+    // 🔴 **而它【不依賴任何部署狀態】** —— 不管 A 貼了沒、flag 開了沒、RPC 有沒有被繞過去,
+    //    只要這支 action 建出來的單是匯款, 它就停在這裡。
+    //    ⇒ 📌 這正是它與「A 還沒 apply 所以今天安全」的差別:**後者會過期, 這一行不會。**
+    if (storedChannel === 'bank_transfer') {
+      safeLog('info', '[checkout] 匯款單建立完成, 不進扣款(段 1 分岔未上)', {
         orderId: placed.orderId,
       });
       return { formError: MSG.generic };
