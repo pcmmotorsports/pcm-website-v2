@@ -252,6 +252,22 @@ SQL
 psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q -f "$SP/seed.sql"
 echo "seed 完成: $(psql -h 127.0.0.1 -p $PG -U postgres -t -c 'select count(*) from products' | tr -d ' ') 件商品"
 
+# == 重放後修補(3)(2026-09-04 -front)=====================================
+# 🔴 **成因是【順序】, 不是檔案選取** —— 上面那個迴圈已經 glob 了全部 migration。
+#    而帶【行為斷言】的 migration(如 20260904160000 的斷言④:排氣系統/煞車系統各要 > 0 件)
+#    在【種子之前】跑 ⇒ 商品數必然是 0 ⇒ 斷言必然失敗 ⇒ 那支的新多載【從來沒被建起來】。
+# 🛑 而它失敗得很安靜:apply 迴圈只記 fail 數, 而下一個人看到的是顧客站「件數未能載入」
+#    + log 裡的 PGRST202 ⇒ **他會以為是碼壞了**(2026-09-04 我自己就這樣誤判過一次)。
+for M in 20260904160000_m4b_search_catalog_multi_category; do
+  psql -h 127.0.0.1 -p $PG -U postgres -q -f "$REPO/supabase/migrations/$M.sql" >> $S/apply.log 2>&1 || true
+done
+# 🟢 正對照:灌完要真的有那個多載。**問【多載數】不問「函式在不在」** ——
+#    舊那支一直都在, 所以「函式在不在」對這件事零判別力。
+MCNT=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "SELECT count(*) FROM pg_proc WHERE proname='search_catalog_by_vehicle' AND 'p_categories' = ANY(proargnames);" 2>/dev/null)
+if [ "${MCNT:-0}" -ge 1 ]; then echo "重放修補3:p_categories 多載 = $MCNT(多顆分類膠囊那條路可以驗)"
+else echo "重放修補3:p_categories 多載 = ${MCNT:-讀不到} <== 搜尋那條路會回 PGRST202、顧客站印「件數未能載入」。去看 $S/apply.log 的斷言訊息, 不要當成碼壞了"; fi
+
+
 # -- 選車自檢(2026-09-02 -0e):種子的車款有沒有真的流進那條路 --------------
 # 為什麼要這一格:trigger sync_product_fitments 讀 elem->>'motoBrand',
 #   而它逐字寫著「單一髒元素跳過、絕不 rollback products」
