@@ -526,6 +526,21 @@ export class SupabaseProductAdapter implements IProductRepository {
 
     const offset = params.offset ?? 0;
 
+    // ⏱️ **計時量具**(2026-09-05 `-auth`;板列 `⟦search-TRGMEXPRIDX⟧`)——
+    //    🔴 **它存在的理由**:線上中文搜尋端到端 4-16 秒, 而**同一段 SQL 用 psql 跑是 322ms**
+    //       ⇒ 那 3.7 秒在哪, **從外面量不到**(網路已排除:DNS+TCP+TLS 固定 45-63ms)。
+    //    🛑 **一次請求只印【一行】** —— 與同檔既有的 `console.warn` 同音量, 不加噪音。
+    //    ⚠️ **它量的是【時距】, 不是 CPU** —— 含 PostgREST 往返與冷啟動, 分不出誰是誰。
+    //    🔴 用 `performance.now()` 不用 `Date.now()`:後者是**牆鐘、非單調**, NTP 校時會讓它倒退
+    //       ⇒ 量時距的正確鐘是前者(Node 全域, 零成本)。
+    //    🛑 **⛔ ~~「要再切下去得在 Supabase 那一端量, 那不是本層做得到的」~~ 那句是假的**
+    //       (2026-09-05 code-reviewer R1 must-fix)—— `api/search/route.ts` 的 `Promise.all`
+    //       是**四條腿**, 本行只量得到其中**一條**;另外三條走 `unstable_cache`(60s TTL)、
+    //       **零儀器**, 而 route 的牆鐘 = 四腿的 max ⇒ 📌 **本行印 `total=322ms` 時,
+    //       讀的人會把「不在 DB」讀成「不在伺服器」, 而真兇那三腿一行都沒印。**
+    //       ⇒ ✅ 那一層的計時**加在 `route.ts`**(本片一起做), 它就在 TS 這一層、量得到。
+    const t0 = performance.now();
+
     // ─────────────────────────────────────────────────────────────────────
     // ⟦搜尋-品牌⟧ 2026-09-03:**先問那支 RPC;它不在就走下面的舊路。**
     //
@@ -556,12 +571,22 @@ export class SupabaseProductAdapter implements IProductRepository {
     //    ⚠️ 而 Sean 貼完到 PostgREST 重載 cache 之間**還會是 `PGRST202`** ⇒ 那段時間照樣走舊路,
     //      **重載之後自動生效** —— 這正是選乙換到的東西。
     const brandIds = await this.trySearchIdsWithBrand(q);
+    const msRpc = Math.round(performance.now() - t0);
     if (brandIds !== null) {
       const wantCountRpc = opts?.countTotal !== false;
       // 🔴 `.in('id', …)` **不保證順序** ⇒ 自己排,才與舊路的 `.order('id')` 同序。
       const ordered = [...brandIds].sort();
       const pageIds = ordered.slice(offset, offset + params.limit);
       if (pageIds.length === 0) {
+        // 🔴🔴 **這一條早退【本來一行都不印】**(2026-09-05 code-reviewer R1 must-fix)——
+        //    `trySearchIdsWithBrand` 對「走過了沒找到」回 `[]` 而不是 `null`
+        //    ⇒ **每一次 0 筆的搜尋都走完整條 RPC 路、然後靜靜地回去**
+        //    ⇒ 🎯 **「沒有 log」與「這條路很快」在讀 log 的人眼裡長一樣** —— 那正是本片要防的病,
+        //      而我第一版在自己的量具上踩了它。深分頁(offset 超過 `ordered.length`)同一格。
+        console.info(
+          `[searchByKeyword] path=rpc-empty qlen=${q.length} ids=${ordered.length} ` +
+            `rpc=${msRpc}ms total=${Math.round(performance.now() - t0)}ms`,
+        );
         return wantCountRpc ? { items: [], total: ordered.length } : { items: [] };
       }
       const { data: rows, error: rowsErr } = await this.supabase
@@ -577,6 +602,12 @@ export class SupabaseProductAdapter implements IProductRepository {
       //      那是**資料不一致**而不是「沒有這條路」⇒ 它不該退回舊路, 也不該炸掉整個搜尋。
       const rpcItems = ((rows ?? []) as unknown as SupabaseProductRow[]).map(
         mapSupabaseProductToDomain,
+      );
+      // 🔴 `total` 只取【一次】時鐘, 三個數才拼得回去(reviewer R1 nit:取三次 ⇒ 加不回 total)。
+      const msTotal = Math.round(performance.now() - t0);
+      console.info(
+        `[searchByKeyword] path=rpc qlen=${q.length} ids=${ordered.length} ` +
+          `rpc=${msRpc}ms rows=${msTotal - msRpc}ms total=${msTotal}ms`,
       );
       return wantCountRpc ? { items: rpcItems, total: ordered.length } : { items: rpcItems };
     }
@@ -660,6 +691,11 @@ export class SupabaseProductAdapter implements IProductRepository {
     );
     // 🔴 沒要數的時候**回 `undefined` 而不是 0** —— 「不知道總數」與「共 0 件」是兩件事,
     //    而 `?? 0` 會讓畫面出現「拿到 8 筆卻說共 0 件」(`search.ts` 那段註解同一條)。
+    const msTotalLegacy = Math.round(performance.now() - t0);
+    console.info(
+      `[searchByKeyword] path=legacy qlen=${q.length} terms=${terms.length} ` +
+        `rpc=${msRpc}ms query=${msTotalLegacy - msRpc}ms total=${msTotalLegacy}ms`,
+    );
     return wantCount ? { items, total: count ?? 0 } : { items };
   }
 
