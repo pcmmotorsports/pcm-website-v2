@@ -3,6 +3,25 @@
 --    psql 會**繼續往下跑並且回傳成功狀態** ⇒ 🛑 **這份對帳最重要的那一格失敗, 而整體印綠。**
 --    📌 那正是本片一路撞的同一個形狀:**一份會叫的檢查, 沒有人聽它叫。**
 \set ON_ERROR_STOP on
+--
+-- ═══ 🔴🔴 誰跑這支、用什麼身分(R3 2026-09-05 抓到:原本【沒有人跑得動】)═══
+--   · 函式的 EXECUTE **只給 `service_role`** ⇒ 🛑 用唯讀角色 `pcm_readonly`
+--     (`~/pcm-mailbox/0905查證/run.sh`)跑 ④⑤⑥ 會拿到 **42501**,
+--     而那**不是**「函式壞了」—— 它是「這條連線沒有權限」。**兩者印不同的碼, 不要讀混。**
+--   · Supabase 的 SQL Editor **吃不了 `\pset` / `\set` / `\echo`**(那是 psql 的東西)
+--     ⇒ 🛑 **這支檔不能貼進 SQL Editor。**
+--   ✅ **正確跑法**:有 `service_role` 或函式 owner 身分的 `psql`:
+--       `psql "<連線字串>" -f supabase/after-checks/130000-after.sql`
+--     ⇒ **而那條連線字串本窗沒有** —— 這一步要交給拿得到的人跑。
+--   📌 **R3 的原話值得留**:「貼完必須跑它」那句寫在 migration 裡, 而**沒有人能執行它**
+--     ⇒ **一個寫得很清楚的驗收條件, 與沒有驗收條件, 在結果上是同一件事。**
+--
+-- 🔴 **另一格 R3 抓到的**:④⑤⑥ 原本送 `'{"type":"none"}'`, 而 G5 只收
+--    `personal / company / donate`(那支 migration 的 G5 段)⇒ **每一發在 G5 就 RAISE**,
+--    連 email 那一行都走不到。⇒ 已改 `personal`(4 處)。
+--    📌 **這是本檔檔頭自己講的那個病【第二次】發生**:一把在更前面就被擋下的尺,
+--       印出來的是那個更前面的錯 —— 而 codex R1 只修了 `user_id`/`line`, 沒看到 `type`。
+--
 -- 🔴 唯讀。`20260905130000`(片 D:`admin_create_manual_order` 第 11 參)貼後對帳。
 --
 -- 🛑🛑 **這支檔存在的理由, 是那支 migration 的五道自我斷言【全部是 catalog 形狀】**
@@ -64,7 +83,7 @@ BEGIN;
             (SELECT s.id FROM public.staff s WHERE s.is_active LIMIT 1),
             'manual_phone', 'bank_transfer', 'home',
             '{"name":"對帳用","phone":"0900000000","line":"對帳用地址"}'::jsonb,
-            '{"type":"none"}'::jsonb, 0,
+            '{"type":"personal"}'::jsonb, 0,
             '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK","unit_price":1,"quantity":1,"spec":{}}]'::jsonb,
             E'  a@b.co\n'
           )) ->> 'order_id')::uuid AS oid;
@@ -82,7 +101,7 @@ BEGIN;
             (SELECT s.id FROM public.staff s WHERE s.is_active LIMIT 1),
             'manual_phone', 'bank_transfer', 'home',
             '{"name":"對帳用","phone":"0900000000","line":"對帳用地址"}'::jsonb,
-            '{"type":"none"}'::jsonb, 0,
+            '{"type":"personal"}'::jsonb, 0,
             '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK2","unit_price":1,"quantity":1,"spec":{}}]'::jsonb,
             '   '
           )) ->> 'order_id')::uuid AS oid;
@@ -100,7 +119,7 @@ BEGIN;
            (SELECT s.id FROM public.staff s WHERE s.is_active LIMIT 1),
            'manual_phone', 'bank_transfer', 'home',
            '{"name":"對帳用","phone":"0900000000","line":"對帳用地址"}'::jsonb,
-           '{"type":"none"}'::jsonb, 0,
+           '{"type":"personal"}'::jsonb, 0,
            '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK3","unit_price":1,"quantity":1,"spec":{}}]'::jsonb,
            'first@b.co') IS NOT NULL AS 第一次建得出來;
   DO $chk$
@@ -112,7 +131,7 @@ BEGIN;
         (SELECT s.id FROM public.staff s WHERE s.is_active LIMIT 1),
         'manual_phone', 'bank_transfer', 'home',
         '{"name":"對帳用","phone":"0900000000","line":"對帳用地址"}'::jsonb,
-        '{"type":"none"}'::jsonb, 0,
+        '{"type":"personal"}'::jsonb, 0,
         '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK3","unit_price":1,"quantity":1,"spec":{}}]'::jsonb,
         'second@b.co');
       RAISE EXCEPTION '⑥ 失敗:同鍵只改 email 竟然沒被擋 ⇒ 第 11 參沒有進指紋';
@@ -128,5 +147,6 @@ ROLLBACK;
 \echo '  · 它沒有驗 email 格式(本函式刻意不驗, 由 CHECK 擋;錯字的訊息會是約束名 —— 已知)'
 \echo '  · ③ 是字面尺 ⇒ 對「換一種寫錯的方式」失明, 例如把 NULLIF 拼成另一個不存在的名字'
 \echo '  · 它答不出片 E 送過來的形狀對不對 —— 那要等 E 上線後另外量'
+\echo '  · ④⑤⑥ 要 service_role 或 owner 身分;唯讀角色會拿到 42501, 那不是函式壞了'
 \echo '  · 它【不驗 PostgREST 快取重載了沒】—— 那一格 SQL 這一側看不到, 要打真的 API 才知道'
 \echo '  · ⑥ 的 P858B 是【錯誤碼】不是文案;錯誤訊息換了字它照樣過, 而那是刻意的'
