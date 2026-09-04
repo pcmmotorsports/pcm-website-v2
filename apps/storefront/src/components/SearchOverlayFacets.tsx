@@ -21,7 +21,15 @@
 //
 // ⚠️ **一處【與稿不同】,而它是授權偏離不是自創**:稿的分類導頁用 `c.id`(`:167`),
 //    而**我們的 `?category=` 吃的是【名稱】** —— 落點 `lib/brand-products.test.ts:20-22`
-//    逐字 `/products?pbrand=akrapovic&category=輪框與傳動` ⇒ 本檔用 `c.name`。
+//    逐字 `/products?pbrand=akrapovic&category=輪框與傳動` ⇒ 本檔用 ⛔ ~~`c.name`~~。
+//    🔴 **[2026-09-05 訂正 · `⟦search-CATNAMEQUERY⟧`]** 改用 **`c.path`** —— 而**大類的
+//    `path` 逐字等於它的 `name`** ⇒ 上面那句話對大類**一個字都沒變**;變的是**子類**:
+//    它的 `path` 是 `父類 · 子類`(`CATEGORY_URL_SEPARATOR`, `products-url-parsers.ts:46`),
+//    而 `?category=` **本來就吃這個形狀**(`app/products/page.tsx:249` 自己就這樣組)。
+//    🔬 實測(正式站, 數 RSC 裡不重複 slug):`排氣系統` **50**(正對照) ·
+//    `車身防護與防摔 · 車身防倒球與滑塊` **50** · `車身防護與防摔 · 不存在的子類XYZ` **0**(負對照)。
+//    🛑 **顯示也用 `path`, 那是刻意的** —— 只印子類短名的話, 三組同名分類
+//    (`⟦search-DUPCATNAMES⟧`)會在疊層裡長成兩顆一模一樣的按鈕而去到不同的地方。
 //
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🔴🔴 **車款那一區【刻意不畫】—— 而它是【一條拍板】, 不是漏做也不是在等人**
@@ -112,9 +120,9 @@ export function SearchOverlayFacets({ facets, onNavigate }: SearchOverlayFacetsP
                 key={c.id}
                 type="button"
                 className="search-overlay-tag"
-                onClick={() => onNavigate(`/products?category=${encodeURIComponent(c.name)}`)}
+                onClick={() => onNavigate(`/products?category=${encodeURIComponent(c.path)}`)}
               >
-                {c.name}
+                {c.path}
               </button>
             ))}
           </div>

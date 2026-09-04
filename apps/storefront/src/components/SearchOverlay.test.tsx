@@ -210,7 +210,10 @@ describe('SearchOverlay', () => {
     JSON.stringify({
       ...ONE_ITEM,
       brands: [{ id: 'akrapovic', name: 'AKRAPOVIČ', count: 648 }],
-      categories: [{ id: 'cat-1', name: '排氣系統', count: 740 }],
+      // 🔴 `path` 是 2026-09-05 `⟦search-CATNAMEQUERY⟧` 加的必填欄 —— **大類的 `path`
+      //    逐字等於 `name`** ⇒ 這一格的期望值一個字都沒變, 補的只是 fixture 的欄位。
+      //    🛑 而 typecheck **沒有替我抓到這裡** ⇒ 抓到它的是這三格測試紅了。
+      categories: [{ id: 'cat-1', name: '排氣系統', path: '排氣系統', count: 740 }],
       vehicles: [{ brandId: 'honda', brandName: 'Honda', modelId: 'cbr600', modelName: 'CBR600' }],
       failed: { brands: false, categories: false, vehicles: false },
       ...over,
