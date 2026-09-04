@@ -8,6 +8,7 @@
 // 🔴 搬移片零行為改動;各段註解逐字原樣(它們記的理由與坑仍有效)。
 
 import type { AdminOrderDetail, AdminOrderItemQuantitySummary } from '@pcm/domain';
+import { subtotalLabelOf } from '@pcm/domain';
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
 import type { PaymentListData } from './payment-list';
 
@@ -210,7 +211,9 @@ export function ItemsTotals({ detail }: { detail: AdminOrderDetail }) {
   return (
       <div className='mt-3 border-t pt-3 text-sm'>
         <div className='flex justify-between py-1 text-xs'>
-          <span className='text-muted-foreground'>小計</span>
+          <span className='text-muted-foreground'>
+            {subtotalLabelOf('小計', detail.taxTotal.amount)}
+          </span>
           <span className='text-muted-foreground tabular-nums whitespace-nowrap'>
             NT$ {formatOrderAmount(detail.subtotal.amount)}
           </span>
@@ -229,6 +232,23 @@ export function ItemsTotals({ detail }: { detail: AdminOrderDetail }) {
             <span className='text-muted-foreground'>折扣</span>
             <span className='tabular-nums whitespace-nowrap'>
               −NT$ {formatOrderAmount(detail.discountTotal.amount)}
+            </span>
+          </div>
+        )}
+        {/* 🔴 稅額:**有稅才印**(`⟦b4-TAXSURFACES⟧` 題 B, Sean 2026-09-05 拍甲)。
+            位置與其餘四個面對齊:小計 → 運費 → 折扣 → **稅額** → 總計。
+            🔵 稅 0 不印, 理由與上面折扣那一列同一條。
+            🔴 **數字【不轉灰】, 比照折扣**(codex must-fix 改的)。
+               ⛔ ~~我原本讓它跟著小計/運費一起轉灰, 理由寫「它是算出來的、不是另一筆獨立的錢」~~
+               —— **那個論證不成立**:**折扣同樣是算出來的**, 而它刻意不轉灰。
+               ✅ 判準就是上一段自己寫的那句:**會改變應付金額的事實不轉灰** ——
+               而稅額**改變應付金額**(它是 DB 總額等式裡的獨立加項)⇒ 照判準它就該不轉灰。
+               📌 **一個「聽起來有道理」的新理由, 不能拿來繞過一個已經寫下來的判準。** */}
+        {detail.taxTotal.amount > 0 && (
+          <div className='flex justify-between py-1 text-xs'>
+            <span className='text-muted-foreground'>稅額</span>
+            <span className='tabular-nums whitespace-nowrap'>
+              NT$ {formatOrderAmount(detail.taxTotal.amount)}
             </span>
           </div>
         )}

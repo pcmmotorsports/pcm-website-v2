@@ -6,6 +6,7 @@ import type {
   AdminOrderDetailItem,
   AdminOrderPrintItem,
 } from '@pcm/domain';
+import { subtotalLabelOf } from '@pcm/domain';
 import type { ShipmentRow } from '../../lib/shipping/shipment-repository';
 import type { OrderShipmentGroup } from '../../lib/shipping/order-shipments';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
@@ -1204,7 +1205,7 @@ export function ShippingDoc({
                 </h2>
                 <table>
                   <tbody>
-                    <MoneyRow label='小計' money={detail.subtotal} />
+                    <MoneyRow label={subtotalLabelOf('小計', detail.taxTotal.amount)} money={detail.subtotal} />
                     {/* 🔴 R3 nit:原本帶 `cls='line'`,而 **`.line` 在我們與稿的 CSS 都是 0 條規則**
                         (實查:兩邊各 0)⇒ 那是一個**只出現在 markup 的死類**。拿掉。 */}
                     <MoneyRow label='運費' money={detail.shippingFee} />
@@ -1222,6 +1223,21 @@ export function ShippingDoc({
                         🔴 印負號是**呈現**不是運算:值是欄位原值,負號只是讓那一欄看得懂。 */}
                     {detail.discountTotal.amount > 0 && (
                       <MoneyRow label='折扣' money={detail.discountTotal} negative />
+                    )}
+                    {/* 🔴 稅額:**有稅才印**(`⟦b4-TAXSURFACES⟧` 題 B, Sean 2026-09-05 拍甲)。
+                        · 位置與其餘四個面逐字對齊:小計 → 運費 → 折扣 → **稅額** → 訂單金額
+                        · 🔵 **稅 0 不印** —— 今天每一張單的稅都是 0(價格含稅), 印一列「稅額 0」
+                          會讓客人以為我們算了一筆稅給他。理由與上面折扣那一列**同一條**。
+                        · 🛑 「稅額」兩個字**不是我發明的文案** —— Sean 2026-09-04 選項字面逐字:
+                          「乙 = **稅額**單獨記一欄, 你打的單價原樣保留。」
+                        ⚠️ **稿上【查無「稅額」這個字面】**(`design-reference` 176 檔 0 命中;
+                          OD 磁碟 12 專案 0 個;🟢 正對照「小計」各 5 檔 / 7 個 ⇒ 尺是活的)。
+                          🛑 ⛔ ~~原本寫「稿上沒有這一列」~~ —— **那句話比量到的東西寬**(codex must-fix):
+                          **字面搜尋答的是「有沒有這四個字」, 不是「有沒有這一列」** ——
+                          稿可能用別的詞、或畫成別的形狀。⇒ 收窄成「查無字面」。
+                          ✅ 而**這一列本身是 Sean 2026-09-05 拍甲授權的**, 不靠這個查無成立。 */}
+                    {detail.taxTotal.amount > 0 && (
+                      <MoneyRow label='稅額' money={detail.taxTotal} />
                     )}
                     <MoneyRow label='訂單金額' money={detail.total} cls='grand' />
                   </tbody>

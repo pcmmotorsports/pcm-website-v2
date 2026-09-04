@@ -39,6 +39,7 @@ const MONEY = {
   lineTotal: 86415,
   shippingFee: 611,
   discountTotal: 733,
+  taxTotal: 0,
   subtotal: 51987,
   total: 52598,
 } as const;
@@ -68,6 +69,7 @@ function detail(over: Over = {}): AdminOrderDetail {
     subtotal: { amount: MONEY.subtotal, currency: 'TWD' },
     shippingFee: { amount: MONEY.shippingFee, currency: 'TWD' },
     discountTotal: { amount: MONEY.discountTotal, currency: 'TWD' },
+    taxTotal: { amount: 0, currency: 'TWD' },
     total: { amount: MONEY.total, currency: 'TWD' },
     shippingMethod: 'home',
     shippingAddress: { name: '收件人小明', phone: PHONE, line: ADDRESS },

@@ -80,6 +80,7 @@ function detail(over: Partial<AdminOrderDetail> = {}): AdminOrderDetail {
     subtotal: { amount: 51987, currency: 'TWD' },
     shippingFee: { amount: 611, currency: 'TWD' },
     discountTotal: { amount: 0, currency: 'TWD' },
+    taxTotal: { amount: 0, currency: 'TWD' },
     total: { amount: 52598, currency: 'TWD' },
     itemsTruncated: false,
     ...over,
@@ -670,6 +671,7 @@ describe('#10 片2b — 版面', () => {
     setDetail(
       detail({
         discountTotal: { amount: 733, currency: 'TWD' },
+        taxTotal: { amount: 0, currency: 'TWD' },
         total: { amount: 51865, currency: 'TWD' },
       } as never),
     );

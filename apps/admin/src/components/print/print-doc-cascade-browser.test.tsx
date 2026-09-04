@@ -96,7 +96,7 @@ function findCompiledCss(): string {
 
 const MONEY = (amount: number) => ({ amount, currency: 'TWD' });
 
-function detail(): AdminOrderDetail {
+function detail(taxTotal = 0): AdminOrderDetail {
   return {
     id: '11111111-1111-4111-8111-111111111111',
     displayId: 'PCM-2026-0042',
@@ -107,6 +107,7 @@ function detail(): AdminOrderDetail {
     subtotal: MONEY(51987),
     shippingFee: MONEY(611),
     discountTotal: MONEY(0),
+    taxTotal: MONEY(taxTotal),
     total: MONEY(52598),
     itemsTruncated: false,
   } as unknown as AdminOrderDetail;
@@ -506,5 +507,83 @@ describe('🔴 ShippingDoc 的 printButton prop(伺服器產 PDF 的前置)', ()
     const off = markup(false);
     expect(off.length, '關掉鈕之後整張紙不見了').toBeGreaterThan(1000);
     expect(off).toContain(ITEM.title);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// ⟦b4-TAXSURFACES⟧ 題 B · **稅額那一列會不會把出貨單推到第二頁**(真 chromium + 真 PDF)
+//
+// 🔴🔴 **本檔其餘每一格量的都是「畫面上的字與樣式」** —— 而客人拿到的是**一張紙**,
+//    而紙會多印一張。⇒ 📌 「字出現在 HTML 裡」與「一張紙印得完」是**兩個宣稱**。
+//
+// 🛑 **本段只答一件事**:多了那一列之後, 頁數變不變。
+//    ⚠️ 它**不答**「金額表會不會被切成兩半」—— 那要讀 PDF 逐頁文字, 需要 `pdftotext`(外部二進位),
+//    而把外部相依塞進 repo 測試不是施工窗可以自己拍的。**已知缺口, 照實寫。**
+//    🔬 而顧客站那一面同型的量測 2026-09-05 已證偽過一次「跨線 = 被切開」那個推論
+//       (`statement-cascade-browser.test.tsx` 片 D 的註解)⇒ **不要在這裡重蹈。**
+describe('題 B · 稅額列與頁數(真 chromium + 真 page.pdf)', () => {
+  let zeroPages = -1;
+  let taxedPages = -1;
+
+  beforeAll(async () => {
+    const count = async (tax: number): Promise<number> => {
+      const page = await browser.newPage();
+      await page.setContent(
+        `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">` +
+          `<style>${compiledCss}</style></head><body>` +
+          renderToStaticMarkup(
+            <ShippingDoc
+              detail={detail(tax)}
+              items={[ITEM, ITEM_UNKNOWN]}
+              reportedTotal={2}
+              shipment={shipment}
+              lines={[{ orderItemId: 'i1', quantity: 2 }] as never}
+            />,
+          ) +
+          `</body></html>`,
+      );
+      await page.emulateMedia({ media: 'print' });
+      const pdf = await page.pdf({ format: 'A4', printBackground: true });
+      await page.close();
+      // 🔵 數 `/Type /Page`(後面不接 `s`, 避開 `/Pages`)—— 從真的 PDF 數, 不是從高度推的。
+      return (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length;
+    };
+    zeroPages = await count(0);
+    taxedPages = await count(1605);
+  }, 120_000);
+
+  it('🔴 分母:兩個世界都真的產出了 PDF(頁數 > 0)', () => {
+    expect(zeroPages).toBeGreaterThan(0);
+    expect(taxedPages).toBeGreaterThan(0);
+  });
+
+  it('🔴🔴 多了稅額那一列, 頁數【沒有變多】', () => {
+    expect(taxedPages).toBe(zeroPages);
+  });
+
+  it('🔵 而那一列【真的被渲染出來了】—— 否則上一格是拿一個空的改動在慶祝', () => {
+    // 🛑 少了這一格,「稅額列沒被渲染」與「它被渲染了而沒多一頁」印同一個綠。
+    const html = renderToStaticMarkup(
+      <ShippingDoc
+        detail={detail(1605)}
+        items={[ITEM, ITEM_UNKNOWN]}
+        reportedTotal={2}
+        shipment={shipment}
+        lines={[{ orderItemId: 'i1', quantity: 2 }] as never}
+      />,
+    );
+    expect(html).toContain('稅額');
+    expect(html).toContain('小計(未稅)');
+    // 🔵 對照:稅 0 那一份不得有
+    const zero = renderToStaticMarkup(
+      <ShippingDoc
+        detail={detail(0)}
+        items={[ITEM, ITEM_UNKNOWN]}
+        reportedTotal={2}
+        shipment={shipment}
+        lines={[{ orderItemId: 'i1', quantity: 2 }] as never}
+      />,
+    );
+    expect(zero).not.toContain('稅額');
   });
 });

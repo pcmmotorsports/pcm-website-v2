@@ -1332,6 +1332,17 @@ export type AdminOrderDetail = {
   subtotal: Money;
   shippingFee: Money;
   discountTotal: Money;
+  /**
+   * 稅額(`orders.tax_total` 原值;`⟦b4-TAXSURFACES⟧` 題 B, Sean 2026-09-05 拍甲)。
+   *
+   * 🔴 **今天每一張單都是 0** —— 價格含稅。而 `⟦b4-INVOICE5PCT⟧` 第 9 步一上線它就會有值。
+   * 🛑 **有稅的時候 `subtotal` 的語意會變** —— 它變成【未稅】的小計(稅基 = 折後小計 + 運費)
+   *    ⇒ 顯示端把標籤改成「小計(未稅)」, 共用 `subtotalLabelOf`。
+   * 🔬 **三個消費端**(它們是題 B 的受詞, 而**同一條 select 一次都通**):
+   *    出貨單 `print/shipping-doc.tsx` · 訂單明細 `print/picking-doc.tsx` ·
+   *    後台訂單詳情 `orders/order-detail-items-support.tsx` 的 `ItemsTotals`。
+   */
+  taxTotal: Money;
   total: Money;
   /** 出貨方式(既有欄、結帳寫入;現值 'home',Slice C 起 admin 可改) */
   shippingMethod: string;
