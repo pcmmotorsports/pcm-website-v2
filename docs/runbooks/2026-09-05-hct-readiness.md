@@ -1,7 +1,10 @@
 # 新竹物流 API:串接到哪了(唯讀實查 · 2026-09-05)
 
 > 問題來自 Sean 的北極星那句「**新竹物流 API 串接好了沒**」。
-> 🔴 **一句話:沒有。而缺的【不只是那兩顆 env】—— 還缺【呼叫端】。**
+> ⛔ ~~**一句話:沒有。而缺的【不只是那兩顆 env】—— 還缺【呼叫端】。**~~
+> 🟢 **2026-09-05 深夜訂正**:呼叫端**已經接上了**(`7ddbba166`,Sean 拍甲批准的步驟②),
+> 六支 migration 也**全部貼進正式庫**了。⇒ ✅ **現在的一句話是:**
+> **碼與 DB 都到位,而【開關仍然是關的】,且那三個送單預設值還沒跟新竹確認過。**
 > 本檔唯讀量測,**沒有改任何碼、沒有翻任何開關、沒有印任何 env 的值**。
 > ⚠️ 量測基準 = `agent/line-ship` @ 2026-09-05,**並在 `origin/dev`(比本分支新 71 顆)上複驗過關鍵那兩發**。
 
@@ -26,14 +29,13 @@
 
 ## 二、沒接的(量到的,不是推的)
 
-1. 🔴 **`runHctSubmit` 沒有任何【非測試】呼叫端。**
-   ```
-   grep runHctSubmit -- '*.ts' '*.tsx' | grep -v .test.   ⇒ 只有它自己那一行 export
-   git grep runHctSubmit origin/dev …                     ⇒ 同上(origin/dev 比本分支新 71 顆)
-   ```
-   ⇒ 📌 **後台沒有任何一顆按鈕、沒有任何一支排程會走到那條路。**
-2. 🔴 **`admin_record_hct_submit` 沒有 TS 呼叫端** —— `hct-submit-flow.ts:90` 自己逐字寫著
-   「**本函式不寫 DB —— 它回結果,由呼叫端…**」⇒ **那個呼叫端不存在。**
+1. ⛔ ~~`runHctSubmit` 沒有任何【非測試】呼叫端~~ ⇒ 🟢 **已接**(`7ddbba166`):
+   出貨單頁一顆獨立的「送新竹」鈕 → `submitShipmentToHctAction` → `runHctSubmit`。
+   🔵 **本節其餘各條仍然成立** —— 這一條翻面**不代表**它們也翻了。
+2. ⛔ ~~`admin_record_hct_submit` 沒有 TS 呼叫端~~ ⇒ 🟢 **已接**(同一顆):
+   `recordHctSubmit()` 在 `shipment-repository.ts`。
+   🔴 **而寫回的時序是承重的**:佔位列寫在**送出之前**(狀態推成 `unknown`,不帶 request_id)——
+   送出成功而寫 DB 之前掛掉時,那一列是唯一擋住「下次又送一次」的東西。有一格測試在守那個**順序**。
 3. 🔴 **沒有 webhook 接收端。** 檔名層與內容層各掃一次,`hct|新竹|logistic` × `webhook` **零命中**
    ⇒ 新竹若有主動回拋,我們**接不到**;今天單號只能靠「人工填」或「我們去查」。
 4. ⚠️ **今天單號怎麼進來的 = 人工**:`admin_mark_shipment_shipped` 的 `p_tracking_number`
@@ -47,6 +49,7 @@
 |---|---|---|---|
 | `HCT_API_ACCOUNT` | 無 | ✅ **有**(Encrypted · Production + Preview · 4 天前) | 帳密已就位 |
 | `HCT_API_PASSWORD` | 無 | ✅ **有**(同上) | 帳密已就位 |
+| 🔴 `HCT_API_ENDPOINT` | 無 | 🔴 **沒有** | **2026-09-05 步驟②【新引進】的名字** —— 沒有它,那顆鈕按下去回 `disabled`(連 `runHctSubmit` 都不呼叫)。⚠️ **值只有 Sean 與新竹之間問得到**:廠商檔那幾個 URL 分測試/正式、也分服務,我不從文件推一個出來 |
 | `HCT_SUBMIT_ENABLED` | 無 | 🔴 **沒有** | 依 `gateOpen` = **關** |
 | `HCT_QUERY_ENABLED` | 無 | 🔴 **沒有** | 依 `gateOpen` = **關** |
 | `HCT_DEFAULT_WEIGHT` / `HCT_INVOICE_TYPE` / `HCT_PRODUCT_KIND` | 無 | 🔴 **沒有** | 用碼裡的預設值(而那些值沒人跟新竹確認過) |
@@ -72,7 +75,7 @@
 | # | 缺什麼 | 誰做 | 卡在哪 |
 |---|---|---|---|
 | 1 | ⛔ ~~跟新竹申請兩張表單 + 金鑰~~ ⇒ ✅ **帳密已經給了**(2026-09-05 實查,見 §三)。**還缺**:客戶代號 `escsno`(11 碼)、出貨站 `esstno`(4 碼)、**貨號區間規則** | **Sean → 新竹** | `docs/reference/hct-logistics-api-reference.md:41-50` 那張表**其餘各項未確認**;貨號區間決定「我們自己配號還是系統配」,那會改 `hct-trans-data.ts` |
-| 2 | **把 `runHctSubmit` 接上一個入口**(按鈕或排程),並讓它把結果送進 `admin_record_hct_submit` | **我們** | 這是**實作**,不是設定。⚠️ 板列 `⟦ship-HCTAPI⟧` 原本寫「缺的不是碼」—— **那句不完整**,零呼叫端是量到的 |
+| 2 | ✅ **已完成**(`7ddbba166`,Sean 2026-09-05 拍甲批准 plan `cae1b84f6` 後接的):獨立「送新竹」鈕 → action → `runHctSubmit` → `admin_record_hct_submit`,送出前寫 `unknown` 佔位 | **我們** | 🔴 **而它多需要一顆 env:`HCT_API_ENDPOINT`** —— `HctClientDeps.endpoint` 是呼叫端傳進去的,而 repo 與 Vercel 都**沒有任何 endpoint 來源**;廠商檔那幾個 URL 分測試/正式也分服務 ⇒ **挑哪一個是 Sean 與新竹之間的事**。缺它 ⇒ fail-closed 回 `disabled`,**連 `runHctSubmit` 都不呼叫** |
 | 3 | **把兩顆 env 放進 production**,並先用**測試帳號**跑一發 | **Sean**(放 env)+ **我們**(驗) | `hct-client.ts:92` `hctMode(account)` 會依帳號判 `test`/`live` ⇒ **先跑 test 那一側** |
 
 🛑 **順序不能換**:2 沒做完就放 env ⇒ 開關開著而沒有人會走到那條路(**零效果,而它看起來像上線了**);
