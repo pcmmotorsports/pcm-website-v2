@@ -722,6 +722,34 @@ export class SupabaseOrderAdapter implements IOrderRepository {
   }
 
   /**
+   * 建單後窄讀 `orders.payment_channel`(read-back;鏡像上面的 `findTotal`)。
+   *
+   * 🔴 fail-closed 的方向與 `findTotal` **相同**:查無 / 非本人(RLS)/ 型別非 string → `null`
+   *    ⇒ caller 拒、零扣款。**不要改成回 `'tappay'` 當預設** —— 那會讓「讀不到」與
+   *    「讀到 tappay」變成同一個答案, 而這道守門的全部價值就是把它們分開。
+   *
+   * 🛑 **守它的是【本檔自己的】測試**(`SupabaseOrderAdapter.test.ts` 的
+   *    `findPaymentChannel` describe)—— **不是** `charge-actions.test.ts` 那幾格。
+   *    📌 我原本在這裡寫「改壞了 action 那格會紅」, **而實測是假的**:
+   *       action 層把整個 repo mock 掉了 ⇒ 它結構上碰不到這支函式 ⇒ 改成 `return 'tappay'`
+   *       時兩支檔 **229 格全綠**。補了本檔的 4 格之後才真的會紅(實測 2 格)。
+   */
+  async findPaymentChannel(id: string): Promise<string | null> {
+    const { data, error } = await this.supabase
+      .from('orders')
+      .select('payment_channel')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) {
+      throw error; // 裸 throw(對齊 findTotal 慣例);caller 吞通用字面
+    }
+    if (!data || typeof data.payment_channel !== 'string') {
+      return null; // 查無 / 非本人(RLS)/ 非預期型別 → fail-closed
+    }
+    return data.payment_channel;
+  }
+
+  /**
    * 列出某會員訂單摘要(account OrdersTab / Overview 最近訂單;created_at desc 新到舊)。
    *
    * 🔴 鐵則 12 / IDOR 縱深:
