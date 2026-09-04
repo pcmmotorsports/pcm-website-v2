@@ -294,3 +294,53 @@ describe('filterFacets — 子分類那一層(⟦search-CATNAMEQUERY⟧)', () =>
     expect(filterFacets('排氣', data({ categories: noKids })).categories).toHaveLength(1);
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 **大類命中要排在子類命中前面** —— 而這一格是【preview 實測抓出來的】,
+//    不是我想出來的。`⟦search-CATNAMEQUERY⟧` 2026-09-05。
+// ══════════════════════════════════════════════════════════════════════════
+//   🔬 preview `13a4f020c` 打 `排氣` ⇒ 回 5 格, 而**第一格是
+//     `碳纖維部品 · 引擎與排氣護蓋`**, `排氣系統`(大類)被擠到第二。
+//   🛑 **那是我自己寫的規格第 5 行的後半, 而我沒有實作它** ——
+//     規格逐字:「上限沿用 `SEARCH_FACET_LIMIT`;**大類命中排在子類前**(大類比較不會誤中)。」
+//   🎯 **而上面那 8 格測試一格都沒紅** —— 因為**每一格查詢都只命中一樣東西**,
+//     從來沒有一格【同時命中大類與子類】⇒ 📌 **順序這件事在我的分母裡不存在。**
+//   🔵 而它不是美觀問題:`SEARCH_FACET_LIMIT = 6` ⇒ 打一個常見字時,
+//     子類會把**別的大類**擠出榜, 而客人最可能想去的就是那個大類。
+describe('filterFacets — 大類命中排在子類前(preview 實測抓出來的)', () => {
+  // 逐字照正式庫今天的形狀建:`排氣` 同時命中一個大類與四個子類(其中一個掛在別的大類下)。
+  const TREE: MockCategory[] = [
+    {
+      id: 'c-carbon',
+      name: '碳纖維部品',
+      count: 900,
+      children: [{ id: 's-cover', name: '引擎與排氣護蓋', count: 90 }],
+    },
+    {
+      id: 'c-exhaust',
+      name: '排氣系統',
+      count: 849,
+      children: [
+        { id: 's-slip', name: '尾段排氣管(Slip-On)', count: 400 },
+        { id: 's-full', name: '全段排氣管', count: 300 },
+      ],
+    },
+  ];
+
+  it('🔴 打 `排氣` ⇒ 大類 `排氣系統` 必須排第一, 不得被別的大類的子類擠掉', () => {
+    const hits = filterFacets('排氣', data({ categories: TREE })).categories;
+    // 🛑 **先驗它確實同時命中兩層** —— 否則這一格會在「子類根本沒中」的世界裡假綠。
+    expect(hits.length).toBeGreaterThan(1);
+    expect(hits[0]!.path).toBe('排氣系統');
+  });
+
+  it('🔵 而子類【不得被丟掉】—— 排在後面, 不是不見(順序題不是過濾題)', () => {
+    const paths = filterFacets('排氣', data({ categories: TREE })).categories.map((c) => c.path);
+    expect(paths).toContain('排氣系統 · 尾段排氣管(Slip-On)');
+    expect(paths).toContain('碳纖維部品 · 引擎與排氣護蓋');
+    // 🔴 同一層之內**維持樹的原順序**(穩定排序)—— 不得順手改成別的排法。
+    expect(paths.indexOf('排氣系統 · 尾段排氣管(Slip-On)')).toBeLessThan(
+      paths.indexOf('排氣系統 · 全段排氣管'),
+    );
+  });
+});
