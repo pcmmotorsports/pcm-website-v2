@@ -86,7 +86,12 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
             而負對照 `-1` / `10.5` / 空字串都擋下 ⇒ **尺是活的, 它只是對這個問題沒有判別力。**
           · 🔴 而「含稅/未稅」這個資訊**全 repo 沒有任何欄位存它**
             (`tax_inclusive` / `taxInclusive` / `is_tax_included` / `price_includes_tax` ⇒ **四個字面全 0**;
-             正對照 `tax_total` ⇒ 2 檔, 而那兩檔都是 migration 且**都還沒 apply**)。
+             正對照 `tax_total` ⇒ 2 檔, 而那兩檔都是 migration 且⛔ ~~**都還沒 apply**~~)。
+            ⚠️ **2026-09-04 訂正:「還沒 apply」那句今天不成立。**
+            🔬 `supabase/APPLIED.tsv:358` 逐字:`20260831180000` · `2026-09-02` ·
+               「Sean(SQL Editor 本人貼, 回『Success. No rows returned』)」⇒ **它貼了。**
+            📌 **舊字面留刪除線** —— 一句「還沒 apply」會讓下一個人以為那條路還沒通,
+               而它在紙上與「永遠不會通」長得一樣。
 
         依據(Sean 2026-08-29 拍板;落點是註解, 不是欄位):
           `packages/domain/src/catalog/types.ts:167-169` —— general = 含稅 / store = 未稅。
