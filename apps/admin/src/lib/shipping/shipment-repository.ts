@@ -385,6 +385,28 @@ export async function getHctShipment(shipmentId: string): Promise<HctShipmentRow
 }
 
 /**
+ * 畫面要顯示「這一箱的新竹狀態」時用 —— ⟦ship-HCTUNKNOWNSTUCK⟧ UI 那半。
+ *
+ * 🔴🔴 **同樣【不用】 `SHIPMENT_ROW_SELECT`** —— 那個常數也餵 `listShipmentsByCustomer`
+ *    (顧客站那條路)⇒ 往它加 `hct_status` 就是往**客人讀得到的投影**加一欄。
+ *    ⇒ 📌 **一個「只是多讀一欄」的改動, 爆炸半徑由【誰共用那個常數】決定。**
+ * ⚠️ `.select()` 必須是單一字串常值(拼接會讓型別塌成 `GenericStringError`)。
+ * 🔵 回 Map 而不是陣列:呼叫端是逐箱渲染, 而**用 id 找**比用順序對應安全 ——
+ *    順序對應在「有一箱查不到」時會**整排錯位**, 而錯位不會報錯。
+ */
+export async function listHctStatusByShipmentIds(
+  ids: readonly string[],
+): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const { data, error } = await createSupabaseServiceClient()
+    .from('shipments')
+    .select('id, hct_status')
+    .in('id', [...ids]);
+  if (error !== null) throw new Error(error.message);
+  return new Map((data ?? []).map((r) => [r.id, r.hct_status]));
+}
+
+/**
  * 把送出結果寫回 DB(`admin_record_hct_submit`, `20260904170000`)。
  * 🔴 `p_status` 只收 submitted / failed / unknown —— DB 那側自己會擋別的值。
  */

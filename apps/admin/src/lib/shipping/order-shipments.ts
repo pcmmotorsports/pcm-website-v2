@@ -16,6 +16,7 @@ import {
   listShipmentItemsByOrderItemIds,
   listShipmentItemsByShipmentIds,
   listShipmentsByCustomer,
+  listHctStatusByShipmentIds,
   listShipmentsByIds,
   SHIPMENT_ITEM_ROWS_LIMIT,
 } from './shipment-repository';
@@ -23,6 +24,17 @@ import {
 /** 一箱 + 它裝了本單哪些品項。 */
 export type OrderShipmentGroup = {
   shipment: ShipmentRow;
+  /**
+   * 這一箱在新竹那邊的狀態(`shipments.hct_status`)—— ⟦ship-HCTUNKNOWNSTUCK⟧ UI 那半要顯示 `unknown`。
+   *
+   * 🔴🔴 **為什麼掛在這裡, 而不是在 server component 裡自己撈**:
+   *    我第一版在 `shipment-section.tsx` 直接呼叫 repository ⇒ **既有 14 格測試當場紅**
+   *    (`NEXT_PUBLIC_SUPABASE_URL not set`)—— 那些測試 mock 的是**本檔**, 不是 repository。
+   *    ⇒ 📌 **我在一個沒有接縫的地方開了一個 DB 呼叫, 而接縫本來就在這裡。**
+   *    ⇒ 🎯 **測試紅得對:它們在說「這一層不該碰 DB」。**
+   * ⚠️ 它**刻意不進 `ShipmentRow`** —— 那個型別的 select 同時餵顧客站那條路。
+   */
+  hctStatus: string;
   /** **只有本單**的品項(見檔頭)。 */
   lines: { orderItemId: string; title: string | null; quantity: number }[];
 };
@@ -48,7 +60,12 @@ export async function loadOrderShipments(
   if (items.length > SHIPMENT_ITEM_ROWS_LIMIT) return null;
   if (items.length === 0) return [];
 
-  const shipments = await listShipmentsByIds([...new Set(items.map((i) => i.shipmentId))]);
+  const shipmentIds = [...new Set(items.map((i) => i.shipmentId))];
+  // 🔵 兩發並行 —— 它們互不相依, 而序列跑會讓這張卡多一個往返。
+  const [shipments, hctStatusById] = await Promise.all([
+    listShipmentsByIds(shipmentIds),
+    listHctStatusByShipmentIds(shipmentIds),
+  ]);
   const byId = new Map(shipments.map((s) => [s.id, s]));
 
   const grouped = new Map<string, OrderShipmentGroup>();
@@ -56,7 +73,11 @@ export async function loadOrderShipments(
     const shipment = byId.get(it.shipmentId);
     // 🔴 查不到箱就跳過,不要吐一個沒有箱資訊的空殼列 —— 那會讓畫面出現「?? 箱」。
     if (shipment === undefined) continue;
-    const g = grouped.get(it.shipmentId) ?? { shipment, lines: [] };
+    // 🔴 撈不到狀態時給 `draft` —— **刻意選最安靜的那一格**:
+    //    給 `unknown` 會讓「我沒撈到」印成「這箱卡住了」⇒ 📌 一個查詢失敗變成一句假警報。
+    const g =
+      grouped.get(it.shipmentId) ??
+      { shipment, hctStatus: hctStatusById.get(it.shipmentId) ?? 'draft', lines: [] };
     g.lines.push({
       orderItemId: it.orderItemId,
       title: titleByItemId.get(it.orderItemId) ?? null,
