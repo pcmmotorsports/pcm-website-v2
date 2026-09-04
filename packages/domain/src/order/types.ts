@@ -1707,6 +1707,35 @@ export type MemberOrderDetailItem = {
   unitPrice: Money;
   /** 小計 = 下單當下 server 算的 line_total(**不重算**) */
   lineTotal: Money;
+  /**
+   * ⟦ship-WHICHITEMSSHIPPED⟧ **這一件出貨了沒** —— 出過 ⇒ 最早那一箱的 `shipped_at`;沒出過 ⇒ `null`。
+   *
+   * 🎯 **它存在的理由**:一張 5 件的單出了 3 件, 客人**看得到「已出貨」與「其餘商品出貨時會再通知您」,
+   *    而看不出來是哪 3 件**(2026-09-04 真瀏覽器實測:五列逐字相同)。
+   *    ⇒ 而**同一個客人的出貨通知信裡逐件列得出來**(`buildOrderShippedText`)
+   *    ⇒ 🔴 **兩個管道對同一張單講的話不一樣, 而客人可能兩邊都看。**
+   * ✅ **Sean 2026-09-04 Q5 拍甲**:「已出貨的那幾列加灰字『已出貨』」。
+   *
+   * 🔵 **資料本來就在撈了, 這一欄不擴投影** —— `MEMBER_ORDER_DETAIL_SELECT` 尾段逐字含
+   *    `shipment_items(shipments(shipped_at, deleted_at))`;mapper 早就算出一個逐件陣列,
+   *    ⛔ 而它**算完就丟**(只留最早那一筆當訂單層的 `shippedAt`)⇒ 這一欄就是把它接下去。
+   *
+   * 🔴 **有效的箱 = `shipped_at` 非空【且】`deleted_at` 為空**(判準與訂單層那一欄同源、不另寫一套):
+   *    少 `deleted_at` ⇒ 一張**被作廢的**出貨單會讓客人看到「已出貨」, 而他手上沒有貨。
+   * ⚠️ **缺資料一律當作【沒出貨】, 不是【未知】** —— 保守方向:寧可少說一句, 不可對客人宣稱貨已出。
+   *
+   * 🛑 **本欄是【布林】而不是時刻, 而那是 adversarial-reviewer 2026-09-04 打出來的**:
+   *    ⛔ ~~第一版是 `shippedAt: string | null`~~ ⇒ 🔴 **`MemberOrderDetail` 整包會過 client 邊界**
+   *    (`statement-doc.tsx` 是 `'use client'`)⇒ **逐件的 ISO 時刻會躺在 RSC payload 裡**,
+   *    而顯示端只用到「是不是 null」。
+   *    🎯 **而逐件時刻正是【出貨節奏】本身** —— 哪一箱什麼時候出的, 一件一件排出來。
+   *    ⇒ 📌 **那條政策(數量摘要不給顧客站)擋的就是這個**, 我原本用「本欄不帶數量」自我放行,
+   *      而**時刻比數量說得更多**。⇒ ✅ 改成布林:同一個畫面、少一份資料離開伺服器。
+   *    🔵 同一支 adapter 自己就在為「多一份 PII 在 RSC payload 裡跑」把 `customers` 拿掉
+   *      ⇒ **同一把尺, 我原本沒套在自己身上。**
+   * 🛑 **顯示端只印【有沒有】, 不印日期也不印數量**(Sean 那句話逐字只有三個字)。
+   */
+  shipped: boolean;
 };
 
 /**

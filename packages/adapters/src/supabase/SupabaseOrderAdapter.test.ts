@@ -2815,6 +2815,9 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
           quantity: 2,
           unitPrice: { amount: 6000, currency: 'TWD' },
           lineTotal: { amount: 12000, currency: 'TWD' },
+          // ⟦ship-WHICHITEMSSHIPPED⟧ 同一個 fixture 沒有 `shipment_items` ⇒ 這一件也是「沒出貨」。
+          // 🔵 與上面訂單層那個 `shippedAt: null` **同源**(逐件那一份就是訂單層那個值的來源)。
+          shipped: false,
         },
       ],
       itemCount: 2, // Σquantity,從**實際撈到的**品項算
@@ -2882,8 +2885,11 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
    * 🔴 **本格是 code-reviewer 2026-09-02 抓的**:上面那幾格每一格**最多只有一個品項有有效的箱**
    * ⇒ `shippedTimes` 長度永遠 ≤ 1 ⇒ **外層那個 `.sort()` 沒有任何世界殺得死它**。
    * 🔬 `-fc` 實跑證實:拿掉 `mappers/order.ts:1251` 的**外層** `.sort()` ⇒ **119 passed 全綠**。
-   *    ⚠️ 那支檔有**兩個** `.sort()`(`:1248` 內層、`:1251` 外層)⇒ 認字面不要認行號:
-   *    外層那個是 `const shippedTimes = …filter(…).sort();`。
+   *    ⚠️ 那支檔有**兩個** `.sort()` ⇒ 認字面不要認行號:外層那個是
+   *    `const shippedTimes = …filter(…).sort();`。
+   *    ⛔ ~~「`:1248` 內層、`:1251` 外層」~~ —— 2026-09-04 ⟦ship-WHICHITEMSSHIPPED⟧ 把**內層**那個
+   *    搬進具名函式 `pickItemShippedAt()`(同檔上方), 而**外層那個沒有動**。
+   *    📌 舊行號留刪除線:碼搬家時**行為零改動、三綠全綠**, 而它會安靜地讓一個指得到的座標指空。
    * ⇒ 這一格讓兩個品項各自有效、而且**時間倒序**,外層排序才開始承重。
    */
   it('🔴 兩個品項各自有效而時間倒序 ⇒ 仍取**最早**(殺得死外層那個 .sort())', async () => {
@@ -2894,6 +2900,45 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
     expect(res!.shippedAt).toBe('2099-05-03T00:00:00Z');
     // 🟢 而兩個品項都出了 ⇒ 這一格同時證明 allItemsShipped 在多品項下也對。
     expect(res!.allItemsShipped).toBe(true);
+  });
+
+  /**
+   * ⟦ship-WHICHITEMSSHIPPED⟧ **逐件那一份**(Sean 2026-09-04 Q5 拍甲:已出貨的那幾列加灰字「已出貨」)。
+   *
+   * 🔵 **這不是新資料** —— 同一段算式本來就在跑, 只是算完只取最小值、逐件那一份被丟掉。
+   *    ⇒ 所以本族守的不是「撈不撈得到」, 是 🔴 **那個保守判準有沒有跟著逐件那一份一起走**。
+   *
+   * 🔴🔴 **最重要的仍然是「作廢的箱」那一格, 而它在逐件這一層【更嚴重】**:
+   *    訂單層弄錯 ⇒ 進度軸多亮一階(一個籠統的錯);
+   *    **逐件弄錯 ⇒ 明細上某一列白紙黑字寫著「已出貨」, 而那個箱子被作廢了** ⇒ 客人手上沒有那件東西。
+   *    ⇒ 驗收方式不是「它綠」, 是【拿掉 `pickItemShippedAt()` 那道 `sh.deleted_at === null` ⇒ 它必須紅】。
+   */
+  it('🔴🔴 作廢的箱 ⇒ 那一【列】不得標成已出貨(逐件這一層弄錯比訂單層嚴重)', async () => {
+    const res = await detailOf(rowWithBoxes([[shipBox('2099-05-01T00:00:00Z', '2099-05-02T00:00:00Z')]]));
+    expect(res!.items.map((i) => i.shipped)).toEqual([false]);
+  });
+
+  it('🟢 正對照(證明上一格的尺會動):同一箱 `deleted_at` 為 null ⇒ 那一列標得出來', async () => {
+    const res = await detailOf(rowWithBoxes([[shipBox('2099-05-01T00:00:00Z', null)]]));
+    expect(res!.items.map((i) => i.shipped)).toEqual([true]);
+  });
+
+  /**
+   * 🔴 **這一格是本族唯一殺得死「逐件被接成訂單層那一個值」的地方。**
+   * 🔬 少了它, 把 `shippedAt: pickItemShippedAt(item)` 改成 `shippedAt: shippedAt`(訂單層那個)
+   *    ⇒ 上面兩格**照樣全綠**(單一品項時兩者恆等)⇒ 而畫面上**每一列都會標成已出貨**。
+   * 🔵 刻意讓出貨的兩件**不相鄰**:接成「前 N 件」的話, 一組相鄰的 fixture 會安靜地全綠。
+   */
+  it('🔴 三件出了第 1、3 件 ⇒ 逐件各自對, 中間那件是 null', async () => {
+    const res = await detailOf(rowWithBoxes([
+      [shipBox('2099-05-09T00:00:00Z', null)],
+      [], // 🔴 這一件一箱都沒有
+      [shipBox('2099-05-03T00:00:00Z', null)],
+    ]));
+    expect(res!.items.map((i) => i.shipped)).toEqual([true, false, true]);
+    // 🟢 而訂單層仍取**最早**那一次 ⇒ 兩個消費者共用同一段算式而各自答對自己的問題。
+    expect(res!.shippedAt).toBe('2099-05-03T00:00:00Z');
+    expect(res!.allItemsShipped).toBe(false);
   });
 
   /**

@@ -19,6 +19,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { toMoneyAmount, type MemberOrderDetail } from '@pcm/domain';
 import { OrderDetailView } from './OrderDetailView';
 import {
+  ORDER_DETAIL_ITEM_SHIPPED_MARK,
   ORDER_DETAIL_ITEMS_TRUNCATED_NOTE,
   ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE,
   ORDER_DETAIL_UNPAID_SHIPPED_NOTE,
@@ -58,6 +59,7 @@ const ORDER: MemberOrderDetail = {
       quantity: 2,
       unitPrice: money(6000),
       lineTotal: money(12000),
+      shipped: false,
     },
   ],
   itemCount: 2,
@@ -747,6 +749,97 @@ describe('⟦b9-SHIPUI⟧ 進度軸「已出貨」', () => {
         Array.from(container.querySelectorAll('.od-step-t')).map((n) => n.textContent),
         '取消單的軸上只該留【真的發生過】的階段 —— 而這張單從來沒付過錢',
       ).not.toContain('付款完成');
+    });
+  });
+  /**
+   * ⟦ship-WHICHITEMSSHIPPED⟧ 部分出貨時, 客人看不看得出是【哪幾件】(Sean 2026-09-04 Q5 拍甲)。
+   *
+   * 🔬 **修法之前的畫面是量到的, 不是推的**:真瀏覽器實測一張 5 品項出了 3 件的單
+   *    ⇒ 徽章「處理中」· 進度軸「已出貨」亮 · 小字「其餘商品出貨時會再通知您」都**對**,
+   *    而 🔴 **商品明細五列逐字相同**。⇒ 🎯 客人被告知出了一部分, 而畫面說不出是哪一部分。
+   *
+   * 🛑 **三格是三個方向, 而中間那格是這道守門唯一殺得死「無條件印」的地方**:
+   *    · 出了的那幾列 ⇒ 印(**改對了沒**)
+   *    · 🔴 **沒出的那幾列 ⇒ 不印**(少了它, `{ORDER_DETAIL_ITEM_SHIPPED_MARK}` 寫死不帶條件也全綠)
+   *    · 🔵 **全部沒出 ⇒ 一個都不印**(整張單的負對照)
+   */
+  describe('⟦ship-WHICHITEMSSHIPPED⟧ 部分出貨 ⇒ 客人看得出是哪幾件', () => {
+    // 三件的單:第 1 件與第 3 件出了, 第 2 件沒有。
+    // 🔴 **刻意讓出貨的那兩件【不相鄰】** —— 若接線接成「前 N 件」, 一組相鄰的 fixture 會安靜地全綠。
+    const it3 = (over: Partial<MemberOrderDetail['items'][number]>, i: number) => ({
+      ...ORDER.items[0]!,
+      id: `oi-${i}`,
+      variantSku: `SKU-${i}`,
+      title: `品項${i}`,
+      ...over,
+    });
+    const PARTIAL: MemberOrderDetail = {
+      ...ORDER,
+      shippedAt: '2099-04-25T00:00:00Z',
+      allItemsShipped: false,
+      items: [
+        it3({ shipped: true }, 1),
+        it3({ shipped: false }, 2),
+        it3({ shipped: true }, 3),
+      ],
+    };
+    const marks = (c: HTMLElement) =>
+      Array.from(c.querySelectorAll('.od-line')).map(
+        (l) => l.querySelector('[data-od-id="order-line-shipped"]')?.textContent ?? null,
+      );
+
+    it('🔴 出了第 1、3 件 ⇒ 只有那兩列印「已出貨」, 中間那列不印', () => {
+      const { container } = render(<OrderDetailView order={PARTIAL} />);
+      expect(marks(container)).toEqual([
+        ORDER_DETAIL_ITEM_SHIPPED_MARK,
+        null,
+        ORDER_DETAIL_ITEM_SHIPPED_MARK,
+      ]);
+      // 🔵 而那句「其餘商品出貨時會再通知您」在這個世界裡是**對的** ⇒ 兩者要同時成立。
+      expect(screen.getByText(ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE)).toBeTruthy();
+      /**
+       * 🔴 **它落在【哪一欄】也要釘**(adversarial-reviewer 2026-09-04 nit):
+       * `marks()` 只問「這一列底下有沒有那個節點」⇒ 把那個 `<div>` 搬進 `.od-line-r`(金額那欄)
+       * **三格照樣全綠**, 而畫面上「已出貨」會跑到價格旁邊。
+       * ⇒ ✅ 釘法:它必須與品名 `.od-line-name` **同一個父節點**(中間那一欄)。
+       */
+      const firstLine = container.querySelector('.od-line')!;
+      const mark = firstLine.querySelector('[data-od-id="order-line-shipped"]')!;
+      expect(
+        mark.parentElement,
+        '「已出貨」跑到金額那一欄 ⇒ 客人會把它讀成價格的註解',
+      ).toBe(firstLine.querySelector('.od-line-name')!.parentElement);
+    });
+
+    it('🔵 負對照:一件都沒出 ⇒ 一個「已出貨」都不印(少了這格, 無條件印也會全綠)', () => {
+      const { container } = render(
+        <OrderDetailView
+          order={{
+            ...PARTIAL,
+            shippedAt: null,
+            items: PARTIAL.items.map((x) => ({ ...x, shipped: false })),
+          }}
+        />,
+      );
+      expect(marks(container)).toEqual([null, null, null]);
+    });
+
+    it('🔵 全部出完 ⇒ 每一列都印, 而分批小字不出現(那句話對它是假的)', () => {
+      const { container } = render(
+        <OrderDetailView
+          order={{
+            ...PARTIAL,
+            allItemsShipped: true,
+            items: PARTIAL.items.map((x) => ({ ...x, shipped: true })),
+          }}
+        />,
+      );
+      expect(marks(container)).toEqual([
+        ORDER_DETAIL_ITEM_SHIPPED_MARK,
+        ORDER_DETAIL_ITEM_SHIPPED_MARK,
+        ORDER_DETAIL_ITEM_SHIPPED_MARK,
+      ]);
+      expect(screen.queryByText(ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE)).toBeNull();
     });
   });
 });
