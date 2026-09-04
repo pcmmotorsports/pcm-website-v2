@@ -12,6 +12,7 @@ import type {
   ShippedEmailContext,
 } from '@pcm/ports';
 import { SUPPRESS_WHEN_ORDER_INELIGIBLE } from '@pcm/ports';
+import { subtotalLabelOf } from '@pcm/domain';
 import {
   assertPdfClaimMatchesAttachments,
   paidEmailOrderUrl,
@@ -504,7 +505,10 @@ function buildOrderCreatedText(
     //    這一行讓客人**至少看得到自己看的是部分**, 而不是靜靜地少幾項。
     //    ⇒ 📌 而它今天**沒有任何一發測試跑得到** —— 那一格是已知的, 不是漏掉的。
     if (paid.linesTruncated) detail.push('(品項過多,此處僅列出部分;完整明細請至會員中心查看)');
-    detail.push('', `小計  NT$ ${formatOrderAmount(paid.subtotal)}`);
+    // 🔴 有稅時小計是【未稅】的 ⇒ 標籤要說得出來(`⟦b4-TAXSURFACES⟧`, Sean 2026-09-04 拍甲)。
+    //    共用 `subtotalLabelOf` 而不在這裡寫死 —— 五個面要逐字相同, 而抄五份時
+    //    下一個人只會改他打開的那一份。
+    detail.push('', `${subtotalLabelOf('小計', paid.taxTotal)}  NT$ ${formatOrderAmount(paid.subtotal)}`);
     // 🔴 折扣 0 不印(印「折扣 −0」會讓客人以為有一筆他沒看到的折抵);
     //    而**運費 0 照印**(「免運」是他想確認的事)—— 兩條【規則】與排版那份逐條相同。
     // 🛑 **而【順序】也對齊了**(code-reviewer R1 nit):排版那份是 小計 → 運費 → 折扣 → 訂單金額

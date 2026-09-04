@@ -1161,6 +1161,8 @@ export type SupabaseMemberOrderDetailRow = Pick<
   | 'subtotal'
   | 'shipping_fee'
   | 'discount_total'
+  // 🔴 `⟦b4-TAXSURFACES⟧` 第 7 步:會員明細也要帶稅額(顧客站詳情頁 + 列印/PDF 兩面共用這一條)。
+  | 'tax_total'
   | 'total'
   | 'shipping_method'
   | 'cancelled_at'
@@ -1358,6 +1360,7 @@ export function mapSupabaseMemberOrderDetailRow(
     subtotal: { amount: toMoneyAmount(row.subtotal), currency: 'TWD' },
     shippingFee: { amount: toMoneyAmount(row.shipping_fee), currency: 'TWD' },
     discountTotal: { amount: toMoneyAmount(row.discount_total), currency: 'TWD' },
+    taxTotal: { amount: toMoneyAmount(row.tax_total), currency: 'TWD' },
     total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
     shippingMethod: row.shipping_method,
     shippingAddress: pickShippingAddress(row.shipping_address_snapshot),

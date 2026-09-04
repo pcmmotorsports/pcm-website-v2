@@ -46,6 +46,7 @@ const ORDER: MemberOrderDetail = {
   subtotal: money(12000),
   shippingFee: money(100),
   discountTotal: money(0),
+  taxTotal: money(0),
   total: money(12100),
   shippingMethod: 'home',
   shippingAddress: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
@@ -1040,5 +1041,74 @@ describe('⟦b9-SHIPUI⟧ 進度軸「已出貨」', () => {
         ).toBeNull();
       }
     });
+  });
+});
+
+describe('稅額那一列與「小計(未稅)」(⟦b4-TAXSURFACES⟧ 第 7 步;Sean 2026-09-04 拍甲)', () => {
+  afterEach(cleanup);
+
+  // 🔴🔴 **這一族要驗的是「兩個世界印不同的東西」** ——
+  //    今天每一張單的稅都是 0(價格含稅)⇒ 只驗有稅那一格的話,
+  //    **今天的世界從來沒有被測過**, 而它才是每天在跑的那一個。
+
+  it('🔵 稅 0(= 今天每一張單)⇒ 不印稅額那一列, 標籤維持「商品小計」', () => {
+    render(<OrderDetailView order={ORDER} />);
+    expect(screen.queryByText('稅額')).toBeNull();
+    expect(screen.getByText('商品小計')).toBeTruthy();
+    expect(screen.queryByText('商品小計(未稅)')).toBeNull();
+  });
+
+  it('🔴 稅 > 0 ⇒ 印出稅額那一列, 而標籤變成「商品小計(未稅)」', () => {
+    // 🔴🔴 **有稅的 fixture 一定要【平衡】**(codex R3 must-fix 2):
+    //    `subtotal + 運費 − 折扣 + 稅 = total`。⛔ 我第一版沿用原本的 `total` 12,100
+    //    ⇒ 那種單**違反 DB 的金額等式、正式庫根本寫不進去**
+    //    ⇒ 📌 **我在測一個不存在的世界, 而它照樣全綠。**
+    // 12000 + 100 − 0 + 605 = 12705
+    render(<OrderDetailView order={{ ...ORDER, taxTotal: money(605), total: money(12705) }} />);
+    expect(screen.getByText('稅額')).toBeTruthy();
+    expect(screen.getByText('商品小計(未稅)')).toBeTruthy();
+    // 🔴 舊標籤**必須消失** —— 少了這一格, 一個「兩個標籤都印」的實作會全綠。
+    expect(screen.queryByText('商品小計')).toBeNull();
+  });
+
+  it('🔴 順序:小計 → 運費 → 折扣 → 稅額 → 訂單金額(codex R1 must-fix:原本零守門)', () => {
+    // 🛑 少了這一格, **把稅額列搬到小計之前或總額之後, 上面每一格都照樣綠**。
+    // 🔵 折扣要 > 0, 否則折扣那一列根本沒印 ⇒ 拿 -1 當座標會假綠。
+    // 🔴 量的是 `.od-sums` 那一塊裡**每一列的標籤**, 不是整頁字串 ——
+    //    整頁量的話會撞到別處同名的字(客人那張紙那支檔實測撞過一次:
+    //    「訂單金額」在文件更前面也出現)。
+    const { container } = render(
+    // 🔴🔴 **有稅的 fixture 一定要【平衡】**(codex R3 must-fix 2):
+    //    `subtotal + 運費 − 折扣 + 稅 = total`。⛔ 我第一版沿用原本的 `total` 12,100
+    //    ⇒ 那種單**違反 DB 的金額等式、正式庫根本寫不進去**
+    //    ⇒ 📌 **我在測一個不存在的世界, 而它照樣全綠。**
+    // 12000 + 100 − 150 + 605 = 12555
+      <OrderDetailView
+        order={{ ...ORDER, discountTotal: money(150), taxTotal: money(605), total: money(12555) }}
+      />,
+    );
+    const labels = Array.from(container.querySelectorAll('.od-sums .od-sum > span')).map(
+      (el) => el.textContent,
+    );
+    expect(labels.slice(0, 4)).toEqual(['商品小計(未稅)', '運費', '折扣', '稅額']);
+    // 🟢 而最後一列是總額(它的標籤隨付款狀態變 ⇒ 只驗它在最後、不驗字面)
+    expect(labels).toHaveLength(5);
+  });
+
+  it('🔴 稅額那一列的值是【逐字精確】的, 不是子字串(codex R2 must-fix 3)', () => {
+    // ⛔ 原本是 `toContain('605')` ⇒ 📌 **印成 `NT$ 1,605` 也會綠** —— 這是金額面, 不能只問子字串。
+    // ✅ 改成把【標籤與它那一格的值】綁在同一列, 並驗那一格的**完整文字**。
+    // 🔬 值用【四位數】—— 三位數時「有沒有千分位」印同一個東西。
+    // 🔵 而這一面**印 `NT$`**, 客人那張紙**不印**(紙的區塊標題已寫「新臺幣」)——
+    //    兩份格式化本來就不同, 不要拿一份的字面去套另一份。(實測改的)
+    // 🔴🔴 **有稅的 fixture 一定要【平衡】**(codex R3 must-fix 2):
+    //    `subtotal + 運費 − 折扣 + 稅 = total`。⛔ 我第一版沿用原本的 `total` 12,100
+    //    ⇒ 那種單**違反 DB 的金額等式、正式庫根本寫不進去**
+    //    ⇒ 📌 **我在測一個不存在的世界, 而它照樣全綠。**
+    // 12000 + 100 − 0 + 1605 = 13705
+    render(<OrderDetailView order={{ ...ORDER, taxTotal: money(1605), total: money(13705) }} />);
+    const row = screen.getByText('稅額').closest('.od-sum');
+    expect(row).not.toBeNull();
+    expect(row!.querySelector('b')?.textContent).toBe('NT$ 1,605');
   });
 });

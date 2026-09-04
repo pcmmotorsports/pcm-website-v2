@@ -75,6 +75,7 @@ const ORDER = {
   subtotal: twd(18000),
   shippingFee: twd(100),
   discountTotal: twd(0),
+  taxTotal: twd(0),
   total: twd(18100),
   shippingMethod: 'home',
   shippingAddress: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
@@ -497,4 +498,111 @@ describe('片 C2:自足 HTML 在真瀏覽器 + 零網路下畫得對', () => {
     expect(built.skippedMissing).toBe(0);
     expect(built.uncovered).toEqual([]);
   });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 片 C(2026-09-05 `⟦b4-TAXSURFACES⟧` 第 7 步)· **稅額那一列會不會把頁尾擠掉**
+//
+// 🔴🔴 **這一段是 codex R3 must-fix 2 逼出來的, 而它抓到的是【整個維度】不是某一格**:
+//    本片其餘所有測試問的都是「**渲染出來的字串裡有什麼**」——
+//    而客人拿到的是**一張紙**, 而紙會擠壓、會換頁、會把頁尾推下去。
+//    ⇒ 📌 「字出現在 HTML 裡」與「客人拿到一份印得正常的文件」是**兩個宣稱**,
+//       而這支檔上面每一格都只答了前一個(它們量的是 tax = 0 的那個世界)。
+//
+// 🛑 **本段只答一個問題**:多了那一列之後, **頁尾還貼不貼紙底**。
+//    ⚠️ 它**不答**「換頁」「溢出到第二張」—— 那需要多品項的樣本, 而本段沒有造。**已知缺口, 照實寫。**
+describe('片 C · 稅額那一列與頁尾(真 chromium · 列印媒體)', () => {
+  let browserC: Browser;
+  let taxedMm = -1;
+  let zeroMm = -1;
+  let overflowMm = -1;
+  let zeroHasRow = true;   // 🔴 預設【相反】於期望值 —— 沒被賦值時那一格會紅, 不會靜靜通過
+  let taxedHasRow = false;
+
+  beforeAll(async () => {
+    const layoutCss = compiledCss('.mobile-tabbar-btn');
+    const pageCss = compiledCss('.stmt-page');
+    browserC = await chromium.launch();
+
+    // 🔴 有稅那份**必須平衡**:18000 + 100 − 0 + 905 = 19005。
+    //    不平衡的單正式庫寫不進去 ⇒ 拿它量版面等於量一個不存在的世界。
+    const taxedOrder = {
+      ...ORDER,
+      taxTotal: twd(905),
+      total: twd(19005),
+    } as MemberOrderDetail;
+
+    const measure = async (order: MemberOrderDetail): Promise<{ mm: number; hasTaxRow: boolean }> => {
+      const page = await browserC.newPage();
+      await page.setContent(
+        `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">` +
+          `<style>${layoutCss}</style><style>${pageCss}</style></head>` +
+          `<body>${renderToStaticMarkup(<StatementDoc order={order} />)}</body></html>`,
+      );
+      await page.emulateMedia({ media: 'print' });
+      return page.evaluate(() => {
+        const hasTaxRow = Array.from(document.querySelectorAll('.pd-money td.k')).some(
+          (el) => el.textContent === '稅額',
+        );
+        const sheet = document.querySelector('.stmt-page');
+        if (sheet === null) return { mm: -1, hasTaxRow }; // 🔴 分母:節點不在就回 -1, 不回 0
+        // 🔴🔴 **量的是【紙有多高】, 不是「頁尾貼不貼底」。**
+        //    ⛔ 我第一版量 `sheet.bottom − pdBottom.bottom` 並宣稱它守「頁尾被擠掉」——
+        //       而**負對照當場打穿它**:餵一份 60 個品項的單, 它**照樣印 0**。
+        //    🎯 成因:`.pd-bottom` 是 `margin-top:auto`, 而紙會跟著內容長高
+        //       ⇒ 頁尾**永遠**在紙的底部 ⇒ 那個 0 是恆真的, 它什麼都沒守。
+        //    ✅ 真正會變的量是**紙本身的高度** —— 超過一頁 A4 就是換頁。
+        return { mm: Math.round((sheet.getBoundingClientRect().height / 96) * 25.4), hasTaxRow };
+      });
+    };
+
+    ({ mm: zeroMm, hasTaxRow: zeroHasRow } = await measure(ORDER as MemberOrderDetail));
+    ({ mm: taxedMm, hasTaxRow: taxedHasRow } = await measure(taxedOrder));
+
+    // 🔴🔴 **負對照:這把尺印得出【不是 0】嗎?**
+    //    上面兩格都印 0, 而**一把只印過一種值的尺是零證據** ——
+    //    「頁尾貼底」與「這個量法根本恆為 0」在報表上長得一樣。
+    //    ⇒ 餵一份**塞爆的單**(把品項複製到遠超一頁), 它必須印出非 0。
+    ({ mm: overflowMm } = await measure({
+      ...ORDER,
+      items: Array.from({ length: 60 }, (_, i) => ({ ...ORDER.items[0]!, id: `of${i}` })),
+      itemCount: 60,
+    } as MemberOrderDetail));
+  }, 90_000);
+
+  afterAll(async () => {
+    await browserC?.close();
+  }, 60_000);
+
+  it('🔴 分母:三個世界都真的量到了(節點不在會回 -1)', () => {
+    for (const v of [zeroMm, taxedMm, overflowMm]) expect(v).toBeGreaterThan(0);
+  });
+
+  it('🟢 負對照:塞爆的單【紙會變高】—— 證明這把尺不是恆定值', () => {
+    // 🛑 少了這一格, 下面那兩格的「沒超過一頁」與「這個量法根本不動」印同一個東西。
+    // 🔴 而這一格是**打穿我上一版量法的那一發**:原本量「頁尾貼不貼紙底」,
+    //    餵 60 個品項照樣印 0 ⇒ 那把尺恆真。**換成量紙高之後它才會動。**
+    expect(overflowMm).toBeGreaterThan(zeroMm);
+  });
+
+  it('🔴🔴 多了稅額那一列, 紙【沒有】被推過一頁 A4(297mm)', () => {
+    // 🎯 這一格是本段存在的理由:金額表多一列 ⇒ 內容變高 ⇒ 有可能溢到第二張紙。
+    //    折扣那一列早就是同一種形狀(有折扣才印)而**從來沒有人在真媒體上量過它**
+    //    ⇒ 📌 本格順帶把那個缺口一起關掉。
+    expect(taxedMm).toBeLessThanOrEqual(297);
+    // 🔵 而稅 0 那份也要在一頁內(前提:這把尺在【已知正確】的世界上讀得對)
+    expect(zeroMm).toBeLessThanOrEqual(297);
+  });
+
+  it('🔵 而那一列【真的被渲染出來了】—— 否則上一格是拿一個空的世界在慶祝', () => {
+    // 🛑 少了這一格,「稅額列沒有被渲染」與「它被渲染了而沒撐爆」印同一個綠。
+    // 🔴🔴 **而這一格【不能】用「紙有沒有變高」來問** —— 實測打穿過:
+    //    兩個世界的紙都是 **250mm**(`.stmt-page` 有固定高度, 而內容還有餘裕)
+    //    ⇒ 多一列**不會**讓它變高 ⇒ 那個相等是對的, 不是缺陷。
+    //    📌 而 60 個品項那一發**會**把它撐過 250 ⇒ 這把尺仍然會動, 只是它答的是
+    //       「有沒有溢出」不是「有沒有多一列」。⇒ **兩個問題要用兩把尺。**
+    expect(taxedHasRow).toBe(true);
+    expect(zeroHasRow).toBe(false); // 🔵 對照:稅 0 的那份不得有那一列
+  });
+
 });
