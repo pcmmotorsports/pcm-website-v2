@@ -77,7 +77,14 @@ apps/storefront/src/app/account/page.test.tsx               /account
 apps/storefront/src/app/account/vehicle/actions.test.ts     車輛設定
 apps/storefront/src/app/api/catalog/facet-counts/route.test.ts
 apps/storefront/src/components/ProductsPage.test.tsx
-🔴 而 /cart 與 PDP 的測試我【還沒查有沒有】⇒ 寫 migration 之前要補這一格
+🔴 **2026-09-05 查完了, 而答案是【沒有】**(兩把尺):
+   · 尺A(`ls` + grep import):`/cart` 只有 `actions.test.ts`, **沒有 page 測試**;
+     PDP `products/[slug]/` **整個目錄只有 `page.tsx`, 零測試檔**
+   · 尺B(誰 import 它們):PDP page **0** · cart page **0**
+     🟢 正對照:首頁 `app/page` 被 **4** 支測試 import ⇒ **尺是活的**
+   ⇒ 🛑 **這兩個入口在回歸分母裡【結構上不存在】** —— 而它們都會叫 `fetchVehicleTaxonomy`
+   ⇒ 📌 **本案改壞它們, 三綠與 `vitest related` 都不會紅。**
+   ✅ **⇒ 寫 migration 之前要先補這兩支的 smoke test**(至少「頁面渲染得出來 + 車款下拉非空」)。
 ```
 
 ## 6. Rollback
@@ -102,6 +109,19 @@ DROP FUNCTION IF EXISTS public.vehicle_taxonomy_agg();
 
 ## 8. 這份證不到什麼
 
-- **沒有量過那支 RPC 會多快** —— 全篇唯一的效能主張是「13 次往返 → 1 次」,**那是結構,不是量測**。
-- **410 KB 的傳輸時間沒量** ⇒ 有可能一次往返傳 410 KB 比 13 次小往返還慢。**要先量再寫 migration。**
+- ⛔ ~~**沒有量過那支 RPC 會多快**~~ ⇒ 🟢 **DB 端那一半 2026-09-05 量了**(唯讀連線, 各連跑):
+  ```
+  聚合整包一次算完   309 / 313 / 316 / 317 / 329 ms   (五發)
+  現況的一頁 1000 列 146 / 148 / 150 ms              (三發)
+  ⇒ 🎯 聚合 ≈ 【2.1 頁】的 DB 工, 而它取代的是【13 頁】⇒ DB 端約省 6 倍
+  ```
+  ⚠️ **而這組數【只含 compute, 不含把 410 KB 傳出去】** —— 我量的是 `octet_length(...)`,
+  **回傳的是一個整數, 那 410 KB 從來沒有過線**。⇒ 下一格仍然開著。
+  ⚠️ 另外它是**從我這台機器**量的(單頁 ~148ms), 而正式站是 **~945ms/頁** ⇒ **絕對值不可跨環境引用**,
+  **可以引用的是【比例】**。
+- 🔴 **410 KB 的傳輸時間仍然沒量** ⇒ 有可能一次往返傳 410 KB 比 13 次小往返還慢。
+  🛑 **而我今天量不到它**:`.env.local` 裡**沒有主專案的 anon / publishable key**
+  (只有 `QUOTE_SUPABASE_PUBLISHABLE_KEY`, 那是另一個專案;以及 `SUPABASE_SECRET_KEY` = service_role)
+  ⇒ 📌 **我不拿 service_role 去代打** —— 那是**另一個權限、另一個世界**, 而且它量不到 anon 那條路。
+  ✅ **⇒ 這一格要有 anon key 的窗來打**(`-front` 有);或等 RPC 真的存在之後在 dev preview 量。
 - 兩個數(67 / 3,779)是**今天型錄的性質**,不是約束。
