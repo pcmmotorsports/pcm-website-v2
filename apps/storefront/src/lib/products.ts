@@ -906,7 +906,21 @@ const getVehicleTaxonomyCached = unstable_cache(
     };
 
     // 🔵 第一頁順便拿 `count` —— **只拿來排程**(見準則④)。
+    // ⏱️ **第一頁單獨計時**(2026-09-05)—— 而它要回答一個**具體的**問題:
+    //   🔬 已知:lambda 上 ~945ms/頁, 而我本機 psql ~148ms、`-front` 本機 HTTP 173–220ms
+    //     ⇒ lambda 比兩台【更遠的】機器慢 4.7 倍, **而 region 查過是同區**
+    //       (Vercel `sin1` · Supabase `ap-southeast-1`, 都在新加坡)⇒ **不是距離。**
+    //   🛑 而我先前只能寫「連線建立 / TLS / client 初始化 / 冷啟動 —— 四個都沒量, 不指名」。
+    //   ✅ **這兩個數把那句話變成一個可判的形狀**:
+    //     `first` 含【client 建立 + 第一次連線 + TLS】;`batchAvg` 是**之後**每一頁的平均。
+    //     ⇒ 📌 **`first` 遠大於 `batchAvg` ⇒ 固定成本住在第一發**(連線層)
+    //        **兩者相近 ⇒ 每一頁都在付** ⇒ 那是另一種病(而 RPC 一次往返的收益會小很多)。
+    //   ⚠️ **它證不到【是哪一個】** —— 四個候選它一個都指不出來, 它只分得出「一次」與「每次」。
+    const tFirst = performance.now();
     const first = await fetchPage(0, true);
+    const msFirstPage = Math.round(performance.now() - tFirst);
+    const tRest = performance.now();
+    let pagesAfterFirst = 0;
     const pages: TaxRow[][] = [first.rows];
     // 🔴 `count` 為 null(PostgREST 沒回)⇒ 退回 `MAX_PAGES`, **不讓排程依賴它**。
     const plannedPages =
@@ -927,6 +941,7 @@ const getVehicleTaxonomyCached = unstable_cache(
         break;
       }
       const got = await Promise.all(batch.map((p) => fetchPage(p, false)));
+      pagesAfterFirst += got.length;
       for (const g of got) {
         pages.push(g.rows);
         // 🛑 短頁之後那幾頁**照樣收下**(同一批一起發的, 內容仍然有效);
@@ -943,7 +958,11 @@ const getVehicleTaxonomyCached = unstable_cache(
 
     console.info(
       `[vehicleTaxonomy] cold pages=${pages.length} rows=${pages.reduce((n, p) => n + p.length, 0)} ` +
-        `batch=${BATCH} ms=${Math.round(performance.now() - tVeh)}`,
+        `batch=${BATCH} first=${msFirstPage}ms ` +
+        // 🔵 之後那幾頁是【併行】的 ⇒ 這個平均是「牆鐘 ÷ 頁數」, **不是每頁各自的耗時**。
+        //    它與 `first` 可比的地方在於:兩者都是「拿到一頁要等多久」的量級。
+        `restAvg=${pagesAfterFirst > 0 ? Math.round((performance.now() - tRest) / pagesAfterFirst) : -1}ms ` +
+        `ms=${Math.round(performance.now() - tVeh)}`,
     );
 
     for (const rows of pages) {
