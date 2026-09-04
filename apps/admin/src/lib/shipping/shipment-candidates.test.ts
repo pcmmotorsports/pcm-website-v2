@@ -36,6 +36,12 @@ vi.mock('server-only', () => ({}));
  *      兩個世界才分得開。⚠️ 看到這個 helper 就以為「來源有被守住」的人,請只看那一族。
  */
 const detailsSeen = new Map<string, { id: string; items: unknown[] }>();
+// 🔴 2026-09-04:候選回傳多了一句「尾款 X 元未收」⇒ 它會去打 `listOrderPayments`。
+//    不 mock 的話這裡會真的去建 Supabase client(測試環境沒有), 而我的 try/catch 會把它吞成
+//    「讀不到」⇒ **每一格都靜靜走進 unreadable 分支**, 而那不是這些格要測的東西。
+//    ⇒ 預設回 `[]`(訂單在、還沒收款)⇒ 尾款 = 全額未收, 與這些格的斷言互不干擾。
+const { listOrderPayments } = vi.hoisted(() => ({ listOrderPayments: vi.fn() }));
+vi.mock('../orders/payment-repository', () => ({ listOrderPayments }));
 vi.mock('../orders/order-repository', () => ({
   getAdminOrderRepository: () => ({
     // 包一層只為了記下「這次回了哪張單」,好讓預設的 print 實作導得出來。
@@ -61,6 +67,12 @@ const SRC = RAW.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/
 const detail = (over: Record<string, unknown> = {}) => ({
   id: 'o1',
   displayId: 'PCM-0001',
+  // 🔴 2026-09-04 補:`orders.total` 是 **NOT NULL**(`20260604120000:104`), fixture 少給它才是不真實的那一邊。
+  //    ⚠️ 而它是被**新碼當場咬出來**的 —— 尾款那句話要讀 `detail.total.amount`,
+  //       fixture 沒有它 ⇒ TypeError ⇒ **本檔 24 格一起紅**。
+  //    📌 同 `shipment-section.test.tsx` 檔頭那句:`as unknown as` 讓 fixture 可以少給欄位而 typecheck 不紅,
+  //       **少的那些欄位在有人讀到它之前都是隱形的** —— 這個 cast 會一直收租。
+  total: { amount: 5000 },
   shippingAddress: { name: '陳彥廷', phone: '0912', line: '台北市…' },
   customer: { name: '陳彥廷', email: 'a@b.c', phone: '0912' },
   items: [
@@ -85,6 +97,10 @@ const detail = (over: Record<string, unknown> = {}) => ({
 });
 
 beforeEach(() => {
+  // 🔴 收款查詢也要進 reset 清單 —— 同本檔既有那條通則:漏一支 = 次數/回傳跨測試累加,
+  //    而症狀長得像被測程式多跑了一次。預設 `[]` = 訂單在、還沒收款。
+  listOrderPayments.mockReset();
+  listOrderPayments.mockResolvedValue([]);
   findAdminOrderDetail.mockReset();
   detailsSeen.clear();
   listOrderItemsForPrint.mockReset();
@@ -142,6 +158,29 @@ describe('🔴🔴 鐵則 12 — DTO 不得帶任何金額', () => {
   //    這條守的是**資訊類別**(價格 / 客人 PII / 供應商身分),不是欄位數。
   //    `orderId` 是 uuid、且 client 本來就整組持有 `orderIds` ⇒ 零新類別。
   //    ⚠️ 下一個要擴它的人:先答「這個欄位屬於上面三類的哪一類」,答得出來就別加。
+  /**
+   * 🔴🔴 **頂層鍵的白名單 —— codex 第二輪 MF1b 逼出來的。**
+   *
+   * 病:上面那格與金額掃描那格**都只看【品項那一層】與【禁用欄名】**
+   *    ⇒ 🎯 **把一個金額【編進頂層的新字串欄】可以全綠通過。** 而那正是 2026-09-04
+   *      `balanceWarning`(字面「尾款 3,000 元未收」)做的事。
+   * ⇒ 📌 **欄名黑名單擋不住「換一個名字、換一種型別」的同一類資訊。**
+   *
+   * ✅ 本格改問「頂層恰好是這四個鍵」——
+   *    多一個就要有人看過鐵則 12 那條紅線(而它現在是**帶例外**的形狀, 見被測檔檔頭)。
+   * 🧬 突變:回傳裡多塞一個 `totalAmount` / `receivedAmount` / 任何欄 ⇒ 這一格紅。
+   */
+  it('🔴🔴 頂層鍵恰好是白名單四個 —— 金額編進新字串欄也擋得住', async () => {
+    findAdminOrderDetail.mockResolvedValue(detail());
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const r = await loadShipmentCandidates(['o1']);
+    expect(
+      Object.keys(r).sort(),
+      '頂層多了一個鍵 ⇒ 去讀被測檔檔頭那條紅線(它現在明列了唯一那個拍板放行的例外), ' +
+        '確認新的那個不是第二個金額面, 再改這裡。',
+    ).toEqual(['balanceWarning', 'customerUserId', 'items', 'recipient']);
+  });
+
   it('🔴 實際回傳的品項物件只有白名單七個鍵(逐鍵檢查,不是只看型別)', async () => {
     findAdminOrderDetail.mockResolvedValue(detail());
     const { loadShipmentCandidates } = await import('./shipment-candidates');
@@ -389,6 +428,9 @@ describe('多張訂單 · 邊界', () => {
       items: [],
       customerUserId: null,
       recipient: null,
+      // 🔴 2026-09-04:早退路徑也要帶這一欄 —— 少了它, `toEqual` 會紅在「多一個鍵」,
+      //    而那正是它該紅的地方(DTO 多一欄而早退路徑忘了給 = 兩條路吐不同形狀)。
+      balanceWarning: null,
     });
     expect(findAdminOrderDetail).not.toHaveBeenCalled();
 
@@ -397,6 +439,9 @@ describe('多張訂單 · 邊界', () => {
       items: [],
       customerUserId: null,
       recipient: null,
+      // 🔴 2026-09-04:早退路徑也要帶這一欄 —— 少了它, `toEqual` 會紅在「多一個鍵」,
+      //    而那正是它該紅的地方(DTO 多一欄而早退路徑忘了給 = 兩條路吐不同形狀)。
+      balanceWarning: null,
     });
     expect(listAssigned, '查無訂單時仍去查已配箱數量 ⇒ 多打一次沒有意義的 DB').not.toHaveBeenCalled();
     expect(listCustomers, '查無訂單時仍去查客人 ⇒ 同上').not.toHaveBeenCalled();
@@ -717,5 +762,92 @@ describe('🔴🔴 品項來源 —— 頂層分頁撈到盡,不是內嵌的 `de
       ['PCM-0001', 'o1-item'],
       ['PCM-0002', 'o2-item'],
     ]);
+  });
+});
+
+/**
+ * 「尾款 X 元未收」—— **本檔這一族守的是【它算得出來且交得出去】**(Sean 2026-09-04 逐字
+ * 「甲 也要顯示 —— 那條路要去拿到金額」)。那句話的**四態**在
+ * `shipment-balance-warning.test.ts`,這裡不重複。
+ */
+describe('尾款警告(勾單那條路也要看得到)', () => {
+  it('🔴 勾【一張】單 ⇒ 那句話進到候選回傳裡', async () => {
+    // 🧬 突變:把 `balanceWarning: await balanceWarningOf(details)` 改成 `null` ⇒ 這一格紅。
+    findAdminOrderDetail.mockResolvedValue(detail());
+    listOrderPayments.mockResolvedValue([{ id: 'p1', amount: 2000 }]);
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const out = await loadShipmentCandidates(['o1']);
+    expect(out.balanceWarning, 'total 5000 − 已收 2000 ⇒ 尾款 3,000').toBe('尾款 3,000 元未收');
+  });
+
+  it('🔴🔴 勾【兩張】單 ⇒ 不可以沉默(沉默與「都收齊了」在彈窗裡同形)', async () => {
+    // 🔴 **codex 第二輪 MF3**:⛔ ~~我第一版讓多張回 `null`~~ ——
+    //   而 `null` 在彈窗裡與「全部已收足」**完全同形** ⇒ 勾入第二張單,
+    //   第一張那句明顯的警告就消失了, 而員工會把沉默讀成「都收齊了」。
+    // 🛑 而**格式**(逐張列?只印張數?)Sean 沒拍 ⇒ 這一句刻意**不含任何金額、不宣稱任何一張的狀態**。
+    // 🧬 突變:改回 `return null` ⇒ 這一格紅。
+    findAdminOrderDetail.mockImplementation(async (id: string) => detail({ id }));
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const out = await loadShipmentCandidates(['o1', 'o2']);
+    expect(out.balanceWarning, '多張時什麼都不說 ⇒ 與「都收齊了」印同一個東西').not.toBeNull();
+    expect(out.balanceWarning).toContain('不顯示尾款');
+    expect(out.balanceWarning, '多張那句不得含金額 —— 它宣稱不出任何一張的狀態').not.toMatch(/\d/);
+    // 🎯 這一行守的是**代價**不是正確性:勾 50 張不可以變成 50 次收款查詢。
+    expect(listOrderPayments, '多張時仍去查收款 ⇒ 勾 50 張就是 50 次查詢').not.toHaveBeenCalled();
+  });
+
+  it('🔴 查的是【這一張單】的收款 —— codex MF4:少了這一格, 查別張單也全綠', async () => {
+    // 🎯 沒有這一行, 把 `listOrderPayments(detail.id)` 改成查固定的另一張單,
+    //    新增那幾格與純函式那六格**全部照樣綠** —— 而結果會拿本單總額去減別單的收款。
+    findAdminOrderDetail.mockResolvedValue(detail({ id: 'o-target' }));
+    listOrderPayments.mockResolvedValue([{ id: 'p1', amount: 2000 }]);
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    await loadShipmentCandidates(['o-target']);
+    expect(listOrderPayments).toHaveBeenCalledWith('o-target');
+  });
+
+  it('🔴🔴 那句話【自己】丟例外時, 彈窗照樣開得起來 —— codex MF4b', async () => {
+    // 🔬 構造法:讓 detail 少掉 `total` ⇒ `detail.total.amount` 當場 TypeError。
+    //    那不是假想 —— 本檔的 fixture 原本就少這一欄, 24 格因此一起紅過。
+    // 🧬 突變:把 catch 裡的常數字串改回呼叫 `shipmentBalanceWarning(detail, …)`
+    //    ⇒ 它會再丟一次而沒有人接 ⇒ 這一格紅(整個 load reject)。
+    findAdminOrderDetail.mockResolvedValue(detail({ total: undefined }));
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const out = await loadShipmentCandidates(['o1']);
+    expect(out.items.length, '例外把整批候選也弄丟了 ⇒ 彈窗根本開不起來').toBeGreaterThan(0);
+    expect(out.balanceWarning).toContain('尾款未知');
+  });
+
+  it('🔵 catch 那句與純函式的 unknown 那句【逐字相同】(兩份字面, 改一邊要紅)', async () => {
+    const { shipmentBalanceWarning } = await import('./shipment-balance-warning');
+    findAdminOrderDetail.mockResolvedValue(detail({ total: undefined }));
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const fromCatch = (await loadShipmentCandidates(['o1'])).balanceWarning;
+    const fromFn = shipmentBalanceWarning(
+      { total: { amount: 5000 } } as never,
+      { status: 'unreadable' },
+    );
+    // 🎯 兩份字面是刻意的(catch 裡不可以呼叫那支函式), 而「刻意的兩份」要有東西綁著。
+    expect(fromCatch, '兩處字面漂開了 ⇒ 員工在兩條路上讀到不一樣的話').toBe(fromFn);
+  });
+
+  it('🔴🔴 收款查詢【丟例外】時, 彈窗照樣開得起來 —— 而它說「我不知道」', async () => {
+    // 🎯 這一格是本片最重要的一格:Sean 拍的是「**可以**出貨」
+    //    ⇒ 讀不到收款而讓整個彈窗打不開, 會是比沒有警告更糟的回歸。
+    // 🧬 突變:把 `balanceWarningOf` 的 try/catch 拿掉 ⇒ 這一格紅(整個 load 會 reject)。
+    findAdminOrderDetail.mockResolvedValue(detail());
+    listOrderPayments.mockRejectedValue(new Error('admin_list_order_payments 讀取失敗(42501)'));
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const out = await loadShipmentCandidates(['o1']);
+    expect(out.items.length, '例外把整批候選也弄丟了 ⇒ 彈窗根本開不起來').toBeGreaterThan(0);
+    expect(out.balanceWarning).toContain('尾款未知');
+    expect(out.balanceWarning, '讀不到卻印出一個數字 ⇒ 那個數字必然是假的').not.toMatch(/\d/);
+  });
+
+  it('🔵 收款查詢回 null(訂單查無)⇒ 同樣說「我不知道」, 不說已收足', async () => {
+    findAdminOrderDetail.mockResolvedValue(detail());
+    listOrderPayments.mockResolvedValue(null);
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    expect((await loadShipmentCandidates(['o1'])).balanceWarning).toContain('尾款未知');
   });
 });

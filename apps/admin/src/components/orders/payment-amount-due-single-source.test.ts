@@ -6,8 +6,11 @@ import { stripComments } from '../../lib/test-support/strip-comments';
 
 // payment-amount-due-single-source.test.ts —— M-4b「每一處『已收/尾款』的來源必須同一個」守門。
 //
-// 🔴 **2026-09-04 檔頭訂正(codex nit9)**:全檔原本多處寫死「**三處**／3 個呼叫端」,
-//    而 09-04 起是 **4**(`shipment-section.tsx` 多了 `shipmentBalanceWarning`,把那句話送進建箱彈窗)。
+// 🔴 **2026-09-04 檔頭訂正(codex nit9;同日第二次)**:全檔原本多處寫死「**三處**／3 個呼叫端」,
+//    而 09-04 起是 **4**。⛔ ~~第四處在 `shipment-section.tsx`~~ ⇒ ✅ **同日下午它搬到
+//    `lib/shipping/shipment-balance-warning.ts`**(兩個出貨入口都要用它)。
+//    ⚠️ **舊字面留著**:codex 第二輪指出這段檔頭「同時寫 4 又寫 3、時態互相否定」——
+//    那正是這支檔在防的病長在它自己身上。
 //    ⇒ 📌 **這支檔存在的理由就是「數字與現況脫鉤會沒有人發現」, 而它自己的說明字面正在脫鉤。**
 //    ✅ 處置:**會紅的那一行留數字**(它會叫), **說明字面改成不帶數字**。
 //    ⚠️ 下面那些「三處」字面**沒有全部改掉** —— 它們描述的是當時的病史與推理, 改成 4 會讓那段話變成
@@ -110,7 +113,14 @@ describe('「尾款/已收」的第一個引數只有一個來源', () => {
       `${ROOT}/components/orders/order-focal-row.tsx`,
       `${ROOT}/components/orders/payment-list.tsx`,
       `${ROOT}/components/orders/shipment-section.tsx`,
-      `${ROOT}/components/orders/shipment-section.tsx`,
+      // 🔴 2026-09-04 **同日第二次動這張名單** —— 舊字面留著看得出它移動過:
+      //    ⛔ ~~`components/orders/shipment-section.tsx`(第二筆)~~ ⇒ ✅ `lib/shipping/shipment-balance-warning.ts`
+      //    那句「尾款 X 元未收」從**元件檔**搬到 **lib**, 因為兩個出貨入口都要用它
+      //    (Sean 逐字「甲 也要顯示 —— 那條路要去拿到金額」)。
+      //    🟢 **呼叫端【數量沒變】(仍是 4), 換的是【路徑】** —— 第一引數 `detail.total.amount` 逐字未動。
+      //    ⚠️ 而「改路徑」與「換掉一個呼叫端」在 diff 上長得一樣 ⇒ 審這一行的人要看的是
+      //       下面那格(第一引數同源), 不是這張名單的長度。(同 2026-08-27 焦點列搬檔那次的教訓。)
+      `${ROOT}/lib/shipping/shipment-balance-warning.ts`,
     ]);
   });
 

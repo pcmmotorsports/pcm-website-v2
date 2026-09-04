@@ -116,10 +116,14 @@ export function ShipmentDialog({
    * 「尾款 X 元未收」——**Sean 2026-09-04 拍甲**,原話逐字:
    * 「甲 可以 —— 但那個框裡要**明顯**寫『尾款 X 元未收』」。`null` = 不印(已收足 / 溢收)。
    *
-   * 🟢 **這不違反檔頭那條紅線**:紅線擋的是「把 `AdminOrderDetail` 交給 client」,
-   *   而這裡收的是**一句已經排版好的字串** —— 算它的地方是 `shipment-section.tsx`
-   *   的 `shipmentBalanceWarning`(server component,走與畫面上那格同一支 `toPaymentSummary`)。
-   *   ⇒ 本彈窗**不知道**訂單總額、收了多少、怎麼算的,它只知道要印哪一行字。
+   * 🔴 **生產者 2026-09-04 同日搬過家, 舊字面留著**:
+   *   ⛔ ~~算它的地方是 `shipment-section.tsx` 的 `shipmentBalanceWarning`(server component)~~
+   *   ✅ 現在是 **`lib/shipping/shipment-balance-warning.ts`**, 由 **`loadShipmentCandidates`**
+   *      在 server 端算進候選回傳裡(Sean 逐字「甲 也要顯示 —— 那條路要去拿到金額」)
+   *      ⇒ 📌 **一個生產者、兩個入口**(詳情頁 / 列表勾單)。
+   *   ⚠️ 而**這句話裡帶著一個真的金額** —— 那不是「字串所以沒關係」, 是 **Sean 拍板放行的例外**,
+   *      邊界逐條寫在 `lib/shipping/shipment-candidates.ts` 檔頭(codex 打掉過我原本那個辯解)。
+   *   ⇒ 本彈窗仍然**不知道**訂單總額、收了多少、怎麼算的,它只知道要印哪一行字。
    *
    * 🔴 **「明顯」是他的字,而它沒有被量化** ⇒ 本檔的處置寫死在下面那段 JSX 的註解裡,
    *   而判準是「**員工按下去之前會看到它**」不是「它在 DOM 裡」。
