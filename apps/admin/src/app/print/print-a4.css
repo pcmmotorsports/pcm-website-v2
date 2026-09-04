@@ -282,8 +282,15 @@ tr {
   --pd-paper: #fff;
   --pd-r1: 1pt;
   --pd-r2: 0.5pt;
-  --pd-body: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', 'Helvetica Neue', sans-serif;
-  --pd-disp: 'Helvetica Neue', 'Helvetica', 'PingFang TC', 'Noto Sans TC', sans-serif;
+  /* 🔴 'Noto Sans'(拉丁)排在 'Noto Sans TC' 【前面】—— 而順序就是修法本身。
+     ⟦ship-PRINTCARON1⟧:`Noto Sans TC` 的 woff2 **沒有 `Č`(U+010C)/ `Š`(U+0160)的字形**,
+     而它的 `unicode-range` **宣告了那個範圍** ⇒ 🛑 宣告不是保證。
+     真 PDF 量到(2026-09-04):舊鏈 `Č ⇒ CAAAAA+Helvetica`(靠機器上剛好有);
+     新鏈 `Č ⇒ NotoSans-Regular` · `Š ⇒ NotoSans-Regular` · 🟢 `中 ⇒ NotoSansTC`(中日韓照樣往後落)。
+     ⚠️ 把 'Noto Sans' 移到 'Noto Sans TC' 後面 ⇒ 拉丁字先被 TC 接走 ⇒ Č 又掉回機器字型。
+     🛑 `--pd-mono` 刻意不動:它只裝數字與拉丁, 補中文字型會讓數字欄位對不齊。 */
+  --pd-body: 'Noto Sans', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', 'Helvetica Neue', sans-serif;
+  --pd-disp: 'Helvetica Neue', 'Helvetica', 'PingFang TC', 'Noto Sans', 'Noto Sans TC', sans-serif;
   --pd-mono: 'SF Mono', 'Menlo', 'Consolas', 'DejaVu Sans Mono', monospace;
   font-family: var(--pd-body);
   color: var(--pd-ink);

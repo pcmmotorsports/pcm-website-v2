@@ -27,9 +27,12 @@ describe('⟦ship-PRINTNOFONT1⟧ 字型要【帶在紙上】, 不靠對方機�
     expect(code.length, '去註解之後長度沒變 ⇒ 這把尺根本沒在去註解').toBeLessThan(raw.length);
     // 🟢 正對照:碼還在。
     expect(code).toContain('export default function PrintLayout');
-    for (const w of ['400', '700']) {
-      expect(code, `少了 ${w} 那一行 ⇒ 那個字重在沒有 Noto 的機器上會換字, 而沒有東西會紅`)
-        .toContain(`@fontsource/noto-sans-tc/${w}.css`);
+    // 🔴 **兩個套件各兩個字重** —— 拉丁那支(`noto-sans`)接 Č / Š, 中日韓那支(`noto-sans-tc`)接中文。
+    for (const pkg of ['noto-sans', 'noto-sans-tc']) {
+      for (const w of ['400', '700']) {
+        expect(code, `少了 ${pkg}/${w} 那一行 ⇒ 那個字在沒有 Noto 的機器上會換字, 而沒有東西會紅`)
+          .toContain(`@fontsource/${pkg}/${w}.css`);
+      }
     }
   });
 
@@ -37,10 +40,12 @@ describe('⟦ship-PRINTNOFONT1⟧ 字型要【帶在紙上】, 不靠對方機�
     const pkg = JSON.parse(read('../../../package.json')) as {
       dependencies?: Record<string, string>;
     };
-    expect(
-      pkg.dependencies?.['@fontsource/noto-sans-tc'],
-      '顧客站有而後台沒有 ⇒ 本機看起來會動(pnpm 提升), 而後台自己的部署裝不到它',
-    ).toBeTruthy();
+    for (const name of ['@fontsource/noto-sans', '@fontsource/noto-sans-tc']) {
+      expect(
+        pkg.dependencies?.[name],
+        `${name} 不在自己的 dependencies ⇒ 本機看起來會動(pnpm 提升), 而部署裝不到它`,
+      ).toBeTruthy();
+    }
   });
 
   /**
@@ -51,16 +56,24 @@ describe('⟦ship-PRINTNOFONT1⟧ 字型要【帶在紙上】, 不靠對方機�
   it('🔴 print-a4.css 的 --pd-body / --pd-disp 字體鏈上有 Noto Sans TC', () => {
     const css = read('./print-a4.css');
     for (const v of ['--pd-body', '--pd-disp']) {
-      const line = css.split('\n').find((l) => l.includes(`${v}:`));
+      const line = css.split('\n').find((l) => l.trim().startsWith(`${v}:`));
       expect(line, `${v} 這一行找不到 ⇒ 這把尺量錯檔了`).toBeTruthy();
-      expect(line, `${v} 的鏈上沒有 Noto Sans TC ⇒ 那兩行 import 裝了也用不到`)
-        .toContain('Noto Sans TC');
+      expect(line, `${v} 的鏈上沒有 Noto Sans TC ⇒ 中文會掉回機器字型`).toContain('Noto Sans TC');
+      /**
+       * 🔴🔴 **順序就是修法本身**(⟦ship-PRINTCARON1⟧)。
+       * `Noto Sans TC` 的 woff2 **沒有 `Č` / `Š` 的字形**, 而它的 `unicode-range` 宣告了那個範圍
+       * ⇒ 🛑 **宣告不是保證**。拉丁那支排在後面 ⇒ 拉丁字先被 TC 接走 ⇒ `Č` 又掉回機器字型,
+       * 而**那台機器上剛好有** ⇒ 在這裡看起來對。
+       */
+      const la = line!.indexOf(`'Noto Sans'`);
+      const tc = line!.indexOf(`'Noto Sans TC'`);
+      expect(la, `${v} 的鏈上沒有 'Noto Sans'(拉丁那支)⇒ Č / Š 會掉回機器字型`).toBeGreaterThan(-1);
+      expect(la, `${v}:'Noto Sans' 排在 'Noto Sans TC' 後面 ⇒ 拉丁字先被 TC 接走 ⇒ Č 沒救到`)
+        .toBeLessThan(tc);
     }
     // 🟢 負對照:mono 那條鏈【不該】有 —— 它有的話是有人把字型問題換成了數字對不齊。
-    const mono = css.split('\n').find((l) => l.includes('--pd-mono:'));
+    const mono = css.split('\n').find((l) => l.trim().startsWith('--pd-mono:'));
     expect(mono).toBeTruthy();
-    expect(mono, 'mono 鏈補了 Noto ⇒ 沒有等寬字的機器上數字欄位會對不齊').not.toContain(
-      'Noto Sans TC',
-    );
+    expect(mono, 'mono 鏈補了 Noto ⇒ 沒有等寬字的機器上數字欄位會對不齊').not.toContain('Noto Sans');
   });
 });

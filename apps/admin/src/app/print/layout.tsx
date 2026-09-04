@@ -29,6 +29,12 @@
 // 🛑 **未驗:實體印表機。** 還缺的那一道檢查是「拿一台真的印表機印一張出來, 看
 //    `AKRAPOVIČ` 的 `Č` 是不是一個字」—— 我量到的是**瀏覽器產的 PDF**, 而
 //    印表機驅動有自己的一層字型處理, 我沒有印表機可以量它。
+// 🔴 **兩個套件, 而順序的意義在 CSS 那邊**(`print-a4.css` 的 `--pd-body` 註解):
+//    `noto-sans` = 拉丁, `noto-sans-tc` = 中日韓。
+//    ⟦ship-PRINTCARON1⟧:TC 那支的 woff2 **沒有 `Č` / `Š` 的字形**, 而它的 `unicode-range`
+//    **宣告了那個範圍** ⇒ 🛑 **宣告不是保證** ⇒ 拉丁那支要排在前面才接得住。
+import '@fontsource/noto-sans/400.css';
+import '@fontsource/noto-sans/700.css';
 import '@fontsource/noto-sans-tc/400.css';
 import '@fontsource/noto-sans-tc/700.css';
 
