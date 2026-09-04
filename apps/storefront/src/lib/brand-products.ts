@@ -53,6 +53,8 @@ export async function fetchBrandTopProducts(brandSlug: string): Promise<CatalogC
     perPage: BRAND_PRODUCT_SLOTS,
     sort: 'recommend',
     brandSlugs: [brandSlug],
+    // ⟦M-4b 多顆分類膠囊⟧ 品牌頁不帶分類 ⇒ 空陣列(不是 undefined:那個欄位是必填, 讓漏掉的人被 typecheck 抓到)。
+    categories: [],
   });
   if (error) return [];
   return products;

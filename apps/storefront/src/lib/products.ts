@@ -401,6 +401,11 @@ type CatalogRpcClient = {
       p_limit: number;
       p_sort: CatalogQuery['sort'];
       p_category: string | null;
+      // ⟦M-4b 多顆分類膠囊⟧ Sean 2026-09-04 拍甲(聯集)。
+      // 🔴 送出這個名字就【精準命中新那支多載】—— 正式庫上新舊兩支並存
+      //    (2026-09-04 唯讀實測:新那支逐字 `p_categories text[], p_brand text DEFAULT NULL...`,
+      //     必填、排第一、無 DEFAULT)⇒ 名字集合不同 ⇒ PostgREST 選得出來、不會 PGRST203。
+      p_categories: string[];
       p_brand_slugs: string[] | null;
       p_price_min: number | null;
       p_price_max: number | null;
@@ -451,6 +456,9 @@ async function callCatalogRpc(
     p_limit: overrides?.limit ?? query.perPage,
     p_sort: query.sort,
     p_category: query.category ?? null,
+    // 🔵 舊的 `p_category` **一起送、不拿掉** —— 新那支自己會把兩邊併成聯集
+    //    (migration :83 起那段 `v_cats` 就是幹這件事)⇒ 這一側不做去重、不做判斷。
+    p_categories: query.categories,
     p_brand_slugs: query.brandSlugs.length > 0 ? query.brandSlugs : null,
     p_price_min: query.priceMin ?? null,
     p_price_max: query.priceMax ?? null,
