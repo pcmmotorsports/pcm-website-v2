@@ -162,12 +162,17 @@ describe('RegisterPage', () => {
   //    測得到 = 那三個屬性各自被拿掉時都會紅(三發突變各跑過一次, 見 commit body)。
   //    測不到 = 「iPhone 真的跳出數字鍵盤」—— 那要真機, jsdom 沒有鍵盤。
   //    ⇒ 它守的是【屬性不被無聲刪掉】, 不是行為。
-  // 🔵 autoComplete 是 `tel-national` 不是 `tel`:理由在 RegisterPage.tsx 的手機欄註解。
-  it('手機欄帶 type/inputMode=tel 與 autoComplete=tel-national(拿掉任一就紅)', () => {
+  // ⛔ ~~autoComplete 是 `tel-national` 不是 `tel`:理由在 RegisterPage.tsx 的手機欄~~
+  // 🔴🔴 **2026-09-04 換成 `tel`**(主視窗-94 裁;`⟦b4-PHONEREGEXSPLIT⟧`)——
+  //    `tel-national` 當初**不是因為它比較好**, 是因為**舊 regex 收不下 `+`**;
+  //    Sean 拍甲把那條 regex 拿掉之後, **那個理由就不存在了**。
+  // 📌 **而這一格是【那一發沒跑測試】的證據**:改 `.tsx` 而只跑了 typecheck ⇒ 它沒紅在我手上,
+  //    紅在推前驗收。⇒ **typecheck 答的是「型別對不對」, 答不了「行為變了沒」。**
+  it('手機欄帶 type/inputMode=tel 與 autoComplete=tel(拿掉任一就紅)', () => {
     renderPage();
     const phone = screen.getByPlaceholderText('0912 345 678');
     expect(phone.getAttribute('type')).toBe('tel');
     expect(phone.getAttribute('inputmode')).toBe('tel');
-    expect(phone.getAttribute('autocomplete')).toBe('tel-national');
+    expect(phone.getAttribute('autocomplete'), '換回 tel-national ⇒ 通訊錄存 +886 的人自動填入又被降級').toBe('tel');
   });
 });
