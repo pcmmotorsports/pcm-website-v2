@@ -148,6 +148,7 @@ function ShipmentBalanceNote({
   return <span className='text-muted-foreground text-xs'>款項已收足</span>;
 }
 
+
 export async function ShipmentSection({
   detail,
   payments,
@@ -193,6 +194,10 @@ export async function ShipmentSection({
                  ⇒ **它會直接影響他按不按下去**,
                  所以三態必須分得開,不能塌成兩態。 */}
           <ShipmentBalanceNote detail={detail} payments={payments} />
+          {/* 🔴 **尾款那一句【不從這裡傳】** —— 2026-09-04 同日改過一次形狀, 理由寫在
+              `lib/shipping/shipment-balance-warning.ts` 檔頭:兩個入口共用同一個彈窗,
+              只有這個入口在傳 ⇒ 列表勾單那條路變成一條沒有警告的繞道(codex MF7 · Sean 拍②)。
+              ⇒ 現在由 `loadShipmentCandidates` 在 server 端算進候選回傳裡, **一個生產者兩個入口**。 */}
           <OrderShipButton orderId={detail.id} />
         </span>
       </div>

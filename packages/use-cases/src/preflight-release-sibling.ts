@@ -14,6 +14,7 @@ import type {
  * 決定「直接建新單重刷 / 顯既有單 / 確認中稍候」三岔(否則新單先建 = 孤兒)。流程:
  * ```
  * siblingLookup(cartSessionId, own-only) →
+ *   bank_pending → proceed  (M-4b 段 1 片 A;未付款匯款單 ⇒ 讓他刷卡, 不 settle 不 release)
  *   none  → proceed                                   (建新單重刷)
  *   paid  → existing_paid                             (顯既有單、零雙扣)
  *   active → settle(existingOrderId):                 〔settleCharge 內部由 payment_confirmer 取 rec/bank〕
@@ -63,6 +64,24 @@ export async function preflightReleaseSibling(
   }
 
   if (sibling.kind === 'none') {
+    return { kind: 'proceed' };
+  }
+  if (sibling.kind === 'bank_pending') {
+    // 🔴🔴 **段 1 片 A:未付款的匯款單 ⇒ `proceed`(讓他刷卡)。**
+    //   🔬 Sean 2026-09-04 追加拍板 Q-改付款 逐字:「乙 讓他刷卡, 而自動把那張匯款單取消」
+    //   ⇒ 🛑 **不得回 hold** —— hold 在客人那端是 charge-actions.ts 的
+    //     `{ ok:false, payment:'processing', message: MSG.settlementRequired }`
+    //     =「訂單付款狀態確認中,請勿重複付款」+ 鎖死按鈕 + 不清車 ⇒ **那是【擋住他】= 甲。**
+    //   ⇒ 🛑 **也不得 settle** —— 匯款單沒有卡片交易可以問(見 SiblingLookupResult 的註解)。
+    //   ⇒ 🛑 **更不得 release** —— 它沒有 attempt 可以釋放。
+    //
+    // ⚠️ **而【自動取消那張匯款單】不在這裡, 它在片 B**(`begin_charge_attempt` 的第三種出口)。
+    //   🔴 ⇒ **所以片 A 之後, 雙重付款那個洞【還在】** —— 客人刷卡成功, 而那張匯款單還躺著。
+    //     板列 ⟦b4-BANKORDERINVISIBLE⟧ 的三條可翻條件不變, `BANK_TRANSFER_CHECKOUT_ENABLED` 不得翻 true。
+    //
+    // 🔵 **而本分支對【刷卡】那條路是行為零改變** —— 本片之前這種單根本不會被 SQL 選中,
+    //   它落在 `none` ⇒ 也是 `proceed`。📌 **本片把一個【碰巧正確】換成一個【寫出來、有測試釘住】的正確**,
+    //   而「碰巧正確的東西, 你去驗它會通過」正是它需要一格守門的理由。
     return { kind: 'proceed' };
   }
   if (sibling.kind === 'paid') {

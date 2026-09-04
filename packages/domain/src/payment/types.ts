@@ -735,7 +735,21 @@ export type SettleChargeOutcome =
 export type SiblingLookupResult =
   | { kind: 'none' }
   | { kind: 'paid'; existingOrderId: string; displayId: string }
-  | { kind: 'active'; existingOrderId: string; attemptId: string; displayId: string };
+  | { kind: 'active'; existingOrderId: string; attemptId: string; displayId: string }
+  /**
+   * `bank_pending`:同一台車有一張**未付款的匯款單**(M-4b 段 1 片 A, 2026-09-04)。
+   *
+   * 🔴 **它沒有 `attemptId`, 而那不是省略** —— 一條正確的匯款流程**不會建立卡片 attempt**。
+   *   ⇒ 🛑 **絕不把它餵進 `settleCharge`**:它的 `rec_trade_id` 與 `bank_transaction_id` 兩個都 NULL,
+   *      拿一張沒有卡片交易的單去問 TapPay「這筆刷成功了嗎」
+   *      ⇒ 📌 **那不是一個比較差的答案, 是一個沒有意義的問題。**
+   *
+   * 🔵 **上層要拿它怎麼辦(Sean 2026-09-04 追加拍板 Q-改付款 = 乙, 原話逐字在
+   *   `~/pcm-mailbox/Sean拍板-20260904-七題.md` 檔尾)**:「乙 讓他刷卡, 而自動把那張匯款單取消」
+   *   ⇒ preflight 對它回 `proceed`(**讓他刷**), 不是 hold(擋住他)。
+   *   ⚠️ **而自動取消那半不在片 A** —— 它是 `begin_charge_attempt` 的第三種出口(片 B)。
+   */
+  | { kind: 'bank_pending'; existingOrderId: string; displayId: string };
 
 /**
  * PreflightReleaseSiblingInput:立即重刷 preflight use-case 輸入(M-3 3DS 乙路 R2b-2、canonical §2.3)。

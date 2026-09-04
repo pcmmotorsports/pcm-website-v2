@@ -141,6 +141,18 @@ export function useReconcilePayment({
             message: MSG_RECONCILED_FAILED,
             ...(result.displayId ? { displayId: result.displayId } : {}),
           });
+        } else if (result.status === 'pendingTransfer') {
+          // 🔴🔴 **段 1 片 A:顯式接住它 —— 而【客人看到的畫面與本片之前相同】。**
+          //
+          // 🛑 **為什麼要寫這一格, 既然行為沒變**:下面那個 `else` 會把任何新狀態**靜靜吃掉**。
+          //   ⇒ 📌 **一個掉進 else 的新狀態, 與「沒有人處理它」印同一個畫面。**
+          //   ⇒ 而寫成顯式分支之後, 下一個人改這裡時**看得到它存在**。
+          //
+          // ⚠️ **而我刻意不在這裡發明對外文案** —— 「你有一張待匯款的訂單, 帳號是…」那一頁是段 3,
+          //   它需要 Design 與 Sean 的文案。⇒ 🔴 **所以這一格今天【不是】「客人撈得回他的單了」。**
+          //   `displayId` 已經拿在手上(server 那端答對了), 而畫面那一半還沒做。
+          setState({ status: 'unknown', message: MSG_RECONCILE_PENDING });
+          startCooldown();
         } else {
           // pending:維持 unknown 終態鎖(不清車、不換 key、inFlightRef 不釋)、更新提示 + 冷卻。
           setState({ status: 'unknown', message: MSG_RECONCILE_PENDING });

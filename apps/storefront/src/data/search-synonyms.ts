@@ -1,5 +1,9 @@
 // search-synonyms.ts — 客人講的話 ⇒ 目錄裡的正式名(⟦search-CAPSULEPARSE⟧ 2026-09-03)
 //
+// 📎 **要加一列 / 接這條線之前, 先讀 `docs/patterns/search-synonym-dictionary.md`** ——
+//    那支收攏了「這張表為什麼不能被比對規則取代」「一列可以合法而永遠沒有效果的四種死法」
+//    「哪三件事量不到」, 每一格都帶射程與失效條件。**這裡不重複, 免得兩份分岔。**
+//
 // 🔵 Sean 逐字:「字詞、詞彙我們**慢慢追加**,或者可以先用 gemini, codex 上網研究一個
 //    台灣人俗稱的對照用字典」⇒ 所以它是一份**會長大的資料檔**,不是寫死的 if。
 //
@@ -16,7 +20,15 @@
 //    🛑 **射程(不要讀成通則)**:那是**一個詞**的讀數。**不代表其餘各列也是 6.4 倍** ——
 //       一個好看的數字最容易被讀成通則, 而它只是一個樣本。
 //
-// ── 🛑🛑 **不必列的那一種:`from` 是分類名的【前綴】** ────────────────
+// ── 🛑🛑 **不必列的那一種:`from` 【完全等於】某個分類名** ────────────────
+//    🔴🔴 **[2026-09-04 訂正 —— 下面整段的前提換過了]** ⛔ ~~原本這一節講的是「`from` 是分類名的【前綴】」~~
+//    ✅ 生產碼的順序 2026-09-04 改成 **完全同名 ⇒ 俗稱字典 ⇒ 子字串取涵蓋最大**
+//       ⇒ 🎯 **字典排在模糊比對【前面】** ⇒ **前綴 / 子字串都不再遮蔽字典列, 只剩【完全同名】那一種。**
+//    ⚠️ **而下面那句「餵給 `foldStartsWith` 本來就中得了嗎」的判別句因此【放寬了】** ——
+//       今天的判別句是:**「這個詞【逐字等於】某個分類名嗎?是 ⇒ 不要加。」**
+//    🔵 而**被刪掉的那四列(風鏡 / 手機架 / 齒盤 / 土除)今天可以合法地加回來** —— 它們是前綴不是同名。
+//       🛑 **而本片沒有把它們加回來**(那是字典的事, 屬線【身分】)⇒ **這是【已知缺口】, 不是我漏掉。**
+// ── 以下為訂正前的原文, 留著不刪 ────────────────────────────────────
 //    🔬 `parse-search-facets.ts` 的 `const direct = allCats.find` 那一行先試 `foldEquals(w, c.name) || foldStartsWith(c.name, w)`,
 //       中了就 `break` —— **在 `synonymFor` 之前**。
 //    ⇒ 🎯 **⇒ 凡 `from` 是某個分類名的前綴者, 前綴那條先中, 這一列【從來不會被讀到】。**
@@ -54,7 +66,8 @@
 //    🛑 **⇒ 不要往裡面倒同義詞。** 倒進來的那些多半正規化本來就會中,
 //      而每多一列就多一個要有人維護、有人回頭核的東西。
 //    📌 **判別句(加一列之前跑一次)**:
-//      **「把這個詞餵給 `foldStartsWith`,它本來就中得了嗎?中得了 ⇒ 不要加。」**
+//      ⛔ ~~**「把這個詞餵給 `foldStartsWith`,它本來就中得了嗎?中得了 ⇒ 不要加。」**~~
+//      ✅ **2026-09-04 起**:「這個詞**逐字等於**某個分類名嗎?是 ⇒ 不要加。」(理由見本節開頭的訂正)
 //
 // 🔴 **料號【不進這張表】** —— 那是【格式】不是【語意】,已由
 //    `supabase/migrations/20260903230000_…` 的正規化解掉。
@@ -229,6 +242,183 @@ export const SEARCH_SYNONYMS: readonly SearchSynonym[] = [
       '⚠️ **這一列的證據比上面幾列弱**:webike.tw 有「其他手把零件」分類(2026-09-04 查),' +
       '而「手把套 ⇒ 握把」這個對應**我沒有找到逐字並列的來源** ⇒ 標出來, 讓核的人特別看這一列。' +
       '⛔ ~~初版 to 寫 `握把套`~~(報價庫的名字, 網站庫沒有)⇒ 訂正為 `握把與平衡端子`(343 件)。',
+  },
+  // ── 2026-09-04 第四批(16 列, 主視窗機械套用既有 pattern, 逐列附來源)
+  {
+    from: '端子鏡',
+    to: '端子後照鏡',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: 'Supamoto 分類頁「端子鏡 車把鏡」(https://www.supamoto.com.tw/categories/端子鏡-車把鏡)。',
+  },
+  {
+    from: '大燈護網',
+    to: '大燈與護網',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: 'BigGo 比價頁「大燈護網的價格推薦」(https://biggo.com.tw/s/大燈護網/)。',
+  },
+  {
+    from: '擋泥板',
+    to: '土除與外觀飾蓋',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: '蝦皮分類「機車擋泥板」(https://shopee.tw/list/機車/擋泥板)。',
+  },
+  {
+    from: '香菇頭',
+    to: '空氣濾芯',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: '蝦皮商品標題「CSI 改裝 高流量 空濾 香菇頭 口徑40mm/45mm/50mm」。',
+  },
+  {
+    from: '節流閥套件',
+    to: '進氣套件',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: 'Mobile01 t=3783457「勁戰aRacer RC1+新雅節流閥套件」討論串。',
+  },
+  {
+    from: '白鐵螺絲',
+    to: '精品螺絲組',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: 'Somoto「各車系機車螺絲規格懶人包 白鐵螺絲|鍍鈦螺絲」一文。',
+  },
+  {
+    from: '鈦螺絲',
+    to: '精品螺絲組',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: '台中兄弟實業社「為什麼改車一定要選鈦螺絲?」一文。',
+  },
+  {
+    from: '鋁圈',
+    to: '輪圈',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: '蝦皮分類「機車鋁圈|優惠推薦」。',
+  },
+  {
+    from: '分離把',
+    to: '把手與分離把',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: 'Mobile01 t=6483950「關於低趴、分離把的好奇疑問」討論串。',
+  },
+  {
+    from: '離合器分泵',
+    to: '離合器機構與分泵',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: 'CENS 品類頁「離合器總泵，分泵」· 磐石貿易「離合器分泵」· Frando「油壓離合器分泵」—— 三家獨立零件商各自用「分泵」當商品名。',
+  },
+  {
+    from: '機油芯',
+    to: '機油與濾芯',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: 'PChome 24h「機油芯」搜尋頁 · Yahoo 拍賣「濾油/機油芯」分類 · BigGo「機油芯 套筒」—— 多平台用「機油芯」而不是「機油濾芯」下標題。',
+  },
+  {
+    from: '空濾油',
+    to: '濾芯保養品',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: '蝦皮「空濾油」搜尋頁有實際商品 · Jorsindo 論壇「濾清器海綿為何要加點油」—— 海綿式空濾上油是固定叫法。',
+  },
+  {
+    from: '空濾蓋',
+    to: '進氣上蓋',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: '蝦皮「空濾蓋」搜尋頁 · ARMASPEED「碳纖維空濾蓋」產品頁 —— 賣場與品牌廠都直接用這個詞。',
+  },
+  {
+    from: 'rearset',
+    to: '腳踏後移組',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: 'Threads @marklinkt1209 逐字「Alpha Racing - Racing rearset SBK腳踏後移」—— 車友在同一句裡把英文與中文當同一個東西。',
+  },
+  {
+    from: '下巴',
+    to: '整流罩與下導流',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: 'Yahoo 拍賣「MOS KRV 下巴 (CF) 貼片 卡夢」· Mobile01「全罩 and 下巴」討論串 —— 賣場標題直接用「下巴」指前下導流。',
+  },
+  {
+    from: '卡夢',
+    to: '碳纖維部品',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: 'Mobile01「請問什麼是"卡夢"？」專門解釋這個詞的討論串 · Yahoo 拍賣「APEXX 卡夢 碳纖維 壓花 空濾外蓋」—— carbon 的台式音譯。',
+  },
+  {
+    from: '後箱',
+    to: '行李與包袋',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: '露天拍賣開了「機車後箱」搜尋分類 —— 賣場端在用的詞, 與正式名字面完全不同。',
+  },
+  {
+    from: '馬鞍包',
+    to: '行李與包袋',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: '蝦皮有「機車馬鞍袋 / 機車馬鞍包」專門 listing 頁 —— 車友對側掛包的慣用稱呼。',
+  },
+  {
+    from: '坐墊皮',
+    to: '座椅與坐墊',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: '蝦皮「機車坐墊皮」專門 listing 頁 —— 座墊換皮這個常見商品的口語講法。',
+  },
+  {
+    from: '行車紀錄器車架',
+    to: '攝影機支架',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: 'momo 購物網「機車行車紀錄器車架」搜尋頁 —— 客人不會打正式名「攝影機支架」。',
+  },
+  {
+    from: '服飾',
+    to: '騎士服飾',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: '⟦search-ZEROCAPSULE⟧ 實跑追出來的: 服飾 只出現在 騎士服飾 的【結尾】, 而比對只做開頭 ⇒ 一顆膠囊都沒有。',
+  },
+  {
+    from: '傳動',
+    to: '齒盤與傳動',
+    kind: 'category',
+    source: 'draft',
+    added: '2026-09-04',
+    note: '⟦search-ZEROCAPSULE⟧ 同上: 傳動 只出現在 齒盤與傳動 的【結尾】。',
   },
 ];
 

@@ -230,12 +230,20 @@ export function useShipmentLauncher(
     }
   }, [orderIds]);
 
+  // 🔴 「尾款 X 元未收」的來源是**候選那一份回傳**(`open.data.balanceWarning`),不是呼叫端的 prop。
+  //    那是 2026-09-04 同日第二次改形狀:第一版由訂單詳情頁算好用 prop 傳,
+  //    而**兩個入口共用這個 hook, 只有一個入口在傳** ⇒ 列表勾單那條路成了一條沒有警告的繞道
+  //    (codex MF7 抓到 · Sean 接著逐字拍「甲 也要顯示 —— 那條路要去拿到金額」)。
+  //    ⇒ 📌 **一個生產者、兩個入口** —— 理由與代價在 `lib/shipping/shipment-balance-warning.ts` 檔頭。
+  // ⚠️ 而**這裡放不了 `{/* */}`** —— JSX 註解只在 children 位置合法, 放進屬性清單或三元式裡是語法錯。
+  //    我今天在這一格連錯兩次, 兩次都是 typecheck 當場擋下來的。
   const dialog: ReactNode =
     open === null || open.data.customerUserId === null ? null : (
       <ShipmentDialog
         candidates={open.data.items}
         recipient={open.data.recipient ?? { name: null, phone: null, line: null }}
         idempotencyKey={open.key}
+        balanceWarning={open.data.balanceWarning}
         onClose={(createdShipment) => {
           setOpen(null);
           // 🔴 半成品箱(建箱成功、掛品項失敗)走**失敗路徑** ⇒ 不會呼叫 `onDone`,

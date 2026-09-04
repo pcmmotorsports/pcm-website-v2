@@ -87,6 +87,7 @@ export function ShipmentDialog({
   onClose,
   onDone,
   onRefreshCandidates,
+  balanceWarning = null,
 }: {
   candidates: readonly ShipmentCandidateItem[];
   recipient: Recipient;
@@ -111,6 +112,23 @@ export function ShipmentDialog({
    * 不是假設頁面刷新會帶到。
    */
   onRefreshCandidates?: () => Promise<void>;
+  /**
+   * 「尾款 X 元未收」——**Sean 2026-09-04 拍甲**,原話逐字:
+   * 「甲 可以 —— 但那個框裡要**明顯**寫『尾款 X 元未收』」。`null` = 不印(已收足 / 溢收)。
+   *
+   * 🔴 **生產者 2026-09-04 同日搬過家, 舊字面留著**:
+   *   ⛔ ~~算它的地方是 `shipment-section.tsx` 的 `shipmentBalanceWarning`(server component)~~
+   *   ✅ 現在是 **`lib/shipping/shipment-balance-warning.ts`**, 由 **`loadShipmentCandidates`**
+   *      在 server 端算進候選回傳裡(Sean 逐字「甲 也要顯示 —— 那條路要去拿到金額」)
+   *      ⇒ 📌 **一個生產者、兩個入口**(詳情頁 / 列表勾單)。
+   *   ⚠️ 而**這句話裡帶著一個真的金額** —— 那不是「字串所以沒關係」, 是 **Sean 拍板放行的例外**,
+   *      邊界逐條寫在 `lib/shipping/shipment-candidates.ts` 檔頭(codex 打掉過我原本那個辯解)。
+   *   ⇒ 本彈窗仍然**不知道**訂單總額、收了多少、怎麼算的,它只知道要印哪一行字。
+   *
+   * 🔴 **「明顯」是他的字,而它沒有被量化** ⇒ 本檔的處置寫死在下面那段 JSX 的註解裡,
+   *   而判準是「**員工按下去之前會看到它**」不是「它在 DOM 裡」。
+   */
+  balanceWarning?: string | null;
 }) {
   /** 每個品項要出的數量;0 = 這次不寄。預設全出。 */
   const [qty, setQty] = useState<Record<string, number>>(() =>
@@ -615,6 +633,26 @@ export function ShipmentDialog({
             </p>
           )}
         </div>
+
+        {/* 🔴🔴 **尾款警告 —— Sean 2026-09-04 拍甲, 而他的字是「明顯」。**
+            位置與樣式都是為了那兩個字, 逐條寫下來因為【它們每一個都可以被下一個人無意間拆掉】:
+            ① **位置 = 送出鈕的正上方**, 不是塞進下面那排 inline 警告裡
+               ⇒ 判準是「**員工按下去之前會看到它**」, 而下面那排要橫向掃過才讀得到。
+            ② **自己一整條 + 琥珀底**, 不是一個 `<span>` ⇒ 它不會被旁邊的字吃掉。
+            ③ **`text-sm font-semibold`** —— 而同一個 footer 裡既有的兩句警告是
+               `text-xs font-medium`(`:646` / `:651`)⇒ 🎯 **本句刻意【比鄰居大一級】**。
+            ④ **琥珀不是紅** —— 紅在本檔是「擋」(`:638` 那條 R2 F-E2 的紀律:擋 = 你現在過不去)。
+               而 Sean 拍的是**可以出貨** ⇒ 它是警告不是擋, 顏色要說對這件事。
+            🛑 **而「明顯」這件事 jsdom 證不到**(它不算版面、不知道誰在視窗內)
+               ⇒ 測試只釘得住「字在、色在、在送出鈕之前」, **真的看得見要真瀏覽器量**。 */}
+        {balanceWarning !== null && balanceWarning !== undefined && balanceWarning !== '' && (
+          <div
+            data-testid='shipment-balance-warning'
+            className='border-t border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900'
+          >
+            ⚠️ {balanceWarning}
+          </div>
+        )}
 
         <div className='flex flex-wrap items-center gap-2 border-t px-4 py-3'>
           <button

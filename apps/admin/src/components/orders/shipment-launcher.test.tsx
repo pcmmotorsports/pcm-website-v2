@@ -560,4 +560,44 @@ describe('OrderShipButton — 成功只被處理一次(N1 守門)', () => {
     expect(fetchShipmentCandidates.mock.calls.length).toBeLessThanOrEqual(2);
     expect(fetchItemProcurementChoices.mock.calls.length).toBeLessThanOrEqual(2);
   });
+
+  /**
+   * 🔴🔴 **尾款警告的【轉傳】守門 —— codex 2026-09-04 MF6 逼出來的。**
+   *
+   * ⛔ ~~那句話走三段:`shipment-section.tsx`(算)→ `OrderShipButton`(收)→ hook(轉)→ 彈窗(印)~~
+   * 🔴 **2026-09-04 同日改過形狀, 上面那段已作廢**(codex 第二輪 nit 抓到這段沒跟上):
+   *   Sean 拍「列表那條路也要顯示」⇒ 那句話改由 **`loadShipmentCandidates`(server)算進候選回傳**
+   *   ⇒ 現在的鏈是:`fetchShipmentCandidates` → `open.data.balanceWarning` → `<ShipmentDialog>`。
+   *   ⇒ 📌 **一個生產者、兩個入口** —— 詳情頁與列表勾單走的是同一份資料。
+   * 🧬 突變:刪掉 `<ShipmentDialog balanceWarning={...}>` 那一行 ⇒ **這一格紅**
+   *    (而 dialog 自己那支與 section 那支**各自全綠** —— 那正是本格存在的理由)。
+   */
+  it('🔴 尾款那句話從 OrderShipButton 一路傳到彈窗裡(跨過 launcher 的整合守門)', async () => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [{ ...CANDIDATE, orderItemId: 'a', remaining: 2, blockedReason: null }],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+      balanceWarning: '尾款 3,000 元未收',
+    });
+    render(<OrderShipButton orderId='o1' />);
+    click();
+    await waitFor(() => expect(screen.queryByText(/建立包裹/)).not.toBeNull());
+    const note = document.querySelector('[data-testid="shipment-balance-warning"]');
+    expect(note, '彈窗開了而警告框不在 ⇒ 中間某一段轉傳掉了').not.toBeNull();
+    expect(note!.textContent).toContain('尾款 3,000 元未收');
+  });
+
+  it('🔵 負對照:沒給那句話 ⇒ 彈窗裡不長出一個空的警告框', async () => {
+    // 🎯 沒有這一格的話, 上面那格與「無條件渲染一個框」分不開。
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [{ ...CANDIDATE, orderItemId: 'a', remaining: 2, blockedReason: null }],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+      balanceWarning: null,
+    });
+    render(<OrderShipButton orderId='o1' />);
+    click();
+    await waitFor(() => expect(screen.queryByText(/建立包裹/)).not.toBeNull());
+    expect(document.querySelector('[data-testid="shipment-balance-warning"]')).toBeNull();
+  });
 });

@@ -26,6 +26,13 @@ vi.mock('../../lib/shipping/order-shipments', () => ({ loadOrderShipments, loadE
 // 兩顆 client island 各自有守門檔;這裡換成佔位,讓斷言只針對本卡的結構。
 // 🔴 字面對齊 `shipment-launcher.tsx:232` 的 `'出貨'` —— 原本寫「建立包裹」是**改名前**的字,
 //    留著會讓同一顆鈕在本片內出現第三種寫法(見該檔 `:184-196` Sean 08-12 改名紀錄)。
+// 🔴 **2026-09-04 這個 mock 一天之內改了兩次, 兩次都是 codex 抓的, 而方向相反 —— 記下來**:
+//    ① MF5:原本把 props 整個丟掉 ⇒ 我加的 `balanceWarning` 傳遞**沒有東西守著它**
+//       ⇒ 改成把 props 印進 DOM(`data-*`)+ 補一格斷言。
+//    ② 同一天 Sean 拍「列表那條路也要顯示」⇒ 那句話改由 `loadShipmentCandidates` 在 server 算,
+//       **`OrderShipButton` 不再收那個 prop** ⇒ 那個鷹架與那一格斷言**守著一條不存在的路**
+//       ⇒ codex 第二輪 nit 抓到 ⇒ 拆掉, 回到最簡。
+//    📌 **一個為了守某條路而搭的鷹架, 在那條路被拿掉時不會自己消失** —— 它會留下來, 看起來還在守著什麼。
 vi.mock('./shipment-launcher', () => ({ OrderShipButton: () => <button type='button'>出貨</button> }));
 vi.mock('./shipment-void-button', () => ({
   ShipmentVoidButton: ({ shipmentReference }: { shipmentReference: string }) => (
@@ -462,4 +469,5 @@ describe('🔴 包裹卡單號那一行的字級', () => {
     expect(line.className, '單號那行沒有 15px ⇒ 字級被改掉了').toContain('text-[15px]');
     expect(line.className, '單號那行還是舊的 12px(text-xs)⇒ 字級沒有真的改').not.toContain('text-xs');
   });
+
 });
