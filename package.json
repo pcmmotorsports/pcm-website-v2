@@ -64,6 +64,7 @@
     "scripts/brand-degenerate-samples.py": "python3 scripts/brand-degenerate-samples.py --selftest",
     "scripts/mobile-dual-write-inventory.py": "python3 scripts/mobile-dual-write-inventory.py --selftest",
     "scripts/board-state-consistency.py": "python3 scripts/board-state-consistency.py --selftest",
+    "scripts/board-merge-rows.py": "python3 scripts/board-merge-rows.py --selftest",
     "scripts/board-dispatch-triage.py": "python3 scripts/board-dispatch-triage.py --selftest",
     "scripts/what-happened-to.py": "python3 scripts/what-happened-to.py --selftest",
     "scripts/od-drift-check.py": "python3 scripts/od-drift-check.py --selftest",
