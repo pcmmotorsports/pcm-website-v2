@@ -18,6 +18,9 @@
 #   ⑤ `POL` 記到 `USING` / `WITH CHECK` 的**內容雜湊**(2026-09-05 補)——
 #      ⇒ 內容變了會顯形。⚠️ **而 diff 只說「變了」不說「變成什麼」** —— 那要去查 `pg_get_expr`。
 #      🔴 而它仍看不到:policy 的**順序**(PG 不保證)· 同名 policy 在不同 schema · 欄級授權。
+#   ⑥ `FNCFG` 族記每支函式的 `SECURITY DEFINER/INVOKER` 與 `search_path=` 那一項(2026-09-05 加)
+#      ⇒ `ALTER FUNCTION … SET search_path` 這種手改會顯形。
+#      🔴 而它**只記 `search_path`** —— `proconfig` 的別項(`lock_timeout` 等)不記, 那是刻意的。
 #   ④ `has_*_privilege` 對【欄級授權】少報(那個坑本 repo 記過)⇒ 欄級的改動這裡看不到。
 #
 # 用法:bash scripts/acl-snapshot.sh            比對(有差 rc=1)
@@ -71,6 +74,22 @@ SELECT 'FN', n.nspname::text||'.'||p.proname::text||'('||pg_catalog.pg_get_funct
   FROM pg_catalog.pg_proc p
   JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
   CROSS JOIN (VALUES ('anon'),('authenticated'),('service_role'),('payment_confirmer')) AS g(rol)
+ WHERE n.nspname = 'public'
+UNION ALL
+-- 🔴 第六族:函式的 `proconfig`(2026-09-05 加)——
+--    ⛔ 前五族**看不到** `ALTER FUNCTION … SET search_path` 這種手改:
+--       它不動任何 GRANT、不動 policy ⇒ 前五族一格都不會變。
+--    🔬 而那一格是真的重要:2026-09-05 普查到 **117 支 SECURITY DEFINER**,
+--       其中 **39 支 `search_path` 沒鎖成空字串**(22 支 `service_role` 叫得動)。
+--    🛑 而本族**只記 `search_path=` 那一項** —— `proconfig` 裡的別項(`lock_timeout` 等)不記。
+--       ⚠️ 那是刻意的:別項變動今天沒有人在乎, 而**把它們也記進來會讓 diff 天天叫**。
+--       📌 一道天天叫的閘會被關掉, 而關掉的閘比沒裝的更難回來。
+SELECT 'FNCFG',
+       n.nspname::text||'.'||p.proname::text||'('||pg_catalog.pg_get_function_identity_arguments(p.oid)||')',
+       CASE WHEN p.prosecdef THEN 'DEFINER' ELSE 'INVOKER' END,
+       COALESCE((SELECT c FROM unnest(p.proconfig) c WHERE c LIKE 'search_path=%'), '(未設)')
+  FROM pg_catalog.pg_proc p
+  JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
  WHERE n.nspname = 'public'
 UNION ALL
 -- 🔴🔴 第五族:RLS policy(2026-09-05 加)——
@@ -191,6 +210,21 @@ if [ "${1:-}" = "--selftest" ]; then
     && echo "  🔵 負對照:同一條 policy 沒動 ⇒ 判沒差" \
     || { echo "  🔴 沒動卻判有差"; ok=1; }
 
+  # 🔴 `ALTER FUNCTION … SET search_path` 這種手改:GRANT 一格都沒動、policy 一格都沒動
+  #    ⇒ 前五族【完全不顯形】。這一格證明第六族真的接上了。
+  printf 'FNCFG\tpublic.f()\tDEFINER\tsearch_path=""\n' > "$t/c1"
+  sed 's/search_path=""/search_path=public, pg_temp/' "$t/c1" > "$t/c2"
+  if diff -q "$t/c1" "$t/c2" >/dev/null; then
+    echo "  🔴 search_path 突變沒套上 ⇒ 這一格作廢"; ok=1
+  else
+    echo "  ✅ 正對照:search_path 從空字串改成 public,pg_temp ⇒ 判為有差"
+  fi
+  # 🔴 第二格:DEFINER → INVOKER(search_path 沒變)⇒ 也要有差
+  sed 's/DEFINER/INVOKER/' "$t/c1" > "$t/c3"
+  diff -q "$t/c1" "$t/c3" >/dev/null \
+    && { echo "  🔴 DEFINER→INVOKER 卻判沒差"; ok=1; } \
+    || echo "  ✅ 正對照:DEFINER 改成 INVOKER(search_path 沒變)⇒ 判為有差"
+
   # 🔵 負對照:只有【順序】不同而內容相同 ⇒ 也要判有差
   #    (那是刻意的:排序固定是本支的前提, 順序變了代表 SQL 的 ORDER BY 被動過)
   tac "$t/base" > "$t/reorder" 2>/dev/null || tail -r "$t/base" > "$t/reorder"
@@ -205,7 +239,7 @@ NEW="$(mktemp)"; trap 'rm -f "$NEW"' EXIT
 fetch "$NEW" || exit 2
 LINES=$(grep -c . "$NEW")
 # 🔴 分母要印出來 —— 一份「0 差異」的報告, 若它只有 3 列, 那個 0 沒有意義。
-echo "  🔵 快照 $LINES 列 = 表/view×4角色 + 函式×4角色 + 4 個角色的 BYPASSRLS + RLS policy 各一列"
+echo "  🔵 快照 $LINES 列 = 表/view×4角色 + 函式×4角色 + 角色 BYPASSRLS + RLS policy + 函式的 DEFINER/search_path"
 
 if [ "${1:-}" = "--write" ]; then
   cp "$NEW" "$BASE"
