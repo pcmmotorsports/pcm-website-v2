@@ -26,6 +26,7 @@ import type {
   ApplyOrderIneligibleGateDeps,
   EnqueueOrderCreatedEmailsDeps,
   EnqueueOrderUnpaidCancelledEmailsDeps,
+  EnqueueTrackingCorrectedEmailsDeps,
   EnqueueOrderShippedEmailsDeps,
   SweepEmailOutboxDeps,
 } from '@pcm/use-cases';
@@ -38,6 +39,7 @@ import {
   SupabaseIneligibleOrderEmailScannerAdapter,
   SupabaseShippedEmailContextAdapter,
   SupabaseShippedOrderScannerAdapter,
+  SupabaseTrackingCorrectedScannerAdapter,
   ResendEmailSenderAdapter,
   createSupabaseServiceClient,
 } from '@pcm/adapters/server';
@@ -219,6 +221,32 @@ export function getEnqueueOrderUnpaidCancelledDeps(): EnqueueOrderUnpaidCancelle
       isSyntheticEmail: isSyntheticEmailDomain,
     }),
     scanner: new SupabaseUnpaidCancelledOrderScannerAdapter(createSupabaseServiceClient()),
+  };
+}
+
+/**
+ * 更正貨運單號的通知信 —— 掃描端 deps(⟦5b-TRACKNUMGAP1⟧ 片 C;主視窗 2026-09-04 批乙+)。
+ *
+ * 🔴 **刻意不共用 `getSweepEmailOutboxDeps()`** —— 與另外三支同一個理由:
+ *    那支會 `requireEnv` Resend 兩顆、缺就 throw ⇒ 排信這一步不該碰得到寄送管道。
+ *
+ * 🔴🔴 **而本片與另外三支差在【它沒有 cutoff】, 而那不是漏了。**
+ *    另外三支都要一顆 env 當起始線, 因為它們上線第一秒的集合 = 歷史全部。
+ *    本片的觸發欄 `shipments.tracking_corrected_at` **是這一片才新增的**
+ *    ⇒ 歷史上每一箱那一欄都是 NULL ⇒ **集合天生從空的開始長**。
+ *    ⇒ 📌 起始線由「欄位什麼時候出生」保證 —— 而**一顆沒有人設的 env 與一顆設錯的 env,
+ *      在上線那一刻長得一樣**;一個天生為空的集合沒有那個世界。
+ *
+ * 🔴 scanner 與 outbox 共用 service_role(scanner 讀 shipments / orders / customers,含 PII;
+ *    它回的 email 只准被交給 `outbox.enqueue`)。
+ * 🔴 lazy 契約同檔頭:本 factory 零 env 讀取。
+ */
+export function getEnqueueTrackingCorrectedDeps(): EnqueueTrackingCorrectedEmailsDeps {
+  return {
+    outbox: new SupabaseEmailOutboxAdapter(createSupabaseServiceClient(), {
+      isSyntheticEmail: isSyntheticEmailDomain,
+    }),
+    scanner: new SupabaseTrackingCorrectedScannerAdapter(createSupabaseServiceClient()),
   };
 }
 

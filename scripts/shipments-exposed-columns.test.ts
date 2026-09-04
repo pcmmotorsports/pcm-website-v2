@@ -36,6 +36,19 @@ const PINNED_SHIPMENTS_COLUMNS: readonly string[] = [
   'shipment_reference',
   'shipped_at',
   'tracking_number',
+  // 🔴 **2026-09-04 新增(⟦5b-TRACKNUMGAP1⟧ 片 C)。而這一格【不是】順手加名單。**
+  //    這道閘自己寫著:紅的時候先答「客人看得到這一欄, 可以嗎?」
+  //    ✅ **答:可以。** 它是一個時點, 意思是「這一箱的貨運單號被更正過」——
+  //    ① 它在**客人自己那一列**上(RLS 只讓他看自己的箱)、不牽涉任何別人;
+  //    ② 我們正在**主動寄一封信告訴他這件事** ⇒ 藏起來也沒有保護到什麼;
+  //    ③ 它比同一份名單上已經開放的 `hct_raw_response` / `hct_request_id` / `carrier_note`
+  //       **敏感度更低**(那三欄是我們與新竹之間的內部往來)。
+  //    🛑 **而替代方案要寫出來讓人推翻**:要它對客人不可見, 得把整列開放改成欄級授權,
+  //      那是動 policy(鐵則 12②)、不在本片, 而 `has_*_privilege` 對欄級授權會少報
+  //      (`docs/patterns/revoking-function-execute-in-supabase.md`)⇒ 那道尺本身要先修。
+  //    📎 **這一格是 codex 對抗審查抓的** —— 而我自己的 `vitest related` 印 0 紅:
+  //      本檔是**掃描型守門、零 import 被測檔** ⇒ related 的分母裡結構上沒有它。
+  'tracking_corrected_at',
   'updated_at',
   'void_reason',
 ] as const;

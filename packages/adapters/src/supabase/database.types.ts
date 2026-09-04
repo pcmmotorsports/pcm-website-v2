@@ -3135,6 +3135,7 @@ export type Database = {
           recipient_snapshot: Json
           shipment_reference: string
           shipped_at: string | null
+          tracking_corrected_at: string | null
           tracking_number: string | null
           updated_at: string
           void_reason: string | null
@@ -3152,6 +3153,7 @@ export type Database = {
           recipient_snapshot: Json
           shipment_reference: string
           shipped_at?: string | null
+          tracking_corrected_at?: string | null
           tracking_number?: string | null
           updated_at?: string
           void_reason?: string | null
@@ -3169,6 +3171,7 @@ export type Database = {
           recipient_snapshot?: Json
           shipment_reference?: string
           shipped_at?: string | null
+          tracking_corrected_at?: string | null
           tracking_number?: string | null
           updated_at?: string
           void_reason?: string | null
