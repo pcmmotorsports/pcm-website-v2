@@ -41,6 +41,9 @@ beforeEach(() => {
   authorizeAdminMutation.mockResolvedValue({ actorId: 'staff1' });
   getHctShipment.mockResolvedValue(ROW);
   recordHctSubmit.mockResolvedValue(undefined);
+  // 🔴 `hctSubmitGateOpen()` 現在在 action 裡先判 ⇒ 這兩顆缺一格全紅。
+  //    ⚠️ `NODE_ENV=development` 一律當關 ⇒ 測試環境是 'test' 才過得去。
+  vi.stubEnv('HCT_SUBMIT_ENABLED', 'true');
   vi.stubEnv('HCT_API_ENDPOINT', 'https://example.invalid/hct');
   vi.stubEnv('HCT_API_ACCOUNT', 'test');
   vi.stubEnv('HCT_API_PASSWORD', 'x');
@@ -90,12 +93,23 @@ describe('五種 FlowResult 各一格', () => {
     expect(r).toEqual({ ok: false, kind, message: reason });
   });
 
-  it('disabled ⇒ 新竹未開通, 而且【沒有】寫 DB', async () => {
+  it('disabled(流程層)⇒ 新竹未開通, 而且【一次 DB 都沒寫】', async () => {
+    // ⛔ ~~舊版斷言 `toHaveBeenCalledTimes(1)`, 而標題寫「沒有寫 DB」~~
+    // 🔴🔴 **code-reviewer 2026-09-05 MF2:標題與斷言互相矛盾, 而【標題才是對的】。**
+    //    那個 1 是佔位那一發 —— 它正是 MF1 那個 bug 的訊號,
+    //    ⇒ 📌 **而我寫了一句註解替它辯護, 於是那個訊號被自己的解釋蓋掉了。**
+    //    ✅ 修完 MF1 之後閘判定排在佔位之前 ⇒ 這裡應該是 **0**。
+    // 🔴🔴 **而這一格第一版我構造了一個【不可能的世界】** ——
+    //    送出閘開著 + current=draft 時, 流程**不可能**回 disabled(它只在該用的那道閘關著時回)。
+    //    ⇒ 那一版紅了, 而它紅得對:我在測一個到不了的世界。
+    //    ✅ 換成真的走得到的那條:**送出閘開、查詢閘關、current=unknown**
+    //      ⇒ `decideSubmit` 說 query_first ⇒ `queryEdelno` 撞到自己的閘 ⇒ disabled。
+    //      而 current=unknown **本來就不寫佔位**(只有 draft/failed 寫)⇒ 這裡應該是 0。
+    getHctShipment.mockResolvedValue({ ...ROW, hctStatus: 'unknown' });
     runHctSubmit.mockResolvedValue({ kind: 'disabled' });
     const r = await submitShipmentToHctAction({ shipmentId: 's1' });
     expect(r).toMatchObject({ ok: false, kind: 'disabled' });
-    // 佔位那一發仍會發生(它在送出之前), 而結果那一發不得發生。
-    expect(recordHctSubmit).toHaveBeenCalledTimes(1);
+    expect(recordHctSubmit).not.toHaveBeenCalled();
   });
 });
 
@@ -122,6 +136,81 @@ describe('🔴 佔位 / 覆寫的【時序】', () => {
     runHctSubmit.mockResolvedValue({ kind: 'refused', reason: '已送過' });
     await submitShipmentToHctAction({ shipmentId: 's1' });
     expect(recordHctSubmit).not.toHaveBeenCalled();
+  });
+});
+
+describe('🔴 MF1:閘關著時, 一列 DB 都不准寫', () => {
+  it('HCT_SUBMIT_ENABLED 沒設 ⇒ disabled, 而且【沒有佔位列】', async () => {
+    // 🛑 舊版會寫一列 unknown ⇒ 下一次 `admin_record_hct_submit` 對 old=unknown,new=unknown
+    //    **RAISE**(`20260904170000:163-169`)⇒ 那一箱卡死要人工改 DB。
+    delete (process.env as Record<string, string | undefined>).HCT_SUBMIT_ENABLED;
+    const r = await submitShipmentToHctAction({ shipmentId: 's1' });
+    expect(r).toMatchObject({ ok: false, kind: 'disabled' });
+    expect(recordHctSubmit).not.toHaveBeenCalled();
+    expect(runHctSubmit).not.toHaveBeenCalled();
+  });
+});
+
+describe('🔴 MF3:會被截斷的欄位必須先讓人看到', () => {
+  it('有 truncated ⇒ 第一次按【不送】, 回哪幾欄', async () => {
+    getHctShipment.mockResolvedValue({
+      ...ROW,
+      recipientSnapshot: { name: 'x'.repeat(80), phone: '0900000000', line: '台北' },
+    });
+    const r = await submitShipmentToHctAction({ shipmentId: 's1' });
+    expect(r).toMatchObject({ ok: false, kind: 'needs_confirm' });
+    expect(r.ok === false && r.kind === 'needs_confirm' ? r.truncated : []).toContain('ercsig');
+    expect(runHctSubmit).not.toHaveBeenCalled();
+    expect(recordHctSubmit).not.toHaveBeenCalled();
+  });
+
+  it('帶【對的 token】⇒ 才真的送', async () => {
+    getHctShipment.mockResolvedValue({
+      ...ROW,
+      recipientSnapshot: { name: 'x'.repeat(80), phone: '0900000000', line: '台北' },
+    });
+    runHctSubmit.mockResolvedValue({ kind: 'recorded', status: 'submitted', requestId: 'R1', raw: {} });
+    const first = await submitShipmentToHctAction({ shipmentId: 's1' });
+    const token = first.ok === false && first.kind === 'needs_confirm' ? first.confirmToken : '';
+    const r = await submitShipmentToHctAction({ shipmentId: 's1', confirmTruncated: token });
+    expect(r).toMatchObject({ ok: true, kind: 'submitted' });
+    expect(runHctSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  // 🔴🔴 **codex must-fix 的那個攻擊, 做成一格**:第一次就直接帶一個【自己編的】token。
+  it('🛑 第一次就硬帶一個編的 token ⇒ 仍然被攔(它證明不了員工看過)', async () => {
+    getHctShipment.mockResolvedValue({
+      ...ROW,
+      recipientSnapshot: { name: 'x'.repeat(80), phone: '0900000000', line: '台北' },
+    });
+    const r = await submitShipmentToHctAction({ shipmentId: 's1', confirmTruncated: 'true' });
+    expect(r).toMatchObject({ ok: false, kind: 'needs_confirm' });
+    expect(runHctSubmit).not.toHaveBeenCalled();
+  });
+
+  // 🔴 **兩次之間資料變了** ⇒ token 對不上 ⇒ 必須再攔一次。
+  it('🛑 拿 A 版的 token 去送 B 版的資料 ⇒ 再攔一次', async () => {
+    getHctShipment.mockResolvedValue({
+      ...ROW,
+      recipientSnapshot: { name: 'x'.repeat(80), phone: '0900000000', line: '台北' },
+    });
+    const first = await submitShipmentToHctAction({ shipmentId: 's1' });
+    const tokenA = first.ok === false && first.kind === 'needs_confirm' ? first.confirmToken : '';
+    // 資料換成「地址也超長」的 B 版 ⇒ 截斷清單變了
+    getHctShipment.mockResolvedValue({
+      ...ROW,
+      recipientSnapshot: { name: 'x'.repeat(80), phone: '0900000000', line: '台'.repeat(200) },
+    });
+    const r = await submitShipmentToHctAction({ shipmentId: 's1', confirmTruncated: tokenA });
+    expect(r).toMatchObject({ ok: false, kind: 'needs_confirm' });
+    expect(runHctSubmit).not.toHaveBeenCalled();
+  });
+
+  // 🟢 負對照:沒有超長時不得攔 —— 否則這道保護會把每一次正常送出都變成兩次點擊。
+  it('沒有 truncated ⇒ 一次就送', async () => {
+    runHctSubmit.mockResolvedValue({ kind: 'recorded', status: 'submitted', requestId: 'R1', raw: {} });
+    const r = await submitShipmentToHctAction({ shipmentId: 's1' });
+    expect(r).toMatchObject({ ok: true, kind: 'submitted' });
   });
 });
 

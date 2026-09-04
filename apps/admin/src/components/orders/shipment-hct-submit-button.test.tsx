@@ -37,7 +37,12 @@ describe('三態', () => {
     mount();
     const b = screen.getByRole('button', { name: /送新竹/ });
     b.click();
-    await vi.waitFor(() => expect(screen.getByText('新竹未開通')).toBeTruthy());
+    // 🔵 nit① 之後這裡印的是 **server 給的那句**(含「缺哪一顆 env」), 不是寫死的四個字
+    //    ⇒ 逐字比對會紅, 而**它紅得對**:那正是這次改動的內容。
+    await vi.waitFor(() => expect(screen.getByText(/新竹未開通/)).toBeTruthy());
+    // 🔴 而「缺哪一顆」必須真的出現 —— 否則 nit① 等於沒修
+    //    (兩種完全不同的原因印同一句話)。
+    expect(screen.getByText(/HCT_API_ENDPOINT/)).toBeTruthy();
     // 🔴 這一行是本檔的重點:它證的是「鈕沒有消失」。
     expect(screen.getByRole('button', { name: /送新竹/ })).toBeTruthy();
     // disabled 不鎖 —— Sean 放了 env 之後不必重整頁面。
@@ -56,6 +61,32 @@ describe('三態', () => {
       expect(screen.getByText(/不要重按/)).toBeTruthy(),
     );
     expect((screen.getByRole('button', { name: /送新竹/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('needs_confirm ⇒ 不鎖, 文字換成「知道了, 還是要送」, 第二次帶 confirmTruncated', async () => {
+    submitShipmentToHctAction.mockResolvedValue({
+      ok: false,
+      kind: 'needs_confirm',
+      message: '這幾欄超長、送出去會被截掉:ercsig —— 看過再按一次就送',
+      truncated: ['ercsig'],
+      confirmToken: 'ercsig',
+    });
+    mount();
+    screen.getByRole('button', { name: /送新竹/ }).click();
+    await vi.waitFor(() => expect(screen.getByText(/會被截掉/)).toBeTruthy());
+    const b2 = screen.getByRole('button', { name: /送新竹/ });
+    expect((b2 as HTMLButtonElement).disabled).toBe(false);
+    expect(b2.textContent).toContain('還是要送');
+    b2.click();
+    // 🔴 第二次必須帶 confirmTruncated —— 少了它, 員工按第二次還是送不出去(死循環)。
+    await vi.waitFor(() =>
+      // 🔴 第二次要把 **server 給的那個 token** 原樣帶回去 —— 不是一個寫死的 true。
+      //    codex:`true` 是一張空白支票, 它證明不了員工看過【這一次】的內容。
+      expect(submitShipmentToHctAction).toHaveBeenLastCalledWith({
+        shipmentId: 's1',
+        confirmTruncated: 'ercsig',
+      }),
+    );
   });
 
   it('failed ⇒ 不鎖(新竹回失敗是可以重試的那一種)', async () => {
