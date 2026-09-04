@@ -133,6 +133,54 @@
 
 ---
 
+## 3.6 後台那兩個金額面 —— 而它們【不是同一件事】
+
+> **來源:R4 F4 nit ⇒ 板列 `⟦b4-TAXADMINSURFACES⟧`。2026-09-05 當場量的判定。**
+>
+> ```
+> ADMIN_ORDER_DETAIL_SELECT  含 tax_total ⇒ 0     AdminOrderDetail  含 taxTotal ⇒ 0
+> ADMIN_ORDER_LIST_SELECT    含 tax_total ⇒ 0     AdminOrderSummary 含 taxTotal ⇒ 0
+> ```
+> ⇒ 🔴 **兩個都不在查詢裡, 而且走【兩條不同的 select】** ⇒ 沒有一個是「純 UI 加一列」。
+
+### ① 後台訂單詳情 `ItemsTotals` ⇒ **併進題 B**
+
+`apps/admin/src/components/orders/order-detail-items-support.tsx:209` 吃 `AdminOrderDetail`
+⇒ `ADMIN_ORDER_DETAIL_SELECT`(byte-equal 守門 `SupabaseOrderAdapter.test.ts:1083`)
+⇒ 🎯 **與 ⑤⑥ 同一條 select、同一道鐵則 8 關卡** ⇒ 加一次三個面都通。
+⇒ 📌 **題 B 的受詞因此是「兩張紙 + 後台訂單詳情那一區」。**
+
+### ② CSV 匯出 ⇒ **第三條投影, 而且它有一個【真的決定】**
+
+`apps/admin/src/lib/orders/order-export.ts` 吃 `AdminOrderSummary`
+⇒ **`ADMIN_ORDER_LIST_SELECT`**(守門 `:512`)⇒ 🔴 **題 B 蓋不到它。**
+消費端含 `apps/admin/src/components/orders/orders-table.tsx` —— **後台訂單列表本身**。
+
+🛑 **而它不是「加一欄就好」**:那份 CSV 是**每商品一列**, 而稅是**訂單層**的數。
+
+🔬 **既有慣例(讀出來的, 不是猜的)**:`orderTotalCellFor(order, i === 0)`(`:88-90`, 用在 `:196`)
+—— **只在該單的第一列印, 其餘留空**;欄名逐字「`訂單總額(每單只出現一次,可直接加總)`」。
+而 `小計` 那一欄的欄名逐字是「`小計(每列都有)`」⇒ 📌 **這份檔本來就混著兩種欄, 而【欄名是它們的分辨方式】。**
+
+```
+甲(推薦)每單只出現一次 —— 與 orderTotalCellFor 同慣例, 欄名寫「稅額(每單只出現一次,可直接加總)」
+乙       每列都印       —— 看單獨一列時讀得到稅, 而【整欄加總會把稅乘以品項數】
+```
+
+🔵 **推薦甲**, 三個理由:
+1. **這份檔存在的唯一目的是被拿去對帳**(該檔 `:92-99` 逐字)⇒ 一個不能直接加總的金額欄違反它的用途。
+2. **與既有的 `訂單總額` 同型** ⇒ 讀的人不必學第二套規則。
+3. 🔴 **乙的錯法沒有訊號** —— 試算表對一欄按加總, 出來的數字**看起來很正常**, 只是大了 N 倍。
+
+⚠️ **而甲的代價寫出來**:只看某一列的人**看不到稅**。
+   🔵 而那個代價**今天已經被接受了** —— `訂單總額` 就是這樣, 而它比稅更常被單獨看。
+
+🔬 **順帶查證(擋掉一個看起來合理的疑慮)**:「第一列被篩掉的話稅就不見了」——
+   **不成立**。`i === 0` 是**該單自己那組 lines 的第一列**(`:176-177`),
+   而 `order.lines` 為空時有 `[null]` 佔位 ⇒ **每一單一定有第一列**。
+
+---
+
 ## 4. 怎麼驗收(每條可 yes/no)
 
 1. `TURBO_FORCE=1 pnpm typecheck` / `lint` / `build` 三者 rc=0
@@ -215,7 +263,7 @@ A: 甲 追認, 照現在這樣合(含那支共用的「小計(未稅)」函式)
 ### 題 B(A 答完再問)
 
 ```
-Q: 後台印給客人的【兩張紙】(出貨單 + 訂單明細)現在都沒有稅額那一列, 要不要現在補
+Q: 【兩張紙(出貨單 + 訂單明細)+ 後台訂單詳情那一區】現在都沒有稅額那一列, 要不要現在補
 A: 甲 現在補 —— 動手前先跑一發 SELECT count(*) FROM public.orders WHERE tax_total <> 0,
       是 0 就代表今天印出來的紙一個字都不會變
    乙 等稅真的有值那天再補
