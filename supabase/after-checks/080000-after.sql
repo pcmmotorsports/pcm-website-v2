@@ -1,4 +1,12 @@
 \pset pager off
+-- 🔴🔴 `psql -f` 的 rc 在【中間某格 ERROR】與【全對】兩個世界**都是 0**
+--    ⇒ 沒有這一行的話, 早上 Sean 看到的那個 rc 對兩個世界印同一個東西。
+--    🔬 2026-09-05 實測:一支只有 `SELECT * FROM 不存在的表;` 的 .sql ⇒ **rc=0**。
+--    ⚠️ 加它的前提是本檔【沒有故意要噴錯的格】—— 加之前逐支跑過一次:真 psql 錯誤 0
+--       (🟢 而那把尺我先用一支故意壞掉的 SQL 驗過會數到 1;
+--        🔴 第一版我用 `grep -ci ERROR`, 它把工具自己那句含 `ON_ERROR_STOP` 的警告
+--           數成一個 error ⇒ 四支各多報 1 —— 一個【講 error 的句子】被數成 error)。
+\set ON_ERROR_STOP on
 -- 🔴 唯讀。20260905080000(四個 pending view 加 order_source)貼後對帳。
 -- 🛑 而【view 存在】對 CREATE OR REPLACE VIEW 零判別力 ⇒ 判準是【欄位集合】, 不是存在性。
 -- 🔵 每一格都印【預期值】—— 預期值是貼之前寫下的, 不是照著讀數抄的。
