@@ -24,6 +24,10 @@ function box(over: Record<string, unknown> = {}) {
     carrier_code: 'hct',
     carrier_note: null,
     tracking_number: 'HCT123456',
+    // 🔴 ⟦5b-TRACKNUMGAP1⟧ 片 C 加的欄。**這裡不能省** —— adapter 的 `emptyToNull` 收
+    //    `string | null`, 少一欄拿到 `undefined` 會當場 throw。
+    //    ⇒ 📌 那是**刻意的**:一個「少撈一欄」的錯要吵, 不要靜靜當 null。
+    tracking_corrected_at: null,
     shipped_at: '2026-08-22T10:00:00.000Z',
     deleted_at: null,
     ...over,

@@ -248,6 +248,8 @@ pq -q -c "INSERT INTO public.orders (id, customer_user_id, cart_session_id, disp
 check "格16 目標單是匯款單 ⇒ not_card_order" "not_card_order" "$(q1 "SELECT public.begin_charge_attempt('${CARD}'::uuid) ->> 'reason';")"
 
 # 格17 🔵 多張:同車兩張未付款匯款單 ⇒ **兩張都被取消**(明寫這是刻意的, 不是只取消一張)
+#       🟢 **2026-09-04 Sean 拍板【甲 全部一起取消】**(拍板檔第二十四題)⇒ 本格守的是【被批准的行為】,
+#          不再只是「鎖住現行行為」。🛑 改成只取消一張 = 推翻拍板, 不是改一道測試。
 reset_data; seed_card
 pq -q -c "INSERT INTO public.orders (customer_user_id, cart_session_id, display_id, payment_status, payment_channel)
           VALUES ('${UID_FIXED}','${CART}','PCM-BANK-B','unpaid','bank_transfer'),

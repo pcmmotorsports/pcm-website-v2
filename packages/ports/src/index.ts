@@ -62,6 +62,7 @@ export type * from './IPaidOrderScanner';
 // 🔴 M-4b E4-a(2026-08-22):出貨線的同款窄讀 port。**一列 = 一個 (箱, 單) 配對 = 一封信**
 // —— 一箱可含多張訂單,Sean 2026-08-17 拍板「一箱兩單就寄兩封」。同樣回 PII、同樣的紀律。
 export type * from './IShippedOrderScanner';
+export type * from './ITrackingCorrectedScanner';
 // 🔴 M-4a E2a-2(W3-G 拆出,2026-08-20):寄送前 ineligible gate 的窄讀 port —— 擋「排進佇列後、
 // 真正寄出前才被取消」的窗口(掃描器 SupabasePaidOrderScannerAdapter 只擋掃描當下已取消的)。
 export type * from './IIneligibleOrderEmailScanner';
