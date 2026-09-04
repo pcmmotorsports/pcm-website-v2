@@ -382,6 +382,10 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       'denied',
       'not_found',
       'error',
+      // 🔴 `⟦b4-INVOICE5PCT⟧` 第 2 步(2026-09-04):改單線的第 8 顆裸碼。
+      //    **本格在我把它加進 `MESSAGES` 的當下真的紅過**(1 failed / 355 passed)
+      //    —— 那是它有判別力的證據, 不是推的。(形狀同上面那條 D3-c 的註解。)
+      'invoice_blocked',
       NOTE_ADDED_RESULT_CODE,
       REFUND_SUBMITTED_RESULT_CODE,
       MANUAL_REFUND_SUBMITTED_RESULT_CODE,
@@ -466,5 +470,38 @@ describe('ResultBanner — D3-c 作廢碼(Fable R2 F3)', () => {
     expect(text).toContain('沒退過');
     // 反向對照:不得出現「退款完成」那種會被讀成「錢動了」的措辭。
     expect(text).not.toContain('退款完成');
+  });
+});
+
+describe('🔴🔴 改單:invoice_blocked 與 error 的下一步【相反】(⟦b4-INVOICE5PCT⟧ 第 2 步)', () => {
+  // 形狀刻意抄上面 concurrent / mismatch 那一組 —— **不發明第二種寫法**。
+  // 弄反的代價比那一組更貴:
+  //   invoice_blocked 唸成「請稍後再試」⇒ 員工一直按, 而那道 CHECK 是【狀態不變式】永遠不會成功
+  //   ⇒ 🔴 而他很可能【已經在財政部平台開了一張真發票】—— 那正是這一片要防的事。
+  const blocked = MESSAGES.invoice_blocked!.text;
+  const generic = MESSAGES.error!.text;
+
+  it('兩句話不得相同(共用一則 = 兩個相反的下一步印同一句)', () => {
+    expect(blocked).not.toBe(generic);
+  });
+
+  it('🔴 error 叫他【再試】—— 這是本組的前提, 前提垮了下面每一格都失去意義', () => {
+    expect(generic).toContain('再試');
+  });
+
+  it('🔴 invoice_blocked 叫他【不要重試】, 而且沒有叫他再試', () => {
+    expect(blocked).toContain('不要重試');
+    expect(blocked).not.toContain('請稍後再試');
+  });
+
+  it('🔵 它要說得出【為什麼】與【出路】—— 一句只說「不行」的話會讓他去找人', () => {
+    expect(blocked).toContain('不開發票');
+    expect(blocked).toContain('作廢重開');
+  });
+
+  it('🔴 而它【不得】把 DB 的原話漏出來 —— ?r= 是任何人都打得出來的字', () => {
+    for (const leak of ['check constraint', 'violates', 'orders_no_invoice']) {
+      expect(blocked).not.toContain(leak);
+    }
   });
 });

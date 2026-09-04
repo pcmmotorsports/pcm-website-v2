@@ -27,6 +27,12 @@
 //           —— 正如該檔檔頭自己寫的「不在本表上什麼都不代表」。**欄位存不存在要問庫, 不要問帳本。**
 //      ⇒ ✅ **退場條件與其他條【相反】:下一次重 gen 就會自己產生它 ⇒ 那時【直接刪掉本條】, 不要重貼。**
 //      ⚠️ 而它**不計入上面那個「二十八處」** —— 那個數字數的是「生成器寫不出來的」那一族。
+//      🔴🔴 **2026-09-04 同日再補一欄:`orders.invoice_requested`(Row / Insert / Update 三處)** ——
+//         **與 `tax_total` 出自【同一支 migration】**(`20260828100000`, 那一支加了兩欄)
+//         ⇒ 🎯 **本檔對那一支【整支】是舊的, 不是漏了某一欄。**
+//         📌 **⇒ 下次撞到「型別檔沒有這一欄」時, 先問【那支 migration 加了幾欄】** ——
+//            我第一次只補 `tax_total`, 而**另一欄就躺在同一支檔的下面幾行**, 兩小時後才撞到。
+//         ✅ 退場條件同 ⑯:重 gen 就會自己產生 ⇒ **那時直接刪, 不要重貼。**
 //   ① `create_order.Args` 三處(p_client_ip / p_client_ua / p_notification_email 的 `| null`)
 //   ② `admin_upsert_supplier.Args` 四處(p_supplier_id / p_label / p_is_active / p_note 的 `| null`)
 //   ③ `admin_append_order_note.Args` **三處**(p_channel / p_occurred_at / p_corrects_note_id 的 `| null`;2026-08-02 A6 起)
@@ -2074,6 +2080,7 @@ export type Database = {
           tier_at_checkout: Database["public"]["Enums"]["member_tier"]
           total: number
           tax_total: number
+          invoice_requested: boolean
           updated_at: string
           version: number
           workflow_status: string | null
@@ -2114,6 +2121,7 @@ export type Database = {
           tier_at_checkout: Database["public"]["Enums"]["member_tier"]
           total: number
           tax_total: number
+          invoice_requested: boolean
           updated_at?: string
           version?: number
           workflow_status?: string | null
@@ -2154,6 +2162,7 @@ export type Database = {
           tier_at_checkout?: Database["public"]["Enums"]["member_tier"]
           total?: number
           tax_total?: number
+          invoice_requested?: boolean
           updated_at?: string
           version?: number
           workflow_status?: string | null
@@ -3135,6 +3144,7 @@ export type Database = {
           recipient_snapshot: Json
           shipment_reference: string
           shipped_at: string | null
+          tracking_corrected_at: string | null
           tracking_number: string | null
           updated_at: string
           void_reason: string | null
@@ -3152,6 +3162,7 @@ export type Database = {
           recipient_snapshot: Json
           shipment_reference: string
           shipped_at?: string | null
+          tracking_corrected_at?: string | null
           tracking_number?: string | null
           updated_at?: string
           void_reason?: string | null
@@ -3169,6 +3180,7 @@ export type Database = {
           recipient_snapshot?: Json
           shipment_reference?: string
           shipped_at?: string | null
+          tracking_corrected_at?: string | null
           tracking_number?: string | null
           updated_at?: string
           void_reason?: string | null

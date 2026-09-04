@@ -25,7 +25,7 @@ export const MESSAGE_STATE_STYLE: CSSProperties = {
 // ⟦b4-DEADENDMSG1⟧ 實例③:零結果時要不要給「清除所有篩選」這個出路。
 // 判準 = 「**這一頁的 0 是篩選造成的嗎**」, 而那要問【server 拿什麼去撈】, 不是問畫面上有幾顆
 // chip —— 認不得的 `?category=<改名殘連結>` 會**留在 URL 上**(#315 Sean 2026-08-11 Q1=A,
-// `use-catalog-filter-url-sync.tsx:139`)而**進不了 cascade** ⇒ ActiveChips 的 `chips.length === 0`
+// `use-catalog-filter-url-sync.tsx` 的 #315 段, 逐字「**認不得**的 pbrand/category 原樣留著」)而**進不了 cascade** ⇒ ActiveChips 的 `chips.length === 0`
 // ⇒ 整條 chip 列(連同它那顆既有的「清除全部」)`return null` ⇒ 🔴 **篩選生效、看不見、清不掉。**
 //
 // 🔴 **這裡刻意用【黑名單】(排掉非篩選參數), 而不是白名單列出篩選參數** —— 與 CLAUDE.md

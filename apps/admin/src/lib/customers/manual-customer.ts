@@ -246,8 +246,14 @@ export const DUPLICATE_ACCOUNT_WARN_THRESHOLD = 2;
 
 /**
  * 電話最少要幾個數字(codex R4 D1)。
- * 🔴 **對齊既有的註冊規則**,不自己發明:`packages/schemas/src/index.ts:46`
- *    `phone: z.string().regex(/^[\d\s-]{8,}$/)` —— 那條線上的最小長度就是 8。
+ * ⛔ ~~對齊既有的註冊規則:`packages/schemas/src/index.ts:46` 的
+ *    `phone: z.string().regex(/^[\d\s-]{8,}$/)` —— 那條線上的最小長度就是 8。~~
+ * 🔴🔴 **那條線【2026-09-04 被拿掉了】(Sean 拍甲:電話只擋空、不驗格式)**
+ *    ⇒ 這個 8 **不再是「對齊」任何東西, 它現在是本檔自己的規則。**
+ * 🔵 **而它刻意留著, 因為理由不同**:codex R4 那條擋的是「`phone='1'` 建出刪不掉的 auth user」
+ *    = **防垃圾資料**, 而 Sean 拍的是**格式不要猜** —— 兩件事不同受詞。
+ * 🛑 **代價要明寫**:客人自己註冊 `0911` 進得去, 而**員工建同一個人會被擋** ——
+ *    「同一支電話兩邊行為不同」在**建帳號**這一格仍然成立。⇒ 那要單獨問 Sean, 不在那一片裡。
  */
 export const MIN_PHONE_DIGITS = 8;
 

@@ -48,6 +48,7 @@ const MIGRATIONS = new URL('../supabase/migrations/', import.meta.url).pathname;
  */
 const liveText = (file: string): string =>
   readFileSync(join(MIGRATIONS, file), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/--[^\n]*/g, '')
     .split('\n')
     .join('\n');
@@ -87,7 +88,7 @@ describe('A8a3-G:已取消的單不得被判成「重複單」', () => {
   // 🔴 突變:一支「未來的 migration」重新定義了函式而漏掉那個條件 ⇒ 必須被抓到。
   //    自檢照 -b4 那條:同一發要附一個已知該過的正常案例,它也紅 ⇒ 本發作廢。
   it('突變:未來的 migration 漏掉那個條件 ⇒ 檢查必須紅（附同形狀的正常案例當自檢)', () => {
-    const check = (sql: string) => sql.replace(/--[^\n]*/g, '').includes(CLAUSE);
+    const check = (sql: string) => sql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '').includes(CLAUSE);
 
     const 漏掉的 = ['CREATE OR REPLACE FUNCTION public.begin_charge_attempt(p uuid)', 'WHERE o.customer_user_id = x'].join('\n');
     const 正常的 = ['CREATE OR REPLACE FUNCTION public.begin_charge_attempt(p uuid)', 'WHERE o.customer_user_id = x AND ' + CLAUSE].join('\n');

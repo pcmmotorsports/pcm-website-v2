@@ -236,6 +236,31 @@ describe('ProductsPage', () => {
     expect(screen.getByText('找不到符合條件的商品')).toBeDefined();
   });
 
+  // ── ⟦supply-BRANDFILTERZERO⟧:下一次紅的時候要留得下證據 ──
+  // 🔴 **這一格守的不是「屬性存在」, 是【三個世界分得出來】** ——
+  //    少了任何一格, 下一次「0 件」還是只能猜。所以四個值各自斷言, 而且**值要不同**。
+  // 🔵 而它**不守行為**:本片零行為改動(`displayed = products`, client 不過濾)。
+  it('🔴 那一頁要把「server 回幾件 / 這頁幾列 / 篩選鍵 / 品牌表多大」寫進 DOM', () => {
+    hoisted.search = new URLSearchParams('pbrand=rizoma');
+    const { container } = render(
+      <ProductsPage
+        products={FIXTURE}
+        total={723}
+        error={false}
+        categories={CATEGORIES}
+        motoBrands={MOTO_BRANDS}
+      />,
+    );
+    const el = container.querySelector('.pp-layout');
+    expect(el?.getAttribute('data-diag-total'), 'server 說幾件').toBe('723');
+    expect(el?.getAttribute('data-diag-rows'), '這一頁實際拿到幾列').toBe(String(FIXTURE.length));
+    expect(el?.getAttribute('data-diag-brandkey'), '舊的 ?pbrand= 也要收得到').toBe('rizoma');
+    // 🔴 **這一格最重要**:品牌對照表中斷時它會是 0, 而那是「有效品牌卻撈不到」最可能的成因
+    expect(el?.getAttribute('data-diag-brandtable')).not.toBeNull();
+    // 🔵 而 total 與 rows【必須是兩個不同的數】—— 否則這兩格分不出「server 回 0」與「這頁 0 列」
+    expect(el?.getAttribute('data-diag-total')).not.toBe(el?.getAttribute('data-diag-rows'));
+  });
+
   // ── ⟦b4-DEADENDMSG1⟧ 實例③:零結果的死路要有一個【客人做得到的事】 ──
   // 🔴 這四格是【成對】的:1 證明鈕會出現, 2/3 是兩個負對照(它不該出現的兩個世界),
   //    4 守的是「清不掉」那一半 —— 只 dispatch 不改 URL 的話, 按完還是 0 筆。
@@ -262,7 +287,7 @@ describe('ProductsPage', () => {
   });
 
   // 🔴 **本格的射程**(R1 must-fix 3):mock 的 `replace` 是 `window.history.replaceState`
-  //    (本檔 :22)= **同步**;而真 router 是**非同步**(`use-catalog-filter-url-sync.tsx:108`
+  //    (本檔 :22)= **同步**;而真 router 是**非同步**(`use-catalog-filter-url-sync.tsx` 的 `initialized` 那段
   //    逐字:force-dynamic 要 RSC 往返)。⇒ 本格證明的是「**那顆鈕算出了乾淨的網址並送出去**」,
   //    **不是**「瀏覽器上最終停在那個網址」—— 後者要真瀏覽器才量得到, 本檔到不了那個世界。
   it('③ 按下去 → 送出去的網址不再帶那個【認不得的】參數(清 state 不夠)', () => {

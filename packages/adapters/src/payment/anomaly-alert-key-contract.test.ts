@@ -88,7 +88,10 @@ const TARGETS = [
  *  ⚠️ **已知天花板:只剝行註解** —— 區塊註解與 dollar-quoted 字串裡的 `--` 沒有處理。
  */
 function stripSqlLineComments(src: string): string {
+  // 🔴 先剝【區塊】註解(它會跨行 ⇒ 必須在 split 之前做)再逐行剝 `--`
+  //    (2026-09-04 `-auth`, ⟦b4-PIECEBGATEGAPS⟧ ②④:只剝 `--` 擋不住 `/* … */`)。
   return src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
     .split('\n')
     .map((l) => l.replace(/--.*$/, ''))
     .join('\n');
@@ -280,6 +283,23 @@ for (const { fn, varName, pin } of TARGETS) {
  *      `client.query('SELECT public.…')` 對它是隱形的)。**已另開板列, 不在本檔解。**
  */
 const FAIL_LOUD_RPCS = [
+  /**
+   * ⟦search-LOGSILENTZERO⟧(2026-09-04, 線 `-db`)。
+   *
+   * 🔵 **分堆是開檔看的, 不是猜的**(本檔上面那句逐字要求):
+   *   `getSearchLogHealth` 對**三個欄位逐個驗型別**, 缺鍵 ⇒ `typeof undefined` 不符
+   *   ⇒ `throw new AnomalyAlertReaderParseError` ⇒ **fail-loud** ⇒ 進這一堆。
+   *   (`PgAnomalyAlertReaderAdapter.ts` 錨 `RPC_SEARCH_LOG_HEALTH` 那三個 if。)
+   *
+   * 🔴🔴 **而這一格【是我今天弄紅的】, 照實記** —— `3a848c58e` 在 adapter 加了這支呼叫,
+   *   而**沒有把它登記進來** ⇒ 16 顆推前驗收當場紅。
+   *   📌 **而我今天早些才報過**「這支合約測試 15 發紅」以及
+   *     「掃描型守門不 import 被測檔 ⇒ `vitest related` 的分母裡結構上沒有它」
+   *     ⇒ 🎯 **我知道那個機制, 而我照樣踩了它** —— 因為我改的是 adapter,
+   *       而**這支檔不在我改的那一批裡, 也不會被 related 撈出來。**
+   *   ⇒ ⇒ 🛑 **知道一個坑, 與在動手的當下想起它, 是兩件事。**
+   */
+  'get_search_log_health',
   // 這幾支走 `parseCount` / `parseBeginResult` ⇒ 缺鍵會 throw ⇒ 不需要本檔這種對帳。
   'get_order_refunds_stuck_summary',
   'get_email_outbox_deadman_counts',

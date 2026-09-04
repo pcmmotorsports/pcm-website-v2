@@ -80,12 +80,25 @@ describe('parseProfileEditForm — 拒收矩陣(ok:false)', () => {
     ['customer_id 非 UUID', { [PROFILE_CUSTOMER_ID_FIELD]: 'not-a-uuid' }],
     ['customer_id 空', { [PROFILE_CUSTOMER_ID_FIELD]: '' }],
     ['姓名空', { [PROFILE_NAME_FIELD]: '' }],
-    ['電話格式錯(太短)', { [PROFILE_PHONE_FIELD]: '0912' }],
-    ['電話格式錯(含字母)', { [PROFILE_PHONE_FIELD]: '0912abc345' }],
     ['生日格式錯(斜線)', { [PROFILE_BIRTHDAY_FIELD]: '1990/03/15' }],
     ['生日格式錯(非日期)', { [PROFILE_BIRTHDAY_FIELD]: 'abc' }],
   ])('%s → ok:false', (_label, override) => {
     expect(parseProfileEditForm(form(valid(override))).ok).toBe(false);
+  });
+
+  // ⛔ ~~['電話格式錯(太短)', '0912'] · ['電話格式錯(含字母)', '0912abc345'] 兩列~~
+  // 🔴🔴 **Sean 2026-09-04 拍甲作廢, 而【這一格他沒有被問過】——【後台】也吃同一支 `ProfileInput`。**
+  //    他拍的題目字面講的是**顧客站**(「跟地址頁一樣」), 而共用 schema 讓它連帶放寬了
+  //    **員工幫客人改電話**那條路。
+  // 🎯 **而保留兩套規則會【重新製造他剛叫我拿掉的那個分岔】**(同一支電話, 客人存得進、員工存不進)
+  //    ⇒ 所以一起放寬是與拍板一致的方向;**而它是一個他沒看過的連帶結果, 標在這裡。**
+  it('🔴 拍甲之後:後台幫客人改電話, +886 / 分機 / 短號都存得下', () => {
+    for (const v of ['+886-912-345-678', '02-1234-5678 #12', '0912']) {
+      expect(
+        parseProfileEditForm(form(valid({ [PROFILE_PHONE_FIELD]: v }))).ok,
+        `後台擋掉了 ${v} ⇒ 客人存得進而員工存不進, 那正是拍板要拿掉的分岔`,
+      ).toBe(true);
+    }
   });
 
   it('逐欄錯誤有 fieldErrors(姓名)', () => {

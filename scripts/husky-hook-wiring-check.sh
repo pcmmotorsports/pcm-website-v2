@@ -192,7 +192,27 @@ check_prepush() {
     echo "   ⇒ 整段被刪掉時,既有的 shape harness(deploy-order-gate-verify 格⑱)仍會 PASS。" >&2
     return 1
   fi
-  echo "── husky 接線:$f 語法過,兩支 gate 都還在鏈上"
+  # 🔴🔴 2026-09-04 R1 must-fix(線 -db;實錘 = `.husky/pre-push` 當場 fail-open):
+  #    上面只驗「腳本還在鏈上」, **完全不看那一行的離場碼往哪去**。
+  #    而 `&&` 鏈後面被加了一個 `if … fi` 區塊之後, hook 的離場碼變成【那個區塊的】
+  #    ⇒ 拿真的檔跑(pnpm 換成必紅的樁):**rc=0** —— typecheck 紅了而 push 放行。
+  #    🔴 `sh -e` 只救得了【末段】:AND-OR 串列裡非末段的失敗被 errexit 豁免
+  #      ⇒ fail-open 涵蓋鏈上第 1-4 支, 而那正是每次都在跑的那幾支。
+  #    📌 這與 `check_precommit` 是【同一個病】—— 那邊 2026-08-21 就修了, 這邊沒有。
+  #    ⇒ 要 `|| exit $?` 不是 `|| exit 1`:鏈裡 `migration-ledger-divergence.sh` 用 `exit 2/9`、
+  #      `selftest-git-isolation-gate.sh` 用 `exit 2`(本閘自己壞了)⇒ 壓成 1 會吃掉三態。
+  chain=$(printf '%s\n' "$ppbody" | grep 'scripts/deploy-order-gate.sh')
+  if [ -z "$chain" ]; then
+    echo "🔴 $f:抓不到鏈那一行 ⇒ 這不是「乾淨」, 是本閘掃錯了,exit 2" >&2; return 2
+  fi
+  if ! printf '%s\n' "$chain" | grep -q '|| exit \$?$'; then
+    echo "🔴 $f:那條 && 鏈【自己那一行】沒有接 \`|| exit \$?\`" >&2
+    printf '%s\n' "$chain" | sed 's/^/      ✗ /' | cut -c1-140 >&2
+    echo "   ⇒ 鏈後面只要再有一個敘述(例如 size gate 那個 if 區塊), 鏈的紅就會被它的離場碼洗掉。" >&2
+    echo "   ⇒ 修法:那一行尾巴接上 \`|| exit \$?\`(不要 \`|| exit 1\` —— 鏈裡有三態閘)。" >&2
+    return 1
+  fi
+  echo "── husky 接線:$f 語法過,兩支 gate 都還在鏈上,鏈尾接了 || exit \$?"
   return 0
 }
 
@@ -246,19 +266,30 @@ X
   ck "E 檔不存在 ⇒ 2" "$?" "2"
 
   # F【該綠】pre-push 兩支 gate 都在
-  printf 'a && b && bash scripts/deploy-order-gate.sh && sh scripts/migration-ledger-divergence.sh\n' > "$T/pp-ok"
+  printf 'a && b && bash scripts/deploy-order-gate.sh && sh scripts/migration-ledger-divergence.sh || exit $?\n' > "$T/pp-ok"
   check_prepush "$T/pp-ok" >/dev/null 2>&1
   ck "F pre-push 兩支 gate 都在 ⇒ 0" "$?" "0"
 
   # G【該紅】pre-push 少了第四段
-  printf 'a && b && bash scripts/deploy-order-gate.sh\n' > "$T/pp-bad"
+  printf 'a && b && bash scripts/deploy-order-gate.sh || exit $?\n' > "$T/pp-bad"
   check_prepush "$T/pp-bad" >/dev/null 2>&1
   ck "G pre-push 少了 ledger gate ⇒ 1" "$?" "1"
 
   # I【該紅·MF-3】pre-push:註解裡有那兩支 gate 的名字,而鏈上少了一支 ⇒ 必須紅
-  printf '# 註解:scripts/deploy-order-gate.sh 與 scripts/migration-ledger-divergence.sh\na && bash scripts/deploy-order-gate.sh\n' > "$T/pp-cmt"
+  printf '# 註解:scripts/deploy-order-gate.sh 與 scripts/migration-ledger-divergence.sh\na && bash scripts/deploy-order-gate.sh || exit $?\n' > "$T/pp-cmt"
   check_prepush "$T/pp-cmt" >/dev/null 2>&1
   ck "I pre-push 註解有、鏈上沒有 ⇒ 1(不可被註解騙過)" "$?" "1"
+
+  # K【該紅·2026-09-04】鏈上兩支 gate 都在, 而那一行沒接 || exit $? ⇒ 必須紅
+  #    🔴 這一格就是當天那個 fail-open 的最小重現。沒有它, F 與 K 的世界印同一個 0。
+  printf 'a && b && bash scripts/deploy-order-gate.sh && sh scripts/migration-ledger-divergence.sh\nif [ -f x ]; then true; fi\n' > "$T/pp-noexit"
+  check_prepush "$T/pp-noexit" >/dev/null 2>&1
+  ck "K pre-push 鏈在而沒接 || exit \$? ⇒ 1(當天 fail-open 的最小重現)" "$?" "1"
+
+  # L【該紅·三態】接了 || exit 1 而不是 || exit $? ⇒ 也要紅(壓掉 2/9 兩種語意)
+  printf 'a && bash scripts/deploy-order-gate.sh && sh scripts/migration-ledger-divergence.sh || exit 1\n' > "$T/pp-exit1"
+  check_prepush "$T/pp-exit1" >/dev/null 2>&1
+  ck "L pre-push 接的是 || exit 1(壓掉三態)⇒ 1" "$?" "1"
 
   # J【該紅·MF-4】pre-commit:總數相等而綁定錯 —— 一道漏接、別處多一個同字面
   cat > "$T/pc-count" <<'X'
@@ -283,7 +314,7 @@ X
   #    舊寫法卻印「格數不對:有格被刪掉或沒跑到」⇒ **診斷指錯方向**,
   #    而它印在「17 PASS / 1 FAIL」之後 ⇒ 讀的人最後看到的是錯的那一句。
   #    「一格失敗」與「一格不見了」修法完全不同,不能共用同一個出口。
-  EXPECT=10
+  EXPECT=12
   if [ "$((pass + fail))" != "$EXPECT" ]; then
     echo "  🔴 【格數】不對:跑了 $((pass + fail)) 格 ≠ $EXPECT ⇒ 有格被刪掉或沒跑到(這不是「有格失敗」)"; exit 1
   fi

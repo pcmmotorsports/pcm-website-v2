@@ -3,7 +3,7 @@
 // 驗:① server 端 validateRegister strip 未知欄(client 夾帶 tier/wallet 不透傳 use-case;agree 不進 use-case)
 //     ② agree≠true → zod literal(true) 擋 → fieldErrors.agree、不呼叫 use-case、不 redirect
 //     ③ 空 phone → presence 專屬「請填寫手機」(D-g=A 必填 server 權威防線)、不呼叫 use-case
-//     ④ 非空但格式錯 phone → zod「手機格式不正確」(逐欄、Q2=B server 也逐欄)、不呼叫 use-case
+//     ④ ⛔ ~~非空但格式錯 phone → zod「手機格式不正確」~~(Sean 2026-09-04 拍甲作廢)(逐欄、Q2=B server 也逐欄)、不呼叫 use-case
 //     ⑤ 合法輸入 → signUp 收乾淨 AuthSignUpParams + redirect('/')(直登、needsEmailConfirmation=false)
 //     ⑥ AuthError(email_already_registered)→ formError 頂部帳號層級通道(釘死 2)、不 redirect
 //     ⑦ needsEmailConfirmation=true(Confirm email 重開)→ formError 提示、不 redirect
@@ -89,10 +89,20 @@ describe('registerAction(信任邊界 + #181 雙通道)', () => {
     expect(signUpSpy).not.toHaveBeenCalled();
   });
 
-  it('非空但格式錯 phone → zod「手機格式不正確」(Q2=B server 逐欄)、不呼叫 use-case', async () => {
-    const result = await registerAction({ ...VALID, phone: 'abc' });
-    expect(result?.fieldErrors?.phone).toBe('手機格式不正確');
-    expect(signUpSpy).not.toHaveBeenCalled();
+  // ⛔ ~~非空但格式錯 phone → zod「手機格式不正確」~~
+  // 🔴 **Sean 2026-09-04 拍甲作廢**:電話改成「跟地址頁一樣」= 只擋空、不驗格式
+  //    (`⟦b4-PHONEREGEXSPLIT⟧`:那條 regex 拒掉 `+886` ⇒ 同一支電話兩頁行為相反)。
+  // ✅ 取代它的是下面這格:**那些值現在要進得去, 而空的仍然擋。**
+  it('🔴 拍甲之後:+886 / 分機 / 短號都收得下, 而【空的仍然擋】', async () => {
+    signUpSpy.mockClear();
+    for (const v of ['+886-912-345-678', '02-1234-5678 #12', '0911']) {
+      const r = await registerAction({ ...VALID, phone: v });
+      expect(r?.fieldErrors?.phone, `擋掉了 ${v}`).toBeUndefined();
+    }
+    signUpSpy.mockClear();
+    const empty = await registerAction({ ...VALID, phone: '  ' });
+    expect(empty?.fieldErrors?.phone, '純空白過了 ⇒ 放寬放過頭').toBeDefined();
+    expect(signUpSpy, '被擋下就不該去建帳號').not.toHaveBeenCalled();
   });
 
   it('全空白密碼 → presence「請填寫密碼」(codex 關卡2 修補:不得過 zod min(8) 註冊純空白密碼)、不呼叫 use-case', async () => {

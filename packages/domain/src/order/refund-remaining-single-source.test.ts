@@ -870,7 +870,7 @@ describe('「還能退多少」單一算式 gate(#473b-1 機制 2️⃣)', () =>
     //   第一版沒吃 ⇒ 兩邊只差那一個字元而整格紅 —— **而那個紅是對的**(形狀真的不同),
     //   只是它指的是我的正規化不完整,不是函式被動過。
     const norm = (t: string) =>
-      t.replace(/--[^\n]*/g, '').replace(/\s+/g, ' ').trim().replace(/;$/, '').trim();
+      t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '').replace(/\s+/g, ' ').trim().replace(/;$/, '').trim();
     const actual = norm(body!);
 
     const EXPECTED = norm(`

@@ -120,7 +120,10 @@ describe('白名單這張表本身', () => {
     const names = new Set<string>();
     for (const f of readdirSync(dir).filter((x) => x.endsWith('.sql'))) {
       // 剝掉 `--` 行註解再找 —— 否則「註解裡提到 cron.schedule」會被算進分母。
-      const sql = readFileSync(join(dir, f), 'utf8').replace(/--[^\n]*/g, ' ');
+      // 🔴 先剝【區塊】註解再剝行註解(2026-09-04 `-auth`, ⟦b4-PIECEBGATEGAPS⟧ ②④):只剝 `--` 擋不住 `/* … */`。
+      const sql = readFileSync(join(dir, f), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/--[^\n]*/g, ' ');
       for (const m of sql.matchAll(/cron\.schedule\(\s*'([^']+)'/g)) names.add(m[1]!);
     }
     const inMigrations = [...names].sort();

@@ -282,17 +282,21 @@ pq -q -c "INSERT INTO public.orders (id, customer_user_id, cart_session_id, disp
           VALUES ('${CARD}','${UID_FIXED}','${CART}','PCM-BANK-TARGET','unpaid','bank_transfer');"
 check "格16 目標單是匯款單 ⇒ not_card_order" "not_card_order" "$(q1 "SELECT public.begin_charge_attempt('${CARD}'::uuid) ->> 'reason';")"
 
-# 格17 🔵 多張:同車兩張未付款匯款單 ⇒ **兩張都被取消**
-#   ⛔ ~~明寫這是刻意的, 不是只取消一張~~ **這句話沒有來源**(codex 關卡2 R3 PARTIAL ⑥, 2026-09-05)。
-#   🔬 我開檔查過規格:`docs/specs/2026-09-04-m4b-bank-transfer-checkout-branch-plan.md` 裡的
-#      「那張」(:148 / :154)講的是**客人看不到那張已建好的匯款單**, **不是「取消哪一張」**
-#      ⇒ 🔴 **規格從來沒有講過取消的單複數。**
-#   🔬 而兩張【真的並存得了】:`20260613130000_m3_3ds_0b_cart_session_dedup.sql`
-#      實測 `CREATE INDEX` 1 處 · `CREATE UNIQUE` **0 處** ⇒ cart 索引不是唯一索引。
-#   🎯 **⇒ 這一格現在只是【把現行行為固定成期望值】, 而它固定的那個行為沒有人授權過。**
-#      🔴 而 codex 指出偏的方向:現行是**多取消一張客人的單**, 不是少取消。
-#   ⇒ 📌 **這格保留(它擋得住「行為悄悄改變」), 而板列要記著它等的是【授權】不是【修碼】。**
-#      ⟦b4-PIECEBGATEGAPS⟧ ⑥。
+# 格17 🔵 多張:同車兩張未付款匯款單 ⇒ **兩張都被取消**(明寫這是刻意的, 不是只取消一張)
+#       🟢 **2026-09-04 Sean 拍板【甲 全部一起取消】**(拍板檔第二十四題)⇒ 本格守的是【被批准的行為】,
+#          不再只是「鎖住現行行為」。🛑 改成只取消一張 = 推翻拍板, 不是改一道測試。
+#
+#   🔴🔴 **而我(線【信】`-mail`)2026-09-05 一度把這格改寫成「沒有人授權過」—— 那是錯的。**
+#      🔬 我的依據:開檔查規格 ⇒ plan `:148/:154` 的「那張」講的是**客人看不到那張已建好的匯款單**,
+#         不是「取消哪一張」⇒ 我據此寫下「規格從來沒有講過取消的單複數」。
+#      🎯 **而那句話【對規格而言是真的】, 對【拍板】而言是假的。**
+#         ⇒ 📌 **我掃的是 `docs/`, 而他的拍板住在 `~/pcm-mailbox/`** ——
+#           **一把只掃 repo 的尺, 對「他說過沒有」這個問題結構上失明。**
+#         ⇒ 🔴 **判別句:要斷言「沒有人說過」之前, 分母要含 mailbox, 不只 repo。**
+#      🔵 而 codex R3 判它 PARTIAL 是**對的**(它審的那一刻確實還沒拍),
+#         **而它在同一晚被拍掉了** ⇒ 📌 **一個 finding 可以在你折它的期間過期。**
+#      📎 全文投稿 `docs/patterns/traps-inbox/mail-20260905a-零命中第四種-網撒錯載體.md`
+#      🔵 合併紀錄:線【身分】`-auth` `a5e7e4f30` 那半是對的, 本格取它;上面這段是我留下的病歷。
 reset_data; seed_card
 pq -q -c "INSERT INTO public.orders (customer_user_id, cart_session_id, display_id, payment_status, payment_channel)
           VALUES ('${UID_FIXED}','${CART}','PCM-BANK-B','unpaid','bank_transfer'),

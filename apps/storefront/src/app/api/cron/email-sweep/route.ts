@@ -44,6 +44,7 @@ import { timingSafeEqual } from 'node:crypto';
 import {
   enqueueOrderCreatedEmails,
   enqueueOrderUnpaidCancelledEmails,
+  enqueueTrackingCorrectedEmails,
   enqueueOrderShippedEmails,
   readDeployCutoff,
   resolveShippedEmailCutoff,
@@ -56,11 +57,16 @@ import {
 import {
   getEnqueueOrderCreatedDeps,
   getEnqueueOrderUnpaidCancelledDeps,
+  getEnqueueTrackingCorrectedDeps,
   getEnqueueOrderShippedDeps,
   getSweepEmailOutboxDeps,
 } from '@/lib/email/composition';
 // eslint-disable-next-line no-restricted-imports -- 受控例外:只取型別守衛用的錯誤類別(不建任何 adapter);它只帶 stage/code 兩個固定欄、零 PII。
-import { ScanQueryError, UnpaidCancelledScanQueryError } from '@pcm/adapters/server';
+import {
+  ScanQueryError,
+  TrackingCorrectedScanQueryError,
+  UnpaidCancelledScanQueryError,
+} from '@pcm/adapters/server';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
 import { CRON_JOB_NAME, recordHeartbeatSuccess, recordHeartbeatFailure } from '@/lib/cron/heartbeat';
 
@@ -278,6 +284,30 @@ function pickShippedEnqueueCounts(result: {
   };
 }
 
+// 🔵 第三支同款 picker(⟦5b-TRACKNUMGAP1⟧ 片 C)。
+// 🔴 **不共用 `pickShippedEnqueueCounts`** —— 型別剛好相容, 而**輸出的鍵不能相同**:
+//    兩條線的計數會落在同一個 JSON 物件裡, 共用會讓後寫的那條**安靜覆蓋**前一條
+//    ⇒ 📌 而覆蓋之後兩個數字看起來都很合理, 沒有東西會叫。
+function pickTrackFixEnqueueCounts(result: {
+  scanned: number;
+  truncated: boolean;
+  enqueued: number;
+  skippedNoRealEmail: number;
+  duplicate: number;
+  noRecipient: number;
+  errors: number;
+}) {
+  return {
+    tfxScanned: result.scanned,
+    tfxTruncated: result.truncated,
+    tfxEnqueued: result.enqueued,
+    tfxSkippedNoRealEmail: result.skippedNoRealEmail,
+    tfxDuplicate: result.duplicate,
+    tfxNoRecipient: result.noRecipient,
+    tfxErrors: result.errors,
+  };
+}
+
 export async function GET(request: Request): Promise<Response> {
   // 🔴🔴 **平台的碼表從這一行按下去**(`⟦b4-SWEEPBUDGET1⟧`,2026-08-30)。
   //    `maxDuration` 是平台 kill 這個 function 的上界,而它算的是**整個請求**,
@@ -492,6 +522,52 @@ export async function GET(request: Request): Promise<Response> {
   }
   const shippedSection = { shippedEnqueueStatus: shippedStatus, ...(shippedCounts ?? {}) };
 
+  // ── 1e. 🔴 ⟦5b-TRACKNUMGAP1⟧ 片 C:更正貨運單號的通知信, 掃描式 enqueue ──────────
+  //     (主視窗 2026-09-04 批乙+;Sean 拍板逐字「甲 = 做, 改完自動再寄」)
+  //
+  // 🔴🔴 **它【共用出貨線那顆 cutoff 當閘】, 而它自己【沒有】cutoff 參數 —— 兩件事, 不要讀成一件。**
+  //   ① **沒有 cutoff 參數**:觸發欄 `shipments.tracking_corrected_at` 是片 C 才新增的
+  //      ⇒ 歷史上每一箱那一欄都是 NULL ⇒ **集合天生從空的開始長** ⇒ 不需要起始線。
+  //   ② **仍然掛在 `shippedCutoff.kind === 'ok'` 底下**:
+  //      🎯 因為**它們是同一條線的同一支剎車**。「設了 env、看到不對、把它拿掉」是一個人會做的事,
+  //        而那個動作的意思是「**整條出貨線停下來**」, 不是「出貨信停、更正信照寄」。
+  //      ⇒ 🛑 少了這一格, 拔掉 env 之後**更正信仍會寄出去** —— 而信收不回來(鐵則 12⑤)。
+  //      ⚠️ 而它同時也是一道**天然的正確性閘**:更正信的前提是客人收過出貨信,
+  //        而出貨信被這顆 env 擋著的期間, 一封都沒寄出去過。
+  //
+  // 🛑🛑 **時間預算:這是疊進同一個 `maxDuration = 60` 的【第四條】序列 enqueue**
+  //   ⇒ ⟦b4-CRON60SDOGPILE⟧ 那條已知缺口**又寬了一格**, 而本片沒有修它。
+  //   🔵 量級論證同上面那段:更正單號遠少於出貨, 而出貨本身就 10-30 封/日 << 50。
+  //   🔴 **而那是量級論證不是機制** —— 判別訊號不變:cron log 整輪耗時逼近 60s ⇒ 回來做它。
+  //
+  // 🔴 **整段失敗不擋 sweeper** —— 與另外三支同形:計 errors、本輪最後回 503。
+  let trackFixCounts: ReturnType<typeof pickTrackFixEnqueueCounts> | null = null;
+  let trackFixStatus: 'skipped_no_cutoff' | 'skipped_bad_cutoff' | 'completed' | 'failed' =
+    shippedCutoff.kind === 'not-configured'
+      ? 'skipped_no_cutoff'
+      : shippedCutoff.kind === 'bad-format'
+        ? 'skipped_bad_cutoff'
+        : 'completed';
+  if (shippedCutoff.kind === 'ok') {
+    try {
+      trackFixCounts = pickTrackFixEnqueueCounts(
+        await enqueueTrackingCorrectedEmails(getEnqueueTrackingCorrectedDeps(), {
+          limit: ENQUEUE_LIMIT,
+        }),
+      );
+    } catch (err) {
+      trackFixStatus = 'failed';
+      // 🔴 用**本片自己那支 error** —— 兩支同名時 instanceof 比的是身分不是名字。
+      const scan =
+        err instanceof TrackingCorrectedScanQueryError ? { code: err.code } : {};
+      console.error('[email-sweep] 🔴 更正單號信 enqueue 整段失敗(不擋 sweeper;本輪最後回 503)', {
+        reason: 'tracking_corrected_scan_throw',
+        ...scan,
+      });
+    }
+  }
+  const trackFixSection = { trackFixEnqueueStatus: trackFixStatus, ...(trackFixCounts ?? {}) };
+
   // 🔵🔵 **「還沒上膛」要出聲**(2026-08-30 夜;`-48` 拍板做、codex 不豁免)
   //   量到的:env 沒設 ⇒ `skipped_no_cutoff` ⇒ **不進下面的 503 判斷** ⇒ 回 200,
   //   而本檔成功路徑**一行 log 都沒有**(全檔 console 分母 6,而 6 支全是 `console.error`)
@@ -631,20 +707,40 @@ export async function GET(request: Request): Promise<Response> {
       //    📌 三條線的判準必須逐字同形, 否則「哪一條漏了」在畫面上看不出來。
       unpaidCancelStatus === 'failed' ||
       unpaidCancelStatus === 'skipped_bad_cutoff' ||
-      (unpaidCancelCounts?.enqErrors ?? 0) > 0
+      (unpaidCancelCounts?.enqErrors ?? 0) > 0 ||
+      // 🔴 第四條線(⟦5b-TRACKNUMGAP1⟧ 片 C)照同一套判準。
+      //    📌 上面那段話逐字記著「我第一版漏了」—— 而漏掉的症狀是**回 200、心跳記成功**,
+      //      也就是這一整條線在修的那個病。所以這三行是照抄不是重想。
+      trackFixStatus === 'failed' ||
+      trackFixStatus === 'skipped_bad_cutoff' ||
+      (trackFixCounts?.tfxErrors ?? 0) > 0
     ) {
       console.error('[email-sweep] 🔴 本輪有失敗(回 503;不吞成 200 偽裝成功)', {
         ...counts,
         ...enqueueSection,
         ...shippedSection,
+        ...trackFixSection,
       });
       await recordHeartbeatFailure(CRON_JOB_NAME.emailSweep);
-      return Response.json({ ok: false, ...counts, ...enqueueSection, ...shippedSection }, { status: 503 });
+      return Response.json({ ok: false, ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection }, { status: 503 });
     }
 
     // 4. 認證過 + 無錯 → 200 + 計數摘要(零 PII counts;含 deferred 供調參可見度)。
-    await recordHeartbeatSuccess(CRON_JOB_NAME.emailSweep);
-    return Response.json({ ok: true, ...counts, ...enqueueSection, ...shippedSection }, { status: 200 });
+    // 🔴 ⟦b4-CRON60SDOGPILE⟧ 2026-09-04:把整輪起點交出去 ⇒ 心跳那行多印 `round=<毫秒>ms`。
+    //    🎯 **它解的是「量不到」不是「太慢」** —— 2026-09-04 實測(當前 deployment、近 6 小時):
+    //      `/api/cron/email-sweep` **72 發, 而心跳那行也是 72 行 ⇒ 0 輪被 kill**
+    //      (正對照:同一把尺換一個字串回 11 不是 72 ⇒ 它真的在讀 log 內容)。
+    //    🛑 **而那個 0 只答得出「有沒有撞到」, 答不出「離 60 秒還有多遠」**
+    //      ⇒ 而片 C 讓這裡變成**第四條**序列 enqueue ⇒ 📌 **撞到之前完全沒有預警。**
+    //    ⚠️ `invocationStartedAtMs` 是 GET 的第一行 ⇒ 這個數**不含平台的冷啟動與回應寫出**
+    //      ⇒ 它是**下界**, 不是平台那把碼表(而 `maxDuration` 算的是後者)。
+    await recordHeartbeatSuccess(
+      CRON_JOB_NAME.emailSweep,
+      undefined,
+      undefined,
+      invocationStartedAtMs,
+    );
+    return Response.json({ ok: true, ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection }, { status: 200 });
   } catch {
     // deps/env 缺(requireEnv throw)或非預期 throw(如 lease 下界違反)→ 503 fail-closed(不偽 200)。
     // 🔴 固定 reason code(零 PII、零洩漏面;不把任意 err.message 入 log 縱深、杜絕密鑰 drift 帶進 log)。

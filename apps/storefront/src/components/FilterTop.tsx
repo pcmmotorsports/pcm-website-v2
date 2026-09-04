@@ -162,7 +162,7 @@ export function FilterTop({
    * ⇒ 自訂區間**取代**預設列,同預設列彼此互相取代的行為。
    *
    * 🔴 **上限用 `Number.MAX_SAFE_INTEGER` 而不是 `Infinity`**:網址同步會寫
-   * `pmax=String(...)`(`use-catalog-filter-url-sync.tsx:182`),而回程的
+   * `pmax=String(...)`(`use-catalog-filter-url-sync.tsx` 的 `params.set('pmax', …)` 那行),而回程的
    * `parseNonNegativeInteger`(`lib/catalog-query.ts:130-139`)要求 `Number.isInteger`
    * —— `Infinity` 不是整數 ⇒ **重整之後上限會安靜消失**。`MAX_SAFE_INTEGER` 過得了那道檢查。
    */

@@ -73,7 +73,7 @@ function liveDefinerOfCreateOrder(): string {
 function tierValueInOrdersInsert(sql: string): string | null {
   const m = /INSERT\s+INTO\s+public\.orders\s*\(([\s\S]*?)\)\s*VALUES\s*\(([\s\S]*?)\)/m.exec(sql);
   if (m === null) return null;
-  const stripComments = (s: string) => s.replace(/--[^\n]*/g, '');
+  const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '');
   const cols = stripComments(m[1] ?? '')
     .split(',')
     .map((s) => s.trim());

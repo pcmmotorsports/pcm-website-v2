@@ -95,6 +95,7 @@ import {
   printCategorySemanticReport,
 } from './rpm-preflight';
 import { printTitleLanguageReport } from './rpm-title-language';
+import { deniedGroupMessage, findDeniedGroup } from './supplier-group-denylist';
 
 // ── constants ──
 // P0-A-3:orchestrator 全量由 supplier-config 驅動(scope/brand/category/handle/subtitle/description)。
@@ -423,6 +424,40 @@ async function main(): Promise<void> {
     // 丙:跳過那幾筆、其餘照匯。移除邏輯在模組裡(那裡有直接測它的斷言)。
     applyTitleGateSkip(productRows, variantsByExternalId, variantRows, titleGate.skipExternalIds);
     // 非零退出(cron 警報);**不影響本次寫入** —— exitCode 在行程結束才生效。
+    process.exitCode = 1;
+  }
+
+  // ── 🔴🔴 不准上架名單(⟦supply-RIZOMASPECWRONG⟧)——【擋在兩條寫入路徑之前】──
+  //
+  // ⛔ ~~我 2026-09-04 第一版只擋在 `syncVariantGroupAtomic` 裡~~ ⇒ **繞得過**。
+  //    成因(codex 派工時 `-94` 要我查, 而查出來的是我自己講錯了):
+  //      我逐字寫過「`syncVariantGroupAtomic` 是全 repo【唯一】寫 `products` 的路」——
+  //      **依據是「`rpc('sync_product_variant_group')` 在 `rpm-load.ts` 只出現一次」**
+  //      🔴 而【那支 RPC 只被呼叫一次】與【products 只有一條寫入路徑】是兩個宣稱。
+  //    實際有兩條:`:647` 的 `upsertBatched(target, 'products', …)`(一般群)
+  //              與 `:749` 的 `syncVariantGroupAtomic`(transition hazard 群)。
+  //    🛑 **而走哪一條是【資料】決定的, 不是設定決定的** ⇒ 今天擋得住而重灌那天可能擋不住,
+  //       **而中間沒有任何東西會叫。**
+  //
+  // ✅ ⇒ 移到這裡:兩條路都源自 `productRows` / `variantsByExternalId`
+  //    ⇒ **一份名單、一道擋。**(主視窗 2026-09-04 裁甲)
+  //
+  // 🔴 **位置與 titleGate 同一格, 而理由也同一條**:`sourceExternalIds`(`:314`)必須在
+  //    本段【之前】就建好 —— 否則被擋掉的商品會從那個集合裡消失
+  //    ⇒ 被當成「**來源已無此品**」⇒ 📌 **「不要更新它」會變成「悄悄下架它」。**
+  //    ⇒ 那正是我們最不想要的結果:那兩群現在還在架上賣, 只是顏色是錯的。
+  const deniedHits = productRows
+    .map((p) => findDeniedGroup(config.supplierSlug, p.external_id))
+    .filter((d): d is NonNullable<typeof d> => d !== null);
+  if (deniedHits.length) {
+    for (const d of deniedHits) console.error(deniedGroupMessage(d));
+    applyTitleGateSkip(
+      productRows,
+      variantsByExternalId,
+      variantRows,
+      deniedHits.map((d) => d.externalId),
+    );
+    // 🔵 非零退出(與 titleGate 同款)—— 不影響本次寫入, 而 cron 看得到。
     process.exitCode = 1;
   }
 
