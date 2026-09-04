@@ -31,14 +31,35 @@
 --         (⚠️ 這一格也**改過**:原本沒有 `COALESCE`, 而**鍵不存在時它不叫** —— 那正是它唯一的理由)
 --       · 事後斷言 2 ⇒ 五個字串逐格對 `pg_get_functiondef` 量, 全 true
 --       · 事後斷言 3 ⇒ 不給權限 ⇒ 紅;照正式庫收好權限 ⇒ 綠
---    🛑 **而它【沒有】被驗到的那一半, 照實寫**:這顆 stub 庫**沒有真的 schema**
+--    🛑 **而 stub 那一發【沒有】被驗到的那一半, 原句留著**:那顆庫沒有真的 schema
 --       ⇒ `INSERT INTO public.orders` 那一行**從來沒有真的執行過**
---       ⇒ 📌 「欄位寫進去了」是**靜態斷言**(字串在定義裡), 不是**行為**(那一列真的是 false)。
---       ⇒ 🛑 **而「拿正式庫當第一次行為驗證」不是選項**(codex R3 must-fix #4)——
---          要關掉這一格, 需要一顆**有完整 schema 的拋棄式庫**
---          (`docs/runbooks/throwaway-postgres-for-migration-verification.md`):
---          真的呼叫一次、送 `requested:false`、回查那一列是不是 `false`。
---          📌 **那一步還沒做** —— 它是 apply 前的前置條件, 不是 apply 後的確認。
+--       ⇒ 📌 「欄位寫進去了」在那一發裡是**靜態斷言**(字串在定義裡), 不是**行為**。
+--
+--    🔵🔵 **⇒ 而【行為】那一半已經補上了 —— 2026-09-05 凌晨, 完整 schema 的拋棄式 PG 17。**
+--       作法:runbook §2 bootstrap ⇒ 依檔名序重播 `supabase/migrations/` **299 支**
+--       (失敗 **64** 支, 第一支失敗 `20260712183000_products_catalog_page_public.sql`
+--        —— 那是環境缺件, 見下方射程)⇒ 確認 `public.orders` 在、
+--       `admin_create_manual_order` **恰 1 支**、且庫裡那一版**含第③代獨有的那句字**
+--       ⇒ 再貼本檔 ⇒ `COMMIT` ⇒ **真的呼叫五發**:
+--         · `requested:false` ⇒ 建單成功 ⇒ 🔴 **回查那一列 `invoice_requested = false`**
+--         · `requested:true`  ⇒ 回查 `true`
+--         · **不送這個鍵**     ⇒ 回查 `true`(相容期照舊 = 與今天相同)
+--         · `requested:null`  ⇒ **被擋**, 逐字「送了但不是 true / false(收到型別:null)」
+--         · `requested:"yes"` ⇒ **被擋**,「(收到型別:string)」
+--       ⇒ 被擋那兩發之後 `count(*) FROM orders` **仍是 3** ⇒ 它們真的沒進去, 不是進去了沒印。
+--       🎯 **那個 `false` 是本段唯一值錢的東西** —— 五發裡**唯一印出不同值**的一發
+--          ⇒ 它證明這條路不是恆真的。
+--       🔵 **順帶量到(本來沒打算驗)**:三列的 `invoice` 欄都是 `{"type": "personal"}`
+--          ⇒ **`requested` 沒有汙染抬頭那個 jsonb**(函式用 `jsonb_build_object` 只挑五個鍵重建)。
+--
+--    🛑 **射程 —— 這一發【沒有】證明的事, 照實寫**:
+--       · 重播 **64 支失敗** ⇒ 這顆庫**不等於正式庫**。已知被我在庫裡動手的兩處:
+--         ① `DROP TRIGGER on_auth_user_created`(bootstrap 的 `auth.users` stub 沒有 `email` 欄)
+--         ② `DROP CONSTRAINT orders_display_id_format`(約束期待 `PCM-YYYY-NNNN`, 而
+--            `pcm_generate_display_id()` 產的是 `ZQ9CB4` 這種 ⇒ **兩個世代**;中間那支換格式的
+--            migration 在重播裡失敗了)⇒ 📌 **與本片無關, 而我記在這裡而不是繞過去。**
+--       · ⇒ 本段證明的是「**在這個環境裡, 這條路把值送到了那一欄**」,
+--         **不是**「正式庫貼下去一定一樣」。要那個, 只有貼完之後去看那一列。
 --
 -- ── 🔴🔴 **上線順序:先貼 migration, 再上碼。不可以反過來。** ──────────────
 --    ⛔ ~~我 R3 之後寫「兩個部署順序的最壞情況都是與今天一模一樣 ⇒ 不必協調」~~
