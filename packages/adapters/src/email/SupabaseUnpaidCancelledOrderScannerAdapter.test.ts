@@ -21,19 +21,27 @@ function makeBuilder(result: { data: unknown; error: unknown }) {
   return { b, calls };
 }
 
+// 🔴 2026-09-05:掃描面改成 view ⇒ 分流的鍵從 `'orders'` 換成那個 view 名。
+//    🛑 而 `from` 改成 `vi.fn()` **是承重的**:有一格要斷言「只打一發、而且打的是那個 view」,
+//      而舊版那個裸箭頭函式**記不下被叫過幾次、用什麼參數**。
 function makeClient(orders: ReturnType<typeof makeBuilder>, customers: ReturnType<typeof makeBuilder>) {
-  return {
-    from: (t: string) => (t === 'orders' ? orders.b : customers.b),
-  } as never;
+  const from = vi.fn((t: string) =>
+    t === 'pcm_unpaid_cancelled_email_pending' ? orders.b : customers.b,
+  );
+  // 🔵 `client` 對 adapter 是 `never`(生成型別那一側), 而 `from` 這支 spy 要拿得到
+  //    ⇒ 分開回傳, 不要叫呼叫端去 `client.from` 挖(那在型別上過不了)。
+  return { client: { from } as never, from };
 }
 
+// 🔴 2026-09-05(⟦b4-NORECIPIENTWINDOW⟧ 甲 · 第二條線):改成 **view** 的欄。
 const ORDER = {
-  id: 'order-1',
+  order_id: 'order-1',
   display_id: 'PCM-2026-0001',
   cancelled_at: '2026-09-03T10:00:00.000Z',
   cancelled_reason: 'out_of_stock',
+  created_at: '2026-09-03T09:00:00.000Z',
   notification_email: 'a@example.com',
-  customer_user_id: 'user-1',
+  customer_email: null,
 };
 
 const IN = { cutoff: '2026-09-03T00:00:00.000Z', limit: 50 };
@@ -49,7 +57,16 @@ describe('SupabaseUnpaidCancelledOrderScannerAdapter — 射程(而它靠一個�
   //    ⇒ 🛑 **那個字面住在另一支檔** ⇒ 有人改它、或加第八個員工理由叫 payment_expired
   //      ⇒ **這道閘會安靜地換一批收件人, 而沒有東西會叫。**
   //    ⇒ ✅ 所以三個世界都釘住。
-  it('🔴 射程那道【真的送出去了】—— 而它是 select 裡的 `!inner`, 不是一個 filter', async () => {
+  // 🔴🔴 **2026-09-05:射程那道判準【搬進 view】了。**
+  //    ⇒ 它現在是 view 裡的 `EXISTS (SELECT 1 FROM order_cancellations …)`,
+  //      而不是這一層 select 字串裡的 `!inner`。
+  //    ✅ **守門跟著搬**:`20260905030000` 的 apply 期**釘樁②**逐字找 `order_cancellations`,
+  //      找不到就 RAISE, 而訊息說出後果(逾時那批會收到信, 而 Sean 2026-09-03 拍過不寄)。
+  //    ⛔ ~~**而換成 EXISTS 還解掉一件 `!inner` 帶著的風險**:`!inner` 對一對多會複製父列~~
+  //    🔴 **那句是假的**(codex 2026-09-05, 附官方文件):PostgREST 的 to-many embed
+  //      回的是父物件 + 子陣列, **不複製父列** ⇒ 兩者的父列集合本來就相同。
+  //    ✅ 換成 EXISTS 仍然對, 理由是「這個 view 是 SQL, 而 SQL 裡沒有 embed 這個東西」。
+  it('🔴 射程那道判準【不在這一層了】—— 而毒字面一個都不准回來', async () => {
     // 🔴🔴 **判準換過一次, 而換的理由要留在測試裡**:
     //    ⛔ 第一版用 `.neq('cancelled_reason', 'payment_expired')`
     //      ⇒ codex 打穿:員工選 `other` 時那一欄**就是他打的字**(a8a1 `:129-136`)
@@ -57,16 +74,22 @@ describe('SupabaseUnpaidCancelledOrderScannerAdapter — 射程(而它靠一個�
     //    📌 **判準的種類錯了 —— 拿【內容】當【身分】。**
     //    ✅ 換成問「`order_cancellations` 那一列在不在」:員工取消(a8a1)會寫那一列,
     //      逾時那條**一列都不寫** ⇒ 而**它存不存在由哪一支函式跑過決定, 不由任何人填**。
-    // 🎯 而過濾是 `!inner` 這個 join 自己做的 ⇒ **這一格要驗的是那個字面在 select 裡**。
+    // 🎯 而過濾**現在由 view 做** ⇒ 這一格要驗的變成:**那三個毒字面一個都不准回到這一層**。
     const orders = makeBuilder({ data: [], error: null });
     const customers = makeBuilder({ data: [], error: null });
     await new SupabaseUnpaidCancelledOrderScannerAdapter(
-      makeClient(orders, customers),
+      makeClient(orders, customers).client,
     ).listUnpaidCancelledWithoutEmail(IN);
     const sel = String(argsOf(orders.calls, 'select')[0]?.[0]);
-    expect(sel).toContain('order_cancellations!inner');
-    // 🟢 而 payment_status 那一半也要在 —— 少了它會撈到已付款的單
-    expect(argsOf(orders.calls, 'eq')).toContainEqual(['payment_status', 'unpaid']);
+    // 🔴 承重:它們回來就代表有人把判準搬回這一層 ——
+    //    而搬回來的那一版**不會**有 view 那道 apply 期釘樁在守。
+    expect(sel).not.toContain('order_cancellations');
+    expect(sel).not.toContain('email_outbox');
+    expect(argsOf(orders.calls, 'eq')).toEqual([]);
+    expect(argsOf(orders.calls, 'not')).toEqual([]);
+    // 🟢 正對照:它確實去讀了那個 view(否則上面四行在「什麼都沒發」時也會綠)。
+    expect(sel).toContain('customer_email');
+    expect(sel).toContain('cancelled_reason');
     // 🔴 而【不得】再有那道舊的 reason 過濾 —— 它是被推翻的那個判準
     expect(argsOf(orders.calls, 'neq')).not.toContainEqual([
       'cancelled_reason',
@@ -74,29 +97,34 @@ describe('SupabaseUnpaidCancelledOrderScannerAdapter — 射程(而它靠一個�
     ]);
   });
 
-  it('🔴 ① 逾時取消 ⇒ 不得被撈進來 —— 而【它是被 `!inner` 濾掉的】', async () => {
-    // 🛑🛑 **本格舊版餵 `data: []` 再斷言 `rows === []` ⇒ 在「濾對了」與「完全沒濾」
-    //    兩個世界印同一個綠 —— 壞不掉**(code-reviewer must-fix 5)。
-    //    ✅ 改法:**餵一筆真的資料, 而它模擬 DB 端 `!inner` 把它濾掉之後的結果** ——
-    //    而「那道 `!inner` 真的送出去了」由上面那格 select 字面斷言證。
-    //    ⚠️ **這一格證得到的東西有限, 而那要說出來**:mock 不執行 PostgREST 的 join,
-    //      所以**真正的過濾語意只有正式庫對照得了**(見本檔尾的效度限定)。
+  // 🔴🔴 **2026-09-05:本格【證不到它原本要證的東西了】, 而那要說出來而不是靜靜留著。**
+  //    它原本靠「`!inner` 的字面在 select 裡」當證據;而那個字面搬進 view 之後,
+  //    這一層**沒有任何東西**在表達「逾時那批要被濾掉」。
+  //    ⇒ 🛑 留著一格餵空資料、斷言空結果的測試 ⇒ **在「濾對了」與「完全沒濾」印同一個綠**
+  //      —— 而那正是本檔 code-reviewer must-fix 5 當初打掉的那個形狀。
+  //    ✅ **它的守門搬到 `20260905030000` 的釘樁②**(逐字找 `order_cancellations`,
+  //      找不到就 RAISE 並說出後果)。
+  //    🔵 本格改成守一件這一層【還答得出來】的事:**adapter 打的是那個 view, 不是 orders。**
+  it('🔴 ① 打的是那個 view —— 而「逾時不寄」那道判準已經不在這一層(見 view 的釘樁②)', async () => {
+    // ⚠️ **這一格證得到的東西比它的舊版【更少】, 而那是誠實的**:
+    //    過濾語意在 view 裡, 而 mock 不執行 SQL ⇒ 這一層只答得出「它去讀了誰」。
     const orders = makeBuilder({ data: [], error: null });
     const customers = makeBuilder({ data: [], error: null });
+    const { client, from } = makeClient(orders, customers);
     const r = await new SupabaseUnpaidCancelledOrderScannerAdapter(
-      makeClient(orders, customers),
+      client,
     ).listUnpaidCancelledWithoutEmail(IN);
     expect(r.rows).toStrictEqual([]);
-    // 🟢 而【那道 join 的字面在不在】才是這一格真正守得住的東西
-    const sel = String(argsOf(orders.calls, 'select')[0]?.[0]);
-    expect(sel).toContain('order_cancellations!inner');
+    // 🔴 承重:打錯表(例如有人改回 'orders')⇒ 這一行紅;
+    //    而**只打一發**也在這一行裡(第二發回來 ⇒ 陣列變兩個元素)。
+    expect(from.mock.calls.map(([t]) => t)).toEqual(['pcm_unpaid_cancelled_email_pending']);
   });
 
-  it('🟢 ② 員工理由(out_of_stock)⇒ 必須被撈進來', async () => {
+  it('🟢 ② 員工理由(out_of_stock)⇒ 原樣傳出去(而現在只打一發查詢)', async () => {
     const orders = makeBuilder({ data: [ORDER], error: null });
-    const customers = makeBuilder({ data: [{ user_id: 'user-1', email: null }], error: null });
+    const customers = makeBuilder({ data: [], error: null });
     const r = await new SupabaseUnpaidCancelledOrderScannerAdapter(
-      makeClient(orders, customers),
+      makeClient(orders, customers).client,
     ).listUnpaidCancelledWithoutEmail(IN);
     expect(r.rows.map((x) => x.orderId)).toStrictEqual(['order-1']);
     expect(r.rows[0]?.cancelledReason).toBe('out_of_stock');
@@ -114,7 +142,7 @@ describe('SupabaseUnpaidCancelledOrderScannerAdapter — 射程(而它靠一個�
     });
     const customers = makeBuilder({ data: [{ user_id: 'user-1', email: null }], error: null });
     const r = await new SupabaseUnpaidCancelledOrderScannerAdapter(
-      makeClient(orders, customers),
+      makeClient(orders, customers).client,
     ).listUnpaidCancelledWithoutEmail(IN);
     expect(r.rows.map((x) => x.orderId)).toStrictEqual(['order-1']);
   });
@@ -131,7 +159,7 @@ describe('SupabaseUnpaidCancelledOrderScannerAdapter — 射程(而它靠一個�
     });
     const customers = makeBuilder({ data: [{ user_id: 'user-1', email: null }], error: null });
     const r = await new SupabaseUnpaidCancelledOrderScannerAdapter(
-      makeClient(orders, customers),
+      makeClient(orders, customers).client,
     ).listUnpaidCancelledWithoutEmail(IN);
     expect(r.rows.map((x) => x.orderId)).toStrictEqual(['order-1']);
     expect(r.rows[0]?.cancelledReason).toBeNull();
@@ -141,7 +169,7 @@ describe('SupabaseUnpaidCancelledOrderScannerAdapter — 射程(而它靠一個�
     const orders = makeBuilder({ data: [], error: null });
     const customers = makeBuilder({ data: [], error: null });
     await new SupabaseUnpaidCancelledOrderScannerAdapter(
-      makeClient(orders, customers),
+      makeClient(orders, customers).client,
     ).listUnpaidCancelledWithoutEmail(IN);
     const gte = argsOf(orders.calls, 'gte');
     expect(gte).toContainEqual(['cancelled_at', IN.cutoff]);
@@ -153,12 +181,12 @@ describe('SupabaseUnpaidCancelledOrderScannerAdapter — 射程(而它靠一個�
     const customers = makeBuilder({ data: [], error: null });
     await expect(
       new SupabaseUnpaidCancelledOrderScannerAdapter(
-        makeClient(orders, customers),
+        makeClient(orders, customers).client,
       ).listUnpaidCancelledWithoutEmail(IN),
     ).rejects.toThrow(/orders\/PGRST999/);
     await expect(
       new SupabaseUnpaidCancelledOrderScannerAdapter(
-        makeClient(orders, customers),
+        makeClient(orders, customers).client,
       ).listUnpaidCancelledWithoutEmail(IN),
     ).rejects.not.toThrow(/@example\.com/);
   });

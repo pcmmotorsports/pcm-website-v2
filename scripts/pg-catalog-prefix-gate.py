@@ -78,12 +78,46 @@ SYNTAX_PAT = re.compile(r'\bpg_catalog\.(' + '|'.join(SYNTAX_ONLY) + r')\s*\(', 
 
 
 def strip_line_comments(sql):
-    """先剝行註解 —— 註解裡引用一個錯例(例:本檔自己)不該被判成違規。"""
-    return '\n'.join(re.sub(r'--.*$', '', line) for line in sql.split('\n'))
+    """先剝行註解 —— 註解裡引用一個錯例(例:本檔自己)不該被判成違規。
+
+    🔴🔴 **codex 2026-09-05 must-fix**:原本是 `re.sub(r'--.*$', '', line)`,
+    而 **`--` 出現在【字串常值裡】時它照樣剝** ⇒
+      `SELECT '--', pg_catalog.coalesce(a,b);` ⇒ 整行從第一個 `-` 之後被砍掉
+      ⇒ 📌 **真的違規被自己的剝註解動作藏起來, 而閘印綠。**
+    ⇒ ✅ 改成逐字元走一遍, 只有【不在單引號內】的 `--` 才算註解起點。
+    ⚠️ 射程:它處理單引號與 SQL 的 `''` 逃脫;**不處理 dollar-quote 內的引號**
+      —— 那是刻意的, 因為函式體正是重災區, 本閘要照掃(見 offenders 的 docstring)。
+    """
+    out = []
+    for line in sql.split('\n'):
+        in_str = False
+        i = 0
+        while i < len(line):
+            c = line[i]
+            if in_str:
+                if c == "'":
+                    if i + 1 < len(line) and line[i + 1] == "'":
+                        i += 1          # SQL 的 '' = 一個逃脫的單引號, 不結束字串
+                    else:
+                        in_str = False
+            else:
+                if c == "'":
+                    in_str = True
+                elif c == '-' and i + 1 < len(line) and line[i + 1] == '-':
+                    break               # 真的註解起點
+            i += 1
+        out.append(line[:i])
+    return '\n'.join(out)
 
 
 def _paren_body(line, open_idx):
-    """從 `(` 起抓到配對的 `)`(同一行內);沒收尾就回到行尾。"""
+    """從 `(` 起抓到配對的 `)`。
+
+    🔴 **codex 2026-09-05 must-fix**:原本只在**同一行內**找 ——
+      `pg_catalog.substring(x` 換行後才出現 `FROM y` ⇒ 括號內容抓不到那個關鍵字
+      ⇒ 📌 **把特殊語法拆成兩行就能繞過整道閘。**
+    ⇒ ✅ 呼叫端改成餵【從這一行到檔尾】的文字, 本函式的邏輯不變(它本來就是走字元)。
+    """
     d, j = 0, open_idx
     while j < len(line):
         if line[j] == '(':
@@ -99,26 +133,58 @@ def _paren_body(line, open_idx):
 def offenders(sql):
     """回 [(行號, 那個名字, 該行片段)]。**dollar-quote 裡面照掃** —— 函式體正是重災區。"""
     out = []
-    for i, line in enumerate(strip_line_comments(sql).split('\n'), 1):
+    lines = strip_line_comments(sql).split('\n')
+    for i, line in enumerate(lines, 1):
         for m in ALWAYS_PAT.finditer(line):
             out.append((i, m.group(1).lower(), line.strip()[:70]))
         for m in SYNTAX_PAT.finditer(line):
             name = m.group(1).lower()
-            body = _paren_body(line, m.end() - 1)
+            # 🔴 餵【這一行到檔尾】, 讓跨行的括號也抓得到(codex must-fix⑤)。
+            #    第一行就是 `line` 本身 ⇒ open_idx 不用換算。
+            body = _paren_body('\n'.join(lines[i - 1:]), m.end() - 1)
             # 🔴 只有【括號裡出現那個關鍵字】才算特殊語法;逗號式是合法的。
             if any(re.search(r'\b' + kw + r'\b', body, re.I) for kw in SYNTAX_ONLY[name]):
                 out.append((i, name, line.strip()[:70]))
     return out
 
 
+def read_for_gate(path, root, audit):
+    """`--audit` 讀工作樹(它掃的是全樹現況);否則讀 **index 裡那一版**。
+
+    🔴 `git show :<相對路徑>` 拿的是 staged 的內容 —— 那才是 commit 進去的東西。
+    🛑 它失敗時**不得靜靜退回工作樹** —— 那會讓「讀不到 index」與「index 與工作樹相同」
+      印同一個綠。⇒ 讀不到就當場 rc=2。
+    """
+    if audit:
+        return open(path, encoding='utf-8').read()
+    rel = os.path.relpath(path, root)
+    r = subprocess.run(['git', '-C', root, 'show', ':' + rel],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f'🔴 量具失效:git show :{rel} 回 rc={r.returncode} ⇒ 這【不是】「沒有違規」')
+        sys.exit(2)
+    return r.stdout
+
+
 def staged():
-    r = subprocess.run(['git', 'diff', '--cached', '--name-only', '--diff-filter=ACR'],
+    r = subprocess.run(['git', 'diff', '--cached', '--name-only', '--diff-filter=ACMR'],
                        capture_output=True, text=True)
     if r.returncode != 0:
         print(f'🔴 量具失效:git diff --cached 回 rc={r.returncode} ⇒ 這【不是】「沒有違規」')
         sys.exit(2)
-    return [l for l in r.stdout.split('\n')
-            if l.startswith(MIG_DIR + '/') and l.endswith('.sql')]
+    # 🔴🔴 **2026-09-05 把分母從「只有 supabase/migrations/」放寬成【任何 staged 的 .sql】。**
+    #    成因是量到的:`scripts/view-behaviour-fixtures.sql` 裡寫了 `pg_catalog.nullif(...)`,
+    #    而這道閘**印綠** —— 它不是沒抓到, 是**那支檔結構上不在它的分母裡**。
+    #    ⇒ 📌 **一道列白名單目錄的掃描型守門, 對目錄外的同一個錯【零判別力】,**
+    #      **而它印的綠與「掃過了而且乾淨」逐字相同。**
+    #    ⚠️ 同一個 `nullif` 坑在 2026-09-04 / 09-05 共踩三次, 前兩次都在 migrations 裡被人工發現,
+    #      而那兩次留下的提醒**寫在 migration 的註解裡** ⇒ 對寫 `scripts/*.sql` 的人等於不存在。
+    # 🔴🔴 **而放寬目錄還不夠 —— `--diff-filter=ACR` 只看【新增/改名】, 不看【被改】。**
+    #    ⇒ 那支 fixture 是 `M` ⇒ 放寬目錄之後它**仍然**不在分母裡, 而閘**仍然印綠**。
+    #    ⇒ 📌 **同一道閘上有兩個獨立的「結構上看不到」, 而修掉第一個之後它照樣印綠**
+    #      —— 綠沒有變, 所以沒有任何訊號說我只修了一半。改成 `ACMR`。
+    #    ⚠️ 對 `supabase/migrations/` 而言 M 幾乎不會出現(貼過的不改), 所以這一改不增噪音。
+    return [l for l in r.stdout.split('\n') if l.endswith('.sql')]
 
 
 def main(argv):
@@ -126,13 +192,17 @@ def main(argv):
                           capture_output=True, text=True).stdout.strip() or '.'
     if '--audit' in argv:
         import glob
-        files = sorted(glob.glob(os.path.join(root, MIG_DIR, '*.sql')))
+        files = sorted(glob.glob(os.path.join(root, MIG_DIR, '*.sql'))
+                       + glob.glob(os.path.join(root, 'scripts', '*.sql')))
     else:
         files = [os.path.join(root, f) for f in staged()]
+    # 🔴🔴 **codex 2026-09-05 must-fix:讀的必須是【index 裡那一版】, 不是工作樹那一版。**
+    #    staged 版含違規而工作樹已經改掉 ⇒ 閘讀工作樹 ⇒ **印綠, 而 commit 進去的是壞的那版**;
+    #    反過來則是誤報。⇒ 📌 **這是本 repo 記過三次以上的同一族**(「閘讀 index 而我改的是工作樹」)。
     hits = []
     for f in files:
         try:
-            for ln, name, frag in offenders(open(f, encoding='utf-8').read()):
+            for ln, name, frag in offenders(read_for_gate(f, root, '--audit' in argv)):
                 hits.append((os.path.basename(f), ln, name, frag))
         except OSError:
             continue
@@ -176,6 +246,16 @@ def selftest():
         'SELECT pg_catalog.current_database();', False)
     chk('⑥該綠 · pg_catalog.max / array_to_string 這類普通函式',
         'SELECT pg_catalog.max(x), pg_catalog.array_to_string(a, %s);' % "','", False)
+    # 🔴🔴 codex 2026-09-05 的兩個反例 —— **每一條 finding 都做成一格會紅的東西**,
+    #    否則「我修好了」與「我以為我修好了」在下一次改動時沒有分別。
+    chk('⑭該紅 · `--` 在【字串常值】裡, 後面才是違規(codex must-fix④)',
+        "SELECT '--', pg_catalog.coalesce(a, b);", True)
+    chk('⑮該綠 · 真的行註解裡提到違規 ⇒ 仍然不得誤中(④ 的負對照)',
+        "SELECT 1; -- pg_catalog.coalesce(a, b)", False)
+    chk('⑯該紅 · 特殊語法【跨行】:substring( 換行後才 FROM(codex must-fix⑤)',
+        "SELECT pg_catalog.substring(x\n  FROM 1 FOR 2);", True)
+    chk('⑰該綠 · 跨行但用逗號式 ⇒ 合法(⑤ 的負對照)',
+        "SELECT pg_catalog.substring(x,\n  1, 2);", False)
     # 🔴 邊界
     chk('⑦該綠 · 裸的 coalesce(沒有前綴)⇒ 本閘不管',
         'SELECT coalesce(a, b);', False)

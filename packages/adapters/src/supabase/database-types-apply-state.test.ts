@@ -121,9 +121,23 @@ const CLAIM_APPLIED = ['已 apply', '已apply', '已套用', 'APPLIED.tsv 命中
  *    而**基線 5 格裡沒有這個名字**
  *    ⇒ 舊邏輯 + 同一發突變 ⇒ `6 passed rc=0`(那句假話站著);新邏輯 ⇒ `1 failed / 5 passed rc=1`。
  */
-const EXPECTED_WHOLE_SECTION_MARKS: string[] = [];
-/** 全部圈號條目數。F2:某條圈號被改寫 ⇒ 它不會消失,會**併進上一條**而總數少一。 */
-const EXPECTED_TOTAL_ENTRIES = 12;
+// 🔴 2026-09-05 由 `[]` 變成 `['⑰']` —— **名單變了要人看過**, 而這是那個「人看過」:
+//    ⑰ `admin_record_hct_submit`〔主migration=20260904170000〕是線 `-ship` 真的新增的一條「整段」條目。
+//    🟢 它的 apply 狀態**有第二個獨立來源**:`supabase/APPLIED.tsv` 那一列(Sean 2026-09-04 本人貼,
+//    自帶簽章複驗 + 正負對照)⇒ 本檔的宣稱與帳本**指向同一件事**, 不是自說自話。
+const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰'];
+/** 全部圈號條目數。F2:某條圈號被改寫 ⇒ 它不會消失,會**併進上一條**而總數少一。
+ *
+ * 🔴 **2026-09-05 由 12 改成 13 —— 而改這個數字要附「這次是【真的多一條】」的證據**:
+ *    這一格存在的理由是抓 F2(**條目被併進上一條而總數少一**)⇒ 📌 **它防的是【變少】。**
+ *    而這次是**變多**:線 `-ship` 新增 ⑰ `admin_record_hct_submit`
+ *    〔主migration=20260904170000〕—— 一支**真的新加的**手動條目,不是把既有的併掉。
+ *    🟢 **兩個獨立的證據**:①條目本身在 `database.types.ts` 檔頭那一節,附主 migration 錨
+ *    ②同檔 `Functions` 區塊裡真的有那支型別(不補它 `.rpc()` 會 typecheck 紅)。
+ *    ⚠️ **而它與「⑯ 撞號」是同一件事的兩半**:我原本編 ⑯,而 `:24` 的 ⑯ 是帳號線先用的
+ *    ⇒ 改 ⑰ 之後總數仍是 13(**換號不換數**)。
+ */
+const EXPECTED_TOTAL_ENTRIES = 13;
 
 type Entry = { mark: string; body: string };
 

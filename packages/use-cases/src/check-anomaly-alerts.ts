@@ -183,6 +183,15 @@ export type CheckAnomalyAlertsResult = {
   unpaidCancelledPendingCount: number | null;
   unpaidCancelledNoRecipientCount: number | null;
   unpaidCancelledGapUnknown: boolean;
+  /**
+   * 🔵 更正單號信線那三格(第四條線, 2026-09-04)。
+   * 🔴🔴 **它與姊妹線差在【不共用 `B4_DEPLOY_CUTOFF`】—— 它根本沒有 cutoff。**
+   *    本線觸發欄是片 C 才新增的 ⇒ 歷史上每一箱都是 NULL ⇒ 母體天生從空的開始長。
+   *    ⇒ 📌 **所以那顆 env 沒設的時候, 這一格【照樣會查】** —— 與上面那三格的行為不同。
+   */
+  trackingCorrectedPendingCount: number | null;
+  trackingCorrectedNoRecipientCount: number | null;
+  trackingCorrectedGapUnknown: boolean;
   /** 🔵 訊號4 持續失敗那三格 —— 信裡印了而 result 沒有 ⇒ 事後對不了帳。 */
   orderCreatedStuckCount: number | null;
   orderCreatedStuckOldestMinutes: number | null;
@@ -871,6 +880,13 @@ export function buildAnomalyAlertMessage(
     summary.unpaidCancelledNoRecipientCount,
     '🔴 訂單被取消了而【那張單兩個信箱都是空的】⇒ 取消通知永遠不會被建出來',
   );
+  // 🔴 **第四條線, 一樣獨立一行。** 而它的嚴重度與上面兩行不同, 文案要說出那個差:
+  //   上面兩條是「客人【沒收到】一封信」;這一條是**客人手上有一個【我們給他的、而現在是錯的】號碼**
+  //   ⇒ 🎯 他會拿那個號碼去查貨、查不到、打電話進來, 而後台看到的號碼是對的。
+  emailPush(
+    summary.trackingCorrectedNoRecipientCount,
+    '🔴 貨運單號更正了而【那張單兩個信箱都是空的】⇒ 客人手上那個錯號碼, 我們沒有路可以更正',
+  );
   // 🔴 這一行【不走 emailPush】—— 它不是「幾封信」, 它是「一封都沒有」。
   //   ⇒ 文案刻意寫成兩種可能, **不猜是哪一種**:「這張表是空的」與「讀不到資料」
   //     在這一格底下**分不出來**, 而寫死其中一個會把人送去修錯的東西。
@@ -1496,6 +1512,12 @@ export async function checkAnomalyAlerts(
      */
     (summary.unpaidCancelledNoRecipientCount ?? 0) > 0 ||
     /**
+     * 🔵 第四條線(⟦b4-NORECIPIENTWINDOW⟧, 2026-09-04)。
+     * 🛑 `pending` **刻意不進** —— 與姊妹線同一個理由:它 >0 是正常的。
+     * 🔴 而 `unknown` 也不進:「讀不到」由 route 印出來, 不由這裡叫。
+     */
+    (summary.trackingCorrectedNoRecipientCount ?? 0) > 0 ||
+    /**
      * 🔴🔴 **訊號4 的【持續失敗】那一格(板 `⟦b4-SIG4ERRORS⟧`)**。
      * 🛑 它與上面 `paidNoEmail` 的差別是【年齡】, 而那個差別就是它能不能當判準:
      *   `paidNoEmail > 0` 是正常的(新單進來就被數到一次, 下一輪 scanner 就排掉)
@@ -1631,6 +1653,11 @@ export async function checkAnomalyAlerts(
     orderCreatedNoRecipientCount: summary.orderCreatedNoRecipientCount,
     unpaidCancelledPendingCount: summary.unpaidCancelledPendingCount,
     unpaidCancelledNoRecipientCount: summary.unpaidCancelledNoRecipientCount,
+    // 🔴 **三格都要進 result** —— `gapUnknown` 尤其:
+    //    「這一段安靜」與「這一段讀不到」在 route 的回應上必須分得開(姊妹線同款)。
+    trackingCorrectedPendingCount: summary.trackingCorrectedPendingCount,
+    trackingCorrectedNoRecipientCount: summary.trackingCorrectedNoRecipientCount,
+    trackingCorrectedGapUnknown: summary.trackingCorrectedGapUnknown,
     // 🔴 **它必須出得去** —— 沒有這一格, adapter 的 fail-closed 在下游就被 `?? 0` 拆掉了
     //   ⇒ 而「安靜」與「這道告警根本沒裝上」會印同一個畫面。
     unpaidCancelledGapUnknown: summary.unpaidCancelledGapUnknown,

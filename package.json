@@ -81,6 +81,7 @@
       "python3 scripts/pg-catalog-prefix-gate.py",
       "python3 scripts/invoker-view-execute-gate.py"
     ],
+    "*.sql": "python3 scripts/pg-catalog-prefix-gate.py",
     "scripts/pg-catalog-prefix-gate.py": "python3 scripts/pg-catalog-prefix-gate.py --selftest",
     "scripts/migration-txn-wrap-gate.py": "python3 scripts/migration-txn-wrap-gate.py --selftest",
     "scripts/run-migration-scan-tests.sh": "bash scripts/run-migration-scan-tests.sh --selftest",
