@@ -53,7 +53,15 @@ export const CATEGORY_URL_SEPARATOR = ' · ';
  */
 export function parseCategoryFromUrl(
   searchParams: SearchParamsLike,
-  categories: { id: string; name: string; children?: { id: string; name: string }[] }[],
+  // 🔵 `count` 是 **optional** —— 執行時真的有(`buildCategoryTree` 給的 `MockCategory` 帶它),
+  //    而**先前這個型別沒有宣告它** ⇒ 下面的消歧要用它, 所以補上。
+  //    🛑 而它仍然 optional:有呼叫端餵不帶 count 的假樹(測試 / mock)⇒ 缺它時要有一個退路。
+  categories: {
+    id: string;
+    name: string;
+    count?: number;
+    children?: { id: string; name: string; count?: number }[];
+  }[],
 ): { mainId: string; main: string; subId?: string; sub?: string } | null {
   const raw = searchParams.get('category');
   if (!raw) return null;
@@ -64,7 +72,35 @@ export function parseCategoryFromUrl(
   const mainRaw = sepIndex === -1 ? raw : raw.slice(0, sepIndex);
   const subRaw = sepIndex === -1 ? null : raw.slice(sepIndex + CATEGORY_URL_SEPARATOR.length);
   const hit = categories.find((c) => c.name === mainRaw || c.id === mainRaw);
-  if (!hit) return null;
+  if (!hit) {
+    // 🔴🔴 **裸【子】分類名的退路(2026-09-04, ⟦01-CATPATHSHORTNAME⟧ 的消費端那一半)**
+    //    上面兩個 find 都只掃**頂層** ⇒ `?category=水管束環`(子分類的短名)一路 miss ⇒ 舊版 `return null`
+    //    ⇒ 🛑 **一顆膠囊都畫不出來**, 而那個篩選【仍然生效】(值原封送進 RPC)
+    //      ⇒ 客人看到 0 筆而畫面上沒有任何東西告訴他是哪個條件擋住的。
+    // 🛑 **而【不能】改成「全樹掃第一個同名」** —— 2026-09-04 唯讀正式庫實查:
+    //    `水管束環` 有兩列(`引擎與冷卻` 690 件 / `四輪 ATV/UTV` 22 件),
+    //    `防爆水管組` 也是(769 / 22)。
+    //    ⚠️ **而「掃第一個會挑錯」我原本寫成事實, 那是【斷言不是量測】**(code-reviewer 抓的):
+    //      🔬 實查那兩個父的 `sort_order`:`引擎與冷卻` **60** · `四輪 ATV/UTV` **140**
+    //      ⇒ 🛑 **今天掃第一個【剛好也對】**(690 那個排在前面)。
+    //    🎯 **⇒ 所以理由不是「掃第一個會錯」, 是【它靠 `sort_order` 決定, 而那個欄位不回答「哪一個比較相關」】**
+    //      —— 與 `lib/parse-search-facets.ts` 罵的是同一件事。改一下排序它就翻, 而**沒有東西會叫**。
+    // ✅ **消歧規則:挑【件數最大】那一個** —— 與 `lib/parse-search-facets.ts` 的 `pickLargest` **同一把尺**。
+    //    📌 **同一個 repo 裡兩個地方用相反的消歧規則, 比兩個都不完美更糟。**
+    // ⚠️ **而 `count` 是 optional** ⇒ 缺它時退回**陣列順序第一個**;
+    //    而那個順序由 `category-queries.ts` 的 `sort_order → name → id` 釘死 ⇒ **每次都一樣**(不是「排對」, 是「不會變」)。
+    if (subRaw !== null) return null;
+    let best: { parent: (typeof categories)[number]; child: { id: string; name: string; count?: number } } | null =
+      null;
+    for (const c of categories) {
+      for (const child of c.children ?? []) {
+        if (child.name !== mainRaw && child.id !== mainRaw) continue;
+        if (best === null || (child.count ?? 0) > (best.child.count ?? 0)) best = { parent: c, child };
+      }
+    }
+    if (best === null) return null; // 🔵 負對照要靠它:誰都不是的名字仍然回 null, 不挑一個最像的
+    return { mainId: best.parent.id, main: best.parent.name, subId: best.child.id, sub: best.child.name };
+  }
   if (subRaw) {
     const subHit = hit.children?.find((s) => s.name === subRaw || s.id === subRaw);
     if (subHit) return { mainId: hit.id, main: hit.name, subId: subHit.id, sub: subHit.name };
