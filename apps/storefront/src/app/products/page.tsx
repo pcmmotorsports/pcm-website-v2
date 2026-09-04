@@ -29,7 +29,8 @@ import { searchProducts } from '@/lib/search';
 import { parseSearchFacets, hasAnyFacet } from '@/lib/parse-search-facets';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { parseVehicleFromUrl } from '@/lib/vehicle-url';
-import { parseCatalogQuery } from '@/lib/catalog-query';
+import { parseCatalogQuery, isSafeCategoryValue } from '@/lib/catalog-query';
+import { parseCategoryFromUrl, CATEGORY_URL_SEPARATOR } from '@/components/products-url-parsers';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getVehicleRepo } from '@/lib/auth/composition';
 
@@ -190,6 +191,44 @@ export default async function ProductsRoute({ searchParams }: Props) {
   //    `CatalogCardProduct = Omit<MockProduct,'price'> & { price: number|null }`
   //    ⇒ 前者**是**後者的子型別(`number` ⊂ `number|null`),只是 TS 不會自動把
   //      兩個【陣列】的 union 收斂 ⇒ 這裡標一次,不要用 `as any` 把差異蓋掉。
+  // 🔴🔴 ⟦search-SHORTNAMEZEROFLASH⟧:**首發那一輪也要認得裸【子】分類名。**
+  //
+  // 病:server 讀的是**原始網址值**(`catalog-query.ts:193-194` 只驗形狀、不查對照表),
+  //    而 RPC 只認 `category_raw = X` 或 `LIKE X || ' · %'` ⇒ `?category=機油與濾芯`(子分類短名)
+  //    **首發真的撈到 0** ⇒ 要等 client hydration 把網址改寫成全路徑才重撈。
+  // 🔬 2026-09-04 本機真瀏覽器實測:`647ms` 印「0 件 / 找不到符合條件的商品」→ `1352ms` 才 4 件
+  //    ⇒ **客人看得到約 0.7 秒的空畫面**;負對照(頂層分類)全程沒印過「找不到」。
+  //
+  // ✅ **用的是 client 那一輪【同一支】`parseCategoryFromUrl`, 不在這裡另寫一份** ——
+  //    📌 兩份消歧規則會分岔, 而分岔的那天沒有東西會叫(本 repo 今天已經有兩個窗各撞一次)。
+  // 🔵 `categories` 在上面 `Promise.all`(:78)就 await 過了 ⇒ **這一段【沒有】多一次往返**。
+  // 🛑 **負對照要活著**:名字誰都不是 ⇒ `parseCategoryFromUrl` 回 `null` ⇒ 這裡**原封不動**
+  //    ⇒ 髒值照樣送進 RPC ⇒ 照樣 0 筆。**不可以退化成「總是找一個最像的」。**
+  // ⚠️ **兩個順帶的行為改變, 都明寫**(R1 訂正:我原本寫「一個」, 而實際是兩個):
+  //    ① `?category=<分類 id>` **首發**以前送 id 進 RPC ⇒ 0 筆;現在解析成**名稱**全路徑 ⇒ 撈得到。
+  //       🔵 而**只在首發**成立 —— hydration 之後 `use-deep-link-restore.tsx:79` 早就把它改寫成名稱了
+  //       ⇒ 舊世界的**穩定態不是 0 筆**。
+  //    ② `?category=<大類> · <不存在的子>` **首發放寬成整個大類**
+  //       (`products-url-parsers.ts:104-108`:子查無時只回大類;回歸鎖 `products-url-state.test.ts:30-33`)
+  //       —— 以前送全路徑 ⇒ 0 筆。🔵 它與 hydration 後的穩定態**一致**, 不是新錯。
+  const resolvedCategory = catalogQuery.category
+    ? parseCategoryFromUrl({ get: spGet }, categories)
+    : null;
+  const resolvedPath = resolvedCategory
+    ? resolvedCategory.sub
+      ? `${resolvedCategory.main}${CATEGORY_URL_SEPARATOR}${resolvedCategory.sub}`
+      : resolvedCategory.main
+    : null;
+  // 🔴 **解出來的值要再過【同一道】白名單** —— R1 抓到:少了它, 這條新路會繞過
+  //    `catalog-query.ts:194` 的 `isSafeCategoryValue`, 而 RPC 的 `LIKE vc || ' · %'` **未跳脫**
+  //    ⇒ 父分類名若含 `_` 或 `%`, rollup 會多算/錯配, 而**直打同一個名字反而會被擋掉**
+  //    ⇒ 📌 #306「兩端同一道白名單」的單一定義點被繞過。
+  // ⚠️ **而這是「閘漏掉一種輸入」, 不是已顯形的錯** —— 本窗無正式庫, **證不到今天存不存在這種名字**。
+  const effectiveQuery =
+    resolvedPath && isSafeCategoryValue(resolvedPath) && resolvedPath !== catalogQuery.category
+      ? { ...catalogQuery, category: resolvedPath }
+      : catalogQuery;
+
   const { products, total, error }: {
     products: CatalogCardProduct[];
     total: number | undefined;
@@ -206,7 +245,7 @@ export default async function ProductsRoute({ searchParams }: Props) {
         return { products: r.items, total: r.total ?? undefined, error: r.error };
       })()
     : // P4:只回當頁公開 card DTO + total；車款仍走 direct + inherited RPC 語意。
-      await fetchCatalogPage(catalogQuery, vehicle);
+      await fetchCatalogPage(effectiveQuery, vehicle);
   return (
     <>
       {/* backlog #314:設計稿的品牌介紹連結字面是 `/products?pbrand=X#brand-about`,而
