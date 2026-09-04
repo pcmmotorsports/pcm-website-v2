@@ -31,6 +31,13 @@
 --   ⇒ 📌 **修競態一的動作, 讓競態二更容易發生。** Sean 拍板時不知道這一條(早上補問)。
 --   🔵 而本片仍然值得做:競態一**零訊號**, 競態二至少會在應用層丟一個錯誤。
 --
+-- 🔴🔴 **本片【只修一半】—— 這一行放在檔頭, 因為它決定你怎麼讀底下每一段**:
+--   ✅ 修好:取消【已提交】而錢之後才落帳。
+--   ⛔ **沒修**:取消與付款【同時在飛】。兩條在交易內的修法都被實測證偽(見下方 FOR UPDATE 那一段),
+--     而**溢付**那一支路徑連 row lock 都不會拿 ⇒ 兩邊都看不到對方 ⇒ 零列零訊號。
+--     🔬 證據 `docs/probes/late-payment-two-connection-race-probe.sh` 格3c(溢付 + 兩連線 ⇒ 零列)。
+--     ⇒ 那一半改由**事後掃描器**收(與 ⟦b4-SETTLERETRYNEVER⟧ 合一件), 板列 ⟦b4-NCPCRONRACE⟧。
+--
 -- rollback:見檔尾。
 
 BEGIN;
@@ -297,7 +304,18 @@ BEGIN
     -- ⚠️ **而它在這個 BEGIN…EXCEPTION 區塊【之內】** —— 它丟例外時吞在這裡,
     --    **不得回滾客人那筆收款**(那正是 20260904230000 檔頭那段誠實邊界在講的事)。
     -- 🔴 `false` = **不覆寫既有列的金額**(見該函式上方那段合約:那一欄是快照, 不會自己更新)。
-    PERFORM public.pcm_pending_refund_open_for(p_order_id, false);
+    -- 🔴🔴 **自己包一層 nested BEGIN…EXCEPTION**(adversarial-reviewer R3 must-fix ⑤)——
+    --   ⛔ ~~我第一版讓這一行與【狀態重算】共用外面那個 `EXCEPTION WHEN OTHERS`~~
+    --   ⇒ 🛑 **open_for 丟例外 ⇒ 整段被吞 ⇒ 錢入帳而 payment_status 不翻、付款信永遠不寄。**
+    --     📌 **我為了補一個洞而加的一行, 會讓主線靜靜地不執行。**
+    --   ✅ 現在:它自己吞自己的例外, **不影響下面的狀態重算**。
+    --   🔵 而 plpgsql 的 BEGIN…EXCEPTION 自帶 savepoint ⇒ 這裡吞掉的只有這一行, 不含外面那筆 INSERT。
+    BEGIN
+      PERFORM public.pcm_pending_refund_open_for(p_order_id, false);
+    EXCEPTION WHEN OTHERS THEN
+      RAISE LOG '[pcm_noncard_settle] order=% 補開待退款失敗(%), 狀態重算照常進行',
+                p_order_id, SQLERRM;
+    END;
 
     SELECT o.payment_status INTO v_status
       FROM public.orders o
@@ -389,7 +407,9 @@ BEGIN
       --    overpaid:payment_status 的值域裡**沒有**對應的值(unpaid / paid / partiallyPaid /
       --      refunded / partiallyRefunded 共 5 個)⇒ 開一列給人看, 不猜一個最接近的。
       --    needs_human:它自己宣告算不清 ⇒ 不該由它決定終態。
-      -- 🛑 而「不翻是安全的」這句話**依賴本檔第 4 節那條 cron 腿** —— 沒有它, 這兩種單
+      -- 🛑 而「不翻是安全的」這句話**依賴 `20260904230000` 第 4 節那條 cron 腿**(R3 nit ②:
+      --    這段是從那支檔【逐字搬過來】的, 而「本檔」兩個字跟著搬 ⇒ 在這裡指到了錯的檔。
+      --    📌 **自指座標會在搬家的那一刻靜靜地指錯, 而它讀起來完全正常。**)—— 沒有它, 這兩種單
       --    仍然是 unpaid ⇒ 隔天照樣被取消 ⇒ 缺陷的形狀與今天一模一樣, 只是變窄。
       --    ⇒ 📌 **兩段必須同一支 migration**, 不可以拆開先上一半。
       RAISE LOG '[pcm_noncard_settle] order=% verdict=% ⇒ 不翻狀態(值域無對應值或算不清)',
@@ -492,8 +512,10 @@ BEGIN
   -- 🔴🔴 **驗它【真的傳 false】**(codex R2 must-fix ⑥)——
   --    ⛔ ~~上一格只問「有沒有呼叫 open_for」~~ ⇒ 有人把那行改成省略參數(用預設 true)
   --      ⇒ 收款那條路會**覆寫既有列的快照** ⇒ 而閘照樣綠。
+  -- 🔵 這一格【排在 ③ 之前跑】, 所以編號寫 ③a 不寫 ③b(R3 nit ⑤:編號與執行順序不一致
+  --    ⇒ 真的紅的時候, 讀訊息的人會以為 ③ 已經過了)。
   IF pg_catalog.strpos(v_src, 'pcm_pending_refund_open_for(p_order_id, false)') = 0 THEN
-    RAISE EXCEPTION '事後③b失敗:pcm_noncard_settle_recompute 沒有以 false 呼叫 open_for ⇒ 收款那條路會覆寫快照。';
+    RAISE EXCEPTION '事後③a失敗:pcm_noncard_settle_recompute 沒有以 false 呼叫 open_for ⇒ 收款那條路會覆寫快照。(⚠️ 本格排在 ③ 之前, ③ 尚未驗)';
   END IF;
   IF pg_catalog.strpos(v_src, 'pcm_pending_refund_open_for') = 0 THEN
     RAISE EXCEPTION '事後③失敗:pcm_noncard_settle_recompute 沒有呼叫 pcm_pending_refund_open_for ⇒ 錢比取消晚到那條路仍然沒有網。';
@@ -560,7 +582,8 @@ BEGIN
     RAISE EXCEPTION '事後⑦b失敗:orders 上的 order_pending_refund_open_au 不存在 / 被 disable / 掛了別支函式 / 事件位元不對 ⇒ 取消那條路也不會被觸發。';
   END IF;
 
-  RAISE NOTICE '[20260905070000] 八組事後斷言全數通過。';
+  -- 🔵 數字寫「幾組」很容易過期(R3 nit ①:我寫八而實際七)⇒ 改成不帶數字。
+  RAISE NOTICE '[20260905070000] 事後斷言全數通過(①共用函式在 ②/②b 取消端已改呼叫 ③/③b 重算端已接且傳 false ④重算其餘沒被換掉 ⑤ACL ⑥owner 路徑 ⑦/⑦b 兩支 trigger 形狀)。';
 END
 $gate$;
 
@@ -587,7 +610,13 @@ COMMIT;
 --        🛑 而那**只在「線上跑的就是那兩支」時正確** —— 貼之前沒存快照, 這一點就無法證明。
 --   ② 確認那兩支的 prosrc 都不再含 'pcm_pending_refund_open_for'(否則第③步會炸)。
 --   ③ 才 DROP FUNCTION public.pcm_pending_refund_open_for(uuid, boolean);
--- 🔵 **本片不動任何 trigger 定義、不動任何表、不建索引** ⇒ 沒有 DDL 要回滾。
+-- 🔴🔴 **⛔ ~~本片不動任何 trigger 定義、不動任何表、不建索引 ⇒ 沒有 DDL 要回滾~~ 那句是假的**
+--   (adversarial-reviewer R3 must-fix ③):本片有一發 `COMMENT ON COLUMN
+--   public.order_pending_refunds.amount_at_cancel` —— **它是 DDL, 而且是覆寫。**
+--   ⇒ 🛑 三步跑完之後, 那段 COMMENT 仍然指著一支已經被 DROP 的函式(open_for)。
+--   ✅ **第 ④ 步(不可省)**:把 `20260901080000` 那段 `COMMENT ON COLUMN` 的**原文**貼回去
+--      —— 它在該檔的 `COMMENT ON COLUMN public.order_pending_refunds.amount_at_cancel` 那一段,
+--      逐字整段複製, 不要重打。
 -- ⚠️ **而【資料】不回滾**:本片可能已經開出一些 order_pending_refunds 列。
 --   那些列本來就該存在(那正是本片在補的洞)⇒ **不要把它們刪掉**;
 --   要作廢請走既有的 `voided_at` 流程, 不要 DELETE。
