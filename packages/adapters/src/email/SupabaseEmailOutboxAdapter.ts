@@ -266,17 +266,26 @@ function composeEvent(input: EnqueueEmailInput): {
         shipmentId: input.shipmentId,
         shipmentReference: input.shipmentReference,
         trackingNumber: input.trackingNumber,
+        trackingCorrectedKey: input.trackingCorrectedKey,
       });
       return {
         payload,
         subject: trackingCorrectedSubject(payload.display_id, payload.shipment_reference),
-        // 🔴🔴 **dedup_key = 箱 + 【單號】, 不是箱 + 訂單。**
-        //    主視窗 2026-09-04 拍【乙】, 理由逐字:
-        //    **「客人要的是【哪一個號碼是對的】, 不是【你改過幾次】」**
-        //    ⇒ 同一個單號值只寄一次;連改兩次(A→B→C)**只寄到 C**。
-        //    ⚠️ 而 `order_shipped` 那格是 `shipmentId:orderId`(一箱一單一封)——
-        //    **兩者不可互抄**:那條的單位是「箱」, 本條的單位是「值」。
-        dedupKey: `${input.shipmentId}:${payload.tracking_number}`,
+        // 🔴🔴 **dedup_key = 箱 + 【這一次更正的時點】。**
+        //    ⛔ ~~原本是 箱 + 【單號】(主視窗 2026-09-04 先拍的【乙】)~~
+        //    ⇒ **同日 codex 對抗審查抓到它的漏, 主視窗改拍【Q1 甲】**:
+        //      A→B(寄過)、B→C(寄過)、**再改回 B** ⇒ 舊的 B 鍵還在
+        //      ⇒ 最新那封永遠不寄, 而客人手上那封說的是 C。
+        //    📌 原理由「客人要的是【哪一個號碼是對的】, 不是【你改過幾次】」
+        //      在 A→B→C 完全成立 —— **它沒涵蓋【改回去】。**
+        //    🔵 而「連改多次不會變成一串信」由**寄送當下比對即時值**那道閘收斂
+        //      (不符 ⇒ `markSkippedTrackingSuperseded`), 不靠鍵去收斂。
+        //    🛑 **`trackingCorrectedKey` 原樣接上, 這裡不碰時間** —— 兩邊各格式化一次會漂,
+        //      而漂掉的症狀是同一封信寄兩次(見該欄的 JSDoc)。
+        // 🔴 **`orderId` 在鍵裡**(codex R2 must-fix #2):一箱可以裝多張訂單,
+        //    而拍板是「一箱兩單就寄兩封, 一封講一張訂單」⇒ 少了它, 第二張單那封
+        //    會撞到第一張的鍵 ⇒ `enqueue` 回 `duplicate` ⇒ **安靜地不寄**。
+        dedupKey: `${input.shipmentId}:${input.orderId}:${input.trackingCorrectedKey}`,
       };
     }
     case 'order_unpaid_cancelled': {
@@ -436,12 +445,24 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
      * 📌 **⇒ 根因是【為了一個只有一個元素的呼叫端做了陣列泛化】,而那個泛化正是逼出無前例
      *    filter 字串的原因。這裡不撤回那個泛化(port 已上線),而讓它【在沒驗過的區間拒絕動作】。**
      */
+    // 🔴🔴 **2026-09-04(⟦5b-TRACKNUMGAP1⟧ 片 C, codex R2 must-fix #1)—— 而它差點上線。**
+    //    ⛔ ~~`else if (exclude.length > 1) throw`~~ **那道拒絕在片 C 變成一顆炸彈**:
+    //      片 C 把 `shipment_tracking_corrected` 加進同一份清單 ⇒ 截止開關關著時 **exclude 有 2 個**
+    //      ⇒ `claimDue` throw ⇒ `sweep-email-outbox.ts` 的 `catch { errors++ }` 吃掉
+    //      ⇒ `jobs = []` ⇒ 🛑 **連 `order_created` 都不寄, 每 5 分鐘一次。**
+    //    🔴 **而我的兩支測試各自全綠**:use-case 那側的假 outbox **忽略**這個參數,
+    //      adapter 那側**斷言它會 throw** ⇒ 兩邊都對, 而**組合起來必壞**。
+    //      📌 **每支測試的分母是它自己那支檔** —— 跨檔的假設沒有任何一支守得住。
+    //
+    // ✅ **修法刻意【不引進新的查詢文法】**(那道拒絕當初就是為了擋無前例的 `in` 字串):
+    //    · 查詢層:只在**恰好 1 個**時下 `.neq` ⇒ 既有呼叫端送出的查詢**逐位元不變**
+    //    · ≥2 個:**不動查詢**, 改在下面既有的 `candidates` 那一發 filter 裡濾掉
+    //      ⇒ 🎯 而那道閘的目的是「**不要認領**」(認領當下 attempts 就 +1), 而認領發生在 filter【之後】
+    //      ⇒ **在 app 層濾掉一樣達成目的**, 且零新文法。
+    //    ⚠️ **代價寫出來**:被排除的列仍會佔用掃描窗(`DUE_SCAN_CAP`)。
+    //      那與「這道閘不存在」時的形狀相同 ⇒ **不是新增的風險**, 而它值得有人知道。
     if (exclude.length === 1) {
       q = q.neq('event_type', exclude[0] as string);
-    } else if (exclude.length > 1) {
-      throw new Error(
-        'claimDue:excludeEventTypes 一次只支援 1 個(≥2 的 PostgREST 文法本 repo 未驗證;見本行上方註解)',
-      );
     }
     const { data, error } = await q
       .order('next_retry_at', { ascending: true })
@@ -451,7 +472,12 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
       throw new Error(`email_outbox due 掃描失敗(${error.code ?? 'unknown'})`);
     }
     // 欄對欄 guard 的 app 層半段(死列 attempts>=max 不進 CAS;原子性由 CAS 內字面值 guard 收口)。
-    const candidates = (data ?? []).filter((row) => row.attempts < row.max_attempts);
+    const excludeSet = new Set<string>(exclude);
+    const candidates = (data ?? []).filter(
+      // 🔴 `excludeSet` 這一半是上面那段註解講的「≥2 個時在 app 層濾」——
+      //    而它對 1 個的情況**也會跑**(查詢那邊已經濾掉了 ⇒ 這裡是零成本的第二道)。
+      (row) => row.attempts < row.max_attempts && !excludeSet.has(row.event_type),
+    );
     const claimed: ClaimedEmailJob[] = [];
     for (const row of candidates) {
       if (claimed.length >= limit) {

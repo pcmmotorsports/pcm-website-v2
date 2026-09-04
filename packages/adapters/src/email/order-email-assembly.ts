@@ -122,6 +122,7 @@ export function buildShipmentTrackingCorrectedPayload(src: {
   shipmentId: string;
   shipmentReference: string;
   trackingNumber: string;
+  trackingCorrectedKey: string;
 }): ShipmentTrackingCorrectedEmailPayload {
   return {
     event_version: SHIPMENT_TRACKING_CORRECTED_EVENT_VERSION,
@@ -137,6 +138,13 @@ export function buildShipmentTrackingCorrectedPayload(src: {
     tracking_number: requireNonEmptyString(
       src.trackingNumber,
       'trackingNumber',
+      'shipment_tracking_corrected',
+    ),
+    // 🔴 空的也當場炸:少了它, 寄送當下那道「還是不是最新那次更正」的比對**沒有一端**
+    //    ⇒ 而它 fail-closed ⇒ 那封信會永遠卡著。寧可在組裝時炸給人看。
+    tracking_corrected_key: requireNonEmptyString(
+      src.trackingCorrectedKey,
+      'trackingCorrectedKey',
       'shipment_tracking_corrected',
     ),
   };

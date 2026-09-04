@@ -23,6 +23,7 @@ const {
   sweepSpy, getDepsSpy, enqueueSpy, getEnqueueDepsSpy, hbOkSpy, hbFailSpy,
   shippedEnqueueSpy, getShippedDepsSpy,
   unpaidCancelSpy, getUnpaidCancelDepsSpy,
+  trackFixSpy, getTrackFixDepsSpy,
 } = vi.hoisted(() => ({
   hbOkSpy: vi.fn(),
   hbFailSpy: vi.fn(),
@@ -40,6 +41,12 @@ const {
   //    🎯 而那是我這一片新加的 503 判準在做它該做的事 —— 測試還不知道有第三條線而已。
   unpaidCancelSpy: vi.fn(),
   getUnpaidCancelDepsSpy: vi.fn(),
+  // 🔴 ⟦5b-TRACKNUMGAP1⟧ 片 C 第四條線(更正單號信)同樣自己一套。
+  //    ⚠️ 上面那兩行對第三條線寫的話, **逐字適用於這一條** —— 少了這兩格 route 會真的
+  //    去建 Supabase client ⇒ 那一段 throw ⇒ `trackFixStatus='failed'` ⇒ 整支測試檔回 503。
+  //    🎯 而我加這兩格之前, 它【真的就是這樣紅的】(7 格)—— 那不是壞掉, 是判準在做它該做的事。
+  trackFixSpy: vi.fn(),
+  getTrackFixDepsSpy: vi.fn(),
 }));
 
 // 🔴 **`resolveShippedEmailCutoff` 刻意【不 mock】** —— 它是一支純函式,而
@@ -53,12 +60,14 @@ vi.mock('@pcm/use-cases', async (orig) => ({
   enqueueOrderCreatedEmails: enqueueSpy,
   enqueueOrderShippedEmails: shippedEnqueueSpy,
   enqueueOrderUnpaidCancelledEmails: unpaidCancelSpy,
+  enqueueTrackingCorrectedEmails: trackFixSpy,
 }));
 vi.mock('@/lib/email/composition', () => ({
   getSweepEmailOutboxDeps: getDepsSpy,
   getEnqueueOrderCreatedDeps: getEnqueueDepsSpy,
   getEnqueueOrderShippedDeps: getShippedDepsSpy,
   getEnqueueOrderUnpaidCancelledDeps: getUnpaidCancelDepsSpy,
+  getEnqueueTrackingCorrectedDeps: getTrackFixDepsSpy,
 }));
 
 // b4-CRON6 片1:心跳寫入端。mock 掉的是 IO,不是判斷 —— 判斷(哪一條路寫)在 route 裡。
@@ -120,6 +129,13 @@ beforeEach(() => {
     skippedNoRealEmail: 0, duplicate: 0, noRecipient: 0, errors: 0,
   });
   getUnpaidCancelDepsSpy.mockReset().mockReturnValue({ outbox: {}, scanner: {} });
+  // 🔴 第四條線:同樣預設回一份乾淨的零。
+  //    ⚠️ **它【沒有】 `scannedPages`** —— 它單頁掃、不翻頁 ⇒ 那個欄位在它的回傳型別裡不存在。
+  trackFixSpy.mockReset().mockResolvedValue({
+    scanned: 0, truncated: false, enqueued: 0,
+    skippedNoRealEmail: 0, duplicate: 0, noRecipient: 0, errors: 0,
+  });
+  getTrackFixDepsSpy.mockReset().mockReturnValue({ outbox: {}, scanner: {} });
 });
 
 afterEach(() => {
@@ -358,6 +374,11 @@ describe('GET email-sweep — 🔴 counts allowlist(不 blind spread ...result�
         //    ⇒ 📌 那正是這道 allowlist 的設計意圖:**任何新欄都必須有人【明說】**,
         //      而不是靠「我記得回應裡不要有 PII」。**一道正確的閘, 在它抓到你的那一刻像擋路。**
         'unpaidCancelStatus',
+        // 🔴 ⟦5b-TRACKNUMGAP1⟧ 片 C 那條線多出來的一欄(四態互斥, 與上面三支同形)。
+        //    env 沒設 ⇒ `trackFixEnqueueStatus: 'skipped_no_cutoff'`、其餘 `tfx*` 欄不出現。
+        // 🎯 **而它也擋到我了 —— 一模一樣的一格, 同一段話, 換一個人。**
+        //    ⇒ 📌 那不是這道閘太吵, 是它每一次都在做同一件對的事:新欄必須有人明說。
+        'trackFixEnqueueStatus',
       ].sort(),
     );
     errSpy.mockRestore();
@@ -734,9 +755,13 @@ describe('route.ts 檔頭的跨檔引用 — 錨在字面、不在行號', () =>
 // 🔴 **這一組要證的是【它現在還不會寄】,而不是【它能寄】** ——
 //    交件時我要對 Sean 說「這一顆 merge 進去不會寄出任何一封信」,
 //    而**「我沒有設那顆 env」不是證明,那是宣稱**。真正的證明是下面第一格那支 spy。
+/** 一個**合法而且晚於下界**的起始線(下界 = 拍板那天台北零時 2026-08-30)。
+ * 🔵 **2026-09-04 從 describe 內提到模組層** —— 片 C 那條線共用同一顆 env,
+ *    而它需要同一個值。提上來是為了**不要出現第二個字面**(兩份漂掉時沒有東西會紅)。
+ *    🛑 純搬位置, 值一字未改。 */
+const SHP_CUTOFF = '2026-09-01T21:30:00+08:00';
+
 describe('GET email-sweep — 🔴 出貨通知信 enqueue 接線(片3b)', () => {
-  /** 一個**合法而且晚於下界**的起始線(下界 = 拍板那天台北零時 2026-08-30)。 */
-  const SHP_CUTOFF = '2026-09-01T21:30:00+08:00';
   /** ⇒ 交給 use-case 的是**正規化後的 UTC 時刻**,不是使用者打的那串字。 */
   const SHP_CUTOFF_NORMALIZED = '2026-09-01T13:30:00.000Z';
 
@@ -1174,3 +1199,91 @@ describe('未付款取消信那條線的【接線】(codex 第二輪 must-fix:�
   });
 });
 
+describe('⟦5b-TRACKNUMGAP1⟧ 片 C:更正單號信那條線的【接線】', () => {
+  // 🔴🔴 **這個 beforeEach 是【突變測試逼出來的】, 不是我一開始想到的。**
+  //    把 route 裡呼叫本線的那幾行整段刪掉 ⇒ 我原本五格只死了兩格,
+  //    而兩格「回 503」照樣綠。⇒ 🛑 **它們的 503 根本不是我這條線給的**:
+  //    檔案層的 `beforeEach` 對 `shippedEnqueueSpy` 只做 `mockReset()`、**沒給回傳值**
+  //    ⇒ 它回 `undefined` ⇒ 出貨線那支 picker 讀 `.scanned` 當場炸
+  //    ⇒ `shippedEnqueueStatus='failed'` ⇒ **整支回 503**。
+  //    ⇒ 📌 **我的斷言看著對的答案, 而答案是隔壁那條線給的。**
+  //    ✅ 修法:先把出貨線餵成乾淨的零 ⇒ 這個 describe 裡任何 503 都只可能是我這條線。
+  beforeEach(() => {
+    shippedEnqueueSpy.mockResolvedValue({
+      scanned: 0, truncated: false, enqueued: 0,
+      skippedNoRealEmail: 0, duplicate: 0, noRecipient: 0, errors: 0,
+    });
+  });
+
+  it('🟢 負對照:四條線全乾淨 ⇒ 200 —— 沒有這一格, 下面每個 503 都可能是別人給的', async () => {
+    process.env.SHIPPED_EMAIL_CUTOFF = SHP_CUTOFF;
+    expect((await GET(makeReq(bearer()))).status).toBe(200);
+  });
+
+  // 🔴🔴 **上面那一段的第一句話, 逐字適用於這裡** ——
+  //    「預設乾淨 mock + allowlist 一欄」證的是「它不會弄壞別人」,
+  //    **不是**「它真的被接上了」。把 route 裡呼叫它的那幾行整段刪掉, 那些照樣全綠。
+  //    ⇒ 📌 所以下面每一格都要**真的按到它**。
+
+  it('🔴 出貨 cutoff 合法 ⇒ 真的被呼叫, 而且【只帶 limit、不帶 cutoff】', async () => {
+    // 🔴 用本檔既有的 `SHP_CUTOFF`, 不自己造第二個字面 —— 那顆 env 有【下界】,
+    //    我第一版自己編了一個時刻, 它低於下界 ⇒ `skipped_bad_cutoff` ⇒ 這條線根本沒被呼叫。
+    //    📌 隔壁那段註解逐字寫過同一句「先 grep, 不要再造一份」—— 而我還是造了。
+    process.env.SHIPPED_EMAIL_CUTOFF = SHP_CUTOFF;
+    await GET(makeReq(bearer()));
+    // 🔴 承重:`toHaveBeenCalledWith` 比的是**整個**參數物件
+    //    ⇒ 哪天有人「順手」給它加一顆 cutoff env, 這一格會紅。
+    //    而那正是本片刻意不做的事(觸發欄是新的 ⇒ 集合天生從空的長)。
+    expect(trackFixSpy).toHaveBeenCalledWith(expect.anything(), { limit: 50 });
+  });
+
+  it('🔴🔴 出貨 cutoff 沒設 ⇒ 【一次都不呼叫】—— 同一支剎車要停整條出貨線', async () => {
+    delete process.env.SHIPPED_EMAIL_CUTOFF;
+    const res = await GET(makeReq(bearer()));
+    // 🎯 「設了 env、看到不對、把它拿掉」是一個人會做的事, 而那個動作的意思是
+    //    「整條出貨線停下來」, 不是「出貨信停、更正信照寄」。
+    expect(trackFixSpy).not.toHaveBeenCalled();
+    // 🔵 而它不是失敗:還沒上膛 ⇒ 回 200。
+    expect(res.status).toBe(200);
+    expect((await res.json()).trackFixEnqueueStatus).toBe('skipped_no_cutoff');
+  });
+
+  it('🔴 它的 errors 會讓整支回 503(而不是 200 ok:true)', async () => {
+    process.env.SHIPPED_EMAIL_CUTOFF = SHP_CUTOFF;
+    trackFixSpy.mockResolvedValue({
+      scanned: 1, truncated: false, enqueued: 0,
+      skippedNoRealEmail: 0, duplicate: 0, noRecipient: 0, errors: 1,
+    });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    // 🔴 承重:漏掉 503 判準的症狀是**回 200 + 心跳記成功**, 而那正是這條線在修的病。
+    expect(res.status).toBe(503);
+    errSpy.mockRestore();
+  });
+
+  it('🔴 它整段 throw ⇒ 也是 503, 而【sweeper 仍然跑過】(不擋別人)', async () => {
+    process.env.SHIPPED_EMAIL_CUTOFF = SHP_CUTOFF;
+    trackFixSpy.mockRejectedValue(new Error('boom'));
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    // 🔴 承重:少了這一行, 一個「新線炸掉就整支 return」的實作照樣通過上一行,
+    //    而那會讓一顆壞掉的新線把**已經排好的信全部卡住**。
+    expect(sweepSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it('🔵 計數進 body, 而且鍵是 tfx 前綴(不與出貨線的 shp 撞)', async () => {
+    process.env.SHIPPED_EMAIL_CUTOFF = SHP_CUTOFF;
+    trackFixSpy.mockResolvedValue({
+      scanned: 3, truncated: false, enqueued: 2,
+      skippedNoRealEmail: 0, duplicate: 1, noRecipient: 0, errors: 0,
+    });
+    const body = (await (await GET(makeReq(bearer()))).json()) as Record<string, unknown>;
+    expect(body.tfxScanned).toBe(3);
+    expect(body.tfxEnqueued).toBe(2);
+    expect(body.tfxDuplicate).toBe(1);
+    // 🔴 承重:兩條線共用 picker ⇒ 後寫的會安靜覆蓋前一條, 而兩個數看起來都合理。
+    expect(body).not.toHaveProperty('tfxScanned', body.shpScanned);
+  });
+});

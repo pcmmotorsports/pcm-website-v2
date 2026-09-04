@@ -297,8 +297,16 @@ export type ShipmentTrackingCorrectedEmailPayload = {
   shipment_id: string;
   /** 箱號(給客人分辨哪一箱)。 */
   shipment_reference: string;
-  /** 🔴 **更正當下**的貨運單號 —— 它是這封信的內容, 也是 `dedup_key` 的後半。 */
+  /** 🔴 **更正當下**的貨運單號 —— 它是這封信的**內容**。⛔ ~~也是 `dedup_key` 的後半~~ 已不是。 */
   tracking_number: string;
+  /**
+   * 這一次更正的**身分**(SQL 算的 20 位數時點字串)。`dedup_key` 的後半。
+   * 🔴 **寄送當下靠它判「這份工作單還是不是最新那一次更正」** ——
+   *    ⇒ 📌 **不能拿號碼去判**:A→B、B→C、再改回 B, 第一封與第三封的**號碼相同而它們是兩件事**,
+   *      拿號碼比會**兩封都寄**(而主視窗 2026-09-04 拍的是「只寄最後對的那封」)。
+   * 🛑 它**不進信件內文** —— 客人看不到它;它存在的唯一理由是那道比對。
+   */
+  tracking_corrected_key: string;
 };
 
 export type OrderShippedEmailPayload = {
@@ -417,10 +425,27 @@ export type EnqueueShipmentTrackingCorrectedEmailInput = EnqueueEmailInputBase &
   /** 箱號(進 payload;收信人分辨「哪一箱」的唯一依據)。 */
   shipmentReference: string;
   /**
-   * **更正後**的貨運單號。`dedup_key` 的後半, 而且是這封信的**全部內容**。
-   * 🔴 它**可變** —— 而那正是它進 dedup_key 的理由:值換了就是一件新事。
+   * **更正後**的貨運單號 —— 這封信的**全部內容**(進 payload)。
+   * ⛔ ~~「`dedup_key` 的後半」~~ **2026-09-04 起不是了**, 見下面那一欄。
    */
   trackingNumber: string;
+  /**
+   * **這一次更正的時點**, 由 SQL 算成一個 20 位數字串(UTC、到微秒、零分隔符)。
+   *
+   * 🔴🔴 **它是 `dedup_key` 的後半, 而【號碼】不是**(主視窗 2026-09-04 拍 Q1 甲)。
+   *    ⛔ 舊做法用號碼當鍵, 而 codex 對抗審查抓到它的漏:
+   *      A→B(寄過)、B→C(寄過)、**再改回 B** ⇒ 舊的 B 鍵還在 ⇒ 最新那封永遠不寄,
+   *      而客人手上那封說的是 C。
+   *    ⇒ 原拍板的理由「客人要的是哪一個號碼是對的」在 A→B→C 完全成立 ——
+   *      **它沒涵蓋【改回去】。**
+   *
+   * 🛑🛑 **這個字串一定要原樣從掃描面帶過來, 不准在 TS 這邊由時間算出來。**
+   *    SQL 與 TS 各格式化一次是最容易漂的做法(時區 / 小數位 / T 或空白 / 偏移寫法),
+   *    而漂掉的症狀是**同一封信寄兩次**, 不是報錯。
+   *    ⇒ 所以只有 SQL 格式化:`pcm_tracking_corrected_at_key(timestamptz)`,
+   *      view 把它當成一欄(`corrected_at_key`)回出來, 這裡只負責接。
+   */
+  trackingCorrectedKey: string;
 };
 
 export type EnqueueEmailInput =
