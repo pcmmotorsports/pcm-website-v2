@@ -20,7 +20,12 @@
 -- ══ ⚠️ 本 view 【原樣保留】一個已知會漏信的條件 ═══════════════════════════
 -- adapter 逐字記著:`created_at >= cutoff` 這一道**會漏掉**
 -- 「cutoff 之前建立、cutoff 之後被員工取消」的單 ⇒ **那些人收不到信**。
--- 🔵 今天無害(未付款單 1 天就被 expire ⇒ 窗口 ≤ 1 天, 而共用的 cutoff 早已過去)。
+-- 🔵 今天無害 —— ⛔ ~~理由:「未付款單 1 天就被 expire ⇒ 窗口 ≤ 1 天」~~
+--    🔴 **那個理由是【錯的】, 而我是從原檔搬過來、沒有自己驗**(codex 2026-09-05 must-fix):
+--    ✅ **真正的理由是【那顆 cutoff 早就過去了】** ⇒ 今天不存在「建立於 cutoff 之前」的活單。
+--    🛑 而 codex 給的反例正好打穿舊理由:**新 cutoff = T 時, T−1h 建單、T+1h 被員工取消**
+--      ⇒ 它**還不滿一天**(所以沒被 expire), 而 `created_at >= T` 照樣把它排除掉。
+--    ⇒ 📌 **結論對而理由錯 —— 而那比結論錯難發現, 因為沒有人會去查一個【對的結論】。**
 -- 🛑 **而它會在【Sean 給這條線一顆新 cutoff 的那一天】開始靜靜漏信。**
 -- ⇒ 📌 **本片不動它** —— 那兩個 cutoff 是**參數**、留在 adapter, 本 view 一個都不含。
 --   ⇒ 🔴 **所以那個已知缺口【沒有被本片改變, 也沒有被本片解掉】。照實寫。**
@@ -56,10 +61,16 @@ WHERE o.payment_status = 'unpaid'
   -- 🔴🔴 **身分判準 = 那一列存不存在, 而【不讀它任何欄位】。**
   --    員工取消會 INSERT 進 order_cancellations;逾時自動取消**不會**(該表命中 0)
   --    ⇒ 🎯 **它存不存在由【哪一支函式跑過】決定, 不由任何人填。**
-  --    (原本 adapter 用 `!inner` join 達成同一件事 —— 這裡改寫成 EXISTS,
-  --     語意相同而**不會讓父列重複**:`!inner` 對一對多會複製父列, 而 EXISTS 不會。
-  --     ⚠️ 今天 `order_cancellations` 對一張單是否可能多列, 我**沒有查** ——
-  --     ⇒ 🔵 而 EXISTS 讓這個問題**不必回答**, 那正是選它的理由。)
+  --    (原本 adapter 用 `!inner` join 達成同一件事, 這裡改寫成 EXISTS。)
+  --    ⛔ ~~「語意相同而**不會讓父列重複**:`!inner` 對一對多會複製父列」~~
+  --    🔴🔴 **那句話是【假的】, 而它是我編的**(codex 2026-09-05 對抗審查, 附 PostgREST 官方文件):
+  --      PostgREST 的 to-many embed **回的是「父物件 + 子陣列」, 不會複製父列**;
+  --      `!inner` 只是**篩掉沒有子列的頂層列**。⇒ 兩者納入的父列集合**本來就相同**。
+  --    📌 **⇒ 我拿一個【SQL JOIN 的直覺】去描述一個【PostgREST 的行為】, 而它們不一樣。**
+  --    ✅ **改寫成 EXISTS 仍然是對的**, 而理由要換成真的那個:
+  --      **這個 view 是 SQL, 而 SQL 裡沒有「embed」這個東西** —— EXISTS 是它的自然寫法。
+  --    ⚠️ 而「`order_cancellations` 對一張單是否可能多列」我**確實沒有查** ——
+  --      ⇒ 🔵 EXISTS 讓那個問題不必回答, **這一半是真的**(它天生只問存不存在)。
   AND EXISTS (
         SELECT 1 FROM public.order_cancellations oc
          WHERE oc.order_id = o.id)
@@ -93,6 +104,13 @@ $c$「未付款、被【員工】取消、還沒排過 order_unpaid_cancelled �
 
 REVOKE ALL ON public.pcm_unpaid_cancelled_email_pending FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.pcm_unpaid_cancelled_email_pending TO service_role;
+
+-- 🔴 **這一行【與 `20260905020000` 重複, 而重複是刻意的】**(2026-09-05 核 GRANT 對象時補)。
+--    本 view 是 `security_invoker` ⇒ 呼叫者要有那支 helper 的 EXECUTE, 而那道 GRANT
+--    是在 `20260905020000` 下的 ⇒ 🛑 **本支就對「那一支先貼」產生了一個順序相依。**
+--    ✅ `GRANT` 是冪等的 ⇒ 這裡再下一次, 本支就**自己站得住**, 不必依賴貼的順序。
+--    ⇒ 📌 **一個只有在【別人先做過】才成立的 migration, 它的正確性寫在別人的檔案裡。**
+GRANT EXECUTE ON FUNCTION public.pcm_js_trim_whitespace() TO service_role;
 
 -- ── 新物件收權斷言(整段照抄 `20260817070000` 的標準區塊, 只換清單)──
 DO $newobj_guard$
@@ -220,12 +238,32 @@ BEGIN
   IF NOT pg_catalog.has_function_privilege(
             'service_role', 'public.pcm_js_trim_whitespace()', 'EXECUTE')
   THEN
-    RAISE EXCEPTION '事後閘:service_role 對 pcm_js_trim_whitespace() 沒有 EXECUTE ⇒ 這個 security_invoker view 查一次錯一次 ⇒ 取消信那條線每輪 503';
+    RAISE EXCEPTION '事後閘:service_role 對 pcm_js_trim_whitespace() 沒有 EXECUTE ⇒ 這個 security_invoker view 查一次錯一次 ⇒ 取消信那條線每輪 503(而本支上面就有那道 GRANT ⇒ 走到這裡代表它被別的東西收回去了, 不是漏貼)';
   END IF;
+  -- 🔴 **四張底表【全部】要驗, 不是只驗我新加的那一張**(codex 2026-09-05 must-fix):
+  --    `security_invoker` 的 view 用呼叫者的權限讀它碰到的**每一張表**
+  --    ⇒ 📌 我只驗新增的那張 = **拿「這一片改了什麼」當分母, 而那道閘的分母是「這個 view 讀什麼」。**
   IF NOT pg_catalog.has_table_privilege('service_role', 'public.order_cancellations', 'SELECT')
   THEN
     RAISE EXCEPTION '事後閘:service_role 讀不到 order_cancellations ⇒ 同上, 查一次錯一次';
   END IF;
+  -- 🔵 **那三張【既有】的底表用 NOTICE 不用 EXCEPTION, 而理由是量出來的**:
+  --    ① **正式庫實測四張都是 true**(`-ship` 2026-09-05 唯讀自量, 不是轉述;
+  --       `service_role` 的 `rolbypassrls` 也是 true)
+  --    ② 而**拋棄式 PG 的 bootstrap 沒有複製 Supabase 的預設授權** ⇒ 硬 EXCEPTION 會讓
+  --       `scripts/migrations-replay-from-zero.sh` **對全隊每一發都變紅** —— 而那是環境缺件, 不是缺陷。
+  --    ③ 🔴 **而更重要的是:硬閘在這裡買到的東西很少** —— 它只在 apply 那一刻檢查,
+  --       而「有人後來把權限收掉」發生在那之後。⇒ 📌 **那要一道排程檢查, 不是一道 apply 期的閘。**
+  --    ⇒ 🛑 **所以這三格印警告、不擋** —— 而它們印出來的東西, 正是那道排程檢查該去看的。
+  IF NOT pg_catalog.has_table_privilege('service_role', 'public.orders', 'SELECT')
+  THEN RAISE NOTICE '⚠️ service_role 讀不到 orders ⇒ 這個 view 在正式環境會查一次錯一次(本機拋棄式 PG 出現此訊息屬預期)'; END IF;
+  IF NOT pg_catalog.has_table_privilege('service_role', 'public.customers', 'SELECT')
+  THEN RAISE NOTICE '⚠️ service_role 讀不到 customers ⇒ 同上'; END IF;
+  IF NOT pg_catalog.has_table_privilege('service_role', 'public.email_outbox', 'SELECT')
+  THEN RAISE NOTICE '⚠️ service_role 讀不到 email_outbox ⇒ 同上(而它是 anti-join 那一半)'; END IF;
+  -- ⚠️ **而這四道【證不到 RLS 可見性】**(codex 同一條的後半):`has_table_privilege` 答的是
+  --    表級授權;**若哪天 service_role 的 BYPASSRLS 被收掉**, 這四格照樣綠而 view 會**靜靜回零**
+  --    ⇒ 🛑 **而「零列」與「今天沒有信要寄」印同一個東西。** 本檔守不到, 留在這裡當已知邊界。
   IF pg_catalog.has_table_privilege('anon', 'public.pcm_unpaid_cancelled_email_pending', 'SELECT')
   THEN RAISE EXCEPTION '事後閘:anon 讀得到那個含 email 的 view'; END IF;
   IF pg_catalog.has_table_privilege('authenticated', 'public.pcm_unpaid_cancelled_email_pending', 'SELECT')

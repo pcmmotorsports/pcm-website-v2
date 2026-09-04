@@ -62,8 +62,10 @@ describe('SupabaseUnpaidCancelledOrderScannerAdapter — 射程(而它靠一個�
   //      而不是這一層 select 字串裡的 `!inner`。
   //    ✅ **守門跟著搬**:`20260905030000` 的 apply 期**釘樁②**逐字找 `order_cancellations`,
   //      找不到就 RAISE, 而訊息說出後果(逾時那批會收到信, 而 Sean 2026-09-03 拍過不寄)。
-  //    🔵 **而換成 EXISTS 還解掉一件 `!inner` 帶著的風險**:`!inner` 對一對多會**複製父列**,
-  //      EXISTS 不會 —— 而「那張表對一張單是否可能多列」我沒有查, **EXISTS 讓那個問題不必回答**。
+  //    ⛔ ~~**而換成 EXISTS 還解掉一件 `!inner` 帶著的風險**:`!inner` 對一對多會複製父列~~
+  //    🔴 **那句是假的**(codex 2026-09-05, 附官方文件):PostgREST 的 to-many embed
+  //      回的是父物件 + 子陣列, **不複製父列** ⇒ 兩者的父列集合本來就相同。
+  //    ✅ 換成 EXISTS 仍然對, 理由是「這個 view 是 SQL, 而 SQL 裡沒有 embed 這個東西」。
   it('🔴 射程那道判準【不在這一層了】—— 而毒字面一個都不准回來', async () => {
     // 🔴🔴 **判準換過一次, 而換的理由要留在測試裡**:
     //    ⛔ 第一版用 `.neq('cancelled_reason', 'payment_expired')`
