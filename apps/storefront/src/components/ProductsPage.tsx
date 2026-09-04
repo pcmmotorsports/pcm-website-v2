@@ -38,10 +38,11 @@
 
 import { useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
 import { vehicleLabel } from '@/lib/vehicle-match';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   cascadeFilterReducer,
+  clearAll,
   makeInitialCascadeState,
   type CascadeFilterState,
 } from '@pcm/ui';
@@ -83,6 +84,24 @@ const MESSAGE_STATE_STYLE: CSSProperties = {
   color: 'var(--c-text-3)',
   font: '14px/1.6 system-ui, sans-serif',
 };
+
+// ⟦b4-DEADENDMSG1⟧ 實例③:零結果時要不要給「清除所有篩選」這個出路。
+// 判準 = 「**這一頁的 0 是篩選造成的嗎**」, 而那要問【server 拿什麼去撈】, 不是問畫面上有幾顆
+// chip —— 認不得的 `?category=<改名殘連結>` 會**留在 URL 上**(#315 Sean 2026-08-11 Q1=A,
+// `use-catalog-filter-url-sync.tsx:139`)而**進不了 cascade** ⇒ ActiveChips 的 `chips.length === 0`
+// ⇒ 整條 chip 列(連同它那顆既有的「清除全部」)`return null` ⇒ 🔴 **篩選生效、看不見、清不掉。**
+//
+// 🔴 **這裡刻意用【黑名單】(排掉非篩選參數), 而不是白名單列出篩選參數** —— 與 CLAUDE.md
+//    credential 那條相反, 因為**兩邊漏掉一個新參數的後果方向相反**:
+//    · 白名單漏掉一個【日後新增的篩選參數】⇒ 出路又消失, 而**沒有東西會叫**(這一列復發)
+//    · 黑名單多算一個【不影響結果的雜參數】⇒ 空目錄時多出一顆按不壞的鈕
+//    ⇒ 取後者。
+const NON_FILTER_PARAMS = new Set(['page', 'per', 'sort', 'pick']);
+
+function hasCatalogFilterParam(params: { keys(): IterableIterator<string> }): boolean {
+  for (const key of params.keys()) if (!NON_FILTER_PARAMS.has(key)) return true;
+  return false;
+}
 
 export type ProductsPageProps = {
   /** server-resolved 真目錄商品(toUIProduct 'general' strip、零經銷價;#220 列表遷真;
@@ -210,6 +229,9 @@ function SortBar({
 export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands, garage = [], searchKeyword, unmatchedWords }: ProductsPageProps) {
   // searchParams 先取(#6:page/sort/perPage lazy init 讀 URL;server render 與 client 首繪同源、零 hydration 分歧)
   const searchParams = useSearchParams();
+  const router = useRouter();
+  // ⟦b4-DEADENDMSG1⟧③:零結果時才問這一格(有結果時整段不渲染 ⇒ 那顆鈕結構上出不來)。
+  const filtered = hasCatalogFilterParam(searchParams);
   // ── A2(2026-08-03):`?pick=vehicle` 落地開燈(Sean 拍 B 案「同落地 + 開燈」)──
   // 入口 = Header「依車輛搜尋」(非首頁時)與 MobileTabBar「找車」。
   // 🔴 `pick` **不是篩選條件**,刻意不進 cascade 狀態機:useDeepLinkRestore 與
@@ -452,6 +474,41 @@ export function ProductsPage({ products, total, error, categories, brands: serve
           ) : (
             <div style={MESSAGE_STATE_STYLE}>
               找不到符合條件的商品
+              {filtered && (
+                <>
+                  <div style={{ marginTop: 8 }}>
+                    目前有篩選條件在生效。可能是條件太窄,或這個連結上的某個條件已經失效了。
+                  </div>
+                  <button
+                    className="ac-clear-all"
+                    style={{ marginTop: 16 }}
+                    onClick={() => {
+                      dispatch(clearAll());
+                      setExtras(makeInitialExtraFilters());
+                      // 🔴 光清 state 不夠:認不得的參數留在 URL 上, 而回寫段的
+                      // `else if (parseCategoryFromUrl(...) !== null)` 對它回 null ⇒ **不刪**
+                      // ⇒ 只 dispatch 的話, 按完 URL 還是髒的、還是 0 筆。
+                      // 🔵 `sort`/`per` 明確帶走 —— 它們是客人刻意選的, 不是篩選。
+                      // 🛑 **而這幾行【不是】在修一個量到的缺陷, 要說清楚**:
+                      //    R1 審查說「丟掉 sort/per ⇒ state 還在而 URL 沒了 ⇒ 排序選單寫著
+                      //    『價格由低到高』而清單沒排」。**我去量了, 那個情境沒有重現** ——
+                      //    把這幾行換回裸的 `router.replace('/products')` 跑同一格,
+                      //    終態 URL **一樣**是 `?sort=price-asc&per=100`(回寫 effect 補回來)。
+                      //    ⇒ 📌 **這幾行買到的不是修復, 是【不依賴另一個 effect 事後補救】。**
+                      //    ⇒ 🔴 而下面那格測試在這幾行被拿掉時**照樣綠**(實測), 它守的是
+                      //      【終態】不是【這幾行】—— 不要把它讀成這幾行的守門。
+                      const kept = new URLSearchParams();
+                      const keepSort = searchParams.get('sort');
+                      const keepPer = searchParams.get('per');
+                      if (keepSort) kept.set('sort', keepSort);
+                      if (keepPer) kept.set('per', keepPer);
+                      const keptQuery = kept.toString();
+                      router.replace(keptQuery ? `/products?${keptQuery}` : '/products');
+                    }}>
+                    清除所有篩選
+                  </button>
+                </>
+              )}
             </div>
           )}
           {!error && resultCount > 0 && (
