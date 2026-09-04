@@ -204,6 +204,19 @@ describe('#437 ④ 卡頂彙總三態', () => {
     expect(t).not.toContain('還差');
   });
 
+  // 🔴 Sean 2026-09-05 `Q-多匯 = 乙`(逐字):狀態不翻, 而單上要標「待人工」。
+  //    🛑 這一格與上一格【分開】—— 它們釘的是兩個不同的拍板(08-12 的金額 / 09-05 的待人工),
+  //      而合成一格會讓「其中一個被刪掉」不留痕跡。
+  it('🔴 溢收 ⇒ 同時標「多付, 待人工」(Sean 2026-09-05 Q-多匯=乙)', () => {
+    const t = text({ status: 'ok', rows: [{ ...ROW, amount: 6800 }] }, 5000);
+    expect(t).toContain('多付, 待人工');
+    // 🟢 而那三個字【只在溢收時】出現 —— 少了這一格, 一個無條件印它的版本會全綠。
+    const settled = text({ status: 'ok', rows: [{ ...ROW, amount: 5000 }] }, 5000);
+    expect(settled).not.toContain('多付, 待人工');
+    const short = text({ status: 'ok', rows: [{ ...ROW, amount: 3000 }] }, 5000);
+    expect(short).not.toContain('多付, 待人工');
+  });
+
   it('🔴 沖銷列要算進已收(SUM(amount),不可濾掉沖銷列再加)', () => {
     // 6800 收 + (-6800) 沖 = 已收 0;應收 6800 ⇒ 還差 6800。
     // 濾掉沖銷列的寫法會算成已收 6800 ⇒ 畫「已收足」⇒ 這格紅。

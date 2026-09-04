@@ -116,6 +116,16 @@ function Row({
  *    與下面「讀不到時不可顯示 0 筆」是同一條規則的金額版。
  * 🔴 溢收**只標不擋**(Sean `Q-溢收=A`):收兩筆定金、客人多匯都是合法情境,
  *    DB 的 G3 也只擋 <= 0、不擋超額。這裡的職責到「看得見」為止。
+ *
+ * 🔴🔴 **2026-09-05 Sean 拍 `Q-多匯 = 乙`(逐字)**:
+ *    他看到的選項字面 = `甲 = 自動已付款 + 多付開待退款 / 乙 = 狀態不動只標「多付, 待人工」`
+ *    ⇒ 他選【乙】⇒ **payment_status 不翻, 而單上要標「待人工」。**
+ *    📎 `~/pcm-mailbox/Sean拍板-20260905.md:128`(引用抄題目文字, 不抄摘要)
+ * 🛑 **而我【加】不【換】** —— 「溢收 N 元」那個字串是他 **2026-08-12 肉眼驗拍板**的
+ *    (`Q-溢收=A`, 同一份紀錄還逐字寫著「❌ 不要照 OD 補溢收處理下拉」)。
+ *    ⇒ 📌 **兩板相容:舊的說【多少錢】, 新的說【要人處理】。換掉舊字面等於推翻一個他驗過的東西。**
+ * ⚠️ 而「待人工」三個字**照他看到的選項字面**, 不是「待人工處理」——
+ *    那兩個字是我在轉述時加的, 已訂正(板列與 memory 留刪除線)。
  */
 function SummaryLine({ summary }: { summary: PaymentSummary }) {
   if (summary.kind === 'unknown') {
@@ -141,9 +151,17 @@ function SummaryLine({ summary }: { summary: PaymentSummary }) {
         </span>
       )}
       {summary.kind === 'over' && (
-        <span className='text-destructive font-medium tabular-nums'>
-          溢收 {formatAmount(summary.excess)}
-        </span>
+        <>
+          <span className='text-destructive font-medium tabular-nums'>
+            溢收 {formatAmount(summary.excess)}
+          </span>
+          {/* 🔴 Sean 2026-09-05 `Q-多匯 = 乙`:狀態不翻, 而單上要標「待人工」。
+              🔵 與左邊那格分開一個 <span> —— 它們是兩個不同的事實
+              (多少錢 / 誰要處理), 而合成一句話會讓下一個人以為只有一個拍板。 */}
+          <span className='inline-flex rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-900'>
+            多付, 待人工
+          </span>
+        </>
       )}
     </p>
   );
