@@ -190,3 +190,59 @@ Supabase(Pro)兩個專案
 你做完上面三步之後跑一次第 3 步的驗證,比數有幾個有用。
 
 — G5
+
+---
+
+## 🔴🔴 停用一顆開關型 env 時 —— **「我刪掉了」不是它停下來的證據**(2026-09-04 線【身分】`-auth`;⟦b4-ENVREDEPLOY1⟧)
+
+> **這一節與上面那半是同一個機制的另一個方向。** 上面講的是「設」,這一節講的是「停」。
+
+### 為什麼要有這一節
+
+**Vercel 刪掉一顆 env 與設定一顆 env 一樣,只對【新的 deployment】生效。**
+⇒ 🔴 出事那天你把它刪掉、以為停了,而**現行 deployment 每五分鐘照樣在跑**。
+
+🛑 **而這個陷阱是【對稱的】,人不是**:
+```
+【設】的時候   有一張單、有人在旁邊提醒你 redeploy
+【停】的時候   你在事故當下、在慌, 而沒有人在旁邊
+⇒ 📌 兩個方向共用同一個機制, 而只有一個方向有人守。
+```
+
+### ✅ 停用 = **兩個動作**,而第二個動作有證據
+
+```
+① 在 Vercel 刪掉那顆 env(或改成空字串)
+② 🔴 **Redeploy** —— 沒有這一步, 上面那一步等於沒做
+③ 去 log 看那個【狀態欄位變回去了】—— 那才是證據
+```
+
+### 四顆開關型 env,各自的「它不在時會變的那個欄位」
+
+> 🔬 2026-09-04 逐支開檔量的(`檔案:行號`),**四顆全部都有** ——
+> 所以停用之後**不需要猜**,去 log 看那一格就好。
+
+| env | 去哪支 route 的 log 看 | 它不在時那一格會變成 |
+|---|---|---|
+| `B4_DEPLOY_CUTOFF` | `api/cron/email-sweep/route.ts:514` | `b5DeployCutoff: "B4_DEPLOY_CUTOFF 未設或空"` |
+| `SHIPPED_EMAIL_CUTOFF` | `api/cron/email-sweep/route.ts:515` | `shippedCutoff: "SHIPPED_EMAIL_CUTOFF 未設或空"` |
+| `B4_ORDER_CREATED_STUCK_MINUTES` | `api/cron/anomaly-alert/route.ts:351` | `reason: "skipped_no_stuck_threshold"` |
+| `CAPTURE_RECHECK_CUTOFF_DAYS` | `api/cron/capture-recheck/route.ts:141` | `reason: "skipped_no_cutoff"` |
+
+🔵 **四支都刻意用 `console.info` 不是 `console.error`** ——「**沒上膛是正常狀態,不是失敗**」。
+⇒ 📌 **所以你在 log 裡要找的是一行藍字,不是紅字。** 找紅字會找不到,而找不到會被讀成「已經停了」。
+
+### 🛑 而這張表答不出什麼(射程,不要外推)
+
+```
+它答:「這一輪跑的時候, 那顆 env 讀不讀得到」
+它【答不出】:「Vercel 面板上那顆 env 現在還在不在」
+⇒ 設了而沒 redeploy ⇒ 現行 deployment 仍讀不到 ⇒ 這裡照樣印「未設或空」—— 而那是【對的】。
+⇒ 📌 這一格量的是【現行 deployment 的世界】, 不是【面板的世界】。兩者在 redeploy 之前不同步。
+```
+
+### 🔴 而「碼那一半已經夠了」是量出來的,不是猜的
+
+`⟦b4-ENVREDEPLOY1⟧` 那一列原本讀起來像「要再加觀測」——
+🔬 而 2026-09-04 逐顆量完:**四顆都已經有可觀測的欄位** ⇒ **缺的不是 log,是【停用時的動作清單】** ⇒ 就是這一節。
+📌 **⇒ 一個寫成「缺觀測」的缺口,實際上缺的是一張紙。而兩者的修法完全不同。**
