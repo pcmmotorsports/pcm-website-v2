@@ -36,6 +36,7 @@
 
 import Link from 'next/link';
 import type { MemberOrderDetail, MemberOrderDetailItem, OrderItemVehicleSnapshot, PaymentStatus } from '@pcm/domain';
+import { subtotalLabelOf } from '@pcm/domain';
 import {
   PCM_REMITTANCE_ACCOUNT_NAME,
   PCM_REMITTANCE_ACCOUNT_NO,
@@ -466,8 +467,11 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
         ))}
 
         <div className="od-sums" data-od-id="order-sums">
+          {/* 🔴 有稅時小計是【未稅】的 ⇒ 標籤要說得出來(`⟦b4-TAXSURFACES⟧`, Sean 2026-09-04 拍甲)。
+              ⚠️ 這一頁的基底字面是「**商品**小計」不是「小計」—— **刻意不統一**:
+                 把它改成「小計」是**改文案**, 而那是 Sean 的事、不是本片的。 */}
           <div className="od-sum">
-            <span>商品小計</span>
+            <span>{subtotalLabelOf('商品小計', order.taxTotal.amount)}</span>
             <b>{nt(order.subtotal.amount)}</b>
           </div>
           <div className="od-sum">
@@ -478,6 +482,14 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
             <div className="od-sum od-sum-off">
               <span>折扣</span>
               <b>− {nt(order.discountTotal.amount)}</b>
+            </div>
+          )}
+          {/* 🔴 稅額:**有稅才印**(`⟦b4-TAXSURFACES⟧` 第 7 步)。位置與其餘四面逐字對齊:
+              小計 → 運費 → 折扣 → **稅額** → 訂單金額。🔵 稅 0 不印, 理由同上面那一列折扣。 */}
+          {order.taxTotal.amount > 0 && (
+            <div className="od-sum">
+              <span>稅額</span>
+              <b>{nt(order.taxTotal.amount)}</b>
             </div>
           )}
           {/* 稿註解逐字:**未付款的訂單不能寫「實付」——那是還沒發生的事。** */}

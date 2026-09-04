@@ -1666,3 +1666,127 @@ describe('🔵 未付款取消線:缺鍵的分堆依據(給 key-contract 那張�
     expect(r.unpaidCancelledPendingCount).toBe(5);
   });
 });
+
+/**
+ * `getSearchLogHealth` —— 2026-09-05 補。
+ *
+ * 🔴 **它到今天為止零測試**(當場量:本檔 `grep -c getSearchLogHealth` ⇒ **0**)。
+ *    而它是 `⟦search-LOGSILENTZERO⟧` 那條線的讀取端:**搜尋日誌靜靜歸零時就靠它出聲**。
+ *    ⇒ 📌 **一個負責「東西沒聲音時發出聲音」的元件, 自己沒有東西在盯它。**
+ *
+ * 🛑 **而這四格的模子是 `-mail` 在 `getStuckBankOrdersHealth` 上先做的** ——
+ *    我**沒有讀到他那支檔**(2026-09-05 當場找:`git grep -l getStuckBankOrdersHealth --all` ⇒ 查無,
+ *    他還沒推)⇒ **這四格是照主視窗轉述的四個世界寫的, 不是照他的碼抄的。**
+ *    ⇒ 兩邊形狀若有出入, 以他那支為準(他是那個模子的作者), 而**這一句要留著** ——
+ *      否則下一個人會以為兩支是對過的。
+ */
+function searchLogClient(result: unknown, probeMissing = true) {
+  return makeClient({
+    query: async (text: string) => {
+      if (text.includes('to_regprocedure')) {
+        return { rows: [{ missing: probeMissing }] };
+      }
+      if (text.includes('get_search_log_health')) {
+        if (result === undefined) {
+          // 🔴 模擬 PG 的 42883:那支函式不存在(部署窗口)
+          const e = new Error('function public.get_search_log_health() does not exist') as Error & {
+            code?: string;
+          };
+          e.code = '42883';
+          throw e;
+        }
+        return { rows: [{ result }] };
+      }
+      return { rows: [] };
+    },
+  });
+}
+
+describe('PgAnomalyAlertReaderAdapter.getSearchLogHealth(⟦search-LOGSILENTZERO⟧ 的讀取端)', () => {
+  it('① 正常:三個鍵原封回傳(snake→camel), 不在這裡判斷要不要告警', async () => {
+    const { client } = searchLogClient({
+      table_exists: true,
+      last_row_at: '2026-09-05T01:23:45.000Z',
+      anon_can_execute: false,
+    });
+    const r = await new PgAnomalyAlertReaderAdapter('conn', () => client).getSearchLogHealth();
+    expect(r).toEqual({
+      tableExists: true,
+      lastRowAt: '2026-09-05T01:23:45.000Z',
+      // 🔴 `false` 要原封留著 —— 它與 `null` 的下一步【相反】:
+      //    false = 門被關上了(有人做了事) / null = 還沒貼(沒有人做過事)。
+      anonCanExecute: false,
+    });
+  });
+
+  it('①b `anon_can_execute: null` 不得被壓成 false —— 那兩個世界的下一步相反', async () => {
+    const { client } = searchLogClient({
+      table_exists: false,
+      last_row_at: null,
+      anon_can_execute: null,
+    });
+    const r = await new PgAnomalyAlertReaderAdapter('conn', () => client).getSearchLogHealth();
+    expect(r?.anonCanExecute).toBeNull();
+    expect(r?.lastRowAt).toBeNull();
+  });
+
+  it('② 世界 B:函式【真的不存在】(42883 + probe 說 missing)⇒ 回 null(降級, 不是壞掉)', async () => {
+    const { client } = searchLogClient(undefined, true);
+    const r = await new PgAnomalyAlertReaderAdapter('conn', () => client).getSearchLogHealth();
+    // 🔴 `null` = 「還沒貼」⇒ 上層走 Unknown, 而不是「查得到而且沒事」。
+    expect(r).toBeNull();
+  });
+
+  it('③ 世界 A:42883 來自函式【內部】(probe 說函式在)⇒ **原封上拋**, 不得降級', async () => {
+    const { client } = searchLogClient(undefined, false);
+    // 🔴 這一格是世界 A 與世界 B 的分界:同一個 42883, 兩種成因, 兩個相反的下一步。
+    //    少了它, 一個【函式內部炸掉】的世界會被靜靜讀成「還沒貼」⇒ 沒有人會叫。
+    //
+    // 🛑 **而斷言【不比對 pg 的原文】** —— 我第一版寫 `.toThrow(/does not exist/)` 當場紅:
+    //    `sanitizeError` **刻意**把 pg 原文重造掉(防洩漏 token / SQL)⇒ 我等於在測一個
+    //    **設計上被移除的東西**。📌 一個測試紅了, 有時是它問錯了問題, 不是碼壞了。
+    // ✅ 改比它**刻意保留**的那一格:`code` 要活下來 —— 那才是值班的人分得出成因的依據。
+    const err = await new PgAnomalyAlertReaderAdapter('conn', () => client)
+      .getSearchLogHealth()
+      .then(
+        (v) => { throw new Error(`世界 A 竟然沒有丟, 回了 ${JSON.stringify(v)}`); },
+        (e: unknown) => e as { code?: unknown; message?: string },
+      );
+    expect(err.code).toBe('42883');
+    expect(err.message).toMatch(/42883/);
+  });
+
+  it('④ 矛盾要丟:`last_row_at` 是字串而【不是合法時刻】⇒ 丟, 不得放行', async () => {
+    // 🔴 只驗「是字串」不夠:非法日期 ⇒ 上層 `new Date(x).getTime()` 是 NaN
+    //    ⇒ `NaN > 86400000` 為 false ⇒ **stale 恆 false** ⇒ 壞回應被讀成「健康」。
+    const { client } = searchLogClient({
+      table_exists: true,
+      last_row_at: '不是時刻',
+      anon_can_execute: false,
+    });
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getSearchLogHealth(),
+    ).rejects.toThrow(/last_row_at 不是合法時刻/);
+  });
+
+  it('④b 型別不符也要丟(table_exists 不是 boolean / anon_can_execute 不是 boolean)', async () => {
+    const bad1 = searchLogClient({ table_exists: 'yes', last_row_at: null, anon_can_execute: null });
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => bad1.client).getSearchLogHealth(),
+    ).rejects.toThrow(/table_exists 異常/);
+    const bad2 = searchLogClient({ table_exists: true, last_row_at: null, anon_can_execute: 1 });
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => bad2.client).getSearchLogHealth(),
+    ).rejects.toThrow(/anon_can_execute 異常/);
+  });
+
+  it('⑤ 連線一定收掉(end 被呼叫)—— 即使走的是丟出去那條路', async () => {
+    const { client, end } = searchLogClient({ table_exists: true, last_row_at: '壞的', anon_can_execute: null });
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getSearchLogHealth(),
+    ).rejects.toThrow();
+    // 🔴 per-request `new Client()` + `finally end()` —— 錯誤路徑漏掉 end 會慢慢吃光連線,
+    //    而它的症狀出現在【很久以後、別的地方】。
+    expect(end).toHaveBeenCalledTimes(1);
+  });
+});

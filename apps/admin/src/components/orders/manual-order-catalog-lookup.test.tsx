@@ -176,6 +176,19 @@ describe('🔴 不回寫的【絆線】(不是證明) —— 丙 的整個前提
     expect(CODE).not.toContain('MANUAL_ORDER_LINE_');
   });
 
+  it('🔴 那句提示【點名區塊, 不用方向詞】(⟦b4-LOOKUPCOPYDIR⟧)', () => {
+    // 🔬 病史:原文是「請自己填進**上面**那幾格」, 而要填的品項在本元件**下面**
+    //    (`manual-order-form-body.tsx:220` 的碼註逐字「先查到資料, **再往下填**」)⇒ 指錯方向。
+    // 🛑 而修法**不是**換成「下面」—— 同一句會出現兩個「下面」而它們指不同的東西。
+    // ✅ 改成點名 `manual-order-lines.tsx:72` 那個 `<legend>` 的字面「品項」。
+    // 🎯 **這一格守的不只是這次的錯字, 是「方向詞會在下次調版面時再次變成假的」。**
+    expect(SRC).not.toMatch(/填進上面那幾格/);
+    expect(SRC).not.toMatch(/請自己填進下面/); // 🔵 連「改成下面」那個修法也擋掉
+    expect(SRC).toContain('請自己抄進「品項」那幾格');
+    // 🟢 負對照:這把尺讀得到東西(否則上面三格對一個空字串全綠)
+    expect(SRC.length).toBeGreaterThan(500);
+  });
+
   it('🔴 沒有 DOM 直接操作(querySelector / getElementById / .value =)', () => {
     expect(CODE).not.toMatch(/querySelector|getElementById/);
     expect(CODE).not.toMatch(/\.value\s*=[^=]/);

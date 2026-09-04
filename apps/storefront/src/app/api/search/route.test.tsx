@@ -117,7 +117,12 @@ describe('/api/search 的另三區', () => {
     searchProducts.mockResolvedValue({ items: [], total: null, error: false });
     tryCatalogBrandTaxonomy.mockResolvedValue({ brands: [], failed: true });
     tryCategories.mockResolvedValue({ categories: [], failed: false });
-    tryVehicleTaxonomy.mockResolvedValue({ motoBrands: [], failed: true });
+    // 🔴🔴 **車款那一腿 2026-09-05 從這條路上拿掉了**(`⟦search-TRGMEXPRIDX⟧`)——
+    //    量到它佔 route total 的 92%(冷 11.8~12.6 秒), 而這條路上【沒有人畫它】。
+    //    ⇒ 所以這裡不再 mock 它;`failed.vehicles` 從此**恆 false**。
+    //    🛑 **而這一格的判別力沒有變弱**:它要擋的是「三個 failed 被合成一個」,
+    //       而 `brands=true` / `categories=false` **兩者不同**就已經讓
+    //       `a||b` 與 `a&&b` 兩種合成法各自紅一種。**車款那一格本來就是多的。**
 
     const res = await GET(req('brembo'));
     const body = await res.json();
@@ -126,7 +131,7 @@ describe('/api/search 的另三區', () => {
     //    —— 下一個人會像 `-c7` 一樣以為沒守。(它原本被 `body.failed` 那格【間接】守著:
     //    變 503 的話 body 會是 `{error:'search_failed'}` ⇒ toEqual 必紅。)
     expect(res.status).toBe(200);
-    expect(body.failed).toEqual({ brands: true, categories: false, vehicles: true });
+    expect(body.failed).toEqual({ brands: true, categories: false, vehicles: false });
   });
 
   it('R6 三區任一 failed 不讓整發變 503 —— 商品那一區是主體', async () => {
@@ -144,5 +149,45 @@ describe('/api/search 的另三區', () => {
 
     expect(res.status).toBe(200);
     expect((await res.json()).items).toHaveLength(1); // 🟢 商品照樣給
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// 🔴🔴 「你是不是要找 X?」的候選(`⟦search-BRANDTYPOTRGM⟧` · Sean 2026-09-04 拍甲)
+// ══════════════════════════════════════════════════════════════════════
+describe('/api/search 的品牌候選', () => {
+  const BRANDS = [
+    { id: 'akrapovic', name: 'AKRAPOVIČ', count: 1 },
+    { id: 'rizoma', name: 'RIZOMA', count: 1 },
+  ];
+
+  it('🔴 打錯字 ⇒ 回一個候選, 而且帶著連結用的 slug', async () => {
+    searchProducts.mockResolvedValue({ items: [], total: 0, error: false });
+    tryCatalogBrandTaxonomy.mockResolvedValue({ brands: BRANDS, failed: false });
+    const body = await (await GET(req('akrpovic'))).json();
+    expect(body.suggestion).toEqual({ name: 'AKRAPOVIČ', slug: 'akrapovic' });
+  });
+
+  it('🔴 亂編的字 ⇒ suggestion 是 null(不是 undefined —— 兩者在畫的人那邊不一樣)', async () => {
+    searchProducts.mockResolvedValue({ items: [], total: 0, error: false });
+    tryCatalogBrandTaxonomy.mockResolvedValue({ brands: BRANDS, failed: false });
+    const body = await (await GET(req('zzzzzqqqqq'))).json();
+    expect(body.suggestion).toBeNull();
+  });
+
+  it('🔴 品牌清單讀不到(failed)⇒ null —— 「沒有建議」比「猜一個」誠實', async () => {
+    searchProducts.mockResolvedValue({ items: [], total: 0, error: false });
+    tryCatalogBrandTaxonomy.mockResolvedValue({ brands: [], failed: true });
+    const body = await (await GET(req('akrpovic'))).json();
+    expect(body.suggestion).toBeNull();
+  });
+
+  it('🔵 **有結果的時候也照樣算** —— 判準只有一份, 在 UI 那邊', async () => {
+    // 🛑 少了這一格, 有人「順手」在 route 加一個 `if (有結果) suggestion = null`,
+    //    那就變成同一個判準有兩個實作 ⇒ 它們會漂, 而漂掉不會紅。
+    searchProducts.mockResolvedValue({ items: [FULL_PRODUCT], total: 1, error: false });
+    tryCatalogBrandTaxonomy.mockResolvedValue({ brands: BRANDS, failed: false });
+    const body = await (await GET(req('akrpovic'))).json();
+    expect(body.suggestion).toEqual({ name: 'AKRAPOVIČ', slug: 'akrapovic' });
   });
 });

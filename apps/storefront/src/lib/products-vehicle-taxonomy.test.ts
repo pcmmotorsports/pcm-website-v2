@@ -24,13 +24,21 @@ let orderCalls: string[] = [];
 let fromCalls: string[] = [];
 let selectCalls: string[] = [];
 let rangeCalls: Array<[number, number]> = [];
+/** 第一頁回的 `count`。`null` = PostgREST 沒回(舊 mock 的世界)。 */
+let totalCount: number | null = null;
+let wantCount = false;
+/** 設成某個 offset ⇒ 那一頁回 error(用來驗準則③:中途失敗要 throw)。 */
+let errorOnRangeFrom: number | null = null;
 
 const client = {
   from(table: string) {
     fromCalls.push(table);
     const builder = {
-      select(cols: string) {
+      // 🔴 2026-09-05:第二參數是 `{ count: 'exact' }` —— 原本的 mock 只收一個參數,
+      //    而**那讓 `count` 永遠是 undefined** ⇒ 測試裡的排程行為與正式站不同。
+      select(cols: string, opts?: { count?: string }) {
         selectCalls.push(cols);
+        wantCount = opts?.count === 'exact';
         return builder;
       },
       order(col: string) {
@@ -39,8 +47,17 @@ const client = {
       },
       range(from: number, to: number) {
         rangeCalls.push([from, to]);
+        if (errorOnRangeFrom !== null && from === errorOnRangeFrom) {
+          return Promise.resolve({ data: null, error: { message: `boom@${from}` } });
+        }
         const data = pages.shift() ?? [];
-        return Promise.resolve({ data, error: null });
+        // 🔵 `count` 只在第一頁(有要)時回 —— 與 PostgREST 一致。
+        //    `totalCount` 是各測試自己設的:**它可以說謊**, 那正是準則④ 那一格要用的。
+        return Promise.resolve({
+          data,
+          error: null,
+          ...(wantCount ? { count: totalCount } : {}),
+        });
       },
     };
     return builder;
@@ -71,6 +88,9 @@ function row(
 
 beforeEach(() => {
   pages = [];
+  totalCount = null;
+  wantCount = false;
+  errorOnRangeFrom = null;
   orderCalls = [];
   fromCalls = [];
   selectCalls = [];
@@ -180,8 +200,13 @@ describe('#277 段二 車輛下拉來源', () => {
   it('滿頁會續撈下一頁、短頁就停(PostgREST Max rows=1000 硬上限)', async () => {
     const full = Array.from({ length: 1000 }, (_, i) => row('Honda', `M${i}`, 2020, 2020));
     pages = [full, [row('Honda', 'CB650R', 2021, 2021)]];
+    totalCount = 1001;
     const out = await fetchVehicleTaxonomy();
 
+    // 🔴🔴 **2026-09-05 起這裡是【分批併行】**(`⟦search-VEHTAXSLOW⟧`)——
+    //   原本是一頁打完才打下一頁, 而那在正式站是 13 頁 × 945ms = **12 秒**。
+    //   ⇒ 第一頁單獨發(順便拿 `count`), 之後一批 4 頁一起發。
+    //   🔵 這一格的 `totalCount = 1001` ⇒ 排程算出 2 頁 ⇒ **不會多撈**。
     expect(rangeCalls).toEqual([
       [0, 999],
       [1000, 1999],
@@ -219,5 +244,84 @@ describe('#277 段二 車輛下拉來源', () => {
 
     fromSpy.mockRestore();
     spy.mockRestore();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 **分批併行之後的三格**(`⟦search-VEHTAXSLOW⟧` · 2026-09-05)
+//   併行改的是【速度】, 而它能弄壞的是【完整性】 —— 所以這三格全部在問「有沒有掉列」。
+// ══════════════════════════════════════════════════════════════════════════
+describe('分批併行翻頁', () => {
+  const full = (tag: string) =>
+    Array.from({ length: 1000 }, (_, i) => row('Honda', `${tag}${i}`, 2020, 2020));
+
+  it('🔴 五頁(4 滿 + 1 短)⇒ 五頁的車款【一列都不能少】', async () => {
+    pages = [full('A'), full('B'), full('C'), full('D'), [row('Honda', 'LAST', 2021, 2021)]];
+    totalCount = 4001;
+    const out = await fetchVehicleTaxonomy();
+    const names = out[0]?.models.map((m) => m.name) ?? [];
+    // 🛑 每一頁各抽一個名字 —— 只驗最後一頁的話, 中間某一批被丟掉不會紅。
+    for (const want of ['A0', 'B0', 'C0', 'D0', 'LAST']) {
+      expect(names.includes(want), `${want} 不見了 ⇒ 有一批的結果被丟掉`).toBe(true);
+    }
+    expect(rangeCalls.length, '五頁就該只發五次').toBe(5);
+  });
+
+  it('🔴🔴 準則④:`count` 說謊(只說 1 頁)⇒ 【照樣要撈到底】', async () => {
+    // 🛑 這一格是承重的:若有人把 `count` 當終止判準,
+    //    正式站某一次 count 偏小就會**靜靜少掉幾千列車款**, 而畫面完全正常。
+    pages = [full('A'), full('B'), [row('Honda', 'TAIL', 2021, 2021)]];
+    totalCount = 1000; // ← 謊:實際有 2001 列
+    const out = await fetchVehicleTaxonomy();
+    const names = out[0]?.models.map((m) => m.name) ?? [];
+    expect(names.includes('B0'), 'count 說只有一頁, 而第二頁的資料不能因此消失').toBe(true);
+    expect(names.includes('TAIL'), '第三頁(短頁)也要在').toBe(true);
+  });
+
+  it('🔴 準則③:中間某一頁失敗 ⇒ 整發 throw, 不得變成「總共只有 N 頁」', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    pages = [full('A')];
+    totalCount = 5000;
+    // 第二批裡有一頁回 error ⇒ 由 fetchPage throw ⇒ tryVehicleTaxonomy 接住記 error 回 []
+    errorOnRangeFrom = 1000;
+    const out = await fetchVehicleTaxonomy();
+    // 🔵 對外的形狀是「空陣列 + 有記一筆 error」——
+    //    而**關鍵是那個 `console.error` 有被叫到**:少了它,「撈失敗」與「真的沒有車款」
+    //    在呼叫端長得一模一樣(同檔上面那一格記過同一個病)。
+    expect(out).toEqual([]);
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 **`count` 是 NaN 的那個世界**(code-reviewer R1 的 Critical)
+//   PostgREST 回 `Content-Range: 0-N/*` ⇒ supabase-js `parseInt('*')` ⇒ **NaN**,
+//   而 **`typeof NaN === 'number'`** ⇒ `?? null` 放它過去 ⇒ 排程整條垮掉
+//   ⇒ 只撈第一頁、**靜靜少 92%**, 而且會進 60 秒快取。
+//   ⚠️ **口徑**:這一格證的是【分支行為】—— 我**沒有**量到這支 view 真的會回 `*`。
+// ══════════════════════════════════════════════════════════════════════════
+describe('count 是 NaN', () => {
+  it('🔴 count = NaN ⇒ 照樣要撈到底(不得只剩第一頁)', async () => {
+    const full = (tag: string) =>
+      Array.from({ length: 1000 }, (_, i) => row('Honda', `${tag}${i}`, 2020, 2020));
+    pages = [full('A'), full('B'), [row('Honda', 'TAIL', 2021, 2021)]];
+    totalCount = Number.NaN;
+    const out = await fetchVehicleTaxonomy();
+    const names = out[0]?.models.map((m) => m.name) ?? [];
+    expect(names.includes('B0'), 'NaN 讓排程垮掉 ⇒ 第二頁靜靜消失').toBe(true);
+    expect(names.includes('TAIL'), '第三頁也要在').toBe(true);
+  });
+
+  it('🔵 count 缺席(PostgREST 沒回)⇒ 也要撈到底', async () => {
+    // 🛑 這一格原本被我改壞了 —— 我為了保住上面某一格的 rangeCalls 斷言而給每一格都設了 count,
+    //    ⇒ 「count 缺席」那個世界一度**零覆蓋**(R1 抓的)。
+    const full = (tag: string) =>
+      Array.from({ length: 1000 }, (_, i) => row('Honda', `${tag}${i}`, 2020, 2020));
+    pages = [full('A'), [row('Honda', 'TAIL2', 2021, 2021)]];
+    totalCount = null;
+    const out = await fetchVehicleTaxonomy();
+    const names = out[0]?.models.map((m) => m.name) ?? [];
+    expect(names.includes('TAIL2')).toBe(true);
   });
 });

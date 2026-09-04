@@ -526,6 +526,21 @@ export class SupabaseProductAdapter implements IProductRepository {
 
     const offset = params.offset ?? 0;
 
+    // ⏱️ **計時量具**(2026-09-05 `-auth`;板列 `⟦search-TRGMEXPRIDX⟧`)——
+    //    🔴 **它存在的理由**:線上中文搜尋端到端 4-16 秒, 而**同一段 SQL 用 psql 跑是 322ms**
+    //       ⇒ 那 3.7 秒在哪, **從外面量不到**(網路已排除:DNS+TCP+TLS 固定 45-63ms)。
+    //    🛑 **一次請求只印【一行】** —— 與同檔既有的 `console.warn` 同音量, 不加噪音。
+    //    ⚠️ **它量的是【時距】, 不是 CPU** —— 含 PostgREST 往返與冷啟動, 分不出誰是誰。
+    //    🔴 用 `performance.now()` 不用 `Date.now()`:後者是**牆鐘、非單調**, NTP 校時會讓它倒退
+    //       ⇒ 量時距的正確鐘是前者(Node 全域, 零成本)。
+    //    🛑 **⛔ ~~「要再切下去得在 Supabase 那一端量, 那不是本層做得到的」~~ 那句是假的**
+    //       (2026-09-05 code-reviewer R1 must-fix)—— `api/search/route.ts` 的 `Promise.all`
+    //       是**四條腿**, 本行只量得到其中**一條**;另外三條走 `unstable_cache`(60s TTL)、
+    //       **零儀器**, 而 route 的牆鐘 = 四腿的 max ⇒ 📌 **本行印 `total=322ms` 時,
+    //       讀的人會把「不在 DB」讀成「不在伺服器」, 而真兇那三腿一行都沒印。**
+    //       ⇒ ✅ 那一層的計時**加在 `route.ts`**(本片一起做), 它就在 TS 這一層、量得到。
+    const t0 = performance.now();
+
     // ─────────────────────────────────────────────────────────────────────
     // ⟦搜尋-品牌⟧ 2026-09-03:**先問那支 RPC;它不在就走下面的舊路。**
     //
@@ -556,12 +571,22 @@ export class SupabaseProductAdapter implements IProductRepository {
     //    ⚠️ 而 Sean 貼完到 PostgREST 重載 cache 之間**還會是 `PGRST202`** ⇒ 那段時間照樣走舊路,
     //      **重載之後自動生效** —— 這正是選乙換到的東西。
     const brandIds = await this.trySearchIdsWithBrand(q);
+    const msRpc = Math.round(performance.now() - t0);
     if (brandIds !== null) {
       const wantCountRpc = opts?.countTotal !== false;
       // 🔴 `.in('id', …)` **不保證順序** ⇒ 自己排,才與舊路的 `.order('id')` 同序。
       const ordered = [...brandIds].sort();
       const pageIds = ordered.slice(offset, offset + params.limit);
       if (pageIds.length === 0) {
+        // 🔴🔴 **這一條早退【本來一行都不印】**(2026-09-05 code-reviewer R1 must-fix)——
+        //    `trySearchIdsWithBrand` 對「走過了沒找到」回 `[]` 而不是 `null`
+        //    ⇒ **每一次 0 筆的搜尋都走完整條 RPC 路、然後靜靜地回去**
+        //    ⇒ 🎯 **「沒有 log」與「這條路很快」在讀 log 的人眼裡長一樣** —— 那正是本片要防的病,
+        //      而我第一版在自己的量具上踩了它。深分頁(offset 超過 `ordered.length`)同一格。
+        console.info(
+          `[searchByKeyword] path=rpc-empty qlen=${q.length} ids=${ordered.length} ` +
+            `rpc=${msRpc}ms total=${Math.round(performance.now() - t0)}ms`,
+        );
         return wantCountRpc ? { items: [], total: ordered.length } : { items: [] };
       }
       const { data: rows, error: rowsErr } = await this.supabase
@@ -577,6 +602,12 @@ export class SupabaseProductAdapter implements IProductRepository {
       //      那是**資料不一致**而不是「沒有這條路」⇒ 它不該退回舊路, 也不該炸掉整個搜尋。
       const rpcItems = ((rows ?? []) as unknown as SupabaseProductRow[]).map(
         mapSupabaseProductToDomain,
+      );
+      // 🔴 `total` 只取【一次】時鐘, 三個數才拼得回去(reviewer R1 nit:取三次 ⇒ 加不回 total)。
+      const msTotal = Math.round(performance.now() - t0);
+      console.info(
+        `[searchByKeyword] path=rpc qlen=${q.length} ids=${ordered.length} ` +
+          `rpc=${msRpc}ms rows=${msTotal - msRpc}ms total=${msTotal}ms`,
       );
       return wantCountRpc ? { items: rpcItems, total: ordered.length } : { items: rpcItems };
     }
@@ -633,6 +664,44 @@ export class SupabaseProductAdapter implements IProductRepository {
     //    —— 而疊層那條路只顯示 8 筆、畫面上沒有印總數的地方 ⇒ 那一發是白付的。
     //    🛑 而 `/search` 要它(`app/search/page.tsx:85` 共 N 件)⇒ **分路,不是刪掉。**
     const wantCount = opts?.countTotal !== false;
+    // 🔵 **這一段刻意放在 `base` 之【前】** —— 既有測試斷言的是「最後一次 `select()` 的選項」,
+    //    而把它放在後面會讓那幾格看到 `brands` 那一發的 select ⇒ **它們當場紅了 4 格**。
+    //    📌 那不是測試太脆弱 —— 是我插進了一個【它們沒預期的呼叫順序】, 而順序本來就是它們在守的東西之一。
+    // ══════════════════════════════════════════════════════════════════════
+    // 🔴🔴 **舊路也要比對品牌名**(`⟦search-BRANDMULTIWORD⟧` · 2026-09-05)
+    // ══════════════════════════════════════════════════════════════════════
+    //   🔬 **病是實證的**:正式站打「DBK SPECIAL PARTS」⇒ **0 筆**(型錄裡 1,508 件),
+    //     而用那一發自己的 `x-vercel-id` 對 log ⇒ 它逐字印
+    //     「storefront_search_product_ids 回超過 1000 筆 ⇒ 退回舊路」。
+    //     `DBK` 單獨打 ⇒ 8 筆;`DBK SPECIAL` ⇒ 0 ⇒ 🎯 **多字品牌名一定落在這個洞裡。**
+    //   🔬 成因:RPC 那條路有**品牌那一塊**(它 `JOIN public.brands`), 而**舊路沒有** ——
+    //     `products_public` 上**只有 `brand_id`, 沒有品牌名**(逐欄實查)。
+    //   🛑 **⇒ 這訂正我 2026-09-05 稍早的結論**:我查完 `.range(0, RPC_ID_CAP)` 說
+    //     「那個 cap 沒有壞」—— **對 off-by-one 而言是對的**, 而我**沒有問下一句**:
+    //     **「退回舊路之後, 客人拿到的東西一樣好嗎?」** ⇒ **不一樣。**
+    //   ✅ 修法:**先把每個詞解析成品牌 id**, 再讓那一組 `.or()` 多一支 `brand_id.in.(…)`。
+    //     · 不動 `products_public` 的投影(那是經銷價的**實體隔離**, 不是條件式)
+    //     · `anon` 對 `public.brands` **本來就有 SELECT**(實查 `t`), 而那支 RPC 也是 INVOKER
+    //       ⇒ **沒有多開任何權限。**
+    //     · 品牌表小(**25 列**, 實查)⇒ **一次抓完在 TS 比對**, 不是每個詞打一次。
+    //   🔵 **失敗要降級不要炸**:抓不到品牌就退回「只比四欄」= 今天的行為, 而**留一行痕**
+    //     —— 否則「品牌沒比到」與「這個字真的沒有商品」在客人那端是同一個空結果。
+    let brandRows: Array<{ id: string; name: string }> = [];
+    try {
+      const { data: bd, error: be } = await this.supabase
+        .from('brands')
+        .select('id, name');
+      if (be) throw be;
+      brandRows = (bd ?? []) as Array<{ id: string; name: string }>;
+    } catch (err) {
+      console.warn('[searchByKeyword] 舊路取品牌清單失敗 ⇒ 這一發不比品牌名:', err);
+    }
+    const brandIdsFor = (term: string): string[] => {
+      const t = term.toLowerCase();
+      return brandRows.filter((b) => (b.name ?? '').toLowerCase().includes(t)).map((b) => b.id);
+    };
+
+
     // 🛑 **`.from('products_public')` 不准換** —— 那張 view **物理上**就沒有
     //    `price_store` / 經銷價那些欄(PCM Server 端鐵則)。換成別的投影 =
     //    把一道實體隔離換成一個條件式 ⇒ 另案 + 對抗審查,不在本次射程。
@@ -644,7 +713,7 @@ export class SupabaseProductAdapter implements IProductRepository {
       );
     // 🔴 每個詞疊一道 `.or()` ⇒ 交集(AND);`terms` 為空在上面就已經 return 了。
     const filtered = terms.reduce(
-      (qb, term) => qb.or(buildIlikeOrFilter(SEARCHABLE_COLUMNS, term)),
+      (qb, term) => qb.or(buildIlikeOrFilter(SEARCHABLE_COLUMNS, term, brandIdsFor(term))),
       base,
     );
     const { data, error, count } = await filtered
@@ -660,6 +729,11 @@ export class SupabaseProductAdapter implements IProductRepository {
     );
     // 🔴 沒要數的時候**回 `undefined` 而不是 0** —— 「不知道總數」與「共 0 件」是兩件事,
     //    而 `?? 0` 會讓畫面出現「拿到 8 筆卻說共 0 件」(`search.ts` 那段註解同一條)。
+    const msTotalLegacy = Math.round(performance.now() - t0);
+    console.info(
+      `[searchByKeyword] path=legacy qlen=${q.length} terms=${terms.length} ` +
+        `rpc=${msRpc}ms query=${msTotalLegacy - msRpc}ms total=${msTotalLegacy}ms`,
+    );
     return wantCount ? { items, total: count ?? 0 } : { items };
   }
 

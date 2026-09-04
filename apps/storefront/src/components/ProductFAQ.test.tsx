@@ -89,4 +89,23 @@ describe('ProductFAQ', () => {
     // 原病的另一半:門檻【完全沒被提到】。上面兩條若改成只比對費用就抓不到它 ⇒ 單獨釘住。
     expect(jsonLd).toContain(String(FREE_SHIPPING_THRESHOLD.toLocaleString()));
   });
+
+  // 🔴 ⟦付款文案⟧ Sean 2026-09-04 拍甲(第二十八題):FAQ 承諾的付款方式要等於結帳頁**今天做得到**的。
+  //   ⛔ ~~銀行轉帳、線上刷卡、LINE Pay~~ ⇒ ✅ 只留「線上刷卡」。
+  //   🔴 **本格同時驗畫面與 JSON-LD 兩端** —— JSON-LD 那半是給 Google 讀的公開承諾, 而它**看不見**
+  //   (沒有人會在畫面上發現它漏改)⇒ 只驗畫面的版本對這一半零判別力。
+  //   ⚠️ **匯款開了要把「銀行轉帳」加回來 ⇒ 那天本格會紅, 那是預期的, 不是回歸。**
+  it('付款方式只承諾線上刷卡 —— 畫面與 JSON-LD 兩端都不得出現還沒開的付款方式', () => {
+    const { container } = render(<ProductFAQ />);
+    const screenText = container.textContent ?? '';
+    const jsonLd = container.querySelector('script[type="application/ld+json"]')?.textContent ?? '';
+
+    for (const notYet of ['LINE Pay', '銀行轉帳']) {
+      expect(screenText).not.toContain(notYet);
+      expect(jsonLd).not.toContain(notYet);
+    }
+    // 🔵 正對照:少了它, 把整句付款文案刪光也會全綠(「沒有出現」對空字串恆真)。
+    expect(screenText).toContain('線上刷卡');
+    expect(jsonLd).toContain('線上刷卡');
+  });
 });
