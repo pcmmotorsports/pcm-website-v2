@@ -25,6 +25,7 @@ const FIELDS = {
   line: 'ship_to_line',
   invoiceType: 'invoice_type',
   invoiceRequested: 'invoice_requested',
+  notificationEmail: 'notification_email',
   carrier: 'invoice_carrier',
   title: 'invoice_title',
   taxId: 'invoice_tax_id',
@@ -91,6 +92,7 @@ function base(over: Array<[string, string]> = [], drop: string[] = []): ManualOr
     [FIELDS.phone, '0912345678'],
     [FIELDS.line, '台北市中正區某路 1 號'],
     [FIELDS.invoiceRequested, 'off'],
+    [FIELDS.notificationEmail, ''],
     [FIELDS.invoiceType, 'personal'],
     ...BASE_LINE,
   ];
@@ -119,6 +121,7 @@ describe('parseManualOrderForm:成功路徑的形狀', () => {
       invoice: { type: 'personal' },
       // 基準表單的 hidden 是 `off` ⇒ 這裡是 `false`。**不是預設值, 是那張表單的內容。**
       invoiceRequested: false,
+      notificationEmail: null,
       shippingFee: 150,
       lines: [
         { sku: 'PCM-001', title: '排氣管', qty: 2, unit_price: 12000, variant_id: VARIANT, spec: { color: '黑' } },
@@ -606,5 +609,73 @@ describe('parseManualOrderForm:「要不要開發票」那顆勾選(`⟦b4-INVOI
     const off = ok(parseManualOrderForm(base()));
     const on = ok(parseManualOrderForm(base([[FIELDS.invoiceRequested, 'on']])));
     expect({ ...off, invoiceRequested: null }).toEqual({ ...on, invoiceRequested: null });
+  });
+});
+
+/**
+ * 🔴 **覆寫那一格要用 `drop`, 不能只 `over` 追加** —— `base()` 的 `over` 是**接在後面**,
+ *    而 `notification_email` 已經在基準列裡 ⇒ 追加會讓同名欄出現**兩次**。
+ * 🛑 而解析端用 `readSingle` ⇒ 它把「出現兩次」判成 invalid(那是對的:text input 只會有一份,
+ *    兩份 = payload 被動過)⇒ 🔬 **我第一版就是這樣寫的, 九格全紅, 而紅的理由不是我要測的那個。**
+ * 📌 **一個測試助手的預設行為(追加 vs 覆寫), 會讓九格測試同時測到另一件事。**
+ */
+function withEmail(v: string): ManualOrderFormLike {
+  return base([[FIELDS.notificationEmail, v]], [FIELDS.notificationEmail]);
+}
+
+describe('parseManualOrderForm:「通知 email」那一格(`⟦f3-MAILFALLBACKVSRULING⟧` 片 E)', () => {
+  // 🔴🔴 **這一族要測的是【留白會不會變成空字串】, 不只是「有填的時候對不對」。**
+  //    空字串會被 `orders_notification_email_valid` 的 `~ '^[!-~]+$'` 擋掉 ⇒ **整張單建不出來**,
+  //    而那個失敗的訊息是一個約束名 —— 員工看不懂、也不知道是哪一格。
+  //    ⇒ 📌 所以「留白 ⇒ `null`」是**行為**不是實作細節,要有自己的一格。
+  it('有填 ⇒ 原樣帶出去(而前後空白被剝掉)', () => {
+    const r = ok(parseManualOrderForm(withEmail('  a@b.co  ')));
+    expect(r.notificationEmail).toBe('a@b.co');
+  });
+
+  it('🔴 留白 ⇒ `null`, 不是空字串', () => {
+    const r = ok(parseManualOrderForm(withEmail('')));
+    expect(r.notificationEmail).toBeNull();
+  });
+
+  it('🔴 只打了空白 ⇒ 也是 `null`(員工按了空白鍵與什麼都沒打, 對客人是同一件事)', () => {
+    const r = ok(parseManualOrderForm(withEmail('   ')));
+    expect(r.notificationEmail).toBeNull();
+  });
+
+  it('🔴 缺欄 ⇒ 拒, 而訊息要講【哪一格】', () => {
+    const form = base();
+    const stripped = {
+      getAll: (n: string) => (n === FIELDS.notificationEmail ? [] : form.getAll(n)),
+    };
+    const r = parseManualOrderForm(stripped);
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toContain('通知 email');
+  });
+
+  it.each([
+    ['沒有 @', 'abc'],
+    ['兩個 @', 'a@@b.co'],
+    ['domain 沒有點', 'a@b'],
+    ['帶全形字', 'a＠b.co'],
+    ['LINE 合成域', 'u123@line.pcmmotorsports.local'],
+    ['合成域的子網域', 'u123@x.line.pcmmotorsports.local'],
+  ])('🔴 格式不對就拒(%s)', (_n, v) => {
+    const r = parseManualOrderForm(withEmail(v));
+    expect(r.ok).toBe(false);
+    // 🔵 訊息要告訴他**清空也可以** —— 那是他最常見的下一步。
+    expect(r.ok === false && r.error).toContain('清空');
+  });
+
+  it('🔵 負對照:一個【合法】的信箱不得被判成格式錯', () => {
+    // 🛑 少了這一格, 一個「永遠拒絕」的實作會讓上面六格全綠。
+    const r = parseManualOrderForm(withEmail('a+tag@sub.example.co.jp'));
+    expect(r.ok).toBe(true);
+  });
+
+  it('🔵 負對照:那個看起來像合成域而不是的網域要放行', () => {
+    // `evil-pcmmotorsports.local` 以它結尾而不是子網域 —— 判斷式用 `.` 前綴才分得出來。
+    const r = parseManualOrderForm(withEmail('a@evil-pcmmotorsports.local'));
+    expect(r.ok).toBe(true);
   });
 });
