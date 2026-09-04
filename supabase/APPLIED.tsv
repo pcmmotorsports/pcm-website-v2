@@ -368,3 +368,4 @@
 20260903060000	42774e7e38c49d8b33f8e69db15e03bb2c0f14b0d869dcf152ca883f03080190	2026-09-04	Sean(SQL Editor 本人貼, 逐字回「三隻SQL 都完成 / Success. No rows returned」)/ 主視窗 -f0(記, 未親自 apply)。
 20260903093000	08fe84c4ee6cfab363b48eacf6b412a8a6015016f5de264aefcc8e3906932d5a	2026-09-04	Sean(SQL Editor 本人貼, 逐字回「三隻SQL 都完成 / Success. No rows returned」)/ 主視窗 -f0(記, 未親自 apply)。
 20260903230000	9297295d1d6121eb1a8b59b8f7f2de66150e9857dbd41bc3ecec504049110237	2026-09-04	Sean(SQL Editor 本人貼, 逐字回「三隻SQL 都完成 / Success. No rows returned」)/ 主視窗 -f0(記, 未親自 apply)。
+20260904030000	855368f799f4de1a9a7988ae7b406b8358bdccdf2151ae4f7a5740233a322dae	2026-09-04	Sean(SQL Editor 本人貼, 逐字回「Success. No rows returned」)/ 主視窗 -f0(記, 未親自 apply)。🔬 而【不是採信那句話】:唯讀連線讀 pg_get_functiondef ⇒ 新版特徵 UNION ALL=3 · hits/pat=8 · 舊版特徵 b.name 同一個 OR=0 ⇒ 正式庫跑的是三塊版。
