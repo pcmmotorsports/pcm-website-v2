@@ -4,7 +4,12 @@
 //
 // 字面從 design-reference/components/AccountPages.jsx InlineAddressForm(L686-757)直接搬(鐵則 1):
 // - .acc-inline-form-inner form + .acc-inline-head〔h4「新增地址/編輯地址」依 addr.id + .acc-inline-x 關閉鈕〕
-// - 基本欄:收件人 name(required)/ 手機 phone / 地址 line(required)+ .acc-inline-check 勾「設為預設地址」
+// - 基本欄:收件人 name(required)/ 手機 phone / 地址 line(required)
+// 🔴 **手機欄的 `required` 是【偏離 design 的授權改動】, 落款寫在這裡(鐵則 1)**:
+//    `design-reference/components/AccountPages.jsx` 的 phone input **逐字沒有 `required`**
+//    (它左右兩欄有)⇒ 這一行不是「照稿搬」, 是 **Sean 2026-09-04 拍甲「電話改必填」**
+//    (原話落檔 `~/pcm-mailbox/Sean拍板-20260904-七題.md`)。
+//    📌 沒有這一段落款, 下一個對稿的人會把它當成稿本來就有的東西。+ .acc-inline-check 勾「設為預設地址」
 // - .acc-inline-divider「INVOICE · 此地址預設發票」+ .acc-inv-tabs 三 tab(個人 / 公司(三聯式)/ 捐贈)
 // - personal→手機載具(選填)/ company→公司抬頭 + 統一編號(maxLength 8)/ donate→愛心碼;.acc-inline-actions 取消/儲存
 //
@@ -189,6 +194,7 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
             clearErr('phone');
           }}
           placeholder="0912 345 678"
+          required
         />
         {fieldErrors.phone && <span className="auth-field-err">{fieldErrors.phone}</span>}
       </label>

@@ -150,7 +150,33 @@ export const AddressInput = z.object({
   // #201:name/line trim 後驗必填(純空白 → reject、入庫去頭尾空白)。對齊 design saveAddress L705
   //   `if (!form.name.trim() || !form.line.trim()) return;`(client 已擋純空白、server 補上同防線)。
   name: z.string().trim().min(1, { error: '請填寫收件人' }),
-  phone: z.string().default(''),
+  // 🔴🔴 **2026-09-04 Sean 拍甲:電話改必填。** 原話落檔 `~/pcm-mailbox/Sean拍板-20260904-七題.md`。
+  //    ⛔ ~~`phone: z.string().default('')`(選填, 不填就是空字串)~~
+  // 🔬 **為什麼**:出貨單那張紙上「電話」是空的(`⟦b4-PICKPHONE1⟧`)。
+  //
+  // 🔴🔴 **而我第一版把因果寫錯了, 訂正留著**(R1 對抗審查抓到):
+  //    ⛔ ~~正式庫 `customers.phone` 15 位裡 11 位是空字串, **那個空字串的源頭就是這裡**~~
+  //    🛑 **那是【同名不同欄】** —— 本 schema 寫的是 `customer_addresses.phone`,
+  //       而那個 11/15 量的是 **`customers.phone`**(另一張表)。兩個欄位同名, 我就把它們連起來了。
+  //    🔬 那 11 個空字串的真正來源, repo 裡有一句直接寫著:
+  //       `apps/storefront/src/app/auth/callback/route.ts` 逐字「OAuth 首登會員由 DB
+  //       `handle_new_auth_user` trigger 自動建 customers row、**`phone=''`(DEFAULT)**」。
+  //    ⇒ 📌 **所以這道閘與那個 11/15 【不在同一個欄位上】** —— 不只是「對既有列零效果」,
+  //       是**零關聯**。`customers.phone` 的寫入端是 `ProfileInput`(本檔下方, **今天仍是選填**)。
+  // ✅ **而這道閘仍然值得做, 理由要重講**:新單走 `create_order` 快照 ⇒ 新地址的電話**會進訂單快照**
+  //    ⇒ 出貨單那支的第二個 `||` 接得到 ⇒ **紙上真的會有電話**(這條鏈 R1 逐檔驗過)。
+  // 🛑 **而它擋的是【之後】的單** —— 既有的地址列不會自己變好。
+  // 🔵 **`.trim()` 跟著 `name` / `line` 走** —— 純空白要被擋掉, 否則客人打一個空格就過了。
+  // 🛑 **刻意【不】加格式驗證**:`+886` / `02-1234-5678` / 分機都是合法的,
+  //    而一道猜錯格式的閘會把真客人擋在門外。
+  // 🔴 **而那件事這個 repo 今天正在做** —— 本檔 `RegisterInput` / `ProfileInput` 的
+  //    `/^[\d\s-]{8,}$/` **會拒掉 `+886`**(`+` 不在字元類)也拒掉分機 `#12`
+  //    ⇒ 📌 **同一支電話, 客人在地址頁填得進、在註冊頁填不進。** 那是要端 Sean 的另一題,
+  //    不在本片(見板列)。
+  // ⚠️ **DB 端不一致, 明寫**:`customer_addresses.phone` 在 `20260523034911` 是
+  //    `text DEFAULT ''`(**可 NULL、無 CHECK**)⇒ **這道閘純 app 層**。
+  //    DB 端加 NOT NULL 會撞既有列 ⇒ 不做。
+  phone: z.string().trim().min(1, { error: '請填寫電話' }),
   line: z.string().trim().min(1, { error: '請填寫地址' }),
   // M-4b:付款驗證需要真實 Email(LINE 合成信箱 64 字元恆超 TapPay 40 上限 => 3DS 啟動被拒)。
   // 必填在此執法 —— `customer_addresses.email` DB 端 nullable 只為既有列,新寫入一律要有值。
