@@ -589,9 +589,40 @@ def selfcheck(secs):
     # 🔴 餵【整份檔】,不是餵最長那一段 —— 真實用法是 `traps-neighbours.py <草稿檔>`,
     #    而第一版餵單段 ⇒ 自撞只佔 1/8 ⇒ 世界六①永遠印【否】。
     #    那不是警告壞了,是【靶不夠像真的】。實測:整份 4/8、單段 1/8。
+    # 🔴🔴 **2026-09-04 線 `-db` 修:①那一格的【靶】改成合成的,不再靠真語料的比例**
+    #    🔬 **成因是量到的,不是從行為推的**(主視窗指定先走 git:那支檔 08-30 之後零改動
+    #       ⇒ 紅的不是碼變了,是它吃的語料變了)。當天量到:
+    #         語料 2,791 則(正本 631 / inbox 906 / memory 1254)
+    #         靶 `D-20260830.md`(27 段, 段落數最多的 inbox 檔)在前 8 名裡**只佔 1 名**
+    #         而 `HOG_MIN = 2` ⇒ 警告不叫 ⇒ 世界六①印【否】。
+    #    🎯 **而這正是 `collision_warnings` 自己 docstring 記載的那個已知洞**:
+    #       「① 只在草稿夠長時才叫 —— 只有 1 段擠進前 8 的草稿【不會叫】」。
+    #    📌 **⇒ 所以自檢沒有壞,是【那個靶漂進了一個它自己記載過的洞】** ——
+    #       語料一直在長,而上面那句「實測:整份 4/8」**是一個相對的比例,不是一個性質**。
+    #    🛑 **修法不是改期望值、也不是 skip**(那是拍板不是修法)——
+    #       期望(髒的要叫 / 乾淨的不叫)**一個字沒動**,改的是**怎麼造出那個髒的世界**:
+    #       直接餵一組「≥HOG_MIN 個名額同 path」的 ranked,**與 ② 那一格同一種做法**
+    #       (② 本來就餵合成的 `[(1.0, draft)]` / `[(0.35, draft)]`)。
+    #    ⚠️ **而這樣做【失去】一件事,寫出來免得下一個人以為沒有代價**:
+    #       它不再順便證明「真語料裡真的會發生自撞」。
+    #       ⇒ 所以下面仍然把真語料的佔比**印出來**,而**不拿它當通過條件** ——
+    #         📌 **那個數字是【觀察】不是【閘】,而把兩者混在一起正是今天紅的成因。**
     whole = io.open(draft['path'], encoding='utf-8').read()
-    dirty = rank(whole, secs, TOP_N)                  # 沒排除 ⇒ 自撞
-    clean = rank(whole, kept, TOP_N)                  # 排除了 ⇒ 乾淨
+    real_ranked = rank(whole, secs, TOP_N)
+    real_hog = sum(1 for _, x in real_ranked if x['path'] == draft['path'])
+    # 髒的世界(合成):HOG_MIN 個名額來自同一份檔
+    dirty = [(0.50 - i * 0.01, draft) for i in range(HOG_MIN)] + \
+            [(0.30 - i * 0.01, kept[i]) for i in range(max(0, TOP_N - HOG_MIN))]
+    # 乾淨的世界(合成):每一個名額都來自【不同】的檔
+    _distinct, _seen = [], set()
+    for _x in kept:
+        if _x['path'] in _seen:
+            continue
+        _seen.add(_x['path'])
+        _distinct.append(_x)
+        if len(_distinct) >= TOP_N:
+            break
+    clean = [(0.40 - i * 0.01, _distinct[i]) for i in range(len(_distinct))]
     w_dirty = collision_warnings(dirty)
     w_clean = collision_warnings(clean)
     hog_d = any('同一份檔' in w for w in w_dirty)
@@ -601,6 +632,10 @@ def selfcheck(secs):
     hit_f = hog_d and not hog_c and scr_d and not scr_c
     print('世界六 自撞警告①霸佔名額   ⇒ 髒的會叫 %s / 乾淨的【不叫】%s'
           % ('是' if hog_d else '否', '是' if not hog_c else '否 —— 恆真, 沒判別力'))
+    print('       ↳ 觀察(不是閘):真語料裡那個靶佔 %d/%d 名, 門檻 %d'
+          % (real_hog, TOP_N, HOG_MIN)
+          + ('' if real_hog >= HOG_MIN else
+             '  ⚠️ 低於門檻 ⇒ 真語料【今天不會觸發】那道警告(docstring 記載的已知洞), 而這一行不擋通過'))
     print('       自撞警告②分數 >=%.1f ⇒ 1.0000 會叫 %s / 0.35 【不叫】%s'
           % (SELF_SCORE, '是' if scr_d else '否',
              '是' if not scr_c else '否 —— 恆真, 沒判別力'))
