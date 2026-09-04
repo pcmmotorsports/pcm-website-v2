@@ -68,7 +68,74 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 MIG="$REPO/supabase/migrations/20260624120004_m3_3ds_r1b1b_anomaly_claim_resolve_rpc.sql"
 [ -f "$MIG" ] || { echo "找不到 migration: $MIG"; exit 2; }
 
-PORT="${PGPORT_PROBE:-55442}"
+# ── 🔴 port 撞車:先說得出【誰占著】, 再換一個 ──────────────────────────────
+#
+# 🔴🔴 **兩件事的順序是【印出兇手】優先, 不是【換 port】優先** —— 那是反直覺的一格:
+#   換 port 只讓「今天這一發」不紅;而下一個撞到【別的】port 的人, 拿到的還是
+#   一句查不出來的訊息。⇒ ② 的產出對【所有未來的 port 撞車】都有效, ① 只對這一支。
+#   (實錘:2026-09-04 `gh run 33852334049` 逐字 `HINT: Is another postmaster already
+#    running on port 55442?` ⇒ 它說了「有人占著」而【沒說是誰】⇒ 線 -db 查不出來。)
+#
+# ⚠️ **為什麼要三把尺而不是一把**:`lsof` 對【不屬於自己的】socket 印 0 ——
+#   「真的空了」與「我沒權限看」印同一個東西。⇒ `ss` / `netstat` 交叉。
+#   🔵 而這三把**壞的方式不同**:lsof 是權限、ss 是 Linux 專有、netstat 是 macOS 格式
+#   ⇒ 它們不共用前提(對照:同一天三把剝色碼的尺共用「那裡是真 ESC」⇒ 一致而全錯)。
+port_holder () {
+  local p="$1"
+  local _h; _h="$(mktemp)"
+  {
+    lsof -nP -iTCP:"$p" -sTCP:LISTEN 2>/dev/null | tail -n +2
+    ss -ltnp 2>/dev/null | grep -F ":$p "
+    netstat -anv 2>/dev/null | grep -F ".$p " | grep -i listen
+  } > "$_h" 2>/dev/null
+  # 🔴 三把都空 ⇒ 明說「查不出來」, 不要留一片空白讓人讀成「沒有人占著」。
+  #    (空白與「查無」在畫面上是同一個東西 —— 而它們給相反的答案。)
+  #    ⚠️ 實測 2026-09-04 macOS:`ss` 根本不存在, 而 `lsof` 有一次對【自己的】socket
+  #    也印 0 行 ⇒ 單靠一把尺這裡就會是空白。
+  if [ -s "$_h" ]; then sed 's/^/      /' "$_h"
+  else printf '      🔴 三把尺(lsof / ss / netstat)都查不出占用者 —— 這【不是】「沒有人占著」, 是查不出來。\n'
+  fi
+  rm -f "$_h"
+}
+
+# 回 0 = 這個 port 現在綁得起來。
+# ⚠️ ponytail: 這是 check-then-act, 中間有 race —— 兩支探針同秒起才會撞到。
+#    真撞到時 pg 起不來那一段會補印占用者, 不會靜靜地過去。
+port_free () {
+  python3 - "$1" <<'PYPORT'
+import socket, sys
+s = socket.socket()
+try:
+    s.bind(('127.0.0.1', int(sys.argv[1])))
+except OSError:
+    sys.exit(1)
+finally:
+    s.close()
+PYPORT
+}
+
+# 🔴 **不用「撞到就 +1」** —— 隔壁探針的預設就在 55440/41/43,
+#   往上數會【把它們推向彼此】(主視窗 2026-09-04 逐字:「不要讓它們塌成一個」)。
+#   ⇒ 預設先試(留給人 `psql -p 55442` 進去看), 被占就【讓 OS 挑一個】——
+#   ephemeral 範圍夠大, 而且它結構上不會撞到任何一支寫死的 port。
+PORT_BASE="${PGPORT_PROBE:-55442}"
+if port_free "$PORT_BASE"; then
+  PORT="$PORT_BASE"
+else
+  printf '  🔵 預設 port %s 已被占用。占用者:\n' "$PORT_BASE"
+  port_holder "$PORT_BASE"
+  PORT="$(python3 - <<'PYPICK'
+import socket
+s = socket.socket()
+s.bind(('127.0.0.1', 0))
+print(s.getsockname()[1])
+s.close()
+PYPICK
+)"
+  printf '  🔵 改用 OS 挑的 port %s。\n' "$PORT"
+fi
+[ -n "$PORT" ] || { echo "🔴 取不到可用 port"; exit 1; }
+
 D="$(mktemp -d)"
 trap 'pg_ctl -D "$D/data" stop -m fast >/dev/null 2>&1 || true; rm -rf "$D"' EXIT
 
@@ -80,7 +147,11 @@ for _ in $(seq 1 40); do
   sleep 0.25
 done
 psql -h 127.0.0.1 -p "$PORT" -U postgres -tAc "select 1" >/dev/null 2>&1 || {
-  echo "🔴 起不了拋棄式 PG。log:"; cat "$D/pg.log"; exit 1; }
+  echo "🔴 起不了拋棄式 PG。log:"; cat "$D/pg.log"
+  # 🔴 走到這裡代表【檢查完到起 pg 之間】有人搶走了 port(check-then-act 的 race),
+  #    或 pg 因為別的理由起不來。兩種都要印占用者 —— 沒有人占著時它會說「查不出來」。
+  printf '  🔵 port %s 現在的占用者:\n' "$PORT"; port_holder "$PORT"
+  exit 1; }
 
 pq () { psql -h 127.0.0.1 -p "$PORT" -U postgres -v ON_ERROR_STOP=1 -q "$@"; }
 pv () { psql -h 127.0.0.1 -p "$PORT" -U postgres -tA "$@" 2>&1; }

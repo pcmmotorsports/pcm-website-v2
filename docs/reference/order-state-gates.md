@@ -46,7 +46,7 @@
 | `admin_update_saved_order_view` | **2** | 20260828080000_m4b_b4views1_saved_order_views.sql:395<br>20260828090000_m4b_b4views1a_request_id_gate.sql:203 | `20260828090000_m4b_b4views1a_request_id_gate.sql:203` |
 | `admin_upsert_item_procurement` | **3** | 20260803160000_m4b_e10_a5a_admin_upsert_item_procurement.sql:107<br>20260806200000_m4b_e10_a9h_m_a5a_preserve_optional_fields.sql:79<br>20260814100000_m4b_e10_452_2a2a_adjacent_writers_voided_split.sql:168 | `20260814100000_m4b_e10_452_2a2a_adjacent_writers_voided_split.sql:168` |
 | `admin_void_shipment` | **4** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:161<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:687<br>20260807200000_m4b_e10_b2_w3c1_void_shipment.sql:62<br>20260808100000_m4b_e10_b2_w7d1_ship_deadlock_retry.sql:308 | `20260808100000_m4b_e10_b2_w7d1_ship_deadlock_retry.sql:308` |
-| `begin_charge_attempt` | **6** | 20260612150000_m3_s2d_charge_attempts.sql:168<br>20260613130000_m3_3ds_0b_cart_session_dedup.sql:350<br>20260613140000_m3_3ds_0c_bank_txn_pending_invoices.sql:73<br>20260804120000_m4b_e10_a8c1_begin_cancel_guard.sql:71<br>20260809210000_m4b_lifecycle_l4a1_begin_in_flight_order_id.sql:63<br>20260820020000_m4b_e10_a8a3g_cancel_guard_sibling_dedup.sql:366 | `20260820020000_m4b_e10_a8a3g_cancel_guard_sibling_dedup.sql:366` |
+| `begin_charge_attempt` | **7** | 20260612150000_m3_s2d_charge_attempts.sql:168<br>20260613130000_m3_3ds_0b_cart_session_dedup.sql:350<br>20260613140000_m3_3ds_0c_bank_txn_pending_invoices.sql:73<br>20260804120000_m4b_e10_a8c1_begin_cancel_guard.sql:71<br>20260809210000_m4b_lifecycle_l4a1_begin_in_flight_order_id.sql:63<br>20260820020000_m4b_e10_a8a3g_cancel_guard_sibling_dedup.sql:366<br>20260904050000_m4b_supersede_bank_order_on_card.sql:65 | `20260904050000_m4b_supersede_bank_order_on_card.sql:65` |
 | `claim_order_poll_settle` | **2** | 20260621120000_m3_3ds_s2b_poll_settle_throttle.sql:53<br>20260624120009_m3_3ds_r1c2_poll_settle_released_predicate.sql:61 | `20260624120009_m3_3ds_r1c2_poll_settle_released_predicate.sql:61` |
 | `claim_stuck_unsettled_attempts` | **4** | 20260615120001_m3_3ds_4a2_attempt_sweeper_rpc.sql:116<br>20260624120008_m3_3ds_r1c1_sweeper_released_policy.sql:80<br>20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:206<br>20260811060000_m4b_lifecycle_l5b2_2a_claim_returns_superseded_at.sql:117 | `20260811060000_m4b_lifecycle_l5b2_2a_claim_returns_superseded_at.sql:117` |
 | `close_released_attempt` | **2** | 20260624120010_m3_3ds_r1c3_close_released_attempt.sql:62<br>20260812160000_m4b_lifecycle_l5b2_2e_close_advisory.sql:169 | `20260812160000_m4b_lifecycle_l5b2_2e_close_advisory.sql:169` |
@@ -355,6 +355,16 @@
 **允許集合(逐字)**
 
 `:717` OR v_order.cancelled_at IS NULL<br>`:726` IF v_order.cancelled_at IS NOT NULL THEN
+
+### `begin_charge_attempt`  ·  `20260904050000_m4b_supersede_bank_order_on_card.sql`
+
+**改什麼狀態**
+
+`:203` SET cancelled_at     = pg_catalog.now(),
+
+**允許集合(逐字)**
+
+`:96` IF v_order.cancelled_at IS NOT NULL<br>`:97` OR EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = p_order_id) THEN<br>`:105` IF v_order.payment_status <> 'unpaid'::public.payment_status THEN<br>`:121` SELECT o.id, o.display_id, (o.payment_status = 'paid'::public.payment_status), a.rec_trade_id, a.bank_transaction_id<br>`:129` AND o.cancelled_at IS NULL<br>`:132` OR o.payment_status = 'paid'::public.payment_status<br>`:133` OR (a.status = 'pending' AND o.payment_status <> 'paid'::public.payment_status)<br>`:135` ORDER BY (o.payment_status = 'paid'::public.payment_status) DESC, (a.status = 'charged') DESC, o.created_at DESC<br>`:163` AND o.payment_status <> 'paid'::public.payment_status<br>`:210` AND o.cancelled_at IS NULL<br>`:216` AND a.status <> 'failed'<br>`:286` OR pg_catalog.strpos(v_code, 'order_cancellations') = 0
 
 ---
 
