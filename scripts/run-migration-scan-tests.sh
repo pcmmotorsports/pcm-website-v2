@@ -27,6 +27,18 @@
 #   ③ 它只證「那些測試現在是綠的」, 不證「它們守得夠寬」。
 
 set -uo pipefail
+
+# 🔴🔴 遞迴閘 —— 2026-09-04 實測:掛進 lint-staged 的 `supabase/migrations/*.sql` 之後,
+#    `scripts/migration-new-file-gate.test.ts` 會【造一個暫存 repo 跑真的 lint-staged】
+#    ⇒ 觸發本支 ⇒ 本支跑那 71 支測試(含它自己)⇒ 再觸發 ⇒ **全機 148 支 vitest, load 29**。
+#    📌 而它不像壞掉:每一層都在做對的事, 只是層數沒有底。
+#    ⇒ 本支已從 `supabase/migrations/*.sql` 那條 key 拆掉(改掛 pre-push);
+#      這道閘是第二層防護 —— 萬一有人再掛回去, 它讓遞迴止於第二層而不是把機器吃光。
+if [ "${PCM_SCAN_TESTS_RUNNING:-}" = "1" ]; then
+  echo "  🔵 掃描型測試:偵測到自己已在上層執行(PCM_SCAN_TESTS_RUNNING=1)⇒ 本層跳過, 不遞迴"
+  exit 0
+fi
+export PCM_SCAN_TESTS_RUNNING=1
 export LC_ALL=C LANG=C
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" || exit 2
 

@@ -82,6 +82,22 @@ cat > "$_T" || { echo '🔴 pre-push:讀不進 git 餵的 ref(stdin)⇒ 擋下,�
 #      📌 一般化:一條「抽某個區段」的查法, 要先驗那個區段的**錨存在** ——
 #         否則它在兩個世界印同一句話, 而其中一個世界是它自己壞了。
 #    ⚠️ 它不吃 stdin, 而上面兩支已經把 $_T 用掉了 ⇒ 導 /dev/null 只是為了不讓它意外繼承。
+# 🔴🔴 掃描型測試(`scripts/run-migration-scan-tests.sh`)**刻意【哪一道 hook 都不掛】**
+#    —— 2026-09-04 主視窗裁定。它守的病是真的:那一族測試自己去讀 `supabase/migrations/`,
+#    **不 import 被測的碼** ⇒ `vitest related` 的分母裡【結構上】沒有它們。
+#    而**掛在哪裡**這件事被否決了兩次, 兩次的理由不同, 兩次都值得留著:
+#    ① ⛔ ~~掛 lint-staged `supabase/migrations/*.sql`~~ —— **實測會遞迴**:
+#       `scripts/migration-new-file-gate.test.ts` 會【造一個暫存 repo 跑真的 lint-staged】
+#       ⇒ 觸發那支腳本 ⇒ 它跑那 71 支測試(含它自己)⇒ 再造暫存 repo ⇒ 沒有底。
+#       當場量:全機 **148 支 vitest**、load 24→29。📌 **每一層都在做對的事, 只是層數沒有底。**
+#       🎯 判別句:**那條 pipeline 的測試, 會不會【真的去跑那條 pipeline】?**
+#    ② ⛔ ~~改掛本檔(pre-push)~~ —— 兩個理由:
+#       · 只有主視窗 push, 而收割鏈在 push 前已跑全套 ×2 ⇒ 掃描型是它的**子集** ⇒ 純重工
+#       · 真負載下**超過 100 秒**(隔離環境量到的 21 秒在 load 100+ 之下不成立)
+#         ⇒ **閘死於誤報與死於太慢一樣常見, 而被關掉的閘等於沒有。**
+#    ⇒ 現行做法 = **人的規矩**, 不是機制:動 migration 交件前自己跑一發。
+#      正本在 `docs/patterns/slice-checkpoint.md` 鐵則 11 那節。
+#    🛑 **而「規矩不如機制」這件事我們記過** ⇒ 這是一筆**明知較弱而選了它**的取捨, 不是疏漏。
 TURBO_FORCE=1 pnpm typecheck && TURBO_FORCE=1 pnpm lint && bash "$_R/scripts/deploy-order-gate.sh" < "$_T" && sh "$_R/scripts/migration-ledger-divergence.sh" --if-pushing-main < "$_T" && bash "$_R/scripts/selftest-git-isolation-gate.sh" < /dev/null || exit $?
 
 # 🔴 常載檔字元數閘 —— 這裡是【第二道】, 而它擋的是 pre-commit 摸不到的路徑
