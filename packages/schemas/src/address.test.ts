@@ -152,6 +152,34 @@ describe('AddressInput 發票跨欄位規則(U3a canonical schema)', () => {
 
   // 🔴 **獨立一格, 而不是塞進上面那格** —— 上面那格的名字講的是「兄弟欄位」,
   //    我原本把這三個斷言塞在裡面, 而**它紅的時候會指錯方向**(讀的人以為是兄弟欄位壞了)。
+  // ── ⟦b4-PHONEREGEXSPLIT⟧ Sean 2026-09-04 拍甲:三頁同一支判準 ──
+  // 🔴 **主視窗-94 指定的守門**:`+886-9xx` 與分機**兩個帳號兩頁都填得進**。
+  //    而它守的不是「這兩個字串」, 是【三個 schema 走同一支】—— 所以三個都要問一次。
+  it('🔴 +886 與分機:註冊 / 個資 / 收件地址【三處都要收】', async () => {
+    const { RegisterInput, ProfileInput } = await import('./index');
+    for (const v of ['+886-912-345-678', '02-1234-5678 #12']) {
+      expect(AddressInput.safeParse({ ...valid, phone: v }).success, `地址頁擋了 ${v}`).toBe(true);
+      expect(
+        RegisterInput.safeParse({ name: '王小明', email: 'a@b.tw', phone: v, password: 'aA1!aaaa' })
+          .error?.issues.some((i) => i.path[0] === 'phone'),
+        `註冊頁擋了 ${v} —— 那正是這一列講的病`,
+      ).toBeFalsy();
+      expect(
+        ProfileInput.safeParse({ name: '王小明', phone: v, birthday: '', gender: 'undisclosed' })
+          .error?.issues.some((i) => i.path[0] === 'phone'),
+        `個資頁擋了 ${v}`,
+      ).toBeFalsy();
+    }
+  });
+
+  it('🔵 負對照:個資頁的電話仍然【選填】(空字串合法)—— 必填與否不由這支判準決定', async () => {
+    const { ProfileInput } = await import('./index');
+    expect(
+      ProfileInput.safeParse({ name: '王小明', phone: '', birthday: '', gender: 'undisclosed' })
+        .error?.issues.some((i) => i.path[0] === 'phone'),
+    ).toBeFalsy();
+  });
+
   it('🔴 電話必填(Sean 2026-09-04 拍甲)—— 空字串與純空白都要擋', () => {
     // 🔬 為什麼在這裡擋:出貨單那張紙上電話空白, 而正式庫 15 位客人裡 11 位存的是
     //    **空字串**(不是 NULL)⇒ 那個空字串的源頭是這個 schema 以前讓它選填。

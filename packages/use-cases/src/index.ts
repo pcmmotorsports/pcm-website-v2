@@ -153,6 +153,16 @@ export {
   type EnqueueOrderShippedEmailsResult,
 } from './enqueue-order-shipped-emails';
 
+// 🔴 ⟦5b-TRACKNUMGAP1⟧ 片 C(2026-09-04):更正單號的信 —— 掃描式 enqueue。
+//    🛑 **它沒有 cutoff 參數, 而那不是漏了** —— 觸發欄 `tracking_corrected_at` 是本片新增的
+//    ⇒ 歷史上每一箱都是 NULL ⇒ 集合天生從空的開始長(理由全文在 `ITrackingCorrectedScanner` 檔頭)。
+export {
+  enqueueTrackingCorrectedEmails,
+  type EnqueueTrackingCorrectedEmailsDeps,
+  type EnqueueTrackingCorrectedEmailsOptions,
+  type EnqueueTrackingCorrectedEmailsResult,
+} from './enqueue-tracking-corrected-emails';
+
 // 🔴 M-4b E4 片3b(2026-08-30):`SHIPPED_EMAIL_CUTOFF` 的解析(純函式、零 I/O)。
 // ⚠️ 它**不是**開關本身 —— 開關是那顆 env 有沒有被設。本函式只負責「設了之後怎麼讀」,
 //    而它刻意沒有「沒設就用預設起點」那條路(見該檔:那是這條線最貴的失敗模式)。

@@ -516,4 +516,160 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
     expect(qs(url).get('pbrands')).toBe('akrapovic'); // 空表也不刪
     expect(qs(url).get('price')).toBe('10000-20000'); // 其他軸照常
   });
+
+  // ═══ ⟦search-CHIPDELETEDEADURL⟧(Sean 2026-09-04 拍甲)═══
+  // 🔴 這三格守的是同一句不變式:**網址上有 `categories` 時,本 hook 一個字都不寫分類軸。**
+  // ⛔ ~~拿掉 `if (!params.has(CATEGORIES_PARAM))` 那一層 ⇒ ㉒㉓ 都紅~~
+  // ⇒ 🔴 **2026-09-04 實跑訂正:那句是錯的。㉒㉓ 對【不同的】改壞法有判別力,不是同一發。**
+  //   突變①`if (!params.has(...))` ⇒ `if (true)`(拿掉守衛)⇒ **只有 ㉓ 紅**,㉒ 全綠。
+  //   突變②`cascade.category === null` ⇒ `params.delete(CATEGORIES_PARAM)`(= 我 09-04 實際犯的
+  //   那個修法)⇒ **只有 ㉒ 紅**,㉓ 全綠。
+  //   📌 所以**只跑一發突變會把「這格沒判別力」讀成「這格通過」** —— 舊字面留刪除線, 讓下一個人
+  //   不要以為 ㉒ 守得住那道守衛。㉔ 釘住本片**新造出來**的行為(見該格)。
+  it('㉒ 多顆分類在網址上、客人改價格 → `categories` **原封不動**(我 2026-09-04 弄壞過這一格)', () => {
+    // 病史:第一版修法寫成「`cascade.category === null` ⇒ 刪掉 `categories`」,鑽機實測這一格
+    //   從「刪一顆剩一顆」變成「兩顆都還在」⇒ 📌 **修法可以把本來好的世界弄壞, 而它不在症狀那一格。**
+    window.history.replaceState(null, '', '/products?categories=A%2CB');
+
+    const { rerender } = renderHook(
+      ({ extras }: { extras: ProductExtraFilters }) =>
+        useCatalogFilterUrlSync(cascade([]), extras, RESTORE_SOURCES),
+      { initialProps: { extras: EXTRAS } },
+    );
+    rerender({ extras: { ...EXTRAS, price: '10000-20000', priceRange: [10000, 20000] } });
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url).toBeDefined();
+    expect(qs(url).get('categories')).toBe('A,B');
+    expect(qs(url).get('price')).toBe('10000-20000'); // 其他軸照常動
+  });
+
+  it('㉓ 主症狀:膠囊剛刪完、cascade 仍握著一顆 → **不得**把 `category=` 寫回去', () => {
+    // 🔴 這一格就是「按了沒反應」的成因:膠囊送出乾淨網址 `?categories=操控部品` 之後,
+    //   cascade 這一拍仍握著那一顆(還原波尚未消化)⇒ 舊碼下一行 `params.set('category', …)`
+    //   把舊鍵寫回去 ⇒ 客人看到的是**網址原封不動、膠囊沒少**。
+    //   ⚠️ `cascade.category` **是單值的** ⇒ 它永遠只答得出一顆, 從它推 `categories` 結構上不可能對。
+    window.history.replaceState(null, '', '/products?categories=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81');
+    const stillHeld = { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'];
+
+    const { rerender } = renderHook(
+      ({ extras }: { extras: ProductExtraFilters }) =>
+        useCatalogFilterUrlSync(cascade([], stillHeld), extras, RESTORE_SOURCES),
+      { initialProps: { extras: EXTRAS } },
+    );
+    rerender({ extras: { ...EXTRAS, price: '10000-20000', priceRange: [10000, 20000] } });
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url).toBeDefined();
+    expect(qs(url).get('category')).toBeNull(); // 舊鍵不得被寫回
+    expect(qs(url).get('categories')).toBe('操控部品'); // 新鍵原樣留著
+  });
+
+  it('㉔ 多顆在網址上 + 側欄改分類 → **`unmatched` 必須消失**(守衛只擋分類軸, 不擋這三個 delete)', () => {
+    // 🔴 這一格 2026-09-04 **換過形狀**:原本釘的是「一次 replace 都不送」——
+    //   那是把**缺陷本身**當成規格釘住了。主視窗-94 當天裁「一起做」⇒ 現在釘的是修好之後的樣子。
+    //   ⛔ ~~多顆 + 分類軸變動 ⇒ 零導覽~~(那個世界裡 `page`/`search`/`unmatched` 三個 delete
+    //   一起不跑 ⇒ 搜尋留下的「這幾個字沒有用到」會**永久卡在畫面上**)。
+    //   ✅ 現在:等值早退帶 `!categoryAxisSuppressed` ⇒ 三個 delete 照跑, 分類軸仍不被寫。
+    //   🛑 拿掉 `!categoryAxisSuppressed` ⇒ 本格紅。
+    window.history.replaceState(null, '', '/products?categories=A%2CB&unmatched=%E5%B0%BB%E9%8A%98&page=3');
+
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: null as CascadeFilterState['category'] } },
+    );
+    rerender({ category: { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'] });
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url).toBeDefined();
+    expect(qs(url).get('unmatched')).toBeNull(); // 那句話要跟著這次操作消失
+    expect(qs(url).get('page')).toBeNull(); // 回第 1 頁
+    expect(qs(url).get('categories')).toBe('A,B'); // 🔴 而分類軸仍然不被本 hook 動
+    expect(qs(url).get('category')).toBeNull(); // 舊鍵也不得被寫回
+  });
+
+  it('㉕ 🔵 負對照:多顆世界的**還原波** → 照舊早退, **不得**吃掉 `?page=`(#289 不得回歸)', () => {
+    // 🔴 這格守的是 ㉔ 那個修法**沒有**打破的東西 —— 它與 ㉔ 是一對:
+    //   ㉔ 要「多顆 + 分類軸變動 ⇒ 三個 delete 照跑」,而還原波**看起來一模一樣**
+    //   (cascade 由空變非空、filtersChanged 為真、網址有 `categories`)。
+    //   🎯 分辨它們的是 `categoryAxisSuppressed` 的**第二個條件**:還原波的 cascade 是從網址
+    //   同一個 `category=` 還原來的 ⇒ 兩邊相等 ⇒ **什麼都沒被擋** ⇒ 不是「被壓下」。
+    //   🛑 把那個布林簡化成只看 `params.has(CATEGORIES_PARAM)` ⇒ 本格紅(page 被吃掉)。
+    window.history.replaceState(
+      null,
+      '',
+      '/products?categories=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81&category=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81&page=2',
+    );
+
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: null as CascadeFilterState['category'] } },
+    );
+    // 還原 dispatch 落地:state 追上網址上那個 `category=`
+    rerender({ category: { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'] });
+
+    expect(hoisted.replace).not.toHaveBeenCalled();
+  });
+
+  // ═══ ⟦search-REDUNDANTREPLACE⟧(主視窗-94 2026-09-05 拍乙)═══
+  // 🔴 **本格【先寫、當時是紅的】** —— 那是它存在的理由:它釘的是一個當時還不成立的行為。
+  //   病:`⟦search-SHORTNAMEZEROFLASH⟧` 之後 server 自己把**裸子分類名**解成全路徑, 而回寫段
+  //   仍然無條件用 `${main} · ${sub}` 重建 ⇒ 與網址上的裸短名**不等** ⇒ 等值早退不命中
+  //   ⇒ 送一次多餘的 `router.replace`, 而同一輪 `filtersChanged` 為真 ⇒ **`page` 被一起刪掉**。
+  // 🔬 **鑽機 2026-09-05 實走(四格, 比解碼後的參數值)**:
+  //   裸子名 ⇒ 網址被改寫 · 裸子名+`page=2` ⇒ **改寫且 page 掉了**
+  //   🟢 而全路徑那兩格(負對照)**兩個都沒變** ⇒ 差別只有分類名是裸的還是全的。
+  // ✅ 修法:`normalizedQuery` 把分類軸也收斂 —— **裸子名與它解出來的全路徑視為同一個篩選**。
+  //   🛑 那是「把比對改寬」, 而板列曾警告過這條路。**方向的理由**:那道早退 firing **更多**是往
+  //   **安全**走 —— #289 那個「不會自癒」的終態是它**沒有** firing 時產生的(見上方 ⑩⑯)。
+  it('㉖ 裸子分類名進站 + `?page=2` → **不得**多送一次 replace, `page` 必須活著', () => {
+    // 樹要有子分類, 預設的 RESTORE_SOURCES 是 childless ⇒ 那份餵下去本格恆綠 = 零判別力。
+    const tree = {
+      ...RESTORE_SOURCES,
+      categories: [
+        { id: 'gear', name: '騎士用品與配件', children: [{ id: 'mount', name: '攝影機支架', count: 4 }] },
+      ],
+    };
+    setUrl('?category=%E6%94%9D%E5%BD%B1%E6%A9%9F%E6%94%AF%E6%9E%B6&page=2');
+    const resolved = {
+      mainId: 'gear', main: '騎士用品與配件', subId: 'mount', sub: '攝影機支架',
+    } as CascadeFilterState['category'];
+
+    // 三個 render:① mount 早退 ② 還原窗口消化 ③ state 已等於網址解出來的那個分類
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, tree),
+      { initialProps: { category: resolved } },
+    );
+    rerender({ category: resolved });
+    rerender({ category: resolved });
+
+    expect(hoisted.replace).not.toHaveBeenCalled();
+  });
+
+  it('㉗ 🔵 負對照:**認不得**的裸名不得被收斂 —— 照舊送導覽(#315 的值仍原樣留著)', () => {
+    // 🔴 少了本格, ㉖ 的修法可以寫成「分類軸整個不比對」而照樣全綠 —— 那會讓 #315 的
+    //   「認不得的值留在網址上」與「使用者剛清掉篩選」變成同一件事。
+    const tree = {
+      ...RESTORE_SOURCES,
+      categories: [
+        { id: 'gear', name: '騎士用品與配件', children: [{ id: 'mount', name: '攝影機支架', count: 4 }] },
+      ],
+    };
+    setUrl('?category=%E5%B7%B2%E4%B8%8B%E6%9E%B6%E7%9A%84%E5%88%86%E9%A1%9E');
+    const picked = { mainId: 'gear', main: '騎士用品與配件' } as CascadeFilterState['category'];
+
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, tree),
+      { initialProps: { category: null as CascadeFilterState['category'] } },
+    );
+    rerender({ category: picked });
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url, '認不得的裸名被當成已解析 ⇒ 導覽沒送出去').toBeDefined();
+    expect(qs(url).get('category')).toBe('騎士用品與配件');
+  });
 });

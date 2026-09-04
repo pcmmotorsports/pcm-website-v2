@@ -387,6 +387,47 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
     expect(hitH, `命中區算出來 ${hitH}px < 44px 觸控底線(細條 ${barH}px + 上下各外擴)`).toBeGreaterThanOrEqual(44);
   });
 
+  // 🔴🔴 2026-09-05 ⟦f3-MOBTAP44⟧:**上面那格只問了【高】** —— 真瀏覽器實測命中區是 `34x44`,
+  //   而寬那一半從來沒有人在看。實跑突變:`.b-hero-tick` 的 `width: 34px` 改 `10px`
+  //   ⇒ 上面那 82 格**全綠、零紅**。📌 **一個只答了一半的修法, 配一道只問了一半的守門。**
+  // 🔴 **而本格的判準【不是 44】, 那是量出來的不是我保守**:`.b-hero-nav` 的 `gap: 8px`
+  //   ⇒ 相鄰兩條中心間距 = 34 + 8 = **42** ⇒ 要 44 就得讓兩條的命中區互相重疊,
+  //   而重疊區只歸其中一條 ⇒ 前一條反而變 42。**42 = 把間距用完的那個上限。**
+  //   ⇒ 🛑 **要真的到 44 得把 `gap` 改 ≥10 = 看得見的版面改動 ⇒ 那要 Sean/設計拍, 不在本格。**
+  // ⚠️ 本格釘的是**算出來的寬**, 不是那兩個字面 —— 換算法(padding / min-width)照樣擋得住。
+  it('🔴 hero 切換條的命中區【寬】= 本體 + 左右外擴,不得只顧高度', () => {
+    const top = topLevelCss().replace(/\s+/g, ' ');
+    const bar = top.match(/\.b-hero-tick\s*\{[^}]*\}/)?.[0] ?? '';
+    const hit = top.match(/\.b-hero-tick::after\s*\{[^}]*\}/)?.[0] ?? '';
+    const barW = Number(/width:\s*([0-9.]+)px/.exec(bar)?.[1]);
+    const left = Number(/left:\s*(-?[0-9.]+)px/.exec(hit)?.[1]);
+    const right = Number(/right:\s*(-?[0-9.]+)px/.exec(hit)?.[1]);
+    expect(Number.isFinite(barW) && Number.isFinite(left) && Number.isFinite(right), '算式成分抓不到').toBe(true);
+    const hitW = barW + -left + -right;
+    expect(hitW, `命中區寬算出來 ${hitW}px —— 而 gap 是 8px, 42 是把間距用完的上限`).toBeGreaterThanOrEqual(42);
+  });
+
+  // 🔴 同一招的另一半:左右導覽鈕 36×36。⚠️ **它到得了 44 而 hero tick 到不了**,
+  //   差別只在本體寬度差 2px(36 + 8 = 44 · 34 + 8 = 42)⇒ 📌 同一個修法在兩處結論不同。
+  //   🛑 本體 36 是**看得見的**(有 border 有底色)⇒ 不得靠改它來過本格。
+  it('🔴 左右導覽鈕的命中區 ≥44(靠 ::after 外擴,本體 36 不動)', () => {
+    const top = topLevelCss().replace(/\s+/g, ' ');
+    const btn = top.match(/\.b-select-arrow\s*\{[^}]*\}/)?.[0] ?? '';
+    const hit = top.match(/\.b-select-arrow::after\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(btn, '找不到 .b-select-arrow 本體').not.toBe('');
+    expect(hit, '命中區 ::after 整條不見了 ⇒ 鈕退回 36×36').not.toBe('');
+    expect(btn, '本體要 position: relative,否則 ::after 的 absolute 會跑到別的容器上').toMatch(/position:\s*relative/);
+    const w = Number(/width:\s*([0-9.]+)px/.exec(btn)?.[1]);
+    const h = Number(/height:\s*([0-9.]+)px/.exec(btn)?.[1]);
+    const L = Number(/left:\s*(-?[0-9.]+)px/.exec(hit)?.[1]);
+    const R = Number(/right:\s*(-?[0-9.]+)px/.exec(hit)?.[1]);
+    const T = Number(/top:\s*(-?[0-9.]+)px/.exec(hit)?.[1]);
+    const B = Number(/bottom:\s*(-?[0-9.]+)px/.exec(hit)?.[1]);
+    expect([w, h, L, R, T, B].every(Number.isFinite), '算式成分抓不到').toBe(true);
+    expect(w + -L + -R, '命中區寬 < 44').toBeGreaterThanOrEqual(44);
+    expect(h + -T + -B, '命中區高 < 44').toBeGreaterThanOrEqual(44);
+  });
+
   // 🔴 R1 must-fix:hero 高度必須吃站台 token,不得寫死頁首高。
   //    `tokens.css:25` 逐字要求「消費端一律 `var(--shell-header-h)`」—— 那顆 token 正是為了
   //    同款「兩處各寫一個數字、差 4px」的事故才立的。

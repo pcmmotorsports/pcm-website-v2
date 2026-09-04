@@ -32,7 +32,11 @@ const REPO_ROOT = resolve(__dirname, '../../../../..');
 const readMigration = () => readFileSync(resolve(REPO_ROOT, ORDER_SEARCH_RPC_MIGRATION), 'utf8');
 
 /** 剝掉 `--` 行註解 —— 這一步是 MF-1 的修法本體,不是清理。 */
-const stripLineComments = (sql: string) => sql.replace(/--[^\n]*/g, '');
+const stripLineComments = (sql: string) =>
+  // 🔴 **先剝【區塊】註解再剝行註解**(2026-09-04 `-auth`, ⟦b4-PIECEBGATEGAPS⟧ ②④):
+  //    只剝 `--` 擋不住 `/* … */` ⇒ 在壞掉的真定義【後面】放一份區塊註解裡的正確定義, 尺會選中註解那份。
+  //    ⚠️ 順序有意義:反過來會讓 `--` 吃掉區塊的結尾標記。過度剝除只會讓守門更容易紅 ⇒ 失敗方向安全。
+  sql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '');
 
 /** 取 `WITH hits AS ( … )` 的括號配對區塊。 */
 function hitsBlock(sql: string): string {

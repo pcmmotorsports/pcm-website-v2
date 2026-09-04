@@ -528,6 +528,41 @@ describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA
     ]);
   });
 
+  // 🔴 ⟦5b-TRACKNUMGAP1⟧ 片 C(codex 對抗審查 2026-09-04 must-fix):
+  //    `markSkippedTrackingSuperseded` **原本零測試** —— sweeper 那側把它 mock 掉,
+  //    ⇒ 📌 那一層只看得到「呼了哪一支方法」, **看不到那支方法往 DB 寫了哪個字**
+  //      ⇒ 一個「什麼都沒更新」的實作在 use-case 那側照樣全綠。
+  it('markSkippedTrackingSuperseded:落 skipped_order_ineligible + 稽核碼 tracking_superseded + 清 claimed_at + 世代柵欄', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-7' }], error: null });
+    expect(
+      await adapter(makeClient(b)).markSkippedTrackingSuperseded('outbox-7', 2, 'ship-1:AAA-111'),
+    ).toBe(true);
+    const vals = argsOf(b, 'update')[0]![0] as Record<string, unknown>;
+    // 🔵 態沿用既有白名單 ⇒ 零 migration(與上面兩格同一個理由)
+    expect(vals.status).toBe('skipped_order_ineligible');
+    // 🔴 而碼必須是自己的一個 —— 合併進別的碼, 稽核會得到一個【錯而合理】的答案
+    expect(vals.last_error_code).toBe('tracking_superseded');
+    expect(vals.claimed_at).toBeNull();
+    expect(argsOf(b, 'eq')).toEqual([
+      ['id', 'outbox-7'],
+      ['status', 'sending'],
+      ['attempts', 2],
+    ]);
+  });
+
+  it('🔴🔴 更正信退休 dedup_key —— 而且【與 status 在同一發 update】', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-7' }], error: null });
+    await adapter(makeClient(b)).markSkippedTrackingSuperseded('outbox-7', 2, 'ship-1:AAA-111');
+    const calls = argsOf(b, 'update');
+    // 🔴 承重:分兩發 update 的實作, 中間掛掉會留下一個【態改了而鍵沒退休】的列
+    //    ⇒ 那個舊鍵會永久擋住同一箱同一號碼的下一封。
+    expect(calls).toHaveLength(1);
+    const vals = calls[0]![0] as Record<string, unknown>;
+    expect(vals.dedup_key).toBe('ship-1:AAA-111:superseded:outbox-7');
+    // 🔴 退休鍵必須含 id —— 少了它, 同一個舊鍵退休兩次會自己撞自己的唯一鍵。
+    expect(String(vals.dedup_key)).toContain('outbox-7');
+  });
+
   // ⟦b4-SHIPUNVOID1⟧ 2026-08-31 —— 🔴 **這三格守的是一個【沒有東西會叫】的漏信。**
   it('🔴🔴 退休 dedup_key,而且【與 status 在同一發 update】', async () => {
     const b = makeBuilder({ data: [{ id: 'outbox-9' }], error: null });
@@ -666,16 +701,51 @@ describe('⟦b4-SHIPGATE1⟧ claimDue 的 excludeEventTypes', () => {
     expect(argsOf(b, 'not')).toEqual([]);
   });
 
-  it('🔴 給兩個以上 ⇒ **throw**(不猜一個沒驗過的 PostgREST 文法)', async () => {
+  // 🔴🔴 **2026-09-04(片 C, codex R2 must-fix #1)—— 這一格從「必須 throw」翻成「必須不 throw」。**
+  //    ⛔ ~~原本:給兩個以上 ⇒ throw(不猜沒驗過的 PostgREST 文法)~~
+  //    ⇒ 🛑 **那道拒絕在片 C 變成一顆炸彈**:片 C 把第二個事件加進同一份清單
+  //      ⇒ 截止開關關著時 exclude 有 2 個 ⇒ `claimDue` throw
+  //      ⇒ sweeper 的 `catch { errors++ }` 吃掉 ⇒ `jobs = []`
+  //      ⇒ **連 `order_created` 都不寄, 每 5 分鐘一次。**
+  //    ✅ 修法不引進新文法:查詢層只在恰好 1 個時下 `.neq`(既有呼叫端逐位元不變),
+  //      ≥2 個改在 app 層 `candidates` 那一發濾掉 —— 那道閘的目的是「不要**認領**」,
+  //      而認領發生在 filter 之後 ⇒ 目的達成, 零新文法。
+  it('🔴🔴 給兩個以上 ⇒ 【不 throw】, 而且【查詢逐位元不變】(不猜沒驗過的文法)', async () => {
     const b = makeBuilder({ data: [], error: null });
     await expect(
       adapter(makeClient(b)).claimDue(10, {
-        excludeEventTypes: ['order_shipped', 'order_created'],
+        excludeEventTypes: ['order_shipped', 'shipment_tracking_corrected'],
       }),
-    ).rejects.toThrow(/未驗證/);
-    // 🛑 而它【在送出任何查詢之前】就擋下來 —— 不得先打一發壞查詢再說
+    ).resolves.toEqual([]);
+    // 🔴 承重:≥2 個時**不得**下 `.neq`(那會只濾掉一個而看起來像濾掉了)、更不得用 `not in`。
     expect(argsOf(b, 'neq')).toEqual([]);
     expect(argsOf(b, 'not')).toEqual([]);
+  });
+
+  it('🔴🔴 給兩個 ⇒ 兩種都【不會被認領】—— 而這一格才是那道閘的目的', async () => {
+    // 🛑 上一格只證「不炸」。**「不炸」與「真的擋住了」是兩個宣稱** ——
+    //    而 ≥2 個時查詢層一個字都沒加 ⇒ 擋住它的是 app 層那一發 filter。
+    //    ⇒ 📌 沒有這一格, 把那個 `!excludeSet.has(...)` 整段刪掉照樣全綠。
+    const rows = [
+      { id: 'a', event_type: 'order_shipped', attempts: 0, max_attempts: 5 },
+      { id: 'b', event_type: 'shipment_tracking_corrected', attempts: 0, max_attempts: 5 },
+      { id: 'c', event_type: 'order_created', attempts: 0, max_attempts: 5 },
+    ];
+    const scan = makeBuilder({ data: rows, error: null });
+    // 🔵 掃描之後每一列會各叫一次 `from` 去 CAS 認領 ⇒ 第一發之後一律回一個「誰都搶不到」的 builder。
+    const claim = () => makeBuilder({ data: [], error: null });
+    const from = vi.fn().mockReturnValue(claim());
+    from.mockReturnValueOnce(scan);
+    const client = { from } as unknown as EmailOutboxClient;
+
+    const got = await adapter(client).claimDue(10, {
+      excludeEventTypes: ['order_shipped', 'shipment_tracking_corrected'],
+    });
+    expect(got).toEqual([]);
+    // 🔴 承重:`from` 被叫幾次 = 1(掃描)+ 【嘗試認領幾列】。
+    //    三列裡只有 `order_created` 該被嘗試 ⇒ 總共 2 次。
+    //    ⇒ 刪掉 adapter 那個 `!excludeSet.has(...)` ⇒ 會變成 4 次 ⇒ 這一格紅。
+    expect(from).toHaveBeenCalledTimes(2);
   });
 
   it('🟢 未給 ⇒ 【一次都不呼叫 not】(既有查詢逐位元不變)', async () => {
