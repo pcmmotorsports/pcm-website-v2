@@ -21,6 +21,7 @@ import { OrderDetailView } from './OrderDetailView';
 import {
   ORDER_DETAIL_ITEMS_TRUNCATED_NOTE,
   ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE,
+  ORDER_DETAIL_UNPAID_SHIPPED_NOTE,
 } from '@/lib/account-order-copy';
 
 afterEach(cleanup);
@@ -664,5 +665,88 @@ describe('⟦b9-SHIPUI⟧ 進度軸「已出貨」', () => {
     expect(doneStep.querySelector('.od-step-t')?.textContent).toBe('已送達');
     expect(doneStep.className).not.toContain('is-done');
     expect(doneStep.querySelector('.od-step-d')?.textContent).toBe('');
+  });
+  /**
+   * ⟦ship-AXISHOLE⟧ 進度軸中間那個洞(Sean 2026-09-04 Q7 拍乙:那格變灰色 + 一句「尚未收到匯款」)。
+   *
+   * 🔴🔴 **「那格變灰色」那一半【不可以拿來當驗收條件】** —— 它在改之前也是灰的
+   *    (`ok: paymentCompleted` 為 false ⇒ 沒有 `is-done`)⇒ 🎯 **零判別力**:
+   *    把整個 `unpaidButShipped` 分支刪掉, 一格「是灰的」的斷言照樣全綠。
+   *    ⇒ ✅ **承重的是 `.od-step-d` 的字**, 而下面每一格都釘那一格。
+   *
+   * 🛑 **四格是三個方向 + 一個正對照, 少任一格這道守門就漏一種錯法**:
+   *    · 洞的世界 ⇒ 印那句話(**改對了沒**)
+   *    · 沒出貨的未付款單 ⇒ **不印**(證明它不是無條件印 —— 少了這格,`d: 常數` 寫死也全綠)
+   *    · 付過款的單 ⇒ 印**日期**(證明那句話沒有把一個真事實蓋掉)
+   *    · 🔴 取消單 ⇒ 不印, **而且「付款完成」那一階不得被打勾**
+   */
+  describe('⟦ship-AXISHOLE⟧ 先出貨後收款 ⇒ 付款完成那一格說得出【為什麼是灰的】', () => {
+    // 匯款單:貨出了而錢還沒到。`paidAt` 為 null 是這個世界的定義, 不是順手設的。
+    const UNPAID_SHIPPED = {
+      ...ORDER,
+      paymentStatus: 'unpaid' as const,
+      paidAt: null,
+      shippedAt: '2099-04-25T00:00:00Z',
+      allItemsShipped: true,
+    };
+    // 付款完成 = 第 2 階。🔵 錨:進度軸插一階時 `[1]` 會安靜地量錯階段而仍然綠
+    //    ⇒ 每一格都先斷言標題字, 照本檔既有那幾格的形狀。
+    const payStep = (c: HTMLElement) => {
+      const el = Array.from(c.querySelectorAll('.od-step'))[1]!;
+      expect(el.querySelector('.od-step-t')?.textContent).toBe('付款完成');
+      return el;
+    };
+
+    it('🔴 已出貨而未付款 ⇒ 那一格印「尚未收到匯款」, 而且仍然是灰的', () => {
+      const { container } = render(<OrderDetailView order={UNPAID_SHIPPED} />);
+      const el = payStep(container);
+      expect(el.querySelector('.od-step-d')?.textContent).toBe(
+        ORDER_DETAIL_UNPAID_SHIPPED_NOTE,
+      );
+      // 🛑 這一行本身零判別力(見上面的 docstring), 留著是因為「印了字卻順手打了勾」
+      //    會是一句與那行字**相反**的話 —— 兩者要一起被釘住。
+      expect(el.className).not.toContain('is-done');
+    });
+
+    it('🔵 負對照:還沒出貨的未付款單 ⇒ 那一格【空白】(少了這格, 寫死一個常數也會全綠)', () => {
+      const { container } = render(
+        <OrderDetailView order={{ ...UNPAID_SHIPPED, shippedAt: null, allItemsShipped: false }} />,
+      );
+      expect(payStep(container).querySelector('.od-step-d')?.textContent).toBe('');
+    });
+
+    it('🔵 負對照:付過款的單 ⇒ 那一格印【日期】, 那句話不得蓋掉一個真事實', () => {
+      const { container } = render(
+        <OrderDetailView
+          order={{ ...ORDER, shippedAt: '2099-04-25T00:00:00Z', allItemsShipped: true }}
+        />,
+      );
+      expect(payStep(container).querySelector('.od-step-d')?.textContent).toBe('2099-04-18');
+      expect(screen.queryByText(ORDER_DETAIL_UNPAID_SHIPPED_NOTE)).toBeNull();
+    });
+
+    /**
+     * 🔴🔴 **這一格擋的是我在寫這一片時【差點自己製造】的缺陷, 不是假想的世界。**
+     *
+     * `happened()` 的判準是 `s.ok || s.d !== ''`, 而 `shownSteps` 對取消單把留下來的
+     * 每一階 **一律 `ok: true`** ⇒ 🛑 只要那句話進了取消單的 `d`,
+     * 「付款完成」就會從【整格不顯示】變成【顯示 **而且打勾**】
+     * ⇒ 🎯 **一張從來沒付過錢的單, 畫面上會打勾說他付了** —— 而勾旁邊寫著「尚未收到匯款」。
+     * 📌 **⇒ 一個只負責多印一句話的修法, 透過一個它沒有讀的判準改掉了【打不打勾】。**
+     */
+    it('🔴 取消單 ⇒ 那句話不出現, 而且「付款完成」不得因此被打勾', () => {
+      const CANCELLED_UNPAID_SHIPPED = {
+        ...UNPAID_SHIPPED,
+        cancelledAt: '2099-05-01T00:00:00Z',
+        cancelKind: 'cancelled' as const,
+      };
+      const { container } = render(<OrderDetailView order={CANCELLED_UNPAID_SHIPPED} />);
+      expect(screen.queryByText(ORDER_DETAIL_UNPAID_SHIPPED_NOTE)).toBeNull();
+      // 🔴 承重的一行:拿掉 `unpaidButShipped` 的 `!cancelled` ⇒ 這裡會冒出「付款完成」。
+      expect(
+        Array.from(container.querySelectorAll('.od-step-t')).map((n) => n.textContent),
+        '取消單的軸上只該留【真的發生過】的階段 —— 而這張單從來沒付過錢',
+      ).not.toContain('付款完成');
+    });
   });
 });
