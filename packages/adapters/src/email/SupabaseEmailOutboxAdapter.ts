@@ -68,6 +68,7 @@ import {
   orderCancelledSubject,
   orderUnpaidCancelledSubject,
   bankOrderCreatedSubject,
+  bankOrderCreatedDedupKey,
   buildBankOrderCreatedPayload,
 } from './order-email-assembly';
 
@@ -260,7 +261,16 @@ function composeEvent(input: EnqueueEmailInput): {
       return {
         payload,
         subject: bankOrderCreatedSubject(payload.display_id),
-        dedupKey: input.orderId,
+        // 🔴 **不是單純的 orderId**(codex R1-#4 / 45f):快照過期被標終態之後,
+        //    45f 讓那張單重新進得了掃描面 —— 而 `UNIQUE (event_type, dedup_key)`
+        //    會讓第二次 INSERT 撞唯一鍵 ⇒ 📌 **那張單永遠停在那裡。**
+        //    ⇒ 指紋涵蓋【會讓那封信變得不一樣】的三個值, 與寄送前重驗比對的那三個**同一組**。
+        dedupKey: bankOrderCreatedDedupKey({
+          orderId: input.orderId,
+          total: input.total,
+          balanceDue: input.balanceDue,
+          recipientEmail: input.recipientEmail,
+        }),
       };
     }
     case 'order_created': {

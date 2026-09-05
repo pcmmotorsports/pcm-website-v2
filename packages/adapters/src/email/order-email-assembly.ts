@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 /**
  * @module @pcm/adapters/email/order-email-assembly — 交易信組裝層(M-4a E1b;REQUIRED-E1b 本體)
  *
@@ -259,6 +260,37 @@ export function bankOrderCreatedSubject(displayId: string): string {
 }
 
 export const BANK_ORDER_CREATED_EVENT_VERSION = 1 as const;
+
+/**
+ * ⟦b4-BANKNOEMAIL⟧ 的 `dedup_key` —— **`orderId` + 快照指紋**(codex R1-#4, 45f 那一半)。
+ *
+ * 🔴🔴 **為什麼不是單純的 `orderId`**:
+ *   寄送當下發現快照過期 ⇒ 標 `bank_order_snapshot_stale` ⇒ 45f 讓那張單**重新進得了掃描面**,
+ *   而 `UNIQUE (event_type, dedup_key)` 會讓**第二次 INSERT 撞唯一鍵** ⇒ 📌 **那張單永遠停在那裡。**
+ *   ⇒ ✅ 指紋一變, 它就是**另一把鑰匙** ⇒ 新快照排得進去。
+ *
+ * 🛑 **而指紋要涵蓋【會讓那封信變得不一樣】的每一個值** —— 今天是三個:
+ *   `total` / `balanceDue` / `recipientEmail`。
+ *   ⚠️ **少涵蓋一個的後果很具體**:那個值變了而指紋沒變 ⇒ **撞唯一鍵 ⇒ 那張單從此排不進來**
+ *   (不是「寄了舊的」—— 寄送前重驗會擋下, 而擋下之後就再也補不回來)。
+ *   ⇒ 📌 **這三個值與寄送前重驗比對的那三個【必須是同一組】**, 兩邊漂掉的症狀是**永久漏信**。
+ *
+ * 🔵 `createdAt` **不進指紋**:它是不可變的(下單時刻), 進去只會讓字串更長而不會多分辨任何東西。
+ */
+export function bankOrderCreatedDedupKey(src: {
+  orderId: string;
+  total: number;
+  balanceDue: number;
+  recipientEmail: string;
+}): string {
+  // 🔵 `\u0000` 當分隔 —— 三個欄位裡都不可能出現它, 所以
+  //    `a|b` 與 `ab|` 這種「不同輸入撞同一個字串」的情況構造不出來。
+  const fingerprint = createHash('sha256')
+    .update([src.total, src.balanceDue, src.recipientEmail].join('\u0000'))
+    .digest('hex')
+    .slice(0, 16);
+  return `${src.orderId}:${fingerprint}`;
+}
 
 /**
  * 🔴🔴 **payload 是【下單當下的快照】**(R3-C1, 主視窗 2026-09-06 裁採納)——

@@ -69,6 +69,10 @@ CREATE VIEW public.order_paid_totals_v AS
 CREATE TABLE public.email_outbox (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id uuid, event_type text NOT NULL, dedup_key text NOT NULL,
+  -- 🔴 **45f 要它** —— 而我第一版的 fixture 沒有這一欄, 45f apply 當場炸(`column does not exist`)。
+  --    📌 那是**好的失敗**:一個簡化的 fixture 少了正式庫有的欄, 而它在【需要那一欄的那一天】才叫。
+  --    ⚠️ 而它同時說明了本探針的射程:**fixture 是真表的子集**, 它證不到真表上的 CHECK 與索引。
+  last_error_code text,
   CONSTRAINT email_outbox_event_type_check CHECK (event_type IN (
     'order_created','order_shipped','order_cancelled','order_unpaid_cancelled','shipment_tracking_corrected'))
 );
@@ -94,7 +98,8 @@ for V in 20260906140000_m4b_outbox_bank_order_created_event \
          20260906150000_m4b_order_balance_base_v \
          20260906160000_m4b_member_balance_from_base \
          20260906170000_m4b_bank_order_created_pending_view \
-         20260906180000_m4b_bank_order_still_mailable; do
+         20260906180000_m4b_bank_order_still_mailable \
+         20260906190000_m4b_bank_order_pending_skips_rearmable; do
   psql -U postgres -q -X -v ON_ERROR_STOP=1 -f "$M/$V.sql" > "$D/$V.log" 2>&1
   chk "01 apply $V" "$?" "0"
   if [ "$FAILED" != "0" ]; then echo "--- $V ---"; cat "$D/$V.log"; echo "PASSED=$PASS FAILED=$FAILED"; exit 1; fi
@@ -242,6 +247,48 @@ CREATE VIEW public.mut_still AS
 SQL
 chk "33 🧬 突變:still_mailable 若也帶 anti-join ⇒ 已排過信的那張看不到(重驗會每封都判不該寄)" \
     "$(Q "SELECT count(*) FROM public.mut_still WHERE order_id='aaaaaaa8-0000-0000-0000-000000000008'")" "0"
+
+# ══════════════════════════════════════════════════════════════════
+# 45f:被我們自己跳過的列要能重排 —— 三世界 + 突變
+# ══════════════════════════════════════════════════════════════════
+# 🔴 三世界(codex R1-#4/#5/#7 那一族):
+#    ① 正常(有 pending 列)⇒ 仍擋
+#    ② 被判 snapshot_stale ⇒ 不擋(讓新快照重排一次)
+#    ③ 已經寄出去(sent)⇒ 永久擋(不會寄第三次)
+psql -U postgres -q -X >/dev/null 2>&1 <<'SQL'
+-- ⑫ 有一列 pending 的(= 正常世界)
+INSERT INTO public.orders(id,display_id,customer_user_id,total,payment_channel) VALUES
+  ('aaaaaab2-0000-0000-0000-000000000012','PCM-12','11111111-1111-1111-1111-111111111111',5000,'bank_transfer');
+INSERT INTO public.email_outbox(order_id,event_type,dedup_key,last_error_code) VALUES
+  ('aaaaaab2-0000-0000-0000-000000000012','bank_order_created','k12',NULL);
+-- ⑬ 被判 snapshot_stale
+INSERT INTO public.orders(id,display_id,customer_user_id,total,payment_channel) VALUES
+  ('aaaaaab3-0000-0000-0000-000000000013','PCM-13','11111111-1111-1111-1111-111111111111',5000,'bank_transfer');
+INSERT INTO public.email_outbox(order_id,event_type,dedup_key,last_error_code) VALUES
+  ('aaaaaab3-0000-0000-0000-000000000013','bank_order_created','k13','bank_order_snapshot_stale');
+-- ⑭ 被判 snapshot_stale【而且】已經有一列 sent(= 修正後重排並寄成功)
+INSERT INTO public.orders(id,display_id,customer_user_id,total,payment_channel) VALUES
+  ('aaaaaab4-0000-0000-0000-000000000014','PCM-14','11111111-1111-1111-1111-111111111111',5000,'bank_transfer');
+INSERT INTO public.email_outbox(order_id,event_type,dedup_key,last_error_code) VALUES
+  ('aaaaaab4-0000-0000-0000-000000000014','bank_order_created','k14a','bank_order_snapshot_stale'),
+  ('aaaaaab4-0000-0000-0000-000000000014','bank_order_created','k14b',NULL);
+SQL
+chk "34 ① 有 pending 列 ⇒ 仍擋(不重排)" "$(Q "${IN_VIEW}'aaaaaab2-0000-0000-0000-000000000012'")" "0"
+chk "35 ② 被判 snapshot_stale ⇒ 🔴 不擋, 讓新快照重排一次" "$(Q "${IN_VIEW}'aaaaaab3-0000-0000-0000-000000000013'")" "1"
+chk "36 ③ 已有 sent 列 ⇒ 永久擋(不會寄第三次)" "$(Q "${IN_VIEW}'aaaaaab4-0000-0000-0000-000000000014'")" "0"
+chk "37 🟢 正對照:原本那張該寄的還在(證明上面三個 0/1 不是整支塌了)" "$(Q "${IN_VIEW}'aaaaaaa1-0000-0000-0000-000000000001'")" "1"
+chk "38 not_mailable 那個碼也在 anti-join 的例外裡" \
+    "$(Q "SELECT (strpos(definition,'bank_order_not_mailable_at_send')>0)::text FROM pg_views WHERE viewname='pcm_bank_order_created_email_pending'")" "true"
+# 🧬 突變:拿掉 COALESCE ⇒ last_error_code 為 NULL 的列不再擋 ⇒ 第 34/36 格會塌成 1
+psql -U postgres -q -X >/dev/null 2>&1 <<'SQL'
+CREATE VIEW public.mut_nocoalesce AS
+  SELECT m.order_id FROM public.pcm_bank_order_still_mailable m
+   WHERE NOT EXISTS (SELECT 1 FROM public.email_outbox e
+      WHERE e.order_id=m.order_id AND e.event_type='bank_order_created'
+        AND e.last_error_code NOT IN ('bank_order_not_mailable_at_send','bank_order_snapshot_stale'));
+SQL
+chk "39 🧬 突變:拿掉 COALESCE ⇒ NULL 那些列不再擋 ⇒ 正常世界那張【漏進來】" \
+    "$(Q "SELECT count(*) FROM public.mut_nocoalesce WHERE order_id='aaaaaab2-0000-0000-0000-000000000012'")" "1"
 
 echo "PASSED=$PASS FAILED=$FAILED"
 [ "$FAILED" = "0" ] || exit 1
