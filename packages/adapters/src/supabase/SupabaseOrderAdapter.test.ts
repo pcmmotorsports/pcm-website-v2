@@ -2886,6 +2886,10 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
       // 🔴 605 是 fixture 裡刻意挑的【誰都不等於】的數 ⇒ 換錯欄、或根本沒讀這一欄, 這裡都會紅。
       taxTotal: { amount: 605, currency: 'TWD' },
       total: { amount: 12100, currency: 'TWD' },
+      // 🔴 ⟦b4-PARTIALPAIDNOWHERE⟧ 這一格的 mock 沒有 `member_order_balance_v` 那一發
+      //    ⇒ adapter 的 try/catch 接住 ⇒ **傳 null 而不是 throw、也不是補 0**。
+      //    📌 那正是這一欄的合約:讀不到就算不出來, 而顯示端對 null 是【整塊不印】。
+      balanceDue: null,
       shippingMethod: 'home',
       shippingAddress: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
       cancelledAt: null,
