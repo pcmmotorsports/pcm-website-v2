@@ -26,6 +26,7 @@ import type {
   ApplyOrderIneligibleGateDeps,
   EnqueueOrderCreatedEmailsDeps,
   EnqueueOrderUnpaidCancelledEmailsDeps,
+  EnqueueOrderCancelledEmailsDeps,
   EnqueueTrackingCorrectedEmailsDeps,
   EnqueueOrderShippedEmailsDeps,
   SweepEmailOutboxDeps,
@@ -36,6 +37,7 @@ import {
   SupabasePaidEmailContextAdapter,
   SupabasePaidOrderScannerAdapter,
   SupabaseUnpaidCancelledOrderScannerAdapter,
+  SupabaseCancelledOrderScannerAdapter,
   SupabaseIneligibleOrderEmailScannerAdapter,
   SupabaseShippedEmailContextAdapter,
   SupabaseShippedOrderScannerAdapter,
@@ -221,6 +223,23 @@ export function getEnqueueOrderUnpaidCancelledDeps(): EnqueueOrderUnpaidCancelle
       isSyntheticEmail: isSyntheticEmailDomain,
     }),
     scanner: new SupabaseUnpaidCancelledOrderScannerAdapter(createSupabaseServiceClient()),
+  };
+}
+
+/**
+ * 刷卡已退款的整單取消通知信 —— 掃描端 deps(Sean 2026-09-02 拍甲)。
+ *
+ * 🔴 **刻意不共用 `getSweepEmailOutboxDeps()`** —— 與另外四支同一個理由:
+ *    那支帶 Resend sender,而**排信這一步不該碰得到寄送管道**。
+ * 🛑 與上面那支未付款取消是**兩條線**:射程差在 `payment_status`,寫在
+ *    `ICancelledOrderScanner` 與那支 view 的 COMMENT 裡,這裡不重寫。
+ */
+export function getEnqueueOrderCancelledDeps(): EnqueueOrderCancelledEmailsDeps {
+  return {
+    outbox: new SupabaseEmailOutboxAdapter(createSupabaseServiceClient(), {
+      isSyntheticEmail: isSyntheticEmailDomain,
+    }),
+    scanner: new SupabaseCancelledOrderScannerAdapter(createSupabaseServiceClient()),
   };
 }
 

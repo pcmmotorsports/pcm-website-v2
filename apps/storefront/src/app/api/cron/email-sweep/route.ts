@@ -44,6 +44,7 @@ import { timingSafeEqual } from 'node:crypto';
 import {
   enqueueOrderCreatedEmails,
   enqueueOrderUnpaidCancelledEmails,
+  enqueueOrderCancelledEmails,
   enqueueTrackingCorrectedEmails,
   enqueueOrderShippedEmails,
   readDeployCutoff,
@@ -57,6 +58,7 @@ import {
 import {
   getEnqueueOrderCreatedDeps,
   getEnqueueOrderUnpaidCancelledDeps,
+  getEnqueueOrderCancelledDeps,
   getEnqueueTrackingCorrectedDeps,
   getEnqueueOrderShippedDeps,
   getSweepEmailOutboxDeps,
@@ -66,6 +68,7 @@ import {
   ScanQueryError,
   TrackingCorrectedScanQueryError,
   UnpaidCancelledScanQueryError,
+  CancelledScanQueryError,
 } from '@pcm/adapters/server';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
 import { CRON_JOB_NAME, recordHeartbeatSuccess, recordHeartbeatFailure } from '@/lib/cron/heartbeat';
@@ -288,6 +291,26 @@ function pickShippedEnqueueCounts(result: {
 // 🔴 **不共用 `pickShippedEnqueueCounts`** —— 型別剛好相容, 而**輸出的鍵不能相同**:
 //    兩條線的計數會落在同一個 JSON 物件裡, 共用會讓後寫的那條**安靜覆蓋**前一條
 //    ⇒ 📌 而覆蓋之後兩個數字看起來都很合理, 沒有東西會叫。
+function pickCancelledEnqueueCounts(result: {
+  scanned: number;
+  truncated: boolean;
+  enqueued: number;
+  skippedNoRealEmail: number;
+  duplicate: number;
+  noRecipient: number;
+  errors: number;
+}) {
+  return {
+    cnlScanned: result.scanned,
+    cnlTruncated: result.truncated,
+    cnlEnqueued: result.enqueued,
+    cnlSkippedNoRealEmail: result.skippedNoRealEmail,
+    cnlDuplicate: result.duplicate,
+    cnlNoRecipient: result.noRecipient,
+    cnlErrors: result.errors,
+  };
+}
+
 function pickTrackFixEnqueueCounts(result: {
   scanned: number;
   truncated: boolean;
@@ -568,6 +591,63 @@ export async function GET(request: Request): Promise<Response> {
   }
   const trackFixSection = { trackFixEnqueueStatus: trackFixStatus, ...(trackFixCounts ?? {}) };
 
+  // ── 1f. 🔴 刷卡已退款的整單取消通知信, 掃描式 enqueue(Sean 2026-09-02 拍甲)──────────
+  //
+  // 🔴🔴 **它有【自己那顆 cutoff】, 而那不是為了整齊 —— 是因為共用會當場寄一批歷史信。**
+  //   `B4_DEPLOY_CUTOFF` 在正式站**已經上膛**(未付款取消那半在跑)⇒ 共用它 = 這一段
+  //   在 deploy 完的第一輪就掃到「那顆 cutoff 之後所有已取消已退款的單」⇒ **一次寄一疊。**
+  //   ⇒ 📌 而信收不回來(鐵則 12⑤)。所以它要一顆**預設沒設**的新 env, 由 Sean 自己上膛。
+  //
+  // 🛑 **上膛順序**(少一步不會馬上出事, 而那正是危險的地方):
+  // ```
+  // ① 先 apply supabase/migrations/20260905310000_m4b_cancelled_email_pending_view.sql
+  //    （沒貼 ⇒ 那支 view 不存在 ⇒ 這一段每輪 42P01 ⇒ errors ⇒ 503）
+  // ② 再設 CANCELLED_EMAIL_CUTOFF（ISO UTC）
+  // ③ 再 redeploy（新 env 只有新的 deployment 讀得到）
+  // ```
+  //
+  // 🛑 **時間預算:這是疊進同一個 `maxDuration = 60` 的【第五條】序列 enqueue**
+  //   ⇒ ⟦b4-CRON60SDOGPILE⟧ 那條已知缺口**又寬了一格**, 而本片沒有修它。
+  //   🔵 量級:已取消且已全額退款的單遠少於出貨。🔴 **而那是量級論證不是機制** ——
+  //   判別訊號不變:cron log 整輪耗時逼近 60s ⇒ 回來做它。
+  //
+  // 🔴 **整段失敗不擋 sweeper** —— 與另外四支同形:計 errors、本輪最後回 503。
+  // eslint-disable-next-line no-restricted-syntax -- 受控例外:同本檔 readCutoff();server-only cron 端點,動態 env 不進 client bundle
+  const cancelledRaw = process.env['CANCELLED_EMAIL_CUTOFF'];
+  const cancelledCutoff = readDeployCutoff(cancelledRaw);
+  let cancelledCounts: ReturnType<typeof pickCancelledEnqueueCounts> | null = null;
+  let cancelledStatus: 'skipped_no_cutoff' | 'skipped_bad_cutoff' | 'completed' | 'failed' =
+    cancelledCutoff.kind === 'unset'
+      ? 'skipped_no_cutoff'
+      : cancelledCutoff.kind === 'invalid'
+        ? 'skipped_bad_cutoff'
+        : 'completed';
+  if (cancelledCutoff.kind === 'invalid') {
+    console.error('[email-sweep] 🔴 CANCELLED_EMAIL_CUTOFF 格式不合 ⇒ 整段取消信 enqueue 不跑', {
+      env: 'CANCELLED_EMAIL_CUTOFF',
+      reason: 'bad_cutoff_format',
+    });
+  }
+  if (cancelledCutoff.kind === 'ok') {
+    try {
+      cancelledCounts = pickCancelledEnqueueCounts(
+        await enqueueOrderCancelledEmails(getEnqueueOrderCancelledDeps(), {
+          cutoff: cancelledCutoff.cutoff,
+          limit: ENQUEUE_LIMIT,
+        }),
+      );
+    } catch (err) {
+      cancelledStatus = 'failed';
+      // 🔴 用**本片自己那支 error** —— 兩支同名時 instanceof 比的是身分不是名字。
+      const scan = err instanceof CancelledScanQueryError ? { stage: err.stage, code: err.code } : {};
+      console.error('[email-sweep] 🔴 取消信 enqueue 整段失敗(不擋 sweeper;本輪最後回 503)', {
+        reason: 'cancelled_enqueue_scan_throw',
+        ...scan,
+      });
+    }
+  }
+  const cancelledSection = { cancelledEnqueueStatus: cancelledStatus, ...(cancelledCounts ?? {}) };
+
   // 🔵🔵 **「還沒上膛」要出聲**(2026-08-30 夜;`-48` 拍板做、codex 不豁免)
   //   量到的:env 沒設 ⇒ `skipped_no_cutoff` ⇒ **不進下面的 503 判斷** ⇒ 回 200,
   //   而本檔成功路徑**一行 log 都沒有**(全檔 console 分母 6,而 6 支全是 `console.error`)
@@ -580,7 +660,11 @@ export async function GET(request: Request): Promise<Response> {
   // 🛑 **零 PII**:只印我們自己寫死的 env 名與 status 列舉值,**不印 env 的值、不印收件人、不印任何計數以外的東西**。
   // ⚠️ **射程**:它只答得出「**這一輪跑的時候, 那顆 env 有沒有被讀到**」——
   //   答不出「Vercel 上設了沒」(設了不 redeploy ⇒ 現行 deployment 仍讀不到 ⇒ 這裡照樣印它, 而那是對的)。
-  if (enqueueStatus === 'skipped_no_cutoff' || shippedStatus === 'skipped_no_cutoff') {
+  if (
+    enqueueStatus === 'skipped_no_cutoff' ||
+    shippedStatus === 'skipped_no_cutoff' ||
+    cancelledStatus === 'skipped_no_cutoff'
+  ) {
     console.info('[email-sweep] 🔵 有 cutoff env 還沒上膛 ⇒ 那一段 enqueue 這輪不跑(不是失敗,回 200)', {
       // 🔴 B-5 那半用既有的 `CUTOFF_ENV` 常數(見本檔 `const CUTOFF_ENV =`)不重打字面。
       //   ⚠️ 而出貨那半**沒有對應的 const** —— 字面 `'SHIPPED_EMAIL_CUTOFF'` 在本檔已出現兩次
@@ -589,6 +673,8 @@ export async function GET(request: Request): Promise<Response> {
       //   ⇒ 要收成 const 是另一件事(會動到讀 env 那行 = 行為路徑), 不夾帶進這片。
       b5DeployCutoff: enqueueStatus === 'skipped_no_cutoff' ? `${CUTOFF_ENV} 未設或空` : enqueueStatus,
       shippedCutoff: shippedStatus === 'skipped_no_cutoff' ? 'SHIPPED_EMAIL_CUTOFF 未設或空' : shippedStatus,
+      cancelledCutoff:
+        cancelledStatus === 'skipped_no_cutoff' ? 'CANCELLED_EMAIL_CUTOFF 未設或空' : cancelledStatus,
     });
   }
 
@@ -711,6 +797,14 @@ export async function GET(request: Request): Promise<Response> {
       // 🔴 第四條線(⟦5b-TRACKNUMGAP1⟧ 片 C)照同一套判準。
       //    📌 上面那段話逐字記著「我第一版漏了」—— 而漏掉的症狀是**回 200、心跳記成功**,
       //      也就是這一整條線在修的那個病。所以這三行是照抄不是重想。
+      // 🔴🔴 **第五條線(取消信)照同一套判準 —— 而我【又漏了一次】**(codex R2 ①)。
+      //    📌 上面那段話逐字寫著「我第一版漏了, 而漏掉的症狀是回 200、心跳記成功」,
+      //      而我在它正下方加了一條新線, **然後沒有把它加進這個判斷式。**
+      //    ⇒ 🛑 **讀過那句話擋不住你在下一條線違反它** —— 這是本檔第三次同型。
+      //    ⇒ ✅ 判準逐字同形(failed / skipped_bad_cutoff / 單筆 errors), 不重想。
+      cancelledStatus === 'failed' ||
+      cancelledStatus === 'skipped_bad_cutoff' ||
+      (cancelledCounts?.cnlErrors ?? 0) > 0 ||
       trackFixStatus === 'failed' ||
       trackFixStatus === 'skipped_bad_cutoff' ||
       (trackFixCounts?.tfxErrors ?? 0) > 0
@@ -720,9 +814,10 @@ export async function GET(request: Request): Promise<Response> {
         ...enqueueSection,
         ...shippedSection,
         ...trackFixSection,
+        ...cancelledSection,
       });
       await recordHeartbeatFailure(CRON_JOB_NAME.emailSweep);
-      return Response.json({ ok: false, ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection }, { status: 503 });
+      return Response.json({ ok: false, ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...cancelledSection }, { status: 503 });
     }
 
     // 4. 認證過 + 無錯 → 200 + 計數摘要(零 PII counts;含 deferred 供調參可見度)。
@@ -740,7 +835,7 @@ export async function GET(request: Request): Promise<Response> {
       undefined,
       invocationStartedAtMs,
     );
-    return Response.json({ ok: true, ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection }, { status: 200 });
+    return Response.json({ ok: true, ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...cancelledSection }, { status: 200 });
   } catch {
     // deps/env 缺(requireEnv throw)或非預期 throw(如 lease 下界違反)→ 503 fail-closed(不偽 200)。
     // 🔴 固定 reason code(零 PII、零洩漏面;不把任意 err.message 入 log 縱深、杜絕密鑰 drift 帶進 log)。

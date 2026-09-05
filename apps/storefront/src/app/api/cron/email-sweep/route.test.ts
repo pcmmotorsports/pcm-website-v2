@@ -24,6 +24,7 @@ const {
   shippedEnqueueSpy, getShippedDepsSpy,
   unpaidCancelSpy, getUnpaidCancelDepsSpy,
   trackFixSpy, getTrackFixDepsSpy,
+  cancelledSpy, getCancelledDepsSpy,
 } = vi.hoisted(() => ({
   hbOkSpy: vi.fn(),
   hbFailSpy: vi.fn(),
@@ -46,6 +47,8 @@ const {
   //    去建 Supabase client ⇒ 那一段 throw ⇒ `trackFixStatus='failed'` ⇒ 整支測試檔回 503。
   //    🎯 而我加這兩格之前, 它【真的就是這樣紅的】(7 格)—— 那不是壞掉, 是判準在做它該做的事。
   trackFixSpy: vi.fn(),
+  cancelledSpy: vi.fn(),
+  getCancelledDepsSpy: vi.fn(),
   getTrackFixDepsSpy: vi.fn(),
 }));
 
@@ -61,6 +64,7 @@ vi.mock('@pcm/use-cases', async (orig) => ({
   enqueueOrderShippedEmails: shippedEnqueueSpy,
   enqueueOrderUnpaidCancelledEmails: unpaidCancelSpy,
   enqueueTrackingCorrectedEmails: trackFixSpy,
+  enqueueOrderCancelledEmails: cancelledSpy,
 }));
 vi.mock('@/lib/email/composition', () => ({
   getSweepEmailOutboxDeps: getDepsSpy,
@@ -68,6 +72,7 @@ vi.mock('@/lib/email/composition', () => ({
   getEnqueueOrderShippedDeps: getShippedDepsSpy,
   getEnqueueOrderUnpaidCancelledDeps: getUnpaidCancelDepsSpy,
   getEnqueueTrackingCorrectedDeps: getTrackFixDepsSpy,
+  getEnqueueOrderCancelledDeps: getCancelledDepsSpy,
 }));
 
 // b4-CRON6 片1:心跳寫入端。mock 掉的是 IO,不是判斷 —— 判斷(哪一條路寫)在 route 裡。
@@ -136,6 +141,13 @@ beforeEach(() => {
     skippedNoRealEmail: 0, duplicate: 0, noRecipient: 0, errors: 0,
   });
   getTrackFixDepsSpy.mockReset().mockReturnValue({ outbox: {}, scanner: {} });
+  // 🔴 第五條線(取消信):env 預設**沒設** —— 它是那條線的開關, 漏清會讓別的測項意外走進 enqueue。
+  delete process.env.CANCELLED_EMAIL_CUTOFF;
+  cancelledSpy.mockReset().mockResolvedValue({
+    scanned: 0, scannedPages: 1, truncated: false, enqueued: 0,
+    skippedNoRealEmail: 0, duplicate: 0, noRecipient: 0, errors: 0,
+  });
+  getCancelledDepsSpy.mockReset().mockReturnValue({ outbox: {}, scanner: {} });
 });
 
 afterEach(() => {
@@ -379,6 +391,10 @@ describe('GET email-sweep — 🔴 counts allowlist(不 blind spread ...result�
         // 🎯 **而它也擋到我了 —— 一模一樣的一格, 同一段話, 換一個人。**
         //    ⇒ 📌 那不是這道閘太吵, 是它每一次都在做同一件對的事:新欄必須有人明說。
         'trackFixEnqueueStatus',
+        // 🔴 取消信(刷卡已退款)那條線多出來的一欄(四態互斥, 與上面四支同形)。
+        //    env 沒設 ⇒ `cancelledEnqueueStatus: 'skipped_no_cutoff'`、其餘 `cnl*` 欄不出現。
+        // 🎯 **它也擋到我了 —— 第三個人, 同一格, 同一段話。** 新欄必須有人明說。
+        'cancelledEnqueueStatus',
       ].sort(),
     );
     errSpy.mockRestore();
@@ -1018,6 +1034,9 @@ describe('GET email-sweep — 🔴 cutoff 同時控【排信】與【寄信】(�
     it('🔴🔴 負對照:兩顆都設好了 ⇒ 那行 console.info 【一次都不印】', async () => {
       process.env.B4_DEPLOY_CUTOFF = ARMED;
       process.env.SHIPPED_EMAIL_CUTOFF = ARMED;
+      // 🔴 **第三顆(取消信)也要上膛** —— 少了它這一格會紅, 而紅的理由是【對的】:
+      //    那行 log 的條件是「有【任何一顆】沒上膛」⇒ 新增一條線就多一顆要顧。
+      process.env.CANCELLED_EMAIL_CUTOFF = ARMED;
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
       await GET(makeReq(bearer()));
@@ -1094,10 +1113,11 @@ describe('GET email-sweep — 🔴 cutoff 同時控【排信】與【寄信】(�
     //   我們自己寫死的那幾句其中之一。⇒ **任何多印的東西, 不論它是什麼, 都會讓這一格紅。**
     //   🔴 而它殺得掉一個**我沒想到、也沒人想得到**的洩漏 —— 那正是前面那些格做不到的事。
     it('🛑🛑🛑 白名單:那一行 log 的形狀被釘死 ⇒ 多印【任何】東西都會紅(不靠列舉洩漏物)', async () => {
-      const ALLOWED_KEYS = ['b5DeployCutoff', 'shippedCutoff'];
+      const ALLOWED_KEYS = ['b5DeployCutoff', 'shippedCutoff', 'cancelledCutoff'];
       const ALLOWED_VALUES = [
         'B4_DEPLOY_CUTOFF 未設或空',
         'SHIPPED_EMAIL_CUTOFF 未設或空',
+        'CANCELLED_EMAIL_CUTOFF 未設或空',
         // 🔴 **F8**:~~`'skipped_no_cutoff'`~~ **已移除** —— 它在 payload 裡【不可達】
         //   (三元運算已經把那個狀態換成 env 名那句)⇒ 收著它只會讓這道閘寬一格。
         //   📌 **一個白名單多收一個到不了的值, 不會紅, 而它讓閘變寬。**
@@ -1294,5 +1314,100 @@ describe('⟦5b-TRACKNUMGAP1⟧ 片 C:更正單號信那條線的【接線】', 
     expect(body.tfxDuplicate).toBe(1);
     // 🔴 承重:兩條線共用 picker ⇒ 後寫的會安靜覆蓋前一條, 而兩個數看起來都合理。
     expect(body).not.toHaveProperty('tfxScanned', body.shpScanned);
+  });
+});
+
+/**
+ * 🔴🔴 **第五條線(取消信)的接線 —— 而這一族存在的理由是 codex R1 ①。**
+ *
+ * 那一輪的 must-fix 逐字是「全 repo 沒有 caller／cron 接線 ⇒ 一封信都不會寄」。
+ * 🛑 而當時 **use-case 自己的 14 格、adapter、migration、探針 30 格【全綠】** ——
+ *    因為它們每一格量的都是「這一段做對了嗎」, **沒有一格在問「有人叫它嗎」。**
+ * ⇒ 📌 一個沒有人呼叫的模組, 它自己的測試會全部通過。**綠的分母是【被測到的東西】。**
+ */
+describe('GET email-sweep — 🔴 取消信(刷卡已退款)那條線真的被叫得到', () => {
+  const CNL_CUTOFF = '2026-09-05T00:00:00.000Z';
+
+  it('🔴 env 沒設 ⇒ 那一段不跑, 而狀態說得出來(不是靜靜地什麼都沒有)', async () => {
+    const body = (await (await GET(makeReq(bearer()))).json()) as Record<string, unknown>;
+    expect(body.cancelledEnqueueStatus).toBe('skipped_no_cutoff');
+    expect(cancelledSpy).not.toHaveBeenCalled();
+  });
+
+  it('🔴🔴 env 上膛 ⇒ 它【真的被呼叫】, 而且拿到的是那顆 cutoff', async () => {
+    process.env.CANCELLED_EMAIL_CUTOFF = CNL_CUTOFF;
+    await GET(makeReq(bearer()));
+    expect(cancelledSpy).toHaveBeenCalledTimes(1);
+    const [, opts] = cancelledSpy.mock.calls[0] as [unknown, { cutoff: string; limit: number }];
+    expect(opts.cutoff).toBe(CNL_CUTOFF);
+  });
+
+  it('🔵 計數進 body, 而且鍵是 cnl 前綴(不與另外兩條線的 shp / tfx 撞)', async () => {
+    process.env.CANCELLED_EMAIL_CUTOFF = CNL_CUTOFF;
+    cancelledSpy.mockResolvedValue({
+      scanned: 4, scannedPages: 1, truncated: false, enqueued: 3,
+      skippedNoRealEmail: 0, duplicate: 1, noRecipient: 0, errors: 0,
+    });
+    const body = (await (await GET(makeReq(bearer()))).json()) as Record<string, unknown>;
+    expect(body.cancelledEnqueueStatus).toBe('completed');
+    expect(body.cnlScanned).toBe(4);
+    expect(body.cnlEnqueued).toBe(3);
+    expect(body.cnlDuplicate).toBe(1);
+  });
+
+  it('🔴 cutoff 格式壞掉 ⇒ 整段不跑(而不是拿一顆爛值去掃)', async () => {
+    process.env.CANCELLED_EMAIL_CUTOFF = '2026/09/05';
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const body = (await (await GET(makeReq(bearer()))).json()) as Record<string, unknown>;
+    expect(body.cancelledEnqueueStatus).toBe('skipped_bad_cutoff');
+    expect(cancelledSpy).not.toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it('🔴 它整段炸掉【不擋 sweeper】, 而**本輪要回 503、心跳記失敗**', async () => {
+    // 🔴🔴 codex R2 ①:我第一版只斷言 `cancelledEnqueueStatus === 'failed'`
+    //    ⇒ 那一格在【回 200 + 心跳記成功】的世界裡**照樣綠** —— 而那正是這整條線在修的病。
+    //    📌 一個只看自己那一欄的斷言, 答不出「這個失敗有沒有被人聽見」。
+    process.env.CANCELLED_EMAIL_CUTOFF = CNL_CUTOFF;
+    cancelledSpy.mockRejectedValue(new Error('boom'));
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.cancelledEnqueueStatus).toBe('failed');
+    expect(res.status).toBe(503);
+    expect(body.ok).toBe(false);
+    expect(hbFailSpy).toHaveBeenCalled();
+    expect(hbOkSpy).not.toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it('🔴 cutoff 格式壞掉也要回 503(填錯 env 不是「正常狀態」)', async () => {
+    process.env.CANCELLED_EMAIL_CUTOFF = '2026/09/05';
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    expect(hbFailSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it('🔴 單筆 enqueue 出錯(cnlErrors > 0)也要回 503 —— 整段沒炸不代表沒事', async () => {
+    process.env.CANCELLED_EMAIL_CUTOFF = CNL_CUTOFF;
+    cancelledSpy.mockResolvedValue({
+      scanned: 2, scannedPages: 1, truncated: false, enqueued: 1,
+      skippedNoRealEmail: 0, duplicate: 0, noRecipient: 0, errors: 1,
+    });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect((await res.json()).cnlErrors).toBe(1);
+    expect(res.status).toBe(503);
+    expect(hbFailSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it('🟢 負對照:上膛而一切正常 ⇒ 不因為這條線變 503(否則上面三格恆綠)', async () => {
+    process.env.CANCELLED_EMAIL_CUTOFF = CNL_CUTOFF;
+    const res = await GET(makeReq(bearer()));
+    expect((await res.json()).cancelledEnqueueStatus).toBe('completed');
+    expect(res.status).toBe(200);
   });
 });

@@ -59,6 +59,37 @@ const REFUND_AMOUNT_COL = /"?\brefund_amount\b"?/g;
 //   ⚠️ 它**不在 CI**,不會自己紅。這一行就是它的兩個落點之一(另一個在該 RPC 的 COMMENT ON FUNCTION)。
 
 const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
+  // ── 2026-09-05 · 線【信】`-mail` 補(⟦b4-CANCELEMAIL⟧ 取消信;**作者就是我**;
+  //    鐵則 12①⑤ 的 codex 對抗審查 R1 就是**因為這一格報紅而找到病的**)──
+  '20260905310000_m4b_cancelled_email_pending_view.sql': {
+    // 🔴 數字**用這道閘自己的尺量的**, 不是我的 grep —— 它報「2 處」, 我照抄。
+    //    (前一筆的 why 裡記著我上次用自己的尺填出 7 而正確是 2 的事;不重蹈。)
+    count: 2,
+    why:
+      // 🔴🔴 **本檔不是繞路, 它是【卡片那條算式的家】。**
+      //   它建 `public.pcm_order_card_refunded(uuid)`, 而那兩處 `refund_amount` 就在函式本體裡。
+      //   view 只呼叫它 —— view body 裡一個 `sum(` 都沒有, 該 migration 的自證②b 當場釘這件事
+      //   (`pg_get_viewdef(...) LIKE '%sum(%'` ⇒ 紅)。
+      //
+      // 🛑 **為什麼不直接叫 `pcm_order_refundable_remaining`(本閘保護的那支)** ——
+      //   兩者答的是**不同的問題**, 而 fail-safe 方向相反:
+      //     · 那支答「**還能退多少**」⇒ `processing` 要先扣住(不然重複退)、人工退款要算(它也是退)。
+      //     · 本支答「**已經回到那張卡多少**」⇒ 這個數字會**印進客人讀的那封信**
+      //       (信那句逐字是「全額退回原付款方式」)⇒ `processing`(還沒確認到帳)算它 = 替沒動的錢背書;
+      //       人工現金退款算它 = 說一句謊(codex R1 ③ 的世界:卡 4000 + 現金 1000 = 總額 5000
+      //       ⇒ 舊版判 'full' ⇒ 信說全額退回原付款方式, 而卡上只回了 4000)。
+      //   ⇒ 📌 **把兩個 fail-safe 方向相反的問題塞進同一條算式, 一定有一邊是錯的。**
+      //
+      // ✅ 而**本閘要防的東西仍然成立**:更正(`failed`/`manual_failed` ⇒ `money_moved`)那一段
+      //   **逐字取自**正牌那支的第②段 ⇒ 被更正的退款不會漏算(探針格6i/6j/6k 雙向演過)。
+      //   🔵 「只有一份」的射程要講精確 —— ⛔ ~~我第一版寫「全 repo 只有這一支在算卡上已退」~~
+      //     🛑 **那是假話**(codex R2 ⑦):本檔第 23-24 行自己列著 TS 側兩處聚合
+      //     (`refund-recovery-read.ts` 的 `confirmed.reduce(...)`、`refund-recovery-actions.ts`)。
+      //     ✅ 正確的說法:**SQL 側只有這一支**在算「卡上已退」;TS 側那兩處算的是**後台的可退餘額**,
+      //        它們不餵任何一封信 —— 而**兩邊漂開時本閘看不到**(它的 TS 側是啟發式, 見檔頭上限②)。
+      '取消信「退款金額」= 回到那張卡的錢, 單一來源住在本檔的 pcm_order_card_refunded;' +
+      '刻意與 pcm_order_refundable_remaining 不同(那支答「還能退多少」, fail-safe 方向相反)。',
+  },
   // ── 2026-09-05 · 線【信】`-mail` 補(⟦b4-NCPCRONRACE⟧;**作者就是我**;
   //    鐵則 12①③ 的 codex 對抗審查兩輪已跑, 見該 migration 檔頭)──
   '20260905070000_m4b_pending_refund_on_late_payment.sql': {
