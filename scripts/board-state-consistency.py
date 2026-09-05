@@ -507,6 +507,47 @@ def rule4_parked_has_prefix(rows):
             and not any(x in c for c in r['f'] for x in PARKED_PREFIXES)]
 
 
+# ══ ⑦ open / doing 的誰欄第一個 token(2026-09-05 主視窗 `-f8` 裁形狀)═══════════
+#
+# 🔴 **成因是量到的, 不是覺得**:2026-09-05 晚主視窗自陳「今晚派錯 10 次, 一半是板列過期」。
+#    而線【身分】把自己那 31 列逐列開檔對完之後 ⇒ **① 已做完而忘記關的 = 0 列**。
+#    ⇒ 📌 **不是過期。真正的病是【態答不出「在等什麼」】** ——
+#      實例:`⟦search-BRANDMULTIWORD⟧` 誰欄逐字「**不是待派 —— 工程那半做完了**」而態是 `open`,
+#      它等的是 Sean 手動 merge dev→main。**派工的人只看態, 就會把它讀成「還沒做」而再派一次**
+#      —— 那一列的誰欄自己寫著它**已經是第二次**被派來重做。
+#
+# 🛑 **不動態的封閉集**(`open`/`doing`/`parked`/`done` 不加值)—— 主視窗裁的形狀:
+#    改成**誰欄第一個 token 必須是四種之一**。理由與 ④ 那格同源:
+#    `parked` 早就有「等什麼」前綴, 而 `open` 沒有 ⇒ **同一個病, 只修了一半。**
+#
+# 🔴🔴 **第一版【只印 ⚠️ 不判紅】, 而那是刻意的**:分母還沒有人量過。
+#    一道上線就紅一大片的閘, 第一個撞到的人會把它關掉 —— 而那正是本 repo
+#    「閘死於誤報」那一族。⇒ **先印清單, 主視窗看過再決定要不要轉紅。**
+OPEN_WHO_PREFIXES = ('待派', '等Sean:', '等時機:', '做中:')
+
+
+def rule7_open_who_prefix(rows):
+    """⑦ 態=open/doing 的列, 誰欄第一個 token 應為 OPEN_WHO_PREFIXES 之一。**只警告不判紅。**
+
+    🔴 **它驗的是【有沒有】, 不是【填得對不對】** —— 同 ④ 那格。
+       一個填錯的前綴與一個填對的, 在它底下印同一個東西。
+
+    ⚠️ **與 ④ 的差別**:④ 掃**整列所有欄**(容忍前綴出現在別欄, 代價是可能假綠);
+       本格**只看誰欄 `f[4]`**, 因為它問的是「**這一列在等誰**」——
+       那個答案若寫在別欄, 對【只掃誰欄的派工者】而言等於不存在, 而那正是本格要修的病。
+    """
+    out = []
+    for r in rows:
+        if r['state'] not in ('open', 'doing'):
+            continue
+        who = r['f'][4] if len(r['f']) > 4 else ''
+        # 剝掉 markdown 裝飾與空白再看開頭(誰欄常見 `**待派**`)
+        bare = re.sub(r'^[*~`\s]+', '', who)
+        if not any(bare.startswith(x) for x in OPEN_WHO_PREFIXES):
+            out.append(r)
+    return out
+
+
 ANCHOR_RE = re.compile(r'⟦([^⟧]+)⟧')
 
 
@@ -709,6 +750,26 @@ def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None, sta
     else:
         n_parked = len([r for r in rows if r['state'] == 'parked'])
         say(f'  ✅ ④ {n_parked} 個 parked 列都有「等什麼」前綴'
+            f'(⚠️ 只驗有沒有, 不驗對不對)')
+
+    # ── ⑦ open/doing 的誰欄第一個 token(**只警告, 不判紅** —— 見該函式檔頭)──
+    bad7 = rule7_open_who_prefix(rows)
+    n_open = len([r for r in rows if r['state'] in ('open', 'doing')])
+    if bad7:
+        say(f'  ⚠️ ⑦ {len(bad7)}/{n_open} 個 open/doing 列的誰欄第一個 token '
+            f'不是 {"/".join(OPEN_WHO_PREFIXES)}')
+        say('     🛑 **本格【不判紅】** —— 分母是第一次量, 而一道上線就紅一大片的閘'
+            '會被第一個撞到的人關掉(本 repo「閘死於誤報」那一族)。')
+        say('     🔵 它修的病:`parked` 早就有「等什麼」前綴而 `open` 沒有 ⇒ '
+            '**態答不出「在等什麼」, 派工的人只看態就會重派**。')
+        if len(bad7) > 40:
+            say(f'     🔵 清單只印前 40 列(共 {len(bad7)} 列)—— '
+                f'全量:`python3 scripts/board-state-consistency.py | grep "^     :"`')
+        for r in bad7[:40]:
+            who = re.sub(r'\s+', ' ', r['f'][4] if len(r['f']) > 4 else '').strip()[:44]
+            say(f'     :{r["line"]:<5} {r["state"]:<5} {(r.get("anchor") or "(無錨)")[:26]:<28} 誰:{who}')
+    else:
+        say(f'  ✅ ⑦ {n_open} 個 open/doing 列的誰欄第一個 token 都合格'
             f'(⚠️ 只驗有沒有, 不驗對不對)')
 
     dupes = rule5_anchor_unique(rows)
