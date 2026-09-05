@@ -84,7 +84,7 @@ BEGIN;
             'manual_phone', 'bank_transfer', 'home',
             '{"name":"對帳用","phone":"0900000000","line":"對帳用地址"}'::jsonb,
             '{"type":"personal"}'::jsonb, 0,
-            '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK","unit_price":1,"quantity":1,"spec":{}}]'::jsonb,
+            '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK","unit_price":1,"qty":1,"spec":{}}]'::jsonb,
             E'  a@b.co\n'
           )) ->> 'order_id')::uuid AS oid;
   SELECT o.notification_email AS trimmed
@@ -102,7 +102,7 @@ BEGIN;
             'manual_phone', 'bank_transfer', 'home',
             '{"name":"對帳用","phone":"0900000000","line":"對帳用地址"}'::jsonb,
             '{"type":"personal"}'::jsonb, 0,
-            '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK2","unit_price":1,"quantity":1,"spec":{}}]'::jsonb,
+            '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK2","unit_price":1,"qty":1,"spec":{}}]'::jsonb,
             '   '
           )) ->> 'order_id')::uuid AS oid;
   SELECT (o.notification_email IS NULL) AS blank_is_null
@@ -120,7 +120,7 @@ BEGIN;
            'manual_phone', 'bank_transfer', 'home',
            '{"name":"對帳用","phone":"0900000000","line":"對帳用地址"}'::jsonb,
            '{"type":"personal"}'::jsonb, 0,
-           '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK3","unit_price":1,"quantity":1,"spec":{}}]'::jsonb,
+           '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK3","unit_price":1,"qty":1,"spec":{}}]'::jsonb,
            'first@b.co') IS NOT NULL AS 第一次建得出來;
   DO $chk$
   DECLARE v_sqlstate text;
@@ -132,7 +132,7 @@ BEGIN;
         'manual_phone', 'bank_transfer', 'home',
         '{"name":"對帳用","phone":"0900000000","line":"對帳用地址"}'::jsonb,
         '{"type":"personal"}'::jsonb, 0,
-        '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK3","unit_price":1,"quantity":1,"spec":{}}]'::jsonb,
+        '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK3","unit_price":1,"qty":1,"spec":{}}]'::jsonb,
         'second@b.co');
       RAISE EXCEPTION '⑥ 失敗:同鍵只改 email 竟然沒被擋 ⇒ 第 11 參沒有進指紋';
     EXCEPTION WHEN SQLSTATE 'P858B' THEN
