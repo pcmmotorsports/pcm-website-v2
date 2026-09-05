@@ -101,6 +101,10 @@ DECLARE
   v_fail  integer := 0;   -- 補的時候炸掉幾張
   v_noop  integer := 0;   -- 🔵 呼叫沒炸而也沒新增(別人先開了)—— 不是成功也不是失敗
   v_scanned integer := -1;  -- 🔴 R4-MF5 分母:掃過幾張已取消單(-1 = 統計趟沒跑成)
+  -- 🔴🔴 統計趟【被取消】的旗標 —— 而它**不併進 `v_fail`**:
+  --    `v_fail` 的意思是「補某一張單時炸了」, 兩件事的處置與追查方向都不同。
+  --    📌 借用同一個計數會讓儀表上「補失敗 3 張」與「量不到 3 輪」印同一個數字。
+  v_stats_cancelled boolean := false;
   v_before integer;
   v_after  integer;
 BEGIN
@@ -236,6 +240,7 @@ BEGIN
     --    ⚠️ 有人手動砍這支 job 時, 它會**跑完並回報「統計沒量到」**而不是消失 —— 這是刻意的。
     WHEN query_canceled THEN
       v_scanned := -1; v_short := -1; v_void := -1;
+      v_stats_cancelled := true;
       RAISE WARNING '[late_payment_sweep] 統計那一趟被取消(statement_timeout 或有人 cancel;補好的列【留著】):%', SQLERRM;
     WHEN OTHERS THEN
       -- 🛑 數不出來 ⇒ 用 -1 明示「這一格沒量到」, **不要用 0** —— 0 與「今天沒有」同一個字。
@@ -280,8 +285,17 @@ BEGIN
   --    但**本函式不拋錯**(單張失敗被接住)⇒ 這裡寫的失敗心跳**留得住**。
   --    ⇒ 📌 那正是 `FAILURE_COUNT_MEANINGLESS` 對它**仍然成立**的原因:
   --       57014 那條路照樣寫不出來。**兩種失敗, 只有一種留得下痕跡。**
+  -- 🔴🔴 **統計趟被取消時, 心跳【不得】寫成功。**
+  --    ⛔ ~~原本只看 `v_fail`~~ ⇒ 統計連續量不到時, **儀表上它一直是健康的**
+  --    ⇒ 🛑 而那正是本函式最該被看見的失效模式:**補得好, 而量不到。**
+  --    📌 「補了幾筆」不是它的驗收(Sean 拍板時看到的那句)⇒ 它的驗收只剩「量得到嗎」
+  --       ⇒ **量不到的時候必須有人知道**, 否則一個壞掉的統計與一個正確的 0 印同一個畫面。
+  -- 🔵 而 `sweeper_heartbeat` **沒有 `degraded` / `last_error` 那種欄**(2026-08-17 建表時就只有五欄)
+  --    ⇒ 今天能走的通道只有【失敗心跳】。⚠️ 代價明寫:失敗心跳會讓 `last_success_at` 停住
+  --    ⇒ 儀表上會**同時**亮「這支停了」與「這支在失敗」—— **兩盞燈一個病因**。
+  --    ⇒ 那不是缺陷, 那是這張表的形狀能表達的極限。要分開講要加欄, 而那張表五支 job 共用 ⇒ 另一片。
   BEGIN
-    IF v_fail > 0 THEN
+    IF v_fail > 0 OR v_stats_cancelled THEN
       INSERT INTO public.sweeper_heartbeat (job_name, last_failure_at, consecutive_failures, updated_at)
       VALUES ('pcm-late-payment-sweep', pg_catalog.clock_timestamp(), 1, pg_catalog.clock_timestamp())
       ON CONFLICT (job_name) DO UPDATE
@@ -305,7 +319,9 @@ BEGIN
   --    不在本支裡。這一句明寫, 不假裝它已經有人接。
   RETURN pg_catalog.jsonb_build_object(
     'scanned', v_scanned, 'opened', v_open, 'noop', v_noop,
-    'amount_short', v_short, 'voided_skipped', v_void, 'failed', v_fail);
+    'amount_short', v_short, 'voided_skipped', v_void, 'failed', v_fail,
+    -- 🔴 自己一格:它與 `failed` 是兩件事(見宣告區那一段)。
+    'stats_cancelled', v_stats_cancelled);
 END;
 $function$;
 
@@ -333,7 +349,11 @@ $c$兜底:把「已取消 + 某軌有正的未退淨額 + 帳本上沒有那一�
 ⚠️ 一張單失敗不中斷整輪(RAISE LOG 後續跑)。
 🔵 ⛔ ~~而 WHEN OTHERS 抓不到 57014 逾時~~ —— **那半句仍然對, 而結論已經不對了**(codex R2 ⑤):
 統計趟另外掛了 `WHEN query_canceled`(實測 PG 17.10:接得到、接完還跑得動)
-⇒ 統計趟撞逾時**不再帶走本輪補好的列**;三個統計數字會是 `-1`, 而 WARNING 會說。$c$;
+⇒ 統計趟撞逾時**不再帶走本輪補好的列**;三個統計數字會是 `-1`, 而 WARNING 會說。
+🔴 **而那一輪的心跳走【失敗】那一支**(不是成功)—— 因為「補得好而量不到」是本函式最該被看見的
+失效模式:它的驗收不能用「補了幾筆」⇒ 只剩「量得到嗎」⇒ 量不到就必須有人知道。
+⚠️ 代價:`sweeper_heartbeat` 沒有 degraded 欄 ⇒ 儀表會同時亮「停了」與「在失敗」,兩盞燈一個病因。
+回傳值另有 `stats_cancelled` 一格 —— 它與 `failed` 是兩件事, 不共用計數。$c$;
 
 -- ══ 2. 排程 ═════════════════════════════════════════════════════════════════
 -- 🔴 `cron.schedule` 是 **by-name upsert** ⇒ 先拍既有 job 快照, 證明我沒動到別人的。

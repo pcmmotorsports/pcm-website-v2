@@ -346,6 +346,13 @@ Q -c "CREATE OR REPLACE FUNCTION public.pcm_pending_refund_amounts(p_order_id uu
       END \$f\$;
       INSERT INTO public.orders (id, cancelled_at) VALUES ('00000000-0000-0000-0000-000000000008', now());
       INSERT INTO public._probe_amounts VALUES ('00000000-0000-0000-0000-000000000008','bank_transfer',800);" > /dev/null
+# 🔴 先把心跳釘成一個【已知的成功】—— 否則「last_success_at 沒有前進」這句話沒有基準,
+#    而「它沒動」與「它本來就是這個值」在讀數上長得一樣。
+Q -c "INSERT INTO public.sweeper_heartbeat (job_name, last_success_at, consecutive_failures, updated_at)
+      VALUES ('pcm-late-payment-sweep', '2000-01-01 00:00:00+00', 0, now())
+      ON CONFLICT (job_name) DO UPDATE
+        SET last_success_at = '2000-01-01 00:00:00+00', last_failure_at = NULL,
+            consecutive_failures = 0;" > /dev/null
 J4=$(QV -Atc "SET statement_timeout = '600ms'; SELECT pcm_cron.late_payment_pending_refund_sweep()")
 chk "格32 🔴 統計趟被逾時砍掉, 而【整支函式仍然回得出 json】(接住了)" \
   "$(printf '%s' "$J4" | python3 -c 'import sys,json
@@ -356,6 +363,20 @@ chk "格33 🔴 而三個統計數字要是 -1(沒量到, 不是 0)" \
 d=json.load(sys.stdin);print(d["scanned"], d["amount_short"], d["voided_skipped"])' 2>/dev/null)" "-1 -1 -1"
 chk "格34 🔴🔴 而寫入趟補好的那一列【還在】—— 這一格就是 codex ⑤ 要的那句話" \
   "$(QV -Atc "SELECT count(*) FROM public.order_pending_refunds WHERE order_id='00000000-0000-0000-0000-000000000008'")" 1
+chk "格33b 🔴 回傳值要有自己一格 stats_cancelled(它與 failed 是兩件事)" \
+  "$(printf '%s' "$J4" | python3 -c 'import sys,json
+d=json.load(sys.stdin);print(d["stats_cancelled"], d["failed"])' 2>/dev/null)" "True 0"
+
+# ══ 🔴🔴 「補得好, 而量不到」要有人知道 —— 心跳【不得】寫成功 ═══════════════════
+#    這三格是本探針裡唯一問「儀表上看不看得出來」的地方。
+#    🛑 少了它們, 一個統計永遠量不到的掃描器在儀表上與一個健康的**印同一個畫面**,
+#       而它的驗收本來就不能用「補了幾筆」⇒ **那個畫面是它唯一的訊號。**
+chk "格36 🔴 統計趟被取消 ⇒ 心跳走【失敗】那一支(consecutive_failures 不得是 0)" \
+  "$(QV -Atc "SELECT consecutive_failures FROM public.sweeper_heartbeat WHERE job_name='pcm-late-payment-sweep'")" 1
+chk "格37 🔴 而 last_failure_at 要有值(儀表上那盞燈靠它)" \
+  "$(QV -Atc "SELECT last_failure_at IS NOT NULL FROM public.sweeper_heartbeat WHERE job_name='pcm-late-payment-sweep'")" t
+chk "格38 🔴 而 last_success_at【不得】被推到今天(推了就等於宣告這一輪成功)" \
+  "$(QV -Atc "SELECT last_success_at = '2000-01-01 00:00:00+00' FROM public.sweeper_heartbeat WHERE job_name='pcm-late-payment-sweep'")" t
 
 # 🧬 突變:把 `WHEN query_canceled` 那一格拿掉 ⇒ 57014 逃回 WHEN OTHERS 之外 ⇒ 整筆回滾
 #    ⇒ 格34 那一列**應該消失**。它若還在, 表示上面三格量到的不是這件事。
@@ -378,6 +399,33 @@ Q -c "INSERT INTO public.orders (id, cancelled_at) VALUES ('00000000-0000-0000-0
 QV -Atc "SET statement_timeout = '600ms'; SELECT pcm_cron.late_payment_pending_refund_sweep()" > /dev/null 2>&1
 chk "格35 🧬 拿掉那一格之後, 補好的列【被一起回滾】(0)—— 兩個世界印不同的答案" \
   "$(QV -Atc "SELECT count(*) FROM public.order_pending_refunds WHERE order_id='00000000-0000-0000-0000-000000000009'")" 0
+
+# 🧬 第二發突變:handler 留著, 只把心跳那一條 `OR v_stats_cancelled` 拿掉
+#    ⇒ 補好的列還在(所以格34 那一族仍綠), 而**心跳會寫成功** ⇒ 格36 那一族要紅。
+#    📌 兩發突變落在不同的地方, 各自殺掉不同的格 —— 這是在問「這兩族量的是不是同一件事」。
+reset_world
+Q -c "DELETE FROM public.order_pending_refunds; DELETE FROM public.orders;
+      DELETE FROM public._probe_amounts; DELETE FROM cron.job;" > /dev/null
+python3 - "$MIG" > "$D/mutHB.sql" <<'PY'
+import io, sys
+s = io.open(sys.argv[1], encoding='utf-8').read()
+o = '    IF v_fail > 0 OR v_stats_cancelled THEN'
+assert s.count(o) == 1, s.count(o)
+sys.stdout.write(s.replace(o, '    IF v_fail > 0 THEN', 1))
+PY
+test -s "$D/mutHB.sql" || { echo "🔴 突變檔是空的"; exit 1; }
+grep -q 'IF v_fail > 0 OR v_stats_cancelled THEN' "$D/mutHB.sql" \
+  && { echo "🔴 突變沒落在目標上 ⇒ 下面那格不算數"; FAILED=$((FAILED + 1)); }
+Q -f "$D/mutHB.sql" > /dev/null 2>&1
+Q -c "UPDATE public.sweeper_heartbeat SET last_success_at='2000-01-01 00:00:00+00',
+        last_failure_at=NULL, consecutive_failures=0 WHERE job_name='pcm-late-payment-sweep';
+      INSERT INTO public.orders (id, cancelled_at) VALUES ('00000000-0000-0000-0000-00000000000a', now());
+      INSERT INTO public._probe_amounts VALUES ('00000000-0000-0000-0000-00000000000a','bank_transfer',1000);" > /dev/null
+QV -Atc "SET statement_timeout = '600ms'; SELECT pcm_cron.late_payment_pending_refund_sweep()" > /dev/null 2>&1
+chk "格39 🧬 拿掉心跳那一條 ⇒ 它把這一輪寫成【成功】(last_success_at 被推走)—— 兩個世界印不同的答案" \
+  "$(QV -Atc "SELECT last_success_at = '2000-01-01 00:00:00+00' FROM public.sweeper_heartbeat WHERE job_name='pcm-late-payment-sweep'")" f
+chk "格39b 🟢 正對照:同一發裡補好的列仍在(證明世界造出來了, 格39 的 f 不是因為沒跑)" \
+  "$(QV -Atc "SELECT count(*) FROM public.order_pending_refunds WHERE order_id='00000000-0000-0000-0000-00000000000a'")" 1
 
 if [ "$FAILED" -eq 0 ]; then echo "🟢 全部通過(格數當場數:上面的 ✅ 行)"; exit 0; fi
 echo "🔴 有 $FAILED 格不符預期 ⇒ 本探針判 FAIL"; exit 1
