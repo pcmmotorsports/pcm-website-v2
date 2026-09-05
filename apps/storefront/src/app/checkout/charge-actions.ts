@@ -91,6 +91,10 @@ const MSG = {
   processing: '付款已收或處理中,請勿重複付款,客服 LINE 將協助確認',
   settlementRequired: '訂單付款狀態確認中,請勿重複付款,客服 LINE 將協助確認',
   inFlight: '您有一筆付款正在處理中,請稍候再試',
+  // 🔴 **這一句刻意【不含】帳號、戶名與期限** —— 那些是 `@pcm/domain` 的
+  //    `PCM_REMITTANCE_*` 常數, 由 **front 片 2** 的匯款資訊頁印。
+  //    🛑 在這裡寫第二份 ⇒ 兩份會各自漂, 而**漂掉時客人拿到錯的帳號**。
+  awaitingRemittance: '訂單已成立,尚未付款;請依匯款資訊完成轉帳',
 } as const;
 
 /**
@@ -114,7 +118,19 @@ export type ChargePaymentActionResult =
   // 🔴 displayId-presence 是契約:**有單號**=既有 processing(orphan/charge_unknown/locked,已建單、hook 清車);
   //   **無單號**=R3 preflight hold(新單未建、§2.3 保留 cart、hook 不清車)。非 hold 的 processing producer 一律必帶 displayId。
   | { ok: false; payment: 'processing'; displayId?: string; message: string }
-  | { ok: false; payment: 'in_flight'; message: string }; // 🔴 無 displayId
+  | { ok: false; payment: 'in_flight'; message: string } // 🔴 無 displayId
+  // 🔴🔴 ⟦b4-BANKCHARGESCARD⟧ 片 1(server 半):匯款 ⇒ **建單了, 而沒有扣款**。
+  //    🛑 **`ok` 必須是 `false`** —— `useChargePayment.tsx:269-277` **先命中 `ok`**
+  //      ⇒ 清車、換 session、畫面顯示 `paid` ⇒ 📌 **客人會看到「付款成功」而他一毛錢都沒付。**
+  //    ⇒ ✅ 判別式掛在 `payment` 這個**與 `ok` 不同軸**的欄位上。
+  //    ⚠️ **而今天的 hook 會把它當成一般失敗** —— 那是**已知的中間狀態**:
+  //      客人看到的仍是錯誤畫面, 而 **front 片 2** 才會接這個終態、把他送到匯款資訊頁。
+  //      🔴🔴 **⛔ ~~今天沒有客人走得到(flag 關 + 結帳頁寫死 tappay)~~ —— 那句話是【假的】,
+  //         而【是我自己讓它變假的】**(codex 關卡2 must-fix,我核過):
+  //         `343d74892`(**本人今晚那顆**)已經把匯款選項接上結帳頁 ⇒ 🛑 **「寫死 tappay」不再成立。**
+  //         ⇒ 📌 **今天擋著它的只剩【那顆 flag】一層,而 flag 的正式站現值 repo 裡查不到。**
+  //      ⇒ ⇒ **所以這個中間狀態的暴露是【未知】,不是零。**
+  | { ok: false; payment: 'awaiting_remittance'; displayId: string; message: string };
 
 /**
  * 刷卡成交。成功 → { ok:true, displayId };付款層結果 → { ok:false, payment, message };
@@ -214,9 +230,50 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
   }
 
   // ②c prime(一次性 token、形狀驗;真偽 TapPay server 驗)。
-  const parsedPrime = TapPayPrimeInput.safeParse(raw.prime);
-  if (!parsedPrime.success) {
-    return { formError: '付款資訊缺失,請重新進行刷卡' };
+  //
+  // 🔴🔴 **它原本【無條件】跑, 而那讓匯款客人拿到一句刷卡的錯誤訊息。**
+  //    ⛔ ~~`const parsedPrime = TapPayPrimeInput.safeParse(raw.prime)` 排在 channel 分岔【之前】~~
+  //    🛑 失敗情境很具體:client 送 `paymentChannel: 'bank_transfer'` + `prime: null`
+  //      ⇒ 這一關先擋下 ⇒ 客人讀到「**付款資訊缺失,請重新進行刷卡**」
+  //      ⇒ 📌 **他選的是匯款, 而畫面叫他去修卡片。**
+  //    🔵 這一格是 front 那條線量到的、兩片都沒認領, 主視窗 2026-09-05 裁**歸片 1**(它是這支檔)。
+  //
+  // ✅ **改成:先看他要走哪一條路。**
+  //    · 刷卡路 ⇒ prime 照舊必要(**缺 prime 仍然拒**, 那道保護不能鬆)。
+  //    · 匯款路 ⇒ prime **必須是 null/undefined**;🔴 **帶了反而拒** ——
+  //      一張匯款單不需要卡片 token, 而**送過來就代表呼叫端搞錯了**
+  //      ⇒ fail-closed:寧可擋下, 不要讓一個「帶著卡片 token 的匯款單」往下走。
+  // ⚠️ **判準用【客人送的 channel】不是【DB 回讀的】** —— 回讀要 `placeOrder` 之後才有,
+  //    而 prime 這一關排在建單之前。🔵 而回讀那道(⑤c)仍在:兩者一前一後, 各擋一半。
+  const wantsBankTransfer = parsedCheckout.data.paymentChannel === 'bank_transfer';
+  let primeForCharge: string | null = null;
+  if (wantsBankTransfer) {
+    // 🔴🔴 **匯款路:prime【不要求、也不使用】—— 而【不拒絕】它。**
+    //
+    // ⛔ ~~第一版寫「帶了 prime 就拒(呼叫端搞錯)」~~ 🛑 **那一版會把這整片變成死的:**
+    //    唯一的呼叫端 `CheckoutView.tsx:278` **不分 channel 一律 `tappay.getPrime()`**
+    //    並在 `:290` **一律**塞進 `prime` 送出 —— 而該檔 `:264-277` 自己寫著理由:
+    //    **「匯款這條路今天仍然取 prime,而那是暫時的」**,因為 server 這道閘原本是無條件的。
+    //    ⇒ 📌 **我把 server 這半修好,而如果順手拒絕 prime, client 那半還沒改 ⇒ 匯款單【一張都建不出來】**
+    //      ⇒ 🛑 **那會讓 Sean 已經拍板接受的形狀(單建好、零扣款)當場消失。**
+    //    (code-reviewer 2026-09-05 must-fix;它開了 `CheckoutView` 才看到,我沒有。)
+    //
+    // ✅ **改成【對存在寬容、對使用嚴格】** —— 這樣兩半誰先上線都不會壞:
+    //    · client 還在送 prime(今天)⇒ 照樣建單、照樣零扣款(`primeForCharge` 留在 `null`)。
+    //    · front 片 2 把它拿掉之後 ⇒ 這裡**一個字都不用改**。
+    // 🔵 而「有帶」這件事留一行 log —— 它是**片 2 做完之後應該消失的訊號**;
+    //    若它還在印,代表 client 那半沒真的拿掉。
+    if (raw.prime !== null && raw.prime !== undefined) {
+      safeLog('info', '[checkout] 匯款單帶了 prime(client 半未上;不使用它)', {
+        reason: 'bank_transfer_with_prime_ignored',
+      });
+    }
+  } else {
+    const parsedPrime = TapPayPrimeInput.safeParse(raw.prime);
+    if (!parsedPrime.success) {
+      return { formError: '付款資訊缺失,請重新進行刷卡' };
+    }
+    primeForCharge = parsedPrime.data;
   }
 
   // ②d cart_session_id(3DS-7:信任 client CartContext 穩定 key + server 驗 uuid 格式/非空 fail-closed)。
@@ -414,11 +471,42 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     //    只要這支 action 建出來的單是匯款, 它就停在這裡。
     //    ⇒ 📌 這正是它與「A 還沒 apply 所以今天安全」的差別:**後者會過期, 這一行不會。**
     if (storedChannel === 'bank_transfer') {
-      safeLog('info', '[checkout] 匯款單建立完成, 不進扣款(段 1 分岔未上)', {
+      // 🔴🔴 ⟦b4-BANKCHARGESCARD⟧ 片 1:**從「通用錯誤」換成一個說得出事實的終態。**
+      //    ⛔ ~~`return { formError: MSG.generic }`~~ —— 那句話是假的:
+      //      **單已經建好了**, 而畫面告訴他「付款失敗」⇒ 📌 **他以為沒買成, 而他再按一次會【再建一張】。**
+      //      (「不擋第二張」是 Sean 2026-09-05 拍的、被授權的形狀;
+      //       而「他以為沒買成」不是 —— 那正是本片要修的。)
+      //    🛑 **`ok` 仍是 `false`**, 理由見型別那一段:掛在 `ok` 上會讓 hook 顯示「付款成功」。
+      // 🔵 **帶 displayId** —— 客人畫面上今天不印它(主視窗裁:錯誤畫面不得說「已成立」),
+      //    ⇒ 📌 **值班的人要查得到那張單, 而唯一的線索就是這一行。**
+      safeLog('info', '[checkout] 匯款單建立完成, 不進扣款(片 1:回 awaiting_remittance)', {
+        orderId: placed.orderId,
+        displayId: placed.displayId,
+      });
+      return {
+        ok: false,
+        payment: 'awaiting_remittance',
+        displayId: placed.displayId,
+        message: MSG.awaitingRemittance,
+      };
+    }
+
+    // 🔵 **理論不變式 —— 而它【今天不可達】,這一句是訂正。**
+    //    ⛔ ~~「兩者對不起來就會走到這一格(例:送 bank_transfer 而 DB 存成 tappay)」~~
+    //    🛑 **那個例子正是 ⑤b(`storedChannel !== 送出的 channel`)擋掉的**,它在這裡之前就 return;
+    //      而 `primeForCharge === null` 只有在 `wantsBankTransfer` 為真時成立,
+    //      那時 ⑤b(不符)與 ⑤c(相符且為匯款)**互斥且窮盡** ⇒ 📌 **執行永遠到不了這一行。**
+    //      (code-reviewer 2026-09-05 important;它另外實跑確認**零測試命中**這個 reason 字串。)
+    //    ✅ **保留它的理由只有一個:讓型別成立而不用 `!` 斷言**(那會在這裡安靜地爆)。
+    //    ⚠️ **所以不要把它讀成一道守門** —— 它不會紅、也不該被拿來當「這條路有人守著」的證據。
+    if (primeForCharge === null) {
+      safeLog('error', '[checkout] 回讀為刷卡而手上沒有 prime ⇒ 拒(channel 判定與回讀對不起來)', {
+        reason: 'card_path_without_prime',
         orderId: placed.orderId,
       });
       return { formError: MSG.generic };
     }
+    const prime: string = primeForCharge;
 
     // 🔴 3DS-6a flag on:3DS 啟動半段(initiatePayment → redirect / 對帳態);結算交 settleCharge 脊椎。
     //   ①-⑤(getUser/parse/cardholder/placeOrder/findTotal)與同步路徑共用、只 ⑥ 分岔;deps 復用既有
@@ -436,7 +524,7 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
             attempts: await getChargeAttemptStore(),
           },
           {
-            prime: parsedPrime.data,
+            prime,
             orderId: placed.orderId,
             amount: total,
             cardholder: built.cardholder,
@@ -459,7 +547,7 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
           attempts: await getChargeAttemptStore(),
         },
         {
-          prime: parsedPrime.data,
+          prime,
           orderId: placed.orderId,
           amount: total,
           cardholder: built.cardholder,
