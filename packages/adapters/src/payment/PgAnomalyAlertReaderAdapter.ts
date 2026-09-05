@@ -586,10 +586,30 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
             { code },
           );
         }
+        /**
+         * ⟦b4-RETRYGAVEUPNOWATCHER⟧:被 settle-retry 放棄的匯款單。
+         * 🔴 錯誤處理與上一支同款 **catch-all 落 Unknown 並 log** —— 這是最後一發查詢,
+         *    而一支偵測「單修不好」的探針不該在函式沒 apply 的那幾天把金流告警一起殺掉。
+         */
+        let gaveUpRows: Array<Record<string, unknown>> = [];
+        try {
+          const res = await client.query(
+            'SELECT public.get_settle_retry_gaveup_health() AS result',
+            [],
+          );
+          gaveUpRows = res.rows;
+        } catch (err) {
+          const code = (err as { code?: unknown } | null)?.code;
+          console.error(
+            '[anomaly-alert] 🔵 get_settle_retry_gaveup_health 讀失敗 ⇒ 那一格落【查不到】(不是「零張」)',
+            { code },
+          );
+        }
+
       return parseAlertSummary(
         counts.rows, ids, refundRows, emailRows, shippedRows, orderCreatedRows,
         unpaidCancelledRows, orderCreatedStuckRows, heartbeatRows, bypassRlsRows,
-        trackingCorrectedRows, aclDriftRows,
+        trackingCorrectedRows, aclDriftRows, gaveUpRows,
       );
     });
   }
@@ -1007,6 +1027,8 @@ function parseAlertSummary(
   // 🔵 ⟦b9-ACLDRIFT5⟧ 片二(2026-09-05)。**同樣排在最後** —— 理由見上面那段:
   //   位置參數插中間會安靜錯位, 而型別全一樣 ⇒ typecheck 不會紅。
   aclDriftRows: Array<Record<string, unknown>>,
+  // 🔵 ⟦b4-RETRYGAVEUPNOWATCHER⟧(2026-09-05)。**同樣排在最後**(理由見上面)。
+  gaveUpRows: Array<Record<string, unknown>>,
 ): AnomalyAlertSummary {
   const r = rows[0]?.result as Record<string, unknown> | undefined;
   if (!r || typeof r !== 'object') {
@@ -1191,6 +1213,39 @@ function parseAlertSummary(
             ? (ad.taken_at as string)
             : null,
     };
+
+    /**
+     * ⟦b4-RETRYGAVEUPNOWATCHER⟧:與上面同一個形狀 —— 只認數字, 其餘一律當量不到。
+     * 🔴 `count` 用 `null` 不用 `0`:**0 是「查得到而且沒有」, null 是「我沒量到」**,
+     *    而 shouldAlert 那道閘只看 `> 0` ⇒ 兩者在那裡的行為相同, 而在 log 與信裡不同。
+     */
+    const gu = gaveUpRows[0]?.result as Record<string, unknown> | undefined;
+    const guCount = gu?.gave_up_count;
+    /**
+     * 🔴 `tracked_total` 要【真的讀】, 不能只放在 SQL 裡(對帳閘逼出來的:
+     *    它比對「SQL 產出的 key」vs「TS 讀取的 key」, 而我第一版只讀了一個
+     *    ⇒ 另外三個是「回了而沒有人看」的東西)。
+     * 🎯 **而它在這裡有一個真的工作**:`gave_up_count` 不可能大於 `tracked_total`
+     *    (放棄的是被追蹤的一部分)⇒ 大於 ⇒ 這次讀到的東西**不可信** ⇒ 走 Unknown,
+     *    而不是把一個荒謬的數字寫進信裡。
+     */
+    const guTotal = gu?.tracked_total;
+    const guSane =
+      typeof guTotal === 'number' && Number.isInteger(guTotal) && guTotal >= 0
+      && typeof guCount === 'number' && guCount <= guTotal;
+    const guWellTyped =
+      gu !== undefined && typeof guCount === 'number' && Number.isInteger(guCount) && guSane;
+    const gaveUp = {
+      settleRetryGaveUpCount: guWellTyped ? (guCount as number) : null,
+      settleRetryGaveUpUnknown: !guWellTyped,
+      settleRetryGaveUpOldest:
+        typeof gu?.oldest_gave_up === 'string' ? (gu.oldest_gave_up as string) : null,
+      // 🔵 診斷用:讓 503 那條 log 印得出「我到底讀到什麼」, 而不是只說「讀不到」。
+      settleRetryGaveUpTracked: typeof guTotal === 'number' ? guTotal : null,
+      settleRetryGaveUpSampleIds: Array.isArray(gu?.sample_order_ids)
+        ? (gu!.sample_order_ids as unknown[]).filter((x): x is string => typeof x === 'string')
+        : [],
+    };
   /**
    * 🔴🔴 **三道回應層對帳(codex 2026-08-31 片3 R1 #3/#4)** —— 全部 fail-loud,
    *   因為這一族的失敗形狀是**靜默地看起來健康**, 而那是本片要治的病本身。
@@ -1315,6 +1370,8 @@ function parseAlertSummary(
     ...bypassRls,
       // ⟦b9-ACLDRIFT5⟧ 片二(2026-09-05)
       ...aclDrift,
+      // ⟦b4-RETRYGAVEUPNOWATCHER⟧(2026-09-05)
+      ...gaveUp,
     openCount: parseCount(r.open_count, 'open_count'),
     refundingCount: parseCount(r.refunding_count, 'refunding_count'),
     refundingStuckCount: parseCount(r.refunding_stuck_count, 'refunding_stuck_count'),
