@@ -650,6 +650,27 @@
   🎯 **⇒ 鐵則 1 逐字要求「寫前台元件前必先 grep design-reference 字面」** ——
     ⇒ 📌 **在一棵沒初始化的樹上, 那道要求每一次都會通過, 而它什麼都沒驗到。**
   ✅ **撞到之前先問一句**:`bash scripts/design-ref-check.sh`(它會直接告訴你有沒有分母)。
+
+· 🔴🔴 **而那一族不只 submodule —— 新工作樹缺的是【整個安裝】, 不只是 env**
+    (`-ship` 2026-09-05 量到, `~/pcm-wt-ship-5b`):
+  ```
+  TURBO_FORCE=1 pnpm typecheck  ⇒  sh: turbo: command not found
+                                   WARN Local package.json exists, but node_modules missing
+  ```
+  🎯 **⇒ 開樹的人容易只想到那一格自己知道的**(我當時被提醒的是「這棵樹沒有 `.env.local`」)——
+    ⇒ 📌 **而那句提醒只涵蓋了一半**:沒有 `.env.local` 只是「跑不了探針」,
+      **沒有 `node_modules` 是【三綠與測試整個跑不動】** ⇒ 🛑 **一棵驗不了東西的樹。**
+  ✅ **新樹開完的第一組動作(兩行, 缺一不可)**:
+  ```
+  git submodule update --init design-reference   ← 鐵則 1 的分母
+  pnpm install                                   ← 三綠與測試的分母
+  ```
+  🔵 **`pnpm install` 的代價比想像小**:pnpm 走 content-addressable store ⇒ 多半是 hardlink;
+    主視窗 2026-09-05 實測一棵樹的 `node_modules` **約 900M**, 而 `df -h /` free **199Gi**。
+    ⚠️ **而 `du` 報的數字對 hardlink 會多報** —— 要判「清掉會放出多少」請當場配一發 `df` 前後對照
+    (板列 `⟦ship-TURBOFORCECOST⟧`:同一個目錄同一個量法, 兩天差 36 倍)。
+  🛑 **裝之前先看一眼 swap** —— 多窗同時在跑時, 一次 install 會把記憶體壓力推上去
+    (2026-09-05 主視窗要我等鏈推完再裝, 當時 swap 93%)。
   🔵 **而這裡放的是【一行指令】不是一句提醒** —— **讓它跑, 不要讓人記得跑。**
 
 · 🔴 **開場的 `git merge origin/dev --ff-only` 回「Not possible to fast-forward」⇒ 【那不是事故】**:
