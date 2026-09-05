@@ -147,3 +147,75 @@ describe('enqueueTrackingCorrectedEmails', () => {
     ).toEqual({ limit: 7 });
   });
 });
+
+/**
+ * 🔴🔴 **手動建單留白 = 不寄**(Sean 拍板;板列 `⟦f3-MAILFALLBACKVSRULING⟧` 片 C)。
+ *
+ * ## 四個世界都要有格 —— 少一個就分不出「修對了」與「全部關掉了」
+ * ```
+ * ① 手動 + 留白   ⇒ 🔴 不寄(而不是退回 customers.email)
+ * ② 手動 + 有值   ⇒ ✅ 寄到那個值   ← 少了它, 一個「手動一律不寄」的實作也全綠
+ * ③ 顧客站 + 留白 ⇒ ✅ 寄到 customers.email(現狀不得變)
+ * ④ 顧客站 + 有值 ⇒ ✅ 寄到那個值
+ * ```
+ * 🔵 **負對照:`manual_line` / `manual_other` 各跑一發** ——
+ *    只測 `manual_phone` 的話,一個寫死 `=== 'manual_phone'` 的實作**每一格都綠**。
+ *
+ * ## ⚠️ 這一組【證不到】什麼
+ * 它驗的是**這一層的分流**,不驗「view 真的把 `order_source` 帶出來了」(那是 adapter 那層),
+ * 也不驗「信真的沒寄出去」(那要真跑)。
+ */
+describe('片 C:手動建單留白 = 不寄', () => {
+  const MANUALS = ['manual_phone', 'manual_line', 'manual_other'] as const;
+
+  for (const src of MANUALS) {
+    it(`① ${src} + 留白 ⇒ 不寄、計 noRecipient(不得退回 customers.email)`, async () => {
+      const { deps: d, enqueue } = deps([
+        row({ orderSource: src, notificationEmail: null, customerEmail: 'frozen@example.com' }),
+      ]);
+      const res = await enqueueTrackingCorrectedEmails(d, { limit: 50 });
+      expect(enqueue).not.toHaveBeenCalled();
+      expect(res).toMatchObject({ noRecipient: 1, enqueued: 0, errors: 0 });
+    });
+
+    it(`② ${src} + 有值 ⇒ 照樣寄到那個值(少了這格,「手動一律不寄」也全綠)`, async () => {
+      const { deps: d, enqueue } = deps([
+        row({ orderSource: src, notificationEmail: 'staff@example.com', customerEmail: 'frozen@example.com' }),
+      ]);
+      await enqueueTrackingCorrectedEmails(d, { limit: 50 });
+      expect(enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ recipientEmail: 'staff@example.com' }),
+      );
+    });
+  }
+
+  it('③ 🟢 顧客站 + 留白 ⇒ 仍退回 customers.email(現狀不得變)', async () => {
+    const { deps: d, enqueue } = deps([
+      row({ orderSource: 'web', notificationEmail: null, customerEmail: 'frozen@example.com' }),
+    ]);
+    await enqueueTrackingCorrectedEmails(d, { limit: 50 });
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientEmail: 'frozen@example.com' }),
+    );
+  });
+
+  it('④ 顧客站 + 有值 ⇒ 寄到那個值', async () => {
+    const { deps: d, enqueue } = deps([
+      row({ orderSource: 'web', notificationEmail: 'buyer@example.com', customerEmail: 'frozen@example.com' }),
+    ]);
+    await enqueueTrackingCorrectedEmails(d, { limit: 50 });
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientEmail: 'buyer@example.com' }),
+    );
+  });
+
+  it('🔴 orderSource 為 null(view 沒給)⇒ 照舊寄 —— 少寄一封看不見', async () => {
+    const { deps: d, enqueue } = deps([
+      row({ orderSource: null, notificationEmail: null, customerEmail: 'frozen@example.com' }),
+    ]);
+    await enqueueTrackingCorrectedEmails(d, { limit: 50 });
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientEmail: 'frozen@example.com' }),
+    );
+  });
+});

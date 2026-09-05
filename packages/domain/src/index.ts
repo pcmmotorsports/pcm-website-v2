@@ -24,6 +24,10 @@ export { toMoneyAmount } from './shared/types';
 // #484a:貨品軸四值的**唯一 runtime 來源**(`OrderGoodsAxis` 由它推導)。
 // 🔴 沒有這一行它是不可達死碼 —— `export type *` 只帶型別、帶不出 const(code-reviewer 抓到)。
 export { ORDER_GOODS_AXIS_VALUES } from './order/types';
+export {
+  MANUAL_ORDER_SOURCES_FOR_EMAIL,
+  suppressCustomerEmailFallback,
+} from './order/notification-fallback';
 // 🔴 M-4b E4-b(2026-08-22):貨運商代碼 → 中文標籤。**共用的唯一一份。**
 // 從 apps/admin 搬來,因為出貨通知信那條鏈在 packages/ 與 storefront,不可能 import admin。
 // ⚠️ 想新增一家貨運商:**先改 migration,再改那支檔** —— 理由在該檔檔頭。
