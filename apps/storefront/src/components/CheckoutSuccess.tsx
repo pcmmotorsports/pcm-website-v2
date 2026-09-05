@@ -31,9 +31,9 @@ import { HomeFooter } from '@/components/HomeFooter';
 export type CheckoutSuccessProps = {
   /** 建單回傳的人類可讀單號(E10 N3b 起為 6 碼亂碼;舊單仍是 PCM-YYYY-NNNN、兩者並存。零價結構,終態頁不讀回明細);unknown 無單號不傳。 */
   displayId?: string;
-  /** paid(預設)= 付款完成;processing = 已收或處理中;unknown = 狀態未知(回應遺失);failed = 明確未成功。 */
-  variant?: 'paid' | 'processing' | 'unknown' | 'failed';
-  /** processing / unknown / failed 顯示文案(常數單一真相);paid 不用。 */
+  /** paid(預設)= 付款完成;processing = 已收或處理中;unknown = 狀態未知(回應遺失);failed = 明確未成功;awaiting_remittance = 單已成立、等客人匯款(零扣款)。 */
+  variant?: 'paid' | 'processing' | 'unknown' | 'failed' | 'awaiting_remittance';
+  /** processing / unknown / failed / awaiting_remittance 顯示文案(常數單一真相);paid 不用。 */
   message?: string;
   /** 🔴 S1b-2:unknown 態「查詢付款結果」即時反查 handler;傳入才渲染按鈕。 */
   onReconcile?: () => void;
@@ -50,6 +50,7 @@ const COPY = {
   processing: { eyebrow: 'N°ORDER · PROCESSING', title: '付款處理中' },
   unknown: { eyebrow: 'N°ORDER · UNKNOWN', title: '付款狀態確認中' },
   failed: { eyebrow: 'N°ORDER · FAILED', title: '付款未完成' },
+  awaiting_remittance: { eyebrow: 'N°ORDER · AWAITING REMITTANCE', title: '訂單已成立,等待匯款' },
 } as const;
 
 export function CheckoutSuccess({
@@ -76,7 +77,40 @@ export function CheckoutSuccess({
               <div className="co-success-order-no">{displayId}</div>
             </div>
           )}
-          {variant === 'unknown' && onReconcile ? (
+          {/* 🔴 ⟦b4-BANKCHARGESCARD⟧ 片 2 · ④:匯款終態的出口。**排在整條鏈的最前面**,
+              因為下面那個 `displayId ?` 分支會把它吃掉 —— 吃掉之後客人被送去
+              `/account?tab=orders`(訂單【列表】), 而他要的東西不在列表上。
+              🔵 **他要的是【匯款帳號】, 而那個東西住在明細頁**
+              (`OrderDetailView.tsx:647-700`:`balanceDue !== null && amount > 0` 那一支印銀行 / 帳號 /
+               應付餘額 / 備註 / 匯款期限)
+              ⛔ ~~`OrderDetailView.tsx:611-633`~~ —— 我從片 1 plan §6 抄了這個座標而**沒有開檔核**,
+                 而 `:625` 那一支是**相反行為**(`balanceDue === null || amount <= 0` ⇒ 不印帳號、
+                 改印「請聯絡我們」)。座標是**漂的**:我自己這幾天才在那支檔中間插進 balanceDue 那一塊。
+                 📌 **一個指到相反分支的行號比全錯的難發現** —— 檔名對、附近也真的在講匯款。
+                 (reviewer R1 must-fix;舊字面留刪除線, 讓拿舊座標來搜的人同一發撞到訂正。)
+              ⇒ 所以這裡連的是 `/account/orders/<displayId>`, 不是列表。
+              🔴 `encodeURIComponent` 不可省 —— displayId 兩種格式並存(6 碼亂碼 / `PCM-YYYY-NNNN`),
+                 它是**使用者可見的識別碼、不保證只有 URL-safe 字元**(同 `OrdersTab.tsx:190` 的理由)。
+              🛑 **而這【不是】「持久化終態」, 兩件事不要混**:
+                · 這一頁 reload 之後照樣消失 —— 它活在 React state 裡。
+                · 而**客人的資料沒有消失** —— 單在庫裡, 明細頁是那份資料的 canonical 落點。
+                ⇒ 📌 所以缺的那一格是「**reload 之後還看得到這一頁**」, 不是「資料救不回來」。
+                   要不要補那一格(sessionStorage 復原)是**另一片**, 而它要動 `useChargePayment.tsx`
+                   ⇒ 今天與 mail 那條線同檔會撞, 已回報主視窗。
+              ⚠️ 沒有 displayId 時**不連明細** —— 那會是一顆按下去落空的鈕(既有慣例, 見下面 `displayId ?`)。 */}
+          {variant === 'awaiting_remittance' ? (
+            <div className="co-success-actions">
+              <Link
+                href={displayId ? `/account/orders/${encodeURIComponent(displayId)}` : '/account?tab=orders'}
+                className="btn-primary co-success-cta"
+              >
+                查看匯款帳號 <span>→</span>
+              </Link>
+              <Link href="/products" className="btn-outline co-success-cta">
+                繼續購物 <span>→</span>
+              </Link>
+            </div>
+          ) : variant === 'unknown' && onReconcile ? (
             // 🔴 S1b-2:黑洞 unknown 死路出口 —— 主動作「查詢付款結果」即時反查(反查中/冷卻鎖)+ 次動作繼續購物。
             <div className="co-success-actions">
               <button
