@@ -111,6 +111,14 @@ export {
   UnpaidCancelledScanQueryError,
   type UnpaidCancelledOrderScannerClient,
 } from './email/SupabaseUnpaidCancelledOrderScannerAdapter';
+
+// 刷卡已退款的整單取消通知信 —— 掃描端(Sean 2026-09-02 拍甲)。
+// 🔴 回兩個 email 欄 + 退款金額(PII + 錢)⇒ server-only + service_role。
+export {
+  SupabaseCancelledOrderScannerAdapter,
+  CancelledScanQueryError,
+  type CancelledOrderScannerClient,
+} from './email/SupabaseCancelledOrderScannerAdapter';
 // 🔴 M-4b E4-a(2026-08-22):出貨線的同款窄讀 adapter。**一列 = 一個 (箱, 單) 配對 = 一封信。**
 // 同樣回兩個 email 欄(PII)⇒ server-only + service_role。差集在 SQL view 裡(見該檔檔頭)。
 export {

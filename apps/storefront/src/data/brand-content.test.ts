@@ -360,3 +360,35 @@ describe('🔴 重產會踩掉的兩顆手改(重產的人照這裡對)', () => 
     expect(BRAND_CONTENT.length, '品牌數為 0 ⇒ 上面那個空陣列什麼都不證明').toBeGreaterThan(0);
   });
 });
+
+describe('⟦supply-TEAMCOUNTMISMATCH⟧ WRS 不得印一個會過期的車隊筆數', () => {
+  // 🔴 **為什麼是「讓那個數字不存在」而不是「更新成今天對的值」**(Sean 2026-09-05 拍甲):
+  //    2026-09-05 對官網 `manufacturing.wrs.it/racing/` 實抓, **逐個數 = 47 支**,
+  //    而板上半年前記的是 **30+** ⇒ 📌 **它半年動了 50%。**
+  //    🛑 而**官網自己沒有給任何總數**(原話 `collaborazioni sempre più numerose`)
+  //    ⇒ 47 與 30+ 是同一種來源:**我們自己數的** ⇒ 寫幾都會過期。
+  //
+  // 🔵 尺問的是【形狀】不是黑名單單一字面 —— 「十支」改成「四十七支」時它要照樣叫。
+  //    (照 `WrsShowcase` 那半的做法, 不另發明。)
+  it('🔴 WRS 那筆的任何對外字面裡, 不得出現「數字 + 支」這個形狀', () => {
+    const wrs = BRAND_CONTENT.find((b) => b.slug === 'wrs');
+    expect(wrs, '找不到 wrs 這一筆 ⇒ 這一格什麼都沒掃到').toBeDefined();
+
+    // 中文數字與阿拉伯數字都要涵蓋 —— 原本那個病用的就是中文的「十支」。
+    const COUNT_SHAPE = /[0-9０-９一二三四五六七八九十百千]+\s*支/;
+    const blob = JSON.stringify(wrs);
+    const hit = COUNT_SHAPE.exec(blob);
+    expect(hit?.[0], `WRS 的文案裡出現了「數字 + 支」:${hit?.[0]}(整段:${
+      hit ? blob.slice(Math.max(0, hit.index - 40), hit.index + 40) : ''
+    })`).toBeUndefined();
+
+    // 🟢 正對照:這把尺對【原本那個字面】必須命中 —— 少了它, 把 COUNT_SHAPE 打錯也會全綠。
+    expect(COUNT_SHAPE.test('合作車隊共十支'), '正對照:尺對舊字面必須命中').toBe(true);
+    expect(COUNT_SHAPE.test('合作車隊共 47 支'), '正對照:尺對阿拉伯數字也要命中').toBe(true);
+    // ⚪ 負對照:留著車隊【名字】不得被誤判。
+    expect(COUNT_SHAPE.test('合作車隊包含 Ducati Lenovo、KTM Factory Racing'), '負對照').toBe(false);
+
+    // 🔵 分母:一個 0 要成立, 得先證明它掃過了東西。
+    expect(blob.length, 'wrs 那一筆序列化後是空的 ⇒ 上面那個「沒命中」不證明任何事').toBeGreaterThan(500);
+  });
+});

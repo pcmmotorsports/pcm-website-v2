@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { TEST_ACCOUNT_EMAILS } from '../../lib/dashboard/test-accounts';
 import { cleanup, render, screen } from '@testing-library/react';
 import { TodaySummaryCards } from './today-summary';
 import type { TodaySummary } from '../../lib/dashboard/today-read';
@@ -227,5 +228,42 @@ describe('#831 ① 只有退款異常那格可以點', () => {
       />,
     );
     expect(screen.getByText(/已達顯示上限/)).toBeTruthy();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// ⟦b4-TESTACCT1⟧ 測試帳號標示(Sean 2026-09-05 拍乙:「留著, 後台加一句『含測試資料』」)
+// ══════════════════════════════════════════════════════════════════════════
+describe('測試帳號標示', () => {
+  it('常數非空 ⇒ 那句話在, 而且【只印個數不印 email】', () => {
+    render(<TodaySummaryCards summary={summary()} />);
+    expect(screen.getByText(/可能含測試帳號資料/)).toBeTruthy();
+    // 🛑 email 是 PII, 而這個畫面會被截圖轉發 ⇒ 畫面上不得出現任何一個 @
+    for (const mail of TEST_ACCOUNT_EMAILS) {
+      expect(screen.queryByText(new RegExp(mail.replace('.', '\\.')))).toBeNull();
+    }
+  });
+
+  it('🔵 負對照:常數清空 ⇒ 那句話【不在】—— 否則它是一句恆真的裝飾', () => {
+    // 🔴 這一格證的正是那個【退場機制】:測試單清掉那天把常數清空, 這句話自己消失。
+    //    沒有這一格, 「它會不會消失」是一個沒有人驗過的宣稱。
+    // ⚠️ 用 splice 真的清空再還原, **不用 vi.spyOn(…, 'length', 'get')** ——
+    //    陣列的 length 不可 redefine, 那條路實測 `TypeError: Cannot redefine property: length`。
+    // ⚠️ **code-reviewer nit(2026-09-05)**:改動模組級常數本身是一個脆弱點。
+    //    今天安全的理由是量到的:`vitest.config.ts` 保持預設 `isolate: true`(每支測試檔
+    //    自己一份模組), 而本 describe 排在檔尾 ⇒ 同一份 run 裡沒有別的測試看得到被清空的它。
+    //    🛑 **而那是【今天的排列】不是一個性質** —— 有人把測試重排、或另開一支檔 import 同一個
+    //       常數時, 它就不成立了。下面的 finally 還原是為了那一天。
+    const backup = [...TEST_ACCOUNT_EMAILS];
+    (TEST_ACCOUNT_EMAILS as string[]).splice(0, TEST_ACCOUNT_EMAILS.length);
+    try {
+      render(<TodaySummaryCards summary={summary()} />);
+      expect(screen.queryByText(/可能含測試帳號資料/)).toBeNull();
+    } finally {
+      // 🛑 還原寫在 finally:上面任何一格失敗都不得把這個常數留在空的狀態,
+      //    否則同檔後面的測試會拿到一個被我改壞的世界。
+      (TEST_ACCOUNT_EMAILS as string[]).push(...backup);
+    }
+    expect(TEST_ACCOUNT_EMAILS.length).toBe(backup.length); // 還原本身也要驗
   });
 });
