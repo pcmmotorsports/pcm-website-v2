@@ -73,7 +73,10 @@ CREATE FUNCTION public.pcm_pending_refund_amounts(p_order_id uuid)
 -- 替身:開列。🔴 R1-F12:它與【真的那支】的差, 逐條寫在這裡, 不假裝忠實:
 --   · 少 SECURITY DEFINER / search_path='' ⇒ 本探針驗不到權限與 search_path 那一層
 --   · 不寫 cancellation_id ⇒ 🔴 對帳單那格用 cancellation_id 當判準的錯, 本探針【結構上撞不到】
---   · 多一條 WHERE a.amount > 0(真的那支沒有)⇒ 金額為 0 的那個世界兩邊行為不同
+--   · ⛔ ~~多一條 WHERE a.amount > 0(真的那支沒有)~~ ⇒ **已拿掉**(codex R3-⑦):
+--     🔴 替身比真函式【窄】= 一個只在探針裡成立的保護 ——
+--        同一張單同時有【正額軌】與【零額軌】時, 替身只插正的而**真的那支會整張撞 CHECK 失敗**
+--        ⇒ 📌 格3-5 會綠而正式庫會炸。**替身寧可比真的寬鬆一點, 也不可以比它嚴。**
 --   ⇒ 📌 上面三條都是【本探針的盲區】, 不是它驗過的東西。
 CREATE FUNCTION public.pcm_pending_refund_open_for(p_order_id uuid, p_overwrite_amount boolean DEFAULT true)
   RETURNS void LANGUAGE plpgsql AS \$\$
@@ -81,7 +84,6 @@ BEGIN
   IF (SELECT o.cancelled_at FROM public.orders o WHERE o.id = p_order_id) IS NULL THEN RETURN; END IF;
   INSERT INTO public.order_pending_refunds (order_id, rail, amount_at_cancel)
   SELECT p_order_id, a.rail, a.amount FROM public.pcm_pending_refund_amounts(p_order_id) AS a
-   WHERE a.amount > 0
   ON CONFLICT (order_id, rail) WHERE voided_at IS NULL AND settled_at IS NULL
   DO UPDATE SET amount_at_cancel = EXCLUDED.amount_at_cancel WHERE p_overwrite_amount;
 END \$\$;
@@ -270,5 +272,38 @@ fi
 
 # 🔵 R1-F10:不寫死格數 —— 我第一版寫「22 格」而實際印 25 格(含 15b/16b/17b)。
 #    📌 一個沒有東西在維護的計數, 每加一格就更假一次, 而它讀起來永遠一樣有把握。
+# ══ codex R3 逼出來的兩個【從來沒被走過】的世界 ═════════════════════
+# 🔴 上面每一格都跑在「cron.job 裡有一支別人的排程」那個世界裡 ——
+#    而那支是**探針自己種的**。⇒ 📌 空 cron.job 那條路在測試裡固定假綠。
+Q -c "DROP FUNCTION IF EXISTS pcm_cron.late_payment_pending_refund_sweep(integer);
+      DELETE FROM cron.job;" > /dev/null
+chk "格23 前提:cron.job 現在是空的" "$(QV -Atc 'SELECT count(*) FROM cron.job')" 0
+Q -f "$MIG" > "$D/empty.log" 2>&1; RC9=$?
+chk "格24 🔴 R3-④ 空 cron.job 也要貼得進去(它是合法環境)" "$RC9" 0
+[ "$RC9" -ne 0 ] && grep -m1 -E '^psql:.*ERROR' "$D/empty.log" | sed 's/^/     /'
+chk "格25 而貼完之後只有我那一支" "$(QV -Atc 'SELECT count(*) FROM cron.job')" 1
+
+# 🔴 R3-⑥:回退在「只有我那一支」的世界 —— 舊自證會在這裡把整份回退回滾掉
+if [ -f "$DOWN" ]; then
+  { echo "SET pcm.code_reverted = 'yes';"; cat "$DOWN"; } > "$D/down-solo.sql"
+  Q -f "$D/down-solo.sql" > "$D/down-solo.log" 2>&1; RC10=$?
+  chk "格26 🔴 R3-⑥ 只有我那一支時, 回退也要跑得完" "$RC10" 0
+  [ "$RC10" -ne 0 ] && grep -m1 -E '^psql:.*ERROR' "$D/down-solo.log" | sed 's/^/     /'
+  chk "格27 而回退後函式真的不見了" "$(QV -Atc "SELECT to_regprocedure('pcm_cron.late_payment_pending_refund_sweep(integer)') IS NULL")" t
+  chk "格28 排程也不見了(而 cron.job 現在空的, 那是對的)" "$(QV -Atc 'SELECT count(*) FROM cron.job')" 0
+fi
+
+# 🔴 R3-③:每一張都失敗時, 心跳【不得】被刷成成功
+Q -c "DELETE FROM cron.job;" > /dev/null
+Q -f "$MIG" > /dev/null 2>&1
+Q -c "UPDATE public.sweeper_heartbeat SET consecutive_failures = 0, last_failure_at = NULL
+       WHERE job_name='pcm-late-payment-sweep';
+      INSERT INTO public.orders (id, cancelled_at) VALUES ('00000000-0000-0000-0000-000000000007', now());
+      INSERT INTO public._probe_amounts VALUES ('00000000-0000-0000-0000-000000000007','zzz_bad_rail',700);" > /dev/null
+J3=$(QV -Atc "SELECT pcm_cron.late_payment_pending_refund_sweep()")
+chk "格29 🧬 全失敗那一輪 failed 要數到" "$(printf '%s' "$J3" | python3 -c 'import sys,json;print(json.load(sys.stdin)["failed"])')" 1
+chk "格30 🔴 R3-③ 而心跳的 consecutive_failures【不得】是 0" "$(QV -Atc "SELECT consecutive_failures FROM public.sweeper_heartbeat WHERE job_name='pcm-late-payment-sweep'")" 1
+chk "格31 🔴 而 last_failure_at 要有值(否則儀表看不到這一輪炸過)" "$(QV -Atc "SELECT last_failure_at IS NOT NULL FROM public.sweeper_heartbeat WHERE job_name='pcm-late-payment-sweep'")" t
+
 if [ "$FAILED" -eq 0 ]; then echo "🟢 全部通過(格數當場數:上面的 ✅ 行)"; exit 0; fi
 echo "🔴 有 $FAILED 格不符預期 ⇒ 本探針判 FAIL"; exit 1

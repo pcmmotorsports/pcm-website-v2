@@ -27,6 +27,11 @@
 
 BEGIN;
 
+-- 🔴 先拍快照 —— 沒有它, 下面的「我沒刪到別人的」沒有比對對象。
+--    ⚠️ 而空的 cron.job 是**合法的**(這支可能是唯一一支)⇒ 空快照不拒絕, 見自證③。
+CREATE TEMP TABLE _down_jobs_before ON COMMIT DROP AS
+  SELECT jobid, jobname FROM cron.job;
+
 -- ① 先停排程(by-name;不存在時 unschedule 會 raise ⇒ 包起來)
 DO $$
 BEGIN
@@ -52,9 +57,18 @@ BEGIN
     RAISE EXCEPTION '回退自證②:排程還在(% 筆)', v_cnt;
   END IF;
   -- 🔵 而「我刪掉的那兩個不在了」與「我沒刪到別人的」是兩個宣稱。
-  SELECT pg_catalog.count(*) INTO v_cnt FROM cron.job;
-  IF v_cnt < 1 THEN
-    RAISE EXCEPTION '回退自證③:cron.job 現在一支都不剩 ⇒ 我把別人的也刪掉了';
+  -- 🔴🔴 **codex R3-⑥:我原本寫 `count(*) < 1 ⇒ RAISE`** ——
+  --    而**刪完之後 cron.job 本來就可能一支都不剩**(這支是這個庫唯一的排程)
+  --    ⇒ 那道自證會**把整份回退回滾掉**, 而**函式與排程原封不動留著**。
+  --    🛑 一個為了保護別人而寫的斷言, 在最需要回退的那一刻【把回退本身擋掉】。
+  --    🛑 而探針**固定造了一支「別人的排程」** ⇒ 📌 **那條路在測試裡是假綠, 從來沒被走過。**
+  -- ✅ 改成比【名字集合】:除了我刪的那一支, 其餘每一支都要還在。
+  SELECT pg_catalog.count(*) INTO v_cnt
+    FROM _down_jobs_before b
+   WHERE b.jobname <> 'pcm-late-payment-sweep'
+     AND NOT EXISTS (SELECT 1 FROM cron.job j WHERE j.jobname = b.jobname);
+  IF v_cnt <> 0 THEN
+    RAISE EXCEPTION '回退自證③:有 % 支【別人的】排程被本檔刪掉了', v_cnt;
   END IF;
 END $$;
 

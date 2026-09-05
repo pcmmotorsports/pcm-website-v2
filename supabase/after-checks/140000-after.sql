@@ -72,9 +72,20 @@ SELECT pg_catalog.count(*) AS 上線後開的待退款列
    AND r.voided_at IS NULL;
 
 \echo ''
+\echo ''
+\echo '=== 7 心跳:它有沒有在跑, 而且失敗有沒有留下痕跡(R3-3)==='
+\echo '    期待值 = 貼完還沒跑過會查無 0 列, 跑過之後 1 列'
+\echo '    consecutive_failures 大於 0 = 它每輪都在炸, 而 cron 那邊照樣記 success'
+SELECT job_name, last_success_at, last_failure_at, consecutive_failures
+  FROM public.sweeper_heartbeat WHERE job_name = 'pcm-late-payment-sweep';
+
+\echo ''
 \echo '=== 🛑 這一份【證不到】什麼 ==='
 \echo '    · 它證函式體有那三個字面, 不證它在真資料上篩對了;strpos 擋不住有人加 OR TRUE'
 \echo '    · 它不證排程【真的每 10 分鐘跑起來】—— 那要看 cron.job_run_details'
 \echo '    · ⑥ 那個數不是它的驗收 —— 一個正確的 0 會被讀成失敗, 而那會讓人把它關掉'
 \echo '    · 它不看 ALTER DATABASE / ALTER ROLE ... SET 那一層'
 \echo '    · 🔴 它完全不看【腿 B】(已收匯款而狀態仍 unpaid)—— 那個世界今天仍然沒有人接'
+\echo '    - R3-5:上面那幾格 strpos/LIKE 比的是【含註解的整段函式體】'
+\echo '      所以命中的有可能是註解裡的字, 不是會執行的碼 —— 而這一份分不出來'
+\echo '    - 心跳那一格看得到它炸過, 看不到炸在哪一張單 —— 那在 server log 裡'

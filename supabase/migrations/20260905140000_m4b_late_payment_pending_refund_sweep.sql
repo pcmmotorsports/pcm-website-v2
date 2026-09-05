@@ -88,6 +88,9 @@ DECLARE
   v_short integer := 0;   -- 🔴 有活列【而金額少】幾張(只數不動 —— R1-F1 乙案)
   v_void  integer := 0;   -- 🔴 有作廢列而整張跳過幾張(R1-F2)
   v_fail  integer := 0;   -- 補的時候炸掉幾張
+  v_noop  integer := 0;   -- 🔵 呼叫沒炸而也沒新增(別人先開了)—— 不是成功也不是失敗
+  v_before integer;
+  v_after  integer;
 BEGIN
   -- p_limit fail-safe:NULL / <=0 一律退回 1(形狀照 pcm_cron.expire_unpaid_orders)。
   -- 🔴 **不接受「無上限」** —— 一個 0 或 NULL 會讓它靜默不處理,
@@ -128,14 +131,36 @@ BEGIN
                                    --    與「ON CONFLICT 認的未結清」是兩個集合。
                                    AND r.voided_at  IS NULL
                                    AND r.settled_at IS NULL))
-     ORDER BY o.cancelled_at
+     -- 🔴🔴 **codex R3-①:`ORDER BY cancelled_at` 升冪 + `LIMIT` = 飢餓**。
+     --    一張**永久失敗**的舊單, 每一輪都排最前面 ⇒ 它與它前面那 p_limit-1 張
+     --    **每輪重佔名額** ⇒ 後面的候選**永遠輪不到**;而兩個 worker 也會挑到同一批。
+     -- ✅ 改成 `random()`。⚠️ **代價明寫:放棄了「最舊的先補」** ——
+     --    那個順序看起來合理(錢漏最久的先), 而它在有永久失敗的單時**會把整條路堵死**。
+     --    📌 **一個公平的順序, 在有一顆卡住的東西時會變成一個只服務那顆的順序。**
+     -- 🔵 而今天候選數遠小於 p_limit(200)⇒ 順序不影響誰被處理, 只影響「卡住時誰還輪得到」。
+     ORDER BY random()
      LIMIT p_limit
   LOOP
     BEGIN
       -- 🔴 第二參 **false** = 不覆寫既有金額。形狀照 `20260905070000:342`。
       --    ⇒ 本支只補【完全沒有】的那一軌;「列在而金額少」那一族只數不動(第一趟)。
+      -- 🔴 **codex R3-②:`open_for` 回 void ⇒ 「呼叫沒炸」不等於「真的多開了一列」**。
+      --    並發時另一個 worker 可能已經開好 ⇒ `ON CONFLICT DO NOTHING` ⇒ 零新增,
+      --    而我原本照樣 `v_open + 1` ⇒ 📌 **`opened` 虛報, 而它是要進告警信的數字。**
+      -- ✅ 拿【前後差】當答案, 不拿【呼叫成功】當答案。
+      SELECT pg_catalog.count(*) INTO v_before
+        FROM public.order_pending_refunds r
+       WHERE r.order_id = r_row.order_id AND r.voided_at IS NULL AND r.settled_at IS NULL;
       PERFORM public.pcm_pending_refund_open_for(r_row.order_id, false);
-      v_open := v_open + 1;
+      SELECT pg_catalog.count(*) INTO v_after
+        FROM public.order_pending_refunds r
+       WHERE r.order_id = r_row.order_id AND r.voided_at IS NULL AND r.settled_at IS NULL;
+      IF v_after > v_before THEN
+        v_open := v_open + 1;
+      ELSE
+        -- 🔵 沒炸而也沒新增 ⇒ 別人先開了(或那一軌的金額變 0)。**它不是失敗, 也不是成功。**
+        v_noop := v_noop + 1;
+      END IF;
     EXCEPTION WHEN OTHERS THEN
       -- 🛑 **一張單失敗不得讓整輪停** —— 否則第一張壞單會把後面每一張都擋住,
       --    而症狀是「掃描器每次都補 0 筆」, 與「今天沒東西要補」印同一個數字。
@@ -150,9 +175,9 @@ BEGIN
   --    `v_open` 不含失敗數 ⇒ 回 0 與「今天沒東西要補」印同一個數字;
   --    `cron.job_run_details` 記 success;`RAISE LOG` 進 server log **而沒有人在看**。
   --    🎯 那正是本支宣稱要接的那個世界(漏掉而沒有人知道), 換了一個位置。
-  IF v_fail > 0 OR v_short > 0 OR v_void > 0 THEN
-    RAISE WARNING '[late_payment_sweep] 補 % 張 · 金額少 % 張(只數不動)· 作廢跳過 % 張 · 失敗 % 張',
-      v_open, v_short, v_void, v_fail;
+  IF v_fail > 0 OR v_short > 0 OR v_void > 0 OR v_noop > 0 THEN
+    RAISE WARNING '[late_payment_sweep] 補 % 張 · 沒動 % 張(別人先開)· 金額少 % 張 · 作廢跳過 % 張 · 失敗 % 張',
+      v_open, v_noop, v_short, v_void, v_fail;
   END IF;
 
   -- 🔴🔴 **R2-⑤:這一趟【移到寫入之後】, 而且自己包一層 EXCEPTION。**
@@ -191,13 +216,31 @@ BEGIN
   --    ⇒ 📌 一個為了「讓它被看見」而做的動作, 差一點變成一個每天叫的狼來了。
   -- 形狀逐字抄 `20260904230000:531-539`(同族純 SQL 排程):`GREATEST` 那半擋的是
   -- 「晚到的舊值覆蓋新值」, 不是裝飾。
+  -- 🔴🔴 **codex R3-③:心跳不得【無條件】刷成功。**
+  --    我原本無條件寫 `consecutive_failures = 0` ⇒ 就算**每一張都失敗**,
+  --    cron 記 success、心跳也被刷成 0 ⇒ 📌 **每輪全失敗與一切正常, 在儀表上是同一個畫面。**
+  --    (而那正是本片自己在講的病:漏掉了而沒有人知道。)
+  -- ✅ 有失敗 ⇒ 寫**失敗心跳**並把 consecutive_failures **加上去**;零失敗才刷成功。
+  -- 🔵 而這一支是純 SQL ⇒ 函式**拋錯**時失敗心跳會被同交易回捲(見 `cron-jobs.ts` 那段);
+  --    但**本函式不拋錯**(單張失敗被接住)⇒ 這裡寫的失敗心跳**留得住**。
+  --    ⇒ 📌 那正是 `FAILURE_COUNT_MEANINGLESS` 對它**仍然成立**的原因:
+  --       57014 那條路照樣寫不出來。**兩種失敗, 只有一種留得下痕跡。**
   BEGIN
-    INSERT INTO public.sweeper_heartbeat (job_name, last_success_at, consecutive_failures, updated_at)
-    VALUES ('pcm-late-payment-sweep', pg_catalog.clock_timestamp(), 0, pg_catalog.clock_timestamp())
-    ON CONFLICT (job_name) DO UPDATE
-      SET last_success_at      = GREATEST(public.sweeper_heartbeat.last_success_at, excluded.last_success_at),
-          consecutive_failures = 0,
-          updated_at           = GREATEST(public.sweeper_heartbeat.updated_at, excluded.updated_at);
+    IF v_fail > 0 THEN
+      INSERT INTO public.sweeper_heartbeat (job_name, last_failure_at, consecutive_failures, updated_at)
+      VALUES ('pcm-late-payment-sweep', pg_catalog.clock_timestamp(), 1, pg_catalog.clock_timestamp())
+      ON CONFLICT (job_name) DO UPDATE
+        SET last_failure_at      = GREATEST(public.sweeper_heartbeat.last_failure_at, excluded.last_failure_at),
+            consecutive_failures = public.sweeper_heartbeat.consecutive_failures + 1,
+            updated_at           = GREATEST(public.sweeper_heartbeat.updated_at, excluded.updated_at);
+    ELSE
+      INSERT INTO public.sweeper_heartbeat (job_name, last_success_at, consecutive_failures, updated_at)
+      VALUES ('pcm-late-payment-sweep', pg_catalog.clock_timestamp(), 0, pg_catalog.clock_timestamp())
+      ON CONFLICT (job_name) DO UPDATE
+        SET last_success_at      = GREATEST(public.sweeper_heartbeat.last_success_at, excluded.last_success_at),
+            consecutive_failures = 0,
+            updated_at           = GREATEST(public.sweeper_heartbeat.updated_at, excluded.updated_at);
+    END IF;
   EXCEPTION WHEN OTHERS THEN
     RAISE WARNING '[late_payment_sweep] 心跳寫入失敗(本輪補列不受影響):%', SQLERRM;
   END;
@@ -206,7 +249,7 @@ BEGIN
   -- 🛑 **而今天沒有人讀這個回傳值** —— 把它接進 `pcm-anomaly-alert` 是【片 2】,
   --    不在本支裡。這一句明寫, 不假裝它已經有人接。
   RETURN pg_catalog.jsonb_build_object(
-    'opened', v_open, 'amount_short', v_short, 'voided_skipped', v_void, 'failed', v_fail);
+    'opened', v_open, 'noop', v_noop, 'amount_short', v_short, 'voided_skipped', v_void, 'failed', v_fail);
 END;
 $function$;
 
@@ -242,10 +285,18 @@ BEGIN
   SELECT pg_catalog.count(*) INTO v_cnt FROM _lps_jobs_before;
   -- 🔴 少了這一格, 若 cron.job 是空的, before/after 會「兩邊都空 ⇒ 相等 ⇒ 全綠」——
   --    **一個【什麼都沒有】的比對, 與一個【什麼都沒變】的比對, 在輸出上是同一句話。**
+  -- 🔴🔴 **codex R3-④:我原本在這裡 `RAISE EXCEPTION`** ——
+  --    而**一個乾淨的、一支排程都還沒有的庫是合法的**(新環境 / 拋棄式 PG / 災後重建)
+  --    ⇒ 那道閘會**拒絕一次正當的 apply**。
+  --    🛑 而更糟的是:探針為了讓它過, **預植了一支 `pcm-someone-else`**
+  --       ⇒ 📌 **那條「空 cron.job」的路在測試裡【固定是假綠】—— 它從來沒被走過。**
+  -- ✅ 空的就明講「這一發比對沒有對象」, **不拒絕**;而下面事後⑤⑥ 照樣跑
+  --    (空快照之下它們驗的是「我沒有憑空多冒出別的 job」, 那仍然有意義)。
   IF v_cnt < 1 THEN
-    RAISE EXCEPTION '套用前 cron.job 一支既有 job 都沒有 ⇒ 下面的 before/after 比對沒有對象、等於沒驗';
+    RAISE NOTICE '套用前 cron.job 是空的 ⇒ 下面的 before/after 比對【沒有對象】, 它證不到「別人的沒被動到」(因為沒有別人)';
+  ELSE
+    RAISE NOTICE '已快照 % 支既有 cron job(全部納入下面的逐欄比對保護)', v_cnt;
   END IF;
-  RAISE NOTICE '已快照 % 支既有 cron job', v_cnt;
 END $$;
 
 DO $$
@@ -296,9 +347,14 @@ BEGIN
   IF pg_catalog.strpos(v_txt, 'INTO v_short, v_void') = 0 THEN
     RAISE EXCEPTION '事後③c:函式體沒有數「列在而金額少」那一格 ⇒ 那一族會變成完全靜默';
   END IF;
-  -- 🔵 負對照:一個現造的字面必須【找不到】—— 沒有它, 上面三格可能來自一把恆真的尺。
+  -- 🔵 負對照:一個現造的字面必須【找不到】—— 沒有它, 上面幾格可能來自一把恆真的尺。
+  -- 🛑🛑 **而 codex R3-⑤ 說得對:這個負對照【恆過】, 它證不到我真正想證的那件事。**
+  --    `pg_get_functiondef` 回的是**含註解的整段函式體** ⇒ 上面那些 `strpos` 命中的
+  --    **有可能是註解裡的字, 不是會執行的碼** —— 而這一格分不出來。
+  --    ⇒ 📌 **我保留它(它擋得住「尺整個壞掉」), 而【它證不到的那一半明寫在這裡】。**
+  --       真要分出來, 得先把註解剝掉再比 —— 那一格本檔沒做, 不是漏掉。
   IF pg_catalog.strpos(v_txt, 'zzz_never_in_this_function') <> 0 THEN
-    RAISE EXCEPTION '負對照紅了:這把尺對任何字面都印命中 ⇒ 上面三格不算數';
+    RAISE EXCEPTION '負對照紅了:這把尺對任何字面都印命中 ⇒ 上面幾格不算數';
   END IF;
 
   -- 3c. job 逐格。
