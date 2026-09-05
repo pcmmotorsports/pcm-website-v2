@@ -57,7 +57,12 @@ CREATE TABLE public.email_outbox (
   sent_at timestamptz,
   -- 🔴 片 A 加的那一欄:【出門紀錄】= 這封信實際寄出去的號碼。
   sent_tracking_number text,
-  sent_seq bigint);
+  sent_seq bigint,
+  -- 🔴🔴 **第三欄:出處旗標**(2026-09-05 codex R2 之後加)——
+  --    正式那支的分代問的是【這一列是不是片 B 寫的】, **不是** `sent_seq` 在不在:
+  --    序號由 DB 的 trigger 蓋, 而 trigger 對**舊 writer 寫的列也會蓋**。
+  --    ⇒ 本探針原本沒有這一欄 ⇒ 它模擬不出【部署窗口】那個世界(見下面 4-g)。
+  sent_tracking_recorded boolean NOT NULL DEFAULT false);
 CREATE SEQUENCE public.pcm_email_outbox_sent_seq;
 
 -- ── 第一代判準(今天線上那個, 20260904220000)—— 時間比較當代理 ──────────
@@ -71,13 +76,21 @@ CREATE FUNCTION public.gen1_should_send(p_ship uuid) RETURNS boolean LANGUAGE sq
 $$;
 
 -- ── 第二代判準(片 A)—— 比【我們最後一次告訴客人的號碼】 ────────────────
+-- 🔴🔴 **2026-09-05 codex R1 nit:這裡與正式 migration【判斷式不同】, 而我原本說它是同一個。**
+--    ⛔ ~~`WHEN (SELECT l.sent_tracking_number …) IS NOT NULL`~~
+--    🛑 正式那支問的是 **`sent_seq IS NOT NULL`**(=「片 B 寫過這一列」),
+--      而不是「號碼是不是 NULL」—— 那兩個在**「片 B 寫了而那封信本來就沒帶號碼」**
+--      這個世界裡答案相反(裁定③ 整條就住在那個差別上)。
+--    ⇒ 📌 **所以本探針原本證到的是一個【簡化模型】, 不是線上那個判準。**
+--      而它的結論(兩連線競態會判反)在兩個模型上都成立 ⇒ **結論沒垮, 而射程被我寫寬了。**
+-- ✅ 改成與正式那支同一個判斷式;排序也一起對齊(主鍵 `sent_at`, `sent_seq` 只同刻決勝)。
 CREATE FUNCTION public.gen2_should_send(p_ship uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT s.tracking_corrected_at IS NOT NULL
      AND CASE
-           WHEN (SELECT l.sent_tracking_number FROM public.email_outbox l
+           WHEN (SELECT l.sent_tracking_recorded FROM public.email_outbox l
                   WHERE l.shipment_id = s.id AND l.status = 'sent' AND l.sent_at IS NOT NULL
                     AND l.event_type IN ('order_shipped','shipment_tracking_corrected')
-                  ORDER BY l.sent_seq DESC NULLS LAST, l.sent_at DESC LIMIT 1) IS NOT NULL
+                  ORDER BY l.sent_seq DESC NULLS LAST, l.sent_at DESC LIMIT 1) IS TRUE
            THEN (SELECT l.sent_tracking_number FROM public.email_outbox l
                   WHERE l.shipment_id = s.id AND l.status = 'sent' AND l.sent_at IS NOT NULL
                     AND l.event_type IN ('order_shipped','shipment_tracking_corrected')
@@ -132,6 +145,9 @@ sweeper () {
        SET status = 'sent',
            sent_at = pg_catalog.clock_timestamp(),
            sent_tracking_number = (SELECT n FROM seen),
+           -- 🔴 **片 B 的 writer 一定同時寫出處旗標**(即使號碼是 NULL)。
+           --    這一支模擬的就是片 B ⇒ 它要寫 true。
+           sent_tracking_recorded = true,
            sent_seq = pg_catalog.nextval('public.pcm_email_outbox_sent_seq')
      WHERE shipment_id = '$sid' AND event_type = 'order_shipped';
     COMMIT;" > "$D/sweep-$sid.log" 2>&1
@@ -213,16 +229,42 @@ echo "-- 世界4 [同毫秒兩封]: 舊排序(隨機 uuid)選錯, 新排序(sent
 #    看起來像 uuid 產錯了。(2026-09-05 當場撞到。)
 S4=$(q1 "INSERT INTO public.shipments(label, tracking_number, tracking_corrected_at) VALUES ('W4TIE','B', pg_catalog.clock_timestamp()) RETURNING id" | head -1)
 psql -h 127.0.0.1 -p "$PORT" -U postgres -q -v ON_ERROR_STOP=1 -c "
-  INSERT INTO public.email_outbox(id, shipment_id, event_type, status, sent_at, sent_tracking_number, sent_seq)
-  VALUES ('ffffffff-ffff-4fff-8fff-ffffffffffff','$S4','order_shipped','sent','2026-09-05 12:00:00+08','A',1),
-         ('00000000-0000-4000-8000-000000000000','$S4','shipment_tracking_corrected','sent','2026-09-05 12:00:00+08','B',2);"
+  INSERT INTO public.email_outbox(id, shipment_id, event_type, status, sent_at, sent_tracking_number, sent_seq, sent_tracking_recorded)
+  VALUES ('ffffffff-ffff-4fff-8fff-ffffffffffff','$S4','order_shipped','sent','2026-09-05 12:00:00+08','A',1,true),
+         ('00000000-0000-4000-8000-000000000000','$S4','shipment_tracking_corrected','sent','2026-09-05 12:00:00+08','B',2,true);"
 check "4-a 兩封 sent_at 完全相同(本格的前提)" "1" "$(q1 "SELECT count(DISTINCT sent_at)::text FROM public.email_outbox WHERE shipment_id='$S4'")"
 check "4-b 現在的號碼" "B" "$(q1 "SELECT tracking_number FROM public.shipments WHERE id='$S4'")"
 check "4-c 舊排序挑出來的最後一封" "A" "$(q1 "SELECT sent_tracking_number FROM public.email_outbox WHERE shipment_id='$S4' ORDER BY sent_at DESC, id DESC LIMIT 1")"
-check "4-d 新排序挑出來的最後一封" "B" "$(q1 "SELECT sent_tracking_number FROM public.email_outbox WHERE shipment_id='$S4' ORDER BY sent_seq DESC NULLS LAST, sent_at DESC LIMIT 1")"
+# 🔴 這一格的排序要與正式那支逐字一致(主鍵 sent_at, sent_seq 同刻決勝)——
+#    本格兩封的 sent_at **刻意完全相同**(4-a 在證這件事)⇒ 決勝的就是 sent_seq。
+check "4-d 新排序挑出來的最後一封" "B" "$(q1 "SELECT sent_tracking_number FROM public.email_outbox WHERE shipment_id='$S4' ORDER BY sent_at DESC, sent_seq DESC NULLS LAST LIMIT 1")"
 check "4-e 用舊排序的判準(會寄一封多餘的)" "true"  "$(q1 "SELECT public.gen2_uuidorder_should_send('$S4')::text")"
 check "4-f 用 sent_seq 的判準(不寄)" "false" "$(q1 "SELECT public.gen2_should_send('$S4')::text")"
 echo "  -> 兩者只差 ORDER BY 一行:舊的寄一封多餘的更正信給號碼已經正確的客人, 新的不寄。"
+
+# ══ 5 · 🔴🔴 部署窗口:**舊 writer 寫的列, trigger 照樣蓋了 seq** ═══════════════
+#    這一組是 2026-09-05 codex R2 那條 must-fix 的量具, 而**上面四組全部量不到它**:
+#    它們每一列都同時有 seq 與號碼 ⇒ 「分代看 seq」與「分代看旗標」在那些世界裡答案相同。
+echo "── 5 · 部署窗口(migration 已貼、片 B 的碼還沒上)──"
+S5=$(q1 "INSERT INTO public.shipments(label, tracking_number, tracking_corrected_at) VALUES ('W5WIN','B', pg_catalog.clock_timestamp()) RETURNING id" | head -1)
+psql -h 127.0.0.1 -p "$PORT" -U postgres -q -v ON_ERROR_STOP=1 -c "
+  INSERT INTO public.email_outbox(shipment_id, event_type, status, sent_at, sent_tracking_number, sent_seq, sent_tracking_recorded)
+  VALUES ('$S5','order_shipped','sent', pg_catalog.clock_timestamp() + interval '1 hour', NULL,
+          pg_catalog.nextval('public.pcm_email_outbox_sent_seq'), false);"
+check "5-a 那一列有 seq(trigger 蓋的, 而它蓋每一列)" "true" "$(q1 "SELECT (sent_seq IS NOT NULL)::text FROM public.email_outbox WHERE shipment_id='$S5'")"
+check "5-b 而它沒有號碼、也沒有出處旗標" "false|false" "$(q1 "SELECT (sent_tracking_number IS NOT NULL)::text || '|' || sent_tracking_recorded::text FROM public.email_outbox WHERE shipment_id='$S5'")"
+check "5-c 正式判準(問旗標)⇒ 不寄" "false" "$(q1 "SELECT public.gen2_should_send('$S5')::text")"
+check "5-d 分代改回問 seq ⇒ 會寄(= 那條 must-fix 的後果)" "true" "$(q1 "
+  SELECT (s.tracking_corrected_at IS NOT NULL
+     AND CASE WHEN (SELECT l.sent_seq FROM public.email_outbox l
+                     WHERE l.shipment_id = s.id AND l.status='sent' AND l.sent_at IS NOT NULL
+                     ORDER BY l.sent_seq DESC NULLS LAST LIMIT 1) IS NOT NULL
+              THEN (SELECT l.sent_tracking_number FROM public.email_outbox l
+                     WHERE l.shipment_id = s.id AND l.status='sent' AND l.sent_at IS NOT NULL
+                     ORDER BY l.sent_seq DESC NULLS LAST LIMIT 1) IS DISTINCT FROM s.tracking_number
+              ELSE false END)::text
+    FROM public.shipments s WHERE s.id='$S5'")"
+echo "  -> 兩者只差【分代問哪一欄】:問 seq 的那一版, 在部署窗口裡寄一封多餘的更正信給號碼本來就正確的客人。"
 
 echo "── ⚪ 零留痕 ──"
 # 🔴🔴 **這一格的第一版是 `check "..." "$D" "$D"` —— 拿 $D 跟 $D 比 ⇒ 恆綠。**

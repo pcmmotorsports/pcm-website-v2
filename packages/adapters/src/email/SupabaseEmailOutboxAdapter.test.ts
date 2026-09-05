@@ -435,6 +435,9 @@ describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA
     // 🔴 **號碼與 `sent_at` 必須在【同一發 update】**(⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 片 B-1)。
     //    這一格斷言的是**同一個 `vals` 物件**上兩個鍵都在 ⇒ 拆成兩發就紅。
     expect(vals.sent_tracking_number).toBeNull();
+    // 🔴 **出處旗標與號碼一定成對** —— 號碼是 null 的時候它仍然要是 true,
+    //    因為它答的是「這一列是片 B 寫的」, 不是「有沒有號碼」。
+    expect(vals.sent_tracking_recorded).toBe(true);
     expect(argsOf(b, 'eq')).toEqual([
       ['id', 'outbox-1'],
       ['status', 'sending'],
@@ -447,6 +450,7 @@ describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA
     expect(await adapter(makeClient(b)).markSent('outbox-1', 1, '1234567890')).toBe(true);
     const vals = argsOf(b, 'update')[0]![0] as Record<string, unknown>;
     expect(vals.sent_tracking_number).toBe('1234567890');
+    expect(vals.sent_tracking_recorded).toBe(true);
     expect(vals.sent_at).toEqual(expect.any(String));
   });
 

@@ -566,6 +566,14 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
       // 🔵 這裡放的是**值不是 expression** —— 它是 sweeper 手上那個字串,
       //    所以 PostgREST 的 update 帶得動(`nextval()` 那種帶不動)。
       sent_tracking_number: sentTrackingNumber,
+      // 🔴🔴 **出處旗標 —— 它與號碼【一定成對】, 連號碼是 null 的時候也要寫。**
+      //    它答的是「**這一列是片 B 寫的**」, 而號碼答的是「寄了什麼」。
+      //    ⛔ ~~掃描面原本用 `sent_seq IS NOT NULL` 分代~~ ⇒ 那一欄由 DB 的 trigger 蓋,
+      //      而 trigger 對**舊 writer 寫的列也會蓋** ⇒ 🛑 在【先貼 migration、後上這支碼】
+      //      那段窗口裡, 舊 writer 寄出的信會被當成「片 B 寫的而沒告訴過客人號碼」
+      //      ⇒ **多寄一封更正信給號碼本來就正確的客人**(codex 2026-09-05 R2 抓到)。
+      //    ⇒ 📌 **「什麼時候進 DB」與「誰寫的」是兩個問題, 不能共用一欄。**
+      sent_tracking_recorded: true,
     });
   }
 

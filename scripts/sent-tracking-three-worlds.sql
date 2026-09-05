@@ -19,9 +19,24 @@ BEGIN
   IF pg_catalog.to_regclass('public.pcm_tracking_corrected_email_pending') IS NULL THEN
     RAISE EXCEPTION '前置閘①:view 不在 ⇒ 下面全部會是零列全綠';
   END IF;
-  v_def := pg_catalog.pg_get_viewdef('public.pcm_tracking_corrected_email_pending'::regclass, true);
+  -- 🔴🔴 **2026-09-05 片 B-2 改結構之後, 這一格要問【底面】** ——
+  --    規則搬去 `pcm_tracking_correction_candidates` 了, 主面只剩「有收件人」那一半。
+  --    ⛔ ~~`strpos(主面的 def, 'sent_tracking_number')`~~ ⇒ 改結構之後它**恆為 0**
+  --      ⇒ 🛑 這道前置閘會在一個【貼好了的庫】上說「沒貼」⇒ **它會擋掉正確的那個世界。**
+  --    ⇒ 📌 一道釘在【字面】上的閘, 在那個字面搬家時**往「假紅」的方向壞** —— 那是好的方向,
+  --      而它仍然是壞的:下一個人會以為 migration 沒貼。
+  IF pg_catalog.to_regclass('public.pcm_tracking_correction_candidates') IS NULL THEN
+    RAISE EXCEPTION '前置閘②a:底面不在 ⇒ 20260905200000 沒貼, 本探針測的不是我以為的東西';
+  END IF;
+  v_def := pg_catalog.pg_get_viewdef('public.pcm_tracking_correction_candidates'::regclass, true);
   IF pg_catalog.strpos(v_def, 'sent_tracking_number') = 0 THEN
-    RAISE EXCEPTION '前置閘②:view 是第一代 ⇒ 20260905200000 沒貼, 本探針測的不是我以為的東西';
+    RAISE EXCEPTION '前置閘②b:底面是第一代的判準 ⇒ 本探針測的不是我以為的東西';
+  END IF;
+  -- 🟢 正對照:主面必須真的讀底面(否則我量的是一張與規則脫鉤的 view)
+  IF pg_catalog.strpos(
+       pg_catalog.pg_get_viewdef('public.pcm_tracking_corrected_email_pending'::regclass, true),
+       'pcm_tracking_correction_candidates') = 0 THEN
+    RAISE EXCEPTION '前置閘②c:主面沒有讀底面 ⇒ 規則又變兩份';
   END IF;
   SELECT pg_catalog.count(*) INTO v_n FROM public.orders;
   IF v_n <> 0 THEN RAISE EXCEPTION '前置閘③:orders 不是空的(% 列)⇒ 本探針只在乾淨庫跑', v_n; END IF;
@@ -132,18 +147,28 @@ CREATE FUNCTION w3.mk_sent(p_order uuid, p_ship uuid, p_event text, p_dedup text
 --    ⇒ 📌 **一個「沒給就自動」的預設值, 讓「我就是要給空的」這個意思消失了。**
 --    ✅ `-1` = 沒給(自動取號);`NULL` = **就是要空的**(片 B 之前的舊列)。
                            p_seq bigint DEFAULT -1, p_ship_raw text DEFAULT NULL,
-                           p_id uuid DEFAULT NULL)
-RETURNS void LANGUAGE sql AS $$
+                           p_id uuid DEFAULT NULL,
+-- 🔴🔴 **`p_recorded` = 【這一列是不是片 B 寫的】**(2026-09-05 codex R2 之後新增)。
+--    掃描面分代**不再看 `sent_seq`** —— 那一欄由 DB 的 trigger 蓋, 而 trigger 對
+--    **舊 writer 寫的列也會蓋** ⇒ 它答不出「誰寫的」。⇒ 見 migration 裡那一欄的註解。
+                           p_recorded boolean DEFAULT true)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_id uuid := coalesce(p_id, pg_catalog.gen_random_uuid());
+BEGIN
   INSERT INTO public.email_outbox(id, event_type, order_id, dedup_key, recipient_email,
-                                  subject, payload, status, sent_at, sent_tracking_number, sent_seq)
-  VALUES (coalesce(p_id, pg_catalog.gen_random_uuid()),
-          p_event, p_order, p_dedup, 'a@example.com', '測試',
+                                  subject, payload, status, sent_at, sent_tracking_number,
+                                  sent_tracking_recorded)
+  VALUES (v_id, p_event, p_order, p_dedup, 'a@example.com', '測試',
           pg_catalog.jsonb_build_object('shipment_id',
             coalesce(p_ship_raw, p_ship::text)),
-          'sent', p_sent, p_num,
-          CASE WHEN p_seq = -1 THEN pg_catalog.nextval('public.pcm_email_outbox_sent_seq')
-               ELSE p_seq END);
-$$;
+          'sent', p_sent, p_num, p_recorded);
+  -- 🔴 **seq 由 trigger 蓋, 不由 INSERT 帶** —— 而要指定值(或指定「空的」)就再一發 UPDATE。
+  --    那一發**不會重蓋**(`OLD.status` 已經是 `sent`)⇒ 這是造歷史列的唯一方法。
+  --    ⚠️ `-1` = 沒給(用 trigger 蓋的那個);`NULL` = **就是要空的**(migration 之前的舊列)。
+  IF p_seq IS DISTINCT FROM -1 THEN
+    UPDATE public.email_outbox SET sent_seq = p_seq WHERE id = v_id;
+  END IF;
+END $$;
 
 -- ══ 2. 六個世界 ═════════════════════════════════════════════════════════
 DO $$
@@ -172,13 +197,28 @@ BEGIN
   -- ⑤ 過渡期(出門紀錄 NULL)· 寄在更正【之前】⇒ 回落到時間比較 ⇒ 【該寄】
   o := w3.mk_order('WRD666'); s := w3.mk_shipment(o, 'SHP666', 'B', t0 + interval '1 hour');
   -- 🔴 第 7 個參數【顯式 NULL】= 片 B 之前的舊列(沒有序號)。少了它就不是過渡期。
-  PERFORM w3.mk_sent(o, s, 'order_shipped', public.pcm_shipped_email_dedup_key(s, o), t0, NULL, NULL);
+  -- 🔴 第 7 個參數【顯式 NULL】= 沒有序號;第 8/9 個是 p_ship_raw / p_id(不動),
+  --    第 10 個 `p_recorded => false` = **不是片 B 寫的** ⇒ 兩者要一起, 否則不是過渡期那個世界。
+  PERFORM w3.mk_sent(o, s, 'order_shipped', public.pcm_shipped_email_dedup_key(s, o), t0, NULL, NULL,
+                     p_recorded => false);
 
   -- ⑥ 過渡期 · 寄在更正【之後】⇒ 回落 ⇒ 【不該寄】
   --    🛑 這一格【就是本片要修的那個 bug】, 而過渡期刻意保留它 —— 行為與今天完全相同。
   o := w3.mk_order('WRD777'); s := w3.mk_shipment(o, 'SHP777', 'B', t0 + interval '1 hour');
   PERFORM w3.mk_sent(o, s, 'order_shipped', public.pcm_shipped_email_dedup_key(s, o),
-                     t0 + interval '2 hour', NULL, NULL);
+                     t0 + interval '2 hour', NULL, NULL, p_recorded => false);
+
+  -- ⑥-b 🔴🔴 **【部署窗口】:migration 已貼、片 B 的碼還沒上。**(2026-09-05 codex R2 逼出來的)
+  --    舊 writer 寄了一封, 而 **trigger 照樣蓋了 seq**(它蓋每一列)、號碼是 NULL、出處旗標 false。
+  --    寄的時間在更正【之後】⇒ 回落分支說【不該寄】。
+  --    🛑 而**分代若改回問 `sent_seq IS NOT NULL`**, 這一列會被當成「片 B 寫的而沒告訴過號碼」
+  --      ⇒ `NULL IS DISTINCT FROM 'B'` ⇒ **寄** ⇒ 📌 **一封多餘的更正信, 給號碼本來就正確的客人。**
+  --    ⇒ 🎯 這一格就是那條 must-fix 的量具:它**不該**出現在集合裡。
+  -- 🔵 **為什麼是 F 不是 E**:`orders_display_id_format` 的字母集是
+  --    `[23456789BCDFGHJKMNPQRSTVWXYZ]`(去掉母音與易混字)⇒ **`E` 不在裡面**, 當場撞牆。
+  o := w3.mk_order('WRDF55'); s := w3.mk_shipment(o, 'SHPF55', 'B', t0 + interval '1 hour');
+  PERFORM w3.mk_sent(o, s, 'order_shipped', public.pcm_shipped_email_dedup_key(s, o),
+                     t0 + interval '2 hour', NULL, 900009, p_recorded => false);
 
   -- ══ 🔴 以下四個世界是【為了讓四格突變有東西可以打】而加的(codex R2 第 15 條)══
   --    上面六個世界證的是「判準會不會抓到號碼不一致」;
@@ -214,8 +254,10 @@ BEGIN
                      t0 + interval '5 hour', 'B', 900002, NULL,
                      '00000000-0000-4000-8000-000000000000'::uuid);
 
-  -- ⑩ **承重點:用 sent_seq 分辨兩種 NULL**(主視窗裁定③)。
-  --    片 B 寫的列(有 seq)而【那封信本來就沒帶號碼】⇒ 我們沒告訴過他任何號碼
+  -- ⑩ **承重點:用【出處旗標】分辨兩種 NULL**(主視窗裁定③)。
+  --    ⛔ ~~用 sent_seq 分辨~~ ⇒ 2026-09-05 codex R2 之後改成 `sent_tracking_recorded`
+  --      (trigger 對每一列都蓋 seq ⇒ 那一欄答不出「誰寫的」;見 ⑥-b 那個世界)。
+  --    片 B 寫的列(旗標 true)而【那封信本來就沒帶號碼】⇒ 我們沒告訴過他任何號碼
   --    ⇒ 現在有號碼 B ⇒ **該寄(而它是首次告知)**。
   --    ⇒ 判斷式改回問 `sent_tracking_number` ⇒ 這一列被當成「片 B 之前的舊列」
   --      ⇒ 落到時間比較 ⇒ 寄在更正之後 ⇒ **不寄** ⇒ 裁定③ 靜靜失效。
@@ -250,6 +292,123 @@ END $$;
 --   WRDD44 片 B 寫的而沒帶號碼(裁定③)    ⇒ 在(首次告知)
 SELECT w3.assert_set(
   ARRAY['WRD222','WRD333','WRD666','WRD999','WRDB22','WRDD44'], '第二代判準');
+
+-- ══ 3-b. 🔴🔴 **兩半的和 = 底面** —— codex R1「no_recipient_count 停在舊判準」那條 must-fix ══
+--
+-- 🛑 **它擋的那個世界**:競態發生(該寄更正信)**而且**那張單兩個信箱都空。
+--    改結構之前 —— 主面看不到它(沒有收件人), `no_recipient_count` 也看不到它(它用第一代的
+--    時間比較, 而這一箱的出貨信是在更正【之後】才寄的)⇒ 📌 **兩個互補的一半一起漏掉同一列。**
+-- ✅ 改結構之後兩者都讀底面 ⇒ 這一節去量那個「和」。
+--
+-- 🔴 **fixture 要造一張【真的沒有收件人】的單**:
+--    `customers.email` 是 NOT NULL ⇒ 不能是 NULL, 而**空字串會被 `nullif(btrim(...),'')` 判成空**
+--    ⇒ 那正是這一族守門真正要處理的形狀(第一代 codex must-fix #1 就是栽在 btrim 上)。
+INSERT INTO auth.users(id, email)
+VALUES ('22222222-2222-2222-2222-222222222222', 'noreply-w3@example.com');
+UPDATE public.customers SET email = '' WHERE user_id = '22222222-2222-2222-2222-222222222222';
+
+DO $w3nr$
+DECLARE
+  v_order uuid; v_ship uuid;
+  v_corrected timestamptz := pg_catalog.now() - interval '1 hour';
+  v_base int; v_pending int; v_norecip int; v_norecip_before int; v_counts jsonb;
+BEGIN
+  -- 🔴 **造它【之前】先量一次** —— 這個「之前的值」是 ③ 那一格的分母。
+  v_norecip_before := (public.get_tracking_corrected_gap_counts() ->> 'no_recipient_count')::int;
+  IF v_norecip_before IS NULL THEN
+    RAISE EXCEPTION '3-b 前置:造之前就讀不到 no_recipient_count ⇒ 這一節測不了任何東西';
+  END IF;
+
+  -- 🔵 **用既有的 `w3.mk_order`, 不自己抄一份 INSERT** ——
+  --    ⛔ 我第一版自己抄了三個 INSERT, 而它撞到 `oiqs_shipped_le_instock`:
+  --      那支 helper 還會建 procurement 與到貨紀錄, 而我只抄了看得見的那三句。
+  --    ⇒ 📌 **抄一半的 fixture 撞到的是【真的業務規則】, 而那道規則是對的。**
+  v_order := w3.mk_order('WRDN55');
+  -- 把它改成【兩個信箱都空】:單上的通知信箱 NULL + 那個客人的信箱是空字串
+  UPDATE public.orders
+     SET notification_email = NULL,
+         customer_user_id   = '22222222-2222-2222-2222-222222222222'
+   WHERE id = v_order;
+
+  v_ship := w3.mk_shipment(v_order, 'WRDN55', 'N-0001', v_corrected);
+
+  -- 🔴 **出貨信在【更正之後】才寄出去** —— 這一格就是那個競態:
+  --    第一代的 `sent_at < tracking_corrected_at` 對它是 **false** ⇒ 舊判準看不到它;
+  --    而第二代問「最後告知的號碼」⇒ 那封信記的是舊號碼 ⇒ 看得到它。
+  -- 🔴 **出處旗標要開** —— 這一列代表【片 B 寫的】那封出貨信(它記下了自己寄了 OLD-0000)。
+  --    ⛔ 少了它 ⇒ 這一列被當成片 B 之前的舊列 ⇒ 落到時間比較 ⇒ 寄在更正之後 ⇒ **不是候選**
+  --    ⇒ 🛑 而畫面上長得像「規則本身沒判到它」(2026-09-05 當場撞到)。
+  -- 🔵 `sent_seq` 不用自己帶:INSERT 時 status 已是 'sent' ⇒ **trigger 會蓋**。
+  INSERT INTO public.email_outbox(event_type, order_id, dedup_key, recipient_email, subject,
+                                  payload, status, sent_at, sent_tracking_number,
+                                  sent_tracking_recorded)
+  VALUES ('order_shipped', v_order,
+          public.pcm_shipped_email_dedup_key(v_ship, v_order),
+          'someone@example.com', '出貨通知',
+          pg_catalog.jsonb_build_object('shipment_id', v_ship::text),
+          'sent', v_corrected + interval '1 minute', 'OLD-0000', true);
+
+  SELECT pg_catalog.count(*) INTO v_base
+    FROM public.pcm_tracking_correction_candidates WHERE shipment_reference = 'WRDN55';
+  SELECT pg_catalog.count(*) INTO v_pending
+    FROM public.pcm_tracking_corrected_email_pending WHERE shipment_reference = 'WRDN55';
+  v_counts := public.get_tracking_corrected_gap_counts();
+  -- 🔴🔴 **先問 key 在不在**(codex R2 must-fix)—— 少了這一格:
+  --    key 不見或值是 JSON null ⇒ `v_norecip` 變 SQL NULL
+  --    ⇒ 下面的 `< 1` 與那個等式**全部得到 UNKNOWN** ⇒ `IF` 不進去 ⇒ 📌 **五格全部靜靜通過。**
+  IF NOT (v_counts ? 'no_recipient_count') THEN
+    RAISE EXCEPTION '3-b⓪:counts 沒有回 no_recipient_count 這個 key ⇒ 下面每一格都會變 UNKNOWN 而全過';
+  END IF;
+  v_norecip := (v_counts ->> 'no_recipient_count')::int;
+  IF v_norecip IS NULL THEN
+    RAISE EXCEPTION '3-b⓪-b:no_recipient_count 是 null ⇒ 同上, 下面每一格都會變 UNKNOWN';
+  END IF;
+
+  -- ① 底面看得到它(規則說「該通知」)
+  IF v_base <> 1 THEN RAISE EXCEPTION '3-b①:底面沒看到 WRDN55(% 列)⇒ 規則本身就沒判到它', v_base; END IF;
+  -- ② 主面【看不到】它(它寄不出去)—— 負對照:證明主面那一半真的在濾
+  IF v_pending <> 0 THEN RAISE EXCEPTION '3-b②:主面竟然看到 WRDN55 ⇒ 那封信寄不出去, 卻被算成「要寄」'; END IF;
+  -- ③ 告警看得到它 —— 🔴 **這一格就是那條 must-fix**:改結構之前它是 0
+  --    🛑 **而「全庫的數 >= 1」證不到【WRDN55 本身】被算進去**(codex R2 must-fix):
+  --      函式硬回一個常數 1、或漏掉 WRDN55 而誤算了別的列 ⇒ 這一格照樣過。
+  --    ✅ 所以比的是**它出現前後的差**:造它之前先記一個 `v_norecip_before`,
+  --      而**這一列必須讓那個數字剛好 +1**。
+  IF v_norecip <> v_norecip_before + 1 THEN
+    RAISE EXCEPTION '3-b③:no_recipient_count 從 % 變成 % ⇒ WRDN55 沒有【剛好】讓它 +1 ⇒ 那個數不是在數它',
+      v_norecip_before, v_norecip;
+  END IF;
+
+  -- ④ 🎯 **和 = 底面**(全體, 不只這一箱)—— 這是「互補」的機械檢查, 不是一句註解
+  SELECT pg_catalog.count(*) INTO v_base FROM public.pcm_tracking_correction_candidates;
+  SELECT pg_catalog.count(*) INTO v_pending FROM public.pcm_tracking_corrected_email_pending;
+  IF v_base <> v_pending + v_norecip THEN
+    RAISE EXCEPTION '3-b④:底面 % <> 主面 % + 無收件人 % ⇒ 兩半不互補(有列兩邊都算到, 或兩邊都漏)',
+      v_base, v_pending, v_norecip;
+  END IF;
+  -- ⑤ 🔴🔴 **這一格才是「這個 fixture 有沒有判別力」的證明。**
+  --    上面三格在【舊判準也看得到這一列】的世界裡**也會全過** ——
+  --    那時 3-b③ 的綠不是因為我修好了什麼, 是因為它本來就沒壞。
+  --    ⇒ 所以這裡直接量【第一代那個述詞】對這一列是不是 false。
+  --      false ⇒ 這一列正是舊判準漏掉的那種 ⇒ ③ 的綠是我改出來的。
+  IF EXISTS (
+       SELECT 1
+         FROM public.shipments s
+         JOIN public.shipment_items si ON si.shipment_id = s.id
+         JOIN public.order_items   oi ON oi.id = si.order_item_id
+         JOIN public.orders         o ON o.id = oi.order_id
+        WHERE s.shipment_reference = 'WRDN55'
+          AND EXISTS (SELECT 1 FROM public.email_outbox e0
+                       WHERE e0.event_type = 'order_shipped'
+                         AND e0.dedup_key  = public.pcm_shipped_email_dedup_key(s.id, o.id)
+                         AND e0.status     = 'sent'
+                         AND e0.sent_at IS NOT NULL
+                         AND e0.sent_at < s.tracking_corrected_at))
+  THEN RAISE EXCEPTION '3-b⑤:第一代述詞對 WRDN55 是 true ⇒ 舊判準也看得到它 ⇒ 這個 fixture 分不出新舊, 上面三格的綠不算數';
+  END IF;
+
+  RAISE NOTICE '✅ 3-b 五格全過:底面 % = 主面 % + 無收件人 %(而第一代述詞對它是 false ⇒ 有判別力)',
+    v_base, v_pending, v_norecip;
+END $w3nr$;
 
 -- ══ 4. 🔴 突變:把判準換回【板列給的那句】⇒ ② 必須消失 ════════════════════
 --    板列逐字:「判準改成逐字比對(寄出去的號碼 <> 現在的號碼)」——

@@ -1,5 +1,5 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十四個函式、共三十二處**手動校正,
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十四個函式、共三十五處**手動校正,
 //    ⚠️ **「函式」這兩個字今天已經【不精確】** —— ⑲ 補的是 `email_outbox` 的一個**欄位**, 不是函式
 //      (codex 2026-09-05 R1 nit 指出)。**而我刻意不改這兩個字**:
 //      `database-types-manual-count.test.ts:55` 的正規式逐字釘著 `本體另有\*\*(.+?)個函式、共`
@@ -90,7 +90,7 @@
 //      ⇒ 不補這一支, `.rpc('admin_record_hct_submit', …)` 會 typecheck 紅, 而繞過它的
 //      `as never` / `@ts-expect-error` **會把整個參數形狀的檢查一起關掉**。
 //      ⚠️ 重 gen 之後它應該自己產得出來 ⇒ 屆時本條可退場(與 ⑮ 同款)。
-//   ⑲ `email_outbox.sent_tracking_number` **三處**(`email_outbox` 的 Row / Insert / Update 各一)〔主migration=20260905200000〕〔APPLIED.tsv 無此列〕(2026-09-05 線 -ship;⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 片 B-1)——
+//   ⑲ `email_outbox` 的兩個新欄 **六處**(`sent_tracking_number` 與 `sent_tracking_recorded` 各佔 Row / Insert / Update)〔主migration=20260905200000〕〔APPLIED.tsv 無此列〕(2026-09-05 線 -ship;⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 片 B-1)——
 //      🛑 **本支的 migration 未 apply** —— 它今天才寫, 而**本片仍 hold**。
 //      🔴 **所以這一段宣告在說一件【還沒成真】的事**:它讓 `markSent` 那一發 update 寫得下去,
 //        而**寫得下去不代表正式庫有那一欄** ⇒ 貼之前那一發 update 會回 `PGRST204`(找不到欄位)。
@@ -931,6 +931,7 @@ export type Database = {
           request_id: string | null
           sent_at: string | null
           sent_tracking_number: string | null
+          sent_tracking_recorded: boolean
           status: string
           subject: string
         }
@@ -950,6 +951,7 @@ export type Database = {
           request_id?: string | null
           sent_at?: string | null
           sent_tracking_number?: string | null
+          sent_tracking_recorded?: boolean
           status?: string
           subject: string
         }
@@ -969,6 +971,7 @@ export type Database = {
           request_id?: string | null
           sent_at?: string | null
           sent_tracking_number?: string | null
+          sent_tracking_recorded?: boolean
           status?: string
           subject?: string
         }

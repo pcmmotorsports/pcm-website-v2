@@ -389,3 +389,116 @@ plan `:51` 判準逐字是「**`sent_at` 最大那一封**」;而 migration 已�
 · 🔴 Sean 09-05 拍的 Q-更正信範圍 = 甲(寄出那一刻再核一次號碼)【尚未併進本片】
   ⇒ 而它與①是同一個落點問題:那道核對也要在「寄出的那一發」上做。
 ```
+
+
+---
+
+# 🏁 2026-09-05 片 B-2 —— **上面那 13 條的處置(逐條, 而不是「都修了」)**
+
+> 片 B-1 = `084e7ed9b`(`agent/line-ship-5b-sentnum`);片 B-2 = 本節這一顆。
+> 🔴 **兩條「推翻設計」的先講** —— 它們不是被修掉的, 是被**做掉**的。
+
+## ①② 兩條推翻設計的
+
+| # | 原判定 | 今天的事實 |
+|---|---|---|
+| ① `markSent` 收不到號碼 | plan §4 的落點寫不出來, 三條路(甲改簽章 / 乙新方法 / 丙分兩發) | ✅ **走甲**。`markSent(id, attempts, sentTrackingNumber)`, 與 `sent_at` 同一發 update(`084e7ed9b`)。丙被排除的理由留在碼裡:**一個修競態的修法自己帶了一個競態。** |
+| ② plan `:51` 說 `sent_at`, migration 用 `sent_seq` | 而我當時寫「前文逐條成立」 | ✅ `:51` 那一格**已被 migration 取代**;而今天又動了一次:**排序主鍵改回 `sent_at`**, `sent_seq` 只在同刻決勝(見下面「滾動部署」那條)。⇒ 📌 `:51` 的**方向**是對的, 錯的是它當時的**唯一性**。 |
+
+## 其餘 11 條 + 我自己找到的第 12 條
+
+| # | 條目 | 處置 |
+|---|---|---|
+| 1 | `:388` `no_recipient_count` 停在第一代判準 | ✅ **改結構**:規則搬進底面 `pcm_tracking_correction_candidates`, 主面與 counts 各加一半條件(互為否定)。⇒ 兩份規則變一份。**量法**:`sent-tracking-three-worlds.sql` §3-b 五格 —— 造一箱「競態 + 兩個信箱都空」, 量到 **底面 7 = 主面 6 + 無收件人 1**, 而**第一代述詞對它是 false**(⇒ 這個 fixture 分得出新舊)。 |
+| 2 | `:329` 髒 payload 的永久假陽性 | ✅ **改的是宣稱不是碼**:互補面原本說那些箱「更正信永遠不會被排」—— **那句話是錯的**(fixture 裡 `WRDB22` 仍進主面)。改寫成它真正的語意:**資料品質訊號**(有信寄出去了而我們讀不出它是哪一箱的), **不預測**那一箱會不會被排。 |
+| 3 | `:120` `sent_seq` 是落表順序不是寄出順序 | ⚠️ **修不掉, 寫成天花板**:那個窗 = provider 回 200 到我們寫 DB 之間, 要消掉得由 provider 給全域單調送出序, 而 Resend 不給。✅ 而**降低了它的權重**:排序主鍵改成 `sent_at`, 它只同刻決勝。 |
+| 4 | `:54` rollback 是含 `...` 的不可執行範例 | ✅ 寫成**真的一支檔**:`supabase/rollbacks/20260905200000-rollback.sql`(逐字可貼、自帶前置閘與後置驗收六格)。📌 **一份要在事故當下被使用的東西, 驗收條件是【貼得下去】不是【讀得懂】。** |
+| 5 | 同上:互補 view 可留而 counts 仍引用它 ⇒ 回退後執行期炸 | ✅ rollback 檔裡寫明順序:**先重貼 `20260904280000`(counts 回舊版)、再收掉本檔的物件**;並說明為什麼**不在 rollback 檔裡抄第三份 counts body**。 |
+| 6 | `:67` rollback 留欄 + forward 前置閘拒絕 ⇒ 無法重貼 | ✅ 前置閘②改成「**兩欄要嘛都在、要嘛都不在**」(都在 = 回退後重貼, 合法);「已經貼過了」改由 ①b 偵測(view 已是第二代 —— **那是唯一一個不會被 rollback 留下的痕跡**)。欄位與序列都加 `IF NOT EXISTS`。 |
+| 7 | `:306` 新 view 只 GRANT 沒 REVOKE | ✅ 兩支新 view 都補上兩道 REVOKE;事後閘加 ①e/①f(底面)與**一格正對照**(service_role 讀得到)。 |
+| 8 | (nit)`:142` 「貨運單號不是 PII」過度絕對 | ✅ **收窄**:它是**間接識別碼**(可連回訂單、地址、物流軌跡)⇒ 照 PII 規矩走。⚠️ 而「要不要進保存期限清單」**沒有人拍過** —— 寫成已知缺口。 |
+| 9 | `:245` 滾動部署時新 writer 的非 NULL seq 永遠壓過舊 writer | ✅ **排序主從對調**:`ORDER BY last.sent_at DESC, last.sent_seq DESC NULLS LAST`。混合狀態由**兩邊都有的** `sent_at` 決定;過渡期最上面那列若沒有 seq ⇒ 走回落分支 = **今天的行為**(安全方向)。加**釘樁⑧**釘這個順序。 |
+| 10 | `PgAnomalyAlertReaderAdapter` 缺 key 永久降級成 null 而 unknown 仍 false | ✅ **缺 key 現在把 `trackingCorrectedGapUnknown` 帶成 true**。值仍是 `null`(不進 shouldAlert ⇒ 不會天天寄信), 而**它不再自稱正常**。理由:造成這個組合的不只部署窗口, **反向部署 / rollback / schema drift 都是永久狀態**。 |
+| 11 | `sent-tracking-mutations.sh:74` 只期待泛化的 `ERROR` | ✅ 只認 `invalid input syntax for type uuid`;其餘折成 `ERROR-其他:<訊息>` ⇒ 那一格會紅並印出真正的錯。**順手修了兩個它自己的毛病**:①錨只命中【註解】也算命中(當場踩到:C 格突變了一行刪除線裡的舊字面, 一個字都沒改到碼)②它跑完會弄髒庫 ⇒ 只能跑一次 ⇒ 改成每發在 `CREATE DATABASE … TEMPLATE` 的複本上跑。 |
+| 12 | (nit)race probe 的 gen2 用 `sent_tracking_number IS NOT NULL` | ✅ 對齊成 `sent_seq IS NOT NULL` 與新的排序。📌 **結論沒垮(兩個模型都得到同一個結論), 而射程被我寫寬了。** |
+| **13** | 🔴🔴 **我自己找到的:【沒有任何東西在寫 `sent_seq`】** | ⛔ migration 加了那一欄, 而 `markSent` 只帶 `sent_tracking_number` ⇒ 它**永遠是 NULL** ⇒ 底面的 `WHEN … sent_seq IS NOT NULL` **永遠不成立** ⇒ 🛑 **整片行為上等於沒做**。而它**全綠**:apply 成功、每一道釘樁過、告警印正常數字。✅ 修法 = `BEFORE UPDATE` trigger 在同一發蓋章 + 事後閘①g 驗它裝上去了 + `scripts/sent-seq-trigger-probe.sql` 驗它真的會蓋(把它換成什麼都不做 ⇒ 第一格當場紅)。 |
+
+## 🛑 這一節沒做什麼
+```
+· 沒有量「多 instance 是否真的會亂序」—— 那要兩個實例在跑(第 3 條的天花板仍是天花板)
+· 沒有在正式庫上驗任何一格 —— 全部在拋棄式 PG。角色 / RLS / PostgREST 那一層在本機是假的
+· 沒有動 deploy-order-gate —— 它對 column 是瞎的, 而那是 Sean 2026-08-11 Q2=B 的板
+```
+
+
+---
+
+# 🔴🔴 2026-09-05 codex **R2** —— 22 條, 而其中一條是**我的修法自己造出來的**
+
+> R1 是 FAIL(13 條)⇒ 照 `00-work-rules §5` 修完跑 R2。R2 又回 **11 must-fix + 6 nit**(去重後)。
+> 🛑 **而 R2 最重要的那一條, 打的是我在 R1 修出來的東西** —— 那不是「又漏了一個」, 是
+> 📌 **一個修法可以在修好 A 的同時, 用同一個動作造出 B。**
+
+## ⓪ 那一條:trigger 蓋錯對象
+
+| | |
+|---|---|
+| 我在 R1 做了什麼 | 加一道 `BEFORE UPDATE` trigger 蓋 `sent_seq`(因為**沒有人在寫那一欄**) |
+| 而掃描面怎麼用它 | `sent_seq IS NOT NULL` ⇒ **「這一列是片 B 寫的」**(我稱之為「一欄兩用」) |
+| 🛑 R2 指出 | trigger 蓋**每一列**進 sent 的 —— 包括**舊 writer 寫的**(它不寫號碼) |
+| 後果 | 在**我們自己指定的部署順序**上(先貼 migration、後上 app):舊 writer 的列有 seq、沒號碼 ⇒ 判成「片 B 寫的而沒告訴過客人號碼」⇒ **多寄一封更正信給號碼本來就正確的客人**。信收不回來(鐵則 12⑤)。 |
+| 🎯 形狀 | **我把「這一列什麼時候進 DB」與「這一列是誰寫的」塞進同一欄。裝上 trigger 的那一刻, 第一件事的答案變了, 而第二件事跟著錯 —— 而沒有訊號。** |
+| ✅ 修法 | 拆成兩欄:`sent_tracking_recorded boolean`(**應用層寫**, 答「誰寫的」)+ `sent_seq`(**trigger 蓋**, 只答排序)。 |
+| 量具 | 三世界新增世界 **⑥-b(WRDF55)**;突變 harness 新增 **E 格**(分代改回問 seq ⇒ WRDF55 **多出來**);兩連線探針新增 **第 5 組**(5-c 不寄 / 5-d 會寄)。 |
+
+## 其餘 21 條(逐條)
+
+**排序與分代**
+- `:358` `sent_at` 是應用主機時鐘 ⇒ ✅ 排序主鍵**改回 `sent_seq`**(R1 時我為了「舊 writer 沒 seq」把它換成 `sent_at`, 而**那個理由被 trigger 推翻了**:裝了 trigger 之後每一列進 sent 的都有 seq ⇒ 沒有 seq 的一定比較舊)。釘樁⑧ 跟著改字面。
+- 新增**釘樁⑩**:分代必須用 `sent_tracking_recorded`。
+
+**trigger 本身**
+- `:220` 只掛 UPDATE ⇒ 直接 `INSERT status='sent'` 的列永遠沒有 seq ⇒ ✅ 改成 `BEFORE INSERT OR UPDATE`。
+- `:198` 呼叫端自帶值可繞過蓋章 ⇒ ✅ 改成**無條件覆寫**(而 `OLD.status IS DISTINCT FROM 'sent'` 仍然擋重蓋;`sent→failed→sent` 會重蓋, **而那是對的**)。
+- ⚠️ 代價明寫:fixture 要造「migration 之前就 sent 的舊列」得**先 INSERT 再一發 UPDATE 設 NULL**。
+
+**前置閘**
+- `:102` 只數欄位在不在, 不驗型別 / 序列狀態 ⇒ ✅ 加 **②-b 型別**(`sent_seq` 若是 `text` ⇒ 排序變**字典序** `'10' < '9'`, 而每一道閘照樣綠)、**②-c 序列增量為正**、**②-d 序列不得落後於欄位最大值**。
+- 🔴 **而 ②-d 那一行第一版寫錯了**:`pg_catalog.last_value` / `pg_catalog.coalesce` —— 前者是**序列關聯的欄位**、後者是**關鍵字**, 兩個都不能加前綴。⇒ `missing FROM-clause entry for table "pg_catalog"`。**它只在【序列已存在】時跑得到 ⇒ 從零重播 313 支永遠碰不到它** ⇒ 📌 抓到它的是**真的跑一次 rollback 再重貼**。
+
+**權限**
+- `:297` `CREATE OR REPLACE VIEW` **保留既有 ACL** ⇒ 只收 PUBLIC/anon/authenticated 擋不到**別的具名角色** ⇒ ✅ 加**事後閘①h**:把三支 view 的 grantee 整個撈出來, 只允許 owner 與 `service_role`。
+- `:705` counts 的 EXECUTE 只問 anon ⇒ ✅ 補 `authenticated`(同樣因為 `CREATE OR REPLACE` 保留 ACL)。
+- `:799` invoker view 的內建函式 EXECUTE 斷言**問錯角色** ⇒ ✅ 改問 `service_role`(真正直接查 view 的那個);`payment_confirmer` 走的是 SECDEF 函式, 有效身分是 postgres。
+- `:693` `authenticated` 對 `sent_seq` 漏問 ⇒ ✅ 補;第三欄兩個角色也各補一格。
+
+**rollback**
+- `:114` 叫人「先重貼 `20260904280000`」而**那支是 `CREATE FUNCTION` 不是 `CREATE OR REPLACE`** ⇒ 重貼直接 duplicate function。
+- `:119` DROP 掉 counts 仍在引用的 view ⇒ **PL/pgSQL 函式體不建立 catalog 相依** ⇒ DROP 不被擋、交易 COMMIT ⇒ **下一次呼叫才炸**。
+- `:125` 後置驗收**從來沒有叫過那支 counts** ⇒ 上面那個世界六格全綠。
+- ✅ 三條一起修:**rollback 改小範圍** —— 只做「讓信恢復成第一代判準」(換回主面 + 收掉 trigger), 底面 / 互補面 / `pcm_safe_uuid` / counts **全部留著**(它們是唯讀的, 而刪掉會弄壞一個仍在被呼叫的函式)。後置加 **⑦ `PERFORM public.get_tracking_corrected_gap_counts()`** —— 📌 **「交易成功而下一次呼叫才炸」那個世界, 只有【叫它一次】才看得見。**
+- 🔴 **而修完之後實跑 rollback → 重貼, 又撞到 `前置閘④b`**(counts 的 md5 樁):rollback 刻意留著**本檔裝的那一版** ⇒ 樁只認舊版 ⇒ 重貼永遠過不了。✅ 改成**兩個 md5 都認**, 並寫明第二個是**自我指涉**的(動了 body 要重量)。⇒ 📌 **「rollback 之後可以重貼」這件事, 我修了兩次才真的成立 —— 而第一次我以為修好了。**
+
+**探針**
+- `:318` `no_recipient_count` 缺 key / 回 null ⇒ `v_norecip` 變 SQL NULL ⇒ 比較全變 UNKNOWN ⇒ **五格靜靜通過** ⇒ ✅ 先問 `? 'no_recipient_count'` 再問值。
+- `:325` ③讀的是**全庫**的數 ⇒ 函式硬回常數 1 也過 ⇒ ✅ 改成量**造它之前/之後的差, 必須剛好 +1**。
+- `sent-seq-trigger-probe:52` 只驗「有沒有蓋章」—— 而**那正是舊 writer 的狀態** ⇒ ✅ 加第五格:trigger **不准**順手打開出處旗標、也不准動號碼。
+- `sent-seq-trigger-probe:8` 「零留痕」不成立(`nextval` 不回滾)⇒ ✅ 收窄成「**資料**零留痕」, 並寫明每發永久消耗兩到三個序號。
+- `race-probe:76` 造不出「舊 writer 被蓋 seq 而沒號碼」的世界 ⇒ ✅ 加第三欄與**第 5 組**(24 格)。
+- `mutations:53` 固定 `/tmp` 檔名, 多窗併發互相覆寫 ⇒ ✅ 檔名帶 PID。
+
+**文件字面**
+- `:518` `CREATE OR REPLACE FUNCTION` **不換 COMMENT** ⇒ 資料庫上那句話仍說三個 key ⇒ ✅ 重下 COMMENT(四個 key + 兩半互補)。
+- `:733` 「新可授權物件正好 2 個」失真 ⇒ ✅ 改成 3 view + 2 函式 + 1 序列, 並把兩個陣列標成**這道閘的分母**。
+- `PgAnomalyAlertReaderAdapter:904` 註解說「避免整條 route 503」而現在 `unknown=true` 會讓 route 回 503 ⇒ ✅ 訂正成「**換到的不是不 503, 是 503 的理由說得出來**」。
+
+## 量到的(R2 修完之後重跑, 全部在拋棄式 PG)
+```
+313 支從零重播             本支 apply 成功
+apply → rollback → 重貼     ✅ 走得通(而它是修了兩次才成立的)
+三世界 §3 集合              ✅ 相符, 而 WRDF55(部署窗口)【不在】集合裡
+三世界 §3-b                 ✅ 五格:底面 7 = 主面 6 + 無收件人 1
+trigger 探針                ✅ 五格(第五格:蓋章 ≠ 出處)
+突變 harness                11/11(A order · B UUID · C 排序 · D 分代 · E 部署窗口)
+兩連線競態探針              24/24(第 5 組:5-c 不寄 / 5-d 會寄)
+```

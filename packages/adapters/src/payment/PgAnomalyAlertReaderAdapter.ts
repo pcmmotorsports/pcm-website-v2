@@ -908,8 +908,13 @@ const RAISE_EXCEPTION = 'P0001';
  *   📌 **既有的降級只擋【函式不存在】, 擋不到【函式在而少一個 key】** —— 兩者在部署順序上是
  *     同一種風險, 而只有前者有出口。
  *
- * ✅ **折衷:不 throw, 而【也不安靜】** —— 印一行 `console.error` 再回 `null`。
- *   `null` 不進 `shouldAlert` ⇒ 不會變成一封每天寄的信;而 log 有一行 ⇒ 它不是無聲的。
+ * ✅ **折衷:不 throw, 而【也不安靜】** —— 印一行 `console.error`、回 `null`,
+ *   **並且把 `trackingCorrectedGapUnknown` 帶成 `true`**(2026-09-05 codex R1)。
+ * 🔴 **所以「避免整條 route 503」那句話今天只對了一半**(codex R2 nit 指出):
+ *   `unknown=true` 會被帶進 route 的回應, 而**線已上膛時那條路本來就會回 503**
+ *   ⇒ 📌 **我們換到的不是「不 503」, 是「503 的理由說得出來」** ——
+ *     從「函式壞了(throw)」變成「那一格我們沒讀到(unknown)」。
+ *   ⇒ 而**寄信那一半仍然活著**:`null` 不進 `shouldAlert` ⇒ 不會變成一封每天寄的信。
  * 🔴 **代價寫出來**:片 A apply 之後, 若哪天那個 key 又消失了, 這裡會**降級而不是叫**
  *   ⇒ 那是一個**永久的**寬容, 換一個**一次性的**部署窗口。
  *   ⇒ ⇒ **而換得值不值, 判準是「哪一種壞法比較貴」**:少一個 key ⇒ 少一格計數;
@@ -920,17 +925,26 @@ function readPayloadUnparseable(
   unknownState: boolean,
   row: Record<string, unknown> | undefined,
   read: (key: string) => number | null,
-): number | null {
-  if (unknownState || row === undefined) return null;
+): { value: number | null; keyAbsent: boolean } {
+  if (unknownState || row === undefined) return { value: null, keyAbsent: false };
   if (!(PAYLOAD_UNPARSEABLE_KEY in row)) {
     console.error(
       `[anomaly-alert] ⚠️ ${TRACKING_CORRECTED_FN} 沒有回 ${PAYLOAD_UNPARSEABLE_KEY} ⇒ 那一格降級成【查不到】。` +
         '最可能的原因是 20260905200000 還沒 apply(碼先上線的部署窗口)。',
       { reason: 'tracking_corrected_payload_unparseable_key_absent' },
     );
-    return null;
+    // 🔴🔴 **2026-09-05 codex R1 must-fix:回 `null` 是不夠的。**
+    //    ⛔ ~~只回 null 而 `trackingCorrectedGapUnknown` 維持 `false`~~
+    //    🛑 那組合在 route 的回應上長成**「查過了, 沒有異常」** ——
+    //      而真相是「我們根本沒讀到那一格」。
+    //    ⇒ 🎯 而**會造成這個組合的不只部署窗口**:反向部署(rollback 到舊 migration)、
+    //      schema drift、有人手動 REPLACE 掉那支函式 —— **三種都是永久狀態, 不是一晚。**
+    //    ⇒ 📌 一行 `console.error` 只有翻 log 的人看得到, 而**沒有人會去翻一個沒有人叫的夜晚**。
+    // ✅ 所以**把「缺 key」帶出去**:值仍然是 `null`(不進 shouldAlert ⇒ 不會天天寄信),
+    //    而 `trackingCorrectedGapUnknown` 變 `true` ⇒ **它在回應上就不再自稱正常。**
+    return { value: null, keyAbsent: true };
   }
-  return read(PAYLOAD_UNPARSEABLE_KEY);
+  return { value: read(PAYLOAD_UNPARSEABLE_KEY), keyAbsent: false };
 }
 
 function parseCount(v: unknown, field: string, fn = 'get_payment_anomaly_alert_summary'): number {
@@ -1238,6 +1252,12 @@ function parseAlertSummary(
   }
   const trackingCorrectedCount = (key: string): number | null =>
     trackingCorrectedGapUnknown ? null : parseCount(tcg![key], key, TRACKING_CORRECTED_FN);
+  // 🔴 先算, 因為它的「缺 key」要餵回 `trackingCorrectedGapUnknown`(見那支函式裡的說明)。
+  const payloadUnparseable = readPayloadUnparseable(
+    trackingCorrectedGapUnknown,
+    tcg,
+    trackingCorrectedCount,
+  );
 
   const ocs = orderCreatedStuckRows[0]?.result as Record<string, unknown> | undefined;
   // 🔴 `undefined` = **沒查**(兩顆 env 任一沒設 / 函式尚未 apply)⇒ 兩格都回 null, **不是 0**。
@@ -1303,12 +1323,10 @@ function parseAlertSummary(
      *   key 在而值壞掉 ⇒ **照舊 throw**(那是真的壞了, 不該被吞)。
      * 🟢 抓到它的是我自己新加的那格測試 —— 而它紅的時候我以為是 fixture 沒補。
      */
-    trackingCorrectedPayloadUnparseableCount: readPayloadUnparseable(
-      trackingCorrectedGapUnknown,
-      tcg,
-      trackingCorrectedCount,
-    ),
-    trackingCorrectedGapUnknown,
+    trackingCorrectedPayloadUnparseableCount: payloadUnparseable.value,
+    // 🔴 **缺 key 也算「不知道」**(codex R1 must-fix)——
+    //    見 `readPayloadUnparseable` 裡那段:`null` + `unknown=false` 在回應上自稱正常。
+    trackingCorrectedGapUnknown: trackingCorrectedGapUnknown || payloadUnparseable.keyAbsent,
     // 🔵 訊號4 持續失敗那兩格。null = 沒查(兩顆 env 任一沒設)或函式尚未 apply
     //   🔴 **不寫成 0** ——「還沒上膛」與「今天沒有卡住的單」在一個裸數字上長得一模一樣。
     orderCreatedStuckCount: stuckNum('stuck_count'),

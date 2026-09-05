@@ -1034,11 +1034,14 @@ describe('🔴 更正單號信 gap counts:【成功路徑】—— 而它原本�
       86400, 43200, 600, null, 900, null, null,
     );
 
-  it('🟢 RPC 存在 ⇒ 三格解析成具體的數, 而 unknown=false', async () => {
+  it('🟢 RPC 存在而四個 key 都在 ⇒ 解析成具體的數, 而 unknown=false', async () => {
     const out = await run({
       pending_count: 7,
       no_recipient_count: 2,
       corrected_shipments_total_count: 9,
+      // 🔴 **2026-09-05 補上這一行**:少了它就不是「一切正常」那個世界了 ——
+      //    缺 key 現在會讓 `trackingCorrectedGapUnknown` 變 true(codex R1 must-fix)。
+      payload_unparseable_count: 0,
     });
     // 🔴 承重:把 `trackingCorrectedCount(...)` 硬寫成 null ⇒ 這三行全紅。
     expect(out.trackingCorrectedPendingCount).toBe(7);
@@ -1060,10 +1063,17 @@ describe('🔴 更正單號信 gap counts:【成功路徑】—— 而它原本�
       corrected_shipments_total_count: 9,
     });
     expect(out.trackingCorrectedPayloadUnparseableCount).toBeNull();
-    // 🔴 承重:其餘三格必須完全不受影響 —— 否則這個「折衷」把整段帶走了。
+    // 🔴 承重:其餘兩格必須完全不受影響 —— 否則這個「折衷」把整段帶走了。
     expect(out.trackingCorrectedPendingCount).toBe(7);
     expect(out.trackingCorrectedNoRecipientCount).toBe(2);
-    expect(out.trackingCorrectedGapUnknown).toBe(false);
+    // 🔴🔴 **2026-09-05 codex R1 must-fix 之後這一格從 `false` 改成 `true`。**
+    //    ⛔ ~~`expect(out.trackingCorrectedGapUnknown).toBe(false)`~~
+    //    🛑 `count = null` 配上 `unknown = false` 在 route 的回應上讀起來是
+    //      **「查過了, 沒有異常」** —— 而真相是「那一格我們沒讀到」。
+    //    ⇒ 而造成這個組合的不只部署窗口:**反向部署 / rollback / schema drift** 都會
+    //      ⇒ **那些是永久狀態**, 不是一晚。
+    // ✅ 現在:值仍是 null(不進 shouldAlert ⇒ 不會天天寄信), 而它**不再自稱正常**。
+    expect(out.trackingCorrectedGapUnknown).toBe(true);
   });
 
   it('🟢 key 在 ⇒ 它被讀成具體的數(證明上面那格不是恆 null)', async () => {
