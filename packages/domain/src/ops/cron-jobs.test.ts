@@ -38,6 +38,8 @@ describe('🔴 六支排程的門檻是【唯一來源】,而這裡把值釘住'
       ['pcm-expire-unpaid-orders', 180],
       ['pcm-order-ineligible-gate', 6],
       ['pcm-settle-sweep', 6],
+      // 🔵 2026-09-05 加(⟦b9-ACLDRIFT5⟧ 片一 20260905140000)
+      ['pcm-acl-digest', 2 * 24 * 60],
     ]);
   });
 
@@ -47,7 +49,7 @@ describe('🔴 六支排程的門檻是【唯一來源】,而這裡把值釘住'
    *      而真正發生的是「那支排程再也沒有人在看了」。**兩個訊息要分得開。**
    */
   it('剛好六支 —— 少一支 = 那支排程再也沒有人在看,而它不會自己出聲', () => {
-    expect(CRON_JOB_WHITELIST.length).toBe(6);
+    expect(CRON_JOB_WHITELIST.length).toBe(7);
   });
 
   /**
@@ -58,7 +60,9 @@ describe('🔴 六支排程的門檻是【唯一來源】,而這裡把值釘住'
    * 🛑 這一格若被誤刪,那支的失敗計數會變成一個**恆為 0 的健康證明**。
    */
   it('失敗計數無意義的名單 = 只有那支純 SQL 的(它寫不出失敗心跳)', () => {
-    expect([...FAILURE_COUNT_MEANINGLESS]).toEqual(['pcm-expire-unpaid-orders']);
+      // 🔵 2026-09-05 加 pcm-acl-digest:同一個物理限制(純 SQL, 同交易的失敗心跳會被回捲)。
+      //    🔴 而它與 expire 那支的差別只有【碰不碰錢】—— 後果不同, 而【量不到】是一樣的。
+      expect([...FAILURE_COUNT_MEANINGLESS]).toEqual(['pcm-expire-unpaid-orders', 'pcm-acl-digest']);
   });
 
   it('🟢 名單裡的每一支都真的在白名單裡(否則它排除的是一個不存在的東西)', () => {
@@ -140,6 +144,8 @@ describe('⟦b9-HBSEMANTIC⟧ 週期對照表 —— 而它不解析 cron 運算
     '*/10 * * * *': 10,
     '0 * * * *': 60,
     '0 1 * * *': 1440,
+      // 🔵 每天 00:00(⟦b9-ACLDRIFT5⟧ 片一)—— 與 '0 1 * * *' 同週期, 不同時刻
+      '0 0 * * *': 1440,
   };
 
   it('🔴 白名單裡每一支的 schedule 都要在對照表上(加 job 或改 schedule ⇒ 當場紅)', () => {
@@ -158,23 +164,31 @@ describe('⟦b9-HBSEMANTIC⟧ 週期對照表 —— 而它不解析 cron 運算
   });
 
   /**
-   * 🔴 **這一格才是那一列在講的東西**:比值把六支分成兩種語意,
+   * 🔴 **這一格才是那一列在講的東西**:比值把七支分成兩種語意,
    * 而它們今天**印同一句話**。
    * ```
    * 比值 >= 2 ⇒ 門檻至少兩個週期 ⇒ 要【連續錯過一整輪以上】才叫 ⇒ 語意是「它停了嗎」
    * 比值 <  2 ⇒ 一輪都不必錯過 ⇒ 只要那一輪晚了就叫       ⇒ 語意是「它準時嗎」
    * ```
    * 🛑 **而 2.0 這條線【不承重】** —— 它只決定那句話怎麼寫, 不決定叫不叫。
-   *    六支現值是 3.0 ×5 與 1.08 ×1 ⇒ 分界放在 1.5–2.9 之間結果都一樣。
+   *    ~~六支現值是 3.0 ×5 與 1.08 ×1 ⇒ 分界放在 1.5–2.9 之間結果都一樣。~~
+   * 🔴 **[2026-09-05 訂正 —— 加了第七支之後這句不再成立]**:
+   *    `pcm-acl-digest` 的比值是 **2880 / 1440 = 恰好 2.0** ⇒ **它正踩在分界線上**。
+   *    ⇒ 分界改成 2.1 的話, 它會從「它停了嗎」翻成「它準時嗎」—— 而那句話會變成假的
+   *      (它一天只跑一次, 沒有「準不準時」可言)。
+   *    📌 **⇒ 那條線現在【承重】了, 而它是因為多了一支才承重的。**
+   *    🔵 要移動它之前:先看有沒有哪一支正好落在新舊分界之間。
    */
-  it('🔴 六支分成兩種語意 —— 五支答【它停了嗎】, 一支答【它準時嗎】', () => {
+  it('🔴 七支分成兩種語意 —— 六支答【它停了嗎】, 一支答【它準時嗎】', () => {
     const byMeaning = { 停了嗎: [] as string[], 準時嗎: [] as string[] };
     for (const w of CRON_JOB_WHITELIST) {
       const period = PERIOD_MINUTES_BY_SCHEDULE[w.schedule]!;
       (w.staleMinutes / period >= 2 ? byMeaning.停了嗎 : byMeaning.準時嗎).push(w.jobName);
     }
     expect(byMeaning.準時嗎).toEqual(['pcm-anomaly-alert']);
-    expect(byMeaning.停了嗎).toHaveLength(5);
+    expect(byMeaning.停了嗎).toHaveLength(6);
+    // 🔴 釘住那個【恰好 2.0】—— 它是分界開始承重的那一刻。
+    expect(2880 / 1440).toBe(2);
     // 🔵 而那個 1.08 要釘住:它是這一列存在的理由, 而它被調過就該回來讀這一段。
     expect(1560 / 1440).toBeCloseTo(1.083, 3);
   });
