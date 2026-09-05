@@ -50,6 +50,7 @@ const UNDEFINED_FUNCTION = '42883';
 const RPC_MANUAL_SEARCH = 'get_manual_customer_search_summary';
 const RPC_SEARCH_LOG_HEALTH = 'get_search_log_health';
 const RPC_STUCK_BANK_HEALTH = 'get_stuck_bank_orders_health';
+const RPC_SYNC_STALE = 'get_supplier_sync_stale_counts';
 
 function defaultClientFactory(connectionString: string): PgClientLike {
   return new Client(buildPgConfig(connectionString)) as unknown as PgClientLike;
@@ -769,6 +770,81 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
    *      回得出 oid ⇒ 那個 42883 來自**函式內部** ⇒ **原封上拋**。
    * 🔵 那一發 probe 只在錯誤路徑跑, 正常情況零成本。
    */
+  /**
+   * ⟦supply-SYNCTIMEOUTPARTIAL⟧ 同步卡住的讀數。形狀照本檔既有 RPC 的成例。
+   *
+   * 🛑 **RPC 不存在 ⇒ 回 `null`, 不是 throw** —— 那是「碼先上、DB 後貼」的安全帶:
+   *    照本檔既有那兩支的走法, 用 `to_regprocedure`(**帶簽章**)確認它真的不在才吞。
+   *    🔴 **不可以改用 `to_regproc`** —— 它對【多載】的名字回 NULL,
+   *      ⇒ 那會讓「有兩支多載」與「一支都沒有」印同一個東西
+   *      (2026-09-06 實測:`to_regproc('public.create_order')` 回 NULL 而它有 2 支)。
+   */
+  async getSupplierSyncStaleCounts(): Promise<{
+    readonly staleOpen: number;
+    readonly staleSuppliers: readonly string[];
+    readonly openRecent: number;
+    readonly failedLatest: number;
+    readonly suppliersSeen: number;
+    readonly staleHours: number;
+  } | null> {
+    return this.run(async (client) => {
+      let raw: unknown;
+      try {
+        const res = await client.query(
+          `SELECT public.${RPC_SYNC_STALE}() AS result`,
+          [],
+        );
+        raw = res.rows[0]?.result;
+      } catch (err) {
+        if ((err as { code?: unknown } | null)?.code !== UNDEFINED_FUNCTION) throw err;
+        const probe = await client.query(
+          `SELECT to_regprocedure('public.${RPC_SYNC_STALE}(integer)') IS NULL AS missing`,
+          [],
+        );
+        if (probe.rows[0]?.missing !== true) throw err;
+        return null;
+      }
+
+      if (raw === null || typeof raw !== 'object') {
+        throw new AnomalyAlertReaderParseError(`${RPC_SYNC_STALE} 回應形狀不符`);
+      }
+      const bag = raw as Record<string, unknown>;
+
+      // 🔴 `stale_suppliers` 要逐個驗型別 —— 一個 `[1,2]` 會安靜地變成信裡的 "1, 2"
+      const rawList = bag.stale_suppliers;
+      if (!Array.isArray(rawList)) {
+        throw new AnomalyAlertReaderParseError(`${RPC_SYNC_STALE} stale_suppliers 不是陣列`);
+      }
+      const staleSuppliers = rawList.map((x, i) => {
+        if (typeof x !== 'string') {
+          throw new AnomalyAlertReaderParseError(
+            `${RPC_SYNC_STALE} stale_suppliers[${i}] 不是字串(實得 ${typeof x})`,
+          );
+        }
+        return x;
+      });
+
+      const staleOpen = parseCount(bag.stale_open, 'stale_open', RPC_SYNC_STALE);
+      // 🔴🔴 **兩個數要一致才敢用** —— `stale_open` 與那份名單是同一個 SQL 的兩個投影,
+      //    而它們**在 DB 那邊是分開算的**(兩個子查詢)。不一致 ⇒ 有一邊的條件被改過
+      //    ⇒ 📌 這時候寧可 throw, 也不要挑一個數字寄出去。
+      if (staleSuppliers.length !== staleOpen) {
+        throw new AnomalyAlertReaderParseError(
+          `${RPC_SYNC_STALE} stale_open=${staleOpen} 而名單長度=${staleSuppliers.length} ⇒ 兩個投影對不上, 拒用`,
+        );
+      }
+
+      return {
+        staleOpen,
+        staleSuppliers,
+        openRecent: parseCount(bag.open_recent, 'open_recent', RPC_SYNC_STALE),
+        failedLatest: parseCount(bag.failed_latest, 'failed_latest', RPC_SYNC_STALE),
+        suppliersSeen: parseCount(bag.suppliers_seen, 'suppliers_seen', RPC_SYNC_STALE),
+        staleHours: parseCount(bag.stale_hours, 'stale_hours', RPC_SYNC_STALE),
+      };
+    });
+  }
+
   async getStuckBankOrdersHealth(): Promise<{
     readonly stuckCount: number;
     readonly oldestCreated: string | null;

@@ -189,8 +189,16 @@ async function main(): Promise<void> {
   //    「在讀來源那一段被砍」的那個世界。
   // 🔵 寫不進去**不擋同步**(回 null 並大聲 log)—— 為了觀測而讓同步變脆, 是把一個
   //    「有時候沒留痕」的問題換成「有時候不同步」, 而後者的傷害大得多。
-  syncRunClient = target as unknown as SyncRunLogClient;
-  syncRunId = await openSyncRun(syncRunClient, config.supplierSlug, currentRunRef());
+  // 🔴🔴 **只有【真的會寫】的那一趟才留痕**(2026-09-06 codex must-fix ①):
+  //    我第一版把開工 INSERT 放在 `DRY_RUN` 判斷之前 ⇒ 而乾跑會在 `:675` 直接 `return`,
+  //    **走不到收工那一行** ⇒ 📌 **每一次成功的乾跑, 六小時後都會變成一個假告警。**
+  //    ⇒ 🛑 而那不是偶發 —— 它是**保證**發生, 因為乾跑的正常路徑就是提早 return。
+  //    ⇒ 🎯 一個為了「看得見沒跑完」而做的東西, 會把「跑得很好的乾跑」報成沒跑完。
+  //    ✅ 乾跑本來就不寫資料 ⇒ 它沒有「半套」可言 ⇒ **不留痕才是對的**, 不是「補一個 close」。
+  if (!DRY_RUN) {
+    syncRunClient = target as unknown as SyncRunLogClient;
+    syncRunId = await openSyncRun(syncRunClient, config.supplierSlug, currentRunRef());
+  }
 
   console.log(`[rpm-import] ${DRY_RUN ? 'DRY-RUN' : 'WRITE'} 模式 / supplier=${config.supplierSlug} / 讀報價單乾淨 view…`);
   const [products, brandId] = await Promise.all([

@@ -33,7 +33,13 @@
 --   (orphan 閘擋下)。⇒ 📌 **「失敗」與「逾時」是兩種東西, 混成一格就分不出該找誰。**
 --     `completed`  = 跑完了(不論它自己判紅判綠 —— 那是 job 的 rc 在管)
 --     `failed`     = 它自己知道自己失敗了, 而**有機會寫下來**
---     `NULL`       = 🔴 **沒有回填** ⇒ 被砍 / 當掉 / 機器沒了。**本片告警只看這一種。**
+--     `NULL`       = 🔴 **沒有回填**。**本片告警只看這一種。**
+--   🛑🛑 **而它證得了什麼, 要寫準**(2026-09-06 codex must-fix ⑥):
+--     ⛔ ~~`NULL` = 被砍~~ ⇒ ✅ **`NULL` = 【收工那一步沒有成功寫下來】。**
+--     那涵蓋:被 timeout 砍 · 行程當掉 · 機器沒了 · **以及「資料其實同步完了, 而回填那一次寫失敗」**。
+--     ⇒ 📌 **最後那一種, 資料是好的而告警照樣會叫** —— 那是**假告警**, 而本片接受它:
+--       收工回填在程式那一端是 fail-loud 的(`rpm-sync-run-log.ts`)⇒ 那個世界會同時留下一個炸掉的 job,
+--       ⇒ 兩個訊號一起出現時, 人分得出來。**但別把這一列讀成「一定是被砍」。**
 --
 -- ■ 段四 · 門檻怎麼來的(🛑 不是拍一個數)
 --   🔬 2026-09-06 唯讀量(`gh run list --workflow=rpm-sync.yml --limit 25`, 08-15~09-05):
@@ -45,10 +51,24 @@
 --
 -- ■ 段五 · 這一片管不到什麼
 --   · **它不判「寫進去的內容對不對」** —— 只答「這一班有沒有跑完」。
---   · **併發**:`rpm-import` 若同一家同時跑兩份, 會有兩列開著 —— 本片按 `supplier_slug` 取**最新那一列**,
---     舊的那一列會被忽略。⇒ 📌 **那不是漏, 是刻意:告警要答的是「現在這一家卡著嗎」。**
+--   · **併發**:⛔ ~~本片取最新那一列, 舊的忽略 —— 那不是漏, 是刻意~~
+--     ⇒ 🔴 **2026-09-06 codex must-fix ③ 訂正:那句話是【錯的】, 它把一個真缺口說成了設計。**
+--       A 先開工 → B 後開工並跑完 → A 最後被砍 ⇒ 只看最新那一列會得到 `stale_open = 0`,
+--       **而 A 留下的半套沒有人知道。**
+--     ⇒ ✅ 現在的規則:**每一列開著而超過門檻的都算, 但被後來一趟【跑完的】接手過的不算**
+--       (`upsertBatched` 冪等 ⇒ 後面那一趟會把同一批重寫一遍)。
+--       🔵 那正是「它自己會癒合」那個性質的機械化:**癒合過的不叫, 沒癒合的一直叫。**
 --   · **它不涵蓋「job 根本沒被排到」** —— 那一種**連 `INSERT` 都不會發生** ⇒ 這張表上零列
 --     ⇒ 🛑 **而「零列」與「從來沒裝過」印同一個東西** ⇒ 本片的 RPC 因此**同時回分母**(見下)。
+--   · 🛑🛑 **同一族還有一個更難看見的**(2026-09-06 codex must-fix ②, 我**沒有修它, 只寫清楚**):
+--     **開工那一次 `INSERT` 自己失敗**時, 程式刻意**不擋同步**(理由見 `rpm-sync-run-log.ts`)
+--     ⇒ 那一班**完全沒有留痕** ⇒ 之後就算真的被 timeout 砍, **`stale_open` 也是 0**。
+--     ⇒ 📌 **也就是說:本片的告警覆蓋率, 上限等於「開工那一次寫得進去」的成功率。**
+--     ⇒ ✅ 而那個世界**不是零訊號** —— 它在 job log 上有一行大聲的 `🔴 開工留痕寫不進去`;
+--       🔴 **而那是【人】的線索, 不是機器的** ⇒ 沒有人讀 job log 的話, 它等於不存在。
+--     ⚠️ **為什麼不把 `suppliers_seen = 0` 接進告警**:那個值在**第一次同步跑起來之前也是 0**
+--       ⇒ 接了會在貼上去到第一班之間一直叫 ⇒ 🎯 **一個開場就在叫的告警, 會在它第一次真的有事之前**
+--       **就被人學會忽略。** ⇒ 這一格**留給人看分母**, 不進 `shouldAlert`。
 -- ═══════════════════════════════════════════════════════════════════════════
 
 BEGIN;
@@ -142,18 +162,34 @@ AS $fn$
            r.supplier_slug, r.started_at, r.completed_at, r.outcome
       FROM public.supplier_sync_runs r
      ORDER BY r.supplier_slug, r.started_at DESC
+  ),
+  -- 🔴🔴 **`stale_open` 不可以只看【最新那一列】**(2026-09-06 codex must-fix ③):
+  --    A 先開工 → B 後開工並跑完 → A 最後才被砍。`DISTINCT ON` 只看得到較新的 B
+  --    ⇒ **`stale_open` = 0, 而 A 留下的半套沒有人知道。**
+  --    ⇒ 📌 我原本在檔頭寫「取最新那一列, 舊的忽略 —— 那不是漏, 是刻意」——**那句話是錯的**,
+  --      它把一個真的缺口說成了設計。
+  -- ✅ 改成:**每一列開著而超過門檻的都算**, 但**被後來一趟【跑完的】接手過的不算** ——
+  --    因為 `upsertBatched` 是冪等的, 後面那一趟會把同一批重寫一遍 ⇒ 那個半套已經被補上了。
+  --    🔵 而這一句正是「它自己會癒合」那個性質的機械化:**癒合過的不叫, 沒癒合的一直叫。**
+  stale AS (
+    SELECT r.supplier_slug
+      FROM public.supplier_sync_runs r
+     WHERE r.completed_at IS NULL
+       AND r.started_at < pg_catalog.now()
+           - pg_catalog.make_interval(hours => p_stale_hours)
+       AND NOT EXISTS (
+         SELECT 1 FROM public.supplier_sync_runs later
+          WHERE later.supplier_slug = r.supplier_slug
+            AND later.completed_at IS NOT NULL
+            AND later.started_at > r.started_at
+       )
+     GROUP BY r.supplier_slug
   )
   SELECT pg_catalog.jsonb_build_object(
-    -- 🔴 主詞:最新那一列【沒有回填】而且已經超過門檻 ⇒ 那一家卡著
-    'stale_open', (SELECT pg_catalog.count(*) FROM latest
-                    WHERE completed_at IS NULL
-                      AND started_at < pg_catalog.now()
-                          - pg_catalog.make_interval(hours => p_stale_hours)),
+    -- 🔴 主詞:有一趟開了工而【沒有任何後續跑完的接手】, 且已經超過門檻 ⇒ 那一家卡著
+    'stale_open', (SELECT pg_catalog.count(*) FROM stale),
     'stale_suppliers', (SELECT COALESCE(pg_catalog.jsonb_agg(supplier_slug ORDER BY supplier_slug), '[]'::jsonb)
-                          FROM latest
-                         WHERE completed_at IS NULL
-                           AND started_at < pg_catalog.now()
-                               - pg_catalog.make_interval(hours => p_stale_hours)),
+                          FROM stale),
     -- 🔵 還在跑(開著而未超過門檻)⇒ **不進告警**, 只是讓讀的人分得開「卡住」與「正在跑」
     'open_recent', (SELECT pg_catalog.count(*) FROM latest
                      WHERE completed_at IS NULL
@@ -220,7 +256,9 @@ BEGIN
     END IF;
   END LOOP;
 
-  RAISE NOTICE '✅ 收權斷言全過:函式只有 payment_confirmer 叫得到;表只有 service_role 讀寫得到。';
+  -- 🔵 codex nit ⑦:⛔ ~~「只有 X」~~ —— owner 與 superuser 一直都有權限, 那句話對它們不成立。
+  --    ⇒ 改成把射程講出來:**應用角色**裡只有那一個。
+  RAISE NOTICE '✅ 收權斷言全過:應用角色裡, 函式只有 payment_confirmer 叫得到、表只有 service_role 讀寫得到(owner/superuser 不在此射程內)。';
 END $acl$;
 
 -- ── 5. RLS:本表不對外, 而 RLS 仍然要開(縱深)──────────────────────

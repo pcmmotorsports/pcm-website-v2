@@ -133,6 +133,19 @@ export type CheckAnomalyAlertsResult = {
    * ⟦b4-NEEDSHUMANNOWATCHER⟧ 卡住的匯款單筆數(`overpaid` / `needs_human`)。
    * 🔵 `stuckBankUnknown` 與它分開 —— 「那支 RPC 沒貼 / 讀失敗」與「真的 0 張」的下一步不同。
    */
+  /**
+   * ⟦supply-SYNCTIMEOUTPARTIAL⟧ 每日同步卡住的家數(最新那一列開工了而沒有收工, 且超過門檻)。
+   * 🔵 `syncStaleUnknown` 與它分開 —— 「RPC 沒貼 / 讀失敗」與「真的 0 家」的下一步不同。
+   * 🔴 `syncSuppliersSeen` 是**分母**:它是 0 的時候, `syncStaleOpen=0` 代表的是
+   *    「**這套留痕還沒開始寫**」而不是「一切正常」—— 兩者不可同形。
+   */
+  syncStaleOpen: number;
+  syncStaleSuppliers: readonly string[];
+  syncOpenRecent: number;
+  syncSuppliersSeen: number;
+  syncStaleHours: number;
+  syncStaleUnknown: boolean;
+  syncStaleFailed: boolean;
   stuckBankCount: number;
   stuckBankOldestCreated: string | null;
   /**
@@ -620,6 +633,22 @@ export function buildAnomalyAlertMessage(
     readonly oldestCreated: string | null;
     readonly overpaidCount: number;
     readonly overpaidOldest: string | null;
+  },
+  /**
+   * ⟦supply-SYNCTIMEOUTPARTIAL⟧ 每日同步卡住的家數與名單。
+   *
+   * 🔴🔴 **這個參數是 2026-09-06 codex must-fix ④ 補的, 而它抓到的病值得寫下來**:
+   *    我把 `syncStaleOpen` 接進了 `shouldAlert`(信會寄出去了)⇒ **而信裡一個字都沒有。**
+   *    ⇒ 📌 **一封純粹因為「同步卡住」而寄出的信, 主旨與內文講的全是【付款有事】,**
+   *      **而收信的人不會知道是哪一家供應商。**
+   *    ⇒ 🎯 本檔上面記過「算出來 / 寫進信裡 / 會讓信寄出去是三個宣稱」——
+   *      **我這次做到了第一與第三個, 而漏掉第二個。三個都要各自有人守。**
+   * 🔴 **刻意沒有預設值** —— 與 `stuckBank` 同一個理由:有預設值的話, 漏傳 =「一切正常」而零紅。
+   */
+  syncStale: {
+    readonly staleOpen: number;
+    readonly staleSuppliers: readonly string[];
+    readonly staleHours: number;
   },
 ): AnomalyAlertMessage {
   // 🔴 `Math.round(秒/3600)` 會把 5400 秒(90 分)講成「2 小時」= **報一個錯的門檻給收信人**
@@ -1174,6 +1203,23 @@ export function buildAnomalyAlertMessage(
    *    每一張都對應一個**已經把錢匯出去、而畫面告訴他還沒匯**的客人。
    * 🛑 `count === 0` ⇒ 整段不進信(不命中零字)。
    */
+  /**
+   * ⟦supply-SYNCTIMEOUTPARTIAL⟧ 同步卡住那一段。
+   * 🛑 **零 PII** —— 只有供應商代號與家數, 那些是內部識別字不是客人資料。
+   */
+  const syncStaleBlock: string[] = [];
+  if (syncStale.staleOpen > 0) {
+    syncStaleBlock.push(
+      '【每日同步沒跑完】',
+      `🔴 ${syncStale.staleOpen} 家供應商的同步【開了工而沒有收工】, 而且已經超過 ${syncStale.staleHours} 小時。`,
+      `   哪幾家:${syncStale.staleSuppliers.join(' · ')}`,
+      '   ⇒ 那幾家的商品/變體可能只更新了一半(價格、庫存、上下架都可能停在中途)。',
+      '   ⇒ 這一格是**施工窗要看的** —— 先看那一班的 GitHub Actions log 是不是被逾時砍了。',
+      '   ⚠️ 而它【下一晚會自己補回來】—— 所以看到這封信不代表現在還壞著,',
+      '      代表的是**昨天有一班沒跑完, 而在補回來之前那段時間, 顧客站上的資料是半套的**。',
+    );
+  }
+
   const stuckBankBlock: string[] = [];
   if (stuckBank.count > 0) {
     stuckBankBlock.push(
@@ -1276,7 +1322,7 @@ export function buildAnomalyAlertMessage(
   //      主動告知它上一片就漏了第三個)⇒ 本片三個接點:此處 · shouldAlert · builder 參數。
     // 🔵 2026-09-05 合併:`-db` 的 aclDriftBlock 與 `-mail` 的 stuckBank* 兩邊都留 ——
     //    它們是不同的訊號、不同的觀眾, 誰都不該覆蓋誰。
-    const body = [bypassRlsBlock, aclDriftBlock, gaveUpBlock, incidentBlock, searchLogBlock, stuckBankBlock, stuckBankOverpaidBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock]
+    const body = [bypassRlsBlock, aclDriftBlock, gaveUpBlock, incidentBlock, searchLogBlock, syncStaleBlock, stuckBankBlock, stuckBankOverpaidBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock]
       .filter((b) => b.length > 0)
       .flatMap((b) => [...b, '']);
 
@@ -1561,6 +1607,27 @@ export async function checkAnomalyAlerts(
     stuckBankReadFailed = true;
   }
   /**
+   * ⟦supply-SYNCTIMEOUTPARTIAL⟧ 同步卡住那一格。形狀逐字照上面 `stuckBank` 那一段
+   * (讀失敗與沒貼分開、不得靜默、信與 result 共用同一個常數)。
+   */
+  let syncStale: Awaited<ReturnType<typeof deps.reader.getSupplierSyncStaleCounts>> = null;
+  let syncStaleReadFailed = false;
+  try {
+    syncStale = await deps.reader.getSupplierSyncStaleCounts();
+  } catch (err) {
+    // 🛑 不得靜默 —— 只靠 log 的話, 把 log 刪掉測試照樣綠。
+    console.error('[anomaly-alert] get_supplier_sync_stale_counts 讀取失敗 ⇒ 落 Unknown', {
+      message: err instanceof Error ? err.message : String(err),
+    });
+    syncStaleReadFailed = true;
+  }
+  const syncStaleOpenForMessage = syncStale?.staleOpen ?? 0;
+  const syncStaleSuppliersForMessage = syncStale?.staleSuppliers ?? [];
+  const syncOpenRecentForMessage = syncStale?.openRecent ?? 0;
+  const syncSuppliersSeenForMessage = syncStale?.suppliersSeen ?? 0;
+  const syncStaleHoursForMessage = syncStale?.staleHours ?? 0;
+
+  /**
    * 🔴 **信裡那一格與 result 那一格用【同一個常數】, 不是各算一次。**
    *   (照上面 searchLog 那段的理由:各算一次時有人改了一邊, 兩邊都不會紅。)
    */
@@ -1617,6 +1684,19 @@ export async function checkAnomalyAlerts(
     //    shouldAlert】⇒ 那封信只有在別的原因觸發時才會帶上它」。
     //    ⇒ 📌 **「算出來了」「寫進信裡了」「會讓信寄出去」是三個宣稱。**
     stuckBankAlertForMessage ||
+    /**
+     * ⟦supply-SYNCTIMEOUTPARTIAL⟧ **同步卡住 ⇒ 要吵。**
+     * 🔴🔴 **這一行就是本檔上面那格記過的坑的形狀** —— 「算出來了」「寫進信裡了」
+     *    「會讓信寄出去」是三個宣稱, 而只有這一行負責第三個。
+     *    ⇒ 📌 少了它, 上面那幾個常數會出現在信裡, **而那封信只有在別的原因觸發時才會寄。**
+     *    🔬 而這一行【有一格測試殺得掉它】(2026-09-06 實測:拿掉它 ⇒ 恰好 1 格紅):
+     *      `staleOpen>0 而 summary 全 ZERO ⇒ 必須寄信`。其餘任何一格都會因別的原因寄信,
+     *      於是拿掉它也不會紅 —— **那正是本檔記過的那個坑當初活下來的方式。**
+     * 🔵 `syncStale` 是 null(沒貼 / 讀失敗)⇒ `?? 0` ⇒ **不叫** —— 照本檔既有成例:
+     *    部署問題走部署管道, 不變成一封每天寄的信。
+     * 🛑 **`openRecent` 刻意【不進】這一行** —— 開著而還沒超過門檻 = 正在跑, 不是卡住。
+     */
+    syncStaleOpenForMessage > 0 ||
     summary.openCount > 0 ||
     summary.refundingStuckCount > 0 ||
     summary.attemptManualReviewCount > 0 ||
@@ -1858,6 +1938,13 @@ export async function checkAnomalyAlerts(
         overpaidCount: stuckBankOverpaidCountForMessage,
         overpaidOldest: stuckBankOverpaidOldestForMessage,
       },
+      // ⟦supply-SYNCTIMEOUTPARTIAL⟧ 同步卡住那一段 —— 與上面共用同一組 `*ForMessage` 常數,
+      //    不是在這裡再算一次(照本檔既有那條:各算一次時有人改了一邊, 兩邊都不會紅)。
+      {
+        staleOpen: syncStaleOpenForMessage,
+        staleSuppliers: syncStaleSuppliersForMessage,
+        staleHours: syncStaleHoursForMessage,
+      },
     );
     notifiersTotal = deps.notifiers.length;
     // 🔴 **這一行講的是【送】那個階段**:各管道各自送、一管道掛掉不影響另一管道
@@ -1909,6 +1996,13 @@ export async function checkAnomalyAlerts(
     // 🔴 只有【表在 + 有過列 + 最後一列超過 24h】才算 stale。
     //    表不在 ⇒ false(還沒貼)· 有表沒列 ⇒ false(還沒開始收)—— 兩者都不是異常。
     searchLogStale: searchLogStaleForMessage,
+    syncStaleOpen: syncStaleOpenForMessage,
+    syncStaleSuppliers: syncStaleSuppliersForMessage,
+    syncOpenRecent: syncOpenRecentForMessage,
+    syncSuppliersSeen: syncSuppliersSeenForMessage,
+    syncStaleHours: syncStaleHoursForMessage,
+    syncStaleUnknown: syncStale === null,
+    syncStaleFailed: syncStaleReadFailed,
     stuckBankCount: stuckBankCountForMessage,
     stuckBankOldestCreated: stuckBankOldestForMessage,
     stuckBankOverpaidCount: stuckBankOverpaidCountForMessage,

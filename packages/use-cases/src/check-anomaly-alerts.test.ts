@@ -104,6 +104,7 @@ function reader(summary: AnomalyAlertSummary): IAnomalyAlertReader {
     //    ⇒ 真正殺得掉它的是下面那一格【count > 0 而 summary 是 ZERO】。
     getSearchLogHealth: async () => null,
     getStuckBankOrdersHealth: async () => null,
+    getSupplierSyncStaleCounts: async () => null,
     getManualCustomerSearchSummary: vi.fn().mockResolvedValue(null),
   };
 }
@@ -313,6 +314,7 @@ describe('checkAnomalyAlerts — fail-closed + 多管道', () => {
         getAlertSummary: vi.fn().mockRejectedValue(new Error('db down')),
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
+        getSupplierSyncStaleCounts: async () => null,
         getManualCustomerSearchSummary: vi.fn().mockResolvedValue(null),
       },
       notifiers: [okNotifier()],
@@ -381,7 +383,8 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     const blob = `${msg.subject}\n${msg.text}`;
     // 🔴🔴 **正向對照的 needle 要種在【真輸出】裡,不能自己拼一個字串進去**(R3 抓的):
     //    我原本寫 `JARGON.some(w => \`${blob} sweeper\`.includes(w))` —— needle 種在 `blob` **外面**
@@ -393,7 +396,7 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
   });
 
   it('🔴 open 仍是「可能」不是「已確認雙扣」(runbook line51);防動錯錢那句要留著', () => {
-    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 2, openDisplayIds: displayIds(2) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 2, openDisplayIds: displayIds(2) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(msg.text).toContain('可能被扣了兩次錢');
     // 🔴 2026-08-21 codex R3 MF-5:字面由「先查清楚再【退款】」改成「再【動錢】」,
     //    而**承重的那一句換人了** —— 現在擋著誤動錢的是下面那句「請不要自己去 TapPay 後台退款」。
@@ -413,13 +416,13 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
   });
 
   it('🔴🔴「本訊息零個資、僅計數」那句不得復活 —— 帶了單號之後它是假的', () => {
-    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: displayIds(1) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: displayIds(1) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(msg.text).not.toContain('零個資');
     expect(msg.text).not.toContain('僅計數');
   });
 
   it('只列踩門檻的類別(0 的類別不入訊息)', () => {
-    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: displayIds(1) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: displayIds(1) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(msg.text).toContain('可能被扣了兩次錢');
     expect(msg.text).not.toContain('退款卡住');
     // ⚠️ 這一行**對「那句文案對不對」沒有判別力** —— 別把它讀成「字面的守門」。
@@ -445,7 +448,7 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
   });
 
   it('🔴 單號真的印出來(1 筆 / 多筆)', () => {
-    const one = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: ['PCM-2026-0104'] }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const one = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: ['PCM-2026-0104'] }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(one.text).toContain('PCM-2026-0104');
     const many = buildAnomalyAlertMessage(
       { ...ZERO, openCount: 3, openDisplayIds: ['PCM-2026-0104', 'PCM-2026-0098', 'PCM-2026-0091'] },
@@ -453,12 +456,13 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     for (const id of ['PCM-2026-0104', 'PCM-2026-0098', 'PCM-2026-0091']) expect(many.text).toContain(id);
   });
 
   it('🔴🔴 RPC 沒回單號(舊版 / 部署錯序)⇒ 只講筆數,**不得憑空編一個單號**', () => {
-    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 4, openDisplayIds: [] }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 4, openDisplayIds: [] }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(msg.text).toContain('4 筆');
     expect(msg.text).not.toMatch(/PCM-\d{4}-\d{4}/);
     // 拿不到單號 ⇒ 標題不寫張數(不要退回去用各類計數相加,那個數字會因重疊而偏大)
@@ -466,12 +470,12 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
   });
 
   it('🔴 超過 30 筆 ⇒ 列前 30 + 「另外還有 N 筆」(甲=乙的失效保護,30 筆以下兩者逐字相同)', () => {
-    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 45, openDisplayIds: displayIds(45) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 45, openDisplayIds: displayIds(45) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(msg.text).toContain('PCM-2026-0030');
     expect(msg.text).not.toContain('PCM-2026-0031');
     expect(msg.text).toContain('另外還有 15 筆');
     // 30 筆整 ⇒ 不得出現「另外還有」
-    const exact = buildAnomalyAlertMessage({ ...ZERO, openCount: 30, openDisplayIds: displayIds(30) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const exact = buildAnomalyAlertMessage({ ...ZERO, openCount: 30, openDisplayIds: displayIds(30) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(exact.text).not.toContain('另外還有');
   });
 
@@ -480,7 +484,7 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
     //    我原本用 `count=200 / ids=100` ⇒ 列 30、差額 170 —— 而寫死成 `count - 30` **也是 170**
     //    ⇒ 兩種實作在那個輸入下**印一樣的東西**,那格證明不了它宣稱的事。
     //    改成 `ids=10` ⇒ 正確實作 190、寫死 30 的實作 170 ⇒ **兩個世界印不同的東西。**
-    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 200, openDisplayIds: displayIds(10) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 200, openDisplayIds: displayIds(10) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(msg.text).toContain('另外還有 190 筆');
     expect(msg.text).not.toContain('另外還有 170 筆');
   });
@@ -493,7 +497,8 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(msg.text).toContain('1 筆');
     expect(msg.text).toContain('PCM-2026-0001');
     expect(msg.text).not.toContain('PCM-2026-0002'); // 舊寫法會把三個都列出來,標題卻寫 1 筆
@@ -516,7 +521,8 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(msg.text).toContain('PCM-2026-000A'); // 正向對照:段落真的印出來了
     expect(msg.text).not.toContain('PCM-2026-000B');
   });
@@ -533,7 +539,8 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(msg.text).not.toContain('可能和上面那一項是同一張單');
   });
 
@@ -553,7 +560,8 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(msg.subject.length + msg.text.length).toBeLessThan(5000);
     // 🔴 2026-08-21 codex R2 nit4:上面那格算的是 `subject + text`,而 **LINE 實際收到的不是這個**。
     //    `LineAlertNotifierAdapter` 送的是 `${subject}\n\n${text}\n\n${CHANNEL_MARK}`
@@ -631,12 +639,13 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(normal.text).not.toContain('上面只列出一部分');
   });
 
   it('🔴 信裡帶後台網址,而且要講「需登入」(沒帳號的人點下去會看到登入頁)', () => {
-    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: displayIds(1) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: displayIds(1) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(msg.text).toContain('https://admin.pcmmotorsports.com');
     expect(msg.text).toContain('需登入後台');
     // 🔴 不得出現深連結 —— 那條路徑沒有人驗過
@@ -654,7 +663,8 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(msg.text).toContain('PCM-2026-0110 ＋ PCM-2026-0111');
     expect(msg.text).toContain('1 組');
   });
@@ -670,7 +680,8 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(same.text).toContain('PCM-2026-0104 和上面那一項是同一張單');
     const diff = buildAnomalyAlertMessage(
       {
@@ -682,7 +693,8 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(diff.text).not.toContain('是同一張單');
     // 只有 ④ 時不得指向一個沒列出來的「上面那一項」
     const only = buildAnomalyAlertMessage(
@@ -691,7 +703,8 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(only.text).not.toContain('上面那一項');
   });
 
@@ -706,17 +719,18 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(msg.subject).toBe('⚠️ PCM 付款有 1 張單要你看'); // 相加會是 2
   });
 
   // ── codex R2 折回來的三格 ────────────────────────────────────────────────
   it('🔴🔴 單號被截斷時,標題**不寫張數** —— 否則「100 張單」會和內文的「200 筆」自相矛盾', () => {
-    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 200, openDisplayIds: displayIds(100) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 200, openDisplayIds: displayIds(100) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(msg.subject).toBe('⚠️ PCM 付款有事要你看');
     expect(msg.text).toContain('200 筆'); // 內文的筆數仍然是真的
     // 正向對照:同一組數字但沒有截斷 ⇒ 標題就要寫得出張數(否則這一格是恆真的)
-    const full = buildAnomalyAlertMessage({ ...ZERO, openCount: 3, openDisplayIds: displayIds(3) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const full = buildAnomalyAlertMessage({ ...ZERO, openCount: 3, openDisplayIds: displayIds(3) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(full.subject).toBe('⚠️ PCM 付款有 3 張單要你看');
   });
 
@@ -731,26 +745,27 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     // 兩個前 100 陣列無交集 ⇒ 舊寫法會把這句整個刪掉
     expect(msg.text).toContain('可能和上面那一項是同一張單');
   });
 
   it('🔴 門檻不是整點小時時不得四捨五入成小時(5400s = 90 分,不是「2 小時」)', () => {
-    const msg = buildAnomalyAlertMessage({ ...ZERO, refundingStuckCount: 1 }, 5400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const msg = buildAnomalyAlertMessage({ ...ZERO, refundingStuckCount: 1 }, 5400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(msg.text).toContain('超過 90 分鐘');
     expect(msg.text).not.toContain('2 小時');
   });
 
   it('退款卡逾時說「超過 24 小時」而不是「24h」(86400s)', () => {
-    const msg = buildAnomalyAlertMessage({ ...ZERO, refundingStuckCount: 1 }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const msg = buildAnomalyAlertMessage({ ...ZERO, refundingStuckCount: 1 }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(msg.text).toContain('超過 24 小時');
   });
 
   it('open 附最舊年齡(排序訊號;259200s → 3 天);null → 不附且不崩', () => {
-    const withAge = buildAnomalyAlertMessage({ ...ZERO, openCount: 2, oldestOpenAgeSeconds: 259200 }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const withAge = buildAnomalyAlertMessage({ ...ZERO, openCount: 2, oldestOpenAgeSeconds: 259200 }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(withAge.text).toContain('最久的已經 3 天');
-    const noAge = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, oldestOpenAgeSeconds: null }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const noAge = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, oldestOpenAgeSeconds: null }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(noAge.text).toContain('可能被扣了兩次錢');
     expect(noAge.text).not.toContain('最久的');
   });
@@ -767,7 +782,8 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     const blob = `${msg.subject}\n${msg.text}`;
     expect(blob).toContain('PCM-2026-0104'); // 正向對照:這把尺看得到內容
     expect(blob).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i);
@@ -851,7 +867,7 @@ describe('「後台沒有手可以處理」只掛在它為真的那幾類上(202
   const NOTE = '這一類後台沒有手可以處理';
 
   const only = (over: Partial<Parameters<typeof buildAnomalyAlertMessage>[0]>) =>
-    buildAnomalyAlertMessage({ ...ZERO, ...over }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }).text;
+    buildAnomalyAlertMessage({ ...ZERO, ...over }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 }).text;
 
   it('③ 刷卡卡在中間(SQL 寫死 unpaid、窗 C 實測 0 顆可動按鈕)⇒ 要有', () => {
     const text = only({ attemptManualReviewCount: 1, attemptManualReviewDisplayIds: ['PCM-2026-0003'] });
@@ -910,7 +926,7 @@ describe('「後台沒有手可以處理」只掛在它為真的那幾類上(202
   });
 
   it('零異常時整封信不得出現那句話(不然它會在沒有分類的世界裡自己成立)', () => {
-    expect(buildAnomalyAlertMessage(ZERO, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }).text).not.toContain(NOTE);
+    expect(buildAnomalyAlertMessage(ZERO, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 }).text).not.toContain(NOTE);
   });
 });
 
@@ -927,7 +943,8 @@ describe('④ 的分類名 —— 舊字面不得復活(2026-08-21 Sean 逐字�
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  ).text;
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    ).text;
 
   it('新字面在(Sean 逐字,不得潤飾)', () => {
     expect(withReleased()).toContain('【訂單付款未成功】1 筆');
@@ -960,7 +977,8 @@ describe('Sean 逐字那句 —— 只掛 ③,而 ④【不得】沾上它(2026-
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  ).text;
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    ).text;
   // 🔴 fixture 要讓 ④ **真的渲染**(count ≥ 1)—— 不能用 count=0 那種世界,
   //   否則 not.toContain 又變成「斷言一個不會被渲染的東西不在」= 沒有判別力(本檔上面那一課)。
   const only4 = () =>
@@ -970,7 +988,8 @@ describe('Sean 逐字那句 —— 只掛 ③,而 ④【不得】沾上它(2026-
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  ).text;
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    ).text;
 
   it('③ 必須含 Sean 那句【逐字】—— 改掉任何一個字都要紅', () => {
     expect(only3()).toContain(SEAN);
@@ -1066,7 +1085,8 @@ describe('F-004 退款卡住:計數、過夜拆分、與部署窗口', () => {
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     // 🔴 斷言【整行】,不是裸數字 —— 同一封信裡「24 小時」等處也有數字,
     //    `toContain('3')` 在功能壞掉時照樣可能綠。
     expect(msg.text).toContain('【客人的退款卡住,還沒退成功】3 筆');
@@ -1081,7 +1101,8 @@ describe('F-004 退款卡住:計數、過夜拆分、與部署窗口', () => {
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(msg.text).toContain('5');
     expect(msg.text).toContain('其中 2 筆已經卡超過一天');
   });
@@ -1093,7 +1114,8 @@ describe('F-004 退款卡住:計數、過夜拆分、與部署窗口', () => {
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(msg.text).toContain('客人的退款卡住');
     expect(msg.text).not.toContain('已經卡超過一天');
   });
@@ -1105,7 +1127,8 @@ describe('F-004 退款卡住:計數、過夜拆分、與部署窗口', () => {
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     // ① 有些筆點進去沒有按鈕(判定落在 record_shape_bad / evidence_contradiction)
     expect(msg.text).toContain('有幾筆可能還按不了');
     // ② 不承諾筆數會變少 —— 否則下一封信數字沒降,他會以為系統壞了
@@ -1119,14 +1142,16 @@ describe('F-004 退款卡住:計數、過夜拆分、與部署窗口', () => {
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     const zero = buildAnomalyAlertMessage(
       { ...OTHER_NONZERO, orderRefundsStuckCount: 0 },
       OPTS.refundingStuckSeconds,
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(unknown.text).toContain('今天查不到');
     expect(zero.text).not.toContain('今天查不到');
     // 🔴 兩發都寄得出信(OTHER_NONZERO 讓 shouldAlert 成立)⇒ 差別只在那一行在不在。
@@ -1167,7 +1192,8 @@ describe('F-004 · 主旨張數 與 「只是可能」的射程', () => {
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     // 實測過的壞法:主旨會印「有 1 張單要你看」,而內文是 1 筆 + 4 筆
     // ⇒ 本檔自己寫著「一個錯的數字會讓他以為事情比較小」。
     expect(msg.subject).not.toContain('1 張單');
@@ -1181,7 +1207,8 @@ describe('F-004 · 主旨張數 與 「只是可能」的射程', () => {
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(msg.subject).toContain('1 張單');
   });
 
@@ -1197,7 +1224,8 @@ describe('F-004 · 主旨張數 與 「只是可能」的射程', () => {
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(msg.subject).not.toContain('1 張單');
   });
 
@@ -1208,7 +1236,8 @@ describe('F-004 · 主旨張數 與 「只是可能」的射程', () => {
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     // Sean 拍板的那句字面不動(它有兩格測試釘著,含順序那格)
     expect(msg.text).toContain('上面每一筆都只是「可能」,不是已經確定');
     // 而範圍那句要跟在它後面
@@ -1223,7 +1252,8 @@ describe('F-004 · 主旨張數 與 「只是可能」的射程', () => {
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(msg.text).toContain('上面每一筆都只是「可能」,不是已經確定');
     expect(msg.text).not.toContain('是已經確定卡住的');
   });
@@ -1235,7 +1265,8 @@ describe('F-004 · 主旨張數 與 「只是可能」的射程', () => {
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(msg.text).toContain('其中 1 筆已經卡超過一天');
     expect(msg.text).not.toContain('其中 5 筆');
   });
@@ -1255,7 +1286,8 @@ describe('F-004 · ②終態半只出現在信尾那一行', () => {
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(msg.text).toContain('另有 4 筆已判定失敗,不需要你動作');
   });
 
@@ -1266,7 +1298,8 @@ describe('F-004 · ②終態半只出現在信尾那一行', () => {
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(msg.text).not.toContain('已判定失敗,不需要你動作');
   });
 
@@ -1277,7 +1310,8 @@ describe('F-004 · ②終態半只出現在信尾那一行', () => {
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(msg.text).toContain('另有 7 筆');
     expect(msg.text).not.toContain('另有 4 筆');
   });
@@ -1299,7 +1333,8 @@ describe('F-004 · ②終態半只出現在信尾那一行', () => {
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     // 只有①可處理半(永遠沒單號)才讓主旨不寫數字;②終態半只是信尾一行。
     expect(msg.subject).toContain('1 張單');
   });
@@ -1324,6 +1359,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getAlertSummary: async () => withEmail({ emailDeadLetterCount: 3 }),
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
+        getSupplierSyncStaleCounts: async () => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1347,6 +1383,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getAlertSummary: async () => withEmail({ emailQuotaSuspectedCount: 7 }),
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
+        getSupplierSyncStaleCounts: async () => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1365,6 +1402,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getAlertSummary: async () => ZERO,
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
+        getSupplierSyncStaleCounts: async () => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1386,6 +1424,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getAlertSummary: async () => withEmail({ emailOutboxTotalCount: 0 }),
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
+        getSupplierSyncStaleCounts: async () => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1406,6 +1445,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getAlertSummary: async () => withEmail({ emailOutboxTotalCount: 12 }),
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
+        getSupplierSyncStaleCounts: async () => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1423,6 +1463,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
           withEmail({ emailDeadLetterCount: 3, emailOutboxTotalCount: 12 }),
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
+        getSupplierSyncStaleCounts: async () => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1452,6 +1493,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
           }),
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
+        getSupplierSyncStaleCounts: async () => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1468,6 +1510,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getAlertSummary: async () => withEmail({ shippedNeverEnqueuedCount: 3 }),
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
+        getSupplierSyncStaleCounts: async () => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1486,6 +1529,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getAlertSummary: async () => withEmail({ shippedUnsendableCount: 2 }),
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
+        getSupplierSyncStaleCounts: async () => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1504,6 +1548,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
           withEmail({ shippedNeverEnqueuedCount: 0, shippedUnsendableCount: 0 }),
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
+        getSupplierSyncStaleCounts: async () => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1528,6 +1573,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
           }),
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
+        getSupplierSyncStaleCounts: async () => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1567,6 +1613,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
           }),
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
+        getSupplierSyncStaleCounts: async () => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1600,6 +1647,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
             }),
           getSearchLogHealth: async () => null,
     getStuckBankOrdersHealth: async () => null,
+    getSupplierSyncStaleCounts: async () => null,
           getManualCustomerSearchSummary: async () => null,
         },
         notifiers: [notifier],
@@ -1628,6 +1676,7 @@ describe('🔴 寄信五格:叫得出來,而且說對是哪一件事', () => {
         getAlertSummary: async () => withEmail({ openCount: 1, emailDeadLetterCount: 2 }),
         getSearchLogHealth: async () => null,
         getStuckBankOrdersHealth: async () => null,
+        getSupplierSyncStaleCounts: async () => null,
         getManualCustomerSearchSummary: async () => null,
       },
       notifiers: [notifier],
@@ -1689,14 +1738,15 @@ describe('心跳 → 告警(片3)', () => {
       null,
     false,
     { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-  );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(msg.text).toContain('pcm-email-sweep');
     expect(msg.text).toContain('pcm-settle-sweep');
     expect(msg.text).toContain('2 支');
   });
 
   it('🟢 沒有不正常時, 信裡【不得】出現那一塊(否則它每天都在)', () => {
-    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: displayIds(1) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: displayIds(1) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(msg.text).not.toContain('【背景排程】');
   });
 });
@@ -1711,6 +1761,7 @@ describe('⟦b9-ENUMWATCH⟧ 片 2:客戶搜尋計數', () => {
       getAlertSummary: vi.fn().mockResolvedValue({ ...ZERO, openCount: 1 }),
       getSearchLogHealth: async () => null,
     getStuckBankOrdersHealth: async () => null,
+    getSupplierSyncStaleCounts: async () => null,
       getManualCustomerSearchSummary: throws
         ? vi.fn().mockRejectedValue(Object.assign(new Error('x'), { code: '42501' }))
         : vi.fn().mockResolvedValue(search),
@@ -1759,6 +1810,7 @@ describe('⟦b9-ENUMWATCH⟧ 片 2:客戶搜尋計數', () => {
           getAlertSummary: vi.fn().mockResolvedValue(ZERO),
           getSearchLogHealth: async () => null,
     getStuckBankOrdersHealth: async () => null,
+    getSupplierSyncStaleCounts: async () => null,
           getManualCustomerSearchSummary: vi.fn().mockResolvedValue({ count: 99, actors: 9 }),
         },
         notifiers: [okNotifier()],
@@ -1774,18 +1826,22 @@ describe('⟦b9-ENUMWATCH⟧ 片 2:客戶搜尋計數', () => {
       count: 5,
       actors: 2,
       windowSeconds: 86400,
-    }, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    }, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(withNum.text).toContain('過去 24 小時客戶搜尋 5 次,2 個操作者。');
     // 🔴 R2 consider F7 的證人:窗口換成 1 小時 ⇒ 那句話必須跟著換(舊版寫死「24 小時」)
     const oneHour = buildAnomalyAlertMessage({ ...ZERO, openCount: 1 }, 86400, {
       count: 5,
       actors: 2,
       windowSeconds: 3600,
-    }, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    }, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(oneHour.text).toContain('過去 1 小時客戶搜尋 5 次');
     expect(oneHour.text).not.toContain('過去 24 小時');
 
-    const unknown = buildAnomalyAlertMessage({ ...ZERO, openCount: 1 }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const unknown = buildAnomalyAlertMessage({ ...ZERO, openCount: 1 }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(unknown.text).toContain('客戶搜尋計數:查不到');
     expect(unknown.text).not.toContain('過去 24 小時客戶搜尋');
   });
@@ -1798,6 +1854,7 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
       getAlertSummary: vi.fn().mockResolvedValue({ ...ZERO, openCount: 1 }),
       getSearchLogHealth: async () => null,
     getStuckBankOrdersHealth: async () => null,
+    getSupplierSyncStaleCounts: async () => null,
       getManualCustomerSearchSummary:
         mode === 'failed'
           ? vi.fn().mockRejectedValue(Object.assign(new Error('x'), { code: '42501' }))
@@ -1827,8 +1884,8 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
   });
 
   it('🔴 而信上那句話也要不一樣(否則讀信的人以為只是還沒部署)', () => {
-    const notApplied = buildAnomalyAlertMessage({ ...ZERO, openCount: 1 }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
-    const failed = buildAnomalyAlertMessage({ ...ZERO, openCount: 1 }, 86400, null, true, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const notApplied = buildAnomalyAlertMessage({ ...ZERO, openCount: 1 }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
+    const failed = buildAnomalyAlertMessage({ ...ZERO, openCount: 1 }, 86400, null, true, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(notApplied.text).toContain('那支查詢還沒上線');
     expect(failed.text).toContain('讀取失敗');
     // 🔵 負對照:失敗那一版【不得】說「還沒上線」—— 那正是 R3 指的那個誤導
@@ -1872,7 +1929,8 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
         86400, null, false,
         { stale: false, anonRevoked: false },
         { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-      );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
       expect(msg.text).toContain('【匯款單修不好】');
       // 🔴 這三句是【收信的人要做什麼】—— 少了它們, 這一行只是一個技術指標。
       expect(msg.text).toContain('這些人已經匯了錢');
@@ -1947,7 +2005,8 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
         86400, null, false,
         { stale: false, anonRevoked: false },
         { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-      );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
       expect(msg.text, '認得的那個沒進信').toContain('refund_over_total=1');
       expect(msg.text, '🔴 認不得的那件從信裡消失了 —— 而 open_total 仍然算它')
         .toContain('zzq9_never_defined=1');
@@ -1964,7 +2023,8 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
         86400, null, false,
         { stale: false, anonRevoked: false },
         { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-      );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
       expect(msg.text).toContain('【被吞掉的失敗】');
       // 🔴 這幾句是【收信的人要知道的】—— 少了它們, 這一行只是一個技術指標。
       expect(msg.text).toContain('錢在庫裡');
@@ -2010,7 +2070,8 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
         // 🔵 2026-09-05 合併 dev 時補:builder 多了第 6 個參數(-mail 的 stuckBank 那片)。
         //    這一格與本測試無關 ⇒ 全部給零值, 讓它【不影響】上面那幾個斷言。
         { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-      );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
       expect(msg.text).toContain('【權限快照】');
       // 🛑 這幾行才是判別力所在:少了它們,「有訊息」與「只有這一塊」印同一個綠。
       expect(msg.text).not.toContain('【資料庫權限】');
@@ -2032,7 +2093,8 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
         // 🔵 2026-09-05 合併 dev 時補:builder 多了第 6 個參數(-mail 的 stuckBank 那片)。
         //    這一格與本測試無關 ⇒ 全部給零值, 讓它【不影響】上面那幾個斷言。
         { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
-      );
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
       expect(msg.text).not.toContain('【權限快照】');
     });
   });
@@ -2046,7 +2108,7 @@ describe('⟦b9-RLSHARDEN⟧ 甲:BYPASSRLS 被收掉那天', () => {
   });
 
   it('🔴 而【只有那一格】叫 —— 其他區塊一個都不准出現', () => {
-    const msg = buildAnomalyAlertMessage({ ...ZERO, bypassRlsRevoked: true }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const msg = buildAnomalyAlertMessage({ ...ZERO, bypassRlsRevoked: true }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(msg.text).toContain('【資料庫權限】');
     // 🛑 這四行才是這一格的判別力所在:少了它們,「有訊息」與「只有這一塊」印同一個綠。
     expect(msg.text).not.toContain('【背景排程】');
@@ -2114,12 +2176,12 @@ describe('⟦b9-RLSHARDEN⟧ 甲:BYPASSRLS 被收掉那天', () => {
       '⚠️ PCM 資料庫權限有事,而其他也有事要你看',
     ],
   ])('🔴 主旨精確比對 —— %s', (_name, patch, expected) => {
-    const msg = buildAnomalyAlertMessage({ ...ZERO, ...patch }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const msg = buildAnomalyAlertMessage({ ...ZERO, ...patch }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(msg.subject).toBe(expected);
   });
 
   it('🛑 信裡要逐字帶【它證不到什麼】—— 沒有它,收到的人會以為「沒叫 = 沒事」', () => {
-    const msg = buildAnomalyAlertMessage({ ...ZERO, bypassRlsRevoked: true }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const msg = buildAnomalyAlertMessage({ ...ZERO, bypassRlsRevoked: true }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(msg.text).toContain('不答哪些表會安靜回 0');
     // 🔵 數字帶時點與分母跟著走(2026-09-01 唯讀實測 45 / 54)。
     expect(msg.text).toContain('45 張');
@@ -2135,7 +2197,7 @@ describe('⟦b9-RLSHARDEN⟧ 甲:BYPASSRLS 被收掉那天', () => {
       OPTS,
     );
     expect(res.alerted).toBe(false);
-    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: displayIds(1) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: displayIds(1) }, 86400, null, false, { stale: false, anonRevoked: false }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null }, { staleOpen: 0, staleSuppliers: [], staleHours: 6 });
     expect(msg.text).not.toContain('【資料庫權限】');
   });
 
@@ -2229,6 +2291,7 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
     ...reader(ZERO),
     getSearchLogHealth: async () => h,
     getStuckBankOrdersHealth: async () => null,
+    getSupplierSyncStaleCounts: async () => null,
   });
   const run = async (h: Health) =>
     checkAnomalyAlerts(
@@ -2480,7 +2543,9 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
       oldestCreated: '2026-09-01T10:00:00.000Z',
       overpaidCount: 0,
       overpaidOldest: null,
-    });
+    },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(hit.text).toContain('【匯款單卡住】');
     expect(hit.text).toContain('3 張匯款單收到錢了');
     // 🔴 這一句是整段存在的理由 —— 少了它, 讀信的人不知道【為什麼要現在處理】
@@ -2494,7 +2559,9 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
       oldestCreated: null,
       overpaidCount: 0,
       overpaidOldest: null,
-    });
+    },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     // 🛑 不命中【零字】—— 而這是負對照:少了它, 一支「無條件印那一段」的版本會讓上面全綠
     expect(miss.text).not.toContain('【匯款單卡住】');
     expect(miss.text).not.toContain('匯款單收到錢了');
@@ -2513,7 +2580,9 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
       oldestCreated: null,
       overpaidCount: 3,
       overpaidOldest: '2026-09-02T08:00:00.000Z',
-    });
+    },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(onlyB.text).toContain('【匯款單多收了錢】');
     expect(onlyB.text).toContain('3 張匯款單');
     // 🔴 這一句是 B 存在的理由:客人不會發現, 而我們欠他錢
@@ -2532,7 +2601,9 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
       oldestCreated: '2026-09-01T10:00:00.000Z',
       overpaidCount: 5,
       overpaidOldest: '2026-09-02T08:00:00.000Z',
-    });
+    },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(both.text).toContain('【匯款單卡住】');
     expect(both.text).toContain('【匯款單多收了錢】');
     // 🔴 **數字各歸各段** —— 一支「把 2+5 加起來」的實作在只看有沒有那兩段時會全綠
@@ -2547,7 +2618,9 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
       oldestCreated: null,
       overpaidCount: 0,
       overpaidOldest: null,
-    });
+    },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(none.text).not.toContain('【匯款單多收了錢】');
     expect(none.text).not.toContain('我們欠他們錢');
   });
@@ -2560,7 +2633,9 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
       oldestCreated: null,
       overpaidCount: 0,
       overpaidOldest: null,
-    });
+    },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(msg.text).toContain('2 張匯款單收到錢了');
     expect(msg.text).not.toContain('最早那一張是');
   });
@@ -2569,7 +2644,9 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
     const hit = buildAnomalyAlertMessage(ZERO, 86400, null, false, {
       stale: true,
       anonRevoked: false,
-    }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(hit.text).toContain('【搜尋日誌】');
     expect(hit.text).toContain('超過 24 小時沒有新列');
     expect(hit.text, '不告訴他要做什麼 = 那一行對他沒用').toContain('轉給施工窗');
@@ -2577,7 +2654,9 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
     const miss = buildAnomalyAlertMessage(ZERO, 86400, null, false, {
       stale: false,
       anonRevoked: false,
-    }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     // 🔴 這一行才是承重的:無條件 push 的實作會讓上面那格【照樣綠】
     expect(miss.text, '不命中卻出現在信裡 ⇒ 每天一封').not.toContain('【搜尋日誌】');
   });
@@ -2586,7 +2665,9 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
     const revoked = buildAnomalyAlertMessage(ZERO, 86400, null, false, {
       stale: false,
       anonRevoked: true,
-    }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null });
+    }, { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+      { staleOpen: 0, staleSuppliers: [], staleHours: 6 },
+    );
     expect(revoked.text).toContain('那道權限被收掉了');
     // 🔴 少了這一行, 兩格共用一句話也全綠 ⇒ 值班的人分不出該去看哪一邊
     expect(revoked.text).not.toContain('超過 24 小時沒有新列');
@@ -2643,5 +2724,155 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
       OPTS,
     );
     expect(res.searchLogUnknown).toBe(true);
+  });
+});
+
+/**
+ * ⟦supply-SYNCTIMEOUTPARTIAL⟧ 同步卡住那一格。
+ *
+ * 🔴🔴 **這一組存在的理由, 是本檔上面那格記過的坑**:
+ *    「算出來了」「寫進信裡了」「會讓信寄出去」是**三個宣稱**, 而只有 `shouldAlert` 那一行負責第三個。
+ *    ⇒ 📌 **殺得掉那個突變的, 是【summary 全 ZERO 而 staleOpen>0】那一格** ——
+ *      其餘任何一格都會因為別的原因把信寄出去, 於是它拿掉了也不會紅。
+ */
+describe('checkAnomalyAlerts · 每日同步卡住', () => {
+  const withSync = (
+    v: Awaited<ReturnType<IAnomalyAlertReader['getSupplierSyncStaleCounts']>> | 'throws',
+  ): IAnomalyAlertReader => ({
+    ...reader(ZERO),
+    getSupplierSyncStaleCounts: async () => {
+      if (v === 'throws') throw new Error('connection lost');
+      return v;
+    },
+  });
+
+  it('🔴 staleOpen>0 而 summary 全 ZERO ⇒ 必須寄信(這一格殺得掉「忘了接進 shouldAlert」)', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: withSync({
+          staleOpen: 1,
+          staleSuppliers: ['dbk'],
+          openRecent: 0,
+          failedLatest: 0,
+          suppliersSeen: 18,
+          staleHours: 6,
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.alerted).toBe(true);
+    expect(n.notify).toHaveBeenCalledTimes(1);
+    expect(res.syncStaleOpen).toBe(1);
+    expect(res.syncStaleSuppliers).toEqual(['dbk']);
+  });
+
+  it('🟢 開著但還沒超過門檻(openRecent>0 而 staleOpen=0)⇒ 不寄 —— 正在跑不是卡住', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: withSync({
+          staleOpen: 0,
+          staleSuppliers: [],
+          openRecent: 3,
+          failedLatest: 0,
+          suppliersSeen: 18,
+          staleHours: 6,
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+    expect(res.syncOpenRecent).toBe(3);
+  });
+
+  it('🛑 RPC 還沒貼(回 null)⇒ 不寄, 而 Unknown 要看得見(部署問題走部署管道)', async () => {
+    const res = await checkAnomalyAlerts(
+      { reader: withSync(null), notifiers: [okNotifier()] },
+      OPTS,
+    );
+    expect(res.alerted).toBe(false);
+    expect(res.syncStaleUnknown).toBe(true);
+    // 🔴 「沒貼」與「讀失敗」是兩件事 —— 兩者都讓 Unknown 為 true, 而只有後者 Failed 也 true
+    expect(res.syncStaleFailed).toBe(false);
+  });
+
+  it('🛑 讀失敗(丟例外)⇒ 不寄, 而 Failed 與 Unknown 都要為 true(兩個成因各有出口)', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await checkAnomalyAlerts(
+      { reader: withSync('throws'), notifiers: [okNotifier()] },
+      OPTS,
+    );
+    expect(res.alerted).toBe(false);
+    expect(res.syncStaleUnknown).toBe(true);
+    expect(res.syncStaleFailed).toBe(true);
+    // 🛑 不得靜默 —— 只靠 log 的話, 把 log 刪掉這一格照樣綠
+    expect(err).toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it('🔴 分母要看得見:suppliersSeen=0 時 staleOpen=0 代表【留痕還沒開始寫】, 不是一切正常', async () => {
+    const res = await checkAnomalyAlerts(
+      {
+        reader: withSync({
+          staleOpen: 0,
+          staleSuppliers: [],
+          openRecent: 0,
+          failedLatest: 0,
+          suppliersSeen: 0,
+          staleHours: 6,
+        }),
+        notifiers: [okNotifier()],
+      },
+      OPTS,
+    );
+    expect(res.alerted).toBe(false);
+    // 兩個 0 必須【分別】看得到 —— 合成一格就分不出是哪一種 0
+    expect(res.syncStaleOpen).toBe(0);
+    expect(res.syncSuppliersSeen).toBe(0);
+  });
+});
+
+/**
+ * ⟦supply-SYNCTIMEOUTPARTIAL⟧ **信裡真的講得出是哪一家**。
+ * 🔴 這一組是 2026-09-06 codex must-fix ④ 補的:我把它接進了 `shouldAlert`(信會寄)
+ *    **而信裡一個字都沒有** ⇒ 一封純粹因為同步卡住而寄的信, 講的全是「付款有事」。
+ *    ⇒ 📌 「算出來」「寫進信裡」「會讓信寄出去」是三個宣稱 —— 這一組守第二個。
+ */
+describe('buildAnomalyAlertMessage · 同步卡住那一段', () => {
+  const ARGS = [
+    ZERO,
+    3600,
+    null,
+    false,
+    { stale: false, anonRevoked: false },
+    { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+  ] as const;
+
+  it('🔴 卡住時:家數、哪幾家、門檻都要出現在信裡', () => {
+    const msg = buildAnomalyAlertMessage(...ARGS, {
+      staleOpen: 2,
+      staleSuppliers: ['dbk', 'samco'],
+      staleHours: 6,
+    });
+    const text = `${msg.subject}\n${msg.text}`;
+    expect(text).toContain('每日同步沒跑完');
+    expect(text).toContain('2 家');
+    // 🔴 **名單是這一段的主詞** —— 少了它, 收信的人知道「有事」而不知道要去看哪一家
+    expect(text).toContain('dbk');
+    expect(text).toContain('samco');
+    expect(text).toContain('6 小時');
+  });
+
+  it('🟢 沒卡住時:那一段【一個字都不准出現】(不命中零字)', () => {
+    const msg = buildAnomalyAlertMessage(...ARGS, {
+      staleOpen: 0,
+      staleSuppliers: [],
+      staleHours: 6,
+    });
+    expect(`${msg.subject}\n${msg.text}`).not.toContain('每日同步沒跑完');
   });
 });

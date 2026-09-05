@@ -602,7 +602,15 @@ describe('result 的 *Unknown / *Failed 欄位, route 一定要讀', () => {
     //    🔴 **改這個數字之前做過零流失驗證**, 不是看到紅就往上加:
     //       用它自己那把尺量改前/改後 ⇒ 18 ⇒ 19 · 流失 0 · 新增恰好 `pcmIncidentUnknown`。
     //       📌 只比「數字 +1」擋不住「掉了一個、又加了兩個」。
-    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(19);
+    // 🔵 19 ⇒ 21(2026-09-06, ⟦supply-SYNCTIMEOUTPARTIAL⟧ 加 `syncStaleUnknown` / `syncStaleFailed`)。
+    //    🔴 **照上面那條規矩, 改數字之前先做零流失驗證, 不是看到紅就往上加**:
+    //       用它自己那把尺(同一個正則、同一個型別區塊)量改前/改後 ⇒ **19 ⇒ 21 · 流失 0 ·
+    //       新增恰好 `syncStaleFailed` / `syncStaleUnknown`**。
+    //    🔬 **而這道閘這一次真的抓到東西**:我把那兩欄加進 result 而 **route 一個都沒讀**
+    //       ⇒ RPC 沒安裝 / 讀取失敗 / 解析失敗全部會落到 200 + 健康心跳。
+    //       ⚠️ **我自己的三綠沒看到它** —— `vitest related` 餵 5 支檔跑了 223 支, **這一支不在裡面**
+    //       ⇒ 📌 **兩發一致而那不是效度。** 抓到它的是 codex, 不是我的測試選擇。
+    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(21);
 
     /**
      * 🔴 **剝掉註解再比**(R4 must-fix 級 consider)——

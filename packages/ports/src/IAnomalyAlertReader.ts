@@ -130,6 +130,27 @@ export interface IAnomalyAlertReader {
    * ⚠️ 讀不到(函式還沒貼)⇒ 回 `null`, 與其他訊號同款 ⇒ 呼叫端走 `*Unknown`。
    * 🔵 `oldestCreated` 讓讀信的人知道**積了多久**, 而不只是「有幾張」。
    */
+  /**
+   * ⟦supply-SYNCTIMEOUTPARTIAL⟧ 每日供應商同步的「卡住」讀數。
+   *
+   * 🔴 **`staleOpen` 的定義是【最新那一列沒有回填, 而且已經超過門檻】** ——
+   *    也就是「開工寫了、收工沒寫」⇒ 那一班被砍在中途。
+   * 🔵 **`openRecent` 刻意分開**:開著而還沒超過門檻 = **正在跑**, 不是卡住。
+   *    ⇒ 📌 合成一格的話, 每天同步進行中的那幾分鐘都會叫。
+   * 🔴🔴 **`suppliersSeen` 是分母, 而它【必須】跟著回** ——
+   *    「零列」與「這套留痕從來沒裝過」印同一個 0;沒有分母就分不開。
+   * 🛑 **回 `null` = 那支 RPC 不在**(DB 還沒貼)⇒ 照本檔既有成例:**讀不到就不叫**,
+   *    部署問題走部署管道, 不變成一封每天寄的信。
+   */
+  getSupplierSyncStaleCounts(): Promise<{
+    readonly staleOpen: number;
+    readonly staleSuppliers: readonly string[];
+    readonly openRecent: number;
+    readonly failedLatest: number;
+    readonly suppliersSeen: number;
+    readonly staleHours: number;
+  } | null>;
+
   getStuckBankOrdersHealth(): Promise<{
     readonly stuckCount: number;
     readonly oldestCreated: string | null;
