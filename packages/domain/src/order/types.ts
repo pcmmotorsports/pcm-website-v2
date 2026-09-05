@@ -1922,6 +1922,27 @@ export type MemberOrderDetail = {
    */
   taxTotal: Money;
   total: Money;
+  /**
+   * ⟦b4-PARTIALPAIDNOWHERE⟧ **應付餘額** = `total` − 帳本已收淨額。
+   * ⛔ ~~再加回已 confirmed 的退款~~ —— **那條公式被 codex 對抗審查殺掉了**:
+   *   付清 10,000 後退他 3,000, 它會算出「應付 3,000」= 叫客人把退款匯回來。
+   *   ✅ 現在的做法:**這張單只要有一筆有效退款就回 `null`(算不出來), 不自己加總退款金額。**
+   * 來源 = `member_order_balance_v`(`20260905330000`), own-only 寫死在 view 裡。
+   *
+   * 🔴🔴 **`null` 的意思是【算不出來】, 不是 0** —— 這一條是本欄存在最重要的一句:
+   *   那支 view 讀不到(權限錯 / 還沒貼 / LEFT JOIN 沒對到)時, mapper **不准補 0**。
+   *   補 0 ⇒ `餘額 = total` ⇒ 📌 **對一個已經付了訂金的人印出全額** —— 那正是本列要修的病。
+   *   ⇒ 顯示端看到 `null` ⇒ **整塊不印**(不是印 0、不是印 total、也不是 throw 掉整頁 ——
+   *     throw 會讓客人連訂單都看不到, 那是拿一個大故障換一個小故障)。
+   *
+   * 🔵 **`processing` 的退款【算已收】(餘額暫不變)** —— Sean 2026-09-05 拍甲。
+   *   ⇒ view 只扣 `status='confirmed'` 那些。
+   *
+   * 🔴 **`<= 0` 不是「不用付」, 是「這張單我們算不清楚」** —— Sean 2026-09-05 逐字拍乙:
+   *   **「應付餘額算出來是 0 或負的就整格不印、改印『請聯絡我們』;其他情況照甲(數字跟著訂單走)」**
+   *   ⇒ 那涵蓋了溢付、以及退貨之後 `total` 沒跟著降的那個世界。
+   */
+  balanceDue: Money | null;
   /** 配送方式(orders.shipping_method;現值 home/store) */
   shippingMethod: string;
   /**
