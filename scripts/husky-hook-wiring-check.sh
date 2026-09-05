@@ -98,6 +98,78 @@ check_precommit() {
 }
 
 # $1 = pre-push 檔路徑
+# ── 基準集比對:【鏈沒有變短】(2026-09-03;codex MF8)────────────────────────────
+#
+# 🔴🔴 **它為什麼存在, 而它不是假想的風險**:上面 `check_prepush` 只**寫死列舉兩支**
+#    (`deploy-order-gate.sh` / `migration-ledger-divergence.sh`)——
+#    而 `selftest-git-isolation-gate.sh` 在 pre-push 的鏈上跑了一整天, **本檔零命中**。
+#    ⇒ 🎯 **2026-09-03 下午它真的被刪過一次, 而唯一發現的是刪的那個人自己(我)。**
+#    ⇒ ⇒ 📌 **自己發現不是機制。** 那正是「自抓有三個機制, 而只有無條件對照做得成機制」那一條。
+#
+# 🛑🛑 **本閘證的是【鏈沒有變短】。它證不到『該有的閘都在』。**
+#    ⇒ 基準集是**從 pre-push 自己 parse 出來的** ⇒ 它結構上不可能「相對 pre-push 不完整」,
+#      而它也因此**繼承了 pre-push 當下的缺漏**。⇒ 「該不該有第五道」是人的判斷, 不是本閘的。
+#    ⇒ 🔴 **這一節要跟它抓到什麼一樣顯眼** —— 否則人會把它的沉默讀成背書。
+#
+# ⚠️ **射程:兩個面都釘, 不只那一行 `&&` 鏈。**
+#    pre-push 有兩個面 ——(一)那一行 `&&` 串接(三支 `scripts/*.sh`)
+#    (二)底下一個 `if` 區塊(`.husky/always-loaded-size-gate.sh`)。
+#    ⇒ 🛑 **只 parse 那一行會靜靜漏掉第二面, 而那正是 MF8 本身的病** ⇒ 所以掃全部非註解行。
+#
+# 🔴 **撈子的形狀是量過的, 不是想當然**:`grep -oE '(scripts|\.husky)/…'` 那種**交替式**
+#    在本機實測**靜默少報**(那一行的三支一支都撈不到, 而 `.husky/` 那支撈得到)
+#    ⇒ 改成**兩發分開掃再合併**, 而下面 `_pp_gates` 跑完會印出支數 ⇒ **數字看得到才算量過**。
+_pp_gates() {
+  # $1 = pre-push 路徑。只看非註解行。
+  { grep -v '^[[:space:]]*#' "$1" | grep -oE '[a-zA-Z._$/{}]*scripts/[A-Za-z0-9_.-]+\.sh' | sed 's|.*/scripts/|scripts/|'
+    grep -v '^[[:space:]]*#' "$1" | grep -oE '[a-zA-Z._$/{}]*\.husky/[A-Za-z0-9_.-]+\.sh' | sed 's|.*\.husky/|.husky/|'
+  } | sort -u
+}
+
+check_prepush_baseline() {
+  f="$1"; base="$2"
+  # 🔴 **基準集不見 ⇒ 紅, 不是「什麼都不少 ⇒ 全綠」。**
+  #    那是 fail-open, 而 fail-open 藏住「有沒有裝上」——
+  #    刪掉基準集會讓這道閘變成一句恆真的話, 而畫面上一切正常。
+  if [ ! -s "$base" ]; then
+    echo "🔴 基準集不見或是空的:$base" >&2
+    echo "   ⇒ 沒有基準 = 沒有【昨天】可以比 ⇒ 本閘擋下, 不靜靜通過(fail-closed)。" >&2
+    return 1
+  fi
+  # 🔴🔴 **用暫存檔, 不用 `<(...)`** —— 本檔被 `sh` 呼叫(lint-staged 那條是 `sh scripts/…`),
+  #    而**行程替換不是 POSIX sh**。⚠️ 而它壞掉的方式**不是報錯就停**:
+  #    2026-09-03 第一版就是這樣寫的 ⇒ `sh` 噴 syntax error 到 stderr、
+  #    而 `gone` / `added` 兩個變數**變成空的** ⇒ 本閘印「基準 4 支 · 現在 4 支」並 **return 0**。
+  #    ⇒ 🎯 **它 fail-open 了, 而畫面上看起來完全正常。**
+  #    ⇒ ⇒ 📌 抓到它的不是 rc(rc 是 0), 是**我去讀了它印的東西** ——
+  #      那正是這一族最貴的一格:**該紅而沒紅, 而沒有任何訊號。**
+  _tw="$(mktemp)" || return 2
+  _tn="$(mktemp)" || { rm -f "$_tw"; return 2; }
+  now=$(_pp_gates "$f")
+  want=$(grep -v '^[[:space:]]*#' "$base" | grep -v '^[[:space:]]*$' | sort -u)
+  printf '%s\n' "$want" > "$_tw"
+  printf '%s\n' "$now" > "$_tn"
+  gone=$(comm -23 "$_tw" "$_tn")
+  added=$(comm -13 "$_tw" "$_tn")
+  rm -f "$_tw" "$_tn"
+  echo "── pre-push 鏈上的閘:基準 $(printf '%s\n' "$want" | wc -l | tr -d ' ') 支 · 現在 $(printf '%s\n' "$now" | wc -l | tr -d ' ') 支"
+  if [ -n "$added" ]; then
+    # 🔵 **變多【不紅】** —— 否則每加一道閘都要先餵它, 而那種閘會死於誤報。
+    echo "   🔵 比基準多了(不擋, 而更新基準集才會讓下一次以新的為準):"
+    printf '      + %s\n' $added
+  fi
+  if [ -n "$gone" ]; then
+    echo "🔴 pre-push 的鏈【變短了】—— 基準集裡有而現在沒有:" >&2
+    printf '   - %s\n' $gone >&2
+    echo "   ⇒ 若那是刻意拿掉的, 手改 scripts/husky-pre-push-gate-baseline.txt 並說明理由。" >&2
+    return 1
+  fi
+  # 🛑 這一句與上面那些紅字【一樣顯眼】, 而它是刻意的:讀的人不可以把沉默讀成背書。
+  echo "   🛑 本閘證的是【鏈沒有變短】。它**證不到**「該有的閘都在」——"
+  echo "      基準集是從 pre-push 自己 parse 的 ⇒ 它繼承了 pre-push 當下的缺漏。"
+  return 0
+}
+
 check_prepush() {
   f="$1"
   if [ ! -f "$f" ]; then
@@ -120,7 +192,27 @@ check_prepush() {
     echo "   ⇒ 整段被刪掉時,既有的 shape harness(deploy-order-gate-verify 格⑱)仍會 PASS。" >&2
     return 1
   fi
-  echo "── husky 接線:$f 語法過,兩支 gate 都還在鏈上"
+  # 🔴🔴 2026-09-04 R1 must-fix(線 -db;實錘 = `.husky/pre-push` 當場 fail-open):
+  #    上面只驗「腳本還在鏈上」, **完全不看那一行的離場碼往哪去**。
+  #    而 `&&` 鏈後面被加了一個 `if … fi` 區塊之後, hook 的離場碼變成【那個區塊的】
+  #    ⇒ 拿真的檔跑(pnpm 換成必紅的樁):**rc=0** —— typecheck 紅了而 push 放行。
+  #    🔴 `sh -e` 只救得了【末段】:AND-OR 串列裡非末段的失敗被 errexit 豁免
+  #      ⇒ fail-open 涵蓋鏈上第 1-4 支, 而那正是每次都在跑的那幾支。
+  #    📌 這與 `check_precommit` 是【同一個病】—— 那邊 2026-08-21 就修了, 這邊沒有。
+  #    ⇒ 要 `|| exit $?` 不是 `|| exit 1`:鏈裡 `migration-ledger-divergence.sh` 用 `exit 2/9`、
+  #      `selftest-git-isolation-gate.sh` 用 `exit 2`(本閘自己壞了)⇒ 壓成 1 會吃掉三態。
+  chain=$(printf '%s\n' "$ppbody" | grep 'scripts/deploy-order-gate.sh')
+  if [ -z "$chain" ]; then
+    echo "🔴 $f:抓不到鏈那一行 ⇒ 這不是「乾淨」, 是本閘掃錯了,exit 2" >&2; return 2
+  fi
+  if ! printf '%s\n' "$chain" | grep -q '|| exit \$?$'; then
+    echo "🔴 $f:那條 && 鏈【自己那一行】沒有接 \`|| exit \$?\`" >&2
+    printf '%s\n' "$chain" | sed 's/^/      ✗ /' | cut -c1-140 >&2
+    echo "   ⇒ 鏈後面只要再有一個敘述(例如 size gate 那個 if 區塊), 鏈的紅就會被它的離場碼洗掉。" >&2
+    echo "   ⇒ 修法:那一行尾巴接上 \`|| exit \$?\`(不要 \`|| exit 1\` —— 鏈裡有三態閘)。" >&2
+    return 1
+  fi
+  echo "── husky 接線:$f 語法過,兩支 gate 都還在鏈上,鏈尾接了 || exit \$?"
   return 0
 }
 
@@ -174,19 +266,30 @@ X
   ck "E 檔不存在 ⇒ 2" "$?" "2"
 
   # F【該綠】pre-push 兩支 gate 都在
-  printf 'a && b && bash scripts/deploy-order-gate.sh && sh scripts/migration-ledger-divergence.sh\n' > "$T/pp-ok"
+  printf 'a && b && bash scripts/deploy-order-gate.sh && sh scripts/migration-ledger-divergence.sh || exit $?\n' > "$T/pp-ok"
   check_prepush "$T/pp-ok" >/dev/null 2>&1
   ck "F pre-push 兩支 gate 都在 ⇒ 0" "$?" "0"
 
   # G【該紅】pre-push 少了第四段
-  printf 'a && b && bash scripts/deploy-order-gate.sh\n' > "$T/pp-bad"
+  printf 'a && b && bash scripts/deploy-order-gate.sh || exit $?\n' > "$T/pp-bad"
   check_prepush "$T/pp-bad" >/dev/null 2>&1
   ck "G pre-push 少了 ledger gate ⇒ 1" "$?" "1"
 
   # I【該紅·MF-3】pre-push:註解裡有那兩支 gate 的名字,而鏈上少了一支 ⇒ 必須紅
-  printf '# 註解:scripts/deploy-order-gate.sh 與 scripts/migration-ledger-divergence.sh\na && bash scripts/deploy-order-gate.sh\n' > "$T/pp-cmt"
+  printf '# 註解:scripts/deploy-order-gate.sh 與 scripts/migration-ledger-divergence.sh\na && bash scripts/deploy-order-gate.sh || exit $?\n' > "$T/pp-cmt"
   check_prepush "$T/pp-cmt" >/dev/null 2>&1
   ck "I pre-push 註解有、鏈上沒有 ⇒ 1(不可被註解騙過)" "$?" "1"
+
+  # K【該紅·2026-09-04】鏈上兩支 gate 都在, 而那一行沒接 || exit $? ⇒ 必須紅
+  #    🔴 這一格就是當天那個 fail-open 的最小重現。沒有它, F 與 K 的世界印同一個 0。
+  printf 'a && b && bash scripts/deploy-order-gate.sh && sh scripts/migration-ledger-divergence.sh\nif [ -f x ]; then true; fi\n' > "$T/pp-noexit"
+  check_prepush "$T/pp-noexit" >/dev/null 2>&1
+  ck "K pre-push 鏈在而沒接 || exit \$? ⇒ 1(當天 fail-open 的最小重現)" "$?" "1"
+
+  # L【該紅·三態】接了 || exit 1 而不是 || exit $? ⇒ 也要紅(壓掉 2/9 兩種語意)
+  printf 'a && bash scripts/deploy-order-gate.sh && sh scripts/migration-ledger-divergence.sh || exit 1\n' > "$T/pp-exit1"
+  check_prepush "$T/pp-exit1" >/dev/null 2>&1
+  ck "L pre-push 接的是 || exit 1(壓掉三態)⇒ 1" "$?" "1"
 
   # J【該紅·MF-4】pre-commit:總數相等而綁定錯 —— 一道漏接、別處多一個同字面
   cat > "$T/pc-count" <<'X'
@@ -211,7 +314,7 @@ X
   #    舊寫法卻印「格數不對:有格被刪掉或沒跑到」⇒ **診斷指錯方向**,
   #    而它印在「17 PASS / 1 FAIL」之後 ⇒ 讀的人最後看到的是錯的那一句。
   #    「一格失敗」與「一格不見了」修法完全不同,不能共用同一個出口。
-  EXPECT=10
+  EXPECT=12
   if [ "$((pass + fail))" != "$EXPECT" ]; then
     echo "  🔴 【格數】不對:跑了 $((pass + fail)) 格 ≠ $EXPECT ⇒ 有格被刪掉或沒跑到(這不是「有格失敗」)"; exit 1
   fi
@@ -223,4 +326,7 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "🔴 不在 git rep
 rc=0
 check_precommit "$ROOT/.husky/pre-commit" || rc=$?
 check_prepush   "$ROOT/.husky/pre-push"   || { r2=$?; [ "$r2" -gt "$rc" ] && rc=$r2; }
+# 🔵 基準集比對(2026-09-03 加):與上面那道【互補】——
+#    上面問「那兩支寫死的還在嗎」, 這裡問「整條鏈有沒有比昨天短」。
+check_prepush_baseline "$ROOT/.husky/pre-push" "$ROOT/scripts/husky-pre-push-gate-baseline.txt" || { r3=$?; [ "$r3" -gt "$rc" ] && rc=$r3; }
 exit $rc

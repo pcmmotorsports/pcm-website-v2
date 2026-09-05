@@ -24,6 +24,10 @@ export { toMoneyAmount } from './shared/types';
 // #484a:貨品軸四值的**唯一 runtime 來源**(`OrderGoodsAxis` 由它推導)。
 // 🔴 沒有這一行它是不可達死碼 —— `export type *` 只帶型別、帶不出 const(code-reviewer 抓到)。
 export { ORDER_GOODS_AXIS_VALUES } from './order/types';
+export {
+  MANUAL_ORDER_SOURCES_FOR_EMAIL,
+  suppressCustomerEmailFallback,
+} from './order/notification-fallback';
 // 🔴 M-4b E4-b(2026-08-22):貨運商代碼 → 中文標籤。**共用的唯一一份。**
 // 從 apps/admin 搬來,因為出貨通知信那條鏈在 packages/ 與 storefront,不可能 import admin。
 // ⚠️ 想新增一家貨運商:**先改 migration,再改那支檔** —— 理由在該檔檔頭。
@@ -36,9 +40,23 @@ export {
 //    而客人端從 `#249` 起也要讀它(列表要把「已取消」與「已逾期」分開標)。
 //    storefront import 不到 apps/admin ⇒ 搬進來,admin 那支改 re-export。
 export { PAYMENT_EXPIRED_CANCEL_REASON, orderCancelKindOf } from './order/order-cancel-reason';
+// 🔵 匯款收款資訊 + 匯款期限(Sean 2026-09-03 拍板)。**兩個落點**:下單信(段 4)與
+//    顧客站選了匯款之後的畫面(段 1)—— 兩段都還沒做, 而資料先有一個家。
+//    🔴 `PCM_REMITTANCE_EXPIRE_DAYS` 與 migration 的 `interval '5 days'` 由
+//       `remittance-info.test.ts` 綁在一起(兩種語言, 做不到單一來源 ⇒ 用一道會叫的閘)。
+export {
+  PCM_REMITTANCE_ACCOUNT_NAME,
+  PCM_REMITTANCE_ACCOUNT_NO,
+  PCM_REMITTANCE_BANK_NAME,
+  PCM_REMITTANCE_BRANCH,
+  PCM_REMITTANCE_EXPIRE_DAYS,
+  remittanceDeadlineLabel,
+  PCM_REMITTANCE_MEMO_INSTRUCTION,
+} from './order/remittance-info';
 export type { OrderCancelKind } from './order/order-cancel-reason';
 export { CARRIER_LABEL, CARRIER_OPTIONS, carrierLabelOf } from './order/carrier-label';
 export type { CarrierCode } from './order/carrier-label';
+export { TAX_EXCLUSIVE_SUFFIX, subtotalLabelOf } from './order/subtotal-label';
 // 2026-08-19 客戶頁排序:同上,`export type *` 帶不出 const ⇒ 少這一行它是不可達死碼。
 export { ADMIN_CUSTOMER_SORT_KEYS } from './identity/types';
 export { resolveEnd, matchFitmentYear, isYearUnrestricted } from './catalog/year-range';
@@ -150,7 +168,12 @@ export { COUPON_REJECT_REASONS } from './order/coupon';
 export type { ImageTrim } from './catalog/image-trim';
 export { parseImageTrim } from './catalog/image-trim';
 // ⟦fc-SUPPLIERPLACEHOLDER⟧ 供應商佔位圖判定 —— mapper 與目錄頁 RPC 兩條路共用同一份清單。
-export { isSupplierPlaceholder, dropSupplierPlaceholders } from './catalog/supplier-placeholder';
+export {
+  isSupplierPlaceholder,
+  dropImagesWithoutRealPhoto,
+  hasNoRealImage,
+  SUPPLIER_PLACEHOLDERS,
+} from './catalog/supplier-placeholder';
 
 // 🔴 排程白名單與門檻的【唯一來源】(2026-08-31 從 apps/admin 搬入)。
 //    儀表板與告警器兩側都從這裡讀 —— 各寫一份會漂, 而漂開時兩邊都不會紅。

@@ -180,6 +180,92 @@ describe('🔴 開窗的前置閘 — 兩種情況都不給開,而且各有自�
   //    入口 2 之後,`not_arrived` 的品項在窗裡**有事可做**(按「貨到了」登記到貨)
   //    ⇒ 它不再屬於「開了也是全灰」那一類,fixture 因此改用 `cancelled`。
   //    要守的東西一字未改:**別開一個什麼都按不動的彈窗給員工**。
+  // ══ 兩份獨立實作合起來的測試(2026-09-04)══════════════════════════════
+  // 🔬 `62775f03`(線【帳號】09-03 23:28)與 `d4b46f0c`(線 `-db` 09-04)**同一夜各寫了一次**
+  //    ⇒ 收割時撞成 conflict。下面記哪一格採了誰:
+  //    ① **結構採 `62775f03` 的 `it.each`** —— 一個 reason 一列, 加第三種原因時只多一列。
+  //    ② **`cancelled` 那格的斷言採 `d4b46f0c`** —— 理由見那一格自己的註解(它比較寬)。
+  //    ③ **混合那一格是 `d4b46f0c` 獨有**, 對方沒有 ⇒ 保留。
+  //
+  // 🔴 走查逐字(`-account` 09-03)+ `-db` 09-04 在 admin-probe 上**真的按了那顆鈕**:
+  //    「這些訂單目前沒有任何一件出得了(2件的數量資料尚未就緒)。」—— 就這一句, 沒有下一步。
+  //    而答案就在 `picking-doc.tsx:78`「出貨必先到貨、無直送」—— 那是拍板, 而畫面沒說出來。
+  //
+  // 🔴 **這一組刻意【不用】 `not_arrived` 當 fixture** —— 呼叫端的閘是
+  //    `!anyShippable && !anyAwaiting`, 而 `anyAwaiting` = 有任何一件 not_arrived
+  //    ⇒ 🎯 **有 not_arrived 就開窗了, 這條訊息根本印不出來。**
+  //    ⇒ 📌 `-db` 第一版真的用了它 ⇒ 兩格紅 ⇒ **而那個紅是對的:世界造錯了, 不是尺壞了。**
+  it.each([
+    // 🔴 **括號要跳脫** —— 畫面上那個 h3 逐字是 `採購(向供應商訂貨)`, 而那對括號是
+    //    **半形**(`item-procurement-section.tsx:145` 實查 code point `0x28`)。
+    //    ⇒ 🎯 **⇒ 直接把文案貼進 regex, 那對括號會變成【捕獲群組】** ⇒ 它去找
+    //       「採購向供應商訂貨」(沒有括號的那串)⇒ **找不到 ⇒ 紅。**
+    //    ⇒ 📌 **⇒ 一段文案抄進 regex 的那一刻, 它就不再是字面了 —— 而看起來一模一樣。**
+    //    (2026-09-04 實撞:兩個字串 code point 逐字相同, 而測試紅。)
+    ['尚未就緒 ⇒ 叫他【點開那一項】才找得到採購區', 'unknown' as const, /在商品清單裡「點開那一項」/],
+    ['已裝箱 ⇒ 叫他去出貨紀錄找', 'all_boxed' as const, /請到那張訂單的出貨紀錄找那一箱/],
+  ])('🔴 擋下時要說出【下一步】:%s', async (_label, reason, next) => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [{ ...CANDIDATE, remaining: 0, blockedReason: reason }],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+    });
+    render(<OrderShipButton orderId='o1' />);
+    click();
+    await waitFor(() => expect(screen.queryByText(/沒有任何一件出得了/)).not.toBeNull());
+    expect(
+      screen.queryByText(next),
+      '只說「出不了」而不說要做什麼 ⇒ 員工知道自己卡住了,不知道卡在哪一關 —— ' +
+        '而「出貨必先到貨」是拍板規則,不告訴他就是把規則藏起來。',
+    ).not.toBeNull();
+  });
+
+  // 🔴🔴 **負對照:不要編一個出路** —— `cancelled` 是終態, 給它一句下一步 = 指員工去做白工。
+  //    少了它,一個「無條件附上下一步」的實作會照樣讓上面兩格全綠。
+  //
+  // 🔵 **斷言用 `/接下來:/` 而不是列舉那兩句話**(⛔ ~~`/請先到|請到那張訂單/`~~)——
+  //    列舉的版本只擋得住**今天這兩句**;哪天有人加第三句下一步而錯掛在 cancelled 上,
+  //    ⇒ 🎯 **列舉版照樣綠, 而這個版本會紅。**
+  it('🔴 全部已取消 ⇒ **不附下一步**(取消的單沒有下一步,不編一句出來)', async () => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [
+        { ...CANDIDATE, orderItemId: 'a', remaining: 0, blockedReason: 'cancelled' },
+        { ...CANDIDATE, orderItemId: 'b', remaining: 0, blockedReason: 'cancelled' },
+      ],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+    });
+    render(<OrderShipButton orderId='o1' />);
+    click();
+    await waitFor(() => expect(screen.queryByText(/沒有任何一件出得了/)).not.toBeNull());
+    expect(
+      screen.queryByText(/接下來:/),
+      '對一張全取消的單附上下一步 = 編一個看起來合理的東西, 而它是錯的:' +
+        '單子取消了, 員工做什麼都不會讓它出得了。',
+    ).toBeNull();
+  });
+
+  // 🔵 混合:有終態也有活路 ⇒ 「接下來」要出現, 而**裡面不含終態那一格**。
+  it('🔴 已取消 + 已配箱 → 「接下來」只講已配箱那一條(終態那格不出聲)', async () => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [
+        { ...CANDIDATE, orderItemId: 'a', remaining: 0, blockedReason: 'cancelled' },
+        { ...CANDIDATE, orderItemId: 'b', remaining: 0, blockedReason: 'all_boxed' },
+      ],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+    });
+    render(<OrderShipButton orderId='o1' />);
+    click();
+    const el = await screen.findByText(/沒有任何一件出得了/);
+    const t = el.textContent ?? '';
+    expect(t, '混合時「接下來」該出現而沒出現 ⇒ 有活路的那一件被終態拖著一起沉默。').toContain('接下來:');
+    expect(
+      t.match(/接下來:(.*)$/)?.[1] ?? '',
+      '「接下來」裡混進了終態的句子 ⇒ 而 cancelled 那一格的下一步是空字串, 不該有字。',
+    ).not.toContain('已取消');
+  });
+
   it('🔴 品項都在、但一件都出不了 → 一樣不開窗(不是開一個全灰的彈窗給他)', async () => {
     fetchShipmentCandidates.mockResolvedValue({
       items: [{ ...CANDIDATE, remaining: 0, blockedReason: 'cancelled' }],
@@ -473,5 +559,45 @@ describe('OrderShipButton — 成功只被處理一次(N1 守門)', () => {
     await new Promise((r) => setTimeout(r, 300));
     expect(fetchShipmentCandidates.mock.calls.length).toBeLessThanOrEqual(2);
     expect(fetchItemProcurementChoices.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+
+  /**
+   * 🔴🔴 **尾款警告的【轉傳】守門 —— codex 2026-09-04 MF6 逼出來的。**
+   *
+   * ⛔ ~~那句話走三段:`shipment-section.tsx`(算)→ `OrderShipButton`(收)→ hook(轉)→ 彈窗(印)~~
+   * 🔴 **2026-09-04 同日改過形狀, 上面那段已作廢**(codex 第二輪 nit 抓到這段沒跟上):
+   *   Sean 拍「列表那條路也要顯示」⇒ 那句話改由 **`loadShipmentCandidates`(server)算進候選回傳**
+   *   ⇒ 現在的鏈是:`fetchShipmentCandidates` → `open.data.balanceWarning` → `<ShipmentDialog>`。
+   *   ⇒ 📌 **一個生產者、兩個入口** —— 詳情頁與列表勾單走的是同一份資料。
+   * 🧬 突變:刪掉 `<ShipmentDialog balanceWarning={...}>` 那一行 ⇒ **這一格紅**
+   *    (而 dialog 自己那支與 section 那支**各自全綠** —— 那正是本格存在的理由)。
+   */
+  it('🔴 尾款那句話從 OrderShipButton 一路傳到彈窗裡(跨過 launcher 的整合守門)', async () => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [{ ...CANDIDATE, orderItemId: 'a', remaining: 2, blockedReason: null }],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+      balanceWarning: '尾款 3,000 元未收',
+    });
+    render(<OrderShipButton orderId='o1' />);
+    click();
+    await waitFor(() => expect(screen.queryByText(/建立包裹/)).not.toBeNull());
+    const note = document.querySelector('[data-testid="shipment-balance-warning"]');
+    expect(note, '彈窗開了而警告框不在 ⇒ 中間某一段轉傳掉了').not.toBeNull();
+    expect(note!.textContent).toContain('尾款 3,000 元未收');
+  });
+
+  it('🔵 負對照:沒給那句話 ⇒ 彈窗裡不長出一個空的警告框', async () => {
+    // 🎯 沒有這一格的話, 上面那格與「無條件渲染一個框」分不開。
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [{ ...CANDIDATE, orderItemId: 'a', remaining: 2, blockedReason: null }],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+      balanceWarning: null,
+    });
+    render(<OrderShipButton orderId='o1' />);
+    click();
+    await waitFor(() => expect(screen.queryByText(/建立包裹/)).not.toBeNull());
+    expect(document.querySelector('[data-testid="shipment-balance-warning"]')).toBeNull();
   });
 });

@@ -157,13 +157,37 @@ async function safeQuery<T>(
   return outcome.data;
 }
 
+/**
+ * 🔴 2026-09-05(⟦b4-NORECIPIENTWINDOW⟧ 甲):改讀 view ⇒ **`customer_email` 現在由 SQL 給**,
+ *    `customer_user_id` 不再需要(它原本只是拿去打第二發查詢的鑰匙)。
+ */
 type OrderRow = {
-  id: string;
+  order_id: string;
   display_id: string;
   paid_at: string | null;
   notification_email: string | null;
-  customer_user_id: string;
+  customer_email: string | null;
+  // 🔴 片 B:只接出來, 沒有人在用它(分流在片 C)
+  order_source: string | null;
 };
+
+/**
+ * 🔴🔴 **掃描面從 `orders` 換成一個 view**(⟦b4-NORECIPIENTWINDOW⟧ 甲, 2026-09-05;主視窗批)。
+ *
+ * **它解的病**:兩個信箱都空的單, 掃到 ⇒ use-case 算成 `noRecipient` ⇒ `continue`
+ * ⇒ **不寫任何 outbox 列** ⇒ 下一輪再撈一次, **永遠** ⇒ 累積夠多就把單輪名額佔滿,
+ * 而真的要寄的信擠不進來 —— 不報錯、不進死信、心跳照綠。
+ *
+ * 🔴 **為什麼非得走 view**:`customers.email` 原本是**第二發查詢**才拿到的
+ * ⇒ 掃描那一發**結構上看不到它** ⇒ 「至少一個信箱非空」在 PostgREST 那一層**寫不出來**。
+ *
+ * 🟢 **被排除的那些單仍然看得見**:`get_order_created_gap_counts` 的 `no_recipient_count`
+ * 在數它們, 而那個計數 2026-09-03 就接進每日告警了。⇒ 本次只讓它們**離開掃描面**。
+ *
+ * 🛑 **anti-join / cancelled_at / payment_status 三個條件【搬進 view】了, 不是被刪掉** ——
+ * 而 cutoff 那兩個仍留在這裡(它是參數, 烤不進 view)。
+ */
+const PENDING_VIEW = 'pcm_order_created_email_pending';
 
 export class SupabasePaidOrderScannerAdapter implements IPaidOrderScanner {
   constructor(private readonly client: PaidOrderScannerClient) {}
@@ -185,22 +209,22 @@ export class SupabasePaidOrderScannerAdapter implements IPaidOrderScanner {
     //    🔴 而那個值是 dashboard 上改得回去、改了不會有任何東西紅的設定 ⇒ 餘裕要留大,不要貼著上限走。
     const probeLimit = input.limit + 1;
 
+    // 🔵 `stage` 仍用 `'orders'`(它是**給 log 看的階段名**, 不是表名)——
+    //    `ScanStage` 是與取消信那支 adapter **共用**的型別, 為了本檔改窄它會動到別人。
+    //    ⚠️ 而 `'customers'` 那個階段在本檔**已經走不到了**(第二發查詢刪掉了)。
     const page = await safeQuery('orders', () =>
       this.client
-        .from('orders')
-        // 🔴 anti-join:`event_type` 篩【子表】、`email_outbox=is.null` 篩【父列】。
-        //    **不要寫成 `email_outbox.order_id=is.null`** —— 那會回全部的列而且回 200(見檔頭)。
-        .select('id, display_id, paid_at, notification_email, customer_user_id, email_outbox!left(order_id)')
-        .eq('payment_status', 'paid')
-        // 🔴 W3-G(2026-08-20,W5 掃出):payment_status='paid' 不代表沒被取消 ——
-        //    現金已付款單信還沒寄、單被取消 ⇒ 沒有這一行,系統仍會寄出「訂單成立」給一個
-        //    訂單剛被取消的客人。取消不會改 payment_status,只會補 cancelled_at。
-        .is('cancelled_at', null)
+        .from(PENDING_VIEW)
+        // 🔵 anti-join 與 `payment_status` / `cancelled_at` 三個條件**都在 view 裡**了
+        //    (那個 `email_outbox=is.null` vs `email_outbox.order_id=is.null` 的坑一起消失 ——
+        //     🎯 **不是因為我更小心, 是因為那個查詢形狀不存在了**)。
+        .select('order_id, display_id, paid_at, created_at, notification_email, customer_email, order_source')
+        // 🔴 **cutoff 兩個都留在這裡** —— 它是參數, 烤不進 view。
+        //    ⚠️ **兩個都要**:少了 `created_at` 那一半, 晚翻 paid 的舊單會被誤寄(PRD §5 R3)。
         .gte('paid_at', input.cutoff)
-        .gte('created_at', input.cutoff) // 🔴 PRD §5 R3:少了這一半,晚翻 paid 的舊單會被誤寄
-        .eq('email_outbox.event_type', 'order_created')
-        .is('email_outbox', null)
-        .order('id', { ascending: true })
+        .gte('created_at', input.cutoff)
+        // 🔴 排序鍵改成 `order_id`(view 的欄名)—— 它仍然是**唯一鍵**, 翻頁不會跳列。
+        .order('order_id', { ascending: true })
         .limit(probeLimit),
     );
 
@@ -211,35 +235,27 @@ export class SupabasePaidOrderScannerAdapter implements IPaidOrderScanner {
       return { rows: [], scannedPages: 1, truncated: false };
     }
 
-    // 🔴 **無條件撈 fallback 信箱,不再「只在需要時才撈」**(GR nit 1)。
-    //    舊版在這裡自己判了一次「有沒有值」,而 use-case 也判了一次 —— **兩個判準會漂**,
-    //    而漂掉那天的症狀是「該收的信永遠不會被排進去」,測試全綠(codex R1 must-fix 2 就是這一格)。
-    //    ⇒ 判斷只留一處(use-case 的 `firstNonEmpty`),這裡只負責**把值拿回來**。
-    //    代價:`rows` 都有 `notification_email` 時多一個查詢。`rows` 上限 = `limit` ≤ `MAX_LIMIT`(200)
-    //    ⇒ 代價有硬上界(~~上一版寫「50」是過期字面~~,那是 route 端 `ENQUEUE_LIMIT` 的值、不是這裡的上限),
-    //    換掉的是一整類「兩處判準不一致」的 bug。
-    const customers = await safeQuery('customers', () =>
-      this.client
-        .from('customers')
-        // 🔴 `customers` 的主鍵欄是 `user_id`,不是 `id`(生成型別當場擋下我原本寫的 `id`)。
-        .select('user_id, email')
-        .in('user_id', [...new Set(rows.map((o) => o.customer_user_id))]),
-    );
-    const customerEmailById = new Map<string, string | null>();
-    for (const c of customers ?? []) {
-      customerEmailById.set(c.user_id, c.email);
-    }
-
+    // 🔴🔴 **那第二發查詢【整段刪掉了】**(⟦b4-NORECIPIENTWINDOW⟧ 甲, 2026-09-05)。
+    //    它原本的存在理由是「無條件撈 fallback 信箱, 讓判斷只留一處」——
+    //    ✅ **而現在那個值由 view 直接給** ⇒ 判斷仍然只留一處(use-case 的 `firstNonEmpty`),
+    //      而**少了一發查詢、也少了一個 Map**。
+    //    🎯 **順帶消掉的東西**:那一發用 `customer_user_id` 當鑰匙 ⇒ 那一欄現在不必再 select。
     return {
       rows: rows.map((o) => ({
-        orderId: o.id,
+        orderId: o.order_id,
         displayId: o.display_id,
         // `paid_at` 在型別上可為 null,而述詞是 `payment_status='paid' AND paid_at >= cutoff`
         // ⇒ 走到這裡不可能是 null。`?? ''` 是防腐:真的拿到空值就讓 `enqueue` 的組裝層 throw
         // (它會驗 paidAt 非空),由 use-case 記成 errors、下一輪再撈到,**不要靜默送一個假時戳**。
         paidAt: o.paid_at ?? '',
         notificationEmail: o.notification_email,
-        customerEmail: customerEmailById.get(o.customer_user_id) ?? null,
+        // 🔵 view 已經把它 LEFT JOIN 好了 ⇒ 這裡只是搬運, 不再有第二發查詢。
+        customerEmail: o.customer_email,
+        // 🔴 R1-F10:另兩支 scanner 走 `nullableStr()`(缺欄會 throw), 這兩支是直接對映。
+        //    `?? null` 讓「欄位沒回來」落在宣告的 `string | null` 裡, 而不是一個型別上
+        //    不存在的 `undefined` —— 📌 片 C 若寫 `=== null` 判斷, 兩種形狀要給同一個答案。
+        //    ⚠️ 而它【不是】parity:那兩支會 throw、這兩支會靜靜給 null。差異明寫在這裡。
+        orderSource: o.order_source ?? null,
       })),
       // 🔴 anti-join 之後**沒有翻頁了**(結果集本身就只有待排的)⇒ 這一欄恆為 1。
       //    保留它是因為 route 已經在回應裡印它;移除是 port 契約改動,不在本次範圍。

@@ -93,6 +93,10 @@ const ORDER_DETAIL = {
   invoiceNumber: 'AB-12345678',
   invoiceAmount: { amount: toMoneyAmount(4000), currency: 'TWD' },
   invoiceStatus: 'issued',
+  // 🔴 2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 2 步:少了它整組會走進「此單不開發票」那一枝
+  //    ⇒ 本組測的是【正常那一格】的欄位契約, 所以必須明寫 `true`。
+  //    📌 `as unknown as` 的代價:少一欄不會被 typecheck 抓到, 而它會安靜地換一條渲染路徑。
+  invoiceRequested: true,
 } as unknown as AdminOrderDetail;
 
 describe('OrderEditForm — E11-2 重構後的錢面欄位契約', () => {

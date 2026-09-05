@@ -22,7 +22,16 @@ vi.mock('server-only', () => ({}));
 //    症狀 B 的形狀。** MF6「投影不複本」(2026-08-16 R1)的意圖沒有丟:改由檔尾 drift-pin
 //    格保住——字面與真值漂,那一格當場紅(負測:真值 500→501 ⇒ 紅,已驗)。
 //    「抄不動就漂不掉」換成「漂了就紅」,而競態窗歸零。
+// 🔴🔴 **2026-09-05:`loadOrderShipments` 多讀了 `hct_status`(⟦ship-HCTUNKNOWNSTUCK⟧ UI 那半)**
+//    ⇒ 本 mock 少一個出口就整支炸(`No "listHctStatusByShipmentIds" export is defined`)。
+//    📌 **而我當時的測試分母是「我覺得相關的檔」, 漏了這支** ——
+//    🎯 **動一個接縫, 正確的分母是【誰 mock 了這個模組】**:
+//      `git grep -l "vi.mock('./shipment-repository'" apps/admin` ⇒ 四支。
+//    🔵 **回空 Map**(不是 `vi.fn()` 沒設回傳)—— 沒設回傳會回 `undefined`,
+//      而 `undefined.get(...)` 會在**別的地方**炸, 那個紅指向錯的方向。
+const listHctStatus = vi.fn(async () => new Map<string, string>());
 vi.mock('./shipment-repository', () => ({
+  listHctStatusByShipmentIds: listHctStatus,
   listShipmentItemsByOrderItemIds: listItems,
   listShipmentsByIds: listShipments,
   listShipmentItemsByShipmentIds: listItemsByShipment,

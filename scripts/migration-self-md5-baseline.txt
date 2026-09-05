@@ -1,0 +1,26 @@
+# migration 的【自我宣稱 md5】基準集 —— 2026-09-03 從現況 parse 出來, 不是手打
+#
+# 一行一格:<migration 檔名>\t<函式名>
+# 意思 = 「那支 migration 裡, 這支函式的 body md5【就寫在同一支檔的字面裡】」
+#
+# 🔴🔴 **為什麼要有這份檔, 而不是每次掃出來就好** ——
+#    掃描的成員資格由【它有沒有對上】決定 ⇒ 有人改了函式體 ⇒ md5 不符
+#    ⇒ 它就從「有自我宣稱」那個集合裡掉出去 ⇒ **掃描看不到它 ⇒ 印綠**
+#    ⇒ 🎯 而那正是這道閘要防的那件事。
+#    ⇒ ⇒ 📌 **【用「有沒有違規」去定義「誰要被檢查」】—— 判準把它要抓的東西排除在分母外。**
+#
+# 🛑 **本檔證的是【集合沒有變短】。它證不到「該有的都在」** ——
+#    這份檔是從現況 parse 的 ⇒ 它**繼承了現況的缺漏**。
+#    (與 `scripts/husky-pre-push-gate-baseline.txt` 逐字同一句 —— 那是刻意的, 兩支是同一族。)
+#
+# 🔵 怎麼更新:`python3 scripts/verify-cron6-md5.py` 掃到「對上了而不在本檔」的會印 NOTICE,
+#    把它那一行加進來即可。**集合變大不紅。**
+20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql	public.mark_charge_attempt_charged
+20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql	public.mark_charge_attempt_charged_fallback
+20260810170000_m4b_lifecycle_l5b0_reject_superseded_charge.sql	public.confirm_order_payment
+20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql	public.claim_stuck_unsettled_attempts
+20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql	public.mark_attempt_settle_retry
+20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql	public.get_payment_anomaly_alert_summary
+20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql	public.expire_stuck_attempts_at_ceiling
+20260812130000_m4b_347_fuzzy_admin_search_orders.sql	public.pcm_spec_text
+20260828060000_m4b_b4cron6_expire_unpaid_orders_heartbeat.sql	pcm_cron.expire_unpaid_orders

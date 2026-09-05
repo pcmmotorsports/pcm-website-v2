@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { computeEffectivePrice, dropSupplierPlaceholders } from '@pcm/domain';
+import { computeEffectivePrice, dropImagesWithoutRealPhoto } from '@pcm/domain';
 import {
   mapDomainProductToSupabase,
   mapSupabaseProductToDomain,
@@ -520,11 +520,17 @@ describe('mapSupabaseProductToDomain · soundClips', () => {
 //    濾掉 ⇒ images 變空 ⇒ 下游 `product.images[0] ?? null` 給 null
 //    ⇒ ProductImage `showReal === false` ⇒ 客人看到站內 /placeholder-product.png。
 //
-// 🛑 而最重要的一格是【負對照】:PCM 自己的卡不得被濾掉。
-//    一條寬鬆的規則會把 591 支的 PCM「暫無照片」卡也濾掉 —— 換成另一張 PCM 卡,
-//    零收益而多一次同步;而它在畫面上幾乎看不出差別 ⇒ 沒有人會發現規則寫寬了。
+// ⛔ ~~而最重要的一格是【負對照】:PCM 自己的卡不得被濾掉。一條寬鬆的規則會把 591 支的
+//    PCM「暫無照片」卡也濾掉 —— 換成另一張 PCM 卡, 零收益而多一次同步~~
+// 🔴 **2026-09-04 這一段整個翻面了** —— 那張卡**現在也濾**(理由見
+//    `packages/domain/.../supplier-placeholder.ts` 的 `dropImagesWithoutRealPhoto` docstring:
+//    Sean 拍「無真照片 ⇒ 品牌 logo」⇒ 零收益前提消滅;且 JSON-LD / OG 兩個對外消費端不呼叫謂詞)。
+// 🛑 **而【規則寫太寬】這個風險沒有消失, 只是守它的東西換了地方** ——
+//    原本靠這三份負對照守, 而它們同時被翻面 ⇒ **翻面時風險變大而守門變少**。
+//    ✅ 現在守它的是 `supplier-placeholder.test.ts` 的
+//    「PCM 網域上的**真商品圖** ⇒ `hasNoRealImage` 必為 false」那一格(補之前該突變全綠)。
 // ─────────────────────────────────────────────────────────────
-describe('⟦fc-SUPPLIERPLACEHOLDER⟧ dropSupplierPlaceholders', () => {
+describe('⟦fc-SUPPLIERPLACEHOLDER⟧ dropImagesWithoutRealPhoto', () => {
   const G = 'https://www.gillestooling.com/media/01/e4/ac/1711800467/';
   const G2 = 'https://www.gillestooling.com/media/7d/cb/33/1740757593/'; // 🔴 另一個目錄段
   const X = 'https://www.extreme-components.com/components/com_virtuemart/assets/images/vmgeneral/';
@@ -536,7 +542,7 @@ describe('⟦fc-SUPPLIERPLACEHOLDER⟧ dropSupplierPlaceholders', () => {
     ['bild-folgt-in-kurze-', `${G}bild-folgt-in-kurze-gilles-tooling-motorrad.png`],
     ['noimage.jpg', `${X}noimage.jpg`],
   ])('🔴 濾掉供應商佔位圖:%s', (_rule, url) => {
-    expect(dropSupplierPlaceholders([url])).toEqual([]);
+    expect(dropImagesWithoutRealPhoto([url])).toEqual([]);
   });
 
   // 🔴 CDN 把同一張圖切成 28 個 hash 檔名 ⇒ 比對必須是 startsWith。
@@ -546,20 +552,49 @@ describe('⟦fc-SUPPLIERPLACEHOLDER⟧ dropSupplierPlaceholders', () => {
     `${G}spareparts-mit-tesxt59119dc4380460194e.png`,
     `${G2}bild-schraube-gilles-toolingpi82encvzt4bx.png`,
   ])('🔴 hash 尾巴的變體也要濾掉(前綴比對, 不是完整檔名):%s', (url) => {
-    expect(dropSupplierPlaceholders([url])).toEqual([]);
+    expect(dropImagesWithoutRealPhoto([url])).toEqual([]);
   });
 
-  // 🔴🔴 負對照:PCM 自己的卡。規則若忘了釘網域或寫太寬 ⇒ 這一格紅。
-  it('🟢 負對照:PCM 自己的「暫無照片」卡【不得】被濾掉', () => {
+  // 🔴🔴 **2026-09-04 這一格翻面了 —— 翻的是規格, 不是實作。**
+  //    ⛔ ~~原本:「負對照:PCM 自己的卡【不得】被濾掉」~~,理由「換成另一張 PCM 卡, 零收益」。
+  //    🟢 **那個理由在當時是對的** —— 那時「沒有圖」的畫面就是另一張一樣的 PCM 卡。
+  //    🔴 而兩件事讓前提不成立:
+  //       ① Sean 2026-09-03 拍「無真照片 ⇒ **品牌 logo** + 小字暫無照片」⇒ 收益不再是零
+  //       ② `product.images` 有兩個**對外**消費端(`product-jsonld.ts` 報 Google · `page.tsx` OG)
+  //          **不呼叫** `hasNoRealImage` ⇒ 那 882 列會被報給外部**並被快取**
+  //          ⇒ 🛑 在顯示層逐處補判斷救不了 —— 漏一處不會紅(而先前就是這樣漏掉這兩處的)
+  //    🎯 ⇒ **判斷改住在【資料出口】, 不是【每一個畫面】。**
+  //    ⚠️ **而「規則寫太寬」那個原本由本格守住的風險【沒有消失】** ——
+  //       它現在由 `supplier-placeholder.test.ts` 的「同檔名不同網域 ⇒ 不濾」與
+  //       「5 個真實網址逐字」兩組守;**本格不再是那道防線。**
+  // 🔴🔴 **端到端:那張卡到不到得了【對外】那兩個消費端。**
+  //    這一組存在的理由:上面那些格子測的是**函式**, 而真正要保證的是
+  //    「`mapSupabaseProductToDomain` 出來的 `product.images` 裡沒有它」——
+  //    因為 `product-jsonld.ts` 與 `products/[slug]/page.tsx` **不呼叫** `hasNoRealImage`,
+  //    它們只信任 `product.images` 已經是乾淨的。
+  //    ⇒ 🛑 **那兩處會被 Google / 社群卡【快取】** ⇒ 錯了修好也要等它過期。
+  it('🔴🔴 mapper 出口:只有那張卡 ⇒ product.images 為空(對外兩處據此不會輸出它)', () => {
     const pcm = 'https://quote.pcmmotorsports.com/no-photo.png';
-    expect(dropSupplierPlaceholders([pcm])).toEqual([pcm]);
+    const product = mapSupabaseProductToDomain({ ...baseProductRow, images: [pcm] });
+    expect(product.images).toEqual([]);
+  });
+
+  it('🟢 反向那半:真圖照樣留在 mapper 出口(證明上面那格不是恆空)', () => {
+    const real = 'https://cdn.example.com/real-1.jpg';
+    const product = mapSupabaseProductToDomain({ ...baseProductRow, images: [real] });
+    expect(product.images).toEqual([real]);
+  });
+
+  it('🔴 PCM 自己的「暫無照片」卡【現在也濾】(規格 2026-09-04 翻面)', () => {
+    const pcm = 'https://quote.pcmmotorsports.com/no-photo.png';
+    expect(dropImagesWithoutRealPhoto([pcm])).toEqual([]);
   });
 
   // 🔴 釘網域那一格單獨守:同一個檔名掛在別的網域上 ⇒ 不濾。
   //    拿掉 `host === h` 這個條件 ⇒ 只有這一格紅。
   it('🟢 負對照:同樣的檔名但不是那個網域 ⇒ 留著(規則釘住網域)', () => {
     const other = 'https://cdn.example.com/vmgeneral/noimage.jpg';
-    expect(dropSupplierPlaceholders([other])).toEqual([other]);
+    expect(dropImagesWithoutRealPhoto([other])).toEqual([other]);
   });
 
   // 🔴🔴 **Critical(code-reviewer 2026-09-02 實跑抓到的假綠)**
@@ -571,7 +606,7 @@ describe('⟦fc-SUPPLIERPLACEHOLDER⟧ dropSupplierPlaceholders', () => {
     ['bild- 併成一條會誤傷', `${G}bild-carbon-tank-pad.jpg`],
     ['includes 取代 startsWith 會誤傷', `${G}photo-of-spareparts-mit-tesxt-shown-here.jpg`],
   ])('🔴 負對照:真商品照不得被濾掉(%s)', (_why, url) => {
-    expect(dropSupplierPlaceholders([url])).toEqual([url]);
+    expect(dropImagesWithoutRealPhoto([url])).toEqual([url]);
   });
 
   // 🔴 Critical:trim bbox 釘在【DB 的 images[0]】(view 的 LEFT JOIN)
@@ -599,18 +634,22 @@ describe('⟦fc-SUPPLIERPLACEHOLDER⟧ dropSupplierPlaceholders', () => {
   });
 
   it('🔵 大寫檔名也要濾掉(實測小寫化之前會繞過去)', () => {
-    expect(dropSupplierPlaceholders([`${G}SPAREPARTS-MIT-TESXT.PNG`])).toEqual([]);
+    expect(dropImagesWithoutRealPhoto([`${G}SPAREPARTS-MIT-TESXT.PNG`])).toEqual([]);
   });
 
   it('🟢 負對照:真商品照留著;而混在一起時只濾掉該濾的', () => {
     const real = `${G}carbon-tank-pad-real.jpg`;
-    expect(dropSupplierPlaceholders([real, `${G}spareparts-mit-tesxt.png`])).toEqual([real]);
+    expect(dropImagesWithoutRealPhoto([real, `${G}spareparts-mit-tesxt.png`])).toEqual([real]);
   });
 
   // 🔵 fail-open:解析不了的字串留著。兩個方向都會錯, 而留著是比較輕的那一邊
   //    (客人看到供應商佔位圖 = 今天的現況;濾掉可能蓋住真照片, 而那沒有人會回報)。
   it('🔵 解析不了的 URL ⇒ 留著(fail-open, 不得 throw)', () => {
-    expect(dropSupplierPlaceholders(['not-a-url', ''])).toEqual(['not-a-url', '']);
+    // 🔴 2026-09-04:空字串**改成會被濾掉** —— `hasNoRealImage('')` 回 true。
+    //    那是刻意的:`''` 會渲染成 `<img src="">`(對某些瀏覽器 = 再抓一次當前頁),
+    //    而它從來不是一張圖 ⇒ 濾掉它沒有「可能蓋住真照片」那個風險。
+    //    ⚠️ 而 `'not-a-url'` 仍然留著 —— fail-open 那一半沒有變。
+    expect(dropImagesWithoutRealPhoto(['not-a-url', ''])).toEqual(['not-a-url']);
   });
 
   // ── 接線:兩個 mapper 各自真的呼叫了它(上面全綠而沒接上 ⇒ 客人那側零改變)
@@ -627,6 +666,9 @@ describe('⟦fc-SUPPLIERPLACEHOLDER⟧ dropSupplierPlaceholders', () => {
 
   // 🔴 既有的 fail-loud guard 不得被濾圖吞掉。
   //
+  // 📌 **搜到舊名 `dropSupplierPlaceholders` 的人看這裡**:2026-09-04 改名為
+  //    `dropImagesWithoutRealPhoto` 並**放寬了範圍**(連 PCM 自己的卡也濾)。下面這段是**歷史紀錄**,
+  //    刻意保留當時的字面, 不要照它去找一個已經不存在的函式。
   // 🛑 **而我第一版在這裡寫了一句假的**:原本寫「把 dropSupplierPlaceholders 移到 guard 之前
   //    ⇒ 這一格紅」。**實跑 ⇒ 50 全綠。** 那不是尺守不住, 是**我沒造出那個世界**:
   //    濾圖是 fail-open ⇒ 非字串元素解析失敗 ⇒ 被【留著】⇒ 後面的 guard 照樣 throw

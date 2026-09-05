@@ -25,6 +25,16 @@ import type { ManualOrderCatalogHit } from '@/lib/orders/manual-order-catalog';
 //
 // 🛑 **而丙有一個後果要寫下來, 不要讓它靜靜發生**:
 //    「商品編號」那一格 Sean 已裁「hidden 由系統填」(Q3)——
+//    ⚠️🔴 **2026-09-04:上面那句拍板【查無來源】。兩個窗、三把尺、零命中, 而正對照證明尺會動**:
+//      · `bash scripts/before-asking-sean.sh`(兩組關鍵字)⇒ 五段全零
+//      · 逐字 grep 信箱 `hidden 由系統填` / `由系統填` ⇒ 0
+//      · 主視窗獨立換關鍵字 `grep -rn 'hidden' ~/pcm-mailbox/等Sean*.md` ⇒ 0
+//      · 🟢 正對照:同一把尺找「手動建單」⇒ **169 支** ⇒ 那個 0 不是尺沒接上
+//      ⇒ 🔴 **它可能是真的而用了別的字, 也可能從來沒有人拍過。我們分不出來。**
+//      🛑 **撞到這裡的人:不要照它做, 也【不要刪它】—— 端給 Sean 確認。**
+//      📌 **刪掉的話下一個人會重新發明它, 而這一次的查證就消失了。**
+//      🎯 而它今天真的擋住了一件事:主視窗判「留著那一格、改訊息」, 而這句話讓那個實作停了下來
+//        —— ⇒ **一句沒有來源的拍板, 擋人的效果與真拍板【完全相同】。**
 //    **而丙不回寫 ⇒ 系統填不了它** ⇒ 那一格仍然留白 ⇒ 那一列仍然走【代購】那條路。
 //    ⇒ 亦即:本片讓員工**查得到**價格與品名, 而**訂單品項仍然不會對到目錄變體**。
 //    📎 那與 `⟦b4-SPEC1⟧`(規格權威)是同一條鏈:那一片今天觸發條件為零, 正是因為這一格。
@@ -76,7 +86,20 @@ export function ManualOrderCatalogLookup({ searchAction }: ManualOrderCatalogLoo
 
   return (
     <section className='rounded-md border p-3' data-testid='manual-order-catalog-lookup'>
-      <p className='text-sm font-medium'>查商品(查到的資料顯示在下面,請自己填進上面那幾格)</p>
+      {/* 🔴🔴 **⛔ ~~「請自己填進【上面】那幾格」~~ —— 那句指錯方向**(⟦b4-LOOKUPCOPYDIR⟧,
+          2026-09-05 本機後台走查當場撞到)。
+          🔬 兩邊逐字讀過:`manual-order-form-body.tsx:220` 的碼註寫著「查商品排在品項列【上面】
+             —— 員工的動線是『先查到資料, **再往下填**』」, 而渲染順序確實是本元件在前、
+             `<ManualOrderLines/>` 在後 ⇒ 📌 **要填的格子在【下面】, 而畫面上的字說「上面」。**
+
+          🛑 **而修法【不是】把「上面」換成「下面」** —— 那樣同一句話裡會有兩個「下面」
+             (結果在下面、格子也在下面), 而它們指的是不同的東西。
+          ✅ **改成點名那一區的【名字】**:`manual-order-lines.tsx:72` 的 `<legend>` 逐字就是「品項」。
+             🎯 理由不是好聽:**方向詞會在下一次有人調整版面順序時再次變成假的, 而區塊名不會。**
+             ⇒ 這一格順手把「同一個病下次還會發生」關掉, 不只修這一次。 */}
+      <p className='text-sm font-medium' data-testid='catalog-lookup-hint'>
+        查商品(查到的資料顯示在下面,請自己抄進「品項」那幾格)
+      </p>
       <div className='mt-2 flex gap-2'>
         <input
           aria-label='要查的料號'

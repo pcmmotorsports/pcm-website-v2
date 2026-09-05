@@ -42,7 +42,9 @@ function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
     shippingMethod: 'home',
     invoice: { type: 'personal' },
     cartSessionId: '11111111-1111-1111-1111-111111111111',
-    termsVersion: '2026-06-30', // #241 server 注入(必填)
+    termsVersion: '2026-06-30',
+    // 🔵 段 1-B:tappay = 今天線上唯一的付款方式 ⇒ 既有測項的世界不變(而那是一個世界不是中性預設)。
+    paymentChannel: 'tappay', // #241 server 注入(必填)
     ...over,
   };
 }
@@ -75,6 +77,8 @@ describe('SupabaseOrderAdapter.placeOrder', () => {
       p_invoice: { type: 'company', carrier: undefined, title: 'PCM', taxId: '12345678', donateCode: undefined },
       p_cart_session_id: '11111111-1111-1111-1111-111111111111',
       p_terms_version: '2026-06-30', // #241 server 注入
+      // 🔵 段 1-B:第 11 個參數 —— 少了它會命中舊那支 create_order, 而匯款會被存成 tappay。
+      p_payment_channel: 'tappay',
       p_client_ip: null, // #241 best-effort(input fixture 未帶 → null)
       p_client_ua: null,
     });
@@ -94,7 +98,9 @@ describe('SupabaseOrderAdapter.placeOrder', () => {
       'create_order',
       expect.objectContaining({ p_notification_email: null }),
     );
-    expect(Object.keys(rpc.mock.calls[0]![1] as object)).toHaveLength(9);
+    // 🔵 段 1-B:9 ⇒ 10(多了 p_payment_channel)。**這一格是 arity 的守門**:
+    //   它會抓到「有人靜靜多送/少送一個鍵」—— 而那正是新舊兩支 create_order 的分辨器。
+    expect(Object.keys(rpc.mock.calls[0]![1] as object)).toHaveLength(10);
   });
 
   it('RPC error(RAISE / 網路)原樣上拋不吞(對齊既有 adapter 裸 throw)', async () => {
@@ -159,6 +165,44 @@ describe('SupabaseOrderAdapter.findTotal', () => {
   it('🔴 非整數 total(浮點腐壞)→ toMoneyAmount 中央守門 throw、不靜默放行', async () => {
     const { client } = makeQueryClient({ data: { total: 1100.5 }, error: null });
     await expect(new SupabaseOrderAdapter(client).findTotal('o1')).rejects.toThrow();
+  });
+});
+
+// ── findPaymentChannel:建單後 read-back(段 1-B)──
+//
+// 🔴 **這個 describe 是【突變測試逼出來的】, 不是順手補的。**
+//    我先在 `charge-actions.test.ts` 寫了一格「回查回 null → 不當成 tappay」,
+//    並在 adapter 的註解裡寫「若有人把它改成讀不到就回 'tappay', 這一格會紅」。
+//    🛑 **實測:那句話是假的。** 把 adapter 的 `return null` 改成 `return 'tappay'`
+//       ⇒ 兩支檔 **229 格全綠**。
+//    📌 成因:action 層那格 **mock 掉了整個 repo** ⇒ 它結構上碰不到真的 adapter
+//       ⇒ 「action 有測」與「adapter 有測」是兩個宣稱, 而我用前者替後者背書。
+describe('SupabaseOrderAdapter.findPaymentChannel', () => {
+  it('查得 → 回那個字串;查詢鏈 = orders/select payment_channel/eq id', async () => {
+    const { client, from, select, eq } = makeQueryClient({
+      data: { payment_channel: 'bank_transfer' },
+      error: null,
+    });
+    const res = await new SupabaseOrderAdapter(client).findPaymentChannel('o1');
+    expect(res).toBe('bank_transfer');
+    expect(from).toHaveBeenCalledWith('orders');
+    expect(select).toHaveBeenCalledWith('payment_channel'); // 🔴 單欄窄讀
+    expect(eq).toHaveBeenCalledWith('id', 'o1');
+  });
+
+  it('🔴 查無 / 非本人(RLS)→ null,**不得回 tappay** —— 讀不到與讀到 tappay 必須分得開', async () => {
+    const { client } = makeQueryClient({ data: null, error: null });
+    await expect(new SupabaseOrderAdapter(client).findPaymentChannel('o-nope')).resolves.toBeNull();
+  });
+
+  it('形狀非 string(DB/wire 腐壞)→ null fail-closed', async () => {
+    const { client } = makeQueryClient({ data: { payment_channel: 7 }, error: null });
+    await expect(new SupabaseOrderAdapter(client).findPaymentChannel('o1')).resolves.toBeNull();
+  });
+
+  it('查詢 error → 裸 throw(對齊 findTotal 慣例;action 層吞通用字面)', async () => {
+    const { client } = makeQueryClient({ data: null, error: new Error('connection refused') });
+    await expect(new SupabaseOrderAdapter(client).findPaymentChannel('o1')).rejects.toThrow();
   });
 });
 
@@ -870,6 +914,8 @@ const DETAIL_ROW = {
   subtotal: 5000,
   shipping_fee: 200,
   discount_total: 0,
+  // 🔴 刻意挑一個【誰都不等於】的數 —— 0 的話「根本沒讀這一欄」的 mapper 會照樣全綠。
+  tax_total: 888,
   total: 10200,
   shipping_method: 'home',
   shipping_address_snapshot: { name: '王小明', phone: '0912345678', line: '台北市信義區 1 號' },
@@ -1038,7 +1084,7 @@ function assertNoCustomerIdLeak(select: string): void {
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
   it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出;🔴 A9w3 起 order_items 的 workflow_status+version 亦退出(明細頁九碼下拉已下架);A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);🔴 #808 加 needs_manual_review(布林旗標、非金流識別碼;gate 拆四態要它才分得出「還在跑」與「系統已放棄」);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取;🔴 OD 片 2 加 customer_user_id(客人明細入口需求 §0-J J-4,orders 自己的欄、非成本欄);🔴 #476 片1 採購內嵌加 voided_at+void_reason(⚠️ 名稱只到「**帶得到**」為止 —— 本片**不含**任何分流,下游 find/some/length 全部仍未認作廢,那是片2/3/4;成對取 = DB void_pair 同進同出))', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
+      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, invoice_requested, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
     );
     // 🔴 A9d2-2b:`idempotency_key` 進來了、`payload_hash` **沒有**,而且兩者當初是同一句話裡的
     //    「內部機制」—— 只改判其中一顆是刻意的。byte-equal 那條把兩者一起釘住,但它紅的時候
@@ -1521,6 +1567,7 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       subtotal: { amount: 5000, currency: 'TWD' },
       shippingFee: { amount: 200, currency: 'TWD' },
       discountTotal: { amount: 0, currency: 'TWD' },
+      taxTotal: { amount: 888, currency: 'TWD' },
       total: { amount: 10200, currency: 'TWD' },
       shippingMethod: 'home',
       shippingAddress: { name: '王小明', phone: '0912345678', line: '台北市信義區 1 號' },
@@ -2670,10 +2717,20 @@ const MEMBER_DETAIL_ROW = {
   payment_status: 'paid',
   fulfillment_status: 'shipped',
   payment_method: 'tappay',
+  // 🔴🔴 **刻意填 `bank_transfer` 而不是 `tappay`**(code-reviewer 2026-09-04 must-fix ④):
+  //   那一欄的 DB 預設值是 `'tappay'` ⇒ 填 `'tappay'` 的話, **把 mapper 那行改成寫死 `'tappay'`
+  //   仍然全綠** —— 這一格就殺不掉那個突變。
+  //   📌 **一個等於預設值的 fixture, 對「它有沒有真的被讀出來」是零判別力的。**
+  payment_channel: 'bank_transfer',
   paid_at: '2099-04-18T03:00:00Z', // 🔴 刻意與 created_at(04-15)【不同日】
   subtotal: 12000,
   shipping_fee: 100,
   discount_total: 0,
+  // 🔴 **刻意填一個【誰都不等於】的數**(605)—— 照上面那句「等於預設值的 fixture 零判別力」:
+  //    0 的話, 一個「根本沒讀這一欄」的 mapper 會照樣全綠。605 與 12000 / 100 / 0 / 12100 都不同。
+  //    ⚠️ 它**故意不平衡**(12000+100-0+605 ≠ 12100)—— 本 fixture 量的是【欄位有沒有被讀出來】,
+  //       不是金額等式;那個等式在 `order-email-copy` 那條線上有自己的閘。
+  tax_total: 605,
   total: 12100,
   shipping_method: 'home',
   shipping_address_snapshot: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
@@ -2735,7 +2792,20 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
    */
   it('🔴 鐵則 12:MEMBER_ORDER_DETAIL_SELECT byte-equal 白名單【唯一擋「漏欄／偷偷加欄」的守門,不得弱化成 toContain】', () => {
     expect(MEMBER_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, cancelled_at, cancelled_reason, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, vehicle_snapshot, product_variants(images, products(images, brands(name))), shipment_items(shipments(shipped_at, deleted_at)))',
+      // 🔴 **M-4b 段 3 加了 `payment_channel`, 而這道閘當場把我攔下來** ——
+      //   它的存在理由就是這個:**加一欄不可以是偷偷來的, 得有人在這裡簽名。**
+      //   🔵 而那一欄**不印給客人看**, 只用來判斷「要不要顯示匯款資訊那一塊」
+      //      (`MemberOrderDetail.paymentChannel` 的註解寫了為什麼那不是資訊揭露)。
+      //   🛑 而它**不是**採購/供應商那族的欄位 ⇒ 下方那條「對客投影不得含採購 token」不受影響。
+      //
+      // 🔴🔴 **2026-09-05 `⟦b4-TAXSURFACES⟧` 第 7 步加了 `tax_total`, 而這道閘【又當場把我攔下來】。**
+      //   🎯 而值得寫下來的不是「它抓到了」, 是**我怎麼差點錯過它**:
+      //      我改完之後跑的是我自己挑的那五支測試檔 ⇒ **全綠**;typecheck 也 `rc=0`。
+      //      ⇒ 📌 **一個我自己選的分母, 對「我沒想到會受影響的東西」結構上失明** ——
+      //         而這正是鐵則 11 第四個數要問的那件事, 只是那個數也是我自己餵的。
+      //   🔵 而 `tax_total` 為什麼可以進來:它是**訂單本身的金額欄**, 與 `subtotal` / `discount_total`
+      //      同族, 不是價格表欄、不是 PII、不是採購 token ⇒ 下方 forbidden-token 那格不受影響。
+      'id, display_id, created_at, payment_status, fulfillment_status, payment_method, payment_channel, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, shipping_method, shipping_address_snapshot, cancelled_at, cancelled_reason, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, vehicle_snapshot, product_variants(images, products(images, brands(name))), shipment_items(shipments(shipped_at, deleted_at)))',
     );
   });
 
@@ -2789,6 +2859,8 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
       paymentStatus: 'paid',
       fulfillmentStatus: 'shipped',
       paymentMethod: 'tappay',
+      // 🔴 **少了這一行, vitest 的 `toEqual` 會忽略 `undefined`** ⇒ 那條 row→domain 的線零覆蓋。
+      paymentChannel: 'bank_transfer',
       paidAt: '2099-04-18T03:00:00Z',
       // ⟦b9-SHIPUI⟧ 這個 fixture **沒有** `shipment_items` ⇒ 當作沒出貨(保守方向:寧可少亮一階)。
       // 🔴 而 `allItemsShipped` 在這裡是 `false` 而不是 `true` —— 一個品項、零有效的箱,
@@ -2798,6 +2870,8 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
       subtotal: { amount: 12000, currency: 'TWD' },
       shippingFee: { amount: 100, currency: 'TWD' },
       discountTotal: { amount: 0, currency: 'TWD' },
+      // 🔴 605 是 fixture 裡刻意挑的【誰都不等於】的數 ⇒ 換錯欄、或根本沒讀這一欄, 這裡都會紅。
+      taxTotal: { amount: 605, currency: 'TWD' },
       total: { amount: 12100, currency: 'TWD' },
       shippingMethod: 'home',
       shippingAddress: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
@@ -2815,6 +2889,9 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
           quantity: 2,
           unitPrice: { amount: 6000, currency: 'TWD' },
           lineTotal: { amount: 12000, currency: 'TWD' },
+          // ⟦ship-WHICHITEMSSHIPPED⟧ 同一個 fixture 沒有 `shipment_items` ⇒ 這一件也是「沒出貨」。
+          // 🔵 與上面訂單層那個 `shippedAt: null` **同源**(逐件那一份就是訂單層那個值的來源)。
+          shipped: false,
         },
       ],
       itemCount: 2, // Σquantity,從**實際撈到的**品項算
@@ -2882,8 +2959,11 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
    * 🔴 **本格是 code-reviewer 2026-09-02 抓的**:上面那幾格每一格**最多只有一個品項有有效的箱**
    * ⇒ `shippedTimes` 長度永遠 ≤ 1 ⇒ **外層那個 `.sort()` 沒有任何世界殺得死它**。
    * 🔬 `-fc` 實跑證實:拿掉 `mappers/order.ts:1251` 的**外層** `.sort()` ⇒ **119 passed 全綠**。
-   *    ⚠️ 那支檔有**兩個** `.sort()`(`:1248` 內層、`:1251` 外層)⇒ 認字面不要認行號:
-   *    外層那個是 `const shippedTimes = …filter(…).sort();`。
+   *    ⚠️ 那支檔有**兩個** `.sort()` ⇒ 認字面不要認行號:外層那個是
+   *    `const shippedTimes = …filter(…).sort();`。
+   *    ⛔ ~~「`:1248` 內層、`:1251` 外層」~~ —— 2026-09-04 ⟦ship-WHICHITEMSSHIPPED⟧ 把**內層**那個
+   *    搬進具名函式 `pickItemShippedAt()`(同檔上方), 而**外層那個沒有動**。
+   *    📌 舊行號留刪除線:碼搬家時**行為零改動、三綠全綠**, 而它會安靜地讓一個指得到的座標指空。
    * ⇒ 這一格讓兩個品項各自有效、而且**時間倒序**,外層排序才開始承重。
    */
   it('🔴 兩個品項各自有效而時間倒序 ⇒ 仍取**最早**(殺得死外層那個 .sort())', async () => {
@@ -2894,6 +2974,45 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
     expect(res!.shippedAt).toBe('2099-05-03T00:00:00Z');
     // 🟢 而兩個品項都出了 ⇒ 這一格同時證明 allItemsShipped 在多品項下也對。
     expect(res!.allItemsShipped).toBe(true);
+  });
+
+  /**
+   * ⟦ship-WHICHITEMSSHIPPED⟧ **逐件那一份**(Sean 2026-09-04 Q5 拍甲:已出貨的那幾列加灰字「已出貨」)。
+   *
+   * 🔵 **這不是新資料** —— 同一段算式本來就在跑, 只是算完只取最小值、逐件那一份被丟掉。
+   *    ⇒ 所以本族守的不是「撈不撈得到」, 是 🔴 **那個保守判準有沒有跟著逐件那一份一起走**。
+   *
+   * 🔴🔴 **最重要的仍然是「作廢的箱」那一格, 而它在逐件這一層【更嚴重】**:
+   *    訂單層弄錯 ⇒ 進度軸多亮一階(一個籠統的錯);
+   *    **逐件弄錯 ⇒ 明細上某一列白紙黑字寫著「已出貨」, 而那個箱子被作廢了** ⇒ 客人手上沒有那件東西。
+   *    ⇒ 驗收方式不是「它綠」, 是【拿掉 `pickItemShippedAt()` 那道 `sh.deleted_at === null` ⇒ 它必須紅】。
+   */
+  it('🔴🔴 作廢的箱 ⇒ 那一【列】不得標成已出貨(逐件這一層弄錯比訂單層嚴重)', async () => {
+    const res = await detailOf(rowWithBoxes([[shipBox('2099-05-01T00:00:00Z', '2099-05-02T00:00:00Z')]]));
+    expect(res!.items.map((i) => i.shipped)).toEqual([false]);
+  });
+
+  it('🟢 正對照(證明上一格的尺會動):同一箱 `deleted_at` 為 null ⇒ 那一列標得出來', async () => {
+    const res = await detailOf(rowWithBoxes([[shipBox('2099-05-01T00:00:00Z', null)]]));
+    expect(res!.items.map((i) => i.shipped)).toEqual([true]);
+  });
+
+  /**
+   * 🔴 **這一格是本族唯一殺得死「逐件被接成訂單層那一個值」的地方。**
+   * 🔬 少了它, 把 `shippedAt: pickItemShippedAt(item)` 改成 `shippedAt: shippedAt`(訂單層那個)
+   *    ⇒ 上面兩格**照樣全綠**(單一品項時兩者恆等)⇒ 而畫面上**每一列都會標成已出貨**。
+   * 🔵 刻意讓出貨的兩件**不相鄰**:接成「前 N 件」的話, 一組相鄰的 fixture 會安靜地全綠。
+   */
+  it('🔴 三件出了第 1、3 件 ⇒ 逐件各自對, 中間那件是 null', async () => {
+    const res = await detailOf(rowWithBoxes([
+      [shipBox('2099-05-09T00:00:00Z', null)],
+      [], // 🔴 這一件一箱都沒有
+      [shipBox('2099-05-03T00:00:00Z', null)],
+    ]));
+    expect(res!.items.map((i) => i.shipped)).toEqual([true, false, true]);
+    // 🟢 而訂單層仍取**最早**那一次 ⇒ 兩個消費者共用同一段算式而各自答對自己的問題。
+    expect(res!.shippedAt).toBe('2099-05-03T00:00:00Z');
+    expect(res!.allItemsShipped).toBe(false);
   });
 
   /**
@@ -2990,6 +3109,111 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
     const c2 = makeMemberDetailClient({ data: noImg, error: null });
     const res2 = await new SupabaseOrderAdapter(c2.client).findOrderDetailForCustomer('d', 'c1');
     expect(res2!.items[0]!.imageUrl).toBeNull();
+  });
+
+  /**
+   * ⟦ship-ORDERIMG⟧ **列表**那條路(訂單記錄卡片的小縮圖)—— 而它與明細是**兩個呼叫端**。
+   *
+   * 🔴 **codex 關卡2 R1 must-fix**:我第一版只守了明細 ⇒ 把 `order.ts:271-273`(列表那兩行)
+   *    改回直接取 `images[0]`, **明細與收藏兩格仍然全綠, 而訂單列表漏網**。
+   *    📌 兩個呼叫端共用 `pickFirstImage` 是對的, **而「共用」不等於「兩邊都被守著」** ——
+   *       守門的分母是【呼叫端】, 不是【被呼叫的那支函式】。
+   */
+  it('🔴 列表卡片:供應商佔位圖 ⇒ null;PCM 自家無圖卡 ⇒ null;而真照片逐字不變', async () => {
+    const REAL = 'https://quote.pcmmotorsports.com/real-product-01.jpg';
+    const mk = (imgs: unknown) => ({
+      id: 'o1',
+      display_id: 'PCM-2099-0007',
+      created_at: '2099-04-15T10:00:00Z',
+      payment_status: 'paid',
+      fulfillment_status: 'shipped',
+      total: 12345,
+      cancelled_at: null,
+      cancelled_reason: null,
+      order_items: [
+        {
+          quantity: 1,
+          line_total: 100,
+          product_snapshot: { title: 'A', sku: 'A-1', spec: {} },
+          product_variants: { images: imgs, products: { images: null, brands: null } },
+        },
+      ],
+    });
+    const img = async (imgs: unknown) => {
+      const { client } = makeListClient({ data: [mk(imgs)], error: null });
+      const out = await new SupabaseOrderAdapter(client).listSummariesByCustomer('c1');
+      return out[0]!.items[0]!.imageUrl;
+    };
+    expect(await img(['https://www.gillestooling.com/bild-schraube-1.jpg']),
+      '供應商佔位圖進到客人的訂單列表卡片了').toBeNull();
+    // 🔴 這一格擋的是「換成較弱的 isSupplierPlaceholder」—— 它不認 PCM 自家那張卡。
+    expect(await img(['https://quote.pcmmotorsports.com/no-photo.png']),
+      'PCM 自家的無圖卡漏出來了 ⇒ 這道濾網被換成 isSupplierPlaceholder 了?').toBeNull();
+    // 🔴 只看 [0] 的版本會把後面那張真照片丟掉。
+    expect(await img(['https://www.gillestooling.com/bild-schraube-1.jpg', REAL]),
+      '只看 [0] ⇒ 把一張真照片丟掉了').toBe(REAL);
+    expect(await img([REAL]), '🔵 負對照:真照片被濾掉了 ⇒ 客人的卡片變空框, 而沒有人會回報').toBe(REAL);
+  });
+
+  /**
+   * ⟦ship-ORDERIMG⟧ 客人的**訂單頁**不得顯示供應商的「無圖」圖(2026-09-04)。
+   *
+   * 🔬 病:商品卡 / PDP / 搜尋 / JSON-LD / OG 早就修好了(走 `dropImagesWithoutRealPhoto`),
+   *    而**訂單這條路 join 到現在的商品列、直讀 base 表** ⇒ 客人的訂單頁上是
+   *    **別家公司的「無圖」圖**, 其中 39 列**外連他家伺服器**(線【身分】2026-09-03 量)。
+   *
+   * ⛔ ~~「訂單存的是下單當時的快照 ⇒ 改它是改寫歷史」~~ ⇒ **那個理由 2026-09-04 被推翻**:
+   *    `order_items_snapshot_whitelist` 是 exact key set `{title, sku, spec}`
+   *    ⇒ 🔴 **圖結構上不在快照裡** ⇒ 今天換一張商品圖, 舊訂單卡片本來就跟著換。
+   *
+   * 🛑 **三個方向, 而第三個是這一格的重點**:
+   *    · 變體圖是佔位圖 ⇒ **落到母商品圖**(fallback 的語意因此變好了)
+   *    · 兩層都是佔位圖 ⇒ `null`
+   *    · 🔵 **負對照:一張真照片 ⇒ 逐字不變** —— 少了它,「一律回 null」也會通過,
+   *      而那個版本會拿站內佔位圖蓋掉每一張真商品照, **且沒有人會回報**。
+   */
+  it('🔴 供應商佔位圖:變體是佔位圖 ⇒ 退母商品圖;兩層都是 ⇒ null;而真照片逐字不變', async () => {
+    const PLACEHOLDER = 'https://www.gillestooling.com/bild-folgt-in-kurze-x.jpg';
+    const REAL = 'https://quote.pcmmotorsports.com/real-product-01.jpg';
+    const mk = (variantImgs: string[], productImgs: string[]) => ({
+      ...MEMBER_DETAIL_ROW,
+      order_items: [
+        {
+          ...MEMBER_DETAIL_ROW.order_items[0],
+          product_variants: { images: variantImgs, products: { images: productImgs, brands: null } },
+        },
+      ],
+    });
+
+    const a = makeMemberDetailClient({ data: mk([PLACEHOLDER], [REAL]), error: null });
+    expect(
+      (await new SupabaseOrderAdapter(a.client).findOrderDetailForCustomer('d', 'c1'))!.items[0]!.imageUrl,
+      '變體是佔位圖時沒有退到母商品那張真照片',
+    ).toBe(REAL);
+
+    const b = makeMemberDetailClient({ data: mk([PLACEHOLDER], ['https://rpmcarbon.com/cdn/x/no-image-2048-a.gif']), error: null });
+    expect(
+      (await new SupabaseOrderAdapter(b.client).findOrderDetailForCustomer('d', 'c1'))!.items[0]!.imageUrl,
+      '兩層都是供應商佔位圖, 而它進到客人的訂單頁了(其中一部分還外連他家伺服器)',
+    ).toBeNull();
+
+    const pcmCard = makeMemberDetailClient({ data: mk(['https://quote.pcmmotorsports.com/no-photo.png'], []), error: null });
+    expect(
+      (await new SupabaseOrderAdapter(pcmCard.client).findOrderDetailForCustomer('d', 'c1'))!.items[0]!.imageUrl,
+      'PCM 自家的無圖卡漏出來了 ⇒ 這道濾網被換成較弱的 isSupplierPlaceholder 了?',
+    ).toBeNull();
+
+    const arr = makeMemberDetailClient({ data: mk([PLACEHOLDER, REAL], []), error: null });
+    expect(
+      (await new SupabaseOrderAdapter(arr.client).findOrderDetailForCustomer('d', 'c1'))!.items[0]!.imageUrl,
+      '只看 [0] ⇒ 把同一個陣列後面那張真照片丟掉了',
+    ).toBe(REAL);
+
+    const c = makeMemberDetailClient({ data: mk([REAL], []), error: null });
+    expect(
+      (await new SupabaseOrderAdapter(c.client).findOrderDetailForCustomer('d', 'c1'))!.items[0]!.imageUrl,
+      '🔵 負對照:一張真照片被濾掉了 ⇒ 客人看到佔位圖蓋住真商品照, 而沒有人會回報',
+    ).toBe(REAL);
   });
 
   it('收件快照壞形狀 ⇒ 三欄各自 null(不炸頁)', async () => {

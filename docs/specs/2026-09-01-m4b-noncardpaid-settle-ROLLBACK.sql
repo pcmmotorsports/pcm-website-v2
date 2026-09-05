@@ -1,3 +1,13 @@
+-- ⛔⛔ **[2026-09-04] 本檔已被 `supabase/migrations/20260904230000_m4b_noncardpaid_settle_and_expire_leg.sql` 取代 —— 不得貼。**
+--   🔴 **貼下去的後果不是「重複做一次」, 是【把 Sean 拍的「匯款 5 天」靜靜翻回 1 天】** ——
+--      本檔也 `CREATE OR REPLACE` 同一支 `pcm_cron.expire_unpaid_orders`, 而它寫死 `interval '1 day'`、
+--      全檔 `payment_channel` 命中 0 ⇒ 分流那三行會被整段蓋掉, **而本檔自己的事後閘全綠、沒有東西會叫。**
+--   🛑 **而擋它的【不是這段橫幅】** —— 板列 `⟦b4-V3REVERTS5DAYS⟧`:
+--      本檔在此之前**就已經有一段「不得貼、不得 apply」的橫幅**, 而那個洞照樣被開出來。
+--      ⇒ 📌 **橫幅擋不住這件事。真正擋得住的是 `fab3234bd` 加進本檔的【前置閘】** ——
+--        它會在正式庫已經是分流版時 `RAISE` 拒絕繼續。
+--      ⇒ 🎯 **所以這一段的作用是【指路】, 不是防線** —— 防線在碼裡, 而它已經裝上了。
+--   🔵 要做本檔想做的那件事 ⇒ 去看 `20260904230000`(它是 `20260903080000` 的逐字超集 + 淨額腿)。
 -- 🛑🛑🛑 **codex R2 判 FAIL(12 must-fix + 3 nit)· 不得貼、不得 apply、不得當交件。** 🛑🛑🛑
 --    2026-09-02 01:0x。而【第一條就推翻了本檔存在的前提, 而我獨立複查過它是對的】:
 --    本檔檔頭寫「人工退款那半有既有管線在管」—— **那句話不成立。**
@@ -38,6 +48,29 @@ BEGIN
        'np.order_id = o.id') = 0 THEN
     RAISE EXCEPTION '還原前置:現在裝的【不是】本片(找不到 np.order_id = o.id)。'
                     '⇒ 貼下去會把別人的版本蓋掉。停下來確認, 拒繼續';
+  END IF;
+
+  -- 🔴🔴 **2026-09-04 線【信】加的一道前置閘 —— 本檔的業務邏輯一個字都沒動。**
+  --   成因:本檔 `CREATE OR REPLACE` 的 `expire_unpaid_orders` 是**依 `payment_channel` 分流【之前】**
+  --   的那一代(它的 WHERE 寫死 `interval '1 day'`、全檔 `payment_channel` 命中 0),
+  --   而它對這支函式的既有前置閘**只問「有沒有心跳」** ⇒ 分流版身上也有心跳 ⇒ **那道閘會放行**。
+  --   ⇒ 🛑 **貼下去會把 Sean 2026-09-03 的拍板(匯款/現金 5 天)靜靜還原成一律 1 天**,
+  --     而本檔既有的四道事後 `strpos` 閘**一道都不會叫**(它們檢的字面在兩版都在)。
+  --   🎯 **⇒ 而那個洞是【分流那一片】的作者(線信)自己漏的**:他用 `md5(prosrc)` 守住了
+  --     「別人先上、我後上」那個方向, **而沒有守「我先上、別人後上」** ——
+  --     📌 **一個不變式有兩個方向, 而他只想到會傷害自己的那一個。**
+  --   ⚠️ **本閘只擋、不修** —— 要不要分流、天數多少, 那是 ⟦b4-NONCARDPAID1⟧ 與 Sean 的事。
+  IF pg_catalog.strpos(
+       (SELECT p.prosrc FROM pg_catalog.pg_proc p
+         WHERE p.oid = 'pcm_cron.expire_unpaid_orders(integer)'::regprocedure),
+       'payment_channel') > 0 THEN
+    RAISE EXCEPTION '前置:正式庫的 expire_unpaid_orders 已經【依 payment_channel 分流】'
+                    '(supabase/migrations/20260903080000_m4b_expire_unpaid_by_payment_channel.sql:'
+                    ' tappay 1 天 / bank_transfer 與 cash 5 天, Sean 2026-09-03 逐字拍板)。'
+                    '而本檔重建的是分流【之前】那一版 ⇒ 貼下去會把那個拍板靜靜還原成一律 1 天, '
+                    '而本檔的四道事後 strpos 閘不會叫。'
+                    '出路二選一:①把 20260903080000 的那段 CASE 分流合進本檔的函式體 '
+                    '②先貼本檔、再貼 20260903080000(它自己的 md5 前置閘會擋住順序錯誤)。拒繼續';
   END IF;
 END
 $pre$;

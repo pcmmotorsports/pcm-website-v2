@@ -8,6 +8,8 @@ import { AddressInput, CheckoutInvoiceInput } from './index';
 
 const valid = {
   name: '王小明',
+  // 🔴 2026-09-04 Sean 拍甲:電話改必填 ⇒ 這個共用樣本要帶它, 否則每一格都在驗「缺電話」。
+  phone: '0912345678',
   line: '台北市信義區市府路 1 號',
   // M-4b 起 email 為必填(付款要用);長度 21 < 40 上限,不讓這個 fixture 值本身影響長度測試。
   email: 'wang.xiaoming@mail.tw',
@@ -146,6 +148,53 @@ describe('AddressInput 發票跨欄位規則(U3a canonical schema)', () => {
   it('fatal 兄弟欄位存在時仍然 reject(等價性:驗證零放寬)', () => {
     expect(AddressInput.safeParse({ ...valid, isDefault: '不是 boolean' }).success).toBe(false);
     expect(AddressInput.safeParse({ ...valid, phone: 42 }).success).toBe(false);
+  });
+
+  // 🔴 **獨立一格, 而不是塞進上面那格** —— 上面那格的名字講的是「兄弟欄位」,
+  //    我原本把這三個斷言塞在裡面, 而**它紅的時候會指錯方向**(讀的人以為是兄弟欄位壞了)。
+  // ── ⟦b4-PHONEREGEXSPLIT⟧ Sean 2026-09-04 拍甲:三頁同一支判準 ──
+  // 🔴 **主視窗-94 指定的守門**:`+886-9xx` 與分機**兩個帳號兩頁都填得進**。
+  //    而它守的不是「這兩個字串」, 是【三個 schema 走同一支】—— 所以三個都要問一次。
+  it('🔴 +886 與分機:註冊 / 個資 / 收件地址【三處都要收】', async () => {
+    const { RegisterInput, ProfileInput } = await import('./index');
+    for (const v of ['+886-912-345-678', '02-1234-5678 #12']) {
+      expect(AddressInput.safeParse({ ...valid, phone: v }).success, `地址頁擋了 ${v}`).toBe(true);
+      expect(
+        RegisterInput.safeParse({ name: '王小明', email: 'a@b.tw', phone: v, password: 'aA1!aaaa' })
+          .error?.issues.some((i) => i.path[0] === 'phone'),
+        `註冊頁擋了 ${v} —— 那正是這一列講的病`,
+      ).toBeFalsy();
+      expect(
+        ProfileInput.safeParse({ name: '王小明', phone: v, birthday: '', gender: 'undisclosed' })
+          .error?.issues.some((i) => i.path[0] === 'phone'),
+        `個資頁擋了 ${v}`,
+      ).toBeFalsy();
+    }
+  });
+
+  it('🔵 負對照:個資頁的電話仍然【選填】(空字串合法)—— 必填與否不由這支判準決定', async () => {
+    const { ProfileInput } = await import('./index');
+    expect(
+      ProfileInput.safeParse({ name: '王小明', phone: '', birthday: '', gender: 'undisclosed' })
+        .error?.issues.some((i) => i.path[0] === 'phone'),
+    ).toBeFalsy();
+  });
+
+  it('🔴 電話必填(Sean 2026-09-04 拍甲)—— 空字串與純空白都要擋', () => {
+    // 🔬 為什麼在這裡擋:出貨單那張紙上電話空白, 而正式庫 15 位客人裡 11 位存的是
+    //    **空字串**(不是 NULL)⇒ 那個空字串的源頭是這個 schema 以前讓它選填。
+    expect(
+      AddressInput.safeParse({ ...valid, phone: '' }).success,
+      '空字串放行 ⇒ 就是今天正式庫那 11 張空電話的來源',
+    ).toBe(false);
+    // 🔴 純空白也要擋 —— 否則客人打一個空格就繞過去了(與 name / line 同形狀)
+    expect(AddressInput.safeParse({ ...valid, phone: '   ' }).success).toBe(false);
+    // 🟢 負對照:有填就要放行, 而**格式刻意不驗** —— +886 / 分機 / 市話都是合法的,
+    // ⚠️ **而這個值下游會被截**:新竹那支 `hct-trans-data.ts` 的 `HCT_MAX.phone = 15`
+    //    (`ertel1` Char(15))⇒ 這個 20 字元的值送新竹時會被靜靜截成 15(會列進 `truncated`, 不炸)。
+    //    📌 **所以它是「schema 該放行的值」, 不是「一路無損的理想值」** —— 別把這一格讀寬。
+    //    一道猜錯格式的閘會把真客人擋在門外。要不要限格式是另一題。
+    expect(AddressInput.safeParse({ ...valid, phone: '+886 2 1234-5678 #12' }).success).toBe(true);
   });
 
   // 🔴 code-reviewer 關卡 Critical:上面那條 `toBe` **擋不住最可能的回歸**。

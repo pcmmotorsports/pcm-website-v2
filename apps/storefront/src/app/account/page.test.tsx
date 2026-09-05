@@ -120,7 +120,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import AccountRoute from './page';
+import AccountRoute, { generateMetadata } from './page';
 import { ACCOUNT_TAB_IDS } from '@/components/account/account-nav';
 
 afterEach(() => {
@@ -552,3 +552,28 @@ describe('性別欄要真的被撈、真的被傳下去', () => {
   });
 });
 
+describe('generateMetadata — 分頁標題', () => {
+  // 🔴 **這四格存在的理由**:2026-09-05 preview 實測 `/account` 的 `document.title`
+  //    逐字是首頁那句「PCM重機零件販售 — Made for those who ride differently.」——
+  //    這頁**根本沒設過標題**(🟢 正對照:同一把尺量 `/cart` 是「購物車 — PCM重機零件販售」)。
+  //    ⇒ 而**沒設標題**與**設錯標題**在畫面上長得一樣:都只是分頁列上一句看起來像網站名的話。
+  //    只有把它釘成字面, 下一個人動 `NAV` 時才會有東西紅。
+  const sp = (v?: string) => (v === undefined ? undefined : { searchParams: Promise.resolve({ tab: v }) });
+
+  it('沒帶 tab ⇒ 會員中心', async () => {
+    expect((await generateMetadata()).title).toBe('會員中心 — PCM重機零件販售');
+  });
+
+  it('tab=orders ⇒ 取 NAV 的 label「訂單記錄」, 不是另外寫死的字', async () => {
+    expect((await generateMetadata(sp('orders'))).title).toBe('訂單記錄 — PCM重機零件販售');
+  });
+
+  it('tab=overview ⇒ 與沒帶 tab 同一句(同一個畫面不該有兩個標題)', async () => {
+    expect((await generateMetadata(sp('overview'))).title).toBe('會員中心 — PCM重機零件販售');
+  });
+
+  it('tab=不存在的值 ⇒ 落回會員中心, 不是把那個字直接印進標題', async () => {
+    // 🔴 這格擋的是「把 searchParams 原樣拼進 title」那種寫法 —— 那會讓網址控制分頁列文字。
+    expect((await generateMetadata(sp('../../evil'))).title).toBe('會員中心 — PCM重機零件販售');
+  });
+});

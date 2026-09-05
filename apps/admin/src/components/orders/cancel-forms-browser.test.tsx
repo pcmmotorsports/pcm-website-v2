@@ -10,6 +10,9 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { chromium, type Browser } from 'playwright';
 
+// 🔵 預設世界 = 沒收過錢 ⇒ 不畫那個框。要測那個框的格子自己覆寫這一個。
+const NO_PENDING_REFUND = { kind: 'none' } as const;
+
 // cancel-forms-browser.test.tsx — M-4b E10 **A13b D6-a**:兩支取消表單的**真瀏覽器**負測。
 //
 // 🔴🔴 **為什麼非真瀏覽器不可**(plan §2-3 逐字、codex 原話):約束 3(失敗後不得默默退回整單)
@@ -136,7 +139,7 @@ async function renderPartial(): Promise<string> {
   };
   return renderToStaticMarkup(
     <>
-      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER} items={[item]} shipmentWarning={{ blocked: false }} />
+      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER} items={[item]} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />
       <PartialCancelItemControl orderId={ORDER} item={item} />
     </>,
   );

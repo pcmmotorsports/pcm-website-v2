@@ -189,7 +189,9 @@ export function SearchOverlay() {
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`, { signal: ac.signal });
         if (!res.ok) throw new Error(`search api ${res.status}`);
-        const data = (await res.json()) as { items: SearchOverlayItem[] } & Partial<SearchFacets>;
+        const data = (await res.json()) as { items: SearchOverlayItem[] } & Partial<SearchFacets> & {
+          suggestion?: { name: string; slug: string } | null;
+        };
         // 結果與它所屬的查詢一起寫進去 —— 兩顆分開的 state 表達不了「同一次量測」。
         // 🔴 `facets` 走同一顆 state 的理由同上;而**舊回應沒有這幾個欄位時**要有預設,
         //    否則畫的人拿到 `undefined.length` ⇒ 整個疊層炸掉(而它只在部署交錯那幾分鐘發生)。
@@ -202,6 +204,8 @@ export function SearchOverlay() {
             vehicles: data.vehicles ?? [],
             failed: data.failed ?? { brands: false, categories: false, vehicles: false },
           },
+          // 🔵 舊回應沒有這個欄位 ⇒ `null`(部署交錯那幾分鐘會發生, 而它不該把疊層弄壞)。
+          suggestion: data.suggestion ?? null,
         });
       } catch (err) {
         if ((err as Error).name === 'AbortError') return;
@@ -221,9 +225,26 @@ export function SearchOverlay() {
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
     if (!q) return;
-    // 稿 :66 是 `onNav('products', { search })`,而 `/products` 走的 RPC 沒有關鍵字參數
-    // ⇒ 主視窗判 A 案:另開 `/search`。理由全文在 `lib/search.ts` 檔頭。
-    router.push(`/search?q=${encodeURIComponent(q)}`);
+    // 🔴🔴 **落點 = `/products`,而這是【對回稿】不是改規格**(⟦搜尋-落點換 /products⟧ 2026-09-03)。
+    //    稿 `design-reference/components/SearchOverlay.jsx:67` 逐字
+    //      `onNav('products', { search: query.trim() });`
+    //    而稿裡**沒有 `/search` 這個頁**(掃 `onNav('search'` / `page === 'search'` ⇒ 0 命中)。
+    //    🔵 Sean 2026-09-03 逐字:「我以為搜尋會直接在我們商品目錄顯示誒」
+    //       ⇒ 📌 **他以為的就是稿說的** —— 偏離的是我們。
+    //
+    // ⛔ ~~`router.push('/search?q=' + …)`~~ ⇒ ~~主視窗 2026-09-02 判 A 案:另開 `/search`~~
+    //    🔴 **那個拍板在 2026-09-03 被 Sean 本人推翻**(主視窗批 甲/Q1=A/Q2=A)。
+    //    🟢 而**它的判準沒有被推翻** —— 逐字「一個看得見的缺,永遠優於一個安靜的錯」
+    //       (`lib/search.ts` 檔頭)。新落點靠 `SearchKeywordChip` 把「facet 沒生效」畫出來,
+    //       所以那個判準活著,只是換了一種活法。
+    //    🔵 `/search` 那一頁**留著**(Sean Q1=A):舊書籤/外連還活著,只是不再是落點。
+    //
+    // 🔴 用 `navigateToCatalog` 不用裸 `router.push` —— 理由見本檔 :39 那段
+    //    (`router.push` 不會把捲動歸零;而 `catalog-navigation.test.ts` 有一道全樹守門盯這個字面)。
+    // 🔵 `q.trim()` —— 稿 `:67` 逐字就是 `query.trim()`(code-reviewer nit)。
+    //    ⚠️ 不 trim **不會出錯**(`parseCatalogQuery` server 端也 trim), 但網址列會留下 `%20`
+    //    ⇒ 而那個網址是客人會**複製分享**的東西 ⇒ 照稿。
+    navigateToCatalog(router, `/products?search=${encodeURIComponent(q.trim())}`);
     close();
   };
 
@@ -355,6 +376,36 @@ export function SearchOverlay() {
           {view.kind === 'ok' && !hasAnyResult && (
             <div className="search-overlay-noresults">
               <div className="search-overlay-nores-label">沒有找到「{q}」相關結果</div>
+              {/* 🔴🔴 **「你是不是要找 X?」(`⟦search-BRANDTYPOTRGM⟧` · Sean 2026-09-04 拍甲)**
+                  原話逐字:「只在搜尋結果【0 筆】時, 畫面多一行『你是不是要找 AKRAPOVIČ?』(客人自己點)」
+                  ⇒ 📌 三個限定詞都承重:**只在 0 筆時**(它就在這個 block 裡)· **客人自己點**(是 button)
+                     · **不自動改字**(不碰 `q`, 不重送查詢)。
+                  🔵 **版面重用既有的訊息槽, 零新增 CSS** —— 稿 `SearchOverlay.jsx:116-120` 只定義了
+                     label + hint 兩行, **沒有第三行**。這裡借 `search-overlay-chip`(稿 `:110` 熱門字用的同一個)
+                     ⇒ 它本來就是「可以點的建議」那個形狀。
+                  🛑 **而「稿上沒有這一行」是事實, 不是我沒找到** ——
+                     `grep -rn '你是不是要找' design-reference/` ⇒ **0 命中**(分母 176 個檔)。
+                     ⇒ 存在是 Sean 拍的, **而長相是我借既有元件湊的** ⇒ 他要改隨時可以改。
+                  🔵 連結與品牌那一區同一個形狀(`SearchOverlayFacets.tsx:90` 的 `pbrand=<id>`)。 */}
+              {result?.suggestion && (
+                <div className="search-overlay-nores-hint">
+                  你是不是要找{' '}
+                  <button
+                    type="button"
+                    className="search-overlay-chip"
+                    onClick={() => {
+                      navigateToCatalog(
+                        router,
+                        `/products?pbrand=${encodeURIComponent(result.suggestion!.slug)}`,
+                      );
+                      close();
+                    }}
+                  >
+                    {result.suggestion.name}
+                  </button>
+                  ?
+                </div>
+              )}
               <div className="search-overlay-nores-hint">試試「排氣管」、「Öhlins」、或你的車款名稱</div>
             </div>
           )}

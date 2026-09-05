@@ -1,4 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
+// 🔴 路徑的**單一權威**在 global-setup(它是產這個檔的人);這裡 import 而不是重打一份。
+import { SHARE_STATE_PATH } from './e2e-prod/global-setup';
 
 /**
  * Playwright **production build** E2E config(#288-a;plan = docs/specs/2026-07-20-catalog-prod-build-e2e-plan.md v3.2)
@@ -32,8 +34,73 @@ import { defineConfig, devices } from '@playwright/test';
  * #288-b 補上:globalSetup 資料合約 fail-fast + mobile device project(Pixel 5)。
  * 仍**不含**:品牌 / 分頁 / 選車 / 深連結等篩選行為斷言 —— 那些依序在 #288-c / d / e。
  */
+/**
+ * 🔴🔴 **外部模式(`PCM_E2E_BASE_URL`;2026-09-05 線 `-f3`)**
+ *
+ * 病:本檔的 `baseURL` 寫死 `http://localhost:3200`, 而 `webServer.reuseExistingServer` **恆為 false**
+ *   ⇒ 它每一發都在本機重建重跑 ⇒ 📌 **「合完 main 之後去正式站走一遍」這件事, 這套一格都跑不了。**
+ *
+ * ✅ 有 `PCM_E2E_BASE_URL` ⇒ ①`baseURL` 用它 ②**整個 `webServer` 不存在**(不建、不起、不佔埠)。
+ * 🛑 **沒有它的時候, 行為【一個字都不變】** —— 下面那個 `webServer` 物件逐字沒動, 只是被條件式地
+ *   放進 config。⇒ 反假綠設計(reuse 恆 false ⇒ 突變自驗連得到新 server)在本機模式下**原樣還在**。
+ * 🔴 而**外部模式下那個設計【本來就不成立】** —— 遠端那台是誰建的、建的是哪一顆 commit,
+ *   這支 config 答不出來 ⇒ 📌 **外部模式的綠, 證明的是「那台機器現在的行為」, 不是「這棵樹的碼對」。**
+ *   兩者不是同一個宣稱, 不要拿外部的綠當本機的替代品。
+ */
+const EXTERNAL_BASE_URL = process.env.PCM_E2E_BASE_URL?.trim() || '';
+if (EXTERNAL_BASE_URL) {
+  // 🔴 **兩種打錯法會【靜靜量到別的地方】或【在錯的層炸】, 各擋一發**(code-reviewer 2026-09-05):
+  //   ① 忘了 `https://` ⇒ `global-setup.ts` 的 `new URL('/products', baseURL)` 會丟 `Invalid URL`,
+  //      而那時瀏覽器已經開起來了, 訊息不指向根因。
+  //   ② 帶路徑(`https://host/tw`)⇒ spec 一律 `goto('/search')`(前導斜線)⇒ **`/tw` 整段被丟掉**,
+  //      它打的是 `https://host/search` ⇒ 📌 **量到別的地方而且會綠。**
+  let parsed: URL;
+  try {
+    parsed = new URL(EXTERNAL_BASE_URL);
+  } catch {
+    throw new Error(
+      `[e2e-prod] PCM_E2E_BASE_URL 不是合法網址:「${EXTERNAL_BASE_URL}」—— 少了 https:// 嗎?`,
+    );
+  }
+  if (!/^https?:$/.test(parsed.protocol)) {
+    throw new Error(`[e2e-prod] PCM_E2E_BASE_URL 只收 http/https, 收到「${parsed.protocol}」`);
+  }
+  if (parsed.pathname !== '/') {
+    throw new Error(
+      `[e2e-prod] PCM_E2E_BASE_URL 不可以帶路徑(收到「${parsed.pathname}」)——` +
+        ' spec 一律以 `/` 開頭 goto, 那段路徑會被【靜靜丟掉】而測試照樣綠。',
+    );
+  }
+  // 🔵 走 stderr:與 preflight 一致, 而且 Playwright 的 reporter 不會把它當測試輸出吃掉。
+  //   🔴 「跳過 N 格」那個數字**印的是 0, 而 0 是量到的不是佔位** —— 今天 e2e-prod 底下
+  //   三支 spec **全是唯讀**(逐支開檔:goto / 點側欄 / 讀網址與文字), 沒有一格會寫入,
+  //   也沒有一格只在本機才有意義。⇒ 哪天有了會寫入的格, 在那一格上加
+  //   `test.skip(() => !!process.env.PCM_E2E_BASE_URL, '會寫入 ⇒ 不對外部站跑')`, 並把這裡的 0 改掉。
+  console.error(
+    `[e2e-prod] 🔴 外部模式:baseURL = ${EXTERNAL_BASE_URL}\n` +
+      '[e2e-prod]    不建 server(webServer 整段不存在)· 本片【不因外部模式跳過任何格】\n' +
+      '[e2e-prod]      (⚠️ reporter 印的 `1 skipped` 是 multi-category 那支自己的手機版 skip, 與外部模式無關)\n' +
+      '[e2e-prod]    ⚠️ 這一發的綠證明的是【那台機器現在的行為】, 不是【這棵樹的碼對】。\n' +
+      '[e2e-prod]    ⚠️ globalSetup 若在這裡失敗, 它的訊息會說「疑似 DB 未連通」——\n' +
+      '[e2e-prod]      那句是為【本機打我們自己的 DB】寫的;外部模式下真正的成因多半是那台機器或它的快取。',
+  );
+}
+
 export default defineConfig({
   testDir: './e2e-prod',
+  // 🔴🔴 **2026-09-05:這一行是【必要的】, 不是防禦性的** —— 少了它 CI 的 E2E 每一發都紅。
+  //   病史:Playwright 的**預設** `testMatch` 同時吃 `.spec.ts` **與 `.test.ts`**
+  //   (實測:不加本行時 `playwright test --list` 直接噴
+  //    `Error: Vitest cannot be imported in a CommonJS module using require()` at `contract-message.test.ts:1`,
+  //    而且 **`Total: 0 tests in 0 files`** ⇒ 🛑 **一支檔載不動, 整套一支都跑不了。**)
+  //   ⇒ 而 `e2e-prod/` 裡**現在住著一支 vitest 測試**(`contract-message.test.ts`, `a46b9a8eb`),
+  //     它被放在這裡是因為被測的 `contract-message.ts` 在這裡, 而 vitest 的 exclude
+  //     2026-09-04 已從「整個 `e2e-prod/`」**收窄成只排 `**/e2e-prod/**/*.spec.ts`**(見 root `vitest.config.ts`)。
+  //   🎯 **⇒ 兩道門必須【形狀互補】, 而 09-04 那一片只收窄了其中一道**:
+  //     vitest 排 `.spec.ts` / playwright 只收 `.spec.ts` ⇒ 同一個目錄, 兩種副檔名, 各歸各的 runner。
+  //   🛑 **不要把它改回「不設 testMatch」** —— 那等於把 `.test.ts` 交給 Playwright, 而它 require 不動 vitest。
+  //   ⚠️ 而**它的失敗方式不是漏跑, 是【整套零檔】** ⇒ 記在這裡, 因為零檔在某些 reporter 下看起來像通過。
+  testMatch: '**/*.spec.ts',
   fullyParallel: false, // 共用單一 production server,序列跑避免互相干擾
   forbidOnly: !!process.env.CI,
   retries: 0, // 守門用途:紅就是紅,不靠重試掩蓋 flaky
@@ -48,7 +115,14 @@ export default defineConfig({
   //    值取 10 分鐘:涵蓋 webServer build(≤180s)+ setup + 兩 project smoke,同時仍能界住無限卡死。
   globalTimeout: 600_000,
   use: {
-    baseURL: 'http://localhost:3200',
+    // 🔴 外部模式吃 env;沒有 env 時**逐字還是原本那個值**。
+    baseURL: EXTERNAL_BASE_URL || 'http://localhost:3200',
+    // 🔴 Vercel preview 的 share token:`globalSetup` 先把它換成 cookie 寫進這個檔,
+    //   這裡只寫**路徑**(檔在測試開跑前才存在, 那是 Playwright 官方 auth 的形狀)。
+    //   ⚠️ 沒帶 token 時是 `undefined` ⇒ **與本片之前逐字相同**, 本機模式一個字沒動。
+    ...(EXTERNAL_BASE_URL && process.env.PCM_E2E_SHARE_TOKEN?.trim()
+      ? { storageState: SHARE_STATE_PATH }
+      : {}),
     // 🔴 必須是 retain-on-failure 而非 on-first-retry(code-reviewer MF-6):
     //    retries=0 → 永不重試 → on-first-retry 永遠不會產生 trace,
     //    CI 的「失敗時上傳 trace」步驟就會靜默上傳空目錄 = 步驟名與事實不符。
@@ -68,7 +142,10 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
     { name: 'mobile', use: { ...devices['Pixel 5'] } },
   ],
-  webServer: {
+  // 🔴 外部模式**整段拿掉**(不是把 reuseExistingServer 翻成 true)——
+  //   翻旗標會讓 Playwright 去「檢查埠、沒人就自己起」, 那在打遠端網址時是錯的動作;
+  //   而 `undefined` 的 webServer 是 Playwright 明文支援的「不要管 server」。
+  ...(EXTERNAL_BASE_URL ? {} : { webServer: {
     // 🔴 preflight 必須在 build 之前(見上)。cwd 預設 = 本 config 所在目錄 = apps/storefront。
     command: 'node scripts/e2e-prod-preflight.mjs && pnpm build && pnpm exec next start --port 3200',
     url: 'http://localhost:3200',
@@ -76,5 +153,5 @@ export default defineConfig({
     // 實測本機 next build:冷啟(清 .next)19s / warm 11s → 180s 約 9x 餘裕。
     timeout: 180_000,
     stderr: 'pipe', // preflight 的錯誤訊息走 stderr,必須看得到
-  },
+  } }),
 });

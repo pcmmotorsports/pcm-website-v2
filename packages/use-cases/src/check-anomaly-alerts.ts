@@ -104,6 +104,63 @@ export type CheckAnomalyAlertsResult = {
    */
   manualCustomerSearchCount: number | null;
   manualCustomerSearchActors: number | null;
+  /**
+   * 搜尋日誌健康度(⟦search-LOGSILENTZERO⟧)。**五個欄位, 而它們代表【不同的世界】不是程度**:
+   * ```
+   * searchLogUnknown        那支 RPC 還沒 apply / 讀不到  ⇒ 與其他 Unknown 同款
+   * searchLogTableExists    false = 那張表還沒貼          ⇒ 印「未貼」【不告警】
+   * searchLogLastRowAt      null 而表在 = 還沒開始收      ⇒ 【不告警】(主視窗裁乙)
+   * searchLogStale          有列而最後一列 > 24h          ⇒ 🔴 告警
+   * searchLogAnonCanExecute null = 函式沒貼(不告警) · false = 🔴 門被關掉了(告警)
+   * ```
+   * ⛔ **原提案「近 24h 0 列就告警」被推翻** —— 逐字:「甲每天半夜假紅一次,
+   *    假紅會被人關掉(閘死於誤報比漏報常見)」。
+   */
+  searchLogUnknown: boolean;
+  /**
+   * 🔴 **與 `searchLogUnknown` 分開 —— 兩者的成因不同而回傳值原本是同一格。**
+   *   `Unknown` 有兩種世界:①那支 RPC 還沒 apply(部署窗口, 預期中)②它真的壞了(要有人看)
+   *   ⛔ ~~我原本只有 Unknown 一格~~ ⇒ 唯一分得開它們的是一行 log,
+   *      而 **同一個 type 往下幾行的 R3 must-fix 1 逐字判過這個形狀**:
+   *      「把那行 log 刪掉, 測試照樣全綠 ⇒ 那個『分得開』沒有量具」。
+   *   ⇒ 照 sibling(`manualCustomerSearchFailed`)補這一格, 讓它有量具。
+   */
+  searchLogFailed: boolean;
+  searchLogTableExists: boolean | null;
+  searchLogLastRowAt: string | null;
+  searchLogStale: boolean;
+  /**
+   * ⟦b4-NEEDSHUMANNOWATCHER⟧ 卡住的匯款單筆數(`overpaid` / `needs_human`)。
+   * 🔵 `stuckBankUnknown` 與它分開 —— 「那支 RPC 沒貼 / 讀失敗」與「真的 0 張」的下一步不同。
+   */
+  stuckBankCount: number;
+  stuckBankOldestCreated: string | null;
+  /**
+   * ⟦b4-PAIDTHENOVERPAID⟧ **第二個世界**(主視窗 2026-09-05 `Q1=乙`)——
+   * 已 `paid` / `partiallyPaid` 而**收到的比該收的多**。
+   * 🛑 **與 `stuckBankCount` 分開, 不合成一個數** —— 兩個世界要打不同的電話:
+   *   A 的客人**畫面還在叫他匯款**(急);B 的客人畫面正常, **而我們欠他錢**(要退)。
+   */
+  stuckBankOverpaidCount: number;
+  stuckBankOverpaidOldest: string | null;
+  stuckBankUnknown: boolean;
+  /**
+   * 🔴 **`stuckBankUnknown` 的兩個成因各有出口**(codex R1 must-fix ④)。
+   *    ⛔ ~~我原本只寫了 `stuckBankUnknown`, 而註解說「兩者分開」~~ —— **那句是假的**:
+   *      「那支 RPC 還沒 apply」與「讀的時候丟例外」**兩者都只讓 Unknown = true**
+   *      ⇒ 📌 **我寫了分開, 而下游拿到的是同一個布林。**
+   *    ✅ 照 `searchLogFailed` 那格的成例補這一欄 —— **真的壞了要有人看**,
+   *      而「還沒 apply」是部署窗口、不是壞掉。
+   */
+  stuckBankFailed: boolean;
+  /**
+   * 🔴 **命名的極性與 `searchLogStale` 對齊(true = 要看)**——
+   *   ⛔ ~~原名 `searchLogAnonCanExecute`(false = 要看)~~ ⇒ route 自然會寫
+   *      `!searchLogAnonCanExecute`, 而那在【函式還沒貼】那段期間 **每天假紅**
+   *      —— 正是主視窗裁乙要避開的那件事。
+   *   `null` = 那支函式還沒貼(不告警) · `true` = 🔴 那道門被關掉了(告警)
+   */
+  searchLogAnonExecuteRevoked: boolean | null;
   manualCustomerSearchUnknown: boolean;
   /**
    * 🔴🔴 **R3 must-fix 1:「讀取失敗」與「還沒 apply」必須在【回傳值】上分得開。**
@@ -136,6 +193,29 @@ export type CheckAnomalyAlertsResult = {
    */
   orderCreatedPaidNoEmailCount: number | null;
   orderCreatedNoRecipientCount: number | null;
+  /**
+   * 🔵 **未付款取消信線的同一組**(⟦b4-NORECIPIENTWINDOW⟧, 2026-09-03)。
+   * 🔴 **為什麼要獨立三格而不是併進上面那兩格**:它們是**兩條線**,
+   *    修法不同(一條要補信箱、一條可能要補取消流程), 併成一個數字會讓收信的人
+   *    看到「3 張」而不知道要去看哪一條線。
+   * 🛑 `pending` **不進 `shouldAlert`**(它 >0 是正常的);`noRecipient` 才是主詞 —— 同姊妹線。
+   * 🔴 `unknown` 為 true 時上面兩個是 `null` —— **不得寫成 0**。
+   * ⚠️ **它與訊號4 共用 `B4_DEPLOY_CUTOFF`**(寄信端那三條線也共用同一顆)
+   *    ⇒ 那顆沒設 ⇒ **這一格是安靜的**, 而那是刻意的(還沒上膛的線不該每天寄信)。
+   *    🛑 而「安靜」必須與「壞掉」分得開 ⇒ `unpaidCancelledGapUnknown` 要被 route 印出來。
+   */
+  unpaidCancelledPendingCount: number | null;
+  unpaidCancelledNoRecipientCount: number | null;
+  unpaidCancelledGapUnknown: boolean;
+  /**
+   * 🔵 更正單號信線那三格(第四條線, 2026-09-04)。
+   * 🔴🔴 **它與姊妹線差在【不共用 `B4_DEPLOY_CUTOFF`】—— 它根本沒有 cutoff。**
+   *    本線觸發欄是片 C 才新增的 ⇒ 歷史上每一箱都是 NULL ⇒ 母體天生從空的開始長。
+   *    ⇒ 📌 **所以那顆 env 沒設的時候, 這一格【照樣會查】** —— 與上面那三格的行為不同。
+   */
+  trackingCorrectedPendingCount: number | null;
+  trackingCorrectedNoRecipientCount: number | null;
+  trackingCorrectedGapUnknown: boolean;
   /** 🔵 訊號4 持續失敗那三格 —— 信裡印了而 result 沒有 ⇒ 事後對不了帳。 */
   orderCreatedStuckCount: number | null;
   orderCreatedStuckOldestMinutes: number | null;
@@ -153,6 +233,15 @@ export type CheckAnomalyAlertsResult = {
    */
   bypassRlsRevoked: boolean;
   bypassRlsUnknown: boolean;
+  /**
+   * ⟦b9-ACLDRIFT5⟧ 片二:權限快照漂移。與 `bypassRls*` 同一族的兩個旗標 ——
+   * `Detected` 進 `shouldAlert`(有人動了權限而沒有人認),`Unknown` 不進(讀不到 / 太舊 ⇒ 503 那條)。
+   */
+  aclDriftDetected: boolean;
+  aclDriftUnknown: boolean;
+  /** 🔵 診斷用:哪一族變了 / 那一列幾點量的。**不進** `shouldAlert`。 */
+  aclDriftFamilies: string | null;
+  aclDriftTakenAt: string | null;
   /** 🔵 讀到的兩個分母。**不直接進 `shouldAlert`** —— 那道閘只看上面兩個旗標。
    *  ⛔ ~~我第一版寫「**不是判準**」~~ —— R3 nit 打掉(codex R2 也在 domain 那份打過同一句):
    *     `bypassRlsTotalRoleCount` **確實參與判定**(adapter 拿它當回應合理性下界 ⇒ 走 Unknown)。
@@ -478,6 +567,28 @@ export function buildAnomalyAlertMessage(
    * `true` = 讀取失敗(有人要去看)· `false` = 那支 RPC 還沒 apply(預期中,不必動作)。
    */
   searchReadFailedForMessage = false,
+  /**
+   * 搜尋日誌健康度(⟦search-LOGSILENTZERO⟧)。**第五個參數, 理由與第三個同一條**:
+   * 它來自**另一支 RPC**(`get_search_log_health`), 塞進 `AnomalyAlertSummary` 會讓那個型別
+   * 不再對應任何一支 RPC 的回傳。
+   *
+   * 🔴 **沒有預設值 —— 漏傳就當場 typecheck 紅**(與 `manualCustomerSearch` 同一個理由:
+   *    有預設值的話, 漏傳 = 「一切正常」而零紅)。
+   * 🛑 兩格都是 `boolean`, 而**它們只在 true 時才進信** ⇒ 不命中零字。
+   */
+  searchLogFlags: { readonly stale: boolean; readonly anonRevoked: boolean },
+  /**
+   * ⟦b4-NEEDSHUMANNOWATCHER⟧ 卡住的匯款單:`overpaid` / `needs_human` 那兩種。
+   * 🔴 **沒有預設值 —— 漏傳就當場 typecheck 紅**(與上面兩格同一個理由)。
+   * 🛑 **`count === 0` ⇒ 不命中零字。**
+   * 🔵 `oldestCreated` 讓收信的人知道**積了多久** —— 而它零 PII、零金額、零單號。
+   */
+  stuckBank: {
+    readonly count: number;
+    readonly oldestCreated: string | null;
+    readonly overpaidCount: number;
+    readonly overpaidOldest: string | null;
+  },
 ): AnomalyAlertMessage {
   // 🔴 `Math.round(秒/3600)` 會把 5400 秒(90 分)講成「2 小時」= **報一個錯的門檻給收信人**
   //    (codex R2 nit)。正式路徑目前固定 86400,所以今天走不到 —— 而那不是不修的理由:
@@ -807,6 +918,20 @@ export function buildAnomalyAlertMessage(
     summary.orderCreatedNoRecipientCount,
     '🔴 訂單成立了而【那張單兩個信箱都是空的】⇒ 通知信永遠不會被建出來',
   );
+  // 🔴 **獨立一行, 不與上面那行合併** —— 兩條線的修法不同:
+  //   上面那行要看「為什麼下單沒留信箱」, 這一行要看「那張被取消的單是誰的」。
+  //   ⇒ 合成一個數字會讓看信的人不知道要去哪一條線。
+  emailPush(
+    summary.unpaidCancelledNoRecipientCount,
+    '🔴 訂單被取消了而【那張單兩個信箱都是空的】⇒ 取消通知永遠不會被建出來',
+  );
+  // 🔴 **第四條線, 一樣獨立一行。** 而它的嚴重度與上面兩行不同, 文案要說出那個差:
+  //   上面兩條是「客人【沒收到】一封信」;這一條是**客人手上有一個【我們給他的、而現在是錯的】號碼**
+  //   ⇒ 🎯 他會拿那個號碼去查貨、查不到、打電話進來, 而後台看到的號碼是對的。
+  emailPush(
+    summary.trackingCorrectedNoRecipientCount,
+    '🔴 貨運單號更正了而【那張單兩個信箱都是空的】⇒ 客人手上那個錯號碼, 我們沒有路可以更正',
+  );
   // 🔴 這一行【不走 emailPush】—— 它不是「幾封信」, 它是「一封都沒有」。
   //   ⇒ 文案刻意寫成兩種可能, **不猜是哪一種**:「這張表是空的」與「讀不到資料」
   //     在這一格底下**分不出來**, 而寫死其中一個會把人送去修錯的東西。
@@ -859,7 +984,12 @@ export function buildAnomalyAlertMessage(
    * 📌 **⇒ 一個在自己那一層完全正確的宣稱, 換一層之後是假的 —— 而它不會被任何單元測試抓到。**
    */
   const hasHeartbeat = (summary.cronHeartbeatAbnormalCount ?? 0) > 0;
-  const subject = hasBypassRls && !hasPayment && !hasEmail && !hasHeartbeat
+  // ⟦b9-ACLDRIFT5⟧:主旨也要分得出來 —— 一封主旨寫「付款有事」而內容是權限漂移的信,
+  //   收信的人會用錯的心情打開它。
+  const hasAclDrift = summary.aclDriftDetected === true;
+  const subject = hasAclDrift && !hasBypassRls && !hasPayment && !hasEmail && !hasHeartbeat
+    ? '🔵 PCM 資料庫權限與昨天不一樣(貼板當天正常)'
+    : hasBypassRls && !hasPayment && !hasEmail && !hasHeartbeat
     ? '⚠️ PCM 資料庫權限有事要你看(與付款無關)'
     : hasBypassRls
       ? '⚠️ PCM 資料庫權限有事,而其他也有事要你看'
@@ -892,6 +1022,28 @@ export function buildAnomalyAlertMessage(
    * 🛑 **逐字帶【它證不到什麼】** —— 沒有這一句, 收到告警的人會以為
    *    「沒叫 = 沒事」, 而那 45 張表的地板還是濕的。
    */
+  /**
+   * ⟦b9-ACLDRIFT5⟧ 片二:權限快照與昨天不一樣的那一行。
+   * 🛑 **逐字帶【貼板當天正常】** —— 少了那一句, 貼完板收到這封信的人會以為出事了,
+   *    而最可能的反應是**把那次貼板 revert 掉**。
+   * 🔵 而它也帶【怎麼讓它不再叫】—— 一封只說「有事」而不說下一步的信, 會被整批忽略。
+   */
+  const aclDriftBlock: string[] = [];
+  if (summary.aclDriftDetected) {
+    aclDriftBlock.push(
+      '【權限快照】',
+      '🔵 資料庫的權限與昨天不一樣了 —— 有人改了權限, 或是貼了一支 migration。',
+      `   哪一族變了:${summary.aclDriftFamilies ?? '(沒讀到)'}`,
+      `   這一列是幾點量的:${summary.aclDriftTakenAt ?? '(沒讀到)'}`,
+      '   ✅ **貼板當天出現這一行是正常的** —— 那些差就是你貼的那支造成的。',
+      '   ⇒ 確認過就在 SQL Editor 跑一次(理由必填, 它會留在資料庫裡):',
+      "     SELECT public.pcm_acl_approve_latest('貼了 <版本號>, 那些差是它造成的');",
+      '   🔴 而【沒有貼板】卻出現這一行 ⇒ 有人直接在 Supabase 網頁上改了權限 ⇒ 要查。',
+      '     逐格看是哪裡變了:bash scripts/acl-snapshot.sh',
+      '   🛑 它答不出【有沒有人偷改】—— 改掉又改回來, 兩次快照相同, 它不會叫。',
+    );
+  }
+
   const bypassRlsBlock: string[] = [];
   if (summary.bypassRlsRevoked) {
     bypassRlsBlock.push(
@@ -910,6 +1062,82 @@ export function buildAnomalyAlertMessage(
       '     ⇒ 重新量:docs/probes/2026-08-26-q15-rls-service-role-audit.sql;數字不對就來拆這道閘。',
       '   ⇒ 本告警答的是【那個屬性還在不在】,不答哪些表會安靜回 0,也**不涵蓋別的成因**',
       '     (換掉 admin 憑證 / 新表沒補政策 / 加 restrictive policy 都會造成同一個畫面)。',
+    );
+  }
+
+  /**
+   * ⟦search-LOGSILENTZERO⟧:搜尋日誌那一行。
+   * 🔴 **主視窗 2026-09-04 裁①**:進既有這封信、**只在命中時多一行, 不命中零字**。
+   *    理由逐字:「②『靠有人去看』= 今天沒有人在看 ⇒ 等於沒做;而這兩格一年出不了幾次,
+   *    不會變成每天一封。收件人不是他也沒關係 —— 他是唯一會轉給工程的人。」
+   * 🛑 而**兩格都不告訴 Sean 要做什麼** —— 它們是工程要看的 ⇒ 信裡明寫「轉給施工窗」。
+   */
+  const searchLogBlock: string[] = [];
+  if (searchLogFlags.stale) {
+    searchLogBlock.push(
+      '【搜尋日誌】',
+      '🔴 搜尋日誌超過 24 小時沒有新列 —— 客人搜尋的紀錄可能停止寫入了。',
+      '   ⇒ 這一格是工程要看的, 請【轉給施工窗】。',
+      '   ⚠️ 而它也可能是【真的一天沒有人搜尋】—— 那時候該看的是網站, 不是這支。',
+    );
+  }
+  if (searchLogFlags.anonRevoked) {
+    searchLogBlock.push(
+      '【搜尋日誌】',
+      '🔴 顧客站寫搜尋日誌的那道權限被收掉了(log_search_query 的 anon EXECUTE)。',
+      '   ⇒ 這一格是工程要看的, 請【轉給施工窗】。',
+      '   ⚠️ 它與上面那行的差別:這一行是【門被關了】, 上面那行是【沒有東西進來】。',
+    );
+  }
+
+  /**
+   * ⟦b4-NEEDSHUMANNOWATCHER⟧ 卡住的匯款單。
+   * 🔴 **這一格與上面兩格不同:上面兩格是【工程要看的】, 這一格是【客服要看的】** ——
+   *    每一張都對應一個**已經把錢匯出去、而畫面告訴他還沒匯**的客人。
+   * 🛑 `count === 0` ⇒ 整段不進信(不命中零字)。
+   */
+  const stuckBankBlock: string[] = [];
+  if (stuckBank.count > 0) {
+    stuckBankBlock.push(
+      '【匯款單卡住】',
+      `🔴 ${stuckBank.count} 張匯款單收到錢了, 而系統算不出該記成哪一種狀態(多匯 / 資料對不起來)。`,
+      '   ⇒ 那些客人的訂單頁**仍然顯示「請匯款」+ 銀行帳號** ⇒ 🔴 **他們可能會再匯一次。**',
+      '   ⇒ 這一格是**客服要看的** —— 請主動聯絡那幾位客人, 不要等他們打來。',
+    );
+    if (stuckBank.oldestCreated !== null) {
+      stuckBankBlock.push(
+        `   ⚠️ 最早那一張是 ${stuckBank.oldestCreated} 建立的 —— 這件事已經積了一段時間。`,
+      );
+    }
+    // 🔵 **這一句刻意寫進信裡**:讀信的人會問「那我要去哪裡找它們」, 而今天沒有那個畫面。
+    stuckBankBlock.push(
+      '   🛑 而後台目前**沒有一個畫面在列這些單** ⇒ 要查請找施工窗(板列 ⟦b4-NEEDSHUMANNOWATCHER⟧)。',
+    );
+  }
+  /**
+   * 🔴🔴 **第二個世界:已付款而多匯**(⟦b4-PAIDTHENOVERPAID⟧, 主視窗 2026-09-05)。
+   * 🛑 **與上面那一段【各講各的話】, 不共用文案** —— 那不是排版偏好:
+   *    A 的客人**畫面還在叫他匯款** ⇒ 下一步是「趕快聯絡他, 免得他又匯」;
+   *    B 的客人**畫面正常** ⇒ 下一步是「我們欠他錢, 要退」。
+   *    ⇒ 📌 **合成一句的話, 客服讀完不知道該打哪一種電話。**
+   * 🔵 語氣照上面那一段(【標題】+ 一行事實 + 一行「⇒ 下一步」), 不自創格式。
+   */
+  const stuckBankOverpaidBlock: string[] = [];
+  if (stuckBank.overpaidCount > 0) {
+    stuckBankOverpaidBlock.push(
+      '【匯款單多收了錢】',
+      `🔵 ${stuckBank.overpaidCount} 張匯款單**已經記成付款完成**, 而收到的錢**比該收的多**。`,
+      '   ⇒ 那些客人的畫面是正常的 —— 🔴 **他們不會知道, 而我們欠他們錢。**',
+      '   ⇒ 這一格是**客服要看的** —— 請主動聯絡並安排退款, 不要等他們發現。',
+    );
+    if (stuckBank.overpaidOldest !== null) {
+      stuckBankOverpaidBlock.push(
+        `   ⚠️ 最早那一張是 ${stuckBank.overpaidOldest} 建立的 —— 這件事已經積了一段時間。`,
+      );
+    }
+    stuckBankOverpaidBlock.push(
+      '   🛑 後台一樣**沒有畫面在列這些單**;而這個數字**可能少報** ——',
+      '      它用訂單總額當預篩, 而有退款的單那個總額不會跟著變(板列 ⟦b4-PAIDTHENOVERPAID⟧)。',
     );
   }
 
@@ -964,7 +1192,15 @@ export function buildAnomalyAlertMessage(
   //    `shouldAlert` 照樣 true、信照樣寄、而信裡**一個字都沒有那一塊**。
   //    ⇒ 抓到它的是「信裡要逐字帶【它證不到什麼】」那一發測試。
   //    📌 **一個【建好而沒接上】的東西, 與【沒建】在行為上不同、在 diff 上長得一樣合理。**
-  const body = [bypassRlsBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
+  // 🔴 **⟦b4-NEEDSHUMANNOWATCHER⟧ 的第三格就在這一行** —— 算出來了、組成段落了,
+  //    而**沒有加進這個陣列的話, 那段永遠不會出現在信裡**, 且測試會全綠。
+  //    ⇒ 📌 「算出來了」「寫進信裡了」「會讓信寄出去」是三個宣稱(線【資料】`-db` 2026-09-05
+  //      主動告知它上一片就漏了第三個)⇒ 本片三個接點:此處 · shouldAlert · builder 參數。
+    // 🔵 2026-09-05 合併:`-db` 的 aclDriftBlock 與 `-mail` 的 stuckBank* 兩邊都留 ——
+    //    它們是不同的訊號、不同的觀眾, 誰都不該覆蓋誰。
+    const body = [bypassRlsBlock, aclDriftBlock, searchLogBlock, stuckBankBlock, stuckBankOverpaidBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock]
+      .filter((b) => b.length > 0)
+      .flatMap((b) => [...b, '']);
 
   /**
    * 🔴🔴 **結尾三行是【不可截的】,而這不是排版偏好。**
@@ -1198,6 +1434,80 @@ export async function checkAnomalyAlerts(
     );
   }
 
+  // 🔴 搜尋日誌健康度 —— 與上面 `searchSummary` 同款收口:次要觀測不得帶走主要功能。
+  let searchLog: {
+    readonly tableExists: boolean;
+    readonly lastRowAt: string | null;
+    readonly anonCanExecute: boolean | null;
+  } | null = null;
+  /** 🔴 與「還沒 apply」分開 —— 兩者都讓 `searchLog` 是 null, 而下一步不同。 */
+  let searchLogReadFailed = false;
+  try {
+    searchLog = await deps.reader.getSearchLogHealth();
+  } catch (err) {
+    // 🛑 不得靜默。而 log 之外【還要有一格 result】—— 只靠 log 的話, 把 log 刪掉測試照樣全綠。
+    console.error('[anomaly-alert] get_search_log_health 讀取失敗 ⇒ 落 Unknown', {
+      reason: 'search_log_health_read_failed',
+      code: (err as { code?: unknown } | null)?.code ?? null,
+    });
+    searchLog = null;
+    searchLogReadFailed = true;
+  }
+
+  /**
+   * 🔴 **信裡那兩格與 result 那兩格用【同一個常數】, 不是各算一次。**
+   *   各算一次的話, 有人改了其中一邊 ⇒ 信說「日誌停了」而 result 說沒停,
+   *   而**兩邊都不會紅**(那正是本 repo 記過的「兩半各自呼叫同一函式 ≠ 兩半綁在一起」的反面:
+   *   這裡是【同一個值】, 所以綁得住)。
+   */
+  // ── ⟦b4-NEEDSHUMANNOWATCHER⟧ 卡住的匯款單 ──────────────────────────────
+  let stuckBank: {
+    readonly stuckCount: number;
+    readonly oldestCreated: string | null;
+    readonly overpaidCount: number;
+    readonly overpaidOldest: string | null;
+  } | null = null;
+  /**
+   * 🔴 與「還沒 apply」分開 —— 兩者都讓 `stuckBank` 是 null, 而下一步不同。
+   * ✅ 而**分開那一半在 `result` 上**:`stuckBankUnknown`(兩者皆 true)+ `stuckBankFailed`(只有這格)。
+   *    ⚠️ 2026-09-05 codex 抓到我原本只有前者 ⇒ **那時這句「分開」是假的。**
+   */
+  let stuckBankReadFailed = false;
+  try {
+    stuckBank = await deps.reader.getStuckBankOrdersHealth();
+  } catch (err) {
+    // 🛑 不得靜默(照 searchLog 那格的成例:只靠 log 的話, 把 log 刪掉測試照樣綠)。
+    console.error('[anomaly-alert] get_stuck_bank_orders_health 讀取失敗 ⇒ 落 Unknown', {
+      message: err instanceof Error ? err.message : String(err),
+    });
+    stuckBankReadFailed = true;
+  }
+  /**
+   * 🔴 **信裡那一格與 result 那一格用【同一個常數】, 不是各算一次。**
+   *   (照上面 searchLog 那段的理由:各算一次時有人改了一邊, 兩邊都不會紅。)
+   */
+  const stuckBankCountForMessage = stuckBank?.stuckCount ?? 0;
+  const stuckBankOldestForMessage = stuckBank?.oldestCreated ?? null;
+  const stuckBankOverpaidCountForMessage = stuckBank?.overpaidCount ?? 0;
+  const stuckBankOverpaidOldestForMessage = stuckBank?.overpaidOldest ?? null;
+  /**
+   * 🔵 `stuckBank` 是 null(沒貼 / 讀失敗)時**不告警** —— 與 anonCanExecute 那格同款。
+   * 🔴 **兩個世界【任一】有東西就要告警** —— ⛔ 少了 `||` 那半的話,
+   *    「A=0 而 B=3」會安靜地不寄信, 而那三個客人是我們欠他錢的那三個。
+   */
+  const stuckBankAlertForMessage =
+    stuckBankCountForMessage > 0 || stuckBankOverpaidCountForMessage > 0;
+
+  const searchLogStaleForMessage =
+    searchLog !== null &&
+    searchLog.tableExists &&
+    searchLog.lastRowAt !== null &&
+    Date.now() - new Date(searchLog.lastRowAt).getTime() > 24 * 60 * 60 * 1000;
+  const searchLogAnonRevokedForMessage =
+    searchLog?.anonCanExecute === undefined || searchLog?.anonCanExecute === null
+      ? null
+      : !searchLog.anonCanExecute;
+
   /**
    * 🔴 **F-004 加了第六項,而它是一個【被明知接受的代價】,不是順手加的。**
    *
@@ -1217,6 +1527,18 @@ export async function checkAnomalyAlerts(
    *    ⇒ 部署問題走部署管道:route 依 `orderRefundsStuckUnknown` 回 503(監控看得到)。
    */
   const shouldAlert =
+    // 🔴🔴 **codex 2026-09-04 must-fix ①:這兩格原本【沒有進 shouldAlert】**
+    //    ⇒ 只有搜尋日誌異常時 `shouldAlert` 是 false ⇒ **那封信根本不會寄**
+    //    ⇒ 📌 我把那兩行寫進了信的【內容】, 而沒有寫進【要不要寄】
+    //      —— 而 `buildAnomalyAlertMessage` 的測試全綠, 因為它只驗「文字對不對」。
+    //    🎯 **一片「加了一個告警」的改動, 在它自己的測試底下【完全看不出來它不會叫】。**
+    searchLogStaleForMessage ||
+    searchLogAnonRevokedForMessage === true ||
+    // 🔴🔴 **⟦b4-NEEDSHUMANNOWATCHER⟧ 這一行, 就是 codex 2026-09-04 抓到的那個坑的形狀。**
+    //    線【資料】`-db` 2026-09-05 主動告知:它上一片「算出來了、寫進信裡了, 而【忘了加進
+    //    shouldAlert】⇒ 那封信只有在別的原因觸發時才會帶上它」。
+    //    ⇒ 📌 **「算出來了」「寫進信裡了」「會讓信寄出去」是三個宣稱。**
+    stuckBankAlertForMessage ||
     summary.openCount > 0 ||
     summary.refundingStuckCount > 0 ||
     summary.attemptManualReviewCount > 0 ||
@@ -1358,6 +1680,18 @@ export async function checkAnomalyAlerts(
      */
     (summary.orderCreatedNoRecipientCount ?? 0) > 0 ||
     /**
+     * 🔵 **未付款取消信線的同一格**(⟦b4-NORECIPIENTWINDOW⟧)。理由與上面那格逐字相同:
+     *   那張單沒有信箱 ⇒ **它不會自己好** ⇒ 叫一次就是一件真的待辦。
+     * 🛑 `?? 0` 在這裡同樣是安全的:cutoff 沒設 / RPC 還沒 apply ⇒ adapter 回 `null` ⇒ 不叫。
+     */
+    (summary.unpaidCancelledNoRecipientCount ?? 0) > 0 ||
+    /**
+     * 🔵 第四條線(⟦b4-NORECIPIENTWINDOW⟧, 2026-09-04)。
+     * 🛑 `pending` **刻意不進** —— 與姊妹線同一個理由:它 >0 是正常的。
+     * 🔴 而 `unknown` 也不進:「讀不到」由 route 印出來, 不由這裡叫。
+     */
+    (summary.trackingCorrectedNoRecipientCount ?? 0) > 0 ||
+    /**
      * 🔴🔴 **訊號4 的【持續失敗】那一格(板 `⟦b4-SIG4ERRORS⟧`)**。
      * 🛑 它與上面 `paidNoEmail` 的差別是【年齡】, 而那個差別就是它能不能當判準:
      *   `paidNoEmail > 0` 是正常的(新單進來就被數到一次, 下一輪 scanner 就排掉)
@@ -1400,7 +1734,12 @@ export async function checkAnomalyAlerts(
     // ✅ 正確的說法:**它不會【直接】寄信;而它持續量不到時會【經由心跳那條路】寄。**
     //   📌 而那其實是對的行為(一支一直失敗的 cron 本來就該被看見)——
     //     錯的是我原本那句話, 不是這個耦合。
-    summary.bypassRlsRevoked;
+      summary.bypassRlsRevoked ||
+      // ⟦b9-ACLDRIFT5⟧ 片二:**只有明確的 `true` 才進**(與上面同一個形狀、同一個理由)。
+      // 🔴 而「已批准」在 adapter 那一層就讓 Detected 回 false —— **那不是消音**:
+      //   批准是一個人簽下「那是我貼板造成的」。少了它, 貼板當天之後會【每天寄一封
+      //   一模一樣的信】, 而那種信會被整批忽略 ⇒ 連真的那一封也一起。
+      summary.aclDriftDetected === true;
 
   let notifiersTotal = 0;
   let notifiersFailed = 0;
@@ -1418,6 +1757,22 @@ export async function checkAnomalyAlerts(
       // 🔴 直接傳 adapter 回的那個物件 —— **不再由這一層拼一個 windowSeconds 上去**(R3 must-fix 2)。
       searchSummary,
       searchReadFailed,
+      // 🔴 只把【兩個 boolean】傳進去 —— 信裡不需要 lastRowAt 那種細節,
+      //    而把 null 留在 result 那一層(值班的人看 cron 回應才需要它)。
+      {
+        stale: searchLogStaleForMessage,
+        anonRevoked: searchLogAnonRevokedForMessage === true,
+      },
+      // 🔴 ⟦b4-NEEDSHUMANNOWATCHER⟧ —— **不命中時零字**(count=0 ⇒ builder 不印那一行)。
+      //    🔵 帶 `oldestCreated` 是刻意的:讓讀信的人知道**積了多久**, 而不只是「有幾張」。
+      //    🛑 **零 PII、零金額、零單號** —— 帶不帶單號照 2026-08-19 Sean 本人那次的口徑
+      //      (他為了查得到而打開了單號)⇒ **要帶要再問他一次, 不由我決定。**
+      {
+        count: stuckBankCountForMessage,
+        oldestCreated: stuckBankOldestForMessage,
+        overpaidCount: stuckBankOverpaidCountForMessage,
+        overpaidOldest: stuckBankOverpaidOldestForMessage,
+      },
     );
     notifiersTotal = deps.notifiers.length;
     // 🔴 **這一行講的是【送】那個階段**:各管道各自送、一管道掛掉不影響另一管道
@@ -1462,6 +1817,23 @@ export async function checkAnomalyAlerts(
     orderRefundsManualFailedCount: summary.orderRefundsManualFailedCount,
     manualCustomerSearchCount: searchSummary?.count ?? null,
     manualCustomerSearchActors: searchSummary?.actors ?? null,
+    searchLogUnknown: searchLog === null,
+    searchLogFailed: searchLogReadFailed,
+    searchLogTableExists: searchLog?.tableExists ?? null,
+    searchLogLastRowAt: searchLog?.lastRowAt ?? null,
+    // 🔴 只有【表在 + 有過列 + 最後一列超過 24h】才算 stale。
+    //    表不在 ⇒ false(還沒貼)· 有表沒列 ⇒ false(還沒開始收)—— 兩者都不是異常。
+    searchLogStale: searchLogStaleForMessage,
+    stuckBankCount: stuckBankCountForMessage,
+    stuckBankOldestCreated: stuckBankOldestForMessage,
+    stuckBankOverpaidCount: stuckBankOverpaidCountForMessage,
+    stuckBankOverpaidOldest: stuckBankOverpaidOldestForMessage,
+    // 🔴 兩種成因都算 Unknown:那支 RPC 還沒貼(回 null)· 讀的時候丟例外(readFailed)
+    //    ⇒ 📌 而它們與「真的 0 張」在 `stuckBankCount` 上【都印 0】—— 這一欄就是把它們分開的那一格。
+    stuckBankUnknown: stuckBank === null || stuckBankReadFailed,
+    stuckBankFailed: stuckBankReadFailed,
+    // 🔴 極性翻過來:true = 那道門被關掉了(要看)· null = 函式還沒貼(不看)
+    searchLogAnonExecuteRevoked: searchLogAnonRevokedForMessage,
     manualCustomerSearchUnknown: searchSummary === null,
     manualCustomerSearchFailed: searchReadFailed,
     orderRefundsStuckUnknown: summary.orderRefundsStuckUnknown,
@@ -1476,6 +1848,16 @@ export async function checkAnomalyAlerts(
     orderCreatedStuckOldestMinutes: summary.orderCreatedStuckOldestMinutes,
     orderCreatedStuckUnknown: summary.orderCreatedStuckUnknown,
     orderCreatedNoRecipientCount: summary.orderCreatedNoRecipientCount,
+    unpaidCancelledPendingCount: summary.unpaidCancelledPendingCount,
+    unpaidCancelledNoRecipientCount: summary.unpaidCancelledNoRecipientCount,
+    // 🔴 **三格都要進 result** —— `gapUnknown` 尤其:
+    //    「這一段安靜」與「這一段讀不到」在 route 的回應上必須分得開(姊妹線同款)。
+    trackingCorrectedPendingCount: summary.trackingCorrectedPendingCount,
+    trackingCorrectedNoRecipientCount: summary.trackingCorrectedNoRecipientCount,
+    trackingCorrectedGapUnknown: summary.trackingCorrectedGapUnknown,
+    // 🔴 **它必須出得去** —— 沒有這一格, adapter 的 fail-closed 在下游就被 `?? 0` 拆掉了
+    //   ⇒ 而「安靜」與「這道告警根本沒裝上」會印同一個畫面。
+    unpaidCancelledGapUnknown: summary.unpaidCancelledGapUnknown,
     orderCreatedGapUnknown: summary.orderCreatedGapUnknown,
     cronHeartbeatAbnormalCount: summary.cronHeartbeatAbnormalCount,
     cronHeartbeatAbnormalJobs: summary.cronHeartbeatAbnormalJobs,
@@ -1484,6 +1866,11 @@ export async function checkAnomalyAlerts(
     //   **那條「部署問題走部署管道」的路就不存在**(下面那段註解講的正是同一個坑)。
     bypassRlsRevoked: summary.bypassRlsRevoked,
     bypassRlsUnknown: summary.bypassRlsUnknown,
+      // ⟦b9-ACLDRIFT5⟧:兩個都要帶出去 —— `Unknown` 不帶 ⇒ route 讀不到 ⇒ 503 那條路不存在。
+      aclDriftDetected: summary.aclDriftDetected,
+      aclDriftUnknown: summary.aclDriftUnknown,
+      aclDriftFamilies: summary.aclDriftFamilies,
+      aclDriftTakenAt: summary.aclDriftTakenAt,
     bypassRlsPrivilegedCount: summary.bypassRlsPrivilegedCount,
     bypassRlsTotalRoleCount: summary.bypassRlsTotalRoleCount,
     /**

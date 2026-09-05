@@ -73,6 +73,37 @@ ba53294  2026-08-29  「硬刪改到 upsert 之後」
 🛑 **⇒ 這一段不再是「已知的風險」,而是「一個【還沒有人看過現行程式】的空白」。**
 ⚠️ 而先前那句「刪除集中在 19:00–20:59 UTC」**也是舊碼的分佈** ⇒ **刪除量與頻率不得沿用**。
 
+🔴🔴 **而【網站側首灌】跑這兩行會撞到一個尖叫的假警報 —— 先讀這一段再跑,不然你會以為首灌失敗了**
+```
+🔬 2026-09-04 rizoma 首灌實測(線【帳號】):
+   after 那一份逐字印「🔴🔴 這次【一個新商品群都沒有進來】… 它【什麼都沒灌成功】」+ rc=1
+   而同一分鐘匯入器印「WRITE 完成:723 商品 / 926 變體」, 唯讀 psql 獨立複驗 723/926/未分類 0
+
+🎯 成因【兩層證據, 分開讀】:
+   ① 讀碼(開檔看到的):`onboarding_headcount.py:97,104` 逐字 FROM products / FROM storefront_catalog_v
+      而 :126 走 SUPABASE_PROJECT_REF ⇒ 這一層只證得了「它連到那個 env 指的庫」
+   ② 🟢 對數(2026-09-04 量的, 這一層才把它釘死):
+      headcount 印 **61,211 料號 / 25,846 群**
+      而唯讀查【報價單庫】⇒ `count(*) FROM products WHERE supplier_slug IS NOT NULL` = **61,211**
+      `count(*) FROM (SELECT DISTINCT supplier_slug, main_sku …)` = **25,846**  ⇒ **兩個數逐字相同**
+      ⇒ 🔴 **它連的就是報價單庫** —— 這不是推的
+   ⚠️ 而「25,747」是 `count(DISTINCT main_sku)`(不分家)⇒ 差 99 ⇒ 📌 **群的鍵是(家, 料號)不是料號**
+
+✅ ⇒ 所以在這條流程裡:
+   · 「新增 0 群」= **預期值**, 不是災難 —— 那一家的群本來就已經在報價單庫裡了
+   · **你要看的是另一半**:before 的群數 == after 的群數 ⇒ 既有那些家一個都沒掉
+   🛑 而那句「它什麼都沒灌成功」在**兩個世界印同一句** ⇒ 不要拿它當首灌成敗的讀數
+   ✅ **首灌成敗看 §5 寫後驗證**(打網站庫), 不看這兩行
+```
+📌 板列 `⟦supply-HEADCOUNTWRONGDB⟧`。**乙案(那支腳本吃一個模式旗標)未做 —— 它在另一個 repo。**
+🔬 **上面那句「它連的是報價單庫」的數法(自己重跑一次,不要照信)**:
+`grep -n 'FROM products\|FROM storefront_catalog_v\|SUPABASE_PROJECT_REF' /Users/sean_1/API大量上架/PCM報價單-V2/scripts/onboarding_headcount.py`
+⇒ 2026-09-04 回 `:97` `:104` `:126` 三行。
+✅ **而「它連的是報價單庫」已由對數釘死**(上面 ②:61,211 與 25,846 兩個數逐字相同)。
+⚠️ **仍未量的那一格(明寫)**:「網站側首灌**不會**寫進報價單庫」這半我沒有直接量 ——
+它是從「匯入器只拿網站庫的連線做寫入」推的。**要證成它得在首灌前後各量一次報價單庫的寫入時戳, 我沒做。**
+🔵 而**實務上不需要它**:首灌成敗看 §5(打網站庫), 而這兩行的用途是「舊的家有沒有掉」。
+
 📌 **`-b6` 給的判別句,值得所有人帶走**:
 > **我這個數字是在哪一顆 commit 上量的?**
 > —— 稽核表**不會告訴你它記錄的是哪一版程式的行為**,而那兩版的行為差很多。
@@ -104,6 +135,43 @@ ba53294  2026-08-29  「硬刪改到 upsert 之後」
 不存在於這份清單裡(見該節開頭的因果說明)。**下次盤點這份 runbook 還有沒有別的隱形缺格,
 先問:哪一步的產出是「一支新檔案」,不是「一個填好的欄位」?那種步驟最容易被漏。**
 
+🔴 **而 2026-09-03 找到【另一種】隱形缺格,形狀不同,要分開問**:
+> **一道會過的檢查,而它問的不是我們以為的那個問題。**
+
+§1 第 3 列原本問「有沒有不安全的 `http://`」,而**它答不出「有沒有圖」** —— `images IS NULL` 時 `NULL ILIKE` 回 NULL ⇒ 不進 `FILTER` ⇒ **那一列照樣印 0**。
+⇒ 🎯 **抓到它的不是那道檢查, 是【總數對不上】**:60,299 列裡 `price` / `分類` / `中文名` 三項都是 60,299,
+而含 `https://` 的只有 **59,288** ⇒ **差 1,011 列**。
+⇒ 🛑 **而正對照在這一格【也印 0】**(全 20 家跑同一把尺 ⇒ 全 0)⇒ 它證不了任何事。
+⇒ ✅ **解法是換一個軸:不問「有幾個壞的」, 問「該有值的有幾列」** —— 因為後者有一個**獨立算得出來的期望值(總列數)**, 而它會自己打自己的臉。
+⇒ 🟢 而 §1 第 4 列(`COUNT(*) FILTER (… IS NOT NULL)` = 總數)**本來就是這個形狀** —— 📌 **正確的樣板就在同一張表的下一列。**
+⇒ 🔵 逐列掃過的結果:**第 2 列安全**(它明寫 `IS NULL`)· **第 3 列有洞** · **第 4 列免疫**。
+🔴 **而第 3 列我修了三次, 前兩次都沒修對 —— 那一格本身就是這一節在講的病**:
+> 我把 `ILIKE` 換成 `coalesce(...)` 並補了 `images IS NULL`, **而它仍然只讀 `images` 一欄** ⇒ 那把尺答的是
+> 「`images` 欄空不空」, 不是「這件商品有沒有圖」—— 🎯 **換了寫法, 沒換問題。**
+> ⇒ 而它比原版更危險:原版靜靜印 0(漏報), 我那版會把 **1,011 列有圖的商品報成沒圖**(誤報),
+> ⇒ ⇒ 🛑 **而誤報會讓人去關掉這道閘。**
+> ⇒ 📌 **判別句(三訂後改寫)**:我這道檢查在問「**這個欄位有沒有被填**」, 還是「**裡面那個東西是不是真的**」?
+> ⇒ 🎯 **三次我問的都是前者** —— ①`NULL ILIKE` 回 NULL(問有沒有壞值)②只讀 `images` 一欄(問這欄空不空)③`image_url` 非 NULL(問這欄有沒有值)。
+> ⇒ 🛑 **每一次我都換了寫法、沒換問題, 而三次都自認為修好了。**
+> ⇒ 🔵 **抓到第三次的不是任何一道閘, 是我手癢 `SELECT` 了十二列出來【看】** —— 而看到的第一眼就是 `no-photo.png`。
+> ⇒ ✅ **⇒ 可機械化的替代品是 `COUNT(DISTINCT …)`**:它問的是「這些值彼此不同嗎」, 而**假資料最常見的形狀就是全部一樣**。
+
+🔴🔴 **而 2026-09-03 夜(線【帳號】接 L4 時)量到【第三種】—— 它比前兩種都寬, 而第 4 列擋不住它**:
+> **整份 preflight 掛在同一個 `WHERE supplier_slug='<slug>'` 上 —— slug 打錯 ⇒ 母體 0 列 ⇒ 每一列都印 0 ⇒ 全部過。**
+
+```
+🔬 兩個世界並排實測(同一發 SQL, UNION ALL):
+   打錯的 slug  總列數 0 · 第2列 0 · 第3列 0 · 第3列補 0 · 第4列 0 · 第6列 0  ⇒ 逐格【全部符合期望】
+   真的 wrs     總列數 1082 · 第2列 0 · 第3列 0 · 第3列補 37 · 第4列 1082 · 第6列 544
+```
+🛑 **⇒ 而第 4 列在這一種底下【也過】** —— 它的期望值是「`= 總數`」, 而空母體時 **0 = 0**。
+🎯 **⇒ 所以「第 4 列是正確樣板」這句話只對【上一種】成立** —— 📌 **一個免疫於某種失效模式的檢查, 不會因此免疫於另一種;而它讀起來一樣安全。**
+⇒ 🔵 **它與前兩種的差別**:前兩種是**一格**壞掉, 這一種是**整張表的分母**壞掉 ⇒ **沒有任何一列會不一致** ⇒ 🔴 **連「總數對不上」那個抓到上一種的訊號都消失了。**
+⇒ ✅ **修法 = 上表新增的第 0 列**(先證明分母 > 0 且 slug 在名單裡)。
+⇒ 📌 **而這個修法不是新發明的** —— 報價單 repo 的 `fetchers`…`scripts/variant_contract_scan.py` **2026-08-25 就寫過同一道閘**(`check_population`), 它的 docstring 逐字寫著:
+> 「撈空/撈殘時 exit 1 且不印合計行, 否則『掃描壞掉』會跟『全站乾淨』印出同一句話」
+🛑 **⇒ 正解在隔壁 repo 躺了 9 天, 而這份 runbook 沒有接到它。** 📌 **⇒ 下次發現一個坑, 先問「別人是不是已經修過同型的」, 再問「怎麼修」。**
+
 ---
 
 ## 1. ★ Preflight 清單(源頭資料就緒;每列漏掉 = 乾跑 abort 或上架後出包)
@@ -113,10 +181,26 @@ ba53294  2026-08-29  「硬刪改到 upsert 之後」
 
 | # | 檢查 | 怎麼查(MCP execute_sql,除非註明) | 期望 | 沒過怎麼修 |
 |---|---|---|---|---|
+| **0** | 🔴🔴 **分母不是 0**(先跑, 不然底下每一列都會過) | `SELECT count(*) FROM storefront_catalog_v WHERE supplier_slug='<slug>'` —— **再對一次** `SELECT DISTINCT supplier_slug FROM storefront_catalog_v` 確認拼法在名單裡 | **> 0**, 且與 §1-6 的指紋同一個數 | slug 拼錯 / 源頭還沒灌 → **停**。⚠️ 不要往下跑:下面每一列在空母體上**全部印 0 = 全部過** |
+| **0-b** | 🔴🔴 **這一家在板子上有沒有【開著的源頭缺陷】**(2026-09-04 新增;它擋的是「有人已經發現過, 而我不知道」) | `grep -n '⟦supply-' docs/launch-todo.md \| grep -i '<slug>'` —— 命中就**逐列開檔看態**(`open` / `parked` / `done`) | **零命中**, 或命中的每一列都是 `done` | 🔴 命中 `open` / `parked` ⇒ **先讀那一列的「關閉條件」**, 它會說這一家哪幾群不能上。<br>🔬 **今天已知的實例**(而它正是本列的來源):🟢 **[2026-09-04 補:那兩群現在【有一道會紅的門】了]** —— `scripts/supplier-group-denylist.ts` 寫著 `rizoma` 的 `DM-PW101` / `DM-PW201`, 而 `scripts/rpm-load.ts` 的 `syncVariantGroupAtomic`(**全 repo 唯一寫 `products` 的路**)在組 payload 之前就讀它 ⇒ 走到那兩群當場 throw, 訊息帶【關閉條件逐字】與板列錨。<br>🛑 **而它的天花板要一起讀**:①只擋這一條路, 手動 SQL / dashboard 不管 ②認的是 `(supplierSlug, externalId)` 的**字面** —— 源頭換群編號 ⇒ **它當場失效而不會叫** ③它不驗那個缺陷還在不在。<br>　 `⟦supply-RIZOMASPECWRONG⟧` = **`parked`**, 關閉條件逐字「**那兩群(`DM-PW101` / `DM-PW201`)要上架之前必須先修源頭**」——那兩群的「紅色」變體 spec 寫成「黑」。<br>🛑 **今天擋住它們的是 `is_listed = false` 這個【會變的旗標】, 不是一道守門** ⇒ 源頭哪天上架它們, 錯的顏色就跟著上, 而**首灌流程本身不會叫**。<br>📌 **為什麼這一列要存在**:主視窗 2026-09-04 拍板時明講 ——「**不連進 preflight, 下一個灌它的人不會知道**」;他不會來讀板子那一列, 他會照這份 runbook 走。<br>🔬 **這把尺今天會叫幾次(先量, 不然它會死於誤報)—— 數法就是這一行, 自己重跑**:`grep -n '⟦supply-' docs/launch-todo.md \| grep -ci '<slug>'` ⇒ 2026-09-04 實測 `rizoma` **8** · `cncracing` **1** · 亂打 `zzq-not-a-supplier` **0**(負對照 —— 它證明這把尺不是對誰都回非零)。<br>🛑 **而那 8 列裡【大多數只是「提到 rizoma」不是「rizoma 有缺陷」**(例:`⟦supply-NULLILIKESILENT⟧` 拿 rizoma 3 件當驗證數字)⇒ 🔴 **這是一把會吵的尺, 而吵的那部分是無害的。**<br>　⇒ ✅ **讀法:不要數命中筆數, 去看【那一列在講誰的缺陷】** —— 判準是該列的「事」欄主詞是不是這一家。<br>　⇒ 📌 **寫出來是因為**:一個沒被預告的噪音會讓下一個人第二次就跳過這一列, 而那時它真的抓到東西也沒有人看。 |
 | 1 | **品牌列存在**(網站庫) | `SELECT slug FROM brands WHERE slug='<brandSlug>'` | 1 列 | 缺 → seed migration `INSERT INTO brands ... ON CONFLICT (slug) DO NOTHING`,MCP `apply_migration` 或 Sean db push。**先確定 brandSlug 拼法**(§2 註) |
 | 2 | **價格四價齊**(源頭) | `COUNT(*) FILTER (WHERE price_retail IS NULL OR price_retail=0)` | 0 | 有 pricing_rules 的家跑完 fetcher 必接 報價單 repo:`uv run python scripts/recompute_supplier.py <slug>`(重跑 fetcher 會清空四價,見 [[feedback_fetcher_rerun_wipes_computed_prices]]) |
-| 3 | **圖片協定 = https** | `COUNT(*) FILTER (WHERE images::text ILIKE '%http://%')` | 0 | http 外部網域 = mixed content 破圖 → 源頭轉存 Cloudflare R2、DB 存乾淨 https(Lightech 前例);新 host 另加網站 image-hosts 白名單 + middleware |
-| 3 | **變體規格軸不撞鍵(pv_spec)** | 報價單 repo:`uv run python scripts/variant_contract_scan.py`(看該家 `違規=0`) | `違規=0`(incomplete_spec / mergeable_duplicate 皆 0) | ①同群多變體 spec 全空/含 null → 源頭 fetcher 補「區分變體的軸」進 `raw_jsonb["spec"]`(ebc 材質軸 / Extreme 打檔·版本·顏色·快排;`{"英文key":"中文值"}`,fail-loud 不靜默 null)。②只有一軸卻含 null 值(如 `{"color":null}`)→ fetcher 改**條件式**寫該鍵(值空就不寫)。**products.spec 是 `raw_jsonb->'spec'` 的 GENERATED 欄、view 直投,改完 raw_jsonb re-sync 即生效,免 refresh** |
+| 3 | **圖片協定 = https** | ⛔ ~~`COUNT(*) FILTER (WHERE images::text ILIKE '%http://%')`~~ ⇒ 🔴 **那一版在 `images IS NULL` 時靜靜放行**(`NULL ILIKE …` 回 **NULL** 不是 FALSE ⇒ 不進 FILTER)。✅ 改用 `COUNT(*) FILTER (WHERE coalesce(images::text,'') ILIKE '%http://%')` **再加一格** **兩格一起看**:`COUNT(*) FILTER (WHERE images IS NULL)` 與 `COUNT(DISTINCT image_url) FILTER (WHERE images IS NULL)`。🔴 **不設件數門檻** —— 理由見下方(N≥5 會漏掉 rizoma 3 件, 而那正是上架中的一家)。🔴 **2026-09-03 這一列我改了三次, 前兩次都錯 —— 而三次錯的是同一件事。**⛔ ~~二訂版:「那 40 列 image_url 都有值 ⇒ 它們有圖」~~ **也是錯的。**🔬 三訂實查:那 1,011 列**在 `FILTER (WHERE images IS NULL)` 這個子集裡**逐家 `COUNT(DISTINCT image_url)` = **1**(⚠️ 射程:不是「整家所有列共用一個網址」), 而網址逐字是 `no-photo.png` / `noimage.jpg` / `no-image-2048-….gif` ⇒ 🛑 **那是供應商站的「查無圖片」佔位圖, 不是商品圖。**⇒ 🎯 **⇒ 那 1,011 列【全部】沒有真圖(含 wrs 37/37 · rizoma 3/3), 而不是 10 列。**⇒ 🔴 **判準**:`COUNT(DISTINCT image_url)=1` —— **80 件不同商品不可能共用一張照片。**⇒ 🛑 **不要維護佔位圖檔名黑名單**(no-photo / noimage / no-image 已經三種寫法)—— 黑名單在跟下一家的下一種寫法賽跑;`DISTINCT=1` 不需要知道它叫什麼。⇒ 🔵 **怎麼讀這兩格**:`images IS NULL` 本身就是異常子集 ⇒ **只要 > 0 就停下來看**;`DISTINCT` 那格說是**哪一種** —— **= 1 ⇒ 整家共用一個網址 ⇒ 佔位圖**;> 1 ⇒ 另一種, 開檔看。
+
+🔴 **而【不要】加件數門檻 —— 這是量出來的**:
+> 主視窗提過 `DISTINCT=1 AND 列數 ≥ 5`(理由:2 件共用一張可能是真的、80 件不可能)。**理由成立, 而它在真實資料上漏接。**
+> 🔬 實測該門檻對 **motogadget 4 件**與 🔴 **rizoma 3 件**不叫 —— 而 **rizoma 正是這次要上架的三家之一**。
+> ⇒ 🎯 **一個理由完全成立的門檻, 剛好漏在我們最在意的那一家底下。**
+> ⇒ 📌 它的前提是「小群共用一張圖可能是真的」—— **而我們已經先篩了 `images IS NULL`** ⇒ **前提在這個子集裡不適用。**
+
+🔵 **兩把尺盲區互補, 所以都留**:
+> · 黑名單(`no-photo`/`noimage`/`no-image`)⇒ 🟢 今天抓 **1,001 / 1,011**(🔴 **不是 1,011** —— 另外 10 列 `image_url` 是 NULL, 黑名單接不到, 靠 `image_url IS NULL` 那半接);🔴 **會被下一種寫法穿過**(已三種)
+> · `DISTINCT = 1` ⇒ 🟢 **不需知道檔名、不會過期**;🔴 **家數少時訊號弱**(rizoma 3 / motogadget 4)
+> ⇒ 🛑 **兩把都不完整, 而漏的東西不同 ⇒ 缺一不可。**
+
+🛑 **這一片的判準一句話:空圖庫比假圖庫好** —— 「補回第一張圖」在這裡實際上是**製造一批假的圖**;故 `rpm-transform.ts` 的 `ownVariantImages` **刻意不做 image_url fallback**(檔頭有完整理由與量測, 並有一格測試釘住)。
+🔵 **而 rpm 那 10 列(兩欄都空)是【另一件事】, 分開記**:連佔位圖都沒有, 由黑名單那格的 `image_url IS NULL` 接住(rpm 37 = 27 佔位 + 10 全空 ⇒ 兩格數字對得起來) | **三格各有各的期望, 不是「都 0」**:<br>①`http://` ⇒ **0**(硬性)<br>②`images IS NULL` 的**列數** ⇒ **記下來, 不是 0**(9 家現役全都不是 0)<br>③`COUNT(DISTINCT image_url)` ⇒ **不可能是 0**;**= 1 ⇒ 佔位圖**(去做④)· **> 1 ⇒ 開檔看** | **①http 外部網域** = mixed content 破圖 → 源頭轉存 Cloudflare R2、DB 存乾淨 https(Lightech 前例);新 host 另加網站 image-hosts 白名單 + middleware。<br>🔴 **②③ 命中(這家有一批沒有真照片)的出路 —— 沒有這一段的話這道閘會死於誤報**:<br>· **先分辨是哪一種卡**(2026-09-03 量, 1,011 列拆四種):`quote.pcmmotorsports.com/no-photo.png` = 🟢 **PCM 自己的卡**(882 列, 我們自己的網域, 卡面已有「暫無照片」)⇒ **可以上架, 不必擋**;供應商自己的 no-image(119 列)⇒ 🔴 **外連他家伺服器** ⇒ 要進 `SUPPLIER_PLACEHOLDERS`;`image_url` 也是 NULL(10 列)⇒ 連卡都沒有。<br>· **既有落點**(不要做第二份清單):`packages/domain/src/catalog/supplier-placeholder.ts` 的 `SUPPLIER_PLACEHOLDERS`(host + 檔名前綴);負對照測試 `apps/storefront/src/lib/catalog-page.test.ts:154-157`「PCM 自己的卡【不得】被濾掉」。<br>· **數量大到不像正常**(如 lightech 726)⇒ 🛑 **停下來問 Sean 要不要上這批**, 不要自己決定。 |
+| 3 | **變體規格軸不撞鍵(pv_spec)** | 報價單 repo:`uv run python scripts/variant_contract_scan.py`(看該家 `違規=0`) | `違規=0`(incomplete_spec / mergeable_duplicate 皆 0) | ①同群多變體 spec 全空/含 null → 源頭 fetcher 補「區分變體的軸」進 `raw_jsonb["spec"]`(ebc 材質軸 / Extreme 打檔·版本·顏色·快排;`{"英文key":"中文值"}`,fail-loud 不靜默 null)。②只有一軸卻含 null 值(如 `{"color":null}`)→ fetcher 改**條件式**寫該鍵(值空就不寫)。**products.spec 是 `raw_jsonb->'spec'` 的 GENERATED 欄、view 直投,改完 raw_jsonb re-sync 即生效,免 refresh** <br>🔴🔴 **2026-09-04:這一列問的是【源頭】, 不是【會被灌上去的東西】—— 而那個差別會讓人白跑一趟**(線【帳號】實際白跑了才寫下來)。<br>　🔬 正牌 `variant_contract_scan.py` 逐字 `FROM products WHERE supplier_slug IS NOT NULL` ⇒ 它掃 **`products` 原表**。而 **§3 乾跑與 §4 首灌讀的是 `storefront_catalog_v`**。<br>　🛑 **兩者不是同一個分母**:實測 rizoma `products` **1,412** 列 → view **893** 列。而本次抓到的 2 筆違規(`DM-PW101` / `DM-PW201`)在 **view 裡是 0 列** ——讀 `pg_get_viewdef` 查到擋掉它們的是第一段 `WHERE p.is_listed AND NOT p.hidden_from_store`。<br>　🎯 **⇒ 所以「這一列違規 = 上架會出事」不成立** —— 它是**源頭資料的缺陷**, 而它會不會上去,取決於 `is_listed`。📌 **而 `is_listed` 是一個會變的旗標, 不是一道守門** ⇒ **仍然要修源頭。**<br>　🛑 **⇒ 而【不要】把這道檢查改成掃 view** —— 那樣它會**恆綠**:view 的 `deduped` 段逐字 `row_number() OVER (PARTITION BY supplier_slug, main_sku, spec, price_general …)` 取第一列 ⇒ 🔴 **`mergeable_duplicate`(同群同 spec 同價)在 view 裡【結構上不可能存在】。**<br>　🟢 **實測佐證**(而這一發是**正對照**, 不是那個 0 本身):把判準完全放寬(不管 spec 完不完整、不管價)掃全 view ⇒ **同群同 spec 多 sku 的桶 = 0**, 而 view 裡有 **829** 種不同的 spec、**7,421** 個多變體群 ⇒ 📌 **尺看得到東西, 而那一軸就是量不到。**<br>　🔵 而 **R1(`incomplete_spec`)那一軸在 view 上仍有判別力**:全 view **4,349** 列 spec 不完整,而它們**全部落在單變體群**(R1 豁免)⇒ 今天 0 是真的 0。 |
 | 4 | **v2 分類回填**(否則全落未分類) | `COUNT(*) FILTER (WHERE major_category_v2_zh IS NOT NULL)` = 總數 | = 總數 | 新供應商 v2 恆 NULL → ①先有 `category_taxonomy_map` seed(該家 `products.category` → v2 大類·子類 pair;akrapovic/extreme 前例)②報價單 repo 跑 `uv run python scripts/taxonomy_v2_recompute.py`(先 dry-run 看「搬動既有分類 0 列」確認只補空、不動別家)`--apply`。**這是純分類寫入、不碰價格** |
 | 5 | **商品名定案** | 抽查 `product_name / product_name_zh` | 不帶車款(akrapovic 拍板);變體描述若入名須與英文原文一致 | 中文名翻錯(如英文 reverse 卻寫正打)→ 由官方英文重生、patch 源頭 fixture + DB。用 targeted SQL 改 `product_name_zh`(勿重跑 fetcher = 洗四價) |
 | 6 | **群數/變體指紋** | `COUNT(DISTINCT main_sku)` 群、`COUNT(*)` 變體 | 記下數字 = §3/§4 的 `--expect-groups` | — |
@@ -134,7 +218,12 @@ ba53294  2026-08-29  「硬刪改到 upsert 之後」
 - `brandSlug`:**網站 `brands.slug`,🔴 可能 ≠ supplierSlug**(kspeed→`k-speed`、rpm→`rpm-carbon`、eazigrip→`eazi-grip`)。MCP 實查 brands 表、勿憑記憶。
 - `handlePrefix`:handle = `${prefix}-${mainSku.toLowerCase()}`。
 - `syncDescription`:來源有繁中描述就 true。
-- `syncInstallResources`:有 pdf/video 來源才 true(靜態無附件 = false)。
+- `syncInstallResources`:⛔ ~~有 pdf/video 來源才 true(靜態無附件 = false)~~ ⇒ 🔴 **那句話與既有設定不符**
+  (2026-09-03 線【帳號】拿它去預測既有 17 家:**對 12 · 錯 5**,`eazigrip` / `samco` / `motogadget` /
+  `front3d` / `materya` 都是 **`true` 而附件 0 列**)。✅ **實際的規律是【不對稱】的**:
+  **設 `false` 的 4 家(`rpm`/`extreme`/`dna`/`gilles`)附件【全部是 0】—— 這一側零例外。**
+  🎯 **⇒ 因為兩種錯的代價不一樣**:`true` 而沒東西 = 同步 0 筆(無害);`false` 而有東西 = **真的漏掉那些 pdf**。
+  ⇒ ✅ **填法:預設 `true`;只有在【實測附件 = 0】時才可以填 `false`(而填 `true` 也照樣對)。**
 - `categoryStrategy`:多數 `{ kind: 'per-group' }`。
 - `variantImages`:多變體家 = `'per-variant'`。
 - `writeAllowed`:**先 `false`**(fail-closed、過夜零寫入),乾跑全綠 + Sean 批首灌後才翻 `true`。
@@ -145,8 +234,33 @@ ba53294  2026-08-29  「硬刪改到 upsert 之後」
 
 ```bash
 cd /Users/sean_1/pcm-website-v2
-pnpm exec tsx scripts/rpm-import.ts --dry-run --supplier=<slug>
+pnpm exec tsx scripts/rpm-import.ts --dry-run --supplier=<slug> --expect-groups=<§1-6 記下的群數>
 ```
+
+🔴🔴 **`--expect-groups` 不是選配 —— 而在 2026-09-03 之前這一行【沒有它】**(線【帳號】接 L4 時量到):
+```
+§1-6 逐字:「記下數字 = §3/§4 的 --expect-groups」
+§4 首灌指令:帶了 ✅
+🔴 §3 乾跑指令:【沒帶】 ⇒ 那個被叫去記下來的數字, 只在最後一關才真的被用到
+⇒ 🛑 而乾跑正是「在寫之前抓問題」的那一關 —— 它沒有帶那把尺
+```
+🎯 **⇒ 為什麼要緊:M2 群數指紋是這條線上【唯一】能抓「來源被截斷 / 來源是空的」的東西。**
+`rpm-preflight.ts` 的 docstring 自己講得最清楚(逐字):
+> 「W1 抓取完整性 gate 的結構性盲區:它比的是『target 現存上架 − 本次 source』的差集,
+>  **首灌(target active=0)分母為 0 → shrinkRatio 恆 0 → 恆過**。此時來源只抓到 500/648 也照灌」
+
+🔵 **而 §3 對【slug 打錯】這一種是【免疫】的 —— 而它免疫的理由不在乾跑裡**:
+```
+§1 的 slug = 手打進 SQL 的字串        ⇒ 打錯 = 空母體 = 每一格都印 0 = 全部過(§1 第 0 列在擋)
+§3 的 slug 要先過 getSupplierConfig  ⇒ 打錯 = throw(逐字「未登記 → throw…寧可整條 abort,
+                                       不讓錯 slug 靜默套到別家 scope」)⇒ 走不到任何一關
+```
+📌 **⇒ 同一個病, 兩種結局 —— 差別是【那個名字有沒有經過一份白名單】。**
+🛑 **⇒ 所以 §3 剩下的曝險是「slug 對, 而來源真的空/殘」**(fetcher 沒跑完、來源被截斷)——
+而那時 `分群 0 群` 之後每一關都會印 `0` / `✅`:分類 `0 群未對上` · handle `✅ 0 群全部合法且唯一` ·
+`pv_spec 撞鍵 0` · `新品驗價 0 筆問題` ⇒ **一份全綠的乾跑報告。**
+⇒ ✅ **帶了 `--expect-groups` 就會印 `🔴 ALERT 群數指紋…來源 0 群 ≠ 預期 N 群`**
+　(⚠️ **乾跑只印不 throw** —— `rpm-import.ts:226` 是 `if (!DRY_RUN && …)` ⇒ **看畫面, 別看 `rc`**, 見 3-a)。
 
 ### 3-a 🔴 乾跑的 `rc=0` **不是**「關卡過了」的證據 —— 這一步只能看畫面,不能看退出碼
 
@@ -176,15 +290,56 @@ echo "rc=$RC" ; grep -n "ALERT" /tmp/neg.log | head -3
 ⚠️ 標題保留「五關」原字面(全 repo 多處引用,當場數:`bash scripts/literal-sweep.sh '乾跑五關'`),
 而下表 **7 列** —— 末兩列是 2026-08-27 補的。🔴 **改標題會打斷那些引用,所以留字面、在這裡標差異。**
 
-| 關 | 期望輸出 | 首灌(target = 0) | 日常(target 已有貨) |
-|---|---|---|---|
-| 群數 | `分群 N 群`(= §1-6 指紋) | ⚠️ **不是閘**、只印數字 | ⚠️ 同左 |
-| 分類對上 | `已對上: N 群 / 未對上: 0 群` + `null-v2 0 群→未分類` | ✅ 有判別力 | ✅ |
-| handle preflight | `✅ N 群 handle 全部合法且唯一` | ⚠️ **半有效** —— 批內那半有效,對 target 那半無分母 | ✅ |
-| pv_spec preflight | `✅ pv_spec_unique preflight 撞鍵 0` | ⚠️ **半有效**(同上) | ✅ |
-| 價格 delta | `🔴異常 0 / ⚠️離群 0` | ❌ **恆綠** —— 沒有舊價可比 | ✅ |
-| 來源消失對賬 | `待標記 0` | ❌ **恆綠** —— target 上架 0 筆 | ✅ |
-| **新品驗價 M1** | `新品驗價 0 筆問題` | ✅ **首灌最有力的一格** | ✅ |
+| 關 | 期望輸出 | 首灌(target = 0) | 日常(target 已有貨) | 🔵 **重灌**(2026-09-04 新增) |
+|---|---|---|---|---|
+| 群數 | `分群 N 群`(= §1-6 指紋) | ⚠️ **不是閘**、只印數字 | ⚠️ 同左 | ⚠️ 同左 |
+| 分類對上 | `已對上: N 群 / 未對上: 0 群` + `null-v2 0 群→未分類` | ✅ 有判別力 | ✅ | ✅ |
+| handle preflight | `✅ N 群 handle 全部合法且唯一` | ⚠️ **半有效** —— 批內那半有效,對 target 那半無分母 | ✅ | ✅ **完全有效**(target 有貨) |
+| pv_spec preflight | `✅ pv_spec_unique preflight 撞鍵 0` | ⚠️ **半有效**(同上) | ✅ | ✅ **完全有效** |
+| 價格 delta | `🔴異常 0 / ⚠️離群 0` | ❌ **恆綠** —— 沒有舊價可比 | ✅ | 🔴 **重灌時它最重要** —— 見下面那段 |
+| 來源消失對賬 | `待標記 0` | ❌ **恆綠** —— target 上架 0 筆 | ✅ | 🔴 **重灌時最危險的一格** —— 見下面那段 |
+| **新品驗價 M1** | `新品驗價 0 筆問題` | ✅ **首灌最有力的一格** | ✅ | ✅ 而**重灌時它會把「對不上的舊料號」報成新品** —— 那正是下面要講的 |
+
+### 3-c 🔴🔴 **重灌**(2026-09-04 Sean 拍乙:「等報價單那邊做好再重灌, 包含 WRS DBK RIZOMA」)
+
+**重灌 ≠ 首灌** —— target 上**已經有貨**(2026-09-04 實測:`rizoma` 723 件、`dbk` 1,508 件)。
+
+#### ① 它對 `products` 是【覆寫】, 不是「新增 + 下架」
+`scripts/rpm-import.ts` 逐字 `upsertBatched(target, 'products', group, 'supplier_slug,external_id', …)`
+⇒ **衝突鍵是 `(supplier_slug, external_id)`**。對得上 ⇒ **就地覆寫既有列**(id 不變、關聯資料留著)。
+
+#### 🔴🔴 ② 而【對不上就會多一份】—— 這是重灌最貴的失敗, 而它不會叫
+```
+報價單那邊的料號 ≠ 顧客站現在的 external_id
+⇒ upsert 找不到可撞的列 ⇒ **INSERT 一列新的**
+⇒ 舊那列還在(它沒有被刪, 也不會自己消失)
+⇒ 📌 **同一個商品在站上變成兩筆**, 而畫面上只是「多了一個商品」
+```
+🛑 **而「來源消失對賬」那一關【不會擋住它】** —— 舊那列會被判成「來源已無此品」⇒
+**它做的事是【把舊那列標成下架】, 不是【把兩筆合起來】** ⇒ 結果是一筆下架的舊商品 + 一筆新商品,
+而**客人收藏過、訂單引用過的是舊那筆**。
+
+⇒ 🔴 **所以 DBK 那 62 件改名的順序卡點就是這個**(`~/pcm-mailbox/交辦-DBK63件external_id改名-20260904.md` §順序):
+```
+1. 顧客站先改(20260904210000 已於 2026-09-04 由 Sean 貼)
+2. 告訴 Sean ⇒ 他叫報價單那邊跑 fetcher(那一刻報價單的 main_sku 才會變)
+3. 兩邊都改完之後【才】跑 sync / 重灌
+⚠️ 中間跑 ⇒ 兩邊的鍵對不上 ⇒ 那 62 件會【各自變成兩筆】
+```
+
+#### ③ 重灌時哪幾關真的在守(對照上表的第五欄)
+- 🔴 **價格 delta**:首灌恆綠(沒有舊價可比), 而**重灌時 target 有舊價** ⇒ 它是**唯一**看得出
+  「這一批的價格整體歪掉」的那一關。**重灌時要盯它, 不是跳過它。**
+- 🔴 **來源消失對賬**:首灌恆綠, 而**重灌時它會真的標記下架** ⇒ 📌 **若這一批來源少了東西,
+  它會把那些商品下架** —— 那可能是對的(來源真的停產), 也可能是**抓取漏了一頁**。
+  ⇒ **重灌前先看「待標記」那個數字合不合理**, 而**它沒有上限閘**。
+- ✅ handle / pv_spec preflight:首灌只有半個分母, **重灌時 target 有貨 ⇒ 兩半都有效。**
+
+#### ④ 不准上架的群, 在重灌路上擋得住嗎 —— **擋得住, 而那是 2026-09-04 才修的**
+`scripts/supplier-group-denylist.ts` 的擋原本只裝在 `syncVariantGroupAtomic`(hazard 群那條路),
+而 `products` 有**兩條**寫入路徑 ⇒ 一般群走 `upsertBatched` **繞得過**。
+✅ 已把主要那道擋移到**兩條路的共同上游**(`rpm-import.ts` 的 `productRows` / `variantsByExternalId`)。
+🛑 **而它仍然擋不到**:手動 SQL、Supabase dashboard、或任何不經過 `rpm-import` 的寫入。
 
 ⇒ **首灌時真正有判別力的是四格**:分類對上 / handle 批內唯一 / pv_spec 批內撞鍵 0 / 新品驗價 M1。
 
@@ -227,6 +382,71 @@ WHERE b.slug='<brandSlug>' GROUP BY b.slug;
 ```
 
 期望:products/variants = 指紋、**uncategorized = 0**。
+
+### 5-b. 🔴 搜尋俗稱字典的死列檢查(**這一步是上架【改變了庫存】才需要跑的,而你剛好就在改**)
+
+**為什麼掛在這裡**:顧客站的俗稱字典(`apps/storefront/src/data/search-synonyms.ts`)每一列把
+一個俗稱指到一個正式分類名。而目錄樹是 `buildCategoryTree`「**只留有商品的分類**」
+⇒ 🛑 **`to` 指到的分類一旦沒有商品,那一列就靜靜地沒有效果 —— 而沒有東西會叫。**
+⇒ 📌 而**上架/下架/清空價格是唯一會改變這件事的動作**,所以檢查掛在這裡,不是掛在別人身上。
+🔵 **它不是「多一件要記得的事」,是「你本來就在跑的 §5 多一行」** ——
+   同 §6-b 的形狀:一個新的義務要活下來,最便宜的方式是掛在一個**已經有人在做的動作**上。
+
+🔴🔴 **[2026-09-04 訂正 —— 下面這一版的查法有【兩個錯,而它們今天剛好互相抵銷】]**
+
+⛔ ~~原本的查法:`left join public.products_public p on p.category_id = c.id`,期望回 0 筆~~
+它 2026-09-04 誠實地回了 **0 筆**,而那個 0 是**兩個相反的錯加起來的**:
+
+```
+🔴 錯一(往【漏抓】偏):跑這一發的帳號 pcm_readonly 有 rolbypassrls = t
+   ⇒ 它看得穿 RLS ⇒ `products_public` 這個 view(security_invoker=true)
+     對它【連已下架的也照出】⇒ 一個分類的商品**全部下架**了, 這把尺照樣印非零 ⇒ 說它活著
+🔴 錯二(往【誤殺】偏):它只數【直接掛在那個分類底下】的商品,
+   而 `buildCategoryTree` 的父層件數是**子類的加總** ⇒ 一個自己 0 件、子類有貨的父分類
+     在目錄樹裡是**活的**, 而這把尺會把它報成死列
+   🔬 實例:`碳纖維部品` 自己 0 件, 含子類 **2,326** 件
+⇒ 📌 而 2026-09-04 這兩個錯剛好抵銷成一個乾淨的「0 筆」。
+   🎯 **一個對得上的總數, 可以是兩個方向相反的錯加起來的。**
+```
+
+✅ **改成這一版(兩個錯都修掉:只算客人看得到的 + 含子類加總)**:
+
+```bash
+# 在 repo 根跑。VALS 是【從字典檔當場長出來的】—— 字典加一列, 要檢查的就多一個,
+# 🔴 不需要有人去同步一份寫死的清單(而寫死的清單一定會過期)。
+VALS=$(grep -o "to: '[^']*'" apps/storefront/src/data/search-synonyms.ts | sed "s/to: '//;s/'$//" | sort -u | sed "s/^/('/;s/$/')/" | paste -sd, -)
+
+psql "$PCM_READONLY_DATABASE_URL" -c "with w(nm) as (values $VALS)
+select w.nm as 字典指到的分類,
+  (select count(*) from public.products p join public.categories c on c.id = p.category_id
+    where p.delisted_at is null
+      and (c.raw_path = w.nm or c.raw_path like w.nm || ' · %' or c.name = w.nm)) as 含子類的活件數
+from w order by 2, 1;"
+```
+🔴 **注意它【不用 `products_public`】而直接讀 `products` + 自己寫 `delisted_at is null`** ——
+因為跑這一發的帳號看得穿 RLS,**那個 view 對它不是過濾器**。
+
+**判準:每一列的「含子類的活件數」都必須 > 0。** 有 0 ⇒ 那一列字典**現在是死的**,
+拿去給線【身分】換一個有貨的分類。
+🔬 **2026-09-04 實測:36 個 `to`,最小 8 件(`濾芯保養品`),0 個死列。**
+
+🟢 **正對照(這把尺會不會動)** —— 餵一個**一定不存在**的分類名進去,它必須印 0:
+```bash
+psql "$PCM_READONLY_DATABASE_URL" -At -c "with w(nm) as (values ('這個分類一定不存在zzz'))
+select (select count(*) from public.products p join public.categories c on c.id = p.category_id
+         where p.delisted_at is null
+           and (c.raw_path = w.nm or c.raw_path like w.nm || ' · %' or c.name = w.nm)) from w;"
+```
+🔴 **而它與「數了幾個」是兩件事** —— 也順手確認 `VALS` 不是空的:
+```bash
+psql "$PCM_READONLY_DATABASE_URL" -At -c "with w(nm) as (values $VALS) select count(*) from w;"
+```
+⇒ 2026-09-04 是 **36**(而那個數**會跟著字典長**,所以不要把它寫成判準)。
+
+⚠️ **這一格【不】更新 `SEARCH_CATEGORY_EMPTY_NAMES` 那份快照** —— 那是另一件事(見該檔檔頭)。
+   🔴 **兩者的分母不同**:這一格只問**字典指到的那些**(2026-09-04 是 27 個);
+   那份快照是**全部分類**(113 個)。**這一格便宜而且分母自己會長,那一份要人維護。**
+
 
 ---
 

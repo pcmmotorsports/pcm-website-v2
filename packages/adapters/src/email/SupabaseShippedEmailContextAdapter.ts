@@ -108,7 +108,11 @@ export class SupabaseShippedEmailContextAdapter implements IShippedEmailContext 
     const shipment = await this.query('shipment', () =>
       this.client
         .from('shipments')
-        .select('shipment_reference, carrier_code, carrier_note, tracking_number, shipped_at, deleted_at')
+        // 🔴 ⟦5b-TRACKNUMGAP1⟧ 片 C 加了 `tracking_corrected_at`:更正信靠它判
+        //    「這份工作單還是不是最新那一次更正」。
+        // 🛑 **這一串必須是【單一字串字面】** —— supabase 的回傳型別是從這個字面推出來的,
+        //    拆成 `'a' + 'b'` 之後每一欄都變成 `GenericStringError`(2026-09-04 實測 4 個 TS2339)。
+        .select('shipment_reference, carrier_code, carrier_note, tracking_number, tracking_corrected_at, shipped_at, deleted_at')
         .eq('id', input.shipmentId)
         // 🔴🔴 **這裡刻意【不】用 `.is('deleted_at', null)` 過濾**(2026-08-22 Fable R2 F2)。
         //    過濾掉的話,「這箱被作廢了」與「這箱根本不存在」會回**同一個空結果**
@@ -220,6 +224,7 @@ export class SupabaseShippedEmailContextAdapter implements IShippedEmailContext 
         //    ⚠️ `other` 有 `carrier_note`(自取/自送的自由文字)⇒ 有 note 時以 note 為準。
         carrierName: pickCarrierName(box.carrier_code, box.carrier_note),
         trackingNumber: emptyToNull(box.tracking_number),
+        trackingCorrectedAt: emptyToNull(box.tracking_corrected_at),
         lines,
         linesTruncated,
         orderHasUnshippedItems,

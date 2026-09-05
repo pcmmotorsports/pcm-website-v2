@@ -1,3 +1,4 @@
+import { suppressCustomerEmailFallback } from '@pcm/domain';
 import type {
   IEmailOutbox,
   IUnpaidCancelledOrderScanner,
@@ -67,7 +68,16 @@ export async function enqueueOrderUnpaidCancelledEmails(
   };
 
   for (const row of rows) {
-    const recipientEmail = firstNonEmpty(row.notificationEmail, row.customerEmail);
+    // 🔴🔴 **手動建單留白 = 不寄**(Sean 拍板;板列 ⟦f3-MAILFALLBACKVSRULING⟧)。
+    //    判準是【兩個條件】—— `manual_*` **而且** `notification_email` 為空,
+    //    而後者是 `firstNonEmpty` 回 null 那一格。**兩個條件都在這一行裡。**
+    // 🛑 判準本體在 `@pcm/domain` 的 `suppressCustomerEmailFallback` —— **四支共用一份**。
+    //    在這裡重寫一份判斷, 四份會各自漂, 而漂掉的那一半在 diff 上與「本來就這樣」長得一樣。
+    const recipientEmail = suppressCustomerEmailFallback(row.orderSource)
+      // 🔵 這一支的 `firstNonEmpty` 是【兩參固定】(另三支是可變參數)⇒ 明寫 null。
+      //    📌 四支看起來一樣的呼叫, 其實簽章不同 —— typecheck 抓到的, 不是我讀出來的。
+      ? firstNonEmpty(row.notificationEmail, null)
+      : firstNonEmpty(row.notificationEmail, row.customerEmail);
     if (recipientEmail === null) {
       // 🛑🛑 **已知缺口(繼承自鏡像對象, 不是本片新造)—— codex 第二輪 must-fix,而我複驗過**:
       //    這條路**不在 outbox 留下任何痕跡** ⇒ 下一輪掃描**又會撈到同一列**

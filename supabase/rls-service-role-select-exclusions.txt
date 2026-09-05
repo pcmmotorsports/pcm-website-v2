@@ -1,0 +1,29 @@
+# 補 service_role SELECT policy 時【刻意排除】的表 —— 2026-09-04 主視窗批, Sean Q-RLS 拍甲
+#
+# 🔴 這份檔的作用不是清單, 是【把「為什麼不補」寫在一個查得到的地方】。
+#    migration 20260904270000 從 catalog 當場產名單, 再扣掉本檔這幾個。
+#    ⇒ 名單會隨著資料庫長, 而排除是【決定】⇒ 決定要具名, 不能從關鍵字反推。
+#
+# 🛑 要加一行進來 = 你在宣告「後台不需要讀這張表」。那是一個決定, 不是維護動作。
+#    加之前答得出:誰會讀它?不讀的話後台哪一頁會空?
+#
+# 🔵 這 7 個名字 2026-09-04 逐個回正式庫核過:7 個全部在「缺 policy」那個集合裡。
+# ⚠️ ⛔ ~~扣完實測剩 36~~ **已作廢**(codex R2):那是用【寬判準】算的。
+#    判準收窄成「PERMISSIVE 且 qual 是 true/NULL」之後, 扣完實測 **40** ——
+#    多的 4 張是目錄表(products / product_variants / product_fitments /
+#    product_fitments_effective), 它們現有的 policy 帶 `delisted_at IS NULL` 過濾
+#    ⇒ 收 BYPASSRLS 之後後台會看不到 559 筆下架商品。舊字面留刪除線, 讓搜「36」的人撞到這裡。
+#
+# ── 稽核/事件類(6):寫進去就不再讀, 後台沒有頁面在讀它們 ──
+admin_sso_login_events
+order_legal_consents
+payment_double_charge_anomaly_events
+payment_refund_events
+payment_webhook_events
+pcm_b2_shipping_idempotency
+# ── 一次性快照表(1):20260904210000 的回滾快照, 用完就該刪 ──
+dbk_external_id_rename_20260904
+# ── 本支自己產生的前態快照表(1):它 RLS 開著、零 policy = 對非 BYPASSRLS 角色全擋, 那是刻意的
+#    🔴 而它【必須】在這份名單上 —— 否則本支跑完之後, 它自己會變成下一次盤點的第 41 個候選,
+#       而重跑會撞上「多出來的」而中止。**一支會改變自己判準輸入的 migration, 要把自己扣掉。**
+pcm_rls_rollback_20260904270000

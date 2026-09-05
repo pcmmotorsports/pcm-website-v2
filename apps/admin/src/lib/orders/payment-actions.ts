@@ -15,7 +15,12 @@ import {
   paymentFailureCodeForThrown,
   type PaymentActionState,
 } from './payment-action-state';
-import { buildReceivedAt, carryBackPaymentValues, parsePaymentForm } from './payment-form';
+import {
+  buildReceivedAt,
+  carryBackPaymentValues,
+  missingPaymentFieldLabels,
+  parsePaymentForm,
+} from './payment-form';
 import { recordManualPayment } from './payment-repository';
 
 // payment-actions.ts — M-4b E10 #15-B2-b2:手動收款登錄的 server action。
@@ -86,7 +91,16 @@ export async function recordManualPaymentAction(
   const carried = carryBackPaymentValues(formData);
   const parsed = parsePaymentForm(formData);
   if (!parsed) {
-    return paymentFailure('invalid', carried);
+    // 🔴 **在 server 這一層算, 不在元件裡算** —— 元件手上只有 `values`,
+    //    而規則住在 `payment-form.ts`。在兩邊各寫一份 ⇒ 哪天漂了會安靜地
+    //    變成「畫面說缺這一欄, 而伺服器其實收得下」。
+    // 🛑 **算不出來就不傳** ⇒ 維持那句通用話, 不編一個原因給員工。
+    const missing = missingPaymentFieldLabels(formData);
+    return paymentFailure(
+      'invalid',
+      carried,
+      missing.length === 0 ? undefined : `請檢查:${missing.join('、')}。`,
+    );
   }
 
   const orderId = parsed.orderId;

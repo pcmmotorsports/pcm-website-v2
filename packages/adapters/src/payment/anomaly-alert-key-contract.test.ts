@@ -88,7 +88,10 @@ const TARGETS = [
  *  ⚠️ **已知天花板:只剝行註解** —— 區塊註解與 dollar-quoted 字串裡的 `--` 沒有處理。
  */
 function stripSqlLineComments(src: string): string {
+  // 🔴 先剝【區塊】註解(它會跨行 ⇒ 必須在 split 之前做)再逐行剝 `--`
+  //    (2026-09-04 `-auth`, ⟦b4-PIECEBGATEGAPS⟧ ②④:只剝 `--` 擋不住 `/* … */`)。
   return src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
     .split('\n')
     .map((l) => l.replace(/--.*$/, ''))
     .join('\n');
@@ -280,6 +283,41 @@ for (const { fn, varName, pin } of TARGETS) {
  *      `client.query('SELECT public.…')` 對它是隱形的)。**已另開板列, 不在本檔解。**
  */
 const FAIL_LOUD_RPCS = [
+  /**
+   * ⟦search-LOGSILENTZERO⟧(2026-09-04, 線 `-db`)。
+   *
+   * 🔵 **分堆是開檔看的, 不是猜的**(本檔上面那句逐字要求):
+   *   `getSearchLogHealth` 對**三個欄位逐個驗型別**, 缺鍵 ⇒ `typeof undefined` 不符
+   *   ⇒ `throw new AnomalyAlertReaderParseError` ⇒ **fail-loud** ⇒ 進這一堆。
+   *   (`PgAnomalyAlertReaderAdapter.ts` 錨 `RPC_SEARCH_LOG_HEALTH` 那三個 if。)
+   *
+   * 🔴🔴 **而這一格【是我今天弄紅的】, 照實記** —— `3a848c58e` 在 adapter 加了這支呼叫,
+   *   而**沒有把它登記進來** ⇒ 16 顆推前驗收當場紅。
+   *   📌 **而我今天早些才報過**「這支合約測試 15 發紅」以及
+   *     「掃描型守門不 import 被測檔 ⇒ `vitest related` 的分母裡結構上沒有它」
+   *     ⇒ 🎯 **我知道那個機制, 而我照樣踩了它** —— 因為我改的是 adapter,
+   *       而**這支檔不在我改的那一批裡, 也不會被 related 撈出來。**
+   *   ⇒ ⇒ 🛑 **知道一個坑, 與在動手的當下想起它, 是兩件事。**
+   */
+  'get_search_log_health',
+  /**
+   * ⟦b4-NEEDSHUMANNOWATCHER⟧(2026-09-05, 線【信】`-mail`)。
+   *
+   * 🔵 **分堆是開檔看的**:`getStuckBankOrdersHealth` 對 `measured` / `stuck_count` /
+   *   `oldest_created` **逐個驗**, 另加一道「count>0 必須有 oldest」的一致性檢查,
+   *   五處全部 `throw new AnomalyAlertReaderParseError` ⇒ **fail-loud** ⇒ 進這一堆。
+   *
+   * 🔴🔴 **而這一格【也是我弄紅的】—— 而上面那段是【一天前】`-db` 寫的同一件事。**
+   *   它逐字寫了:「我知道那個機制, 而我照樣踩了它 —— 因為我改的是 adapter,
+   *   而這支檔不在我改的那一批裡, 也不會被 `related` 撈出來。」
+   *   ⇒ 🎯 **而我一天後, 在同一支檔, 踩了同一個。**
+   *     🔬 我跑的是【手挑兩支】(232 passed)⇒ 那個分母裡結構上沒有這一支。
+   *     ⇒ 📌 **它的警告寫在這裡, 而我沒有讀到它 —— 因為讀它的前提是【我已經知道要來看這支檔】。**
+   *   ⇒ 🛑 **⇒ 一句寫在正確位置的警告, 對「還沒想到要來這裡」的人等於不存在。**
+   *     ✅ 修法不是再寫一句:本輪同時加了一道**掃 `/(Unknown|Failed)$/` 對 route 字面**的
+   *       describe(見本檔末), 讓這一族在 typecheck/測試層就叫。
+   */
+  'get_stuck_bank_orders_health',
   // 這幾支走 `parseCount` / `parseBeginResult` ⇒ 缺鍵會 throw ⇒ 不需要本檔這種對帳。
   'get_order_refunds_stuck_summary',
   'get_email_outbox_deadman_counts',
@@ -304,6 +342,18 @@ const FAIL_LOUD_RPCS = [
   'get_shipped_email_gap_counts',
   'get_order_created_gap_counts',
   'get_cron_heartbeat_stale_counts',
+  /**
+   * 🔵 ⟦b4-NORECIPIENTWINDOW⟧ **第四條線**(2026-09-04)。
+   * **分堆是開檔看的, 不是猜的**(本檔上面那句逐字要求):
+   *   `get_tracking_corrected_gap_counts` 的三個 key 全部走同檔的 `parseCount`
+   *   (`trackingCorrectedCount` 那個 helper)⇒ 缺鍵直接 `throw` ⇒ 屬 fail-loud 這一堆。
+   * 🛑 **而它與姊妹那幾支一樣有【一條刻意的 fail-soft 路徑, 而那條不是缺鍵】**:
+   *   那支 RPC 還沒 apply 時(`42883` 且 `to_regprocedure` 回 NULL)⇒ 三格回 `null` = 查不到,
+   *   **不是 0** ——「讀不到」與「一切正常」在裸數字上長得一模一樣。
+   * 📌 **而這一格擋到我了** —— 我加了一支 RPC 而沒來登記, 它當場紅並告訴我要放進哪一堆。
+   *   ⇒ 那正是本檔上面那段「第 5 支進來就紅」在做的事。
+   */
+  'get_tracking_corrected_gap_counts',
   /**
    * 🔵 ⟦b9-ENUMWATCH⟧ 片 2(2026-09-01)。**分堆是開檔看的, 不是猜的**(本檔上面那句逐字要求):
    *   `PgAnomalyAlertReaderAdapter.getManualCustomerSearchSummary` 自己判形狀 ——
@@ -337,6 +387,32 @@ const FAIL_LOUD_RPCS = [
    *   ⇒ 兩者在本檔的分堆上是不同的東西, 而混起來會把一支 fail-loud 的錯歸進 fail-soft。
    */
   'get_order_created_stuck_count',
+  /**
+   * 🔵 `⟦b4-NORECIPIENTWINDOW⟧` 那一片(`20260903070000`, Sean 2026-09-03 本人已貼)。
+   *   **分堆是開檔看的, 不是猜的**(本檔上面那句逐字要求):
+   * ```
+   * PgAnomalyAlertReaderAdapter.ts 的 unpaidCancelledCount(key)
+   *   ⇒ parseCount(ucg![key], key, UNPAID_CANCELLED_FN)
+   * 而 parseCount:v === undefined ⇒ n = NaN ⇒ !Number.isFinite(NaN) ⇒ **throw**
+   * ⇒ 缺鍵 = fail-loud ⇒ 屬這一堆
+   * ```
+   * 🔴 **而我沒有停在讀碼** —— 同族的 `PgAnomalyAlertReaderAdapter.test.ts` 有一格
+   *   `[U5] 缺鍵 ⇒ throw`, 它**真的餵一個少一把鍵的回應進去**。
+   *   ⇒ 📌 **那一格才是這裡這個字串的來源**;沒有它, 這一行是一個【推論】被寫進一張註冊表。
+   * 🛑 **而它有一條【不是缺鍵】的 null 路徑, 不改變分堆**:
+   *   RPC 還沒 apply(`42883` 且 `to_regprocedure` 回 NULL)⇒ `unpaidCancelledGapUnknown`
+   *   ⇒ 三格回 `null` = 查不到。那是**部署窗口**, 不是「鍵不見了」。
+   *   ⇒ 🎯 同 `get_manual_customer_search_summary` 那格記過的那句:
+   *     **分堆問的是【鍵不見時會不會叫】, 不是【這支函式會不會回 null】。**
+   *
+   * 🔬 **而「放錯堆會不會被抓到」我實測過**(主視窗指定):把它從這一堆移到 `TARGETS`
+   *   (帶假的 `varName` / 空 `pin`)⇒ **三格紅**(兩把尺撈得到 · 帳本記著已 apply ·
+   *   SQL 的每個 key 都有人讀)⇒ ✅ **這道閘不只擋「有沒有登記」, 也擋「隨手登記到錯的堆」。**
+   * 🛑 **而我沒測到的那一格要寫出來**:若有人放進 `TARGETS` 而**把 varName 與 pin 都填對**,
+   *   會不會過?**我沒有測。** ⇒ 📌 那是「認真地放錯」, 與我這一發的「隨手放錯」不同,
+   *   而**它們在這句話裡很容易被讀成同一件事**。
+   */
+  'get_order_unpaid_cancelled_gap_counts',
 ] as const;
 
 describe('屬性名與錯誤訊息字面(`-eb` 2026-08-31 併入)', () => {
@@ -387,5 +463,100 @@ describe('本檔自己的分母', () => {
         '⚠️ **而這一格只在【檔案 collection 成功】時才有意義** —— 一個 import 期就炸的檔,\n' +
         '   連本格都不會跑。真正保護 collection 的是「把計算搬進 it()」那一步, 不是這個計數器。',
     ).toEqual(TARGETS.map((t) => t.fn).sort());
+  });
+});
+
+/**
+ * 🔴🔴 **第三個 describe:`*Unknown` / `*Failed` 一定要有人在 route 讀**
+ * (adversarial-reviewer R3 結構建議②, 2026-09-05)。
+ *
+ * 🎯 **它要防的形狀, 這一夜在同一片上發生了【三次】**:
+ * ```
+ * R1 ③  stuckBankUnknown  算出來、回傳了, 而 route 沒有消費它
+ * R2 ②  為了折上面那條補的 stuckBankFailed —— 也沒有接
+ * R2 ③  SQL 特別回的 measured 鍵 —— adapter 完全不讀
+ * ```
+ * ⇒ 📌 **母題:「我加了一個訊號」與「有人在讀它」是兩個宣稱, 而作者一直只做前者。**
+ *
+ * 🛑 **天花板(照實寫, 不要讓下一個人以為這道閘涵蓋全部)**:
+ *   · 它只封閉 **use-case → route** 這一跳。`route → 信` 那一跳仍靠 `shouldAlert` 的人工測試。
+ *   · ⛔ ~~它比對的是字面出現 ⇒ 一個 `// stuckBankFailed` 註解就能餵綠它~~
+ *     ⇒ ✅ **R4 已修:先剝掉註解行再比。** 🔬 而那不是假想的弱點 ——
+ *     **實測 `stuckBankFailed` 在 route.ts 的 JSDoc 裡出現兩次**,
+ *     ⇒ 📌 **把那整段 503 刪掉, 舊版這道閘照樣綠。**
+ *     ⚠️ 仍剝不掉「同一行程式碼尾端的 `// 註解`」—— 而那種情形識別字本來就在碼裡。
+ *   · 它仍然只驗**字面在碼裡**, 不驗「真的走了一條分支」。要驗分支得跑 route,
+ *     而這支是**掃描型**契約測試。🔵 分支那一層由 `route.test.ts` 的突變格守。
+ *   · 它只認 `Unknown` / `Failed` 兩種後綴。🔴 **而那【不是】「repo 只有這兩種」** ——
+ *     R4 當場量到同一個型別裡還有四個極性欄位在閘外:
+ *     `searchLogTableExists` · `searchLogStale` · `searchLogAnonExecuteRevoked` · `bypassRlsRevoked`。
+ *     ⛔ ~~其中 `searchLogAnonExecuteRevoked` 在 route.ts 一次都沒出現 ⇒ 那條路斷掉時這道閘看不到~~
+ *     🔴 **作廢(2026-09-05, 由那四個欄位的作者線【資料】`-db` 推翻)**:
+ *       route 0 命中是**對的**, 因為兩族語意不同 ——
+ *       `*Failed`/`*Unknown` = **儀器健康** ⇒ route 轉 503;
+ *       `searchLogStale` 那族 = **告警內容 + 觸發** ⇒ 走 `shouldAlert` ⇒ 寄信。
+ *       ⇒ 🎯 **它們走另一條路, 而那條路是通的。擴進來會產生兩筆假指控。**
+ *     📌 **留著這段舊字面的理由**:量測(route 0 命中)是對的, 而**推論的前提沒被檢查** ——
+ *       下一個看到「0 命中」的人會走同一條路。
+ *     ⚠️ **所以這道閘【刻意】只認那兩種後綴** —— 那不是偷懶, 是射程。
+ */
+describe('result 的 *Unknown / *Failed 欄位, route 一定要讀', () => {
+  const USE_CASE = path.resolve(__dirname, '../../../use-cases/src/check-anomaly-alerts.ts');
+  const ROUTE = path.resolve(
+    __dirname,
+    '../../../../apps/storefront/src/app/api/cron/anomaly-alert/route.ts',
+  );
+
+  it('🔴 每一個 *Unknown / *Failed 欄位都要在 route.ts 裡出現過', () => {
+    const uc = readFileSync(USE_CASE, 'utf8');
+    const i = uc.indexOf('export type CheckAnomalyAlertsResult = {');
+    expect(i, 'result 型別找不到 ⇒ 這把尺沒有接上').toBeGreaterThan(-1);
+    const block = uc.slice(i, uc.indexOf('\n};\n', i));
+    const fields = [...block.matchAll(/^\s{2}([a-zA-Z][a-zA-Z0-9]*(?:Unknown|Failed))\??:/gm)].map((m) => m[1]).filter((x): x is string => typeof x === 'string');
+
+    /**
+     * 🟢 正對照 —— ⛔ ~~`toBeGreaterThan(3)`~~ **作廢**(R4:實際 15 個,
+     *    而正則靜靜縮到 4 個仍全綠)⇒ 📌 **門檻可以被稀釋, 具體數字不行。**
+     * 🔵 新增一個 `*Unknown`/`*Failed` 欄位時這一格會紅 —— **那是刻意的**:
+     *    紅的訊息會叫你回來看「route 接了沒」, 而那正是本 describe 存在的理由。
+     */
+    // 🔴🔴 **15 ⇒ 16(2026-09-05, 而它是 merge 的產物, 不是誰寫錯了)**:
+    //   `origin/dev` 有 14 欄(別的線加了 `trackingCorrectedGapUnknown`),
+    //   本線加了 `stuckBankUnknown` / `stuckBankFailed` ⇒ 各自分支上 14 與 15 都對, **合起來 16**。
+    //   ⇒ 📌 **一個釘死的計數, 在兩條分支各自加欄時【結構上】一定會在 merge 那一刻撞。**
+    //     而那不是缺陷 —— **這一格的職責就是在那一刻把人叫過來**, 問一句「新那欄 route 接了沒」。
+    //   ✅ 這一次的答案:接了。逐欄跑過 —— 16 欄裡 route 沒讀的是 **0**
+    //     (`trackingCorrectedGapUnknown` 由那條線自己接的;`notifiersFailed` 走 `errors` 別名)。
+    //   🛑 **改這個數字之前一定要跑那一發** —— 直接改成「現在幾個」而不看 route,
+    //     等於把這道閘關掉, 而它印的還是綠。
+      // 🔴 **16 ⇒ 17(2026-09-05, 又是 merge 的產物)**:`-db` 加了 `aclDriftUnknown`
+      //   (⟦b9-ACLDRIFT5⟧ 片三), 而 dev 上那 16 欄是別的線各自加的。
+      //   ✅ **照上面那句規矩跑了那一發**:17 欄逐欄比對 route.ts ⇒ **route 沒讀的是 0**。
+      //   📌 而這是這道閘第二次在 merge 那一刻把人叫過來 —— **它的職責就是這個**。
+    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(17);
+
+    /**
+     * 🔴 **剝掉註解再比**(R4 must-fix 級 consider)——
+     *    舊版比的是整支檔的字面, 而 `stuckBankFailed` 在 route.ts 的 JSDoc 裡出現兩次
+     *    ⇒ **把那段 503 整個刪掉, 舊版照樣綠。**
+     */
+    const route = readFileSync(ROUTE, 'utf8');
+    const routeCode = route
+      .split('\n')
+      .filter((l) => !/^\s*(\/\/|\/\*|\*)/.test(l))
+      .join('\n');
+
+    /**
+     * 🔵 **具名別名表** —— `notifiersFailed` 被 use-case 鏡射成 `errors`
+     *    (`check-anomaly-alerts.ts` 逐字 `errors: notifiersFailed`), 而 route 讀的是 `result.errors`
+     *    ⇒ 📌 **它【有人讀】, 只是換了名字。**
+     * 🛑 這裡**只放「查證過確實被別名消費」的**, 不是豁免清單 ——
+     *    每加一條, 那一行的註解要寫得出「消費者在哪」。
+     */
+    const ALIASED: Record<string, string> = { notifiersFailed: 'errors' };
+    const missing = fields.filter(
+      (f) => !routeCode.includes(f) && !(ALIASED[f] && routeCode.includes(ALIASED[f]!)),
+    );
+    expect(missing, `這些 *Unknown/*Failed 欄位 route 沒有讀:${missing.join(', ')}`).toEqual([]);
   });
 });

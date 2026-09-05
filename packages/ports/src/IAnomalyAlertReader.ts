@@ -80,4 +80,61 @@ export interface IAnomalyAlertReader {
      */
     readonly windowSeconds: number;
   } | null>;
+
+  /**
+   * 搜尋日誌健康度(⟦search-LOGSILENTZERO⟧)。
+   *
+   * 🔴 **三個值的語意各自釘死, 因為它們代表的是【不同的世界】而不是程度差別**:
+   * ```
+   * tableExists = false        那張表還沒貼      ⇒ 印「未貼」, 【不告警】
+   * lastRowAt   = null 而表在   還沒開始收        ⇒ 【不告警】(主視窗 2026-09-04 裁乙)
+   * lastRowAt   > 24h 前        寫入停了          ⇒ 告警
+   * anonCanExecute = null      那支函式還沒貼    ⇒ 【不告警】
+   * anonCanExecute = false     🔴 那道門被關掉了 ⇒ 告警
+   * ```
+   * 🛑 **`null` 與 `false` 不得合併** —— 合併之後「還沒貼」會被告警成「有人把門關了」,
+   *    而那會讓值班的人去查一個不存在的事故。
+   *
+   * ⛔ **原提案是「近 24h 0 列就告警」(甲), 而它被推翻** ——
+   *    主視窗逐字:「**甲每天半夜假紅一次, 假紅會被人關掉(閘死於誤報比漏報常見)**」。
+   *
+   * ⚠️ 讀不到(函式還沒貼)⇒ 回 `null`, 與其他訊號同款 ⇒ 呼叫端走 `*Unknown` ⇒ 503。
+   */
+  getSearchLogHealth(): Promise<{
+    readonly tableExists: boolean;
+    readonly lastRowAt: string | null;
+    readonly anonCanExecute: boolean | null;
+  } | null>;
+
+  /**
+   * ⟦b4-NEEDSHUMANNOWATCHER⟧ + ⟦b4-PAIDTHENOVERPAID⟧ 卡住的匯款單, **兩個世界分開數**
+   * (三態:`unpaid` / `paid` / `partiallyPaid`;主視窗 2026-09-05 `Q1=乙`)。
+   * 兩邊共同條件:`bank_transfer` + 未取消 + OP6a 判 `overpaid` / `needs_human`。
+   *
+   * ```
+   * A `stuckCount`    仍 unpaid    + 已收淨額 > 0            客人的訂單頁還在說「請匯款」⇒ 他會再匯一次
+   * B `overpaidCount` 已付款/部分付款 + 已收淨額 > orders.total  畫面正常, 而錢多收了 ⇒ 要退給他
+   * ```
+   * 🛑 **兩個數字不合成一個** —— 合了之後讀信的人**分不出該打哪一種電話**。
+   * ⚠️ **B 的預篩用 `orders.total`, 而 OP6a 算的是它自己那一套** ⇒ 有退款的單兩者會不一致
+   *    ⇒ 🔴 **會漏掉一種「total 對不上而 OP6a 判 overpaid」的單**。那是刻意的取捨
+   *    (不預篩的話這支 RPC 會對每一張已付款匯款單叫一次 OP6a)⇒ 板列 ⟦b4-PAIDTHENOVERPAID⟧。
+   *
+   * 🔴 **那兩種是 `20260904230000` 刻意不翻狀態的** —— 錢在庫裡, 而狀態停在 `unpaid`
+   * ⇒ 客人的訂單頁仍顯示「請於 5 天內匯款」+ 銀行帳號(`OrderDetailView.tsx:598`)
+   * ⇒ 🎯 **他會再匯一次。**
+   *
+   * 🛑 而 2026-09-05 實測:`grep -rl needs_human apps/admin/src` ⇒ 2 支, **兩支都是物流**
+   * ⇒ **後台零面在看這件事** ⇒ 這支 RPC 是它的第一個觀眾。
+   *
+   * ⚠️ 讀不到(函式還沒貼)⇒ 回 `null`, 與其他訊號同款 ⇒ 呼叫端走 `*Unknown`。
+   * 🔵 `oldestCreated` 讓讀信的人知道**積了多久**, 而不只是「有幾張」。
+   */
+  getStuckBankOrdersHealth(): Promise<{
+    readonly stuckCount: number;
+    readonly oldestCreated: string | null;
+    readonly overpaidCount: number;
+    readonly overpaidOldest: string | null;
+  } | null>;
+
 }

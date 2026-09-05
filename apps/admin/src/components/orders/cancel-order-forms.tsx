@@ -16,6 +16,11 @@ import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
 import { isItemSelectable, type CancelItemView } from '../../lib/orders/cancel-view';
 import { CancelFormBody } from './cancel-form-body';
 import type { CancelShipmentWarning } from '../../lib/orders/cancel-shipment-warning';
+import {
+  pendingRefundTotalLabel,
+  railLabel,
+  type CancelPendingRefundNotice,
+} from '../../lib/orders/cancel-pending-refund-notice';
 
 // cancel-order-forms.tsx — M-4b E10 **A13b D4**:取消訂單的**兩支獨立表單**(整單 / 部分)。
 //
@@ -116,6 +121,7 @@ function CancelFormShell({
   submitLabel,
   formId,
   shipmentWarning,
+  pendingRefund,
   children,
 }: {
   orderId: string;
@@ -141,6 +147,8 @@ function CancelFormShell({
    * 🛑 **判準與文案本檔一個字都不重算** —— 唯一作者是 `lib/orders/cancel-shipment-warning.ts`。
    */
   shipmentWarning: CancelShipmentWarning;
+  /** 🔴 必填無預設 —— 理由同上一格:給預設等於讓忘記接線的人拿到「沒有紅框」。 */
+  pendingRefund: CancelPendingRefundNotice;
   children?: React.ReactNode;
 }) {
   const requestToken = generateCancelRequestToken();
@@ -182,6 +190,77 @@ function CancelFormShell({
           </label>
         </div>
       )}
+      {/* 🔴🔴 **待退款告知框(Sean 2026-09-05 第 1 題拍【乙】—— 逐字「不擋, 按下去前告訴他」)**
+
+          🛑🛑 **這個框的主詞是【待退款】, 不是【收過錢】—— 我第一版寫錯了(code-reviewer MF2/MF3)。**
+          `pcm_pending_refund_amounts`(`20260902030000:78-84`)算的是
+          **收款 − 已登記的人工退款(未作廢)** ⇒ 那是**淨額**。
+          ⛔ ~~「這張單已經收過 NT$X」~~ ⇒ 收 1000、已退 400 的單會印「已經收過 NT$600」——
+             **那句話是假的**, 而它印在一個要員工照著退錢的框裡。
+          ✅ 改成「**還有 NT$X 沒退給客人**」—— 那才是那個數字回答的問題。
+
+          🔴 **而射程也要寫出來:這個框【看不到刷卡】。**
+          同檔 `:87` 逐字 `FROM (VALUES ('bank_transfer'), ('cash'))` ⇒ 全刷卡的單回**零列** ⇒ 不畫框。
+          ⛔ ~~而那是對的:卡是 `Q12=A` 的**自動退刷**, 不會開人工待退款~~
+          🔴🔴 **那句話是【終態】, 不是今天**(codex 2026-09-05 finding 2 抓到, 我實查證實):
+             `cancel-actions.ts` 對 `refund` **零命中**;`20260805100000`(取消 RPC)對 `TapPay` **零命中**
+             ⇒ 🛑 **今天取消一張刷卡單, 沒有任何東西會去退那筆錢, 也沒有任何東西會提醒人。**
+          ⇒ 📌 **我拿一個【已拍板的未來】替【現在的行為】背書** —— 而那正是這個框要防的事:
+             員工看到「沒有紅框」, 而錢還在我們這裡。
+          🛑 **⇒ 這是一個【真的缺口】, 不是可接受的射程限制。** 要補它得先有一支算得出卡軌的函式
+             (`pcm_pending_refund_amounts` 的 `:87` 只有 `bank_transfer` / `cash`)⇒ 已落板, 不在本片。
+          🛑 **這一格【沒有】checkbox, 而那是刻意的**:上面那個出貨框的 checkbox 作用是**擋誤按**
+             (同檔 `:164` 逐字「它擋的是誤按, 擋不住繞過」)—— 而乙 的定義是
+             「**照樣讓他取消, 只是先告訴他**」⇒ 加一格勾選 = 多一道 Sean 沒批准的閘。
+             ⇒ 📌 **告知就是告知, 不要順手升級成同意。**
+          🔴 **逐軌列, 不列合計** —— 退款是**各自原路退**(`Q12=A`,
+             `20260810100000:24` 逐字「卡款系統自動退刷、匯款列待辦人工匯還」)
+             ⇒ **一個合計數字沒有人可以照著執行**;他要知道的是去銀行匯多少、從抽屜拿多少。
+          🔴 **`unknown` 與「沒有框」絕不可混** —— 見 `cancel-pending-refund-notice.ts` 檔頭。 */}
+      {pendingRefund.kind !== 'none' && (
+        <div
+          data-testid='cancel-pending-refund-notice'
+          className='rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm'
+        >
+          {/* 🔵 **「這個框沒有 checkbox」那格測試的射程止於【框內】**(code-reviewer N2)——
+              有人把 checkbox 加在框**外面**它照樣綠。而框內零 `input` 就是這一片要守的。 */}
+          {pendingRefund.kind === 'unknown' ? (
+            <p className='text-destructive font-medium' data-testid='cancel-pending-refund-unknown'>
+              {/* 🔵 這句要**同時涵蓋兩種 `unknown`**:讀不到、以及讀到了但數字不對
+                  (codex nit 6:原本只寫「讀不到」, 而負數那條路是後者)。 */}
+              收款讀不到或數字不對,取消前請先看收款紀錄。
+            </p>
+          ) : (
+            <>
+              {/* 🔴🔴 **句子拆成【事實】與【後果】兩句, 而只有後果那句跟 `mode` 走。**
+                  (codex 2026-09-05 finding 1)⛔ ~~原本一句「取消之後這筆錢會列進待退款」~~
+                  —— **那句對【部分取消】是假的**:部分取消不寫 `cancelled_at`
+                  ⇒ `20260901080000` 那個 trigger 永遠不會醒 ⇒ **不會開任何待退款**;
+                  而該退多少還要看**剩下的訂單金額**(Sean 的 `Q13` 公式)。
+                  ⇒ 📌 **事實對兩種模式都成立, 後果不成立 —— 所以只有後果那句分岔。** */}
+              {/* 🔴🔴 **Sean 2026-09-05 逐字:「甲:但是更簡短 精簡(我員工不是小孩子他看得懂)」**
+                  ⛔ ~~兩句 + 解釋~~ ⇒ ✅ **一句 + 逐軌括號**。
+                  🛑 **而「短」不等於「少講一件事」**:部分取消那句講的是**不一樣的事**
+                     (它不會自動開待退款)⇒ 它跟著縮, 但**不能併進整單那句**。
+                  🔵 逐軌從 `<ul>` 改成括號內聯 —— 兩行變一行, 而**逐軌那個資訊一個都沒少**
+                     (退款各自原路退, 他要知道去銀行匯多少、從抽屜拿多少)。 */}
+              <p className='text-destructive font-medium'>
+                已收未退 NT$ {pendingRefundTotalLabel(pendingRefund.rails)}(
+                {pendingRefund.rails.map((r, i) => (
+                  <span key={r.rail} data-testid={`cancel-pending-refund-rail-${r.rail}`}>
+                    {i > 0 ? ' / ' : ''}
+                    {railLabel(r.rail)} {r.amount.toLocaleString('en-US')}
+                  </span>
+                ))}
+                )。
+                {mode === 'full'
+                  ? '取消後列入待退款。'
+                  : '部分取消不會自動列待退款,請自行處理。'}
+              </p>
+            </>
+          )}
+        </div>
+      )}
       <CancelFormBody submitLabel={submitLabel} requireItemSelection={mode === 'partial'}>
         {children}
       </CancelFormBody>
@@ -200,11 +279,14 @@ export function FullCancelForm({
   orderId,
   returnTo,
   shipmentWarning,
+  pendingRefund,
 }: {
   orderId: string;
   returnTo: string;
   /** 🔴 必填無預設 —— 理由同 `CancelFormShell` 那一格。 */
   shipmentWarning: CancelShipmentWarning;
+  /** 🔴 必填無預設 —— 理由同上一格:給預設等於讓忘記接線的人拿到「沒有紅框」。 */
+  pendingRefund: CancelPendingRefundNotice;
 }) {
   return (
     <section className={CARD}>
@@ -219,6 +301,7 @@ export function FullCancelForm({
         mode='full'
         submitLabel='整單取消'
         shipmentWarning={shipmentWarning}
+        pendingRefund={pendingRefund}
       />
     </section>
   );
@@ -242,12 +325,15 @@ export function PartialCancelForm({
   returnTo,
   items,
   shipmentWarning,
+  pendingRefund,
 }: {
   orderId: string;
   returnTo: string;
   items: readonly CancelItemView[];
   /** 🔴 必填無預設 —— 理由同 `CancelFormShell` 那一格。 */
   shipmentWarning: CancelShipmentWarning;
+  /** 🔴 必填無預設 —— 理由同上一格:給預設等於讓忘記接線的人拿到「沒有紅框」。 */
+  pendingRefund: CancelPendingRefundNotice;
 }) {
   // 🔴 **「勾得動」的判定共用 `cancel-view.ts` 的 `isItemSelectable`**(R1 must-fix 5):
   //    原本這裡自己寫了一份逐字相同的條件,而本檔同時宣稱「判定不在這裡」——
@@ -275,6 +361,7 @@ export function PartialCancelForm({
         submitLabel='取消勾選的品項'
         formId={partialCancelFormId(orderId)}
         shipmentWarning={shipmentWarning}
+        pendingRefund={pendingRefund}
       />
     </section>
   );

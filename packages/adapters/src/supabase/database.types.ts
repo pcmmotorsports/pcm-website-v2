@@ -1,5 +1,11 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十二個函式、共二十八處**手動校正,
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十三個函式、共二十九處**手動校正,
+// ⛔ ~~十二個函式、共二十八處~~ ⇒ 2026-09-05 線 -ship 補 ⑰ `admin_record_hct_submit`(**整段**)後 +1。
+//    🔴 **而我第一版把訂正寫在【同一行】的「本體另有」與「**」之間** ——
+//    `database-types-manual-count.test.ts:55` 的正規式是 `本體另有\*\*(.+?)個函式`,
+//    它先剝 `~~…~~` 再比對 ⇒ 剝完中間還剩 `⛔  ⇒ ` ⇒ **抓不到, 那支測試三格全紅。**
+//    ⇒ 📌 **一個為了留痕而加的刪除線, 打斷了另一支測試賴以定位的字面。**
+//      而它紅得對:那一行**逐字寫著它是「計數的唯一權威」**。
 //   (~~十三個函式、共二十九處~~ ⇒ **2026-08-24 線4:⑬ 走完退場後減一**,數字回到 `92436630` 那一版)
 //   **外加一張表的兩個欄位**(⑮ `admin_sso_login_events.actor_kind` / `.actor_staff_id`,2026-08-24 B5-a):
 //    ~~migration `20260824030000` **未 apply** ⇒ 現在重 gen 不會產生它們~~
@@ -15,6 +21,24 @@
 //      2026-08-24 線4 補劃。形狀:**退場動作只改了條目本身,沒回頭改「引用它的那句話」。**
 //   (🔴 本行是計數的**唯一權威**;下方各段一律寫「見檔頭計數」、不再各自複述數字 ——
 //    2026-08-05 A9d2-2 實查:同一個數字散在四處,改一處漏三處是遲早的事):
+//   🔴🔴 **⑯ `orders.tax_total` 三處(Row / Insert / Update;2026-09-04 線【帳號】`-account`)**
+//      —— **與上面每一條都不同族, 而差別決定了它怎麼退場**:
+//      · ①-⑭ 是「**生成器【寫不出來】的東西**」(必填但可為 null / 可省略且可為 null)⇒ **永遠要重貼**
+//      · ⑮ 曾經是「migration 未 apply ⇒ 生成器【還產不出來】」
+//      · 🔵 **⑯ 是「這個欄位【早就在正式庫】, 而本檔【產得比它舊】」**
+//        🔬 當場量到的(唯讀正式庫):`orders.tax_total` = `integer NOT NULL DEFAULT 0` **存在**;
+//           而本檔掃 `tax_total` ⇒ **0 命中** ⇒ **本檔過期, 不是欄位不存在。**
+//        🛑 **而帳本 `supabase/APPLIED.tsv` 上以 `20260829140000` 開頭的列 = 0**
+//           (🟢 正對照 `20260831180000` ⇒ 1)⇒ 📌 **帳本在這一欄上是【假陰性】**
+//           —— 正如該檔檔頭自己寫的「不在本表上什麼都不代表」。**欄位存不存在要問庫, 不要問帳本。**
+//      ⇒ ✅ **退場條件與其他條【相反】:下一次重 gen 就會自己產生它 ⇒ 那時【直接刪掉本條】, 不要重貼。**
+//      ⚠️ 而它**不計入上面那個「二十八處」** —— 那個數字數的是「生成器寫不出來的」那一族。
+//      🔴🔴 **2026-09-04 同日再補一欄:`orders.invoice_requested`(Row / Insert / Update 三處)** ——
+//         **與 `tax_total` 出自【同一支 migration】**(`20260828100000`, 那一支加了兩欄)
+//         ⇒ 🎯 **本檔對那一支【整支】是舊的, 不是漏了某一欄。**
+//         📌 **⇒ 下次撞到「型別檔沒有這一欄」時, 先問【那支 migration 加了幾欄】** ——
+//            我第一次只補 `tax_total`, 而**另一欄就躺在同一支檔的下面幾行**, 兩小時後才撞到。
+//         ✅ 退場條件同 ⑯:重 gen 就會自己產生 ⇒ **那時直接刪, 不要重貼。**
 //   ① `create_order.Args` 三處(p_client_ip / p_client_ua / p_notification_email 的 `| null`)
 //   ② `admin_upsert_supplier.Args` 四處(p_supplier_id / p_label / p_is_active / p_note 的 `| null`)
 //   ③ `admin_append_order_note.Args` **三處**(p_channel / p_occurred_at / p_corrects_note_id 的 `| null`;2026-08-02 A6 起)
@@ -51,6 +75,15 @@
 //      ⇒ NULL 是設計上合法輸入;同檔 :118-120 寫明它是刻意選填。與 ⑦ 同款。)
 //      ⚠️ **不得讀成「校正漏貼都會被抓到」** —— 這層保護只對「呼叫端真的會傳 null」的校正成立;
 //      其餘各處的防線仍然只有「人重貼」+ 外部檢查腳本(缺口已立 backlog `#518`))
+//   ⑰ `admin_record_hct_submit` **整段**〔主migration=20260904170000〕(2026-09-05 線 -ship;⟦ship-HCTAPI⟧ 步驟②)——
+//      ⛔ ~~我原本編成 ⑯~~ 🔴 **撞號**:`:24` 的 ⑯ 是【帳號】線 2026-09-04 先用的(`orders.tax_total`)。
+//      ⇒ 📌 **兩節各自編號 ⇒ 同一個號在同一支檔裡有兩個意思, 而那支計數測試的正規式只吃得到其中一節** ——
+//        它數到 13(對), 卻**看不到撞號**。⇒ 先用先贏, 我改 ⑰。
+//      🔴 **它不是「校正」, 是【生成器沒產出來】**:`20260904170000` **已 apply**(在 `supabase/APPLIED.tsv`)
+//      (Sean 2026-09-04 本人貼, 那一列自帶簽章複驗 + 正負對照)⇒ 它在正式庫裡, 只是本檔還沒重 gen。
+//      ⇒ 不補這一支, `.rpc('admin_record_hct_submit', …)` 會 typecheck 紅, 而繞過它的
+//      `as never` / `@ts-expect-error` **會把整個參數形狀的檢查一起關掉**。
+//      ⚠️ 重 gen 之後它應該自己產得出來 ⇒ 屆時本條可退場(與 ⑮ 同款)。
 // ─────────────────────────────────────────────────────────────────────────────
 // 🔴 **以下是【已退場】的條目留痕,不計入上面的計數。**
 // 🔴🔴 **留痕的寫法有一條【承重的不變式】,而在 2026-08-24 夜之前沒有一句話講過它**:
@@ -2061,6 +2094,8 @@ export type Database = {
           tappay_rec_trade_id: string | null
           tier_at_checkout: Database["public"]["Enums"]["member_tier"]
           total: number
+          tax_total: number
+          invoice_requested: boolean
           updated_at: string
           version: number
           workflow_status: string | null
@@ -2100,6 +2135,8 @@ export type Database = {
           tappay_rec_trade_id?: string | null
           tier_at_checkout: Database["public"]["Enums"]["member_tier"]
           total: number
+          tax_total: number
+          invoice_requested: boolean
           updated_at?: string
           version?: number
           workflow_status?: string | null
@@ -2139,6 +2176,8 @@ export type Database = {
           tappay_rec_trade_id?: string | null
           tier_at_checkout?: Database["public"]["Enums"]["member_tier"]
           total?: number
+          tax_total?: number
+          invoice_requested?: boolean
           updated_at?: string
           version?: number
           workflow_status?: string | null
@@ -3120,6 +3159,7 @@ export type Database = {
           recipient_snapshot: Json
           shipment_reference: string
           shipped_at: string | null
+          tracking_corrected_at: string | null
           tracking_number: string | null
           updated_at: string
           void_reason: string | null
@@ -3137,6 +3177,7 @@ export type Database = {
           recipient_snapshot: Json
           shipment_reference: string
           shipped_at?: string | null
+          tracking_corrected_at?: string | null
           tracking_number?: string | null
           updated_at?: string
           void_reason?: string | null
@@ -3154,6 +3195,7 @@ export type Database = {
           recipient_snapshot?: Json
           shipment_reference?: string
           shipped_at?: string | null
+          tracking_corrected_at?: string | null
           tracking_number?: string | null
           updated_at?: string
           void_reason?: string | null
@@ -3252,6 +3294,29 @@ export type Database = {
       }
     }
     Views: {
+      pcm_unpaid_cancelled_email_pending: {
+        Row: {
+          cancelled_at: string | null
+          cancelled_reason: string | null
+          created_at: string | null
+          customer_email: string | null
+          display_id: string | null
+          notification_email: string | null
+          order_id: string | null
+        }
+        Relationships: []
+      }
+      pcm_order_created_email_pending: {
+        Row: {
+          created_at: string | null
+          customer_email: string | null
+          display_id: string | null
+          notification_email: string | null
+          order_id: string | null
+          paid_at: string | null
+        }
+        Relationships: []
+      }
       admin_customer_list_v: {
         Row: {
           active_order_count: number | null
@@ -3827,6 +3892,21 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_record_hct_submit: {
+        // 🔴🔴 **手動補一支(⑰)—— 而它不是「校正」, 是【生成器沒產出來】。**
+        //   `20260904170000` 已在 `supabase/APPLIED.tsv`(Sean 2026-09-04 本人貼, 那一列自帶
+        //   簽章複驗 + 正負對照)⇒ **它在正式庫裡, 只是本檔還沒重 gen。**
+        //   ⇒ 📌 **不補這一支, `.rpc('admin_record_hct_submit', …)` 會 typecheck 紅**
+        //     ——而繞過它的方法(`as never` / `@ts-expect-error`)會**把整個參數形狀的檢查一起關掉**。
+        //   ⚠️ 重 gen 之後這一段會被沖掉, 而**那時它應該已經自己產得出來** ⇒ 屆時本段可退場。
+        Args: {
+          p_raw: Json
+          p_request_id: string | null
+          p_shipment_reference: string
+          p_status: string
+        }
+        Returns: undefined
+      }
       admin_record_item_receipt: {
         // 🔴 手動校正一處(重 gen 後需重貼;2026-08-11 #352-b 開工補上 —— 呼叫端到此才存在)。
         //   `p_note` 送 NULL = 沒有備註,是合法且**常態**的呼叫:RPC `20260811010000:127-136`
@@ -4014,6 +4094,20 @@ export type Database = {
           p_request_id: string
         }
         Returns: string
+      }
+      admin_update_shipment_tracking: {
+        // 🔴 **手動加的一處(重 gen 後需重貼)** —— ⟦5b-TRACKNUMGAP1⟧ 片 A,
+        //   migration `20260904190000` 尚未 apply 到正式庫 ⇒ 生成器現在產不出它。
+        //   apply 之後重 gen 應該就有了 ⇒ **那時這一段可以退場**(退場條件寫在這裡,
+        //   而不是「哪天有人想起來」)。
+        Args: {
+          p_idempotency_key: string
+          p_shipment_id: string
+          p_tracking_number: string
+          p_actor: string
+          p_request_id: string
+        }
+        Returns: Json
       }
       admin_upsert_item_procurement: {
         Args: {

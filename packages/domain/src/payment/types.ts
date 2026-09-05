@@ -501,7 +501,20 @@ export type ConfirmPaymentOutcome =
   | { kind: 'settlement_required'; dedup: SettlementRequiredContext };
 
 /** begin_charge_attempt 拒絕理由(②-③a RPC `{acquired:false, reason}` 對應、plan v6 §2)。 */
-export type ChargeLockReason = 'user_in_flight' | 'order_locked' | 'not_unpaid';
+export type ChargeLockReason =
+  | 'user_in_flight'
+  | 'order_locked'
+  | 'not_unpaid'
+  // 🔴 **`not_card_order`:目標單本身是匯款單 ⇒ 不得開刷卡 attempt。**
+  //    來源 `supabase/migrations/20260904050000_m4b_supersede_bank_order_on_card.sql`(已 commit、未 apply)。
+  //    ⛔ ~~原本這裡只有三個值~~ —— 而 DB 那側 2026-09-04 起會回第四個
+  //    ⇒ `PgChargeAttemptAdapter` 的值域檢查會判它「回應格式異常」而 **throw**
+  //    ⇒ 🎯 **客人看到的是通用錯誤, 而真正的原因(你在刷一張匯款單)被吃掉了。**
+  //    🔵 一般刷卡流程不受影響 —— 壞的是**異常分支的訊息品質**。
+  //    (codex 關卡2 R2 判 PARTIAL ①, 板列 ⟦b4-PIECEBGATEGAPS⟧。)
+  //    ⚠️ **而 TS 這一半可以先上** —— 多認一個值在 DB 還沒 apply 時是 no-op:
+  //       那個值根本不會出現, 所以不會有行為改變。
+  | 'not_card_order';
 
 /**
  * InFlightSettleContext:`user_in_flight` 擋下時,那張**在途單**的 server-only 識別(M-4b L4;
@@ -735,7 +748,21 @@ export type SettleChargeOutcome =
 export type SiblingLookupResult =
   | { kind: 'none' }
   | { kind: 'paid'; existingOrderId: string; displayId: string }
-  | { kind: 'active'; existingOrderId: string; attemptId: string; displayId: string };
+  | { kind: 'active'; existingOrderId: string; attemptId: string; displayId: string }
+  /**
+   * `bank_pending`:同一台車有一張**未付款的匯款單**(M-4b 段 1 片 A, 2026-09-04)。
+   *
+   * 🔴 **它沒有 `attemptId`, 而那不是省略** —— 一條正確的匯款流程**不會建立卡片 attempt**。
+   *   ⇒ 🛑 **絕不把它餵進 `settleCharge`**:它的 `rec_trade_id` 與 `bank_transaction_id` 兩個都 NULL,
+   *      拿一張沒有卡片交易的單去問 TapPay「這筆刷成功了嗎」
+   *      ⇒ 📌 **那不是一個比較差的答案, 是一個沒有意義的問題。**
+   *
+   * 🔵 **上層要拿它怎麼辦(Sean 2026-09-04 追加拍板 Q-改付款 = 乙, 原話逐字在
+   *   `~/pcm-mailbox/Sean拍板-20260904-七題.md` 檔尾)**:「乙 讓他刷卡, 而自動把那張匯款單取消」
+   *   ⇒ preflight 對它回 `proceed`(**讓他刷**), 不是 hold(擋住他)。
+   *   ⚠️ **而自動取消那半不在片 A** —— 它是 `begin_charge_attempt` 的第三種出口(片 B)。
+   */
+  | { kind: 'bank_pending'; existingOrderId: string; displayId: string };
 
 /**
  * PreflightReleaseSiblingInput:立即重刷 preflight use-case 輸入(M-3 3DS 乙路 R2b-2、canonical §2.3)。

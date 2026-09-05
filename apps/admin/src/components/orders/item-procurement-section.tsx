@@ -22,6 +22,9 @@ import { ItemProcurementForm } from './item-procurement-form';
 
 import { TruncationWarning, UnreadableWarning } from './item-procurement-warnings';
 import { ProcurementRows } from './item-procurement-rows';
+import { ReceiptHistoryList } from './receipt-history-list';
+import type { OrderItemReceiptRow } from '../../lib/orders/receipt-repository';
+import type { OrderShipmentGroup } from '../../lib/shipping/order-shipments';
 
 const CARD = 'rounded-lg border bg-card p-4 text-card-foreground';
 function UnsourcedNotice({ item }: { item: AdminOrderDetailItem }) {
@@ -101,6 +104,8 @@ export function ItemProcurementBlock({
   item,
   returnTo,
   suppliers,
+  receiptRows,
+  shipmentGroups,
 }: {
   detail: AdminOrderDetail;
   /** 🔴 這一張卡對應的那個品項 —— 由 `ItemsTable` 在 `map` 裡傳進來。 */
@@ -112,6 +117,13 @@ export function ItemProcurementBlock({
   returnTo: string;
   /** S3a 讀模型(啟用中、zh-TW 排序);載入失敗時傳空陣列 + suppliersFailed */
   suppliers: readonly SupplierOption[];
+  /**
+   * `#450` 這張單的逐筆到貨。**`null` = 讀不到 / 被截斷**, 不是「沒有到貨」。
+   * 🔴 **必填無預設** —— 給 `[]` 當預設等於「忘了接就靜靜地說這個品項沒有到貨過」。
+   */
+  receiptRows: readonly OrderItemReceiptRow[] | null;
+  /** `#450` 包裹分組(`null` = 讀不到 ⇒ 判準回「擋」)。**必填無預設。** */
+  shipmentGroups: readonly OrderShipmentGroup[] | null;
 }) {
   // 🔴 兩個旗標要一起讀(A9a-2 domain 註解):品項本身被截掉時,per-item 旗標會
           //    連同品項一起消失 ⇒ 外層為 true 時,每個品項都當作不可信。
@@ -305,6 +317,16 @@ export function ItemProcurementBlock({
                   )}
                 </>
               )}
+      {/* 🔵 `#450` 逐筆到貨列表 —— 掛在登錄表單**之後**:
+        * 員工的動線是「先看有哪些到貨紀錄, 再決定要不要補登或撤掉一筆」,
+        * 而**撤銷從此不再綁在「剛剛那一次」**(那正是 `#450` 的全部重點)。 */}
+      <ReceiptHistoryList
+        orderItemId={item.id}
+        orderId={detail.id}
+        returnTo={returnTo}
+        receipts={receiptRows}
+        shipmentGroups={shipmentGroups}
+      />
     </div>
   );
 }

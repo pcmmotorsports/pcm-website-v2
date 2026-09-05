@@ -12,6 +12,7 @@ import type {
   ShippedEmailContext,
 } from '@pcm/ports';
 import { SUPPRESS_WHEN_ORDER_INELIGIBLE } from '@pcm/ports';
+import { subtotalLabelOf } from '@pcm/domain';
 import {
   assertPdfClaimMatchesAttachments,
   paidEmailOrderUrl,
@@ -313,6 +314,12 @@ export type SweepEmailOutboxResult = {
    * 「`shippedContext` 沒注入」在這個數字上長得一樣。
    */
   skippedShipmentVoided: number;
+  /**
+   * 🔴 寄送當下發現那個單號**已經被更新過了** ⇒ 跳過, 沒有寄(⟦5b-TRACKNUMGAP1⟧ 片 C)。
+   * 🛑 **這個數字非零 = 有人在五分鐘內改了兩次單號** —— 而它是**好消息**:
+   *    客人沒有收到一封被我們背書過的錯號碼。⇒ 📌 **它要被看得見, 不是靜默跳過。**
+   */
+  skippedTrackingSuperseded: number;
 };
 
 /**
@@ -326,6 +333,50 @@ function readShipmentId(payload: unknown): string | null {
   if (typeof payload !== 'object' || payload === null || !('shipment_id' in payload)) return null;
   const v = (payload as { shipment_id: unknown }).shipment_id;
   return typeof v === 'string' && v !== '' ? v : null;
+}
+
+/**
+ * 從 payload 讀更正後的貨運單號(⟦5b-TRACKNUMGAP1⟧ 片 C)。
+ *
+ * ⚠️ **與 `readShipmentId` 【不是】逐格一致 —— 我寫註解時說是, 而它不是。**
+ *    差在這裡多一個 `.trim()`:`readShipmentId` 判的是 `v !== ''`。
+ * 🔵 **而這個差是刻意留著的**:一個「全是空白」的單號印在信上是一格空白,
+ *    而那封信的全部內容就是那個號碼 ⇒ **它該被當成沒有**。
+ *    ⇒ 📌 兩邊都是 fail-closed 方向(拿不到 ⇒ 不寄), 所以嚴的那一邊不會產生假寄。
+ */
+/**
+ * 把 DB 回的 ISO 時間字串轉成 SQL 側那把鑰匙的**同一個 20 位數形狀**(`YYYYMMDDHH24MISSUS`, UTC)。
+ *
+ * 🔴🔴 **為什麼不是「兩邊各自轉成毫秒再比」**(codex R2 must-fix #3/#4/#5 —— 上一版就是那樣):
+ *    · **毫秒截斷**:SQL 那把鑰匙到**微秒**, 截成毫秒之後**同一毫秒內的兩次更正身分相同**
+ *      ⇒ A→B→C→B 若發生在同一毫秒, 舊的 B 與最新的 B 會**兩封都寄**。
+ *    · **方向**:上一版寫 `live > job` 才算過期 ⇒ **live 比 job 舊**(時鐘回撥 / 讀到舊快照)
+ *      而號碼又剛好相同 ⇒ **照樣寄**。⇒ 身分「不相等」就不該放行, 不分方向。
+ *    ⇒ ✅ 改成**逐字比對同一個 20 位數字串**, 精度不掉、方向不用管。
+ *
+ * 🛑 **只收 UTC**(`Z` / `+00:00` / `+00`)。收到帶其他偏移的字串 ⇒ 回 `null` ⇒ 呼叫端 fail-closed。
+ *    📌 **那是刻意的**:我可以寫時區換算, 而**一個算錯的時區會安靜地寄出一封過期的更正信**;
+ *      一個 `null` 會吵。⇒ 今天 DB 是 UTC, 而**「今天是」不等於「永遠是」** —— 所以擋在這裡, 不是假設。
+ * 🔴 形狀不符一律 `null`。**不要猜。**
+ */
+function isoToCorrectedKey(iso: string): string | null {
+  const m =
+    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|\+00:00|\+00)$/.exec(iso);
+  if (m === null) return null;
+  const frac = (m[7] ?? '').padEnd(6, '0');
+  return `${m[1]}${m[2]}${m[3]}${m[4]}${m[5]}${m[6]}${frac}`;
+}
+
+function readTrackingCorrectedKey(payload: unknown): string | null {
+  if (typeof payload !== 'object' || payload === null) return null;
+  const v = (payload as Record<string, unknown>).tracking_corrected_key;
+  return typeof v === 'string' && v.trim() !== '' ? v : null;
+}
+
+function readTrackingNumber(payload: unknown): string | null {
+  if (typeof payload !== 'object' || payload === null) return null;
+  const v = (payload as Record<string, unknown>).tracking_number;
+  return typeof v === 'string' && v.trim() !== '' ? v : null;
 }
 
 /** lease 硬下界(秒)= plan §3.5-4「lease ≥ 1 小時」字面(物理擋、非約定)。 */
@@ -383,6 +434,13 @@ function buildEmailText(
         throw new Error('sweepEmailOutbox:order_shipped 少了寄送時脈絡、fail-closed 不寄');
       }
       return buildOrderShippedText(shipped);
+    case 'shipment_tracking_corrected':
+      // 🔵 **不需要 `shipped` 脈絡** —— 這封信要的東西全在 payload 裡(單號 + 箱號 + 訂單編號),
+      //    與 `order_unpaid_cancelled` 同一個理由:它是一封「那個號碼換了」的信,
+      //    不需要品項、不需要金額。
+      // 🛑 **而它【不能】重用 `order_shipped` 的模板**:那封說的是「有一批商品已出貨」,
+      //    而客人這時候需要知道的是「你手上那個號碼是錯的」。
+      return buildTrackingCorrectedText(job);
     default:
       // 🔴🔴 **這裡原本是 `return job.eventType satisfies never;`**(Fable 2026-08-22 R2 F7)。
       //    `satisfies` 在編譯後**整個消失** ⇒ 執行期它就是 `return job.eventType`
@@ -427,7 +485,9 @@ function buildOrderCreatedText(
   //    ⚠️ **`paid === null` 時整段不印** —— 那是「沒注入 paidContext」的環境, 行為與本片之前逐字相同。
   const detail: string[] = [];
   // 🔴 **加不起來就不印明細**(codex 對抗審查 must-fix):DB 的等式含 `tax_total`,
-  //    而這裡只列 小計/運費/折扣 ⇒ 有稅的那一天客人會收到一張【兜不攏的帳】。
+  //    而這裡 ⛔ ~~只列 小計/運費/折扣~~ ⇒ 有稅的那一天客人會收到一張【兜不攏的帳】。
+  //    ✅ **2026-09-04 第 7 步訂正:稅額那一列已經加上了**(見下方)⇒ 本句講的是**本片之前**的狀態。
+  //    🔵 而這道判斷**留著** —— 它防的是**下一個被加進 `total` 而沒人記得印的欄位**。
   //    ⇒ 判準問「加不加得起來」而不是「有沒有稅」—— 後者只擋得住我今天想得到的那一欄。
   if (paid !== null && orderAmountsBalance(paid)) {
     detail.push('', '訂單明細');
@@ -444,8 +504,17 @@ function buildOrderCreatedText(
     //    ✅ **留著的理由是【第二道】**:上游那道若哪天被放寬(例如改成「截斷也照寄」),
     //    這一行讓客人**至少看得到自己看的是部分**, 而不是靜靜地少幾項。
     //    ⇒ 📌 而它今天**沒有任何一發測試跑得到** —— 那一格是已知的, 不是漏掉的。
-    if (paid.linesTruncated) detail.push('(品項過多,此處僅列出部分;完整明細請至會員中心查看)');
-    detail.push('', `小計  NT$ ${formatOrderAmount(paid.subtotal)}`);
+    // 🔵 **兩邊都保留**(2026-09-05 解衝突):我這半只動【標點】(A7 半形逗號 ⇒ 全形),
+    //    origin/dev 那半動的是【稅額標籤】—— 兩者不是同一件事, 沒有一邊該被丟掉。
+    // 🔴 2026-09-05:⛔ ~~「;完整明細請至會員中心查看」~~ **拿掉那半**。
+    //    理由與 `ORDER_MEMBER_CENTER_SENTENCE` 同一條(手動單的佔位帳號登不進去),
+    //    而**這裡不加條件句是因為【同一封信下面那句已經帶著條件了】** ⇒ 重複兩次反而更吵。
+    //    🔵 「僅列出部分」那半留著 —— 它是這一行存在的理由(讓客人知道自己看的是部分)。
+    if (paid.linesTruncated) detail.push('(品項過多，此處僅列出部分)');
+    // 🔴 有稅時小計是【未稅】的 ⇒ 標籤要說得出來(`⟦b4-TAXSURFACES⟧`, Sean 2026-09-04 拍甲)。
+    //    共用 `subtotalLabelOf` 而不在這裡寫死 —— 五個面要逐字相同, 而抄五份時
+    //    下一個人只會改他打開的那一份。
+    detail.push('', `${subtotalLabelOf('小計', paid.taxTotal)}  NT$ ${formatOrderAmount(paid.subtotal)}`);
     // 🔴 折扣 0 不印(印「折扣 −0」會讓客人以為有一筆他沒看到的折抵);
     //    而**運費 0 照印**(「免運」是他想確認的事)—— 兩條【規則】與排版那份逐條相同。
     // 🛑 **而【順序】也對齊了**(code-reviewer R1 nit):排版那份是 小計 → 運費 → 折扣 → 訂單金額
@@ -453,6 +522,12 @@ function buildOrderCreatedText(
     //    ⇒ 📌 **數字沒錯, 而本片的整個論點就是【兩份不該漂】** —— 順序也是那個「兩份」的一部分。
     detail.push(`運費  NT$ ${formatOrderAmount(paid.shippingFee)}`);
     if (paid.discountTotal > 0) detail.push(`折扣  −NT$ ${formatOrderAmount(paid.discountTotal)}`);
+    // 🔴 稅額:**有稅才印**(2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 7 步)——
+    //    與【折扣】同族、與【運費】不同族。稅 0 不印的理由:今天每一張單的稅都是 0(價格含稅),
+    //    印一列「稅額 0」會讓客人以為**這筆交易沒有被課稅**, 而那是錯的:稅**內含在售價裡**。
+    //    🛑 **位置與排版那份逐字對齊**:小計 → 運費 → 折扣 → **稅額** → 訂單金額。
+    //       ⇒ 📌 兩份不該漂, 而順序也是那個「兩份」的一部分(上面那條 nit 的同一句)。
+    if (paid.taxTotal > 0) detail.push(`稅額  NT$ ${formatOrderAmount(paid.taxTotal)}`);
     detail.push(`訂單金額  NT$ ${formatOrderAmount(paid.total)}`);
   }
 
@@ -465,7 +540,7 @@ function buildOrderCreatedText(
       : `${ORDER_MEMBER_CENTER_SENTENCE}\n${orderUrl}`;
 
   return [
-    '您好,',
+    '您好，',
     '',
     orderLine,
     // 🛑🛑 **2026-09-02:這一句【提出過改法, 而最後【沒有改】】—— 而不改是刻意的, 全文在這裡。**
@@ -664,7 +739,7 @@ function buildOrderUnpaidCancelledText(job: ClaimedEmailJob): string {
   const reason = rawReason === null ? null : sanitizeCustomerFacingReason(rawReason);
 
   const lines: string[] = [
-    '您好,',
+    '您好，',
     '',
     displayId === null
       ? ORDER_CANCELLED_HEADLINE_NO_ID
@@ -715,7 +790,7 @@ function buildOrderCancelledText(job: ClaimedEmailJob, siteUrl: string | undefin
   const refunded = readAmount('refunded_amount');
 
   const lines: string[] = [
-    '您好,',
+    '您好，',
     '',
     displayId === null
       ? ORDER_CANCELLED_HEADLINE_NO_ID
@@ -748,6 +823,16 @@ function buildOrderCancelledText(job: ClaimedEmailJob, siteUrl: string | undefin
 
 function buildOrderShippedText(ctx: ShippedEmailContext): string {
   const lines: string[] = [
+  // 🔴🔴 **本函式的半形逗號【刻意不改】—— 而它現在是全站唯一的一族, 請不要順手統一掉。**
+  //    2026-09-05 A7「標點跟稿走全形」把其餘 6 處對外句改成了全形(付款/取消/未付款取消/
+  //    追蹤更正/三封共用句), **而這裡的三處(`:您好` · `本批為自取／自送` · `分批出貨`)沒動。**
+  //    🛑 理由不是遺漏:**本函式的字面 Sean 2026-08-30 看過全文並逐字答「可以」**
+  //      ⇒ 改它的標點 = 改一個他拍過的東西, 而 A7 那份端給他的清單
+  //      **沒有告訴他 A7 會動到這三句** ⇒ 📌 他同意的是「這類問題你們決定」,
+  //      不是「改我拍過的那三句」。
+  //    ⚠️ **而代價明寫**:出貨信因此成為**唯一還用半形逗號的一封** ——
+  //      A7 原本要解的就是不一致, 而這個切法**把不一致從「多對一」變成「一對多」**。
+  //    ⏰ **什麼時候可以統一**:下一次 Sean 本人看這封信的全文時, 一併問他一句。
     '您好,',
     '',
     `您的訂單 ${ctx.orderDisplayId} 有一批商品已出貨。`,
@@ -819,6 +904,7 @@ export async function sweepEmailOutbox(
     eligibilityUnknown: 0,
     quotaFailed: 0,
     skippedShipmentVoided: 0,
+    skippedTrackingSuperseded: 0,
   };
 
   // 🔴 單一時鐘快照:staleBefore / nextRetryAt 由此導出(兩次 now() 之間的間隔會憑空吃掉
@@ -924,7 +1010,14 @@ export async function sweepEmailOutbox(
        */
       jobs = await outbox.claimDue(
         opts.claimLimit,
-        opts.allowOrderShipped ? undefined : { excludeEventTypes: ['order_shipped'] },
+        // 🔴 **⟦5b-TRACKNUMGAP1⟧ 片 C 一起進來**(codex 對抗審查 must-fix):
+        //    更正信是**出貨線的下游** —— 它的前提就是「客人收過出貨信」。
+        //    ⇒ 🎯 「設了 env、看到不對、把它拿掉」的意思是【整條出貨線停下來】,
+        //      而少了這一格, **已經入隊的更正信照樣被認領、照樣寄出去**, 而信收不回來。
+        //    🛑 我在 route 那一層擋了 enqueue, 而**那只擋得住還沒進佇列的**。
+        opts.allowOrderShipped
+          ? undefined
+          : { excludeEventTypes: ['order_shipped', 'shipment_tracking_corrected'] },
       );
     } catch {
       result.errors++;
@@ -1098,6 +1191,114 @@ export async function sweepEmailOutbox(
       if (outOfBudget()) {
         result.deferred = jobs.length - i;
         break;
+      }
+    }
+
+    // 🔴🔴 **更正信共用同一支剎車**(codex 對抗審查 must-fix;⟦5b-TRACKNUMGAP1⟧ 片 C)。
+    //    與 order_shipped 那道同形、同理由:**不認領是省成本, 不寄是保正確。**
+    //    🔴 **它必須排在【比對即時值】那道之前** —— 那一道會 `loadShippedContext()` 去查主表,
+    //      而線關著的時候**不該去查這一封信要用的那幾張表**(這一格是測試逼出來的:我第一版放在它後面,
+    //      ⚠️ ⛔ ~~「連查主表都不該發生」~~ **那句太寬**(codex R2 nit #10):本閘在 **ineligible scan 之後**
+    //      ⇒ 那一發 DB 查詢照樣發生。📌 精確的宣稱是「不查這一封的那幾張表」, 不是「不碰 DB」。
+    //      斷言「不該查主表」當場紅)。
+    //    上面 `claimDue` 已經把它排除掉了 ⇒ 正常情況下這一格不會被走到;
+    //    ⇒ 📌 **它守的是【實作違約】** —— adapter 忽略 `excludeEventTypes`、
+    //      或換一個沒實作它的 port。⇒ 兩道一起錯的世界只有「旗標本身讀錯」那一種。
+    if (job.eventType === 'shipment_tracking_corrected' && !opts.allowOrderShipped) {
+      result.errors++;
+      continue;
+    }
+
+    // 🔴🔴 **更正單號那封信:寄送當下比對即時值**(⟦5b-TRACKNUMGAP1⟧ 片 C;主視窗 2026-09-04 拍甲)。
+    //
+    //    掃描器是 cron ⇒ enqueue 到寄出之間有一段時間。員工在那段時間裡又改了一次(A→B→C):
+    //    B 那一列的 payload 帶著 B ⇒ 它會寄一封說「正確的貨運單號:B」——**而那時候正確的是 C**,
+    //    🛑 **而那封信裡還寫著「請以這一封為準」** ⇒ 客人拿到一個**被我們背書過的錯號碼**, 收不回來。
+    //
+    // 🔵 **為什麼放在這裡而不是排信那一端**:排信那端**看不到未來**——
+    //    它入隊的那一刻 B 就是對的。⇒ 📌 **唯一知道「它已經不對了」的時刻是【寄出的前一秒】。**
+    if (job.eventType === 'shipment_tracking_corrected') {
+      const shipmentId = readShipmentId(job.payload);
+      const enqueuedTracking = readTrackingNumber(job.payload);
+      const enqueuedKey = readTrackingCorrectedKey(job.payload);
+      if (
+        deps.shippedContext === undefined ||
+        shipmentId === null ||
+        enqueuedTracking === null ||
+        enqueuedKey === null
+      ) {
+        // 🔴 拿不到比對的兩端 ⇒ **不寄**(fail-closed)。少了任何一端, 我們就不知道它是不是還對。
+        result.errors++;
+        continue;
+      }
+      let live: LoadShippedContextResult;
+      try {
+        live = await deps.shippedContext.loadShippedContext({ orderId: job.orderId, shipmentId });
+      } catch {
+        result.errors++;
+        continue;
+      }
+      // 🔵 箱作廢了 ⇒ 走既有那條(它的單號不會再被任何人看到)。
+      if (live.kind === 'voided') {
+        try {
+          const owned = await outbox.markSkippedShipmentVoided(job.id, job.attempts, job.dedupKey);
+          if (owned) result.skippedShipmentVoided++;
+          else result.staleMarks++;
+        } catch {
+          result.errors++;
+        }
+        continue;
+      }
+      if (live.kind !== 'ok') {
+        result.errors++;
+        continue;
+      }
+      // 🔴🔴 **比的是【這一次更正的身分】, 不是號碼**(主視窗 2026-09-04 拍 Q1 甲的另一半)。
+      //    ⛔ ~~原本比 `live.context.trackingNumber !== enqueuedTracking`~~ —— 那個比法
+      //      在 **A→B、B→C、再改回 B** 之下會**寄兩封**:第一封與第三封的號碼相同,
+      //      而它們是**兩次不同的更正**。⇒ 拍板要的是「只寄最後對的那封」。
+      //    ✅ 改成:庫裡的最後一次更正時點 **晚於** 這份工作單的那一次 ⇒ 它被取代了。
+      // 🛑 **兩端拿不到就 fail-closed** —— 少了任何一端我們就不知道它還是不是最新的,
+      //    而寄一封過期的更正信 = 我們親手背書一個錯號碼。
+      const liveKey =
+        live.context.trackingCorrectedAt === null
+          ? null
+          : isoToCorrectedKey(live.context.trackingCorrectedAt);
+      if (liveKey === null) {
+        // 🔴 拿不到庫裡那一次更正的身分 ⇒ 我們不知道這份工作單還算不算數 ⇒ 不寄。
+        result.errors++;
+        continue;
+      }
+      // 🔴 **不相等就不放行, 不分方向**(codex R2 must-fix #5):
+      //    上一版只擋 `live 比較新`, 而 **live 比較舊**(時鐘回撥 / 讀到舊快照)+ 號碼剛好相同
+      //    ⇒ 照樣寄。而「不確定它是不是最新的」與「它確定是舊的」對客人是同一件事。
+      if (liveKey !== enqueuedKey) {
+        // 🔴 **被更新的號碼取代** —— 跳過, 而**留下一筆看得見的紀錄**(主視窗明文要求:不是靜默跳)。
+        try {
+          const owned = await outbox.markSkippedTrackingSuperseded(
+            job.id,
+            job.attempts,
+            job.dedupKey,
+          );
+          if (owned) result.skippedTrackingSuperseded++;
+          else result.staleMarks++;
+        } catch {
+          result.errors++;
+        }
+        continue;
+      }
+
+      // 🔴🔴 **第二道:號碼本身也要對得上**(測試逼出來的回歸)。
+      //    上面那道改成比【時點】之後, 「庫裡根本沒有號碼」這個世界就漏掉了 ——
+      //    ⛔ 舊的比號碼版本靠 `null !== 'B-0002'` 順手擋住它, 而**那是副作用不是設計**。
+      //    ⇒ 📌 這封信的內容就是那個號碼;庫裡是空的而我們寄出「正確的單號是 B」,
+      //      等於我們**替一個已經不存在的值背書**。⇒ fail-closed, 不寄。
+      // 🔵 而它與上面那道的差別要講清楚:
+      //    · 上面 = **預期中的狀態**(有更新的更正)⇒ 落 skipped、留紀錄、不計 error
+      //    · 這裡 = **對不上的狀態**(不該發生)⇒ 計 error、讓它吵
+      if (live.context.trackingNumber !== enqueuedTracking) {
+        result.errors++;
+        continue;
       }
     }
 
@@ -1367,4 +1568,61 @@ export async function sweepEmailOutbox(
   }
 
   return result;
+}
+
+/**
+ * 更正貨運單號的信(⟦5b-TRACKNUMGAP1⟧ 片 C;Sean 2026-09-04 逐字
+ * 「甲 = 做, 改完自動再寄一封對的信給客人」)。
+ *
+ * 🔴🔴 **客人手上會有【兩封】, 而他要分得出哪一封對** ——
+ *    所以這封信的每一句都在回答「**我該用哪一個號碼**」, 而不是「發生了什麼事」。
+ *
+ * 🔵 **「先前那個號碼查不到是正常的」那句是承重的**(主視窗 2026-09-04 過稿):
+ *    少了它, 客人拿舊碼去貨運網站查不到 ⇒ **他會以為貨出問題了 ⇒ 然後打電話。**
+ *
+ * 🔴 **讀 payload 的形狀抄 `buildOrderUnpaidCancelledText`**(防禦容缺:缺一格照樣寄,
+ *    而缺的那一格用一句話說出來)—— **不自己發明**。
+ *    ⚠️ 而**單號那一格缺了就【不該寄】** —— 一封「正確的單號是(空白)」比不寄糟。
+ *    那道閘在呼叫端(`buildEmailText` 的 `order_shipped` 那格是同一個形狀:fail-closed throw)。
+ */
+function buildTrackingCorrectedText(job: ClaimedEmailJob): string {
+  const payload = job.payload;
+  const readStr = (key: string): string | null => {
+    if (typeof payload !== 'object' || payload === null || !(key in payload)) return null;
+    const v = (payload as Record<string, unknown>)[key];
+    return typeof v === 'string' && v.trim() !== '' ? v : null;
+  };
+  const displayId = readStr('display_id');
+  const shipmentReference = readStr('shipment_reference');
+  const trackingNumber = readStr('tracking_number');
+
+  // 🔴 **單號缺了就不寄** —— 這封信的全部內容就是那個號碼。
+  //    fail-closed:計 error、列留 sending、不寄(與 `order_shipped` 那格同一條)。
+  if (trackingNumber === null) {
+    throw new Error(
+      'sweepEmailOutbox:shipment_tracking_corrected 的 payload 缺 tracking_number、fail-closed 不寄' +
+        ' —— 一封「正確的單號是(空白)」比不寄糟',
+    );
+  }
+
+  const lines: string[] = [
+    '您好，',
+    '',
+    displayId === null
+      ? '您先前那封出貨通知上的貨運單號有誤。'
+      : `您的訂單 ${displayId} 先前那封出貨通知上的貨運單號有誤。`,
+    '',
+  ];
+  // 🔵 箱號缺了照樣寄 —— 它幫客人分辨「哪一箱」, 而少了它那封信仍然回答得了主要問題。
+  if (shipmentReference !== null) lines.push(`箱號:${shipmentReference}`);
+  lines.push(
+    `正確的貨運單號:${trackingNumber}`,
+    '',
+    '請以這一封為準;先前那個號碼查不到是正常的。',
+    '',
+    ORDER_MEMBER_CENTER_SENTENCE,
+    '',
+    'PCM重機零件販售',
+  );
+  return lines.join('\n');
 }

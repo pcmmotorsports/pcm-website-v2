@@ -114,12 +114,19 @@ export const PCM_COMPANY_ADDRESS = '新北市新莊區化成路736巷18號1樓';
  * **病灶**:DB 的等式是
  * `total = subtotal + shipping_fee - discount_total + tax_total`
  * (`20260828100000_..._orders_tax_and_invoice_requested.sql:281` 逐字),
- * 而信裡的明細**只列前三項** ⇒ 🔴 **`tax_total > 0` 的那一天,客人會收到一張【加不起來】的帳。**
+ * 而信裡的明細⛔ ~~**只列前三項**~~ ⇒ 🔴 **`tax_total > 0` 的那一天,客人會收到一張【加不起來】的帳。**
  *
- * 🛑 **而我【沒有】改成「把稅額也印出來」,理由是這個判斷更耐久**:
+ * ✅ **2026-09-04 訂正(`⟦b4-INVOICE5PCT⟧` 第 7 步;Sean 拍 Q1=乙)**:
+ *    **稅額已經印出來了** —— 兩份信都在「折扣」之後、「訂單金額」之前多一列「稅額」(有稅才印)。
+ *    而**本判準也已經加上第四項** ⇒ `subtotal + shippingFee - discountTotal + taxTotal === total`。
+ *
+ * 🔵 **而下面那段【當時的理由】留著, 因為它仍然成立**:
+ * 🛑 ~~**而我【沒有】改成「把稅額也印出來」**~~,理由是這個判斷更耐久:
  *    我今天知道的漏項是稅;而**下一個被加進 `total` 的欄位,我今天不知道它叫什麼**。
  *    ⇒ 📌 **列舉漏項的修法, 只擋得住我已經想到的那一個。**
- *    ⇒ ✅ **改成問「加不加得起來」** —— 它對**任何**我沒想到的新欄位都成立。
+ *    ⇒ ✅ **問「加不加得起來」** —— 它對**任何**我沒想到的新欄位都成立。
+ *    🎯 **⇒ 兩件事並存不矛盾:【印出來】是給客人看的, 【問加不加得起來】是給下一個加欄的人準備的。**
+ *      而 2026-09-04 那次正是它預言的情形發生了 —— **只是這一次我們知道漏的是哪一項。**
  *
  * ✅ **加不起來時的動作 = 不印明細**(整段跳過),而不是印一個錯的或猜一個差額:
  *    信照寄、金額那段留白、客人仍看得到訂單編號與會員中心那句。
@@ -133,16 +140,52 @@ export function orderAmountsBalance(ctx: {
   shippingFee: number;
   discountTotal: number;
   total: number;
+  /**
+   * 🔴🔴 **2026-09-04 加(`⟦b4-INVOICE5PCT⟧` 第 7 步;Sean 拍 Q1=乙)。**
+   *
+   * ⛔ ~~判準原本是 `subtotal + shippingFee - discountTotal === total`~~ ——
+   *    那個式子**漏掉 DB 等式的第四項**, 而在稅恆為 0 的世界裡它**永遠是對的**
+   *    ⇒ 📌 **一個漏項的判準, 在漏掉的那一項恆為 0 時, 與正確的判準【印同一個答案】。**
+   *
+   * 🔴 **它【必填】** —— 選填的話, 忘了帶的呼叫端會回到舊行為(把稅當 0)
+   *    ⇒ **而那正是本片要修的那個 bug, 只是換了發生地點。**
+   *    ⇒ ✅ 必填讓每一個呼叫端在 typecheck 那一刻被點名。
+   */
+  taxTotal: number;
 }): boolean {
-  return ctx.subtotal + ctx.shippingFee - ctx.discountTotal === ctx.total;
+  return ctx.subtotal + ctx.shippingFee - ctx.discountTotal + ctx.taxTotal === ctx.total;
 }
 
 export function formatOrderAmount(n: number): string {
   return Math.trunc(n).toLocaleString('en-US');
 }
 
-/** 兩份共用的收尾指路句。 */
-export const ORDER_MEMBER_CENTER_SENTENCE = '訂單明細與最新狀態請至 PCM 會員中心查看。';
+/**
+ * 兩份共用的收尾指路句。
+ *
+ * 🔴🔴 **2026-09-05:⛔ ~~「訂單明細與最新狀態請至 PCM 會員中心查看。」~~ ⇒ 加了條件句。**
+ *
+ * 🛑 **為什麼**:這句話對【後台手動建的單】不一定成立,而那不是理論上的:
+ *    `apps/admin/src/lib/customers/manual-customer.ts` 替打電話來的散客開的 `auth.users`,
+ *    `email` 是**佔位信箱**(`@pcmmotorsports.local` —— **不可路由的網域**)、
+ *    `createUser` **沒有帶 password** ⇒ 🔴 **那個客人不知道那個信箱、也沒有密碼 ⇒ 他登不進去。**
+ *    而 `apps/storefront/src/app/account/orders/[displayId]/page.tsx` 未登入時 `redirect('/login…')`
+ *    ⇒ 📌 **句子與連結對他而言【都是死路】。**
+ *
+ * ⚠️ **而它不是對【所有】手動單為假** —— `manual_line` 的客人可能已經有 LINE 帳號
+ *    (`line_{sub}@line.pcmmotorsports.local`,那條路**登得進去**);拿既有客人建的單也登得進去。
+ *    ⇒ 🎯 **所以修法是【加條件】, 不是【拿掉】** —— 拿掉會讓能登入的那一群失去指路。
+ *
+ * 🔵 **這是文案改動, 零行為改動**(Sean 2026-09-03 拍「信件文案工程師改」;`-f8` 2026-09-05 拍甲)。
+ *    ⛔ ~~乙案「依帳號能不能登入決定印不印」~~ **沒有做** —— 那不是文案,是把
+ *    「這個帳號登得進去嗎」一路傳進寄信端的**接線**。
+ *
+ * 🛑 **本句沒有涵蓋的那一格(已知缺口, 不是漏掉)**:
+ *    `paid-email-html.ts` 那顆「到會員中心查看訂單」按鈕**帶著同一個限制**,而它是
+ *    Sean 2026-09-03 勾 A4 才印的 ⇒ **改它的字面不在「文案工程師改」這句話的射程裡**,已回報。
+ */
+export const ORDER_MEMBER_CENTER_SENTENCE =
+  '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 取消通知信(`order_unpaid_cancelled` —— **未付款的單被【員工】取消**)
@@ -171,7 +214,7 @@ export const ORDER_MEMBER_CENTER_SENTENCE = '訂單明細與最新狀態請至 P
  *    而**那封信不歸本檔管**(它的文案沒有稿也沒有拍板,見規格 §10)。
  */
 export const ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE =
-  '這張訂單尚未付款,不會有任何款項產生。';
+  '這張訂單尚未付款，不會有任何款項產生。';
 
 /**
  * 🔴🔴 **刷卡且【已全額退款】那條線的錢那一句**(Q10;Sean 2026-09-03 拍甲「補一封信」)。

@@ -108,9 +108,15 @@
 #    ② 規則② 先只印報告(**還沒做**)
 #    ③ 結構性的 ①③ 與 rc=2 才先升 blocking(**還沒做**)
 # ⚠️ 而掛上去那一步動 `.husky/` = 平台設定 = 鐵則 12④ ⇒ **不在本檔的權限裡。**
-import io, json, os, re, subprocess, sys, tempfile
+import contextlib, io, json, os, re, subprocess, sys, tempfile
 
-CLOSED = ('open', 'doing', 'parked', 'done')
+# 🔵 `standing` = **常設**(Sean 2026-09-05 逐字拍「常設 甲」, ⟦b9-STATEPOLICY⟧)——
+#    什麼時候用它:**做完了、殘餘只能等下次撞到、而沒有在等任何人**。
+#    🔴 它與 `parked` 的差別是【有沒有等人】:`parked` 要寫「等什麼」, `standing` 不必,
+#       因為它不在等 —— 它是一條長期有效的線, 不是一件停住的工作。
+#    🛑 而它【不是 done 的委婉說法】:done 表示這條線可以不用再看;
+#       standing 表示它會一直在, 而下一次撞到它的人要知道它是被決定成這樣的。
+CLOSED = ('open', 'doing', 'parked', 'done', 'standing')
 # 🔴 板子那條數法的 regex 【只寫一次】 —— grep 用它, 驗輸出形狀也用它。
 #    寫兩份的話, 有人改了 CLOSED 而只改到一邊 ⇒ 驗證器會開始放行它本來該擋的東西。
 #    ⚠️ **而「只寫一次」只治【只改一邊】那一種漂移, 治不了【新值本身含 regex 元字元】那一種**
@@ -223,8 +229,25 @@ def _head_text(path):
 
 def split_cells(line):
     """切欄。🔴 `\\|` 是跳脫的豎線, 不能當欄位分隔。
-       📏 板內現有 **28 處**(2026-08-25 當場數:`grep -o '\\\\|' docs/launch-todo.md | wc -l`;
-          ~~原寫 11~~ ⇒ R2 實測推翻, 而 `193e41f9` 當時**也是 28** ⇒ 那不是檔變了, 是我寫錯)。"""
+
+    📏 **要知道板內現在幾處, 當場數 —— 本檔【不寫死那個數字】**:
+        python3 -c "import io;print(io.open('docs/launch-todo.md',encoding='utf-8').read().count(chr(92)+'|'))"
+    🔴 **為什麼改成數法**(2026-09-05;`-ship` 量、`-db` 改):
+       ⛔ ~~原寫「板內現有 **28 處**(2026-08-25 當場數)」~~ ⇒ 2026-09-05 實測 **446**。
+       📌 **那個 28 沒有寫錯 —— 它 2026-08-25 是對的, 而板子長大了 15 倍。**
+       ⇒ 🛑 **一個【當時正確】的數字, 十天後變成一個【看起來有來源】的錯誤** ——
+          而它比沒有來源的數字更難被懷疑, 因為它旁邊寫著日期與量法。
+       ⇒ ✅ 判別句:**這個數字會不會自己長大?會 ⇒ 寫數法, 不寫數字。**
+    ⚠️ **而『數法』本身也有兩個陷阱, 一起寫**(2026-09-05 當場撞到):
+       ① **同一時刻三種數法給三個數**:`str.count` 443 · `grep -o` 443 ·
+          regex `(?<!\\\\)\\\\\\|`(只算【真的】跳脫、排除 `\\\\|`)**438**。
+          ⇒ 📌 **差 5 不是誰錯, 是三把尺在回答三個不同的問題。**
+       ② **同一把尺對兩棵樹給兩個數**:我的工作樹 **443** · `origin/dev` **446**。
+          ⇒ 🛑 **引用這個數字時要說【哪一棵樹、哪一刻】** ——
+            少了那兩格, 下一個人拿它去比對會得到一個假的『有人動過』。
+       (而它自己的病史留著:~~原寫 11~~ ⇒ R2 實測推翻改 28 ⇒ 現在連 28 也過期了。
+        📌 同一格被訂正兩次, 兩次都是把一個數字換成另一個數字。)
+    """
     parts = re.split(r'(?<!\\)\|', line)
     return [p.strip() for p in parts]
 
@@ -416,6 +439,41 @@ def rule1_closed_set(rows):
 PARKED_PREFIXES = ('等#', '等人:', '等時機:')
 
 
+def rule6_done_not_waiting(rows):
+    """⑥ 態=done 的列, 誰欄不該還寫著「待派」。
+
+    🔴 **它抓的是【一列上兩格互相打架】** —— `done` 說做完了, 誰欄說還沒有人接。
+       兩句都讀得通, 而合起來是假的;而讀的人會依照他先看到的那一格行動。
+       (2026-09-05 `-ship` 在 `⟦ship-PRINTCARON1⟧` 撞到, 主視窗 `-f8` 派)
+
+    🛑 **本檢查【只擋這一發改到的列】, 不擋歷史。** 理由是量到的:
+       2026-09-05 當場量全檔 **668 資料列** ——
+         誰欄【含】「待派」二字      ⇒ done 命中 **65** 列(而 open 命中 177 ⇒ 尺會動)
+         誰欄【開頭就是】「待派」    ⇒ done 命中 **56** 列
+         誰欄【整格只有】「待派」    ⇒ done 命中 **38** 列
+       ⇒ 📌 **無條件擋的話, 這道閘上線第一天會叫 56 次** —— 而
+          「閘死於誤報遠比死於漏報常見」⇒ 它會在第二天被關掉。
+       ✅ 所以:全檔那些**列出來給人看**(不擋), 而**這一發改到的列**要乾淨。
+
+    🔴 而用的是【開頭就是】不是【含有】:那 9 列的差是
+       「待派」住在被保留的舊字面裡(`⟪原誰欄⟫` / 刪除線 / `<br>` 之後的訂正)——
+       那不是「還沒派」, 那是病史。**含有** 這把尺分不出這兩件事。
+
+    回傳 (全檔命中, 只在 changed_lines 裡的命中)。changed_lines=None ⇒ 第二項是空的。
+    """
+    hits = [r for r in rows
+            if r['state'] == 'done'
+            and len(r['f']) > 4
+            and _strip_md(r['f'][4]).startswith('待派')]
+    return hits
+
+
+def _strip_md(w):
+    """剝掉開頭的 markdown 修飾, 讓「**待派**」與「待派」是同一件事。"""
+    import re as _re
+    return _re.sub(r'^[*~`\s]+', '', w)
+
+
 def rule4_parked_has_prefix(rows):
     """④ 態=parked 的列, 必須有一個機讀的「等什麼」前綴。
 
@@ -447,6 +505,63 @@ def rule4_parked_has_prefix(rows):
     return [r for r in rows
             if r['state'] == 'parked'
             and not any(x in c for c in r['f'] for x in PARKED_PREFIXES)]
+
+
+ANCHOR_RE = re.compile(r'⟦([^⟧]+)⟧')
+
+
+def rule5_anchor_unique(rows):
+    """⑤ 一個錨 ⟦X⟧ 不得同時是【兩列以上】的身分。
+
+    🔴 **為什麼要有這一格(2026-09-04 主視窗 `-94` 實際踩到)**:
+       六輪收割裡有一列被收成【兩份】—— 逐列挑的腳本用「錨」當 key,
+       而它從錯的欄抓 key ⇒ 兩邊都留 ⇒ 板上同一個錨有兩列。
+       🛑 **而那是唯一一種【兩個守門都印綠】的損壞**:
+       本工具的「①b 板子的數法 = 資料列數」對重複列**零判別力**
+       —— **兩個數法都把它算進去**, 那兩個數照樣相等。
+       ⚠️ **這裡刻意不寫當時的列數** —— 板子每天在長, 而一個寫死的數字
+          會在下一個人讀到時已經過期(2026-09-04 實測:同一天三處寫了三個值)。
+
+    🔴 **判準:只數【錨欄】(`f[2]`), 不掃整列。** 這是刻意的:
+       ```
+       錨在【錨欄】     = 這一列的【身分】   ⇒ 重複 = 損壞
+       錨在【內容欄】   = 引用另一列        ⇒ 合法, 板上到處都是
+       ```
+       ⇒ 掃整列會把每一次合法的交叉引用都報成重複
+         (2026-09-04 早上線 `-front` 就是被這種尺咬到的)。
+
+    ⚠️ **天花板(它證不到什麼)**:
+       ① **錨不在錨欄的列, 本閘看不到它** —— 板上有大量錨欄寫 `—` 的列
+          (2026-09-04 code-reviewer 實測:**193 列 / 31% 結構上不在分母**,
+           其中 131 列的身分住在別欄)⇒ 那種列重複時**本閘不會叫**。
+          🔴 **而這一格【沒有證人】** —— selftest 沒有一格在守它。
+       ② 它只答「同一個錨有沒有兩列」, **不答「兩列講的是不是同一件事」** ——
+          兩列不同錨而內容重複, 對本閘零判別力。
+       ③ **身分 = 錨欄裡的【第一個】錨, 後面的不算。**
+          ⛔ ~~我第一版把錨欄裡的每一個錨都算~~ ⇒ **誤報**:板上有列的錨欄是
+          「錨 + 一段講別的錨的散文」(實測 `docs/launch-todo.md:745`
+          逐字 `⟦f3-COUPONNOTBUILT1⟧ 🔵 **而那 20 顆 commit 實際用的錨…`)
+          ⇒ 第一版把它算成兩個錨各重複一次 ⇒ **6 個「重複」裡有 2 個是假的。**
+          🔴 **而那正是「閘死於誤報」的形狀** —— 我在裝上去之前先跑了一發, 才看見它。
+
+    回傳 [(anchor, [row, ...]), ...], 只含出現 ≥2 列的。
+    """
+    seen = {}
+    for r in rows:
+        # 🔴 先剝【劃掉的】—— 同檔慣例(`rule2` 與 `normalize_marker` 都剝),
+        #    理由逐字「劃掉的舊值不算宣稱」。本 repo 修錯字面的標準寫法是
+        #    `~~⟦OLD⟧~~ ⟦NEW⟧`(留舊字面加刪除線)⇒ 不剝的話,
+        #    **照那個慣例去修重複錨的人, 會被這道閘擋下來。**
+        cell = re.sub(r'~~.*?~~', '', r['f'][2])
+        m = ANCHOR_RE.search(cell)
+        if m:
+            # 空白與大小寫正規化 —— `⟦ X ⟧` 與 `⟦x⟧` 不該被當成兩個錨。
+            # 🔴 key 正規化, 而**顯示留原字面** —— 印出來的錨是給人拿去 grep 的,
+            #    印成小寫會讓他 grep 不到。
+            seen.setdefault(m.group(1).strip().lower(), []).append((m.group(1), r))
+    return sorted(((pairs[0][0], [r for _, r in pairs])
+                   for pairs in seen.values() if len(pairs) > 1),
+                  key=lambda x: x[0])
 
 
 def _negated_or_questioned(cell, at):
@@ -570,6 +685,19 @@ def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None, sta
     else:
         say(f'  ✅ ①b 板子的數法印 {grep_n} = 資料列 {len(rows)}(兩個各自量到的數)')
 
+    done_waiting = rule6_done_not_waiting(rows)
+    if done_waiting:
+        say(f'  🔵 ⑥ 態=done 而誰欄開頭仍是「待派」的有 {len(done_waiting)} 列'
+            f'(2026-09-05 立本檢查時當場量到 56 列 ⇒ 這個數字【下降】才是進展)')
+        for r in done_waiting[:8]:
+            say(f'     {r["sec"]} 節 :{r["line"]}  {r["f"][2][:40] if len(r["f"]) > 2 else ""}')
+        if len(done_waiting) > 8:
+            say(f'     …另外 {len(done_waiting) - 8} 列沒印(印全部會蓋掉別的檢查)')
+        say('     🛑 **本檢查【不判紅】** —— 56 列是既有的, 無條件擋會讓這道閘第一天就被關掉。')
+        say('     ✅ 修一列的做法:誰欄改成【誰做掉的】或【已收, 無人續接】, 不是把 done 改回 open。')
+    else:
+        say('  ✅ ⑥ 沒有 done 列的誰欄開頭是「待派」')
+
     noprefix = rule4_parked_has_prefix(rows)
     if noprefix:
         bad = 1
@@ -582,6 +710,27 @@ def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None, sta
         n_parked = len([r for r in rows if r['state'] == 'parked'])
         say(f'  ✅ ④ {n_parked} 個 parked 列都有「等什麼」前綴'
             f'(⚠️ 只驗有沒有, 不驗對不對)')
+
+    dupes = rule5_anchor_unique(rows)
+    if dupes:
+        bad = 1
+        say(f'  🔴 ⑤ 同一個錨佔了兩列以上的有 {len(dupes)} 個')
+        for a, rs in dupes:
+            say(f'     ⟦{a}⟧ 出現在 {len(rs)} 列:'
+                + ' · '.join(f'{r["sec"]} 節 :{r["line"]}' for r in rs))
+        say('     ── 修法:**把其中一列的錨改成新的名字**(例 `⟦X⟧` ⇒ `⟦X-2⟧`), '
+            '或把兩列併成一列。')
+        say('        🔵 舊字面照本 repo 慣例可以留 —— `~~⟦X⟧~~ ⟦X-2⟧` '
+            '**本閘會剝掉劃掉的那半**, 不會因此再叫一次。')
+        say('     ⚠️ 本檢查只數【錨欄】—— 錨寫在內容欄是【引用】, 合法, 不算')
+        say('     🛑 而它【證不到】:錨欄寫「—」的列重複時本閘不會叫;'
+            '兩列不同錨而內容重複也不會叫')
+    else:
+        n_anchored = sum(1 for r in rows
+                         if ANCHOR_RE.search(re.sub(r'~~.*?~~', '', r['f'][2])))
+        say(f'  ✅ ⑤ {n_anchored} 個帶錨的列, 錨各自唯一 '
+            f'—— 🔴 **而另外 {len(rows) - n_anchored} 列錨欄無錨, '
+            f'結構上不在這個分母裡**(它們重複時本閘不會叫)')
 
     contra = rule2_self_contradiction(rows)
     if contra:
@@ -840,6 +989,30 @@ def selftest():
          _pad('| open | — | 還在做 | — | ✅ ~~已完成~~,更正為尚未完成 |\n'), GREEN_SPEC, 0),
         ('㉟該綠必綠 · 對齊分隔列 `| :--- | ---: |` 不是資料列',
          _pad('| :--- | ---: | :---: | --- | --- |\n'), GREEN_SPEC, 0),
+        ('㊲該紅必紅 · 同一個錨佔了【兩列】的身分(六輪收割裡真的發生過)',
+         _pad('| open | ⟦zzq-DUPANCHOR⟧ | 甲版 | 待派 | x |\n'
+              '| open | ⟦zzq-DUPANCHOR⟧ | 乙版 | 待派 | x |\n'), GREEN_SPEC, 1),
+        ('㊳該綠必綠 · 兩列【不同】錨 ⇒ 不得誤擋(尺不是看到錨就叫)',
+         _pad('| open | ⟦zzq-ANCHORA⟧ | 甲 | 待派 | x |\n'
+              '| open | ⟦zzq-ANCHORB⟧ | 乙 | 待派 | x |\n'), GREEN_SPEC, 0),
+        ('㊴該綠必綠 · 錨寫在【內容欄】引用別列 ⇒ 合法, 不得算成重複',
+         _pad('| open | ⟦zzq-ANCHORC⟧ | 甲 | 待派 | 見 ⟦zzq-ANCHORC⟧ 與 ⟦zzq-ANCHORD⟧ |\n'
+              '| open | ⟦zzq-ANCHORD⟧ | 乙 | 待派 | 也見 ⟦zzq-ANCHORC⟧ |\n'), GREEN_SPEC, 0),
+        ('㊵該綠必綠 · 錨欄是「錨 + 一段講別的錨的散文」⇒ 身分只認第一個',
+         _pad('| open | ⟦zzq-ANCHORE⟧ 而那 20 顆用的是 ⟦zzq-ANCHORF⟧ | 甲 | 待派 | x |\n'
+              '| open | ⟦zzq-ANCHORF⟧ | 乙 | 待派 | x |\n'), GREEN_SPEC, 0),
+        ('㊶該綠必綠 · 舊錨【劃掉】+ 新錨 ⇒ 那是本 repo 修字面的標準寫法, 不得擋'
+         '(code-reviewer 2026-09-04 must-fix:不剝刪除線 ⇒ 清板的人被自己的修法擋下)',
+         _pad('| open | ~~⟦zzq-OLDA⟧~~ ⟦zzq-NEWA⟧ | 甲 | 待派 | x |\n'
+              '| open | ⟦zzq-OLDA⟧ | 乙 | 待派 | x |\n'), GREEN_SPEC, 0),
+        ('㊷該紅必紅 · 劃掉的【後面】那個錨仍然重複 ⇒ 剝完還是要叫(剝不是放行)',
+         _pad('| open | ~~⟦zzq-OLDB⟧~~ ⟦zzq-SAMEB⟧ | 甲 | 待派 | x |\n'
+              '| open | ⟦zzq-SAMEB⟧ | 乙 | 待派 | x |\n'), GREEN_SPEC, 1),
+        ('㊸該綠必綠 · 錨只差【空白與大小寫】⇒ 視為同一個, 而這格證它不會反過來誤擋單列',
+         _pad('| open | ⟦zzq-CASEONLY⟧ | 只有一列 | 待派 | x |\n'), GREEN_SPEC, 0),
+        ('㊹該紅必紅 · 錨只差【空白與大小寫】的兩列 ⇒ 仍算同一個錨',
+         _pad('| open | ⟦zzq-CaseOnly2⟧ | 甲 | 待派 | x |\n'
+              '| open | ⟦ zzq-caseonly2 ⟧ | 乙 | 待派 | x |\n'), GREEN_SPEC, 1),
         ('㊱該紅必紅 · fence 只開不關 ⇒ 後面整段消失 ⇒ 要撞到分母地板',
          _pad()[:_pad().index('| open | — | 乾淨列 50')] + '```\n'
          + ''.join(f'| open | — | 乾淨列 {i} | 待派 | x |\n' for i in range(50, 60)),
@@ -1373,6 +1546,37 @@ def selftest():
         #    📌 兩個世界印同一句話:真的沒帶 code / 帶了而我的尺讀不到。
         m = re.search(r'\[([A-Z0-9_]+)\]', r.stderr + r.stdout)
         return r.returncode, (m.group(1) if m else '(沒有 code)')
+
+    # ⑤訊息 · 紅的時候要印得出【哪個錨、哪幾行】——
+    # 🔴 code-reviewer 2026-09-04 nit:上面那幾格只驗 rc ⇒
+    #    把印列號那三行換成 `pass`, 那些格照樣全綠 ⇒ ⑤ 最有價值的那半沒有守門。
+    _dup = _pad('| open | ⟦zzq-MSGWITNESS⟧ | 甲 | 待派 | x |\n'
+                '| open | ⟦zzq-MSGWITNESS⟧ | 乙 | 待派 | x |\n')
+    # 🔴 **不要用這個函式裡的 `w`** —— 它在 `w = _git_world(…)` / `w = tempfile.mkdtemp()`
+    #    之後已經是一個【路徑字串】(同檔 1446 行有前任 code-reviewer 對這個撞名的註解,
+    #    而我 2026-09-04 照樣寫了 `w(...)` ⇒ TypeError: 'str' object is not callable)。
+    _d5 = tempfile.mkdtemp()
+    def _w5(name, text):
+        p = os.path.join(_d5, name)
+        open(p, 'w', encoding='utf-8').write(text)
+        return p
+    _buf = io.StringIO()
+    with contextlib.redirect_stdout(_buf):
+        scan(_w5('b.md', _dup), _w5('s.md', GREEN_SPEC), quiet=False)
+    _out = _buf.getvalue()
+    _want_lines = [str(i + 1) for i, l in enumerate(_dup.split('\n'))
+                   if 'zzq-MSGWITNESS' in l]
+    _miss = []
+    if 'zzq-MSGWITNESS' not in _out:
+        _miss.append('錨字面')
+    if not all(f':{n}' in _out for n in _want_lines):
+        _miss.append('行號')
+    if not _miss:
+        print(f'  ✅ ⑤訊息 · 紅訊息印得出錨字面與那 {len(_want_lines)} 個行號'
+              f'(把列印那幾行換成 pass ⇒ 本格會紅)')
+    else:
+        print(f'  🔴 ⑤訊息 · 紅訊息缺:{"/".join(_miss)}')
+        ok = False
 
     # 甲乙 NOT_IN_INDEX:檔在工作樹而【沒 add】
     _w = _mk_git_repo(GREEN_BOARD, GREEN_SPEC, add=False)

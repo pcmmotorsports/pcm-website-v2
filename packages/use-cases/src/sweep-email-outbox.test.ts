@@ -68,6 +68,7 @@ type OutboxFake = IEmailOutbox & {
   //    它與上一行【只差 `last_error_code`】,而那個差是承重的(全文在 `IEmailOutbox` 的 docstring)。
   markSkippedOrderCancelled: ReturnType<typeof vi.fn>;
   markSkippedShipmentVoided: ReturnType<typeof vi.fn>;
+  markSkippedTrackingSuperseded: ReturnType<typeof vi.fn>;
 };
 
 function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEmailOutbox, unknown>> = {}): OutboxFake {
@@ -87,6 +88,9 @@ function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEm
     // 🔴 M-4b E4 片3a 新增。預設 reject 同上:在沒有明講「箱被作廢」的測項裡呼到它就是錯的
     //    ⇒ 大聲炸, 不會安靜地過。要測那條路的測項自己 mockResolvedValue(true)。
     markSkippedShipmentVoided: vi.fn().mockRejectedValue(new Error('未預期地呼叫了 markSkippedShipmentVoided(本測項的世界沒有作廢的箱)')),
+    markSkippedTrackingSuperseded: vi
+      .fn()
+      .mockRejectedValue(new Error('未預期地呼叫了 markSkippedTrackingSuperseded')),
     // 🔴 ⟦b4-MAILCANCEL1⟧ 新增。預設 reject 同上兩支:在沒有明講「單已取消」的測項裡呼到它就是錯的。
     //    ⇒ 📌 而這個預設**同時是一道守門**:一個「把 cancelled 併進 ineligible」的重構
     //      會讓那些測項呼到【另一支】⇒ 而那一支的預設也是 reject ⇒ 兩邊都炸得出來。
@@ -220,11 +224,11 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     //      **要問的是「它現在【鎖住】什麼」—— 對一道守門而言, 後者才算數。**
     //    ⇒ 全文與來源在 `sweep-email-outbox.ts` 的 `buildOrderCreatedText` 那段註解。
     const EXPECTED_ORDER_CREATED_BODY = [
-      '您好,',
+      '您好，',
       '',
       '您的訂單 PCM-2026-0001 已付款成功。',
       // 🟢 **2026-09-02 20:5x:期望值跟著改 —— 而這一次【有依據】, 與今天下午那次不同。**
-      //    ⛔ ~~'我們將盡快為您安排出貨;訂單明細與最新狀態請至 PCM 會員中心查看。'~~
+      //    ⛔ ~~'我們將盡快為您安排出貨;若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。'~~
       //    🔴 **今天下午我也改過這一格, 而兩個審查者都判 must-fix ⇒ 我撤回了** ——
       //      當時那句話只出現在【我自己的提案】裡, 零依據。
       //    ✅ **而這一次依據是稿**:OD `pcm-524f/email-order-paid-A.html`(sha256 `43d40270781b0eb3…`,
@@ -252,7 +256,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
       //       那是絆線(`order-hidden-rule.ts` 逐字:副本在測試裡 = 絆線;在 production 裡 = 會漂的第二份真相)。
       '我們會盡快為您安排出貨，出貨後會再寄一封通知給您。',
       '',
-      '訂單明細與最新狀態請至 PCM 會員中心查看。',
+      '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。',
       // 🔴🔴 **2026-09-03:這一格【又重設了一次】,而這一次的授權是 Sean 本人勾的 A1/A2/A4。**
       //    ⛔ ~~原本這裡直接接 `'', 'PCM重機零件販售'` 就結束~~
       //    **他勾的是**(`~/pcm-mailbox/清單-信件文案要改什麼-20260903.md` A 區):
@@ -284,6 +288,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
       reclaimed: 0, claimed: 1, sent: 1, failed: 0, budgetExhaustedBeforeClaim: 0,
       deferred: 0, staleMarks: 0, errors: 0, skippedIneligible: 0, eligibilityUnknown: 0, quotaFailed: 0,
       skippedShipmentVoided: 0,
+      skippedTrackingSuperseded: 0,
     });
   });
 
@@ -662,6 +667,7 @@ describe('sweepEmailOutbox — 結果形狀(零 PII 合約)', () => {
       'sent',
       'skippedIneligible',
       'skippedShipmentVoided',
+      'skippedTrackingSuperseded',
       'staleMarks',
     ]);
   });
@@ -871,7 +877,7 @@ describe('sweepEmailOutbox — 🔴 order_shipped 模板(Sean 2026-08-30 `q3: C`
         '',
         '這張訂單可能分批出貨,其餘商品出貨時會另外通知您。',
         '',
-        '訂單明細與最新狀態請至 PCM 會員中心查看。',
+        '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。',
         '',
         'PCM重機零件販售',
       ].join('\n'),
@@ -898,7 +904,7 @@ describe('sweepEmailOutbox — 🔴 order_shipped 模板(Sean 2026-08-30 `q3: C`
         '',
         '這張訂單可能分批出貨,其餘商品出貨時會另外通知您。',
         '',
-        '訂單明細與最新狀態請至 PCM 會員中心查看。',
+        '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。',
         '',
         'PCM重機零件販售',
       ].join('\n'),
@@ -945,6 +951,7 @@ describe('sweepEmailOutbox — 🔴 order_shipped 模板(Sean 2026-08-30 `q3: C`
   it('🔴 箱被作廢(voided)⇒ 不寄、落 skipped_shipment_voided 痕跡、**不計 error**', async () => {
     const { r, sender, outbox } = await run({ kind: 'voided' }, {}, {
       markSkippedShipmentVoided: vi.fn().mockResolvedValue(true),
+      markSkippedTrackingSuperseded: vi.fn().mockResolvedValue(true),
     });
     expect(sender.send).not.toHaveBeenCalled();
     expect(outbox.markSkippedShipmentVoided).toHaveBeenCalledWith(
@@ -1168,6 +1175,10 @@ function paidCtx(over: Partial<PaidEmailContext> = {}): PaidEmailContext {
     shippingFee: m(160),
     discountTotal: m(0),
     total: m(1100),
+    // 🔵 今天恆為 0(⟦b4-INVOICE5PCT⟧ 第 6 步加的必填欄)。
+    //    🔴 而它**不參與上面那個「四個數字互不相同」的設計** —— 0 是它今天唯一合法的值,
+    //       要驗「稅那一行印不印」的測試自己用 `over` 蓋掉它。
+    taxTotal: m(0),
     ...over,
   };
 }
@@ -1245,7 +1256,7 @@ describe('order_cancelled —— 刷卡且已全額退款的取消信(Q10)', () 
     });
     expect(text).toBe(
       [
-        '您好,',
+        '您好，',
         '',
         '您的訂單 PCM-2026-0142 已取消。',
         '',
@@ -1254,7 +1265,7 @@ describe('order_cancelled —— 刷卡且已全額退款的取消信(Q10)', () 
         '您支付的款項已全額退回原付款方式。',
         '退款金額  NT$ 12,800',
         '',
-        '訂單明細與最新狀態請至 PCM 會員中心查看。',
+        '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。',
         'https://shop.pcmmotorsports.com/account/orders/PCM-2026-0142',
         '',
         '有任何問題，加入官方 LINE @pcmmoto',
@@ -1439,7 +1450,7 @@ describe('付款信【兩份】都要拿得到金額與品項(A1;而這一族的
     // ✅ 而【信照寄】—— 不是 fail-closed 到不寄, 客人仍拿得到訂單編號與會員中心那句
     expect(sender.send).toHaveBeenCalledTimes(1);
     expect(text).toContain('您的訂單 PCM-2026-0001 已付款成功。');
-    expect(text).toContain('訂單明細與最新狀態請至 PCM 會員中心查看。');
+    expect(text).toContain('若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。');
   });
 
   it('🟢 反向世界:沒注入 paidContext ⇒ 明細那段【不印】(而聯絡資訊照印)', async () => {
@@ -1453,7 +1464,7 @@ describe('付款信【兩份】都要拿得到金額與品項(A1;而這一族的
     expect(text.split('\n')).not.toContain('訂單明細');
     expect(text).not.toContain('訂單金額');
     // 🟢 而收尾那句仍在 ⇒ 證明上面那條紅的是【明細那段】, 不是整封信空了
-    expect(text).toContain('訂單明細與最新狀態請至 PCM 會員中心查看。');
+    expect(text).toContain('若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。');
     // 而 A2 與有沒有明細無關 ⇒ 照印
     expect(text).toContain('@pcmmoto');
     expect(text).toContain('派達有限公司');
@@ -1468,7 +1479,7 @@ describe('付款信【兩份】都要拿得到金額與品項(A1;而這一族的
       noSite,
     );
     const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
-    expect(String(input.text)).toContain('請至 PCM 會員中心查看');
+    expect(String(input.text)).toContain('可至會員中心查看');
     expect(String(input.text)).not.toContain('/account/orders/');
     // html 那半的按鈕也整塊不印
     expect(String(input.html)).not.toContain('到會員中心查看訂單');
@@ -1725,7 +1736,10 @@ describe('⟦b4-SHIPGATE1⟧ 線關著時不認領 order_shipped', () => {
       { ...OPTS, allowOrderShipped: false },
     );
     expect(outbox.claimDue).toHaveBeenCalledExactlyOnceWith(OPTS.claimLimit, {
-      excludeEventTypes: ['order_shipped'],
+      // 🔴 ⟦5b-TRACKNUMGAP1⟧ 片 C 2026-09-04 加入第二個:更正信是出貨線的**下游**,
+      //    同一顆 env 拔掉的意思是【整條出貨線停下來】, 不是「出貨信停、更正信照寄」。
+      //    📌 **這一格擋到我了** —— 它釘的是完整字面 ⇒ 我一加事件它當場紅, 而那是對的。
+      excludeEventTypes: ['order_shipped', 'shipment_tracking_corrected'],
     });
   });
 
@@ -1777,15 +1791,15 @@ describe('sweepEmailOutbox — ⟦取消信-模板⟧ order_unpaid_cancelled', (
     // 🔵 期望值的來源:規格 §11(取消原因帶既有七值映射、零新造)+ Sean 2乙(只涵蓋員工按下取消)
     expect(text).toBe(
       [
-        '您好,',
+        '您好，',
         '',
         '您的訂單 PCM-2026-0001 已取消。',
         '',
         '依您要求取消',
         '',
-        '這張訂單尚未付款,不會有任何款項產生。',
+        '這張訂單尚未付款，不會有任何款項產生。',
         '',
-        '訂單明細與最新狀態請至 PCM 會員中心查看。',
+        '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。',
         '',
         'PCM重機零件販售',
       ].join('\n'),
@@ -1865,13 +1879,13 @@ describe('sweepEmailOutbox — ⟦取消信-模板⟧ order_unpaid_cancelled', (
     const text = await sentTextOf({ display_id: 'PCM-2026-0001' });
     expect(text).toBe(
       [
-        '您好,',
+        '您好，',
         '',
         '您的訂單 PCM-2026-0001 已取消。',
         '',
-        '這張訂單尚未付款,不會有任何款項產生。',
+        '這張訂單尚未付款，不會有任何款項產生。',
         '',
-        '訂單明細與最新狀態請至 PCM 會員中心查看。',
+        '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。',
         '',
         'PCM重機零件販售',
       ].join('\n'),
@@ -1882,4 +1896,319 @@ describe('sweepEmailOutbox — ⟦取消信-模板⟧ order_unpaid_cancelled', (
     const text = await sentTextOf({ display_id: 'PCM-2026-0001', cancelled_reason: '依您要求取消' });
     expect(text).not.toContain('customer@example.com');
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴🔴 稅額那一列 —— **兩份一起問**(2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 7 步;Sean 拍 Q1=乙)
+//
+// 🛑 **這一組刻意沿用上面那格的形狀**:只驗 `text` 的一格, 在「有人把 `html` 那半拿掉」時照樣全綠。
+//    ⇒ 📌 本片的整個論點就是【兩份不該漂】—— 而**只問一份的測試, 結構上碰不到那件事**。
+describe('稅額那一列 —— 兩份一起問', () => {
+  /**
+   * 稅有值【而且平衡】:940 + 160 − **150** + **1524** = **2474**。五個數字互不相同 ⇒ 換錯欄會紅。
+   *
+   * 🔴🔴 **第一版是 `taxTotal: 55` 而 `discountTotal` 沿用預設的 0** —— codex 對抗審查兩條 must-fix:
+   *   ① **折扣是 0 ⇒ 把「稅額」搬到「折扣」前面, 順序那格照樣全綠**
+   *      (折扣那一列根本沒印, 而 `indexOf` 對不存在的字回 `-1`)。
+   *   ② **稅只有兩位數 ⇒ 把 `formatOrderAmount` 換成直接印數字, 千分位那格照樣全綠**
+   *      (`55` 有沒有逗號長得一樣)。
+   *   ⇒ 📌 **兩條是同一個病:fixture 的值域【比它要守的行為窄】** ——
+   *      而窄掉的那一維上, 突變與正確碼印同一個東西。
+   */
+  const taxed = () =>
+    paidCtx({ discountTotal: 150 as never, taxTotal: 1524 as never, total: 2474 as never });
+
+  async function bothHalves(ctx: ReturnType<typeof paidCtx>) {
+    const outbox = outboxFake([job()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    await sweepEmailOutbox(paidDeps({ kind: 'ok', context: ctx }, outbox, sender), OPTS);
+    const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    return { text: String(input.text), html: String(input.html) };
+  }
+
+  /**
+   * 從排版那份挑出【某個標籤那一列的值】。
+   *
+   * 🔴🔴 **為什麼需要它**(codex 對抗審查 R2 兩條 must-fix):
+   *   ⛔ ~~原本是 `toContain('稅額')` 與 `toContain('1,524')` 兩條【各自獨立】的斷言~~
+   *   ⇒ 🎯 **標籤在、數字也在, 而它們【不必在同一列】** ⇒ 下面兩種突變全綠:
+   *     ① 稅額那一列印成負號 / 拿掉千分位 ⇒ 兩份不一致, 而 `1,524` 仍出現在別處
+   *     ② **只在 HTML 互換「小計」與「運費」的值** ⇒ 兩個數字都還在、平衡式也不變
+   *        ⇒ 📌 **兩份信已經不一致, 而測試全綠** —— 而「任兩欄互換都會紅」正是它宣稱的東西。
+   *   ✅ ⇒ 改成把【標籤與它那一列的值】綁在一起問。
+   * ⚠️ 射程:它認的是本模板的 `<td>標籤</td> … <td>值</td>` 形狀;模板改版要一起改。
+   */
+  function htmlRowValue(html: string, label: string): string | null {
+    // 🔴 用 `lastIndexOf` 不是 `indexOf` —— 「小計」在**表頭那一列也出現一次**
+    //    (品項 / 數量 / 小計), 而金額區在文件的後面。
+    //    ⛔ 我第一版用 `indexOf` ⇒ 撞到表頭 ⇒ 回傳 `'小計'` 而不是 `'940'`。
+    //    📌 **一個標籤在同一份文件裡出現兩次, 而我只想要其中一個** —— 那不是尺壞了, 是我沒說清楚要哪一個。
+    const at = html.lastIndexOf(`>${label}</td>`);
+    if (at < 0) return null;
+    const m = /<td[^>]*>([^<]*)<\/td>/.exec(html.slice(at + label.length + 6));
+    return m === null ? null : m[1]!.trim();
+  }
+
+  it('🔴 有稅 ⇒ 兩份【都】印稅額, 而值與【它那一列】綁在一起', async () => {
+    const { text, html } = await bothHalves(taxed());
+    for (const half of [text, html]) {
+      expect(half).toContain('稅額');
+      expect(half).toContain('1,524');
+    }
+    // 🔴 排版那份:逐列問【標籤 → 它那一格的值】—— 互換任兩欄都會紅
+    // 🔴🔴 **有稅的世界裡, 金額區那個標籤是「小計(未稅)」不是「小計」**
+    //    (`⟦b4-TAXSURFACES⟧`, Sean 2026-09-04 拍甲)。
+    //    ⛔ 這一格**曾經因為只寫「小計」而紅過一次**, 而**紅得對**:`htmlRowValue` 用
+    //    `lastIndexOf('>小計</td>')`, 標籤改了之後它撞到的是**品項表的欄頭**
+    //    ⇒ 回傳「小計(未稅)」那格標籤本身, 不是 940。
+    //    ⇒ 📌 **一把靠字面定位的尺, 在字面改動時會安靜地指到別的地方** —— 而它回的不是 null,
+    //       是一個看起來很合理的字串。這一格是那件事的實例。
+    expect(htmlRowValue(html, '小計(未稅)')).toBe('940');
+    // 🔵 **鎖現況**:本片沒有動欄頭那個(行小計)。
+    // 🛑 這一句鎖的是【今天的形狀】, 不是【那題的答案】(codex R2 must-fix 1)——
+    //    Sean 若拍甲(欄頭也加), 這一句要跟著翻面, 而那時它會紅, 那正是要的。
+    expect(html).toContain('>小計</td>');
+    expect(htmlRowValue(html, '運費')).toBe('160');
+    expect(htmlRowValue(html, '折扣')).toBe('−150');
+    expect(htmlRowValue(html, '稅額')).toBe('1,524');
+    // 🛑 「訂單金額」那一列的值不在 `<td>` 裡(它是 `<div>` + `<span class="amt">`)
+    //    ⇒ **本尺量不到它** ⇒ 那一格用整份 `toContain` 顧, 而**這一句要寫出來**,
+    //    免得下一個人以為上面四格涵蓋了全部五列。
+    expect(html).toContain('2,474');
+    // 🟢 而這把尺要對【不存在的標籤】回 null, 否則上面每一格都可能是它自己編的
+    expect(htmlRowValue(html, 'zzz_不存在的標籤')).toBeNull();
+    // 🔴 **帶千分位的字面** —— 稅額四位數才守得住 `formatOrderAmount` 被換掉那一發(codex must-fix ②)
+    expect(text).toContain('稅額  NT$ 1,524');
+    // 🟢 而總額要跟著變 —— 否則「印了稅」與「稅沒進總額」分不出來
+    expect(text).toContain('訂單金額  NT$ 2,474');
+    // 🟢 而折扣那一列必須真的印出來, 否則下面順序那格會拿 -1 當座標(codex must-fix ①)
+    expect(text).toContain('折扣  −NT$ 150');
+  });
+
+  it('🔴 稅 0 ⇒ 兩份【都】不印那一列', async () => {
+    const { text, html } = await bothHalves(paidCtx());
+    for (const half of [text, html]) expect(half).not.toContain('稅額');
+  });
+
+  it('🔴 有稅 ⇒ 兩份【都】把小計講成未稅(⟦b4-TAXSURFACES⟧, Sean 2026-09-04 拍甲)', async () => {
+    const { text, html } = await bothHalves(taxed());
+    for (const half of [text, html]) expect(half).toContain('小計(未稅)');
+    // 🔴 純文字那份要驗【值跟著同一行】—— 只問「有沒有那四個字」的話,
+    //    一個把標籤印在別行的實作會全綠。
+    expect(text).toContain('小計(未稅)  NT$ 940');
+  });
+
+  it('🔵 稅 0 ⇒ 兩份【都】維持原字面, 不得出現未稅版', async () => {
+    const { text, html } = await bothHalves(paidCtx());
+    for (const half of [text, html]) expect(half).not.toContain('小計(未稅)');
+    expect(text).toContain('小計  NT$');
+  });
+
+  it('🔴 順序與排版那份對齊:小計 → 運費 → 折扣 → 稅額 → 訂單金額', async () => {
+    const { text } = await bothHalves(taxed());
+    const at = (s: string) => text.indexOf(s);
+    expect(at('小計')).toBeGreaterThan(-1);
+    expect(at('運費')).toBeGreaterThan(at('小計'));
+    // 🔴 折扣那一列【必須存在】才量得到順序 —— 不存在時 indexOf 回 -1, 而 -1 比任何座標都小
+    //    ⇒ 那會讓「稅額排在折扣前面」這個突變【照樣通過】。(codex must-fix ①)
+    expect(at('折扣')).toBeGreaterThan(at('運費'));
+    expect(at('稅額')).toBeGreaterThan(at('折扣'));
+    expect(at('訂單金額')).toBeGreaterThan(at('稅額'));
+  });
+});
+
+describe('⟦5b-TRACKNUMGAP1⟧ 片 C · 寄送當下比對即時值 —— 而它防的是【被我們背書過的錯號碼】', () => {
+  const SHIP_ID = '11111111-2222-3333-4444-555555555555';
+  // ── 🔴🔴 剎車:更正信與出貨信共用同一顆 `allowOrderShipped` ────────────────
+  //    (codex 對抗審查 2026-09-04 must-fix)
+  //    🎯 「設了 env、看到不對、把它拿掉」的意思是【整條出貨線停下來】,
+  //      而我原本只在 route 那一層擋 enqueue —— **那只擋得住還沒進佇列的**。
+  //      ⇒ 已經排好的更正信照樣被認領、照樣寄出去, 而信收不回來(鐵則 12⑤)。
+
+  // 🔴 三次更正的時點。SQL 側的形狀是 `YYYYMMDDHH24MISSUS`(UTC、20 位數)。
+  const T1 = '20260904100000000000'; // A→B
+  const T2 = '20260904110000000000'; // B→C
+  const T3 = '20260904120000000000'; // C→B(**改回一個用過的號碼**)
+  const ISO = { [T1]: '2026-09-04T10:00:00.000Z', [T2]: '2026-09-04T11:00:00.000Z',
+                [T3]: '2026-09-04T12:00:00.000Z' } as Record<string, string>;
+
+  /** 一份「某一次更正」的工作單。預設是第一次(B, T1)。 */
+  const correctedJob = (over: { id?: string; tracking?: string; key?: string } = {}) => {
+    const key = over.key ?? T1;
+    const tracking = over.tracking ?? 'B-0002';
+    return job({
+      id: over.id ?? 'outbox-trackfix-1',
+      eventType: 'shipment_tracking_corrected',
+      dedupKey: `${SHIP_ID}:${key}`,
+      subject: 'PCM 訂單 PCM-2026-0001 貨運單號更正(包裹 BCDF23)',
+      payload: {
+        event_version: 1,
+        display_id: 'PCM-2026-0001',
+        shipment_id: SHIP_ID,
+        shipment_reference: 'BCDF23',
+        tracking_number: tracking,
+        tracking_corrected_key: key,
+      },
+    });
+  };
+
+  /** 庫裡【現在】的樣子。`correctedKey` = 最後一次更正的時點。 */
+  const ctx = (trackingNumber: string | null, correctedKey: string | null = T1) => ({
+    kind: 'ok',
+    context: {
+      orderDisplayId: 'PCM-2026-0001',
+      shipmentReference: 'BCDF23',
+      carrierName: '新竹物流',
+      trackingNumber,
+      trackingCorrectedAt: correctedKey === null ? null : ISO[correctedKey]!,
+      lines: [{ title: '前煞車來令片', quantity: 1 }],
+      linesTruncated: false,
+      orderHasUnshippedItems: false,
+    },
+  });
+
+  async function run(live: unknown, outboxOverrides: Record<string, unknown> = {}) {
+    const outbox = outboxFake([correctedJob()], outboxOverrides);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const load = vi.fn().mockResolvedValue(live);
+    const r = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender, shippedContext: { loadShippedContext: load } },
+      OPTS,
+    );
+    return { r, sender, outbox, load };
+  }
+
+  /**
+   * 🔴🔴 **主視窗 2026-09-04 指定的那一格:入隊 B、寄前改 C ⇒ 0 封 + 一筆 skipped。**
+   *
+   * 少了這道閘, 那封信會說「正確的貨運單號:B」而那時候正確的是 C ——
+   * 🛑 **而信裡還寫著「請以這一封為準」** ⇒ 客人拿到一個**被我們背書過的**錯號碼, 收不回來。
+   */
+  it('🔴 入隊 B、寄前已改成 C ⇒ 【一封都不寄】, 而落一筆 skippedTrackingSuperseded', async () => {
+    const { r, sender, outbox } = await run(ctx('C-0003', T2), {
+      markSkippedTrackingSuperseded: vi.fn().mockResolvedValue(true),
+    });
+    expect(sender.send, '寄出去了 ⇒ 客人拿到一個被我們背書過的錯號碼').toHaveBeenCalledTimes(0);
+    expect(r.skippedTrackingSuperseded, '跳過了而【沒有留下紀錄】⇒ 只是把靜默搬到我們這端').toBe(1);
+    // 🔴 承重:鍵要退休 —— 否則「A→B→C→又改回 B」時, B 那把鍵永久佔住 ⇒ 那封信排不進去。
+    expect(outbox.markSkippedTrackingSuperseded).toHaveBeenCalledWith(
+      'outbox-trackfix-1',
+      expect.anything(),
+      `${SHIP_ID}:${T1}`,
+    );
+  });
+
+  /**
+   * 🟢 **負對照:值沒變 ⇒ 照寄。**
+   * 少了這一格, 一個「對誰都跳過」的實作會通過上一格 —— 而那是【一封都不會寄】。
+   */
+  it('🟢 負對照:入隊 B、寄前仍是 B ⇒ 寄出去, 而內文帶的是 B', async () => {
+    const { r, sender } = await run(ctx('B-0002'));
+    expect(sender.send, '值沒變卻不寄 ⇒ 這道閘把功能整個關掉了').toHaveBeenCalledTimes(1);
+    expect(r.skippedTrackingSuperseded).toBe(0);
+    const text = sender.send.mock.calls[0]![0].text as string;
+    expect(text).toContain('B-0002');
+    // 🔵 那句承重的話:少了它, 客人拿舊碼查不到會以為貨出問題 ⇒ 然後打電話。
+    expect(text).toContain('請以這一封為準;先前那個號碼查不到是正常的。');
+  });
+
+  it('🔴 箱作廢了 ⇒ 走既有那條(它的單號不會再被任何人看到), 不是走 superseded', async () => {
+    const { r, sender, outbox } = await run(
+      { kind: 'voided' },
+      { markSkippedShipmentVoided: vi.fn().mockResolvedValue(true) },
+    );
+    expect(sender.send).toHaveBeenCalledTimes(0);
+    expect(r.skippedShipmentVoided).toBe(1);
+    expect(r.skippedTrackingSuperseded, '作廢被算成「被取代」⇒ 兩個原因混成一格, 讀的人分不出來').toBe(0);
+    expect(outbox.markSkippedShipmentVoided).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * 🔴🔴 **主視窗 2026-09-04 拍 Q1 甲時【指定的那一格】:A→B→C→B 只寄最後對的那封。**
+   *
+   * 三次更正各自入隊(鍵 = 箱 + 更正時點 ⇒ 三把不同的鑰匙, 三份工作單);
+   * 而 sweeper 跑的時候庫裡已經是**第三次之後**的樣子(號碼 B、時點 T3)。
+   * ⇒ ✅ 只有 T3 那一份還算數, T1 與 T2 都被取代。
+   *
+   * 🛑 **這一格同時證明了「不能拿號碼去比」** ——
+   *    T1 與 T3 的號碼**都是 B**, 而它們是兩件事。
+   *    ⇒ 舊的比號碼版本會讓 T1 也通過(`live B === payload B`)⇒ **寄兩封**。
+   *    ⇒ 📌 而兩封的內容都「正確」⇒ 沒有任何斷言會因為內容錯而紅 ⇒ 只有**數量**抓得到。
+   */
+  it('🔴🔴 A→B→C→B 三份工作單 ⇒ 【只寄一封】, 而且是最後那一次(T1 與 T3 號碼相同)', async () => {
+    const outbox = outboxFake(
+      [
+        correctedJob({ id: 'tf-1', tracking: 'B-0002', key: T1 }),
+        correctedJob({ id: 'tf-2', tracking: 'C-0003', key: T2 }),
+        correctedJob({ id: 'tf-3', tracking: 'B-0002', key: T3 }),
+      ],
+      { markSkippedTrackingSuperseded: vi.fn().mockResolvedValue(true) },
+    );
+    const sender = senderFake([{ kind: 'sent' }, { kind: 'sent' }, { kind: 'sent' }]);
+    // 庫裡現在:號碼 B、最後一次更正是 T3。
+    const load = vi.fn().mockResolvedValue(ctx('B-0002', T3));
+
+    const r = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender, shippedContext: { loadShippedContext: load } },
+      OPTS,
+    );
+
+    // 🔴 承重①:數量。比號碼的實作在這裡會是 2。
+    expect(sender.send, 'T1 與 T3 的號碼都是 B ⇒ 比號碼的實作會寄兩封').toHaveBeenCalledTimes(1);
+    expect(r.sent).toBe(1);
+    // 🔴 承重②:被跳過的那兩份要**留下紀錄**, 不是靜默。
+    expect(r.skippedTrackingSuperseded).toBe(2);
+    expect(outbox.markSkippedTrackingSuperseded).toHaveBeenCalledTimes(2);
+    // 🔴 承重③:寄出去的**必須是 T3 那一份** —— 少了這行, 一個「只寄第一份」的實作照樣過①②。
+    const sentIds = (outbox.markSent as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    expect(sentIds).toEqual(['tf-3']);
+  });
+
+  it('🟢 負對照:庫裡就停在 T1(沒有後續更正)⇒ 那一份【照樣寄】', async () => {
+    // 🔴 沒有這一格, 上面那格在「這道閘把每一份都跳過」的世界裡也會綠(只是 sent 會是 0)——
+    //    而它證的是**這道閘不是無條件跳過**。
+    const { r, sender } = await run(ctx('B-0002', T1));
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect(r.sent).toBe(1);
+    expect(r.skippedTrackingSuperseded).toBe(0);
+  });
+
+  it('🔴 即時值讀不到(live 沒有單號)⇒ fail-closed 不寄', async () => {
+    const { r, sender } = await run(ctx(null));
+    expect(sender.send).toHaveBeenCalledTimes(0);
+    expect(r.skippedTrackingSuperseded + r.errors, '兩條路都沒走到 ⇒ 它靜靜地寄出去了?').toBeGreaterThan(0);
+  });
+
+  it('🔴🔴 出貨線關著 ⇒ 更正信【不寄】、計 error(實作違約時第二道閘仍擋得住)', async () => {
+    const outbox = outboxFake([correctedJob()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const load = vi.fn().mockResolvedValue(ctx('B-0002'));
+
+    const r = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender, shippedContext: { loadShippedContext: load } },
+      { ...OPTS, allowOrderShipped: false },
+    );
+
+    // ⬇️ 這一行是「線關著就真的不寄」的證據 —— 不是 counts, 是那支 spy。
+    expect(sender.send).not.toHaveBeenCalled();
+    // 🔴 線關著時連查主表都不該發生(擋在讀取【之前】)。
+    expect(load).not.toHaveBeenCalled();
+    expect(r.sent).toBe(0);
+    expect(r.errors).toBe(1);
+  });
+
+  it('🔵 正對照:同一份工作單, 只把旗標翻成 true ⇒ **它就寄了**', async () => {
+    // 🔴 沒有這一格, 上面那格在「這支 use-case 整個壞掉、什麼都不寄」的世界裡也會綠。
+    const outbox = outboxFake([correctedJob()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const load = vi.fn().mockResolvedValue(ctx('B-0002'));
+
+    const r = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender, shippedContext: { loadShippedContext: load } },
+      { ...OPTS, allowOrderShipped: true },
+    );
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect(r.sent).toBe(1);
+  });
+
 });

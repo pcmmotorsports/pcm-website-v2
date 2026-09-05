@@ -25,6 +25,7 @@
 //    📌 這也是一條 finding:`20260824020000:440` 那句「收件 / 發票 / 規格的鍵與值全部 btrim
 //       (空白只打了空白 ⇒ 等於沒填)」**對 tab / 換行不成立** —— 那支 RPC 不在本片射程,只記錄。
 
+import { NotificationEmailInput } from '@pcm/schemas';
 import {
   readSingle,
   readSingleString,
@@ -46,6 +47,32 @@ export const MANUAL_ORDER_SHIPPING_FEE_FIELD = 'shipping_fee';
 export const MANUAL_ORDER_SHIP_TO_NAME_FIELD = 'ship_to_name';
 export const MANUAL_ORDER_SHIP_TO_PHONE_FIELD = 'ship_to_phone';
 export const MANUAL_ORDER_SHIP_TO_LINE_FIELD = 'ship_to_line';
+/**
+ * 🔴🔴 **「要不要開發票」那顆勾選**(2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 2 步;Sean 第十八題拍甲)。
+ *
+ * 🛑 **它與下面那五個 `invoice_*` 是【兩件事】** —— 那五個講的是「**開的話, 抬頭寫誰**」,
+ *    本欄講的是「**開不開**」。⇒ 📌 勾了才輪得到那五個;沒勾, 那五個講的是一張不會存在的發票。
+ *
+ * ⚠️ **HTML checkbox 的形狀**:沒勾的時候**這個欄位根本不會出現在 payload 裡**
+ *    ⇒ 🔴 **「沒勾」與「這個表單版本沒有這一格」在解析端【是同一個空白】。**
+ *    ⇒ ✅ 修法**不在解析端**:表單那邊搭一個**同名 hidden(`off`)**, 讓這一欄永遠出現
+ *       ⇒ 解析端用 **`getAll()`** 取最後一個值, 三個世界(不在 / off / on)才真的分得開。
+ *       (⛔ ~~原本這裡寫「用 `has()` 而不是 `get()`」~~ —— 那是我第一版的寫法, 實碼從來不是。)
+ */
+export const MANUAL_ORDER_INVOICE_REQUESTED_FIELD = 'invoice_requested';
+
+/**
+ * 🔴 **通知 email —— 留白 = 不寄**(⟦f3-MAILFALLBACKVSRULING⟧ 片 E;Sean 已拍的語意)。
+ *
+ * 🛑 **它與 `invoice_requested` 那顆勾選【形狀不同】, 不要照抄那一套**:
+ *    checkbox 沒勾時**根本不出現在 payload** ⇒ 那邊才需要 hidden + `getAll()` 三個世界。
+ *    text input **一定會出現**(留白就是空字串)⇒ 這裡用 `get()` 就夠。
+ * ⚠️ **而「缺欄」仍然當錯**(與那一顆同一個判準, 理由不同):
+ *    text input 缺欄 = 這張表單不是本版 ⇒ 放行的話, 員工填的那格會被靜靜丟掉。
+ *    🔵 我想過寬鬆版(缺欄 ⇒ 當作不寄)—— 那**在今天是安全的**(手動單本來就一律不寄),
+ *       而它的代價是:表單與解析端漂開的那一天, **沒有東西會叫**。⇒ 選 fail-loud。
+ */
+export const MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD = 'notification_email';
 export const MANUAL_ORDER_INVOICE_TYPE_FIELD = 'invoice_type';
 export const MANUAL_ORDER_INVOICE_CARRIER_FIELD = 'invoice_carrier';
 export const MANUAL_ORDER_INVOICE_TITLE_FIELD = 'invoice_title';
@@ -203,6 +230,16 @@ export type ManualOrderValues = {
   shippingMethod: ManualShippingMethod;
   shipTo: ManualOrderShipTo;
   invoice: ManualOrderInvoice;
+  /**
+   * 🔴 **這張單要不要開發票**(勾選欄;沒勾 = `false`)。
+   * 🛑 與 `invoice` 是兩件事:那個講「開的話抬頭寫誰」, 本欄講「開不開」。
+   */
+  invoiceRequested: boolean;
+  /**
+   * 🔴 **通知 email;`null` = 不寄**(留白就是 `null`, 不是空字串)。
+   * 🛑 空字串會被 `orders_notification_email_valid` 的 `~ '^[!-~]+$'` 擋掉 ⇒ 整張單建不出來。
+   */
+  notificationEmail: string | null;
   shippingFee: number;
   lines: ManualOrderLineInput[];
 };
@@ -390,7 +427,20 @@ function parseLineEntry(raw: RawLine, index: number): ManualOrderLineInput | str
   let variantId: string | null = null;
   if (raw.variantId !== '') {
     if (!UUID_RE.test(raw.variantId)) {
-      return `${at}的商品編號格式不對,請重新從商品清單挑一次。`;
+      // 🔴🔴 **⛔ ~~「請重新從商品清單挑一次」~~ —— 那句話指向一個【不存在的動作】**
+      //    (`⟦b4-MANUALORDERDEADEND⟧`, 2026-09-05 走查 + 讀碼各驗一次)。
+      //    🔬 ①**那個清單不能挑**:`manual-order-catalog-lookup.tsx:145` 的 `<li>` 沒有 button、
+      //      沒有 role、沒有 onClick(鑽機上點過, 五格 `line_*_0` 全部沒變)。
+      //    🔬 ②**那串編號他從來看不到**:同一支檔 `h.variantId` **全檔 1 命中, 而那一處是
+      //      React 的 `key=`** ⇒ 它從來沒有被印出來過。
+      //    ⇒ 🎯 **所以原句對員工是:「回去挑」而沒有東西可挑、「重新輸入」而他沒看過那個值。**
+      //
+      // 🛑 **而新訊息裡那句警告【不是順手加的】** —— 它擋的是這一格最自然的錯誤動作:
+      //    商品列表是 `.from('products')`(`product-repository.ts:315`), 網址 `/products/{id}`
+      //    帶的是 **product 的 id**;而這一格要的是 **product_variants 的 id**。
+      //    🔴 **兩者都是 UUID、長得一模一樣** ⇒ 貼錯那一種**過得了這道格式檢查**,
+      //      而錯誤會往下走。⇒ 📌 **一個「看起來完全合理」的動作, 會製造一個不會叫的錯。**
+      return `${at}的商品編號格式不對。這一格留白就好(當代購處理);⚠️ 不要把商品頁網址上的編號貼進來,那是另一種編號。`;
     }
     variantId = raw.variantId;
   }
@@ -487,6 +537,88 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
     return { ok: false, error: '沒有選發票類型(個人 / 公司 / 捐贈)。' };
   }
   const invoice: ManualOrderInvoice = { type: invoiceType as ManualInvoiceType };
+
+  // 🔴🔴 **checkbox 的「沒勾」與「表單壞了」在 payload 上是【同一個空白】**
+  //   (2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 2 步)
+  //   HTML 的 checkbox **沒勾的時候整個欄位不出現** ⇒ 那與「**這個表單版本根本沒有這一格**」
+  //   印同一個空白, 而兩者的正確答案**相反**(一個是他決定不開, 一個是**我不知道**)。
+  //
+  //   ✅ **⇒ 修法不是在解析端猜, 是讓那個欄位【永遠存在】**:表單那邊在 checkbox 前面
+  //      放一個**同名的 hidden(值 `off`)** ⇒ 三個世界從此真的分得開。
+  //
+  //   🔴 **而三個世界的處置, 是 codex R1 五條 must-fix 改過的**(原本我寫錯兩件事):
+  //     ① `[]`(欄位整個不在)⇒ **拒絕建單**。
+  //        ⛔ ~~原本寫「fail-closed 退回常態 `true`」~~ —— **那個字用錯了**:`true` = 開發票 =
+  //        **多做一件事**, 那是 **fail-open**。而它會在表單壞掉時**安靜地替他做一個決定**,
+  //        且錯的方向剛好是「客人拿到一張他沒要的發票」。⇒ 錢路徑上, 契約壞掉要**停**, 不要猜。
+  //     ② 值只認**逐字** `on` / `off` 兩種。⛔ ~~原本「最後一個值是不是 `on`」~~ ⇒
+  //        `off, 亂碼` 也會安靜變成 `false`。錢路徑不接受「看不懂就當作沒勾」。
+  //   📌 **⇒ 這一格是「兩個世界要印不同的東西」套在【HTML 表單】上** ——
+  //      而 checkbox 天生違反它, 那個 hidden 就是把它補回來。
+  const invoiceRequestedRaw = form
+    .getAll(MANUAL_ORDER_INVOICE_REQUESTED_FIELD)
+    .map((v) => String(v));
+  if (invoiceRequestedRaw.length === 0) {
+    return {
+      ok: false,
+      error:
+        '這張表單少了「要不要開發票」那一格,不能建單。請重新開一張空白建單表單;還是這樣就找工程師。',
+    };
+  }
+  const invoiceRequestedLast = invoiceRequestedRaw[invoiceRequestedRaw.length - 1];
+  if (invoiceRequestedLast !== 'on' && invoiceRequestedLast !== 'off') {
+    return {
+      ok: false,
+      error: '「要不要開發票」那一格的值看不懂,不能建單。請重新開一張空白建單表單。',
+    };
+  }
+  const invoiceRequested = invoiceRequestedLast === 'on';
+
+  // 🔴 **驗證重用 `@pcm/schemas` 的 `NotificationEmailInput`, 不在這裡寫第二份。**
+  //    它的四個條件:可列印 ASCII / ≤254 octet / 單一 @ 兩側非空且 domain 含點 / 禁合成域。
+  //
+  // ⛔ ~~「與 `orders_notification_email_valid`(`20260718120000:128-134`)**逐條對齊**」~~
+  // 🔴🔴 **那句話是我寫的, 而它【不成立】**(codex R2 抓到, 我開檔複驗屬實):
+  //    · DB 那條只禁 `line.pcmmotorsports.local` 與它的子網域(`:132-133`)
+  //    · 而 `isSyntheticEmailDomain`(`packages/schemas/src/notification-email.ts:68-72`)
+  //      禁的是**整個 `pcmmotorsports.local` 基底域**與它的**任何**子網域
+  //    ⇒ 例:`u@manual.pcmmotorsports.local` —— **表單拒、DB 收。**
+  // ✅ **而我【不把表單放寬去對齊 DB】**, 三個理由:
+  //    ① 方向:表單比 DB 嚴 ⇒ 擋掉的是「DB 會收但寄不出去」的位址(`.local` 不可路由)
+  //       ⇒ 放寬 = 讓一封注定寄不到的信被登記成「會寄」。**那是往壞的方向對齊。**
+  //    ② `isSyntheticEmailDomain` 是**多處共用**的那一份(註冊擋、outbox 閘都在用)
+  //       ⇒ 為了本片放寬它, 會同時放寬那兩處。
+  //    ③ 兩邊不一致的**代價**只有一種:員工被表單擋下來、看得到一句人話。**那是可接受的。**
+  // 🔬 而這個不一致現在**有測試釘著**(見 `manual-order-form.test.ts` 那族的基底域兩格)
+  //    ⇒ 📌 **它從「我沒發現的分岔」變成「寫下來的選擇」。**
+  // 🛑 **寫第二份的代價不是多幾行, 是【兩份會分岔而沒有東西會叫】** ——
+  //    而分岔的方向若是「這裡比 DB 寬」⇒ 員工看到的錯誤訊息會是一個約束名。
+  // 🔵 用 `readSingle` 而不是 `get()`:它把**缺欄**與**同名欄出現兩次**分開回報,
+  //    而後者是 payload 被動過的訊號 —— `get()` 對那個世界會安靜地回第一個值。
+  const notificationEmailRead = readSingle(form, MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD);
+  if (notificationEmailRead.kind !== 'value') {
+    return {
+      ok: false,
+      error:
+        notificationEmailRead.kind === 'missing'
+          ? '這張表單少了「通知 email」那一格,不能建單。請重新開一張空白建單表單再試一次。'
+          : '「通知 email」那一格的值看不懂,不能建單。請重新開一張空白建單表單再試一次。',
+    };
+  }
+  const notificationEmailTrimmed = notificationEmailRead.value.trim();
+  let notificationEmail: string | null = null;
+  if (notificationEmailTrimmed !== '') {
+    const parsedEmail = NotificationEmailInput.safeParse(notificationEmailTrimmed);
+    if (!parsedEmail.success) {
+      return {
+        ok: false,
+        // 🔴 訊息要講**哪一格**與**留白也可以** —— 員工最常見的下一步就是把它清空。
+        error:
+          '「通知 email」看起來不是一個信箱。請檢查有沒有打錯;這張單不用寄通知的話,把這一格清空就好。',
+      };
+    }
+    notificationEmail = parsedEmail.data;
+  }
   const optionalInvoice = [
     [MANUAL_ORDER_INVOICE_CARRIER_FIELD, 'carrier', '載具'],
     [MANUAL_ORDER_INVOICE_TITLE_FIELD, 'title', '抬頭'],
@@ -543,6 +675,8 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
       shippingMethod: shippingMethod as ManualShippingMethod,
       shipTo: { name, phone, line },
       invoice,
+      invoiceRequested,
+      notificationEmail,
       shippingFee,
       lines,
     },

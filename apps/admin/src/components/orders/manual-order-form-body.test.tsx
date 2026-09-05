@@ -167,6 +167,17 @@ describe('🔴 表單送不出 actor —— 那一格在型別與 DOM 上都不�
     //    (客人那一格住在 picker 裡,本檔把它換成探針 ⇒ 不在這張清單上。)
     expect(names.sort()).toEqual(
       [
+        // 🔴 **`invoice_requested` 出現【兩次】是刻意的** —— 一個 hidden(`off`)+ 一個 checkbox,
+        //    同名。少了 hidden, 「沒勾」與「這一格不見了」在 payload 上就變成同一個空白。
+        //    ⇒ 這張清單是**唯一**會因為 hidden 被刪掉而紅的東西。
+        'invoice_requested',
+        'invoice_requested',
+        // 🔴🔴 **`notification_email`(片 E)—— 而這張清單就是那個洞的守門。**
+        //    R3 換角度 2026-09-05 抓到:我寫完解析端與 9 格測試, **而畫面上沒有這個 `<input>`**。
+        //    解析端把缺欄當錯 ⇒ **每一張手動單都建不出來**, 與 migration 貼沒貼無關。
+        //    🛑 而三綠全綠、555 測項 0 紅 —— 因為**每一支 fixture 都自己補了那一格**。
+        //    ⇒ 📌 **fixture 補齊的欄位, 在真瀏覽器上不存在。**
+        'notification_email',
         'manual_request_id',
         'order_source',
         'payment_channel',
@@ -250,5 +261,31 @@ describe('🔴 建單表單的每一個文字類控制項都要擋 autofill(量�
     const fake = `<input name='x' className='y' />`;
     expect(/type=['"]?(hidden|radio|checkbox)/.test(fake)).toBe(false);
     expect(fake.includes("autoComplete='off'")).toBe(false);
+  });
+});
+
+describe('🔴 「這張單要開發票」那顆勾選 —— 預設【不勾】(Sean 2026-09-05 第 23 題)', () => {
+  // 🔴🔴 **這一格守的是一個【會影響錢】的預設值, 而它在畫面上只是一個沒被勾的框。**
+  //    他的逐字:「預設不勾選,也就是預設不開發票」。
+  // 🛑 而 `orders.invoice_requested` 的 DB DEFAULT 是 `true` ⇒ 表單這一半與 DB 那一半**方向相反**
+  //    ⇒ 📌 **靠讀 schema 的人會推出相反的結論**, 所以這件事只有這一格守得住。
+  it('checkbox 沒有 defaultChecked ⇒ 渲染出來是【沒勾】的', () => {
+    const { container } = renderForm();
+    const box = container.querySelector(
+      "input[type='checkbox'][name='invoice_requested']",
+    ) as HTMLInputElement | null;
+    // 🔵 先確認它真的在(不然下一句對一個 null 斷言, 那會是假綠)
+    expect(box).not.toBeNull();
+    expect(box!.checked).toBe(false);
+  });
+
+  it('🔵 正對照:同名的 hidden 仍然在, 而它的值是 off', () => {
+    // 🛑 少了 hidden,「沒勾」與「這一格不見了」在 payload 上會變成同一個東西。
+    const { container } = renderForm();
+    const hidden = container.querySelector(
+      "input[type='hidden'][name='invoice_requested']",
+    ) as HTMLInputElement | null;
+    expect(hidden).not.toBeNull();
+    expect(hidden!.value).toBe('off');
   });
 });

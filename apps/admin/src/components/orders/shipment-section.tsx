@@ -14,6 +14,9 @@ import Link from 'next/link';
 import type { AdminOrderDetail } from '@pcm/domain';
 import { loadEmptyShipments, loadOrderShipments } from '../../lib/shipping/order-shipments';
 import { OrderShipButton } from './shipment-launcher';
+import { ShipmentHctSubmitButton } from './shipment-hct-submit-button';
+import { ShipmentHctUnknownNotice } from './shipment-hct-unknown-notice';
+import { ShipmentEditTrackingButton } from './shipment-edit-tracking-button';
 import { ShipmentMarkShippedButton } from './shipment-mark-shipped-button';
 import { ShipmentVoidButton } from './shipment-void-button';
 // 🔴 標籤表已抽到 `lib/shipping/carrier-label.ts`(#10 片3),與出貨單那張紙、建箱彈窗共用同一份。
@@ -148,6 +151,7 @@ function ShipmentBalanceNote({
   return <span className='text-muted-foreground text-xs'>款項已收足</span>;
 }
 
+
 export async function ShipmentSection({
   detail,
   payments,
@@ -164,6 +168,10 @@ export async function ShipmentSection({
     loadEmptyShipments(detail.id),
   ]);
 
+  // 🔴 ⟦ship-HCTUNKNOWNSTUCK⟧:那一箱的新竹狀態 —— **另開一發窄讀取, 不加寬共用 select**
+  //    (`SHIPMENT_ROW_SELECT` 同時餵顧客站那條路)。
+  //    🔵 這一發**排在 Promise.all 之後**, 因為它要用上面撈到的 shipment id;
+  //      而它只讀 `id, hct_status` 兩欄, 不帶 PII。
   return (
     <section className='rounded-lg border bg-card p-4'>
       {/* 🔴 2026-08-09 Sean 實測後追加:出貨卡要能**直接出貨**,不必先回列表勾單。
@@ -193,6 +201,10 @@ export async function ShipmentSection({
                  ⇒ **它會直接影響他按不按下去**,
                  所以三態必須分得開,不能塌成兩態。 */}
           <ShipmentBalanceNote detail={detail} payments={payments} />
+          {/* 🔴 **尾款那一句【不從這裡傳】** —— 2026-09-04 同日改過一次形狀, 理由寫在
+              `lib/shipping/shipment-balance-warning.ts` 檔頭:兩個入口共用同一個彈窗,
+              只有這個入口在傳 ⇒ 列表勾單那條路變成一條沒有警告的繞道(codex MF7 · Sean 拍②)。
+              ⇒ 現在由 `loadShipmentCandidates` 在 server 端算進候選回傳裡, **一個生產者兩個入口**。 */}
           <OrderShipButton orderId={detail.id} />
         </span>
       </div>
@@ -232,7 +244,7 @@ export async function ShipmentSection({
             <span className='text-muted-foreground ml-2 font-normal'>{groups.length} 箱</span>
           </h3>
           <ul className='space-y-3'>
-          {groups.map(({ shipment, lines }) => {
+          {groups.map(({ shipment, lines, hctStatus }) => {
             const voided = shipment.voidedAt !== null;
             const shipped = shipment.shippedAt !== null;
             return (
@@ -282,6 +294,19 @@ export async function ShipmentSection({
                            (能力本來就在 RPC 與 repository 層,缺的只有 action 與這顆入口。)
                         ⚠️ 已出貨的箱**改**單號這支做不到(RPC `:184` `AND shipped_at IS NULL` 是
                            write-once)—— **不是這裡漏給入口**,詳見 `shipment-actions.ts` 那支的 docstring。 */}
+                    {/* 🔴🔴 **已出貨的箱:更正單號**(⟦5b-TRACKNUMGAP1⟧ 片 B)。
+                        它落在上面那段註解的正下方 —— 那段逐字寫著「已出貨的箱**改**單號
+                        這支做不到…**不是這裡漏給入口**」⇒ 本片把那個「做不到」變成做得到。
+                        🔴 `!voided` 承重:作廢的箱單號沒有人會再看到 ⇒ 更正它沒有意義,
+                           而 RPC 那層也擋(兩層都有)。 */}
+                    {shipped && !voided && (
+                      <ShipmentEditTrackingButton
+                        shipmentId={shipment.id}
+                        shipmentReference={shipment.shipmentReference}
+                        carrierCode={shipment.carrierCode}
+                        currentTrackingNumber={shipment.trackingNumber}
+                      />
+                    )}
                     {!voided && !shipped && (
                       <ShipmentMarkShippedButton
                         shipmentId={shipment.id}
@@ -289,6 +314,15 @@ export async function ShipmentSection({
                         carrierCode={shipment.carrierCode}
                       />
                     )}
+                    {shipment.carrierCode === 'hct' && !voided ? (
+                      <ShipmentHctUnknownNotice hctStatus={hctStatus} />
+                    ) : null}
+                    {shipment.carrierCode === 'hct' && !voided ? (
+                      <ShipmentHctSubmitButton
+                        shipmentId={shipment.id}
+                        shipmentReference={shipment.shipmentReference}
+                      />
+                    ) : null}
                     <ShipmentVoidButton
                       shipmentId={shipment.id}
                       shipmentReference={shipment.shipmentReference}

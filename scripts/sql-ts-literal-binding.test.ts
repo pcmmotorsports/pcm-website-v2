@@ -274,7 +274,7 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
   const P6_TS = 'packages/domain/src/catalog/year-range.ts';
   const p6Live = (): string => locateLive('FUNCTION', P6_NAME).live;
 
-  it('§0 live 定位:候選=已知七支、live=20260827180000(新 migration 重定義本 RPC 時本格要紅)', () => {
+  it('§0 live 定位:候選=已知九支、live=20260904260000(新 migration 重定義本 RPC 時本格要紅)', () => {
     // 🔴 本格的期待值被打錯過兩次,歷程在檔頭 —— 20260811040000 是 DROP+CREATE(無
     //    OR REPLACE)重建的 11 參數版;之前字串 pattern 看不到它,守的是 20260719150000 死層。
     const { live, candidates } = locateLive('FUNCTION', P6_NAME);
@@ -298,10 +298,69 @@ describe('P6 年份公式:SQL search_catalog_by_vehicle ↔ TS matchFitmentYear'
       //     diff <(grep -nE 'year_start|year_end|p_year' <舊> | sed 's/^[0-9]*://') \
       //          <(grep -nE 'year_start|year_end|p_year' <新> | sed 's/^[0-9]*://')   ⇒ 0 差
       //     兩支各自 YS=2 / YE=2 / UNION=1
-      // ∴ SQL 側字面 + 真值表 + TS 側字面 三格【不變、仍綠】;本格是重定義偵測器, 加這行。
+      // ∴ **真值表 + TS 側字面** 兩格【不變】(前者純邏輯, 後者只讀 `P6_TS`)。
+      // ⛔ ~~「SQL 側字面也不變」~~ **⇒ code-reviewer 訂正**:那一格是 `readMig(p6Live())`
+      //    ⇒ **斷言值沒變, 而【被量的那支檔】換了** ⇒ 📌 **那是「換了受詞」不是「不變」。**
       '20260827180000_m4b_storefront_new_arrivals_exclude_repair_parts.sql',
+      // 多顆分類膠囊 A 步(2026-09-04, ⟦search-PREFIXWRONGCAT⟧)—— `CREATE`(不是 OR REPLACE)
+      // 一支帶 `p_categories text[]` 的**新多載**, 舊 11 參數那支保留(三步部署的 A)。
+      // ⛔ ~~「加這一行【不是】通過本閘的方法」~~ **⇒ code-reviewer 判它是好聽話, 收下。**
+      //    🔴 **事實是:加這一行【就是】讓本格變綠的方法, 而沒有任何東西檢查下面那段重核做了沒。**
+      //    ✅ **真正有強制力的不是這句話, 是 SQL 側字面那一格(`readMig(p6Live())`)——
+      //      它會【自動改去量新的 live】** ⇒ 我若沒重核而年份述詞真的變了, 那一格會自己紅。
+      //    📌 ⇒ 一句「請下一個人自律」的註解, 與沒有那句話, 在會不會被遵守上是同一件事。
+      // 逐格重核過:
+      //   ① **函式本體**的年份述詞與上一個 live 20260827180000【逐字相同】——
+      //      數法(剝掉註解與空行, 只比碼):我改動的 **42** 行碼裡, 碰到 year/fitment 的 **0** 行;
+      //      而兩版與年份有關的碼各 **9** 行, 逐字相同。
+      //   ② 照**本閘自己寫的那個數法**(grep 整個檔)⇒ ⚠️ **它回 1 行差, 不是 0**:
+      //        > p_brand := NULL, p_model := NULL, p_year := NULL, p_offset := 0, p_limit := 1,
+      //      🔬 那一行是我在 `DO $assert$` 裡新加的**負對照**(用舊那支的名字集合呼叫必須成功,
+      //      證明新舊兩支真的分開)⇒ **它在斷言區塊裡, 不在函式本體。**
+      //      📌 **⇒ 本閘的數法 grep【整個檔】, 分母比「函式本體」寬** —— 兩把尺不一致時
+      //         我沒有挑一個看起來對的, 是開檔看那一行在哪裡。
+      //   ③ 兩支各自 YS=2 / YE=2 / UNION=1(逐字相同)。
+      // ∴ **真值表 + TS 側字面** 兩格【不變】(前者純邏輯, 後者只讀 `P6_TS`)。
+      // ⛔ ~~「SQL 側字面也不變」~~ **⇒ code-reviewer 訂正**:那一格是 `readMig(p6Live())`
+      //    ⇒ **斷言值沒變, 而【被量的那支檔】換了** ⇒ 📌 **那是「換了受詞」不是「不變」。**
+      '20260904160000_m4b_search_catalog_multi_category.sql',
+      // 帶分類時也照【中高價位優先】排(2026-09-04, ⟦search-CATSORTRANDOM⟧, Sean 逐字「3. 甲」)——
+      // `CREATE OR REPLACE` 重定義本 RPC, 而**它只拿掉 12 處【排序 CASE】的 `AND cardinality(v_cats) = 0`**;
+      // 過濾用的 `WHERE (cardinality(v_cats) = 0 OR …)` 兩處一個字沒動。
+      // 逐格重核過:
+      //   ① 照**本閘自己寫的那個數法**比年份相關的行:
+      //        diff <(grep -nE 'year_start|year_end|p_year' <舊> | sed 's/^[0-9]*://') <(同 <新>)
+      //      ⇒ 回**兩行差**, 而**兩行都不是年份述詞**:
+      //        · 簽章那一行的**格式**不同 —— 我的本體逐字抄自正式庫的 `pg_get_functiondef`
+      //          ⇒ 它印成單行、型別寫 `integer` 而不是手寫版的 `int`。**同一個簽章, 不同的排版。**
+      //        · 舊那支 `DO $assert$` 裡的一行負對照(`p_year := NULL` 那行)—— 那在**斷言區塊**,
+      //          不在函式本體;本支有自己的斷言, 沒有抄它。
+      //      📌 **⇒ 又一次「本閘的數法 grep 整個檔, 分母比【函式本體】寬」** —— 上一則(0904160000)
+      //         就記過同一件事。兩把尺不一致時我沒有挑一個看起來對的, 是開檔看那兩行在哪裡。
+      //   ② 兩支各自 **YS=2 / YE=2 / UNION=1**(當場數的, 兩支相同)。
+      // ∴ **真值表 + TS 側字面** 兩格【不變】(前者純邏輯, 後者只讀 `P6_TS`)。
+      // ⛔ ~~「SQL 側字面也不變」~~ —— 照上一則 code-reviewer 的訂正:那一格是 `readMig(p6Live())`
+      //    ⇒ **斷言值沒變, 而【被量的那支檔】換了** ⇒ 📌 **那是「換了受詞」不是「不變」。**
+      '20260904260000_m4b_recommend_sort_with_category.sql',
     ]);
-    expect(live).toBe('20260827180000_m4b_storefront_new_arrivals_exclude_repair_parts.sql');
+    // 🔴 `live` 跟著換成新那支 —— 而**那正是本片的重點**:三步部署的 A 之後,
+    //    repo 裡最後一支重定義它的就是本片。⚠️ 而「repo 裡最後一支」不等於「正式庫跑的那一支」
+    //    (本片 **未 apply**)⇒ 板列 `⟦01-GENTABLEREADSREPO⟧` 講的就是這個分別。
+    // 🔴🔴 **而那一句我原本停在這裡, 少了下一句**(code-reviewer must-fix ②):
+    //    新舊兩支多載並存, 而 `pickLive` 只回**一個** live
+    //    ⇒ 🛑 **正式庫【現在真的在跑】的那支 11 參數版, 從這一刻起沒有任何一格在守它的年份述詞。**
+    //    🎯 **⇒ 本 diff 把唯一那格守衛, 從【服務客人的那一支】移到【一支還沒貼的多載】上。**
+    //    ⚠️ 這個缺口在三步部署的 C(DROP 舊簽章)之前一直開著 ⇒ 已寫進板列 `⟦search-DROPOLDCATSIG⟧`。
+    //    🔵 而**為什麼還是這樣做**:舊那支的年份述詞與新那支**逐字相同**(本則上方三組數)
+    //      ⇒ 守新的等於也守了舊的**內容**;缺的是「舊那支【被改動】時會不會叫」——
+    //      而舊那支**不會再被改**(它只等著被 DROP)⇒ 🎯 **缺口是真的, 而可達性很低。**
+    //      🛑 **不過那是判斷不是量測** —— 我沒有辦法證明「沒有人會再改它」。
+    // 🔴 `live` 跟著換 —— 而**上一則那個缺口在本則【更寬了一格】**:
+    //    上一則寫著「守衛從【服務客人的 11 參數版】移到【一支還沒貼的多載】上」;
+    //    而本支同樣**未 apply** ⇒ 🛑 **live 現在指的是【repo 裡最後一支】, 而它與正式庫差了兩代。**
+    //    (正式庫此刻跑的是 `20260904160000` 那一代 —— 2026-09-04 唯讀實查 `prosrc md5 = ae1f2603…`。)
+    //    ⇒ 📌 **`⟦01-GENTABLEREADSREPO⟧` 那一列講的就是這個分別, 而它每多一支未 apply 的 migration 就寬一格。**
+    expect(live).toBe('20260904260000_m4b_recommend_sort_with_category.sql');
   });
 
   it('SQL 側字面:兩個年份述詞在兩個 UNION 半【各】出現一次(只驗一半,另一半改了不紅)', () => {

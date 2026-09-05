@@ -18,6 +18,7 @@ export { updateProfile } from './update-profile';
 
 // 忘記密碼片新:寄重設信 / 設定新密碼(薄編排、走 IAuthService、對齊 login/logout use-case 樣式)。
 export { requestPasswordReset } from './request-password-reset';
+export { resendSignupConfirmation } from './resend-signup-confirmation';
 export { resetPassword } from './reset-password';
 
 export { addAddress, type AddressCreateInput } from './add-address';
@@ -152,6 +153,16 @@ export {
   type EnqueueOrderShippedEmailsOptions,
   type EnqueueOrderShippedEmailsResult,
 } from './enqueue-order-shipped-emails';
+
+// 🔴 ⟦5b-TRACKNUMGAP1⟧ 片 C(2026-09-04):更正單號的信 —— 掃描式 enqueue。
+//    🛑 **它沒有 cutoff 參數, 而那不是漏了** —— 觸發欄 `tracking_corrected_at` 是本片新增的
+//    ⇒ 歷史上每一箱都是 NULL ⇒ 集合天生從空的開始長(理由全文在 `ITrackingCorrectedScanner` 檔頭)。
+export {
+  enqueueTrackingCorrectedEmails,
+  type EnqueueTrackingCorrectedEmailsDeps,
+  type EnqueueTrackingCorrectedEmailsOptions,
+  type EnqueueTrackingCorrectedEmailsResult,
+} from './enqueue-tracking-corrected-emails';
 
 // 🔴 M-4b E4 片3b(2026-08-30):`SHIPPED_EMAIL_CUTOFF` 的解析(純函式、零 I/O)。
 // ⚠️ 它**不是**開關本身 —— 開關是那顆 env 有沒有被設。本函式只負責「設了之後怎麼讀」,

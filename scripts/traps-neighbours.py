@@ -513,6 +513,46 @@ def rank(query, secs, n=TOP_N):
     return scored[:n]
 
 
+# 🔴 **天花板門檻**(2026-09-05 線 `-db` 立;三個實例都是【已知失效 ⑦】)。
+#    來源 = 當場量到的分數,不是挑一個好看的數:
+#      2026-08-28 `-c8`  正本 `:227` 第 451 名 / `:12156` 第 921 名  —— 真同族而排不進前八
+#      2026-09-05 `-db`  草稿「正對照的時刻軸」最高 **0.3842**,而真正該寫分界的 `:11666`
+#                        八名內【零命中】—— 尺二撈到的
+#      2026-09-05 `-db`  草稿「比預期更好的答案」最高 **0.2184**,而主視窗直接點名的
+#                        兩條近親【一條都沒進前八】
+#    ⇒ 門檻取 **0.25** —— 落在最後那發(0.2184, 該叫)與前一發(0.3842, 不該叫)之間。
+#    🛑 **而它是一條【提醒】不是一條【判定】**:高於門檻不代表沒漏(0.3842 那發就漏了)。
+#       ⇒ 所以只在【低於】時多印一行,不在高於時印任何「安全」的字 ——
+#          一句「看起來沒有近親」會關掉下一個人的尋找動作。
+CEILING_LOW = 0.25
+
+
+def ceiling_warning(ranked):
+    """最高分低於門檻時回一段字, 否則回 None。
+
+    🔴 抽成純函式的理由與 collision_warnings 同:
+       「該叫的會叫」與「不該叫的不叫」是兩個世界, 寫在 main 裡印一印驗不了後者。
+    """
+    if not ranked:
+        return None
+    top = ranked[0][0]
+    if top >= CEILING_LOW:
+        return None
+    return ('🔴 **最高分 %.4f < %.2f:這【不是】「沒有近親」, 是「尺沒接上」。**\n'
+            '   📌 分數低有兩種完全不同的成因, 而它們印同一個數字:\n'
+            '     ① 真的沒有人寫過 ⇒ 開新條\n'
+            '     ② 🔴 有人寫過, 而它與你的草稿【字面重疊接近零】(母題級通則 / 換了一套詞彙)\n'
+            '   ⇒ **這一格分不出①②** ⇒ 在你判「沒有近親」之前, 至少再做一件事:\n'
+            '     · 尺二:`grep -n \'^## \' docs/patterns/guard-and-instrument-traps.md`'
+            ' 再用你那條的【機制關鍵字】過濾(上面已幫你抽好)\n'
+            '     · memory 兩族關鍵字:`grep -n \'品質\\|流程\' MEMORY.md` 那兩行的關鍵字串\n'
+            '     · 問一個在場的人 —— 2026-09-05 那發就是【主視窗直接點名】才接住的,'
+            '兩把尺都沒有\n'
+            '   ⚠️ 而**高於門檻也可能漏**(同日 0.3842 那發漏掉了真正的近親)⇒ 本行只在低於時出現,'
+            '不代表沒出現就安全。'
+            % (top, CEILING_LOW))
+
+
 def selfcheck(secs):
     """五個世界都要表演。第三個是 2026-08-22 補的:沒有它,
     「母體加了 inbox」與「加了但沒生效」印一模一樣的答案。
@@ -589,9 +629,40 @@ def selfcheck(secs):
     # 🔴 餵【整份檔】,不是餵最長那一段 —— 真實用法是 `traps-neighbours.py <草稿檔>`,
     #    而第一版餵單段 ⇒ 自撞只佔 1/8 ⇒ 世界六①永遠印【否】。
     #    那不是警告壞了,是【靶不夠像真的】。實測:整份 4/8、單段 1/8。
+    # 🔴🔴 **2026-09-04 線 `-db` 修:①那一格的【靶】改成合成的,不再靠真語料的比例**
+    #    🔬 **成因是量到的,不是從行為推的**(主視窗指定先走 git:那支檔 08-30 之後零改動
+    #       ⇒ 紅的不是碼變了,是它吃的語料變了)。當天量到:
+    #         語料 2,791 則(正本 631 / inbox 906 / memory 1254)
+    #         靶 `D-20260830.md`(27 段, 段落數最多的 inbox 檔)在前 8 名裡**只佔 1 名**
+    #         而 `HOG_MIN = 2` ⇒ 警告不叫 ⇒ 世界六①印【否】。
+    #    🎯 **而這正是 `collision_warnings` 自己 docstring 記載的那個已知洞**:
+    #       「① 只在草稿夠長時才叫 —— 只有 1 段擠進前 8 的草稿【不會叫】」。
+    #    📌 **⇒ 所以自檢沒有壞,是【那個靶漂進了一個它自己記載過的洞】** ——
+    #       語料一直在長,而上面那句「實測:整份 4/8」**是一個相對的比例,不是一個性質**。
+    #    🛑 **修法不是改期望值、也不是 skip**(那是拍板不是修法)——
+    #       期望(髒的要叫 / 乾淨的不叫)**一個字沒動**,改的是**怎麼造出那個髒的世界**:
+    #       直接餵一組「≥HOG_MIN 個名額同 path」的 ranked,**與 ② 那一格同一種做法**
+    #       (② 本來就餵合成的 `[(1.0, draft)]` / `[(0.35, draft)]`)。
+    #    ⚠️ **而這樣做【失去】一件事,寫出來免得下一個人以為沒有代價**:
+    #       它不再順便證明「真語料裡真的會發生自撞」。
+    #       ⇒ 所以下面仍然把真語料的佔比**印出來**,而**不拿它當通過條件** ——
+    #         📌 **那個數字是【觀察】不是【閘】,而把兩者混在一起正是今天紅的成因。**
     whole = io.open(draft['path'], encoding='utf-8').read()
-    dirty = rank(whole, secs, TOP_N)                  # 沒排除 ⇒ 自撞
-    clean = rank(whole, kept, TOP_N)                  # 排除了 ⇒ 乾淨
+    real_ranked = rank(whole, secs, TOP_N)
+    real_hog = sum(1 for _, x in real_ranked if x['path'] == draft['path'])
+    # 髒的世界(合成):HOG_MIN 個名額來自同一份檔
+    dirty = [(0.50 - i * 0.01, draft) for i in range(HOG_MIN)] + \
+            [(0.30 - i * 0.01, kept[i]) for i in range(max(0, TOP_N - HOG_MIN))]
+    # 乾淨的世界(合成):每一個名額都來自【不同】的檔
+    _distinct, _seen = [], set()
+    for _x in kept:
+        if _x['path'] in _seen:
+            continue
+        _seen.add(_x['path'])
+        _distinct.append(_x)
+        if len(_distinct) >= TOP_N:
+            break
+    clean = [(0.40 - i * 0.01, _distinct[i]) for i in range(len(_distinct))]
     w_dirty = collision_warnings(dirty)
     w_clean = collision_warnings(clean)
     hog_d = any('同一份檔' in w for w in w_dirty)
@@ -601,6 +672,10 @@ def selfcheck(secs):
     hit_f = hog_d and not hog_c and scr_d and not scr_c
     print('世界六 自撞警告①霸佔名額   ⇒ 髒的會叫 %s / 乾淨的【不叫】%s'
           % ('是' if hog_d else '否', '是' if not hog_c else '否 —— 恆真, 沒判別力'))
+    print('       ↳ 觀察(不是閘):真語料裡那個靶佔 %d/%d 名, 門檻 %d'
+          % (real_hog, TOP_N, HOG_MIN)
+          + ('' if real_hog >= HOG_MIN else
+             '  ⚠️ 低於門檻 ⇒ 真語料【今天不會觸發】那道警告(docstring 記載的已知洞), 而這一行不擋通過'))
     print('       自撞警告②分數 >=%.1f ⇒ 1.0000 會叫 %s / 0.35 【不叫】%s'
           % (SELF_SCORE, '是' if scr_d else '否',
              '是' if not scr_c else '否 —— 恆真, 沒判別力'))
@@ -749,9 +824,26 @@ def selfcheck(secs):
           % ('是' if h9a else '否', d_src, d_n, d_from,
              '是' if h9b else '否', '是' if h9c else '否'))
 
+    # ---- 世界十:天花板提醒(2026-09-05 線 `-db`)。兩半各自表演 ----
+    # 🔴 **正對照這一半【很容易】, 要講出來**:餵的是母體裡的原文 ⇒ 分數約 1.0
+    #    ⇒ 它證明的是【高分時那一行不會亂叫】, **不證明門檻 0.25 放對位置**。
+    #    門檻的來源是 CEILING_LOW 上面那三個【當場量到】的實例, 不是這一格。
+    # 🔴 **負對照用無關字元, 而它是【替身】**:真實的那一發(2026-09-05, 0.2184)
+    #    是一段【正常的中文散文】而不是亂碼 ⇒ 替身證明得了分支會動, 證明不了
+    #    「真實的孤兒草稿會落在門檻下」。那件事只有下一次真的撞到才知道。
+    #    ⚠️ 而**不能拿當天那份草稿當靶** —— 它已經併進 memory 進了母體, 現在餵它會高分。
+    #    🔴 **而這句是【當場量到】的, 不是推的** —— 我寫完這行之後還是餵了它一發:
+    #      同一份草稿 **0.2184 ⇒ 0.3544**, 而新的第一名正是我剛併進去的那支 memory。
+    #      📌 **⇒ 一個負對照會因為【世界前進】變成正對照, 而它失效時印的是【通過】。**
+    #      ⇒ 這一族的負對照只能用【不隨母體長大的東西】(亂碼), 代價就是上面那句「替身」。
+    hit_j = (ceiling_warning(wa) is None) and (ceiling_warning(wb) is not None)
+    print('世界十 天花板提醒            ⇒ 高分【不叫】%s(%.4f) / 低分【會叫】%s(%.4f)'
+          % ('是' if ceiling_warning(wa) is None else '否', wa[0][0],
+             '是' if ceiling_warning(wb) is not None else '否', wb[0][0]))
+
     ok = (hit_a and not hit_b and hit_c and hit_d and hit_e and hit_f and hit_g
-          and hit_h and hit_i)
-    print('⇒ 自檢 %s' % ('PASS(九個世界印出不同答案)' if ok else 'FAIL(尺沒有判別力)'))
+          and hit_h and hit_i and hit_j)
+    print('⇒ 自檢 %s' % ('PASS(十個世界印出不同答案)' if ok else 'FAIL(尺沒有判別力)'))
     return 0 if ok else 1
 
 
@@ -939,6 +1031,10 @@ def main():
     warns = collision_warnings(ranked, n_self)
     for w in warns:
         print('\n' + w)
+
+    cw = ceiling_warning(ranked)
+    if cw:
+        print('\n' + cw)
 
     lp = write_log(root, (draft_path or '<stdin>'), (n_canon, n_inbox, n_mem),
                    n_self, ranked, bool(warns))

@@ -56,7 +56,10 @@ import {
   ItemProcurementBlock,
   ItemProcurementOrderNotices,
 } from './item-procurement-section';
+import { unsourcedQuantity } from '../../lib/orders/procurement-view';
 import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
+import type { OrderItemReceiptRow } from '../../lib/orders/receipt-repository';
+import type { OrderShipmentGroup } from '../../lib/shipping/order-shipments';
 
 // 🔴 葉元件與純判斷(三軸小元件 / `resolveAmountEditBlock` / 兩個 colSpan 常數 / 總計區)
 //    2026-08-24 拆檔片整塊搬到 `order-detail-items-support.tsx`(鐵則 6:本檔當時 591 行)。
@@ -69,6 +72,8 @@ export function ItemsTable({
   suppliers,
   suppliersFailed,
   cancelFormsAllowed,
+  receiptRows,
+  shipmentGroups,
 }: {
   detail: AdminOrderDetail;
   payments: PaymentListData;
@@ -87,6 +92,10 @@ export function ItemsTable({
    * 同名 prop 的檔頭:忘記接的症狀不能是「靜默把控制項開回去」)。
    */
   cancelFormsAllowed?: boolean;
+  /** `#450` 逐筆到貨(`null` = 讀不到 / 被截斷)。**必填無預設**, 只轉手不看內容。 */
+  receiptRows: readonly OrderItemReceiptRow[] | null;
+  /** `#450` 包裹分組(`null` = 讀不到)。**必填無預設**, 只轉手不看內容。 */
+  shipmentGroups: readonly OrderShipmentGroup[] | null;
 }) {
   const amountEditBlock = resolveAmountEditBlock(detail, payments);
   // 🔴 兩道都要成立才給取消控制項(與 `OrderCancelBlock:63` 的 `showForms` 同一組判準,
@@ -219,6 +228,14 @@ export function ItemsTable({
            *    那是刻意的:讀不到**不是資料**。
            */
           const hasProcurementRows = (item.procurements ?? []).length > 0;
+          // 🔵 **抽成具名常數而不是寫進 `defaultOpen={}` 裡** —— 理由不是好讀:
+          //    `order-detail-items-table-shape.test.tsx:405` 釘的是**原始碼字面**
+          //    `/defaultOpen=\{stuck\.kind === 'stuck'/` ⇒ 而那一格防的是
+          //    「有人把 `stuck` 從條件裡拿掉」(往【更少打開】的方向漂)。
+          //    ⇒ 🛑 **⇒ 我第一版把整串寫在 `{}` 裡 ⇒ prettier 換行 ⇒ 那道守門【當場紅】。**
+          //    ⇒ 🎯 **⇒ 而它紅得對:我的格式改動讓一道還活著的守門讀不到它要讀的東西。**
+          //       修法是把我的東西縮短、讓那一行保持原狀 —— **不是去放寬那個 regex。**
+          const hasUnsourced = unsourcedQuantity(item.quantitySummary) !== 0;
           // 🔴 片C:`cancelItemById` 沒有這個 id 或這張單根本不給取消 ⇒ 不畫 —— 交給
           //    `PartialCancelItemControl` 自己再判一次 `isItemSelectable`(fail-closed,
           //    呼叫端算錯也不會漏放行)。undefined 時不渲染,不是渲染一個 disabled 的假控制項。
@@ -248,10 +265,37 @@ export function ItemsTable({
                他選卡片版時逐字說「**看得完整**,但佔高度」⇒ **他接受的是【高度】,不是【多點一下】**。
                ⇒ 全部收起來等於把他接受的代價換成一個他沒被問過的代價,而換完之後畫面**反而不完整**
                  —— 那正是他選甲要避開的東西。
-               ⚠️ **沒有採購資料的維持收起**:那格展開是空的,展開它不叫「看得完整」。
+               ⛔ ~~**沒有採購資料的維持收起**:那格展開是空的,展開它不叫「看得完整」。~~
                🔴 `procurements === null`(讀不到)**歸在「收起」那半** —— 它不是資料。
                   而那不會讓警告消失:`describeItemStuck` 那行字在卡頭底下、**不依賴卡片開不開**。 */
-            defaultOpen={stuck.kind === 'stuck' || hasProcurementRows}
+            /* 🔴🔴 **片乙(2026-09-04):加第三個條件「這一項還有件數沒有登記來源」。**
+               —— 而**這是在推翻上面那句刪除線, 而它的前提【我量到是假的】**:
+               🔬 走查(admin-probe 真瀏覽器)開一張零採購列的單、點開品項卡 ⇒ 那一格逐字有:
+                  「還沒跟任何供應商訂,所以也還不能出貨。(自有庫存選「店內現貨」)」
+                  +「＋ 跟供應商下訂」+ **整張採購表單**(供應商/數量/預計到貨日/…/新增採購)
+               🔬 而碼也對得上:`item-procurement-section.tsx:33-40` 的 `UnsourcedNotice`
+                  在 `unsourced === null` 時**印一段字**, 只有 `=== 0` 才 `return null`。
+               ⇒ 🎯 **⇒ 「那格展開是空的」在【零採購列】這個世界不成立 ——
+                    那正是【要下訂的人】會遇到的世界, 也是唯一需要那個入口的世界。**
+               ⇒ ⇒ 📌 **⇒ 而那句話讓入口藏在兩層收合後面**:走查量到員工打開單子
+                    在商品清單上**看不到「採購」二字**, 而「全部展開」展的是分頁不是品項卡。
+
+               🛑 **而我只證了它【今天】不成立, 沒有證它當初就是錯的**(主視窗 2026-09-04 要求補這句):
+                  那一句寫在 2026-08-19, 而 `UnsourcedNotice` 那段字**當時在不在我沒去查**。
+                  ⇒ 🎯 **⇒「他寫錯了」與「世界後來變了」對下一個人的意義不同, 而我分不出來。**
+                  ⇒ ⇒ 📌 **⇒ 所以這一格不該被讀成「上一版判斷錯」, 只該讀成「那個前提今天是假的」。**
+               🔵 而**這也不是推翻拍板** —— Sean 那句原始依據逐字是「看得完整,但佔高度」
+                  ⇒ 他接受的是**高度**, 而那句話**站在展開這一邊**
+                  ⇒ ✅ **⇒ 比較準的說法是:那個實作沒有把拍板執行到這個世界。**
+
+               🔴 **判準寫成【狀態】不是【時間】**:用「還有件數沒有登記來源」,不是「這是新單」
+                  ⇒ 新單是時間、會過期;而「還有東西沒訂」是員工**現在要動手**的訊號
+                  ⇒ ⇒ ✅ 那讓它與既有那兩格同一族(都是「這裡有事要做」)。
+               🔵 `unsourced !== 0` 涵蓋兩個世界:`> 0`(真的還沒訂完)與 `null`(算不出來)
+                  ⇒ 而 `null` 那半刻意也開:**算不出來時最需要人去看那一格**。
+               ✅ **負對照在測試裡**:一張**全部都訂完**的單(`unsourced === 0`)⇒ **不展開**
+                  ⇒ 🛑 少了它,「展開了」與「永遠展開」印同一個畫面。 */
+            defaultOpen={stuck.kind === 'stuck' || hasProcurementRows || hasUnsourced}
             /* 🔴 片16(2026-08-19):品牌那一行 —— 確認稿 `:291`/`:304`/`:317`
                `<div class="ibrand">BREMBO</div>`,畫在 `<summary>` 裡、`.iline` grid **上方**、
                **橫跨整列**(`:137` CSS)。⇒ **不是第七軌,六軌一格沒動。**
@@ -368,6 +412,8 @@ export function ItemsTable({
                   兩個狀態的分家在 `item-amount-row.tsx` 的 `amountEditId` 那段。 */
             body={
               <ItemProcurementBlock
+                receiptRows={receiptRows}
+                shipmentGroups={shipmentGroups}
                 detail={detail}
                 item={item}
                 returnTo={returnTo}

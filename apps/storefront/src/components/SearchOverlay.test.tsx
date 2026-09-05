@@ -12,8 +12,14 @@
 // G3:**`price: null` 印「—」不是「NT$ 0」**(catalog-page.ts:80 那條拍板:null 與 0 處置相反)。
 //     一行 `?? 0` 會把兩半黏回去,而**畫面上看不出來** ⇒ 只有這格量得到。
 //
-// G4:**「查看所有結果」導到 `/search?q=`**,不是 `/products` —— A 案的落點就在這一格,
-//     導錯了客人會拿到一個沒篩選的列表(那正是主視窗當初裁定要避開的「更具體的謊」)。
+// G4:**「查看所有結果」導到 `/products?search=`** —— ⟦搜尋-落點換 /products⟧ 2026-09-03。
+//     ⛔ ~~原本這一格釘的是 `/search?q=`,不是 `/products`~~
+//     🔴 **2026-09-03 Sean 本人推翻了那個落點**,而它其實是**對回稿**:
+//        `design-reference/components/SearchOverlay.jsx:67` 逐字
+//        `onNav('products', { search: query.trim() })`,而稿裡**沒有 `/search` 這個頁**。
+//        Sean 逐字:「我以為搜尋會直接在我們商品目錄顯示誒」⇒ 他以為的就是稿說的。
+//     🟢 而舊拍板的**判準**沒有被推翻(逐字「一個看得見的缺,永遠優於一個安靜的錯」)——
+//        新落點靠 `SearchKeywordChip` 把「facet 沒生效」畫出來,判準換了一種活法。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -204,7 +210,10 @@ describe('SearchOverlay', () => {
     JSON.stringify({
       ...ONE_ITEM,
       brands: [{ id: 'akrapovic', name: 'AKRAPOVIČ', count: 648 }],
-      categories: [{ id: 'cat-1', name: '排氣系統', count: 740 }],
+      // 🔴 `path` 是 2026-09-05 `⟦search-CATNAMEQUERY⟧` 加的必填欄 —— **大類的 `path`
+      //    逐字等於 `name`** ⇒ 這一格的期望值一個字都沒變, 補的只是 fixture 的欄位。
+      //    🛑 而 typecheck **沒有替我抓到這裡** ⇒ 抓到它的是這三格測試紅了。
+      categories: [{ id: 'cat-1', name: '排氣系統', path: '排氣系統', count: 740 }],
       vehicles: [{ brandId: 'honda', brandName: 'Honda', modelId: 'cbr600', modelName: 'CBR600' }],
       failed: { brands: false, categories: false, vehicles: false },
       ...over,
@@ -220,7 +229,7 @@ describe('SearchOverlay', () => {
     expect(screen.getByText('排氣系統')).toBeTruthy();
   });
 
-  it('🔴🔴 G3-b 車款【刻意不畫】—— API 有回而畫面上不得出現(題 21 拍板前)', async () => {
+  it('🔴🔴 G3-b 車款【刻意不畫】—— 它守的是【一條拍板】(Sean 2026-09-04 重出版甲: 全部不改)', async () => {
     // 🎯 這一格釘的不是「還沒做」, 是一個【決定】:
     //    打 R6 會比中 Honda CBR600(`cbr600` 含 `r6`)⇒ 畫出來客人會以為網站壞了。
     //    🛑 而它與「空區不畫」在畫面上長得一樣 ⇒ 只有這一格與那段註解分得出來。
@@ -344,15 +353,22 @@ describe('SearchOverlay', () => {
     expect(screen.getByText('NT$ 0')).toBeTruthy();
   });
 
-  it('G4 「查看所有結果」導到 /search?q=,不是 /products', async () => {
+  it('G4 「查看所有結果」導到 /products?search=(2026-09-03 落點對回稿)', async () => {
     mockFetch(async () => new Response(JSON.stringify(ONE_ITEM), { status: 200 }));
     render(<SearchOverlay />);
     openWith('排氣管');
     const all = await screen.findByText(/查看「排氣管」的所有結果/);
     fireEvent.click(all);
-    expect(push).toHaveBeenCalledWith('/search?q=%E6%8E%92%E6%B0%A3%E7%AE%A1');
-    // 🔵 負向斷言:任何一發都不准指向 /products —— 導錯了畫面上完全正常。
-    expect(push.mock.calls.every(([url]) => !String(url).startsWith('/products?'))).toBe(true);
+    expect(push).toHaveBeenCalledWith('/products?search=%E6%8E%92%E6%B0%A3%E7%AE%A1');
+    // 🔴🔴 **負向斷言【換邊了】,而它仍然要在** —— 現在不准掉回舊落點。
+    //    ⚠️ 少了這一行,一個「兩邊都 push」的實作照樣全綠,而客人會看到兩次導覽。
+    expect(
+      push.mock.calls.every(([url]) => !String(url).startsWith('/search?')),
+      '掉回舊落點 /search ⇒ 客人拿到一個沒有左側分類與排序的頁',
+    ).toBe(true);
+    // 🔵 而參數名是 `search` 不是 `q` —— 稿用的是 `{ search: … }`,
+    //    而 `/products` 那頁認的也是 `search`(`lib/catalog-query.ts`)。打錯名字 ⇒ 靜靜給全站。
+    expect(String(push.mock.calls[0]?.[0])).toContain('?search=');
   });
 
   it('G5 Esc 關閉疊層(稿 :20 的行為)', async () => {
@@ -558,5 +574,92 @@ describe('SearchOverlay', () => {
     await waitFor(() => expect(document.body.hasAttribute('data-pcm-search-lock')).toBe(false));
     // 🔵 而它從頭到尾沒有碰 inline style
     expect(document.body.style.overflow).toBe('');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// 🔴🔴 「你是不是要找 X?」(`⟦search-BRANDTYPOTRGM⟧` · Sean 2026-09-04 拍甲)
+//   原話三個限定詞都要守:**只在 0 筆時** · **客人自己點** · **不自動改字**。
+// ══════════════════════════════════════════════════════════════════════
+describe('SearchOverlay 的品牌候選', () => {
+  const EMPTY_WITH_SUGGESTION = {
+    items: [], total: 0, brands: [], categories: [], vehicles: [],
+    failed: { brands: false, categories: false, vehicles: false },
+    suggestion: { name: 'AKRAPOVIČ', slug: 'akrapovic' },
+  };
+
+  it('🔴 零結果 + 有候選 ⇒ 畫那一行, 而且是【可以點的】', async () => {
+    mockFetch(async () => new Response(JSON.stringify(EMPTY_WITH_SUGGESTION), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('akrpovic');
+    await waitFor(() => expect(screen.getByText(/你是不是要找/)).toBeTruthy());
+    const btn = screen.getByRole('button', { name: 'AKRAPOVIČ' });
+    expect(btn).toBeTruthy();
+  });
+
+  it('🔴 零結果而【沒有】候選 ⇒ 那一行不能出現(空的建議比亂猜好)', async () => {
+    mockFetch(async () => new Response(
+      JSON.stringify({ ...EMPTY_WITH_SUGGESTION, suggestion: null }), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('zzzzzqqqqq');
+    await waitFor(() => expect(screen.getByText(/沒有找到/)).toBeTruthy());
+    expect(screen.queryByText(/你是不是要找/)).toBeNull();
+  });
+
+  it('🔴🔴 **有結果的時候不准出現** —— 而 route 那邊照樣會送 suggestion', async () => {
+    // 🛑 這一格是承重的:判準只有一份(這個元件的 `hasAnyResult`), 而 route 永遠送。
+    //    ⇒ 若有人把那一行搬出零結果那個 block, 這一格會紅。
+    mockFetch(async () => new Response(JSON.stringify({
+      ...ONE_ITEM,
+      suggestion: { name: 'AKRAPOVIČ', slug: 'akrapovic' },
+    }), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('排氣管');
+    await waitFor(() => expect(screen.getByText('鈦合金全段排氣管')).toBeTruthy());
+    expect(screen.queryByText(/你是不是要找/)).toBeNull();
+  });
+
+  it('🔴 點下去 ⇒ 導到那個品牌', async () => {
+    mockFetch(async () => new Response(JSON.stringify(EMPTY_WITH_SUGGESTION), { status: 200 }));
+    render(<SearchOverlay />);
+    openWith('akrpovic');
+    const btn = await waitFor(() => screen.getByRole('button', { name: 'AKRAPOVIČ' }));
+    (btn as HTMLButtonElement).click();
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    const href = push.mock.calls.at(-1)?.[0] as string;
+    expect(href).toContain('pbrand=akrapovic');
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴🔴 **「不自動改字」那一格 —— 而它【不能】寫在點下去之後**
+  //   (code-reviewer R1 抓到:我原本的標題寫「輸入框的字不變」而斷言從頭到尾沒讀過 input;
+  //    存活突變 = 在 onClick 加一行 `setQuery(建議的名字)` ⇒ 四格全綠。)
+  //   🛑 而**點下去之後結構上量不到** —— `onClick` 會 `close()`, 疊層 unmount, input 不存在了。
+  //   ✅ 所以改成量【它還在畫面上的時候】的兩件事:
+  //      ① 輸入框仍然是客人打的那個字(建議出現**不會**改寫它)
+  //      ② 沒有第二發請求(建議出現**不會**偷偷重送一次查詢)
+  //
+  // 🛑🛑 **而這一格【證不到】「點下去之後也不改字」—— 實測過, 不是推的**:
+  //    突變「在 `onClick` 加一行 `setQuery(建議的名字)`」⇒ **本檔 40 格全綠**。
+  //    🔬 成因:`onClick` 先 `close()` ⇒ 疊層 unmount ⇒ input 不存在、component state 也重置
+  //       ⇒ **那個世界在這一層結構上量不到。**
+  //    ⇒ 📌 **所以不要把本格讀成「③不自動改字 有測試守著」** —— 它守的是【出現時】那一半。
+  //       點下去那一半今天**沒有東西在守**, 而那要一發真的瀏覽器(或把 close 拆出來注入)才量得到。
+  // ══════════════════════════════════════════════════════════════════════
+  it('🔴 建議出現時:輸入框的字不變, 而且沒有偷偷重送查詢(不自動改字)', async () => {
+    let calls = 0;
+    mockFetch(async () => {
+      calls += 1;
+      return new Response(JSON.stringify(EMPTY_WITH_SUGGESTION), { status: 200 });
+    });
+    render(<SearchOverlay />);
+    openWith('akrpovic');
+    await waitFor(() => expect(screen.getByText(/你是不是要找/)).toBeTruthy());
+    // 🔵 用 placeholder 找 —— 那個 input 有 `type="search"` ⇒ role 是 `searchbox` 不是 `textbox`,
+    //    而我第一版寫 `getByRole('textbox')` **當場紅**(這一格是測試自己抓到的)。
+    const input = screen.getByPlaceholderText('搜尋商品 / 品牌 / 車款...') as HTMLInputElement;
+    expect(input.value).toBe('akrpovic');
+    // 🔵 一次查詢 = 一發請求。變成 2 就代表有人「順手」把建議送出去了。
+    expect(calls).toBe(1);
   });
 });

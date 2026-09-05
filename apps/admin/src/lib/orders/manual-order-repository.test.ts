@@ -79,6 +79,8 @@ const VALUES: ManualOrderValues = {
   shippingMethod: 'home',
   shipTo: { name: '王小明', phone: '0912345678', line: '台北市中山區某路 1 號' },
   invoice: { type: 'personal', carrier: '/ABC1234' },
+  invoiceRequested: true,
+  notificationEmail: null,
   shippingFee: 100,
   lines: [
     { sku: 'RPM-001', title: '碳纖維車台護蓋', qty: 2, unit_price: 14600, variant_id: null, spec: {} },
@@ -111,7 +113,7 @@ afterEach(() => {
 });
 
 describe('createManualOrder — wire(逐欄具名送、不 spread)', () => {
-  it('十個參數逐欄具名、深度相等,函式名逐字 admin_create_manual_order', async () => {
+  it('十一個參數逐欄具名、深度相等,函式名逐字 admin_create_manual_order', async () => {
     mocks.rpc.mockResolvedValue({ data: payload(), error: null });
     await createManualOrder(ARGS);
     expect(mocks.rpc).toHaveBeenCalledTimes(1);
@@ -123,8 +125,9 @@ describe('createManualOrder — wire(逐欄具名送、不 spread)', () => {
       p_payment_channel: 'bank_transfer',
       p_shipping_method: 'home',
       p_ship_to: { name: '王小明', phone: '0912345678', line: '台北市中山區某路 1 號' },
-      p_invoice: { type: 'personal', carrier: '/ABC1234' },
+      p_invoice: { type: 'personal', carrier: '/ABC1234', requested: true },
       p_shipping_fee: 100,
+      p_notification_email: VALUES.notificationEmail,
       p_lines: VALUES.lines,
     });
   });

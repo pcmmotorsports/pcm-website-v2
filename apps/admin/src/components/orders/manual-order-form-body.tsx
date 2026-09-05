@@ -5,6 +5,8 @@ import {
   MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD,
   MANUAL_ORDER_INVOICE_TAX_ID_FIELD,
   MANUAL_ORDER_INVOICE_TITLE_FIELD,
+  MANUAL_ORDER_INVOICE_REQUESTED_FIELD,
+  MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD,
   MANUAL_ORDER_INVOICE_TYPE_FIELD,
   MANUAL_ORDER_PAYMENT_CHANNEL_FIELD,
   MANUAL_ORDER_REQUEST_ID_FIELD,
@@ -192,6 +194,58 @@ export function ManualOrderFormBody({
 
           <fieldset className='space-y-2 rounded-md border p-3'>
             <legend className='px-1 text-sm'>發票</legend>
+            {/* 🔴🔴 **這顆勾選與下面那五格是【兩件事】**(2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 2 步;
+                Sean 第十八題拍甲):下面五格講「**開的話抬頭寫誰**」, 這一顆講「**開不開**」。
+
+                🔴 **前面那個 hidden 不是多餘的** —— HTML 的 checkbox **沒勾時整個欄位不會出現**
+                ⇒ 解析端讀到的空白, 與「**這個表單版本根本沒有這一格**」是同一個東西。
+                ⇒ 📌 而那兩個世界的正確結果**相反**(一個是「他決定不開」, 一個是「我不知道」)。
+                ⇒ ✅ 同名 hidden 讓那個欄位**永遠存在** ⇒ 三個世界真的分得開。
+                ⚠️ **順序不可調**:hidden 要在 checkbox **前面** —— 解析端取的是**最後一個值**。
+
+                🟢🟢 **[2026-09-05 Sean 拍了 —— 這一整段的前提換掉了]**
+                ⛔ ~~`defaultChecked`(預設打勾)這件事【沒有被 Sean 拍過】~~ ⇒ **他拍了。**
+                逐字(`~/pcm-mailbox/端Sean-0905早上佇列.md` §E 第 23 題):
+                **「預設不勾選,也就是預設不開發票」** ⇒ ✅ 所以 `defaultChecked` 拿掉。
+
+                🔴 **而【拿掉它會改變既有行為】, 這一格要說清楚**:
+                `orders.invoice_requested` 的 DB DEFAULT 是 `true`, 而本表單**顯式送值**
+                ⇒ 送 `off` ⇒ 存 `false`。**不是走 DEFAULT。**
+                ⇒ 📌 **今天之後建的手動單預設不開發票, 而它與舊單不同。**
+                ⚠️ 舊單一律 `true`, 本片**不回頭改任何一列**。
+
+                🛑 **而原本那段的擔憂【反過來了】, 一併記下來**:
+                原文寫「員工沒注意到這一格 ⇒ 會多開一張發票」;
+                改成預設不勾之後, 沒注意到的後果變成 **⇒ 該開的沒開**。
+                ⇒ **兩種都是錢, 而 Sean 選了後者 —— 那是他的生意判斷, 不是我們的。**
+                📎 舊字面(含那段「本片不代他決定」)已被本段取代;歷史在 git。 */}
+            {/* 🔴🔴 **通知 email —— 留白 = 不寄**(`⟦f3-MAILFALLBACKVSRULING⟧` 片 E;Sean 已拍)。
+                🛑 **它不屬於發票區**, 只是排版上挨著:發票那幾格講「開給誰」,
+                   這一格講「寄到哪」—— 兩件事, 不要哪天一起收合起來。
+                ⚠️ **不能省** —— 解析端(`manual-order-form.ts` 的 `readSingle`)把**缺欄當錯**,
+                   少了這個 `<input>`, **每一張手動單都建不出來**。
+                🔬 而那正是 R3(換角度)抓到的:我先寫了解析與測試, 而**這一格漏了** ——
+                   三綠全綠、555 測項 0 紅, 因為**每一支 fixture 都自己補了那一格**。
+                   ⇒ 📌 **fixture 補齊的欄位, 在真瀏覽器上不存在。** */}
+            <label className='block text-sm'>
+              <span className='mb-1 block'>通知 email(留白 = 不寄)</span>
+              <input
+                type='email'
+                autoComplete='off'
+                name={MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD}
+                placeholder='要寄訂單通知就填這裡;不寄就留白'
+                className='block w-full rounded-md border px-2 py-1'
+              />
+            </label>
+            <label className='flex items-center gap-2 text-sm'>
+              <input type='hidden' name={MANUAL_ORDER_INVOICE_REQUESTED_FIELD} value='off' />
+              <input
+                type='checkbox'
+                autoComplete='off'
+                name={MANUAL_ORDER_INVOICE_REQUESTED_FIELD}
+              />
+              <span>這張單要開發票</span>
+            </label>
             <select
               autoComplete='off'
               name={MANUAL_ORDER_INVOICE_TYPE_FIELD}

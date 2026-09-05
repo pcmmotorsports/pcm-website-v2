@@ -24,6 +24,8 @@ const FIELDS = {
   phone: 'ship_to_phone',
   line: 'ship_to_line',
   invoiceType: 'invoice_type',
+  invoiceRequested: 'invoice_requested',
+  notificationEmail: 'notification_email',
   carrier: 'invoice_carrier',
   title: 'invoice_title',
   taxId: 'invoice_tax_id',
@@ -89,6 +91,8 @@ function base(over: Array<[string, string]> = [], drop: string[] = []): ManualOr
     [FIELDS.name, '王小明'],
     [FIELDS.phone, '0912345678'],
     [FIELDS.line, '台北市中正區某路 1 號'],
+    [FIELDS.invoiceRequested, 'off'],
+    [FIELDS.notificationEmail, ''],
     [FIELDS.invoiceType, 'personal'],
     ...BASE_LINE,
   ];
@@ -115,6 +119,9 @@ describe('parseManualOrderForm:成功路徑的形狀', () => {
       shippingMethod: 'home',
       shipTo: { name: '王小明', phone: '0912345678', line: '台北市中正區某路 1 號' },
       invoice: { type: 'personal' },
+      // 基準表單的 hidden 是 `off` ⇒ 這裡是 `false`。**不是預設值, 是那張表單的內容。**
+      invoiceRequested: false,
+      notificationEmail: null,
       shippingFee: 150,
       lines: [
         { sku: 'PCM-001', title: '排氣管', qty: 2, unit_price: 12000, variant_id: VARIANT, spec: { color: '黑' } },
@@ -504,5 +511,187 @@ describe('newManualRequestId', () => {
   it('🔴 它產出來的東西,解析器收得下(兩支不對盤的話這格會紅)', () => {
     const id = newManualRequestId();
     expect(ok(parseManualOrderForm(base([[FIELDS.requestId, id]], [FIELDS.requestId]))).manualRequestId).toBe(id);
+  });
+});
+
+describe('⟦b4-MANUALORDERDEADEND⟧ 商品編號那句訊息 —— 不得指向不存在的動作', () => {
+  // 🔬 病史(2026-09-05 走查 + 讀碼各驗一次):原句是
+  //    「…商品編號格式不對, **請重新從商品清單挑一次**。」
+  //    ① 那個清單**不能挑**:`manual-order-catalog-lookup.tsx:145` 的 `<li>` 沒有 button / role / onClick
+  //    ② 那串編號他**從來看不到**:同檔 `h.variantId` 全檔 1 命中, 而那一處是 React 的 `key=`
+  //    ⇒ 🎯 原句對員工是「回去挑」而沒有東西可挑、「重新輸入」而他沒看過那個值。
+
+  function bad() {
+    // 🔴 **要 `drop` 掉原本那一格再放新的** —— `base(over)` 是**追加**不是取代,
+    //    同名欄送兩份會撞到另一條路(「品項那幾欄對不起來了」)⇒ 這幾格會紅在無關的理由上。
+    //    📌 我第一版就是這樣, 而三格同時紅 —— **紅的理由與它們要守的東西無關。**
+    return parseManualOrderForm(base([[FIELDS.lineVariant, 'not-a-uuid']], [FIELDS.lineVariant]));
+  }
+
+  it('🔴 舊字面不得再出現', () => {
+    const r = bad();
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).not.toContain('請重新從商品清單挑一次');
+  });
+
+  it('🔴 新訊息要給【做得到的】下一步 —— 這一格留白', () => {
+    const r = bad();
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('留白');
+  });
+
+  it('🔴🔴 而它要擋掉那個【最自然的錯誤動作】:貼商品頁網址上的編號', () => {
+    // 🛑 商品列表是 `.from('products')`(`product-repository.ts:315`), 網址 `/products/{id}`
+    //    帶的是 **product id**;這一格要的是 **product_variants id**。
+    //    🔴 兩者都是 UUID ⇒ 貼錯那一種**過得了格式檢查**, 而錯誤往下走、不會叫。
+    //    ⇒ 少了這一格, 一個「只把舊句改成『請重新輸入』」的修法會全綠, 而它沒有擋住那個動作。
+    const r = bad();
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('商品頁網址');
+  });
+
+  it('🔵 負對照:合法 uuid 不得被這道擋下(否則上面三格對「永遠失敗」也全綠)', () => {
+    const r = parseManualOrderForm(
+      base([[FIELDS.lineVariant, '33333333-3333-4333-8333-333333333333']], [FIELDS.lineVariant]),
+    );
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe('parseManualOrderForm:「要不要開發票」那顆勾選(`⟦b4-INVOICE5PCT⟧` 第 2 步)', () => {
+  // 🔴🔴 **這一族要測的是【三個世界】, 不是兩個。**
+  //   HTML 的 checkbox 沒勾時**整個欄位不出現** ⇒ 那與「表單根本沒有這一格」印同一個空白,
+  //   而兩者的正確答案**相反**(一個是他決定不開, 一個是我不知道)。
+  //   ⇒ 表單那邊放了一個**同名 hidden(`off`)**, 讓欄位永遠在 ⇒ 三個世界才分得開。
+  //   🛑 少了下面第三格, 把 hidden 從表單刪掉這件事**不會有任何東西紅**。
+
+  it('沒勾(只有 hidden 的 off)⇒ false', () => {
+    expect(ok(parseManualOrderForm(base())).invoiceRequested).toBe(false);
+  });
+
+  it('勾了(hidden 的 off 後面再跟一個 on)⇒ true —— 取的是【最後一個】值', () => {
+    expect(ok(parseManualOrderForm(base([[FIELDS.invoiceRequested, 'on']]))).invoiceRequested).toBe(
+      true,
+    );
+  });
+
+  it('🔴 順序反過來(on 在前、off 在後)⇒ false —— 證明「取最後一個」不是「有 on 就算」', () => {
+    const flipped = base(
+      [
+        [FIELDS.invoiceRequested, 'on'],
+        [FIELDS.invoiceRequested, 'off'],
+      ],
+      [FIELDS.invoiceRequested],
+    );
+    expect(ok(parseManualOrderForm(flipped)).invoiceRequested).toBe(false);
+  });
+
+  it('🔴🔴 欄位【整個不在】(hidden 被刪掉了)⇒ **拒絕建單**, 不猜', () => {
+    // 🛑 codex R1 must-fix 改過方向:⛔ ~~原本回 `true` 並繼續建單~~ ——
+    //    `true` = 開發票 = **多做一件事** ⇒ 那是 fail-**open**, 而它會安靜地替他做一個決定,
+    //    錯的方向剛好是「客人拿到一張他沒要的發票」。錢路徑上契約壞掉要**停**。
+    const r = parseManualOrderForm(base([], [FIELDS.invoiceRequested]));
+    expect(r.ok).toBe(false);
+  });
+
+  it('🔴 值看不懂(`off` 後面跟一串亂碼)⇒ **拒絕**, 不當作沒勾', () => {
+    const r = parseManualOrderForm(
+      base([[FIELDS.invoiceRequested, 'yes-please']], [FIELDS.invoiceRequested]),
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it('🔴 負對照:上面兩格的紅【不是因為 base 本身壞了】', () => {
+    expect(parseManualOrderForm(base()).ok).toBe(true);
+  });
+
+  it('🔴 前提:上面那三格的差別真的來自這一欄 —— 三個世界的其餘欄位逐字相同', () => {
+    const off = ok(parseManualOrderForm(base()));
+    const on = ok(parseManualOrderForm(base([[FIELDS.invoiceRequested, 'on']])));
+    expect({ ...off, invoiceRequested: null }).toEqual({ ...on, invoiceRequested: null });
+  });
+});
+
+/**
+ * 🔴 **覆寫那一格要用 `drop`, 不能只 `over` 追加** —— `base()` 的 `over` 是**接在後面**,
+ *    而 `notification_email` 已經在基準列裡 ⇒ 追加會讓同名欄出現**兩次**。
+ * 🛑 而解析端用 `readSingle` ⇒ 它把「出現兩次」判成 invalid(那是對的:text input 只會有一份,
+ *    兩份 = payload 被動過)⇒ 🔬 **我第一版就是這樣寫的, 九格全紅, 而紅的理由不是我要測的那個。**
+ * 📌 **一個測試助手的預設行為(追加 vs 覆寫), 會讓九格測試同時測到另一件事。**
+ */
+function withEmail(v: string): ManualOrderFormLike {
+  return base([[FIELDS.notificationEmail, v]], [FIELDS.notificationEmail]);
+}
+
+describe('parseManualOrderForm:「通知 email」那一格(`⟦f3-MAILFALLBACKVSRULING⟧` 片 E)', () => {
+  // 🔴🔴 **這一族要測的是【留白會不會變成空字串】, 不只是「有填的時候對不對」。**
+  //    空字串會被 `orders_notification_email_valid` 的 `~ '^[!-~]+$'` 擋掉 ⇒ **整張單建不出來**,
+  //    而那個失敗的訊息是一個約束名 —— 員工看不懂、也不知道是哪一格。
+  //    ⇒ 📌 所以「留白 ⇒ `null`」是**行為**不是實作細節,要有自己的一格。
+  // ⛔ ~~原本這格叫「原樣帶出去」~~ —— 🔴 **那個名字說謊**(R3 nit N1):
+  //    `canonicalizeNotificationEmail`(`packages/schemas/src/notification-email.ts:44-51`)
+  //    會把 **domain 轉小寫**;而我當時的測資 `a@b.co` 本來就是小寫
+  //    ⇒ 📌 **那一格對「會不會被正規化」這件事零判別力, 而名字讓人以為它守著。**
+  it('有填 ⇒ 前後空白剝掉, 而 domain 會被轉成小寫(不是原樣)', () => {
+    const r = ok(parseManualOrderForm(withEmail('  a@b.co  ')));
+    expect(r.notificationEmail).toBe('a@b.co');
+  });
+
+  it('🔴 domain 大寫 ⇒ 轉小寫(這一格才守得住正規化)', () => {
+    const r = ok(parseManualOrderForm(withEmail('Sean@EXAMPLE.CO')));
+    // 🔵 只有 domain 轉小寫;local part 大小寫**保留**(RFC 上它是有意義的)。
+    expect(r.notificationEmail).toBe('Sean@example.co');
+  });
+
+  it('🔴 留白 ⇒ `null`, 不是空字串', () => {
+    const r = ok(parseManualOrderForm(withEmail('')));
+    expect(r.notificationEmail).toBeNull();
+  });
+
+  it('🔴 只打了空白 ⇒ 也是 `null`(員工按了空白鍵與什麼都沒打, 對客人是同一件事)', () => {
+    const r = ok(parseManualOrderForm(withEmail('   ')));
+    expect(r.notificationEmail).toBeNull();
+  });
+
+  it('🔴 缺欄 ⇒ 拒, 而訊息要講【哪一格】', () => {
+    const form = base();
+    const stripped = {
+      getAll: (n: string) => (n === FIELDS.notificationEmail ? [] : form.getAll(n)),
+    };
+    const r = parseManualOrderForm(stripped);
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toContain('通知 email');
+  });
+
+  it.each([
+    ['沒有 @', 'abc'],
+    ['兩個 @', 'a@@b.co'],
+    ['domain 沒有點', 'a@b'],
+    ['帶全形字', 'a＠b.co'],
+    ['LINE 合成域', 'u123@line.pcmmotorsports.local'],
+    ['合成域的子網域', 'u123@x.line.pcmmotorsports.local'],
+    // 🔴🔴 **這兩格釘的是【表單比 DB 嚴】那個【刻意的】不一致**(codex R2 抓到我漏測):
+    //    DB 的 CHECK(`20260718120000:132-133`)**只**禁 `line.pcmmotorsports.local` 一支,
+    //    而表單禁**整個基底域**。⇒ 下面兩個是 **DB 會收、表單會拒** 的。
+    //    🛑 少了這兩格, 哪天有人把表單「對齊」成 DB 那條, **上面每一格都照樣綠**。
+    ['合成基底域本身', 'u123@pcmmotorsports.local'],
+    ['非 line 的合成子網域', 'u123@manual.pcmmotorsports.local'],
+  ])('🔴 格式不對就拒(%s)', (_n, v) => {
+    const r = parseManualOrderForm(withEmail(v));
+    expect(r.ok).toBe(false);
+    // 🔵 訊息要告訴他**清空也可以** —— 那是他最常見的下一步。
+    expect(r.ok === false && r.error).toContain('清空');
+  });
+
+  it('🔵 負對照:一個【合法】的信箱不得被判成格式錯', () => {
+    // 🛑 少了這一格, 一個「永遠拒絕」的實作會讓上面六格全綠。
+    const r = parseManualOrderForm(withEmail('a+tag@sub.example.co.jp'));
+    expect(r.ok).toBe(true);
+  });
+
+  it('🔵 負對照:那個看起來像合成域而不是的網域要放行', () => {
+    // `evil-pcmmotorsports.local` 以它結尾而不是子網域 —— 判斷式用 `.` 前綴才分得出來。
+    const r = parseManualOrderForm(withEmail('a@evil-pcmmotorsports.local'));
+    expect(r.ok).toBe(true);
   });
 });

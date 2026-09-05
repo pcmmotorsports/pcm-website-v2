@@ -8,6 +8,9 @@
 // - M-1-12 Codex review 修正:篩選 / 排序純函式拆 products-filter-logic.ts、
 //   ActiveChips / Pagination 拆同名檔(鐵則 6:元件檔 >400 行必拆);本檔保留
 //   主元件 + PageHeader / SortBar / MobileFab 三個小型版面子元件。
+// - #341-C(2026-09-04)再拆:~~PageHeader / SortBar~~ 已搬出為 `ProductsPageHeader.tsx` /
+//   `ProductsSortBar.tsx`,訊息態樣式與 `hasCatalogFilterParam` 搬去 `products-message-state.tsx`。
+//   🔴 **上一行的舊字面留著** —— 搜 `PageHeader` 想在本檔找到它的人,要在同一發撞到這裡。
 //
 // 字面 vs 事實揭示:
 // - design 的 tweaks / onNav / window.PCM_DATA / 4-variant filterStyle 開關 /
@@ -38,10 +41,11 @@
 
 import { useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
 import { vehicleLabel } from '@/lib/vehicle-match';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   cascadeFilterReducer,
+  clearAll,
   makeInitialCascadeState,
   type CascadeFilterState,
 } from '@pcm/ui';
@@ -54,6 +58,12 @@ import { useFacetCountResolver } from '@/lib/vehicle-facet-display';
 import { useServerMobile } from '@/contexts/MobileContext';
 import { ProductCard } from './ProductCard';
 import { ActiveChips } from './ActiveChips';
+// #341-C(鐵則 6 拆檔片, 2026-09-04):以下三支是從本檔**原樣搬出**的 ——
+// 函式本體與註解一個字沒改, 每一刀的理由寫在那三支自己的檔頭。
+import { MESSAGE_STATE_STYLE, hasCatalogFilterParam } from './products-message-state';
+import { ProductsPageHeader } from './ProductsPageHeader';
+import { ProductsSortBar } from './ProductsSortBar';
+import { SearchKeywordChip } from './SearchKeywordChip';
 import { Pagination } from './Pagination';
 import { makeInitialExtraFilters, type ProductExtraFilters } from './filter-state';
 import { SORT_OPTIONS } from '@/lib/sort-options';
@@ -75,13 +85,6 @@ import type { MockBrand } from '@/data/mock-brands';
 import { buildBrandTaxonomy } from '@/lib/brand-taxonomy';
 import type { GarageChipItem } from './GarageChips';
 
-// 訊息態(載入失敗 / 找不到商品)共用樣式;沿用原空狀態 inline 字面、不新增 CSS 檔。
-const MESSAGE_STATE_STYLE: CSSProperties = {
-  padding: '64px 0',
-  textAlign: 'center',
-  color: 'var(--c-text-3)',
-  font: '14px/1.6 system-ui, sans-serif',
-};
 
 export type ProductsPageProps = {
   /** server-resolved 真目錄商品(toUIProduct 'general' strip、零經銷價;#220 列表遷真;
@@ -100,100 +103,35 @@ export type ProductsPageProps = {
   motoBrands: MockMotoBrand[];
   /** V-1e:登入會員愛車(RLS own、序列化收窄;未登入/讀取失敗=[]、「我的愛車」鈕不顯示) */
   garage?: GarageChipItem[];
+  /**
+   * `?search=` 那個關鍵字(⟦搜尋-落點換 /products⟧ 2026-09-03)。有值 = **本頁的商品
+   * 是關鍵字撈的、不是 RPC 撈的** ⇒ 左側 facet / 排序**沒有生效**。
+   *
+   * 🔴 **它必須被畫出來**(`SearchKeywordChip`)—— 不畫的話,客人看到的是一個
+   *    「篩選條件都在、但點了沒反應」的目錄頁,而**那是安靜的錯**。
+   */
+  searchKeyword?: string;
+  /**
+   * ⟦search-CAPSULEPARSE⟧:解析器**認不得、因此沒有拿去過濾**的那些字。
+   * 🔴 它**不是**篩選條件 —— 它是一句「這幾個字我們沒有用到」的告白。
+   *    ⇒ 📌 而它必須被畫出來:一個「懂了一半」的系統, 比完全沒懂的更難用,
+   *      因為客人不知道要重打哪一段。
+   */
+  unmatchedWords?: string;
 };
 
-// PageHeader — 頁首標題 + 麵包屑(標題依 cascade 已選分類 / 車輛推導)
-function PageHeader({ cascade }: { cascade: CascadeFilterState }) {
-  const title =
-    cascade.category?.sub ??
-    cascade.category?.main ??
-    (cascade.vehicle
-      ? cascade.vehicle.model != null
-        ? vehicleLabel(cascade.vehicle.brand, cascade.vehicle.model)
-        : cascade.vehicle.brand
-      : '全部商品');
 
-  return (
-    <div className="pp-head">
-      <div className="pp-head-row">
-        <h1 className="pp-title">{title}</h1>
-        <nav className="pp-breadcrumb" aria-label="麵包屑導航">
-          <Link href="/">首頁</Link>
-          <span>›</span>
-          {cascade.category ? <Link href="/products">商品目錄</Link> : <span>商品目錄</span>}
-          {cascade.category?.main && (
-            <>
-              <span>›</span>
-              <span>{cascade.category.main}</span>
-            </>
-          )}
-          {cascade.category?.sub && (
-            <>
-              <span>›</span>
-              <span>{cascade.category.sub}</span>
-            </>
-          )}
-        </nav>
-      </div>
-    </div>
-  );
-}
-
-// SortBar — 商品數 + grid 欄數切換 + 排序下拉(cascade 版面無 drawer 篩選鈕)
-function SortBar({
-  count,
-  gridCols,
-  setGridCols,
-  sort,
-  setSort,
-}: {
-  count: number | null;   // null = 撈不到，不是 0 件（見 displayCount 的註解）
-  gridCols: number;
-  setGridCols: (n: number) => void;
-  sort: string;
-  setSort: (value: string) => void;
-}) {
-  return (
-    <div className="pp-sortbar">
-      <div className="pp-sortbar-left">
-        <span className="pp-count">{count === null ? '件數未能載入' : `${count} 件商品`}</span>
-      </div>
-      <div className="pp-sortbar-right">
-        <div className="pp-grid-toggle">
-          {[3, 4, 5].map((n) => (
-            <button key={n}
-              className={gridCols === n ? 'is-active' : ''}
-              onClick={() => setGridCols(gridCols === n ? 0 : n)}
-              aria-label={`每排 ${n} 欄`}
-              data-tip={`每排 ${n} 欄`}>
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                {[...Array(n).keys()].map((i) => (
-                  <rect key={i} x={i * (16 / n) + 1} y="1" width={16 / n - 2} height="14" />
-                ))}
-              </svg>
-            </button>
-          ))}
-        </div>
-        <div className="ft-divider" />
-        {/* 選項來自 lib/sort-options 單一定義點(手機的排序面板吃同一份;value 同時是 ?sort= 契約)。
-            手機不顯示本下拉(products-mobile.css 隱藏)= 排序改走上方工具列的獨立入口。 */}
-        <select className="ft-sort" value={sort} onChange={(e) => setSort(e.target.value)}>
-          {SORT_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-      </div>
-    </div>
-  );
-}
 
 // ~~MobileFab~~(手機浮動篩選鈕)已於 ADR-0007 退場:Sean 拍板手機改「分類 / 篩選 / 排序
 // 三個獨立入口」,單顆 FAB 開一個六 tab 混合抽屜正是被否決的形狀。
 // 現行手機入口 = ProductsMobileControls(含 MobileVehicleSheet 與兩個 scope 的 FilterDrawer)。
 
-export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands, garage = [] }: ProductsPageProps) {
+export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands, garage = [], searchKeyword, unmatchedWords }: ProductsPageProps) {
   // searchParams 先取(#6:page/sort/perPage lazy init 讀 URL;server render 與 client 首繪同源、零 hydration 分歧)
   const searchParams = useSearchParams();
+  const router = useRouter();
+  // ⟦b4-DEADENDMSG1⟧③:零結果時才問這一格(有結果時整段不渲染 ⇒ 那顆鈕結構上出不來)。
+  const filtered = hasCatalogFilterParam(searchParams);
   // ── A2(2026-08-03):`?pick=vehicle` 落地開燈(Sean 拍 B 案「同落地 + 開燈」)──
   // 入口 = Header「依車輛搜尋」(非首頁時)與 MobileTabBar「找車」。
   // 🔴 `pick` **不是篩選條件**,刻意不進 cascade 狀態機:useDeepLinkRestore 與
@@ -216,7 +154,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   const pickVehicle = searchParams.get('pick') === 'vehicle';
   const [cascade, rawDispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
   const [extras, setExtrasRaw] = useState<ProductExtraFilters>(makeInitialExtraFilters);
-  const { sort, setSort: setSortRaw, page, setPage, perPage, setPerPage } = useBrowseUrlState(searchParams);
+  const { sort, setSort: setSortRaw, page, setPage, perPage, setPerPage } = useBrowseUrlState(searchParams, searchKeyword !== undefined);
   // Sean 2026-07-31:篩選動作確認後一律回頁首,排序同辦(拍板 A;詳 products-scroll-top.tsx;
   // 🔴 只有篩選 UI 吃包裝版,URL 還原走下方 useDeepLinkRestore 的 rawDispatch、不捲頁)
   const { dispatch, setExtras, setSort } = useFilterScrollTop(rawDispatch, setExtrasRaw, extras, setSortRaw);
@@ -249,6 +187,8 @@ export function ProductsPage({ products, total, error, categories, brands: serve
     dispatch: rawDispatch,
     skipPageResetOnce: urlVehicleInitRef,
     brandAppliedOnce: urlBrandInitRef,
+    // 🔴 有關鍵字 ⇒ 不把 facet 還原進 cascade(理由全文在該 hook 的 `keywordActive` JSDoc)。
+    keywordActive: searchKeyword !== undefined,
   });
 
   // S1:cascade.vehicle → URL(短版 ?vehicle=)→ server 以 RPC 重查(車款篩選下推 DB、
@@ -300,7 +240,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   const displayed = products;
 
   // #6:page/sort/perPage 同步回 URL(原生 replaceState 零 server 往返;詳 products-url-state.tsx)
-  useBrowseUrlSync(currentPage, sort, perPage);
+  useBrowseUrlSync(currentPage, sort, perPage, searchKeyword !== undefined);
 
   const changePage = (n: number) => {
     setPage(Math.max(1, Math.min(totalPages, n)));
@@ -337,7 +277,26 @@ export function ProductsPage({ products, total, error, categories, brands: serve
         openVehicleOnMount={pickVehicle && isMobileUA}
       />
 
-      <div className="pp-layout has-side" data-filter-style="cascade">
+      {/* ⟦supply-BRANDFILTERZERO⟧ **下一次紅的時候, 要分得出是哪一個世界。**
+          🔬 已知的事實(2026-09-04 `-front` 開檔量):**client 【不】過濾** —— 本檔 `displayed = products`
+             ⇒ 📌 **「server 回 723 而畫面 0」在【同一次渲染】裡不可能發生**;那必然是**兩次不同的載入**。
+          🎯 **所以要留的證據不是「client 算錯了嗎」, 是【這一次渲染, server 到底回了什麼】。**
+          🔵 **不改任何行為** —— 只是把四個已經在手上的值寫進 DOM:
+             `total`(server 說幾件)· `products.length`(這一頁實際拿到幾件)
+             · 品牌篩選鍵(舊 `?pbrand=` 與新 `?pbrands=` 都收)· **品牌對照表的大小**
+          🔴 **對照表大小那一格是刻意加的**:`fetchCatalogBrandTaxonomy` 中斷時它會是 **0**,
+             而那正是「有效品牌卻撈不到」最可能的成因(見 `use-catalog-filter-url-sync` 對空表的註解)。
+             ⇒ **沒有它, 下一次紅了還是只能猜。** */}
+      <div
+        className="pp-layout has-side"
+        data-filter-style="cascade"
+        data-diag-total={String(total ?? 'undefined')}
+        data-diag-rows={String(products.length)}
+        data-diag-brandkey={
+          searchParams.get('pbrands') ?? searchParams.get('pbrand') ?? ''
+        }
+        data-diag-brandtable={String(brands.length)}
+      >
         {/* #220-B1:真資料單一品牌 RPM CARBON/全 silver/無促銷 → 隱藏假篩選(留價格;
             僅現貨=#161 不在此;視覺細節 Sean 後續 design skill 調)。
             hideVehicle:S1 曾解除、Sean 2026-07-03 實測 feedback 恢復 —— 車輛選擇集中頂部
@@ -360,15 +319,29 @@ export function ProductsPage({ products, total, error, categories, brands: serve
           setExtras={setExtras}
         />
         <main className="pp-main">
-          <PageHeader cascade={cascade} />
-          <ActiveChips
-            data={data}
-            cascade={cascade}
-            dispatch={dispatch}
-            extras={extras}
-            setExtras={setExtras}
-          />
-          <SortBar
+          <ProductsPageHeader cascade={cascade} />
+          {/* 🔴 關鍵字膠囊排在 `ActiveChips` **前面** —— 它是這一頁商品的**來源**,
+              而 ActiveChips 那些是「本來會生效、現在沒生效」的東西。順序講的是因果。 */}
+          <SearchKeywordChip keyword={searchKeyword} unmatchedWords={unmatchedWords} />
+          {/* 🔴🔴 **有關鍵字時不畫 facet 膠囊** —— code-reviewer 2026-09-03 must-fix。
+            * 直接開 `/products?search=cark9650&vehicle=yamaha:mt-07` 時(不必點任何東西),
+            * `ActiveChips` 會從 URL 還原出一顆「Yamaha MT-07 ✕」
+            * ⇒ 📌 **那顆膠囊聲稱清單被那台車縮過, 而商品其實是關鍵字撈的、完全沒被縮。**
+            * ⇒ 🛑 一句靜態提示擋不住它:提示說「篩選要先移除關鍵字才生效」,
+            *   而膠囊就在那句話正下方說「我已經生效了」—— **兩個聲明互相矛盾, 而客人信膠囊。**
+            * ⇒ ✅ 關鍵字在的時候, 唯一該出現的膠囊就是關鍵字自己那顆。
+            * 🔵 而 facet 控制項(左側 / 頂部)**照樣可點**(Q2=A)—— 點下去會清掉關鍵字
+            *   (`use-catalog-filter-url-sync.tsx` 的 `filtersChanged` 那一格),膠囊隨即回來。 */}
+          {searchKeyword === undefined && (
+            <ActiveChips
+              data={data}
+              cascade={cascade}
+              dispatch={dispatch}
+              extras={extras}
+              setExtras={setExtras}
+            />
+          )}
+          <ProductsSortBar
             count={displayCount}
             gridCols={gridCols}
             setGridCols={setGridCols}
@@ -420,6 +393,41 @@ export function ProductsPage({ products, total, error, categories, brands: serve
           ) : (
             <div style={MESSAGE_STATE_STYLE}>
               找不到符合條件的商品
+              {filtered && (
+                <>
+                  <div style={{ marginTop: 8 }}>
+                    目前有篩選條件在生效。可能是條件太窄,或這個連結上的某個條件已經失效了。
+                  </div>
+                  <button
+                    className="ac-clear-all"
+                    style={{ marginTop: 16 }}
+                    onClick={() => {
+                      dispatch(clearAll());
+                      setExtras(makeInitialExtraFilters());
+                      // 🔴 光清 state 不夠:認不得的參數留在 URL 上, 而回寫段的
+                      // `else if (parseCategoryFromUrl(...) !== null)` 對它回 null ⇒ **不刪**
+                      // ⇒ 只 dispatch 的話, 按完 URL 還是髒的、還是 0 筆。
+                      // 🔵 `sort`/`per` 明確帶走 —— 它們是客人刻意選的, 不是篩選。
+                      // 🛑 **而這幾行【不是】在修一個量到的缺陷, 要說清楚**:
+                      //    R1 審查說「丟掉 sort/per ⇒ state 還在而 URL 沒了 ⇒ 排序選單寫著
+                      //    『價格由低到高』而清單沒排」。**我去量了, 那個情境沒有重現** ——
+                      //    把這幾行換回裸的 `router.replace('/products')` 跑同一格,
+                      //    終態 URL **一樣**是 `?sort=price-asc&per=100`(回寫 effect 補回來)。
+                      //    ⇒ 📌 **這幾行買到的不是修復, 是【不依賴另一個 effect 事後補救】。**
+                      //    ⇒ 🔴 而下面那格測試在這幾行被拿掉時**照樣綠**(實測), 它守的是
+                      //      【終態】不是【這幾行】—— 不要把它讀成這幾行的守門。
+                      const kept = new URLSearchParams();
+                      const keepSort = searchParams.get('sort');
+                      const keepPer = searchParams.get('per');
+                      if (keepSort) kept.set('sort', keepSort);
+                      if (keepPer) kept.set('per', keepPer);
+                      const keptQuery = kept.toString();
+                      router.replace(keptQuery ? `/products?${keptQuery}` : '/products');
+                    }}>
+                    清除所有篩選
+                  </button>
+                </>
+              )}
             </div>
           )}
           {!error && resultCount > 0 && (

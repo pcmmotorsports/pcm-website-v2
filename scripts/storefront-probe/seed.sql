@@ -217,7 +217,27 @@ CROSS JOIN (VALUES
   ('PCM-2026-9003', 'paid',   'ordered',    4200, 160,   0, now() - interval '4 days', NULL,              NULL),
   ('PCM-2026-9004', 'unpaid', 'notOrdered', 2100, 160,   0, NULL,                      NULL,              NULL),
   ('PCM-2026-9005', 'paid',   'notOrdered', 1500, 160,   0, now() - interval '2 days',
-     now() - interval '1 day', '探針假資料:客人要求取消')
+     now() - interval '1 day', '探針假資料:客人要求取消'),
+  -- ── 訂單 6:**已付款之後全額退款** ── 驗 Sean 2026-09-04 拍板 ──────────────────────
+  -- 🔴🔴 **這張單代表哪一個世界**:`PCM-2026-9007 = 已付款後全額退款`(付過, 而錢退回去了)。
+  --
+  -- 🎯 **為什麼要種它**:2026-09-04 線 `-db` 要驗 Sean 那句
+  --    「**已退款的單, 付款完成那一格要打勾 —— 他確實付過, 那是發生過的事實**」
+  --    ⇒ 🔬 而實查這份種子的六張單:`paid` ×5(一張已取消)· `unpaid` ×1 —— **零張 refunded**
+  --    ⇒ 🛑 **⇒ 那個世界原本【量不到】。**
+  --    ⇒ ⇒ 📌 **⇒ 而我當時是在那顆拋棄式 PG 裡手改一列量的 —— 而 `down.sh` 把它刪掉了**
+  --         ⇒ **下一個人要驗同一件事得重做那一步, 而他不會知道要做。**
+  --
+  -- ⚠️ **而它【沒有】收款列 / 退款列, 那是刻意的 —— 與後台種子不同, 理由量過**:
+  --    🔬 `grep -rn 'order_payments|order_manual_refunds|order_refunds' apps/storefront/src`
+  --       ⇒ 帳戶頁**一處都沒有**(唯二命中在 `api/cron/anomaly-alert`, 那是 server 排程不是這一頁)
+  --    ⇒ 🎯 **⇒ 顧客站那兩格讀的是 `orders.payment_status` 與 `paid_at`, 不是帳本。**
+  --    ⇒ ⇒ ✅ **⇒ 所以「先有收款列再有退款列」那條(對後台種子成立)在這裡是【照形狀不照理由】** ——
+  --         它會種出一批**這個站上沒有任何東西會讀**的列。
+  --    ⇒ ⇒ ⇒ 🛑 **⇒ 而讓這個世界【真】的兩個欄位是 `payment_status='refunded'` + `paid_at` 有值,**
+  --         **兩個都給了。**(要演帳本那一半 ⇒ 去後台鑽機, 那裡 `PCM-2026-1006` 就是。)
+  ('PCM-2026-9007', 'refunded', 'ordered', 3300, 160, 0, now() - interval '5 days',
+     NULL,                      NULL)
 ) AS o(display_id, pay, ful, sub, ship, disc, paid_at, cancelled_at, cancelled_reason)
 WHERE c.email = 'probe@example.com'
 ; -- 不寫 ON CONFLICT:重跑 up.sh 是在全新的資料庫上,撞到 = 有東西不對,要看見它
@@ -235,7 +255,11 @@ JOIN (VALUES
   ('PCM-2026-9002', 'G3-0002-RED', '煞車拉桿 — TERMIGNONI(假資料)',       '紅色', 1, 1800),
   ('PCM-2026-9003', 'G3-0001-BLK', '腳踏後移組 — BONAMICI RACING(假資料)', '黑色', 2, 2100),
   ('PCM-2026-9004', 'G3-0001-GLD', '腳踏後移組 — MOTOGADGET(假資料)',     '金色', 1, 2100),
-  ('PCM-2026-9005', 'G3-0003-SLV', '防摔球 — EBC BRAKES(假資料)',         '銀色', 1, 1500)
+  ('PCM-2026-9005', 'G3-0003-SLV', '防摔球 — EBC BRAKES(假資料)',         '銀色', 1, 1500),
+  -- 🔴 9007(已付款後全額退款)的品項 —— **小計要對得起 3300**(1800 + 1500),
+  --    否則 order_items_line_balances / orders_total_balances 兩道 CHECK 會擋下整支種子。
+  ('PCM-2026-9007', 'G3-0002-RED', '煞車拉桿 — TERMIGNONI(假資料)',       '紅色', 1, 1800),
+  ('PCM-2026-9007', 'G3-0003-SLV', '防摔球 — RPM CARBON(假資料)',         '銀色', 1, 1500)
 ) AS i(display_id, sku, title, color, qty, price) ON i.display_id = ord.display_id
 ;
 

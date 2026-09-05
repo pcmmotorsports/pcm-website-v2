@@ -1,0 +1,106 @@
+分頁顯示已關閉。
+════ ① payment 那 35 支函式:是不是 SECURITY DEFINER ════
+                 proname                  | is_security_definer |  owner   
+------------------------------------------+---------------------+----------
+ get_privileged_role_bypassrls_state      | f                   | postgres
+ begin_charge_attempt                     | t                   | postgres
+ claim_due_webhook_events                 | t                   | postgres
+ claim_expired_pending_attempts           | t                   | postgres
+ claim_order_poll_settle                  | t                   | postgres
+ claim_stuck_unsettled_attempts           | t                   | postgres
+ confirm_order_payment                    | t                   | postgres
+ expire_stuck_attempts_at_ceiling         | t                   | postgres
+ expire_webhook_events_at_ceiling         | t                   | postgres
+ flag_non_unpaid_active_attempts          | t                   | postgres
+ get_active_charge_attempt                | t                   | postgres
+ get_cron_heartbeat_stale_counts          | t                   | postgres
+ get_email_outbox_deadman_counts          | t                   | postgres
+ get_manual_customer_search_summary       | t                   | postgres
+ get_order_created_gap_counts             | t                   | postgres
+ get_order_created_stuck_count            | t                   | postgres
+ get_order_refunds_stuck_summary          | t                   | postgres
+ get_order_unpaid_cancelled_gap_counts    | t                   | postgres
+ get_payment_anomaly_alert_display_ids    | t                   | postgres
+ get_payment_anomaly_alert_summary        | t                   | postgres
+ get_search_log_health                    | t                   | postgres
+ get_shipped_email_gap_counts             | t                   | postgres
+ list_charge_attempts_for_capture_recheck | t                   | postgres
+ mark_attempt_settle_retry                | t                   | postgres
+ mark_charge_attempt_charged              | t                   | postgres
+ mark_charge_attempt_failed               | t                   | postgres
+ mark_charge_attempt_released_for_user    | t                   | postgres
+ mark_webhook_processed                   | t                   | postgres
+ mark_webhook_retry                       | t                   | postgres
+ record_charge_bank_txn                   | t                   | postgres
+ record_charge_capture_state              | t                   | postgres
+ record_charge_pending_rec                | t                   | postgres
+ record_pending_invoice                   | t                   | postgres
+ record_released_failure_observation      | t                   | postgres
+ record_webhook_event                     | t                   | postgres
+(35 筆資料)
+
+════ ①b 正對照:上面那張表【不得是空的】, 也不得剛好等於全部 ════
+ 碼裡列了幾支 | 庫裡對得上幾支 | public_底下總共幾支 
+--------------+----------------+---------------------
+           35 |             35 |                 176
+(1 筆資料)
+
+════ ② email 那幾個物件:service_role 實際被授了哪些動詞 ════
+    relname     | sel | ins | upd | del | trunc 
+----------------+-----+-----+-----+-----+-------
+ customers      | t   | t   | f   | t   | t
+ email_outbox   | t   | t   | t   | f   | f
+ order_items    | t   | f   | f   | f   | f
+ orders         | t   | f   | f   | f   | f
+ shipment_items | t   | f   | f   | f   | f
+ shipments      | t   | f   | f   | f   | f
+(6 筆資料)
+
+════ ②b 負對照:一個【碼裡沒用到】的表, 看它是不是也全 true ════
+         relname         | sel | del 
+-------------------------+-----+-----
+ admin_audit_log         | t   | f
+ admin_saved_order_views | t   | f
+ admin_sso_login_events  | t   | f
+ auth_callback_events    | t   | f
+ brands                  | t   | t
+(5 筆資料)
+
+════ ③ service_role 自己是什麼身分(BYPASSRLS / SUPERUSER)════
+    rolname    | rolsuper | rolbypassrls | rolcanlogin 
+---------------+----------+--------------+-------------
+ anon          | f        | f            | f
+ authenticated | f        | f            | f
+ postgres      | f        | t            | t
+ service_role  | f        | t            | f
+(4 筆資料)
+
+════ ④ 我這條連線【自己】是誰 —— 不印連線字串, 只印角色名 ════
+ current_user | session_user | is_superuser 
+--------------+--------------+--------------
+ pcm_readonly | pcm_readonly | off
+(1 筆資料)
+
+════ ⑤ payment 那道用的是【專用角色】還是 service_role? ════
+      rolname      | rolsuper | rolbypassrls | rolcanlogin | rolcreaterole 
+-------------------+----------+--------------+-------------+---------------
+ payment_confirmer | f        | f            | t           | f
+(1 筆資料)
+
+════ ⑤b 那個角色在 email 那 6 張表上有沒有表級權限(應該【沒有】才算窄)════
+   relname    | sel | ins | del 
+--------------+-----+-----+-----
+ brands       | f   | f   | f
+ customers    | f   | f   | f
+ email_outbox | f   | f   | f
+ orders       | f   | f   | f
+(4 筆資料)
+
+════ ⑤c 正對照:它對那 35 支函式【有】EXECUTE 嗎(該是 t, 否則付款會死)════
+ 有execute | 查了幾支 
+-----------+----------
+         5 |        5
+(1 筆資料)
+
+
+rc=0  跑於 2026-09-05 04:55

@@ -67,9 +67,12 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 要跑任何會【改檔案】的腳本 · 要寫突變/還原流程之前 | `docs/patterns/mutation-harness-restore.md`(來源=2026-08-16 A 窗實錘:**一份被突變的 migration 被 commit 進正式分支**(`02dd510e`,修在 `e37fbea5`)。🔴 **病灶不是忘了還原,是用一個會殺掉還原的方式跑它** ⇒ 那不是提醒能防的,是流程層) |
 | 🔴🔴 **我 grep `design-reference` 一個字都沒有 / 對稿對不到 / 「稿裡好像沒有這個元件」** | `bash scripts/design-ref-check.sh` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §7** |
 | 要下「查無 / 不存在 / 零命中」這種斷言,而對象是【一個檔案路徑】 | `bash scripts/where-is.sh <path>` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §8** |
+| 🔴 **我要拿一個 `⟦錨⟧` 去板上找那一列 / grep 到了而不確定那是不是它那一列**(整行 grep 撈得到【只是提到它】的列;09-05 一夜三個窗各踩一次) | `bash scripts/board-row-by-anchor.sh <錨>` —— 用【錨欄】定位, 不用行號、不用整行 grep;實測見檔頭 |
 | 🔴 **我要查正式庫的一個數字 / 我想知道某支 migration 貼了沒 / 我掃了 `scripts/`+環境變數+`~/.pgpass`+MCP 都查無, 而想斷言「沒有唯讀權限」之前** | `~/pcm-mailbox/0905查證/run.sh` —— **那條路存在**(Sean 2026-09-03 00:5x 批, 它 source `.env.local`)。🛑 三句缺一不可:①**唯讀與 apply 是兩個授權, 而 Sean 只給了唯讀** ⇒ 不得拿它 apply 任何東西 ②**跑不跑得動由你的 session 權限決定 —— 跑不動是【對的】, 不是壞掉**(2026-09-03 主視窗被擋, 它沒有繞) ③**絕不把連線字串印進對話**。📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §23** |
 | 要寫或審任何 `.range()` · 翻頁迴圈 · 「撈全部」的迴圈 | `docs/patterns/pagination-loop-review.md`(🔴 **檔頭有證據等級聲明** —— 原文已隨 session 消失、本檔是轉錄版,引用前先讀那一段;五條準則:頁大小嚴格小於 `db-max-rows` / `.range()` 兩端皆含 / 中途失敗要 throw 不得 break / `count` 不當終止判準 / 排序帶唯一鍵) |
 | 要把某供應商商品上架到顧客站 shop.pcmmotorsports.com | `docs/runbooks/supplier-storefront-onboarding.md`(完整流程 + forget-proof preflight,單一入口) |
+| 🔴🔴 **我要在 Vercel 防火牆加一條規則** / **我要在 `vercel.json` 裡加 `routes` + `mitigate`** / **排程(對帳・出貨信)安靜地停了而防火牆面板上一切正常** | **兩支合起來才是一張網, 各自看不到另一半**:<br>① `python3 scripts/vercel-json-waf-cron-gate.py` —— 看 **repo**(`vercel.json` 的 `mitigate`)。零對外, **已掛 pre-commit 自動跑**。🛑 它看不到 dashboard 上的規則。<br>② `python3 scripts/vercel-firewall-cron-order-check.py` —— 看 **live**(dashboard 自訂規則, 斷言「排在 bypass 之上沒有規則匹配 `/api/cron/`」)。**每跑一次對 Vercel 發 1 次唯讀請求**, ⚠️ **要在主樹跑**(worktree 沒 `.vercel` link ⇒ 回 `not_linked`, 那是設定缺失不是服務故障), **且它【沒有】自動跑 —— 要不要接進常態流程待 Sean 拍板**。🛑 它看不到 `vercel.json` 那一半。<br>🔴 **任一支單獨全綠 ≠ 排程安全** —— 📎 病史·實錘·射程 → 板列 `⟦f3-FWBYPASSORDER⟧` |
+| 🔴 **後台按了「送新竹」, 那箱卡在「送出結果未知」, 鈕按幾次都不會動** | `docs/runbooks/hct-unknown-stuck-manual-reset.md`(第 0 步是【不准改】;甲型佔位 vs 乙型真回應只有 DB 分得出) |
 | 🔴 **客人打電話說「我收到【兩封不一樣的】出貨通知」/「到底哪一個追蹤號才對」/「你們是不是出了兩次貨」** | `docs/runbooks/duplicate-shipping-email-sop.md` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §21** |
 | 🔴 **客人來要求「查我的資料 / 刪掉我的資料 / 不要再寄信給我」** | `docs/runbooks/data-rights-sop.md` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §22** |
 | 🔴 **多窗同時在跑**:①我要回報進度而主視窗會不會忘記我 ②**收到 push 警示:有人推了 dev 而不是我** / 我 commit 了而它上去了沒 ③我要自己 push | `bash scripts/heartbeat.sh "<窗>" "<剛做完>" "<手上>"` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §9** |
@@ -90,6 +93,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 🔴 **板上寫著 `open` 而我不確定 · 有人跟我說「那件早就做掉了」而我想自己驗 · 我要說「這件沒有人做」之前** | `python3 scripts/what-happened-to.py <錨>` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §15** |
 | 🔴 **我要端一題給 Sean 之前**(任何決策題、任何「要他拍板」的東西) | `bash scripts/before-asking-sean.sh "<他會講的話>"` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §16** |
 | 🔴 **要抄一支既有的 DB 函式來改 / 要寫 `CREATE OR REPLACE` 之前 / 有人給你一個「那支函式在這裡」的行號** | `bash scripts/latest-definition-of.sh <物件名>` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §20** |
+| 🔴🔴 **我想知道「這支 migration 貼進正式庫了沒」/ 我 grep `APPLIED.tsv` 拿到 0** | ⛔ **帳本的 0 不是答案** —— `supabase/APPLIED.tsv` 檔頭逐字「不在本表上**什麼都不代表**」。✅ 改用 `bash scripts/is-migration-applied.sh <版本號>`(產帶正負對照的唯讀 SQL);`scripts/migrations-not-in-ledger.sh` 列差集。🛑 「物件在不在」對 `CREATE OR REPLACE` **零判別力**。📎 病史 → 板列 `⟦01-LEDGERFALSENEG⟧` |
 | 制度/檔案盤整(過期清理/歸屬/skill 化;每 milestone 收尾跑) | `~/.claude/skills/pcm-housekeeping/SKILL.md`(2026-08-12 Sean 拍板常設) |
 | 🔴 **我在自己的工作區跑全套測試, 紅了一堆不像我弄的 / 有人說 CI 綠而我這邊紅** | `bash scripts/why-is-this-red.sh <vitest log>` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §17** |
 

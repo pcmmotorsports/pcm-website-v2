@@ -39,8 +39,10 @@
  */
 
 import type { PaidEmailContext } from '@pcm/ports';
+import { subtotalLabelOf } from '@pcm/domain';
 import {
   formatOrderAmount,
+  orderAmountsBalance,
   ORDER_CONTACT_LEAD,
   ORDER_LINE_TITLE_MISSING,
   ORDER_PAID_HTML_LEAD_SENTENCE,
@@ -347,6 +349,77 @@ ${skuRow ? `              ${skuRow}\n` : ''}            </td>
           </tr>\n`
       : '';
 
+  // ── 🔴🔴 加不起來就不印金額(2026-09-04 線【帳號】`-account`;`⟦b4-INVOICE5PCT⟧` 第 5 步)──
+  //
+  // 🛑🛑 **先讀這兩句, 它們決定你怎麼引用這道閘**(2026-09-04 唯讀實查 + codex R2):
+  //   ① **它【不是】在防髒資料** —— 正式庫有 `orders_total_balances` ⇒
+  //      `CHECK (total = subtotal + shipping_fee - discount_total + tax_total)`
+  //      ⇒ 🎯 **一列不平衡的訂單在 DB 上寫不進去。**
+  //   ② 🔴 **閘守【資料的一致】, 測試守【印出來的東西】—— 兩個機制【不可互相冒充】。**
+  //      **renderer 少印一項 ⇒ 資料四數照樣平衡 ⇒ 本閘不會叫**;攔那個的是測試。
+  //      ⇒ 📌 **一道閘的說明若把測試的功勞算進來, 下一個人會刪掉測試而以為閘還在保護他。**
+  //
+  // **病灶**:DB 的等式是 `total = subtotal + shipping_fee - discount_total + tax_total`,
+  // 而本檔的金額區 ⛔ ~~**只列前三項**~~ ⇒ 🔴 **`tax_total > 0` 的那一天, 客人會收到一張【加不起來】的帳。**
+  // ✅ **2026-09-04 第 7 步訂正:稅額那一列已經加上了**(見下方 `taxRow`)⇒ **這一段講的是【本片之前】的狀態。**
+  //    🔵 而這道閘**留著** —— 它防的是**下一個被加進 `total` 而沒人記得印的欄位**。
+  //
+  // 🛑 **而在本片之前, 這道判斷【只裝在純文字那一份】**(`sweep-email-outbox.ts:432`)——
+  //    🔬 量到的:`grep -c 'orderAmountsBalance'` 本檔 **0** · 那一支 **2**(🟢 兩個世界印不同的數)。
+  //    ⇒ 🎯 **所以那天兩份信會【各出一種病】**:純文字那份**整段不印**, 而本份**照印一張兜不攏的帳**
+  //      —— 而**客人看到哪一份, 是他的收信軟體決定的**(`sweep-email-outbox.ts:423` 逐字)。
+  //
+  // ✅ **判準與那一份【共用同一支函式】** —— 不重寫一份, 因為兩份各判各的就是這個病的下一種形狀。
+  // ✅ **動作也與那一份一致:整段不印**(品項表 + 金額區), 而**信照寄**,
+  //    客人仍看得到訂單編號、CTA 與頁尾。⇒ 📌 **一張看不到明細的帳, 比一張兜不攏的帳好。**
+  // 🛑 **而我【沒有】加一句「明細請至會員中心查看」之類的解釋** —— 那是**文案**, 而文案是 Sean 拍的。
+  //    純文字那一份在這條路上也是**沉默的**, 兩份保持一致;要加解釋, 兩份一起加。
+  //
+  // 🔴🔴 **這道閘【擋不到資料】—— 它擋的是【我們自己】**(2026-09-04 codex R1 nit ⇒ 唯讀實查確認):
+  //    正式庫上有 `orders_total_balances` ⇒
+  //    `CHECK (total = subtotal + shipping_fee - discount_total + tax_total)`
+  //    ⇒ 🎯 **一列不平衡的訂單在 DB 上【寫不進去】。**
+  //    ⇒ 📌 **所以本閘為真時漏掉的那個世界不存在** —— 它防的**不是髒資料**。
+  //
+  //    🔴🔴 **而它會叫的範圍比我第一版寫的【窄】**(codex 對抗審查 R2 must-fix, 它是對的):
+  //      ⛔ ~~我寫「renderer 少印一項、mapper 少接一欄、判準少一個加數 —— 三種它都攔」~~
+  //      ✅ **實際只攔得到後兩種**:
+  //        · **mapper 少接一欄** ⇒ 那個數字進來是錯的 ⇒ 四數兜不攏 ⇒ **本閘叫** ✅
+  //        · **判準少一個加數** ⇒ 本閘自己就是那個判準 ⇒ 改壞它 ⇒ 測試叫 ✅
+  //        · 🔴 **renderer 少印一項** ⇒ **資料四數照樣平衡** ⇒ **本閘【不會叫】** ❌
+  //      🎯 **⇒ 而「renderer 少印稅」正是本片修的那個 bug** —— 📌 **所以修它的不是這道閘, 是【測試】。**
+  //      ⇒ 🛑 **兩個機制不可互相冒充**:閘守【資料的一致】, 測試守【印出來的東西】。
+  //        一道閘的說明若把測試的功勞算進來, 下一個人會刪掉測試而以為閘還在保護他。
+  //
+  // ⚠️ **本段【證不到】什麼**:
+  //    ① 證不到 `total` 本身對不對 —— 它只驗**這四個數字之間**的關係(那一支函式檔頭已寫)。
+  //    ② 🔴 證不到 **PDF 附件那一份**:`hasPdfAttachment` 為真時信上仍寫「訂單明細 PDF 已附在這封信裡」,
+  //       而**那份 PDF 走的是另一條 render 路徑, 有沒有同樣的病本窗【未查】。**
+  const amountsBalance = orderAmountsBalance({
+    subtotal: ctx.subtotal,
+    shippingFee: ctx.shippingFee,
+    discountTotal: ctx.discountTotal,
+    total: ctx.total,
+    taxTotal: ctx.taxTotal,
+  });
+
+  // 🔴 稅額那一列:**有稅才印**(2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 7 步)。
+  //    形狀跟【折扣】同族、與【運費】不同族:
+  //      · 折扣 0 不印 —— 印「折扣 −0」會讓客人以為有一筆他沒看到的折抵
+  //      · 運費 0 照印 —— 「免運」是客人想確認的一件事
+  //      · 🔵 **稅 0 不印** —— 今天每一張單的稅都是 0(價格含稅), 印一列「稅額 0」
+  //        會讓客人以為**這筆交易沒有被課稅**, 而那是錯的:稅**內含在售價裡**。
+  //    🛑 而「稅額」這兩個字**不是我發明的文案** —— Sean 2026-09-04 選項字面逐字:
+  //      「乙 = **稅額**單獨記一欄, 你打的單價原樣保留。」
+  const taxRow =
+    ctx.taxTotal > 0
+      ? `          <tr>
+            <td style="font-family:${SANS};font-size:13px;color:#4a5765;padding:5px 0;" class="sub">稅額</td>
+            <td align="right" class="ink" style="font-family:${MONO};font-size:13px;color:#1f2933;padding:5px 0;">${money(ctx.taxTotal)}</td>
+          </tr>
+`
+      : '';
+
   // 🔴 運費 0 那一列**照印** —— 與折扣不同族:
   //    「免運」是客人想確認的一件事,而空白會讓他懷疑運費是不是漏算了。
   const shippingRow = `          <tr>
@@ -393,6 +466,66 @@ ${skuRow ? `              ${skuRow}\n` : ''}            </td>
               <div class="sub" style="font-family:${SANS};font-size:12px;line-height:1.7;color:#5c6b7a;padding-top:3px;">
                 在手機上請往下滑到信件底部；電腦版在信件標題下方。需要報帳或留存時可以直接使用。
               </div>
+            </td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
+`;
+
+  // 🔴 品項表 + 金額區是**一個邏輯單位** —— 加不起來時兩塊一起不印,
+  //    不可以只擋金額區:一張有品項小計而沒有總額的信, 客人一樣會自己加。
+  // 🔴🔴 **不印明細的那封信, 不可以繼續說自己是明細**(codex 對抗審查 R1 must-fix, 2026-09-04)。
+  //    `ORDER_PAID_HTML_LEAD_SENTENCE` 逐字是「這封信是這筆交易的明細。」
+  //    ⇒ 🎯 **金額區被上面那道閘拿掉之後, 這一句就是【假的】** —— 而它印在信的最上面。
+  //    🛑 **而純文字那一份【沒有】這個宣稱** ⇒ 兩份信不一致, 而不一致的那一半在說謊。
+  //
+  // ✅ **動作是【拿掉一句變成假的話】, 不是【加一句新的】** ——
+  //    加新文案要 Sean 拍;**移除一個已經不成立的宣稱不用**, 而且它讓兩份信回到一致(兩份都不宣稱)。
+  //    ⇒ 📌 客人仍看得到「我們收到您的付款了」與下一步那句, 信的用途沒有變。
+  const leadSentence = amountsBalance ? ORDER_PAID_HTML_LEAD_SENTENCE : '';
+
+  const amountsBlock = !amountsBalance
+    ? ''
+    : `    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tr><td class="px" style="padding:24px 28px 0;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+          <tr class="hair">
+            <td style="font-family:${SANS};font-size:11px;letter-spacing:.12em;color:#5c6b7a;padding:0 0 8px;border-bottom:1px solid #dde3ea;">品項</td>
+            <td align="center" width="52" style="font-family:${SANS};font-size:11px;letter-spacing:.12em;color:#5c6b7a;padding:0 0 8px;border-bottom:1px solid #dde3ea;">數量</td>
+            <td align="right" width="96" style="font-family:${SANS};font-size:11px;letter-spacing:.12em;color:#5c6b7a;padding:0 0 8px;border-bottom:1px solid #dde3ea;">小計</td>
+          </tr>
+
+${lineRows}
+        </table>
+      </td></tr>
+    </table>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tr><td class="px" style="padding:16px 28px 0;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+          <!-- 🔴 **這裡的「小計」與上面【品項表欄頭】那個「小計」是【兩個不同的東西】**
+               (b4-TAXSURFACES, 2026-09-04 Sean 拍甲):
+               · 欄頭那個 = **行小計**(單價 × 數量), 受詞是「這一列」
+               · 這裡這個 = **訂單小計**, 受詞是「整張單」
+               ⇒ 🛑 **只有這一個要加「(未稅)」** —— Sean 拍板那句講的是這一個。
+               ⚠️ **而行小計那一欄在有稅時【也是未稅的】**(Sean 選乙:單價原樣保留)
+                  ⇒ 📌 那是一題**還沒被問過**的:欄頭要不要也加。**本片不代他決定, 已記板。**
+               🔴🔴 **這段註解裡【不可以出現反引號】** —— 它住在一個 template literal 裡,
+                  反引號會把字串當場切斷。⛔ 我第一版寫了一對包住 b4 那個錨, 而 typecheck 報的是
+                  TS1127 Invalid character、指向註解 ⇒ **看起來像編碼問題, 而其實是字串被切斷了。** -->
+          <tr>
+            <td style="font-family:${SANS};font-size:13px;color:#4a5765;padding:5px 0;" class="sub">${subtotalLabelOf('小計', ctx.taxTotal)}</td>
+            <td align="right" class="ink" style="font-family:${MONO};font-size:13px;color:#1f2933;padding:5px 0;">${money(ctx.subtotal)}</td>
+          </tr>
+${shippingRow}
+${discountRow}${taxRow}          <tr class="hair">
+            <td style="border-top:1px solid #dde3ea;padding:14px 0 0;">
+              <div class="ink" style="font-family:${SANS};font-size:14px;font-weight:700;color:#1f2933;">訂單金額</div>
+              <div class="sub" style="font-family:${SANS};font-size:11px;color:#5c6b7a;padding-top:2px;">新臺幣</div>
+            </td>
+            <td align="right" style="border-top:1px solid #dde3ea;padding:14px 0 0;">
+              <span class="ink amt" style="font-family:${MONO};font-size:22px;font-weight:700;color:#1f2933;letter-spacing:-.01em;">${money(ctx.total)}</span>
             </td>
           </tr>
         </table>
@@ -448,7 +581,7 @@ ${skuRow ? `              ${skuRow}\n` : ''}            </td>
           我們收到您的付款了
         </div>
         <div class="sub" style="font-family:${SANS};font-size:14px;line-height:1.75;color:#4a5765;padding-top:10px;">
-          ${ORDER_PAID_HTML_LEAD_SENTENCE}${ORDER_PAID_NEXT_STEP_SENTENCE}
+          ${leadSentence}${ORDER_PAID_NEXT_STEP_SENTENCE}
         </div>
       </td></tr>
     </table>
@@ -466,41 +599,7 @@ ${skuRow ? `              ${skuRow}\n` : ''}            </td>
       </td></tr>
     </table>
 
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-      <tr><td class="px" style="padding:24px 28px 0;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
-          <tr class="hair">
-            <td style="font-family:${SANS};font-size:11px;letter-spacing:.12em;color:#5c6b7a;padding:0 0 8px;border-bottom:1px solid #dde3ea;">品項</td>
-            <td align="center" width="52" style="font-family:${SANS};font-size:11px;letter-spacing:.12em;color:#5c6b7a;padding:0 0 8px;border-bottom:1px solid #dde3ea;">數量</td>
-            <td align="right" width="96" style="font-family:${SANS};font-size:11px;letter-spacing:.12em;color:#5c6b7a;padding:0 0 8px;border-bottom:1px solid #dde3ea;">小計</td>
-          </tr>
-
-${lineRows}
-        </table>
-      </td></tr>
-    </table>
-
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-      <tr><td class="px" style="padding:16px 28px 0;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-          <tr>
-            <td style="font-family:${SANS};font-size:13px;color:#4a5765;padding:5px 0;" class="sub">小計</td>
-            <td align="right" class="ink" style="font-family:${MONO};font-size:13px;color:#1f2933;padding:5px 0;">${money(ctx.subtotal)}</td>
-          </tr>
-${shippingRow}
-${discountRow}          <tr class="hair">
-            <td style="border-top:1px solid #dde3ea;padding:14px 0 0;">
-              <div class="ink" style="font-family:${SANS};font-size:14px;font-weight:700;color:#1f2933;">訂單金額</div>
-              <div class="sub" style="font-family:${SANS};font-size:11px;color:#5c6b7a;padding-top:2px;">新臺幣</div>
-            </td>
-            <td align="right" style="border-top:1px solid #dde3ea;padding:14px 0 0;">
-              <span class="ink amt" style="font-family:${MONO};font-size:22px;font-weight:700;color:#1f2933;letter-spacing:-.01em;">${money(ctx.total)}</span>
-            </td>
-          </tr>
-        </table>
-      </td></tr>
-    </table>
-${ctaBlock}${pdfBlock}
+${amountsBlock}${ctaBlock}${pdfBlock}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
       <tr><td class="px hair" style="padding:24px 28px 30px;">
         <div style="border-top:1px solid #dde3ea;padding-top:16px;">

@@ -187,6 +187,13 @@ psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q <<'SQL'
 CREATE ROLE service_role NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE anon NOLOGIN;
 CREATE ROLE authenticator LOGIN NOINHERIT;
 GRANT anon, authenticated, service_role TO authenticator;
+-- 🔴🔴 **BYPASSRLS 要在【套 migration 之前】就給** —— 2026-09-05 `-f3` 量到:
+--    原本它寫在 ④(migration 跑完之後)⇒ `20260815020000_m4b_e10_27_d1_admin_audit_log_grant_select.sql`
+--    的 D0 閘當場 `ERROR: D0 異常 — service_role 無 BYPASSRLS,而本表已驗為 RLS 啟用`。
+-- 📌 它是【Supabase 平台給角色的預設屬性】,不是這支腳本的一道 GRANT
+--    ⇒ 它的落點是「造角色」這一格,不是「補權限」那一格。位置就是語意。
+-- ⚠️ 而這仍然證不了正式站 —— 見檔頭第 30 行那句(GRANT 與 BYPASSRLS 是本腳本自己下的)。
+ALTER ROLE service_role BYPASSRLS;
 CREATE SCHEMA auth;
 -- 🔴 `id` 一欄不夠:`handle_new_auth_user()` trigger 會讀 NEW.email 與 NEW.raw_user_meta_data。
 -- 🔴🔴 **2026-08-30 加了兩欄, 而理由不是「補完整」, 是【不補會讓一道安全檢查 fail-open】**:
@@ -256,15 +263,16 @@ if [ "$fail" -gt 0 ]; then
   fi
 fi
 
-# ── ④ service_role 兩道(平台平常幫你做,本機沒有)──────────────────────────
+# ── ④ service_role 的 GRANT(平台平常幫你做,本機沒有)──────────────────────
 # 🔴 少了 BYPASSRLS ⇒ RLS 把結果濾成 0 列,而 **HTTP 仍是 200** ⇒
 #    「200 + 0 列」與「真的沒有資料」長得一模一樣。
+# 🔴 而 `ALTER ROLE service_role BYPASSRLS` **已經搬到 ② 去了**(它要在 ③ 套 migration 之前)——
+#    ~~原本它在本區塊最後一行~~。搬的理由寫在 ② 那幾行,不在這裡重複。
 psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q <<'SQL'
 GRANT USAGE ON SCHEMA public TO service_role, anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO service_role;
-ALTER ROLE service_role BYPASSRLS;
 SQL
 
 # ── ⑤ 種子(後台要看得到東西,空庫沒有判別力)──────────────────────────────
@@ -498,4 +506,44 @@ if [ "$FAILED" = "0" ]; then
 else
   echo "🔴 自檢沒過 —— **不要拿這個環境下任何結論**。log 在 $S/"
   exit 1
+fi
+
+# ══ 收尾閘:這條鏈的每一段【真的在聽嗎】 ═══════════════════════════════════════
+# 🔴🔴 **這一段存在的理由是一次實錘(2026-09-04 線 `-ship`)**:
+#    這支腳本回 **rc=0**,而 `proxy.log` 裡是 `OSError: [Errno 48] Address already in use`
+#    —— **proxy 根本沒起來**。⇒ 🎯 而那之後讀到的每一個畫面都是【無效量測】,
+#    **而它們看起來完全正常**(頁面 200、側欄有數字、空表提示照印)。
+# 🔴 **而那一次的前置埠檢查【印了綠】** —— 檢查完到綁埠之間,別窗把那個埠拿走了。
+#    📌 **⇒ 檢查與使用之間有時間差,而檢查那一刻是誠實的。**
+#    ⇒ ✅ **所以判準不能是「起之前埠空著」,要是「起完之後它真的在聽」。**
+# 🛑 **而這一段【不 exit 1】** —— 它印紅、講清楚,而把要不要用交給人:
+#    有些片(純看版面)在 proxy 死掉時仍然做得下去,而**把它們一起擋掉會讓人想繞過這道閘**。
+echo
+_LISTEN_BAD=0
+for _p in "$WEB" "$PROXY" "$PREST" "$PG"; do
+  # 🔴 `[.*]` 是刻意的:綁 127.0.0.1 印成 `127.0.0.1.3061`,綁全介面印成 `*.3979`
+  #    ⇒ 只認 `\.` 會漏掉後者,而**漏掉的方向是「以為它沒起來」**(那個方向會叫,還好)。
+  _n=$(netstat -an -p tcp 2>/dev/null | grep LISTEN | grep -c "[.*]$_p " || true)
+  if [ "${_n:-0}" = "0" ]; then
+    echo "🔴 埠 $_p **沒有人在聽** —— 這條鏈少了一段。"
+    _LISTEN_BAD=1
+  fi
+done
+# 🔴 **`grep -c` 印 0 的時候 rc=1** —— 而本檔是 `set -euo pipefail`
+#    ⇒ 沒有 `|| true` 的話, **這道閘會在「一切正常」時把整支腳本殺掉**(2026-09-04 實撞:
+#    我加完這段, up 回 rc=1 而閘一個字都沒印)⇒ 📌 **一道守門死在它自己要守的那個綠上。**
+_E48=$( { grep -c "Address already in use" "$S"/*.log 2>/dev/null || true; } \
+        | awk -F: '{s+=$NF} END {print s+0}' )
+if [ "${_E48:-0}" != "0" ]; then
+  echo "🔴 log 裡有 $_E48 次 \`Address already in use\` ⇒ **有東西沒搶到埠**。"
+  _LISTEN_BAD=1
+fi
+if [ "$_LISTEN_BAD" = "0" ]; then
+  echo "🟢 收尾閘:$WEB / $PROXY / $PREST / $PG **四個都在聽**,且 log 零 \`Address already in use\`。"
+else
+  echo "🛑 **上面那幾格是紅的 ⇒ 這台鑽機【只有一部分起來了】。**"
+  echo "   🔴 **而這支腳本仍然會回 rc=0** —— 那不是漏洞,是刻意:紅的那幾格由你判要不要往下做。"
+  echo "   ⇒ 🎯 **而【rc=0】不代表起來了。** 換一組埠重跑:"
+  echo "        ADMIN_PROBE_WEB=3062 ADMIN_PROBE_PROXY=3892 ADMIN_PROBE_PREST=3893 ADMIN_PROBE_PG=55854 \\"
+  echo "          bash scripts/admin-probe/up.sh"
 fi

@@ -18,6 +18,9 @@ import {
 } from '../../lib/orders/cancel-action-state';
 import { CANCEL_REASON_CODES, CANCEL_REASON_LABEL } from '../../lib/orders/cancel-form';
 
+// 🔵 預設世界 = 沒收過錢 ⇒ 不畫那個框。要測那個框的格子自己覆寫這一個。
+const NO_PENDING_REFUND = { kind: 'none' } as const;
+
 // 🔴 action 是 `'use server'` 模組(拉 next/cache、next/navigation、supabase)——
 //    本片測的是**表單形狀**,不是 action 行為 ⇒ mock 掉,否則 jsdom 載入即炸。
 vi.mock('../../lib/orders/cancel-actions', () => ({ cancelOrderAction: vi.fn() }));
@@ -127,15 +130,15 @@ describe('#350d-2 兩支表單都帶 return_to(C1 的那一跳)', () => {
   //    而正式站每次取消都靜默走 fallback、把面板關掉。
   //    突變:拿掉 `CancelFormShell` 那行 `<input name={ORDER_RETURN_TO_FIELD}>` ⇒ 兩格都紅。
   it.each([
-    ['整單', <FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} />],
-    ['部分', <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} shipmentWarning={{ blocked: false }} />],
+    ['整單', <FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />],
+    ['部分', <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />],
   ])('%s那支:送出去的 FormData 帶著逐字相同的 return_to', (_label, ui) => {
     const { container } = render(ui);
     expect(submitted(container).getAll('return_to')).toEqual([RETURN_TO]);
   });
 
   it('🔴 是 hidden input(不是可編輯欄 —— 員工改得動就等於自己挑導頁目標)', () => {
-    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} />);
+    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />);
     const els = Array.from(container.querySelectorAll('[name="return_to"]'));
     expect(els).toHaveLength(1);
     expect(els[0]?.tagName).toBe('INPUT');
@@ -158,13 +161,13 @@ describe('D4 驗收① 兩支各自的 hidden cancel_mode', () => {
   }
 
   it('整單那支 = hidden full(FormData 與 DOM 兩層都驗)', () => {
-    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} />);
+    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />);
     expect(submitted(container).getAll('cancel_mode')).toEqual(['full']);
     expectHiddenInput(container, 'cancel_mode');
   });
 
   it('部分那支 = hidden partial(FormData 與 DOM 兩層都驗)', () => {
-    const { container } = render(<PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} shipmentWarning={{ blocked: false }} />);
+    const { container } = render(<PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />);
     expect(submitted(container).getAll('cancel_mode')).toEqual(['partial']);
     expectHiddenInput(container, 'cancel_mode');
   });
@@ -173,8 +176,8 @@ describe('D4 驗收① 兩支各自的 hidden cancel_mode', () => {
     // 🔴 `order_id` 若變成可編輯文字欄,員工打進另一張單的 uuid 就會**取消錯單**
     //    —— R2 codex must-fix:原本只驗值、沒驗它不可編輯。
     for (const ui of [
-      <FullCancelForm returnTo={RETURN_TO} key='f' orderId={ORDER_ID} shipmentWarning={{ blocked: false }} />,
-      <PartialCancelForm returnTo={RETURN_TO} key='p' orderId={ORDER_ID} items={[itemView()]} shipmentWarning={{ blocked: false }} />,
+      <FullCancelForm returnTo={RETURN_TO} key='f' orderId={ORDER_ID} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />,
+      <PartialCancelForm returnTo={RETURN_TO} key='p' orderId={ORDER_ID} items={[itemView()]} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />,
     ]) {
       const { container } = render(ui);
       expect(submitted(container).get('order_id')).toBe(ORDER_ID);
@@ -190,7 +193,7 @@ describe('D4 驗收② 部分那支沒有任何能變成 full 的控制項', () 
   //    React 19 form reset 競態 + 返回鍵的表單狀態復原會把 radio 勾回 `full`
   //    ⇒ 員工以為送部分取消、實際送整單取消。v3 的解法是「形狀上不存在那條路」。
   it('零 radio', () => {
-    const { container } = render(<PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} shipmentWarning={{ blocked: false }} />);
+    const { container } = render(<PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />);
     // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:表單空渲染時這條 `toHaveLength(0)` 照樣過。
     expect(container.querySelector('form'), '整張表單沒渲染 ⇒ 下面那條恆真').not.toBeNull();
     expect(container.querySelectorAll('input[type="radio"]')).toHaveLength(0);
@@ -198,7 +201,7 @@ describe('D4 驗收② 部分那支沒有任何能變成 full 的控制項', () 
 
   it('送出去的 cancel_mode 恰好一筆、值是 partial(不是 full)', () => {
     // 🔴 這條打在 FormData 上:不管畫面上長什麼樣,**真的會被送出去的**只有 partial 一筆。
-    const { container } = render(<PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} shipmentWarning={{ blocked: false }} />);
+    const { container } = render(<PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />);
     expect(submitted(container).getAll('cancel_mode')).toEqual(['partial']);
   });
 
@@ -224,7 +227,7 @@ describe('D4 原因下拉的七碼完整性', () => {
   // 🔴 R1 nit 2:少渲染一碼(例如濾掉 `other`)⇒ 全綠,而員工只能選一個不對的原因,
   //    那筆還會進 append-only 帳本。碼的權威是 DB CHECK(`20260730130000:131-139`)。
   it('七個原因碼全部渲染成 option,且文案取自單一字典', () => {
-    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} />);
+    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />);
     const options = Array.from(container.querySelectorAll('select[name="reason_code"] option'));
     // 空 placeholder + 七碼
     expect(options).toHaveLength(CANCEL_REASON_CODES.length + 1);
@@ -238,14 +241,14 @@ describe('D4 原因下拉的七碼完整性', () => {
 
 describe('D4 驗收③ 整單那支零品項欄', () => {
   it('沒有 cancel_item 欄', () => {
-    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} />);
+    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />);
     // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:表單空渲染時這條 `toHaveLength(0)` 照樣過。
     expect(container.querySelector('form'), '整張表單沒渲染 ⇒ 下面那條恆真').not.toBeNull();
     expect(container.querySelectorAll('[name="cancel_item"]')).toHaveLength(0);
   });
 
   it('也沒有任何 checkbox', () => {
-    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} />);
+    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />);
     // 🔴 **分母守門(2026-08-28 突變量到本格恆綠)**:表單空渲染時這條 `toHaveLength(0)` 照樣過。
     expect(container.querySelector('form'), '整張表單沒渲染 ⇒ 下面那條恆真').not.toBeNull();
     expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
@@ -256,8 +259,8 @@ describe('D4 驗收④ 原因 select 有空 placeholder + required', () => {
   // 🔴 沒有空 placeholder 時瀏覽器**自動選第一個** ⇒「重選原因」根本沒發生,
   //    而表單照樣送得出去、帶著員工沒看過的原因(plan §2-3 逐字)。
   it.each([
-    ['整單', <FullCancelForm returnTo={RETURN_TO} key='f' orderId={ORDER_ID} shipmentWarning={{ blocked: false }} />],
-    ['部分', <PartialCancelForm returnTo={RETURN_TO} key='p' orderId={ORDER_ID} items={[itemView()]} shipmentWarning={{ blocked: false }} />],
+    ['整單', <FullCancelForm returnTo={RETURN_TO} key='f' orderId={ORDER_ID} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />],
+    ['部分', <PartialCancelForm returnTo={RETURN_TO} key='p' orderId={ORDER_ID} items={[itemView()]} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />],
   ])('%s 那支:select required 且第一個 option 是空值 placeholder', (_label, ui) => {
     const { container } = render(ui);
     const select = container.querySelector('select[name="reason_code"]');
@@ -281,16 +284,16 @@ describe('D4 驗收⑥ token 每次 render 都是新鑄的一顆合法 uuid', ()
   }
 
   it('兩次獨立 render 拿到兩顆不同的合法 uuid(整單)', () => {
-    const a = tokenOf(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} />);
-    const b = tokenOf(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} />);
+    const a = tokenOf(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />);
+    const b = tokenOf(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />);
     expect(isValidToken(a)).toBe(true);
     expect(isValidToken(b)).toBe(true);
     expect(a).not.toBe(b);
   });
 
   it('兩次獨立 render 拿到兩顆不同的合法 uuid(部分)', () => {
-    const a = tokenOf(<PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} shipmentWarning={{ blocked: false }} />);
-    const b = tokenOf(<PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} shipmentWarning={{ blocked: false }} />);
+    const a = tokenOf(<PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />);
+    const b = tokenOf(<PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />);
     expect(isValidToken(a)).toBe(true);
     expect(isValidToken(b)).toBe(true);
     expect(a).not.toBe(b);
@@ -303,8 +306,8 @@ describe('D4 驗收⑥ token 每次 render 都是新鑄的一顆合法 uuid', ()
     //    `React.cache` / `unstable_cache` 那一格由下面的原始碼層守門接手。
     const { container } = render(
       <>
-        <FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} />
-        <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} shipmentWarning={{ blocked: false }} />
+        <FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />
+        <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />
       </>,
     );
     const tokens = Array.from(container.querySelectorAll('[name="request_token"]')).map((el) =>
@@ -391,7 +394,7 @@ describe('D4 品項欄的形狀與過濾(片C:邏輯搬到 PartialCancelItemCont
         items={[
           itemView({ orderItemId: ITEM_A, maxCancellable: null }),
           itemView({ orderItemId: ITEM_B, maxCancellable: 0 }),
-        ]} shipmentWarning={{ blocked: false }} />,
+        ]} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />,
     );
     // 🔴 **這一格是 fail-closed(斷言「不該出現」)⇒ 元件整支壞掉時它照樣綠。**
     //    2026-08-28 實測:`PartialCancelForm` 空渲染 ⇒ 本格過。
@@ -402,7 +405,7 @@ describe('D4 品項欄的形狀與過濾(片C:邏輯搬到 PartialCancelItemCont
       <PartialCancelForm
         returnTo={RETURN_TO}
         orderId={ORDER_ID}
-        items={[itemView({ orderItemId: ITEM_A, maxCancellable: 3 })]} shipmentWarning={{ blocked: false }} />,
+        items={[itemView({ orderItemId: ITEM_A, maxCancellable: 3 })]} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />,
     ).container;
     expect(ok.querySelector('form'), '連勾得動的情況都畫不出表單 ⇒ 元件壞了, 上面那個 null 不算數').not.toBeNull();
 
@@ -524,7 +527,7 @@ function formDataOf(container: HTMLElement): FormData {
 function renderPartialWithItem(item: ReturnType<typeof itemView>) {
   return render(
     <>
-      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[item]} shipmentWarning={{ blocked: false }} />
+      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[item]} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />
       <PartialCancelItemControl orderId={ORDER_ID} item={item} />
     </>,
   );
@@ -598,13 +601,13 @@ describe('A13b E1 ①挑數量', () => {
 
 describe('A13b E1 ②說明欄只有選「其他」才在畫面上', () => {
   it('🔴 hydrated + 非 other ⇒ textarea **不在 DOM**(不是藏起來 —— 藏起來照樣會被送出)', () => {
-    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} />);
+    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />);
     expect(container.querySelector('textarea[name="reason_detail"]')).toBeNull();
     expect(formDataOf(container).has('reason_detail')).toBe(false);
   });
 
   it('🔴 選 other ⇒ textarea 出現且 required(正向對照:上一條不是恆真)', () => {
-    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} />);
+    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />);
     fireEvent.change(container.querySelector('select[name="reason_code"]')!, {
       target: { value: 'other' },
     });
@@ -615,7 +618,7 @@ describe('A13b E1 ②說明欄只有選「其他」才在畫面上', () => {
 
   it('🔴 選了 other 打字之後改選別的原因 ⇒ 那段字**不會**跟著送出去', () => {
     // 🔴 這是 `E-046-Q` 附註那條 UX 陷阱的驗收:舊行為是整份被退回且輸入不保留、要重填。
-    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} />);
+    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />);
     const select = container.querySelector<HTMLSelectElement>('select[name="reason_code"]')!;
     fireEvent.change(select, { target: { value: 'other' } });
     fireEvent.change(container.querySelector('textarea[name="reason_detail"]')!, {
@@ -630,7 +633,7 @@ describe('A13b E1 ②說明欄只有選「其他」才在畫面上', () => {
     // 🔴 斷言要**打在那個元素的開標籤上**,不能在整份 HTML 裡搜 `required=""` ——
     //    原因 select 本來就帶 required、placeholder option 本來就帶 disabled
     //    ⇒ 全文搜尋會量到別人身上(第一版我真的這樣寫、真的紅了)。
-    const html = renderToStaticMarkup(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} />);
+    const html = renderToStaticMarkup(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />);
     const textareaTag = /<textarea[^>]*name="reason_detail"[^>]*>/.exec(html);
     expect(textareaTag).not.toBeNull();
     expect(textareaTag![0]).not.toMatch(/\srequired[=\s>]/);
@@ -659,13 +662,13 @@ describe('A13b E1 ③零勾選前置擋', () => {
   it('🔴🔴 整單取消的鈕**恆可按** —— 它天生零 cancel_item,套上這道會被永久鎖死', () => {
     // 🔴 關卡1 R2 #3 就是這一格:兩支表單共用 `CancelFormShell`,
     //    「零勾選就停用」若沒有限定 partial,整單取消在 hydration 之後就再也按不下去。
-    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} />);
+    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />);
     expect(submitOf(container).disabled).toBe(false);
   });
 
   it('🔴 零 JS(server 靜態輸出)⇒ 部分取消的鈕也不帶 disabled', () => {
     const html = renderToStaticMarkup(
-      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView({ maxCancellable: 2 })]} shipmentWarning={{ blocked: false }} />,
+      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView({ maxCancellable: 2 })]} shipmentWarning={{ blocked: false }} pendingRefund={NO_PENDING_REFUND} />,
     );
     const submitTag = /<button[^>]*type="submit"[^>]*>/.exec(html);
     expect(submitTag).not.toBeNull();
@@ -813,5 +816,127 @@ describe('#363 token 守門:機制層接手 import 面,本層改守 **inline 產
     expect(code, 'client-safe 檔不得碰產生器模組(會把 server-only 拉回 client 圖)').not.toMatch(
       /cancel-request-token/,
     );
+  });
+});
+
+describe('🔴 「這單收過錢」告知框(Sean 2026-09-05 第 1 題拍乙:不擋, 先告訴他)', () => {
+  const box = (c: HTMLElement) => c.querySelector('[data-testid="cancel-pending-refund-notice"]');
+
+  it('沒收過錢 ⇒ 【沒有】那個框', () => {
+    const { container } = render(
+      <FullCancelForm
+        returnTo={RETURN_TO}
+        orderId={ORDER_ID}
+        shipmentWarning={{ blocked: false }}
+        pendingRefund={{ kind: 'none' }}
+      />,
+    );
+    expect(box(container)).toBeNull();
+  });
+
+  it('收過錢 ⇒ 框在, 而且【逐軌】列出來(不是只有一個合計)', () => {
+    const { container } = render(
+      <FullCancelForm
+        returnTo={RETURN_TO}
+        orderId={ORDER_ID}
+        shipmentWarning={{ blocked: false }}
+        pendingRefund={{
+          kind: 'amounts',
+          rails: [
+            { rail: 'bank_transfer', amount: 600 },
+            { rail: 'cash', amount: 400 },
+          ],
+        }}
+      />,
+    );
+    expect(box(container)).not.toBeNull();
+    // 🔴 逐軌那兩列必須各自在 —— 退款是各自原路退, 合計沒有人可以照著執行。
+    expect(container.querySelector('[data-testid="cancel-pending-refund-rail-bank_transfer"]')?.textContent).toContain('600');
+    expect(container.querySelector('[data-testid="cancel-pending-refund-rail-cash"]')?.textContent).toContain('400');
+    // 🔴🔴 **釘住【那一整句】, 不只釘一個數字**(Sean 2026-09-05 拍「更簡短精簡」之後補)。
+    //    🔬 我改短那兩句時**測試沒有紅** —— 因為它只守「讀不到」三個字, 而我沒動那三個字。
+    //    ⇒ 📌 **一格只守關鍵詞的測試, 對「整句被改寫」是失明的。** 而文案是 Sean 拍的東西。
+    expect(box(container)!.textContent).toContain('已收未退 NT$ 1,000');
+    expect(box(container)!.textContent).toContain('匯款 600 / 現金 400');
+    expect(box(container)!.textContent).toContain('取消後列入待退款。');
+  });
+
+  it('🔴🔴 讀不到 ⇒ 框【還是在】, 而且是那句 fail-closed(不是沒有框、不是 NT$0)', () => {
+    // 🛑 這一格是這一族存在的理由:「沒有框」與「這單沒收過錢」在員工眼裡一模一樣。
+    const { container } = render(
+      <FullCancelForm
+        returnTo={RETURN_TO}
+        orderId={ORDER_ID}
+        shipmentWarning={{ blocked: false }}
+        pendingRefund={{ kind: 'unknown' }}
+      />,
+    );
+    expect(box(container)).not.toBeNull();
+    expect(container.querySelector('[data-testid="cancel-pending-refund-unknown"]')).not.toBeNull();
+    expect(box(container)!.textContent).toContain('收款讀不到或數字不對,取消前請先看收款紀錄。');
+    // 🔵 負對照:不可以印出一個看起來像金額的 0。
+    expect(box(container)!.textContent).not.toContain('NT$ 0');
+  });
+
+  it('🔴 這個框【沒有】checkbox —— 乙 是告知, 不是同意', () => {
+    // 🛑 加一格勾選 = 多一道 Sean 沒批准的閘。而出貨那個框有 checkbox, 兩者不可混。
+    const { container } = render(
+      <FullCancelForm
+        returnTo={RETURN_TO}
+        orderId={ORDER_ID}
+        shipmentWarning={{ blocked: false }}
+        pendingRefund={{ kind: 'amounts', rails: [{ rail: 'cash', amount: 100 }] }}
+      />,
+    );
+    expect(box(container)!.querySelectorAll('input').length).toBe(0);
+  });
+
+  it('🔵 正對照:送出鈕的字沒有被這一片動到', () => {
+    const withBox = render(
+      <FullCancelForm
+        returnTo={RETURN_TO}
+        orderId={ORDER_ID}
+        shipmentWarning={{ blocked: false }}
+        pendingRefund={{ kind: 'amounts', rails: [{ rail: 'cash', amount: 100 }] }}
+      />,
+    ).container.querySelector('button[type="submit"]')?.textContent;
+    cleanup();
+    const without = render(
+      <FullCancelForm
+        returnTo={RETURN_TO}
+        orderId={ORDER_ID}
+        shipmentWarning={{ blocked: false }}
+        pendingRefund={{ kind: 'none' }}
+      />,
+    ).container.querySelector('button[type="submit"]')?.textContent;
+    // 🔵 **先斷言它真的在** —— 兩端都是 `?.textContent`, 鈕整支不見時兩邊都 `undefined`
+    //    ⇒ 那格會恆綠(code-reviewer N1 抓到)。
+    expect(withBox).toBeDefined();
+    // 🔴🔴 **而只比「兩邊相等」還是恆綠的**(codex 2026-09-05 finding 5):
+    //    兩邊【一起】改成任何錯字它照樣過。⇒ **釘住那個字面本身。**
+    //    📌 那與 N1 是同一個病的兩層:N1 是「兩邊都不存在」, 這是「兩邊都錯」。
+    expect(withBox).toBe('整單取消');
+    expect(withBox).toBe(without);
+  });
+});
+
+describe('🔴 部分取消時那一句【不一樣】—— 短不等於少講一件事', () => {
+  it('部分取消:講的是「不會自動列待退款」, 不是「取消後列入待退款」', () => {
+    // 🛑 部分取消不寫 `cancelled_at` ⇒ 那個 trigger 永遠不會醒 ⇒ **不會開任何待退款**。
+    //    ⇒ 兩句若併成一句, 員工會以為系統幫他開好了。
+    const { container } = render(
+      <PartialCancelForm
+        returnTo={RETURN_TO}
+        orderId={ORDER_ID}
+        items={[itemView()]}
+        shipmentWarning={{ blocked: false }}
+        pendingRefund={{ kind: 'amounts', rails: [{ rail: 'cash', amount: 400 }] }}
+      />,
+    );
+    const box = container.querySelector('[data-testid="cancel-pending-refund-notice"]');
+    expect(box).not.toBeNull();
+    expect(box!.textContent).toContain('部分取消不會自動列待退款,請自行處理。');
+    // 🔵 負對照:整單那句不可以出現在這裡。
+    expect(box!.textContent).not.toContain('取消後列入待退款。');
   });
 });

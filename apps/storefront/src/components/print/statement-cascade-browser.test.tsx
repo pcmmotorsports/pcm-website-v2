@@ -66,12 +66,16 @@ const ORDER = {
   paymentStatus: 'paid',
   fulfillmentStatus: 'shipped',
   paymentMethod: 'tappay',
+  // 🔵 段 3 加欄:這些 fixture 演的是【已付款的刷卡單】⇒ 填 'tappay',
+  //   不是「隨便填一個讓它綠」——填的是這個 fixture 本來就在演的那個世界。
+  paymentChannel: 'tappay' as const,
   paidAt: '2099-04-18T03:00:00Z',
   shippedAt: null,
   allItemsShipped: false,
   subtotal: twd(18000),
   shippingFee: twd(100),
   discountTotal: twd(0),
+  taxTotal: twd(0),
   total: twd(18100),
   shippingMethod: 'home',
   shippingAddress: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
@@ -88,6 +92,7 @@ const ORDER = {
     quantity: 1,
     unitPrice: twd(6000),
     lineTotal: twd(6000),
+    shipped: false,
   })),
   itemCount: 3,
   itemsTruncated: false,
@@ -493,4 +498,249 @@ describe('片 C2:自足 HTML 在真瀏覽器 + 零網路下畫得對', () => {
     expect(built.skippedMissing).toBe(0);
     expect(built.uncovered).toEqual([]);
   });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 片 C(2026-09-05 `⟦b4-TAXSURFACES⟧` 第 7 步)· **稅額那一列會不會把頁尾擠掉**
+//
+// 🔴🔴 **這一段是 codex R3 must-fix 2 逼出來的, 而它抓到的是【整個維度】不是某一格**:
+//    本片其餘所有測試問的都是「**渲染出來的字串裡有什麼**」——
+//    而客人拿到的是**一張紙**, 而紙會擠壓、會換頁、會把頁尾推下去。
+//    ⇒ 📌 「字出現在 HTML 裡」與「客人拿到一份印得正常的文件」是**兩個宣稱**,
+//       而這支檔上面每一格都只答了前一個(它們量的是 tax = 0 的那個世界)。
+//
+// 🛑 **本段只答一個問題**:多了那一列之後, **頁尾還貼不貼紙底**。
+//    ⚠️ 它**不答**「換頁」「溢出到第二張」—— 那需要多品項的樣本, 而本段沒有造。**已知缺口, 照實寫。**
+describe('片 C · 稅額那一列與頁尾(真 chromium · 列印媒體)', () => {
+  let browserC: Browser;
+  let taxedMm = -1;
+  let zeroMm = -1;
+  let overflowMm = -1;
+  let zeroHasRow = true;   // 🔴 預設【相反】於期望值 —— 沒被賦值時那一格會紅, 不會靜靜通過
+  let taxedHasRow = false;
+
+  beforeAll(async () => {
+    const layoutCss = compiledCss('.mobile-tabbar-btn');
+    const pageCss = compiledCss('.stmt-page');
+    browserC = await chromium.launch();
+
+    // 🔴 有稅那份**必須平衡**:18000 + 100 − 0 + 905 = 19005。
+    //    不平衡的單正式庫寫不進去 ⇒ 拿它量版面等於量一個不存在的世界。
+    const taxedOrder = {
+      ...ORDER,
+      taxTotal: twd(905),
+      total: twd(19005),
+    } as MemberOrderDetail;
+
+    const measure = async (order: MemberOrderDetail): Promise<{ mm: number; hasTaxRow: boolean }> => {
+      const page = await browserC.newPage();
+      await page.setContent(
+        `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">` +
+          `<style>${layoutCss}</style><style>${pageCss}</style></head>` +
+          `<body>${renderToStaticMarkup(<StatementDoc order={order} />)}</body></html>`,
+      );
+      await page.emulateMedia({ media: 'print' });
+      return page.evaluate(() => {
+        const hasTaxRow = Array.from(document.querySelectorAll('.pd-money td.k')).some(
+          (el) => el.textContent === '稅額',
+        );
+        const sheet = document.querySelector('.stmt-page');
+        if (sheet === null) return { mm: -1, hasTaxRow }; // 🔴 分母:節點不在就回 -1, 不回 0
+        // 🔴🔴 **量的是【紙有多高】, 不是「頁尾貼不貼底」。**
+        //    ⛔ 我第一版量 `sheet.bottom − pdBottom.bottom` 並宣稱它守「頁尾被擠掉」——
+        //       而**負對照當場打穿它**:餵一份 60 個品項的單, 它**照樣印 0**。
+        //    🎯 成因:`.pd-bottom` 是 `margin-top:auto`, 而紙會跟著內容長高
+        //       ⇒ 頁尾**永遠**在紙的底部 ⇒ 那個 0 是恆真的, 它什麼都沒守。
+        //    ✅ 真正會變的量是**紙本身的高度** —— 超過一頁 A4 就是換頁。
+        return { mm: Math.round((sheet.getBoundingClientRect().height / 96) * 25.4), hasTaxRow };
+      });
+    };
+
+    ({ mm: zeroMm, hasTaxRow: zeroHasRow } = await measure(ORDER as MemberOrderDetail));
+    ({ mm: taxedMm, hasTaxRow: taxedHasRow } = await measure(taxedOrder));
+
+    // 🔴🔴 **負對照:這把尺印得出【不是 0】嗎?**
+    //    上面兩格都印 0, 而**一把只印過一種值的尺是零證據** ——
+    //    「頁尾貼底」與「這個量法根本恆為 0」在報表上長得一樣。
+    //    ⇒ 餵一份**塞爆的單**(把品項複製到遠超一頁), 它必須印出非 0。
+    ({ mm: overflowMm } = await measure({
+      ...ORDER,
+      items: Array.from({ length: 60 }, (_, i) => ({ ...ORDER.items[0]!, id: `of${i}` })),
+      itemCount: 60,
+    } as MemberOrderDetail));
+  }, 90_000);
+
+  afterAll(async () => {
+    await browserC?.close();
+  }, 60_000);
+
+  it('🔴 分母:三個世界都真的量到了(節點不在會回 -1)', () => {
+    for (const v of [zeroMm, taxedMm, overflowMm]) expect(v).toBeGreaterThan(0);
+  });
+
+  it('🟢 負對照:塞爆的單【紙會變高】—— 證明這把尺不是恆定值', () => {
+    // 🛑 少了這一格, 下面那兩格的「沒超過一頁」與「這個量法根本不動」印同一個東西。
+    // 🔴 而這一格是**打穿我上一版量法的那一發**:原本量「頁尾貼不貼紙底」,
+    //    餵 60 個品項照樣印 0 ⇒ 那把尺恆真。**換成量紙高之後它才會動。**
+    expect(overflowMm).toBeGreaterThan(zeroMm);
+  });
+
+  it('🔴🔴 多了稅額那一列, 紙【沒有】被推過一頁 A4(297mm)', () => {
+    // 🎯 這一格是本段存在的理由:金額表多一列 ⇒ 內容變高 ⇒ 有可能溢到第二張紙。
+    //    折扣那一列早就是同一種形狀(有折扣才印)而**從來沒有人在真媒體上量過它**
+    //    ⇒ 📌 本格順帶把那個缺口一起關掉。
+    expect(taxedMm).toBeLessThanOrEqual(297);
+    // 🔵 而稅 0 那份也要在一頁內(前提:這把尺在【已知正確】的世界上讀得對)
+    expect(zeroMm).toBeLessThanOrEqual(297);
+  });
+
+  it('🔵 而那一列【真的被渲染出來了】—— 否則上一格是拿一個空的世界在慶祝', () => {
+    // 🛑 少了這一格,「稅額列沒有被渲染」與「它被渲染了而沒撐爆」印同一個綠。
+    // 🔴🔴 **而這一格【不能】用「紙有沒有變高」來問** —— 實測打穿過:
+    //    兩個世界的紙都是 **250mm**(`.stmt-page` 有固定高度, 而內容還有餘裕)
+    //    ⇒ 多一列**不會**讓它變高 ⇒ 那個相等是對的, 不是缺陷。
+    //    📌 而 60 個品項那一發**會**把它撐過 250 ⇒ 這把尺仍然會動, 只是它答的是
+    //       「有沒有溢出」不是「有沒有多一列」。⇒ **兩個問題要用兩把尺。**
+    expect(taxedHasRow).toBe(true);
+    expect(zeroHasRow).toBe(false); // 🔵 對照:稅 0 的那份不得有那一列
+  });
+
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 片 D(2026-09-05)· **多品項 + 有稅**:金額表會不會被切到第二頁
+//
+// 🔴🔴 **這一段是【找到一個既有缺陷】的地方, 不只是守本片的改動。**
+//    量到的(真 chromium, 列印媒體, 真 `page.pdf({format:'A4'})`):
+//      品項數  稅    紙高      金額表 [top, bottom]      PDF 頁數
+//        3     0    250mm     [214.7, 250]                1
+//        3    905   250mm     [207.7, 250]                1
+//       12     0    293.1mm   [257.7, 293.1]              2
+//       12    905   300.1mm   [257.7, 300.1]              2
+//       20     0    392.7mm   [357.4, 392.7]              2
+//       30     0    517.3mm   [482,   517.3]              2
+//
+//    🔴 **每頁內容高 = 297 − 12(上) − 14(下) = 271mm**(`@page` 邊距被
+//       `print-a4-css.test.ts` 釘死)。
+//    ⇒ 🛑 **12 個品項那一列:`257.7 < 271 < 293.1` ⇒ 金額表【跨過分頁線】** ——
+//       客人拿到的紙上, 小計在第一頁而總額在第二頁。
+//    ⇒ 📌 **而這在【今天、沒有稅】的世界就已經成立** —— 不是本片造成的。
+//       本片做的是讓那一塊**再高 7mm**(多一列)⇒ 它讓這件事更容易發生, 而不是開始發生。
+//
+//    🔬 成因(讀 CSS 讀出來的):`print-a4.css` 只給 `tr` 與 `.pd-blocker` 下了
+//       `break-inside: avoid`;**`.pd-bottom` / `.pd-money` 一條都沒有**
+//       ⇒ 那一塊可以在任意兩列之間被切開。
+//
+// 🛑 **本片【不修它】, 而理由不是我懶**:修法是給 `.pd-bottom` 加 `break-inside: avoid`,
+//    而那會把整塊金額表推到第二頁 ⇒ **第一頁下半變成空白** ⇒ 那是**版面的取捨, 要 Sean 看**。
+//    ⇒ 已記板, 且**下面沒有一格假裝它不存在**。
+describe('片 D · 多品項 + 有稅:金額表與分頁(真 chromium + 真 PDF)', () => {
+  let browserD: Browser;
+  type Geo = { sheetMm: number; topMm: number; botMm: number; pdfPages: number };
+  const got: Record<string, Geo> = {};
+
+  /** 🔴 每頁內容高。它不是我挑的:A4 297 − `@page` 上 12 − 下 14。 */
+  const PAGE_CONTENT_MM = 271;
+
+  beforeAll(async () => {
+    const layoutCss = compiledCss('.mobile-tabbar-btn');
+    const pageCss = compiledCss('.stmt-page');
+    browserD = await chromium.launch();
+
+    // 🔴 有稅的樣本**必須平衡**:18000 + 100 − 0 + tax = total。
+    const mk = (n: number, tax: number) =>
+      ({
+        ...ORDER,
+        items: Array.from({ length: n }, (_, i) => ({ ...ORDER.items[0]!, id: `d${i}` })),
+        itemCount: n,
+        taxTotal: twd(tax),
+        total: twd(18000 + 100 + tax),
+      }) as MemberOrderDetail;
+
+    for (const [n, tax] of [
+      [3, 0],
+      [3, 905],
+      [12, 0],
+      [12, 905],
+    ] as const) {
+      const page = await browserD.newPage();
+      await page.setContent(
+        `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">` +
+          `<style>${layoutCss}</style><style>${pageCss}</style></head>` +
+          `<body>${renderToStaticMarkup(<StatementDoc order={mk(n, tax)} />)}</body></html>`,
+      );
+      await page.emulateMedia({ media: 'print' });
+      const g = await page.evaluate(() => {
+        const mm = (px: number) => Math.round((px / 96) * 25.4 * 10) / 10;
+        const sheet = document.querySelector('.stmt-page');
+        const bot = document.querySelector('.pd-bottom');
+        if (sheet === null || bot === null) return { sheetMm: -1, topMm: -1, botMm: -1 };
+        const s = sheet.getBoundingClientRect();
+        const b = bot.getBoundingClientRect();
+        return { sheetMm: mm(s.height), topMm: mm(b.top - s.top), botMm: mm(b.bottom - s.top) };
+      });
+      // 🔴 **真的產一份 PDF 來數頁** —— 不是從高度推的。
+      //    數法:PDF 裡的 `/Type /Page`(後面不接 `s`, 避開 `/Pages`)。
+      const pdf = await page.pdf({ format: 'A4', printBackground: true });
+      const pdfPages = (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length;
+      got[`${n}-${tax}`] = { ...g, pdfPages };
+      await page.close();
+    }
+  }, 120_000);
+
+  afterAll(async () => {
+    await browserD?.close();
+  }, 60_000);
+
+  it('🔴 分母:四個世界都量到了(節點不在會回 -1)', () => {
+    for (const k of ['3-0', '3-905', '12-0', '12-905']) {
+      expect(got[k]!.sheetMm).toBeGreaterThan(0);
+      expect(got[k]!.pdfPages).toBeGreaterThan(0);
+    }
+  });
+
+  it('🔵 少品項(3 件):有稅 / 無稅都還是【一頁】, 而稅額列沒有把它推成兩頁', () => {
+    expect(got['3-0']!.pdfPages).toBe(1);
+    expect(got['3-905']!.pdfPages).toBe(1);
+  });
+
+  it('🔴 而稅額列【確實讓那一塊變高了】—— 否則上一格是拿一個沒發生的改動在慶祝', () => {
+    // 3 件那一組:紙高不變(250mm 有餘裕), 而金額表的**頂端往上跑了 7mm**。
+    expect(got['3-905']!.topMm).toBeLessThan(got['3-0']!.topMm);
+    expect(got['3-0']!.topMm - got['3-905']!.topMm).toBeGreaterThanOrEqual(5);
+  });
+
+  it('🟢 負對照:12 件會變成【兩頁】—— 證明這把數頁的尺不是恆為 1', () => {
+    expect(got['12-0']!.pdfPages).toBe(2);
+    expect(got['12-905']!.pdfPages).toBe(2);
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴🔴 **這裡【曾經】有一格斷言「金額表跨過分頁線 = 既有缺陷」。它是錯的, 已刪。**
+  //
+  // ⛔ ~~我的斷言~~:`.pd-bottom` 的 DOM 盒子是 `[257.7, 293.1]`, 每頁內容高 271mm
+  //    ⇒ `257.7 < 271 < 293.1` ⇒ 「它跨線」⇒ 「客人紙上小計在第一頁、總額在第二頁」。
+  //    我還照這個結論開了板列 `⟦b4-MONEYSPLIT⟧`, 而主視窗把它排進了要給 Sean 的佇列。
+  //
+  // 🔴 **中間少了一步, 而那一步是整個結論的樞紐**:
+  //    **DOM 盒子跨過那條線 ≠ chromium 真的在那裡把它切開。**
+  //    瀏覽器會把整塊往下推(`tr{break-inside:avoid}` + `.pd-bottom{margin-top:auto}` 的實際行為)。
+  //
+  // 🔵 **打穿它的是真 PDF 的逐頁文字**(2026-09-05, `pdftotext -f N -l N`, 12 品項 + 稅 905):
+  //      第 1 頁尾 ⇒ 「品項合計 / 共 12 項 / 第1頁/共2頁」
+  //      第 2 頁   ⇒ 「金額 新臺幣 / 小計(未稅) 運費 稅額 / 訂單金額 / 18,000 100 905」
+  //    ⇒ ✅ **金額表完整落在第二頁, 一刀都沒被切。**
+  //    🔵 順帶證偽兩種「修法」:`.pd-bottom{break-inside:avoid}` 與 `.pd-money{break-inside:avoid}`
+  //       產出的 PDF **byte 完全相同**(sha `c53b63e8…`), 而它們與現況的文字分佈**也一樣**
+  //       ⇒ 那個「要 Sean 選版面」的題目根本不成立。
+  //
+  // 📌 **⇒ 教訓, 而它不是「要更仔細」**:我把一個【幾何讀數】直接當成【紙上的事實】,
+  //    而中間那一步我沒有量。**而它往「有缺陷」那一側錯 —— 那一側沒有人會質疑,
+  //    因為照著一個嚇人的結論行動看起來很盡責。**
+  //
+  // 🛑 **為什麼這裡【沒有】補一格新斷言**:要驗「有沒有被切開」只能讀真 PDF 的逐頁文字,
+  //    而那需要 `pdftotext`(外部二進位)。**把一個外部相依塞進 repo 測試不是我可以自己拍的**
+  //    ⇒ 留成註解 + 樣張 `~/pcm-mailbox/樣張-金額表跨頁-證偽-現況就是對的.pdf`。
+  //    ⚠️ **而這代表「將來有人改壞它時不會有東西紅」** —— 已知缺口, 寫在這裡不藏。
+  // ══════════════════════════════════════════════════════════════════════
 });

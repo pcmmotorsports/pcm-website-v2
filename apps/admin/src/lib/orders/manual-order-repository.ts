@@ -288,8 +288,25 @@ export async function createManualOrder(
       p_payment_channel: values.paymentChannel,
       p_shipping_method: values.shippingMethod,
       p_ship_to: values.shipTo,
-      p_invoice: values.invoice,
+      // 🔴🔴 **`requested` 搭 `p_invoice` 的順風車, 【不另開參數】**
+      //   (2026-09-04 `⟦b4-INVOICE5PCT⟧` 第 2 步)
+      //   🛑 理由**不是**它跟抬頭是同一件事(它不是 —— 抬頭講「開的話寫誰」, 它講「開不開」),
+      //      而是**不動簽名就不會有 overload 的問題**:jsonb 多一個 key, 函式簽名一個字沒變。
+      //   ⛔ ~~原本這裡寫「多一個參數 = 必然 `PGRST203`」~~ —— **那句話是錯的**(codex R1 查
+      //      PostgREST 官方文件打掉):PostgREST **支援**參數數量不同的 overload,
+      //      `PGRST203` 講的是**同名參數型別歧義**那一種。⇒ 保留舊字面加刪除線, 讓搜它的人撞到訂正。
+      //   🔴 **而這個 key 必須與 migration `20260904251500` 成對** —— 沒貼那支的時候,
+      //      函式用 `jsonb_build_object` 只挑五個鍵重建 ⇒ 這個 key 被丟掉 ⇒ 🔴 **沒勾的單會
+      //      靠 DB DEFAULT 落成 `true`(= 要開發票)** ⇒ 那不是良性降級, 是**與他勾的相反**。
+      //      ⇒ 📌 判別法只有一個:**去 DB 看那一張單的 `invoice_requested`**。
+      p_invoice: { ...values.invoice, requested: values.invoiceRequested },
       p_shipping_fee: values.shippingFee,
+      // 🔴🔴 **第 11 參。而它【要等 `20260905130000` 貼進正式庫才准上線】** ——
+      //    PostgREST 送一個函式不認得的參數 ⇒ 直接拒 ⇒ **後台建單整個壞**。
+      //    ⇒ 本片刻意留在分支 `agent/line-account-mailE` 上, 不進 dev。
+      // 🔵 `null` = 不寄(留白)。**不要送空字串** —— 那會被
+      //    `orders_notification_email_valid` 擋掉、整張單建不出來。
+      p_notification_email: values.notificationEmail,
       p_lines: resolved.lines,
     }));
   } catch (thrown) {

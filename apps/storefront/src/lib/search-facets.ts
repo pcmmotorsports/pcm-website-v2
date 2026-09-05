@@ -14,12 +14,22 @@
 import type { MockBrand } from '@/data/mock-brands';
 import type { MockCategory } from '@/data/mock-categories';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import { CATEGORY_URL_SEPARATOR } from '@/components/products-url-parsers';
+import { foldIncludes } from '@/lib/search-terms-fold';
 
 /** 各區上限。稿 `SearchOverlay.jsx:40/46/57` 逐字 `.slice(0, 6)`。 */
 export const SEARCH_FACET_LIMIT = 6;
 
 export type SearchBrandHit = { id: string; name: string; count: number };
-export type SearchCategoryHit = { id: string; name: string; count: number };
+/**
+ * 🔴 **`name` 與 `path` 不可以合成一個**(`⟦search-CATNAMEQUERY⟧` 2026-09-05)。
+ *    · `name` = **比對用的短名**(客人打的是 `車身防倒球與滑塊`, 不是它的全路徑)
+ *    · `path` = **寫進 `?category=` 的東西**;大類 `path === name`,
+ *      子類則是 `父類 · 子類`(`CATEGORY_URL_SEPARATOR`, `products-url-parsers.ts:46`)。
+ *    📌 這一條逐字沿用 `parse-search-facets.ts:205-207` 那段註解 —— 它為同一件事寫過一次,
+ *      而**合成一個正是那個缺陷的形狀**。
+ */
+export type SearchCategoryHit = { id: string; name: string; path: string; count: number };
 export type SearchVehicleHit = {
   brandId: string;
   brandName: string;
@@ -39,10 +49,13 @@ export type SearchFacets = {
   failed: { brands: boolean; categories: boolean; vehicles: boolean };
 };
 
-/** 稿 `:32` 逐字 `const match = (s) => s && s.toLowerCase().includes(q)`。 */
-function match(haystack: string | undefined | null, q: string): boolean {
-  return typeof haystack === 'string' && haystack.toLowerCase().includes(q);
-}
+// 🔴🔴 **[2026-09-04 `match()` 已刪 —— 舊字面留在這裡, 因為外面有東西引用它的行號]**
+//    ⛔ ~~`/** 稿 :32 逐字 const match = (s) => s && s.toLowerCase().includes(q)。 */`~~
+//    ⛔ ~~`function match(haystack, q) { return typeof haystack === 'string' && haystack.toLowerCase().includes(q); }`~~
+//    ✅ 三區都改用 `foldIncludes`(Sean 2026-09-04 第十七題拍甲)⇒ 它沒有呼叫點了,
+//       而留著一支沒人叫的函式會讓下一個人以為「還有一條路走它」。
+//    🔵 **而稿的那一行仍然是這一區的來源** —— `foldIncludes` 做的還是**子字串**,
+//       只是先把兩端折過(去重音 + 去分隔符)。**語意沒有從子字串變成模糊比對。**
 
 export function filterFacets(
   query: string,
@@ -78,15 +91,93 @@ export function filterFacets(
   //    ⚠️ 而旗標仍然帶出去(不是回 `false`)—— **「沒查」不可以印成「查過而沒壞」。**
   if (q === '') return empty;
 
+  // 🔴🔴 **品牌這一區改用 `foldIncludes`(2026-09-04 線【身分】`-auth`)—— 而【只有這一區】。**
+  //    Sean 逐字:「反正就是盡可能的兼容, 模糊搜尋但是盡可能地接近」
+  //    🔬 而它修的是量到的四格(線上實測, `~/pcm-mailbox/量-品牌打錯字-20260904-auth.md`):
+  //    ```
+  //    eazigrip   膠囊 ❌ ⇒ slug 是 `eazi-grip`, 而 'eazi-grip'.includes('eazigrip') = false
+  //    cncracing  膠囊 ❌ ⇒ 同上, 空格
+  //    eazi grip  🔴 商品 8 筆【而膠囊空的】—— 兩層互相矛盾, 而客人看得到那個矛盾
+  //    AKRAPOVIČ  名字比對永遠 0(Č ≠ C)⇒ 今天會中【只是因為 slug 剛好叫 akrapovic】
+  //    ```
+  //    ⇒ 🎯 **`foldSearchTerm` 早就存在(NFD 去重音 + 去分隔符), 只是沒有接到這一區。**
+  //
+  //    🛑 **而【分類/車種那兩區刻意不動】, 理由不是「我懶」**:
+  //       `foldSearchTerm` 逐字「把 `[\s\-_./()[\]{}·,、]` 剝掉」⇒ 它會**剝掉中文標點**,
+  //       而分類名是中文(`腳踏後移與傳動`)、車種名混中英 ⇒ **那是另一個分母, 要另外量。**
+  //       ⇒ 📌 一次只換一區的尺, 否則出事時分不出是哪一區換壞的。
+  //
+  //    🔵 **它仍然是【子字串】, 不是模糊比對** —— 打錯一個字母(`akrpovic`)照樣 0。
+  //       那一半要 `pg_trgm` 的相似度 ⇒ 是一支 migration ⇒ 不在本片。
   const brands = data.brands.brands
-    .filter((b) => match(b.name, q) || match(b.id, q))
+    .filter((b) => foldIncludes(b.name, q) || foldIncludes(b.id, q))
     .slice(0, SEARCH_FACET_LIMIT)
     .map((b) => ({ id: b.id, name: b.name, count: b.count }));
 
-  const categories = data.categories.categories
-    .filter((c) => match(c.name, q) || match(c.id, q))
-    .slice(0, SEARCH_FACET_LIMIT)
-    .map((c) => ({ id: c.id, name: c.name, count: c.count }));
+  // 🔴 **分類這一區 2026-09-04 也換成折兩端**(Sean 第十七題拍甲, 見上面品牌那一段)。
+  //    🔬 **換之前量過分母, 不是換完才想起來**(正式庫唯讀 + 拿【真的】`foldSearchTerm` 跑):
+  //       分類 **83 個唯一名 ⇒ 折後撞名 0 組 · 折成空字串 0** ⇒ 沒有「兩個不同分類被折成一個」的世界。
+  // 🔴🔴 **子類那一層也要比**(`⟦search-CATNAMEQUERY⟧` 2026-09-05, 線【身分】`-auth`)。
+  //   🔬 **病是量到的**(正式站 `/api/search`):打**子分類全名**`車身防倒球與滑塊` /
+  //     `精品螺絲組` / `手機架與導航支架` / `引擎護蓋與護桿` ⇒ **商品 0 筆、分類區 `[]`**,
+  //     而 `failed.categories = **false**` ⇒ 🔵 **那一腿跑了而且沒壞, 是真的沒對到。**
+  //     而拆開就有(`防倒球` 8 / `滑塊` 8 / `螺絲組` 8)。
+  //   🔬 成因就在下面這一行的**舊版**:它只看 `c.name` / `c.id` = **大類自己**,
+  //     而 `MockCategory` 上一直有 `children`(`data/mock-categories.ts:14-19`)。
+  //     ⇒ 🎯 **子類那一層從來沒有被這個 filter 看過。**
+  //   🟢 **負對照(證明尺會動, 不是資料沒有分類)**:改之前打 `架` ⇒ 回 `懸吊與車架`、
+  //     打 `排氣` ⇒ 回 `排氣系統` —— **大類那一層本來就會中**
+  //     ⇒ 📌 要建的不是「讓查詢命中分類名」(那已經在跑), 是**子類那一層**。
+  //
+  //   ✅ **攤平的形狀逐字沿用 `parse-search-facets.ts:205-212`** —— 那支為膠囊那條路
+  //     解過同一題, 而**它算出來的 `path` 正是 `?category=` 吃的東西**。不另發明一種。
+  //   🔬 **而「子類真的連得到」是實測的, 不是讀碼推的**(2026-09-05 正式站, RSC 裡數不重複 slug):
+  //     ```
+  //     ?category=排氣系統                        ⇒ 50   ← 🟢 正對照(大類, 已知好的)
+  //     ?category=車身防護與防摔 · 車身防倒球與滑塊 ⇒ 50   ← ✅ 子類這條路通
+  //     ?category=車身防護與防摔 · 不存在的子類XYZ  ⇒  0   ← 🔵 負對照(尺不是恆印 50)
+  //     ```
+  //     ⚠️ 而**第一把尺沒有判別力**:數 `href="/products/` ⇒ 三發**全 0**(那一頁是 client 畫的)
+  //     ⇒ 換成數 RSC 裡的 slug 才分得開。**「頁面沒東西」與「我的尺看不到」印同一個 0。**
+  //
+  //   🛑 **`name` 與 `path` 不合成一個** —— 比對要短名(客人打的是短名), 網址要全路徑。
+  //     大類 `path === name` ⇒ **大類那一區的行為逐字不變。**
+  //   🔵 **同名子類不去重** —— `⟦search-DUPCATNAMES⟧` 記著正式站有三組同名分類;
+  //     它們的 `path` **不同**(父類不同)⇒ 兩格 chip 是**兩個不同的落點**, 合併會丟掉一個。
+  //     (膠囊那條路只能挑一個 ⇒ 它用 `pickLargest`;疊層可以兩格都給 ⇒ **不必挑。**)
+  const flatCategories: SearchCategoryHit[] = data.categories.categories.flatMap((c) => [
+    { id: c.id, name: c.name, path: c.name, count: c.count },
+    // 🔴 **`?? []` 不是多餘的, 而它是【既有測試當場撞出來的】**:`search-facets.test.ts:156`
+    //    那一格餵的分類物件**沒有 `children`** ⇒ 加這一段之後它 `TypeError` 紅了。
+    //    🛑 **而型別說 `children` 是必填** ⇒ 那一格在型別上是違約的 —— 我仍然選擇**擋住**,
+    //      因為本檔上面自己寫著「本函式是公開純函式, **它要對自己的輸入負責, 不能假設呼叫端先擋過**」
+    //      (空字串短路那一段)。⇒ 📌 **同一條原則, 換一個受詞。**
+    //    🎯 而它壞掉的樣子不是小事:`filterFacets` throw ⇒ `/api/search` 整發炸掉 ⇒ **疊層全空**。
+    //    🔵 ⇒ 那一格測試現在是這道 guard 的**負對照**:拿掉 `?? []` 它就紅。
+    ...(c.children ?? []).map((s) => ({
+      id: s.id,
+      name: s.name,
+      path: `${c.name}${CATEGORY_URL_SEPARATOR}${s.name}`,
+      count: s.count,
+    })),
+  ]);
+  // 🔴🔴 **大類命中排在子類前 —— 而這一段是【preview 實測補上的】, 不是原版就有。**
+  //   ⛔ ~~第一版沒有這個排序~~ ⇒ 🔬 preview `13a4f020c` 打 `排氣` 回 5 格, 而**第一格是
+  //     `碳纖維部品 · 引擎與排氣護蓋`**, `排氣系統`(大類)被擠到第二。
+  //   🛑 **那是本片規格第 5 行的後半, 而我漏做了** —— 規格逐字「大類命中排在子類前」。
+  //   🎯 **而那 8 格新測試一格都沒紅** —— 因為**每一格查詢都只命中一樣東西**,
+  //     從來沒有一格【同時命中大類與子類】⇒ 📌 **順序這件事在我的分母裡結構上不存在。**
+  //     ⇒ 🔵 抓到它的**不是更仔細, 是把碼放到真的資料上跑一發**。
+  //   🔵 **不是美觀問題**:`SEARCH_FACET_LIMIT = 6` ⇒ 打常見字時子類會把**別的大類**擠出榜,
+  //     而客人最可能想去的就是那個大類。
+  //   🛑 **`sort` 必須穩定, 而且只比「是不是大類」這一個鍵** —— 多比一個(例如 `count`)
+  //     會**順手改掉同層之間的順序**, 而那個順序是樹給的(`sort_order`), 不是我的。
+  //     Node 的 `Array#sort` 自 V8 7.0 起保證穩定 ⇒ 回 0 的兩格維持原相對位置。
+  const isTop = (c: SearchCategoryHit): boolean => c.path === c.name;
+  const categories = flatCategories
+    .filter((c) => foldIncludes(c.name, q) || foldIncludes(c.id, q))
+    .sort((a, b) => Number(isTop(b)) - Number(isTop(a)))
+    .slice(0, SEARCH_FACET_LIMIT);
 
   // 稿 `:47-54`:逐 brand 逐 model,而 **model 名或 brand 名任一命中就算**
   // ⇒ 打「YAMAHA」要撈得出它旗下的車款,不是只有名字裡有 YAMAHA 的那些型號。
@@ -94,13 +185,34 @@ export function filterFacets(
   //    (2026-09-03;R1 nit 12:指標原本只寫在畫的那一端,而**會刪掉這段的人打開的是這支檔**。)
   //    疊層那一區被 `SearchOverlayFacets.tsx` 刻意不畫,因為 `match()` 是子字串比對
   //    ⇒ 打 `R6` 會比中 `CBR600`(`cbr600` 裡含 `r6`)⇒ 客人會以為網站壞了。
-  //    📎 **等 Sean 拍**:`~/pcm-mailbox/等Sean拍的題-20260903.md` **題 21** · 板列 `⟦f3-VEHICLEMATCH⟧`。
+  //    ✅✅ **[2026-09-04 16:3x Sean 拍了 —— 【重出版的甲】: 全部不改]**
+  //      原話逐字(正本 `~/pcm-mailbox/Sean拍板-20260904-七題.md` 「Q-R6(重出版)」那一節):
+  //        「甲 = 全部不改。 R6 繼續跑出 Honda CBR600, 車款那一區維持不顯示。」
+  //      🔴 **引用時務必寫「重出版的甲」** —— **舊版的甲乙【都不對】**:舊版只講車款那一區的代價,
+  //        而這支 `match()` **三區共用**(品牌 `:82` / 分類 `:87` / 車款 `:103`)。
+  //        ⚠️ **[2026-09-04 訂正]** `match()` 已刪、三區改用 `foldIncludes` —— **而「三區共用」這件事沒變**,
+  //           它仍然是一支函式管三區。上面那句的**行號已漂**, 不要照它去找。
+  //      🛑 **而 2026-09-03 那份答案表的 Q21 那一列(字母說乙 · 說明說不改)【作廢】** —— 那一則被取代了。
+  //    🎯 **⇒ 所以這一段不再是「等拍板」, 是【一條拍板的落點】** —— **不改是拍板, 不是沒做。**
+  //    🔴🔴 **[2026-09-04 補 —— 而它【不推翻】上面那一板, 兩者管的是不同的事]**
+  //       上面那板管的是「**過度命中**」(`R6` 跑出 `CBR600`)⇒ 拍**不改** ⇒ 今天仍然不改。
+  //       而 Sean 同日**第十七題**拍的是「**命中不足**」:
+  //         > 「Q-膠囊比對: 打『eazigrip』(少一個橫槓)現在找不到 EAZI-GRIP。要不要讓它找得到? 甲 = 要」
+  //       ⇒ ✅ 三區改用 `foldIncludes`(折重音 + 折分隔符), 而 **`R6` 照樣跑出 `CBR600`、
+  //         車款那一區照樣不顯示** —— 那兩件事一個字都沒動。
+  //    🛑 **我當時停下來問過, 沒有自己解釋那一板** —— 因為本段自己寫著「只講一區」正是上次出錯的方式。
   //    🛑 **拍板前不要刪這段** —— 刪了之後那一區要接上來時得重寫,而 `SearchOverlay.test.tsx`
   //      的 G3-b 斷言的是「畫面上不得出現」⇒ **刪掉資料源它照樣綠,不會叫。**
   const vehicles: SearchVehicleHit[] = [];
   for (const b of data.vehicles.motoBrands) {
     for (const m of b.models) {
-      if (match(m.name, q) || match(b.name, q)) {
+      // 🔴 **車款這一區同上**。分母也量過:車種品牌 **67 個唯一名 ⇒ 撞名 0**;
+      //    車款 **3,536 個「品牌×車款」配對 ⇒ 折後撞名 16 組, 而 16 組【全部同一個品牌】**
+      //    (跨品牌 0)⇒ 🎯 那是**同一台車的兩種寫法**(`NC 700 S` / `NC700S`), 不是兩台車被混成一台
+      //    ⇒ 折了之後兩筆都中, **而那正是客人要的**(板列 `⟦veh-DUPMODELSPELLING⟧` 記著來源資料重複)。
+      // 🛑 **而 `+` 那一族【沒有】被折掉**:`Tracer 9 GT` 與 `Tracer 9 GT+` 是**不同的車**,
+      //    而 `foldSearchTerm` 不剝 `+` ⇒ 它們折了也不撞。**不要「順手」把 `+` 加進剝除字元集。**
+      if (foldIncludes(m.name, q) || foldIncludes(b.name, q)) {
         vehicles.push({
           brandId: b.id,
           brandName: b.name,

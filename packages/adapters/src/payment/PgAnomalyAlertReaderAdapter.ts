@@ -48,6 +48,8 @@ class AnomalyAlertReaderParseError extends Error {}
 const UNDEFINED_FUNCTION = '42883';
 /** ⟦b9-ENUMWATCH⟧ 片 2:單一來源的 RPC 名(錯誤訊息與探詢字面都從這裡來)。 */
 const RPC_MANUAL_SEARCH = 'get_manual_customer_search_summary';
+const RPC_SEARCH_LOG_HEALTH = 'get_search_log_health';
+const RPC_STUCK_BANK_HEALTH = 'get_stuck_bank_orders_health';
 
 function defaultClientFactory(connectionString: string): PgClientLike {
   return new Client(buildPgConfig(connectionString)) as unknown as PgClientLike;
@@ -336,6 +338,97 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
        *   `orderCreatedStuckMinutes` 沒設 = 那條線**還沒上膛**
        *   ⇒ 📌 **這一格就是「落地」與「Sean 去填那顆 env」脫鉤的地方。**
        */
+      /**
+       * 🔵 **未付款取消信線的同一支**(⟦b4-NORECIPIENTWINDOW⟧, 2026-09-03)。
+       * 🔴 **共用 `orderCreatedCutoffIso`, 而那不是偷懶** —— 寄信端那三條線本來就共用
+       *    同一顆 `B4_DEPLOY_CUTOFF`(`email-sweep/route.ts` 逐字「與 B-5 共用同一顆 cutoff」),
+       *    兩邊問的是同一件事:「上線那一刻之後才算」。
+       *    ⇒ 📌 **共用意味著:那顆沒設 ⇒ 這一段也不查** ⇒ 落 unknown、不叫。**那是刻意的。**
+       * ⚠️ 降級處置**逐字沿用**姊妹那支:RAISE / 函式不存在 ⇒ 降級成【查不到】,
+       *    **不讓整支告警死掉** —— 其他告警照常送。
+       */
+      let unpaidCancelledRows: Array<Record<string, unknown>> = [];
+      if (orderCreatedCutoffIso !== null) {
+        try {
+          const res = await client.query(
+            'SELECT public.get_order_unpaid_cancelled_gap_counts($1::timestamptz) AS result',
+            [orderCreatedCutoffIso],
+          );
+          unpaidCancelledRows = res.rows;
+        } catch (err) {
+          const code = (err as { code?: unknown } | null)?.code;
+          if (code === RAISE_EXCEPTION) {
+            const looksLikeOwnGate =
+              typeof (err as { message?: unknown }).message === 'string' &&
+              (err as { message: string }).message.includes(`${UNPAID_CANCELLED_FN}:`);
+            console.error(
+              looksLikeOwnGate
+                ? '[anomaly-alert] 🔴 get_order_unpaid_cancelled_gap_counts 自己 RAISE 了(參數閘)⇒ 取消信收件人那一段降級成【查不到】,而其他告警照常送'
+                : '[anomaly-alert] 🔴 get_order_unpaid_cancelled_gap_counts 拋了 P0001 而【訊息不像它自己的參數閘】⇒ 仍降級成【查不到】(不改控制流),但這一格值得有人去看',
+              {
+                code: RAISE_EXCEPTION,
+                reason: looksLikeOwnGate
+                  ? 'unpaid_cancelled_gap_rpc_raised'
+                  : 'unpaid_cancelled_gap_rpc_raised_unexpected_shape',
+              },
+            );
+          } else {
+            if (code !== UNDEFINED_FUNCTION) throw err;
+            const probe = await client.query(
+              "SELECT to_regprocedure('public.get_order_unpaid_cancelled_gap_counts(timestamptz)') IS NULL AS missing",
+              [],
+            );
+            if (probe.rows[0]?.missing !== true) throw err;
+          }
+        }
+      }
+
+      /**
+       * 🔵 **更正單號信線的同一支**(⟦b4-NORECIPIENTWINDOW⟧ 第四條線, 2026-09-04)。
+       *
+       * 🔴🔴 **它【沒有 cutoff 參數, 也沒有那個 `if (cutoff !== null)` 守門】—— 而那不是漏了。**
+       *    姊妹那三條要 cutoff, 因為它們的母體(`orders` / 已出貨的箱)在功能上線前就存在
+       *    ⇒ 不設起始線就會把歷史全部算進來。
+       *    而本線的觸發欄 `shipments.tracking_corrected_at` 是 2026-09-04 片 C 才新增的
+       *    ⇒ **歷史上每一箱都是 NULL** ⇒ 母體天生從空的開始長。
+       *    ⇒ 📌 **所以本段【不論那顆 env 有沒有設都會查】** —— 這是與上面三段唯一的控制流差異,
+       *      而它值得寫出來:讀的人看到別人都有守門而這裡沒有, 第一個念頭會是「是不是漏了」。**不是。**
+       * ⚠️ 降級處置**逐字沿用**姊妹那支:RAISE / 函式不存在 ⇒ 降級成【查不到】, 不讓整支告警死掉。
+       */
+      let trackingCorrectedRows: Array<Record<string, unknown>> = [];
+      try {
+        const res = await client.query(
+          'SELECT public.get_tracking_corrected_gap_counts() AS result',
+          [],
+        );
+        trackingCorrectedRows = res.rows;
+      } catch (err) {
+        const code = (err as { code?: unknown } | null)?.code;
+        if (code === RAISE_EXCEPTION) {
+          const looksLikeOwnGate =
+            typeof (err as { message?: unknown }).message === 'string' &&
+            (err as { message: string }).message.includes(`${TRACKING_CORRECTED_FN}:`);
+          console.error(
+            looksLikeOwnGate
+              ? '[anomaly-alert] 🔴 get_tracking_corrected_gap_counts 自己 RAISE 了 ⇒ 更正信收件人那一段降級成【查不到】,而其他告警照常送'
+              : '[anomaly-alert] 🔴 get_tracking_corrected_gap_counts 拋了 P0001 而【訊息不像它自己的閘】⇒ 仍降級成【查不到】(不改控制流),但這一格值得有人去看',
+            {
+              code: RAISE_EXCEPTION,
+              reason: looksLikeOwnGate
+                ? 'tracking_corrected_gap_rpc_raised'
+                : 'tracking_corrected_gap_rpc_raised_unexpected_shape',
+            },
+          );
+        } else {
+          if (code !== UNDEFINED_FUNCTION) throw err;
+          const probe = await client.query(
+            "SELECT to_regprocedure('public.get_tracking_corrected_gap_counts()') IS NULL AS missing",
+            [],
+          );
+          if (probe.rows[0]?.missing !== true) throw err;
+        }
+      }
+
       let orderCreatedStuckRows: Array<Record<string, unknown>> = [];
       if (orderCreatedCutoffIso !== null && orderCreatedStuckMinutes !== null) {
         try {
@@ -469,9 +562,34 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         }
       }
 
+        /**
+         * ⟦b9-ACLDRIFT5⟧ 片二:讀 `public.pcm_acl_drift_status`(definer view)。
+         * 🔴 **欄名在 SQL 裡是中文** ⇒ 這裡一律 `AS` 成英文別名 ——
+         *    那條「SQL 產出的 key vs TS 讀取的 key」對帳閘比的是別名, 而中文欄名在
+         *    序列化 / 大小寫折疊上多一個會出事的地方。**別名是契約, 不是美觀。**
+         * 🔴 錯誤處理:**catch-all 落 Unknown 並 log** —— 與 bypassRls 那支同一個理由:
+         *    這是最後一發查詢, 而**一支偵測權限的探針不該在權限被收緊那天,
+         *    把金流告警一起殺掉**。view 還沒貼(42P01)也走這條。
+         */
+        let aclDriftRows: Array<Record<string, unknown>> = [];
+        try {
+          const res = await client.query(
+            'SELECT "有漂移" AS drift, "最新這列已被批准" AS approved, "最新這列太舊" AS stale, ' +
+              '"變了的族" AS families, "最新時刻" AS taken_at FROM public.pcm_acl_drift_status',
+            [],
+          );
+          aclDriftRows = res.rows;
+        } catch (err) {
+          const code = (err as { code?: unknown } | null)?.code;
+          console.error(
+            '[anomaly-alert] 🔵 pcm_acl_drift_status 讀失敗 ⇒ 權限漂移那一格落【查不到】(不是「沒有漂移」)',
+            { code },
+          );
+        }
       return parseAlertSummary(
         counts.rows, ids, refundRows, emailRows, shippedRows, orderCreatedRows,
-        orderCreatedStuckRows, heartbeatRows, bypassRlsRows,
+        unpaidCancelledRows, orderCreatedStuckRows, heartbeatRows, bypassRlsRows,
+        trackingCorrectedRows, aclDriftRows,
       );
     });
   }
@@ -586,6 +704,157 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
     });
   }
 
+  /**
+   * 搜尋日誌健康度 —— 形狀與 `getManualCustomerSearchSummary` 同一個模子:
+   * 42883 要再 probe 一次才降級(函式【內部】丟的 42883 原封上拋)。
+   *
+   * 🔴 **三個欄位【原封回傳, 不在這裡判斷】** —— 要不要告警是 route 的事。
+   *    理由:`anonCanExecute` 的 `null`(還沒貼)與 `false`(門被關了)在這裡若被
+   *    合併成 boolean, **route 就再也分不出來了**, 而那兩個世界的下一步相反。
+   */
+  /**
+   * ⟦b4-NEEDSHUMANNOWATCHER⟧ 卡住的匯款單(`overpaid` / `needs_human` 那兩種)。
+   *
+   * 🔴 **`42883` 的兩個世界照 `getPaymentAnomalyAlertDisplayIds` 那格處理**(codex R2 must-fix 的成例):
+   *    函式**存在**而它的**函式體**裡少了某個 helper/operator, PG 回的是**同一個碼**。
+   *    ⇒ 照碼降級 = 一支壞掉的函式會被安靜地讀成「今天沒有卡住的單」, 而它不會自己好。
+   *    ⇒ ✅ 再問一次「它到底在不在」:`to_regprocedure` 回 NULL 才是真的沒貼 ⇒ 才回 `null`;
+   *      回得出 oid ⇒ 那個 42883 來自**函式內部** ⇒ **原封上拋**。
+   * 🔵 那一發 probe 只在錯誤路徑跑, 正常情況零成本。
+   */
+  async getStuckBankOrdersHealth(): Promise<{
+    readonly stuckCount: number;
+    readonly oldestCreated: string | null;
+    readonly overpaidCount: number;
+    readonly overpaidOldest: string | null;
+  } | null> {
+    return this.run(async (client) => {
+      let raw: unknown;
+      try {
+        const res = await client.query(
+          'SELECT public.get_stuck_bank_orders_health() AS result',
+          [],
+        );
+        raw = res.rows[0]?.result;
+      } catch (err) {
+        if ((err as { code?: unknown } | null)?.code !== UNDEFINED_FUNCTION) throw err;
+        const probe = await client.query(
+          "SELECT to_regprocedure('public.get_stuck_bank_orders_health()') IS NULL AS missing",
+          [],
+        );
+        if (probe.rows[0]?.missing !== true) throw err;
+        // 🔵 真的沒貼 ⇒ 回 null ⇒ 呼叫端走 *Unknown, 與其他訊號同款。
+        return null;
+      }
+
+      // 🔴 以下每一格都 **fail-loud** —— 形狀不符就丟, 不要默默給一個看起來合理的數字。
+      if (raw === null || typeof raw !== 'object') {
+        throw new AnomalyAlertReaderParseError(`${RPC_STUCK_BANK_HEALTH} 回應形狀不符`);
+      }
+      const bag = raw as Record<string, unknown>;
+      // 🔴🔴 **`measured` 要驗**(codex R2 must-fix ③)。
+      //    SQL 那側**特別回這一鍵**, 就是為了防「沒量到卻被當成零張」——
+      //    而我原本**完全不讀它** ⇒ 缺鍵 / `false` / `null` 都會被當成「量到了」。
+      //    ⇒ 🎯 **⇒ 我加了一道守門, 而沒有接它。今晚同型第三次**
+      //      (前兩次:`stuckBankUnknown` route 沒消費 · `stuckBankFailed` 補了沒接)。
+      //      📌 **⇒ 「加了一個訊號」與「有人在讀它」是兩個宣稱, 而我一直只做前者。**
+      if (bag.measured !== true) {
+        throw new AnomalyAlertReaderParseError(
+          `${RPC_STUCK_BANK_HEALTH} measured 不是 true(實得 ${String(bag.measured)})⇒ 那支 RPC 沒有真的量到`,
+        );
+      }
+      /**
+       * 🔵 **兩個世界共用同一組檢查** —— 抽成具名函式而不是複製第二份。
+       *    🔬 理由是量出來的形狀:本 repo 記過「一格叫突變的測試若把判準重打一份,
+       *      改生產碼它不會紅」⇒ 同一個道理反過來 —— **複製一份檢查, 兩份會各自漂**,
+       *      而漂掉的那一半在 diff 上與「本來就這樣」長得一樣。
+       * 🔴 世界 A = 仍 unpaid(`stuck_*`)· 世界 B = 已付款而多收(`overpaid_*`)。
+       */
+      const readPair = (countKey: string, oldestKey: string): { count: number; oldest: string | null } => {
+        const c = bag[countKey];
+        if (typeof c !== 'number' || !Number.isInteger(c) || c < 0) {
+          throw new AnomalyAlertReaderParseError(`${RPC_STUCK_BANK_HEALTH} ${countKey} 異常`);
+        }
+        const o = bag[oldestKey] ?? null;
+        if (o !== null && typeof o !== 'string') {
+          throw new AnomalyAlertReaderParseError(`${RPC_STUCK_BANK_HEALTH} ${oldestKey} 異常`);
+        }
+        if (o !== null && Number.isNaN(new Date(o).getTime())) {
+          throw new AnomalyAlertReaderParseError(`${RPC_STUCK_BANK_HEALTH} ${oldestKey} 不是合法時刻`);
+        }
+        // 🔴 **兩者要一致** —— count>0 而沒有最早時刻, 或 count=0 而有時刻, 都表示那支 RPC 壞了。
+        //    ⇒ 📌 一份自己前後矛盾的資料, 比一份缺資料危險:它讀起來是完整的。
+        if ((c > 0) !== (o !== null)) {
+          throw new AnomalyAlertReaderParseError(
+            `${RPC_STUCK_BANK_HEALTH} ${countKey} 與 ${oldestKey} 不一致(count=${c}, oldest=${String(o)})`,
+          );
+        }
+        return { count: c, oldest: o };
+      };
+      const a = readPair('stuck_count', 'oldest_created');
+      const b = readPair('overpaid_count', 'overpaid_oldest');
+      return {
+        stuckCount: a.count,
+        oldestCreated: a.oldest,
+        overpaidCount: b.count,
+        overpaidOldest: b.oldest,
+      };
+    });
+  }
+
+  async getSearchLogHealth(): Promise<{
+    readonly tableExists: boolean;
+    readonly lastRowAt: string | null;
+    readonly anonCanExecute: boolean | null;
+  } | null> {
+    return this.run(async (client) => {
+      try {
+        const res = await client.query(
+          'SELECT public.get_search_log_health() AS result',
+          [],
+        );
+        const raw = res.rows[0]?.result;
+        if (raw === null || typeof raw !== 'object') {
+          throw new AnomalyAlertReaderParseError(`${RPC_SEARCH_LOG_HEALTH} 回應形狀不符`);
+        }
+        const bag = raw as Record<string, unknown>;
+        if (typeof bag.table_exists !== 'boolean') {
+          throw new AnomalyAlertReaderParseError(`${RPC_SEARCH_LOG_HEALTH} table_exists 異常`);
+        }
+        const last = bag.last_row_at;
+        if (last !== null && typeof last !== 'string') {
+          throw new AnomalyAlertReaderParseError(`${RPC_SEARCH_LOG_HEALTH} last_row_at 異常`);
+        }
+        // 🔴🔴 **codex must-fix:只驗「是字串」不夠**(2026-09-04)——
+        //    非法日期 ⇒ 上層 `new Date(x).getTime()` 是 `NaN` ⇒ `NaN > 86400000` 是 false
+        //    ⇒ **stale 恆 false** ⇒ 📌 **一個壞掉的回應被讀成「健康」。**
+        //    ⇒ 這裡 fail-loud:壞回應要走 `Unknown`(有人看), 不是靜靜地過。
+        if (last !== null && Number.isNaN(new Date(last).getTime())) {
+          throw new AnomalyAlertReaderParseError(
+            `${RPC_SEARCH_LOG_HEALTH} last_row_at 不是合法時刻`,
+          );
+        }
+        const anon = bag.anon_can_execute;
+        if (anon !== null && typeof anon !== 'boolean') {
+          throw new AnomalyAlertReaderParseError(`${RPC_SEARCH_LOG_HEALTH} anon_can_execute 異常`);
+        }
+        return {
+          tableExists: bag.table_exists,
+          lastRowAt: last ?? null,
+          anonCanExecute: anon ?? null,
+        };
+      } catch (err) {
+        if ((err as { code?: unknown } | null)?.code !== UNDEFINED_FUNCTION) throw err;
+        const probe = await client.query(
+          "SELECT to_regprocedure('public.get_search_log_health()') IS NULL AS missing",
+          [],
+        );
+        if (probe.rows[0]?.missing !== true) throw err;
+        return null;
+      }
+    });
+  }
+
   /** per-request 連線生命週期(connect → op → finally end;end throw 吞掉不蓋主錯誤)。 */
   private async run<T>(op: (client: PgClientLike) => Promise<T>): Promise<T> {
     let client: PgClientLike | undefined;
@@ -633,6 +902,8 @@ const REFUNDS_FN = 'get_order_refunds_stuck_summary';
 const EMAIL_FN = 'get_email_outbox_deadman_counts';
 const SHIPPED_FN = 'get_shipped_email_gap_counts';
 const ORDER_CREATED_FN = 'get_order_created_gap_counts';
+const UNPAID_CANCELLED_FN = 'get_order_unpaid_cancelled_gap_counts';
+const TRACKING_CORRECTED_FN = 'get_tracking_corrected_gap_counts';
 /** PG `raise_exception` —— plpgsql 的 `RAISE EXCEPTION` 預設就是這個 SQLSTATE。 */
 const RAISE_EXCEPTION = 'P0001';
 
@@ -725,9 +996,17 @@ function parseAlertSummary(
   emailRows: Array<Record<string, unknown>>,
   shippedRows: Array<Record<string, unknown>>,
   orderCreatedRows: Array<Record<string, unknown>>,
+  unpaidCancelledRows: Array<Record<string, unknown>>,
   orderCreatedStuckRows: Array<Record<string, unknown>>,
   heartbeatRows: Array<Record<string, unknown>>,
   bypassRlsRows: Array<Record<string, unknown>>,
+  // 🔵 第四條線(⟦b4-NORECIPIENTWINDOW⟧, 2026-09-04)。**排在最後, 不插進中間** ——
+  //   這是一串**位置參數**, 插中間會讓所有既有呼叫端安靜地錯位一格
+  //   (型別全是同一個 `Array<Record<string, unknown>>` ⇒ 🔴 **typecheck 不會紅**)。
+  trackingCorrectedRows: Array<Record<string, unknown>>,
+  // 🔵 ⟦b9-ACLDRIFT5⟧ 片二(2026-09-05)。**同樣排在最後** —— 理由見上面那段:
+  //   位置參數插中間會安靜錯位, 而型別全一樣 ⇒ typecheck 不會紅。
+  aclDriftRows: Array<Record<string, unknown>>,
 ): AnomalyAlertSummary {
   const r = rows[0]?.result as Record<string, unknown> | undefined;
   if (!r || typeof r !== 'object') {
@@ -881,6 +1160,37 @@ function parseAlertSummary(
     bypassRlsPrivilegedCount: typeof brPrivileged === 'number' ? brPrivileged : null,
     bypassRlsTotalRoleCount: typeof brTotal === 'number' ? brTotal : null,
   };
+    /**
+     * ⟦b9-ACLDRIFT5⟧ 片二:權限快照漂移。與 bypassRls 那塊【同一個形狀】:
+     * 只認 boolean;其餘一律當「量不到」(fail-closed)。
+     *
+     * 🔴 **`已批准` 讓 Detected 回 false, 而那【不是消音】** ——
+     *    批准是一個人簽下「那是我貼板造成的」(理由必填)。
+     *    少了這一格, 貼板當天之後會每天寄一封一模一樣的信 ⇒ **那種信會被整批忽略,
+     *    而下一封真的也一起。**
+     * 🔴 **`太舊` 走 Unknown 不走 Detected**:快照太舊 ⇒ 我手上這兩列不足以比較
+     *    ⇒ 那是「量不到」不是「沒有漂移」, 更不是「有漂移」。
+     * 🛑 而它答不出「有沒有人偷改」—— 改掉又改回來, 兩次快照相同 ⇒ 它不會叫。
+     */
+    const ad = aclDriftRows[0];
+    const adDrift = ad?.drift;
+    const adApproved = ad?.approved;
+    const adStale = ad?.stale;
+    const adWellTyped =
+      ad !== undefined && typeof adDrift === 'boolean' && typeof adApproved === 'boolean';
+    const aclDrift = {
+      // 只在【明確 true、明確沒被批准、而且那一列不算太舊】時才叫。
+      aclDriftDetected: adWellTyped && adDrift === true && adApproved === false && adStale !== true,
+      // 🔵 三種都算查不到:view 沒貼 / 讀失敗 / 回了怪型別;外加「太舊」。
+      aclDriftUnknown: !adWellTyped || adStale === true,
+      aclDriftFamilies: typeof ad?.families === 'string' ? (ad.families as string) : null,
+      aclDriftTakenAt:
+        ad?.taken_at instanceof Date
+          ? (ad.taken_at as Date).toISOString()
+          : typeof ad?.taken_at === 'string'
+            ? (ad.taken_at as string)
+            : null,
+    };
   /**
    * 🔴🔴 **三道回應層對帳(codex 2026-08-31 片3 R1 #3/#4)** —— 全部 fail-loud,
    *   因為這一族的失敗形狀是**靜默地看起來健康**, 而那是本片要治的病本身。
@@ -922,6 +1232,30 @@ function parseAlertSummary(
   const orderCreatedCount = (key: string): number | null =>
     orderCreatedGapUnknown ? null : parseCount(oc![key], key, ORDER_CREATED_FN);
 
+  // 🔵 未付款取消信線的同一組。`undefined` = **沒查**(cutoff 沒設 / 函式尚未 apply)
+  //   🔴 ⇒ 三格回 `null`, **不是 0** ——「讀不到」與「一切正常」在裸數字上長得一模一樣。
+  const ucg = unpaidCancelledRows[0]?.result as Record<string, unknown> | undefined;
+  const unpaidCancelledGapUnknown = ucg === undefined;
+  if (!unpaidCancelledGapUnknown && (ucg === null || typeof ucg !== 'object')) {
+    throw new AnomalyAlertReaderParseError(
+      `${UNPAID_CANCELLED_FN} 回應格式異常(函式存在但回了 NULL 或非物件)`,
+    );
+  }
+  const unpaidCancelledCount = (key: string): number | null =>
+    unpaidCancelledGapUnknown ? null : parseCount(ucg![key], key, UNPAID_CANCELLED_FN);
+
+  // 🔵 更正單號信線的同一組。`undefined` = **沒查**(函式尚未 apply)
+  //   🔴 ⇒ 三格回 `null`, **不是 0** ——「讀不到」與「一切正常」在裸數字上長得一模一樣。
+  const tcg = trackingCorrectedRows[0]?.result as Record<string, unknown> | undefined;
+  const trackingCorrectedGapUnknown = tcg === undefined;
+  if (!trackingCorrectedGapUnknown && (tcg === null || typeof tcg !== 'object')) {
+    throw new AnomalyAlertReaderParseError(
+      `${TRACKING_CORRECTED_FN} 回應格式異常(函式存在但回了 NULL 或非物件)`,
+    );
+  }
+  const trackingCorrectedCount = (key: string): number | null =>
+    trackingCorrectedGapUnknown ? null : parseCount(tcg![key], key, TRACKING_CORRECTED_FN);
+
   const ocs = orderCreatedStuckRows[0]?.result as Record<string, unknown> | undefined;
   // 🔴 `undefined` = **沒查**(兩顆 env 任一沒設 / 函式尚未 apply)⇒ 兩格都回 null, **不是 0**。
   const orderCreatedStuckUnknown = ocs === undefined;
@@ -961,6 +1295,16 @@ function parseAlertSummary(
     orderCreatedPaidNoEmailCount: orderCreatedCount('paid_no_email_count'),
     orderCreatedNoRecipientCount: orderCreatedCount('no_recipient_count'),
     orderCreatedGapUnknown,
+    // 🔵 未付款取消信線那三格(⟦b4-NORECIPIENTWINDOW⟧, 2026-09-03)。
+    //   🔴 **不寫成 0** —— 而這一格今天【一定會走到】:那支 RPC 還沒 apply 到正式庫。
+    unpaidCancelledPendingCount: unpaidCancelledCount('pending_count'),
+    unpaidCancelledNoRecipientCount: unpaidCancelledCount('no_recipient_count'),
+    unpaidCancelledGapUnknown,
+    // 🔵 更正單號信線那三格(⟦b4-NORECIPIENTWINDOW⟧ 第四條線, 2026-09-04)。
+    //   🔴 **不寫成 0** —— 而這一格今天【一定會走到】:那支 RPC 還沒 apply 到正式庫。
+    trackingCorrectedPendingCount: trackingCorrectedCount('pending_count'),
+    trackingCorrectedNoRecipientCount: trackingCorrectedCount('no_recipient_count'),
+    trackingCorrectedGapUnknown,
     // 🔵 訊號4 持續失敗那兩格。null = 沒查(兩顆 env 任一沒設)或函式尚未 apply
     //   🔴 **不寫成 0** ——「還沒上膛」與「今天沒有卡住的單」在一個裸數字上長得一模一樣。
     orderCreatedStuckCount: stuckNum('stuck_count'),
@@ -969,6 +1313,8 @@ function parseAlertSummary(
     orderCreatedStuckUnknown,
     ...cronHeartbeat,
     ...bypassRls,
+      // ⟦b9-ACLDRIFT5⟧ 片二(2026-09-05)
+      ...aclDrift,
     openCount: parseCount(r.open_count, 'open_count'),
     refundingCount: parseCount(r.refunding_count, 'refunding_count'),
     refundingStuckCount: parseCount(r.refunding_stuck_count, 'refunding_stuck_count'),

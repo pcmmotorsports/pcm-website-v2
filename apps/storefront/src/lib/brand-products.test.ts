@@ -140,22 +140,41 @@ describe('#315 設計側契約 · 分類名(category 軸)', () => {
     // 件數那一半由真瀏覽器量,記在 backlog #315 與 commit body)。
     // ⚠️ 這份是**手寫 fixture** ⇒ 本條證得了「解析器對這種形狀解得出兩層」,
     //    證不了「真目錄今天仍長這樣」。後者沒有機制、是已知能力邊界。
+    // 🔴🔴 **這個順序是刻意的, 不要「整理」它** —— `c-rear` 排在第一個。
+    //    ⛔ 原本 `c-susp`(= 正確答案那個父)就是**陣列第一個**
+    //      ⇒ 🛑 **「取第一個父」與「取對的父」印同一個答案** ⇒ 下面那行 `mainId` 斷言**零邊際判別力**,
+    //         而我在註解裡寫著「判別力由它接手」—— **那句話當時是假的**(code-reviewer R2 造突變量到:
+    //         把父改成 `categories[0]` ⇒ **兩支測試檔一格都沒紅**)。
+    //    ✅ 換成 `c-rear` 在前 ⇒ 同一發突變會紅 ⇒ 那行斷言才真的在守東西。
+    //    📌 **一個負對照若與被測的正確答案【剛好一致】, 它在兩個世界印同一個東西。**
     const taxonomy = [
+      { id: 'c-rear', name: '腳踏後移與傳動', children: [{ id: 'c-sprocket', name: '齒盤與傳動' }] },
       { id: 'c-susp', name: '懸吊與車架', children: [
         { id: 'c-frame', name: '車架與前叉部品' }, { id: 'c-triple', name: '三角台' },
         { id: 'c-shock', name: '避震器' }, { id: 'c-wheel', name: '輪圈' },
       ] },
-      { id: 'c-rear', name: '腳踏後移與傳動', children: [{ id: 'c-sprocket', name: '齒盤與傳動' }] },
     ];
     const parsed = parseCategoryFromUrl(url.searchParams, taxonomy);
     expect(parsed, 'chip 的分類值解不出來 ⇒ 客人按了會看到該品牌全部商品、零訊號').not.toBeNull();
     expect(parsed!.main).toBe('懸吊與車架');
     expect(parsed!.sub, '只解出大類 = 篩到 202 件而不是輪圈那 8 件').toBe('輪圈');
+    // 🔴 **2026-09-04 補:釘 `mainId` 而不只是 `main`** —— 下面那個負對照的前提被改掉了(見那裡),
+    //    而**判別力要補在這裡**:解錯父的話這一行會紅, 而只看 `sub` 看不出來。
+    expect(parsed!.mainId, '父解錯的話 sub 對也沒有用 —— 網址會指到別的大類').toBe('c-susp');
 
     // 🔴 前提:上面那條要有判別力,先證明這支解析器**真的會**對壞值回 null / 只回大類。
     const bad = (raw: string) =>
       parseCategoryFromUrl(new URLSearchParams({ category: raw }), taxonomy);
-    expect(bad('輪圈'), '只填子類名竟然解得出來 ⇒ 上面那條沒有判別力').toBeNull();
+    // 🔴🔴 **[2026-09-04 這一格的【前提被改掉了】, 而改它的是我]**
+    //    ⛔ ~~`expect(bad('輪圈')).toBeNull()`~~ —— 它當時是**負對照**:證明「只填子類名解不出來」
+    //      ⇒ 所以上面那條(完整路徑解得出 `輪圈`)才有判別力。
+    //    🔬 而 `⟦01-CATPATHSHORTNAME⟧` 消費端那一半**刻意讓裸子分類名找得到**
+    //      (舊行為:`?category=水管束環` ⇒ null ⇒ **一顆膠囊都畫不出來, 而篩選仍然生效**)。
+    //    ⇒ 🛑 **所以這一格不是「期望值過期」, 是它守的那個性質【被刻意拿掉了】。**
+    //    ✅ **而判別力不能跟著消失** ⇒ 上面補了 `mainId` 那一行, 由它接手。
+    //    📌 **一個負對照被改掉時, 要問的是「它證的那件事現在由誰證」, 不是「期望值改成什麼」。**
+    expect(bad('輪圈')?.sub, '裸子分類名現在【應該】找得到(這是刻意的行為改變)').toBe('輪圈');
+    expect(bad('輪圈')?.main, '而它要落到【對的父】, 不是陣列第一個').toBe('懸吊與車架');
     // ⚠️ 這一條對手寫 fixture 近乎恆真(fixture 只有兩個大類、任何亂字串都回 null)
     //    ⇒ 它守的是「舊字面沒被留在資料裡」那一半,不是解析器(關卡2 R1 nit)。
     expect(bad('輪框與傳動'), '舊字面竟然解得出來').toBeNull();
@@ -201,6 +220,8 @@ describe('fetchBrandTopProducts / fetchBrandsWithProducts 本體', () => {
       perPage: BRAND_PRODUCT_SLOTS,
       sort: 'recommend',
       brandSlugs: ['akrapovic'],
+      // ⟦M-4b 多顆分類膠囊⟧ 新增的必填欄:整個物件比對的格子要跟著帶。
+      categories: [],
     });
   });
 
@@ -277,7 +298,7 @@ describe('線E · fetchBrandsWithProducts 要分得出【撈失敗】與【真�
       // 現行實作走的那支(失敗被它自己吞掉、回 []);留著,好讓本條紅在斷言而不是紅在 import。
       fetchCatalogBrandTaxonomy: () => Promise.resolve([]),
       // 本片要新增的那支:把「失敗了沒」帶出來,而**不改 fetchCatalogBrandTaxonomy 的簽章**
-      //  —— 它有 3 個 sibling 消費端,其中 `use-catalog-filter-url-sync.tsx:153`
+      //  —— 它有 3 個 sibling 消費端,其中 `use-catalog-filter-url-sync.tsx`
       //     的註解寫死了「撈失敗回 [] 而非 null」。
       tryCatalogBrandTaxonomy: () => Promise.resolve({ brands: [], failed: true }),
     }));

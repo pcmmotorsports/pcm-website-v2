@@ -401,6 +401,11 @@ type CatalogRpcClient = {
       p_limit: number;
       p_sort: CatalogQuery['sort'];
       p_category: string | null;
+      // ⟦M-4b 多顆分類膠囊⟧ Sean 2026-09-04 拍甲(聯集)。
+      // 🔴 送出這個名字就【精準命中新那支多載】—— 正式庫上新舊兩支並存
+      //    (2026-09-04 唯讀實測:新那支逐字 `p_categories text[], p_brand text DEFAULT NULL...`,
+      //     必填、排第一、無 DEFAULT)⇒ 名字集合不同 ⇒ PostgREST 選得出來、不會 PGRST203。
+      p_categories: string[];
       p_brand_slugs: string[] | null;
       p_price_min: number | null;
       p_price_max: number | null;
@@ -451,6 +456,9 @@ async function callCatalogRpc(
     p_limit: overrides?.limit ?? query.perPage,
     p_sort: query.sort,
     p_category: query.category ?? null,
+    // 🔵 舊的 `p_category` **一起送、不拿掉** —— 新那支自己會把兩邊併成聯集
+    //    (migration :83 起那段 `v_cats` 就是幹這件事)⇒ 這一側不做去重、不做判斷。
+    p_categories: query.categories,
     p_brand_slugs: query.brandSlugs.length > 0 ? query.brandSlugs : null,
     p_price_min: query.priceMin ?? null,
     p_price_max: query.priceMax ?? null,
@@ -595,7 +603,7 @@ const getCatalogBrandTaxonomyCached = unstable_cache(
  *    (同一句判別句 `contexts/FavoritesContext.tsx:50` 逐字寫過,標 `MAIN-035 ①-1`【必修】。)
  *
  * 🔴🔴 **為什麼不直接把 `fetchCatalogBrandTaxonomy` 改成回 `null`** —— 它有 3 個 sibling 消費端,
- *    而其中一個把這個行為**寫死在註解裡當前提**:`components/use-catalog-filter-url-sync.tsx:153`
+ *    而其中一個把這個行為**寫死在註解裡當前提**:`components/use-catalog-filter-url-sync.tsx`
  *    逐字「撈失敗回 `[]` 而非 null」。改簽章會**安靜地**打到它與
  *    `app/products/page.tsx` 側欄、`app/api/catalog/facet-counts/route.ts`(失敗要 503)。
  *    ⇒ 對外那支的簽章與行為 **byte 不變**,新需求走這一支。
@@ -796,52 +804,176 @@ const getVehicleTaxonomyCached = unstable_cache(
      * max-rows = 500 ⇒ 第 0 頁被夾到 500 ⇒ 500 < 1000 為真 ⇒ 一樣第 0 頁就 break
      * ⇒ 不是漸進漏，是【只剩一頁】。而畫面完全正常。
      * ```
-     * 🔴 **而下面 `:722` 那道 `console.warn` 救不了這一面 —— 它裝在一條【到不了的路】上**:
-     * 它的條件是 `page === MAX_PAGES - 1`(第 49 頁才判),
+     * 🔴 **而下面那道 `console.warn` 救不了這一面 —— 它裝在一條【到不了的路】上**:
+     * ⛔ ~~它的條件是 `page === MAX_PAGES - 1`(第 49 頁才判)~~
+     *    🛑 **這句 2026-09-05 起【過期】**(code-reviewer R1 抓的):那個迴圈已改成分批併行,
+     *       warn 的條件現在是 `!done && next >= MAX_PAGES`。
+     *    ✅ **而下面這一段的結論沒有變** —— `max-rows < PAGE_SIZE` 的世界仍然是
+     *       **第 0 頁就短頁 ⇒ `done` ⇒ 那道 warn 照樣不會叫**。
+     *    ⚠️ 而 `:722` 那個行號在本段寫下的時候就已經漂了(不是本次改動造成的)。
+     * 舊條件是 `page === MAX_PAGES - 1`(第 49 頁才判),
      * 而 `max-rows < PAGE_SIZE` 的世界**第 0 頁就 break** ⇒ **`page` 永遠走不到 49 ⇒ 那道 warn 一次都不會響**。
      * ⚠️ **不要讀成「它沒有涵蓋 max-rows、再加一個條件就好」** —— 它守的是 `MAX_PAGES` 撞頂,
      * 那是另一個世界;這一面會讓迴圈**在它之前就結束**。
      * ⚠️ **`db-max-rows` 住在 Supabase 面板,不在這個 repo 裡**
      * ⇒ 改它的人看不到這一行,而這一行是唯一寫著這個依賴的地方。
      */
+    // ══════════════════════════════════════════════════════════════════════
+    // 🔴🔴 **這個迴圈原本是【一頁打完才打下一頁】, 而那就是那 12 秒**
+    //   (`⟦search-VEHTAXSLOW⟧` · 2026-09-05;dev preview 逐發實測)
+    // ══════════════════════════════════════════════════════════════════════
+    //   🔬 量到的:`vehicle_taxonomy_public` **12,053 列** ⇒ 13 頁;
+    //     冷 **11,803~12,601ms**、暖 33~40ms ⇒ **12,280ms ÷ 13 ≈ 945ms/頁**
+    //     ⇒ 🎯 **12 秒是【13 次排隊的往返】, 不是一句慢查詢。**
+    //   ✅ 改法:**分批併行**(一批 4 頁)。**不**13 頁全開 ——
+    //     🛑 ⛔ ~~同時對 PostgREST 開 13 個連線是【新的並發壓力】~~ —— **這個理由比我以為的弱**
+    //       (R1 實查):同一支 storefront 對同一個 PostgREST **已經有 `FACET_CONCURRENCY = 16`**
+    //       (`vehicle-facet-counts.ts:54`)⇒ **4 遠低於既有前例。**
+    //     ✅ **取 4 的理由改成:沒有必要為了再省零點幾秒去開到 13** —— 收益已經拿到 9 成。
+    //     ⚠️ 而那邊另有 process 級閘 `MAX_CONCURRENT_FANOUTS = 3`(:69), **這支新 fan-out 沒有** ——
+    //       今天量級小(4)⇒ 不做;**寫在這裡, 不是沒看到。**
+    //
+    // 🛑🛑 **而「keyset 一起改」我【沒有做】, 而我第一版寫的理由是【錯的】**(R1 must-fix):
+    //   ⛔ ~~「keyset 拿到的是次要收益(每頁便宜)」~~ —— **假的。**
+    //     `pagination-loop-review.md` **第 6 條**與本檔 `:780-781` 都寫著:keyset 擋的是
+    //     **【集合在翻頁途中被寫入 ⇒ OFFSET 位移 ⇒ 靜默跳列】** ⇒ 那是**正確性**, 不是成本。
+    //   ✅ **那我為什麼還是沒做**:這支 view **只有那四欄**(沒有 id 可以當唯一鍵), 而其中
+    //     `year_start` **714 列是 NULL** · `year_end` **1,391 列是 NULL**(2026-09-05 唯讀實查)
+    //     ⇒ 🔴 **帶 NULL 的複合鍵 keyset, 一寫錯也是【靜默跳列】** —— 換一個一樣安靜的風險。
+    //   ⇒ 📌 **所以這是「兩種靜默漏列之間選一個」, 不是「安全 vs 快」** ——
+    //     而我選了**現況那一種**(它至少是今天在跑的、已知的)。
+    //   🛑 **⇒ keyset 那一格【仍然欠著】**, 板列 `⟦search-VEHTAXSLOW⟧` 要記著:
+    //     它值得自己一片 + 一組「翻頁途中插入」的對帳測試, **而不是順手一起改。**
+    //
+    // ── 分頁準則逐條(`docs/patterns/pagination-loop-review.md`;**五條 + 後補第 6 條**)──
+    //   ①頁大小 **<** max-rows:1000 < **2000**(本 repo 2026-08-18 實測值)✅
+    //   ②`.range()` 兩端**皆含**:`from … from + PAGE_SIZE - 1` ✅
+    //   ③中途失敗 **throw**、不 `break` ✅
+    //   ④`count` **不當**終止判準:下面拿 `count` **只用來排程要併行幾頁**,
+    //     而**終止判準仍然是「拿到一頁不滿」** ✅
+    //   ⑤排序帶唯一鍵:那四欄的組合**今天是唯一的**(12,053 = 12,053 相異, 唯讀實查)
+    //     ⚠️ **而它是【資料的性質】, 不是【約束】** —— view 上沒有唯一索引保證它
+    //     ⇒ 🛑 **哪天有兩列四欄全同, OFFSET 分頁就可能漏列, 而不會有東西叫。**
+    //   ⑥**集合在翻頁途中被寫入** ⇒ OFFSET 位移 ⇒ 靜默跳列:❌ **本片沒有解**(見上面 keyset 那段)。
+    //     🔵 而**併行讓這一格【變好一點】**:13 頁從「跨 12 秒」變成「跨約 1 秒」⇒ 被寫入的窗口小了一個量級。
+    //     🛑 **但那是【變小】不是【消失】** —— 不要讀成解掉了。
+    // ⏱️ **這一行在 `unstable_cache` 的【內側】**(`⟦search-VEHTAXSLOW⟧` · 2026-09-05)——
+    //   🔴 **所以「它有印」本身就是「這一發是冷的」** ⇒ 冷暖是**看到的**, 不是從 x-vercel-id 前綴**推的**。
+    //   🛑 **而那個推法今天被反證過**:五發搜尋的前綴**全都不同**(照該規則「五發全冷」),
+    //     而其中兩發的 `vehicles` 是 33ms / 40ms —— **暖的**。⇒ `unstable_cache` 未必是純程序記憶體。
+    //   📌 **⇒ 判準改成「有沒有這一行」, 因為那是【觀察】。**
+    const tVeh = performance.now();
     const PAGE_SIZE = 1000;
+    const BATCH = 4; // 一次併行幾頁(保守:不是 13 頁全開)
     const MAX_PAGES = 50; // 防呆:與 adapter listAllByCategory 同上限
     const fitments: NonNullable<MockProduct['fitments']> = [];
 
-    for (let page = 0; page < MAX_PAGES; page += 1) {
+    type TaxRow = {
+      moto_brand: string | null;
+      model_code: string | null;
+      year_start: number | null;
+      year_end: number | null;
+    };
+
+    const fetchPage = async (page: number, withCount: boolean) => {
       const from = page * PAGE_SIZE;
-      const { data, error } = await client
+      const { data, error, count } = await client
         .from('vehicle_taxonomy_public')
-        .select('moto_brand, model_code, year_start, year_end')
+        .select(
+          'moto_brand, model_code, year_start, year_end',
+          withCount ? { count: 'exact' } : undefined,
+        )
         .order('moto_brand')
         .order('model_code')
         .order('year_start')
         .order('year_end')
         .range(from, from + PAGE_SIZE - 1);
-      // 帶上頁碼再往上拋:外層 catch 只印 error 本身的話,9 頁裡是哪一頁掛的無從得知
-      //(逾時通常只發生在後段頁 —— 那正是要看的資訊)。
       if (error) {
+        // 🔴 準則③:throw, 不 break。`break` 會把「第 3 頁掛了」變成「總共只有 3 頁」。
         throw new Error(
           `[fetchVehicleTaxonomy] 第 ${page + 1} 頁(offset ${from})失敗: ${error.message}`,
           { cause: error },
         );
       }
-      // MAX_PAGES 撞頂是**靜默截斷**(下拉少一截、沒人會叫)⇒ 至少留 log。
-      if (page === MAX_PAGES - 1 && data && data.length === PAGE_SIZE) {
-        console.warn(
-          `[fetchVehicleTaxonomy] 撞到 MAX_PAGES=${MAX_PAGES} 仍是滿頁,車輛下拉可能被截斷`,
-        );
+      // 🔴🔴 **`count` 要用 `Number.isFinite` 擋, 不是 `?? null`**(code-reviewer R1 must-fix)——
+      //    PostgREST 回 `Content-Range: 0-N/*` 時 supabase-js 是 `parseInt('*')` ⇒ **`NaN`**,
+      //    而 **`typeof NaN === 'number'`** ⇒ `?? null` 放它過去
+      //    ⇒ `Math.ceil(NaN/1000)` = `NaN` ⇒ 排程整條垮掉 ⇒ **只撈第一頁、靜靜少 92%**,
+      //      而它還會**進 60 秒快取**。🔬 R1 逐分支模擬:NaN 那個世界 1 發、1,000/12,053 列、**零告警**。
+      //    ✅ 同 repo 既有範本:`SupabaseOrderAdapter.ts:1409` 擋的就是這個形狀。
+      //    ⚠️ **口徑**:R1 量到的是【分支行為】, **沒有量到這支 view 真的會回 `*`** ⇒ 不宣稱不可能。
+      return { rows: (data ?? []) as TaxRow[], count: Number.isFinite(count) ? (count as number) : null };
+    };
+
+    // 🔵 第一頁順便拿 `count` —— **只拿來排程**(見準則④)。
+    // ⏱️ **第一頁單獨計時**(2026-09-05)—— 而它要回答一個**具體的**問題:
+    //   🔬 已知:lambda 上 ~945ms/頁, 而我本機 psql ~148ms、`-front` 本機 HTTP 173–220ms
+    //     ⇒ lambda 比兩台【更遠的】機器慢 4.7 倍, **而 region 查過是同區**
+    //       (Vercel `sin1` · Supabase `ap-southeast-1`, 都在新加坡)⇒ **不是距離。**
+    //   🛑 而我先前只能寫「連線建立 / TLS / client 初始化 / 冷啟動 —— 四個都沒量, 不指名」。
+    //   ✅ **這兩個數把那句話變成一個可判的形狀**:
+    //     `first` 含【client 建立 + 第一次連線 + TLS】;`batchAvg` 是**之後**每一頁的平均。
+    //     ⇒ 📌 **`first` 遠大於 `batchAvg` ⇒ 固定成本住在第一發**(連線層)
+    //        **兩者相近 ⇒ 每一頁都在付** ⇒ 那是另一種病(而 RPC 一次往返的收益會小很多)。
+    //   ⚠️ **它證不到【是哪一個】** —— 四個候選它一個都指不出來, 它只分得出「一次」與「每次」。
+    const tFirst = performance.now();
+    const first = await fetchPage(0, true);
+    const msFirstPage = Math.round(performance.now() - tFirst);
+    const tRest = performance.now();
+    let pagesAfterFirst = 0;
+    const pages: TaxRow[][] = [first.rows];
+    // 🔴 `count` 為 null(PostgREST 沒回)⇒ 退回 `MAX_PAGES`, **不讓排程依賴它**。
+    const plannedPages =
+      first.count === null ? MAX_PAGES : Math.min(MAX_PAGES, Math.ceil(first.count / PAGE_SIZE));
+    let done = first.rows.length < PAGE_SIZE; // ← 終止判準:**短頁**
+    let next = 1;
+    while (!done && next < MAX_PAGES) {
+      // ⚠️ **`count` 偏小的時候, `Math.max(plannedPages, next + 1)` 會讓這裡退化成【一批一頁】**
+      //    ⇒ 資料仍然全到(終止判準是短頁), **而這一片的 12 秒收益靜靜歸零, 沒有任何訊號**(R1 nit)。
+      const upper = Math.min(next + BATCH, MAX_PAGES, Math.max(plannedPages, next + 1));
+      const batch: number[] = [];
+      for (let p = next; p < upper; p += 1) batch.push(p);
+      // 🔴 這一行原本是【唯一一條跳過下面那道 warn 的出口】(R1 must-fix)——
+      //    而 `upper >= next + 1` 恆成立(`Math.max(plannedPages, next + 1)`)⇒ 它**到不了**。
+      //    ⚠️ 留著當防呆, 而**若真的到了, 那是 bug 不是正常結束** ⇒ 出聲。
+      if (batch.length === 0) {
+        console.warn('[fetchVehicleTaxonomy] 排程算出空批次 —— 這條路照理到不了, 有東西壞了');
+        break;
       }
-      for (const r of data ?? []) {
+      const got = await Promise.all(batch.map((p) => fetchPage(p, false)));
+      pagesAfterFirst += got.length;
+      for (const g of got) {
+        pages.push(g.rows);
+        // 🛑 短頁之後那幾頁**照樣收下**(同一批一起發的, 內容仍然有效);
+        //    而**不再排新的一批** —— 這就是終止。
+        if (g.rows.length < PAGE_SIZE) done = true;
+      }
+      next = upper;
+    }
+    if (!done && next >= MAX_PAGES) {
+      console.warn(
+        `[fetchVehicleTaxonomy] 撞到 MAX_PAGES=${MAX_PAGES} 仍是滿頁,車輛下拉可能被截斷`,
+      );
+    }
+
+    console.info(
+      `[vehicleTaxonomy] cold pages=${pages.length} rows=${pages.reduce((n, p) => n + p.length, 0)} ` +
+        `batch=${BATCH} first=${msFirstPage}ms ` +
+        // 🔵 之後那幾頁是【併行】的 ⇒ 這個平均是「牆鐘 ÷ 頁數」, **不是每頁各自的耗時**。
+        //    它與 `first` 可比的地方在於:兩者都是「拿到一頁要等多久」的量級。
+        `restAvg=${pagesAfterFirst > 0 ? Math.round((performance.now() - tRest) / pagesAfterFirst) : -1}ms ` +
+        `ms=${Math.round(performance.now() - tVeh)}`,
+    );
+
+    for (const rows of pages) {
+      for (const r of rows) {
         fitments.push({
-          // 空廠牌/車型由 buildVehicleTaxonomy 自己 skip(它已有 `if (!brand || !model) continue`)
           motoBrand: r.moto_brand ?? '',
           modelCode: r.model_code ?? '',
           ...(r.year_start === null ? {} : { yearStart: r.year_start }),
           yearEnd: r.year_end, // null = 開放式(direct 表的既有語意,見檔頭)
         });
       }
-      if (!data || data.length < PAGE_SIZE) break;
     }
     // 每列包成獨立一筆 fitment 餵原衍生函式:buildVehicleTaxonomy 只讀 p.fitments、
     // 不在意來源是不是同一個商品 ⇒ 不必改它(它另有 4 個消費端)。

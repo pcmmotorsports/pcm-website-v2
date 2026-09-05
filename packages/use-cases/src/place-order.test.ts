@@ -23,6 +23,9 @@ function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
     invoice: { type: 'personal' },
     cartSessionId: '11111111-1111-1111-1111-111111111111',
     termsVersion: '2026-06-30', // #241 server 注入(必填)
+    // 🔵 段 1-B:預設用 tappay(= 今天線上唯一的付款方式)⇒ 既有測項的世界不變。
+    //   🛑 而它是【一個世界不是中性預設】—— 匯款那個世界要有自己的測項, 不靠這裡的預設代表它。
+    paymentChannel: 'tappay',
     ...over,
   };
 }

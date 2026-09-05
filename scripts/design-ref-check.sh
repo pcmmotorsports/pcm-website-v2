@@ -23,6 +23,29 @@
 #   🔴 三態分得開是刻意的:`rc=3` 不是失敗, 是「你的尺還沒接上」。
 set -u
 
+# ══ 🔴🔴 2026-09-04:剝繼承來的 git 環境, 而位置從 `selftest()` 裡【移到這裡】═══════
+#
+# **成因是量到的**(主視窗 `-94` 2026-09-04, 三個世界):
+# ```
+# sh scripts/design-ref-check.sh                                       ⇒ rc=0, 分母 176
+# GIT_INDEX_FILE=/tmp/nonexistent-index sh scripts/design-ref-check.sh ⇒ rc=3「沒有分母」
+# GIT_DIR=$PWD/.git                     sh scripts/design-ref-check.sh ⇒ rc=0(這顆不影響)
+# ```
+# ⇒ 掛在 pre-commit 底下時, `lint-staged` 給的 `GIT_INDEX_FILE` 被 `check_one` 的
+#   `git -C "$root" ls-files` 繼承 ⇒ 讀到【主 repo 的暫存 index】⇒ submodule 印 0
+#   ⇒ 判成「這一棵樹沒有 design-reference」⇒ **擋下一次合法的 commit。**
+#
+# 🛑 **而這一格最該記的不是機制, 是【防護裝錯地方】**:
+#    本檔的 `selftest()` **2026-09-02 就已經剝了**, 註解逐字寫著
+#    「`git -C <路徑>` 擋不住它:GIT_DIR / GIT_INDEX_FILE 的優先權比 -C 高」——
+#    🔴 **而真正在量的那兩個函式(`check_one` / `submodule_prefix`)不在那個 unset 的射程裡。**
+#    ⇒ 📌 **我把防護裝進了【驗自己的那一半】, 而沒裝進【真的被跑的那一半】** ——
+#      而兩半在「selftest 全過」這個訊號上長得一模一樣。
+#
+# ✅ 所以位置在檔頭、全域一次 —— 同一則舊註解自己寫過理由:**「漏掉一發就等於沒做」**。
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE 2>/dev/null || true
+
 SUB="design-reference"
 # 🔴 **正對照用的檔**:它在稿裡, 而它不是我隨手挑的 —— 它是 submodule 的根檔案。
 #    ⇒ 有它 ⇒ 這一棵真的 checkout 過;沒有它而目錄非空 ⇒ **那是別的東西, 不是稿。**

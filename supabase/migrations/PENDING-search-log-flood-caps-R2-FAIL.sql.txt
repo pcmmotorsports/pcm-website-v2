@@ -1,0 +1,713 @@
+-- ⛔⛔ **這支【還不是】可以貼的 migration —— 檔名 `PENDING-…sql.txt` 就是為了讓它貼不出去。**
+--
+-- 🔴 **codex 關卡2 R2(鐵則 12②③, 不降級)2026-09-05 判 `FAIL`, 4 條 must-fix。**
+--    而**它自己逐字寫**:「第二輪上限已到,不應直接貼正式庫」⇒ 📌 **照 PCM 輪次紀律, 這裡停下, raise Sean。**
+--
+-- ✅ **R2 相對 R1 是【真的往前走了】—— 下面這些是實跑驗過的**:
+--    · 硬上限成立(codex 逐字:「R2 的硬上限語意成立」):計數器推到 4999 ⇒ 再叫寫得進、計數器 5000;
+--      之後連叫兩次 ⇒ **零列、計數器不動**(拋棄式 PG 17.10 實跑)
+--    · purge 漸進收斂:12,000 列過期 ⇒ 三發 5000/5000/2000, `more_to_do` t/t/f;心跳寫進去了
+--    · rollback **照著貼回得去**:四項全 `t`(函式 md5 回到舊版 / job 清掉 / 計數表清掉 / purge 清掉)
+--    · 五道靜態檢查全過
+--    · `search_path=''` 之下**沒有漏掉的 schema 限定**(codex 第 4 條:無 finding)
+--
+-- 🔴 **而 R2 這一輪抓到的東西裡, 有兩件是【我自己造成的】, 留著**:
+--    ⛔ ~~R2 第一版寫成 PROCEDURE + 迴圈裡 COMMIT~~ ⇒ **它連跑都跑不起來**
+--       (`SECURITY DEFINER` 或 `SET search_path=''` 任一存在 ⇒ COMMIT 報 invalid transaction termination;
+--        🟢 正對照:兩個子句都拿掉的最小 procedure ⇒ COMMIT 成功)
+--       🛑 **而靜態檢查與「乾淨貼 rc=0」兩關【都是綠的】** ⇒ 抓到它的是**真的去 CALL 了一次**。
+--    ⛔ ~~我在改設計時把 R1 的 `search_queries_created_at_idx` 一起刪掉了~~ ⇒ 而 purge 的「刪過期」**還要用它**
+--       ⇒ 📌 **一個修法拿掉了另一個修法還需要的東西, 而三綠與靜態檢查都不會叫。** 已補回。
+--
+-- 🛑 **仍然沒解的兩條 must-fix —— 它們都要【我做不到的量測】**:
+--    ① **單列計數器是一個 lock 熱點**(第 2 條):同一小時所有 RPC 競爭同一列;
+--       滿額後惡意請求仍要走 conflict path 鎖那一列判斷 `WHERE` ⇒ 可能堆積 lock wait。
+--       **高並發承載量未量** —— 而我這個窗量不到(要打正式站或壓測環境)。
+--    ② **purge 那兩個 DELETE 自己也是放大器**(第 5 條):overflow 每一發都要跨過 2,000,000 個 id;
+--       在 144 發/日之下約是**每日 2.88 億 index item**。**牆鐘時間未量**(缺 `EXPLAIN (ANALYZE, BUFFERS)`)。
+--       🎯 **⇒ 這與我 R1 被打掉的那個病是【同一族】** —— 防線自己變成常態成本。
+--
+-- 🔵 **而 R2 已修掉的字面錯誤**(codex 第 6、10 條)照實留在下面各段, 不刪:
+--    「一次呼叫只刪一批 ≤5000」是假的(兩個 DELETE ⇒ 單發最多 10,000)·
+--    「一次索引更新」不精確 ·「呼叫次數」漏掉 rollback/error ·
+--    「灌爆連清都不能清」只對 `service_role` 成立(postgres owner 一直清得掉)·
+--    「今天的量是零」沒有逐列證據(只有目錄層)。
+--
+-- ══ 🔴 **[R3 F8 · F9] 這一片產生了三個【沒有人讀】的數字, 而它們各自不同** ══════
+--   本片自己就有一格在講這件事(檔頭「流量上來前重看」那節講 `deleted_overflow`),
+--   而 R3 把另外兩個也指出來了。**三個一起列, 因為它們是同一族而【修法不同】**:
+--   ```
+--   ① deleted_overflow   cron command `SELECT purge_search_queries()` 丟掉回傳值
+--                        ⇒ 「撞到 200 萬」沒有人會知道(檔頭那節已寫)
+--   ② more_to_do         同上, 也在那個被丟掉的回傳裡 ⇒ 🔴 **它是【死輸出】**
+--                        ⇒ 📌 而本片寫它的理由是「提示下一發再來」—— 而**沒有下一發在讀它**,
+--                          收斂實際上**全靠 `*/10` 那個排程**, 不是靠這個旗標。
+--                          🛑 **那句「它是提示不是保證」還不夠** —— 它今天連提示都不是。
+--   ③ consecutive_failures  心跳那段**只在成功時寫 0, 從來不 increment**
+--                        ⇒ 🔴 **它恆 0, 而恆 0 與「一直很健康」印同一個東西。**
+--                        ⇒ 而這一支是**純 SQL**:函式拋錯 ⇒ 同交易的失敗心跳一起被回捲
+--                          ⇒ 📌 **它在物理上寫不出失敗心跳** —— 那正是 `FAILURE_COUNT_MEANINGLESS`
+--                            那個集合存在的理由。⇒ **併進 F2 的順序限制那一格一起做。**
+--   ```
+--   🛑 **本片【不修】①②③** —— 修 ③ 要動白名單(受 F2 的順序限制擋著);
+--      修 ①② 要改 cron command 或心跳的欄位, 而**那會讓拋棄式 PG 那兩個世界的實跑全部作廢**,
+--      而 R4 正要開始。⇒ **列成「本檔改名成真 migration 的那一顆」要一起帶的東西。**
+--   📌 **而三個都寫在這裡的理由**:它們**在儀表上長得跟「一切正常」一模一樣**,
+--      ⇒ 少了這一段, 下一個人看到心跳是綠的就會以為有人在看。
+--
+-- ══ 🔴🔴 **[R3 F2] 心跳寫了而【沒有人讀】—— 而修它有一個【順序限制】** ══════════
+-- R3 抓到:`pcm-search-log-purge` 會是**第 10 支**排程, 而 `CRON_JOB_WHITELIST` 只有 **9 支**
+-- (當場數:剝掉註解之後 9 支, 不含它)⇒ 📌 **本片按 codex R2 第 10 條加的那個心跳,
+--    寫進表裡而【儀表不會去讀它】** —— 那正是「寫對了而沒接上的保護與沒寫的行為相同,
+--    而前者更貴」那一族。
+--
+-- 🔴🔴 **而我試著現在就加, 被一道既有的守門擋下來 —— 那道守門是對的**:
+--    `apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:134` 逐字
+--    「白名單 == migrations 裡真的排過的那幾支(**兩個方向都比**)」,
+--    而它的分母是 **`supabase/migrations/*.sql` 裡真的呼叫過 `cron.schedule('<名字>'` 的**
+--    (`:137` 只收 `.endsWith('.sql')`)。
+--    ⇒ 🛑 **本檔是 `PENDING-…sql.txt`** ⇒ 它**不在那個分母裡** ⇒ 白名單多一支就是**白名單在說謊**。
+--    ⇒ ✅ **我把加白名單那一發【撤回了】**(實測:加了之後兩格紅 —— 「九支釘死」與「兩個方向都比」;
+--       撤回後 5 檔 / 97 格全綠)。
+--
+-- ✅ **⇒ 正確的順序, 寫在這裡免得下一個人重踩**:
+--    ① 本檔改名成真的 `supabase/migrations/<版本號>_….sql`
+--    ② **同一顆 commit** 裡:`CRON_JOB_WHITELIST` 加 `pcm-search-log-purge`
+--       (`staleMinutes = 30` = 排程 `*/10` × 3, 與 `pcm-capture-recheck` 同一把尺)
+--       · `FAILURE_COUNT_MEANINGLESS` 也要加它(**純 SQL ⇒ 失敗心跳會被同交易回捲
+--         ⇒ `consecutive_failures` 永遠是 0, 而那與「一直很健康」長得一樣**)
+--       · 那支測試的「【九】支」要改成十(它是刻意釘死的, 不是壞掉)
+--    🛑 **①②【不可以分開兩顆】** —— 分開的話中間那一刻:排程已經在跑而儀表不讀它,
+--       或白名單有一支不存在的排程。**兩個方向都是說謊。**
+--
+-- ══ 🔵 **「流量上來前重看單列計數器」—— 那個觸發點長什麼樣**(2026-09-05 · `-f8` 派)══
+-- Sean 拍甲(逐字:`甲 = 先這樣上, 流量上來再拆(上限精確 5000)`)⇒ 計數器維持單列,
+-- 而 **「流量上來」必須有一個【會自己叫】的形狀, 否則它就是一句沒有人在等的話。**
+--
+-- 🔴 **而最直覺的那個做法【不可行】**:去 `SELECT count(*) FROM search_queries` 看有多少 ——
+--    **唯讀帳號讀不到那張表**(2026-09-05 實測 `ERROR: permission denied for table search_queries`;
+--    權限被刻意收掉, 那是設計不是缺陷)⇒ 📌 **不能靠「去看看有多少」來觸發。**
+--
+-- ✅ **今天【已經在跑】的那半(不必新做)**:
+--    `public.get_search_log_health()`(`20260904240000`)以 SECURITY DEFINER 讀得到那張表,
+--    而 `packages/use-cases/src/check-anomaly-alerts.ts:110-114` **已經在消費它**:
+--      `searchLogTableExists` · `searchLogLastRowAt` · `searchLogStale` · `searchLogUnknown`
+--    ⇒ 🎯 **`searchLogLastRowAt` 從 `null` 變成非 null = 「開始有流量」的第一個訊號**,
+--       而它**已經每天走告警信到 Sean**。⇒ **那一格不必做, 只要有人知道要看它。**
+--
+-- 🛑 **而它答不出【多少】** —— 重看單列計數器需要的是**量級**, 不是「有沒有」。
+--    ⇒ 🔴 **真正的觸發應該是 `deleted_overflow > 0`** ——
+--       那代表 200 萬上限**真的被撞到過**, 而那正是 Sean 說的「流量上來」。
+--    ⛔ **而本支今天【把它丟掉】**:`purge_search_queries()` 把 `deleted_overflow` 當回傳值,
+--       而 `cron.schedule` 那一句 `SELECT public.purge_search_queries()` **不留任何東西**
+--       ⇒ 📌 **那個數字每 10 分鐘產生一次, 而每一次都消失。**
+--    ✅ **修法很小**(心跳那一段已經在寫表了, 多帶一欄或一個 `RAISE LOG` 即可),
+--       🛑 **而本片【不做】** —— R3 正在跑, 改它會讓上面那兩個世界的實跑全部作廢。
+--       ⇒ **寫成 R3 過了之後的下一格, 不另開列**(`-f8` 2026-09-05 裁「不另開列」)。
+--
+-- 📌 **⇒ 在那一格做完之前, 「流量上來前重看」實際靠的是**:
+--    ①告警信裡 `searchLogLastRowAt` 由 null 轉非 null(**會自己叫**)
+--    ②而「撞到 200 萬」**今天沒有人會知道** —— 這一句要留著, 不要讓它讀起來像已經有人在看。
+--
+-- ⏭️ **要 Sean 拍的是**:①接受這兩條殘餘風險先上(它們都是「可能」, 而今天站上流量是零)
+--    ②還是先做壓測 / 改設計(例如把計數器分片成 N 列, 或 overflow 那半改用 id 水位而不是 OFFSET)。
+--    🔴 **我不自宣接受殘餘風險。**
+-- ============================================================
+
+-- ============================================================
+-- 20260904280000 · 搜尋語料表的兩道上限(`⟦search-LOGFLOOD⟧`)· **R2**
+--
+-- 🔴 病(線 `-front` 2026-09-05 量的):`anon` 可直接打 `/rest/v1/rpc/log_search_query`,
+--    **換一個字就是一列, 無上限**;表**零保留期、零總量上限**,
+--    且 `service_role` 只有 `SELECT` ⇒ 🛑 **灌爆了連清都不能清。**
+--    ⚠️ **訂正射程(codex R2 第 10 條)**:那句**只對 `service_role` 成立** ——
+--       `postgres`(owner)一直都清得掉。⇒ 真正缺的是**自動的**清理, 不是「沒有任何辦法」。
+--
+-- ============================================================
+-- 🛑 R1 被 codex 判 FAIL(12 條 must-fix)—— **舊形狀留在這裡, 不刪**
+-- ============================================================
+-- ⛔ ~~R1 用 `INSERT … SELECT … WHERE (SELECT count(*) …) < 5000`~~
+--    🔬 codex 第 4 條:從 0 灌到 5000 累計要看約 **12,497,500** 個索引項,
+--       而**滿額之後每一發惡意 RPC 仍掃約 5,000 項, 卻一列都不寫**
+--    ⇒ 🎯 **那道防線把「便宜的寫入」換成「不寫但要掃」** —— 攻擊者成本沒變, 我們的變貴了
+--    ⇒ 🔴 **防灌爆的東西自己是放大器。**
+--    🔴 第二病(第 1、2 條):Read Committed 之下 k 個並發都讀到 4999 ⇒ 實際 `4999+k`
+--       ⇒ **它根本不是硬上限。**
+-- ✅ **R2 改成【原子計數器】**:一張一列一小時的計數表,
+--    `ON CONFLICT DO UPDATE … WHERE n < N RETURNING` ⇒ **唯一索引探測 + 一次 heap row update**
+--    (⛔ ~~「一次索引更新」~~ 那個說法不精確, codex R2 第 2 條;`n` 沒有索引 ⇒ 可能是 HOT update)、**硬上限**、
+--    並發由 row lock 序列化。**拿不到列 ⇒ 那一發不寫語料。**
+--
+-- 🛑 **而計數的【受詞變了, 明寫】**:R1 數的是「這小時**存了幾列**」,
+--    R2 數的是「這小時**成功跑完一發 statement 的呼叫**」—— ⚠️ **不是「所有呼叫」**
+--    (codex R2 第 1 條:非法輸入 / constraint error / 外層交易 rollback ⇒ counter 一起回滾)。
+--    同一個字每小時第二次呼叫,
+--    R1 不佔額度(被 `ON CONFLICT` 吃掉), **R2 佔**。
+--    ⇒ ✅ 對「防灌爆」那個目的**這樣才對**(要擋的是工作量, 不是列數);
+--    ⇒ ⚠️ 而對「N 該設多少」的直覺**不一樣了** —— N 現在是**每小時搜尋次數**的上限。
+--
+-- ============================================================
+-- 🛑 N = 5,000 是【反推的上界, 不是量出來的門檻】
+-- ============================================================
+-- 唯讀實查 2026-09-05:`pg_class.reltuples = -1`(從沒 analyze)· `n_live_tup = 0`
+--   · `last_autoanalyze` 空 · `pg_total_relation_size = 48 kB`(≈ 空表 + 兩個索引)
+--   🟢 正對照:同一句對 `products` ⇒ **25,038**(尺是活的)
+--   ⛔ 而**表本身唯讀角色讀不到**(`permission denied`)⇒ **上面是目錄層估計, 不是逐列數。**
+--   🛑 **所以「今天的量是零」嚴格說是【沒有逐列證據】**(codex R2 第 10 條)——
+--      能講的是:**目錄層看不到任何列, 而表大小等同空表。**
+-- 🎯 ⇒ **「從今天的量推 N」做不到 —— 今天的量是零, 這張表 2026-09-04 夜才上線。**
+-- ⏰ **有真流量之後要重量一次。**
+--
+-- ============================================================
+-- 🟢 Sean 2026-09-05 拍【甲 總量優先, 滿了刪最舊】
+-- ============================================================
+-- 原話逐字(正本 `~/pcm-mailbox/Sean拍板-20260905.md` 第一題):
+--   「甲 = 總量優先, 滿了刪最舊 (推薦: 上限設成正常流量兩年也到不了, 今天兩者不衝突)」
+-- 🔴 **而那句推薦裡的括號【尚未被證明】, 照實寫**:`2,000,000 ÷ 17,520 小時 = 114.155 列/小時`。
+--    ⛔ ~~而我反推的合法尖峰是 1,000 列/小時 ⇒ 差了近一個量級~~
+--    🛑 **那句是【超射】, codex 第 13 條抓的**:**「平均」與「尖峰」是兩個不同的統計量** ——
+--       尖峰 1,000 **推不出**兩年平均高於 114。
+--    ✅ **能成立的只有一句:「正常流量兩年也到不了」目前【尚未被證明】。**
+--    ⚠️ 另外 `interval '2 years'` **不固定等於 730 天**(閏年)⇒ 上面那個除法是近似。
+-- ⏰ **重讀時機**:`n_live_tup` 第一次變成真的數字那天。
+-- ============================================================
+
+BEGIN;
+
+-- ── 0. 前置閘(形狀抄 `20260809170000:26-33`)───────────────────────────────
+DO $$
+DECLARE v_md5 text;
+BEGIN
+  IF current_user <> 'postgres' THEN
+    RAISE EXCEPTION 'LOGFLOOD:migration 必須以 postgres 執行(實 %);拒繼續', current_user;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    RAISE EXCEPTION 'LOGFLOOD:pg_cron 未啟用 —— 請先於 Dashboard→Database→Extensions 啟用;拒繼續';
+  END IF;
+  -- 🔴 `CREATE OR REPLACE` 會把別人的熱修**靜靜蓋掉** ⇒ 先釘本體 md5。
+  --    (2026-09-05 唯讀實測:線上 = 檔內 = `fe38973f299f02b15f45f07243d68579`。)
+  SELECT md5(p.prosrc) INTO v_md5
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'log_search_query';
+  IF v_md5 IS DISTINCT FROM 'fe38973f299f02b15f45f07243d68579' THEN
+    RAISE EXCEPTION 'LOGFLOOD:log_search_query 本體不是我預期的那一版(實際 %)⇒ 有人改過, 停下來讀', v_md5;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname='public' AND tablename='sweeper_heartbeat') THEN
+    RAISE EXCEPTION 'LOGFLOOD:sweeper_heartbeat 不在 ⇒ 排程失敗沒有人會知道;拒繼續';
+  END IF;
+END $$;
+
+-- ── 1a. 🔴🔴 **這支索引是我在 R2 改設計時【弄丟的】**(codex R2 第 5 條抓到)——
+--    R1 有 `search_queries_created_at_idx`, 而我把上限從 count(*) 換成計數器時, 順手把它一起刪了
+--    ⇒ 🎯 **而 purge 的「刪過期」那一半【還是要用它】** —— 沒有它, 零過期列也要掃整張表, 每 10 分鐘一次。
+--    ⇒ 📌 **一個修法拿掉了另一個修法還需要的東西, 而三綠與靜態檢查【都不會叫】。**
+-- 🔴 **[R3 F3] 這一句零 `lock_timeout`** —— `CREATE INDEX`(非 `CONCURRENTLY`)拿的是
+--    `SHARE` 鎖 ⇒ 它會**擋掉那張表所有的寫入**, 而**寫入方是每一次搜尋**。
+--    ⛔ ~~沒有上限地等~~ ⇒ 一次貼在有流量的時段, 客人的搜尋會**跟著卡住**, 而卡多久沒有上界。
+--    ✅ 形狀抄本 repo 既有的 `20260717020000:294`(`SET LOCAL lock_timeout = '3s'`)。
+--    🛑 **它擋不住什麼**:逾時之後**整支 migration 會 ROLLBACK** —— 那是**故意的**
+--       (fail-closed:寧可貼不成功, 不要無上限地卡住客人的搜尋);重貼即可。
+--    🔵 而**今天那張表是空的** ⇒ 這一格今天不會叫;它是給**下一次**在有流量時貼的人。
+-- 🔴 **[R3 F3 全文版]** 本檔**整支零 `lock_timeout` 也零 `statement_timeout`**
+--    (當場數:本檔 `statement_timeout` 命中 **0**;🟢 正對照:repo 裡用過 `SET LOCAL statement_timeout`
+--     的 migration 有 **87 支** ⇒ 那是本 repo 的慣例, 不是我發明的形狀)。
+--    ⇒ 而它不只 `CREATE INDEX`:`CREATE OR REPLACE FUNCTION` 那幾句在有流量時也會等鎖。
+--    ⚠️ **而 R3 另指出一格我沒想到的**:`statement_timeout` 觸發時是 `57014`,
+--       而 `purge_search_queries` **沒有接住它** ⇒ 📌 **整發回捲 ⇒ 兩個 DELETE 都不算數**
+--       —— 那不是壞事(fail-closed), 而**它會讓「有沒有在清」與「一直失敗」印同一個畫面**
+--       ⇒ 🛑 **而那正是 F9 那條(心跳恆 0)讓它看不見的東西。**
+SET LOCAL lock_timeout = '3s';
+SET LOCAL statement_timeout = '120s';
+CREATE INDEX search_queries_created_at_idx ON public.search_queries (created_at);
+
+-- ── 1. 計數表(一小時一列)──────────────────────────────────────────────
+CREATE TABLE public.search_log_hour_counter (
+  hour_bucket timestamptz PRIMARY KEY,
+  n           integer     NOT NULL
+);
+COMMENT ON TABLE public.search_log_hour_counter IS
+  '搜尋語料的每小時【呼叫次數】計數(⟦search-LOGFLOOD⟧, 20260904280000)。'
+  '存在理由:R1 用 count(*) 當上限, 而那讓每一發滿額請求都要掃全小時 ⇒ 防線自己是放大器。'
+  '本表讓上限變成一次索引更新, 且並發由 row lock 序列化 ⇒ 是硬上限。'
+  '🔴 數的是【呼叫次數】不是【存了幾列】—— 同一個字每小時第二次呼叫也佔額度。';
+
+-- 🔴 新表出生就帶 anon/authenticated 的預設權限 ⇒ 全收。
+--    **誰都不給** —— 只有那支 SECURITY DEFINER 函式(owner 身分)會碰它。
+REVOKE ALL ON TABLE public.search_log_hour_counter FROM PUBLIC;
+REVOKE ALL ON TABLE public.search_log_hour_counter FROM anon;
+REVOKE ALL ON TABLE public.search_log_hour_counter FROM authenticated;
+-- 🔴 `service_role` 出生自帶 `Dxtm`(含 TRUNCATE, 而 TRUNCATE 不受 RLS 管)⇒ 也要收。
+REVOKE ALL ON TABLE public.search_log_hour_counter FROM service_role;
+-- static-checks:no-grant-needed 這張表【刻意誰都不給】—— 只有 log_search_query(SECURITY DEFINER, owner=postgres)與 purge(同)會碰它; 給任何角色 SELECT 都等於把「這小時被打了幾次」這個計數暴露給客人端, 而那是灌爆者最想知道的數。
+
+-- ── 2. 函式:上限改成原子計數 ─────────────────────────────────────────────
+-- 🛑 **本體其餘部分逐字不動**(遮 email / 兩端截斷 / ON CONFLICT 那三段照抄)。
+CREATE OR REPLACE FUNCTION public.log_search_query(
+  p_query_raw    text,
+  p_path         text,
+  p_unmatched    text    DEFAULT NULL,
+  p_result_count integer DEFAULT NULL
+) RETURNS void
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = ''
+AS $fn$
+  -- 🔴🔴 **原子計數**:`DO UPDATE … WHERE c.n < 5000` —— 撞到上限時**不回傳列**,
+  --    下面那個 `INSERT … SELECT … FROM bump` 就自然變成零列 ⇒ **一列都不寫**。
+  --    🎯 一次索引更新, 不掃表;並發由那一列的 row lock 序列化 ⇒ **是硬上限, 不是近似。**
+  --    🛑 **代價明寫**:撞到上限的那一小時**語料是缺的**, 而**沒有東西會告訴我們它缺了**
+  --       ⇒ 要知道有沒有撞到, 去看 `search_log_hour_counter` 那一列的 `n` 是不是剛好 5000。
+  WITH bump AS (
+    INSERT INTO public.search_log_hour_counter AS c (hour_bucket, n)
+    VALUES (pg_catalog.date_trunc('hour', pg_catalog.now()), 1)
+    ON CONFLICT (hour_bucket) DO UPDATE SET n = c.n + 1 WHERE c.n < 5000
+    RETURNING 1 AS ok
+  )
+  INSERT INTO public.search_queries (query_raw, path, unmatched, result_count)
+  SELECT
+    -- 🔵 兩端都截:CHECK 會擋掉過長的, 而**擋掉 = 那一筆語料消失**
+    --    ⇒ 這裡先截成合法的, 讓它進得去。截斷長度與 CHECK 一致(100)。
+    -- 🔴🔴 **遮掉 email(2026-09-04 codex must-fix ②)** —— 而它做在【DB 這一層】,
+    --    不是做在 TS:呼叫端可能不只一個, 而遮罩漏在任何一個呼叫端上都沒有東西會叫。
+    pg_catalog.left(pg_catalog.btrim(public.mask_obvious_pii(p_query_raw)), 100),
+    p_path,
+    pg_catalog.left(public.mask_obvious_pii(p_unmatched), 100),
+    p_result_count
+  FROM bump
+  -- 🔴 撞到那道 UNIQUE 就靜靜跳過 —— **不得讓它變成一個 error**:
+  --    呼叫端是 fire-and-forget, 而「同一小時第二次搜同一個字」是**完全正常的客人行為**,
+  --    讓它進 log 會把真的失敗淹掉。
+  ON CONFLICT (query_raw, path, created_at) DO NOTHING;
+$fn$;
+
+-- ── 3. purge 函式(分批, 有界)────────────────────────────────────────────
+-- 🔴🔴 **不分批跑迴圈, 改成【每一次只做有界的一小塊, 排程跑得勤】** ——
+--    而那是**被 PostgreSQL 的規則逼出來的, 不是我偷懶**(2026-09-05 本機拋棄式 PG 17.10 實測):
+--      `CREATE PROCEDURE … SECURITY DEFINER          ⇒ COMMIT ⇒ invalid transaction termination`
+--      `CREATE PROCEDURE … SET search_path=''        ⇒ COMMIT ⇒ invalid transaction termination`
+--      🟢 正對照:兩個子句都不加的最小 procedure ⇒ `COMMIT` **成功**(尺是活的)
+--    ⇒ 🎯 **本 repo 對這種函式【兩個子句都是硬性要求】⇒ 交易控制在這裡結構上不可能。**
+--    ⇒ ⛔ ~~R2 第一版寫成 procedure + 迴圈裡 COMMIT~~ —— **它連跑都跑不起來**, 而
+--      **靜態檢查與「乾淨貼 rc=0」兩關【都是綠的】** ⇒ 📌 抓到它的是**真的去 CALL 了一次**。
+--    ✅ 改法:**兩半【各自】一批 ≤ 5,000**, 排程改成**每 10 分鐘**一次 ⇒
+--      單次交易小、WAL 有界、不用交易控制;積欠會在後續幾發自己收斂。
+--    ⛔ ~~「一次呼叫只刪一批 ≤5,000」~~ **那句是假的**(codex R2 第 6 條):
+--      過期與超量是**兩個 DELETE** ⇒ **單發最多 10,000 列**;計數表那一發原本**還沒有上界**(已補 LIMIT)。
+--      🔵 排乾能力 = 10,000 × 6 × 24 = **144 萬列/天**(⚠️ 而**排程延遲沒算進去**)。
+--    ⚠️ **代價明寫**:一次大爆發之後**不會立刻清乾淨** —— 它是**漸進收斂**, 不是一次到位。
+CREATE FUNCTION public.purge_search_queries()
+RETURNS TABLE (deleted_expired bigint, deleted_overflow bigint, more_to_do boolean)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $fn$
+DECLARE
+  -- 🔴 保留期:Sean 2026-08-21 拍「搜尋紀錄保存 2 年」。
+  c_retention CONSTANT interval := interval '2 years';
+  -- 🔴 總量上限:Sean 2026-09-05 拍甲。改值只要改這一行。
+  c_max_rows  CONSTANT bigint  := 2000000;
+  -- 🔴 單次上界 —— 這就是「有界」那一格。
+  c_batch     CONSTANT integer := 5000;
+  v_expired  bigint := 0;
+  v_overflow bigint := 0;
+BEGIN
+  -- ① 過期那半(單批)
+  DELETE FROM public.search_queries
+   WHERE id IN (SELECT s.id FROM public.search_queries s
+                 WHERE s.created_at < pg_catalog.now() - c_retention
+                 LIMIT c_batch);
+  GET DIAGNOSTICS v_expired = ROW_COUNT;
+
+  -- ②a 🔴🔴 **前置:表【小到不可能有 c_max_rows 列】就整段跳過**
+  --     (2026-09-05 折 codex R2 第 5 條 must-fix;主視窗 `-f8` 裁「只折這一條」)
+  --
+  --  🔴 **它折的是什麼**:下面 ②b 那句 `ORDER BY id DESC OFFSET c_max_rows` **每一發都要跨過
+  --     200 萬個 index item**;144 發/日 ⇒ **每日約 2.88 億**。而 codex 逐字:防線自己變成常態成本。
+  --  🎯 **而那句話只有在【真的超量】時才需要跑** ⇒ 加一道 O(1) 的前置, 沒超量就不跑
+  --     ⇒ **在正常世界(也就是每一天, 直到真的被灌爆)那個放大器根本不執行。**
+  --  ✅ **⇒ 這一格不需要任何壓測就成立** —— 它把「量它貴不貴」換成「讓它不跑」。
+  --
+  --  ⛔ ~~我第一版要用 `pg_class.reltuples`~~ —— 🔴 **它在我寫下去之前就被量掉了**:
+  --     2026-09-05 唯讀實查正式庫 ⇒ `search_queries` 的 `reltuples` = **-1**,
+  --     `last_analyze` 與 `last_autoanalyze` **都是 NULL**(從未被 ANALYZE 過)。
+  --     🛑 **`-1` 是 PostgreSQL 的「不知道」哨兵值** ⇒ 而 `-1 < 2000000` 為真
+  --     ⇒ 那道前置會**跳過 purge**, 也就是**把「沒有資訊」讀成「表很小」**。
+  --     🟢 正對照:同一發問 `products` ⇒ `reltuples` = 25038(尺會動, 不是它壞了)。
+  --
+  --  ✅ **改用 `pg_relation_size`, 而它是【可證明】的**:
+  --     · 它**永遠精確**、不依賴 ANALYZE(它問的是檔案佔幾個 page)
+  --     · **大小是列數的上界**:heap tuple header MAXALIGN 後 24 bytes + item pointer 4 bytes
+  --       ⇒ **任何一列至少 28 bytes**;本表還有 `id`(int8)與 `created_at`(timestamptz)
+  --       ⇒ 至少 40。**取 32 是刻意保守的下界。**
+  --     ⇒ 📌 **表小於 `c_max_rows × 32` ⇒ 不可能有 c_max_rows 列。這是算出來的, 不是量出來的。**
+  --  🔵 **而 bloat / dead tuple 只會讓表【變大】** ⇒ 它推向「不跳過」= 照樣跑那句
+  --     ⇒ **失效方向是安全的那一側**(多做一次, 不是少做)。
+  --  🔵 **TOAST 也不破**:長字串搬去 TOAST 之後主表那一列仍留一個約 18 bytes 的指標
+  --     ⇒ 每列仍 ≥ 28 ⇒ 32 這個下界照樣成立。
+  --
+--  🔬 **拋棄式 PG 17.10 實跑(2026-09-05;真的函式本體, 從本檔抽出來載入, 沒有手抄)**:
+--     ```
+--     每列實際 bytes  52.18(query_raw 只放 1 個字元 = 最短的情況)
+--                     ⇒ 我宣稱的下界 32 成立而且有餘裕
+--     門檻換算        64,000,000 bytes ÷ 52.18 ≈ 【122.7 萬列】就會開閘
+--                     ⇒ 而上限是 200 萬 ⇒ 📌 **閘【比需要的時候更早開】, 它不可能在超量時擋住**
+--     世界 A  20 萬列 / 10,436,608 bytes ⇒ 閘 f ⇒ deleted_overflow = 0, 零錯誤
+--     世界 B 205 萬列 / 106,971,136 bytes ⇒ 閘 t ⇒ deleted_overflow = 5000, more_to_do = t
+--     ```
+--  🔬 **[R3 折完之後重跑, 2026-09-05]** 兩個世界**逐字同上**(A 閘 f / 0 · B 閘 t / 5000 / t)。
+--  🟢🟢 **而這一發最值錢的是 F1 的突變**:把那句 `IF` **註解掉**(文字仍留在 `prosrc` 裡)
+--     另建一支 `purge_mut`, 兩把尺同時問 ——
+--     ```
+--     purge_mut             舊尺 LIKE = t   ← 🔴 它會【放它過】
+--                           新尺 regex = f  ← ✅ 擋下
+--     purge_search_queries  舊尺 t · 新尺 t
+--     ```
+--     ⇒ 📌 **那證明舊的 ①b 是恆真的, 而新的分得出來。**
+--  🔬 **[R3 ④]** 空表上真的 `PERFORM public.purge_search_queries()` ⇒ 跑得起來、
+--     心跳寫進 `sweeper_heartbeat`(`pcm-search-log-purge`, `consecutive_failures = 0`)。
+--  🔴🔴 **而有一件我【沒有證明】, 照實寫**:世界 A 的「0」與「跑了但沒東西刪」**在結果上長一樣**。
+--     我試著用 `pg_stat_user_tables.idx_scan` 分開它們 —— 🛑 **而正對照(手動跑同一句)也回 0**
+--     ⇒ **那把尺沒動, 兩個讀數都作廢, 我不拿它當證據。**
+--     ⇒ 📌 **「它沒跑」這件事我靠的是 `IF` 的語意 + 上面量到的閘值(A 是 f、B 是 t)**,
+--        **不是一個獨立的觀察。** 而 `IF` 為假時不執行內層是語言保證, 不是本片的宣稱。
+--
+--
+--  🔴🔴 **[R3 三條 consider —— 它們都在【收窄我的宣稱】, 所以三條都寫進來]**
+--   **F6 我量到的那個數字要訂正**:我的 fixture 是**簡化過的表**(沒有本體那幾個 CHECK 與欄),
+--      🔬 **而 R3 指出【為什麼】我的 fixture 代表不了它**:真表有
+--      `CHECK (path IN ('keyword','capsule'))`(`20260904200000…:131`)
+--      ⇒ 📌 **我 fixture 裡那個 1 字元的 `'q'` 在真表上【是被禁止的】** —— 我量的那一列建不出來。
+--      實際每列是 **60.2 bytes** 不是我量到的 52.18 ⇒ 門檻換算 ⇒ 開閘點約 **106 萬列**
+--      (不是我先前寫的 122.7 萬)。🔵 **結論不變**(仍遠小於 200 萬 ⇒ 閘比需要的時候更早開),
+--      🛑 **而那個數字是【我的 fixture 的性質】不是本表的** —— 引用它之前先看你量的是哪一張表。
+--   **F4 這道閘是【單向栓】**:`pg_relation_size` 算的是**檔案佔幾頁**, 而 `DELETE` **不會讓它變小**
+--      (要 `VACUUM FULL` 才會)⇒ 📌 **表一旦 bloat 過門檻, 這道閘就【永遠開著】**,
+--      而那正是它本來要省的那件事。⇒ 🔵 **失效方向仍是安全那一側**(多跑, 不是少跑),
+--      **而「省下 2.88 億」那個效益會在第一次大爆發之後【永久消失】, 直到有人 VACUUM FULL。**
+--   **F5 ⇒ 所以「折⑤」的射程要縮**:⛔ ~~「那個放大器根本不執行」~~
+--      ✅ 準確說法:**在【未超量】的世界裡不執行**。灌爆穩態下(表就是維持在 2M 列附近)
+--      **閘恆開, 而那句 OFFSET 照跑** ⇒ 🛑 **codex R2 第 5 條在那個世界裡【沒有被解決】**,
+--      本片解的是「平常不要付這個成本」, **不是「這個成本消失了」**。
+--
+--  🛑 **它擋不住什麼**:①這一格**只跳過 ②b**, 過期那半(①)照跑 —— 那是對的, 它便宜
+  --     ②`c_max_rows` 或表結構若改, **這個下界要重算**(改值的人請重讀本段)
+  --     ③它**不保證**超量時那句就便宜 —— 只保證**沒超量時它不跑**。
+  IF pg_catalog.pg_relation_size('public.search_queries'::regclass) >= c_max_rows * 32 THEN
+
+  -- ②b 總量那半(單批)—— 🔴 只刪【超出上限的最舊那些】。
+  --    用 id 排序而不是 created_at:`created_at` 被截到整點
+  --    ⇒ **同一小時的列它分不出先後**, 而 `id` 是 IDENTITY, 嚴格遞增。
+  DELETE FROM public.search_queries
+   WHERE id IN (SELECT s.id FROM public.search_queries s
+                 ORDER BY s.id DESC OFFSET c_max_rows LIMIT c_batch);
+  GET DIAGNOSTICS v_overflow = ROW_COUNT;
+  END IF;   -- ②a 的前置:表太小 ⇒ v_overflow 維持 0, 而那是【正確的 0】不是【沒跑的 0】
+
+  -- ③ 計數表也要清 —— 一小時一列, 一年 8,760 列, 小而**不是零**。
+  DELETE FROM public.search_log_hour_counter
+   WHERE hour_bucket IN (SELECT c.hour_bucket FROM public.search_log_hour_counter c
+                          WHERE c.hour_bucket < pg_catalog.now() - interval '90 days'
+                          LIMIT c_batch);
+
+  -- ④ 🔴🔴 **心跳** —— 少了它, 這支排程死掉**沒有任何人會知道**(codex 第 10 條)。
+  INSERT INTO public.sweeper_heartbeat AS h (job_name, last_success_at, consecutive_failures, updated_at)
+  VALUES ('pcm-search-log-purge', pg_catalog.now(), 0, pg_catalog.now())
+  ON CONFLICT (job_name) DO UPDATE
+    SET last_success_at = pg_catalog.now(), consecutive_failures = 0, updated_at = pg_catalog.now();
+
+  -- 🔵 兩半任一批「剛好滿」⇒ 很可能還有 ⇒ 下一發再來。**這是提示, 不是保證。**
+  RETURN QUERY SELECT v_expired, v_overflow,
+                      (v_expired >= c_batch OR v_overflow >= c_batch);
+END;
+$fn$;
+
+-- 🔴 函式**出生就對 PUBLIC 開 EXECUTE** ⇒ 先收再給。
+-- 🛑 這一支**誰都不給** —— 它只由 `pg_cron`(postgres 身分)呼叫。
+REVOKE ALL ON FUNCTION public.purge_search_queries() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.purge_search_queries() FROM authenticated;
+REVOKE ALL ON FUNCTION public.purge_search_queries() FROM anon;
+REVOKE ALL ON FUNCTION public.purge_search_queries() FROM service_role;
+
+-- ── 4. 排程(形狀逐格抄 `20260809170000:70-111` —— 🔴 那支就是【純 SQL job 的先例】)──
+-- ⛔ ~~R1 檔頭寫「既有六支都走 invoke_cron_route ⇒ 本支偏離」~~ ⇒ **那句是假的**(codex 第 8 條):
+--    `pcm-expire-unpaid-orders` 就是純 SQL。📌 **我為一個不存在的偏離寫了一整段辯護。**
+DO $$
+DECLARE v_id bigint;
+BEGIN
+  v_id := cron.schedule('pcm-search-log-purge', '*/10 * * * *',
+    $job$SELECT public.purge_search_queries()$job$);
+  PERFORM cron.alter_job(job_id => v_id, active => true);  -- by-name upsert 不改 active, 顯式設 true
+END $$;
+
+-- ── 5. 事後閘(fail-closed:任一格不成立 ⇒ 整檔 ROLLBACK)──────────────────
+DO $$
+DECLARE v_cnt int; v_ok boolean;
+BEGIN
+  -- ① 原子計數那段真的進去了 —— 🔴 **釘的是 predicate, 不是註解**(codex 第 11 條:
+  --    R1 只找 `%< 5000%`, 而註解留著、predicate 拿掉也會綠)。
+  SELECT pg_catalog.count(*) INTO v_cnt
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'log_search_query'
+     -- 🔴 **[R3 F7]** ⛔ ~~`LIKE '%…%'`~~ —— **`_` 在 `LIKE` 裡是萬用字元**,
+     --    而這個字面裡有 `hour_bucket` / `DO UPDATE` ⇒ 📌 **`hourXbucket` 這種也會命中**
+     --    ⇒ **這道閘比它看起來鬆**(往【少報】的方向錯:該紅的可能不紅)。
+     --    ✅ 改 `strpos(...) > 0` —— 它是**純字面比對**, 沒有萬用字元。
+     AND pg_catalog.strpos(p.prosrc, 'ON CONFLICT (hour_bucket) DO UPDATE SET n = c.n + 1 WHERE c.n < 5000') > 0;
+  -- 🔬 **拋棄式 PG 17.10 實證(2026-09-05)**:餵一個把 `_` 換成 `X` 的字串 `hourXbucket` ——
+  --    ```
+  --    舊尺 LIKE   ⇒ t   ← 🔴 它【誤中】了一個不是那句話的東西
+  --    新尺 strpos ⇒ f   ← ✅ 不中
+  --    🟢 正對照:真的那個字面 ⇒ 兩把尺都 t(所以 strpos 不是恆假)
+  --    ```
+  --    ⇒ 📌 **那證明舊的那道閘【比它看起來鬆】, 而鬆的方向是【該紅的不紅】。**
+  IF v_cnt <> 1 THEN RAISE EXCEPTION '事後閘①:log_search_query 裡找不到原子計數那一句'; END IF;
+
+  -- ①c 🔴🔴 **[R3 ④] 真的【呼叫一次】** —— 上面每一格都只在看函式的【文字】,
+  --     而 R2 那次抓到的 procedure + COMMIT 那個病, **靜態檢查與乾淨貼 rc=0 兩關都是綠的**
+  --     ⇒ 📌 **抓到它的是真的去 CALL 了一次。** 本片自己就有那個教訓, 而事後閘裡沒有那一格。
+  --  🔵 **在這裡呼叫是安全的**:表剛建好、零列 ⇒ 兩個 DELETE 都刪不到東西;
+  --     而 ②a 的前置在空表上是 `f` ⇒ overflow 那句不跑。**它證的是「它跑得起來」不是「它刪得對」。**
+  --  🛑 **它證不到什麼**:零列之下**兩個 DELETE 的正確性一格都沒被驗到**
+  --     —— 那一半靠拋棄式 PG 的兩個世界(檔頭那段), 不靠這裡。
+  PERFORM public.purge_search_queries();
+
+  -- ①b 🔴 **②a 那道前置真的進去了** —— 釘的是 **predicate**, 不是註解
+  --     (同 codex 第 11 條的教訓:只找註解的話, 註解留著而 IF 拿掉也會綠)。
+  --     🛑 而它**證不到那道前置是對的** —— 只證「那一句在函式體裡」。
+  SELECT pg_catalog.count(*) INTO v_cnt
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'purge_search_queries'
+     -- 🔴🔴 **[R3 F1] ⛔ ~~`prosrc LIKE '%…%'`~~ —— 把那句 `IF` 註解掉之後【它仍然命中】**
+     --    (文字還在函式原始碼裡, 只是變成註解)⇒ 📌 **這一格原本是恆真的。**
+     --    🛑 而我在寫它的時候【逐字引用了「釘 predicate 不是註解」那個教訓】, 然後犯了同一個錯。
+     --    ✅ 改成**行首錨定**的 regex:`(?n)` 讓 `^` 對每一行生效, 前面只准有空白
+     --       ⇒ `-- IF pg_catalog.pg_relation_size…` 那種**不會**命中。
+     AND p.prosrc ~ '(?n)^\s*IF pg_catalog\.pg_relation_size\(''public\.search_queries''::regclass\) >= c_max_rows \* 32 THEN';
+  IF v_cnt <> 1 THEN
+    RAISE EXCEPTION '事後閘①b:purge_search_queries 裡找不到 ②a 的大小前置(那句 IF)';
+  END IF;
+
+  -- ② 計數表在, 而且 anon/authenticated/service_role 一項權限都沒有
+  IF pg_catalog.to_regclass('public.search_log_hour_counter') IS NULL THEN
+    RAISE EXCEPTION '事後閘②a:計數表沒建成';
+  END IF;
+  FOR v_ok IN
+    SELECT pg_catalog.has_table_privilege(r, 'public.search_log_hour_counter', p)
+      FROM unnest(ARRAY['anon','authenticated','service_role']) r,
+           unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN']) p
+  LOOP
+    IF v_ok THEN RAISE EXCEPTION '事後閘②b:計數表上還有角色有權限'; END IF;
+  END LOOP;
+
+  -- ③ purge:存在 / DEFINER / search_path 鎖空 / owner —— 🔴 **三個世界分三句**
+  --    (R1 把它們寫成同一句, 而那正是我今晚一直在抓的病)。
+  IF NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                  WHERE n.nspname='public' AND p.proname='purge_search_queries') THEN
+    RAISE EXCEPTION '事後閘③a:purge_search_queries 根本沒建成';
+  END IF;
+  SELECT p.prosecdef INTO v_ok FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname='public' AND p.proname='purge_search_queries';
+  IF v_ok IS NOT TRUE THEN RAISE EXCEPTION '事後閘③b:purge 不是 SECURITY DEFINER'; END IF;
+  -- 🔴 存進去的字面是 `search_path=""`(帶兩個引號)—— R1 比 `search_path=` ⇒ 對正確的函式**誤報**。
+  --    那是**拋棄式 PG 當場抓到的**, 不是讀文件推的。
+  SELECT p.proconfig @> ARRAY['search_path=""'] INTO v_ok
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname='public' AND p.proname='purge_search_queries';
+  IF v_ok IS NOT TRUE THEN RAISE EXCEPTION '事後閘③c:purge 的 search_path 沒鎖成空'; END IF;
+  -- 🔴 **它必須【不含】交易控制** —— 帶 SECURITY DEFINER 或 SET 的函式/程序用 COMMIT 會當場報錯,
+  --    而那個錯【只有真的呼叫才看得到】:靜態檢查與「乾淨貼 rc=0」兩關都是綠的。
+  -- ⚠️ **這道閘很弱, 明寫**(codex R2 第 8 條):它只擋一種字面 ——
+  --    `commit ;`、大小寫、`ROLLBACK`、動態 SQL、間接 `CALL` **它一個都擋不到**。
+  --    ✅ 而**真正擋住這件事的不是它, 是 PostgreSQL 自己**:帶 DEFINER/SET 的函式跑到交易控制會當場報錯。
+  --    ⇒ 📌 本格的用途只是「讓下一個人在【貼之前】就撞到」, 不是保證。
+  SELECT p.prosrc !~* '\m(commit|rollback)\M' INTO v_ok
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname='public' AND p.proname='purge_search_queries';
+  IF v_ok IS NOT TRUE THEN RAISE EXCEPTION '事後閘③d:purge 裡有 COMMIT ⇒ 它在 DEFINER + SET 之下跑不起來'; END IF;
+  SELECT p.proowner = 'postgres'::regrole INTO v_ok
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname='public' AND p.proname='purge_search_queries';
+  IF v_ok IS NOT TRUE THEN RAISE EXCEPTION '事後閘③e:purge 的 owner 不是 postgres'; END IF;
+
+  -- ④ purge 除了 owner 之外一個 grantee 都沒有(形狀抄先例 `:52-58`)
+  IF EXISTS (
+    SELECT 1 FROM pg_proc p, LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     WHERE p.oid = 'public.purge_search_queries()'::regprocedure AND a.grantee <> p.proowner
+  ) THEN
+    RAISE EXCEPTION '事後閘④:purge 有 owner 以外的 grantee';
+  END IF;
+
+  -- ⑤ 🔵 **反向對照** —— 少了這一格, 「全部 REVOKE 掉」與「本來就沒開過」印同一個綠。
+  --    ⚠️ **它守得住什麼、守不住什麼(codex 第 12 條)**:它只證「`anon` 有【有效】EXECUTE」,
+  --      權限若來自 PUBLIC 或角色繼承也會綠 ⇒ **守得住「客人完全寫不進去」, 守不住「只由預期的直接 grant 開放」。**
+  --      ⇒ 所以下面再加一句:`authenticated` / `service_role` 必須**還是**收掉的。
+  IF NOT pg_catalog.has_function_privilege(
+           'anon', 'public.log_search_query(text, text, text, integer)', 'EXECUTE') THEN
+    RAISE EXCEPTION '事後閘⑤a:anon 對 log_search_query 的 EXECUTE 不見了 ⇒ 客人端會靜靜地全部寫不進去';
+  END IF;
+  IF pg_catalog.has_function_privilege('authenticated', 'public.log_search_query(text, text, text, integer)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege('service_role', 'public.log_search_query(text, text, text, integer)', 'EXECUTE') THEN
+    RAISE EXCEPTION '事後閘⑤b:log_search_query 對 authenticated/service_role 的 EXECUTE 跑出來了';
+  END IF;
+
+  -- ⑥ 排程:先數同名【全部】(併 username 進 WHERE 會濾掉跨角色的第二筆 ⇒ 看不見的重複排程)
+  SELECT pg_catalog.count(*) INTO v_cnt FROM cron.job WHERE jobname = 'pcm-search-log-purge';
+  IF v_cnt <> 1 THEN RAISE EXCEPTION 'LOGFLOOD:同名 job 不是恰一筆(實 %, 可能跨角色重複);拒繼續', v_cnt; END IF;
+  SELECT pg_catalog.count(*) INTO v_cnt FROM cron.job
+   WHERE jobname = 'pcm-search-log-purge' AND active
+     AND database = current_database()
+     AND schedule = '*/10 * * * *'
+     AND command  = 'SELECT public.purge_search_queries()'
+     AND username = 'postgres';
+  IF v_cnt <> 1 THEN RAISE EXCEPTION 'LOGFLOOD:job 不是恰一筆 active 且四個欄位字面相符(實 %)', v_cnt; END IF;
+END $$;
+
+-- ⚠️ **誠實邊界(抄先例 `:74-78`)**:上面只證「`cron.job` 這一列的設定是對的」。
+--    scheduler 沒在跑 / `cron.launch_active_jobs=off` / 首次執行就失敗 / run logging 被關掉 ——
+--    **這四種本斷言全部照樣通過。** 真正的「它有在跑」要看 `cron.job_run_details`,
+--    以及 `sweeper_heartbeat` 那一列的 `last_success_at` 有沒有在動。
+
+-- 新物件收權斷言(樣板逐字抄自 `20260904240000:135-228`, 只換清單 —— 🔴 不重寫, 重寫會漂)
+DO $newobj_guard$
+DECLARE
+  -- 🔴 結尾的 ::text[] 不能拿掉 —— 清單清空時 ARRAY[] 無法推斷型別。
+  v_relations text[] := ARRAY[
+    'public.search_log_hour_counter'
+  ]::text[];
+  v_functions text[] := ARRAY[
+    'public.purge_search_queries()'
+  ]::text[];
+  v_declares_nothing boolean := false;
+
+  r          text;
+  v_oid      oid;
+  v_bad      int := 0;
+  v_first    text;
+  v_checked  int := 0;
+  v_priv     text;
+  v_col      text;
+BEGIN
+  IF cardinality(v_relations) = 0 AND cardinality(v_functions) = 0 THEN
+    IF NOT v_declares_nothing THEN
+      RAISE EXCEPTION
+        '新物件收權斷言:兩份清單都是空的。本檔若真的沒新建物件，請把 v_declares_nothing 設成 true（明示），不要留空。';
+    END IF;
+    RAISE NOTICE '新物件收權斷言:本檔明示未新建任何物件，略過（已留痕）。';
+    RETURN;
+  END IF;
+
+  FOREACH r IN ARRAY v_relations LOOP
+    v_oid := pg_catalog.to_regclass(r);
+    IF v_oid IS NULL THEN
+      RAISE EXCEPTION '新物件收權斷言:找不到關聯 % —— 名字打錯或沒建成。拒繼續。', r;
+    END IF;
+    v_checked := v_checked + 1;
+    -- 🔴🔴 **權限清單由伺服器推導,不手寫**(codex 2026-08-17 `must-fix`)。
+    --    E-684 樣板手寫七種,而 **PG 17 有八種 —— 少了 `MAINTAIN`**。
+    --    而本檔自己的病構造輸出就印著 `anon=MAINTAIN` ⇒ **樣板掃不到它自己舉的那個例子。**
+    --    改成從 `acldefault('r', owner)` 推導:PG 之後再加第九種,這一臂自動入列。
+    --    📎 同一個修法 B1-b 已經走過(`docs/specs/2026-08-16-m4b-e8b-b1b-migration-draft.sql:343-346`)。
+    --    🔴 `DISTINCT` 在這裡是承重的:這是迴圈,同一權限型別出現兩次會讓 v_bad 多加一次。
+    FOR v_priv IN
+      SELECT DISTINCT d.privilege_type
+        FROM aclexplode(acldefault('r', (SELECT relowner FROM pg_class WHERE oid = v_oid))) d
+    LOOP
+      IF has_table_privilege('anon', v_oid, v_priv)
+         OR has_table_privilege('authenticated', v_oid, v_priv) THEN
+        v_bad := v_bad + 1;
+        IF v_first IS NULL THEN v_first := format('%s 上仍有 %s', r, v_priv); END IF;
+      END IF;
+    END LOOP;
+
+    -- 🔴🔴 欄級授權必須另外問 —— `has_table_privilege` 對【只有欄級授權】的情況回 false。
+    FOR v_col IN
+      SELECT a.attname FROM pg_attribute a
+       WHERE a.attrelid = v_oid AND a.attnum > 0 AND NOT a.attisdropped
+    LOOP
+      FOREACH v_priv IN ARRAY ARRAY['SELECT','INSERT','UPDATE','REFERENCES'] LOOP
+        IF has_column_privilege('anon', v_oid, v_col, v_priv)
+           OR has_column_privilege('authenticated', v_oid, v_col, v_priv) THEN
+          v_bad := v_bad + 1;
+          IF v_first IS NULL THEN
+            v_first := format('%s.%s 上仍有【欄級】%s', r, v_col, v_priv);
+          END IF;
+        END IF;
+      END LOOP;
+    END LOOP;
+  END LOOP;
+
+  FOREACH r IN ARRAY v_functions LOOP
+    v_oid := pg_catalog.to_regprocedure(r);
+    IF v_oid IS NULL THEN
+      RAISE EXCEPTION '新物件收權斷言:找不到函式 % —— 簽名打錯或沒建成。拒繼續。', r;
+    END IF;
+    v_checked := v_checked + 1;
+    IF pg_catalog.has_function_privilege('anon', v_oid, 'EXECUTE')
+       OR pg_catalog.has_function_privilege('authenticated', v_oid, 'EXECUTE') THEN
+      v_bad := v_bad + 1;
+      IF v_first IS NULL THEN v_first := format('%s 上仍有 EXECUTE', r); END IF;
+    END IF;
+  END LOOP;
+
+  IF v_checked = 0 THEN
+    RAISE EXCEPTION '新物件收權斷言:檢查數為 0 —— 這個斷言沒有分母，不算通過。';
+  END IF;
+
+  IF v_bad > 0 THEN
+    RAISE EXCEPTION
+      E'❌ 新物件收權斷言失敗:anon/authenticated 仍持有 % 項權限（第一個:%）。檢查了 % 個物件。\n'
+      '   ⇒ 補上:REVOKE ALL ON <物件> FROM PUBLIC, anon, authenticated;\n'
+      '   🔴 兩道都要下:FROM PUBLIC 收不到具名授權，FROM 具名 收不到 PUBLIC 授權。',
+      v_bad, v_first, v_checked;
+  END IF;
+
+  RAISE NOTICE '✅ 新物件收權斷言通過:檢查 % 個物件，anon/authenticated 權限 0 項。', v_checked;
+END
+$newobj_guard$;
+
+COMMIT;
+
+
+-- ══════════════════════════════════════════════════════════════════════
+-- ROLLBACK —— 🔴 **整段可以直接貼, 不是「去別的檔複製」**(codex 第 15 條:
+--   R1 的 rollback 只寫一句註解, 而舊版是 `CREATE FUNCTION` ⇒ 函式還在時會 already exists
+--   ⇒ **照著貼還原不回去。**)
+-- ⚠️ **而有兩件事 rollback 救不回來(codex 第 16 條)**:
+--   ① purge 跑過之後**刪掉的列不可回復** —— 這是單向門。
+--   ② 本檔用 by-name `cron.schedule` ⇒ **若之前已有同名 job, 它的設定已被覆寫**,
+--      而下面的 `unschedule` 只會把它刪掉, **不會把舊設定還回去**。
+--      🛑 貼之前先自己看一眼:`SELECT * FROM cron.job WHERE jobname='pcm-search-log-purge';`
+--         有東西 ⇒ **先把那一列抄下來再貼。**
+-- ══════════════════════════════════════════════════════════════════════
+-- BEGIN;
+--   SELECT cron.unschedule('pcm-search-log-purge');
+--   DROP FUNCTION IF EXISTS public.purge_search_queries();
+--   DROP TABLE IF EXISTS public.search_log_hour_counter;
+--   -- 🔴 log_search_query 要**還原成 20260904200000 那一版**(逐字, 只把 CREATE 換成 CREATE OR REPLACE):
+--   CREATE OR REPLACE FUNCTION public.log_search_query(
+--     p_query_raw    text,
+--     p_path         text,
+--     p_unmatched    text    DEFAULT NULL,
+--     p_result_count integer DEFAULT NULL
+--   ) RETURNS void
+--   LANGUAGE sql
+--   SECURITY DEFINER
+--   SET search_path = ''
+--   AS $fn$
+--     INSERT INTO public.search_queries (query_raw, path, unmatched, result_count)
+--     VALUES (
+--       -- 🔵 兩端都截:CHECK 會擋掉過長的, 而**擋掉 = 那一筆語料消失**
+--       --    ⇒ 這裡先截成合法的, 讓它進得去。截斷長度與 CHECK 一致(100)。
+--       -- 🔴🔴 **遮掉 email(2026-09-04 codex must-fix ②)** —— 而它做在【DB 這一層】,
+--       --    不是做在 TS:呼叫端可能不只一個, 而遮罩漏在任何一個呼叫端上都沒有東西會叫。
+--       left(btrim(public.mask_obvious_pii(p_query_raw)), 100),
+--       p_path,
+--       left(public.mask_obvious_pii(p_unmatched), 100),
+--       p_result_count
+--     )
+--     -- 🔴 撞到那道 UNIQUE 就靜靜跳過 —— **不得讓它變成一個 error**:
+--     --    呼叫端是 fire-and-forget, 而「同一小時第二次搜同一個字」是**完全正常的客人行為**,
+--     --    讓它進 log 會把真的失敗淹掉。
+--     ON CONFLICT (query_raw, path, created_at) DO NOTHING;
+--   $fn$;
+-- COMMIT;

@@ -12,12 +12,14 @@
 #    不答「什麼條件下才允許」——而且它的答案來源是**文件**。
 #    今天的病根正是「**文件寫的 ≠ 程式碼實際擋的**」。
 #    ⇒ 本腳本**只認 supabase/migrations/*.sql 的程式碼逐字 + 行號**,不吃 docs/。
+#    ⚠️ 2026-09-04 起再扣掉 never-apply 的那幾支(見下方掃描限度 1.)。
 #
 # 用法:  bash scripts/state-gates.sh          （寫到 docs/reference/order-state-gates.md）
 #         bash scripts/state-gates.sh --stdout （只印,不寫檔）
 #
 # 🔴 掃描限度(表裡也會印一份,不要只寫在這裡):
-#   1. 範圍 = `supabase/migrations/*.sql`。**service_role 直接 UPDATE 繞得過本表**
+#   1. 範圍 = `supabase/migrations/*.sql`,**扣掉檔頭前 20 行帶 `-- pcm:never-apply` 的那幾支**
+#      (2026-09-04 加;⟦01-GENTABLEREADSREPO⟧ 乙)。**service_role 直接 UPDATE 繞得過本表**
 #      （`20260611120000_m3_s2c_confirm_payment_rpc.sql:230` 自己就寫著這件事）
 #      ⇒ 本表的強度是「**經由 RPC**」,不是「絕對」。
 #   2. 閘的抽取是**字面比對**,不是 SQL 語意分析 ⇒ 它會漏掉「用變數繞一手」寫的閘。
@@ -30,6 +32,38 @@ cd "$(dirname "$0")/.."
 MIG_DIR="supabase/migrations"
 OUT="docs/reference/order-state-gates.md"
 [ -d "$MIG_DIR" ] || { echo "找不到 $MIG_DIR(請在 repo 根執行)" >&2; exit 1; }
+
+# ── ⟦01-GENTABLEREADSREPO⟧ 乙(2026-09-04 `-front`)────────────────────────────
+# 🔴 **本表讀 repo, 讀不到「這支貼了沒」** —— 而下一節那一欄先前叫「live 那代」,
+#    貼 SQL 的人會把它讀成【線上跑的那一代】。實錘:那一欄依序指過
+#    `20260904010000`(標 pcm:never-apply, **永遠不會貼**)⇒ 再指 `20260904030000`(當時還沒貼)
+#    ⇒ 📌 **兩次都不是線上那一代。**
+# 🔵 這裡治得掉的是後者的一半:標了 `pcm:never-apply` 的檔**不可能是任何一代 live**
+#    ⇒ 從世代排名裡拿掉。
+# 🛑 **而「排除」不留痕會製造一個新的盲區** —— 一支檔從表上消失, 與它不存在長得一樣
+#    ⇒ 表尾把排除清單印出來。**排除與那份清單成對, 不可只取前半。**
+# 🔴 **標記的定義照抄既有讀者, 不要自己發明一個**:`scripts/migration-ledger-divergence.sh:222-224`
+#    逐字「限定前 20 行是刻意的 —— 一支檔中段的註解提到這個字面(例如在解釋這個機制)
+#    不該把它自己變成 never-apply ⇒ 標記是【宣告】, 不是【提及】」。
+#    ⚠️ **今天兩種算法都印 4**(四支的 marker 依 glob 序分別在第 4/4/5/1 行)⇒ 這個差異**現在無聲**,
+#    而它會在有人寫一支「中段討論這個標記」的 migration 那天靜靜地多排除一支。
+NEVER_APPLY=()
+APPLICABLE=()
+for _sgf in "$MIG_DIR"/*.sql; do
+  # 🔴 **不用管線** —— `set -o pipefail` 下 `head -20 | grep -q` 在 head 撐爆 pipe buffer 時 rc=141
+  #    ⇒ 該檔被【靜靜】歸成 APPLICABLE = fail-open, 而 fail-open 正是本片要修的那個病。
+  #    ⇒ 照抄 `migration-ledger-divergence.sh:233-238` 的形狀(命令替換 + case), 結構上沒有管線。
+  #    ⚠️ 今天不可達(全 repo 前 20 行最大 4,135 bytes), 而「不可達」不是「不會發生」。
+  case "$(head -20 "$_sgf")" in
+    *"-- pcm:never-apply"*)
+      NEVER_APPLY+=("$_sgf") ;;
+    *)
+      APPLICABLE+=("$_sgf") ;;
+  esac
+done
+# Nit(reviewer):bash 3.2 + `set -u` 下, 空陣列展開 "${A[@]}" 會 unbound。
+# 只在「285 支全是 never-apply」時可達, 而 fail-open 比 fail-closed 糟 ⇒ 明講而不是靜靜過去。
+[ ${#APPLICABLE[@]} -gt 0 ] || { echo "state-gates: 沒有任何一支可用的 migration(全被 never-apply 排除?)" >&2; exit 1; }
 
 # 狀態寫入動作(= 這支函式會改什麼狀態)
 WRITE_PAT='SET payment_status|SET cancelled_at|INSERT INTO public\.order_cancellation_items|INSERT INTO public\.order_cancellations|INSERT INTO public\.order_refunds|UPDATE public\.order_refunds'
@@ -52,7 +86,10 @@ emit() {
 > (`supabase/migrations/20260611120000_m3_s2c_confirm_payment_rpc.sql:230` 逐字寫著這件事)。
 > 🔴 **閘是字面比對抽出來的,不是 SQL 語意分析** ⇒ 可能漏掉「用變數繞一手」寫的閘。
 > **每一格都附行號:下判斷前開檔看那一行,不要只信本表。**
-> 🔴 **`docs/` 一律不採信** —— 本表只讀 `supabase/migrations/*.sql`。
+> 🔴 **`docs/` 一律不採信** —— 本表只讀 `supabase/migrations/*.sql`,
+> ⛔ ~~而且是全部~~ **不是全部**:帶 `-- pcm:never-apply` 的檔被排除了 ——
+> **若這次有排除到, §一 末尾會逐支列出;那裡沒有清單就代表這次一支都沒排除。**
+> (刻意寫成兩個世界都成立的句子:上一版無條件指到一份有條件才印的清單, 空世界時它是懸空的。)
 > 今天的病根就是「文件寫的 ≠ 程式碼實際擋的」;文件有述而 code 找不到的,本表標「**docs 有述、code 未見**」。
 >
 > 🔴 **2026-08-27 修過一個抽取 bug(給下一個撞到同族的人)**:當 migration 檔名自己含 `public.<字>`
@@ -64,14 +101,14 @@ emit() {
 HEADER
 
   # ── 第一段:同名函式的世代(誰是 live)
-  echo "## 一、同名函式被 CREATE OR REPLACE 過幾代(**只有時間戳最大那代是 live**)"
+  echo "## 一、同名函式被 CREATE OR REPLACE 過幾代(🔴 **最後一欄是 repo 裡最後一支, 不是線上**)"
   echo
-  echo "| 函式 | 代數 | 各代 (檔:行) | 🔴 live 那代 |"
+  echo "| 函式 | 代數 | 各代 (檔:行) | 🔴 repo 裡最後一支(**不是線上**) |"
   echo "|---|---|---|---|"
   # 🔴 awk 的 match 錨在 `FUNCTION public.`(非裸 `public.`):grep -n 會加【檔名:行號:】前綴,
   #    若檔名含 public.<字>(如 ..._page_public.sql 內含 public.sql)會排在內容的 public.<fn> 前,
   #    裸 match 抽到檔名碎片(2026-08-27:search_catalog_by_vehicle / catalog_brand_counts 被抽成假名 sql)。
-  grep -nE '^CREATE (OR REPLACE )?FUNCTION public\.[a-z_0-9]+' "$MIG_DIR"/*.sql \
+  grep -nE '^CREATE (OR REPLACE )?FUNCTION public\.[a-z_0-9]+' "${APPLICABLE[@]}" \
   | sed -E 's#^'"$MIG_DIR"'/##' \
   | awk -F: '{ match($0, /FUNCTION public\.[a-z_0-9]+/); fn=substr($0, RSTART+16, RLENGTH-16);
                key=fn; cnt[key]++; loc[key]=loc[key] (loc[key]==""?"":"<br>") $1 ":" $2; last[key]=$1 ":" $2 }
@@ -80,12 +117,33 @@ HEADER
   echo
   echo "> 只列 **>1 代**的。單代函式不會有「引用到過期世代」的風險,故省略。"
   echo
+  echo "> 🔴 **最後一欄回答的是「repo 裡最後一支」,不是「正式庫現在跑的那一版」。**"
+  echo "> ⚠️ 精確講, 它是 grep 串流的**最後一筆**(本腳本的 \`last[key]\`), 而不是「時間戳取 max」——"
+  echo "> 兩者今天相等**只因為 grep 照參數序輸出、而參數是 glob 排序**。換一支行為不同的 grep 就不再相等。"
+  echo "> 本腳本讀的是 \`supabase/migrations/*.sql\` —— 它看得到「檔案存在」(扣掉 never-apply 的那幾支),看不到「這支貼了沒」。"
+  echo "> ✅ **要知道線上跑的是哪一代**:查 \`supabase/APPLIED.tsv\`,或用唯讀連線讀 \`pg_get_functiondef\`。"
+  echo
+  if [ ${#NEVER_APPLY[@]} -gt 0 ]; then
+    echo "> 🔵 **本表(§一 與 §二 都是)已排除 ${#NEVER_APPLY[@]} 支標了 \`-- pcm:never-apply\` 的檔**(它們永遠不會貼 ⇒ 不可能是任何一代):"
+    for _f in "${NEVER_APPLY[@]}"; do echo "> · \`$(basename "$_f")\`"; done
+    echo "> ⚠️ **而排除治不了另一半**:一支「寫好了而還沒貼」的檔照樣會排在最後 ⇒ 照樣不是線上那一代。"
+    echo
+  fi
+  echo
 
   # ── 第二段:每支函式改什麼狀態 + 它的允許集合
   echo "## 二、會改訂單狀態的函式 × 它的允許集合(逐字)"
   echo
+  if [ ${#NEVER_APPLY[@]} -gt 0 ]; then
+    echo "> 🔵 **本節與 §一 用同一份分母** —— 那 ${#NEVER_APPLY[@]} 支 \`-- pcm:never-apply\` 的檔也被排除了(清單在 §一 末尾)。"
+    echo "> ⚠️ 意思是:**若那幾支檔裡有訂單狀態的閘, 它不會出現在下面**。今天它們對狀態寫入零命中, 所以這一句現在不產生任何差異。"
+    echo
+  fi
 
-  for f in "$MIG_DIR"/*.sql; do
+  # 🔵 §二 用同一份排除後的清單 —— never-apply 的檔裡的閘也不在正式庫裡。
+  #    🔬 **今天實測是 no-op**:那 4 支對 WRITE_PAT 命中都是 0 ⇒ 本行【現在】不改變任何輸出,
+  #    它擋的是「下一支 never-apply 的檔剛好會動訂單狀態」那個世界。
+  for f in "${APPLICABLE[@]}"; do
     base="$(basename "$f")"
     grep -qE "$WRITE_PAT" "$f" || continue
 

@@ -36,6 +36,16 @@
 
 import Link from 'next/link';
 import type { MemberOrderDetail, MemberOrderDetailItem, OrderItemVehicleSnapshot, PaymentStatus } from '@pcm/domain';
+import { subtotalLabelOf } from '@pcm/domain';
+import {
+  PCM_REMITTANCE_ACCOUNT_NAME,
+  PCM_REMITTANCE_ACCOUNT_NO,
+  PCM_REMITTANCE_BANK_NAME,
+  PCM_REMITTANCE_BRANCH,
+  PCM_REMITTANCE_EXPIRE_DAYS,
+  remittanceDeadlineLabel,
+  PCM_REMITTANCE_MEMO_INSTRUCTION,
+} from '@pcm/domain';
 import { ProductImage } from '@/components/ProductImage';
 import {
   formatOrderDate,
@@ -44,8 +54,11 @@ import {
   paymentMethodLabel,
 } from '@/lib/orders/order-display';
 import {
+  ORDER_DETAIL_ITEM_CANCELLED_MARK,
+  ORDER_DETAIL_ITEM_SHIPPED_MARK,
   ORDER_DETAIL_ITEMS_TRUNCATED_NOTE,
   ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE,
+  ORDER_DETAIL_UNPAID_SHIPPED_NOTE,
 } from '@/lib/account-order-copy';
 
 /**
@@ -102,7 +115,16 @@ function formatVehicle(v: OrderItemVehicleSnapshot | null): string | null {
   return v.kind === 'dict' ? `${v.brand} ${v.model}${year}` : `${v.raw}${year}`;
 }
 
-function OrderLine({ item }: { item: MemberOrderDetailItem }) {
+function OrderLine({
+  item,
+  cancelled,
+}: {
+  item: MemberOrderDetailItem;
+  /** ⟦ship-WHICHITEMSSHIPPED⟧ 這張【單】取消了沒(Sean 2026-09-04 Q-C 乙)。
+   *  🔴 它是**訂單層**的事實, 而它決定的是**這一列**要說什麼 ⇒ 必須從上面傳下來,
+   *     `MemberOrderDetailItem` 裡沒有、也不該有這一欄(那會讓同一個事實有兩份)。 */
+  cancelled: boolean;
+}) {
   const fits = formatVehicle(item.vehicle);
   return (
     <div className="od-line">
@@ -112,6 +134,13 @@ function OrderLine({ item }: { item: MemberOrderDetailItem }) {
             (改 src 會再觸發 load ⇒ 佔位圖也載不到時變成無限迴圈)。不另發明一條取圖路徑。
             ⚠️ imageUrl 為 null 的兩個成因(商品無圖 / **商品已下架 join 不到**)在這裡
                長得一樣,而兩者都該退到佔位圖 ⇒ 不分流。 */}
+        {/* 🔴 2026-09-03 **行為改變, 明寫**:`ProductImage` 現在用 `hasNoRealImage(image)` 判「有沒有真照片」
+            ⇒ 本頁那些 `imageUrl` 是「查無圖片」卡的品項, 從【顯示那張卡】改成【顯示站內佔位圖】。
+            🔵 兩者都是「沒有照片」的畫面, 而站內佔位圖是我們自己的、講得出「暫無照片」。
+            🛑 **而本頁【不傳 brandSlug】⇒ 永遠不會顯示品牌 logo**(卡片那條路會)。
+               理由:訂單品項只有 `item.brand`(顯示名), 而由顯示名衍生 slug 對 7 家會對不上
+               (`BONAMICI RACING`→`bonamici-racing` 而 key 是 `bonamici`)⇒ 猜一個會 404 的路徑不如不猜。
+               ✅ 要讓訂單頁也顯示 logo ⇒ 得先讓訂單品項帶 `brand_slug` 下來, 那是另一片。 */}
         <ProductImage image={item.imageUrl} label={item.title ?? item.variantSku} />
       </div>
       <div>
@@ -120,6 +149,30 @@ function OrderLine({ item }: { item: MemberOrderDetailItem }) {
         {item.brand !== null && <div className="od-line-brand">{item.brand}</div>}
         <div className="od-line-name">{item.title ?? item.variantSku}</div>
         {fits !== null && <div className="od-line-fits">{fits}</div>}
+        {/* ⟦ship-WHICHITEMSSHIPPED⟧ 這一件出貨了沒(Sean 2026-09-04 Q5 拍甲:已出貨的那幾列加灰字「已出貨」)。
+            🎯 **在此之前, 一張出了 3 件的 5 件單, 五列逐字相同**(真瀏覽器實測)——
+               客人被告知「出了一部分」, 而畫面上沒有任何東西說得出【是哪一部分】。
+            🔴 **沒出貨的那幾列什麼都不印, 而那是刻意的** —— 他那句話裡沒有「準備中」,
+               補一個他沒說的字與改掉他說的字是同一種錯(完整理由在常數的 docstring)。
+            🛑 **不印日期也不印數量** —— 數量摘要不給顧客站是既有政策(板 ⟦b9-SHIPUI⟧ ①),
+               而那條政策今天沒有任何測試擋著、只有人的拍板擋著 ⇒ 更不能順手加。 */}
+        {item.shipped && (
+          <div className="od-line-ship" data-od-id="order-line-shipped">
+            {ORDER_DETAIL_ITEM_SHIPPED_MARK}
+          </div>
+        )}
+        {/* ⟦ship-WHICHITEMSSHIPPED⟧ **這一件不會來了**(Sean 2026-09-04 拍 Q-C 乙:灰字「已取消」)。
+            🔴 **判準是「單取消了 **而且** 這一件沒出」** —— 出過的那幾件仍印「已出貨」,
+               因為**它確實出了**;對一件已送到客人手上的東西印「已取消」是**一句假話**, 比空白糟。
+            🎯 **它補的縫**:一張 5 件出 3 件之後被取消的單, 原本是 3 列「已出貨」+ 2 列**空白**,
+               而那 2 件永遠不會來 —— 而「其餘商品出貨時會再通知您」對取消單是**刻意不印的**
+               ⇒ 🛑 **在此之前那兩列沒有任何一句話講它。**
+            🔵 兩個標記**互斥**(`shipped` / `cancelled && !shipped`)⇒ 同一列不會同時出現兩句話。 */}
+        {cancelled && !item.shipped && (
+          <div className="od-line-cancel" data-od-id="order-line-cancelled">
+            {ORDER_DETAIL_ITEM_CANCELLED_MARK}
+          </div>
+        )}
       </div>
       <div className="od-line-r">
         <div className="od-line-unit">
@@ -136,7 +189,26 @@ export type OrderDetailViewProps = {
 };
 
 export function OrderDetailView({ order }: OrderDetailViewProps) {
-  const paid = order.paymentStatus === 'paid';
+  /**
+   * ⟦ship-REFUNDEDPAIDSTEP⟧ **「付款完成」那一階問的是【他付過沒】, 不是【現在的狀態】。**
+   *
+   * ⛔ ~~`const paid = order.paymentStatus === 'paid'`~~ ⇒ 🔴 **`refunded` 的單它是 `false`**,
+   *    即使 `paidAt` 有值、客人**真的付過** ⇒ 那一階在畫面上是灰的。
+   * 🎯 **Sean 2026-09-04 拍甲**(他複誦了理由, 不只回了字母):逐字
+   *    「**他確實付過, 那是發生過的事實**」;而端他的理由是 ——
+   *    那條軸講的是**發生過什麼**, 不是現在的狀態(「訂單成立」也不會因為取消了就變灰);
+   *    而維持灰的代價是:**客人剛收到退款, 而畫面說我們沒收到錢 ⇒ 兩個訊息打架。**
+   * 🛑 **丙(打勾 + 多一格「已退款」)他沒選** ⇒ 不做:那是多一個狀態、多一份文案、多一個形狀。
+   *
+   * 🔵 **而 `partiallyRefunded` 是我加的, 不是他拍的** —— 理由要寫出來讓它可被推翻:
+   *    它的定義是「**退了一部分**、訂單仍有保留品項」(`types.ts:34-35`)⇒ **它蘊含之前已全額付款**
+   *    ⇒ 對它維持灰, 與 `refunded` 是**同一句錯話**。
+   *    🛑 而 `partiallyPaid`(只收了訂金)**不在裡面** —— 那個人**還欠錢**, 打勾會是謊。
+   */
+  const paymentCompleted =
+    order.paymentStatus === 'paid' ||
+    order.paymentStatus === 'refunded' ||
+    order.paymentStatus === 'partiallyRefunded';
   // 🔴🔴 **`#249`(2026-08-24):這一頁對【已取消 / 已逾期】的單從今天起才走得到。**
   //    在此之前 adapter 的 `.neq('payment_status','unpaid')` 把它們全濾掉了
   //    ⇒ **下面三格是「一段從來沒有人走過的路」被點亮之後才暴露出來的**,不是新做的功能:
@@ -147,13 +219,47 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
   const cancelKind = order.cancelKind;
   const cancelled = cancelKind !== 'none';
   const tone = orderStatusTone(order.paymentStatus, order.fulfillmentStatus, cancelKind);
+  /**
+   * ⟦ship-AXISHOLE⟧ **進度軸中間那個洞**(Sean 2026-09-04 Q7 拍**乙**)。
+   *
+   * 🔴 **洞的形狀**:`shippedAt` 非空而付款未完成(匯款單先出貨後收款)
+   *    ⇒ 第 3 階「已出貨」亮、第 2 階「付款完成」灰 ⇒ **軸中間斷一格而沒有任何解釋**。
+   * ✔ 這不是理論世界:上面那段 `⟦b9-SHIPUI⟧` 的註解 2026-09-02 就寫下了它, 
+   *    而那時逐字寫的是「**在他拍之前這裡不做特殊處理**」⇒ 🎯 **他今天拍了。**
+   *
+   * 🔵 **「那格變灰色」不需要程式碼** —— `ok: paymentCompleted` 為 false ⇒ 沒有 `is-done`
+   *    ⇒ **它本來就是灰的**。⇒ 📌 這一改動補的是【那句話】, 不是顏色。
+   *    🛑 **所以驗收不得用「那格是灰的」** —— 它在改之前也是灰的(零判別力)。
+   *
+   * 🔴🔴 **`!cancelled` 那一半是承重的, 不是順手加的**:
+   *    下面 `happened()` 的判準是 `s.ok || s.d !== ''`, 而 `shownSteps` 對取消單
+   *    把留下來的每一階 **一律 `ok: true`**。
+   *    ⇒ 🛑 若這句話寫進取消單的 `d`, 那一階會從【不顯示】變成【顯示且打勾】
+   *      ⇒ 🎯 **一張從來沒付過錢的單子, 「付款完成」會被打勾** —— 而那句話旁邊
+   *      還寫著「尚未收到匯款」⇒ **同一格裡兩句相反的話**。
+   *    📌 ⇒ 一個只負責【多印一句話】的修法, 透過一個它沒有讀的判準改掉了【打不打勾】。
+   */
+  const unpaidButShipped = !cancelled && order.shippedAt !== null && !paymentCompleted;
   // 稿的四階進度軸。前兩階有來源;後兩階在第 1 批一律未完成(見檔頭)。
   const steps = [
     { t: '訂單成立', d: formatOrderDate(order.createdAt), ok: true },
     // 🔴 日期只能用 `paidAt`(codex 關卡2 must-fix):延後付款或重試成功時,下單日與付款日
     //    可以差好幾天 ⇒ 拿 `createdAt` 冒充等於**印一個我們自己編的付款日**,而客人沒有第二個來源可以對。
     //    `paidAt` 為 null ⇒ **那一階不印日期**(狀態仍可標完成),不要退回 createdAt。
-    { t: '付款完成', d: order.paidAt === null ? '' : formatOrderDate(order.paidAt), ok: paid },
+    // ⟦ship-AXISHOLE⟧ 洞的世界印他拍的那句話(文案逐字理由在常數的 docstring)。
+    // 🔴 `paidAt` 非空時 **日期優先** —— 那是一個事實, 而這句話只是在解釋一個缺口;
+    //    而 `unpaidButShipped` 本身已含 `!paymentCompleted`, 兩者不會同時為真的世界很窄
+    //    (付款狀態未完成而 `paidAt` 有值, 例如 partiallyPaid 的訂金單)⇒ **排序寫死、不靠互斥**。
+    {
+      t: '付款完成',
+      d:
+        order.paidAt !== null
+          ? formatOrderDate(order.paidAt)
+          : unpaidButShipped
+            ? ORDER_DETAIL_UNPAID_SHIPPED_NOTE
+            : '',
+      ok: paymentCompleted,
+    },
     /**
      * ⟦b9-SHIPUI⟧ **這一階從包裹真相點亮**(Sean 2026-09-02 拍丙)。
      *
@@ -182,7 +288,33 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
      */
     { t: '已送達', d: '', ok: false },
   ];
-  const nowIdx = steps.reduce((n, s, i) => (s.ok ? i : n), 0);
+  // ⟦ship-CANCELSTEPS⟧ 取消單**沒有「現在這一步」** —— 它沒有下一步了。
+  const nowIdx = cancelled ? -1 : steps.reduce((n, s, i) => (s.ok ? i : n), 0);
+  /**
+   * ⟦ship-CANCELSTEPS⟧ 取消單**只留真的發生過的那幾階**。
+   *
+   * ⛔ ~~第一版寫的是「取消單整條軸不畫」, 而註解逐字寫著「不畫不會少掉任何事實」~~
+   *    🔴 **code-reviewer 2026-09-04 把那句打掉了, 而它是對的**:`paidAt` 與 `shippedAt`
+   *    **只住在這條軸上**(:156 / :173), 頁面沒有第二個顯示位置。
+   *    ⇒ 而那不是理論 —— `admin_mark_order_cancelled`(`20260902140000:316-330`)的三道閘是
+   *      `cancelled_at IS NULL` / `payment_method='tappay'` / `payment_status='refunded'`,
+   *      🔴 **零出貨相關的閘** ⇒ **一張部分出貨、全額退款之後被標記取消的單, 構造得出來。**
+   *    ⇒ ⇒ 🎯 **對那張單「整條不畫」會默默丟掉「何時付款 / 何時出貨」兩個【真事實】。**
+   * 📌 ⇒ 我第一版把「不該說未來式」修成了「什麼都不說」, 而那是**另一個方向的錯**。
+   */
+  //
+  // 🔴🔴 **而「發生過」的判準【不是 `s.ok`】—— 那一格是實跑逼出來的, 不是想出來的**:
+  //    `ok: paid` 而 `paid = paymentStatus === 'paid'`(:139)⇒ 🔴 **`refunded` 的單 `paid` 是 false**,
+  //    即使 `paidAt` 有值、客人**真的付過**。⇒ 只用 `s.ok` 過濾會**把付款日整格丟掉**,
+  //    而那正是 code-reviewer 打掉第一版的同一個理由(丟掉真事實), 換一個位置再犯一次。
+  //    ✅ ⇒ 判準改成「**有 `ok` 或有日期**」= 這件事**留下了痕跡**。
+  // ✅ **而那個相鄰缺陷已經修掉了**(⟦ship-REFUNDEDPAIDSTEP⟧, Sean 2026-09-04 拍甲):
+  //    `ok:` 現在吃 `paymentCompleted`(:139)⇒ `refunded` / `partiallyRefunded` 也算付過。
+  //    🔵 ⇒ 所以下面這個 `happened` 判準與它**是同一條規則的兩個射程**, 不是兩套邏輯:
+  //       「這件事**發生過**嗎」—— 一個管取消單要不要**顯示**那一階, 一個管那一階要不要**打勾**。
+  const happened = (s: (typeof steps)[number]) => s.ok || s.d !== '';
+  // 取消單上, 留下來的每一階都是**已經發生的事實** ⇒ 一律 done(它們不會再有進展)。
+  const shownSteps = cancelled ? steps.filter(happened).map((s) => ({ ...s, ok: true })) : steps;
   // 🔴 取消單一律走中性字面(見上面 ②)。`'訂單金額'` 是這張表裡既有的中性值,不是新造的字。
   const amountLabel = cancelled ? '訂單金額' : AMOUNT_LABEL[order.paymentStatus];
   // 收件三欄缺值印 `—`:**這裡缺值是異常、要看得出來**(與品牌那格刻意相反)。
@@ -239,8 +371,42 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
         </div>
       </div>
 
+      {/**
+        * ⟦ship-CANCELSTEPS⟧ 🔴🔴 **取消單【不畫進度軸】**(2026-09-04)。
+        *
+        * 🔬 **病灶是量到的, 不是讀碼推的** —— 拿既有的 `CANCELLED` fixture 渲染,
+        *    把 `[data-od-id="order-steps"]` 每個子節點的 class 與文字印出來, 實際是:
+        *      `od-step is-done is-now │ 訂單成立 2099-04-15`
+        *      `od-step               │ 付款完成`   ← 沒有 is-done
+        *      `od-step               │ 已出貨`     ← 沒有 is-done
+        *      `od-step               │ 已送達`     ← 沒有 is-done
+        *    ⇒ 🎯 **一張已經取消的單, 軸上有三格「還沒完成」的待辦, 而 `is-now` 落在第一格**
+        *      ⇒ 讀起來是「才剛開始, 下一步等付款」。
+        *    ⇒ 🔴 **而同一頁上方的徽章寫著「已取消」·`is-done`** ⇒ **一頁兩句相反的話。**
+        *    📌 而客人會信哪一個:**進度軸是圖形, 徽章是文字 —— 圖形贏。**
+        *
+        * 🔵 **它與 `#249` 是同一族, 而那正是這一格的內容**:`#249`(Sean 2026-08-24 拍甲)
+        *    逐字「一張已作廢的單在列表上與還付得了的單**逐欄相同**」。那次修好的是
+        *    **標題字**(`orderStatusLabel`)與**顏色**(`orderStatusTone`)—— 兩半都做了,
+        *    🛑 **而它正下方這條軸沒有被那次修法涵蓋。**
+        *    ⇒ 📌 **修一個被點名的實例不等於修那個類別** —— 而漏掉的那個**就在同一個畫面上**。
+        *
+        * ✅ **為什麼是【不畫】而不是【畫一條取消態的軸】—— 那是兩件急迫性差一個量級的事**:
+        *    · 「這條軸不該顯示成進行中」= **事實正確性**, 不需要任何設計決定 ⇒ 現在就做
+        *    · 「取消單**應該**顯示什麼」= 設計題 ⇒ 已端主視窗轉 Sean, **不在這一片**
+        *    ⇒ 🎯 **先拿掉錯的, 再問對的長什麼樣。**
+        * 🛑 而稿**答不出**這一格:`design-reference` grep(分母 176 檔, 本樹 submodule
+        *    原本未初始化 ⇒ init 之後才算數)只撈到 `HANDOFF.md:149` 的狀態字,
+        *    **不是進度軸的取消態** ⇒ 🔴 **那是【查無】, 不是【稿說要照印】。**
+        *
+        * ⛔ ~~「不畫【不會少掉任何事實】—— 軸上唯一為真的那格是『訂單成立 + 日期』,
+        *    而 `.od-head-meta` 已經印過」~~ ⇒ 🔴 **那句話是假的**(code-reviewer 2026-09-04):
+        *    `paidAt` / `shippedAt` **只住在這條軸上**, 頁面沒有第二個顯示位置。
+        *    ⇒ 所以修法從「整條不畫」改成「**只留真的發生過的那幾階、而且沒有 `is-now`**」。
+        *    📌 **⇒ 我第一版把「不該說未來式」修成了「什麼都不說」—— 另一個方向的錯。**
+        */}
       <div className="od-steps" data-od-id="order-steps">
-        {steps.map((s, i) => (
+        {shownSteps.map((s, i) => (
           <div
             key={s.t}
             className={`od-step${s.ok ? ' is-done' : ''}${i === nowIdx ? ' is-now' : ''}`}
@@ -278,7 +444,13 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
         * 📌 **而 jsdom 那幾格測試【全部通過】** —— 它們問的是「那句字在不在」,而它在。
         *    ⇒ 這一格只有真瀏覽器量得到(Sean 2026-08-17:「不用再用 artifacts,直接開伺服器做+看」)。
         */}
-      {order.shippedAt !== null && !order.allItemsShipped && (
+      {/* 🔴 ⟦ship-CANCELSTEPS⟧ **取消單不印這一句** —— 它與進度軸是同一個病:
+          「其餘商品出貨時會再通知您」對一張死掉的單是**假的**。
+          🔬 而它構造得出來(code-reviewer 2026-09-04 證的, 不是我猜的):
+          `admin_mark_order_cancelled` 零出貨閘 ⇒ 部分出貨 + 全額退款 ⇒ 可標記取消
+          ⇒ `shippedAt` 非空 · `allItemsShipped` 為 false · `cancelKind` = cancelled。
+          📌 而我第一版**只修了進度軸、指名了這一格卻沒動它** —— 那正是本片自己在講的病。 */}
+      {!cancelled && order.shippedAt !== null && !order.allItemsShipped && (
         <p className="acc-order-note" data-od-id="order-partial-shipment-note">
           {ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE}
         </p>
@@ -292,12 +464,15 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
           <p className="acc-order-note">{ORDER_DETAIL_ITEMS_TRUNCATED_NOTE}</p>
         )}
         {order.items.map((item) => (
-          <OrderLine key={item.id} item={item} />
+          <OrderLine key={item.id} item={item} cancelled={cancelled} />
         ))}
 
         <div className="od-sums" data-od-id="order-sums">
+          {/* 🔴 有稅時小計是【未稅】的 ⇒ 標籤要說得出來(`⟦b4-TAXSURFACES⟧`, Sean 2026-09-04 拍甲)。
+              ⚠️ 這一頁的基底字面是「**商品**小計」不是「小計」—— **刻意不統一**:
+                 把它改成「小計」是**改文案**, 而那是 Sean 的事、不是本片的。 */}
           <div className="od-sum">
-            <span>商品小計</span>
+            <span>{subtotalLabelOf('商品小計', order.taxTotal.amount)}</span>
             <b>{nt(order.subtotal.amount)}</b>
           </div>
           <div className="od-sum">
@@ -308,6 +483,14 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
             <div className="od-sum od-sum-off">
               <span>折扣</span>
               <b>− {nt(order.discountTotal.amount)}</b>
+            </div>
+          )}
+          {/* 🔴 稅額:**有稅才印**(`⟦b4-TAXSURFACES⟧` 第 7 步)。位置與其餘四面逐字對齊:
+              小計 → 運費 → 折扣 → **稅額** → 訂單金額。🔵 稅 0 不印, 理由同上面那一列折扣。 */}
+          {order.taxTotal.amount > 0 && (
+            <div className="od-sum">
+              <span>稅額</span>
+              <b>{nt(order.taxTotal.amount)}</b>
             </div>
           )}
           {/* 稿註解逐字:**未付款的訂單不能寫「實付」——那是還沒發生的事。** */}
@@ -351,6 +534,125 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
           </div>
         </div>
       </div>
+
+      {/* 🔴🔴 **鐵則 1:這一塊的【版面】是自創的, 而稿上查無 —— 附掃過的分母**
+          (code-reviewer 2026-09-04 must-fix ⑤;以下每個數字都是我自己重量的, 不是抄它的)
+          ```
+          design-reference/           命中 3 支 / 分母 **177** 支 —— 而三支全是「ATM 轉帳」那四個字
+                                      (CheckoutPage.jsx:432 / :538 · WalletTab.jsx:199 ·
+                                       design-handoff/HANDOFF-v2.0.md:268)
+                                      ⇒ 🛑 **那是【結帳頁的付款方式選項】, 不是訂單詳情頁的收款資訊區塊。**
+          OD 磁碟 12 個專案            grep 匯款 ⇒ 命中 **2 個**(pcm-524f · pcm-admin-order-ui)
+                                      —— 而**兩個都是後台**(order-detail-states / overview-desktop-bmw-m)
+          顧客站訂單詳情的真權威       `pcm-home-redesign/order-detail-page.html` ⇒ 匯款/轉帳/銀行 **0 命中**
+          ```
+          🔵 **⇒ 而 reviewer 說「OD 只命中 1 個專案」, 我量到 2 個** —— 我開檔看了第 2 個,
+             它是 `pcm-524f/order-detail-states.html`(**後台**訂單狀態頁)⇒ **不影響它的結論。**
+          ⚠️ **而我第一發量 `pcm-home-redesign` 得到「14 支命中」** ——
+             開檔看才發現那 14 支是 `checkout-page.html` / 資料檔 / `.file-versions/` 舊版 / playwright 快照,
+             ⇒ 🔴 **訂單詳情那一支自己是 0。**
+             📌 **一個「專案層」的命中數, 答不出「那一頁有沒有」** —— 而它讀起來像答得出。
+
+          🎯 **⇒ 所以這一塊是【自創版面】, 不是照稿搬** —— 而它需要有人知道:
+             ⇒ Sean 2026-09-04 Q-B 拍**乙**「授權自畫, 照信用卡那格, 事後補稿」(那題講的是結帳頁,
+                而**訂單詳情這一塊他沒被問過**)⇒ 已落板 ⟦design-ATMBACKFILL⟧ 與本片的板列。
+             🛑 **不要把它讀成「稿說要這樣做」。**
+
+          🔴🔴 **匯款資訊(M-4b 段 3)—— 它是這條線上唯一【不可回收】的東西。**
+          客人照著這一塊把錢匯出去, 而**印錯一碼 = 錢進了別人的帳戶**。
+          ⇒ 📌 所以那五個值**一個字都不重打**:全部 import 自
+             `packages/domain/src/order/remittance-info.ts`(段 2 落的檔, 記著 Sean 的原話)。
+          ⇒ 🔬 而那 12 碼帳號我**對過**(不是眼睛看):`等Sean拍的題-20260903.md:2391` 逐字
+             「帳號: 200540278354」· `:2491`「甲 它是對的 ⇒ 帳號確認」;
+             ⚪ 負對照:改一碼 ⇒ 在信箱裡找不到 ⇒ **那把尺分得出真假**。
+
+          🔴 **顯示條件是【兩個 AND】, 而少任何一個都會印錯人**:
+          ```
+          paymentChannel === 'bank_transfer'  ← 只有它答得出「這是匯款單」
+                                                (paymentMethod 付款成功才有值 ⇒ 未匯款時是 null)
+          paymentStatus  === 'unpaid'(精確)  ← 🛑 不可以用「不等於 paid」
+          ```
+          🛑 **為什麼是精確 `unpaid`**:`payment_status` 有五個值
+             (unpaid / paid / partiallyPaid / refunded / partiallyRefunded)——
+             而 `partiallyPaid` 的單**已經收到一部分錢** ⇒ 印 `order.total` 會叫客人**再匯一次全額**。
+             ⇒ 📌 **一個否定式條件的射程是【剩下全部】, 而剩下全部會隨 enum 增值而變大。**
+             ⇒ ⇒ 而在「印一個可能錯的數」與「不印」之間, 對不可回收的東西**永遠選不印**。
+
+          🔴🔴 **`!cancelled` 那一格是 code-reviewer 2026-09-04 must-fix ①, 而我第一版漏了它**:
+             🔬 兩條取消路徑**都保留** `payment_status='unpaid'` + `payment_channel='bank_transfer'`
+                (`20260903080000_..._by_payment_channel.sql:185-186`, 該檔 `:244` 逐字「不動 payment_status」;
+                 `20260904050000_..._supersede_bank_order_on_card.sql:203-212` 同款)
+             ⇒ 🛑 少了它 ⇒ 同一頁同時印「訂單已取消」與「請於 5 天內完成匯款」
+             ⇒ ⇒ 🔴 而 `superseded_by_card` 那條的客人**剛剛才刷卡付過一次** —— 我們會叫他再匯一次。
+             📌 **一個「還沒付款」的旗標, 在單子死掉之後仍然是 true。**
+
+          🔴🔴 **而【`unpaid` 不等於「還沒匯款」】—— 這一格本片修不掉, 明寫**
+             (code-reviewer must-fix ②):
+             🔬 板列 ⟦b4-NONCARDPAID1⟧(`docs/launch-todo.md`, 態 `doing`)逐字:
+                **「登記匯款/現金收款【不會】把 `payment_status` 翻成 paid」**
+             ⇒ 🛑 **一個【已經匯過款】的客人打開這一頁, 仍然看到帳號 + 全額 + 逾期警告** ⇒ 重複匯款。
+             ⇒ 📌 **而下面那段「五個值逐一推過」讀起來像窮舉, 它不是** ——
+                那個世界是 `unpaid` 的**子集**, 不在那個列舉裡。
+             ⇒ ⇒ 🔵 修法在 ⟦b4-NONCARDPAID1⟧ 那一列(讓登記收款翻狀態), **不在本片**;
+                而在那之前, 這一塊對「已匯款但沒登記」的客人是錯的。
+
+          🔵 **金額用 `order.total`** —— `types.ts:159` 逐字「訂單總額 = subtotal + shippingFee − discountTotal」
+             ⇒ 那就是客人要付的數(而 partiallyPaid 已被上面那個條件擋在外面)。
+             ⚠️ **而排掉 partiallyPaid 的代價**:那個客人**看不到尾款要匯去哪**(reviewer nit ⑦)——
+                已落板, 不在本片修。
+
+          ⚠️ **兩處字面是我加的, 不是 Sean 的原話**(主視窗 2026-09-04 過, 未端他):
+             · 備註那行帶上**單號本身** —— 他的原話只有「匯款備註請填寫訂單編號」
+               ⇒ 加它的理由:他要客人填的那個東西就在旁邊, 客人不必回上一頁找
+             · 「金額」那一列 —— 他沒提過;而匯款要打金額, 少了它客人得回去翻
+          🔵 而「{PCM_REMITTANCE_EXPIRE_DAYS} 天後自動取消」**不是文案是事實** ——
+             Sean 2026-09-03 逐字「乙 5天」, 而系統真的會做(`20260903080000` 的 `interval '5 days'`);
+             那個常數與那支 migration 由 `remittance-info.test.ts` 比對, 分岔的那一刻會紅。 */}
+      {!cancelled && order.paymentChannel === 'bank_transfer' && order.paymentStatus === 'unpaid' && (
+        <div className="acc-section od-info" data-od-id="order-remittance">
+          {/* 🔴 `od-info` 那個 class 是**樣式的祖先**, 不是裝飾(code-reviewer must-fix ③):
+              稿上那組 dl 的規則是**後代選擇器** `.od-info dl / dt / dd`
+              (`apps/storefront/src/styles/order-detail.css:289-291`)——
+              ⛔ ~~我第一版寫 `<dl className="od-info-dl">`~~ ⇒ 🛑 **全 repo 零條規則命中那個名字**
+              ⇒ dd 保留瀏覽器預設的 `margin-inline-start:40px`、dt/dd 各自成行
+              ⇒ ⇒ 🔴 **那 12 碼帳號會印在一個沒有樣式的縮排清單裡。**
+              📌 **我發明了一個 class 名字, 而發明一個名字不會讓樣式跟著出現。** */}
+          <div className="acc-section-head">
+            <h2>匯款資訊</h2>
+          </div>
+          <dl>
+            <dt>銀行</dt>
+            <dd data-od-id="order-remittance-bank">
+              {PCM_REMITTANCE_BANK_NAME}({PCM_REMITTANCE_BRANCH})
+            </dd>
+            <dt>戶名</dt>
+            <dd data-od-id="order-remittance-holder">{PCM_REMITTANCE_ACCOUNT_NAME}</dd>
+            <dt>帳號</dt>
+            <dd data-od-id="order-remittance-account">{PCM_REMITTANCE_ACCOUNT_NO}</dd>
+            <dt>金額</dt>
+            <dd data-od-id="order-remittance-amount">{nt(order.total.amount)}</dd>
+            <dt>備註</dt>
+            {/* 🔵 `PCM_REMITTANCE_MEMO_INSTRUCTION` 是段 2 落的常數(reviewer nit ②:我第一版手打了它)
+                ⇒ 用常數 ⇒ 這一頁與段 4 那封信從第一天起是**同一份字面**。
+                ⚠️ 而**單號本身是我們加的**, 不在他的原話裡(主視窗 2026-09-04 過, 未端 Sean)。 */}
+            <dd data-od-id="order-remittance-memo">
+              {PCM_REMITTANCE_MEMO_INSTRUCTION} {order.displayId}
+            </dd>
+          </dl>
+          {/* 🔴🔴 **Sean 2026-09-05 第 3 題拍【甲】—— 逐字「改成直接寫日期」。**
+              ⛔ ~~請於 {N} 天內完成匯款~~ ⇒ 客人要自己拿下單日去加。
+              🛑 **而「算錯的日期比不算糟」** —— 客人照著錯日期匯款, 錢到了單子已經被取消。
+                 ⇒ ✅ `remittanceDeadlineLabel` 算不出來時回 `null`, **這裡退回舊那句**,
+                   而**不是**印一個猜的日期。
+              🔵 「(含)」不是贅字:cron 是 `created_at < now() - 5 days`
+                 ⇒ **第 5 天當天還沒到期**(`20260904230000:451-455`)。 */}
+          <p className="acc-order-note" data-od-id="order-remittance-expiry">
+            {remittanceDeadlineLabel(order.createdAt) === null
+              ? `請於 ${PCM_REMITTANCE_EXPIRE_DAYS} 天內完成匯款,逾期訂單將自動取消。`
+              : `請於 ${remittanceDeadlineLabel(order.createdAt)}(含)之前完成匯款,逾期訂單將自動取消。`}
+          </p>
+        </div>
+      )}
 
       {cancelled && (
         <div className="acc-section" data-od-id="order-cancelled">

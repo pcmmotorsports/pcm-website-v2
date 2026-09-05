@@ -115,6 +115,7 @@ function detail(): AdminOrderDetail {
     subtotal: { amount: 100, currency: 'TWD' },
     shippingFee: { amount: 0, currency: 'TWD' },
     discountTotal: { amount: 0, currency: 'TWD' },
+    taxTotal: { amount: 0, currency: 'TWD' },
     total: { amount: 100, currency: 'TWD' },
     shippingMethod: 'home',
     shippingAddress: { name: null, phone: null, line: null },
@@ -135,6 +136,22 @@ function detail(): AdminOrderDetail {
         quantity: 2,
         unitPrice: { amount: 50, currency: 'TWD' },
         lineTotal: { amount: 100, currency: 'TWD' },
+        // 🔴🔴 **2026-09-04:補上 `quantitySummary`, 而我補的是【世界】不是【期望值】。**
+        //    片乙給 `defaultOpen` 加了「還有件數沒有登記來源 ⇒ 也展開」。
+        //    而本 fixture 原本**完全沒有這個欄位**(`as unknown as` 繞過型別)
+        //    ⇒ `unsourcedQuantity(undefined)` 回 `null` ⇒ `!== 0` ⇒ **卡片預設變成開的**
+        //    ⇒ 🛑 **⇒ 而本檔下面那一格的負對照是「展開【之前】它不該在」** ——
+        //       卡片一開始就開著的話, 那個負對照恆紅。
+        //    ✅ **⇒ 設成「已經訂完」(unsourced = 0)⇒ 卡片預設關著 ⇒ 那個負對照回到它原本的世界。**
+        //    ⚠️ **本檔要守的是「採購表單搬進卡片裡了沒」, 不是「卡片什麼時候開」** ——
+        //       後者由 `order-detail-items-table-open.test.tsx` 守。**期望值一個字都沒改。**
+        quantitySummary: {
+          quantity: 2,
+          cancelledQuantity: 0,
+          orderedQuantity: 2,
+          instockQuantity: 0,
+          shippedQuantity: 0,
+        },
         procurements: [],
         procurementTruncated: false,
       },
@@ -199,6 +216,16 @@ async function renderPage() {
 async function expandFirstItemCard(container: HTMLElement) {
   const summary = container.querySelector('details.icard > summary');
   if (summary === null) throw new Error('找不到商品卡的 summary —— 卡片殼本身壞了,不是採購接線');
+  // 🔴🔴 **2026-09-04:這裡從【切換】改成【確保打開】—— 而它們的差別只在卡片預設是開是關。**
+  //    片乙給 `defaultOpen` 加了「還有件數沒有登記來源 ⇒ 也展開」, 而本檔的 fixture
+  //    **完全沒有 `quantitySummary` 欄位**(`as unknown as AdminOrderDetail` 繞過型別)
+  //    ⇒ `unsourcedQuantity(undefined)` 回 `null` ⇒ `!== 0` ⇒ **卡片一開始就是開的**
+  //    ⇒ 🎯 **⇒ 而原本這一行是無條件 `click` ⇒ 它把已經開著的卡【關起來】**
+  //    ⇒ ⇒ 📌 **⇒ 於是「採購區不見了」—— 而那看起來像接線壞了, 不像測試把它關掉了。**
+  //    ⚠️ **這不是為了配合改動而放寬** —— 本 helper 的名字叫 `expand`,
+  //       而「切換」與「展開」只在【預設狀態】這一個假設下等價。釘住意圖, 不釘住那個假設。
+  const card = summary.closest('details');
+  if (card !== null && card.open) return;
   fireEvent.click(summary);
   await act(async () => {
     await new Promise((r) => setTimeout(r, 0));

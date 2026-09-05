@@ -18,7 +18,7 @@ import type {
   OrderSource,
   PaymentChannel,
 } from '@pcm/domain';
-import { toMoneyAmount, orderCancelKindOf } from '@pcm/domain';
+import { toMoneyAmount, orderCancelKindOf, hasNoRealImage } from '@pcm/domain';
 import { narrowMemberTier } from './member-tier';
 import type { Database } from '../database.types';
 import {
@@ -75,6 +75,13 @@ type CreateOrderRpcInvoice = {
    而結帳這條唯一的建單路徑 `charge-actions.ts` 已無條件帶鍵。 */
 export type CreateOrderRpcArgs = {
   p_lines: CreateOrderRpcLine[];
+  /**
+   * 🔴 段 1-A 的第 11 個參數(`20260904020000`)。**必填、DB 那側無 DEFAULT。**
+   * 🎯 而**新舊兩支 `create_order` 靠【名字集合】各自被唯一命中** ——
+   *   送這個名字 ⇒ 只配得上新那支;不送 ⇒ 只配得上舊那支。
+   *   ⇒ 🛑 **所以這個鍵【不可以是 optional】** —— 少送一次就會靜靜掉回舊那支、存成 tappay。
+   */
+  p_payment_channel: 'tappay' | 'bank_transfer';
   p_address_id: string;
   p_shipping_method: 'home' | 'store';
   p_invoice: CreateOrderRpcInvoice;
@@ -146,6 +153,7 @@ function mapInvoice(invoice: OrderInvoice): CreateOrderRpcInvoice {
 export function mapPlaceOrderToCreateOrderArgs(input: PlaceOrderInput): CreateOrderRpcArgs {
   return {
     p_lines: input.lines.map(mapLine),
+    p_payment_channel: input.paymentChannel,
     p_address_id: input.addressId,
     p_shipping_method: input.shippingMethod,
     p_invoice: mapInvoice(input.invoice),
@@ -638,6 +646,8 @@ export type SupabaseAdminOrderDetailRow = Pick<
   | 'subtotal'
   | 'shipping_fee'
   | 'discount_total'
+  // 🔴 `⟦b4-TAXSURFACES⟧` 題 B:後台三個面(出貨單 / 訂單明細 / 詳情金額區)共用這一條。
+  | 'tax_total'
   | 'total'
   | 'shipping_method'
   | 'shipping_address_snapshot'
@@ -645,6 +655,9 @@ export type SupabaseAdminOrderDetailRow = Pick<
   | 'invoice_number'
   | 'invoice_amount'
   | 'invoice_status'
+  // 🔴 `invoice_requested` —— **這張單要不要開發票(下單當下的決定)**。
+  //    與上面 `invoice`(客人的需求)與 `invoice_status`(我們開了沒)是**三件事**。
+  | 'invoice_requested'
   | 'cancelled_at'
   | 'cancelled_reason'
   | 'version'
@@ -1024,6 +1037,7 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
     subtotal: { amount: toMoneyAmount(row.subtotal), currency: 'TWD' },
     shippingFee: { amount: toMoneyAmount(row.shipping_fee), currency: 'TWD' },
     discountTotal: { amount: toMoneyAmount(row.discount_total), currency: 'TWD' },
+    taxTotal: { amount: toMoneyAmount(row.tax_total), currency: 'TWD' },
     total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
     shippingMethod: row.shipping_method,
     shippingAddress: {
@@ -1063,6 +1077,10 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
         ? null
         : { amount: toMoneyAmount(row.invoice_amount), currency: 'TWD' },
     invoiceStatus: narrowInvoiceStatus(row.invoice_status),
+    // 🔴 **直接帶原值, 不做防禦性收斂** —— 它是 `boolean NOT NULL`, 沒有「意外值」那個世界。
+    //    ⚠️ 而**同一支檔對 `invoice_status` 做了收斂**(`narrowInvoiceStatus` 把不認得的值吞成 `not_issued`)
+    //    ⇒ 📌 **那個收斂是那一欄有【三值 CHECK】才成立的;本欄是布林, 抄它反而會製造一個假的預設。**
+    invoiceRequested: row.invoice_requested,
     cancelledAt: row.cancelled_at,
     cancelledReason: row.cancelled_reason,
     version: row.version, // M-4a Slice C:明細頁改單表單帶此值當樂觀鎖條件
@@ -1141,10 +1159,13 @@ export type SupabaseMemberOrderDetailRow = Pick<
   | 'payment_status'
   | 'fulfillment_status'
   | 'payment_method'
+  | 'payment_channel'
   | 'paid_at'
   | 'subtotal'
   | 'shipping_fee'
   | 'discount_total'
+  // 🔴 `⟦b4-TAXSURFACES⟧` 第 7 步:會員明細也要帶稅額(顧客站詳情頁 + 列印/PDF 兩面共用這一條)。
+  | 'tax_total'
   | 'total'
   | 'shipping_method'
   | 'cancelled_at'
@@ -1196,10 +1217,64 @@ function pickShippingAddress(raw: unknown): MemberOrderDetail['shippingAddress']
  * jsonb string array 的第一個元素(正式庫實查:`products.images` / `product_variants.images`
  * 皆為 `array` of `string`)。非陣列 / 空 / 首元素非字串 / 空字串 → null。
  */
+/**
+ * 第一張**真照片**的網址;沒有 ⇒ `null`。
+ *
+ * 🔴🔴 **`hasNoRealImage` 那一道是 2026-09-04 補的(⟦ship-ORDERIMG⟧)** ——
+ *    在那之前, 客人的**訂單頁**會顯示**供應商的「無圖」圖**, 而其中 39 列是
+ *    **外連他家伺服器**(線【身分】2026-09-03 量)。
+ *    🔵 而商品卡 / PDP / 搜尋 / JSON-LD / OG **早就修好了** —— 它們走 `mappers/product.ts`
+ *    的 `dropImagesWithoutRealPhoto` ⇒ 🎯 **漏的是【各自直讀 base 表】的那兩條路。**
+ *
+ * ⛔ ~~「訂單存的是下單當時的快照 ⇒ 改它是改寫歷史」~~ —— **2026-09-04 那個理由被推翻了**:
+ *    `order_items.product_snapshot` 的 CHECK 是 **exact key set `{title, sku, spec}`**
+ *    (`order_items_snapshot_whitelist`, 拋棄式庫實查)⇒ 🔴 **圖【結構上】不在快照裡**;
+ *    這裡 join 的是**現在的商品列** ⇒ **今天換一張商品圖, 舊訂單卡片本來就跟著換。**
+ *    ⇒ 📌 **所以那個顧慮不存在** —— 而它曾經是一個拍過板的理由(主視窗 2026-09-04 收回)。
+ *
+ * 🛑 **判斷必須呼叫 `hasNoRealImage`, 不得在這裡重打一份** ——
+ *    那支檔自己警告過「複製成兩份 ⇒ 它們會分岔, 而分岔不會紅」。
+ * 🔵 而**兩段 fallback 的語意因此變好了**:變體圖是佔位圖 ⇒ 落到母商品圖;
+ *    兩層都是佔位圖 ⇒ `null` ⇒ 顯示端走站內佔位圖那條路。
+ */
 function pickFirstImage(raw: unknown): string | null {
   if (!Array.isArray(raw)) return null;
-  const first = raw[0];
-  return typeof first === 'string' && first !== '' ? first : null;
+  // 🔴 **掃整個陣列, 不是只看 `[0]`**(codex 關卡2 R1 must-fix, 2026-09-04):
+  //    我第一版寫的是「`[0]` 是佔位圖 ⇒ 回 null」⇒ 🎯 **`[佔位圖, 真照片]` 會把那張真照片丟掉**,
+  //    而函式名與 docstring 都寫著「第一張**真照片**」⇒ **字面與行為不一致。**
+  //    ✅ 而這也**對齊目錄那一側**:它是 `dropImagesWithoutRealPhoto(images)` 然後取 `[0]`
+  //    ⇒ 同一個語意, 兩處不再分岔。
+  const real = raw.find(
+    (x): x is string => typeof x === 'string' && x !== '' && !hasNoRealImage(x),
+  );
+  return real ?? null;
+}
+
+/**
+ * ⟦ship-WHICHITEMSSHIPPED⟧ 一個明細品項 → **它出貨的那一刻**(沒出過 ⇒ `null`)。
+ *
+ * 🔴 **有效的箱 = `shipped_at` 非空【且】`deleted_at` 為空。** 少任一個條件都會出錯:
+ *    · 少 `shipped_at` ⇒ 一張還沒出的出貨單就對客人說「已出貨」
+ *    · 少 `deleted_at` ⇒ 一張**被作廢的**出貨單說「已出貨」, 而客人手上沒有貨
+ * ⚠️ `shipment_items` 缺(舊資料 / embed 為 null)⇒ 當作沒出貨, **不是**當作未知。
+ *    那是保守方向:寧可少亮一件, 不可對客人宣稱貨已出。
+ * 🔵 分批出貨取**最早**那一次 —— 客人問的是「這件出了沒」, 而第一箱就回答了那個問題。
+ *
+ * ⚠️ **`.sort()` 是字典序** —— 對 PostgREST 回的同一種 ISO 格式正確, 而它**沒有演過混格式的世界**
+ *    (fixture 全是 `…Z`, 而 PostgREST 實際回 `+00:00`)⇒ 哪天同一批資料出現兩種時區寫法,
+ *    它會**安靜地排錯**。要動這裡的話, 排序前先正規化, 不要只是把 `.sort()` 換成 `localeCompare`。
+ *
+ * 📌 **抽成具名函式的理由不是好看** —— 它原本是內嵌在一個 `.map()` 裡、算完只取一個最小值就丟,
+ *    而現在**逐件那一份也要用** ⇒ 兩個消費者共用同一段算式, 分開寫兩份會安靜地不一致。
+ */
+function pickItemShippedAt(item: SupabaseMemberOrderDetailRow['order_items'][number]): string | null {
+  const times = (item.shipment_items ?? [])
+    .map((si) => si.shipments)
+    .filter((sh): sh is { shipped_at: string; deleted_at: string | null } =>
+      sh !== null && sh !== undefined && typeof sh.shipped_at === 'string' && sh.shipped_at !== '' && sh.deleted_at === null)
+    .map((sh) => sh.shipped_at)
+    .sort();
+  return times[0] ?? null;
 }
 
 /**
@@ -1214,7 +1289,14 @@ function pickFirstImage(raw: unknown): string | null {
 export function mapSupabaseMemberOrderDetailRow(
   row: SupabaseMemberOrderDetailRow,
 ): MemberOrderDetail {
-  const items = row.order_items.map((item): MemberOrderDetailItem => ({
+  // ⟦ship-WHICHITEMSSHIPPED⟧ **先算逐件的出貨時刻, 再由它同時餵三個消費者。**
+  // 🔴 這一段【原本就在這支檔裡】, 它只是站在下面 30 行、算完之後被丟掉(只留最早那一筆)。
+  //    ⇒ 🎯 **一份來源、三個消費者**(逐件布林 / 訂單層 `shippedAt` / `allItemsShipped`)——
+  //      而在此之前它們是同一段算式的兩份拷貝。
+  // 🛑 **時刻停在這裡, 不進 domain 型別** —— `MemberOrderDetailItem.shipped` 是布林,
+  //    理由(逐件時刻 = 出貨節奏, 而它會過 client 邊界)寫在那一欄的 docstring 上。
+  const shippedAtPerItem = row.order_items.map(pickItemShippedAt);
+  const items = row.order_items.map((item, i): MemberOrderDetailItem => ({
     id: item.id,
     variantSku: item.variant_sku,
     // 🔴 任一層缺 → null。**而「商品已下架」正是會讓整個 embed 變 null 的成因之一**
@@ -1229,6 +1311,8 @@ export function mapSupabaseMemberOrderDetailRow(
     quantity: item.quantity,
     unitPrice: { amount: toMoneyAmount(item.unit_price), currency: 'TWD' },
     lineTotal: { amount: toMoneyAmount(item.line_total), currency: 'TWD' },
+    // ⟦ship-WHICHITEMSSHIPPED⟧ 這一件出貨了沒(Sean 2026-09-04 Q5 拍甲)。時刻不下放, 只下放有無。
+    shipped: shippedAtPerItem[i] !== null,
   }));
   /**
    * ⟦b9-SHIPUI⟧ 包裹真相 → 兩個給 UI 的值。
@@ -1239,24 +1323,19 @@ export function mapSupabaseMemberOrderDetailRow(
    * ⚠️ `shipment_items` 缺(舊資料 / embed 為 null)⇒ 當作沒出貨, **不是**當作未知。
    *    那是保守方向:寧可少亮一階, 不可對客人宣稱貨已出。
    */
-  const shippedAtPerItem = row.order_items.map((item) => {
-    const times = (item.shipment_items ?? [])
-      .map((si) => si.shipments)
-      .filter((sh): sh is { shipped_at: string; deleted_at: string | null } =>
-        sh !== null && sh !== undefined && typeof sh.shipped_at === 'string' && sh.shipped_at !== '' && sh.deleted_at === null)
-      .map((sh) => sh.shipped_at)
-      .sort();
-    return times[0] ?? null;
-  });
   const shippedTimes = shippedAtPerItem.filter((t): t is string => t !== null).sort();
   // 🔴 **算一次、兩處共用** —— 下面 `itemsTruncated` 用的是同一個運算式。
   //    分開寫兩份 ⇒ 有人改了門檻而只改一處, 而**兩處會安靜地不一致**。
   const itemsTruncated = row.order_items.length >= MEMBER_ORDER_DETAIL_ITEMS_EMBED_LIMIT;
   // 分批出貨取**最早**那一次:客人問的是「開始出了沒」, 而第一箱就回答了那個問題。
-  // ⚠️ **上面兩個 `.sort()` 都是【字典序】** —— 對 PostgREST 回的同一種 ISO 格式是正確的,
+  // ⚠️ **這個 `.sort()` 是【字典序】** —— 對 PostgREST 回的同一種 ISO 格式是正確的,
   //    而它**沒有演過混格式的世界**(fixture 全是 `…Z`, 而 PostgREST 實際回 `+00:00`)。
   //    ⇒ 哪天同一批資料出現兩種時區寫法, 它會**安靜地排錯**(code-reviewer 2026-09-02 nit)。
   //    ⇒ 要動這裡的話, 排序前先正規化, 不要只是把 `.sort()` 換成 `localeCompare`。
+  // ⛔ ~~「上面**兩個** `.sort()`」~~ —— 2026-09-04 ⟦ship-WHICHITEMSSHIPPED⟧ 把逐件那一個
+  //    搬進 `pickItemShippedAt()`(本檔上方), **同一段警告在那支函式的 docstring 裡也有一份**。
+  //    📌 舊字面留刪除線:搬碼時**沒有動行為**, 而它讓一句原本指得到兩處的註解只指得到一處
+  //    ⇒ 那種偏差在 diff 上與「搬移」長得一樣, 三綠也全綠。
   const shippedAt = shippedTimes[0] ?? null;
   return {
     id: row.id,
@@ -1265,6 +1344,14 @@ export function mapSupabaseMemberOrderDetailRow(
     paymentStatus: row.payment_status,
     fulfillmentStatus: row.fulfillment_status,
     paymentMethod: row.payment_method,
+    // 🔴 段 3:只用來判斷要不要顯示匯款資訊那一塊, **不印給客人看**。
+    //   而它與 paymentMethod 是兩個軸 —— 後者付款成功才有值 ⇒ 未匯款的單那一欄是 null。
+    // 🔵 `as PaymentChannel` **照抄本檔既有兩處**(:477 / :1029)的寫法與理由, 不自己想一個 ——
+    //   而那個理由是「DB `orders_payment_channel_check` 保證值域」。
+    //   ⚠️ 而那道 CHECK 收 **四個**值(tappay/bank_transfer/cash/none, 唯讀正式庫實查),
+    //      比 TS 的 `PaymentChannel`(兩個)寬 ⇒ 🛑 **這個斷言比它的理由講的鬆。**
+    //      🔵 而本片不改它:那是既有的形狀, 動它要一併動另外兩處 ⇒ 已落板 ⟦b4-CHANNELCASTWIDE⟧。
+    paymentChannel: row.payment_channel as PaymentChannel, // DB orders_payment_channel_check 保證值域
     paidAt: row.paid_at,
     shippedAt,
     // 🛑 三個條件缺一不可(見 domain docstring):有品項 · 每一個都出了 · 而且我看得到全部品項。
@@ -1276,6 +1363,7 @@ export function mapSupabaseMemberOrderDetailRow(
     subtotal: { amount: toMoneyAmount(row.subtotal), currency: 'TWD' },
     shippingFee: { amount: toMoneyAmount(row.shipping_fee), currency: 'TWD' },
     discountTotal: { amount: toMoneyAmount(row.discount_total), currency: 'TWD' },
+    taxTotal: { amount: toMoneyAmount(row.tax_total), currency: 'TWD' },
     total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
     shippingMethod: row.shipping_method,
     shippingAddress: pickShippingAddress(row.shipping_address_snapshot),

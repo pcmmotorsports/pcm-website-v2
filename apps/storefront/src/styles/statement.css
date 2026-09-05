@@ -172,9 +172,34 @@
       Linux 容器上那四支都沒有 ⇒ 走通用 monospace ⇒ **它畫不出中文**。
       走 mono 的欄位(單號、金額)目前看起來是純 ASCII,**而我沒有逐欄驗過它永遠不含中文**
       ⇒ 這一格標【未確認】,留給片 C 開瀏覽器時一起看。 */
+/* 🔴🔴 **`'Noto Sans'`(拉丁)排在中日韓那支【前面】—— 而順序就是修法本身。**
+   ⟦ship-STMTCARON1⟧ / ⟦ship-PRINTCARON1⟧(2026-09-04):
+   `Noto Sans TC` 的 woff2 **沒有 `Č`(U+010C)/ `Š`(U+0160)的字形**,
+   而它的 `unicode-range` **宣告了**那個範圍 ⇒ 🛑 **宣告不是保證**。
+   ⇒ **完全不裝**拉丁那支 ⇒ `Č` 掉回機器字型(真 PDF 量到 `CAAAAA+Helvetica` —— 靠機器上剛好有)。
+
+   🔴 **而【順序】守的不是 `Č`, 是【同一個字裡不要有兩種字形】**(2026-09-04 CDP 當場量,
+   訂正我同日稍早寫錯的一句):順序對 ⇒ 那個節點 `Noto Sans x10 · Noto Sans TC Thin x6`;
+   順序錯 ⇒ `Noto Sans TC Thin x15 · Noto Sans x1` —— 🛑 **那個 1 就是 `Č`**
+   ⇒ ⛔ ~~`AKRAPOVI` 由 TC 畫而 `Č` 由 Noto Sans 畫。~~
+   🔵 **2026-09-05 Sean 拍 `Q-品牌拼法 = 乙`(照現況無撇)⇒ `Č` 不再出現在任何品牌名裡。**
+      ⇒ 上面那一段**留著不刪**:它記著當初為什麼要處理雙字形, 而**成因消失不等於那個機制不存在** ——
+        下一個帶附加符號的品牌上架時它會原樣回來。板列 `⟦ship-STMTCARON1⟧` 已標 done(成因消失, 不是修好)。
+
+   🔴 **而只加這個名字【不夠】** —— 這條路是伺服器裡的無頭 chromium, 字型是
+   `statement-pdf.ts` 讀位元組 base64 內嵌的 ⇒ 那支檔的 `LATIN_PKG` 要一起帶。
+   🔬 實測(本機, playwright 的 chromium 跑同一份 HTML):把 `LATIN_PKG` 換成一個
+   不存在的套件 ⇒ **內嵌 face 26 → 22** ⇒ 拉丁那支確實有進去。
+
+   🛑 **未驗:那個 Linux 容器。** 缺的那一道檢查 = **在正式站產一份含 `AKRAPOVIČ`
+   的對帳單 PDF, 讀它的 `BaseFont`** —— `@sparticuz/chromium` 是 Linux binary,
+   macOS `spawn ENOEXEC` ⇒ 本機證不到那一層。
+
+   ⚠️ **`--pd-mono` 仍然不動** —— 理由在上面那段(它畫不出中文, 而走它的欄位看起來是純 ASCII
+   而**沒有逐欄驗過**;那一格的【未確認】標記照舊)。 */
 .pd-sheet {
-  --pd-body: var(--font-statement, 'Noto Sans TC'), 'PingFang TC', 'Microsoft JhengHei',
-    'Helvetica Neue', sans-serif;
-  --pd-disp: 'Helvetica Neue', 'Helvetica', 'PingFang TC', var(--font-statement, 'Noto Sans TC'),
-    sans-serif;
+  --pd-body: 'Noto Sans', var(--font-statement, 'Noto Sans TC'), 'PingFang TC',
+    'Microsoft JhengHei', 'Helvetica Neue', sans-serif;
+  --pd-disp: 'Helvetica Neue', 'Helvetica', 'PingFang TC', 'Noto Sans',
+    var(--font-statement, 'Noto Sans TC'), sans-serif;
 }

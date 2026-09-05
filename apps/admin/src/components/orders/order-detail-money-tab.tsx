@@ -13,6 +13,7 @@ import type { AdminOrderDetail } from '@pcm/domain';
 import { OrderHiddenNotice } from './order-hidden-notice';
 import { DangerZoneDetails } from './danger-zone-details';
 import type { CancelShipmentWarning } from '../../lib/orders/cancel-shipment-warning';
+import type { CancelPendingRefundNotice } from '../../lib/orders/cancel-pending-refund-notice';
 import { OrderCancelBlock } from './order-cancel-block';
 import { RefundSection } from './refund-section';
 import { RefundLedgerSection } from './refund-ledger-section';
@@ -52,6 +53,7 @@ export function OrderDetailMoneyTab({
   cancelFormsAllowed,
   refundLedgerAbnormal,
   shipmentWarning,
+  pendingRefund,
 }: {
   detail: AdminOrderDetail;
   returnTo: string;
@@ -80,6 +82,7 @@ export function OrderDetailMoneyTab({
    *    這裡多讀一次就會變成第二份會漂移的規格。
    */
   shipmentWarning: CancelShipmentWarning;
+  pendingRefund: CancelPendingRefundNotice;
 }) {
   const cancelled = detail.cancelledAt !== null;
 
@@ -393,6 +396,7 @@ export function OrderDetailMoneyTab({
                       必填無預設,忘了傳會編不過(理由見 cancel-view.ts 的 payments 欄)。 */}
                   <OrderCancelBlock
                     shipmentWarning={shipmentWarning}
+                    pendingRefund={pendingRefund}
                     detail={detail}
                     payments={payments}
                     returnTo={returnTo}

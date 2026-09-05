@@ -77,12 +77,16 @@ function orderFixture(over: Partial<MemberOrderDetail> = {}): MemberOrderDetail 
     paymentStatus: 'paid',
     fulfillmentStatus: 'shipped',
     paymentMethod: 'tappay',
+    // 🔵 段 3 加欄:這些 fixture 演的是【已付款的刷卡單】⇒ 填 'tappay',
+    //   不是「隨便填一個讓它綠」——填的是這個 fixture 本來就在演的那個世界。
+    paymentChannel: 'tappay' as const,
     paidAt: '2099-04-18T03:00:00Z',
     shippedAt: null,
     allItemsShipped: false,
     subtotal: twd(12000),
     shippingFee: twd(100),
     discountTotal: twd(0),
+    taxTotal: twd(0),
     total: twd(12100),
     shippingMethod: 'home',
     shippingAddress: {
@@ -104,6 +108,7 @@ function orderFixture(over: Partial<MemberOrderDetail> = {}): MemberOrderDetail 
         quantity: 2,
         unitPrice: twd(6000),
         lineTotal: twd(12000),
+        shipped: false,
       },
     ],
     itemCount: 2,
@@ -386,7 +391,7 @@ describe('客人的訂單明細列印頁 —— 授權走既有那條路,而不�
 
   it('⚠️ 標題只用固定字 —— 單號不得進 <title>(分頁/歷史/分享預覽都不受登入保護)', async () => {
     const { metadata } = await import('./page');
-    expect(metadata.title).toBe('訂單明細 | PCM MOTOR PARTS');
+    expect(metadata.title).toBe('訂單明細 — PCM重機零件販售');
     expect(String(metadata.title)).not.toContain('A1B2C3');
   });
 });

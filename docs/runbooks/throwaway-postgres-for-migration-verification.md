@@ -163,11 +163,18 @@ export LC_ALL=C LANG=C                        # 🔴 少這行會 multithreaded 
 # 🔴 窗別自己填(W1/W2/G3/…);沒有窗別就用一個只有你會用的字。**不要沿用別人的。**
 WIN=w1                                        # ← 改這一個字,下面全部跟著走
 D=/tmp/pcm-probe-$WIN                         # 🔴 短路徑;scratchpad 全路徑會超過 socket 103 bytes 上限
-PORT=555$(printf '%02d' $(( $(echo -n "$WIN" | cksum | cut -d' ' -f1) % 90 + 10 )))
-RPORT=$(( PORT + 3000 ))                      # PostgREST 那一層的埠,同樣跟著 WIN 走
+# 🔴🔴 **埠改成【當場取一個沒人聽的】, 不再從 WIN 算**(2026-09-05 ⟦f3-PGPORTCOLLISION⟧)
+#    ⛔ ~~PORT=555$(... cksum $WIN ...)~~ —— 兩個窗取到同一個字母就【必撞】,
+#      而原本的處置是「換 WIN 再來」—— 那是叫人重試, 不是讓它不撞。
+#    🔬 實錘:2026-09-05 線 -db 一個人一夜手工用掉五個埠;七個窗同夜共用一台機器。
+#    🛑 而它只是把【必然相撞】換成【很少相撞】—— bind(0) 取號到 PG 真的 listen 之間有空隙。
+#      ⇒ 所以下面那句 select version() 仍然要跑, 它才是「我真的在這個埠上」的證據。
+read -r PORT RPORT < <(bash scripts/free-port.sh --two)   # 兩個號, 保證不同
+echo "🔵 本次 PG 埠 = $PORT · PostgREST 埠 = $RPORT"   # 🔴 印在第一行 —— 出事時要看得到它是哪一個
 
 # 🔴 出生就檢查:埠被佔 / 目錄已存在 ⇒ 停,不要 rm 別人的東西
-lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1 && { echo "🔴 埠 $PORT 已被佔用,換 WIN 再來"; return 2>/dev/null || exit 1; }
+lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1 && { echo "🔴 埠 $PORT 在取號之後【被別人搶走了】—— 重跑上面那兩行取新號"; return 2>/dev/null || exit 1; }
+#   ⚠️ ⛔ ~~原本這裡寫「換 WIN 再來」~~ —— 埠已經不跟 WIN 走了, 那句話會叫人去改一個【與埠無關】的東西。
 [ -e "$D" ] && { echo "🔴 $D 已存在 —— 可能是【別人的】或【你上次沒收攤的】。自己看過再決定,本檔不替你 rm"; return 2>/dev/null || exit 1; }
 
 mkdir -p "$D"
@@ -189,6 +196,9 @@ psql -h 127.0.0.1 -p $PORT -U postgres -tAc "select version()"
 | **角色名不能 `pg_` 開頭** | `ERROR:  role name "pg_cf_test" is reserved` | 探針/世界用的角色改別的前綴(`cf_`、`w1_`…) | 正對照 `CREATE ROLE cf_test` ⇒ `CREATE ROLE` |
 | **PG15+ `public` schema 對非 owner 預設無 CREATE** | 用非 postgres 的角色 `CREATE TABLE` ⇒ `ERROR:  permission denied for schema public` | 在**每個新 DB** 裡 `GRANT CREATE ON SCHEMA public TO <角色>` | 同一句 GRANT 之後 ⇒ `CREATE TABLE` |
 | 🔴 **角色是【叢集】層級的,`DROP DATABASE` 不會帶走它** | 換一個 DB 之後 `pg_roles` 裡上一個世界的角色**還在** ⇒ 第二個世界 `CREATE ROLE service_role` 直接 `already exists`;而**先 `DROP ROLE` 再 `DROP DATABASE`** 會撞 `role cannot be dropped because some objects depend on it` | 世界之間**先 `DROP DATABASE`、再 `DROP ROLE`**,順序不能反;每個世界開頭都做 | `SELECT count(*) FROM pg_roles WHERE rolname='cf_app'` 在新 DB ⇒ **1**;負對照 `zzz_nope` ⇒ 0;`DROP ROLE` 後 ⇒ 0 |
+| 🔴🔴 **`LC_ALL=C` 會讓 psql 的 client encoding 變 `SQL_ASCII`** | `ERROR:  conversion between UTF8 and SQL_ASCII is not supported` —— ⚠️ **而它不是一支炸,是【每一支含中文註解的 migration 都炸】** ⇒ 失敗數看起來像「這棵 repo 壞了」。(2026-09-05 線 `-db` 實測:同一輪 **134 支失敗**,設了之後掉到 **63**) | 起 PG 要 `LC_ALL=C`(PG 17 在 macOS 沒它拒絕啟動),而**跑 psql 時另外設 `PGCLIENTENCODING=UTF8`** —— 兩個要同時在 | 正對照:餵一支含中文註解的 migration ⇒ 設之前紅、設之後綠(**同一支檔、同一個庫**,只差這個變數) |
+| 🔴 **`cron.job` 不存在**(拋棄式 PG 沒有 pg_cron) | `20260828060000_m4b_b4cron6_expire_unpaid_orders_heartbeat.sql:479` ⇒ `ERROR:  relation "cron.job" does not exist` ⇒ 🛑 **而它的下游是連鎖的**:那支沒過 ⇒ `expire_unpaid_orders` 留在**舊的那一代** ⇒ `20260903080000` 與 `20260904230000` 的前置閘各自擋下 ⇒ 最後 `-mail` 的 `20260905070000` 也貼不上。**四支的錯訊息各不相同,而根因是同一個。** | 照本檔造 `auth` 的做法,造一個最小 fixture:<br>`CREATE SCHEMA cron;`<br>`CREATE TABLE cron.job(jobid bigserial PRIMARY KEY, schedule text, command text, nodename text DEFAULT 'localhost', nodeport int DEFAULT 5432, database text, username text, active boolean DEFAULT true, jobname text UNIQUE);`<br>再插一列:`schedule='0 * * * *'` · `command='SELECT pcm_cron.expire_unpaid_orders(500)'` · `username='postgres'` · `active=true` · `jobname='pcm-expire-unpaid-orders'`(**那四個值是那支閘逐欄比對的,少一個就擋**) | 正對照:補完 fixture 之後那三支依序重跑 ⇒ **rc 全 0**;負對照:把 `schedule` 改一個字 ⇒ 該支印「排程那一列與預期不符」 |
+| 🔴🔴 **§2 的 bootstrap 【不要用 awk 掃著抽】** | 2026-09-05 線 `-db` 抽 §2 時**多抓了兩行別處的範例**,其中一行是 `CREATE TYPE member_tier AS ENUM (…)` ⇒ 它與 `20260523034911_init_customers_and_subtables.sql:8` 自己的 `CREATE TYPE` 撞 **`already exists`** ⇒ 🛑 **第一支就中止,而後面 214 支連鎖垮** ⇒ 畫面是「這棵 repo 有 214 支跑不起來」。 | 手打或**只抽 §2 那一個 ```sql 區塊**,抽完**逐行看一遍**(它只有 10 句)。⚠️ 判別句:**bootstrap 裡不該有任何 migration 自己會建的東西** | 負對照:抽完 `grep -c 'CREATE TYPE' <抽出來的檔>` ⇒ **必須是 0**(§2 的 bootstrap 一個型別都不建) |
 
 📌 第三個坑的形狀:**rc 一樣是非零,而兩個世界沒建成的原因不同** —— 只看 rc 會讀成「探針壞了」。2026-08-27 cf 的三世界 harness 第一發就是這樣死的(三個世界 rows 全 0)。
 
@@ -261,6 +271,12 @@ pq () { psql -h 127.0.0.1 -p $PORT -U postgres -v ON_ERROR_STOP=1 "$@"; }
 -- 🔴🔴 **而【本檔下面兩行】自己就 `CREATE ROLE service_role`** —— 反例與宣稱只隔一行。
 --    (⚠️ 2026-08-16 校正:原寫「repo 全樹零」是假的全稱句 —— 量法 `git grep -nE '全樹.{0,8}CREATE ROLE'` 曾回 5 命中,且本說法的反例包含【拋棄式測試環境自己造角色】。真值=`supabase/migrations/` 底下零,那目錄只有 `payment_confirmer`。)
 CREATE ROLE service_role NOLOGIN;
+-- 🔴🔴 **BYPASSRLS 也是平台給的預設屬性,而且要在【套 migration 之前】就給**
+--    (2026-09-05 `-f3` 量到):少了它,`20260815020000_m4b_e10_27_d1_admin_audit_log_grant_select.sql`
+--    的 D0 閘會擋下 —— `ERROR: D0 異常 — service_role 無 BYPASSRLS,而本表已驗為 RLS 啟用`。
+-- 📌 這一格與上面那條 `authenticator` 是**同型**:不是 migration 的錯,是【骨架少了一樣平台有的東西】,
+--    而失敗訊息長得像「這支 migration 寫壞了」。⇒ 撞到這種錯先問「正式庫有而這裡沒有的是什麼」。
+ALTER ROLE service_role BYPASSRLS;
 CREATE ROLE authenticated NOLOGIN;
 CREATE ROLE anon NOLOGIN;
 -- 🔴 **`authenticator` 也要**(2026-08-29 線A `-e9` 量到,拋棄式 PG 17.10):
@@ -279,7 +295,16 @@ CREATE ROLE authenticator NOLOGIN;
 -- 🔴 codex 2026-08-30 nit(更正,原字面留痕):~~「只需要被 FK 參照的那張表」~~ 已經不對了 ——
 --    下面除了 `auth.users`,還要 `auth.uid()` 與對 schema 的 USAGE。
 CREATE SCHEMA auth;
-CREATE TABLE auth.users (id uuid PRIMARY KEY);
+CREATE TABLE auth.users (
+  id uuid PRIMARY KEY,
+  -- 🔴 `email` / `raw_user_meta_data` 這兩欄**不是裝飾** —— `handle_new_auth_user()`
+  --    (auth.users 上的 AFTER INSERT 觸發器, 由 migration 自己裝)逐欄讀它們。
+  --    少了它們:任何一發 `INSERT INTO auth.users` 都會
+  --    `record "new" has no field "email"` ⇒ 📌 **建不出一個客人 = 建不出任何一張單。**
+  --    ⚠️ 而那個錯**指向那支觸發器**, 看起來像那支 migration 壞了, 實際是這張桌子少兩欄。
+  email text,
+  raw_user_meta_data jsonb
+);
 -- 🔴 **`auth.uid()` 也要**(2026-08-30 線 DB `-08` 量到,拋棄式 PG 17.10)——
 --    同 `authenticator` 那一條的形狀:少了它,`20260523034911_init_customers_and_subtables.sql`
 --    的 RLS policy 就炸 `ERROR: function auth.uid() does not exist`,
@@ -305,6 +330,39 @@ GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
 -- 🔴 extensions schema —— migration 裡寫 `extensions.gin_trgm_ops`,沒有這個 schema 會在 DDL 那行就炸
 CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA extensions;
+-- 🔴 pgcrypto:正式站實查(2026-07-30, `20260730120000:16`)= pgcrypto 1.3 @ schema `extensions`
+--    ⇒ 這裡照同一個 schema 裝。少了它:`pcm_generate_display_id()` 建不起來,
+--      而它是**十幾支下游 migration 的前置** ⇒ 那些會一路連鎖失敗
+--      ⇒ 📌 **而那個失敗數看起來像「這棵樹很多支壞了」, 實際是【少一顆 extension】。**
+CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA extensions;
+
+-- 🔴🔴 **service_role 的預設授權** —— Supabase 平台自己下的, `supabase/migrations/` 裡找不到。
+--    少了它:migration 自己的事後閘會印「service_role 對 orders 的 SELECT 不見了」/ 42501
+--    ⇒ 而那是**環境缺件**, 不是那支 migration 壞了。
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES    TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO service_role;
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+
+-- 🔴🔴 **anon / authenticated 的預設授權 —— 2026-09-05 補上, 而它是【量完才補】的。**
+--    正式站的 Supabase 就是這樣給的:那正是全樹幾十支 migration 要寫
+--    `REVOKE ALL ... FROM PUBLIC, anon, authenticated` 的理由。
+--    ⇒ 少了這三行, 那些收權斷言是在一個【本來就沒有授權】的世界裡問「還有沒有授權」
+--      ⇒ 📌 **它們恆綠, 而通過不代表那支 migration 真的收乾淨了。**
+--
+--    🟢 **補之前先量了一發(⟦b4-REPLAYREVOKEBLIND⟧, 主視窗裁「先量不改」)**:
+--      · 新紅 **0 支**(`comm -13` 差集為空)⇒ 每一支帶斷言的 migration, REVOKE 都真的收乾淨了
+--      · 轉綠 **1 支** = `20260817080000_m4b_628_revoke_maintain_brands_categories`
+--        🎯 **而那一支就是正對照** —— 它的病構造逐字要求 anon **有** SELECT
+--        (基線錯誤:「#628 異常 — anon 連 SELECT public.brands 都做不到」)
+--        ⇒ **它證明這三行真的到了 DB**, 而不是「沒生效所以當然 0 紅」。
+--      · 第二個獨立證據:`pg_default_acl` 對 anon/authenticated 有 **8** 筆(基線 0)。
+--    ⚠️ **而那個 0 只涵蓋【帶著那道斷言的】那些 migration** —— 一張建了表卻沒寫斷言的,
+--      它漏掉的東西不會讓任何一格變紅。⇒ 當時另做的全表普查(6 張表 / 3 張可寫 / 4 支 view,
+--      **RLS 全開且都有 policy**)寫在板列 `⟦b4-REPLAYREVOKEBLIND⟧`, 不在這裡重抄。
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES    TO anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated;
 
 -- 業務型別(依你要驗的那支 migration 需要什麼再加)
 CREATE TYPE member_tier AS ENUM ('general','store','premiumStore');

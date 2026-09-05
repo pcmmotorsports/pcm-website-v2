@@ -19,6 +19,7 @@ usage() {
 用法:
   bash scripts/board-row-by-anchor.sh <錨> [板檔]     # 例:b4-CAPNULLDEAD(不必帶 ⟦⟧)
   bash scripts/board-row-by-anchor.sh --regex <樣式> [板檔]
+  bash scripts/board-row-by-anchor.sh --cells <錨> [板檔]    # 唯讀印五欄(pipe-aware)
   bash scripts/board-row-by-anchor.sh --selftest
 預設【純字串】比對;要正規式才加 --regex。
 USAGE
@@ -150,6 +151,52 @@ print_scope() {
 SCOPE
 }
 
+# ── --cells:pipe-aware 印五欄(唯讀)─────────────────────────────
+# 🔴 **為什麼要有這個模式**(2026-09-05 線【出貨】`-ship` 當場量, 主視窗裁「甲, 你做」):
+#    板上 **843 列**(數法:**以 `|` 開頭的行**)裡有 **130 列(15.4%)**內文含【跳脫過的】 `\|`
+#    ⚠️ **同一件事有三個數, 而它們不是矛盾, 是三把不同的尺**(2026-09-05 當場量):
+#       以 `|` 開頭 = **843** · 本檔 `count_rows` = **844** · `NF>5` = **830**
+#       ⇒ `count_rows` 那 844 **含 4 行程式碼區塊裡的 grep 範例**(它們有豎線而不是表格列)。
+#       ⇒ 📌 引用任何一個之前先講清楚在數哪一把 —— 本段一律用「以 `|` 開頭」那把。
+#    (寫在 grep 的「或」裡, 例 `sh\|python3`)⇒ 共 **446 處**。
+#    量法(可重跑):`len(row.split('|')) != len(re.compile(r'(?<!\\)\|').split(row))`
+#    正對照 人造含 `\|` 的列 ⇒ naive 9 / 真 8 ⇒ 尺會動;極端值 `⟦b4-PICKPHONE1⟧` naive **23** / 真 **7**。
+#    ⇒ 任何人用 `split('|')` / `awk -F'|'` 讀欄, 對這 130 列會拿到**半截**,
+#      而**去改**會把字接在**別人句子的中間**。
+# 🛑 **而那個錯【不掉字】** —— `'|'.join(split('|'))` 逐位元組無損
+#    ⇒ `md-table` 那道 pre-commit **印綠**。而它印的警告逐字就是
+#    「若你剛剛用程式改過這一列 ⇒ 先確認你的字沒有接在別人句子的中間」
+#    ⇒ 📌 **一句正確的警告, 印在一道結構上看不到那個病的閘上。**
+# ✅ **所以這裡給的是【前置條件】不是偵測**:讓人不必自己手刻 split。
+# 🟢 **而本工具的【定位】那半一直是安全的**:那些 `\|` 全在備註欄,
+#    實量「錨欄($3)被 naive 讀錯的列」= **0** ⇒ 上面那些 lookup 不受影響。
+# ⚠️ **本模式證不到什麼**:它只答「這一列的五欄各是什麼」, 答不出那些內容對不對;
+#    態欄印**原文**(不做封閉集正規化)—— 要判態請看 lookup 那半。
+cells_of() {
+  local anchor="$1" board="$2"
+  awk -v a="$anchor" '
+    BEGIN { nm[2]="態"; nm[3]="錨欄"; nm[4]="名稱"; nm[5]="誰欄"; nm[6]="備註欄" }
+    {
+      line = $0
+      gsub(/\\\|/, "\001", line)             # 跳脫的豎線先換成哨兵, 它不是欄界
+      n = split(line, f, "|")
+      if (n < 6) next
+      col = f[3]; gsub(/^[ \t]+|[ \t]+$/, "", col)
+      if (index(col, a) == 0) next
+      naive = split($0, g, "|")
+      printf "行號\t%s\n", NR
+      printf "真欄數\t%s   (naive split 會讀成 %s 欄)\n", n, naive
+      for (i = 2; i <= 6 && i <= n; i++) {
+        v = f[i]
+        gsub(/\001/, "\\\\|", v)             # 還原成 \| 再印
+        printf "%s\t%s\n", nm[i], v
+      }
+      hit = 1
+    }
+    END { exit (hit ? 0 : 3) }
+  ' "$board"
+}
+
 # ── selftest:釘【關係】不釘【座標】 ─────────────────────────────
 # 理由:座標正是這支工具要廢掉的東西。一支 selftest 若釘了行號,
 #       下一次板子被改它就假紅。實量:b4-SHIPGATE1 五分鐘漂 1 行。
@@ -236,13 +283,33 @@ selftest() {
   check "⑦查無 分母對得上" \
     "$(printf '%s' "$out7" | sed -n 's/.*分母:本板共 \([0-9]*\) 列.*/\1/p')" "$(count_rows "$board")"
 
-  echo "── selftest 7 格 / 17 檢查:PASS=$pass FAIL=$fail ──"
+  # ⑧ --cells 必須是 pipe-aware 的。
+  #    ⚠️ **本格用【板上的真實列】當 fixture, 不是人造資料** —— 它會跟著板子動。
+  #       🟢 而它壞掉的方向是【大聲的】:那一列若被改成不含 `\|`, 第三格當場紅;
+  #          那一列若被刪掉, `c8a` 是空字串 ⇒ 也紅。**沒有一種壞法是靜靜通過。**
+  #       🔴 而它證不到「板上其他 129 列」—— 它只證這支工具會切。
+  #    🟢 正對照 `b4-PICKPHONE1`(含 4+ 個 `\|`, naive 會爆成 23 欄)⇒ 真欄數 7
+  #    🟢 負對照 `f3-SHIPPDF1`(不含)⇒ 真欄數 7, 而 naive 也是 7
+  #    🔴 **兩格都印 7 ⇒ 一支「永遠印 7」的假實作也會過** ——
+  #       所以第三格比的是【naive 那個數兩列必須不同】, 那才是尺有沒有接上。
+  local c8a c8b n8a n8b
+  c8a="$(cells_of "b4-PICKPHONE1" "$board" | sed -n 's/^真欄數.\([0-9]*\).*/\1/p')"
+  c8b="$(cells_of "f3-SHIPPDF1"   "$board" | sed -n 's/^真欄數.\([0-9]*\).*/\1/p')"
+  check "⑧正對照 b4-PICKPHONE1 真欄數" "$c8a" "7"
+  check "⑧負對照 f3-SHIPPDF1 真欄數"   "$c8b" "7"
+  n8a="$(cells_of "b4-PICKPHONE1" "$board" | sed -n 's/.*naive split 會讀成 \([0-9]*\) 欄.*/\1/p')"
+  n8b="$(cells_of "f3-SHIPPDF1"   "$board" | sed -n 's/.*naive split 會讀成 \([0-9]*\) 欄.*/\1/p')"
+  check "⑧ naive 兩列必須不同(否則尺沒接上)" "$( [ "$n8a" != "$n8b" ] && echo yes || echo no )" "yes"
+
+  echo "── selftest 8 格 / 20 檢查:PASS=$pass FAIL=$fail ──"
   [ "$fail" -eq 0 ]
 }
 
 # ── 進入點 ────────────────────────────────────────────────────
 case "${1:-}" in
   --selftest) selftest; exit $? ;;
+  --cells)    [ $# -ge 2 ] || { usage; exit 2; }
+              cells_of "$2" "${3:-$REPO/$BOARD_DEFAULT}"; exit $? ;;
   --regex)    [ $# -ge 2 ] || { usage; exit 2; }
               run_query "$2" "${3:-$REPO/$BOARD_DEFAULT}" regex; exit $? ;;
   ""|-h|--help) usage; exit 2 ;;

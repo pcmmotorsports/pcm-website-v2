@@ -19,6 +19,40 @@ cd "$REPO" || exit 3
 TARGET="${1:-dev}"
 TIP="$(git rev-parse --short "$TARGET" 2>/dev/null)" || { echo "🔴 解不出 $TARGET"; exit 3; }
 FROM="$(git rev-parse --short origin/dev 2>/dev/null)"
+
+# 🔴🔴 **push 之前, 先看【上一發】的 CI** —— 而這是本檔今晚新增的唯一動作。
+#    成因(2026-09-04 量到):`1eedfdb8` 的 CI 紅了 **8 小時**才被人看到,
+#    而主視窗**在那 8 小時裡推了兩次**, 一次都沒看過 CI。
+#    ⇒ 🎯 **⇒ 「我會記得去看」不是可以假設的前提, 它是要被做成機制的東西。**
+#
+# 🛑 **而為什麼查【上一發】而不是等這一發** —— 這是量出來的, 不是選的:
+#    `gh api` 實測 48 發已完成的 CI ⇒ 中位 **422s** · p90 **460s** · 最長 **513s**
+#    ⇒ 🔴 **⇒ 主視窗原本提的「等 90 秒」會【100% 逾時】** ——
+#         而那句「還在跑, 我沒等到」每推必印 ⇒ 它會變成噪音 ⇒ 而人會學會跳過它。
+#         (那正是 Sean 對 GitHub 那些信做的事:「太多了, 根本沒有在看」。)
+#    ⇒ ✅ **⇒ 改成查上一發:它早就跑完了(兩次收割間隔遠大於 8.5 分鐘)⇒ 零等待、零逾時、
+#         而紅的發現時間一樣是【一次收割】。**
+#
+# 🔴 **這一格【不擋 push】** —— 它只印。CI 結果在 push 之後才存在, 所以它不可能是一道閘。
+#    ⇒ 🛑 **⇒ 而那表示它必然可以被忽略。那是這個形狀的天花板, 不是疏漏。**
+# 🔴 **而它自己沒有守門 —— 而這是【量到的】, 不是我推的。**
+#    🔬 2026-09-04 實跑那發突變(把下面整段呼叫刪掉):
+#       `bash -n` rc=0 · `shell-dialect --self-check` rc=0 · 全套 **13591 過 / rc=0**
+#       而 `grep -rl announce-and-push scripts/ .husky/` 也**沒有別的檔引用它**。
+#    ⇒ 🛑 **⇒ 一個都沒紅。它靠的是【它長在必經之路上】, 不是靠有東西在看著它。**
+#    ⇒ 📌 **⇒ 這句話是誠實的天花板 —— 寫出來是為了不假裝它是機制。**
+#    ⚠️ **而「必經之路」這個前提自己也會過期**:它只在【push 真的都走這支腳本】時成立。
+#       🔴 2026-09-04 主視窗自陳:那一夜每一發 push 都是**手打**的, 沒跑這支
+#       ⇒ 🎯 **⇒ 所以那天它【一次都沒生效】, 而它在檔案裡看起來完全正常。**
+#       ⇒ ⇒ 📌 **⇒ 「接上了」與「有在跑」是兩個宣稱, 而它們在 diff 上長得一樣。**
+if [ -x scripts/ci-verdict.py ] || [ -f scripts/ci-verdict.py ]; then
+  echo "── 上一發(origin/dev = $FROM)的 CI ──"
+  python3 scripts/ci-verdict.py "$FROM"
+  # 🔵 rc 刻意不接進 set -e / 不擋 push:紅的是【上一發】, 而擋住這一發不會讓它變綠。
+else
+  echo "🔴 scripts/ci-verdict.py 不在 ⇒ 【沒有查上一發的 CI】。"
+  echo "   🛑 這不是「上一發是綠的」—— 兩者在這裡印不同的東西, 就是為了這一刻。"
+fi
 # 🔴 檔名【不帶日期】—— 2026-09-02 00:0x 踩到:帶日期的檔名在跨午夜那一刻,
 #    把各窗拿到的「tail 那支檔」指到一個空的地方,而【查無】與【沒有人在推】印同一個東西。
 #    (同一夜同一個病的第二個載體:第一個是艦隊表 現在誰在做什麼-<日期>.md)
@@ -162,7 +196,15 @@ PY
 fi
 
 # 🔴 只有到這裡才量 —— rc 已經印出來了
-ACT="$(git ls-remote origin refs/heads/dev 2>/dev/null | cut -c1-8)"
+ACT_FULL="$(git ls-remote origin refs/heads/dev 2>/dev/null | awk '{print $1}')"
+ACT="$(git rev-parse --short "$ACT_FULL" 2>/dev/null || printf '%s' "$ACT_FULL" | cut -c1-8)"
+TIP_FULL="$(git rev-parse "$TIP" 2>/dev/null)"
+# 🔴🔴 **比對用【完整 hash】, 不用短 hash**(2026-09-04 09:5x 實測加)
+#   成因量到的:`ACT` 原本寫死 `cut -c1-8`, 而 `TIP` 來自 `git rev-parse --short`
+#   ⇒ 而 **--short 的長度會隨 repo 撞號自動變長**(本 repo 當時已是 **9** 碼)
+#   ⇒ 🛑 `8ad33d10` != `8ad33d109` ⇒ **推成功而印「不相等」+ rc=2**
+#   🎯 而差集算出來是 **0 顆** ⇒ 那句話自己就自相矛盾(不相等而零差集)
+#   ⇒ ⇒ 📌 **⇒ 一道對【正常狀態】叫的閘會被學會忽略 —— 而它下一次真的抓到東西時沒有人看。**
 # 🔴🔴 **終點 ≠ 預告終點時要【列出差集】, 不是只說「不相等」**(2026-09-02 18:0x 加)
 #   成因是量到的:同日 16:34 那一發預告 `5f47d374` 而實際推到 `9c06a72a`
 #   ⇒ 中間又落了 4 顆 commit, 被同一發帶上去 —— 而那 4 顆**沒有任何預告寫過它們**。
@@ -170,10 +212,10 @@ ACT="$(git ls-remote origin refs/heads/dev 2>/dev/null | cut -c1-8)"
 #      (這張表的檔頭逐字:「沒有對應那一行 ⇒ 那才要叫」)。
 #   🎯 **⇒ 所以「不相等」這三個字不夠 —— 要答得出【誰被帶上去而沒有預告】。**
 #   ⚠️ 而差集寫在**終端機**不寫進表格(一列多顆會把那一行撐爆);表格只放顆數。
-if [ "$ACT" = "$TIP" ]; then
+if [ "$ACT_FULL" = "$TIP_FULL" ]; then
   EQ="✅ 相等"; OUT=0
 else
-  EXTRA="$(git rev-list --count "$TIP".."$ACT" 2>/dev/null || echo '?')"
+  EXTRA="$(git rev-list --count "$TIP_FULL".."$ACT_FULL" 2>/dev/null || echo '?')"
   EQ="🔵 不相等 —— 多帶 ${EXTRA} 顆(差集見終端機)"; OUT=2
   echo "🔵 終點與預告不同 ⇒ 預告 $TIP · 實際 $ACT ⇒ 多帶 $EXTRA 顆:"
   git log --oneline "$TIP".."$ACT" 2>/dev/null | sed 's/^/     /' || echo "     (差集算不出來 —— 本地沒有那些物件?先 git fetch)"
@@ -188,5 +230,11 @@ io.open(p,'w',encoding='utf-8').write(s)
 PY
 
 echo "   ls-remote 實測 = $ACT ⇒ $EQ"
+
+# 🔵 這一發的 CI 現在【一定還在跑】(實測中位 422s)⇒ 不等, 只指路。
+#    真正會看到它的時機是【下一次收割】—— 就在本檔開頭那一段。
+echo "── 這一發的 CI ──"
+echo "   ⏳ 現在一定還在跑(實測中位 422s / 最長 513s)。**下一次收割時本檔開頭會自己查它。**"
+echo "   🔵 想現在就看:python3 scripts/ci-verdict.py $ACT"
 tail -1 "$LEDGER"
 exit "$OUT"

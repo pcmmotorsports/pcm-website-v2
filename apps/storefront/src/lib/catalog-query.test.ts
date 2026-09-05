@@ -1,6 +1,7 @@
 import { SORT_VALUES as CLIENT_SORT_VALUES } from '@/components/products-url-parsers';
 import { describe, expect, it } from 'vitest';
 import { parseCatalogQuery, CATALOG_SORT_VALUES } from './catalog-query';
+import { SEARCH_MAX_QUERY_LENGTH } from './search-shape';
 import { SORT_OPTIONS } from './sort-options';
 
 function params(input: string) {
@@ -8,6 +9,33 @@ function params(input: string) {
 }
 
 describe('parseCatalogQuery', () => {
+  // ── ⟦M-4b 多顆分類膠囊⟧ Sean 2026-09-04 拍甲(聯集)——「魚雷管要同時列全段+尾段」──
+  it('🔴 ?categories=a,b ⇒ 兩顆都收下(單鍵逗號, 形狀跟 pbrands 走)', () => {
+    expect(parseCatalogQuery(params('categories=全段排氣管,尾段排氣管(Slip-On)')).categories)
+      .toEqual(['全段排氣管', '尾段排氣管(Slip-On)']);
+  });
+
+  it('🔵 舊的 ?category= 繼續讀得懂, 而且【被收進聯集】不是被丟掉(客人的舊連結)', () => {
+    const q = parseCatalogQuery(params('category=全段排氣管'));
+    expect(q.category).toBe('全段排氣管');
+    expect(q.categories).toEqual(['全段排氣管']);
+  });
+
+  it('🔵 兩種同時出現 ⇒ 併起來去重, 舊值不掉', () => {
+    expect(parseCatalogQuery(params('categories=A,B&category=B')).categories).toEqual(['A', 'B']);
+  });
+
+  // 🔴 **驗收⑤ 逐字**:壞的那一顆只丟那一顆, 不整組失效。
+  //    而「壞」的定義來自 `isSafeCategoryValue`(本檔 :88-95):`%` `_` 與控制字元 ——
+  //    因為 RPC 那側是 `category_raw LIKE vc || ' · %'` **未跳脫** ⇒ 一顆帶 `%` 會污染整組。
+  it('🔴 負對照:一顆帶 % 的 ⇒ 只丟那一顆, 好的那顆照樣在', () => {
+    expect(parseCatalogQuery(params('categories=全段排氣管,壞%的')).categories).toEqual(['全段排氣管']);
+  });
+
+  it('🔵 空字串 / 多餘逗號不會變成一顆空的分類', () => {
+    expect(parseCatalogQuery(params('categories=,,A,')).categories).toEqual(['A']);
+  });
+
   it('normalizes valid page, sort, brands, price range, and vehicle parameters', () => {
     expect(
       parseCatalogQuery(
@@ -19,6 +47,8 @@ describe('parseCatalogQuery', () => {
       sort: 'price-desc',
       category: '車身套件',
       brandSlugs: ['cnc-racing', 'gb-racing'],
+      // 🔴 這一格【不是形狀改動】—— 舊的 ?category= 現在會被收進聯集, 而那正是本片要的。
+      categories: ['車身套件'],
       priceMin: 3000,
       priceMax: 10000,
       vehicle: 'yamaha:mt-09-sp:2021',
@@ -46,6 +76,8 @@ describe('parseCatalogQuery', () => {
       perPage: 50,
       sort: 'price-asc',
       brandSlugs: [],
+      // ⟦M-4b 多顆分類膠囊⟧ 新增的必填欄:整個物件比對的格子要跟著帶。
+      categories: [],
     });
     expect(result).not.toHaveProperty('priceMax');
     expect(result).not.toHaveProperty('priceMin');
@@ -74,6 +106,7 @@ describe('parseCatalogQuery', () => {
       perPage: 50,
       sort: 'recommend',
       brandSlugs: ['gb-racing'],
+      categories: [],
     });
   });
 
@@ -167,5 +200,52 @@ describe('#269-b:排序清單三份一致(補 #391 只比兩份的洞)', () => {
   it('🔴 UI 下拉選項也必須全部在 client 白名單裡', () => {
     const clientSet = new Set<string>(CLIENT_SORT_VALUES);
     expect(SORT_OPTIONS.map((o) => o.value).filter((v) => !clientSet.has(v))).toEqual([]);
+  });
+});
+
+// ── ⟦搜尋-落點換 /products⟧ 2026-09-03 ──────────────────────────────────────
+describe('parseCatalogQuery — ?search= 關鍵字', () => {
+  it('🔵 一般關鍵字原樣進 query', () => {
+    expect(parseCatalogQuery(params('search=akrapovic')).search).toBe('akrapovic');
+  });
+
+  // 🔴🔴 **這一格擋的是主視窗點名「絕對不准」的那個失敗態。**
+  //    `?search=%20`(只打空白送出)若被當成有值 ⇒ route 走關鍵字路
+  //    ⇒ ILIKE `%%` ⇒ **撈回整張 view = 靜靜地給客人全站兩萬多件**。
+  //    ⇒ 📌 而畫面上完全正常 —— 標題、件數、卡片全都在, 只是那不是他搜的東西。
+  it.each([
+    ['空字串', 'search='],
+    ['純空白', 'search=%20%20'],
+    ['tab', 'search=%09'],
+  ])('🔴 %s ⇒ undefined(**不是**空字串)⇒ route 走原本的目錄路', (_label, qs) => {
+    expect(parseCatalogQuery(params(qs)).search).toBeUndefined();
+  });
+
+  it('🔵 負對照:沒有 search 這個參數時,query 裡不長出這個鍵', () => {
+    // 🎯 `undefined` 與「鍵不存在」對 `JSON.stringify` **不同** —— 而那份 JSON 是
+    //    `unstable_cache` 的鍵(見 `products.ts`)⇒ 憑空多一個鍵 = 舊快取全失效。
+    expect('search' in parseCatalogQuery(params('page=2'))).toBe(false);
+  });
+
+  it('🔵 前後空白剪掉(客人從別處貼過來常常帶空白)', () => {
+    expect(parseCatalogQuery(params('search=%20mt07%20')).search).toBe('mt07');
+  });
+
+  // 🔴🔴 **自審 2026-09-03 抓到的:顯示的字串 ≠ 查的字串。**
+  //    膠囊印的是本函式回的值, 而截斷原本只發生在更下游的 `searchProducts`
+  //    ⇒ 搜 150 個字 ⇒ 膠囊印 150 個字而實際只查前 100 個
+  //    ⇒ 📌 `search-shape.ts:28-31` 逐字預言過, 判別句:
+  //      **「顯示用的字串與實際查詢的字串, 只要不是同一個運算式, 它們就會分岔。」**
+  it('🔴 超過上限 ⇒ 這裡就截斷(顯示端與查詢端必須是同一個字串)', () => {
+    const long = 'a'.repeat(SEARCH_MAX_QUERY_LENGTH + 50);
+    const got = parseCatalogQuery(params(`search=${long}`)).search;
+    // 🎯 寫算式不寫結果 —— 抄一個 100 進來的話, 改常數就再也不會紅。
+    expect(got).toHaveLength(SEARCH_MAX_QUERY_LENGTH);
+    expect(got).toBe(long.slice(0, SEARCH_MAX_QUERY_LENGTH));
+  });
+
+  it('🔵 負對照:剛好等於上限 ⇒ 一個字都不砍', () => {
+    const exact = 'b'.repeat(SEARCH_MAX_QUERY_LENGTH);
+    expect(parseCatalogQuery(params(`search=${exact}`)).search).toBe(exact);
   });
 });

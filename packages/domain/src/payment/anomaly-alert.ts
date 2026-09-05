@@ -203,6 +203,38 @@ export type AnomalyAlertSummary = {
    */
   orderCreatedNoRecipientCount: number | null;
   /**
+   * 🔵 **未付款取消信線的同一組**(⟦b4-NORECIPIENTWINDOW⟧, 2026-09-03)——
+   *    `get_order_unpaid_cancelled_gap_counts` 的 `pending_count` / `no_recipient_count`。
+   * 🔴 **為什麼獨立三格而不併進上面那兩格**:它們是**兩條線**, 修法不同
+   *    (一條要看「為什麼下單沒留信箱」, 一條要看「那張被取消的單是誰的」)
+   *    ⇒ 併成一個數字, 看信的人不知道要去哪一條線。
+   * 🛑 `pending` >0 是【正常】的(下一輪 scanner 就排掉)⇒ **不進 `shouldAlert`**;
+   *    `noRecipient` 才是主詞 —— 那張單沒有信箱, **它不會自己好**。
+   * 🔴 `unpaidCancelledGapUnknown` 為 true 時上面兩個是 `null` —— **不得寫成 0**:
+   *    「讀不到」與「一切正常」在一個裸數字上長得一模一樣。
+   */
+  unpaidCancelledPendingCount: number | null;
+  unpaidCancelledNoRecipientCount: number | null;
+  unpaidCancelledGapUnknown: boolean;
+  /**
+   * 🔵 **更正單號信線的同一組**(⟦b4-NORECIPIENTWINDOW⟧ **第四條線**, 2026-09-04)——
+   *    `get_tracking_corrected_gap_counts` 的 `pending_count` / `no_recipient_count`。
+   * 🔴 **這條線的 `noRecipient` 意思與姊妹線【不同】, 而那個差是承重的**:
+   *    要落進這一桶, 得是**出貨信已經寄出去了**(⇒ 客人手上有一個號碼)、
+   *    **號碼後來被更正**(⇒ 他手上那個是錯的)、**而現在兩個信箱都空**
+   *    ⇒ 🎯 **我們知道他拿著錯的號碼, 而我們寄不出更正。**
+   * 📌 **今天它不可能非零** —— 寄得出去就代表當時有信箱。
+   *    而它有一條真實的路:**客人行使刪除權之後那兩個信箱被清空**
+   *    ⇒ 🛑 **一個今天不會亮的計數, 與一個永遠不會亮的計數, 在儀表上長得一樣。**
+   * 🛑 `pending` >0 是【正常】的 ⇒ **不進 `shouldAlert`**;`noRecipient` 才是主詞。
+   * 🔴 `trackingCorrectedGapUnknown` 為 true 時上面兩個是 `null` —— **不得寫成 0**。
+   */
+  trackingCorrectedPendingCount: number | null;
+  trackingCorrectedNoRecipientCount: number | null;
+  trackingCorrectedGapUnknown: boolean;
+  // 🔵 ↓↓ 以下回到【訂單成立信】那一族(codex 2026-09-03 nit:我把三欄插在中間,
+  //    而下一段開頭那句「上面兩個」原本指的是 orderCreated 那兩欄 —— 字面被我推到指錯欄位)。
+  /**
    * 🔴 上面兩個是不是**讀不到**(RPC 尚未 apply / `B4_DEPLOY_CUTOFF` 沒設或格式不合)。
    * ⚠️ 與 `shippedGapUnknown` / `emailOutboxUnknown` 同族:**刻意【不】進 `shouldAlert`**
    *   —— 部署問題走部署管道,不變成一封每天寄的信。
@@ -267,6 +299,20 @@ export type AnomalyAlertSummary = {
    * 📌 ⇒ 所以 `Revoked` 只在**明確拿到 `false`** 時為 `true`;`null` 走 `Unknown`。
    */
   bypassRlsRevoked: boolean;
+
+  /**
+   * ⟦b9-ACLDRIFT5⟧:權限快照與**上一次**不一樣, 而**沒有人說那是他做的**。
+   * 🔴 `aclDriftDetected` **進** `shouldAlert`(有人動了權限而沒人認 ⇒ 要吵);
+   *    `aclDriftUnknown` **不進**(讀不到 / 快照太舊 ⇒ 部署或排程問題, 走 log + 503)。
+   * 🛑 **「已批准」會讓它不叫, 而那【不是消音】** —— 批准是一個人簽下「那是我貼板造成的」,
+   *    view 上 `有漂移` 仍然是 true。⇒ 少了這一格, 貼板當天之後會每天寄一封同樣的信。
+   * ⚠️ 而它答不出「有沒有人偷改」:改掉又改回來, 兩次快照相同 ⇒ 它不會叫(片二檔頭有寫)。
+   */
+  aclDriftDetected: boolean;
+  aclDriftUnknown: boolean;
+  /** 🔵 診斷用:哪一族變了 / 那一列是幾點量的。**不進** `shouldAlert`。 */
+  aclDriftFamilies: string | null;
+  aclDriftTakenAt: string | null;
   bypassRlsUnknown: boolean;
   /** 🔵 讀到的兩個分母。**不直接進 `shouldAlert`** —— 那道閘只看上面兩個旗標。
    *  ⛔ ~~我第一版寫「它們**不是判準**」~~ —— **codex R2 nit 打掉, 而它是對的**:

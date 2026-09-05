@@ -119,6 +119,15 @@ export {
   SHIPPED_EMAIL_PENDING_VIEW,
   type ShippedOrderScannerClient,
 } from './email/SupabaseShippedOrderScannerAdapter';
+// 🔴 ⟦5b-TRACKNUMGAP1⟧ 片 C(2026-09-04):更正信的同款窄讀 adapter。
+// 一列 = 一個 (箱, 號碼) 配對 = 一封信 ⇒ **同一箱改幾次號碼就幾封**(鍵含號碼)。
+// 同樣回兩個 email 欄(PII)⇒ server-only + service_role。差集在 SQL view 裡。
+export {
+  SupabaseTrackingCorrectedScannerAdapter,
+  TrackingCorrectedScanQueryError,
+  TRACKING_CORRECTED_PENDING_VIEW,
+  type TrackingCorrectedScannerClient,
+} from './email/SupabaseTrackingCorrectedScannerAdapter';
 // 🔴 M-4b E4-b(2026-08-22):出貨通知信的**寄送時讀取** —— `IShippedEmailContext` 的第一份實作
 // (那支 port 從 2026-08-18 立好之後一直沒有實作)。server-only + service_role:
 // 它讀 shipments / shipment_items / order_items / orders 四張表,回品項與追蹤碼。

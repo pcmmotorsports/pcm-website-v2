@@ -74,12 +74,16 @@ const OWN_ORDER: MemberOrderDetail = {
   paymentStatus: 'paid',
   fulfillmentStatus: 'shipped',
   paymentMethod: 'tappay',
+  // 🔵 段 3 加欄:這些 fixture 演的是【已付款的刷卡單】⇒ 填 'tappay',
+  //   不是「隨便填一個讓它綠」——填的是這個 fixture 本來就在演的那個世界。
+  paymentChannel: 'tappay' as const,
   paidAt: '2099-04-18T03:00:00Z',
   shippedAt: null,
   allItemsShipped: false,
   subtotal: money(12000),
   shippingFee: money(100),
   discountTotal: money(0),
+  taxTotal: money(0),
   total: money(12100),
   shippingMethod: 'home',
   shippingAddress: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
@@ -97,6 +101,7 @@ const OWN_ORDER: MemberOrderDetail = {
       quantity: 2,
       unitPrice: money(6000),
       lineTotal: money(12000),
+      shipped: false,
     },
   ],
   itemCount: 2,
@@ -172,6 +177,12 @@ describe('/account/orders/[displayId] 路由', () => {
       paymentStatus: 'unpaid',
       paidAt: null,
       paymentMethod: null,
+      // 🔴 **這一處的註解我第一版寫錯了**(code-reviewer nit ①):
+      //   它上下文是 unpaid / 取消單, **不是「已付款的刷卡單」** ——
+      //   值 'tappay' 站得住(那是它的付款管道), 而**那句理由對這一處是假的**。
+      //   📌 我用一句話覆蓋了 10 處, 而其中 3 處演的是別的世界。
+      //   不是「隨便填一個讓它綠」——填的是這個 fixture 本來就在演的那個世界。
+      paymentChannel: 'tappay' as const,
     });
     const html = await renderRoute('B3XA91');
     expect(html).not.toContain('查無此訂單');
@@ -187,6 +198,12 @@ describe('/account/orders/[displayId] 路由', () => {
       paymentStatus: 'unpaid',
       paidAt: null,
       paymentMethod: null,
+      // 🔴 **這一處的註解我第一版寫錯了**(code-reviewer nit ①):
+      //   它上下文是 unpaid / 取消單, **不是「已付款的刷卡單」** ——
+      //   值 'tappay' 站得住(那是它的付款管道), 而**那句理由對這一處是假的**。
+      //   📌 我用一句話覆蓋了 10 處, 而其中 3 處演的是別的世界。
+      //   不是「隨便填一個讓它綠」——填的是這個 fixture 本來就在演的那個世界。
+      paymentChannel: 'tappay' as const,
       cancelledAt: '2099-04-16T02:00:00Z',
       cancelKind: 'cancelled' as const,
     });

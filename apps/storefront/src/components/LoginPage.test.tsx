@@ -19,6 +19,10 @@ vi.mock('next/navigation', () => ({
 }));
 vi.mock('@/app/login/actions', () => ({
   loginAction: vi.fn(),
+  // 🔵 `⟦b4-SIGNUPOPEN1⟧` 前置片新增。**這一行不加的話,元件 import 到的是 undefined**,
+  //    而既有 23 格【照樣全過】—— 因為沒有一格會走到重寄那條路。
+  //    ⇒ 📌 那正是「mock 少一個 export 而測試不會叫」的形狀。
+  resendSignupConfirmationAction: vi.fn(),
 }));
 vi.mock('@/lib/supabase/browser', () => ({
   createBrowserSupabaseClient: () => ({
@@ -27,7 +31,12 @@ vi.mock('@/lib/supabase/browser', () => ({
 }));
 
 import { LoginPage } from './LoginPage';
-import { loginAction } from '@/app/login/actions';
+import { loginAction, resendSignupConfirmationAction } from '@/app/login/actions';
+import {
+  AUTH_ERR_NEEDS_CONFIRMATION,
+  AUTH_RESEND_SENT_NOTICE,
+  AUTH_RESEND_FAILED_NOTICE,
+} from '@/lib/auth/auth-copy';
 import { CartProvider } from '@/contexts/CartContext';
 
 const mockLogin = vi.mocked(loginAction);
@@ -277,5 +286,142 @@ describe('LoginPage', () => {
     expect(screen.getByText('Google 登入失敗，請重試')).toBeDefined();
     fireEvent.click(screen.getByRole('checkbox'));
     expect(screen.getByText('Google 登入失敗，請重試')).toBeDefined();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 重寄驗證信按鈕(`⟦b4-SIGNUPOPEN1⟧` 前置片,2026-09-05)
+// ══════════════════════════════════════════════════════════════════════════
+describe('LoginPage — 重寄驗證信', () => {
+  // 🔴 **[2026-09-05 「丙」]** 判準從字面換成【錯誤碼】⇒ 這支 helper 兩個都要餵,
+  //    否則測到的還是舊世界(而它會【全綠】, 因為舊碼讀字面)。
+  async function loginWith(formError: string, formErrorCode?: string) {
+    vi.mocked(loginAction).mockResolvedValue({ formError, formErrorCode } as never);
+    render(
+      <CartProvider>
+        <LoginPage />
+      </CartProvider>,
+    );
+    // 🔵 選擇器【照本檔既有那幾格的寫法】(:131-132 用 placeholder)——
+    //    我第一版自己發明 getByLabelText + name:/登入/ ⇒ 後者命中多顆(Google/LINE 也含「登入」)
+    //    ⇒ 📌 紅的是我的 harness 不是碼。抄既有的形狀,不自己造。
+    fireEvent.change(screen.getByPlaceholderText('your@email.com'), { target: { value: 'a@b.com' } });
+    fireEvent.change(screen.getByPlaceholderText('至少 8 碼'), { target: { value: 'pw123456' } });
+    fireEvent.click(screen.getByRole('button', { name: '登入' }));
+    await screen.findByText(formError);
+  }
+
+  it('🔴 碼是 email_confirmation_required ⇒ 出現重寄按鈕(⛔ ~~錯誤字面~~;判準是碼)', async () => {
+    await loginWith('請先收信完成 Email 驗證後再登入', 'email_confirmation_required');
+    expect(screen.getByRole('button', { name: '重寄驗證信' })).toBeTruthy();
+  });
+
+  // 🛑 這一格是本組最重要的:按鈕只能對「未驗證」出現。
+  //    ⛔ ~~理由:按鈕若對「密碼錯」也出現, 它就變成「這個 Email 存在」的訊號~~
+  //    🔴 **[codex 關卡2 nit] 那個理由是錯的**:`credentials_invalid` **刻意同時涵蓋
+  //       「帳號不存在」與「密碼錯」** ⇒ 它本身不是存在與否的訊號。
+  //    ✅ 正確理由:**按鈕出現 = 「這個 Email 存在【且未驗證】」** ——
+  //       它對 `credentials_invalid` 出現的話, 就是把那個狀態貼到一個不該有它的世界上。
+  it('🔵 負對照:碼是 credentials_invalid ⇒ 【不得】出現重寄按鈕', async () => {
+    await loginWith('Email 或密碼錯誤', 'credentials_invalid');
+    expect(screen.queryByRole('button', { name: '重寄驗證信' })).toBeNull();
+  });
+
+  // ══ 🔴 「丙」的三格 —— 它們是【換判準】這件事本身的驗收 ═══════════════
+  //    少了這兩格, 一個「其實還在讀字面」的版本會通過上面每一格。
+  it('🔴 丙:碼是 email_confirmation_required 而【文案換成完全不同的字】⇒ 按鈕照樣出現', async () => {
+    await loginWith('登入被擋住了,請完成信箱驗證', 'email_confirmation_required');
+    expect(screen.getByRole('button', { name: '重寄驗證信' })).toBeTruthy();
+  });
+
+  it('🔵 丙負對照:文案【逐字是那句舊的】而碼是別的 ⇒ 按鈕【不得】出現', async () => {
+    await loginWith(AUTH_ERR_NEEDS_CONFIRMATION, 'credentials_invalid');
+    expect(screen.queryByRole('button', { name: '重寄驗證信' })).toBeNull();
+  });
+
+  it('🔵 丙:action 沒回碼(舊形狀 / OAuth 那條路)⇒ 按鈕【不得】出現', async () => {
+    await loginWith(AUTH_ERR_NEEDS_CONFIRMATION);
+    expect(screen.queryByRole('button', { name: '重寄驗證信' })).toBeNull();
+  });
+
+  // 🔴🔴 **[code-reviewer R1 #6]** `LoginPage.tsx` 自己寫下的失效樣子
+  //    (「訊息清掉了而按鈕還掛在那裡, 而那個畫面三綠全綠也不會噴錯」)**原本零格在守**。
+  //    唯一走 `clearErr` 的那格用的是 OAuth 那條路(code 恆 null)⇒ 踩不到清碼那半。
+  //    ⇒ 這一格把**兩個 state 必須成對動**釘住:突變 `setFormErr` 成只清字面不清碼 ⇒ 它必紅。
+  // 🔴🔴 **[codex 關卡2 must-fix ③]** 上一格只守到 `clearErr` 那一條路。
+  //    而 `setFormErr` 還有**另一個**呼叫端:Google 登入【啟動失敗】。
+  //    那條路若改回單獨 `setFormError` ⇒ **畫面會同時出現 Google 的錯誤訊息【與】重寄按鈕**
+  //    ⇒ 📌 那顆按鈕會出現在一個與它完全無關的錯誤旁邊, 而現有的格子一個都碰不到。
+  it('🔴 按鈕出現後【Google 登入啟動失敗】⇒ 按鈕要不見(換成 Google 的錯誤)', async () => {
+    await loginWith(AUTH_ERR_NEEDS_CONFIRMATION, 'email_confirmation_required');
+    expect(screen.getByRole('button', { name: '重寄驗證信' })).toBeTruthy();
+    // 🔵 選擇器與 mock 都【照本檔既有那格的寫法】(:188 那格)—— 不自己造。
+    signInOAuthSpy.mockResolvedValue({ error: { message: 'boom' } });
+    fireEvent.click(screen.getByText('使用 Google 登入').closest('button')!);
+    await screen.findByText('Google 登入失敗，請重試');
+    expect(screen.queryByRole('button', { name: '重寄驗證信' })).toBeNull();
+  });
+
+  it('🔴 按鈕出現後【動一下輸入】⇒ 訊息與按鈕【兩個都】不見', async () => {
+    await loginWith(AUTH_ERR_NEEDS_CONFIRMATION, 'email_confirmation_required');
+    expect(screen.getByRole('button', { name: '重寄驗證信' })).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText('your@email.com'), { target: { value: 'c@d.com' } });
+    expect(screen.queryByText(AUTH_ERR_NEEDS_CONFIRMATION)).toBeNull();
+    // 🛑 這一句是本格的重點:訊息不見了而**按鈕也要不見**。
+    expect(screen.queryByRole('button', { name: '重寄驗證信' })).toBeNull();
+  });
+
+  it('🔴 按下去 ⇒ 呼叫 action 帶那個 email, 而畫面【逐字】是那句常數', async () => {
+    vi.mocked(resendSignupConfirmationAction).mockResolvedValue({} as never);
+    await loginWith(AUTH_ERR_NEEDS_CONFIRMATION, 'email_confirmation_required');
+    fireEvent.click(screen.getByRole('button', { name: '重寄驗證信' }));
+    // 🔴🔴 **[codex 關卡2 must-fix ⑤]** ⛔ ~~原本用 `/我們已重新寄出驗證信/` 子字串比對~~
+    //    ⇒ 把碼突變成「…(成功)」「…(失敗)」兩句不同的話, **這一格仍然全綠**
+    //    ⇒ 📌 它守不到「畫面逐字相同」這個宣稱, 而那正是本片要守的東西。
+    //    ✅ 改成拿【共用常數】做逐字比對 —— 常數改了兩邊一起改, 而分支會當場紅。
+    await screen.findByText(AUTH_RESEND_SENT_NOTICE);
+    expect(resendSignupConfirmationAction).toHaveBeenCalledWith({ email: 'a@b.com' });
+  });
+
+  it('🔴 provider 那半失敗(action 回 {})⇒ 畫面【逐字】仍是成功那句', async () => {
+    // 🛑 這一格守的是帳號列舉防護在 client 這一側:429 / 帳號不存在 action 都回 {},
+    //    而畫面必須與成功【逐字相同】—— 在這裡分支的話, server 那道防護會從 client 漏掉。
+    vi.mocked(resendSignupConfirmationAction).mockResolvedValue({} as never);
+    await loginWith(AUTH_ERR_NEEDS_CONFIRMATION, 'email_confirmation_required');
+    fireEvent.click(screen.getByRole('button', { name: '重寄驗證信' }));
+    await screen.findByText(AUTH_RESEND_SENT_NOTICE);
+  });
+
+  it('🔴 action 丟例外(系統面)⇒ 畫面是【失敗】那句, 不得謊報已寄出', async () => {
+    // 🔴 [codex must-fix ①] 站台設定壞掉時 action 會 throw ——
+    //    原版一律報成功 ⇒ 一封都沒寄而畫面說寄了。這一格釘住那個差別。
+    vi.mocked(resendSignupConfirmationAction).mockRejectedValue(new Error('boom'));
+    await loginWith(AUTH_ERR_NEEDS_CONFIRMATION, 'email_confirmation_required');
+    fireEvent.click(screen.getByRole('button', { name: '重寄驗證信' }));
+    await screen.findByText(AUTH_RESEND_FAILED_NOTICE);
+    expect(screen.queryByText(AUTH_RESEND_SENT_NOTICE)).toBeNull();
+  });
+
+  it('🔴 換帳號 ⇒ 舊的重寄提示要清掉, 按鈕要回來', async () => {
+    // 🔴 [codex must-fix ②] A 重寄完 ⇒ 改填 B ⇒ B 看到 A 的成功提示而且沒有按鈕
+    //    ⇒ 對一個【沒發生的動作】報成功。
+    vi.mocked(resendSignupConfirmationAction).mockResolvedValue({} as never);
+    await loginWith(AUTH_ERR_NEEDS_CONFIRMATION, 'email_confirmation_required');
+    fireEvent.click(screen.getByRole('button', { name: '重寄驗證信' }));
+    await screen.findByText(AUTH_RESEND_SENT_NOTICE);
+
+    // 🔴🔴 **我第一版這一格是【假綠】的** —— 只改欄位就斷言提示不見了,
+    //    而它不見是因為 `clearErr` 清掉 `formError` ⇒ **整個區塊卸載**, 不是因為狀態被清。
+    //    ⇒ 實測:把 `clearResend()` 拿掉(codex F2 那個原病)⇒ **這一格照樣全綠。**
+    //    ✅ 要走完 codex 描述的那條路:**改帳號 ⇒ 再登入一次 ⇒ B 也未驗證** ——
+    //      那時 `formError` 回來、區塊重新掛上, 殘留的舊提示才顯形。
+    fireEvent.change(screen.getByPlaceholderText('your@email.com'), {
+      target: { value: 'someone-else@b.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '登入' }));
+    await screen.findByText(AUTH_ERR_NEEDS_CONFIRMATION);
+    // B 應該看到【按鈕】, 而不是 A 的成功提示
+    expect(screen.getByRole('button', { name: '重寄驗證信' })).toBeTruthy();
+    expect(screen.queryByText(AUTH_RESEND_SENT_NOTICE)).toBeNull();
   });
 });

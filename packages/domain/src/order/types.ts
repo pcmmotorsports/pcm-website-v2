@@ -721,10 +721,19 @@ export type AdminOrderSummary = {
    *    `packages/adapters/src/supabase/SupabaseOrderAdapter.ts:827-849` 與同檔 `:148` 起的 select docstring)。
    *
    * 🔴 三態是 `not_issued` / `issued` / `voided`,**沒有「不需開立」** —— 「客人沒填開票需求」與
-   * 「有需求但還沒開」在本欄都是 `not_issued`,要分只能推論 `invoice` jsonb 是否為空(推論、非欄位)。
-   * Q2b=A 明文不分。
+   * 「有需求但還沒開」在本欄都是 `not_issued`。Q2b=A 明文不分。
+   *
+   * ⛔ ~~要分只能推論 `invoice` jsonb 是否為空(推論、非欄位)~~
+   * 🔴 **2026-09-04 訂正:那句話已經不成立** —— `orders.invoice_requested`(boolean)
+   *    **從 2026-08-28 起就是那個欄位**,而它 2026-09-03 已上正式庫。見下方 `invoiceRequested`。
+   *    📌 **⇒ 這是同一個根因的第三個受害者**:一欄被加進去了,而**每一處說「沒有這個欄位」的話
+   *    都留在原地** —— 而它們讀起來完全正常,沒有任何東西會叫。
+   *    (另兩處:`⟦b4-INVOICE5PCT⟧` 的選項表把它寫成「假想方案」;Q3 第一版整支做在錯的欄位上。)
    */
   invoiceStatus: InvoiceStatus;
+  //    ⚠️ **而本型別(訂單【清單】)刻意【不帶】 `invoiceRequested`** —— 它住在 `AdminOrderDetail`。
+  //    🔴 我第一版加錯了位置:我照著 `invoiceStatus` 這個【名字】下錨, 沒確認它住在哪一個型別裡。
+  //    📌 **⇒ 一個欄名在兩個型別上都叫同一個字, 而「它在這裡」不蘊含「我要的那個也在這裡」。**
   /** 該單品項展開(M-4a Slice D-1a「每商品一列」、同單分組顯示;空陣列顯示端兜一列「—」)。 */
   lines: AdminOrderLine[];
   /**
@@ -1323,6 +1332,17 @@ export type AdminOrderDetail = {
   subtotal: Money;
   shippingFee: Money;
   discountTotal: Money;
+  /**
+   * 稅額(`orders.tax_total` 原值;`⟦b4-TAXSURFACES⟧` 題 B, Sean 2026-09-05 拍甲)。
+   *
+   * 🔴 **今天每一張單都是 0** —— 價格含稅。而 `⟦b4-INVOICE5PCT⟧` 第 9 步一上線它就會有值。
+   * 🛑 **有稅的時候 `subtotal` 的語意會變** —— 它變成【未稅】的小計(稅基 = 折後小計 + 運費)
+   *    ⇒ 顯示端把標籤改成「小計(未稅)」, 共用 `subtotalLabelOf`。
+   * 🔬 **三個消費端**(它們是題 B 的受詞, 而**同一條 select 一次都通**):
+   *    出貨單 `print/shipping-doc.tsx` · 訂單明細 `print/picking-doc.tsx` ·
+   *    後台訂單詳情 `orders/order-detail-items-support.tsx` 的 `ItemsTotals`。
+   */
+  taxTotal: Money;
   total: Money;
   /** 出貨方式(既有欄、結帳寫入;現值 'home',Slice C 起 admin 可改) */
   shippingMethod: string;
@@ -1373,6 +1393,20 @@ export type AdminOrderDetail = {
   invoiceNumber: string | null;
   invoiceAmount: Money | null;
   invoiceStatus: InvoiceStatus;
+  /**
+   * `orders.invoice_requested` —— **這張單【要不要】開發票, 下單當下的決定。**
+   *
+   * 🔴 **與同表另外兩層是三件事, 不可互相取代**(那一欄的 DB `COMMENT` 逐字):
+   *   · `invoice` jsonb   = 客人的開票**需求**(抬頭 / 統編 / 載具)
+   *   · `invoiceStatus`   = 實際的開票**紀錄**(我們開了沒)
+   *   · **本欄**          = **他要不要**
+   *
+   * 🔴 **`false` 是終局**:`20260904224500` 那道 trigger 擋下 `false ⇒ true`
+   *   (Sean 2026-09-04 拍「任何改動都擋, 要改就作廢重開」)。
+   * ⚠️ **而那道鎖守的是【紀錄】不是【結果】** —— 一張 `false` 的單今天**仍然開得出發票**
+   *   (後台 workflow RPC 與 `record_pending_invoice()` 都不讀本欄)。**擴不擴已端 Sean。**
+   */
+  invoiceRequested: boolean;
   cancelledAt: string | null;
   /** 取消原因=可對客文案(會員可見自己單此欄;內部原因在 admin_audit_log) */
   cancelledReason: string | null;
@@ -1599,6 +1633,17 @@ export type PlaceOrderInput = {
   invoice: OrderInvoice;
   cartSessionId: string;
   /**
+   * 顧客站選的付款方式(段 1-B, 2026-09-04)。`'tappay' | 'bank_transfer'`。
+   *
+   * 🔴 **必填、無預設** —— 而那與 DB 那一側「`p_payment_channel` 不給 DEFAULT」是同一個理由的兩半:
+   *   給了預設 ⇒ 少送時會**安靜地變成刷卡**, 而客人選的是匯款。
+   * 🛑 **而 TypeScript 在這一層【擋不到】client 少送** —— 它是從 FormData `safeParse` 來的,
+   *   沒有型別化的建構點(實測:schema 加必填欄之後 `typecheck` **零錯誤**, 而 **123 支測試紅**)。
+   *   ⇒ 📌 **⇒ 擋它的是 zod, 不是型別。而【送對了但寫錯了】連 zod 也擋不到** ——
+   *     那一格靠 `charge-actions` 建完之後的 read-back。
+   */
+  paymentChannel: 'tappay' | 'bank_transfer';
+  /**
    * 🔴 #241 同意條款版本(server 注入 `CURRENT_TERMS_VERSION`、**非 client 送**;對齊 create_order
    * 舊 8 鍵路徑的 `p_terms_version`)。create_order 路徑必填(NULL/空 → RPC RAISE「無 consent 不生 order」、
    * 同 transaction 原子寫 order_legal_consents)。
@@ -1707,6 +1752,35 @@ export type MemberOrderDetailItem = {
   unitPrice: Money;
   /** 小計 = 下單當下 server 算的 line_total(**不重算**) */
   lineTotal: Money;
+  /**
+   * ⟦ship-WHICHITEMSSHIPPED⟧ **這一件出貨了沒** —— 出過 ⇒ 最早那一箱的 `shipped_at`;沒出過 ⇒ `null`。
+   *
+   * 🎯 **它存在的理由**:一張 5 件的單出了 3 件, 客人**看得到「已出貨」與「其餘商品出貨時會再通知您」,
+   *    而看不出來是哪 3 件**(2026-09-04 真瀏覽器實測:五列逐字相同)。
+   *    ⇒ 而**同一個客人的出貨通知信裡逐件列得出來**(`buildOrderShippedText`)
+   *    ⇒ 🔴 **兩個管道對同一張單講的話不一樣, 而客人可能兩邊都看。**
+   * ✅ **Sean 2026-09-04 Q5 拍甲**:「已出貨的那幾列加灰字『已出貨』」。
+   *
+   * 🔵 **資料本來就在撈了, 這一欄不擴投影** —— `MEMBER_ORDER_DETAIL_SELECT` 尾段逐字含
+   *    `shipment_items(shipments(shipped_at, deleted_at))`;mapper 早就算出一個逐件陣列,
+   *    ⛔ 而它**算完就丟**(只留最早那一筆當訂單層的 `shippedAt`)⇒ 這一欄就是把它接下去。
+   *
+   * 🔴 **有效的箱 = `shipped_at` 非空【且】`deleted_at` 為空**(判準與訂單層那一欄同源、不另寫一套):
+   *    少 `deleted_at` ⇒ 一張**被作廢的**出貨單會讓客人看到「已出貨」, 而他手上沒有貨。
+   * ⚠️ **缺資料一律當作【沒出貨】, 不是【未知】** —— 保守方向:寧可少說一句, 不可對客人宣稱貨已出。
+   *
+   * 🛑 **本欄是【布林】而不是時刻, 而那是 adversarial-reviewer 2026-09-04 打出來的**:
+   *    ⛔ ~~第一版是 `shippedAt: string | null`~~ ⇒ 🔴 **`MemberOrderDetail` 整包會過 client 邊界**
+   *    (`statement-doc.tsx` 是 `'use client'`)⇒ **逐件的 ISO 時刻會躺在 RSC payload 裡**,
+   *    而顯示端只用到「是不是 null」。
+   *    🎯 **而逐件時刻正是【出貨節奏】本身** —— 哪一箱什麼時候出的, 一件一件排出來。
+   *    ⇒ 📌 **那條政策(數量摘要不給顧客站)擋的就是這個**, 我原本用「本欄不帶數量」自我放行,
+   *      而**時刻比數量說得更多**。⇒ ✅ 改成布林:同一個畫面、少一份資料離開伺服器。
+   *    🔵 同一支 adapter 自己就在為「多一份 PII 在 RSC payload 裡跑」把 `customers` 拿掉
+   *      ⇒ **同一把尺, 我原本沒套在自己身上。**
+   * 🛑 **顯示端只印【有沒有】, 不印日期也不印數量**(Sean 那句話逐字只有三個字)。
+   */
+  shipped: boolean;
 };
 
 /**
@@ -1736,6 +1810,26 @@ export type MemberOrderDetail = {
    * 對應 OD 稿 Payment 區塊的「付款方式」列。⚠️ 它是**金流事實軸**、非管理軸。
    */
   paymentMethod: string | null;
+  /**
+   * 付款管道(`orders.payment_channel`;`NOT NULL DEFAULT 'tappay'`)——
+   * **M-4b 段 3 新增, 而它只用來【判斷要不要顯示匯款資訊那一塊】。**
+   *
+   * 🔴🔴 **它與 `paymentMethod` 是兩個軸, 而混用會出錯**(同檔 `:1309` 逐字):
+   *   `paymentMethod`  = **金流事實軸**(金流 RPC 寫入、報表算錢用它)—— 而它**付款成功才有值**
+   *   `paymentChannel` = **管理/預期軸** —— 建單當下就有值
+   *   ⇒ 🎯 **一張【還沒匯款】的單, `paymentMethod` 是 `null`**
+   *      ⇒ 📌 **所以「這是不是一張匯款單」只有 `paymentChannel` 答得出來。**
+   *
+   * 🛑 **而它【不印給客人看】** —— 客人看到的是「匯款資訊那一塊出現了」, 不是 `'bank_transfer'` 這個字。
+   *   🔵 揭露的判準是「他會不會因此知道他本來不知道的事」⇒ 否(**客人自己選的匯款**)
+   *      ⇒ 這不是資訊揭露決定。(主視窗 2026-09-04 判。)
+   *
+   * 🔴 **而反過來那一側要守**:`OrderDetailView` 是 **server component**
+   *   (檔頭無 `'use client'`, 當場 grep 過)⇒ 這一欄**不會被序列化送到瀏覽器**。
+   *   🛑 **若哪天那支元件變成 client component, 這一欄就從【條件】變成【資料】** ——
+   *   ⇒ 那時要回來重判, 而**沒有東西會叫**。
+   */
+  paymentChannel: PaymentChannel;
   /**
    * 付款成功時間(`orders.paid_at`;未付成 → null)。
    *
@@ -1803,6 +1897,20 @@ export type MemberOrderDetail = {
   subtotal: Money;
   shippingFee: Money;
   discountTotal: Money;
+  /**
+   * 稅額(`orders.tax_total` 原值;`⟦b4-TAXSURFACES⟧` 第 7 步)。
+   *
+   * 🔴 **今天每一張單都是 0** —— 價格含稅, 稅內含在售價裡。而 `⟦b4-INVOICE5PCT⟧`
+   *    第 9 步一上線它就會有值 ⇒ 📌 **這一欄是為了「那一天不用再動這條線」而先接的。**
+   * 🛑 **有稅的時候, `subtotal` 的語意會變** —— 它變成【未稅】的小計
+   *    (稅基 = 折後小計 + 運費)⇒ 顯示端要把標籤改成「小計(未稅)」
+   *    (Sean 2026-09-04 拍甲, 共用 `subtotalLabelOf`)。
+   *    ⇒ 那不是文案偏好, 是**同一個標籤在兩種單上意思不同**。
+   * ⚠️ **本欄【只】在會員這一側** —— `AdminOrderDetail` 目前沒有它,
+   *    而出貨單(紙)那一面要它 ⇒ 那要動 `ADMIN_ORDER_DETAIL_SELECT`(四個消費端 + byte-equal 守門)
+   *    ⇒ 🔴 **走鐵則 8, 另提 plan**(`docs/plans/2026-09-05-b4-taxsurfaces-shipping-doc-plan.md`)。
+   */
+  taxTotal: Money;
   total: Money;
   /** 配送方式(orders.shipping_method;現值 home/store) */
   shippingMethod: string;

@@ -1,5 +1,6 @@
 import { stripPictographs } from '@/lib/print/strip-pictographs';
 import type { AdminOrderDetail, AdminOrderDetailItem } from '@pcm/domain';
+import { subtotalLabelOf } from '@pcm/domain';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
 import { BlockedSheet } from './blocked-sheet';
@@ -144,15 +145,18 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
        📎 Sean 逐字「出貨單都是 A4」⇒ **揀貨單一起吃**,兩張紙同一套版面。 */
     <div
       data-slot='picking-doc'
-      /* 🔴 `pd-mark-detail` = ⟦b4-2PAPERS⟧,Sean 2026-08-31 拍【甲】(視覺標記,不動任何字)。
-         **只有這張紙掛它** —— 出貨單那支一個字都沒動。
-         ⚠️ 而它為什麼不是背景色:`print-a4.css:250-251` 逐字寫著
-            `print-color-adjust:exact` **蓋不掉使用者的「背景圖形」勾選框**
-            ⇒ 📌 **一個掛在 background 上的標記,在關掉那個勾選框的印表機上【不存在】。**
-            ⇒ 所以它是 `border`(邊框一定會印),而且是深色 ⇒ 黑白印表機也看得見。
+      /* 🔴🔴 2026-09-04 **`pd-mark-detail` 拿掉了 —— Sean 拍的**,原話逐字:`不用黑線...真的沒關係`
+         (落點 `~/pcm-mailbox/Sean拍板-20260904-七題.md` 檔尾「追加拍板」①)。
+         ⛔ ~~`className='… pd-sheet pd-mark-detail'`~~ ⇒ 現在只剩 `pd-sheet`。
+         🔵 **class 與 CSS 規則【一起】拿掉, 不留一個什麼都不做的 class** ——
+            留著它的話, 下一個人 grep 得到它、以為標記還在, 而紙上什麼都沒有。
+         🛑 **代價明寫**:⟦b4-2PAPERS⟧ 那個病回來了 —— 員工一眼分不出【訂單明細】與【出貨明細單】。
+            🔵 而它可能本來就要消失(Sean 2026-08-29 另拍「揀貨單廢掉、用出貨單取代」)
+            ⇒ 🛑 **不要為了補償而發明新標記** —— 主視窗明文交代, 要做新標記先端他。
+         📌 病史(為什麼那條線一開始存在、三代修法怎麼失敗的)留在 `print-a4.css` 同名那一段。
          🛑 而 Sean 明文拍過相反的三件,這一片一件都沒碰:
             改名(「不用改名,依照現在」)· 改檔名/路由(`-48` 明令)· 統一兩張紙(⟦b9-2DOCS1⟧ 禁止)。 */
-      className='print-sheet mx-auto max-w-3xl space-y-4 p-6 print:max-w-none pd-sheet pd-mark-detail'
+      className='print-sheet mx-auto max-w-3xl space-y-4 p-6 print:max-w-none pd-sheet'
     >
       {/* 🔴 A3-2'(2026-08-29):這張紙改吃【與出貨單同一套】的抬頭 ——
           Sean 2026-08-23 拍板(壓縮轉述, 原話見 memory `project_0823-sean-shipping-doc-server-render.md:19-20`)
@@ -537,23 +541,35 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                   <table>
                     <tbody>
                       <tr>
-                        <td className='k'>小計</td>
+                        <td className='k'>{subtotalLabelOf('小計', detail.taxTotal.amount)}</td>
                         <td className='v'>{formatOrderAmount(detail.subtotal.amount)}</td>
                       </tr>
-                      <tr className='line'>
+                      <tr>
                         <td className='k'>運費</td>
                         <td className='v'>{formatOrderAmount(detail.shippingFee.amount)}</td>
                       </tr>
                       {/* 🔴 折扣稿上沒有 —— 因為稿那張單折扣是 0。而【0 不代表這一列不存在】
                           ⇒ 有折扣時才印, 沒有時不印一列 `0`(印 0 會讓客人以為我們算了一筆折扣)。 */}
                       {detail.discountTotal.amount > 0 && (
-                        <tr className='line'>
+                        <tr>
                           <td className='k'>折扣</td>
                           {/* 🔴 A3-4':~~負號用 `−`(U+2212 數學減號)~~ ⇒ **那道「紙上不得有表情符號」的守門會紅** ——
                             它的字集含 `\u2200-\u22FF`(數學運算子)。**而它抓對了**:那個字元在
                             單色印表機與缺字型的環境下不保證印得出來。⇒ 改用 ASCII `-`。
                             📌 這一格是【守門抓到作者】, 不是作者想到的。 */}
                         <td className='v'>-{formatOrderAmount(detail.discountTotal.amount)}</td>
+                        </tr>
+                      )}
+                      {/* 🔴 稅額:**有稅才印**(`⟦b4-TAXSURFACES⟧` 題 B)。位置與其餘四個面對齊:
+                          小計 → 運費 → 折扣 → **稅額** → 訂單金額。🔵 稅 0 不印, 理由同上面折扣那一列。
+                          ⚠️ 稿上**查無「稅額」這個字面**(當場量:`design-reference` 176 檔 0 命中 /
+                          OD 12 專案 0 個;🟢 正對照「小計」5 檔 / 7 個)。
+                          🛑 ⛔ ~~原本寫「稿上沒有這一列」~~ —— **字面搜尋答不出「有沒有這一列」**
+                          (codex must-fix)。✅ 這一列是 Sean 2026-09-05 拍甲授權的, 不靠查無成立。 */}
+                      {detail.taxTotal.amount > 0 && (
+                        <tr>
+                          <td className='k'>稅額</td>
+                          <td className='v'>{formatOrderAmount(detail.taxTotal.amount)}</td>
                         </tr>
                       )}
                       <tr className='grand'>

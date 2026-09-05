@@ -477,6 +477,25 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
     }
 
+      /**
+       * ⟦b9-ACLDRIFT5⟧ 片二:**權限快照那一格「量不到」**。
+       *
+       * 🔴 `aclDriftDetected` **不在這裡** —— 它進 `shouldAlert`,走 LINE + Email 到 Sean。
+       *    這一格處理的是另一種:view 還沒貼、讀失敗、或**那一列太舊**(超過 26 小時)。
+       * 🎯 兩種訊號兩個觀眾 —— 與上面每一種同一個成例:權限的事吵 Sean;部署/排程的事吵看板。
+       * 🛑 **而「太舊」為什麼算量不到而不是「沒有漂移」**:
+       *    快照太舊 ⇒ 我手上這兩列不足以比較 ⇒ **回 200 等於宣稱「今天沒有人動權限」,
+       *    而我根本沒量到**。那正是本片存在的理由的反面。
+       * 🔵 而它不會變成信:`aclDriftUnknown` 時 `aclDriftDetected` 是 `false` ⇒ 進不了 `shouldAlert`。
+       */
+      if (result.aclDriftUnknown) {
+        console.error(
+          '[anomaly-alert] 🔵 pcm_acl_drift_status 讀不到或太舊 ⇒ 權限漂移今天是【查不到】不是【沒有漂移】',
+          { ...result },
+        );
+        await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+        return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+      }
     if (result.cronHeartbeatUnknown) {
       console.error(
         '[anomaly-alert] 🔴 get_cron_heartbeat_stale_counts 讀不到 ⇒ 排程心跳今天是【查不到】不是【六支都健康】(回 503)',
@@ -511,6 +530,42 @@ export async function GET(request: Request): Promise<Response> {
     if (orderCreatedCutoffIso !== null && result.orderCreatedGapUnknown) {
       console.error(
         '[anomaly-alert] 🔴 起始線有設而 get_order_created_gap_counts 讀不到 ⇒ 訊號4 今天是【查不到】不是【0】(回 503)',
+        { ...result },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+
+    // 🔴🔴 **codex 2026-09-03 must-fix**:我把三格接進 summary / shouldAlert / result,
+    //    **而漏了這一層** ⇒ cutoff 有設、新 RPC 還沒 apply ⇒ `unpaidCancelledGapUnknown = true`
+    //    而 route 照回 200、信裡是一片綠 ⇒ 📌 **「安靜」與「這道告警沒裝上」印同一個畫面。**
+    // 🎯 而那正是我自己在 plan §8 寫下的驗收條件 —— **我寫了它, 然後沒有做它。**
+    //    ⇒ 一句寫在計畫裡的話, 不會讓自己被實作。
+    if (orderCreatedCutoffIso !== null && result.unpaidCancelledGapUnknown) {
+      console.error(
+        '[anomaly-alert] 🔴 起始線有設而 get_order_unpaid_cancelled_gap_counts 讀不到 ⇒ 取消信收件人那一段今天是【查不到】不是【0】(回 503)',
+        { ...result },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+
+    // 🔴 **第四條線同款**(codex 2026-09-04 must-fix #3;⟦b4-NORECIPIENTWINDOW⟧)。
+    //    🎯 它擋的東西與姊妹那格一模一樣:**RPC 還沒 apply ⇒ 三格是 null ⇒ 告警恆不叫**,
+    //      而 route 照回 200 ⇒ 「安靜」與「這道告警沒裝上」印同一個畫面。
+    //
+    // 🔴🔴 **`shippedCutoffIso !== null` 這個前提是【後來補的】, 而理由值得寫出來**
+    //    (主視窗 2026-09-05 批;成因是 pre-push 的部署時序閘擋下那一批時翻出來的):
+    //    ⛔ ~~「本線的母體天生從空的開始長 ⇒ 它不需要起始線 ⇒ 只要 unknown 為真就吵」~~
+    //    🛑 **那句話對【母體】為真, 而對【這條線上膛了沒】為假。**
+    //      更正信這條線整體是被 `SHIPPED_EMAIL_CUTOFF` 開關的(email-sweep route 那一段掛在它底下)
+    //      ⇒ 📌 **那顆 env 沒設 = 這條線一封都不會寄 = 它根本還沒上膛。**
+    //    ⇒ 🎯 **不要為一條還沒上膛的線, 抱怨它的儀器不見了。**
+    //    ⚠️ 而少了這個前提的實際後果是**保證發生**的:程式先上、migration 後貼的那個窗口裡,
+    //      這支 cron **每一發都回 503 + 寫失敗心跳** —— 而那是一個**對常態發的警報**。
+    if (shippedCutoffIso !== null && result.trackingCorrectedGapUnknown) {
+      console.error(
+        '[anomaly-alert] 🔴 get_tracking_corrected_gap_counts 讀不到 ⇒ 更正單號信收件人那一段今天是【查不到】不是【0】(回 503)',
         { ...result },
       );
       await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
@@ -565,6 +620,116 @@ export async function GET(request: Request): Promise<Response> {
      * ⚠️ **而【誰在讀這一行】沒有解決** —— 它與 `⟦b9-ENUMWATCH⟧` 這一列本身是同一個病的下一層。
      *    ⇒ 那要等這個計數真的接進告警判斷之後才收得掉。**明寫,不假裝這一行等於有人在看。**
      */
+    // 🔴🔴 **codex 2026-09-04 must-fix ③:route 原本【完全沒有消費】這兩格** ——
+    //    RPC 讀取失敗 ⇒ 只留一行 log、照樣回 200、照樣記「今天健康」
+    //    ⇒ 📌 **一個「我讀不到」的世界被回報成「一切正常」。**
+    //    ⇒ 而兩格的處置【不同】, 這正是先前把它們拆開的理由:
+    //      `searchLogFailed`  = 真的壞了 ⇒ 🔴 **回 503**(與其他讀取失敗同款, 監控看得到)
+    //      `searchLogUnknown` 而沒 failed = 那支 RPC 還沒 apply ⇒ 🔵 只 warn, 回 200
+    //      (部署窗口是預期中的;為它回 503 會讓「還沒貼」變成每輪一次的假紅)
+    if (result.searchLogFailed) {
+      console.error(
+        '[anomaly-alert] 🔴 搜尋日誌健康度讀取失敗 ⇒ 回 503(不是「一切正常」)',
+        { reason: 'search_log_health_read_failed' },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+    /**
+     * 🔴🔴 **⟦b4-NEEDSHUMANNOWATCHER⟧:前提 + Unknown**(主視窗 2026-09-05 裁甲)。
+     *
+     * 🎯 **前提 = 匯款結帳的入口開著。** 理由是他的原話:
+     *    **「部署窗口那幾天線關著不吵, 線一開儀器缺了就必須響。」**
+     *    ⇒ flag 關著時那支 RPC 沒貼**不是問題**(客人根本走不到那條路);
+     *      flag 開了而它沒貼 ⇒ 🔴 **那些客人正在累積, 而沒有人看得到。**
+     *
+     * ⚠️ **形狀照 `orderCreatedGapUnknown` 那格(前提 + Unknown), 不是照 `searchLogUnknown`。**
+     *    ⛔ ~~原本的裁決寫「與 searchLog 同調 ⇒ 503」~~ —— 而我開檔核了:
+     *    🔬 `searchLogUnknown` 那格**只 `console.warn` 不 503**(見下方 :620 一帶)
+     *    ⇒ 📌 **「同調」會做出與意圖相反的東西。依據換掉, 意圖不變。**
+     *
+     * 🔴 **兩個消費端明寫**:這顆 env 的另一個消費端是
+     *    `apps/storefront/src/lib/payment/bank-transfer-flag.ts`(結帳 action 層)。
+     *    ⇒ **改那顆 env 的語意時, 兩處都要看。**
+     *    ⚠️ 而它們**可能不同步** —— 這裡讀的是同一顆 env 而各自解讀, 沒有共用常數。
+     *      🔵 沒有抽成共用的理由:那支是 client-facing 的 server action、這裡是 cron route,
+     *        為此開一個共用模組會讓一個 env 多一層間接。**代價寫出來, 不假裝解決了。**
+     */
+    // 🔴 **靜態存取, 不是 `process.env['…']`** —— 那道 lint 逐字:
+    //    「禁動態 `process.env[變數]` 存取:Next.js 不 inline ⇒ client bundle 取 undefined ⇒ runtime 壞」
+    //    ⚠️ **而我第一版就是寫成中括號的** ⇒ 三綠當場紅。🔵 那道閘擋對了。
+    const bankTransferCheckoutEnabled = process.env.BANK_TRANSFER_CHECKOUT_ENABLED === 'true';
+    if (bankTransferCheckoutEnabled && result.stuckBankUnknown) {
+      console.error(
+        '[anomaly-alert] 🔴 匯款結帳開著, 而 get_stuck_bank_orders_health 讀不到 ⇒ 卡住的匯款單今天是【查不到】不是【零張】',
+        { ...result },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+    /**
+     * 🔴🔴 **「沒貼」與「讀壞了」要分開**(codex R2 must-fix ②, 主視窗 2026-09-05 裁甲)。
+     * ⛔ ~~我原本只分「flag 開/關」~~ —— 而那讓**真實讀取失敗**在 flag 關著時只 warn、route 回 200,
+     *    而且**後續還會記健康心跳** ⇒ 🔴 **一個壞掉的讀取被記成「今天健康」。**
+     * 🎯 **⇒ 而這正是 R1 那條「算出來而沒人讀」的同型復發** ——
+     *    我為了折它補了 `stuckBankFailed` 這個欄位, **而我沒有接它。**
+     *    ⇒ 📌 **我折一條 finding 的方式, 製造了同一條的第二個實例。**
+     * ✅ 現在:`stuckBankFailed`(真的丟例外)**一律 503, flag 開關不管** ——
+     *    那是儀器故障, 不是部署窗口。
+     */
+    if (result.stuckBankFailed) {
+      console.error(
+        '[anomaly-alert] 🔴 get_stuck_bank_orders_health 讀取【失敗】(不是還沒 apply)⇒ 儀器壞了',
+        { ...result },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+    if (!bankTransferCheckoutEnabled && result.stuckBankUnknown) {
+      // 🔵 flag 關著 ⇒ 不吵, 而**仍然留一行** —— 讓翻開 flag 的人回頭看 cron log 時,
+      //    知道這件事在翻開之前就已經是「查不到」了。
+      // 🔵 到這裡 ⇒ **一定是「還沒 apply」** —— 讀取失敗那條已經在上面 503 了。
+      //    ⛔ ~~原訊息逐字斷言「那支 RPC 還沒 apply」而 Unknown 也含讀取失敗~~(codex R2 nit)
+      //    ⇒ ✅ 現在那句話是真的, 因為上面那格已經把另一個成因分走了。
+      // 🛑 **而這個世界有一個【安靜的漏】, 主視窗 2026-09-05 裁「留著寫板列」**:
+      //    flag 關著 **不代表庫裡沒有卡單** —— 後台手動建單 / 直接打 RPC / 曾經開過又關掉,
+      //    三條路都留得下。而此時 RPC 沒貼 ⇒ 那些單真的存在, 而沒有人看得到。
+      //    🔵 **這個世界在那支 RPC 貼進正式庫那一刻消失**(它在早上佇列 §A 第 6 位)。
+      //    ⇒ 🔴 而不選「一律 503」的理由是他的原話:**「窗口幾天、每天一封假警報會被關掉,
+      //      而關掉的閘比安靜的漏更難回來。」** ⇒ 板列 ⟦b4-STUCKBANKBLINDWINDOW⟧。
+      console.warn(
+        '[anomaly-alert] 🔵 卡住匯款單健康度查不到 ⇒ 那支 RPC 還沒 apply(而匯款入口關著 ⇒ 本輪不告警)',
+        { reason: 'stuck_bank_health_unknown_flag_off' },
+      );
+    }
+
+    if (result.searchLogUnknown) {
+      console.warn(
+        '[anomaly-alert] 🔵 搜尋日誌健康度查不到 ⇒ get_search_log_health 還沒 apply',
+        { reason: 'search_log_health_unknown' },
+      );
+    }
+
+    /**
+     * 🔴🔴 **`manualCustomerSearchFailed` 原本【零處被讀】**(2026-09-05, 由本輪新增的
+     *    `*Unknown`/`*Failed` 對帳閘第一次跑就抓到 —— 見 `anomaly-alert-key-contract.test.ts` 末段)。
+     * 🔬 而它**不是誤報**(錨用字面, 不用行號 —— 那三支檔今晚都有人在寫):
+     *    `check-anomaly-alerts.ts` 有算它、`check-anomaly-alerts.test.ts` 有兩處斷言,
+     *    而 route 零處讀 ⇒ 三處都 grep `manualCustomerSearchFailed` 即到
+     *    ⇒ **真實讀取失敗時 cron 回 200, 沒有人知道。**
+     * 🔵 **本格與上面 `searchLogFailed` 那格【逐字同型】** —— 刻意不自己發明形狀。
+     * ⚠️ **這一格是線【信】`-mail` 順手接的, 而那支欄位是線【資料】`-db` 的片(`3a848c58e`)**
+     *    ⇒ 🛑 **我沒有那片的上下文, 只照 sibling 的形狀接 ⇒ 請 `-db` 覆核。**
+     */
+    if (result.manualCustomerSearchFailed) {
+      console.error(
+        '[anomaly-alert] 🔴 客戶搜尋計數讀取失敗 ⇒ 回 503(不是「一切正常」)',
+        { reason: 'manual_customer_search_read_failed' },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+
     if (result.manualCustomerSearchUnknown) {
       console.warn(
         '[anomaly-alert] 🔵 客戶搜尋計數查不到 ⇒ 那支 RPC 還沒 apply, 或它讀取失敗(失敗那一種在 use-case 另有一行 error log)',

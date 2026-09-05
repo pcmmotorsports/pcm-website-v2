@@ -89,6 +89,12 @@ type FacetRpcClient = {
       p_limit: number;
       p_sort: 'recommend' | 'new';
       p_category: string | null;
+      // ⟦M-4b 多顆分類膠囊⟧ 本支**一次只問一個維度**, 所以它不需要「多顆」。
+      // 🔴 **而它仍然要送這個名字, 理由不是功能是【保證】**:本檔 `categoryKeys` 那段 docblock 逐字
+      //    「面板數字 = 點進去的件數」的保證來自**兩邊走同一支 RPC 的同一個述詞**。
+      //    清單那側送了 `p_categories` ⇒ 命中新多載;本側若不送 ⇒ **兩邊跑的是不同函式**
+      //    ⇒ 那個保證就從「同一個述詞」降級成「兩個述詞今天剛好一樣」。
+      p_categories: string[];
       p_brand_slugs: string[] | null;
       p_price_min: null;
       p_price_max: null;
@@ -206,6 +212,8 @@ async function countOne(
       //   ⚠️ 這一行改的是【成本】不是【結果】—— 回傳的 total 與改前逐字相同。
       p_sort: 'new',
       p_category: dimension.category ?? null,
+      // 🔵 一次一個維度 ⇒ 這裡永遠是 0 或 1 顆(不是「多顆」的使用者, 只是同一支函式的乘客)。
+      p_categories: dimension.category !== undefined ? [dimension.category] : [],
       // 🔴 判 `!== undefined` 而非真假值:空字串的 brand slug 若退成 `null`,RPC 會**完全不過濾品牌**
       //    ⇒ 把整台車的總件數當成那個品牌的件數(fail-open 的錯誤方向)。
       p_brand_slugs: dimension.brandSlug !== undefined ? [dimension.brandSlug] : null,

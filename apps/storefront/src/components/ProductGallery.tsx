@@ -23,6 +23,8 @@
 
 'use client';
 
+import { hasNoRealImage } from '@pcm/domain';
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MockProduct, UIVariant } from '@/data/mock-products';
 import { useLightboxSwipe } from '@/hooks/useLightboxSwipe';
@@ -57,7 +59,21 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
     const pool: string[] = [];
     const push = (arr?: readonly string[]) => {
       for (const u of arr ?? []) {
-        if (u && !seen.has(u)) {
+        // 🔴🔴 2026-09-03:`hasNoRealImage` —— 有網址【不等於】有照片。
+        //   來源 1,011 列的圖是「查無圖片」的卡(882 列是 PCM 自己那張、119 列是供應商的)。
+        //   🔵 **2026-09-04 起 mapper 那層已經先濾一次**(`dropImagesWithoutRealPhoto`)
+        //      ⇒ 正常路徑上這裡收到的已經是乾淨的 ⇒ **這一行現在是第二道, 不是唯一一道**。
+        //   🛑 **而它仍然要留著**, 理由**一個**(而它夠):
+        //      這一格的測試是**這個元件自己**的行為契約 —— 拿掉它, 有人改壞 mapper 時這裡不會紅。
+        //   ⛔ ~~原本還寫了理由①:「`product.image` 與 variant images 不見得都經過那一層」~~
+        //      🔴 **那是假的**(R1 抓到):`product.image` 就是 `lib/products.ts:200` 從**已濾過的陣列**取的;
+        //      variant images 走 `mappers/product.ts:342` 的 `dropImagesWithoutRealPhoto`。**兩條都經過。**
+        //      📌 同檔上游記過:「照著假理由走的人, 會拿一個不存在的限制去做別的決定。」
+        //      ⇒ 📌 **兩道都在同一個謂詞上, 所以它們不會分岔**(不是重複兩份判斷)。
+        //   ⇒ 少了這一句, 那張「暫無照片」的卡會在商品詳情頁**當 hero 全尺寸顯示**,
+        //     還會進縮圖列、還能點開 lightbox 放大。⇒ 🎯 **比在卡片上更難看。**
+        //   ⇒ 🔵 全部濾光 ⇒ pool 空 ⇒ 走下面那個站內佔位圖(= 本來就有的最後一層)。
+        if (u && !hasNoRealImage(u) && !seen.has(u)) {
           seen.add(u);
           pool.push(u);
         }

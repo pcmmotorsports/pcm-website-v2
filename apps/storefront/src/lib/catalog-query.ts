@@ -2,6 +2,9 @@
 //    ⇒ 客人選「最新上架」會被靜默回退成 recommend、畫面完全沒變。守門見 `catalog-query.test.ts`。
 //    server 端真正做得到它,是因為 migration `20260811040000` 讓 RPC 支援 `p_sort='new'`
 //    (依 `created_at DESC`)。**這一行與那支 migration 是綁在一起的**:RPC 若被 rollback,這裡要一起退。
+// 🔵 上限本體住在 `search-shape.ts`(client 也讀得到)—— **同一個常數**餵顯示端與查詢端。
+import { SEARCH_MAX_QUERY_LENGTH } from './search-shape';
+
 export const CATALOG_SORT_VALUES = ['recommend', 'price-asc', 'price-desc', 'new'] as const;
 
 /**
@@ -39,6 +42,15 @@ export type CatalogQuery = {
   sort: CatalogSort;
   brandSlugs: string[];
   category?: string;
+  /**
+   * ⟦M-4b 多顆分類膠囊⟧ Sean 2026-09-04 拍甲(聯集)。`?categories=a,b` —— **單鍵逗號分隔**。
+   * 🔵 形狀跟著 `pbrands` 走, 而那是有理由的:本檔 `BRANDS_PARAM` 上方那段註解逐字記著重複鍵 `?a=1&a=2` 會讓
+   *    **Next segment cache key 碰撞 ⇒ `router.replace` 不重抓 RSC** ⇒ 當初才從重複鍵改單鍵。
+   *    📌 同一個坑不踩第二次。
+   * 🛑 **舊的 `category` 欄不動、繼續讀得懂** —— 客人分享出去的連結、站內既有連結都是舊格式。
+   *    兩個同時出現時:`categories` 贏(它是新的、明確的), 而舊值**仍然被收進聯集**, 不丟掉。
+   */
+  categories: string[];
   priceMin?: number;
   priceMax?: number;
   vehicle?: string;
@@ -49,6 +61,22 @@ export type CatalogQuery = {
    *   真正的 `p_new_since` 在 `products.ts` 的 cached callback 內才算(見該處)。
    */
   filter?: CatalogFilter;
+  /**
+   * `?search=` 自由關鍵字(⟦搜尋-落點換 /products⟧ 2026-09-03,Sean 逐字
+   * 「我以為搜尋會直接在我們商品目錄顯示誒」)。
+   *
+   * 🔴🔴 **它與其他每一格【不同層】,而那個差別是這一整片的根**:
+   *    其他格都送進 RPC `search_catalog_by_vehicle`,而**那支沒有關鍵字參數** ——
+   *    10 個 migration 定義檔掃 `p_(keyword|search|q)`/`ILIKE` ⇒ 全 0
+   *    (🟢 正對照同一批檔掃 `p_vehicle|p_brand|p_category` ⇒ 3~25 命中 ⇒ 尺是活的)。
+   * ⇒ 📌 有 `search` 時 route 走**另一條資料路**(`lib/search.ts` 的 ILIKE),
+   *    而那條路**吃不到 facet**。
+   * 🛑 **所以它不能像其他格那樣靜靜地被塞進 query 就算數** ——
+   *    呼叫端要把「現在是關鍵字結果、facet 沒生效」**畫在畫面上**
+   *    (`SearchKeywordChip`)。理由是 2026-09-02 那個拍板的逐字:
+   *    **「一個看得見的缺,永遠優於一個安靜的錯」**。
+   */
+  search?: string;
 };
 
 const PRICE_LABEL_BOUNDS: Record<string, readonly [number, number | null]> = {
@@ -91,6 +119,8 @@ export function isSafeCategoryValue(value: string): boolean {
  *   ⇒ 讀取端兩種都吃、**寫出端只產新格式**。
  */
 export const BRANDS_PARAM = 'pbrands';
+/** ⟦M-4b 多顆分類膠囊⟧ 單鍵逗號分隔;理由與 `BRANDS_PARAM` 同一條(見 CatalogQuery.categories)。 */
+export const CATEGORIES_PARAM = 'categories';
 export const LEGACY_BRAND_PARAM = 'pbrand';
 
 /**
@@ -142,6 +172,29 @@ function parseNonNegativeInteger(raw: string | null): number | undefined {
  * 將不受信任 URL 參數收斂為 catalog 的安全、可快取 query shape。
  * 不認得的值一律回預設；排序與每頁數只接受 UI 白名單。
  */
+/**
+ * ⟦M-4b 多顆分類膠囊⟧ 把 `?categories=a,b` 與舊的 `?category=` 合成一份聯集。
+ *
+ * 🔴 **切成獨立一支的理由**:膠囊列(`ActiveChips`)現在也要讀它 —— 而**膠囊與 server 過濾
+ *    必須看到【同一份】解析**。各寫一份的那天不會有東西叫:兩邊都「有畫面、有結果」,
+ *    只是畫的那幾顆與撈的那幾顆不是同一組。
+ * 🔴 **每一顆各自過白名單**, 不是整串過一次 —— RPC 那側是 `category_raw LIKE vc || ' · %'`
+ *    (**未跳脫**)⇒ 一顆帶 `%` 會污染整組;而壞的**只丟那一顆**。
+ */
+export function categoriesFromParams(searchParams: SearchParamsLike): string[] {
+  const legacy = searchParams.get('category');
+  return [
+    ...new Set(
+      [
+        ...(searchParams.get(CATEGORIES_PARAM) ?? '').split(','),
+        ...(legacy !== null ? [legacy] : []),
+      ]
+        .map((value) => value.trim())
+        .filter((value) => value !== '' && isSafeCategoryValue(value)),
+    ),
+  ];
+}
+
 export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery {
   const page = parsePositiveInteger(searchParams.get('page'), 1);
   const requestedPerPage = parsePositiveInteger(searchParams.get('per'), CATALOG_DEFAULT_PER_PAGE);
@@ -173,6 +226,11 @@ export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery 
     .sort();
   const categoryValue = searchParams.get('category');
   const category = categoryValue && isSafeCategoryValue(categoryValue) ? categoryValue : undefined;
+  // 🔴 **每一顆都要各自過同一道白名單** —— 不是整串過一次:
+  //    `isSafeCategoryValue` 擋的是 `%` `_` 與控制字元(見本檔 `isSafeCategoryValue` 的定義), 而 RPC 那側是
+  //    `category_raw LIKE vc || ' · %'`(**未跳脫**)⇒ 只要有一顆帶 `%`, 整組結果就會被它污染。
+  // 🔵 壞的那一顆**只丟那一顆**, 不整組失效 —— 驗收⑤ 逐字要的就是這個。
+  const categories = categoriesFromParams(searchParams);
   const sliderMin = parseNonNegativeInteger(searchParams.get('pmin'));
   const sliderMax = parseNonNegativeInteger(searchParams.get('pmax'));
   const labelBounds = priceBoundsForLabel(searchParams.get('price'));
@@ -181,6 +239,24 @@ export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery 
     (value): value is number => value !== undefined && value !== null,
   );
   const priceMax = candidateMax.length > 0 ? Math.min(...candidateMax) : undefined;
+  // 🔴 `trim()` 之後才判空 —— 只打空白送出時,`' '` 是 truthy 而它不是一個查詢
+  //    ⇒ 沒有這一步,`?search=%20` 會走進關鍵字路、ILIKE `%%` ⇒ **撈回整張 view**
+  //    ⇒ 而那正是主視窗點名不准的「安靜地給他全站」。
+  // 🔴🔴 **長度截斷【也要在這裡】做一次 —— 而我第一版把它省掉了(自審抓到)。**
+  //    ⛔ ~~原本寫「長度截斷不在這裡:它住在 `lib/search.ts`(兩條路都經過那一層)」~~
+  //    🛑 那句話對【查詢】那半是對的, 對【顯示】那半是錯的:
+  //       `SearchKeywordChip` 印的是**本函式回的這個值**, 而截斷發生在更下游
+  //       ⇒ 搜 150 個字 ⇒ 膠囊印 150 個字, 而實際只查了前 100 個
+  //       ⇒ 📌 畫面上那句「目前顯示『…』的關鍵字結果」**指的不是實際跑的那個查詢**。
+  //    🔴 而這個病 `search-shape.ts:28-31` **逐字預言過**, 判別句也在那裡:
+  //       **「顯示用的字串與實際查詢的字串, 只要不是同一個運算式, 它們就會分岔。」**
+  //    ⇒ ✅ 所以截斷搬進來:回傳值**就是**被查的那個字串 ⇒ 顯示端與查詢端吃同一個運算式。
+  //    🔵 `lib/search.ts` 那道**保留**(不是重複)—— 疊層那條路不經過本函式。
+  const searchValue = (searchParams.get('search')?.trim() ?? '').slice(
+    0,
+    SEARCH_MAX_QUERY_LENGTH,
+  );
+  const search = searchValue === '' ? undefined : searchValue;
   const vehicleValue = searchParams.get('vehicle');
   const vehicle = vehicleValue && SAFE_VEHICLE.test(vehicleValue) ? vehicleValue : undefined;
   return {
@@ -188,10 +264,12 @@ export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery 
     perPage,
     sort,
     brandSlugs,
+    categories,
     ...(category ? { category } : {}),
     ...(priceMin > 0 || labelBounds ? { priceMin } : {}),
     ...(priceMax !== undefined ? { priceMax } : {}),
     ...(vehicle ? { vehicle } : {}),
     ...(filter ? { filter } : {}),
+    ...(search ? { search } : {}),
   };
 }

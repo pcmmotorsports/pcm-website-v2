@@ -64,12 +64,49 @@ export const GENDER_LABEL: Record<GenderCode, string> = {
   undisclosed: '不透露',
 };
 
+// ── 電話欄的【單一定義點】(Sean 2026-09-04 拍甲:「跟地址頁一樣」)────────────
+//
+// 🔬 **為什麼要收成一支**:`⟦b4-PHONEREGEXSPLIT⟧` —— 同一支電話, 客人在**地址頁填得進、
+//    註冊頁填不進**。成因是兩套規則:地址頁只擋空, 而註冊/個資頁用 `/^[\d\s-]{8,}$/`
+//    ⇒ 🔴 **那條 regex 的字元類裡沒有 `+`** ⇒ 拒掉 `+886…`;也拒掉分機 `#12`。
+//
+// ✅ **Sean 拍甲 = 放寬, 跟地址頁一樣** ⇒ **只擋空白, 不驗格式**。
+//    理由(照他要的方向講):`+886` / `02-1234-5678` / 分機 / 市話都是真客人會打的東西,
+//    而**一道猜錯格式的閘會把真客人擋在門外** —— 那個代價比「收到一支怪電話」大。
+//
+// 🛑 **而【必填與否】不在這裡決定** —— 三個消費端各自不同, 那是各自的業務決定:
+//    註冊必填 · 收件地址必填(2026-09-04 拍) · 個資頁選填(#197)。
+//    ⇒ 📌 **這支只回答「什麼樣的字串算合法電話」, 不回答「可不可以不填」。**
+// 🔵 而它**不是**一個「沒有規則」的空殼:它釘住了 **`.trim()`**(兩版都做)——
+//    下一個想加格式驗證的人, 會在這裡看到為什麼今天沒有。
+// ⚠️ **而錯誤字面只有【必填版】用得到** —— 選填版永遠不會失敗, 所以它沒有訊息可講。
+//    (我第一版寫「兩件都釘住」, 那對選填版不成立。R1 抓到。)
+//
+// 🔴🔴 **而【這不是全 repo 唯一的電話規則】—— 我第一版寫「三處走同一支」是【錯的】。**
+//    第四套在 `apps/admin/src/lib/customers/manual-customer.ts` 的 `MIN_PHONE_DIGITS = 8`
+//    (員工**建新帳號**那條路)。⇒ 📌 **今天是【四處收斂三處】。**
+//    🔵 那一處**刻意留著**:它的理由是 codex R4「防 `phone='1'` 建出刪不掉的 auth user」——
+//       **與 Sean 這題不同受詞**(他講的是格式, 那條擋的是垃圾資料)。
+//    🛑 **而它讓「同一支電話員工存不進」在【建帳號】那一格仍然成立** ⇒ 那要單獨問 Sean, 不在本片。
+const PHONE_ERROR = '請填寫電話';
+/** 必填版:`.trim()` 後不得為空;**不驗格式**(理由見上)。 */
+const phoneRequired = () => z.string().trim().min(1, { error: PHONE_ERROR });
+/**
+ * 選填版:空字串合法。
+ * ⛔ ~~`.refine((v) => v.trim() === '' || v.trim().length > 0)`~~
+ * 🔴 **那個條件是【恆真】的**(兩邊互補窮盡)⇒ **那行等於沒有**, 而 `PHONE_ERROR` 在選填版永不觸發。
+ *    R1 對抗審查抓到。📌 **一個看起來在驗東西、而其實對任何輸入都放行的守衛。**
+ * ✅ 改成 `.trim()` —— 它做的是**真的事**:必填版有 trim 而選填版沒有的話, `'   '` 會原樣寫進 DB。
+ */
+const phoneOptional = () => z.string().trim().default('');
+
 // RegisterInput — design AccountPages L256-299(欄位順序對齊 design:name→email→phone→password→agree)
 export const RegisterInput = z.object({
   // #201 刻意不 trim:design RegisterPage L261 `!form.name` 無 .trim()、storefront 不比 design 嚴(鐵則 1);要擴須 backlog 另立。
   name: z.string().min(1, { error: '請填寫姓名' }),
   email: z.email({ error: 'Email 格式不正確' }),
-  phone: z.string().regex(/^[\d\s-]{8,}$/, { error: '手機格式不正確' }),
+  // ⛔ ~~`/^[\d\s-]{8,}$/`(拒掉 `+886` 與分機)~~ ⇒ Sean 2026-09-04 拍甲, 改走單一定義點。
+  phone: phoneRequired(),
   password: z.string().min(8, { error: '密碼至少 8 碼' }),
   agree: z.literal(true, { error: '請同意服務條款' }),
   // 🔵 性別 = **選填**(Sean 2026-08-31 答甲之下 `-2d` 定的;必填會強迫 Email 註冊的人填一個
@@ -150,7 +187,33 @@ export const AddressInput = z.object({
   // #201:name/line trim 後驗必填(純空白 → reject、入庫去頭尾空白)。對齊 design saveAddress L705
   //   `if (!form.name.trim() || !form.line.trim()) return;`(client 已擋純空白、server 補上同防線)。
   name: z.string().trim().min(1, { error: '請填寫收件人' }),
-  phone: z.string().default(''),
+  // 🔴🔴 **2026-09-04 Sean 拍甲:電話改必填。** 原話落檔 `~/pcm-mailbox/Sean拍板-20260904-七題.md`。
+  //    ⛔ ~~`phone: z.string().default('')`(選填, 不填就是空字串)~~
+  // 🔬 **為什麼**:出貨單那張紙上「電話」是空的(`⟦b4-PICKPHONE1⟧`)。
+  //
+  // 🔴🔴 **而我第一版把因果寫錯了, 訂正留著**(R1 對抗審查抓到):
+  //    ⛔ ~~正式庫 `customers.phone` 15 位裡 11 位是空字串, **那個空字串的源頭就是這裡**~~
+  //    🛑 **那是【同名不同欄】** —— 本 schema 寫的是 `customer_addresses.phone`,
+  //       而那個 11/15 量的是 **`customers.phone`**(另一張表)。兩個欄位同名, 我就把它們連起來了。
+  //    🔬 那 11 個空字串的真正來源, repo 裡有一句直接寫著:
+  //       `apps/storefront/src/app/auth/callback/route.ts` 逐字「OAuth 首登會員由 DB
+  //       `handle_new_auth_user` trigger 自動建 customers row、**`phone=''`(DEFAULT)**」。
+  //    ⇒ 📌 **所以這道閘與那個 11/15 【不在同一個欄位上】** —— 不只是「對既有列零效果」,
+  //       是**零關聯**。`customers.phone` 的寫入端是 `ProfileInput`(本檔下方, **今天仍是選填**)。
+  // ✅ **而這道閘仍然值得做, 理由要重講**:新單走 `create_order` 快照 ⇒ 新地址的電話**會進訂單快照**
+  //    ⇒ 出貨單那支的第二個 `||` 接得到 ⇒ **紙上真的會有電話**(這條鏈 R1 逐檔驗過)。
+  // 🛑 **而它擋的是【之後】的單** —— 既有的地址列不會自己變好。
+  // 🔵 **`.trim()` 跟著 `name` / `line` 走** —— 純空白要被擋掉, 否則客人打一個空格就過了。
+  // 🛑 **刻意【不】加格式驗證**:`+886` / `02-1234-5678` / 分機都是合法的,
+  //    而一道猜錯格式的閘會把真客人擋在門外。
+  // 🔴 **而那件事這個 repo 今天正在做** —— 本檔 `RegisterInput` / `ProfileInput` 的
+  //    `/^[\d\s-]{8,}$/` **會拒掉 `+886`**(`+` 不在字元類)也拒掉分機 `#12`
+  //    ⇒ 📌 **同一支電話, 客人在地址頁填得進、在註冊頁填不進。** 那是要端 Sean 的另一題,
+  //    不在本片(見板列)。
+  // ⚠️ **DB 端不一致, 明寫**:`customer_addresses.phone` 在 `20260523034911` 是
+  //    `text DEFAULT ''`(**可 NULL、無 CHECK**)⇒ **這道閘純 app 層**。
+  //    DB 端加 NOT NULL 會撞既有列 ⇒ 不做。
+  phone: phoneRequired(),
   line: z.string().trim().min(1, { error: '請填寫地址' }),
   // M-4b:付款驗證需要真實 Email(LINE 合成信箱 64 字元恆超 TapPay 40 上限 => 3DS 啟動被拒)。
   // 必填在此執法 —— `customer_addresses.email` DB 端 nullable 只為既有列,新寫入一律要有值。
@@ -201,12 +264,11 @@ export const ProfileInput = z.object({
   // #197:phone/birthday 選填(空字串合法;birthday 空→null 在 action 層 normalize〔codex k1 Critical 1〕)。
   // 填了則 server 端驗格式,早於 DB 給精準欄位錯——否則格式錯(如 birthday 'abc'/'2026/1/1')穿到 DB
   // date 欄才炸、被 action try/catch 吞成通用「儲存失敗」、使用者看不出是哪欄錯。
-  // phone 沿用 RegisterInput.phone /^[\d\s-]{8,}$/(數字/空白/連字號、≥8);birthday 對齊 design
+  // ⛔ ~~phone 沿用 RegisterInput.phone /^[\d\s-]{8,}$/(數字/空白/連字號、≥8)~~
+  //    ⇒ Sean 2026-09-04 拍甲作廢, 改走本檔上方的單一定義點。birthday 對齊 design
   //   <input type="date"> 的 YYYY-MM-DD(原生 input 保證真實日期、regex 為 server 端格式 backstop)。
-  phone: z
-    .string()
-    .default('')
-    .refine((v) => v === '' || /^[\d\s-]{8,}$/.test(v), { error: '手機格式不正確' }),
+  // ⛔ ~~同一條 regex 的第三份~~ ⇒ 改走單一定義點;**選填照舊**(#197, 那是業務決定不是格式)。
+  phone: phoneOptional(),
   birthday: z
     .string()
     .default('')
@@ -237,10 +299,32 @@ export type ProfileInput = z.infer<typeof ProfileInput>;
 //    本 schema 只驗「結帳填寫表單」(地址 + 配送 + 發票 + flag-on 通知 Email)。
 // invoice 跨欄位驗證與 AddressInput **共用同一個** canonical schema(U3a;見 CheckoutInvoiceInput
 //    的說明,含等價性邊界與「消費端不得用 issues[0]」硬規則)。改發票規則只需改那一處。
+/**
+ * 顧客站結帳的付款方式(段 1-B, 2026-09-04)。
+ *
+ * 🔴🔴 **這兩個值與 DB 的白名單是【同一個集合】, 而它們在兩種語言裡**:
+ *   SQL `20260904020000_m4b_create_order_payment_channel.sql` 的
+ *     `p_payment_channel NOT IN ('tappay', 'bank_transfer') ⇒ RAISE`
+ *   TS  本 enum
+ *   ⇒ 🛑 **「只寫一次」物理上做不到** ⇒ ✅ 而做得到的是讓它們分岔的那一刻有東西會紅:
+ *     `payment-channel-contract.test.ts` 直接讀那支 migration 的字面對帳。
+ *   📌 **⇒ 同 `PCM_REMITTANCE_EXPIRE_DAYS` 那一格的形狀** —— 一個「單一來源」做不到的地方,
+ *     退而求其次的不是「小心一點」, 是一道會叫的閘。
+ *
+ * 🔵 **為什麼只有兩個**:`cash` 是**員工手動建單**那條路的值(`admin_create_manual_order`),
+ *   顧客站給不了;`none` 今天**零寫入端**、沒有人拍過它的語意。
+ */
+export const PAYMENT_CHANNEL_VALUES = ['tappay', 'bank_transfer'] as const;
+export type PaymentChannel = (typeof PAYMENT_CHANNEL_VALUES)[number];
+
 const CheckoutInputBase = z.object({
   addressId: z.uuid({ error: '請選擇收件地址' }),
   shippingMethod: z.enum(['home', 'store'], { error: '請選擇配送方式' }),
   invoice: CheckoutInvoiceInput,
+  // 🔴 **必填、無預設** —— 而那與 DB 那一側「不給 DEFAULT」是同一個理由的兩半:
+  //   給了預設 ⇒ client 少送時會**安靜地變成刷卡**, 而客人選的是匯款。
+  //   ⇒ 📌 這個失效模式在兩端都印成功 ⇒ 只有 server 的 read-back 分得出來(見 charge-actions)。
+  paymentChannel: z.enum(PAYMENT_CHANNEL_VALUES, { error: '請選擇付款方式' }),
 });
 
 // U3a 起這是純別名(原本承載 invoice superRefine、已移入 CheckoutInvoiceInput);

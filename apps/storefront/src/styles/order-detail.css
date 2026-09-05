@@ -243,6 +243,15 @@
 }
 .od-line-name { font-size: 15px; font-weight: 500; line-height: 1.4; }
 .od-line-fits { font-size: 12px; color: var(--c-text-3); margin-top: 4px; }
+/* ⟦ship-WHICHITEMSSHIPPED⟧ 逐件「已出貨」的灰字(Sean 2026-09-04 Q5 拍甲)。
+   🔵 值逐字沿用鄰居 `.od-line-fits` —— 同一個位置、同一種「次要資訊」的灰,
+      不自己挑一個新的灰(稿沒有這一格 ⇒ 對齊鄰居比發明一個值可被推翻)。 */
+/* 🔵 2026-09-04 `.od-line-cancel` 併進同一條規則 —— Sean 拍 Q-C 乙時逐字說
+      「與 Q5 甲的『已出貨』**同一組視覺語言**」⇒ 📌 **共用一條規則是那句話的內容,**
+      **不是省事**;拆成兩條一模一樣的規則, 下一個人改其中一條就會讓兩者悄悄分家。
+   🛑 **兩個選擇器寫在同一行**是刻意的:守門那格用「行首是 `.od-line-ship` 的那一行」定位,
+      拆成兩行會讓它只看得到前半。 */
+.od-line-ship, .od-line-cancel { font-size: 12px; color: var(--c-text-3); margin-top: 4px; }
 .od-line-r { text-align: right; white-space: nowrap; }
 .od-line-unit { font-size: 12px; color: var(--c-text-3); font-variant-numeric: tabular-nums; }
 .od-line-sum {

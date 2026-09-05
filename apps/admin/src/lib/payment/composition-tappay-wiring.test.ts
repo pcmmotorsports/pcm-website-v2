@@ -28,7 +28,31 @@ const COMPOSITION = path.join(__dirname, 'composition.ts');
  * 真程式碼一起吃掉(關卡2 codex C8)—— 守門自己被喂了假輸入,比沒守門更糟。
  */
 function stripLineComments(src: string): string {
-  return src.replace(/^\s*\/\/.*$/gm, '');
+  return src
+    .replace(/^\s*\/\/.*$/gm, '')
+    // 🔵 **2026-09-03 加:JSDoc 的續行(行首 `*`)也剝** —— 而它刻意【不是】跨行的 `/*…*/`。
+    //    🔴 上面那段 C8 的裁定**一個字都沒有被推翻**:那條講的是**跨行**吃掉真程式碼,
+    //       而這一行是**行錨的**(`^\s*\*`)⇒ 它一次只吃一行, 吃不到「中間的真碼」。
+    //    🎯 為什麼要加:2026-09-03 CI 紅了一整天, 唯一那一格紅在
+    //       `lib/dashboard/stuck-payment-read.ts:118` —— 而那是**一句 JSDoc 註解**在講
+    //       「`TAPPAY_3DS_ENABLED` 的狀態未確認」。
+    //       ⇒ 📌 而本檔自己 `:26-28` 寫著意圖:「註解裡提到…是**應該**存在的…
+    //          把註解當程式碼審會逼人寫得含糊」⇒ **它的意圖對, 而實作只剝 `//`。**
+    //    🔴🔴 **`*` 後面【必須】接空白或 `/`** —— 而這一格不是我想出來的, 是**本 repo 早就裁定過的**:
+    //       `apps/admin/src/lib/orders/nine-code-rpc-retired.test.ts:86` 用的就是 `^\s*\*[\s/]`,
+    //       理由逐字在該檔 `:85-86`(階段 C N3):
+    //       「generator 方法 `*items() {}` / `*[Symbol.iterator]()` 這種**真程式碼**會被誤剝
+    //         ⇒ 藏在裡面的字面看不見(**假綠**)」
+    //       ⇒ 🎯 而我第一版寫成 `^\s*\*.*$`(沒有那個字元類)—— **我打的是上一場的仗**:
+    //         我一直在想「跨不跨行」(C8), 而真正的缺陷在【`*` 後面是什麼】。
+    //       ⇒ 📌 **梯子第二階:這個 repo 裡已經有一份, 而我沒有去找。**
+    //    🛑 **殘餘風險(今天實例皆 0, 由對照組守著)**:
+    //       · 模板字串裡以 `*` 開頭的行 ⇒ 被剝 ⇒ 假綠(而 C8 那種是吃掉一整段, 這裡最多一行)
+    //       · prettier 的乘法續行 `  * X,` ⇒ 同上
+    //    ⚠️ **而它不涵蓋**:`/* … */` 裡**不以 `*` 開頭**的續行提到 `TAPPAY_` ⇒ 仍然會紅。
+    //       方向是**假紅**(安全的那一側), 而下一個撞到的人會拿到與今天一模一樣的紅
+    //       ⇒ **寫在這裡, 因為那個紅自己不會解釋它是哪一種。**
+    .replace(/^\s*\*[\s/].*$/gm, '');
 }
 
 /**
@@ -59,6 +83,43 @@ const SELF_EXEMPT = new Set([
   path.join(__dirname, 'composition.test.ts'),
   path.join(__dirname, 'composition-tappay-wiring.test.ts'),
 ]);
+
+describe('stripLineComments —— 這把尺自己的證人(2026-09-03)', () => {
+  // 🔴🔴 **這一組為什麼存在**:我在 `stripLineComments` 的註解裡寫過
+  //    「⇒ 下面兩發對照就是在守這一格」—— 而**那句話是假的**:
+  //    那兩發是我手動跑的突變, 跑完就還原了, **檔裡一格斷言都沒有**。
+  //    ⇒ 🎯 往下找的人會找不到, 而那句話讀起來像有人在守。
+  //    ⇒ ⇒ 📌 **一句在講「有守門」的註解, 與那個守門本身, 是兩件事。**
+  //    (adversarial-reviewer 2026-09-03 F2 抓到;形狀照
+  //     `apps/admin/src/lib/orders/nine-code-rpc-retired.test.ts:131-143` 的 prior art。)
+
+  it('🟢 正向:整行 `//` 註解要被剝掉', () => {
+    expect(stripLineComments('const a = 1;\n  // TAPPAY_ENV\n')).not.toContain('TAPPAY_ENV');
+  });
+
+  it('🟢 正向:JSDoc 續行(行首 `*`)要被剝掉 —— 這就是 CI 紅一整天的那一格', () => {
+    expect(stripLineComments('/**\n   * 而 `TAPPAY_3DS_ENABLED` 的狀態未確認\n   */\n')).not.toContain(
+      'TAPPAY_3DS_ENABLED',
+    );
+  });
+
+  it('🔴🔴 負向:generator 方法【不得】被誤剝(否則藏在裡面的字面看不見 = 假綠)', () => {
+    // 🎯 這一格是本組唯一承重的:把 `[\s/]` 那個字元類拿掉 ⇒ 只有它會紅。
+    expect(stripLineComments("  *items() { read(process.env['TAPPAY_ENV']); }\n")).toContain(
+      'TAPPAY_ENV',
+    );
+  });
+
+  it('🔴 負向:行內的 `https://…` 不受影響(`//` 那條錨在行首)', () => {
+    expect(stripLineComments("const u = 'https://x/TAPPAY_ENV';\n")).toContain('TAPPAY_ENV');
+  });
+
+  it('🔵 射程:區塊註解裡【不以 `*` 開頭】的續行**不會**被剝 —— 那是已知的、安全側的漏', () => {
+    // 🛑 這一格釘的是【它做不到什麼】。方向是假紅(會叫), 而下一個撞到的人
+    //    會拿到與今天一模一樣的紅 ⇒ 檔裡要有一句話說它不涵蓋這種, 否則那個紅不會解釋自己。
+    expect(stripLineComments('/*\nTAPPAY_ENV 寫在這裡\n*/\n')).toContain('TAPPAY_ENV');
+  });
+});
 
 describe('admin composition ↔ tapPayUrlsFor 接線(防 inline 回歸)', () => {
   const src = readFileSync(COMPOSITION, 'utf8');

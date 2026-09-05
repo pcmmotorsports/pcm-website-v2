@@ -191,6 +191,16 @@ for f in "$REPO"/supabase/migrations/*.sql; do   # 🔴 引號包在 glob 外:�
   then ok=$((ok+1)); else fail=$((fail+1)); echo "FAIL $f" >> $S/apply.log; fi
 done
 echo "migration ok=$ok fail=$fail  (判準不是全綠,是你要用的表在不在)"
+# 🔴 **失敗要叫得出【是誰】** —— 原本只印一個數字, 而那個數字對「我要用的東西在不在」零判別力。
+#    ⚠️ 而**不能**把「有失敗」當成致命:今天實測 **fail=61**(檔頭那句「27 支」自己也過期了)
+#    ⇒ 一律 rc≠0 會讓鑽機對所有人罷工。⇒ **只印, 不擋**;致命判準見下方「要用的物件在不在」。
+if [ "$fail" -gt 0 ]; then
+  grep '^FAIL ' $S/apply.log | sed 's#.*/##' | head -8 | while IFS= read -r ff; do
+    printf '  fail: %s\n' "$ff"
+  done
+  echo "  ($fail 支失敗, 上面最多列 8 支;全部見 $S/apply.log)"
+  echo "  🔵 多數是【從零重放的順序問題】, 不是那支 migration 壞了 —— 而你要用的東西在不在, 看下面那幾行"
+fi
 
 # == 重放後修補(2026-09-02 -0e)=========================================
 # 從零重放會製造出兩個【正式庫上沒有】的問題, 而兩個都是安靜的。
@@ -251,6 +261,42 @@ SQL
 
 psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q -f "$SP/seed.sql"
 echo "seed 完成: $(psql -h 127.0.0.1 -p $PG -U postgres -t -c 'select count(*) from products' | tr -d ' ') 件商品"
+
+# == 重放後修補(3)(2026-09-04 -front)=====================================
+# 🔴 **成因是【順序】, 不是檔案選取** —— 上面那個迴圈已經 glob 了全部 migration。
+#    而帶【行為斷言】的 migration(如 20260904160000 的斷言④:排氣系統/煞車系統各要 > 0 件)
+#    在【種子之前】跑 ⇒ 商品數必然是 0 ⇒ 斷言必然失敗 ⇒ 那支的新多載【從來沒被建起來】。
+# 🛑 而它失敗得很安靜:apply 迴圈只記 fail 數, 而下一個人看到的是顧客站「件數未能載入」
+#    + log 裡的 PGRST202 ⇒ **他會以為是碼壞了**(2026-09-04 我自己就這樣誤判過一次)。
+for M in 20260904160000_m4b_search_catalog_multi_category; do
+  psql -h 127.0.0.1 -p $PG -U postgres -q -f "$REPO/supabase/migrations/$M.sql" >> $S/apply.log 2>&1 || true
+done
+# 🟢 正對照:灌完要真的有那個多載。**問【多載數】不問「函式在不在」** ——
+#    舊那支一直都在, 所以「函式在不在」對這件事零判別力。
+MCNT=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "SELECT count(*) FROM pg_proc WHERE proname='search_catalog_by_vehicle' AND 'p_categories' = ANY(proargnames);" 2>/dev/null)
+if [ "${MCNT:-0}" -ge 1 ]; then echo "重放修補3:p_categories 多載 = $MCNT(多顆分類膠囊那條路可以驗)"
+else
+  echo "重放修補3:p_categories 多載 = ${MCNT:-讀不到}"
+  # 🔴🔴 **這一段我改過一次, 而【第一版是我自己的誤報】—— 訂正留著。**
+  #    ⛔ ~~多載不在 ⇒ 收攤 + exit 4~~
+  #    🔬 2026-09-04 實測:種子是變動的, 而 20260904160000 的斷言④要「排氣系統/煞車系統各 > 0 件」
+  #       ⇒ **那一輪剛好沒有那兩個分類的商品 ⇒ 重放失敗 ⇒ 我那道閘把【整台鑽機】擋死**
+  #       ⇒ 📌 **而擋死的不只是搜尋那條路 —— 是所有人的所有用途**(走結帳、看後台、量版面)。
+  #    🎯 **閘死於誤報, 遠比死於漏報常見** —— 而我昨天才在別處寫過這句。
+  # ✅ **改法**:預設**大聲印、不擋**;要硬擋的人自己開 `PROBE_REQUIRE_SEARCH=1`
+  #    ⇒ 那句「鑽機落後正式庫」照樣看得到, 而它不會替不相干的人做決定。
+  echo "🔴 鑽機落後正式庫 —— search_catalog_by_vehicle 少了 p_categories 那支多載。"
+  echo "   ⇒ **搜尋那條路今天驗不了**:每一個沒被快取的查詢都會印「件數未能載入」。"
+  echo "   成因多半是 20260904160000 的行為斷言在這一輪種子上不成立(排氣系統/煞車系統沒商品)。"
+  echo "   去看 $S/apply.log 的斷言訊息;**那不是碼壞了**。"
+  if [ "${PROBE_REQUIRE_SEARCH:-0}" = "1" ]; then
+    echo "   ⛔ PROBE_REQUIRE_SEARCH=1 ⇒ 收攤並以 rc=4 結束(你自己要求硬擋的)"
+    bash "$(dirname "$0")/down.sh" > /dev/null 2>&1 || true
+    exit 4
+  fi
+  echo "   🔵 而鑽機【照常起】—— 其他用途(結帳 / 後台 / 版面)不受這一格影響。"
+fi
+
 
 # -- 選車自檢(2026-09-02 -0e):種子的車款有沒有真的流進那條路 --------------
 # 為什麼要這一格:trigger sync_product_fitments 讀 elem->>'motoBrand',
@@ -509,4 +555,52 @@ if [ "$HEAD_HERE" != "$HEAD_MAIN" ]; then
   } >&2
 else
   echo "✅ 起站樹與主樹 HEAD 相同($HEAD_HERE)—— 這一格【有比過】,不是沒印就沒事。起站時刻:$STARTED_AT" >&2
+fi
+
+# ══ 收尾閘:這條鏈的每一段【真的在聽嗎】 ═══════════════════════════════════════
+# 🔴🔴 **形狀抄 `admin-probe/up.sh` 的同名段(2026-09-04 線 `-ship` 在那支上實撞後加的)**:
+#    那一次 `up` 回 **rc=0**,而 `proxy.log` 裡是 `OSError: [Errno 48] Address already in use`
+#    ⇒ **proxy 根本沒起來**,而之後讀到的每一個畫面都是【無效量測】而**看起來完全正常**。
+# 🔴 **而本支腳本【當時沒有撞到】—— 那不是它沒問題**:
+#    同一夜我用了它四次而剛好沒有人跟我搶埠。
+#    📌 **⇒ 一個靠運氣沒發生的失效, 與一個不會發生的失效, 在使用紀錄上長得一樣。**
+#    ⇒ 而六個窗同時在跑 ⇒ **搶埠的機率只會升不會降。**
+# 🔴 **而起之前那道前置閘擋不住這個** —— 它問的是「起之前埠空著嗎」,
+#    而檢查完到綁埠之間有時間差。**檢查那一刻是誠實的。**
+#    ⇒ ✅ **判準要換成「起完之後它真的在聽」。**
+# 🛑 **而這一段刻意【不 exit 1】** —— 有些片(純看版面)在 proxy 死掉時仍然做得下去,
+#    而把它們一起擋掉會讓人**想繞過這道閘**。紅的那幾格由人判要不要往下做。
+echo
+_LISTEN_BAD=0
+for _p in "$WEB" "$PROXY" "$PREST" "$CORS" "$PG"; do
+  # 🔴 `[.*]` 是刻意的:綁 127.0.0.1 印成 `127.0.0.1.3040`,綁全介面印成 `*.3989`
+  #    ⇒ 只認 `\.` 會漏掉後者。
+  _n=$(netstat -an -p tcp 2>/dev/null | grep LISTEN | grep -c "[.*]$_p " || true)
+  if [ "${_n:-0}" = "0" ]; then
+    echo "🔴 埠 $_p **沒有人在聽** —— 這條鏈少了一段。" >&2
+    _LISTEN_BAD=1
+  fi
+done
+# 🔴 **`grep -c` 印 0 的時候 rc=1** —— 而本檔是 `set -euo pipefail`
+#    ⇒ 少了那個 or-true 的兜底, **這道閘會在「一切正常」時把整支腳本殺掉**
+#    (2026-09-04 在 admin 那支實撞:up 回 rc=1、而閘一個字都沒印)
+#    📌 **⇒ 一道守門死在它自己要守的那個綠上。**
+_E48=$( { grep -c "Address already in use" "$S"/*.log 2>/dev/null || true; } \
+        | awk -F: '{s+=$NF} END {print s+0}' )
+if [ "${_E48:-0}" != "0" ]; then
+  echo "🔴 log 裡有 $_E48 次 \`Address already in use\` ⇒ **有東西沒搶到埠**。" >&2
+  _LISTEN_BAD=1
+fi
+if [ "$_LISTEN_BAD" = "0" ]; then
+  echo "🟢 收尾閘:$WEB / $PROXY / $PREST / $CORS / $PG **五個都在聽**,且 log 零 \`Address already in use\`。" >&2
+else
+  {
+    echo "🛑 **上面那幾格是紅的 ⇒ 這台鑽機【只有一部分起來了】。**"
+    echo "   🔴 **而這支腳本仍然會回 rc=0** —— 那不是漏洞,是刻意:紅的那幾格由你判要不要往下做。"
+    echo "   ⇒ 🎯 **而【rc=0】不代表起來了。** 換一組埠重跑(env.sh 那五個都可覆寫):"
+    echo "        STOREFRONT_PROBE_DIR=/tmp/pcm-g3-probe-b STOREFRONT_PROBE_WEB=3041 \\"
+    echo "        STOREFRONT_PROBE_PROXY=3898 STOREFRONT_PROBE_PREST=3899 \\"
+    echo "        STOREFRONT_PROBE_CORS=3997 STOREFRONT_PROBE_PG=55654 \\"
+    echo "          bash scripts/storefront-probe/up.sh"
+  } >&2
 fi

@@ -53,7 +53,7 @@ GATE_SRC="$(cd "$(dirname "$0")" && pwd)/deploy-order-gate.sh"
 test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;數法=腳本尾端印的 PASS=)
-EXPECT_TOTAL=65
+EXPECT_TOTAL=66
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -928,6 +928,52 @@ if [ "$_iso_after" = "0" ] && [ "$_iso_none" = "2" ]; then
   ok "㊹ GIT_* 隔離:有剝 ⇒ 0 個殘留;不剝 ⇒ 2 個(負對照有力)"
 else
   bad "㊹ GIT_* 隔離失效或負對照無力:有剝=[$_iso_after](期望 0)/ 不剝=[$_iso_none](期望 2)"
+fi
+
+# ── 格㊺:🔴🔴 **hook 的離場碼真的來自那條 `&&` 鏈嗎**(2026-09-04 實錘, 線 -db)──
+#   病灶:`&&` 鏈後面被加了一個 `if [ -f …always-loaded-size-gate.sh ]` 區塊
+#   ⇒ **hook 的離場碼變成【那個區塊的】** ⇒ typecheck 紅了照樣放行。
+#   🔬 當場拿真的檔實跑(pnpm 換成必紅的樁):**rc=0** —— 那道保護從來沒有接上。
+#   📌 而 `.husky/pre-push` 的**第 1 行註解逐字寫過這個病**(「第一版寫成兩行…離場碼是最後一行的」)
+#      ⇒ 它被修好過, 而後來加的區塊把它裝回去了 ⇒ **一段講對了的註解擋不住同一個病復發。**
+#   🔴 `sh -e` 只救得了【末段】(R1 訂正):AND-OR 串列裡非末段的失敗被 errexit 豁免,
+#      末段的照樣觸發 ⇒ **fail-open 涵蓋第 1-4 支, 第 5 支本來就擋得住。**
+#   ⇒ 修法 = 那一行尾巴 `|| exit $?`(不是 `|| exit 1` —— 鏈裡有三態閘, 壓成 1 會吃掉 2/9;
+#      格⑱ 那三串字面一字未動)。
+#   正對照:真的 hook + 必紅的 pnpm 樁 ⇒ 必須非 0(鏈在第一段就中止, 秒級)
+#   🔴 負對照用**突變**不用綠樁:綠樁那一發會去跑真的閘(分鐘級), 而突變同樣證得出判別力 ——
+#      把 `|| exit 1` 拿掉的副本 ⇒ 必須回 0。沒有它, 這一格會恆綠。
+# 🔴 R1 must-fix:**不另開一個沒人管的目錄** —— 旁邊的 `$WORK` 已經有 EXIT trap(:85),
+#    而裸 `mktemp -d` 失敗時本檔 `set -uo pipefail`(無 `-e`)不會停 ⇒ `_pp_stub=""`
+#    ⇒ `PATH=":$PATH"` 會拿【真的 pnpm】跑整套 typecheck+lint+四支 gate(分鐘級),
+#      而最後那句 `rm -rf ""` 正是本檔 :84 警告過的「看起來像它清乾淨了」。
+_pp_stub="$WORK/pp45"
+mkdir -p "$_pp_stub" || bad "㊺ 建不出工作目錄"
+printf '#!/bin/sh\nexit 1\n' > "$_pp_stub/pnpm" && chmod +x "$_pp_stub/pnpm"
+_pp_hook="$(cd "$(dirname "$0")/.." && pwd)/.husky/pre-push"
+_pp_mut="$_pp_stub/pre-push-mutated"
+# 🔴 R1 must-fix:突變**只打鏈尾那一行**, 不用 `s/ || exit \$?$//` 全檔剝 ——
+#    `.husky/pre-push:42` 的 `_T="$(mktemp)" || exit 1` 也會被打到, 而突變不該是多點的。
+sed 's/\(selftest-git-isolation-gate\.sh" < \/dev\/null\) || exit \$?/\1/' "$_pp_hook" > "$_pp_mut"
+# 🔴 R1 must-fix:**先驗突變有沒有套上** —— 日後鏈尾字面一改, sed 零命中 ⇒ 突變 ≡ 原檔
+#    ⇒ 本格會紅在「負對照無力」, 而真因是「突變沒落在目標上」。兩者要分得開。
+if cmp -s "$_pp_hook" "$_pp_mut"; then
+  bad "㊺ 突變沒套上(sed 零命中 ⇒ 副本與原檔逐位元組相同)⇒ 鏈尾字面變了, 去對 .husky/pre-push"
+else
+  # 🔵 R1 nit:負對照 `_pp_mutated=0` 的前提是 `always-loaded-size-gate.sh --at-head` 回 0。
+  #    CLAUDE.md 逼近 HARD 上限時它會回非 0 ⇒ 本格會印「負對照無力」而真因是別的檔胖了。
+  #    ⇒ 先量一發, 被汙染時說「無法判定」, 不要報成本格失效。
+  sh "$(dirname "$_pp_hook")/always-loaded-size-gate.sh" --at-head > /dev/null 2>&1
+  _pp_sizegate=$?
+  PATH="$_pp_stub:$PATH" sh -e "$_pp_hook" < /dev/null > /dev/null 2>&1 ; _pp_real=$?
+  PATH="$_pp_stub:$PATH" sh -e "$_pp_mut"  < /dev/null > /dev/null 2>&1 ; _pp_mutated=$?
+  if [ "$_pp_sizegate" -ne 0 ]; then
+    bad "㊺ 無法判定(被 size gate 汙染):always-loaded-size-gate --at-head rc=$_pp_sizegate ⇒ 突變那一發不論修法對錯都會非 0"
+  elif [ "$_pp_real" -ne 0 ] && [ "$_pp_mutated" -eq 0 ]; then
+    ok "㊺ pre-push 離場碼:三綠紅 ⇒ 擋(rc=$_pp_real);拿掉鏈尾 || exit \$? 的突變 ⇒ 放行(rc=$_pp_mutated)= 負對照有力"
+  else
+    bad "㊺ pre-push 離場碼失效或負對照無力:真檔=[$_pp_real](期望非 0)/ 突變=[$_pp_mutated](期望 0)"
+  fi
 fi
 
 echo

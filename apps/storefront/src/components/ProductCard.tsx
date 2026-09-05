@@ -15,6 +15,7 @@
 import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
+import { brandToSlug } from '@/data/mock-products';
 import { MAX_QTY, useCart } from '@/contexts/CartContext';
 import { useFavorites } from '@/contexts/FavoritesContext';
 import { readSearchVehicle } from '@/lib/search-vehicle';
@@ -193,7 +194,22 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
         {/* 🔴 2026-08-22:拿掉了 seed={p.id} —— 它唯一的用途是餵 productGallery(seed) 去挑
             三張 Unsplash 示意圖, 而那整段已經換成站內佔位圖。留著一個沒有人讀的 prop,
             下一個人會以為圖片還跟商品 id 有關。 */}
-        <ProductImage tone={p.imgTone} label={p.brand} hover={hover} image={p.image} trim={p.imageTrim} />
+        <ProductImage
+          tone={p.imgTone}
+          label={p.brand}
+          hover={hover}
+          image={p.image}
+          trim={p.imageTrim}
+          // 🔵 與 `lib/brand-taxonomy.ts:34` 同一個既有形狀:`brandSlug` 是真資料權威 id,
+          //    mock / 舊 fixture 省略時以 `brandToSlug(brand)` 衍生。
+          //    ⚠️ **衍生值不保證對得上表的 key** ⇒ 對不上 `brandLogoSrc` 回 null ⇒ 退回站內佔位圖, 不會破圖。
+          //    ⛔ ~~原本這裡舉的例子是「`K SPEED`→`k-speed` 而目錄是 `kspeed` ⇒ 回 null」~~ —— **那個例子已經不成立**:
+          //       表的 key 是**品牌 slug**(`'k-speed'`), 不是目錄名 ⇒ `brandToSlug('K-SPEED')='k-speed'` ⇒ **命中**。
+          //       🔴 那句話寫的是「key = 目錄名」那個**錯的心智模型** —— key 修好了而替它辯護的註解沒跟上。
+          //    🔵 真正對不上的是**顯示名帶後綴**那幾家(`BONAMICI RACING`→`bonamici-racing` 而 key 是 `bonamici`),
+          //       而它們只在 mock/fixture 那條路發生 —— 真資料走 `p.brandSlug`(DB `brands.slug`), 不走衍生。
+          brandSlug={p.brandSlug?.trim() || brandToSlug(p.brand)}
+        />
         {badge && <div className="pcard-badge">{badge}</div>}
         {/* 沒貨徽章移除(M-1-13e-pre-3、Sean 2026-05-21 業務拍板「不顯示有無庫存」、
             storefront 偏離 design 字面 L101-103、backlog #161 追蹤 Claude Design 補對齊) */}

@@ -104,10 +104,15 @@ describe('ProductCard', () => {
   //    ⇒ 客人看到破圖, 而我們沒有任何控制權。Sean 2026-08-22 答「甲」⇒ 改用站內佔位圖。
   //    ⚠️ **這格原本在擋什麼?擋「無真圖時什麼都不渲染」。那件事沒有變** ——
   //       它仍然在守「一定要有一張圖」, 只是那張圖從別人家的變成我們自己的。
-  it('should fall back to the local placeholder image when p.image is absent', () => {
+  it('should show the brand logo + 「暫無照片」 when p.image is absent', () => {
     render(<ProductCard p={product} />);
     const imgs = screen.getAllByAltText(product.brand);
-    expect(imgs.some((el) => el.getAttribute('src') === '/placeholder-product.png')).toBe(true);
+    // 🔴🔴 2026-09-03 這一格【又翻了一次】—— Sean 拍甲:無真照片改顯示【品牌 logo + 小字「暫無照片」】。
+    //    ⚠️ **這格原本在擋什麼?擋「無真圖時什麼都不渲染」。那件事仍然沒有變** ——
+    //       它還是在守「一定要有一張圖」, 只是那張圖從站內佔位圖換成了品牌 logo。
+    //    🔵 而沒有 logo 的品牌仍然退回站內佔位圖(另一格釘住)⇒ 兩條路都有圖, 不變式沒破。
+    expect(imgs.some((el) => el.getAttribute('src') === '/brands/lightech/logo.png')).toBe(true);
+    expect(screen.getByText('暫無照片')).toBeTruthy();
     // 🔴 負向那半:不准再有任何東西打向外部圖庫(這條在 unsplash 整支刪掉前是紅的)
     expect(imgs.some((el) => el.getAttribute('src')?.includes('unsplash'))).toBe(false);
   });
@@ -153,12 +158,57 @@ describe('ProductCard', () => {
     }
   });
 
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴🔴 image 有值【不等於】有照片(2026-09-03 量:來源 1,011 列的 image_url 是「查無圖片」的卡)
+  // ══════════════════════════════════════════════════════════════════════
+  const PCM_CARD = 'https://quote.pcmmotorsports.com/no-photo.png';
+  const SUPPLIER_PH = 'https://www.extreme-components.com/x/noimage.jpg';
+
+  it.each([
+    ['PCM 自己的卡', PCM_CARD],
+    ['供應商的佔位圖', SUPPLIER_PH],
+  ])('🔴 image 是【%s】⇒ 走無真照片分支(顯示品牌 logo, 不把那張卡當商品照片放大)', (_k, url) => {
+    // 🎯 這一格是這一片的本體。少了 ProductImage 的 hasNoRealImage(image),
+    //    這些商品會走「真圖」分支 ⇒ 客人看到一張「暫無照片」的卡被當成商品照片顯示,
+    //    而下面整個無真圖分支對它們永遠到不了。
+    render(<ProductCard p={{ ...product, image: url }} />);
+    const imgs = screen.getAllByAltText(product.brand);
+    expect(imgs.some((el) => el.getAttribute('src') === '/brands/lightech/logo.png')).toBe(true);
+    expect(screen.getByText('暫無照片')).toBeTruthy();
+    // 🔴 而那張佔位圖本身【不准】被渲染出來
+    expect(imgs.some((el) => el.getAttribute('src') === url)).toBe(false);
+  });
+
+  it('🟢 反向那半:真圖照樣是真圖(證明上面那把尺不是恆真)', () => {
+    const real = 'https://cdn.shopify.com/s/files/real-carbon.jpg';
+    render(<ProductCard p={{ ...product, image: real }} />);
+    const imgs = screen.getAllByAltText(product.brand);
+    expect(imgs.some((el) => el.getAttribute('src') === real)).toBe(true);
+    expect(imgs.some((el) => el.getAttribute('src') === '/brands/lightech/logo.png')).toBe(false);
+    expect(screen.queryByText('暫無照片')).toBeNull();
+  });
+
+  it('🛑 品牌沒有 logo 檔 ⇒ 退回站內佔位圖(不得破圖、不得只剩文字)', () => {
+    // 「一定要有一張圖」這個不變式沒有變 —— 只是有 logo 的走 logo、沒有的走原本那張。
+    // 🔴 用 `WRS` 而不是中文假品牌:`brandToSlug('沒有這個品牌')` 會回**空字串**
+    //    ⇒ 打到的是 `brandLogoSrc` 的 `if (!slug)` 早退, **不是「slug 在而表裡沒有」那條**。
+    //    而 WRS 是真的有這個情況的那一家(它有 brands-dark 檔而刻意不入表)。
+    // 🔴 2026-09-04:原本用 `WRS` —— 而 **wrs 現在有 logo 了**(從 brands-trim 補上)⇒ 這一格會綠得沒意義。
+    //    改用一個**形狀合法但不在表裡**的 slug:`brandToSlug('ZZZ TEST') = 'zzz-test'`
+    //    ⇒ 打到的是「查表落空」那條, 不是 `if (!slug)` 的早退(空字串會走早退, 那是另一回事)。
+    render(<ProductCard p={{ ...product, image: null, brand: 'ZZZ TEST', brandSlug: undefined }} />);
+    const imgs = screen.getAllByAltText('ZZZ TEST');
+    expect(imgs.some((el) => el.getAttribute('src') === '/placeholder-product.png')).toBe(true);
+  });
+
   // 圖框白底(2026-08-06 拍 A)· 漸層 placeholder 分支釘住不變(本片刻意不動、見 ProductCard.tsx 元件註解)
   it('should keep the colored gradient background for the no-real-image placeholder path (untouched by 08-06 white-card change)', () => {
     render(<ProductCard p={{ ...product, image: null }} />);
     // 🔴 2026-08-22:取法從「找 unsplash 那張」改成「找佔位圖那張」——
     //    同一個目的(拿到 placeholder 分支渲染出來的那張圖), 只是它的 src 換了。
-    const img = screen.getAllByAltText(product.brand).find((el) => el.getAttribute('src') === '/placeholder-product.png')!;
+    // 🔴 2026-09-03:取法第三次改 —— unsplash 那張 → 站內佔位圖 → **品牌 logo**。
+    //    目的始終是同一個:拿到【無真圖分支】渲染出來的那張圖, 只是它的 src 換了三次。
+    const img = screen.getAllByAltText(product.brand).find((el) => el.getAttribute('src') === '/brands/lightech/logo.png')!;
     const gallery = img.closest('.pcard-gallery') as HTMLElement;
     expect(gallery.style.background, '前提(非獨立防線,被下面的 toContain 嚴格蘊含):gallery 有算出 background(非空字串)').not.toBe('');
     expect(gallery.style.background, 'placeholder 分支應仍是 linear-gradient、不是純白').toContain('linear-gradient');
@@ -250,5 +300,55 @@ describe('🔴 SALE 角標:拿不到價格時不得編造一個折扣(Sean 2026-
   it('正對照:price = 3000 / origPrice = 5000 ⇒ -40%(證明這把尺會動)', () => {
     const { container } = render(<ProductCard p={withBadge(3000)} badgeStyle="corner" />);
     expect(container.textContent ?? '').toContain('-40%');
+  });
+});
+
+// ── 2026-09-05 線 `-front`:一格會紅的守門, 釘住那 12 格 `it.skip` 的【前提】 ─────────────
+//
+// 🔴 **它守的不是行為, 是一個【拍板還成不成立】。**
+//    `apps/storefront/src/components/product-card-quick-add.test.tsx` 有 **10 格** `it.skip`
+//    (`:93 :188 :211 :223 :240 :248 :263 :280 :298 :324`), 本檔另有 **2 格**(`:249 :261`)
+//    ⇒ **合計 12 格**(數法:`grep -n '\bit\.skip('` 那兩支檔;🔵 `it.skipIf(...)` 是**另一族**
+//      —— 有條件跳過、有稿才跑, 不要跟這 12 格算在一起;而 `ProductCard.tsx:144` 那一處是**註解**)。
+//
+// 🛑 **那 12 格不是壞掉, 是【前提被拿走了】**:卡片「直接加進購物車」那條路**只服務零變體商品**,
+//    而 **Sean 2026-08-31 拍「一件沒有規格的商品【不賣】」**(板 `⟦b4-NOVARIANT1⟧`)⇒ 那條路關了。
+//
+// 🔴 **而【哪天他改口】, 沒有任何東西會把人指回那 12 格。**本格就是那個東西:
+//    前提若在碼裡被翻開(零變體又能直接加購), **這一格會紅, 而紅訊息逐字指回那 12 格與拍板。**
+//
+// 🔵 **為什麼寫在【這支檔】而不是另開一支掃描型守門**:掃描型守門用 `readFileSync` 讀字串、
+//    **不 import 被測檔** ⇒ `vitest related` 的分母裡**結構上沒有它** ⇒ 改 `ProductCard.tsx` 的人
+//    不會跑到它(板 `⟦b9-NOCARRIER1⟧` 那一族的病)。本檔**已經 import `ProductCard`** ⇒ 進得了分母。
+describe('前提守門 · 零變體商品【不賣】(Sean 2026-08-31 拍板)', () => {
+  const 指回 =
+    '這一格紅了 = 那個前提被翻開了 ⇒ 回去把那些 skip 解掉。' +
+    // 🔴 單位寫清楚, 否則下一個人會數出第四個數(2026-09-05 實測:同一批東西被數成 23 / 12 / 13)。
+    '分佈:product-card-quick-add.test.tsx 10 處(:93 :188 :211 :223 :240 :248 :263 :280 :298 :324)' +
+    ' + 本檔 :249 :261 兩處 + 本檔 :64 一處 it.skip.each(兩列)' +
+    ' ⇒ 【呼叫處 13】=【測項 14】。' +
+    '(數法要吃得下 .each:/\\b(?:it|test|describe)\\.skip(\\.each)?\\s*[([]/ ,並排掉註解行與非測試檔 —— ' +
+    '只寫 it.skip( 會漏掉 :64 那處、又會多抓 ProductCard.tsx:144 的註解與 10 處 it.skipIf)。' +
+    '它們的前提是板 ⟦b4-NOVARIANT1⟧ 與 Sean 2026-08-31「一件沒有規格的商品不賣」。';
+
+  it('🔴 零變體 ⇒ 鈕字面不是加購類(它不會加, 就不能那樣寫)', () => {
+    render(<ProductCard p={{ ...MOCK_PRODUCTS[0]!, variantCount: 0 }} />);
+    const txt = document.body.textContent ?? '';
+    expect(txt, `零變體卡片上出現了加購字面。${指回}`).not.toContain('加入購物車');
+    // 🔵 正面那半:它應該說「查看商品」—— 少了這句, 上面那條在【鈕整個消失】時也會綠。
+    expect(txt, `零變體卡片沒有「查看商品」⇒ 鈕可能整個不見了, 那不是本格要的通過。${指回}`).toContain('查看商品');
+  });
+
+  it('🔴 零變體 ⇒ 點那顆鈕不會把東西放進購物車', () => {
+    const { container } = render(<ProductCard p={{ ...MOCK_PRODUCTS[0]!, variantCount: 0 }} />);
+    // 🔴 **不要用鈕上的【字面】去找它** —— 前提被翻開時字面正是會變的那個東西,
+    //    那時 `getByText` 會先炸在「找不到元素」, 印出 vitest 的通用訊息,
+    //    而**本格的價值全在下面那則指回訊息** ⇒ 紅了卻沒有人被指回去。
+    //    (2026-09-05 實測:第一版就是這樣紅的。)⇒ 改用**結構**定位:卡片裡那顆 quick 鈕。
+    const btn = container.querySelector('button.pcard-quick-btn') ?? container.querySelector('button');
+    expect(btn, `卡片上一顆按鈕都沒有 ⇒ 這一格量不到東西, 不要當成通過。${指回}`).toBeTruthy();
+    fireEvent.click(btn!);
+    const after = document.body.textContent ?? '';
+    expect(after, `點下去之後出現了「已加入」類回饋 ⇒ 那條路被打開了。${指回}`).not.toContain('已加入');
   });
 });

@@ -33,6 +33,36 @@ function makeDeps(parts: {
   return { deps, lookup, release, settle };
 }
 
+describe('preflightReleaseSibling — bank_pending(M-4b 段 1 片 A)', () => {
+  // 🔴 Sean 2026-09-04 追加拍板 Q-改付款 逐字:「乙 讓他刷卡, 而自動把那張匯款單取消」
+  //   ⇒ 這裡只驗前半(讓他刷)。**自動取消在片 B**, 不在本檔。
+  const bankSibling = (): SiblingLookupResult => ({
+    kind: 'bank_pending',
+    existingOrderId: ORDER,
+    displayId: DISPLAY,
+  });
+
+  it('🔴 bank_pending → proceed(讓他刷卡), 而 settle / release 各 0 次', async () => {
+    // 🛑 三個「0 次」不是湊數:
+    //   settle  ⇒ 匯款單沒有卡片交易可以問 TapPay(rec/bank 兩個都 NULL)
+    //   release ⇒ 它沒有 attempt 可以釋放
+    //   而回 proceed 而不是 hold ⇒ hold 在客人那端是「請勿重複付款」+ 鎖死按鈕 = 擋住他 = 甲
+    const { deps, lookup, release, settle } = makeDeps({ lookup: async () => bankSibling() });
+    const res = await preflightReleaseSibling(deps, INPUT);
+    expect(res).toEqual({ kind: 'proceed' });
+    expect(lookup).toHaveBeenCalledWith(INPUT.cartSessionId);
+    expect(settle).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
+  });
+
+  it('🟢 正對照:active 仍然走 settle(舊行為逐字不變)', async () => {
+    // 🛑 少了這一格, 一個「把所有東西都當成 bank_pending」的實作也會讓上一格通過。
+    const { deps, settle } = makeDeps({ lookup: async () => activeSibling() });
+    await preflightReleaseSibling(deps, INPUT);
+    expect(settle).toHaveBeenCalled();
+  });
+});
+
 describe('preflightReleaseSibling — siblingLookup 三態', () => {
   it('none → proceed;lookup 以 cartSessionId 呼、不 settle/release', async () => {
     const { deps, lookup, release, settle } = makeDeps({ lookup: async () => ({ kind: 'none' }) });

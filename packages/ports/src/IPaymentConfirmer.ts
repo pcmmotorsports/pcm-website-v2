@@ -29,7 +29,16 @@ export interface IPaymentConfirmer {
   /**
    * 呼 record_pending_invoice RPC 在成交(paid)點冪等記「該單待開票」(M-3 3DS-1b、S1=B、master plan §5)。
    *
-   * 回 `true`=首記 / `false`=重入 no-op(ON CONFLICT DO NOTHING、order_id 冪等鍵);0c RPC 內 fail-closed
+   * 回 `true`=首記 / `false`=重入 no-op(ON CONFLICT DO NOTHING、order_id 冪等鍵);
+ *
+ * 🔴🔴 **2026-09-04:`false` 現在有【第三個來源】** —— `orders.invoice_requested = false`
+ *    (= 這張單決定不開發票)⇒ 那支函式**安靜回 `false`**, 不建待開票列、不丟例外
+ *    (`20260904224500` 那支 migration 改的;呼叫端是 best-effort, 丟例外會讓每一張正常的
+ *     不開發票訂單被當成故障重試)。
+ * ⚠️ **⇒ 所以「`false` = 重入」這句話【現在是假的】** —— 它可能是重入, 也可能是【不需要開票】。
+ *    🛑 **今天沒有人讀這個回傳值**(`settleCharge` 是 `Promise<void>`)⇒ 疊第三個意思不痛;
+ *    🔴 **而第一個要讀它的人打開的是【這裡】, 不是那支 migration** ⇒ 那句話必須寫在這裡。
+ *    ⇒ 📌 **有人開始讀它的那一天, 先把這三種分開再讀。**0c RPC 內 fail-closed
    * 驗 orders.payment_status='paid'(非 paid → throw)。settleCharge **best-effort** 呼(throw 只 log、不翻 paid);
    * 同 payment_confirmer 窄權連線(0c 已 GRANT)。
    */

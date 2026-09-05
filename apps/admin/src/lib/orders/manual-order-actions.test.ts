@@ -65,6 +65,8 @@ import {
   MANUAL_ORDER_SHIP_TO_NAME_FIELD,
   MANUAL_ORDER_SHIP_TO_PHONE_FIELD,
   MANUAL_ORDER_SOURCE_FIELD,
+  MANUAL_ORDER_INVOICE_REQUESTED_FIELD,
+  MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD,
   MANUAL_ORDER_INVOICE_TYPE_FIELD,
 } from './manual-order-form';
 
@@ -170,6 +172,18 @@ function base(over: Array<[string, string]> = []): FormData {
     [MANUAL_ORDER_SHIP_TO_PHONE_FIELD, '0912345678'],
     [MANUAL_ORDER_SHIP_TO_LINE_FIELD, '台北市中正區某路 1 號'],
     [MANUAL_ORDER_INVOICE_TYPE_FIELD, 'personal'],
+    // 🔴🔴 **這一格是 2026-09-05 補的, 而它是【一次真的事故】留下的**(`⟦b4-INVOICE5PCT⟧` 第 2 步):
+    //    那一片讓解析器對「`invoice_requested` 欄位整個不在」**拒絕建單**(欄位不在 = 表單壞了,
+    //    而預設成 false 等於替員工做一個決定)。
+    //    ⇒ 而本檔的 `base()` 是那之前寫的 ⇒ 解析失敗 ⇒ `createManualOrder` **0 次呼叫**
+    //    ⇒ 🔴 **本檔 21 格 + `subtotal-writers-allowlist` 1 格全紅, 而它在【合進 dev 之後】才顯形。**
+    //    📌 **成因不是那個改動, 是我當初挑的測試分母沒有涵蓋這支檔** ——
+    //       我餵的是自己選的三支, 而 `vitest related` 對本檔結構上撈不到(它 mock 掉了解析器的上游)。
+    //       ⇒ 下一個改 `parseManualOrderForm` 拒絕條件的人:**這裡也要一起改。**
+    // 🔵 值用 `'off'` 不是 `'on'` —— 表單那邊的 hidden 預設就是 `off`(沒勾), 而勾了才多一個 `on`。
+    [MANUAL_ORDER_INVOICE_REQUESTED_FIELD, 'off'],
+    // 🔵 留白 = 不寄(片 E)。缺欄會被解析端當錯 ⇒ fixture 一定要帶這一格。
+    [MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD, ''],
     ...LINE_ROWS,
   ];
   for (const [k, v] of [...rows, ...over]) fd.append(k, v);
