@@ -504,6 +504,23 @@ export async function GET(request: Request): Promise<Response> {
         return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
       }
 
+      /**
+       * ⟦b4-PENDINGREFUNDSILENT⟧(2026-09-05):`get_pcm_incident_health` 讀不到。
+       * 🛑 **為什麼 503 而不是靜靜回 200**:回 200 等於宣稱「今天沒有被吞掉的失敗」——
+       *    而我根本沒量到。而那張表上的每一列都代表「有人匯了錢而退款單沒開成」。
+       * 🔴 **這個出口不是可選的** —— 本檔被 codex 抓過兩次同一個形狀:
+       *    adapter 算了 `*Unknown` 而 route 沒有消費它 ⇒ 📌 **旗標存在而沒有人看 = 那一格不存在。**
+       *    (:428-433 逐字記著 `orderCreatedGapUnknown` 與 `shippedGapUnknown` 那兩次。)
+       */
+      if (result.pcmIncidentUnknown) {
+        console.error(
+          '[anomaly-alert] 🔵 get_pcm_incident_health 讀不到 ⇒ 那一格是【查不到】不是【沒有事故】',
+          { ...result },
+        );
+        await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+        return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+      }
+
       if (result.aclDriftUnknown) {
         console.error(
           '[anomaly-alert] 🔵 pcm_acl_drift_status 讀不到或太舊 ⇒ 權限漂移今天是【查不到】不是【沒有漂移】',

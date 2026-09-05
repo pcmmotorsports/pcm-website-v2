@@ -103,6 +103,16 @@ function twoQueryClient(
    * ⇒ 📌 預設值讓既有那 20+ 格繼續測【今天線上真的是那個世界】—— 一格期望值都不用動。
    */
   trackingCorrected?: unknown,
+  /**
+   * 🔵 ⟦b4-PENDINGREFUNDSILENT⟧(2026-09-05):`get_pcm_incident_health`。
+   * 🔴 **預設 `undefined` = 那支 RPC 不存在** —— 而這一格與上面幾支【理由不同】:
+   *    `20260905290000` **今天已經被 Sean 貼進正式庫了**(帳本有記)。
+   *    ⇒ 預設值留 `undefined` 是為了**讓既有那 20+ 格的世界不變**, 不是在描述線上狀態。
+   *    ⇒ 📌 要測「它在」的世界, **明確傳一份 payload 進來**。
+   * 🔴 **排在最後, 不插中間** —— 位置參數插中間會讓既有呼叫端安靜錯位, 而型別全是 `unknown`
+   *    ⇒ typecheck 不會紅。
+   */
+  incident?: unknown,
 ) {
   return makeClient({
     query: async (text: string) => {
@@ -130,6 +140,16 @@ function twoQueryClient(
             },
           ],
         };
+      }
+      // 🔴 codex 2026-09-05 must-fix ②:原本**沒有這個分支**
+      //    ⇒ 那一發查詢掉進最後的 `resultRows(counts)` ⇒ 解析永遠是 Unknown
+      //    ⇒ 📌 **payload 正確也映射不出來、位置參數錯位, 查詢次數那一格照樣綠。**
+      //    ⇒ 一個「只驗得到 Unknown」的 mock, 對這一族等於沒有測試。
+      if (text.includes('get_pcm_incident_health')) {
+        if (incident === undefined) {
+          throw Object.assign(new Error('function does not exist'), { code: '42883' });
+        }
+        return resultRows(incident);
       }
       if (text.includes('get_cron_heartbeat_stale_counts')) {
         if (heartbeat === undefined) {
@@ -297,6 +317,13 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       orderRefundsStuckOvernightCount: null,
       orderRefundsManualFailedCount: null,
       orderRefundsStuckUnknown: true,
+      // 🔵 ⟦b4-PENDINGREFUNDSILENT⟧(2026-09-05):本 fixture 的 mock 沒有回
+      //    `get_pcm_incident_health` 的東西 ⇒ 那一格**應該**落 Unknown。
+      //    🔴 `pcmIncidentUnknown: true` 就是這一族的驗收:**沒讀到不可以印 0。**
+      pcmIncidentOpenTotal: null,
+      pcmIncidentUnknown: true,
+      pcmIncidentOldest: null,
+      pcmIncidentByKind: {},
       // 🔴 `FULL` 是**舊版 RPC 的形狀**(沒有那五個單號鍵)⇒ 五個都降級成 `[]`。
       //    這一格釘的就是「程式先上、migration 後 apply」那個部署窗口的行為:
       //    **告警照常寄、只是沒有單號**,而不是整支 503 把雙扣告警停掉。
@@ -371,7 +398,8 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
     //    🔴 這個數字**是承重的** —— 它釘住「我加了一發查詢」會被看見,
     //       而不是安靜地多打一次資料庫。
     // 🔵 11 ⇒ 12:⟦b4-RETRYGAVEUPNOWATCHER⟧ 多一發 get_settle_retry_gaveup_health。
-      expect(query).toHaveBeenCalledTimes(12);
+      // 🔵 12 ⇒ 13(2026-09-05:多一發 `SELECT public.get_pcm_incident_health()`)。
+      expect(query).toHaveBeenCalledTimes(13);
     expect(query.mock.calls[1]![0]).toContain('get_payment_anomaly_alert_display_ids');
     expect(query.mock.calls[2]![0]).toContain('get_order_refunds_stuck_summary');
     expect(res.openDisplayIds).toEqual(['PCM-2026-0104']);
@@ -1918,4 +1946,55 @@ describe('PgAnomalyAlertReaderAdapter.getSearchLogHealth(⟦search-LOGSILENTZERO
     //    而它的症狀出現在【很久以後、別的地方】。
     expect(end).toHaveBeenCalledTimes(1);
   });
+
+  /**
+   * ⟦b4-PENDINGREFUNDSILENT⟧(2026-09-05)—— codex must-fix ②③④ 的證人。
+   * 🔴 這一族原本**只有 Unknown 那一半有測**(mock 沒有分支 ⇒ 永遠掉進 counts)。
+   *    ⇒ 下面第一格是**正向對照**:先證明這條路真的搬得動東西, 後面兩格的紅才有意義。
+   */
+  describe('⟦b4-PENDINGREFUNDSILENT⟧:get_pcm_incident_health 的三個世界', () => {
+    const INC_OK = {
+      open_total: 3,
+      open_by_kind: { pending_refund_open_failed: 3 },
+      oldest_open_at: '2026-09-05T00:00:00Z',
+    };
+
+    it('🔴 正向對照:回得出來時三個欄位都映射得到(不是永遠 Unknown)', async () => {
+      const { client } = twoQueryClient(
+        FULL, undefined, true, undefined, true, undefined, true, undefined, true,
+        undefined, true, undefined, true, undefined, true, undefined, undefined, INC_OK,
+      );
+      const r = await new PgAnomalyAlertReaderAdapter('conn', () => client)
+        .getAlertSummary(86400, 43200, 600, null, 900, null, null);
+      expect(r.pcmIncidentUnknown, 'mock 回了東西而仍然 Unknown ⇒ 那個分支沒接上').toBe(false);
+      expect(r.pcmIncidentOpenTotal).toBe(3);
+      expect(r.pcmIncidentByKind).toEqual({ pending_refund_open_failed: 3 });
+      expect(r.pcmIncidentOldest).toBe('2026-09-05T00:00:00Z');
+    });
+
+    it('🔴 內部矛盾(total=0 而細目=3)⇒ 走 Unknown, 不可以讀成「今天沒有事故」', async () => {
+      const { client } = twoQueryClient(
+        FULL, undefined, true, undefined, true, undefined, true, undefined, true,
+        undefined, true, undefined, true, undefined, true, undefined, undefined,
+        { open_total: 0, open_by_kind: { pending_refund_open_failed: 3 }, oldest_open_at: null },
+      );
+      const r = await new PgAnomalyAlertReaderAdapter('conn', () => client)
+        .getAlertSummary(86400, 43200, 600, null, 900, null, null);
+      expect(r.pcmIncidentUnknown, '矛盾的回應被讀成健康 ⇒ 真事故被消掉').toBe(true);
+      expect(r.pcmIncidentOpenTotal).toBeNull();
+    });
+
+    it('🔴 `open_by_kind` 是陣列 ⇒ 走 Unknown, 信裡不可以出現假的種類 `0=3`', async () => {
+      const { client } = twoQueryClient(
+        FULL, undefined, true, undefined, true, undefined, true, undefined, true,
+        undefined, true, undefined, true, undefined, true, undefined, undefined,
+        { open_total: 3, open_by_kind: [3], oldest_open_at: null },
+      );
+      const r = await new PgAnomalyAlertReaderAdapter('conn', () => client)
+        .getAlertSummary(86400, 43200, 600, null, 900, null, null);
+      expect(r.pcmIncidentUnknown, '陣列通過了 typeof === object ⇒ 會變成 {"0":3}').toBe(true);
+      expect(r.pcmIncidentByKind).toEqual({});
+    });
+  });
+
 });
