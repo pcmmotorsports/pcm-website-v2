@@ -256,6 +256,31 @@ BEGIN
          row_count = EXCLUDED.row_count,
          families = EXCLUDED.families,
          taken_at = now();
+
+  -- ── 心跳 ────────────────────────────────────────────────────────
+  -- 🔴 **為什麼一定要寫**:`cron-heartbeat-read` 那張儀表的判準是
+  --    「migrations 排了、而白名單沒有 ⇒ 有排程沒有人在看它的心跳」。
+  --    而反過來也一樣:**排在白名單裡而從來不寫心跳 ⇒ 每天一封「它沒跳」的信。**
+  --    (2026-09-05 這支排程剛上就把那格測試弄紅了 —— 那格測試做對了事。)
+  --
+  -- 🔴 `clock_timestamp()` 不用 `now()`:`now()` 是【交易起始時間】⇒ 一個開始很早而跑很久的
+  --    交易會用舊時刻蓋掉別人剛寫好的心跳 ⇒ `last_success_at` **會倒退**, 而畫面上只是「比較舊」。
+  --    而光換函式不夠 —— `GREATEST` 那半才是真正擋倒退的。
+  -- 🛑 而它包在自己的 BEGIN/EXCEPTION 裡:**心跳寫不成不該讓這一輪快照失敗**。
+  --    ⚠️ 而那個 EXCEPTION **接不住失敗那一側** —— 這支是純 SQL 跑在 pg_cron 自己的交易裡,
+  --       函式拋錯 ⇒ 同交易寫的東西一起回捲 ⇒ 它【物理上寫不出失敗心跳】。
+  --       ⇒ 所以 `pcm-acl-digest` 也在 `FAILURE_COUNT_MEANINGLESS` 裡:
+  --          它的 `consecutive_failures` 永遠是 0, 而那不是「零失敗」是「這一格量不到」。
+  BEGIN
+    INSERT INTO public.sweeper_heartbeat (job_name, last_success_at, consecutive_failures, updated_at)
+    VALUES ('pcm-acl-digest', pg_catalog.clock_timestamp(), 0, pg_catalog.clock_timestamp())
+    ON CONFLICT (job_name) DO UPDATE
+      SET last_success_at      = GREATEST(public.sweeper_heartbeat.last_success_at, excluded.last_success_at),
+          consecutive_failures = 0,
+          updated_at           = GREATEST(public.sweeper_heartbeat.updated_at, excluded.updated_at);
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[pcm_acl_digest_record] 心跳寫入失敗(本輪快照不受影響):%', SQLERRM;
+  END;
 END;
 $rec$;
 

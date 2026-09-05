@@ -74,6 +74,13 @@ export const CRON_JOB_WHITELIST = [
   { jobName: 'pcm-expire-unpaid-orders', label: '逾期未付款自動取消', schedule: '0 * * * *', staleMinutes: 180, wiredAt: '片2 02c30044 / 20260828060000_m4b_b4cron6_expire_unpaid_orders_heartbeat.sql' },
   { jobName: 'pcm-order-ineligible-gate', label: '訂單不可售閘', schedule: '*/2 * * * *', staleMinutes: 6, wiredAt: '片1' },
   { jobName: 'pcm-settle-sweep', label: '結帳掃描', schedule: '*/2 * * * *', staleMinutes: 6, wiredAt: '片1' },
+  // 🔵 2026-09-05 加(⟦b9-ACLDRIFT5⟧ 片一 `20260905140000` 建的)。
+  //    `staleMinutes` = **2880(兩天)** ——【推的, 沒有人拍過】,理由寫在這裡:
+  //    它每天 00:00 跑一次 ⇒ 週期 1440。若照別支那樣「週期 × 3」= 4320(三天),
+  //    一支壞掉的排程要**三天**才會叫;而權限漂移這件事三天太久。
+  //    ⇒ 取 **連漏兩天才叫**:一次沒跑到不吵(那可能是 DB 維護),兩次就是真的壞了。
+  //    🔴 而它與別支不同族:別支一天跑幾十次, 少一次沒訊號;**這支一天只有一次機會**。
+  { jobName: 'pcm-acl-digest', label: '權限快照', schedule: '0 0 * * *', staleMinutes: 2 * 24 * 60, wiredAt: '片1' },
 ] as const;
 
 /**
@@ -97,4 +104,11 @@ export const CRON_JOB_WHITELIST = [
  *    📌 **報 0 等於宣稱「量過了,零失敗」;報 `null` 是宣稱「這一格我量不到」。**
  *    這兩句在畫面上必須長不一樣,否則儀表會替一個量不到的世界背書。
  */
-export const FAILURE_COUNT_MEANINGLESS: ReadonlySet<string> = new Set(['pcm-expire-unpaid-orders']);
+// 🔵 2026-09-05 加 `pcm-acl-digest`:它也是**純 SQL**(`SELECT public.pcm_acl_digest_record();`)
+//    ⇒ 同一個物理限制 —— 函式拋錯 ⇒ 同交易寫的失敗心跳一起回捲 ⇒ 失敗計數永遠是 0。
+//    📌 而它與 `pcm-expire-unpaid-orders` 的差別只有一個:**這支不碰錢**。
+//       ⇒ 後果比較輕, 而**量不到這件事是一樣的** ⇒ 一樣報 `null` 不報 0。
+export const FAILURE_COUNT_MEANINGLESS: ReadonlySet<string> = new Set([
+  'pcm-expire-unpaid-orders',
+  'pcm-acl-digest',
+]);
