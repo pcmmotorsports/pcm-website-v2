@@ -47,8 +47,22 @@ SELECT '🔴 ⑥ 還有沒有【漏網】的(refunded + 沒取消 + 有信箱 + 
           LEFT JOIN public.customers c ON c.user_id = o.customer_user_id
          WHERE o.payment_status = 'refunded'::public.payment_status
            AND o.cancelled_at IS NULL
-           AND COALESCE(NULLIF(pg_catalog.btrim(o.notification_email, public.pcm_js_trim_whitespace()),''),
-                        NULLIF(pg_catalog.btrim(c.email, public.pcm_js_trim_whitespace()),'')) IS NOT NULL
+           -- 🔴🔴 **[2026-09-06 訂正:上一版這裡叫 `public.pcm_js_trim_whitespace()`, 而【這支檔的使用者跑不動它】]**
+           --    逐字:`ERROR: permission denied for function pcm_js_trim_whitespace`
+           --    成因:那支 helper **零 GRANT 給 `pcm_readonly`**(只給 `postgres` / `service_role`;
+           --          `20260901070000:64-65` 把它從所有人身上收掉過)。
+           --    🎯 **⇒ 一支【為了給貼的人看數字】而寫的對帳檔, 而那個要看它的身分執行不了它。**
+           --       📌 我當時為了與寄信 view 用【同一把尺】而叫它 —— **而那個一致性讓檔案不可執行。**
+           --       ⇒ **一致性與可執行性在這裡打架, 而我選了一致性卻【沒有量它跑不跑得動】。**
+           --    ⛔ ~~給那支 helper GRANT EXECUTE TO pcm_readonly~~ —— 要一支 migration,
+           --       而且是**為了方便而放寬一個刻意收窄的 ACL** ⇒ 不划算。
+           --    ✅ 改用單參數 `btrim`(只吃空格)。
+           -- 🔴 **而近似的【方向】要寫明, 否則這一格會被讀成等價**:
+           --    單參數 `btrim` 比那支 helper **窄** ⇒ 只含 tab / 全形空白的信箱, **我會算成「有內容」**
+           --    ⇒ 📌 **本格會【多報】而不會【漏報】** —— 對「找漏網的」來說是安全的方向。
+           --    ⇒ ⚠️ 所以下面第 ⑥ 格印出非 0 時, **第一件事是逐張看那個信箱長什麼樣**, 不是直接判有漏網。
+           AND COALESCE(NULLIF(pg_catalog.btrim(o.notification_email),''),
+                        NULLIF(pg_catalog.btrim(c.email),'')) IS NOT NULL
            AND NOT EXISTS (SELECT 1 FROM public.email_outbox e
                             WHERE e.order_id = o.id AND e.event_type = 'order_created')
            -- 🔴 [R3 F8] 這裡原本 ①用單參數 btrim(與 migration 的尺不同)②只加兩段帳本、漏第三段
