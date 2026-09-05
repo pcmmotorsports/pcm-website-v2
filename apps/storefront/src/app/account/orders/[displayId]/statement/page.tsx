@@ -114,7 +114,7 @@ type Props = {
 //    那會出現在瀏覽器分頁、歷史紀錄與分享預覽裡,而那三處都不受登入保護。
 //    (與 `../page.tsx` 同一立場,原句在那裡。)
 export const metadata: Metadata = {
-  title: '訂單明細 | PCM MOTOR PARTS',
+  title: '訂單明細 — PCM重機零件販售',
 };
 
 export const dynamic = 'force-dynamic';

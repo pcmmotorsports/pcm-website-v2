@@ -35,7 +35,7 @@ type Props = {
 // 🔴 標題只用單號 —— **不要**把品名/金額/收件人放進 <title>:那會出現在瀏覽器分頁、
 //    歷史紀錄與分享預覽裡,而那三處都不受登入保護。
 export const metadata: Metadata = {
-  title: '訂單明細 | PCM MOTOR PARTS',
+  title: '訂單明細 — PCM重機零件販售',
 };
 
 export default async function OrderDetailRoute({ params }: Props) {
