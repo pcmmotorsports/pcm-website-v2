@@ -17,6 +17,7 @@
     "@base-ui/react": "^1.6.0",
     "@pcm/adapters": "workspace:*",
     "@pcm/domain": "workspace:*",
+    "@pcm/pdf": "workspace:*",
     "@pcm/schemas": "workspace:*",
     "@tabler/icons-react": "^3.40.0",
     "class-variance-authority": "^0.7.1",

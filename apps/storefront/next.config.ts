@@ -87,6 +87,53 @@ const nextConfig: NextConfig = {
       '../../node_modules/.pnpm/@fontsource+noto-sans-tc@*/node_modules/@fontsource/noto-sans-tc/files/*-400-normal.woff2',
       '../../node_modules/.pnpm/@fontsource+noto-sans-tc@*/node_modules/@fontsource/noto-sans-tc/files/*-700-normal.woff2',
 
+      // ── 🔴🔴 拉丁那支 `@fontsource/noto-sans` ⟦ship-PRINTCARONNOTBUNDLED⟧(2026-09-06 補)──
+      //
+      // **它一直不在這裡, 而那不是疏忽 —— 是【沒有人問過它】。**
+      // `⟦ship-PRINTCARON1⟧` 那一片(2026-09-04)為了 `Č` / `Š` 這種帶符號的拉丁字母
+      // 把這支字型加進相依、也在 route 裡讀它;而**打包那一半從來沒有人補**。
+      // ⛔ ~~而它的失敗形狀比中文那支更陰險:整張紙看起來完全正常, 只有那幾個 `Č` / `Š` 是方框~~
+      // 🔴🔴 **那句是錯的, 而我在測試檔訂正之後【把這一份原封留著】**(codex R2 must-fix —— 同一個宣稱兩個落點,
+      //    我只修了一個)。📌 **這正是「改對了一處而它的雙胞胎還在」那個形狀, 本片自己犯了一次。**
+      // ✅ **量到的**(我自己跑的, 不是讀來的):chromium 那包 `fonts.tar.br` 解開 = Open Sans
+      //    (Regular / Bold / Italic 三支), 而 Open Sans 的 cmap 逐點問:
+      //      `Č` U+010C **true** · `Š` U+0160 **true** · `A` **true** · 🔵 負對照 `中` U+4E2D **false**
+      //    ⇒ 🎯 **只要那份 PDF 產得出來, `Č` 就【不會】是方框** —— 它會被那支替代字型畫出來。
+      //    ⇒ 🎯 **而中文不一樣**:Open Sans 沒有 CJK ⇒ 中文那組 glob 少了就真的是方框。
+      // ⇒ 📌 **所以這四條拉丁 glob 修的是【排版】不是【看不看得懂】** ——
+      //    那幾個字會換一張臉(本機量到是 Helvetica, `9ec3ad3af`), 而不是消失。
+      //    ⚠️ 那顆 Linux 容器實際會挑哪一支**我們沒量過**, 而它不影響上面那個結論。
+      //
+      // 🔵 **兩個世界都量了(同一個檔、只加下面四條、各一發 build)**:
+      //    改前:總 1828 檔 · 拉丁 `@fontsource/noto-sans` **0** 筆 · `noto-sans-tc` 215 筆
+      //    改後:總 **1847** 檔 · 拉丁 **19** 筆(8×400.woff2 + 8×700.woff2 + 400.css + 700.css + package.json)
+      //    ⛔ ~~見同片 commit body(與守門那一格的斷言同一個數)~~ —— **兩句都不對**(code-reviewer R3):
+      //      守門**沒有任何一格**在斷言 1847;而 19 也不是一格, 是**兩格**(8/8 那格與 1/1/1 那格)。
+      //      ⇒ 📌 一個把讀者指去「另一個地方有同樣的數字」的註解, 在那個數字不存在時**讀起來一樣通順**。
+      //    ⇒ 📌 **那個 0 是【量到的】不是推的** —— `⟦f3-SHIPPDF1⟧` P-1 當場數出來的。
+      //
+      // 🔴 **四條要一起** —— ⛔ ~~理由與 tc 那組逐字相同:只放 `package.json` 會換來「解析成功而內嵌 0」~~
+      //    **那句對這個 runtime 是錯的**(codex R1 nit, 我開檔複驗 `packages/pdf/src/index.ts:98`):
+      //    `isUsableFontPkg(dir)` 逐字是 `existsSync(400.css) && existsSync(700.css)`
+      //    ⇒ **只有 `package.json` 的目錄會被候選①【拒絕】並落到候選②**, 不會停在「解析成功而內嵌 0」。
+      // ✅ **四條各自的理由(逐項對得上碼, 而【權重不一樣】—— codex R2 nit)**:
+      //    · `400.css` / `700.css` —— **這兩條最要緊**:`isUsableFontPkg`
+      //      (`packages/pdf/src/index.ts:98` 逐字 `existsSync(400.css) && existsSync(700.css)`)
+      //      拿它們當可用性判準, 而候選②也只判這兩支。少了 ⇒ 這個目錄不算數。
+      //    · `files/*.woff2` —— `readFont` 真正讀的位元組;少了是「有 `@font-face` 而沒有字」。
+      //    · `package.json` —— **只承載候選①**(拉丁那支的 `require.resolve` 在
+      //      `packages/pdf/src/index.ts:231`;⛔ ~~我原本引 `:108`~~ —— 那是 `TC_PKG` 的**預設參數**,
+      //      受詞不對, codex R2 抓到)。候選②不讀它 ⇒ **少了它不會讓整條路死掉**, 只是少一條路。
+      // ✅ **這四條的字面與後台那一份逐字相同**(`apps/admin/next.config.ts`, ⟦f3-SHIPPDF1⟧ P-2 `eb4c55894`;
+      //    機械比過 4/4 byte-identical)。
+      // ⚠️ ⛔ ~~兩個 app 從今天起一致~~ —— **那句比證據寬**(code-reviewer R3):
+      //    本檔另有四條 **app 層的死 glob**(後台沒有), 而後台用 `FONT_GLOBS` 單一來源 flatMap 兩支、
+      //    本檔是**八行硬寫** ⇒ 🛑 **加第三支字型時兩邊會再分岔。** 那是已知缺口, 不是疏漏。
+      '../../node_modules/.pnpm/@fontsource+noto-sans@*/node_modules/@fontsource/noto-sans/package.json',
+      '../../node_modules/.pnpm/@fontsource+noto-sans@*/node_modules/@fontsource/noto-sans/{400,700}.css',
+      '../../node_modules/.pnpm/@fontsource+noto-sans@*/node_modules/@fontsource/noto-sans/files/*-400-normal.woff2',
+      '../../node_modules/.pnpm/@fontsource+noto-sans@*/node_modules/@fontsource/noto-sans/files/*-700-normal.woff2',
+
       // ── 🔴🔴 修法【丙】(2026-09-03 `-ship`;⟦f3-SHIPPDF1⟧ 與 ⟦b4-MAILPDF1⟧ 同一個根因)──
       //
       // 🛑 **上面那些路徑全部指向 `.pnpm` 的【實體目錄】,而 Node 的解析器走不到那裡。**
@@ -157,6 +204,20 @@ const nextConfig: NextConfig = {
       //   而它們今天**沒有任何用途** —— 留著的理由是上面那個 ③, 不是它們有效。
       //
       // 📌 **它為什麼會失敗(我當時就標了未驗, 而答案是「不保留」)**:
+      // 🔴🔴 **2026-09-06 訂正:上面這一段裡有【三句互斥】**(codex R1 nit, 我當場量了才確認):
+      //    ① 「這四條 2026-09-06 起不再匹配任何檔」(真 —— 當場量:走 `apps/storefront/node_modules` 的筆數 = **0**)
+      //    ② 「刪掉會讓那一格負對照無聲變恆真」
+      //    ③ 「它們讓那 215 支檔多存在一份(約 6.47 MB)」
+      //    ⇒ 🛑 **①成立的話 ③就不成立了** —— 一組不匹配任何檔的 glob 帶不進 6.47 MB。
+      //      而 ②也站不住:舊位置**現在就已經是 0**, 刪掉這四條不會改變那個 0。
+      //    ⇒ ✅ **③ 那個 6.47 MB 是 2026-09-03 的讀數, 當時 app 層那棵 symlink 樹還在。**
+      //      ⛔ ~~數字沒錯, 錯的是它沒有跟著時點走~~ —— **我補了時點而漏了層級**(codex R2 nit):
+      //      那個數字量的是**本機 `.nft.json` 列到的檔在磁碟上的位元組**,
+      //      **不是** Vercel `.func` 裡實際佔的空間。⇒ 📌 §6-b 要的是**兩個**都跟著走:
+      //      **時點 + 量測層級**, 而我第一次訂正只補了前者。
+      //    ⇒ 📌 **「不刪」這個決定仍然成立, 而它現在只剩【一條腿】**:
+      //      revert 會讓「我們試過丙而它沒用」從碼裡消失, 下一個人會再試一次。②③ 兩條腿已經斷了。
+      //
       //   我寫過「tracing 會不會**保留 symlink** 我沒有驗過 ⇒ 這是這條路的成敗點」。
       //   ⇒ 本機 `.nft.json` 確實出現了 215 筆 app 層路徑(`../`×7)⇒ **本機讀數是好的**;
       //   ⇒ 而正式站仍然 `null` ⇒ **Vercel 那一層沒有把它變成一個 Node 找得到的模組入口。**

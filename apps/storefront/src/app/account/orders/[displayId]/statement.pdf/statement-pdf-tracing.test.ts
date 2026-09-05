@@ -366,3 +366,110 @@ describe('📎 字型檔在不在追蹤清單裡(受詞 2026-09-06 由 app 層 s
     expect(resolved().filter((p) => p.startsWith(nextOwn)).length).toBeGreaterThan(0);
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 拉丁那支 `@fontsource/noto-sans` —— ⟦ship-PRINTCARONNOTBUNDLED⟧(2026-09-06 補)
+//
+// **為什麼這一組在這裡**:上面那一整支守門, 從第一天到 2026-09-06, 沒有一格問過拉丁那支
+// (數法:`grep -c 'noto-sans[^-]' <本檔 2026-09-06 之前的版本>` ⇒ 0;現值見本組)。
+// 而 `⟦ship-PRINTCARON1⟧`(2026-09-04)為了客人名字裡的 `Č` / `Š` 把它加進相依、也在 route 裡讀它,
+// 而**打包那一半沒有人補** ⇒ 那支字型在函式包裡的筆數 = 0(P-1 當場數的)。
+//
+// 🔴🔴 **而「所以 `Č` 會是方框」—— 那句我寫過, 而它比證據寬**(codex R1 must-fix, 我開檔複驗):
+//    `9ec3ad3af` 的 commit body 逐字量過:**「拉丁那支 ⇒ `Č` 由 Helvetica 畫」** ——
+//    也就是**掉回一個替代字型**, 不是方框。⇒ 📌 **字還在, 換了一張臉。**
+//    ⛔ ~~而那顆 Linux 容器有什麼我們沒量過 ⇒ 「會是方框」與「不會」我兩個都證不到~~
+//    🔴 **那句【過度收窄】了**(codex R2 must-fix)—— 而我當場去量, 它是對的:
+//      chromium 那包 `fonts.tar.br`(**本檔上面那一格已經斷言它在追蹤清單裡**)解開 = **Open Sans**
+//      三支(Regular / Bold / Italic), 而 Open Sans 的 cmap 逐點問:
+//        `Č` U+010C **true** · `Š` U+0160 **true** · `A` **true** · 🔵 負對照 `中` U+4E2D **false**
+//      (量法:`node` 讀那支 `.br` ⇒ `brotliDecompressSync` ⇒ 走 tar header ⇒ 解 `cmap` format 4)
+//    ⇒ 🎯 **只要那份 PDF 產得出來, `Č` 就不會是方框** —— 它會被替代字型畫出來。
+//    ⇒ 🎯 **而中文不一樣:Open Sans 沒有 CJK** ⇒ 中文那組 glob 少了就真的是方框。
+//    ⇒ 📌 **所以這四條拉丁 glob 修的是【排版】不是【看不看得懂】** ——
+//      那幾個字會換一張臉(本機量到是 Helvetica, `9ec3ad3af`), 而不是消失。
+//      ⚠️ 仍然沒量到的**只剩一件**:那顆容器實際挑哪一支替代字型。**那不影響上面的結論。**
+//    ⇒ ✅ 本組能證的仍然只有一句:**那支字型的檔在不在追蹤清單裡。**
+//
+// 🛑 **它比中文那支難發現的地方在別處**:掉回替代字型的紙**看起來是一張正常的紙**
+//    ——不像整片方框那樣一眼看出來——而帶符號的客人不是每天有 ⇒ **可以壞很久而沒有人回報。**
+//
+// 🔵 **兩個世界的讀數(同一個檔、只加那四條 glob、各一發 build)**:
+//    改前 拉丁 **0** 筆(總 1828 檔)⇒ 改後 拉丁 **19** 筆(總 1847 檔 / **169.8 MB**)
+//    ⚠️ **那個 MB 的量測層級**:本機 `.nft.json` **列到的檔在磁碟上的位元組總和**,
+//      **不是** Vercel `.func` 裡實際佔的空間, 也不是壓縮後的大小。
+//      ⇒ 🛑 本片才剛把 `next.config.ts` 裡同型的 6.47 MB 補上層級, 而我在這裡**又漏了一次**
+//        (code-reviewer R3)⇒ 📌 §6-b 第 2 條要的是【時點 + 層級】兩個都跟著數字走。
+//    ⇒ 那個 0 是 `⟦f3-SHIPPDF1⟧` P-1 當場數出來的, 不是推的。
+//
+// ⚠️ **射程照抄檔頭那句**:它讀的是 Next 自己的追蹤清單, **不是** Vercel 打包的 `.func`,
+//    **更答不出「那張紙上的 `Č` 是字」** —— 後者要真部署後有人打開看。
+describe('🔴 拉丁 @fontsource/noto-sans 在不在追蹤清單裡(⟦ship-PRINTCARONNOTBUNDLED⟧)', () => {
+  const ROUTE_DIR = dirname(ROUTE_NFT);
+  // 🔵 **9 層**到 repo 根 —— 與上面 `PKG_FONT_DIR` 同一個深度(那裡有數法, 不重複)。
+  const STORE = resolve(ROUTE_DIR, '../../../../../../../../../node_modules/.pnpm');
+
+  /** 解析 `@fontsource/<pkg>` 的實體目錄(pnpm 把真檔放在 `.pnpm` 底下)。 */
+  function fontDir(pkg: string): string | null {
+    if (!existsSync(STORE)) return null;
+    // 🔵 `.sort()` 換來的是**決定性**, ⚠️ **不是正確性**(code-reviewer R3):
+    //    同套件兩版並存時它固定挑字母序第一個, 而追蹤清單裡的可能是**另一個** ⇒ 五格一起假紅。
+    //    🟢 今天不可達 —— store 裡只有一個 `@fontsource+noto-sans@5.3.0`
+    //    (數法 `ls node_modules/.pnpm | grep '^@fontsource+noto-sans@' | wc -l` ⇒ 1)。
+    const hit = readdirSync(STORE)
+      .sort()
+      .find((n) => n.startsWith(`@fontsource+${pkg}@`));
+    if (hit === undefined) return null;
+    const d = join(STORE, hit, 'node_modules', '@fontsource', pkg);
+    return existsSync(d) ? d : null;
+  }
+
+  const traced = () => tracedFiles().map((f) => resolve(ROUTE_DIR, f));
+
+  it('🟢 量具自檢:拉丁那支的實體目錄在磁碟上(不在 ⇒ 下面每一格在量一個不存在的東西)', () => {
+    expect(fontDir('noto-sans'), `解析不到 @fontsource/noto-sans 的實體目錄(store=${STORE})`).not.toBeNull();
+  });
+
+  it('🔴 400/700 的 woff2 支數 = 磁碟實數(少一支就紅)', () => {
+    const dir = fontDir('noto-sans');
+    expect(dir).not.toBeNull();
+    const mine = traced().filter((p) => p === dir! || p.startsWith(dir! + sep));
+    const onDisk = (suffix: string) =>
+      readdirSync(join(dir!, 'files')).filter((n) => n.endsWith(suffix)).length;
+    for (const suffix of ['-400-normal.woff2', '-700-normal.woff2']) {
+      const n = mine.filter((p) => p.endsWith(suffix)).length;
+      expect(n, `noto-sans${suffix}:清單 ${n} 支 vs 磁碟 ${onDisk(suffix)} 支`).toBe(onDisk(suffix));
+      // 🔵 兩邊都是 0 會讓上面那句通過 ⇒ 分母自檢。
+      expect(onDisk(suffix), `磁碟上 noto-sans${suffix} 是 0 ⇒ 上面那句零判別力`).toBeGreaterThan(0);
+    }
+  });
+
+  it('🔴 `400.css` / `700.css` / `package.json` 也在 —— 只放 woff2 會換來「有字檔而沒有 @font-face」', () => {
+    const dir = fontDir('noto-sans');
+    expect(dir).not.toBeNull();
+    const mine = traced().filter((p) => p === dir! || p.startsWith(dir! + sep));
+    for (const f of ['400.css', '700.css', 'package.json']) {
+      expect(mine.filter((p) => p.endsWith(`${sep}${f}`)).length, `noto-sans/${f} 不在清單裡`).toBe(1);
+    }
+  });
+
+  it('🔵 負對照:磁碟上有而 glob 沒收的字重(500)必須不在清單裡', () => {
+    // 🔴 **不用「現造一個不存在的套件名」當負對照** —— 那種目錄本來就不存在
+    //    ⇒ **守門成立與守門壞掉兩個世界它都印 0** ⇒ 證不到任何事(P-2 的 code-reviewer 抓到過)。
+    // 🛑 **而本格的射程要說清楚(code-reviewer R3)**:它守的是【glob 收太寬】那個方向 ——
+    //    四條 glob 全被拿掉時它**照樣印 0** ⇒ 📌 **對本片的失效方向(glob 不見了)零判別力。**
+    //    真正在守那個方向的是上面兩格(磁碟支數 = 清單支數 / 三支檔各 1)。
+    const dir = fontDir('noto-sans');
+    expect(dir).not.toBeNull();
+    const onDisk = readdirSync(join(dir!, 'files')).filter((n) => n.endsWith('-500-normal.woff2')).length;
+    expect(onDisk, '磁碟上沒有 500 字重 ⇒ 本格恆真, 換一個沒被 glob 收的東西').toBeGreaterThan(0);
+    const got = traced().filter((p) => p.endsWith('-500-normal.woff2') && p.startsWith(dir! + sep));
+    expect(got, `磁碟 ${onDisk} 支 500 字重, 而清單裡有 ${got.length} 支 —— glob 只收 400/700`).toHaveLength(0);
+  });
+
+  // ⛔ ~~🟢 正對照:中文那支仍然在(證明這把尺不是只對拉丁那支會動)~~ —— **已刪**(code-reviewer R3)。
+  //    `fontDir('noto-sans-tc')` realpath 之後**就是**上面那組的 `APP_FONT_DIR`
+  //    ⇒ 它與本檔既有那格是**同一個目錄、同一個門檻、同一個斷言** ⇒ **新增零判別力**。
+  //    ⇒ 📌 而它讀起來完全像一個正對照 —— **「正對照」三個字不會讓一格產生判別力。**
+  //      證據:突變(拿掉四條拉丁 glob)那一發是 `2 failed | 19 passed` —— 它不在那 2 裡面。
+});

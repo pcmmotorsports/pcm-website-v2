@@ -116,6 +116,9 @@ importers:
       '@pcm/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@pcm/pdf':
+        specifier: workspace:*
+        version: link:../../packages/pdf
       '@pcm/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
