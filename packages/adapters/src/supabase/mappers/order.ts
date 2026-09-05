@@ -332,6 +332,7 @@ export type SupabaseAdminOrderRow = Pick<
   | 'payment_status'
   | 'fulfillment_status'
   | 'total'
+  | 'tax_total' // 🔴 Sean 2026-09-05 第 6 題:CSV 稅欄。它【不在】 orders_total_balances 那條不變式裡。
   | 'order_source'
   | 'payment_channel'
   | 'display_position'
@@ -476,6 +477,9 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
     orderSource: row.order_source as OrderSource, // DB orders_order_source_check 保證值域
     paymentChannel: row.payment_channel as PaymentChannel, // DB orders_payment_channel_check 保證值域
     total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
+    // 🔴 `tax_total` 走與 `total` 同一支 `toMoneyAmount` —— 它會擋掉非整數/非安全整數,
+    //    而金額一律整數元位。**不要在這裡寫第二種轉換。**
+    taxTotal: { amount: toMoneyAmount(row.tax_total), currency: "TWD" },
     displayPosition: row.display_position,
     cancelledAt: row.cancelled_at,
     // (D-2 起不攜 orders.workflow_status/version:per-item 真相在 lines[]、整單=顯示端彙總。)

@@ -689,6 +689,16 @@ export type AdminOrderSummary = {
   paymentChannel: PaymentChannel;
   /** 訂單總額(Money 整數、TWD) */
   total: Money;
+  /**
+   * 🔴 **這一單的稅額**(Sean 2026-09-05 第 6 題拍甲:CSV 要加稅欄)。
+   * ⛔ ~~它不進 `orders_total_balances` 那條不變式~~
+   * 🔴🔴 **那句是假的**(codex 2026-09-05 抓到;唯讀實測正式庫 `pg_get_constraintdef`):
+   *    `orders_total_balances CHECK ((total = (((subtotal + shipping_fee) - discount_total) + tax_total)))`
+   *    ⇒ **`total` 已經含稅。** 我引的是 `20260604120000:112` 的**原始** CHECK,
+   *    而 `20260828100000` 加稅那一片改過它。
+   * ⇒ 📌 **所以這個欄位是【拆出來看】用的, 不是 total 之外的另一筆** —— 加總會重複計稅。
+   */
+  taxTotal: Money;
   /** 後台工作排序鍵(NULL = 未手動排過);本片顯示排序值、拖曳排序留訂單線-03 */
   displayPosition: number | null;
   /** 取消時間 ISO(非 null = 已取消;本片純顯示,取消功能留取消片) */
