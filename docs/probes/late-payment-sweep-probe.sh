@@ -11,9 +11,9 @@
 set -u
 export LC_ALL=C LANG=C
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-MIG="${1:-$REPO_ROOT/supabase/migrations/20260905140000_m4b_late_payment_pending_refund_sweep.sql}"
+MIG="${1:-$REPO_ROOT/supabase/migrations/20260905180000_m4b_late_payment_pending_refund_sweep.sql}"
 test -f "$MIG" || { echo "🔴 找不到受測 migration:$MIG"; exit 1; }
-DOWN="$REPO_ROOT/scripts/20260905140000-down.sql"
+DOWN="$REPO_ROOT/scripts/20260905180000-down.sql"
 
 pick() {
   if command -v "$1" > /dev/null 2>&1; then printf '%s' "$1"

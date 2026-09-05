@@ -38,7 +38,7 @@ describe('🔴 【七】支排程的門檻是【唯一來源】,而這裡把值�
       ['pcm-expire-unpaid-orders', 180],
       ['pcm-order-ineligible-gate', 6],
       ['pcm-settle-sweep', 6],
-      // 🔵 2026-09-05 第七支:匯款兜底(`20260905140000`)。門檻 30 = 排程 */10 連漏三輪才叫,
+      // 🔵 2026-09-05 第七支:匯款兜底(`20260905180000`)。門檻 30 = 排程 */10 連漏三輪才叫,
       //    與 `pcm-capture-recheck` 同一把尺(它也是 */10)。
       ['pcm-late-payment-sweep', 30],
     ]);

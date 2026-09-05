@@ -74,12 +74,12 @@ export const CRON_JOB_WHITELIST = [
   { jobName: 'pcm-expire-unpaid-orders', label: '逾期未付款自動取消', schedule: '0 * * * *', staleMinutes: 180, wiredAt: '片2 02c30044 / 20260828060000_m4b_b4cron6_expire_unpaid_orders_heartbeat.sql' },
   { jobName: 'pcm-order-ineligible-gate', label: '訂單不可售閘', schedule: '*/2 * * * *', staleMinutes: 6, wiredAt: '片1' },
   { jobName: 'pcm-settle-sweep', label: '結帳掃描', schedule: '*/2 * * * *', staleMinutes: 6, wiredAt: '片1' },
-  // 🔴 匯款兜底(`20260905140000`)。它是**純 SQL**(不走 route)⇒ 與 `pcm-expire-unpaid-orders`
+  // 🔴 匯款兜底(`20260905180000`)。它是**純 SQL**(不走 route)⇒ 與 `pcm-expire-unpaid-orders`
   //    同一個物理限制:失敗心跳會被同交易回捲 ⇒ 它也在 FAILURE_COUNT_MEANINGLESS 裡。
   //    staleMinutes = 30(排程 */10 ⇒ 連漏三輪才叫, 與 capture-recheck 同一把尺)。
   //    ⚠️ wiredAt 用【憑證】不用狀態形容詞:自己數
   //       `git merge-base --is-ancestor <那顆> origin/dev`;而「在 dev 上」≠「已 apply」。
-  { jobName: 'pcm-late-payment-sweep', label: '匯款兜底補待退款', schedule: '*/10 * * * *', staleMinutes: 30, wiredAt: '20260905140000 尚未 apply' },
+  { jobName: 'pcm-late-payment-sweep', label: '匯款兜底補待退款', schedule: '*/10 * * * *', staleMinutes: 30, wiredAt: '20260905180000 尚未 apply' },
 ] as const;
 
 /**
@@ -105,7 +105,7 @@ export const CRON_JOB_WHITELIST = [
  */
 export const FAILURE_COUNT_MEANINGLESS: ReadonlySet<string> = new Set([
   'pcm-expire-unpaid-orders',
-  // 🔴 `pcm-late-payment-sweep`(`20260905140000`)**同一個物理限制**:它也是純 SQL,
+  // 🔴 `pcm-late-payment-sweep`(`20260905180000`)**同一個物理限制**:它也是純 SQL,
   //    pg_cron 跑在自己一個交易裡 ⇒ 函式拋錯 ⇒ 同交易寫的失敗心跳一起被回捲。
   //    ⇒ 它的 `consecutive_failures` 也**永遠是 0**, 而那與「一直很健康」長得一樣。
   // 🛑 而它比逾期取消那一支多一層:它的函式**自己也數了 failed**(回傳 jsonb 的 `failed` 欄)——

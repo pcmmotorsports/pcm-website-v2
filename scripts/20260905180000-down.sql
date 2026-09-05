@@ -1,4 +1,4 @@
--- ROLLBACK for 20260905140000_m4b_late_payment_pending_refund_sweep.sql
+-- ROLLBACK for 20260905180000_m4b_late_payment_pending_refund_sweep.sql
 --
 -- 🔴🔴 執行順序:**先停排程, 再刪函式**。
 --    反過來做 ⇒ cron 每 10 分鐘呼叫一支不存在的函式 ⇒ `cron.job_run_details` 每輪一筆錯,
@@ -23,7 +23,7 @@
 --    ⇒ 📌 **完整回退 = 本檔 + 退掉那一列(連同 `FAILURE_COUNT_MEANINGLESS` 與三支測試的釘樁)。**
 --    ⚠️ 而那道「白名單有、migrations 沒排」的守門**抓不到它** —— 因為 migration 檔還在 repo 裡。
 --
--- 用法:`psql "$CONN" -f scripts/20260905140000-down.sql`
+-- 用法:`psql "$CONN" -f scripts/20260905180000-down.sql`
 
 BEGIN;
 
