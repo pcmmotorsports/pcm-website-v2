@@ -1,4 +1,4 @@
-import { CANCEL_REASON_MAX_LEN, ORDER_CONTACT_LEAD, PCM_LINE_ID, PCM_LINE_URL } from './order-email-copy';
+import { CANCEL_REASON_MAX_LEN, PCM_LINE_ID, PCM_LINE_URL } from './order-email-copy';
 import { PAID_EMAIL_PDF_ATTACHED_SENTENCE } from './paid-email-html';
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -2275,24 +2275,16 @@ describe('bank_order_created:匯款單成立信', () => {
       .replace('(公司銀行帳號)', PCM_REMITTANCE_ACCOUNT_NO)
       .replace('(到期日)', remittanceDeadlineLabel(PAYLOAD.created_at)!)
       .replace('(他的訂單頁連結)', 'https://shop.example.com/account/orders/PCM-2026-0142')
-      // 🔴🔴 **已知的一個字元差, 而它【不是】我決定的 —— 在此明寫, 等 Sean 複核**:
-      //    Sean 核可的那一份逐字是「有任何問題**,**加入官方 LINE」(**半形**逗號),
-      //    而既有常數 `ORDER_CONTACT_LEAD` 逐字是「有任何問題**，**加入官方 LINE」(**全形**)。
-      //    ⇒ 三條路我選了最保守的一條:**用既有常數**(那一行同時出現在別封信裡,
-      //      硬寫第二份會讓兩封信的客服句各自漂, 而漂掉時客人拿到過期的聯絡方式);
-      //      ⛔ **不改那個常數** —— 改它會【靜靜改掉另外幾封已經在寄的信】。
-      //    📌 這一格是【我端給他的 markdown 打成半形】造成的, 不是他選的
-      //      ⇒ 而**我不替他決定**, 已回報主視窗請他複核一個字元。
-      .replace('有任何問題,加入官方 LINE (LINE ID)', `${ORDER_CONTACT_LEAD} ${PCM_LINE_ID}`)
+      .replace('(LINE ID)', PCM_LINE_ID)
       .replace('(LINE 連結)', PCM_LINE_URL);
     // 🔵 自檢:換完不該還有【那幾個佔位詞】殘留 —— 否則下面那個 toBe 會因為【錯的理由】紅。
     //    ⛔ ~~我第一版寫成「任何中文括號都不准留」~~ 🔴 **那把尺太寬**:它把
     //    `(含)` 與 `(城北分行)` 這種【真正要寄出去的字】也判成殘留 ⇒ 兩發都紅而碼是對的。
     //    📌 **一個誤報的自檢, 會讓人去改【本來是對的】那一半。**
     for (const ph of [
-      '(訂單編號)', '(訂單金額)', '(已收金額)', '(還要匯多少)', '(LINE ID)',
+      '(訂單編號)', '(訂單金額)', '(已收金額)', '(還要匯多少)',
       '(公司銀行)', '(分行)', '(公司戶名)', '(公司銀行帳號)',
-      '(到期日)', '(他的訂單頁連結)', '(LINE 連結)',
+      '(到期日)', '(他的訂單頁連結)', '(LINE ID)', '(LINE 連結)',
     ]) {
       expect(expected, `佔位詞 ${ph} 沒被換掉 ⇒ 下面的比對會因為錯的理由紅`).not.toContain(ph);
     }
