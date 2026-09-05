@@ -125,7 +125,13 @@ const CLAIM_APPLIED = ['已 apply', '已apply', '已套用', 'APPLIED.tsv 命中
 //    ⑰ `admin_record_hct_submit`〔主migration=20260904170000〕是線 `-ship` 真的新增的一條「整段」條目。
 //    🟢 它的 apply 狀態**有第二個獨立來源**:`supabase/APPLIED.tsv` 那一列(Sean 2026-09-04 本人貼,
 //    自帶簽章複驗 + 正負對照)⇒ 本檔的宣稱與帳本**指向同一件事**, 不是自說自話。
-const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰'];
+// 🔴 2026-09-05 由 ['⑰'] 變成 ['⑰', '⑲'] —— 名單變了要人看過, 而這是那個「人看過」:
+//    ⑲ email_outbox.sent_tracking_number(⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 片 B-1)。
+//    🛑 而它與 ⑰ 的狀態【相反】:⑰ 已在正式庫, ⑲ 的 migration 還沒貼
+//      ⇒ 它宣稱的是一件【還沒成真】的事, 標記逐字〔APPLIED.tsv 無此列〕。
+//    🔵 為什麼跳過 ⑱:那一條在 agent/line-ship 上, 【這棵樹看不到它】——
+//      📌 兩條分支各自編號 ⇒ 合併時會撞。合併的人請重新編號。
+const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑲'];
 /** 全部圈號條目數。F2:某條圈號被改寫 ⇒ 它不會消失,會**併進上一條**而總數少一。
  *
  * 🔴 **2026-09-05 由 12 改成 13 —— 而改這個數字要附「這次是【真的多一條】」的證據**:
@@ -137,7 +143,7 @@ const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰'];
  *    ⚠️ **而它與「⑯ 撞號」是同一件事的兩半**:我原本編 ⑯,而 `:24` 的 ⑯ 是帳號線先用的
  *    ⇒ 改 ⑰ 之後總數仍是 13(**換號不換數**)。
  */
-const EXPECTED_TOTAL_ENTRIES = 13;
+const EXPECTED_TOTAL_ENTRIES = 14;
 
 type Entry = { mark: string; body: string };
 

@@ -536,10 +536,36 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     return winner ? mapRowToJob(winner) : null;
   }
 
-  async markSent(id: string, claimedAttempts: number): Promise<boolean> {
+  /**
+   * 🔴🔴🔴 **部署順序:`20260905200000` 必須【先】貼進正式庫, 這支碼才能上線。**(codex R1 must-fix 1)
+   *
+   * 欄位不存在時 PostgREST 回 **`PGRST204`** ⇒ **整發 update 不落表** ⇒ 連 `sent_at` 都寫不下
+   * ⇒ 那一列留在 `sending` ⇒ **每一封寄成功的信都標不成 sent**。
+   * · 立刻重寄嗎:**不會** —— Resend 那把 24 小時冪等鍵會擋住重送;
+   *   ⇒ 🛑 **停超過 24 小時才會真的寄出第二封**(codex 補的射程, 我複核收下)。
+   * · 而 PostgREST 有 schema cache ⇒ 貼完之後**還要等它看見那一欄**, 不是貼完那一秒就好。
+   *
+   * 🛑 **而【沒有機制在擋這件事】** —— 2026-09-05 實跑 `scripts/deploy-order-gate.sh`
+   *    餵 `agent/line-ship-5b-sentnum` ⇒ 逐字 `gate: 0 blocked / 41 pending`。
+   *    成因不是它壞了:那道閘照 Sean 2026-08-11 `Q2=B` **只比對函式名與 view 名**,
+   *    **table / column / index 名一律不比**(刻意的漏擋, 理由=撞常見字會誤擋)。
+   *    ⇒ 🎯 **而本片依賴的正是一個【新欄位】** ⇒ 它落在那個漏擋的正中央。
+   *    ⇒ 📌 **今天擋住這件事的只有「人記得順序」。**要不要把 column 納進那道閘是 Sean 的板。
+   */
+  async markSent(
+    id: string,
+    claimedAttempts: number,
+    sentTrackingNumber: string | null,
+  ): Promise<boolean> {
     return this.leaveSending(id, claimedAttempts, {
       status: 'sent',
       sent_at: new Date().toISOString(),
+      // 🔴🔴 **與 `sent_at` 同一發 update** —— ⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 片 B-1。
+      //    📌 分兩發寫會有一個窗:`sent_at` 已落表而號碼還沒 ⇒ 掃描面那一刻讀到的是
+      //    「寄過了而不知道寄了什麼」—— **那正是本片要修的病, 而分兩發會把它再造一次。**
+      // 🔵 這裡放的是**值不是 expression** —— 它是 sweeper 手上那個字串,
+      //    所以 PostgREST 的 update 帶得動(`nextval()` 那種帶不動)。
+      sent_tracking_number: sentTrackingNumber,
     });
   }
 

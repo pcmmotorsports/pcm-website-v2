@@ -282,7 +282,11 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
       '新北市新莊區化成路736巷18號1樓',
     ].join('\n');
     expect(sentText).toBe(EXPECTED_ORDER_CREATED_BODY);
-    expect(outbox.markSent).toHaveBeenCalledExactlyOnceWith('outbox-1', 3);
+    // 🔴 第三個參數 = 【這封信實際印出去的追蹤號】(⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 片 B-1)。
+    //    這裡是 `order_created` ⇒ 信裡沒有號碼 ⇒ `null`。
+    //    ⚠️ `null` 的意思是「**這封信沒有帶號碼**」, 不是「不知道」——
+    //      而過渡期間(migration 未貼)整欄也是 NULL ⇒ 兩者在庫裡長得一樣, 見 IEmailOutbox 的註解。
+    expect(outbox.markSent).toHaveBeenCalledExactlyOnceWith('outbox-1', 3, null);
     expect(outbox.markFailed).not.toHaveBeenCalled();
     expect(res).toEqual({
       reclaimed: 0, claimed: 1, sent: 1, failed: 0, budgetExhaustedBeforeClaim: 0,
@@ -384,7 +388,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     const sender = { send: vi.fn().mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce({ kind: 'sent' }) };
     const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, OPTS);
     expect(res.errors).toBe(1);
-    expect(outbox.markSent).toHaveBeenCalledExactlyOnceWith('outbox-2', 1);
+    expect(outbox.markSent).toHaveBeenCalledExactlyOnceWith('outbox-2', 1, null);
     expect(outbox.markFailed).not.toHaveBeenCalled();
     expect(res.sent).toBe(1);
   });
@@ -859,6 +863,22 @@ describe('sweepEmailOutbox — 🔴 order_shipped 模板(Sean 2026-08-30 `q3: C`
     expect(sender.send).toHaveBeenCalledTimes(1);
     return sender.send.mock.calls[0]![0].text as string;
   }
+
+  // 🔴🔴 **⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 片 B-1:寄出去的那個號碼要被記下來。**
+  //    為什麼要有這兩格:`markSent` 的第三個參數在型別上可以是 `null`,
+  //    ⇒ 🛑 **傳死 `null` 會讓整條線全綠**(舊測項只比前兩個參數)。
+  //    ⇒ 所以要**兩個世界印不同的東西**:有號碼 ⇒ 記那個號碼 / 沒號碼 ⇒ `null`。
+  it('🔴 有追蹤碼 ⇒ markSent 帶著【信裡印的那個號碼】落表', async () => {
+    const { r, outbox } = await run('ok');
+    expect(r.sent).toBe(1);
+    expect(outbox.markSent).toHaveBeenCalledExactlyOnceWith('outbox-shipped-1', 1, '1234567890');
+  });
+
+  it('🔴 自取無追蹤碼 ⇒ 記 `null`(負對照:證明它不是無條件寫一個字串)', async () => {
+    const { r, outbox } = await run('ok', { trackingNumber: null });
+    expect(r.sent).toBe(1);
+    expect(outbox.markSent).toHaveBeenCalledExactlyOnceWith('outbox-shipped-1', 1, null);
+  });
 
   it('🔴🔴 信件全文逐字(三段全開)—— **這一格就是交件時貼給 Sean 看的那份**', async () => {
     const { r, sender } = await run('ok', { trackingNumber: null });
@@ -2077,6 +2097,15 @@ describe('⟦5b-TRACKNUMGAP1⟧ 片 C · 寄送當下比對即時值 —— 而�
     );
     return { r, sender, outbox, load };
   }
+
+  // 🔴🔴 **⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 片 B-1:更正信也要記下它印出去的那個號碼。**
+  //    為什麼另外一格:片 B-1 在出貨信那一族已經有兩個世界了, 而**那兩格對更正信零判別力** ——
+  //    把更正信那一支改成永遠傳 `null`, 出貨信那兩格照樣綠。(codex R1 must-fix 3)
+  it('🔴 更正信寄出 ⇒ markSent 帶著【信裡那個更正後的號碼】, 不是 null', async () => {
+    const { r, outbox } = await run(ctx('B-0002', T1));
+    expect(r.sent, '這一格的前提是它真的寄出去了 —— 沒寄的話下面那句斷言沒有意義').toBe(1);
+    expect(outbox.markSent).toHaveBeenCalledExactlyOnceWith('outbox-trackfix-1', 1, 'B-0002');
+  });
 
   /**
    * 🔴🔴 **主視窗 2026-09-04 指定的那一格:入隊 B、寄前改 C ⇒ 0 封 + 一筆 skipped。**

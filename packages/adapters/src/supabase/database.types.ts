@@ -1,5 +1,11 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十三個函式、共二十九處**手動校正,
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十四個函式、共三十二處**手動校正,
+//    ⚠️ **「函式」這兩個字今天已經【不精確】** —— ⑲ 補的是 `email_outbox` 的一個**欄位**, 不是函式
+//      (codex 2026-09-05 R1 nit 指出)。**而我刻意不改這兩個字**:
+//      `database-types-manual-count.test.ts:55` 的正規式逐字釘著 `本體另有\*\*(.+?)個函式、共`
+//      ⇒ 🛑 改字面會讓那道閘**抓不到、三格全紅**, 而它守的是「檔頭宣稱 = 實際條目數」這件事。
+//      ⇒ 📌 所以這裡留一句話而不是改字:**那個數字數的是【圈號條目】, 不是【函式】。**
+//      要改的話要**同一發改閘的正規式**, 而那是另一片。
 // ⛔ ~~十二個函式、共二十八處~~ ⇒ 2026-09-05 線 -ship 補 ⑰ `admin_record_hct_submit`(**整段**)後 +1。
 //    🔴 **而我第一版把訂正寫在【同一行】的「本體另有」與「**」之間** ——
 //    `database-types-manual-count.test.ts:55` 的正規式是 `本體另有\*\*(.+?)個函式`,
@@ -84,6 +90,34 @@
 //      ⇒ 不補這一支, `.rpc('admin_record_hct_submit', …)` 會 typecheck 紅, 而繞過它的
 //      `as never` / `@ts-expect-error` **會把整個參數形狀的檢查一起關掉**。
 //      ⚠️ 重 gen 之後它應該自己產得出來 ⇒ 屆時本條可退場(與 ⑮ 同款)。
+//   ⑲ `email_outbox.sent_tracking_number` **三處**(`email_outbox` 的 Row / Insert / Update 各一)〔主migration=20260905200000〕〔APPLIED.tsv 無此列〕(2026-09-05 線 -ship;⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 片 B-1)——
+//      🛑 **本支的 migration 未 apply** —— 它今天才寫, 而**本片仍 hold**。
+//      🔴 **所以這一段宣告在說一件【還沒成真】的事**:它讓 `markSent` 那一發 update 寫得下去,
+//        而**寫得下去不代表正式庫有那一欄** ⇒ 貼之前那一發 update 會回 `PGRST204`(找不到欄位)。
+//      ⇒ 🎯 **而它讓「typecheck 綠」與「那一欄存在」分家了** —— 這與 ⑰ 同族, 而**方向相反**:
+//        ⑰ 是「正式庫【有】那個東西而生成器沒產」, 本條是「**正式庫還沒有而我先寫了**」。
+//        🔵 **這一句原本寫「⑰ 是【~~已 apply~~】…」而那四個字是 `database-types-apply-state.test.ts:88`**
+//          **`CLAIM_APPLIED` 字集裡的字面** ⇒ 它與本條自己的「未 apply」同時出現
+//          ⇒ 那道閘印「條目 ⑲ 同時出現【~~已套用~~】與【~~未套用~~】措辭 ⇒ 有歧義, 請人判」。
+//          🔵 **而【引用那句字面】本身會再觸發一次** —— 我改完第一次還是紅,
+//            因為**我在解釋裡把那四個字又打了一遍**。⇒ 這裡用 `~~劃掉~~`,
+//            那正是 `stripStruck`(同檔 `:174`)剝掉的形狀 ⇒ 字面留著給搜的人, 而閘讀不到它。
+//          🎯 **那不是誤判** —— 一段話裡兩個相反的宣稱, 機器分不出哪個的主詞是【本條】;
+//          而**我當時是在講 ⑰**。⇒ 講別條的狀態時, 改用不在字集裡的說法。
+//      🔵 **抓到我沒補這一欄的是 typecheck 本身**(`TS2353: 'sent_tracking_number' 不在已知屬性裡`)——
+//        📌 **一個手寫的型別檔, 它的缺漏會在【第一個要用它的人】那裡叫, 而不是在改它的人那裡。**
+//      ⚠️ 重 gen 之後它應該自己產得出來 ⇒ 屆時本條可退場。
+//      🔵 **「三處」這個措辭是 `database-types-manual-count.test.ts:77-80` 的字集裡的** ——
+//        它只認 `**整段**` 或 `**N處**`, 而**我第一版寫「一欄 ×3 段」它讀不懂**
+//        ⇒ 它印「條目 ⑲ 的校正處數措辭本檔不認得」而**不是靜默略過**
+//        ⇒ 🎯 **那道閘的註解逐字寫著為什麼:跳過會讓總數少算而【兩邊剛好都變小】,**
+//          **那就是一個看起來正常的錯數字。**
+//      🔵 **為什麼編 ⑲ 而不是 ⑯**:⑯ 是【帳號】線 2026-09-04 先用掉的(`orders.tax_total`),
+//        而 ⑱ 是同一條線 2026-09-05 在 `agent/line-ship` 上用掉的(`admin_hct_reset_unknown_to_draft`)。
+//        🛑 **⑱ 那一條【不在這棵樹上】** —— 它在另一條分支, 而**這裡看不到它**
+//        ⇒ 📌 **兩條分支各自編號 ⇒ 合併時會撞**, 而檔頭上一次撞號(⑯/⑰)就是同一個病。
+//        ⇒ 🎯 **我跳過 ⑱ 是因為我【記得】它在別的分支上, 而不是因為這裡看得到它**
+//          —— 那不是一個機制, 下一個人不會記得。**合併這兩條分支的人請重新編一次號。**
 // ─────────────────────────────────────────────────────────────────────────────
 // 🔴 **以下是【已退場】的條目留痕,不計入上面的計數。**
 // 🔴🔴 **留痕的寫法有一條【承重的不變式】,而在 2026-08-24 夜之前沒有一句話講過它**:
@@ -896,6 +930,7 @@ export type Database = {
           recipient_email: string
           request_id: string | null
           sent_at: string | null
+          sent_tracking_number: string | null
           status: string
           subject: string
         }
@@ -914,6 +949,7 @@ export type Database = {
           recipient_email: string
           request_id?: string | null
           sent_at?: string | null
+          sent_tracking_number?: string | null
           status?: string
           subject: string
         }
@@ -932,6 +968,7 @@ export type Database = {
           recipient_email?: string
           request_id?: string | null
           sent_at?: string | null
+          sent_tracking_number?: string | null
           status?: string
           subject?: string
         }

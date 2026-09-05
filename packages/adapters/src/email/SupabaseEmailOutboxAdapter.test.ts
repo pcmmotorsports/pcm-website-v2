@@ -427,11 +427,14 @@ describe('SupabaseEmailOutboxAdapter.claimDue / claimById(CAS 認領)', () => {
 describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA 世代柵欄)', () => {
   it('markSent:status=sent + sent_at + 🔴 claimed_at=NULL,述詞鎖 sending + attempts 世代', async () => {
     const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
-    expect(await adapter(makeClient(b)).markSent('outbox-1', 1)).toBe(true);
+    expect(await adapter(makeClient(b)).markSent('outbox-1', 1, null)).toBe(true);
     const vals = argsOf(b, 'update')[0]![0] as Record<string, unknown>;
     expect(vals.status).toBe('sent');
     expect(vals.claimed_at).toBeNull();
     expect(vals.sent_at).toEqual(expect.any(String));
+    // 🔴 **號碼與 `sent_at` 必須在【同一發 update】**(⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 片 B-1)。
+    //    這一格斷言的是**同一個 `vals` 物件**上兩個鍵都在 ⇒ 拆成兩發就紅。
+    expect(vals.sent_tracking_number).toBeNull();
     expect(argsOf(b, 'eq')).toEqual([
       ['id', 'outbox-1'],
       ['status', 'sending'],
@@ -439,10 +442,18 @@ describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA
     ]);
   });
 
+  it('🔴 markSent 帶號碼 ⇒ 那個字串落在同一發 update 上(負對照在上一格:傳 null ⇒ 落 null)', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
+    expect(await adapter(makeClient(b)).markSent('outbox-1', 1, '1234567890')).toBe(true);
+    const vals = argsOf(b, 'update')[0]![0] as Record<string, unknown>;
+    expect(vals.sent_tracking_number).toBe('1234567890');
+    expect(vals.sent_at).toEqual(expect.any(String));
+  });
+
   it('🔴 ABA 迴歸(codex R1):lease 回收+他人再認領(attempts 已推進)→ 舊世代標記 0 列 → false', async () => {
     // DB 端:列現況 status=sending、attempts=2(B 的認領);A 帶舊世代 1 來標 → eq(attempts,1) 失配。
     const b = makeBuilder({ data: [], error: null });
-    expect(await adapter(makeClient(b)).markSent('outbox-1', 1)).toBe(false);
+    expect(await adapter(makeClient(b)).markSent('outbox-1', 1, null)).toBe(false);
     // 述詞確實帶了世代柵欄(這就是 0 列的機制,不是碰巧)。
     expect(argsOf(b, 'eq')).toEqual([
       ['id', 'outbox-1'],
@@ -602,7 +613,7 @@ describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA
 
   it('所有權已失(lease 被回收、0 列)→ false 不覆寫', async () => {
     const b = makeBuilder({ data: [], error: null });
-    expect(await adapter(makeClient(b)).markSent('outbox-1', 1)).toBe(false);
+    expect(await adapter(makeClient(b)).markSent('outbox-1', 1, null)).toBe(false);
   });
 });
 
