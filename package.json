@@ -24,6 +24,7 @@
     "scripts/pagecount.sh": "sh scripts/pagecount.sh --selftest",
     "scripts/naked-cells.py": "python3 scripts/naked-cells.py --selftest",
     "scripts/isolation-level-scan-gate.py": "python3 scripts/isolation-level-scan-gate.py --selftest",
+    "scripts/md5-pins-stale.py": "python3 scripts/md5-pins-stale.py --selftest",
     "scripts/rpc-raw-sql-callers.py": "python3 scripts/rpc-raw-sql-callers.py --selftest",
     "scripts/weigh-synonym-candidates.py": "python3 scripts/weigh-synonym-candidates.py --selftest",
     "scripts/category-raw-path-consistency.py": "python3 scripts/category-raw-path-consistency.py --selftest",
