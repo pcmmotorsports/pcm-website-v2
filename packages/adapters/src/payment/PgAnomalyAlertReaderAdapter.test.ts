@@ -267,6 +267,12 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       //    不是「屬性還在」。那正是本片要分開的兩件事。
       bypassRlsRevoked: false,
       bypassRlsUnknown: true,
+      // ⟦b9-ACLDRIFT5⟧ 片二(2026-09-05):本 fixture 沒有那一發回應 ⇒ 同一個世界:
+      //   **量不到**(view 還沒貼)⇒ Unknown=true 而 Detected 保持 false。
+      aclDriftDetected: false,
+      aclDriftUnknown: true,
+      aclDriftFamilies: null,
+      aclDriftTakenAt: null,
       bypassRlsPrivilegedCount: null,
       bypassRlsTotalRoleCount: null,
       emailOutboxUnknown: true,
@@ -355,7 +361,10 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
      *    🔵 而它是**唯一**會 +2 的一支:姊妹的 `get_order_unpaid_cancelled_gap_counts`
      *      被 `if (cutoff !== null)` 包著, 本組沒設 cutoff ⇒ 它 +0。
      */
-    expect(query).toHaveBeenCalledTimes(10);
+    // 🔵 2026-09-05 從 10 ⇒ 11:⟦b9-ACLDRIFT5⟧ 片二多一發 `pcm_acl_drift_status`。
+    //    🔴 這個數字**是承重的** —— 它釘住「我加了一發查詢」會被看見,
+    //       而不是安靜地多打一次資料庫。
+    expect(query).toHaveBeenCalledTimes(11);
     expect(query.mock.calls[1]![0]).toContain('get_payment_anomaly_alert_display_ids');
     expect(query.mock.calls[2]![0]).toContain('get_order_refunds_stuck_summary');
     expect(res.openDisplayIds).toEqual(['PCM-2026-0104']);

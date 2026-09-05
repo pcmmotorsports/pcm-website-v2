@@ -19,6 +19,11 @@ const ZERO: AnomalyAlertSummary = {
   //      任一寫 true 都會讓這個 ZERO 同時代表兩個世界。
   bypassRlsRevoked: false,
   bypassRlsUnknown: false,
+  // ⟦b9-ACLDRIFT5⟧ 片二(2026-09-05):健康世界 = 沒漂移、讀得到。
+  aclDriftDetected: false,
+  aclDriftUnknown: false,
+  aclDriftFamilies: null,
+  aclDriftTakenAt: null,
   // 🔵 基線用正式庫 2026-09-02 真呼叫回來的值,不是我編的。
   bypassRlsPrivilegedCount: 6,
   bypassRlsTotalRoleCount: 35,
@@ -1807,6 +1812,57 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
 // 🔴 **這一組的形狀是主視窗釘的:「必須叫,而且【只有那一格】叫」** ——
 //    「有訊息就算過」是一個**恆綠格**:任何一格出問題都會讓訊息非空。
 //    ⇒ 所以下面那發把**其他計數全部留在 ZERO**,再斷言訊息裡**沒有別的區塊**。
+  describe('⟦b9-ACLDRIFT5⟧ 片二:權限快照與昨天不一樣那天', () => {
+    it('🔴 有漂移且沒人批准 ⇒ 要叫', async () => {
+      const res = await checkAnomalyAlerts(
+        { reader: reader({ ...ZERO, aclDriftDetected: true }), notifiers: [okNotifier()] },
+        OPTS,
+      );
+      expect(res.alerted, '有人動了權限而沒有叫 ⇒ 這一片等於沒做').toBe(true);
+    });
+
+    it('🔵 而【量不到】不叫 —— Unknown 走 503 那條, 不變成信', async () => {
+      const res = await checkAnomalyAlerts(
+        {
+          reader: reader({ ...ZERO, aclDriftUnknown: true, aclDriftDetected: false }),
+          notifiers: [okNotifier()],
+        },
+        OPTS,
+      );
+      expect(
+        res.alerted,
+        'Unknown 直接寄信 ⇒ view 還沒貼的那幾天會每天一封, 而它答的是【我沒量到】',
+      ).toBe(false);
+    });
+
+    it('🔴 而【只有那一格】叫 —— 其他區塊一個都不准出現', () => {
+      const msg = buildAnomalyAlertMessage(
+        { ...ZERO, aclDriftDetected: true, aclDriftFamilies: 'REL,POL', aclDriftTakenAt: '2026-09-06T00:00:00Z' },
+        86400, null, false,
+        { stale: false, anonRevoked: false },
+      );
+      expect(msg.text).toContain('【權限快照】');
+      // 🛑 這幾行才是判別力所在:少了它們,「有訊息」與「只有這一塊」印同一個綠。
+      expect(msg.text).not.toContain('【資料庫權限】');
+      expect(msg.text).not.toContain('【背景排程】');
+      expect(msg.text).not.toContain('【退款】');
+      // 🔴 而這三句是【收信的人要做什麼】—— 少了它們, 這封信只會製造焦慮。
+      expect(msg.text).toContain('貼板當天出現這一行是正常的');
+      expect(msg.text).toContain('pcm_acl_approve_latest');
+      expect(msg.text).toContain('REL,POL');
+      // 🔵 主旨要分得出來:一封主旨寫「付款有事」而內容是權限漂移的信, 會被用錯的心情打開。
+      expect(msg.subject).toContain('權限與昨天不一樣');
+    });
+
+    it('🔵 沒有漂移 ⇒ 信裡不該有那一塊(負對照:證明上面那格不是恆真)', () => {
+      const msg = buildAnomalyAlertMessage(
+        { ...ZERO, bypassRlsRevoked: true },
+        86400, null, false,
+        { stale: false, anonRevoked: false },
+      );
+      expect(msg.text).not.toContain('【權限快照】');
+    });
+  });
 describe('⟦b9-RLSHARDEN⟧ 甲:BYPASSRLS 被收掉那天', () => {
   it('🔴 屬性被收掉 ⇒ 要叫,而且信裡有那一塊', async () => {
     const res = await checkAnomalyAlerts(
