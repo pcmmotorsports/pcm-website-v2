@@ -1,6 +1,8 @@
 # `agent/line-mail` 交接 —— 2026-09-05 夜
 
-> 🔴 **本檔最後一次更新時 `HEAD = cd605a4cd` · 未推 19 顆 · `origin/dev = fe20d792b`**(`git merge-base --is-ancestor 228253eaa <你的 HEAD>` 驗它還在)。
+> 🔴 **本檔最後一次更新時 `HEAD = cd605a4cd` · 未推 19 顆 · `origin/dev = fe20d792b`**(驗它還在:`git merge-base --is-ancestor cd605a4cd <你的 HEAD>` —— 
+> 🔵 ⛔ ~~原本這裡寫 `228253eaa`~~:**標題那顆與括號裡驗的那顆不是同一顆**(codex R8 nit)
+> ⇒ 📌 **一個【驗錯對象】的驗證式, 過了也不代表標題那句成立。**)。
 > **本檔不是權威,版控才是** —— 每一段附了「自己重量一次」的指令。⚠️ **不要照抄本檔的數字。**
 > 🛑 **為什麼要寫這一句**:今天這條線因為兩個「沒有重跑就寫下來的數字」各繞了一次
 > (`FOR UPDATE` 12 vs 實際 20 · 未推 16 vs 實際 15)—— 兩次都是**別人重量才發現的**。
@@ -105,7 +107,12 @@ duplicate / user_in_flight 沒有格子                        ⇒ 🔴 **真的
 `docs/probes/sibling-lookup-bank-pending-probe.sh:242-246` 逐字
 「**格20(`user_in_flight`)本輪【拿掉, 不留半成品】**…落點:⟦b4-PIECEBGATEGAPS⟧ ③」。
 🔬 當場量:那支探針 **25 格 `check`**;`duplicate` / `user_in_flight` 全檔命中 **1 / 2 處,
-而【逐處開檔看過, 全部在註解裡】** ⇒ **兩條路一格都沒有。**
+而【逐處開檔看過, 全部在註解裡】** ⇒ **找不到【逐字用那兩個名字命名】的格子。**
+🛑 **而那句話比「兩條路一格都沒有」窄**(codex R8 nit,⛔ ~~原本我寫的是後者~~)——
+它證不到「**有沒有一格【沒有用那個名字】而實際上走到了那條路**」:一格可以在斷言別的東西時
+順便撞到 `duplicate` 那條分支,而**我這把尺看不到它**。
+✅ 要答那個問題得**跑覆蓋率**、或**在那條分支埋一發突變看有沒有格子紅** —— **兩件我都沒做。**
+📌 ⇒ 這一格的結論是「**沒有人【明確地】在守那兩條路**」, 不是「**它們完全沒有被碰到**」。
 🛑 **本線今晚沒有動它** —— 收工前 triage 挑到它,而 R7 PASS 之後主視窗要收批 ⇒ 不開新片。
 ⏰ **什麼時候做**:下一個接這條線的人,或有人要翻匯款 flag 之前。
 
@@ -126,7 +133,16 @@ grep -c 'p_notification_email' apps/admin/src/lib/orders/manual-order-repository
 git show origin/dev:apps/admin/src/lib/orders/manual-order-repository.ts | grep -c 'p_notification_email'
 ```
 · 兩個都是 **0** ⇒ **片 E 那半還沒到**(2026-09-05 夜當場量,`origin/dev = fe20d792b`)
-· 變成 **≥1** ⇒ 才可以把 `manual-order-no-email-wiring.test.ts` commit 進去
+· 🔴🔴 ⛔ ~~變成 **≥1** ⇒ 才可以 commit 那支測試~~ —— **那個 gate 是錯的**(codex R8 ③):
+  `grep -c` **對註解與死碼一樣印 ≥1** ⇒ 有人在那支檔寫一行「TODO: 要送 `p_notification_email`」
+  ⇒ 這把尺說「到了」,而**值仍然沒有被送下去**。
+  ✅ **唯一的 gate 是【那支接線測試自己全綠】**:
+  ```sh
+  npx vitest run packages/use-cases/src/manual-order-no-email-wiring.test.ts
+  ```
+  · rc=0 且 **4 passed** ⇒ 才 commit 它 · 任何一格紅 ⇒ **不 commit, 也不要放寬它**
+  🔵 上面那兩行 `grep` **降級成【看一眼的線索】**, 不是判準 —— 它們答「這支檔提到它了嗎」,
+  而測試答「**值真的被送下去了嗎**」。📌 **兩個問題差一整層。**
 🔵 **而最可靠的判別式不是 grep, 是那支測試自己**:
 `npx vitest run packages/use-cases/src/manual-order-no-email-wiring.test.ts`
 —— 當場 `2 failed | 2 passed`,而**紅的那兩格逐字說出缺的是什麼**。

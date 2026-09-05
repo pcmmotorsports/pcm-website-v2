@@ -700,7 +700,36 @@ COMMIT;
 --    AND c.relname IN ('pcm_order_created_email_pending','pcm_shipped_email_pending',
 --                      'pcm_tracking_corrected_email_pending','pcm_unpaid_cancelled_email_pending');
 -- ```
---   ✅ 退乾淨 = `t` · **`4`** · `0`。**任何一個不是, 就是還沒退完。**
+--   ✅ 這三欄要 `t` · **`4`** · `0`。**任何一個不是, 就是還沒退完。**
+--   🔴🔴 **而【這三欄仍然證不到「退乾淨」】**(codex R8 ①, 而它是對的):
+--      🛑 四支 view **名字在**、而定義被換成**任何不含 `manual_phone` 的內容** ⇒ 照樣 `t / 4 / 0`;
+--         **ACL 被打開**(`anon` 讀得到那兩個 email 欄)⇒ 這三欄**一格都看不出來**。
+--      📌 ⇒ 它們證的只有「伴生不在 · 四個名字在 · 沒有那個字面」——
+--         **那是三個【必要條件】, 而我把它們寫成了充分條件。**
+--
+--   ✅ **⇒ 退完【還要】跑這一發(它問的是「你退回去的是不是 080000 那一版」)**:
+-- ```sql
+-- SELECT c.relname,
+--        pg_catalog.md5(pg_catalog.pg_get_viewdef(c.oid, true))                    AS 定義指紋,
+--        pg_catalog.pg_get_viewdef(c.oid, true) LIKE '%order_source%'              AS 有_order_source_應為_t,
+--        pg_catalog.pg_get_viewdef(c.oid, true) LIKE '%manual\_phone%'             AS 有那個述詞_應為_f,
+--        pg_catalog.has_any_column_privilege('anon', c.oid, 'SELECT')              AS anon_讀得到_應為_f,
+--        pg_catalog.has_any_column_privilege('authenticated', c.oid, 'SELECT')     AS auth_讀得到_應為_f,
+--        pg_catalog.has_any_column_privilege('service_role', c.oid, 'SELECT')      AS sr_讀得到_應為_t
+--   FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+--  WHERE n.nspname = 'public' AND c.relkind = 'v'
+--    AND c.relname IN ('pcm_order_created_email_pending','pcm_shipped_email_pending',
+--                      'pcm_tracking_corrected_email_pending','pcm_unpaid_cancelled_email_pending')
+--  ORDER BY c.relname;
+-- ```
+--   ✅ **四列, 六欄全部照欄名那個期望值**(`t / f / f / f / t`)。
+--   🔵 `order_source` 那一欄是**方向性的**:080000 那一版的存在理由就是**加那一欄**
+--      ⇒ 🛑 **退過頭**(退到 080000 之前那一版)時它會印 `f` —— 而上面那三欄**看不出退過頭**。
+--   🔵 `定義指紋` **不是閘, 是【記錄】** —— 這裡沒有可比的基準值(要有基準就得先把 080000
+--      貼進一個乾淨庫算一次)。⇒ **把它抄下來**, 用途是**跨環境比對**(正式庫 vs 預備庫)
+--      與**下一次再退時比對**。📌 **明寫它不是閘, 免得下一個人以為印出來就等於驗過。**
+--   🛑 **而【這一發仍然證不到位元組相等】** —— 它證的是「形狀對、欄位在、權限對、那個述詞不在」。
+--      要證位元組相等, 得有一份**基準指紋**, 而今天沒有人有。**這是已知缺口, 不是漏掉。**
 --   🔴🔴 **中間那個 `4` 是 codex R7 補的, 而它補的是【這把尺最糟的一種失明】**:
 --      ⛔ ~~原本只有 `t` 與 `0`~~ ⇒ 🛑 **把四支 pending view 連同伴生 view 【全部刪掉】, 它也印 `t / 0`**
 --      —— 因為第二欄是 `count(*) FILTER (…)`, 它**只數還存在的 view**:view 都沒了 ⇒ 分母 0 ⇒ 命中 0。
