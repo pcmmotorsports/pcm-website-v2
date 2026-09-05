@@ -410,6 +410,31 @@ export async function listHctStatusByShipmentIds(
  * 把送出結果寫回 DB(`admin_record_hct_submit`, `20260904170000`)。
  * 🔴 `p_status` 只收 submitted / failed / unknown —— DB 那側自己會擋別的值。
  */
+/**
+ * 把【佔位卡住】的箱子放回 `draft`(`admin_hct_reset_unknown_to_draft`, `20260905320000`)。
+ *
+ * 🔴🔴 **它不自己判「新竹到底收到沒」** —— 佔位是在 HTTP 發出去**之前**寫的,
+ *    所以「有 placeholder 而沒有回應」有兩個世界:①從來沒送出去 ②送出去了而回應掉了。
+ *    而**我們這一端沒有任何量具分得出這兩個** ⇒ 📌 它收一句**操作者的證詞**並寫進稽核。
+ * 🛑 **證詞不是備註, 它是這個動作的授權依據** —— 沒有那通電話就不要呼叫它。
+ * 🔵 五道閘與「改 0 列要 RAISE」都在 DB 那一層(呼叫端可以被繞過, 那一層每條路都會經過)。
+ */
+export async function resetHctUnknownToDraft(args: {
+  shipmentReference: string;
+  actor: string;
+  requestId: string;
+  attestation: string;
+}): Promise<void> {
+  const { error } = await createSupabaseServiceClient().rpc('admin_hct_reset_unknown_to_draft', {
+    p_shipment_reference: args.shipmentReference,
+    p_actor: args.actor,
+    p_request_id: args.requestId,
+    p_attestation: args.attestation,
+  });
+  // 🔴 RPC 那邊「改 0 列」是 RAISE 不是靜靜成功 ⇒ 這裡照樣 throw, 不要吞。
+  if (error !== null) throw new Error(error.message);
+}
+
 export async function recordHctSubmit(args: {
   shipmentReference: string;
   status: 'submitted' | 'failed' | 'unknown';
