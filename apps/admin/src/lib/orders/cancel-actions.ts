@@ -8,6 +8,9 @@ import { authorizeAdminMutation } from '../session/authorize';
 import { parseOrderCancelForm } from './cancel-form';
 import {
   CANCEL_ORDER_ID_FIELD,
+  CANCEL_REQUEST_TOKEN_FIELD,
+  markRejectedResultQuery,
+  markedCancelledResultQuery,
   CANCEL_SHIPMENT_ACK_FIELD,
   CANCEL_SHIPMENT_ACK_VALUE,
   cancelledResultQuery,
@@ -21,7 +24,7 @@ import {
   parseOrderReturnTo,
 } from './order-return-to';
 import { revalidateOrderViews } from './order-revalidate';
-import { cancelOrder } from './cancel-repository';
+import { cancelOrder, markOrderCancelled } from './cancel-repository';
 import { cancelShipmentWarning } from './cancel-shipment-warning';
 import { getAdminOrderRepository } from './order-repository';
 import { loadOrderShipments } from '../shipping/order-shipments';
@@ -324,4 +327,97 @@ export async function cancelOrderAction(formData: FormData): Promise<void> {
     appendResultQuery(returnTo, cancelledResultQuery(parsed.requestToken)),
     RedirectType.replace,
   );
+}
+
+/**
+ * 🔴🔴 **第二條路:把一張「錢已全退、而還沒取消」的刷卡單結掉**(Sean 2026-09-05 拍甲)。
+ *
+ * **為什麼不能併進 `cancelOrderAction`**:它走的是**另一支 RPC**
+ * (`admin_mark_order_cancelled`),而那支的**回傳形狀只有兩鍵**、**沒有 `p_items`**、
+ * **不寫 `order_cancellations`**。併進去會讓兩條路共用一個 parser 而其中一條永遠形狀漂移。
+ *
+ * 🛑 **這條路【沒有 `cancellation_id`】, 而那不是漏做** ——
+ *    那支 RPC 逐字「**不碰 `order_cancellations` / `_items`**」(`20260902140000:106-107`)。
+ *    ⇒ 📌 上面 `cancelOrderAction` 成功時記的那行 log, 是靠 `cancellation_id` 把 token
+ *       接回取消帳本的;**這條路沒有那個接點** ⇒ 下面那行 log 明寫 `cancellation_id: null`
+ *       並附一句話, 免得災難當天有人以為是漏記。
+ *
+ * 🔵 **本層不重打 RPC 的三道閘**(只開放刷卡 / 只認全額退 / 取消過就擋)——
+ *    plan §10 的不變式:**以 DB 為準, UI 判定只是預告。** 被拒不是 bug。
+ *    (主視窗 2026-09-05 裁 B=乙:**不收窄判準**, 而把「被拒的意思」寫進訊息。
+ *     收窄要把 `payment_method` 一路加進 `CancelViewOrder` 與 adapter 的 SELECT
+ *     ⇒ 那會製造**第二份規格**, 而兩份會分岔 —— R3 F11 警告的正是這個。)
+ *
+ * 🛑 **所以 `rejected` 在這條路上的意思與 `cancelOrder` 不同**:
+ *    那邊是「這張單不能取消」;**這邊是「這張單今天不符合這條路的條件」**
+ *    —— 非刷卡收款、或曾經部分取消過。⇒ 📌 **不是壞掉, 而員工要知道差別。**
+ */
+export async function markOrderCancelledAction(formData: FormData): Promise<void> {
+  const authorization = await authorizeAdminMutation();
+  if (!authorization) failRedirect(ORDERS_PATH, notSentResultQuery('denied'));
+
+  // 🔴 `getRequestId()` 是 async —— 與上面那支一樣先 await 一次、之後重用同一個值。
+  //    ⚠️ 每次現叫會拿到 Promise 而 `console.info` **不會抱怨**:它會把 `Promise {}` 印進 log
+  //       ⇒ 那一格從此永遠對不回任何一次請求, 而 typecheck 只在有型別標註的地方才叫。
+  const httpRequestId = await getRequestId();
+  const targetOrderId = readRedirectTargetOrderId(formData);
+  const returnTo =
+    targetOrderId === null
+      ? ORDERS_PATH
+      : parseOrderReturnTo(readSingleString(formData, ORDER_RETURN_TO_FIELD), targetOrderId);
+
+  // 🔴 只讀兩個欄位:單號與冪等鍵。**沒有原因碼欄** —— 見下面那段。
+  const requestToken = readSingleString(formData, CANCEL_REQUEST_TOKEN_FIELD);
+  if (targetOrderId === null || requestToken === null || !isUuid(requestToken)) {
+    failRedirect(returnTo, notSentResultQuery('invalid'));
+  }
+
+  const outcome = await markOrderCancelled({
+    orderId: targetOrderId,
+    // 🔴🔴 **原因碼寫死, 而那是刻意的**:這條路只有一種情況會走到
+    //    ——「錢已經全額退完了, 只差把單子結掉」。給員工一個下拉選單等於請他
+    //    在一個他沒有選擇的情境裡做一個選擇, 而那些選項會被填成噪音。
+    //    ⚠️ 而 `other` 在 RPC 那側**必須**帶說明(`20260903093000` 的配對 RAISE),
+    //       所以下面那句不是註解, 是一個必填欄的值。
+    reasonCode: 'other',
+    reasonDetail: '款項已全額退還,收尾把訂單標記為取消',
+    actor: authorization.actorId,
+    requestToken,
+  });
+
+  if (!outcome.ok) {
+    console.error('[admin/orders/mark-cancelled] failed', {
+      request_id: httpRequestId,
+      request_token: requestToken,
+      order_id: targetOrderId,
+      code: outcome.code,
+      sqlstate: outcome.sqlstate,
+      message: outcome.logMessage,
+    });
+    // 🔴 **`rejected` 走這條路自己的碼**(主視窗裁 B=乙):共用那一句會說成「狀態可能剛變動」,
+    //    而這裡最常見的原因是**這張單不走這條路**(非刷卡收款 / 曾經部分取消過)。
+    //    ⚠️ 其餘失敗碼(`retry`/`bug`/`error`)照舊共用 —— 它們的意思兩條路是一樣的。
+    failRedirect(
+      returnTo,
+      outcome.code === 'rejected'
+        ? markRejectedResultQuery()
+        : sentResultQuery(outcome.code, requestToken),
+    );
+  }
+
+  console.info('[admin/orders/mark-cancelled] done', {
+    request_id: httpRequestId,
+    request_token: requestToken,
+    order_id: targetOrderId,
+    // 🔴 **這條路沒有 cancellation_id** —— 那支 RPC 不寫 `order_cancellations`。
+    //    寫成 null 並留這一句:災難當天有人拿 token 去取消帳本找不到, 那不是漏記。
+    cancellation_id: null,
+    marked: outcome.marked,
+    idempotent: outcome.idempotent,
+  });
+  revalidateOrderViews({ orderId: targetOrderId, returnTo, scope: 'cancel', requestId: httpRequestId });
+  // 🔴 **走自己的成功碼, 不是 `cancelledResultQuery`**(主視窗 2026-09-05 裁 A=甲):
+  //    那一支會叫結果面板去 `order_cancellations` 核對, 而這條路**不寫那張表**
+  //    ⇒ 成功會被畫成「目前查不到」。⇒ 📌 **事情做了而畫面說查不到, 與失敗長得一樣。**
+  redirect(appendResultQuery(returnTo, markedCancelledResultQuery()), RedirectType.replace);
 }

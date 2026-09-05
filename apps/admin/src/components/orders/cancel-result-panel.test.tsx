@@ -13,8 +13,16 @@ import {
   CANCEL_NOT_SENT_CODES,
   CANCEL_SENT_CODES,
   ORDER_CANCELLED_RESULT_CODE,
+  ORDER_MARKED_CANCELLED_RESULT_CODE,
+  ORDER_MARK_REJECTED_RESULT_CODE,
   toOrderCancelResultCode,
 } from '../../lib/orders/cancel-action-state';
+import {
+  CANCELLED_MATCH_TEXT,
+  MARKED_CANCELLED_TEXT,
+  MARK_REJECTED_TEXT,
+  VERDICT_TEXT,
+} from './cancel-result-panel';
 import { CancelResultUrlCleanup } from './cancel-result-url-cleanup';
 
 // cancel-result-panel.test.tsx — A13b D5 驗收①-④。
@@ -321,7 +329,14 @@ describe('D5 面板碼集合:與 banner 互斥', () => {
       expect(isCancelPanelResultCode(toOrderCancelResultCode(code))).toBe(true);
     }
     expect(isCancelPanelResultCode(ORDER_CANCELLED_RESULT_CODE)).toBe(true);
-    expect(CANCEL_PANEL_RESULT_CODES).toHaveLength(CANCEL_SENT_CODES.length + 1);
+    // 🔴 **2026-09-05 從 +1 變成 +3**(⟦0a-CARDCANCELNOREFUND⟧ 片②)——
+    //    第二條路(`admin_mark_order_cancelled`)有**自己的成功碼與被拒碼**:
+    //    · `order_marked_cancelled` —— 它**不查取消帳本**(那支 RPC 不寫 `order_cancellations`)
+    //    · `order_mark_rejected`    —— 被拒的意思是「這張單不走這條路」, 不是「狀態剛變」
+    //    ⇒ 📌 **這一格紅過, 而它紅得對** —— 加碼就是要有人來看一眼。
+    expect(CANCEL_PANEL_RESULT_CODES).toHaveLength(CANCEL_SENT_CODES.length + 3);
+    expect(isCancelPanelResultCode(ORDER_MARKED_CANCELLED_RESULT_CODE)).toBe(true);
+    expect(isCancelPanelResultCode(ORDER_MARK_REJECTED_RESULT_CODE)).toBe(true);
   });
 
   it('🔴 A 類兩碼不得開面板(它們歸既有 ResultBanner)', () => {
@@ -338,5 +353,30 @@ describe('D5 面板碼集合:與 banner 互斥', () => {
 
   it('🔴 重複 query key(`?r=a&r=b`)→ 不畫面板,不亂說話', () => {
     expect(panel({ resultCode: [SENT_CODE, SENT_CODE] }).container.innerHTML).toBe('');
+  });
+});
+
+describe('🔴 本檔的對客文字也不得含 Markdown 星號(2026-09-05:同一個病, 換了一支檔)', () => {
+  // 📌 **成因**:我在隔壁 `cancel-review-copy.test.ts` 剛加了一道掃 `BLOCK_REASON_TEXT` 的守門,
+  //    **五分鐘後在本檔的新文案裡又寫了一次 `**`**。
+  //    ⇒ 🔴 **一道守門的射程, 止於它掃的那個常數** —— 而同一個病可以換一支檔重來。
+  //    ⇒ ⇒ 這一格不是「補上漏網的那一句」, 是**把那道守門帶到這一族**。
+  // 🛑 而它仍然有射程:**只掃本檔匯出的那幾個文案物件**。第三支檔出現時, 它一樣看不到。
+  it('每一個 tone/title/hint 文案都不含 `**`', () => {
+    const texts = [
+      ...Object.values(VERDICT_TEXT),
+      CANCELLED_MATCH_TEXT,
+      MARKED_CANCELLED_TEXT,
+      MARK_REJECTED_TEXT,
+    ];
+    const offenders = texts
+      .filter((t) => t.title.includes('**') || t.hint.includes('**'))
+      .map((t) => t.title);
+    expect(offenders, `這些文案含 Markdown 星號,員工會看到實體 **:${offenders.join(' / ')}`).toEqual([]);
+  });
+
+  it('🔬 尺會動:含 `**` 的字串必須被同一條判準抓到', () => {
+    const fake = { title: '這是**強調**', hint: '正常' };
+    expect(fake.title.includes('**') || fake.hint.includes('**')).toBe(true);
   });
 });

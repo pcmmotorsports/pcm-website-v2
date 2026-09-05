@@ -2,6 +2,8 @@ import type { AdminOrderCancellation } from '@pcm/domain';
 import {
   CANCEL_SENT_CODES,
   ORDER_CANCELLED_RESULT_CODE,
+  ORDER_MARKED_CANCELLED_RESULT_CODE,
+  ORDER_MARK_REJECTED_RESULT_CODE,
   toOrderCancelResultCode,
 } from '../../lib/orders/cancel-action-state';
 import {
@@ -40,6 +42,9 @@ import { CancelResultUrlCleanup } from './cancel-result-url-cleanup';
 export const CANCEL_PANEL_RESULT_CODES: readonly string[] = Object.freeze([
   ...CANCEL_SENT_CODES.map(toOrderCancelResultCode),
   ORDER_CANCELLED_RESULT_CODE,
+  // 🔴 第二條路的成功碼(⟦0a-CARDCANCELNOREFUND⟧ 片②)—— 它**不查帳本**,見下面的分支。
+  ORDER_MARKED_CANCELLED_RESULT_CODE,
+  ORDER_MARK_REJECTED_RESULT_CODE,
 ]);
 
 export function isCancelPanelResultCode(code: string | undefined): boolean {
@@ -100,7 +105,7 @@ type PanelTone = 'ok' | 'warn' | 'error';
  *    D3 會 fail-closed 走這一格 —— 那時的事實是「**認不出你是誰**」,不是「登記人不是你」。
  *    文案要同時容得下兩種(處置相同:與同事確認)。
  */
-const VERDICT_TEXT: Record<CancelLedgerVerdict, { title: string; hint: string; tone: PanelTone }> = {
+export const VERDICT_TEXT: Record<CancelLedgerVerdict, { title: string; hint: string; tone: PanelTone }> = {
   unreadable: {
     title: '查不到取消紀錄(讀取失敗)',
     // ⚠️ 畫面文字裡不要寫 markdown 星號 —— JSX 會逐字印出來(D4 同一個坑犯過一次)。
@@ -164,7 +169,37 @@ const VERDICT_TEXT: Record<CancelLedgerVerdict, { title: string; hint: string; t
  *    這是驗收④(偽造 `?r=order_cancelled` 對一張沒被取消的單不得顯示「已完成」)的落點:
  *    碼說成功、帳本說找不到或不是你 ⇒ **以帳本為準**,照 `VERDICT_TEXT` 說,不會有任何綠字。
  */
-const CANCELLED_MATCH_TEXT: { title: string; hint: string; tone: PanelTone } = {
+/**
+ * 🔴 走 `admin_mark_order_cancelled` 成功時的文案。
+ * **它與 `CANCELLED_MATCH_TEXT` 刻意不同**:那一支說「取消已完成(帳本已核對)」,
+ * 而這條路**沒有取消單可以核對** —— 說同一句話等於對它說謊。
+ */
+/**
+ * 🔴 第二條路**被拒**的文案(主視窗 2026-09-05 裁 B=乙)。
+ * **它要講的不是「失敗了」, 是「這張單不走這條路」** —— 而那兩件事的下一步不同。
+ */
+export const MARK_REJECTED_TEXT = {
+  tone: 'warn' as const,
+  title: '這張單不能用這個方式結掉',
+  // 🔴🔴 **我五分鐘前才寫完一道掃 Markdown 星號的守門, 然後在這裡又犯一次。**
+  //    那道守門掃的是 `BLOCK_REASON_TEXT`(隔壁檔), 而本檔的文案**不在它的分母裡**。
+  //    ⇒ 📌 **一道守門的射程止於它掃的那個常數** —— 而同一個病可以換一支檔重來。
+  //    ⇒ ⇒ 所以本檔也補一格同款的守門(`cancel-result-panel.test.tsx`)。
+  hint:
+    '「把這張單結掉」只適用於刷卡收款、而且錢已經全額退完的單,' +
+    '並且這張單先前沒有部分取消過。' +
+    '⚠️ 這不是系統出錯 —— 請重新整理本單看一次現在的狀態;若你認為它應該可以,請告知系統維護。',
+};
+
+export const MARKED_CANCELLED_TEXT = {
+  tone: 'ok' as const,
+  title: '這張單已經標記為取消',
+  hint:
+    '錢先前已經全額退還,這一步只把訂單狀態收尾,沒有再動到任何一筆錢。' +
+    '⚠️ 這條路不會在「取消紀錄」裡留下一筆 —— 那裡查不到是正常的,不是漏記。',
+};
+
+export const CANCELLED_MATCH_TEXT: { title: string; hint: string; tone: PanelTone } = {
   title: '取消已完成',
   // 🔴 **措辭刻意說「這顆單號對應的取消」而不是「你剛才那次」**(R2 codex must-fix 1):
   //    token 命中證明的是「**這顆 token 的取消存在於帳本**」,不是「你這一次的操作成功了」。
@@ -223,10 +258,21 @@ export function CancelResultPanel({
   //    ⇒ 開 `?r=order_cancelled&rt=<那顆>` 就看到綠字「取消已完成」,
   //    而**他這次要取消的品項可能一件都沒送出** —— 看到綠字就不會再去取消它。
   //    ⇒ `match_other_actor` 一律沿用 `VERDICT_TEXT`(warn + 與同事確認),不升成 ok。
+  // 🔴🔴 **第二條路(`admin_mark_order_cancelled`)的成功【不查帳本】**
+  //    —— 主視窗 2026-09-05 裁 A=甲。那支 RPC **不寫 `order_cancellations`**
+  //    (`20260902140000:106-107` 逐字)⇒ 拿 token 去核對**必定查不到**,
+  //    而「查不到」在這個面板上長得跟失敗一樣。
+  //    ⇒ 📌 **兩條路的成功訊息不同, 那是【事實】不是缺陷** —— 一條有取消單、一條沒有。
+  //    🛑 而這一句**把「沒有取消單」講出來**, 不是藏起來:下一個拿 token 去帳本找的人
+  //       要在這裡就知道找不到是正常的。
   const text =
-    code === ORDER_CANCELLED_RESULT_CODE && verdict === 'match_same_actor'
-      ? CANCELLED_MATCH_TEXT
-      : VERDICT_TEXT[verdict];
+    code === ORDER_MARK_REJECTED_RESULT_CODE
+      ? MARK_REJECTED_TEXT
+      : code === ORDER_MARKED_CANCELLED_RESULT_CODE
+      ? MARKED_CANCELLED_TEXT
+      : code === ORDER_CANCELLED_RESULT_CODE && verdict === 'match_same_actor'
+        ? CANCELLED_MATCH_TEXT
+        : VERDICT_TEXT[verdict];
 
   return (
     <section

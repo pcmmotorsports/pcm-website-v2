@@ -13,7 +13,7 @@ vi.mock('@pcm/adapters/server', () => ({
   createSupabaseServiceClient: mocks.createClient,
 }));
 
-import { cancelOrder, type CancelOrderArgs } from './cancel-repository';
+import { cancelOrder, parseMarkPayloadForTest, type CancelOrderArgs } from './cancel-repository';
 
 // M-4b E10 A9d2-2b:`admin_cancel_order` 唯一呼叫端。
 // 🔴 誠實邊界:本檔全是 mock ⇒ 證的是「呼叫端把契約接對了」,不是「RPC 在正式站的行為」。
@@ -270,5 +270,38 @@ describe('cancelOrder — 拋出型失敗與 log 衛生', () => {
     // 🔴 只帶鍵名與型別、**不帶值**(值可能是 RPC 塞回來的整列內容)。
     expect(outcome.logMessage).toContain('cancelled:boolean');
     expect(outcome.logMessage).not.toContain('true');
+  });
+});
+
+describe('markOrderCancelled —— 第二條路(⟦0a-CARDCANCELNOREFUND⟧ 片②)', () => {
+  // 🔴 **這一族存在的理由**:codex 2026-09-05 抓到「既有測試只 mock 舊 action 與 `cancelOrder`
+  //    ⇒ **刪掉新 action、RPC 參數接線或 `parseMarkPayload`, 兩套測試仍全綠**」。
+  //    ⇒ 📌 **一片碼沒有任何一格測試碰得到它, 與那片碼不存在, 在測試報告上是同一片綠。**
+  it('🔴 兩鍵 payload ⇒ ok(而既有四鍵解析器會把它判成漂移)', () => {
+    expect(parseMarkPayloadForTest({ marked: true, idempotent: false })).toEqual({
+      marked: true,
+      idempotent: false,
+    });
+  });
+
+  it('🔴 marked 與 idempotent 都是 false ⇒ 判成漂移, 不可當成功', () => {
+    // 那支 RPC 的成功路徑必定有一個為 true ⇒ 兩個都 false 就是它漂移了。
+    // 🛑 少了這一格,「什麼都沒發生」會被畫成「已取消」。
+    expect(parseMarkPayloadForTest({ marked: false, idempotent: false })).toBeNull();
+  });
+
+  it('🔬 負對照:多一個鍵 ⇒ null(鍵集合恰等, 不是包含)', () => {
+    expect(parseMarkPayloadForTest({ marked: true, idempotent: false, extra: 1 })).toBeNull();
+  });
+
+  it('🔬 負對照:四鍵的舊 payload 餵進來 ⇒ null(兩支解析器不可互換)', () => {
+    expect(
+      parseMarkPayloadForTest({
+        cancellation_id: '11111111-1111-4111-8111-111111111111',
+        cancelled: true,
+        closed: false,
+        idempotent: false,
+      }),
+    ).toBeNull();
   });
 });

@@ -370,6 +370,13 @@ export function isItemSelectable<T extends Pick<CancelItemView, 'maxCancellable'
 }
 
 export type OrderCancelView = {
+  /**
+   * 🔴 **第二條路能不能走**(⟦0a-CARDCANCELNOREFUND⟧ 片②)——
+   * `payment_status = 'refunded'` 且**還沒取消**的單,可以走 `admin_mark_order_cancelled` 把它結掉。
+   * 🛑 **它與 `canCancel` 是兩句話**:那一支 RPC 對這種單**真的**會拒(它要 `paid`)。
+   * 🔵 判準刻意比 RPC 寬(不重打「只開放刷卡」「取消過就擋」)⇒ **以 DB 為準, 這裡只是預告。**
+   */
+  markCancelAllowed: boolean;
   /** ⟺ `blockReasons.length === 0` */
   canCancel: boolean;
   blockReasons: OrderCancelBlockReason[];
@@ -772,8 +779,25 @@ export function buildOrderCancelView(order: CancelViewOrder): OrderCancelView {
   }
 
   const canCancel = reasons.length === 0;
+  // 🔴🔴 **第二條路能不能走**(Sean 2026-09-05 拍甲 · ⟦0a-CARDCANCELNOREFUND⟧ 片②)
+  //
+  // 🛑 **它【不是】 `canCancel` 的一部分, 而那是刻意的** —— `admin_cancel_order` 對這張單
+  //    **真的**會拒(它的述詞要求 `payment_status = 'paid'`,而這裡是 `refunded`)。
+  //    ⇒ 📌 **「這張單可以取消」與「有一條別的路可以把它結掉」是兩句話。**
+  //       合成一個布林值會讓 UI 送到錯的 RPC 去。
+  //
+  // 🔵 **判準【刻意】比 RPC 寬** —— `admin_mark_order_cancelled` 還有兩道閘
+  //    (只開放刷卡單 · 取消過就擋),而**本層不重打它們**:
+  //    照 plan §10 的不變式 —— **以 DB 為準, UI 判定只是預告。**
+  //    ⇒ 重打一份會製造第二份規格, 而兩份會分岔(R3 F11 講的正是這個)。
+  //    ⇒ ⇒ **被 RPC 拒不是 bug**, 訊息要說「這張單的狀態剛剛變了」, 不是「系統出錯」。
+  //
+  // ⚠️ **而 `cancelledAt` 這一格【要判】** —— 它不是為了預測 RPC,
+  //    是為了**不要對一張已經取消的單顯示「按下面把它結掉」**(那句話會叫人做一件已經做完的事)。
+  const markCancelAllowed = order.paymentStatus === 'refunded' && order.cancelledAt === null;
   return {
     canCancel,
+    markCancelAllowed,
     blockReasons: reasons,
     fullCancelAllowed: canCancel && !hasAnyInstock(items) && everyItemFullyCancellable(items),
     items,

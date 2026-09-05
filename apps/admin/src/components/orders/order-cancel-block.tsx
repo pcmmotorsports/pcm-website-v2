@@ -8,6 +8,12 @@
 import 'server-only';
 import type { AdminOrderDetail } from '@pcm/domain';
 import { buildOrderCancelView, type CancelViewPayments } from '../../lib/orders/cancel-view';
+import { generateCancelRequestToken } from '../../lib/orders/cancel-request-token';
+import { markOrderCancelledAction } from '../../lib/orders/cancel-actions';
+import {
+  CANCEL_ORDER_ID_FIELD,
+  CANCEL_REQUEST_TOKEN_FIELD,
+} from '../../lib/orders/cancel-action-state';
 import { CancelReviewSection } from './cancel-review-section';
 import type { CancelShipmentWarning } from '../../lib/orders/cancel-shipment-warning';
 import type { CancelPendingRefundNotice } from '../../lib/orders/cancel-pending-refund-notice';
@@ -105,7 +111,21 @@ export function OrderCancelBlock({
     <div id='cancel' className='space-y-4'>
       {/* 🔴 **複核區塊永遠掛著**(即使已取消 / 不能取消)—— 關單之後員工仍要看得到
           「取消了什麼」,那是義務 5 的比對面。 */}
-      <CancelReviewSection detail={detail} payments={payments} />
+      <>
+        <CancelReviewSection detail={detail} payments={payments} />
+        {/*
+          🔴 鈕在這裡(server), 緊接在上面那個區塊之後 —— 那句「請按下面的」指的就是它。
+          🔴🔴 **而它必須與兩支取消表單受【同一道】`formsAllowed` 守門**(codex 2026-09-05 must-fix):
+             那道守門的意思是「**結果頁上不准就地重送**」——
+             它擋的是「按了之後畫面重繪, 而表單又出現在眼前」那個形狀。
+             ⛔ 我第一版只判 `markCancelAllowed` ⇒ **`retry` / `error` 之後這顆鈕立刻又出現**,
+                而**每次重繪都鑄一把新 token** ⇒ 員工可以用新鍵立刻重送
+                ⇒ 📌 **冪等鍵的用途被繞過了 —— 而繞過它的是我們自己的畫面。**
+        */}
+        {view.markCancelAllowed && formsAllowed === true && (
+          <MarkCancelledForm orderId={detail.id} />
+        )}
+      </>
       {showForms && (
         <div className='space-y-4'>
           {/* 🔴 整單那支還要多過 `fullCancelAllowed`(有到貨就只能逐品項取消,RPC 會拒)。 */}
@@ -129,3 +149,40 @@ export function OrderCancelBlock({
     </div>
   );
 }
+
+/**
+ * 「把這張單結掉」—— 走 `admin_mark_order_cancelled`(**不是** `admin_cancel_order`)。
+ *
+ * 🔴🔴 **token 由呼叫端傳進來, 不在這裡鑄** —— 而那是一道守門教我的:
+ *    我第一版在這裡呼叫 `generateCancelRequestToken()`, 而它是 **server-only 模組**
+ *    ⇒ 測試當場紅「This module cannot be imported from a Client Component module」。
+ *    📌 **本檔走的是 client 路徑**(它被 `order-cancel-block` 收進去),而我沒有先確認那件事。
+ *    ⇒ 產生點必須在 server(`order-cancel-block.tsx`), 與 `CancelFormShell` 同一條義務:
+ *       落進 client 或任何快取層 ⇒ **兩個人會拿到同一把**。
+ * 🔴 **沒有原因碼欄** —— 這條路只有一種情況會走到(錢已全額退完, 只差收尾),
+ *    給下拉選單等於請員工在一個他沒有選擇的情境裡做選擇。原因碼寫死在 action 裡。
+ * 🔵 **沒有 `return_to`** —— action 那側對 `null` 的 fallback 會用單號組回明細頁。
+ * 🛑 **這顆鈕【不保證】按下去會成功**:那支 RPC 還有兩道閘(只開放刷卡單 / 取消過就擋),
+ *    而本層刻意不重打它們(plan §10:以 DB 為準, UI 判定只是預告)。
+ *    ⇒ 被拒**不是 bug**, 畫面會顯示那條路自己的訊息。
+ */
+function MarkCancelledForm({ orderId }: { orderId: string }) {
+  // 🔴 token 在 server 渲染期鑄(本檔是 server component)。
+  const requestToken = generateCancelRequestToken();
+  return (
+    <form action={markOrderCancelledAction} className='mt-3'>
+      <input type='hidden' name={CANCEL_ORDER_ID_FIELD} value={orderId} />
+      <input type='hidden' name={CANCEL_REQUEST_TOKEN_FIELD} value={requestToken} />
+      <button
+        type='submit'
+        className='border-border hover:bg-muted rounded-md border px-3 py-1.5 text-sm font-medium'
+      >
+        把這張單結掉
+      </button>
+      <p className='text-muted-foreground mt-1 text-xs'>
+        錢已經退完了,這一步只是把訂單標記成已取消 —— 不會再動到任何一筆錢。
+      </p>
+    </form>
+  );
+}
+
