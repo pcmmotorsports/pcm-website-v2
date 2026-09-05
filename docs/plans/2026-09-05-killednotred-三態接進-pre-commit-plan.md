@@ -141,3 +141,59 @@ sysctl vm.swapusage ⇒ total 18,432M · used 17,133M · free 1,298M   ⇒ 93% �
 3. 動 `.husky/` ⇒ **鐵則 12④** ⇒ codex 一輪 —— 🛑 **而那一輪要等機器不燒的時候跑**(見上面那格)。
    🔵 主視窗當場自陳:那 93% 主要是它的 chain 在跑 vitest 全套兩發(約 8 分鐘)
    ⇒ **成因已知、會退, 不是機器壞了** ⇒ 它推完會廣播, 那之後再跑 codex。
+
+---
+
+## 🔴🔴 施工過程中我自己造成的事故(寫在這裡因為它就是本片的實驗造成的)
+
+2026-09-05 夜,為了量「真 lint 錯 + 兄弟 task 被 SIGKILL」的混合世界,
+我在 scratchpad 裡 `git init` 了一棵拋棄式樹 —— **而下一發 `cd /tmp/lsmix` 打錯了路徑**。
+
+```
+cd /tmp/lsmix                 ← 不存在 ⇒ 印錯誤、rc 非 0
+printf '{"name":"lsmix"…}' > package.json    ← 沒有 && ⇒ 照跑 ⇒ 寫進【上一個 cwd = 主樹】
+git add package.json                          ← 照跑 ⇒ 進【主樹 index】
+```
+⇒ 主樹 `package.json` 被整份覆蓋(146 刪 / 1 增)⇒ 主視窗第 28 批鏈第二發**紅 3 支**
+   (lint-staged 接線測試讀不到 `lint-staged` 鍵)⇒ 主視窗 `git restore` 還原、鏈重開。
+🔬 複驗:`git -C /Users/sean_1/pcm-website-v2 status --short` ⇒ 只剩 session 開始就有的 7 支 png;
+   `diff --stat HEAD` ⇒ 空 ⇒ **沒有其他寫到主樹的動作**。
+
+✅ **修法已落成可執行的三句** → `docs/patterns/mutation-harness-restore.md` §6
+✅ **病理(三端並排:錯的答案 / 沒有答案 / 對的答案錯的受詞)** →
+   `docs/patterns/guard-and-instrument-traps.md`「`cd <相對路徑> && …`」那條的第三端
+
+🎯 **而它與本片是同一個母題**:`⟦b9-KILLEDNOTRED⟧` 講的是「**紅了而不是你的錯**」,
+   這一發是「**綠了而做在別人身上**」—— 兩邊都是**畫面上看不出受詞換了**。
+
+---
+
+## 🔬 codex R1 兩條 must-fix 與修法(2026-09-05,`gpt-5.6-sol` high)
+
+### ① 混合世界 —— 判準會對真錯印「不是你的碼」
+codex 指出:真 lint 錯會讓 lint-staged **把還在跑的兄弟 task 用 SIGKILL 收掉**
+⇒ 同一份 log 兩種都有。**我當場量到了,不是採信**:
+```
+兩個 task:fail.sh(exit 1)+ slow.sh(sleep 25)⇒ 真的 lint-staged 17.x
+  [FAILED] fail.sh [FAILED]      ← 真錯, 行尾是 [FAILED]
+  [FAILED] slow.sh [SIGKILL]     ← 被收掉的兄弟, 行尾是訊號名
+  ⇒ 原判準 grep 命中 2 ⇒ 會印「這不是你的碼」🔴
+```
+✅ 修法:條件加 `&& ! grep -qE '\[FAILED\][[:space:]]*$'`(**以行尾分辨**)。
+🔬 **四個世界跑逐字條件**(不是三個 —— 混合世界是 codex 逼出來的第四個):
+```
+混合(真錯+SIGKILL) ⇒ 不印 ✅    純被砍(kill -9 自己) ⇒ 印 ✅
+純真錯(無兄弟被砍) ⇒ 不印 ✅    全綠(rc 0)          ⇒ 不印 ✅
+```
+📌 **原本的三世界【結構上量不到這個】** —— 三個世界各自只有一個 task。
+
+### ② `mktemp -t <前綴>` 是 BSD 專用形狀
+GNU 要求 template 至少三個 `X` ⇒ 在 Linux 上**固定失敗** ⇒ 掉進可預測的 `/tmp/…$$`
+⇒ 有人先建一條 symlink 就能改寫輸出落點。
+✅ 修法:`mktemp "${TMPDIR:-/tmp}/pcm-lint-staged.XXXXXX"`(兩邊都吃)+ **移除 fallback**
+   —— 拿不到暫存檔就大聲失敗,好過安靜寫進猜得到的路徑。
+
+### nit(未改,理由)
+* `rm -f` 在 SIGKILL 下走不到 ⇒ 🛑 **SIGKILL 本來就攔不住**,加 trap 只擋得住可攔訊號,
+  而那些路徑已經被 `sh -e` 的 exit 覆蓋 ⇒ 收益 < 多一層。
+* 輸出不即時 ⇒ **那是甲案刻意付的成本**(檔內已明寫),不是疏忽。

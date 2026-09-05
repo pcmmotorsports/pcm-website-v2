@@ -261,24 +261,46 @@ export function CheckoutView({
     try {
       // 🔴 `.catch(() => null)`:SDK 若 throw,無 catch 會讓 handler 靜默結束、客人完全沒訊息;
       //   轉 null 即落入下方友善錯誤路徑(code-reviewer nit,已由 getPrime reject 測試守門)。
-      // 🔴🔴 **匯款這條路【今天仍然取 prime】—— 而那是暫時的,不是設計。**
+      //   (它跟著 `getPrime` 搬進下面那個 `if` 裡了,本行只留指標。)
+      // ⛔ ~~🔴🔴 **匯款這條路【今天仍然取 prime】—— 而那是暫時的,不是設計。**~~ (2026-09-05 片 2 拆掉了)
       //    🛑 原因在 server 那一側:`charge-actions.ts` 的 prime 閘是**無條件**的,
       //       而且排在任何 channel 分岔**之前**(`TapPayPrimeInput.safeParse(raw.prime)`
       //       失敗 ⇒ `formError: '付款資訊缺失,請重新進行刷卡'`)。
       //    ⇒ 📌 **前端不取 prime ⇒ 一個正要匯款的客人會吃到一句叫他去刷卡的錯誤訊息。**
       //    ⇒ ⇒ 要拆開它必須改 `charge-actions.ts` —— **那是片 1 的檔**(⟦b4-BANKCHARGESCARD⟧),
       //       而兩片改同一支函式是我們刻意避開的(主視窗 2026-09-05 裁【丙】)。
-      // ⚠️ **代價明寫(兩條, 而第二條是 codex ④ 抓到的、比第一條糟)**:
-      //    ① **沒有卡的客人選不到匯款** —— 卡欄過不了 `getPrime` ⇒ 他停在「卡片資訊驗證失敗」。
-      //    ② 🔴 **而【卡欄剛好填過】的客人更糟**:`getPrime` 會成功 ⇒ server 真的**建出匯款單**
-      //       ⇒ 零扣卡 ⇒ 回一句通用錯誤 ⇒ 📌 **他以為沒買成, 而單子已經在那裡了。**
-      //       ⇒ ⇒ 他再按一次會**再建一張**(Sean 2026-09-05 `Q4 = 乙 不擋` ⇒ **這是被接受的**,
-      //          不是漏掉;而修「他以為沒買成」那一半是**片 1**)。
-      //    ⇒ 🎯 **這不是「做完了」,是「做完一半而另一半有名字」。**
-      const prime = await tappay.getPrime().catch(() => null);
-      if (!prime) {
-        setPrimeError('卡片資訊驗證失敗,請確認卡號 / 有效期 / CVV 後重試');
-        return;
+      // ✅ **⛔ ~~上面那兩條代價~~ 2026-09-05 片 2 收掉了** —— 舊字面留在上面加刪除線,
+      //    因為它記著「為什麼當時不能拆」,而那個理由現在已經不成立(片 1 把 server 的閘挪到分岔之後)。
+      //
+      // 🔴🔴 **匯款這條路【不取 prime】—— 而跳過的邊界只有這一段, 前面那一串一個都不動。**
+      //    🛑 **不可以順手一起跳的**(片 2 plan §2b, 每一條都指名不做會怎樣):
+      //      · `confirmProceedIfInflight()`(上面那行)—— 它的註解自己寫「**後端 preflight 才是雙扣真防線**」
+      //        ⇒ 繞過去會**再建一張單** ⇒ 📌 我們修的是「他以為沒買成」, 繞過去變成「他真的買了兩次」。
+      //      · `agreed` / 收件地址 / cart session —— 那些與付款方式無關, 匯款客人一樣要同意條款。
+      //        (⚠️ **cardholder 不在這一串裡** —— 它是 server 那側組出來的, client 從來沒有那個欄位;reviewer R1 抓到我原本把它寫進來了, 而那會叫下一個人去找一個不存在的變數。)
+      //      · 下面那行 `payErrors.resumeChargeMessage()` —— 連它一起跳 ⇒ **新的錯誤會被 stale 機制蓋掉**
+      //        ⇒ 客人看到的是**上一次**的訊息, 而那與「沒有訊息」一樣糟。
+      //    ⇒ 🎯 **所以這裡只多一個 `if (!isBank)`, 而不是把整段搬進分支。**
+      //
+      // 🔴🔴 **`prime` 送 `null` 之後, server 那一側【今天還接不住】—— 而這一句是量到的, 不是推的。**
+      //    實查 `agent/line-mail`(片 1 的分支)`charge-actions.ts`:
+      //      · `:217` `TapPayPrimeInput.safeParse(raw.prime)` —— **無條件**, 且排在
+      //      · `:416` `storedChannel === 'bank_transfer'` 那個分岔【之前】, 也排在 `②e agreed` 之前。
+      //    ⇒ 📌 **片 1 沒有動那道閘** —— 它動的是分岔【之後】的出口(fail-closed ⇒ 終態)。
+      //    ⇒ ⇒ 所以送 null 的結局是 `formError: '付款資訊缺失,請重新進行刷卡'`,
+      //         而那句話對一個正要匯款的客人是**錯的指示**。
+      // 🛑 **⇒ 因此本片【不足以】翻 `BANK_TRANSFER_CHECKOUT_ENABLED`。**
+      //    缺的那一格有名字:**「把 ②c prime 閘挪到 channel 分岔之後」, 而它今天【沒有人認領】**
+      //    (片 1 plan §6 交給片 2 的原句是「只跳過 prime 的 parse」—— 那句指的是 **client 這一段**,
+      //     server 那一道同名的閘不在任何一片的範圍裡)。已回報主視窗。
+      // ⚠️ **而本片仍然要進去**:它是那一格的**前置**, 且它讓「沒有卡的人」不再卡在 client 側。
+      let prime: string | null = null;
+      if (!isBank) {
+        prime = await tappay.getPrime().catch(() => null);
+        if (!prime) {
+          setPrimeError('卡片資訊驗證失敗,請確認卡號 / 有效期 / CVV 後重試');
+          return;
+        }
       }
       // 🔴 stale 解除必須晚到這裡(R3-B):getPrime 可等 ~15 秒,期間 charge.state 仍持上一輪訊息,
       //   提早解除會讓舊訊息在取 prime 期間重新現身。submit 內部同步切 'submitting'、與本行同批。

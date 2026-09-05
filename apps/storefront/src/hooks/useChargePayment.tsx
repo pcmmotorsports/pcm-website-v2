@@ -41,7 +41,15 @@ export type ChargeArgs = {
   addressId: string | undefined;
   shippingMethod: ShippingMethod;
   invoice: InvoiceDraft;
-  prime: string;
+  /**
+   * 🔴 ⟦b4-BANKCHARGESCARD⟧ 片 2:**匯款這條路送 `null`** —— 那不是「忘了帶」, 是【沒有卡】。
+   *   ⇒ 型別放寬成 `string | null` 是**刻意的**:寫成 `string` 的話, 前端就必須生一個假的字串,
+   *     而那會讓 server 那邊分不出「匯款」與「一個壞掉的 prime」。
+   * 🔴 **而 server 那一側【今天接不住 null】** —— `charge-actions.ts:217` 的 prime 閘是無條件的,
+   *     排在 `:416` 的 channel 分岔之前(實查 `agent/line-mail`, 片 1 沒有動它)。
+   *   ⇒ 📌 **本型別放寬是那一格的【前置】, 不是那一格。** 缺的是「把 ②c 挪到分岔之後」, 今天無人認領。
+   */
+  prime: string | null;
   /** 🔴 #241 同意服務條款 checkbox 狀態;送 server action 重驗(不信任 client)。
    *  ⚠️ 2026-07-22 U3b:前端已改為「未勾也可按、按下顯示錯誤」→ server guard 是唯一權威。 */
   agreed: boolean;
