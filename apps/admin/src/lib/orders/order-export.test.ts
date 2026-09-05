@@ -54,6 +54,7 @@ function order(over: Partial<AdminOrderSummary> = {}): AdminOrderSummary {
     orderSource: 'web',
     paymentChannel: 'tappay',
     total: { amount: toMoneyAmount(12000), currency: 'TWD' },
+    taxTotal: { amount: toMoneyAmount(0), currency: 'TWD' },
     customerUserId: 'cu-1',
     customerName: '王小明',
     shippingAddress: { name: '收件人', phone: '0912345678', line: '台北市信義區 1 號' },
@@ -115,6 +116,7 @@ describe('🔴🔴 錢:兩欄各自可安全加總(本片唯一真正的風險)'
     const rows = buildOrderExportRows([
       order({
         total: { amount: toMoneyAmount(36000), currency: 'TWD' },
+        taxTotal: { amount: toMoneyAmount(0), currency: 'TWD' },
         lines: [line({ id: 'a', quantity: 2 }), line({ id: 'b', quantity: 1 })],
       }),
     ]);
@@ -212,7 +214,7 @@ describe('CSV 逃脫:壞掉的話整份檔會安靜地少列', () => {
     expect(csv).toContain('\r\n');
     // 表頭逐字,不從常數回推 —— 回推的話常數打錯字這格照樣綠。
     expect(csv).toContain(
-      '單號,日期,車種,廠牌,料號,物品名稱,數量,單價,小計(每列都有),"訂單總額(每單只出現一次,可直接加總)",客戶,會員等級,狀態,發票',
+      '單號,日期,車種,廠牌,料號,物品名稱,數量,單價,小計(每列都有),"訂單總額(每單只出現一次,可直接加總)","稅額(每單只出現一次;已含在訂單總額內,不要另外加)",客戶,會員等級,狀態,發票',
     );
   });
 
@@ -438,5 +440,42 @@ describe('🔴 以 0 開頭的純數字會被試算表吃掉開頭的 0(2026-08-
       expect(csv).not.toContain(`'${clean}`);
       expect(csv).toContain(clean);
     }
+  });
+});
+
+describe('🔴 稅額欄(Sean 2026-09-05 第 6 題拍甲:每單只印第一列)', () => {
+  const TAX = '稅額(每單只出現一次;已含在訂單總額內,不要另外加)';
+
+  it('每單只印第一列, 續列留空 —— 直接 SUM 不會重複計算', () => {
+    // 🔴 期望值從**規則**推(「每單只出現一次」), 不從我寫的那行碼推。
+    const rows = buildOrderExportRows([
+      order({
+        total: { amount: toMoneyAmount(36000), currency: 'TWD' },
+        taxTotal: { amount: toMoneyAmount(605), currency: 'TWD' },
+        lines: [line({ id: 'a', quantity: 2 }), line({ id: 'b', quantity: 1 })],
+      }),
+    ]);
+    expect(cell(rows, 0, TAX)).toBe('605');
+    expect(cell(rows, 1, TAX)).toBe('');
+    const summed = rows.reduce((acc, _r, i) => acc + Number(cell(rows, i, TAX) || 0), 0);
+    expect(summed).toBe(605);
+  });
+
+  it('🔴 欄名要講清楚它【已經】在訂單總額裡面', () => {
+    // 🛑 對帳的人不會讀 commit body, 他手上只有那張表。
+    //    🔬 唯讀實測正式庫:`orders_total_balances CHECK
+    //       ((total = (((subtotal + shipping_fee) - discount_total) + tax_total)))`
+    //    ⇒ **`total` 已經含稅** ⇒ 把「訂單總額 + 稅額」加起來會**重複計稅**。
+    const header = buildOrderExportCsv([order()]).split('\n')[0]!;
+    expect(header).toContain('已含在訂單總額內,不要另外加');
+  });
+
+  it('🔵 稅額 0 的單要印 0, 不是留空', () => {
+    // 🛑 這一格與上一格是**兩件事**:留空 = 「這一列不是該單第一列」;
+    //    0 = 「這一單免稅 / 未算稅」。⇒ 合成一個會讓兩個世界同形。
+    const rows = buildOrderExportRows([
+      order({ taxTotal: { amount: toMoneyAmount(0), currency: 'TWD' } }),
+    ]);
+    expect(cell(rows, 0, TAX)).toBe('0');
   });
 });

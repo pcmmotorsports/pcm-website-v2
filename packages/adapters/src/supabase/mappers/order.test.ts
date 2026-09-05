@@ -318,6 +318,7 @@ function adminRow(item: AdminItemEmbed): SupabaseAdminOrderRow {
     payment_status: 'unpaid',
     fulfillment_status: 'notOrdered',
     total: 100,
+    tax_total: 0, // 🔵 稅欄(Sean 2026-09-05 第 6 題)—— 這支是 adminRow 共用產生器
     order_source: 'web',
     payment_channel: 'none',
     display_position: null,

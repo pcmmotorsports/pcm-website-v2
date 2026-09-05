@@ -64,21 +64,56 @@
 -- 🔴🔴 **而我試著現在就加, 被一道既有的守門擋下來 —— 那道守門是對的**:
 --    `apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:134` 逐字
 --    「白名單 == migrations 裡真的排過的那幾支(**兩個方向都比**)」,
---    而它的分母是 **`supabase/migrations/*.sql` 裡真的呼叫過 `cron.schedule('<名字>'` 的**
+--    而它的分母是 **`supabase/migrations` 底下副檔名是 `.sql` 的那些檔裡真的呼叫過 `cron.schedule('<名字>'` 的**
+--    🔴 **[R4 F-R4-5] 上面那句原本寫成一個 glob(斜線接星號)** —— 而那兩個字在 SQL 裡
+--       正好是**區塊註解的開頭** ⇒ 任何「先剝區塊註解再掃」的尺(本 repo 有一把,
+--       `cron-heartbeat-read.test.ts:139`)會從那裡一路吃到下一個星號接斜線為止。
+--       當場量:本檔那種開頭**只有這一處**, 而最近的結尾在 :76 的 `每十分鐘` 那個排程字面
+--       ⇒ 它吃掉 :67~:76 剛好是「改名要做什麼」那一段。
+--       🎯 而 :437 那句 `cron.schedule` **倖存純屬運氣** —— 因為 :76 提早把註解關掉了。
+--       ⇒ 📌 **一個寫在註解裡的路徑字面, 可以讓一道守門看不見同一支檔的另一段。**
 --    (`:137` 只收 `.endsWith('.sql')`)。
 --    ⇒ 🛑 **本檔是 `PENDING-…sql.txt`** ⇒ 它**不在那個分母裡** ⇒ 白名單多一支就是**白名單在說謊**。
 --    ⇒ ✅ **我把加白名單那一發【撤回了】**(實測:加了之後兩格紅 —— 「九支釘死」與「兩個方向都比」;
 --       撤回後 5 檔 / 97 格全綠)。
 --
--- ✅ **⇒ 正確的順序, 寫在這裡免得下一個人重踩**:
---    ① 本檔改名成真的 `supabase/migrations/<版本號>_….sql`
---    ② **同一顆 commit** 裡:`CRON_JOB_WHITELIST` 加 `pcm-search-log-purge`
---       (`staleMinutes = 30` = 排程 `*/10` × 3, 與 `pcm-capture-recheck` 同一把尺)
---       · `FAILURE_COUNT_MEANINGLESS` 也要加它(**純 SQL ⇒ 失敗心跳會被同交易回捲
---         ⇒ `consecutive_failures` 永遠是 0, 而那與「一直很健康」長得一樣**)
---       · 那支測試的「【九】支」要改成十(它是刻意釘死的, 不是壞掉)
---    🛑 **①②【不可以分開兩顆】** —— 分開的話中間那一刻:排程已經在跑而儀表不讀它,
+-- ✅ **⇒ 改名那一顆要一起改的【全部】字面(R4 §④ 逐條盤過, 少一項 = 靜默漏)**:
+--    ⛔ ~~原本這裡只寫三件事~~ —— 🔴 **[R4 F-R4-9] 而其中一句寫「那支測試的九改十」是【單數】,
+--       實際上釘死 9 的有【兩支檔 + 一處字面】** ⇒ 單數會讓人以為改一處就好。
+--    ```
+--     1. 本檔改名成 `supabase/migrations/<版本號>_….sql`
+--     2. :118 與 :229 兩處 COMMENT 裡的 `20260904280000` 換成新版本號
+--     3. `packages/domain/src/ops/cron-jobs.ts` 的 `CRON_JOB_WHITELIST` 加 `pcm-search-log-purge`
+--        (`staleMinutes = 30` = 排程每十分鐘 × 3, 與 `pcm-capture-recheck` 同一把尺)
+--        🔴 **[R4 F-R4-7] 而要知道:`neverBeat`(從來沒有心跳)這個訊號對這一支【永遠不會亮】**
+--           —— 因為事後閘 ①c 在**貼的當下就呼叫過一次**, 第一筆心跳那時就寫進去了。
+--           ⇒ 📌 **監看全押在 `staleMinutes` 這一個訊號上**, 而「從來沒跑過」那條路被關掉了。
+--           🛑 而在白名單補上它之前, 那一列的狀態是:**有心跳、看起來健康、沒有人在讀。**
+--        + 同檔 :1 的「九支」字面
+--     4. `cron-jobs.test.ts:57` 的 `toBe(9)` → 10
+--        **與** `cron-heartbeat-read.test.ts:90` 的 `toHaveLength(9)` → 10 ← **這是第二處**
+--     5. `cron-jobs.test.ts:33-48` 的門檻表加一列
+--     6. `FAILURE_COUNT_MEANINGLESS` 加它 + `cron-jobs.test.ts:62-72` 的「四支」→ 五
+--        (**純 SQL ⇒ 失敗心跳會被同交易回捲 ⇒ `consecutive_failures` 永遠是 0**)
+--     7. 板列 `⟦search-LOGFLOOD⟧`(檔名出現兩次 + 態)
+--     8. `docs/runbooks/data-rights-sop.md:483` 的檔名
+--     9. `docs/plans/2026-09-05-search-log-phone-mask-plan.md:81,85`
+--        —— 那兩句「兩支 PENDING 都還在」貼完就變成假的
+--    10. 本檔 :37-54 那句「本檔是 .sql.txt ⇒ 不在分母裡」貼完就變成假的
+--    11. 貼之前**重算** :192 那個 md5(本檔的內容已經變過)
+--    ```
+--    🛑 **1~6 【不可以分開兩顆 commit】** —— 分開的話中間那一刻:排程已經在跑而儀表不讀它,
 --       或白名單有一支不存在的排程。**兩個方向都是說謊。**
+--    🟢 **而 6 那一項現在【有機械閘了】**(R4 F-R4-8, 同一輪補的):
+--       `apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts` 新增一格 ——
+--       它掃 migrations 撈每一支 `cron.schedule` 的 command,
+--       **凡是不走 `invoke_cron_route` 的(= 純 SQL)就必須在 `FAILURE_COUNT_MEANINGLESS` 裡**。
+--       🔴 **判準是量出來的, 不是抄 R4 的字面**:R4 建議用「`SELECT public.` 形狀」,
+--          而當場數九支 ⇒ 那把尺只框到 2 支, **漏掉 `SELECT pcm_cron.<函式>()` 那 2 支
+--          (`expire-unpaid-orders` / `late-payment-sweep`)—— 而它們正是名單裡本來就有的。**
+--          改成「有沒有走 HTTP route」⇒ 純 SQL 正好 4 支 = 名單今天的 4 支 ⇒ **零誤報**。
+--       🔬 突變證明:從名單拿掉 `pcm-late-payment-sweep` ⇒ 那一格**紅**
+--          (`expected [ 'pcm-late-payment-sweep' ] to deeply equal []`);還原後綠。
 --
 -- ══ 🔵 **「流量上來前重看單列計數器」—— 那個觸發點長什麼樣**(2026-09-05 · `-f8` 派)══
 -- Sean 拍甲(逐字:`甲 = 先這樣上, 流量上來再拆(上限精確 5000)`)⇒ 計數器維持單列,
@@ -216,6 +251,11 @@ END $$;
 --       而 `purge_search_queries` **沒有接住它** ⇒ 📌 **整發回捲 ⇒ 兩個 DELETE 都不算數**
 --       —— 那不是壞事(fail-closed), 而**它會讓「有沒有在清」與「一直失敗」印同一個畫面**
 --       ⇒ 🛑 **而那正是 F9 那條(心跳恆 0)讓它看不見的東西。**
+--    🔴🔴 **[R4 F-R4-3] 而上面那個 120s 的射程要講清楚, 否則它會被讀成 purge 的上界**:
+--       `SET LOCAL` **只活在本檔這一個交易裡** ⇒ 📌 **每十分鐘那一發 cron 完全不受它管**,
+--       那一發用的是 `postgres` 這個角色自己的 `statement_timeout`(**未確認**:
+--       要知道它是多少, 得在 SQL Editor 跑 `SHOW statement_timeout;`, 而沒有人跑過)。
+--       ⇒ ✅ 這裡的 120s 保護的是**貼的那一刻**, 不是之後每一發。
 SET LOCAL lock_timeout = '3s';
 SET LOCAL statement_timeout = '120s';
 CREATE INDEX search_queries_created_at_idx ON public.search_queries (created_at);
@@ -257,6 +297,11 @@ AS $fn$
   --    🎯 一次索引更新, 不掃表;並發由那一列的 row lock 序列化 ⇒ **是硬上限, 不是近似。**
   --    🛑 **代價明寫**:撞到上限的那一小時**語料是缺的**, 而**沒有東西會告訴我們它缺了**
   --       ⇒ 要知道有沒有撞到, 去看 `search_log_hour_counter` 那一列的 `n` 是不是剛好 5000。
+  --       🔴🔴 **[R4 F-R4-6] 而【誰讀得到】要一起講, 否則上面那句會關掉下一個人的尋找動作**:
+  --          這張表下面三行 `REVOKE ALL` 把 anon / authenticated / service_role 全收了
+  --          ⇒ 📌 **唯讀查證那條路與後台【都會 permission denied】**;
+  --             今天讀得到它的**只有 Supabase 主控台的 SQL Editor**(那是 owner 身分)。
+  --          ⇒ ✅ 所以「去看那一列」= **請 Sean 在 SQL Editor 跑一句**, 不是「你自己去查」。
   WITH bump AS (
     INSERT INTO public.search_log_hour_counter AS c (hour_bucket, n)
     VALUES (pg_catalog.date_trunc('hour', pg_catalog.now()), 1)
@@ -465,11 +510,44 @@ BEGIN
   -- ①c 🔴🔴 **[R3 ④] 真的【呼叫一次】** —— 上面每一格都只在看函式的【文字】,
   --     而 R2 那次抓到的 procedure + COMMIT 那個病, **靜態檢查與乾淨貼 rc=0 兩關都是綠的**
   --     ⇒ 📌 **抓到它的是真的去 CALL 了一次。** 本片自己就有那個教訓, 而事後閘裡沒有那一格。
-  --  🔵 **在這裡呼叫是安全的**:表剛建好、零列 ⇒ 兩個 DELETE 都刪不到東西;
-  --     而 ②a 的前置在空表上是 `f` ⇒ overflow 那句不跑。**它證的是「它跑得起來」不是「它刪得對」。**
-  --  🛑 **它證不到什麼**:零列之下**兩個 DELETE 的正確性一格都沒被驗到**
-  --     —— 那一半靠拋棄式 PG 的兩個世界(檔頭那段), 不靠這裡。
-  PERFORM public.purge_search_queries();
+  --  🔴🔴 **[R4 F-R4-1] ⛔ ~~「表剛建好、零列 ⇒ 兩個 DELETE 都刪不到東西」~~ —— 那句是【假前提】。**
+  --     `search_queries` **不是本檔建的** —— 它由已經 apply 的 `20260904200000` 建
+  --     (本檔只建 `search_log_hour_counter`)⇒ 📌 **貼這一支的時候那張表【有流量、有列】**,
+  --     而那時 `PERFORM` 會**真的跑兩個 DELETE**(過期那發 + overflow 那發, 各上限 `c_batch`)。
+  --     ⇒ 🛑 **原本那整段安全論證是建立在一個沒有量過的世界狀態上的。**
+  --  🔴🔴 **[R4 F-R4-2] 而它的第二個後果比第一個貴**::221 的 `CREATE INDEX`(**非 CONCURRENTLY**)
+  --     對 `search_queries` 拿的是 `SHARE` 鎖, 而**鎖持有到 COMMIT** ——
+  --     :219 的 `lock_timeout` 只管**取得**不管**持有** ⇒ 📌 **`PERFORM` 擺在它後面,
+  --     等於把「客人的搜尋寫不進去」那個窗拉長了一整發 purge 的時間。**
+  --     ⇒ 🛑 而那正好**抵銷掉 R3 F3 要省的東西**。
+  --
+  --  ✅ **折法:給它一個【可量的前置】, 而那個門檻不是我新發明的數** ——
+  --     用的就是 ②a 自己那個 `c_max_rows * 32`(= 64 MB)。
+  --     🎯 **在那個門檻【以下】的世界裡, overflow 那一發【由同一個判準保證不會跑】**
+  --        ⇒ 剩下的只有過期那一發, 而它上限是 `c_batch`。
+  --     🛑 **而門檻【以上】時這一格【不呼叫】** —— 那時它證不到「叫得動」,
+  --        ⇒ 所以它**出聲**(`RAISE WARNING`, SQL Editor 看得到), 不是靜靜跳過。
+  --        📌 **「這一格今天沒有跑」與「這一格跑過而且過了」必須印不一樣的東西。**
+  --  🛑 **它證不到什麼**:它證的是「叫得動、不炸、心跳寫得進」,
+  --     **不是**「它刪得對」—— 那一半靠拋棄式 PG 的兩個世界(檔頭那段), 不靠這裡。
+  --  🔬 **拋棄式 PG 17.10 兩支都實跑過(2026-09-05, R4 那一輪)**:
+  --     世界A 小表 ⇒ 走 `PERFORM`, 函式跑完、`sweeper_heartbeat` 那一列寫進去了
+  --       (⇒ 📌 這一發也**當場證實了 F-R4-7**:心跳在貼的當下就有 ⇒ `neverBeat` 永不亮);
+  --     世界B 把門檻改成 0 逼它走另一支 ⇒ `WARNING` 印得出來、`%` 代入正確。
+  --     ⚠️ **射程**:世界B 是【改門檻】逼出來的, **不是**真的堆到 64 MB
+  --        ⇒ 它證的是「那一支分支寫得對、印得出來」, 不是「64 MB 那個數是對的」。
+  -- ⚠️ **這個 2000000 是【抄】的** —— 函式裡那個是 `c_max_rows CONSTANT bigint := 2000000`(:315),
+  --    而 DO 區塊看不到函式的區域常數 ⇒ 只能抄。
+  --    🔴 **⇒ 有人改了函式裡那個數, 這裡【不會】跟著改, 而 ①b 釘的是 `c_max_rows * 32` 這串【字】不是值**
+  --       ⇒ 兩邊會靜靜地分家。後果有限(只影響「①c 這次跑不跑」), 而它是一筆已知的複製。
+  IF pg_catalog.pg_relation_size('public.search_queries'::regclass) < 2000000 * 32 THEN
+    PERFORM public.purge_search_queries();
+  ELSE
+    RAISE WARNING '事後閘①c【沒有跑】:search_queries 已 % bytes(>= 2000000*32)⇒ '
+                  '為了不把 CREATE INDEX 的 SHARE 鎖窗拉長, 這一格跳過實呼叫。'
+                  '⇒ 這一次貼, 【叫得動】這件事沒有被驗到。',
+                  pg_catalog.pg_relation_size('public.search_queries'::regclass);
+  END IF;
 
   -- ①b 🔴 **②a 那道前置真的進去了** —— 釘的是 **predicate**, 不是註解
   --     (同 codex 第 11 條的教訓:只找註解的話, 註解留著而 IF 拿掉也會綠)。
@@ -482,7 +560,22 @@ BEGIN
      --    🛑 而我在寫它的時候【逐字引用了「釘 predicate 不是註解」那個教訓】, 然後犯了同一個錯。
      --    ✅ 改成**行首錨定**的 regex:`(?n)` 讓 `^` 對每一行生效, 前面只准有空白
      --       ⇒ `-- IF pg_catalog.pg_relation_size…` 那種**不會**命中。
-     AND p.prosrc ~ '(?n)^\s*IF pg_catalog\.pg_relation_size\(''public\.search_queries''::regclass\) >= c_max_rows \* 32 THEN';
+     --    🔴🔴 **[R4 F-R4-4] 而行首錨定只擋掉 `--` 那一種註解** ——
+     --       用區塊註解(斜線星號)把那句 `IF` 包起來時, `IF` 那一行**仍然是「空白 + IF」**
+     --       ⇒ 📌 **照樣命中、照樣印綠。** 同一個病本 repo 兩週內修過兩次。
+     --    ✅ 併一格「函式體裡不准出現區塊註解的開頭」。
+     --    🛑 **代價明寫**:哪天有人在這支函式裡寫一段合法的區塊註解, **這一格會誤紅**。
+     --       當場量:今天 `purge_search_queries` 與 `log_search_query` 兩支本體裡
+     --       那種開頭各 **0 處** ⇒ 今天零誤報;而它是一把**寧可誤紅**的尺。
+     --    🔬 **拋棄式 PG 17.10 實證(2026-09-05, R4 那一輪)**:把那段 `IF … END IF;`
+     --       用區塊註解包起來、載成 `purge_mut` ——
+     --       ```
+     --                             舊尺(只行首錨定)   新尺(併不准有區塊註解)
+     --         purge_mut              t   ← 🔴 誤過        f   ← ✅ 擋到
+     --         purge_search_queries   t                    t   ← 🟢 正對照:新尺不是恆假
+     --       ```
+     AND p.prosrc ~ '(?n)^\s*IF pg_catalog\.pg_relation_size\(''public\.search_queries''::regclass\) >= c_max_rows \* 32 THEN'
+     AND p.prosrc !~ '/\*';
   IF v_cnt <> 1 THEN
     RAISE EXCEPTION '事後閘①b:purge_search_queries 裡找不到 ②a 的大小前置(那句 IF)';
   END IF;

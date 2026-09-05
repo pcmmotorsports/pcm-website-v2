@@ -24,6 +24,12 @@ const ZERO: AnomalyAlertSummary = {
   aclDriftUnknown: false,
   aclDriftFamilies: null,
   aclDriftTakenAt: null,
+  // ⟦b4-RETRYGAVEUPNOWATCHER⟧(2026-09-05):健康世界 = 零張放棄、讀得到。
+  settleRetryGaveUpCount: 0,
+  settleRetryGaveUpUnknown: false,
+  settleRetryGaveUpOldest: null,
+  settleRetryGaveUpSampleIds: [],
+  settleRetryGaveUpTracked: 0,
   // 🔵 基線用正式庫 2026-09-02 真呼叫回來的值,不是我編的。
   bypassRlsPrivilegedCount: 6,
   bypassRlsTotalRoleCount: 35,
@@ -1831,6 +1837,51 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
 // 🔴 **這一組的形狀是主視窗釘的:「必須叫,而且【只有那一格】叫」** ——
 //    「有訊息就算過」是一個**恆綠格**:任何一格出問題都會讓訊息非空。
 //    ⇒ 所以下面那發把**其他計數全部留在 ZERO**,再斷言訊息裡**沒有別的區塊**。
+  describe('⟦b4-RETRYGAVEUPNOWATCHER⟧:有匯款單修不好那天', () => {
+    it('🔴 有被放棄的單 ⇒ 要叫', async () => {
+      const res = await checkAnomalyAlerts(
+        { reader: reader({ ...ZERO, settleRetryGaveUpCount: 2 }), notifiers: [okNotifier()] },
+        OPTS,
+      );
+      expect(res.alerted, '有客人匯了錢而系統修不好, 而沒有叫 ⇒ 這一片等於沒做').toBe(true);
+    });
+
+    it('🔵 而【量不到】不叫 —— null 走 503 那條', async () => {
+      const res = await checkAnomalyAlerts(
+        {
+          reader: reader({ ...ZERO, settleRetryGaveUpCount: null, settleRetryGaveUpUnknown: true }),
+          notifiers: [okNotifier()],
+        },
+        OPTS,
+      );
+      expect(res.alerted, 'null 直接寄信 ⇒ RPC 沒 apply 的那幾天會每天一封').toBe(false);
+    });
+
+    it('🔴 信裡那一塊要說【這些人已經匯了錢】, 而且只有那一塊', () => {
+      const msg = buildAnomalyAlertMessage(
+        {
+          ...ZERO,
+          settleRetryGaveUpCount: 2,
+          settleRetryGaveUpOldest: '2026-09-05T00:00:00Z',
+          settleRetryGaveUpSampleIds: ['id-a', 'id-b'],
+        },
+        86400, null, false,
+        { stale: false, anonRevoked: false },
+        { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+      );
+      expect(msg.text).toContain('【匯款單修不好】');
+      // 🔴 這三句是【收信的人要做什麼】—— 少了它們, 這一行只是一個技術指標。
+      expect(msg.text).toContain('這些人已經匯了錢');
+      expect(msg.text).toContain('有人會再匯一次');
+      expect(msg.text).toContain('id-a, id-b');
+      // 🛑 只有那一塊(少了這幾行, 「有訊息」與「只有這一塊」印同一個綠)
+      expect(msg.text).not.toContain('【資料庫權限】');
+      expect(msg.text).not.toContain('【權限快照】');
+      expect(msg.subject).toContain('匯款單修不好');
+    });
+  });
+
+
   describe('⟦b9-ACLDRIFT5⟧ 片二:權限快照與昨天不一樣那天', () => {
     it('🔴 有漂移且沒人批准 ⇒ 要叫', async () => {
       const res = await checkAnomalyAlerts(

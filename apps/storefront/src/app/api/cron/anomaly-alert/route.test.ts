@@ -126,6 +126,12 @@ const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   aclDriftUnknown: false,
   aclDriftFamilies: null,
   aclDriftTakenAt: null,
+  // ⟦b4-RETRYGAVEUPNOWATCHER⟧(2026-09-05):健康世界 = 零張放棄、讀得到。
+  settleRetryGaveUpCount: 0,
+  settleRetryGaveUpUnknown: false,
+  settleRetryGaveUpOldest: null,
+  settleRetryGaveUpSampleIds: [],
+  settleRetryGaveUpTracked: 0,
   bypassRlsPrivilegedCount: 6,
   bypassRlsTotalRoleCount: 35,
   oldestOpenAgeSeconds: null,

@@ -44,6 +44,23 @@ export const ORDER_EXPORT_COLUMNS = [
   //    ⇒ 限制要寫在**會被讀到的載體**上;寫在別處對他而言等於不存在。
   '小計(每列都有)',
   '訂單總額(每單只出現一次,可直接加總)',
+  // 🔴🔴 **稅額欄(Sean 2026-09-05 第 6 題拍甲)** —— 逐字「加;稅欄每單只印第一列
+  //    (與『訂單總額』同慣例), 欄名那句一起改」。
+  // 🛑 **欄名裡要講清楚它【已經】在 total 裡面**:
+  // ⛔ ~~`orders_total_balances` 逐字是 `total = subtotal + shipping_fee - discount_total` —— **裡面沒有稅**~~
+  // 🔴🔴 **那句話【是假的】**(codex 2026-09-05 抓到, 我唯讀去正式庫量了才確認):
+  //    實測 `pg_get_constraintdef` 逐字:
+  //      `orders_total_balances CHECK ((total = (((subtotal + shipping_fee) - discount_total) + tax_total)))`
+  //    ⇒ **稅【在】那條不變式裡, `total` 已經含稅。**
+  // 📌 **我錯在哪, 寫下來**:我引的是 `20260604120000:112` 的**原始** CHECK ——
+  //    而 `20260828100000` 加稅那一片**改過它**。⇒ **我引了一句當時為真、而現在不成立的字面,**
+  //    **並且拿它去否決一條 finding。**
+  // ⇒ ✅ **而欄名那句話【方向仍然正確】**:`total` 含稅 ⇒ 把「訂單總額 + 稅額」加起來會**重複計稅**
+  //    ⇒ 「已含在訂單總額內, 不要另外加」**是對的**, 只是理由從「稅不在 total 裡」
+  //    換成 **「稅【已經】在 total 裡」** —— 兩個相反的前提, 同一句結論。
+  //    🛑 **而那正是最危險的形狀**:結論對, 所以沒有人會回頭查那個理由。
+  //    ⇒ 而對帳的人不會讀 commit body ⇒ 限制寫在**欄名**上(理由同上一欄, 主視窗 2026-08-25 逐字)。
+  '稅額(每單只出現一次;已含在訂單總額內,不要另外加)',
   '客戶',
   '會員等級',
   '狀態',
@@ -87,6 +104,22 @@ export const ORDER_EXPORT_COLUMNS = [
  */
 function orderTotalCellFor(order: AdminOrderSummary, isFirstLine: boolean): string {
   return isFirstLine ? String(order.total.amount) : '';
+}
+
+/**
+ * 稅額欄 —— **與 `orderTotalCellFor` 同一個形狀**(每單只填第一列, 續列留空)。
+ *
+ * ⛔ ~~為什麼不共用:合成一支之後有人替 total 加「0 就留空」的優化會連稅額一起改掉~~
+ * 🔴 **那個理由【不成立】**(codex 2026-09-05 抓到, 我核過):共用一支只要仍依 `isFirstLine`
+ *    判斷, **0 照樣會被印出來** —— 我描述的那個失敗需要有人**另外**加一個 0 的分支,
+ *    而那與共不共用無關。📌 **我拿一個【想像中的未來改動】當成【現在該分開】的理由。**
+ * ✅ **而分開兩支這個決定本身沒錯, 只是理由要換成真的那個**:
+ *    兩欄的**語意不同** —— 「訂單總額」與「稅額」是兩個獨立的對帳欄位,
+ *    各自有自己的測試與自己的欄名說明。合成一支帶參數的函式**不會更短**(它要多一個參數),
+ *    而會讓那兩格測試指向同一個實作 ⇒ 🛑 **一個突變同時殺兩格 = 少一個獨立訊號。**
+ */
+function orderTaxCellFor(order: AdminOrderSummary, isFirstLine: boolean): string {
+  return isFirstLine ? String(order.taxTotal.amount) : '';
 }
 
 /**
@@ -194,6 +227,7 @@ export function buildOrderExportRows(orders: AdminOrderSummary[]): string[][] {
         line ? moneyCell(line.unitPrice.amount) : EMPTY,
         line ? moneyCell(line.lineTotal.amount) : EMPTY,
         orderTotalCellFor(order, i === 0),
+        orderTaxCellFor(order, i === 0),
         customer,
         tier,
         status,
