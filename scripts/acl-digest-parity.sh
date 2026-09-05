@@ -43,6 +43,19 @@ fi
 test -f "$MIG" || { printf '🔴 找不到 migration:%s —— 這是【路徑錯】不是【不一致】\n' "$MIG" >&2; exit 2; }
 test -f "$TSV" || { printf '🔴 找不到基線:%s\n' "$TSV" >&2; exit 2; }
 
+# 🔴 **逃生口放在【最前面】**(2026-09-05 實測抓到):原本它放在「查不到」那個分支裡,
+#    而連不到正式庫時 `acl-snapshot.sh --emit` 會【更早】失敗並 exit 3
+#    ⇒ 那條路根本走不到 ⇒ 逃生口等於不存在, 而它看起來存在。
+if [ "${PCM_ACL_PARITY_OFFLINE:-}" = "1" ]; then
+  printf '⚠️ PCM_ACL_PARITY_OFFLINE=1 ⇒ 跳過比對。**這一發沒有比過**, 不是比過了。\n' >&2
+  # 🔴 逃生口一定要留痕 —— 一個沒有人看得到的例外會變成預設。
+  bash "$ROOT/scripts/heartbeat.sh" "acl-parity" \
+    "PCM_ACL_PARITY_OFFLINE=1 跳過 ACL parity 比對" \
+    "這一發【沒有比過】—— 連得上正式庫時要補跑 bash scripts/acl-digest-parity.sh" >/dev/null 2>&1 \
+    || printf '   ⚠️ 而心跳也沒寫成 ⇒ 這次跳過【只存在於這兩行 stderr】。\n' >&2
+  exit 0
+fi
+
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 python3 - "$MIG" "$TMP/body.sql" <<'PYEOF'
@@ -68,10 +81,6 @@ if [ "$RC" -ne 0 ]; then
   # 🔴 **「沒有比」也擋**(codex R2:exit 1 與 exit 3 都沒有人接 ⇒ 兩者一樣無聲)。
   #    ⇒ 連不到正式庫時【不放行】, 而給一個要【自己打出來】的逃生口:
   #       PCM_ACL_PARITY_OFFLINE=1 —— 打它的人知道自己在跳過什麼。
-  if [ "${PCM_ACL_PARITY_OFFLINE:-}" = "1" ]; then
-    printf '⚠️ PCM_ACL_PARITY_OFFLINE=1 ⇒ 跳過比對。**這一發沒有比過**, 不是比過了。\n' >&2
-    exit 0
-  fi
   printf '🔴 查不到 ⇒ **沒有比, 不是不一致**(rc=%s)\n' "$RC" >&2
   printf '   連不到正式庫而你確定要先 commit ⇒ PCM_ACL_PARITY_OFFLINE=1 再跑一次。\n' >&2
   tail -3 "$TMP/err" >&2
