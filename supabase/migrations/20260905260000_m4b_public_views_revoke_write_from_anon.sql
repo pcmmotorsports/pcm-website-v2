@@ -68,6 +68,15 @@
 
 BEGIN;
 
+-- 🔴 **[R4 F4]** repo 有 112 支同儕帶 lock_timeout, 而本片一支都沒有;板列 ⟦b4-LOCK1⟧ 修法逐字
+--    「前加 SET lock_timeout='5s'」並自標適用範圍不只那一片。
+--    🛑 本片動四支【主力】view 的 ACL, 再在同一筆交易裡各讀一遍
+--       (vehicle_taxonomy_public 12,053 列 / product_variants_public 51,666 列)
+--       ⇒ 取不到鎖時 SQL Editor 會【無限等】, 而後續讀者全部排在後面 —— 那個世界【沒有東西會紅】。
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '60s';
+SET LOCAL idle_in_transaction_session_timeout = '60s';
+
 -- ══ 前置閘 ════════════════════════════════════════════════════════════════
 DO $$
 DECLARE
@@ -75,7 +84,7 @@ DECLARE
   v_t text;
 BEGIN
   -- ⓪ 四支都在、都是 view、owner 都是 postgres(codex R1 MF⑧)
-  SELECT pg_catalog.string_agg(c.relname || '/kind=' || c.relkind || '/owner=' || c.relowner::regrole::text, ', ') INTO v_t
+  SELECT pg_catalog.string_agg(c.relname || '/kind=' || c.relkind::text || '/owner=' || c.relowner::regrole::text, ', ') INTO v_t
     FROM pg_catalog.pg_class c
     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
    WHERE n.nspname = 'public'
@@ -104,8 +113,13 @@ BEGIN
     CROSS JOIN (VALUES ('INSERT'),('UPDATE'),('DELETE'),('TRUNCATE'),
                        ('REFERENCES'),('TRIGGER'),('MAINTAIN')) p(priv)
    WHERE pg_catalog.has_table_privilege(r.rolname, t.rel, p.priv);
+  -- 🔴 **[R4 F2]** ⛔ ~~`IF v_n = 0 THEN RAISE`~~ —— 那會讓【從零重放】永久紅:
+  --    那四支 view 由 repo 的 migration 建, 而建的時候只 GRANT SELECT
+  --    ⇒ 空庫上 v_n 本來就是 0 ⇒ `migrations-replay-from-zero.sh` 多一支永遠失敗的。
+  --    🛑 更根本的是:**「已經貼過」與「本來就乾淨」印同一個 0** —— 那個 RAISE 分不出這兩個世界。
+  --    ✅ 而本檔的動作(REVOKE ALL + GRANT SELECT)**是冪等的** ⇒ 重跑無害 ⇒ 改成 NOTICE, 不擋。
   IF v_n = 0 THEN
-    RAISE EXCEPTION '前置閘②:四支對 anon/authenticated 【已經】七種寫權一格都沒有 ⇒ 本檔貼過了 ⇒ 停下人工對齊';
+    RAISE NOTICE '[20260905260000] 🔵 四支對 anon/authenticated 一格寫權都沒有 —— 可能是貼過了, 也可能這台庫本來就乾淨(空庫從零重放就是這樣)。本檔冪等, 照跑。';
   END IF;
   RAISE NOTICE '[20260905260000] 前置閘:貼前寫權格數 = %(2026-09-05 16:4x 唯讀實量 32;上限 4×2×7=56)', v_n;
 
@@ -114,7 +128,7 @@ BEGIN
   SELECT pg_catalog.count(*) INTO v_n
     FROM pg_catalog.pg_class c
     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, acldefault('r', c.relowner))) a
+    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))) a
    WHERE n.nspname = 'public'
      AND c.relname IN ('products_list_public','vehicle_taxonomy_public','products_public','product_variants_public')
      AND a.grantee = 0;
@@ -142,17 +156,21 @@ BEGIN
    WHERE n.nspname = 'public'
      AND c.relname IN ('products_list_public','vehicle_taxonomy_public','products_public','product_variants_public')
      AND a.is_grantable
-     AND a.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole);
+     AND a.grantee IN (0, pg_catalog.to_regrole('anon'), pg_catalog.to_regrole('authenticated'));
   IF v_n <> 0 THEN
     RAISE EXCEPTION '前置閘④:PUBLIC/anon/authenticated 持有 % 筆帶 GRANT OPTION 的授權 ⇒ 可能有相依授權(REVOKE 預設 RESTRICT 會失敗), 而更重要的是有人可以再授出去 ⇒ 停下人工看', v_n;
   END IF;
 
   -- ⑤ 🔵 只記錄不擋:哪幾支已經可寫。已知 product_variants_public 是 YES/YES。
-  SELECT pg_catalog.string_agg(table_name, ', ') INTO v_t
-    FROM information_schema.views
-   WHERE table_schema = 'public'
-     AND table_name IN ('products_list_public','vehicle_taxonomy_public','products_public','product_variants_public')
-     AND (is_insertable_into = 'YES' OR is_updatable = 'YES');
+  -- 🔵 **[R4 F8]** 原本這一格是全檔唯一走 information_schema 的 ——
+  --    換個角色跑它會靜靜印不出東西(那個 view 只列你有權限看的), 與其他格的 pg_catalog 紀律不一致。
+  SELECT pg_catalog.string_agg(c.relname, ', ') INTO v_t
+    FROM pg_catalog.pg_class c
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname = 'public'
+     AND c.relname IN ('products_list_public','vehicle_taxonomy_public','products_public','product_variants_public')
+     AND c.relkind = 'v'
+     AND pg_catalog.pg_relation_is_updatable(c.oid, false) <> 0;
   IF v_t IS NOT NULL THEN
     RAISE NOTICE '[20260905260000] 🔵 這幾支【已經可寫】:% —— 本檔正好在關它們的寫權(已知 product_variants_public 是 YES/YES, 而 anon 在它上面只有 MAINTAIN, 不是能改資料)', v_t;
   END IF;
@@ -214,10 +232,10 @@ BEGIN
              pg_catalog.bool_or(a.is_grantable) AS grantable
         FROM pg_catalog.pg_class c
         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-        CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, acldefault('r', c.relowner))) a
+        CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))) a
        WHERE n.nspname = 'public'
          AND c.relname IN ('products_list_public','vehicle_taxonomy_public','products_public','product_variants_public')
-         AND a.grantee IN ('anon'::regrole, 'authenticated'::regrole)
+         AND a.grantee IN (pg_catalog.to_regrole('anon'), pg_catalog.to_regrole('authenticated'))
        GROUP BY c.relname, a.grantee
     ) x
    WHERE x.privs <> 'SELECT' OR x.grantable;
@@ -229,10 +247,10 @@ BEGIN
   SELECT pg_catalog.count(*) INTO v_n
     FROM pg_catalog.pg_class c
     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, acldefault('r', c.relowner))) a
+    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))) a
    WHERE n.nspname = 'public'
      AND c.relname IN ('products_list_public','vehicle_taxonomy_public','products_public','product_variants_public')
-     AND a.grantee IN ('anon'::regrole, 'authenticated'::regrole)
+     AND a.grantee IN (pg_catalog.to_regrole('anon'), pg_catalog.to_regrole('authenticated'))
      AND a.privilege_type = 'SELECT';
   IF v_n <> 8 THEN
     RAISE EXCEPTION '斷言①c失敗:ACL 上的直接 SELECT 授權 % 列(期望 8)⇒ GRANT 沒生效, 或 SELECT 是繼承來的', v_n;
@@ -276,7 +294,7 @@ BEGIN
   SELECT pg_catalog.count(*) INTO v_n
     FROM pg_catalog.pg_class c
     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, acldefault('r', c.relowner))) a
+    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))) a
    WHERE n.nspname = 'public'
      AND c.relname IN ('products_list_public','vehicle_taxonomy_public','products_public','product_variants_public')
      AND a.grantee = 0;
@@ -294,19 +312,27 @@ BEGIN
   END IF;
 
   -- ⑤ 沒動到別人:pcm_readonly 的 SELECT 仍 4(貼前實量 4)
-  SELECT pg_catalog.count(*) INTO v_n
-    FROM (VALUES ('public.products_list_public'),('public.vehicle_taxonomy_public'),
-                 ('public.products_public'),('public.product_variants_public')) t(rel)
-   WHERE pg_catalog.has_table_privilege('pcm_readonly', t.rel, 'SELECT');
-  IF v_n <> 4 THEN
-    RAISE EXCEPTION '斷言⑤失敗:pcm_readonly 的 SELECT 只剩 % 格(期望 4)⇒ 唯讀查證那條路會斷', v_n;
+  --    🔴 **[R4 F3]** `has_table_privilege('pcm_readonly',…)` 對【不存在的角色】會【拋錯】,
+  --       而拋棄式 PG 只建 anon/authenticated/service_role/authenticator ⇒ harness 必炸。
+  --       ⇒ 用 to_regrole 先問它在不在;不在就跳過並 NOTICE, **不要把「這台庫沒有那個角色」讀成「權限掉了」**。
+  --       (同坑同解已有前例:20260901230000_m4b_pcmro1_revoke_customer_pii.sql:82,106)
+  IF pg_catalog.to_regrole('pcm_readonly') IS NULL THEN
+    RAISE NOTICE '[20260905260000] 🔵 這台庫沒有 pcm_readonly 角色 ⇒ 斷言⑤跳過(正式庫有, 拋棄式 PG 沒有)';
+  ELSE
+    SELECT pg_catalog.count(*) INTO v_n
+      FROM (VALUES ('public.products_list_public'),('public.vehicle_taxonomy_public'),
+                   ('public.products_public'),('public.product_variants_public')) t(rel)
+     WHERE pg_catalog.has_table_privilege('pcm_readonly', t.rel, 'SELECT');
+    IF v_n <> 4 THEN
+      RAISE EXCEPTION '斷言⑤失敗:pcm_readonly 的 SELECT 只剩 % 格(期望 4)⇒ 唯讀查證那條路會斷', v_n;
+    END IF;
   END IF;
 
   -- ⑥ 繼承路徑(§3.5)—— ⚠️ codex R2 nit①:只在【真的會把權限帶過來】時才擋,
   --    INHERIT FALSE 且 SET FALSE 的成員關係無害。貼前實量:anon/authenticated 零成員關係。
   SELECT pg_catalog.string_agg(m.member::regrole::text || '⇒' || m.roleid::regrole::text, ', ') INTO v_leak
     FROM pg_catalog.pg_auth_members m
-   WHERE m.member IN ('anon'::regrole, 'authenticated'::regrole)
+   WHERE m.member IN (pg_catalog.to_regrole('anon'), pg_catalog.to_regrole('authenticated'))
      AND (m.inherit_option OR m.set_option);
   IF v_leak IS NOT NULL THEN
     RAISE EXCEPTION '斷言⑥失敗:anon/authenticated 有【會帶權限過來】的成員關係 ⇒ % ⇒ 它們可能繞過本檔收掉的權限, 而①看不到這條路', v_leak;
@@ -317,26 +343,43 @@ BEGIN
   --    (schema USAGE + view SELECT + security_invoker 的底表 RLS)。
   --    🛑 它仍**證不到** PostgREST 那一層與網路那一層 —— 那要真的打一發顧客站。
   --    🔵 SET LOCAL 只在本交易有效;任一支讀不動就 RAISE ⇒ 整筆交易回復, 不會留半套。
+  --    🔴 **[R4 F1]** ⛔ ~~`RESET ROLE`~~ —— `scripts/migration-reset-role-guard.sh` 明文禁止:
+  --       supabase CLI 以 `cli_login_<ref>` 連線並 `SET SESSION ROLE postgres`, 而那個登入角色是
+  --       **NOINHERIT** ⇒ `RESET ROLE` 讓 current_user 掉回 session_user, 而**帳本 INSERT 在 COMMIT 之後跑**
+  --       ⇒ `permission denied for schema supabase_migrations`(#628 完整因果在那支 guard 檔頭)。
+  --       ✅ 改法:迴圈前先存 `current_user`, 用 `SET LOCAL ROLE <存的>` 還原。
+  --    🔴 **[R4 F11]** 而 `WHEN OTHERS` 把「SET ROLE 失敗 / 底表鎖 / 底表權限缺件」寫成同一句
+  --       ⇒ 值班會查錯方向 ⇒ 訊息帶上 `SQLSTATE`。
   DECLARE
     r_rel  text;
     r_role text;
+    v_me   text := current_user;
   BEGIN
     FOREACH r_role IN ARRAY ARRAY['anon','authenticated'] LOOP
+      IF pg_catalog.to_regrole(r_role) IS NULL THEN
+        RAISE NOTICE '[20260905260000] 🔵 這台庫沒有 % 角色 ⇒ 該輪 smoke 跳過', r_role;
+        CONTINUE;
+      END IF;
       FOREACH r_rel IN ARRAY ARRAY['public.products_list_public','public.vehicle_taxonomy_public',
                                    'public.products_public','public.product_variants_public'] LOOP
         BEGIN
           EXECUTE pg_catalog.format('SET LOCAL ROLE %I', r_role);
           EXECUTE pg_catalog.format('SELECT 1 FROM %s LIMIT 1', r_rel);
-          RESET ROLE;
+          EXECUTE pg_catalog.format('SET LOCAL ROLE %I', v_me);
         EXCEPTION WHEN OTHERS THEN
-          RESET ROLE;
-          RAISE EXCEPTION '斷言⑦失敗(真實讀取 smoke):以 % 的身分讀 % 讀不動 ⇒ % ⇒ 顧客站會壞', r_role, r_rel, SQLERRM;
+          EXECUTE pg_catalog.format('SET LOCAL ROLE %I', v_me);
+          RAISE EXCEPTION '斷言⑦失敗(真實讀取 smoke):以 % 的身分讀 % 讀不動 ⇒ SQLSTATE=% / % ⇒ 先看 SQLSTATE 再判是權限(42501)、鎖(55P03/57014)還是別的',
+                          r_role, r_rel, SQLSTATE, SQLERRM;
         END;
       END LOOP;
     END LOOP;
   END;
 
-  RAISE NOTICE '[20260905260000] 事後斷言全過(①寫權 0 格 ①b ACL 恰 SELECT 且不可再授出 ①c 直接授權 8 列 ②a 有效 SELECT 8 格 ②b/②c 欄級雙尺 0 ③PUBLIC 0 ④正對照 service_role=4 ⑤pcm_readonly=4 ⑥零可繼承成員 ⑦anon/authenticated 各真的讀過那四支)';
+    -- 🔵 **[R4 F7]** 下面這句原本把十二格並列成「全過」, 而它們【判別力不一樣】:
+  --    會動的(貼前貼後不同):① ①b ①c ⑦
+  --    貼前就已經是那個值的(不變量, 對「REVOKE 生效了沒」零判別力):②a ②b ②c ③ ④ ⑤ ⑥
+  --    ⇒ 📌 把不變量與真訊號並列成一句「全過」, 會讓讀的人以為十二格都在證明同一件事。
+  RAISE NOTICE '[20260905260000] 事後斷言全過 —— 🔵 會動的四格:①寫權 0 格 ①b ACL 恰 SELECT 且不可再授出 ①c 直接授權 8 列 ②a 有效 SELECT 8 格 ②b/②c 欄級雙尺 0 ③PUBLIC 0 ④正對照 service_role=4 ⑤pcm_readonly(這台庫有這個角色才驗, 沒有就跳過 —— 上面的 NOTICE 會說)⑦anon/authenticated 各真的讀過那四支;⚪ 不變量八格(②a②b②c③④⑤⑥ 貼前就是這個值))';
 END $$;
 
 COMMIT;

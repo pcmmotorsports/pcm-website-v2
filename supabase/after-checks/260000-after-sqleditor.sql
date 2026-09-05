@@ -48,9 +48,9 @@ BEGIN
              pg_catalog.bool_or(a.is_grantable) AS grantable
         FROM pg_catalog.pg_class c
         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-        CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, acldefault('r', c.relowner))) a
+        CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))) a
        WHERE n.nspname = 'public' AND c.relname = ANY(c_name)
-         AND a.grantee IN ('anon'::regrole, 'authenticated'::regrole)
+         AND a.grantee IN (pg_catalog.to_regrole('anon'), pg_catalog.to_regrole('authenticated'))
        GROUP BY c.relname, a.grantee
     ) x
    WHERE x.privs <> 'SELECT' OR x.grantable;
@@ -71,9 +71,9 @@ BEGIN
   SELECT pg_catalog.count(*) INTO v_n
     FROM pg_catalog.pg_class c
     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, acldefault('r', c.relowner))) a
+    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))) a
    WHERE n.nspname = 'public' AND c.relname = ANY(c_name)
-     AND a.grantee IN ('anon'::regrole, 'authenticated'::regrole)
+     AND a.grantee IN (pg_catalog.to_regrole('anon'), pg_catalog.to_regrole('authenticated'))
      AND a.privilege_type = 'SELECT';
   IF v_n <> 8 THEN
     RAISE EXCEPTION '②b 失敗:ACL 上的直接 SELECT 只有 % 列(期望 8)', v_n;
@@ -101,7 +101,7 @@ BEGIN
   SELECT pg_catalog.count(*) INTO v_n
     FROM pg_catalog.pg_class c
     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, acldefault('r', c.relowner))) a
+    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))) a
    WHERE n.nspname = 'public' AND c.relname = ANY(c_name) AND a.grantee = 0;
   IF v_n <> 0 THEN
     RAISE EXCEPTION '④ 失敗:PUBLIC 有 % 筆表級授權', v_n;
@@ -116,17 +116,29 @@ BEGIN
   END IF;
 
   -- ⑤b 沒動到別人:pcm_readonly 的 SELECT 仍 4
-  SELECT pg_catalog.count(*) INTO v_n
-    FROM unnest(c_rel) t(rel)
-   WHERE pg_catalog.has_table_privilege('pcm_readonly', t.rel, 'SELECT');
-  IF v_n <> 4 THEN
-    RAISE EXCEPTION '⑤b 失敗:pcm_readonly 的 SELECT 只剩 % 格(期望 4)', v_n;
+  --    🔴 **[R4 F3]** has_table_privilege 對【不存在的角色】會拋錯, 而拋棄式 PG 沒有 pcm_readonly
+  --       ⇒ 先用 to_regrole 問它在不在;不在就跳過, **不要把「這台庫沒那個角色」讀成「權限掉了」**。
+  IF pg_catalog.to_regrole('pcm_readonly') IS NULL THEN
+    RAISE NOTICE '🔵 這台庫沒有 pcm_readonly 角色 ⇒ ⑤b 與 ⑧ 跳過(正式庫有, 拋棄式 PG 沒有)';
+  ELSE
+    SELECT pg_catalog.count(*) INTO v_n
+      FROM unnest(c_rel) t(rel)
+     WHERE pg_catalog.has_table_privilege('pcm_readonly', t.rel, 'SELECT');
+    IF v_n <> 4 THEN
+      RAISE EXCEPTION '⑤b 失敗:pcm_readonly 的 SELECT 只剩 % 格(期望 4)', v_n;
+    END IF;
+    SELECT pg_catalog.count(*) INTO v_n
+      FROM unnest(c_rel) t(rel)
+     WHERE pg_catalog.has_table_privilege('pcm_readonly', t.rel, 'DELETE');
+    IF v_n <> 0 THEN
+      RAISE EXCEPTION '⑧ 負對照失敗:pcm_readonly 竟然有 % 格 DELETE(期望 0)', v_n;
+    END IF;
   END IF;
 
   -- ⑥ 繼承路徑:只在【真的會帶權限過來】時才擋(inherit_option 或 set_option 為真)
   SELECT pg_catalog.string_agg(m.member::regrole::text || '⇒' || m.roleid::regrole::text, ', ') INTO v_leak
     FROM pg_catalog.pg_auth_members m
-   WHERE m.member IN ('anon'::regrole, 'authenticated'::regrole)
+   WHERE m.member IN (pg_catalog.to_regrole('anon'), pg_catalog.to_regrole('authenticated'))
      AND (m.inherit_option OR m.set_option);
   IF v_leak IS NOT NULL THEN
     RAISE EXCEPTION '⑥ 失敗:它們有會帶權限過來的成員關係 ⇒ %', v_leak;
@@ -151,7 +163,7 @@ BEGIN
     CROSS JOIN (VALUES ('anon'),('authenticated')) r(rolname)
     CROSS JOIN (VALUES ('INSERT'),('UPDATE'),('DELETE'),('TRUNCATE'),
                        ('REFERENCES'),('TRIGGER'),('MAINTAIN')) p(priv)
-   WHERE c.relkind = 'v'
+   WHERE c.relkind IN ('v','m')   -- 🔴 [R4 F14] 原本只掃 'v', 物化檢視 'm' 一樣是 view 一族
      AND n.nspname NOT LIKE 'pg\_%'
      AND n.nspname NOT LIKE 'graphql%'
      AND n.nspname NOT IN ('information_schema','net','storage','auth','realtime','extensions','vault','cron','supabase_migrations')
@@ -160,14 +172,8 @@ BEGIN
     RAISE EXCEPTION '⑦ 失敗:還有 view 對 anon/authenticated 開著寫權 ⇒ %(貼前實量:恰這四支, anon+authenticated 共 32 格)', v_leak;
   END IF;
 
-  -- ⑧ 🔵 負對照 —— 用【同一把尺】問一個答案必須是 false 的格子(貼前實量 0)。
+  -- ⑧ 🔵 負對照已併進 ⑤b 那個 IF 裡(同一個角色存在性前提)——
   --    🔵 ⑤a 是它的另一半:同一把尺對 service_role 印 true。**兩半合起來才證明尺會動。**
-  SELECT pg_catalog.count(*) INTO v_n
-    FROM unnest(c_rel) t(rel)
-   WHERE pg_catalog.has_table_privilege('pcm_readonly', t.rel, 'DELETE');
-  IF v_n <> 0 THEN
-    RAISE EXCEPTION '⑧ 負對照失敗:pcm_readonly 竟然有 % 格 DELETE(期望 0)', v_n;
-  END IF;
 
-  RAISE NOTICE '✅ 260000 對帳全過(①寫權 0 ①b ACL 恰 SELECT 且不可再授出 ②a/②b SELECT 8+8 ③欄級雙尺 0 ④PUBLIC 0 ⑤a 正對照 4 ⑤b 未動別人 ⑥零可繼承成員 ⑦全庫 0 ⑧負對照 0)';
+  RAISE NOTICE '✅ 260000 對帳全過(①寫權 0 ①b ACL 恰 SELECT 且不可再授出 ②a/②b SELECT 8+8 ③欄級雙尺 0 ④PUBLIC 0 ⑤a 正對照 4 ⑤b/⑧ pcm_readonly(這台庫有這個角色才驗;沒有就跳過, 上面的 NOTICE 會說)⑥零可繼承成員 ⑦全庫 0)';
 END $$;
