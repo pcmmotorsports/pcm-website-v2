@@ -511,7 +511,12 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
   //    ⇒ 它的觸發是「有人記得」。**動這個常數的人請自己跑一次。**
   it('🔴 鐵則 12 + #533:ADMIN_ORDER_LIST_SELECT byte-equal 白名單【這是唯一擋「漏欄」的守門,不得弱化成 toContain】(每商品一列:tier + customers(name) + order_items 成交價+per-item 狀態 + V-3b vehicle_snapshot + brand join;D-2 起 orders 層 workflow_status/version 退出投影)', () => {
     expect(ADMIN_ORDER_LIST_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customer_user_id, customers(name), shipping_address_snapshot, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))',
+    // 🔴 **2026-09-05 擴欄 `tax_total`**(Sean 第 6 題拍甲:CSV 加稅欄)—— 這道閘擋下了我,
+    //    而**那正是它的用途**:漏欄 PostgREST 回 200 抓不到、多欄回 42703 抓得到
+    //    ⇒ 🔴 **byte-equal 是唯一擋【漏欄】的東西, 不可弱化成 toContain。**
+    // ⚠️ 而上面那句「動這個常數的人請自己跑一次 probe」**我沒跑**(需要 postgrest binary
+    //    + 套 178 支 migration, 分鐘級, 本窗沒那個環境)⇒ **已知缺口, 不是我判斷不必跑。**
+      'id, display_id, created_at, payment_status, fulfillment_status, total, tax_total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customer_user_id, customers(name), shipping_address_snapshot, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))'
     );
   });
 
@@ -560,6 +565,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           payment_status: 'paid',
           fulfillment_status: 'notOrdered',
           total: 10200,
+          tax_total: 605, // 🔵 稅欄(Sean 2026-09-05 第 6 題)—— DB row 形狀, 缺它 mapper 拿到 undefined
           order_source: 'web',
           payment_channel: 'tappay',
           display_position: null,
@@ -682,6 +688,9 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           orderSource: 'web',
           paymentChannel: 'tappay',
           total: { amount: 10200, currency: 'TWD' },
+          // 🔴🔴 **非零值**(codex 2026-09-05 finding ①):fixture 全用 0 的話,
+          //    mapper 若**硬寫 0** 整組仍綠 ⇒ 那一族對「有沒有真的讀 row.tax_total」零判別力。
+          taxTotal: { amount: 605, currency: 'TWD' },
           displayPosition: null,
           // 🔴 2026-08-16 `Q-EMBED-1`:本 fixture 1 筆品項 << 上限 500 ⇒ false。
           itemsTruncated: false,
@@ -793,6 +802,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           payment_status: 'unpaid',
           fulfillment_status: 'notOrdered',
           total: 999,
+          tax_total: 0, // 🔵 稅欄(Sean 2026-09-05 第 6 題)—— DB row 形狀, 缺它 mapper 拿到 undefined
           order_source: 'manual_phone',
           payment_channel: 'cash',
           display_position: 3,
@@ -825,6 +835,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       orderSource: 'manual_phone',
       paymentChannel: 'cash',
       total: { amount: 999, currency: 'TWD' },
+      taxTotal: { amount: 0, currency: 'TWD' },
       displayPosition: 3,
       cancelledAt: '2099-05-02T00:00:00Z',
       tierAtCheckout: 'general',
@@ -850,6 +861,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           payment_status: 'paid',
           fulfillment_status: 'shipped',
           total: 100,
+          tax_total: 0, // 🔵 稅欄(Sean 2026-09-05 第 6 題)—— DB row 形狀, 缺它 mapper 拿到 undefined
           order_source: 'web',
           payment_channel: 'tappay',
           display_position: null,
@@ -2628,6 +2640,7 @@ describe('Q-EMBED-1 列表內嵌上限與 itemsTruncated', () => {
     payment_status: 'paid',
     fulfillment_status: 'notOrdered',
     total: 1000,
+    tax_total: 0, // 🔵 稅欄(Sean 2026-09-05 第 6 題)
     order_source: 'web',
     payment_channel: 'tappay',
     display_position: null,
