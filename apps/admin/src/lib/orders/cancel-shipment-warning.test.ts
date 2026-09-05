@@ -24,6 +24,8 @@ function group(over: Partial<OrderShipmentGroup['shipment']>): OrderShipmentGrou
     //    這裡固定 `draft` —— **本檔測的是「有沒有貨在路上」, 與新竹狀態無關**;
     //    📌 若哪天它變得有關, 這一行會是那個改動要來動的地方(而不是靜靜相容)。
     hctStatus: 'draft',
+    // 🔵 同上:片 C 加的欄位, 本檔固定 false(它測的是「有沒有貨在路上」)。
+    hctPlaceholderStuck: false,
     shipment: {
       id: 'sid',
       shipmentReference: 'BCDFGH',

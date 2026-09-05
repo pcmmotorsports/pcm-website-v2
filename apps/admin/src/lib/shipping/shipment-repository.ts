@@ -394,16 +394,48 @@ export async function getHctShipment(shipmentId: string): Promise<HctShipmentRow
  * 🔵 回 Map 而不是陣列:呼叫端是逐箱渲染, 而**用 id 找**比用順序對應安全 ——
  *    順序對應在「有一箱查不到」時會**整排錯位**, 而錯位不會報錯。
  */
+export type HctBoxState = {
+  status: string;
+  /**
+   * 🔴 **這一箱是不是【佔位卡住】那一型** —— ⟦ship-HCTUNKNOWNSTUCK⟧ 片 C。
+   *    甲型:`hct_raw_response` 有 `"placeholder": true`(**boolean, 不是字串**)且**沒有貨號**
+   *      ⇒ 那個標記是**我們自己在 HTTP 發出去之前寫的** ⇒ 新竹很可能沒收到。
+   *    乙型:新竹回過話而我們讀不懂 ⇒ 🛑 **那一型今天沒有出口**(等 `Q-新竹傳輸方式`)。
+   * ⇒ 📌 **兩型在畫面上長得一模一樣, 只有這一格分得出來。**
+   */
+  isPlaceholderStuck: boolean;
+};
+
 export async function listHctStatusByShipmentIds(
   ids: readonly string[],
-): Promise<Map<string, string>> {
+): Promise<Map<string, HctBoxState>> {
   if (ids.length === 0) return new Map();
   const { data, error } = await createSupabaseServiceClient()
     .from('shipments')
-    .select('id, hct_status')
+    // 🔴 多讀兩欄, 而它們**不進 `SHIPMENT_ROW_SELECT`** —— 理由同上面那段:
+    //    那個常數也餵顧客站那條路, 往它加欄就是往**客人讀得到的投影**加欄。
+    .select('id, hct_status, hct_raw_response, hct_request_id')
     .in('id', [...ids]);
   if (error !== null) throw new Error(error.message);
-  return new Map((data ?? []).map((r) => [r.id, r.hct_status]));
+  return new Map(
+    (data ?? []).map((r) => {
+      const raw = r.hct_raw_response as Record<string, unknown> | null;
+      return [
+        r.id,
+        {
+          status: r.hct_status,
+          // 🔴 **比 `=== true`, 不比 truthy** —— 一個字串 `"true"` 也是 truthy,
+          //    而甲型的標記是我們自己寫的 **boolean**(`shipment-actions.ts` 逐字 `placeholder: true`)。
+          //    ⇒ 📌 那正是 DB 那一層用 `->` 比 jsonb 而不用 `->>` 比字串的同一件事:
+          //      **型別本身就是判準的一部分。**
+          isPlaceholderStuck:
+            r.hct_status === 'unknown' &&
+            raw?.['placeholder'] === true &&
+            (r.hct_request_id === null || r.hct_request_id === ''),
+        },
+      ] as const;
+    }),
+  );
 }
 
 /**
