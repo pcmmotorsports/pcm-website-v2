@@ -95,7 +95,11 @@ LEFT JOIN  (SELECT * FROM ranked WHERE rn = 2) prev ON true;
 
 COMMENT ON VIEW public.pcm_acl_drift_status IS
   '⟦b9-ACLDRIFT5⟧ 片二:一列就答完「權限快照與上一次一不一樣」。'
-  '🔴 security_invoker = true —— 讀它的人用【自己的權限】讀底表, 不是用 view 擁有者的。'
+  '🔴 **definer view(security_invoker 沒開)—— 而那是刻意的**:讀的人用【view 擁有者】的權限讀底表, '
+  '因為底表對四個應用角色四道 REVOKE 全收 ⇒ invoker view 會讓 service_role 讀到 permission denied。'
+  '⚠️ 代價:底表的 RLS 不適用。今天可接受(底表零 policy);'
+  '哪天底表改成靠 RLS 分租戶, 這扇窗會繞過那道 RLS ⇒ 那時要回來改。'
+  '⛔ ~~本註解原本寫 security_invoker = true~~ —— 那是改成 definer 之前的舊字面, 2026-09-05 由 `-mail` 抓到。'
   '🛑 它答不出「有沒有人偷改」:兩個取樣時點之間改掉又改回來, 它印 false。'
   '🔵 有漂移 = true 而貼板當天 ⇒ 那是我們自己做的 ⇒ 標 approved_at, 不是關掉這道尺。';
 
