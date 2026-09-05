@@ -187,6 +187,13 @@ psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q <<'SQL'
 CREATE ROLE service_role NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE anon NOLOGIN;
 CREATE ROLE authenticator LOGIN NOINHERIT;
 GRANT anon, authenticated, service_role TO authenticator;
+-- 🔴🔴 **BYPASSRLS 要在【套 migration 之前】就給** —— 2026-09-05 `-f3` 量到:
+--    原本它寫在 ④(migration 跑完之後)⇒ `20260815020000_m4b_e10_27_d1_admin_audit_log_grant_select.sql`
+--    的 D0 閘當場 `ERROR: D0 異常 — service_role 無 BYPASSRLS,而本表已驗為 RLS 啟用`。
+-- 📌 它是【Supabase 平台給角色的預設屬性】,不是這支腳本的一道 GRANT
+--    ⇒ 它的落點是「造角色」這一格,不是「補權限」那一格。位置就是語意。
+-- ⚠️ 而這仍然證不了正式站 —— 見檔頭第 30 行那句(GRANT 與 BYPASSRLS 是本腳本自己下的)。
+ALTER ROLE service_role BYPASSRLS;
 CREATE SCHEMA auth;
 -- 🔴 `id` 一欄不夠:`handle_new_auth_user()` trigger 會讀 NEW.email 與 NEW.raw_user_meta_data。
 -- 🔴🔴 **2026-08-30 加了兩欄, 而理由不是「補完整」, 是【不補會讓一道安全檢查 fail-open】**:
@@ -256,15 +263,16 @@ if [ "$fail" -gt 0 ]; then
   fi
 fi
 
-# ── ④ service_role 兩道(平台平常幫你做,本機沒有)──────────────────────────
+# ── ④ service_role 的 GRANT(平台平常幫你做,本機沒有)──────────────────────
 # 🔴 少了 BYPASSRLS ⇒ RLS 把結果濾成 0 列,而 **HTTP 仍是 200** ⇒
 #    「200 + 0 列」與「真的沒有資料」長得一模一樣。
+# 🔴 而 `ALTER ROLE service_role BYPASSRLS` **已經搬到 ② 去了**(它要在 ③ 套 migration 之前)——
+#    ~~原本它在本區塊最後一行~~。搬的理由寫在 ② 那幾行,不在這裡重複。
 psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q <<'SQL'
 GRANT USAGE ON SCHEMA public TO service_role, anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO service_role;
-ALTER ROLE service_role BYPASSRLS;
 SQL
 
 # ── ⑤ 種子(後台要看得到東西,空庫沒有判別力)──────────────────────────────
