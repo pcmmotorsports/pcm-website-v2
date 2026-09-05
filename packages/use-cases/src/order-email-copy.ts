@@ -160,8 +160,32 @@ export function formatOrderAmount(n: number): string {
   return Math.trunc(n).toLocaleString('en-US');
 }
 
-/** 兩份共用的收尾指路句。 */
-export const ORDER_MEMBER_CENTER_SENTENCE = '訂單明細與最新狀態請至 PCM 會員中心查看。';
+/**
+ * 兩份共用的收尾指路句。
+ *
+ * 🔴🔴 **2026-09-05:⛔ ~~「訂單明細與最新狀態請至 PCM 會員中心查看。」~~ ⇒ 加了條件句。**
+ *
+ * 🛑 **為什麼**:這句話對【後台手動建的單】不一定成立,而那不是理論上的:
+ *    `apps/admin/src/lib/customers/manual-customer.ts` 替打電話來的散客開的 `auth.users`,
+ *    `email` 是**佔位信箱**(`@pcmmotorsports.local` —— **不可路由的網域**)、
+ *    `createUser` **沒有帶 password** ⇒ 🔴 **那個客人不知道那個信箱、也沒有密碼 ⇒ 他登不進去。**
+ *    而 `apps/storefront/src/app/account/orders/[displayId]/page.tsx` 未登入時 `redirect('/login…')`
+ *    ⇒ 📌 **句子與連結對他而言【都是死路】。**
+ *
+ * ⚠️ **而它不是對【所有】手動單為假** —— `manual_line` 的客人可能已經有 LINE 帳號
+ *    (`line_{sub}@line.pcmmotorsports.local`,那條路**登得進去**);拿既有客人建的單也登得進去。
+ *    ⇒ 🎯 **所以修法是【加條件】, 不是【拿掉】** —— 拿掉會讓能登入的那一群失去指路。
+ *
+ * 🔵 **這是文案改動, 零行為改動**(Sean 2026-09-03 拍「信件文案工程師改」;`-f8` 2026-09-05 拍甲)。
+ *    ⛔ ~~乙案「依帳號能不能登入決定印不印」~~ **沒有做** —— 那不是文案,是把
+ *    「這個帳號登得進去嗎」一路傳進寄信端的**接線**。
+ *
+ * 🛑 **本句沒有涵蓋的那一格(已知缺口, 不是漏掉)**:
+ *    `paid-email-html.ts` 那顆「到會員中心查看訂單」按鈕**帶著同一個限制**,而它是
+ *    Sean 2026-09-03 勾 A4 才印的 ⇒ **改它的字面不在「文案工程師改」這句話的射程裡**,已回報。
+ */
+export const ORDER_MEMBER_CENTER_SENTENCE =
+  '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 取消通知信(`order_unpaid_cancelled` —— **未付款的單被【員工】取消**)
