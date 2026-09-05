@@ -27,6 +27,7 @@ import type {
   EnqueueOrderCreatedEmailsDeps,
   EnqueueOrderUnpaidCancelledEmailsDeps,
   EnqueueOrderCancelledEmailsDeps,
+  EnqueueBankOrderCreatedEmailsDeps,
   EnqueueTrackingCorrectedEmailsDeps,
   EnqueueOrderShippedEmailsDeps,
   SweepEmailOutboxDeps,
@@ -38,6 +39,7 @@ import {
   SupabasePaidOrderScannerAdapter,
   SupabaseUnpaidCancelledOrderScannerAdapter,
   SupabaseCancelledOrderScannerAdapter,
+  SupabaseBankOrderCreatedScannerAdapter,
   SupabaseIneligibleOrderEmailScannerAdapter,
   SupabaseShippedEmailContextAdapter,
   SupabaseShippedOrderScannerAdapter,
@@ -240,6 +242,24 @@ export function getEnqueueOrderCancelledDeps(): EnqueueOrderCancelledEmailsDeps 
       isSyntheticEmail: isSyntheticEmailDomain,
     }),
     scanner: new SupabaseCancelledOrderScannerAdapter(createSupabaseServiceClient()),
+  };
+}
+
+/**
+ * ⟦b4-BANKNOEMAIL⟧ 匯款單成立信 —— 掃描端 deps(2026-09-06;Sean 核可文案後動碼)。
+ *
+ * 🔴 **刻意不共用 `getSweepEmailOutboxDeps()`** —— 與另外四支同一個理由:
+ *    那支帶 Resend sender, 而**排信這一步不該碰得到寄送管道**。
+ * 🛑 **它與上面那四支【不是同一族的變體】** —— 那四支講的是「已經發生了什麼」,
+ *    這一支講的是「**請你去做一件事、而且有期限**」⇒ 它會印公司帳號。
+ *    ⇒ 📌 射程與那三條錢的述詞住在 `pcm_bank_order_created_email_pending` 的 COMMENT 裡, 這裡不重寫。
+ */
+export function getEnqueueBankOrderCreatedDeps(): EnqueueBankOrderCreatedEmailsDeps {
+  return {
+    outbox: new SupabaseEmailOutboxAdapter(createSupabaseServiceClient(), {
+      isSyntheticEmail: isSyntheticEmailDomain,
+    }),
+    scanner: new SupabaseBankOrderCreatedScannerAdapter(createSupabaseServiceClient()),
   };
 }
 

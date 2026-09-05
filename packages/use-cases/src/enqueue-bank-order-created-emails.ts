@@ -14,7 +14,13 @@
  *    ⇒ 而**寄送當下**還有一道重驗(claim 之後、send 之前), 那一道管的是「快照過期了沒」,
  *      與這裡是**兩個不同的問題**, 不是重複。
  */
-import 'server-only';
+// 🔴 **本檔【不】import 'server-only'** —— 這一層是純函式(deps 由呼叫端注入),
+//    而 `packages/use-cases` 的姊妹五支**一支都沒有**(當場數過:全目錄 1 支, 而那支不是這一族)。
+//    ⛔ 我第一版加了它 ⇒ route 的測試**整支載不起來**(`Cannot find package 'server-only'`)
+//    ⇒ 🛑 而那個症狀是「**兩支測試檔 FAIL 而 Tests 84 passed**」——
+//      📌 **整支載不起來時, 它的測項【一個都不算進總數】** ⇒ 只看 `Tests` 那一行會以為全綠。
+//      (鐵則 11 第一個數就是為了這個:看 `Test Files` 那一行。)
+//    ✅ server-only 的邊界由 adapter 與 composition 那兩層守, 不在這一層。
 import type { IEmailOutbox, IBankOrderCreatedScanner } from '@pcm/ports';
 import { suppressCustomerEmailFallback } from '@pcm/domain';
 
