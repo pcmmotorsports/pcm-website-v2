@@ -65,7 +65,10 @@ describe('白名單這張表本身', () => {
   //    (三支在別處只被索引引用、沒有字面)⇒ 名字漂掉 ⇒ 三綠全綠,
   //      而線上那一支永遠報「從來沒寫過心跳」,沒有人知道是名字打錯。
   //    ⇒ 這一格把六個名字與長度**釘成字面**:分母改成【我在檔案外面寫死的那份】。
-  it('🔴 六支的名字與數量釘死(改名/多一支/少一支都要紅)', () => {
+  it('🔴 【七】支的名字與數量釘死(改名/多一支/少一支都要紅)', () => {
+    // 🔵 2026-09-05:⛔ ~~六支~~ ⇒ **七支**(加 `pcm-late-payment-sweep`, `20260905140000` 匯款兜底)。
+    //    📌 **這一格紅了是它在做它該做的事** —— 新增第七支排程時它會叫,
+    //       而那正是上面註解說的「新增第七支排程時,它會安靜地沒有門檻」那個防線。
     expect(CRON_JOB_WHITELIST.map((w) => w.jobName)).toEqual([
       'pcm-anomaly-alert',
       'pcm-capture-recheck',
@@ -73,9 +76,10 @@ describe('白名單這張表本身', () => {
       'pcm-expire-unpaid-orders',
       'pcm-order-ineligible-gate',
       'pcm-settle-sweep',
+      'pcm-late-payment-sweep',
     ]);
-    expect(CRON_JOB_WHITELIST).toHaveLength(6);
-    // 🔴 而這六個名字必須與**正式庫 cron.job 實際排的**一致(2026-08-28 唯讀撈、總數 6、非抽樣)。
+    expect(CRON_JOB_WHITELIST).toHaveLength(7);
+    // 🔴 而這【七】個名字必須與**正式庫 cron.job 實際排的**一致(2026-08-28 唯讀撈、當時總數 6、非抽樣)。
     //    ⚠️ 而本測試**驗不到那一側** —— 它只釘住「碼裡這份沒有被偷偷改掉」。
     //    真排程漂掉這一格由 ⟦b4-CRON6c⟧ 記著(後台讀不到 `cron.job`,三道權限)。
   });

@@ -27,8 +27,8 @@ import { CRON_JOB_WHITELIST, FAILURE_COUNT_MEANINGLESS } from './cron-jobs';
  *    改門檻是一個**會改變線上告警行為**的決定 ⇒ 它應該要有人按一下確認。
  *    ⇒ 改的時候把下面的期望值一起改,**而那一次改動就是那個「按一下」**。
  */
-describe('🔴 六支排程的門檻是【唯一來源】,而這裡把值釘住', () => {
-  it('六支的名字與門檻逐格釘死(改動 = 改變線上告警行為, 要有人按一下)', () => {
+describe('🔴 【七】支排程的門檻是【唯一來源】,而這裡把值釘住', () => {
+  it('【七】支的名字與門檻逐格釘死(改動 = 改變線上告警行為, 要有人按一下)', () => {
     expect(
       CRON_JOB_WHITELIST.map((w) => [w.jobName, w.staleMinutes] as const),
     ).toEqual([
@@ -38,6 +38,9 @@ describe('🔴 六支排程的門檻是【唯一來源】,而這裡把值釘住'
       ['pcm-expire-unpaid-orders', 180],
       ['pcm-order-ineligible-gate', 6],
       ['pcm-settle-sweep', 6],
+      // 🔵 2026-09-05 第七支:匯款兜底(`20260905140000`)。門檻 30 = 排程 */10 連漏三輪才叫,
+      //    與 `pcm-capture-recheck` 同一把尺(它也是 */10)。
+      ['pcm-late-payment-sweep', 30],
     ]);
   });
 
@@ -46,8 +49,8 @@ describe('🔴 六支排程的門檻是【唯一來源】,而這裡把值釘住'
    *    ⇒ 一支排程被整個刪掉時,上面那格也會紅 —— 而它紅的訊息會指向「值不對」,
    *      而真正發生的是「那支排程再也沒有人在看了」。**兩個訊息要分得開。**
    */
-  it('剛好六支 —— 少一支 = 那支排程再也沒有人在看,而它不會自己出聲', () => {
-    expect(CRON_JOB_WHITELIST.length).toBe(6);
+  it('剛好【七】支 —— 少一支 = 那支排程再也沒有人在看,而它不會自己出聲', () => {
+    expect(CRON_JOB_WHITELIST.length).toBe(7);
   });
 
   /**
@@ -57,8 +60,9 @@ describe('🔴 六支排程的門檻是【唯一來源】,而這裡把值釘住'
    * ⇒ 所以它要被排除在失敗計數之外 —— 而**它正好是唯一一支碰錢的**(訂單自動取消)。
    * 🛑 這一格若被誤刪,那支的失敗計數會變成一個**恆為 0 的健康證明**。
    */
-  it('失敗計數無意義的名單 = 只有那支純 SQL 的(它寫不出失敗心跳)', () => {
-    expect([...FAILURE_COUNT_MEANINGLESS]).toEqual(['pcm-expire-unpaid-orders']);
+  it('失敗計數無意義的名單 = 【兩支】純 SQL 的(它們寫不出失敗心跳)', () => {
+    // 🔵 2026-09-05:`pcm-late-payment-sweep` 也是純 SQL, 同一個物理限制。
+    expect([...FAILURE_COUNT_MEANINGLESS]).toEqual(['pcm-expire-unpaid-orders', 'pcm-late-payment-sweep']);
   });
 
   it('🟢 名單裡的每一支都真的在白名單裡(否則它排除的是一個不存在的東西)', () => {
@@ -158,23 +162,24 @@ describe('⟦b9-HBSEMANTIC⟧ 週期對照表 —— 而它不解析 cron 運算
   });
 
   /**
-   * 🔴 **這一格才是那一列在講的東西**:比值把六支分成兩種語意,
+   * 🔴 **這一格才是那一列在講的東西**:比值把【七】支分成兩種語意,
    * 而它們今天**印同一句話**。
    * ```
    * 比值 >= 2 ⇒ 門檻至少兩個週期 ⇒ 要【連續錯過一整輪以上】才叫 ⇒ 語意是「它停了嗎」
    * 比值 <  2 ⇒ 一輪都不必錯過 ⇒ 只要那一輪晚了就叫       ⇒ 語意是「它準時嗎」
    * ```
    * 🛑 **而 2.0 這條線【不承重】** —— 它只決定那句話怎麼寫, 不決定叫不叫。
-   *    六支現值是 3.0 ×5 與 1.08 ×1 ⇒ 分界放在 1.5–2.9 之間結果都一樣。
+   *    七支現值是 3.0 ×6 與 1.08 ×1 ⇒ 分界放在 1.5–2.9 之間結果都一樣。
    */
-  it('🔴 六支分成兩種語意 —— 五支答【它停了嗎】, 一支答【它準時嗎】', () => {
+  it('🔴 【七】支分成兩種語意 —— 六支答【它停了嗎】, 一支答【它準時嗎】', () => {
     const byMeaning = { 停了嗎: [] as string[], 準時嗎: [] as string[] };
     for (const w of CRON_JOB_WHITELIST) {
       const period = PERIOD_MINUTES_BY_SCHEDULE[w.schedule]!;
       (w.staleMinutes / period >= 2 ? byMeaning.停了嗎 : byMeaning.準時嗎).push(w.jobName);
     }
     expect(byMeaning.準時嗎).toEqual(['pcm-anomaly-alert']);
-    expect(byMeaning.停了嗎).toHaveLength(5);
+    // 🔵 2026-09-05:5 ⇒ 6(加了 pcm-late-payment-sweep,30/10 = 3.0 ⇒ 也是「它停了嗎」)。
+    expect(byMeaning.停了嗎).toHaveLength(6);
     // 🔵 而那個 1.08 要釘住:它是這一列存在的理由, 而它被調過就該回來讀這一段。
     expect(1560 / 1440).toBeCloseTo(1.083, 3);
   });

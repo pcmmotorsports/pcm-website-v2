@@ -166,6 +166,11 @@ BEGIN
   --         兩筆付款【都已經】持有 KEY SHARE, 然後才輪到 advisory L。
   --       ⇒ 📌 **advisory lock 來得太晚, 它序列化不了一個比它更早被拿走的鎖。**
   --   ✅ **所以這裡【不加 FOR UPDATE】** —— 那個競態改由**事後掃描器**收(見板列)。
+  --   🔴🔴 **而那支掃描器現在有名字了**:`20260905140000` 的
+  --      `pcm_cron.late_payment_pending_refund_sweep`(排程 `pcm-late-payment-sweep`, `*/10`)。
+  --      ⇒ 🛑 **這一句是雙向的**:那支檔的檔頭也指回這裡。
+  --        **關掉它 = 關掉這一行交出去的那個世界的唯一接手者** —— 而它的檔頭寫著「只是兜底」,
+  --        📌 **一個讀起來像可有可無的東西, 其實是這裡明文託付的。兩邊都指對方, 誰關掉都撞得到。**
   SELECT o.cancelled_at INTO v_cancelled_at
     FROM public.orders o WHERE o.id = p_order_id;
 

@@ -1065,7 +1065,7 @@ describe('🔴 心跳:傳給 RPC 的 job 清單 = CRON_JOB_WHITELIST 全部, 沒
       query: async (text: string, values: unknown[]) => {
         if (text.includes('get_cron_heartbeat_stale_counts')) {
           seen.payload = JSON.parse(String(values[0])) as Array<Record<string, unknown>>;
-          return resultRows({ checked: 6, abnormal_count: 0, never_beat: [], no_success_ts: [], stale: [], future: [], failing: [] });
+          return resultRows({ checked: 7, abnormal_count: 0, never_beat: [], no_success_ts: [], stale: [], future: [], failing: [] });
         }
         if (text.includes('to_regprocedure')) return { rows: [{ missing: true }] };
         // 🔴 其餘幾支選配 RPC 一律走「尚未 apply」那條路 —— 它們各自有不同的回傳鍵,
@@ -1148,7 +1148,7 @@ describe('🔴 心跳:回應層對帳(壞回應要 throw, 不是靜靜地健康)
       },
     }).client;
   }
-  const healthy = { checked: 6, abnormal_count: 0, never_beat: [], no_success_ts: [], stale: [], future: [], failing: [] };
+  const healthy = { checked: 7, abnormal_count: 0, never_beat: [], no_success_ts: [], stale: [], future: [], failing: [] };
   const call = (result: unknown) =>
     new PgAnomalyAlertReaderAdapter('conn', () => withHeartbeatResult(result)).getAlertSummary(86400, 43200, 600, null, 900, null, null);
 
@@ -1163,7 +1163,7 @@ describe('🔴 心跳:回應層對帳(壞回應要 throw, 不是靜靜地健康)
   });
 
   it('🔴 abnormal_count 大於 checked ⇒ throw', async () => {
-    await expect(call({ ...healthy, abnormal_count: 7 })).rejects.toThrow(/abnormal_count/);
+    await expect(call({ ...healthy, abnormal_count: 8 })).rejects.toThrow(/abnormal_count/);
   });
 
   /**

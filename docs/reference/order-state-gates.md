@@ -75,11 +75,11 @@
 | `pcm_b2_shipping_idem_require_complete` | **2** | 20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:531<br>20260809200000_m4b_e10_b2_w2_stub_verifies_artifact.sql:51 | `20260809200000_m4b_e10_b2_w2_stub_verifies_artifact.sql:51` |
 | `pcm_js_trim_whitespace` | **2** | 20260901070000_m4b_e4_js_trim_ws_single_source.sql:36<br>20260905050000_m4b_e4_js_trim_ws_ecma_complete.sql:69 | `20260905050000_m4b_e4_js_trim_ws_ecma_complete.sql:69` |
 | `pcm_manual_refund_rail_cap_guard` | **3** | 20260824011000_m4b_866_manual_refund_rail_cap_enforce.sql:112<br>20260831010000_m4b_866_manual_refund_raise_plaintext.sql:66<br>20260902020000_m4b_pcm01_record_not_block.sql:94 | `20260902020000_m4b_pcm01_record_not_block.sql:94` |
-| `pcm_noncard_settle_recompute` | **2** | 20260904230000_m4b_noncardpaid_settle_and_expire_leg.sql:170<br>20260905070000_m4b_pending_refund_on_late_payment.sql:290 | `20260905070000_m4b_pending_refund_on_late_payment.sql:290` |
+| `pcm_noncard_settle_recompute` | **2** | 20260904230000_m4b_noncardpaid_settle_and_expire_leg.sql:170<br>20260905070000_m4b_pending_refund_on_late_payment.sql:295 | `20260905070000_m4b_pending_refund_on_late_payment.sql:295` |
 | `pcm_order_refund_cap_guard` | **3** | 20260830210000_m4b_445b_order_refund_cap.sql:190<br>20260902000000_m4b_capmsgnum_pcm04_detail.sql:29<br>20260902010000_m4b_pcm05split_order_not_found.sql:43 | `20260902010000_m4b_pcm05split_order_not_found.sql:43` |
 | `pcm_order_refund_status_transition` | **2** | 20260725130100_m3_rf2a2_order_refunds_ledger.sql:287<br>20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:201 | `20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:201` |
 | `pcm_order_refundable_remaining` | **5** | 20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:454<br>20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:394<br>20260814190000_m4b_e10_473b1_refund_manual_corrections.sql:403<br>20260820010000_m4b_manual_refunds.sql:213<br>20260820100000_m4b_e10_d3b_void_manual_refund.sql:224 | `20260820100000_m4b_e10_d3b_void_manual_refund.sql:224` |
-| `pcm_pending_refund_on_cancel` | **3** | 20260901080000_m4b_autorefund_pending_refunds.sql:367<br>20260902030000_m4b_crossrail_pending_refund_net.sql:237<br>20260905070000_m4b_pending_refund_on_late_payment.sql:266 | `20260905070000_m4b_pending_refund_on_late_payment.sql:266` |
+| `pcm_pending_refund_on_cancel` | **3** | 20260901080000_m4b_autorefund_pending_refunds.sql:367<br>20260902030000_m4b_crossrail_pending_refund_net.sql:237<br>20260905070000_m4b_pending_refund_on_late_payment.sql:271 | `20260905070000_m4b_pending_refund_on_late_payment.sql:271` |
 | `pcm_refund_ledger_block_truncate` | **2** | 20260725130100_m3_rf2a2_order_refunds_ledger.sql:253<br>20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:422 | `20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:422` |
 | `pcm_sync_order_refund_payment_status` | **3** | 20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql:127<br>20260823020000_m4b_refund_notify_p2a_record_calls_sync.sql:239<br>20260905010000_m4b_manual_refund_syncs_payment_status.sql:244 | `20260905010000_m4b_manual_refund_syncs_payment_status.sql:244` |
 | `record_pending_invoice` | **2** | 20260613140000_m3_3ds_0c_bank_txn_pending_invoices.sql:252<br>20260904224500_m4b_invoice_requested_false_blocks_invoicing.sql:348 | `20260904224500_m4b_invoice_requested_false_blocks_invoicing.sql:348` |
@@ -404,11 +404,11 @@
 
 **改什麼狀態**
 
-`:461` SET payment_status = v_new,
+`:466` SET payment_status = v_new,
 
 **允許集合(逐字)**
 
-`:364` IF v_status NOT IN ('unpaid'::public.payment_status,<br>`:461` SET payment_status = v_new,<br>`:478` AND o.payment_status = v_status;   -- 🔴 樂觀鎖:狀態被別人改過就不寫
+`:369` IF v_status NOT IN ('unpaid'::public.payment_status,<br>`:466` SET payment_status = v_new,<br>`:483` AND o.payment_status = v_status;   -- 🔴 樂觀鎖:狀態被別人改過就不寫
 
 ---
 
