@@ -1,3 +1,6 @@
+-- pcm:rule1-exception: rollback 刻意保留兩個新欄與序列(裡面是「已寄出的信實際說了什麼」, 沒有第二個來源)⇒ 重貼必須冪等;而 IF NOT EXISTS 的危險(型別不同時靜靜跳過)由前置閘②-b 逐欄比對型別擋掉
+-- 🔴 這一行【不證明】那幾處 IF NOT EXISTS / OR REPLACE 安全 —— 它只證明有人具名寫下了理由。
+--    安全由本檔自己的前置閘②-b(型別)、②-c/②-d(序列)提供。主視窗 -f8 2026-09-06 裁「甲」。
 -- 20260905200000_m4b_outbox_record_sent_tracking_number.sql
 --
 -- ⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 片 A · **草稿, 尚未經 Sean 拍板** —— 留在分支上, 不進 dev。
