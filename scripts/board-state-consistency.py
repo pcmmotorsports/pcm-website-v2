@@ -525,6 +525,22 @@ def rule4_parked_has_prefix(rows):
 #    「閘死於誤報」那一族。⇒ **先印清單, 主視窗看過再決定要不要轉紅。**
 OPEN_WHO_PREFIXES = ('待派', '等Sean:', '等時機:', '做中:')
 
+# 🔴🔴 **放寬:問的是「有沒有回答『在等什麼』」, 不是「有沒有照那四個詞寫」**
+#    (2026-09-05 主視窗 `-f8` 裁, 而**成因是這把尺自己出的錯**)
+#
+#    第一版只認上面那四個 token ⇒ 板上 **220 / 382** 不合。
+#    而逐條看那 220 列 ⇒ 🔴 **其中 204 列是【已經答了, 只是用詞不同】** ——
+#    例如「🔵 **不等人:**…」講得比 `待派` 還清楚。
+#    ⇒ 📌 **逼它們去改一個【它們已經答對的問題】, 正是「閘死於誤報」的形狀。**
+#
+# 🛑🛑 **而下面這張表【證明過它自己會漏字】, 那一格要留著**:
+#    我第一版的關鍵字裡有「等/待/做/線/窗」而**漏了「未」**
+#    ⇒ 4 列寫著「🔴 未派」的被算成「完全沒寫」。
+#    ⇒ 🎯 **一次漏字就錯 4 列, 而我沒有辦法證明這張表現在完整了。**
+#    ⇒ ⇒ **所以本格的輸出永遠是【上限】不是【名單】** —— 它說「這幾列我看不出來」,
+#         不說「這幾列沒寫」。判紅之前先讀這一段。
+OPEN_WHO_ANSWERS = ('待', '等', '未', '做', '線', '窗', '不等人', '不必修', '不需要', '-')
+
 
 def rule7_open_who_prefix(rows):
     """⑦ 態=open/doing 的列, 誰欄第一個 token 應為 OPEN_WHO_PREFIXES 之一。**只警告不判紅。**
@@ -543,8 +559,14 @@ def rule7_open_who_prefix(rows):
         who = r['f'][4] if len(r['f']) > 4 else ''
         # 剝掉 markdown 裝飾與空白再看開頭(誰欄常見 `**待派**`)
         bare = re.sub(r'^[*~`\s]+', '', who)
-        if not any(bare.startswith(x) for x in OPEN_WHO_PREFIXES):
-            out.append(r)
+        if any(bare.startswith(x) for x in OPEN_WHO_PREFIXES):
+            continue
+        # 🔵 放寬:誰欄開頭 30 字裡有沒有【回答「在等什麼」的字面】。
+        #    🛑 這張表證明過它自己會漏字(見 OPEN_WHO_ANSWERS 上方)⇒ 輸出是【上限】。
+        head = re.sub(r'[*~`\s]', '', who)[:30]
+        if any(x in head for x in OPEN_WHO_ANSWERS):
+            continue
+        out.append(r)
     return out
 
 
@@ -756,8 +778,12 @@ def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None, sta
     bad7 = rule7_open_who_prefix(rows)
     n_open = len([r for r in rows if r['state'] in ('open', 'doing')])
     if bad7:
-        say(f'  ⚠️ ⑦ {len(bad7)}/{n_open} 個 open/doing 列的誰欄第一個 token '
-            f'不是 {"/".join(OPEN_WHO_PREFIXES)}')
+        say(f'  ⚠️ ⑦ {len(bad7)}/{n_open} 個 open/doing 列的誰欄'
+            f'【看不出來它在等什麼】')
+        say(f'     🔵 合格 = 開頭是 {"/".join(OPEN_WHO_PREFIXES)} 之一, '
+            f'**或**開頭 30 字裡有回答「在等什麼」的字面。')
+        say('     🛑 **這個數字是【上限】不是名單** —— 本格的關鍵字表'
+            '證明過它自己會漏字(漏「未」一次錯 4 列)⇒ 它說的是「這幾列我看不出來」。')
         say('     🛑 **本格【不判紅】** —— 分母是第一次量, 而一道上線就紅一大片的閘'
             '會被第一個撞到的人關掉(本 repo「閘死於誤報」那一族)。')
         say('     🔵 它修的病:`parked` 早就有「等什麼」前綴而 `open` 沒有 ⇒ '
