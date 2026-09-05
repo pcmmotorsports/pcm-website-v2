@@ -12,6 +12,9 @@ function row(over: Partial<Parameters<typeof mkRow>[0]> = {}) {
     cancelledReason: 'out_of_stock',
     notificationEmail: 'a@example.com',
     customerEmail: null,
+    // 🔴 片 B(⟦f3-MAILFALLBACKVSRULING⟧):型別要求它, 而【本片沒有任何行為讀它】
+    //    ⇒ 這裡給 'web' 只是讓 fixture 通過型別;片 C 才會有人問它。
+    orderSource: 'web',
     ...over,
   });
 }
@@ -22,6 +25,7 @@ function mkRow(r: {
   cancelledReason: string | null;
   notificationEmail: string | null;
   customerEmail: string | null;
+  orderSource: string | null;
 }) {
   return r;
 }
