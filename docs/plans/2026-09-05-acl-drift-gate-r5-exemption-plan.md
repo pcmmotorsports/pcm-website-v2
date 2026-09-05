@@ -145,3 +145,80 @@ A: 甲|乙|丙   ← 我推【甲】, 而**理由要連同它的弱點一起讀*
 ⚠️ **而在裁下來之前,§0 那件事要先有人接**:
 **R5 為什麼不可豁免, 沒有人寫下來。** ⇒ 甲乙丙三個都建立在「那個理由不存在或不重要」上,
 而**那是我查無, 不是我證明它不存在**。
+
+---
+
+# 🛑🛑 結論(2026-09-05 · 主視窗 `-f8` 裁【換路】)—— **這條豁免路不做了,已撤回**
+
+`7aa85abdf`(開豁免路)與 `89447fda3`(折第一輪 8 條)**兩顆都撤掉**;
+`scripts/acl-drift-gate.py` 回到 `7aa85abdf^` 的內容(逐位元組核過,selftest 回到 **82 PASS / 0 FAIL**,
+R5 相關字面 **0 命中**)。**留歷史,不 reset。**
+
+## 為什麼不做 —— **兩輪 14 條 must-fix 的【形狀】,不是條數**
+
+| 輪 | 誰 | 結果 |
+|---|---|---|
+| R1 | code-reviewer(opus) | FAIL **6** must-fix |
+| R1 | adversarial-reviewer(opus,`-f8` 派) | FAIL **8** must-fix + 5 nit |
+| R2 | adversarial-reviewer(opus) | FAIL **6** must-fix + 2 consider + 5 nit |
+| R2 | codex(`gpt-5.6-sol` xhigh,本窗) | **FAIL** —— 與 adversarial R2 **收斂到同一批** |
+
+🎯 **而 `00-work-rules` R4 的換路訊號逐字命中**:「相同錯法第 2 次」「修 A 壞 B 連鎖 2 步」
+「某輪的 finding 開始重複前輪、或都在同一層打轉」。⇒ 📌 **兩輪的 findings 都是同一族,而修法在疊修法。**
+
+### 那一族長什麼樣(這是本節最該帶走的)
+
+```
+族①【離線文字閘對「遞移授權」結構上蓋不住】
+    R1-F5  GRANT service_role TO pcm_w(豁免綠)+ GRANT pcm_w TO anon(零規則)⇒ anon 拿到 service_role
+    R2-F1  我補的遞移【只比被授那側】⇒ 把順序反過來(HEAD 先有 GRANT pcm_w TO anon、
+           staged 才豁免 service_role TO pcm_w)⇒ 仍然破
+    R2-F2  遞移掃的是原始 SQL, 不走 sql_layers ⇒ DO $$ EXECUTE 'GRANT service_role TO pcm_w' 看不到
+    ⇒ 🔴 每補一個方向, 下一輪就指出另一個方向。**要關滿得做不動點迭代 + 進到字串層,
+       而那時它已經不是一道文字閘了。**
+
+族②【每一格新判準的突變都落在 selftest 之外】
+    R2-F3  extra_dangerous 換空集合      ⇒ 129 全綠
+    R2-F4  r5_prereq 換恆真              ⇒ 129 全綠
+    R2-F5  MEMBERSHIP_DANGEROUS 刪 postgres ⇒ 129 全綠
+    codex  F10 的替身覆蓋在先, 所以它證的是「替身接得上」不是「原實作對」
+    ⇒ 🔴 我每加一格守門, 就多一個【它自己沒有守到】的生產接線。
+
+族③【印一行不是訊號】
+    R2-F6  F13 那行紅在 `if not files: return 0` 之【後】⇒ 開門的那一顆
+           (補帳本 + 合 .ts)不 staged migration ⇒ 它印的是「不適用」。
+```
+
+⇒ 🛑 **三族合起來的結論:我在一個【結構上做不到】的地方,用越來越細的規則去逼近它。**
+
+## ✅ 換的那條路(`-f8` 裁,寫成 `⟦auth-R5VSMEMBERSHIP⟧` 的結論)
+
+收窄第一片**不走豁免路**,改走:
+
+```
+① 草稿留在 docs/specs/2026-09-05-service-role-narrowing-m1-draft.sql(不進 supabase/migrations/)
+② Sean 明示授權之後【由 Sean 貼】
+③ 貼完 ⟦b9-ACLDRIFT5⟧ 的偵測器會紅【一次】
+④ 用 pcm_acl_approve_latest(<理由>) 認掉那一次
+⑤ 帳本記一列, 指到 docs/specs 那支
+```
+🔵 **為什麼這條比豁免路好**:它**不需要文字閘看得懂遞移授權** ——
+那件事交給**執行期的偵測器**(它讀的是真的 `pg_catalog`,不是 SQL 字面),
+而**文字閘維持「一律紅」這個它做得到的宣稱**。
+📌 **⇒ 把「閘做不到的那一半」交給做得到的那個東西,而不是把閘改鬆。**
+🛑 **而它不是零成本**:每次都要 Sean 的手 + 一次人工認可;而**`repo` 裡有檔**(不是路⑤ 的手打),
+所以下一個人查得到來源。
+
+## 🛑 這一節【證不到什麼】
+· **我沒有實跑過那條新路** —— ③④⑤ 三步都要正式庫,而收窄片今天還沒被貼。
+· 撤回只證明「豁免路的碼不在了」,**不證明**「那三族問題在別的地方不存在」——
+  族①那個遞移洞的**後半**(`GRANT pcm_w TO anon` 零規則觸發)**本來就開著**,撤回之後**照樣開著**。
+  ⇒ 📌 **那是一個獨立的缺口,不歸本片,而它現在沒有人記著。**(要不要開列:`-f8` 裁。)
+· 撤回也順手撤掉一個**與 R5 無關的好修法**:`selftest` 的 `total` 從「手維護的加總」改成「數出來的」
+  (`7aa85abdf` 帶進來的)。⇒ 那個病(新增格子而總數不跟著動)**回來了**,
+  已寫進 `⟦b9-GATESELFEDIT⟧` 當待派內容。
+
+## 📌 codex 對「閘外最小機制」的答案(F14,值得單獨留著)
+> 最小閘外機制是 **GitHub server-side protected branch / ruleset**:
+> enforcement chain 那幾段必須經 **code-owner PR 核准、作者不可自行 bypass**;
+> **只放一份 repo 內 checksum 或 CI 腳本,仍可在同一顆 commit 裡一起改掉。**
