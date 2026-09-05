@@ -146,6 +146,9 @@ export function useCatalogFilterUrlSync(
   //      `string | undefined`, 而 `undefined !== null` **恆真** ⇒ 空世界每一波都會被判成
   //      「使用者自選」(R2 對抗審查抓到, 逐字複驗成立)⇒ 下面一律先 `?? null`。
   const lastWrittenCategoryRef = useRef<string | null>(null);
+  // 🔴 **送出去了、而還不知道有沒有落地的那一顆**(codex R3 ③)。
+  //   由上面那段在【下一波開頭】比對真實網址之後, 才升成 `lastWrittenCategoryRef`。
+  const pendingWrittenCategoryRef = useRef<string | null>(null);
   // 🔴 把 `CategorySelection` 壓成**網址上那一顆的字面** —— 與寫入段那三行**同一個規則**。
   //   ⚠️ `parseCategoryFromUrl` 回的是**物件**(`{mainId, main, subId?, sub?}`)不是字串;
   //      2026-09-05 我第一版直接拿它跟字串比 ⇒ **typecheck 兩處紅**(TS2322 / TS2367)。
@@ -176,6 +179,33 @@ export function useCatalogFilterUrlSync(
       return;
     }
     const params = new URLSearchParams(window.location.search);
+      // 🔴 **先把「上一發送出去的」與【真實網址】對一次** —— 落地了才升成 committed(R3 ③/①)。
+      //   `router.replace()` 回來只代表【已呼叫】;Next 靜默忽略時網址不會變。
+      //   🛑 **沒落地就不升** ⇒ 下一波仍判「自選」而重送 ⇒ **不會被永久吞掉**。
+      if (pendingWrittenCategoryRef.current !== null) {
+        const pend = pendingWrittenCategoryRef.current;
+        const inMulti = (params.get(CATEGORIES_PARAM) ?? '')
+          .split(',')
+          .map((v) => v.trim())
+          .includes(pend);
+        if (inMulti || params.get('category') === pend) {
+          lastWrittenCategoryRef.current = pend;
+          pendingWrittenCategoryRef.current = null;
+        }
+      }
+      // 🔵 **瀏覽器上一頁 / 外部導覽**:網址上已經沒有我 committed 的那一顆 ⇒ ref 跟著退回(R3 ①)。
+      //   不退的話, 客人退回舊頁再選同一個分類會被判「未變」而漏掉那一次 union。
+      const committed = lastWrittenCategoryRef.current;
+      if (
+        committed !== null &&
+        !(params.get(CATEGORIES_PARAM) ?? '')
+          .split(',')
+          .map((v) => v.trim())
+          .includes(committed) &&
+        params.get('category') !== committed
+      ) {
+        lastWrittenCategoryRef.current = null;
+      }
     // 🔴 Q28① R1 MF-1 —— vehicle 讓路守衛(本 effect 與 useVehicleUrlSync 的 replace 競態):
     //   `router.replace` 是 App Router 導覽、**非同步**(force-dynamic 要 RSC 往返才更新
     //   window.location)。Q28① 讓車可以從鏡入站 ⇒ 出現「cascade 有車、URL 還沒有」這個新狀態,
@@ -281,6 +311,13 @@ export function useCatalogFilterUrlSync(
     //        🔬 我沒有停在「補一格就好」, 而是去量那一格在突變世界裡到底發生什麼:
     //           探針斷言印出 **`{ n: 0, first: null }`** ⇒ **那一波根本沒送出任何 `replace`**
     //           ⇒ 📌 **擋住它的是【更前面的等值早退】, 不是本條。**
+    //        🔴🔴 **2026-09-05 訂正:下面那句「構造不出」被 codex R3 推翻了一半** ——
+    //           它指出「同一波【同時改別的軸】就繞得過等值早退」, 而**我照做造出來了**(㉚):
+    //           那一波**確實走到寫入段**(replace 1 次、網址帶 price)。
+    //           🛑 **而突變(拿掉本條)之後 ㉚ 仍然綠** —— `join(',')` 對 null 不產生尾逗號,
+    //              `categories` 照樣印 A,B ⇒ 📌 **本條【今天仍然沒有測試守著】, 而理由換了:**
+    //              不是「到不了那個世界」, 是「**到了, 而它的錯誤不留下可觀察的痕跡**」。
+    //           ✅ ㉚ 留著當**回歸鎖**(擋未來把 union 改成會產出空值的寫法), **不是突變殺手**。
     //        ⇒ 🛑 **所以本條在單元測試層【構造不出會紅的世界】** —— 那不是「測試沒寫」,
     //           是**那條路在 mock 掉 router 的世界裡到不了**(R2 逐字說過同一件事:
     //           「它要驗的是兩個 `replace` 的落地順序, 而 router 被 mock ⇒ 根本沒有順序」)。
@@ -416,7 +453,15 @@ export function useCatalogFilterUrlSync(
       router.replace(next, { scroll: false });
       // 🔴 **只有真的送出去才記** —— 這正是本 ref 與 `lastFilterKeyRef` 的差別:
       //   上面三個提早 return 都不會走到這裡, 所以被它們吃掉的那些波【下一次還看得到】。
-      lastWrittenCategoryRef.current = category ?? null;
+      // ⛔ ~~lastWrittenCategoryRef.current = category ?? null;(在這裡就記)~~
+      // 🔴🔴 **codex R3 ③:`router.replace()` 回來只代表【已呼叫】** —— Next 靜默忽略時
+      //   **網址沒變而 ref 已前進** ⇒ 📌 **同一個選擇會【永久】被吞掉**。
+      //   ✅ 改成先存 pending, 由下一波開頭比對真實網址才升成 committed(見上面那段)。
+      //   ⚠️ **而這一行的【突變沒有測試殺得死】**(2026-09-05 實測:改回直接記 committed ⇒ 31 格全綠)。
+      //      成因:單元測試裡 `router` 是 mock 的, **`replace` 永遠「成功」** ⇒ pending 與直接記
+      //      在那個世界裡**行為相同**。⇒ 📌 **它守的是【Next 靜默忽略】那個世界, 而那個世界
+      //      在 mock 掉 router 之後【不存在】。**驗證欠在真瀏覽器/E2E 那一層, 不假裝有。
+      pendingWrittenCategoryRef.current = category ?? null;
       if (collides) router.refresh();
     }
   }, [cascade, extras, restoreSources, router]);

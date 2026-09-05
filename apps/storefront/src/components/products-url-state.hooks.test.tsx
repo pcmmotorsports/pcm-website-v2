@@ -713,7 +713,10 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
     rerender({ category: null as CascadeFilterState['category'] });
     rerender({ category: { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'] });
 
-    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    // 🔴 **R3 findings ④:不能只查第 1 次呼叫** —— 「先送對的、再多送一個錯的 `replace`」
+    //   在只看 `calls[0]` 的斷言下**仍然全綠**。⇒ 釘次數 + 查**最後一次**。
+    expect(hoisted.replace).toHaveBeenCalledTimes(1);
+    const url = hoisted.replace.mock.calls.at(-1)?.[0] as string;
     expect(url).toBeDefined();
     // 🔴 斷言走 `qs(url).get(...)` 比**編碼前**的值 —— 逗號會被編成 `%2C`(檔頭 :99-103 已警告)
     expect(qs(url).get('categories')).toBe('A,B,操控部品');
@@ -721,5 +724,76 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
   });
 
 
+
+
+  it('㉚ 清空分類【同時】改別的軸 → 不得把 null union 進 categories', () => {
+    // 🔴🔴 **本格存在的理由 = codex R3(第三個模型)不同意我的宣稱。**
+    //   我在 hook 註解裡寫過「`cat === null` 那道擋在單元測試層【構造不出會紅的世界】」——
+    //   依據是探針量到那一波 `replace` 次數 **0**(被更前面的等值早退擋住)。
+    //   🛑 **而 R3 指出:那是因為我只讓【分類】變。同一波【同時改別的軸】就繞得過等值早退。**
+    //   ⇒ 📌 **我把「我造的那個世界到不了」寫成了「那條路測不到」** ——
+    //      與同日 plan §0 那句「第三條路技術上是死的」**同一個形狀**。
+    //   🔬 而照 R3 的形狀造出來之後實測:那一波**確實走到寫入段**(`n=1`, 網址帶 price),
+    //      **而 `categories` 仍是 `A,B`** ⇒ **突變沒有把 null 寫進去**(`join` 對 `null` 的行為),
+    //      ⇒ 🔵 **所以這一格【對那個突變仍然是綠的】** —— 它擋的是**未來**有人把 union 改成
+    //         會產出尾逗號/空值的寫法。**本格是回歸鎖, 不是突變殺手, 兩者不要混。**
+    window.history.replaceState(null, '', '/products?categories=A%2CB');
+    const { rerender } = renderHook(
+      ({ category, extras }: { category: CascadeFilterState['category']; extras: typeof EXTRAS }) =>
+        useCatalogFilterUrlSync(cascade([], category), extras, RESTORE_SOURCES),
+      {
+        initialProps: {
+          category: { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'],
+          extras: EXTRAS,
+        },
+      },
+    );
+    rerender({ category: { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'], extras: EXTRAS });
+    hoisted.replace.mockClear();
+    rerender({
+      category: null as CascadeFilterState['category'],
+      extras: { ...EXTRAS, price: '10000-20000', priceRange: [10000, 20000] as [number, number] },
+    });
+
+    // 🔴 R3 findings ④:不能只查第 1 次呼叫 —— 「先送對的、再多送一個錯的」也會綠。
+    expect(hoisted.replace).toHaveBeenCalledTimes(1);
+    const url = hoisted.replace.mock.calls.at(-1)?.[0] as string;
+    expect(qs(url).get('categories')).toBe('A,B'); // 原樣, 不得多出空值或尾逗號
+    expect(qs(url).get('price')).toBe('10000-20000'); // 證明這一波真的走到了寫入段
+  });
+
+
+  it('㉛ 網址落地後【瀏覽器上一頁】退回舊網址 → 再選同一顆仍要 union(R3 ①③)', () => {
+    // 🔴🔴 **本格存在的理由 = codex R3 ①③**:`router.replace()` 回來只代表【已呼叫】。
+    //   若 ref 在那一刻就前進, 而網址(被 Next 忽略 / 被上一頁退回)沒跟上
+    //   ⇒ 📌 **同一個選擇會【永久】被吞掉** —— 判別法看到 ref 已等於它, 判非自選, 不再寫。
+    //   ✅ 修法是 pending/committed 兩段:**觀察到網址真的落地才升 committed**,
+    //      而網址上沒有 committed 那顆時(上一頁)**把 ref 退回**。本格釘住後半。
+    window.history.replaceState(null, '', '/products?categories=A%2CB');
+    const pick = { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'];
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: null as CascadeFilterState['category'] } },
+    );
+    rerender({ category: null as CascadeFilterState['category'] });
+    rerender({ category: pick });                    // 第一次選 ⇒ 送出 union
+    expect(hoisted.replace).toHaveBeenCalledTimes(1);
+
+    // 模擬「那一發落地了」⇒ 網址真的變成 A,B,操控部品
+    window.history.replaceState(null, '', '/products?categories=A%2CB%2C%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81');
+    rerender({ category: pick });                    // 讓 hook 看到落地(pending ⇒ committed)
+
+    // 🔴 現在【上一頁】:網址退回 A,B, 而 cascade 仍握著那一顆
+    window.history.replaceState(null, '', '/products?categories=A%2CB');
+    hoisted.replace.mockClear();
+    rerender({ category: null as CascadeFilterState['category'] }); // 退回後 cascade 也清掉
+    rerender({ category: pick });                    // 客人再選同一顆
+
+    // ⇒ 必須【再送一次】—— ref 沒退回的話這裡是 0 次(那個選擇被永久吞掉)
+    expect(hoisted.replace).toHaveBeenCalledTimes(1);
+    const url = hoisted.replace.mock.calls.at(-1)?.[0] as string;
+    expect(qs(url).get('categories')).toBe('A,B,操控部品');
+  });
 
 });
