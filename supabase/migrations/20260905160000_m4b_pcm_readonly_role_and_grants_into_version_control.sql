@@ -52,8 +52,15 @@
 --       (codex 提的「可能只靠 PUBLIC ⇒ 日後 REVOKE FROM PUBLIC 會留下副作用」——**在正式庫上不成立, 量過了**;
 --        在**空庫**上它確實是新增一條直接 ACL, 而那正是空庫需要的。)
 --     public.admin_order_list_v SELECT ......... t  ⇒ **no-op**
---     public.search_queries SELECT ............. f  ⇒ 由**貼板 33** 授權, **不由本片**(見下)
---     public.order_pending_refunds SELECT ...... f  ⇒ 同上
+--     public.search_queries SELECT ............. ⛔ ~~f~~ ⇒ 🔵 **2026-09-05 Sean 貼了貼板 33 之後量到 t**
+--     public.order_pending_refunds SELECT ...... ⛔ ~~f~~ ⇒ 🔵 **同上, t**
+--       ⇒ ✅ **貼板 33 已落地** —— `supabase/after-checks/grant-readonly-select-search-refunds.sql`
+--         那兩條由它授權, **不由本片**。Sean 2026-09-05 逐字回「29 30 32 33 34 好」, 主視窗 -f8 轉;
+--         我當場唯讀複量, 那兩格從 f 翻 t, 而**正負對照沒有動**(orders SELECT t / orders INSERT f)
+--         ⇒ 尺是同一把, 動的是被量的東西。
+--       🔴 **舊字面 `f` 留刪除線, 不要刪** —— 檔頭那一整排是「貼之前」的快照,
+--         而下面「33 貼完之後本片每一格都是 no-op」那句的前提就是這兩格會翻 t。
+--         ⇒ 📌 **現在它不是預測了, 是量到的。**
 --     正對照 public.orders SELECT .............. t  · 負對照 public.orders INSERT .. f(尺是活的)
 --   ⚠️ **誤套時的失敗形狀**(codex must-fix):`GRANT` **即使目標已經有那個權限, 仍會重新檢查執行者的 grant option**
 --     ⇒ 用一個不是 owner 也沒有轉授權的角色去跑本片, 會在那一行報錯並**整個交易回滾**。
@@ -75,7 +82,7 @@
 --        (它已經讀得到訂單表)。 甲 = 能(貼 33) / 乙 = 不能 / A: 甲|」
 --   ⇒ 貼板 **33**(= `supabase/after-checks/grant-readonly-select-search-refunds.sql` 的複本)
 --     已排給 Sean 貼。**那兩張表的授權由 33 落地, 不由本片落地。**
---   ⇒ 📌 **33 貼完之後, 本片對正式庫【每一格都是 no-op】。**
+--   ⇒ 📌 **33 已於 2026-09-05 貼完 ⇒ 本片對正式庫【每一格都是 no-op】—— 這是量到的, 不是推的。**
 --   ⇒ 🛑 **不排給 Sean 貼、不記 `supabase/APPLIED.tsv`。**
 --     零 app 碼依賴它, 部署時序閘不會問它。它存在的**唯一**理由是讓「從零重播」拿得到那個角色與授權。
 --
