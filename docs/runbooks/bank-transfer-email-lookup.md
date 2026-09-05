@@ -23,6 +23,7 @@
 |---|---|---|
 | 「我**根本沒收到**信」 | 我們到底寄了沒 | §1 ⇒ §2 |
 | 「信裡的**帳號 / 金額**是錯的」 | 他收到的**那一封**寫了什麼 | §2 ⇒ §3 |
+| 🔴 「我**收到了**」 **而後台顯示失敗** | 誰說的才對 | **§4**(⚠️ 兩邊都對, 見那一節) |
 | 「我**收到兩封不一樣的**」 | 那是出貨信的族, **不是本檔** | `docs/runbooks/duplicate-shipping-email-sop.md` |
 
 🛑 **不要跳過這一格。**「沒收到」問的是**我們的 `email_outbox`**(§1),
@@ -57,7 +58,7 @@ where event_type = 'bank_order_created'
 | `sent` | 我們**確實送出去了** | 去 §2 拿證據 |
 | `pending` | 排隊中, **還沒寄** | 等下一輪 cron;超過 15 分鐘 ⇒ 報工程 |
 | `sending` | **卡在寄送中** | 🔴 那是異常 ⇒ 報工程(可能信已寄出而標記沒寫回去) |
-| `failed` | 試過而失敗 | 看 `last_error_code`, 報工程 |
+| `failed` | 試過而失敗 | 看 `last_error_code` ⇒ 🔴 **是 `lease_reclaimed` 或 `network_error` ⇒ 先去 §4**(那兩個的意思是「我不知道」, 不是「沒寄」);其餘報工程 |
 | `skipped_order_ineligible` | **故意不寄** | 🔴 **真相不在 `status` 裡** ⇒ §1b |
 
 ### §1a 零列的兩個世界(這一格最容易誤判)
@@ -192,6 +193,65 @@ git show <sent_at 之前最近那顆 hash>:packages/domain/src/order/remittance-
 
 ⚠️ **金額**這一項不一樣:它會隨後台改單而變。⇒ 客人說金額對不上時, 先看 §1b 有沒有 `bank_order_snapshot_stale`
 —— 有的話, **那正是系統發現金額被改過而【故意不寄】**, 那時客人手上那封是**舊的**。
+
+---
+
+## 4 · 🔴 **客人說收到了, 而系統說 `failed`** —— 誰在說謊
+
+**沒有人在說謊。** 這個組合是**真的會發生**的, 而它的意思很精確:
+
+> **信送出去了, 而【回報那件事】的那一步失敗了。**
+> 📌 `failed` 在這一格的意思是**「我不知道」**, 不是「沒寄」。
+
+🛑 **所以第一件事不是查系統, 是【相信客人】** —— 客人手上那封信是**證據**, 而我們這一邊只是**沒記到**。
+
+### §4a 三個成因, 而它們用**同一個字**印出來
+
+🧑‍💻 先跑這一發(把時間窗改成客人說的那段):
+```sql
+select status, last_error_code, attempts, claimed_at, sent_at, provider_message_id
+from public.email_outbox
+where event_type = 'bank_order_created'
+  and order_id = (select id from public.orders where display_id = 'PCM-2026-XXXX');
+```
+
+| `last_error_code` | 成因 | 這是**一個人**還是**所有人** |
+|---|---|---|
+| `lease_reclaimed` | 寄出去了, 而**標記那一步整發被拒** ⇒ 那一列被留在 `sending`, 一小時後回收 | ⚠️ **要看範圍** ⇒ §4b |
+| `network_error` | 寄出去了(或沒有), 而**回應沒回來** ⇒ 逾時 ⟦mail-FETCHTIMEOUT⟧ | 通常**一個人**(偶發) |
+| 其他 / 空 | 不是這一族 ⇒ 回 §1b | — |
+
+### §4b 🔴🔴 `lease_reclaimed` 的兩個世界 —— **一個人 vs 所有人**, 而這一格決定要不要叫醒工程
+
+🧑‍💻 **這一發才是判準**(不要只看那一列):
+```sql
+select count(*) filter (where last_error_code = 'lease_reclaimed') as 被回收,
+       count(*)                                                    as 同期總數
+from public.email_outbox
+where sent_at > now() - interval '2 hours' or claimed_at > now() - interval '2 hours';
+```
+
+| 讀數 | 意思 | 怎麼做 |
+|---|---|---|
+| 被回收 **= 1~2**, 同期總數明顯更大 | 偶發(平台把某一輪砍了) | 🔵 客人那封信是好的, **不用叫人**;那一列會自己重排 |
+| 🔴🔴 被回收 **≈ 同期總數**(幾乎每一列) | **不是偶發, 是【整條線壞了】** | 🛑 **立刻叫工程 + Sean** ⇒ §4c |
+
+📌 **這一格就是「兩個世界印什麼」的本體** —— **一列 `lease_reclaimed` 與一百列 `lease_reclaimed` 在單筆查詢上長得一模一樣**, 而它們一個是「今天運氣不好」, 一個是「**每一封信都標不成功**」。
+
+### §4c 幾乎每一列都被回收 = 最可能是**資料庫少貼了一支東西**
+
+🔬 **機制**(講給工程聽的, 客服不用懂):寄信成功之後那一發 `update` 會寫一個叫
+`provider_message_id` 的欄位。**那個欄位不存在的話, PostgREST 回 `PGRST204` ⇒ 整發 update 被拒**
+⇒ 連 `sent_at` 都寫不下 ⇒ 那一列留在 `sending` ⇒ 一小時後被回收 ⇒ 燒掉 attempts ⇒ 最後 `failed`。
+
+🛑 **而客人【每一封都收到了】** —— 因為信是先寄出去、後標記的。
+⇒ 📌 **這是本系統最會騙人的一個畫面:後台一片紅, 而客人那邊一切正常。**
+
+**跟工程講這一句就夠**:
+> 「`email_outbox` 幾乎每一列都是 `lease_reclaimed`, 請確認 `20260906200000`(provider_message_id)貼進正式庫了沒。」
+
+⚠️ **在工程確認之前, 不要跟客人說「我們沒寄」** —— 這一格的錯誤方向會讓我們**重寄一封**,
+而客人**已經有一封**了。⇒ 🔴 **先去 §2 把那封信找出來, 那才是答案。**
 
 ---
 
