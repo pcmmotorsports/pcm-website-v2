@@ -31,6 +31,55 @@
 --   🛑 **不要把本檔原樣搬回去** —— 它的依據已經被推翻, 而 8 條 must-fix 一條都沒折。
 -- ══════════════════════════════════════════════════════════════════════════
 
+-- ═══════════════════════════════════════════════════════════════════════
+-- ✅ 上面那個前置【已經答完】(2026-09-05,線 `-auth` 量;分母 = 呼叫端,不是定義端)
+-- ═══════════════════════════════════════════════════════════════════════
+-- 🔬 **量在哪棵樹**:`/Users/sean_1/pcm-website-v2` = `dev` @ `c33cad7b6`
+--    —— **不是**本線的 worktree。「查無」是相對於你站在哪棵樹的,而 dev 才是今天在跑的那一份。
+--
+-- ── 每張表一列,三欄:呼叫端 → adapter 方法 → 哪把鑰匙 ────────────────
+--
+--  ▸ customers
+--    寫① `apps/storefront/src/app/account/profile/actions.ts:87`
+--        → `updateProfile` → `SupabaseCustomerAdapter.update`  ⇒ **authenticated**(cookie client)
+--    寫② `apps/admin/src/lib/customers/profile-actions.ts:65`
+--        → `getAdminCustomerRepository().update`               ⇒ 🔴 **service_role**
+--    寫③ `apps/admin/src/lib/customers/tier-actions.ts:54`
+--        → `setCustomerTier` → `.rpc('admin_set_customer_tier')` ⇒ service_role 只有 **EXECUTE**
+--        🔵 那個 `UPDATE customers` 發生在 **SECURITY DEFINER 函式內、以 owner 執行**
+--           (`supabase/migrations/20260717010000…sql:204`)⇒ **不需要 service_role 的 UPDATE policy。**
+--    寫④ 註冊 → trigger `handle_new_auth_user` 的 `INSERT INTO public.customers`
+--        ⇒ 同樣是 **SECURITY DEFINER / owner**(`20260831150000…sql:204`)⇒ 也不需要。
+--    讀  `apps/admin/src/app/customers/page.tsx:82` · `load-customer-detail.ts:119` ⇒ service_role SELECT
+--
+--  ▸ customer_addresses
+--    寫  `apps/storefront/src/app/account/address/actions.ts:107 / :163 / :187`
+--        → `addAddress` / `updateAddress` / `deleteAddress`
+--        → `SupabaseAddressAdapter.create / .update / .delete`  ⇒ **authenticated**
+--    讀  `apps/admin/src/lib/customers/load-customer-detail.ts:126` → `listByCustomer` ⇒ service_role
+--    ⇒ 🎯 **service_role 那一側零寫入。**
+--
+--  ▸ customer_vehicles
+--    寫  `apps/storefront/src/app/account/vehicle/actions.ts:100 / :152 / :176`
+--        → `addVehicle` / `updateVehicle` / `deleteVehicle`
+--        → `SupabaseVehicleAdapter.create / .update / .delete`  ⇒ **authenticated**
+--    讀  `apps/admin/src/lib/customers/load-customer-detail.ts:127` → `listByCustomer` ⇒ service_role
+--    ⇒ 🎯 **service_role 那一側零寫入。**
+--
+-- ── 🎯 結論(它比本檔 #3 講的【更窄】)──────────────────────────────
+--   service_role 今天真正用得到的只有:**三張表的 SELECT + `customers` 的 UPDATE**。
+--   ⇒ 本檔給 `customer_addresses` / `customer_vehicles` 補 I/U/D **六格全是過度授權**。
+--
+-- ── 🛑 這一份量測【證不到什麼】──────────────────────────────────
+--   · 它只掃 repo 的 TS 呼叫端。**第四族(Edge Function / pg_cron / 有人在 SQL Editor 手打)**:
+--     🔬 `supabase/functions` 目錄**不存在**;7 支帶 `cron.schedule` 的 migration 對三張表
+--        **零命中** —— 唯一那一筆是**註解**(`20260819160000…sql:52`),那正是
+--        「註解被 grep 當成碼」那個坑。
+--     🟢 **正對照**:同一把尺掃 `orders` ⇒ **4 支命中**(尺會動,不是它啞了)。
+--     ⚠️ **「有人在 SQL Editor 手打」量不到 ⇒ 那一格永遠【未確認】。**
+--   · 它答的是「誰在呼叫」,**不答「現有的 policy 對不對」。**
+-- ═══════════════════════════════════════════════════════════════════════
+
 -- ⟦b9-RLSHARDEN⟧ 第 0 步【二代】:補三張【客人資料表】缺的 service_role 寫入 policy
 --
 -- 🛑🛑 **本檔是【草稿】。動 RLS = PCM 鐵則 12②(權限)⇒ 要 Sean 拍板 + codex 對抗審查才貼。**
