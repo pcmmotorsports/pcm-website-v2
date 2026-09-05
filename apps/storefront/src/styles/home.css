@@ -1119,7 +1119,9 @@
 .b-select-nav { display: flex; gap: 8px; }
 /* 🔴 2026-09-05 ⟦f3-MOBTAP44⟧:本體 36×36 是**看得見的**(有 border 有底色)⇒ 不動它,
    改用與 `.b-hero-tick` 同一招:`::after` 外擴命中區, 畫面零改動。
-   36 + 4×2 = **44**;`.b-select-nav` 的 `gap: 8px` ⇒ 兩顆的外擴剛好貼齊、零重疊。
+   ⛔ ~~36 + 4×2 = **44**~~ ⇒ 🔴 **2026-09-05 訂正:那個算式【少算了邊框】** ——
+   `::after` 相對的是 **padding box**(36 − border 1×2 = **34**)⇒ `-4px` 只到 **42**。
+   ✅ 改 `-5px` ⇒ 34 + 5×2 = **44**;在邊框外只多 4px ⇒ 與 `.b-select-nav` 的 `gap: 8px` 貼齊、零重疊。
    🔵 與 hero tick 的差別值得記:那邊 34 + 8 = 42 **到不了 44**, 這邊 36 + 8 = 44 **剛好到**
    —— 📌 同一招在兩個地方,一個成立一個不成立,而差別只在本體寬度差 2px。 */
 .b-select-arrow {
@@ -1137,10 +1139,18 @@
 /* 🔴 OD 有畫 `:disabled` 態卻**沒有接線**(原型裡兩顆箭頭是死的,全檔零 JS 命中)——
    本 repo 接了(捲到頭 / 到底時 disabled),否則就是兩顆看起來能按、按了沒反應的按鈕。 */
 .b-select-arrow:disabled { opacity: 0.35; cursor: not-allowed; }
-/* 命中區外擴:純命中區、零視覺(無背景無邊框)。⚠️ `:disabled` 的鈕本來就不可按, 這一格不改變那件事。 */
+/* 命中區外擴:純命中區、零視覺(無背景無邊框)。⚠️ `:disabled` 的鈕本來就不可按, 這一格不改變那件事。
+   🔴🔴 **`-5px` 不是 `-4px` —— 差的那 1px 是【邊框】**(2026-09-05 線 `-f3` 量到):
+     絕對定位 `::after` 的 `left/right/top/bottom` 相對的是 **padding box**, 而本體有 `border: 1px`
+     ⇒ padding box 只有 **34**(不是 36)⇒ `-4px` 算出來是 **34 + 4×2 = 42**, 不是 44。
+   🔬 **這不是讀碼推的**:正式站 390×844 用 `elementFromPoint` 0.25px 步進探邊 ⇒ 箭頭命中區
+     **36.5×36.5**(那是尚未上 main 的舊碼)· 而同一發正對照 `開啟選單`(本體 44×44, 無外擴)
+     ⇒ **44.5×44.5** ⇒ 📌 **探針準到 ±0.5, 所以先前那個「42 vs 44」不是取樣誤差, 是碼。**
+   ✅ `-5px` ⇒ 34 + 5×2 = **44**;而它在**邊框外**只多 4px ⇒ 與相鄰鈕 `gap: 8px` 剛好貼齊、**零重疊**。
+   🛑 **改成 `-6px` 就會重疊**(4+4=8 已用完 gap), 而重疊區只歸其中一顆 ⇒ 另一顆反而變小。 */
 .b-select-arrow::after {
   content: "";
-  position: absolute; left: -4px; right: -4px; top: -4px; bottom: -4px;
+  position: absolute; left: -5px; right: -5px; top: -5px; bottom: -5px;
 }
 .b-carousel-wrap {
   position: relative;
@@ -1689,11 +1699,26 @@
   font: inherit;
 }
 /* Q2=A(2026-07-03)social 回 <a> 後刪 #136 殘留死選擇器「, .ed-footer-social button」、收斂回 design 原字面 */
+/* 🔴 ⟦f3-MOBTAP44⟧ 乙(Sean 2026-09-05 逐字拍「乙」):命中區補到 24, **畫面零改動**。
+   🔬 390×844 量到本體 **28~61 × 19**;而 `::after` 的四邊相對的是 **padding box**,
+     本體有 `border-bottom: 1px` ⇒ padding box 高只有 **18** ⇒ `-3px` ⇒ 18 + 3×2 = **24**。
+     📌 少減那 1px 的話算出來會是 25 而實際只有 24 —— 同一個坑今天在 `.b-select-arrow` 上踩過一次。
+   🔵 **只擴上下**:寬 28~61 本來就 ≥24 ⇒ `left/right: 0`, 不碰不需要碰的方向。
+   🔵 **不會相接**:`.ed-footer-social` 是 `gap: 20px` 的橫排, 而我一格都沒往左右擴。 */
 .ed-footer-social a {
+  position: relative;
   color: rgba(255,255,255,0.7);
   border-bottom: 1px solid transparent;
   padding-bottom: 2px;
   transition: color 0.15s, border-color 0.15s;
+}
+.ed-footer-social a::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -3px;
+  bottom: -3px;
 }
 .ed-footer-social a:hover { color: #fff; border-color: rgba(255,255,255,0.5); }
 
@@ -1714,6 +1739,19 @@
   margin: 0 0 10px;
   line-height: 1.6;
   transition: color 0.15s;
+}
+/* 🔴 ⟦f3-MOBTAP44⟧ 乙:同上, 而這一堆【只差 1px】—— 本體 23(無邊框)⇒ `-1px` ⇒ 23 + 1×2 = **25**。
+   🔵 上下相鄰兩條的 `margin-bottom: 10px` ⇒ 各擴 1px 用掉 2px, **離相接還有 8px** ⇒ 不會互搶點擊。
+   🛑 **不要順手擴大**:第一版模擬用 `-4px` ⇒ 31px, 而那時**九條的命中區會上下相接**
+     ⇒ 客人按到的是隔壁那條。📌 **加大不是越大越好。** */
+.ed-footer-cols a { position: relative; }
+.ed-footer-cols a::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -1px;
+  bottom: -1px;
 }
 .ed-footer-cols a:hover { color: #fff; }
 

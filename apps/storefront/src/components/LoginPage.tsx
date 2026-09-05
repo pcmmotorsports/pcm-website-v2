@@ -29,7 +29,7 @@
 
 import { useState } from 'react';
 import {
-  AUTH_ERR_NEEDS_CONFIRMATION,
+  AUTH_CODE_NEEDS_CONFIRMATION,
   AUTH_RESEND_SENT_NOTICE,
   AUTH_RESEND_FAILED_NOTICE,
 } from '@/lib/auth/auth-copy';
@@ -84,6 +84,19 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
   // oauthError(/auth/callback 失敗導回 ?error)→ 初始顯示 OAuth 失敗字面於 formError(f1-c)。
   const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(oauthErrorCopy(oauthError));
+  // 🔴 帳號層級錯的【碼】—— 重寄按鈕靠它, 不靠字面(2026-09-05「丙」)。
+  //    OAuth 失敗那條路沒有碼 ⇒ 初值 null ⇒ 按鈕不出現(對:那不是沒驗證)。
+  const [formErrorCode, setFormErrorCode] = useState<string | null>(null);
+  /**
+   * 🔴 **字面與碼一律【一起】設** —— 它們描述的是同一件事(上一次送出的結果)。
+   * 少了這一支的話,每個 `setFormError(null)` 旁邊都要記得補一發清碼;
+   * 而漏一處的樣子是:**訊息清掉了而重寄按鈕還掛在那裡**(旁邊沒有任何一句話),
+   * 🛑 而那個畫面**三綠全綠、也不會噴錯** —— 沒有東西會叫。
+   */
+  const setFormErr = (msg: string | null, code: string | null = null) => {
+    setFormError(msg);
+    setFormErrorCode(code);
+  };
   const [pending, setPending] = useState(false);
   // 重寄驗證信(`⟦b4-SIGNUPOPEN1⟧` 前置片)。`resendNotice` 一旦有值就把按鈕換掉 ——
   // 🔵 那是刻意的:**不讓他連按**。而它不是節流(節流在 provider 那一層),
@@ -144,9 +157,9 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
    */
   const clearErr = (k: keyof LoginFieldErrors) => {
     setFieldErrors((prev) => (prev[k] === undefined ? prev : { ...prev, [k]: undefined }));
-    setFormError(null);
+    setFormErr(null);
     // 🔴 [codex 關卡2 must-fix ②] 一動輸入就把重寄提示清掉 —— 見 `clearResend` 上方那段。
-    //    掛在這裡是因為它與 `setFormError(null)` 是同一件事:**上一次送出的結果**,
+    //    掛在這裡是因為它與 `setFormErr(null)` 是同一件事:**上一次送出的結果**,
     //    而客人一改欄位, 那個結果就不再描述他現在填的東西。
     clearResend();
   };
@@ -157,18 +170,18 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
     const v = validateLogin(form);
     if (!v.ok) {
       setFieldErrors(v.fieldErrors);
-      setFormError(null);
+      setFormErr(null);
       return;
     }
     setFieldErrors({});
-    setFormError(null);
+    setFormErr(null);
     setPending(true);
     // 成功時 loginAction 內 redirect(#190 導回 sanitize 過的 next、client 自動導航);
     // 失敗回 { fieldErrors }(server 重驗逐欄)或 { formError }(帳號層級)。
     const result = await loginAction(form, next);
     if (result?.fieldErrors || result?.formError) {
       if (result.fieldErrors) setFieldErrors(result.fieldErrors);
-      if (result.formError) setFormError(result.formError);
+      if (result.formError) setFormErr(result.formError, result.formErrorCode ?? null);
       setPending(false);
     }
   };
@@ -185,7 +198,7 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
     });
     // 成功時瀏覽器即刻重導 Google(本元件卸載);僅發起失敗(如網路)時顯示錯誤(帳號層級、走 formError)。
     if (error) {
-      setFormError(GOOGLE_ERROR_COPY);
+      setFormErr(GOOGLE_ERROR_COPY);
     }
   };
 
@@ -226,12 +239,16 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
                 為什麼只在這一種錯誤下出現:客人被擋在「請先收信完成 Email 驗證」時,
                 **在本片之前他沒有任何路可以走** —— 自助與後台都沒有重寄入口(實測 0)
                 ⇒ 他只能自己去信箱找當初那封信。
-                🛑 **判準用【逐字相等】不是 includes** —— `authErrorCopy` 那個 switch 是封閉集,
-                   而 `includes` 會讓「Email 或密碼錯誤」這種也可能命中(兩句都含「Email」)
-                   ⇒ 那會把重寄按鈕顯示給一個【密碼打錯】的人看,而那是帳號存在與否的訊號。
+                🔴 **[2026-09-05 「丙」] 判準從【字面】換成【錯誤碼】**。
+                ⛔ ~~判準用逐字相等不是 includes(兩句都含「Email」…)~~ —— 那段推理當時是對的,
+                   而它解的是「字面比對怎麼比才安全」,🎯 **而真正的病是【字面在兼差】**:
+                   同一個字串既給客人看、又決定按鈕出不出現
+                   ⇒ 📌 **改文案就會靜靜關掉那顆按鈕, 而三綠全綠、畫面也不會壞。**
+                ✅ 換成 `formErrorCode` 之後:**文案可以隨便改(甚至統一成一句), 按鈕照樣在。**
+                🛑 而它**不會**讓這頁不再洩漏帳號是否存在 —— 那是板上另一列的事。
                 🔵 送出後**不論結果都顯示同一句** —— 與 action 的帳號列舉防護成對;
                    在這裡分支的話,防護就白做了(它擋 server 那半,這裡會從 client 漏)。 */}
-            {formError === AUTH_ERR_NEEDS_CONFIRMATION && (
+            {formErrorCode === AUTH_CODE_NEEDS_CONFIRMATION && (
               <p className="auth-resend">
                 {resendNotice ? (
                   <span className="auth-ok">{resendNotice}</span>

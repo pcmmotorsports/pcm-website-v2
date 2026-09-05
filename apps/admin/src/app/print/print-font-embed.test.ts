@@ -36,6 +36,27 @@ describe('⟦ship-PRINTNOFONT1⟧ 字型要【帶在紙上】, 不靠對方機�
     }
   });
 
+  // 🔴 **⟦ship-PRINTLAYOUTNOTEST⟧ 2026-09-05:這一格是那一列剩下的【唯一】真缺口。**
+  //    那一列原本寫「這個殼零測試覆蓋」—— ⛔ **不成立**:字型那兩格在本檔、
+  //    `print-a4.css` 那格在 `print-a4-css.test.ts:144`。**三個承重不變式裡有兩個早就有人守。**
+  //    🛑 而第三個沒有:`layout.tsx` 檔尾逐字「**本檔刻意不畫任何東西**(直接回 `children`):
+  //    紙上的結構全在 `components/print/*-doc.tsx`,這裡多包一層 div 會多一個
+  //    **沒人知道存在的版面節點**」。
+  //    ⇒ 🎯 **而包一層 div 的症狀與字型那族同一種**:typecheck / lint / build / 既有測試**全綠**,
+  //      而紙上多一個節點 —— `@page` 的邊界、`page-break` 的落點都可能跟著移。
+  //      **人看到的是「換一台印表機就多一頁」, 而那不像是有人動了這支檔。**
+  it('🔴 這個殼【直接回 children】—— 不得多包一層版面節點', () => {
+    const code = stripComments(read('./layout.tsx'));
+    // 🟢 尺會動:函式本體撈得到(撈不到的話下面兩行是恆綠的)。
+    const m = /export default function PrintLayout\([^)]*\)[^{]*\{([\s\S]*?)\n\}/.exec(code);
+    expect(m, '撈不到 PrintLayout 的函式本體 ⇒ 這把尺沒接上, 不是「沒包 div」').not.toBeNull();
+    const body = m![1]!;
+    // 🔴 本體裡只准有一句 return children —— 任何 JSX 標籤都代表多了一個節點。
+    expect(body.replace(/\s+/g, ' ').trim()).toBe('return children;');
+    // 🔴 負對照的替身:本體裡不得出現 `<`(JSX 開標籤)。
+    expect(body, '本體裡出現了 JSX ⇒ 有人在這裡包了東西 ⇒ 版面多一個節點').not.toContain('<');
+  });
+
   it('🔴 admin 自己的 package.json 有這個相依(不靠 workspace 別人裝了)', () => {
     const pkg = JSON.parse(read('../../../package.json')) as {
       dependencies?: Record<string, string>;

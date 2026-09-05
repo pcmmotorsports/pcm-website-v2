@@ -32,6 +32,14 @@
       `REVOKE … FROM PUBLIC`(沒點名 service_role)不算關門 —— 它證不了 service_role 沒有直接權限。
       新檔內 REVOKE 再 GRANT 是本 repo 的標準形狀, **不算漂移**(閉集只從 HEAD 算)。
   R5  `GRANT service_role | pg_read_all_data | postgres | supabase_admin TO <角色>`(成員關係)⇒ 紅
+  R7  `GRANT <任何角色> TO anon | authenticated | authenticator | PUBLIC`(**成員關係**, 沒有 `ON`)⇒ 紅
+      🔴 **不可豁免。** R5 只看【被授的角色】是不是那四個特權角色 ⇒ `GRANT pcm_w TO anon;`
+      對 R5 零規則觸發、靜默綠, 而 `pcm_w` 只要在別處拿過 `service_role`, **anon 就拿到了它**。
+      🎯 **R7 不依賴「別處」** —— 它只問「有沒有人被塞進公開角色裡」, 不需要遞移分析。
+      🔬 **做之前量的:今天會叫 0 次**(本閘自己的解析器掃 316 支 ⇒ 零處成員關係 GRANT;
+        🟢 正對照合成兩句各回 1 · 🔵 負對照帶 `ON` 與空字串各回 0)⇒ **零誤報風險**。
+      📎 它是 `⟦b9-…⟧` R5 豁免路撤回之後**留下來的那個獨立缺口**的修法
+        (`docs/plans/2026-09-05-acl-drift-gate-r5-exemption-plan.md` 檔尾「族①的後半」)。
   R6  `EXECUTE '…'` / `EXECUTE format('…')` / 函式體 `AS '…'` 的字串是 SQL:先當靜態語句跑 R1-R5,
       再看 `GRANT … TO <公開角色>`;角色或表名由 `%I` / `%s` / `||` 代入 ⇒ **印 ⚠️ 未判、不擋**
       (把沒被判的印出來)。純顯示用的 `format(…)`(沒有 EXECUTE)當資料, 不判。
@@ -318,6 +326,21 @@ def rules_for(seg, closed, exempt_for):
     body = gm.group('body')
     if not re.search(r'\bon\b', body, re.I):
         mm = MEMBERSHIP.search(seg)
+        # ── R7:**成員關係 GRANT 的受贈者是公開角色 ⇒ 一律紅**(2026-09-05;主視窗 `-f8` 裁「做」)
+        #    🔴 **為什麼要單獨一條**:R5 只看【被授的角色】是不是那四個特權角色
+        #    ⇒ `GRANT pcm_w TO anon;` 對 R5 **零規則觸發、靜默綠**,
+        #      而 `pcm_w` 只要在別處拿過 `service_role`, **anon 就拿到了 service_role**。
+        #    🎯 **而 R7 不依賴「別處」** —— 它只問一句:**有沒有人被塞進公開角色裡。**
+        #      ⇒ 📌 那是一個**不需要遞移分析**就答得出來的問題, 也正是遞移那條路做不到的原因
+        #        (見 `docs/plans/2026-09-05-acl-drift-gate-r5-exemption-plan.md` 檔尾「族①」)。
+        #    🛑 **不可豁免** —— 與 R5 同款:公開角色是 `anon`(未登入的任何人)。
+        #    🔬 **今天會叫幾次 = 0**:用本閘自己的解析器掃 316 支 migrations ⇒ **零處**成員關係 GRANT
+        #      (🟢 正對照:餵 `GRANT service_role TO pcm_w;` 與 `GRANT pcm_w TO anon;` 各回 1;
+        #       🔵 負對照:帶 `ON` 的一般 GRANT 與空字串各回 0 ⇒ **那把尺會動**)。
+        #      ⇒ 📌 **零誤報風險** —— 而這一發是**做之前**量的, 不是做完才量。
+        if mm and any(r in PUBLIC_ROLES for r in roles_of(mm.group('grantee'))):
+            return [('R7', 'GRANT %s TO %s(把一個角色塞進【公開角色】裡 —— '
+                           'anon 是未登入的任何人)' % (mm.group('roles').strip(), mm.group('grantee').strip()))]
         if mm and any(r in MEMBERSHIP_DANGEROUS for r in roles_of(mm.group('roles'))):
             out.append(('R5', 'GRANT %s TO %s(成員關係複製一份權限)' % (mm.group('roles').strip(), mm.group('grantee').strip())))
         return out
@@ -620,6 +643,25 @@ WORLDS = [
     ("R5 紅  EXECUTE '<靜態字面>' GRANT service_role TO x", "DO $$ BEGIN EXECUTE 'GRANT service_role TO pcm_x'; END $$;", 1),
     ('R5 紅  GRANT pg_read_all_data TO x', 'GRANT pg_read_all_data TO anon;', 1),
     ('R5 綠  一般角色成員關係', 'GRANT pcm_reader TO pcm_reporter;', 0),
+    # ── R7(2026-09-05):受贈者是公開角色 ⇒ 一律紅, 不可豁免 ──────────
+    ('R7 紅  GRANT pcm_w TO anon(R5 看不到的那一半)', 'GRANT pcm_w TO anon;', 1),
+    ('R7 紅  GRANT pcm_w TO authenticated', 'GRANT pcm_w TO authenticated;', 1),
+    ('R7 紅  GRANT pcm_w TO PUBLIC', 'GRANT pcm_w TO PUBLIC;', 1),
+    ('R7 紅  多受贈者裡有一個是 anon', 'GRANT pcm_w TO pcm_x, anon;', 1),
+    ('R7 紅  寫了 EXEMPT 也豁免不了',
+     '-- ACL-GATE-EXEMPT: pcm_w -- 想繞過去 2026-09-05 #885\nGRANT pcm_w TO anon;', 1),
+    # ⚠️ **這一格的名字改過**:突變(把 R7 停用)之後它**仍然紅** ⇒ 📌 **紅它的不只 R7**
+    #    (字串層另有一條 `TO <公開角色>` 的既有處理)。R7 在**沒被停用時**確實會抓它
+    #    (實測回 `('R7', '字串內 SQL:GRANT pcm_w TO anon…')`), 而**它不是 R7 的獨立證據**。
+    #    ⇒ 🛑 **一格「兩條規則都會紅」的世界, 證不出其中任何一條會動。** 名字照實寫。
+    ("紅  EXECUTE '<靜態字面>' 裡的 GRANT TO anon(R7 與字串層【都】會紅, 非 R7 獨立證據)",
+     "DO $$ BEGIN EXECUTE 'GRANT pcm_w TO anon'; END $$;", 1),
+    # 🔵 而它【不得】變成無條件紅 —— 三發正對照:
+    ('🔵 R7 綠  受贈者不是公開角色', 'GRANT pcm_reader TO pcm_reporter;', 0),
+    ('🔵 R7 綠  帶 ON 的一般 GRANT 給 anon 走 R3 不走 R7(仍可 EXEMPT)',
+     '-- ACL-GATE-EXEMPT: public.products -- 新表公開讀是合法需求 2026-09-05 #885\n'
+     'GRANT SELECT ON public.products TO anon;', 0),
+    ('🔵 R7 綠  空檔', '', 0),
     ('R6 紅  EXECUTE format 字串內 TO anon', "DO $$ BEGIN EXECUTE format('GRANT SELECT ON %I TO anon', 'products'); END $$;", 1),
     ('R6 紅  EXECUTE $q$…$q$ dollar 字串 TO anon', 'DO $$ BEGIN EXECUTE $q$GRANT SELECT ON public.products TO anon$q$; END $$;', 1),
     ('R6 綠  動態 GRANT TO service_role 表名解析不到 ⇒ 未判不擋', "DO $$ BEGIN EXECUTE format('GRANT SELECT ON %I TO service_role', v_t); END $$;", 0),
@@ -645,27 +687,32 @@ WORLDS = [
 
 def selftest():
     fails = 0
+    ran = 0   # 🔴 **跑幾格用【數的】不用【加總的】** —— 見下面 total 那一行
     for name, sql, want in WORLDS:
         d, u, _ = check(sql, CLOSED_FIXTURE)
         got = 1 if d else 0
         ok = got == want
         fails += 0 if ok else 1
+        ran += 1
         print(f"  {'PASS' if ok else '🔴 FAIL'}  {name}" + ('' if ok else f'   期望 {want} 實得 {got} {d}'))
     for key in ('R6 綠  動態 GRANT TO service_role', 'R6 綠  角色由 %I', "R6 綠  EXECUTE '<靜態字面>' 對非閉集表", "R6 綠  EXECUTE '… TO ' || quote_ident", '綠  v_sql := …; EXECUTE v_sql'):
         sql_unres = next(s for n, s, w in WORLDS if n.startswith(key))
         _, u, _ = check(sql_unres, CLOSED_FIXTURE)
         ok = len(u) == 1
         fails += 0 if ok else 1
+        ran += 1
         print(f"  {'PASS' if ok else '🔴 FAIL'}  未判有印出來(不與乾淨同形):{key}")
     # 行號射程:改既有檔只回報碰到新增行的語句(跨行 GRANT 只新增 TO 那一行也要紅, codex r4 #2)
     two = 'CREATE TABLE public.t (id int);\nGRANT SELECT ON public.products\n  TO anon;\nGRANT SELECT ON public.brands TO anon;'
     d, _, _ = check(two, set(), added={3})
     ok = [x[0] for x in d] == ['R3'] and d[0][1] == 2
     fails += 0 if ok else 1
+    ran += 1
     print(f"  {'PASS' if ok else '🔴 FAIL'}  改既有檔:只新增第 3 行(跨行 GRANT 的 TO 那行)⇒ 回報那一條、不回報第 4 行的舊債  {d}")
     d, _, _ = check(two, set(), added={1})
     ok = d == []
     fails += 0 if ok else 1
+    ran += 1
     print(f"  {'PASS' if ok else '🔴 FAIL'}  改既有檔:只新增第 1 行(CREATE TABLE)⇒ 零回報(不追舊債)")
     committed = [('20260101_a.sql', 'REVOKE ALL ON public.t1 FROM anon, authenticated, service_role;'),
                  ('20260102_b.sql', 'REVOKE ALL ON public.t2 FROM service_role;\nGRANT SELECT ON public.t2 TO service_role;'),
@@ -682,9 +729,11 @@ def selftest():
     want = {'public.t1', 'public.t5', 'public.t6', 'public.t8', 'public.t9'}
     ok = cs == want
     fails += 0 if ok else 1
+    ran += 1
     print(f"  {'PASS' if ok else '🔴 FAIL'}  閉集:t1 t5 在 / t2 再 GRANT 不在 / 字串內 t3 不算 / t4 只收寫入面不算 / t6 先 GRANT 後 REVOKE 在 / t7 FROM PUBLIC 不算 / t8 t9 多物件 / t10 GRANT OPTION FOR 不算 / t11 欄級不算(codex r4 #6)  {sorted(cs)}")
     gf, gc = selftest_git()
     fails += gf
+    ran += gc
     try:
         migdir = os.path.join(HERE, '..', 'supabase', 'migrations')
         mig = sorted(f for f in os.listdir(migdir) if f.endswith('.sql'))
@@ -696,7 +745,15 @@ def selftest():
         print(f'  (紀錄, 不是判定, 不是誤擋率;讀的是工作樹) 歷史命中:{hit} / {len(mig)} 支既有 migration 若當新檔會被 R1-R3/R5/R6 要求寫 EXEMPT 理由(閉集設空)')
     except OSError as e:
         print(f'  (紀錄) 歷史命中:量不到({e})')
-    total = len(WORLDS) + 5 + 2 + 1 + gc
+    # ⛔ ~~total = len(WORLDS) + 5 + 2 + 1 + gc~~ —— 🔴 **那是【手維護的加總】, 而它會漂。**
+    #    🔬 實測(2026-09-05, 在一個【已經撤回】的分支上量到的):新增 12 格之後
+    #       **94 格在跑而它印 82**。
+    #    🛑 而它壞的方式最惡劣:某一格【失敗】時 PASS 少一、FAIL 多一, **兩數仍加得回 82**
+    #       ⇒ 看的人不會發現分母是錯的。⇒ 📌 這正是鐵則 11 的第四個數(我餵幾條 vs 它跑幾支)。
+    #    ✅ 改成【數出來的】:每印一格就 +1。
+    #    🔵 **本次它剛好與舊算式同值(91)** —— 因為 R7 那 9 格全在 `WORLDS` 裡。
+    #       ⇒ 🛑 **那是巧合不是驗證** —— 下一個把格子加在 `WORLDS` 之外的人才會看到差別。
+    total = ran
     print(f'── selftest: {total - fails} PASS / {fails} FAIL')
     return 1 if fails else 0  # 不把格數當離場碼(2 格紅會撞到「工具層」那個 2;R2 nit)
 
