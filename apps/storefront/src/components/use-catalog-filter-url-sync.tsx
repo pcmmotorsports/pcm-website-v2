@@ -137,6 +137,21 @@ export function useCatalogFilterUrlSync(
   //    dispatch 會讓指紋由空變非空);該缺口由 effect 內的「state 剛追上 URL 即收手」判斷補上
   //    (見下方 #289 段)。兩者合起來才完整,單獨留任一個都會讓 `?page=N` 深連結被吃掉頁碼。
   const lastFilterKeyRef = useRef<string | null>(null);
+  // 🔴 **「我上次【真的寫出去】的那一顆分類」**(2026-09-05 · Sean `21`「把多顆分類修好」)。
+  //   ⚠️ **不可以用 `lastFilterKeyRef` 代替** —— 它在下面【無條件更新】, 而它之後有
+  //      **三個提早 return**(`initialized` / vehicle 讓路 / restore-hold)
+  //      ⇒ 那些波會把「變動」吃掉, **而且不自癒**(R1 對抗審查抓到, 逐字複驗成立)。
+  //   ✅ 本 ref **只在真的送出 `router.replace` 之後才寫**, 所以被吃掉的波下一次還看得到。
+  //   🔴 型別一律 `string | null`(**不是 `undefined`**):`cascade.category?.main` 是
+  //      `string | undefined`, 而 `undefined !== null` **恆真** ⇒ 空世界每一波都會被判成
+  //      「使用者自選」(R2 對抗審查抓到, 逐字複驗成立)⇒ 下面一律先 `?? null`。
+  const lastWrittenCategoryRef = useRef<string | null>(null);
+  // 🔴 把 `CategorySelection` 壓成**網址上那一顆的字面** —— 與寫入段那三行**同一個規則**。
+  //   ⚠️ `parseCategoryFromUrl` 回的是**物件**(`{mainId, main, subId?, sub?}`)不是字串;
+  //      2026-09-05 我第一版直接拿它跟字串比 ⇒ **typecheck 兩處紅**(TS2322 / TS2367)。
+  //      ⇒ 📌 那一紅是好的:兩個「分類」在型別上本來就不是同一種東西, 而我用同一個名字想它。
+  const toUrlCategory = (c: CascadeFilterState['category']): string | null =>
+    c === null ? null : c.sub ? `${c.main}${CATEGORY_URL_SEPARATOR}${c.sub}` : c.main;
   useEffect(() => {
     // 篩選值指紋(只取會寫進 URL 的軸;brands 排序後比對,避免順序抖動誤判為變動)
     const filterKey = JSON.stringify([
@@ -151,6 +166,13 @@ export function useCatalogFilterUrlSync(
     const filtersChanged = prevFilterKey !== null && prevFilterKey !== filterKey;
     if (!initialized.current) {
       initialized.current = true;
+      // 🔴 **初值用【進站網址】播種, 不留 `null`** —— 否則深連結
+      //   `?categories=A,B&category=X` 進站時, 還原落地那一波 derived `"X"` !== `null`
+      //   ⇒ 被判成「使用者自選」⇒ 寫入 ⇒ `filtersChanged` 為真 ⇒ **`page` 被刪**
+      //   (⑩⑯㉕ 那一族;R2 對抗審查 must-fix)。
+      lastWrittenCategoryRef.current = toUrlCategory(
+        parseCategoryFromUrl(new URLSearchParams(window.location.search), restoreSources.categories),
+      );
       return;
     }
     const params = new URLSearchParams(window.location.search);
@@ -248,6 +270,39 @@ export function useCatalogFilterUrlSync(
     //   ⇒ 📌 這個布林就是下方等值早退的**判別力補丁**:見那一段的「⚠️ 而在多顆世界」。
     const categoryAxisSuppressed =
       params.has(CATEGORIES_PARAM) && (category ?? null) !== params.get('category');
+    // 🔴 **多顆世界下的「使用者自選」要 union 進 `categories=`**(Sean 2026-09-05 `21`)。
+    //   🛑 **不是寫進 `category=`** —— 那個槽**只有一個**, 第二顆會蓋掉第一顆
+    //      ⇒ Sean 逐字要的「客人可能會多選不同分類」在 n≥2 就做不到(R1 對抗審查)。
+    //   判別「自選」的四個條件缺一不可(每一條都是對抗審查逐條擊破後留下來的):
+    //     ① `cat` 一律 `?? null` —— 否則 `undefined !== null` 恆真
+    //     ② `cat === null` **不算自選** —— 這一條要擋的是「清除全部」那一波
+    //        (那時 cascade 已空而網址還是舊的;不擋 ⇒ `categories` 被原封寫回 = 膠囊復活)。
+    //        🔴🔴 **而【本條今天沒有測試守著, 我試過了】** —— 把它拿掉跑一輪 ⇒ **29 格全綠**。
+    //        🔬 我沒有停在「補一格就好」, 而是去量那一格在突變世界裡到底發生什麼:
+    //           探針斷言印出 **`{ n: 0, first: null }`** ⇒ **那一波根本沒送出任何 `replace`**
+    //           ⇒ 📌 **擋住它的是【更前面的等值早退】, 不是本條。**
+    //        ⇒ 🛑 **所以本條在單元測試層【構造不出會紅的世界】** —— 那不是「測試沒寫」,
+    //           是**那條路在 mock 掉 router 的世界裡到不了**(R2 逐字說過同一件事:
+    //           「它要驗的是兩個 `replace` 的落地順序, 而 router 被 mock ⇒ 根本沒有順序」)。
+    //        ✅ **本條留著, 而它的驗證欠在【真瀏覽器】那一層** —— 已寫進 plan 的驗收表,
+    //           不假裝它被單元測試守著。
+    //     ③ 與**上次真的寫出去的那一顆**不同(不是與 `filterKey` 比)
+    //     ④ **不是還原波** —— 判準是「這一顆正好等於網址解得出來的那一顆」= state 剛追上 URL。
+    //        🔴 **不可以用 `pendingRestoreRef`**:它在上面已被設成 `false`, 在這裡永遠不成立
+    //        (R2 對抗審查, 逐字複驗)。
+    const cat = category ?? null;
+    const restoredFromUrl = toUrlCategory(parseCategoryFromUrl(params, restoreSources.categories));
+    const userPicked =
+      cat !== null && cat !== lastWrittenCategoryRef.current && cat !== restoredFromUrl;
+    if (params.has(CATEGORIES_PARAM) && userPicked) {
+      const existing = (params.get(CATEGORIES_PARAM) ?? '')
+        .split(',')
+        .map((v) => v.trim())
+        .filter((v) => v !== '');
+      if (!existing.includes(cat)) existing.push(cat);
+      params.set(CATEGORIES_PARAM, existing.join(','));
+      // 🔵 **不碰 `category=`、不 delete 任何東西** —— delete 半邊解禁會撞「清除全部」。
+    }
     if (!params.has(CATEGORIES_PARAM)) {
       if (category) params.set('category', category);
       // state 沒有分類時,只有「URL 那個值**認得出來**」(= 使用者剛把篩選清掉)才刪;認不得的留著。
@@ -359,6 +414,9 @@ export function useCatalogFilterUrlSync(
       const collides =
         segmentKey(window.location.search) === segmentKey(next.split('?')[1] ?? '');
       router.replace(next, { scroll: false });
+      // 🔴 **只有真的送出去才記** —— 這正是本 ref 與 `lastFilterKeyRef` 的差別:
+      //   上面三個提早 return 都不會走到這裡, 所以被它們吃掉的那些波【下一次還看得到】。
+      lastWrittenCategoryRef.current = category ?? null;
       if (collides) router.refresh();
     }
   }, [cascade, extras, restoreSources, router]);

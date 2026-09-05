@@ -585,7 +585,11 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
     expect(url).toBeDefined();
     expect(qs(url).get('unmatched')).toBeNull(); // 那句話要跟著這次操作消失
     expect(qs(url).get('page')).toBeNull(); // 回第 1 頁
-    expect(qs(url).get('categories')).toBe('A,B'); // 🔴 而分類軸仍然不被本 hook 動
+    // ⛔ ~~expect(qs(url).get('categories')).toBe('A,B'); 🔴 而分類軸仍然不被本 hook 動~~
+    // 🔴🔴 **2026-09-05 Sean `21` 推翻了那個規格** —— 逐字「這邊我要把多顆分類修好, 因為我們
+    //   客人可能會多選不同分類」⇒ **多顆狀態下側欄選的那一顆要被【加進去】**, 不是被忽略。
+    //   舊字面留刪除線, 讓拿它去搜的人同一發撞到訂正。
+    expect(qs(url).get('categories')).toBe('A,B,操控部品');
     expect(qs(url).get('category')).toBeNull(); // 舊鍵也不得被寫回
   });
 
@@ -672,4 +676,50 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
     expect(url, '認不得的裸名被當成已解析 ⇒ 導覽沒送出去').toBeDefined();
     expect(qs(url).get('category')).toBe('騎士用品與配件');
   });
+
+  // ── 2026-09-05 · Sean `21`「把多顆分類修好」新增三格 ────────────────────────
+  // 🔴 順序是刻意的:**先寫【對突變該紅】的那一格, 綠了才寫正向**(主視窗指定)。
+  // ⚠️ 編號從 ㉘ 起 —— **㉗ 檔裡已經有了**(我第一版撞號, 而 `git checkout` 把那一版清掉時才發現)。
+
+  it('㉘ 深連結還原波【不得】把還原出來的那顆 union 進 categories', () => {
+    // 🔴🔴 **本格存在的理由 = R2 對抗審查指出「判別法恆真那個突變沒有任何一格殺得死」**:
+    //   既有 ㉓(`categories=X` + cascade 握同一顆)與 ㉕(`categories=X&category=X`)的 union
+    //   都是 **no-op** ⇒ 網址逐字不變 ⇒ 兩格照綠。
+    //   ✅ 殺得死它的世界 = **還原波, 而還原出來的那顆【不在】`categories=` 裡面**。
+    window.history.replaceState(
+      null,
+      '',
+      '/products?categories=A%2CB&category=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81&page=2',
+    );
+    const resolved = { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'];
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: null as CascadeFilterState['category'] } },
+    );
+    rerender({ category: resolved });
+    rerender({ category: resolved });
+    // 還原波不是「使用者自選」⇒ 一次 replace 都不該送。恆真 ⇒ 寫成 A,B,操控部品 且 page 被刪 ⇒ 紅。
+    expect(hoisted.replace).not.toHaveBeenCalled();
+  });
+
+  it('㉙ 多顆在網址上 + 側欄選【第三顆】→ union 進 categories, 而 legacy 單槽不得被寫', () => {
+    window.history.replaceState(null, '', '/products?categories=A%2CB');
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: null as CascadeFilterState['category'] } },
+    );
+    rerender({ category: null as CascadeFilterState['category'] });
+    rerender({ category: { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'] });
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url).toBeDefined();
+    // 🔴 斷言走 `qs(url).get(...)` 比**編碼前**的值 —— 逗號會被編成 `%2C`(檔頭 :99-103 已警告)
+    expect(qs(url).get('categories')).toBe('A,B,操控部品');
+    expect(qs(url).get('category')).toBeNull(); // 🔵 那個槽只有一個, 不拿它當累加器
+  });
+
+
+
 });
