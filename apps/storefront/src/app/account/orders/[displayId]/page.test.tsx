@@ -85,6 +85,7 @@ const OWN_ORDER: MemberOrderDetail = {
   discountTotal: money(0),
   taxTotal: money(0),
   total: money(12100),
+  balanceDue: null,   // ⟦b4-PARTIALPAIDNOWHERE⟧ null = 算不出來(不是 0)
   shippingMethod: 'home',
   shippingAddress: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
   cancelledAt: null,

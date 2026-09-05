@@ -1511,4 +1511,54 @@ describe('片 2 接線:付款方式送到 server 的那個值', () => {
     const payload = chargeMock.mock.calls[0]![0] as { paymentChannel: string };
     expect(payload.paymentChannel, '🔴 flag 已經關了而它還送 bank_transfer').toBe('tappay');
   });
+
+  // ── ⟦b4-BANKCHARGESCARD⟧ 片 2:選匯款【不取 prime】────────────────────────
+  it('🔴 flag 開 + 選匯款 ⇒ getPrime 呼叫 0 次, 而單子照樣送得出去', async () => {
+    arm();
+    const { container } = renderCheckout({ bankTransferEnabled: true });
+    await gotoStep2Agreed(container);
+    fireEvent.click(screen.getByLabelText('ATM 轉帳'));
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+    await waitFor(() => expect(chargeMock).toHaveBeenCalled());
+    expect(
+      getPrimeMock,
+      '🔴 匯款那條路仍然去取了 prime ⇒ 沒有卡的客人過不了這一關',
+    ).not.toHaveBeenCalled();
+    const payload = chargeMock.mock.calls[0]![0] as { paymentChannel: string; prime: string | null };
+    expect(payload.paymentChannel).toBe('bank_transfer');
+    // 🔵 送 `null` 不是「忘了帶」, 是【沒有卡】—— 生一個假字串會讓 server 分不出
+    //    「匯款」與「一個壞掉的 prime」。
+    expect(payload.prime, '匯款那條路送了一個非 null 的 prime').toBeNull();
+  });
+
+  it('🟢 正對照:同一頁【選信用卡】⇒ getPrime 照樣要被呼叫(證明上面那格不是恆真)', async () => {
+    arm();
+    const { container } = renderCheckout({ bankTransferEnabled: true });
+    await gotoStep2Agreed(container);
+    // 不點匯款 ⇒ 維持 tappay
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+    await waitFor(() => expect(chargeMock).toHaveBeenCalled());
+    expect(getPrimeMock, '刷卡那條路沒有取 prime ⇒ 這片把刷卡也弄壞了').toHaveBeenCalled();
+  });
+
+  it('🔴 而【前面那一串】一個都不准跳:匯款那條路照樣把 agreed 送上去', async () => {
+    // 🛑 片 2 plan §2b ①:跳過的邊界**只有 prime 那一段**。
+    //    ⚠️ **這一格的射程要說清楚**:它證的是「`agreed` 這個欄位沒有在匯款路徑上被丟掉」,
+    //       **不是**「沒勾就擋得住」—— 後者的權威在 server(`agreed` 由 action 重驗,
+    //       前端 U3b 之後刻意不硬擋), 而那一半由 charge-actions 那側的測試守。
+    //    📌 少了這一格, 「跳過 prime」被寫成「整段搬進 if」時會【安靜地】把 agreed 一起帶走。
+    arm();
+    const { container } = renderCheckout({ bankTransferEnabled: true });
+    await gotoStep2Agreed(container);
+    fireEvent.click(screen.getByLabelText('ATM 轉帳'));
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+    await waitFor(() => expect(chargeMock).toHaveBeenCalled());
+    const payload = chargeMock.mock.calls[0]![0] as {
+      agreed: boolean; addressId: string | undefined; cartSessionId: string;
+    };
+    expect(payload.agreed, '匯款那條路把 agreed 丟掉了').toBe(true);
+    // 🔵 順便釘住另外兩個「不准跳」的欄位 —— 它們與付款方式無關。
+    expect(payload.addressId, '收件地址沒送上去').toBeTruthy();
+    expect(payload.cartSessionId, 'cart session 沒送上去 ⇒ server 的 dedup 失去把手').toBeTruthy();
+  });
 });

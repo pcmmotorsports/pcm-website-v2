@@ -41,7 +41,15 @@ export type ChargeArgs = {
   addressId: string | undefined;
   shippingMethod: ShippingMethod;
   invoice: InvoiceDraft;
-  prime: string;
+  /**
+   * 🔴 ⟦b4-BANKCHARGESCARD⟧ 片 2:**匯款這條路送 `null`** —— 那不是「忘了帶」, 是【沒有卡】。
+   *   ⇒ 型別放寬成 `string | null` 是**刻意的**:寫成 `string` 的話, 前端就必須生一個假的字串,
+   *     而那會讓 server 那邊分不出「匯款」與「一個壞掉的 prime」。
+   * 🔴 **而 server 那一側【今天接不住 null】** —— `charge-actions.ts:217` 的 prime 閘是無條件的,
+   *     排在 `:416` 的 channel 分岔之前(實查 `agent/line-mail`, 片 1 沒有動它)。
+   *   ⇒ 📌 **本型別放寬是那一格的【前置】, 不是那一格。** 缺的是「把 ②c 挪到分岔之後」, 今天無人認領。
+   */
+  prime: string | null;
   /** 🔴 #241 同意服務條款 checkbox 狀態;送 server action 重驗(不信任 client)。
    *  ⚠️ 2026-07-22 U3b:前端已改為「未勾也可按、按下顯示錯誤」→ server guard 是唯一權威。 */
   agreed: boolean;
@@ -297,6 +305,33 @@ export function useChargePayment(): UseChargePayment {
         case 'charge_failed':
           inFlightRef.current = false;
           setState({ status: 'error', message: res.message });
+          return false;
+        // 🔴🔴 ⟦b4-BANKCHARGESCARD⟧ 片 1(server 半)加的變體 —— **而這一格【還沒有做事】。**
+        //
+        // 🎯 **它為什麼非在這裡不可**:下面那道 `res satisfies never` 是窮舉閘,
+        //    server 半一加變體它就紅 ⇒ 📌 **不加這一格, 整棵樹 typecheck 過不了。**
+        // 🛑 **而它今天【刻意】走與失敗相同的行為** —— 那是**今天的事實**:
+        //    客人會看到一個錯誤畫面, 而他的單其實已經建好了。
+        //    ⇒ ⚠️ **這不是修好了, 這是把「安靜掉出去」換成「明寫的中間狀態」。**
+        // ✅ **真正要做的事在 front 片 2**:接住它、把客人送到匯款資訊頁、
+        //    並把單號持久化(`useReconcilePayment.tsx:144-155` 今天拿到 displayId 卻丟掉它)。
+        // 🔴🔴 ⛔ ~~今天沒有客人走得到(flag 關 + 結帳頁寫死 tappay)⇒ 暴露是 0。~~
+        //    **那句是假的** —— `343d74892` 已把匯款選項接上結帳頁 ⇒ **「寫死 tappay」不成立**;
+        //    今天擋著它的**只剩那顆 flag**,而它的正式站現值 **repo 裡查不到**。
+        //    ⇒ 📌 **暴露是【未知】不是零。** 而 flag 一旦為 true:
+        //      客人選匯款且卡欄剛好填過 ⇒ **單成立** ⇒ 這裡顯示通用失敗、**購物車保留、解鎖**
+        //      ⇒ 🛑 **他再按一次會【再建一張】。**(「不擋第二張」是被授權的形狀,
+        //      而「他以為沒買成」不是 —— 那是 front 片 2 要修的。)
+        case 'awaiting_remittance':
+          // 🔴🔴 **給客人的是【通用失敗文案】, 不是 action 回的那句話**(主視窗 2026-09-05 裁)。
+          //    ⛔ ~~`message: res.message`(「訂單已成立,尚未付款…」)~~
+          //    🛑 那會讓客人在一個**錯誤畫面**上讀到一句**「已成立」** ⇒ 📌 **前後矛盾, 比通用錯誤更糟。**
+          //    ✅ 匯款終態要給客人看,是 **front 片 2** 的事(那時它有自己的畫面, 不是錯誤畫面)。
+          //    🔵 而單號**不丟掉** —— 它已經在 **server 那一側的 log** 裡
+          //      (`charge-actions.ts` 的 `[checkout] 匯款單建立完成` 那行帶 orderId 與 displayId)
+          //      ⇒ 📌 **這支 hook 今天零 logging, 為了這一格加一個 import 是把腳伸進片 2 的檔。**
+          inFlightRef.current = false;
+          setState({ status: 'error', message: GENERIC_FAIL });
           return false;
         default:
           /**

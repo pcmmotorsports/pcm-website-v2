@@ -608,7 +608,44 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
           🔵 而「{PCM_REMITTANCE_EXPIRE_DAYS} 天後自動取消」**不是文案是事實** ——
              Sean 2026-09-03 逐字「乙 5天」, 而系統真的會做(`20260903080000` 的 `interval '5 days'`);
              那個常數與那支 migration 由 `remittance-info.test.ts` 比對, 分岔的那一刻會紅。 */}
-      {!cancelled && order.paymentChannel === 'bank_transfer' && order.paymentStatus === 'unpaid' && (
+      {/* ⟦b4-PARTIALPAIDNOWHERE⟧ 顯示條件從「精確 unpaid」換成【白名單 + 金額】。
+          🔴🔴 **白名單裡【沒有 `partiallyRefunded`】, 而那是 R3 對抗審查逼出來的**:
+             同一支檔 `:203-206` 逐字寫著「它的定義是退了一部分 ⇒ **它蘊含之前已全額付款**」,
+             並據此讓 `paymentCompleted` 對它打 ✅(`:211`)。
+             ⇒ 🛑 把它放進匯款白名單 ⇒ **同一個畫面會同時印「付款完成 ✅」與「應付餘額 + 銀行帳號」**
+             ⇒ 📌 兩者只能有一個對, 而我選了與 Sean 09-05 拍乙同向的那一個:**有退款一律請聯絡我們。**
+             (而 view 那一層現在也會對「有任何有效退款」回 `null` ⇒ 兩層同向, 不互相依賴。)
+          🔴 **白名單而不是否定式**(`!== 'paid'`)—— codex 關卡1 R2 抓到:否定式把 `refunded` 也放進來,
+             而全額退款的單 `total` 沒降 ⇒ 會叫一個已經退完款的客人再匯一次全額。
+             📌 **白名單會隨 enum 增值而變保守, 否定式會變寬。**
+          🔴 **而真正決定印不印的是【金額】** —— `balanceDue` 為 `null`(算不出來)⇒ 整塊不印。 */}
+      {!cancelled &&
+        order.paymentChannel === 'bank_transfer' &&
+        (order.paymentStatus === 'unpaid' || order.paymentStatus === 'partiallyPaid') &&
+        (order.balanceDue === null || order.balanceDue.amount <= 0) && (
+          /* 🔴 Sean 2026-09-05 逐字拍乙:「應付餘額算出來是 0 或負的就整格不印、改印『請聯絡我們』;
+             其他情況照甲(數字跟著訂單走)」。
+             🔴🔴 **而 `null`(算不出來)也走這一支** —— **Sean 2026-09-05 逐字拍乙:
+                「Q-退款後的匯款單: 乙」** = 印「請聯絡我們」那一句(與餘額 ≤0 同一句、同一支分支)。
+                ⛔ ~~主視窗延伸裁, Sean 可推翻~~ —— **他答了, 不再是延伸裁。**
+                ⇒ `null` 今天有兩個成因, 而它們對客人是**同一件事**:
+                   ① 有 confirmed 退款(view 判它算不出來)② 那支 view 讀不到(權限/未貼/異常)。
+             🎯 **⇒ 這一整塊的規則收斂成一句**:
+                **只有在我們手上有一個【可信的正數】時才印帳號與金額;其餘一律叫他聯絡我們。**
+             🛑 舊字面留著:~~`null` ⇒ 整塊不印~~ —— 那是 plan MF① 的原始寫法,
+                它防的是「補 0 印出全額」, 而**印一句話不印數字**同樣防得住, 又不會讓客人以為頁面壞了。 */
+          <div className="acc-section od-info" data-od-id="order-remittance-contact">
+            <div className="acc-section-head">
+              <h2>匯款資訊</h2>
+            </div>
+            <p className="acc-order-note">這張訂單的應付金額需要人工確認,請聯絡我們。</p>
+          </div>
+        )}
+      {!cancelled &&
+        order.paymentChannel === 'bank_transfer' &&
+        (order.paymentStatus === 'unpaid' || order.paymentStatus === 'partiallyPaid') &&
+        order.balanceDue !== null &&
+        order.balanceDue.amount > 0 && (
         <div className="acc-section od-info" data-od-id="order-remittance">
           {/* 🔴 `od-info` 那個 class 是**樣式的祖先**, 不是裝飾(code-reviewer must-fix ③):
               稿上那組 dl 的規則是**後代選擇器** `.od-info dl / dt / dd`
@@ -629,8 +666,18 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
             <dd data-od-id="order-remittance-holder">{PCM_REMITTANCE_ACCOUNT_NAME}</dd>
             <dt>帳號</dt>
             <dd data-od-id="order-remittance-account">{PCM_REMITTANCE_ACCOUNT_NO}</dd>
-            <dt>金額</dt>
-            <dd data-od-id="order-remittance-amount">{nt(order.total.amount)}</dd>
+            {/* 🔴 Sean 2026-09-05 拍乙:印三行(訂單金額 / 已收 / 應付餘額)——
+                他選的是「讓客人自己對得起來」那一版, 不是只印一個數。
+                🔵 「已收」是**推出來的**(`total − balanceDue`), 不是另一個來源 ——
+                   而它推得出來的前提是那兩個數同源(都來自 `orders.total` 與同一支 view)。 */}
+            <dt>訂單金額</dt>
+            <dd data-od-id="order-remittance-total">{nt(order.total.amount)}</dd>
+            <dt>已收</dt>
+            <dd data-od-id="order-remittance-paid">
+              {nt(order.total.amount - order.balanceDue.amount)}
+            </dd>
+            <dt>應付餘額</dt>
+            <dd data-od-id="order-remittance-amount">{nt(order.balanceDue.amount)}</dd>
             <dt>備註</dt>
             {/* 🔵 `PCM_REMITTANCE_MEMO_INSTRUCTION` 是段 2 落的常數(reviewer nit ②:我第一版手打了它)
                 ⇒ 用常數 ⇒ 這一頁與段 4 那封信從第一天起是**同一份字面**。

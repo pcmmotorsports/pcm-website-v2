@@ -327,6 +327,19 @@ export type AnomalyAlertSummary = {
   settleRetryGaveUpSampleIds: string[];
   /** 🔵 分母:被追蹤的總列數。`gave_up_count > tracked_total` ⇒ 讀到的不可信 ⇒ 走 Unknown。 */
   settleRetryGaveUpTracked: number | null;
+
+  /**
+   * ⟦b4-PENDINGREFUNDSILENT⟧(2026-09-05):被刻意吞掉的「開待退款失敗」留痕。
+   * 來源 = `public.get_pcm_incident_health()`(隨 `20260905290000` / 貼板 36 才存在)。
+   * 🔴 `pcmIncidentOpenTotal > 0` 進 `shouldAlert`(Sean 拍甲, 這裡沒有門檻題:事故 > 0 就叫)。
+   * 🛑 `pcmIncidentUnknown` 不進 —— 它有兩個世界(還沒 apply / 真的壞了), 只靠 adapter 那行 log 分得開。
+   * 🔵 `null` 是「我沒量到」, `0` 是「查得到而且沒有」—— 在 `shouldAlert` 行為相同, 在信裡不同。
+   */
+  pcmIncidentOpenTotal: number | null;
+  pcmIncidentUnknown: boolean;
+  pcmIncidentOldest: string | null;
+  /** 逐 kind 的未處理計數。空物件有兩個意思(沒事故 / 沒讀到)⇒ 要分開看 `pcmIncidentUnknown`。 */
+  pcmIncidentByKind: Record<string, number>;
   bypassRlsUnknown: boolean;
   /** 🔵 讀到的兩個分母。**不直接進 `shouldAlert`** —— 那道閘只看上面兩個旗標。
    *  ⛔ ~~我第一版寫「它們**不是判準**」~~ —— **codex R2 nit 打掉, 而它是對的**:

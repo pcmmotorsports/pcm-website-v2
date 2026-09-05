@@ -10,6 +10,11 @@
 // 用真 @pcm/schemas(不 mock)驗 strip/uuid/prime 真實行為;mock use-cases/composition/cardholder。
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  PCM_REMITTANCE_ACCOUNT_NAME,
+  PCM_REMITTANCE_ACCOUNT_NO,
+  PCM_REMITTANCE_EXPIRE_DAYS,
+} from '@pcm/domain';
 import { CURRENT_TERMS_VERSION } from '@/lib/legal/terms-version';
 
 const mockPlaceOrder = vi.fn();
@@ -469,7 +474,7 @@ describe('chargePaymentAction — 信任邊界(零扣款層)', () => {
     mockIsBankTransferEnabled.mockReturnValue(true);
     mockFindPaymentChannel.mockResolvedValue('tappay');
     const action = await getAction();
-    const res = await action(validInput({ paymentChannel: 'bank_transfer' }));
+    const res = await action(validInput({ paymentChannel: 'bank_transfer', prime: null }));
 
     expect(res).toMatchObject({ formError: expect.stringContaining('付款失敗') });
     // 🔴 建了單(所以這不是 zod 那一格能守的)⇒ 而**錢一毛沒動**。
@@ -1400,7 +1405,7 @@ describe('chargePaymentAction — 匯款總開關 BANK_TRANSFER_CHECKOUT_ENABLED
   it('🔴 flag off + 送 bank_transfer → fieldErrors、零 placeOrder/charge', async () => {
     mockIsBankTransferEnabled.mockReturnValue(false);
     const action = await getAction();
-    const res = await action(validInput({ paymentChannel: 'bank_transfer' }));
+    const res = await action(validInput({ paymentChannel: 'bank_transfer', prime: null }));
     expect(res).toEqual({ fieldErrors: { paymentChannel: '請選擇付款方式' } });
     expect(mockPlaceOrder).not.toHaveBeenCalled();
     expect(mockConfirmPayment).not.toHaveBeenCalled();
@@ -1418,6 +1423,11 @@ describe('chargePaymentAction — 匯款總開關 BANK_TRANSFER_CHECKOUT_ENABLED
   it('🔴 flag on + 送 bank_transfer → 閘讓它過去, 而它【真的建了單】', async () => {
     // ⛔ ~~原註解:「今天它仍會被 ②c prime 擋(段 1 的分岔還沒做)」~~ **那句是假的。**
     //    🔬 `validInput()` 逐字帶著 `prime: 'prime_abc'` ⇒ prime 那一格**過得去**。
+    //    🔴🔴 **2026-09-05 片 1:這一格的 fixture 改成 `prime: null`, 而【斷言一個字都沒改】。**
+    //      原因:片 1 之後「匯款卻帶 prime」是**明確拒絕**的(呼叫端搞錯)⇒ 舊 fixture 送的是
+    //      **真實客人不會送的形狀** ⇒ 📌 **改的是 fixture 對不對, 不是把斷言放寬。**
+    //      🛑 而那道 read-back 守門**仍然到得了** —— 送 `bank_transfer` + `prime:null` 而 DB 存 `tappay`
+    //      的世界照樣走到它(本檔「世界②」那一格就是)。
     //    ⇒ 這一格原本通過的真正理由是 read-back 不符(預設 mock 回 'tappay')——
     //      **一個為了另一件事而紅的綠**(codex 關卡2 must-fix ②, 我核過, 它對)。
     //
@@ -1430,7 +1440,7 @@ describe('chargePaymentAction — 匯款總開關 BANK_TRANSFER_CHECKOUT_ENABLED
     // ✅ 本格只斷言【閘沒有擋它】+【它走到了建單】—— 那兩件是這道閘的射程, 不多不少。
     mockIsBankTransferEnabled.mockReturnValue(true);
     const action = await getAction();
-    const res = await action(validInput({ paymentChannel: 'bank_transfer' }));
+    const res = await action(validInput({ paymentChannel: 'bank_transfer', prime: null }));
     expect(res).not.toEqual({ fieldErrors: { paymentChannel: '請選擇付款方式' } });
     expect(mockPlaceOrder).toHaveBeenCalled();
   });
@@ -1446,14 +1456,85 @@ describe('chargePaymentAction — 匯款總開關 BANK_TRANSFER_CHECKOUT_ENABLED
     mockIsBankTransferEnabled.mockReturnValue(true);
     mockFindPaymentChannel.mockResolvedValue('bank_transfer');
     const action = await getAction();
-    const res = await action(validInput({ paymentChannel: 'bank_transfer' }));
+    const res = await action(validInput({ paymentChannel: 'bank_transfer', prime: null }));
 
     expect(mockPlaceOrder).toHaveBeenCalled();
     // 🔴 三個 TapPay 入口, 一個都不准被碰。
     expect(mockConfirmPayment).not.toHaveBeenCalled();
     expect(mockInitiatePayment).not.toHaveBeenCalled();
     expect(mockSettleCharge).not.toHaveBeenCalled();
-    // 🔵 而客人拿到的是一句話, 不是一個成功頁(分岔還沒做 ⇒ 這一片刻意不宣稱它好用)。
-    expect(res).toMatchObject({ formError: expect.any(String) });
+    // 🔴🔴 ⟦b4-BANKCHARGESCARD⟧ 片 1:⛔ ~~`expect(res).toMatchObject({ formError: expect.any(String) })`~~
+    //    那一版只證「回了一句話」—— 而**一句「付款失敗」也會通過它**, 而那正是這一片要修的東西。
+    //    ✅ 現在釘住三件:①`ok` 是 **false**(掛在 `ok:true` 上會讓 hook 顯示「付款成功」)
+    //    ②判別式在 `payment` 這個與 `ok` 不同軸的欄位 ③**帶得出單號**(客人要回得到那張單)。
+    // 🔴 **`displayId` 要釘【那個值】不是「是個字串」**(codex 關卡2 must-fix):
+    //    `expect.any(String)` 對一個寫死 `displayId:'x'` 的實作照樣綠
+    //    ⇒ 📌 證不到單號真的來自 `placed.displayId`。
+    expect(res).toMatchObject({
+      ok: false,
+      payment: 'awaiting_remittance',
+      displayId: 'PCM-2026-0001', // = mockPlaceOrder 回的那一個
+      message: expect.any(String),
+    });
+    // 🔵 而那句話**不得**含帳號/戶名/期限 —— 那些住在 @pcm/domain 的 PCM_REMITTANCE_* 常數,
+    //    由 front 片 2 的匯款資訊頁印;在這裡寫第二份 ⇒ 兩份會各自漂, 而漂掉時客人拿到錯的帳號。
+    // 🔴 **釘【那三個常數本身】, 不是釘一個數字 regex**(codex 關卡2 must-fix):
+    //    ⛔ ~~`not.toMatch(/\d{6,}/)`~~ ⇒ 「派達有限公司」「5 天」「2005-4027-8354」**全部通得過**。
+    const msg = (res as { message: string }).message;
+    expect(msg).not.toContain(PCM_REMITTANCE_ACCOUNT_NAME);
+    expect(msg).not.toContain(PCM_REMITTANCE_ACCOUNT_NO);
+    expect(msg).not.toContain(String(PCM_REMITTANCE_EXPIRE_DAYS));
+    // 🔵 自檢:這把尺對一段【真的含有它們】的字串要抓得到(否則上面三行可能恆真)
+    expect(`x${PCM_REMITTANCE_ACCOUNT_NAME}y`).toContain(PCM_REMITTANCE_ACCOUNT_NAME);
+  });
+
+  /**
+   * 🔴🔴 **prime 那一關原本【無條件】跑, 而它排在 channel 分岔之前。**
+   * 失敗情境:client 送 `paymentChannel:'bank_transfer'` + `prime: null`
+   * ⇒ 客人讀到「**付款資訊缺失,請重新進行刷卡**」⇒ 📌 **他選的是匯款, 而畫面叫他去修卡片。**
+   * (front 那條線量到、兩片都沒認領;主視窗 2026-09-05 裁歸片 1。)
+   */
+  it('🔴 匯款 + prime 為 null ⇒ 走得過 prime 那一關(不再拿刷卡的錯誤訊息擋他)', async () => {
+    mockIsBankTransferEnabled.mockReturnValue(true);
+    mockFindPaymentChannel.mockResolvedValue('bank_transfer');
+    const action = await getAction();
+    const res = await action(validInput({ paymentChannel: 'bank_transfer', prime: null }));
+    expect(res).toMatchObject({ ok: false, payment: 'awaiting_remittance' });
+    // 🛑 而那句刷卡文案一個字都不准出現
+    expect(JSON.stringify(res)).not.toContain('重新進行刷卡');
+  });
+
+  it('🔴🔴 匯款【帶了】prime(= 今天真實呼叫端的樣子)⇒ 照樣建單、照樣零扣款', async () => {
+    // ⛔ ~~第一版斷言「帶了就拒」~~ 🛑 **那會把這整片變成死的**:唯一呼叫端
+    //    `CheckoutView.tsx:278` **不分 channel 一律取 prime** 並送出(該檔自己寫著那是暫時的)
+    //    ⇒ 拒它 ⇒ **匯款單一張都建不出來** ⇒ Sean 已拍板接受的形狀(單建好、零扣款)當場消失。
+    //    (code-reviewer 2026-09-05 must-fix。)
+    // ✅ **對存在寬容、對使用嚴格**:prime 在也不用它 ⇒ 兩半誰先上線都不會壞。
+    mockIsBankTransferEnabled.mockReturnValue(true);
+    mockFindPaymentChannel.mockResolvedValue('bank_transfer');
+    const action = await getAction();
+    const res = await action(validInput({ paymentChannel: 'bank_transfer', prime: 'prime_abc' }));
+    expect(mockPlaceOrder).toHaveBeenCalled();
+    expect(res).toMatchObject({ ok: false, payment: 'awaiting_remittance' });
+    // 🔴 而那張卡**一次都不准被碰** —— 這才是「對使用嚴格」那一半。
+    expect(mockConfirmPayment).not.toHaveBeenCalled();
+    expect(mockInitiatePayment).not.toHaveBeenCalled();
+    expect(mockSettleCharge).not.toHaveBeenCalled();
+  });
+
+  it('🟢 正對照:刷卡而缺 prime ⇒ 仍然拒(那道保護不得因為本次改動而鬆掉)', async () => {
+    // 🛑 少了這格, 一個「把 prime 那一關整個拿掉」的實作也會讓上面兩格全綠。
+    const action = await getAction();
+    const res = await action(validInput({ paymentChannel: 'tappay', prime: null }));
+    expect(res).toMatchObject({ formError: '付款資訊缺失,請重新進行刷卡' });
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+  });
+
+  it('🔵 負對照:同一發把回讀設回 tappay ⇒ 【不是】那個終態(證明上面那格不是恆真)', async () => {
+    mockIsBankTransferEnabled.mockReturnValue(true);
+    mockFindPaymentChannel.mockResolvedValue('tappay');
+    const action = await getAction();
+    const res = await action(validInput({ paymentChannel: 'bank_transfer', prime: null }));
+    expect(res).not.toMatchObject({ payment: 'awaiting_remittance' });
   });
 });
