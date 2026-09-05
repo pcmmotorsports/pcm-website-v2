@@ -165,10 +165,10 @@ REVOKE ALL ON SEQUENCE public.pcm_email_outbox_sent_seq FROM anon, authenticated
 GRANT USAGE, SELECT ON SEQUENCE public.pcm_email_outbox_sent_seq TO service_role;
 
 COMMENT ON SEQUENCE public.pcm_email_outbox_sent_seq IS
-'`email_outbox.sent_seq` 的來源。**寄出當下** `nextval()`, 不是入列當下。
+$c$`email_outbox.sent_seq` 的來源。**寄出當下** `nextval()`, 不是入列當下。
 🔴 存在的理由:`email_outbox.id` 是 `gen_random_uuid()` ⇒ 排序上零判別力;
    而 `created_at` 是【入列】時間 —— 用它會在「先入列的後寄出」時給錯答案,
-   而那正是本片要修的那種競態。';
+   而那正是本片要修的那種競態。$c$;
 
 -- ══ 2. 兩個新欄 ══════════════════════════════════════════════════════
 -- 🔵 `IF NOT EXISTS`:同上 —— 回退後重貼時這兩欄還在, 而它們裡面是【已經寄出去的信說了什麼】。
@@ -188,7 +188,7 @@ ALTER TABLE public.email_outbox
   ADD COLUMN IF NOT EXISTS sent_tracking_recorded boolean NOT NULL DEFAULT false;
 
 COMMENT ON COLUMN public.email_outbox.sent_tracking_number IS
-'🔴 **【出門紀錄】—— 這一列的信【實際寄出去】的那個貨運單號。**
+$c$🔴 **【出門紀錄】—— 這一列的信【實際寄出去】的那個貨運單號。**
 與 `payload` 的分界要寫清楚, 否則下一個人會把它搬進 payload:
   · `payload` = **enqueue 時點**的不可變快照 ⇒ 所以追蹤碼不放那裡(「存了會過期」)
   · 本欄     = **send 時點**的出門紀錄     ⇒ 它描述一件已經發生的事, **不會過期**
@@ -211,10 +211,10 @@ COMMENT ON COLUMN public.email_outbox.sent_tracking_number IS
    plan 那一格自己寫著「這一格請主視窗覆核」, 而 codex R1 覆核的結論是**那句話過度絕對**:
    單號**可以連回訂單、收件地址與物流軌跡** ⇒ 它是**間接識別碼**, 不是與人無關的字串。
    ✅ 所以它照 PII 的規矩走:**不給 anon / authenticated 讀**(§8 事後閘②a/②b 在驗),
-     不進日誌、不進對外文案。⚠️ 而「要不要進資料保存期限的清單」**沒有人拍過** —— 已知缺口。';
+     不進日誌、不進對外文案。⚠️ 而「要不要進資料保存期限的清單」**沒有人拍過** —— 已知缺口。$c$;
 
 COMMENT ON COLUMN public.email_outbox.sent_seq IS
-'寄出順序的單調序號(`pcm_email_outbox_sent_seq` 的 `nextval()`, **由 trigger 在進 sent 那一刻蓋**)。
+$c$寄出順序的單調序號(`pcm_email_outbox_sent_seq` 的 `nextval()`, **由 trigger 在進 sent 那一刻蓋**)。
 🔴 存在的理由:`id` 是隨機 UUID、`created_at` 是入列時間 ⇒ 兩個都答不出「哪一封比較晚寄」。
 🛑🛑 **它答的是【排序】, 不是【誰寫的】** —— ⛔ ~~`sent_seq IS NOT NULL` = 片 B 寫過這一列~~
    那句話在裝了 trigger 之後是**假的**:trigger 蓋**每一列**進 sent 的, 包括舊 writer 寫的
@@ -223,17 +223,17 @@ COMMENT ON COLUMN public.email_outbox.sent_seq IS
 ⚠️ 沒有 seq 的列 = **本 migration 貼進來之前就已經 sent 的** ⇒ 它們一定比較舊
    ⇒ 排序用 `NULLS LAST` 是對的。
 🛑 **天花板**:它是【進 DB 的順序】不是【離開我們去 provider 的順序】。多 instance 時可能先寄後寫
-   ⇒ 它比 `sent_at`(應用主機時鐘)好, 而**它不是真相**。';
+   ⇒ 它比 `sent_at`(應用主機時鐘)好, 而**它不是真相**。$c$;
 
 COMMENT ON COLUMN public.email_outbox.sent_tracking_recorded IS
-'🔴 **【這一列是不是片 B 的 writer 寫的】** —— 由應用層明確寫, **連號碼是 NULL 時也寫 `true`**。
+$c$🔴 **【這一列是不是片 B 的 writer 寫的】** —— 由應用層明確寫, **連號碼是 NULL 時也寫 `true`**。
 它與 `sent_tracking_number` 一定成對出現在**同一發 update** 裡。
 🛑 **為什麼不能用 `sent_seq` 代替它**:序號由 DB 的 trigger 蓋, 而 trigger 蓋**每一列**進 sent 的
    ⇒ 舊 writer 寫的列也有序號、而沒有號碼 ⇒ 被誤判成「片 B 寫的而我們沒告訴過客人號碼」
    ⇒ **在【先貼 migration、後上碼】那個窗口裡, 每一封舊 writer 寄出的信都會讓那一箱多寄一封更正信。**
    ⇒ 📌 **「這一列什麼時候進 DB」與「這一列是誰寫的」是兩個問題, 不能共用一欄。**
 🔵 **預設 `false` 是安全的方向**:既有列全部是 false ⇒ 掃描面回落到舊的時間比較
-   ⇒ 行為與本 migration 貼進來之前**逐字相同**。';
+   ⇒ 行為與本 migration 貼進來之前**逐字相同**。$c$;
 
 -- ══ 2-b. 🔴🔴 **誰去寫 `sent_seq`** —— 一道 trigger, 而**沒有它整片是空的** ═══════
 --
@@ -313,10 +313,10 @@ CREATE TRIGGER pcm_email_outbox_stamp_sent_seq
   EXECUTE FUNCTION public.pcm_email_outbox_stamp_sent_seq();
 
 COMMENT ON FUNCTION public.pcm_email_outbox_stamp_sent_seq() IS
-'在「這一列第一次變成 sent」的那一發 update 裡蓋上 `sent_seq`。
+$c$在「這一列第一次變成 sent」的那一發 update 裡蓋上 `sent_seq`。
 🔴 **不是應用層寫的** —— PostgREST 的 update 帶不了 `nextval()`;應用層分兩發寫會再造一個競態。
 🛑 **天花板**:它是【進 DB 的順序】不是【離開我們的順序】。多 instance 時可能先寄後寫。
-   ⇒ 它比 `sent_at` 好(同毫秒不會賭), 而**它不是真相**。';
+   ⇒ 它比 `sent_at` 好(同毫秒不會賭), 而**它不是真相**。$c$;
 
 -- ══ 3. 「這個 payload 的 shipment_id 是不是一個合法 UUID」—— 🔴 **定義只寫一份** ═════
 -- 主視窗 2026-09-05 裁②:髒 payload **略過那一列**, 不擋整張 view。
@@ -352,10 +352,10 @@ $fn$;
 ALTER FUNCTION public.pcm_safe_uuid(text) OWNER TO postgres;
 
 COMMENT ON FUNCTION public.pcm_safe_uuid(text) IS
-'「這段字是不是一個合法 UUID 的字面」。**單一事實來源** —— 主掃描面用它略過髒列,
+$c$「這段字是不是一個合法 UUID 的字面」。**單一事實來源** —— 主掃描面用它略過髒列,
 互補面用它撈出髒列;兩者是互補集, 而互補集的定義只能有一份。
 🛑 **它只驗【字面格式】** —— 不驗那個 uuid 指到的東西存不存在。
-⚠️ `STRICT` ⇒ 餵 NULL 回 NULL(不是 false)⇒ 呼叫端要自己決定 NULL 算哪一邊。';
+⚠️ `STRICT` ⇒ 餵 NULL 回 NULL(不是 false)⇒ 呼叫端要自己決定 NULL 算哪一邊。$c$;
 
 -- 🔴🔴 **新函式出生就自帶 PUBLIC 的 EXECUTE** —— 這不是慣例是物理
 --    (`docs/patterns/revoking-function-execute-in-supabase.md` 全篇在講這件事)。
@@ -499,12 +499,12 @@ REVOKE ALL ON public.pcm_tracking_correction_candidates FROM anon, authenticated
 GRANT SELECT ON public.pcm_tracking_correction_candidates TO service_role;
 
 COMMENT ON VIEW public.pcm_tracking_correction_candidates IS
-'該寄更正單號信的箱 —— **不管寄不寄得出去**(規則的唯一一份)。
+$c$該寄更正單號信的箱 —— **不管寄不寄得出去**(規則的唯一一份)。
 🔴 兩個消費者各自加一半條件, 而那兩半互為否定:
    · 有收件人 ⇒ `pcm_tracking_corrected_email_pending`(要寄的)
    · 沒收件人 ⇒ `get_tracking_corrected_gap_counts()` 的 `no_recipient_count`(寄不出去、要人去看的)
 🎯 **兩半的和恆等於本面** —— 這是結構上的保證, 不是一句註解。
-⚠️ 本面**沒有**收件人條件;拿它當「要寄幾封」會**多算**寄不出去的那些。';
+⚠️ 本面**沒有**收件人條件;拿它當「要寄幾封」會**多算**寄不出去的那些。$c$;
 
 CREATE OR REPLACE VIEW public.pcm_tracking_corrected_email_pending
   WITH (security_invoker = true) AS
@@ -526,7 +526,7 @@ WHERE nullif(pg_catalog.btrim(v.notification_email, public.pcm_js_trim_whitespac
    OR nullif(pg_catalog.btrim(v.customer_email, public.pcm_js_trim_whitespace()), '') IS NOT NULL;
 
 COMMENT ON VIEW public.pcm_tracking_corrected_email_pending IS
-'該寄更正單號信的箱(第二代)。
+$c$該寄更正單號信的箱(第二代)。
 🔴 第一代用**時間比較**當代理(`sent_at < tracking_corrected_at`)—— 它在
    「寄出之後、寫 sent_at 之前號碼被改」那幾秒判反, 且對「號碼改回去」失明。
 ✅ 第二代問的是【**我們最後一次告訴這張訂單的收件人的號碼**】是不是還等於現在的號碼。
@@ -535,8 +535,8 @@ COMMENT ON VIEW public.pcm_tracking_corrected_email_pending IS
    ⇒ 📌 要改判準去改那一支;在這裡加條件會讓它與 `no_recipient_count` 再度不互補。
 ⚠️ **過渡期**:`email_outbox.sent_seq` 尚未有人寫入時(片 B 上線前),
    底面**逐字回落到第一代那個時間比較** ⇒ 行為與今天完全相同。
-🛑 `payload->>''shipment_id''` 不是合法 UUID 的列在判「最後告知」時**被略過**
-   ⇒ 那些列在 `pcm_tracking_corrected_payload_unparseable` 看得見, 並被 counts 數到。';
+🛑 `payload->>'shipment_id'` 不是合法 UUID 的列在判「最後告知」時**被略過**
+   ⇒ 那些列在 `pcm_tracking_corrected_payload_unparseable` 看得見, 並被 counts 數到。$c$;
 
 -- ══ 5. 互補面:被略過的那些列(裁定② 的後半)═══════════════════════════
 -- 🟢 **形狀照既有的 `pcm_shipped_email_pending` / `pcm_shipped_email_unsendable` 那一對**
@@ -572,7 +572,7 @@ REVOKE ALL ON public.pcm_tracking_corrected_payload_unparseable FROM anon, authe
 GRANT SELECT ON public.pcm_tracking_corrected_payload_unparseable TO service_role;
 
 COMMENT ON VIEW public.pcm_tracking_corrected_payload_unparseable IS
-'已寄出、而 `payload->>''shipment_id''` **不是合法 UUID**(或整個不在)的 outbox 列。
+$c$已寄出、而 `payload->>'shipment_id'` **不是合法 UUID**(或整個不在)的 outbox 列。
 🔴 它們在判「我們最後一次告訴客人什麼」時**被略過** ⇒ **我們看不到那封信說了什麼。**
 ⛔ ~~那些箱的更正信永遠不會被排~~ —— 🔴 **2026-09-05 codex R1 訂正:那句話是【錯的】。**
    被略過的是**那一列**, 不是那一箱:同一箱若還有別的乾淨列, 它照樣被判;
@@ -584,7 +584,7 @@ COMMENT ON VIEW public.pcm_tracking_corrected_payload_unparseable IS
    它**不預測**那一箱會不會被排;要知道那個, 去看主面。
 🟢 形狀照 `pcm_shipped_email_pending` / `pcm_shipped_email_unsendable` 那一對。
 🛑 **零列不代表健康** —— 它也可能代表「這裡根本沒有已寄出的信」
-   ⇒ 所以 `get_tracking_corrected_gap_counts` 帶了分母。';
+   ⇒ 所以 `get_tracking_corrected_gap_counts` 帶了分母。$c$;
 
 -- ══ 6. counts —— 🔴 **改既有那支, 不新建** ═══════════════════════════
 -- ⛔ ~~另開同形的 `get_tracking_corrected_gap_counts(timestamptz, integer)`~~
@@ -696,16 +696,16 @@ ALTER FUNCTION public.get_tracking_corrected_gap_counts() OWNER TO postgres;
 --    不重下的話, 資料庫上那句註解仍然說它只回三個 key、而且 `no_recipient_count` 是舊語意。
 --    ⇒ 📌 **一支函式與它的說明各自「正確」, 而合起來是假的** —— 本檔檔頭對 view 記過同一句。
 COMMENT ON FUNCTION public.get_tracking_corrected_gap_counts() IS
-'更正單號信線的缺口計數(**四個 key**)。2026-09-05 由 20260905200000 換上第二代語意。
+$c$更正單號信線的缺口計數(**四個 key**)。2026-09-05 由 20260905200000 換上第二代語意。
 · `pending_count`                    該寄而還沒排的(**正常會 >0**, 下一輪就排掉了 ⇒ 不要拿它當告警判準)
 · `no_recipient_count`               🔴 該寄而**兩個信箱都空** ⇒ 寄不出去, 要人去看那張單
-· `payload_unparseable_count`        已寄出的信裡 `payload->>''shipment_id''` 讀不出來的列(資料品質)
+· `payload_unparseable_count`        已寄出的信裡 `payload->>'shipment_id'` 讀不出來的列(資料品質)
 · `corrected_shipments_total_count`  分母(**一個計數沒有分母, 讀的人會自己補一個**)
 🔴 **前兩格是【互補的兩半】, 而它們讀同一支底面** `pcm_tracking_correction_candidates`:
    有收件人 ⇒ 進 `pcm_tracking_corrected_email_pending`;沒有 ⇒ 進 `no_recipient_count`。
    ⇒ 🎯 **兩半的和恆等於底面** —— 那是結構上的保證, 不是一句註解。
    ⛔ ~~本函式曾經自己抄一份判準, 而它停在第一代的時間比較~~(2026-09-05 codex R1 抓到)。
-⚠️ 本支**沒有 cutoff 參數**, 而那與姊妹線不同 —— 不是漏了(觸發欄是新加的, 母體天生從空的開始長)。';
+⚠️ 本支**沒有 cutoff 參數**, 而那與姊妹線不同 —— 不是漏了(觸發欄是新加的, 母體天生從空的開始長)。$c$;
 
 -- 🔵 ACL 不動(既有那支已經設好)—— 而下面 §8 有一格在【回核】它, 不是在設定它。
 

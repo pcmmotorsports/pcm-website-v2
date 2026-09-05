@@ -98,14 +98,14 @@ WHERE s.shipped_at IS NOT NULL
       );
 
 COMMENT ON VIEW public.pcm_tracking_corrected_email_pending IS
-  '「已出貨、未作廢、單號被更正過、而且客人【真的收過那個錯號碼】、還沒排過更正信」的 (箱, 單) 配對。一列 = 一封信。
+  $c$「已出貨、未作廢、單號被更正過、而且客人【真的收過那個錯號碼】、還沒排過更正信」的 (箱, 單) 配對。一列 = 一封信。
 🔴 最重要的一格是 sent_at 早於 tracking_corrected_at 那個 EXISTS ——
 這封信說的是「先前通知您的單號有誤」, 而它的前提是客人真的收過。
 出貨信被 cutoff 擋掉、或還在 pending 時號碼就被改了(送信當下讀 live 追蹤碼)⇒ 兩種都不該寄。
 ⚠️ 本 view 含 PII(兩個 email 欄)⇒ 僅 service_role 可讀。
 ⚠️ 它不自帶 cutoff —— 呼叫端要不要加起始線由呼叫端決定;而上面那道 EXISTS 已經
 把「功能上線第一秒集合等於歷史全部」那個病擋掉了(歷史上的箱沒有 tracking_corrected_at)。
-🔴 部署順序:模板與 enqueue 接線必須同一次 deploy —— 差集不分 status, 一列 failed 就永久排除那個 (箱,號碼)。';
+🔴 部署順序:模板與 enqueue 接線必須同一次 deploy —— 差集不分 status, 一列 failed 就永久排除那個 (箱,號碼)。$c$;
 
 
 -- ══ 2. 只收掉【會改變寄信行為】的那兩個物件 ═══════════════════════════════
