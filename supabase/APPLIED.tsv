@@ -20,6 +20,20 @@
 #       只改了 DB 而碼沒跟上 ⇒ **線上兩個拼法並存, 而不會有任何東西叫。**
 #    落點:~/pcm-mailbox/貼板-0905/驗證總表.md §〇 與該支 .sql 的檔頭。
 #
+# 🔴 **[2026-09-05 傍晚 線 -db 加]第五支同型的:貼板 26 號「dbk 四顆變體 sku 改名」**
+#    來源 ~/pcm-mailbox/貼板-0905/26_dbk_stale_variants_rename.sql
+#    sha256 6da196a77093f54a017f0d8c84cda57e5c0eb6e61fe589d5106316279d98e329(166 行)= @貼時
+#    Sean 本人在 SQL Editor 貼(逐字回「26 好」);主視窗 -f8 拍【乙 = UPDATE 不是 DELETE】。
+#    🔬 -db 唯讀複驗六格:舊 sku 4⇒**0** · 新 sku 0⇒**4** · 四個商品各仍 **1** 個變體 ·
+#       四列的 sku 與所屬商品 external_id **逐字對得上** · 🟢 正對照 dbk 變體總數 **3727**(未變)· 🔵 負對照 0。
+#    🔴 **原本的交辦是 DELETE, 我量完擋下來改成 UPDATE**:products.external_id 早就是新料號而
+#       product_variants.sku 還是舊的, 且那四個商品【各只有 1 個變體】⇒ DELETE 會讓它們【零變體而仍上架】
+#       ⇒ 📌 那是把「同步程式看得到的錯」換成「客人看得到的錯」。
+#    ✅ 而 UPDATE 一定接得上是【讀碼確認】的, 不是推的:`scripts/rpm-import.ts:753` 逐字
+#       `upsertBatched(target,'product_variants',…,'supplier_slug,sku')` ⇒ 衝突鍵就是 supplier_slug+sku。
+#    🛑 **它不是 migration** —— 沒有版本號、是一次資料改動 ⇒ 照 B1-a/B1-b 與 14/15 號先例記檔頭, 不押四欄格式。
+#    ⚠️ **證不到「下一次同步會成功」** —— 那要真的跑一次同步。本檔只解掉那四個 pv_spec_unique 撞鍵。
+#
 # 🔴 **[2026-09-05 17:1x 線 -db 加]第四支同型的:貼板 15 號「ATV/UTV 底下兩個同名分類改名」**
 #    來源 ~/pcm-mailbox/貼板-0905/15_atv_duplicate_category_rename.sql
 #    sha256 96e06ce3753fc8d51a6edf29d14d5f2511bec830e754bd12bea230fcce2dd949(128 行)= @貼時
@@ -441,3 +455,4 @@
 20260905220000	18a5f8eb058aee0af2470468d3559e42b674c4f65119e957e07b6fb4b3fa4a71	2026-09-05	Sean(SQL Editor 本人貼, 2026-09-05 下午, 貼板 20 號;-db 寫、-db 記, 未親自 apply)。⟦b4-SETTLERETRYNEVER⟧ 甲:重算失敗的匯款單每 10 分鐘給第二次機會。前置 = 20260904230000。🔬 -db 17:0x 唯讀複驗:public.pcm_settle_retry_attempts 表 0 ⇒ 1;排程 pcm-settle-retry 在且 active(*/10)。🔴🔴 **不得用「補了幾筆」當驗收** —— orders 全表今天 1 張, 分母答不出來;**上線後補 0 筆是它該有的樣子**(這句是 Sean 拍板時看到的推薦裡就有的誠實邊界)。第二欄 = **`@貼時`** —— sha 算的是 `~/pcm-mailbox/貼板-0905/` 那一份, **也就是 Sean 手上拿去貼的那一份**(貼板包是為了貼而匯出的, 與 repo 那支獨立)。🔴 **而它仍證不到「他一字未改地貼了它」** —— 貼進 SQL Editor 的那段文字無人留存;它只證得到「我們交給他的是這一份」。⇒ 這是本檔第一批 `@貼時`(定義見檔頭)。
 20260905250000	b4a1b9fe04868211eb04a06ae676c8a8e2aedd8fbbe4acb51d82467f241b8df3	2026-09-05	Sean(SQL Editor 本人貼, 2026-09-05 下午, 貼板 24 號;-db 寫、-db 記, 未親自 apply)。⟦b4-RETRYGAVEUPNOWATCHER⟧:被放棄的匯款單健康度 RPC。前置 = 20260905220000。🔬 -db 17:0x 唯讀複驗:public.get_settle_retry_gaveup_health 0 ⇒ 1。🔵 它只答「目前有幾張被放棄、最舊那張多久了」—— **不答那些單為什麼壞**(那在 Postgres log 裡);gave_up_at 是 24 小時冷卻不是永久 ⇒ 一張單會反覆進出這個計數。第二欄 = **`@貼時`** —— sha 算的是 `~/pcm-mailbox/貼板-0905/` 那一份, **也就是 Sean 手上拿去貼的那一份**(貼板包是為了貼而匯出的, 與 repo 那支獨立)。🔴 **而它仍證不到「他一字未改地貼了它」** —— 貼進 SQL Editor 的那段文字無人留存;它只證得到「我們交給他的是這一份」。⇒ 這是本檔第一批 `@貼時`(定義見檔頭)。
 20260831155000	4b3fb8daa5146cf313345c1a0c6c1b8d4037b3dd84d6e703c5ffa9fcd65dbc73	2026-09-05	Sean(SQL Editor 本人貼, 2026-09-05 下午, 貼板 22 號;-auth 找出來、-db 記, 皆未親自 apply)。優惠券「這張單還算不算數」述詞函式 coupon_redeem_order_problem。🔬 -db 17:0x 唯讀複驗:函式數 0 ⇒ 1(🟢 正對照 同一句餵 redeem_coupon 一直是 1)。🔴 **它比「合 main 之前」更急**:線上那支 redeem_coupon 的本體真的會叫它, 而它本人不在 ⇒ **期限是【建第一張券之前】**;而今天 coupons 0 張 ⇒ 還沒有人踩得到。🛑 不要用「券兌換有沒有成功」當驗收 —— 今天 0 張券, 那個測試在兩個世界印同一句「沒東西可試」。第二欄 = **`@貼時`** —— sha 算的是 `~/pcm-mailbox/貼板-0905/` 那一份, **也就是 Sean 手上拿去貼的那一份**(貼板包是為了貼而匯出的, 與 repo 那支獨立)。🔴 **而它仍證不到「他一字未改地貼了它」** —— 貼進 SQL Editor 的那段文字無人留存;它只證得到「我們交給他的是這一份」。⇒ 這是本檔第一批 `@貼時`(定義見檔頭)。
+20260905260000	1771cd909fed31e56348490cf2513d2c5d1775d7de53997b6cbc53e7fb3a95fc	2026-09-05	Sean(SQL Editor 本人貼, 2026-09-05 傍晚, 貼板 27 號;-db 寫、-db 記, 未親自 apply)。⟦b9-PUBLICVIEWALL⟧:四支公開 view 對 anon/authenticated 收掉七種寫權, 只留 SELECT。🔬 -db 唯讀複驗四個數:寫權格 32 ⇒ **0** · 有效 SELECT **8**(顧客站那條路還在)· 🟢 正對照 service_role DELETE **4**(尺會動)· 🔵 負對照 pcm_readonly DELETE **0**。🔴 **板列原本寫「兩支」而實際是四支** —— 後兩支(products_public / product_variants_public)只剩 MAINTAIN,成因是它們**已經被人用【列舉式 REVOKE】收過, 而那份列舉寫在 MAINTAIN(PG17 新增)之前** ⇒ 那次收權留下的殘餘, 恰好是任何一把「列舉六種」的尺看不見的那一格 ⇒ 本檔用 REVOKE ALL, 一個權限名都不列舉。🛑 **證不到**:①顧客站真的讀得到(權限層綠 ≠ 頁面出得來, 要真的打一發)②別的物件有沒有同樣殘留 ③新物件是否自帶八種 —— 實量 pg_default_acl:**看誰建的**(postgres 建的乾淨 / supabase_admin 建的全開)。審查五輪(codex R1 9MF · R2 5MF · R3 4MF · opus R4 6MF · opus R5 1MF)全折;🔴 而**貼下去第一格就會炸的那個型別歧義**(text || "char")是四輪都沒看到、拋棄式 PG 跑一次才現形的。回退 scripts/20260905260000-down.sql(§R 全段註解, 要人讀完再解)。第二欄 = **@貼時** —— sha 算的是 ~/pcm-mailbox/貼板-0905/ 那一份(Sean 手上拿去貼的那份);🔴 而它仍證不到「他一字未改地貼了它」, 只證得到「我們交給他的是這一份」。⚠️ **after 那支跑了沒【看不出來】** —— 它唯讀零留痕;Sean 只回了一句 Success ⇒ 不猜。
