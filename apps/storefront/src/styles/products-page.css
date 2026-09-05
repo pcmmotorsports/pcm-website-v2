@@ -334,3 +334,37 @@
     gap: 12px !important;
   }
 }
+
+/* ⟦search-CATSWITCHSLOW⟧ ① 切分類的載入回饋 —— 2026-09-06。
+   🔬 **為什麼需要它**:正式站量到切一個分類要等 **3.4-6.3 秒**
+      (正本 `~/pcm-mailbox/量-抽屜正式站-20260906.md`), 而這段期間畫面完全不動
+      ⇒ 客人以為壞掉 ⇒ 再點一次 / 離開。
+   🛑 **這幾行一秒都沒讓它變快** —— 「為什麼慢」是那一列的 ②, 還沒量。
+   🔵 **形狀不是我發明的**:design-reference `StorePickerModal.jsx:146-151` 的三件套
+      (`is-loading` + `disabled` + 原地換字);而**稿沒有畫過切分類的載入態**
+      (`products-list-page.html` 命中 0、正對照 `filter` 31)⇒ Sean 2026-09-06 裁【甲】=
+      不新造元件、不加骨架。乙(灰卡骨架)在他的佇列裡當告知, 上 preview 後再看。
+   ⚠️ `pointer-events: none` 是刻意的:那幾秒裡點下去的商品連結指向**舊的**清單。
+   🔴🔴 **而它只擋滑鼠與觸控, 【擋不住鍵盤】**(code-reviewer 2026-09-06 nit,我核過:Tab + Enter
+      照樣啟動得了格線裡那些指向舊清單的連結)⇒ 📌 **接線的那一天要一起處理**,
+      比照 `FilterDrawer` 那顆鈕用原生 `disabled`(它同時擋兩種輸入), 或給格線 `aria-busy`
+      + 對連結加 `tabIndex={-1}`。**不要只照抄這幾行就當作擋住了。** */
+/* 🔴🔴 **`.pp-grid.is-loading` 今天【沒有任何呼叫端】** —— `ProductsPage` 還沒有那個訊號可以給。
+   成因在 plan `docs/plans/2026-09-06-category-switch-loading-feedback-plan.md` §7:
+   訊號要從 `useCatalogFilterUrlSync` 來, 而那支 effect 的 deps 一動就踩壞 4 格既有守門。
+   ⇒ 📌 **這幾行是【等接線】不是【接好了】** —— 不要因為看到樣式就以為畫面會變。 */
+.pp-grid.is-loading {
+  opacity: 0.45;
+  pointer-events: none;
+  transition: opacity 120ms ease-out;
+}
+
+/* 件數那一行在更新中 —— 只降對比, 不換字級(換字級會讓整條工具列跳動)。 */
+.pp-count.is-loading {
+  opacity: 0.6;
+}
+
+/* 🔴 會動的東西一律問一次使用者的偏好(WCAG 2.2 · prefers-reduced-motion)。 */
+@media (prefers-reduced-motion: reduce) {
+  .pp-grid.is-loading { transition: none; }
+}

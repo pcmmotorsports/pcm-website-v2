@@ -32,6 +32,8 @@
 |---|---|
 | `apps/storefront/src/app/checkout/charge-actions.ts` | 那道 fail-closed 的**出口**:從 `{ formError: MSG.generic }` 改成一個明確的終態 |
 | `apps/storefront/src/app/checkout/charge-actions.test.ts` | 殺手在 `:1438`;沿用既有 fixture 只改斷言 |
+| `apps/storefront/src/app/checkout/charge-actions.ts`(**同一支,第二件事**) | 🔴 **prime 閘依 channel 分流**(2026-09-05 主視窗**中途裁歸片 1**;front 那條線量到、兩片原本都沒認領) |
+| `apps/storefront/src/hooks/useChargePayment.tsx` | 🔴 **只加一個窮舉分支**(該檔 `res satisfies never` 會因新變體而 typecheck 紅)—— **行為同失敗,不是實作**;client 半仍屬 front 片 2 |
 
 🛑 **不改**(全部移交 front 片 2,座標附在 §6):`CheckoutView.tsx` · `useChargePayment.tsx` ·
 `useReconcilePayment.tsx` · `CheckoutSuccess.tsx` · `CheckoutTerminalScreen.tsx`。
@@ -49,6 +51,20 @@
    在片 2 落地之前,客人看到的仍是一個錯誤畫面 —— **本檔明寫這個中間狀態,不假裝它已經好了。**
 3. **「匯款零 `confirmPayment`」要有一道會紅的守門** —— 見 §4。
 4. 失敗路徑不動:建單失敗仍走既有錯誤處理。
+5. 🔴🔴 **prime 閘依 channel 分流 —— 而契約是【對存在寬容、對使用嚴格】。**
+   · **刷卡路**:prime 照舊必要,缺 ⇒ 拒(文案不變)。
+   · **匯款路**:prime **不要求、不使用**,而 **⛔ 不拒絕它**。
+   　⛔ ~~第一版(主視窗初裁)是「帶了反而拒(呼叫端搞錯)」~~
+   　🛑 **那會讓這整片變成死的**:唯一呼叫端 `CheckoutView.tsx:278` **不分 channel 一律取 prime**、
+   　`:290` 一律送出,而該檔 `:264-277` 自己寫著「**匯款這條路今天仍然取 prime,而那是暫時的**」
+   　⇒ 📌 **server 修好而 client 沒改 ⇒ 匯款單一張都建不出來 ⇒ Sean 拍板接受的形狀當場消失。**
+   　(code-reviewer 2026-09-05 must-fix;**主視窗 2026-09-05 自己收回初裁**:逐字「我那句裁錯」。)
+   　✅ **順序無關**:client 今天照送 ⇒ 照樣建單零扣款;片 2 拿掉之後 ⇒ **這裡一個字都不用改**。
+   　🔵 留一行 log `bank_transfer_with_prime_ignored` —— **它是片 2 做完之後應該消失的訊號**。
+   · **而那張卡一次都不准被碰**:三個 TapPay 入口零呼叫(測試釘住)。
+6. ⚠️ **`primeForCharge === null` 那道守門是【死碼】** —— `wantsBankTransfer` 為真時
+   ⑤b(回讀不符)與 ⑤c(回讀為匯款)**互斥且窮盡** ⇒ 執行到不了它。
+   **保留它只為了讓型別成立而不用 `!` 斷言** ⇒ 🛑 **不要把它讀成一道守門(它不會紅)。**
 
 ## §4 測試(每一發寫出它在哪個世界會紅)
 
@@ -99,7 +115,33 @@
 | 窮舉狀態表 | `CheckoutTerminalScreen.tsx:27-38,72-117` + `:119-145` 的測試 | 新終態不同步 ⇒ typecheck 直接紅 |
 
 🔵 **R2 核過而通過的(對片 2 有利)**:`/account/orders/[displayId]` 路由**存在**、未登入會帶 `next`
-登入後返回;未取消的 `bank_transfer + unpaid` 單在 `OrderDetailView.tsx:611-633` **確實印得出帳號與金額**。
+登入後返回;未取消的 `bank_transfer + unpaid` 單**確實印得出帳號**。
+
+🔴🔴 **座標這件事我錯了一次,而成因是【我量的是舊版】—— 全程寫出來,因為它比結論有用。**
+
+**判準:以 `6b3d3d594` 那一版為準**(主視窗指定;各自工作樹會漂)。
+```
+:623-625  {!cancelled && paymentChannel === 'bank_transfer' &&
+          (paymentStatus === 'unpaid' || 'partiallyPaid') &&
+          (balanceDue === null || balanceDue.amount <= 0) && (   ← 這一支【不印帳號】, 印「請聯絡我們」
+:645-648  同上前兩條 + balanceDue !== null && balanceDue.amount > 0 && (
+:649      <div data-od-id="order-remittance">                      ← 真正印的那一塊
+:666      戶名 PCM_REMITTANCE_ACCOUNT_NAME
+:668      帳號 PCM_REMITTANCE_ACCOUNT_NO
+:698      「請於 N 天內完成匯款,逾期訂單將自動取消。」
+```
+⇒ ✅ **front 那條線是對的**:`:647-700` 才是印帳號的那一塊;`:611-633` 是註解 + 另一支(不印帳號)的條件。
+⇒ ❌ **而我先前斷言「front 講反了」是錯的** —— 我量的是**合 28 批之前**的樹(707 行、戶名在 `:629`),
+   合完之後同一支檔是 **754 行**、戶名在 `:666`。📌 **兩邊都在誠實地讀自己的樹, 而差的是版本。**
+🛑 **⇒ 教訓不是「要小心」, 是【比座標一定要先釘死是哪一個 commit】** —— 兩個人各讀各的工作樹時,
+   「誰對」這個問題**沒有答案**, 而每一邊都拿得出行號。
+
+⚠️ **而條件也不是我原本寫的那三個 AND 了**:現在是
+**白名單(`unpaid` 或 `partiallyPaid`)+ `balanceDue` 的正負**兩支分流(Sean 2026-09-05 拍乙)。
+⇒ 📌 片 2 的驗收要釘的是「**`balanceDue > 0` 那一支真的印得出帳號**」, 不是「三個 AND」。
+
+· **路徑**:`apps/storefront/src/components/account/OrderDetailView.tsx`(**有 `account/`**);
+  我原本與轉來的訊息**都少寫了那一層**。
 
 ## §7 這份 plan 答不出什麼
 

@@ -360,3 +360,165 @@ describe('⟦search-PREFIXWRONGCAT⟧ 落點規則', () => {
     expect(r.leftover).toEqual(['來令']);
   });
 });
+
+// ⟦search-BRANDSLUGHYPHEN⟧ 2026-09-06:多字品牌打全名。
+//
+// 🔬 **分母不是我挑的** —— 正式庫 `brands` 表 `name ~ '\s'` 全撈, **12 筆一個不漏**。
+//   改法之前逐一過同一支解析器:**認得 8 / 不認得 4**(`CNC RACING` · `FRONT 3D` ·
+//   `GB RACING` · `RPM CARBON` —— 它們的 slug **帶連字號或等於整句**, 而舊碼只比單字)。
+// 🛑 **而那 8 個「認得」的 leftover 期望【也改了】** —— 改成空。
+//   理由:`RACING` / `PARTS` / `FILTERS` 那些字**本來就被用到了**(它們是品牌名的一部分),
+//   舊的 leftover 是**比對單位選錯**的副產物, 不是一個該保留的行為。
+describe('⟦search-BRANDSLUGHYPHEN⟧ 多字品牌打全名 ⇒ 整句先比一次', () => {
+  const MULTIWORD: ReadonlyArray<readonly [string, string]> = [
+    ['BONAMICI RACING', 'bonamici'], ['CNC RACING', 'cnc-racing'], ['DBK SPECIAL PARTS', 'dbk'],
+    ['DNA FILTERS', 'dna'], ['EBC BRAKES', 'ebc'], ['EVOTECH PERFORMANCE', 'evotech'],
+    ['EXTREME COMPONENTS', 'extreme'], ['FRONT 3D', 'front3d'], ['GB RACING', 'gb-racing'],
+    ['GILLES TOOLING', 'gilles'], ['RPM CARBON', 'rpm-carbon'], ['SAMCO SPORT', 'samco'],
+  ];
+  const src = {
+    motoBrands: [],
+    categories: [],
+    brands: MULTIWORD.map(([name, id]) => ({ id, name })),
+  } as never;
+
+  it('🔴 12 筆全部認得, 而且 leftover 全部是空的(改法之前是 8/12, 且 8 個都留字)', () => {
+    const miss: string[] = [];
+    const withLeftover: string[] = [];
+    for (const [name, id] of MULTIWORD) {
+      const p = parseSearchFacets(name, src);
+      if (!p.brandIds.includes(id)) miss.push(`${name}(期望 ${id})`);
+      if (p.leftover.length > 0) withLeftover.push(`${name} ⇒ [${p.leftover.join(' ')}]`);
+    }
+    expect(miss, `這幾個打全名還是解不出品牌:${miss.join(' · ')}`).toEqual([]);
+    expect(withLeftover, `這幾個還留著沒用到的字:${withLeftover.join(' · ')}`).toEqual([]);
+  });
+
+  it('🔴 品牌全名【+ 額外的字】也要認得 —— 12 個各加一個尾字, 而額外那個字留在 leftover', () => {
+    // 🔬 **分母是那 12 個多字品牌本身**(正式庫 `brands` 表 `name ~ '\s'` 全撈), 各加一個尾字。
+    // ⛔ ~~舊行為:整句對不上 ⇒ 落回逐字 ⇒ 多字品牌解不出來~~
+    // ✅ 判準 = 最長連續子串優先(主視窗 2026-09-06 裁)。
+    const miss: string[] = [];
+    const badLeftover: string[] = [];
+    for (const [name, id] of MULTIWORD) {
+      const p = parseSearchFacets(`${name} 拉桿`, src);
+      if (!p.brandIds.includes(id)) miss.push(`${name} 拉桿(期望 ${id})`);
+      if (p.leftover.join(' ') !== '拉桿') badLeftover.push(`${name} ⇒ [${p.leftover.join(' ')}]`);
+    }
+    expect(miss, `這幾個加了尾字就解不出品牌:${miss.join(' · ')}`).toEqual([]);
+    expect(badLeftover, `leftover 不是剛好剩那個尾字:${badLeftover.join(' · ')}`).toEqual([]);
+  });
+
+  it('🔴 歧義:兩個品牌名重疊時取【最長】, 不是先遇到的那個', () => {
+    // 🛑 表上同時有 `RPM` 與 `RPM CARBON`, 而 `RPM` **排在前面**
+    //    ⇒ 沒有「最長優先」的話, 逐字迴圈會先挑到 `RPM`, 把 `CARBON` 丟進 leftover
+    //    ⇒ 📌 **客人打了完整品牌名, 而我們只認一半。**
+    const overlap = {
+      motoBrands: [], categories: [],
+      brands: [{ id: 'rpm', name: 'RPM' }, { id: 'rpm-carbon', name: 'RPM CARBON' }],
+    } as never;
+    const p = parseSearchFacets('RPM CARBON', overlap);
+    expect(p.brandIds).toEqual(['rpm-carbon']);
+    expect(p.leftover, '只認了一半 ⇒ CARBON 會留在這裡').toEqual([]);
+
+    // 🔴🔴 **而上面那一段【分不出最長與最短】** —— 這裡只有 n=2 一種長度可選,
+    //    兩種掃法都會挑到同一個答案。我實測過:把 `len` 改成由小到大, 40 格照樣全綠
+    //    ⇒ 📌 **那樣的守門與「沒有守門」是同一件事。**
+    // ✅ 要分得出來, 需要**三個字**且短的那一段也在表上:
+    //    最長優先 ⇒ 整段 `AA BB CC` 命中、leftover 空;
+    //    最短優先 ⇒ 先挑到 `AA BB`, 而 `CC` 掉進 leftover。
+    const nested = {
+      motoBrands: [], categories: [],
+      brands: [{ id: 'aabb', name: 'AA BB' }, { id: 'aabbcc', name: 'AA BB CC' }],
+    } as never;
+    const q = parseSearchFacets('AA BB CC', nested);
+    expect(q.brandIds, '挑到短的那一個 ⇒ 判準變成最短優先').toEqual(['aabbcc']);
+    expect(q.leftover, 'CC 掉進 leftover ⇒ 客人打的完整品牌名只被認了一半').toEqual([]);
+  });
+
+  it('🔴 同長時取【最左】—— 而它不依賴品牌表的排列順序', () => {
+    // 🔵 兩個等長的品牌名都在句子裡 ⇒ 取最左那一段先命中;
+    //    而**把品牌表反過來排, 結果必須一樣**(否則判準是「表的順序」不是「最左」)。
+    const two = [{ id: 'aa-bb', name: 'AA BB' }, { id: 'cc-dd', name: 'CC DD' }];
+    const q = 'AA BB CC DD';
+    const p1 = parseSearchFacets(q, { motoBrands: [], categories: [], brands: two } as never);
+    const p2 = parseSearchFacets(q, { motoBrands: [], categories: [], brands: [...two].reverse() } as never);
+    expect(p1.brandIds[0], '最左那一段沒有先命中').toBe('aa-bb');
+    expect(p2.brandIds[0], '換了品牌表的順序結果就變了 ⇒ 判準其實是表的順序').toBe('aa-bb');
+    expect([...p1.brandIds].sort()).toEqual(['aa-bb', 'cc-dd']);
+    expect(p1.leftover).toEqual([]);
+  });
+
+  it('🔴 長 query 不得炸掉 —— `/products?search=` 是公開路由而它沒有長度上限', () => {
+    // 🔬 **這一格是 reviewer 2026-09-06 量出來的**:沒有 `len` 上限時,
+    //    每個 (len, off) 組合都對每個品牌折一次 ⇒ O(words² × brands) 次 normalize('NFD')
+    //    ⇒ 他餵 200 個字 + 25 個品牌(零命中)**跑超過 3 分鐘沒回來, 手動 kill 才停**。
+    // 🛑 而那不是理論值:`splitWords` 沒有長度上限, 任何人打一個幾百字的 GET query
+    //    就能把一次 server render 卡到平台逾時。
+    // ✅ 修法 = 品牌名預折 + `len` 封頂到「最長的品牌名有幾個字」。
+    // 🔵 **門檻 300ms —— 而它是【兩邊都量過】才訂的, 不是猜的**:
+    //      修好之後這一發實測 **8ms**;把 `len` 封頂拿掉(只留預折)實測 **2073ms**。
+    //    ⇒ 門檻在中間:比通過值高 **37 倍**(不會因 CI 慢而亂叫)、比突變值低 **7 倍**(擋得住)。
+    //    🛑 **我第一版訂 2000ms** —— 那個值**通過側很安全而突變側只差 73ms**
+    //      ⇒ 📌 **一個門檻有兩個失效方向, 而只看通過那一側會訂出一個【幾乎擋不住】的數字。**
+    const many = {
+      motoBrands: [],
+      categories: [],
+      brands: Array.from({ length: 25 }, (_, i) => ({ id: `b${i}`, name: `BRAND ${i} X` })),
+    } as never;
+    const q = Array.from({ length: 200 }, (_, i) => `w${i}`).join(' ');
+    const t0 = Date.now();
+    const p = parseSearchFacets(q, many);
+    const ms = Date.now() - t0;
+    expect(p.brandIds, '這一發應該零命中 —— 有命中就代表我造的語料不對, 這一格就沒在量它要量的東西').toEqual([]);
+    expect(ms, `200 字 × 25 品牌花了 ${ms}ms ⇒ 公開路由上這是一個可構造的逾時`).toBeLessThan(300);
+  });
+
+  it('🟢 正對照:一個【不在表上】的多字詞不得被認成品牌(證明上面不是無條件命中)', () => {
+    // 🛑 少了這一格,「整句一律當品牌」也會讓上面那格全綠。
+    const p = parseSearchFacets('NOT A BRAND', src);
+    expect(p.brandIds).toEqual([]);
+    expect(p.leftover).toEqual(['NOT', 'A', 'BRAND']);
+  });
+
+  it('🟢 正對照:品牌 + 額外的字 ⇒ 整句對不上 ⇒ 照舊逐字, 額外那個字留在 leftover', () => {
+    // 📌 這一格釘住「整句比對【不會】把不相干的字一起吃掉」——
+    //    那正是它與「任意子集比對」的差別(子集會產生一堆沒有客觀判準的候選)。
+    const p = parseSearchFacets('GILLES 煞車', src);
+    expect(p.brandIds).toEqual(['gilles']);
+    expect(p.leftover).toEqual(['煞車']);
+  });
+
+  it('🔵 打【slug 那種寫法】也要中 —— 而它是靠 `b.name` 中的(折疊器剝掉連字號)', () => {
+    // 🔬 **這一格的來歷值得記**:code-reviewer 2026-09-06 說「`b.id` 那一半沒有測試殺得死」,
+    //    我補了這一格想守住它 ⇒ **突變實測:拿掉 `|| foldEquals(整句, b.id)` 之後全部照樣綠**
+    //    ⇒ 📌 **這一格守不到那一半** —— 打 `cnc-racing` 與打 `CNC RACING` 折完是同一個字串,
+    //       `b.name` 就中了。⇒ 那一半已經拿掉(見該處註解)。
+    // ✅ **而這一格留著**:它釘的是「**兩種寫法都要中**」這個對外行為, 那與內部走哪一半無關。
+    const p = parseSearchFacets('cnc-racing', src);
+    expect(p.brandIds).toEqual(['cnc-racing']);
+    expect(p.leftover).toEqual([]);
+  });
+
+  it('🔴 不相鄰的兩個字【不得】被接成品牌 —— 中間被吃掉的那個世界', () => {
+    // 🛑 code-reviewer 2026-09-06 抓到的假命中:車款吃掉中間那個字之後,
+    //    `unusedIdx = [0, 2]` 會被 join 成「FRONT 3D」—— 而那兩個字從來沒有相鄰過。
+    //    🔵 `foldEquals` 分辨不出來(它剝掉所有分隔符)⇒ 必須在**組句之前**擋。
+    const withVehicle = {
+      motoBrands: [{ id: 'yamaha', name: 'Yamaha', models: [{ id: 'mt07', name: 'MT-07' }] }],
+      categories: [],
+      brands: [{ id: 'front3d', name: 'FRONT 3D' }],
+    } as never;
+    const p = parseSearchFacets('FRONT MT-07 3D', withVehicle);
+    expect(p.vehicle, '車款那一段沒中 ⇒ 這一格證不到它要證的事').toBe('yamaha:mt07');
+    expect(p.brandIds, '不相鄰的兩個字被接成了品牌').toEqual([]);
+    expect(p.leftover).toEqual(['FRONT', '3D']);
+  });
+
+  it('🟢 回歸:單字品牌不受影響(整句 = 單字, 兩條路都會中, 而結果必須一樣)', () => {
+    const single = { motoBrands: [], categories: [], brands: [{ id: 'rizoma', name: 'RIZOMA' }] } as never;
+    const p = parseSearchFacets('RIZOMA', single);
+    expect(p.brandIds).toEqual(['rizoma']);
+    expect(p.leftover).toEqual([]);
+  });
+});
