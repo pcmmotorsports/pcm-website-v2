@@ -2,7 +2,9 @@
 --
 -- 🛑🛑 **動 RLS = PCM 鐵則 12②(權限)。審查狀態(逐字,不四捨五入)**:
 --    **codex R1 = FAIL(11 must-fix + 3 nit)· R2 = FAIL(11 must-fix + 1 nit)**
---    ⇒ 兩輪的 findings **本檔已逐條折**,而 🔴 **R3 還沒跑 ⇒ 本檔【尚未通過任何一輪】。**
+--    **R3 = FAIL**(adversarial-reviewer opus / 假設審查角度)—— 🟢 **SQL 本體零 finding**,
+--    七條全在**檔頭字面與相鄰的記帳**。三輪 findings 本檔已逐條折。
+--    🔴 **而【已折完】不等於【通過】** —— 沒有任何一輪回過 PASS。貼之前請當它未過。
 --    ⛔ ~~上一版檔頭寫「已過 codex 對抗審查 R1 + R2」~~ —— **那是 R2 跑之前就寫下的,是假的。**
 --       (R2 #1 抓到它。留刪除線讓搜「已過 R2」的人同一發撞到訂正。)
 -- 🟢 **純加【一條】policy** —— 零 `GRANT`、零 `REVOKE`、零 `ALTER ROLE`、不建表 / 函式 / 角色。
@@ -98,7 +100,17 @@
 --      ⇒ 它們證的是 **catalog 的形狀**,**不是 harden 之後的行為**。
 --      ⇒ 📌 **從來沒有人以一個【受 RLS 約束】的角色實跑過那條
 --         `.update().select().single()`** —— 那要 apply 授權 + 一個能 SET ROLE 的環境。
---      ⇒ ✅ **真正的驗收在 harden 那一天**,判準是「後台改客戶基本資料還存不存得起來」。
+--      ⇒ ✅ **真正的驗收在 harden 那一天。**
+--   🔴🔴 **[R3 F1]** ⛔ ~~判準是「後台改客戶基本資料還存不存得起來」~~ —— **那只驗到路②。**
+--      **路⑤(儲值金)靠的是 `postgres` 的 BYPASSRLS,而那個 UPDATE【沒有檢查改到幾列】**
+--      (`20260523034911…sql:303-308`;實查該函式本體 `GET DIAGNOSTICS` / `IF NOT FOUND` **0 處**,
+--       🟢 正對照:全庫 **65 支** migration 用過 `GET DIAGNOSTICS` ⇒ 那把尺會動)
+--      ⇒ 🎯 **那天若連 `postgres` 的 BYPASSRLS 也被收:流水寫得進去、餘額不動、而【零錯誤】。**
+--      ⇒ ✅ **驗收改成三格,缺一不可**:
+--         ① 後台改一次客戶基本資料 ⇒ 存得起來(路②)
+--         ② 後台調一次會員等級 + 加一次儲值金 ⇒ **回頭比 `customers.wallet_balance` 有沒有跟著動**
+--            (路③⑤;🛑 **只看「有沒有噴錯」是看不到的**)
+--         ③ 用一個新 email 註冊一個帳號 ⇒ `customers` 有沒有長出那一列(路④)
 --   🔴🔴 **角色那兩把尺【分不出 service_role 與 anon】** —— 實測:
 --      `pg_has_role(*, 'service_role', 'MEMBER')` 與 `pg_has_role(*, 'anon', 'MEMBER')`
 --      **回同一串**(那五個是管理員角色 + `authenticator`,它們可以變成任何角色)。
@@ -118,8 +130,20 @@
 -- 🔵 **刻意不用 `IF NOT EXISTS`**(`docs/patterns/revoking-function-execute-in-supabase.md` §3.2):
 --    那是「把撞名從報錯變成靜靜跳過」的開關,而跳過之後斷言會對著你沒看過的既有物件跑。
 --
--- 🛑 **順序**:本檔要在「拿掉 BYPASSRLS」之【前】貼。反過來的話 admin 改客戶基本資料
+-- 🛑 **順序(一):與 `⟦b9-RLSHARDEN⟧`**:本檔要在「拿掉 BYPASSRLS」之【前】貼。反過來的話 admin 改客戶基本資料
 --    會**安靜地失敗**(RLS 擋掉的 UPDATE 不一定噴 500,可能只回 0 列)。
+--    🔬 **[R3 F5] 而【安靜】具體長什麼樣, 我原本沒寫出來**:回 0 列 ⇒ adapter 的 `.single()`
+--       丟 `PGRST116` ⇒ `apps/admin/src/lib/customers/profile-actions.ts:66-71` 把它收斂成 **`not_found`**
+--       ⇒ 🎯 **畫面對操作的人說「查無這個客戶」** —— 不是「存檔失敗」。
+--       ⇒ 📌 **那句話會把人送去查客戶資料, 而問題在權限。**
+--
+-- 🛑 **順序(二):與 `⟦auth-R5VSMEMBERSHIP⟧`**(**[R3 F6]** —— 本檔原本零處提它):
+--    那一列要 `GRANT service_role TO <專用角色>`。⇒ 📌 **它一貼, 本檔閘 ⑥b 釘死的
+--    MEMBER 五個名字就會多一個 ⇒ 本檔【重跑會紅】。**
+--    ✅ **誰先誰後都可以, 而後貼的那一片要改前一片的期望值**:
+--       · 本檔先貼 ⇒ 那一列上線時, **要回來把 ⑥b 的兩串名字加上新角色**。
+--       · 那一列先貼 ⇒ **本檔貼之前先重量那兩串**(`pg_has_role` 那兩發), 照實際的寫。
+--    🛑 **不要把 ⑥b 改成「含有就好」** —— 那正是它擋的東西(閉世界才擋得住「多了一個」)。
 
 BEGIN;
 
@@ -193,6 +217,9 @@ BEGIN
   --    ✅ 改問 `has_column_privilege`(它就是「有效權限」那個問題本身)。
   --    🔴 **為什麼要閉世界**:本檔這條 policy 的 qual 是無條件 `true`
   --       ⇒ 📌 **欄級 GRANT 是這條路徑【唯一】的欄範圍限制** ——
+  --       🛑 **[R3 F3] 而它沒有活的守門** ——【本格只在 apply 的那一刻驗過一次】。
+  --          之後有人在 dashboard 或 SQL Editor 手動多授一欄, **不會有任何東西紅**
+  --          (`⟦b9-ACLDRIFT5⟧` 那道漂移偵測自陳「dashboard / SQL Editor 手動永遠不紅」)。
   --          多授一個 `tier` / `wallet_balance` 就是一條無條件的直寫旁路。
   SELECT string_agg(a.attname, ',' ORDER BY a.attname) INTO cols
     FROM pg_catalog.pg_attribute a
