@@ -59,6 +59,10 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   zero_price_reason: '改成零元的原因',
   shipping_method: '配送方式',
   workflow_status: '訂單流程狀態',
+  // 🔴 ⟦ship-HCTUNKNOWNSTUCK⟧ 片 A(`20260905320000`)開始把它寫進稽核。
+  //    用詞對齊後台既有的那顆鈕:`shipment-hct-submit-button.tsx:96` 逐字「**送新竹**」
+  //    ⇒ 📌 稽核頁與操作頁講同一個東西時要用同一個詞, 否則同一件事在兩個畫面上看起來是兩件事。
+  hct_status: '送新竹狀態',
   cancellation_id: '取消紀錄編號',
   cancelled_at: '取消時間',
   closed: '是否已結案',

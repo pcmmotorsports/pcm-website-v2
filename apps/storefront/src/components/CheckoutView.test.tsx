@@ -230,10 +230,12 @@ function renderCheckout(
     memberTier?: MemberTier;
     notificationEmailEnabled?: boolean;
     initialNotificationEmail?: string;
+    bankTransferEnabled?: boolean;
   } = {},
 ) {
   return render(
     <CheckoutView
+      bankTransferEnabled={over.bankTransferEnabled ?? false}
       addresses={over.addresses ?? [ADDR]}
       memberName="王小明"
       memberTier={over.memberTier ?? 'general'}
@@ -1247,7 +1249,7 @@ describe('CheckoutView 非卡片錯誤(U3b)', () => {
       initialNotificationEmail: '',
     };
     const { container, rerender } = render(
-      <CheckoutView addresses={[addrWithCompanyInvoice]} {...props} />,
+      <CheckoutView bankTransferEnabled={false} addresses={[addrWithCompanyInvoice]} {...props} />,
     );
     await gotoStep2(container);
     // 自動帶入的公司發票缺抬頭/統編 → 未碰發票分頁,invoiceOverride 仍為 false
@@ -1258,7 +1260,7 @@ describe('CheckoutView 非卡片錯誤(U3b)', () => {
 
     // server props 重送:內容相同、物件參照不同 → effect 重跑(invoiceOverride 仍 false)
     rerender(
-      <CheckoutView addresses={[{ ...addrWithCompanyInvoice }]} {...props} />,
+      <CheckoutView bankTransferEnabled={false} addresses={[{ ...addrWithCompanyInvoice }]} {...props} />,
     );
     // 🔴 值沒變 → 錯誤必須原封不動(若 effect 改成「一律清三個」,這兩行會轉紅)
     expect(screen.getByText('請填寫公司抬頭')).toBeTruthy();
@@ -1396,5 +1398,117 @@ describe('CheckoutView — A2 讀不到購物車', () => {
     renderCheckout();
     expect(await screen.findByText('購物車是空的')).toBeDefined();
     expect(screen.queryByText('暫時讀不到你的購物車')).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⟦b4-BANKCHARGESCARD⟧ 片 2:**接線那一半**(codex ⑥:我原本 8 格全在 Step2 呈現層,
+// 而 CheckoutView 這一半 —— 送什麼 payload、卡片閘跳不跳、prop 由 true 變 false ——
+// 📌 **一格都沒有**。「呈現對了」與「送出去的是對的」是兩個宣稱。)
+describe('片 2 接線:付款方式送到 server 的那個值', () => {
+  /** 🔵 這一支與上面那個 describe 裡的 `gotoStep2Agreed` **是同一份步驟** ——
+   *  而它在那個 describe 的**區塊作用域裡**, 這裡看不到它。
+   *  🛑 我第一版直接呼叫它 ⇒ `ReferenceError`;第二版自己寫一個少了 hydrate 等待的 ⇒ 全紅在找不到按鈕。
+   *  📌 **重寫一份的成本, 是我把它的前置條件也重寫錯一遍** —— 所以這裡逐字照抄那三行, 不自己想。 */
+  async function gotoStep2Agreed(container: HTMLElement) {
+    fireEvent.click(await screen.findByRole('button', { name: /下一步:發票與付款/ }));
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+  }
+
+  const arm = () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([
+      resolvedLine({ productId: 'rpm-1', variantId: 'v1', unitPrice: 1000 }),
+    ]);
+    getPrimeMock.mockResolvedValue('prime_test');
+    chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0009' });
+  };
+
+  it('🔴 flag 關 ⇒ 畫面上沒有第二個選項(這一格證的是【入口】不是 payload)', async () => {
+    arm();
+    const { container } = renderCheckout();
+    await gotoStep2Agreed(container);
+    expect(screen.queryByLabelText('ATM 轉帳')).toBeNull();
+  });
+
+  it('🟢 正對照:flag 開 ⇒ 它出現(證明上面那個 null 不是整塊沒 render)', async () => {
+    arm();
+    const { container } = renderCheckout({ bankTransferEnabled: true });
+    await gotoStep2Agreed(container);
+    expect(screen.queryByLabelText('ATM 轉帳')).not.toBeNull();
+  });
+
+  it('🔴🔴 選了匯款 ⇒ 送給 server 的 paymentChannel 是 bank_transfer —— 這一格才是【接線】', async () => {
+    arm();
+    const { container } = renderCheckout({ bankTransferEnabled: true });
+    await gotoStep2Agreed(container);
+    fireEvent.click(screen.getByLabelText('ATM 轉帳'));
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+    await waitFor(() => expect(chargeMock).toHaveBeenCalled());
+    const payload = chargeMock.mock.calls[0]![0] as { paymentChannel: string };
+    expect(payload.paymentChannel).toBe('bank_transfer');
+  });
+
+  it('🟢 正對照:沒選它 ⇒ 送的是 tappay(證明上面那格不是恆真)', async () => {
+    arm();
+    const { container } = renderCheckout({ bankTransferEnabled: true });
+    await gotoStep2Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+    await waitFor(() => expect(chargeMock).toHaveBeenCalled());
+    const payload = chargeMock.mock.calls[0]![0] as { paymentChannel: string };
+    expect(payload.paymentChannel).toBe('tappay');
+  });
+
+  it('🔴🔴 選了匯款 ⇒ 卡片紅字【不得】冒出來(codex ②③ —— 🧬 突變抓到我沒守這格)', async () => {
+    // 🛑 卡欄空著時 `validateTapPayFields` 會給三條紅字。匯款客人**根本沒有要用卡**,
+    //    而他按過一次之後 `submitAttempted` 變 true ⇒ 那三條會全部冒出來
+    //    ⇒ 📌 **一個正要匯款的人, 被要求去修他沒有要用的卡。**
+    tapRef.current = { ready: 'ready', canGetPrime: false, fieldStatus: { number: 1, expiry: 1, ccv: 1 } };
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    getPrimeMock.mockResolvedValue('prime_test');
+    chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0010' });
+    const { container } = renderCheckout({ bankTransferEnabled: true });
+    await gotoStep2Agreed(container);
+    fireEvent.click(screen.getByLabelText('ATM 轉帳'));
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+    expect(
+      screen.queryByText('請輸入完整卡號'),
+      '🔴 匯款客人看到了卡號紅字 ⇒ 他會以為自己要填卡',
+    ).toBeNull();
+  });
+
+  it('🟢 正對照:同一組卡況【選信用卡】時那三條紅字要在(證明上面那格不是恆真)', async () => {
+    tapRef.current = { ready: 'ready', canGetPrime: false, fieldStatus: { number: 1, expiry: 1, ccv: 1 } };
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    const { container } = renderCheckout({ bankTransferEnabled: true });
+    await gotoStep2Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+    expect(screen.getByText('請輸入完整卡號')).toBeTruthy();
+  });
+
+  it('🔴🔴 flag 由 true 變 false ⇒ 送出去的必須退回 tappay(codex ① 那個反例)', async () => {
+    // 🛑 客人選了匯款, 而 `router.refresh()` 之後 server 傳下來的 flag 變 false
+    //    ⇒ client state 還記得 `'bank_transfer'` ⇒ 📌 **記住的東西不會自己失效。**
+    //    ⇒ ✅ `effectiveChannel` 是推導的 ⇒ 它跟著 prop 一起變。
+    arm();
+    const { container, rerender } = renderCheckout({ bankTransferEnabled: true });
+    await gotoStep2Agreed(container);
+    fireEvent.click(screen.getByLabelText('ATM 轉帳'));
+    rerender(
+      <CheckoutView
+        bankTransferEnabled={false}
+        addresses={[ADDR]}
+        memberName="王小明"
+        memberTier="general"
+        notificationEmailEnabled={false}
+        initialNotificationEmail=""
+      />,
+    );
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+    await waitFor(() => expect(chargeMock).toHaveBeenCalled());
+    const payload = chargeMock.mock.calls[0]![0] as { paymentChannel: string };
+    expect(payload.paymentChannel, '🔴 flag 已經關了而它還送 bank_transfer').toBe('tappay');
   });
 });

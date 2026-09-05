@@ -59,6 +59,30 @@ const REFUND_AMOUNT_COL = /"?\brefund_amount\b"?/g;
 //   ⚠️ 它**不在 CI**,不會自己紅。這一行就是它的兩個落點之一(另一個在該 RPC 的 COMMENT ON FUNCTION)。
 
 const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
+  // ── 2026-09-05 · 線【客人帳戶區】`-account` 補(⟦0a-CARDCANCELNOREFUND⟧ 片①;**作者就是我**;
+  //    鐵則 12①③ 的 codex 對抗審查一輪已跑、FAIL 5 must-fix + 1 nit 全折, 見該 migration 檔頭)──
+  '20260905280000_m4b_cardcancel_p1_manual_refund_card_confirm.sql': {
+    count: 4,
+    why:
+      // 🔴 why 要答的是「gate 為什麼對【正確的東西】報紅」。
+      // 本檔是 `admin_record_manual_refund` 的重定義(加第 8 參 `p_confirm_card_not_refunded`),
+      // 而**函式本體是程式抽出、零手抄**(`20260823020000:290-482` 原樣, 只插三處)。
+      // ⇒ 那 4 處 `refund_amount` **全部是抽出來的既有碼**, 我一處都沒有新增:
+      //     `:94`  參數宣告 `p_refund_amount integer`
+      //     `:131` NULL 檢查     `:141-142` 正整數檢查
+      //     `:230` 冪等比對讀既有列 `:236` 冪等比對 `IS NOT DISTINCT FROM`
+      // ✅ **結構性反面證據(量到的, 不是我宣稱的)**:
+      //    本檔 `SUM(...refund_amount)` / `sum(...refund_amount)` ⇒ **零命中**;
+      //    🔬 正對照:同一把尺對 `20260905010000`(那支【真的】自己加總)⇒ **2** ⇒ **尺會動。**
+      // 🛑 ⇒ 本檔**沒有自己算「已退 / 還能退」** —— 它只做輸入驗證與冪等比對。
+      //    `#473b-1` 要防的是「繞過 `pcm_order_refundable_remaining` 自己算」, 而那個形狀在本檔不存在。
+      // ⚠️ **而這一筆的射程止於【今天這一版】** —— 哪天有人在這支函式裡加一句加總,
+      //    這個 allowlist 會**替它背書而不出聲**。⇒ 📌 一筆 allowlist 是一個【永久的】豁免,
+      //    而它豁免的是**檔名**不是**那一版的內容**。
+      '本檔是 admin_record_manual_refund 的重定義, 4 處 refund_amount 全是程式抽出的既有碼' +
+      '(參數宣告 / NULL 檢查 / 正整數檢查 / 冪等比對), 零 SUM 加總 —— ' +
+      '正對照 20260905010000 同尺命中 2 ⇒ 尺會動。codex 一輪已審。',
+  },
   // ── 2026-09-05 · 線【信】`-mail` 補(⟦b4-NCPCRONRACE⟧;**作者就是我**;
   //    鐵則 12①③ 的 codex 對抗審查兩輪已跑, 見該 migration 檔頭)──
   '20260905070000_m4b_pending_refund_on_late_payment.sql': {
