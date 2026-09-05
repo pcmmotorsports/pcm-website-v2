@@ -123,6 +123,12 @@ _pp_gates() {
   # $1 = pre-push 路徑。只看非註解行。
   { grep -v '^[[:space:]]*#' "$1" | grep -oE '[a-zA-Z._$/{}]*scripts/[A-Za-z0-9_.-]+\.sh' | sed 's|.*/scripts/|scripts/|'
     grep -v '^[[:space:]]*#' "$1" | grep -oE '[a-zA-Z._$/{}]*\.husky/[A-Za-z0-9_.-]+\.sh' | sed 's|.*\.husky/|.husky/|'
+    # 🔴 第三發:`.py` 的閘(2026-09-06 加, 因為鏈上第一次出現一支 python 閘)。
+    #    ⛔ ~~只掃 `.sh`~~ ⇒ 一支 `.py` 的閘對「鏈有沒有變短」**完全隱形**:
+    #       有人把它從鏈上刪掉, 基準集比對照樣印全綠。
+    #    🛑 **分開第三發、不改成 `\.(sh|py)`** —— 本函式上面那段註解逐字記著
+    #       交替式在本機**靜默少報**;那條紀律套在這裡就是「再開一發, 不動已經量過的兩發」。
+    grep -v '^[[:space:]]*#' "$1" | grep -oE '[a-zA-Z._$/{}]*scripts/[A-Za-z0-9_.-]+\.py' | sed 's|.*/scripts/|scripts/|'
   } | sort -u
 }
 
@@ -184,7 +190,10 @@ check_prepush() {
   #    📌 這與 pre-commit 那半是【同一個病】,而我今天為 pre-commit 做了、pre-push 沒做。
   ppbody=$(grep -v '^[[:space:]]*#' "$f")
   miss=""
-  for g in scripts/deploy-order-gate.sh scripts/migration-ledger-divergence.sh; do
+  # 🔵 2026-09-06 加第三支:`scripts/rpc-raw-sql-callers.py --gate`(裸 SQL 部署時序閘)。
+  #    ⚠️ 這一格與下面基準集比對【重疊而不重複】:基準集答「鏈有沒有變短」,
+  #       本格答「這幾支【指名的】還在不在」—— 基準集被人手改小時,本格仍會叫。
+  for g in scripts/deploy-order-gate.sh scripts/migration-ledger-divergence.sh scripts/rpc-raw-sql-callers.py; do
     printf '%s\n' "$ppbody" | grep -q "$g" || miss="$miss $g"
   done
   if [ -n "$miss" ]; then
@@ -212,7 +221,7 @@ check_prepush() {
     echo "   ⇒ 修法:那一行尾巴接上 \`|| exit \$?\`(不要 \`|| exit 1\` —— 鏈裡有三態閘)。" >&2
     return 1
   fi
-  echo "── husky 接線:$f 語法過,兩支 gate 都還在鏈上,鏈尾接了 || exit \$?"
+  echo "── husky 接線:$f 語法過,三支指名 gate 都還在鏈上,鏈尾接了 || exit \$?"
   return 0
 }
 
@@ -266,28 +275,54 @@ X
   ck "E 檔不存在 ⇒ 2" "$?" "2"
 
   # F【該綠】pre-push 兩支 gate 都在
-  printf 'a && b && bash scripts/deploy-order-gate.sh && sh scripts/migration-ledger-divergence.sh || exit $?\n' > "$T/pp-ok"
+  printf 'a && b && bash scripts/deploy-order-gate.sh && python3 scripts/rpc-raw-sql-callers.py --gate && sh scripts/migration-ledger-divergence.sh || exit $?\n' > "$T/pp-ok"
   check_prepush "$T/pp-ok" >/dev/null 2>&1
   ck "F pre-push 兩支 gate 都在 ⇒ 0" "$?" "0"
 
   # G【該紅】pre-push 少了第四段
-  printf 'a && b && bash scripts/deploy-order-gate.sh || exit $?\n' > "$T/pp-bad"
+  printf 'a && b && bash scripts/deploy-order-gate.sh && python3 scripts/rpc-raw-sql-callers.py --gate || exit $?\n' > "$T/pp-bad"
   check_prepush "$T/pp-bad" >/dev/null 2>&1
   ck "G pre-push 少了 ledger gate ⇒ 1" "$?" "1"
 
   # I【該紅·MF-3】pre-push:註解裡有那兩支 gate 的名字,而鏈上少了一支 ⇒ 必須紅
-  printf '# 註解:scripts/deploy-order-gate.sh 與 scripts/migration-ledger-divergence.sh\na && bash scripts/deploy-order-gate.sh || exit $?\n' > "$T/pp-cmt"
+  printf '# 註解:scripts/deploy-order-gate.sh 與 scripts/migration-ledger-divergence.sh\na && bash scripts/deploy-order-gate.sh && python3 scripts/rpc-raw-sql-callers.py --gate || exit $?\n' > "$T/pp-cmt"
   check_prepush "$T/pp-cmt" >/dev/null 2>&1
   ck "I pre-push 註解有、鏈上沒有 ⇒ 1(不可被註解騙過)" "$?" "1"
 
+  # M【該紅·2026-09-06】三支 gate 少了【那支 .py】⇒ 必須紅
+  #    🔴 這一格就是「第三發 grep 認不認得 .py」的判別式:
+  #       只掃 `.sh` 的版本在這裡會【綠】, 而那時候鏈上少了一道閘而畫面上一切正常。
+  printf 'a && b && bash scripts/deploy-order-gate.sh && sh scripts/migration-ledger-divergence.sh || exit $?\n' > "$T/pp-nopy"
+  check_prepush "$T/pp-nopy" >/dev/null 2>&1
+  ck "M pre-push 少了裸 SQL gate(.py)⇒ 1" "$?" "1"
+
+  # N【該紅】那支 .py 只出現在【註解】裡 ⇒ 不可被騙過(與 I 同型, 換成 .py)
+  printf '# 註解:python3 scripts/rpc-raw-sql-callers.py --gate\na && bash scripts/deploy-order-gate.sh && sh scripts/migration-ledger-divergence.sh || exit $?\n' > "$T/pp-pycmt"
+  check_prepush "$T/pp-pycmt" >/dev/null 2>&1
+  ck "N .py 只在註解裡 ⇒ 1(不可被註解騙過)" "$?" "1"
+
+  # O【該綠·2026-09-06】基準集裡有那支 .py、鏈上也有 ⇒ 基準比對必須是 0
+  #    🔴🔴 **這一格才是「第三發 grep 認不認得 .py」的判別式** —— M/N 走的是硬清單,
+  #       那條路自己 grep, 與 `_pp_gates` 無關(實測:把第三發刪掉, M/N 照樣全綠)。
+  #       ⇒ 📌 **兩道看起來在守同一件事的檢查, 可以完全不共用那把尺。**
+  printf 'scripts/deploy-order-gate.sh\nscripts/rpc-raw-sql-callers.py\n' > "$T/base-py"
+  printf 'a && bash scripts/deploy-order-gate.sh && python3 scripts/rpc-raw-sql-callers.py --gate || exit $?\n' > "$T/pp-withpy"
+  check_prepush_baseline "$T/pp-withpy" "$T/base-py" >/dev/null 2>&1
+  ck "O 基準有 .py、鏈上也有 ⇒ 0(第三發撈得到)" "$?" "0"
+
+  # P【該紅】基準集裡有那支 .py, 而鏈上被拿掉了 ⇒ 鏈變短 ⇒ 必須紅
+  printf 'a && bash scripts/deploy-order-gate.sh || exit $?\n' > "$T/pp-withoutpy"
+  check_prepush_baseline "$T/pp-withoutpy" "$T/base-py" >/dev/null 2>&1
+  ck "P 基準有 .py 而鏈上沒有 ⇒ 1(鏈變短)" "$?" "1"
+
   # K【該紅·2026-09-04】鏈上兩支 gate 都在, 而那一行沒接 || exit $? ⇒ 必須紅
   #    🔴 這一格就是當天那個 fail-open 的最小重現。沒有它, F 與 K 的世界印同一個 0。
-  printf 'a && b && bash scripts/deploy-order-gate.sh && sh scripts/migration-ledger-divergence.sh\nif [ -f x ]; then true; fi\n' > "$T/pp-noexit"
+  printf 'a && b && bash scripts/deploy-order-gate.sh && python3 scripts/rpc-raw-sql-callers.py --gate && sh scripts/migration-ledger-divergence.sh\nif [ -f x ]; then true; fi\n' > "$T/pp-noexit"
   check_prepush "$T/pp-noexit" >/dev/null 2>&1
   ck "K pre-push 鏈在而沒接 || exit \$? ⇒ 1(當天 fail-open 的最小重現)" "$?" "1"
 
   # L【該紅·三態】接了 || exit 1 而不是 || exit $? ⇒ 也要紅(壓掉 2/9 兩種語意)
-  printf 'a && bash scripts/deploy-order-gate.sh && sh scripts/migration-ledger-divergence.sh || exit 1\n' > "$T/pp-exit1"
+  printf 'a && bash scripts/deploy-order-gate.sh && python3 scripts/rpc-raw-sql-callers.py --gate && sh scripts/migration-ledger-divergence.sh || exit 1\n' > "$T/pp-exit1"
   check_prepush "$T/pp-exit1" >/dev/null 2>&1
   ck "L pre-push 接的是 || exit 1(壓掉三態)⇒ 1" "$?" "1"
 
@@ -314,7 +349,9 @@ X
   #    舊寫法卻印「格數不對:有格被刪掉或沒跑到」⇒ **診斷指錯方向**,
   #    而它印在「17 PASS / 1 FAIL」之後 ⇒ 讀的人最後看到的是錯的那一句。
   #    「一格失敗」與「一格不見了」修法完全不同,不能共用同一個出口。
-  EXPECT=12
+  # 🔵 2026-09-06:12 ⇒ 16(M/N = 硬清單認 `.py`;O/P = 第三發 grep 認 `.py`。
+  #    🔴 兩對【不是重複】—— 實測把第三發刪掉, M/N 照樣全綠, 只有 O 會紅。)
+  EXPECT=16
   if [ "$((pass + fail))" != "$EXPECT" ]; then
     echo "  🔴 【格數】不對:跑了 $((pass + fail)) 格 ≠ $EXPECT ⇒ 有格被刪掉或沒跑到(這不是「有格失敗」)"; exit 1
   fi
