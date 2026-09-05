@@ -146,7 +146,9 @@
     "scripts/run-rc.sh": "bash scripts/run-rc.sh --selftest",
     "scripts/two-controls.sh": "bash scripts/two-controls.sh --selftest",
     "scripts/where-is.sh": "bash scripts/where-is.sh --selftest",
-    "scripts/why-is-this-red.sh": "bash scripts/why-is-this-red.sh --selftest"
+    "scripts/why-is-this-red.sh": "bash scripts/why-is-this-red.sh --selftest",
+    "scripts/*.{sh,py}": "bash scripts/selftest-witness-shrink-gate.sh",
+    "scripts/selftest-witness-shrink-gate.sh": "bash scripts/selftest-witness-shrink-gate.sh --selftest"
   },
   "devDependencies": {
     "@pcm/domain": "workspace:^",
