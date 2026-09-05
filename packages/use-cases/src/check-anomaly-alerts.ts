@@ -233,6 +233,15 @@ export type CheckAnomalyAlertsResult = {
    */
   bypassRlsRevoked: boolean;
   bypassRlsUnknown: boolean;
+  /**
+   * ⟦b9-ACLDRIFT5⟧ 片二:權限快照漂移。與 `bypassRls*` 同一族的兩個旗標 ——
+   * `Detected` 進 `shouldAlert`(有人動了權限而沒有人認),`Unknown` 不進(讀不到 / 太舊 ⇒ 503 那條)。
+   */
+  aclDriftDetected: boolean;
+  aclDriftUnknown: boolean;
+  /** 🔵 診斷用:哪一族變了 / 那一列幾點量的。**不進** `shouldAlert`。 */
+  aclDriftFamilies: string | null;
+  aclDriftTakenAt: string | null;
   /** 🔵 讀到的兩個分母。**不直接進 `shouldAlert`** —— 那道閘只看上面兩個旗標。
    *  ⛔ ~~我第一版寫「**不是判準**」~~ —— R3 nit 打掉(codex R2 也在 domain 那份打過同一句):
    *     `bypassRlsTotalRoleCount` **確實參與判定**(adapter 拿它當回應合理性下界 ⇒ 走 Unknown)。
@@ -975,7 +984,12 @@ export function buildAnomalyAlertMessage(
    * 📌 **⇒ 一個在自己那一層完全正確的宣稱, 換一層之後是假的 —— 而它不會被任何單元測試抓到。**
    */
   const hasHeartbeat = (summary.cronHeartbeatAbnormalCount ?? 0) > 0;
-  const subject = hasBypassRls && !hasPayment && !hasEmail && !hasHeartbeat
+  // ⟦b9-ACLDRIFT5⟧:主旨也要分得出來 —— 一封主旨寫「付款有事」而內容是權限漂移的信,
+  //   收信的人會用錯的心情打開它。
+  const hasAclDrift = summary.aclDriftDetected === true;
+  const subject = hasAclDrift && !hasBypassRls && !hasPayment && !hasEmail && !hasHeartbeat
+    ? '🔵 PCM 資料庫權限與昨天不一樣(貼板當天正常)'
+    : hasBypassRls && !hasPayment && !hasEmail && !hasHeartbeat
     ? '⚠️ PCM 資料庫權限有事要你看(與付款無關)'
     : hasBypassRls
       ? '⚠️ PCM 資料庫權限有事,而其他也有事要你看'
@@ -1008,6 +1022,28 @@ export function buildAnomalyAlertMessage(
    * 🛑 **逐字帶【它證不到什麼】** —— 沒有這一句, 收到告警的人會以為
    *    「沒叫 = 沒事」, 而那 45 張表的地板還是濕的。
    */
+  /**
+   * ⟦b9-ACLDRIFT5⟧ 片二:權限快照與昨天不一樣的那一行。
+   * 🛑 **逐字帶【貼板當天正常】** —— 少了那一句, 貼完板收到這封信的人會以為出事了,
+   *    而最可能的反應是**把那次貼板 revert 掉**。
+   * 🔵 而它也帶【怎麼讓它不再叫】—— 一封只說「有事」而不說下一步的信, 會被整批忽略。
+   */
+  const aclDriftBlock: string[] = [];
+  if (summary.aclDriftDetected) {
+    aclDriftBlock.push(
+      '【權限快照】',
+      '🔵 資料庫的權限與昨天不一樣了 —— 有人改了權限, 或是貼了一支 migration。',
+      `   哪一族變了:${summary.aclDriftFamilies ?? '(沒讀到)'}`,
+      `   這一列是幾點量的:${summary.aclDriftTakenAt ?? '(沒讀到)'}`,
+      '   ✅ **貼板當天出現這一行是正常的** —— 那些差就是你貼的那支造成的。',
+      '   ⇒ 確認過就在 SQL Editor 跑一次(理由必填, 它會留在資料庫裡):',
+      "     SELECT public.pcm_acl_approve_latest('貼了 <版本號>, 那些差是它造成的');",
+      '   🔴 而【沒有貼板】卻出現這一行 ⇒ 有人直接在 Supabase 網頁上改了權限 ⇒ 要查。',
+      '     逐格看是哪裡變了:bash scripts/acl-snapshot.sh',
+      '   🛑 它答不出【有沒有人偷改】—— 改掉又改回來, 兩次快照相同, 它不會叫。',
+    );
+  }
+
   const bypassRlsBlock: string[] = [];
   if (summary.bypassRlsRevoked) {
     bypassRlsBlock.push(
@@ -1160,7 +1196,11 @@ export function buildAnomalyAlertMessage(
   //    而**沒有加進這個陣列的話, 那段永遠不會出現在信裡**, 且測試會全綠。
   //    ⇒ 📌 「算出來了」「寫進信裡了」「會讓信寄出去」是三個宣稱(線【資料】`-db` 2026-09-05
   //      主動告知它上一片就漏了第三個)⇒ 本片三個接點:此處 · shouldAlert · builder 參數。
-  const body = [bypassRlsBlock, searchLogBlock, stuckBankBlock, stuckBankOverpaidBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
+    // 🔵 2026-09-05 合併:`-db` 的 aclDriftBlock 與 `-mail` 的 stuckBank* 兩邊都留 ——
+    //    它們是不同的訊號、不同的觀眾, 誰都不該覆蓋誰。
+    const body = [bypassRlsBlock, aclDriftBlock, searchLogBlock, stuckBankBlock, stuckBankOverpaidBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock]
+      .filter((b) => b.length > 0)
+      .flatMap((b) => [...b, '']);
 
   /**
    * 🔴🔴 **結尾三行是【不可截的】,而這不是排版偏好。**
@@ -1694,7 +1734,12 @@ export async function checkAnomalyAlerts(
     // ✅ 正確的說法:**它不會【直接】寄信;而它持續量不到時會【經由心跳那條路】寄。**
     //   📌 而那其實是對的行為(一支一直失敗的 cron 本來就該被看見)——
     //     錯的是我原本那句話, 不是這個耦合。
-    summary.bypassRlsRevoked;
+      summary.bypassRlsRevoked ||
+      // ⟦b9-ACLDRIFT5⟧ 片二:**只有明確的 `true` 才進**(與上面同一個形狀、同一個理由)。
+      // 🔴 而「已批准」在 adapter 那一層就讓 Detected 回 false —— **那不是消音**:
+      //   批准是一個人簽下「那是我貼板造成的」。少了它, 貼板當天之後會【每天寄一封
+      //   一模一樣的信】, 而那種信會被整批忽略 ⇒ 連真的那一封也一起。
+      summary.aclDriftDetected === true;
 
   let notifiersTotal = 0;
   let notifiersFailed = 0;
@@ -1821,6 +1866,11 @@ export async function checkAnomalyAlerts(
     //   **那條「部署問題走部署管道」的路就不存在**(下面那段註解講的正是同一個坑)。
     bypassRlsRevoked: summary.bypassRlsRevoked,
     bypassRlsUnknown: summary.bypassRlsUnknown,
+      // ⟦b9-ACLDRIFT5⟧:兩個都要帶出去 —— `Unknown` 不帶 ⇒ route 讀不到 ⇒ 503 那條路不存在。
+      aclDriftDetected: summary.aclDriftDetected,
+      aclDriftUnknown: summary.aclDriftUnknown,
+      aclDriftFamilies: summary.aclDriftFamilies,
+      aclDriftTakenAt: summary.aclDriftTakenAt,
     bypassRlsPrivilegedCount: summary.bypassRlsPrivilegedCount,
     bypassRlsTotalRoleCount: summary.bypassRlsTotalRoleCount,
     /**

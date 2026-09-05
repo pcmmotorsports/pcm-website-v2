@@ -102,6 +102,25 @@ export class SupabaseAuthAdapter implements IAuthService {
     }
   }
 
+  /**
+   * 重寄註冊驗證信。`type: 'signup'` 是**承重字面**:
+   * 🔴 Supabase 的 `auth.resend` 用 `type` 決定重寄哪一種信 —— `'signup'` / `'email_change'` /
+   *    `'sms'` … 打錯型別**不會報錯**,它會去寄【另一種】信或什麼都不做,
+   *    而回傳形狀相同 ⇒ 📌 **那個錯在這一層沒有任何東西會叫** ⇒ 測試對它下了一發突變。
+   * 🔵 `emailRedirectTo` 是 Supabase 的欄位名(不是 `redirectTo`)—— 與
+   *    `resetPasswordForEmail` 的 `redirectTo` **不同名**,兩支放在一起時特別容易抄錯。
+   */
+  async resendSignupConfirmation(params: { email: string; redirectTo: string }): Promise<void> {
+    const { error } = await this.supabase.auth.resend({
+      type: 'signup',
+      email: params.email,
+      options: { emailRedirectTo: params.redirectTo },
+    });
+    if (error) {
+      throw mapSupabaseAuthError(error);
+    }
+  }
+
   /** 更新目前(recovery session)使用者密碼。 */
   async updatePassword(newPassword: string): Promise<void> {
     const { error } = await this.supabase.auth.updateUser({ password: newPassword });

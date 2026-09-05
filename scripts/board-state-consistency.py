@@ -110,7 +110,13 @@
 # ⚠️ 而掛上去那一步動 `.husky/` = 平台設定 = 鐵則 12④ ⇒ **不在本檔的權限裡。**
 import contextlib, io, json, os, re, subprocess, sys, tempfile
 
-CLOSED = ('open', 'doing', 'parked', 'done')
+# 🔵 `standing` = **常設**(Sean 2026-09-05 逐字拍「常設 甲」, ⟦b9-STATEPOLICY⟧)——
+#    什麼時候用它:**做完了、殘餘只能等下次撞到、而沒有在等任何人**。
+#    🔴 它與 `parked` 的差別是【有沒有等人】:`parked` 要寫「等什麼」, `standing` 不必,
+#       因為它不在等 —— 它是一條長期有效的線, 不是一件停住的工作。
+#    🛑 而它【不是 done 的委婉說法】:done 表示這條線可以不用再看;
+#       standing 表示它會一直在, 而下一次撞到它的人要知道它是被決定成這樣的。
+CLOSED = ('open', 'doing', 'parked', 'done', 'standing')
 # 🔴 板子那條數法的 regex 【只寫一次】 —— grep 用它, 驗輸出形狀也用它。
 #    寫兩份的話, 有人改了 CLOSED 而只改到一邊 ⇒ 驗證器會開始放行它本來該擋的東西。
 #    ⚠️ **而「只寫一次」只治【只改一邊】那一種漂移, 治不了【新值本身含 regex 元字元】那一種**
@@ -433,6 +439,41 @@ def rule1_closed_set(rows):
 PARKED_PREFIXES = ('等#', '等人:', '等時機:')
 
 
+def rule6_done_not_waiting(rows):
+    """⑥ 態=done 的列, 誰欄不該還寫著「待派」。
+
+    🔴 **它抓的是【一列上兩格互相打架】** —— `done` 說做完了, 誰欄說還沒有人接。
+       兩句都讀得通, 而合起來是假的;而讀的人會依照他先看到的那一格行動。
+       (2026-09-05 `-ship` 在 `⟦ship-PRINTCARON1⟧` 撞到, 主視窗 `-f8` 派)
+
+    🛑 **本檢查【只擋這一發改到的列】, 不擋歷史。** 理由是量到的:
+       2026-09-05 當場量全檔 **668 資料列** ——
+         誰欄【含】「待派」二字      ⇒ done 命中 **65** 列(而 open 命中 177 ⇒ 尺會動)
+         誰欄【開頭就是】「待派」    ⇒ done 命中 **56** 列
+         誰欄【整格只有】「待派」    ⇒ done 命中 **38** 列
+       ⇒ 📌 **無條件擋的話, 這道閘上線第一天會叫 56 次** —— 而
+          「閘死於誤報遠比死於漏報常見」⇒ 它會在第二天被關掉。
+       ✅ 所以:全檔那些**列出來給人看**(不擋), 而**這一發改到的列**要乾淨。
+
+    🔴 而用的是【開頭就是】不是【含有】:那 9 列的差是
+       「待派」住在被保留的舊字面裡(`⟪原誰欄⟫` / 刪除線 / `<br>` 之後的訂正)——
+       那不是「還沒派」, 那是病史。**含有** 這把尺分不出這兩件事。
+
+    回傳 (全檔命中, 只在 changed_lines 裡的命中)。changed_lines=None ⇒ 第二項是空的。
+    """
+    hits = [r for r in rows
+            if r['state'] == 'done'
+            and len(r['f']) > 4
+            and _strip_md(r['f'][4]).startswith('待派')]
+    return hits
+
+
+def _strip_md(w):
+    """剝掉開頭的 markdown 修飾, 讓「**待派**」與「待派」是同一件事。"""
+    import re as _re
+    return _re.sub(r'^[*~`\s]+', '', w)
+
+
 def rule4_parked_has_prefix(rows):
     """④ 態=parked 的列, 必須有一個機讀的「等什麼」前綴。
 
@@ -643,6 +684,19 @@ def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None, sta
             '處置是把示範列的態欄字樣改掉, 不是把本檢查關掉。')
     else:
         say(f'  ✅ ①b 板子的數法印 {grep_n} = 資料列 {len(rows)}(兩個各自量到的數)')
+
+    done_waiting = rule6_done_not_waiting(rows)
+    if done_waiting:
+        say(f'  🔵 ⑥ 態=done 而誰欄開頭仍是「待派」的有 {len(done_waiting)} 列'
+            f'(2026-09-05 立本檢查時當場量到 56 列 ⇒ 這個數字【下降】才是進展)')
+        for r in done_waiting[:8]:
+            say(f'     {r["sec"]} 節 :{r["line"]}  {r["f"][2][:40] if len(r["f"]) > 2 else ""}')
+        if len(done_waiting) > 8:
+            say(f'     …另外 {len(done_waiting) - 8} 列沒印(印全部會蓋掉別的檢查)')
+        say('     🛑 **本檢查【不判紅】** —— 56 列是既有的, 無條件擋會讓這道閘第一天就被關掉。')
+        say('     ✅ 修一列的做法:誰欄改成【誰做掉的】或【已收, 無人續接】, 不是把 done 改回 open。')
+    else:
+        say('  ✅ ⑥ 沒有 done 列的誰欄開頭是「待派」')
 
     noprefix = rule4_parked_has_prefix(rows)
     if noprefix:

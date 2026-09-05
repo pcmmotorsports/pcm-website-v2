@@ -21,9 +21,48 @@ export function CartQtyInput({ qty, onCommit }: { qty: number; onCommit: (qty: n
   const [qtyText, setQtyText] = useState(String(qty));
   const [notice, setNotice] = useState<string | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
+  // 🔴🔴 **⟦02-CARTQTYFLAKE4⟧ 的根因就在這三行。**
+  //   ⛔ ~~`useEffect(() => { setQtyText(String(qty)); }, [qty])`~~
+  //   🔬 **兩個方向都量過**(harness = `CartQtyFlake.harness.test.tsx`, 讀數可重跑;jsdom):
+  //     ① 把 deps 拿掉(= 每次 render 後都跑)⇒ **40/40 全中**。
+  //        指紋 `派發當下 input.value="150"` → `change 回來後 "3"` → blur 送出 **3**
+  //        ⇒ **在線上那五個樣本量過的三格上**(`calls` / 送出值 / blur 後 `input.value`)逐字相同
+  //        ——「派發當下」那一格是本 harness 才生出來的, 舊樣本沒有它, 不宣稱那一格也對得上。
+  //     ② 留著 `[qty]`(= 只有掛載那一發)⇒ 800 發 **5 發**(0.6%)、500 發 **3 發**, 同一個指紋。
+  //     ③ 換成下面這個形狀 ⇒ **2000 發 0 中**(load average 兩邊都是 70~80)。
+  //     ④ **`onChange` 到底有沒有跑?量了。**(codex 2026-09-05 must-fix:我原本只證明了
+  //        「setter 寫進去 150」, 沒證明 synthetic `onChange` 執行過, 也就沒排除
+  //        「onChange 被吞 + React controlled-input restore 把值還原」那個世界。)
+  //        做法:暫時在 `onChange` 裡記一個計數與收到的字, 舊版碼跑 1200 發。
+  //        🔬 讀數:**壞的 10 發【每一發】都是 `onChange 跑了 1 次 收到 "150"`。**
+  //        ⇒ 🎯 **那個替代解釋被讀數推翻** —— `setQtyText('150')` 確實執行了,
+  //           而 blur 之前唯一還會寫 `qtyText` 的只剩這個 effect(`commit` 要 blur 才跑)。
+  //        ⚠️ 探針是暫時的, **現在的碼裡沒有它**;要重量就照這段再掛一次。
+  //   🎯 **機制**:passive effect 是被**排程**的, 不保證在 `findByText` 回來前跑完;
+  //      負載高時被延到下一個 act 裡 ⇒ 順序變成
+  //      「onChange 把 state 寫成 '150'」(④量到)→「那一發 effect 補跑, `setQtyText(String(qty))` 寫回 '3'」
+  //      ⇒ re-render 把 `value={qtyText}` 蓋回 DOM。
+  //      ⚠️ 仍未直接量到的只剩一格:**被延後的是不是【掛載】那一發**(①證明的是「這個 effect
+  //      覆寫得出這個指紋」)。結論不靠那一格, 它靠 ①②③④ 四個讀數。
+  //   🛑 **不要把它寫成「客人被吃字」** —— 讀數全在 jsdom, **瀏覽器可達性未確認**;
+  //      而瀏覽器裡真的到得了的那個世界是「打字中 `qty` prop 變了」, 而**那個世界新舊兩版行為相同**
+  //      (code-reviewer 2026-09-05 逐一比五個世界的結論)。⇒ 本片修的是**競態本身與那格 flake**,
+  //      不是一個已證實的客訴。⚠️ 而加 retry 仍然不對:那是把讀數藏起來, 不是把競態關掉。
+  //   ✅ 修法 = React 官方的「props 變了就在 render 當下調整 state」形狀(不是 effect):
+  //      它在 render 階段跑 ⇒ **沒有「晚一步」這個狀態**, 也就沒有那個競態。
+  //   ⚠️ **行為等價**(五個世界逐一比過:掛載 / `qty` 真的變 / 打字中 `qty` 變 / 夾到 99 而父層沒更新 /
+  //      re-mount ⇒ 全部相同)。掛載時 `useState(String(qty))` 已經初始化好,
+  //      **`qty` 未變時**那一發 effect 寫的是同一個值(⚠️ 而 flake 那幾發它寫的是**舊值**——
+  //      那正是本片要修的東西, 不要把這句讀成「它從來沒有作用」)。
+  //   🔴 **比較用 `Object.is` 不是 `!==`**(codex 2026-09-05 nit):`qty` 若是 `NaN`,
+  //      `NaN !== NaN` 恆真 ⇒ **每次 render 都重設 state ⇒ 無限重跑**。而舊版的 `useEffect([qty])`
+  //      用的就是 `Object.is`(React 的 deps 比較)⇒ 它對 `NaN` 是安全的。
+  //      ⇒ 📌 **換形狀的時候, 把被換掉那個機制【內建的比較語意】一起換過來, 否則它會靜靜掉一格。**
+  const [prevQty, setPrevQty] = useState(qty);
+  if (!Object.is(qty, prevQty)) {
+    setPrevQty(qty);
     setQtyText(String(qty));
-  }, [qty]);
+  }
   useEffect(() => () => {
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
   }, []);

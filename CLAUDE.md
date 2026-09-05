@@ -71,6 +71,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 🔴 **我要查正式庫的一個數字 / 我想知道某支 migration 貼了沒 / 我掃了 `scripts/`+環境變數+`~/.pgpass`+MCP 都查無, 而想斷言「沒有唯讀權限」之前** | `~/pcm-mailbox/0905查證/run.sh` —— **那條路存在**(Sean 2026-09-03 00:5x 批, 它 source `.env.local`)。🛑 三句缺一不可:①**唯讀與 apply 是兩個授權, 而 Sean 只給了唯讀** ⇒ 不得拿它 apply 任何東西 ②**跑不跑得動由你的 session 權限決定 —— 跑不動是【對的】, 不是壞掉**(2026-09-03 主視窗被擋, 它沒有繞) ③**絕不把連線字串印進對話**。📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §23** |
 | 要寫或審任何 `.range()` · 翻頁迴圈 · 「撈全部」的迴圈 | `docs/patterns/pagination-loop-review.md`(🔴 **檔頭有證據等級聲明** —— 原文已隨 session 消失、本檔是轉錄版,引用前先讀那一段;五條準則:頁大小嚴格小於 `db-max-rows` / `.range()` 兩端皆含 / 中途失敗要 throw 不得 break / `count` 不當終止判準 / 排序帶唯一鍵) |
 | 要把某供應商商品上架到顧客站 shop.pcmmotorsports.com | `docs/runbooks/supplier-storefront-onboarding.md`(完整流程 + forget-proof preflight,單一入口) |
+| 🔴 **後台按了「送新竹」, 那箱卡在「送出結果未知」, 鈕按幾次都不會動** | `docs/runbooks/hct-unknown-stuck-manual-reset.md`(第 0 步是【不准改】;甲型佔位 vs 乙型真回應只有 DB 分得出) |
 | 🔴 **客人打電話說「我收到【兩封不一樣的】出貨通知」/「到底哪一個追蹤號才對」/「你們是不是出了兩次貨」** | `docs/runbooks/duplicate-shipping-email-sop.md` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §21** |
 | 🔴 **客人來要求「查我的資料 / 刪掉我的資料 / 不要再寄信給我」** | `docs/runbooks/data-rights-sop.md` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §22** |
 | 🔴 **多窗同時在跑**:①我要回報進度而主視窗會不會忘記我 ②**收到 push 警示:有人推了 dev 而不是我** / 我 commit 了而它上去了沒 ③我要自己 push | `bash scripts/heartbeat.sh "<窗>" "<剛做完>" "<手上>"` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §9** |

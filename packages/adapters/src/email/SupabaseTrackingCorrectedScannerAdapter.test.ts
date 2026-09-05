@@ -22,6 +22,7 @@ const RAW = {
   display_id: 'PCM-2026-0001',
   notification_email: 'member@example.com',
   customer_email: 'frozen@example.com',
+  order_source: 'manual_phone',
 };
 
 function client(data: unknown[] | null, error: { code?: string } | null = null) {
@@ -43,7 +44,7 @@ function client(data: unknown[] | null, error: { code?: string } | null = null) 
 }
 
 describe('SupabaseTrackingCorrectedScannerAdapter', () => {
-  it('🔴 打的是那個 view, 而且【九個欄位一個都不能少】', async () => {
+  it('🔴 打的是那個 view, 而且【十一個欄位一個都不能少】(⛔ ~~九~~ / ~~十~~ ⇒ 片 B 加了 order_source;而【九】那個字面在片 B 之前就已經與清單不符了)', async () => {
     const { c, from, select } = client([RAW]);
     await new SupabaseTrackingCorrectedScannerAdapter(c).listTrackingCorrectedWithoutEmail({
       limit: 25,
@@ -62,6 +63,9 @@ describe('SupabaseTrackingCorrectedScannerAdapter', () => {
       'display_id',
       'notification_email',
       'customer_email',
+      // 🔴 片 B(2026-09-05)新增。這一格逐字釘欄位清單 ⇒ 它【本來就該紅】,
+      //    而它紅了正是這道釘樁還活著的證據。
+      'order_source',
     ]);
   });
 
@@ -116,6 +120,8 @@ describe('SupabaseTrackingCorrectedScannerAdapter', () => {
       carrierCode: 'hct',
       trackingCorrectedAt: '2026-09-04T10:00:00.000Z',
       trackingCorrectedKey: '20260904100000000000',
+      // 🔴 片 B(2026-09-05):這一格是 toStrictEqual 整包比 ⇒ 多一欄它本來就該紅
+      orderSource: 'manual_phone',
       orderId: 'order-1',
       displayId: 'PCM-2026-0001',
       notificationEmail: 'member@example.com',
@@ -167,5 +173,21 @@ describe('SupabaseTrackingCorrectedScannerAdapter', () => {
       }),
     ).rejects.toThrow();
     expect(from).not.toHaveBeenCalled();
+  });
+});
+
+// ══ 片 B(⟦f3-MAILFALLBACKVSRULING⟧, 2026-09-05)——「撈得到 order_source」════════
+// 🔴 **兩個宣稱, 各一格**:①它在 select 字串裡 ②它真的走到 port 物件上。
+//    少了②, 一個「加進 select 而忘了對映」的實作【第①格照樣綠】。
+// 🔵 而 fixture 刻意用 'manual_phone' 不用 'web' —— 一個把它寫死成 'web' 的對映
+//    在 'web' 的 fixture 上完全看不出來。
+describe('片 B:order_source 接出來了', () => {
+  it('①select 字串帶了它, 而②它走到 port 物件上', async () => {
+    const { c, select } = client([RAW]);
+    const r = await new SupabaseTrackingCorrectedScannerAdapter(
+      c,
+    ).listTrackingCorrectedWithoutEmail({ limit: 50 });
+    expect(String(select.mock.calls[0]![0])).toContain('order_source');
+    expect(r.rows[0]?.orderSource).toBe('manual_phone');
   });
 });

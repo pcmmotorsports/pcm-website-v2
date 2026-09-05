@@ -1,7 +1,7 @@
 import 'server-only';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
 
-// cron-heartbeat-read.ts — 後台首頁「六支排程各自多久沒成功了」。
+// cron-heartbeat-read.ts — 後台首頁「【七】支排程各自多久沒成功了」。
 //
 // 🔴🔴 **天花板(先讀這兩句,不要讀到檔頭深處才發現)**:
 //    ① **白名單是手寫的,而沒有任何東西會在它跟真排程漂開時說話。**
@@ -84,7 +84,7 @@ export type CronHeartbeatReport = {
   jobs: CronJobHealth[];
   /**
    * 白名單有、表裡沒有那一列的 job 名字。**印名字不只印計數** —— 要行動的人需要的是名字。
-   * 🔴 顯示端要附**該怎麼辦**:「去看它接線了沒(片1 的五支 / 片2 的第六支)」。
+   * 🔴 顯示端要附**該怎麼辦**:「去看它接線了沒(片1 的五支 / 片2 的第【七】支)」。
    *    📌 一個告警若不附該怎麼辦,看到的人會先花五分鐘重新推導一次。
    */
   neverBeat: string[];
@@ -119,7 +119,7 @@ function minutesSince(raw: unknown, now: Date): number | null {
 }
 
 /**
- * 六支排程的健康狀態。**本函式不拋** —— 首頁的失敗隔離靠 `Promise.allSettled`,
+ * 【七】支排程的健康狀態。**本函式不拋** —— 首頁的失敗隔離靠 `Promise.allSettled`,
  * 而少一個會拋的來源就少一條「這一格壞掉把別格一起帶走」的路。
  */
 export async function loadCronHeartbeats(now: Date = new Date()): Promise<CronHeartbeatReport> {
