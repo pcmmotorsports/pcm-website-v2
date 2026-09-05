@@ -308,6 +308,25 @@ STUB3
   #    🔴 這一格是真 push 實測換來的:`pre-push` 不保證 cwd 是 repo 根。
   #    量的是「列得出候選」而不是「rc=0」—— 因為債表上還有違規者時 rc 也可能非 0,
   #    那兩件事要分開問。
+  # ── 辛:🔴 **拿 `--only` 掃【本檔自己】不得死鎖** ────────────────────────
+  #    守的是 2026-09-06 那個自我死鎖:`--only` 掃本檔 ⇒ 跑本檔的 `--selftest`(264s)⇒ 超過 60s 上限 ⇒ exit 2。
+  #    ⇒ 📌 **那會讓「動這支檔」本身變成 commit 不了。**
+  #    ✅ 現在本檔被 `--only` 排除 ⇒ 這一格要**很快**回 0(而不是跑 264 秒再回 2)。
+  #    🔬 而「很快」也要量:同一發記秒數, 超過 30 秒就當它沒被排除掉。
+  _t0=$(date +%s)
+  ( cd "$ROOT" && bash "$ROOT/scripts/selftest-git-isolation-gate.sh" \
+      --only scripts/selftest-git-isolation-gate.sh ) >/dev/null 2>&1
+  _selfrc=$?
+  _dt=$(( $(date +%s) - _t0 ))
+  ck "辛1 --only 掃本檔自己 ⇒ 0(排除掉, 不死鎖)" "$_selfrc" "0"
+  [ "$_dt" -lt 30 ] && ck "辛2 而且要【很快】回(實測 ${_dt}s < 30s)" yes yes \
+                    || ck "辛2 而且要【很快】回(實測 ${_dt}s < 30s)" no yes
+  # 🟢 辛3 負對照:換一支【沒有被排除】的候選 ⇒ 它要真的被掃(分母 1 支), 證明排除的是本檔不是全部
+  ( cd "$ROOT" && bash "$ROOT/scripts/selftest-git-isolation-gate.sh" \
+      --only scripts/free-port.sh ) 2>/dev/null | grep -q '分母 1 支' \
+    && ck "辛3 負對照:別的候選仍然被掃到(分母 1 支)" yes yes \
+    || ck "辛3 負對照:別的候選仍然被掃到(分母 1 支)" no yes
+
   wcount=$( cd / && { cd "$ROOT" && { git ls-files -z; git ls-files -z --others --exclude-standard; } \
             | xargs -0 grep -l -- '--selftest' 2>/dev/null | sort -u | grep -cE '^scripts/.*\.(py|sh)$'; } )
   [ "${wcount:-0}" -gt 0 ] && ck "戊 從別的目錄也列得出候選" yes yes \
@@ -418,7 +437,24 @@ if [ "${1:-}" = "--only" ]; then
     _norm="$_norm$_rel
 "
   done
-  _only=$(printf '%s' "$_norm" | sed '/^$/d' | sort -u)
+  # 🔴🔴 **`--only` 一律把【本檔自己】排除掉 —— 否則動這支檔的人 commit 必被擋**
+  #    (2026-09-06 codex R1 must-fix ②;而那個死鎖是我上一片 `1495cc167` 接線時造出來的)。
+  #    🔬 算式:`package.json` 的 `scripts/*.{sh,py}` 那條 wildcard 會用 `--only` 掃**本檔**
+  #      ⇒ 而掃一支候選 = **跑它的 `--selftest`** ⇒ 本檔的 `--selftest` 實測 **264 秒**
+  #      ⇒ 而 `--only` 的上限是 **60 秒** ⇒ 🛑 **必逾時 ⇒ exit 2 ⇒ 任何人動這支檔都 commit 不了。**
+  #    ⇒ 📌 **它今天還沒咬人, 只是因為 1495cc167 進 dev 之後【還沒有人動過這支檔】。**
+  # ✅ **而排除它【不留守備缺口】**, 三條路各自還在:
+  #    ① `package.json` 另有一條直接跑本檔 `--selftest` 的 entry(動本檔時它照跑)
+  #    ② `pre-push` 第 5 支的**全量**掃仍然涵蓋本檔
+  #    ③ 本檔的 `--selftest` 裡就有「帶 `GIT_DIR` 跑自己 ⇒ 誘餌 repo 不得變」那兩格(丁1/丁2)
+  #    ⇒ 🎯 **少掉的只有「用 --only 掃自己」這一條, 而那一條【結構上跑不完】。**
+  _self_rel='scripts/selftest-git-isolation-gate.sh'
+  _only=$(printf '%s' "$_norm" | sed '/^$/d' | grep -vxF "$_self_rel" | sort -u)
+  if [ -z "$_only" ]; then
+    echo "── --only:給的路徑只有本閘自己 ⇒ 零候選(本檔刻意排除, 理由見上)"
+    echo "   🔵 動本檔的守備仍在:package.json 的 --selftest entry · pre-push 全量 · 丁1/丁2 兩格。"
+    exit 0
+  fi
   CAND=$(printf '%s\n' "$CAND" | sort -u | comm -12 - <(printf '%s\n' "$_only"))
   if [ -z "$CAND" ]; then
     echo "── 給的路徑裡沒有任何帶 --selftest 的腳本 ⇒ 零候選"
