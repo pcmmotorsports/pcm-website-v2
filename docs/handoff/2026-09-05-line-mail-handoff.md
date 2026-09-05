@@ -86,7 +86,29 @@ grep -n '正確順序' supabase/migrations/20260905180000_*.sql
 | `20260905180000` 要不要排上貼板 | **未決,本線的決定** | 本線 |
 | 述詞抽單一來源 | **parked**(退場條件:伴生 view 有讀者 **或** 述詞第一次漂) | — |
 | `paid-email-html.ts` 那顆「到會員中心查看訂單」按鈕 | **不動**(Sean 勾 A4) | Sean / `-f8` |
-| `manual-order-no-email-wiring.test.ts` | **寫好了而刻意沒 commit**(要等片 E 進 dev 才會綠) | 本線 |
+| `manual-order-no-email-wiring.test.ts` | **寫好了而刻意沒 commit**(片 E 那半還沒到,判別法見 §4a) | 本線 |
+
+### 4a. 🔴 片 E 到底到了沒 —— **不要用 `grep p_notification_email` 問這件事**
+
+🛑 **我用過那把尺, 而它答錯了。** 當場量:
+```
+git grep -c 'p_notification_email' origin/dev -- '**/*.ts' '**/*.tsx'   ⇒ 7 支檔命中
+```
+⇒ 看起來像「片 E 到了」。**而它沒到。** 那 7 支是**別條路**的命中
+(`packages/adapters/.../mappers/order.ts`、`database.types.ts` 這些顧客站/型別產生物)——
+📌 **那個欄位名出現在很多地方, 而【手動建單那條路】只有一個落點。**
+
+✅ **問對的那一格**(這條線的接線測試自己就是這樣問的):
+```sh
+grep -c 'p_notification_email' apps/admin/src/lib/orders/manual-order-repository.ts
+git show origin/dev:apps/admin/src/lib/orders/manual-order-repository.ts | grep -c 'p_notification_email'
+```
+· 兩個都是 **0** ⇒ **片 E 那半還沒到**(2026-09-05 夜當場量,`origin/dev = fe20d792b`)
+· 變成 **≥1** ⇒ 才可以把 `manual-order-no-email-wiring.test.ts` commit 進去
+🔵 **而最可靠的判別式不是 grep, 是那支測試自己**:
+`npx vitest run packages/use-cases/src/manual-order-no-email-wiring.test.ts`
+—— 當場 `2 failed | 2 passed`,而**紅的那兩格逐字說出缺的是什麼**。
+📌 ⇒ **它紅著就是它在做它該做的事**;有人為了讓它綠而放寬它,那就是把這條線唯一的跨檔守門關掉。
 
 ---
 
