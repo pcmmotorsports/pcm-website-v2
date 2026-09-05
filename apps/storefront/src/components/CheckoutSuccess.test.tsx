@@ -140,6 +140,49 @@ describe('CheckoutSuccess', () => {
     expect(screen.getByRole('link', { name: /繼續購物/ }).getAttribute('href')).toBe('/products');
   });
 
+  // 🔴 ⟦b4-BANKCHARGESCARD⟧ 片 2 · ④ 匯款終態的出口。四發:主張 / 正對照 / 邊界 / 負向。
+  it('🔴 awaiting_remittance:訂單已成立等待匯款 + 單號 + 主 CTA 連【明細頁】不是列表', () => {
+    // 🔵 這一發在「有人把它排到 `displayId ?` 後面」的世界會紅 ——
+    //    那時 href 會變成 `/account?tab=orders`(列表), 而匯款帳號不在列表上。
+    render(
+      <CheckoutSuccess variant="awaiting_remittance" displayId="PCM-2026-0009" message="請於三日內完成匯款" />,
+    );
+    expect(screen.getByText('訂單已成立,等待匯款')).toBeTruthy();
+    expect(screen.getByText('N°ORDER · AWAITING REMITTANCE')).toBeTruthy();
+    expect(screen.getByText('請於三日內完成匯款')).toBeTruthy();
+    expect(screen.getByText('PCM-2026-0009')).toBeTruthy();
+    expect(screen.getByRole('link', { name: /查看匯款帳號/ }).getAttribute('href')).toBe(
+      '/account/orders/PCM-2026-0009',
+    );
+    expect(screen.getByRole('link', { name: /繼續購物/ }).getAttribute('href')).toBe('/products');
+  });
+
+  it('🔴 awaiting_remittance 的 displayId 要過 encodeURIComponent(它是使用者可見碼、不保證 URL-safe)', () => {
+    // 🔵 拿掉 encodeURIComponent 這一發就紅;而上面那一發【不會】——
+    //    `PCM-2026-0009` 編碼前後一模一樣 ⇒ 📌 那一發對這個突變是瞎的, 所以要多這一發。
+    render(<CheckoutSuccess variant="awaiting_remittance" displayId="A/B 1&2" message="x" />);
+    expect(screen.getByRole('link', { name: /查看匯款帳號/ }).getAttribute('href')).toBe(
+      '/account/orders/A%2FB%201%262',
+    );
+  });
+
+  it('🔴 awaiting_remittance **無單號** → 不連明細(不給一顆按下去落空的鈕), 退回訂單列表', () => {
+    render(<CheckoutSuccess variant="awaiting_remittance" message="x" />);
+    expect(screen.getByRole('link', { name: /查看匯款帳號/ }).getAttribute('href')).toBe(
+      '/account?tab=orders',
+    );
+    expect(screen.queryByText(/^PCM-/)).toBeNull();
+  });
+
+  it('🟢 正對照:paid + 單號 **不會**跑進匯款那條分支(證明上面三發不是恆真)', () => {
+    // 🛑 少了這一發, 把 `variant === 'awaiting_remittance'` 寫成恆真的突變會全綠。
+    render(<CheckoutSuccess variant="paid" displayId="PCM-2026-0010" />);
+    expect(screen.queryByRole('link', { name: /查看匯款帳號/ })).toBeNull();
+    expect(screen.getByRole('link', { name: /查看我的訂單/ }).getAttribute('href')).toBe(
+      '/account?tab=orders',
+    );
+  });
+
   it('🔴 failed → 不渲染那顆鈕,CTA 維持返回購物車(Sean D4:車保留可立即重結帳)', () => {
     render(<CheckoutSuccess displayId="PCM-2026-0003" variant="failed" message="未完成" />);
     expect(screen.queryByRole('link', { name: /查看我的訂單/ })).toBeNull();

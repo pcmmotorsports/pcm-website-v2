@@ -1931,6 +1931,28 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
       expect(res.alerted).toBe(false);
     });
 
+    it('🔴 認不得的 kind 要【真的出現在信裡】—— 在訊息那一層驗, 不是在 adapter 物件上', () => {
+      /**
+       * 🔴 codex 2026-09-05 must-fix ⑤:adapter 那兩格的測試名字寫「照樣進信」,
+       *    而它們**只驗了 adapter 回傳的物件** ⇒ 📌 **下游若把 unknown kind 丟掉, 那兩格仍綠。**
+       *    ⇒ 這一格站在【訊息組裝】那個邊界上, 斷言那個字真的出現在信的文字裡。
+       */
+      const msg = buildAnomalyAlertMessage(
+        {
+          ...ZERO,
+          pcmIncidentOpenTotal: 2,
+          pcmIncidentOldest: '2026-09-05T00:00:00Z',
+          pcmIncidentByKind: { refund_over_total: 1, zzq9_never_defined: 1 },
+        },
+        86400, null, false,
+        { stale: false, anonRevoked: false },
+        { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+      );
+      expect(msg.text, '認得的那個沒進信').toContain('refund_over_total=1');
+      expect(msg.text, '🔴 認不得的那件從信裡消失了 —— 而 open_total 仍然算它')
+        .toContain('zzq9_never_defined=1');
+    });
+
     it('🔴 信裡那一塊要說【錢在庫裡】與【吞掉是對的】, 而且只有那一塊', () => {
       const msg = buildAnomalyAlertMessage(
         {

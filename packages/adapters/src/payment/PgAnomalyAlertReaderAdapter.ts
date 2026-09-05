@@ -1310,6 +1310,27 @@ function parseAlertSummary(
      *    ②**回滾掉的那些**(incident 那一列與被吞的例外在同一個交易裡, 外層整個回滾時
      *      那一列會跟著消失 ⇒ ⟦b4-NCPCANCELROLLBACK⟧ 那條路本格【零覆蓋】)。
      */
+    /**
+     * 🔴🔴 **kind 白名單 —— 而它是【偵測】用的, 不是【過濾】用的。**
+     *   主視窗 `-f8` 2026-09-05 要求「TS 那半的 kind 白名單也要跟」。
+     *   ⇒ 而我**刻意不拿它去丟掉不認識的 kind**:
+     *     📌 **丟掉 = 一件真的事故從信裡消失, 而 `open_total` 仍然算它** ——
+     *        那會變成「總數說有 3 件, 而種類欄只列得出 2 件」, 讀信的人分不出少的那件是什麼。
+     *     🛑 **這一片存在的理由就是「有事發生而沒有人知道」** ⇒ 過濾等於在告警端再犯一次。
+     *   ✅ 所以白名單的用途是:**認不得的 kind ⇒ 照樣進信, 而多印一行 `console.error`**
+     *     —— 那一行是「SQL 端加了值而 TS 沒跟上」唯一分得出來的訊號。
+     *   🔵 兩個值的出處:`pending_refund_open_failed`(20260905290000)·
+     *     `refund_over_total`(20260905420000, 給線【帳務】片③ 的超退)。
+     *   ⚠️ 這份清單與 DB 的 CHECK **是兩份** —— 它們對不上時沒有東西會自動叫。
+     *   🛑🛑 **而那行 `console.error` 不是一個可靠的漂移告警, 這句要寫出來**(codex 2026-09-05 nit):
+     *     ① **沒有任何證據顯示有人在監看它** —— 我沒有量到那條路上有人。
+     *     ② 🔴 **新 kind 若還沒有任何 open 列, 它根本不會出現在 `open_by_kind`**
+     *        ⇒ 📌 **清單漂移了而那行永遠不會印** —— 它只在「已經有事故發生」之後才叫。
+     *     ⇒ 所以它是**事後的線索**, 不是**事前的守門**。真正的守門要有人做一支
+     *       「SQL 的 CHECK vs 這份清單」的對帳測試, 而那不在本片射程。已請主視窗開列。
+     */
+    const KNOWN_INCIDENT_KINDS = new Set(['pending_refund_open_failed', 'refund_over_total']);
+
     const inc = incidentRows[0]?.result as Record<string, unknown> | undefined;
     const incTotal = inc?.open_total;
     /**
@@ -1347,6 +1368,17 @@ function parseAlertSummary(
         { got: typeof incTotal },
       );
     }
+    if (incKindObj !== undefined) {
+      const unknown = Object.keys(incKindObj).filter((k) => !KNOWN_INCIDENT_KINDS.has(k));
+      if (unknown.length > 0) {
+        console.error(
+          '[anomaly-alert] 🔴 pcm_incident 回了 TS 不認識的 kind ⇒ SQL 端的 CHECK 加了值而這份清單沒跟上'
+          + '(那幾件【照樣進信】—— 丟掉才會讓真事故消失)',
+          { unknown },
+        );
+      }
+    }
+
     const incident = {
       pcmIncidentOpenTotal: incWellTyped ? (incTotal as number) : null,
       pcmIncidentUnknown: !incWellTyped,
@@ -1360,10 +1392,22 @@ function parseAlertSummary(
         incKindObj === undefined
           ? {}
           : Object.fromEntries(
-              Object.entries(incKindObj).filter(
-                (e): e is [string, number] =>
-                  typeof e[1] === 'number' && Number.isInteger(e[1]) && e[1] >= 0,
-              ),
+              Object.entries(incKindObj)
+                .filter(
+                  (e): e is [string, number] =>
+                    typeof e[1] === 'number' && Number.isInteger(e[1]) && e[1] >= 0,
+                )
+                /**
+                 * 🔵 codex 2026-09-05 nit:kind 的**原字串**會進 log 與信。
+                 *   今天它受 DB 的 CHECK 控制 ⇒ 不可能有換行或超長,
+                 *   而 📌 **「今天受控」與「永遠受控」是兩件事** —— 而信的排版壞掉時,
+                 *   壞的是**一封在講錢的信**。⇒ 這裡把 key 收成一個安全形狀。
+                 * 🛑 **只切形狀, 不丟東西** —— 認不得的 kind 照樣進信(見上面白名單那段)。
+                 */
+                .map(([k, n]): [string, number] => [
+                  k.replace(/[\r\n\t]/g, ' ').slice(0, 64),
+                  n,
+                ]),
             ),
     };
   /**
