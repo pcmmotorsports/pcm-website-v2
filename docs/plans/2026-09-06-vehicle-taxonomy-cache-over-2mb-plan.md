@@ -154,3 +154,57 @@ codex 逐字:「現碼的 `unstable_cache` producer 已在最後 `return buildVe
 log **79,736 bytes**;兩把尺:`must-fix` 字面 **26** vs 帶 `檔案:行號` **14**。
 ⇒ 尺A > 尺B ⇒ 那份 log **有一半是它讀到的東西**,不是它寫出來的結論。
 🟢 **而它產出的 6 條全部是真的**(第 1 條我開檔複驗、其餘逐條可讀)⇒ **這一發值得。**
+
+
+---
+
+## 7 · 🔴🔴 量完了 —— **而它推翻了本檔【自己的標題】**(2026-09-06,唯讀 SQL)
+
+`bash scripts/readonly-prod-sql.sh`,對正式庫,零寫入。
+
+### 7.1 三個數(主視窗指定的那三個)
+
+```
+分母                          rows_total                 12,197
+三層節點(去重後)             brands 67 · models 3,816 · year_nodes_expanded 24,464
+                              (若年份【不展開】只存區間 ⇒ 12,197 筆)
+同形樹 bytes(展開年份)       365,774            ← 0.36 MB
+分片後最大一片(按品牌)       Honda 46,480 · Ducati 40,005 · Yamaha 38,677 · KTM 29,614 · Kawasaki 27,435
+```
+⚠️ **射程**:第 2、4 兩個數是**我用 SQL 重建同一個形狀**量的,**不是 JS 那一棵**
+(`id` 在 JS 是 `slugify(name)` + 去重後綴,我用 `name` 代;其餘欄位逐一對齊)。
+🔴 §3(年份改存區間那一版)**SQL 寫錯了、報 `column "node" does not exist`** ⇒ **那個數字我沒有**,不補猜。
+
+### 7.2 🛑 所以本檔的標題是錯的:**那棵樹【不是】 2.68 MB,是 0.36 MB**
+
+⇒ ⛔ ~~「車輛對照表 2.68 MB 塞不進 Next data cache」~~ —— **它塞得進去,差 7 倍有餘。**
+⇒ ⛔ ~~候選 a′(把年份改成區間)~~ —— **零意義**:已經遠低於 2 MB,省那 100 KB 不改變任何事。
+⇒ ⛔ ~~候選 b′(分片快取)~~ —— **零意義**:最大一片才 46 KB,而**整棵**都已經合格。
+
+### 7.3 🎯 那 2,679,379 bytes 是【別人的】—— 我把兩行 log 綁成同一件事
+
+那一行完整長這樣:
+```
+Failed to set Next.js data cache for unstable_cache
+  /products?_rsc=…&per=100&vehicle=ducati:scrambler-800:2023 <hash>,
+  items over 2MB can not be cached (2679379 bytes)
+```
+🔵 鍵裡帶著 `per=100&vehicle=…` ⇒ 那是**商品清單**那一支(`getCatalogPageCached`,`products.ts:528`),
+**不是**車款樹(`getVehicleTaxonomyCached`,`:786`)。
+📌 **兩行 log 在畫面上前後相鄰,而我把它們讀成因果。**
+
+### 7.4 而【仍然成立】的是什麼(不要連好的一起丟)
+
+· ✅ **時間確實花在 `fetchVehicleTaxonomy`** —— 那七發 `ms=2973…5695` 是它自己印的,沒有被推翻。
+· ✅ **它每一發都是 `cold`** —— 也是它自己印的字。
+· 🔴 **而現在多了一個【更好的問題】**:
+  > **那棵樹只有 0.36 MB、完全合格,那它為什麼每一發都 cold?**
+  候選(**都沒查**):`revalidate: CATALOG_REVALIDATE_SECONDS = 60` 太短而請求分散 /
+  部署後快取被清 / `unstable_cache` 在這條路上根本沒生效 / 並行 cold request 各自打(codex ⑤)。
+· ✅ **codex 那六條 must-fix 一條都沒被推翻** —— 它們講的是方法,而方法的問題與資料無關。
+
+### 7.5 下一步(取代 §6.4)
+
+1. 🔬 **先查「為什麼 cold」** —— 這是新的主線,而 §6.3 三個候選**全部作廢**。
+2. **另開一列**給 `getCatalogPageCached` 的 2.68 MB(那是**真的**超限,而它是商品清單那一支)。
+3. 🛑 **在 1 有答案之前,不要動任何一行碼** —— 本檔前六節提的每一個修法都建立在一個**被量測推翻的前提**上。
