@@ -47,13 +47,19 @@ SELECT '🔴 ⑥ 還有沒有【漏網】的(refunded + 沒取消 + 有信箱 + 
           LEFT JOIN public.customers c ON c.user_id = o.customer_user_id
          WHERE o.payment_status = 'refunded'::public.payment_status
            AND o.cancelled_at IS NULL
-           AND COALESCE(NULLIF(pg_catalog.btrim(o.notification_email),''),
-                        NULLIF(pg_catalog.btrim(c.email),'')) IS NOT NULL
+           AND COALESCE(NULLIF(pg_catalog.btrim(o.notification_email, public.pcm_js_trim_whitespace()),''),
+                        NULLIF(pg_catalog.btrim(c.email, public.pcm_js_trim_whitespace()),'')) IS NOT NULL
            AND NOT EXISTS (SELECT 1 FROM public.email_outbox e
                             WHERE e.order_id = o.id AND e.event_type = 'order_created')
+           -- 🔴 [R3 F8] 這裡原本 ①用單參數 btrim(與 migration 的尺不同)②只加兩段帳本、漏第三段
+           --    ⇒ 「要 0」那一格會印非 0, 而它是【貼的人唯一拿得到的數字】。兩處都對齊了。
            AND 0 = (COALESCE((SELECT pg_catalog.sum(r.refund_amount) FROM public.order_refunds r
                                WHERE r.order_id=o.id AND r.status='confirmed'),0)
                   + COALESCE((SELECT pg_catalog.sum(m.refund_amount) FROM public.order_manual_refunds m
-                               WHERE m.order_id=o.id AND m.voided_at IS NULL),0)))
+                               WHERE m.order_id=o.id AND m.voided_at IS NULL),0)
+                  + COALESCE((SELECT pg_catalog.sum(r2.refund_amount) FROM public.order_refunds r2
+                                JOIN public.order_refund_effective_verdict v ON v.refund_id = r2.id
+                               WHERE r2.order_id=o.id AND r2.status='failed'
+                                 AND r2.failed_reason='manual_failed' AND v.corrected_to='money_moved'),0)))
 UNION ALL
 SELECT '🟢 正對照 orders 全表列數(尺接得到資料嗎)', (SELECT count(*)::text FROM public.orders);

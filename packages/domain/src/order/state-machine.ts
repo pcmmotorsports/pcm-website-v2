@@ -48,7 +48,11 @@ const PAYMENT_TRANSITIONS: Record<PaymentStatus, readonly PaymentStatus[]> = {
   unpaid: ['paid', 'partiallyPaid'],
   partiallyPaid: ['paid', 'refunded'],
   paid: ['partiallyPaid', 'refunded', 'partiallyRefunded'],
-  partiallyRefunded: ['partiallyRefunded', 'refunded'],
+  // 🔴🔴 **[R3 F6 must-fix]** 我補了 `refunded → paid`, **而把隔壁這一格漏掉了。**
+  //    DB 走得到:部分退款 ⇒ 作廢那一筆 ⇒ `v_moved = 0` ⇒ 目標 `paid`
+  //    (`20260905440000` 的三態 CASE;而 domain 閘明允 `partiallyRefunded` 進入退款轉移)。
+  //    ⇒ 📌 **矛盾沒有被解掉, 只是【搬到隔壁一格】。**
+  partiallyRefunded: ['partiallyRefunded', 'refunded', 'paid'],
   // 🔴 2026-09-05 片③:⛔ ~~`[]`(終態)~~ ⇒ 退款被作廢時要降得回去(Sean 2026-08-22 Q-B=甲)。
   //    🛑 **`partiallyRefunded` 那一格不可以漏** —— DB 那側只作廢掉一部分時算出的就是它;
   //       漏了它 ⇒ TS 與 DB 又一次對同一個轉移矛盾, 而那正是本片要收掉的東西。

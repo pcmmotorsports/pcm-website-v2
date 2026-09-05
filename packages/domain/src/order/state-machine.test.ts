@@ -81,7 +81,8 @@ describe('付款軸狀態機', () => {
     });
 
     it('partiallyRefunded 的非法邊(不可回 paid / 回未付 / 倒回 partiallyPaid / 未付即退 / 終態後)', () => {
-      expect(canPaymentTransition('partiallyRefunded', 'paid')).toBe(false);
+      // 🔴 [R3 F6] ⛔ ~~toBe(false)~~ ⇒ 部分退款那一筆被作廢 ⇒ v_moved=0 ⇒ DB 算出 paid
+      expect(canPaymentTransition('partiallyRefunded', 'paid')).toBe(true);
       expect(canPaymentTransition('partiallyRefunded', 'unpaid')).toBe(false);
       expect(canPaymentTransition('partiallyRefunded', 'partiallyPaid')).toBe(false);
       expect(canPaymentTransition('unpaid', 'partiallyRefunded')).toBe(false);

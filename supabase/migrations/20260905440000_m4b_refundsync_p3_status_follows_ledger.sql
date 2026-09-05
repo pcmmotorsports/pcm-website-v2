@@ -95,6 +95,15 @@ BEGIN
     RAISE EXCEPTION '前置閘③:admin_correct_order_refund_verdict 不是我預期的基線。期望 4736b4a5cb177998623432c33b1ddda7, 實得 %', COALESCE(v_md5,'(讀不到)');
   END IF;
 
+  -- ④b 🔴🔴 **[R3 F5 consider]** `pcm_incident_log` **叫得動嗎** —— 做成前置閘, 不靠一次量測。
+  --    它零 GRANT、`pcm_incident` 零 policy + RLS ⇒ **只有 owner 進得去**;
+  --    而「三支都是 owner=postgres」我只在 2026-09-05 量過**一次**。
+  --    🛑 漂移之後的症狀是:**員工作廢不了退款**, 而錯誤是 `permission denied for function pcm_incident_log`
+  --    ⇒ 📌 那個訊息看起來像「小事故表壞了」, 而真正壞的是**退款作廢這條路**。
+  IF NOT pg_catalog.has_function_privilege(current_user, 'public.pcm_incident_log(text,uuid,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION '前置閘④b:現在這個身分(%)叫不動 public.pcm_incident_log(text,uuid,text) ⇒ 超退留痕會炸在退款作廢那條路上, 停下', current_user;
+  END IF;
+
   -- ④ 🔴🔴 依賴貼板 41:`kind` 的封閉集必須已經收得下 'refund_over_total'。
   --    🛑 **不能只問「函式在不在」** —— `pcm_incident_log` 本來就在, 而 CHECK 沒放寬時
   --       那一發 INSERT 會丟 check_violation, **被內層 handler 吞掉 ⇒ 超退零留痕**。
@@ -148,14 +157,26 @@ BEGIN
      AND o.cancelled_at IS NULL
      AND COALESCE(NULLIF(pg_catalog.btrim(o.notification_email, public.pcm_js_trim_whitespace()), ''),
                   NULLIF(pg_catalog.btrim(c.email, public.pcm_js_trim_whitespace()), '')) IS NOT NULL
-     AND 0 = (COALESCE((SELECT pg_catalog.sum(r.refund_amount) FROM public.order_refunds r
-                         WHERE r.order_id = o.id AND r.status = 'confirmed'), 0)
-            + COALESCE((SELECT pg_catalog.sum(m.refund_amount) FROM public.order_manual_refunds m
-                         WHERE m.order_id = o.id AND m.voided_at IS NULL), 0)
-            + COALESCE((SELECT pg_catalog.sum(r2.refund_amount) FROM public.order_refunds r2
-                          JOIN public.order_refund_effective_verdict v ON v.refund_id = r2.id
-                         WHERE r2.order_id = o.id AND r2.status = 'failed'
-                           AND r2.failed_reason = 'manual_failed' AND v.corrected_to = 'money_moved'), 0));
+     -- 🔴🔴 **[R3 F3 must-fix]** ⛔ ~~三段帳本合計 = 0(會降回 `paid` 的那些)~~ —— **那個集合太小。**
+     --   抑制述詞是 `payment_status.eq.refunded`(`IneligibleOrderEmailScannerAdapter.ts:54`)
+     --   ⇒ 🛑 **帳本 `0 < 合計 < total` 的舊 `refunded` 單會降成 `partiallyRefunded`,
+     --      而那【一樣脫離抑制】** —— 它只是沒有變成 `paid` 而已。
+     --   ⇒ 📌 **我挑的是「會變成 paid 的」, 而該挑的是「會不再是 refunded 的」。**
+     --   ✅ 判準改成:**用同一支目標算式算一次, 目標 <> 'refunded' 的每一張**。
+     --      🔵 刻意**不另寫一份口徑** —— 另寫一份就會與同步器分岔, 而分岔時沒有東西會叫。
+     AND 'refunded' <> (
+           SELECT CASE WHEN x.moved > 0 AND x.moved >= o.total THEN 'refunded'
+                       WHEN x.moved > 0                        THEN 'partiallyRefunded'
+                       ELSE                                         'paid' END
+             FROM (SELECT COALESCE((SELECT pg_catalog.sum(r.refund_amount) FROM public.order_refunds r
+                                     WHERE r.order_id = o.id AND r.status = 'confirmed'), 0)
+                        + COALESCE((SELECT pg_catalog.sum(m.refund_amount) FROM public.order_manual_refunds m
+                                     WHERE m.order_id = o.id AND m.voided_at IS NULL), 0)
+                        + COALESCE((SELECT pg_catalog.sum(r2.refund_amount) FROM public.order_refunds r2
+                                      JOIN public.order_refund_effective_verdict v ON v.refund_id = r2.id
+                                     WHERE r2.order_id = o.id AND r2.status = 'failed'
+                                       AND r2.failed_reason = 'manual_failed'
+                                       AND v.corrected_to = 'money_moved'), 0) AS moved) x);
   SELECT count(*) INTO v_cand FROM p3_seal_target;
   RAISE NOTICE '片③ 封口候選(會被降回 paid + 沒取消 + 有信箱)= % 張', v_cand;
 
@@ -167,7 +188,7 @@ BEGIN
                       WHERE e.order_id = t.order_id AND e.event_type = 'order_created');
   SELECT count(*) INTO v_expect_b FROM p3_seal_target t
     JOIN public.email_outbox e ON e.order_id = t.order_id
-   WHERE e.status IN ('pending', 'failed');
+   WHERE e.event_type = 'order_created' AND e.status IN ('pending', 'failed');
 
   -- 🔴 **關卡2 R2 ③:空白字集要用【同一把尺】** —— 那幾支 view 用 `pcm_js_trim_whitespace()`,
   --    而我原本用單參數 `btrim`(只吃空格)⇒ 只有 tab 的信箱**我判有效而 view 判無效** ⇒ 兩邊不互補。
@@ -207,6 +228,13 @@ BEGIN
                           'note', '片③ 封口, 非真寄 —— 原本的態記在 prev_status, 回滾時照它還原'))
     FROM p3_seal_target t
    WHERE t.order_id = e.order_id
+     -- 🔴🔴 **[R3 F2 must-fix;主視窗裁]** 只壓 `order_created` 那一條路。
+     --   ⛔ ~~不篩 `event_type`~~ ⇒ 會把 `order_shipped` / `shipment_tracking_corrected` 的
+     --      **死信**(`attempts >= max_attempts`)一併壓掉
+     --      ⇒ 🛑 **客人的出貨通知永久消失, 而 dead-letter 告警同時被靜音。**
+     --   ✅ 而 `order_created` 是【降回之後唯一會【新寄】的那一種】—— 其他事件型別本來就不會因為
+     --      狀態降回而多寄一封, 它們只是**被抑制擋著**;抑制解除之後它們該不該寄是**另一題**。
+     AND e.event_type = 'order_created'
      AND e.status IN ('pending', 'failed');
   GET DIAGNOSTICS v_b = ROW_COUNT;
 
@@ -218,7 +246,11 @@ BEGIN
     RAISE EXCEPTION '片③ 封口:⓪-a 預期補 % 列而實際補了 % 列 ⇒ selector 與 INSERT 的述詞不一致, 停下', v_expect_a, v_a;
   END IF;
   IF v_b <> v_expect_b THEN
-    RAISE EXCEPTION '片③ 封口:⓪-b 預期壓 % 列而實際壓了 % 列 ⇒ 述詞不一致, 停下', v_expect_b, v_b;
+    -- 🔵 **[R3 F4 consider]** 這裡不一定是「我的述詞寫錯」—— READ COMMITTED 下
+    --   `v_expect_b` 與 UPDATE 是**兩個快照**, 而貼片當下 `email-sweep` / ineligible-gate 的 cron
+    --   可能剛好把一列 `pending → sending/skipped` ⇒ 兩個數就差一。
+    --   ⇒ 📌 **訊息要讓貼的人知道「重貼一次很可能就過」**, 而不是去找一個不存在的 bug。
+    RAISE EXCEPTION '片③ 封口:⓪-b 預期壓 % 列而實際壓了 % 列。⇒ 最常見的成因是【貼的當下剛好有排程動到那幾列】(整支已回滾, 零副作用)⇒ 請隔一分鐘【重貼一次】;若連兩次都不一致, 那才是述詞寫錯, 貼回來給線 -account。', v_expect_b, v_b;
   END IF;
   -- 🔵 這兩格【有判別力】:把 INSERT/UPDATE 的 WHERE 改寬或改窄, 實際列數就會與預期不同 ⇒ 當場紅。
 END
@@ -714,6 +746,24 @@ BEGIN
 ' || '本函式現在會呼叫 pcm_sync_order_refund_payment_status, 而更正判定會改變「錢有沒有動」⇒ 狀態跟著重算。'
     || E'
 ' || '🔵 並且鎖序改成三步(無鎖預讀 order_id → 鎖 orders FOR NO KEY UPDATE → 鎖後重讀子列 → 不一致就 RAISE), 理由是 40P01。');
+
+  -- 🔴 **[R3 F9 nit + 主視窗裁甲]** 作廢端的 COMMENT 也要 append。
+  --    🔬 我量過它(1509 字元):`payment_status` 零命中、「鎖」零命中
+  --    ⇒ 📌 **它沒有任何一句被本片弄成假的**(這一點與更正端不同)——
+  --      **而它現在【不完整】**:那支從今天起會同步狀態、而且重排了鎖序,
+  --      而這段是 repo 之外的人**唯一讀得到的說明**。
+  --    🎯 下一個改它的人會讀這段決定「動這支要注意什麼」, 而**鎖序正是不知道就會弄壞的那種**。
+  v_old := pg_catalog.obj_description('public.admin_void_manual_refund(uuid,text,text)'::regprocedure, 'pg_proc');
+  IF v_old IS NULL THEN
+    RAISE EXCEPTION 'COMMENT 附加:作廢端讀不到既有 COMMENT ⇒ 停下';
+  END IF;
+  EXECUTE pg_catalog.format(
+    'COMMENT ON FUNCTION public.admin_void_manual_refund(uuid,text,text) IS %L',
+    v_old || E'\n\n'
+    || '🔴🔴 2026-09-05 片③(migration 20260905440000)本函式多了兩件事:'
+    || E'\n' || '① 作廢完(以及【冪等重放】那條路)會呼叫 pcm_sync_order_refund_payment_status ⇒ payment_status 照事實降回。在此之前本函式對 orders 零命中 ⇒ 作廢一筆退款之後沒有任何人去改狀態, 它卡在 refunded。'
+    || E'\n' || '② 🔴 鎖序改成三步:無鎖預讀 order_id → 鎖 orders FOR NO KEY UPDATE → 鎖後重讀子列 FOR UPDATE → 兩次不一致就 RAISE。理由是 40P01:admin_record_manual_refund 先鎖 orders 而本函式原本先鎖子表 ⇒ 接上同步器之後就成環。'
+    || E'\n' || '   🛑 改本函式時【不要把那三步的順序動掉】—— 拋棄式 PG 實測:舊順序 1 次死結, 新順序 0 次。');
 END
 $cmt$;
 
@@ -756,6 +806,35 @@ BEGIN
   END IF;
   IF pg_catalog.strpos(v_src, 'refund_over_total') = 0 THEN
     RAISE EXCEPTION '斷言②e:超退留痕不在';
+  END IF;
+
+  -- 🔴🔴 **[R3 F7 consider]** 前置閘只釘 `md5(prosrc)`, 而 **`prosrc` 不含頭** ——
+  --    `proconfig` / `prosecdef` / volatility / owner / ACL 都不在裡面, 而
+  --    `CREATE OR REPLACE` 是**用檔面的屬性整組覆蓋** ⇒ 📌 **body 對過 ≠ 頭對過。**
+  --    🔬 而今天就有一個實例:`admin_void_manual_refund` 的 `search_path` 在正式庫是空字串,
+  --       而我抽的 repo 舊檔寫 `public, pg_temp` ⇒ 差一點把一道上線的收緊退回去。
+  --    ⇒ ✅ 事後把**五格屬性**驗回來(上一代同支有這五格, 本檔一格都沒留)。
+  SELECT count(*) INTO v_n FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+   WHERE n.nspname='public'
+     AND p.proname IN ('pcm_sync_order_refund_payment_status','admin_void_manual_refund','admin_correct_order_refund_verdict')
+     AND p.prosecdef
+     AND p.provolatile = 'v'
+     AND pg_catalog.pg_get_userbyid(p.proowner) = 'postgres'
+     -- 🔴 **存的字面是 `search_path=""`(空字串會被引號包起來), 不是 `search_path=`** ——
+     --    我第一版寫錯, 而它讓這一格印 0/3。📌 **屬性的【儲存形式】要量, 不能從我寫的 SQL 反推。**
+     AND p.proconfig = ARRAY['search_path=""']::text[]
+     AND p.proacl IS NOT NULL;
+  IF v_n <> 3 THEN
+    RAISE EXCEPTION '斷言④:三支的頭只有 % 支符合期望(期望 3:DEFINER / VOLATILE / owner=postgres / proconfig 恰好只有 search_path= / ACL 非 NULL)⇒ 有一支的屬性被這一貼改掉了, 停下', v_n;
+  END IF;
+  SELECT count(*) INTO v_n FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+   CROSS JOIN LATERAL pg_catalog.aclexplode(p.proacl) a
+   WHERE n.nspname='public'
+     AND p.proname IN ('pcm_sync_order_refund_payment_status','admin_void_manual_refund','admin_correct_order_refund_verdict')
+     AND (a.grantee = 0 OR a.is_grantable
+          OR (a.grantee <> p.proowner AND pg_catalog.pg_get_userbyid(a.grantee) <> 'service_role'));
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION '斷言④b:三支上有 % 筆沒預期的授權(PUBLIC / 可轉授 / owner 與 service_role 以外)⇒ 停下人工看過', v_n;
   END IF;
 
   -- ③ 兩支呼叫端真的接上同步器了(剝註解後)
