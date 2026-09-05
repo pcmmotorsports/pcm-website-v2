@@ -10,6 +10,9 @@ import { OrderDetail } from './order-detail';
 
 import { stripComments } from '../../lib/test-support/strip-comments';
 import type { CancelShipmentWarning } from '../../lib/orders/cancel-shipment-warning';
+
+// 🔵 預設世界 = 沒收過錢 ⇒ 不畫那個框。要測那個框的格子自己覆寫這一個。
+const NO_PENDING_REFUND = { kind: 'none' } as const;
 // 🔵 `#450` 兩個**必填無預設**的 prop —— 大多數格子測的不是到貨列表,
 //    給「沒有到貨、沒有包裹」讓行為與加這一片之前逐字相同。
 //    🛑 而它們**不是**給 `null`:`null` 在下游是「讀不到」⇒ 會讓判準回「擋」、列表畫錯誤句
@@ -50,7 +53,7 @@ const NO_SHIPMENT: CancelShipmentWarning = { blocked: false };
 //
 //   **實際量到的(2026-08-19,本檔當場做出來的)**:
 //     · 沿用既有頁層 harness(`app/orders/[id]/cancel-wiring.test.tsx`)⇒ 邊際成本 **~5 行**
-//       (該檔 `:288-296` 就是一個 3 行的 `render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} …/>)`,而且自帶正向對照)
+//       (該檔 `:288-296` 就是一個 3 行的 `render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} …/>)`,而且自帶正向對照)
 //     · 開新檔照抄那份頁層 harness ⇒ **~86 行**(14 個 `vi.mock` + 61 行 fixture)—— **比我編的 60 還多**
 //     · 🔴 **而本檔用的是第三條路:把 OrderDetail 的子元件【全部 mock 掉】** ⇒ **~25 行**
 //       ⇒ fixture 只需要標頭真的讀到的那幾個欄位,其餘不必湊。
@@ -210,7 +213,7 @@ describe('片2 標頭列 · render 層', () => {
       // 🔴 `customerHref` 必須傳 —— 它預設 `null` = **不渲染入口**(fail-closed),
       //    不傳的話下面那條「客人入口有畫出來」會**因為入口根本不該出現而紅**,
       //    而那個紅講的是我漏傳,不是產品壞了。
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()}
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={HEAD_DETAIL}
         returnTo='/orders'
         payments={{ status: 'ok', rows: [] }}
@@ -225,7 +228,7 @@ describe('片2 標頭列 · render 層', () => {
 
   it('🔴 chip 畫出來的是【既有標籤表的字】,不是設計稿那個「未收齊」', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()} detail={HEAD_DETAIL} returnTo='/orders' payments={{ status: 'ok', rows: [] }} />,
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={HEAD_DETAIL} returnTo='/orders' payments={{ status: 'ok', rows: [] }} />,
     );
     // `partiallyPaid` 的字面 Sean 2026-08-18 `Q3` 拍為「已收訂金」。
     expect(container.textContent).toContain('已收訂金');
@@ -234,7 +237,7 @@ describe('片2 標頭列 · render 層', () => {
 
   it('🔴 標頭**不再**畫發票狀態(拿掉那一格之後,`未開立` 不該再出現在標頭)', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()} detail={HEAD_DETAIL} returnTo='/orders' payments={{ status: 'ok', rows: [] }} />,
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={HEAD_DETAIL} returnTo='/orders' payments={{ status: 'ok', rows: [] }} />,
     );
     // ⚠️ 射程:子元件全被 mock 成 null ⇒ 這一格量的確實只有標頭那一列,
     //    不會因為下方發票卡也印「未開立」而假綠。
@@ -259,7 +262,7 @@ describe('片12 危險操作兩顆鈕 · 對帳異常不准收起來', () => {
 
   it('🔴 帳本讀不到 ⇒ 退款那一塊預設展開,鈕上寫著異常', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()}
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={HEAD_DETAIL}
         returnTo='/orders'
         payments={{ status: 'ok', rows: [] }}
@@ -274,7 +277,7 @@ describe('片12 危險操作兩顆鈕 · 對帳異常不准收起來', () => {
   // 🔴 未登記額為**負** = 帳本登記已超過訂單總額,與讀取失敗同一族。
   it('🔴 未登記額為負 ⇒ 同樣自己展開', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()}
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={HEAD_DETAIL}
         returnTo='/orders'
         payments={{ status: 'ok', rows: [] }}
@@ -287,7 +290,7 @@ describe('片12 危險操作兩顆鈕 · 對帳異常不准收起來', () => {
   // 🔴 **負對照,沒有它上面兩格在「永遠展開」時照樣綠**:正常單兩塊都收著。
   it('🔴 正常單 ⇒ 兩顆鈕都收著、沒有異常字樣', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()} detail={HEAD_DETAIL} returnTo='/orders' payments={{ status: 'ok', rows: [] }} />,
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={HEAD_DETAIL} returnTo='/orders' payments={{ status: 'ok', rows: [] }} />,
     );
     const all = [...container.querySelectorAll('details')];
     expect({ 危險區塊數: all.length, 展開的: all.filter((d) => d.open).length }).toEqual({
