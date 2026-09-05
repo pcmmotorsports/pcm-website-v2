@@ -814,3 +814,82 @@ describe('成功回應的 provider 訊息 id', () => {
     expect(r).toEqual({ kind: 'sent', providerMessageId: null });
   });
 });
+
+// ══════════════════════════════════════════════════════════════════
+// ⟦mail-FETCHTIMEOUT⟧ 送出的 fetch 有逾時上界(opus R2 · C2;主視窗 2026-09-06 裁三題)
+// ══════════════════════════════════════════════════════════════════
+describe('送出的 fetch 有逾時上界', () => {
+  it('🔴 每一發都帶 signal, 而它是【真的】AbortSignal(拿掉那一行 ⇒ undefined ⇒ 紅)', async () => {
+    const seen: unknown[] = [];
+    const f = async (_u: string, init: { signal?: unknown }) => {
+      seen.push(init.signal);
+      return { ok: true, status: 200 };
+    };
+    await sendWith(f);
+    expect(seen).toHaveLength(1);
+    expect(seen[0], '🔴 沒有 signal ⇒ 這個 await 沒有上界').toBeInstanceOf(AbortSignal);
+    expect((seen[0] as AbortSignal).aborted, '🟢 才剛送出, 還沒到期').toBe(false);
+  });
+
+  it('🔴🔴 ② header 已回來、讀 body 時才到期 ⇒ 【sent / id=null】, 不是 failed(codex R1 #4)', async () => {
+    // 🔴 **這一格是本組最重要的一格, 而我原本【沒有】它** —— 我當時寫「逾時 ⇒ network_error」,
+    //    而那句只對①(header 都還沒回來)。②這條路 fetch 的 promise **已經 resolve 了**,
+    //    abort 只打在 body 的 stream 上 ⇒ `readSentId` 收成 null ⇒ 結果是 `sent`。
+    // ✅ 而②標 `sent` 是**對的**:200 回來了 = provider 收下了那封信。
+    //    📌 兩條路都不會讓那一列卡在 `sending` —— 那才是這個 signal 買到的東西。
+    const r = await sendWith(async () => ({
+      ok: true,
+      status: 200,
+      body: {
+        getReader: () => ({
+          read: async () => {
+            throw new DOMException('The operation was aborted', 'AbortError');
+          },
+          cancel: async () => undefined,
+        }),
+      },
+    }));
+    expect(r).toEqual({ kind: 'sent', providerMessageId: null });
+  });
+
+  it('🔴 ① header 都還沒回來就到期 ⇒ kind failed / errorCode network_error(而【不是】丟例外出去)', async () => {
+    // 🛑 **這一格【模擬】abort 的 rejection, 而不是真的等 10 秒** —— 那個拆法是刻意的:
+    //    ① `AbortSignal.timeout` 用的是 runtime 內部的計時器, **假時鐘推不動它**;
+    //    ② 而這一格要問的是**我們怎麼處理那個 rejection**, 不是「計時器準不準」。
+    //    ⇒ 📌 「signal 有沒有接上」由上一格答, 「接上之後怎麼收」由這一格答 ——
+    //      **兩個宣稱拆兩格, 否則其中一個會借另一個的名字綠。**
+    const f = async () => {
+      throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    };
+    const r = await sendWith(f);
+    expect(r).toEqual({ kind: 'failed', errorCode: 'network_error' });
+  });
+
+  it('🔴 重試不會變成兩封:同一個 outbox 的第二發帶【同一把】冪等鍵', async () => {
+    // 🔴 這一格是「標 failed 可重排」那個裁定的**前提**(主視窗 2026-09-06 `Q-逾時後那一列 = 乙`)——
+    //    📌 前提不成立的話, 那個裁定會讓客人收到兩封。
+    const keys: unknown[] = [];
+    const f = async (_u: string, init: { headers: Record<string, string> }) => {
+      keys.push(init.headers['Idempotency-Key']);
+      return { ok: true, status: 200 };
+    };
+    await sendWith(f);
+    await sendWith(f);
+    // 🔴 期望值**從 INPUT 推導**, 不硬寫字面 —— 我第一版硬寫 `order_created/outbox-1`
+    //    而 fixture 的 outboxId 是一個 UUID ⇒ 那一格紅在**我寫錯期望值**, 不是碼。
+    //    📌 一個硬寫的期望值, 綁的是【我以為的 fixture】而不是那個 fixture。
+    expect(keys[0]).toBe(`${INPUT.idempotency.eventType}/${INPUT.idempotency.outboxId}`);
+    expect(keys[1], '🔴 第二發要與第一發【逐字相同】, 否則 Resend 的 24h 去重接不住').toBe(keys[0]);
+    // 🛑 **射程明寫(codex R1 #11 說得對)**:這一格證的是**這個字串是決定性的**,
+    //    它**證不到** DB 回收 / 死信重排 / Resend 那一側真的去重 —— 那三件事各在別的層。
+    //    ⚠️ 而已知的缺口是:`attempts` 燒完進死信後**人手重排若超過 24 小時**,
+    //      去重窗已過期 ⇒ **客人會收到第二封**(見 adapter 那段註解)。
+  });
+
+  it('🟢 正對照:`AbortSignal.timeout` 在這個 runtime 上真的存在(plan 裡標「未量」的那一項)', () => {
+    expect(typeof AbortSignal.timeout).toBe('function');
+    const s = AbortSignal.timeout(10_000);
+    expect(s).toBeInstanceOf(AbortSignal);
+    expect(s.aborted).toBe(false);
+  });
+});

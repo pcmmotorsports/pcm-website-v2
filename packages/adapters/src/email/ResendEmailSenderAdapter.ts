@@ -83,6 +83,8 @@ import 'server-only';
 
 import type { IEmailSender, SendEmailInput, SendEmailResult, EmailSendErrorCode } from '@pcm/ports';
 
+import { OUTBOUND_SEND_TIMEOUT_MS } from '../outbound-timeout';
+
 /**
  * 🔴 **單封端點。要改成批次的人先讀這句**:Resend 官方明文
  * 「Attachments cannot be sent via the batch email endpoint」——
@@ -165,7 +167,10 @@ export class EmailAttachmentTooLargeError extends Error {
  */
 export type ResendFetchLike = (
   input: string,
-  init: { method: string; headers: Record<string, string>; body: string },
+  // 🔴 `signal` 是**必填**(⟦mail-FETCHTIMEOUT⟧ 2026-09-06)——
+  //    選填的話, **漏傳的那一支不會型別紅**, 而它的症狀是「送出去之後永遠不回」。
+  //    📌 一道 fail-open 的閘比沒有閘更糟, 所以這裡讓 tsc 當那道閘。
+  init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal },
 ) => Promise<{
   ok: boolean;
   status: number;
@@ -359,6 +364,31 @@ export class ResendEmailSenderAdapter implements IEmailSender {
     try {
       const res = await this.fetchImpl(RESEND_ENDPOINT, {
         method: 'POST',
+      // 🔴🔴 **逾時上界(⟦mail-FETCHTIMEOUT⟧ 2026-09-06;opus R2 · C2)** ——
+      //    沒有它, 一個【送完 header 就停住】的伺服器會讓這個 await 永遠不回,
+      //    而平台會在 60 秒砍掉整個 function ⇒ 那一列留在 `sending`、燒一次 attempt。
+      // 🔴🔴 **逾時會走進【兩條】完全不同的路, 而它們的結果相反**(codex R1 #4 訂正我原本只寫一條):
+      //    ⛔ ~~「逾時 ⇒ 收成 network_error」~~ **那句只對【其中一半】**。
+      //    ```
+      //    ① header 都還沒回來就到期  ⇒ fetch 本身 reject ⇒ 下面的 catch ⇒ failed / network_error
+      //    ② header 已經回來(ok:true), 讀 body 時才到期
+      //       ⇒ 🛑 fetch 那個 promise 【已經 resolve 了, 不會再 reject】
+      //       ⇒ abort 打在 body 的 stream 上 ⇒ `readSentId` 內部收成 `null`
+      //       ⇒ **結果是 `sent` 而 `providerMessageId` 是 null**
+      //    ```
+      //    ✅ **而②是【對的】** —— 200 已經回來了, 代表 provider **收下了那封信**;
+      //      標 `sent` 是正確的, 只是我們沒拿到編號。📌 兩條路都不會讓那一列卡在 `sending`,
+      //      而那才是這個 signal 要買的東西。
+      // 🛑 **逾時【不等於】沒寄**(對①而言):伺服器可能已經收下並寄出了, 只是回應沒回來。
+      //    ⇒ 📌 **`failed` 在①這一格的意思是「我不知道」, 不是「沒寄」。**
+      //    ⇒ 自動重試不會變成兩封:冪等鍵 `<event_type>/<outbox_id>` **跨重試穩定**, Resend 保留 24h。
+      //    ⚠️ **而那個保證有射程**(codex R1 #5):`attempts` 燒完進死信之後,
+      //      **人手重排若已超過 24 小時, 去重窗已經過期 ⇒ 客人【會】收到第二封。**
+      //      ⇒ 那不是本片引進的, 而它是「標 failed 可重排」這個裁定的**已知代價**, 寫在這裡不藏。
+      // ⚠️ **秒數的未量前提**:`email-sweep/route.ts:97` 那句「單封 ~數百 ms」是註解不是量測
+      //    ⇒ **上線第一天量 `sent_at − claimed_at` 的 p99, > 3 s 這個 10 秒要重談**
+      //      (板列 ⟦mail-FETCHTIMEOUT⟧;全文在 `outbound-timeout.ts`)。
+      signal: AbortSignal.timeout(OUTBOUND_SEND_TIMEOUT_MS),
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${this.cfg.apiKey}`,

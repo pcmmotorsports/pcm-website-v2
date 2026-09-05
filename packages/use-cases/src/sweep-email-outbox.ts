@@ -417,7 +417,23 @@ const CLOCK_SKEW_ALLOWANCE_SECONDS = 300;
  * ⇒ ✅ **燒掉一次 attempt + 卡一小時**(「重寄」要停擺 >24h 才成立, 見 `SweepEmailOutboxOptions`
  *   的 `runStartedAtMs` 那段自我更正)。
  */
-const SEND_TAIL_ALLOWANCE_SECONDS = 5;
+// 🔴🔴 **2026-09-06 從 5 改成 12(⟦mail-FETCHTIMEOUT⟧;codex R1 must-fix #1)** ——
+//    ⛔ ~~`= 5`~~ **那個 5 是在【一發 send 沒有上界】的年代挑的, 而它挑不出任何東西**:
+//    send 可以跑 40 秒, 留 5 秒也照樣被砍。
+// 🔬 **現在它算得出來了, 因為 send 有上界了**:
+//    ```
+//    12 s  =  10 s(OUTBOUND_SEND_TIMEOUT_MS, packages/adapters/src/outbound-timeout.ts)
+//          +   2 s(send 回來之後那一發 markSent 落表)
+//    ⇒ 最後一發在 t = 47.999 s 通過檢查 ⇒ 最壞在 57.999 s 逾時 ⇒ 落表仍在 60 s 之內。
+//    ```
+// 🛑 **codex 打中的正是這一格**:它說「第 54 秒仍可開始一發 10 秒的 fetch, 平台在第 60 秒先砍」——
+//    ⇒ 📌 **那不是 10 秒挑錯了, 是【這個數字沒有跟著它一起改】。**
+//      一個常數的正確值, 取決於另一個檔案裡的常數 —— 而它們之間**沒有任何機制**。
+//    ✅ 那道機制補在 `packages/adapters/src/outbound-timeout.test.ts`:它**讀這兩支檔的原始碼**、
+//      當場算 `tail*1000 >= timeout + 落表餘裕`, 任一邊改了而另一邊沒跟上 ⇒ 紅。
+// ⚠️ **代價寫明**:可用預算從 55 s 降到 48 s ⇒ 一輪能寄的封數上限下降。
+//    PCM 量級 10-30 封/日(`email-sweep/route.ts:97`)⇒ 影響為零;**量級變了要重算**。
+const SEND_TAIL_ALLOWANCE_SECONDS = 12;
 
 /**
  * 依 eventType 窮舉分派內文模板(codex 關卡2 R1 must-fix:DB CHECK 與 `ClaimedEmailJob` 型別

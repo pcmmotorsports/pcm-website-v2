@@ -613,7 +613,11 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
   //    ⇒ 碼與測試都刪了,界線改寫在 `sweep-email-outbox.ts` 的 `budgetBaseMs` 那段。
   //    📌 一段防不到東西的碼 + 一支殺不掉突變的測試 = **兩份看起來有在防的證據,而缺口沒變。**
 
-  it('🔴 MF-3:停止線【正好】釘在 maxRunSeconds − 5s(55.000 停 / 54.999 照寄)', async () => {
+  it('🔴 MF-3:停止線【正好】釘在 maxRunSeconds − 12s(48.000 停 / 47.999 照寄)', async () => {
+    // 🔴🔴 **2026-09-06 從 55/54.999 改成 48/47.999(⟦mail-FETCHTIMEOUT⟧)** ——
+    //    餘裕從 5 s 改成 12 s(= 逾時 10 s + 落表 2 s), 理由在 `SEND_TAIL_ALLOWANCE_SECONDS` 那段。
+    //    ✅ **這一格紅得【對】** —— 它就是為了「那條線被搬動時要出聲」而寫的, 而它出聲了。
+    //    📌 舊字面留在標題的刪除線裡:⛔ ~~maxRunSeconds − 5s(55.000 / 54.999)~~
     // 🔴 為什麼要餘裕:59.999s 通過的那一發 `send`,Resend 可能在 60.01s 才收下,
     //    而平台當場 kill ⇒ markSent 沒寫 ⇒ 回收 ⇒ 重寄。⇒ 停止線要早於 kill 線。
     // 🔴🔴 **兩端【貼著那條線】,不是隨便取 56 / 54**(codex R2 must-fix):
@@ -622,12 +626,12 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     //    不會在那條線被搬動時出聲。
     const stopped = await sweepEmailOutbox(
       { ineligibleScanner: eligibleAll(), outbox: outboxFake([job()]), sender: senderFake([{ kind: 'sent', providerMessageId: null }]) },
-      { ...OPTS, runStartedAtMs: NOW.getTime() - 55_000, maxRunSeconds: 60, now: tickingClock([0, 0]) },
+      { ...OPTS, runStartedAtMs: NOW.getTime() - 48_000, maxRunSeconds: 60, now: tickingClock([0, 0]) },
     );
-    expect(stopped.claimed).toBe(0); // 55.000s >= 55s 預算 ⇒ 停(邊界是 `>=`)
+    expect(stopped.claimed).toBe(0); // 48.000s >= 48s 預算(60 − 12)⇒ 停(邊界是 `>=`)
     const ok = await sweepEmailOutbox(
       { ineligibleScanner: eligibleAll(), outbox: outboxFake([job()]), sender: senderFake([{ kind: 'sent', providerMessageId: null }]) },
-      { ...OPTS, runStartedAtMs: NOW.getTime() - 54_999, maxRunSeconds: 60, now: tickingClock([0, 0]) },
+      { ...OPTS, runStartedAtMs: NOW.getTime() - 47_999, maxRunSeconds: 60, now: tickingClock([0, 0]) },
     );
     expect(ok.sent).toBe(1); // 差 1 毫秒 ⇒ 照寄
   });
@@ -637,7 +641,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     // 拿掉它一格都不會紅 ⇒ 一道沒有證人的防呆,與沒有裝是同一件事。
     const res = await sweepEmailOutbox(
       { ineligibleScanner: eligibleAll(), outbox: outboxFake([job()]), sender: senderFake([{ kind: 'sent', providerMessageId: null }]) },
-      // maxRunSeconds=3 < 餘裕 5 ⇒ 沒有地板的話預算 = −2000ms ⇒ elapsed 0 也算超出 ⇒ 一封都不寄
+      // maxRunSeconds=3 < 餘裕 12 ⇒ 沒有地板的話預算 = −9000ms ⇒ elapsed 0 也算超出 ⇒ 一封都不寄
       { ...OPTS, runStartedAtMs: NOW.getTime(), maxRunSeconds: 3, now: tickingClock([0, 0]) },
     );
     expect(res.sent).toBe(1);
