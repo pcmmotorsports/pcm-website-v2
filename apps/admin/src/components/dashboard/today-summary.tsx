@@ -7,6 +7,7 @@ import {
   SHOW_UNPAID_CARD_ON,
 } from '../../lib/orders/order-list-view';
 import type { TodaySummary } from '../../lib/dashboard/today-read';
+import { TEST_ACCOUNT_EMAILS } from '../../lib/dashboard/test-accounts';
 
 // today-summary.tsx — `#16` 今日對帳:首頁**三格**的純顯示元件。
 //    🪦 原為四格;「今日退款」於 2026-08-15 拆掉(見 `lib/dashboard/today-view.ts` 墓碑段)。
@@ -176,6 +177,25 @@ export function TodaySummaryCards({ summary }: { summary: TodaySummary }) {
         <p className='border-destructive/30 bg-destructive/5 text-destructive mb-3 rounded-md border p-3 text-xs'>
           這幾格沒讀到:<strong>{summary.failedSections.join('、')}</strong>
           。其餘數字仍可使用。請稍後重新整理,若持續發生請通知系統維護。
+        </p>
+      )}
+      {/* 🔴 **位置是刻意的:排在「這幾格沒讀到」那句【之後】** ——
+          ① 讀取失敗比「可能含測試資料」急, 急的先講;
+          ② 🔬 而它也是量到的:排在前面時 `today-summary.test.tsx` 的
+             `container.querySelector('strong')` 會抓到本句的 `<strong>` 而不是失敗警語那句
+             ⇒ 那一格當場紅。**那是一個真的回歸, 不是測試太嚴** —— 已改位置, 不改那個測試。 */}
+      {/* 🔴🔴 **⟦b4-TESTACCT1⟧ Sean 2026-09-05 拍乙:「留著, 後台加一句『含測試資料』」**
+          放在【這一層】而不是每張卡各補 —— 下面三張卡的數字全部來自同一個
+          `loadTodaySummary`(`lib/dashboard/today-read.ts:249` 呼 `admin_today_payment_total`),
+          ⇒ 一句話蓋三張, 而不是三句話各說一次。
+          🔵 **顯示條件 = 常數非空**(不查 DB):測試單清掉那天把 `TEST_ACCOUNT_EMAILS` 清空,
+             這句話自己消失 ⇒ **它不會在測試資料已經沒有之後繼續說謊。**
+          🛑 **只印個數、不印 email** —— email 是 PII, 而這個畫面會被截圖轉發。
+          ⚠️ 語氣是「**可能含**」而不是「含 X 元」:那個常數與正式庫沒有對帳,
+             它知道「我們登記了幾個測試帳號」, **不知道那些帳號今天還有沒有單**。 */}
+      {TEST_ACCOUNT_EMAILS.length > 0 && (
+        <p className='text-muted-foreground mb-3 rounded-md border p-3 text-xs'>
+          下面的數字<strong>可能含測試帳號資料</strong>({TEST_ACCOUNT_EMAILS.length} 個帳號)。
         </p>
       )}
       <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
