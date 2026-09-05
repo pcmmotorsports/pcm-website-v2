@@ -69,9 +69,19 @@ describe('出貨 RPC 呼叫面 · 參數名逐字釘死(GRANT 綁精確簽章)',
       fn: 'admin_update_shipment_tracking',
       params: ['p_idempotency_key', 'p_shipment_id', 'p_tracking_number', 'p_actor', 'p_request_id'],
     },
+    // 🔴 ⟦ship-HCTUNKNOWNSTUCK⟧ 片 A/B:把【佔位卡住】的箱子放回 draft(`20260905320000`)。
+    //    ⚠️ **它沒有 `p_idempotency_key`** —— 而那不是漏掉:它的冪等來自
+    //    **五道閘裡的 `hct_status = 'unknown'`** ——放回 draft 之後那個條件就不成立了,
+    //    第二次呼叫會改 0 列並 RAISE。⇒ 📌 **狀態本身就是那把鑰匙。**
+    //    🔴 `p_attestation` 是【授權依據】不是備註:那支函式不自己判「新竹收到沒」,
+    //    它收一句人證並寫進稽核 ⇒ 少了它, 這個動作就沒有人負責。
+    {
+      fn: 'admin_hct_reset_unknown_to_draft',
+      params: ['p_shipment_reference', 'p_actor', 'p_request_id', 'p_attestation'],
+    },
   ];
 
-  it('🔴 前提 — 六支 RPC 名稱都真的出現在本檔(改名了下面整組會變恆真)', () => {
+  it('🔴 前提 — 清單上每一支 RPC 名稱都真的出現在本檔(改名了下面整組會變恆真)', () => {
     const missing = CONTRACT.filter((c) => !SRC.includes(`'${c.fn}'`)).map((c) => c.fn);
     expect(missing, 'RPC 名稱在 shipment-repository.ts 裡找不到 ⇒ 被改名或刪了,下面的參數斷言失去對象').toEqual([]);
   });

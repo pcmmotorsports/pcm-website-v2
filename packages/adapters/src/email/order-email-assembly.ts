@@ -166,6 +166,48 @@ function requireUuid(value: unknown, field: string, event: string): string {
  *    subject 是客人在信箱列表看到的那一行,而它**不夾任何客戶欄**(檔頭 §2)。
  * 🛑 **不寫「退款」二字** —— 這條線的客人**從來沒有付過錢**,提退款會讓他等一筆不存在的錢。
  */
+/**
+ * 🔴 取消信(`order_cancelled`)—— 刷卡且已全額退款的整單取消。
+ * 🛑 主旨與 `orderUnpaidCancelledSubject` **逐字相同**, 而那是刻意的:
+ *    客人看到的是「這張單取消了」, 而**為什麼取消不該從主旨分辨**。
+ *    ⇒ 📌 兩支分開存在的理由是【內容不同】(這一封多一段退款金額), 不是主旨不同。
+ */
+export function orderCancelledSubject(displayId: string): string {
+  return `PCM 訂單 ${displayId} 已取消`;
+}
+
+export const ORDER_CANCELLED_EVENT_VERSION = 1 as const;
+
+export function buildOrderCancelledPayload(src: {
+  displayId: string;
+  cancelledAt: string;
+  cancelledReason: string | null;
+  refundedAmount: number;
+  refundKind: string;
+}): {
+  display_id: string;
+  cancelled_at: string;
+  cancelled_reason: string | null;
+  refunded_amount: number;
+  refund_kind: string;
+  event_version: typeof ORDER_CANCELLED_EVENT_VERSION;
+} {
+  return {
+    // 🔴 兩個必填欄過 `requireNonEmptyString` —— 空的 displayId 會寄出主旨是
+    //    「PCM 訂單  已取消」的信;空的 cancelledAt 會被永久寫進 outbox。
+    //    (姊妹那三支都過, 而 unpaid 那支的註解記著「我鏡像它們的時候漏了這一格」。)
+    display_id: requireNonEmptyString(src.displayId, 'displayId', 'order_cancelled'),
+    cancelled_at: requireNonEmptyString(src.cancelledAt, 'cancelledAt', 'order_cancelled'),
+    // 🔵 `cancelled_reason` 選填(null = 那一段不印)。
+    cancelled_reason: src.cancelledReason,
+    // 🔴 金額**原樣帶**:它在 view 那一層就與 payment_status 判定同源, 這裡不重算。
+    //    📌 重算 = 第二個來源 ⇒ 兩份會漂, 而漂掉的症狀是「信上的數字與後台對不起來」。
+    refunded_amount: src.refundedAmount,
+    refund_kind: src.refundKind,
+    event_version: ORDER_CANCELLED_EVENT_VERSION,
+  };
+}
+
 export function orderUnpaidCancelledSubject(displayId: string): string {
   return `PCM 訂單 ${displayId} 已取消`;
 }

@@ -51,6 +51,10 @@ vi.mock('next/navigation', () => ({
 }));
 
 import { useCatalogFilterUrlSync } from './products-url-state';
+import {
+  markClearAllRequested,
+  __resetClearAllRequestedForTests,
+} from './use-catalog-filter-url-sync';
 import type { ProductExtraFilters } from './filter-state';
 
 const EXTRAS: ProductExtraFilters = {
@@ -94,6 +98,11 @@ const transition = (
 beforeEach(() => {
   hoisted.replace.mockClear();
   hoisted.refresh.mockClear();
+  // 🔴 **旗標是模組層的, 會跨測試活著**(R3 consider):第一格跑完時 state 是空的
+  //    ⇒ 那一輪不會把它歸零 ⇒ 它帶著 `true` 離開。#315 那格之所以還成立, 是因為它的 helper
+  //    剛好多跑一次非空 render 把它清掉 ⇒ 📌 **那道鎖是靠隔壁測試的 render 次數在成立的。**
+  //    有人重排測試或把 helper 縮成兩個 render, 它會【安靜地】停止鎖。這一行讓它不依賴那個巧合。
+  __resetClearAllRequestedForTests();
 });
 
 // 🔴 `?pbrands=a,b` 序列化後逗號會被 `URLSearchParams` 依規格編成 `%2C`(它是 form-urlencoded
@@ -796,4 +805,101 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
     expect(qs(url).get('categories')).toBe('A,B,操控部品');
   });
 
+});
+
+describe('⟦b4-CLEARALLKEEPSJUNK⟧ 清除全部之後, 認不得的品牌不得被寫回去', () => {
+  // 🔬 病:`unknownBrands` 是拿【那一輪的 params】重算的 ⇒ `clearAll()` 這一輪把認不得的
+  //    `pbrands` 又 set 回去 ⇒ 客人按完「清除全部」, 膠囊沒了、垃圾參數還在 ⇒ 仍然 0 筆。
+  //
+  // 🔴 **必須跑滿三個 render** —— 兩個做不出來(⑭ 那格檔頭逐字寫過同一件事):
+  //    ① mount 走 `initialized` 早退 ② 還原窗口消化 ③ 這一輪才是客人的那一按。
+  //    ⚠️ 我第一版寫成兩個而**假紅**:紅在「一次 replace 都沒送」, 那不是本格要證的事。
+  //
+  // 🛑 **射程**:本格證的是【hook 這一輪不會復活它】。
+  //    「按鈕送出的乾淨網址會不會被覆蓋」是兩個 replace 的賽跑, jsdom 造不出來 ⇒ 不宣稱。
+  const picked = { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'];
+  const DIRTY = '/products?category=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81&pbrands=zzq-unknown';
+
+  /** 三個 render:選好 → 還原窗口消化 → 清空。`mark` = 有沒有先按「清除全部」那顆鈕。 */
+  const clearRun = (mark: boolean) => {
+    window.history.replaceState(null, '', DIRTY);
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: picked } },
+    );
+    rerender({ category: picked });
+    if (mark) markClearAllRequested();
+    rerender({ category: null });
+    return hoisted.replace.mock.calls.at(-1)?.[0] as string;
+  };
+
+  it('🔴 按了「清除全部」:認不得的 pbrands 不得被寫回網址', () => {
+    const url = clearRun(true);
+    expect(url, '這一輪一次 replace 都沒送 ⇒ 這一格什麼都沒驗到(不是通過)').toBeDefined();
+    expect(
+      qs(url).get('pbrands'),
+      `按完清除全部, 網址仍帶著認不得的品牌 ⇒ 客人看到的還是 0 筆(拿到的網址:${url})`,
+    ).toBeNull();
+  });
+
+  it('🟢 對照(#315 的鎖):【沒有】按清除全部而只是清掉最後一顆膠囊 ⇒ 認不得的值照舊留著', () => {
+    // 🔴 這一格是 code-reviewer R1 Critical 逼出來的:
+    //    「按清除全部」與「點掉唯一那顆分類膠囊的 ×」**state 變化完全同構**
+    //    ⇒ 只看形狀的修法會把後者也清掉, 而那正是 #315 要留的東西。
+    //    ⇒ 📌 所以修法靠的是【明示手勢的旗標】, 而這一格就是那個區別的鎖。
+    const url = clearRun(false);
+    expect(url, '這一格沒送 replace ⇒ 它證不到「沒按鈕時值還在」').toBeDefined();
+    expect(
+      qs(url).get('pbrands'),
+      `沒有按清除全部, 認不得的品牌卻被清掉了 ⇒ 誤傷 #315(拿到的網址:${url})`,
+    ).toBe('zzq-unknown');
+  });
+
+  it('🟢 對照:清除全部要把【認得的】那顆也一起帶走 —— 不是只挑認不得的丟', () => {
+    // ⚠️ **前一版這一格結構上恆綠**(code-reviewer R2 Critical C):它的 `category` 從頭到尾是
+    //    `picked`、`brands` 也沒清空 ⇒ `stateAndExtrasEmpty` **不可能為真** ⇒ 與旗標完全無關。
+    //    📌 **「網址帶 unknown」是必要條件, 不是充分條件** —— 還要讓那一輪真的走到讓路那一支。
+    window.history.replaceState(null, '', '/products?pbrands=akrapovic%2Czzq-unknown');
+    const { rerender } = renderHook(
+      ({ brands }: { brands: string[] }) =>
+        useCatalogFilterUrlSync(cascade(brands), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { brands: ['akrapovic'] as string[] } },
+    );
+    rerender({ brands: ['akrapovic'] });
+    markClearAllRequested();
+    rerender({ brands: [] });
+
+    const url = hoisted.replace.mock.calls.at(-1)?.[0] as string;
+    expect(url, '這一格沒送 replace ⇒ 它什麼都沒驗到').toBeDefined();
+    expect(
+      qs(url).get('pbrands'),
+      `清除全部之後 pbrands 還有東西 ⇒ 認得的或認不得的沒被清乾淨(拿到的網址:${url})`,
+    ).toBeNull();
+  });
+
+  it('🟢 對照(旗標不得外溢):舉了手之後客人【又選了東西】⇒ 認不得的值要回到被保留的狀態', () => {
+    // 🔴 這一格守的是 AND 條件裡的 `stateAndExtrasEmpty` 與那行歸零:
+    //    旗標是模組層的, 若它會留著, 下一次不該讓路的清空就會被誤放。
+    window.history.replaceState(null, '', '/products?pbrands=zzq-unknown');
+    markClearAllRequested();
+    const { rerender } = renderHook(
+      ({ brands }: { brands: string[] }) =>
+        useCatalogFilterUrlSync(cascade(brands), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { brands: [] as string[] } },
+    );
+    rerender({ brands: ['akrapovic'] });   // 客人又選了一顆 ⇒ 這一輪要把旗標歸零
+    hoisted.replace.mockClear();
+    rerender({ brands: [] });              // 再清掉, 而這次【沒有】按清除全部
+
+    // 🔵 **這一格的判準是「一次 replace 都不該送」, 而那【有判別力】**:
+    //    旗標若外溢 ⇒ `unknownBrands` 變空 ⇒ 重建出來的網址少了 `pbrands`
+    //    ⇒ 與當前網址不等值 ⇒ **等值早退不會命中, replace 一定會送出去**。
+    //    ⇒ 📌 所以「沒送」只可能是「值被保留了」。(不是「什麼都沒發生」那種空綠。)
+    const calls = hoisted.replace.mock.calls;
+    expect(
+      calls.length,
+      `旗標外溢了:沒按清除全部而認不得的值被清掉(送出的網址:${calls.at(-1)?.[0]})`,
+    ).toBe(0);
+  });
 });

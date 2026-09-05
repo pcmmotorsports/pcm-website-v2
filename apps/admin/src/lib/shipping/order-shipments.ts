@@ -35,6 +35,8 @@ export type OrderShipmentGroup = {
    * ⚠️ 它**刻意不進 `ShipmentRow`** —— 那個型別的 select 同時餵顧客站那條路。
    */
   hctStatus: string;
+  /** 🔴 甲型(佔位卡住)才有出口 —— 乙型那顆鈕【不出現】。 */
+  hctPlaceholderStuck: boolean;
   /** **只有本單**的品項(見檔頭)。 */
   lines: { orderItemId: string; title: string | null; quantity: number }[];
 };
@@ -77,7 +79,12 @@ export async function loadOrderShipments(
     //    給 `unknown` 會讓「我沒撈到」印成「這箱卡住了」⇒ 📌 一個查詢失敗變成一句假警報。
     const g =
       grouped.get(it.shipmentId) ??
-      { shipment, hctStatus: hctStatusById.get(it.shipmentId) ?? 'draft', lines: [] };
+      {
+        shipment,
+        hctStatus: hctStatusById.get(it.shipmentId)?.status ?? 'draft',
+        hctPlaceholderStuck: hctStatusById.get(it.shipmentId)?.isPlaceholderStuck ?? false,
+        lines: [],
+      };
     g.lines.push({
       orderItemId: it.orderItemId,
       title: titleByItemId.get(it.orderItemId) ?? null,

@@ -394,22 +394,79 @@ export async function getHctShipment(shipmentId: string): Promise<HctShipmentRow
  * 🔵 回 Map 而不是陣列:呼叫端是逐箱渲染, 而**用 id 找**比用順序對應安全 ——
  *    順序對應在「有一箱查不到」時會**整排錯位**, 而錯位不會報錯。
  */
+export type HctBoxState = {
+  status: string;
+  /**
+   * 🔴 **這一箱是不是【佔位卡住】那一型** —— ⟦ship-HCTUNKNOWNSTUCK⟧ 片 C。
+   *    甲型:`hct_raw_response` 有 `"placeholder": true`(**boolean, 不是字串**)且**沒有貨號**
+   *      ⇒ 那個標記是**我們自己在 HTTP 發出去之前寫的** ⇒ 新竹很可能沒收到。
+   *    乙型:新竹回過話而我們讀不懂 ⇒ 🛑 **那一型今天沒有出口**(等 `Q-新竹傳輸方式`)。
+   * ⇒ 📌 **兩型在畫面上長得一模一樣, 只有這一格分得出來。**
+   */
+  isPlaceholderStuck: boolean;
+};
+
 export async function listHctStatusByShipmentIds(
   ids: readonly string[],
-): Promise<Map<string, string>> {
+): Promise<Map<string, HctBoxState>> {
   if (ids.length === 0) return new Map();
   const { data, error } = await createSupabaseServiceClient()
     .from('shipments')
-    .select('id, hct_status')
+    // 🔴 多讀兩欄, 而它們**不進 `SHIPMENT_ROW_SELECT`** —— 理由同上面那段:
+    //    那個常數也餵顧客站那條路, 往它加欄就是往**客人讀得到的投影**加欄。
+    .select('id, hct_status, hct_raw_response, hct_request_id')
     .in('id', [...ids]);
   if (error !== null) throw new Error(error.message);
-  return new Map((data ?? []).map((r) => [r.id, r.hct_status]));
+  return new Map(
+    (data ?? []).map((r) => {
+      const raw = r.hct_raw_response as Record<string, unknown> | null;
+      return [
+        r.id,
+        {
+          status: r.hct_status,
+          // 🔴 **比 `=== true`, 不比 truthy** —— 一個字串 `"true"` 也是 truthy,
+          //    而甲型的標記是我們自己寫的 **boolean**(`shipment-actions.ts` 逐字 `placeholder: true`)。
+          //    ⇒ 📌 那正是 DB 那一層用 `->` 比 jsonb 而不用 `->>` 比字串的同一件事:
+          //      **型別本身就是判準的一部分。**
+          isPlaceholderStuck:
+            r.hct_status === 'unknown' &&
+            raw?.['placeholder'] === true &&
+            (r.hct_request_id === null || r.hct_request_id === ''),
+        },
+      ] as const;
+    }),
+  );
 }
 
 /**
  * 把送出結果寫回 DB(`admin_record_hct_submit`, `20260904170000`)。
  * 🔴 `p_status` 只收 submitted / failed / unknown —— DB 那側自己會擋別的值。
  */
+/**
+ * 把【佔位卡住】的箱子放回 `draft`(`admin_hct_reset_unknown_to_draft`, `20260905320000`)。
+ *
+ * 🔴🔴 **它不自己判「新竹到底收到沒」** —— 佔位是在 HTTP 發出去**之前**寫的,
+ *    所以「有 placeholder 而沒有回應」有兩個世界:①從來沒送出去 ②送出去了而回應掉了。
+ *    而**我們這一端沒有任何量具分得出這兩個** ⇒ 📌 它收一句**操作者的證詞**並寫進稽核。
+ * 🛑 **證詞不是備註, 它是這個動作的授權依據** —— 沒有那通電話就不要呼叫它。
+ * 🔵 五道閘與「改 0 列要 RAISE」都在 DB 那一層(呼叫端可以被繞過, 那一層每條路都會經過)。
+ */
+export async function resetHctUnknownToDraft(args: {
+  shipmentReference: string;
+  actor: string;
+  requestId: string;
+  attestation: string;
+}): Promise<void> {
+  const { error } = await createSupabaseServiceClient().rpc('admin_hct_reset_unknown_to_draft', {
+    p_shipment_reference: args.shipmentReference,
+    p_actor: args.actor,
+    p_request_id: args.requestId,
+    p_attestation: args.attestation,
+  });
+  // 🔴 RPC 那邊「改 0 列」是 RAISE 不是靜靜成功 ⇒ 這裡照樣 throw, 不要吞。
+  if (error !== null) throw new Error(error.message);
+}
+
 export async function recordHctSubmit(args: {
   shipmentReference: string;
   status: 'submitted' | 'failed' | 'unknown';

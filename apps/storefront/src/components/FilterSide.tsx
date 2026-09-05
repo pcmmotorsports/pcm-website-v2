@@ -18,6 +18,11 @@
 'use client';
 
 import { useRef, useState, type Dispatch, type ReactNode } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import {
+  markClearAllRequested,
+  buildClearedProductsUrl,
+} from './use-catalog-filter-url-sync';
 import {
   selectVehicleBrand,
   selectVehicleModel,
@@ -237,9 +242,21 @@ export function FilterSide({
    */
   countOf?: FacetCountResolver;
 } & CascadeControlledProps & ExtrasControlledProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const clearAllFilters = () => {
+    // 🔴 ⟦b4-CLEARALLKEEPSJUNK⟧ 先舉手, 再清 —— 與 ActiveChips / 空狀態那兩顆同一個手勢、同一支旗標。
+    //    ⚠️ **這一顆是 code-reviewer R2 抓到的漏網**:我第一版只補了另外兩顆,
+    //    而它是桌機側欄真的掛著的那一顆(`ProductsPage.tsx:310`)⇒ 病灶原樣重現。
+    //    📌 `dispatch(clearAll())` 全 repo 有 5 處 —— **補了兩處不等於補完了。**
+    markClearAllRequested();
     dispatch(clearAll());
     setExtras(makeInitialExtraFilters());
+    // 🔴🔴 **這一行是 R3 對抗審查的 must-fix** —— 本顆原本【只清 state, 不送網址】,
+    //    而同步 effect 一個字都不寫 `categories` ⇒ 客人從搜尋落地(`?categories=A,B`)
+    //    按下去 ⇒ **膠囊還在、篩選還生效** ⇒ 📌 那顆鈕按了等於沒按。
+    //    ⇒ 改成與另外兩顆送**同一個**乾淨網址(共用 `buildClearedProductsUrl`)。
+    router.replace(buildClearedProductsUrl(searchParams));
   };
 
   return (
