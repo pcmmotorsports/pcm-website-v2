@@ -183,6 +183,58 @@ export function parseSearchFacets(query: string, src: FacetSources): ParsedFacet
   // 🔵 Q1=A(主視窗 2026-09-03):**解析出多顆就全部帶上**(AND)。
   //    理由:全部帶上 ⇒ 客人多按幾個 ✕ 就好;只帶第一顆 ⇒ **他不知道我們丟了什麼**。
   const brandIds: string[] = [];
+
+  // 🔴🔴 **先用【整句】試一次 —— 而這一段補的是「比對的單位選錯了」, 不是加一條規則。**
+  //
+  // 🔬 **量到的**(2026-09-06, 正式庫 `brands` 表 12 筆多字品牌逐一過本函式):
+  //   **認得 8 / 不認得 4** —— 不認得的是 `CNC RACING`(slug `cnc-racing`) · `FRONT 3D`(`front3d`)
+  //   · `GB RACING`(`gb-racing`) · `RPM CARBON`(`rpm-carbon`)。
+  // 🎯 **成因**:下面那個迴圈只拿**單一個字**去比 `b.name` / `b.id`, **從來不比整句**
+  //   ⇒ 多字品牌的 `name` 折疊後是**串在一起的**(`GILLESTOOLING`), 沒有任何單字等於它
+  //   ⇒ **只能靠 slug 命中**;而 slug 是**單一 token** 時才有機會(`gilles` ✅),
+  //     **帶連字號時就沒有**(`cnc-racing` ❌)。
+  // 🔵 **而折疊器早就把答案準備好了**:`search-terms-fold.ts:75` 剝掉 `[\s\-_./()…]`
+  //   ⇒ **整句 `CNC RACING` 與 slug `cnc-racing` 折完【都是 `CNCRACING`】** —— 四個全部如此。
+  //
+  // 🛑 **比的是【還沒被用掉的那幾個字】, 不是原始 query** ——
+  //   車款那一段跑在前面、可能已經吃掉一個字;拿原始 query 比會在
+  //   「`mt07 rizoma`」這種混合輸入上**整句對不上而白跑一趟**, 更糟的是它會**忽略 `used`**。
+  // 🔵 **命中就把那幾個字全部標成用掉** ⇒ leftover 自然是空的
+  //   ⇒ 📌 那 8 個原本留下 `RACING` / `PARTS` 的 leftover **會消失, 而那是【修好】不是回歸**:
+  //     那些字**本來就被用到了**(它們是品牌名的一部分), 舊的 leftover 是比對單位選錯的**副產物**。
+  // ⚠️ **只試整句、不試任意子集** —— 子集會讓「`rizoma 煞車拉桿`」這種輸入產生
+  //   一堆互相重疊的候選, 而挑哪一個沒有客觀判準。整句對不上就**照舊逐字**。
+  // 🔴🔴 **而「還沒被用掉的那幾個字」必須是【連續的一段】** —— code-reviewer 2026-09-06 抓到:
+  //   車款那一段若吃掉**中間**那個字, `unusedIdx` 會變成 `[0, 2]`,
+  //   而 `join(' ')` 把它接成 `"FRONT 3D"` —— **兩個從來不相鄰的字被接成了一個品牌名**。
+  //   🛑 `foldEquals` 分辨不出來:它**剝掉所有分隔符** ⇒ 接起來的與真的相鄰的**折完一模一樣**
+  //     ⇒ 📌 **那是一個【不該中而中了】的假命中, 而它在畫面上長得跟真的一樣。**
+  //   ✅ 所以先驗連續:`unusedIdx[k] === unusedIdx[0] + k`。不連續就不試整句, 照舊逐字。
+  const unusedIdx = words.map((_, i) => i).filter((i) => !used.has(i));
+  const contiguous =
+    unusedIdx.length > 0 && unusedIdx.every((v, k) => v === unusedIdx[0]! + k);
+  const unusedPhrase = contiguous ? unusedIdx.map((i) => words[i]!).join(' ') : '';
+  if (unusedPhrase !== '') {
+    for (const b of src.brands) {
+      // 🔴🔴 **這裡【只比 `b.name`】, 不比 `b.id` —— 而那是量出來的, 不是省略。**
+      //   code-reviewer 2026-09-06 指出「`b.id` 那一半沒有測試殺得死」, 我去驗:
+      //   ⛔ ~~加一格「打 slug 那種寫法」就能守到~~ ⇒ **突變實測:拿掉 `|| foldEquals(…, b.id)`
+      //      之後 37 格【全部照樣綠】** ⇒ 📌 那一格守不到它。
+      //   🎯 **成因**:`foldSearchTerm` 剝掉連字號 ⇒ 打 `cnc-racing` 與打 `CNC RACING`
+      //      折完是**同一個字串** ⇒ **`b.name` 那一半就中了**, `b.id` 永遠輪不到。
+      //   🛑 **而更硬的一格**:slug 是**單一 token** ⇒ 任何等於 slug 的「整句」本身就是**一個字**
+      //      ⇒ **下面那個逐字迴圈本來就會處理它**(它有自己的 `b.id` 比對)
+      //      ⇒ ⇒ **在【整句】這個位置, `b.id` 結構上不可能是唯一命中的那一半。**
+      //   ✅ 所以拿掉它 —— **一個沒有任何突變殺得死的分支, 與它不存在是同一件事**,
+      //      而留著會讓下一個人以為它在擋什麼。
+      if (foldEquals(unusedPhrase, b.name)) {
+        brandIds.push(b.id);
+        for (const i of unusedIdx) used.add(i);
+        break;
+      }
+    }
+  }
+
   for (const b of src.brands) {
     for (let i = 0; i < words.length; i += 1) {
       if (used.has(i)) continue;

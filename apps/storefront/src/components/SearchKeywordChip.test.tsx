@@ -119,4 +119,17 @@ describe('SearchKeywordChip — 關鍵字要看得見、而且拿得掉', () => 
     );
     expect(note!.textContent, '沒有品牌卻說「已用品牌篩選」= 對客人說謊').not.toContain('已用品牌篩選');
   });
+
+  it('🔵 leftover 空掉之後那一行【整個不畫】—— 而那是對的,不是漏掉', () => {
+    // 🔬 ⟦search-BRANDSLUGHYPHEN⟧ 之後,多字品牌打全名的 leftover 變成空
+    //    ⇒ `unmatchedWords` 是 undefined ⇒ 本元件早退回 `null`。
+    // 🛑 **主視窗預期的是「只印【已用品牌篩選:「X」】」,而實際是【整行不畫】** ——
+    //    我把差異釘在這裡, 不改成他預期的那樣。理由:
+    //    ✅ **沒有東西沒用到, 就沒有話要說** —— 而**品牌本身已經以膠囊的形式在畫面上**
+    //       (`ActiveChips:101` 畫的)⇒ 再印一次「已用品牌篩選」是**同一件事講兩遍**。
+    //    📌 那一行的存在理由是「解釋我沒用到的那些字」, 而那些字現在沒有了。
+    const { container } = render(<SearchKeywordChip matchedBrandNames="CNC RACING" />);
+    expect(container.querySelector('.ac-note'), 'leftover 空還印那一行 ⇒ 與膠囊重複').toBeNull();
+    expect(container.firstChild).toBeNull();
+  });
 });

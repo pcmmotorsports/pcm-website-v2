@@ -360,3 +360,85 @@ describe('⟦search-PREFIXWRONGCAT⟧ 落點規則', () => {
     expect(r.leftover).toEqual(['來令']);
   });
 });
+
+// ⟦search-BRANDSLUGHYPHEN⟧ 2026-09-06:多字品牌打全名。
+//
+// 🔬 **分母不是我挑的** —— 正式庫 `brands` 表 `name ~ '\s'` 全撈, **12 筆一個不漏**。
+//   改法之前逐一過同一支解析器:**認得 8 / 不認得 4**(`CNC RACING` · `FRONT 3D` ·
+//   `GB RACING` · `RPM CARBON` —— 它們的 slug **帶連字號或等於整句**, 而舊碼只比單字)。
+// 🛑 **而那 8 個「認得」的 leftover 期望【也改了】** —— 改成空。
+//   理由:`RACING` / `PARTS` / `FILTERS` 那些字**本來就被用到了**(它們是品牌名的一部分),
+//   舊的 leftover 是**比對單位選錯**的副產物, 不是一個該保留的行為。
+describe('⟦search-BRANDSLUGHYPHEN⟧ 多字品牌打全名 ⇒ 整句先比一次', () => {
+  const MULTIWORD: ReadonlyArray<readonly [string, string]> = [
+    ['BONAMICI RACING', 'bonamici'], ['CNC RACING', 'cnc-racing'], ['DBK SPECIAL PARTS', 'dbk'],
+    ['DNA FILTERS', 'dna'], ['EBC BRAKES', 'ebc'], ['EVOTECH PERFORMANCE', 'evotech'],
+    ['EXTREME COMPONENTS', 'extreme'], ['FRONT 3D', 'front3d'], ['GB RACING', 'gb-racing'],
+    ['GILLES TOOLING', 'gilles'], ['RPM CARBON', 'rpm-carbon'], ['SAMCO SPORT', 'samco'],
+  ];
+  const src = {
+    motoBrands: [],
+    categories: [],
+    brands: MULTIWORD.map(([name, id]) => ({ id, name })),
+  } as never;
+
+  it('🔴 12 筆全部認得, 而且 leftover 全部是空的(改法之前是 8/12, 且 8 個都留字)', () => {
+    const miss: string[] = [];
+    const withLeftover: string[] = [];
+    for (const [name, id] of MULTIWORD) {
+      const p = parseSearchFacets(name, src);
+      if (!p.brandIds.includes(id)) miss.push(`${name}(期望 ${id})`);
+      if (p.leftover.length > 0) withLeftover.push(`${name} ⇒ [${p.leftover.join(' ')}]`);
+    }
+    expect(miss, `這幾個打全名還是解不出品牌:${miss.join(' · ')}`).toEqual([]);
+    expect(withLeftover, `這幾個還留著沒用到的字:${withLeftover.join(' · ')}`).toEqual([]);
+  });
+
+  it('🟢 正對照:一個【不在表上】的多字詞不得被認成品牌(證明上面不是無條件命中)', () => {
+    // 🛑 少了這一格,「整句一律當品牌」也會讓上面那格全綠。
+    const p = parseSearchFacets('NOT A BRAND', src);
+    expect(p.brandIds).toEqual([]);
+    expect(p.leftover).toEqual(['NOT', 'A', 'BRAND']);
+  });
+
+  it('🟢 正對照:品牌 + 額外的字 ⇒ 整句對不上 ⇒ 照舊逐字, 額外那個字留在 leftover', () => {
+    // 📌 這一格釘住「整句比對【不會】把不相干的字一起吃掉」——
+    //    那正是它與「任意子集比對」的差別(子集會產生一堆沒有客觀判準的候選)。
+    const p = parseSearchFacets('GILLES 煞車', src);
+    expect(p.brandIds).toEqual(['gilles']);
+    expect(p.leftover).toEqual(['煞車']);
+  });
+
+  it('🔵 打【slug 那種寫法】也要中 —— 而它是靠 `b.name` 中的(折疊器剝掉連字號)', () => {
+    // 🔬 **這一格的來歷值得記**:code-reviewer 2026-09-06 說「`b.id` 那一半沒有測試殺得死」,
+    //    我補了這一格想守住它 ⇒ **突變實測:拿掉 `|| foldEquals(整句, b.id)` 之後全部照樣綠**
+    //    ⇒ 📌 **這一格守不到那一半** —— 打 `cnc-racing` 與打 `CNC RACING` 折完是同一個字串,
+    //       `b.name` 就中了。⇒ 那一半已經拿掉(見該處註解)。
+    // ✅ **而這一格留著**:它釘的是「**兩種寫法都要中**」這個對外行為, 那與內部走哪一半無關。
+    const p = parseSearchFacets('cnc-racing', src);
+    expect(p.brandIds).toEqual(['cnc-racing']);
+    expect(p.leftover).toEqual([]);
+  });
+
+  it('🔴 不相鄰的兩個字【不得】被接成品牌 —— 中間被吃掉的那個世界', () => {
+    // 🛑 code-reviewer 2026-09-06 抓到的假命中:車款吃掉中間那個字之後,
+    //    `unusedIdx = [0, 2]` 會被 join 成「FRONT 3D」—— 而那兩個字從來沒有相鄰過。
+    //    🔵 `foldEquals` 分辨不出來(它剝掉所有分隔符)⇒ 必須在**組句之前**擋。
+    const withVehicle = {
+      motoBrands: [{ id: 'yamaha', name: 'Yamaha', models: [{ id: 'mt07', name: 'MT-07' }] }],
+      categories: [],
+      brands: [{ id: 'front3d', name: 'FRONT 3D' }],
+    } as never;
+    const p = parseSearchFacets('FRONT MT-07 3D', withVehicle);
+    expect(p.vehicle, '車款那一段沒中 ⇒ 這一格證不到它要證的事').toBe('yamaha:mt07');
+    expect(p.brandIds, '不相鄰的兩個字被接成了品牌').toEqual([]);
+    expect(p.leftover).toEqual(['FRONT', '3D']);
+  });
+
+  it('🟢 回歸:單字品牌不受影響(整句 = 單字, 兩條路都會中, 而結果必須一樣)', () => {
+    const single = { motoBrands: [], categories: [], brands: [{ id: 'rizoma', name: 'RIZOMA' }] } as never;
+    const p = parseSearchFacets('RIZOMA', single);
+    expect(p.brandIds).toEqual(['rizoma']);
+    expect(p.leftover).toEqual([]);
+  });
+});
