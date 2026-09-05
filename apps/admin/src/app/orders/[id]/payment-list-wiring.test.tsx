@@ -26,7 +26,12 @@ vi.mock('next/navigation', () => ({
 }));
 // 每一支 server action 模組都要 mock(vite import 分析先於 `vi.mock('server-only')` 生效;
 // `refund-wiring.test.tsx:27-34` 同註)。
-vi.mock('../../../lib/orders/cancel-actions', () => ({ cancelOrderAction: vi.fn() }));
+// 🔴 **`markOrderCancelledAction` 也要 mock**(片② 2026-09-05 新增的第二個 server action)——
+//    少了它, 任何渲染到 `MarkCancelledForm` 的路徑會炸
+//    `No "markOrderCancelledAction" export is defined on the … mock`。
+//    📌 而**七支檔 mock 這個模組, 而當時只有一支紅** ⇒ 另外六支是【潛伏的】:
+//       它們今天沒渲染到那條路而已。⇒ **模組多一個 export 時, 它的每一份 mock 都要跟上。**
+vi.mock('../../../lib/orders/cancel-actions', () => ({ cancelOrderAction: vi.fn(), markOrderCancelledAction: vi.fn() }));
 vi.mock('../../../lib/orders/procurement-actions', () => ({
   upsertItemProcurementAction: vi.fn(),
 }));
