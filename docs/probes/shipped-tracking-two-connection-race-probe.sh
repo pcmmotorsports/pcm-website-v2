@@ -41,14 +41,21 @@ CREATE TABLE public.shipments (
   tracking_number text,
   tracking_corrected_at timestamptz,
   shipped_at timestamptz NOT NULL DEFAULT now());
+-- 🔴🔴 **id 是 uuid, 不是 bigserial** —— codex 抓到我第一版用 bigserial:
+--    正式庫是 `id uuid PRIMARY KEY DEFAULT gen_random_uuid()`
+--    (`20260717020000_m4a_email_outbox.sql:298` 逐字)。
+--    ⇒ 📌 **用 bigserial 的 fixture, 正式的排序問題【在探針上根本不存在】** ——
+--      bigserial 天生單調, 而 uuid 是隨機的。那支探針會印綠, 而它測的是另一個世界。
 CREATE TABLE public.email_outbox (
-  id bigserial PRIMARY KEY,
+  id uuid PRIMARY KEY DEFAULT pg_catalog.gen_random_uuid(),
   shipment_id uuid NOT NULL REFERENCES public.shipments(id),
   event_type text NOT NULL,
   status text NOT NULL,
   sent_at timestamptz,
   -- 🔴 片 A 加的那一欄:【出門紀錄】= 這封信實際寄出去的號碼。
-  sent_tracking_number text);
+  sent_tracking_number text,
+  sent_seq bigint);
+CREATE SEQUENCE public.pcm_email_outbox_sent_seq;
 
 -- ── 第一代判準(今天線上那個, 20260904220000)—— 時間比較當代理 ──────────
 CREATE FUNCTION public.gen1_should_send(p_ship uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
@@ -67,11 +74,11 @@ CREATE FUNCTION public.gen2_should_send(p_ship uuid) RETURNS boolean LANGUAGE sq
            WHEN (SELECT l.sent_tracking_number FROM public.email_outbox l
                   WHERE l.shipment_id = s.id AND l.status = 'sent' AND l.sent_at IS NOT NULL
                     AND l.event_type IN ('order_shipped','shipment_tracking_corrected')
-                  ORDER BY l.sent_at DESC, l.id DESC LIMIT 1) IS NOT NULL
+                  ORDER BY l.sent_seq DESC NULLS LAST, l.sent_at DESC LIMIT 1) IS NOT NULL
            THEN (SELECT l.sent_tracking_number FROM public.email_outbox l
                   WHERE l.shipment_id = s.id AND l.status = 'sent' AND l.sent_at IS NOT NULL
                     AND l.event_type IN ('order_shipped','shipment_tracking_corrected')
-                  ORDER BY l.sent_at DESC, l.id DESC LIMIT 1)
+                  ORDER BY l.sent_seq DESC NULLS LAST, l.sent_at DESC LIMIT 1)
                 IS DISTINCT FROM s.tracking_number
            ELSE EXISTS (SELECT 1 FROM public.email_outbox e
                          WHERE e.shipment_id = s.id AND e.event_type = 'order_shipped'
@@ -81,6 +88,26 @@ CREATE FUNCTION public.gen2_should_send(p_ship uuid) RETURNS boolean LANGUAGE sq
     FROM public.shipments s WHERE s.id = p_ship;
 $$;
 SQL
+
+# 🔴 與 gen2 【只差 ORDER BY】的一支 —— 它存在的理由是讓「排序選錯」這件事看得見。
+psql -h 127.0.0.1 -p "$PORT" -U postgres -q -v ON_ERROR_STOP=1 <<'SQL2'
+CREATE FUNCTION public.gen2_uuidorder_should_send(p_ship uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
+  SELECT s.tracking_corrected_at IS NOT NULL
+     AND CASE
+           WHEN (SELECT l.sent_tracking_number FROM public.email_outbox l
+                  WHERE l.shipment_id = s.id AND l.status = 'sent' AND l.sent_at IS NOT NULL
+                    AND l.event_type IN ('order_shipped','shipment_tracking_corrected')
+                  ORDER BY l.sent_at DESC, l.id DESC LIMIT 1) IS NOT NULL
+           THEN (SELECT l.sent_tracking_number FROM public.email_outbox l
+                  WHERE l.shipment_id = s.id AND l.status = 'sent' AND l.sent_at IS NOT NULL
+                    AND l.event_type IN ('order_shipped','shipment_tracking_corrected')
+                  ORDER BY l.sent_at DESC, l.id DESC LIMIT 1)
+                IS DISTINCT FROM s.tracking_number
+           ELSE false
+         END
+    FROM public.shipments s WHERE s.id = p_ship;
+$$;
+SQL2
 
 # ── 一個世界 = 一張箱 + 一封還沒寄的出貨信 ────────────────────────────────
 mk () {
@@ -101,7 +128,8 @@ sweeper () {
     UPDATE public.email_outbox
        SET status = 'sent',
            sent_at = pg_catalog.clock_timestamp(),
-           sent_tracking_number = (SELECT n FROM seen)
+           sent_tracking_number = (SELECT n FROM seen),
+           sent_seq = pg_catalog.nextval('public.pcm_email_outbox_sent_seq')
      WHERE shipment_id = '$sid' AND event_type = 'order_shipped';
     COMMIT;" > "$D/sweep-$sid.log" 2>&1
 }
@@ -169,9 +197,46 @@ check "③-c 第二代判準" "true" "$(q1 "SELECT public.gen2_should_send('$S3'
 echo "  -> 1 與 3 的程式路徑逐字相同, 只有 delay 不同; 第一代判準一個 false 一個 true"
 echo "     => 那個 false 是【時序】造成的, 不是 fixture 天生。"
 
+echo "-- 世界4 [同毫秒兩封]: 舊排序(隨機 uuid)選錯, 新排序(sent_seq)選對 --"
+# 🔴🔴 **這一格是 codex 那條 must-fix 的實物**:`ORDER BY sent_at DESC, id DESC` 的 `id`
+#    是 `gen_random_uuid()` ⇒ 同毫秒兩封時, 它決出來的先後**是隨機的**。
+# 🎯 而這裡**不靠運氣示範** —— 兩顆 uuid 寫死, 讓舊排序【確定】選錯那一封:
+#      出貨信(說 A)id = ffffffff-…  ⇒ `id DESC` 排最前
+#      更正信(說 B)id = 00000000-…  ⇒ `id DESC` 排最後
+#    兩封 `sent_at` 完全相同, 而真正的先後是 `sent_seq` 1 → 2。
+# ⇒ 正確答案:最後告訴客人的是 **B**, 而現在也是 **B** ⇒ **不該寄**。
+# 🔴 `q1` 對 INSERT..RETURNING 會多帶一行命令標籤(`INSERT 0 1`)⇒ 只取第一行。
+#    不取的話那個 uuid 會變成「uuid + 換行 + INSERT 0 1」, 而 psql 報的是型別錯誤,
+#    看起來像 uuid 產錯了。(2026-09-05 當場撞到。)
+S4=$(q1 "INSERT INTO public.shipments(label, tracking_number, tracking_corrected_at) VALUES ('W4TIE','B', pg_catalog.clock_timestamp()) RETURNING id" | head -1)
+psql -h 127.0.0.1 -p "$PORT" -U postgres -q -v ON_ERROR_STOP=1 -c "
+  INSERT INTO public.email_outbox(id, shipment_id, event_type, status, sent_at, sent_tracking_number, sent_seq)
+  VALUES ('ffffffff-ffff-4fff-8fff-ffffffffffff','$S4','order_shipped','sent','2026-09-05 12:00:00+08','A',1),
+         ('00000000-0000-4000-8000-000000000000','$S4','shipment_tracking_corrected','sent','2026-09-05 12:00:00+08','B',2);"
+check "4-a 兩封 sent_at 完全相同(本格的前提)" "1" "$(q1 "SELECT count(DISTINCT sent_at)::text FROM public.email_outbox WHERE shipment_id='$S4'")"
+check "4-b 現在的號碼" "B" "$(q1 "SELECT tracking_number FROM public.shipments WHERE id='$S4'")"
+check "4-c 舊排序挑出來的最後一封" "A" "$(q1 "SELECT sent_tracking_number FROM public.email_outbox WHERE shipment_id='$S4' ORDER BY sent_at DESC, id DESC LIMIT 1")"
+check "4-d 新排序挑出來的最後一封" "B" "$(q1 "SELECT sent_tracking_number FROM public.email_outbox WHERE shipment_id='$S4' ORDER BY sent_seq DESC NULLS LAST, sent_at DESC LIMIT 1")"
+check "4-e 用舊排序的判準(會寄一封多餘的)" "true"  "$(q1 "SELECT public.gen2_uuidorder_should_send('$S4')::text")"
+check "4-f 用 sent_seq 的判準(不寄)" "false" "$(q1 "SELECT public.gen2_should_send('$S4')::text")"
+echo "  -> 兩者只差 ORDER BY 一行:舊的寄一封多餘的更正信給號碼已經正確的客人, 新的不寄。"
+
 echo "── ⚪ 零留痕 ──"
-check "④ 探針自己的 PG 是拋棄式的" "$D" "$D"
-echo "  🔵 資料庫在 $D, trap 會停掉並刪除 ⇒ 本檔不碰任何既有的庫。"
+# 🔴🔴 **這一格的第一版是 `check "..." "$D" "$D"` —— 拿 $D 跟 $D 比 ⇒ 恆綠。**
+#    trap 有沒有真的刪掉目錄, 它一個字都沒量到。(codex 2026-09-05 抓到。)
+# 🛑 **而【從腳本內部】本來就驗不到 trap 的執行** —— trap 在 exit 時才跑, 那時這裡已經結束了。
+#    ⇒ 📌 所以誠實的做法不是編一個看起來在驗的斷言, 是**驗兩件真的驗得到的**, 並把驗不到的寫出來。
+is_tmp () { case "$1" in /tmp/*) return 0 ;; /var/folders/*) return 0 ;; esac
+            case "$1" in "${TMPDIR:-/nope}"*) return 0 ;; esac ; return 1 ; }
+check "5-a 資料庫在系統暫存區底下(它是拋棄式的位置)" "yes" \
+  "$(is_tmp "$D" && echo yes || echo no)"
+# 🟢 負對照:同一把尺餵一個【不是】暫存區的路徑, 它必須說 no —— 否則 5-a 是恆綠的。
+check "5-a 負對照(餵 /Users/sean_1 必須說 no)" "no" \
+  "$(is_tmp /Users/sean_1 && echo yes || echo no)"
+check "5-b EXIT trap 真的掛上去了(而不是只寫在註解裡)" "yes" \
+  "$(trap -p EXIT | grep -q "rm -rf" && echo yes || echo no)"
+echo "  🛑 驗不到的:trap 執行【之後】那個目錄在不在 —— 那要另一個行程去看, 不在本檔射程。"
+echo "  🔵 資料庫在 $D;本檔全程只連 127.0.0.1:$PORT 那一台, 不碰任何既有的庫。"
 
 printf '\n── 讀數 %s 格:PASS=%s FAIL=%s ──\n' "$((PASSED + FAILED))" "$PASSED" "$FAILED"
 [ "$FAILED" -eq 0 ] && echo "OK 全過" || echo "X 有格子紅了"
