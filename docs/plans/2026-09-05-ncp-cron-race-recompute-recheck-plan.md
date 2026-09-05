@@ -23,7 +23,26 @@
 >
 > ## ✅ 那還剩什麼(這才是這一片真正的內容,而它比 v2 小)
 >
-> ### 剩一:**時序前提沒有人量過**(codex A)
+> ### ✅ 剩一:**時序前提【已經量了】**(codex A)—— 2026-09-05 19:0x 拋棄式 PG 17.10
+> ```
+> fixture 重現真實形狀:orders + order_payments(FK ⇒ INSERT 取 KEY SHARE)
+>                      + 一支抄 expire_unpaid_orders 形狀的取消函式(CTE + FOR UPDATE SKIP LOCKED + UPDATE)
+>
+> 圖① A 先取消不提交 ⇒ B 的 INSERT 【真的被擋】(撞 2s lock_timeout)
+> 🔴🔴 決定性那一發(B 等到 A 提交):
+>       b開始     19:07:55.267
+>       b穿過FK   19:07:57.259   ← 等了約 2 秒, 正好是 A 提交的時刻
+>       B 看得見 cancelled_at ⇒ 【t】
+> 🔵 負對照:A 【不取消】只 sleep ⇒ B 看到 【f】 ⇒ 那個 t 有判別力
+> ```
+> ⇒ ✅ **前提成立:B 被列鎖擋到 A COMMIT 之後, 而擋完那個 SELECT 看得見 A。**
+> 🔵 **機制**:READ COMMITTED 下**每一句 SQL 拿一個新快照** ⇒ B 的 SELECT 是解除阻塞【之後】才發的那一句。
+> ⚠️ **射程(這一格很重要)**:換成 `REPEATABLE READ` ⇒ 🔴 **B 的 INSERT 當場
+> 　 `could not serialize access due to concurrent update`** —— 它不是「看不見」, 是**整筆交易被踢掉**。
+> 　 🟢 而正式庫 `default_transaction_isolation` 實量 = **read committed** ⇒ 今天走的是量到的那條路。
+> 　 🛑 **哪天有人把某條路徑改成 REPEATABLE READ, 這個結論就不成立** —— 而那不會有東西叫。
+>
+> ### (以下為量之前寫的原文)剩一:**時序前提沒有人量過**(codex A)
 > 「B 的 INSERT 會被列鎖擋到 A COMMIT 之後,而擋完之後那個普通 SELECT 一定看得見 A」——
 > 🔴 **後半段是從鎖相容表外推的,不是量到的。** 列鎖等待成立 ≠ 等待後的 SELECT 必然看見。
 > ⇒ **要用【正式的取消函式 + 真的 INSERT】兩連線實測。** 而那正是本片唯一該做的事。
