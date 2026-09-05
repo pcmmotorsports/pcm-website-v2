@@ -42,6 +42,7 @@ const ORDER = {
   created_at: '2026-09-03T09:00:00.000Z',
   notification_email: 'a@example.com',
   customer_email: null,
+  order_source: 'manual_phone',
 };
 
 const IN = { cutoff: '2026-09-03T00:00:00.000Z', limit: 50 };
@@ -189,5 +190,24 @@ describe('SupabaseUnpaidCancelledOrderScannerAdapter — 射程(而它靠一個�
         makeClient(orders, customers).client,
       ).listUnpaidCancelledWithoutEmail(IN),
     ).rejects.not.toThrow(/@example\.com/);
+  });
+});
+
+// ══ 片 B(⟦f3-MAILFALLBACKVSRULING⟧, 2026-09-05)——「撈得到 order_source」════════
+// 🔴 **兩個宣稱, 各一格**:①它在 select 字串裡 ②它真的走到 port 物件上。
+//    少了②, 一個「加進 select 而忘了對映」的實作【第①格照樣綠】。
+// 🔵 而 fixture 刻意用 'manual_phone' 不用 'web' —— 一個把它寫死成 'web' 的對映
+//    在 'web' 的 fixture 上完全看不出來。
+describe('片 B:order_source 接出來了', () => {
+  it('①select 字串帶了它, 而②它走到 port 物件上', async () => {
+    const orders = makeBuilder({ data: [ORDER], error: null });
+    const customers = makeBuilder({ data: [], error: null });
+    const { client } = makeClient(orders, customers);
+    const r = await new SupabaseUnpaidCancelledOrderScannerAdapter(
+      client,
+    ).listUnpaidCancelledWithoutEmail(IN);
+    const sel = String(orders.calls.find(([m]) => m === 'select')?.[1]?.[0] ?? '');
+    expect(sel).toContain('order_source');
+    expect(r.rows[0]?.orderSource).toBe('manual_phone');
   });
 });
