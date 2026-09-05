@@ -21,7 +21,9 @@
 -- ═══ 🔬 這把尺【貼之前】跑過一發, 而那一發就是它的自檢 ═══
 --   2026-09-05 15:3x, 25 號**還沒貼**的世界, 唯讀跑一次:
 --     ① 🔴 view 沒有 tax_total   (正對照 `id`=t / 負對照 `zzz_not_real`=f ⇒ 尺會動且不亂命中)
---     ② 🔴 view 37 欄 vs 表 41 欄(與我 09-05 稍早量到的一致)
+--     ② 🔴 view 還缺 6 個表欄(`manual_request_id` `manual_request_payload_sha256`
+--        `cancel_items_untouched` `coupon_id` `tax_total` `invoice_requested`);37 vs 41
+--        ⚠️ **而「37 vs 41」那兩個數不該相減** —— view 有 2 欄不在表上 ⇒ 貼完是 **43 vs 41**
 --     ③ ✅ security_invoker=true
 --     ④ ✅ pcm_readonly 讀得到
 --   ⇒ ✅ ①② **在該紅的世界紅了** ⇒ 那兩格是活的。
@@ -47,18 +49,31 @@ FROM information_schema.columns c
 WHERE c.table_schema = 'public' AND c.table_name = 'admin_order_list_v';
 
 \echo ''
-\echo '=== ② view 的欄數 vs orders 表的欄數(兩個數一起看)==='
+\echo '=== ② view 追上表了沒 —— 🔴 判準【不是】兩個數相等 ==='
+-- ⛔ ~~兩邊一樣多 = 追上了~~ —— **那個判準是錯的, 2026-09-05 量到**:
+--    view 有 **2 欄不在表上**(`goods_axis` / `paid_total`, 都是算出來的)
+--    ⇒ 追上之後正確關係是 **view = 表 + 2**(貼完 = 43 vs 41), **不是相等**。
+-- 📌 我第一版寫「相等」是拿 `41−37` 減出來的 —— **那條減法把 2 個非表欄算成表欄。**
+-- ✅ 所以這一格改成問**真正的問題**:**表上有沒有哪一欄是 view 缺的?**
+--    那個問法對「表以後又加欄」也照樣成立, 而數字判準不成立。
 SELECT
   (SELECT count(*) FROM information_schema.columns
     WHERE table_schema='public' AND table_name='admin_order_list_v') AS view欄數,
   (SELECT count(*) FROM information_schema.columns
     WHERE table_schema='public' AND table_name='orders')             AS 表欄數,
-  CASE WHEN (SELECT count(*) FROM information_schema.columns
-              WHERE table_schema='public' AND table_name='admin_order_list_v')
-          = (SELECT count(*) FROM information_schema.columns
-              WHERE table_schema='public' AND table_name='orders')
-       THEN '✅ 兩邊一樣多 —— view 追上表了'
-       ELSE '🔴 兩邊不一樣 —— view 又落後了(或表被加了欄), 貼回來我判' END AS 結果;
+  COALESCE((SELECT string_agg(c.column_name, ',' ORDER BY c.ordinal_position)
+     FROM information_schema.columns c
+    WHERE c.table_schema='public' AND c.table_name='orders'
+      AND c.column_name NOT IN (SELECT column_name FROM information_schema.columns
+                                 WHERE table_schema='public' AND table_name='admin_order_list_v')
+   ), '(沒有)') AS view還缺的表欄,
+  CASE WHEN NOT EXISTS (
+         SELECT 1 FROM information_schema.columns c
+          WHERE c.table_schema='public' AND c.table_name='orders'
+            AND c.column_name NOT IN (SELECT column_name FROM information_schema.columns
+                                       WHERE table_schema='public' AND table_name='admin_order_list_v'))
+       THEN '✅ 表上每一欄 view 都有了'
+       ELSE '🔴 view 還缺欄(左邊那格列出是哪幾個), 貼回來我判' END AS 結果;
 
 \echo ''
 \echo '=== ③ security_invoker 有沒有留著(RLS 用呼叫者身分判)==='
