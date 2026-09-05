@@ -152,7 +152,7 @@ function cart(status: UseResolvedCart['status']): UseResolvedCart {
 
 function renderCheckout() {
   return render(
-    <CheckoutView
+    <CheckoutView bankTransferEnabled={false}
       addresses={[ADDR]}
       memberName="王小明"
       memberTier={'general' as MemberTier}
@@ -281,7 +281,7 @@ describe('🔴🔴 #887 乙案守門:錢在飛的時候, 整頁不得被換成�
     // 錢還在飛, 而購物車解析掛了
     cartStateRef.current = cart('error');
     rerender(
-      <CheckoutView
+      <CheckoutView bankTransferEnabled={false}
         addresses={[ADDR]}
         memberName="王小明"
         memberTier={'general' as MemberTier}
@@ -314,7 +314,7 @@ describe('🔴🔴 #887 乙案守門:錢在飛的時候, 整頁不得被換成�
 
     cartStateRef.current = cart('empty');
     rerender(
-      <CheckoutView
+      <CheckoutView bankTransferEnabled={false}
         addresses={[ADDR]}
         memberName="王小明"
         memberTier={'general' as MemberTier}
@@ -342,7 +342,7 @@ describe('🔴🔴 #887 乙案守門:錢在飛的時候, 整頁不得被換成�
 
     cartStateRef.current = cart('loading');
     rerender(
-      <CheckoutView
+      <CheckoutView bankTransferEnabled={false}
         addresses={[ADDR]}
         memberName="王小明"
         memberTier={'general' as MemberTier}
