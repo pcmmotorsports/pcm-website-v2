@@ -1,6 +1,16 @@
-import { CANCEL_REASON_MAX_LEN } from './order-email-copy';
+import { CANCEL_REASON_MAX_LEN, ORDER_CONTACT_LEAD, PCM_LINE_ID, PCM_LINE_URL } from './order-email-copy';
 import { PAID_EMAIL_PDF_ATTACHED_SENTENCE } from './paid-email-html';
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+  PCM_REMITTANCE_BANK_NAME,
+  PCM_REMITTANCE_BRANCH,
+  PCM_REMITTANCE_ACCOUNT_NAME,
+  PCM_REMITTANCE_ACCOUNT_NO,
+  remittanceDeadlineLabel,
+  remittanceDeadlineSentence,
+} from '@pcm/domain';
 import type {
   ClaimedEmailJob,
   IEmailOutbox,
@@ -2211,4 +2221,103 @@ describe('⟦5b-TRACKNUMGAP1⟧ 片 C · 寄送當下比對即時值 —— 而�
     expect(r.sent).toBe(1);
   });
 
+});
+
+// ══════════════════════════════════════════════════════════════════
+// ⟦b4-BANKNOEMAIL⟧ 匯款單成立信 —— 對外文案的鎖
+// ══════════════════════════════════════════════════════════════════
+describe('bank_order_created:匯款單成立信', () => {
+  const bankJob = (payload: Record<string, unknown>) =>
+    job({ eventType: 'bank_order_created', payload });
+
+  // 🔴 `siteUrl` 顯式傳 —— 預設 `OPTS` 自己帶著一個, 而「不傳」不等於「沒有」。
+  //    ⛔ 我第一版用 `siteUrl === undefined ? OPTS : …` ⇒ 缺 siteUrl 那一發**吃到 OPTS 的值**
+  //    ⇒ 它測的其實是「有 siteUrl」那個世界, 而它紅得對。
+  const textOf = async (payload: Record<string, unknown>, siteUrl: string | undefined) => {
+    const outbox = outboxFake([bankJob(payload)]);
+    const sender = senderFake([{ kind: 'sent' }]);
+    await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender },
+      { ...OPTS, siteUrl },
+    );
+    const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    return String(input.text);
+  };
+
+  const PAYLOAD = {
+    display_id: 'PCM-2026-0142',
+    total: 12800,
+    balance_due: 12800,
+    created_at: '2026-09-06T02:00:00.000Z',
+  };
+
+  // 🔴🔴 **這一發不是「測我寫對了」, 是把【Sean 核可的字】與【寄出去的字】綁在一起。**
+  //    它讀 `docs/specs/2026-09-06-bank-order-created-email-copy.md` —— 那支檔是
+  //    **程式從端給他的那份逐字抄的**, 不是我重打的 ⇒ 佔位詞換掉之後就是他點頭的那封信。
+  //    🛑 **改這格 = 重設一道對外文案的鎖 ⇒ 需要授權**(同 `EXPECTED_ORDER_CREATED_BODY` 那格)。
+  it('🔴 全文逐字 = Sean 核可的那一份(spec 檔對照, 不是手打副本)', async () => {
+    const spec = readFileSync(
+      join(__dirname, '..', '..', '..', 'docs', 'specs', '2026-09-06-bank-order-created-email-copy.md'),
+      'utf8',
+    );
+    const bodyBlocks = spec.split('## 內文')[1];
+    expect(bodyBlocks, 'spec 檔裡找不到「## 內文」那一節 ⇒ 這道鎖沒接上').toBeDefined();
+    const raw = bodyBlocks!.split('```')[1]!.replace(/^\n/, '').replace(/\n$/, '');
+    // 佔位詞 → 本發 fixture 的值。🔵 逐個換, 而**換不到就會留在字串裡** ⇒ 比對會紅。
+    const expected = raw
+      .replaceAll('(訂單編號)', 'PCM-2026-0142')
+      .replace('(訂單金額)', '12,800')
+      .replace('(已收金額)', '0')
+      .replace('(還要匯多少)', '12,800')
+      .replace('(公司銀行)', PCM_REMITTANCE_BANK_NAME)
+      .replace('(分行)', PCM_REMITTANCE_BRANCH)
+      .replace('(公司戶名)', PCM_REMITTANCE_ACCOUNT_NAME)
+      .replace('(公司銀行帳號)', PCM_REMITTANCE_ACCOUNT_NO)
+      .replace('(到期日)', remittanceDeadlineLabel(PAYLOAD.created_at)!)
+      .replace('(他的訂單頁連結)', 'https://shop.example.com/account/orders/PCM-2026-0142')
+      // 🔴🔴 **已知的一個字元差, 而它【不是】我決定的 —— 在此明寫, 等 Sean 複核**:
+      //    Sean 核可的那一份逐字是「有任何問題**,**加入官方 LINE」(**半形**逗號),
+      //    而既有常數 `ORDER_CONTACT_LEAD` 逐字是「有任何問題**，**加入官方 LINE」(**全形**)。
+      //    ⇒ 三條路我選了最保守的一條:**用既有常數**(那一行同時出現在別封信裡,
+      //      硬寫第二份會讓兩封信的客服句各自漂, 而漂掉時客人拿到過期的聯絡方式);
+      //      ⛔ **不改那個常數** —— 改它會【靜靜改掉另外幾封已經在寄的信】。
+      //    📌 這一格是【我端給他的 markdown 打成半形】造成的, 不是他選的
+      //      ⇒ 而**我不替他決定**, 已回報主視窗請他複核一個字元。
+      .replace('有任何問題,加入官方 LINE (LINE ID)', `${ORDER_CONTACT_LEAD} ${PCM_LINE_ID}`)
+      .replace('(LINE 連結)', PCM_LINE_URL);
+    // 🔵 自檢:換完不該還有【那幾個佔位詞】殘留 —— 否則下面那個 toBe 會因為【錯的理由】紅。
+    //    ⛔ ~~我第一版寫成「任何中文括號都不准留」~~ 🔴 **那把尺太寬**:它把
+    //    `(含)` 與 `(城北分行)` 這種【真正要寄出去的字】也判成殘留 ⇒ 兩發都紅而碼是對的。
+    //    📌 **一個誤報的自檢, 會讓人去改【本來是對的】那一半。**
+    for (const ph of [
+      '(訂單編號)', '(訂單金額)', '(已收金額)', '(還要匯多少)', '(LINE ID)',
+      '(公司銀行)', '(分行)', '(公司戶名)', '(公司銀行帳號)',
+      '(到期日)', '(他的訂單頁連結)', '(LINE 連結)',
+    ]) {
+      expect(expected, `佔位詞 ${ph} 沒被換掉 ⇒ 下面的比對會因為錯的理由紅`).not.toContain(ph);
+    }
+    expect(await textOf(PAYLOAD, 'https://shop.example.com')).toBe(expected);
+  });
+
+  it('🔴 缺 siteUrl ⇒ 連結那兩行【整段不印】, 而信的其餘部分照印', async () => {
+    const text = await textOf(PAYLOAD, undefined);
+    expect(text).not.toContain('/account/orders/');
+    expect(text).not.toContain('訂單內容與匯款資訊也可以在這裡查看');
+    // 🟢 正對照:主體還在 —— 少了這兩格,「整封都沒寄」也會通過上面兩格。
+    expect(text).toContain(PCM_REMITTANCE_ACCOUNT_NO);
+    expect(text).toContain('應付餘額  NT$ 12,800');
+  });
+
+  it('🔴 已收 ≠ 0 時三行金額要對得起來(total − balance_due)', async () => {
+    const text = await textOf({ ...PAYLOAD, balance_due: 5000 }, 'https://shop.example.com');
+    expect(text).toContain('訂單金額  NT$ 12,800');
+    expect(text).toContain('已收      NT$ 7,800');
+    expect(text).toContain('應付餘額  NT$ 5,000');
+  });
+
+  it('🔵 期限句與訂單頁【同一支 domain 函式】—— 含「(含)」那個邊界', async () => {
+    const text = await textOf(PAYLOAD, 'https://shop.example.com');
+    expect(text).toContain(remittanceDeadlineSentence(PAYLOAD.created_at));
+    expect(text).toContain('(含)之前完成匯款');
+  });
 });

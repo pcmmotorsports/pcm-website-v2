@@ -43,7 +43,7 @@ import {
   PCM_REMITTANCE_BANK_NAME,
   PCM_REMITTANCE_BRANCH,
   PCM_REMITTANCE_EXPIRE_DAYS,
-  remittanceDeadlineLabel,
+  remittanceDeadlineSentence,
   PCM_REMITTANCE_MEMO_INSTRUCTION,
 } from '@pcm/domain';
 import { ProductImage } from '@/components/ProductImage';
@@ -694,9 +694,12 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
               🔵 「(含)」不是贅字:cron 是 `created_at < now() - 5 days`
                  ⇒ **第 5 天當天還沒到期**(`20260904230000:451-455`)。 */}
           <p className="acc-order-note" data-od-id="order-remittance-expiry">
-            {remittanceDeadlineLabel(order.createdAt) === null
-              ? `請於 ${PCM_REMITTANCE_EXPIRE_DAYS} 天內完成匯款,逾期訂單將自動取消。`
-              : `請於 ${remittanceDeadlineLabel(order.createdAt)}(含)之前完成匯款,逾期訂單將自動取消。`}
+            {/* 🔴 2026-09-06:這一句抽成 domain 單一來源 `remittanceDeadlineSentence` ——
+                   ⛔ ~~原本這裡自己組那個三元~~。**輸出字面逐字不變**(本檔兩發測試就是那道鎖)。
+                   🛑 理由不是整潔:匯款【信】也要印同一句, 而信第一版只抄了 fallback 那半
+                      ⇒ 主分支會印出孤零零一行日期、且「(含)」消失 ⇒ 客人第 5 天不敢匯(R3-MF3)。
+                   ⇒ 📌 **兩個消費端各寫一份 = 會漂, 而漂掉時客人拿到的是一個錯的期限。** */}
+            {remittanceDeadlineSentence(order.createdAt)}
           </p>
         </div>
       )}

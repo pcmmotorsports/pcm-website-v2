@@ -103,3 +103,26 @@ export function remittanceDeadlineLabel(createdAtIso: string): string | null {
   if (m === undefined || d === undefined) return null;
   return `${Number(m)} 月 ${Number(d)} 日`;
 }
+
+/**
+ * 「請於 X 之前完成匯款」那一整句 —— **兩個消費端的唯一一份**。
+ *
+ * 🔴🔴 **為什麼要有這一支**(R3-MF3 抓到, 而它是對的):
+ *   `remittanceDeadlineLabel` 只回**日期本身**(「9 月 11 日」)—— **無年、無主詞**。
+ *   ⛔ 匯款信第一版直接插那個裸回傳值 ⇒ 🛑 **信上會出現孤零零一行「9 月 11 日」**,
+ *      而且 **「(含)」那個邊界消失** ⇒ 📌 **客人第 5 天不敢匯。**
+ *   ⇒ 而畫面那半(`OrderDetailView`)本來就有完整那一句 ⇒ **兩處各寫一份 = 會漂。**
+ *
+ * 🔵 **「(含)」不是贅字**:逾期 cron 的述詞是 `created_at < now() - 5 days`
+ *   ⇒ **第 5 天當天還沒到期**(`20260904230000:451-455`)。
+ *
+ * 🔴 **算不出日期 ⇒ 退回「N 天內」那句, 不是不印** ——
+ *   `remittanceDeadlineLabel` 對不合法輸入回 `null`(理由:算錯的日期比不算糟),
+ *   而**這一句一定要有**:它是客人唯一知道「什麼時候會被取消」的地方。
+ */
+export function remittanceDeadlineSentence(createdAtIso: string): string {
+  const label = remittanceDeadlineLabel(createdAtIso);
+  return label === null
+    ? `請於 ${PCM_REMITTANCE_EXPIRE_DAYS} 天內完成匯款,逾期訂單將自動取消。`
+    : `請於 ${label}(含)之前完成匯款,逾期訂單將自動取消。`;
+}
