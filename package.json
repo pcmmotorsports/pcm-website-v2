@@ -88,6 +88,8 @@
     "scripts/invoker-view-execute-gate.py": "python3 scripts/invoker-view-execute-gate.py --selftest",
     "scripts/acl-snapshot.sh": "bash scripts/acl-snapshot.sh --selftest && bash scripts/acl-digest-parity.sh",
       "scripts/acl-digest-parity.sh": "bash scripts/acl-digest-parity.sh --selftest",
+      "scripts/migration-version-dup-across-lines.sh": "bash scripts/migration-version-dup-across-lines.sh --selftest",
+      "supabase/migrations/*.sql": "bash scripts/migration-version-dup-across-lines.sh",
       "supabase/migrations/20260905140000_m4b_acl_drift_digest_table.sql": "bash scripts/acl-digest-parity.sh",
     "scripts/rls-swap-expected-block.py": "bash scripts/rls-service-role-select-verify.sh",
     "packages/adapters/src/payment/PgAnomalyAlertReaderAdapter.ts": "npx vitest run packages/adapters/src/payment/anomaly-alert-key-contract.test.ts",
