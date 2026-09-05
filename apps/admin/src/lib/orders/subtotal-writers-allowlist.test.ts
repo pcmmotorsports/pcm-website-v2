@@ -116,6 +116,17 @@ function stripSqlComments(src: string): string {
  * **也就是那個「讓原本『單一寫入者』前提消失」的第二個寫入者**。
  */
 const ALLOWLIST = [
+  // ── 2026-09-05 線【客人帳戶區】`-account` 補(⟦b4-PRICECOPYTAX⟧ 片二;**作者就是我**;
+  //    鐵則 8 已批(Sean 拍甲)+ 12①③ 的 codex 一輪已跑、FAIL 5 must-fix + 6 nit 全折)──
+  // 🔴 **它【真的是】寫入者, 不是誤報** —— 本檔重定義 `admin_create_manual_order`,
+  //    而那支函式的 `INSERT INTO public.orders (…)` 就寫 `subtotal` / `total`。
+  //    ⇒ 📌 **所以這一筆不是「解釋為什麼不算」, 是「登記一個真的寫入者」。**
+  // ✅ 而它改變寫入值域的方式寫在這裡, 給下一個讀這張表的人:
+  //    · `subtotal` 的**語意變了**:第 6 代之後手動單的 `subtotal` 是**未稅**(以前含稅)
+  //    · 新欄 `orders.price_tax_mode` 說得出來是哪一種('inclusive' / 'exclusive')
+  //    · `tax_total` 從**寫死的 0** 變成 `ROUND(稅基::numeric × 0.05)`
+  //    🛑 **拿 `subtotal` 反推稅、或拿 `unit_price` 比價的人, 從這一版起必須先看 `price_tax_mode`。**
+  '20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql',
   // ── 2026-09-02 線 `-5b` 補(兩支都【不寫那三欄】—— 命中的是它們的後置斷言)──────
   // 🔴 命中原因逐字:`WRITER_RE` 的第二個分支是 `INSERT INTO public."?(orders|order_items)"?`
   //    —— 而這兩支的**後置斷言**要造一張測試訂單才跑得起來 ⇒ `INSERT INTO public.orders(id)`。

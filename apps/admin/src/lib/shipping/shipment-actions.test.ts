@@ -27,10 +27,19 @@ vi.mock('./shipment-candidates', () => ({ loadShipmentCandidates: vi.fn() }));
 //       否則「加了閘」這件事在測試層是**零覆蓋**的。
 const authorizeAdminMutation = vi.fn();
 vi.mock('../session/authorize', () => ({ authorizeAdminMutation }));
+// 🔴 `../audit/context` 讀 `next/headers` ⇒ server-only, 在測試裡 import 會炸
+//    「This module cannot be imported from a Client Component module.」
+//    ⇒ 📌 而那**正是 action 裡用動態 import 的理由**(本檔會被 client 元件 import)。
+//    ⚠️ 而它在測試裡的症狀是 action 走進 catch ⇒ 回 ok:false
+//      ⇒ 一個【環境問題】看起來像【業務邏輯拒絕了】。
+vi.mock('../audit/context', () => ({ getRequestId: () => Promise.resolve('req-test-1') }));
 
 const voidShipment = vi.fn();
 const unvoidShipment = vi.fn();
 const listOwners = vi.fn();
+/** 🔴 ⟦ship-HCTUNKNOWNSTUCK⟧ 片 B:這個 spy 的【呼叫次數】是下面那一格的承重。 */
+const resetHctUnknownToDraft = vi.fn();
+
 vi.mock('./shipment-repository', () => ({
   createShipment,
   addShipmentItems,
@@ -38,6 +47,7 @@ vi.mock('./shipment-repository', () => ({
   voidShipment,
   unvoidShipment,
   listCustomerUserIdsByOrderItemIds: listOwners,
+  resetHctUnknownToDraft,
 }));
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -615,5 +625,64 @@ describe('🔴 授權閘 — 沒有具名 actor 時四支寫入 action 都要擋
         expect(gateAt, `${name} 的閘在寫入之後 ⇒ 擋下來的時候東西已經寫進去了`).toBeLessThan(writeAt);
       }
     }
+  });
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴 ⟦ship-HCTUNKNOWNSTUCK⟧ 片 B · 接線 —— 而它守的是【呼叫發生之前】那一格
+// ══════════════════════════════════════════════════════════════════════════
+describe('⟦ship-HCTUNKNOWNSTUCK⟧ 片 B · 空證詞【不得】走到 RPC', () => {
+  beforeEach(() => {
+    resetHctUnknownToDraft.mockClear();
+  });
+
+  it.each([
+    ['全空', ''],
+    ['半形空格', '   '],
+    ['tab 與換行', '\t\n'],
+    ['全形空格', '\u3000'],
+  ])('🔴 %s 的證詞 ⇒ 回錯, 而 RPC 一次都沒被呼叫', async (_name, att) => {
+    const { resetHctUnknownToDraftAction } = await import('./shipment-actions');
+    const out = await resetHctUnknownToDraftAction({
+      shipmentId: 'sid-1',
+      shipmentReference: 'BCDFGH',
+      attestation: att,
+    });
+    expect(out.ok).toBe(false);
+    // 🔴🔴 **承重的是這一格, 不是上面那個 false。**
+    //    擋在呼叫【之後】也會回 false —— 而那時一句空證詞已經跑過一次 DB 動作了。
+    //    ⇒ 📌 「回錯了」與「沒有做」是兩個宣稱, 而只有次數答得出第二個。
+    expect(resetHctUnknownToDraft).not.toHaveBeenCalled();
+  });
+
+  it('🟢 正對照:有證詞 ⇒ RPC 被呼叫【一次】, 而 actor 由 server 給不由 client 送', async () => {
+    const { resetHctUnknownToDraftAction } = await import('./shipment-actions');
+    const out = await resetHctUnknownToDraftAction({
+      shipmentId: 'sid-1',
+      shipmentReference: 'BCDFGH',
+      attestation: '14:30 電話向新竹陳小姐確認, 查無此單',
+    });
+    expect(out.ok, out.ok ? '' : out.message).toBe(true);
+    expect(resetHctUnknownToDraft).toHaveBeenCalledTimes(1);
+    const arg = resetHctUnknownToDraft.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(arg['attestation']).toBe('14:30 電話向新竹陳小姐確認, 查無此單');
+    // 🔴 `actor` 不在 action 的參數表裡 —— 它由 `authorizeAdminMutation()` 給。
+    //    ⇒ 少了這一格, 有人把 actor 加進參數表時沒有東西會紅, 而那等於讓 client 自己說他是誰。
+    expect(arg['actor']).toBeTruthy();
+    expect(Object.keys(arg)).toContain('requestId');
+  });
+
+  it('🔴 那句錯誤訊息要說得出【為什麼不准】, 不是只說失敗', async () => {
+    const { resetHctUnknownToDraftAction } = await import('./shipment-actions');
+    const out = await resetHctUnknownToDraftAction({
+      shipmentId: 'sid-1',
+      shipmentReference: 'BCDFGH',
+      attestation: '',
+    });
+    const msg = out.ok ? '' : out.message;
+    // 🎯 它要講出代價 —— 一句「證詞不得為空」不會讓人去打那通電話。
+    expect(msg).toContain('新竹');
+    expect(msg).toContain('兩箱');
   });
 });
