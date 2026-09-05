@@ -687,27 +687,32 @@ WORLDS = [
 
 def selftest():
     fails = 0
+    ran = 0   # 🔴 **跑幾格用【數的】不用【加總的】** —— 見下面 total 那一行
     for name, sql, want in WORLDS:
         d, u, _ = check(sql, CLOSED_FIXTURE)
         got = 1 if d else 0
         ok = got == want
         fails += 0 if ok else 1
+        ran += 1
         print(f"  {'PASS' if ok else '🔴 FAIL'}  {name}" + ('' if ok else f'   期望 {want} 實得 {got} {d}'))
     for key in ('R6 綠  動態 GRANT TO service_role', 'R6 綠  角色由 %I', "R6 綠  EXECUTE '<靜態字面>' 對非閉集表", "R6 綠  EXECUTE '… TO ' || quote_ident", '綠  v_sql := …; EXECUTE v_sql'):
         sql_unres = next(s for n, s, w in WORLDS if n.startswith(key))
         _, u, _ = check(sql_unres, CLOSED_FIXTURE)
         ok = len(u) == 1
         fails += 0 if ok else 1
+        ran += 1
         print(f"  {'PASS' if ok else '🔴 FAIL'}  未判有印出來(不與乾淨同形):{key}")
     # 行號射程:改既有檔只回報碰到新增行的語句(跨行 GRANT 只新增 TO 那一行也要紅, codex r4 #2)
     two = 'CREATE TABLE public.t (id int);\nGRANT SELECT ON public.products\n  TO anon;\nGRANT SELECT ON public.brands TO anon;'
     d, _, _ = check(two, set(), added={3})
     ok = [x[0] for x in d] == ['R3'] and d[0][1] == 2
     fails += 0 if ok else 1
+    ran += 1
     print(f"  {'PASS' if ok else '🔴 FAIL'}  改既有檔:只新增第 3 行(跨行 GRANT 的 TO 那行)⇒ 回報那一條、不回報第 4 行的舊債  {d}")
     d, _, _ = check(two, set(), added={1})
     ok = d == []
     fails += 0 if ok else 1
+    ran += 1
     print(f"  {'PASS' if ok else '🔴 FAIL'}  改既有檔:只新增第 1 行(CREATE TABLE)⇒ 零回報(不追舊債)")
     committed = [('20260101_a.sql', 'REVOKE ALL ON public.t1 FROM anon, authenticated, service_role;'),
                  ('20260102_b.sql', 'REVOKE ALL ON public.t2 FROM service_role;\nGRANT SELECT ON public.t2 TO service_role;'),
@@ -724,9 +729,11 @@ def selftest():
     want = {'public.t1', 'public.t5', 'public.t6', 'public.t8', 'public.t9'}
     ok = cs == want
     fails += 0 if ok else 1
+    ran += 1
     print(f"  {'PASS' if ok else '🔴 FAIL'}  閉集:t1 t5 在 / t2 再 GRANT 不在 / 字串內 t3 不算 / t4 只收寫入面不算 / t6 先 GRANT 後 REVOKE 在 / t7 FROM PUBLIC 不算 / t8 t9 多物件 / t10 GRANT OPTION FOR 不算 / t11 欄級不算(codex r4 #6)  {sorted(cs)}")
     gf, gc = selftest_git()
     fails += gf
+    ran += gc
     try:
         migdir = os.path.join(HERE, '..', 'supabase', 'migrations')
         mig = sorted(f for f in os.listdir(migdir) if f.endswith('.sql'))
@@ -738,7 +745,15 @@ def selftest():
         print(f'  (紀錄, 不是判定, 不是誤擋率;讀的是工作樹) 歷史命中:{hit} / {len(mig)} 支既有 migration 若當新檔會被 R1-R3/R5/R6 要求寫 EXEMPT 理由(閉集設空)')
     except OSError as e:
         print(f'  (紀錄) 歷史命中:量不到({e})')
-    total = len(WORLDS) + 5 + 2 + 1 + gc
+    # ⛔ ~~total = len(WORLDS) + 5 + 2 + 1 + gc~~ —— 🔴 **那是【手維護的加總】, 而它會漂。**
+    #    🔬 實測(2026-09-05, 在一個【已經撤回】的分支上量到的):新增 12 格之後
+    #       **94 格在跑而它印 82**。
+    #    🛑 而它壞的方式最惡劣:某一格【失敗】時 PASS 少一、FAIL 多一, **兩數仍加得回 82**
+    #       ⇒ 看的人不會發現分母是錯的。⇒ 📌 這正是鐵則 11 的第四個數(我餵幾條 vs 它跑幾支)。
+    #    ✅ 改成【數出來的】:每印一格就 +1。
+    #    🔵 **本次它剛好與舊算式同值(91)** —— 因為 R7 那 9 格全在 `WORLDS` 裡。
+    #       ⇒ 🛑 **那是巧合不是驗證** —— 下一個把格子加在 `WORLDS` 之外的人才會看到差別。
+    total = ran
     print(f'── selftest: {total - fails} PASS / {fails} FAIL')
     return 1 if fails else 0  # 不把格數當離場碼(2 格紅會撞到「工具層」那個 2;R2 nit)
 
