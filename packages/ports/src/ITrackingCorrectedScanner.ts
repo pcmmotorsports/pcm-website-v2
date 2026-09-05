@@ -45,6 +45,21 @@ export type ShipmentWithCorrectedTracking = {
   notificationEmail: string | null;
   /** `customers.email` —— 與 `order_shipped` 同一條 fallback(註冊當下的凍結快照)。 */
   customerEmail: string | null;
+  /**
+   * `orders.order_source` —— 訂單來源(⟦f3-MAILFALLBACKVSRULING⟧ 片 B, 2026-09-05)。
+   *
+   * 🔴 **本片只是把它接出來, 沒有任何人在用它** —— 分流的判斷在片 C。
+   * 值域是 `packages/domain` 的 `OrderSource`(`web` / `manual_phone` /
+   * `manual_line` / `manual_other`, CHECK 在 `20260712203000`)。
+   * 🛑 這裡刻意用 `string` 不用那個 union:**值域寫兩份, 下一個加來源的人只會改到一份。**
+   * ⚠️ `null` 的意思是「view 沒給」而不是「這張單沒有來源」——
+   *    `orders.order_source` 是 NOT NULL(`20260712203000`), 所以 `null` 只會在【欄位沒撈到】時出現。
+   * 🔴🔴 **而 fail 方向現在就釘死(R1-F11)**:片 C 撞到 `null` ⇒ **照舊寄**(走 fallback)。
+   *    🛑 反過來寫(`orderSource !== 'web' ⇒ 不寄`)會讓一個 `null` 把
+   *    **真的顧客站訂單靜默不寄** —— 而「沒寄」這件事在畫面上沒有形狀。
+   *    📌 兩個方向都會錯, 而錯的代價不對稱:多寄一封信看得見, 少寄一封看不見。
+   */
+  orderSource: string | null;
 };
 
 export type ListTrackingCorrectedInput = {

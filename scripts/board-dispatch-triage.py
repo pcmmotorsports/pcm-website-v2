@@ -26,6 +26,43 @@ BOARD = 'docs/launch-todo.md'
 RUNLOG = 'logs/triage-runs.jsonl'
 MARKERS = ('重驗中', '平行重驗請跳過')
 
+# 🔴🔴 第五堆「open 而在等」(⟦b9-DISPATCHWAITING⟧;2026-09-05 線 `-f3` 做成機制)
+#   病:`open` 至少有兩種 —— ①真的沒有人做過 ②**做完了/材料齊了而在等別人**
+#   (等 `main` merge / 等 Sean 批 plan / 等別條線的前置), 而它們在第 1 欄與第 4 欄上
+#   **逐字相同** ⇒ 本工具把兩者一起放進「拿了就能派」⇒ 有人被派去重做已經做完的事。
+#   實錘:2026-09-05 一天之內**兩次**(⟦search-BRANDMULTIWORD⟧ 與線 `-account` 那件)。
+#
+# 🔬 **字集是量出來的, 不是想出來的**(該列逐字要求「先量一發這道分堆今天會抓走幾列」)。
+#   2026-09-05 對當天板子逐字面量, 從「可派 170 列」各自抓走:
+#     誰欄 `不是待派` 2 · `等的是` 3 · `等 Sean` 2 · `等#` 1 · `等排` 1 · `等人:` 0 · `等時機:` 0
+#     內文 `本列的態不動` 1 · `等它上正式站` 1 · `等 main` 1 · `要 Sean 拍` 6 · `等它的` 1
+#   union(全收)⇒ 5 列。而**逐列開檔看之後, 5 列裡有 2 列是錯的, 而錯的方向是同一個**:
+#     🛑 341 誰欄逐字「**不必等 Sean**」—— `等 Sean` 這個子字串**同時涵蓋「要等」與「不必等」**
+#     🛑 1836 誰欄 `等#:` 而下一句是「Sean 已拍 ⇒ **實作待派**」—— **那個等待條件已經滿足了**
+#   ⇒ 🎯 **把可派的列拿出可派名單 = 工作靜靜掉在地上, 而沒有東西會叫** ——
+#      這個方向的錯比漏抓貴, 所以字集收到【只認為此目的刻意寫下的記號】。
+#   ⛔ **量過而【故意不收】的**(留著, 免得下一個人以為沒人想過):
+#      `等 Sean` / `等#` / `等排` / `等的是`(極性與時效)· `要 Sean 拍` 6 列
+#      (那多半是「動前要拍板」的提醒, 不是「本列在等」, 而我沒有逐列開檔驗過那 6 列)
+#      · 🛑 `等人:` / `等時機:`(主視窗建議的兩個)—— **結構上到不了這一堆, 不是「今天 0 列」**:
+#        本函式在更上面就 `if '待派' not in who: continue` ⇒ 誰欄沒有「待派」二字的列
+#        **從來不會進任何一堆**, 也就不可能被從可派名單裡減掉。收了它們 = 一條**恆假的腿**,
+#        而它讀起來像有在防什麼。⇒ 改由 selftest 的負對照釘住「那種列不進任何一堆」。
+#        📌 **一個字面收不收, 要問的是【它到得了那個判斷嗎】, 不是【今天有幾列長那樣】。**
+#
+#      · 🛑🛑 **內文那半整個砍掉**(code-reviewer 2026-09-05 must-fix, 而它是量出來的):
+#        `WAITING_BODY=('本列的態不動','等它上正式站')` ⇒ 對真板子**零貢獻**(拿掉之後 waiting 仍是 2,
+#        兩列都是誰欄抓到的), 而它**有活的誤抓向量** —— 板上 `本列的態不動` 3 列命中裡
+#        **2 列是在【引述】這個字面而不是在宣告自己**, 而 🔴 **其中一列是我自己這一顆 commit 造出來的**
+#        (我把這段病史寫進 ⟦b9-DISPATCHWAITING⟧ 的內文, 只因為同一顆把它翻成 `done` 才沒掉進第五堆)。
+#        ⇒ 📌 **在一塊【會引述自己的規則】的板子上, 掃內文的尺分不出「宣告」與「引述」** ——
+#           而寫規則這個動作本身就會製造誤抓。⇒ 記號只認**誰欄**那一格。
+#      · `等 main`(1 列)· `等它的`(1 列):同上, 都是內文散文, 不收。
+#
+# ✅ **慣例(要讓一列進第五堆, 就在誰欄寫這句)**:`不是待派 —— 等的是 X`
+#   —— 它是**人刻意寫在【誰欄】的記號**, 不是從散文猜出來的分類。
+WAITING_WHO = ('不是待派',)
+
 
 # 🔴 2026-09-02 修(線 -7d 端到主視窗):本函式原本【硬取 c[4] 當誰欄】。
 #    而板子在同一支檔裡有不只一種表 —— :729 那張是【4 欄】(| 態 | # | 事 | 卡什麼 |)
@@ -151,7 +188,7 @@ def anchors(rs):
 
 def triage(rs):
     """待派 x 有沒有標記 ⇒ 兩堆, 外加「連誰欄都沒有」自成一堆。判準是【逐字子字串】, 不是分類器。"""
-    blocked, ready, notopen, nowho = [], [], [], []
+    blocked, ready, notopen, nowho, waiting = [], [], [], [], []
     marked = 0
     for i, state, what, who, body, _idcol in rs:
         has_mark = any(m in body for m in MARKERS)
@@ -171,6 +208,16 @@ def triage(rs):
             continue
         if has_mark:
             blocked.append((i, who, what))
+        elif state == 'open' and any(k in who for k in WAITING_WHO):
+            # 🔴 第五堆:態是 open 而**它在等別人**。
+            # ⛔ ~~順序刻意排在「態非 open」之前~~ —— **那句是空的**(code-reviewer 實測:
+            #    把這一段搬到 `state != 'open'` 之後, selftest 30/30 全過、真板子五堆逐列相同;
+            #    兩支互斥, 相對順序零作用)。⇒ 📌 **真正承重的只有「在 `else: ready` 之前」,
+            #    而那被 `else` 強制** —— 我原本那句把一個沒有作用的東西寫成了保護。
+            # 🔴 而 `state == 'open'` 這道腿**是真的承重**:少了它, 態 `done` 的列會被印進
+            #    一個標題寫著「open 而在等別人」的堆裡 ⇒ 標題本身變成假話。
+            #    對照組 = selftest 的「午事」那一列(done + 待派 + 帶記號)。
+            waiting.append((i, who, what))
         elif state != 'open':
             # 🔴 態 != open 的不進可派名單(-b4 2026-08-30 量到「可派」裡混著
             #    done 21 / parked 4 / doing 3)。配套規矩是 -b9 落的(ba7111ca):
@@ -178,7 +225,7 @@ def triage(rs):
             notopen.append((i, state, what))
         else:
             ready.append((i, who, what))
-    return blocked, ready, notopen, nowho, marked
+    return blocked, ready, notopen, nowho, waiting, marked
 
 
 def log_run(path, ready, ak):
@@ -209,7 +256,7 @@ def log_run(path, ready, ak):
 
 def main(path, log=True):
     rs = rows(path)
-    blocked, ready, notopen, nowho, marked = triage(rs)
+    blocked, ready, notopen, nowho, waiting, marked = triage(rs)
     AK = anchors(rs)
 
     print(f'掃過的資料列 = {len(rs)}   內文帶標記的列 = {marked}')
@@ -236,6 +283,15 @@ def main(path, log=True):
     if not blocked:
         print('   （無）')
     for i, who, what in blocked:
+        print(f'   {AK[i]}  第4欄=[{who[:70]}]')
+        print(f'        {what[:78]}')
+
+    # 🔴 印在 ready 之前:讀的人要先看到【被減掉的是哪幾列】, 再看剩下的。
+    print(f'\n⏳ open 而【在等別人】—— 不要派 ({len(waiting)} 列;⟦b9-DISPATCHWAITING⟧)')
+    if not waiting:
+        print('   （無）—— ⚠️ 0 只代表【沒有人寫下那個記號】, 不代表沒有這種列')
+        print('      慣例:誰欄寫 `不是待派 —— 等的是 X`;字集與被排除的候選見檔頭 WAITING_*')
+    for i, who, what in waiting:
         print(f'   {AK[i]}  第4欄=[{who[:70]}]')
         print(f'        {what[:78]}')
 
@@ -288,6 +344,22 @@ def selftest():
         '| done | A6 | 己事 | 待派 | 內文乾淨而態是 done ⇒ 不該進可派名單 |\n'
         # 🔴 只有 4 欄 —— 這一列是 2026-09-05 那支 TypeError 的形狀本身。
         '| open | A7 | 庚事 | 這一列只有四欄所以沒有誰 |\n'
+        # 🔴🔴 第五堆的對照組。**每一個字面各一格正對照** —— 板上今天有 0 列在用
+        #   `等人:` / `等時機:`, 而沒有正對照的一條腿, 哪天有人開始用它時**失效不會出聲**。
+        '| open | A8 | 癸事 | 不是待派 —— 等的是 Sean merge dev→main | 內文乾淨 |\n'
+        # 🛑 這兩列的誰欄**沒有「待派」二字** ⇒ 它們**不進任何一堆**(本函式更上面就 continue)。
+        #   留著當負對照:證明「等人:/等時機: 收不收」這個問題**問錯了層** —— 它們到不了那個判斷。
+        '| open | A9 | 子事 | 等人:-account 那顆疊完 | 內文乾淨 |\n'
+        '| open | B0 | 丑事 | 等時機: 上線後再看 | 內文乾淨 |\n'
+        # 🔴 `state == 'open'` 那道腿的對照組:態是 done、誰欄有記號 ⇒ **不得**進第五堆,
+        #   要進「態不是 open」那一堆(少了這一列, 拿掉 `state == 'open'` 之後 selftest 全綠)。
+        '| done | B7 | 午事 | 不是待派 —— 等的是 X | 內文乾淨 |\n'
+        # 🛑🛑 極性負對照 —— 這兩列是 2026-09-05 逐列開檔時**真的抓到的**兩種錯:
+        #   ①「不必等 Sean」與「要等 Sean」共用 `等 Sean` 這個子字串
+        #   ②`等#:` 那一列下一句是「Sean 已拍 ⇒ 實作待派」= 等待條件**已經滿足**
+        #   ⇒ 兩列都必須留在【可派】那一堆, 否則工作靜靜掉在地上。
+        '| open | B5 | 辰事 | 待派 —— 不必等 Sean(純 app、零 DB 物件) | 內文乾淨 |\n'
+        '| open | B6 | 巳事 | 等#:Sean 已拍 甲 ⇒ 實作待派 | 內文乾淨 |\n'
         # 🔴🔴 板子裡【還有別的表】。實查:當時 who 取不到的 32 列, 31 列來自這種表。
         #   它們不是壞掉的板列 —— 它們根本不是板列, 而先前把兩者混成同一個數字。
         '\n## 另一張表(不是板子, 表頭沒有誰欄)\n\n'
@@ -299,16 +371,29 @@ def selftest():
     fd, p = tempfile.mkstemp(suffix='.md'); os.close(fd)
     io.open(p, 'w', encoding='utf-8').write(board)
     try:
-        b, r, no, nw, marked = triage(rows(p))
+        b, r, no, nw, wt, marked = triage(rows(p))
         bl = sorted(x[2] for x in b)
         rl = sorted(x[2] for x in r)
         checks = [
             # 🔴 期望值 7 而不是 9:另一張表那兩列(辛/壬)**不該進來**。
             #   ⚠️ 這個數字同時守兩件事 —— 少了會漏、多了代表別的表被吃進來。
-            ('資料列數 = 7(另一張表的 2 列不得混進來;2026-09-05 由 6 改 7)', len(rows(p)) == 7),
-            ('負對照⑤ 別的表的列不得出現在任何一堆', not any(x[2] in ('辛事', '壬事') for x in b + r + no + nw)),
+            ('資料列數 = 13(另一張表的 2 列不得混進來;2026-09-05 由 6→7→13, 第五堆加了 6 列 fixture)', len(rows(p)) == 13),
+            ('負對照⑤ 別的表的列不得出現在任何一堆', not any(x[2] in ('辛事', '壬事') for x in b + r + no + nw + wt)),
+            # ── 第五堆:五個字面各一格正對照 ──
+            ('⏳ 誰欄 `不是待派` ⇒ 進第五堆（癸）', '癸事' in [x[2] for x in wt]),
+            ('🛑 誰欄沒有「待派」二字 ⇒ 不進任何一堆（子·等人:）',
+             not any('子事' == x[2] for x in b + r + no + nw + wt)),
+            ('🛑 同上（丑·等時機:）—— 所以那兩個字面收了也是恆假的腿',
+             not any('丑事' == x[2] for x in b + r + no + nw + wt)),
+            ('🛑 態=done 而誰欄有記號 ⇒ 不得進第五堆（午）—— `state == \'open\'` 那道腿的對照組',
+             '午事' not in [x[2] for x in wt]),
+            ('   而它要進「態不是 open」那一堆, 不得靜靜消失（午）', '午事' in [x[2] for x in no]),
+            ('⏳ 而癸不得留在可派名單裡', '癸事' not in [x[2] for x in r]),
+            # ── 極性負對照:抓走可派的列 = 工作掉在地上, 而那個方向沒有東西會叫 ──
+            ('🛑 極性①「不必等 Sean」不得被抓走（辰）', '辰事' in [x[2] for x in r] and '辰事' not in [x[2] for x in wt]),
+            ('🛑 極性②`等#:` 而條件已滿足 不得被抓走（巳）', '巳事' in [x[2] for x in r] and '巳事' not in [x[2] for x in wt]),
             ('負對照① 待派+有標記 ⇒ 被抓（甲丙兩列）', bl == ['丙事', '甲事']),
-            ('負對照② 待派+乾淨 ⇒ 進可派名單（乙）', rl == ['乙事']),
+            ('負對照② 待派+乾淨 ⇒ 進可派名單（乙）', '乙事' in [x[2] for x in r]),
             ('乙【沒有】被誤抓進不要派', '乙事' not in bl),
             ('丁(有主+乾淨) 兩堆都不進', '丁事' not in bl and '丁事' not in rl),
             ('戊(第4欄答非所問) 兩堆都不進', '戊事' not in bl and '戊事' not in rl),
@@ -331,6 +416,7 @@ def selftest():
         printed = buf.getvalue()
         checks_print = [
             ('main() 真的把那一堆印出來了(帶數字)', '沒有「誰」那一欄的資料列 (1 列)' in printed),
+            ('main() 也把第五堆印出來了(帶數字)', 'open 而【在等別人】—— 不要派 (1 列' in printed),
             ('而別的表的列連在輸出裡都不該出現', '辛事' not in printed and '壬事' not in printed),
             ('而那一列的標題也印出來了, 不只是一個數字', '庚事' in printed),
         ]

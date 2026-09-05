@@ -77,7 +77,7 @@
 | # | 缺什麼 | 誰做 | 卡在哪 |
 |---|---|---|---|
 | 1 | ⛔ ~~跟新竹申請兩張表單 + 金鑰~~ ⇒ ✅ **帳密已經給了**(2026-09-05 實查,見 §三)。**還缺**:客戶代號 `escsno`(11 碼)、出貨站 `esstno`(4 碼)、**貨號區間規則** | **Sean → 新竹** | `docs/reference/hct-logistics-api-reference.md:41-50` 那張表**其餘各項未確認**;貨號區間決定「我們自己配號還是系統配」,那會改 `hct-trans-data.ts` |
-| 2 | ✅ **已完成**(`7ddbba166` + 兩輪審查修訂 `f1b3e8461`;Sean 2026-09-05 拍甲批准 plan `cae1b84f6` 後接的):獨立「送新竹」鈕 → action → `runHctSubmit` → `admin_record_hct_submit`,送出前寫 `unknown` 佔位 | **我們** | 🔴 **而它多需要一顆 env:`HCT_API_ENDPOINT`** —— `HctClientDeps.endpoint` 是呼叫端傳進去的,而 repo 與 Vercel 都**沒有任何 endpoint 來源**;廠商檔那幾個 URL 分測試/正式也分服務 ⇒ **挑哪一個是 Sean 與新竹之間的事**。缺它 ⇒ fail-closed 回 `disabled`,**連 `runHctSubmit` 都不呼叫**(空字串與空白也算缺)<br> 　🛑 **而它帶著一個已知缺口 `⟦ship-HCTUNKNOWNSTUCK⟧`**:送出前寫的 `unknown` 佔位,在「寫完而 HTTP 還沒發出去就被砍」時會讓那一箱**永久卡在 unknown**,而**今天沒有任何 UI 把它推回 draft**。📌 **那不是 bug,是「寧可誤判成送過了」的另一面** —— 反過來的代價是**客人收到兩箱**。⚠️ **在放 env 之前要先做掉它**,否則第一次卡住就要 Sean 手動改 DB |
+| 2 | ✅ **已完成**(`7ddbba166` + 兩輪審查修訂 `f1b3e8461`;Sean 2026-09-05 拍甲批准 plan `cae1b84f6` 後接的):獨立「送新竹」鈕 → action → `runHctSubmit` → `admin_record_hct_submit`,送出前寫 `unknown` 佔位 | **我們** | 🔴 **而它多需要一顆 env:`HCT_API_ENDPOINT`** —— `HctClientDeps.endpoint` 是呼叫端傳進去的,而 repo 與 Vercel 都**沒有任何 endpoint 來源**;廠商檔那幾個 URL 分測試/正式也分服務 ⇒ **挑哪一個是 Sean 與新竹之間的事**。缺它 ⇒ fail-closed 回 `disabled`,**連 `runHctSubmit` 都不呼叫**(空字串與空白也算缺)<br> 　🛑 **而它帶著一個已知缺口 `⟦ship-HCTUNKNOWNSTUCK⟧`**:送出前寫的 `unknown` 佔位,在「寫完而 HTTP 還沒發出去就被砍」時會讓那一箱**永久卡在 unknown**,而**今天沒有任何 UI 把它推回 draft**。📌 **那不是 bug,是「寧可誤判成送過了」的另一面** —— 反過來的代價是**客人收到兩箱**。⚠️ **在放 env 之前要先做掉它**,否則第一次卡住就要 Sean 手動改 DB<br> 　✅ **2026-09-05 補:【怎麼改】寫好了** ⇒ `docs/runbooks/hct-unknown-stuck-manual-reset.md`(甲型佔位/乙型真回應要先分開;五道前置閘寫在 SQL 裡;**第 0 步是「什麼時候不准改」**)。🛑 **而那份沒有跑過 —— 零次**(今天暴露 = 0, 沒有卡住的箱可以演練)⇒ 它是【讀起來對】不是【跑過對】。 |
 | 3 | **把兩顆 env 放進 production**,並先用**測試帳號**跑一發 | **Sean**(放 env)+ **我們**(驗) | `hct-client.ts:92` `hctMode(account)` 會依帳號判 `test`/`live` ⇒ **先跑 test 那一側** |
 
 🛑 **順序不能換**:2 沒做完就放 env ⇒ 開關開著而沒有人會走到那條路(**零效果,而它看起來像上線了**);
@@ -91,6 +91,21 @@
   ⇒ 📌 **要知道正式站現況,得有人去 Vercel 看一眼,而那是【名稱】層就答得出來的事,不必印值。**
 
 ## 六、endpoint:Sean 給了三條網址,而**只對得上一半**(2026-09-05 深夜,唯讀比對,零真請求)
+
+> 🔴🔴 **【本節從這裡到 `§六` 結尾, 前半是【已被推翻】的 —— 而推翻它的那一段在最下面】**
+> **不要照本節前半做。** 它一路教「走 JSON、endpoint 要接方法名」, 而那兩件在 `:159` 起被實測推翻。
+> ⇒ 📌 **一份「先講錯的、後面才訂正」的文件, 對【只讀前半的人】等於沒有訂正過。**
+> ⇒ ⇒ 所以這一句放在**最前面**, 而不是留在下面等人讀到。
+>
+> **今天成立的三句**(2026-09-05 11:0x 實測, Sean 授權的一發空探測):
+> 1. **那個服務只講 SOAP** —— `POST` JSON ⇒ `http 500` + `application/soap+xml` + `soap:Fault`
+>    「在根層次的資料無效。 第 1 行,位置 1。」(它把 JSON 當 XML 解析)
+> 2. **`HCT_API_ENDPOINT` = 那條 `.asmx` 本身**(SOAP 兩支方法共用同一個 URL, 靠 `SOAPAction` 分)
+>    ⇒ **不接方法名**。Sean 2026-09-05 已設在 Vercel `pcm-admin` Production(開關仍關)。
+> 3. **兩支方法的參數都是小寫 `<company>`** —— 2022 PDF 的大寫 `Company` 只做交叉。
+>
+> 📎 傳輸層改寫的 plan(**R2 判 `FAIL`, 不可開工**):`docs/plans/2026-09-05-hct-soap-transport-plan.md`
+> 📎 廠商參考檔 `docs/reference/hct-logistics-api-reference.md:78` 那句「不必處理 SOAP envelope」**同日已加刪除線**。
 
 Sean 逐字給的第三條是 `https://hctrt.hct.com.tw/EDI_WebService2/Service1.asmx`(`.asmx` = ASP.NET WebService)。
 

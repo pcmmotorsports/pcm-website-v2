@@ -167,6 +167,8 @@ type OrderRow = {
   paid_at: string | null;
   notification_email: string | null;
   customer_email: string | null;
+  // 🔴 片 B:只接出來, 沒有人在用它(分流在片 C)
+  order_source: string | null;
 };
 
 /**
@@ -216,7 +218,7 @@ export class SupabasePaidOrderScannerAdapter implements IPaidOrderScanner {
         // 🔵 anti-join 與 `payment_status` / `cancelled_at` 三個條件**都在 view 裡**了
         //    (那個 `email_outbox=is.null` vs `email_outbox.order_id=is.null` 的坑一起消失 ——
         //     🎯 **不是因為我更小心, 是因為那個查詢形狀不存在了**)。
-        .select('order_id, display_id, paid_at, created_at, notification_email, customer_email')
+        .select('order_id, display_id, paid_at, created_at, notification_email, customer_email, order_source')
         // 🔴 **cutoff 兩個都留在這裡** —— 它是參數, 烤不進 view。
         //    ⚠️ **兩個都要**:少了 `created_at` 那一半, 晚翻 paid 的舊單會被誤寄(PRD §5 R3)。
         .gte('paid_at', input.cutoff)
@@ -249,6 +251,11 @@ export class SupabasePaidOrderScannerAdapter implements IPaidOrderScanner {
         notificationEmail: o.notification_email,
         // 🔵 view 已經把它 LEFT JOIN 好了 ⇒ 這裡只是搬運, 不再有第二發查詢。
         customerEmail: o.customer_email,
+        // 🔴 R1-F10:另兩支 scanner 走 `nullableStr()`(缺欄會 throw), 這兩支是直接對映。
+        //    `?? null` 讓「欄位沒回來」落在宣告的 `string | null` 裡, 而不是一個型別上
+        //    不存在的 `undefined` —— 📌 片 C 若寫 `=== null` 判斷, 兩種形狀要給同一個答案。
+        //    ⚠️ 而它【不是】parity:那兩支會 throw、這兩支會靜靜給 null。差異明寫在這裡。
+        orderSource: o.order_source ?? null,
       })),
       // 🔴 anti-join 之後**沒有翻頁了**(結果集本身就只有待排的)⇒ 這一欄恆為 1。
       //    保留它是因為 route 已經在回應裡印它;移除是 port 契約改動,不在本次範圍。

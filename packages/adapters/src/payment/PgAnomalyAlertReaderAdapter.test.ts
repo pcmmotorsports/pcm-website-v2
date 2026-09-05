@@ -267,6 +267,12 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       //    不是「屬性還在」。那正是本片要分開的兩件事。
       bypassRlsRevoked: false,
       bypassRlsUnknown: true,
+      // ⟦b9-ACLDRIFT5⟧ 片二(2026-09-05):本 fixture 沒有那一發回應 ⇒ 同一個世界:
+      //   **量不到**(view 還沒貼)⇒ Unknown=true 而 Detected 保持 false。
+      aclDriftDetected: false,
+      aclDriftUnknown: true,
+      aclDriftFamilies: null,
+      aclDriftTakenAt: null,
       bypassRlsPrivilegedCount: null,
       bypassRlsTotalRoleCount: null,
       emailOutboxUnknown: true,
@@ -355,7 +361,10 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
      *    🔵 而它是**唯一**會 +2 的一支:姊妹的 `get_order_unpaid_cancelled_gap_counts`
      *      被 `if (cutoff !== null)` 包著, 本組沒設 cutoff ⇒ 它 +0。
      */
-    expect(query).toHaveBeenCalledTimes(10);
+    // 🔵 2026-09-05 從 10 ⇒ 11:⟦b9-ACLDRIFT5⟧ 片二多一發 `pcm_acl_drift_status`。
+    //    🔴 這個數字**是承重的** —— 它釘住「我加了一發查詢」會被看見,
+    //       而不是安靜地多打一次資料庫。
+    expect(query).toHaveBeenCalledTimes(11);
     expect(query.mock.calls[1]![0]).toContain('get_payment_anomaly_alert_display_ids');
     expect(query.mock.calls[2]![0]).toContain('get_order_refunds_stuck_summary');
     expect(res.openDisplayIds).toEqual(['PCM-2026-0104']);
@@ -1065,7 +1074,7 @@ describe('🔴 心跳:傳給 RPC 的 job 清單 = CRON_JOB_WHITELIST 全部, 沒
       query: async (text: string, values: unknown[]) => {
         if (text.includes('get_cron_heartbeat_stale_counts')) {
           seen.payload = JSON.parse(String(values[0])) as Array<Record<string, unknown>>;
-          return resultRows({ checked: 6, abnormal_count: 0, never_beat: [], no_success_ts: [], stale: [], future: [], failing: [] });
+          return resultRows({ checked: CRON_JOB_WHITELIST.length, abnormal_count: 0, never_beat: [], no_success_ts: [], stale: [], future: [], failing: [] });
         }
         if (text.includes('to_regprocedure')) return { rows: [{ missing: true }] };
         // 🔴 其餘幾支選配 RPC 一律走「尚未 apply」那條路 —— 它們各自有不同的回傳鍵,
@@ -1148,7 +1157,13 @@ describe('🔴 心跳:回應層對帳(壞回應要 throw, 不是靜靜地健康)
       },
     }).client;
   }
-  const healthy = { checked: 6, abnormal_count: 0, never_beat: [], no_success_ts: [], stale: [], future: [], failing: [] };
+  // 🔴 **不寫死 7**(2026-09-05 加第七支 `pcm-acl-digest` 時這兩處紅了;同一天 `-mail`
+  //    加它那支時也撞過同一格)—— 寫死的話下一個加排程的人會再撞一次,
+  //    而他要花一輪才知道是這裡。⇒ 改成跟著白名單長度走。
+  // 🛑 而這【不是循環論證】:本 fixture 演的是「DB 說它把白名單全部查過了」,
+  //    被測的斷言是 `checked !== 白名單長度 ⇒ throw`;下面那格用寫死的 5 演「少查了」
+  //    ⇒ 兩個世界仍然印不同的答案。
+  const healthy = { checked: CRON_JOB_WHITELIST.length, abnormal_count: 0, never_beat: [], no_success_ts: [], stale: [], future: [], failing: [] };
   const call = (result: unknown) =>
     new PgAnomalyAlertReaderAdapter('conn', () => withHeartbeatResult(result)).getAlertSummary(86400, 43200, 600, null, 900, null, null);
 
@@ -1163,7 +1178,10 @@ describe('🔴 心跳:回應層對帳(壞回應要 throw, 不是靜靜地健康)
   });
 
   it('🔴 abnormal_count 大於 checked ⇒ throw', async () => {
-    await expect(call({ ...healthy, abnormal_count: 7 })).rejects.toThrow(/abnormal_count/);
+    // 🔴 這裡的 7 原本是【比 checked(當時 6)大】的意思。白名單長到 7 之後,
+    //    7 不再大於 checked ⇒ 它會走到另一條錯誤路徑, 而測試名字仍寫著 abnormal_count。
+    //    📌 **一個寫死的數字, 表達的是一個【關係】而不是一個值。** ⇒ 改成 length + 1。
+    await expect(call({ ...healthy, abnormal_count: CRON_JOB_WHITELIST.length + 1 })).rejects.toThrow(/abnormal_count/);
   });
 
   /**

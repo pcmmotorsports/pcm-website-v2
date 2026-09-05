@@ -48,7 +48,7 @@ const NOW = new Date('2026-08-28T12:00:00.000Z');
 /** n 分鐘前的 ISO 字串。 */
 const ago = (n: number) => new Date(NOW.getTime() - n * 60_000).toISOString();
 
-/** 六支全部剛剛成功過的一份完整資料(正向對照的地基)。 */
+/** 九支全部剛剛成功過的一份完整資料(正向對照的地基)。 */
 const ALL_HEALTHY: Row[] = CRON_JOB_WHITELIST.map((w) => ({
   job_name: w.jobName,
   last_success_at: ago(1),
@@ -65,7 +65,14 @@ describe('白名單這張表本身', () => {
   //    (三支在別處只被索引引用、沒有字面)⇒ 名字漂掉 ⇒ 三綠全綠,
   //      而線上那一支永遠報「從來沒寫過心跳」,沒有人知道是名字打錯。
   //    ⇒ 這一格把六個名字與長度**釘成字面**:分母改成【我在檔案外面寫死的那份】。
-  it('🔴 六支的名字與數量釘死(改名/多一支/少一支都要紅)', () => {
+  it('🔴 【九】支的名字與數量釘死(改名/多一支/少一支都要紅)', () => {
+    // 🔵 2026-09-05 一天之內 ⛔ ~~六~~ ⇒ ⛔ ~~七~~ ⇒ ⛔ ~~八~~ ⇒ **九** ——
+    //    而**每一次都是 merge 的產物**:三條線各自加了自己的那一支
+    //    (`pcm-acl-digest` / `pcm-settle-retry` / `pcm-late-payment-sweep`),
+    //    **每一條在自己的分支上都對。**
+    //    📌 **這一格紅了是它在做它該做的事** —— 新增排程時它會叫。
+    //    ⚠️ **而危險的修法是看到數字對不上就直接改成新的數字** —— 那等於把閘關掉,
+    //       而它印的還是綠。✅ 改之前先確認**每一支都該在**。
     expect(CRON_JOB_WHITELIST.map((w) => w.jobName)).toEqual([
       'pcm-anomaly-alert',
       'pcm-capture-recheck',
@@ -73,14 +80,23 @@ describe('白名單這張表本身', () => {
       'pcm-expire-unpaid-orders',
       'pcm-order-ineligible-gate',
       'pcm-settle-sweep',
+        // 🔵 2026-09-05 加(⟦b9-ACLDRIFT5⟧ 片一 20260905140000 排的)
+        'pcm-acl-digest',
+        // 🔵 2026-09-05 加(⟦b4-SETTLERETRYNEVER⟧)
+        'pcm-settle-retry',
+        // 🔵 2026-09-05 加(⟦b4-NCPCRONRACE⟧ 20260905180000 匯款兜底)
+        'pcm-late-payment-sweep',
     ]);
-    expect(CRON_JOB_WHITELIST).toHaveLength(6);
-    // 🔴 而這六個名字必須與**正式庫 cron.job 實際排的**一致(2026-08-28 唯讀撈、總數 6、非抽樣)。
+    expect(CRON_JOB_WHITELIST).toHaveLength(9);
+    // 🔴 而這【九】個名字必須與**正式庫 cron.job 實際排的**一致。
+    //    ⚠️ **而前一次量到的是 2026-08-28 的【六】**(唯讀撈、非抽樣)——
+    //    後面三支(`pcm-acl-digest` / `pcm-settle-retry` / `pcm-late-payment-sweep`)**未重量**。
     //    ⚠️ 而本測試**驗不到那一側** —— 它只釘住「碼裡這份沒有被偷偷改掉」。
     //    真排程漂掉這一格由 ⟦b4-CRON6c⟧ 記著(後台讀不到 `cron.job`,三道權限)。
   });
 
-  // 🔴 主視窗 2026-08-28 指定的守門:新增第七支排程時,它會安靜地沒有門檻。
+  // 🔴 主視窗 2026-08-28 指定的守門:新增排程時,它會安靜地沒有門檻。
+  //    (⛔ ~~原文寫「第七支」~~ —— 2026-09-05 一天之內就走到第九支, 而序數會過期。)
   it('🔴 每一支都要有門檻、有標籤、有接線落點 —— 少一格就紅', () => {
     for (const w of CRON_JOB_WHITELIST) {
       expect(typeof w.staleMinutes, `${w.jobName} 的 staleMinutes`).toBe('number');
@@ -154,7 +170,7 @@ describe('白名單這張表本身', () => {
 });
 
 describe('loadCronHeartbeats', () => {
-  it('正向對照:六支都健康 ⇒ 零異常、零漂移(證明下面每一格的斷言真的看得到東西)', async () => {
+  it('正向對照:九支都健康 ⇒ 零異常、零漂移(證明下面每一格的斷言真的看得到東西)', async () => {
     withRows(ALL_HEALTHY);
     const r = await loadCronHeartbeats(NOW);
     expect(r.unreadableReason).toBeNull();

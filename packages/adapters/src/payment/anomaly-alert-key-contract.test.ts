@@ -529,7 +529,11 @@ describe('result 的 *Unknown / *Failed 欄位, route 一定要讀', () => {
     //     (`trackingCorrectedGapUnknown` 由那條線自己接的;`notifiersFailed` 走 `errors` 別名)。
     //   🛑 **改這個數字之前一定要跑那一發** —— 直接改成「現在幾個」而不看 route,
     //     等於把這道閘關掉, 而它印的還是綠。
-    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(16);
+      // 🔴 **16 ⇒ 17(2026-09-05, 又是 merge 的產物)**:`-db` 加了 `aclDriftUnknown`
+      //   (⟦b9-ACLDRIFT5⟧ 片三), 而 dev 上那 16 欄是別的線各自加的。
+      //   ✅ **照上面那句規矩跑了那一發**:17 欄逐欄比對 route.ts ⇒ **route 沒讀的是 0**。
+      //   📌 而這是這道閘第二次在 merge 那一刻把人叫過來 —— **它的職責就是這個**。
+    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(17);
 
     /**
      * 🔴 **剝掉註解再比**(R4 must-fix 級 consider)——

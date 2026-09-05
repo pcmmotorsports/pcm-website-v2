@@ -84,7 +84,7 @@ import type { BrandContent } from './brand-content-types';
 export const BRAND_CONTENT: BrandContent[] = [
   {
     "slug": "akrapovic",
-    "name": "AKRAPOVIČ",
+    "name": "Akrapovic",
     "country": "斯洛維尼亞",
     "origin": "斯洛維尼亞 · 自 1991",
     "lede": "斯洛維尼亞的排氣系統製造商，自設鈦合金鑄造廠，全段排氣與尾段消音器的鈦合金與碳纖維部件皆於自有產線完成。",

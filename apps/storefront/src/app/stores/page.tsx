@@ -25,7 +25,7 @@ import { HomeFooter } from '@/components/HomeFooter';
 import { ComingSoon } from '@/components/ComingSoon';
 
 export const metadata: Metadata = {
-  title: '合作店家 · 即將上線 — PCM MOTOR PARTS',
+  title: '合作店家 · 即將上線 — PCM重機零件販售',
   description:
     'PCM 合作店家地圖正在整理中。全台合作車行的名單、地址與各家能做的施工項目，很快就會在這裡查得到。',
 };

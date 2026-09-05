@@ -477,6 +477,25 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
     }
 
+      /**
+       * ⟦b9-ACLDRIFT5⟧ 片二:**權限快照那一格「量不到」**。
+       *
+       * 🔴 `aclDriftDetected` **不在這裡** —— 它進 `shouldAlert`,走 LINE + Email 到 Sean。
+       *    這一格處理的是另一種:view 還沒貼、讀失敗、或**那一列太舊**(超過 26 小時)。
+       * 🎯 兩種訊號兩個觀眾 —— 與上面每一種同一個成例:權限的事吵 Sean;部署/排程的事吵看板。
+       * 🛑 **而「太舊」為什麼算量不到而不是「沒有漂移」**:
+       *    快照太舊 ⇒ 我手上這兩列不足以比較 ⇒ **回 200 等於宣稱「今天沒有人動權限」,
+       *    而我根本沒量到**。那正是本片存在的理由的反面。
+       * 🔵 而它不會變成信:`aclDriftUnknown` 時 `aclDriftDetected` 是 `false` ⇒ 進不了 `shouldAlert`。
+       */
+      if (result.aclDriftUnknown) {
+        console.error(
+          '[anomaly-alert] 🔵 pcm_acl_drift_status 讀不到或太舊 ⇒ 權限漂移今天是【查不到】不是【沒有漂移】',
+          { ...result },
+        );
+        await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+        return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+      }
     if (result.cronHeartbeatUnknown) {
       console.error(
         '[anomaly-alert] 🔴 get_cron_heartbeat_stale_counts 讀不到 ⇒ 排程心跳今天是【查不到】不是【六支都健康】(回 503)',

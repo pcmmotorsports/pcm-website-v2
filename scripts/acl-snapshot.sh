@@ -59,11 +59,18 @@ UNION ALL
 --    (2026-09-05 實測:一支長函式名在快照裡斷成 `…p_shipm`)⇒ 每一段都明轉 text。
 --    🛑 而截斷的危險不是「不好看」—— 兩支長前綴相同的函式會**塌成同一列**,
 --       那時改其中一支, 這份快照【看不到】。今天量到重複 key = 0, 而那是運氣不是保證。
+-- 🔴 **SIUD 不夠 —— 補 TRUNCATE / REFERENCES / TRIGGER**(codex 2026-09-05 R2 抓到):
+--    原本只記 SIUD ⇒ 有人手動 `GRANT TRUNCATE ON <表> TO anon`, 這份快照【一格都不會變】。
+--    🛑 而 `TRUNCATE` 正是本 repo 已知最痛的那一個:**RLS 不管它**(⟦0e-STORAGEACL⟧ 那條)。
+--    ⚠️ 補這三個會讓 REL 族每一列多三個字元 ⇒ 基線一定要一起重寫, 否則 parity 天天紅。
        SELECT 'REL', n.nspname::text||'.'||c.relname::text||'|'||c.relkind::text, g.rol,
        CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'SELECT') THEN 'S' ELSE '-' END ||
        CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'INSERT') THEN 'I' ELSE '-' END ||
        CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'UPDATE') THEN 'U' ELSE '-' END ||
        CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'DELETE') THEN 'D' ELSE '-' END ||
+       CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'TRUNCATE') THEN 'T' ELSE '-' END ||
+       CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'REFERENCES') THEN 'R' ELSE '-' END ||
+       CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'TRIGGER') THEN 'G' ELSE '-' END ||
        CASE WHEN c.relrowsecurity THEN '|RLS' ELSE '|---' END
   FROM pg_catalog.pg_class c
   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -314,6 +321,16 @@ fetch "$NEW" || exit 2
 LINES=$(grep -c . "$NEW")
 # 🔴 分母要印出來 —— 一份「0 差異」的報告, 若它只有 3 列, 那個 0 沒有意義。
 echo "  🔵 快照 $LINES 列 = 表/view×4角色 + 函式×4角色 + 角色 BYPASSRLS + RLS policy + 函式的 DEFINER/search_path + view 的 security_invoker"
+
+# 🔵 `--emit <檔>`:把【此刻的產出】寫到指定的檔就結束 —— 不比、不動基線。
+#    🔴 為什麼要有它(2026-09-05 量到):`acl-digest-parity.sh` 原本「重跑腳本」之後
+#       仍然去雜湊【基線那支檔】⇒ 貼板當天基線還沒更新 ⇒ 它會叫。
+#       而那正是這道閘會被關掉的死法:**它叫的不是漂移, 是基線的年紀。**
+if [ "${1:-}" = "--emit" ]; then
+  if [ -z "${2:-}" ]; then echo "🔴 --emit 要一個輸出路徑" >&2; exit 2; fi
+  cp "$NEW" "$2"
+  exit 0
+fi
 
 if [ "${1:-}" = "--write" ]; then
   cp "$NEW" "$BASE"
