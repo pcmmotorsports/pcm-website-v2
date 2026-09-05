@@ -221,6 +221,14 @@ const PINNED_IDENTITY_SEQUENCES: readonly string[] = [
   //    它的序列走**動態** REVOKE(`pg_get_serial_sequence` + `format`)——
   //    上面那格「每一支都要有人明寫過 REVOKE」跑的是 `revokedSomewhere()`, 它認得動態那條路。
   'search_queries_id_seq',
+  // 🔵 2026-09-06 線【身分】`-auth`:同步留痕表(`20260906340000`)。
+  //    🔴 **而它進來的方式值得記**:它的 `anon` 權限**線上本來就是 0**
+  //    —— 那是 `20260905430000` 那道 ADP(新序列出生不再自帶 `anon`)給的。
+  //    而**本檔是【靜態掃 migration 字面 + 釘名單】的尺 ⇒ 它看不到 ADP** ⇒ 對這一支誤報。
+  //    ⇒ 📌 **處置是補一支明寫 `REVOKE ALL` 的 migration(`20260906360000`), 不是放寬這把尺** ——
+  //      因為它守的是**所有未來的 IDENTITY 表**, 而那些表的作者不會知道有 ADP、也不該依賴它。
+  //    ⇒ 🎯 **ADP 是【預設】, 明寫的那一行是【契約】。預設會被下一個改 ADP 的人動掉, 而契約留在檔案裡。**
+  'supplier_sync_runs_id_seq',
 ] as const;
 
 describe('⟦b4-SEQACL1⟧ public 的 IDENTITY 序列不得對 anon 開著', () => {
