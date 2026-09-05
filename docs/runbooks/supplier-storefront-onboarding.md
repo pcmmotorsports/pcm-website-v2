@@ -34,6 +34,75 @@
   uv run python scripts/onboarding_headcount.py after       # 首灌【後】
 ```
 
+### 🔴🔴 而那兩行【量的是報價單庫】—— 網站側首灌一個位元組都不會寫進去
+
+> 2026-09-04 線【帳號】跑 rizoma 首灌時當場撞到:
+> `onboarding_headcount.py after` 逐字印「🔴🔴 這次**一個新商品群都沒有進來**… 它**什麼都沒灌成功**」且 **rc=1**,
+> 而同一發首灌印「WRITE 完成:**723** 商品 / **926** 變體」,唯讀 psql 獨立複驗 **723 / 926**。
+> 🎯 **成因**:`onboarding_headcount.py:97,104` 逐字 `FROM products` / `FROM storefront_catalog_v`,
+> `:126` 走 `SUPABASE_PROJECT_REF` ⇒ **它連的是報價單庫**。
+> ⇒ 📌 **「新增 0 群」是網站側首灌的【預期值】,不是災難。**
+>
+> 🛑 **所以那兩行【不要停用】,而是要知道它在答什麼**:
+> 它那一半是真的 —— before **25,846** 群 = after **25,846** 群 ⇒ **既有那 16 家一個都沒掉**。
+> **它答不出來的是**「你剛剛寫進網站庫的東西進去了沒」。
+> 🔴 **這是「閘死於誤報」那一族**:第二次撞到紅的人就不跑它了,而那時舊 16 家真的掉光也沒人知道。
+
+**⇒ 網站側首灌,前後各跑一次【這一段】(它量的是網站庫)**
+
+```sql
+-- 🔴 只改這一行的 <slug>。首灌【前】跑一次、【後】跑一次,比四個數。
+WITH ask AS (SELECT '<slug>'::text AS slug),
+guard AS (
+  SELECT CASE WHEN pg_catalog.to_regclass('public.product_fitments_effective') IS NULL
+              THEN ('🔴 這【不是網站庫】—— 找不到 public.product_fitments_effective。'
+                    '網站側首灌寫的是網站庫, 而報價單庫那一份 headcount 在這裡量不到你剛寫的東西。'
+                    '⇒ 換連線再跑, 不要把這裡的數字當結果。目前連到的庫是:'
+                    || (SELECT pg_catalog.current_database()))::int
+              ELSE 1 END AS ok
+)
+SELECT (SELECT count(*) FROM public.products p, ask a
+         WHERE p.supplier_slug = a.slug AND p.delisted_at IS NULL)                AS 這一家商品數,
+       (SELECT count(*) FROM public.product_variants v
+          JOIN public.products p ON p.id = v.product_id, ask a
+         WHERE p.supplier_slug = a.slug)                                           AS 這一家變體數,
+       (SELECT count(*) FROM public.products p, ask a
+         WHERE p.supplier_slug IS DISTINCT FROM a.slug AND p.delisted_at IS NULL)  AS 其他家商品數,
+       (SELECT count(DISTINCT supplier_slug) FROM public.products
+         WHERE delisted_at IS NULL)                                                AS 有商品的家數,
+       g.ok                                                                        AS 庫別閘
+  FROM guard g;
+```
+
+**怎麼讀這四個數**
+```
+這一家商品數   首灌【前】應該是 0;【後】= 首灌自己印的那個數  ← 這一格才是「我寫進去了沒」
+這一家變體數   同上, 對得上首灌印的變體數
+其他家商品數   前後【必須一樣】                              ← 這一格是「別家有沒有掉」
+有商品的家數   前 +1 = 後                                    ← 少了就是有一家整個不見
+```
+
+🔬 **兩個世界實跑(2026-09-05,線【身分】`-auth`)**
+```
+對的庫(正式網站庫, 唯讀)  ⇒ 1007 · 1352 · 23758 · 20 · 庫別閘 1     ← rizoma 當下的實際值
+錯的庫(拋棄式 PG 造一個同名 products / product_variants 的庫)
+                          ⇒ ERROR: "🔴 這【不是網站庫】… 目前連到的庫是:postgres"
+```
+🔴🔴 **而寫這一格的時候踩到一個坑,寫在這裡因為【下一個抄這個形狀的人一定會踩】**:
+> 訊息如果是**純字面**(`THEN ('紅')::int`),PostgreSQL 會在**規劃階段就把它算掉**
+> ⇒ 🛑 **條件是 false 它照樣報錯** —— 我第一版在**正確的庫上**就炸了。
+> ✅ 解法:**訊息裡接一個子查詢**(這裡是 `|| (SELECT current_database())`)⇒ 不會被摺掉。
+> 🔬 同一發並排驗:`THEN ('紅')::int` ⇒ **ERROR**(而條件為 false);
+>    `THEN ('紅 · ' || (SELECT current_database()))::int` ⇒ **印 1**(正常)。
+> 📌 §1 那個「分母閘」之所以沒踩到,是因為它的訊息本來就接了 `string_agg` 子查詢 —— **那不是裝飾,是它能用的原因。**
+
+⚠️ **它證不到什麼**
+· 「錯的庫」那一發是在**本機造的假庫**上跑的,不是真的報價單庫 —— 我**沒有那個庫的連線**。
+· 若那個錯的庫**連 `products` 都沒有**,你拿到的會是 `relation "public.products" does not exist`
+  ⇒ 那**也是紅的、也是對的**(你確實不在網站庫),只是訊息不是我寫的那一句。
+  🎯 **兩種紅都可以,要避免的是【在錯的庫上印綠】—— 而那不可能發生。**
+· 它不驗**資料對不對**,只驗**數量**與**你連對庫沒有**。
+
 **為什麼首灌那一晚特別危險 —— 兩道保護【同時】是空的**
 ```
 · 文案鎖（manually_corrected / translation_locked）整批還沒有

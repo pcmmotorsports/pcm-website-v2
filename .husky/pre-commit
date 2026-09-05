@@ -192,7 +192,44 @@ else
   exit 1
 fi
 
-pnpm exec lint-staged
+# ── 帳本重複列(2026-09-05 線 -db 接;主視窗 -f8 拍甲)────────────────────
+#   🔴 一支 migration 常常【兩條線都碰到】(寫的一條 / 驗的一條), 而帳本的規矩是「驗的人記」
+#      ⇒ 兩邊都覺得自己是驗的人時, 就各記一列;而 merge 的 union 段【不會叫】
+#      (兩列各自在自己那邊是新增的 ⇒ 連 git 衝突都不算)。
+#   🔬 主視窗 2026-09-05 一天撞兩次(4b8eda273 / 4568488ae), 兩次都是【肉眼看 diff 】發現的。
+#   ⚠️ 它只在 supabase/APPLIED.tsv staged 時才會有話說(沒 staged ⇒ 自己跳過、印一行)。
+if [ -f .husky/applied-ledger-dup-gate.sh ]; then
+  sh .husky/applied-ledger-dup-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/applied-ledger-dup-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/applied-ledger-dup-gate.sh' >&2
+  exit 1
+fi
+
+# ── 🔴🔴 `--no-stash`(2026-09-05 全隊事件;-ship 量到, 主視窗 -f8 派 -db 做)────────
+#   **`refs/stash` 是【所有 worktree 共用】的一個 ref。** 而 lint-staged 預設拿 stash 當備份:
+#     建一個備份 stash ⇒ 把未 staged 的改動從工作樹拿走 ⇒ 跑 task ⇒ 還原 ⇒ 丟掉那個 stash
+#   ⚠️ **[2026-09-05 -db 實測:上游那條因果【我沒重現出來】]**
+#      上游(-ship)的說法是「A 的 stash 那一瞬間把 B 剛 add 的新檔從工作樹拿走 ⇒ B 讀到 ENOENT」。
+#      🔬 我用拋棄式兩棵 worktree 造了那個世界:A 樹 `git stash push --keep-index` 之後,
+#         **B 樹的新檔【還在】** ⇒ 🔴 **那條因果在我的實測裡不成立。**
+#      🟢 而【共用】那一半是真的:`refs/stash` 兩棵樹都看得到(B 樹 `git stash list` 印得出 A 建的那條)。
+#      ⇒ 📌 **可以確定的是「兩個窗在寫同一個 ref」, 而「它會把別人的檔拿走」我證不到。**
+#      ⇒ 所以下面加 `--no-stash` 的理由寫成【減少一個共用 ref 的寫入者】+ 【那 9 條崩掉的殘骸】,
+#         **不寫成「它會偷走別人的檔」** —— 那句我沒量到。
+#   🔬 而 `git stash list` 今天有 **11 條**, 其中 9 條是「lint-staged automatic backup」——
+#      正常流程會把它丟掉 ⇒ 留下來的那幾條**至少代表那幾次沒有走完**。
+#      ⚠️ 而「崩在中途」是**推論** —— 我證不到它們各自是怎麼留下來的。
+#
+#   ✅ **前提量過才敢加**:`--no-stash` 的代價是「task 寫壞了檔案就沒有備份可還原」
+#      ⇒ 所以必須先證明【沒有任何 task 會寫工作樹】。
+#      🔬 決定性那一發(2026-09-05 -db 實測):staged 一個檔 ⇒ 跑 lint-staged ⇒
+#         **全樹已追蹤檔的內容雜湊逐位元組相同**(bdb76ea2…)
+#         🟢 正對照:故意改一個字 ⇒ 雜湊變了 ⇒ 那把尺會動 ⇒ 上面那個「相同」有判別力。
+#      🔵 命令字面那把尺也同意:90 個 task 裡 `--write` / `--fix` / `sed -i` 各 0。
+#   ⚠️ **它證不到什麼**:①一支 task 【未來】被改成會寫檔 ⇒ 沒有東西會叫(這是加旗標的代價)
+#      ②本旗標不管 `.husky` 裡其他閘 ③`git stash list` 的條數**分不出**「建了又丟掉」與「從沒建過」。
+pnpm exec lint-staged --no-stash
 
 if [ -f .husky/always-loaded-size-gate.sh ]; then
   sh .husky/always-loaded-size-gate.sh || exit $?
