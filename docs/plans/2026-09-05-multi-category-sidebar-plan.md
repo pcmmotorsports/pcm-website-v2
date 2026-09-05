@@ -190,3 +190,44 @@ Reading additional input from stdin...
 **這七條我照收進 §8-3 的表, 而【沒有一條是我自己量過的】。** 動手時每一條各自要驗, **不得因為它寫得具體就當成已驗**。
 🔵 我複驗的是三條:①單一槽(逐字成立)②`select-sub` no-op(reducer 成立、UI 不成立, 見 8-5)③`lastFilterKeyRef` 位置(逐字成立)。
 
+---
+
+# §9 · 三格唯讀量測做完 —— **審查者的 a 與 b 兩條被推翻, 而是量出來的**
+
+## 9-1 🟢 **格 a(`CatalogQuery` 雙槽會不會變交集/0 件)⇒ 推翻。是【聯集】。**
+`apps/storefront/src/lib/products.ts:458,461` **兩個都送進同一支 RPC** `search_catalog_by_vehicle`,
+而該處註解逐字:「舊的 `p_category` **一起送、不拿掉** —— 新那支自己會把兩邊**併成聯集**」。
+🔴 **而那是註解的宣稱, 我去 SQL 驗了** —— `supabase/migrations/20260904260000_m4b_recommend_sort_with_category.sql:254-261`:
+```
+v_cats := (SELECT coalesce(array_agg(DISTINCT btrim(x)), ARRAY[]::text[])
+             FROM unnest(coalesce(p_categories, ARRAY[]::text[])
+                         || CASE WHEN p_category IS NULL THEN ARRAY[]::text[] ELSE ARRAY[p_category] END) AS x
+            WHERE btrim(x) <> '')
+```
+⇒ **`||` 是陣列串接 + `DISTINCT` 去重 = 聯集。**
+
+## 9-2 🟢 **格 b(全路徑「主 · 子」會不會 0 件)⇒ 推翻。**
+過濾條件逐字(同檔 `:286`):`WHERE p.category_raw = vc **OR** p.category_raw LIKE vc || ' · %'`
+⇒ 🔵 **有 `=` 那一半** ⇒ 全路徑走等號那條, **不需要第三層**。審查者只看到 `LIKE` 那一半。
+
+## 9-3 🔬 **而上面兩條我沒有停在讀碼 —— 實測三發(鑽機, 真瀏覽器)**
+```
+?categories=車架                                      ⇒ 共 2 件 · 膠囊 1 顆
+?category=碳纖維部品 · 尾殼與單座蓋                    ⇒ 共 4 件 · 膠囊 1 顆   ← 不是 0
+?categories=車架&category=碳纖維部品 · 尾殼與單座蓋     ⇒ 共 6 件 · 膠囊 2 顆   ← 2+4 聯集
+```
+🎯 **`2 + 4 = 6` ⇒ 聯集成立;若是交集或覆寫, 這一格會是 0 或 4 或 2。**
+🔵 **而膠囊兩顆都畫出來了** ⇒ 畫面那一側也認得這個組合。
+⚠️ **射程**:本機探針(合成 108 件種子, 樹 `65db83b53`)。**正式站的 `category_raw` 形狀我沒量** ——
+   而這三發要答的是「**兩個參數怎麼組合**」, 那是**函式的行為**不是資料的形狀 ⇒ 種子夠用。
+
+## 9-4 ⚠️ **量的過程中我的尺壞了一次, 而它印的是「全部撈不到」**
+我先用 `curl | grep '共 N 件'` 量四發 ⇒ **四發全空, 連對照組也空** ⇒ 那是**尺沒接上**
+(件數是 client 端渲染的, `curl` 拿到的是 SSR 前的殼), **不是「查無」**。
+📌 **抓到它的是【對照組也空】** —— 若我只打那三發沒打對照, 我會得到「全路徑那顆 0 件」這個**與審查者一致而錯誤**的結論。
+
+## 9-5 ⇒ **主案改成:union 進 `CATEGORIES_PARAM`**(主視窗已定)
+🔵 而 9-1/9-2 讓一件事變清楚:**寫進 `category=` 其實也會被聯集** ——
+   **但那不能當主案**, 因為 §8-1:`category=` 只有一個槽, **第二顆會蓋掉第一顆**。
+   ⇒ 📌 **「它會被正確合併」與「它裝得下多顆」是兩件事, 而我先前把前者當成了後者的證據。**
+
