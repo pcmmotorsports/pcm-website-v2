@@ -1790,7 +1790,16 @@ export async function sweepEmailOutbox(
       //    讓「Resend 已接受」從計數上消失)。
       if (outcome.kind === 'sent') {
         result.sent++;
-        const owned = await outbox.markSent(job.id, job.attempts, sentTrackingNumber);
+        // 🔴 ⟦b4-NOSENTBODY⟧:provider 的訊息 id 與 `sent_at` **同一發落表**。
+        //    🛑 `null` 的意思是**我們沒拿到**(見 `IEmailSender` 上那三種成因),
+        //    而它**不影響任何計數** —— 上面那個 `result.sent++` 已經先算過了。
+        //    ⇒ 📌 **「信寄出去了」與「我們記到了 id」是兩件事, 而前者不因後者失敗而變。**
+        const owned = await outbox.markSent(
+          job.id,
+          job.attempts,
+          sentTrackingNumber,
+          outcome.providerMessageId,
+        );
         if (!owned) result.staleMarks++; // 柵欄 no-op:所有權已失、不得覆寫(非錯誤)
       } else {
         result.failed++;

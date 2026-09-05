@@ -619,6 +619,16 @@ export interface IEmailOutbox {
     id: string,
     claimedAttempts: number,
     sentTrackingNumber: string | null,
+    /**
+     * 🔴 ⟦b4-NOSENTBODY⟧(2026-09-06):provider 回的訊息 id, 拿不到傳 `null`。
+     * 🛑 **它只落 DB 那一欄** —— 不進 log、不進 sweep 的回傳統計、不進任何其他 sink
+     *    (主視窗 2026-09-06 裁 `Q2 = 甲`)。
+     * 🔴 **訂正(codex R1-#15)**:⛔ ~~「不進 result」~~ —— **那句字面是錯的**。
+     *    `SendEmailResult` 上**就帶著**它(`{ kind: 'sent', providerMessageId }`), 而那正是它
+     *    從 sender 走到這裡的**唯一**路徑。⇒ 📌 這道紀律管的是**它走到這裡之後不再往外**,
+     *    不是「它從來不在任何 result 上」——照舊字面去 grep 的人會以為送信那一層也不該帶它。
+     */
+    providerMessageId: string | null,
   ): Promise<boolean>;
 
   /**

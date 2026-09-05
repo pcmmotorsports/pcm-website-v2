@@ -29,6 +29,11 @@
 
 BEGIN;
 
+-- 🔴 **等鎖最多 5 秒, 等不到就放棄整發**(codex R1-#12)——
+--    📌 沒有它, 一個長交易會讓這一發**排在隊伍裡**, 而**它後面的每一個查詢也一起排**。
+--    ⇒ 貼板時看到它失敗是**對的**:重貼一次比卡住整張表便宜。
+SET LOCAL lock_timeout = '5s';
+
 DO $precondition$
 DECLARE v_cnt int;
 BEGIN
@@ -53,8 +58,12 @@ $precondition$;
 --    ① 既有的每一列都是 NULL ⇒ **不需要回填**, 而「NULL」在這裡的意思是
 --       **「那封信寄出去的時候我們還沒開始記」**, 不是「provider 沒給」。
 --       ⇒ 📌 那兩種世界日後若要分開, 要靠 `sent_at` 與本欄的先後, 不是靠本欄自己。
---    ② 加一個 NULL-able 欄不重寫整張表(PG 11+ 對有 DEFAULT 的也不重寫, 而這裡連 DEFAULT 都沒有)
---       ⇒ 不鎖表、不需要 `lock_timeout` 特別處理。
+--    ② 加一個 NULL-able 欄**不重寫整張表**(PG 11+ 對有 DEFAULT 的也不重寫, 而這裡連 DEFAULT 都沒有)
+--       ⛔ ~~⇒ 不鎖表、不需要 `lock_timeout` 特別處理。~~
+--       🔴 **那句是錯的**(codex R1-#12):`ADD COLUMN` **照樣取 `ACCESS EXCLUSIVE`**,
+--         而且**持有到 COMMIT** ⇒ 📌 **「不重寫」與「不鎖表」是兩件事, 我把它們寫成一件。**
+--       ✅ 差別在**持有時間**:不重寫 ⇒ 那把鎖是**瞬間**的, 而不是「不存在」。
+--         ⇒ 而**等待期仍可能排隊**(它要等既有交易放手)⇒ 下面加 `lock_timeout`。
 ALTER TABLE public.email_outbox
   ADD COLUMN provider_message_id text;
 
@@ -67,13 +76,18 @@ COMMENT ON COLUMN public.email_outbox.provider_message_id IS
 ⇒ ACL 與本表其餘欄位一致(僅 service_role),不因為「不是 PII」而放寬。
 🛑 **它縮短不了 provider 的 30 天保存期** —— 超過 30 天有 id 也取不到;
 那是已授權的殘餘風險(板列 ⟦b4-NOSENTBODY⟧),不是本欄的缺陷。
-🔴 NULL 的意思是「那封信寄出去時我們還沒開始記」,不是「provider 沒給」。$c$;
+🔴 **NULL 有兩族成因, 而它們在本欄上分不出來**(codex R1-#11 訂正我原本只寫一族):
+①【舊資料】那封信寄出去時我們還沒開始記(45g 貼之前的每一列);
+②【新資料而沒拿到】provider 沒回 / 回應超過大小上限 / content-length 看不懂 / 型別或格式不合。
+⇒ 要分開它們只能靠 `sent_at` 與 45g 的 apply 時刻比對, **不能靠本欄自己**。
+📌 而稽核時把 ② 誤讀成 ① 會得到「我們一直沒開始記」這個假結論。$c$;
 
 DO $postcheck$
 DECLARE
   v_notnull boolean;
   v_default text;
   v_cnt     int;
+  v_cols    text;
 BEGIN
   -- 事後閘①:欄在, 而且是 nullable、無 DEFAULT
   SELECT a.attnotnull, pg_catalog.pg_get_expr(d.adbin, d.adrelid)
@@ -107,7 +121,12 @@ BEGIN
   -- 🟢 事後閘②c(**正對照**):同一把尺對 `service_role` 要答【讀得到】——
   --    📌 少了這一格, 上面兩個 false 可能只是**這把尺對整張表都回 false**(例如表名打錯)。
   IF NOT pg_catalog.has_column_privilege('service_role', 'public.email_outbox', 'provider_message_id', 'SELECT') THEN
-    RAISE EXCEPTION '事後閘②c(正對照):service_role 讀不到 provider_message_id ⇒ 寄信端寫不進也讀不出, 而上面兩格的 false 不可信';
+    RAISE EXCEPTION '事後閘②c(正對照):service_role 讀不到 provider_message_id ⇒ 上面兩格的 false 不可信';
+  END IF;
+  -- 🔴 **而【寫得進】要另外問**(codex R1-#13):我原本只驗 `SELECT` 卻宣稱「寫不進也讀不出」。
+  --    📌 **UPDATE 漂掉而 SELECT 還在** ⇒ 這一支全綠, 而 `markSent` **每一發都失敗**。
+  IF NOT pg_catalog.has_column_privilege('service_role', 'public.email_outbox', 'provider_message_id', 'UPDATE') THEN
+    RAISE EXCEPTION '事後閘②c2:service_role 對 provider_message_id 沒有 UPDATE ⇒ markSent 會每一發都失敗';
   END IF;
 
   -- 🔵 事後閘②d(**負對照**):同一把尺問一個現造的欄名 —— 它必須【炸】或回 false。
@@ -121,13 +140,18 @@ BEGIN
     NULL; -- ✅ 預期:不存在的欄會 raise ⇒ 那把尺在看真的欄
   END;
 
-  -- 事後閘③:整張表的欄數只多一 —— 防「順手多加了別的欄」
-  SELECT count(*) INTO v_cnt
+  -- 事後閘③:🔴 **本支【只准】加這一欄** ——
+  --    ⛔ ~~原本的條件是「總欄數 < 2 就炸」~~ **那形同虛設**(codex R1-#14):
+  --      順手多加一個 `email_body text` **照樣通過**, 而那正是這道閘的名字說它要擋的東西。
+  --    ✅ 改成**逐名比對**:把本支之外不該出現的欄名列出來, 有任何一個就炸。
+  --    🔵 而它只擋**本支這一發**新增的欄 —— 它答不出「別支 migration 加了什麼」, 那是另一件事。
+  SELECT string_agg(a.attname, ',' ORDER BY a.attname) INTO v_cols
     FROM pg_catalog.pg_attribute a
    WHERE a.attrelid = 'public.email_outbox'::regclass
-     AND a.attnum > 0 AND NOT a.attisdropped;
-  IF v_cnt < 2 THEN
-    RAISE EXCEPTION '事後閘③:email_outbox 只剩 % 欄 ⇒ 世界與我以為的不一樣', v_cnt;
+     AND a.attnum > 0 AND NOT a.attisdropped
+     AND a.attname IN ('email_body', 'body_html', 'body_text', 'rendered_body', 'sent_body');
+  IF v_cols IS NOT NULL THEN
+    RAISE EXCEPTION '事後閘③:出現了不該有的欄 [%] ⇒ Sean 拍的是【只存 id、不留全文】', v_cols;
   END IF;
 END
 $postcheck$;

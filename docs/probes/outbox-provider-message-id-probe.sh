@@ -6,7 +6,15 @@
 # 🛑 **它【證不到】什麼**(寫在前面):
 #    · 這裡的三個角色沒有 Supabase 的預設授權 ⇒ 證的是**我下的那道 GRANT/REVOKE 的行為**,
 #      不是正式庫的 RLS 與 PostgREST 可達性。
-#    · 它不證「sender 真的會把 id 寫進去」—— 那是碼那一半, 由單元測試守。
+#    · 它不證「sender 真的會把 id 寫進去」—— 那是碼那一半。
+#      🔴 **訂正(codex R1-#7)**:⛔ ~~原本這裡只寫「由單元測試守」~~ —— **寫下那句的當下它是【假的】**:
+#      當時每一格單元測試的第四參都是 `null` ⇒ 把那一欄從 update 物件整個拿掉, **一格都不會紅**。
+#      ✅ 現在真的守著它的是這三格(補上之後才成立):
+#        · `SupabaseEmailOutboxAdapter.test.ts` 「markSent 帶 provider 訊息 id」(正)
+#        · 同檔 「負對照:第四參 null ⇒ 那一欄落 null」(反, 且證鍵仍在)
+#        · `sweep-email-outbox.test.ts` 「sender 回了 id ⇒ 那個字串走到 markSent 第四參」
+#      🧬 突變驗過:拿掉 `provider_message_id:` 那一行 + use-case 改硬傳 `null` ⇒ **3 failed**;還原 ⇒ 全綠。
+#      📌 **一句「由測試守」不會自己變成真的** —— 它指的那些測試可以整批對它零判別力。
 # 🛑 rc 由讀數決定(FAILED > 0 ⇒ exit 1)。
 
 set -u

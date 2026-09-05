@@ -33,7 +33,7 @@ describe('ResendEmailSenderAdapter.send(Resend emails)', () => {
   it('POST Resend endpoint、Bearer key、🔴 Idempotency-Key 由座標組字面、body 含 from/to/subject/text', async () => {
     const f = vi.fn(async () => ({ ok: true, status: 200 }));
     const result = await send(f);
-    expect(result).toEqual({ kind: 'sent' });
+    expect(result).toEqual({ kind: 'sent', providerMessageId: null });
     const [url, init] = f.mock.calls[0] as unknown as [string, { method: string; headers: Record<string, string>; body: string }];
     expect(url).toBe('https://api.resend.com/emails');
     expect(init.method).toBe('POST');
@@ -312,7 +312,7 @@ describe('ResendEmailSenderAdapter — 附件送得出去', () => {
   it('給附件 ⇒ body 含 attachments,filename 與 content 逐欄相符', async () => {
     const f = vi.fn(async () => ({ ok: true, status: 200 }));
     const r = await sendWith(f, { attachments: [PDF] });
-    expect(r).toEqual({ kind: 'sent' });
+    expect(r).toEqual({ kind: 'sent', providerMessageId: null });
     expect(sentBody(f).attachments).toEqual([
       { filename: PDF.filename, content: PDF.contentBase64 },
     ]);
@@ -379,7 +379,7 @@ describe('ResendEmailSenderAdapter — 🔴🔴 附件超量:擋在送出去【�
         { filename: 'edge.pdf', contentBase64: 'A'.repeat(RESEND_MAX_ATTACHMENTS_BASE64_BYTES) },
       ],
     });
-    expect(r).toEqual({ kind: 'sent' });
+    expect(r).toEqual({ kind: 'sent', providerMessageId: null });
     expect(f).toHaveBeenCalledTimes(1);
   });
 
@@ -457,7 +457,7 @@ describe('#876 cf 審查 —— 🔴 常數的【名字】要與 adapter 真正�
   it('🟢 邊界正對照:剛好等於上限(ASCII)⇒ 照送,不 throw', async () => {
     const f = vi.fn(async () => ({ ok: true, status: 200 }));
     const exact = { filename: 'x.pdf', contentBase64: 'A'.repeat(RESEND_MAX_ATTACHMENTS_BASE64_BYTES) };
-    await expect(sendWith(f, { attachments: [exact] })).resolves.toEqual({ kind: 'sent' });
+    await expect(sendWith(f, { attachments: [exact] })).resolves.toEqual({ kind: 'sent', providerMessageId: null });
   });
 });
 
@@ -514,7 +514,7 @@ describe('#876 codex R2 —— 🔴 畸形輸入不得被猜成附件', () => {
 
   it('🟢 負對照:合法的附件不可以被這道檢查誤擋', async () => {
     const f = vi.fn(async () => ({ ok: true, status: 200 }));
-    await expect(sendWith(f, { attachments: [PDF] })).resolves.toEqual({ kind: 'sent' });
+    await expect(sendWith(f, { attachments: [PDF] })).resolves.toEqual({ kind: 'sent', providerMessageId: null });
   });
 });
 
@@ -633,5 +633,191 @@ describe('ResendEmailSenderAdapter.send —— html 選填欄(片1)', () => {
     await sendWith(f, { html: '<b>乾淨</b>' });
     expect(Object.prototype.hasOwnProperty.call(sentBody(f), 'html')).toBe(true);
     expect(sentBody(f).html).toBe('<b>乾淨</b>');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// ⟦b4-NOSENTBODY⟧ 成功路徑讀 provider 訊息 id —— §窄幅破例的第二個入口
+// ══════════════════════════════════════════════════════════════════
+// 🔴 **四條約束各一格 + 兩個對照**:少了對照, 一個「永遠回 null」的實作每一格都綠。
+describe('成功回應的 provider 訊息 id', () => {
+  // 🔴 **預設要帶【正確的 content-length】** —— 真的回應會帶它。
+  //    ⛔ 我第一版預設回 `null` ⇒ 白名單那條(看不懂就不走)當場把每一格都變成 null
+  //    ⇒ 📌 **一個不像真實回應的替身, 會讓正對照失去正對照的功能。**
+  const OK_BODY = JSON.stringify({ id: 'resend-abc-123' });
+  const okRes = (over: Record<string, unknown> = {}) => ({
+    ok: true,
+    status: 200,
+    headers: { get: (k: string) => (k === 'content-length' ? String(Buffer.byteLength(OK_BODY)) : null) },
+    text: async () => OK_BODY,
+    ...over,
+  });
+
+  // 🔵 **用本檔既有的 `send()` 形狀**(第二個建構參數是 fetch 替身)——
+  //    ⛔ 我第一版把 fetch 塞進第一個參數的物件裡 ⇒ 它被當成設定, 真的 fetch 沒被換掉
+  //    ⇒ 七格全紅而錯誤是 `kind: 'failed'`。📌 **那不是碼壞了, 是我沒照這支檔既有的接法。**
+  const sendWith = async (res: unknown) =>
+    new ResendEmailSenderAdapter({ apiKey: KEY, from: FROM }, (async () => res) as never).send(INPUT);
+
+  it('🟢 正對照:正常成功回應 ⇒ 拿到那個 id(沒有它, 下面每個 null 都證不到事)', async () => {
+    expect(await sendWith(okRes())).toEqual({ kind: 'sent', providerMessageId: 'resend-abc-123' });
+  });
+
+  it('🔴 id 不是 string ⇒ null, 而【仍然是 sent】(信真的寄出去了)', async () => {
+    const r = await sendWith(okRes({ text: async () => JSON.stringify({ id: 12345 }) }));
+    expect(r).toEqual({ kind: 'sent', providerMessageId: null });
+  });
+
+  it('🔴 body 不是 JSON ⇒ null, 仍然 sent', async () => {
+    expect(await sendWith(okRes({ text: async () => 'not json' }))).toEqual({
+      kind: 'sent',
+      providerMessageId: null,
+    });
+  });
+
+  it('🔴 多位元組字元:字元數在上限內而【位元組數超標】⇒ 不落庫(codex R1-#1)', async () => {
+    // 🔬 `{"id":"中".repeat(1500)}` ⇒ raw.length ≈ 1509 而 Buffer.byteLength ≈ 4509
+    //    ⇒ 用 `raw.length` 量的實作**照樣 parse 並落庫**。
+    const huge = JSON.stringify({ id: '中'.repeat(1500) });
+    const r = await sendWith(
+      okRes({
+        headers: { get: (k: string) => (k === 'content-length' ? String(Buffer.byteLength(huge)) : null) },
+        text: async () => huge,
+      }),
+    );
+    expect(r).toEqual({ kind: 'sent', providerMessageId: null });
+  });
+
+  it('🔴 content-length 是天文數字 ⇒ Number() 得 Infinity, 而它【仍然要擋】(codex R1-#2)', async () => {
+    let textCalled = 0;
+    const r = await sendWith(
+      okRes({
+        headers: { get: (k: string) => (k === 'content-length' ? '9'.repeat(400) : null) },
+        text: async () => {
+          textCalled += 1;
+          return JSON.stringify({ id: 'should-never-be-read' });
+        },
+      }),
+    );
+    expect(r).toEqual({ kind: 'sent', providerMessageId: null });
+    // 🔴 **本格的本體**:舊寫法在這個世界會【反而去讀】—— 而讀了就違反那條約束。
+    expect(textCalled, '🔴 宣告看不懂時不可以叫 text()').toBe(0);
+  });
+
+  it('🔴 缺 content-length ⇒ 不叫 text()(白名單:看不懂就不走)', async () => {
+    let textCalled = 0;
+    const r = await sendWith(
+      okRes({
+        headers: { get: (_k: string) => null },
+        text: async () => {
+          textCalled += 1;
+          return JSON.stringify({ id: 'x' });
+        },
+      }),
+    );
+    expect(r).toEqual({ kind: 'sent', providerMessageId: null });
+    expect(textCalled).toBe(0);
+  });
+
+  it('🔴 原型污染:Object.prototype.id 不得被當成 provider id(codex R1-#4)', async () => {
+    const proto = Object.prototype as unknown as { id?: unknown };
+    proto.id = 'not-a-provider-id';
+    try {
+      const body = '{}';
+      const r = await sendWith(
+        okRes({
+          headers: { get: (k: string) => (k === 'content-length' ? String(body.length) : null) },
+          text: async () => body,
+        }),
+      );
+      expect(r).toEqual({ kind: 'sent', providerMessageId: null });
+    } finally {
+      delete proto.id;
+    }
+  });
+
+  it('🔴 格式白名單:id 是一個信箱 / 含空白的字串 ⇒ 不落庫(codex R1-#5)', async () => {
+    for (const bad of ['leak@example.com', 'a b', '中文', 'x'.repeat(65), '']) {
+      const body = JSON.stringify({ id: bad });
+      const r = await sendWith(
+        okRes({
+          headers: { get: (k: string) => (k === 'content-length' ? String(Buffer.byteLength(body)) : null) },
+          text: async () => body,
+        }),
+      );
+      expect(r, `🔴 [${bad.slice(0, 12)}] 不該被當成 provider id`).toEqual({
+        kind: 'sent',
+        providerMessageId: null,
+      });
+    }
+  });
+
+  it('🟢 正對照:合法形狀的 id ⇒ 落庫(否則上面那幾格的 null 證不到事)', async () => {
+    const body = JSON.stringify({ id: '49a3999c-0ce1-4ea6-ab68-afcd6dc2e794' });
+    const r = await sendWith(
+      okRes({
+        headers: { get: (k: string) => (k === 'content-length' ? String(Buffer.byteLength(body)) : null) },
+        text: async () => body,
+      }),
+    );
+    expect(r).toEqual({ kind: 'sent', providerMessageId: '49a3999c-0ce1-4ea6-ab68-afcd6dc2e794' });
+  });
+
+  it('🔴 content-length 超過上限 ⇒ 【連 text() 都不叫】, 回 null', async () => {
+    let textCalled = 0;
+    const r = await sendWith(
+      okRes({
+        headers: { get: (k: string) => (k === 'content-length' ? '999999' : null) },
+        text: async () => {
+          textCalled += 1;
+          return JSON.stringify({ id: 'should-never-be-read' });
+        },
+      }),
+    );
+    expect(r).toEqual({ kind: 'sent', providerMessageId: null });
+    // 🔴 **這一格才是那條約束的本體** —— 少了它, 一個「先讀再丟掉」的實作也會通過上一行。
+    expect(textCalled, '🔴 超過上限時不可以呼叫 text()(那一路要真的零緩衝)').toBe(0);
+  });
+
+  it('🔴 宣告騙人(說 10 bytes 而實際 5000+)⇒ 第二道擋下, 而且【真的沒有 parse】(codex R1-#6)', async () => {
+    // 🔴 **本格的本體是那個 spy** —— 只看回傳值的話, 一個「先 parse 再看長度」的實作照樣綠,
+    //    而那正是這條約束要擋的(整份 body 已經被解析、配置過一次)。
+    const huge = JSON.stringify({ id: 'x'.repeat(5000) });
+    const parseSpy = vi.spyOn(JSON, 'parse');
+    try {
+      const r = await sendWith(
+        okRes({
+          // 🔴🔴 **宣告【騙人】:說自己只有 10 bytes, 而實際 5000+** ——
+          //    ⇒ 這樣才走得到【第二道】(`Buffer.byteLength`)。
+          //    ⛔ 我第一版把宣告設成真實長度 ⇒ 它在第一道就被擋掉了
+          //    ⇒ 📌 **那一格的名字說它在測第二道, 而它測的是第一道。**
+          headers: { get: (k: string) => (k === 'content-length' ? '10' : null) },
+          text: async () => huge,
+        }),
+      );
+      expect(r).toEqual({ kind: 'sent', providerMessageId: null });
+      expect(parseSpy, '🔴 超標的 body 不可以被 JSON.parse 碰到').not.toHaveBeenCalled();
+    } finally {
+      parseSpy.mockRestore();
+    }
+  });
+
+  it('🛑 其餘欄位【一個都不讀】—— 回應多帶東西也只拿 id', async () => {
+    const multi = JSON.stringify({ id: 'ok-1', to: 'leak@example.com', html: '<b>x</b>' });
+    const r = await sendWith(
+      okRes({
+        headers: { get: (k: string) => (k === 'content-length' ? String(Buffer.byteLength(multi)) : null) },
+        text: async () => multi,
+      }),
+    );
+    // 🔴 結果物件裡不可以出現那兩個值 —— 用整串 JSON 找, 不靠列舉欄名。
+    expect(JSON.stringify(r)).not.toContain('leak@example.com');
+    expect(JSON.stringify(r)).not.toContain('<b>x</b>');
+    expect(r).toEqual({ kind: 'sent', providerMessageId: 'ok-1' });
+  });
+
+  it('🔵 沒有 text() 的替身 ⇒ null 而不是 throw(拿不到 id 不可以讓已寄出的信變失敗)', async () => {
+    const r = await sendWith({ ok: true, status: 200 });
+    expect(r).toEqual({ kind: 'sent', providerMessageId: null });
   });
 });

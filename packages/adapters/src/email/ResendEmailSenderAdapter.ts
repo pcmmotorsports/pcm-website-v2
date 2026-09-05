@@ -20,7 +20,33 @@
  * 前版(E1c plan v1)宣稱「PII 風險 = 0」**是不實宣稱、已作廢**。
  *
  * **允許範圍(逾此即違規)**:
- * 1. 僅 `status === 429` 時讀 body(非 429 **完全不碰**、`json` 零呼叫)。
+ * 1. ⛔ ~~僅 `status === 429` 時讀 body(非 429 **完全不碰**、`json` 零呼叫)。~~
+ *    🔴🔴 **2026-09-06 射程擴大成【兩個入口】**(⟦b4-NOSENTBODY⟧;Sean 拍乙「只存 id、不留全文」,
+ *    主視窗裁擴射程 + **重跑雙審**)。**舊字面留刪除線** —— 搜「非 429 完全不碰」的人要同一發撞到訂正。
+ *    ```
+ *    入口甲  status === 429   → classify429()   僅存取頂層 `name`(規則 2)
+ *    入口乙  res.ok === true  → readSentId()    僅存取頂層 `id`,四條約束見該函式
+ *    其餘任何路徑            → body 完全不碰、零呼叫   ← 這一句【沒有放寬】
+ *    ```
+ *    🛑 **入口乙的約束(逾此即違規)** —— ⛔ ~~「只解析頂層 `id`」~~ **那句逐字不成立**
+ *    (codex R1-#3):`JSON.parse` **先把整份 body 解析完、配置每一個欄位**, 我才去讀一個。
+ *    ⇒ 📌 **精確措辭 = 「整份解析, 只【取用】一個」** —— 與本節對 `name` 那段同一個形狀,
+ *      而那個形狀當年就是被同一位審查者訂正出來的, 我第一版沒照著寫。
+ *    ```
+ *    ① `JSON.parse` 會解析整份 body;解析後**僅取用頂層自有屬性 `id`**,
+ *       其他欄位**不得存取、不得進入任何 sink**
+ *    ② 取用要過三關:`Object.hasOwn`(擋原型污染)· `typeof === 'string'`
+ *       · 格式白名單 `^[A-Za-z0-9-]{1,64}$`(擋「任意非空字串都落庫」)
+ *    ③ 大小上限走【兩道】:`content-length` **必須是 ≤ 上限的安全整數**才往下
+ *       (非整數 / `Infinity` / 缺標頭 ⇒ **不叫 `text()`**);讀回來再用
+ *       **`Buffer.byteLength`**(不是 `raw.length` —— 那量的是字元)確認一次
+ *    ④ 任何一步不成立一律 `null`, 而**它不影響分類結果**(照樣 `sent`)
+ *    ```
+ *    🔬 **官方文件的成功回應逐字**(2026-09-06 親讀):`{ "id": "…" }` —— **只有一個欄位**。
+ *    ⚠️ **而上面四條【不依賴那份文件】** —— wire 不可信(同本節對 `name` 的處理),
+ *    所以它們對**任何** body 都成立。
+ *    📌 **入口乙的殘餘風險與入口甲同級**:標頭缺失時仍會 `text()` ⇒ 短暫記憶體暴露;
+ *    而**上限擋的是 parse 與存取面, 不是緩衝** —— 這一句不可以省。
  * 2. 🔴 **精確字面(codex 關卡2 nit;前版「僅讀頂層 name 單一欄」不精確、與下方殘餘風險段自相拉扯)**:
  *    `json()` **會解析整份 body**;解析後**僅存取頂層 `name`**,且**只有 `name` 可影響分類結果**;
  *    其他欄位(尤其 `message`)**不得存取、不得進入任何 sink**。`name` 以 `unknown` 處理
@@ -129,7 +155,16 @@ export class EmailAttachmentTooLargeError extends Error {
 export type ResendFetchLike = (
   input: string,
   init: { method: string; headers: Record<string, string>; body: string },
-) => Promise<{ ok: boolean; status: number; json?: () => Promise<unknown> }>;
+) => Promise<{
+  ok: boolean;
+  status: number;
+  json?: () => Promise<unknown>;
+  // 🔴 ⟦b4-NOSENTBODY⟧(2026-09-06):成功路徑要拿 provider 的訊息 id。
+  //    兩個都 optional —— 替身可以不給, 而 `readSentId` 對「不給」回 null(不 throw)。
+  //    🔵 `text` 而不是 `json`:大小上限要在【parse 之前】量, 而 `json()` 直接就 parse 了。
+  headers?: { get?: (k: string) => string | null };
+  text?: () => Promise<string>;
+}>;
 
 /** HTTP 狀態 → 有限錯誤碼映射表(封閉;值受 EmailSendErrorCode union 型別檢查)。 */
 const ERROR_CODE_BY_STATUS: Readonly<Record<number, EmailSendErrorCode>> = {
@@ -179,6 +214,23 @@ const ERROR_CODE_BY_STATUS: Readonly<Record<number, EmailSendErrorCode>> = {
  * 右側 = provider 中立內部碼(退避政策見 `EmailSendErrorCode` 逐碼 JSDoc)。
  * ⚠️ 新增 provider 或官方新增 429 碼 → 改本表 + union;**未知一律落 `http_429`**(=保守長退避)。
  */
+/**
+ * ⟦b4-NOSENTBODY⟧ 成功回應 body 的大小上限(bytes)。
+ * 🔵 **4 KB 是一個【刻意寬鬆】的上限** —— 官方文件的成功回應只有一個 uuid(約 50 bytes),
+ *    而這裡留兩個數量級的餘裕:它要擋的是「**回了一個我們沒預期的大東西**」,
+ *    不是「精準地只放得下我預期的那一份」。
+ * 🛑 而它擋 parse 不擋緩衝(見 `readSentId` 的檔頭)。
+ */
+const SENT_BODY_MAX_BYTES = 4096;
+
+/**
+ * provider 訊息 id 的格式白名單(⟦b4-NOSENTBODY⟧, codex R1-#5)。
+ * 🔵 官方回的是 uuid;這裡放寬到 `[A-Za-z0-9-]{1,64}` —— **擋的是「那不是一個 id」**,
+ *    不是「那不是我預期的那一種 id」(provider 日後換格式不該讓這一欄整個空掉)。
+ * 🛑 而它**擋掉了**:信箱(有 `@`)、整封信(有空白與標點)、控制字元、超長字串。
+ */
+const PROVIDER_MESSAGE_ID_RE = /^[A-Za-z0-9-]{1,64}$/;
+
 const QUOTA_ERROR_CODE_BY_NAME: ReadonlyMap<string, EmailSendErrorCode> = new Map<
   string,
   EmailSendErrorCode
@@ -327,10 +379,16 @@ export class ResendEmailSenderAdapter implements IEmailSender {
       });
       // 回應形狀驗證留在 try 內(畸形回應/getter 拋錯 → fail closed,不外洩為程式錯誤)。
       if (res?.ok === true) {
-        return { kind: 'sent' };
+        // 🔴🔴 **§窄幅破例的【第二個入口】(2026-09-06 擴大射程, 主視窗裁 + 雙審)** ——
+        //    在此之前這一行逐字是 `return { kind: 'sent' }`, 成功路徑 `json` 零呼叫。
+        //    ⇒ 📌 **它不是「多讀一個欄位」, 是【多開一條讀 body 的路】** ——
+        //      那正是我一開始判它超出原授權的理由, 而射程是被【重新裁過】才擴大的。
+        // 🔵 **拿不到 id 不影響結果** —— 照樣 `sent`(信真的寄出去了)。
+        return { kind: 'sent', providerMessageId: await readSentId(res) };
       }
       const status = typeof res?.status === 'number' ? res.status : null;
-      // 🔴 §窄幅破例的唯一入口:只有 429 才碰 body(其餘路徑 `json` 零呼叫)。
+      // 🔴 §窄幅破例的**入口甲**:429 這一條碰 body(⛔ ~~唯一入口~~ —— 2026-09-06 起有兩個,
+      //    入口乙在上面那個 `res?.ok === true` 分支;舊字面留刪除線, 見檔頭)。
       if (status === 429) {
         return { kind: 'failed', errorCode: await classify429(res) };
       }
@@ -347,7 +405,84 @@ export class ResendEmailSenderAdapter implements IEmailSender {
 }
 
 /**
- * 🔴 §窄幅破例的唯一實作點(見檔頭)。只在 `status === 429` 被呼叫;任何失敗 → `http_429`
+ * ⟦b4-NOSENTBODY⟧ 成功回應裡的 provider 訊息 id —— **§窄幅破例的第二個實作點**。
+ *
+ * 🔴🔴 **四條約束逐字寫死在這裡, 而它們就是那一裁的內容**(主視窗 2026-09-06):
+ * ```
+ * ① 只解析【頂層 id】, 其餘欄位一律不讀、不存、不印
+ * ② 型別必須是 string, 否則 null
+ * ③ body 超過上限就【不 parse】, 直接 null
+ * ④ 拿不到一律 null —— 而它【不影響分類結果】(照樣 sent)
+ * ```
+ * 🔬 **官方文件的成功回應逐字**(2026-09-06 親讀):`{ "id": "49a3999c-…" }`
+ *    ⇒ **只有一個欄位**, 沒有 `to`、沒有內容。
+ *    ⚠️ **而我不靠那個文件當保證** —— wire 不可信(同檔頭對 `name` 的處理),
+ *      所以上面三道約束是**對任何 body 都成立**的, 不是「因為文件說只有 id」。
+ *
+ * 🛑 **大小上限擋的是【parse】, 不是【緩衝】** —— 這一句要誠實:
+ *    先看 `content-length`, 超過就**連 `text()` 都不叫**(那時真的沒有緩衝);
+ *    而標頭缺失時只能先 `text()` 再量長度 ⇒ **那一種情況下 body 已經在記憶體裡了**。
+ *    ⇒ 📌 上限降低的是**解析與存取面**, 而**短暫記憶體暴露那一項與 429 那條路同級**。
+ *
+ * 🔵 **任何一步失敗都回 `null`, 不 throw** —— 這一格不可以讓一封【已經寄出去的信】變成失敗。
+ */
+async function readSentId(res: {
+  headers?: { get?: (k: string) => string | null };
+  text?: () => Promise<string>;
+}): Promise<string | null> {
+  try {
+    // ══════════════════════════════════════════════════════════════
+    // ③-1 `content-length` —— 🔴 **判準是【它是不是一個 ≤ 上限的整數】, 不是「它超標嗎」**
+    // ══════════════════════════════════════════════════════════════
+    // ⛔ ~~`if (Number.isFinite(n) && n > MAX) return null;`~~ **那個方向是反的**(codex R1-#2):
+    //    400 位數的十進位 ⇒ `Number()` 得 `Infinity` ⇒ `isFinite` 為 false ⇒ 條件不成立
+    //    ⇒ 🛑 **它反而去叫 `text()`** —— 而那正是這一條要擋的最極端輸入。
+    // ✅ **改成白名單**:只有「**是安全整數、非負、且 ≤ 上限**」才往下走;
+    //    非整數 / `Infinity` / `NaN` / 負數 / 缺標頭 **一律不叫 `text()`**。
+    //    📌 **「我看不懂這個宣告」與「這個宣告說它很小」不可以走同一條路。**
+    const declared = res?.headers?.get?.('content-length');
+    if (typeof declared !== 'string') return null;
+    const declaredBytes = Number(declared);
+    if (!Number.isSafeInteger(declaredBytes)) return null;
+    if (declaredBytes < 0 || declaredBytes > SENT_BODY_MAX_BYTES) return null;
+
+    if (typeof res?.text !== 'function') return null;
+    const raw = await res.text();
+
+    // ══════════════════════════════════════════════════════════════
+    // ③-2 第二道:量【位元組】不是【字元】
+    // ══════════════════════════════════════════════════════════════
+    // ⛔ ~~`raw.length > SENT_BODY_MAX_BYTES`~~ **那量的是字元數**(codex R1-#1):
+    //    `{"id":"中".repeat(1500)}` ⇒ `raw.length = 1509` 而**實際 4509 bytes**
+    //    ⇒ 🛑 **一個名字裡寫著 BYTES 的上限, 用字元去量它。**
+    // ✅ `Buffer.byteLength` —— 而它也守著「宣告騙人 / chunked 沒有宣告」那兩個世界。
+    if (Buffer.byteLength(raw, 'utf8') > SENT_BODY_MAX_BYTES) return null;
+
+    const body: unknown = JSON.parse(raw);
+    if (typeof body !== 'object' || body === null) return null;
+
+    // ══════════════════════════════════════════════════════════════
+    // ①+② 取 `id`:自有屬性 · string · 而且【長得像一個 id】
+    // ══════════════════════════════════════════════════════════════
+    // 🔴 `Object.hasOwn` —— `Object.prototype.id = '…'` 之下, `body.id` 會拿到繼承值
+    //    ⇒ 那個值會被當成 provider 的 id 落庫(codex R1-#4)。
+    //    📌 **同一族的坑本檔對 `name` 已經用 `Map.get` 擋過一次** —— 而我沒有照著做。
+    if (!Object.hasOwn(body as object, 'id')) return null;
+    const id: unknown = (body as { id?: unknown }).id;
+    if (typeof id !== 'string') return null;
+    // 🔴 **格式白名單** —— 沒有它, **任意非空字串**(信箱、整封信、控制字元)都會進 DB(codex R1-#5)。
+    //    🔵 值域取得寬:官方回的是 uuid, 而這裡允許 `[A-Za-z0-9-]{1,64}`
+    //      —— 📌 **它要擋的是「那不是一個 id」, 不是「那不是我預期的那一種 id」。**
+    return PROVIDER_MESSAGE_ID_RE.test(id) ? id : null;
+  } catch {
+    // ④ 非 JSON / body 已消耗 / getter throw ⇒ null。**信照樣算寄出去了。**
+    return null;
+  }
+}
+
+/**
+ * 🔴 §窄幅破例的**入口甲**的實作點(⛔ ~~唯一實作點~~ —— 入口乙是 `readSentId`, 見檔頭)。
+ * 只在 `status === 429` 被呼叫;任何失敗 → `http_429`
  * (= E1c 前的既有行為,零回歸)。
  *
  * 🔴 **獨立內層 try/catch,不可併入 `send` 的外層 try**(codex 關卡1 must-fix):否則 `json()`
