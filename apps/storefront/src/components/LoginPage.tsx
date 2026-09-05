@@ -28,6 +28,12 @@
 'use client';
 
 import { useState } from 'react';
+import {
+  AUTH_ERR_NEEDS_CONFIRMATION,
+  AUTH_RESEND_SENT_NOTICE,
+  AUTH_RESEND_FAILED_NOTICE,
+} from '@/lib/auth/auth-copy';
+import { resendSignupConfirmationAction } from '@/app/login/actions';
 import type { FormEvent } from 'react';
 import Link from 'next/link';
 import { Header } from '@/components/Header';
@@ -79,6 +85,47 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
   const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(oauthErrorCopy(oauthError));
   const [pending, setPending] = useState(false);
+  // 重寄驗證信(`⟦b4-SIGNUPOPEN1⟧` 前置片)。`resendNotice` 一旦有值就把按鈕換掉 ——
+  // 🔵 那是刻意的:**不讓他連按**。而它不是節流(節流在 provider 那一層),
+  //    它只是不再給他一顆會讓他以為「這次才真的寄出」的按鈕。
+  const [resendPending, setResendPending] = useState(false);
+  const [resendNotice, setResendNotice] = useState<string | null>(null);
+
+  /**
+   * 🔴🔴 **[codex 關卡2 must-fix ②]** 換帳號要把舊提示清掉。
+   *    病:帳號 A 重寄完 ⇒ 客人改填帳號 B 再登入、B 也未驗證
+   *      ⇒ 舊的 `resendNotice` 還在 ⇒ **B 看到的是 A 的成功提示, 而且【沒有按鈕】** ——
+   *        他會以為系統已經替 B 寄了, 而其實一封都沒有。
+   *    ⇒ 📌 那不只是殘影, 是**對一個沒發生的動作報成功**。
+   */
+  function clearResend(): void {
+    setResendNotice(null);
+    setResendPending(false);
+  }
+
+  /**
+   * 重寄驗證信。🛑 **不論 action 回什麼,畫面都顯示同一句** ——
+   * 與 server 端的帳號列舉防護成對;在這裡分支的話,那道防護會從 client 這一側漏掉。
+   * 🔵 `catch` 也走同一句:網路錯與「帳號不存在」在畫面上必須無法分辨。
+   */
+  async function resend(): Promise<void> {
+    setResendPending(true);
+    try {
+      await resendSignupConfirmationAction({ email: form.email });
+      setResendNotice(AUTH_RESEND_SENT_NOTICE);
+    } catch {
+      // 🔴🔴 **[codex 關卡2 must-fix ①]** ⛔ ~~原本這裡是空的 catch + finally 一律報成功~~
+      //    ⇒ 那把 action 那道「`resolveSiteUrl()` 回 undefined 就 throw、不吞」**整個抵銷掉**:
+      //      站台設定壞掉時**一封都沒寄, 而畫面說「已重新寄出」** —— 對客人說謊。
+      //    ✅ 改成報系統錯。🔵 **而它不洩漏帳號**:那個 throw 發生在【呼叫 provider 之前】,
+      //      判準是站台設定不是那個 email ⇒ 對任何 email 都一樣。
+      //    🛑 **而 provider 的 429 / 帳號不存在【不會走到這裡】** —— action 對它們回 `{}` 不 throw
+      //      ⇒ 帳號列舉防護原封不動。
+      setResendNotice(AUTH_RESEND_FAILED_NOTICE);
+    } finally {
+      setResendPending(false);
+    }
+  }
 
   /**
    * 客人一開始改某一欄,就清掉那一欄的 inline 錯 + 頂部帳號層級錯(2026-08-08 全站掃測 B 級)。
@@ -98,6 +145,10 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
   const clearErr = (k: keyof LoginFieldErrors) => {
     setFieldErrors((prev) => (prev[k] === undefined ? prev : { ...prev, [k]: undefined }));
     setFormError(null);
+    // 🔴 [codex 關卡2 must-fix ②] 一動輸入就把重寄提示清掉 —— 見 `clearResend` 上方那段。
+    //    掛在這裡是因為它與 `setFormError(null)` 是同一件事:**上一次送出的結果**,
+    //    而客人一改欄位, 那個結果就不再描述他現在填的東西。
+    clearResend();
   };
 
   const submit = async (e: FormEvent) => {
@@ -171,6 +222,26 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
           <form onSubmit={submit}>
             {/* 頂部:帳號層級錯(Email 或密碼錯誤 / OAuth 失敗);逐欄驗證錯顯示在各欄下方(釘死 2 雙通道) */}
             {formError && <div className="auth-err">{formError}</div>}
+            {/* 🔴🔴 **重寄驗證信**(`⟦b4-SIGNUPOPEN1⟧` 前置片,2026-09-05;主視窗 `-f8` 裁准)
+                為什麼只在這一種錯誤下出現:客人被擋在「請先收信完成 Email 驗證」時,
+                **在本片之前他沒有任何路可以走** —— 自助與後台都沒有重寄入口(實測 0)
+                ⇒ 他只能自己去信箱找當初那封信。
+                🛑 **判準用【逐字相等】不是 includes** —— `authErrorCopy` 那個 switch 是封閉集,
+                   而 `includes` 會讓「Email 或密碼錯誤」這種也可能命中(兩句都含「Email」)
+                   ⇒ 那會把重寄按鈕顯示給一個【密碼打錯】的人看,而那是帳號存在與否的訊號。
+                🔵 送出後**不論結果都顯示同一句** —— 與 action 的帳號列舉防護成對;
+                   在這裡分支的話,防護就白做了(它擋 server 那半,這裡會從 client 漏)。 */}
+            {formError === AUTH_ERR_NEEDS_CONFIRMATION && (
+              <p className="auth-resend">
+                {resendNotice ? (
+                  <span className="auth-ok">{resendNotice}</span>
+                ) : (
+                  <button type="button" onClick={resend} disabled={resendPending}>
+                    {resendPending ? '寄送中…' : '重寄驗證信'}
+                  </button>
+                )}
+              </p>
+            )}
             <label className="auth-field">
               <span>Email（必填）</span>
               <input

@@ -14,10 +14,17 @@
 
 import { redirect } from 'next/navigation';
 import { AuthError } from '@pcm/domain';
-import { loginCustomer } from '@pcm/use-cases';
+import { loginCustomer, resendSignupConfirmation } from '@pcm/use-cases';
 import { getAuthService } from '@/lib/auth/composition';
-import { validateLogin, type LoginFieldErrors } from '@/lib/auth/field-validation';
+import {
+  validateLogin,
+  validateForgot,
+  type LoginFieldErrors,
+  type ForgotFieldErrors,
+} from '@/lib/auth/field-validation';
 import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
+import { resolveSiteUrl } from '@/lib/site-url';
+import { AUTH_ERR_NEEDS_CONFIRMATION, KNOWN_AUTH_ERROR_CODES } from '@/lib/auth/auth-copy';
 
 // #181 Q2=B:雙通道回傳 — fieldErrors(逐欄驗證)/ formError(帳號層級、頂部)。成功 redirect 不回傳。
 export type LoginActionResult = {
@@ -31,7 +38,9 @@ function authErrorCopy(code: AuthError['code']): string {
     case 'credentials_invalid':
       return 'Email 或密碼錯誤';
     case 'email_confirmation_required':
-      return '請先收信完成 Email 驗證後再登入';
+      // 🔴 字面住在 `lib/auth/auth-copy.ts` —— LoginPage 靠它判斷要不要給重寄按鈕,
+      //    兩邊各打一份會漂而【沒有東西會叫】(見那支檔頭)。
+      return AUTH_ERR_NEEDS_CONFIRMATION;
     default:
       return '登入失敗，請稍後再試';
   }
@@ -69,4 +78,79 @@ export async function loginAction(input: unknown, next?: string | null): Promise
 
   // #190:成功後導回 sanitize 過的 next(同源白名單、不安全→ '/')。
   redirect(sanitizeNextParam(next));
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// 重寄註冊驗證信(`⟦b4-SIGNUPOPEN1⟧` 前置片,2026-09-05;主視窗 `-f8` 11:5x 裁准)
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴 **為什麼在這一支檔**:它是「登入被擋」的正對面 —— 上面 `authErrorCopy` 的
+//    `email_confirmation_required` 那一格就是本函式存在的理由。兩者分家會漂。
+//
+// 🛑 **下面四條【逐條沿用 `login/forgot/actions.ts` 檔頭】** —— 它們是別人踩出來的,
+//    不是我發明的;而兩支同族(對外寄信、帳號列舉敏感)的 action 形狀不同,
+//    那個不同本身就會變成下一個人要解釋的偏離。
+//    ① 帳號列舉防護:通過驗證之後,不論成功 / 帳號不存在 / 已驗證過 / 429,
+//       一律回【同一個空物件】—— 任何分支差異都會讓這支變成帳號探測器。
+//    ② `redirectTo` 只能從 `resolveSiteUrl()` 組,絕不可從 request header / host
+//       (`app/auth/callback/route.ts:9-12` 記著同一條 codex 關卡2 must-fix)。
+//    ③ `resolveSiteUrl()` 回 undefined ⇒ throw、不吞:那是站台設定錯誤不是帳號訊號。
+//    ④ 留痕但不記 PII:記 outcome 與**長度**,不記 email、不記網域
+//       (公開網域無妨,而公司網域會把範圍縮到一間公司 ⇒ 兩者在程式裡長得一樣,一律只記長度)。
+//
+// ⚠️ **而本片【不宣稱】它讓登入頁不再洩漏帳號是否存在** ——
+//    `authErrorCopy` 今天就分得出「Email 或密碼錯誤」與「請先收信…」(本檔 :31-34)
+//    ⇒ 📌 那個列舉訊號**比本片早**,本片一個字都沒動它;要不要修是板上另一列。
+//    本函式照樣做 ① 的理由:**它可以被直接呼叫**,不是只有那顆按鈕會叫它。
+export type ResendConfirmationResult = {
+  fieldErrors?: ForgotFieldErrors;
+};
+
+export async function resendSignupConfirmationAction(
+  input: unknown,
+): Promise<ResendConfirmationResult> {
+  const v = validateForgot(input);
+  if (!v.ok || !v.data) {
+    return { fieldErrors: v.fieldErrors };
+  }
+
+  const base = resolveSiteUrl();
+  if (!base) {
+    // 刻意例外(同 forgot):站台設定錯誤要讓它壞得看得見,不可偽裝成「信已寄出」。
+    throw new Error('NEXT_PUBLIC_SITE_URL 未設定,無法組出驗證信 redirectTo');
+  }
+
+  let outcome: 'requested' | 'provider_error' = 'requested';
+  let errorCode: string | undefined;
+  try {
+    await resendSignupConfirmation(await getAuthService(), {
+      email: v.data.email,
+      // 🔵 驗證完成後導回登入頁 —— 而**不是**導回 `/login/reset`(那是忘記密碼那條路的)。
+      redirectTo: `${base}/auth/callback?next=/login`,
+    });
+  } catch (e) {
+    outcome = 'provider_error';
+    // 🔴🔴 **[codex 關卡2 must-fix ③]** ⛔ ~~原本直接取 `code`, 理由寫「code 是封閉集」~~
+    //    ⇒ **那句話對【我們自己的 AuthError】成立, 而這個 `catch` 接的是【任何東西】**:
+    //      transport / Supabase 內部若丟出一個 `code` 是自由字串的物件(極端情形甚至是 email),
+    //      它會**原封不動寫進 log** ⇒ 📌 一句正確的前提, 套在一個它涵蓋不到的路徑上。
+    //    ✅ 改成**白名單**:不在 `AuthErrorCode` 那個封閉集裡的一律記成 `unrecognized`。
+    //    🔵 白名單而不是黑名單 —— 黑名單在跟下一個沒想到的形狀賽跑。
+    const rawCode = (e as { code?: unknown } | null)?.code;
+    errorCode =
+      typeof rawCode === 'string' && (KNOWN_AUTH_ERROR_CODES as readonly string[]).includes(rawCode)
+        ? rawCode
+        : 'unrecognized';
+  }
+
+  // 🔴 這一行在兩個世界印不同的東西:`requested` = 請 Auth 寄了而它沒回錯;
+  //    `provider_error` = 它回錯了、而且知道是哪一類(429 會落在這裡)。
+  // ⚠️ **而回應形狀不受它影響** —— 下面 `return {}` 仍是通過驗證後的唯一出口。
+  console.info('[auth/resend-confirmation] 重寄驗證信請求', {
+    outcome,
+    ...(errorCode === undefined ? {} : { errorCode }),
+    emailLength: v.data.email.length,
+    emailDomainLength: v.data.email.slice(v.data.email.indexOf('@') + 1).length,
+  });
+
+  return {};
 }
