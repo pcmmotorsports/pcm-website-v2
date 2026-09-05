@@ -118,13 +118,25 @@
 //      ⚠️ 而它讓「typecheck 綠」與「那支函式存在」**分家了** ——
 //        📌 這正是本檔這一整族註解存在的理由:一個手寫的型別宣告, 是一個【沒有人在驗的斷言】。
 //   ⑲ `email_outbox` 的兩個新欄 **六處**(`sent_tracking_number` 與 `sent_tracking_recorded` 各佔 Row / Insert / Update)〔主migration=20260905200000〕〔APPLIED.tsv 無此列〕(2026-09-05 線 -ship;⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 片 B-1)——
-//      🛑 **本支的 migration 未 apply** —— 它今天才寫, 而**本片仍 hold**。
+//      ⛔ ~~**本支的 migration 未 apply** —— 它今天才寫, 而**本片仍 hold**。~~
+//      🟢🟢 **2026-09-06 02:2x:本支【已 apply】—— Sean 本人貼(貼板 39 號, 第三版才過)。**
+//         🔵 「已 apply」這四個字取自 `database-types-apply-state.test.ts` 的 `CLAIM_APPLIED` 字集,
+//           不是我自己挑的說法(同 ⑱ 那一條的理由)。
+//         🔬 `-ship` 貼後唯讀複驗**十格, 帶正負對照**(不是靠 Sean 那句「Success. No rows returned」):
+//           trigger 在 **t** · 三新欄型別 `sent_seq=bigint` / `sent_tracking_number=text` /
+//           `sent_tracking_recorded=boolean` · 序列 `anon` USAGE **f**
+//           (🟢 正對照 `service_role` USAGE **t**)· 主面欄數 **11** · 主面 def 含 candidates **t** ·
+//           底面 def 含 `sent_tracking_recorded` **t** · counts prosrc md5 **7b227290…**
+//           (= 本檔前置閘④b 認得的第二個值)· ⚪ 負對照 `anon` 讀得到底面 **f** / 現造物件 **f**。
+//         ⚠️ **前兩版貼下去都紅過**:#2 `42601`(單引號字串裡的【行尾】分號被 SQL Editor 切開)、
+//           #3 `42P16`(第二代 view 只寫 10 欄而線上是 11 欄)⇒ 兩個成因都已做成機制
+//           (靜態檢查規則⑦ / 本檔前置閘①d)。
 //      🔴 **所以這一段宣告在說一件【還沒成真】的事**:它讓 `markSent` 那一發 update 寫得下去,
 //        而**寫得下去不代表正式庫有那一欄** ⇒ 貼之前那一發 update 會回 `PGRST204`(找不到欄位)。
 //      ⇒ 🎯 **而它讓「typecheck 綠」與「那一欄存在」分家了** —— 這與 ⑰ 同族, 而**方向相反**:
 //        ⑰ 是「正式庫【有】那個東西而生成器沒產」, 本條是「**正式庫還沒有而我先寫了**」。
 //        🔵 **這一句原本寫「⑰ 是【~~已 apply~~】…」而那四個字是 `database-types-apply-state.test.ts:88`**
-//          **`CLAIM_APPLIED` 字集裡的字面** ⇒ 它與本條自己的「未 apply」同時出現
+//          **`CLAIM_APPLIED` 字集裡的字面** ⇒ 它與本條當時自己的「~~未 apply~~」同時出現
 //          ⇒ 那道閘印「條目 ⑲ 同時出現【~~已套用~~】與【~~未套用~~】措辭 ⇒ 有歧義, 請人判」。
 //          🔵 **而【引用那句字面】本身會再觸發一次** —— 我改完第一次還是紅,
 //            因為**我在解釋裡把那四個字又打了一遍**。⇒ 這裡用 `~~劃掉~~`,
