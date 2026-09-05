@@ -73,6 +73,22 @@
         不在 migration 裡)· 授的角色不是**恰好只有** `service_role`(`postgres` / `supabase_admin`
         是 owner 級, 嚴格比它壞)。
       📎 plan:`docs/plans/2026-09-05-acl-drift-gate-r5-exemption-plan.md`
+      🔴 **[adversarial R1 F5 之後補的第五格]** 危險角色集合不只寫死的四個 ——
+        還要**從樹上遞移一層**算:凡曾是 `GRANT <危險角色> TO X` 受贈者的 `X` 也算危險。
+        ⛔ 少了它:`GRANT service_role TO pcm_w`(豁免綠)+ `GRANT pcm_w TO anon`(零規則觸發)
+        ⇒ **anon 拿到 service_role**, 而**兩顆 commit 單獨看都對**。
+        🛑 **而它【只遞移一層】** —— 兩層(`pcm_w → pcm_x → anon`)看不到。
+           今天量到的鏈長是 1, 而**我沒有量過未來會不會變長**。要關滿得做不動點迭代。
+      🔴 **[F1] 條件② 不只比版本號** —— 帳本那一列的 **sha 要對得上樹上那支檔**
+        (⛔ 只比版本號的話, **同一顆補兩列就過**)。
+        🛑 **而它仍然證不到「貼進 DB 的是這一份」** —— 只證「記帳的人記的是樹上這一份」。
+      🔴 **[F13] 這條路【活起來的那一刻】會印一行紅** —— 條件②④ 都成立時,
+        hook 上會出現「R5 的豁免路今天是活的」+ 三句擋不住。
+        ⇒ ⛔ ~~原本只在檔頭寫「今天是死的」~~ —— **那句沒有量法, 而它由一顆平常的
+          「帳本補一列」翻開** ⇒ 合的人與記帳的人都不知道自己開了門。
+      🔵 **[F3] 誠實標記:這四個條件是【提案的人自己寫的】, 也是他自己實作的。**
+        兩輪對抗審查(code-reviewer + adversarial)各推翻過其中幾格, 而**沒有第三方訂過條件本身**。
+      🔵 **[F7] `EXECUTE <變數>` 那條動態路仍然不擋**(印 ⚠️ 未判)—— 與 R1-R4 同一個已知限制。
       🔴 **不得寫成「Sean 拍了」** —— 他沒有看過選項字面(同本檔頭上面那條紀律)。
   R6  `EXECUTE '…'` / `EXECUTE format('…')` / 函式體 `AS '…'` 的字串是 SQL:先當靜態語句跑 R1-R5,
       再看 `GRANT … TO <公開角色>`;角色或表名由 `%I` / `%s` / `||` 代入 ⇒ **印 ⚠️ 未判、不擋**
@@ -111,6 +127,7 @@ import importlib.util
 import os
 import re
 import shutil
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -304,6 +321,11 @@ EXEMPT_ANCHOR = re.compile(r'(#\d{2,}|\b20\d{6}\b|\b20\d{2}-\d{2}-\d{2}\b)')
 #       線 -auth 2026-09-05 掃四處:檔頭只寫「⇒ 紅」· 程式碼 R5 的 append 沒接 exempt_for ·
 #       47 格 selftest 零格測「R5+EXEMPT 仍紅」· commit body 與 docs 零處。🔵 負對照 編造檔名 ⇒ 0。
 #       ⇒ 📌 **本改動填的是一個【沒有人寫下理由的現況】, 不是推翻一個拍板。**
+# 🔴 **[adversarial R1 F4]** PG16+ 另有 `WITH ADMIN TRUE` / `WITH ADMIN FALSE` 的寫法 ——
+#    ⛔ ~~只認 `WITH ADMIN OPTION`~~ 會被 `WITH ADMIN TRUE` 繞過去。
+#    🔵 `WITH ADMIN FALSE` 語意上等於沒有 ⇒ 而**這裡一律當有**(往保守那一側錯:誤擋不誤放)。
+ADMIN_OPT = re.compile(r'\bwith\s+admin\s+(?:option|true|false)\b', re.I)
+
 EXEMPT_R5 = re.compile(r'^\s*--\s*ACL-GATE-EXEMPT-R5:\s*([a-z0-9_."]+)\s*--\s*(\S[^\n]*)$', re.I | re.M)
 
 # 🔴 這兩支 migration = ⟦b9-ACLDRIFT5⟧ 的【執行期】偵測器(digest 表 + 每日 cron + 人工核准)。
@@ -341,21 +363,56 @@ def _strip_ts_comments(txt):
     或一段被註解掉的舊碼就滿足條件④ ⇒ **一個「宣稱有人接而其實沒接」的世界會通過。**
     🛑 而它**證不到**「那個變數真的被讀」—— 它只證「不是註解裡的那一份」。"""
     txt = re.sub(r'/\*.*?\*/', ' ', txt, flags=re.S)
-    return re.sub(r'(?m)^\s*//.*$', ' ', txt)
+    # 🔴 **[adversarial R1 F2]** ⛔ ~~只剝【整行】 `//`~~ —— **行尾註解也算「接了」**:
+    #    `const x = 1; // aclDriftDetected 還沒接` 會讓條件④ 成立。
+    #    ✅ 連行尾一起剝(從行首或空白後的 `//` 到行尾)。
+    txt = re.sub(r'(?m)(^|\s)//.*$', ' ', txt)
+    return txt
 
 
-def r5_ledger_ok(reader=None):
+def _ledger_path_for(version):
+    """版本號 → `supabase/migrations/<版本號>_*.sql` 的路徑(從 **index** 的檔名清單找)。
+    找不到或撞到多支 ⇒ None(fail-closed)。"""
+    try:
+        rows = G.git_out(['ls-files', 'supabase/migrations'], 'git ls-files').splitlines()
+    except Exception:
+        return None
+    hit = [p for p in rows if os.path.basename(p).startswith(version + '_') and p.endswith('.sql')]
+    return hit[0] if len(hit) == 1 else None
+
+
+def r5_ledger_ok(reader=None, path_for=None):
     """條件②:APPLIED.tsv 有那兩支。回 (bool, 說明)。
     🔴 `reader` 可注入 —— selftest 靠它餵**受控的內容**去測【這支函式的判斷邏輯】,
        而不是重打一份自己的判斷(那樣改生產碼不會紅)。"""
     txt, src = (reader or _index_or_head)('supabase/APPLIED.tsv')
     if txt is None:
         return False, 'supabase/APPLIED.tsv 讀不到(%s)' % src
-    missing = [v for v in R5_LEDGER_REQUIRED
-               if not re.search(r'(?m)^' + re.escape(v) + r'\t', txt)]
-    if missing:
-        return False, 'APPLIED.tsv(%s)缺 %s ⇒ 偵測器沒有被記成已貼' % (src, ' / '.join(missing))
-    return True, 'APPLIED.tsv(%s)有 %s' % (src, ' / '.join(R5_LEDGER_REQUIRED))
+    bad = []
+    for v in R5_LEDGER_REQUIRED:
+        m = re.search(r'(?m)^' + re.escape(v) + r'\t([0-9a-f]{64})\t', txt)
+        if not m:
+            bad.append('%s:帳本沒有它(或第二欄不是 sha256)' % v)
+            continue
+        # 🔴 **[adversarial R1 F1]** ⛔ ~~只比版本號欄~~ —— **同一顆補兩列就過**,
+        #    而「有人記了一列」與「那支檔真的被貼了」是兩件事。
+        #    ✅ 加一格:**帳本那一列的 sha 要對得上樹上那支檔**。
+        #    🛑 **它仍然證不到「貼進 DB 的是這一份」** —— 它證的是「記帳的人記的是樹上這一份」。
+        #       (沒有人留下貼進去的那一份;`20260905090000` 的帳本那一列就寫著這件事。)
+        path = (path_for or _ledger_path_for)(v)
+        if path is None:
+            bad.append('%s:`supabase/migrations/` 裡找不到這個版本號的檔' % v)
+            continue
+        blob, bsrc = (reader or _index_or_head)(path)
+        if blob is None:
+            bad.append('%s:讀不到 %s(%s)' % (v, path, bsrc))
+            continue
+        actual = hashlib.sha256(blob.encode('utf-8')).hexdigest()
+        if actual != m.group(1):
+            bad.append('%s:帳本的 sha 與樹上那支檔【對不上】' % v)
+    if bad:
+        return False, 'APPLIED.tsv(%s)不合格:%s' % (src, ' · '.join(bad))
+    return True, 'APPLIED.tsv(%s)有 %s, 且兩列的 sha 都對得上樹上的檔' % (src, ' / '.join(R5_LEDGER_REQUIRED))
 
 
 def r5_alert_ok(reader=None):
@@ -371,9 +428,9 @@ def r5_alert_ok(reader=None):
     return True, '%s(%s)含 %s' % (R5_ALERT_FILE, src, R5_ALERT_LITERAL)
 
 
-def r5_prereq(reader=None):
+def r5_prereq(reader=None, path_for=None):
     """條件②④ 合起來。回 (bool, [說明…])。`reader` 可注入(見 r5_ledger_ok)。"""
-    ok2, w2 = r5_ledger_ok(reader)
+    ok2, w2 = r5_ledger_ok(reader, path_for)
     ok4, w4 = r5_alert_ok(reader)
     return (ok2 and ok4), [w2, w4]
 
@@ -459,7 +516,45 @@ def closed_set(committed):
     return {o for o, k in state.items() if k == 'close'}
 
 
-def rules_for(seg, closed, exempt_for, r5_allow=None):
+def transitively_dangerous(committed, staged_sqls=()):
+    """回【額外】的危險角色集合 —— 曾在 migrations 裡當過 `GRANT <危險角色> TO X` 受贈者的 X。
+
+    🔴🔴 **[adversarial R1 F5] 這是本次豁免路【自己開的】洞**:
+       `MEMBERSHIP_DANGEROUS` 是寫死的四個 ⇒
+         ① `GRANT service_role TO pcm_w;`  ← 走豁免路, 綠
+         ② `GRANT pcm_w TO anon;`          ← `pcm_w` 不在那四個裡 ⇒ **零規則觸發, 靜默綠**
+       ⇒ 📌 **anon 拿到 service_role** —— 正是條件③ 宣稱「永遠擋」的最壞情況,
+          而它是**兩顆合法的 commit 疊出來的**, 每一顆單獨看都對。
+    🔵 **而 ② 那一半【本來就沒人擋】** —— 只是 ① 以前恆紅, 所以沒有人走得到。
+       ⇒ 這一支順便把那半也關掉。
+
+    🛑 **它擋不住什麼(寫出來, 不假裝關滿)**:
+       · **只遞移【一層】** —— `GRANT pcm_w TO pcm_x;` 之後再 `GRANT pcm_x TO anon;` 看不到。
+         (要關滿得做不動點迭代;今天量到的鏈長是 1, 而**我沒有量過未來會不會變長**。)
+       · 只看得到 **migrations 裡的靜態字面** —— dashboard / SQL Editor 手動授的一樣看不到(路⑤)。
+       · 角色名由 `%I` 代入的動態 GRANT 看不到(R6 那一族)。
+    """
+    extra = set()
+    for sql in [c[1] for c in committed] + list(staged_sqls):
+        if not sql:
+            continue
+        for seg2, _s, _e in statements(sql, 1):
+            # 只認【成員關係】那一種 GRANT(沒有 `ON`), 與 R5 判的是同一種語句。
+            gm = GRANT_STMT.search(seg2)
+            if not gm or re.search(r'\bon\b', gm.group('body'), re.I):
+                continue
+            mm = MEMBERSHIP.search(seg2)
+            if not mm:
+                continue
+            if any(r in MEMBERSHIP_DANGEROUS for r in roles_of(mm.group('roles'))):
+                for g in roles_of(mm.group('grantee')):
+                    # 🔵 公開角色本來就被 R5 擋著 ⇒ 不必再進危險集合(進了只會讓訊息更難讀)。
+                    if g and g not in PUBLIC_ROLES:
+                        extra.add(g)
+    return extra
+
+
+def rules_for(seg, closed, exempt_for, r5_allow=None, extra_dangerous=frozenset()):
     out = []
     if ADP_GRANT.search(seg):
         return [('R1', 'ALTER DEFAULT PRIVILEGES … GRANT(未來每一張新物件都吃到)')]
@@ -471,13 +566,17 @@ def rules_for(seg, closed, exempt_for, r5_allow=None):
     body = gm.group('body')
     if not re.search(r'\bon\b', body, re.I):
         mm = MEMBERSHIP.search(seg)
-        if mm and any(r in MEMBERSHIP_DANGEROUS for r in roles_of(mm.group('roles'))):
+        # 🔴 **[adversarial R1 F5]** 危險集合 = 寫死的四個 **+ 從樹上遞移一層算出來的**。
+        #    少了後半:`GRANT service_role TO pcm_w`(豁免綠)+ `GRANT pcm_w TO anon`(零規則觸發)
+        #    ⇒ **anon 拿到 service_role**, 而每一顆 commit 單獨看都對。
+        dangerous = set(MEMBERSHIP_DANGEROUS) | set(extra_dangerous)
+        if mm and any(r in dangerous for r in roles_of(mm.group('roles'))):
             # 🔴 豁免路(2026-09-05 加)。`r5_allow` 是 None ⇒ **行為與加這條路之前一模一樣(恆紅)**
             #    ⇒ 既有呼叫端與既有 selftest 不受影響(回歸那一格在守這件事)。
             # 🔴 判定【整包】交給 r5_allow —— 一個條件一個落點, `rules_for` 不自己判、不碰 `used`。
             if r5_allow is not None and r5_allow(roles_of(mm.group('roles')),
                                                  roles_of(mm.group('grantee')),
-                                                 bool(re.search(r'\bwith\s+admin\s+option\b', seg, re.I))):
+                                                 bool(ADMIN_OPT.search(seg))):
                 return out
             out.append(('R5', 'GRANT %s TO %s(成員關係複製一份權限)' % (mm.group('roles').strip(), mm.group('grantee').strip())))
         return out
@@ -502,7 +601,7 @@ def rules_for(seg, closed, exempt_for, r5_allow=None):
     return out
 
 
-def check(sql, closed, added=None, r5_prereq_state=None):
+def check(sql, closed, added=None, r5_prereq_state=None, extra_dangerous=frozenset()):
     """回 (drifts, unresolved, exempted)。drifts = [(規則, 行, 說明)]。
     r5_prereq_state = (bool, [說明…]) 或 None。**None ⇒ R5 恆紅(= 加豁免路之前的行為)**;
     給了才走豁免路。selftest 靠它餵兩個世界, `run()` 從 repo 算出來再餵進來。
@@ -575,6 +674,9 @@ def check(sql, closed, added=None, r5_prereq_state=None):
                 if not _r5_named(raw, ex5):
                     return False
                 if not _r5_prereq_ok(r5_prereq_state):
+                    # 🔴 **[adversarial R1 F9]** ⛔ ~~前提說明只印在【通過】那條路~~ ——
+                    #    掛掉時人只看到「R5 紅」而不知道是哪一格。⇒ 收進 unresolved(它一定會印)。
+                    unresolved.append('R5 豁免的前提不成立 ⇒ %s' % ' ‖ '.join(prereq_why))
                     return False
                 staged.append(('R5:' + g,
                                ex5.get(raw, '(讀不到理由 —— 判準被換過?)') + ' ‖ 前提:' + ' ‖ '.join(prereq_why)
@@ -589,7 +691,7 @@ def check(sql, closed, added=None, r5_prereq_state=None):
         for seg, s, e in statements(code, base):
             if not touches(s, e):
                 continue
-            for rule, msg in rules_for(seg, closed, exempt_for, r5_allow):
+            for rule, msg in rules_for(seg, closed, exempt_for, r5_allow, extra_dangerous):
                 drifts.append((rule, s, msg))
         for seg, s, e in statements(code, base):
             if touches(s, e) and EXEC_IDENT.search(seg):
@@ -618,7 +720,7 @@ def check(sql, closed, added=None, r5_prereq_state=None):
             hit_static = False
             for lcode, llits, lbase in sql_layers(lit, ln):
                 for seg, s, _ in statements(lcode, lbase):
-                    for rule, msg in rules_for(seg, closed, exempt_for, r5_allow):
+                    for rule, msg in rules_for(seg, closed, exempt_for, r5_allow, extra_dangerous):
                         hit_static = True
                         drifts.append((rule, s, '字串內 SQL:' + msg))
             if hit_static:
@@ -640,11 +742,28 @@ def check(sql, closed, added=None, r5_prereq_state=None):
 
 # ── git 面 ────────────────────────────────────────────────────────────────
 def self_protect():
+    """🛑 **[adversarial R1 F14] 它只擋【刪掉】本閘, 不擋【改掉】它。**
+    ⇒ 📌 一顆把 R5 那幾行拿掉的 commit, 本閘**照樣讓它過**(它就是拿自己去驗自己)。
+    ⇒ 🔴 **這一格【沒有】在本次修掉** —— 「閘不能可靠地守住自己」是個**結構問題**,
+       擋改動要嘛需要一份 checksum 基準(而那份基準也在同一顆 commit 裡改得掉),
+       要嘛需要一個閘外的東西(CI / 分支保護)。**寫下來, 不假裝有。**
+    ✅ **今天真的守著它的是【人】**:動本閘 = 動驗證本身 = `00-work-rules` R4 的立即停止訊號
+       ⇒ 要提 plan、要主視窗裁、要兩輪對抗審查。本次就是那樣走的。
+    🔵 而刪掉那一格仍然有用:**刪是最便宜的繞法**, 擋住它讓繞的人至少要改。
+    """
     gone = [ln.split('\t', 1)[1] for ln in
             G.git_out(['diff', '--cached', '--name-status', '--diff-filter=D', '--'] + OWN,
                       'git diff --cached --diff-filter=D').splitlines() if '\t' in ln]
     if gone:
         tool_layer('這顆 commit 要刪掉本閘自己(' + ', '.join(gone) + ')')
+    # 🔵 改動它不擋, 而**印一行** —— 讓「這顆 commit 動了驗證本身」在 hook 輸出上看得見。
+    touched = [ln.split('\t', 1)[1] for ln in
+               G.git_out(['diff', '--cached', '--name-status', '--diff-filter=M', '--'] + OWN,
+                         'git diff --cached --diff-filter=M').splitlines() if '\t' in ln]
+    if touched:
+        print('   ⚠️ 這顆 commit 【改了本閘自己】(%s)—— 本閘擋不住這件事(見 self_protect 的 docstring);'
+              % ', '.join(touched))
+        print('      動驗證本身要提 plan + 主視窗裁 + 對抗審查。這一行只是讓它【看得見】。')
 
 
 def diff_lines(path):
@@ -705,6 +824,23 @@ def run():
         return 0
     closed = closed_set(committed_migrations(files))
     r5_state = r5_prereq()
+    # 🔴 遞移一層:HEAD 樹 + 本次 staged 的 migration 一起算(同一顆裡兩句也要抓得到)。
+    extra_dangerous = transitively_dangerous(committed_migrations(files),
+                                             [G.staged_content(f) for _st, f in files])
+    # 🔴 **[adversarial R1 F13]** 這條路【活起來的那一刻】原本零訊號 ——
+    #    檔頭那句「今天是死的」沒有量法, 而它由一顆平常的「帳本補一列」翻開,
+    #    ⇒ 📌 **合的人與記帳的人都不知道自己開了門。** ⇒ 活了就印一行。
+    if r5_state[0]:
+        print('   🔴🔴 R5 的豁免路【今天是活的】—— 四條件裡的前提兩格都成立:')
+        for _w in r5_state[1]:
+            print('      · %s' % _w)
+        print('      ⇒ 從現在起, 一支帶合格 `-- ACL-GATE-EXEMPT-R5:` 的 migration 可以'
+              'GRANT service_role 給一個非公開角色。而本閘擋不住:')
+        for _c in R5_CANNOT:
+            print('      %s' % _c)
+    if extra_dangerous:
+        print('   ⚠️ 遞移一層算出的額外危險角色(曾收過 service_role 等):%s'
+              % ', '.join(sorted(extra_dangerous)))
     for ln in renamed_or_deleted_migrations():
         print(f'   ⚠️ 本 commit 改名 / 刪掉了 migration:{ln}(閉集仍以 HEAD 樹算;刪掉一支 REVOKE 不會讓表離開閉集)')
     all_drift, all_unres, all_used = [], [], []
@@ -716,7 +852,7 @@ def run():
             if EXEMPT.search(removed) or EXEMPT_R5.search(removed):
                 print(f'   ⚠️ {os.path.basename(f)} 刪掉了 ACL-GATE-EXEMPT 行 ⇒ 整支檔全部回報, 不只新增行')
                 added = None
-        d, u, used = check(sql, closed, added, r5_state)
+        d, u, used = check(sql, closed, added, r5_state, extra_dangerous)
         all_drift += [(f, *x) for x in d]
         all_unres += [(f, x) for x in u]
         all_used += [(f, *x) for x in used]
@@ -937,20 +1073,100 @@ def selftest():
         ran += 1
         print(f"  {'PASS' if ok else '🔴 FAIL'}  R5 紅的時候零豁免行({nm})"
               + ('' if ok else f'   實得 drifts={bool(d6)} used={used6}'))
+    # ══ [F2/F4] 新補的兩格 + [F10] 生產端 _index_or_head 的突變 ═══════════
+    ok = (R5_ALERT_LITERAL not in _strip_ts_comments('const x = 1; // aclDriftDetected 還沒接\n'))
+    fails += 0 if ok else 1
+    ran += 1
+    print(f"  {'PASS' if ok else '🔴 FAIL'}  F2:【行尾】註解裡的字面也不算「接了」")
+    ok = (R5_ALERT_LITERAL in _strip_ts_comments('const x = summary.aclDriftDetected; // 說明\n'))
+    fails += 0 if ok else 1
+    ran += 1
+    print(f"  {'PASS' if ok else '🔴 FAIL'}  🟢 F2 正對照:行尾有註解而【碼裡】有那個字面 ⇒ 仍然算(不是無條件不算)")
+    for nm, sql_f4 in (('WITH ADMIN OPTION', R5_EX + 'GRANT service_role TO pcm_email_writer WITH ADMIN OPTION;'),
+                       ('WITH ADMIN TRUE(PG16+)', R5_EX + 'GRANT service_role TO pcm_email_writer WITH ADMIN TRUE;'),
+                       ('WITH ADMIN FALSE(保守當有)', R5_EX + 'GRANT service_role TO pcm_email_writer WITH ADMIN FALSE;')):
+        d, _, _ = check(sql_f4, CLOSED_FIXTURE, None, OK_STATE)
+        ok = bool(d)
+        fails += 0 if ok else 1
+        ran += 1
+        print(f"  {'PASS' if ok else '🔴 FAIL'}  F4:{nm} 永遠不可豁免" + ('' if ok else f'   實得 {d}'))
+    # 🔴 [F9] 前提掛掉時要說出【哪一格】—— 不能只印「R5 紅」。
+    _, unres9, _ = check(R5_EX + R5_SQL, CLOSED_FIXTURE, None, BAD_STATE)
+    ok = any('前提不成立' in u and '帳本' in u for u in unres9)
+    fails += 0 if ok else 1
+    ran += 1
+    print(f"  {'PASS' if ok else '🔴 FAIL'}  F9:前提掛掉時印出【是哪一格掛的】" + ('' if ok else f'   實得 {unres9}'))
+    # ══ [F5] 遞移一層:曾收過危險角色的角色, 自己也變危險 ══════════════
+    F5_CHAIN = [('a.sql', 'GRANT service_role TO pcm_w;'),
+                ('b.sql', 'GRANT pcm_w TO anon;')]
+    extra = transitively_dangerous(F5_CHAIN[:1])
+    ok = extra == {'pcm_w'}
+    fails += 0 if ok else 1
+    ran += 1
+    print(f"  {'PASS' if ok else '🔴 FAIL'}  F5 掃出 pcm_w 是遞移危險角色" + ('' if ok else f'   實得 {extra}'))
+    # 🔴 本體:第二句在【沒有】遞移集合時是綠的(那就是本次開的洞), 有了才紅。
+    d, _, _ = check(F5_CHAIN[1][1], CLOSED_FIXTURE, None, OK_STATE)
+    ok = not d
+    fails += 0 if ok else 1
+    ran += 1
+    print(f"  {'PASS' if ok else '🔴 FAIL'}  F5 負對照:沒有遞移集合時 `GRANT pcm_w TO anon` 是【綠的】(= 那個洞)"
+          + ('' if ok else f'   實得 {d}'))
+    d, _, _ = check(F5_CHAIN[1][1], CLOSED_FIXTURE, None, OK_STATE, extra)
+    ok = bool(d) and d[0][0] == 'R5'
+    fails += 0 if ok else 1
+    ran += 1
+    print(f"  {'PASS' if ok else '🔴 FAIL'}  🔴 F5 本體:有了遞移集合 ⇒ `GRANT pcm_w TO anon` 觸發 R5【紅】"
+          + ('' if ok else f'   實得 {d}'))
+    # 🔵 而它【不得】變成無條件紅:一個與危險角色無關的成員關係仍要綠。
+    d, _, _ = check('GRANT pcm_reader TO pcm_reporter;', CLOSED_FIXTURE, None, OK_STATE, extra)
+    ok = not d
+    fails += 0 if ok else 1
+    ran += 1
+    print(f"  {'PASS' if ok else '🔴 FAIL'}  🔵 F5 正對照:無關的成員關係仍然綠(不是無條件紅)"
+          + ('' if ok else f'   實得 {d}'))
+    # 🔴 遞移來的角色【不吃】R5 的豁免路 —— 因為豁免要求「授的恰好只有 service_role」。
+    d, _, _ = check('-- ACL-GATE-EXEMPT-R5: anon -- 想用豁免繞過去 2026-09-05 #885\n'
+                    'GRANT pcm_w TO anon;', CLOSED_FIXTURE, None, OK_STATE, extra)
+    ok = bool(d)
+    fails += 0 if ok else 1
+    ran += 1
+    print(f"  {'PASS' if ok else '🔴 FAIL'}  🔴 F5:遞移來的角色寫 EXEMPT-R5 也豁免不了" + ('' if ok else f'   實得 {d}'))
+    # 🔴 同一顆 commit 裡【兩句都在】也要抓得到(staged 那半)。
+    extra2 = transitively_dangerous([], ['GRANT service_role TO pcm_w;\nGRANT pcm_w TO anon;'])
+    ok = extra2 == {'pcm_w'}
+    fails += 0 if ok else 1
+    ran += 1
+    print(f"  {'PASS' if ok else '🔴 FAIL'}  F5:同一顆 commit 裡兩句都在也掃得到" + ('' if ok else f'   實得 {extra2}'))
+
     # ══ 條件②④【讀檔那半】的守門(code-reviewer R1 #1:原本零格 ⇒ 把它們換成恆真也 94 全綠)══
     #   🔴 用**注入 reader** 餵受控內容 ⇒ 測到的是【生產函式的判斷邏輯】, 不是我重打一份。
-    LEDGER_OK = '20260905140000\tsha\t2026-09-05\t記\n20260905170000\tsha\t2026-09-05\t記\n'
+    # 🔴 [F1] 帳本第二欄現在要是【對得上樹上那支檔】的 sha ⇒ fixture 也要真的算。
+    MIG_BODY = '-- fixture migration\n'
+    MIG_SHA = hashlib.sha256(MIG_BODY.encode('utf-8')).hexdigest()
+    MIG_PATHS = {'20260905140000': 'supabase/migrations/20260905140000_x.sql',
+                 '20260905170000': 'supabase/migrations/20260905170000_y.sql'}
+    LEDGER_OK = ''.join('%s\t%s\t2026-09-05\t記\n' % (v, MIG_SHA) for v in MIG_PATHS)
+    LEDGER_BADSHA = ''.join('%s\t%s\t2026-09-05\t記\n' % (v, '0' * 64) for v in MIG_PATHS)
+    MIG_FILES = {p: MIG_BODY for p in MIG_PATHS.values()}
     def _rd(mapping):
-        return lambda path: (mapping.get(path), 'fixture' if path in mapping else '讀不到')
+        merged = dict(MIG_FILES); merged.update(mapping)
+        return lambda path: (merged.get(path), 'fixture' if path in merged else '讀不到')
+    def _pf(v):
+        return MIG_PATHS.get(v)
     prereq_cases = [
         ('R5 前提正對照  帳本兩支齊 + 告警檔有字面 ⇒ True',
          {'supabase/APPLIED.tsv': LEDGER_OK, R5_ALERT_FILE: 'const x = summary.aclDriftDetected;'}, True),
         ('R5 前提負對照A 帳本只有一支 ⇒ False',
-         {'supabase/APPLIED.tsv': '20260905140000\tsha\t2026-09-05\t記\n',
+         {'supabase/APPLIED.tsv': '20260905140000\t' + MIG_SHA + '\t2026-09-05\t記\n',
           R5_ALERT_FILE: 'const x = summary.aclDriftDetected;'}, False),
         ('R5 前提負對照B 版本號出現在【別的欄】而不是行首 ⇒ False',
          {'supabase/APPLIED.tsv': 'x\tsha\t20260905140000 20260905170000\t記\n',
           R5_ALERT_FILE: 'const x = summary.aclDriftDetected;'}, False),
+        ('R5 前提負對照B2 帳本兩列都在而【sha 對不上樹上那支檔】 ⇒ False',
+         {'supabase/APPLIED.tsv': LEDGER_BADSHA, R5_ALERT_FILE: 'const x = summary.aclDriftDetected;'}, False),
+        ('R5 前提負對照B3 帳本有列而【那支檔在樹上找不到】 ⇒ False',
+         {'supabase/APPLIED.tsv': LEDGER_OK, R5_ALERT_FILE: 'const x = summary.aclDriftDetected;',
+          'supabase/migrations/20260905140000_x.sql': None}, False),
         ('R5 前提負對照C 告警檔沒有那個字面 ⇒ False',
          {'supabase/APPLIED.tsv': LEDGER_OK, R5_ALERT_FILE: 'const x = 1;'}, False),
         ('R5 前提負對照D 字面只出現在 // 註解裡 ⇒ False(不算有人接)',
@@ -962,7 +1178,7 @@ def selftest():
         ('R5 前提負對照F 兩支檔都讀不到 ⇒ False(fail-closed)', {}, False),
     ]
     for name, mapping, want in prereq_cases:
-        got, _ = r5_prereq(_rd(mapping))
+        got, _ = r5_prereq(_rd(mapping), _pf)
         ok = got is want
         fails += 0 if ok else 1
         ran += 1
@@ -970,7 +1186,7 @@ def selftest():
     # 🔴 突變:把【讀檔那兩支生產函式】換成恆真 ⇒ 上面對應的負對照必須翻 True
     #    少了這一格, 一個「R5 無條件放行」的版本會通過全部自檢(那正是 R1 #1 抓到的)。
     for pname, target, mutant, world in (
-            ('r5_ledger_ok', 'r5_ledger_ok', lambda reader=None: (True, 'mutant'),
+            ('r5_ledger_ok', 'r5_ledger_ok', lambda reader=None, path_for=None: (True, 'mutant'),
              {'supabase/APPLIED.tsv': '', R5_ALERT_FILE: 'const x = summary.aclDriftDetected;'}),
             ('r5_alert_ok', 'r5_alert_ok', lambda reader=None: (True, 'mutant'),
              {'supabase/APPLIED.tsv': LEDGER_OK, R5_ALERT_FILE: 'const x = 1;'})):
@@ -978,7 +1194,7 @@ def selftest():
         orig = g[target]
         g[target] = mutant
         try:
-            got, _ = r5_prereq(_rd(world))
+            got, _ = r5_prereq(_rd(world), _pf)
         finally:
             g[target] = orig
         ok = got is True
@@ -986,10 +1202,34 @@ def selftest():
         ran += 1
         print(f"  {'PASS' if ok else '🔴 FAIL'}  突變 {pname} ⇒ 恆真時對應的負對照必須翻 True"
               + ('' if ok else '   實得仍 False'))
-    ok = (g['r5_ledger_ok'] is not None and r5_prereq(_rd({}))[0] is False)
+    ok = (g['r5_ledger_ok'] is not None and r5_prereq(_rd({}), _pf)[0] is False)
     fails += 0 if ok else 1
     ran += 1
     print(f"  {'PASS' if ok else '🔴 FAIL'}  讀檔那兩支【還原】了(空世界仍 False)")
+
+    # 🔴 [F10] 生產端讀檔函式的突變 —— 三處自檢原本全注入 reader ⇒ 它換成恆真【零格看得到】。
+    g10 = globals()
+    orig10 = g10['_index_or_head']
+    g10['_index_or_head'] = lambda path: (LEDGER_OK if path.endswith('APPLIED.tsv')
+                                          else ('const x = summary.aclDriftDetected;' if path == R5_ALERT_FILE
+                                                else MIG_BODY), 'mutant')
+    orig_pf = g10['_ledger_path_for']
+    g10['_ledger_path_for'] = _pf
+    try:
+        got10, _ = r5_prereq()          # 🔴 **不注入** ⇒ 走生產端那條路
+    finally:
+        g10['_index_or_head'] = orig10
+        g10['_ledger_path_for'] = orig_pf
+    ok = got10 is True
+    fails += 0 if ok else 1
+    ran += 1
+    print(f"  {'PASS' if ok else '🔴 FAIL'}  F10:突變【生產端】_index_or_head ⇒ 不注入 reader 的那條路也翻 True"
+          + ('' if ok else '   實得 False ⇒ 那條路沒有被這個突變碰到'))
+    ok = (g10['_index_or_head'] is orig10 and g10['_ledger_path_for'] is orig_pf)
+    fails += 0 if ok else 1
+    ran += 1
+    print(f"  {'PASS' if ok else '🔴 FAIL'}  F11:兩支生產端函式【是原物件】(不是靠罐頭輸入推的)")
+
 
     # ══ 突變:把三個判準【逐一】換成恆真, 對應那一格必須翻綠 ═════════════
     #   🔴 它證的是「那一格的紅【真的由那個判準決定】」——
