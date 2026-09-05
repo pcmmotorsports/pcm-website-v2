@@ -621,6 +621,28 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
   }
 
   /**
+   * ⟦b4-BANKNOEMAIL⟧:寄送當下這張單已經不該收到匯款成立信 ⇒ 跳過。
+   * 🔵 `status` 借 `skipped_order_ineligible` 這個桶(形同上面兩支), **真相在 `last_error_code`**
+   *    —— 它沒有值域白名單, 只有格式 CHECK(`^[a-z0-9_]{1,64}$`)。
+   * 🔴 **自己一個碼** —— 沿用 `order_ineligible` 會讓上游那道閘變成看不見的
+   *    (主視窗 2026-08-24 對同族那一裁的理由), 而這一格要答得出「**寄送當下才擋下幾封**」。
+   */
+  async markSkippedBankOrderNotMailable(id: string, claimedAttempts: number): Promise<boolean> {
+    return this.leaveSending(id, claimedAttempts, {
+      status: 'skipped_order_ineligible',
+      last_error_code: 'bank_order_not_mailable_at_send',
+    });
+  }
+
+  /** ⟦b4-BANKNOEMAIL⟧:寄送當下快照與現況不一致 ⇒ 跳過。**自己一個碼**, 理由見 port。 */
+  async markSkippedBankOrderSnapshotStale(id: string, claimedAttempts: number): Promise<boolean> {
+    return this.leaveSending(id, claimedAttempts, {
+      status: 'skipped_order_ineligible',
+      last_error_code: 'bank_order_snapshot_stale',
+    });
+  }
+
+  /**
    * ⟦5b-TRACKNUMGAP1⟧ 片 C:寄送當下那個單號已被更新 ⇒ 跳過 + 退休鍵。
    * 🔵 `status` 借用 `skipped_order_ineligible` 這個桶(形同 `markSkippedOrderCancelled`),
    *    **真相在 `last_error_code`** —— 它沒有值域白名單, 只有格式 CHECK。

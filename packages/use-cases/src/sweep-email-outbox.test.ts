@@ -36,6 +36,7 @@ const OPTS: SweepEmailOutboxOptions = {
   //    ⚠️ 而**那是一個世界,不是一個中性預設** ⇒ 另一個世界(線關著)必須有專屬的一節,
   //       否則這道閘在測試層等於沒有被量過(同 `eligibleAll()` 那一格的理由)。
   allowOrderShipped: true,
+  allowBankOrderCreated: true,
   claimLimit: 20,
   // 🔴 與 `now` 同一個時鐘 ⇒ 本輪已用時間恆為 0 ⇒ 這組預設仍是「預算滿滿」的那個世界
   //    (`⟦b4-SWEEPBUDGET1⟧`)。預算相關的測項自己覆寫這一欄,不改這裡。
@@ -77,6 +78,8 @@ type OutboxFake = IEmailOutbox & {
   // 🔴 ⟦b4-MAILCANCEL1⟧(2026-09-02):付款信在寄送當下發現單已取消 ⇒ 標終態、不寄、**不計 error**。
   //    它與上一行【只差 `last_error_code`】,而那個差是承重的(全文在 `IEmailOutbox` 的 docstring)。
   markSkippedOrderCancelled: ReturnType<typeof vi.fn>;
+  markSkippedBankOrderNotMailable: ReturnType<typeof vi.fn>;
+  markSkippedBankOrderSnapshotStale: ReturnType<typeof vi.fn>;
   markSkippedShipmentVoided: ReturnType<typeof vi.fn>;
   markSkippedTrackingSuperseded: ReturnType<typeof vi.fn>;
 };
@@ -104,6 +107,14 @@ function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEm
     // 🔴 ⟦b4-MAILCANCEL1⟧ 新增。預設 reject 同上兩支:在沒有明講「單已取消」的測項裡呼到它就是錯的。
     //    ⇒ 📌 而這個預設**同時是一道守門**:一個「把 cancelled 併進 ineligible」的重構
     //      會讓那些測項呼到【另一支】⇒ 而那一支的預設也是 reject ⇒ 兩邊都炸得出來。
+    // 🔴 **預設 reject** —— 與姊妹那格同形(codex R1-#12 nit):
+    //    預設回 true 的話, **一個不該呼叫它的測項呼叫了它也會安靜通過**。
+    markSkippedBankOrderNotMailable: vi.fn().mockRejectedValue(
+      new Error('未預期地呼叫了 markSkippedBankOrderNotMailable(本測項的世界不該走到那一格)'),
+    ),
+    markSkippedBankOrderSnapshotStale: vi.fn().mockRejectedValue(
+      new Error('未預期地呼叫了 markSkippedBankOrderSnapshotStale(本測項的世界快照沒有過期)'),
+    ),
     markSkippedOrderCancelled: vi.fn().mockRejectedValue(new Error('未預期地呼叫了 markSkippedOrderCancelled(本測項的世界沒有被取消的單)')),
     ...(overrides as object),
   } as OutboxFake;
@@ -628,7 +639,8 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     const outbox = outboxFake([job()]);
     const sender = senderFake([{ kind: 'failed', errorCode: 'quota_daily_exceeded' }]);
     const before = Date.now();
-    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, { allowOrderShipped: true, claimLimit: 20, runStartedAtMs: Date.now(), maxRunSeconds: 60, leaseSeconds: 3600 });
+    const res = await sweepEmailOutbox({ ineligibleScanner: eligibleAll(), outbox, sender }, { allowOrderShipped: true,
+  allowBankOrderCreated: true, claimLimit: 20, runStartedAtMs: Date.now(), maxRunSeconds: 60, leaseSeconds: 3600 });
     const after = Date.now();
     const [staleBefore, nextRetryAt] = outbox.reclaimStaleLeases.mock.calls[0]! as [Date, Date];
     expect(nextRetryAt.getTime() - staleBefore.getTime()).toBe(3600 * 1000 + LEASE_RECLAIM_RETRY_DELAY_MS);
@@ -1617,7 +1629,8 @@ describe('sweepEmailOutbox — 付款信接金額與 HTML(片2)', () => {
   //    而 Sean 2026-09-02 拍【乙 = 現在做 HTML 付款信】⇒ 那個批准有了 ⇒ 本格改成合約要的樣子。
   //    🔴 而它從「計 error」翻成「**不計 error**」—— 一張被取消的單不寄信是正常的業務動作。
   it('🟢 cancelled ⇒ 不寄、標終態、**不計 error**,而落的是 markSkippedOrderCancelled', async () => {
-    const outbox = outboxFake([job()], { markSkippedOrderCancelled: vi.fn().mockResolvedValue(true) });
+    const outbox = outboxFake([job()], {
+    markSkippedOrderCancelled: vi.fn().mockResolvedValue(true) });
     const sender = senderFake([{ kind: 'sent' }]);
     const r = await sweepEmailOutbox(paidDeps({ kind: 'cancelled' }, outbox, sender), OPTS);
     expect(sender.send).not.toHaveBeenCalled();
@@ -1638,7 +1651,8 @@ describe('sweepEmailOutbox — 付款信接金額與 HTML(片2)', () => {
   it('🔵 cancelled 的 CAS 世代柵欄:標記回 false ⇒ 算 staleMarks,**不是 error**', async () => {
     // 🔴 柵欄沒對上 = 別人接手了 ⇒ 那不是錯誤。少了這一格,
     //    一個把 `else result.staleMarks++` 寫成 `else result.errors++` 的改動不會紅。
-    const outbox = outboxFake([job()], { markSkippedOrderCancelled: vi.fn().mockResolvedValue(false) });
+    const outbox = outboxFake([job()], {
+    markSkippedOrderCancelled: vi.fn().mockResolvedValue(false) });
     const sender = senderFake([{ kind: 'sent' }]);
     const r = await sweepEmailOutbox(paidDeps({ kind: 'cancelled' }, outbox, sender), OPTS);
     expect(r.errors).toBe(0);
@@ -2234,14 +2248,34 @@ describe('bank_order_created:匯款單成立信', () => {
   //    ⛔ 我第一版用 `siteUrl === undefined ? OPTS : …` ⇒ 缺 siteUrl 那一發**吃到 OPTS 的值**
   //    ⇒ 它測的其實是「有 siteUrl」那個世界, 而它紅得對。
   const textOf = async (payload: Record<string, unknown>, siteUrl: string | undefined) => {
+    // 🔴 **current 由【本發實際餵的 payload】導出**, 而不是寫死 —— 否則第三格(已收 ≠ 0)
+    //    會因為快照與 current 不一致而**根本不寄**, 那一格就變成在測那道閘而不是在測信。
+    //    📌 而收件人用 fixture 的預設(`customer@example.com`), 兩邊要同一個字面。
     const outbox = outboxFake([bankJob(payload)]);
     const sender = senderFake([{ kind: 'sent' }]);
+    // 🔴 **本族每一發都要注入那道寄送前重驗** —— 沒有它 `bank_order_created` 一律不寄。
+    //    📌 那不是測試的樣板, 是**碼的合約**:「沒有人在守那道錢的閘」時不寄。
+    //    ⇒ 這四格量的是【信長什麼樣】, 所以這裡固定餵 `mailable`。
     await sweepEmailOutbox(
-      { ineligibleScanner: eligibleAll(), outbox, sender },
+      {
+        ineligibleScanner: eligibleAll(),
+        outbox,
+        sender,
+        bankOrderMailable: {
+          // 🔵 三個值要**與本發的快照相同**, 否則走進「快照過期」那條路 ⇒ 不寄。
+          //    📌 那正是那道閘在做事:**測試也得先讓世界一致, 才拿得到那封信。**
+          isBankOrderStillMailable: vi.fn(async () => ({
+            kind: 'mailable' as const,
+            currentRecipientEmail: 'customer@example.com',
+            currentBalanceDue: payload['balance_due'] as number,
+            currentTotal: payload['total'] as number,
+          })),
+        },
+      },
       { ...OPTS, siteUrl },
     );
     const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
-    return String(input.text);
+    return { text: String(input.text), subject: String(input.subject) };
   };
 
   const PAYLOAD = {
@@ -2260,6 +2294,16 @@ describe('bank_order_created:匯款單成立信', () => {
       join(__dirname, '..', '..', '..', 'docs', 'specs', '2026-09-06-bank-order-created-email-copy.md'),
       'utf8',
     );
+    // 🔴🔴 **主旨【不在本檔這道鎖裡】, 而那是量出來的, 不是我選的**(codex R1-#10 的一半):
+    //    🔬 我試著從送出去那一封取主旨 ⇒ 讀到的是 `PCM 訂單 … 付款成功通知`
+    //      —— 因為 **sweep 送的是 `job.subject`(enqueue 當下就寫進 outbox 的那一份)**,
+    //      而本檔的 job fixture 帶的是預設主旨 ⇒ 📌 **在這裡鎖它, 鎖到的是 fixture 不是碼。**
+    //    ⛔ 而 `import { bankOrderCreatedSubject } from '@pcm/adapters/server'` 也走不通:
+    //      那支帶 `server-only` ⇒ **本檔整支載不起來**(畫面印 `Tests no tests`)
+    //      ⇒ 同一個假綠我今晚踩過一次(見 `enqueue-bank-order-created-emails.ts` 檔頭)。
+    //    ✅ **主旨的鎖搬到 adapters 那一側**(`order-email-assembly.test.ts`), 它就住在產生它的地方。
+    //    ⇒ 🛑 **本節只鎖【內文】** —— 這一句寫出來, 免得下一個人以為它鎖了整封。
+
     const bodyBlocks = spec.split('## 內文')[1];
     expect(bodyBlocks, 'spec 檔裡找不到「## 內文」那一節 ⇒ 這道鎖沒接上').toBeDefined();
     const raw = bodyBlocks!.split('```')[1]!.replace(/^\n/, '').replace(/\n$/, '');
@@ -2288,11 +2332,12 @@ describe('bank_order_created:匯款單成立信', () => {
     ]) {
       expect(expected, `佔位詞 ${ph} 沒被換掉 ⇒ 下面的比對會因為錯的理由紅`).not.toContain(ph);
     }
-    expect(await textOf(PAYLOAD, 'https://shop.example.com')).toBe(expected);
+    const sent = await textOf(PAYLOAD, 'https://shop.example.com');
+    expect(sent.text).toBe(expected);
   });
 
   it('🔴 缺 siteUrl ⇒ 連結那兩行【整段不印】, 而信的其餘部分照印', async () => {
-    const text = await textOf(PAYLOAD, undefined);
+    const { text } = await textOf(PAYLOAD, undefined);
     expect(text).not.toContain('/account/orders/');
     expect(text).not.toContain('訂單內容與匯款資訊也可以在這裡查看');
     // 🟢 正對照:主體還在 —— 少了這兩格,「整封都沒寄」也會通過上面兩格。
@@ -2301,15 +2346,176 @@ describe('bank_order_created:匯款單成立信', () => {
   });
 
   it('🔴 已收 ≠ 0 時三行金額要對得起來(total − balance_due)', async () => {
-    const text = await textOf({ ...PAYLOAD, balance_due: 5000 }, 'https://shop.example.com');
+    const { text } = await textOf({ ...PAYLOAD, balance_due: 5000 }, 'https://shop.example.com');
     expect(text).toContain('訂單金額  NT$ 12,800');
     expect(text).toContain('已收      NT$ 7,800');
     expect(text).toContain('應付餘額  NT$ 5,000');
   });
 
   it('🔵 期限句與訂單頁【同一支 domain 函式】—— 含「(含)」那個邊界', async () => {
-    const text = await textOf(PAYLOAD, 'https://shop.example.com');
+    const { text } = await textOf(PAYLOAD, 'https://shop.example.com');
     expect(text).toContain(remittanceDeadlineSentence(PAYLOAD.created_at));
     expect(text).toContain('(含)之前完成匯款');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// ⟦b4-BANKNOEMAIL⟧ 寄送前重驗 —— 四個世界
+// ══════════════════════════════════════════════════════════════════
+// 🔴 **四格要一起看**:只驗「還該寄 ⇒ 寄」的實作, 包含「什麼都寄」。
+describe('bank_order_created:寄送前重驗', () => {
+  const PAYLOAD = {
+    display_id: 'PCM-2026-0142',
+    total: 12800,
+    balance_due: 12800,
+    created_at: '2026-09-06T02:00:00.000Z',
+  };
+  const bankJob = () => job({ eventType: 'bank_order_created', payload: PAYLOAD });
+
+  const run = async (check: unknown, outboxOverrides: Record<string, unknown> = {}) => {
+    const outbox = outboxFake([bankJob()], outboxOverrides);
+    const sender = senderFake([{ kind: 'sent' }]);
+    const res = await sweepEmailOutbox(
+      {
+        ineligibleScanner: eligibleAll(),
+        outbox,
+        sender,
+        ...(check === undefined ? {} : { bankOrderMailable: check as never }),
+      },
+      { ...OPTS, siteUrl: 'https://shop.example.com' },
+    );
+    return { outbox, sender, res };
+  };
+
+  it('🟢 還該寄 ⇒ 真的寄出去(正對照 —— 沒有它, 下面三格「沒寄」都證不到事)', async () => {
+    const { sender, res } = await run({
+      isBankOrderStillMailable: vi.fn(async () => ({
+        kind: 'mailable' as const,
+        currentRecipientEmail: 'customer@example.com',
+        currentBalanceDue: 12800,
+        currentTotal: 12800,
+      })),
+    });
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect(res.sent).toBe(1);
+    expect(res.errors).toBe(0);
+  });
+
+  it('🔴 已經不該寄 ⇒ 不寄、標終態、**不計 error**(它不是故障)', async () => {
+    // 🔵 fake 的 `markSkippedBankOrderNotMailable` **預設 reject**(codex R1-#12)
+    //    ⇒ 這一格是**唯一該呼叫它**的世界, 所以在這裡才把它換成會成功的。
+    //    📌 那個預設就是這樣用的:**別的測項誤呼叫它會當場紅。**
+    const { outbox, sender, res } = await run({
+      isBankOrderStillMailable: vi.fn(async () => ({ kind: 'not_mailable' })),
+    }, { markSkippedBankOrderNotMailable: vi.fn(async () => true) });
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(outbox.markSkippedBankOrderNotMailable).toHaveBeenCalledTimes(1);
+    expect(res.errors).toBe(0);
+    // 🔵 而它落的是**自己那支 mark** —— 沿用 order_ineligible 會讓上游那道閘變成看不見的。
+    expect(outbox.markSkippedOrderIneligible).not.toHaveBeenCalled();
+  });
+
+  it('🔴 讀不到(unavailable)⇒ 不寄、計 error、**不標終態**(下一輪會再看到它)', async () => {
+    const { outbox, sender, res } = await run({
+      isBankOrderStillMailable: vi.fn(async () => ({ kind: 'unavailable' })),
+    });
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(res.errors).toBe(1);
+    // 🛑 **「我不知道」與「他不必匯」不是同一件事** —— 標終態會用一次讀取失敗永久吞掉一封信。
+    expect(outbox.markSkippedBankOrderNotMailable).not.toHaveBeenCalled();
+  });
+
+  it('🔴 沒注入那道閘 ⇒ 不寄、計 error(**不是**「維持今天的行為照寄」)', async () => {
+    const { sender, res } = await run(undefined);
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(res.errors).toBe(1);
+  });
+
+  it('🔵 重驗本身 throw ⇒ 與 unavailable 同路:不寄、計 error、不標終態', async () => {
+    const { outbox, sender, res } = await run({
+      isBankOrderStillMailable: vi.fn(async () => {
+        throw new Error('boom');
+      }),
+    });
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(res.errors).toBe(1);
+    expect(outbox.markSkippedBankOrderNotMailable).not.toHaveBeenCalled();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// ⟦b4-BANKNOEMAIL⟧ 快照 vs 現況(codex R1-#2/#3)—— 三個值各一格
+// ══════════════════════════════════════════════════════════════════
+// 🔴 **三格要一起看**:只驗「一致 ⇒ 寄」的實作, 包含「什麼都寄」。
+describe('bank_order_created:快照過期就不寄', () => {
+  const PAYLOAD = {
+    display_id: 'PCM-2026-0142',
+    total: 12800,
+    balance_due: 12800,
+    created_at: '2026-09-06T02:00:00.000Z',
+  };
+  const CURRENT = {
+    kind: 'mailable' as const,
+    currentRecipientEmail: 'customer@example.com',
+    currentBalanceDue: 12800,
+    currentTotal: 12800,
+  };
+
+  const run = async (current: Record<string, unknown>) => {
+    const outbox = outboxFake([job({ eventType: 'bank_order_created', payload: PAYLOAD })], {
+      markSkippedBankOrderSnapshotStale: vi.fn(async () => true),
+    });
+    const sender = senderFake([{ kind: 'sent' }]);
+    const res = await sweepEmailOutbox(
+      {
+        ineligibleScanner: eligibleAll(),
+        outbox,
+        sender,
+        bankOrderMailable: {
+          isBankOrderStillMailable: vi.fn(async () => current),
+        } as never,
+      },
+      { ...OPTS, siteUrl: 'https://shop.example.com' },
+    );
+    return { outbox, sender, res };
+  };
+
+  it('🟢 三個值都一致 ⇒ 照寄(正對照 —— 沒有它, 下面三格「沒寄」都證不到事)', async () => {
+    const { sender, res } = await run(CURRENT);
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect(res.errors).toBe(0);
+  });
+
+  it('🔴 金額被改小(12,800 ⇒ 10,000)⇒ 不寄、標 snapshot_stale', async () => {
+    const { outbox, sender } = await run({ ...CURRENT, currentBalanceDue: 10000, currentTotal: 10000 });
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(outbox.markSkippedBankOrderSnapshotStale).toHaveBeenCalledTimes(1);
+    // 🔵 而它**不是**「不該寄」那個碼 —— 兩種原因要分得出來。
+    expect(outbox.markSkippedBankOrderNotMailable).not.toHaveBeenCalled();
+  });
+
+  it('🔴 收件人被改(A ⇒ B)⇒ 不寄 —— 少了這格, 信會寄給【前一個地址】', async () => {
+    const { outbox, sender } = await run({ ...CURRENT, currentRecipientEmail: 'moved@example.com' });
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(outbox.markSkippedBankOrderSnapshotStale).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 payload 讀不出金額(快照壞了)⇒ 不寄', async () => {
+    const outbox = outboxFake(
+      [job({ eventType: 'bank_order_created', payload: { display_id: 'PCM-2026-0142', created_at: '2026-09-06T02:00:00.000Z' } })],
+      { markSkippedBankOrderSnapshotStale: vi.fn(async () => true) },
+    );
+    const sender = senderFake([{ kind: 'sent' }]);
+    await sweepEmailOutbox(
+      {
+        ineligibleScanner: eligibleAll(),
+        outbox,
+        sender,
+        bankOrderMailable: { isBankOrderStillMailable: vi.fn(async () => CURRENT) } as never,
+      },
+      { ...OPTS, siteUrl: 'https://shop.example.com' },
+    );
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(outbox.markSkippedBankOrderSnapshotStale).toHaveBeenCalledTimes(1);
   });
 });

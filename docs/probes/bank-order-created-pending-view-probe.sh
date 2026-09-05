@@ -59,8 +59,13 @@ CREATE TABLE public.orders (
 );
 CREATE TABLE public.order_refunds (order_id uuid, status text);
 CREATE TABLE public.order_manual_refunds (order_id uuid, voided_at timestamptz);
+-- 🔴 **paid_total 要可設**(codex R1-#11):原本的 stub 恆回 0 ⇒ balance_due 恆 = total
+--    ⇒ 📌 `> 0` 與 `<= total` 那兩條守門【在這個 fixture 裡沒有世界可以測】,
+--      而我當時的突變一次拿掉三條, 剛好把那個空白蓋住了。
+CREATE TABLE public.paid_totals (order_id uuid PRIMARY KEY, paid_total integer NOT NULL);
 CREATE VIEW public.order_paid_totals_v AS
-  SELECT o.id AS order_id, 0::integer AS paid_total FROM public.orders o;
+  SELECT o.id AS order_id, COALESCE(p.paid_total, 0)::integer AS paid_total
+    FROM public.orders o LEFT JOIN public.paid_totals p ON p.order_id = o.id;
 CREATE TABLE public.email_outbox (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id uuid, event_type text NOT NULL, dedup_key text NOT NULL,
@@ -135,6 +140,14 @@ INSERT INTO public.email_outbox(order_id,event_type,dedup_key) VALUES
 -- ⑨ 已付款
 INSERT INTO public.orders(id,display_id,customer_user_id,total,payment_channel,payment_status) VALUES
   ('aaaaaaa9-0000-0000-0000-000000000009','PCM-9','11111111-1111-1111-1111-111111111111',5000,'bank_transfer','paid');
+-- ⑩ 🔴 **付清了而狀態還沒翻**(balance_due = 0)⇒ `> 0` 那一條要擋它
+INSERT INTO public.orders(id,display_id,customer_user_id,total,payment_channel) VALUES
+  ('aaaaaab0-0000-0000-0000-000000000010','PCM-10','11111111-1111-1111-1111-111111111111',5000,'bank_transfer');
+INSERT INTO public.paid_totals(order_id,paid_total) VALUES ('aaaaaab0-0000-0000-0000-000000000010',5000);
+-- ⑪ 🔴 **多付了**(balance_due 負數)⇒ `> 0` 也要擋它
+INSERT INTO public.orders(id,display_id,customer_user_id,total,payment_channel) VALUES
+  ('aaaaaab1-0000-0000-0000-000000000011','PCM-11','11111111-1111-1111-1111-111111111111',5000,'bank_transfer');
+INSERT INTO public.paid_totals(order_id,paid_total) VALUES ('aaaaaab1-0000-0000-0000-000000000011',8000);
 SQL
 
 IN_VIEW="SELECT count(*) FROM public.pcm_bank_order_created_email_pending WHERE order_id="
@@ -147,6 +160,8 @@ chk "08 🔴 有退款(餘額算不出來)不在" "$(Q "${IN_VIEW}'aaaaaaa6-0000
 chk "09 兩個信箱都空 不在"           "$(Q "${IN_VIEW}'aaaaaaa7-0000-0000-0000-000000000007'")" "0"
 chk "10 已排過信 不在"               "$(Q "${IN_VIEW}'aaaaaaa8-0000-0000-0000-000000000008'")" "0"
 chk "11 已付款 不在"                 "$(Q "${IN_VIEW}'aaaaaaa9-0000-0000-0000-000000000009'")" "0"
+chk "11b 🔴 付清了(balance_due=0)不在 —— `> 0` 那一條在守它" "$(Q "${IN_VIEW}'aaaaaab0-0000-0000-0000-000000000010'")" "0"
+chk "11c 🔴 多付了(balance_due 負)不在 —— 同一條在守" "$(Q "${IN_VIEW}'aaaaaab1-0000-0000-0000-000000000011'")" "0"
 chk "12 全表就那一列"                "$(Q "SELECT count(*) FROM public.pcm_bank_order_created_email_pending")" "1"
 
 # ── member 新版:欄名不變 + own-only 列層 + 規則只剩一份 ──────────────
@@ -179,8 +194,22 @@ mut() { # $1=名稱 $2=改過的 WHERE 片段要拿掉的那一條 $3=期望變�
 BASE_SEL="SELECT o.id FROM public.orders o JOIN public.order_balance_base_v bal ON bal.order_id=o.id LEFT JOIN public.customers c ON c.user_id=o.customer_user_id WHERE o.payment_channel='bank_transfer' AND o.payment_status='unpaid' AND o.cancelled_at IS NULL"
 mut "20 拿掉 order_source/manual 兩條 ⇒ 手動單漏進來(1 ⇒ 3)" \
     "$BASE_SEL AND bal.balance_due>0 AND NOT EXISTS (SELECT 1 FROM public.email_outbox e WHERE e.order_id=o.id AND e.event_type='bank_order_created') AND (nullif(btrim(o.notification_email, public.pcm_js_trim_whitespace()),'') IS NOT NULL OR nullif(btrim(c.email, public.pcm_js_trim_whitespace()),'') IS NOT NULL)" "3"
-mut "21 拿掉 balance_due>0 ⇒ 退款單漏進來" \
-    "$BASE_SEL AND o.order_source='web' AND o.manual_request_id IS NULL AND NOT EXISTS (SELECT 1 FROM public.email_outbox e WHERE e.order_id=o.id AND e.event_type='bank_order_created') AND (nullif(btrim(o.notification_email, public.pcm_js_trim_whitespace()),'') IS NOT NULL OR nullif(btrim(c.email, public.pcm_js_trim_whitespace()),'') IS NOT NULL)" "2"
+# 🔴🔴 **三條金額守門要【一條一條】拿掉**(codex R1-#11):
+#    ⛔ ~~我原本那一發同時漏掉 `IS NOT NULL` / `> 0` / `<= total`~~
+#    ⇒ 📌 **那不是單點突變** —— 任一條單獨遺失都可能假綠, 而那一發答不出是哪一條在做事。
+mut "21a 只拿掉 balance_due IS NOT NULL(其餘兩條留著)⇒ 退款單仍被 >0 擋住 ⇒ 不變" \
+    "$BASE_SEL AND bal.balance_due>0 AND bal.balance_due<=o.total AND o.order_source='web' AND o.manual_request_id IS NULL AND NOT EXISTS (SELECT 1 FROM public.email_outbox e WHERE e.order_id=o.id AND e.event_type='bank_order_created') AND (nullif(btrim(o.notification_email, public.pcm_js_trim_whitespace()),'') IS NOT NULL OR nullif(btrim(c.email, public.pcm_js_trim_whitespace()),'') IS NOT NULL)" "1"
+# 🔵 **標籤由讀數決定**:第一版我把 21b 寫成「退款單漏進來」而它印 1 ——
+#    退款單的 balance_due 是 NULL, 被 `IS NOT NULL` 擋住了 ⇒ 那個標籤與讀數矛盾。
+#    ✅ 改成它真正守的那兩個世界(付清 0 / 多付負數), 而那兩筆是本次新加的 fixture。
+# 🔴 **期望值跟著 fixture 一起改** —— 加了兩筆新世界之後, 舊的 "1" 已經不成立。
+#    📌 而它是被【探針自己】抓到的:標籤寫「1 變 3」而期望值還寫 1 ⇒ 兩者矛盾 ⇒ 紅。
+mut "21b 只拿掉 balance_due > 0 ⇒ 🔴 付清(0)與多付(負)兩筆漏進來 ⇒ 1 變 3" \
+    "$BASE_SEL AND bal.balance_due IS NOT NULL AND bal.balance_due<=o.total AND o.order_source='web' AND o.manual_request_id IS NULL AND NOT EXISTS (SELECT 1 FROM public.email_outbox e WHERE e.order_id=o.id AND e.event_type='bank_order_created') AND (nullif(btrim(o.notification_email, public.pcm_js_trim_whitespace()),'') IS NOT NULL OR nullif(btrim(c.email, public.pcm_js_trim_whitespace()),'') IS NOT NULL)" "3"
+mut "21c 只拿掉 balance_due <= total ⇒ 本 fixture 不變(而它守的是【壞掉的狀態】, 見下)" \
+    "$BASE_SEL AND bal.balance_due IS NOT NULL AND bal.balance_due>0 AND o.order_source='web' AND o.manual_request_id IS NULL AND NOT EXISTS (SELECT 1 FROM public.email_outbox e WHERE e.order_id=o.id AND e.event_type='bank_order_created') AND (nullif(btrim(o.notification_email, public.pcm_js_trim_whitespace()),'') IS NOT NULL OR nullif(btrim(c.email, public.pcm_js_trim_whitespace()),'') IS NOT NULL)" "1"
+mut "21d 🔴 三條【全拿掉】⇒ 退款單 + 付清 + 多付 三筆都漏進來(1 變 4)" \
+    "$BASE_SEL AND o.order_source='web' AND o.manual_request_id IS NULL AND NOT EXISTS (SELECT 1 FROM public.email_outbox e WHERE e.order_id=o.id AND e.event_type='bank_order_created') AND (nullif(btrim(o.notification_email, public.pcm_js_trim_whitespace()),'') IS NOT NULL OR nullif(btrim(c.email, public.pcm_js_trim_whitespace()),'') IS NOT NULL)" "4"
 mut "22 拿掉信箱那條 ⇒ 沒有收件人的單漏進來" \
     "$BASE_SEL AND o.order_source='web' AND o.manual_request_id IS NULL AND bal.balance_due>0 AND NOT EXISTS (SELECT 1 FROM public.email_outbox e WHERE e.order_id=o.id AND e.event_type='bank_order_created')" "2"
 mut "23 拿掉 anti-join ⇒ 已寄過的又進來" \

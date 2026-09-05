@@ -730,7 +730,11 @@ export async function GET(request: Request): Promise<Response> {
   //
   // 🛑 **上膛順序**(少一步不會馬上出事, 而那正是危險的地方):
   // ```
-  // ① DB 四支已貼(2026-09-06 貼板 45, Sean 貼完四支 Success;帳本已記)
+  // ① 🔴 **DB 【五支】都要貼**(codex R1-#6 抓到我這裡還寫「四支」):
+  //    ⛔ ~~DB 四支已貼~~ —— 45a-45d 已貼(2026-09-06, 帳本已記), 而 **45e(`20260906180000`)
+  //    `pcm_bank_order_still_mailable` 是後來加的**, 寄送前重驗**就靠它**。
+  //    🛑 少了 45e 而照這段上膛 ⇒ 重驗查一支不存在的 view ⇒ `unavailable` ⇒ 不寄、計 error
+  //      ⇒ 那些列**每輪重試、燒完 attempts 進死信** ⇒ 📌 **那批客人之後再也排不進信。**
   // ② 設 BANK_ORDER_CREATED_EMAIL_CUTOFF（ISO UTC）
   // ③ redeploy（新 env 只有新的 deployment 讀得到 —— 「先關 env 止血」也是假的, 同一個理由）
   // ```
@@ -794,7 +798,11 @@ export async function GET(request: Request): Promise<Response> {
   if (
     enqueueStatus === 'skipped_no_cutoff' ||
     shippedStatus === 'skipped_no_cutoff' ||
-    cancelledStatus === 'skipped_no_cutoff'
+    cancelledStatus === 'skipped_no_cutoff' ||
+    // 🔴 **條件也要加, 不是只加那一行 log**(codex R1-#8 的另一半):
+    //    只有匯款那條線沒上膛時, 少了這一行 ⇒ **整段 log 不印** ⇒ 那一行 `bankOrder` 永遠不會被看到。
+    //    📌 **加了輸出而沒加觸發條件 = 那個輸出在【唯一需要它的世界】裡不存在。**
+    bankOrderStatus === 'skipped_no_cutoff'
   ) {
     console.info('[email-sweep] 🔵 有 cutoff env 還沒上膛 ⇒ 那一段 enqueue 這輪不跑(不是失敗,回 200)', {
       // 🔴 B-5 那半用既有的 `CUTOFF_ENV` 常數(見本檔 `const CUTOFF_ENV =`)不重打字面。
@@ -806,6 +814,12 @@ export async function GET(request: Request): Promise<Response> {
       shippedCutoff: shippedStatus === 'skipped_no_cutoff' ? 'SHIPPED_EMAIL_CUTOFF 未設或空' : shippedStatus,
       cancelledCutoff:
         cancelledStatus === 'skipped_no_cutoff' ? 'CANCELLED_EMAIL_CUTOFF 未設或空' : cancelledStatus,
+      // 🔴 **匯款成立信那條線也要出聲**(codex R1-#8):少了它,
+      //    「這條線正常地沒有信要寄」與「這條線整個沒啟用」**印同一個 200、同一片空 log**。
+      bankOrder:
+        bankOrderStatus === 'skipped_no_cutoff'
+          ? 'BANK_ORDER_CREATED_EMAIL_CUTOFF 未設或空'
+          : bankOrderStatus,
     });
   }
 
@@ -818,6 +832,12 @@ export async function GET(request: Request): Promise<Response> {
       //    ⚠️ `resolveSiteUrl()` 在 production 缺 `NEXT_PUBLIC_SITE_URL` 時回 `undefined`
       //      ⇒ **那一整段連結不印, 而不是印一個壞的** —— 死入口比沒入口糟。
       siteUrl: resolveSiteUrl(),
+      // 🔴🔴 **⟦b4-BANKNOEMAIL⟧:這條線有沒有上膛 = 那顆 cutoff 有沒有【設好】**(codex R1-#1)。
+      //    ⇒ 關著時 `claimDue` **連認領都不做** —— 否則拔掉 env 也停不了線:
+      //      已入列的匯款信照樣被認領、照樣寄出去, 而信收不回來。
+      //    🔵 判準用 `kind === 'ok'` 而不是「有沒有設」—— **格式不合也算沒上膛**
+      //      ⇒ 一顆打錯字的 env 不會讓這條線半開著。
+      allowBankOrderCreated: bankOrderCutoff.kind === 'ok',
       // 🔴🔴 **同一個 cutoff 同時控【排信】與【寄信】**(codex 2026-08-30 R1 must-fix 1)。
       //    在這一行之前,cutoff 只擋得住 enqueue ⇒ outbox 裡**已經排好的** `order_shipped` 列
       //    會在 env 關著的情況下被 sweeper 照常寄出去

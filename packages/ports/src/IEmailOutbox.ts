@@ -641,6 +641,29 @@ export interface IEmailOutbox {
   markSkippedOrderCancelled(id: string, claimedAttempts: number): Promise<boolean>;
 
   /**
+   * 🔴 ⟦b4-BANKNOEMAIL⟧(2026-09-06):**寄送當下**發現這張單已經不該收到匯款成立信
+   * (已付款 / 已取消 / 管道變了 / 餘額算不出來或不再是正數)⇒ 跳過, 不寄。
+   *
+   * 🛑 **為什麼要【自己一支】而不是沿用 `markSkippedOrderIneligible`** —— 與
+   *    `markSkippedOrderCancelled` 同一個理由(主視窗 2026-08-24 裁乙):
+   *    沿用會讓上游那道閘變成**看不見的** ⇒ 📌 **兩層落同一個碼, 那個比值就永遠算不出來。**
+   * 🔵 `status` 借 `skipped_order_ineligible` 這個桶, **真相在 `last_error_code`**。
+   *
+   * 🔴🔴 **這一格是這封信的最後一道防線**:掃描是快照, 寄送是後來 ——
+   *    客人可能已經匯完了。少了它, 一個**剛剛付完錢**的客人會收到一封叫他去匯錢的信。
+   * ⚠️ **而它消不掉 race, 只縮小視窗** —— 重驗與真正送出之間仍有一段時間(plan §7)。
+   */
+  markSkippedBankOrderNotMailable(id: string, claimedAttempts: number): Promise<boolean>;
+
+  /**
+   * 🔴 ⟦b4-BANKNOEMAIL⟧:寄送當下發現**快照與現況不一致**(金額或收件人被改過)⇒ 跳過, 不寄。
+   * 🛑 **與 `markSkippedBankOrderNotMailable` 分開一個碼** —— 兩者答的是不同的問題:
+   *    前者 = 「這張單不該寄了」· 本支 = 「該寄, 而我手上這一份過期了」。
+   *    ⇒ 📌 混成一個碼, 「後台常改金額」與「客人常付完」就再也分不出來。
+   */
+  markSkippedBankOrderSnapshotStale(id: string, claimedAttempts: number): Promise<boolean>;
+
+  /**
    * `sending → skipped_shipment_voided`(M-4b E4 片3a:出貨通知信在寄送當下去主表撈脈絡,
    * 發現**這一箱已被作廢**)。
    *

@@ -160,6 +160,7 @@ function seedRow(): Map<string, Row> {
 //    整個 suite 跑超過 60 秒就會集體「預算用盡」⇒ **一組會隨機器快慢翻面的測試**。
 const sweepOpts = (): SweepEmailOutboxOptions => ({
   allowOrderShipped: true,
+  allowBankOrderCreated: true,
   claimLimit: 10,
   runStartedAtMs: Date.now(),
   maxRunSeconds: 60,

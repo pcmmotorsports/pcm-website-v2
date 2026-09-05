@@ -4,6 +4,9 @@ import type {
   IEmailSender,
   IIneligibleOrderEmailScanner,
   IPaidEmailContext,
+  IBankOrderMailableCheck,
+  EmailOutboxEventType,
+  BankOrderMailableResult,
   IShippedEmailContext,
   LoadPaidContextResult,
   LoadShippedContextResult,
@@ -141,6 +144,12 @@ export type SweepEmailOutboxDeps = {
    * ⇒ 不論如何,結論不變:入列當下凍住的值在員工改過之後就是舊的,而**信寄出去收不回來**。
    */
   paidContext?: IPaidEmailContext;
+  /**
+   * 🔴 ⟦b4-BANKNOEMAIL⟧ 寄送前重驗。**`bank_order_created` 走到寄送而沒有它 ⇒ 不寄、計 error。**
+   *    📌 與 `paidContext` 那一欄**不同族**:那一支「不給」= 還沒接線(照寄純文字),
+   *      這一支「不給」= **沒有人在守那道錢的閘**。
+   */
+  bankOrderMailable?: IBankOrderMailableCheck;
 };
 
 /**
@@ -182,6 +191,11 @@ export type SweepEmailOutboxOptions = {
    * ⚠️ 而**計 error 是刻意的**:線關著而佇列裡有列 = 有事情不對,應該吵。
    */
   allowOrderShipped: boolean;
+  /**
+   * 🔴 ⟦b4-BANKNOEMAIL⟧:匯款成立信這條線有沒有上膛(= 那顆 cutoff env 有沒有設好)。
+   *    **關著時不只不排信, 連【認領】都不做** —— 否則拔掉 env 也停不了線。
+   */
+  allowBankOrderCreated: boolean;
   claimLimit: number;
   /**
    * 🔴🔴 **這一輪【平台的碼表】是什麼時候按下去的**(`⟦b4-SWEEPBUDGET1⟧`,2026-08-30)。
@@ -413,6 +427,23 @@ const SEND_TAIL_ALLOWANCE_SECONDS = 5;
  * per-job catch 計 error、列留 sending → 回收 → 耗盡 attempts → 訊號 2 可見,不靜默吞)。
  * E4 增員 union 時本 switch 少 case → typecheck 必紅(`satisfies never` 窮舉)。
  */
+/**
+ * 🔴 `claimDue` 的排除清單 —— **聯集**。
+ *
+ * 🛑 **為什麼不寫成三元覆寫**(R3-C7):兩條線各自有自己的 flag,
+ *    而覆寫會讓「A 關著、B 開著」那個世界**把 A 放出來** ⇒ 📌 一條停下來的線又開始寄信。
+ * 🔵 回 `undefined`(而不是空陣列)是為了對齊 adapter 那一側的既有形狀:
+ *    它對 `exclude.length === 0` 與 `undefined` 走同一條路, 而**明確回 undefined 讀起來不會像「排除零個」**。
+ */
+function buildExcludeEventTypes(
+  opts: SweepEmailOutboxOptions,
+): { excludeEventTypes: EmailOutboxEventType[] } | undefined {
+  const exclude: EmailOutboxEventType[] = [];
+  if (!opts.allowOrderShipped) exclude.push('order_shipped', 'shipment_tracking_corrected');
+  if (!opts.allowBankOrderCreated) exclude.push('bank_order_created');
+  return exclude.length === 0 ? undefined : { excludeEventTypes: exclude };
+}
+
 function buildEmailText(
   job: ClaimedEmailJob,
   shipped: ShippedEmailContext | null,
@@ -498,6 +529,20 @@ function buildEmailText(
  *      route 那側逐字「死入口比沒入口糟」)—— 而**信的其餘部分照印**, 因為帳號與期限才是主體。
  *   ⇒ ①② 回 `null`, 由呼叫端 fail-closed 不寄(R3-MF2 那條規則的碼側對應)。
  */
+/**
+ * 讀回 `bank_order_created` 的快照三值。**讀不出來回 `null` ⇒ 呼叫端當成「快照過期」處理。**
+ * 🔵 與 `buildBankOrderCreatedText` 讀同一組鍵 —— 而**那支會 throw、這支回 null**:
+ *    📌 這裡的用途是**比對**, 而比對不到就該走「不寄」那條路, 不該炸掉整輪。
+ */
+function readBankSnapshot(payload: unknown): { total: number; balanceDue: number } | null {
+  if (typeof payload !== 'object' || payload === null) return null;
+  const p = payload as Record<string, unknown>;
+  const total = p['total'];
+  const balanceDue = p['balance_due'];
+  if (!Number.isSafeInteger(total) || !Number.isSafeInteger(balanceDue)) return null;
+  return { total: total as number, balanceDue: balanceDue as number };
+}
+
 function buildBankOrderCreatedText(job: ClaimedEmailJob, siteUrl: string | undefined): string {
   const payload = job.payload;
   const readStr = (key: string): string | null => {
@@ -1106,9 +1151,14 @@ export async function sweepEmailOutbox(
         //    ⇒ 🎯 「設了 env、看到不對、把它拿掉」的意思是【整條出貨線停下來】,
         //      而少了這一格, **已經入隊的更正信照樣被認領、照樣寄出去**, 而信收不回來。
         //    🛑 我在 route 那一層擋了 enqueue, 而**那只擋得住還沒進佇列的**。
-        opts.allowOrderShipped
-          ? undefined
-          : { excludeEventTypes: ['order_shipped', 'shipment_tracking_corrected'] },
+        // 🔴🔴 **⟦b4-BANKNOEMAIL⟧ 一起進來**(codex R1-#1;而它與上面那格是**同一個病**):
+        //    我在 route 那一層擋了 enqueue, 而**那只擋得住還沒進佇列的** ——
+        //    ⇒ 🛑 **拔掉 `BANK_ORDER_CREATED_EMAIL_CUTOFF` 停不了線**:
+        //      已入列的匯款信照樣被認領、照樣寄出去, 而信收不回來。
+        //    ⇒ 📌 **那正是 plan §7「rollback 是假的」那一條, 換一條線又長出來一次。**
+        // 🔴 **聯集, 不是覆寫**(R3-C7):兩條線各自的 flag 獨立
+        //    ⇒ 用三元覆寫的話, **一條關著、另一條開著時會把前者放出來。**
+        buildExcludeEventTypes(opts),
       );
     } catch {
       result.errors++;
@@ -1389,6 +1439,89 @@ export async function sweepEmailOutbox(
       //    · 這裡 = **對不上的狀態**(不該發生)⇒ 計 error、讓它吵
       if (live.context.trackingNumber !== enqueuedTracking) {
         result.errors++;
+        continue;
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // ⟦b4-BANKNOEMAIL⟧ 寄送前重驗 —— **這封信的最後一道防線**
+    // ══════════════════════════════════════════════════════════════════
+    // 🔴🔴 **掃描是快照, 寄送是後來。** 客人可能在這段時間裡已經匯完、已取消、或匯了一半。
+    //    少了這一道 ⇒ 一個**剛剛付完錢**的客人會收到一封叫他去匯錢的信。
+    // 🛑 **而現行那道 eligibility 閘擋不住它** —— 它掃的是 refunded / cancelled,
+    //    **不含 `paid`**(`IEmailOutbox` 的窮舉表逐字)。
+    // ✅ **判準不列舉狀態, 而是問那支 view**(`pcm_bank_order_still_mailable`)——
+    //    📌 **狀態是列舉(`payment_status` 已經長出第五個值), 而「還該不該寄」是一個問題。**
+    //    而那支 view 與排信用的掃描面**共用同一份述詞** ⇒ 兩邊不會漂。
+    // ⚠️ **它消不掉 race, 只縮小視窗** —— 重驗與真正送出之間仍有一段時間(plan §7)。
+    //    **寫出來的用途不是免責, 是讓下一個人不要以為它關死了。**
+    if (job.eventType === 'bank_order_created') {
+      if (deps.bankOrderMailable === undefined) {
+        // 🔴 **沒注入 dep ⇒ 不寄、計 error**, 而**不是**「維持今天的行為照寄」——
+        //    這封信與付款成功信的 `paidContext` 不同族:那一支「不給」代表**還沒接線**(照寄純文字),
+        //    而這一支「不給」代表**沒有人在守那道錢的閘** ⇒ 📌 **照寄 = 在沒有防線的情況下叫客人匯錢。**
+        result.errors++;
+        continue;
+      }
+      let mailable: BankOrderMailableResult;
+      try {
+        mailable = await deps.bankOrderMailable.isBankOrderStillMailable({ orderId: job.orderId });
+      } catch {
+        // 🔴 讀取本身炸掉 ⇒ fail-closed:不寄、計 error、**不標終態**(下一輪會再看到它)。
+        result.errors++;
+        continue;
+      }
+      if (mailable.kind === 'unavailable') {
+        // 🔴 **「我不知道」與「他不必匯」不是同一件事** ——
+        //    標終態會用一次讀取失敗**永久吞掉**一封信。⇒ 計 error, 留給下一輪。
+        result.errors++;
+        continue;
+      }
+      // 🔴🔴 **快照 vs 現況:三個值一個都不能不一樣**(codex R1-#2/#3)。
+      //    ⛔ ~~只問「那一列還在不在」~~ ⇒ 入列 12,800 之後後台改成 10,000
+      //      ⇒ view 仍回「還該寄」⇒ **照舊寄出快照裡的 12,800/0/12,800**;
+      //      收件人被改成 B 也一樣 ⇒ **信仍寄給快照裡的 A** ⇒ 📌 **訂單與金額寄給前一個地址。**
+      //    ⇒ 🎯 **「還該不該寄」由 view 答, 「我的快照還準不準」由這裡答 —— 兩個問題。**
+      // 🛑 **不寄, 而不是【用新值寄】** —— 用新值寄等於在寄送當下重算一封信的內容,
+      //    而那封信的字面是 Sean 逐字核可的、由整串 `toBe` 鎖著的;
+      //    ⇒ 📌 正確做法是**讓新快照重排一封**(而那一半見下面那段 TODO 與板列)。
+      if (mailable.kind === 'mailable') {
+        const snap = readBankSnapshot(job.payload);
+        if (
+          snap === null ||
+          snap.total !== mailable.currentTotal ||
+          snap.balanceDue !== mailable.currentBalanceDue ||
+          job.recipientEmail !== mailable.currentRecipientEmail
+        ) {
+          // 🔵 標終態 + **自己那個碼** —— 它要答得出「**寄送當下因為快照過期而擋下幾封**」,
+          //    與「這張單不該寄了」是兩種不同的原因, 混成一個碼就再也分不出來。
+          try {
+            const owned = await outbox.markSkippedBankOrderSnapshotStale(job.id, job.attempts);
+            if (!owned) result.staleMarks++;
+          } catch {
+            result.errors++;
+          }
+          // 🛑🛑 **已知缺口, 明寫**:標了終態之後, 那張單**再也排不進來** ——
+          //    pending view 的 anti-join 是 **status-agnostic** 且鍵在 `order_id + event_type`
+          //    ⇒ 📌 **改 `dedup_key` 救不了它**(anti-join 根本不看 dedup_key)。
+          //    ⇒ 🔴 要讓修正後的新快照重排, **anti-join 必須排除這種 skipped 列** ——
+          //      那是一支新的 migration, 已回報主視窗(板列 ⟦b4-BANKNOEMAIL⟧)。
+          //    ⚠️ **而在那之前, 這個方向仍然是對的**:少寄一封 < 寄一個錯的金額給錯的人。
+          continue;
+        }
+      }
+      if (mailable.kind === 'not_mailable') {
+        // 🔵 標終態、**不計 error** —— 它不是故障, 是「這封信不該寄了」。
+        //    🔴 而它落的是**自己那個碼**(`bank_order_not_mailable_at_send`):
+        //    沿用 `order_ineligible` 會讓上游那道閘變成看不見的, 而這一格要答得出
+        //    **「寄送當下才擋下幾封」**。
+        try {
+          const owned = await outbox.markSkippedBankOrderNotMailable(job.id, job.attempts);
+          if (!owned) result.staleMarks++;
+        } catch {
+          // 🔴 標記本身失敗才計 error —— 與姊妹那格同形。
+          result.errors++;
+        }
         continue;
       }
     }

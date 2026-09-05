@@ -128,6 +128,11 @@ export {
   BankOrderScanQueryError,
   type BankOrderCreatedScannerClient,
 } from './email/SupabaseBankOrderCreatedScannerAdapter';
+// 🔴 ⟦b4-BANKNOEMAIL⟧:寄送前重驗 —— 查 still_mailable(與掃描面共用同一份述詞)。
+export {
+  SupabaseBankOrderMailableCheckAdapter,
+  type BankOrderMailableCheckClient,
+} from './email/SupabaseBankOrderMailableCheckAdapter';
 // 🔴 M-4b E4-a(2026-08-22):出貨線的同款窄讀 adapter。**一列 = 一個 (箱, 單) 配對 = 一封信。**
 // 同樣回兩個 email 欄(PII)⇒ server-only + service_role。差集在 SQL view 裡(見該檔檔頭)。
 export {

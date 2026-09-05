@@ -35,6 +35,7 @@ export type * from './ICancelledOrderScanner';
 // 🔴 ⟦b4-BANKNOEMAIL⟧:匯款單成立信的掃描 port(2026-09-06)。與上面兩支【型別不同形】——
 //    它多帶三個金額欄, 因為那封信要印三行金額。
 export type * from './IBankOrderCreatedScanner';
+export type * from './IBankOrderMailableCheck';
 // 🔴 **值 export 要單獨一行** —— 本檔其餘都是 `export type *`(port 檔本來就只有型別)。
 //    而 `SUPPRESS_WHEN_ORDER_INELIGIBLE` 是**執行期要讀的表**, 不是型別
 //    ⇒ 走 `export type *` 會在使用端當場紅(實測 TS1362)。
