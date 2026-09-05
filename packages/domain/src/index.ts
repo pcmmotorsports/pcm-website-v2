@@ -51,6 +51,7 @@ export {
   PCM_REMITTANCE_BRANCH,
   PCM_REMITTANCE_EXPIRE_DAYS,
   remittanceDeadlineLabel,
+  remittanceDeadlineSentence,
   PCM_REMITTANCE_MEMO_INSTRUCTION,
 } from './order/remittance-info';
 export type { OrderCancelKind } from './order/order-cancel-reason';
