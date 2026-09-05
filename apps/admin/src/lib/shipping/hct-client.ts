@@ -31,6 +31,9 @@ import type { HctTransDataFields } from './hct-trans-data';
  *      **它主動說一句假話, 而那句假話會引導出一個破壞性動作。**
  */
 export type HctSubmitOutcome =
+    // 🔴 `amended` 與 `submitted` 分開 —— `R` 代表新竹那邊【本來就有一張】,
+  //    那是狀態不同步的訊號, 不是一次乾淨的新增。
+  | { kind: 'amended'; edelno: string; raw: unknown }
   | { kind: 'submitted'; edelno: string; raw: unknown }
   | { kind: 'rejected'; errMsg: string; raw: unknown }
   /** 🔴 送出去了而不知道結果 ⇒ **不得重送, 先用 `queryEdelno` 問**。 */
@@ -120,6 +123,143 @@ export type HctClientDeps = {
 /** 逾時 —— 沒有它, 一個掛住的連線會讓員工以為畫面壞了而重按。 */
 const TIMEOUT_MS = 20_000;
 
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 SOAP —— 而【那個服務只講 SOAP】, 這是 2026-09-05 打出來的, 不是讀來的
+// ══════════════════════════════════════════════════════════════════════════
+// ⛔ ~~原本這支檔送純 JSON POST(`Content-Type: application/json`)~~ —— **三處都錯**:
+//    ①協定(服務描述的協定計數:SOAP 1.1 ×2 · SOAP 1.2 ×2 · **HTTP POST 0 · application/json 0**)
+//    ②外層鍵 `data` ③參數名大寫 `Company`(服務描述逐字是小寫 `company`)
+//
+// 🎯 **外層形狀是打出來的 —— 四發, 而它們互為對照**(⟦ship-HCTAPI⟧, 正式環境, Sean 本人授權):
+//    ```
+//    密碼留空          ⇒ ErrMsg「公司名稱或密碼錯誤」 ⇒ 信封對
+//    {"data":[{…}]}    ⇒ ErrMsg「資料錯誤請確認」     ⇒ 舊碼送的就是這個
+//    [{…}]             ⇒ ErrMsg「件數錯誤」           ⇒ 🎯 它讀進去了, 在驗欄位
+//    {…}               ⇒ ErrMsg「資料錯誤請確認」
+//    ```
+//    ⇒ 📌 **①③ 回同一句泛用拒絕、② 回欄位層的錯 ⇒ 純陣列是【最有力的候選】。**
+// 🛑🛑 **而它【不是】「完整外層已證實」—— codex must-fix ①, 我把原本的字面改窄了**:
+//    那三發**只送了 `epino` 一欄** ⇒ 它證到的是「**這個外層沒有在解析階段被拒**」,
+//    而「件數錯誤」也可能來自**驗證順序**、缺 `ejamt`、或**陣列筆數**, 不只來自「外層讀懂了」。
+//    ⇒ 🔴 **完整 20 欄下會不會 `success=Y`, 今天沒有測到。**
+//    ⇒ ⇒ 📌 **第一次真的送一張單的時候, 要有人看著它回什麼** —— 不要把這段註解讀成「已經驗過」。
+//      而那三發**互相就是彼此的對照** —— 少了它們, 「② 對」只是我挑的一個答案。
+//    ✅ 四發全部 `success=N` · `edelno=null` ⇒ **零建單**。
+//
+// 🛑 **而失敗的形狀最毒, 這是不改它的代價**:新竹回 **HTTP 200**, 而舊碼只把**非 2xx** 當 unknown
+//    ⇒ 走 `success=N` ⇒ 回 `rejected` ⇒ **員工看到「新竹回了失敗」而不知道是我們自己包錯。**
+const SOAP_NS = 'http://tempuri.org/';
+
+function soapEnvelope(method: string, account: string, password: string, json: string): string {
+  // 🔴 三個參數名**全小寫** —— 服務描述逐字 `<company>` `<password>` `<json>`。
+  //    ⚠️ 2022 版 PDF 寫的是大寫 `Company`, 而**那份是舊的**(2026-09-05 抓線上服務描述訂正)。
+  return `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <${method} xmlns="${SOAP_NS}">
+      <company>${xmlEscape(account)}</company>
+      <password>${xmlEscape(password)}</password>
+      <json>${xmlEscape(json)}</json>
+    </${method}>
+  </soap:Body>
+</soap:Envelope>`;
+}
+
+/** 🔴 一定要跳脫 —— 地址/收件人裡的 `&` 或 `<` 會讓整個信封變成 not-well-formed XML。 */
+function xmlEscape(v: string): string {
+  // 🔴 codex must-fix ③:**XML 1.0 收不下的字元**(C0 控制字元、U+FFFE/U+FFFF)——
+  //    它們穿得過 `JSON.stringify`, 而送出去會產生一個 not-well-formed 的信封
+  //    ⇒ 新竹回 `soap:Fault` 或直接斷 ⇒ 📌 **那一箱卡成 `unknown`, 而出口還沒做。**
+  //    ⇒ 丟掉它們比送出去好:它們在託運單上本來就印不出東西。
+  //    ⚠️ 而 `\t\n\r` 是合法的, 不能一起丟。
+  return v
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function xmlUnescape(v: string): string {
+  return v
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    // 🔴 codex must-fix ②b:**數字實體**(`&#34;` / `&#x22;`)—— 舊版漏了,
+    //    而 .NET 的 XmlWriter 對某些字元就是輸出數字實體 ⇒ 漏了會讓 JSON.parse 失敗 ⇒ 整包變 unknown。
+    .replace(/&#(\d+);/g, (_m, d: string) => String.fromCodePoint(Number(d)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_m, h: string) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&amp;/g, '&'); // 🔴 `&amp;` 一定要**最後**還原, 否則 `&amp;lt;` 會被還原成 `<`
+}
+
+/**
+ * 把 `<方法名Result>` 裡那段 **JSON 字串**挖出來並 parse。
+ * 🛑 **不是 XML parser** —— 它只認一個已知形狀的元素;認不得就回 null 讓呼叫端走 `unknown`。
+ *    📌 **那是刻意的**:一個「盡力猜」的 parser 會把一個我們看不懂的回應變成一個看起來懂的結果。
+ */
+function extractSoapJson(xml: string, method: string): unknown {
+  // 🔴 codex must-fix ②:上限先擋 —— 一個超大 body 會讓下面的 regex 變成一個 CPU 洞。
+  if (xml.length > 256 * 1024) return null;
+  // 🔴 DOCTYPE 一律拒 —— 我們不做 entity 展開, 而一個帶 DOCTYPE 的回應不是我們認得的形狀。
+  if (/<!DOCTYPE/i.test(xml)) return null;
+  // 🔴 **允許 namespace prefix 與屬性**(`<ns:XResult xsi:type="...">`)—— 舊版只認裸標籤 ⇒ 會漏掉合法回應。
+  //    而 `g` 旗標讓我們數得出【有幾個】—— 📌 **多於一個就拒**:
+  //    我們不知道該取哪一個, 而「取第一個」是在猜。
+  const re = new RegExp(`<(?:[A-Za-z0-9_.-]+:)?${method}Result\\b[^>]*>([\\s\\S]*?)</(?:[A-Za-z0-9_.-]+:)?${method}Result>`, 'g');
+  const hits = [...xml.matchAll(re)];
+  if (hits.length !== 1) return null;
+  try {
+    return JSON.parse(xmlUnescape(hits[0]![1] ?? ''));
+  } catch {
+    return null;
+  }
+}
+
+/** 發一發 SOAP。回 `{ ok:true, raw }` 或一個 `unknown` 的理由。 */
+async function soapCall(
+  deps: HctClientDeps,
+  method: string,
+  json: string,
+): Promise<{ ok: true; raw: unknown } | { ok: false; reason: string }> {
+  let res: Response;
+  try {
+    res = await deps.fetchImpl(deps.endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        SOAPAction: `"${SOAP_NS}${method}"`,
+      },
+      body: soapEnvelope(method, deps.account, deps.password, json),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch (err) {
+    // 🔴 網路層炸掉 = **我們不知道那張單有沒有進去** ⇒ 由呼叫端判成 `unknown`。
+    return { ok: false, reason: `network: ${err instanceof Error ? err.name : 'unknown'}` };
+  }
+  if (!res.ok) return { ok: false, reason: `http_${res.status}` };
+  // 🔴🔴 **`res.text()` 也要包在 try 裡** —— codex must-fix ⑥, 我開檔複驗成立:
+  //    headers 回來之後 body 才逾時/斷線 ⇒ 這一行會**丟例外**
+  //    ⇒ 而本 client 的契約是「**不確定就回 `unknown`, 絕不丟**」
+  //    ⇒ 📌 一個丟出去的例外會讓呼叫端走它自己的 catch, 而**那條路不知道「它可能收了」**。
+  let text: string;
+  try {
+    text = await res.text();
+  } catch (err) {
+    return { ok: false, reason: `body_read: ${err instanceof Error ? err.name : 'unknown'}` };
+  }
+  // 🔴 `soap:Fault` = **信封層**的錯(參數名打錯、SOAPAction 錯)⇒ 與業務失敗**不是同一件事**,
+  //    而它們都回 200。⇒ 分開報, 否則「我們包錯了」會被讀成「新竹拒絕了」。
+  if (text.includes('<soap:Fault>') || text.includes('<soap:Fault ')) {
+    return { ok: false, reason: 'soap_fault' };
+  }
+  const raw = extractSoapJson(text, method);
+  if (raw === null) return { ok: false, reason: 'body_not_soap_json' };
+  return { ok: true, raw };
+}
+
+
 /**
  * 送出一張託運單。**成功回貨號;而不確定時回 `unknown`, 絕不回 `failed`。**
  *
@@ -137,35 +277,37 @@ export async function submitTransData(
   // 🔴 閘在最前面 —— 這一行【之前】沒有讀 deps 的任何一格。
   if (!gateOpen(readSubmitGate)) return { kind: 'disabled' };
 
-  let res: Response;
-  try {
-    res = await deps.fetchImpl(deps.endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ Company: deps.account, password: deps.password, data: [fields] }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-  } catch (err) {
-    // 🔴 網路層炸掉 = **我們不知道那張單有沒有進去** ⇒ `unknown`, 不是 `failed`。
-    return { kind: 'unknown', reason: `network: ${err instanceof Error ? err.name : 'unknown'}` };
+  // 🔴 `json` 參數是**一段 JSON 字串**(不是物件)⇒ 要 `JSON.stringify`。
+  //    而外層是**純陣列** —— 那是 2026-09-05 三發打出來的(見上面那段)。
+  const out = await soapCall(deps, 'TransData_Json', JSON.stringify([fields]));
+  // 🔴 任何一種「沒拿到看得懂的回應」都是 `unknown`, 不是 `failed` —— 它可能收了。
+  if (!out.ok) return { kind: 'unknown', reason: out.reason };
+  const raw = out.raw;
+
+  // 🔴🔴 codex must-fix ④:**先驗「這包回應是在講【我們這一箱】」, 再讀它的成敗。**
+  //    舊版直接 `firstRow(raw)` 取第一列 ⇒ 一個**多列**或**講別張單**的回應,
+  //    可以把我們這一箱標成 `submitted` ⇒ 📌 **那是把別人的成功記在我們頭上, 而它不可回收。**
+  if (Array.isArray(raw) && raw.length !== 1) {
+    return { kind: 'unknown', reason: `row_count_${raw.length}` };
   }
-
-  // 🔴 HTTP 非 2xx 同理 —— 5xx 尤其可能是「它收了而回應掉了」。
-  if (!res.ok) return { kind: 'unknown', reason: `http_${res.status}` };
-
-  let raw: unknown;
-  try {
-    raw = await res.json();
-  } catch {
-    // ⚠️ 200 而 body 不是 JSON ⇒ 仍然是 `unknown`:它可能收了。
-    return { kind: 'unknown', reason: 'body_not_json' };
-  }
-
   const row = firstRow(raw);
   // 規格第 11 頁回傳值表:`success`(新增 Y / 修改 R / 失敗 N)· `edelno` 新竹貨號 · `ErrMsg`。
   const success = pick(row, 'success');
   const edelno = pick(row, 'edelno');
-  if ((success === 'Y' || success === 'R') && edelno !== '') {
+  // 🔴 回傳的 `epino` 要等於我們送的那一張 —— 它有回才比;沒回就不比(規格沒保證一定回)。
+  const echoed = pick(row, 'epino');
+  if (echoed !== '' && echoed !== fields.epino) {
+    return { kind: 'unknown', reason: 'epino_mismatch' };
+  }
+  // 🔴 codex must-fix ④b:**`R` 是【修改成功】不是【新增成功】** ——
+  //    規格第 8 頁逐字「當日重複上傳, 視同【更正】資料內容」
+  //    ⇒ 收到 `R` 代表**新竹那邊本來就有一張**, 而我們以為自己是第一次送
+  //    ⇒ 📌 **那是一個「我們的狀態與新竹不同步」的訊號, 不是一個成功。**
+  //    ⇒ 它仍然要記下貨號(那張單是真的), 而**要有人看一眼** ⇒ 交給呼叫端分開處理。
+  if (success === 'R' && edelno !== '') {
+    return { kind: 'amended', edelno, raw };
+  }
+  if (success === 'Y' && edelno !== '') {
     return { kind: 'submitted', edelno, raw };
   }
   if (success === 'N') return { kind: 'rejected', errMsg: pick(row, 'ErrMsg'), raw };
@@ -199,31 +341,30 @@ export async function queryEdelno(
   // 🔴 另一顆 env:唯讀與送出是兩個授權。
   if (!gateOpen(readQueryGate)) return { kind: 'disabled' };
 
-  let res: Response;
-  try {
-    res = await deps.fetchImpl(deps.endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ company: deps.account, password: deps.password, data: epino }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-  } catch (err) {
-    return { kind: 'unknown', reason: `network: ${err instanceof Error ? err.name : 'unknown'}` };
-  }
-  if (!res.ok) return { kind: 'unknown', reason: `http_${res.status}` };
-
-  let raw: unknown;
-  try {
-    raw = await res.json();
-  } catch {
-    return { kind: 'unknown', reason: 'body_not_json' };
-  }
+  // 🔴🔴 **這一支的 `json` 參數要放什麼, 我【沒有量過】。**
+  //    2026-09-05 那四發打的全是 `TransData_Json`, **一發都沒有打 `QueryEDELNO_Json`**
+  //    ⇒ 📌 **信封那一半是量到的(同一個 `.asmx`、同一組參數名), 而 payload 那一半是【推的】。**
+  //    ⇒ 這裡沿用送單那邊被證實的慣例(純陣列 + 欄位物件), 而**它可能是錯的**。
+  //    ⚠️ 錯的症狀:回 `success=N` + 一句我們沒見過的 `ErrMsg` ⇒ 會被讀成 `not_found`
+  //      ⇒ 🔴 **那是【最毒的一種錯】** —— 「查無此單」正是我們用來判定「沒送出去」的依據,
+  //        而一個包錯的請求也印同一個答案。
+  //    ⇒ ⇒ 🛑 **所以在打過一發之前, 不要拿這支的 `not_found` 當作「新竹沒收到」的證據。**
+  //      板列 ⟦ship-HCTAPI⟧ 記著這一格未量。
+  const out = await soapCall(deps, 'QueryEDELNO_Json', JSON.stringify([{ epino }]));
+  if (!out.ok) return { kind: 'unknown', reason: out.reason };
+  const raw = out.raw;
   const row = firstRow(raw);
   const edelno = pick(row, 'edelno');
   if (pick(row, 'success') === 'Y' && edelno !== '') return { kind: 'found', edelno, raw };
-  // ⚠️ 規格範例只給了一個 `"查無資料"` 字串, **沒有完整錯誤清單**
-  //    ⇒ 這裡把「不是明確找到」一律當 `not_found`, 而 `raw` 留著讓人回頭看。
-  return { kind: 'not_found', raw };
+  // 🔴🔴 codex must-fix ⑤:**只有【認得出來的查無】才叫 `not_found`, 其餘一律 `unknown`。**
+  //    ⛔ ~~舊版把「不是明確找到」一律當 not_found~~ —— 而那一句在這條路上特別毒:
+  //    📌 **「查無此單」正是我們用來判定「新竹沒收到」的依據**
+  //      ⇒ 而一個【帳密錯】、【我們包錯】、【空回應】也會走到同一個分支
+  //      ⇒ ⇒ 🛑 **一個我們自己的錯, 會被讀成一張可以放回去重送的單 ⇒ 客人收到兩箱。**
+  //    ⚠️ 而這支的 payload 形狀**一發都沒打過** ⇒ 包錯的機率不是理論值。
+  const err = pick(row, 'ErrMsg');
+  if (err.includes('查無')) return { kind: 'not_found', raw };
+  return { kind: 'unknown', reason: `unrecognised_query_${err || 'empty'}` };
 }
 
 /** 回傳可能是陣列或單一物件 —— 兩種都吃,取第一列。 */

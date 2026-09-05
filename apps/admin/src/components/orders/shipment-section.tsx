@@ -244,7 +244,7 @@ export async function ShipmentSection({
             <span className='text-muted-foreground ml-2 font-normal'>{groups.length} 箱</span>
           </h3>
           <ul className='space-y-3'>
-          {groups.map(({ shipment, lines, hctStatus }) => {
+          {groups.map(({ shipment, lines, hctStatus, hctPlaceholderStuck }) => {
             const voided = shipment.voidedAt !== null;
             const shipped = shipment.shippedAt !== null;
             return (
@@ -315,7 +315,12 @@ export async function ShipmentSection({
                       />
                     )}
                     {shipment.carrierCode === 'hct' && !voided ? (
-                      <ShipmentHctUnknownNotice hctStatus={hctStatus} />
+                      <ShipmentHctUnknownNotice
+                        hctStatus={hctStatus}
+                        shipmentId={shipment.id}
+                        shipmentReference={shipment.shipmentReference}
+                        placeholderStuck={hctPlaceholderStuck}
+                      />
                     ) : null}
                     {shipment.carrierCode === 'hct' && !voided ? (
                       <ShipmentHctSubmitButton

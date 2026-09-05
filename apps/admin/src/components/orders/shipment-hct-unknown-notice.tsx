@@ -1,3 +1,5 @@
+import { ShipmentHctResetButton } from './shipment-hct-reset-button';
+
 // shipment-hct-unknown-notice.tsx — ⟦ship-HCTUNKNOWNSTUCK⟧ 的 UI 那半(乙-2)
 //
 // 🔴🔴 **這一片【只做看得見的那半】, 而那是一個拍板**(主視窗 2026-09-05 乙-2):
@@ -14,16 +16,40 @@
 /** DB 的 `shipments.hct_status` 值域(`20260904140000` 加了 `unknown`)。 */
 export type HctStatus = 'draft' | 'submitted' | 'failed' | 'unknown';
 
-export function ShipmentHctUnknownNotice({ hctStatus }: { hctStatus: string }) {
+export function ShipmentHctUnknownNotice({
+  hctStatus,
+  shipmentId,
+  shipmentReference,
+  placeholderStuck = false,
+}: {
+  hctStatus: string;
+  shipmentId?: string;
+  shipmentReference?: string;
+  /**
+   * 🔴 **甲型(佔位卡住)才給出口** —— 乙型(新竹回過話而我們讀不懂)那顆鈕**不出現**。
+   * 🛑 **不出現, 不是 disabled** —— 📌 一顆 disabled 的鈕會讓人去找「怎麼把它變成可按」,
+   *    而乙型今天**沒有安全的答案**(等 `Q-新竹傳輸方式`)。
+   */
+  placeholderStuck?: boolean;
+}) {
   // 🔴 只有 `unknown` 出聲 —— 其餘三態不畫任何東西。
   //    📌 **一個對每一箱都說話的提示, 會被學會忽略**;而這一句要在它出現時被讀到。
   if (hctStatus !== 'unknown') return null;
+  const canReset =
+    placeholderStuck && shipmentId !== undefined && shipmentReference !== undefined;
   return (
-    <p className='text-destructive mt-1 text-xs font-bold' role='status'>
-      送出結果未知 —— <span className='underline'>不要重送</span>,先查新竹
-      <span className='text-muted-foreground ml-1 font-normal'>
-        (查詢功能未接:新竹傳輸方式待確認)
-      </span>
-    </p>
+    <div className='mt-1'>
+      <p className='text-destructive text-xs font-bold' role='status'>
+        送出結果未知 —— <span className='underline'>不要重送</span>,先查新竹
+        {!canReset && (
+          <span className='text-muted-foreground ml-1 font-normal'>
+            (查詢功能未接:新竹傳輸方式待確認)
+          </span>
+        )}
+      </p>
+      {canReset && (
+        <ShipmentHctResetButton shipmentId={shipmentId} shipmentReference={shipmentReference} />
+      )}
+    </div>
   );
 }
