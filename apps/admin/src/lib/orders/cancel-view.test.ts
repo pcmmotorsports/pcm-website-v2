@@ -1072,3 +1072,31 @@ describe('L0 — `shippedQuantity` 不得進取消算式(source-scan)', () => {
     ).not.toContain('shippedQuantity');
   });
 });
+
+describe('markCancelAllowed —— 第二條路(⟦0a-CARDCANCELNOREFUND⟧ 片②, Sean 2026-09-05 拍甲)', () => {
+  // 🔴 **這一族守的是「兩句話不可以壓成一個布林值」**:
+  //    `canCancel` 答的是「`admin_cancel_order` 收不收」, `markCancelAllowed` 答的是
+  //    「有沒有另一條路(`admin_mark_order_cancelled`)可以把它結掉」。
+  //    ⇒ 📌 一張 `refunded` 的單:**canCancel 必為 false, 而 markCancelAllowed 為 true**。
+  //       合成一個值會讓 UI 送到錯的 RPC 去。
+  it('🔴 refunded 且還沒取消 ⇒ markCancelAllowed=true, 而 canCancel 仍然是 false', () => {
+    const view = buildOrderCancelView(order({ paymentStatus: 'refunded' }));
+    expect(view.markCancelAllowed).toBe(true);
+    // 🔴 這一格與上一格**必須同時成立** —— 只驗前者的話, 把 canCancel 也改成 true 會靜靜通過。
+    expect(view.canCancel).toBe(false);
+    expect(view.blockReasons).toContain('payment_refunded');
+  });
+
+  it('🔴 refunded 而【已經取消過】⇒ false —— 不對一張結掉的單說「按下面把它結掉」', () => {
+    const view = buildOrderCancelView(
+      order({ paymentStatus: 'refunded', cancelledAt: '2026-09-05T00:00:00.000Z' }),
+    );
+    expect(view.markCancelAllowed).toBe(false);
+  });
+
+  it('🔬 負對照:paid / unpaid / partiallyRefunded 一律 false(擋太寬會讓別的單也冒出那顆鈕)', () => {
+    for (const s of ['paid', 'unpaid', 'partiallyRefunded', 'partiallyPaid'] as const) {
+      expect(buildOrderCancelView(order({ paymentStatus: s })).markCancelAllowed).toBe(false);
+    }
+  });
+});

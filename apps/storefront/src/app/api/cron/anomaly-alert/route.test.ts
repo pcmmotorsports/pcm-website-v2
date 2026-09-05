@@ -114,6 +114,7 @@ const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   trackingCorrectedGapUnknown: false,
   trackingCorrectedPendingCount: 0,
   trackingCorrectedNoRecipientCount: 0,
+  trackingCorrectedPayloadUnparseableCount: 0,
   // 🔵 心跳(片3):基準是【讀得到而六支健康】。
   //    🛑 寫 `Unknown: true` 會讓每一格都走 503 那條路 ⇒ 這份 CLEAN 就不 clean 了。
   cronHeartbeatAbnormalCount: 0,
@@ -155,6 +156,13 @@ const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   searchLogTableExists: null,
   searchLogLastRowAt: null,
   searchLogStale: false,
+  syncStaleOpen: 0,
+  syncStaleSuppliers: [],
+  syncOpenRecent: 0,
+  syncSuppliersSeen: 0,
+  syncStaleHours: 6,
+  syncStaleUnknown: true,
+  syncStaleFailed: false,
   stuckBankCount: 0,
   stuckBankOldestCreated: null,
   // 🔵 ⟦b4-PAIDTHENOVERPAID⟧ 第二個世界(2026-09-05)——

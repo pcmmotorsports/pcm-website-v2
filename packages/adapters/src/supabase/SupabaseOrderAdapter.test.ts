@@ -3278,3 +3278,84 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
     ).rejects.toThrow();
   });
 });
+
+/**
+ * ⟦b4-PAIDTHENOVERPAID⟧ **溢付的單走到顯示層時是 `null`,不是負數** —— 這一族守的是
+ * `SupabaseOrderAdapter.ts:918-924` 那道 `raw >= 0 && raw <= orderTotal ? raw : null`。
+ *
+ * 🔴🔴 **為什麼是今天才有這一族**(2026-09-06 線 `-502` 量到):
+ *    主視窗派了一片「在 `balanceDue < 0`(多付)時印帶金額的文案」,而 **那個世界到不了元件**:
+ *    · `toMoneyAmount()` 對負數當場 throw(`packages/domain/src/shared/types.ts:48-50`)
+ *    · 而 adapter 這道 guard 在更早一步就把它收成 `null`
+ *    ⇒ 📌 **那一片會是死碼, 而它的突變測試永遠綠。** 主視窗 2026-09-06 逐字回「乙」:改成釘住這件事。
+ *
+ * 🛑 **而在這一族之前, 這道 guard 是【零測試】的** —— 量法:
+ *    `grep -rl member_order_balance_v packages apps | grep -E '\.test\.tsx?$'` ⇒ 只有本檔,
+ *    而本檔那唯一一處是註解(`:2889`「這一格的 mock 沒有那一發」)⇒ **沒有任何一格餵過那支 view。**
+ *    📌 既有那格拿到的 `balanceDue: null` 是【mock 沒接上】給的, 不是【guard 判的】——
+ *    **兩個世界印同一個 `null`。** 所以下面第一格是正對照:先證明這條路真的通得了。
+ *
+ * 🔬 **突變驗過, 不是「它綠」**:把 guard 的 `raw >= 0 &&` 拿掉 ⇒ 「溢付」那格必須紅
+ *    (實測紅在 `MoneyAmount must be non-negative` —— 那正是它要擋的那個 throw)。
+ */
+describe('⟦b4-PAIDTHENOVERPAID⟧ balance_due guard — 溢付/超上界一律收成 null', () => {
+  /**
+   * 依【表名】分流的 mock:`orders` 走既有那條長鏈,`member_order_balance_v` 走
+   * `.select('balance_due').eq('order_id', id).maybeSingle()`。
+   * 🔴 既有的 `makeMemberDetailClient` 對每一張表回同一條鏈 ⇒ 第二發一定炸進 catch
+   *    ⇒ 它量不到這道 guard。
+   */
+  function makeClientWithBalance(balanceRaw: unknown) {
+    const maybeSingle = vi.fn().mockResolvedValue({ data: MEMBER_DETAIL_ROW, error: null });
+    const neq = vi.fn().mockReturnValue({ maybeSingle });
+    const eqCustomer = vi.fn().mockReturnValue({ maybeSingle, neq });
+    const eq = vi.fn().mockReturnValue({ eq: eqCustomer });
+    const limit = vi.fn().mockReturnValue({ eq });
+    const embedOrder = vi.fn().mockReturnValue({ limit });
+    const ordersSelect = vi.fn().mockReturnValue({ order: embedOrder });
+
+    const balMaybeSingle = vi.fn().mockResolvedValue({ data: { balance_due: balanceRaw }, error: null });
+    const balEq = vi.fn().mockReturnValue({ maybeSingle: balMaybeSingle });
+    const balSelect = vi.fn().mockReturnValue({ eq: balEq });
+
+    const from = vi.fn((table: string) =>
+      table === 'member_order_balance_v' ? { select: balSelect } : { select: ordersSelect },
+    );
+    return { client: { from } as unknown as SupabaseClient, from, balSelect, balEq };
+  }
+
+  // 🟢 正對照:先證明這條路通得了 —— 少了這一格, 底下每一個 `null` 都可能只是 mock 沒接上。
+  it('🟢 正對照:0 ≤ raw ≤ total ⇒ 真的讀出來(不是 null)', async () => {
+    const { client, from, balSelect, balEq } = makeClientWithBalance(3000);
+    const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+    expect(res?.balanceDue).toEqual({ amount: 3000, currency: 'TWD' });
+    // 🔵 順手釘住它問的是哪一支 view、哪一欄、用哪個鍵 —— 換表/換欄名這裡會紅。
+    expect(from).toHaveBeenCalledWith('member_order_balance_v');
+    expect(balSelect).toHaveBeenCalledWith('balance_due');
+    expect(balEq).toHaveBeenCalledWith('order_id', 'o1');
+  });
+
+  it('🔴 溢付(raw = -500)⇒ null,而【不是】負數、也【不是】throw', async () => {
+    // 🛑 這一格是本族的主角:負的 `balance_due` 若原封傳下去, `toMoneyAmount()` 會 throw
+    //    ⇒ 客人的訂單頁整頁 500(比「不印餘額」糟得多)。
+    const { client } = makeClientWithBalance(-500);
+    const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+    expect(res?.balanceDue).toBeNull();
+  });
+
+  it('🔴 超過訂單總額(raw = total + 1)⇒ null —— 那是一個【看起來完全合理的正數】', async () => {
+    // 🔵 成因寫在 adapter `:911-914`:帳本淨額為負(沖銷多過收款)時 `total − paid_total` 會 > total
+    //    ⇒ 客人被要求匯一筆比訂單還多的錢。
+    const { client } = makeClientWithBalance(MEMBER_DETAIL_ROW.total + 1);
+    const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+    expect(res?.balanceDue).toBeNull();
+  });
+
+  it('🔴 非整數 / 非數字 ⇒ null(型別那道也在這裡擋)', async () => {
+    for (const bad of [1234.5, '3000', null, undefined, NaN]) {
+      const { client } = makeClientWithBalance(bad);
+      const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+      expect(res?.balanceDue, `raw=${String(bad)} 沒有被收成 null`).toBeNull();
+    }
+  });
+});

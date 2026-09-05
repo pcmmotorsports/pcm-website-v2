@@ -52,7 +52,9 @@ describe('付款軸狀態機', () => {
     it('未付不可退、倒退、terminal 後、自我轉移 全非法', () => {
       expect(canPaymentTransition('unpaid', 'refunded')).toBe(false); // 未付不可退
       expect(canPaymentTransition('paid', 'unpaid')).toBe(false); // 倒退
-      expect(canPaymentTransition('refunded', 'paid')).toBe(false); // terminal 後
+      // 🔴 2026-09-05 片③:⛔ ~~toBe(false) // terminal 後~~ ⇒ 退款全被作廢要降回 paid
+      //    (Sean 2026-08-22 Q-B=甲;DB 側 migration 20260905440000)
+      expect(canPaymentTransition('refunded', 'paid')).toBe(true);
       expect(canPaymentTransition('paid', 'paid')).toBe(false); // 自我轉移
       expect(canPaymentTransition('unpaid', 'unpaid')).toBe(false);
     });
@@ -79,11 +81,13 @@ describe('付款軸狀態機', () => {
     });
 
     it('partiallyRefunded 的非法邊(不可回 paid / 回未付 / 倒回 partiallyPaid / 未付即退 / 終態後)', () => {
-      expect(canPaymentTransition('partiallyRefunded', 'paid')).toBe(false);
+      // 🔴 [R3 F6] ⛔ ~~toBe(false)~~ ⇒ 部分退款那一筆被作廢 ⇒ v_moved=0 ⇒ DB 算出 paid
+      expect(canPaymentTransition('partiallyRefunded', 'paid')).toBe(true);
       expect(canPaymentTransition('partiallyRefunded', 'unpaid')).toBe(false);
       expect(canPaymentTransition('partiallyRefunded', 'partiallyPaid')).toBe(false);
       expect(canPaymentTransition('unpaid', 'partiallyRefunded')).toBe(false);
-      expect(canPaymentTransition('refunded', 'partiallyRefunded')).toBe(false);
+      // 🔴 2026-09-05 片③:⛔ ~~toBe(false)~~ ⇒ 只作廢掉一部分時 DB 算出的就是 partiallyRefunded
+      expect(canPaymentTransition('refunded', 'partiallyRefunded')).toBe(true);
     });
   });
 

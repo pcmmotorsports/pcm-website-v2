@@ -23,7 +23,12 @@ const NO_PENDING_REFUND = { kind: 'none' } as const;
 
 // 🔴 action 是 `'use server'` 模組(拉 next/cache、next/navigation、supabase)——
 //    本片測的是**表單形狀**,不是 action 行為 ⇒ mock 掉,否則 jsdom 載入即炸。
-vi.mock('../../lib/orders/cancel-actions', () => ({ cancelOrderAction: vi.fn() }));
+// 🔴 **`markOrderCancelledAction` 也要 mock**(片② 2026-09-05 新增的第二個 server action)——
+//    少了它, 任何渲染到 `MarkCancelledForm` 的路徑會炸
+//    `No "markOrderCancelledAction" export is defined on the … mock`。
+//    📌 而**七支檔 mock 這個模組, 而當時只有一支紅** ⇒ 另外六支是【潛伏的】:
+//       它們今天沒渲染到那條路而已。⇒ **模組多一個 export 時, 它的每一份 mock 都要跟上。**
+vi.mock('../../lib/orders/cancel-actions', () => ({ cancelOrderAction: vi.fn(), markOrderCancelledAction: vi.fn() }));
 
 // cancel-order-forms.test.tsx — A13b D4 驗收①-⑥。
 //
