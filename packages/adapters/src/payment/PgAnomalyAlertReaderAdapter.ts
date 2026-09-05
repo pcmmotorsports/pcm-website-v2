@@ -562,10 +562,34 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         }
       }
 
+        /**
+         * ⟦b9-ACLDRIFT5⟧ 片二:讀 `public.pcm_acl_drift_status`(definer view)。
+         * 🔴 **欄名在 SQL 裡是中文** ⇒ 這裡一律 `AS` 成英文別名 ——
+         *    那條「SQL 產出的 key vs TS 讀取的 key」對帳閘比的是別名, 而中文欄名在
+         *    序列化 / 大小寫折疊上多一個會出事的地方。**別名是契約, 不是美觀。**
+         * 🔴 錯誤處理:**catch-all 落 Unknown 並 log** —— 與 bypassRls 那支同一個理由:
+         *    這是最後一發查詢, 而**一支偵測權限的探針不該在權限被收緊那天,
+         *    把金流告警一起殺掉**。view 還沒貼(42P01)也走這條。
+         */
+        let aclDriftRows: Array<Record<string, unknown>> = [];
+        try {
+          const res = await client.query(
+            'SELECT "有漂移" AS drift, "最新這列已被批准" AS approved, "最新這列太舊" AS stale, ' +
+              '"變了的族" AS families, "最新時刻" AS taken_at FROM public.pcm_acl_drift_status',
+            [],
+          );
+          aclDriftRows = res.rows;
+        } catch (err) {
+          const code = (err as { code?: unknown } | null)?.code;
+          console.error(
+            '[anomaly-alert] 🔵 pcm_acl_drift_status 讀失敗 ⇒ 權限漂移那一格落【查不到】(不是「沒有漂移」)',
+            { code },
+          );
+        }
       return parseAlertSummary(
         counts.rows, ids, refundRows, emailRows, shippedRows, orderCreatedRows,
         unpaidCancelledRows, orderCreatedStuckRows, heartbeatRows, bypassRlsRows,
-        trackingCorrectedRows,
+        trackingCorrectedRows, aclDriftRows,
       );
     });
   }
@@ -980,6 +1004,9 @@ function parseAlertSummary(
   //   這是一串**位置參數**, 插中間會讓所有既有呼叫端安靜地錯位一格
   //   (型別全是同一個 `Array<Record<string, unknown>>` ⇒ 🔴 **typecheck 不會紅**)。
   trackingCorrectedRows: Array<Record<string, unknown>>,
+  // 🔵 ⟦b9-ACLDRIFT5⟧ 片二(2026-09-05)。**同樣排在最後** —— 理由見上面那段:
+  //   位置參數插中間會安靜錯位, 而型別全一樣 ⇒ typecheck 不會紅。
+  aclDriftRows: Array<Record<string, unknown>>,
 ): AnomalyAlertSummary {
   const r = rows[0]?.result as Record<string, unknown> | undefined;
   if (!r || typeof r !== 'object') {
@@ -1133,6 +1160,37 @@ function parseAlertSummary(
     bypassRlsPrivilegedCount: typeof brPrivileged === 'number' ? brPrivileged : null,
     bypassRlsTotalRoleCount: typeof brTotal === 'number' ? brTotal : null,
   };
+    /**
+     * ⟦b9-ACLDRIFT5⟧ 片二:權限快照漂移。與 bypassRls 那塊【同一個形狀】:
+     * 只認 boolean;其餘一律當「量不到」(fail-closed)。
+     *
+     * 🔴 **`已批准` 讓 Detected 回 false, 而那【不是消音】** ——
+     *    批准是一個人簽下「那是我貼板造成的」(理由必填)。
+     *    少了這一格, 貼板當天之後會每天寄一封一模一樣的信 ⇒ **那種信會被整批忽略,
+     *    而下一封真的也一起。**
+     * 🔴 **`太舊` 走 Unknown 不走 Detected**:快照太舊 ⇒ 我手上這兩列不足以比較
+     *    ⇒ 那是「量不到」不是「沒有漂移」, 更不是「有漂移」。
+     * 🛑 而它答不出「有沒有人偷改」—— 改掉又改回來, 兩次快照相同 ⇒ 它不會叫。
+     */
+    const ad = aclDriftRows[0];
+    const adDrift = ad?.drift;
+    const adApproved = ad?.approved;
+    const adStale = ad?.stale;
+    const adWellTyped =
+      ad !== undefined && typeof adDrift === 'boolean' && typeof adApproved === 'boolean';
+    const aclDrift = {
+      // 只在【明確 true、明確沒被批准、而且那一列不算太舊】時才叫。
+      aclDriftDetected: adWellTyped && adDrift === true && adApproved === false && adStale !== true,
+      // 🔵 三種都算查不到:view 沒貼 / 讀失敗 / 回了怪型別;外加「太舊」。
+      aclDriftUnknown: !adWellTyped || adStale === true,
+      aclDriftFamilies: typeof ad?.families === 'string' ? (ad.families as string) : null,
+      aclDriftTakenAt:
+        ad?.taken_at instanceof Date
+          ? (ad.taken_at as Date).toISOString()
+          : typeof ad?.taken_at === 'string'
+            ? (ad.taken_at as string)
+            : null,
+    };
   /**
    * 🔴🔴 **三道回應層對帳(codex 2026-08-31 片3 R1 #3/#4)** —— 全部 fail-loud,
    *   因為這一族的失敗形狀是**靜默地看起來健康**, 而那是本片要治的病本身。
@@ -1255,6 +1313,8 @@ function parseAlertSummary(
     orderCreatedStuckUnknown,
     ...cronHeartbeat,
     ...bypassRls,
+      // ⟦b9-ACLDRIFT5⟧ 片二(2026-09-05)
+      ...aclDrift,
     openCount: parseCount(r.open_count, 'open_count'),
     refundingCount: parseCount(r.refunding_count, 'refunding_count'),
     refundingStuckCount: parseCount(r.refunding_stuck_count, 'refunding_stuck_count'),

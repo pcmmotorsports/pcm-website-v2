@@ -121,6 +121,11 @@ const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   cronHeartbeatUnknown: false,
   bypassRlsRevoked: false,
   bypassRlsUnknown: false,
+  // ⟦b9-ACLDRIFT5⟧ 片二(2026-09-05):健康世界 = 沒漂移、讀得到。
+  aclDriftDetected: false,
+  aclDriftUnknown: false,
+  aclDriftFamilies: null,
+  aclDriftTakenAt: null,
   bypassRlsPrivilegedCount: 6,
   bypassRlsTotalRoleCount: 35,
   oldestOpenAgeSeconds: null,

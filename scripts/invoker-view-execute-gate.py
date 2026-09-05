@@ -27,7 +27,26 @@ import subprocess
 import sys
 
 # 🔴 剝掉 SQL 行註解 —— 註解裡最會出現 `security_invoker` 與函式名(本病例的檔頭就有)。
+# 🔴🔴 **而 `COMMENT ON … IS '…'` 的字串也要剝**(2026-09-05 `-mail` 抓到, 那是一發假紅):
+#    `COMMENT ON VIEW … IS '… security_invoker = true …'` 是【字串】不是碼, 而本閘把它當成
+#    「這支檔有 invoker view」⇒ 去找對應的 REVOKE ⇒ 找不到 ⇒ **紅**, 而它 fail-closed。
+#    📌 **一支在【講】 `security_invoker` 的註解, 與一支【是】invoker view 的碼, 對字面尺長得一樣。**
+#
+# 🛑 **而第一版我剝【所有】單引號字串 —— 那把閘自己弄壞了**(selftest 當場紅 2 格):
+#    事後斷言長這樣 `has_function_privilege(…, 'public.fn()', 'EXECUTE')` ——
+#    把它的引號剝掉之後, 閘再也認不出「這支檔有斷言」⇒ **每一支有斷言的檔都變成沒有**。
+#    ⇒ 📌 **一個為了減少誤報的修法, 可以把【該紅的那一側】一起關掉。**
+#    ✅ 所以只剝 `COMMENT … IS` 那一種 —— 範圍窄、理由具體, 而別的字串一個都不動。
+# 🔴 而 `COMMENT … IS` 後面可以是**多段字串相連**(`'a' 'b' 'c';`)——
+#    第一版寫 `(.*?);` 非貪婪 ⇒ 它在【第一個分號】就停, 而分號在最後一段之後
+#    ⇒ 中間那幾段沒被剝到 ⇒ 那支檔仍然紅。實測抓到(2026-09-05)。
+#    ✅ 改成「連續的字串段」逐段吃, 直到不是字串為止。
+COMMENT_STR_RE = re.compile(
+    r"(COMMENT\s+ON\s+[^;]*?\bIS\b)((?:\s*'[^']*')+)", re.I | re.S)
+
+
 def strip_comments(sql: str) -> str:
+    sql = COMMENT_STR_RE.sub(lambda m: m.group(1) + " ''", sql)
     return '\n'.join(re.sub(r'--.*$', '', ln) for ln in sql.split('\n'))
 
 
