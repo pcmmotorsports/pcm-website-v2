@@ -27,7 +27,35 @@
 --    ⇒ **後台訂單列表整頁 500**。而 TS 那側的測試全綠(它們 mock 掉了 client)。
 --
 -- ═══ 為什麼是 `CREATE OR REPLACE VIEW` 而不是 DROP + CREATE ═══
--- 本片**只加欄、不減欄、不改既有欄的順序與型別** ⇒ `CREATE OR REPLACE VIEW` 做得到。
+-- ⛔ ~~本片**只加欄、不減欄、不改既有欄的順序與型別** ⇒ `CREATE OR REPLACE VIEW` 做得到。~~
+--
+-- 🔴🔴 **2026-09-05 訂正 —— 上面那句在第一版【是假的】, 而 Sean 貼下去就紅了**:
+--   逐字 `ERROR: 42P16: cannot change name of view column "goods_axis" to "manual_request_id"`
+--   成因:我把 6 個新欄照 **`orders` 表的欄序**插在 `legacy_display_id` 之後,
+--   而這支 view 的第 36、37 欄是**算出來的** `goods_axis` / `paid_total` ——
+--   ⇒ 新欄一插進中間, 第 36 位就從 `goods_axis` 變成 `manual_request_id` ⇒ **那是【改欄序】不是【加欄】。**
+--   📌 **「我只是加欄」與「我改了欄序」在 diff 上長得一模一樣, 而 PG 分得出來。**
+--
+-- ✅ **修法:6 個新欄一律接在【最後】(`paid_total` 之後)** ⇒ 純附加 ⇒ `CREATE OR REPLACE` 合法。
+-- 🔵 **所以【不必】DROP VIEW** —— ACL(`service_role` / `pcm_readonly`)、`COMMENT ON`、
+--    `security_invoker=true` 全部**原地保留**, 不必再裝一次(那三樣 `DROP` 都會帶走)。
+--
+-- 🔬 **這個修法在拋棄式 PG 17 上兩個世界各表演一發**(2026-09-05, 最小重現):
+--    基線 `SELECT o.id, 'x' AS axis` ⇒ 2 欄
+--    ⛔ 插中間 `SELECT o.id, o.total, 'x' AS axis`
+--       ⇒ `ERROR: cannot change name of view column "axis" to "total"` ← **與 Sean 撞到的同型**
+--    ✅ 附加尾巴 `SELECT o.id, 'x' AS axis, o.total` ⇒ **綠, 3 欄**
+--    ⇒ 📌 **一發紅一發綠 ⇒ 這把尺會動, 修法不是「看起來對」。**
+--
+-- 🔬 **而「逐欄列會不會弄壞 PostgREST embed」也量過了**(這支 view 的 `COMMENT` 逐字寫著
+--    「orders 欄位必須 `o.*` 原樣帶出」⇒ 我逐欄列等於違反那句話的字面):
+--    本機真 PostgREST + 有資料的世界, 打 `?select=id,order_items(id)`:
+--      `o.*` 版(現行)      ⇒ embed **有東西**
+--      **逐欄列版**          ⇒ embed **有東西** ✅
+--      `GROUP BY` 版(契約明文禁的形狀)⇒ embed **空陣列** ⇒ 🔬 **尺會動**
+--    ⇒ 📌 **那句契約真正承重的是「不得 GROUP BY / DISTINCT / join order_items」那半;
+--       `o.*` 那半是【充分而不必要】。** 逐欄列不壞 embed。
+--    ⚠️ **射程**:本機 PostgREST 與正式庫版本未必相同 ⇒ 這證的是機制, 不是正式庫那顆的行為。
 -- ✅ 而它**保留 ACL 與 reloptions** ⇒ `security_invoker = true` 與既有 GRANT 不會掉。
 -- 🔴 **而 `CREATE OR REPLACE VIEW` 不能【減欄】也不能【改欄序】** —— 下一個要動它的人:
 --    若你要拿掉或重排, 那是 DROP + CREATE, 而**那會帶走 ACL**(本檔 §斷言②③ 就是為那天寫的)。
@@ -109,12 +137,6 @@ SELECT
   o.shipping_home_fee,
   o.shipping_method_at_checkout,
   o.legacy_display_id,
-  o.manual_request_id,
-  o.manual_request_payload_sha256,
-  o.cancel_items_untouched,
-  o.coupon_id,
-  o.tax_total,
-  o.invoice_requested,
   -- 🔴 契約②:純量子查詢,不 join、不 GROUP BY。CASE 順序逐字對齊 orderGoodsAxis()。
   --    `#522`:分母一律 `GREATEST(oi.quantity - COALESCE(s.cancelled_quantity, 0), 0)`。
   --    ⚠️ **`GREATEST(…, 0)` 對【回傳值】其實沒有作用**(code-reviewer 2026-08-16 抓的,他是對的):
@@ -180,7 +202,21 @@ SELECT
     SELECT t.paid_total
       FROM public.order_paid_totals_v t
      WHERE t.order_id = o.id
-  ), 0) AS paid_total
+  ), 0) AS paid_total,
+  -- 🔴🔴 **這六欄【必須】在最後, 而那不是風格是硬約束**(2026-09-05 正式庫實測撞到):
+  --    `CREATE OR REPLACE VIEW` **不能改既有欄的名字與位置**, 只能在**尾巴附加**。
+  --    ⛔ 第一版我把它們插在 `legacy_display_id` 之後(照 `orders` 表的欄序)
+  --       ⇒ 第 36 位從 `goods_axis` 變成 `manual_request_id`
+  --       ⇒ Sean 貼下去逐字紅:
+  --         `ERROR: 42P16: cannot change name of view column "goods_axis" to "manual_request_id"`
+  --    ⇒ 📌 **「我只是加欄」與「我改了欄序」在 diff 上長得一樣, 而 PG 分得出來。**
+  --    🔵 而搬到尾巴之後**不必 DROP VIEW** —— ACL、`COMMENT ON`、`security_invoker` 全部原地保留。
+  o.manual_request_id,
+  o.manual_request_payload_sha256,
+  o.cancel_items_untouched,
+  o.coupon_id,
+  o.tax_total,
+  o.invoice_requested
 FROM public.orders o;
 
 -- ═══ 事後斷言 ═══
@@ -198,14 +234,17 @@ BEGIN
 
   -- ② 🔴 **欄數只多一個** —— 重建前實測 37 欄 ⇒ 現在必須是 38。
   --    🛑 少了這一格,「逐欄清單抄漏一欄」會靜靜通過。
-  --    🔬 **41 是唯讀量到的**(重建【前】 view 是 37, 表是 41 ⇒ 差 4 欄, 不只 tax_total 一欄)
-  --       ⇒ 📌 **那 4 欄是 `20260823030000` 之後陸續加的, 而 view 全都沒跟上** ——
-  --         本檔一次補齊。⚠️ **所以這不是「只加稅欄」, 是【view 落後 4 欄】。**
+  --    🔬 **43 是唯讀量到的**(2026-09-05):重建【前】 view **37 欄**, 而它 = **35 個表欄 + 2 個算出來的**
+  --       (`goods_axis` / `paid_total`);`orders` 表 **41 欄** ⇒ **view 缺的是 6 個表欄, 不是 4 個**:
+  --       `manual_request_id` · `manual_request_payload_sha256` · `cancel_items_untouched`
+  --       · `coupon_id` · `tax_total` · `invoice_requested`。
+  --    ⛔ ~~差 4 欄~~ —— **那個 4 是我拿 41−37 減出來的, 而那條減法把 2 個非表欄算成表欄了。**
+  --       📌 **兩個都是量到的數, 而中間那一步是推的** ⇒ 37 + 6 = **43**。
   SELECT pg_catalog.count(*) INTO v_n
     FROM pg_catalog.pg_attribute a
    WHERE a.attrelid = v_oid AND a.attnum > 0 AND NOT a.attisdropped;
-  IF v_n <> 41 THEN
-    RAISE EXCEPTION '斷言②失敗:view 有 % 欄(重建前 37, 期望 41)—— 多或少都要停下來看', v_n;
+  IF v_n <> 43 THEN
+    RAISE EXCEPTION '斷言②失敗:view 有 % 欄(重建前 37, 加 6 欄 ⇒ 期望 43)—— 多或少都要停下來看', v_n;
   END IF;
 
   -- ③ 🔴 `security_invoker` 不可以掉 —— 它掉了, 這支 view 就變成用 owner 的權限讀表。
