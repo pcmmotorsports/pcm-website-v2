@@ -193,13 +193,22 @@ assert domain != first, '🔴 值域只有一個值 ⇒ 這一發突變不可能
 #    🛑 那會**連伴生 view 那條反向的 `IN`(第五份值域)一起突變** ⇒ 這一發同時改了兩個東西
 #       ⇒ 它紅的時候我分不出是哪一個造成的;而 dollar-quoted 區塊 / 區塊註解裡同形的字面也會被掃到。
 #    📌 **一發突變要只有一個受詞** —— 否則「它紅了」答不出「哪一句在守」。
-out, hit = [], 0
+# 🔴🔴 codex R5 ①:⛔ ~~原本 `hit` 數的是【符合前綴的行數】~~ ——
+#    🛑 那**不是取代次數**:`str.replace(a, b)` 預設**取代該行【全部】出現處**
+#       ⇒ 若某一行尾端還有一個同形的值域(例如行尾註解), 那一行會被改 2 處,
+#         而 `hit` 照樣只 +1 ⇒ **改了 8 處而印 hit=4**。
+#    ✅ 兩件事分開釘:①每一行**必須正好出現一次**(否則當場停)②**取代總次數 = 4**。
+#    📌 「有幾行命中」與「改了幾處」是兩個數 —— 而只有後者是這一發突變的爆炸半徑。
+out, lines_hit, repl = [], 0, 0
 for l in s.split('\n'):
     if re.match(r"^ {5}OR o\.order_source NOT IN \(", l):
-        out.append(l.replace(domain, first)); hit += 1
+        c = l.count(domain)
+        assert c == 1, '🔴 目標行裡值域出現 %d 次(應為 1)⇒ 取代會超出目標' % c
+        out.append(l.replace(domain, first, 1)); lines_hit += 1; repl += 1
     else:
         out.append(l)
-assert hit == 4, '🔴 逐行取代只改到 %d 行(應為 4)' % hit
+assert lines_hit == 4, '🔴 命中 %d 行(應為 4)' % lines_hit
+assert repl == 4, '🔴 實際取代 %d 處(應為 4)' % repl
 s = '\n'.join(out)
 sys.stdout.write(s)
 PY

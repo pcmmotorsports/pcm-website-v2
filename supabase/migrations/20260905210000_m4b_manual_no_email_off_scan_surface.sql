@@ -651,12 +651,31 @@ COMMIT;
 -- grep -c '^GRANT SELECT ON'        /tmp/rollback-210000.sql    # 必須是 4
 -- ```
 --    ⚠️ **不是 4 就停下來** —— 那表示 080000 的字面被改過, 而這段抽取式沒跟著改。
+-- 🔴🔴 **而【三族各數 4】仍然答不出「那四個是哪四個」**(codex R5 ②:我上一輪那句話講太滿)——
+--    🛑 抽取式若因為 080000 被改而抽到**別支 view 的四套**, 三族照樣印 4/4/4,
+--       而**那份錯的 SQL 已經先把別支 view 改掉了**(它是 `CREATE OR REPLACE`)。
+--    ⇒ ✅ **名字也要逐一核**(這四行才是回答「是哪四個」的那一格):
+-- ```sh
+-- for V in pcm_order_created_email_pending pcm_shipped_email_pending \
+--          pcm_tracking_corrected_email_pending pcm_unpaid_cancelled_email_pending; do
+--   printf '%s CREATE=%s REVOKE=%s GRANT=%s\n' "$V" \
+--     "$(grep -c "^CREATE OR REPLACE VIEW public.$V$" /tmp/rollback-210000.sql)" \
+--     "$(grep -c "^REVOKE ALL ON public.$V "        /tmp/rollback-210000.sql)" \
+--     "$(grep -c "^GRANT SELECT ON public.$V "      /tmp/rollback-210000.sql)"
+-- done
+-- ```
+--    ✅ **四行都要印 `1 1 1`。任何一格不是 1 就停下來。**
+--    📌 ⛔ ~~上一輪我在這裡寫「三族各數一次才答得出【那四個是哪四個】」~~ —— **那句話是假的**:
+--       數量答的是「有幾個」, 只有**名字**答得出「是哪幾個」。而我把前者說成後者。
+--
 -- 🔴🔴 **`REVOKE` 那一行是 codex R4 ② 補的, 而它補的是一個【真的洞】**:
 --    🔬 實測:把結尾錨那一行刪掉 ⇒ 抽出來的東西少了尾巴, 而 `CREATE=4 / GRANT=4` **照樣印 4/4**;
 --       少抽一條 `REVOKE` ⇒ **`CREATE=4 / GRANT=4 / REVOKE=3`** ——
 --    🛑 ⇒ **原本那兩行數不到 `REVOKE` 那一族** ⇒ 一份**少了一道 REVOKE 的回退**會通過自檢
 --       ⇒ 退完之後那一支 view 對 `anon` 是開的, 而它含兩個 email 欄。
---    📌 **「我量到 4」與「我量對了那四個是哪四個」是兩個宣稱** —— 三族各數一次才答得出第二個。
+--    📌 **「我量到 4」與「我量對了那四個是哪四個」是兩個宣稱** ——
+--       三族各數一次只答得出**第一個問得更細的版本**(哪一族少了);
+--       **第二個要靠上面那四行【逐名】核**(codex R5 ② 訂正)。
 --    🔵 抽取用的是**文字錨**不是行號:080000 是不可變歷史, 而**錨比行號活得久**。
 -- 🔵 那四段本來就是 `CREATE OR REPLACE VIEW` ⇒ **可以直接重跑**, 它們不含前置閘。
 -- 🔵 那四支的**欄位集合沒變** ⇒ `CREATE OR REPLACE` **夠用**, 不必 DROP

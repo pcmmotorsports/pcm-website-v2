@@ -343,11 +343,22 @@ mut_world_ok() {   # $1=rc  $2=名字  $3=突變後【必須不在】的字面  
   # \U0001F534 `coalesce` 是 **SQL 語法, 不是函式** ⇒ 寫 `pg_catalog.coalesce(...)` 會**當場語法錯**,
   #    而 `QV` 把 stderr 丟掉 ⇒ 它回一個**空字串**, 看起來像「函式不在」。我第一版就是這樣紅的。
   #    \U0001F4CC 一個被丟掉的錯誤訊息, 會把「我寫錯了」偽裝成「那個東西不存在」。
-  local SRC; SRC=$(QV -Atc "SELECT p.prosrc
+  # \U0001F534 codex R5 nit:`QV` 的 rc 要自己收 —— 它把 stderr 丟掉,
+  #    ⇒ **語法錯**與**函式不在**都回一個空字串 ⇒ 下面那句話會對兩個很不一樣的世界印同一個答案。
+  #    (我上一輪就是這樣被 `pg_catalog.coalesce` 咬的:它印「函式不在」而其實是我寫錯 SQL。)
+  #    \U0001F6D1 `local X=$(cmd)` 會【吞掉】rc ⇒ 必須拆兩行。
+  local SRC RCQ
+  SRC=$(QV -Atc "SELECT p.prosrc
       FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'pcm_cron' AND p.proname = 'late_payment_pending_refund_sweep'")
+  RCQ=$?
+  if [ "$RCQ" -ne 0 ]; then
+    printf '  🔴 %s:那一發查詢自己失敗了(rc=%s)⇒ 這【不是】「函式不在」, 是尺壞了\n' "$2" "$RCQ"
+    FAILED=$((FAILED + 1)); return 1
+  fi
   if [ -z "$SRC" ]; then
-    printf '  🔴 %s:貼完了而函式不在 ⇒ 下面那一格的 0 只是「從來沒跑過」\n' "$2"; FAILED=$((FAILED + 1)); return 1
+    printf '  🔴 %s:查詢成功而【回空】⇒ 函式真的不在 ⇒ 下面那一格的 0 只是「從來沒跑過」\n' "$2"
+    FAILED=$((FAILED + 1)); return 1
   fi
   if printf '%s' "$SRC" | grep -qF "$3"; then
     printf '  🔴 %s:線上那一版【還帶著】「%s」⇒ 突變沒生效, 下面那一格不算數\n' "$2" "$3"; FAILED=$((FAILED + 1)); return 1
