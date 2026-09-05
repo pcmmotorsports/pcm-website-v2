@@ -172,6 +172,12 @@ describe('🔴 表單送不出 actor —— 那一格在型別與 DOM 上都不�
         //    ⇒ 這張清單是**唯一**會因為 hidden 被刪掉而紅的東西。
         'invoice_requested',
         'invoice_requested',
+        // 🔴🔴 **`notification_email`(片 E)—— 而這張清單就是那個洞的守門。**
+        //    R3 換角度 2026-09-05 抓到:我寫完解析端與 9 格測試, **而畫面上沒有這個 `<input>`**。
+        //    解析端把缺欄當錯 ⇒ **每一張手動單都建不出來**, 與 migration 貼沒貼無關。
+        //    🛑 而三綠全綠、555 測項 0 紅 —— 因為**每一支 fixture 都自己補了那一格**。
+        //    ⇒ 📌 **fixture 補齊的欄位, 在真瀏覽器上不存在。**
+        'notification_email',
         'manual_request_id',
         'order_source',
         'payment_channel',

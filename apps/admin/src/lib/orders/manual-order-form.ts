@@ -25,6 +25,7 @@
 //    📌 這也是一條 finding:`20260824020000:440` 那句「收件 / 發票 / 規格的鍵與值全部 btrim
 //       (空白只打了空白 ⇒ 等於沒填)」**對 tab / 換行不成立** —— 那支 RPC 不在本片射程,只記錄。
 
+import { NotificationEmailInput } from '@pcm/schemas';
 import {
   readSingle,
   readSingleString,
@@ -59,6 +60,19 @@ export const MANUAL_ORDER_SHIP_TO_LINE_FIELD = 'ship_to_line';
  *       (⛔ ~~原本這裡寫「用 `has()` 而不是 `get()`」~~ —— 那是我第一版的寫法, 實碼從來不是。)
  */
 export const MANUAL_ORDER_INVOICE_REQUESTED_FIELD = 'invoice_requested';
+
+/**
+ * 🔴 **通知 email —— 留白 = 不寄**(⟦f3-MAILFALLBACKVSRULING⟧ 片 E;Sean 已拍的語意)。
+ *
+ * 🛑 **它與 `invoice_requested` 那顆勾選【形狀不同】, 不要照抄那一套**:
+ *    checkbox 沒勾時**根本不出現在 payload** ⇒ 那邊才需要 hidden + `getAll()` 三個世界。
+ *    text input **一定會出現**(留白就是空字串)⇒ 這裡用 `get()` 就夠。
+ * ⚠️ **而「缺欄」仍然當錯**(與那一顆同一個判準, 理由不同):
+ *    text input 缺欄 = 這張表單不是本版 ⇒ 放行的話, 員工填的那格會被靜靜丟掉。
+ *    🔵 我想過寬鬆版(缺欄 ⇒ 當作不寄)—— 那**在今天是安全的**(手動單本來就一律不寄),
+ *       而它的代價是:表單與解析端漂開的那一天, **沒有東西會叫**。⇒ 選 fail-loud。
+ */
+export const MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD = 'notification_email';
 export const MANUAL_ORDER_INVOICE_TYPE_FIELD = 'invoice_type';
 export const MANUAL_ORDER_INVOICE_CARRIER_FIELD = 'invoice_carrier';
 export const MANUAL_ORDER_INVOICE_TITLE_FIELD = 'invoice_title';
@@ -221,6 +235,11 @@ export type ManualOrderValues = {
    * 🛑 與 `invoice` 是兩件事:那個講「開的話抬頭寫誰」, 本欄講「開不開」。
    */
   invoiceRequested: boolean;
+  /**
+   * 🔴 **通知 email;`null` = 不寄**(留白就是 `null`, 不是空字串)。
+   * 🛑 空字串會被 `orders_notification_email_valid` 的 `~ '^[!-~]+$'` 擋掉 ⇒ 整張單建不出來。
+   */
+  notificationEmail: string | null;
   shippingFee: number;
   lines: ManualOrderLineInput[];
 };
@@ -554,6 +573,52 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
     };
   }
   const invoiceRequested = invoiceRequestedLast === 'on';
+
+  // 🔴 **驗證重用 `@pcm/schemas` 的 `NotificationEmailInput`, 不在這裡寫第二份。**
+  //    它的四個條件:可列印 ASCII / ≤254 octet / 單一 @ 兩側非空且 domain 含點 / 禁合成域。
+  //
+  // ⛔ ~~「與 `orders_notification_email_valid`(`20260718120000:128-134`)**逐條對齊**」~~
+  // 🔴🔴 **那句話是我寫的, 而它【不成立】**(codex R2 抓到, 我開檔複驗屬實):
+  //    · DB 那條只禁 `line.pcmmotorsports.local` 與它的子網域(`:132-133`)
+  //    · 而 `isSyntheticEmailDomain`(`packages/schemas/src/notification-email.ts:68-72`)
+  //      禁的是**整個 `pcmmotorsports.local` 基底域**與它的**任何**子網域
+  //    ⇒ 例:`u@manual.pcmmotorsports.local` —— **表單拒、DB 收。**
+  // ✅ **而我【不把表單放寬去對齊 DB】**, 三個理由:
+  //    ① 方向:表單比 DB 嚴 ⇒ 擋掉的是「DB 會收但寄不出去」的位址(`.local` 不可路由)
+  //       ⇒ 放寬 = 讓一封注定寄不到的信被登記成「會寄」。**那是往壞的方向對齊。**
+  //    ② `isSyntheticEmailDomain` 是**多處共用**的那一份(註冊擋、outbox 閘都在用)
+  //       ⇒ 為了本片放寬它, 會同時放寬那兩處。
+  //    ③ 兩邊不一致的**代價**只有一種:員工被表單擋下來、看得到一句人話。**那是可接受的。**
+  // 🔬 而這個不一致現在**有測試釘著**(見 `manual-order-form.test.ts` 那族的基底域兩格)
+  //    ⇒ 📌 **它從「我沒發現的分岔」變成「寫下來的選擇」。**
+  // 🛑 **寫第二份的代價不是多幾行, 是【兩份會分岔而沒有東西會叫】** ——
+  //    而分岔的方向若是「這裡比 DB 寬」⇒ 員工看到的錯誤訊息會是一個約束名。
+  // 🔵 用 `readSingle` 而不是 `get()`:它把**缺欄**與**同名欄出現兩次**分開回報,
+  //    而後者是 payload 被動過的訊號 —— `get()` 對那個世界會安靜地回第一個值。
+  const notificationEmailRead = readSingle(form, MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD);
+  if (notificationEmailRead.kind !== 'value') {
+    return {
+      ok: false,
+      error:
+        notificationEmailRead.kind === 'missing'
+          ? '這張表單少了「通知 email」那一格,不能建單。請重新開一張空白建單表單再試一次。'
+          : '「通知 email」那一格的值看不懂,不能建單。請重新開一張空白建單表單再試一次。',
+    };
+  }
+  const notificationEmailTrimmed = notificationEmailRead.value.trim();
+  let notificationEmail: string | null = null;
+  if (notificationEmailTrimmed !== '') {
+    const parsedEmail = NotificationEmailInput.safeParse(notificationEmailTrimmed);
+    if (!parsedEmail.success) {
+      return {
+        ok: false,
+        // 🔴 訊息要講**哪一格**與**留白也可以** —— 員工最常見的下一步就是把它清空。
+        error:
+          '「通知 email」看起來不是一個信箱。請檢查有沒有打錯;這張單不用寄通知的話,把這一格清空就好。',
+      };
+    }
+    notificationEmail = parsedEmail.data;
+  }
   const optionalInvoice = [
     [MANUAL_ORDER_INVOICE_CARRIER_FIELD, 'carrier', '載具'],
     [MANUAL_ORDER_INVOICE_TITLE_FIELD, 'title', '抬頭'],
@@ -611,6 +676,7 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
       shipTo: { name, phone, line },
       invoice,
       invoiceRequested,
+      notificationEmail,
       shippingFee,
       lines,
     },

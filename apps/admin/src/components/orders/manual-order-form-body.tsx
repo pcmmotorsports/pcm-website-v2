@@ -6,6 +6,7 @@ import {
   MANUAL_ORDER_INVOICE_TAX_ID_FIELD,
   MANUAL_ORDER_INVOICE_TITLE_FIELD,
   MANUAL_ORDER_INVOICE_REQUESTED_FIELD,
+  MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD,
   MANUAL_ORDER_INVOICE_TYPE_FIELD,
   MANUAL_ORDER_PAYMENT_CHANNEL_FIELD,
   MANUAL_ORDER_REQUEST_ID_FIELD,
@@ -215,6 +216,24 @@ export function ManualOrderFormBody({
                    「員工看了、決定要開」在資料上是**同一個 `true`** ——
                    而 +5% 那一片會讀這個欄位 ⇒ 📌 **這是一題要端給 Sean 的決策題**
                    (甲:維持預設打勾 / 乙:改成必選、不給預設), **本片不代他決定。** */}
+            {/* 🔴🔴 **通知 email —— 留白 = 不寄**(`⟦f3-MAILFALLBACKVSRULING⟧` 片 E;Sean 已拍)。
+                🛑 **它不屬於發票區**, 只是排版上挨著:發票那幾格講「開給誰」,
+                   這一格講「寄到哪」—— 兩件事, 不要哪天一起收合起來。
+                ⚠️ **不能省** —— 解析端(`manual-order-form.ts` 的 `readSingle`)把**缺欄當錯**,
+                   少了這個 `<input>`, **每一張手動單都建不出來**。
+                🔬 而那正是 R3(換角度)抓到的:我先寫了解析與測試, 而**這一格漏了** ——
+                   三綠全綠、555 測項 0 紅, 因為**每一支 fixture 都自己補了那一格**。
+                   ⇒ 📌 **fixture 補齊的欄位, 在真瀏覽器上不存在。** */}
+            <label className='block text-sm'>
+              <span className='mb-1 block'>通知 email(留白 = 不寄)</span>
+              <input
+                type='email'
+                autoComplete='off'
+                name={MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD}
+                placeholder='要寄訂單通知就填這裡;不寄就留白'
+                className='block w-full rounded-md border px-2 py-1'
+              />
+            </label>
             <label className='flex items-center gap-2 text-sm'>
               <input type='hidden' name={MANUAL_ORDER_INVOICE_REQUESTED_FIELD} value='off' />
               <input
