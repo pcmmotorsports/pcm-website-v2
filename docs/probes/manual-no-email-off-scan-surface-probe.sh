@@ -94,14 +94,18 @@ Q -f "$D/before.sql" > /dev/null 2>&1 || { echo "🔴 before 版建不起來"; Q
 # 再貼【前一版】(080000 那一支, 它把 order_source 加上去)
 Q -f "$BASE" > "$D/base.log" 2>&1 || { echo "🔴 前一版貼不進去"; sed -n '1,5p' "$D/base.log"; exit 1; }
 
-# 三張已付款的單:①顧客站留白 ②手動留白 ③手動有填
+# 四張已付款的單:①顧客站留白 ②手動留白 ③手動有填 ④手動留白
+# 🔴 第五張 M4:**手動 + 留白, 而【未付款也沒取消】** —— 它是 codex R2 ① 那一格的專用單:
+#    它**本來就不在任何一支掃描面上** ⇒ 伴生 view **不得**把它算進來(舊版會)。
+#    🔵 它不影響格1(那一格數的是 `order_created`, 而那支要 `payment_status='paid'`)。
 Q -c "
 INSERT INTO public.customers VALUES ('00000000-0000-0000-0000-0000000000c1','c1@x.test');
 INSERT INTO public.orders (id,display_id,paid_at,created_at,notification_email,customer_user_id,payment_status,order_source)
 VALUES ('00000000-0000-0000-0000-000000000001','W1',now(),now(),NULL,'00000000-0000-0000-0000-0000000000c1','paid','web'),
        ('00000000-0000-0000-0000-000000000002','M1',now(),now(),NULL,'00000000-0000-0000-0000-0000000000c1','paid','manual_phone'),
        ('00000000-0000-0000-0000-000000000003','M2',now(),now(),'staff@x.test','00000000-0000-0000-0000-0000000000c1','paid','manual_line'),
-       ('00000000-0000-0000-0000-000000000004','M3',now(),now(),NULL,'00000000-0000-0000-0000-0000000000c1','paid','manual_other');
+       ('00000000-0000-0000-0000-000000000004','M3',now(),now(),NULL,'00000000-0000-0000-0000-0000000000c1','paid','manual_other'),
+       ('00000000-0000-0000-0000-000000000005','M4',NULL,now(),NULL,'00000000-0000-0000-0000-0000000000c1','unpaid','manual_phone');
 " > /dev/null
 
 chk "格1 貼之前:掃描面上有 4 張(病本身 —— ②④ 不該在這裡)" \
@@ -146,6 +150,10 @@ Q -c "UPDATE public.orders SET notification_email=NULL WHERE display_id='M1'" > 
 # 🔴 080000 有一道「那一欄要還沒有」的前置閘 ⇒ 直接重貼它會紅。
 #    ⇒ 重置要先 DROP 再從 before 版重建, 然後才貼 080000。
 reset_views() {
+  # 🔴 伴生 view 改成【裸 CREATE】之後(codex R2 ③), 重貼會紅在 `already exists`
+  #    ⇒ 而那【不是】每一發突變要驗的那一句 ⇒ 重置一定要連它一起 DROP。
+  #    📌 「它紅了」與「它紅在我要的那一句」是兩個宣稱。(180000 那支探針早就踩過同一條。)
+  Q -c "DROP VIEW IF EXISTS public.pcm_manual_no_email_excluded" > /dev/null
   Q -c "DROP VIEW IF EXISTS public.pcm_order_created_email_pending, public.pcm_shipped_email_pending,
         public.pcm_tracking_corrected_email_pending, public.pcm_unpaid_cancelled_email_pending" > /dev/null
   Q -f "$D/before.sql" > /dev/null 2>&1
@@ -225,8 +233,29 @@ chk "格16b 🔵 而那條防禦【在檔案裡】(拿掉 NOT NULL 的那天它�
   "$(grep -c '^        o.order_source IS NULL$' "$MIG")" 4
 
 # 🔴 codex ⑤:被排除的那些單要【數得到】
-chk "格17 🔴 伴生 view 數得到被排除的那些單(M1/M3 兩張)" \
-  "$(QV -Atc 'SELECT count(*) FROM public.pcm_manual_no_email_excluded')" 2
+# 🔴🔴 codex R2 ①:伴生 view 改成【與四支 pending 的其餘述詞同形】之後,
+#    它的一列 = **一個本來會發生的通知**, 不再是「一張單」。
+#    ⛔ ~~原本這一格期望 2(M1/M3 兩張單)~~ ⇒ ✅ **3** —— 而多的那一列不是 bug:
+#    M1 在 fixture 裡**有一批出貨** ⇒ 它同時會被 `order_created` 與 `order_shipped` 兩支收
+#    ⇒ 被本片拿掉的是【兩個通知】。📌 **兩張單 / 三個通知 —— 這一格量的是後者。**
+chk "格17 🔴 伴生 view 數得到【被拿掉的通知】(M1 兩個 + M3 一個)" \
+  "$(QV -Atc 'SELECT count(*) FROM public.pcm_manual_no_email_excluded')" 3
+chk "格17b 🔵 而【單】只有兩張(surface 那一欄才是它多出來的維度)" \
+  "$(QV -Atc 'SELECT count(DISTINCT order_id) FROM public.pcm_manual_no_email_excluded')" 2
+chk "格17c 🔴 M1 那張要同時出現在兩支掃描面上(少一支 = 少統計一個通知)" \
+  "$(QV -Atc "SELECT string_agg(surface, ',' ORDER BY surface)
+                FROM public.pcm_manual_no_email_excluded WHERE display_id='M1'")" \
+  "order_created,order_shipped"
+# 🔵 負對照:一個不存在的 surface 值域 ⇒ 必須 0(否則上面三格對任何字面都印命中)
+# 🔴🔴 codex R2 ① 的那一格:本來就不在掃描面上的單, 不得被算成「被我們排除掉的」。
+#    🛑 ⛔ ~~舊版伴生 view 只判「手動 + 留白」~~ ⇒ M4 會被它算進去 ⇒ **統計虛高**。
+#    ⇒ 這一格是那個修法【唯一】會印不同答案的地方。
+chk "格17e 🔴 M4(手動留白, 而未付款也沒取消)【不得】出現 —— 它本來就不在掃描面上" \
+  "$(QV -Atc "SELECT count(*) FROM public.pcm_manual_no_email_excluded WHERE display_id='M4'")" 0
+chk "格17f 🟢 正對照:同一把尺對【真的被拿掉的】那張要數得到(否則格17e 的 0 沒有意義)" \
+  "$(QV -Atc "SELECT count(*) FROM public.pcm_manual_no_email_excluded WHERE display_id='M3'")" 1
+chk "格17d 🔵 負對照:一個現造的 surface ⇒ 0" \
+  "$(QV -Atc "SELECT count(*) FROM public.pcm_manual_no_email_excluded WHERE surface='zzz_never_a_surface'")" 0
 chk "格18 🔵 而顧客站留白的那張【不在】它裡面(它不是「所有留白的單」)" \
   "$(QV -Atc "SELECT count(*) FROM public.pcm_manual_no_email_excluded WHERE display_id='W1'")" 0
 chk "格19 🔴 伴生 view 對 anon 不得可讀" \

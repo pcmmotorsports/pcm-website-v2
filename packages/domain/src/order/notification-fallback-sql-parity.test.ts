@@ -48,6 +48,26 @@ describe('SQL 與 TS 的 manual_* 值域要一致(兩份會各自漂)', () => {
     }
   });
 
+  it('🔴 伴生 view 那【第五份】值域也要逐字等於 TS 的陣列', () => {
+    // 🔴🔴 codex R2 ②:上面那格只釘四支 pending view 的 `NOT IN`。
+    //    `pcm_manual_no_email_excluded` 的 CTE 用的是**反向的 `IN`** ——
+    //    形狀不同 ⇒ 上面那把尺**結構上撈不到它** ⇒ 它可以自己漂而全綠。
+    //    ⚠️ 漂掉的症狀與上面那格**不同**:它不會讓信寄錯,
+    //       它會讓「我們排除掉幾張單」這個數字**說錯話**。
+    const lines = sql
+      .split('\n')
+      .filter((l) => /^ {3}WHERE o\.order_source IN \(/.test(l));
+    expect(lines.length, '🔴 SQL 裡找不到伴生 view 那條 IN(或它的形狀被改了)⇒ 這一格量不到東西').toBe(1);
+
+    const expected = `WHERE o.order_source IN (${MANUAL_ORDER_SOURCES_FOR_EMAIL.map(
+      (v) => `'${v}'`,
+    ).join(', ')})`;
+    expect(
+      lines[0]!.trim(),
+      '🔴 伴生 view 的值域與 TS 的陣列不一樣了 ⇒ 被排除的數字算的不是同一群單',
+    ).toBe(expected);
+  });
+
   it('🟢 正對照:同一把尺餵一個 SQL 裡一定有的形狀 ⇒ 找得到', () => {
     expect(sql).toContain('pcm_manual_no_email_excluded');
   });

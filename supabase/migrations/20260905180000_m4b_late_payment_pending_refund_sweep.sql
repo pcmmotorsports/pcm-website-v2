@@ -178,8 +178,9 @@ BEGIN
       --    而症狀是「掃描器每次都補 0 筆」, 與「今天沒東西要補」印同一個數字。
       -- ⚠️ 而 `WHEN OTHERS` **抓不到** query_canceled(57014) 與 assert_failure ⇒ 逾時仍整輪中止,
       --    🔴 **而那時本輪已經補好的列會一起回滾** —— 這一半刻意寫出來, 不只寫「整輪中止」。
-      --    ⚠️ 而**統計趟**(它在寫入之後、不設限)是最可能吃到 57014 的那一段 ——
-      --       見那一段的 handler 註解。**兩處講的是同一件事的兩端。**
+      --    🔵 ⛔ ~~而統計趟是最可能吃到 57014 的那一段~~ —— **已經修掉了**(codex R2 ⑤):
+      --       統計趟有自己的 `WHEN query_canceled`, 它撞逾時**不再**帶走本輪補好的列。
+      --       ⚠️ **而【這一段】(寫入趟自己)撞到別的例外時仍然會**, 那是另一件事。
       v_fail := v_fail + 1;
       RAISE LOG '[late_payment_sweep] order=% 補待退款失敗(%), 本輪其餘照跑', r_row.order_id, SQLERRM;
     END;
@@ -215,19 +216,31 @@ BEGIN
            WHERE a.amount > r.amount_at_cancel) AS short_rails
           FROM public.orders o
          WHERE o.cancelled_at IS NOT NULL) AS t;
-  EXCEPTION WHEN OTHERS THEN
-    -- 🛑 數不出來 ⇒ 用 -1 明示「這一格沒量到」, **不要用 0** —— 0 與「今天沒有」同一個字。
-    -- 🔴🔴 **而這個 handler 接不住 `57014`(statement_timeout / 查詢被取消)**(codex ①):
-    --    統計趟是**不設限的全掃** ⇒ 已取消單量大時它最可能吃到逾時,
-    --    而 57014 **不是可以被 handler 接住的例外** ⇒ 🛑 **整個交易中止**
-    --    ⇒ **這一輪【前面已經補好的那些待退款列, 一起回滾】。**
-    --    ⇒ 📌 而本函式別處寫著「補列不受影響」—— **那句話對 57014 這條路是假的。**
-    --       ⚠️ 那不是一句可以靠註解修好的東西:要真的擋它, 統計趟得走**另一個交易**
-    --       (而 pg_cron 一輪一個交易 ⇒ 那要拆成兩支 job)。**本片不做, 明寫接受。**
-    --    🔵 今天的實際暴露:已取消單存量極小 ⇒ 統計趟遠不到逾時。
-    --       **它會在已取消單長起來的那天開始咬, 而那時症狀是「每輪都補 0 筆」。**
-    v_scanned := -1; v_short := -1; v_void := -1;
-    RAISE WARNING '[late_payment_sweep] 統計那一趟失敗(補列不受影響):%', SQLERRM;
+  EXCEPTION
+    -- 🔴🔴 **`57014` 要【自己一格】** —— codex R2 ⑤ 把「明寫接受」打回來了, 而它是對的。
+    --    ⛔ ~~舊字面:「57014 不是可以被 handler 接住的例外 ⇒ 本片不做, 明寫接受」~~
+    --    🔬 **那句話是【推的】, 而我去量了 —— 它錯了一半**(PG 17.10 拋棄式庫, 兩個世界各餵一發):
+    --    ```
+    --    BEGIN … PERFORM pg_sleep(3) … EXCEPTION WHEN query_canceled THEN …  ⇒ 接到了('caught-57014'),
+    --                                                                          而且【接完還跑得動】
+    --                                                                          ⇒ 寫入趟那兩列都還在(2 列)
+    --    同一段但 handler 寫 WHEN OTHERS                                      ⇒ 接不到 ⇒ 整筆回滾 ⇒ 0 列
+    --    ```
+    --    📌 ⇒ **`WHEN OTHERS` 接不住它是真的, 而「沒有任何 handler 接得住」是假的。**
+    --       `WHEN query_canceled` 明寫出來就接得到(PL/pgSQL 只是把它排除在 `OTHERS` 之外)。
+    --    ✅ ⇒ 統計趟撞逾時 ⇒ **只有統計趟這個子交易回滾**, 寫入趟補好的列**留著**。
+    --
+    -- 🛑 **而它也吞掉【真的 `pg_cancel_backend()`】** —— 兩者同一個 SQLSTATE, 分不出來。
+    --    ⇒ 所以這一格**不是安靜地繼續**:三個數字全設 `-1`、發 WARNING、
+    --      而 `v_fail` 那條路不動(統計失敗不算補救失敗)。
+    --    ⚠️ 有人手動砍這支 job 時, 它會**跑完並回報「統計沒量到」**而不是消失 —— 這是刻意的。
+    WHEN query_canceled THEN
+      v_scanned := -1; v_short := -1; v_void := -1;
+      RAISE WARNING '[late_payment_sweep] 統計那一趟被取消(statement_timeout 或有人 cancel;補好的列【留著】):%', SQLERRM;
+    WHEN OTHERS THEN
+      -- 🛑 數不出來 ⇒ 用 -1 明示「這一格沒量到」, **不要用 0** —— 0 與「今天沒有」同一個字。
+      v_scanned := -1; v_short := -1; v_void := -1;
+      RAISE WARNING '[late_payment_sweep] 統計那一趟失敗(補列不受影響):%', SQLERRM;
   END;
 
   -- 🔴🔴 **R4-MF1:這一段原本排在【統計趟之前】,而 R5 抓到它【第一次沒有真的被移走】。**
@@ -304,8 +317,12 @@ REVOKE ALL ON FUNCTION pcm_cron.late_payment_pending_refund_sweep(integer) FROM 
 
 COMMENT ON FUNCTION pcm_cron.late_payment_pending_refund_sweep(integer) IS
 $c$兜底:把「已取消 + 某軌有正的未退淨額 + 帳本上沒有那一軌未結清列」的單, 補開一列待退款。
-🔴 它【不是】在修一個已知的洞 —— 兩個已知世界(取消已提交 / 同時在飛)都已經有人接。
-它接的是「不論什麼原因漏掉的」, 包含我們還沒想到的。
+🔴🔴 ⛔ ~~兩個已知世界都已經有人接~~ —— **本檔第 9-14 行寫的才是對的**(codex R2 ⑥:同一支檔自相矛盾)：
+`20260905070000:168` 逐字把「取消與請款同時在飛」那個競態**交給本掃描器**(「那個競態改由事後掃描器收」)
+⇒ 🛑 **本掃描器是那個世界的【唯一接手者】, 不是它的兜底。**而 `20260905070000` **今天還沒 apply**
+(2026-09-05 唯讀量到 `pcm_pending_refund_open_for` ⇒ f;正對照 `pcm_pending_refund_amounts` ⇒ t)
+⇒ 📌 **關掉本支 = 那個世界沒有人接。**
+它同時也接「不論什麼原因漏掉的」, 包含我們還沒想到的。
 🔴🔴 驗收條件(Sean 2026-09-05 拍板時看到的那句):**不要用「補了幾筆」當它的驗收** ——
 上線後一個月補 0 筆是它該有的樣子。一個正確的 0 會被讀成失敗, 而那會讓人把它關掉。
 🛑 本函式【不做】腿 B(已收匯款而 payment_status 仍 unpaid)—— 那要翻狀態機, 授權等級不同,
@@ -313,7 +330,10 @@ $c$兜底:把「已取消 + 某軌有正的未退淨額 + 帳本上沒有那一�
 ⚠️ 效能天花板:它對每一張已取消的單呼叫一次 pcm_pending_refund_amounts(STABLE, 內含彙總)
 ⇒ 已取消單量大起來時掃描成本會長。今天存量極小、每 10 分鐘一次 ⇒ 不加索引。
 真的長起來時的修法 = 對 (cancelled_at) 加部分索引, 並給本函式設 statement_timeout。
-⚠️ 一張單失敗不中斷整輪(RAISE LOG 後續跑);而 WHEN OTHERS 抓不到 57014 逾時。$c$;
+⚠️ 一張單失敗不中斷整輪(RAISE LOG 後續跑)。
+🔵 ⛔ ~~而 WHEN OTHERS 抓不到 57014 逾時~~ —— **那半句仍然對, 而結論已經不對了**(codex R2 ⑤):
+統計趟另外掛了 `WHEN query_canceled`(實測 PG 17.10:接得到、接完還跑得動)
+⇒ 統計趟撞逾時**不再帶走本輪補好的列**;三個統計數字會是 `-1`, 而 WARNING 會說。$c$;
 
 -- ══ 2. 排程 ═════════════════════════════════════════════════════════════════
 -- 🔴 `cron.schedule` 是 **by-name upsert** ⇒ 先拍既有 job 快照, 證明我沒動到別人的。

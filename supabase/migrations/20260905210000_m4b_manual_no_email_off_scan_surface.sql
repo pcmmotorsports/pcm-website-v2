@@ -29,12 +29,21 @@
 -- 📌 **兩個順序都不完美, 而只有一個會【累積東西】。**
 -- 🔵 今天兩個都無害 —— 正式庫手動單**總共 0 張**(唯讀量過)。這是寫給第一張手動單之後的人看的。
 --
--- ══ ⚠️ 排除**不是永久決策**(codex ⑦, 明寫接受)═════════════════════════════
+-- ══ ⚠️ 排除**不是永久決策**(codex ⑦ / R2 ⑦:⛔ ~~明寫接受~~ ⇒ **等 Sean 拍板**)══
 -- 一張被排除的單, 之後**補填了信箱**(或 `order_source` 被改)⇒ 它**會回到掃描面**。
 -- 而 cutoff 是**上線那一刻的固定戳** ⇒ 🔴 **那張單當初漏掉的那些事件會【一次補寄】。**
 -- 🛑 **本片【不做】逐事件的「已選擇不寄」狀態** —— 那要一張新表 + 一套寫入端, 是另一片。
--- ✅ **我們接受它**, 而理由是:①補填信箱是**人主動做的**(他知道自己在做什麼)
---    ②補寄的是**這張單自己的**通知(不是別人的)③今天分母是 0。
+-- 🔴🔴 ⛔ ~~✅ 我們接受它~~ —— **那不是我們可以接受的**(codex R2 ⑦, 而它是對的):
+--    「補填信箱之後要不要把那些歷史通知一次寄出去」是**對客人可見、不可回收**的行為
+--    ⇒ 鐵則 12 ⑤ ⇒ 📌 **那是 Sean 的板, 不是我們的「已知接受」。**
+--    🛑 **一個由我們自己寫下的「我們接受」, 讀起來與一筆拍板一模一樣** —— 而它沒有作者。
+-- ⏳ **狀態:已端給 Sean, 等他答。**兩個選項各要動什麼:
+--    甲 補寄(= 今天這支檔的行為):**零改動**;要做的是把它寫進客服/後台話術
+--       ——「補填信箱之前先知道:這張單過去漏掉的通知會一次寄出」。
+--    乙 不補寄:要**一張新表**(單 + 事件種類 + 決定時間)+ **四支 pending view 各再加一條
+--       `NOT EXISTS`** + **一個寫入端**(誰在什麼時候寫進那張表)⇒ 一支新 migration、
+--       四支 view 再改一次;`packages/` 那半不動。
+-- 🔵 而**今天兩個選項的實際差別是 0** —— 正式庫手動單總共 0 張(唯讀量過)。
 -- ⚠️ **而「一次補寄歷史通知」對客人看起來像系統壞了** ——
 --    ⇒ 📌 這一段要留著:第一個遇到它的人才知道那不是 bug, 是這裡決定過的。
 
@@ -310,24 +319,141 @@ WHERE o.payment_status = 'unpaid'
 --    「出貨線當初要另一個 view 是為了**看得見**」)—— **離開掃描面, 而不是消失。**
 -- ⚠️ 而它**只是一個可查的清單**, 今天**沒有人在讀它**(接進 gap_counts / 儀表是下一片)。
 --    📌 這一句明寫, 不假裝它已經有人看。
-CREATE OR REPLACE VIEW public.pcm_manual_no_email_excluded
+-- ══ 🔴🔴 codex R2 ①:上一版只判「手動 + 留白」⇒ 它把【本來就不在掃描面上的單】也算進來 ═══
+--    (還沒付款的 / 兩個信箱都空的 / 已經有 outbox 的)⇒ 📌 **統計虛高, 而虛高的方向是**
+--    「看起來被我們排除掉很多」⇒ 🛑 有人拿它去判「這個決定影響多大」時會判過頭。
+-- ✅ 修法:**與四支 pending view 的【其餘述詞】同形** —— 一支 UNION ALL,
+--    每一塊 = 那支 pending view 的 WHERE **減掉手動那一段**, 再交集「手動 + 留白」。
+--    ⇒ 一列 = 「這張單(這批出貨)本來會進【哪一支】掃描面, 而被本片拿掉了」。
+-- 🔴 值域**只寫一次**(下面那個 CTE)—— 上一版每一支 view 各一份, 五份會各自漂。
+-- 🛑 而**述詞仍然是抄的**(四支 pending 各一份, 這裡再一份)⇒ **它們會漂**,
+--    而今天沒有機械守門把「本 view 的第 N 塊」與「第 N 支 pending view」綁在一起。
+--    ⚠️ 漂掉的症狀:這張表少列或多列 —— **它不會讓信寄錯**, 它只會讓數字說錯話。
+--    📌 這是**已知缺口**, 不是漏掉。要補的話那是另一片(把四支 pending 的述詞抽成函式)。
+-- 🔴 `CREATE`(裸的, 不是 `OR REPLACE`)—— codex R2 ③:新物件用 `OR REPLACE`
+--    ⇒ 撞名時**靜默覆蓋**別人的東西, 而 apply 是綠的。(180000 已經踩過同一條。)
+CREATE VIEW public.pcm_manual_no_email_excluded
   WITH (security_invoker = true) AS
+WITH manual_blank AS (
+  -- 🔴 **這是本檔第五份、也是最後一份值域** —— `notification-fallback-sql-parity.test.ts`
+  --    把它與 TS 那份綁在一起(codex R2 ②)。
+  SELECT o.id AS order_id
+    FROM public.orders o
+   WHERE o.order_source IN ('manual_phone', 'manual_line', 'manual_other')
+     AND nullif(pg_catalog.btrim(o.notification_email, public.pcm_js_trim_whitespace()), '') IS NULL
+)
+-- ① 本來會進 pcm_order_created_email_pending 的
 SELECT
-  o.id           AS order_id,
-  o.display_id   AS display_id,
-  o.order_source AS order_source,
-  o.created_at   AS created_at,
-  o.cancelled_at AS cancelled_at,
-  o.payment_status AS payment_status
+  'order_created'::text AS surface,
+  o.id                  AS order_id,
+  o.display_id          AS display_id,
+  o.order_source        AS order_source,
+  NULL::text            AS shipment_id,
+  NULL::text            AS corrected_at_key
 FROM public.orders o
-WHERE o.order_source IN ('manual_phone', 'manual_line', 'manual_other')
-  AND nullif(pg_catalog.btrim(o.notification_email, public.pcm_js_trim_whitespace()), '') IS NULL;
+JOIN manual_blank mb ON mb.order_id = o.id
+LEFT JOIN public.customers c ON c.user_id = o.customer_user_id
+WHERE o.payment_status = 'paid'
+  AND o.cancelled_at IS NULL
+  AND NOT EXISTS (
+        SELECT 1 FROM public.email_outbox e
+         WHERE e.order_id = o.id
+           AND e.event_type = 'order_created')
+  AND nullif(pg_catalog.btrim(c.email, public.pcm_js_trim_whitespace()), '') IS NOT NULL
+
+UNION ALL
+
+-- ② 本來會進 pcm_shipped_email_pending 的(一批出貨一列, 不是一張單一列)
+SELECT DISTINCT
+  'order_shipped'::text,
+  o.id,
+  o.display_id,
+  o.order_source,
+  s.id::text,
+  NULL::text
+FROM public.shipments s
+JOIN public.shipment_items si ON si.shipment_id = s.id
+JOIN public.order_items oi ON oi.id = si.order_item_id
+JOIN public.orders o ON o.id = oi.order_id
+JOIN manual_blank mb ON mb.order_id = o.id
+LEFT JOIN public.customers c ON c.user_id = o.customer_user_id
+WHERE s.shipped_at IS NOT NULL
+  AND s.deleted_at IS NULL
+  AND nullif(pg_catalog.btrim(c.email, public.pcm_js_trim_whitespace()), '') IS NOT NULL
+  AND NOT EXISTS (
+        SELECT 1 FROM public.email_outbox e
+         WHERE e.event_type = 'order_shipped'
+           AND e.dedup_key = public.pcm_shipped_email_dedup_key(s.id, o.id))
+
+UNION ALL
+
+-- ③ 本來會進 pcm_tracking_corrected_email_pending 的
+SELECT DISTINCT
+  'shipment_tracking_corrected'::text,
+  o.id,
+  o.display_id,
+  o.order_source,
+  s.id::text,
+  public.pcm_tracking_corrected_at_key(s.tracking_corrected_at)::text
+FROM public.shipments s
+JOIN public.shipment_items si ON si.shipment_id = s.id
+JOIN public.order_items oi ON oi.id = si.order_item_id
+JOIN public.orders o ON o.id = oi.order_id
+JOIN manual_blank mb ON mb.order_id = o.id
+LEFT JOIN public.customers c ON c.user_id = o.customer_user_id
+WHERE s.shipped_at IS NOT NULL
+  AND s.deleted_at IS NULL
+  AND s.tracking_corrected_at IS NOT NULL
+  AND nullif(pg_catalog.btrim(s.tracking_number, public.pcm_js_trim_whitespace()), '') IS NOT NULL
+  AND nullif(pg_catalog.btrim(c.email, public.pcm_js_trim_whitespace()), '') IS NOT NULL
+  AND EXISTS (
+        SELECT 1 FROM public.email_outbox e0
+         WHERE e0.event_type = 'order_shipped'
+           AND e0.dedup_key = public.pcm_shipped_email_dedup_key(s.id, o.id)
+           AND e0.status = 'sent'
+           AND e0.sent_at IS NOT NULL
+           AND e0.sent_at < s.tracking_corrected_at)
+  AND NOT EXISTS (
+        SELECT 1 FROM public.email_outbox e
+         WHERE e.event_type = 'shipment_tracking_corrected'
+           AND e.dedup_key = public.pcm_tracking_corrected_dedup_key(s.id, o.id, s.tracking_corrected_at))
+
+UNION ALL
+
+-- ④ 本來會進 pcm_unpaid_cancelled_email_pending 的
+SELECT
+  'order_unpaid_cancelled'::text,
+  o.id,
+  o.display_id,
+  o.order_source,
+  NULL::text,
+  NULL::text
+FROM public.orders o
+JOIN manual_blank mb ON mb.order_id = o.id
+LEFT JOIN public.customers c ON c.user_id = o.customer_user_id
+WHERE o.payment_status = 'unpaid'
+  AND o.cancelled_at IS NOT NULL
+  AND EXISTS (
+        SELECT 1 FROM public.order_cancellations oc
+         WHERE oc.order_id = o.id)
+  AND NOT EXISTS (
+        SELECT 1 FROM public.email_outbox e
+         WHERE e.order_id = o.id
+           AND e.event_type = 'order_unpaid_cancelled')
+  AND nullif(pg_catalog.btrim(c.email, public.pcm_js_trim_whitespace()), '') IS NOT NULL
+;
 
 COMMENT ON VIEW public.pcm_manual_no_email_excluded IS
-$c$「後台手動建的單 + 通知信箱留白」——**依 Sean 拍板不寄, 而被排除在四支 pending view 之外**的那些單。
+$c$「後台手動建的單 + 通知信箱留白」——**依 Sean 拍板不寄, 而被本片從四支 pending view 拿掉**的那些單。
 🔴 它存在的理由是【看得見】:那些單既沒有 outbox 紀錄、也不進 no_recipient_count
 ⇒ 沒有這一支的話, 大量手動留白時心跳與 gap 全綠, 而沒有任何數字說得出這件事在發生。
+🔴 **一列 = 一個【本來會發生的通知】**, 不是一張單:`surface` 說是哪一支掃描面,
+出貨與追蹤更正那兩塊是**一批出貨一列**(`shipment_id` / `corrected_at_key` 才是它們的鍵)。
+📌 ⛔ ~~上一版只判「手動 + 留白」~~(codex R2 ①)—— 那會把**本來就不在掃描面上**的單
+(未付款 / 兩個信箱皆空 / 已有 outbox)一起算進來 ⇒ **統計虛高**。現在四塊各自對齊那支 view 的述詞。
 🛑 而它今天**沒有人在讀**(接進 gap_counts / 儀表是下一片)—— 這一句不要拿掉。
+🛑 述詞是**抄**四支 pending view 的 ⇒ **它們會各自漂**, 而今天沒有機械守門綁住。
+漂掉時它只會讓**數字說錯話**, 不會讓信寄錯 —— 已知缺口, 不是漏掉。
 ⚠️ 它不含 `notification_email`(那一欄留白才會進來)也不含 `customers.email` ⇒ 零 PII;
 而它仍然只給 service_role —— 訂單編號本身也是資訊。$c$;
 
@@ -352,7 +478,7 @@ DECLARE
   v_n   integer;
   v_bad text;
 BEGIN
-  -- ① 三支的定義裡都要有那個述詞。
+  -- ① 【四】支的定義裡都要有那個述詞。(⛔ ~~三支~~ —— 下面那份 IN 清單一直是四個。)
   SELECT pg_catalog.count(*) INTO v_n
     FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
    WHERE n.nspname = 'public' AND c.relkind = 'v'
@@ -427,7 +553,7 @@ BEGIN
     RAISE EXCEPTION '負對照紅了:這把尺對任何字面都印命中 ⇒ 上面兩格不算數';
   END IF;
 
-  -- ③ ACL:三支對 anon / authenticated 都不得可讀(含欄級)。
+  -- ③ ACL:【四】支對 anon / authenticated 都不得可讀(含欄級)。(⛔ ~~三支~~)
   SELECT pg_catalog.count(*) INTO v_n
     FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
    WHERE n.nspname = 'public' AND c.relkind = 'v'
@@ -438,13 +564,74 @@ BEGIN
   IF v_n <> 0 THEN
     RAISE EXCEPTION '自證③:有 % 支對 anon/authenticated 開著(它們含 PII 兩個 email 欄)', v_n;
   END IF;
+
+  -- ⑥ 🔴 **伴生 view 自己**(codex R2 ①/③ 改完之後它換了形狀 —— 而它以前一格都沒有)。
+  --    這一格問三件事:它在不在 / 它是不是 invoker / 它的四塊都在不在。
+  IF pg_catalog.to_regclass('public.pcm_manual_no_email_excluded') IS NULL THEN
+    RAISE EXCEPTION '自證⑥:伴生 view 不存在';
+  END IF;
+  SELECT pg_catalog.count(*) INTO v_n
+    FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname = 'public' AND c.relname = 'pcm_manual_no_email_excluded'
+     AND c.reloptions @> ARRAY['security_invoker=true'];
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION '自證⑥:伴生 view 不是 security_invoker = true';
+  END IF;
+  -- 🔴 四塊各自的 surface 字面都要在定義裡 —— 少一塊 = 少統計一支掃描面, 而它印的還是一個合理的數字。
+  SELECT pg_catalog.string_agg(x, ', ') INTO v_bad FROM (
+    SELECT x FROM unnest(ARRAY['order_created','order_shipped',
+                               'shipment_tracking_corrected','order_unpaid_cancelled']) AS x
+     WHERE pg_catalog.pg_get_viewdef('public.pcm_manual_no_email_excluded'::regclass, true)
+           NOT LIKE '%' || x || '%') q;
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '自證⑥:伴生 view 少了這幾塊 ⇒ %', v_bad;
+  END IF;
+  -- 🔵 負對照:同一把尺餵一個一定不在的字面 ⇒ 必須說「少了它」(否則上面那格恆綠)。
+  IF pg_catalog.pg_get_viewdef('public.pcm_manual_no_email_excluded'::regclass, true)
+     LIKE '%zzz_never_a_surface%' THEN
+    RAISE EXCEPTION '負對照紅了:這把尺對任何字面都印命中 ⇒ ⑥ 不算數';
+  END IF;
+  -- ⑦ ACL:伴生 view 對 anon / authenticated 全關、對 service_role 開。
+  IF pg_catalog.has_any_column_privilege('anon', 'public.pcm_manual_no_email_excluded', 'SELECT')
+     OR pg_catalog.has_any_column_privilege('authenticated', 'public.pcm_manual_no_email_excluded', 'SELECT') THEN
+    RAISE EXCEPTION '自證⑦:伴生 view 對 anon/authenticated 開著';
+  END IF;
+  IF NOT pg_catalog.has_any_column_privilege('service_role', 'public.pcm_manual_no_email_excluded', 'SELECT') THEN
+    RAISE EXCEPTION '自證⑦:service_role 讀不到伴生 view ⇒ 建了等於沒建';
+  END IF;
 END $$;
 
 COMMIT;
 
 -- ══ ROLLBACK ═══════════════════════════════════════════════════════════════
--- 回退 = 把這三支 `CREATE OR REPLACE VIEW` 回 `20260905080000` 那一版(刪掉本支加的那段 AND)。
--- 🔵 **欄位集合沒變** ⇒ 這一次 `CREATE OR REPLACE` **夠用**, 不必 DROP
+-- 🔴🔴 **本支動了【四】支, 而且【新增了第五支】** —— ⛔ ~~原本這裡寫「三支」~~
+--    (codex R2 ④:一個少算一支的回退說明, 會讓照著做的人留下一支沒退回去的 view,
+--     而那支 view 仍然在把單子擋在掃描面外 ⇒ **回退看起來做完了, 而病還在**。)
+--
+-- ── 回退分兩步, 順序不可換 ────────────────────────────────────────
+-- **① 先 DROP 伴生 view**(它是本支【新建】的 ⇒ 回退 = 讓它消失, 不是改它)
+-- ```sql
+-- DROP VIEW IF EXISTS public.pcm_manual_no_email_excluded;
+-- ```
+--   🔵 `IF EXISTS` —— 本支若是在建它之前就掛掉, 這一行仍然要跑得過。
+--   🛑 DROP 會一起帶走它的 ACL 與 `COMMENT ON` —— **而那正是我們要的**(它整支不留)。
+--
+-- **② 再把那【四】支 `CREATE OR REPLACE VIEW` 回 `20260905080000` 那一版**
+--    (刪掉本支加的那段 AND):`pcm_order_created_email_pending` /
+--    `pcm_shipped_email_pending` / `pcm_tracking_corrected_email_pending` /
+--    `pcm_unpaid_cancelled_email_pending` —— **四支, 一支都不能漏**。
+-- 🔵 那四支的**欄位集合沒變** ⇒ `CREATE OR REPLACE` **夠用**, 不必 DROP
 --    (與 080000 的回退不同 —— 那一支是【加欄】, 減欄才要 DROP)。
+-- 🔬 退完自己驗一發(兩個世界會印不同的答案):
+-- ```sql
+-- SELECT pg_catalog.to_regclass('public.pcm_manual_no_email_excluded') IS NULL AS 伴生已消失,
+--        pg_catalog.count(*) FILTER (WHERE pg_catalog.pg_get_viewdef(c.oid, true) LIKE '%manual_phone%')
+--          AS 還帶著述詞的支數
+--   FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+--  WHERE n.nspname = 'public' AND c.relkind = 'v'
+--    AND c.relname IN ('pcm_order_created_email_pending','pcm_shipped_email_pending',
+--                      'pcm_tracking_corrected_email_pending','pcm_unpaid_cancelled_email_pending');
+-- ```
+--   ✅ 退乾淨 = `t` 與 `0`。**任何一個不是, 就是還沒退完。**
 -- 🛑 **而回退要與片 C 的碼一起退** —— 只退本支而 use-case 仍判「不寄」
 --    ⇒ 那些單回到掃描面、而仍然沒有人寫 outbox 列 ⇒ **病原封不動回來。**

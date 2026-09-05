@@ -327,5 +327,57 @@ chk "格29 🧬 全失敗那一輪 failed 要數到" "$(printf '%s' "$J3" | pyth
 chk "格30 🔴 R3-③ 而心跳的 consecutive_failures【不得】是 0" "$(QV -Atc "SELECT consecutive_failures FROM public.sweeper_heartbeat WHERE job_name='pcm-late-payment-sweep'")" 1
 chk "格31 🔴 而 last_failure_at 要有值(否則儀表看不到這一輪炸過)" "$(QV -Atc "SELECT last_failure_at IS NOT NULL FROM public.sweeper_heartbeat WHERE job_name='pcm-late-payment-sweep'")" t
 
+# ══ 🔴🔴 codex R2 ⑤:統計趟撞 statement_timeout 時, 寫入趟補好的列要【留著】═══════
+#    造法:把替身 `pcm_pending_refund_amounts` 換成「**這張單已經有待退款列時才睡**」——
+#    ⇒ 寫入趟(那時還沒有列)**快**、統計趟(那時已經有列了)**慢** ⇒ 只有統計趟撞得到逾時。
+#    🛑 這一格若沒有那個「已經有列才睡」的條件, 寫入趟自己會先被砍掉
+#       ⇒ 它量到的就不是我要驗的那一句了。
+reset_world
+Q -c "DELETE FROM public.order_pending_refunds; DELETE FROM public._probe_amounts;
+      DELETE FROM public.orders; DELETE FROM cron.job;" > /dev/null
+Q -f "$MIG" > /dev/null 2>&1
+Q -c "CREATE OR REPLACE FUNCTION public.pcm_pending_refund_amounts(p_order_id uuid)
+        RETURNS TABLE (rail text, amount bigint) LANGUAGE plpgsql VOLATILE AS \$f\$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM public.order_pending_refunds r WHERE r.order_id = p_order_id) THEN
+          PERFORM pg_sleep(2);
+        END IF;
+        RETURN QUERY SELECT a.rail, a.amount FROM public._probe_amounts a WHERE a.order_id = p_order_id;
+      END \$f\$;
+      INSERT INTO public.orders (id, cancelled_at) VALUES ('00000000-0000-0000-0000-000000000008', now());
+      INSERT INTO public._probe_amounts VALUES ('00000000-0000-0000-0000-000000000008','bank_transfer',800);" > /dev/null
+J4=$(QV -Atc "SET statement_timeout = '600ms'; SELECT pcm_cron.late_payment_pending_refund_sweep()")
+chk "格32 🔴 統計趟被逾時砍掉, 而【整支函式仍然回得出 json】(接住了)" \
+  "$(printf '%s' "$J4" | python3 -c 'import sys,json
+t=sys.stdin.read().strip()
+print("json" if t.startswith("{") else "not-json")')" json
+chk "格33 🔴 而三個統計數字要是 -1(沒量到, 不是 0)" \
+  "$(printf '%s' "$J4" | python3 -c 'import sys,json
+d=json.load(sys.stdin);print(d["scanned"], d["amount_short"], d["voided_skipped"])' 2>/dev/null)" "-1 -1 -1"
+chk "格34 🔴🔴 而寫入趟補好的那一列【還在】—— 這一格就是 codex ⑤ 要的那句話" \
+  "$(QV -Atc "SELECT count(*) FROM public.order_pending_refunds WHERE order_id='00000000-0000-0000-0000-000000000008'")" 1
+
+# 🧬 突變:把 `WHEN query_canceled` 那一格拿掉 ⇒ 57014 逃回 WHEN OTHERS 之外 ⇒ 整筆回滾
+#    ⇒ 格34 那一列**應該消失**。它若還在, 表示上面三格量到的不是這件事。
+reset_world
+Q -c "DELETE FROM public.order_pending_refunds; DELETE FROM public.orders;
+      DELETE FROM public._probe_amounts; DELETE FROM cron.job;" > /dev/null
+python3 - "$MIG" > "$D/mut57014.sql" <<'PY'
+import io, sys
+s = io.open(sys.argv[1], encoding='utf-8').read()
+i = s.index('    WHEN query_canceled THEN')
+j = s.index('    WHEN OTHERS THEN', i)
+sys.stdout.write(s[:i] + s[j:])
+PY
+test -s "$D/mut57014.sql" || { echo "🔴 突變檔是空的"; exit 1; }
+grep -q '^    WHEN query_canceled THEN' "$D/mut57014.sql" \
+  && { echo "🔴 突變沒落在目標上(query_canceled 還在)⇒ 下面那格不算數"; FAILED=$((FAILED + 1)); }
+Q -f "$D/mut57014.sql" > /dev/null 2>&1
+Q -c "INSERT INTO public.orders (id, cancelled_at) VALUES ('00000000-0000-0000-0000-000000000009', now());
+      INSERT INTO public._probe_amounts VALUES ('00000000-0000-0000-0000-000000000009','bank_transfer',900);" > /dev/null
+QV -Atc "SET statement_timeout = '600ms'; SELECT pcm_cron.late_payment_pending_refund_sweep()" > /dev/null 2>&1
+chk "格35 🧬 拿掉那一格之後, 補好的列【被一起回滾】(0)—— 兩個世界印不同的答案" \
+  "$(QV -Atc "SELECT count(*) FROM public.order_pending_refunds WHERE order_id='00000000-0000-0000-0000-000000000009'")" 0
+
 if [ "$FAILED" -eq 0 ]; then echo "🟢 全部通過(格數當場數:上面的 ✅ 行)"; exit 0; fi
 echo "🔴 有 $FAILED 格不符預期 ⇒ 本探針判 FAIL"; exit 1
