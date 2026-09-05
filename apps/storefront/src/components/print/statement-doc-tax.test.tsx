@@ -32,6 +32,7 @@ const ORDER = {
   discountTotal: twd(0),
   taxTotal: twd(0),
   total: twd(18100),
+  balanceDue: null,   // ⟦b4-PARTIALPAIDNOWHERE⟧ null = 算不出來(不是 0)
   shippingMethod: 'home',
   shippingAddress: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
   cancelledAt: null,
@@ -71,6 +72,7 @@ const taxed = (tax: number, discount = 0): MemberOrderDetail => ({
   discountTotal: twd(discount),
   taxTotal: twd(tax),
   total: twd(18000 + 100 - discount + tax),
+  balanceDue: null,   // ⟦b4-PARTIALPAIDNOWHERE⟧ null = 算不出來(不是 0)
 });
 
 describe('客人那張紙:稅額列與小計標籤', () => {

@@ -48,6 +48,7 @@ const ORDER: MemberOrderDetail = {
   discountTotal: money(0),
   taxTotal: money(0),
   total: money(12100),
+  balanceDue: null,   // ⟦b4-PARTIALPAIDNOWHERE⟧ null = 算不出來(不是 0)
   shippingMethod: 'home',
   shippingAddress: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
   cancelledAt: null,
@@ -80,6 +81,10 @@ describe('匯款資訊那一塊(M-4b 段 3)', () => {
     ...ORDER,
     paymentChannel: 'bank_transfer' as const,
     paymentStatus: 'unpaid' as const,
+    // 🔴 ⟦b4-PARTIALPAIDNOWHERE⟧ 之後, 匯款那一塊【要有一個算得出來的餘額才印】——
+    //    這一族原本問的是「帳號印對沒」, 而那個問題的前提是那一塊有出現。
+    //    ⇒ 一筆未付款的單, 餘額就是全額。**不是為了讓測試綠而設的值, 是那個世界真的長這樣。**
+    balanceDue: { amount: ORDER.total.amount, currency: 'TWD' as const },
     paymentMethod: null,
     paidAt: null,
     ...over,
@@ -102,11 +107,28 @@ describe('匯款資訊那一塊(M-4b 段 3)', () => {
     expect(box()).toBeNull();
   });
 
-  it('🔴 ③ 匯款 + 已收一部分錢 ⇒ 那一塊【不可以】出現(否則叫他再匯一次全額)', () => {
-    // 🛑 這一格擋的是「用【不等於 paid】當條件」那個做法。
-    //   payment_status 有五個值, 而 partiallyPaid 已收到一部分 ⇒ 印 total 會叫他重匯全額。
-    render(<OrderDetailView order={bank({ paymentStatus: 'partiallyPaid' as const })} />);
-    expect(box()).toBeNull();
+  it('🔴 ③ 匯款 + 已收一部分錢 ⇒ 那一塊【要出現】, 而印的是【餘額】不是全額', () => {
+    // ⛔ ~~本格原本斷言「那一塊不可以出現」~~ —— 那是 ⟦b4-PARTIALPAIDNOWHERE⟧ 之前的世界:
+    //    當時只印得出 `order.total`, 而對已收訂金的人印全額會叫他重匯 ⇒ **選了不印**。
+    //    📌 而**不印的代價寫在同一份註解裡:那個客人看不到尾款要匯去哪。**
+    // ✅ 2026-09-05 應付餘額落地之後, 我們印得出對的數了 ⇒ 這一格**翻面**:
+    //    它現在守的是「有出現」**而且**「印的是餘額」——
+    //    🛑 少了後半, 把餘額印成 total 這個舊病會【安靜地】通過。
+    render(
+      <OrderDetailView
+        order={bank({
+          paymentStatus: 'partiallyPaid' as const,
+          balanceDue: { amount: toMoneyAmount(3000), currency: 'TWD' as const },
+        })}
+      />,
+    );
+    expect(box(), '已收訂金的單看不到匯款資訊 ⇒ 他不知道尾款要匯去哪').not.toBeNull();
+    const amount = document.querySelector('[data-od-id="order-remittance-amount"]')?.textContent;
+    expect(amount, '應付餘額那一格是空的').toBeTruthy();
+    expect(amount, '應付餘額印成了訂單全額 ⇒ 舊病復發, 客人會再匯一次全額').not.toContain(
+      String(ORDER.total.amount).replace(/\B(?=(\d{3})+(?!\d))/g, ','),
+    );
+    expect(amount).toContain('3,000');
   });
 
   it('🟢 ④ 正對照:匯款 + 已付款 ⇒ 不出現', () => {
@@ -1123,5 +1145,90 @@ describe('稅額那一列與「小計(未稅)」(⟦b4-TAXSURFACES⟧ 第 7 步;
     const row = screen.getByText('稅額').closest('.od-sum');
     expect(row).not.toBeNull();
     expect(row!.querySelector('b')?.textContent).toBe('NT$ 1,605');
+  });
+});
+
+describe('⟦b4-PARTIALPAIDNOWHERE⟧ 應付餘額', () => {
+  // 🔴 每一格都問【兩個世界會不同的值】—— 不是「有沒有渲染」。
+  const money = (n: number) => ({ amount: toMoneyAmount(n), currency: 'TWD' as const });
+  // 🔵 `bank(...)` 住在隔壁那個 describe 裡, 拿不到 ⇒ 這裡自己組一份最小的。
+  //    ⚠️ 而**只補這四欄**:其餘照 `ORDER`, 免得這一族的 fixture 與那一族漂開。
+  const remit = (over: Partial<MemberOrderDetail>): MemberOrderDetail => ({
+    ...ORDER,
+    paymentChannel: 'bank_transfer' as const,
+    paymentStatus: 'partiallyPaid' as const,
+    total: money(10000),
+    balanceDue: money(7000),
+    ...over,
+  });
+
+  it('🔴 只收了訂金:三行都要印(Sean 09-05 拍乙)', () => {
+    render(<OrderDetailView order={remit({})} />);
+    // 訂單金額 10,000 · 已收 3,000(= total − balanceDue)· 應付餘額 7,000
+    expect(document.querySelector('[data-od-id="order-remittance-total"]')?.textContent).toContain('10,000');
+    expect(document.querySelector('[data-od-id="order-remittance-paid"]')?.textContent).toContain('3,000');
+    expect(document.querySelector('[data-od-id="order-remittance-amount"]')?.textContent).toContain('7,000');
+    // 🛑 **而「應付餘額」那一格不得印成 total** —— 那正是本列要修的病。
+    expect(
+      document.querySelector('[data-od-id="order-remittance-amount"]')?.textContent,
+      '應付餘額印成了訂單全額 ⇒ 客人會再匯一次全額',
+    ).not.toContain('10,000');
+  });
+
+  it('🔴 算不出來(balanceDue = null):不印帳號、不印數字, 改印「請聯絡我們」', () => {
+    // 🔵 守的仍是 plan MF① 的核心:**讀不到不得補 0**(補 0 ⇒ 餘額變 total ⇒ 叫他匯全額)。
+    // ⛔ ~~原本這一格斷言「整塊不印」~~ ⇒ 主視窗 2026-09-05 延伸裁改成與 ≤0 同一句話。
+    //    📌 而**這一格真正要守的東西沒有變**:那個數字不准出現。
+    render(<OrderDetailView order={remit({ balanceDue: null })} />);
+    expect(document.querySelector('[data-od-id="order-remittance-contact"]')).not.toBeNull();
+    expect(
+      document.querySelector('[data-od-id="order-remittance-account"]'),
+      '算不出餘額而還是把帳號印出去了',
+    ).toBeNull();
+    expect(document.querySelector('[data-od-id="order-remittance-amount"]')).toBeNull();
+  });
+
+  it('🔴 餘額 0 或負(溢付 / 退貨之後):改印「請聯絡我們」, 不印帳號(Sean 09-05 拍乙)', () => {
+    render(<OrderDetailView order={remit({ balanceDue: money(0) })} />);
+    expect(document.querySelector('[data-od-id="order-remittance-contact"]')).not.toBeNull();
+    expect(
+      document.querySelector('[data-od-id="order-remittance-account"]'),
+      '餘額算不清楚而還是把帳號印出去了',
+    ).toBeNull();
+    // 🔴 **負數(溢付)在這一層【表示不出來】** —— `toMoneyAmount()` 對負數會 throw
+    //    (`domain/src/shared/types.ts:48-49` 逐字 `MoneyAmount must be non-negative`)。
+    //    ⇒ 所以溢付那個世界是在 **adapter** 就被轉成 `null` 的(那裡加了 `raw >= 0`),
+    //      而 `null` 走的正是這同一支「請聯絡我們」。
+    //    🔬 **這一段不是推的**:本格原本餵 `money(-500)`, 而它讓 `toMoneyAmount` 當場 throw
+    //       ⇒ 📌 那同時揭露了一個真的 bug:**溢付的單會讓 mapper 炸掉、整頁 500。**
+    cleanup();
+    render(<OrderDetailView order={remit({ balanceDue: null })} />);
+    expect(document.querySelector('[data-od-id="order-remittance-contact"]')).not.toBeNull();
+  });
+
+  it('⚪ 負對照:已付清(paid)⇒ 兩版都不印 —— 白名單不得放它進來', () => {
+    render(<OrderDetailView order={remit({ paymentStatus: 'paid' as const, balanceDue: money(7000) })} />);
+    expect(document.querySelector('[data-od-id="order-remittance"]')).toBeNull();
+    expect(document.querySelector('[data-od-id="order-remittance-contact"]')).toBeNull();
+  });
+
+  it('⚪ 負對照:部分退款(partiallyRefunded)⇒ 兩版都不印 —— R3 那條「同一畫面兩句話打架」的鎖', () => {
+    // 🔴 同一支檔 `:203-206` 逐字:partiallyRefunded 蘊含之前已全額付款, 而 `paymentCompleted` 對它打 ✅。
+    //    ⇒ 它若進匯款白名單, 同一個畫面會同時印「付款完成 ✅」與「應付餘額 + 銀行帳號」。
+    render(
+      <OrderDetailView
+        order={remit({ paymentStatus: 'partiallyRefunded' as const, balanceDue: money(7000) })}
+      />,
+    );
+    expect(document.querySelector('[data-od-id="order-remittance"]')).toBeNull();
+    expect(document.querySelector('[data-od-id="order-remittance-contact"]')).toBeNull();
+  });
+
+  it('⚪ 負對照:全額退款(refunded)⇒ 不印 —— codex R2 那條「否定式會放它進來」的鎖', () => {
+    // 🔴 若條件寫成 `paymentStatus !== 'paid'`, 這一格會紅:
+    //    全額退款的單 `total` 沒降 ⇒ balanceDue > 0 ⇒ 會叫他再匯一次全額。
+    render(<OrderDetailView order={remit({ paymentStatus: 'refunded' as const, balanceDue: money(10000) })} />);
+    expect(document.querySelector('[data-od-id="order-remittance"]')).toBeNull();
+    expect(document.querySelector('[data-od-id="order-remittance-contact"]')).toBeNull();
   });
 });
