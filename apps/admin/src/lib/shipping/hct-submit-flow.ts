@@ -65,6 +65,8 @@ export function decideSubmit(current: HctCurrentStatus): SubmitDecision {
 export type FlowResult =
   /** 送出去了, 而結果已經交給呼叫端寫進 DB。 */
   | { kind: 'recorded'; status: HctRecordStatus; requestId: string | null; raw: unknown }
+  /** 🔴 `R`(修改成功)—— 貨號是真的, 而它同時是一個要人看的訊號。 */
+  | { kind: 'amended'; requestId: string; raw: unknown; reason: string }
   /** 查到貨號 ⇒ **補記一個已經發生的事實**(不是重送)。 */
   | { kind: 'recovered'; requestId: string; raw: unknown }
   /**
@@ -119,6 +121,21 @@ export async function runHctSubmit(input: RunHctSubmitInput): Promise<FlowResult
       return { kind: 'disabled' };
     case 'submitted':
       return { kind: 'recorded', status: 'submitted', requestId: out.edelno, raw: out.raw };
+    case 'amended':
+      // 🔴🔴 codex must-fix ④b:`R` = 新竹那邊**本來就有一張**, 我們把它【更正】掉了。
+      //    規格第 8 頁逐字「當日重複上傳, 視同【更正】資料內容」。
+      //    ⇒ 📌 **那不是一次乾淨的新增, 是一個「我們的狀態與新竹不同步」的訊號** ——
+      //      我們以為自己是第一次送, 而它說「你之前送過」。
+      //    ⇒ 貨號要記(那張單是真的), 而**要有人看一眼** ⇒ 走 needs_human 而不是靜靜地成功。
+      //    ⚠️ 呼叫端仍要把 `submitted` + 貨號寫進去 —— 那張單存在是事實, 不記才是錯的。
+      return {
+        kind: 'amended',
+        requestId: out.edelno,
+        raw: out.raw,
+        reason:
+          '新竹回「修改成功」而不是「新增成功」⇒ 它那邊【本來就有一張】這個訂單編號的單,' +
+          ' 我們剛剛把它更正掉了。貨號已記, 而請人確認那張單的內容是不是我們要的。',
+      };
     case 'rejected':
       // 🔵 明確被拒 ⇒ `failed`。而 `errMsg` 進 raw, 讓人看得到新竹說了什麼。
       return { kind: 'recorded', status: 'failed', requestId: null, raw: out.raw };

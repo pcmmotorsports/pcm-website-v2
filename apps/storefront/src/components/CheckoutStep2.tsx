@@ -55,6 +55,7 @@
 
 import type { ReactNode } from 'react';
 import type { CustomerAddress, InvoiceType } from '@pcm/domain';
+import { PCM_REMITTANCE_EXPIRE_DAYS } from '@pcm/domain';
 import {
   CheckoutOrderReview,
   CheckoutShippingSummary,
@@ -74,6 +75,12 @@ const INVOICE_TABS: { id: InvoiceType; label: string }[] = [
 ];
 
 export type CheckoutStep2Props = {
+  /** 匯款結帳開關(server 讀、CheckoutView 傳下來)。false ⇒ 第二個選項整塊不渲染。 */
+  bankTransferEnabled: boolean;
+  /** 目前選的付款方式。 */
+  paymentChannel: 'tappay' | 'bank_transfer';
+  /** 換付款方式。 */
+  onPaymentChannelChange: (c: 'tappay' | 'bank_transfer') => void;
   /** 選中的收件地址(= addresses.find(shippingAddrId));undefined 不渲染摘要 body。 */
   currentAddr: CustomerAddress | undefined;
   /** 配送方式顯示字(Q1=A 僅「貨運宅配」)。 */
@@ -118,6 +125,9 @@ export type CheckoutStep2Props = {
 };
 
 export function CheckoutStep2({
+  bankTransferEnabled,
+  paymentChannel,
+  onPaymentChannelChange,
   currentAddr,
   shippingLabel,
   onEditAddress,
@@ -288,12 +298,19 @@ export function CheckoutStep2({
 
         <div className="co-pay-list">
           {/* Q1=A 僅信用卡;ATM 隱藏(§3.2)。單一選項 → checked readOnly(鏡像 e1 配送)。 */}
-          <label className="co-pay is-on">
+          {/* 🔵 ⛔ ~~`checked readOnly`(單一選項)~~ ⇒ 受控 —— 有第二個選項之後它必須能被切走。 */}
+          <label className={`co-pay ${paymentChannel === 'tappay' ? 'is-on' : ''}`}>
             {/* 🔴 aria-label 必要(Fable 對抗審查 F1):外層是 <label>,radio 的可及名稱預設由整個 label
                 內容組成。U2a 之前卡欄是 aria-hidden 的假預覽、不入名稱;U2b 換成**真** TapPayCardFields
                 後不能 aria-hidden(它是互動元素)→ 螢幕閱讀器念這顆 radio 會把「卡號 / 有效期 / CVV /
                 卡片資訊由 TapPay 安全欄位加密處理…」整串一起念出來。顯式 aria-label 蓋掉推導名稱。 */}
-            <input type="radio" name="pay" checked readOnly aria-label="信用卡付款" />
+            <input
+              type="radio"
+              name="pay"
+              checked={paymentChannel === 'tappay'}
+              onChange={() => onPaymentChannelChange('tappay')}
+              aria-label="信用卡付款"
+            />
             <span className="co-pay-radio" />
             <div className="co-pay-body">
               <div className="co-pay-label">信用卡付款</div>
@@ -302,6 +319,38 @@ export function CheckoutStep2({
               {paymentSlot}
             </div>
           </label>
+
+          {/* 🔴🔴 **第二個選項 —— 而它【只在 flag 開的時候存在】**(⟦b4-BANKCHARGESCARD⟧ 片 2)。
+              ⛔ ~~ATM 轉帳不做(plan §3.2 隱藏)→ 只渲染信用卡單一選項~~
+              ⇒ Sean 2026-09-04 推翻了那個隱藏;2026-09-05 拍
+                「`Q-匯款結帳: 甲 = 要, 上線前做完`」。
+              🔵 **結構逐字照稿**(`design-reference/components/CheckoutPage.jsx` 的 `co-pay` 那一塊:
+                 `label.co-pay` > `input[type=radio][name=pay]` + `span.co-pay-radio` +
+                 `div.co-pay-body` > `.co-pay-label` + `.co-pay-desc`)。
+              🛑 **而【說明文字】沒有照抄稿** —— 稿上寫「下單後 **3 個工作天**內未繳款,訂單自動取消」,
+                 而**系統真的做的是 5 天**(`PCM_REMITTANCE_EXPIRE_DAYS = 5`,
+                 cron `interval '5 days'`)⇒ 📌 **照抄會印一個【假的期限】給客人。**
+                 ⇒ ✅ 用常數算,不寫死數字;而**那句話的字面**已端主視窗轉 Sean(見 commit body)。
+              ⚠️ **標籤字面也待答**:稿寫「ATM 轉帳」,而我們做的是**匯到公司固定帳號 + 備註填單號**,
+                 不是 ATM 虛擬帳號 ⇒ 兩者不是同一種東西。暫用稿的字面,**已列入待答**。 */}
+          {bankTransferEnabled && (
+            <label className={`co-pay ${paymentChannel === 'bank_transfer' ? 'is-on' : ''}`}>
+              <input
+                type="radio"
+                name="pay"
+                checked={paymentChannel === 'bank_transfer'}
+                onChange={() => onPaymentChannelChange('bank_transfer')}
+                aria-label="ATM 轉帳"
+              />
+              <span className="co-pay-radio" />
+              <div className="co-pay-body">
+                <div className="co-pay-label">ATM 轉帳</div>
+                <div className="co-pay-desc">
+                  下單後 {PCM_REMITTANCE_EXPIRE_DAYS} 天內未完成匯款,訂單自動取消
+                </div>
+              </div>
+            </label>
+          )}
         </div>
       </section>
 

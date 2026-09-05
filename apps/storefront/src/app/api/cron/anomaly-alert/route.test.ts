@@ -126,6 +126,12 @@ const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   aclDriftUnknown: false,
   aclDriftFamilies: null,
   aclDriftTakenAt: null,
+  // ⟦b4-RETRYGAVEUPNOWATCHER⟧(2026-09-05):健康世界 = 零張放棄、讀得到。
+  settleRetryGaveUpCount: 0,
+  settleRetryGaveUpUnknown: false,
+  settleRetryGaveUpOldest: null,
+  settleRetryGaveUpSampleIds: [],
+  settleRetryGaveUpTracked: 0,
   bypassRlsPrivilegedCount: 6,
   bypassRlsTotalRoleCount: 35,
   oldestOpenAgeSeconds: null,
@@ -170,6 +176,10 @@ const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   emailStuckSendingCount: null,
   emailQuotaConfirmedCount: null,
   emailQuotaSuspectedCount: null,
+  pcmIncidentOpenTotal: 0,
+  pcmIncidentUnknown: false,
+  pcmIncidentOldest: null,
+  pcmIncidentByKind: {},
 };
 
 // 🔵 notifier 要是**可觀察**的 —— 舊的 `[{}]` 只是佔位, 收不到「有沒有寄」。
@@ -490,6 +500,30 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
     expect(JSON.stringify(errSpy.mock.calls)).toContain('get_order_created_gap_counts');
     errSpy.mockRestore();
     delete process.env.B4_DEPLOY_CUTOFF;
+  });
+
+  it('[被吞掉的失敗] 🔴🔴 pcmIncidentUnknown ⇒ 503 + 記失敗心跳(不得安靜回 200)', async () => {
+    /**
+     * ⟦b4-PENDINGREFUNDSILENT⟧ —— codex 2026-09-05 must-fix ⑤:
+     * 我把 `pcmIncidentUnknown` 接進 adapter / summary / route, **而只在 fixture 裡寫了 false**
+     * ⇒ 📌 **把 route 那個新分支整段刪掉, 這支測試照樣全綠。**
+     * 🛑 回 200 等於宣稱「今天沒有被吞掉的失敗」—— 而那張表上的每一列都代表
+     *    「有人匯了錢而退款單沒開成」。**「查不到」與「沒有」在這裡是兩件事。**
+     */
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, pcmIncidentUnknown: true });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeReq(bearer()));
+    expect(res.status, '讀不到而回 200 ⇒ 監控把「查不到」讀成健康').toBe(503);
+    expect(hbFailSpy, '503 而沒記失敗心跳 ⇒ 心跳那條線會以為它今天跑成功了').toHaveBeenCalled();
+    // 🔴 斷言 log 裡有函式名 —— 那是「兩個世界」(還沒 apply / 真的壞了)唯一分得開的東西。
+    expect(JSON.stringify(errSpy.mock.calls)).toContain('get_pcm_incident_health');
+    errSpy.mockRestore();
+  });
+
+  it('[被吞掉的失敗] 🔵 而 Unknown=false 時不得 503 —— 證明上一格不是恆紅', async () => {
+    checkSpy.mockResolvedValueOnce({ ...CLEAN_RESULT, pcmIncidentUnknown: false });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
   });
 
   it('[取消信收件人] 🔴🔴 起始線有設而新 RPC 讀不到 ⇒ 503(不得安靜回 200)', async () => {

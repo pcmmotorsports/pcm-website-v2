@@ -23,6 +23,7 @@
 // 退化(對齊 account/page.tsx):customers row missing(PGRST116、極罕)/ RLS 異常 → tier='general' +
 //   name 退化 user_metadata.name → 'PCM 會員';addresses adapter error → 空陣列 + console.error,頁面不 500。
 
+import { isBankTransferCheckoutEnabled } from '@/lib/payment/bank-transfer-flag';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -97,7 +98,13 @@ export default async function CheckoutRoute() {
   }
 
   return (
+    // 🔴🔴 **flag 由【server】讀,當 prop 傳下去 —— 不做 `NEXT_PUBLIC_` 鏡像。**
+    //    `bank-transfer-flag.ts` 是 `import 'server-only'`,而那是刻意的:
+    //    它擋的不是「功能沒做好」,是**一個會讓客人兩邊都付錢的洞**(見該檔檔頭)。
+    //    🛑 **一顆安全 flag 有兩份來源時, 關掉的人只會關到他知道的那一份。**
+    //    ⇒ 📌 所以它只有一份, 而 client 拿到的是**這一次 render 的快照**, 不是它自己的副本。
     <CheckoutView
+      bankTransferEnabled={isBankTransferCheckoutEnabled()}
       addresses={addresses}
       memberName={memberName}
       memberTier={memberTier}

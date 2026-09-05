@@ -40,6 +40,7 @@ import {
   type ShipmentItemInput,
   getHctShipment,
   recordHctSubmit,
+  resetHctUnknownToDraft,
 } from './shipment-repository';
 
 export type SubmitShipmentInput = {
@@ -397,6 +398,56 @@ export async function unvoidShipmentAction(args: {
  * 🔵 回傳含 `changed` —— 片 C(自動重寄更正信)靠它:**單號沒真的變就不寄**,
  *    否則員工重按一次就轟炸客人一封。
  */
+/**
+ * 把【佔位卡住】的箱子放回 `draft` —— 而**它要一句人證**。
+ *
+ * 🔴🔴 **`attestation` 由【人打字】, 不是打勾。**
+ *    📌 一個「打勾同意」擋不住習慣性點擊, 一個「要打字」擋得住 ——
+ *      而這個動作的代價是**客人可能收到兩箱**, 那值得多花五秒。
+ * 🛑 **TS 這一層先擋一次空白, 而 DB 那一層【也】擋** —— 兩層不是保險, 它們擋的是不同的東西:
+ *    · TS 擋的是「使用者按了而送出一句空字串」的**體驗**(給得出人看得懂的訊息)
+ *    · DB 擋的是「有人繞過這支 action 直接呼叫 RPC」的**正確性**
+ *    ⇒ 少了 TS 這層, 人會看到一句 Postgres 的錯誤訊息;少了 DB 那層, 繞過去就沒有守門。
+ */
+export async function resetHctUnknownToDraftAction(args: {
+  shipmentId: string;
+  shipmentReference: string;
+  attestation: string;
+}): Promise<VoidResult> {
+  const auth = await authorizeAdminMutation();
+  if (auth === null) return { ok: false, message: NO_ACTOR_MESSAGE };
+  // 🔴 **在呼叫 RPC【之前】擋** —— 而那個順序是這一格的全部意義:
+  //    擋在後面的話, 一句空證詞已經跑過一次不可回收的 DB 動作了。
+  if (args.attestation.trim() === '') {
+    auditLog('shipment.hct_reset_unknown', auth, 'fail', { shipment_id: args.shipmentId });
+    return {
+      ok: false,
+      message:
+        '請先打電話向新竹確認【他們沒有這張單】, 並把確認結果打進去(例:「14:30 電話向新竹陳小姐確認, 查無此單」)。' +
+        ' 🔴 沒有那通電話就不要放回草稿 —— 放回去之後有人重送, 代價是客人收到兩箱。',
+    };
+  }
+  auditLog('shipment.hct_reset_unknown', auth, 'attempt', { shipment_id: args.shipmentId });
+  try {
+    await resetHctUnknownToDraft({
+      shipmentReference: args.shipmentReference,
+      // 🔴 `actor` 由【這裡】給, 不由 client 送 —— client 送得了任何字串。
+      actor: auth.actorId,
+      // 🔴 動態 import:`../audit/context` 讀 `next/headers` ⇒ server-only,
+      //    而本檔會被 client 元件 import ⇒ 頂層 import 會讓整支檔在 client 那側炸。
+      requestId: await (await import('../audit/context')).getRequestId(),
+      attestation: args.attestation,
+    });
+    revalidatePath('/orders');
+    auditLog('shipment.hct_reset_unknown', auth, 'ok', { shipment_id: args.shipmentId });
+    return { ok: true };
+  } catch (e) {
+    auditLog('shipment.hct_reset_unknown', auth, 'fail', { shipment_id: args.shipmentId });
+    // 🔵 RPC 的錯誤訊息本身就寫了「五道閘有一道不成立, 而不要調條件讓它變成 1」⇒ 直接給人看。
+    return { ok: false, message: e instanceof Error ? e.message : '放回草稿失敗' };
+  }
+}
+
 export async function updateShipmentTrackingAction(args: {
   idempotencyKey: string;
   shipmentId: string;
@@ -652,6 +703,20 @@ export async function submitShipmentToHctAction(args: {
         revalidatePath('/orders');
         auditLog('shipment.hct_submit', auth, 'ok', { shipment_id: args.shipmentId });
         return { ok: true, kind: 'recovered', requestId: result.requestId };
+      case 'amended':
+        // 🔴🔴 `R`(修改成功)—— 新竹那邊**本來就有一張**這個訂單編號的單。
+        //    ✅ 貨號照記(那張單是真的, 不記才是錯的);
+        //    🔴 而稽核記 `fail` 不是 `ok` —— **它不是一次乾淨的成功, 它是一個要人看的訊號**
+        //      ⇒ 📌 記成 `ok` 會讓它混進「今天送成功幾張」裡, 而那正是它最需要被看見的地方。
+        await recordHctSubmit({
+          shipmentReference: row.shipmentReference,
+          status: 'submitted',
+          requestId: result.requestId,
+          raw: result.raw,
+        });
+        revalidatePath('/orders');
+        auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
+        return { ok: false, kind: 'needs_human', message: result.reason };
       // 🔵 nit②:這三種也要留稽核 —— 少了它, 「有人按了而沒送成」在 log 上是**一片空白**,
       //    而空白與「沒有人按過」是同一個東西。
       case 'disabled':

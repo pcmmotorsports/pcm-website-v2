@@ -58,6 +58,21 @@ import 'server-only';
  * ⚠️ **射程**:本 flag 只擋【顧客站結帳】這條路。後台 `admin_create_manual_order` 的
  *   現金/匯款那條**不受它管**, 也不該受 —— 那條是員工手動建單, 沒有客人連按兩下的形狀。
  */
+/**
+ * 🔴🔴 **2026-09-05:這顆 flag 的【意義變了】—— 而那不是它自己改的,是別片改的。**
+ *
+ * ⛔ **在片 2 之前**:就算把它翻開,顧客站也**送不出 `bank_transfer`**
+ *    (`CheckoutView.tsx` 兩處寫死 `paymentChannel: 'tappay' as const`)
+ *    ⇒ 📌 **翻開它是【無害】的** —— 沒有任何客人走得進那條路。
+ * ✅ **片 2 之後**(⟦b4-BANKCHARGESCARD⟧,本次):結帳頁有第二個選項、而它**只在這顆 flag 開時渲染**
+ *    ⇒ 🛑 **翻開它就真的讓客人走進那條路。**
+ *    而那條路今天的結局是 `charge-actions.ts` 的 fail-closed:
+ *    **單已經建好了,而畫面給他一句通用錯誤訊息** —— 片 1 才會修它。
+ *
+ * 🎯 **⇒ 翻開這顆 flag 的成本從「零」變成「一個客人會下單成功而看到錯誤訊息」。**
+ * 🛑 **而【改變一顆安全 flag 的意義】不該是某一片的副作用** —— 所以它寫在這裡,不只寫在那一片的 commit 裡。
+ * 📌 下一個想翻它的人:先確認 ⟦b4-BANKCHARGESCARD⟧ 片 1(分岔)已經上線。
+ */
 export function isBankTransferCheckoutEnabled(): boolean {
   return process.env.BANK_TRANSFER_CHECKOUT_ENABLED === 'true';
 }

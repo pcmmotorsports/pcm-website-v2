@@ -138,6 +138,7 @@ function worstOrder(): AdminOrderSummary {
     orderSource: 'web',
     paymentChannel: 'bank_transfer',
     total: { amount: toMoneyAmount(1536000), currency: 'TWD' },
+    taxTotal: { amount: toMoneyAmount(0), currency: 'TWD' },
     customerUserId: 'cu-1',
     customerName: WORST.customerName,
     shippingAddress: { name: '收件人', phone: '0912345678', line: '台北市信義區 1 號' },

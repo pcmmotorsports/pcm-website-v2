@@ -658,6 +658,60 @@ extensions.show_trgm('王小明')  ⇒ 0      ← 抽零,實錘成立
 即使 `show_trgm('王小明')` 是 0。
 ⇒ **「斷言索引真的被用到」(EXPLAIN 類)在本機無判別力;「斷言索引存在且是 trgm」不受影響。**
 
+## 5b. 🔴🔴 **重播環境比正式庫【新】時, 權限字串斷言會整支 ROLLBACK**
+
+> 加這一段的是線【DB】`-db`(2026-09-05), 主視窗 `-f8` 裁「加, 不動 210000 的閘」。
+> **它不是理論** —— 下面那兩行是當天從重播 log 逐字抄的。
+
+**症狀**:一支**寫得完全正確**的 migration 在重播裡紅在自己的事後閘, 而錯誤訊息看起來像
+「ACL 跟正本不符」⇒ 讀的人會去查 ACL, 而 ACL 沒有問題。
+
+**實例**:`supabase/migrations/20260902210000_m4b_pfeddl2_staging_and_sync_log.sql:568`
+```
+正本  service_role=DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE            (7)
+實得  service_role=DELETE,INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE   (8)
+```
+> ⚠️ **上面兩行的欄位內容是逐字的, 而【外框那兩根直線被我拿掉了】。**
+> 原始 log 是 `‹兩根直線›正本‹兩根直線› …` 這個形狀。拿掉的理由是
+> `.husky` 的 md 表格閘會把含直線的行讀成表格列而擋下 commit ——
+> 🔵 在 fenced code block 裡它其實不會被丟掉(**那是一次假指控**), 而我沒有繞過它。
+> 📌 要對照原文請直接看那支 migration 的 `:568`, 那裡才是正本。
+差的**只有一個字**:**`MAINTAIN`**。
+
+**機制**:`MAINTAIN` 是 **PostgreSQL 17 才有的表權限**, 而它是**隨版本進來的**——
+- 本機拋棄式叢集 = **PG 17.10**(`postgres --version` 當場量)
+- 正式庫 = **PG 17.6**(`SELECT current_setting('server_version')` 唯讀量)
+
+⇒ 📌 **同一份 `pg_default_acl` 在兩邊展開出來的字串不一樣長。**
+把「正本」寫死成正式庫那一串的斷言, 在比較新的本機上**必然**多出一個字而 RAISE。
+
+🔴🔴 **而真正咬人的不是那一支紅, 是它的【連鎖】**:
+那支檔 `BEGIN;`(:54) … `COMMIT;`(:569) 包成一個交易 ⇒ RAISE ⇒ **整支 ROLLBACK**
+⇒ 它在 :250-251 建的 `CREATE ROLE pcm_readonly` **也被抹掉了**(NOTICE 明明印過)
+⇒ 🛑 **好幾支之後**(⛔ ~~70 支之後~~ 是初稿寫錯的數, codex 2026-09-05 抓到 —— 我寫那個量詞時**沒有數過**), `20260905230000_m4b_admin_order_list_v_tax_total.sql:261` 才報
+```
+ERROR:  role "pcm_readonly" does not exist
+```
+⇒ 🎯 **報錯的地方離病灶好幾支遠, 而錯誤訊息指向的是一個完全正確的斷言。**
+   📌 **距離【幾支】不是重點, 【中間隔著別支】才是** —— 那就是「離病灶遠」這件事本身。
+   ⚠️ 而一個沒量過的量詞會讓這一段讀起來比實際嚴重 —— 這一行本身就是那個實例。
+
+**怎麼分辨(兩個世界要印不同的東西)**
+1. 先看**紅的那一支自己的 log 第一行**有沒有 `NOTICE` —— 有 NOTICE 而最後 ERROR ⇒ 它跑了一半才回捲。
+2. 把兩邊版本各量一次, **不要憑記憶**:
+   ```
+   postgres --version                                   ← 本機
+   SELECT pg_catalog.current_setting('server_version');  ← 正式庫(唯讀)
+   ```
+3. 兩個數字不同 ⇒ **權限字串類的斷言全部進入嫌疑名單**, 不只紅的那一支。
+
+⚠️ **本段答不出什麼**:它答「為什麼這一族會紅」, **答不出「要不要修那道閘」** ——
+那是那支 migration 那條線的判斷(2026-09-05 `-f8` 裁:**不修 210000**, 只記本段)。
+🛑 也**不要**因為讀了本段就把權限字串斷言放寬 —— 那些斷言擋住過真的 ACL 漂移;
+   要改的是**斷言的寫法**(忽略版本新增的權限位), 不是斷言的存在。
+
+---
+
 ## 6. 收攤(逐 PID 驗,不看指令回傳)
 
 ```bash

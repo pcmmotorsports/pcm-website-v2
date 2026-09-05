@@ -586,10 +586,57 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
             { code },
           );
         }
+        /**
+         * ⟦b4-RETRYGAVEUPNOWATCHER⟧:被 settle-retry 放棄的匯款單。
+         * 🔴 錯誤處理與上一支同款 **catch-all 落 Unknown 並 log** —— 這是最後一發查詢,
+         *    而一支偵測「單修不好」的探針不該在函式沒 apply 的那幾天把金流告警一起殺掉。
+         */
+        let gaveUpRows: Array<Record<string, unknown>> = [];
+        try {
+          const res = await client.query(
+            'SELECT public.get_settle_retry_gaveup_health() AS result',
+            [],
+          );
+          gaveUpRows = res.rows;
+        } catch (err) {
+          const code = (err as { code?: unknown } | null)?.code;
+          console.error(
+            '[anomaly-alert] 🔵 get_settle_retry_gaveup_health 讀失敗 ⇒ 那一格落【查不到】(不是「零張」)',
+            { code },
+          );
+        }
+
+        /**
+         * ⟦b4-PENDINGREFUNDSILENT⟧(2026-09-05, Sean 拍甲的下半:「小事故表 + **告警信多一列**」):
+         * 被刻意吞掉的「開待退款失敗」留痕。
+         * 🔴 錯誤處理與上兩支同款 **catch-all 落 Unknown 並 log** —— 這支 RPC 隨
+         *    `20260905290000`(貼板 36)才會存在, 而在它貼進去之前這裡每天都會走 catch。
+         *    ⇒ 📌 **一支還沒 apply 的探針不該把整封金流告警一起殺掉。**
+         */
+        let incidentRows: Array<Record<string, unknown>> = [];
+        try {
+          // 🔴🔴 **這一句【必須是字面字串】, 不可以用 `${INCIDENT_FN}` 樣板** ——
+          //   codex 2026-09-05 must-fix ①:`anomaly-alert-key-contract.test.ts` 用正則從**這支檔**
+          //   抽函式名, 再去比對 SQL 端與 TS 端的 key。樣板字面抽不到
+          //   ⇒ 📌 **這一族的三個 key 會【完全沒有契約測試保護】, 而那支測試照樣全綠。**
+          //   ⇒ 那正是「守門看不到你, 而它印綠」那一族。
+          const res = await client.query(
+            'SELECT public.get_pcm_incident_health() AS result',
+            [],
+          );
+          incidentRows = res.rows;
+        } catch (err) {
+          const code = (err as { code?: unknown } | null)?.code;
+          console.error(
+            '[anomaly-alert] 🔵 get_pcm_incident_health 讀失敗 ⇒ 那一格落【查不到】(不是「沒有事故」)',
+            { code },
+          );
+        }
+
       return parseAlertSummary(
         counts.rows, ids, refundRows, emailRows, shippedRows, orderCreatedRows,
         unpaidCancelledRows, orderCreatedStuckRows, heartbeatRows, bypassRlsRows,
-        trackingCorrectedRows, aclDriftRows,
+        trackingCorrectedRows, aclDriftRows, gaveUpRows, incidentRows,
       );
     });
   }
@@ -904,6 +951,9 @@ const SHIPPED_FN = 'get_shipped_email_gap_counts';
 const ORDER_CREATED_FN = 'get_order_created_gap_counts';
 const UNPAID_CANCELLED_FN = 'get_order_unpaid_cancelled_gap_counts';
 const TRACKING_CORRECTED_FN = 'get_tracking_corrected_gap_counts';
+// 🔵 `get_pcm_incident_health` **刻意不做成常數** —— 呼叫那一句必須是字面字串,
+//    否則 `anomaly-alert-key-contract.test.ts` 的正則抽不到函式名(codex must-fix ①)。
+//    ⇒ 📌 一個為了 DRY 而抽出來的常數, 會讓一道守門看不見這一族。
 /** PG `raise_exception` —— plpgsql 的 `RAISE EXCEPTION` 預設就是這個 SQLSTATE。 */
 const RAISE_EXCEPTION = 'P0001';
 
@@ -917,6 +967,18 @@ const RAISE_EXCEPTION = 'P0001';
  *    📌 那不是假綠,是**紅在對的時候、指向錯的地方** —— 一樣會浪費掉那個晚上。
  */
 function parseCount(v: unknown, field: string, fn = 'get_payment_anomaly_alert_summary'): number {
+  // 🔴🔴 **空白字串要在轉型【之前】擋掉** —— ⟦b4-PARSECOUNTEMPTYZERO⟧(codex 2026-09-03 MF6)。
+  //    🛑 `Number('') === 0`,而 `0` 通過下面那三關(finite / >= 0 / integer)⇒ **回一個健康的 0**。
+  //      ⇒ 📌 **一個壞掉的回應被吞成「今天沒有異常」** —— 而那正是這支 adapter 在防的事。
+  //    🔵 `null` / `undefined` / 物件**本來就 throw**(`typeof` 兩個分支都不中 ⇒ NaN)
+  //      ⇒ **空白字串是唯一一種會被吞掉的形狀**,所以這一行只擋它、不動別的路徑。
+  //    ⚠️ **而不是只擋 `''`**:`Number('   ') === 0`、`Number('\n') === 0` 也一樣
+  //      ⇒ 判準是**去掉頭尾空白之後還剩不剩東西**,不是「等不等於空字串」。
+  //    ✅ 而**帶空白的數字仍然放行**(`Number(' 5 ') === 5`)—— 我們擋的是「什麼都沒有」,
+  //      不是「前後有空白」。(那一格有測試釘住。)
+  if (typeof v === 'string' && v.trim() === '') {
+    throw new AnomalyAlertReaderParseError(`${fn} 計數欄 ${field} 異常`);
+  }
   const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
   if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
     throw new AnomalyAlertReaderParseError(`${fn} 計數欄 ${field} 異常`);
@@ -1007,6 +1069,11 @@ function parseAlertSummary(
   // 🔵 ⟦b9-ACLDRIFT5⟧ 片二(2026-09-05)。**同樣排在最後** —— 理由見上面那段:
   //   位置參數插中間會安靜錯位, 而型別全一樣 ⇒ typecheck 不會紅。
   aclDriftRows: Array<Record<string, unknown>>,
+  // 🔵 ⟦b4-RETRYGAVEUPNOWATCHER⟧(2026-09-05)。**同樣排在最後**(理由見上面)。
+  gaveUpRows: Array<Record<string, unknown>>,
+  // 🔵 ⟦b4-PENDINGREFUNDSILENT⟧(2026-09-05)。**同樣排在最後** —— 這是一串位置參數,
+  //   插中間會讓所有既有呼叫端安靜地錯位一格, 而型別全一樣 ⇒ 🔴 typecheck 不會紅。
+  incidentRows: Array<Record<string, unknown>>,
 ): AnomalyAlertSummary {
   const r = rows[0]?.result as Record<string, unknown> | undefined;
   if (!r || typeof r !== 'object') {
@@ -1191,6 +1258,114 @@ function parseAlertSummary(
             ? (ad.taken_at as string)
             : null,
     };
+
+    /**
+     * ⟦b4-RETRYGAVEUPNOWATCHER⟧:與上面同一個形狀 —— 只認數字, 其餘一律當量不到。
+     * 🔴 `count` 用 `null` 不用 `0`:**0 是「查得到而且沒有」, null 是「我沒量到」**,
+     *    而 shouldAlert 那道閘只看 `> 0` ⇒ 兩者在那裡的行為相同, 而在 log 與信裡不同。
+     */
+    const gu = gaveUpRows[0]?.result as Record<string, unknown> | undefined;
+    const guCount = gu?.gave_up_count;
+    /**
+     * 🔴 `tracked_total` 要【真的讀】, 不能只放在 SQL 裡(對帳閘逼出來的:
+     *    它比對「SQL 產出的 key」vs「TS 讀取的 key」, 而我第一版只讀了一個
+     *    ⇒ 另外三個是「回了而沒有人看」的東西)。
+     * 🎯 **而它在這裡有一個真的工作**:`gave_up_count` 不可能大於 `tracked_total`
+     *    (放棄的是被追蹤的一部分)⇒ 大於 ⇒ 這次讀到的東西**不可信** ⇒ 走 Unknown,
+     *    而不是把一個荒謬的數字寫進信裡。
+     */
+    const guTotal = gu?.tracked_total;
+    const guSane =
+      typeof guTotal === 'number' && Number.isInteger(guTotal) && guTotal >= 0
+      && typeof guCount === 'number' && guCount <= guTotal;
+    const guWellTyped =
+      gu !== undefined && typeof guCount === 'number' && Number.isInteger(guCount) && guSane;
+    const gaveUp = {
+      settleRetryGaveUpCount: guWellTyped ? (guCount as number) : null,
+      settleRetryGaveUpUnknown: !guWellTyped,
+      settleRetryGaveUpOldest:
+        typeof gu?.oldest_gave_up === 'string' ? (gu.oldest_gave_up as string) : null,
+      // 🔵 診斷用:讓 503 那條 log 印得出「我到底讀到什麼」, 而不是只說「讀不到」。
+      settleRetryGaveUpTracked: typeof guTotal === 'number' ? guTotal : null,
+      settleRetryGaveUpSampleIds: Array.isArray(gu?.sample_order_ids)
+        ? (gu!.sample_order_ids as unknown[]).filter((x): x is string => typeof x === 'string')
+        : [],
+    };
+
+    /**
+     * ⟦b4-PENDINGREFUNDSILENT⟧:被吞掉的「開待退款失敗」留痕計數。
+     *
+     * 🔴🔴 **缺 key 走 fail-loud(`unknown = true`), 不走「沒有就當 0」** ——
+     *   主視窗 `-f8` 2026-09-05 指名這一格。理由是這一族的病本身:
+     *   📌 **這片存在的理由就是「失敗與成功印同一個東西」**;
+     *      若這裡把「讀不到 key」降級成 0, 就是**在告警端把同一個病再犯一次** ——
+     *      而這次它會長成一句「今天沒有事故」。
+     *   ⇒ `open_total` 不是非負整數 ⇒ `unknown`, **不是 0**。
+     *
+     * 🔵 `count` 用 `null` 不用 `0`:0 是「查得到而且沒有」, null 是「我沒量到」。
+     *    `shouldAlert` 只看 `> 0` ⇒ 兩者在那道閘的行為相同, 而在 log 與信裡不同。
+     *
+     * ⚠️ **射程**:這一格只答「事故表上有幾列沒被處理」。它答不出
+     *    ①那些失敗各自是什麼(`detail` 刻意不回 —— 它是 SQLERRM, 會被印進信裡)
+     *    ②**回滾掉的那些**(incident 那一列與被吞的例外在同一個交易裡, 外層整個回滾時
+     *      那一列會跟著消失 ⇒ ⟦b4-NCPCANCELROLLBACK⟧ 那條路本格【零覆蓋】)。
+     */
+    const inc = incidentRows[0]?.result as Record<string, unknown> | undefined;
+    const incTotal = inc?.open_total;
+    /**
+     * 🔴 codex must-fix ③:只驗 `open_total` 的型別**不夠** ——
+     *   `{open_total: 0, open_by_kind: {pending_refund_open_failed: 3}}` 會通過,
+     *   ⇒ 📌 **一個內部矛盾的回應被讀成「今天沒有事故」而不寄信、route 回 200。**
+     *   ⇒ 照隔壁 `guSane` 那一格的做法:**兩個數對不上 ⇒ 走 Unknown**, 不寫一個荒謬的數字進信。
+     * 🔵 判準用 `>=` 不用 `=`:`open_by_kind` 是逐 kind 的細目, 而 CHECK 只有一種 kind 時
+     *   兩者相等;未來多一種 kind 而 SQL 端先上線時, 總數仍應 >= 細目和。
+     */
+    const incKindRaw = inc?.open_by_kind;
+    const incKindObj =
+      incKindRaw !== null && typeof incKindRaw === 'object' && !Array.isArray(incKindRaw)
+        ? (incKindRaw as Record<string, unknown>)
+        : undefined;
+    const incKindSum =
+      incKindObj === undefined
+        ? 0
+        : Object.values(incKindObj).reduce<number>(
+            (a, v) => a + (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : 0),
+            0,
+          );
+    const incWellTyped =
+      inc !== undefined
+      && typeof incTotal === 'number'
+      && Number.isInteger(incTotal)
+      && incTotal >= 0
+      // 🔴 codex must-fix ④:`Array.isArray` —— 陣列也通過 `typeof === 'object'`,
+      //    `[3]` 會變成 `{"0": 3}` ⇒ 信裡出現一個假的種類 `0=3`。
+      && (incKindRaw === undefined || incKindRaw === null || incKindObj !== undefined)
+      && incTotal >= incKindSum;
+    if (inc !== undefined && !incWellTyped) {
+      console.error(
+        '[anomaly-alert] 🔴 get_pcm_incident_health 回了東西而 open_total 不是非負整數 ⇒ 落【查不到】',
+        { got: typeof incTotal },
+      );
+    }
+    const incident = {
+      pcmIncidentOpenTotal: incWellTyped ? (incTotal as number) : null,
+      pcmIncidentUnknown: !incWellTyped,
+      pcmIncidentOldest:
+        typeof inc?.oldest_open_at === 'string' ? (inc.oldest_open_at as string) : null,
+      /**
+       * 🔵 逐 kind 的計數:信裡要列得出「是哪一種事故」。
+       * 🔴 只收 `{[string]: 非負整數}` 那個形狀, 其餘一律丟掉 —— 這一欄會被印進信裡。
+       */
+      pcmIncidentByKind:
+        incKindObj === undefined
+          ? {}
+          : Object.fromEntries(
+              Object.entries(incKindObj).filter(
+                (e): e is [string, number] =>
+                  typeof e[1] === 'number' && Number.isInteger(e[1]) && e[1] >= 0,
+              ),
+            ),
+    };
   /**
    * 🔴🔴 **三道回應層對帳(codex 2026-08-31 片3 R1 #3/#4)** —— 全部 fail-loud,
    *   因為這一族的失敗形狀是**靜默地看起來健康**, 而那是本片要治的病本身。
@@ -1315,6 +1490,9 @@ function parseAlertSummary(
     ...bypassRls,
       // ⟦b9-ACLDRIFT5⟧ 片二(2026-09-05)
       ...aclDrift,
+      // ⟦b4-RETRYGAVEUPNOWATCHER⟧(2026-09-05)
+      ...gaveUp,
+      ...incident,
     openCount: parseCount(r.open_count, 'open_count'),
     refundingCount: parseCount(r.refunding_count, 'refunding_count'),
     refundingStuckCount: parseCount(r.refunding_stuck_count, 'refunding_stuck_count'),
