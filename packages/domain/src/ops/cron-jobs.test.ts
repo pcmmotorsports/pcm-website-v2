@@ -27,8 +27,8 @@ import { CRON_JOB_WHITELIST, FAILURE_COUNT_MEANINGLESS } from './cron-jobs';
  *    改門檻是一個**會改變線上告警行為**的決定 ⇒ 它應該要有人按一下確認。
  *    ⇒ 改的時候把下面的期望值一起改,**而那一次改動就是那個「按一下」**。
  */
-describe('🔴 六支排程的門檻是【唯一來源】,而這裡把值釘住', () => {
-  it('六支的名字與門檻逐格釘死(改動 = 改變線上告警行為, 要有人按一下)', () => {
+describe('🔴 八支排程的門檻是【唯一來源】,而這裡把值釘住', () => {
+  it('八支的名字與門檻逐格釘死(改動 = 改變線上告警行為, 要有人按一下)', () => {
     expect(
       CRON_JOB_WHITELIST.map((w) => [w.jobName, w.staleMinutes] as const),
     ).toEqual([
@@ -40,6 +40,8 @@ describe('🔴 六支排程的門檻是【唯一來源】,而這裡把值釘住'
       ['pcm-settle-sweep', 6],
       // 🔵 2026-09-05 加(⟦b9-ACLDRIFT5⟧ 片一 20260905140000)
       ['pcm-acl-digest', 2 * 24 * 60],
+        // 🔵 2026-09-05 加(⟦b4-SETTLERETRYNEVER⟧ 20260905220000)
+        ['pcm-settle-retry', 30],
     ]);
   });
 
@@ -48,8 +50,8 @@ describe('🔴 六支排程的門檻是【唯一來源】,而這裡把值釘住'
    *    ⇒ 一支排程被整個刪掉時,上面那格也會紅 —— 而它紅的訊息會指向「值不對」,
    *      而真正發生的是「那支排程再也沒有人在看了」。**兩個訊息要分得開。**
    */
-  it('剛好六支 —— 少一支 = 那支排程再也沒有人在看,而它不會自己出聲', () => {
-    expect(CRON_JOB_WHITELIST.length).toBe(7);
+  it('剛好八支 —— 少一支 = 那支排程再也沒有人在看,而它不會自己出聲', () => {
+    expect(CRON_JOB_WHITELIST.length).toBe(8);
   });
 
   /**
@@ -62,7 +64,11 @@ describe('🔴 六支排程的門檻是【唯一來源】,而這裡把值釘住'
   it('失敗計數無意義的名單 = 只有那支純 SQL 的(它寫不出失敗心跳)', () => {
       // 🔵 2026-09-05 加 pcm-acl-digest:同一個物理限制(純 SQL, 同交易的失敗心跳會被回捲)。
       //    🔴 而它與 expire 那支的差別只有【碰不碰錢】—— 後果不同, 而【量不到】是一樣的。
-      expect([...FAILURE_COUNT_MEANINGLESS]).toEqual(['pcm-expire-unpaid-orders', 'pcm-acl-digest']);
+      expect([...FAILURE_COUNT_MEANINGLESS]).toEqual([
+        'pcm-expire-unpaid-orders',
+        'pcm-acl-digest',
+        'pcm-settle-retry',
+      ]);
   });
 
   it('🟢 名單裡的每一支都真的在白名單裡(否則它排除的是一個不存在的東西)', () => {
@@ -179,14 +185,14 @@ describe('⟦b9-HBSEMANTIC⟧ 週期對照表 —— 而它不解析 cron 運算
    *    📌 **⇒ 那條線現在【承重】了, 而它是因為多了一支才承重的。**
    *    🔵 要移動它之前:先看有沒有哪一支正好落在新舊分界之間。
    */
-  it('🔴 七支分成兩種語意 —— 六支答【它停了嗎】, 一支答【它準時嗎】', () => {
+  it('🔴 八支分成兩種語意 —— 七支答【它停了嗎】, 一支答【它準時嗎】', () => {
     const byMeaning = { 停了嗎: [] as string[], 準時嗎: [] as string[] };
     for (const w of CRON_JOB_WHITELIST) {
       const period = PERIOD_MINUTES_BY_SCHEDULE[w.schedule]!;
       (w.staleMinutes / period >= 2 ? byMeaning.停了嗎 : byMeaning.準時嗎).push(w.jobName);
     }
     expect(byMeaning.準時嗎).toEqual(['pcm-anomaly-alert']);
-    expect(byMeaning.停了嗎).toHaveLength(6);
+    expect(byMeaning.停了嗎).toHaveLength(7);
     // 🔴 釘住那個【恰好 2.0】—— 它是分界開始承重的那一刻。
     expect(2880 / 1440).toBe(2);
     // 🔵 而那個 1.08 要釘住:它是這一列存在的理由, 而它被調過就該回來讀這一段。

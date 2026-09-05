@@ -1,6 +1,6 @@
-// @pcm/domain/ops/cron-jobs — 六支排程的白名單與門檻【唯一來源】
+// @pcm/domain/ops/cron-jobs — 八支排程的白名單與門檻【唯一來源】
 //
-// 🔴🔴 **這支檔存在的唯一理由:那六個門檻只能有一份。**
+// 🔴🔴 **這支檔存在的唯一理由:那幾個門檻只能有一份。**
 //    它原本住在 `apps/admin/src/lib/dashboard/cron-heartbeat-read.ts`(儀表板那一側),
 //    2026-08-31 搬到這裡, 因為**告警器那一側也要用同一份**
 //    (`packages/use-cases/src/check-anomaly-alerts.ts`, 走 `apps/storefront`)。
@@ -81,6 +81,10 @@ export const CRON_JOB_WHITELIST = [
   //    ⇒ 取 **連漏兩天才叫**:一次沒跑到不吵(那可能是 DB 維護),兩次就是真的壞了。
   //    🔴 而它與別支不同族:別支一天跑幾十次, 少一次沒訊號;**這支一天只有一次機會**。
   { jobName: 'pcm-acl-digest', label: '權限快照', schedule: '0 0 * * *', staleMinutes: 2 * 24 * 60, wiredAt: '片1' },
+  // 🔵 2026-09-05 加(⟦b4-SETTLERETRYNEVER⟧ `20260905220000` 建的)。
+  //    `staleMinutes = 30` = 週期 10 × 3, **與 `pcm-capture-recheck` 同一族同一個數**
+  //    ——它們做的是同一種事(把一張卡住的單再推一次)。
+  { jobName: 'pcm-settle-retry', label: '匯款單重算補跑', schedule: '*/10 * * * *', staleMinutes: 30, wiredAt: '片1' },
 ] as const;
 
 /**
@@ -111,4 +115,8 @@ export const CRON_JOB_WHITELIST = [
 export const FAILURE_COUNT_MEANINGLESS: ReadonlySet<string> = new Set([
   'pcm-expire-unpaid-orders',
   'pcm-acl-digest',
+  // 🔵 2026-09-05 加 `pcm-settle-retry`:同一個物理限制(純 SQL, 同交易的失敗心跳會被回捲)。
+  //    🔴 而它與 expire 那支一樣**碰錢**(它推的是已經收了款的單)⇒ 後果不比 expire 輕。
+  //       ⇒ 報 `null` 不報 0 在這一支更重要:報 0 等於宣稱「量過了, 零失敗」。
+  'pcm-settle-retry',
 ]);
