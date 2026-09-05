@@ -483,13 +483,13 @@ export function StatementDoc({
                     <td className='k'>{subtotalLabelOf('小計', order.taxTotal.amount)}</td>
                     <td className='v'>{amt(order.subtotal.amount)}</td>
                   </tr>
-                  <tr className='line'>
+                  <tr>
                     <td className='k'>運費</td>
                     <td className='v'>{amt(order.shippingFee.amount)}</td>
                   </tr>
                   {/* 🔴 有折扣才印這一列 —— 沒有時印一列 `0` 會讓客人以為我們算了一筆折扣給他。 */}
                   {order.discountTotal.amount > 0 && (
-                    <tr className='line'>
+                    <tr>
                       <td className='k'>折扣</td>
                       {/* 🔴 負號用 **ASCII `-`**,不是 `−`(U+2212):那個字元在單色印表機
                           與缺字型的環境下不保證印得出來(後台那張被守門抓過一次)。 */}
@@ -503,7 +503,7 @@ export function StatementDoc({
                       · 🛑 「稅額」這兩個字**不是我發明的文案** —— Sean 2026-09-04 選項字面逐字:
                         「乙 = **稅額**單獨記一欄, 你打的單價原樣保留。」 */}
                   {order.taxTotal.amount > 0 && (
-                    <tr className='line'>
+                    <tr>
                       <td className='k'>稅額</td>
                       <td className='v'>{amt(order.taxTotal.amount)}</td>
                     </tr>
