@@ -84,8 +84,20 @@
 //      ⇒ 不補這一支, `.rpc('admin_record_hct_submit', …)` 會 typecheck 紅, 而繞過它的
 //      `as never` / `@ts-expect-error` **會把整個參數形狀的檢查一起關掉**。
 //      ⚠️ 重 gen 之後它應該自己產得出來 ⇒ 屆時本條可退場(與 ⑮ 同款)。
-//   ⑱ `admin_hct_reset_unknown_to_draft` **整段**〔主migration=20260905320000〕〔APPLIED.tsv 無此列〕(2026-09-05 線 -ship;⟦ship-HCTUNKNOWNSTUCK⟧ 片 B)——
-//      🛑 **本支的 migration 未 apply** —— 今天才寫。
+//   ⑱ `admin_hct_reset_unknown_to_draft` **整段**〔主migration=20260905320000〕〔正式庫查過=2026-09-05〕(2026-09-05 線 -ship;⟦ship-HCTUNKNOWNSTUCK⟧ 片 B)——
+//      ⛔ ~~**本支的 migration 未 apply** —— 今天才寫。~~
+//      🟢🟢 **2026-09-05 晚:本支【已 apply】—— Sean 本人貼(貼板 30 號)。**
+//         🔵 「已 apply」這四個字是 `database-types-apply-state.test.ts:88` 的 `CLAIM_APPLIED` 字集裡的措辭 ——
+//         📌 **不是我自己挑的說法**:那支守門只認字集內的字, 而**我第一版寫「貼了」它讀不出來**
+//         ⇒ 它印「沒有本檔認得的 apply 措辭」而不是印綠 ⇒ 🎯 **一道只認字集的閘, 它的拒絕也是誠實的。**
+//         🔬 `-ship` 貼後唯讀複驗十格:函式數 **1**
+//         (🟢 正對照 `admin_record_hct_submit` **1** · 🔴 負對照 `zzz_this_never_exists` **0**)
+//         · `anon` **f** / `authenticated` **f** / `service_role` **t**
+//         (🟢 正對照 owner `postgres` **t**)· `prosecdef` **t** · `proconfig` **search_path=""**。
+//         帳本:`supabase/APPLIED.tsv` 已記一列(2026-09-05)。
+//      🔴 **舊句留痕不刪** —— `database-types-apply-state.test.ts` 逐字要求「把那句話改寫成事實
+//         (舊句留痕、不刪)」⇒ 📌 **而那正是它今天抓到我的那一格**:
+//         我記了帳本而沒改這裡, 而**兩份自陳的帳對不上時, 只有它看得到**。
 //      🔴🔴 **它與 ⑰ 不同族** —— 而**兩邊的狀態不寫在同一句**(那支守門會判歧義, 它抓得對):
 //        ⑰ 那一條自己講它的狀態, 本條只講本條的。**兩種宣稱混在一句裡, 讀的人不知道在講哪一支。**
 //      ⇒ 📌 **這一段宣告在說一件【還沒成真】的事** —— 它讓片 B 的接線寫得下去,
