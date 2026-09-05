@@ -51,7 +51,7 @@ const CARD_TITLE = 'text-muted-foreground mb-3 text-xs font-medium';
  */
 export const BLOCK_REASON_TEXT: Record<
   OrderCancelBlockReason,
-  { title: string; hint: string }
+  { title: string; hint: string; hintWhenNoForm?: string }
 > = {
   already_cancelled: {
     title: '這張單已經取消過了',
@@ -114,12 +114,40 @@ export const BLOCK_REASON_TEXT: Record<
   },
   // 🔴 `#494` 的三條:**下一步各不相同**,所以不共用上面那句(Sean 2026-08-14 拍板 B)。
   //    起因是 Sean 對著一張**已經退過款**的單,看到上面那句「已付款…請走人工退款流程」。
+  // 🔴🔴 **2026-09-05 Sean 拍甲改掉這一格**(⟦0a-CARDCANCELNOREFUND⟧ 片②):
+  //    ⛔ ~~'這張單的錢已經結清 —— 現在不需要為它做任何事。'~~
+  //    🔴 **那句話是錯的, 而它錯了三個星期**:那張單**還沒取消, 而且取消不了**
+  //       (`admin_cancel_order` 的述詞要 `payment_status = 'paid'`, 而這裡是 `refunded`)。
+  //       ⇒ 📌 **員工照那句話走, 會讓一張退完錢的單永遠掛在未取消, 而畫面告訴他這是對的。**
+  //    ⚠️ **而它當時是對的** —— 2026-08-14 那一刻, 取消鈕還沒有路可走。
+  //       ⇒ 🎯 **它不是錯, 是過期。而過期的文案與寫錯的文案, 在畫面上長得一樣。**
+  //    🔵 新句子裡的「按下面的」**指向一個真的存在的東西**(同檔 `MarkCancelledForm`)——
+  //       這一格的檔頭紀律逐字寫著「訊息不得指向不存在的動作」, 而我差點又犯一次。
   // 🔴 codex 關卡2 F2:~~原本這句先說「不用再退一次」、又說「取消要連著退款一起做」、
   //    再叫人「通知系統維護結案」~~ —— 三句互相打架,而且**發明了一個不存在的結案流程**。
   //    這張單的錢已經處理完了,員工現在**真的不需要做任何事**,那就照實說。
+  // 🔴🔴 **這一格有【兩個版本】, 而那是一格測試逼出來的**(2026-09-05):
+  //    我加了「`formsAllowed=false` ⇒ 鈕不可以在」的斷言, 它紅了 ——
+  //    **鈕真的不在了(對), 而這句話還在說「請按下面的『把這張單結掉』」。**
+  //    ⇒ 🔴 **訊息指向一個此刻不存在的動作** —— 那正是本檔檔頭那條紀律要防的事,
+  //       而它在我為了守住那條紀律而寫的測試裡現形。
+  //    ⇒ ✅ 兩個版本:鈕在的時候用 Sean 拍的那句逐字;鈕不在的時候**不提那顆鈕**。
   payment_refunded: {
-    title: '這張單的錢已經退回去了',
-    hint: '款項已經退還,不用再退一次。這張單的錢已經結清 —— 現在不需要為它做任何事。',
+    title: '這張單的錢已經退回去了 —— 而它還沒取消',
+    hint:
+      // 🔴 **這裡不可以寫 Markdown 的 `**`** —— JSX 直接輸出純字串,
+      //    員工會看到兩組實體星號。codex 2026-09-05 抓到, 而**我在同一份檔案裡
+      //    到處寫 `**` 當強調**(那是給讀碼的人看的註解語法), 一不小心就寫進了對客字串。
+      //    📌 **註解的語法與畫面的語法長得一樣, 而只有畫面那一種會被客人看到。**
+      '款項已經退還,不用再退一次。' +
+      '而這張單還掛在「未取消」—— 請按下面的「把這張單結掉」把它收尾。',
+    /**
+     * 🔴 `formsAllowed=false`(結果頁那一次渲染)時用這一句 —— **不提那顆鈕**。
+     * 🛑 而它仍然要說出「還沒取消」:那是員工需要知道的事實,不會因為鈕暫時不在而改變。
+     */
+    hintWhenNoForm:
+      '款項已經退還,不用再退一次。' +
+      '而這張單還掛在「未取消」—— 請重新整理本單,再把它收尾。',
     // (本句原本還有「取消鈕這期還不能用(要等退款線開通)」—— 拿掉:這張單已經結清,
     //  員工不需要為它做任何事,講「取消鈕何時會好」對他當下的決定沒有作用。)
   },
@@ -251,7 +279,7 @@ function sumCancelledQuantity(
   return total;
 }
 
-function BlockReasons({ reasons }: { reasons: readonly OrderCancelBlockReason[] }) {
+function BlockReasons({ reasons, formsAllowed}: { reasons: readonly OrderCancelBlockReason[]; formsAllowed: boolean}) {
   return (
     <ul className='space-y-2'>
       {reasons.map((reason) => {
@@ -259,7 +287,10 @@ function BlockReasons({ reasons }: { reasons: readonly OrderCancelBlockReason[] 
         return (
           <li key={reason} className='border-destructive/30 bg-destructive/5 rounded-md border p-3'>
             <p className='text-destructive text-sm font-medium'>{text.title}</p>
-            <p className='text-muted-foreground mt-1 text-xs'>{text.hint}</p>
+            {/* 🔴 鈕不在的那一次渲染, 用不提那顆鈕的那一句 —— 否則訊息指向一個不存在的動作。 */}
+            <p className='text-muted-foreground mt-1 text-xs'>
+              {!formsAllowed && text.hintWhenNoForm ? text.hintWhenNoForm : text.hint}
+            </p>
           </li>
         );
       })}
@@ -391,11 +422,20 @@ function CancellationHistory({ detail }: { detail: AdminOrderDetail }) {
  * 🔴 `<details>` 預設收合、可取消時才預設展開:能取消的單員工要先看影響範圍;
  * 不能取消的單只要看到「為什麼不能」就夠了,展開一整張表是噪音。
  */
+
 export function CancelReviewSection({
   detail,
   payments,
+  formsAllowed,
 }: {
   detail: AdminOrderDetail;
+  /**
+   * 🔴 **這一次渲染准不准出現表單/按鈕**(與 `order-cancel-block` 同一顆)。
+   * **必填無預設** —— 它決定 `payment_refunded` 那一格說哪一句話:
+   * 鈕在 ⇒ 「請按下面的『把這張單結掉』」;鈕不在 ⇒ **不提那顆鈕**。
+   * 🛑 給預設值會讓其中一種情況說出一句指向不存在動作的話。
+   */
+  formsAllowed: boolean;
   /**
    * 這張單的收款明細(三態)。**片 B 新增、必填無預設。**
    * 🔴 判斷「現金/匯款可取消、刷卡不行」需要 rail,而 rail 只在這裡。
@@ -419,8 +459,23 @@ export function CancelReviewSection({
             : '這張單只能逐項取消,請照下表每個品項的「還能取消」勾選。'}
         </p>
       ) : (
-        <BlockReasons reasons={view.blockReasons} />
+        <BlockReasons reasons={view.blockReasons} formsAllowed={formsAllowed} />
       )}
+
+      {/*
+        🔴🔴 **第二條路的按鈕**(Sean 2026-09-05 拍甲 · ⟦0a-CARDCANCELNOREFUND⟧ 片②)。
+        上面 `payment_refunded` 那句話說「請按下面的『把這張單結掉』」——
+        **這就是那個「下面」**。🛑 本檔的檔頭紀律逐字寫著「訊息不得指向不存在的動作」,
+        而那一句與這顆鈕**必須成對存在**:少了鈕, 那句話就變成一個做不到的指示。
+      */}
+      {/*
+        🔴🔴 **那顆「把這張單結掉」的鈕【不在本檔】, 而那不是風格** ——
+        它要 import server action, 而**本檔走 client 路徑**(被 `order-cancel-block` 收進去)
+        ⇒ import 的當下就紅:`This module cannot be imported from a Client Component module`。
+        📌 **是一道守門告訴我這件事的, 不是我先查清楚的。**
+        ⇒ 鈕在 `order-cancel-block.tsx`(server), **緊接在本區塊之後渲染**
+           —— 上面那句「請按下面的」指的就是它, 兩者的順序是那句話的一部分。
+      */}
 
       <details className='mt-4' open={view.canCancel}>
         <summary className='cursor-pointer text-sm font-medium'>影響範圍與取消紀錄</summary>

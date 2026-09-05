@@ -13,5 +13,6 @@
 # 🛑 而【手改這份檔】= 你在宣告「那一道本來就不該在」—— 那是一個決定, 不是維護動作。
 .husky/always-loaded-size-gate.sh
 scripts/deploy-order-gate.sh
+scripts/rpc-raw-sql-callers.py
 scripts/migration-ledger-divergence.sh
 scripts/selftest-git-isolation-gate.sh

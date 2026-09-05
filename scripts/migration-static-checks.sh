@@ -33,6 +33,19 @@ if [ "${1:-}" = "--selftest" ]; then
   printf 'CREATE OR REPLACE FUNCTION public.foo() RETURNS void LANGUAGE sql AS $f$ SELECT 2 $f$;\n' > "$FX/20200102000000_redef.sql"
   printf 'CREATE OR REPLACE FUNCTION public.bar() RETURNS void LANGUAGE sql AS $f$ SELECT 3 $f$;\n' > "$FX/20200103000000_new.sql"
   printf 'CREATE TABLE IF NOT EXISTS public.t (id int);\n' > "$FX/20200104000000_ine.sql"
+  # ── 🔴 規則①【具名例外】兩格(2026-09-06;主視窗 -f8 裁)──────────────────
+  #    兩個世界**只差一行標記** —— 少了第二格,「它會放行」與「它對誰都放行」印同一個字。
+  # 🔴 **fixture 形狀是選過的**:用 `CREATE INDEX IF NOT EXISTS` 而不是 `CREATE TABLE` ——
+  #    index 不可授權、也不觸發規則④(建表要 GRANT)⇒ **這三支檔只違反規則①**
+  #    ⇒ 📌 這樣 rc 才答得出「規則① 放行了沒」;用 TABLE 的話 rc 會被別的規則帶著跑,
+  #      而那三格會**看起來在測例外, 實際上在測別的規則**(2026-09-06 當場踩到)。
+  printf -- '-- pcm:rule1-exception: rollback 保留欄位與序列 ⇒ 重貼要冪等;型別由前置閘逐欄擋\nBEGIN;\nCREATE INDEX IF NOT EXISTS ix_t ON public.t (id);\nCOMMIT;\n' \
+    > "$FX/20200106000000_ine_exempt.sql"
+  printf 'BEGIN;\nCREATE INDEX IF NOT EXISTS ix_t ON public.t (id);\nCOMMIT;\n' \
+    > "$FX/20200106100000_ine_plain.sql"
+  #    🔴 而【標記寫錯字】也要照樣紅 —— 一個近似的標記若也能放行, 那道尺就不是在讀標記。
+  printf -- '-- pcm:rule1-exemption: 拼錯了\nBEGIN;\nCREATE INDEX IF NOT EXISTS ix_t ON public.t (id);\nCOMMIT;\n' \
+    > "$FX/20200107000000_ine_typo.sql"
   printf 'CREATE OR REPLACE FUNCTION public.x-y() RETURNS void LANGUAGE sql AS $f$ SELECT 4 $f$;\n' > "$FX/20200105000000_badname.sql"
   printf 'CREATE OR REPLACE FUNCTION public.foo() RETURNS void LANGUAGE sql AS $f$ SELECT 5 $f$;\n' > "$FX/20200100000000_before_base.sql"
   printf 'CREATE OR REPLACE FUNCTION public.ghost() RETURNS void LANGUAGE sql AS $f$ SELECT 6 $f$;\n' > "$FX/20200106000000_ghost_real.sql"
@@ -75,6 +88,15 @@ if [ "${1:-}" = "--selftest" ]; then
   check 20200102000000_redef.sql          '合法,不紅'          '新物件'    '重定義既有函式 ⇒ 綠'
   check 20200103000000_new.sql            '新物件'             '合法,不紅' '真新物件用 OR REPLACE ⇒ 紅'
   check 20200104000000_ine.sql            'IF NOT EXISTS 命中' ''          'IF NOT EXISTS ⇒ 照紅'
+  check 20200106000000_ine_exempt.sql     '規則①【具名例外】'  'IF NOT EXISTS 命中' '有 pcm:rule1-exception ⇒ 放行而【印出來】'
+  check 20200107000000_ine_typo.sql       'IF NOT EXISTS 命中' '規則①【具名例外】' '標記拼錯 ⇒ 不算例外, 照紅'
+  # 🔴🔴 **上面三格只比【印了什麼】—— 而放行與否住在 rc 裡。**
+  #    一個「印了例外那一行、而 rc 仍是 1」的實作會讓上面全過, 而閘照樣擋人。
+  #    ⇒ 📌 這兩格是那三格的證人:同一組檔, 比的是 rc。
+  n=$((n+1)); bash "$SELF" "$FX/20200106100000_ine_plain.sql" >/dev/null 2>&1
+  [ "$?" = "1" ] || { echo "❌ 規則①例外 rc-a:無標記的 IF NOT EXISTS 竟然 rc=0 ⇒ 那道規則沒在擋"; fail=1; }
+  n=$((n+1)); bash "$SELF" "$FX/20200106000000_ine_exempt.sql" >/dev/null 2>&1
+  [ "$?" = "0" ] || { echo "❌ 規則①例外 rc-b:有標記卻仍 rc≠0 ⇒ 例外只印了字, 沒有真的放行"; fail=1; }
   check 20200105000000_badname.sql        '解析失敗'           ''          '爛名字 ⇒ fail-closed 紅'
   check 20200100000000_before_base.sql    '新物件'             ''          '定義只在【更晚】的檔 ⇒ 此刻仍是新物件 ⇒ 紅(時間方向)'
   check 20200106000000_ghost_real.sql     '新物件'             '合法,不紅' '更早檔只在字串裡提到它 ⇒ 不算定義 ⇒ 紅(剝 dollar-quote)'
@@ -170,10 +192,21 @@ if [ "${1:-}" = "--selftest" ]; then
   # ── 規則⑥的證人(2026-09-05 加;母題同規則⑤:新規則沒進 selftest ⇒ 日後退化仍印 N/N)──
   # 🔴 **四格, 而其中兩格是負對照** —— 一道只證「該紅有紅」的閘,
   #    在它變成「什麼都紅」的那天照樣印全過。
+  # ── 🔴 規則⑦ 兩格(2026-09-06)—— 兩個世界【只差分號在不在行尾】 ────────────
+  #    這兩格的形狀是照兩支真實檔造的:39 第二版(行尾 ⇒ 紅) / 20260905320000(行中 ⇒ 綠)。
+  printf 'BEGIN;\nCOMMENT ON TABLE public.t IS %s\n%s;\nCOMMIT;\n' \
+    "'第一行到這裡有個分號;" "而第二行才收尾'" > "$FX/20230201000000_r7_eol_semi.sql"
+  printf 'BEGIN;\nCOMMENT ON TABLE public.t IS %s;\nCOMMIT;\n' \
+    "'行中有分號;後面還有字, 不在行尾'" > "$FX/20230202000000_r7_mid_semi.sql"
   printf 'BEGIN;\nDO $d$ BEGIN RAISE EXCEPTION %s, SQLERRM; END $d$;\nCOMMIT;\n' "'壞掉(%%)'" > "$FX/20220201000000_r6_pct_literal.sql"
   printf 'BEGIN;\nDO $d$ BEGIN RAISE EXCEPTION %s, SQLERRM; END $d$;\nCOMMIT;\n' "'好的(%)'" > "$FX/20220202000000_r6_ok.sql"
   printf 'BEGIN;\nDO $d$ BEGIN RAISE EXCEPTION %s, 1, 2 USING ERRCODE = %s, CONSTRAINT = %s, DETAIL = %s; END $d$;\nCOMMIT;\n' "'兩格(% 與 %)'" "'P0001'" "'c'" "'d'" > "$FX/20220203000000_r6_using.sql"
   printf 'BEGIN;\nDO $d$ BEGIN RAISE EXCEPTION %s; END $d$;\nCOMMIT;\n' "'一個佔位(%)沒給參數'" > "$FX/20220204000000_r6_missing_arg.sql"
+  # 🔴 規則⑦ 兩格 —— **排在這裡而不是上面**:上面那一區的 `check` 跑在 fixture 建立【之前】,
+  #    而 `check` 對一支不存在的檔只會拿到空輸出 ⇒ 📌 **它會紅, 而紅的理由是「檔不在」不是「規則不對」。**
+  check 20230201000000_r7_eol_semi.sql    '【行尾】的 ASCII 分號' ''        '規則⑦:分號在行尾 ⇒ 紅'
+  check 20230202000000_r7_mid_semi.sql    '沒有單引號字串帶著'    '🔴 這幾行' '規則⑦:分號在行中 ⇒ 綠(否則會誤擋已貼成功的檔)'
+
   # 🔴 該紅:字面百分號 ⇒ 佔位 0 而參數 1(那就是貼板 29 貼下去紅掉的那一行)
   n=$((n+1))
   if bash "$SELF" "$FX/20220201000000_r6_pct_literal.sql" >/dev/null 2>&1; then
@@ -241,7 +274,7 @@ R6BAD
   if bash "$SELF" "$FX/20220204000000_r6_missing_arg.sql" >/dev/null 2>&1; then
     echo "❌ 規則⑥:有佔位而零參數卻回 0 ⇒ 只抓到 too many、抓不到 too few"; fail=1
   fi
-  [ "$fail" = "0" ] && echo "✅ migration-static-checks --selftest $n/$n(規則①雙向 + 規則②雙向 + 規則③雙向 + 規則⑤八格 + 規則⑥七格 + 多檔雙向)"
+  [ "$fail" = "0" ] && echo "✅ migration-static-checks --selftest $n/$n(規則①雙向含具名例外三格與 rc 兩格 + 規則②雙向 + 規則③雙向 + 規則⑤八格 + 規則⑥七格 + 規則⑦行尾兩格 + 多檔雙向)"
   exit "$fail"
 fi
 
@@ -457,13 +490,36 @@ echo "── ① CREATE … IF NOT EXISTS 一律禁;OR REPLACE 只准【重定�
 #    歷史上「新函式用 OR REPLACE」是常態寫法,不是 1 筆意外 —— 本規則從此紅的是【新檔】,舊檔照 ④ 的處置。
 INE_HITS=$(grep -niE '^[[:space:]]*create[[:space:]].*if[[:space:]]+not[[:space:]]+exists' "$STRIPPED" || true)
 R1_OK=1
+
+# ── 🔴🔴 規則① 的【具名例外】(2026-09-06;主視窗 `-f8` 裁「甲, 而不是裸的甲」)───────
+#
+# 為什麼有這一格:`20260905200000` 的 rollback **刻意保留欄位與序列**(那兩欄裡是
+#    「已經寄出去的信實際說了什麼」, 沒有第二個來源)⇒ **不冪等就永遠重貼不了**
+#    (那是 codex R1 must-fix #6)。⇒ 規則① 與那條 must-fix **直接對撞**。
+#
+# 🛑 **而例外要有【機器認得的形狀】, 不是一句註解** —— 照 `pcm:never-apply` 的前例:
+#      -- pcm:rule1-exception: <理由>
+#    ⚠️ **兩件事這道例外【證不到】, 寫在這裡免得它變成免責貼紙**:
+#      · 它**不驗那個理由是真的** —— 它只保證「有人具名寫下了理由」
+#      · 它**不代表 `IF NOT EXISTS` 在這支檔裡是安全的** ——
+#        安全要由那支檔**自己的前置閘**提供(本例是逐欄比對型別的 ②-b)
+#    ⇒ 📌 **它把一個【靜默的違規】換成一個【留下名字與理由的違規】。只有這樣而已。**
+# 🔵 而它**印一行**, 不靜默 —— 一個看不見的例外, 與沒有規則是同一件事。
+R1_EXCEPTION=$(grep -iE -- '^--[[:space:]]*pcm:rule1-exception:[[:space:]]*.+' "$F" | head -1 || true)
 # 🔴 規則③要用的:規則①【已經在算】哪些 OR REPLACE 是新物件 ⇒ 直接數它, 不另外發明一套判斷。
 #    (2026-08-29 線G 收窄第③格時加。為什麼要收窄, 見第③格那一段。)
 R1_NEWOBJ=0
-if [ -n "$INE_HITS" ]; then
+if [ -n "$INE_HITS" ] && [ -n "$R1_EXCEPTION" ]; then
+  echo "⚠️ 規則①【具名例外】—— $(printf '%s' "$R1_EXCEPTION" | sed 's/^--[[:space:]]*pcm:rule1-exception:[[:space:]]*//')"
+  echo "   ⇒ 本檔的 IF NOT EXISTS / 新物件 OR REPLACE **不擋**, 而它們仍然列在下面給人看:"
+  echo "$INE_HITS" | sed 's/^/     /'
+  echo "   🛑 這【不是】「它們安全」—— 安全要由本檔自己的前置閘提供。這一行只證明有人具名寫下了理由。"
+elif [ -n "$INE_HITS" ]; then
   echo "🔴 IF NOT EXISTS 命中(剝註解後):"; echo "$INE_HITS" | sed 's/^/     /'
   echo "   ⇒ 撞名要當場紅,不要靜靜跳過。跳過之後,你的 REVOKE 與斷言會對著那個既有物件跑"
   echo "      而且很可能通過 —— 拿到綠燈,而這支 migration 什麼都沒建。"
+  echo "   🔵 若這是刻意的(例如 rollback 保留物件 ⇒ 重貼要冪等), 加一行具名例外:"
+  echo "      -- pcm:rule1-exception: <理由>"
   RC=1; R1_OK=0
 fi
 # 從一行 `CREATE [OR REPLACE] <型別> <名字> … [ON <目標>]` 抽出 型別 / schema.名字 / ON 目標。
@@ -531,10 +587,19 @@ if [ -n "$OR_HITS" ]; then
     if [ -n "$FOUND" ]; then
       echo "   ⚠️ :$LNO OR REPLACE ${OTYPE} ${ONAME}${OTARGET:+ ON $OTARGET} = 重定義(最早見 ${FOUND})⇒ 合法,不紅"
     else
-      echo "🔴 :$LNO CREATE OR REPLACE ${OTYPE} ${ONAME}${OTARGET:+ ON $OTARGET} —— 同身分在更早的 migration 查無定義 ⇒ 它是【新物件】"
+      # 🔴🔴 **標籤由【結果】決定, 不無條件印**(2026-09-06 當場踩到)——
+      #    這一行原本寫死開頭那個紅圈, 而具名例外成立時它其實是**過的**(rc=0)
+      #    ⇒ 📌 一個看畫面數紅圈的人(**包括我自己**)會判成「四格紅」, 而 rc 是 0。
+      #    ⇒ 🎯 本 repo 記過同一句:「判定標籤不由結果決定」;而它今天長在這道閘自己身上。
+      if [ -n "$APPLIED_EXEMPT" ] || [ -n "$R1_EXCEPTION" ]; then _r1mark='   ⚠️'; else _r1mark='🔴'; fi
+      echo "$_r1mark :$LNO CREATE OR REPLACE ${OTYPE} ${ONAME}${OTARGET:+ ON $OTARGET} —— 同身分在更早的 migration 查無定義 ⇒ 它是【新物件】"
       echo "   ⇒ 新物件一律裸 CREATE:撞名要當場紅。OR REPLACE 會把撞名靜靜蓋掉,"
       echo "      而你的 REVOKE 與斷言照樣綠 —— 拿到綠燈,卻蓋掉了一個你不知道存在的東西。"
-      if [ -n "$APPLIED_EXEMPT" ]; then echo "   ⚠️ 已宣告 applied-before-commit ⇒ 本條轉警告"; else RC=1; R1_OK=0; fi
+      if [ -n "$APPLIED_EXEMPT" ]; then echo "   ⚠️ 已宣告 applied-before-commit ⇒ 本條轉警告"
+      elif [ -n "$R1_EXCEPTION" ]; then
+        # 🔵 具名例外(2026-09-06)⇒ 轉警告而**照樣印出來**。理由與射程見上面 R1_EXCEPTION 那一段。
+        echo "   ⚠️ 已宣告 pcm:rule1-exception ⇒ 本條轉警告(它不證明這一行安全, 只證明有人具名寫下理由)"
+      else RC=1; R1_OK=0; fi
       # 🔴 只數【可授權】那四種(trigger 沒有 ACL, 列進斷言清單反而會 to_regclass 找不到而紅)。
       case "$(printf '%s' "$OTYPE" | tr 'A-Z' 'a-z')" in
         function|view|'materialized view'|table) R1_NEWOBJ=$((R1_NEWOBJ+1)) ;;
@@ -903,9 +968,78 @@ else
 fi
 
 
+echo "── ⑦ 單引號字串裡的 ASCII 分號(2026-09-06 加)──────────────────────"
+# 🔴🔴 **為什麼有這一格**:2026-09-06 Sean 在 Supabase SQL Editor 貼 `20260905200000` 逐字紅
+#    `ERROR: 42601: unterminated quoted string at or near "'該寄更正單號信的箱 …`
+#    🛑 **而那支檔的引號【是平衡的】** —— 同一份檔在拋棄式 PG 上 COMMIT 過三次。
+#    🛑 **我的第一個解釋是【錯的】**:⛔ ~~「Editor 照分號切, 而它不看單引號」~~
+#      —— 那條規則會把 `20260905320000` 也判成紅, 而**那一支帶著同樣的 ASCII 分號、貼成功了**
+#      (它已經在正式庫上;那個分號在第 206 行、碼位 0x3b、確實是 ASCII)。
+#      ⇒ 📌 **一個能解釋失敗的規則, 要先看它會不會把成功的那些也判成失敗。**
+#    ✅ **收窄後的假說**:它切的是**行尾**的分號(後面到換行只剩空白)。兩支檔分得開:
+#      `39 第二版`(貼下去紅)⇒ 字串內分號 8 個, **其中 2 個在行尾**
+#      `20260905320000`(貼成功)⇒ 字串內分號 1 個, **0 個在行尾**
+#    ⚠️ **而這仍然是【假說】** —— 兩個資料點(一正一負)與它一致, 而**沒有人量過 Editor 的 parser**。
+#      ⇒ 本格照這個收窄後的判準擋, 而**它擋不到「行中分號 + Editor 其實也會切」那個世界**。
+#    ⇒ 📌 **拋棄式 PG 綠而 Editor 紅, 差別不在 SQL, 在【誰來切這份檔】。**
+#    ⇒ 🔵 而同一份檔裡的 `DO $$…$$` 一路過得去 ⇒ **編輯器看得懂 dollar quote**
+#      ⇒ ✅ 修法 = 那段本文改成 `$c$…$c$`。
+#
+# ⚠️ **本格證不到什麼**(不要讓它變成免責貼紙):
+#    · 它**不證明**「Editor 真的照分號切」—— 那是從三個讀數推出來的解釋, 沒有人量過 Editor 的 parser
+#    · 它只看**單引號**字串;dollar-quoted 裡的分號**刻意不管**(那正是修法)
+#    · 全形分號不管(編輯器不會照它切)
+_semi_hits=$(SEMI_SRC="$F" python3 - <<'PYEOF' 2>/dev/null || echo "PYFAIL"
+import io, os
+s = io.open(os.environ['SEMI_SRC'], encoding='utf-8').read()
+i = 0; n = len(s); line = 1; state = 'code'; tag = None; buf = ''; start = 0; eol_semi = False; hits = []
+while i < n:
+    c = s[i]
+    if c == '\n': line += 1
+    if state == 'code':
+        if s[i:i+2] == '--':
+            j = s.find('\n', i); i = n if j < 0 else j; continue
+        if c == '$':
+            j = s.find('$', i+1)
+            if j > 0: tag = s[i:j+1]; state = 'dollar'; i = j+1; continue
+        if c == "'": state = 'str'; buf = ''; eol_semi = False; start = line; i += 1; continue
+    elif state == 'str':
+        if c == "'":
+            if s[i+1:i+2] == "'": buf += "''"; i += 2; continue
+            if eol_semi: hits.append(str(start))
+            state = 'code'; i += 1; continue
+        if c == ';':
+            j = s.find('\n', i)
+            if (s[i+1:j] if j > 0 else s[i+1:]).strip() == '': eol_semi = True
+        buf += c
+    elif state == 'dollar':
+        if s.startswith(tag, i): i += len(tag); state = 'code'; tag = None; continue
+    i += 1
+# 🔴 掃完若仍在字串裡 ⇒ 這份檔的引號本身就不平衡 ⇒ 那是另一種病, 也要說出來
+print(('UNBALANCED@' + str(start)) if state == 'str' else ' '.join(hits))
+PYEOF
+)
+if [ "$_semi_hits" = "PYFAIL" ]; then
+  echo "🔴 規則⑦ 的檢查器自己壞了(python3 非 0)⇒ 這【不是】通過, exit 2"
+  RC=2
+elif [ "${_semi_hits#UNBALANCED@}" != "$_semi_hits" ]; then
+  echo "🔴 這份檔的單引號【本身就不平衡】—— 最後一個沒閉合的字串開在第 ${_semi_hits#UNBALANCED@} 行"
+  RC=1
+elif [ -n "$_semi_hits" ]; then
+  echo "🔴 這幾行的單引號字串裡有【行尾】的 ASCII 分號(字串起始行號):$_semi_hits"
+  echo "   ⇒ 假說:Supabase SQL Editor 在【行尾的分號】切 statement, 而它不看單引號"
+  echo "      ⇒ 它會在字串中間切一刀 ⇒ 貼下去 42601, 而【本機與拋棄式 PG 全綠】。"
+  echo "   ⚠️ 那是假說不是量到的:兩個資料點與它一致(39 第二版紅 / 20260905320000 綠),"
+  echo "      而沒有人量過 Editor 的 parser。⇒ 它擋不到「行中分號而 Editor 其實也會切」那個世界。"
+  echo "   ✅ 修法:那段本文改成 dollar-quoted(例 IS \$c\$…\$c\$)—— 同一份檔的 DO \$\$…\$\$ 就是這樣過的。"
+  RC=1
+else
+  echo "✅ 沒有單引號字串帶著【行尾】的 ASCII 分號(行中分號不算 —— 見上面那段收窄的理由)"
+fi
+
 echo "──────────────────────────────────────────────────────────────────"
 if [ "$RC" = "0" ]; then
-  echo "✅ 六道靜態檢查全過:$F"
+  echo "✅ 七道靜態檢查全過:$F"
 else
   echo "🔴 有檢查未過:$F"
 fi

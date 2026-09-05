@@ -162,7 +162,15 @@ describe('statement-pdf · 它吃得下訂單資料嗎', () => {
 // 🛑 **它證不到的**:那些參數**真的產出一份對的 PDF** ——
 //    那要一個跑得動 `@sparticuz/chromium` 的環境(Linux 容器 / 真部署), 而那不在這一片。
 describe('htmlToPdf · 本機執行不了 ⇒ 只釘得住它的形狀', () => {
-  const src = readFileSync(join(__dirname, 'statement-pdf.ts'), 'utf8');
+  // 🔴🔴 **2026-09-06 P-1:這一行的【路徑】改了, 而下面每一格的斷言【一個字都沒動】。**
+  //    `htmlToPdf` 搬進了 `@pcm/pdf`(理由見那支檔的檔頭)⇒ 它的原始碼在那裡。
+  //    🛑 **改斷言去配合搬家 = 把守門搬成我要的形狀** ⇒ 本片的驗收條件第一條逐字禁止那件事。
+  //    ⇒ 📌 所以改的是【它去哪裡讀】, 不是【它讀到什麼要成立】。
+  //    ⚠️ 而這一行是**位置釘樁**:搬回去的世界裡它會 ENOENT ⇒ 那正是它該有的反應。
+  const src = readFileSync(
+    join(__dirname, '../../../../../packages/pdf/src/index.ts'),
+    'utf8',
+  );
 
   it('🔴 前提斷言:真的讀到那支檔(讀到空字串 ⇒ 下面每一格恆綠)', () => {
     expect(src.length).toBeGreaterThan(2000);

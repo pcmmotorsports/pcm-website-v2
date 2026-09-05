@@ -136,3 +136,33 @@ describe('A13 錨點 — `id="cancel"` 是列表操作欄的目的地', () => {
     expect(anchors(container).length).toBe(1);
   });
 });
+
+describe('🔴 「把這張單結掉」那顆鈕(⟦0a-CARDCANCELNOREFUND⟧ 片②)', () => {
+  // 🔴 codex R2:上一版「刪掉 `&& formsAllowed === true` 沒有任何一格會紅」⇒ 這一族補那個反向斷言。
+  const refunded = () => detail({ paymentStatus: 'refunded' });
+
+  it('✅ refunded + formsAllowed=true ⇒ 鈕在', () => {
+    const { container } = render(
+      <OrderCancelBlock shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} payments={PAY_UNREADABLE} detail={refunded()} returnTo='/orders' formsAllowed={true} />,
+    );
+    expect(container.textContent).toContain('把這張單結掉');
+  });
+
+  it('🔴 refunded 而 formsAllowed=false ⇒ 鈕【不可以】在', () => {
+    // 📌 那道守門的意思是「**結果頁上不准就地重送**」——
+    //    少了這一格, 刪掉 `&& formsAllowed === true` 沒有任何東西會紅,
+    //    而 `retry`/`error` 之後那顆鈕會立刻又出現、且**每次重繪鑄一把新 token**
+    //    ⇒ 🔴 **冪等鍵被繞過, 而繞過它的是我們自己的畫面。**
+    const { container } = render(
+      <OrderCancelBlock shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} payments={PAY_UNREADABLE} detail={refunded()} returnTo='/orders' formsAllowed={false} />,
+    );
+    expect(container.textContent).not.toContain('把這張單結掉');
+  });
+
+  it('🔬 負對照:paid 的單即使 formsAllowed=true 也不出現那顆鈕(擋太寬會讓別的單冒出來)', () => {
+    const { container } = render(
+      <OrderCancelBlock shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} payments={PAY_UNREADABLE} detail={detail({ paymentStatus: 'paid' })} returnTo='/orders' formsAllowed={true} />,
+    );
+    expect(container.textContent).not.toContain('把這張單結掉');
+  });
+});

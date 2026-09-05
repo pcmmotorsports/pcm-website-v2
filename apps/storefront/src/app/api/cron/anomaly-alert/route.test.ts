@@ -114,6 +114,7 @@ const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   trackingCorrectedGapUnknown: false,
   trackingCorrectedPendingCount: 0,
   trackingCorrectedNoRecipientCount: 0,
+  trackingCorrectedPayloadUnparseableCount: 0,
   // 🔵 心跳(片3):基準是【讀得到而六支健康】。
   //    🛑 寫 `Unknown: true` 會讓每一格都走 503 那條路 ⇒ 這份 CLEAN 就不 clean 了。
   cronHeartbeatAbnormalCount: 0,

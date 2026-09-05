@@ -228,6 +228,16 @@ export type CheckAnomalyAlertsResult = {
    */
   trackingCorrectedPendingCount: number | null;
   trackingCorrectedNoRecipientCount: number | null;
+  /**
+   * 🔵 **第三格**(⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 片 A2, 2026-09-05)。
+   * 🔴 **三格是三種壞法, 去看的地方都不一樣 —— 所以刻意不合併**:
+   *   `Pending`            = 正常會 >0, 下一輪就排掉了 ⇒ **不進 shouldAlert**
+   *   `NoRecipient`        = 該寄而兩個信箱都空       ⇒ 去看那張單的收件資料
+   *   `PayloadUnparseable` = 我們【看不到它該不該寄】 ⇒ **去看 outbox 那一列的 payload**
+   * 🛑 主掃描面【略過】那些列 ⇒ 沒有這一格的話, 那幾箱的更正信永遠不會被排,
+   *   而**每一個既有的計數都會照樣印一個正常的數字**。
+   */
+  trackingCorrectedPayloadUnparseableCount: number | null;
   trackingCorrectedGapUnknown: boolean;
   /** 🔵 訊號4 持續失敗那三格 —— 信裡印了而 result 沒有 ⇒ 事後對不了帳。 */
   orderCreatedStuckCount: number | null;
@@ -992,6 +1002,14 @@ export function buildAnomalyAlertMessage(
   emailPush(
     summary.trackingCorrectedNoRecipientCount,
     '🔴 貨運單號更正了而【那張單兩個信箱都是空的】⇒ 客人手上那個錯號碼, 我們沒有路可以更正',
+  );
+  // 🔴 **第五條線**(片 A2, 2026-09-05)。與上一行的差:上一行是「**有路而信箱是空的**」,
+  //   這一行是「**我們連它該不該寄都判斷不了**」—— 那一列的 payload 裡 shipment_id 壞了,
+  //   而主掃描面【略過】它 ⇒ 📌 **每一個既有的計數都會照樣印一個正常的數字。**
+  //   ⇒ 文案刻意說出【去哪裡看】:不是去看 sweeper, 是去看 outbox 那一列。
+  emailPush(
+    summary.trackingCorrectedPayloadUnparseableCount,
+    '🔴 已寄出的信裡 payload 的 shipment_id 壞了 ⇒ 那幾箱【我們判斷不了要不要寄更正信】(去看 email_outbox 那幾列)',
   );
   // 🔴 這一行【不走 emailPush】—— 它不是「幾封信」, 它是「一封都沒有」。
   //   ⇒ 文案刻意寫成兩種可能, **不猜是哪一種**:「這張表是空的」與「讀不到資料」
@@ -1849,6 +1867,10 @@ export async function checkAnomalyAlerts(
      * 🔴 而 `unknown` 也不進:「讀不到」由 route 印出來, 不由這裡叫。
      */
     (summary.trackingCorrectedNoRecipientCount ?? 0) > 0 ||
+    // 🔵 片 A2 的第三格。門檻**沿用同一族**(>0 就叫), 不另端一題:它與上一格同種
+    //   —— 都是「客人手上那個錯號碼, 而我們沒有把它更正過去」, 差別只在【卡在哪一層】。
+    // 🛑 `?? 0` 一樣是刻意的:片 A 未 apply ⇒ 那個 key 讀不到 ⇒ 不叫。
+    (summary.trackingCorrectedPayloadUnparseableCount ?? 0) > 0 ||
     /**
      * 🔴🔴 **訊號4 的【持續失敗】那一格(板 `⟦b4-SIG4ERRORS⟧`)**。
      * 🛑 它與上面 `paidNoEmail` 的差別是【年齡】, 而那個差別就是它能不能當判準:
@@ -2033,6 +2055,7 @@ export async function checkAnomalyAlerts(
     //    「這一段安靜」與「這一段讀不到」在 route 的回應上必須分得開(姊妹線同款)。
     trackingCorrectedPendingCount: summary.trackingCorrectedPendingCount,
     trackingCorrectedNoRecipientCount: summary.trackingCorrectedNoRecipientCount,
+    trackingCorrectedPayloadUnparseableCount: summary.trackingCorrectedPayloadUnparseableCount,
     trackingCorrectedGapUnknown: summary.trackingCorrectedGapUnknown,
     // 🔴 **它必須出得去** —— 沒有這一格, adapter 的 fail-closed 在下游就被 `?? 0` 拆掉了
     //   ⇒ 而「安靜」與「這道告警根本沒裝上」會印同一個畫面。

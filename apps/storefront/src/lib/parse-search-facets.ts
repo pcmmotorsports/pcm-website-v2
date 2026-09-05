@@ -183,6 +183,82 @@ export function parseSearchFacets(query: string, src: FacetSources): ParsedFacet
   // 🔵 Q1=A(主視窗 2026-09-03):**解析出多顆就全部帶上**(AND)。
   //    理由:全部帶上 ⇒ 客人多按幾個 ✕ 就好;只帶第一顆 ⇒ **他不知道我們丟了什麼**。
   const brandIds: string[] = [];
+
+  // 🔴🔴 **先在【相鄰的 n-gram】裡找品牌 —— 判準:最長優先, 同長取最左。**
+  //
+  // 🔬 **它從哪來**(2026-09-06, 正式庫 `brands` 表 12 筆多字品牌逐一過本函式):
+  //   舊碼只拿**單一個字**比 `b.name` / `b.id`, **從不比多個字** ⇒ 多字品牌的 `name` 折疊後是
+  //   **串在一起的**(`GILLESTOOLING`), 沒有單字等於它 ⇒ **只能靠 slug 命中**;
+  //   而 slug 是單一 token 時才有機會(`gilles` ✅), **帶連字號時就沒有**(`cnc-racing` ❌)
+  //   ⇒ 12 個裡有 4 個(`CNC RACING` · `FRONT 3D` · `GB RACING` · `RPM CARBON`)打全名解不出品牌。
+  // 🔵 **而折疊器早就把答案準備好了**:`search-terms-fold.ts:75` 剝掉 `[\s\-_./()…]`
+  //   ⇒ `CNC RACING` 與 `cnc-racing` 折完**都是 `CNCRACING`**。
+  //
+  // 🔴 **判準 = 【最長連續子串優先, 同長取最左】**(主視窗 2026-09-06 裁;tokenizer 的標準做法)。
+  //   ⛔ ~~我原本說「要不要試子集是設計題」~~ —— **那是我沒想到有客觀判準**, 而它有。
+  //   🛑 **為什麼最長優先**:若表上同時有 `RPM` 與 `RPM CARBON`, 取短的會挑到 `RPM`
+  //     而把 `CARBON` 丟進 leftover ⇒ **客人打了完整品牌名, 而我們只認一半**。
+  //   🛑 **為什麼同長取最左**:兩段等長都命中時沒有第二個客觀理由可以挑
+  //     ⇒ 取最左 = **與客人打字的順序一致**, 而且**不依賴 `src.brands` 的排列**(可重現)。
+  //
+  // 🔴 **只在【相鄰】的 token 上組 n-gram** —— code-reviewer 2026-09-06 抓到的假命中:
+  //   車款那一段若吃掉**中間**那個字, 把剩下的接起來會得到「FRONT 3D」,
+  //   而**那兩個字從來沒有相鄰過**;`foldEquals` 分辨不出來(它剝掉所有分隔符)。
+  //
+  // 🔵 **`n` 只到 2 為止** —— `n = 1` 交給下面那個逐字迴圈(它另外還比 `b.id`)。
+  // 🔴 **而 `n ≥ 2` 這裡【不比 `b.id`】的理由要講精確**(reviewer 2026-09-06 訂正我的措辭):
+  //   ⛔ ~~等於 slug 的多字片語【不存在】~~ —— **那是錯的**:`CNC RACING` 與 `cnc-racing`
+  //      折疊後都是 `CNCRACING`, **那個片語存在**。
+  //   ✅ 真正的理由是 **`b.name` 會先比中同一個字串** ⇒ 比 `b.id` 只是**多餘**, 不是不可能。
+  //      而多餘的分支沒有任何突變殺得死(實測拿掉它 37 格全綠)⇒ 拿掉。
+  // 🔵 **迴圈到找不到為止** —— 一句話裡可以有兩個品牌(既有政策:解析出多顆就全部帶上)。
+  // 🔴🔴 **效能上限:`len` 只掃到【最長的品牌名有幾個字】為止**(reviewer 2026-09-06 Critical)。
+  //   🔬 **他量到的**:沒有上限時, 每個 `(len, off)` 組合都對每個品牌折一次
+  //      ⇒ `O(words² × brands)` 次 `normalize('NFD')`;餵 **200 個字 + 25 個品牌(零命中)**
+  //      ⇒ **跑超過 3 分鐘沒回來, 手動 kill 才停**。
+  //   🛑 **而 `/products?search=` 是【公開路由】, `splitWords` 沒有長度上限**
+  //      ⇒ 📌 **任何人打一個幾百字的 query 就能把一次 server render 卡到平台逾時。**
+  //      ⇒ ⇒ 那不是理論值, 是**可構造的真實輸入**。
+  //   ✅ 兩個各自便宜的修法一起做:
+  //      ① **品牌名只折一次**(移出迴圈)—— 原本每比一次折一次。
+  //      ② **`len` 封頂**:比最長的品牌名還長的片語**不可能等於任何品牌名**
+  //         ⇒ 掃它是純浪費。今天最長是 3 個字(`DBK SPECIAL PARTS`)⇒ 上限就是 3。
+  //      ⇒ 複雜度回到 `O(words × maxBrandWords × brands)`, **對 words 是線性的**。
+  const foldedBrands = src.brands.map((b) => ({ id: b.id, folded: foldSearchTerm(b.name) }));
+  const maxBrandWords = src.brands.reduce((m, b) => Math.max(m, splitWords(b.name).length), 0);
+  for (;;) {
+    // 「相鄰且還沒被用掉」的每一段
+    const runs: number[][] = [];
+    for (let i = 0; i < words.length; i += 1) {
+      if (used.has(i)) continue;
+      const last = runs[runs.length - 1];
+      if (last !== undefined && last[last.length - 1] === i - 1) last.push(i);
+      else runs.push([i]);
+    }
+    let hit: { start: number; len: number; id: string } | null = null;
+    const maxLen = Math.min(
+      runs.reduce((m, r) => Math.max(m, r.length), 0),
+      maxBrandWords,
+    );
+    for (let len = maxLen; len >= 2 && hit === null; len -= 1) {
+      for (const run of runs) {
+        for (let off = 0; off + len <= run.length && hit === null; off += 1) {
+          const idx = run.slice(off, off + len);
+          // 🔵 片語折一次, 品牌名早就折好了 ⇒ 這一層只剩字串比較。
+          const folded = foldSearchTerm(idx.map((k) => words[k]!).join(' '));
+          if (folded !== '') {
+            const b = foldedBrands.find((x) => x.folded === folded);
+            if (b !== undefined) hit = { start: idx[0]!, len, id: b.id };
+          }
+        }
+        if (hit !== null) break;
+      }
+    }
+    if (hit === null) break;
+    brandIds.push(hit.id);
+    for (let k = hit.start; k < hit.start + hit.len; k += 1) used.add(k);
+  }
+
   for (const b of src.brands) {
     for (let i = 0; i < words.length; i += 1) {
       if (used.has(i)) continue;

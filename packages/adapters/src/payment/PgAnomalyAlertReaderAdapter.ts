@@ -1027,6 +1027,10 @@ const SHIPPED_FN = 'get_shipped_email_gap_counts';
 const ORDER_CREATED_FN = 'get_order_created_gap_counts';
 const UNPAID_CANCELLED_FN = 'get_order_unpaid_cancelled_gap_counts';
 const TRACKING_CORRECTED_FN = 'get_tracking_corrected_gap_counts';
+// 🔵 片 A2 那一格的 key。寫成常數是為了讓「檢查它在不在」與「拿它去讀」用同一個字面
+//   —— 兩處各打一次的話, 打錯一邊會變成永遠 null(而那與「片 A 還沒 apply」印同一個東西)。
+const PAYLOAD_UNPARSEABLE_KEY = 'payload_unparseable_count';
+
 // 🔵 `get_pcm_incident_health` **刻意不做成常數** —— 呼叫那一句必須是字面字串,
 //    否則 `anomaly-alert-key-contract.test.ts` 的正則抽不到函式名(codex must-fix ①)。
 //    ⇒ 📌 一個為了 DRY 而抽出來的常數, 會讓一道守門看不見這一族。
@@ -1042,6 +1046,58 @@ const RAISE_EXCEPTION = 'P0001';
  *    ⇒ **值班的人會去查一支根本沒問題的函式。**
  *    📌 那不是假綠,是**紅在對的時候、指向錯的地方** —— 一樣會浪費掉那個晚上。
  */
+/**
+ * 🔴🔴 **片 A2 的第三格專用讀法 —— 而它與本檔既有的「少一個 key ⇒ throw」【不一致】, 理由寫在這裡。**
+ *
+ * **既有原則**(那支檔有一格測試釘著:`🔴 少一個 key ⇒ throw(fail-loud), 不是靜靜地變成 0`):
+ *   那些 key 從函式出生就在 ⇒ **少一個 = 函式壞了** ⇒ fail-loud 是對的。
+ *
+ * 🛑 **而這一格不同**:`payload_unparseable_count` 由片 A 的 `CREATE OR REPLACE` 帶進去
+ *   ⇒ 在【A2 已部署而 A 還沒 apply】那個窗口裡, live 只回兩個 key。
+ *   照既有原則 ⇒ throw ⇒ `getAlertSummary` throw ⇒ route 503
+ *   ⇒ 🔴 **整條告警當晚一封都不寄** —— 而那正是「碼先上線、migration 還沒到」最常見的一晚。
+ *   📌 **既有的降級只擋【函式不存在】, 擋不到【函式在而少一個 key】** —— 兩者在部署順序上是
+ *     同一種風險, 而只有前者有出口。
+ *
+ * ✅ **折衷:不 throw, 而【也不安靜】** —— 印一行 `console.error`、回 `null`,
+ *   **並且把 `trackingCorrectedGapUnknown` 帶成 `true`**(2026-09-05 codex R1)。
+ * 🔴 **所以「避免整條 route 503」那句話今天只對了一半**(codex R2 nit 指出):
+ *   `unknown=true` 會被帶進 route 的回應, 而**線已上膛時那條路本來就會回 503**
+ *   ⇒ 📌 **我們換到的不是「不 503」, 是「503 的理由說得出來」** ——
+ *     從「函式壞了(throw)」變成「那一格我們沒讀到(unknown)」。
+ *   ⇒ 而**寄信那一半仍然活著**:`null` 不進 `shouldAlert` ⇒ 不會變成一封每天寄的信。
+ * 🔴 **代價寫出來**:片 A apply 之後, 若哪天那個 key 又消失了, 這裡會**降級而不是叫**
+ *   ⇒ 那是一個**永久的**寬容, 換一個**一次性的**部署窗口。
+ *   ⇒ ⇒ **而換得值不值, 判準是「哪一種壞法比較貴」**:少一個 key ⇒ 少一格計數;
+ *     throw ⇒ **整條告警死掉**。後者貴得多。
+ * ⚠️ **key 在而值壞掉 ⇒ 照舊 throw**(那是真的壞了, 不該被吞)。
+ */
+function readPayloadUnparseable(
+  unknownState: boolean,
+  row: Record<string, unknown> | undefined,
+  read: (key: string) => number | null,
+): { value: number | null; keyAbsent: boolean } {
+  if (unknownState || row === undefined) return { value: null, keyAbsent: false };
+  if (!(PAYLOAD_UNPARSEABLE_KEY in row)) {
+    console.error(
+      `[anomaly-alert] ⚠️ ${TRACKING_CORRECTED_FN} 沒有回 ${PAYLOAD_UNPARSEABLE_KEY} ⇒ 那一格降級成【查不到】。` +
+        '最可能的原因是 20260905200000 還沒 apply(碼先上線的部署窗口)。',
+      { reason: 'tracking_corrected_payload_unparseable_key_absent' },
+    );
+    // 🔴🔴 **2026-09-05 codex R1 must-fix:回 `null` 是不夠的。**
+    //    ⛔ ~~只回 null 而 `trackingCorrectedGapUnknown` 維持 `false`~~
+    //    🛑 那組合在 route 的回應上長成**「查過了, 沒有異常」** ——
+    //      而真相是「我們根本沒讀到那一格」。
+    //    ⇒ 🎯 而**會造成這個組合的不只部署窗口**:反向部署(rollback 到舊 migration)、
+    //      schema drift、有人手動 REPLACE 掉那支函式 —— **三種都是永久狀態, 不是一晚。**
+    //    ⇒ 📌 一行 `console.error` 只有翻 log 的人看得到, 而**沒有人會去翻一個沒有人叫的夜晚**。
+    // ✅ 所以**把「缺 key」帶出去**:值仍然是 `null`(不進 shouldAlert ⇒ 不會天天寄信),
+    //    而 `trackingCorrectedGapUnknown` 變 `true` ⇒ **它在回應上就不再自稱正常。**
+    return { value: null, keyAbsent: true };
+  }
+  return { value: read(PAYLOAD_UNPARSEABLE_KEY), keyAbsent: false };
+}
+
 function parseCount(v: unknown, field: string, fn = 'get_payment_anomaly_alert_summary'): number {
   // 🔴🔴 **空白字串要在轉型【之前】擋掉** —— ⟦b4-PARSECOUNTEMPTYZERO⟧(codex 2026-09-03 MF6)。
   //    🛑 `Number('') === 0`,而 `0` 通過下面那三關(finite / >= 0 / integer)⇒ **回一個健康的 0**。
@@ -1550,6 +1606,12 @@ function parseAlertSummary(
   }
   const trackingCorrectedCount = (key: string): number | null =>
     trackingCorrectedGapUnknown ? null : parseCount(tcg![key], key, TRACKING_CORRECTED_FN);
+  // 🔴 先算, 因為它的「缺 key」要餵回 `trackingCorrectedGapUnknown`(見那支函式裡的說明)。
+  const payloadUnparseable = readPayloadUnparseable(
+    trackingCorrectedGapUnknown,
+    tcg,
+    trackingCorrectedCount,
+  );
 
   const ocs = orderCreatedStuckRows[0]?.result as Record<string, unknown> | undefined;
   // 🔴 `undefined` = **沒查**(兩顆 env 任一沒設 / 函式尚未 apply)⇒ 兩格都回 null, **不是 0**。
@@ -1599,7 +1661,26 @@ function parseAlertSummary(
     //   🔴 **不寫成 0** —— 而這一格今天【一定會走到】:那支 RPC 還沒 apply 到正式庫。
     trackingCorrectedPendingCount: trackingCorrectedCount('pending_count'),
     trackingCorrectedNoRecipientCount: trackingCorrectedCount('no_recipient_count'),
-    trackingCorrectedGapUnknown,
+    /**
+     * 🔴🔴 **片 A2 的第三格 —— 而它【不能用 `trackingCorrectedCount`】, 理由是我的測試抓到的。**
+     *
+     * `parseCount` 對「那個 key 不在回傳物件裡」的處置是 **throw**
+     * (`v === undefined` ⇒ `NaN` ⇒ `AnomalyAlertReaderParseError`)。
+     * 🛑 **而那個 key 由片 A 的 `CREATE OR REPLACE` 帶進去** ⇒ 在【A2 已部署而 A 還沒 apply】
+     *   那個窗口裡, live 的函式只回兩個 key ⇒ **這一行會 throw**
+     *   ⇒ `getAlertSummary` throw ⇒ use-case throw ⇒ route 503
+     *   ⇒ 🔴 **整條告警當晚一封都不寄**, 而那正是「碼先上線、migration 還沒到」最常見的一晚。
+     * ⇒ 📌 **既有的降級只擋【函式不存在】, 擋不到【函式在而少一個 key】。**
+     *   那兩件事在部署順序上是同一種風險, 而只有前者有出口。
+     *
+     * ✅ **所以這一格用【容忍缺 key】的讀法**:key 不在 ⇒ `null`(= 讀不到, 不進 shouldAlert);
+     *   key 在而值壞掉 ⇒ **照舊 throw**(那是真的壞了, 不該被吞)。
+     * 🟢 抓到它的是我自己新加的那格測試 —— 而它紅的時候我以為是 fixture 沒補。
+     */
+    trackingCorrectedPayloadUnparseableCount: payloadUnparseable.value,
+    // 🔴 **缺 key 也算「不知道」**(codex R1 must-fix)——
+    //    見 `readPayloadUnparseable` 裡那段:`null` + `unknown=false` 在回應上自稱正常。
+    trackingCorrectedGapUnknown: trackingCorrectedGapUnknown || payloadUnparseable.keyAbsent,
     // 🔵 訊號4 持續失敗那兩格。null = 沒查(兩顆 env 任一沒設)或函式尚未 apply
     //   🔴 **不寫成 0** ——「還沒上膛」與「今天沒有卡住的單」在一個裸數字上長得一模一樣。
     orderCreatedStuckCount: stuckNum('stuck_count'),

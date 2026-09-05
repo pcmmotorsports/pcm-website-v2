@@ -12,7 +12,15 @@ import type {
   ShippedEmailContext,
 } from '@pcm/ports';
 import { SUPPRESS_WHEN_ORDER_INELIGIBLE } from '@pcm/ports';
-import { subtotalLabelOf } from '@pcm/domain';
+import {
+  subtotalLabelOf,
+  PCM_REMITTANCE_BANK_NAME,
+  PCM_REMITTANCE_BRANCH,
+  PCM_REMITTANCE_ACCOUNT_NAME,
+  PCM_REMITTANCE_ACCOUNT_NO,
+  PCM_REMITTANCE_MEMO_INSTRUCTION,
+  remittanceDeadlineSentence,
+} from '@pcm/domain';
 import {
   assertPdfClaimMatchesAttachments,
   paidEmailOrderUrl,
@@ -419,6 +427,13 @@ function buildEmailText(
       return buildOrderCancelledText(job, siteUrl);
     case 'order_created':
       return buildOrderCreatedText(job, paid, siteUrl);
+    case 'bank_order_created':
+      // 🔴 ⟦b4-BANKNOEMAIL⟧:匯款單成立信。**只吃 `job.payload`**(R3-C1 採納, 主視窗 2026-09-06 裁)——
+      //    與 order_cancelled 同形。⇒ 沒有第二次查詢 ⇒ 📌 **「表頭舊版 + 明細新版」那個混版問題不存在**,
+      //    而不是「被解掉了」。
+      //    ⚠️ 而快照是【下單當下】的 ⇒ 客人隔天匯了一半, 快照仍是舊的
+      //    ⇒ 🔴 **寄送前那道 `balanceDue` 重驗非留不可**(它在 claim 之後、send 之前)。
+      return buildBankOrderCreatedText(job, siteUrl);
     case 'order_unpaid_cancelled':
       // 🔵 **不需要 `shipped` 之類的第二來源** —— 這封信要的東西全在 `payload` 裡
       //    (訂單編號 + 對客的取消原因),而那是刻意的:**它是一封「事情不會再發生了」的信**,
@@ -462,6 +477,82 @@ function buildEmailText(
  * 三欄之一);payload 形狀異常(理論上不可達,組裝層 runtime 驗過)→ 退回不含編號的通用文案,
  * **不因文案缺欄位就不寄**(付款成功通知的存在比編號重要)。
  */
+/**
+ * ⟦b4-BANKNOEMAIL⟧ 匯款單成立信的純文字內文。
+ *
+ * 🔴🔴 **字面的來源是【Sean 核可的那一份】, 不是我寫的** ——
+ *   canonical 在 `docs/specs/2026-09-06-bank-order-created-email-copy.md`
+ *   (那支檔是**程式從端給他的那份逐字抄的**, 不是重打的)。
+ *   Sean 2026-09-06 03:2x 逐字答「甲 = 可以」。
+ *   ⇒ `sweep-email-outbox.test.ts` 有一發**讀那支 spec、把佔位詞換掉、與本函式輸出整串比對** ——
+ *     📌 **那不是「測我寫對了」, 是把【他核可的字】與【寄出去的字】綁在一起。**
+ *
+ * 🔴 **標點是半形逗號, 而那是刻意的**:本 repo 已知兩種標點並存(出貨信那段逐字記著
+ *   「全站有兩種標點, 而那是已知且刻意的, 不是漏改」)。判準照那段立的先例 ——
+ *   **碼的字面要與他核可的那一份完全相同, 不是與鄰居一致。**
+ *
+ * 🛑 **三件缺了就【整段不印】, 不是印一半**:
+ *   ① `display_id` 缺 ⇒ 訂單編號、備註那一行、訂單頁連結都指不到單 ⇒ 這封信沒有意義
+ *   ② 三個金額任一缺 / 不是安全整數 ⇒ 🔴 **印一個可能錯的數字叫客人匯錢, 比不印糟**
+ *   ③ `siteUrl` 缺 ⇒ **連結那兩行整段不印**(既有做法逐字「缺 siteUrl 就只印句子, 不印半個連結」,
+ *      route 那側逐字「死入口比沒入口糟」)—— 而**信的其餘部分照印**, 因為帳號與期限才是主體。
+ *   ⇒ ①② 回 `null`, 由呼叫端 fail-closed 不寄(R3-MF2 那條規則的碼側對應)。
+ */
+function buildBankOrderCreatedText(job: ClaimedEmailJob, siteUrl: string | undefined): string {
+  const payload = job.payload;
+  const readStr = (key: string): string | null => {
+    if (typeof payload !== 'object' || payload === null || !(key in payload)) return null;
+    const v = (payload as Record<string, unknown>)[key];
+    return typeof v === 'string' && v.trim() !== '' ? v : null;
+  };
+  // 🔴 金額只認**有限整數**(與隔壁同一把尺):NaN / Infinity / 字串數字一律當缺。
+  //    ⚠️ 而這裡 `>= 0` 不是 `> 0` —— 「已收」合法地可以是 0(他一毛都還沒匯)。
+  //    🛑 而「應付餘額」那一格的 `> 0` 由**掃描面**與**寄送前重驗**負責, 不在模板層重複判斷:
+  //       📌 模板層再判一次 = 同一條規則兩份, 而兩份會漂。
+  const readAmount = (key: string): number | null => {
+    if (typeof payload !== 'object' || payload === null || !(key in payload)) return null;
+    const v = (payload as Record<string, unknown>)[key];
+    return typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : null;
+  };
+
+  const rawDisplayId = readStr('display_id');
+  const displayId = rawDisplayId === null ? null : sanitizeCustomerFacingReason(rawDisplayId);
+  const total = readAmount('total');
+  const balanceDue = readAmount('balance_due');
+  const createdAt = readStr('created_at');
+  // 🔴 呼叫端(`sweepEmailOutbox`)在 claim 之後會先做重驗;走到這裡仍缺 ⇒ 丟, 讓它計 error 不靜默寄半封。
+  if (displayId === null || total === null || balanceDue === null || createdAt === null) {
+    throw new Error('buildBankOrderCreatedText:payload 缺必要欄位 ⇒ fail-closed 不寄');
+  }
+  const paidSoFar = total - balanceDue;
+
+  const orderUrl = paidEmailOrderUrl(siteUrl, displayId);
+  const lines: string[] = [
+    '您好,',
+    '',
+    `您的訂單 ${displayId} 已成立,目前尚未付款。`,
+    '請依下列資訊完成轉帳,我們收到款項後會再通知您。',
+    '',
+    `訂單金額  NT$ ${formatOrderAmount(total)}`,
+    `已收      NT$ ${formatOrderAmount(paidSoFar)}`,
+    `應付餘額  NT$ ${formatOrderAmount(balanceDue)}`,
+    '',
+    '匯款資訊',
+    `銀行      ${PCM_REMITTANCE_BANK_NAME}(${PCM_REMITTANCE_BRANCH})`,
+    `戶名      ${PCM_REMITTANCE_ACCOUNT_NAME}`,
+    `帳號      ${PCM_REMITTANCE_ACCOUNT_NO}`,
+    `${PCM_REMITTANCE_MEMO_INSTRUCTION} ${displayId}`,
+    '',
+    remittanceDeadlineSentence(createdAt),
+  ];
+  // 🔴 缺 siteUrl ⇒ **這兩行整段不印**(不是印一個壞連結)。
+  if (orderUrl !== undefined) {
+    lines.push('', '訂單內容與匯款資訊也可以在這裡查看:', orderUrl);
+  }
+  lines.push('', `${ORDER_CONTACT_LEAD} ${PCM_LINE_ID}`, PCM_LINE_URL);
+  return lines.join('\n');
+}
+
 function buildOrderCreatedText(
   job: ClaimedEmailJob,
   paid: PaidEmailContext | null,
@@ -1537,12 +1628,36 @@ export async function sweepEmailOutbox(
       //    🛑 **它今天恆不會 throw**(那句話今天不會印)⇒ **效度不能靠「今天沒紅」證明**,
       //      由 `paid-email-html.test.ts` 的兩個世界證(說了謊 ⇒ 紅 / 真的附了 ⇒ 綠)。
       assertPdfClaimMatchesAttachments(sendInput.html ?? null, sendInput.attachments);
+
+      // 🔴🔴 **`Q-更正信範圍 = 甲` 那道閘【不在這裡】, 它在認領路徑上**(本檔 `:1265` 與 `:1300`)。
+      //    ⛔ ~~我原本在這裡又加了一道「payload 號碼 vs live 號碼」~~ —— **它是死碼**:
+      //      · 上面那段「比的是【這一次更正的身分】」已用**更正的時點**比過一次
+      //        (被取代 ⇒ `markSkippedTrackingSuperseded`)
+      //      · 緊接著的「**第二道:號碼本身也要對得上**」已用**號碼**比過一次(對不上 ⇒ `errors`)
+      //      🔵 這裡**刻意不寫行號** —— 行號會被別人的 diff 推走, 而那兩段的標題不會(codex R1 nit)
+      //      · 而 `shipped` 只在 `order_shipped` 才載入 ⇒ 對更正信恆為 `null`
+      //        ⇒ 🛑 **我那個條件恆假, 一次都不會成立。**
+      //    ⇒ 🎯 **它會全綠, 因為它什麼都沒做** —— 而多出來的那個計數欄位是唯一叫出來的訊號
+      //      (`result 鍵恰為 counts allowlist` 那一格)。📌 **一道擋不到東西的閘, 只有清單會發現。**
+      // 🔴 **這一封實際印在紙上的號碼** —— 交給 `markSent` 與 `sent_at` 同一發落表。
+      //    · 更正信 ⇒ payload 那個(而上面那道閘已保證它 === live)
+      //    · 出貨信 ⇒ 即時值(它的信裡印的就是這個;沒有號碼時是 null, 那是合法狀態)
+      //    · 其餘事件 ⇒ null(它們的信裡沒有號碼)
+      const sentTrackingNumber: string | null =
+        job.eventType === 'shipment_tracking_corrected'
+          ? (((job.payload as { tracking_number?: unknown }).tracking_number ?? null) as
+              | string
+              | null)
+          : job.eventType === 'order_shipped'
+            ? (shipped?.trackingNumber ?? null)
+            : null;
+
       const outcome = await sender.send(sendInput);
       // 🔴 計數 = provider 裁決當下(mark 落表前;codex 關卡2 R1 must-fix:mark throw 不得
       //    讓「Resend 已接受」從計數上消失)。
       if (outcome.kind === 'sent') {
         result.sent++;
-        const owned = await outbox.markSent(job.id, job.attempts);
+        const owned = await outbox.markSent(job.id, job.attempts, sentTrackingNumber);
         if (!owned) result.staleMarks++; // 柵欄 no-op:所有權已失、不得覆寫(非錯誤)
       } else {
         result.failed++;
