@@ -124,6 +124,69 @@ dispatch(selectCategorySub(s.id, s.name));
 | R-c | 比對用什麼 | 沿用既有 `segmentKey`(`:533-534`)比**參數集合**,不比逐字;逐字會在「其實落地了」時誤判 ⇒ 多送一次沒必要的導覽 |
 | R-d | `useSearchParams()` 需要 route 是 dynamic | ✅ 已成立(`page.tsx:41`),而**這一格要寫進來**,因為它是別人日後把 route 改回 static 時唯一會撞到的字 |
 
+### 3.2a 🔬 **R-a 與 R-b 讀碼驗完了 —— 兩格都【已經成立】,而理由不一樣**
+
+> 主視窗 2026-09-06 裁:「兩格讀碼驗完、結論寫進 plan 再動」。以下每一格都附**行號**,
+> 每個行號都是**當場開檔核**的(今晚已因抄座標沒開檔核被 reviewer 抓過一次)。
+
+**R-a(`searchParams` 進 deps ⇒ 會不會產生寫網址迴圈)⇒ 🟡 【多數路徑上不會, 而有一條路徑上我證不到】。**
+
+⚠️ **這一格我第一版寫成乾淨的「✅ 不會」, 而那是錯的 —— 訂正如下, 舊結論不留(它還沒離開這份 plan)。**
+
+```
+:472-476  第一道   !categoryAxisSuppressed
+                   && normalizedQuery(window.location.search) === normalizedQuery(params.toString())
+                   ⇒ return   —— 「URL 本來就是正確結果 → 直接收手」
+:513-516  第二道   normalizedQuery(window.location.search) !== normalizedQuery(next)  才進 replace
+```
+
+🔵 **一般路徑(`categoryAxisSuppressed === false`)⇒ 第一道就 return**,連 `params.delete('page')`
+   都到不了;重送自己也終止(重送 → 網址變 → 再跑 → 這時網址已對 → 第一道 return)。**不是迴圈。**
+
+🔴🔴 **而第一道帶著一個【我一開始沒看見的】前提:`!categoryAxisSuppressed`(`:472`)。**
+```
+:385-386  const categoryAxisSuppressed =
+            params.has(CATEGORIES_PARAM) && (category ?? null) !== params.get('category');
+```
+⇒ 📌 **在多顆分類的世界裡(`?categories=` 存在而 state 的分類與 `category=` 不同),
+   第一道【整段被跳過】** ⇒ 那條路上擋住迴圈的**只剩第二道**。
+🛑 **而第二道自陳沒有判別力**(`:509-512` 逐字:「這個 `if` 因此恆為真 = 它今天沒有判別力,
+   構造不出讓它為假的輸入, 拿掉它零測試變化」)——
+   ⚠️ **而那句話的推理前提是「走得到本行 ⟺ 上方那次比較已判定不等」**,
+   `categoryAxisSuppressed` 那條路**正好違反這個前提**(第一道根本沒比)。
+   ⇒ 🎯 **所以那句「恆為真」在這條新路徑上【不再成立】, 而它是我唯一能靠的東西。**
+   ⇒ ⇒ **我不能寫「已驗證不會迴圈」** —— 我只能寫「一般路徑證得到, 多顆分類那條路要用測試量」。
+
+✅ **驗法(照主視窗指定,寫成可數的斷言;而【分母要含那條弱路徑】)**:
+> **讓 `searchParams` 變化 N 次而 state 一次都不動 ⇒ `router.replace` 的呼叫次數必須 = 0。**
+> 🔴 **兩組 fixture, 缺一不可**:
+>   ① 一般世界(`?pbrands=…`,`categoryAxisSuppressed === false`)
+>   ② 🔴 **多顆分類世界**(`?categories=A,B` 而 state 的分類不等於 `category=`)⇒ **走的是弱路徑**
+> N 取 3。**負對照 = 把第一道(`:472-476`)拿掉 ⇒ ① 必須紅**(否則它是恆真的);
+> ⚠️ 而 ② **拿掉第一道也不會紅**(它本來就走不到第一道)—— 📌 **那正是它要單獨存在的理由。**
+
+🔵 **`filtersChanged` 那一族不會誤刪**(`:483` page / `:494` search / `:503` unmatched):
+   多跑的波 `filterKey` 沒變 ⇒ `filtersChanged === false`。
+
+✅ **驗法(照主視窗指定,寫成可數的斷言,不是「看起來沒事」)**:
+> **讓 `searchParams` 變化 N 次而 state 一次都不動 ⇒ `router.replace` 的呼叫次數必須 = 0。**
+> 🔵 N 取 3;**負對照 = 把第一道守門(`:472-476`)拿掉 ⇒ 這一格必須紅**(否則它是恆真的)。
+
+**R-b(pending 的比對要早於三個病態 `return`)⇒ ✅ 位置已經是對的,新碼接在既有那段旁邊即可。**
+
+```
+:228  ① initialized 首輪 return   ← 在 pending 段【之前】, 而那一輪 pending 必然是 null ⇒ 無害
+:234-243  既有 pendingWrittenCategoryRef 的落地比對   ← 新的 pendingUrlRef 比對放這裡
+:277  ② vehicle 讓路 return       ← 在 pending 段之後 ✅
+:287  ③ 還原窗口 hold return      ← 在 pending 段之後 ✅
+:476  ④ 「URL 已經正確」return     ← 在 pending 段之後 ✅
+```
+🛑 **① 是唯一一個排在前面的,而它不構成缺口**:那一輪是 hook 這輩子第一次跑,
+   `pendingUrlRef` 還沒有人寫過 ⇒ 沒有東西會被吃掉。
+📌 **這一格如果放錯**(放到 ②③ 之後)⇒ 被那兩個 `return` 吃掉的波仍然收不到落地訊號
+   ⇒ **等於沒修, 而三綠一樣會全綠** ⇒ 所以它要有自己的守門:
+   ✅ **測試:讓 vehicle 讓路那條路成立的那一波帶著一個未落地的 pending ⇒ 重送仍然要發生。**
+
 ### 3.3 測試怎麼寫(🔴 **fixture 要換掉,不是加一格**)
 
 ⛔ ~~v1 的三格(3 次 + warn / 2 次 / 1 次)~~ —— **它們建立在「兩個微任務」這個假時間軸上,整組作廢。**
