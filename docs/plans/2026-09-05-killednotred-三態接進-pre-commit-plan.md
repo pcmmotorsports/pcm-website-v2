@@ -48,10 +48,17 @@ sysctl vm.swapusage ⇒ total 18,432M · used 17,133M · free 1,298M   ⇒ 93% �
 
 ### ③ 最小形狀(三選一,我推薦甲)
 ```
-甲(推薦)pre-commit 收到非 0 時, 先看是不是 137/143(SIGKILL/SIGTERM)或 log 含 SIGKILL
-        ⇒ 印一行「🔴 這不是你的碼 —— 工具被系統砍掉了(記憶體壓力)」+ 建議先看 swap
+甲(裁定版, 2026-09-05 主視窗 -f8 依三世界 + 真樣本重寫)
+        ⇒ **判準 = 掃 log 找 `Task killed` / `[SIGKILL]` / `heap out of memory`**
+        ⇒ 命中就印一行講人話的:「🔴 這不是你的碼 —— 工具被機器砍掉了(記憶體不夠)」
+           + 建議先看 `uptime` 的 load
         ⇒ 仍然 exit 1(**不放行**), 只是把【訊息】換掉。
         🔵 為什麼仍然 exit 1:放行等於讓一次沒跑完的檢查變成綠 —— 那比訊息不好更糟。
+        🔴🔴 **rc 只當【附加】不當判準** —— 而那是真樣本逼出來的:
+           2026-09-01 那次 husky 看到的是 `code 1`(lint-staged 把子程序的死法吃掉了)
+           ⇒ **137 / 134 在真實路徑上根本到不了 hook** ⇒ 只認 rc 的版本會對真實情況失明。
+        ⏭️ **同一顆一起做**:`.husky/pre-commit:253` 的 `pnpm exec lint-staged --no-stash`
+           接上 `|| exit $?` —— **同一行, 同一片**(主視窗裁)。
 乙      改成 exit 2 走 greenlight 的三態 ⇒ 🛑 而 husky 對非 0 一律當失敗,
         exit 2 與 exit 1 對 git 是同一件事 ⇒ **它只換數字不換行為**, 收益等於甲而多動一層。
 丙      不改 hook, 改 lint-staged 的 task 包一層 ⇒ 🛑 要動 62 個 task 的每一個, 爆炸半徑最大。
