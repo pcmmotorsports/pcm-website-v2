@@ -55,23 +55,53 @@ const ROUTE_NFT = join(
  *    ⇒ ⇒ 而**下面那幾格會照樣跑** —— 它們對舊產物仍然有意義, 只是意義不是「現在是好的」。
  */
 function stalenessNote(): string | null {
+  // 🛑 產物不在 ⇒ 這裡不回答新鮮度(`tracedFiles()` 會用一個看得懂的訊息 throw)。
+  //    同後台孿生守門的形狀(code-reviewer nit:兩支要對稱)。
+  if (!existsSync(ROUTE_NFT)) return null;
   const nftAt = statSync(ROUTE_NFT).mtimeMs;
-  const guarded = [
+
+  // ⛔ **我試過【從產物自己推】(清單裡凡是本 repo 原始碼一律納入)—— 那條路不通, 而它是量到的**:
+  //    當場數這份 `.nft.json`:**本 repo 的檔 1041 筆**, 其中 **316 筆是 `.test.` 檔**,
+  //    而清單裡連 `CLAUDE.md` / `AGENTS.md` / `e2e/*.spec.ts` 都在。
+  //    ⇒ 🛑 那樣做的話**改 `CLAUDE.md` 都會讓這一格紅** ⇒ 它會被當成雜訊關掉。
+  //    ⇒ 📌 **「自動推導」在這裡不是比較嚴謹, 是比較沒用** —— 分母太大等於沒有分母。
+  //    ⇒ ✅ 所以清單只能**手寫**, 而手寫的病要另外堵(下面那段)。
+  const GUARDED = [
+    // ── 決定那組 glob 的設定檔(它自己不是被追蹤的檔 ⇒ 只可能手寫)
+    join(__dirname, '../../../../../../next.config.ts'),
+    // ── route 與它直接 import 的那幾支(改它們會改變這份清單)
     join(__dirname, 'route.ts'),
     join(__dirname, '../../../../../lib/print/statement-pdf.ts'),
-    // 🔴 **2026-09-03 補(codex 抓到, 而它正是本片改的那支檔)**:
-    //    `outputFileTracingIncludes` 就住在 `next.config.ts` ⇒ **改了 glob 而沒重 build,
-    //    下面那組「丙」的守門會拿【舊的 NFT】全綠** —— 而那正是它要擋的那種假綠。
-    //    ⇒ 📌 一把守門, 沒有把「會改變它答案的那支檔」放進新鮮度清單 ⇒ 它守不住自己。
-    join(__dirname, '../../../../../../next.config.ts'),
-    // 🔴 2026-09-06 P-1:產 PDF 的能力搬進 `@pcm/pdf` ⇒ **改它會改變這份追蹤清單的答案**
-    //    ⇒ 它要在新鮮度清單裡(同上面那一句:一把守門沒把「會改變它答案的檔」放進來 ⇒ 它守不住自己)。
+    // 🔴 **這兩支是 code-reviewer must-fix 補的** —— `statement-pdf.ts` 直接 import 它們,
+    //    而 `.nft.json` 正是由 route 的 import 圖決定的 ⇒ 改它們會改變本檔的答案。
+    //    (後台孿生清單裡就有對應的 `shipping-doc.tsx` ⇒ 這是兩支不對稱的地方之一。)
+    join(__dirname, '../../../../../lib/print/statement-html.ts'),
+    join(__dirname, '../../../../../components/print/statement-doc.tsx'),
+    // ── 版面 CSS:下面「版面 CSS 的原始碼在裡面」那格在問的就是它們(code-reviewer nit 補)
+    join(__dirname, '../../../../../styles/print-a4.css'),
+    join(__dirname, '../../../../../styles/statement.css'),
+    // ── @pcm/pdf:產 PDF 與組 HTML 那兩半(2026-09-06 P-1 / P-2 搬進去的)
     join(__dirname, '../../../../../../../../packages/pdf/src/index.ts'),
-  ].filter((p) => existsSync(p));
-  const newest = Math.max(...guarded.map((p) => statSync(p).mtimeMs));
+    join(__dirname, '../../../../../../../../packages/pdf/src/html.ts'),
+  ];
+
+  // 🔴🔴 **少一條就要出聲, 不可以靜默變短**(code-reviewer must-fix)——
+  //    ⛔ 舊版是 `.filter(existsSync)`:少一條**無聲**變短;全部消失時 `Math.max()` 吃空陣列
+  //      = `-Infinity` ⇒ `-Infinity <= nftAt` ⇒ 回 `null` ⇒ 🛑 **整格轉綠、零訊號**,
+  //      而硬斷言把全部判別力押在這張清單上。
+  //    🔬 **可達性是量到的**:`packages/pdf/src/html.ts` 是 `eb4c55894`(2026-09-06)才出生的,
+  //      而當時八棵活 worktree 裡 **6 棵有這支測試檔而沒有那支來源檔**
+  //      ⇒ 這不是理論上的可達, 是當天就成立的。
+  const missing = GUARDED.filter((f) => !existsSync(f));
+  if (missing.length > 0) {
+    return `⚠️ 新鮮度清單裡有 ${missing.length} 支檔不存在(${missing.join(', ')}) ⇒ 這道閘已經比它宣稱的弱。先修清單, 不要略過。`;
+  }
+
+  const newest = Math.max(...GUARDED.map((f) => statSync(f).mtimeMs));
   if (newest <= nftAt) return null;
+  const who = GUARDED.filter((f) => statSync(f).mtimeMs > nftAt);
   const mins = Math.round((newest - nftAt) / 60_000);
-  return `⚠️ 這份追蹤清單比它守的原始碼舊 ${mins} 分鐘 ⇒ 下面每一格驗的是【上一次 build】那個世界, 不是現在這份碼。要驗現在這份 ⇒ 先跑 \`TURBO_FORCE=1 pnpm --filter @pcm/storefront build\``;
+  return `⚠️ 這份追蹤清單比它守的原始碼舊 ${mins} 分鐘(${who.length}/${GUARDED.length} 支比它新:${who.join(', ')})⇒ 下面每一格驗的是【上一次 build】那個世界, 不是現在這份碼。要驗現在這份 ⇒ 先跑 \`TURBO_FORCE=1 pnpm --filter @pcm/storefront build\``;
 }
 
 function tracedFiles(): string[] {
@@ -96,14 +126,45 @@ describe('片 C3:statement.pdf 這條 route 的追蹤清單', () => {
   //    🛑 那個名字宣稱的是【清單是新的】, 而下面那行斷言**兩個世界都收** ⇒ 它恆綠。
   //    📌 **⇒ 只看綠紅的人(CI / 掃測試名的人)會把「綠」讀成「新鮮」** —— 而它從來沒有這個意思。
   //    ✅ 新名照它**實際在做的事**寫:印一行出來。**恆綠是刻意的**, 理由在 `stalenessNote()` 的 docstring。
-  it('📎 印出這份清單相對原始碼的新鮮度 —— 🛑 本格【恆綠】, 判別力在印出來那一行、不在斷言', () => {
-    const note = stalenessNote();
-    // 🔴 **不 throw, 而是把那句話印在【判定的正上方】** —— 它與「綠」在同一個畫面上,
-    //    而人讀的就是那幾行。(2026-09-01 那次假綠的成因不是沒有訊號, 是沒有任何訊號。)
-    if (note !== null) process.stdout.write(`\n${note}\n`);
-    // 🛑 而這一格**本身仍然要綠** —— 它守的是「有沒有把這件事講出來」, 不是「你有沒有 build」。
-    //    ⇒ 判別力在上面那行輸出:兩個世界印**不同的東西**(過期 ⇒ 有那句;同步 ⇒ 一個字都沒有)。
-    expect(typeof note === 'string' || note === null).toBe(true);
+  // ⛔ ~~📎 印出這份清單相對原始碼的新鮮度 —— 🛑 本格【恆綠】, 判別力在印出來那一行、不在斷言~~
+  //    ~~不 throw, 而是把那句話印在【判定的正上方】—— 它與「綠」在同一個畫面上, 而人讀的就是那幾行。~~
+  //    ~~這一格本身仍然要綠 —— 它守的是「有沒有把這件事講出來」, 不是「你有沒有 build」。~~
+  //
+  // 🔴🔴 **2026-09-06 升成硬斷言, 而【推翻上面那個決定的是一次實測, 不是一個看法】**
+  //    (⟦ship-STALEGUARDWARN⟧;主視窗 `-f8` 指派):
+  //    信窗 `-1d` 那棵樹(`/Users/sean_1/pcm-wt-mail`)的 `.nft.json` mtime **09-06 00:29**、
+  //    `next.config.ts` **09-06 05:18** —— 🔵 **來源屬性:那兩個值是 `-1d` 回報的, 而 code-reviewer
+  //    在那棵樹上複量過, 成立。**(§6-b:數字要帶著時點與哪一棵樹走。)
+  //    ⇒ 🎯 **`stalenessNote()` 的【觸發條件當時成立】。**
+  //    ⚠️ ⛔ ~~那一句當時就產生了 · 機制完全照設計運作~~ —— **那兩句比證據寬**(code-reviewer):
+  //      兩個 mtime 只證得到**條件成立**;那一行**有沒有真的被印出來、有沒有人看到, 未量**。
+  //      🛑 而**兩種世界的修法一樣、診斷不一樣**:若那棵樹當時根本沒跑這支測試,
+  //        真正的病是「訊號**從未產生**」而不是「產生了沒人讀」。⇒ **我答不出是哪一種。**
+  //    ⇒ 📌 而**不論是哪一種, 這個修法都成立** —— 硬斷言在兩個世界都會擋下來。
+  //    ⇒ 📌 **「有訊號」與「訊號被讀到」是兩個宣稱, 而上面那段舊註解只證得到前者
+  //      —— 而我這一段一度連前者都沒證到。**
+  // 🔵 另一個轉述的數字也標一下:「全套 **856** 支」是 `-1d` 訊息裡的值, **單位與哪一棵樹我沒問**;
+  //    本樹當下 `git ls-files '*.test.ts' '*.test.tsx' | wc -l` ⇒ **853**。兩個數不要混用。
+  //    「兩個窗各花一輪」也是我從對話推的, **不是量到的**。
+  //    ⇒ 🛑 **原句留著不刪**:它記著「為什麼曾經刻意選恆綠」, 而那個理由本身沒有錯 ——
+  //      錯的是它**假設了一個會讀輸出的人**。
+  //
+  // ⚠️ **附帶成本先講明(與後台那支 `shipping-pdf-tracing.test.ts` 相同, `eb4c55894` 起)**:
+  //    **改了上面 `GUARDED` 裡任何一支而沒重 build 就跑測試 ⇒ 這一格會紅。** 設計不是故障 ——
+  //    訊息裡直接給重 build 的指令, 而且會**點名是哪幾支比它新**。
+  //    🔴 ⛔ ~~「改了顧客站的碼」~~ —— **那句寫窄了**(code-reviewer):`packages/pdf/src/*`
+  //      **是後台那條 route 也在用的共用包** ⇒ 📌 **只為了後台去改 `html.ts` 的人, 從「顧客站的碼」
+  //      這五個字想不到他要 build storefront。** 兩支守門會同時對他叫, 而他只會想到一支。
+  //    🔵 **今天可達的假紅只有一種**(code-reviewer 盤過):`git checkout -- <檔>` / `stash pop` /
+  //      merge 把內容還原成**同一份位元組**照樣把 mtime 推到 now ⇒ 內容沒變而紅 ——
+  //      八棵 worktree 互相 merge 的常態。**而它有出路**:訊息就給重 build 的指令。
+  //      (CI 的 build 排在 test 之前、turbo replay 會把 outputs 寫回磁碟、lint-staged 無 `--fix`
+  //       ⇒ 那三條都不可達;mtime 精度那一支的方向是**假綠**不是假紅。)
+  it('🔴 這份追蹤清單不比它守的原始碼舊 —— 舊了就紅, 不是印一行給你自己看', () => {
+    expect(
+      stalenessNote(),
+      '追蹤清單過期 ⇒ 下面每一格驗的是【上一次 build】那個世界, 不是現在這份碼',
+    ).toBeNull();
   });
 
   it('✅ 版面 CSS 的【原始碼】在裡面 —— route 讀的是它,不是編譯產物', () => {

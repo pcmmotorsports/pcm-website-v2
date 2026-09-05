@@ -41,14 +41,33 @@ function stalenessNote(): string | null {
     join(ROUTE_DIR, '../../../../../../print/print-a4.css'),
     // 🔵 `.nft.json` 是這條 route 的 import 圖決定的 ⇒ 它 import 到的東西也要進清單
     //    (code-reviewer R3:與 R1 must-fix-4 同型 —— 會改變它答案的檔沒進來)。
-    join(ROUTE_DIR, '../../../../../../../../../packages/pdf/src/index.ts'),
-    join(ROUTE_DIR, '../../../../../../../../../packages/pdf/src/html.ts'),
+    // 🔴🔴 **這兩條 2026-09-06 加進來的時候【層數少一層】, 而它從來沒有生效過**:
+    //    ⛔ ~~9 層 `../`~~ ⇒ 落在 `apps/packages/pdf/src/…`(不存在)
+    //    ✅ **10 層**(shipping.pdf → [shipmentId] → shipping → [id] → orders → print → app
+    //       → src → admin → apps)。
+    //    🎯 **而抓到它的正是同一顆 commit 加的那道「少一條就出聲」** —— 舊的
+    //    `.filter(existsSync)` 把這兩條**無聲丟掉**, 三綠全綠、守門照跑, 而清單少了兩支。
+    //    ⇒ 📌 **一個補丁在它落地的第一發就抓到一個先前存在的實例** —— 這比任何論證都有力。
+    join(ROUTE_DIR, '../../../../../../../../../../packages/pdf/src/index.ts'),
+    join(ROUTE_DIR, '../../../../../../../../../../packages/pdf/src/html.ts'),
     join(ROUTE_DIR, '../../../../../../../components/print/shipping-doc.tsx'),
-  ].filter((p) => existsSync(p));
-  if (guarded.length === 0) return null;
+  ];
+  // 🔴🔴 **少一條就要出聲, 不可以靜默變短**(2026-09-06 ⟦ship-STALEGUARDWARN⟧ 的 code-reviewer
+  //    在顧客站孿生守門上抓到, **而這一支有【一模一樣】的洞 ⇒ 同一顆一起堵**):
+  //    ⛔ ~~`.filter((p) => existsSync(p))` + `if (guarded.length === 0) return null`~~
+  //      —— 那個形狀只擋「全部消失」, **不擋「少一條」**:少一條無聲變短,
+  //      而全空時 `Math.max()` 吃空陣列 = `-Infinity` ⇒ `-Infinity <= nftAt` ⇒ 回 `null`
+  //      ⇒ 🛑 **整格轉綠、零訊號**, 而硬斷言把全部判別力押在這張清單上。
+  //    🔬 **可達性是量到的**:`packages/pdf/src/html.ts` 是 `eb4c55894`(2026-09-06)才出生的,
+  //      而當天八棵活 worktree 裡 **6 棵有測試檔而沒有那支來源檔**。
+  const missing = guarded.filter((p) => !existsSync(p));
+  if (missing.length > 0) {
+    return `⚠️ 新鮮度清單裡有 ${missing.length} 支檔不存在(${missing.join(', ')}) ⇒ 這道閘已經比它宣稱的弱。先修清單, 不要略過。`;
+  }
   const newest = Math.max(...guarded.map((p) => statSync(p).mtimeMs));
   if (newest <= nftAt) return null;
-  return `⚠️ 這份追蹤清單比它守的原始碼舊 ${Math.round((newest - nftAt) / 60_000)} 分鐘 ⇒ 下面每一格驗的是【上一次 build】那個世界。要驗現在這份 ⇒ 先跑 \`TURBO_FORCE=1 pnpm --filter @pcm/admin build\``;
+  const who = guarded.filter((p) => statSync(p).mtimeMs > nftAt);
+  return `⚠️ 這份追蹤清單比它守的原始碼舊 ${Math.round((newest - nftAt) / 60_000)} 分鐘(${who.length}/${guarded.length} 支比它新:${who.join(', ')})⇒ 下面每一格驗的是【上一次 build】那個世界。要驗現在這份 ⇒ 先跑 \`TURBO_FORCE=1 pnpm --filter @pcm/admin build\``;
 }
 
 function tracedFiles(): string[] {
