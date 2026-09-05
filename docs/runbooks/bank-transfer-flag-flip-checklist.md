@@ -81,6 +81,41 @@
 　 (`pg_get_function_identity_arguments`)**沒有 `p_payment_channel`** ——
 　 📌 **簽名少一個參數不是字面的問題。**
 
+### 🟢 (a) flag 關著的時候,客人在結帳頁**看不看得到那一格** ⇒ **量到了:【完全看不到】**
+
+> 量測者 = 線 `-f3`,2026-09-06。**兩層各一個獨立證據,而它們答的不是同一件事。**
+
+**① 畫面那一層 —— 它根本不 render**
+```
+apps/storefront/src/app/checkout/page.tsx:107   bankTransferEnabled={isBankTransferCheckoutEnabled()}   ← server 端求值
+apps/storefront/src/components/CheckoutStep2.tsx:336   {bankTransferEnabled && ( …ATM 轉帳那個 <label>… )}
+apps/storefront/src/lib/payment/bank-transfer-flag.ts:77   process.env.BANK_TRANSFER_CHECKOUT_ENABLED === 'true'
+```
+⇒ 🎯 **`false` ⇒ 整個 `<label>` 不進 HTML** ⇒ **答案是「完全看不到」,不是「看得到但按了失敗」。**
+🔵 而它是 **server 端求值**(`page.tsx:107`)⇒ 📌 **那一格的字面連送到瀏覽器都沒有**,
+　 不是靠 CSS 藏、也不是靠 client 判斷 —— **看原始碼的人也看不到它。**
+
+**② server 那一層 —— 就算有人繞過畫面直接送**
+```
+apps/storefront/src/app/checkout/charge-actions.ts:222
+  if (parsedCheckout.data.paymentChannel === 'bank_transfer' && !isBankTransferCheckoutEnabled()) { …拒… }
+```
+⇒ 🔵 **兩層是【各自獨立】的**:①決定「他看不看得到」,②決定「他送得出去嗎」。
+　 📌 **只有 ① 的話,任何人手打一個請求就能建匯款單** —— 這一格不是多餘的。
+
+**🛑 而真瀏覽器那一半我【沒有量到】—— 明寫,不用推論充數**
+```
+2026-09-06 唯讀 fetch 正式站 /checkout
+⇒ 302 → https://shop.pcmmotorsports.com/login?next=%2Fcheckout   (24,847 bytes 的登入頁)
+⇒ 頁面裡 `ATM 轉帳` 命中 0, 而【那個 0 什麼都不代表】—— 它是登入頁, 本來就沒有付款選項。
+```
+⚠️ **要看到付款那一段必須【登入一個真帳號並且有商品在車上】** ——
+　 而**結帳頁只看不填、不按任何會寫入的鈕**是既有紀律 ⇒ **我沒有走那條路。**
+⇒ 📌 **所以 (a) 的答案是【讀碼讀出來的】,不是【看到的】。** 兩層座標都在上面,可自行複核。
+⇒ ✅ 而**翻旗那天的真瀏覽器走查**(§④)會順便把這一格變成看到的 —— 那時它才會有第二種證據。
+
+---
+
 ### 🔴🔴 (c) RPC 那側今天有沒有守門 ⇒ **量到了:【世界三 —— 沒守, 而且可達】**
 
 > 量測者 = 線【信】`-mail`, 唯讀正式庫(`scripts/readonly-prod-sql.sh`, 零寫入),
@@ -241,6 +276,30 @@ codex R3【換角度】PASS  +  6 條 PARTIAL(⟦b4-PIECEBGATEGAPS⟧)折完
 🔬 我 2026-09-05 收工前量的是 `APPLIED.tsv` ⇒ 六支全 **0**(帳本 374 行, 正對照 `20260712203000` ⇒ 1)。
 🛑 **而那六個 0 有兩支是【貼了的】** ⇒ 📌 **帳本落後現實, 這一節是它的實錘。**
 　 ⇒ 🔴 **不要再用帳本判這件事。**
+
+## ①-b 碼那半(client 片 2)—— **四格都落地了,而效果【只由單元層證】**
+
+| 片 | hash | 做了什麼 |
+|---|---|---|
+| **A** | `8f081c012` | 選匯款**不再向 TapPay 取 prime**。🛑 **跳過的邊界只有那一段** —— `confirmProceedIfInflight` / `agreed` / 收件地址 / cart session / `resumeChargeMessage` 全部留在分支外 |
+| **④** | `024b204a6` | 匯款終態畫面(`CheckoutSuccess` 的 `awaiting_remittance` variant)+ 連到 `/account/orders/<encodeURIComponent(displayId)>` |
+| **③⑤** | `9789a12bf` | 接住 `{ ok:false, payment:'awaiting_remittance', displayId, message }`:**新終態 + 清車 + 換 cart key + 維持上鎖 + 立刻 `router.replace` 到明細頁** |
+
+🔴🔴 **這三顆的效果【只由單元層證】—— 真流程一次都沒走過。**
+　 三綠全綠 · `Tests 44/44` 連跑兩發 · 突變(拿掉 `regenerateCartSession()`)會紅 · code-reviewer R1 PASS。
+　 🛑 **而那些全部是 jsdom 裡的**:`router` 是 mock、server action 是 mock、**沒有一個真的訂單被建出來過**。
+⇒ ✅ **真流程走在【翻旗那一步】**(§④ 的走一遍),**不是在這裡**。
+　 📌 **為什麼今天走不了**(三個都是環境不是意願,2026-09-06 量):
+　 · `storefront-probe` 的埠 **3020 被別窗佔用**,而 `up.sh` **沒有 PORT 參數**
+　 · 施工窗的 worktree **沒有 `.env.local`**(主樹有)⇒ 而 **`.env*` 一律不搬**
+　 · 匯款那條路本身要 `BANK_TRANSFER_CHECKOUT_ENABLED=true` —— **那正是這張清單要翻的東西**
+　 ⇒ 🎯 **所以「真走一遍」與「翻旗」在時序上綁在一起,先後不可換。**
+
+⚠️ **還沒接的一格(片 2 自己的 plan §6 列著)**:`useReconcilePayment.tsx:144-155` 今天拿到
+　 `pendingTransfer + displayId` **卻把單號丟掉**、維持 unknown ⇒ **客人回不到明細**。
+　 📌 **它與上面三顆是不同的入口**(反查那條路),**翻旗前值得一起看**。
+
+---
 
 ## ② env — **blocked** · 誰給:Sean(或有 Vercel dashboard 的人)
 

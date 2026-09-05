@@ -96,6 +96,11 @@ export type ChargeState =
   | { status: 'reconciled_failed'; message: string; displayId?: string }
   /** 🔴 3DS-6b:3DS 啟動成功 → 即將整頁跳轉 TapPay payment_url(付款狀態非終態、UI 鎖定導向中、不清車)。 */
   | { status: 'redirect'; redirectUrl: string }
+  /** 🔴🔴 ⟦b4-BANKCHARGESCARD⟧ 片 2 ③:**單已成立、一毛錢都沒收**(匯款/ATM)。
+   *  🛑 **它是終態, 而它【不是失敗】** —— 片 1 暫時讓它走失敗那條路(那是明寫的中間狀態),
+   *     本片把它換成真的終態。⇒ 清車 + 立刻導訂單明細頁(主視窗 2026-09-06 裁)。
+   *  🔵 `displayId` **必填**:匯款客人唯一的把手就是單號, 而導頁需要它 —— 缺了就沒有地方可以去。 */
+  | { status: 'awaiting_remittance'; displayId: string; message: string }
   | { status: 'paid'; displayId: string };
 
 export type UseChargePayment = {
@@ -330,9 +335,24 @@ export function useChargePayment(): UseChargePayment {
           //    🔵 而單號**不丟掉** —— 它已經在 **server 那一側的 log** 裡
           //      (`charge-actions.ts` 的 `[checkout] 匯款單建立完成` 那行帶 orderId 與 displayId)
           //      ⇒ 📌 **這支 hook 今天零 logging, 為了這一格加一個 import 是把腳伸進片 2 的檔。**
-          inFlightRef.current = false;
-          setState({ status: 'error', message: GENERIC_FAIL });
-          return false;
+          // ✅ **2026-09-06 片 2 ③ 接住它了 —— 上面那整段是【接住之前】的紀錄, 刻意留著。**
+          //    主視窗 2026-09-06 裁兩件:**① 清車 ② 立刻導 `/account/orders/<displayId>`**。
+          // 🔴 **清車的理由是那個病本身**:單已經成立, 不清 ⇒ 他手上還有商品 ⇒ 再按一次會建第二張,
+          //    而「他以為沒買成」正是本片要修的。(⛔ ~~片 1 的「不清車」~~ ⇒ 同一批測試已改成期望清車。)
+          // 🔴 **`regenerateCartSession()` 要跟著** —— 這一格與 `paid` 同族(**單是確定的**),
+          //    不是模糊態:模糊態保留 key 是為了讓 server dedup 抓得住既有單、防雙扣;
+          //    而這裡單已成立且 Sean 拍過「不擋第二張」⇒ 保留舊 key 反而會讓**下一次合法的購買**
+          //    被 dedup 綁回這張未付款的單。
+          // 🛑 **`return true`(維持上鎖)而不是 `false`** —— 它是終態, 畫面即將整頁換掉;
+          //    釋放鎖 = 讓客人在導頁前還能再按一次 = 我們正要修掉的那個行為。
+          clear();
+          regenerateCartSession();
+          setState({
+            status: 'awaiting_remittance',
+            displayId: res.displayId,
+            message: res.message,
+          });
+          return true;
         default:
           /**
            * 🔴🔴 **這一格是機制不是禮貌 —— 而它【原本沒有】。**

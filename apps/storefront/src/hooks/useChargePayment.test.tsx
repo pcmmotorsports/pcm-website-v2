@@ -217,7 +217,11 @@ describe('useChargePayment', () => {
    * ⚠️ 而本組釘的是**今天刻意的中間狀態**(走與失敗相同的路);
    *    front 片 2 接手時**這幾格會紅, 而那是對的** —— 到時連同這段註解一起改。
    */
-  it('🔴 awaiting_remittance:不清車、釋放鎖、顯示【通用】失敗文案(不是 action 那句)', async () => {
+  it('🔴 awaiting_remittance:清車 + 換 cart key + 帶單號進終態(片 2 ③ 接住之後)', async () => {
+    // ⛔ ~~片 1 的期望:不清車、釋放鎖、顯示【通用】失敗文案~~
+    // 🔴🔴 **2026-09-06 片 2 ③ 把這一格改成期望【新的行為】** —— 主視窗裁「建好單就清車 + 立刻導明細頁」。
+    //    🛑 而改的理由不是「片 1 寫錯了」:**片 1 那個行為是【明寫的中間狀態】**,
+    //       它的註解自己寫著「這不是修好了」⇒ 📌 **這一格改動是【預期內的】, 不是回歸。**
     setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
     chargeMock.mockResolvedValue({
       ok: false,
@@ -229,18 +233,26 @@ describe('useChargePayment', () => {
     await act(async () => {
       await result.current.submit(ARGS);
     });
-    expect(result.current.state.status).toBe('error');
-    // 🔴🔴 **錯誤畫面上不得出現「已成立」** —— 前後矛盾比通用錯誤更糟(主視窗 2026-09-05 裁)。
-    expect((result.current.state as { message: string }).message).not.toContain('已成立');
-    // 🔵 而單號也不印在畫面上(它在 server 那行 log 裡)
-    expect(JSON.stringify(result.current.state)).not.toContain('PCM-2026-0001');
-    expect(cartRef.current.clear).not.toHaveBeenCalled();
+    // 🔵 它是**終態**, 不是 error —— 走錯誤畫面正是片 1 明寫要換掉的那件事。
+    expect(result.current.state.status).toBe('awaiting_remittance');
+    // 🔴 單號**要帶著** —— 導頁需要它, 而它是匯款客人唯一的把手(片 1 刻意不帶, 因為那時沒地方可去)。
+    expect((result.current.state as { displayId: string }).displayId).toBe('PCM-2026-0001');
+    // 🔴 清車:單已成立, 不清 ⇒ 他手上還有商品 ⇒ 再按一次會建第二張。
+    expect(cartRef.current.clear, '沒清車 ⇒ 他會以為沒買成而再建一張').toHaveBeenCalled();
+    // 🔴 **換新 cart key 也要釘** —— reviewer 2026-09-06 抓到:少了這一格,
+    //    誰把 `regenerateCartSession()` 那行刪掉, **三綠仍然全綠**。
+    //    🔵 它守的是【下一次合法購買】不被 server dedup 綁回這張未付款的單。
+    expect(
+      cartRef.current.regenerateCartSession,
+      '沒換 cart key ⇒ 他下次買東西會被 dedup 綁回這張沒付錢的單',
+    ).toHaveBeenCalledTimes(1);
   });
 
-  it('🔴 awaiting_remittance:鎖有釋放 ⇒ 他【再按一次會再送一發】(而那正是片 2 要修的)', async () => {
-    // 🛑 這一格不是在慶祝這個行為, 是把它【釘出來】:
-    //    今天他以為沒買成 ⇒ 再按 ⇒ 再建一張。「不擋第二張」是被授權的形狀,
-    //    而「他以為沒買成」不是 —— 片 2 接住這個終態之後, 這一格要改。
+  it('🔴 awaiting_remittance:鎖【不】釋放 ⇒ 他再按一次送不出第二發(片 2 ③ 修掉的就是這個)', async () => {
+    // ⛔ ~~片 1:鎖有釋放 ⇒ 再按一次會再送一發(而那正是片 2 要修的)~~
+    // ✅ **2026-09-06 反過來釘**:它是終態、畫面即將整頁換掉 ⇒ 維持上鎖。
+    //    🛑 **「不擋第二張」是被授權的形狀, 而那講的是【客人隔天再下一單】** ——
+    //       不是「他在同一個畫面上因為以為沒買成而連按兩下」。兩件事不要混。
     setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
     chargeMock.mockResolvedValue({
       ok: false,
@@ -255,7 +267,7 @@ describe('useChargePayment', () => {
     await act(async () => {
       await result.current.submit(ARGS);
     });
-    expect(chargeMock).toHaveBeenCalledTimes(2);
+    expect(chargeMock, '鎖釋放了 ⇒ 第二發送得出去 ⇒ 客人會建出第二張單').toHaveBeenCalledTimes(1);
   });
 
   it('缺 variantId → 整單拒、零 action、釋放鎖', async () => {

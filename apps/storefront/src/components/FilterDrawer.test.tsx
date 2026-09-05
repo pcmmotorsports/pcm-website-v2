@@ -33,6 +33,7 @@ function Harness({
   vehicle,
   facetCounts,
   selectedCategory,
+  applying,
 }: {
   open: boolean;
   onClose?: () => void;
@@ -43,6 +44,7 @@ function Harness({
   facetCounts?: VehicleFacetCounts | null;
   /** 直接注入「已選中的分類」——用點擊模擬會進到子類視圖、量不到同一顆按鈕。 */
   selectedCategory?: { mainId: string; main: string };
+  applying?: boolean;
 }) {
   const [base, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
   const cascade = {
@@ -57,6 +59,7 @@ function Harness({
       onClose={onClose}
       data={data}
       resultCount={resultCount}
+      applying={applying}
       scope={scope}
       initialTab={initialTab}
       cascade={cascade}
@@ -358,5 +361,43 @@ describe('⟦fc-FOCUSTRAP⟧ Tab 在抽屜內循環', () => {
     fireEvent.keyDown(outside, { key: 'Tab' });
     expect(document.activeElement, '抽屜關著卻攔了全站的 Tab').toBe(outside);
     outside.remove();
+  });
+
+  // ⟦search-CATSWITCHSLOW⟧ ① 切分類的載入回饋(2026-09-06)。
+  // 🔬 為什麼有這三格:正式站量到切一個分類要等 3.4-6.3 秒
+  //   (正本 `~/pcm-mailbox/量-抽屜正式站-20260906.md`), 而那幾秒畫面完全不動。
+  // 🛑 這三格證的是「客人看得到它在跑」, **不是「它變快了」** —— 它一秒都沒變快。
+  it('🔴 applying:底部那顆鈕原地換成「套用中…」並鎖住', () => {
+    // 🔵 它在【拿掉 applying 分支】的世界會紅(印回「查看 128 件商品」),
+    //    也在【忘了 disabled】的世界會紅。
+    render(<Harness open applying />);
+    const btn = screen.getByRole('button', { name: '套用中…' });
+    expect(btn).toBeDefined();
+    expect((btn as HTMLButtonElement).disabled, '沒鎖住 ⇒ 客人會在那幾秒裡再按一次').toBe(true);
+    expect(btn.className).toContain('is-loading');
+    expect(screen.queryByText('查看 128 件商品'), '舊件數還印著 ⇒ 看起來像「算完了而數字沒變」').toBeNull();
+  });
+
+  it('🟢 正對照:沒在飛的時候照印件數、鈕沒鎖(證明上面那格不是恆真)', () => {
+    // 🛑 少了這一格,「永遠顯示套用中…」也會讓上面那格綠。
+    render(<Harness open />);
+    const btn = screen.getByRole('button', { name: '查看 128 件商品' });
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
+    expect(btn.className).not.toContain('is-loading');
+    expect(screen.queryByText('套用中…')).toBeNull();
+  });
+
+  it('🔴 applying 要贏過 resultCount 為 null(撈不到 + 正在飛 ⇒ 印套用中, 不印失敗)', () => {
+    // 📌 對稱格:`ProductsSortBar.test.tsx` 有同一格, 這裡缺 ⇒ code-reviewer 2026-09-06 nit 補。
+    //    印「商品載入失敗」會讓客人以為壞了, 而其實只是還沒回來。
+    render(<Harness open applying resultCount={null as unknown as number} />);
+    expect(screen.getByText('套用中…')).toBeDefined();
+    expect(screen.queryByText('商品載入失敗')).toBeNull();
+  });
+
+  it('🔵 applying 沒傳 = 舊行為逐字相同(預設 false, 呼叫端不必改)', () => {
+    // 📌 這一格守的是「加一個 optional prop 不得改變任何既有呼叫端的行為」。
+    render(<Harness open resultCount={7} />);
+    expect(screen.getByText('查看 7 件商品')).toBeDefined();
   });
 });

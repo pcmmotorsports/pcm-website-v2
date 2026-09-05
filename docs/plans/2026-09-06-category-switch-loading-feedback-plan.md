@@ -141,3 +141,51 @@ A: 甲 | 乙
 · **② 為什麼要 3–8 秒 —— 完全沒量。** 候選:server query / facet 計算 / cold start。留 `open`。
 · **哪些分類會慢** —— 只試了 3 個。
 · **真手機 + 行動網路** —— 沒量,而它只會更慢。
+
+
+---
+
+## 7 · 🔴 訊號那一半【沒有做】—— 而卡住它的東西是量出來的
+
+本片實際落地的只有**畫面那一半**(元件契約 + CSS + 測試)。
+`isPending` 的**來源**沒有接、`ProductsPage` 一行都沒動 ⇒ **今天客人看不到任何改變。**
+
+### 7.1 四種寫法的讀數(可重跑;patch 都在 scratchpad)
+
+| # | 做法 | `heap out of memory` | 測試 |
+|---|---|---|---|
+| 1 | `startTransition` 包 `replace`,deps 不動 | **1**(OOM) | 讀不到(worker 被殺) |
+| 2 | 加 in-flight ref,`isPending` 落回 false 就清 | **1**(OOM) | 讀不到 |
+| 3 | 同上,改成**落地才清** | **1**(OOM) | 讀不到 |
+| 4 | **latest-ref**:deps = `[filterKey, restoreSources]`,`cascade`/`extras`/`router` 全走 ref | **0** ✅ | 🔴 **4 格紅** |
+
+🔵 4 的 `lint rc=0`(**零 `eslint-disable`**)、`typecheck rc=0` ⇒ **它在技術上是成立的**,倒在別的地方。
+
+### 7.2 🎯 而 4 那四格紅,是本片最值錢的發現
+
+紅的四格全是同一句:**「這一輪一次 `replace` 都沒送」**
+· `⑭ 正向對照:認得的 category 被使用者清掉時,照舊要刪`
+· `🔴 按了「清除全部」:認不得的 pbrands 不得被寫回網址`
+· `🟢 對照(#315 的鎖):沒有按清除全部而只是清掉最後一顆膠囊`
+· `🟢 對照:清除全部要把認得的那顆也一起帶走`
+
+**成因**(讀 fixture 讀出來的 —— `products-url-state.hooks.test.tsx:812-836` 的 `clearRun` 檔頭自己寫著「必須跑滿三個 render」):
+```
+render   (category: picked)   ① mount ⇒ initialized 早退
+rerender (category: picked)   ② 還原窗口消化   ← 這一輪 filterKey 【沒有變】
+rerender (category: null)     ③ 客人那一按
+```
+🛑 **舊 deps 是物件 ⇒ 第 ② 輪照樣跑**(`cascade([], picked)` 每 render 都是新物件);
+換成 `filterKey` 之後 ② **不跑** ⇒ 還原窗口沒被消化 ⇒ ③ 的行為就不一樣。
+
+⇒ 🔴🔴 **這支 effect 的語意其實是「每一次 render 都跑」,不是「篩選變了才跑」。**
+　　它的狀態機(`initialized` / 還原窗口 / `lastFilterKeyRef`)是**按 render 前進**的。
+⇒ 📌 **所以「把 deps 收窄」不是效能調整,是【改語意】** —— 下一次嘗試要先知道這一句,
+　　否則會像我一樣以為那 4 格是 bug,而它們是在誠實地報告一個行為改變。
+
+### 7.3 下一步(未做)
+
+· 訊號來源要嘛**讓那支 effect 真的變成 key-driven**(連同狀態機重新設計 + 那 4 格守門重寫),
+  要嘛**從別處取得 pending**(完全不碰那支 effect)。**兩條都不是小改動,不在本片。**
+· ⚠️ 在那之前,`.pp-grid.is-loading` 與 `ProductsSortBar` 的 `isPending`
+  **都是等接線的契約**,不是已生效的行為 —— CSS 檔裡也寫了同一句。

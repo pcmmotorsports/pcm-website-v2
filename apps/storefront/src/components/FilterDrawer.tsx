@@ -105,6 +105,7 @@ const COLORS = [
 export function FilterDrawer({
   open,
   onClose,
+  applying = false,
   data,
   resultCount,
   initialTab,
@@ -122,6 +123,12 @@ export function FilterDrawer({
 }: {
   open: boolean;
   onClose: () => void;
+  /** 🔴 ⟦search-CATSWITCHSLOW⟧ ①:切分類那一發導覽還在飛(正式站 3.4-6.3 秒)。
+   *   ⚠️ **它【不是】等按這顆鈕才開始** —— 網址是在點分類/細項的當下就送出去的
+   *      (`FilterDrawerCategoryTab.tsx:56,91-92` 那兩處 dispatch),而本鈕只負責關抽屜
+   *      (`onClick={onClose}`, 零 dispatch)⇒ 所以客人**還開著抽屜時**就會看到「套用中…」。
+   *   預設 `false` ⇒ 沒傳的呼叫端行為與本片之前逐字相同。 */
+  applying?: boolean;
   data: FilterDrawerData;
   resultCount: number | null;   // null = 撈不到，不是 0 件
   initialTab?: DrawerTab;
@@ -408,11 +415,23 @@ export function FilterDrawer({
         </div>
         <div className="fd-foot">
           <button className="fd-foot-clear" onClick={clearAllFilters}>清除</button>
-          <button className="fd-foot-apply" onClick={onClose}>
+          {/* 🔵 形狀抄 design-reference `StorePickerModal.jsx:146-151` 那三件套:
+              `is-loading` class + `disabled` + **原地換字**。不新造元件、不加轉圈圈。 */}
+          <button
+            className={`fd-foot-apply${applying ? ' is-loading' : ''}`}
+            onClick={onClose}
+            disabled={applying}
+          >
             {/* 🔴 null 態的字面與桌機 `.pp-count` 刻意【不同】(codex 關卡2 nit):
                 桌機那句旁邊就有「載入失敗、請稍後再試」當上下文;而這顆鈕在手機是【覆蓋整個畫面】的抽屜裡,
                 客人看不到那句 ⇒ 只寫「件數未能載入」會讓他以為只有計數壞了、商品還逛得到。 */}
-            {resultCount === null ? '商品載入失敗' : `查看 ${resultCount} 件商品`}
+            {/* 🔴 `applying` 排在最前面:那幾秒裡 `resultCount` 還是**舊的**
+                ⇒ 印舊件數會讓客人以為「算完了而數字沒變」, 比印「套用中…」糟。 */}
+            {applying
+              ? '套用中…'
+              : resultCount === null
+                ? '商品載入失敗'
+                : `查看 ${resultCount} 件商品`}
           </button>
         </div>
       </div>
