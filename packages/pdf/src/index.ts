@@ -235,3 +235,13 @@ export function resolveFontPkgs(cwd: string = process.cwd()): {
 
 /** 兩支字型套件的名字 —— 呼叫端組 `@font-face` 或寫測試時要用到。 */
 export { LATIN_PKG, TC_PKG };
+
+// ── 自足 HTML 的組裝(2026-09-06 P-2 由顧客站搬進來;理由見 `html.ts` 檔頭)────────
+export {
+  buildStatementHtml,
+  codepointsOfHtml,
+  isInsideDir,
+  parseFontFaces,
+  type BuildResult,
+  type ParsedFace,
+} from './html';
