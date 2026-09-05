@@ -36,7 +36,7 @@ if (existsSync('.env.local')) loadEnvFile('.env.local');
 
 import { createClient } from '@supabase/supabase-js';
 import { getSupplierConfig } from './supplier-config';
-import { runAtomicGroups } from './rpm-partial-report';
+import { runAtomicGroups, installKillReporter } from './rpm-partial-report';
 import { applyTitleGateSkip, runTitleShapeGate } from './title-shape-gate';
 import { fetchAllSupplierProducts, type SourceProductRow } from './rpm-fetch';
 import {
@@ -144,6 +144,11 @@ function requireEnv(name: string): string {
 
 // ── main ──
 async function main(): Promise<void> {
+  // 🔴 最早掛:被砍在半路時留一行(⟦supply-SYNCTIMEOUTPARTIAL⟧)。
+  //    它與 runAtomicGroups 的 catch 留痕是**兩條不同的路** —— `timeout-minutes` 送的是
+  //    `SIGTERM`,**沒有任何東西被丟出來** ⇒ 那個 catch 對逾時結構上失明。
+  //    行為差異(退出碼變 143 / 130)寫在 rpm-partial-report.ts 那一段, 不藏。
+  installKillReporter();
   const config = getSupplierConfig(SUPPLIER); // fail-closed:未登記 slug 直接 throw(→ main().catch exit 1)
   // 🔴 writeAllowed 硬擋(V1、codex must-fix 4):「僅乾跑」不再只是註解——cncracing 等未授權家帶
   //    --confirm-write 一律最早 abort(任何連線/寫入動作前);dry-run 不受限。
