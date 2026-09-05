@@ -652,6 +652,20 @@ export async function submitShipmentToHctAction(args: {
         revalidatePath('/orders');
         auditLog('shipment.hct_submit', auth, 'ok', { shipment_id: args.shipmentId });
         return { ok: true, kind: 'recovered', requestId: result.requestId };
+      case 'amended':
+        // 🔴🔴 `R`(修改成功)—— 新竹那邊**本來就有一張**這個訂單編號的單。
+        //    ✅ 貨號照記(那張單是真的, 不記才是錯的);
+        //    🔴 而稽核記 `fail` 不是 `ok` —— **它不是一次乾淨的成功, 它是一個要人看的訊號**
+        //      ⇒ 📌 記成 `ok` 會讓它混進「今天送成功幾張」裡, 而那正是它最需要被看見的地方。
+        await recordHctSubmit({
+          shipmentReference: row.shipmentReference,
+          status: 'submitted',
+          requestId: result.requestId,
+          raw: result.raw,
+        });
+        revalidatePath('/orders');
+        auditLog('shipment.hct_submit', auth, 'fail', { shipment_id: args.shipmentId });
+        return { ok: false, kind: 'needs_human', message: result.reason };
       // 🔵 nit②:這三種也要留稽核 —— 少了它, 「有人按了而沒送成」在 log 上是**一片空白**,
       //    而空白與「沒有人按過」是同一個東西。
       case 'disabled':

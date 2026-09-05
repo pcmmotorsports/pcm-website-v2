@@ -27,6 +27,18 @@ function fakeFetch(res: () => Response | Promise<Response>) {
 }
 const json = (b: unknown, status = 200): Response =>
   new Response(JSON.stringify(b), { status, headers: { 'Content-Type': 'application/json' } });
+
+// 🔴🔴 **2026-09-05:那個服務只講 SOAP** —— `hct-client.ts` 從純 JSON POST 改成 SOAP 信封,
+//    ⇒ 本檔原本餵的 `json(...)` 對新的 client 是「認不得的 body」⇒ 四格當場紅。
+//    📌 **而那四格是【對的紅】** —— 它們在說「你換了傳輸層而我這裡的世界還是舊的」。
+//    ⚠️ 而我第一次只跑 `hct-client.test.ts` 一支 ⇒ **全綠** ——
+//      🎯 鐵則 11 那句「跑【測到你動的那個東西】的檔」不是「我這次建的那幾支」:
+//        本檔沒有被我改到, 而它**消費**了我改的東西。
+const soap = (b: unknown, method = 'TransData_Json', status = 200): Response =>
+  new Response(
+    `<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><${method}Response xmlns="http://tempuri.org/"><${method}Result>${JSON.stringify(b)}</${method}Result></${method}Response></soap:Body></soap:Envelope>`,
+    { status, headers: { 'Content-Type': 'text/xml; charset=utf-8' } },
+  );
 const deps = (f: typeof fetch): HctClientDeps => ({
   fetchImpl: f,
   endpoint: 'https://example.invalid/x',
@@ -67,7 +79,7 @@ describe('⟦ship-HCTAPI⟧ 片 C-2 · decideSubmit —— 四個狀態, 三種�
 describe('⟦ship-HCTAPI⟧ 片 C-2 · unknown 那條路 —— 先查, 而查無【停下來】', () => {
   it('🔴 unknown + 查到貨號 ⇒ recovered(補記一個已經發生的事實, 不是重送)', async () => {
     openGates();
-    const f = fakeFetch(() => json([{ success: 'Y', edelno: '9990001234' }]));
+    const f = fakeFetch(() => soap([{ success: 'Y', edelno: '9990001234' }], 'QueryEDELNO_Json'));
     const r = await run('unknown', f.impl);
     expect(r).toMatchObject({ kind: 'recovered', requestId: '9990001234' });
     // 🔴🔴 承重:只打了【一發】—— 那一發是查, 不是送。
@@ -77,11 +89,34 @@ describe('⟦ship-HCTAPI⟧ 片 C-2 · unknown 那條路 —— 先查, 而查�
 
   it('🔴 unknown + 查無 ⇒ needs_human, 而【一發送出都沒有】', async () => {
     openGates();
-    const f = fakeFetch(() => json([{ success: 'N' }]));
+    const f = fakeFetch(() => soap([{ success: 'N', ErrMsg: '查無資料' }], 'QueryEDELNO_Json'));
     const r = await run('unknown', f.impl);
     expect(r.kind).toBe('needs_human');
     expect((r as { reason: string }).reason, '訊息要說出「查無有兩個世界」').toContain('兩個世界');
     expect(f.calls.length, '查無之後又送了一發 ⇒ 可能建出第二張單').toBe(1);
+  });
+
+  it('🔴🔴 查詢回一句【我們不認得的】錯 ⇒ unknown, 不得叫 not_found', async () => {
+    // 📌 這一格守的是 codex must-fix ⑤:
+    //    「查無此單」正是我們用來判「新竹沒收到」的依據 ——
+    //    而【帳密錯】【我們包錯】【空回應】也會走到同一個分支。
+    //    ⇒ 🛑 一個【我們自己的錯】被讀成「這張單可以放回去重送」⇒ 客人收到兩箱。
+    //    ⚠️ 而這支的 payload 形狀一發都沒打過 ⇒ 包錯的機率不是理論值。
+    openGates();
+    const f = fakeFetch(() => soap([{ success: 'N', ErrMsg: '公司名稱或密碼錯誤' }], 'QueryEDELNO_Json'));
+    const out = await runHctSubmit({
+      deps: deps(f.impl),
+      current: 'unknown',
+      fields: FIELDS,
+      epino: 'PCM-2026-0001',
+    });
+    expect(out.kind).toBe('needs_human');
+    // 🎯 兩種都停在 needs_human, 而【理由必須不同】——
+    //    否則人看到的訊息會把「我們包錯了」講成「新竹說沒有這張單」。
+    expect(out.kind === 'needs_human' ? out.reason : '').toContain('查詢本身沒有拿到答案');
+    expect(out.kind === 'needs_human' ? out.reason : '').not.toContain('新竹查不到');
+    // 🟢 負對照:一發送出都沒有(它只該查, 不該送)。
+    expect(f.calls).toHaveLength(1);
   });
 
   it('🔴 unknown + 查詢本身也失敗 ⇒ 仍然 needs_human(不是回頭去送)', async () => {
@@ -96,7 +131,7 @@ describe('⟦ship-HCTAPI⟧ 片 C-2 · unknown 那條路 —— 先查, 而查�
 describe('⟦ship-HCTAPI⟧ 片 C-2 · 送出那條路 —— 三態各自落到對的欄位', () => {
   it('🔵 draft + 新竹回 Y ⇒ recorded/submitted 帶貨號', async () => {
     openGates();
-    const f = fakeFetch(() => json([{ success: 'Y', edelno: '1234567890' }]));
+    const f = fakeFetch(() => soap([{ success: 'Y', edelno: '1234567890' }]));
     expect(await run('draft', f.impl)).toMatchObject({
       kind: 'recorded',
       status: 'submitted',
@@ -107,7 +142,7 @@ describe('⟦ship-HCTAPI⟧ 片 C-2 · 送出那條路 —— 三態各自落到
   it('🔵 draft + 新竹回 N ⇒ recorded/failed, 而 raw 留著新竹說了什麼', async () => {
     openGates();
     const body = [{ success: 'N', ErrMsg: '公司名稱或密碼錯誤' }];
-    const f = fakeFetch(() => json(body));
+    const f = fakeFetch(() => soap(body));
     const r = await run('draft', f.impl);
     expect(r).toMatchObject({ kind: 'recorded', status: 'failed', requestId: null });
     expect(r).toMatchObject({ raw: body });
