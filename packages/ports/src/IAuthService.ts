@@ -40,4 +40,19 @@ export interface IAuthService {
    * 本層不驗證 / 不建立 session,只轉呼 Supabase。失敗 throw AuthError。
    */
   updatePassword(newPassword: string): Promise<void>;
+
+  /**
+   * 重寄「註冊驗證信」(`⟦b4-SIGNUPOPEN1⟧` 前置片,2026-09-05)。
+   *
+   * 🔴 **為什麼要有它**:打開 Confirm email 之後,未驗證的帳號登入會被擋
+   * (`login/actions.ts:33-34` 回「請先收信完成 Email 驗證後再登入」),
+   * 而在本方法之前**自助與後台都沒有任何重寄入口**(2026-09-05 實測 `auth.resend` 命中 0)
+   * ⇒ 客人只能自己去信箱找當初那封信。**本方法把那條死路打開。**
+   *
+   * `redirectTo` 由**呼叫端**用 `resolveSiteUrl()` 組好絕對網址傳進來 —— 與
+   * `sendPasswordResetEmail` 同一條邊界(本層不碰站台設定)。
+   * 🛑 **失敗照樣 throw `AuthError`、不吞** ——「不洩漏帳號是否存在」是呼叫端的責任,
+   *    不在本層做:本層如實回報,**避免安全決策同時藏在兩層**(逐字沿用上面那條的理由)。
+   */
+  resendSignupConfirmation(params: { email: string; redirectTo: string }): Promise<void>;
 }
