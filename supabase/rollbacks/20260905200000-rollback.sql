@@ -49,7 +49,10 @@ SELECT DISTINCT
   o.id                    AS order_id,
   o.display_id            AS display_id,
   o.notification_email    AS notification_email,
-  c.email                 AS customer_email
+  c.email                 AS customer_email,
+  -- 🔴 **第 11 欄** —— 本檔抄的是 `20260904220000` 的第一代(10 欄), 而**線上早就 11 欄了**
+  --    (`20260905080000` 加的)⇒ 少寫它, 這支 rollback 自己會撞 42P16。
+  o.order_source          AS order_source
 FROM public.shipments s
 JOIN public.shipment_items si ON si.shipment_id = s.id
 JOIN public.order_items   oi ON oi.id = si.order_item_id

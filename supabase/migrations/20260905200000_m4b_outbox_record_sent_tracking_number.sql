@@ -95,6 +95,31 @@ BEGIN
     RAISE EXCEPTION '前置閘①c:live 的 view 不是我預期的第一代(找不到舊判準字面)⇒ 停下來看一眼';
   END IF;
 
+  -- ①d 🔴🔴 **線上那支 view 的欄位清單, 必須是我這一版清單的【前綴】**(2026-09-06 加)。
+  --    成因:Sean 貼下去逐字 `ERROR: 42P16: cannot drop columns from view`。
+  --    `CREATE OR REPLACE VIEW` **只准在尾端加欄** —— 少一欄、換順序、改名都會擋。
+  --    🛑 而**我不會知道線上多了什麼欄**:`20260905080000` 在正式庫給這支 view 加了第 11 欄
+  --      `order_source`, 而我寫第二代時照著 `20260904220000` 的 10 欄抄。
+  --    ⇒ 📌 **拋棄式 PG 從零重播【看不見這件事】** —— 那棵樹上這支 view 只有 10 欄
+  --      ⇒ 🎯 **從零建出來的「第一代」與正式庫的「第一代」不是同一個東西。**
+  --    ✅ 所以這一格改成【對著 live 問】:把它的欄名依序撈出來, 與我要建的那 11 個比前綴。
+  --      比前綴而不是比相等 —— 加欄是合法的, 少欄與換序不是。
+  DECLARE
+    v_live text; v_want text := 'shipment_id,shipment_reference,tracking_number,carrier_code,'
+      || 'tracking_corrected_at,corrected_at_key,order_id,display_id,notification_email,'
+      || 'customer_email,order_source';
+  BEGIN
+    SELECT pg_catalog.string_agg(a.attname, ',' ORDER BY a.attnum) INTO v_live
+      FROM pg_catalog.pg_attribute a
+     WHERE a.attrelid = 'public.pcm_tracking_corrected_email_pending'::regclass
+       AND a.attnum > 0 AND NOT a.attisdropped;
+    -- 🔴 `position(a IN b)` 是**語法**不是函式 ⇒ 不能加 `pg_catalog.` 前綴(當場撞 syntax error)。
+    --    用 `strpos(haystack, needle)` —— 注意它的參數順序與 position 相反。
+    IF pg_catalog.strpos(v_want, v_live) <> 1 THEN
+      RAISE EXCEPTION '前置閘①d:live 那支 view 的欄位清單不是本檔清單的前綴 ⇒ CREATE OR REPLACE 會回 42P16。live = [%] / 本檔 = [%]', v_live, v_want;
+    END IF;
+  END;
+
   -- ② 兩個新欄:🔴🔴 **2026-09-05 codex R1 must-fix —— 這一格原本讓 rollback 之後【無法重貼】。**
   --    ⛔ ~~原本:任一欄存在就 RAISE~~
   --    🛑 而本檔的 rollback(見檔頭)**刻意保留那兩欄與那個序列**(裡面是沒有第二份的歷史)
@@ -396,7 +421,16 @@ SELECT DISTINCT
   o.id                    AS order_id,
   o.display_id            AS display_id,
   o.notification_email    AS notification_email,
-  c.email                 AS customer_email
+  c.email                 AS customer_email,
+  -- 🔴🔴 **第 11 欄 `order_source` —— 而它是 2026-09-06 Sean 貼下去紅了才補的。**
+  --    逐字 `ERROR: 42P16: cannot drop columns from view`。
+  --    成因:`20260905080000`(⟦f3-MAILFALLBACKVSRULING⟧ 片 A)已經在**正式庫**上
+  --    給這支 view 加了第 11 欄, 而我的第二代只寫了 10 欄
+  --    ⇒ `CREATE OR REPLACE VIEW` **只准在尾端【加】欄, 不准少**。
+  --    🛑 **而拋棄式 PG 從零重播【沒有紅】** —— 那棵樹上這支 view 只有 10 欄
+  --      ⇒ 📌 **從零建出來的「第一代」與正式庫的「第一代」不是同一個東西**,
+  --        而我拿前者當後者的替身。⇒ 🎯 **重播答的是「這條路通不通」, 不是「線上長什麼樣」。**
+  o.order_source          AS order_source
 FROM public.shipments s
 JOIN public.shipment_items si ON si.shipment_id = s.id
 JOIN public.order_items   oi ON oi.id = si.order_item_id
@@ -518,7 +552,9 @@ SELECT
   v.order_id,
   v.display_id,
   v.notification_email,
-  v.customer_email
+  v.customer_email,
+  -- 🔴 **順序與名稱要與線上第一代逐字相同** —— `CREATE OR REPLACE VIEW` 比的是那個清單。
+  v.order_source
 FROM public.pcm_tracking_correction_candidates v
 -- 🔴 這一半 = 「寄得出去」。空白定義走 `pcm_js_trim_whitespace()` 單一來源, 不用裸 `btrim`
 --    (第一代 codex must-fix #1:裸 btrim 只吃空格, 而計數面吃 tab/換行 ⇒ 兩邊都算到同一列)。

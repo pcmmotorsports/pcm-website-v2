@@ -419,7 +419,10 @@ SELECT DISTINCT
   s.id AS shipment_id, s.shipment_reference, s.tracking_number, s.carrier_code,
   s.tracking_corrected_at,
   public.pcm_tracking_corrected_at_key(s.tracking_corrected_at) AS corrected_at_key,
-  o.id AS order_id, o.display_id, o.notification_email, c.email AS customer_email
+  o.id AS order_id, o.display_id, o.notification_email, c.email AS customer_email,
+  -- 🔴 第 11 欄:突變版也要有它, 否則 `CREATE OR REPLACE VIEW` 回 42P16
+  --    (2026-09-06:主面補上 `order_source` 之後, 這一格當場紅 —— 而它紅得對)。
+  o.order_source
 FROM public.shipments s
 JOIN public.shipment_items si ON si.shipment_id = s.id
 JOIN public.order_items   oi ON oi.id = si.order_item_id
