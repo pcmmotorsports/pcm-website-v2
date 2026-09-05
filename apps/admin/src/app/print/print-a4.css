@@ -295,7 +295,10 @@ tr {
        `完全沒裝拉丁那支 ⇒ Č 由 Helvetica 畫`
      ✅ **⇒ 承重的是【那個套件在鏈上】, 不是順序。**
      🔵 **而順序仍然要釘, 理由換一個**:順序錯的整句量到
-       `AKRAPOVI 由 TC 畫 · Č 由 NotoSans 畫` ⇒ 🛑 **同一個字裡兩種字形。**
+       ⛔ ~~`AKRAPOVI 由 TC 畫 · Č 由 NotoSans 畫` ⇒ 🛑 **同一個字裡兩種字形。**~~
+       🔵 **2026-09-05 Sean 拍 `Q-品牌拼法 = 乙`(照現況無撇)⇒ `Č` 不再出現在任何品牌名裡。**
+          ⇒ 上面那一段**留著不刪**:它記著當初為什麼要處理雙字形, 而**成因消失不等於那個機制不存在** ——
+            下一個帶附加符號的品牌上架時它會原樣回來。板列 `⟦ship-STMTCARON1⟧` 已標 done(成因消失, 不是修好)。
      🛑 `--pd-mono` 刻意不動:它只裝數字與拉丁, 補中文字型會讓數字欄位對不齊。 */
   --pd-body: 'Noto Sans', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', 'Helvetica Neue', sans-serif;
   --pd-disp: 'Helvetica Neue', 'Helvetica', 'PingFang TC', 'Noto Sans', 'Noto Sans TC', sans-serif;
