@@ -52,6 +52,16 @@ FN_CTX = [
 
 
 def applied_versions(root):
+    """🔴 **這份「已 apply」只讀【當下這棵樹】的 `supabase/APPLIED.tsv`** —— 通常是 dev 系。
+    ⚠️ **射程(2026-09-06 主視窗 `-f8` 當場抓到我一個假陽性)**:
+       帳本那一列**可能還在一支沒合進 dev 的分支上**。
+       實例:`20260905280000` 的帳本列在 `agent/line-account-cardcancel`(611bf3c61)——
+       Sean 當晚已經貼了, 而 dev 這棵樹讀不到那一列
+       ⇒ 📌 **本支把它報成「未 apply 的片上有過期釘子」, 而那是【假陽性】。**
+    ⇒ 🛑 **所以本支說的「未 apply」= 【dev 帳本上沒有】, 不是【正式庫沒有】。**
+       看到紅之前先問一句:**那一列是不是在別人還沒合的分支上?**
+       查法:`git for-each-ref refs/remotes` 逐支 `git show <ref>:supabase/APPLIED.tsv | grep <版本>`。
+    """
     p = os.path.join(root, LEDGER)
     if not os.path.exists(p):
         return set()
@@ -139,7 +149,7 @@ def run(root, emit_sql=False, quiet=False):
         print('  · 解析得出它守著誰:%d 顆' % len(needprod))
         print('  · 🛑 解析不出來源:%d 顆 ⇒ **不算相符也不算過期** —— 這把尺的盲區' % len(unknown))
         print('  · 註解裡(紀錄, 不判):%d 顆' % len(comment_only))
-        print('\n  🔴 **其中 %d 顆落在【未 apply】的片上** —— 那些片貼下去時那道閘會真的跑,'
+        print('\n  🔴 **其中 %d 顆落在【dev 帳本上沒有】的片上** —— 那些片貼下去時那道閘會真的跑,'
               % len(hot))
         print('     而釘子若已過期 ⇒ **當場紅, 而紅的理由(「有人改過它」)在那個當下是假的**。')
         by_fn = {}
@@ -183,11 +193,18 @@ def run(root, emit_sql=False, quiet=False):
 def compare(root, prod_file, quiet=False):
     """拿唯讀 SQL 的輸出(psql 的表格)回來比。這才是真的判過期。"""
     txt = io.open(prod_file, encoding='utf-8', errors='ignore').read()
+    # 🔴🔴 **一個 proname 可能對到【多支 overload】** —— 2026-09-06 實測:
+    #    `search_catalog_by_vehicle` 在正式庫有兩支, 而**對得上釘子的是被蓋掉的那一支**。
+    #    ⛔ ~~`live[proname] = md5`~~ ⇒ 後面那筆蓋掉前面那筆 ⇒ 📌 **一顆相符的釘子被判成過期,
+    #      而那個「過期」讀起來完全正常。**
+    #    ⇒ 改成 proname → **一組** md5;釘子對到其中任何一支就算相符。
+    #    ⚠️ 代價寫明:這樣**分不出「對到的是哪一支 overload」** —— 而要分得出必須帶完整簽章,
+    #      那要改所有釘子的寫法(它們只寫了函式名)。⇒ **這是那些釘子本身的天花板, 不是本支的。**
     live = {}
     for l in txt.split('\n'):
         parts = [x.strip() for x in l.split('|')]
         if len(parts) >= 2 and re.fullmatch(r'[a-z0-9_]+', parts[0] or '') and HEX.fullmatch(parts[1] or ''):
-            live[parts[0]] = parts[1]
+            live.setdefault(parts[0], set()).add(parts[1])
     if not live:
         print('🔴 從 %s 讀到 0 筆 (函式名, md5) —— 這把尺沒有接上, 不要把它讀成「沒有過期」' % prod_file)
         return 2
@@ -203,7 +220,7 @@ def compare(root, prod_file, quiet=False):
             #      而它印出來的是一個乾淨的「相符 0 顆」。
             #      (實例:`close_released_attempt` 的現值就等於 20260812170000 的一顆釘子,
             #       而那顆的函式名在 DECLARE 區塊上方 40 行內找不到 ⇒ 落 unknown ⇒ 被跳過。)
-            byval = [k for k, v in live.items() if v == h]
+            byval = [k for k, vs in live.items() if h in vs]
             if byval:
                 same.append((os.path.basename(f), i, h, '(靠值比對)' + byval[0], h))
             continue
@@ -212,20 +229,52 @@ def compare(root, prod_file, quiet=False):
             # 🔵 名字對不上時**還有一條路**:這顆釘子的【值】是不是等於某支活著的函式的 md5。
             #    📌 那是本支唯一的**正對照** —— 沒有它, 「相符 0 顆」分不出
             #      「真的全過期」與「我的名字解析壞了」。
-            byval = [k for k, v in live.items() if v == h]
+            byval = [k for k, vs in live.items() if h in vs]
             if byval:
                 same.append((os.path.basename(f), i, h, '(靠值比對)' + byval[0], h))
             else:
                 nolive.append((os.path.basename(f), i, fn))
             continue
-        (same if live[fn] == h else stale).append((os.path.basename(f), i, h, fn, live[fn]))
+        (same if h in live[fn] else stale).append(
+            (os.path.basename(f), i, h, fn, ' / '.join(sorted(live[fn]))))
     print('比對:正式庫回了 %d 支函式 · 釘子相符 %d 顆 · 過期 %d 顆 · 那支函式沒回來 %d 顆'
           % (len(live), len(same), len(stale), len(nolive)))
-    hot = [r for r in stale if r[0].split('_')[0] not in applied]
-    print('\n🔴 過期【且在未 apply 的片上】= %d 顆(這些貼下去會當場紅):' % len(hot))
+    # 🔵 **假陽性自己現形** —— 把「別的分支的帳本有沒有那一列」也查一次。
+    #    📌 主視窗 2026-09-06 抓到我一個假陽性之後加的:與其在文件裡叫人「先問一句」,
+    #      不如**讓工具自己去問**。⇒ 這一格把「要人記得」變成「機器會做」。
+    #    ⚠️ 它答的仍是【某支分支的帳本說有】, 不是【正式庫真的有】—— 那是帳本的天花板。
+    other = {}
+    try:
+        import subprocess
+        # 🔴 **掃【所有】ref, 不只 refs/remotes** —— 2026-09-06 實測:
+        #    `20260905280000` 的帳本列在 **本地** 分支 `refs/heads/agent/line-account-cardcancel`
+        #    (那條線還沒 push)⇒ 只掃 remotes 的話**漏掉它**, 而漏掉的形狀是「一個紅」。
+        #    📌 多窗共用一個 repo ⇒ 別人的分支就在本地, `refs/remotes` 不涵蓋它們。
+        refs = subprocess.run(['git', 'for-each-ref', '--format=%(refname)'],
+                              cwd=root, capture_output=True, text=True, timeout=120).stdout.split()
+        vers = {r[0].split('_')[0] for r in stale}
+        for ref in refs:
+            out = subprocess.run(['git', 'show', '%s:supabase/APPLIED.tsv' % ref],
+                                 cwd=root, capture_output=True, text=True, timeout=60).stdout
+            have = {l.split('\t')[0] for l in out.split('\n') if l[:4] == '2026'}
+            for v in vers & have:
+                other.setdefault(v, []).append(ref)
+    except Exception as e:                       # noqa: BLE001
+        print('⚠️ 掃別的分支失敗(%s)⇒ 下面那個「未 apply」少了一層過濾, 不要當成定論' % e)
+
+    hot = [r for r in stale if r[0].split('_')[0] not in applied and r[0].split('_')[0] not in other]
+    fp = [r for r in stale if r[0].split('_')[0] not in applied and r[0].split('_')[0] in other]
+    print('\n🔴 過期【且 dev 帳本上沒有那一列】= %d 顆:' % len(hot))
+    print('   ⚠️ **先問一句:那一列是不是在別人還沒合的分支上?** —— 那會讓這裡變成假陽性。')
     for r in hot:
         print('   %s:%d  守 %s  釘 %s / 現在 %s' % (r[0][:46], r[1], r[3], r[2][:12], r[4][:12]))
-    print('\n🔵 過期而在【已 apply】的片上 = %d 顆 ⇒ 歷史, 不擋人' % (len(stale) - len(hot)))
+    if fp:
+        print('\n🔵 **dev 帳本沒有, 而【別的分支】的帳本有 = %d 顆** ⇒ 假陽性, 不擋人:' % len(fp))
+        for r in fp:
+            v = r[0].split('_')[0]
+            print('   %s:%d  帳本列在 %s' % (r[0][:46], r[1], ', '.join(other[v])))
+    print('\n🔵 過期而 dev 帳本上有那一列 = %d 顆 ⇒ 歷史, 不擋人'
+          % (len(stale) - len(hot) - len(fp)))
     if len(same) == 0:
         print('\n🛑 **相符 0 顆** —— 停下來想一下這把尺有沒有接上, 不要直接讀成「全都過期了」。')
     return 1 if hot else 0
