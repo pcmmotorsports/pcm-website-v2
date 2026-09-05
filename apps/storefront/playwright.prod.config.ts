@@ -1,4 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
+// 🔴 路徑的**單一權威**在 global-setup(它是產這個檔的人);這裡 import 而不是重打一份。
+import { SHARE_STATE_PATH } from './e2e-prod/global-setup';
 
 /**
  * Playwright **production build** E2E config(#288-a;plan = docs/specs/2026-07-20-catalog-prod-build-e2e-plan.md v3.2)
@@ -115,6 +117,12 @@ export default defineConfig({
   use: {
     // 🔴 外部模式吃 env;沒有 env 時**逐字還是原本那個值**。
     baseURL: EXTERNAL_BASE_URL || 'http://localhost:3200',
+    // 🔴 Vercel preview 的 share token:`globalSetup` 先把它換成 cookie 寫進這個檔,
+    //   這裡只寫**路徑**(檔在測試開跑前才存在, 那是 Playwright 官方 auth 的形狀)。
+    //   ⚠️ 沒帶 token 時是 `undefined` ⇒ **與本片之前逐字相同**, 本機模式一個字沒動。
+    ...(EXTERNAL_BASE_URL && process.env.PCM_E2E_SHARE_TOKEN?.trim()
+      ? { storageState: SHARE_STATE_PATH }
+      : {}),
     // 🔴 必須是 retain-on-failure 而非 on-first-retry(code-reviewer MF-6):
     //    retries=0 → 永不重試 → on-first-retry 永遠不會產生 trace,
     //    CI 的「失敗時上傳 trace」步驟就會靜默上傳空目錄 = 步驟名與事實不符。

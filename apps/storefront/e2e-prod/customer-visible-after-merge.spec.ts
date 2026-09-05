@@ -29,11 +29,41 @@ test('搜尋「DBK SPECIAL」要撈得到, 而且撈回來的每一張都是那�
   //   (同一發 curl 回的 HTML 逐字有 `共 1508 件,顯示前 25 件` 與 `/products/dbk-gr06`)。
   //   ⇒ 📌 **那一紅的訊息會讀成「還是舊碼」, 而真正的成因是我挑了一個看不見的節點。**
   const cards = page.locator('.pp-grid article.pcard');
-  await expect(
-    cards.first(),
-    '一張卡都沒有 ⇒ ①那還是【舊碼】(舊路不比對品牌名)或 ②型錄裡今天沒有這家的貨。'
-      + '兩個世界都不是「這一格壞了」—— 先用 `/search?q=DBK` 分辨(它不經過品牌那條路)',
-  ).toBeVisible();
+
+  // 🔴🔴 **這一格的紅有【三個世界】, 而我第一版只寫了兩個 —— 第三個當場就撞到了。**
+  //   2026-09-05 本機這一發:0 張卡, 而 server log 印 `[searchProducts] searchByKeyword failed`
+  //   × 2 與 16 次 `canceling statement due to statement timeout`
+  //   ⇒ 🎯 **那不是舊碼、也不是型錄沒貨, 是【搜尋那條路這一次整個失敗了】。**
+  //   ✅ 而那個世界**畫面上分得出來** —— `search/page.tsx:69-72` 對「這次撈失敗」畫的是
+  //      `<p role="status">搜尋暫時無法使用…</p>`, 與「沒有找到」是**兩句不同的字**(那是刻意的)。
+  //   ⇒ 📌 **把畫面上那句字讀進失敗訊息, 這一紅才指得出方向** ——
+  //      不然它會叫下一個人去查「main 合了沒」, 而真正的成因是資料庫那一刻在逾時。
+  // 🔴 **讀畫面要在【expect 失敗之後】**(code-reviewer nit-6):`expect` 會重試,
+  //   而在它之前取的那一份是「重試開始前那一刻」的畫面 —— 兩者在慢的世界裡不是同一個東西。
+  try {
+    await expect(cards.first()).toBeVisible();
+  } catch {
+    const onScreen = (await page.locator('.pp-page p').allInnerTexts().catch(() => [])).join(' / ');
+    // 🔴🔴 **這一格的紅有【四個世界】, 而我第一版只寫了兩個 —— 第三個當場就撞到了。**
+    //   2026-09-05 本機那一發:0 張卡, 而 server log 印 `[searchProducts] searchByKeyword failed`
+    //   ×2 與 18 次 `canceling statement due to statement timeout`
+    //   ⇒ 🎯 **那不是舊碼、也不是型錄沒貨, 是【搜尋那條路這一次整個失敗了】。**
+    //   ✅ 而那個世界**畫面上分得出來** —— `search/page.tsx:69-72` 對「這次撈失敗」畫的是
+    //      `<p role="status">搜尋暫時無法使用…</p>`, 與「沒有找到」是**兩句不同的字**(那是刻意的)。
+    //   🔵 第四個世界(nit-7):**一段字都沒讀到** —— 頁面沒載到 / 被保護頁擋住,
+    //      它與「載到了而文字不認得」原本印同一句, 現在分開。
+    //   ⇒ 📌 **把畫面上那句字讀進失敗訊息, 這一紅才指得出方向** ——
+    //      不然它會叫下一個人去查「main 合了沒」, 而真正的成因是資料庫那一刻在逾時。
+    const world =
+      onScreen === ''
+        ? '④【整頁一段字都沒讀到】—— 頁面沒載到 / 被保護頁擋住, 先確認 baseURL 與 share token'
+        : onScreen.includes('搜尋暫時無法使用')
+          ? '③【搜尋那條路這次失敗了】(畫面逐字「搜尋暫時無法使用」)—— 多半是 DB 逾時, 與 main 合了沒無關, 重跑一次'
+          : onScreen.includes('沒有找到')
+            ? '①舊碼(舊路不比對品牌名)或 ②型錄裡今天沒有這家的貨 —— 用 `/search?q=DBK` 分辨(它不經過品牌那條路)'
+            : `讀到字而四句都不認得, 原文:「${onScreen.slice(0, 80)}」`;
+    throw new Error(`一張卡都沒有 ⇒ ${world}`);
+  }
 
   const n = await cards.count();
   // ⛔ ~~`expect(n).toBeGreaterThan(0)`~~ —— 上一行 `toBeVisible()` 過了就保證 `count() >= 1`
