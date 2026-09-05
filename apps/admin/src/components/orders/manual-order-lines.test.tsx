@@ -304,17 +304,37 @@ describe('🔴 含稅安全標籤(⟦b4-PURCHTAX1⟧ 甲;2026-08-29)', () => {
   //    代購單價全程只被驗「是不是非負整數」(`manual-order-form.ts:219` /^\d+$/),
   //    而未稅 1000 與含稅 1050 **兩個世界一起通過** ⇒ 今天擋這件事的只有這行字。
   //    ⇒ 它被刪掉 / 被改軟 ⇒ 這幾格要紅,而不是靜靜地通過。
-  it('🔴 「含稅」兩個字在畫面上(不是只在註解裡)', () => {
+  // ⛔ ~~「含稅」兩個字在畫面上~~ ⇒ 🔴 **Sean 2026-09-05 拍甲:單價填【未稅】、系統算稅**
+  //    ⇒ 方向反過來。而**舊那格今天照樣綠** —— 因為新文案裡「含稅」出現在
+  //    「填成**含稅**會多課一次稅」那半句 ⇒ 🛑 **它從「守對的方向」變成「對兩個方向都綠」。**
+  //    ⇒ 📌 **一格守關鍵詞的測試, 在文案反向之後不會紅, 它只是不再測任何東西。**
+  it('🔴 「未稅」兩個字在畫面上(不是只在註解裡)', () => {
     render(<ManualOrderLines />);
-    // getByText 讀的是**渲染後的文字**,註解不會進 DOM ⇒ 這一格分得出「寫在碼裡」與「員工看得到」。
-    expect(screen.getByText(/含稅/)).toBeTruthy();
+    // getByText 讀的是**渲染後的文字**,註解不會進 DOM ⇒ 這一格分得出「寫在碼裡」與「印在畫面上」。
+    expect(screen.getByText(/未稅/)).toBeTruthy();
   });
 
-  it('🔴🔴 而它要說得出【填錯會怎樣】—— 只說「請填含稅」的標籤,員工會憑印象填', () => {
+  it('🔴🔴 而【舊方向那句不可以還在】—— 兩句同時在, 員工會照先看到的那句做', () => {
+    // 🛑 改文案最常見的壞法不是「沒改到」, 是**新的加上去而舊的留著**
+    //    ⇒ 畫面上兩句互相矛盾, 而各自的測試都綠。
+    // 🔴🔴 **不可以用 `queryByText`** —— 它逐節點比對, 而那句被 `<strong>` 切成好幾段
+    //    ⇒ 沒有單一節點同時含「請填」「含稅」「金額」⇒ 永遠回 null ⇒ **恆綠**。
+    //    🔬 實測:突變(把舊那句加回去)在 `queryByText` 版本下**全綠**。
+    const { container } = render(<ManualOrderLines />);
+    const p = Array.from(container.querySelectorAll('p')).find((e) =>
+      /單價這一格/.test(e.textContent || ''),
+    );
+    expect(p).toBeTruthy();
+    expect(p!.textContent).not.toMatch(/請填.*含稅.*金額/);
+  });
+
+  // ⛔ ~~舊版守的是「少收」+「5%」~~ —— 那是**填含稅→少收**那個方向。
+  // ✅ 方向反過來之後, 填錯的後果是**多課一次**。
+  it('🔴🔴 而它要說得出【填錯會怎樣】—— 只說「請填未稅」的標籤,員工會憑印象填', () => {
     render(<ManualOrderLines />);
-    const el = screen.getByText(/少收/);
-    expect(el.textContent).toContain('5%');
+    const el = screen.getByText(/多課/);
     expect(el.textContent).toContain('未稅');
+    expect(el.textContent).toContain('系統自己算');
   });
 
   it('🔴 負對照:這把尺量得到「不在」—— 換一句沒寫過的話 ⇒ 必須查無', () => {

@@ -131,6 +131,15 @@ export {
   type EnqueueOrderUnpaidCancelledEmailsResult,
 } from './enqueue-order-unpaid-cancelled-emails';
 
+// 刷卡已退款的整單取消通知信(Sean 2026-09-02 拍甲)。與上面那支是**兩條線**:
+// 這支的射程是 `payment_channel='tappay'` + `payment_status='refunded'`, 上面那支是未付款。
+export {
+  enqueueOrderCancelledEmails,
+  type EnqueueOrderCancelledEmailsDeps,
+  type EnqueueOrderCancelledEmailsOptions,
+  type EnqueueOrderCancelledEmailsResult,
+} from './enqueue-order-cancelled-emails';
+
 // 🔴 M-4b E4-a(2026-08-22):出貨線的同款掃描式 enqueue。**一列 = 一個 (箱, 單) 配對 = 一封信**
 // (Sean 2026-08-17「一箱兩單就兩封」)。
 // ⛔ ~~**片1 刻意【不】把它掛上任何 route** —— sweeper 對 order_shipped 目前仍 fail-closed throw,

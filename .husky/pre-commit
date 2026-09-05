@@ -206,6 +206,27 @@ else
   exit 1
 fi
 
+# ── 隔離級別靜態閘(2026-09-05 -f8 派 -db 做;拍「甲」= 具名豁免 + pin 0)──────────
+#   ⟦b4-NCPCRONRACE⟧ 判「不做」, 而那個判決建立在【READ COMMITTED 每條 statement 拿新快照】上
+#   (兩連線實測, docs/plans/2026-09-05-ncp-cron-race-lock-plan.md)。
+#   🔴 那個前提是【環境】不是碼裡寫死的 ⇒ 有人改成 REPEATABLE READ, 判決就不成立【而不會叫】。
+#   ⇒ 本閘就是那聲叫。掃 supabase/migrations + apps/*/src + packages, 期望 0 命中。
+#      (分母 1987 = migrations 325 / admin 718 / storefront 646 / packages 298;
+#       🔴 packages 那 298 支是 R1 打出來的 —— 生 SQL 的原生 client.query 就住那裡)
+#      🔴 剝法 SQL 與 TS 【相反】:SQL 剝註解【與字串】, TS 只剝註解【不剝字串】
+#      —— TS 裡的 SQL 全住在字串裡, 剝了等於不掃。詳見那支 .py 的 strip_noise docstring。
+#   🛑 它與 repo 裡既有的 **runtime 閘**(`IF current_setting('transaction_isolation') <> …`,
+#      例 20260803130000_…a2b1…:117-119)**互補、不重複**:
+#      runtime 閘守「呼叫當下級別對不對」, 守不到新寫的函式忘了掛它;
+#      本閘守「有人寫下改級別的碼」, 守不到執行期的 session 設定。⇒ 兩個都要留。
+if [ -f .husky/isolation-level-scan-gate.sh ]; then
+  sh .husky/isolation-level-scan-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/isolation-level-scan-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/isolation-level-scan-gate.sh' >&2
+  exit 1
+fi
+
 # ── 🔴🔴 `--no-stash`(2026-09-05 全隊事件;-ship 量到, 主視窗 -f8 派 -db 做)────────
 #   **`refs/stash` 是【所有 worktree 共用】的一個 ref。** 而 lint-staged 預設拿 stash 當備份:
 #     建一個備份 stash ⇒ 把未 staged 的改動從工作樹拿走 ⇒ 跑 task ⇒ 還原 ⇒ 丟掉那個 stash
