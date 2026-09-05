@@ -104,6 +104,55 @@ const normalizedQuery = (
 };
 
 /** P4:品牌／分類／價格 UI state 變動時，寫入 URL 並讓 route 重跑 server catalog query。 */
+/**
+ * ⟦b4-CLEARALLKEEPSJUNK⟧ 「清除全部」這個**明示手勢**的旗標。
+ *
+ * 🔴 **為什麼需要一個旗標, 而不是從 state 形狀推**(code-reviewer R1 Critical):
+ *   「客人按了清除全部」與「客人把唯一那顆分類膠囊的 × 點掉」——
+ *   **兩者的 state 變化完全同構**(都是 `category: 有 → null`, 其餘本來就空)。
+ *   ⇒ 只看形狀的話, 點 × 也會把認不得的 `pbrands` 一起清掉,
+ *     而那**正是 #315 刻意要留的東西**(Sean 2026-08-11 Q1=A)⇒ 那是誤傷。
+ *   ⇒ 📌 **手勢的身分只有發出手勢的地方知道, 推不出來。**
+ *
+ * 🔵 **為什麼不是「用完就清」**:React StrictMode 會把 effect 跑兩次 ——
+ *   第一次消耗掉旗標, 第二次就看不到它、又把垃圾寫回去。
+ *   ⇒ 改成「**state 再度非空時才清**」:那時客人已經重新選了東西, 這個手勢結束了。
+ */
+let clearAllRequested = false;
+
+/**
+ * ⟦b4-CLEARALLKEEPSJUNK⟧ 「清除全部」要送出去的那個乾淨網址 —— **三顆鈕共用同一個定義。**
+ *
+ * 🔴 **為什麼要抽出來**(R3 對抗審查 must-fix):原本三顆鈕分屬**兩種機制** ——
+ *   `ActiveChips` 與空狀態那兩顆自己重建乾淨網址, 而 `FilterSide`(桌機側欄)**只 dispatch**,
+ *   把寫網址的事交給只認 5 軸、且**一個字都不寫 `categories`** 的同步 effect。
+ *   ⇒ 客人從搜尋落地(`?categories=A,B&category=A`)按側欄那顆 ⇒ **膠囊還在、篩選還生效**
+ *   ⇒ 📌 **那顆鈕按了等於沒按, 而它就是板列講的原症狀。**
+ *
+ * 🔵 只留 `sort` / `per` —— 它們是客人刻意選的, 不是篩選(理由正本在空狀態那顆的註解裡)。
+ */
+export function buildClearedProductsUrl(searchParams: {
+  get(name: string): string | null;
+}): string {
+  const kept = new URLSearchParams();
+  const keepSort = searchParams.get('sort');
+  const keepPer = searchParams.get('per');
+  if (keepSort) kept.set('sort', keepSort);
+  if (keepPer) kept.set('per', keepPer);
+  const q = kept.toString();
+  return q ? `/products?${q}` : '/products';
+}
+
+/** 🔬 測試用:把旗標歸零。**只給 `beforeEach`**, 產品碼不得呼叫。 */
+export function __resetClearAllRequestedForTests(): void {
+  clearAllRequested = false;
+}
+
+/** 送出「清除全部」之前呼叫它 —— 讓同步 effect 這一輪不要復活認不得的參數。 */
+export function markClearAllRequested(): void {
+  clearAllRequested = true;
+}
+
 export function useCatalogFilterUrlSync(
   cascade: CascadeFilterState,
   extras: ProductExtraFilters,
@@ -272,7 +321,41 @@ export function useCatalogFilterUrlSync(
     //   `?pbrands=a,b` —— 單值鍵讓每個品牌組合的 Next segment cache key 天然不同,
     //   結構上消掉下方那個「碰撞才補 refresh」的觸發條件(理由正本在 `lib/catalog-query.ts`)。
     const knownBrandIds = new Set(restoreSources.productBrands.map((b) => b.id));
-    const unknownBrands = parseBrandSlugsFromUrl(params).filter((slug) => !knownBrandIds.has(slug));
+    // 🔴🔴 ⟦b4-CLEARALLKEEPSJUNK⟧ —— **「清除全部」那一輪要讓路, 認不得的值不復活。**
+    //   病:客人按「清除全部」⇒ 鈕自己送了一個乾淨網址, 而 `clearAll()` 觸發的**這一輪**
+    //   讀到的還是舊網址 ⇒ 下面那行把認不得的 `pbrands` 又 set 回去
+    //   ⇒ 📌 **膠囊消失了、垃圾參數還在, 客人看到的仍然是 0 筆。**
+    //
+    // 🛑 **這【不是】放寬 #315**(Sean 2026-08-11 Q1=A:認不得的值刻意留在 URL 上)——
+    //   #315 的理由逐字是:清掉的代價是**靜默顯示全站商品**, 客人以為還在看 DBK。
+    //   ⇒ 🎯 **而「清除全部」正是客人【明示要看全站】的那一按** ⇒ 那個理由在這條路上不成立。
+    //   ⚠️ **而射程這件事是我判的, 不是 Sean 拍的** —— 若他認為 #315 也涵蓋明示清除, 這一段要撤。
+    //      (已請主視窗端他;在他答之前, 這裡的行為是【一個帶理由的假設】。)
+    //   🛑 **而「只有清除全部會走這條路」是靠上面那個【旗標】保證的, 不是靠 state 形狀推的**
+    //      —— 第一版就是只看形狀, 被 code-reviewer 指出點掉最後一顆膠囊會同構命中。
+    //   🔴 **而旗標的保證只涵蓋【有呼叫它的那幾顆鈕】** —— 今天是三顆:
+    //      `ActiveChips`(膠囊列)· `ProductsPage`(零結果空狀態)· `FilterSide`(桌機側欄)。
+    //      ⚠️ `FilterTop.tsx:145` 與 `FilterDrawer.tsx:272` 也有 `dispatch(clearAll())` 而**沒有補**
+    //      —— R2 查過:前者除測試外零渲染, 後者的掛載點只用 `scope=category|product` 走不到那一支。
+    //      ⇒ 📌 **它們是【今天到不了】不是【不需要】** —— 哪天有人讓它們活起來, 這裡要一起補。
+    //
+    // 🔵 **判準要窄**:旗標 + 「這一輪真的變了」+ 「變成完全空的」三者皆備才讓路 ——
+    //   ⛔ 不可以只看「state 是空的」:`⑫`/`⑬` 那兩格正是 **state 空 + URL 有垃圾 + 客人改價格**,
+    //      那時**必須保留**。少了 `filtersChanged` 與 extras 這兩個條件, 那兩格會紅。
+    // 🔴 **兩個條件是 AND, 缺一不可**:
+    //   · 沒有旗標 ⇒ 那不是「清除全部」, 可能只是點掉最後一顆膠囊 ⇒ 照 #315 保留(R1 Critical)。
+    //   · 有旗標而形狀不空 ⇒ 旗標過期了(客人又選了東西)⇒ 不讓路, 也在下面把它清掉。
+    const stateAndExtrasEmpty =
+      cascade.category === null &&
+      cascade.brands.length === 0 &&
+      cascade.vehicle === null &&
+      !extras.price &&
+      !extras.priceRange;
+    if (!stateAndExtrasEmpty) clearAllRequested = false;
+    const clearedToEmpty = clearAllRequested && filtersChanged && stateAndExtrasEmpty;
+    const unknownBrands = clearedToEmpty
+      ? []
+      : parseBrandSlugsFromUrl(params).filter((slug) => !knownBrandIds.has(slug));
     params.delete(LEGACY_BRAND_PARAM);
     params.delete(BRANDS_PARAM);
     const brandSlugs = [...new Set([...cascade.brands, ...unknownBrands])].sort();
