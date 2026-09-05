@@ -225,13 +225,61 @@ BEGIN
                  LIMIT c_batch);
   GET DIAGNOSTICS v_expired = ROW_COUNT;
 
-  -- ② 總量那半(單批)—— 🔴 只刪【超出上限的最舊那些】。
+  -- ②a 🔴🔴 **前置:表【小到不可能有 c_max_rows 列】就整段跳過**
+  --     (2026-09-05 折 codex R2 第 5 條 must-fix;主視窗 `-f8` 裁「只折這一條」)
+  --
+  --  🔴 **它折的是什麼**:下面 ②b 那句 `ORDER BY id DESC OFFSET c_max_rows` **每一發都要跨過
+  --     200 萬個 index item**;144 發/日 ⇒ **每日約 2.88 億**。而 codex 逐字:防線自己變成常態成本。
+  --  🎯 **而那句話只有在【真的超量】時才需要跑** ⇒ 加一道 O(1) 的前置, 沒超量就不跑
+  --     ⇒ **在正常世界(也就是每一天, 直到真的被灌爆)那個放大器根本不執行。**
+  --  ✅ **⇒ 這一格不需要任何壓測就成立** —— 它把「量它貴不貴」換成「讓它不跑」。
+  --
+  --  ⛔ ~~我第一版要用 `pg_class.reltuples`~~ —— 🔴 **它在我寫下去之前就被量掉了**:
+  --     2026-09-05 唯讀實查正式庫 ⇒ `search_queries` 的 `reltuples` = **-1**,
+  --     `last_analyze` 與 `last_autoanalyze` **都是 NULL**(從未被 ANALYZE 過)。
+  --     🛑 **`-1` 是 PostgreSQL 的「不知道」哨兵值** ⇒ 而 `-1 < 2000000` 為真
+  --     ⇒ 那道前置會**跳過 purge**, 也就是**把「沒有資訊」讀成「表很小」**。
+  --     🟢 正對照:同一發問 `products` ⇒ `reltuples` = 25038(尺會動, 不是它壞了)。
+  --
+  --  ✅ **改用 `pg_relation_size`, 而它是【可證明】的**:
+  --     · 它**永遠精確**、不依賴 ANALYZE(它問的是檔案佔幾個 page)
+  --     · **大小是列數的上界**:heap tuple header MAXALIGN 後 24 bytes + item pointer 4 bytes
+  --       ⇒ **任何一列至少 28 bytes**;本表還有 `id`(int8)與 `created_at`(timestamptz)
+  --       ⇒ 至少 40。**取 32 是刻意保守的下界。**
+  --     ⇒ 📌 **表小於 `c_max_rows × 32` ⇒ 不可能有 c_max_rows 列。這是算出來的, 不是量出來的。**
+  --  🔵 **而 bloat / dead tuple 只會讓表【變大】** ⇒ 它推向「不跳過」= 照樣跑那句
+  --     ⇒ **失效方向是安全的那一側**(多做一次, 不是少做)。
+  --  🔵 **TOAST 也不破**:長字串搬去 TOAST 之後主表那一列仍留一個約 18 bytes 的指標
+  --     ⇒ 每列仍 ≥ 28 ⇒ 32 這個下界照樣成立。
+  --
+--  🔬 **拋棄式 PG 17.10 實跑(2026-09-05;真的函式本體, 從本檔抽出來載入, 沒有手抄)**:
+--     ```
+--     每列實際 bytes  52.18(query_raw 只放 1 個字元 = 最短的情況)
+--                     ⇒ 我宣稱的下界 32 成立而且有餘裕
+--     門檻換算        64,000,000 bytes ÷ 52.18 ≈ 【122.7 萬列】就會開閘
+--                     ⇒ 而上限是 200 萬 ⇒ 📌 **閘【比需要的時候更早開】, 它不可能在超量時擋住**
+--     世界 A  20 萬列 / 10,436,608 bytes ⇒ 閘 f ⇒ deleted_overflow = 0, 零錯誤
+--     世界 B 205 萬列 / 106,971,136 bytes ⇒ 閘 t ⇒ deleted_overflow = 5000, more_to_do = t
+--     ```
+--  🔴🔴 **而有一件我【沒有證明】, 照實寫**:世界 A 的「0」與「跑了但沒東西刪」**在結果上長一樣**。
+--     我試著用 `pg_stat_user_tables.idx_scan` 分開它們 —— 🛑 **而正對照(手動跑同一句)也回 0**
+--     ⇒ **那把尺沒動, 兩個讀數都作廢, 我不拿它當證據。**
+--     ⇒ 📌 **「它沒跑」這件事我靠的是 `IF` 的語意 + 上面量到的閘值(A 是 f、B 是 t)**,
+--        **不是一個獨立的觀察。** 而 `IF` 為假時不執行內層是語言保證, 不是本片的宣稱。
+--
+--  🛑 **它擋不住什麼**:①這一格**只跳過 ②b**, 過期那半(①)照跑 —— 那是對的, 它便宜
+  --     ②`c_max_rows` 或表結構若改, **這個下界要重算**(改值的人請重讀本段)
+  --     ③它**不保證**超量時那句就便宜 —— 只保證**沒超量時它不跑**。
+  IF pg_catalog.pg_relation_size('public.search_queries'::regclass) >= c_max_rows * 32 THEN
+
+  -- ②b 總量那半(單批)—— 🔴 只刪【超出上限的最舊那些】。
   --    用 id 排序而不是 created_at:`created_at` 被截到整點
   --    ⇒ **同一小時的列它分不出先後**, 而 `id` 是 IDENTITY, 嚴格遞增。
   DELETE FROM public.search_queries
    WHERE id IN (SELECT s.id FROM public.search_queries s
                  ORDER BY s.id DESC OFFSET c_max_rows LIMIT c_batch);
   GET DIAGNOSTICS v_overflow = ROW_COUNT;
+  END IF;   -- ②a 的前置:表太小 ⇒ v_overflow 維持 0, 而那是【正確的 0】不是【沒跑的 0】
 
   -- ③ 計數表也要清 —— 一小時一列, 一年 8,760 列, 小而**不是零**。
   DELETE FROM public.search_log_hour_counter
@@ -280,6 +328,17 @@ BEGIN
    WHERE n.nspname = 'public' AND p.proname = 'log_search_query'
      AND p.prosrc LIKE '%ON CONFLICT (hour_bucket) DO UPDATE SET n = c.n + 1 WHERE c.n < 5000%';
   IF v_cnt <> 1 THEN RAISE EXCEPTION '事後閘①:log_search_query 裡找不到原子計數那一句'; END IF;
+
+  -- ①b 🔴 **②a 那道前置真的進去了** —— 釘的是 **predicate**, 不是註解
+  --     (同 codex 第 11 條的教訓:只找註解的話, 註解留著而 IF 拿掉也會綠)。
+  --     🛑 而它**證不到那道前置是對的** —— 只證「那一句在函式體裡」。
+  SELECT pg_catalog.count(*) INTO v_cnt
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'purge_search_queries'
+     AND p.prosrc LIKE '%pg_relation_size(''public.search_queries''::regclass) >= c_max_rows * 32%';
+  IF v_cnt <> 1 THEN
+    RAISE EXCEPTION '事後閘①b:purge_search_queries 裡找不到 ②a 的大小前置(那句 IF)';
+  END IF;
 
   -- ② 計數表在, 而且 anon/authenticated/service_role 一項權限都沒有
   IF pg_catalog.to_regclass('public.search_log_hour_counter') IS NULL THEN
