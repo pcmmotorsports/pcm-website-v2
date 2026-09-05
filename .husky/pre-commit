@@ -192,6 +192,20 @@ else
   exit 1
 fi
 
+# ── 帳本重複列(2026-09-05 線 -db 接;主視窗 -f8 拍甲)────────────────────
+#   🔴 一支 migration 常常【兩條線都碰到】(寫的一條 / 驗的一條), 而帳本的規矩是「驗的人記」
+#      ⇒ 兩邊都覺得自己是驗的人時, 就各記一列;而 merge 的 union 段【不會叫】
+#      (兩列各自在自己那邊是新增的 ⇒ 連 git 衝突都不算)。
+#   🔬 主視窗 2026-09-05 一天撞兩次(4b8eda273 / 4568488ae), 兩次都是【肉眼看 diff 】發現的。
+#   ⚠️ 它只在 supabase/APPLIED.tsv staged 時才會有話說(沒 staged ⇒ 自己跳過、印一行)。
+if [ -f .husky/applied-ledger-dup-gate.sh ]; then
+  sh .husky/applied-ledger-dup-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/applied-ledger-dup-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/applied-ledger-dup-gate.sh' >&2
+  exit 1
+fi
+
 pnpm exec lint-staged
 
 if [ -f .husky/always-loaded-size-gate.sh ]; then
