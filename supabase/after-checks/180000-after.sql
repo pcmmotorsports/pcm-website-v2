@@ -20,7 +20,7 @@ SELECT
   COALESCE(bool_or(pg_catalog.pg_get_functiondef(p.oid) LIKE '%r.settled_at IS NULL%'), false)  AS 有未結清判準,
   COALESCE(bool_or(pg_catalog.pg_get_functiondef(p.oid) LIKE '%open_for(r_row.order_id, false)%'), false) AS 用false不覆寫,
   COALESCE(bool_or(pg_catalog.pg_get_functiondef(p.oid) LIKE '%WHERE v.order_id = o.id AND v.voided_at IS NOT NULL%'), false)   AS 作廢就整張跳過,
-  COALESCE(bool_or(pg_catalog.pg_get_functiondef(p.oid) LIKE '%INTO v_short, v_void%'), false)    AS 有數金額少那族
+  COALESCE(bool_or(pg_catalog.pg_get_functiondef(p.oid) LIKE '%INTO v_scanned, v_short, v_void%'), false)    AS 有數金額少那族
   FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
  WHERE n.nspname = 'pcm_cron' AND p.proname = 'late_payment_pending_refund_sweep';
 
@@ -70,6 +70,10 @@ SELECT pg_catalog.count(*) AS 上線後開的待退款列
   FROM public.order_pending_refunds r
  WHERE r.opened_at >= TIMESTAMPTZ '2026-09-05 00:00:00+08'
    AND r.voided_at IS NULL;
+-- 🔴 R4-N1:上面那個時刻是**手填的** —— 忘了改就會把 070000 的 trigger 開的列
+--    一起數進來(多報), 而**沒有任何東西會紅**。
+--    ⇒ 📌 一個要人記得改的常數, 與一個沒有人維護的數字是同一個東西。
+--    ✅ 用之前先問一句:這個時刻是不是本支真正 apply 的那一刻?不是 ⇒ 這一格的數字沒有意義。
 
 \echo ''
 \echo ''

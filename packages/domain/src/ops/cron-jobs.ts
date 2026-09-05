@@ -1,6 +1,6 @@
-// @pcm/domain/ops/cron-jobs — 六支排程的白名單與門檻【唯一來源】
+// @pcm/domain/ops/cron-jobs — 【七】支排程的白名單與門檻【唯一來源】
 //
-// 🔴🔴 **這支檔存在的唯一理由:那六個門檻只能有一份。**
+// 🔴🔴 **這支檔存在的唯一理由:那七個門檻只能有一份。**
 //    它原本住在 `apps/admin/src/lib/dashboard/cron-heartbeat-read.ts`(儀表板那一側),
 //    2026-08-31 搬到這裡, 因為**告警器那一側也要用同一份**
 //    (`packages/use-cases/src/check-anomaly-alerts.ts`, 走 `apps/storefront`)。
@@ -27,7 +27,7 @@
  *         (⚠️ 陷阱:`has_table_privilege('service_role','cron.job','SELECT')` ⇒ **true**
  *          ⇒ 只查後面那一格的人會寫「讀得到」,而實際上進不去 schema)
  *      ② `cron.job` 有 RLS,policy 只有一條 `cron_job_policy / ALL / TO public / (username = CURRENT_USER)`
- *         ⇒ 六支全是 `postgres` ⇒ service_role 就算進得去也只看到 **0 列**
+ *         ⇒ 那幾支全是 `postgres` ⇒ service_role 就算進得去也只看到 **0 列**
  *         📌 而「排程一支都沒有」與「我沒有權限看」**印同一個 0**。
  *      ③ PostgREST 只暴露 `public` 那組 schema,`cron` 不在裡面。
  *    ⇒ **本檔答不出「有排程在跑而沒有人在看」** —— 那一格要 migration 才做得到(鐵則 8 + 12②)。

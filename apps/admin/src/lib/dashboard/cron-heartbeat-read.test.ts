@@ -48,7 +48,7 @@ const NOW = new Date('2026-08-28T12:00:00.000Z');
 /** n 分鐘前的 ISO 字串。 */
 const ago = (n: number) => new Date(NOW.getTime() - n * 60_000).toISOString();
 
-/** 六支全部剛剛成功過的一份完整資料(正向對照的地基)。 */
+/** 七支全部剛剛成功過的一份完整資料(正向對照的地基)。 */
 const ALL_HEALTHY: Row[] = CRON_JOB_WHITELIST.map((w) => ({
   job_name: w.jobName,
   last_success_at: ago(1),
@@ -158,7 +158,7 @@ describe('白名單這張表本身', () => {
 });
 
 describe('loadCronHeartbeats', () => {
-  it('正向對照:六支都健康 ⇒ 零異常、零漂移(證明下面每一格的斷言真的看得到東西)', async () => {
+  it('正向對照:七支都健康 ⇒ 零異常、零漂移(證明下面每一格的斷言真的看得到東西)', async () => {
     withRows(ALL_HEALTHY);
     const r = await loadCronHeartbeats(NOW);
     expect(r.unreadableReason).toBeNull();

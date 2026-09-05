@@ -52,6 +52,17 @@
 --    ⇒ 走一趟 HTTP 只是多一個會壞的環節(而那個環節壞掉時, 症狀是「安靜地沒補」)。
 --    形狀比照最近的同族 `pcm_cron.expire_unpaid_orders`(`20260904230000`)。
 
+-- ══ 🔴🔴 貼板順序:**這一支要先 apply, 白名單那一列才能進 dev**(R4-MF4)═══════
+-- 本片同時改了 `packages/domain/src/ops/cron-jobs.ts` 的 `CRON_JOB_WHITELIST`(加第七支)。
+-- 🔴 **那一列一合進 dev 就【當場部署】, 而這支 migration 是 Sean 手動貼** ——
+--    兩者之間的缺口期裡, 儀表找不到 `pcm-late-payment-sweep` 的心跳
+--    ⇒ `never_beat` ⇒ `abnormal_count >= 1` ⇒ **LINE + Email 每天一封, 而那條路沒有冷卻**
+--      (`check-anomaly-alerts.ts` 逐字寫著「沒有冷卻機制」)。
+-- 🛑 **⇒ 缺口不是「少了一點保護」, 是【每天一封確信的假警報】。**
+-- ✅ 正確順序:**① Sean 貼這一支 ② 才把白名單那一顆 commit 合進 dev**。
+--    ⚠️ 而 `scripts/20260905180000-down.sql` 只寫了**反向**(先退碼再退 DB)——
+--       📌 **正反兩個方向都要寫, 而我原本只寫了一半。**
+
 BEGIN;
 
 -- ── 前置閘:它靠的那兩支函式在不在 ────────────────────────────────
@@ -89,6 +100,7 @@ DECLARE
   v_void  integer := 0;   -- 🔴 有作廢列而整張跳過幾張(R1-F2)
   v_fail  integer := 0;   -- 補的時候炸掉幾張
   v_noop  integer := 0;   -- 🔵 呼叫沒炸而也沒新增(別人先開了)—— 不是成功也不是失敗
+  v_scanned integer := -1;  -- 🔴 R4-MF5 分母:掃過幾張已取消單(-1 = 統計趟沒跑成)
   v_before integer;
   v_after  integer;
 BEGIN
@@ -186,9 +198,13 @@ BEGIN
   --    ⇒ 順序是:**先做會產生副作用的那一趟, 再做只是看的那一趟。**
   BEGIN
     SELECT
+      -- 🔴 R4-MF5:回傳要有【分母】。沒有它, 上游 rail 集合漂掉 ⇒ 候選恆空
+      --    ⇒ opened=0 / 心跳綠 / 儀表綠 / 告警靜, 而**兜底已經瞎了**。
+      --    ⇒ 📌 scanned 是唯一一個「這把尺還搆得到東西」的證據。
+      pg_catalog.count(*),
       pg_catalog.count(*) FILTER (WHERE t.short_rails > 0),
       pg_catalog.count(*) FILTER (WHERE t.has_voided)
-      INTO v_short, v_void
+      INTO v_scanned, v_short, v_void
       FROM (
         SELECT
           -- 🔴 R1-F2:這張單有沒有【被人作廢過】的列。
@@ -204,7 +220,7 @@ BEGIN
          WHERE o.cancelled_at IS NOT NULL) AS t;
   EXCEPTION WHEN OTHERS THEN
     -- 🛑 數不出來 ⇒ 用 -1 明示「這一格沒量到」, **不要用 0** —— 0 與「今天沒有」同一個字。
-    v_short := -1; v_void := -1;
+    v_scanned := -1; v_short := -1; v_void := -1;
     RAISE WARNING '[late_payment_sweep] 統計那一趟失敗(補列不受影響):%', SQLERRM;
   END;
 
@@ -249,7 +265,8 @@ BEGIN
   -- 🛑 **而今天沒有人讀這個回傳值** —— 把它接進 `pcm-anomaly-alert` 是【片 2】,
   --    不在本支裡。這一句明寫, 不假裝它已經有人接。
   RETURN pg_catalog.jsonb_build_object(
-    'opened', v_open, 'noop', v_noop, 'amount_short', v_short, 'voided_skipped', v_void, 'failed', v_fail);
+    'scanned', v_scanned, 'opened', v_open, 'noop', v_noop,
+    'amount_short', v_short, 'voided_skipped', v_void, 'failed', v_fail);
 END;
 $function$;
 
@@ -344,7 +361,7 @@ BEGIN
     RAISE EXCEPTION '事後③b:函式體沒有「有作廢列就整張跳過」那一段 ⇒ 被作廢的列會每 10 分鐘復活';
   END IF;
   -- 🔴 R1-F1:金額少那一族【只數不動】⇒ 也要有一格釘著, 否則有人順手改成覆寫。
-  IF pg_catalog.strpos(v_txt, 'INTO v_short, v_void') = 0 THEN
+  IF pg_catalog.strpos(v_txt, 'INTO v_scanned, v_short, v_void') = 0 THEN
     RAISE EXCEPTION '事後③c:函式體沒有數「列在而金額少」那一格 ⇒ 那一族會變成完全靜默';
   END IF;
   -- 🔵 負對照:一個現造的字面必須【找不到】—— 沒有它, 上面幾格可能來自一把恆真的尺。
