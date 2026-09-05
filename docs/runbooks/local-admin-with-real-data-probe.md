@@ -115,6 +115,23 @@ CREATE ROLE anon NOLOGIN;
 CREATE ROLE authenticator LOGIN NOINHERIT;
 GRANT anon, authenticated, service_role TO authenticator;
 
+-- 🔴🔴 **service_role 的【預設權限】要在這裡就設好,不能等到 §5 那一格**(2026-09-05 `-auth` 量到)
+--    `20260729010000`(D0)`:343` 用 `has_table_privilege('service_role','public.orders','SELECT')` 自檢
+--    ⇒ 原本那道 GRANT 寫在【套完 migration 之後】⇒ D0 跑的當下 service_role 一個權限都沒有
+--    ⇒ 逐字 `D0 驗收失敗 — service_role 對 orders 的 SELECT 不見了` ⇒ **D0 整支回捲**
+--    ⇒ `orders.legacy_display_id` 沒建 ⇒ 🎯 **兩個月後 `20260905230000` 才炸**
+--       (`column o.legacy_display_id does not exist`)⇒ `admin_order_list_v` 少 `tax_total`
+--       ⇒ 後台訂單列表載入失敗 ⇒ 「員工的一天」`#15` 那一格量不到。
+--    📌 **一支 migration 失敗的傷口,會在【兩個月後的另一支檔】上出現,而錯誤訊息指的是後面那一支。**
+-- 🔵 形狀抄平台的:Supabase 對 `service_role` 的預設權限是 `arwdDxtm`(全開)⇒ 這裡 `GRANT ALL`。
+-- 🛑 `anon` / `authenticated` **刻意不給** —— 它們在正式站上是【逐支 migration 明寫】的,
+--    這裡先給了會讓那些 REVOKE 斷言**失去判別力**(它們會變成「本來就沒有」而不是「被收掉了」)。
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO service_role;
+GRANT USAGE ON SCHEMA public TO service_role, anon, authenticated;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
+
 CREATE SCHEMA auth;
 -- 🔴 `id` 一欄不夠：`public.handle_new_auth_user()` 這支 trigger 會讀 NEW.email 與
 --    NEW.raw_user_meta_data ⇒ 少了會噴 `record "new" has no field "email"`。

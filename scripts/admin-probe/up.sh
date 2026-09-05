@@ -194,6 +194,23 @@ GRANT anon, authenticated, service_role TO authenticator;
 --    ⇒ 它的落點是「造角色」這一格,不是「補權限」那一格。位置就是語意。
 -- ⚠️ 而這仍然證不了正式站 —— 見檔頭第 30 行那句(GRANT 與 BYPASSRLS 是本腳本自己下的)。
 ALTER ROLE service_role BYPASSRLS;
+-- 🔴🔴 **service_role 的【預設權限】也要在套 migration 之前就設好**(2026-09-05 `-auth` 量到)。
+--    病灶與 BYPASSRLS 那一條同型, 而它藏得更深:
+--    `20260729010000`(D0)`:343` 用 `has_table_privilege('service_role','public.orders','SELECT')` 自檢,
+--    而原本那道 GRANT 寫在 ④(**migration 跑完之後**)⇒ D0 跑的當下 service_role 一個權限都沒有
+--    ⇒ 逐字 `D0 驗收失敗 — service_role 對 orders 的 SELECT 不見了` ⇒ **D0 整支回捲**
+--    ⇒ `orders.legacy_display_id` 沒建 ⇒ 🎯 **兩個月後 `20260905230000` 重建 view 時才炸**
+--       (`column o.legacy_display_id does not exist`)⇒ view 少 `tax_total` ⇒ 後台訂單列表載入失敗。
+--    📌 **一支 migration 失敗的傷口, 會在【兩個月後的另一支檔】上出現, 而錯誤訊息指的是後面那一支。**
+-- 🔵 **形狀抄平台的, 不自己發明**:Supabase 對 `service_role` 的預設權限是 `arwdDxtm`(全開),
+--    所以這裡用 `GRANT ALL`;而 `anon` / `authenticated` **刻意不給** ——
+--    它們在正式站上是**逐支 migration 明寫**的, 這裡給了會讓那些 REVOKE 斷言失去判別力。
+-- ⚠️ 而這仍然證不了正式站(檔頭第 30 行):**這些是本腳本自己下的**。
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO service_role;
+GRANT USAGE ON SCHEMA public TO service_role, anon, authenticated;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 CREATE SCHEMA auth;
 -- 🔴 `id` 一欄不夠:`handle_new_auth_user()` trigger 會讀 NEW.email 與 NEW.raw_user_meta_data。
 -- 🔴🔴 **2026-08-30 加了兩欄, 而理由不是「補完整」, 是【不補會讓一道安全檢查 fail-open】**:
