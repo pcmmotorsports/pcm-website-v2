@@ -394,6 +394,36 @@ export type EnqueueOrderShippedEmailInput = EnqueueEmailInputBase & {
  *    ⛔ ~~我原本在這裡寫「Sean 未拍板(題 2)」+「他若答要寄:改法是一處, 拿掉那道閘」~~
  *    🔴 **兩句都假,而第二句指向一個會傷到客人的動作**:照它做 ⇒ 一輪寄出上百封不可回收的信。
  */
+/**
+ * 🔴🔴 **取消信(`order_cancelled`)—— 刷卡且【已全額退款】的整單取消。**
+ *
+ * 🛑 **它與下面那支 `EnqueueOrderUnpaidCancelledEmailInput` 是【兩支】, 而欄位逐格相同**:
+ * ```
+ * order_cancelled         = 刷卡 + payment_status='refunded' + 整單取消   ← 本支
+ * order_unpaid_cancelled  = 未付款的單被取消                              ← 下面那支
+ * ```
+ * ⇒ 📌 **eventType 是唯一分得出它們的欄位, 而它是字面** —— 打錯一個字,
+ *    型別會叫(discriminated union), **而【import 錯 use-case】不會叫。**
+ *
+ * 🔵 射程是 Sean 2026-09-02 拍甲(`20260903040000:96-98` 記著):**不涵蓋匯款/現金的單,
+ *    也不涵蓋部分退款**(`partiallyRefunded` 是另一個值)。
+ *    掃描面 = `public.pcm_cancelled_email_pending`(`20260905310000`), 述詞逐條在那支 view 的 COMMENT。
+ */
+export type EnqueueOrderCancelledEmailInput = EnqueueEmailInputBase & {
+  eventType: 'order_cancelled';
+  /** 取消時刻(事件時點快照)。 */
+  cancelledAt: string;
+  /** 🔴 退款金額(enqueue 當下的快照)—— 與 `payment_status` 判定同源, 見 view 的 COMMENT。 */
+  refundedAmount: number;
+  /** 🔴 `'full'` | `'partial'`;算出來的。`sweep` 只在 `'full'` 時印退款那一段。 */
+  refundKind: string;
+  /**
+   * 取消理由。🔴 **它會原封進到客人眼前** ⇒ 落表邊界一律過 `sanitizeCustomerFacingReason`。
+   * 🔵 `null` = 沒有理由 ⇒ 信裡那一段不印。
+   */
+  cancelledReason: string | null;
+};
+
 export type EnqueueOrderUnpaidCancelledEmailInput = EnqueueEmailInputBase & {
   eventType: 'order_unpaid_cancelled';
   /** 取消時刻(事件時點快照)。 */
@@ -451,6 +481,7 @@ export type EnqueueShipmentTrackingCorrectedEmailInput = EnqueueEmailInputBase &
 export type EnqueueEmailInput =
   | EnqueueOrderCreatedEmailInput
   | EnqueueOrderShippedEmailInput
+  | EnqueueOrderCancelledEmailInput
   | EnqueueOrderUnpaidCancelledEmailInput
   | EnqueueShipmentTrackingCorrectedEmailInput;
 

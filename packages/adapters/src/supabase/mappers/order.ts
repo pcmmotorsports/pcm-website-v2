@@ -1292,6 +1292,15 @@ function pickItemShippedAt(item: SupabaseMemberOrderDetailRow['order_items'][num
  */
 export function mapSupabaseMemberOrderDetailRow(
   row: SupabaseMemberOrderDetailRow,
+  /**
+   * ⟦b4-PARTIALPAIDNOWHERE⟧ 應付餘額(整數元)。**來源是另一支 view, 不在 `row` 裡** ——
+   * 所以它是第二個參數而不是 `row` 的一欄。
+   *
+   * 🔴🔴 **讀不到就傳 `null`, 【不准傳 0】** —— 補 0 會讓餘額變成 `total`
+   *   ⇒ 📌 對一個已經付了訂金的人印出全額, 那正是本列要修的病。
+   *   ⇒ 而 `undefined`(呼叫端沒傳)與 `null`(查了而沒有)在這裡**同義**:兩個都是「算不出來」。
+   */
+  balanceDueAmount?: number | null,
 ): MemberOrderDetail {
   // ⟦ship-WHICHITEMSSHIPPED⟧ **先算逐件的出貨時刻, 再由它同時餵三個消費者。**
   // 🔴 這一段【原本就在這支檔裡】, 它只是站在下面 30 行、算完之後被丟掉(只留最早那一筆)。
@@ -1369,6 +1378,13 @@ export function mapSupabaseMemberOrderDetailRow(
     discountTotal: { amount: toMoneyAmount(row.discount_total), currency: 'TWD' },
     taxTotal: { amount: toMoneyAmount(row.tax_total), currency: 'TWD' },
     total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
+    // 🔴 `null` = **算不出來**(不是 0)—— 顯示端看到 null 要【整塊不印】。
+    //    理由正本在 `MemberOrderDetail.balanceDue` 的 docstring:補 0 會讓餘額變成 total
+    //    ⇒ 對一個已經付了訂金的人印出全額, 那正是本列要修的病。
+    balanceDue:
+      balanceDueAmount === null || balanceDueAmount === undefined
+        ? null
+        : { amount: toMoneyAmount(balanceDueAmount), currency: 'TWD' as const },
     shippingMethod: row.shipping_method,
     shippingAddress: pickShippingAddress(row.shipping_address_snapshot),
     // 🔴🔴 codex must-fix(2026-08-24):**與客人列表同一道邊界** —— 原文停在這裡。

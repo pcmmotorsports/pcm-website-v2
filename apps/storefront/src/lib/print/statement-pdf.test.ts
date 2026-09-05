@@ -45,6 +45,7 @@ function orderFixture(itemCount: number): MemberOrderDetail {
     discountTotal: twd(0),
     taxTotal: twd(0),
     total: twd(12100),
+    balanceDue: null,   // ⟦b4-PARTIALPAIDNOWHERE⟧ null = 算不出來(不是 0)
     shippingMethod: 'home',
     shippingAddress: {
       name: '王小明',
