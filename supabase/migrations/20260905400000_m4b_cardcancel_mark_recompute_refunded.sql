@@ -46,11 +46,52 @@ BEGIN
     RAISE EXCEPTION '前置閘:admin_mark_order_cancelled 有 % 支(引數數 %)—— 期望剛好 1 支 5 參', v_n, v_args;
   END IF;
   -- 🔴 已套用過就拒(forward-only):本檔的判準字面在不在函式體裡。
+  -- 🔴 **F2(codex R1 must-fix):`LIKE` 裡的 `_` 是萬用字元** —— `'%v_refunded_now%'`
+  --    會匹配 `vXrefundedXnow`。改用 `strpos`(純字面, 零萬用字元)。
   IF EXISTS (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
               WHERE n.nspname='public' AND p.proname='admin_mark_order_cancelled'
-                AND p.prosrc LIKE '%v_refunded_now%') THEN
+                AND pg_catalog.strpos(p.prosrc, 'v_refunded_now') > 0) THEN
     RAISE EXCEPTION '前置閘:第五道閘已經在裡面了 ⇒ 本檔已套用過, forward-only 拒重跑';
   END IF;
+  -- 🔴🔴 **F2 的另一半:釘住【我要覆蓋的是哪一版】。**
+  --    上面那道只答「新閘還沒進去」, 答不出「現在裡面那支是不是我以為的基線」
+  --    ⇒ 📌 正式庫若有一支同簽名的 hotfix, 它會**靜靜地被 `CREATE OR REPLACE` 蓋掉**,
+  --      而每一道斷言都會是綠的(它們看的是覆蓋【之後】的樣子)。
+  --    ✅ 判準 = 基線 `20260903093000:604-854` 裡那句獨一無二的錯誤訊息。
+  --    ⚠️ 它證的是「有這句話」, 不是「逐字元等於基線」—— 後者要存整份雜湊, 而那會讓
+  --       任何一次合法的上游改動都變成假紅。**這是刻意取的中間點, 不是疏漏。**
+  -- 🔴🔴 **R2 訂正(codex 第二輪 must-fix):原本釘的是【一個特徵字串】, 而那不夠。**
+  --    ⛔ ~~`strpos(prosrc, '只標記那條路動到了品項數量') > 0`~~
+  --    🛑 一支保留了那句訊息、而其他地方被改過的 hotfix, **照樣過得了** ⇒ 仍會被靜靜蓋掉。
+  --    ✅ 改釘**整份函式體的 md5**。
+  --    🔬 期望值的來源(不是我算的):把 `20260903093000:604-854` 原樣 apply 到拋棄式 PG 17.10,
+  --       再問它 `md5(prosrc)` ⇒ `a76039fbe9be95715c069a5b3c4dc630`(長度 10929)。
+  --       🔵 而那支檔的內容與帳本記的 sha 逐字元相同
+  --          (`APPLIED.tsv` `20260903093000` = `08fe84c4ee6cfab363b48eacf6b412a8a6015016f5de264aefcc8e3906932d5a`
+  --           = 現檔 sha)⇒ **正式庫跑的就是這份文字。**
+  --       🔵 而 `latest-definition-of.sh` 確認 `20260903093000` 之後**沒有第三代**碰過這支函式。
+  --    🟢🟢 **@貼前 2026-09-05 22:5x:唯讀量過正式庫, 逐字元相同** ——
+  --       `md5(prosrc)` = `a76039fbe9be95715c069a5b3c4dc630`、`length(prosrc)` = **10929**
+  --       ⇒ 📌 **所以這道閘在正式庫上【會過】, 不會變成第三次紅著回來。**
+  --       🟢 正對照:同一發查 `admin_cancel_order` ⇒ `bd7c79ba2ccc792d3dab5f3b54335582`(長度 23759)
+  --          ⇒ **那把尺會動, 不是恆回同一個值**。
+  --       🔵 負對照:同一發查一個現造的函式名 ⇒ **沒有那一列**(不是靜靜回一個值)。
+  --       🛑 **而它答的是【22:5x 那一刻】** —— 貼之前若有人動過那支函式, 這句話就過期了,
+  --          而**那正是這道閘要接住的東西** ⇒ 它過期不會沒有人知道。
+  --       (走 `scripts/readonly-prod-sql.sh`, 唯讀零寫入;連線字串不進對話也不進本檔。)
+  --    🛑🛑 **這是 fail-closed, 而那是刻意的**:對不上就停, **不要 force**。
+  --       ⇒ 訊息會把**量到的那個 md5 印出來** —— 貼回來就能比對, 不必猜。
+  --    ⚠️ **代價寫明**:任何一次合法的上游改動都會讓這裡紅。**那時候的紅是對的** ——
+  --       它要的是一個人回來看一眼, 而不是讓一支錢路徑的函式被無聲覆蓋。
+  DECLARE v_md5 text;
+  BEGIN
+    SELECT pg_catalog.md5(p.prosrc) INTO v_md5
+      FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+     WHERE n.nspname='public' AND p.proname='admin_mark_order_cancelled';
+    IF v_md5 IS DISTINCT FROM 'a76039fbe9be95715c069a5b3c4dc630' THEN
+      RAISE EXCEPTION '前置閘:正式庫上那支【不是】我預期的基線。期望 md5(prosrc)=a76039fbe9be95715c069a5b3c4dc630(20260903093000), 實得 %。⇒ 停下不要蓋。把這個 md5 貼回來給線 -account 比對。', COALESCE(v_md5, '(讀不到)');
+    END IF;
+  END;
 END
 $pre$;
 
@@ -203,6 +244,26 @@ BEGIN
   --    口徑逐字對齊同步器(`20260905010000:293-299`):
   --      `order_refunds` 的 `status = 'confirmed'` + `order_manual_refunds` 的 `voided_at IS NULL`
   --    ⚠️ **不自創第二種口徑** —— 兩份會分岔, 而分岔時沒有東西會叫。
+  -- 🔴🔴 **F1(codex 2026-09-05 R1 must-fix):不鎖住這兩本帳, 這道閘擋不住併發。**
+  --   失敗情境(逐步):本交易鎖了 `orders`、加總得 1000 ⇒ 放行;
+  --   **而同一時間另一個交易 `admin_void_manual_refund` 把那筆退款作廢並提交**
+  --   ⇒ 本交易接著把單標成已取消 ⇒ 📌 **回到這支檔要修的那個洞本身。**
+  --   🔬 **量到的**:`admin_void_manual_refund`(`20260820100000:292-420`)剝掉行註解之後
+  --      **`public.orders` 零命中** —— 它只鎖 `order_manual_refunds` 那一列(`:335 FOR UPDATE`);
+  --      `admin_correct_order_refund_verdict`(`20260814190000:253-258`)同型, 只鎖 `order_refunds`
+  --      那一列(`FOR NO KEY UPDATE`), 也不碰 `orders`。
+  --   ⇒ ✅ **所以本函式取【orders → 子表】這個方向是安全的**:對造方永遠只持子表、
+  --      不會回過頭要 `orders` ⇒ **成不了環** ⇒ 不新增死結風險。
+  --   🔵 **為什麼是 `FOR SHARE` 而不是 `FOR UPDATE`**:我們只要「在我算完之前不准有人改它」,
+  --      不要獨佔;而 `FOR SHARE` 與對造的 `FOR UPDATE` / `FOR NO KEY UPDATE` / 裸 `UPDATE` 皆衝突
+  --      ⇒ 擋得住, 而兩個唯讀的取消端可以並行。
+  --   ⚠️ **射程**:它擋的是【改既有列】。**新增**一筆退款不受擋 —— 而那只會讓退款額變多,
+  --      方向對我們有利(該擋的還是會擋)。
+  PERFORM 1 FROM public.order_refunds r
+    WHERE r.order_id = p_order_id FOR SHARE;
+  PERFORM 1 FROM public.order_manual_refunds m
+    WHERE m.order_id = p_order_id FOR SHARE;
+
   SELECT COALESCE(pg_catalog.sum(r.refund_amount), 0)
     INTO v_refunded_now
     FROM public.order_refunds r
@@ -366,10 +427,51 @@ BEGIN
   END IF;
 
   -- ③ 判準真的在函式體裡(剝行註解後找可執行形狀, 不是找註解)
+  --
+  -- 🔴🔴 v2(2026-09-05, Sean 貼 v1 紅了)：這一格找的字面沒跟上碼的改名。
+  --    ⛔ 舊：v_refunded_now < v_order.total   ✅ 新：v_refunded_now < v_order_total
+  --    成因：F4 修 record has no field 那一發把碼從 v_order.total 改成 v_order_total,
+  --    而**這道斷言是一個字串常數** ⇒ 它不會跟著改, 也沒有任何東西會告訴你。
+  --    🛑 **而它失敗的方向是【指控碼沒改】** —— 真相是碼改了而尺沒改。
+  --    ⇒ 📌 **一道用字面做的守門, 在重新命名面前會報一個【對的紅、錯的理由】。**
+  --    ⇒ ⇒ 改識別字時：grep 舊名字一發, 連斷言與註解一起改。
+  --
+  -- 🔴🔴 **F3(codex R1 must-fix)兩個洞, 一起補**:
+  --    ① **`LIKE` 的 `_` 是萬用字元** ⇒ `'%v_refunded_now < v_order_total%'` 會匹配
+  --       `vXrefundedXnow < vXorderXtotal` ⇒ 改 `strpos`(純字面比對, 零萬用字元)。
+  --    ② **只找片段 ⇒ 認得出 `IF NOT (v_refunded_now < v_order_total)`** —— 那是**反過來的閘**,
+  --       而它一樣含這個片段。⇒ 改成比對**整個 `IF … THEN` 形狀**。
+  --       🛑 它仍擋不住有人在後面追加 `AND false` —— 那一格**沒有補**, 理由寫在下面。
+  --
+  -- 🛑🛑 **F4(codex R1 must-fix):這個剝註解的 regexp 不懂 SQL 的詞法。** 它會:
+  --    · 把**字串常數裡**的 `--` 當成註解 ⇒ 誤刪同一列後面的真碼(⇒ 假紅)
+  --    · **完全不剝** `/* … */` 與 dollar-quoted 字串裡的東西(⇒ 假綠)
+  --    🔬 **而我量了本函式自己的碼**(可執行行 181 行):
+  --       字串常數 **83** 個, **其中含 `--` 的 = 0**;`/*` 出現 **0** 次。
+  --       🔵 負對照:整支檔含註解時 `--` 出現 **164** 次 ⇒ 那把尺會動, 不是恆回 0。
+  --    ⇒ ✅ **所以對【今天這份 body】它是準的** —— 而那是一個關於**這一份**的斷言,
+  --       不是關於這個 regexp 的斷言。**下一個改這支函式的人要自己重量一次。**
+  --    ⇒ 📌 **為什麼不寫一個真的 SQL lexer**:那要幾十行 plpgsql, 而**它自己也需要被驗**
+  --       ⇒ 一道沒有人驗過的守門, 比一道**射程寫清楚**的守門更危險。這是取捨, 不是偷懶。
   IF NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_proc p WHERE p.oid = v_oid
-          AND pg_catalog.regexp_replace(p.prosrc, '--[^' || chr(10) || ']*', '', 'g') LIKE '%v_refunded_now < v_order.total%') THEN
-    RAISE EXCEPTION '斷言③:函式體(剝註解後)沒有第五道閘的判準 ⇒ 只改到註解';
+          AND pg_catalog.strpos(
+                pg_catalog.regexp_replace(p.prosrc, '--[^' || chr(10) || ']*', '', 'g'),
+                'IF v_refunded_now < v_order_total THEN') > 0) THEN
+    RAISE EXCEPTION '斷言③:函式體(剝行註解後)沒有第五道閘那個【完整的 IF … THEN】⇒ 可能只改到註解, 或判準被改成反過來的形狀';
+  END IF;
+
+  -- ③b 訊息也要在(它是員工唯一看得到的那一半;判準對而訊息掉了 = 一個沒有人看得懂的紅)
+  -- 🔴🔴 **R2 訂正(codex 第二輪 must-fix):③b 原本搜的是【沒有剝註解的】`prosrc`。**
+  --    🛑 ⇒ 把真正那發 `RAISE` 整段註解掉、字串留在註解裡 ⇒ **③b 照樣綠。**
+  --    ⇒ 📌 **③ 剝了註解而 ③b 沒剝 —— 兩格站在同一條線上, 而只有一格有門。**
+  --    ✅ 改成:同樣剝行註解, 而且綁 `RAISE EXCEPTION` 這個**可執行形狀**, 不只綁字串。
+  IF NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_proc p WHERE p.oid = v_oid
+          AND pg_catalog.strpos(
+                pg_catalog.regexp_replace(p.prosrc, '--[^' || chr(10) || ']*', '', 'g'),
+                'RAISE EXCEPTION ''admin_mark_order_cancelled: 這張單的狀態寫著') > 0) THEN
+    RAISE EXCEPTION '斷言③b:第五道閘那發 RAISE(剝行註解後的可執行形狀)不見了 ⇒ 可能被整段註解掉, 只剩註解裡的字';
   END IF;
 
   -- ④ ACL 沒掉(CREATE OR REPLACE 應該保留, 而這一格證它)
@@ -379,6 +481,54 @@ BEGIN
   IF pg_catalog.has_function_privilege('anon', v_oid, 'EXECUTE')
      OR pg_catalog.has_function_privilege('authenticated', v_oid, 'EXECUTE') THEN
     RAISE EXCEPTION '斷言④b:anon 或 authenticated 叫得動它';
+  END IF;
+
+  -- 🔴🔴 **④c(codex R1 must-fix F5):上面兩格只問了【我想得到的三個角色】。**
+  --    🛑 **一道點名式的檢查, 對【沒有被點到的那個名字】永遠是綠的** ——
+  --      而 `CREATE OR REPLACE` **保留既有 ACL** ⇒ 正式庫上若早就多授權給第四個角色,
+  --      這支 `SECURITY DEFINER` 的錢路徑會**繼續**對它開著, 而上面兩格照樣全綠。
+  --    ✅ 改成問【全集】:除了 owner 與 `service_role` 之外, 一個 grantee 都不准有;
+  --      `WITH GRANT OPTION` 也不准(它讓被授權者可以再轉授給別人)。
+  --    🔴 而 `proacl IS NULL` 要**單獨分流** —— 它不是「沒有人有權限」,
+  --      它是**預設 ACL**(owner 全權 + **PUBLIC 可執行**)⇒ 那是最寬的那一種,
+  --      而 `aclexplode(NULL)` 回零列 ⇒ 不分流的話, 最寬的世界會印出最乾淨的 0。
+  SELECT count(*) INTO v_n
+    FROM pg_catalog.pg_proc p
+   WHERE p.oid = v_oid AND p.proacl IS NULL;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION '斷言④c:proacl 是 NULL ⇒ 那是預設 ACL(PUBLIC 可執行), 不是「沒有人有權限」';
+  END IF;
+  SELECT count(*) INTO v_n
+    FROM pg_catalog.pg_proc p
+    CROSS JOIN LATERAL pg_catalog.aclexplode(p.proacl) a
+   WHERE p.oid = v_oid
+     AND (a.grantee = 0
+          OR a.is_grantable
+          OR (a.grantee <> p.proowner
+              AND pg_catalog.pg_get_userbyid(a.grantee) <> 'service_role'));
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION '斷言④c:這支函式上有 % 筆我沒預期的授權(PUBLIC / 可轉授 / owner 與 service_role 以外的角色)⇒ 停下人工看過', v_n;
+  END IF;
+
+  -- 🔴🔴 **④d(codex R2 must-fix):④b/④c 只看了【直接授權】。**
+  --    🛑 **而 `SET ROLE` 是另一條路** —— `anon` 若是 `service_role` 或 owner 的成員,
+  --      它可以切過去再呼叫這支 `SECURITY DEFINER` 的錢函式, 而上面每一格都會是綠的
+  --      (`has_function_privilege('anon', …)` 問的是 anon **自己**有沒有, 不是它切得過去)。
+  --    ✅ 用 `pg_has_role(…, 'MEMBER')` 問「切不切得過去」。
+  --    🔴 **刻意只問 `anon` 與 `authenticated`, 不問 `authenticator`** ——
+  --      `authenticator` 是 PostgREST 的登入角色, **它本來就必須是三者的成員**(那是它的工作)
+  --      ⇒ 把它算進來會讓這一格在正式庫上恆紅, 而恆紅的守門等於沒有守門。
+  --    ⚠️ **射程**:它問的是「今天切不切得過去」, 答不出「將來有沒有人會加這個成員關係」——
+  --      那要另一道會定期跑的東西, 不是一支 migration 做得到的。
+  SELECT count(*) INTO v_n
+    FROM pg_catalog.pg_proc p
+    CROSS JOIN LATERAL (VALUES ('anon'), ('authenticated')) AS u(rolname)
+   WHERE p.oid = v_oid
+     AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.rolname = u.rolname)
+     AND (pg_catalog.pg_has_role(u.rolname, 'service_role', 'MEMBER')
+          OR pg_catalog.pg_has_role(u.rolname, p.proowner, 'MEMBER'));
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION '斷言④d:anon 或 authenticated 可以 SET ROLE 切到 service_role 或這支函式的 owner(% 筆)⇒ 直接授權收乾淨也沒有用, 停下人工看過', v_n;
   END IF;
 
   -- ⑤ COMMENT 還在
