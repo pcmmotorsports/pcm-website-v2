@@ -5,8 +5,9 @@
 > ⇒ 本檔就是要批准的那份 plan。批准後才動碼。
 > 派工來源:主視窗 `-f8` 2026-09-06 01:4x。板列 `⟦b4-BANKNOEMAIL⟧`(`docs/launch-todo.md:342`)。
 >
-> 🔴🔴 **狀態 = R1 FAIL → 修 → R2 【也】FAIL → 修 → 待 R3(要換模型換角度)。**
-> R1 **18 條**(§9)· R2 **14 條**(§10)· **兩輪都零反駁**。
+> 🔴🔴 **狀態 = R1 FAIL → R2 FAIL → R3(opus, 換模型)FAIL → 折完, 待 `-f8` 對 C1 重裁。**
+> R1 **18 條**(§9)· R2 **14 條**(§10)· R3 **18 條 = 10 must-fix + 5 consider + 3 nit**(§11)· **三輪零反駁**。
+> 🛑 **R3 的 C1 會推翻一個已經裁過的東西(§8 混版信的乙案)** ⇒ **我不自己推翻, 已端回 `-f8`。**
 > ⛔ ~~我全折~~ 🛑 **R2 第一條打的就是那句宣稱** —— 我說 18 條全折, 實際只有 15 個處置編號,
 > **其中一條是真的掉了**。訂正與可機械化的修法在 **§10-0**。
 > **§2 / §4 / §5 / §6 / §7 / §8 的本文已依 §9 改過** ——
@@ -107,7 +108,9 @@ pcm_order_created_email_pending 的 anti-join 找到那一列
 您的訂單 {displayId} 已成立,目前尚未付款。
 請依下列資訊完成轉帳,我們收到款項後會再通知您。
 
-應付金額  NT$ {total}
+訂單金額  NT$ {total}
+已收      NT$ {total - balanceDue}
+應付餘額  NT$ {balanceDue}
 
 匯款資訊
 銀行      {PCM_REMITTANCE_BANK_NAME}({PCM_REMITTANCE_BRANCH})
@@ -115,14 +118,28 @@ pcm_order_created_email_pending 的 anti-join 找到那一列
 帳號      {PCM_REMITTANCE_ACCOUNT_NO}
 {PCM_REMITTANCE_MEMO_INSTRUCTION} {displayId}
 
-{remittanceDeadlineLabel(created_at) ?? `請於 ${PCM_REMITTANCE_EXPIRE_DAYS} 天內完成匯款,逾期訂單將自動取消。`}
+{期限句 —— 🔴 **整句**都要與畫面同一個來源, 不是只有 fallback 那半}
+　主句(畫面 `OrderDetailView.tsx:699` 逐字):`請於 ${remittanceDeadlineLabel(created_at)}(含)之前完成匯款,逾期訂單將自動取消。`
+　fallback(`:698`):`請於 ${PCM_REMITTANCE_EXPIRE_DAYS} 天內完成匯款,逾期訂單將自動取消。`
 
+{siteUrl 有值時才印這兩行 —— 🔴 缺 siteUrl ⇒ **整段不印**, 不印半個連結}
 訂單內容與匯款資訊也可以在這裡查看:
 {siteUrl}/account/orders/{encodeURIComponent(displayId)}
 
 {ORDER_CONTACT_LEAD} {PCM_LINE_ID}
 {PCM_LINE_URL}
 ```
+
+🔴🔴 **[R3 改了三處, 每一處都有既有前例]**
+1. **金額改三行**(MF1/MF2, `-f8` 03:5x 裁)—— 與 `OrderDetailView.tsx:677-680` **同一組**;
+   🛑 而**印不印由金額決定**:`balanceDue` 為 `null` / `≤ 0` / `> total` ⇒ **這封信不寄**(專用 skip 碼)。
+   📌 **一封印公司帳號的催款信, 只在「確定還要匯正數」的世界寄。**
+2. **期限句整句共用**(MF3)—— ⛔ ~~我原本只插 `remittanceDeadlineLabel` 的裸回傳值~~,
+   而那只回「9 月 11 日」(**無年、無主詞**)⇒ **信上會出現孤零零一行日期, 且「(含)」那個邊界消失**
+   ⇒ 客人第 5 天不敢匯。✅ **兩句抽成 domain 單一來源, 兩處共用。**
+3. **`siteUrl` 缺就整段不印**(MF10)—— 既有做法逐字「缺 `siteUrl` 就只印句子, **不印半個連結**」;
+   route 那側逐字「**死入口比沒入口糟**」。
+⚠️ **N2**:`CheckoutSuccess.tsx:84-88` 有一段依賴這塊座標的註解 ⇒ **改本節時要一起看。**
 
 🔴🔴 **客服入口那兩行是 R2-⑩ 逼出來的, 而它【不是文案偏好, 是這封信的功能之一】**:
 匯款是最容易出疑義的一條路(匯錯金額 / 匯錯帳號 / 名字對不上 / 已逾期), 而**這封信是他唯一的觸點**
@@ -204,15 +221,17 @@ AND o.manual_request_id IS NULL      -- 🔴 第二條:後台建單一定寫它
 | # | 檔 | 改什麼 | 不做會怎樣 |
 |---|---|---|---|
 | 1 | `supabase/migrations/20260906140000_…_outbox_bank_order_created_event.sql` | `email_outbox` 的 `event_type` CHECK 換一代, 加 `bank_order_created` | 新碼寫不進 outbox, 那一封永遠不存在 |
-| 2 | `supabase/migrations/20260906150000_…_bank_order_created_pending_view.sql` | 新 view `pcm_bank_order_created_email_pending`(述詞見 §4)+ REVOKE/GRANT 白名單 | 沒有掃描面 ⇒ 沒有東西被撈出來 |
+| 2 | `supabase/migrations/20260906150000_…_bank_order_created_pending_view.sql` | 新 view `pcm_bank_order_created_email_pending`(述詞見 §4)+ 🔴 **「收件人至少一個非空」那一條**(R3-MF4;前例 `20260905210000:126-129` / `20260905030000:97-100`)+ REVOKE/GRANT 白名單 | 沒有掃描面 ⇒ 沒有東西被撈出來<br>**MF4**:少了信箱那條 ⇒ enqueue `noRecipient++ ; continue` **不寫 outbox 列** ⇒ anti-join 看不到 ⇒ **每輪重撈、永遠**, 佔滿 `ENQUEUE_LIMIT = 50` ⇒ 真的要寄的被擠出去, **而心跳照綠** |
 | 3 | `packages/ports/` | `SUPPRESS_WHEN_ORDER_INELIGIBLE` 補一格 `bank_order_created: true` | typecheck 紅(**這是好事**);硬闖 ⇒ fail-closed 全壓掉 |
 | 4 | `packages/ports/` + `packages/adapters/src/email/` | 新 scanner port + adapter(照四支既有的形狀) | — |
 | 5 | `packages/use-cases/src/enqueue-bank-order-created-emails.ts` | 新 use-case(照 `enqueue-order-created-emails.ts`) | — |
 | 6 | `packages/use-cases/src/sweep-email-outbox.ts` | `switch` 加 `case 'bank_order_created'` + `buildBankOrderCreatedText` | `satisfies never` 紅 |
-| 7 | `apps/storefront/src/app/api/cron/email-sweep/route.ts` | 接線 + **自己的 off-by-default env** + 計數進 503 條件 | 🔴 **那個 503 條件漏我這條線, 這個 repo 已經發生三次** |
+| 7 | `apps/storefront/src/app/api/cron/email-sweep/route.ts` | 接線 + 🔴 **自己一顆 `readDeployCutoff` 形狀的 env(⛔ ~~off-by-default 布林~~, R3-MF6)** + 🔴 **自己一支 picker、輸出鍵前綴不得與既有四支相同**(R3-MF7)+ 計數進 503 條件 | **MF6**:布林翻 true 那一秒掃到**所有歷史未付款匯款單** ⇒ **一次寄一疊, 而信收不回來**<br>**MF7**:鍵相同 ⇒ 後寫的**安靜覆蓋**前一條, 而兩個數字**看起來都很合理**<br>🔴 503 條件漏我這條線, 這個 repo **已經發生三次** |
 | 8 | `packages/adapters/src/email/SupabaseEmailOutboxAdapter.ts:235` `composeEvent` + enqueue input/payload 型別 + 產生型 `database.types` | 補新事件 | **codex R1-⑥**:少了它落不了新事件、或 typecheck 直接紅 |
 | 9 | 🔴 **寄送前重驗**(新, 在 `sweep-email-outbox.ts` 本事件的分支裡) | 送出前重讀該單:已 `paid` / 已取消 / 管道變了 ⇒ **標 skipped 不寄** | **codex R1-②**:掃描是快照, 寄送是後來 ⇒ 否則會寄「尚未付款」給一個**已經付完**的客人 |
 | 10 | 🔴 env 關閉時同時進 `claimDue` 的 `excludeEventTypes`(`SupabaseEmailOutboxAdapter.ts:417-419`, **既有機制**) | — | **codex R1-⑥**:只擋 enqueue ⇒ 關掉之後既有 pending 列**照樣被認領寄出** ⇒ §7 的 rollback 是假的 |
+| 11b | 🔴 **收件人來源要寫死 + 合成信箱那一格**(R3-MF5) | `notification_email` → `customers.email` 的退化規則照既有四支;而 **LINE 登入客人的 `customers.email` 可能是不可路由的合成信箱**(`order-email-copy.ts:170-176`) | 判 `skipped_no_real_email` ⇒ **落一列** ⇒ anti-join **從此擋住** ⇒ 補上真信箱也不再排。📌 **這封信正是為「一封都收不到」而做的, 而它對這一群仍然是零** |
+| 11c | 🔴 **寄送前重驗改問 `balanceDue`, 不列舉狀態**(R3-MF8) | ⛔ ~~三態~~ ⇒ `partiallyPaid` 漏了;而 enum 是四值 + 一(`20260604120000:50` + `20260725130000`) | 📌 **狀態是列舉(會長出第五個值), 而「還要不要匯正數」是一個問題** |
 | 12 | 🔴 **混版信守門(`-f8` 03:0x 裁乙, 定案)** —— 讀完 context 之後複讀 `orders.version`,
 與讀取當下不一致 ⇒ **不寄、重排**;**只掛在本事件**, 既有四封信一行不動 | — |
 **R1 `:113` 第二條**(我 §9 掉的那一條):表頭與明細是兩次查詢 ⇒ 中間被改 ⇒ 客人拿到一封**自己加不起來**的信, 而他會照它匯錢 |
@@ -255,7 +274,11 @@ AND o.manual_request_id IS NULL      -- 🔴 第二條:後台建單一定寫它
 拿掉 cancelled_at IS NULL    ⇒ ③ 紅
 把管道改成 <> 'tappay'        ⇒ 現金單漏進來(要有一格 cash 世界抓它)
 ```
-**C. 寄信 sweep 的單元測試**:餵一封 `bank_order_created` job ⇒ 斷言內文**同時**含
+**C. 寄信 sweep 的單元測試** ⇒ 🔴 **整串 `toBe`, 不是「含」**(R3-MF9)——
+`sweep-email-outbox.ts:558-564` 逐字:`EXPECTED_ORDER_CREATED_BODY` 是整串比對, 且「它的副作用就是
+**這串對外文案不得無聲改變** —— 而那正是這一族需要的那道閘」。
+🛑 ⛔ ~~斷言「含」六項~~ **有人插一行 / 改標點 / 換順序 ⇒ 六個「含」全過而信變了**。**鐵則 12⑤ 不該降級, 而我降了。**
+🔵 而「含」那一版的細目留著當**最低限**:餵一封 `bank_order_created` job ⇒ 內文**同時**含
 `displayId` · 金額 · 🔴 **六項**(⛔ ~~四個~~;codex R1-⑬)——
 **銀行 · 分行 · 戶名 · 帳號 · 備註指示 · 期限句** · `/account/orders/` 連結;
 🔵 **負對照**:餵 `order_created` ⇒ 內文**不得**出現帳號常數(證明兩個模板沒有互相污染)。
@@ -273,6 +296,16 @@ AND o.manual_request_id IS NULL      -- 🔴 第二條:後台建單一定寫它
 | rollback | ⛔ ~~先關 env → 退 view → **最後**退 CHECK~~ 🔴 **codex R1-⑦ 打掉最後那一步:退不動。**<br>已經有 `bank_order_created` 列時, 把 CHECK 換回不含該值的版本會 **`VALIDATE` 失敗**。<br>✅ **CHECK 那一代【不回退】** —— 多一個合法值不傷任何東西。**回退單位 = env → 碼 → view。**<br>📌 **一個做不到的 rollback 步驟, 比沒有 rollback 更糟 —— 它讓人以為退得回去。**<br>🔴 而關 env **不只是關 enqueue**:同時要進 `claimDue` 的 `excludeEventTypes`, 否則既有 pending 列照樣寄出。 |
 | 資料 | 已寄出去的信**收不回來** ⇒ 📌 rollback 單位是「不再寄」, 不是「當作沒寄過」 |
 | 🔴 殘餘 race | **消不掉**(codex R1-③):寄送前重驗與真正送出之間, 客人若剛好付款或取消, 信照樣出去。<br>⇒ 📌 **寫在這裡的用途不是免責, 是讓下一個人不要以為那道重驗把它關死了。** |
+
+### 🔴 R3 對 §7 加的三句(C2 / C4 / C5)
+**C2 · 正式站的正對照【恆空】** —— `BANK_TRANSFER_CHECKOUT_ENABLED` 今天**不得翻 true**
+⇒ 本線上膛後第一輪掃到 **0 列**, 而「0 列」與「view 名字打錯 / GRANT 漏了 / 述詞寫反」**在 log 上印同一個 200**
+⇒ 🛑 **那顆 flag 翻之前, 不得把本線寫成「已驗證會寄」。**
+**C4 · 「先關 env 止血」是假的** —— Vercel env 要 redeploy 才讀得到
+⇒ 📌 **止血的動作是 redeploy, 不是改 env。** 拔掉 env 到 redeploy 之間, 現行 deployment 照舊在寄。
+**C5 · 退版一次的真實代價(兩半要接起來)** —— 舊碼撞 `buildEmailText` 的 `default` ⇒ `throw` ⇒ `errors++`
+⇒ **503 + 心跳紅, 每 5 分鐘一次**;而燒完 `attempts` 之後那批列成終態, anti-join 只看列在不在
+⇒ 🔴 **那一批客人之後再也排不進信。**
 
 ### 🔴 上線順序(codex R1-⑩⑪ 訂正)
 ⛔ ~~CHECK 一定要先於 view~~ —— **不成立**:view 的字串比對**不依賴** CHECK。
@@ -314,8 +347,16 @@ AND o.manual_request_id IS NULL      -- 🔴 第二條:後台建單一定寫它
   　　會被拿去照著匯錢的信)⇒ 📌 **選丙要有人簽名, 不是預設。**
   🔴 **我推薦乙**:它的失敗方向與這封信的 fail-safe 同向(**寧可不寄**), 而甲的回歸面
   　 大到會把一片變成四片。
+- 🔴🔴 **逾期自動取消【不寄任何信】, 而這封信會把「第 6 天才匯」的量放大**(R3-C3):
+  `20260905030000:80-85` 逐字 —— 員工取消才 INSERT `order_cancellations`, **逾時自動取消不會**
+  ⇒ `pcm_unpaid_cancelled_email_pending` 的 `EXISTS` 把它篩掉 ⇒ **自動取消零信**。
+  ⇒ 客人收到催款信 ⇒ **第 6 天單子無聲消失** ⇒ 他那天匯的錢走待退款那條。
+  🛑 **⇒「要不要在期限前再寄一封提醒」不可以單獨端** —— 它與「**自動取消要不要寄一封**」是**同一題**。
 - 🔴 **死列會永久擋住補寄**(codex R1-⑨):`attempts >= max_attempts` 是終態, 而 anti-join **只看列在不在**
   ⇒ 之後補上真信箱也不再排信。這不是本片新造的, **而本片會多一族列踩它。**
+  🔴 **而 R3-MF5 指名了那一族是誰**:**LINE 登入而結帳沒填通知信箱的客人** ——
+  他們的 `customers.email` 是不可路由的合成信箱(`order-email-copy.ts:170-176`)
+  ⇒ 📌 **這封信正是為「一封都收不到」而做的, 而它對這一群仍然是零。**
 
 ---
 
@@ -518,3 +559,128 @@ codex 列:未取消 / 至少一項 / 不超過 50 項 / 金額非負。⇒ **空
 **假設審查**(這份 plan 有哪些前提從頭到尾沒有被問過)、**回歸**(它會不會弄壞今天在寄的四封信)。
 
 🛑 **在 R3 之前不動碼**, 而 §3 草稿要**先補客服入口**再端給 Sean。
+
+---
+
+# §11 🔴🔴 R3(opus, 換模型換角度)—— **FAIL:must-fix 10 · consider 5 · nit 3**
+
+> 🔬 **條數自檢(§10-0 立的那道, 第一次真的跑)**:
+> **審查者條數 = 10 + 5 + 3 = 18** · **本節處置編號 = 18**(`MF1`–`MF10` · `C1`–`C5` · `N1`–`N3`)
+> ⇒ **18 vs 18**。📌 **兩個數並排印出來, 而不是寫一句「逐條」。**
+> ⚠️ **射程**:這道自檢只證**編號對得上**, **證不到每一條真的落進本文** —— 那正是 R2 抓到的那個病,
+> 而它需要的是**逐條的落點座標**, 見每一條後面的「✅ 落在」。
+
+> ⚠️ **N3 先講**:R3 實際開的是 `d46f11a59`(512 行那版), **不是交辦的 `0c8b77178`** ——
+> 行號以它為準;而**它已經看到**我補的客服入口與三個修法候選 ⇒ **那兩處不重複計算。**
+
+## 11-A 錢的語意(MF1 / MF2 / MF8)—— **主視窗 `-f8` 03:5x 裁, 不端 Sean**
+
+**裁示逐字(不改寫)**:「信與訂單頁用**同一條規則**(Sean 09-05 已拍三行版 + 印不印由金額決定):
+信印的是 `balanceDue`(應付餘額), **不是 `total`**;`balanceDue` 為 NULL 或 ≤ 0 ⇒ **這封 `bank_order_created` 不寄**
+(專用 skip 碼, 稽核記原因), 因為頁面那格已經在講『請聯絡我們』—— **一封印公司帳號的催款信只在「確定還要匯正數」的世界寄。**」
+
+**MF1 【折】金額來源錯** ⇒ ✅ **落在 §3 草稿**:`應付金額 {total}` **改成三行**
+`訂單金額` / `已收` / `應付餘額`, 與 `OrderDetailView.tsx:677-680` **同一組**。
+🔬 **我複量了 `-f8` 說「`balanceDue` 今天存在」** —— 成立:`packages/domain/src/order/types.ts:1945` 逐字 `balanceDue: Money | null`;
+adapter guard 在 `SupabaseOrderAdapter.ts:886-930`;view `20260905330000_m4b_member_order_balance_v.sql` 在檔上。
+(🟢 正對照同尺問 `discountTotal` ⇒ **7** 支檔 · 🔵 負對照現造欄名 ⇒ **0**)
+⇒ 📌 **`⟦b4-PARTIALPAIDNOWHERE⟧` 那句「今天沒有應付餘額欄」已過期**, 而**我差點照它推論本片會變大**。
+
+**MF2 【折】缺「可信的正數」那道閘** ⇒ ✅ **落在 §5 新增列 + §6 新世界**:
+`balanceDue` 為 `null` / `≤ 0` / `> total` ⇒ **不寄**, 專用 skip 碼(稽核要記得出原因, 不可借 `cancelled` 的碼)。
+🔴 **而它擋掉的具體災難逐字**:全額退款的單 `total` 沒降 ⇒ 舊 plan 會**無條件印 12 碼帳號 + 全額**
+⇒ **叫一個已經退完款的客人再匯一次。**
+
+**MF8 【折】重驗漏 `partiallyPaid`** ⇒ ✅ **落在 §5-9**:三態改**四態**
+(`paid` / `cancelled` / 管道變了 / **`partiallyPaid`**), 而更根本的修法是**不列舉狀態, 改問 `balanceDue`** ——
+📌 **狀態是列舉(會長出第五個值), 而「還要不要匯正數」是一個問題。**
+🔬 依據:`20260604120000:50` 逐字 `('unpaid','paid','partiallyPaid','refunded')`, 而 `20260725130000` **又加了一個**。
+
+## 11-B 寄信管線的既有契約(MF4 / MF5 / MF6 / MF7 / MF9 / MF10)—— **六條全折, 全部有既有前例可抄**
+
+**MF4 【折】view 述詞缺「收件人至少一個非空」** ⇒ ✅ **§5 view 那列 + §6 新世界**。
+🛑 **失敗形狀 = 本列自己那一族**:enqueue 對 `recipientEmail === null` 是 `noRecipient++ ; continue` **不寫 outbox 列**
+⇒ anti-join 看不到列 ⇒ **每輪重撈、永遠**, 佔滿 `ENQUEUE_LIMIT = 50` ⇒ 真的要寄的信被擠出去,
+**而它不報錯、不進死信、心跳照綠。** 前例:`20260905210000:126-129` · `20260905030000:97-100`(後者 COMMENT 逐字「本 view 存在的理由」)。
+
+**MF5 【折】收件人來源沒定義 + 合成信箱** ⇒ ✅ **§5 + §8**。
+🔴 LINE 登入客人的 `customers.email` 可能是**不可路由的合成信箱**(`order-email-copy.ts:170-176` 逐字 `@pcmmotorsports.local` / `line_{sub}@line.pcmmotorsports.local`)
+⇒ adapter 判 `skipped_no_real_email` ⇒ **落一列** ⇒ anti-join **從此擋住**(R1-⑨ 那個機制)⇒ 補上真信箱也不再排。
+📌 **這封信正是為「一封都收不到」而做的, 而它對這一群仍然是零。** ⇒ §8 要把「死列擋補寄」與**這一群**接起來。
+
+**MF6 【折】env 必須是 cutoff 不是 on/off** ⇒ ✅ **§5-7 那列改寫 + §7**。
+🛑 布林 flag 翻 true 那一秒 ⇒ view 掃到**所有歷史未付款 web 匯款單** ⇒ **一次寄一疊, 而信收不回來**(鐵則 12⑤)。
+✅ 照既有形狀:`readDeployCutoff` + `created_at >= cutoff`, 自己一顆 env。
+📌 **取消信那一段的註解已經逐字記過同款教訓** —— 而我寫 §5 時只寫「off-by-default env」。
+
+**MF7 【折】計數要自己一支 picker、鍵前綴不得相同** ⇒ ✅ **§5-7 那列**。
+🔴 `route.ts` 第三支 picker 上方逐字:「輸出的鍵**不能相同** … 共用會讓後寫的那條**安靜覆蓋**前一條
+⇒ 而覆蓋之後兩個數字**看起來都很合理, 沒有東西會叫。**」
+
+**MF9 【折】§6-C 的斷言強度低於既有守門** ⇒ ✅ **§6-C 改成整串比對**。
+`sweep-email-outbox.ts:558-564` 逐字:`EXPECTED_ORDER_CREATED_BODY` 是**整串 `toBe`**, 且「它的副作用就是
+**這串對外文案不得無聲改變**」。⇒ 🛑 我寫的「**含** 六項」= 有人插一行 / 改標點 / 換順序 **六個含全過而信變了**。
+📌 **鐵則 12⑤ 這一族不該降級, 而我降了。**
+
+**MF10 【折】`siteUrl` 缺時印出 `undefined/account/orders/...`** ⇒ ✅ **§3 草稿**。
+既有做法 `paidEmailOrderUrl` + 三元(`sweep-email-outbox.ts:536-541` 逐字「缺 `siteUrl` 就只印句子, **不印半個連結**」);
+route 那側逐字「**死入口比沒入口糟**」。
+
+**MF3 【折】期限句只有 fallback 那半逐字相同** ⇒ ✅ **§3 草稿 + §5**。
+`remittanceDeadlineLabel` 只回「9 月 11 日」(**無年、無主詞**), 而畫面主句是
+`OrderDetailView.tsx:699` 逐字 `請於 ${…}(含)之前完成匯款,逾期訂單將自動取消。`
+⇒ 🛑 照舊 plan 寫, **信上會出現孤零零一行「9 月 11 日」, 而「(含)」那個邊界消失 ⇒ 客人第 5 天不敢匯。**
+✅ **兩句抽成 domain 單一來源, 兩處共用** —— 不是在信這邊再寫一次。
+📌 **我 §3 宣稱「與畫面逐字同一句」, 而那只對 fallback 那半成立** —— **又一次「宣稱比事實寬」。**
+
+## 11-C consider(五條:三條採納、一條要 `-f8` 重裁、一條端 Sean)
+
+**C1 · 🔴 採納, 而它會推翻一個已經裁過的東西 ⇒ 要 `-f8` 重裁**
+建議:**走 `job.payload` 快照, 不吃 `IPaidEmailContext`** —— 既有三封信就是這樣
+(`sweep-email-outbox.ts:417-441`;`order_cancelled` 的**金額也是 payload 快照**)。
+🎯 **一刀解掉三件**:§8 混版信 · §10-B⑤(`IPaidEmailContext` 沒有 `created_at`)· §3-4(名字是 `Paid…` 而我們餵 unpaid 單)。
+🛑 **⇒ 而它讓 `-f8` 03:0x 裁的【乙:`orders.version` 不一致就不寄】變成【不需要】** —— 快照根本沒有兩次查詢。
+⇒ 🔴 **我不自己推翻那個裁示** —— 端回去請 `-f8` 重裁, **並附「那條裁示是在 C1 出現之前做的」**。
+⚠️ **C1 自己帶的約束**:**帳號常數不得進 payload**(payload 會落 DB);只放金額 + `display_id` + `created_at`。
+
+**C2 · 【折】正式站的正對照恆空** ⇒ ✅ **§7**。`BANK_TRANSFER_CHECKOUT_ENABLED` 今天**不得翻 true**
+⇒ 本線上膛後第一輪掃到 **0 列**, 而「0 列」與「view 名字打錯 / GRANT 漏了 / 述詞寫反」**在 log 上印同一個 200**。
+⇒ 🛑 **在那顆 flag 翻之前, 不得把本線寫成「已驗證會寄」。**
+
+**C3 · 【折 ⇒ 端 Sean, 而要與提醒信【同一題】端】** ⇒ ✅ **§8**。
+逾期自動取消**不寄任何信**(`20260905030000:80-85` 逐字:員工取消才 INSERT `order_cancellations`, **逾時自動取消不會**)
+⇒ 客人收到催款信 ⇒ **第 6 天單子無聲消失** ⇒ 他那天匯的錢走待退款那條。
+📌 **⇒「要不要在期限前再寄一封提醒」不能單獨端** —— 它與「**自動取消要不要寄一封**」是同一題。
+
+**C4 · 【折】rollback 第一步是空動作** ⇒ ✅ **§7**:Vercel env 要 redeploy 才讀得到
+⇒ 🛑 **「先關 env 止血」那個心智模型是假的** —— **止血的動作是 redeploy, 不是改 env。**
+
+**C5 · 【折】退版一次的真實代價** ⇒ ✅ **§7**:舊碼撞 `buildEmailText` 的 `default` ⇒ `throw` ⇒ `errors++`
+⇒ **503 + 心跳紅, 每 5 分鐘一次**;燒完 `attempts` 後那批列成終態, 而 anti-join 只看列在不在
+⇒ **那一批客人之後再也排不進信。** 📌 §10-B⑧ 只寫「反覆失敗」, **沒把這兩半接起來**。
+
+## 11-D nit(三條)
+
+**N1 【折】** 座標訂正:主句在 `OrderDetailView.tsx:699`, fallback 在 `:698`(整個三元 `:697-699`)。
+**N2 【折】** `CheckoutSuccess.tsx:84-88` 有一段依賴那塊座標的註解 ⇒ 改 §3 時要一起看。
+**N3 【折】** 審查對象是 `d46f11a59` 不是 `0c8b77178` ⇒ 已在本節開頭標明。
+
+## 11-E R3 順手替我**擋掉**的四條(它逐條列了「已試而不成立」——**這一節比 findings 值錢**)
+
+1. **`payment_channel` 沒有重蹈 §9-E 那個 DEFAULT 翻轉**:`20260712203000:48` 逐字 `NOT NULL DEFAULT 'tappay'`
+   ⇒ `= 'bank_transfer'` 在**這一欄**上**是真的白名單**。📌 同一份 plan 裡兩欄、兩種答案 —— **不可以類推。**
+2. **`manual_request_id IS NULL` 的依據為真**:`20260905360000:188` 逐字 `IF p_manual_request_id IS NULL THEN`(拒絕)。
+3. **`SUPPRESS_WHEN_ORDER_INELIGIBLE[bank_order_created] = true` 標得對**, 而且順手接住一條 race:
+   客人改刷卡 ⇒ `begin_charge_attempt` 就地取消未付款匯款單(`20260904050000:202-204`, `cancelled_reason='superseded_by_card'`)
+   ⇒ **那道閘擋下該寄的信。**
+4. **「改刷卡會多寄一封取消信」不成立**:`pcm_unpaid_cancelled_email_pending` 要 `EXISTS order_cancellations`,
+   而 supersede 走的是**就地 UPDATE、不寫該表**。
+5. **§2 的推薦成立** —— 它獨立找過更便宜的路, 結論相同;而**理由要用訂正後那個強度**。
+6. **R2-⑫「這封信該不該存在」它獨立重跑一次, 結論相同:該存在。**
+
+## 11-F 判定與下一步
+
+🔴 **R3 = FAIL**, 而**沒有一條在重複 R1/R2** —— R1 打**設計**、R2 打**本文對不對得起處置節**、R3 打**信的字面與既有管線的契約**。
+⇒ **不是方向問題。**
+🔵 **`-f8` 裁:不跑 R4** —— 折完自審差異即可, **除非折的過程又改了結構**。
+🛑 **⇒ 而 C1 就是「改了結構」的那一種** ⇒ 📌 **C1 若被採納, 那不是自審能收的, 要回去問。**
