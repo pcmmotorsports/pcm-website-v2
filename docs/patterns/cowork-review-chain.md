@@ -157,8 +157,10 @@ A mode 用既有 `docs/specs/M-1-13H-automode-protocol.md` 模板、Cowork 為�
 
 | 替代 | 關卡 | 命令(main session 跑、`dangerouslyDisableSandbox`) | 取代原 |
 |---|---|---|---|
-| 動手前審 plan | 關卡1 | `codex exec -s read-only "<審 plan vs PRD/design...>"` | 階段 A/B |
-| 動手後審 diff | 關卡2 | `codex exec -s read-only "<PCM 鐵則...先跑 git diff>"`(主)+ 可選 `codex review --uncommitted`(通用) | 階段 D(+ 補 C) |
+| 動手前審 plan | 關卡1 | 執行者提供完整 plan、真權威節錄與白名單；直接用 `codex exec -s read-only` | 階段 A/B |
+| 動手後審 diff | 關卡2 | 執行者提供歸屬明確的本片 diff／新檔、版本清單與白名單；直接用 `codex exec -s read-only` | 階段 D(+ 補 C) |
+
+每輪使用 repo 外的獨立目錄保存 prompt、manifest 與完整輸出，不覆蓋失敗結果；同檔混入別人修改時先協調。不要叫 reviewer 自己跑整棵樹的 diff。未追蹤新檔直接附完整內容，不為審查而改 index。PASS 到 commit 之間仍須比對受審 diff 與當前 staged diff／blob；新檔 stage 後與受審快照比內容。精準 pathspec commit 前還須確認本片工作樹與 index 一致、index 變更清單恰好等於本片清單，否則停止協調，不混收或處理他人內容。可執行範例及完整提交前核對以 `.claude/skills/codex-adversary/SKILL.md` 關卡1／2為準；通用 `codex review` 僅在整個範圍已授權且歸屬明確的隔離 checkout 使用。
 
 - **寫審分離:** Claude Code 寫 plan + code;Codex 審。不同模型 = 無共同盲點、比 Claude 審 Claude 對抗。
 - **Claude `code-reviewer`(階段 C)保留** 作 diff 的快速 PCM 鐵則第一道(免費先篩)、Codex 關卡2 再深審。
@@ -190,14 +192,49 @@ A mode 用既有 `docs/specs/M-1-13H-automode-protocol.md` 模板、Cowork 為�
 第 3 步變了     ⇒ 去看一眼, 不得據此宣告紅或綠
 ```
 
-**正負對照(每次都跑)**
+#### 隔離正負對照
+
+每次審查仍核對真實受查清單及前後內容雜湊；真實檔案只讀，不追加位元組、不改權限，也不用還原動作證明唯讀。manifest 內的未追蹤受查檔也要逐檔以 `md5 -q "$f"` 前後量內容並比對，不能只比檔名；已刪除檔記錄預期不存在並核對 index 刪除狀態。首用量測命令，或命令／工具／環境變更時，才在 repo 外的合成測試檔驗證量測方法；相同 session、命令與環境可沿用已記錄結果。測量失敗或未驗證時明列缺口，不宣稱零留痕。
+
+先讀 `docs/patterns/mutation-harness-restore.md`。下列範例在 Bash 子 shell 清除繼承的 Git 定位變數，再建立獨立測試 repo；只能修改這裡的合成檔。成功／失敗目錄都保留供核對，不用自動刪除或還原主樹。範例的量測管線沿用上方第 2 步的寫法，只把 pathspec 換成合成檔；它驗證普通文字檔的內容比較，**不擴張下方既有四類限制的涵蓋範圍**。
+
+```bash
+(
+  set -euo pipefail
+  unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY
+  unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE
+  CHECK_BASE=${TMPDIR:-/tmp}
+  if git -C "$CHECK_BASE" rev-parse --git-dir >/dev/null 2>&1; then
+    printf 'check directory must be outside a repo\n' >&2
+    exit 1
+  fi
+  CHECK_DIR=$(mktemp -d "$CHECK_BASE/pcm-review-check.XXXXXX")
+  printf '%s\n' "$CHECK_DIR"
+  cd "$CHECK_DIR" || exit 1
+  CHECK_DIR=$(pwd -P)
+  if git rev-parse --git-dir >/dev/null 2>&1; then exit 1; fi
+  git init -q
+  test "$(git rev-parse --show-toplevel)" = "$CHECK_DIR" || exit 1
+  printf 'a\n' > fixture.txt
+  printf 'b\n' > 'fixture with space.txt'
+  git add -- fixture.txt 'fixture with space.txt'
+  measure_fixture() {
+    git ls-files -z -- fixture.txt 'fixture with space.txt' |
+      while IFS= read -r -d '' f; do
+        printf '%s %s\n' "$(md5 -q "$f")" "$f"
+      done | sort
+  }
+  before=$(measure_fixture)
+  test "$(printf '%s\n' "$before" | wc -l | tr -d ' ')" = 2
+  test "$before" = "$(measure_fixture)"
+  printf 'X' >> fixture.txt
+  after=$(measure_fixture)
+  test "$before" != "$after"
+  printf '%s\n' 'PASS: 2 files measured; unchanged equal; one-byte change detected'
+)
 ```
-負對照:pathspec 內【改一個位元組】(`printf 'X' >> <檔>`)⇒ 第 2 步必須不同
-        🔴 不可用 `touch`(只動 mtime, md5 相同 ⇒ 恆等式)
-        🔴 改完【必須還原】—— 八窗共用主樹、`git add <單檔>` 帶走整支 diff
-           ⇒ 還原照 `docs/patterns/mutation-harness-restore.md`, 不自創
-正對照:拿一個你確定在清單裡的檔名比對 ⇒ 必須命中(回 0 有兩種:真的沒有 / 你打錯字)
-```
+
+`touch` 只動 mtime、內容雜湊不變，不能當負對照。真實審查開始前，另核對輸入路徑全部存在、量到的檔案清單符合本輪 manifest；隔離測試通過不代表實際路徑沒打錯。
 
 🔴 **價目表(換來歸屬,換掉這四類;2026-08-28 逐項實測)**
 ```
@@ -226,7 +263,7 @@ A mode 用既有 `docs/specs/M-1-13H-automode-protocol.md` 模板、Cowork 為�
 📎 這個坑先前已寫過兩次(本節只是把它接進 codex 那條實際會被跑的路,不是發現它):
 `docs/patterns/guard-and-instrument-traps.md`(錨 `我宣稱動過的那幾個路徑`)·
 `docs/patterns/traps-inbox/V-20260818.md`(錨 `V-4 共用樹的`)。
-- **觸發範圍(控成本):** **預設不跑 codex、例行前台 slice(form/tab/CSS/型別/docs)只走 code-reviewer。** 關卡1 = 高風險片 plan(鐵則 12 六類;2026-07-22 拍板 C);關卡2 = 鐵則 12 六類 + milestone 收尾總審。**每 slice codex 硬上限 2 輪(初審 + 1 複審)、round2 仍 FAIL raise Sean、不加輪**(2026-05-29 Sean 拍 E+B)。**成本實況(2026-05-29 校正):codex exec 是 agent 翻 repo、實測 ~0.5M–1.4M input token/次(非舊註 28k)、gpt-5.5 API key 計費約 $0.8–2/次。**
+- **觸發範圍(控成本):** 預設不跑 Codex；未命中高風險的例行工作依 `CLAUDE.md` 片型規則處理，輕量片可跳 code-reviewer，標準片走 code-reviewer。關卡1 = 高風險片 plan(鐵則 12 六類;2026-07-22 拍板 C)；關卡2 = 鐵則 12 六類 + milestone 收尾總審。使用者明確要求與「Ready for review」必審，不因前台／文件名稱免審。**每 slice codex 硬上限 2 輪(初審 + 1 複審)、round2 仍 FAIL raise Sean、不加輪**(2026-05-29 Sean 拍 E+B)。**成本實況(2026-05-29 校正):codex exec 是 agent 翻 repo、實測 ~0.5M–1.4M input token/次(非舊註 28k)、gpt-5.5 API key 計費約 $0.8–2/次。**
 - **`/codex-review` skill(產 packet 給人手動貼 web Codex)已非預設**(2026-07-21 拍板:鐵則 12 一律直呼 codex CLI、不產書面 Packet;僅 Sean 明確要書面 Packet 時用)。CLI 即時審(本 §8)= 現行唯一預設。
 
 ---
