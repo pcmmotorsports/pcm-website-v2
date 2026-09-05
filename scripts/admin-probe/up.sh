@@ -194,6 +194,71 @@ GRANT anon, authenticated, service_role TO authenticator;
 --    ⇒ 它的落點是「造角色」這一格,不是「補權限」那一格。位置就是語意。
 -- ⚠️ 而這仍然證不了正式站 —— 見檔頭第 30 行那句(GRANT 與 BYPASSRLS 是本腳本自己下的)。
 ALTER ROLE service_role BYPASSRLS;
+-- 🔴🔴 **service_role 的【預設權限】也要在套 migration 之前就設好**(2026-09-05 `-auth` 量到)。
+--    病灶與 BYPASSRLS 那一條同型, 而它藏得更深:
+--    `20260729010000`(D0)`:343` 用 `has_table_privilege('service_role','public.orders','SELECT')` 自檢,
+--    而原本那道 GRANT 寫在 ④(**migration 跑完之後**)⇒ D0 跑的當下 service_role 一個權限都沒有
+--    ⇒ 逐字 `D0 驗收失敗 — service_role 對 orders 的 SELECT 不見了` ⇒ **D0 整支回捲**
+--    ⇒ `orders.legacy_display_id` 沒建 ⇒ 🎯 **兩個月後 `20260905230000` 重建 view 時才炸**
+--       (`column o.legacy_display_id does not exist`)⇒ view 少 `tax_total` ⇒ 後台訂單列表載入失敗。
+--    📌 **一支 migration 失敗的傷口, 會在【兩個月後的另一支檔】上出現, 而錯誤訊息指的是後面那一支。**
+-- 🔵 **形狀抄平台的, 不自己發明**:Supabase 對 `service_role` 的預設權限是 `arwdDxtm`(全開),
+--    所以這裡用 `GRANT ALL`;而 `anon` / `authenticated` **刻意不給** ——
+--    它們在正式站上是**逐支 migration 明寫**的, 這裡給了會讓那些 REVOKE 斷言失去判別力。
+-- ⚠️ 而這仍然證不了正式站(檔頭第 30 行):**這些是本腳本自己下的**。
+-- 🔴🔴 **`pcm_readonly` —— 唯讀查證那個角色, 而它【也是平台/人手建的, 不在任何 migration 裡】**
+--    (2026-09-05 `-auth`:`20260905230000…:261` 逐字 `role "pcm_readonly" does not exist` ⇒ 那支整支 FAIL
+--     ⇒ `admin_order_list_v` 少 `tax_total` 欄 ⇒ 後台訂單列表在鑽機上載入失敗。)
+-- 🔬 **形狀是【對正式庫實量】來的, 不是照著猜**(2026-09-05 唯讀查證, `pg_roles`):
+--    ```
+--      pcm_readonly   rolbypassrls=t  rolcanlogin=t  rolsuper=f  rolinherit=t
+--      service_role   rolbypassrls=t  rolcanlogin=f
+--      anon           rolbypassrls=f  rolcanlogin=f
+--      🟢 正對照 一個編造的角色名 ⇒ 查無(尺會分辨)
+--      has_table_privilege('pcm_readonly','public.orders','SELECT') ⇒ true
+--    ```
+-- 🔴🔴 **而這裡【只造角色, 一個權限都不給】—— 那是量出來的, 不是保守**
+--    第一版我照正式庫的**終態**建(`BYPASSRLS` + `GRANT SELECT ON ALL TABLES` + ADP SELECT),
+--    當場重跑 ⇒ 🛑 **`ok=271 fail=54` 惡化成 `ok=169 fail=156`, web 起不來**。
+--    逐條看那些新紅(apply.log 逐字):
+--    ```
+--      角色 pcm_readonly 已存在, 而它是 SUPERUSER 或帶 BYPASSRLS ⇒ 那不是唯讀角色, 不對它 GRANT
+--      relacl 裡有 owner 以外的 grantee(pcm_readonly)⇒ 零 GRANT 這句話是假的
+--      suppliers ACL 異常 — 應仍為 service_role:SELECT:false, 實 [pcm_readonly:SELECT…]
+--      E683:postgres 的 public 表預設 ACL 出現 owner/service_role 以外的授權(pcm_readonly=SELECT)
+--    ```
+--    🎯 **成因**:正式庫的 `pcm_readonly` 是**在整條 migration 鏈跑完【之後】**由另一批
+--       grant-readonly SQL 給權限的;而那條鏈上有一整族斷言在問
+--       「**這張表除了 owner 與 service_role, 不該有別的 grantee**」。
+--    ⇒ 📌 **我把【終態】搬到【起點】, 於是那一族斷言全部變紅 —— 而它們是對的。**
+--    ⇒ 📌 **一個「照正式庫的樣子建」的動作, 打壞的正是【驗證那條路怎麼走過來】的那些檢查。**
+-- ✅ **所以這裡只做一件事:讓那個角色【存在】**, 好讓引用它的 migration
+--    (`20260905230000…:261`)`GRANT … TO pcm_readonly` 有對象。**權限交給鏈自己給。**
+-- ⚠️ **也刻意不給 `BYPASSRLS`** —— 上面第一條逐字說了:帶 BYPASSRLS 的話那支會**拒絕**對它 GRANT。
+--    (正式庫實量它是 `BYPASSRLS=t` 且 `LOGIN` —— **這裡兩者都不同形, 寫出來不藏。**)
+-- 🛑 **fail-open 風險**:任何「問 `pcm_readonly` 讀不讀得到」的斷言,在這台鑽機上量到的是
+--    **這條鏈給的**, 不是正式站證明的 ⇒ 兩個方向都不能拿去說正式站(檔頭第 30 行對它一樣成立)。
+-- 🔬 **重跑三次的讀數(同一組埠, 2026-09-05 `-auth`)—— 三個世界並排**
+--    ```
+--      只補 service_role(前一顆)          ok=271 fail=54 · web 200 · 230000 死在「role pcm_readonly 不存在」
+--      再照正式庫【終態】建 pcm_readonly    ok=169 fail=156 · web 000 · 🔴 惡化, 見上面那段
+--      改成【只造角色、零權限】(本版)      ok=271 fail=54 · web 200 · 230000 死在【第三個】錯誤
+--    ```
+--    🔴 **230000 仍然不綠, 而第三個錯誤是【結構性的】**:它 `:257` 逐字
+--    `IF NOT has_table_privilege('pcm_readonly', v_oid, 'SELECT') THEN RAISE '斷言④失敗…ACL 掉了'`
+--    ⇒ 📌 **那支 migration 自己【不 GRANT】, 它【檢查】那個 SELECT 已經在。**
+--       而正式庫裡那個 SELECT 是**整條鏈跑完之後**由 grant-readonly 那批 SQL 給的
+--    ⇒ 🎯 **它是「對今天為真、放進重播必假」那一族**(同 `a559eb258`), 而**不是**環境缺東西那一族。
+--    ⇒ 🛑 **所以 `20260905230000` 在【從零重播】的世界裡【結構上不可能綠】**, 除非
+--       ①那批 grant-readonly SQL 也進版控並排在它前面, 或②那道斷言改成「有就檢查, 沒有就跳過」。
+--       **兩個都不是這支腳本能決定的**, 而本檔到此為止:`admin_order_list_v` 建得起來(`paid_total` 有),
+--       **而 `tax_total` 那一欄在鑽機上拿不到**(當場複量 `tax_total 0 / paid_total 1`)。
+CREATE ROLE pcm_readonly NOLOGIN;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO service_role;
+GRANT USAGE ON SCHEMA public TO service_role, anon, authenticated;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 CREATE SCHEMA auth;
 -- 🔴 `id` 一欄不夠:`handle_new_auth_user()` trigger 會讀 NEW.email 與 NEW.raw_user_meta_data。
 -- 🔴🔴 **2026-08-30 加了兩欄, 而理由不是「補完整」, 是【不補會讓一道安全檢查 fail-open】**:

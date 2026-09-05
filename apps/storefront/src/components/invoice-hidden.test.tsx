@@ -49,6 +49,9 @@ function Step2Harness() {
   const [invoiceOverride, setInvoiceOverride] = useState(false);
   return (
     <CheckoutStep2
+      bankTransferEnabled={false}
+      paymentChannel="tappay"
+      onPaymentChannelChange={() => {}}
       currentAddr={ADDR}
       shippingLabel="貨運宅配"
       onEditAddress={vi.fn()}

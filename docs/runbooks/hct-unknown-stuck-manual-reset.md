@@ -110,8 +110,14 @@ UPDATE public.shipments
        hct_raw_response = jsonb_build_object(
          'manual_reset_to_draft', true,
          'at',      now(),
-         'by',      '<你的名字>',
-         'reason',  '電話向新竹確認未收到此單',
+         ⛔ ~~'by',      '<你的名字>',~~
+         ⛔ ~~'reason',  '電話向新竹確認未收到此單',~~
+         🔴🔴 **2026-09-05 訂正:上面兩行【不可以放在這裡】。**
+         🛑 `20260902060000` 逐字 `GRANT SELECT ON TABLE public.shipments TO authenticated`
+            ⇒ **整張表、每一欄, 客人自己讀得到**
+            ⇒ 把你的名字與那通電話的內容寫在這裡 = **直接給客人看**。
+         ✅ 改放這一行(不含身分, 只留一個查得回去的號碼):
+         'note',    '手動放回草稿-已電話確認',
          'previous', hct_raw_response          -- 🔴 舊的留著, 不要蓋掉
        )
  WHERE shipment_reference = '<把箱單編號貼這裡>'
@@ -135,6 +141,10 @@ SELECT shipment_reference, hct_status, hct_request_id,
   FROM public.shipments
  WHERE shipment_reference = '<把箱單編號貼這裡>';
 -- 要看到:hct_status = draft · 有留痕 = true · 舊的還在 = 那個 placeholder 物件
+-- 🔴 **而【誰做的、為什麼】不在這一欄** —— 它是客人讀得到的地方。
+--    那兩件事今天沒有落點(手動改 DB 不進任何稽核表)⇒ 📌 **請自己記在別的地方。**
+--    ✅ 而那正是 ⟦ship-HCTUNKNOWNSTUCK⟧ 片 A 那支 RPC 要解掉的事:
+--       它把證詞與 actor 寫進 `admin_audit_log`(零 client 權限), 而不是寫進這一欄。
 -- 任何一格不對 ⇒ ROLLBACK
 ```
 
