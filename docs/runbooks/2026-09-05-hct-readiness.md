@@ -92,6 +92,21 @@
 
 ## 六、endpoint:Sean 給了三條網址,而**只對得上一半**(2026-09-05 深夜,唯讀比對,零真請求)
 
+> 🔴🔴 **【本節從這裡到 `§六` 結尾, 前半是【已被推翻】的 —— 而推翻它的那一段在最下面】**
+> **不要照本節前半做。** 它一路教「走 JSON、endpoint 要接方法名」, 而那兩件在 `:159` 起被實測推翻。
+> ⇒ 📌 **一份「先講錯的、後面才訂正」的文件, 對【只讀前半的人】等於沒有訂正過。**
+> ⇒ ⇒ 所以這一句放在**最前面**, 而不是留在下面等人讀到。
+>
+> **今天成立的三句**(2026-09-05 11:0x 實測, Sean 授權的一發空探測):
+> 1. **那個服務只講 SOAP** —— `POST` JSON ⇒ `http 500` + `application/soap+xml` + `soap:Fault`
+>    「在根層次的資料無效。 第 1 行,位置 1。」(它把 JSON 當 XML 解析)
+> 2. **`HCT_API_ENDPOINT` = 那條 `.asmx` 本身**(SOAP 兩支方法共用同一個 URL, 靠 `SOAPAction` 分)
+>    ⇒ **不接方法名**。Sean 2026-09-05 已設在 Vercel `pcm-admin` Production(開關仍關)。
+> 3. **兩支方法的參數都是小寫 `<company>`** —— 2022 PDF 的大寫 `Company` 只做交叉。
+>
+> 📎 傳輸層改寫的 plan(**R2 判 `FAIL`, 不可開工**):`docs/plans/2026-09-05-hct-soap-transport-plan.md`
+> 📎 廠商參考檔 `docs/reference/hct-logistics-api-reference.md:78` 那句「不必處理 SOAP envelope」**同日已加刪除線**。
+
 Sean 逐字給的第三條是 `https://hctrt.hct.com.tw/EDI_WebService2/Service1.asmx`(`.asmx` = ASP.NET WebService)。
 
 **✅ 對得上的兩件**
