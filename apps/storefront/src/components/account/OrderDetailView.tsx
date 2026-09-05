@@ -372,15 +372,39 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
               ⚠️ **可及性缺口, 照實寫**:鈕上的字沒有講「會開新分頁」——
                  而**那個字面是 Sean 的板**(稿 `:193` 帶著「(2026-08-07 Sean 拍板)」)
                  ⇒ 我不自己加。已與鈕文案那題一起列在板 `:416` 等他。 */}
-          <Link
+          {/* 🔴🔴 **2026-09-06:去向從網頁版 `/statement` 改成 `/statement.pdf`(主視窗裁【甲】)。**
+              ⛔ ~~`/account/orders/<id>/statement`(網頁版)~~
+              📌 **依據是鐵則 1 —— design 是真權威**:稿 `order-detail-page.html:288` 逐字
+                 「真站:改成 `<a href="/account/orders/<id>/statement.pdf" download>` 由後端產」
+                 ⇒ **稿只畫一顆鈕、而它指的就是 `.pdf`**;網頁版是**後端還不存在時的過渡**。
+              🟢 **而「那條路真的產得出檔」是量到的**:Sean 2026-09-06 03:0x 在**正式站**對一張真單
+                 手動下載, 主視窗**親讀 PDF 內中文全字** ⇒ 不是「route 檔存在」這種弱證據。
+              🔵 **`/statement` 那個路由留著不刪** —— 有人書籤了也不會壞, 只是這一頁不再連它。
+              🛑 **文案一個字沒動** —— 「下載訂單 PDF」是 Sean 的板
+                 (⛔ ~~見下方 `:361`~~ ⇒ 🔴 **reviewer 2026-09-06 訂正:那個指標指錯了**,
+                  `:361` 在**上面**而且講的是 encode 紀律;真正的依據在**本檔頭 `:30-34`**
+                  —— 稿 `:193` 那句帶著「2026-08-07 Sean 拍板」),
+                 本次只改**去向**;而稿上那顆鈕的名字**本來就是這一句**。
+              🔴 **`<a>` 不是 `<Link>`**:目的地是一個**檔案端點(route handler)**不是頁面 ——
+                 `Link` 的 client-side 導覽對它沒有意義, 而 `download` 要瀏覽器原生處理。
+                 ⚠️ 而既有測試釘著「它是 `<a>` 不是 `<button>`」⇒ 這一改**不會**讓那格紅。
+              🔵 `target="_blank"` + `rel` 兩者都保留(Sean 2026-08-30 直接下的, 見既有測試)。
+              ⚠️ **一格 reviewer 2026-09-06 提的、我沒想到的**:server 那端**已經**用
+                 `content-disposition: attachment` 強制下載(`statement.pdf/route.ts:141`)
+                 ⇒ 📌 **`download` 這個屬性其實是冗餘的**(稿字面有它, 所以留著);
+                 而 `download` + `target="_blank"` **同時存在時 Safari 曾有留下空白分頁的怪癖**。
+                 🛑 **兩者我都不自己拿掉** —— `target` 是 Sean 直接下的、`download` 是稿字面;
+                    **跨瀏覽器實測沒做** ⇒ 這一格是【已揭示的未驗】, 不是【驗過沒事】。 */}
+          <a
             className="acc-btn-ghost"
-            href={`/account/orders/${encodeURIComponent(order.displayId)}/statement`}
+            href={`/account/orders/${encodeURIComponent(order.displayId)}/statement.pdf`}
+            download
             target="_blank"
             rel="noopener noreferrer"
             data-od-id="order-statement-link"
           >
             下載訂單 PDF
-          </Link>
+          </a>
         </div>
       </div>
 
