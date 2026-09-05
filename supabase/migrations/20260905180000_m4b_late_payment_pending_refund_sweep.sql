@@ -376,6 +376,24 @@ BEGIN
     RAISE EXCEPTION '事後③b:函式體沒有「有作廢列就整張跳過」那一段 ⇒ 被作廢的列會每 10 分鐘復活';
   END IF;
   -- 🔴 R1-F1:金額少那一族【只數不動】⇒ 也要有一格釘著, 否則有人順手改成覆寫。
+  -- 🔴🔴 **R6:沒有任何一格殺得掉「把 WARNING 搬回統計趟之前」這個突變** ——
+  --    字面斷言只釘變數名在不在, 而探針只讀 jsonb(它在更後面才組)⇒ 搬回去四道全綠。
+  --    ⚠️ 而這條**已經復發過一次**(R4 提出、R5 抓到我宣稱修好而沒修)。
+  -- ✅ 這一格比【位置】:統計趟的 INTO 必須排在那行 WARNING 之前。
+  DECLARE
+    v_into integer;
+    v_warn integer;
+  BEGIN
+    v_into := pg_catalog.strpos(v_txt, 'INTO v_scanned, v_short, v_void');
+    v_warn := pg_catalog.strpos(v_txt, '[late_payment_sweep] 掃過');
+    IF v_into = 0 OR v_warn = 0 THEN
+      RAISE EXCEPTION '事後③d:找不到統計趟或那行 WARNING 的字面 ⇒ 這一格量不到東西';
+    END IF;
+    IF v_into > v_warn THEN
+      RAISE EXCEPTION '事後③d:WARNING 排在統計趟【之前】(INTO=%, WARNING=%) ⇒ v_short/v_void 會恆印 0', v_into, v_warn;
+    END IF;
+  END;
+
   IF pg_catalog.strpos(v_txt, 'INTO v_scanned, v_short, v_void') = 0 THEN
     RAISE EXCEPTION '事後③c:函式體沒有數「列在而金額少」那一格 ⇒ 那一族會變成完全靜默';
   END IF;

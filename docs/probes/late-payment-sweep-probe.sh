@@ -246,6 +246,28 @@ chk_ne "格17 🧬 順手改掉別人的排程 ⇒ 貼上去 rc" "$RC5" 0
 if grep -qF '事後⑤' "$D/mut3.log"; then chk "格17b 🧬 而它紅在【事後⑤】那一句" yes yes
 else chk "格17b 🧬 而它紅在【事後⑤】那一句" no yes; grep -m1 -E '^psql:.*ERROR' "$D/mut3.log" | sed 's/^/     實際: /'; fi
 
+# 🧬 格18b/18c:R6 指出的那一格 —— **把 WARNING 搬回統計趟之前**。
+#    🔴 這條已經復發過一次(R4 提出、R5 抓到我宣稱修好而沒修)⇒ 它需要一個【殺得掉的突變】。
+#    ⚠️ 而探針原本對它結構上零判別力:它只讀 jsonb, 而 jsonb 在更後面才組。
+reset_world
+python3 - "$MIG" > "$D/mutW.sql" <<'PY2'
+import io,sys,re
+s=io.open(sys.argv[1],encoding='utf-8').read()
+# 把那一段 WARNING 整塊搬到統計趟【之前】—— 也就是還原成 R4 抓到的那個錯
+m=re.search(r"\n  IF v_fail > 0 OR v_noop > 0.*?\n  END IF;\n", s, re.S)
+assert m, '找不到那段 WARNING'
+warn=m.group(0)
+s=s.replace(warn,'\n')
+k=s.index('  -- 🔴🔴 **R2-⑤:這一趟【移到寫入之後】')
+s=s[:k]+warn.lstrip('\n')+'\n'+s[k:]
+sys.stdout.write(s)
+PY2
+test -s "$D/mutW.sql" || { echo "🔴 突變檔是空的"; exit 1; }
+Q -f "$D/mutW.sql" > "$D/mutW.log" 2>&1; RCW=$?
+chk_ne "格18b 🧬 把 WARNING 搬回統計趟【之前】⇒ 貼上去 rc" "$RCW" 0
+if grep -qF '事後③d' "$D/mutW.log"; then chk "格18c 🧬 而它紅在【事後③d】那一句" yes yes
+else chk "格18c 🧬 而它紅在【事後③d】那一句" no yes; grep -m1 -E '^psql:.*ERROR' "$D/mutW.log" | sed 's/^/     實際: /'; fi
+
 # 🔵 負對照突變:恆等改寫 ⇒ 該綠
 reset_world
 python3 - "$MIG" > "$D/mut0.sql" <<'PY'
