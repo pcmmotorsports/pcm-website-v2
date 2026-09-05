@@ -576,7 +576,12 @@ if [ -n "$OR_HITS" ]; then
     if [ -n "$FOUND" ]; then
       echo "   ⚠️ :$LNO OR REPLACE ${OTYPE} ${ONAME}${OTARGET:+ ON $OTARGET} = 重定義(最早見 ${FOUND})⇒ 合法,不紅"
     else
-      echo "🔴 :$LNO CREATE OR REPLACE ${OTYPE} ${ONAME}${OTARGET:+ ON $OTARGET} —— 同身分在更早的 migration 查無定義 ⇒ 它是【新物件】"
+      # 🔴🔴 **標籤由【結果】決定, 不無條件印**(2026-09-06 當場踩到)——
+      #    這一行原本寫死開頭那個紅圈, 而具名例外成立時它其實是**過的**(rc=0)
+      #    ⇒ 📌 一個看畫面數紅圈的人(**包括我自己**)會判成「四格紅」, 而 rc 是 0。
+      #    ⇒ 🎯 本 repo 記過同一句:「判定標籤不由結果決定」;而它今天長在這道閘自己身上。
+      if [ -n "$APPLIED_EXEMPT" ] || [ -n "$R1_EXCEPTION" ]; then _r1mark='   ⚠️'; else _r1mark='🔴'; fi
+      echo "$_r1mark :$LNO CREATE OR REPLACE ${OTYPE} ${ONAME}${OTARGET:+ ON $OTARGET} —— 同身分在更早的 migration 查無定義 ⇒ 它是【新物件】"
       echo "   ⇒ 新物件一律裸 CREATE:撞名要當場紅。OR REPLACE 會把撞名靜靜蓋掉,"
       echo "      而你的 REVOKE 與斷言照樣綠 —— 拿到綠燈,卻蓋掉了一個你不知道存在的東西。"
       if [ -n "$APPLIED_EXEMPT" ]; then echo "   ⚠️ 已宣告 applied-before-commit ⇒ 本條轉警告"
