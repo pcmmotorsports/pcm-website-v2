@@ -213,7 +213,10 @@ AND o.manual_request_id IS NULL      -- 🔴 第二條:後台建單一定寫它
 | 8 | `packages/adapters/src/email/SupabaseEmailOutboxAdapter.ts:235` `composeEvent` + enqueue input/payload 型別 + 產生型 `database.types` | 補新事件 | **codex R1-⑥**:少了它落不了新事件、或 typecheck 直接紅 |
 | 9 | 🔴 **寄送前重驗**(新, 在 `sweep-email-outbox.ts` 本事件的分支裡) | 送出前重讀該單:已 `paid` / 已取消 / 管道變了 ⇒ **標 skipped 不寄** | **codex R1-②**:掃描是快照, 寄送是後來 ⇒ 否則會寄「尚未付款」給一個**已經付完**的客人 |
 | 10 | 🔴 env 關閉時同時進 `claimDue` 的 `excludeEventTypes`(`SupabaseEmailOutboxAdapter.ts:417-419`, **既有機制**) | — | **codex R1-⑥**:只擋 enqueue ⇒ 關掉之後既有 pending 列**照樣被認領寄出** ⇒ §7 的 rollback 是假的 |
-| 11 | 對應測試 | §6 | — |
+| 12 | 🔴 **混版信守門(`-f8` 03:0x 裁乙, 定案)** —— 讀完 context 之後複讀 `orders.version`,
+與讀取當下不一致 ⇒ **不寄、重排**;**只掛在本事件**, 既有四封信一行不動 | — |
+**R1 `:113` 第二條**(我 §9 掉的那一條):表頭與明細是兩次查詢 ⇒ 中間被改 ⇒ 客人拿到一封**自己加不起來**的信, 而他會照它匯錢 |
+| 13 | 對應測試 | §6 | — |
 
 🛑 **不做**:HTML 版模板(§3 待 Sean 過目後另議)· 動既有四支 view · 動 `order_created` 任何一格 ·
 動 `BANK_TRANSFER_CHECKOUT_ENABLED` · 前端任何一行。
@@ -296,7 +299,12 @@ AND o.manual_request_id IS NULL      -- 🔴 第二條:後台建單一定寫它
 - 🔴🔴 **表頭與品項是兩次查詢 ⇒ 中間被改會組出【混版信】**(R1 `:113` 第二條, **這就是我 §9 掉的那一條**):
   `SupabasePaidEmailContextAdapter` 先讀 `orders` 再讀 `order_items` ⇒ 兩次之間後台若改金額或品項,
   信上會是**表頭舊版 + 明細新版**(或反過來)⇒ 🛑 **那封信自己加不起來, 而客人會照它匯錢。**
-  🔵 **三個修法候選(都不在本片, 而要有人挑)**:
+  ✅✅ **[主視窗 `-f8` 2026-09-06 03:0x 裁【乙】—— 定案, 不再是候選]**
+  　**`orders.version` 不一致 ⇒ 不寄、重排;而它【只用於本事件】, 不動既有四封信。**
+  　⇒ 🔴 **這一條因此【離開 §8 待答, 進入 §5 範圍】** —— 見 §5 第 12 列。
+  　⚠️ **而它證不到什麼要跟著走**:版本檢查**偵測**不一致, **不防止**它 ——
+  　　讀完到送出之間仍有一段時間, 那段裡改了就還是混版。**fail 方向是「不寄」= 對的那邊, 而不是「不會發生」。**
+  🔵 **當初的三個候選留著**(裁示的理由要看得到被比較過什麼):
   　**甲 一致快照** —— 兩次查詢包進同一個 `REPEATABLE READ` 交易, 或改成單一 RPC 一次回。
   　　✅ 最正確 · ⚠️ 動到既有 adapter, **四封信一起受影響** ⇒ 回歸面最大。
   　**乙 版本檢查** —— 讀完再讀一次 `orders.version`(該欄存在, `20260712203000:121` 逐字
