@@ -349,10 +349,15 @@
       照樣啟動得了格線裡那些指向舊清單的連結)⇒ 📌 **接線的那一天要一起處理**,
       比照 `FilterDrawer` 那顆鈕用原生 `disabled`(它同時擋兩種輸入), 或給格線 `aria-busy`
       + 對連結加 `tabIndex={-1}`。**不要只照抄這幾行就當作擋住了。** */
-/* 🔴🔴 **`.pp-grid.is-loading` 今天【沒有任何呼叫端】** —— `ProductsPage` 還沒有那個訊號可以給。
-   成因在 plan `docs/plans/2026-09-06-category-switch-loading-feedback-plan.md` §7:
-   訊號要從 `useCatalogFilterUrlSync` 來, 而那支 effect 的 deps 一動就踩壞 4 格既有守門。
-   ⇒ 📌 **這幾行是【等接線】不是【接好了】** —— 不要因為看到樣式就以為畫面會變。 */
+/* ⛔ ~~`.pp-grid.is-loading` 今天沒有任何呼叫端 —— ProductsPage 還沒有那個訊號可以給~~
+   ⇒ 🔴 **2026-09-06 接上了, 舊字面留刪除線。**
+   ✅ 呼叫端 = `ProductsPage.tsx` 的 `catalogPending`(搜這個字)。
+   🔵 **訊號【不是】從 `useCatalogFilterUrlSync` 來的** —— plan §7 那條路(改那支 effect 的 deps)
+      會踩壞 4 格既有守門, 所以**沒有走**。改成在 `ProductsPage` 自己比:
+      **cascade 裡的分類 vs 網址上的分類, 不一樣就是還在等。**
+      那支 effect **一行都沒動**。
+   🔴 鍵盤那一格(上面那段紅字)**也一起處理了**:格線加了 `inert`(React 19 布林 prop),
+      它同時擋滑鼠、觸控與 Tab ⇒ `pointer-events:none` 不再是唯一一道。 */
 .pp-grid.is-loading {
   opacity: 0.45;
   pointer-events: none;
