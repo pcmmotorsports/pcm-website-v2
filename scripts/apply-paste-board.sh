@@ -45,6 +45,29 @@ PSQL_BIN=/opt/homebrew/bin/psql
 SUPABASE_BIN=/opt/homebrew/bin/supabase
 
 note() { printf '%s\n' "$@" >&2; }
+
+# 🔴🔴 **MF3(opus R3)—— psql 在 URI 解析錯誤時會把【整條含密碼的連線字串】逐字回吐。**
+#    實測:`psql 'postgresql://user:SUPERSECRETPW@[bad-bracket'` ⇒ 錯誤訊息含整串。
+#    而本支把 psql 的 stderr **原封轉進對話與 `~/pcm-mailbox/貼結果-*.log`**
+#    ⇒ 📌 **一段「為了讓人看懂錯在哪」而寫的轉印, 變成憑證的出口。**
+#    🛑 它**只在出錯那一發洩漏** ⇒ 平常跑一百次都不會有事 ⇒ **日常使用發現不了它。**
+#    ⇒ 任何 psql 的輸出進 log 或對話之前, 一律先過這一道。
+redact() { sed -E 's#(://)[^@ ]*@#\1***@#g'; }
+
+# ── 載入 .env.local ──────────────────────────────────────────
+# stdout 兩行:寫入 URL / 唯讀 URL。**只有這兩個值出得了子行程。**
+# 🔴 **MF1(opus R3)**:子行程**繼承父環境** ⇒ `.env.local` 沒有那個名稱時
+#    (輪替 / 改名 / 打錯 / 被註解掉 / dotenv 早期 `return`),外面 export 的 URL 會**沿用**
+#    ⇒ **寫進錯的庫**。opus 實測 `URL=[postgresql://ATTACKER-INHERITED/db]`。
+#    ⇒ **先 unset 再載** —— 那樣「沒設到」就是空的,而空的會被呼叫端 die 擋掉。
+# 🔵 抽成函式的第二個理由:**這一整塊原本零測試覆蓋**(MF4;整塊換成 `die` 仍 110/0)——
+#    抽出來之後 selftest 餵得進假的 env 檔,那個 `if` 分支才真的被走過。
+load_env() {
+  ( unset PCM_WRITE_DATABASE_URL PCM_READONLY_DATABASE_URL
+    set -a; . "$1" > /dev/null 2>&1 || exit 9
+    set +a
+    printf '%s\n%s\n' "${PCM_WRITE_DATABASE_URL:-}" "${PCM_READONLY_DATABASE_URL:-}" )
+}
 die()  { note "$@"; exit 1; }
 
 # 🔴 sha 要 pipefail, 而且要驗形狀 —— `shasum` 不在 / 失敗時, 兩邊都會拿到空字串而「相同」。
@@ -76,7 +99,7 @@ has_bad_char() {
 mask_sql() {
   python3 - "$1" <<'MPYEOF'
 import re,sys,io
-src=io.open(sys.argv[1],encoding='utf-8',errors='replace').read()
+src=io.open(sys.argv[1],encoding='utf-8-sig',errors='replace').read()   # 🔴 MF2:BOM
 out=list(src); i=0; n=len(src)
 def blank(a,b):
     for k in range(a,min(b,n)):
@@ -117,7 +140,7 @@ MPYEOF
 txn_shape() {
   python3 - "$1" <<'PYEOF'
 import re,sys,io
-src=io.open(sys.argv[1],encoding='utf-8',errors='replace').read()
+src=io.open(sys.argv[1],encoding='utf-8-sig',errors='replace').read()   # 🔴 MF2:BOM
 out=list(src); i=0; n=len(src)
 def blank(a,b):
     for k in range(a,min(b,n)):
@@ -270,7 +293,7 @@ platform_ledger_proof() {
     -c "SELECT (to_regclass('supabase_migrations.schema_migrations') IS NOT NULL)::text" 2>&1) ; rc=$?
   if [ "$rc" != "0" ]; then
     note "🔴 前置⑦:連不上或查不動平台帳本 ⇒ fail-closed(**沒有查, 不是查無**)。"
-    printf '%s\n' "$exists" | sed 's/^/   /' >&2
+    printf '%s\n' "$exists" | redact | sed 's/^/   /' >&2
     return 1
   fi
   if [ "$exists" != "true" ]; then
@@ -283,7 +306,7 @@ platform_ledger_proof() {
     -c "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = '$ver'" 2>&1) ; rc=$?
   if [ "$rc" != "0" ]; then
     note "🔴 前置⑦:讀得到那張表而查不動它 ⇒ fail-closed。"
-    printf '%s\n' "$cnt" | sed 's/^/   /' >&2
+    printf '%s\n' "$cnt" | redact | sed 's/^/   /' >&2
     return 1
   fi
   case "$cnt" in
@@ -292,6 +315,158 @@ platform_ledger_proof() {
     *) note "🔴 前置⑦:**平台帳本上已經有 $ver**(count=$cnt)⇒ 它貼過了 ⇒ 拒絕重貼。"; return 1 ;;
   esac
   note "  🟢 平台帳本無 $ver · 而前置⑥ 已證 APPLIED.tsv 也無 ⇒ **兩本帳都說沒有** ⇒ 還沒貼"
+}
+
+# ── 冪等宣告閘(⟦db-APPLYIDEMPOTENT⟧ · `-f8` 2026-09-06)────────────
+# 🔴 **為什麼要有它**:兩本帳證的是「**沒有人記過**」, 不是「**跑第二次是安全的**」。
+#    DDL 大多冪等(`CREATE OR REPLACE` / `IF NOT EXISTS`), 而 **DML 不是** ——
+#    一支純 `INSERT` 的資料片重貼會**加倍**, 而兩本帳在它第一次貼完沒被記到時都說「沒有」。
+#
+# 🔬 **射程是量出來的**(當場掃 `supabase/migrations` 335 支):
+#      頂層 DML **26** 支 · `DO` 區塊內 DML **26** 支(其中頂層沒有的 24)
+#      · 函式體內 DML **125** 支 ⇒ 🔵 **函式體在 apply 當下【不執行】, 排除**
+#    ⇒ **會在 apply 當下真的動資料的 = 頂層 ∪ DO = 50 支(15%)**
+#    📌 把函式體也算進來的話這道閘會對 **42%** 的 migration 叫, 而那些**幾乎全是誤報**。
+dml_check() {
+  local mig hits rc
+  mig="$1"
+  # 🔴 **宣告只認【檔頭】**(codex must-fix):raw grep 掃全檔 ⇒ 區塊註解裡、函式 `$tag$` 裡、
+  #    甚至檔案中段的一行都能冒充宣告而放行。⇒ 只讀「第一個非空非 `--` 行之前」那一段。
+  if python3 - "$mig" <<'HPYEOF'
+import io,sys,re
+# 🔴 MF2(opus R3):BOM 留在 index 0 ⇒ `startswith('--')` 為假、`\A\s*` 也過不去
+#    ⇒ 宣告檢查與 DML 偵測【同時】被打穿。實測 BOM+TRUNCATE ⇒ 閘 rc=0 而 DB 真的變了。
+for line in io.open(sys.argv[1],encoding='utf-8-sig',errors='replace'):
+    t=line.rstrip('\n')
+    if not t.strip(): continue
+    if not t.startswith('--'): break          # 檔頭結束
+    if re.fullmatch(r'--\s*pcm:idempotent:\s*yes\s*', t): sys.exit(0)
+sys.exit(1)
+HPYEOF
+  then
+    note "  🔵 **檔頭**宣告 \`-- pcm:idempotent: yes\` ⇒ 放行(**責任在宣告者**, 本閘只證明有人看過)"
+    return 0
+  fi
+  hits=$(python3 - "$mig" <<'DPYEOF'
+import re,sys,io
+src=io.open(sys.argv[1],encoding='utf-8-sig',errors='replace').read()   # 🔴 MF2:BOM
+out=list(src); i=0; n=len(src); do_bodies=[]
+def blank(a,b):
+    for k in range(a,min(b,n)):
+        if out[k]!='\n': out[k]=' '
+while i<n:
+    c=src[i]
+    if c=='-' and i+1<n and src[i+1]=='-':
+        j=src.find('\n',i); j=n if j<0 else j; blank(i,j); i=j
+    elif c=='/' and i+1<n and src[i+1]=='*':
+        depth=1; j=i+2
+        while j<n and depth>0:
+            if src[j]=='/' and j+1<n and src[j+1]=='*': depth+=1; j+=2
+            elif src[j]=='*' and j+1<n and src[j+1]=='/': depth-=1; j+=2
+            else: j+=1
+        blank(i,j); i=j
+    elif c=="'":
+        j=i+1
+        while j<n:
+            if src[j]=="'":
+                if j+1<n and src[j+1]=="'": j+=2; continue
+                break
+            j+=1
+        e=min(j+1,n)
+        # 🔴 `EXECUTE 'INSERT …'` 的 DML 住在字串裡(codex must-fix)⇒ 抹掉之前先看一眼。
+        if re.search(r"\b(INSERT\s+INTO|UPDATE\s+[a-zA-Z_\"]|DELETE\s+FROM|MERGE\s+INTO|TRUNCATE\s+)", src[i:e], re.I):
+            do_bodies.append(src[i:e])
+        blank(i,e); i=e
+    elif c=='$':
+        m=re.match(r'\$[A-Za-z_0-9]*\$',src[i:])
+        if not m: i+=1; continue
+        tag=m.group(0); close=src.find(tag,i+len(tag))
+        if close<0: i+=1; continue
+        body=src[i+len(tag):close]
+        # 🔴 DO 的形狀不只裸 `DO $$`(codex must-fix):`DO LANGUAGE plpgsql $x$`、
+        #    `DO /*註解*/ $x$` 都合法。⇒ 把前面那一段的註解與 LANGUAGE 子句剝掉再看。
+        before=src[max(0,i-400):i]
+        before=re.sub(r'/\*.*?\*/',' ',before,flags=re.S)
+        before=re.sub(r'--[^\n]*',' ',before)
+        before=re.sub(r'\bLANGUAGE\s+[A-Za-z_][A-Za-z_0-9]*\s*$',' ',before,flags=re.I)
+        if re.search(r'\bDO\s*$', before, re.I): do_bodies.append(body)
+        blank(i,close+len(tag)); i=close+len(tag)
+    else: i+=1
+top=''.join(out)
+# 🔴 ⛔ ~~re.M~~(codex must-fix):`^` 變成【每一行】行首 ⇒ 換行的 `ON\nUPDATE CASCADE`、
+#    `FOR\nUPDATE OF t` 會被誤認成 UPDATE。拿掉 re.M ⇒ `^` 只是檔首, 語句靠 `;` 分。
+DML=re.compile(r'(\A|;)\s*(WITH\b[^;]*?)?(INSERT\s+INTO|UPDATE\s+[a-zA-Z_\"]|DELETE\s+FROM|MERGE\s+INTO|COPY\s+|TRUNCATE\s+|SELECT\b[^;]*?\bINTO\s+|CALL\s+)', re.I)
+# 🔴 CTAS / materialized view 也會在 apply 當下寫資料(codex must-fix)
+# 🔴🔴 而中間那一段**不可以用 `[\s\S]`** —— 它會**跨過分號** ⇒
+#    「`CREATE TABLE foo(...);` 後面某處有 `AS SELECT`」也會命中。
+#    實測:那一版對 repo 標出 13 支 CTAS, 而 repo 裡**一支真的 CTAS 都沒有**
+#    (`grep -c 'CREATE …TABLE…AS SELECT'` ⇒ 0)⇒ 全部是誤擋。⇒ 改用 `[^;]`。
+# 🔴 **TEMP / TEMPORARY 排除** —— `CREATE TEMP TABLE … ON COMMIT DROP AS SELECT` 是
+#    交易結束就消失的東西, **重跑完全安全**;repo 裡的 CTAS 幾乎全是這一種(拿來做前後對照的快照)。
+#    ⛔ 不排除的話這道閘會對它們叫, 而那是誤擋。
+CTAS=re.compile(r'(\A|;)\s*CREATE\s+(OR\s+REPLACE\s+)?(GLOBAL\s+|LOCAL\s+)?(TEMP\w*\s+|UNLOGGED\s+)?TABLE\b[^;]*?\bAS\s+(SELECT|WITH|VALUES)\b', re.I)
+# 🔴 只有【TEMP 且 ON COMMIT DROP】才排除(codex R2):
+#    ⛔ ~~排除所有 TEMP CTAS~~ —— repo 實際有 TEMP CTAS **沒寫** ON COMMIT DROP
+#      (`20260730120000:198`;codex 數到 11 檔 / 13 處)⇒ 「全是 ON COMMIT DROP」不成立。
+#    🛑 而即使會 DROP, 查詢裡的 `nextval()` 或寫入型函式仍留永久副作用 ⇒ 這條排除是**已知的放寬**。
+CTAS_SAFE=re.compile(r'(\A|;)\s*CREATE\s+(GLOBAL\s+|LOCAL\s+)?TEMP\w*\s+TABLE\b[^;]*?\bON\s+COMMIT\s+DROP\b[^;]*?\bAS\s+(SELECT|WITH|VALUES)\b', re.I)
+# 🔴 plpgsql body 裡, CTAS 前面常是 `BEGIN` / `THEN` 而不是 `;`(實測 ㉑f)
+CTAS_BODY=re.compile(r'(\A|;|\bBEGIN\b|\bTHEN\b|\bELSE\b|\bLOOP\b)\s*CREATE\s+(OR\s+REPLACE\s+)?(GLOBAL\s+|LOCAL\s+)?(TEMP\w*\s+|UNLOGGED\s+)?TABLE\b[^;]*?\bAS\s+(SELECT|WITH|VALUES)\b', re.I)
+CTAS_BODY_SAFE=re.compile(r'(\A|;|\bBEGIN\b|\bTHEN\b|\bELSE\b|\bLOOP\b)\s*CREATE\s+(GLOBAL\s+|LOCAL\s+)?TEMP\w*\s+TABLE\b[^;]*?\bON\s+COMMIT\s+DROP\b[^;]*?\bAS\s+(SELECT|WITH|VALUES)\b', re.I)
+MATV=re.compile(r'(\A|;)\s*(CREATE\s+MATERIALIZED\s+VIEW|REFRESH\s+MATERIALIZED\s+VIEW)\b', re.I)
+# 🔴 `EXECUTE $q$INSERT …$q$` —— 動態 SQL 用 dollar-tag 包時, `\W{0,3}` 吃不到
+#    (tag 裡的 `q` 是 word 字元)⇒ 明確允許一個 dollar-tag。
+DML_BODY=re.compile(r'(\A|;|\bBEGIN\b|\bTHEN\b|\bELSE\b|\bLOOP\b|\bEXECUTE\b)\s*(?:\$[A-Za-z_0-9]*\$)?\s*\W{0,3}\s*(INSERT\s+INTO|UPDATE\s+[a-zA-Z_\"]|DELETE\s+FROM|MERGE\s+INTO|COPY\s+|TRUNCATE\s+|CALL\s+)', re.I)
+found=[]
+for m in DML.finditer(top):
+    found.append('頂層 :%d %s' % (top[:m.start()].count('\n')+1, m.group(3).strip()[:18]))
+safe=set(m.start() for m in CTAS_SAFE.finditer(top))
+for m in CTAS.finditer(top):
+    if m.start() in safe: continue          # TEMP + ON COMMIT DROP ⇒ 重跑安全
+    found.append('頂層 :%d CREATE TABLE … AS SELECT' % (top[:m.start()].count('\n')+1))
+for m in MATV.finditer(top):
+    found.append('頂層 :%d %s' % (top[:m.start()].count('\n')+1, m.group(2).strip()))
+def _nocmt(x):
+    # 🔴 DO 的 body 是從【原文】切下來的 ⇒ 裡面的註解還在。
+    #    而 `(\A|;)\s*CREATE` 這種錨要求 `;` 與關鍵字之間只有空白 ——
+    #    夾著一行 `-- …` 就對不上。實錘:`20260730120000:198` 的 CTAS 因此漏擋。
+    x=re.sub(r'/\*[\s\S]*?\*/',' ',x)
+    return re.sub(r'--[^\n]*',' ',x)
+for b0 in do_bodies:
+    b=_nocmt(b0)
+    for m in DML_BODY.finditer(b):
+        found.append('DO 區塊或動態 SQL 內 %s' % m.group(2).strip()[:18])
+    # 🔴 CTAS / matview 原本【只掃頂層】(codex R2)⇒ 放進 DO 就漏擋。
+    #    實錘:`20260730120000:198` 的 `CREATE TEMP TABLE n3a_probe AS SELECT pcm_generate_display_id()`
+    #    ——**沒有 ON COMMIT DROP**, 而那支函式會 `nextval()` ⇒ 重跑留下永久副作用。
+    bsafe=set(m.start() for m in CTAS_BODY_SAFE.finditer(b))
+    for m in CTAS_BODY.finditer(b):
+        if m.start() in bsafe: continue
+        found.append('DO 區塊內 CREATE TABLE … AS SELECT')
+    for m in MATV.finditer(b):
+        found.append('DO 區塊內 %s' % m.group(2).strip())
+print('\n'.join(sorted(set(found))[:8]))
+DPYEOF
+) ; rc=$?
+  # 🔴 **收 rc**(codex must-fix):本輪實測環境出現 `cannot create temp file` 而
+  #    `--check-dml` 仍回 **rc=0** ⇒ **一道安全閘 fail-open**。
+  #    ⇒ python 沒有正常結束 ⇒ 停, 不要把「跑不動」讀成「沒有 DML」。
+  if [ "$rc" != "0" ]; then
+    note "🔴 冪等閘:掃描器沒有正常結束(rc=$rc)⇒ fail-closed。"
+    # 🔵 rc 分級(codex R2):**2 = 掃描器壞掉**, 1 = 真的擋下 ——
+    #    文件裡那條計數指令原本把「任何非 0」都算成有 DML ⇒ 在掃不動的環境會假報全部。
+    note "   🛑 「跑不動」與「沒有資料寫入」會印同一個空結果。"
+    printf '%s\n' "$hits" | sed 's/^/   /' >&2
+    return 2
+  fi
+  [ -z "$hits" ] && return 0
+  note "🔴 這支 migration **會在 apply 當下寫資料**, 而檔頭沒有宣告冪等 ⇒ 停, 請人判。"
+  note "   🛑 兩本帳證的是「沒有人記過」, **不是「跑第二次是安全的」** ——"
+  note "     一支純 INSERT 的片子重貼會加倍, 而兩本帳都會說「沒有」。"
+  printf '%s\n' "$hits" | sed 's/^/   /' >&2
+  note "   ⇒ 確認它重跑安全之後, 在**檔頭**加一行:  -- pcm:idempotent: yes"
+  note "     (🔵 **函式體內的 DML 不算** —— 那在 apply 當下不執行。)"
+  return 1
 }
 
 # ── 靜態檢查(meta-command + 交易形狀)——`--dry-run` 也要跑 ────────
@@ -317,6 +492,7 @@ static_checks() {
     return 1
   fi
 
+  dml_check "$mig" || return 1
   shape=$(txn_shape "$mig")
   case "$shape" in
     clean) note "  交易形狀 clean(自帶 BEGIN…COMMIT)⇒ **不帶 -1**, 原子性由檔案自己保證" ;;
@@ -343,9 +519,9 @@ do_apply() {
 
   note "  ── apply(-X;ON_ERROR_STOP=1;${one:-無 -1})──"
   if [ -n "$one" ]; then
-    "$PSQL_BIN" "$url" -X -v ON_ERROR_STOP=1 -1 -f "$mig" > "$log" 2>&1 ; rc=$?
+    "$PSQL_BIN" "$url" -X -v ON_ERROR_STOP=1 -1 -f "$mig" 2>&1 | redact > "$log" ; rc=${PIPESTATUS[0]}
   else
-    "$PSQL_BIN" "$url" -X -v ON_ERROR_STOP=1 -f "$mig" > "$log" 2>&1 ; rc=$?
+    "$PSQL_BIN" "$url" -X -v ON_ERROR_STOP=1 -f "$mig" 2>&1 | redact > "$log" ; rc=${PIPESTATUS[0]}
   fi
   printf 'rc=%s shape=%s one=%s\n' "$rc" "$shape" "${one:-NONE}" >> "$log"
   note "  psql 輸出存於 $log"
@@ -359,7 +535,7 @@ do_apply() {
       3) note "   psql rc=3 = SQL script 出錯 ⇒ 交易回滾, DB 未變。" ;;
     esac
     note "   ⇒ 🛑 **不記帳、不 repair。** 整段輸出:"
-    sed 's/^/   /' "$log" >&2
+    redact < "$log" | sed 's/^/   /' >&2
     return 1
   fi
   note "  🟢 apply 成功"
@@ -630,6 +806,173 @@ CREATE TABLE public.zzq_31(id int); \set ON_ERROR_STOP off
   #    🛑 **⇒ 「帳本存在而讀不動」這條路【本 selftest 未覆蓋】**, 不是它通過了。
   #       (`[ -f ]` 為假的那條路由 ⑪a 蓋到;真正的「可 stat 而不可讀」在這台機器上造不出來。)
 
+  # ═ ⑲ 冪等宣告閘(⟦db-APPLYIDEMPOTENT⟧)四個世界 ═
+  mk 50 20995050000000 'CREATE TABLE public.zzq_50(id int);
+INSERT INTO public.zzq_50(id) VALUES (1);
+'
+  run 50 ; ck "⑲a 頂層 INSERT 而無宣告 ⇒ 停" "$([ $? -ne 0 ] && echo ne0 || echo 0)" "ne0"
+  grep -q '會在 apply 當下寫資料' "$D/out" ; ck "⑲a 是冪等閘擋的" "$?" "0"
+  grep -q '頂層' "$D/out" ; ck "⑲a 印出它是頂層那一種" "$?" "0"
+
+  # ⑲b 同一支加宣告 ⇒ 過, 而且要印那一行(責任在宣告者)
+  mk 51 20995151000000 '-- pcm:idempotent: yes
+CREATE TABLE public.zzq_51(id int);
+INSERT INTO public.zzq_51(id) VALUES (1);
+'
+  run 51 ; ck "⑲b 宣告 yes ⇒ 放行" "$?" "0"
+  grep -q '責任在宣告者' "$D/out" ; ck "⑲b 而且印了那一行" "$?" "0"
+
+  # ⑲c DO 區塊內的 DML【會在 apply 當下執行】⇒ 也要擋
+  mk 52 20995252000000 'CREATE TABLE public.zzq_52(id int);
+DO $d$ BEGIN INSERT INTO public.zzq_52(id) VALUES (1); END $d$;
+'
+  run 52 ; ck "⑲c DO 區塊內 INSERT 無宣告 ⇒ 停" "$([ $? -ne 0 ] && echo ne0 || echo 0)" "ne0"
+  grep -q 'DO 區塊或動態 SQL 內' "$D/out" ; ck "⑲c 印出它是 DO 那一種" "$?" "0"
+
+  # ⑲d 🔵 **負對照**:函式體內的 DML 在 apply 當下【不執行】⇒ 必須放行。
+  #    少了這一格, 把函式體也算進去的版本會通過 ⑲a/⑲c —— 而它會對 42% 的 migration 誤報。
+  mk 53 20995353000000 'CREATE FUNCTION public.zzq_53() RETURNS void LANGUAGE plpgsql AS $f$
+BEGIN INSERT INTO public.zzq_50(id) VALUES (2); END $f$;
+'
+  run 53 ; ck "⑲d 函式體內 INSERT ⇒ 放行(它在 apply 當下不執行)" "$?" "0"
+
+  # ═ ⑳ 冪等閘的漏擋與誤擋(codex 2026-09-06 R1 逐條指名)═
+  # ⑳a 假宣告:寫在【區塊註解裡】不算檔頭宣告
+  mk 60 20996060000000 '/* 這裡有一行
+-- pcm:idempotent: yes
+*/
+CREATE TABLE public.zzq_60(id int);
+INSERT INTO public.zzq_60(id) VALUES (1);
+'
+  run 60 ; ck "⑳a 宣告藏在區塊註解裡 ⇒ 仍然擋" "$([ $? -ne 0 ] && echo ne0 || echo 0)" "ne0"
+  grep -q '會在 apply 當下寫資料' "$D/out" ; ck "⑳a 是冪等閘擋的(不是別的錯)" "$?" "0"
+  # ⑳b 假宣告:寫在【檔案中段】(第一個非註解行之後)不算
+  mk 61 20996161000000 'CREATE TABLE public.zzq_61(id int);
+-- pcm:idempotent: yes
+INSERT INTO public.zzq_61(id) VALUES (1);
+'
+  run 61 ; ck "⑳b 宣告寫在檔案中段 ⇒ 仍然擋" "$([ $? -ne 0 ] && echo ne0 || echo 0)" "ne0"
+  grep -q '會在 apply 當下寫資料' "$D/out" ; ck "⑳b 是冪等閘擋的" "$?" "0"
+
+  # ⑳c CTAS(非 TEMP)⇒ 擋
+  mk 62 20996262000000 'CREATE TABLE public.zzq_62 AS SELECT 1 AS a;
+'
+  run 62 ; ck "⑳c CREATE TABLE … AS SELECT ⇒ 擋" "$([ $? -ne 0 ] && echo ne0 || echo 0)" "ne0"
+  grep -q 'AS SELECT' "$D/out" ; ck "⑳c 印出它是 CTAS" "$?" "0"
+
+  # ⑳d 🔵 **負對照**:TEMP + ON COMMIT DROP 的 CTAS ⇒ 放行(重跑安全)
+  #    repo 裡的 CTAS 幾乎全是這一種;不排除的話這道閘會對它們誤擋。
+  mk 63 20996363000000 'CREATE TEMP TABLE _zzq_snap ON COMMIT DROP AS SELECT 1 AS a;
+CREATE TABLE public.zzq_63(id int);
+'
+  run 63 ; ck "⑳d TEMP … ON COMMIT DROP AS SELECT ⇒ 放行" "$?" "0"
+
+  # ⑳e DO 的其他合法形狀:LANGUAGE 子句 / 中間夾註解
+  mk 64 20996464000000 'CREATE TABLE public.zzq_64(id int);
+DO LANGUAGE plpgsql $x$ BEGIN INSERT INTO public.zzq_64(id) VALUES (1); END $x$;
+'
+  run 64 ; ck "⑳e DO LANGUAGE plpgsql \$x\$ ⇒ 擋" "$([ $? -ne 0 ] && echo ne0 || echo 0)" "ne0"
+  grep -q 'DO 區塊或動態 SQL 內' "$D/out" ; ck "⑳e 是 DO 那一路認出來的" "$?" "0"
+  mk 65 20996565000000 'CREATE TABLE public.zzq_65(id int);
+DO /* 註解 */ $y$ BEGIN INSERT INTO public.zzq_65(id) VALUES (1); END $y$;
+'
+  run 65 ; ck "⑳f DO 與 tag 之間夾註解 ⇒ 擋" "$([ $? -ne 0 ] && echo ne0 || echo 0)" "ne0"
+  grep -q 'DO 區塊或動態 SQL 內' "$D/out" ; ck "⑳f 是 DO 那一路認出來的" "$?" "0"
+
+  # ⑳g 動態 SQL:EXECUTE 'INSERT …' 的 DML 住在字串裡
+  mk 66 20996666000000 'CREATE TABLE public.zzq_66(id int);
+DO $z$ BEGIN EXECUTE $q$INSERT INTO public.zzq_66(id) VALUES (1)$q$; END $z$;
+'
+  run 66 ; ck "⑳g EXECUTE 裡的 INSERT ⇒ 擋" "$([ $? -ne 0 ] && echo ne0 || echo 0)" "ne0"
+  grep -q 'DO 區塊或動態 SQL 內' "$D/out" ; ck "⑳g 是動態 SQL 那一路認出來的" "$?" "0"
+
+  # ⑳h 🔴 掃描器跑不動 ⇒ fail-closed(codex 實測環境出現 cannot create temp file 而它回 rc=0)
+  #    造法:把 TMPDIR 指到一個不存在的地方 ⇒ python 的 heredoc 建不出暫存檔。
+  mk 67 20996767000000 'CREATE TABLE public.zzq_67(id int);
+'
+  # 🔵 造法:餵它一個【目錄】⇒ python 的 open() 失敗 ⇒ 掃描器非 0 結束。
+  #    (原本想用 TMPDIR 指到不存在的地方, 實測 heredoc 照樣跑得動 ⇒ 那個 fixture 造不出世界。)
+  bash "$SELF" --check-dml "$T/repo/supabase" > "$D/out" 2>&1
+  ck "⑳h 掃描器跑不動 ⇒ 非 0(不是讀成沒有 DML)" "$([ $? -ne 0 ] && echo ne0 || echo 0)" "ne0"
+
+  # ═ ㉑ 新樣式各自一格(codex R2 D:它們原本零測試格 ⇒ 拿掉也全綠)═
+  mk 70 20997070000000 'CREATE TABLE public.zzq_70(id int);
+SELECT 1 AS a INTO public.zzq_70b;
+'
+  run 70 ; ck "㉑a SELECT … INTO ⇒ 擋" "$([ $? -ne 0 ] && echo ne0 || echo 0)" "ne0"
+  mk 71 20997171000000 'CREATE TABLE public.zzq_71(id int);
+CALL public.zzq_no_such_proc();
+'
+  run 71 ; ck "㉑b CALL ⇒ 擋" "$([ $? -ne 0 ] && echo ne0 || echo 0)" "ne0"
+  # 🔵 C2(opus R3):這一格原本沒有判別力 —— 拿掉 CALL 樣式它照樣紅(psql 那支 proc 不存在)。
+  grep -q '會在 apply 當下寫資料' "$D/out" ; ck "㉑b 是冪等閘擋的(不是 psql 說 proc 不存在)" "$?" "0"
+  mk 72 20997272000000 'CREATE MATERIALIZED VIEW public.zzq_72 AS SELECT 1 AS a;
+'
+  run 72 ; ck "㉑c CREATE MATERIALIZED VIEW ⇒ 擋" "$([ $? -ne 0 ] && echo ne0 || echo 0)" "ne0"
+  mk 73 20997373000000 'WITH x AS (SELECT 1 AS a) INSERT INTO public.zzq_70 SELECT a FROM x;
+'
+  run 73 ; ck "㉑d WITH … INSERT ⇒ 擋" "$([ $? -ne 0 ] && echo ne0 || echo 0)" "ne0"
+  # ㉑e 🔵 **負對照(re.M 那一條的)**:換行的 ON UPDATE CASCADE / FOR UPDATE 不可誤擋
+  mk 74 20997474000000 'CREATE TABLE public.zzq_74a(id int PRIMARY KEY);
+CREATE TABLE public.zzq_74(
+  id int REFERENCES public.zzq_74a(id) ON
+  UPDATE CASCADE
+);
+'
+  run 74 ; ck "㉑e 換行的 ON\\nUPDATE CASCADE ⇒ 放行(不是 UPDATE)" "$?" "0"
+  # ㉑f DO 內的 CTAS(codex R2 實錘 20260730120000:198)
+  mk 75 20997575000000 'CREATE TABLE public.zzq_75(id int);
+DO $w$ BEGIN CREATE TEMP TABLE zzq_probe AS SELECT 1 AS a; END $w$;
+'
+  run 75 ; ck "㉑f DO 內 CTAS(無 ON COMMIT DROP)⇒ 擋" "$([ $? -ne 0 ] && echo ne0 || echo 0)" "ne0"
+  grep -q 'DO 區塊內 CREATE TABLE' "$D/out" ; ck "㉑f 印出它是 DO 內的 CTAS" "$?" "0"
+
+  # ═ ㉒ opus R3 的四條 must-fix,每條一格會紅的 ═
+  # ㉒a MF1:env 檔【沒有】那個名稱 + 父行程 export 了一個 ⇒ 不可以沿用
+  printf 'FOO=bar\n' > "$T/env-noname"
+  _got=$(PCM_WRITE_DATABASE_URL='postgresql://INHERITED/db' load_env "$T/env-noname" | sed -n '1p')
+  ck "㉒a MF1 父環境的 URL 不可以被沿用" "${_got:-EMPTY}" "EMPTY"
+  # ㉒b 正對照:env 檔【有】那個名稱 ⇒ 要帶得出來(否則上面那個 EMPTY 沒有判別力)
+  printf 'PCM_WRITE_DATABASE_URL=postgresql://from-file/db\n' > "$T/env-ok"
+  ck "㉒b MF1 正對照:檔裡有就帶得出來" \
+     "$(PCM_WRITE_DATABASE_URL='postgresql://INHERITED/db' load_env "$T/env-ok" | sed -n '1p')" "postgresql://from-file/db"
+  # ㉒c env 檔自己壞掉 ⇒ rc=9(不是靜靜回空)
+  printf 'if [ ; then\n' > "$T/env-bad"
+  load_env "$T/env-bad" > /dev/null 2>&1
+  ck "㉒c env 檔語法壞掉 ⇒ rc=9" "$?" "9"
+
+  # ㉒d MF2:UTF-8 BOM 打穿檔頭判定與 \A 錨 ⇒ 一支 TRUNCATE 靜靜過閘
+  printf '\357\273\277TRUNCATE public.zzq_one;\n' > "$T/repo/supabase/migrations/20998080000000_selftest.sql"
+  cp "$T/repo/supabase/migrations/20998080000000_selftest.sql" "$T/貼板-9999/80_20998080000000_selftest.sql"
+  run 80 ; ck "㉒d BOM + TRUNCATE ⇒ 仍然擋" "$([ $? -ne 0 ] && echo ne0 || echo 0)" "ne0"
+  grep -q '會在 apply 當下寫資料' "$D/out" ; ck "㉒d 是冪等閘擋的" "$?" "0"
+  # ㉒e MF2 另一半:BOM + 宣告 ⇒ 要認得那個宣告(否則變成漏擋)
+  printf '\357\273\277-- pcm:idempotent: yes\nTRUNCATE public.zzq_one;\n' > "$T/repo/supabase/migrations/20998181000000_selftest.sql"
+  cp "$T/repo/supabase/migrations/20998181000000_selftest.sql" "$T/貼板-9999/81_20998181000000_selftest.sql"
+  run 81 ; ck "㉒e BOM + 檔頭宣告 ⇒ 認得它, 放行" "$?" "0"
+  grep -q '責任在宣告者' "$D/out" ; ck "㉒e 而且走的是宣告那條路" "$?" "0"
+
+  # ㉒f MF3:psql 在【URI 解析錯誤】時會逐字回吐整條連線字串(含密碼)
+  #    🔴 **第一版的 fixture 沒有到達這個世界**:我餵 `…@127.0.0.1:1/x[bad`,
+  #      psql 把它解析成功、只是連不上 ⇒ **沒有吐密碼** ⇒ 拔掉 `redact` 那兩格照樣綠。
+  #      ⇒ 📌 又一次「格沒走到自己宣稱的地方」。真正會觸發的是**未閉合的 `[`**。
+  #    🛑 而工具的前門在 selftest 模式會先擋掉這個 URI(host 抽出來是 `bad-bracket` 不是本機)
+  #      ⇒ 這一格**直接測那條轉印**,而不是繞前門。正式模式的 URL 來自 `.env.local`、
+  #      **不經 host 檢查** ⇒ 那條洩漏路徑是真的。
+  _badurl='postgresql://usr:SUPERSECRETPW@[bad-bracket'
+  _raw=$( "$PSQL_BIN" "$_badurl" -X -c 'SELECT 1' 2>&1 )
+  ck "㉒f 正對照:psql 不經遮罩時【真的】吐出密碼" "$(printf '%s' "$_raw" | grep -c 'SUPERSECRETPW')" "1"
+  ck "㉒f 經過 redact 之後沒有密碼" "$(printf '%s' "$_raw" | redact | grep -c 'SUPERSECRETPW')" "0"
+  ck "㉒f 而它遮的是憑證那一段, 不是整行都不見" "$(printf '%s' "$_raw" | redact | grep -c '\*\*\*@')" "1"
+
+  # ═ ⛔ **未覆蓋(明寫)**:「`.env.local` 設 `APB_SELFTEST=1`」那個世界 ═
+  #    🔴 codex 2026-09-06 R1 抓到的最嚴重那條 —— dotenv 被 `source`, 它可以改掉模式,
+  #      讓正式呼叫走 selftest 分支而跳過覆寫拒收與主樹檢查。
+  #    ✅ 碼裡兩道都上了:`_MODE_LOCKED` 在載入前定死並在載入後強制寫回;
+  #      而載入本身排在覆寫拒收【之後】。
+  #    🛑 **而這一格造不出來** —— 要有一份真的主樹 `.env.local`, 而 selftest 不碰那支檔。
+  #    ⇒ 📌 **未覆蓋不是通過。** 這條路今天靠的是【讀碼】, 不是【跑過】。
+
   # ═ ⑯ has_bad_char 零覆蓋(F16)—— 貼板檔名塞一個 TAB ⇒ 停在前置① ═
   #    🔵 這正是 v2「42 格裡 17 格紅」那一族的守門, 修好之後**反而一格都不剩**。
   printf 'CREATE TABLE public.zzq_tab(id int);\n' > "$T/貼板-9999/$(printf '40_2099404000000\tx').sql"
@@ -772,8 +1115,8 @@ CREATE INDEX zzq_i ON public.zzq_one(id);
   fi
   printf '── selftest: %s PASS / %s FAIL\n' "$pass" "$fail"
   # 🔵 格數當場數 —— 這個數字每加一格就要跟著改, 而它的用途是「有沒有格被刪掉或沒跑到」。
-  if [ "$((pass + fail))" != "81" ]; then
-    printf '  🔴 【格數】不對:跑了 %s 格 ≠ 81 ⇒ 有格被刪掉或沒跑到\n' "$((pass + fail))" >&2
+  if [ "$((pass + fail))" != "121" ]; then
+    printf '  🔴 【格數】不對:跑了 %s 格 ≠ 121 ⇒ 有格被刪掉或沒跑到\n' "$((pass + fail))" >&2
     return 1
   fi
   [ "$fail" = "0" ]
@@ -785,6 +1128,9 @@ NUM=""; DBURL=""; ROOT_OVERRIDE=""; DRY=0; SEEN_POS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --selftest) selftest; exit $? ;;
+    # 🔵 讓「有幾支會被冪等閘擋」這個數字**用同一支碼數得出來** ——
+    #    另寫一支腳本去數 = 兩把尺, 而它們遲早會分岔。
+    --check-dml) [ $# -ge 2 ] || die '🔴 --check-dml 缺檔案'; dml_check "$2"; exit $? ;;
     --dry-run)  DRY=1; shift ;;
     --db-url)   [ $# -ge 2 ] || die '🔴 --db-url 缺值';  DBURL="$2"; shift 2 ;;
     --root)     [ $# -ge 2 ] || die '🔴 --root 缺值';    ROOT_OVERRIDE="$2"; shift 2 ;;
@@ -808,10 +1154,19 @@ case "$NUM" in
   *) die "🔴 編號只認【數字】或【數字+一個小寫字母】(例 01 / 45a), 你給的是 '$NUM' ⇒ 停。" ;;
 esac
 
+# ── F6(opus R4)+ codex 本輪 must-fix:`.env.local` 的載入時機 ──────
+# 🔴 F6 要它**早於路徑與 URL 的決定**;
+# 🔴🔴 **而 codex 本輪抓到我那個修法自己開的洞**:`.env.local` 是被 `source` 的,
+#    **它可以設 `APB_SELFTEST=1`** ⇒ 正式呼叫改走 selftest 分支 ⇒ **跳過覆寫拒收與主樹檢查**。
+#    ⇒ 兩道一起上:①**模式在載入之前就定死**, 載完強制寫回 ②載入**排在覆寫拒收之後**
+#      (那一道本來就不需要 `.env.local`)⇒ dotenv 影響不到任何一個決定。
+#    📌 **一個「把載入提早」的正確修法, 製造了一條它自己沒有的路。**
+_MODE_LOCKED="${APB_SELFTEST:-0}"
+
 # ── 正式模式:拒收任何覆寫 ────────────────────────────────────
 # 🔴🔴 codex R1 ①:v1 的 `--db-url` / `--root` / `APB_*` 在正式模式一樣生效
 #    ⇒ 可以繞過「沒有 PCM_WRITE_DATABASE_URL 就停」, 把任意 repo 的 migration 貼到任意庫。
-if [ "${APB_SELFTEST:-0}" = "1" ]; then
+if [ "$_MODE_LOCKED" = "1" ]; then
   # selftest 子行程:**必須**給 --db-url, 而且只能指向本機 —— 這條路碰不到正式庫。
   [ -n "$DBURL" ] || die '🔴 APB_SELFTEST=1 而沒有 --db-url ⇒ 拒。'
   # 🔴 ⛔ ~~子字串比對~~ —— codex 實測 `postgresql://localhost@evil.example.com/...` 會過。
@@ -834,6 +1189,18 @@ else
   done
 fi
 
+if [ "$_MODE_LOCKED" != "1" ]; then
+  # 🔴🔴 ⛔ ~~在本行程 `source` 再把 `_MODE_LOCKED` 寫回去~~ —— **那擋不住**(codex R2):
+  #    `.env.local` 是被 source 的, 它可以覆寫**任何**變數 —— `_MODE_LOCKED` 自己、
+  #    `NUM`、`DBURL`、`ROOT_OVERRIDE`、`MAIN_TREE`、`PSQL_BIN` 全部。
+  #    📌 **一個「載完再寫回去」的鎖, 鎖不住能改寫那把鎖的東西。**
+  #    ✅ 改成【在子行程裡載入, 只把兩個 URL 帶回來】⇒ 其他變數**出不了那個子行程**。
+  [ -f "$MAIN_TREE/.env.local" ] || die '🔴 主樹沒有 .env.local ⇒ 停(只印名不印值)。'
+  _envpair=$(load_env "$MAIN_TREE/.env.local") ; erc=$?
+  PCM_WRITE_DATABASE_URL=$(printf '%s' "$_envpair" | sed -n '1p')
+  PCM_READONLY_DATABASE_URL=$(printf '%s' "$_envpair" | sed -n '2p')
+  unset _envpair
+fi
 if [ -n "$ROOT_OVERRIDE" ]; then
   ROOT="$ROOT_OVERRIDE"
   PASTE_ROOT="${APB_PASTE_ROOT:-$ROOT}"
@@ -856,12 +1223,6 @@ if [ -n "$DBURL" ]; then
 else
   # 🔴 v1 從來沒有載入 .env.local ⇒ Sean 照 runbook 加完變數, 它仍然讀不到。
   #    載法與 scripts/readonly-prod-sql.sh:21 同形。
-  # 🔴 **先清掉繼承來的**(codex R3 C):不清的話, 外面匯出的舊 URL 會在
-  #    `.env.local` 缺值或載入失敗時**沿用**, 而那是「寫進錯的庫」。
-  unset PCM_WRITE_DATABASE_URL PCM_READONLY_DATABASE_URL
-  [ -f "$MAIN_TREE/.env.local" ] || die '🔴 主樹沒有 .env.local ⇒ 停。'
-  set -a ; . "$MAIN_TREE/.env.local" ; erc=$? ; set +a
-  [ "$erc" = "0" ] || die "🔴 載入 .env.local 失敗(rc=$erc)⇒ fail-closed(只印名不印值)。"
   [ -n "${PCM_WRITE_DATABASE_URL:-}" ] || die \
     '🔴 載不到 PCM_WRITE_DATABASE_URL ⇒ 停(只印名, 不印值)。' \
     "   主樹有沒有 .env.local:$(test -f "$MAIN_TREE/.env.local" && echo 有 || echo 沒有)" \
