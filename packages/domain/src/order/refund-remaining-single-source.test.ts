@@ -59,6 +59,28 @@ const REFUND_AMOUNT_COL = /"?\brefund_amount\b"?/g;
 //   ⚠️ 它**不在 CI**,不會自己紅。這一行就是它的兩個落點之一(另一個在該 RPC 的 COMMENT ON FUNCTION)。
 
 const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
+  // ── 2026-09-06 · 線【帳號】`-d8` 補(⟦b4-REFUNDSYNCP3⟧ 片③;**作者就是我**)──
+  //    🔴 **登記, 不是放寬** —— 我沒有動這道閘的任何判準, 只是替一支它抓到的檔寫下【為什麼無害】。
+  '20260905440000_m4b_refundsync_p3_status_follows_ledger.sql': {
+    // 🔴 數字**用這道閘自己的尺量的**(它報「6 處」, 我照抄)——
+    //    本檔前一筆的 why 記著「用自己的 grep 填出 7 而正確是 2」的事, 不重蹈。
+    count: 6,
+    why:
+      // 🔴🔴 **本檔不是繞路 —— 它改的正是 #473b-1 要保護的那一支的【上游】。**
+      //   那 6 處 `refund_amount` 全部在 `pcm_sync_order_refund_payment_status` 的三段加總裡:
+      //     ① `order_refunds(status='confirmed')` ② `order_manual_refunds(voided_at IS NULL)`
+      //     ③ `order_refunds` JOIN `order_refund_effective_verdict`(`corrected_to='money_moved'`)
+      //   ⇒ 🎯 **而第③ 段正是這道閘存在的理由**:它就是「更正」那條路。
+      //     📌 **本檔【加上】了更正這一段, 而不是繞過它** —— 少了它, 一筆「先判失敗、後來更正為錢有動」
+      //     的卡退會被算成 0 ⇒ 狀態錯降回 `paid` 而錢其實出去了。
+      '本檔改的是 pcm_sync_order_refund_payment_status(退款狀態同步器)。' +
+      '6 處 refund_amount 全在它的三段加總裡, 而第三段就是【更正】那一段(order_refund_effective_verdict / corrected_to=money_moved)' +
+      ' —— 本檔是把更正【加進來】, 不是自己另算一份繞過 pcm_order_refundable_remaining。' +
+      '口徑逐字對齊 20260905010000 的同步器(order_refunds.status=confirmed + order_manual_refunds.voided_at IS NULL),' +
+      '刻意不自創第二種 —— 兩份會分岔, 而分岔時沒有東西會叫。' +
+      '審查:codex 關卡1 兩輪 + 關卡2 兩輪 + opus R3 換角度一輪, must-fix 共 29 條全折;' +
+      '而第三段帳本這一格正是關卡1 R1 抓到我【漏了它】才補上的。',
+  },
   // 🔴🔴 **2026-09-05 merge:兩條線各自在【同一個位置】加了自己的第一筆 —— 而兩筆都該在。**
   //    `-mail` 的 `20260905310000`(取消信)與 `-account` 的 `20260905280000`(卡取消片①)。
   //    📌 **各自分支上都是「加一筆」, 合起來是兩筆** —— 而發現時機是 merge。

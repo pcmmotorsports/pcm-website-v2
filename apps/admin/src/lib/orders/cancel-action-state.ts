@@ -32,6 +32,42 @@ import { isUuid } from './note-action-state';
 
 /** 成功後 PRG 帶的結果碼(理由同 `NOTE_ADDED_RESULT_CODE`:兩邊各打一次字串會靜默 typo)。 */
 export const ORDER_CANCELLED_RESULT_CODE = 'order_cancelled';
+
+/**
+ * 🔴🔴 **第二條路自己的成功碼**(⟦0a-CARDCANCELNOREFUND⟧ 片②;主視窗 2026-09-05 裁 A=甲)。
+ *
+ * **為什麼不能沿用 `order_cancelled`**(codex 2026-09-05 must-fix):
+ * 那個碼會讓結果面板**去 `order_cancellations` 核對**,而 `admin_mark_order_cancelled`
+ * **不寫那張表**(`20260902140000:106-107` 逐字)⇒ 🔴 **成功一定被顯示成「目前查不到」。**
+ * ⇒ 📌 **事情做了, 而畫面說查不到** —— 那與「失敗」在員工眼裡是同一件事。
+ *
+ * 🔵 **兩條路的成功訊息不一樣, 那是【事實】不是缺陷** —— 一條有取消單、一條沒有。
+ *    把它們寫成同一句話, 等於對其中一條說謊。
+ */
+export const ORDER_MARKED_CANCELLED_RESULT_CODE = 'order_marked_cancelled';
+
+/** 走 `admin_mark_order_cancelled` 成功。🔴 **不帶 token 去查帳本** —— 那條路沒有帳本列。 */
+export function markedCancelledResultQuery(): string {
+  return `${CANCEL_RESULT_PARAM}=${ORDER_MARKED_CANCELLED_RESULT_CODE}`;
+}
+
+/**
+ * 🔴🔴 **第二條路【被拒】的專屬碼**(主視窗 2026-09-05 裁 B=乙)。
+ *
+ * **為什麼不能共用 `rejected`**:那一句寫的是「這張單目前不能取消(狀態可能剛變動)」——
+ * 而這條路被拒的意思**不一樣**:那支 RPC 還有兩道閘(**只開放刷卡收款的單** ·
+ * **曾經部分取消過就擋**)⇒ 🔴 **被拒的常見原因是「這張單不走這條路」, 不是「狀態剛變」。**
+ *
+ * 🔵 **而我們刻意不在 UI 重打那兩道閘**(收窄要把 `payment_method` 一路加進 adapter 的 SELECT
+ * ⇒ 製造第二份規格, 而兩份會分岔 —— R3 F11)。
+ * ⇒ 📌 **代價就是員工可能按到被拒, 而那個代價的解藥是【把話講清楚】, 不是多一道 UI 判斷。**
+ */
+export const ORDER_MARK_REJECTED_RESULT_CODE = 'order_mark_rejected';
+
+/** 走 `admin_mark_order_cancelled` 被拒。🔴 同樣不帶 token —— 沒有帳本可查。 */
+export function markRejectedResultQuery(): string {
+  return `${CANCEL_RESULT_PARAM}=${ORDER_MARK_REJECTED_RESULT_CODE}`;
+}
 // 🔴 D5 路由要比對的是**完整前綴 `order_cancel_`(含尾底線)**。
 //    寫成 `order_cancel` 會連 `order_cancelled` 一起吞掉 —— 成功碼會被誤判成失敗碼。
 

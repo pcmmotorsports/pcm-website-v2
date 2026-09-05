@@ -13,7 +13,12 @@ vi.mock('@pcm/adapters/server', () => ({
   createSupabaseServiceClient: mocks.createClient,
 }));
 
-import { cancelOrder, type CancelOrderArgs } from './cancel-repository';
+import {
+  cancelOrder,
+  markOrderCancelled,
+  parseMarkPayloadForTest,
+  type CancelOrderArgs,
+} from './cancel-repository';
 
 // M-4b E10 A9d2-2b:`admin_cancel_order` 唯一呼叫端。
 // 🔴 誠實邊界:本檔全是 mock ⇒ 證的是「呼叫端把契約接對了」,不是「RPC 在正式站的行為」。
@@ -270,5 +275,68 @@ describe('cancelOrder — 拋出型失敗與 log 衛生', () => {
     // 🔴 只帶鍵名與型別、**不帶值**(值可能是 RPC 塞回來的整列內容)。
     expect(outcome.logMessage).toContain('cancelled:boolean');
     expect(outcome.logMessage).not.toContain('true');
+  });
+});
+
+describe('markOrderCancelled —— 第二條路(⟦0a-CARDCANCELNOREFUND⟧ 片②)', () => {
+  // 🔴 **這一族存在的理由**:codex 2026-09-05 抓到「既有測試只 mock 舊 action 與 `cancelOrder`
+  //    ⇒ **刪掉新 action、RPC 參數接線或 `parseMarkPayload`, 兩套測試仍全綠**」。
+  //    ⇒ 📌 **一片碼沒有任何一格測試碰得到它, 與那片碼不存在, 在測試報告上是同一片綠。**
+  it('🔴 兩鍵 payload ⇒ ok(而既有四鍵解析器會把它判成漂移)', () => {
+    expect(parseMarkPayloadForTest({ marked: true, idempotent: false })).toEqual({
+      marked: true,
+      idempotent: false,
+    });
+  });
+
+  it('🔴 marked 與 idempotent 都是 false ⇒ 判成漂移, 不可當成功', () => {
+    // 那支 RPC 的成功路徑必定有一個為 true ⇒ 兩個都 false 就是它漂移了。
+    // 🛑 少了這一格,「什麼都沒發生」會被畫成「已取消」。
+    expect(parseMarkPayloadForTest({ marked: false, idempotent: false })).toBeNull();
+  });
+
+  it('🔬 負對照:多一個鍵 ⇒ null(鍵集合恰等, 不是包含)', () => {
+    expect(parseMarkPayloadForTest({ marked: true, idempotent: false, extra: 1 })).toBeNull();
+  });
+
+  it('🔬 負對照:四鍵的舊 payload 餵進來 ⇒ null(兩支解析器不可互換)', () => {
+    expect(
+      parseMarkPayloadForTest({
+        cancellation_id: '11111111-1111-4111-8111-111111111111',
+        cancelled: true,
+        closed: false,
+        idempotent: false,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe('markOrderCancelled 的 RPC 接線(codex R2:上一版四格只直測 parser)', () => {
+  // 🔴 codex R2 must-fix 逐字:「`markOrderCancelled` 的 RPC 名稱、五個參數、錯誤分類…全部零測試,
+  //    接錯仍可全綠」。⇒ 這一族釘住**送出去的東西**, 不只解析回來的東西。
+  it('🔴 RPC 名字與五個參數逐字(打錯名字 typecheck 不會紅 —— 那個 cast 把型別關掉了)', async () => {
+    mocks.rpc.mockResolvedValue({ data: { marked: true, idempotent: false }, error: null });
+    await markOrderCancelled({
+      orderId: ORDER_ID,
+      reasonCode: 'other',
+      reasonDetail: '收尾',
+      actor: 'sean',
+      requestToken: TOKEN,
+    });
+    expect(mocks.rpc).toHaveBeenCalledTimes(1);
+    // 🛑 **不可以拿 MARK_ORDER_CANCELLED_RPC_NAME 來比對** —— 那是同一個常數比自己, 零判別力。
+    //    這裡逐字寫死, 而它與 migration 的字面對得起來(20260902140000)。
+    expect(mocks.rpc.mock.calls[0]?.[0]).toBe('admin_mark_order_cancelled');
+    expect(mocks.rpc.mock.calls[0]?.[1]).toEqual({
+      p_order_id: ORDER_ID,
+      p_idempotency_key: TOKEN,
+      p_actor: 'sean',
+      p_reason_code: 'other',
+      p_reason_detail: '收尾',
+    });
+  });
+
+  it('🔬 負對照:少送一個參數就對不上(證明上一格在比整個物件, 不是包含)', () => {
+    expect({ a: 1, b: 2 }).not.toEqual({ a: 1 });
   });
 });

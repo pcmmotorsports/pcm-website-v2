@@ -13,8 +13,16 @@ import {
   CANCEL_NOT_SENT_CODES,
   CANCEL_SENT_CODES,
   ORDER_CANCELLED_RESULT_CODE,
+  ORDER_MARKED_CANCELLED_RESULT_CODE,
+  ORDER_MARK_REJECTED_RESULT_CODE,
   toOrderCancelResultCode,
 } from '../../lib/orders/cancel-action-state';
+import {
+  CANCELLED_MATCH_TEXT,
+  MARKED_CANCELLED_TEXT,
+  MARK_REJECTED_TEXT,
+  VERDICT_TEXT,
+} from './cancel-result-panel';
 import { CancelResultUrlCleanup } from './cancel-result-url-cleanup';
 
 // cancel-result-panel.test.tsx — A13b D5 驗收①-④。
@@ -67,6 +75,10 @@ const BASE: CancelResultPanelProps = {
   actor: ACTOR,
   cancellations: [{ actor: OTHER_ACTOR, idempotencyKey: OTHER_TOKEN }],
   cancellationsTruncated: false,
+  // 🔴 基準是「這張單【沒有】取消」—— 那是偽造網址那一格的預設世界。
+  orderCancelledAt: null,
+  // 🔴 與上一行成對(R3 F3):只看「取消了沒」會讓未付款失效單也拿到「錢已全額退還」那句綠字。
+  orderPaymentStatus: 'unpaid',
 };
 
 function panel(over: Partial<CancelResultPanelProps> = {}) {
@@ -321,7 +333,14 @@ describe('D5 面板碼集合:與 banner 互斥', () => {
       expect(isCancelPanelResultCode(toOrderCancelResultCode(code))).toBe(true);
     }
     expect(isCancelPanelResultCode(ORDER_CANCELLED_RESULT_CODE)).toBe(true);
-    expect(CANCEL_PANEL_RESULT_CODES).toHaveLength(CANCEL_SENT_CODES.length + 1);
+    // 🔴 **2026-09-05 從 +1 變成 +3**(⟦0a-CARDCANCELNOREFUND⟧ 片②)——
+    //    第二條路(`admin_mark_order_cancelled`)有**自己的成功碼與被拒碼**:
+    //    · `order_marked_cancelled` —— 它**不查取消帳本**(那支 RPC 不寫 `order_cancellations`)
+    //    · `order_mark_rejected`    —— 被拒的意思是「這張單不走這條路」, 不是「狀態剛變」
+    //    ⇒ 📌 **這一格紅過, 而它紅得對** —— 加碼就是要有人來看一眼。
+    expect(CANCEL_PANEL_RESULT_CODES).toHaveLength(CANCEL_SENT_CODES.length + 3);
+    expect(isCancelPanelResultCode(ORDER_MARKED_CANCELLED_RESULT_CODE)).toBe(true);
+    expect(isCancelPanelResultCode(ORDER_MARK_REJECTED_RESULT_CODE)).toBe(true);
   });
 
   it('🔴 A 類兩碼不得開面板(它們歸既有 ResultBanner)', () => {
@@ -338,5 +357,95 @@ describe('D5 面板碼集合:與 banner 互斥', () => {
 
   it('🔴 重複 query key(`?r=a&r=b`)→ 不畫面板,不亂說話', () => {
     expect(panel({ resultCode: [SENT_CODE, SENT_CODE] }).container.innerHTML).toBe('');
+  });
+});
+
+describe('🔴 本檔的對客文字也不得含 Markdown 星號(2026-09-05:同一個病, 換了一支檔)', () => {
+  // 📌 **成因**:我在隔壁 `cancel-review-copy.test.ts` 剛加了一道掃 `BLOCK_REASON_TEXT` 的守門,
+  //    **五分鐘後在本檔的新文案裡又寫了一次 `**`**。
+  //    ⇒ 🔴 **一道守門的射程, 止於它掃的那個常數** —— 而同一個病可以換一支檔重來。
+  //    ⇒ ⇒ 這一格不是「補上漏網的那一句」, 是**把那道守門帶到這一族**。
+  // 🛑 而它仍然有射程:**只掃本檔匯出的那幾個文案物件**。第三支檔出現時, 它一樣看不到。
+  it('每一個 tone/title/hint 文案都不含 `**`', () => {
+    const texts = [
+      ...Object.values(VERDICT_TEXT),
+      CANCELLED_MATCH_TEXT,
+      MARKED_CANCELLED_TEXT,
+      MARK_REJECTED_TEXT,
+    ];
+    const offenders = texts
+      .filter((t) => t.title.includes('**') || t.hint.includes('**'))
+      .map((t) => t.title);
+    expect(offenders, `這些文案含 Markdown 星號,員工會看到實體 **:${offenders.join(' / ')}`).toEqual([]);
+  });
+
+  it('🔬 尺會動:含 `**` 的字串必須被同一條判準抓到', () => {
+    const fake = { title: '這是**強調**', hint: '正常' };
+    expect(fake.title.includes('**') || fake.hint.includes('**')).toBe(true);
+  });
+});
+
+describe('🔴🔴 偽造網址:`?r=order_marked_cancelled` 不可以直接相信(codex R2 must-fix)', () => {
+  // 📌 **成因**:我為了「不查取消帳本」而讓那個成功碼**無條件**顯示綠字 ——
+  //    而網址是使用者打得出來的 ⇒ 一張沒取消的單開那個網址就會看到「已標記取消」。
+  //    ⇒ 🔴 **我拿掉的那道核對, 同時是防偽造的那一道。**
+  it('🔴 單子【沒有】取消 ⇒ 不可以顯示「已標記取消」', () => {
+    const { container } = panel({
+      resultCode: ORDER_MARKED_CANCELLED_RESULT_CODE,
+      orderCancelledAt: null,
+    });
+    expect(container.textContent).not.toContain('這張單已經標記為取消');
+    expect(container.textContent).toContain('查不到這張單已經取消');
+  });
+
+  it('✅ 單子【真的】取消了【而且】refunded ⇒ 才顯示那句成功', () => {
+    // 🔴 **這一格 2026-09-05 紅過一次, 而它紅得對**:R3 F3 之後判準多了一個
+    //    `paymentStatus === 'refunded'`, 而本格原本只設 `orderCancelledAt`
+    //    (BASE 的 `orderPaymentStatus` 是 `'unpaid'`)⇒ 新判準擋住 ⇒ 紅。
+    //    ⇒ 📌 **一個舊測試因為判準收窄而紅, 那是收窄【生效】的證據** —— 不是要繞過的東西。
+    const { container } = panel({
+      resultCode: ORDER_MARKED_CANCELLED_RESULT_CODE,
+      orderCancelledAt: '2026-09-05T12:00:00.000Z',
+      orderPaymentStatus: 'refunded',
+    });
+    expect(container.textContent).toContain('這張單已經標記為取消');
+  });
+
+  it('🔬 兩個新碼的分支不可互換:被拒碼永遠顯示被拒那句(不管取消了沒)', () => {
+    // 🔴 codex R2 nit:上一版只驗「在集合內」與「沒有星號」⇒ **互換兩個分支仍全綠**。
+    for (const at of [null, '2026-09-05T12:00:00.000Z']) {
+      cleanup();
+      const { container } = panel({
+        resultCode: ORDER_MARK_REJECTED_RESULT_CODE,
+        orderCancelledAt: at,
+      });
+      expect(container.textContent).toContain('這張單不能用這個方式結掉');
+      expect(container.textContent).not.toContain('這張單已經標記為取消');
+    }
+  });
+});
+
+describe('🔴 R3 F3:成功文案宣稱的是「錢已全額退還」, 不是「取消了」', () => {
+  it('🔴 取消了但 payment_status 不是 refunded(未付款失效 / 現金取消)⇒ 不可以顯示那句綠字', () => {
+    for (const st of ['unpaid', 'paid', 'partiallyRefunded']) {
+      cleanup();
+      const { container } = panel({
+        resultCode: ORDER_MARKED_CANCELLED_RESULT_CODE,
+        orderCancelledAt: '2026-09-05T12:00:00.000Z',
+        orderPaymentStatus: st,
+      });
+      expect(container.textContent, `payment_status=${st} 不該看到「錢已全額退還」`).not.toContain(
+        '這張單已經標記為取消',
+      );
+    }
+  });
+
+  it('✅ 取消了【而且】refunded ⇒ 才顯示', () => {
+    const { container } = panel({
+      resultCode: ORDER_MARKED_CANCELLED_RESULT_CODE,
+      orderCancelledAt: '2026-09-05T12:00:00.000Z',
+      orderPaymentStatus: 'refunded',
+    });
+    expect(container.textContent).toContain('這張單已經標記為取消');
   });
 });

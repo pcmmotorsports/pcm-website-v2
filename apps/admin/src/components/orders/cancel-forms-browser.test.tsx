@@ -58,7 +58,12 @@ const ITEM = '3a3a3a3a-3a3a-4a3a-8a3a-3a3a3a3a3a3a';
  */
 const RETURN_TO = `/orders?payment_status=paid&panel=${ORDER}`;
 
-vi.mock('../../lib/orders/cancel-actions', () => ({ cancelOrderAction: '/submit' }));
+// 🔴 **`markOrderCancelledAction` 也要 mock**(片② 2026-09-05 新增的第二個 server action)——
+//    少了它, 任何渲染到 `MarkCancelledForm` 的路徑會炸
+//    `No "markOrderCancelledAction" export is defined on the … mock`。
+//    📌 而**七支檔 mock 這個模組, 而當時只有一支紅** ⇒ 另外六支是【潛伏的】:
+//       它們今天沒渲染到那條路而已。⇒ **模組多一個 export 時, 它的每一份 mock 都要跟上。**
+vi.mock('../../lib/orders/cancel-actions', () => ({ cancelOrderAction: '/submit', markOrderCancelledAction: '/submit' }));
 
 let browser: Browser;
 beforeAll(async () => {

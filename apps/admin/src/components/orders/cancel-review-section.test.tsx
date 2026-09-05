@@ -68,14 +68,14 @@ afterEach(() => {
 
 describe('CancelReviewSection — 可取消時', () => {
   it('說得出可以取消,且整單/逐項兩種說法分得出來', () => {
-    const { container } = render(<CancelReviewSection payments={PAY_UNREADABLE} detail={detail()} />);
+    const { container } = render(<CancelReviewSection formsAllowed={true} payments={PAY_UNREADABLE} detail={detail()} />);
     expect(container.textContent).toContain('這張單可以取消');
     expect(container.textContent).toContain('可以整單取消');
   });
 
   it('有品項到貨 ⇒ 改說只能逐項取消(不是整單)', () => {
     const { container } = render(
-      <CancelReviewSection payments={PAY_UNREADABLE}
+      <CancelReviewSection formsAllowed={true} payments={PAY_UNREADABLE}
         detail={detail({
           items: [item({ quantitySummary: summary({ instockQuantity: 2, cancellableQuantity: 3 }) })],
         })}
@@ -87,11 +87,11 @@ describe('CancelReviewSection — 可取消時', () => {
 
   it('影響範圍預設展開,不可取消時預設收合(兩面都釘)', () => {
     // 🔴 R1 F6:原本只驗 open===true 那一半 ⇒ 把 `open={view.canCancel}` 改成恆 `open` 全綠。
-    const { container: ok } = render(<CancelReviewSection payments={PAY_UNREADABLE} detail={detail()} />);
+    const { container: ok } = render(<CancelReviewSection formsAllowed={true} payments={PAY_UNREADABLE} detail={detail()} />);
     expect(ok.querySelector('details')?.hasAttribute('open')).toBe(true);
     cleanup();
     const { container: blocked } = render(
-      <CancelReviewSection payments={PAY_UNREADABLE} detail={detail({ paymentStatus: 'paid' })} />,
+      <CancelReviewSection formsAllowed={true} payments={PAY_UNREADABLE} detail={detail({ paymentStatus: 'paid' })} />,
     );
     expect(blocked.querySelector('details')?.hasAttribute('open')).toBe(false);
   });
@@ -283,14 +283,14 @@ describe('CancelReviewSection — 不可取消時逐條文案', () => {
   //    ⇒ 本格改成守新的真相,而**內部語彙不得回流那一半原封保留**(它與付款方式無關)。
   it('現金/匯款已付款 ⇒ **完全不擋**;刷卡已付款 ⇒ 擋,而理由是「要退回原卡」不是「還沒開通」', () => {
     const cash = render(
-      <CancelReviewSection payments={PAY_CASH} detail={detail({ paymentStatus: 'paid' })} />,
+      <CancelReviewSection formsAllowed={true} payments={PAY_CASH} detail={detail({ paymentStatus: 'paid' })} />,
     );
     // 🔴 現金已付款:一句拒因都不該有(這是片 A 放寬的那一格,前端要跟上)
     expect(cash.container.textContent).not.toContain('不能在這裡取消');
     expect(cash.container.textContent).not.toContain('先不開放取消');
 
     const card = render(
-      <CancelReviewSection payments={PAY_CARD} detail={detail({ paymentStatus: 'paid' })} />,
+      <CancelReviewSection formsAllowed={true} payments={PAY_CARD} detail={detail({ paymentStatus: 'paid' })} />,
     );
     expect(card.container.textContent).toContain('要先把錢退回原卡片才能取消');
     // 🔴 **指位置,不指流程名**(本檔那條紀律)
@@ -304,7 +304,7 @@ describe('CancelReviewSection — 不可取消時逐條文案', () => {
 
   it('自動失效 ⇒ 說「未付款已自動失效」,不說「已經取消過」', () => {
     const { container } = render(
-      <CancelReviewSection payments={PAY_UNREADABLE}
+      <CancelReviewSection formsAllowed={true} payments={PAY_UNREADABLE}
         detail={detail({ cancelledAt: '2026-08-09T00:00:00Z', cancelledReason: 'payment_expired' })}
       />,
     );
@@ -315,7 +315,7 @@ describe('CancelReviewSection — 不可取消時逐條文案', () => {
   it('讀不全那幾條要帶「通知系統維護」,不能只叫他重新整理', () => {
     // 🔴 成因含投影退版 ⇒ 重整不會好;只寫「請重新整理」是叫員工做一件無效的事。
     const { container } = render(
-      <CancelReviewSection payments={PAY_UNREADABLE} detail={detail({ chargeAttemptGate: 'unknown' })} />,
+      <CancelReviewSection formsAllowed={true} payments={PAY_UNREADABLE} detail={detail({ chargeAttemptGate: 'unknown' })} />,
     );
     expect(container.textContent).toContain('請重新整理');
     expect(container.textContent).toContain('通知系統維護');
@@ -326,7 +326,7 @@ describe('CancelReviewSection — 不可取消時逐條文案', () => {
     //    會被抑制(理由見 `cancel-view.ts` 該行)⇒ 那個組合只剩兩碼、這格會紅。
     //    換成 `unknown`(它不在收窄範圍內)保住本格原本要守的事:**同時成立就要逐條畫**。
     const { container } = render(
-      <CancelReviewSection payments={PAY_CARD}
+      <CancelReviewSection formsAllowed={true} payments={PAY_CARD}
         detail={detail({ paymentStatus: 'paid', chargeAttemptGate: 'unknown', itemsTruncated: true })}
       />,
     );
@@ -340,7 +340,7 @@ describe('CancelReviewSection — 不可取消時逐條文案', () => {
   it('🔴 #387 已付款的單:畫面上不得出現「刷卡還在進行中」', () => {
     // Sean 2026-08-11 實測撞到的那句。員工看到它會去等一個永遠不會發生的變化。
     const paid = render(
-      <CancelReviewSection payments={PAY_CARD} detail={detail({ paymentStatus: 'paid', chargeAttemptGate: 'in_flight' })} />,
+      <CancelReviewSection formsAllowed={true} payments={PAY_CARD} detail={detail({ paymentStatus: 'paid', chargeAttemptGate: 'in_flight' })} />,
     );
     expect(paid.container.textContent).not.toContain('還在進行中');
     // 擋人是對的,錯的只有理由 ⇒ 該說的那句仍要在(片 B:那句現在是刷卡那一句)。
@@ -360,7 +360,7 @@ describe('CancelReviewSection — 不可取消時逐條文案', () => {
     //     守的東西一個字沒變(未付款 + 在途時,那句話必須真的出現在畫面上)。
     //   📌 上面那條反向斷言(已付款 `.not.toContain('還在進行中')`)**一個字都沒動**。
     const unpaid = render(
-      <CancelReviewSection payments={PAY_UNREADABLE} detail={detail({ paymentStatus: 'unpaid', chargeAttemptGate: 'in_flight' })} />,
+      <CancelReviewSection formsAllowed={true} payments={PAY_UNREADABLE} detail={detail({ paymentStatus: 'unpaid', chargeAttemptGate: 'in_flight' })} />,
     );
     expect(unpaid.container.textContent).toContain('這張單有一筆刷卡還沒有結束');
   });
@@ -369,7 +369,7 @@ describe('CancelReviewSection — 不可取消時逐條文案', () => {
 describe('CancelReviewSection — 數量欄', () => {
   it('已到貨與尚可取消分開顯示(買 5 / 到貨 2 / 還能取消 3)', () => {
     const { container } = render(
-      <CancelReviewSection payments={PAY_UNREADABLE}
+      <CancelReviewSection formsAllowed={true} payments={PAY_UNREADABLE}
         detail={detail({
           items: [item({ quantitySummary: summary({ instockQuantity: 2, cancellableQuantity: 3 }) })],
         })}
@@ -382,7 +382,7 @@ describe('CancelReviewSection — 數量欄', () => {
   it('🔴 多品項時逐列對得上自己那一項(不是全部畫第一項的數字)', () => {
     // R1 F10:單品項 fixture 讓「byId join 換成 view.items[0]」的突變恆綠。
     const { container } = render(
-      <CancelReviewSection payments={PAY_UNREADABLE}
+      <CancelReviewSection formsAllowed={true} payments={PAY_UNREADABLE}
         detail={detail({
           items: [
             item({ quantity: 5, quantitySummary: summary() }),
@@ -409,7 +409,7 @@ describe('CancelReviewSection — 數量欄', () => {
   it('🔴 不知道的數字畫成「?」不是 0', () => {
     // 有採購列卻缺摘要 ⇒ 推不出 0/0 ⇒ 三個數字都是「不知道」。畫成 0 會讓員工照著它算。
     const { container } = render(
-      <CancelReviewSection payments={PAY_UNREADABLE}
+      <CancelReviewSection formsAllowed={true} payments={PAY_UNREADABLE}
         detail={detail({
           items: [
             item({
@@ -427,7 +427,7 @@ describe('CancelReviewSection — 數量欄', () => {
 
 describe('CancelReviewSection — 取消紀錄三態', () => {
   it('null = 讀取失敗,不得畫成「沒有取消紀錄」', () => {
-    const { container } = render(<CancelReviewSection payments={PAY_UNREADABLE} detail={detail({ cancellations: null })} />);
+    const { container } = render(<CancelReviewSection formsAllowed={true} payments={PAY_UNREADABLE} detail={detail({ cancellations: null })} />);
     expect(container.textContent).toContain('取消紀錄讀取失敗');
     expect(container.textContent).not.toContain('這張單沒有取消紀錄');
   });
@@ -439,7 +439,7 @@ describe('CancelReviewSection — 取消紀錄三態', () => {
     //    ⇒ 本條守的是「入口是結構型別、擋不住手寫物件」那一面,**純防禦**;
     //    方向仍與 `null` 相同:fail-closed 說讀取失敗。
     const { container } = render(
-      <CancelReviewSection payments={PAY_UNREADABLE}
+      <CancelReviewSection formsAllowed={true} payments={PAY_UNREADABLE}
         detail={{ ...detail(), cancellations: undefined } as unknown as AdminOrderDetail}
       />,
     );
@@ -448,14 +448,14 @@ describe('CancelReviewSection — 取消紀錄三態', () => {
   });
 
   it('[] = 真的沒取消過', () => {
-    const { container } = render(<CancelReviewSection payments={PAY_UNREADABLE} detail={detail()} />);
+    const { container } = render(<CancelReviewSection formsAllowed={true} payments={PAY_UNREADABLE} detail={detail()} />);
     expect(container.textContent).toContain('這張單沒有取消紀錄');
   });
 
   it('🔴 截斷要明說(外層與逐列各一句)—— 員工不能以為看到的是全部', () => {
     // R1 F7:兩處揭露原本零斷言,整段刪掉全綠。
     const { container } = render(
-      <CancelReviewSection payments={PAY_UNREADABLE}
+      <CancelReviewSection formsAllowed={true} payments={PAY_UNREADABLE}
         detail={detail({
           cancellationsTruncated: true,
           cancellations: [
@@ -480,7 +480,7 @@ describe('CancelReviewSection — 取消紀錄三態', () => {
   it('🔴 明細數字異常時不得靜默少算,要說「無法計算」(R1 F2)', () => {
     // `mappers/order-cancellations.ts` 逐欄直送、無 Number.isFinite 守門 ⇒ 執行期真的可能收到這種值。
     const { container } = render(
-      <CancelReviewSection payments={PAY_UNREADABLE}
+      <CancelReviewSection formsAllowed={true} payments={PAY_UNREADABLE}
         detail={detail({
           cancellations: [
             {
@@ -514,7 +514,7 @@ describe('CancelReviewSection — 取消紀錄三態', () => {
     const box: { el: HTMLElement | null } = { el: null };
     expect(() =>
       void (box.el = render(
-        <CancelReviewSection payments={PAY_UNREADABLE}
+        <CancelReviewSection formsAllowed={true} payments={PAY_UNREADABLE}
           detail={detail({
             cancellations: [
               {
@@ -540,7 +540,7 @@ describe('CancelReviewSection — 取消紀錄三態', () => {
 
   it('有內容 ⇒ 畫原因中文與件數;逐列 items=null 要說「沒有讀到」', () => {
     const { container } = render(
-      <CancelReviewSection payments={PAY_UNREADABLE}
+      <CancelReviewSection formsAllowed={true} payments={PAY_UNREADABLE}
         detail={detail({
           cancellations: [
             {

@@ -19,15 +19,24 @@ import { OrderError } from './errors';
  * 付款軸合法轉移表(出發狀態 → 允許的目的狀態集)。
  *
  * Phase 1 只實際走 `unpaid → paid`(TapPay 一次性全額 charge 確認);其餘為「留型別」的保守
- * 前向邊(partial capture / 退款),構成一致的付款生命週期 DAG、避免亂跳:
+ * 前向邊(partial capture / 退款),⛔ ~~構成一致的付款生命週期 DAG~~ ——
+ * 🔴 **2026-09-05 片③ 之後它【不再是 DAG】**:`refunded → paid` 讓 `paid → refunded → paid` 成環。
+ * 而那是刻意的:狀態要**照事實走**, 而事實會來回(退款登記了、又被作廢了)。
+ * 🛑 **本表擋的仍然是【亂跳】** —— 只是「不可回頭」這個性質不再由本表提供。避免亂跳:
  * - `unpaid` → `paid`(主路徑)/ `partiallyPaid`(部分入帳、保留)
  * - `partiallyPaid` → `paid`(補足)/ `refunded`(退剩餘、保留)
  * - `paid` → `partiallyPaid`(部分入帳更正、保留)/ `refunded`(全額退款)/ `partiallyRefunded`(部分退款,M-3 RF2a)
  * - `partiallyRefunded` → `partiallyRefunded`(🔴 **自我轉移**,見下)/ `refunded`(退到剩餘為 0)
- * - `refunded` → ∅(終態)
+ * - ⛔ ~~`refunded` → ∅(終態)~~ 🔴 **2026-09-05 起不成立(片③ ⟦b4-REFUNDSYNCP3⟧)**
+ *   ⇒ `refunded` → `paid`(退款全被作廢 ⇒ 照事實降回)/ `partiallyRefunded`(只作廢掉一部分)
+ *   **依據 Sean 2026-08-22 `Q-B=甲`**(逐字「允許回 paid」);而 DB 那一側由
+ *   `pcm_sync_order_refund_payment_status` 實作(migration `20260905440000`)。
+ *   🛑 **這不是放寬, 是把一個【已經拍過的板】落到合約上** —— 在此之前 DB 與本表對同一個轉移互相矛盾。
+ *   🔴 **而舊字面留著加刪除線**:搜「終態」的人要同一發撞到這一段。
  *
  * 隱含非法(throw):任何 `→ unpaid`(不可回退未付)、`unpaid → refunded`(未付不可退)、
- * `refunded → *`(終態)、自我轉移 —— **唯一例外 = `partiallyRefunded → partiallyRefunded`**。
+ * ⛔ ~~`refunded → *`(終態)~~、自我轉移 —— **唯一例外 = `partiallyRefunded → partiallyRefunded`**。
+ * 🔴 **`refunded → *` 那一條 2026-09-05 起只剩【自我轉移仍非法】**(見上面那段)。
  *
  * 🔴 該例外的理由(Sean 2026-07-25 Q1=A、M-3 RF2a):PRD §0 邊界①拍板支援「多次連續部分退,
  * 每次以退款當下剩餘餘額重算運費」。第二次部分退時 from 與 to 都是 `partiallyRefunded`,
@@ -39,8 +48,16 @@ const PAYMENT_TRANSITIONS: Record<PaymentStatus, readonly PaymentStatus[]> = {
   unpaid: ['paid', 'partiallyPaid'],
   partiallyPaid: ['paid', 'refunded'],
   paid: ['partiallyPaid', 'refunded', 'partiallyRefunded'],
-  partiallyRefunded: ['partiallyRefunded', 'refunded'],
-  refunded: [],
+  // 🔴🔴 **[R3 F6 must-fix]** 我補了 `refunded → paid`, **而把隔壁這一格漏掉了。**
+  //    DB 走得到:部分退款 ⇒ 作廢那一筆 ⇒ `v_moved = 0` ⇒ 目標 `paid`
+  //    (`20260905440000` 的三態 CASE;而 domain 閘明允 `partiallyRefunded` 進入退款轉移)。
+  //    ⇒ 📌 **矛盾沒有被解掉, 只是【搬到隔壁一格】。**
+  partiallyRefunded: ['partiallyRefunded', 'refunded', 'paid'],
+  // 🔴 2026-09-05 片③:⛔ ~~`[]`(終態)~~ ⇒ 退款被作廢時要降得回去(Sean 2026-08-22 Q-B=甲)。
+  //    🛑 **`partiallyRefunded` 那一格不可以漏** —— DB 那側只作廢掉一部分時算出的就是它;
+  //       漏了它 ⇒ TS 與 DB 又一次對同一個轉移矛盾, 而那正是本片要收掉的東西。
+  //    🔵 而【自我轉移 `refunded → refunded` 仍然非法】(本表不列自己)。
+  refunded: ['paid', 'partiallyRefunded'],
 };
 
 /**
