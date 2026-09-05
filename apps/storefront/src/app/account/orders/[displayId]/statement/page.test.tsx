@@ -391,7 +391,7 @@ describe('客人的訂單明細列印頁 —— 授權走既有那條路,而不�
 
   it('⚠️ 標題只用固定字 —— 單號不得進 <title>(分頁/歷史/分享預覽都不受登入保護)', async () => {
     const { metadata } = await import('./page');
-    expect(metadata.title).toBe('訂單明細 | PCM MOTOR PARTS');
+    expect(metadata.title).toBe('訂單明細 — PCM重機零件販售');
     expect(String(metadata.title)).not.toContain('A1B2C3');
   });
 });
