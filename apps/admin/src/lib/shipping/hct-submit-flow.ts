@@ -82,8 +82,18 @@ export type RunHctSubmitInput = {
   deps: HctClientDeps;
   current: HctCurrentStatus;
   fields: HctTransDataFields;
-  /** 我方單號 —— `queryEdelno` 用它去問。 */
-  epino: string;
+  // ⛔ ~~`epino: string` —— 我方單號, `queryEdelno` 用它去問。~~
+  // 🔴🔴 **2026-09-06 ⟦ship-EPINOUNIQUE⟧ 刪掉這個參數**(codex R1 must-fix):
+  //    它與 `fields.epino` 是**兩個獨立的字串**, 而沒有任何東西保證它們一致
+  //    ⇒ 🛑 不一致時「查回來的貨號」屬於**另一箱**, 而復原路徑會把它記到這一箱上。
+  //    ✅ 改成直接用 `fields.epino`。
+  //    ⛔ ~~兩個宣稱合併成一個, 那個類別就消失了~~ —— **寫寬了**(code-reviewer R3):
+  //      它**從三條字串縮成兩條**, 沒有消失。剩下的一對是 `fields.epino`(查/送)
+  //      vs `shipment-actions.ts` 落庫用的 `row.shipmentReference`,
+  //      而**它們今天相等靠的是 `HCT_MAX.orderNo = 30 > 6`(`take()` 對 6 碼是恆等), 不是結構**
+  //      ⇒ 🛑 格式閘哪天放寬, 那一對就會分岔(而 `hct-trans-data.ts` 那裡自己寫著
+  //        「`take` 留著是最後一層」—— 那句與這裡是同一件事的兩端)。
+  //    📌 這仍然是**刪一個參數**不是加一道閘:能刪掉的不一致, 不要用斷言去守。
 };
 
 /**
@@ -100,7 +110,7 @@ export async function runHctSubmit(input: RunHctSubmitInput): Promise<FlowResult
   }
 
   if (decision.action === 'query_first') {
-    const q = await queryEdelno(input.deps, input.epino);
+    const q = await queryEdelno(input.deps, input.fields.epino);
     if (q.kind === 'disabled') return { kind: 'disabled' };
     if (q.kind === 'found') return { kind: 'recovered', requestId: q.edelno, raw: q.raw };
     // 🔴 `not_found` 與 `unknown` **都停下來** —— 而它們停的理由不同, 所以訊息不同。

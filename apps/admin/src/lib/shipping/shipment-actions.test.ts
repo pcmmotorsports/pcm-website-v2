@@ -686,3 +686,48 @@ describe('⟦ship-HCTUNKNOWNSTUCK⟧ 片 B · 空證詞【不得】走到 RPC', 
     expect(msg).toContain('兩箱');
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+// ⟦ship-EPINOUNIQUE⟧ 2026-09-06 —— 送給新竹的 `epino` 只能來自【箱】那一列
+//
+// 🛑🛑 **為什麼這一格必須在【這裡】而不是在 `hct-trans-data.test.ts`**:
+//    那一欄要的是箱號 `shipment_reference`;而 `orders_display_id_format` 自
+//    `20260729010000_m4b_e10_d0_display_id_expand.sql:76-79` 起**也接受 6 碼同字母表**
+//    ⇒ 🔴 **新式訂單編號與箱號在字串上完全一樣** ⇒ **純函式那一側沒有任何格式閘分得出來。**
+//    ⇒ 🎯 **唯一分得出來的是【值的來源】** —— 而來源只看得到這一支檔。
+//
+// 🔴 **它擋的那個改動長什麼樣**:有人看到參數叫 `shipmentReference` 而 row 上也有 `displayId`,
+//    或看到舊註解寫「我方單號」, 就把它改成訂單的 `displayId`。
+//    而 `shipments` 表**刻意沒有 `order_id`**(建表 migration `:169` 逐字「一箱可含多張訂單」)
+//    ⇒ **一張訂單兩箱是日常** ⇒ 同一天兩發同一個 `epino`
+//    ⇒ 新竹規格 P.8 逐字 `訂單編號 -> 同一個 ESDATE 不可重複`;更糟的分支是
+//      `新竹貨號+訂單編號 -> 當日重複上傳, 視同更正` ⇒ **第一箱的託運資料被第二箱蓋掉。**
+//
+// ⚠️⚠️ **射程照實寫, 而它比我第一版寫的窄**(codex R2 must-fix —— 它給了具體的繞法):
+//    本格讀的是**原始碼字面**, 不是行為。
+//    🛑 **它擋得住的只有【天真的那一種改法】** —— 直接把 `row.shipmentReference` 換成 `row.displayId`。
+//    ⛔ **擋不住的**(codex 給的那一發, 我照著讀了一次確認它成立):
+//      在那 300 字視窗**之外**先把訂單編號存進一個變數, 再讓這一行以某個條件回傳那個變數
+//      ⇒ **`shipmentReference: row.shipmentReference` 這個字面還在、`displayId` 也不在視窗裡**
+//      ⇒ 🛑 **兩道斷言照樣綠, 而實際送出去的已經是訂單編號。**
+//    ⇒ 📌 **源碼字面的守門對「換一個寫法」天生失明** —— 這不是把視窗調大能修的,
+//      調大只會換一組繞法。**寫在這裡, 不要讓下一個人以為這一格是密的。**
+//    ⇒ 🎯 **真正密的那一道會是【型別】**(讓這個值只能由讀 `shipments` 那一列的碼構造出來),
+//      而**本片沒有做** —— 那要動 repository 的型別, 範圍比這一片大。**這是已知缺口。**
+describe('⟦ship-EPINOUNIQUE⟧ epino 的來源(源碼層釘樁)', () => {
+  it('🔴 送新竹的欄位是用【箱那一列的 shipment_reference】組的, 不是訂單的 displayId', () => {
+    const idx = ACTIONS.indexOf('buildHctTransData({');
+    expect(idx, 'buildHctTransData 的呼叫不見了 ⇒ 本格失去判別力, 不是通過').toBeGreaterThan(-1);
+    const call = ACTIONS.slice(idx, idx + 300);
+    expect(call, '送給新竹的 epino 不是從箱那一列拿的 —— 見本段檔頭').toContain(
+      'shipmentReference: row.shipmentReference',
+    );
+    // 🔵 負對照:同一段裡不得出現 `displayId`(那正是要擋的那個改動的字面)。
+    expect(call, '那一段出現了 displayId ⇒ 有人把來源換成訂單編號了').not.toContain('displayId');
+  });
+
+  it('🟢 分母自檢:那個字串真的在這支檔裡(不在的話上面那格是在量一個不存在的東西)', () => {
+    expect(ACTIONS).toContain('buildHctTransData');
+    expect(ACTIONS).toContain('row.shipmentReference');
+  });
+});
