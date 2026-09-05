@@ -33,6 +33,19 @@ if [ "${1:-}" = "--selftest" ]; then
   printf 'CREATE OR REPLACE FUNCTION public.foo() RETURNS void LANGUAGE sql AS $f$ SELECT 2 $f$;\n' > "$FX/20200102000000_redef.sql"
   printf 'CREATE OR REPLACE FUNCTION public.bar() RETURNS void LANGUAGE sql AS $f$ SELECT 3 $f$;\n' > "$FX/20200103000000_new.sql"
   printf 'CREATE TABLE IF NOT EXISTS public.t (id int);\n' > "$FX/20200104000000_ine.sql"
+  # ── 🔴 規則①【具名例外】兩格(2026-09-06;主視窗 -f8 裁)──────────────────
+  #    兩個世界**只差一行標記** —— 少了第二格,「它會放行」與「它對誰都放行」印同一個字。
+  # 🔴 **fixture 形狀是選過的**:用 `CREATE INDEX IF NOT EXISTS` 而不是 `CREATE TABLE` ——
+  #    index 不可授權、也不觸發規則④(建表要 GRANT)⇒ **這三支檔只違反規則①**
+  #    ⇒ 📌 這樣 rc 才答得出「規則① 放行了沒」;用 TABLE 的話 rc 會被別的規則帶著跑,
+  #      而那三格會**看起來在測例外, 實際上在測別的規則**(2026-09-06 當場踩到)。
+  printf -- '-- pcm:rule1-exception: rollback 保留欄位與序列 ⇒ 重貼要冪等;型別由前置閘逐欄擋\nBEGIN;\nCREATE INDEX IF NOT EXISTS ix_t ON public.t (id);\nCOMMIT;\n' \
+    > "$FX/20200106000000_ine_exempt.sql"
+  printf 'BEGIN;\nCREATE INDEX IF NOT EXISTS ix_t ON public.t (id);\nCOMMIT;\n' \
+    > "$FX/20200106100000_ine_plain.sql"
+  #    🔴 而【標記寫錯字】也要照樣紅 —— 一個近似的標記若也能放行, 那道尺就不是在讀標記。
+  printf -- '-- pcm:rule1-exemption: 拼錯了\nBEGIN;\nCREATE INDEX IF NOT EXISTS ix_t ON public.t (id);\nCOMMIT;\n' \
+    > "$FX/20200107000000_ine_typo.sql"
   printf 'CREATE OR REPLACE FUNCTION public.x-y() RETURNS void LANGUAGE sql AS $f$ SELECT 4 $f$;\n' > "$FX/20200105000000_badname.sql"
   printf 'CREATE OR REPLACE FUNCTION public.foo() RETURNS void LANGUAGE sql AS $f$ SELECT 5 $f$;\n' > "$FX/20200100000000_before_base.sql"
   printf 'CREATE OR REPLACE FUNCTION public.ghost() RETURNS void LANGUAGE sql AS $f$ SELECT 6 $f$;\n' > "$FX/20200106000000_ghost_real.sql"
@@ -75,6 +88,15 @@ if [ "${1:-}" = "--selftest" ]; then
   check 20200102000000_redef.sql          '合法,不紅'          '新物件'    '重定義既有函式 ⇒ 綠'
   check 20200103000000_new.sql            '新物件'             '合法,不紅' '真新物件用 OR REPLACE ⇒ 紅'
   check 20200104000000_ine.sql            'IF NOT EXISTS 命中' ''          'IF NOT EXISTS ⇒ 照紅'
+  check 20200106000000_ine_exempt.sql     '規則①【具名例外】'  'IF NOT EXISTS 命中' '有 pcm:rule1-exception ⇒ 放行而【印出來】'
+  check 20200107000000_ine_typo.sql       'IF NOT EXISTS 命中' '規則①【具名例外】' '標記拼錯 ⇒ 不算例外, 照紅'
+  # 🔴🔴 **上面三格只比【印了什麼】—— 而放行與否住在 rc 裡。**
+  #    一個「印了例外那一行、而 rc 仍是 1」的實作會讓上面全過, 而閘照樣擋人。
+  #    ⇒ 📌 這兩格是那三格的證人:同一組檔, 比的是 rc。
+  n=$((n+1)); bash "$SELF" "$FX/20200106100000_ine_plain.sql" >/dev/null 2>&1
+  [ "$?" = "1" ] || { echo "❌ 規則①例外 rc-a:無標記的 IF NOT EXISTS 竟然 rc=0 ⇒ 那道規則沒在擋"; fail=1; }
+  n=$((n+1)); bash "$SELF" "$FX/20200106000000_ine_exempt.sql" >/dev/null 2>&1
+  [ "$?" = "0" ] || { echo "❌ 規則①例外 rc-b:有標記卻仍 rc≠0 ⇒ 例外只印了字, 沒有真的放行"; fail=1; }
   check 20200105000000_badname.sql        '解析失敗'           ''          '爛名字 ⇒ fail-closed 紅'
   check 20200100000000_before_base.sql    '新物件'             ''          '定義只在【更晚】的檔 ⇒ 此刻仍是新物件 ⇒ 紅(時間方向)'
   check 20200106000000_ghost_real.sql     '新物件'             '合法,不紅' '更早檔只在字串裡提到它 ⇒ 不算定義 ⇒ 紅(剝 dollar-quote)'
@@ -184,6 +206,45 @@ if [ "${1:-}" = "--selftest" ]; then
   if ! bash "$SELF" "$FX/20220202000000_r6_ok.sql" >/dev/null 2>&1; then
     echo "❌ 規則⑥:正確的 RAISE 被判紅 ⇒ 該綠沒綠(這種閘會被關掉)"; fail=1
   fi
+  # ══ 2026-09-06 補四格 —— 舊 parser 對【正確的碼】叫過, 而 selftest 沒有一格看得到 ══
+  # 🔴 格 r6-c:參數裡有【巢狀逗號】(COALESCE(a, b))⇒ 必須綠。舊版在這裡誤報。
+  printf 'BEGIN;\nDO $d$ BEGIN RAISE EXCEPTION %s, COALESCE(v_x, %s); END $d$;\nCOMMIT;\n' \
+    "'一個佔位 %'" "'(讀不到)'" > "$FX/20220204000100_r6_nested_comma.sql"
+  n=$((n+1))
+  if ! bash "$SELF" "$FX/20220204000100_r6_nested_comma.sql" >/dev/null 2>&1; then
+    echo "❌ 規則⑥ r6-c:巢狀逗號被數成兩個參數 ⇒ 對正確的碼叫(舊 parser 的病)"; fail=1
+  fi
+  # 🔴 格 r6-d:跨行多段字串串接 + 三參數 + USING ⇒ 必須綠。
+  cat > "$FX/20220204000200_r6_multiline_ok.sql" <<'R6OK'
+BEGIN;
+DO $d$ BEGIN
+  RAISE EXCEPTION 'a % b % c %% d'
+                  ' e %',
+    v1, v2, v3
+    USING ERRCODE = 'P0001', CONSTRAINT = 'x';
+END $d$;
+COMMIT;
+R6OK
+  n=$((n+1))
+  if ! bash "$SELF" "$FX/20220204000200_r6_multiline_ok.sql" >/dev/null 2>&1; then
+    echo "❌ 規則⑥ r6-d:跨行多段字串 + USING 被判紅 ⇒ 該綠沒綠"; fail=1
+  fi
+  # 🔴 格 r6-e:同樣跨行, 而【少一個佔位】⇒ 必須紅。少了這一格, r6-d 可能只是「什麼都不報」。
+  cat > "$FX/20220204000300_r6_multiline_bad.sql" <<'R6BAD'
+BEGIN;
+DO $d$ BEGIN
+  RAISE EXCEPTION 'a % b %'
+                  ' c',
+    v1, v2, v3
+    USING ERRCODE = 'P0001';
+END $d$;
+COMMIT;
+R6BAD
+  n=$((n+1))
+  if bash "$SELF" "$FX/20220204000300_r6_multiline_bad.sql" >/dev/null 2>&1; then
+    echo "❌ 規則⑥ r6-e:跨行而少一個佔位卻沒被抓到 ⇒ 42601 那一族仍會漏"; fail=1
+  fi
+
   # 🔬 負對照 B:帶 USING 的兩佔位兩參數 ⇒ 必須綠。**這一格是這道閘存在的前提** ——
   #    沒排除 USING 的版本會把 ERRCODE/CONSTRAINT/DETAIL 數成三個參數而報紅。
   # 🔴🔴 **而這一格的靶【要兩道同時拿掉才殺得死】, 那是我實測出來的**(2026-09-05):
@@ -202,7 +263,7 @@ if [ "${1:-}" = "--selftest" ]; then
   if bash "$SELF" "$FX/20220204000000_r6_missing_arg.sql" >/dev/null 2>&1; then
     echo "❌ 規則⑥:有佔位而零參數卻回 0 ⇒ 只抓到 too many、抓不到 too few"; fail=1
   fi
-  [ "$fail" = "0" ] && echo "✅ migration-static-checks --selftest $n/$n(規則①雙向 + 規則②雙向 + 規則③雙向 + 規則⑤八格 + 規則⑥四格 + 多檔雙向)"
+  [ "$fail" = "0" ] && echo "✅ migration-static-checks --selftest $n/$n(規則①雙向含具名例外三格與 rc 兩格 + 規則②雙向 + 規則③雙向 + 規則⑤八格 + 規則⑥七格 + 多檔雙向)"
   exit "$fail"
 fi
 
@@ -418,13 +479,36 @@ echo "── ① CREATE … IF NOT EXISTS 一律禁;OR REPLACE 只准【重定�
 #    歷史上「新函式用 OR REPLACE」是常態寫法,不是 1 筆意外 —— 本規則從此紅的是【新檔】,舊檔照 ④ 的處置。
 INE_HITS=$(grep -niE '^[[:space:]]*create[[:space:]].*if[[:space:]]+not[[:space:]]+exists' "$STRIPPED" || true)
 R1_OK=1
+
+# ── 🔴🔴 規則① 的【具名例外】(2026-09-06;主視窗 `-f8` 裁「甲, 而不是裸的甲」)───────
+#
+# 為什麼有這一格:`20260905200000` 的 rollback **刻意保留欄位與序列**(那兩欄裡是
+#    「已經寄出去的信實際說了什麼」, 沒有第二個來源)⇒ **不冪等就永遠重貼不了**
+#    (那是 codex R1 must-fix #6)。⇒ 規則① 與那條 must-fix **直接對撞**。
+#
+# 🛑 **而例外要有【機器認得的形狀】, 不是一句註解** —— 照 `pcm:never-apply` 的前例:
+#      -- pcm:rule1-exception: <理由>
+#    ⚠️ **兩件事這道例外【證不到】, 寫在這裡免得它變成免責貼紙**:
+#      · 它**不驗那個理由是真的** —— 它只保證「有人具名寫下了理由」
+#      · 它**不代表 `IF NOT EXISTS` 在這支檔裡是安全的** ——
+#        安全要由那支檔**自己的前置閘**提供(本例是逐欄比對型別的 ②-b)
+#    ⇒ 📌 **它把一個【靜默的違規】換成一個【留下名字與理由的違規】。只有這樣而已。**
+# 🔵 而它**印一行**, 不靜默 —— 一個看不見的例外, 與沒有規則是同一件事。
+R1_EXCEPTION=$(grep -iE -- '^--[[:space:]]*pcm:rule1-exception:[[:space:]]*.+' "$F" | head -1 || true)
 # 🔴 規則③要用的:規則①【已經在算】哪些 OR REPLACE 是新物件 ⇒ 直接數它, 不另外發明一套判斷。
 #    (2026-08-29 線G 收窄第③格時加。為什麼要收窄, 見第③格那一段。)
 R1_NEWOBJ=0
-if [ -n "$INE_HITS" ]; then
+if [ -n "$INE_HITS" ] && [ -n "$R1_EXCEPTION" ]; then
+  echo "⚠️ 規則①【具名例外】—— $(printf '%s' "$R1_EXCEPTION" | sed 's/^--[[:space:]]*pcm:rule1-exception:[[:space:]]*//')"
+  echo "   ⇒ 本檔的 IF NOT EXISTS / 新物件 OR REPLACE **不擋**, 而它們仍然列在下面給人看:"
+  echo "$INE_HITS" | sed 's/^/     /'
+  echo "   🛑 這【不是】「它們安全」—— 安全要由本檔自己的前置閘提供。這一行只證明有人具名寫下了理由。"
+elif [ -n "$INE_HITS" ]; then
   echo "🔴 IF NOT EXISTS 命中(剝註解後):"; echo "$INE_HITS" | sed 's/^/     /'
   echo "   ⇒ 撞名要當場紅,不要靜靜跳過。跳過之後,你的 REVOKE 與斷言會對著那個既有物件跑"
   echo "      而且很可能通過 —— 拿到綠燈,而這支 migration 什麼都沒建。"
+  echo "   🔵 若這是刻意的(例如 rollback 保留物件 ⇒ 重貼要冪等), 加一行具名例外:"
+  echo "      -- pcm:rule1-exception: <理由>"
   RC=1; R1_OK=0
 fi
 # 從一行 `CREATE [OR REPLACE] <型別> <名字> … [ON <目標>]` 抽出 型別 / schema.名字 / ON 目標。
@@ -492,10 +576,19 @@ if [ -n "$OR_HITS" ]; then
     if [ -n "$FOUND" ]; then
       echo "   ⚠️ :$LNO OR REPLACE ${OTYPE} ${ONAME}${OTARGET:+ ON $OTARGET} = 重定義(最早見 ${FOUND})⇒ 合法,不紅"
     else
-      echo "🔴 :$LNO CREATE OR REPLACE ${OTYPE} ${ONAME}${OTARGET:+ ON $OTARGET} —— 同身分在更早的 migration 查無定義 ⇒ 它是【新物件】"
+      # 🔴🔴 **標籤由【結果】決定, 不無條件印**(2026-09-06 當場踩到)——
+      #    這一行原本寫死開頭那個紅圈, 而具名例外成立時它其實是**過的**(rc=0)
+      #    ⇒ 📌 一個看畫面數紅圈的人(**包括我自己**)會判成「四格紅」, 而 rc 是 0。
+      #    ⇒ 🎯 本 repo 記過同一句:「判定標籤不由結果決定」;而它今天長在這道閘自己身上。
+      if [ -n "$APPLIED_EXEMPT" ] || [ -n "$R1_EXCEPTION" ]; then _r1mark='   ⚠️'; else _r1mark='🔴'; fi
+      echo "$_r1mark :$LNO CREATE OR REPLACE ${OTYPE} ${ONAME}${OTARGET:+ ON $OTARGET} —— 同身分在更早的 migration 查無定義 ⇒ 它是【新物件】"
       echo "   ⇒ 新物件一律裸 CREATE:撞名要當場紅。OR REPLACE 會把撞名靜靜蓋掉,"
       echo "      而你的 REVOKE 與斷言照樣綠 —— 拿到綠燈,卻蓋掉了一個你不知道存在的東西。"
-      if [ -n "$APPLIED_EXEMPT" ]; then echo "   ⚠️ 已宣告 applied-before-commit ⇒ 本條轉警告"; else RC=1; R1_OK=0; fi
+      if [ -n "$APPLIED_EXEMPT" ]; then echo "   ⚠️ 已宣告 applied-before-commit ⇒ 本條轉警告"
+      elif [ -n "$R1_EXCEPTION" ]; then
+        # 🔵 具名例外(2026-09-06)⇒ 轉警告而**照樣印出來**。理由與射程見上面 R1_EXCEPTION 那一段。
+        echo "   ⚠️ 已宣告 pcm:rule1-exception ⇒ 本條轉警告(它不證明這一行安全, 只證明有人具名寫下理由)"
+      else RC=1; R1_OK=0; fi
       # 🔴 只數【可授權】那四種(trigger 沒有 ACL, 列進斷言清單反而會 to_regclass 找不到而紅)。
       case "$(printf '%s' "$OTYPE" | tr 'A-Z' 'a-z')" in
         function|view|'materialized view'|table) R1_NEWOBJ=$((R1_NEWOBJ+1)) ;;
@@ -749,18 +842,104 @@ echo "── ⑥ RAISE 的佔位數 vs 參數個數(2026-09-05 加)────�
 #    · `%` 出現在**字串中間而不是佔位**的情況(例如寫百分比)會被誤數 ⇒ 那時請改寫成 `%%`
 #    · 它**不驗** `RAISE` 會不會真的被執行到
 _raise_bad=$(RAISE_SRC="$F" python3 - <<'PYEOF' 2>/dev/null || echo "PYFAIL"
+# 🔴🔴 **[2026-09-06 訂正:本檢查器【對正確的碼叫過】—— 而叫的對象是它作者自己的下一支片]**
+#    ⛔ ~~舊版用 `re.split(r",(?![^()]*\))", args)` 切參數~~ —— 那個 lookahead **對巢狀括號無效**:
+#       `COALESCE(v_md5, '(讀不到)')` 裡面那個逗號會被當成參數分隔 ⇒ 一參數被數成兩個。
+#       而**跨行的多段字串串接 + 多參數**也數不齊(逐行式的正規表示式對不上)。
+#    🔬 **實錘**:`20260905440000` 六處全部誤報, 而那支在拋棄式 PG 17.10 上 **COMMIT rc=0** ——
+#       🛑 若真有佔位不符, **42601 會在編譯期炸掉整個交易**, 而它沒有 ⇒ 那六個紅是假的。
+#    ✅ 改成**手寫掃描**:括號深度 + 單引號字串(含 `''` 跳脫)都認得, 掃到深度 0 的分號為止,
+#       `USING` 也只認深度 0 且不在字串內的那一個。
+#    📌 **一道對正確的東西叫的閘, 不是比較嚴格 —— 它在訓練大家忽略它。**(那句話上面就寫著,
+#       而寫它的人四十分鐘後就成了它的受害者。)
 import io, os, re
+import io, os, re
+
+def _scan(s, i):
+    """從 i 開始, 回傳 (該 RAISE 到分號為止的整段, 分號後的位置)。
+    括號深度 + 單引號字串都認得(SQL 的 '' 是跳脫的單引號)。"""
+    depth = 0; q = False; j = i
+    while j < len(s):
+        c = s[j]
+        if q:
+            if c == "'":
+                if j + 1 < len(s) and s[j+1] == "'":
+                    j += 2; continue
+                q = False
+        else:
+            if c == "'": q = True
+            elif c == '(': depth += 1
+            elif c == ')': depth -= 1
+            elif c == ';' and depth == 0:
+                return s[i:j], j + 1
+        j += 1
+    return s[i:], len(s)
+
+def _split_top(s):
+    """在【括號深度 0 且不在字串內】的逗號上切。"""
+    out = []; depth = 0; q = False; cur = ''
+    k = 0
+    while k < len(s):
+        c = s[k]
+        if q:
+            cur += c
+            if c == "'":
+                if k + 1 < len(s) and s[k+1] == "'":
+                    cur += s[k+1]; k += 2; continue
+                q = False
+        else:
+            if c == "'": q = True; cur += c
+            elif c == '(': depth += 1; cur += c
+            elif c == ')': depth -= 1; cur += c
+            elif c == ',' and depth == 0:
+                out.append(cur); cur = ''
+            else: cur += c
+        k += 1
+    out.append(cur)
+    return [x for x in (y.strip() for y in out) if x]
+
+def _cut_using(s):
+    """切掉 USING 子句 —— 只認【深度 0 且不在字串內】的那個 USING。"""
+    depth = 0; q = False; k = 0
+    while k < len(s):
+        c = s[k]
+        if q:
+            if c == "'":
+                if k + 1 < len(s) and s[k+1] == "'": k += 2; continue
+                q = False
+        else:
+            if c == "'": q = True
+            elif c == '(': depth += 1
+            elif c == ')': depth -= 1
+            elif depth == 0 and s[k:k+5].upper() == 'USING' and (k == 0 or not s[k-1].isalnum()) \
+                 and (k+5 >= len(s) or not s[k+5].isalnum()):
+                return s[:k]
+        k += 1
+    return s
+
+def bad_raises(s):
+    bad = []
+    for m in re.finditer(r'\bRAISE\s+(?:EXCEPTION|WARNING|NOTICE)\b', s, re.I):
+        seg, _ = _scan(s, m.end())
+        seg = _cut_using(seg)
+        parts = _split_top(seg)
+        if not parts:
+            continue
+        lit = parts[0]
+        # 訊息那一格必須是字串常數(可以是多段串接);不是 ⇒ 那是 RAISE 變數之類, 跳過
+        if not lit.lstrip().startswith("'"):
+            continue
+        ph = lit.replace('%%', '').count('%')
+        n = len(parts) - 1
+        if ph != n:
+            bad.append(f"{s[:m.start()].count(chr(10))+1}:佔位{ph}/參數{n}")
+    return bad
+
+# 🔴🔴 **這三行不可以少** —— 2026-09-06 我換 parser 時把 `__main__` 那段一起剝掉了,
+#    ⇒ 檢查器【定義了函式而什麼都不印】⇒ `_raise_bad` 恆空 ⇒ **這道閘對所有東西都印綠**。
+#    🛑 而 selftest 抓到了它(三格同時紅)—— 📌 **那就是 selftest 存在的全部理由。**
 s = io.open(os.environ['RAISE_SRC'], encoding='utf-8').read()
-bad = []
-pat = r"RAISE (?:EXCEPTION|WARNING|NOTICE)\s+((?:'(?:[^']|'')*'\s*)+)(?:,\s*([^;]*?))?(?:\s+USING\b[^;]*)?;"
-for m in re.finditer(pat, s, re.S):
-    lit = m.group(1)
-    args = re.split(r"\bUSING\b", (m.group(2) or '').strip())[0].strip()
-    ph = lit.replace('%%', '').count('%')
-    n = 0 if not args else len([a for a in re.split(r",(?![^()]*\))", args) if a.strip()])
-    if ph != n:
-        bad.append(f"{s[:m.start()].count(chr(10))+1}:佔位{ph}/參數{n}")
-print(' '.join(bad))
+print(' '.join(bad_raises(s)))
 PYEOF
 )
 if [ "$_raise_bad" = "PYFAIL" ]; then

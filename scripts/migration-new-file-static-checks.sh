@@ -50,10 +50,56 @@ SELF="$HERE/$(basename "$0")"
 #    而一支 untracked 的檔按任何定義都是新增的。放寬的是「新增」的**觀測方式**,不是它的定義。
 # ⚠️ 對 pre-commit 鏈**零影響**:lint-staged 只會把 **staged** 的檔接在後面
 #    ⇒ untracked 那一支根本不會被傳進來。這一改只讓**手動呼叫**看得見它們。
-is_new() { # $1=path → 0=新增的(staged 新增 或 未追蹤)
-  git diff --cached --name-only --diff-filter=A -- "$1" 2>/dev/null | grep -q . && return 0
+is_new() { # $1=path → 0=【要掃的】(staged 新增或修改 / 未追蹤)
+  # 🔴🔴 **2026-09-06 由 `A` 放寬成 `AM`(主視窗 -f8 裁)—— 而放寬與 `already_landed` 【成對】。**
+  #    病灶的另一半:`--diff-filter=A` 只看「新檔」⇒ **新內容住在【舊檔】裡時它看不到**。
+  #    實錘:`20260905200000` 從 B-2 那顆起被改了 500+ 行(加欄、加 trigger、換判準),
+  #    而它對 git 是「修改」⇒ 📌 **那道閘從來沒對它跑過一次**, 而它**還沒 apply**。
+  #    ⇒ 🎯 「新」有兩個意思:**新的檔** 與 **新的內容**。舊版只看得到第一種。
+  # 🛑 **而這【不是】把 Sean 2026-08-23「甲:只擋新增的、舊檔一律豁免」翻掉** ——
+  #    他要豁免的是**歷史檔**(改一個字不該被新規則追殺), 而歷史檔的判準現在由
+  #    `already_landed`(在 APPLIED.tsv 第一欄 / 已在 origin/dev)提供, **比「是不是新檔」準**。
+  #    ⇒ 兩者成對:AM 讓「舊檔裡的新內容」看得見, already_landed 讓「真的歷史檔」照樣豁免。
+  git diff --cached --name-only --diff-filter=AM -- "$1" 2>/dev/null | grep -q . && return 0
   # `--others --exclude-standard` = 未追蹤且不被 .gitignore 忽略的檔
   git ls-files --others --exclude-standard -- "$1" 2>/dev/null | grep -q .
+}
+
+# ══ 🔴🔴 already_landed:**已經落地的檔一律不掃**(2026-09-06 線 -ship 加)══════════
+#
+# 🛑 **病灶**:`--diff-filter=A` 在一顆 **merge commit** 上, 會把
+#    **從 origin/dev 帶進來的每一支舊 migration 都算成「新增」** ——
+#    對這棵樹而言它們確實是第一次出現, 而**對專案而言它們早就在了、甚至早就貼進正式庫了**。
+#    ⇒ 📌 **「新」是相對於【誰】的?`--diff-filter=A` 答的是「相對於這一次 commit 的父」,**
+#      **而 Sean 2026-08-23 拍「甲:只擋新增的」講的是【相對於專案】。兩個新不是同一個新。**
+#
+# 🔴 **實錘**(2026-09-06):`-5b` merge `origin/dev` 那一顆 ⇒ 掃了 23 支「新增」的 .sql、
+#    紅 6 支, 而**六支全部早就在 `origin/dev` 上**;其中 `20260905210000` **已貼進正式庫**
+#    ⇒ 主視窗 `-f8` 判:改它的斷言清單 = 動已 apply 的 migration 本體(⟦01-LEDGERHASH1⟧ 乙類, **禁**)
+#    ⇒ 🎯 **那個紅【沒有任何合法的修法】** —— 它只能讓每一顆 merge commit 都卡住。
+#
+# ✅ 兩把尺, 任一命中就跳過(而**兩把都要有**:帳本答「貼了沒」, origin/dev 答「進主線了沒」):
+#    ① 版本號出現在 `supabase/APPLIED.tsv` 的**第一欄**(⚠️ 不是整檔 grep ——
+#       整檔 grep 會被註解裡提到的版本號餵飽)
+#    ② 那支檔**已經在 `origin/dev` 上存在**(`git cat-file -e`)
+# 🛑 **而這【不是】放寬**:一支**真的新**的 migration 兩把尺都不會命中 ⇒ 照掃。
+#    下面的 selftest 兩個世界就是在證這件事。
+already_landed() { # $1=path → 0=已落地(不該掃)
+  local base ver
+  base=$(basename "$1")
+  ver=${base%%_*}
+  case "$ver" in
+    # 🔴 版本號是 **14 位**(`YYYYMMDDHHMMSS`)—— ⛔ 我第一版只寫了 12 位
+    #    ⇒ 每一支真的 migration 都對不上 ⇒ `already_landed` 恆回「不是」⇒ **這一改整個沒生效**,
+    #    而畫面上它是綠的(閘照舊掃、照舊擋)。抓到它的是 selftest 那一格, 不是我。
+    20[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) : ;;
+    *) return 1 ;;                      # 檔名不是版本號開頭 ⇒ 不敢判, 照掃
+  esac
+  if [ -f supabase/APPLIED.tsv ] &&      awk -F'\t' -v v="$ver" '$1==v {found=1} END{exit !found}' supabase/APPLIED.tsv 2>/dev/null; then
+    return 0
+  fi
+  git cat-file -e "origin/dev:$1" 2>/dev/null && return 0
+  return 1
 }
 
 if [ "${1:-}" = "--selftest" ]; then
@@ -83,9 +129,20 @@ if [ "${1:-}" = "--selftest" ]; then
     if [ "$2" = "$3" ]; then echo "  PASS $1 (rc=$2)"
     else echo "  🔴 FAIL $1 —— rc=$2 但宣稱是 $3"; fail=1; fi
   }
-  # 🔴 該綠那格排前面(2026-08-23:兩格的自檢,先跑比較容易被跳過的那一格)。
+  # 🔴🔴 **2026-09-06 這一格的期望值反過來了 —— 而那是【契約改了】不是尺壞了。**
+  #    ⛔ ~~「舊檔(M)違規 ⇒ 跳過、放行 —— 這就是 Sean 的『甲』」rc=0~~
+  #    🛑 舊契約用「是不是新檔」代表「是不是歷史檔」, 而那個代理是錯的:
+  #      `20260905200000` 被改了 500+ 行、**還沒 apply**, 而它對 git 是「修改」⇒ 從來沒被掃過。
+  #    ✅ 新契約:**掃 A 與 M, 由 `already_landed` 決定誰是歷史檔**(見 is_new 那一段)。
+  #    ⇒ 這一格的 fixture 那支舊檔**不在帳本也不在 origin/dev** ⇒ 它不是歷史檔 ⇒ **該掃、該擋**。
+  #    🔵 而 Sean 的「甲」由下面那一格接住:**同一支檔 + 一行帳本 ⇒ 放行。**
   ( cd "$W" && bash "$SELF" supabase/migrations/20200101000000_old.sql >/dev/null 2>&1 )
-  cell "舊檔(M)違規 ⇒ 跳過、放行 —— 這就是 Sean 的「甲」" "$?" "0"
+  cell "舊檔(M)違規而【未落地】⇒ 照掃、擋(契約 2026-09-06 改)" "$?" "1"
+  # 🟢 Sean 的「甲」現在住在這裡:同一支檔, 只多一行帳本 ⇒ 它是歷史檔 ⇒ 放行。
+  ( cd "$W" && printf 'version\tsha\n20200101000000\tdeadbeef\n' > supabase/APPLIED.tsv )
+  ( cd "$W" && bash "$SELF" supabase/migrations/20200101000000_old.sql >/dev/null 2>&1 )
+  cell "🟢 同一支舊檔 + 一行帳本 ⇒ 放行(Sean 08-23「甲」的新落點)" "$?" "0"
+  ( cd "$W" && rm -f supabase/APPLIED.tsv )
   ( cd "$W" && bash "$SELF" supabase/migrations/20200202000000_new.sql >/dev/null 2>&1 )
   cell "新檔(A)違規 ⇒ 擋" "$?" "1"
   # 兩支一起餵:違規的那支【排在後面】—— 被安靜忽略的正是後面那些。
@@ -115,15 +172,37 @@ if [ "${1:-}" = "--selftest" ]; then
   cell "突變:同一支檔被 gitignore ⇒ 看不見 ⇒ 放行(證明擋它的是 untracked 那條)" "$?" "0"
   ( cd "$W" && rm -f .gitignore )
 
+  # ══ 🔴🔴 已落地的檔不掃(2026-09-06 線 -ship 加;主視窗 `-f8` 判「丙」)══════════
+  #    兩個世界, 而它們**只差一行帳本** —— 少了第二格, 「它會跳過」與「它對誰都跳過」印同一個字。
+  #    🛑 而第一格用的是**同一支違規檔**:證明跳過它的是【落地】那條, 不是它突然變乾淨了。
+  printf 'BEGIN;\nSELECT 1; COMMIT;\nSELECT 2;\nCOMMIT;\n' > "$W/supabase/migrations/20200505000000_landed_bad.sql"
+  ( cd "$W" && git add supabase/migrations/20200505000000_landed_bad.sql )
+  # 世界一:**不在**帳本、**不在** origin/dev ⇒ 照掃 ⇒ 擋
+  ( cd "$W" && bash "$SELF" supabase/migrations/20200505000000_landed_bad.sql >/dev/null 2>&1 )
+  cell "🔴 未落地的違規新檔 ⇒ 仍擋(這一改【不是】放寬)" "$?" "1"
+  # 世界二:同一支檔, 只多一行帳本 ⇒ 跳過 ⇒ 放行
+  ( cd "$W" && printf 'version\tsha\n20200505000000\tdeadbeef\n' > supabase/APPLIED.tsv )
+  ( cd "$W" && bash "$SELF" supabase/migrations/20200505000000_landed_bad.sql >/dev/null 2>&1 )
+  cell "已在 APPLIED.tsv 第一欄 ⇒ 不掃、放行(改它是被禁的, 那個紅沒有合法修法)" "$?" "0"
+  # 🔴 突變:版本號只出現在【第二欄】⇒ 必須【仍然擋】——
+  #    這一格在證那把尺讀的是第一欄, 不是整檔 grep(整檔 grep 會被註解裡的版本號餵飽)。
+  ( cd "$W" && printf 'version\tsha\nzzz\t20200505000000\n' > supabase/APPLIED.tsv )
+  ( cd "$W" && bash "$SELF" supabase/migrations/20200505000000_landed_bad.sql >/dev/null 2>&1 )
+  cell "突變:版本號只在第二欄 ⇒ 不算落地 ⇒ 仍擋(證明它讀的是第一欄)" "$?" "1"
+  ( cd "$W" && rm -f supabase/APPLIED.tsv )
+
   # ══ 🔴 「0」的兩態必須分得開 ═════════════════════════════════════════════
   #    · 有輸入而全都不是新增 ⇒ rc=0(照「甲」豁免)
   #    · 一個輸入都沒有       ⇒ rc=2(工具沒生效)—— 而舊版這一格也是 0
   ( cd "$W" && bash "$SELF" >/dev/null 2>&1 )
   cell "🔴 零參數 ⇒ rc=2(我沒去查), 不是 rc=0(查無)" "$?" "2"
+  # 🔵 對照要換一支【真的會被跳過】的檔 —— 契約改了之後,「舊檔」本身不再等於「跳過」。
+  ( cd "$W" && printf 'version\tsha\n20200101000000\tdeadbeef\n' > supabase/APPLIED.tsv )
   ( cd "$W" && bash "$SELF" supabase/migrations/20200101000000_old.sql >/dev/null 2>&1 )
-  cell "【對照】有輸入而全是舊檔 ⇒ rc=0(這一格才是「查無」)" "$?" "0"
+  cell "【對照】有輸入而全被跳過 ⇒ rc=0(這一格才是「查無」)" "$?" "0"
+  ( cd "$W" && rm -f supabase/APPLIED.tsv )
 
-  [ "$fail" = "0" ] && echo "✅ migration-new-file-static-checks --selftest $n/$n(A/M 雙向 + 多檔 + 該綠必綠 + untracked 雙向含突變 + 零參數兩態)"
+  [ "$fail" = "0" ] && echo "✅ migration-new-file-static-checks --selftest $n/$n(A/M 都掃 + 未落地舊檔照擋 + 帳本一行就放行 + 多檔 + 該綠必綠 + untracked 雙向含突變 + 零參數兩態 + 已落地跳過雙向含突變)"
   exit "$fail"
 fi
 
@@ -136,11 +215,18 @@ fi
 rc=0
 checked=0
 skipped_list=""
+landed_list=""
 _idx=0
 for f in "$@"; do
   _idx=$((_idx + 1))
   if ! is_new "$f"; then
     skipped_list="$skipped_list $f"
+    continue
+  fi
+  # 🔴 已落地的檔一律不掃, 而**印一行說出來** —— 靜默跳過與「掃過而沒事」在畫面上一樣。
+  if already_landed "$f"; then
+    landed_list="$landed_list $f"
+    printf '⏭️  已 apply / 已在 origin/dev, 不掃:%s\n' "$f"
     continue
   fi
   checked=$((checked + 1))
@@ -168,8 +254,14 @@ done
 
 # 🔴 跳過了什麼一律講出來(no silent caps):不講,下一個人會以為這一發把所有 .sql 都看過了。
 if [ -n "$skipped_list" ]; then
-  printf '⚠️ 略過(不是這次新增的檔,照 Sean 2026-08-23「甲」豁免):\n'
+  printf '⚠️ 略過(這次 commit 沒有動到的檔 —— 2026-09-06 起掃 A 與 M, 所以這裡只剩【沒動到】那一種):\n'
   for s in $skipped_list; do printf '   · %s\n' "$s"; done
+fi
+# 🔴 同一條紀律套在新的那一刀上:跳過幾支、是哪幾支, 都要說出來。
+if [ -n "$landed_list" ]; then
+  printf '⏭️  已落地而不掃(在 APPLIED.tsv 第一欄, 或已在 origin/dev 上):\n'
+  for s in $landed_list; do printf '   · %s\n' "$s"; done
+  printf '   🛑 這【不是】「它們沒問題」—— 是【現在改它們是被禁的】(已 apply 的 migration 本體不得動)。\n'
 fi
 # 🔴🔴 **「0」要分成兩態**(主視窗 `-48` 指名的第二格;而它就是今晚一直在講的那條):
 #    **【查無】與【我沒去查】不得壓成同一格。**
@@ -183,6 +275,6 @@ if [ "$_idx" -eq 0 ]; then
   printf '   用法:bash %s <file.sql> [more.sql ...]\n' "$0" >&2
   exit 2
 fi
-printf 'migration-new-file-static-checks:收到 %s 支、檢查了 %s 支新增的 .sql(其餘照「甲」豁免)\n' \
+printf 'migration-new-file-static-checks:收到 %s 支、檢查了 %s 支(新增或修改;已落地與沒動到的另計)\n' \
   "$_idx" "$checked"
 exit "$rc"

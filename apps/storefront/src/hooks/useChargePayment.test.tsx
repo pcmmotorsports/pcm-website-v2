@@ -208,6 +208,56 @@ describe('useChargePayment', () => {
     expect(chargeMock).toHaveBeenCalledTimes(2);
   });
 
+  /**
+   * 🔴🔴 **⟦b4-BANKCHARGESCARD⟧ 片 1 的新變體 —— 而它原本【零測試】**(codex 關卡 2 must-fix)。
+   *
+   * 🛑 為什麼窮舉 typecheck 不夠:那道 `res satisfies never` 只證「有人寫了一個分支」,
+   *    **證不到那個分支做了什麼** ⇒ 📌 把它改成清車 / 換 session / 顯示 `res.message`,
+   *    **action 那邊的測試仍然全綠** —— 而這是**錢與重複建單**的行為。
+   * ⚠️ 而本組釘的是**今天刻意的中間狀態**(走與失敗相同的路);
+   *    front 片 2 接手時**這幾格會紅, 而那是對的** —— 到時連同這段註解一起改。
+   */
+  it('🔴 awaiting_remittance:不清車、釋放鎖、顯示【通用】失敗文案(不是 action 那句)', async () => {
+    setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+    chargeMock.mockResolvedValue({
+      ok: false,
+      payment: 'awaiting_remittance',
+      displayId: 'PCM-2026-0001',
+      message: '訂單已成立,尚未付款;請依匯款資訊完成轉帳',
+    });
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit(ARGS);
+    });
+    expect(result.current.state.status).toBe('error');
+    // 🔴🔴 **錯誤畫面上不得出現「已成立」** —— 前後矛盾比通用錯誤更糟(主視窗 2026-09-05 裁)。
+    expect((result.current.state as { message: string }).message).not.toContain('已成立');
+    // 🔵 而單號也不印在畫面上(它在 server 那行 log 裡)
+    expect(JSON.stringify(result.current.state)).not.toContain('PCM-2026-0001');
+    expect(cartRef.current.clear).not.toHaveBeenCalled();
+  });
+
+  it('🔴 awaiting_remittance:鎖有釋放 ⇒ 他【再按一次會再送一發】(而那正是片 2 要修的)', async () => {
+    // 🛑 這一格不是在慶祝這個行為, 是把它【釘出來】:
+    //    今天他以為沒買成 ⇒ 再按 ⇒ 再建一張。「不擋第二張」是被授權的形狀,
+    //    而「他以為沒買成」不是 —— 片 2 接住這個終態之後, 這一格要改。
+    setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+    chargeMock.mockResolvedValue({
+      ok: false,
+      payment: 'awaiting_remittance',
+      displayId: 'PCM-2026-0001',
+      message: 'm',
+    });
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit(ARGS);
+    });
+    await act(async () => {
+      await result.current.submit(ARGS);
+    });
+    expect(chargeMock).toHaveBeenCalledTimes(2);
+  });
+
   it('缺 variantId → 整單拒、零 action、釋放鎖', async () => {
     setCart([{ productId: 'p1', qty: 1 }]);
     const { result } = renderHook(() => useChargePayment());
