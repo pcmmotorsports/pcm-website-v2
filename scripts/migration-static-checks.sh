@@ -167,7 +167,42 @@ if [ "${1:-}" = "--selftest" ]; then
   if ! bash "$SELF" "$FX/20210101000000_r2_clean.sql" "$FX/20210102000000_r2_trailing_comment.sql" >/dev/null 2>&1; then
     echo "❌ 多檔:兩支都乾淨卻回非 0 ⇒ 該綠沒綠"; fail=1
   fi
-  [ "$fail" = "0" ] && echo "✅ migration-static-checks --selftest $n/$n(規則①雙向 + 規則②雙向 + 規則③雙向 + 規則⑤八格 + 多檔雙向)"
+  # ── 規則⑥的證人(2026-09-05 加;母題同規則⑤:新規則沒進 selftest ⇒ 日後退化仍印 N/N)──
+  # 🔴 **四格, 而其中兩格是負對照** —— 一道只證「該紅有紅」的閘,
+  #    在它變成「什麼都紅」的那天照樣印全過。
+  printf 'BEGIN;\nDO $d$ BEGIN RAISE EXCEPTION %s, SQLERRM; END $d$;\nCOMMIT;\n' "'壞掉(%%)'" > "$FX/20220201000000_r6_pct_literal.sql"
+  printf 'BEGIN;\nDO $d$ BEGIN RAISE EXCEPTION %s, SQLERRM; END $d$;\nCOMMIT;\n' "'好的(%)'" > "$FX/20220202000000_r6_ok.sql"
+  printf 'BEGIN;\nDO $d$ BEGIN RAISE EXCEPTION %s, 1, 2 USING ERRCODE = %s, CONSTRAINT = %s, DETAIL = %s; END $d$;\nCOMMIT;\n' "'兩格(% 與 %)'" "'P0001'" "'c'" "'d'" > "$FX/20220203000000_r6_using.sql"
+  printf 'BEGIN;\nDO $d$ BEGIN RAISE EXCEPTION %s; END $d$;\nCOMMIT;\n' "'一個佔位(%)沒給參數'" > "$FX/20220204000000_r6_missing_arg.sql"
+  # 🔴 該紅:字面百分號 ⇒ 佔位 0 而參數 1(那就是貼板 29 貼下去紅掉的那一行)
+  n=$((n+1))
+  if bash "$SELF" "$FX/20220201000000_r6_pct_literal.sql" >/dev/null 2>&1; then
+    echo "❌ 規則⑥:'(%%)' + 1 參數卻回 0 ⇒ 42601 那一族抓不到"; fail=1
+  fi
+  # 🔬 負對照 A:一個佔位一個參數 ⇒ 必須綠(否則這道閘對【正確的碼】叫)
+  n=$((n+1))
+  if ! bash "$SELF" "$FX/20220202000000_r6_ok.sql" >/dev/null 2>&1; then
+    echo "❌ 規則⑥:正確的 RAISE 被判紅 ⇒ 該綠沒綠(這種閘會被關掉)"; fail=1
+  fi
+  # 🔬 負對照 B:帶 USING 的兩佔位兩參數 ⇒ 必須綠。**這一格是這道閘存在的前提** ——
+  #    沒排除 USING 的版本會把 ERRCODE/CONSTRAINT/DETAIL 數成三個參數而報紅。
+  # 🔴🔴 **而這一格的靶【要兩道同時拿掉才殺得死】, 那是我實測出來的**(2026-09-05):
+  #    排除 USING 有**兩道**:regex 裡的 `(?:\s+USING\b[^;]*)?` 與後面那句 `re.split(USING)`。
+  #    · 只拿掉其中**一道** ⇒ 本格**照樣綠**(另一道還擋著)
+  #    · **兩道同時拿掉** ⇒ 本格**當場紅**(逐字:「帶 USING 的正確 RAISE 被判紅」)
+  #    ⇒ 📌 **雙保險讓單一突變殺不死** —— 而那不是壞事(碼更穩),
+  #       **壞的是我原本以為「拿掉一道還綠」證明了這一格沒用。**
+  #    ⇒ 🛑 **一格突變全綠有兩種原因:斷言太弱, 或那個突變沒落在唯一的那條路上。**
+  n=$((n+1))
+  if ! bash "$SELF" "$FX/20220203000000_r6_using.sql" >/dev/null 2>&1; then
+    echo "❌ 規則⑥:帶 USING 的正確 RAISE 被判紅 ⇒ USING 子句被數成參數了"; fail=1
+  fi
+  # 🔴 另一個方向也要抓:佔位比參數多(42601 的另一半 too few)
+  n=$((n+1))
+  if bash "$SELF" "$FX/20220204000000_r6_missing_arg.sql" >/dev/null 2>&1; then
+    echo "❌ 規則⑥:有佔位而零參數卻回 0 ⇒ 只抓到 too many、抓不到 too few"; fail=1
+  fi
+  [ "$fail" = "0" ] && echo "✅ migration-static-checks --selftest $n/$n(規則①雙向 + 規則②雙向 + 規則③雙向 + 規則⑤八格 + 規則⑥四格 + 多檔雙向)"
   exit "$fail"
 fi
 
@@ -695,9 +730,57 @@ else
   echo "✅ 本檢查零命中 —— ⚠️ 意思是【本檔沒有這個形狀,或那一支已被具名豁免】,**不是「這支 view 安全」**"
 fi
 
+echo "── ⑥ RAISE 的佔位數 vs 參數個數(2026-09-05 加)────────────────────"
+# 🔴🔴 **為什麼有這一格**:2026-09-05 貼板 29 貼下去逐字紅
+#    `ERROR: 42601: too many parameters specified for RAISE`
+#    —— 作者寫了 `'…(%%)', SQLERRM` ⇒ `%%` 是**字面百分號**、佔位數 0, 而參數 1。
+#    🛑 它炸在 **PL/pgSQL 的編譯期**, 不是執行期 ⇒ **整支 BEGIN…COMMIT 回捲, 一行都沒生效**,
+#       而 Supabase SQL Editor 那一側只給一句 42601。
+#    ⇒ 📌 **三綠對它零判別力**(`.sql` 不進 typecheck/lint/vitest), 拋棄式 PG 只有
+#       **真的把那個 DO 區塊送進去編譯**才看得到 —— 而「抽出 CREATE FUNCTION 那段去跑」看不到。
+#
+# 🔴 **判準必須先切掉 `USING` 子句才數** —— 沒切的版本會把
+#    `USING ERRCODE = 'x', CONSTRAINT = 'y', DETAIL = 'z'` 數成三個參數
+#    ⇒ 對**六個完全正確的 RAISE** 報紅(2026-09-05 實測那六處)。
+#    📌 **一道對正確的東西叫的閘, 不是比較嚴格 —— 它在訓練大家忽略它。**
+#
+# 🛑 **本格證不到什麼**:它只比 `RAISE` 那一句的**字面**。
+#    · 動態組出來的訊息(字串串接後才含 `%`)它看不到
+#    · `%` 出現在**字串中間而不是佔位**的情況(例如寫百分比)會被誤數 ⇒ 那時請改寫成 `%%`
+#    · 它**不驗** `RAISE` 會不會真的被執行到
+_raise_bad=$(RAISE_SRC="$F" python3 - <<'PYEOF' 2>/dev/null || echo "PYFAIL"
+import io, os, re
+s = io.open(os.environ['RAISE_SRC'], encoding='utf-8').read()
+bad = []
+pat = r"RAISE (?:EXCEPTION|WARNING|NOTICE)\s+((?:'(?:[^']|'')*'\s*)+)(?:,\s*([^;]*?))?(?:\s+USING\b[^;]*)?;"
+for m in re.finditer(pat, s, re.S):
+    lit = m.group(1)
+    args = re.split(r"\bUSING\b", (m.group(2) or '').strip())[0].strip()
+    ph = lit.replace('%%', '').count('%')
+    n = 0 if not args else len([a for a in re.split(r",(?![^()]*\))", args) if a.strip()])
+    if ph != n:
+        bad.append(f"{s[:m.start()].count(chr(10))+1}:佔位{ph}/參數{n}")
+print(' '.join(bad))
+PYEOF
+)
+if [ "$_raise_bad" = "PYFAIL" ]; then
+  echo "🔴 規則⑥ 的檢查器自己壞了(python3 非 0)⇒ 這【不是】通過, exit 2"
+  RC=2
+elif [ -n "$_raise_bad" ]; then
+  echo "🔴 這幾處 RAISE 的佔位數與參數個數對不上(行號:佔位/參數):"
+  for _b in $_raise_bad; do echo "     $_b"; done
+  echo "   ⇒ PL/pgSQL 在【編譯期】就會擋:42601 too many/few parameters specified for RAISE"
+  echo "   ⇒ 🛑 整支 BEGIN…COMMIT 會回捲 —— 貼的人只會看到一句 42601, 而【一行都沒生效】。"
+  echo "   🔵 要印字面百分號 ⇒ 寫 %%(而那一個不算佔位)。"
+  RC=1
+else
+  echo "✅ 每個 RAISE 的佔位數都等於參數個數(已切掉 USING 子句才數)"
+fi
+
+
 echo "──────────────────────────────────────────────────────────────────"
 if [ "$RC" = "0" ]; then
-  echo "✅ 五道靜態檢查全過:$F"
+  echo "✅ 六道靜態檢查全過:$F"
 else
   echo "🔴 有檢查未過:$F"
 fi
