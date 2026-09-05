@@ -195,6 +195,15 @@ COMMENT ON COLUMN public.email_outbox.sent_tracking_number IS
    ② 片 B 上線前的舊列(⇒ 掃描面回落到時間比較)
    ③ **那封信寄出去時本來就沒有追蹤號** ⇒ 我們**沒有告訴過客人任何號碼**
       ⇒ 之後第一次有號碼的那封是「**首次告知**」, **不是「更正」**。
+🛑🛑 **而【怎麼分辨這三種】不在這一欄裡** —— 要問 `sent_tracking_recorded`:
+   · `recorded = false` ⇒ 是①或② ⇒ **這一列沒有出門紀錄**, 不要拿它下任何結論
+   · `recorded = true` 而本欄 NULL ⇒ 是③ ⇒ **我們確實沒告訴過他號碼**
+🔴🔴 **過渡期(片 B 的碼上線前)整張表的 `recorded` 都是 `false`** ——
+   ⇒ 📌 **任何用「有沒有號碼」當判準的掃描面, 在那段期間會把「全部沒寫過」讀成「全部沒帶號碼」。**
+   ⇒ 🎯 而那兩件事的下一步**完全相反**:前者該回落到舊判準, 後者該當成「首次告知」去寄。
+   ⚠️ 這句話為什麼寫在 `COMMENT` 而不是交接檔(mail 線 `-1d` 2026-09-06 提):
+     **交接檔會不見, 而 `COMMENT` 跟著 schema 走** —— 下一個人是在讀 schema 時撞到這件事的。
+🔵 **今天誰不受影響**:取消信那條掃描面(`pcm_cancelled_email_pending`)**不讀這一欄**。
 🛑 **它是不是 PII:⛔ ~~不是(貨運單號不指向人)~~ ⇒ 2026-09-05 收窄。**
    plan 那一格自己寫著「這一格請主視窗覆核」, 而 codex R1 覆核的結論是**那句話過度絕對**:
    單號**可以連回訂單、收件地址與物流軌跡** ⇒ 它是**間接識別碼**, 不是與人無關的字串。
@@ -202,9 +211,26 @@ COMMENT ON COLUMN public.email_outbox.sent_tracking_number IS
      不進日誌、不進對外文案。⚠️ 而「要不要進資料保存期限的清單」**沒有人拍過** —— 已知缺口。';
 
 COMMENT ON COLUMN public.email_outbox.sent_seq IS
-'寄出順序的單調序號(`pcm_email_outbox_sent_seq` 的 `nextval()`, **寄出當下**取)。
+'寄出順序的單調序號(`pcm_email_outbox_sent_seq` 的 `nextval()`, **由 trigger 在進 sent 那一刻蓋**)。
 🔴 存在的理由:`id` 是隨機 UUID、`created_at` 是入列時間 ⇒ 兩個都答不出「哪一封比較晚寄」。
-⚠️ 片 B 上線前恆 NULL ⇒ 掃描面用 `NULLS LAST` 並回落到時間比較。';
+🛑🛑 **它答的是【排序】, 不是【誰寫的】** —— ⛔ ~~`sent_seq IS NOT NULL` = 片 B 寫過這一列~~
+   那句話在裝了 trigger 之後是**假的**:trigger 蓋**每一列**進 sent 的, 包括舊 writer 寫的
+   ⇒ 拿它分代 ⇒ 部署窗口裡會**多寄一封更正信給號碼本來就正確的客人**。
+   ✅ 分代一律問 `sent_tracking_recorded`。
+⚠️ 沒有 seq 的列 = **本 migration 貼進來之前就已經 sent 的** ⇒ 它們一定比較舊
+   ⇒ 排序用 `NULLS LAST` 是對的。
+🛑 **天花板**:它是【進 DB 的順序】不是【離開我們去 provider 的順序】。多 instance 時可能先寄後寫
+   ⇒ 它比 `sent_at`(應用主機時鐘)好, 而**它不是真相**。';
+
+COMMENT ON COLUMN public.email_outbox.sent_tracking_recorded IS
+'🔴 **【這一列是不是片 B 的 writer 寫的】** —— 由應用層明確寫, **連號碼是 NULL 時也寫 `true`**。
+它與 `sent_tracking_number` 一定成對出現在**同一發 update** 裡。
+🛑 **為什麼不能用 `sent_seq` 代替它**:序號由 DB 的 trigger 蓋, 而 trigger 蓋**每一列**進 sent 的
+   ⇒ 舊 writer 寫的列也有序號、而沒有號碼 ⇒ 被誤判成「片 B 寫的而我們沒告訴過客人號碼」
+   ⇒ **在【先貼 migration、後上碼】那個窗口裡, 每一封舊 writer 寄出的信都會讓那一箱多寄一封更正信。**
+   ⇒ 📌 **「這一列什麼時候進 DB」與「這一列是誰寫的」是兩個問題, 不能共用一欄。**
+🔵 **預設 `false` 是安全的方向**:既有列全部是 false ⇒ 掃描面回落到舊的時間比較
+   ⇒ 行為與本 migration 貼進來之前**逐字相同**。';
 
 -- ══ 2-b. 🔴🔴 **誰去寫 `sent_seq`** —— 一道 trigger, 而**沒有它整片是空的** ═══════
 --
