@@ -692,6 +692,7 @@ COMMIT;
 -- 🔬 退完自己驗一發(兩個世界會印不同的答案):
 -- ```sql
 -- SELECT pg_catalog.to_regclass('public.pcm_manual_no_email_excluded') IS NULL AS 伴生已消失,
+--        pg_catalog.count(*) AS 四支還在幾支,
 --        pg_catalog.count(*) FILTER (WHERE pg_catalog.pg_get_viewdef(c.oid, true) LIKE '%manual_phone%')
 --          AS 還帶著述詞的支數
 --   FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -699,6 +700,12 @@ COMMIT;
 --    AND c.relname IN ('pcm_order_created_email_pending','pcm_shipped_email_pending',
 --                      'pcm_tracking_corrected_email_pending','pcm_unpaid_cancelled_email_pending');
 -- ```
---   ✅ 退乾淨 = `t` 與 `0`。**任何一個不是, 就是還沒退完。**
+--   ✅ 退乾淨 = `t` · **`4`** · `0`。**任何一個不是, 就是還沒退完。**
+--   🔴🔴 **中間那個 `4` 是 codex R7 補的, 而它補的是【這把尺最糟的一種失明】**:
+--      ⛔ ~~原本只有 `t` 與 `0`~~ ⇒ 🛑 **把四支 pending view 連同伴生 view 【全部刪掉】, 它也印 `t / 0`**
+--      —— 因為第二欄是 `count(*) FILTER (…)`, 它**只數還存在的 view**:view 都沒了 ⇒ 分母 0 ⇒ 命中 0。
+--      📌 ⇒ **「退乾淨」與「把東西全刪了」在這把尺上是同一個讀數**, 而後者是災難。
+--      🎯 成因寫下來:**我數了「壞的有幾支」而沒有數「該在的還在幾支」** ——
+--         一個只數分子的比例, 在分母歸零時印出最好看的那個答案。
 -- 🛑 **而回退要與片 C 的碼一起退** —— 只退本支而 use-case 仍判「不寄」
 --    ⇒ 那些單回到掃描面、而仍然沒有人寫 outbox 列 ⇒ **病原封不動回來。**
