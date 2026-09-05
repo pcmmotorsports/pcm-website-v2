@@ -544,14 +544,14 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                         <td className='k'>{subtotalLabelOf('小計', detail.taxTotal.amount)}</td>
                         <td className='v'>{formatOrderAmount(detail.subtotal.amount)}</td>
                       </tr>
-                      <tr className='line'>
+                      <tr>
                         <td className='k'>運費</td>
                         <td className='v'>{formatOrderAmount(detail.shippingFee.amount)}</td>
                       </tr>
                       {/* 🔴 折扣稿上沒有 —— 因為稿那張單折扣是 0。而【0 不代表這一列不存在】
                           ⇒ 有折扣時才印, 沒有時不印一列 `0`(印 0 會讓客人以為我們算了一筆折扣)。 */}
                       {detail.discountTotal.amount > 0 && (
-                        <tr className='line'>
+                        <tr>
                           <td className='k'>折扣</td>
                           {/* 🔴 A3-4':~~負號用 `−`(U+2212 數學減號)~~ ⇒ **那道「紙上不得有表情符號」的守門會紅** ——
                             它的字集含 `\u2200-\u22FF`(數學運算子)。**而它抓對了**:那個字元在
@@ -567,7 +567,7 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                           🛑 ⛔ ~~原本寫「稿上沒有這一列」~~ —— **字面搜尋答不出「有沒有這一列」**
                           (codex must-fix)。✅ 這一列是 Sean 2026-09-05 拍甲授權的, 不靠查無成立。 */}
                       {detail.taxTotal.amount > 0 && (
-                        <tr className='line'>
+                        <tr>
                           <td className='k'>稅額</td>
                           <td className='v'>{formatOrderAmount(detail.taxTotal.amount)}</td>
                         </tr>
