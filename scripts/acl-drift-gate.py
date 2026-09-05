@@ -32,6 +32,14 @@
       `REVOKE … FROM PUBLIC`(沒點名 service_role)不算關門 —— 它證不了 service_role 沒有直接權限。
       新檔內 REVOKE 再 GRANT 是本 repo 的標準形狀, **不算漂移**(閉集只從 HEAD 算)。
   R5  `GRANT service_role | pg_read_all_data | postgres | supabase_admin TO <角色>`(成員關係)⇒ 紅
+  R7  `GRANT <任何角色> TO anon | authenticated | authenticator | PUBLIC`(**成員關係**, 沒有 `ON`)⇒ 紅
+      🔴 **不可豁免。** R5 只看【被授的角色】是不是那四個特權角色 ⇒ `GRANT pcm_w TO anon;`
+      對 R5 零規則觸發、靜默綠, 而 `pcm_w` 只要在別處拿過 `service_role`, **anon 就拿到了它**。
+      🎯 **R7 不依賴「別處」** —— 它只問「有沒有人被塞進公開角色裡」, 不需要遞移分析。
+      🔬 **做之前量的:今天會叫 0 次**(本閘自己的解析器掃 316 支 ⇒ 零處成員關係 GRANT;
+        🟢 正對照合成兩句各回 1 · 🔵 負對照帶 `ON` 與空字串各回 0)⇒ **零誤報風險**。
+      📎 它是 `⟦b9-…⟧` R5 豁免路撤回之後**留下來的那個獨立缺口**的修法
+        (`docs/plans/2026-09-05-acl-drift-gate-r5-exemption-plan.md` 檔尾「族①的後半」)。
   R6  `EXECUTE '…'` / `EXECUTE format('…')` / 函式體 `AS '…'` 的字串是 SQL:先當靜態語句跑 R1-R5,
       再看 `GRANT … TO <公開角色>`;角色或表名由 `%I` / `%s` / `||` 代入 ⇒ **印 ⚠️ 未判、不擋**
       (把沒被判的印出來)。純顯示用的 `format(…)`(沒有 EXECUTE)當資料, 不判。
@@ -318,6 +326,21 @@ def rules_for(seg, closed, exempt_for):
     body = gm.group('body')
     if not re.search(r'\bon\b', body, re.I):
         mm = MEMBERSHIP.search(seg)
+        # ── R7:**成員關係 GRANT 的受贈者是公開角色 ⇒ 一律紅**(2026-09-05;主視窗 `-f8` 裁「做」)
+        #    🔴 **為什麼要單獨一條**:R5 只看【被授的角色】是不是那四個特權角色
+        #    ⇒ `GRANT pcm_w TO anon;` 對 R5 **零規則觸發、靜默綠**,
+        #      而 `pcm_w` 只要在別處拿過 `service_role`, **anon 就拿到了 service_role**。
+        #    🎯 **而 R7 不依賴「別處」** —— 它只問一句:**有沒有人被塞進公開角色裡。**
+        #      ⇒ 📌 那是一個**不需要遞移分析**就答得出來的問題, 也正是遞移那條路做不到的原因
+        #        (見 `docs/plans/2026-09-05-acl-drift-gate-r5-exemption-plan.md` 檔尾「族①」)。
+        #    🛑 **不可豁免** —— 與 R5 同款:公開角色是 `anon`(未登入的任何人)。
+        #    🔬 **今天會叫幾次 = 0**:用本閘自己的解析器掃 316 支 migrations ⇒ **零處**成員關係 GRANT
+        #      (🟢 正對照:餵 `GRANT service_role TO pcm_w;` 與 `GRANT pcm_w TO anon;` 各回 1;
+        #       🔵 負對照:帶 `ON` 的一般 GRANT 與空字串各回 0 ⇒ **那把尺會動**)。
+        #      ⇒ 📌 **零誤報風險** —— 而這一發是**做之前**量的, 不是做完才量。
+        if mm and any(r in PUBLIC_ROLES for r in roles_of(mm.group('grantee'))):
+            return [('R7', 'GRANT %s TO %s(把一個角色塞進【公開角色】裡 —— '
+                           'anon 是未登入的任何人)' % (mm.group('roles').strip(), mm.group('grantee').strip()))]
         if mm and any(r in MEMBERSHIP_DANGEROUS for r in roles_of(mm.group('roles'))):
             out.append(('R5', 'GRANT %s TO %s(成員關係複製一份權限)' % (mm.group('roles').strip(), mm.group('grantee').strip())))
         return out
@@ -620,6 +643,25 @@ WORLDS = [
     ("R5 紅  EXECUTE '<靜態字面>' GRANT service_role TO x", "DO $$ BEGIN EXECUTE 'GRANT service_role TO pcm_x'; END $$;", 1),
     ('R5 紅  GRANT pg_read_all_data TO x', 'GRANT pg_read_all_data TO anon;', 1),
     ('R5 綠  一般角色成員關係', 'GRANT pcm_reader TO pcm_reporter;', 0),
+    # ── R7(2026-09-05):受贈者是公開角色 ⇒ 一律紅, 不可豁免 ──────────
+    ('R7 紅  GRANT pcm_w TO anon(R5 看不到的那一半)', 'GRANT pcm_w TO anon;', 1),
+    ('R7 紅  GRANT pcm_w TO authenticated', 'GRANT pcm_w TO authenticated;', 1),
+    ('R7 紅  GRANT pcm_w TO PUBLIC', 'GRANT pcm_w TO PUBLIC;', 1),
+    ('R7 紅  多受贈者裡有一個是 anon', 'GRANT pcm_w TO pcm_x, anon;', 1),
+    ('R7 紅  寫了 EXEMPT 也豁免不了',
+     '-- ACL-GATE-EXEMPT: pcm_w -- 想繞過去 2026-09-05 #885\nGRANT pcm_w TO anon;', 1),
+    # ⚠️ **這一格的名字改過**:突變(把 R7 停用)之後它**仍然紅** ⇒ 📌 **紅它的不只 R7**
+    #    (字串層另有一條 `TO <公開角色>` 的既有處理)。R7 在**沒被停用時**確實會抓它
+    #    (實測回 `('R7', '字串內 SQL:GRANT pcm_w TO anon…')`), 而**它不是 R7 的獨立證據**。
+    #    ⇒ 🛑 **一格「兩條規則都會紅」的世界, 證不出其中任何一條會動。** 名字照實寫。
+    ("紅  EXECUTE '<靜態字面>' 裡的 GRANT TO anon(R7 與字串層【都】會紅, 非 R7 獨立證據)",
+     "DO $$ BEGIN EXECUTE 'GRANT pcm_w TO anon'; END $$;", 1),
+    # 🔵 而它【不得】變成無條件紅 —— 三發正對照:
+    ('🔵 R7 綠  受贈者不是公開角色', 'GRANT pcm_reader TO pcm_reporter;', 0),
+    ('🔵 R7 綠  帶 ON 的一般 GRANT 給 anon 走 R3 不走 R7(仍可 EXEMPT)',
+     '-- ACL-GATE-EXEMPT: public.products -- 新表公開讀是合法需求 2026-09-05 #885\n'
+     'GRANT SELECT ON public.products TO anon;', 0),
+    ('🔵 R7 綠  空檔', '', 0),
     ('R6 紅  EXECUTE format 字串內 TO anon', "DO $$ BEGIN EXECUTE format('GRANT SELECT ON %I TO anon', 'products'); END $$;", 1),
     ('R6 紅  EXECUTE $q$…$q$ dollar 字串 TO anon', 'DO $$ BEGIN EXECUTE $q$GRANT SELECT ON public.products TO anon$q$; END $$;', 1),
     ('R6 綠  動態 GRANT TO service_role 表名解析不到 ⇒ 未判不擋', "DO $$ BEGIN EXECUTE format('GRANT SELECT ON %I TO service_role', v_t); END $$;", 0),
