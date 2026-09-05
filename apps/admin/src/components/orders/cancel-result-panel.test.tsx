@@ -75,6 +75,8 @@ const BASE: CancelResultPanelProps = {
   actor: ACTOR,
   cancellations: [{ actor: OTHER_ACTOR, idempotencyKey: OTHER_TOKEN }],
   cancellationsTruncated: false,
+  // 🔴 基準是「這張單【沒有】取消」—— 那是偽造網址那一格的預設世界。
+  orderCancelledAt: null,
 };
 
 function panel(over: Partial<CancelResultPanelProps> = {}) {
@@ -378,5 +380,40 @@ describe('🔴 本檔的對客文字也不得含 Markdown 星號(2026-09-05:同�
   it('🔬 尺會動:含 `**` 的字串必須被同一條判準抓到', () => {
     const fake = { title: '這是**強調**', hint: '正常' };
     expect(fake.title.includes('**') || fake.hint.includes('**')).toBe(true);
+  });
+});
+
+describe('🔴🔴 偽造網址:`?r=order_marked_cancelled` 不可以直接相信(codex R2 must-fix)', () => {
+  // 📌 **成因**:我為了「不查取消帳本」而讓那個成功碼**無條件**顯示綠字 ——
+  //    而網址是使用者打得出來的 ⇒ 一張沒取消的單開那個網址就會看到「已標記取消」。
+  //    ⇒ 🔴 **我拿掉的那道核對, 同時是防偽造的那一道。**
+  it('🔴 單子【沒有】取消 ⇒ 不可以顯示「已標記取消」', () => {
+    const { container } = panel({
+      resultCode: ORDER_MARKED_CANCELLED_RESULT_CODE,
+      orderCancelledAt: null,
+    });
+    expect(container.textContent).not.toContain('這張單已經標記為取消');
+    expect(container.textContent).toContain('查不到這張單已經取消');
+  });
+
+  it('✅ 單子【真的】取消了 ⇒ 才顯示那句成功', () => {
+    const { container } = panel({
+      resultCode: ORDER_MARKED_CANCELLED_RESULT_CODE,
+      orderCancelledAt: '2026-09-05T12:00:00.000Z',
+    });
+    expect(container.textContent).toContain('這張單已經標記為取消');
+  });
+
+  it('🔬 兩個新碼的分支不可互換:被拒碼永遠顯示被拒那句(不管取消了沒)', () => {
+    // 🔴 codex R2 nit:上一版只驗「在集合內」與「沒有星號」⇒ **互換兩個分支仍全綠**。
+    for (const at of [null, '2026-09-05T12:00:00.000Z']) {
+      cleanup();
+      const { container } = panel({
+        resultCode: ORDER_MARK_REJECTED_RESULT_CODE,
+        orderCancelledAt: at,
+      });
+      expect(container.textContent).toContain('這張單不能用這個方式結掉');
+      expect(container.textContent).not.toContain('這張單已經標記為取消');
+    }
   });
 });

@@ -188,7 +188,26 @@ export const MARK_REJECTED_TEXT = {
   hint:
     '「把這張單結掉」只適用於刷卡收款、而且錢已經全額退完的單,' +
     '並且這張單先前沒有部分取消過。' +
-    '⚠️ 這不是系統出錯 —— 請重新整理本單看一次現在的狀態;若你認為它應該可以,請告知系統維護。',
+    // 🔴🔴 **不可以斷言「這不是系統出錯」**(codex R2 must-fix, 它對):
+    //    那支 RPC 的 `P0001` **同時**涵蓋四族 —— ①這張單不走這條路 ②已經取消過了
+    //    ③操作者不是啟用中的員工 ④我們送了畸形參數(呼叫契約錯)。
+    //    ⇒ **③④ 就是系統出錯**, 而 SQLSTATE 分不出它們。
+    //    ⇒ 📌 **一句安慰的話, 在四分之二的世界裡是假的** —— 而它會讓員工不去回報。
+    //    ✅ 改成把**兩種可能都講出來**, 並給一個一定成立的下一步。
+    '⚠️ 也可能是你的登入身分已經失效,或系統本身有問題 —— ' +
+    '請先重新整理本單看一次現在的狀態;若你認為它應該可以結掉,請告知系統維護(不要重複按)。',
+};
+
+/**
+ * 🔴 拿著 `?r=order_marked_cancelled` 而**這張單其實沒有取消**時的文案。
+ * **它不可以是綠的** —— 綠字會讓人以為事情做完了。
+ */
+export const MARKED_CANCELLED_UNVERIFIED_TEXT = {
+  tone: 'warn' as const,
+  title: '查不到這張單已經取消',
+  hint:
+    '這個網址說「已標記取消」,而這張單現在看起來還沒有取消。' +
+    '請重新整理本單看一次現在的狀態;若你剛剛按過「把這張單結掉」而它沒有生效,請告知系統維護。',
 };
 
 export const MARKED_CANCELLED_TEXT = {
@@ -226,6 +245,16 @@ export type CancelResultPanelProps = {
   actor: string | null;
   cancellations: readonly Pick<AdminOrderCancellation, 'actor' | 'idempotencyKey'>[] | null;
   cancellationsTruncated: boolean;
+  /**
+   * 🔴🔴 **這張單【真的】取消了沒**(`orders.cancelled_at`)。**必填無預設。**
+   *
+   * **為什麼必填**:它是 `order_marked_cancelled` 那個成功碼**唯一**的核對來源 ——
+   * 那條路(`admin_mark_order_cancelled`)**不寫取消帳本**, 只寫 `cancelled_at`
+   * ⇒ 📌 **它是那條路唯一留下的痕跡, 也就是唯一能反駁一個偽造網址的東西。**
+   * 🛑 **給預設值會說謊**:`null` 預設 ⇒ 每次都顯示「查不到」;非 null 預設 ⇒ **偽造網址直接過**。
+   *    ⇒ **忘了接必須編不過**(與本檔 `payments` 同一條紀律)。
+   */
+  orderCancelledAt: string | null;
 };
 
 /**
@@ -240,6 +269,7 @@ export function CancelResultPanel({
   actor,
   cancellations,
   cancellationsTruncated,
+  orderCancelledAt,
 }: CancelResultPanelProps) {
   const code = typeof resultCode === 'string' ? resultCode : undefined;
   if (!isCancelPanelResultCode(code)) return null;
@@ -265,11 +295,27 @@ export function CancelResultPanel({
   //    ⇒ 📌 **兩條路的成功訊息不同, 那是【事實】不是缺陷** —— 一條有取消單、一條沒有。
   //    🛑 而這一句**把「沒有取消單」講出來**, 不是藏起來:下一個拿 token 去帳本找的人
   //       要在這裡就知道找不到是正常的。
+  // 🔴🔴 **`order_marked_cancelled` 不可以直接相信 URL**(codex R2 must-fix, 主視窗裁「帳本核對加回去」)。
+  //    ⛔ 我第一版讓它**無條件**顯示綠字 —— 而網址是使用者打得出來的
+  //    ⇒ **一張根本沒取消的單開 `?r=order_marked_cancelled` 就會看到「已標記取消」。**
+  //    ⇒ 📌 **我為了「不查取消帳本」而拿掉的那道核對, 同時是防偽造的那一道。**
+  //       (既有 `order_cancelled` 靠 `verdict === 'match_same_actor'` 擋住同一種人。)
+  // ✅ **改成讀一次 DB 的事實**:這張單**真的取消了嗎**(`cancelledAt !== null`)。
+  //    🔵 為什麼是這一格而不是取消帳本:那支 RPC **不寫帳本、只寫 `orders.cancelled_at`**
+  //       ⇒ **它是這條路唯一留下的痕跡**, 也就是唯一能反駁偽造網址的東西。
+  //    🛑 而它**證不到「是這一次做的」** —— 一張三天前用別條路取消的單, 開這個網址也會看到綠字。
+  //       ⇒ ⚠️ 那是**已知的殘餘風險**:代價是「看到一句對的話但時間點不對」,
+  //          而上一版的代價是「看到一句**完全不成立**的話」。兩者不同級。
+  const markedCancelledVerified =
+    code === ORDER_MARKED_CANCELLED_RESULT_CODE && orderCancelledAt !== null;
+
   const text =
     code === ORDER_MARK_REJECTED_RESULT_CODE
       ? MARK_REJECTED_TEXT
-      : code === ORDER_MARKED_CANCELLED_RESULT_CODE
+      : markedCancelledVerified
       ? MARKED_CANCELLED_TEXT
+      : code === ORDER_MARKED_CANCELLED_RESULT_CODE
+      ? MARKED_CANCELLED_UNVERIFIED_TEXT
       : code === ORDER_CANCELLED_RESULT_CODE && verdict === 'match_same_actor'
         ? CANCELLED_MATCH_TEXT
         : VERDICT_TEXT[verdict];

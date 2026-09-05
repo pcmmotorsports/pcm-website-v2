@@ -476,6 +476,10 @@ export async function OrderDetailRoute({
         requestToken={requestToken}
         actor={actor?.id ?? null}
         cancellations={detail?.cancellations ?? null}
+        // 🔴 讀 DB 的事實, 不是讀 URL —— 見 CancelResultPanelProps.orderCancelledAt 的 docstring。
+        // ⚠️ `detail` 讀失敗時是 null ⇒ 這裡給 null = 「查不到已取消」⇒ 面板顯示警示而不是綠字。
+        //    那是刻意的 fail-closed:讀不到就不要說「做完了」。
+        orderCancelledAt={detail?.cancelledAt ?? null}
         cancellationsTruncated={detail?.cancellationsTruncated ?? true}
       />
 

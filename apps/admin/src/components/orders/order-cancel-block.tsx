@@ -112,7 +112,7 @@ export function OrderCancelBlock({
       {/* 🔴 **複核區塊永遠掛著**(即使已取消 / 不能取消)—— 關單之後員工仍要看得到
           「取消了什麼」,那是義務 5 的比對面。 */}
       <>
-        <CancelReviewSection detail={detail} payments={payments} />
+        <CancelReviewSection detail={detail} payments={payments} formsAllowed={formsAllowed === true} />
         {/*
           🔴 鈕在這裡(server), 緊接在上面那個區塊之後 —— 那句「請按下面的」指的就是它。
           🔴🔴 **而它必須與兩支取消表單受【同一道】`formsAllowed` 守門**(codex 2026-09-05 must-fix):
