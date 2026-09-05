@@ -22,6 +22,11 @@
       —— 除非同檔加 `-- ACL-GATE-EXEMPT: <object> -- <理由>`
          🔴 理由要 ≥ 8 字 **且帶可稽核錨**(`#885` / `20260824010000` / `2026-08-27`)。
          不帶錨 ⇒ 那個豁免【不成立】而且會被點名(規則 EX)。
+         🔴🔴 **[2026-09-05 實測] 而上面那個例子 `20260824010000` 自己【不是】合法的錨** ——
+            `EXEMPT_ANCHOR` 是 (反斜線)b20(反斜線)d{6}(反斜線)b(恰 8 位)⇒ **14 位的 migration 版本號不匹配。**
+            🔬 `20260824010000` ⇒ False · `20260905` ⇒ True · `2026-08-27` ⇒ True · `#885` ⇒ True。
+            🛑 **本次【不動】那條 regex** —— 改它會同時放寬 R3/R4, 超出當次授權範圍。
+            ⇒ 📌 **要引版本號當錨的人:改寫成日期 `2026-09-05` 或 `#編號`。已回報主視窗。**
          來源:Fable R3 F4、主視窗 2026-08-27 裁「要」;理由 = 本閘自己印的 31/219 ≈ 14%
          ⇒ 寫 EXEMPT 會是常規動作不是例外 ⇒ **要讓豁免數得出來。**
   R4  `GRANT … ON [TABLE] <表> TO service_role` 而 <表> 在【閉集】裡 ⇒ 紅(同樣可 EXEMPT)
@@ -32,6 +37,43 @@
       `REVOKE … FROM PUBLIC`(沒點名 service_role)不算關門 —— 它證不了 service_role 沒有直接權限。
       新檔內 REVOKE 再 GRANT 是本 repo 的標準形狀, **不算漂移**(閉集只從 HEAD 算)。
   R5  `GRANT service_role | pg_read_all_data | postgres | supabase_admin TO <角色>`(成員關係)⇒ 紅
+      🆕 **2026-09-05 起有一條豁免路(主視窗 `-f8` 裁「甲」)**
+      🔴🔴 **而它【今天是死的】**(2026-09-05 實測, 兩個條件各自不成立):
+        · `supabase/APPLIED.tsv` **沒有** `20260905140000` / `20260905170000`(那兩支還沒被記成貼了)
+        · 本分支的 `packages/use-cases/src/check-anomaly-alerts.ts` **零命中** `aclDriftDetected`
+          (它在 `origin/dev` 上有 5 處;本分支落後 53 顆)
+        ⇒ 🎯 **⇒ 本次改動【今天的實際行為 = 零放寬】。** 它要等那兩支被貼並記帳、
+           而且告警那條路合進來, 才會活。⇒ 📌 **下面四個條件請當【未來式】讀。**
+      ⛔ ~~三個條件~~ ⇒ **四個條件同時成立**(R1 nit:數字對不上碼):
+        ① 同檔 `-- ACL-GATE-EXEMPT-R5: <被授的角色> -- <理由 ≥8 字且帶可稽核錨>`
+        ② `supabase/APPLIED.tsv` 有 `20260905140000` 與 `20260905170000`
+           (= ⟦b9-ACLDRIFT5⟧ 的**執行期**偵測器已被記成貼了)
+        ③ 被授的角色**不在** `anon / authenticated / authenticator / PUBLIC`
+           —— 🔴 **這一格永遠不可豁免**(`GRANT service_role TO anon` 是最壞情況)
+        ④ `packages/use-cases/src/check-anomaly-alerts.ts` 含 `aclDriftDetected`
+           (= 偵測器的輸出**真的有人接**;這是「有人在看」的**離線代理**)
+      🔴 **為什麼要有它**:`⟦b9-RLSHARDEN⟧` 的收窄案要 `GRANT service_role TO <專用角色>` ——
+        而**`INHERIT` 成員資格是 `TO service_role` 的 policy 對新角色生效的【必要條件】**
+        (實測:NOINHERIT 成員讀 0 列 / INHERIT 成員 1 列 / 正對照 `service_role` 本人 1 列)
+        ⇒ 不給這條路, 那個收窄案根本不成立 ⇒ **一道正確的守門擋住了唯一可行的設計。**
+      🛑 **而在此之前, R5 的【不可豁免】沒有任何記錄說為什麼**(線 `-auth` 2026-09-05 掃四處:
+        本檔頭只寫「⇒ 紅」· 程式碼 R5 的 append 沒接 `exempt_for` · 47 格 selftest 零格測
+        「R5+EXEMPT 仍紅」· commit body 與 docs 零處;🔵 負對照 編造檔名 ⇒ 0)
+        ⇒ 📌 **這一改填的是【沒有人寫下理由的現況】, 不是推翻一個拍板。**
+      🛑 **它擋不住什麼**(放行時逐字印在 hook 裡, 不只寫在這裡):
+        ①帳本是**自陳**的 ⇒ 驗的是「有沒有人**記**」不是「偵測器**真的在跑**」;
+          而本閘 pre-commit、離線 ⇒ **結構上問不到 DB**
+        ②貼了 ≠ 在跑(cron 可停、函式可被 `CREATE OR REPLACE` 換掉)
+        ③偵測器**每日**一次 ⇒ 換到的是「漂了**一天內**看得見」, 不是「不會漂」
+        ④**條件④只是個代理** —— 它比對的是那支 `.ts` 的**非註解字面**, 它證不到那個值
+          真的被讀、更證不到信寄得出去。**代理不是那件事本身。**
+        ⑤🔴 **這三句印在【通過的 hook】的 stdout, 而沒有人讀通過的 hook**(本檔 Fable F1
+          診斷過同一個形狀)⇒ 綠行的「N 筆走豁免 ⚪」是唯一會動的訊號。**這一格沒有解, 寫下來。**
+      🔴 **兩條【永遠不可豁免】**:`WITH ADMIN OPTION`(拿到的人可以自己授給 anon, 而那一跳
+        不在 migration 裡)· 授的角色不是**恰好只有** `service_role`(`postgres` / `supabase_admin`
+        是 owner 級, 嚴格比它壞)。
+      📎 plan:`docs/plans/2026-09-05-acl-drift-gate-r5-exemption-plan.md`
+      🔴 **不得寫成「Sean 拍了」** —— 他沒有看過選項字面(同本檔頭上面那條紀律)。
   R6  `EXECUTE '…'` / `EXECUTE format('…')` / 函式體 `AS '…'` 的字串是 SQL:先當靜態語句跑 R1-R5,
       再看 `GRANT … TO <公開角色>`;角色或表名由 `%I` / `%s` / `||` 代入 ⇒ **印 ⚠️ 未判、不擋**
       (把沒被判的印出來)。純顯示用的 `format(…)`(沒有 EXECUTE)當資料, 不判。
@@ -256,6 +298,117 @@ def sql_layers(sql, base_line=1, depth=0):
 #    ⇒ **沒有任何既有豁免需要補**。這個數是本改能收緊的原因, 不是它的裝飾。
 EXEMPT_ANCHOR = re.compile(r'(#\d{2,}|\b20\d{6}\b|\b20\d{2}-\d{2}-\d{2}\b)')
 
+# ── R5 豁免路(主視窗 `-f8` 2026-09-05 裁「甲」;plan = docs/plans/2026-09-05-acl-drift-gate-r5-exemption-plan.md)
+#    🔴 **不得寫成「Sean 拍了」** —— 他沒有看過選項字面(沿用本檔頭同一條紀律)。
+#    🛑 **R5 在此之前【無條件紅】, 而那個不可豁免【沒有任何記錄說為什麼】** ——
+#       線 -auth 2026-09-05 掃四處:檔頭只寫「⇒ 紅」· 程式碼 R5 的 append 沒接 exempt_for ·
+#       47 格 selftest 零格測「R5+EXEMPT 仍紅」· commit body 與 docs 零處。🔵 負對照 編造檔名 ⇒ 0。
+#       ⇒ 📌 **本改動填的是一個【沒有人寫下理由的現況】, 不是推翻一個拍板。**
+EXEMPT_R5 = re.compile(r'^\s*--\s*ACL-GATE-EXEMPT-R5:\s*([a-z0-9_."]+)\s*--\s*(\S[^\n]*)$', re.I | re.M)
+
+# 🔴 這兩支 migration = ⟦b9-ACLDRIFT5⟧ 的【執行期】偵測器(digest 表 + 每日 cron + 人工核准)。
+R5_LEDGER_REQUIRED = ('20260905140000', '20260905170000')
+# 🔴 而「有人在看那個輸出」的**離線代理**:告警信那條路真的讀了 aclDriftDetected。
+R5_ALERT_FILE = 'packages/use-cases/src/check-anomaly-alerts.ts'
+R5_ALERT_LITERAL = 'aclDriftDetected'
+# 🛑 這三句要跟著「放行」那一行一起印 —— 它們是本豁免路【擋不住】的東西(plan §4)。
+R5_CANNOT = (
+    '① 帳本是【自陳】的 —— 這裡驗的是「有沒有人【記】偵測器貼了」, 不是「偵測器【真的在跑】」;'
+    '而本閘是 pre-commit、離線 ⇒ 它【結構上】問不到 DB。',
+    '② 貼了不等於在跑 —— cron job 可以被停、函式可以被 CREATE OR REPLACE 換掉, 本閘看不到。',
+    '③ 偵測器是【每日】一次 ⇒ 換到的是「漂了【一天內】看得見」, 不是「不會漂」。',
+)
+
+
+def _index_or_head(path):
+    """讀【index】那一份(與本閘其餘部分同一個分母)。回 (內容 or None, 來源字串)。
+    ⛔ ~~index 沒有就退回 HEAD~~ —— 🔴 **[code-reviewer R1 #8] 那條退路會誤報 True**:
+       這顆 commit **staged 一筆刪除**(把偵測器消費端整支刪掉)時 `git show :path` 失敗
+       ⇒ 舊版拿 HEAD 的舊內容 ⇒ 條件②④ 照樣成立
+       ⇒ 📌 **「刪掉它」與「留著它」在那把尺上印同一個答案。**
+    ✅ 現在:index 讀不到 ⇒ **`None`(fail-closed)**。
+    ⛔ ~~「本檔 selftest 有一格在守」~~ —— **[R1 #7] 那句是假的**, 那一格守的是既有 migration
+       的 index 讀法, 不是這支函式。本支的守門在 `r5_prereq` 那批注入 reader 的格子。"""
+    p = subprocess.run(['git', 'show', ':' + path], capture_output=True)
+    if p.returncode == 0:
+        return p.stdout.decode('utf-8', 'replace'), 'index'
+    return None, 'index 讀不到(檔不在 index ⇒ 可能這顆 commit 把它刪了)'
+
+
+def _strip_ts_comments(txt):
+    """拿掉 `//` 行註解與 `/* … */` 區塊註解。
+    🔴 **[code-reviewer R1 #3]** 少了這一步, 一句 `// TODO: aclDriftDetected 還沒接`
+    或一段被註解掉的舊碼就滿足條件④ ⇒ **一個「宣稱有人接而其實沒接」的世界會通過。**
+    🛑 而它**證不到**「那個變數真的被讀」—— 它只證「不是註解裡的那一份」。"""
+    txt = re.sub(r'/\*.*?\*/', ' ', txt, flags=re.S)
+    return re.sub(r'(?m)^\s*//.*$', ' ', txt)
+
+
+def r5_ledger_ok(reader=None):
+    """條件②:APPLIED.tsv 有那兩支。回 (bool, 說明)。
+    🔴 `reader` 可注入 —— selftest 靠它餵**受控的內容**去測【這支函式的判斷邏輯】,
+       而不是重打一份自己的判斷(那樣改生產碼不會紅)。"""
+    txt, src = (reader or _index_or_head)('supabase/APPLIED.tsv')
+    if txt is None:
+        return False, 'supabase/APPLIED.tsv 讀不到(%s)' % src
+    missing = [v for v in R5_LEDGER_REQUIRED
+               if not re.search(r'(?m)^' + re.escape(v) + r'\t', txt)]
+    if missing:
+        return False, 'APPLIED.tsv(%s)缺 %s ⇒ 偵測器沒有被記成已貼' % (src, ' / '.join(missing))
+    return True, 'APPLIED.tsv(%s)有 %s' % (src, ' / '.join(R5_LEDGER_REQUIRED))
+
+
+def r5_alert_ok(reader=None):
+    """條件④:告警信那支檔【在非註解的碼裡】出現 `aclDriftDetected`。回 (bool, 說明)。
+    ⛔ ~~原本寫「真的讀了(= 有人接得到那個輸出)」~~ —— 🔴 **[code-reviewer R1 #3] 那比事實大**:
+       實作是整檔字面比對, 它**證不到那個值被讀、更證不到信寄得出去**。
+       ✅ 準確說法:**它是「有人接」的一個【離線代理】, 而代理不是那件事本身。**"""
+    txt, src = (reader or _index_or_head)(R5_ALERT_FILE)
+    if txt is None:
+        return False, '%s 讀不到(%s)' % (R5_ALERT_FILE, src)
+    if R5_ALERT_LITERAL not in _strip_ts_comments(txt):
+        return False, '%s(%s)沒有 %s ⇒ 偵測器的輸出【沒有人接】' % (R5_ALERT_FILE, src, R5_ALERT_LITERAL)
+    return True, '%s(%s)含 %s' % (R5_ALERT_FILE, src, R5_ALERT_LITERAL)
+
+
+def r5_prereq(reader=None):
+    """條件②④ 合起來。回 (bool, [說明…])。`reader` 可注入(見 r5_ledger_ok)。"""
+    ok2, w2 = r5_ledger_ok(reader)
+    ok4, w4 = r5_alert_ok(reader)
+    return (ok2 and ok4), [w2, w4]
+
+
+# ── R5 豁免的三個判準抽成具名函式 ────────────────────────────────
+# 🔴 **為什麼不寫成 `r5_allow` 裡的三個 if**:突變格要能把【生產碼】換掉。
+#    判準若只活在區域變數裡, 測試只能重打一份自己的判準 ⇒ 改生產碼它不會紅。
+def _r5_role_ok(g):
+    """條件③:被授的角色不在公開角色集合。**這一格永遠不可豁免。**"""
+    return g not in PUBLIC_ROLES
+
+
+def _r5_named(g, ex5):
+    """條件①:同檔有具名且合格的 `-- ACL-GATE-EXEMPT-R5: <角色> -- <理由帶錨>`。"""
+    return g in ex5
+
+
+def _r5_prereq_ok(state):
+    """條件②④:帳本有那兩支 + 告警信那條路讀得到 aclDriftDetected。"""
+    return bool(state and state[0])
+
+
+def exemptions_r5(sql):
+    """回 ({角色: 理由}, [(角色, 理由, 為什麼不成立)…])。理由規則與 R3/R4 的 EXEMPT 相同。"""
+    ok, bad = {}, []
+    for role, why in EXEMPT_R5.findall(sql):
+        w = why.strip()
+        if len(w) < EXEMPT_MIN_REASON:
+            bad.append((role, w, '理由少於 %d 字' % EXEMPT_MIN_REASON))
+        elif not EXEMPT_ANCHOR.search(w):
+            bad.append((role, w, '理由沒有可稽核錨(#編號 / 版本號 / 日期)'))
+        else:
+            ok[role.strip()] = w   # 🔴 保留原字面(見 r5_allow 的 [R1 #9])
+    return ok, bad
+
 
 def exemptions(sql):
     """回 {物件: 理由}。理由要 ≥ EXEMPT_MIN_REASON 字 **且帶可稽核錨**。
@@ -306,7 +459,7 @@ def closed_set(committed):
     return {o for o, k in state.items() if k == 'close'}
 
 
-def rules_for(seg, closed, exempt_for):
+def rules_for(seg, closed, exempt_for, r5_allow=None):
     out = []
     if ADP_GRANT.search(seg):
         return [('R1', 'ALTER DEFAULT PRIVILEGES … GRANT(未來每一張新物件都吃到)')]
@@ -319,6 +472,13 @@ def rules_for(seg, closed, exempt_for):
     if not re.search(r'\bon\b', body, re.I):
         mm = MEMBERSHIP.search(seg)
         if mm and any(r in MEMBERSHIP_DANGEROUS for r in roles_of(mm.group('roles'))):
+            # 🔴 豁免路(2026-09-05 加)。`r5_allow` 是 None ⇒ **行為與加這條路之前一模一樣(恆紅)**
+            #    ⇒ 既有呼叫端與既有 selftest 不受影響(回歸那一格在守這件事)。
+            # 🔴 判定【整包】交給 r5_allow —— 一個條件一個落點, `rules_for` 不自己判、不碰 `used`。
+            if r5_allow is not None and r5_allow(roles_of(mm.group('roles')),
+                                                 roles_of(mm.group('grantee')),
+                                                 bool(re.search(r'\bwith\s+admin\s+option\b', seg, re.I))):
+                return out
             out.append(('R5', 'GRANT %s TO %s(成員關係複製一份權限)' % (mm.group('roles').strip(), mm.group('grantee').strip())))
         return out
     om = ON_CLAUSE.search(body)
@@ -342,12 +502,19 @@ def rules_for(seg, closed, exempt_for):
     return out
 
 
-def check(sql, closed, added=None):
+def check(sql, closed, added=None, r5_prereq_state=None):
     """回 (drifts, unresolved, exempted)。drifts = [(規則, 行, 說明)]。
+    r5_prereq_state = (bool, [說明…]) 或 None。**None ⇒ R5 恆紅(= 加豁免路之前的行為)**;
+    給了才走豁免路。selftest 靠它餵兩個世界, `run()` 從 repo 算出來再餵進來。
     added = 本次新增的行號集合(修改既有檔);None = 整支檔全部回報。
     整支檔都判(跨行語句不會被拆斷), 只回報與新增行有交集的語句(不追歷史舊債)。"""
     ex, bad_ex = exemptions(sql)
+    ex5, bad_ex5 = exemptions_r5(sql)
     drifts, unresolved, used = [], [], []
+    # 🔴 不合格的 R5 豁免與 R3/R4 的一樣, 當成一條 drift(規則 EX5), 不靜靜忽略。
+    for _r, _why, _reason in bad_ex5:
+        drifts.append(('EX5', None,
+                       'ACL-GATE-EXEMPT-R5: %s 不成立 —— %s(理由:%s)' % (_r, _reason, _why)))
     # 🔴 **不合格的豁免當成一條 drift(規則 EX), 不是靜靜忽略。**
     #    理由在 `exemptions()` 的 docstring:一個「寫了但不算數」的豁免
     #    會讓寫的人以為他豁免了, 而閘照樣紅 ⇒ 他會再寫一次更長的理由, 而不是去補錨。
@@ -370,6 +537,51 @@ def check(sql, closed, added=None):
                 return True
         return False
 
+    r5_allow = None
+    # 🔴 **這裡【不】加 `and ex5`** —— 突變格抓到的:那個 truthiness 會讓「有沒有具名豁免」
+    #    在【兩個地方】各判一次, 於是把 `_r5_named` 換成恆真【也不會翻綠】
+    #    ⇒ 那一格的紅其實不是由那個判準決定的。⇒ 📌 一個條件只留一個落點。
+    if r5_prereq_state is not None:
+        prereq_why = r5_prereq_state[1]
+
+        def r5_allow(granted, grantees, admin_opt):
+            """三條件 + 兩條【永遠不可豁免】。回 bool;只有整體成立才寫 `used`。"""
+            # 🔴 **[R1 #5]** `WITH ADMIN OPTION` 永遠不可豁免 —— `roles_of` 會把它剝掉,
+            #    而拿到 admin option 的人**可以自己 `GRANT service_role TO anon`**
+            #    ⇒ 條件③ 在【一跳之外】失效, 而那一跳不在 migration 裡 ⇒ 本閘永遠看不到。
+            if admin_opt:
+                return False
+            # 🔴 **[R1 #4]** 只有【恰好只授 service_role】那一種可以豁免。
+            #    一張 `EXEMPT-R5: pcm_w` 舊版會連 `GRANT service_role, postgres TO pcm_w` 一起放行,
+            #    而 `postgres` / `supabase_admin` 在 Supabase 上是 owner 級 ⇒ **嚴格比 service_role 壞**。
+            if set(granted) != {'service_role'}:
+                return False
+            if not grantees:
+                return False
+            # 🔴 **[R1 #6]** 先收暫存, **全部通過才併進 `used`** ——
+            #    舊版把 append 寫在 `all()` 的短路副作用裡 ⇒ `TO pcm_w, anon` 會紅而 hook 照印一筆 ⚪;
+            #    對調成 `TO anon, pcm_w` 則一筆都不印 ⇒ **稽核紀錄由書寫順序決定。**
+            staged = []
+            for grantee in grantees:
+                raw = (grantee or '').strip()
+                g = raw.lower()
+                # 條件③:被授的角色不在公開角色集合。**這一格永遠不可豁免**(小寫比, fail-closed 方向)。
+                if not _r5_role_ok(g):
+                    return False
+                # 🔴 **[code-reviewer R1 #9]** 條件① 用【原字面】比 ——
+                #    `roles_of` 對加引號的角色**刻意保留大小寫**(`"PCM_W"` 在 PG 裡是另一個角色),
+                #    而舊版一律 `.lower()` ⇒ `GRANT service_role TO "PCM_W";` 會吃 `pcm_w` 那張豁免。
+                #    ⇒ 📌 ③ 用小寫是【收緊】, ① 用小寫是【放寬】—— 兩個方向不能共用一種正規化。
+                if not _r5_named(raw, ex5):
+                    return False
+                if not _r5_prereq_ok(r5_prereq_state):
+                    return False
+                staged.append(('R5:' + g,
+                               ex5.get(raw, '(讀不到理由 —— 判準被換過?)') + ' ‖ 前提:' + ' ‖ '.join(prereq_why)
+                               + ' ‖ 🛑 而本豁免【擋不住】:' + ' '.join(R5_CANNOT)))
+            used.extend(staged)
+            return True
+
     def touches(s, e):
         return added is None or any(s <= ln <= e for ln in added)
 
@@ -377,7 +589,7 @@ def check(sql, closed, added=None):
         for seg, s, e in statements(code, base):
             if not touches(s, e):
                 continue
-            for rule, msg in rules_for(seg, closed, exempt_for):
+            for rule, msg in rules_for(seg, closed, exempt_for, r5_allow):
                 drifts.append((rule, s, msg))
         for seg, s, e in statements(code, base):
             if touches(s, e) and EXEC_IDENT.search(seg):
@@ -406,7 +618,7 @@ def check(sql, closed, added=None):
             hit_static = False
             for lcode, llits, lbase in sql_layers(lit, ln):
                 for seg, s, _ in statements(lcode, lbase):
-                    for rule, msg in rules_for(seg, closed, exempt_for):
+                    for rule, msg in rules_for(seg, closed, exempt_for, r5_allow):
                         hit_static = True
                         drifts.append((rule, s, '字串內 SQL:' + msg))
             if hit_static:
@@ -492,6 +704,7 @@ def run():
         print('── acl-drift-gate:這顆 commit 沒有動到 supabase/migrations/*.sql ⇒ 不適用')
         return 0
     closed = closed_set(committed_migrations(files))
+    r5_state = r5_prereq()
     for ln in renamed_or_deleted_migrations():
         print(f'   ⚠️ 本 commit 改名 / 刪掉了 migration:{ln}(閉集仍以 HEAD 樹算;刪掉一支 REVOKE 不會讓表離開閉集)')
     all_drift, all_unres, all_used = [], [], []
@@ -500,10 +713,10 @@ def run():
         added = None
         if status != 'A':
             added, removed = diff_lines(f)
-            if EXEMPT.search(removed):
+            if EXEMPT.search(removed) or EXEMPT_R5.search(removed):
                 print(f'   ⚠️ {os.path.basename(f)} 刪掉了 ACL-GATE-EXEMPT 行 ⇒ 整支檔全部回報, 不只新增行')
                 added = None
-        d, u, used = check(sql, closed, added)
+        d, u, used = check(sql, closed, added, r5_state)
         all_drift += [(f, *x) for x in d]
         all_unres += [(f, x) for x in u]
         all_used += [(f, *x) for x in used]
@@ -645,27 +858,176 @@ WORLDS = [
 
 def selftest():
     fails = 0
+    ran = 0   # 🔴 **跑幾格用【數的】不用【加總的】** —— 見下面 total 那一行
     for name, sql, want in WORLDS:
         d, u, _ = check(sql, CLOSED_FIXTURE)
         got = 1 if d else 0
         ok = got == want
         fails += 0 if ok else 1
+        ran += 1
         print(f"  {'PASS' if ok else '🔴 FAIL'}  {name}" + ('' if ok else f'   期望 {want} 實得 {got} {d}'))
     for key in ('R6 綠  動態 GRANT TO service_role', 'R6 綠  角色由 %I', "R6 綠  EXECUTE '<靜態字面>' 對非閉集表", "R6 綠  EXECUTE '… TO ' || quote_ident", '綠  v_sql := …; EXECUTE v_sql'):
         sql_unres = next(s for n, s, w in WORLDS if n.startswith(key))
         _, u, _ = check(sql_unres, CLOSED_FIXTURE)
         ok = len(u) == 1
         fails += 0 if ok else 1
+        ran += 1
         print(f"  {'PASS' if ok else '🔴 FAIL'}  未判有印出來(不與乾淨同形):{key}")
+    # ══ R5 豁免路的七格(2026-09-05;plan §3)═══════════════════════════
+    #   🔴 **成對**:四發負對照(該紅)+ 一發正對照(該綠且要印出那句)+ 回歸 + 突變。
+    # ⚠️ **這裡的錨用 `2026-09-05` 而不是版本號 `20260905190000`, 而那是【被迫的】**:
+    #    `EXEMPT_ANCHOR` 是 `\b20\d{6}\b`(恰 8 位)⇒ **14 位的 migration 版本號【不匹配】**,
+    #    而本檔頭 :24 舉的例子正是 `20260824010000`(14 位)⇒ 🔴 **文件與碼不一致, 是既有缺陷。**
+    #    🔬 實測:`20260824010000` ⇒ False · `20260905` ⇒ True · `2026-08-27` ⇒ True · `#885` ⇒ True。
+    #    🛑 **本次【不動】`EXEMPT_ANCHOR`** —— 改它會同時放寬 R3/R4, 超出本次授權範圍。已回報主視窗。
+    R5_SQL = 'GRANT service_role TO pcm_email_writer;'
+    R5_EX = '-- ACL-GATE-EXEMPT-R5: pcm_email_writer -- 收窄案要成員資格 2026-09-05 #885\n'
+    OK_STATE = (True, ['帳本有兩支', '告警信讀得到'])
+    BAD_STATE = (False, ['帳本缺 20260905140000'])
+    r5_cases = [
+        # (名稱, sql, 前提狀態, 期望紅=1)
+        ('R5 負對照A  前提不成立(帳本缺一支)+ 有 EXEMPT-R5 ⇒ 仍紅', R5_EX + R5_SQL, BAD_STATE, 1),
+        ('R5 負對照B  前提成立而【沒寫】EXEMPT-R5 ⇒ 仍紅', R5_SQL, OK_STATE, 1),
+        ('R5 負對照C  前提成立 + EXEMPT-R5 給 anon ⇒ 仍紅(公開角色永不豁免)',
+         '-- ACL-GATE-EXEMPT-R5: anon -- 前提都在也不准 2026-09-05 #885\nGRANT service_role TO anon;', OK_STATE, 1),
+        ('R5 負對照D  理由不帶錨 ⇒ 仍紅(規則 EX5)',
+         '-- ACL-GATE-EXEMPT-R5: pcm_email_writer -- 沒有可稽核錨的理由字串\n' + R5_SQL, OK_STATE, 1),
+        ('R5 正對照   三條件齊 ⇒ 綠', R5_EX + R5_SQL, OK_STATE, 0),
+        ('R5 回歸     前提給 None(= 加豁免路之前)⇒ 仍紅', R5_EX + R5_SQL, None, 1),
+        ("R5 負對照E  EXECUTE '<靜態字面>' 那條路也吃同一組條件 ⇒ 沒寫 EXEMPT 仍紅",
+         'DO $$ BEGIN EXECUTE \'GRANT service_role TO pcm_email_writer\'; END $$;', OK_STATE, 1),
+        # ── code-reviewer R1 抓到的四條繞過路, 每條一格(它們原本【全綠】)──
+        ('R5 負對照F  一張豁免不得順便涵蓋 postgres(owner 級, 比 service_role 壞)',
+         R5_EX + 'GRANT service_role, postgres TO pcm_email_writer;', OK_STATE, 1),
+        ('R5 負對照G  只授 supabase_admin ⇒ 不吃 service_role 的豁免',
+         R5_EX + 'GRANT supabase_admin TO pcm_email_writer;', OK_STATE, 1),
+        ('R5 負對照H  WITH ADMIN OPTION 永遠不可豁免(拿到的人可以自己授給 anon)',
+         R5_EX + 'GRANT service_role TO pcm_email_writer WITH ADMIN OPTION;', OK_STATE, 1),
+        ('R5 負對照I  多 grantee 有一個是 anon ⇒ 整句紅',
+         R5_EX + 'GRANT service_role TO pcm_email_writer, anon;', OK_STATE, 1),
+        ('R5 負對照J  順序對調(anon 排前面)⇒ 一樣紅',
+         R5_EX + 'GRANT service_role TO anon, pcm_email_writer;', OK_STATE, 1),
+        ('R5 負對照K  加引號的角色 "PCM_EMAIL_WRITER" 不吃小寫那張豁免(PG 裡是另一個角色)',
+         R5_EX + 'GRANT service_role TO "PCM_EMAIL_WRITER";', OK_STATE, 1),
+        ('R5 正對照2  加引號而【字面相同】的豁免 ⇒ 綠(證明上一格不是恆紅)',
+         '-- ACL-GATE-EXEMPT-R5: PCM_EMAIL_WRITER -- 大小寫逐字對上 2026-09-05 #885\n'
+         'GRANT service_role TO "PCM_EMAIL_WRITER";', OK_STATE, 0),
+    ]
+    for name, sql_c, state, want in r5_cases:
+        d, _, _ = check(sql_c, CLOSED_FIXTURE, None, state)
+        got = 1 if d else 0
+        ok = got == want
+        fails += 0 if ok else 1
+        ran += 1
+        print(f"  {'PASS' if ok else '🔴 FAIL'}  {name}" + ('' if ok else f'   期望 {want} 實得 {got} {d}'))
+    # 🟢 正對照那一發【還要印出那句】—— 一個「放行而靜靜通過」的版本要在這裡紅。
+    _, _, used5 = check(R5_EX + R5_SQL, CLOSED_FIXTURE, None, OK_STATE)
+    ok = (len(used5) == 1 and used5[0][0] == 'R5:pcm_email_writer'
+          and all(c[:2] in used5[0][1] for c in R5_CANNOT)
+          and '帳本' in used5[0][1])
+    fails += 0 if ok else 1
+    ran += 1
+    print(f"  {'PASS' if ok else '🔴 FAIL'}  R5 放行時印出理由 + 前提 + 三句【擋不住】" + ('' if ok else f'   實得 {used5}'))
+    # 🔴 **[R1 #6]** 紅的時候【不得】印豁免行, 而且**與書寫順序無關**。
+    for nm, sql_c in (('TO pcm_email_writer, anon', R5_EX + 'GRANT service_role TO pcm_email_writer, anon;'),
+                      ('TO anon, pcm_email_writer', R5_EX + 'GRANT service_role TO anon, pcm_email_writer;')):
+        d6, _, used6 = check(sql_c, CLOSED_FIXTURE, None, OK_STATE)
+        ok = bool(d6) and used6 == []
+        fails += 0 if ok else 1
+        ran += 1
+        print(f"  {'PASS' if ok else '🔴 FAIL'}  R5 紅的時候零豁免行({nm})"
+              + ('' if ok else f'   實得 drifts={bool(d6)} used={used6}'))
+    # ══ 條件②④【讀檔那半】的守門(code-reviewer R1 #1:原本零格 ⇒ 把它們換成恆真也 94 全綠)══
+    #   🔴 用**注入 reader** 餵受控內容 ⇒ 測到的是【生產函式的判斷邏輯】, 不是我重打一份。
+    LEDGER_OK = '20260905140000\tsha\t2026-09-05\t記\n20260905170000\tsha\t2026-09-05\t記\n'
+    def _rd(mapping):
+        return lambda path: (mapping.get(path), 'fixture' if path in mapping else '讀不到')
+    prereq_cases = [
+        ('R5 前提正對照  帳本兩支齊 + 告警檔有字面 ⇒ True',
+         {'supabase/APPLIED.tsv': LEDGER_OK, R5_ALERT_FILE: 'const x = summary.aclDriftDetected;'}, True),
+        ('R5 前提負對照A 帳本只有一支 ⇒ False',
+         {'supabase/APPLIED.tsv': '20260905140000\tsha\t2026-09-05\t記\n',
+          R5_ALERT_FILE: 'const x = summary.aclDriftDetected;'}, False),
+        ('R5 前提負對照B 版本號出現在【別的欄】而不是行首 ⇒ False',
+         {'supabase/APPLIED.tsv': 'x\tsha\t20260905140000 20260905170000\t記\n',
+          R5_ALERT_FILE: 'const x = summary.aclDriftDetected;'}, False),
+        ('R5 前提負對照C 告警檔沒有那個字面 ⇒ False',
+         {'supabase/APPLIED.tsv': LEDGER_OK, R5_ALERT_FILE: 'const x = 1;'}, False),
+        ('R5 前提負對照D 字面只出現在 // 註解裡 ⇒ False(不算有人接)',
+         {'supabase/APPLIED.tsv': LEDGER_OK,
+          R5_ALERT_FILE: '// TODO: aclDriftDetected 還沒接\nconst x = 1;'}, False),
+        ('R5 前提負對照E 字面只出現在 /* */ 區塊註解裡 ⇒ False',
+         {'supabase/APPLIED.tsv': LEDGER_OK,
+          R5_ALERT_FILE: '/* 舊碼:aclDriftDetected */\nconst x = 1;'}, False),
+        ('R5 前提負對照F 兩支檔都讀不到 ⇒ False(fail-closed)', {}, False),
+    ]
+    for name, mapping, want in prereq_cases:
+        got, _ = r5_prereq(_rd(mapping))
+        ok = got is want
+        fails += 0 if ok else 1
+        ran += 1
+        print(f"  {'PASS' if ok else '🔴 FAIL'}  {name}" + ('' if ok else f'   期望 {want} 實得 {got}'))
+    # 🔴 突變:把【讀檔那兩支生產函式】換成恆真 ⇒ 上面對應的負對照必須翻 True
+    #    少了這一格, 一個「R5 無條件放行」的版本會通過全部自檢(那正是 R1 #1 抓到的)。
+    for pname, target, mutant, world in (
+            ('r5_ledger_ok', 'r5_ledger_ok', lambda reader=None: (True, 'mutant'),
+             {'supabase/APPLIED.tsv': '', R5_ALERT_FILE: 'const x = summary.aclDriftDetected;'}),
+            ('r5_alert_ok', 'r5_alert_ok', lambda reader=None: (True, 'mutant'),
+             {'supabase/APPLIED.tsv': LEDGER_OK, R5_ALERT_FILE: 'const x = 1;'})):
+        g = globals()
+        orig = g[target]
+        g[target] = mutant
+        try:
+            got, _ = r5_prereq(_rd(world))
+        finally:
+            g[target] = orig
+        ok = got is True
+        fails += 0 if ok else 1
+        ran += 1
+        print(f"  {'PASS' if ok else '🔴 FAIL'}  突變 {pname} ⇒ 恆真時對應的負對照必須翻 True"
+              + ('' if ok else '   實得仍 False'))
+    ok = (g['r5_ledger_ok'] is not None and r5_prereq(_rd({}))[0] is False)
+    fails += 0 if ok else 1
+    ran += 1
+    print(f"  {'PASS' if ok else '🔴 FAIL'}  讀檔那兩支【還原】了(空世界仍 False)")
+
+    # ══ 突變:把三個判準【逐一】換成恆真, 對應那一格必須翻綠 ═════════════
+    #   🔴 它證的是「那一格的紅【真的由那個判準決定】」——
+    #      少了它, 一個寫了條件而【沒接上】的版本會四格全綠而看起來很完整。
+    for pname, target, mutant, ok_state in (
+            ('_r5_role_ok(公開角色那格)', '_r5_role_ok', lambda g: True,
+             ('-- ACL-GATE-EXEMPT-R5: anon -- 前提都在也不准 2026-09-05 #885\nGRANT service_role TO anon;', OK_STATE)),
+            ('_r5_named(具名豁免那格)', '_r5_named', lambda g, e: True, (R5_SQL, OK_STATE)),
+            ('_r5_prereq_ok(前提那格)', '_r5_prereq_ok', lambda st: True, (R5_EX + R5_SQL, BAD_STATE))):
+        g = globals()
+        orig = g[target]
+        g[target] = mutant
+        try:
+            d, _, _ = check(ok_state[0], CLOSED_FIXTURE, None, ok_state[1])
+        finally:
+            g[target] = orig
+        ok = not d
+        fails += 0 if ok else 1
+        ran += 1
+        print(f"  {'PASS' if ok else '🔴 FAIL'}  突變 {pname} ⇒ 恆真時該格必須翻綠"
+              + ('' if ok else f'   實得仍紅 {d}'))
+    # 🔴 突變還原了沒有 —— 少了這一格, 上面那三發會把判準留在恆真狀態而後面全綠
+    ok = (_r5_role_ok('anon') is False and _r5_named('x', {}) is False and _r5_prereq_ok((False, [])) is False)
+    fails += 0 if ok else 1
+    ran += 1
+    print(f"  {'PASS' if ok else '🔴 FAIL'}  三個判準【還原】了(突變沒有留在恆真)")
+
     # 行號射程:改既有檔只回報碰到新增行的語句(跨行 GRANT 只新增 TO 那一行也要紅, codex r4 #2)
     two = 'CREATE TABLE public.t (id int);\nGRANT SELECT ON public.products\n  TO anon;\nGRANT SELECT ON public.brands TO anon;'
     d, _, _ = check(two, set(), added={3})
     ok = [x[0] for x in d] == ['R3'] and d[0][1] == 2
     fails += 0 if ok else 1
+    ran += 1
     print(f"  {'PASS' if ok else '🔴 FAIL'}  改既有檔:只新增第 3 行(跨行 GRANT 的 TO 那行)⇒ 回報那一條、不回報第 4 行的舊債  {d}")
     d, _, _ = check(two, set(), added={1})
     ok = d == []
     fails += 0 if ok else 1
+    ran += 1
     print(f"  {'PASS' if ok else '🔴 FAIL'}  改既有檔:只新增第 1 行(CREATE TABLE)⇒ 零回報(不追舊債)")
     committed = [('20260101_a.sql', 'REVOKE ALL ON public.t1 FROM anon, authenticated, service_role;'),
                  ('20260102_b.sql', 'REVOKE ALL ON public.t2 FROM service_role;\nGRANT SELECT ON public.t2 TO service_role;'),
@@ -682,9 +1044,11 @@ def selftest():
     want = {'public.t1', 'public.t5', 'public.t6', 'public.t8', 'public.t9'}
     ok = cs == want
     fails += 0 if ok else 1
+    ran += 1
     print(f"  {'PASS' if ok else '🔴 FAIL'}  閉集:t1 t5 在 / t2 再 GRANT 不在 / 字串內 t3 不算 / t4 只收寫入面不算 / t6 先 GRANT 後 REVOKE 在 / t7 FROM PUBLIC 不算 / t8 t9 多物件 / t10 GRANT OPTION FOR 不算 / t11 欄級不算(codex r4 #6)  {sorted(cs)}")
     gf, gc = selftest_git()
     fails += gf
+    ran += gc
     try:
         migdir = os.path.join(HERE, '..', 'supabase', 'migrations')
         mig = sorted(f for f in os.listdir(migdir) if f.endswith('.sql'))
@@ -696,7 +1060,12 @@ def selftest():
         print(f'  (紀錄, 不是判定, 不是誤擋率;讀的是工作樹) 歷史命中:{hit} / {len(mig)} 支既有 migration 若當新檔會被 R1-R3/R5/R6 要求寫 EXEMPT 理由(閉集設空)')
     except OSError as e:
         print(f'  (紀錄) 歷史命中:量不到({e})')
-    total = len(WORLDS) + 5 + 2 + 1 + gc
+    # ⛔ ~~total = len(WORLDS) + 5 + 2 + 1 + gc~~ —— 🔴 **那是【手維護的加總】, 而它漂了。**
+    #    2026-09-05 實測:新增 12 格之後, **94 格在跑而它印 82**。
+    #    🛑 而它壞的方式最惡劣:某一格【失敗】時 PASS 少一、FAIL 多一, **兩數仍加得回 82**
+    #       ⇒ 看的人不會發現分母是錯的。⇒ 📌 這正是鐵則 11 的第四個數(我餵幾條 vs 它跑幾支)。
+    #    ✅ 改成【數出來的】:每印一格就 +1。
+    total = ran
     print(f'── selftest: {total - fails} PASS / {fails} FAIL')
     return 1 if fails else 0  # 不把格數當離場碼(2 格紅會撞到「工具層」那個 2;R2 nit)
 
