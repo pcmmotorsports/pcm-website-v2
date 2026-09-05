@@ -288,6 +288,45 @@ describe('⟦ship-HCTAPI⟧ SOAP 信封與外層形狀(真回應當 fixture)', (
     expect(JSON.parse(unesc)).toEqual([{ epino: 'PCM-2026-0001' }]);
   });
 
+  it.each([
+    ['Y 是【新增成功】', 'Y', 'submitted'],
+    ['R 是【修改成功】—— 新竹那邊本來就有一張', 'R', 'amended'],
+  ])('🔴 %s ⇒ kind = %s', async (_n, success, kind) => {
+    // 🔴🔴 **這一格守的是「R 不是 Y」** —— 規格第 8 頁逐字
+    //    「新竹貨號+訂單編號 -> 當日重複上傳, 視同【更正】資料內容」
+    //    ⇒ 收到 R 代表**新竹那邊本來就有一張**, 而我們以為自己是第一次送
+    //    ⇒ 📌 那是「我們的狀態與新竹不同步」的訊號, **不是一次成功**。
+    //    🛑 而舊碼把兩者當同一件事 ⇒ 一張【被我們改掉的既有單】會被記成「送成功了」,
+    //      而**沒有人會去看它到底改掉了什麼**。
+    const f = fakeFetch(() => soap(realRow({ success, edelno: '1234567890', epino: FIELDS.epino })));
+    openGates();
+    const out = await submitTransData(deps(f.impl), FIELDS);
+    expect(out.kind).toBe(kind);
+  });
+
+  it('🔴 回應講的是【別張單】⇒ unknown —— 不得把別人的成功記在我們頭上', async () => {
+    const f = fakeFetch(() =>
+      soap(realRow({ success: 'Y', edelno: '1234567890', epino: 'SOMEONE-ELSE' })),
+    );
+    openGates();
+    const out = await submitTransData(deps(f.impl), FIELDS);
+    expect(out.kind).toBe('unknown');
+    expect(out.kind === 'unknown' ? out.reason : '').toBe('epino_mismatch');
+  });
+
+  it('🔴 回【多列】⇒ unknown —— 我們不知道哪一列在講這一箱, 而取第一列是在猜', async () => {
+    const f = fakeFetch(() =>
+      soap([
+        ...realRow({ success: 'Y', edelno: '111', epino: FIELDS.epino }),
+        ...realRow({ success: 'Y', edelno: '222', epino: FIELDS.epino }),
+      ]),
+    );
+    openGates();
+    const out = await submitTransData(deps(f.impl), FIELDS);
+    expect(out.kind).toBe('unknown');
+    expect(out.kind === 'unknown' ? out.reason : '').toBe('row_count_2');
+  });
+
   it('🛑 認不得的 body ⇒ unknown, 不猜 —— 一個「盡力猜」的 parser 會把看不懂變成看起來懂', async () => {
     const f = fakeFetch(() => new Response('<html>維護中</html>', { status: 200 }));
     openGates();

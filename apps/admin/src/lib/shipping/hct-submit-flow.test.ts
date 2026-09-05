@@ -139,6 +139,35 @@ describe('⟦ship-HCTAPI⟧ 片 C-2 · 送出那條路 —— 三態各自落到
     });
   });
 
+
+  it('🔴🔴 新竹回 R ⇒ 貨號要記, 而它【不是】一次乾淨的成功', async () => {
+    openGates();
+    const f = fakeFetch(() => soap([{ success: 'R', edelno: '9990001234', epino: 'PCM-2026-0001' }]));
+    const out = await runHctSubmit({
+      deps: deps(f.impl),
+      current: 'draft',
+      fields: FIELDS,
+      epino: 'PCM-2026-0001',
+    });
+    // ✅ 貨號照記 —— 那張單是真的, 不記才是錯的。
+    expect(out.kind).toBe('amended');
+    expect(out.kind === 'amended' ? out.requestId : '').toBe('9990001234');
+    // 🔴 而理由要說得出【它為什麼不是成功】—— 否則它會混進「今天送成功幾張」裡。
+    expect(out.kind === 'amended' ? out.reason : '').toContain('本來就有一張');
+  });
+
+  it('🟢 負對照:同一條路回 Y ⇒ recorded/submitted(證明上面那個 amended 不是恆真)', async () => {
+    openGates();
+    const f = fakeFetch(() => soap([{ success: 'Y', edelno: '9990001234', epino: 'PCM-2026-0001' }]));
+    const out = await runHctSubmit({
+      deps: deps(f.impl),
+      current: 'draft',
+      fields: FIELDS,
+      epino: 'PCM-2026-0001',
+    });
+    expect(out.kind).toBe('recorded');
+  });
+
   it('🔵 draft + 新竹回 N ⇒ recorded/failed, 而 raw 留著新竹說了什麼', async () => {
     openGates();
     const body = [{ success: 'N', ErrMsg: '公司名稱或密碼錯誤' }];
