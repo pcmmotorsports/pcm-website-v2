@@ -252,6 +252,28 @@ export type CheckAnomalyAlertsResult = {
   settleRetryGaveUpSampleIds: string[];
   /** 🔵 分母:被追蹤的總列數。`gave_up_count > tracked_total` ⇒ 讀到的不可信 ⇒ 走 Unknown。 */
   settleRetryGaveUpTracked: number | null;
+
+  /**
+   * ⟦b4-PENDINGREFUNDSILENT⟧(2026-09-05):被刻意吞掉的「開待退款失敗」留痕。
+   * 來源 = `public.get_pcm_incident_health()`(隨 `20260905290000` / 貼板 36 才存在)。
+   *
+   * 🔴 **`pcmIncidentOpenTotal > 0` 進 `shouldAlert`** —— Sean 2026-09-05 拍甲逐字
+   *    「小事故表 + **告警信多一列**」;主視窗 `-f8` 明示這裡**沒有門檻題**:
+   *    📌 **事故 > 0 就叫。** 那張表上的每一列都代表「有人匯了錢而退款單沒開成」。
+   *
+   * 🛑 `pcmIncidentUnknown` **不進** `shouldAlert`(沿用本檔每一族 `*Unknown` 的慣例)——
+   *    它有兩個世界:①那支 RPC 還沒 apply(部署窗口, 預期中)②它真的壞了。
+   *    ⇒ 兩者只靠 adapter 那一行 `console.error` 分得開。
+   */
+  pcmIncidentOpenTotal: number | null;
+  pcmIncidentUnknown: boolean;
+  /** 最早一列未處理事故的時間;`null` = 沒有 open 或沒讀到。 */
+  pcmIncidentOldest: string | null;
+  /**
+   * 逐 kind 的未處理計數(信裡要列得出是哪一種)。
+   * 🔵 空物件有兩個意思:**沒有事故** 與 **沒讀到** —— 要分開請看 `pcmIncidentUnknown`。
+   */
+  pcmIncidentByKind: Record<string, number>;
   /** 🔵 讀到的兩個分母。**不直接進 `shouldAlert`** —— 那道閘只看上面兩個旗標。
    *  ⛔ ~~我第一版寫「**不是判準**」~~ —— R3 nit 打掉(codex R2 也在 domain 那份打過同一句):
    *     `bypassRlsTotalRoleCount` **確實參與判定**(adapter 拿它當回應合理性下界 ⇒ 走 Unknown)。
@@ -1059,6 +1081,30 @@ export function buildAnomalyAlertMessage(
     );
   }
 
+  /**
+   * ⟦b4-PENDINGREFUNDSILENT⟧ —— Sean 2026-09-05 拍甲逐字「小事故表 + **告警信多一列**」的下半。
+   * 🔵 形狀照隔壁 `gaveUpBlock`:自己一個 block, 由下面那句 `const body = [...]` 組進信體。
+   *    ⚠️ **這裡刻意不寫行號** —— 我原本寫 `:1270`, 而加了本區塊之後那一行就變成 `:1276`
+   *      ⇒ codex 2026-09-05 nit:跳過去看到的是說明文字不是組裝行。
+   *      📌 **一個指向同一支檔的行號, 會被【自己這次的改動】弄過期。**
+   */
+  const incidentBlock: string[] = [];
+  if ((summary.pcmIncidentOpenTotal ?? 0) > 0) {
+    const kinds = Object.entries(summary.pcmIncidentByKind)
+      .map(([k, n]) => `${k}=${n}`)
+      .join(' · ');
+    incidentBlock.push(
+      '【被吞掉的失敗】',
+      `🔴 有 ${summary.pcmIncidentOpenTotal} 件事故沒有人處理 —— 這些是【被刻意吞掉】的失敗。`,
+      '   目前唯一一種是「客人匯了錢而退款單沒開成」:錢在庫裡, 而系統當時選擇【不讓它回滾】,',
+      '   因為回滾會把客人那筆收款一起退掉。⇒ 吞掉是對的, 而沒有人知道它發生過才是病。',
+      `   種類:${kinds || '(沒讀到)'}`,
+      `   最早一件:${summary.pcmIncidentOldest ?? '(沒讀到)'}`,
+      '   ✅ 下一步:後台查那幾張單有沒有待退款列;錯在哪看 Postgres log 的 [pcm_noncard_settle]。',
+      '   🛑 這個數字【只算得到留得下來的那些】—— 外層交易整個回滾時, 那一列會跟著消失。',
+    );
+  }
+
 
   const aclDriftBlock: string[] = [];
   if (summary.aclDriftDetected) {
@@ -1230,7 +1276,7 @@ export function buildAnomalyAlertMessage(
   //      主動告知它上一片就漏了第三個)⇒ 本片三個接點:此處 · shouldAlert · builder 參數。
     // 🔵 2026-09-05 合併:`-db` 的 aclDriftBlock 與 `-mail` 的 stuckBank* 兩邊都留 ——
     //    它們是不同的訊號、不同的觀眾, 誰都不該覆蓋誰。
-    const body = [bypassRlsBlock, aclDriftBlock, gaveUpBlock, searchLogBlock, stuckBankBlock, stuckBankOverpaidBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock]
+    const body = [bypassRlsBlock, aclDriftBlock, gaveUpBlock, incidentBlock, searchLogBlock, stuckBankBlock, stuckBankOverpaidBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock]
       .filter((b) => b.length > 0)
       .flatMap((b) => [...b, '']);
 
@@ -1775,7 +1821,10 @@ export async function checkAnomalyAlerts(
       // ⟦b4-RETRYGAVEUPNOWATCHER⟧:被放棄的匯款單 > 0 ⇒ 叫。
       // 🔴 那是【已經匯了錢而系統修不好】的客人 —— 它與 bypassRls 同一個等級。
       // 🛑 而 `null`(量不到)不進這道閘 —— 它走 503 那條(與本檔每一格同一個成例)。
-      (summary.settleRetryGaveUpCount ?? 0) > 0;
+      (summary.settleRetryGaveUpCount ?? 0) > 0 ||
+      // 🔴 ⟦b4-PENDINGREFUNDSILENT⟧:事故 > 0 就叫(Sean 拍甲, 沒有門檻題)。
+      //    `?? 0` 讓 Unknown(null)不進這道閘 —— 與本檔每一族 `*Unknown` 同慣例。
+      (summary.pcmIncidentOpenTotal ?? 0) > 0;
 
   let notifiersTotal = 0;
   let notifiersFailed = 0;
@@ -1913,6 +1962,10 @@ export async function checkAnomalyAlerts(
       settleRetryGaveUpOldest: summary.settleRetryGaveUpOldest,
       settleRetryGaveUpSampleIds: summary.settleRetryGaveUpSampleIds,
       settleRetryGaveUpTracked: summary.settleRetryGaveUpTracked,
+      pcmIncidentOpenTotal: summary.pcmIncidentOpenTotal,
+      pcmIncidentUnknown: summary.pcmIncidentUnknown,
+      pcmIncidentOldest: summary.pcmIncidentOldest,
+      pcmIncidentByKind: summary.pcmIncidentByKind,
     bypassRlsPrivilegedCount: summary.bypassRlsPrivilegedCount,
     bypassRlsTotalRoleCount: summary.bypassRlsTotalRoleCount,
     /**

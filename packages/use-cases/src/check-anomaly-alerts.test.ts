@@ -30,6 +30,10 @@ const ZERO: AnomalyAlertSummary = {
   settleRetryGaveUpOldest: null,
   settleRetryGaveUpSampleIds: [],
   settleRetryGaveUpTracked: 0,
+  pcmIncidentOpenTotal: 0,
+  pcmIncidentUnknown: false,
+  pcmIncidentOldest: null,
+  pcmIncidentByKind: {},
   // 🔵 基線用正式庫 2026-09-02 真呼叫回來的值,不是我編的。
   bypassRlsPrivilegedCount: 6,
   bypassRlsTotalRoleCount: 35,
@@ -1878,6 +1882,77 @@ describe('⟦b9-ENUMWATCH⟧ R3:兩種 Unknown', () => {
       expect(msg.text).not.toContain('【資料庫權限】');
       expect(msg.text).not.toContain('【權限快照】');
       expect(msg.subject).toContain('匯款單修不好');
+    });
+  });
+
+  // ⟦b4-PENDINGREFUNDSILENT⟧(2026-09-05, Sean 拍甲的「告警信多一列」)
+  // 🔴 四格各答一個【不同】的問題, 不是同一件事測四次:
+  //    ① 有事故要叫(這一片存在的理由)
+  //    ② 量不到不叫(RPC 沒 apply 的那幾天不要每天一封)
+  //    ③ 0 件不叫(證明 ① 不是恆真)
+  //    ④ 信裡那一塊的內容
+  // ⚠️ **而這四格【都餵已解析好的 summary】, 沒有一格碰到 adapter 那個邊界**
+  //    ⇒ 📌 「缺 key 不可以降級成 0」那件事**不在這裡驗**, 它在
+  //      `packages/adapters/src/payment/PgAnomalyAlertReaderAdapter.test.ts` 的
+  //      「get_pcm_incident_health 的三個世界」那三格(codex 2026-09-05 nit:
+  //      我原本在這裡宣稱驗了它, 而讀者會誤以為 adapter 邊界已覆蓋)。
+  describe('⟦b4-PENDINGREFUNDSILENT⟧:有被吞掉的失敗那天', () => {
+    it('🔴 有未處理事故 ⇒ 要叫', async () => {
+      const res = await checkAnomalyAlerts(
+        {
+          reader: reader({
+            ...ZERO,
+            pcmIncidentOpenTotal: 3,
+            pcmIncidentByKind: { pending_refund_open_failed: 3 },
+          }),
+          notifiers: [okNotifier()],
+        },
+        OPTS,
+      );
+      expect(res.alerted, '有人匯了錢而退款單沒開成, 而沒有叫 ⇒ 這一片等於沒做').toBe(true);
+    });
+
+    it('🔵 而【量不到】不叫 —— null 走 503 那條', async () => {
+      const res = await checkAnomalyAlerts(
+        {
+          reader: reader({ ...ZERO, pcmIncidentOpenTotal: null, pcmIncidentUnknown: true }),
+          notifiers: [okNotifier()],
+        },
+        OPTS,
+      );
+      expect(res.alerted, 'null 直接寄信 ⇒ RPC 沒 apply 的那幾天會每天一封').toBe(false);
+    });
+
+    it('🔴 事故 0 件不叫 —— 0 與 null 在這道閘同行為, 而 0 是【查得到而且沒有】', async () => {
+      const res = await checkAnomalyAlerts(
+        { reader: reader({ ...ZERO, pcmIncidentOpenTotal: 0 }), notifiers: [okNotifier()] },
+        OPTS,
+      );
+      expect(res.alerted).toBe(false);
+    });
+
+    it('🔴 信裡那一塊要說【錢在庫裡】與【吞掉是對的】, 而且只有那一塊', () => {
+      const msg = buildAnomalyAlertMessage(
+        {
+          ...ZERO,
+          pcmIncidentOpenTotal: 2,
+          pcmIncidentOldest: '2026-09-05T00:00:00Z',
+          pcmIncidentByKind: { pending_refund_open_failed: 2 },
+        },
+        86400, null, false,
+        { stale: false, anonRevoked: false },
+        { count: 0, oldestCreated: null, overpaidCount: 0, overpaidOldest: null },
+      );
+      expect(msg.text).toContain('【被吞掉的失敗】');
+      // 🔴 這幾句是【收信的人要知道的】—— 少了它們, 這一行只是一個技術指標。
+      expect(msg.text).toContain('錢在庫裡');
+      expect(msg.text).toContain('吞掉是對的');
+      expect(msg.text).toContain('pending_refund_open_failed=2');
+      expect(msg.text).toContain('2026-09-05T00:00:00Z');
+      // 🛑 射程也要寫進信裡:這個數字算不到被回滾掉的那些。
+      expect(msg.text).toContain('那一列會跟著消失');
+      // 🔵 其他計數留在 ZERO ⇒ 斷言【沒有別的區塊】, 免得這一格變成恆綠。
+      expect(msg.text).not.toContain('【匯款單修不好】');
     });
   });
 

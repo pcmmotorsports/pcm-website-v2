@@ -77,6 +77,7 @@ const ORDER = {
   discountTotal: twd(0),
   taxTotal: twd(0),
   total: twd(18100),
+  balanceDue: null,   // ⟦b4-PARTIALPAIDNOWHERE⟧ null = 算不出來(不是 0)
   shippingMethod: 'home',
   shippingAddress: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
   cancelledAt: null,
@@ -530,6 +531,7 @@ describe('片 C · 稅額那一列與頁尾(真 chromium · 列印媒體)', () =
       ...ORDER,
       taxTotal: twd(905),
       total: twd(19005),
+      balanceDue: null,   // ⟦b4-PARTIALPAIDNOWHERE⟧ null = 算不出來(不是 0)
     } as MemberOrderDetail;
 
     const measure = async (order: MemberOrderDetail): Promise<{ mm: number; hasTaxRow: boolean }> => {
@@ -655,6 +657,7 @@ describe('片 D · 多品項 + 有稅:金額表與分頁(真 chromium + 真 PDF)
         itemCount: n,
         taxTotal: twd(tax),
         total: twd(18000 + 100 + tax),
+        balanceDue: null,   // ⟦b4-PARTIALPAIDNOWHERE⟧ null = 算不出來(不是 0)
       }) as MemberOrderDetail;
 
     for (const [n, tax] of [
