@@ -299,6 +299,20 @@ export type AnomalyAlertSummary = {
    * 📌 ⇒ 所以 `Revoked` 只在**明確拿到 `false`** 時為 `true`;`null` 走 `Unknown`。
    */
   bypassRlsRevoked: boolean;
+
+  /**
+   * ⟦b9-ACLDRIFT5⟧:權限快照與**上一次**不一樣, 而**沒有人說那是他做的**。
+   * 🔴 `aclDriftDetected` **進** `shouldAlert`(有人動了權限而沒人認 ⇒ 要吵);
+   *    `aclDriftUnknown` **不進**(讀不到 / 快照太舊 ⇒ 部署或排程問題, 走 log + 503)。
+   * 🛑 **「已批准」會讓它不叫, 而那【不是消音】** —— 批准是一個人簽下「那是我貼板造成的」,
+   *    view 上 `有漂移` 仍然是 true。⇒ 少了這一格, 貼板當天之後會每天寄一封同樣的信。
+   * ⚠️ 而它答不出「有沒有人偷改」:改掉又改回來, 兩次快照相同 ⇒ 它不會叫(片二檔頭有寫)。
+   */
+  aclDriftDetected: boolean;
+  aclDriftUnknown: boolean;
+  /** 🔵 診斷用:哪一族變了 / 那一列是幾點量的。**不進** `shouldAlert`。 */
+  aclDriftFamilies: string | null;
+  aclDriftTakenAt: string | null;
   bypassRlsUnknown: boolean;
   /** 🔵 讀到的兩個分母。**不直接進 `shouldAlert`** —— 那道閘只看上面兩個旗標。
    *  ⛔ ~~我第一版寫「它們**不是判準**」~~ —— **codex R2 nit 打掉, 而它是對的**:

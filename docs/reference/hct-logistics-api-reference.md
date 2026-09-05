@@ -75,7 +75,30 @@
 ### 2.2 出貨 / 託運單列印
 
 **服務 URL:** `https://Hctrt.hct.com.tw/EDI_WebService2/Service1.asmx`(SOAP)
-**🔴 每支服務都有 `_Json` 與 `_XML` 變體 ⇒ 可走 JSON,不必處理 SOAP envelope。**
+⛔ ~~**🔴 每支服務都有 `_Json` 與 `_XML` 變體 ⇒ 可走 JSON,不必處理 SOAP envelope。**~~
+
+> 🔴🔴 **【2026-09-05 訂正 —— 上面那句是錯的, 而它會讓下一個人重造同一個 bug】**
+> **搜「不必處理 SOAP envelope」或「可走 JSON」的人請在這裡停下。**
+>
+> **`_Json` 的意思是「信封【裡面】那個參數是一段 JSON 字串」, 不是「傳輸走 JSON」。**
+> 逐字看服務描述:`TransData_Json(company, password, **json**)` —— 第三個參數型別是 `string`,
+> 而**信封本身仍然是 SOAP**。📌 **型別讀對了, 層次讀錯了。**
+>
+> **實測**(Sean 2026-09-05 授權的一發空探測, 不帶帳密, 只發一次):
+> ```
+> POST …/Service1.asmx   Content-Type: application/json   body: {}
+> ⇒ http 500 · content-type application/soap+xml · <soap:Fault>
+>   「在根層次的資料無效。 第 1 行,位置 1。」  ← 它把 JSON 當 XML 解析
+> ```
+> **服務描述頁的 `HTTP POST` 綁定區塊數 = 0**(SOAP 1.1 ×2 · SOAP 1.2 ×2)。
+>
+> 🛑 **而照上面那句寫出來的 client 不會【報錯】** —— 它會拿到 http 500,
+> 而 `hct-client.ts` 把非 2xx 判成 `unknown`(「它可能收了」)⇒ **那一箱當場卡住**,
+> 而卡住的出口(`⟦ship-HCTUNKNOWNSTUCK⟧`)**還沒做**。
+> ⇒ 📌 **一句錯的規格描述, 它的後果不是「不能動」, 是「安靜地卡住一箱貨」。**
+>
+> 📎 全文與 wire format:`docs/runbooks/2026-09-05-hct-readiness.md` `:159-194`;
+>    傳輸層改寫的 plan(**R2 判 FAIL, 不可開工**):`docs/plans/2026-09-05-hct-soap-transport-plan.md`。
 
 | 服務 | 用途 |
 |---|---|

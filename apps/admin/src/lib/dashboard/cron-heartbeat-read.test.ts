@@ -48,7 +48,7 @@ const NOW = new Date('2026-08-28T12:00:00.000Z');
 /** n 分鐘前的 ISO 字串。 */
 const ago = (n: number) => new Date(NOW.getTime() - n * 60_000).toISOString();
 
-/** 六支全部剛剛成功過的一份完整資料(正向對照的地基)。 */
+/** 八支全部剛剛成功過的一份完整資料(正向對照的地基)。 */
 const ALL_HEALTHY: Row[] = CRON_JOB_WHITELIST.map((w) => ({
   job_name: w.jobName,
   last_success_at: ago(1),
@@ -65,7 +65,7 @@ describe('白名單這張表本身', () => {
   //    (三支在別處只被索引引用、沒有字面)⇒ 名字漂掉 ⇒ 三綠全綠,
   //      而線上那一支永遠報「從來沒寫過心跳」,沒有人知道是名字打錯。
   //    ⇒ 這一格把六個名字與長度**釘成字面**:分母改成【我在檔案外面寫死的那份】。
-  it('🔴 六支的名字與數量釘死(改名/多一支/少一支都要紅)', () => {
+  it('🔴 八支的名字與數量釘死(改名/多一支/少一支都要紅)', () => {
     expect(CRON_JOB_WHITELIST.map((w) => w.jobName)).toEqual([
       'pcm-anomaly-alert',
       'pcm-capture-recheck',
@@ -73,8 +73,12 @@ describe('白名單這張表本身', () => {
       'pcm-expire-unpaid-orders',
       'pcm-order-ineligible-gate',
       'pcm-settle-sweep',
+        // 🔵 2026-09-05 加(⟦b9-ACLDRIFT5⟧ 片一 20260905140000 排的)
+        'pcm-acl-digest',
+        // 🔵 2026-09-05 加(⟦b4-SETTLERETRYNEVER⟧)
+        'pcm-settle-retry',
     ]);
-    expect(CRON_JOB_WHITELIST).toHaveLength(6);
+    expect(CRON_JOB_WHITELIST).toHaveLength(8);
     // 🔴 而這六個名字必須與**正式庫 cron.job 實際排的**一致(2026-08-28 唯讀撈、總數 6、非抽樣)。
     //    ⚠️ 而本測試**驗不到那一側** —— 它只釘住「碼裡這份沒有被偷偷改掉」。
     //    真排程漂掉這一格由 ⟦b4-CRON6c⟧ 記著(後台讀不到 `cron.job`,三道權限)。
@@ -154,7 +158,7 @@ describe('白名單這張表本身', () => {
 });
 
 describe('loadCronHeartbeats', () => {
-  it('正向對照:六支都健康 ⇒ 零異常、零漂移(證明下面每一格的斷言真的看得到東西)', async () => {
+  it('正向對照:八支都健康 ⇒ 零異常、零漂移(證明下面每一格的斷言真的看得到東西)', async () => {
     withRows(ALL_HEALTHY);
     const r = await loadCronHeartbeats(NOW);
     expect(r.unreadableReason).toBeNull();

@@ -24,6 +24,7 @@ function goodRow(over: Record<string, unknown> = {}) {
     display_id: 'PCM-2026-0001',
     notification_email: 'member@example.com',
     customer_email: 'frozen@example.com',
+    order_source: 'manual_phone',
     ...over,
   };
 }
@@ -182,5 +183,24 @@ describe('SupabaseShippedOrderScannerAdapter — 逐列形狀檢查(三條路)',
 
     expect(r.rows).toEqual([]);
     expect(r.truncated).toBe(false);
+  });
+});
+
+// ══ 片 B(⟦f3-MAILFALLBACKVSRULING⟧, 2026-09-05)——「撈得到 order_source」════════
+// 🔴 **兩個宣稱, 各一格**:①它在 select 字串裡 ②它真的走到 port 物件上。
+//    少了②, 一個「加進 select 而忘了對映」的實作【第①格照樣綠】。
+// 🔵 而 fixture 刻意用 'manual_phone' 不用 'web' —— 一個把它寫死成 'web' 的對映
+//    在 'web' 的 fixture 上完全看不出來。
+describe('片 B:order_source 接出來了', () => {
+  it('①select 字串帶了它, 而②它走到 port 物件上', async () => {
+    const { client, calls } = makeClient([goodRow()]);
+    const r = await new SupabaseShippedOrderScannerAdapter(client).listShippedWithoutShippedEmail({
+      cutoff: CUTOFF,
+      limit: 50,
+    });
+    // 🔴 R1-F9:原本寫 `JSON.stringify(calls)` ⇒ 攤平【所有】call 比對
+    //    ⇒ 實作若改成 `.eq('order_source', …)` 這一格照樣綠。改成只看 select 那一段。
+    expect(calls.columns).toContain('order_source');
+    expect(r.rows[0]?.orderSource).toBe('manual_phone');
   });
 });
