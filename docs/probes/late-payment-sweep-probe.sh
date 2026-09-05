@@ -327,6 +327,20 @@ chk "格29 🧬 全失敗那一輪 failed 要數到" "$(printf '%s' "$J3" | pyth
 chk "格30 🔴 R3-③ 而心跳的 consecutive_failures【不得】是 0" "$(QV -Atc "SELECT consecutive_failures FROM public.sweeper_heartbeat WHERE job_name='pcm-late-payment-sweep'")" 1
 chk "格31 🔴 而 last_failure_at 要有值(否則儀表看不到這一輪炸過)" "$(QV -Atc "SELECT last_failure_at IS NOT NULL FROM public.sweeper_heartbeat WHERE job_name='pcm-late-payment-sweep'")" t
 
+# 🔴🔴 codex R3 ⑥:**一發突變的 0, 有兩個來源** ——
+#    ①「它真的被回滾了」(我要驗的)②「那支函式根本沒建起來 ⇒ 從來沒插入過」(尺沒接上)。
+#    🛑 兩者**印同一個 0**, 而第二種會讓一個壞掉的突變看起來像一次成功的驗證。
+#    ⇒ 每一發突變貼完之後, 先問這個世界在不在。
+mut_world_ok() {   # $1 = 突變檔的 rc  · $2 = 這一格的名字
+  if [ "$1" -ne 0 ]; then
+    printf '  🔴 %s:突變檔貼不進去(rc=%s)⇒ 下面那一格的 0 不算數\n' "$2" "$1"; FAILED=$((FAILED + 1)); return 1
+  fi
+  if [ "$(QV -Atc "SELECT pg_catalog.to_regprocedure('pcm_cron.late_payment_pending_refund_sweep(integer)') IS NOT NULL")" != t ]; then
+    printf '  🔴 %s:貼完了而函式不在 ⇒ 下面那一格的 0 只是「從來沒跑過」\n' "$2"; FAILED=$((FAILED + 1)); return 1
+  fi
+  printf '  ✅ %s:突變世界造出來了(rc=0 且函式在)—— 下面那一格的 0 才有意義\n' "$2"
+}
+
 # ══ 🔴🔴 codex R2 ⑤:統計趟撞 statement_timeout 時, 寫入趟補好的列要【留著】═══════
 #    造法:把替身 `pcm_pending_refund_amounts` 換成「**這張單已經有待退款列時才睡**」——
 #    ⇒ 寫入趟(那時還沒有列)**快**、統計趟(那時已經有列了)**慢** ⇒ 只有統計趟撞得到逾時。
@@ -393,7 +407,8 @@ PY
 test -s "$D/mut57014.sql" || { echo "🔴 突變檔是空的"; exit 1; }
 grep -q '^    WHEN query_canceled THEN' "$D/mut57014.sql" \
   && { echo "🔴 突變沒落在目標上(query_canceled 還在)⇒ 下面那格不算數"; FAILED=$((FAILED + 1)); }
-Q -f "$D/mut57014.sql" > /dev/null 2>&1
+Q -f "$D/mut57014.sql" > "$D/mut57014.log" 2>&1; RCM1=$?
+mut_world_ok "$RCM1" "格35 前置"
 Q -c "INSERT INTO public.orders (id, cancelled_at) VALUES ('00000000-0000-0000-0000-000000000009', now());
       INSERT INTO public._probe_amounts VALUES ('00000000-0000-0000-0000-000000000009','bank_transfer',900);" > /dev/null
 QV -Atc "SET statement_timeout = '600ms'; SELECT pcm_cron.late_payment_pending_refund_sweep()" > /dev/null 2>&1
@@ -416,7 +431,8 @@ PY
 test -s "$D/mutHB.sql" || { echo "🔴 突變檔是空的"; exit 1; }
 grep -q 'IF v_fail > 0 OR v_stats_cancelled THEN' "$D/mutHB.sql" \
   && { echo "🔴 突變沒落在目標上 ⇒ 下面那格不算數"; FAILED=$((FAILED + 1)); }
-Q -f "$D/mutHB.sql" > /dev/null 2>&1
+Q -f "$D/mutHB.sql" > "$D/mutHB.log" 2>&1; RCM2=$?
+mut_world_ok "$RCM2" "格39 前置"
 Q -c "UPDATE public.sweeper_heartbeat SET last_success_at='2000-01-01 00:00:00+00',
         last_failure_at=NULL, consecutive_failures=0 WHERE job_name='pcm-late-payment-sweep';
       INSERT INTO public.orders (id, cancelled_at) VALUES ('00000000-0000-0000-0000-00000000000a', now());

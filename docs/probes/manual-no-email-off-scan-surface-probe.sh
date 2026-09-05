@@ -4,10 +4,14 @@
 #   ⟦f3-MAILFALLBACKVSRULING⟧ 片 C-2 探針:拋棄式 PG,雙向。
 #
 # 🛑🛑 **它【證不到】什麼(先讀這段)**:
-#   · 它驗的是**三支 view 的收錄行為**,不驗「信真的沒寄出去」(那要真跑)。
+#   · 它驗的是**【四】支 pending view + 一支伴生 view 的收錄行為**,
+#     不驗「信真的沒寄出去」(那要真跑)。
+#     ⛔ ~~三支~~ / ~~它不驗 `unpaid_cancelled`~~ —— **兩句都過期了**(codex R3 ⑧):
+#     codex ④ 那一輪推翻了「不動 unpaid_cancelled」那個決定, 而格15 現在就在驗它。
 #   · fixture 是**最小可跑**的世界(不是正式庫的 schema)⇒ 它答得出「述詞篩對了嗎」,
 #     答不出「正式庫那些欄位的實際內容會不會讓它篩錯」。
-#   · 🔴 它**不驗** `unpaid_cancelled`(本片刻意不動那一支,見 migration 檔頭)。
+#   · 🔴 伴生 view 那幾格驗的是**「被拿掉的通知」數對不對**, 不驗「有沒有人在讀它」——
+#     今天**沒有人在讀**(接進 gap_counts / 儀表是下一片)。
 set -u
 export LC_ALL=C LANG=C
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -163,12 +167,33 @@ reset_views() {
 # 🧬 只列 manual_phone ⇒ 自證② 要紅
 reset_views
 python3 - "$MIG" > "$D/mut1.sql" <<'PY'
-import io, sys
+# 🔴🔴 codex R3 ①:⛔ ~~原本這裡把三個來源【硬編碼】在突變器裡~~ ——
+#    那是這一組值域的**第六份副本**, 而 parity 測試只綁 migration 與 TS 兩份 ⇒ **它守不到這裡**。
+#    🛑 值域改了之後, `replace` 會【沒有命中】⇒ 突變檔與原檔逐字相同 ⇒ 貼上去 rc=0
+#    ⇒ 格11 紅, 而它紅的訊息會說「述詞沒擋住」—— 📌 **一個假指控, 而真相是這把尺沒接上。**
+# ✅ 改成【從受測檔自己讀出來】, 而且明寫斷言:抽不到就當場停, 不要產出一份沒被突變的檔。
+import io, re, sys
 s = io.open(sys.argv[1], encoding='utf-8').read()
-s = s.replace("'manual_phone', 'manual_line', 'manual_other'", "'manual_phone'")
+# \U0001F534\U0001F534 **只認【碼那一行】**(行首五個空白 + `OR o.order_source NOT IN (`)——
+#    \U0001F6D1 我第一版寫成「全檔搜 `NOT IN (…)`」並把分隔符放寬成逗號加空白類,
+#    結果它抓到的是本檔一句**註解裡的量測紀錄**(`NULL::text NOT IN ('a','b')`)
+#    ⇒ 突變落在一句註解上 ⇒ 貼上去 rc=0 ⇒ 格11 紅, **而它紅的理由是假的**。
+#    \U0001F4CC **一把太寬的尺產出的不是漏報, 是假指控。**
+#    ⇒ 這裡用的形狀與 `notification-fallback-sql-parity.test.ts` **同一個**, 而註解永遠以 `--` 開頭。
+LINES = [l for l in s.split('\n') if re.match(r"^ {5}OR o\.order_source NOT IN \(", l)]
+assert len(LINES) == 4, '🔴 碼那一行抓到 %d 條(應為 4)⇒ 抽取式與受測檔對不上了' % len(LINES)
+assert len(set(LINES)) == 1, '🔴 四條不逐字相同 ⇒ 值域已經在檔內漂了, 先修那個'
+m = re.search(r"NOT IN \((.+)\)", LINES[0])
+assert m, '🔴 抽不到值域'
+domain = m.group(1)                       # 例:'manual_phone', 'manual_line', 'manual_other'
+first = domain.split(',')[0].strip()      # 只留第一個 ⇒ 自證② 要紅
+assert domain != first, '🔴 值域只有一個值 ⇒ 這一發突變不可能改變任何東西'
+assert s.count(domain) > 0, '🔴 突變沒有落在目標上'
+s = s.replace(domain, first)
 sys.stdout.write(s)
 PY
 test -s "$D/mut1.sql" || { echo "🔴 突變檔是空的"; exit 1; }
+cmp -s "$MIG" "$D/mut1.sql" && { echo "🔴 突變檔與原檔逐字相同 ⇒ 這一發沒有突變到任何東西"; exit 1; }
 Q -f "$D/mut1.sql" > "$D/mut1.log" 2>&1; RC1=$?
 chk_ne "格11 🧬 只列 manual_phone ⇒ 貼上去 rc" "$RC1" 0
 if grep -qF '自證②' "$D/mut1.log"; then chk "格11b 🧬 而它紅在【自證②】那一句" yes yes

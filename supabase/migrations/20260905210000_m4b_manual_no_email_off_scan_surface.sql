@@ -478,6 +478,20 @@ DECLARE
   v_n   integer;
   v_bad text;
 BEGIN
+  -- ⓪ 🔴🔴 **先問「四支都在嗎」**(codex R3 ④)——
+  --    下面每一格都是 `count(*) … WHERE relname IN (四個名字)` 的形狀,
+  --    🛑 **而少建一支時, 那個 IN 只是少數到一列** ⇒ ①會印 3(看得出來),
+  --       而 ③(要求 0)與負對照(要求 0)**照樣印 0** ⇒ 📌 **「少一支」與「全都對」印同一個答案。**
+  --    ⇒ 分母要先釘住, 再問分子。
+  SELECT pg_catalog.count(*) INTO v_n
+    FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname = 'public' AND c.relkind = 'v'
+     AND c.relname IN ('pcm_order_created_email_pending','pcm_shipped_email_pending',
+                       'pcm_tracking_corrected_email_pending','pcm_unpaid_cancelled_email_pending');
+  IF v_n <> 4 THEN
+    RAISE EXCEPTION '自證⓪:只找到 % 支 pending view(應為 4)⇒ 下面每一格的分母都是錯的', v_n;
+  END IF;
+
   -- ① 【四】支的定義裡都要有那個述詞。(⛔ ~~三支~~ —— 下面那份 IN 清單一直是四個。)
   SELECT pg_catalog.count(*) INTO v_n
     FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -616,10 +630,28 @@ COMMIT;
 --   🔵 `IF EXISTS` —— 本支若是在建它之前就掛掉, 這一行仍然要跑得過。
 --   🛑 DROP 會一起帶走它的 ACL 與 `COMMENT ON` —— **而那正是我們要的**(它整支不留)。
 --
--- **② 再把那【四】支 `CREATE OR REPLACE VIEW` 回 `20260905080000` 那一版**
---    (刪掉本支加的那段 AND):`pcm_order_created_email_pending` /
---    `pcm_shipped_email_pending` / `pcm_tracking_corrected_email_pending` /
---    `pcm_unpaid_cancelled_email_pending` —— **四支, 一支都不能漏**。
+-- **② 再把那【四】支 view 回 `20260905080000` 那一版**
+-- 🔴🔴 ⛔ ~~原本這裡只寫「回 080000 那一版」~~ —— **那句話【不可執行】**(codex R3 ③):
+--    🛑 **重貼整支 `20260905080000` 會被【它自己的前置閘】擋下** ——
+--       `20260905080000:66-97` 逐字要求「四個 view 都存在, **而 `order_source` 欄要還沒有**」
+--       ⇒ 退的時候那四支**已經有那一欄了** ⇒ 它第一段就 `RAISE EXCEPTION '本支貼過了'`。
+--    📌 **一個看起來完整的回退說明, 照著做第一步就停住** —— 而停在半路的回退最糟:
+--       伴生 view 已經 DROP 掉了, 而四支 view 還帶著述詞。
+-- ✅ **可執行的形狀:只取 080000 裡那四段 view + ACL, 不要整支檔。**
+-- ```sh
+-- sed -n '/^CREATE OR REPLACE VIEW public\.pcm_order_created_email_pending$/,\
+-- /^GRANT EXECUTE ON FUNCTION public\.pcm_js_trim_whitespace() TO service_role;$/p' \
+--   supabase/migrations/20260905080000_m4b_pending_views_order_source.sql \
+--   > /tmp/rollback-210000.sql
+-- ```
+-- 🔴 **餵給 psql 之前先數一次**(「我餵幾條 vs 它跑幾支」套在腳本產生這一層):
+-- ```sh
+-- grep -c '^CREATE OR REPLACE VIEW' /tmp/rollback-210000.sql    # 必須是 4
+-- grep -c '^GRANT SELECT ON'        /tmp/rollback-210000.sql    # 必須是 4
+-- ```
+--    ⚠️ **不是 4 就停下來** —— 那表示 080000 的字面被改過, 而這段抽取式沒跟著改。
+--    🔵 抽取用的是**文字錨**不是行號:080000 是不可變歷史, 而**錨比行號活得久**。
+-- 🔵 那四段本來就是 `CREATE OR REPLACE VIEW` ⇒ **可以直接重跑**, 它們不含前置閘。
 -- 🔵 那四支的**欄位集合沒變** ⇒ `CREATE OR REPLACE` **夠用**, 不必 DROP
 --    (與 080000 的回退不同 —— 那一支是【加欄】, 減欄才要 DROP)。
 -- 🔬 退完自己驗一發(兩個世界會印不同的答案):
