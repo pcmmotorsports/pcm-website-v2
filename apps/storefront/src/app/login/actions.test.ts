@@ -103,6 +103,11 @@ describe('loginAction(信任邊界 + #181 雙通道)', () => {
     signInSpy.mockRejectedValue(new AuthError('credentials_invalid', 'invalid'));
     const result = await loginAction(VALID);
     expect(result?.formError).toBe('Email 或密碼錯誤');
+    // 🔴🔴 **[codex 關卡2 must-fix ①] 這一格是【白名單】的負對照**:
+    //    `credentials_invalid` **不在** `UI_BRANCHABLE_CODES` 裡 ⇒ **不得**跨邊界回到 client。
+    //    ⛔ ~~expect(...).toBe('credentials_invalid')~~ —— 那是「原封回七態」那一版的期望值。
+    //    ⇒ 📌 client 只需要「是不是未驗證」一個 bit;其餘六個碼送過去都是【白給的】。
+    expect(result?.formErrorCode).toBeUndefined();
     expect(result?.fieldErrors).toBeUndefined();
     expect(redirectSpy).not.toHaveBeenCalled();
   });
@@ -124,6 +129,8 @@ describe('loginAction(信任邊界 + #181 雙通道)', () => {
     // 不得掉進 default 的「登入失敗，請稍後再試」—— 那句對這個情境是【錯的指引】:
     // 客人會重試而不是去收信。
     expect(result?.formError).not.toContain('請稍後再試');
+    // 🔴 「丙」:這一格是重寄按鈕的判準本身。
+    expect(result?.formErrorCode).toBe('email_confirmation_required');
     expect(result?.fieldErrors).toBeUndefined();
     expect(redirectSpy).not.toHaveBeenCalled();
   });

@@ -24,12 +24,29 @@ import {
 } from '@/lib/auth/field-validation';
 import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
 import { resolveSiteUrl } from '@/lib/site-url';
-import { AUTH_ERR_NEEDS_CONFIRMATION, KNOWN_AUTH_ERROR_CODES } from '@/lib/auth/auth-copy';
+import {
+  AUTH_ERR_NEEDS_CONFIRMATION,
+  KNOWN_AUTH_ERROR_CODES,
+  UI_BRANCHABLE_CODES,
+} from '@/lib/auth/auth-copy';
 
 // #181 Q2=B:雙通道回傳 — fieldErrors(逐欄驗證)/ formError(帳號層級、頂部)。成功 redirect 不回傳。
 export type LoginActionResult = {
   fieldErrors?: LoginFieldErrors;
   formError?: string;
+  /**
+   * 🔴 **帳號層級錯的【碼】**(2026-09-05,主視窗 `-f8` 裁「丙」)——
+   * 讓 `LoginPage` 用**碼**而不是**那句話**決定要不要給重寄按鈕。
+   * ⇒ 📌 文案改了按鈕還在;而舊做法(逐字比對)**改文案就會靜靜關掉按鈕**。
+   * 🛑 **它比字面【細】, 而細的那幾格逐一列出來**(⛔ ~~原句寫「是那句話的子集」~~ ——
+   *    **那是無條件斷言而它假**:`authErrorCopy` 只有 2 個 case + default
+   *    ⇒ 七個 `AuthErrorCode` 裡有五個被壓成同一句「登入失敗,請稍後再試」,
+   *    而碼把那個桶子**拆開**了):
+   *    · 登入這條路上真的到得了的差 = `rate_limited` 與 `unknown` 分得出來了
+   *    · 🟢 **而那兩個都不是「這個帳號存不存在」的訊號** —— 它們講的是站台狀態
+   *    ⇒ 📌 **所以「不新增帳號列舉訊號」成立, 而「是子集」不成立。兩句話不一樣。**
+   */
+  formErrorCode?: typeof UI_BRANCHABLE_CODES[number];
 };
 
 /** AuthError(domain code)→ 用戶可見字面;不洩漏 Supabase 原始 error。 */
@@ -71,7 +88,14 @@ export async function loginAction(input: unknown, next?: string | null): Promise
     await loginCustomer(await getAuthService(), creds);
   } catch (e) {
     if (e instanceof AuthError) {
-      return { formError: authErrorCopy(e.code) };
+      // 🔴 **[codex 關卡2 must-fix ①] 只回 UI 真的要分支的那一個碼, 不回整個七態。**
+      //    ⛔ ~~`formErrorCode: e.code`~~ —— 那把七個碼原封送過邊界, 而 client 只需要
+      //    「是不是未驗證」**一個 bit**;送過去的其餘六個都是**白給的**。
+      //    ⇒ 📌 **最小權限:白名單今天只有一個成員, 要加第二個是一個【刻意的動作】。**
+      const code = (UI_BRANCHABLE_CODES as readonly string[]).includes(e.code)
+        ? (e.code as typeof UI_BRANCHABLE_CODES[number])
+        : undefined;
+      return { formError: authErrorCopy(e.code), formErrorCode: code };
     }
     throw e;
   }
@@ -85,6 +109,7 @@ export async function loginAction(input: unknown, next?: string | null): Promise
 // ══════════════════════════════════════════════════════════════════════════
 // 🔴 **為什麼在這一支檔**:它是「登入被擋」的正對面 —— 上面 `authErrorCopy` 的
 //    `email_confirmation_required` 那一格就是本函式存在的理由。兩者分家會漂。
+//    🔵 **[2026-09-05「丙」]** 而 `LoginPage` 現在靠的是**碼**不是那一句字面(見 `formErrorCode`)。
 //
 // 🛑 **下面四條【逐條沿用 `login/forgot/actions.ts` 檔頭】** —— 它們是別人踩出來的,
 //    不是我發明的;而兩支同族(對外寄信、帳號列舉敏感)的 action 形狀不同,
@@ -98,7 +123,7 @@ export async function loginAction(input: unknown, next?: string | null): Promise
 //       (公開網域無妨,而公司網域會把範圍縮到一間公司 ⇒ 兩者在程式裡長得一樣,一律只記長度)。
 //
 // ⚠️ **而本片【不宣稱】它讓登入頁不再洩漏帳號是否存在** ——
-//    `authErrorCopy` 今天就分得出「Email 或密碼錯誤」與「請先收信…」(本檔 :31-34)
+//    `authErrorCopy` 今天就分得出「Email 或密碼錯誤」與「請先收信…」(本檔的 switch)
 //    ⇒ 📌 那個列舉訊號**比本片早**,本片一個字都沒動它;要不要修是板上另一列。
 //    本函式照樣做 ① 的理由:**它可以被直接呼叫**,不是只有那顆按鈕會叫它。
 export type ResendConfirmationResult = {
