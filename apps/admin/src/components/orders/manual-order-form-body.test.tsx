@@ -263,3 +263,29 @@ describe('🔴 建單表單的每一個文字類控制項都要擋 autofill(量�
     expect(fake.includes("autoComplete='off'")).toBe(false);
   });
 });
+
+describe('🔴 「這張單要開發票」那顆勾選 —— 預設【不勾】(Sean 2026-09-05 第 23 題)', () => {
+  // 🔴🔴 **這一格守的是一個【會影響錢】的預設值, 而它在畫面上只是一個沒被勾的框。**
+  //    他的逐字:「預設不勾選,也就是預設不開發票」。
+  // 🛑 而 `orders.invoice_requested` 的 DB DEFAULT 是 `true` ⇒ 表單這一半與 DB 那一半**方向相反**
+  //    ⇒ 📌 **靠讀 schema 的人會推出相反的結論**, 所以這件事只有這一格守得住。
+  it('checkbox 沒有 defaultChecked ⇒ 渲染出來是【沒勾】的', () => {
+    const { container } = renderForm();
+    const box = container.querySelector(
+      "input[type='checkbox'][name='invoice_requested']",
+    ) as HTMLInputElement | null;
+    // 🔵 先確認它真的在(不然下一句對一個 null 斷言, 那會是假綠)
+    expect(box).not.toBeNull();
+    expect(box!.checked).toBe(false);
+  });
+
+  it('🔵 正對照:同名的 hidden 仍然在, 而它的值是 off', () => {
+    // 🛑 少了 hidden,「沒勾」與「這一格不見了」在 payload 上會變成同一個東西。
+    const { container } = renderForm();
+    const hidden = container.querySelector(
+      "input[type='hidden'][name='invoice_requested']",
+    ) as HTMLInputElement | null;
+    expect(hidden).not.toBeNull();
+    expect(hidden!.value).toBe('off');
+  });
+});
