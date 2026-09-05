@@ -973,7 +973,6 @@ export async function GET(request: Request): Promise<Response> {
         ...shippedSection,
         ...trackFixSection,
         ...bankOrderSection,
-      ...bankOrderSection,
         ...cancelledSection,
       });
       // 🔴 慢輪要在【兩條】回傳路徑都問一次 —— 一輪可以又慢又有錯, 而那時最需要這一行。
