@@ -122,6 +122,14 @@ export {
   type EnqueueOrderCreatedEmailsOptions,
   type EnqueueOrderCreatedEmailsResult,
 } from './enqueue-order-created-emails';
+// 🔴 ⟦b4-BANKNOEMAIL⟧(2026-09-06):匯款單成立信的排入列。與上面那支【鏡像】,
+//    而差別只有兩處:多帶三個快照欄、掃描面不同。⇒ import 錯支 typecheck 會紅(欄位不同形)。
+export {
+  enqueueBankOrderCreatedEmails,
+  type EnqueueBankOrderCreatedEmailsDeps,
+  type EnqueueBankOrderCreatedEmailsOptions,
+  type EnqueueBankOrderCreatedEmailsResult,
+} from './enqueue-bank-order-created-emails';
 
 // 未付款被【員工】取消的通知信(Sean 2026-09-03 拍甲;逾時那批不在射程內 —— 題 2 未拍板)。
 export {

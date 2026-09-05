@@ -492,7 +492,25 @@ export type EnqueueShipmentTrackingCorrectedEmailInput = EnqueueEmailInputBase &
   trackingCorrectedKey: string;
 };
 
+/**
+ * 🔴 ⟦b4-BANKNOEMAIL⟧(2026-09-06):匯款單成立信。
+ * **三個金額/時間欄是本分支存在的理由** —— 那封信要印三行金額與一句期限,
+ * 而它們是**下單當下的快照**(R3-C1)⇒ 寄送當下不再查一次。
+ * 🛑 `dedupKey = orderId`(一單一封), 而**它與 `order_created` 是兩個 event_type**
+ *    ⇒ 兩封信各自有自己的一封, 不會互相擋掉。
+ */
+export type EnqueueBankOrderCreatedEmailInput = EnqueueEmailInputBase & {
+  eventType: 'bank_order_created';
+  /** 下單時刻(ISO)。期限句從它算。 */
+  createdAt: string;
+  /** `orders.total`。 */
+  total: number;
+  /** 應付餘額(來自 `order_balance_base_v` 那條唯一的規則)。 */
+  balanceDue: number;
+};
+
 export type EnqueueEmailInput =
+  | EnqueueBankOrderCreatedEmailInput
   | EnqueueOrderCreatedEmailInput
   | EnqueueOrderShippedEmailInput
   | EnqueueOrderCancelledEmailInput

@@ -67,6 +67,8 @@ import {
   trackingCorrectedSubject,
   orderCancelledSubject,
   orderUnpaidCancelledSubject,
+  bankOrderCreatedSubject,
+  buildBankOrderCreatedPayload,
 } from './order-email-assembly';
 
 /** PostgREST unique_violation(需再查核同事件才可回 duplicate,見 enqueue)。 */
@@ -238,11 +240,29 @@ function composeEvent(input: EnqueueEmailInput): {
     | OrderShippedEmailPayload
     | ShipmentTrackingCorrectedEmailPayload
     | ReturnType<typeof buildOrderCancelledPayload>
-    | ReturnType<typeof buildOrderUnpaidCancelledPayload>;
+    | ReturnType<typeof buildOrderUnpaidCancelledPayload>
+    | ReturnType<typeof buildBankOrderCreatedPayload>;
   subject: string;
   dedupKey: string;
 } {
   switch (input.eventType) {
+    case 'bank_order_created': {
+      // 🔴 ⟦b4-BANKNOEMAIL⟧:一單一封 ⇒ dedup_key = orderId。
+      //    🛑 **與 order_created 同一個 key 值, 而【不同 event_type】** ——
+      //    唯一鍵是 (event_type, dedup_key) ⇒ 兩封各自有自己的一封, 不會互相擋掉。
+      //    📌 那正是本片開新 event_type 而不是共用 order_created 的理由。
+      const payload = buildBankOrderCreatedPayload({
+        displayId: input.displayId,
+        createdAt: input.createdAt,
+        total: input.total,
+        balanceDue: input.balanceDue,
+      });
+      return {
+        payload,
+        subject: bankOrderCreatedSubject(payload.display_id),
+        dedupKey: input.orderId,
+      };
+    }
     case 'order_created': {
       const payload = buildOrderCreatedPayload({ displayId: input.displayId, paidAt: input.paidAt });
       // migration §①:order_created 一單一封 ⇒ dedup_key = orderId。
