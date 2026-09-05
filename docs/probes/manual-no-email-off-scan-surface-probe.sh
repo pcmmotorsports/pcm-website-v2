@@ -171,7 +171,7 @@ reset_views
 python3 - "$MIG" > "$D/mut2.sql" <<'PY'
 import io, re, sys
 s = io.open(sys.argv[1], encoding='utf-8').read()
-s = re.sub(r"\n  AND \(\n        o\.order_source NOT IN[^;]*?\n      \)", "", s)
+s = re.sub(r"\n  AND \(\n(?:.*?\n)*?      \)(?=;|\n)", "", s)
 sys.stdout.write(s)
 PY
 test -s "$D/mut2.sql" || { echo "🔴 突變檔是空的"; exit 1; }
@@ -204,11 +204,33 @@ chk_ne "格14 🧬 漏一行 REVOKE 而 anon 看得到 ⇒ 貼上去 rc" "$RC3" 
 if grep -qF '自證③' "$D/mut3.log"; then chk "格14b 🧬 而它紅在【自證③】那一句" yes yes
 else chk "格14b 🧬 而它紅在【自證③】那一句" no yes; grep -m1 -E '^psql:.*ERROR' "$D/mut3.log" | sed 's/^/     實際: /'; fi
 
-# 🔵 R6 不改 unpaid_cancelled ⇒ 它【不得】被本片動到
+# 🔴 codex ④ 推翻了「不動 unpaid_cancelled」那個決定 ⇒ 它現在【也要】被改到。
+#    ⛔ ~~格15 原本斷言它【不得】有 manual_ 字面~~ —— 那一格在決定翻轉之後就反了。
+#    📌 一格照著【當時的決定】寫死的斷言, 在決定被推翻的那一刻會變成一個【擋住正確修法】的東西。
 reset_views
 Q -f "$MIG" > /dev/null 2>&1
-chk "格15 🔵 unpaid_cancelled 的定義裡【不得】有 manual_ 字面(本片刻意不動它)" \
-  "$(QV -Atc "SELECT pg_get_viewdef('public.pcm_unpaid_cancelled_email_pending'::regclass, true) LIKE '%manual_%'")" f
+chk "格15 🔴 unpaid_cancelled 的定義裡【也要】有那個述詞(codex ④ 推翻了原本的決定)" \
+  "$(QV -Atc "SELECT pg_get_viewdef('public.pcm_unpaid_cancelled_email_pending'::regclass, true) LIKE '%manual_%'")" t
+
+# 🔴🔴 codex ② 的 fail 方向 —— 而我量到那個世界【今天到不了】,所以這一格改成量它為什麼到不了。
+#    `orders.order_source` 是 **NOT NULL**(fixture 與正式庫都是)⇒ SQL 這一層永遠拿不到 NULL。
+#    ⇒ 📌 那條 `o.order_source IS NULL` 是**防禦性的**:它讓兩層在【原則上】一致,
+#       而它今天**不會被走到**。⚠️ 有人拿掉那個 NOT NULL 的那一天,它才開始承重。
+#    🔵 而 TS 那半的 `null` 是**另一件事** —— 那是「adapter 沒把那一欄撈回來」,
+#       不是「資料庫裡那一格是空的」。**同一個字, 兩層不同的意思。**
+NN=$(QV -Atc "SELECT attnotnull FROM pg_attribute
+              WHERE attrelid='public.orders'::regclass AND attname='order_source'")
+chk "格16 🔴 order_source 是 NOT NULL ⇒ SQL 那條 IS NULL 今天到不了(它是防禦, 不是死碼)" "$NN" t
+chk "格16b 🔵 而那條防禦【在檔案裡】(拿掉 NOT NULL 的那天它才承重)" \
+  "$(grep -c '^        o.order_source IS NULL$' "$MIG")" 4
+
+# 🔴 codex ⑤:被排除的那些單要【數得到】
+chk "格17 🔴 伴生 view 數得到被排除的那些單(M1/M3 兩張)" \
+  "$(QV -Atc 'SELECT count(*) FROM public.pcm_manual_no_email_excluded')" 2
+chk "格18 🔵 而顧客站留白的那張【不在】它裡面(它不是「所有留白的單」)" \
+  "$(QV -Atc "SELECT count(*) FROM public.pcm_manual_no_email_excluded WHERE display_id='W1'")" 0
+chk "格19 🔴 伴生 view 對 anon 不得可讀" \
+  "$(QV -Atc "SELECT has_any_column_privilege('anon','public.pcm_manual_no_email_excluded','SELECT')")" f
 
 if [ "$FAILED" -eq 0 ]; then echo "🟢 全部通過(格數當場數:上面的 ✅ 行)"; exit 0; fi
 echo "🔴 有 $FAILED 格不符預期 ⇒ 本探針判 FAIL"; exit 1
