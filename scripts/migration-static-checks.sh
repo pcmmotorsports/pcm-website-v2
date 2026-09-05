@@ -184,6 +184,45 @@ if [ "${1:-}" = "--selftest" ]; then
   if ! bash "$SELF" "$FX/20220202000000_r6_ok.sql" >/dev/null 2>&1; then
     echo "❌ 規則⑥:正確的 RAISE 被判紅 ⇒ 該綠沒綠(這種閘會被關掉)"; fail=1
   fi
+  # ══ 2026-09-06 補四格 —— 舊 parser 對【正確的碼】叫過, 而 selftest 沒有一格看得到 ══
+  # 🔴 格 r6-c:參數裡有【巢狀逗號】(COALESCE(a, b))⇒ 必須綠。舊版在這裡誤報。
+  printf 'BEGIN;\nDO $d$ BEGIN RAISE EXCEPTION %s, COALESCE(v_x, %s); END $d$;\nCOMMIT;\n' \
+    "'一個佔位 %'" "'(讀不到)'" > "$FX/20220204000100_r6_nested_comma.sql"
+  n=$((n+1))
+  if ! bash "$SELF" "$FX/20220204000100_r6_nested_comma.sql" >/dev/null 2>&1; then
+    echo "❌ 規則⑥ r6-c:巢狀逗號被數成兩個參數 ⇒ 對正確的碼叫(舊 parser 的病)"; fail=1
+  fi
+  # 🔴 格 r6-d:跨行多段字串串接 + 三參數 + USING ⇒ 必須綠。
+  cat > "$FX/20220204000200_r6_multiline_ok.sql" <<'R6OK'
+BEGIN;
+DO $d$ BEGIN
+  RAISE EXCEPTION 'a % b % c %% d'
+                  ' e %',
+    v1, v2, v3
+    USING ERRCODE = 'P0001', CONSTRAINT = 'x';
+END $d$;
+COMMIT;
+R6OK
+  n=$((n+1))
+  if ! bash "$SELF" "$FX/20220204000200_r6_multiline_ok.sql" >/dev/null 2>&1; then
+    echo "❌ 規則⑥ r6-d:跨行多段字串 + USING 被判紅 ⇒ 該綠沒綠"; fail=1
+  fi
+  # 🔴 格 r6-e:同樣跨行, 而【少一個佔位】⇒ 必須紅。少了這一格, r6-d 可能只是「什麼都不報」。
+  cat > "$FX/20220204000300_r6_multiline_bad.sql" <<'R6BAD'
+BEGIN;
+DO $d$ BEGIN
+  RAISE EXCEPTION 'a % b %'
+                  ' c',
+    v1, v2, v3
+    USING ERRCODE = 'P0001';
+END $d$;
+COMMIT;
+R6BAD
+  n=$((n+1))
+  if bash "$SELF" "$FX/20220204000300_r6_multiline_bad.sql" >/dev/null 2>&1; then
+    echo "❌ 規則⑥ r6-e:跨行而少一個佔位卻沒被抓到 ⇒ 42601 那一族仍會漏"; fail=1
+  fi
+
   # 🔬 負對照 B:帶 USING 的兩佔位兩參數 ⇒ 必須綠。**這一格是這道閘存在的前提** ——
   #    沒排除 USING 的版本會把 ERRCODE/CONSTRAINT/DETAIL 數成三個參數而報紅。
   # 🔴🔴 **而這一格的靶【要兩道同時拿掉才殺得死】, 那是我實測出來的**(2026-09-05):
@@ -202,7 +241,7 @@ if [ "${1:-}" = "--selftest" ]; then
   if bash "$SELF" "$FX/20220204000000_r6_missing_arg.sql" >/dev/null 2>&1; then
     echo "❌ 規則⑥:有佔位而零參數卻回 0 ⇒ 只抓到 too many、抓不到 too few"; fail=1
   fi
-  [ "$fail" = "0" ] && echo "✅ migration-static-checks --selftest $n/$n(規則①雙向 + 規則②雙向 + 規則③雙向 + 規則⑤八格 + 規則⑥四格 + 多檔雙向)"
+  [ "$fail" = "0" ] && echo "✅ migration-static-checks --selftest $n/$n(規則①雙向 + 規則②雙向 + 規則③雙向 + 規則⑤八格 + 規則⑥七格 + 多檔雙向)"
   exit "$fail"
 fi
 
@@ -749,18 +788,104 @@ echo "── ⑥ RAISE 的佔位數 vs 參數個數(2026-09-05 加)────�
 #    · `%` 出現在**字串中間而不是佔位**的情況(例如寫百分比)會被誤數 ⇒ 那時請改寫成 `%%`
 #    · 它**不驗** `RAISE` 會不會真的被執行到
 _raise_bad=$(RAISE_SRC="$F" python3 - <<'PYEOF' 2>/dev/null || echo "PYFAIL"
+# 🔴🔴 **[2026-09-06 訂正:本檢查器【對正確的碼叫過】—— 而叫的對象是它作者自己的下一支片]**
+#    ⛔ ~~舊版用 `re.split(r",(?![^()]*\))", args)` 切參數~~ —— 那個 lookahead **對巢狀括號無效**:
+#       `COALESCE(v_md5, '(讀不到)')` 裡面那個逗號會被當成參數分隔 ⇒ 一參數被數成兩個。
+#       而**跨行的多段字串串接 + 多參數**也數不齊(逐行式的正規表示式對不上)。
+#    🔬 **實錘**:`20260905440000` 六處全部誤報, 而那支在拋棄式 PG 17.10 上 **COMMIT rc=0** ——
+#       🛑 若真有佔位不符, **42601 會在編譯期炸掉整個交易**, 而它沒有 ⇒ 那六個紅是假的。
+#    ✅ 改成**手寫掃描**:括號深度 + 單引號字串(含 `''` 跳脫)都認得, 掃到深度 0 的分號為止,
+#       `USING` 也只認深度 0 且不在字串內的那一個。
+#    📌 **一道對正確的東西叫的閘, 不是比較嚴格 —— 它在訓練大家忽略它。**(那句話上面就寫著,
+#       而寫它的人四十分鐘後就成了它的受害者。)
 import io, os, re
+import io, os, re
+
+def _scan(s, i):
+    """從 i 開始, 回傳 (該 RAISE 到分號為止的整段, 分號後的位置)。
+    括號深度 + 單引號字串都認得(SQL 的 '' 是跳脫的單引號)。"""
+    depth = 0; q = False; j = i
+    while j < len(s):
+        c = s[j]
+        if q:
+            if c == "'":
+                if j + 1 < len(s) and s[j+1] == "'":
+                    j += 2; continue
+                q = False
+        else:
+            if c == "'": q = True
+            elif c == '(': depth += 1
+            elif c == ')': depth -= 1
+            elif c == ';' and depth == 0:
+                return s[i:j], j + 1
+        j += 1
+    return s[i:], len(s)
+
+def _split_top(s):
+    """在【括號深度 0 且不在字串內】的逗號上切。"""
+    out = []; depth = 0; q = False; cur = ''
+    k = 0
+    while k < len(s):
+        c = s[k]
+        if q:
+            cur += c
+            if c == "'":
+                if k + 1 < len(s) and s[k+1] == "'":
+                    cur += s[k+1]; k += 2; continue
+                q = False
+        else:
+            if c == "'": q = True; cur += c
+            elif c == '(': depth += 1; cur += c
+            elif c == ')': depth -= 1; cur += c
+            elif c == ',' and depth == 0:
+                out.append(cur); cur = ''
+            else: cur += c
+        k += 1
+    out.append(cur)
+    return [x for x in (y.strip() for y in out) if x]
+
+def _cut_using(s):
+    """切掉 USING 子句 —— 只認【深度 0 且不在字串內】的那個 USING。"""
+    depth = 0; q = False; k = 0
+    while k < len(s):
+        c = s[k]
+        if q:
+            if c == "'":
+                if k + 1 < len(s) and s[k+1] == "'": k += 2; continue
+                q = False
+        else:
+            if c == "'": q = True
+            elif c == '(': depth += 1
+            elif c == ')': depth -= 1
+            elif depth == 0 and s[k:k+5].upper() == 'USING' and (k == 0 or not s[k-1].isalnum()) \
+                 and (k+5 >= len(s) or not s[k+5].isalnum()):
+                return s[:k]
+        k += 1
+    return s
+
+def bad_raises(s):
+    bad = []
+    for m in re.finditer(r'\bRAISE\s+(?:EXCEPTION|WARNING|NOTICE)\b', s, re.I):
+        seg, _ = _scan(s, m.end())
+        seg = _cut_using(seg)
+        parts = _split_top(seg)
+        if not parts:
+            continue
+        lit = parts[0]
+        # 訊息那一格必須是字串常數(可以是多段串接);不是 ⇒ 那是 RAISE 變數之類, 跳過
+        if not lit.lstrip().startswith("'"):
+            continue
+        ph = lit.replace('%%', '').count('%')
+        n = len(parts) - 1
+        if ph != n:
+            bad.append(f"{s[:m.start()].count(chr(10))+1}:佔位{ph}/參數{n}")
+    return bad
+
+# 🔴🔴 **這三行不可以少** —— 2026-09-06 我換 parser 時把 `__main__` 那段一起剝掉了,
+#    ⇒ 檢查器【定義了函式而什麼都不印】⇒ `_raise_bad` 恆空 ⇒ **這道閘對所有東西都印綠**。
+#    🛑 而 selftest 抓到了它(三格同時紅)—— 📌 **那就是 selftest 存在的全部理由。**
 s = io.open(os.environ['RAISE_SRC'], encoding='utf-8').read()
-bad = []
-pat = r"RAISE (?:EXCEPTION|WARNING|NOTICE)\s+((?:'(?:[^']|'')*'\s*)+)(?:,\s*([^;]*?))?(?:\s+USING\b[^;]*)?;"
-for m in re.finditer(pat, s, re.S):
-    lit = m.group(1)
-    args = re.split(r"\bUSING\b", (m.group(2) or '').strip())[0].strip()
-    ph = lit.replace('%%', '').count('%')
-    n = 0 if not args else len([a for a in re.split(r",(?![^()]*\))", args) if a.strip()])
-    if ph != n:
-        bad.append(f"{s[:m.start()].count(chr(10))+1}:佔位{ph}/參數{n}")
-print(' '.join(bad))
+print(' '.join(bad_raises(s)))
 PYEOF
 )
 if [ "$_raise_bad" = "PYFAIL" ]; then
