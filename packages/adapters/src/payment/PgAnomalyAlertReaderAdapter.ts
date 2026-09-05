@@ -967,6 +967,18 @@ const RAISE_EXCEPTION = 'P0001';
  *    📌 那不是假綠,是**紅在對的時候、指向錯的地方** —— 一樣會浪費掉那個晚上。
  */
 function parseCount(v: unknown, field: string, fn = 'get_payment_anomaly_alert_summary'): number {
+  // 🔴🔴 **空白字串要在轉型【之前】擋掉** —— ⟦b4-PARSECOUNTEMPTYZERO⟧(codex 2026-09-03 MF6)。
+  //    🛑 `Number('') === 0`,而 `0` 通過下面那三關(finite / >= 0 / integer)⇒ **回一個健康的 0**。
+  //      ⇒ 📌 **一個壞掉的回應被吞成「今天沒有異常」** —— 而那正是這支 adapter 在防的事。
+  //    🔵 `null` / `undefined` / 物件**本來就 throw**(`typeof` 兩個分支都不中 ⇒ NaN)
+  //      ⇒ **空白字串是唯一一種會被吞掉的形狀**,所以這一行只擋它、不動別的路徑。
+  //    ⚠️ **而不是只擋 `''`**:`Number('   ') === 0`、`Number('\n') === 0` 也一樣
+  //      ⇒ 判準是**去掉頭尾空白之後還剩不剩東西**,不是「等不等於空字串」。
+  //    ✅ 而**帶空白的數字仍然放行**(`Number(' 5 ') === 5`)—— 我們擋的是「什麼都沒有」,
+  //      不是「前後有空白」。(那一格有測試釘住。)
+  if (typeof v === 'string' && v.trim() === '') {
+    throw new AnomalyAlertReaderParseError(`${fn} 計數欄 ${field} 異常`);
+  }
   const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
   if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
     throw new AnomalyAlertReaderParseError(`${fn} 計數欄 ${field} 異常`);

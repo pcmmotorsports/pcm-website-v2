@@ -471,6 +471,58 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
     expect(res.oldestOpenAgeSeconds).toBe(3600);
   });
 
+  /**
+   * 🔴🔴 **⟦b4-PARSECOUNTEMPTYZERO⟧:`Number('') === 0` ⇒ 壞掉的回應被吞成一個健康的 0。**
+   *
+   * 🛑 **為什麼這一族非釘不可**:`0` 通過 `parseCount` 的三關(finite / >= 0 / integer)
+   *    ⇒ 不 throw、不留痕 ⇒ 📌 **告警器會安靜地說「今天沒有異常」** —— 而那正是它在防的事。
+   * 🔵 而 `null` / 物件**本來就 throw**(`typeof` 兩個分支都不中 ⇒ NaN)
+   *    ⇒ **空白字串是唯一一種會被吞掉的形狀** ⇒ 下面第三格把那個「本來就 throw」釘住,
+   *      免得有人修這條路時把它一起改掉。
+   * ⚠️ **本族證不到**:它證的是**這支 parser 的行為**,不證「今天有沒有真的收到過空字串」——
+   *    🔴 那個問題**結構上量不到**:沒有任何東西記錄 parseCount 的【輸入】,成功路徑零留痕。
+   */
+  it("🔴 count 欄是空字串 ⇒ **throw**,不得吞成 0", async () => {
+    const { client } = twoQueryClient({ ...FULL, open_count: '' });
+    // 🔴 **釘訊息, 不只釘「會 throw」**(code-reviewer nit;而那是**本檔自己記過的教訓**:
+    //    只寫 `toThrow()` ⇒ 換一個完全不同來源的錯誤也會過 ⇒ 這一格會變成「有東西壞了」而不是
+    //    「壞在我要它壞的那一句」)。
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null, null),
+    ).rejects.toThrow(/計數欄 open_count 異常/);
+  });
+
+  it("🔴 count 欄是純空白('   ' / 換行)⇒ 也要 throw", async () => {
+    // 🛑 只擋 `''` 是不夠的:`Number('   ') === 0`、`Number('\n') === 0`
+    //    ⇒ 判準是「去掉頭尾空白之後還剩不剩東西」, 不是「等不等於空字串」。
+    for (const blank of ['   ', '\n', '\t']) {
+      const { client } = twoQueryClient({ ...FULL, open_count: blank });
+      await expect(
+        new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null, null),
+      ).rejects.toThrow(/計數欄 open_count 異常/);
+    }
+  });
+
+  it('🟢 正對照:`null` 仍然 throw(這條路本來就對, 不得被上面那個修法改掉)', async () => {
+    const { client } = twoQueryClient({ ...FULL, open_count: null });
+    await expect(
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null, null),
+    ).rejects.toThrow(/計數欄 open_count 異常/);
+  });
+
+  it("🟢 正對照:`'0'` 仍然回 0(擋的是【什麼都沒有】, 不是【零】)", async () => {
+    // 🛑 少了這格, 一個把所有字串都擋掉的修法也會讓上面三格全綠 —— 而它會讓每一輪告警都 throw。
+    const { client } = twoQueryClient({ ...FULL, open_count: '0' });
+    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null, null);
+    expect(res.openCount).toBe(0);
+  });
+
+  it("🟢 正對照:`' 5 '`(前後有空白的數字)仍然回 5 —— 我們擋的不是「有空白」", async () => {
+    const { client } = twoQueryClient({ ...FULL, open_count: ' 5 ' });
+    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600, null, 900, null, null);
+    expect(res.openCount).toBe(5);
+  });
+
   it.each([
     ['result 非物件', resultRows(true)],
     ['空 rows', { rows: [] as Array<Record<string, unknown>> }],
