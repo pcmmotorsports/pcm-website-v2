@@ -153,6 +153,145 @@ function summarize(value: unknown): string {
  * 與 `error` 的員工訊息「取消可能已經寫進去了」語意一致。
  * ⇒ 拋出物件**即使帶 `code` 也不查表**:查了會把「回應遺失」講成「這張單不能取消」。
  */
+/**
+ * 🔴🔴 **第二條路:`admin_mark_order_cancelled`** —— Sean 2026-09-05 拍甲。
+ *
+ * **為什麼要第二支而不能共用 `cancelOrder`**(codex R2 #5,我核過):
+ * 那支 RPC 只回 `{marked, idempotent}`(`20260903093000:852`),而上面的 `parseSuccessPayload`
+ * 要求**鍵集合恰為四個** + 一個 `cancellation_id` UUID
+ * ⇒ 🔴 **DB 那邊已經取消成功, 而 action 會回報 `bug`** —— 那是最壞的一種錯:
+ *    **事情做了, 而畫面說它壞了** ⇒ 員工會再按一次。
+ *
+ * 🛑 **它與 `cancelOrder` 的三個差別, 每一個都是刻意的**:
+ *   ① **沒有 `p_items`** —— 那支 RPC 根本沒有那個參數(`20260902140000` commit body 逐字:
+ *      「呼叫端**連『想傳數量』都做不到**, 不是『我們決定不傳』」)⇒ **只能整單。**
+ *   ② **沒有 `cancellation_id`** —— 它**不寫 `order_cancellations`**(同檔 `:106-107` 逐字)
+ *      ⇒ 📌 **走這條路取消的單, 在取消帳本上不存在。**
+ *      ⇒ 🔴 而 `cancelOrder` 成功時記的那行 log 是靠 `cancellation_id` 把 token 接回帳本的
+ *         ⇒ **這條路沒有那個接點**, 呼叫端要自己講清楚(見 `cancel-actions.ts`)。
+ *   ③ RPC 自己還有三道閘(**只開放刷卡單** · **只認 `refunded`(全額)** · **取消過就擋**)
+ *      ⇒ 🔵 **本層不重打那三道** —— 照 plan §10 的不變式:**以 DB 為準, UI 判定只是預告。**
+ *      ⇒ 被拒**不是 bug**, 是那個不變式在運作 ⇒ 訊息要說「狀態剛剛變了」, 不是「系統出錯」。
+ */
+export interface MarkOrderCancelledArgs {
+  orderId: string;
+  reasonCode: CancelReasonCode;
+  reasonDetail: string | null;
+  actor: string;
+  requestToken: string;
+}
+
+export type MarkOrderCancelledOutcome =
+  | {
+      ok: true;
+      /** RPC 回的 `marked`。true = 這次真的蓋上了取消章。 */
+      marked: boolean;
+      /** true = 同鍵重送被吸收(與 `cancelOrder` 同義,一樣算成功)。 */
+      idempotent: boolean;
+    }
+  | {
+      ok: false;
+      code: CancelSentCode;
+      sqlstate: string | null;
+      logMessage: string;
+    };
+
+/**
+ * RPC 名字抽成常數 —— 而**它不是為了少打幾個字**:
+ * 上面那個 `as Parameters<…>[0]` 把型別檢查關掉了 ⇒ **打錯名字 typecheck 不會紅**
+ * ⇒ 至少讓它只有一份, 而測試可以拿這個常數去比對 migration 檔的字面。
+ */
+export const MARK_ORDER_CANCELLED_RPC_NAME = 'admin_mark_order_cancelled';
+
+/** `admin_mark_order_cancelled` 的成功 payload 形狀(**兩鍵**,不是四鍵)。 */
+const MARK_SUCCESS_PAYLOAD_KEYS = 'idempotent,marked';
+
+/**
+ * 🔴 **鍵集合恰等**,與 `parseSuccessPayload` 同一條紀律:RPC 日後加鍵要**轉紅讓人來看**。
+ * 🛑 **而這一支【不可以】重用那一支** —— 兩支 RPC 的形狀不同,共用等於讓其中一支永遠形狀漂移。
+ */
+function parseMarkPayload(data: unknown): { marked: boolean; idempotent: boolean } | null {
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return null;
+  if (Object.keys(data).sort().join(',') !== MARK_SUCCESS_PAYLOAD_KEYS) return null;
+  const row = data as Record<string, unknown>;
+  if (typeof row.marked !== 'boolean' || typeof row.idempotent !== 'boolean') return null;
+  // 🔴🔴 **`marked:false && idempotent:false` 一律當成形狀漂移**(codex 2026-09-05 must-fix)。
+  //    ⛔ ~~形狀解析器只答形狀,語意交給呼叫端~~ —— **那句話買到的是一個謊報成功的路徑**:
+  //       呼叫端把所有 `ok:true` 當完成 ⇒ 一個「什麼都沒發生」的回應會被畫成「已取消」。
+  //    ✅ 那支 RPC 的成功路徑**必定**是 `marked` 或 `idempotent` 其一為 true
+  //       (真的蓋了章 / 同鍵重送被吸收)⇒ **兩個都 false 就是它漂移了**, 該轉紅讓人來看。
+  //    📌 **「形狀合法」與「這個回應代表事情做了」是兩件事, 而只有後者能畫成成功。**
+  if (!row.marked && !row.idempotent) return null;
+  return { marked: row.marked, idempotent: row.idempotent };
+}
+
+/**
+ * 🔬 **測試用出口** —— 只導出解析器,不導出整支 RPC 呼叫。
+ * 🔴 **為什麼要有它**:codex 2026-09-05 抓到「既有兩套測試只碰舊路徑
+ *    ⇒ 刪掉 `parseMarkPayload` 仍然全綠」。而**一片沒有任何一格測試碰得到的碼,
+ *    與那片碼不存在, 在測試報告上是同一片綠。**
+ */
+export const parseMarkPayloadForTest = parseMarkPayload;
+
+/** 走 `admin_mark_order_cancelled`(全額退款的刷卡單:錢已退完,只差蓋章)。 */
+export async function markOrderCancelled(
+  args: MarkOrderCancelledArgs,
+): Promise<MarkOrderCancelledOutcome> {
+  let data: unknown;
+  let error: unknown;
+  try {
+    // 🔴 **型別接縫**:`admin_mark_order_cancelled` 不在 `database.types.ts` 的 RPC 名單裡
+    //    —— 那支型別檔**沒有人重生成過**(板列 `⟦0b-TYPESNOTREGEN⟧`)。
+    //    ⚠️ **重生成型別的那一天, 這兩個 cast 要一起刪** —— 留著它們會讓真正的型別漂移靜靜通過。
+    //    🛑 而 `as never` 買到的是「參數名打錯不會被 typecheck 抓到」⇒ **只有真的呼叫一次才驗得到**。
+    ({ data, error } = await createSupabaseServiceClient().rpc(
+      MARK_ORDER_CANCELLED_RPC_NAME as Parameters<
+        ReturnType<typeof createSupabaseServiceClient>['rpc']
+      >[0],
+      {
+        p_order_id: args.orderId,
+        p_idempotency_key: args.requestToken,
+        p_actor: args.actor,
+        p_reason_code: args.reasonCode,
+        p_reason_detail: args.reasonDetail,
+      } as never,
+    ));
+  } catch (thrown) {
+    // 🔴 與 `cancelOrder` 同一條:拋出型 = 傳輸層,可能已 commit ⇒ `error`。
+    return { ok: false, code: 'error', sqlstate: null, logMessage: summarize(thrown) };
+  }
+
+  if (error) {
+    const raw = (error as { code?: unknown }).code;
+    const sqlstate = typeof raw === 'string' ? raw : null;
+    // 🔴🔴 **`P0001` 在這條路上涵蓋的東西比 `cancelOrder` 那條【更雜】**(codex 2026-09-05 must-fix):
+    //    那支 RPC 的 `RAISE` 至少四族 —— ①這張單不走這條路(非刷卡 / 曾部分取消 / 不是全額退)
+    //    ②已經取消過了 ③actor 不是啟用中的員工 ④我們送了畸形參數(呼叫契約錯)。
+    //    🛑 **而 SQLSTATE 分不出它們** ⇒ 全歸 `rejected` 會把 ③④ 講成「這張單不能取消」。
+    //    ✅ **今天的處置**:碼照舊歸 `rejected`,而**訊息那一側改走這條路自己的碼**
+    //       (`markRejectedResultQuery`),它明說「不是系統出錯,若你認為應該可以請告知維護」。
+    //    ⚠️ **這是取捨不是修好** —— 要真的分開,得讓那支 RPC 帶不同的 `ERRCODE`,
+    //       而那是動 migration 的另一片。📌 **本層記下來,不假裝已經分開了。**
+    return {
+      ok: false,
+      code: (sqlstate !== null && SQLSTATE_CLASSIFICATION.get(sqlstate)) || 'error',
+      sqlstate,
+      logMessage: summarize(error),
+    };
+  }
+
+  const payload = parseMarkPayload(data);
+  if (payload === null) {
+    return {
+      ok: false,
+      code: 'bug',
+      sqlstate: null,
+      logMessage: `admin_mark_order_cancelled 回傳形狀漂移:${describeShape(data)}`,
+    };
+  }
+  return { ok: true, ...payload };
+}
+
 export async function cancelOrder(args: CancelOrderArgs): Promise<CancelOrderOutcome> {
   let data: unknown;
   let error: unknown;

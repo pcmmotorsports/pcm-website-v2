@@ -106,6 +106,14 @@ export const SUPPRESS_WHEN_ORDER_INELIGIBLE: Record<EmailOutboxEventType, boolea
   //    單被取消之後, 客人**從來沒收到過**那封出貨通知(它自己就被擋掉了)
   //    ⇒ 這時候寄一封「先前那個號碼有誤」= 講一封他沒收過的信 ⇒ 純困惑。
   shipment_tracking_corrected: true,
+  // 🔴 **true(該擋)** —— 照上面那句判別句填, 不是照抄旁邊:
+  //    這封信講的是「請你在期限內匯這筆錢」= **這張單【還會發生什麼】**
+  //    ⇒ 單被取消或退款之後那句話變成假的 ⇒ 🛑 **繼續寄 = 叫一個沒有義務付錢的人付錢。**
+  //    ⚠️ 而它與 order_cancelled / order_unpaid_cancelled 的 false 不衝突:那兩封講的是【終局本身】。
+  //    🔵 R3 對抗審查獨立確認過這一格, 並指出它順手接住一條 race:
+  //       客人改刷卡 ⇒ begin_charge_attempt 就地取消未付款匯款單(20260904050000)
+  //       ⇒ 這道閘擋下那封本來會寄出去的催款信。
+  bank_order_created: true,
 };
 
 export type EmailOutboxEventType =
@@ -124,7 +132,13 @@ export type EmailOutboxEventType =
   //    📌 **一個看起來像「我漏加了」的錯, 其實是我的【註解】打斷了別人的解析器。**
   //    🎯 **而第二次是:我寫這段【解釋分號】的註解時, 把那個 regex 抄了進來 ——**
   //    **那行 regex 自己就含一個分號。**⇒ 所以這裡只用散文描述它, 不貼原式。
-  | 'shipment_tracking_corrected';
+  | 'shipment_tracking_corrected'
+  // 🔴 ⟦b4-BANKNOEMAIL⟧(2026-09-06):顧客站選【匯款】而尚未付款的單, 告訴客人匯去哪、匯多少、幾天內。
+  //    Sean 2026-09-06 逐字答「甲 = 可以」定案文案。DB 那半在 20260906140000, 兩邊同一次改。
+  //    🛑 它與 order_created 是【兩封不同的信】, 不是同一封的兩個狀態 ——
+  //    匯款單成立時寄本封, 客人真的匯進來翻 paid 之後才寄 order_created。
+  //    ⚠️ 本段註解同樣不可以出現半形分號, 理由見上面那一段。
+  | 'bank_order_created';
 
 /**
  * 有限錯誤碼 allowlist(對齊 DB CHECK `^[a-z0-9_]{1,64}$`;E2a 依此決定退避/告警)。
@@ -565,7 +579,29 @@ export interface IEmailOutbox {
    * `sending → sent`(寫 sent_at、清 claimed_at)。claimedAttempts = 認領時拿到的世代 token;
    * false = 所有權已失(lease 被回收/他人接手),**不得**重試覆寫。
    */
-  markSent(id: string, claimedAttempts: number): Promise<boolean>;
+  /**
+   * 🔴🔴 **第三個參數 `sentTrackingNumber` —— ⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 片 B-1。**
+   *    它是**這一封信實際印在紙上的那個號碼**, 由呼叫端在**寄出的那一刻**交進來。
+   *
+   *    ⚠️ **為什麼不是「寄完再另發一次 update」**:那中間有一個窗, 而
+   *    📌 **一個修競態的修法自己帶一個競態, 是本片最不該做的事。**
+   *    ⇒ 它與 `sent_at` **同一發 update** 落表。
+   *
+   *    ⚠️ **為什麼不放 payload**:payload 是 **enqueue 時點**的快照(那一格的註解逐字
+   *    「事件時點不可變」), 而這個值是 **send 時點**的事實 —— **兩個時點不是同一件事**。
+   *
+   *    🔵 **`null` 的意思是「這一封沒有帶號碼」** —— 不是「不知道」。
+   *    對 `order_shipped` / `shipment_tracking_corrected` 以外的事件恆為 `null`;
+   *    而出貨信在**那一箱還沒有號碼**時也是 `null`(那是合法狀態, 見 `IShippedEmailContext` 的
+   *    「沒有碼走 `trackingNumber: null`, 不是 `unavailable`」)。
+   *    🛑 **⇒ 讀它的人要分得出「null = 沒帶號碼」與「這一列還沒被寫過」** ——
+   *      後者在 DB 上也是 NULL, 而**過渡期(欄剛加、寫入端還沒上)整張表都是後者**。
+   */
+  markSent(
+    id: string,
+    claimedAttempts: number,
+    sentTrackingNumber: string | null,
+  ): Promise<boolean>;
 
   /**
    * `sending → failed`(可重試態、非終態):寫錯誤碼 + 下次重試時間(退避策略由 caller 算)、
