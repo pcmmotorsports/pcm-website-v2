@@ -126,7 +126,7 @@ describe('⟦取消信-文案常數⟧ order_unpaid_cancelled 的字面', () => 
   it('🔴 三塊常數逐字', () => {
     expect(ORDER_CANCELLED_HEADLINE_WITH_ID('PCM-2026-0001')).toBe('您的訂單 PCM-2026-0001 已取消。');
     expect(ORDER_CANCELLED_HEADLINE_NO_ID).toBe('您的訂單已取消。');
-    expect(ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE).toBe('這張訂單尚未付款,不會有任何款項產生。');
+    expect(ORDER_UNPAID_CANCELLED_NO_CHARGE_SENTENCE).toBe('這張訂單尚未付款，不會有任何款項產生。');
   });
 
   it('🔴 那三塊自己都不可以出現退款字樣', () => {

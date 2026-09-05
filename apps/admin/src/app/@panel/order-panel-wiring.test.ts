@@ -135,6 +135,7 @@ function orderDetailFixture(id: string, over: Record<string, unknown> = {}): Adm
     subtotal: money,
     shippingFee: money,
     discountTotal: money,
+    taxTotal: { amount: 0, currency: 'TWD' as const },
     total: money,
     shippingMethod: 'home',
     shippingAddress: { name: null, phone: null, line: null },

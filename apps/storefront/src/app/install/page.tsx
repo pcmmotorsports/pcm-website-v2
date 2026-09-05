@@ -18,7 +18,7 @@ import { HomeFooter } from '@/components/HomeFooter';
 import { ComingSoon } from '@/components/ComingSoon';
 
 export const metadata: Metadata = {
-  title: '安裝預約 · 即將上線 — PCM MOTOR PARTS',
+  title: '安裝預約 · 即將上線 — PCM重機零件販售',
   description:
     'PCM 線上安裝預約正在開發中。之後填一次表單，技師一個工作天內就回您工時與費用，零件由 PCM 直送店家。',
 };

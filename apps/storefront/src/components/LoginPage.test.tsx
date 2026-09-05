@@ -19,6 +19,10 @@ vi.mock('next/navigation', () => ({
 }));
 vi.mock('@/app/login/actions', () => ({
   loginAction: vi.fn(),
+  // 🔵 `⟦b4-SIGNUPOPEN1⟧` 前置片新增。**這一行不加的話,元件 import 到的是 undefined**,
+  //    而既有 23 格【照樣全過】—— 因為沒有一格會走到重寄那條路。
+  //    ⇒ 📌 那正是「mock 少一個 export 而測試不會叫」的形狀。
+  resendSignupConfirmationAction: vi.fn(),
 }));
 vi.mock('@/lib/supabase/browser', () => ({
   createBrowserSupabaseClient: () => ({
@@ -27,7 +31,12 @@ vi.mock('@/lib/supabase/browser', () => ({
 }));
 
 import { LoginPage } from './LoginPage';
-import { loginAction } from '@/app/login/actions';
+import { loginAction, resendSignupConfirmationAction } from '@/app/login/actions';
+import {
+  AUTH_ERR_NEEDS_CONFIRMATION,
+  AUTH_RESEND_SENT_NOTICE,
+  AUTH_RESEND_FAILED_NOTICE,
+} from '@/lib/auth/auth-copy';
 import { CartProvider } from '@/contexts/CartContext';
 
 const mockLogin = vi.mocked(loginAction);
@@ -277,5 +286,92 @@ describe('LoginPage', () => {
     expect(screen.getByText('Google 登入失敗，請重試')).toBeDefined();
     fireEvent.click(screen.getByRole('checkbox'));
     expect(screen.getByText('Google 登入失敗，請重試')).toBeDefined();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 重寄驗證信按鈕(`⟦b4-SIGNUPOPEN1⟧` 前置片,2026-09-05)
+// ══════════════════════════════════════════════════════════════════════════
+describe('LoginPage — 重寄驗證信', () => {
+  async function loginWith(formError: string) {
+    vi.mocked(loginAction).mockResolvedValue({ formError } as never);
+    render(
+      <CartProvider>
+        <LoginPage />
+      </CartProvider>,
+    );
+    // 🔵 選擇器【照本檔既有那幾格的寫法】(:131-132 用 placeholder)——
+    //    我第一版自己發明 getByLabelText + name:/登入/ ⇒ 後者命中多顆(Google/LINE 也含「登入」)
+    //    ⇒ 📌 紅的是我的 harness 不是碼。抄既有的形狀,不自己造。
+    fireEvent.change(screen.getByPlaceholderText('your@email.com'), { target: { value: 'a@b.com' } });
+    fireEvent.change(screen.getByPlaceholderText('至少 8 碼'), { target: { value: 'pw123456' } });
+    fireEvent.click(screen.getByRole('button', { name: '登入' }));
+    await screen.findByText(formError);
+  }
+
+  it('🔴 錯誤是「請先收信…」⇒ 出現重寄按鈕', async () => {
+    await loginWith('請先收信完成 Email 驗證後再登入');
+    expect(screen.getByRole('button', { name: '重寄驗證信' })).toBeTruthy();
+  });
+
+  // 🛑 這一格是本組最重要的:按鈕若對「密碼錯」也出現, 它就變成
+  //    「這個 Email 存在」的訊號 —— 而那正是 server 那半用帳號列舉防護擋掉的東西。
+  it('🔵 負對照:錯誤是「Email 或密碼錯誤」⇒ 【不得】出現重寄按鈕', async () => {
+    await loginWith('Email 或密碼錯誤');
+    expect(screen.queryByRole('button', { name: '重寄驗證信' })).toBeNull();
+  });
+
+  it('🔴 按下去 ⇒ 呼叫 action 帶那個 email, 而畫面【逐字】是那句常數', async () => {
+    vi.mocked(resendSignupConfirmationAction).mockResolvedValue({} as never);
+    await loginWith(AUTH_ERR_NEEDS_CONFIRMATION);
+    fireEvent.click(screen.getByRole('button', { name: '重寄驗證信' }));
+    // 🔴🔴 **[codex 關卡2 must-fix ⑤]** ⛔ ~~原本用 `/我們已重新寄出驗證信/` 子字串比對~~
+    //    ⇒ 把碼突變成「…(成功)」「…(失敗)」兩句不同的話, **這一格仍然全綠**
+    //    ⇒ 📌 它守不到「畫面逐字相同」這個宣稱, 而那正是本片要守的東西。
+    //    ✅ 改成拿【共用常數】做逐字比對 —— 常數改了兩邊一起改, 而分支會當場紅。
+    await screen.findByText(AUTH_RESEND_SENT_NOTICE);
+    expect(resendSignupConfirmationAction).toHaveBeenCalledWith({ email: 'a@b.com' });
+  });
+
+  it('🔴 provider 那半失敗(action 回 {})⇒ 畫面【逐字】仍是成功那句', async () => {
+    // 🛑 這一格守的是帳號列舉防護在 client 這一側:429 / 帳號不存在 action 都回 {},
+    //    而畫面必須與成功【逐字相同】—— 在這裡分支的話, server 那道防護會從 client 漏掉。
+    vi.mocked(resendSignupConfirmationAction).mockResolvedValue({} as never);
+    await loginWith(AUTH_ERR_NEEDS_CONFIRMATION);
+    fireEvent.click(screen.getByRole('button', { name: '重寄驗證信' }));
+    await screen.findByText(AUTH_RESEND_SENT_NOTICE);
+  });
+
+  it('🔴 action 丟例外(系統面)⇒ 畫面是【失敗】那句, 不得謊報已寄出', async () => {
+    // 🔴 [codex must-fix ①] 站台設定壞掉時 action 會 throw ——
+    //    原版一律報成功 ⇒ 一封都沒寄而畫面說寄了。這一格釘住那個差別。
+    vi.mocked(resendSignupConfirmationAction).mockRejectedValue(new Error('boom'));
+    await loginWith(AUTH_ERR_NEEDS_CONFIRMATION);
+    fireEvent.click(screen.getByRole('button', { name: '重寄驗證信' }));
+    await screen.findByText(AUTH_RESEND_FAILED_NOTICE);
+    expect(screen.queryByText(AUTH_RESEND_SENT_NOTICE)).toBeNull();
+  });
+
+  it('🔴 換帳號 ⇒ 舊的重寄提示要清掉, 按鈕要回來', async () => {
+    // 🔴 [codex must-fix ②] A 重寄完 ⇒ 改填 B ⇒ B 看到 A 的成功提示而且沒有按鈕
+    //    ⇒ 對一個【沒發生的動作】報成功。
+    vi.mocked(resendSignupConfirmationAction).mockResolvedValue({} as never);
+    await loginWith(AUTH_ERR_NEEDS_CONFIRMATION);
+    fireEvent.click(screen.getByRole('button', { name: '重寄驗證信' }));
+    await screen.findByText(AUTH_RESEND_SENT_NOTICE);
+
+    // 🔴🔴 **我第一版這一格是【假綠】的** —— 只改欄位就斷言提示不見了,
+    //    而它不見是因為 `clearErr` 清掉 `formError` ⇒ **整個區塊卸載**, 不是因為狀態被清。
+    //    ⇒ 實測:把 `clearResend()` 拿掉(codex F2 那個原病)⇒ **這一格照樣全綠。**
+    //    ✅ 要走完 codex 描述的那條路:**改帳號 ⇒ 再登入一次 ⇒ B 也未驗證** ——
+    //      那時 `formError` 回來、區塊重新掛上, 殘留的舊提示才顯形。
+    fireEvent.change(screen.getByPlaceholderText('your@email.com'), {
+      target: { value: 'someone-else@b.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '登入' }));
+    await screen.findByText(AUTH_ERR_NEEDS_CONFIRMATION);
+    // B 應該看到【按鈕】, 而不是 A 的成功提示
+    expect(screen.getByRole('button', { name: '重寄驗證信' })).toBeTruthy();
+    expect(screen.queryByText(AUTH_RESEND_SENT_NOTICE)).toBeNull();
   });
 });

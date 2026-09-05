@@ -246,6 +246,36 @@
 }
 .acc-link-btn:hover { color: var(--c-text); }
 
+/* ══ `.acc-tier-contact`(總覽頁「用 LINE 聯絡客服升級 →」)══
+ * 🔴 **這個 class 在本 commit 之前【全 repo 零 CSS 規則】** —— 只出現在
+ *    `components/account/tabs/OverviewTab.tsx` 的 `className`。
+ *    (🟢 正對照:同一把尺找 `^.acc-logout {` ⇒ storefront 與 design 各 1 命中 ⇒ 尺會動。)
+ *
+ * 🔬 **量到的**(本機探針 390×844):`display: block` · `font-size: 16px` ·
+ *    `line-height: normal` · `padding: 0` ⇒ 盒子 **320 × 22.5**, 九點法 **3/9**。
+ *    🛑 **22.5 < 24** ⇒ **它【低於】Sean 2026-08-09 Q3=A 拍的那條線**
+ *    (WCAG 2.2 SC 2.5.8 Target Size Minimum;守門在 `styles/auth-account.test.ts`)。
+ *    ⛔ ~~我 05:4x 回報「24 ≥ 24 ⇒ 合規」, 06:0x 又訂正成「那個 24 是四捨五入來的、實際 22.5」~~
+ *    🔴🔴 **兩句都不對, 而第二句錯得比第一句隱蔽** —— 06:1x 在**真 preview** 用 `toFixed(1)` 量到
+ *       **24.0**(不是 22.5, 也沒有被四捨五入抹掉任何東西)。
+ *       ⇒ 📌 **那個 24 來自 preview、22.5 來自本機探針 —— 我把【兩個環境的讀數】當成同一個量測在比,
+ *          並把差異歸因給「四捨五入」。** 真正的差異是**字體有沒有載到**(真站 Inter + Noto Sans TC)。
+ *    ✅ **兩個環境的真值(都用 `toFixed(1)`)**:preview **24.0**(壓在門檻上)· 本機探針 **22.5**(不合規)。
+ *
+ * ✅ **修法沿用本檔既有的那一招**(`.acc-link-btn` 上方, 同一條 Q3=A 拍板):
+ *    **padding 外擴 + 等量負 margin** ⇒ 命中區 22.5 + 4 + 4 = **30.5 ≥ 24**,
+ *    而 `display: block` 的垂直 margin 會被收回 ⇒ **佔位零變化**。
+ *    🔴 **不是** `min-height: 24px`:那只擋得住「盒子太矮」, 擋不住**命中區**,
+ *       而且會在別的字級下多出一段空白 ⇒ 改版面 = 改稿。
+ *
+ * 🛑 **兩個環境的讀數不一樣, 兩個都記著**:本機探針 **22.5**、preview **24**(四捨五入前未知)。
+ *    差在**字體有沒有載到**(真站是 Inter + Noto Sans TC)⇒ **這一格跨過 24 那條線**。
+ *    ⇒ 選 4px 而不是剛好夠的 1px:**兩個世界都要過**。 */
+.acc-tier-contact {
+  padding: 4px 0;
+  margin: -4px 0;
+}
+
 /* ══ 訂單卡 ══════════════════════════════════════════════
    🔴 2026-08-29:整組換成 OD 稿 `pcm-home-redesign/pcm-account.css:358-427` 的三段式卡
    (稿 sha256 前 12 = 88f9b3085d16 · 841 行 · mtime 2026-08-07 11:28,動工前複對相符)。
@@ -715,6 +745,50 @@
   color: var(--c-text, #111);
 }
 .acc-btn-ghost:hover { background: var(--c-bg-2, #f5f5f5); }
+
+/* ══ 命中區外擴(2026-09-05 線 `-front`;視覺零改動)══
+ * 🔬 **量到的**(preview `939c7ecf8`, 真瀏覽器 390×844, `elementFromPoint` 九點法):
+ *    `.acc-logout` **64×41** · `.acc-btn-ghost` **123×41** ⇒ 高度差 44 有 **3px**,
+ *    而九點裡命中 <60%(那是【真死角】,不是被 `label` 接走的那種)。
+ *    `.acc-logout` 在每一頁的帳號區都有 ⇒ 手機上最常被戳的那顆之一。
+ *
+ * 🛑 **鐵則 1 查了稿:稿【沒有】給這兩顆高度** —— `design-reference/styles/account.css`
+ *    `.acc-logout`(:514)與 `.acc-btn-ghost`(:977)都只給 `padding: 10px 18px` + `font-size`,
+ *    **41px 是算出來的, 不是稿指定的** ⇒ 外擴命中區不違反鐵則 1(盒子與視覺一個像素都沒動)。
+ *
+ * 🔴 **為什麼用 `::after` 而不是加 `min-height`** —— `min-height: 44px` 會**改變版面**
+ *    (鈕變高、跟旁邊的東西對不齊)⇒ 那是改稿。`::after` 只擴**可點區域**, 畫面逐字相同。
+ *
+ * 🔴 **而量它要用對的尺**:`getBoundingClientRect()` **看不到 `::after` 的外擴** ——
+ *    這一改在那把尺上【完全不存在】(它照樣印 `64x41`)。同夜實錘見板列
+ *    `⟦f3-DEVPREVIEWWALK0905⟧`:我先用那把尺量, 差點下結論說修法沒生效。
+ *    ✅ 要用 `elementFromPoint` 問「手指落這裡誰接到」。
+ *
+ * 📌 分母是 **2 條基底規則**(`.acc-logout` / `.acc-btn-ghost`);`:909` 的
+ *    `.acc-inline-actions .acc-btn-ghost` 是同一個 class 的覆寫, **跟著走, 不必另寫**。
+ */
+.acc-logout,
+.acc-btn-ghost {
+  position: relative;
+}
+.acc-logout::after,
+.acc-btn-ghost::after {
+  content: '';
+  position: absolute;
+  /* ⛔ ~~41 + 2 + 2 = 45 ⇒ 過 44~~ —— 🔴 **那個算式錯了, 而它錯在一個不會被看見的地方。**
+   *    絕對定位的 `::after`, `top`/`bottom` 是相對**padding box**, 不是 border box;
+   *    這兩顆有 `border: 1px` ⇒ **邊框把外擴吃掉 1px**。
+   *    🔬 實測(本機探針 390, `elementFromPoint` 九點法):`-2px` 版 ⇒ **3/9**,
+   *       上下四角逐點回的是 `div.acc-head`(盒子 y=164 h=41 ⇒ 需要碰到 162 與 206,
+   *       而 padding box 是 165..204, `-2px` 只到 163..206)。
+   *    ✅ `-4px` ⇒ 161..208, 兩端都涵蓋。左右本來就 ≥44(64 / 123)⇒ 只擴上下。
+   *    📌 **這一格是我推的算式與量到的讀數不一致 —— 而先信讀數。** */
+  top: -4px;
+  bottom: -4px;
+  left: 0;
+  right: 0;
+}
+
 
 .acc-inline-form {
   border: 1px solid var(--c-border, #e4e4e7);

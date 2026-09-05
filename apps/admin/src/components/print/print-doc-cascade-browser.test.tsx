@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 // 同 `orders-column-fit-browser.test.tsx`:真元件間接載入 `server-only` ⇒ 逐檔 mock。
 vi.mock('server-only', () => ({}));
 import { renderToStaticMarkup } from 'react-dom/server';
-import { requireFreshBuild } from '@/lib/build-stamp';
+import { readBuildStamp, requireFreshBuild } from '@/lib/build-stamp';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createServer, type Server } from 'node:http';
@@ -96,7 +96,7 @@ function findCompiledCss(): string {
 
 const MONEY = (amount: number) => ({ amount, currency: 'TWD' });
 
-function detail(): AdminOrderDetail {
+function detail(taxTotal = 0): AdminOrderDetail {
   return {
     id: '11111111-1111-4111-8111-111111111111',
     displayId: 'PCM-2026-0042',
@@ -107,6 +107,7 @@ function detail(): AdminOrderDetail {
     subtotal: MONEY(51987),
     shippingFee: MONEY(611),
     discountTotal: MONEY(0),
+    taxTotal: MONEY(taxTotal),
     total: MONEY(52598),
     itemsTruncated: false,
   } as unknown as AdminOrderDetail;
@@ -182,6 +183,17 @@ type Sect = { title: string; headAligns: { cls: string; align: string }[]; rows:
 let browser: Browser;
 let compiledCss: string;
 beforeAll(async () => {
+  // 🔴🔴 **這個 `beforeAll` 在【檔案頂層】, 不在任何 describe 裡**
+  //    ⇒ `describe.skipIf` **擋不住它** —— 它照樣跑, 而 `findCompiledCss()` 會 throw
+  //    ⇒ 📌 vitest 把它算成 **suite error**, 而那一欄的「紅格數」是 **0**。
+  //    🎯 **這就是 ⟦c7-BUILDSTAMPRED⟧ 的整個病**:一支報不出失敗的守門,
+  //      與一支沒裝的守門, **在讀數上沒有分別**。
+  //
+  // ⛔ ~~我第一版只加了 `describe.skipIf` ⇒ 負對照實測仍是「14 skipped / 紅 0」~~
+  //    ⇒ 📌 **我只換掉了「怎麼報」, 而沒換掉「在哪裡炸」。**
+  // ✅ 守在這裡:戳記不在就**什麼都不做**(上面那一格已經替它紅了)。
+  //    🔵 而 chromium 也不啟動 —— 反正每一格都被 skip, 啟動它只是多花 120 秒。
+  if (!buildStamp.ok) return;
   compiledCss = findCompiledCss();
   browser = await chromium.launch();
 }, 120_000);
@@ -313,7 +325,28 @@ async function sweep(extraCss = '', media: 'print' | 'screen' = 'print'): Promis
 
 const allCells = (ss: Sect[]): Cell[] => ss.flatMap((s) => s.rows.flatMap((r) => r.cells));
 
-describe('🔴 出貨明細單 · 串接量測(真 chromium + 編譯後 CSS + print media)', () => {
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 **⟦c7-BUILDSTAMPRED⟧ 2026-09-05:缺戳記時, 這支檔【整支 throw 而紅的格數是 0】。**
+//
+// 舊形狀:`beforeAll` 裡的 `requireFreshBuild()` 丟例外 ⇒ vitest 把它算成 suite error
+//   ⇒ 📌 **掃「× N」的人看到的是 0** —— 而 0 與「全過」在那一欄長得一模一樣。
+//   🎯 **一支報不出失敗的守門, 與一支沒裝的守門, 在讀數上沒有分別。**
+//
+// ✅ 新形狀:**戳記在不在, 在【收集階段】就問**(`readBuildStamp()` 不丟例外):
+//   · 不在 ⇒ 下面那一格**紅 1 格**, 訊息逐字說缺 `BUILD_OK`;其餘 `describe.skipIf` **跳過**
+//   · 在   ⇒ 那一格綠, 其餘照跑
+// 🔵 **為什麼其餘是 skip 不是綠**:綠 = 「跑過而且過了」, 而它們**根本沒跑**
+//   ⇒ 📌 **skip 在畫面上與 pass 不一樣, 而讓它們變綠才是真的洞。**
+// ⚠️ **不動 chromium 那半** —— 本次只改「失敗怎麼被報出來」, 不改它量什麼。
+const buildStamp = readBuildStamp();
+
+describe('🔴 前提:這個 app 有成功 build 過(`BUILD_OK` 戳記)', () => {
+  it('🔴 缺戳記 ⇒ 這一格紅(而不是整支 throw 成 0 紅)', () => {
+    expect(buildStamp.ok, buildStamp.ok ? '' : buildStamp.reason).toBe(true);
+  });
+});
+
+describe.skipIf(!buildStamp.ok)('🔴 出貨明細單 · 串接量測(真 chromium + 編譯後 CSS + print media)', () => {
   it('🔴🔴 分母守門:掃到的 section / 列 / 格都不是 0', async () => {
     // 🔴 **這一格必須先過。** 底下每一條都是「對【每一個】…」的全稱句,
     //    而**全稱句在空集合上恆真** —— 掃不到東西時它們會全部變綠,而那正是最壞的情況。
@@ -472,7 +505,7 @@ describe('🔴 出貨明細單 · 串接量測(真 chromium + 編譯後 CSS + pr
 //
 // 🔵 選取器用 `data-slot='print-button'` —— `print-button.tsx:13-14` 逐字寫著它就是為了
 //    「守門要能斷言【這一種狀態下這顆鈕不在】」而加的,而在它之前沒有穩定的選取器。
-describe('🔴 ShippingDoc 的 printButton prop(伺服器產 PDF 的前置)', () => {
+describe.skipIf(!buildStamp.ok)('🔴 ShippingDoc 的 printButton prop(伺服器產 PDF 的前置)', () => {
   const markup = (printButton?: boolean) =>
     renderToStaticMarkup(
       <ShippingDoc
@@ -506,5 +539,83 @@ describe('🔴 ShippingDoc 的 printButton prop(伺服器產 PDF 的前置)', ()
     const off = markup(false);
     expect(off.length, '關掉鈕之後整張紙不見了').toBeGreaterThan(1000);
     expect(off).toContain(ITEM.title);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// ⟦b4-TAXSURFACES⟧ 題 B · **稅額那一列會不會把出貨單推到第二頁**(真 chromium + 真 PDF)
+//
+// 🔴🔴 **本檔其餘每一格量的都是「畫面上的字與樣式」** —— 而客人拿到的是**一張紙**,
+//    而紙會多印一張。⇒ 📌 「字出現在 HTML 裡」與「一張紙印得完」是**兩個宣稱**。
+//
+// 🛑 **本段只答一件事**:多了那一列之後, 頁數變不變。
+//    ⚠️ 它**不答**「金額表會不會被切成兩半」—— 那要讀 PDF 逐頁文字, 需要 `pdftotext`(外部二進位),
+//    而把外部相依塞進 repo 測試不是施工窗可以自己拍的。**已知缺口, 照實寫。**
+//    🔬 而顧客站那一面同型的量測 2026-09-05 已證偽過一次「跨線 = 被切開」那個推論
+//       (`statement-cascade-browser.test.tsx` 片 D 的註解)⇒ **不要在這裡重蹈。**
+describe('題 B · 稅額列與頁數(真 chromium + 真 page.pdf)', () => {
+  let zeroPages = -1;
+  let taxedPages = -1;
+
+  beforeAll(async () => {
+    const count = async (tax: number): Promise<number> => {
+      const page = await browser.newPage();
+      await page.setContent(
+        `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">` +
+          `<style>${compiledCss}</style></head><body>` +
+          renderToStaticMarkup(
+            <ShippingDoc
+              detail={detail(tax)}
+              items={[ITEM, ITEM_UNKNOWN]}
+              reportedTotal={2}
+              shipment={shipment}
+              lines={[{ orderItemId: 'i1', quantity: 2 }] as never}
+            />,
+          ) +
+          `</body></html>`,
+      );
+      await page.emulateMedia({ media: 'print' });
+      const pdf = await page.pdf({ format: 'A4', printBackground: true });
+      await page.close();
+      // 🔵 數 `/Type /Page`(後面不接 `s`, 避開 `/Pages`)—— 從真的 PDF 數, 不是從高度推的。
+      return (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length;
+    };
+    zeroPages = await count(0);
+    taxedPages = await count(1605);
+  }, 120_000);
+
+  it('🔴 分母:兩個世界都真的產出了 PDF(頁數 > 0)', () => {
+    expect(zeroPages).toBeGreaterThan(0);
+    expect(taxedPages).toBeGreaterThan(0);
+  });
+
+  it('🔴🔴 多了稅額那一列, 頁數【沒有變多】', () => {
+    expect(taxedPages).toBe(zeroPages);
+  });
+
+  it('🔵 而那一列【真的被渲染出來了】—— 否則上一格是拿一個空的改動在慶祝', () => {
+    // 🛑 少了這一格,「稅額列沒被渲染」與「它被渲染了而沒多一頁」印同一個綠。
+    const html = renderToStaticMarkup(
+      <ShippingDoc
+        detail={detail(1605)}
+        items={[ITEM, ITEM_UNKNOWN]}
+        reportedTotal={2}
+        shipment={shipment}
+        lines={[{ orderItemId: 'i1', quantity: 2 }] as never}
+      />,
+    );
+    expect(html).toContain('稅額');
+    expect(html).toContain('小計(未稅)');
+    // 🔵 對照:稅 0 那一份不得有
+    const zero = renderToStaticMarkup(
+      <ShippingDoc
+        detail={detail(0)}
+        items={[ITEM, ITEM_UNKNOWN]}
+        reportedTotal={2}
+        shipment={shipment}
+        lines={[{ orderItemId: 'i1', quantity: 2 }] as never}
+      />,
+    );
+    expect(zero).not.toContain('稅額');
   });
 });

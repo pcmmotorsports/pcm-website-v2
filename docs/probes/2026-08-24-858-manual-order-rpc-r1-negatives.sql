@@ -13,7 +13,9 @@ BEGIN
     'probe_alice',
     'manual_phone', 'bank_transfer', 'home',
     '{"name":"王小明","phone":"0912000111","line":"台北市測試路1號"}'::jsonb,
-    '{"type":"personal"}'::jsonb, p_fee, p_lines);
+    -- 🔴 第④代(20260904251500)起 `requested` 是**必填**:缺這個鍵會 RAISE。
+    --    ⇒ 本探針要繼續量它本來在量的東西, 就得送它。**不是為了通過, 是為了不換題目。**
+    '{"type":"personal","requested":true}'::jsonb, p_fee, p_lines);
   RETURN 'OK ' || r::text;
 EXCEPTION WHEN OTHERS THEN
   RETURN 'RAISE ' || left(SQLERRM, 60);

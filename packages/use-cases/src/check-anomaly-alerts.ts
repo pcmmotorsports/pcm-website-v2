@@ -130,6 +130,30 @@ export type CheckAnomalyAlertsResult = {
   searchLogLastRowAt: string | null;
   searchLogStale: boolean;
   /**
+   * ⟦b4-NEEDSHUMANNOWATCHER⟧ 卡住的匯款單筆數(`overpaid` / `needs_human`)。
+   * 🔵 `stuckBankUnknown` 與它分開 —— 「那支 RPC 沒貼 / 讀失敗」與「真的 0 張」的下一步不同。
+   */
+  stuckBankCount: number;
+  stuckBankOldestCreated: string | null;
+  /**
+   * ⟦b4-PAIDTHENOVERPAID⟧ **第二個世界**(主視窗 2026-09-05 `Q1=乙`)——
+   * 已 `paid` / `partiallyPaid` 而**收到的比該收的多**。
+   * 🛑 **與 `stuckBankCount` 分開, 不合成一個數** —— 兩個世界要打不同的電話:
+   *   A 的客人**畫面還在叫他匯款**(急);B 的客人畫面正常, **而我們欠他錢**(要退)。
+   */
+  stuckBankOverpaidCount: number;
+  stuckBankOverpaidOldest: string | null;
+  stuckBankUnknown: boolean;
+  /**
+   * 🔴 **`stuckBankUnknown` 的兩個成因各有出口**(codex R1 must-fix ④)。
+   *    ⛔ ~~我原本只寫了 `stuckBankUnknown`, 而註解說「兩者分開」~~ —— **那句是假的**:
+   *      「那支 RPC 還沒 apply」與「讀的時候丟例外」**兩者都只讓 Unknown = true**
+   *      ⇒ 📌 **我寫了分開, 而下游拿到的是同一個布林。**
+   *    ✅ 照 `searchLogFailed` 那格的成例補這一欄 —— **真的壞了要有人看**,
+   *      而「還沒 apply」是部署窗口、不是壞掉。
+   */
+  stuckBankFailed: boolean;
+  /**
    * 🔴 **命名的極性與 `searchLogStale` 對齊(true = 要看)**——
    *   ⛔ ~~原名 `searchLogAnonCanExecute`(false = 要看)~~ ⇒ route 自然會寫
    *      `!searchLogAnonCanExecute`, 而那在【函式還沒貼】那段期間 **每天假紅**
@@ -553,6 +577,18 @@ export function buildAnomalyAlertMessage(
    * 🛑 兩格都是 `boolean`, 而**它們只在 true 時才進信** ⇒ 不命中零字。
    */
   searchLogFlags: { readonly stale: boolean; readonly anonRevoked: boolean },
+  /**
+   * ⟦b4-NEEDSHUMANNOWATCHER⟧ 卡住的匯款單:`overpaid` / `needs_human` 那兩種。
+   * 🔴 **沒有預設值 —— 漏傳就當場 typecheck 紅**(與上面兩格同一個理由)。
+   * 🛑 **`count === 0` ⇒ 不命中零字。**
+   * 🔵 `oldestCreated` 讓收信的人知道**積了多久** —— 而它零 PII、零金額、零單號。
+   */
+  stuckBank: {
+    readonly count: number;
+    readonly oldestCreated: string | null;
+    readonly overpaidCount: number;
+    readonly overpaidOldest: string | null;
+  },
 ): AnomalyAlertMessage {
   // 🔴 `Math.round(秒/3600)` 會把 5400 秒(90 分)講成「2 小時」= **報一個錯的門檻給收信人**
   //    (codex R2 nit)。正式路徑目前固定 86400,所以今天走不到 —— 而那不是不修的理由:
@@ -1054,6 +1090,57 @@ export function buildAnomalyAlertMessage(
     );
   }
 
+  /**
+   * ⟦b4-NEEDSHUMANNOWATCHER⟧ 卡住的匯款單。
+   * 🔴 **這一格與上面兩格不同:上面兩格是【工程要看的】, 這一格是【客服要看的】** ——
+   *    每一張都對應一個**已經把錢匯出去、而畫面告訴他還沒匯**的客人。
+   * 🛑 `count === 0` ⇒ 整段不進信(不命中零字)。
+   */
+  const stuckBankBlock: string[] = [];
+  if (stuckBank.count > 0) {
+    stuckBankBlock.push(
+      '【匯款單卡住】',
+      `🔴 ${stuckBank.count} 張匯款單收到錢了, 而系統算不出該記成哪一種狀態(多匯 / 資料對不起來)。`,
+      '   ⇒ 那些客人的訂單頁**仍然顯示「請匯款」+ 銀行帳號** ⇒ 🔴 **他們可能會再匯一次。**',
+      '   ⇒ 這一格是**客服要看的** —— 請主動聯絡那幾位客人, 不要等他們打來。',
+    );
+    if (stuckBank.oldestCreated !== null) {
+      stuckBankBlock.push(
+        `   ⚠️ 最早那一張是 ${stuckBank.oldestCreated} 建立的 —— 這件事已經積了一段時間。`,
+      );
+    }
+    // 🔵 **這一句刻意寫進信裡**:讀信的人會問「那我要去哪裡找它們」, 而今天沒有那個畫面。
+    stuckBankBlock.push(
+      '   🛑 而後台目前**沒有一個畫面在列這些單** ⇒ 要查請找施工窗(板列 ⟦b4-NEEDSHUMANNOWATCHER⟧)。',
+    );
+  }
+  /**
+   * 🔴🔴 **第二個世界:已付款而多匯**(⟦b4-PAIDTHENOVERPAID⟧, 主視窗 2026-09-05)。
+   * 🛑 **與上面那一段【各講各的話】, 不共用文案** —— 那不是排版偏好:
+   *    A 的客人**畫面還在叫他匯款** ⇒ 下一步是「趕快聯絡他, 免得他又匯」;
+   *    B 的客人**畫面正常** ⇒ 下一步是「我們欠他錢, 要退」。
+   *    ⇒ 📌 **合成一句的話, 客服讀完不知道該打哪一種電話。**
+   * 🔵 語氣照上面那一段(【標題】+ 一行事實 + 一行「⇒ 下一步」), 不自創格式。
+   */
+  const stuckBankOverpaidBlock: string[] = [];
+  if (stuckBank.overpaidCount > 0) {
+    stuckBankOverpaidBlock.push(
+      '【匯款單多收了錢】',
+      `🔵 ${stuckBank.overpaidCount} 張匯款單**已經記成付款完成**, 而收到的錢**比該收的多**。`,
+      '   ⇒ 那些客人的畫面是正常的 —— 🔴 **他們不會知道, 而我們欠他們錢。**',
+      '   ⇒ 這一格是**客服要看的** —— 請主動聯絡並安排退款, 不要等他們發現。',
+    );
+    if (stuckBank.overpaidOldest !== null) {
+      stuckBankOverpaidBlock.push(
+        `   ⚠️ 最早那一張是 ${stuckBank.overpaidOldest} 建立的 —— 這件事已經積了一段時間。`,
+      );
+    }
+    stuckBankOverpaidBlock.push(
+      '   🛑 後台一樣**沒有畫面在列這些單**;而這個數字**可能少報** ——',
+      '      它用訂單總額當預篩, 而有退款的單那個總額不會跟著變(板列 ⟦b4-PAIDTHENOVERPAID⟧)。',
+    );
+  }
+
   const heartbeatBlock: string[] = [];
   if ((summary.cronHeartbeatAbnormalCount ?? 0) > 0) {
     const names = summary.cronHeartbeatAbnormalJobs ?? [];
@@ -1105,7 +1192,15 @@ export function buildAnomalyAlertMessage(
   //    `shouldAlert` 照樣 true、信照樣寄、而信裡**一個字都沒有那一塊**。
   //    ⇒ 抓到它的是「信裡要逐字帶【它證不到什麼】」那一發測試。
   //    📌 **一個【建好而沒接上】的東西, 與【沒建】在行為上不同、在 diff 上長得一樣合理。**
-  const body = [bypassRlsBlock, aclDriftBlock, searchLogBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
+  // 🔴 **⟦b4-NEEDSHUMANNOWATCHER⟧ 的第三格就在這一行** —— 算出來了、組成段落了,
+  //    而**沒有加進這個陣列的話, 那段永遠不會出現在信裡**, 且測試會全綠。
+  //    ⇒ 📌 「算出來了」「寫進信裡了」「會讓信寄出去」是三個宣稱(線【資料】`-db` 2026-09-05
+  //      主動告知它上一片就漏了第三個)⇒ 本片三個接點:此處 · shouldAlert · builder 參數。
+    // 🔵 2026-09-05 合併:`-db` 的 aclDriftBlock 與 `-mail` 的 stuckBank* 兩邊都留 ——
+    //    它們是不同的訊號、不同的觀眾, 誰都不該覆蓋誰。
+    const body = [bypassRlsBlock, aclDriftBlock, searchLogBlock, stuckBankBlock, stuckBankOverpaidBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock]
+      .filter((b) => b.length > 0)
+      .flatMap((b) => [...b, '']);
 
   /**
    * 🔴🔴 **結尾三行是【不可截的】,而這不是排版偏好。**
@@ -1365,6 +1460,44 @@ export async function checkAnomalyAlerts(
    *   而**兩邊都不會紅**(那正是本 repo 記過的「兩半各自呼叫同一函式 ≠ 兩半綁在一起」的反面:
    *   這裡是【同一個值】, 所以綁得住)。
    */
+  // ── ⟦b4-NEEDSHUMANNOWATCHER⟧ 卡住的匯款單 ──────────────────────────────
+  let stuckBank: {
+    readonly stuckCount: number;
+    readonly oldestCreated: string | null;
+    readonly overpaidCount: number;
+    readonly overpaidOldest: string | null;
+  } | null = null;
+  /**
+   * 🔴 與「還沒 apply」分開 —— 兩者都讓 `stuckBank` 是 null, 而下一步不同。
+   * ✅ 而**分開那一半在 `result` 上**:`stuckBankUnknown`(兩者皆 true)+ `stuckBankFailed`(只有這格)。
+   *    ⚠️ 2026-09-05 codex 抓到我原本只有前者 ⇒ **那時這句「分開」是假的。**
+   */
+  let stuckBankReadFailed = false;
+  try {
+    stuckBank = await deps.reader.getStuckBankOrdersHealth();
+  } catch (err) {
+    // 🛑 不得靜默(照 searchLog 那格的成例:只靠 log 的話, 把 log 刪掉測試照樣綠)。
+    console.error('[anomaly-alert] get_stuck_bank_orders_health 讀取失敗 ⇒ 落 Unknown', {
+      message: err instanceof Error ? err.message : String(err),
+    });
+    stuckBankReadFailed = true;
+  }
+  /**
+   * 🔴 **信裡那一格與 result 那一格用【同一個常數】, 不是各算一次。**
+   *   (照上面 searchLog 那段的理由:各算一次時有人改了一邊, 兩邊都不會紅。)
+   */
+  const stuckBankCountForMessage = stuckBank?.stuckCount ?? 0;
+  const stuckBankOldestForMessage = stuckBank?.oldestCreated ?? null;
+  const stuckBankOverpaidCountForMessage = stuckBank?.overpaidCount ?? 0;
+  const stuckBankOverpaidOldestForMessage = stuckBank?.overpaidOldest ?? null;
+  /**
+   * 🔵 `stuckBank` 是 null(沒貼 / 讀失敗)時**不告警** —— 與 anonCanExecute 那格同款。
+   * 🔴 **兩個世界【任一】有東西就要告警** —— ⛔ 少了 `||` 那半的話,
+   *    「A=0 而 B=3」會安靜地不寄信, 而那三個客人是我們欠他錢的那三個。
+   */
+  const stuckBankAlertForMessage =
+    stuckBankCountForMessage > 0 || stuckBankOverpaidCountForMessage > 0;
+
   const searchLogStaleForMessage =
     searchLog !== null &&
     searchLog.tableExists &&
@@ -1401,6 +1534,11 @@ export async function checkAnomalyAlerts(
     //    🎯 **一片「加了一個告警」的改動, 在它自己的測試底下【完全看不出來它不會叫】。**
     searchLogStaleForMessage ||
     searchLogAnonRevokedForMessage === true ||
+    // 🔴🔴 **⟦b4-NEEDSHUMANNOWATCHER⟧ 這一行, 就是 codex 2026-09-04 抓到的那個坑的形狀。**
+    //    線【資料】`-db` 2026-09-05 主動告知:它上一片「算出來了、寫進信裡了, 而【忘了加進
+    //    shouldAlert】⇒ 那封信只有在別的原因觸發時才會帶上它」。
+    //    ⇒ 📌 **「算出來了」「寫進信裡了」「會讓信寄出去」是三個宣稱。**
+    stuckBankAlertForMessage ||
     summary.openCount > 0 ||
     summary.refundingStuckCount > 0 ||
     summary.attemptManualReviewCount > 0 ||
@@ -1625,6 +1763,16 @@ export async function checkAnomalyAlerts(
         stale: searchLogStaleForMessage,
         anonRevoked: searchLogAnonRevokedForMessage === true,
       },
+      // 🔴 ⟦b4-NEEDSHUMANNOWATCHER⟧ —— **不命中時零字**(count=0 ⇒ builder 不印那一行)。
+      //    🔵 帶 `oldestCreated` 是刻意的:讓讀信的人知道**積了多久**, 而不只是「有幾張」。
+      //    🛑 **零 PII、零金額、零單號** —— 帶不帶單號照 2026-08-19 Sean 本人那次的口徑
+      //      (他為了查得到而打開了單號)⇒ **要帶要再問他一次, 不由我決定。**
+      {
+        count: stuckBankCountForMessage,
+        oldestCreated: stuckBankOldestForMessage,
+        overpaidCount: stuckBankOverpaidCountForMessage,
+        overpaidOldest: stuckBankOverpaidOldestForMessage,
+      },
     );
     notifiersTotal = deps.notifiers.length;
     // 🔴 **這一行講的是【送】那個階段**:各管道各自送、一管道掛掉不影響另一管道
@@ -1676,6 +1824,14 @@ export async function checkAnomalyAlerts(
     // 🔴 只有【表在 + 有過列 + 最後一列超過 24h】才算 stale。
     //    表不在 ⇒ false(還沒貼)· 有表沒列 ⇒ false(還沒開始收)—— 兩者都不是異常。
     searchLogStale: searchLogStaleForMessage,
+    stuckBankCount: stuckBankCountForMessage,
+    stuckBankOldestCreated: stuckBankOldestForMessage,
+    stuckBankOverpaidCount: stuckBankOverpaidCountForMessage,
+    stuckBankOverpaidOldest: stuckBankOverpaidOldestForMessage,
+    // 🔴 兩種成因都算 Unknown:那支 RPC 還沒貼(回 null)· 讀的時候丟例外(readFailed)
+    //    ⇒ 📌 而它們與「真的 0 張」在 `stuckBankCount` 上【都印 0】—— 這一欄就是把它們分開的那一格。
+    stuckBankUnknown: stuckBank === null || stuckBankReadFailed,
+    stuckBankFailed: stuckBankReadFailed,
     // 🔴 極性翻過來:true = 那道門被關掉了(要看)· null = 函式還沒貼(不看)
     searchLogAnonExecuteRevoked: searchLogAnonRevokedForMessage,
     manualCustomerSearchUnknown: searchSummary === null,

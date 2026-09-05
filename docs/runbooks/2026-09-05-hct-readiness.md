@@ -92,6 +92,21 @@
 
 ## 六、endpoint:Sean 給了三條網址,而**只對得上一半**(2026-09-05 深夜,唯讀比對,零真請求)
 
+> 🔴🔴 **【本節從這裡到 `§六` 結尾, 前半是【已被推翻】的 —— 而推翻它的那一段在最下面】**
+> **不要照本節前半做。** 它一路教「走 JSON、endpoint 要接方法名」, 而那兩件在 `:159` 起被實測推翻。
+> ⇒ 📌 **一份「先講錯的、後面才訂正」的文件, 對【只讀前半的人】等於沒有訂正過。**
+> ⇒ ⇒ 所以這一句放在**最前面**, 而不是留在下面等人讀到。
+>
+> **今天成立的三句**(2026-09-05 11:0x 實測, Sean 授權的一發空探測):
+> 1. **那個服務只講 SOAP** —— `POST` JSON ⇒ `http 500` + `application/soap+xml` + `soap:Fault`
+>    「在根層次的資料無效。 第 1 行,位置 1。」(它把 JSON 當 XML 解析)
+> 2. **`HCT_API_ENDPOINT` = 那條 `.asmx` 本身**(SOAP 兩支方法共用同一個 URL, 靠 `SOAPAction` 分)
+>    ⇒ **不接方法名**。Sean 2026-09-05 已設在 Vercel `pcm-admin` Production(開關仍關)。
+> 3. **兩支方法的參數都是小寫 `<company>`** —— 2022 PDF 的大寫 `Company` 只做交叉。
+>
+> 📎 傳輸層改寫的 plan(**R2 判 `FAIL`, 不可開工**):`docs/plans/2026-09-05-hct-soap-transport-plan.md`
+> 📎 廠商參考檔 `docs/reference/hct-logistics-api-reference.md:78` 那句「不必處理 SOAP envelope」**同日已加刪除線**。
+
 Sean 逐字給的第三條是 `https://hctrt.hct.com.tw/EDI_WebService2/Service1.asmx`(`.asmx` = ASP.NET WebService)。
 
 **✅ 對得上的兩件**
@@ -113,9 +128,28 @@ Sean 逐字給的第三條是 `https://hctrt.hct.com.tw/EDI_WebService2/Service1
 ⇒ ✅ **endpoint = 根 + `/TransData_Json`(送單)、根 + `/QueryEDELNO_Json`(查貨號)。**
    📌 **兩支是【不同的網址】** —— 若只放一顆 `HCT_API_ENDPOINT`,查貨那條會打到送單那支。
 
-🟢 **而有一件我們【早就對了】**:`TransData` 的第一個參數是大寫 `Company`,
-`QueryEDELNO` 是**小寫 `company`** —— 而 `hct-client.ts` `:145` 送大寫、`:207` 送小寫。
-⇒ 📌 **那個不對稱不是意外,是前一輪的人讀過文件。**
+### 🟢 2026-09-05 拍板:**Sean 要填的那一格 = 服務的【根】,不含方法名**
+
+```
+HCT_API_ENDPOINT = https://hctrt.hct.com.tw/EDI_WebService2/Service1.asmx     ← 就填到這裡
+```
+兩個方法名寫成碼裡的常數(`hct-client.ts` 的 `HCT_METHOD_SUBMIT` / `HCT_METHOD_QUERY`,
+旁邊各附 PDF 行號),各有一格測試釘住。
+🔴 **主視窗原本拍「env 含方法名」,同日推翻自己** —— 理由是它沒看到查貨是第二支網址。
+📌 **而「方法名核完就是常數」正是它該在碼裡的理由**:常數放 env = 讓人手打那段字,
+   而**打錯了沒有東西會紅**;放碼裡有測試釘得住。
+⚠️ 根尾端有沒有斜線都吃得下(`hctMethodUrl` 會剝掉)—— **因為 env 是人打的。**
+
+⛔ ~~**而有一件我們【早就對了】**:`TransData` 的第一個參數是大寫 `Company`…
+   📌 那個不對稱不是意外,是前一輪的人讀過文件。~~
+🔴🔴 **2026-09-05 05:0x 訂正:上面整段是錯的,而錯法值得記。**
+   我去抓了**線上服務描述**(`…/Service1.asmx?op=TransData_Json` 與 `?op=QueryEDELNO_Json`),
+   兩支的參數逐字都是 **`<company>`(小寫)、`<password>`、`<json>`** —— **沒有那個不對稱。**
+   ⇒ 📌 **我拿一份 2022 年的 PDF(ver 2.0)當現況,而且替那個差異【編了一個理由】。**
+   ⇒ 🎯 **一個「看起來像有人查證過」的解釋,比一個明顯的錯更難被推翻** ——
+     推翻它的不是更仔細地讀 PDF,是**去看那個服務今天長什麼樣**。
+   🟢 而指出這一格的是 codex(它引線上服務描述);**我沒有直接照它改,先自己抓了那頁**,
+     結果比它那一條更大(見下)。
 
 🔴 **而第三個參數對不上 —— 這一格今天會讓第一箱直接失敗**:
 ```
@@ -136,6 +170,33 @@ Sean 給的      …/Service1.asmx                 ← 服務的【根】
 `_Json` 後綴是我從 `:172` 的另一支服務推的。**要從 PDF §2.2 確認,或用測試帳號實打一次。**
 ⚠️ 另一格也**未確認**:client 的外層是 `{ Company, password, data: [ …欄位… ] }`,
 而參考檔 §3 只列**欄位**,沒列 JSON 的**外層鍵名**(`data` 這個字)。
+
+### 🔴🔴 2026-09-05 05:0x:**那個服務只講 SOAP** —— 而我們的 client 送 JSON
+
+抓 `…/Service1.asmx?op=TransData_Json` 那一頁(公開的服務描述,**零真請求打 API**),同一頁的協定計數:
+```
+SOAP 1.1  ×2      SOAP 1.2  ×2
+HTTP POST  0      HTTP GET  0      application/json  0
+```
+它給的 wire format 逐字:
+```
+Content-Type: text/xml; charset=utf-8
+SOAPAction: "http://tempuri.org/TransData_Json"
+<soap:Envelope …><soap:Body>
+  <TransData_Json xmlns="http://tempuri.org/">
+    <company>string</company><password>string</password><json>string</json>
+  </TransData_Json>
+</soap:Body></soap:Envelope>
+```
+⇒ 📌 **`_Json` 的意思是「信封【裡面】那個參數是一段 JSON 字串」,不是「傳輸走 JSON」。**
+   那正是 PDF 寫 `string json` 的原因 —— **型別讀對了,層次讀錯了。**
+⇒ 🔴 **`hct-client.ts` 送 `Content-Type: application/json` ⇒ 打過去會被拒,
+   而我們的碼把非 2xx 判成 `unknown` ⇒ 那一箱當場卡住。**
+🛑 **而「服務頁沒有列 HTTP POST」與「它不支援」不是同一件事**(ASP.NET 的 HttpPost 協定
+   可以開著而不列)⇒ 📌 **這個結論是【從沒有列推的】,不是打過去證實的。**
+   ⇒ 已端 Sean 決定(佇列 §B「Q-新竹傳輸方式」)。**在他回答之前,不要改 client 的傳輸層。**
+🔵 草稿留在 `~/pcm-mailbox/ship-hct-soap-draft-20260905.patch`(那一版改了網址與 payload,
+   **而它的前提是 JSON POST** ⇒ 若走 SOAP,它只有「常數與大小寫」那幾格還有用)。
 
 **🛑 而這件事的代價不是「試一下就知道」**
 endpoint 錯 ⇒ HTTP 非 2xx 或 200 而 body 不是 JSON ⇒ `hct-client.ts` 兩條路都回 **`unknown`**

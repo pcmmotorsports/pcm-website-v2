@@ -115,3 +115,30 @@ describe('SupabaseAuthAdapter.updatePassword', () => {
       .rejects.toMatchObject({ code: 'password_same_as_current' });
   });
 });
+
+describe('SupabaseAuthAdapter.resendSignupConfirmation', () => {
+  const PARAMS = { email: 'a@b.com', redirectTo: 'https://shop.pcmmotorsports.com/auth/callback?next=/login' };
+
+  it('🔴 轉呼 auth.resend,而三個欄位【逐字】對:type=signup / email / options.emailRedirectTo', async () => {
+    const resend = vi.fn().mockResolvedValue({ data: {}, error: null });
+    await expect(makeAdapter({ resend }).resendSignupConfirmation(PARAMS)).resolves.toBeUndefined();
+    // 🛑 `type` 是承重字面:Supabase 用它決定重寄【哪一種】信,打錯不會報錯 ——
+    //    它會去寄別種信或什麼都不做,而回傳形狀相同 ⇒ 這一層沒有東西會叫。
+    // 🛑 `emailRedirectTo` 與 resetPasswordForEmail 的 `redirectTo` **不同名**,
+    //    兩支放在一起特別容易抄錯 ⇒ 這裡把整個物件釘住,不只釘 type。
+    expect(resend).toHaveBeenCalledWith({
+      type: 'signup',
+      email: 'a@b.com',
+      options: { emailRedirectTo: PARAMS.redirectTo },
+    });
+  });
+
+  it('🔴 error(over_email_send_rate_limit) → throw AuthError(rate_limited)', async () => {
+    const resend = vi.fn().mockResolvedValue({
+      data: null,
+      error: { code: 'over_email_send_rate_limit', message: 'rate limited' },
+    });
+    await expect(makeAdapter({ resend }).resendSignupConfirmation(PARAMS))
+      .rejects.toMatchObject({ code: 'rate_limited' });
+  });
+});

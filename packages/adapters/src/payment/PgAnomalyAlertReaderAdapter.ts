@@ -49,6 +49,7 @@ const UNDEFINED_FUNCTION = '42883';
 /** ⟦b9-ENUMWATCH⟧ 片 2:單一來源的 RPC 名(錯誤訊息與探詢字面都從這裡來)。 */
 const RPC_MANUAL_SEARCH = 'get_manual_customer_search_summary';
 const RPC_SEARCH_LOG_HEALTH = 'get_search_log_health';
+const RPC_STUCK_BANK_HEALTH = 'get_stuck_bank_orders_health';
 
 function defaultClientFactory(connectionString: string): PgClientLike {
   return new Client(buildPgConfig(connectionString)) as unknown as PgClientLike;
@@ -711,6 +712,96 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
    *    理由:`anonCanExecute` 的 `null`(還沒貼)與 `false`(門被關了)在這裡若被
    *    合併成 boolean, **route 就再也分不出來了**, 而那兩個世界的下一步相反。
    */
+  /**
+   * ⟦b4-NEEDSHUMANNOWATCHER⟧ 卡住的匯款單(`overpaid` / `needs_human` 那兩種)。
+   *
+   * 🔴 **`42883` 的兩個世界照 `getPaymentAnomalyAlertDisplayIds` 那格處理**(codex R2 must-fix 的成例):
+   *    函式**存在**而它的**函式體**裡少了某個 helper/operator, PG 回的是**同一個碼**。
+   *    ⇒ 照碼降級 = 一支壞掉的函式會被安靜地讀成「今天沒有卡住的單」, 而它不會自己好。
+   *    ⇒ ✅ 再問一次「它到底在不在」:`to_regprocedure` 回 NULL 才是真的沒貼 ⇒ 才回 `null`;
+   *      回得出 oid ⇒ 那個 42883 來自**函式內部** ⇒ **原封上拋**。
+   * 🔵 那一發 probe 只在錯誤路徑跑, 正常情況零成本。
+   */
+  async getStuckBankOrdersHealth(): Promise<{
+    readonly stuckCount: number;
+    readonly oldestCreated: string | null;
+    readonly overpaidCount: number;
+    readonly overpaidOldest: string | null;
+  } | null> {
+    return this.run(async (client) => {
+      let raw: unknown;
+      try {
+        const res = await client.query(
+          'SELECT public.get_stuck_bank_orders_health() AS result',
+          [],
+        );
+        raw = res.rows[0]?.result;
+      } catch (err) {
+        if ((err as { code?: unknown } | null)?.code !== UNDEFINED_FUNCTION) throw err;
+        const probe = await client.query(
+          "SELECT to_regprocedure('public.get_stuck_bank_orders_health()') IS NULL AS missing",
+          [],
+        );
+        if (probe.rows[0]?.missing !== true) throw err;
+        // 🔵 真的沒貼 ⇒ 回 null ⇒ 呼叫端走 *Unknown, 與其他訊號同款。
+        return null;
+      }
+
+      // 🔴 以下每一格都 **fail-loud** —— 形狀不符就丟, 不要默默給一個看起來合理的數字。
+      if (raw === null || typeof raw !== 'object') {
+        throw new AnomalyAlertReaderParseError(`${RPC_STUCK_BANK_HEALTH} 回應形狀不符`);
+      }
+      const bag = raw as Record<string, unknown>;
+      // 🔴🔴 **`measured` 要驗**(codex R2 must-fix ③)。
+      //    SQL 那側**特別回這一鍵**, 就是為了防「沒量到卻被當成零張」——
+      //    而我原本**完全不讀它** ⇒ 缺鍵 / `false` / `null` 都會被當成「量到了」。
+      //    ⇒ 🎯 **⇒ 我加了一道守門, 而沒有接它。今晚同型第三次**
+      //      (前兩次:`stuckBankUnknown` route 沒消費 · `stuckBankFailed` 補了沒接)。
+      //      📌 **⇒ 「加了一個訊號」與「有人在讀它」是兩個宣稱, 而我一直只做前者。**
+      if (bag.measured !== true) {
+        throw new AnomalyAlertReaderParseError(
+          `${RPC_STUCK_BANK_HEALTH} measured 不是 true(實得 ${String(bag.measured)})⇒ 那支 RPC 沒有真的量到`,
+        );
+      }
+      /**
+       * 🔵 **兩個世界共用同一組檢查** —— 抽成具名函式而不是複製第二份。
+       *    🔬 理由是量出來的形狀:本 repo 記過「一格叫突變的測試若把判準重打一份,
+       *      改生產碼它不會紅」⇒ 同一個道理反過來 —— **複製一份檢查, 兩份會各自漂**,
+       *      而漂掉的那一半在 diff 上與「本來就這樣」長得一樣。
+       * 🔴 世界 A = 仍 unpaid(`stuck_*`)· 世界 B = 已付款而多收(`overpaid_*`)。
+       */
+      const readPair = (countKey: string, oldestKey: string): { count: number; oldest: string | null } => {
+        const c = bag[countKey];
+        if (typeof c !== 'number' || !Number.isInteger(c) || c < 0) {
+          throw new AnomalyAlertReaderParseError(`${RPC_STUCK_BANK_HEALTH} ${countKey} 異常`);
+        }
+        const o = bag[oldestKey] ?? null;
+        if (o !== null && typeof o !== 'string') {
+          throw new AnomalyAlertReaderParseError(`${RPC_STUCK_BANK_HEALTH} ${oldestKey} 異常`);
+        }
+        if (o !== null && Number.isNaN(new Date(o).getTime())) {
+          throw new AnomalyAlertReaderParseError(`${RPC_STUCK_BANK_HEALTH} ${oldestKey} 不是合法時刻`);
+        }
+        // 🔴 **兩者要一致** —— count>0 而沒有最早時刻, 或 count=0 而有時刻, 都表示那支 RPC 壞了。
+        //    ⇒ 📌 一份自己前後矛盾的資料, 比一份缺資料危險:它讀起來是完整的。
+        if ((c > 0) !== (o !== null)) {
+          throw new AnomalyAlertReaderParseError(
+            `${RPC_STUCK_BANK_HEALTH} ${countKey} 與 ${oldestKey} 不一致(count=${c}, oldest=${String(o)})`,
+          );
+        }
+        return { count: c, oldest: o };
+      };
+      const a = readPair('stuck_count', 'oldest_created');
+      const b = readPair('overpaid_count', 'overpaid_oldest');
+      return {
+        stuckCount: a.count,
+        oldestCreated: a.oldest,
+        overpaidCount: b.count,
+        overpaidOldest: b.oldest,
+      };
+    });
+  }
+
   async getSearchLogHealth(): Promise<{
     readonly tableExists: boolean;
     readonly lastRowAt: string | null;

@@ -191,7 +191,11 @@
 4. 🔴 **突變**:把稅額列的 `> 0` 拿掉 ⇒ 稅 0 那一格要紅
 5. byte-equal 那格更新後仍然 byte-equal, 且 forbidden-token 那格照舊綠
 6. 測試分母**用工具算**(`vitest related` 逐支餵改動檔), 不自己挑;連跑兩發比四個數
-7. 🔴 **`⟦b4-TAXADMINSURFACES⟧` 已關**(後台詳情 + CSV 那兩個面)
+7. 🔴 **`⟦b4-TAXADMINSURFACES⟧` 只關掉【一半】** —— 後台詳情 `ItemsTotals` 隨題 B 做掉了,
+   ⛔ ~~而我原本在這裡寫「已關(後台詳情 + CSV 那兩個面)」~~ **那句話是假的**(codex must-fix):
+   🔴 **CSV 那一面【一行碼都沒動】**, 而它走的是另一條 `ADMIN_ORDER_LIST_SELECT`、
+   還有「每單一次 vs 每列」那個未拍的決定(§3.6)。
+   ⇒ 📌 **收尾時不得宣稱那一列已完整關閉。**
    ⛔ **這一條是 R4 F6 的精神**:F6 原本講的是「`⟦b4-MONEYSPLIT⟧` 開了列而 §4 與第 9 步都沒有它
    ⇒ **沒有人會被擋**」。🔵 `MONEYSPLIT` 那一列已在同一夜**證偽**(見板列)⇒ F6 的原受詞消失,
    **而那個病沒有消失** —— 它換到我當晚新開的 `⟦b4-TAXADMINSURFACES⟧` 身上。

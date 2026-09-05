@@ -333,4 +333,30 @@ describe('🔴 重產會踩掉的兩顆手改(重產的人照這裡對)', () => 
       'wallTagline 有重複 ⇒ 磚牆上會出現兩格一模一樣的副標(抄貼錯位的典型症狀)',
     ).toBe(BRAND_CONTENT.length);
   });
+
+  // 🔴 Sean 2026-09-05 拍 `Q-品牌拼法 = 乙`:照現況無撇 ——
+  //    `AKRAPOVIČ` ⇒ `Akrapovic`、`ÖHLINS` ⇒ `Ohlins`(DB 那兩列由他貼 SQL, 本檔是碼那一半)。
+  // 🎯 **這一格守的不是「那兩個字改對了」, 是「下一個帶附加符號的品牌上架時會紅」** ——
+  //    前者改完就永遠綠, 後者才會在未來說話。
+  // ⚠️ 而它同時是 `⟦ship-STMTCARON1⟧` 的守門:那條的成因是
+  //    「`AKRAPOVI` 由思源黑體畫、`Č` 由 Noto Sans 畫 ⇒ 同一個字裡兩種字形」,
+  //    而**我們沒有 Linux 容器驗得了它** ⇒ 這一格用「那個字根本不出現」把它擋在上游。
+  it('品牌名一律是 ASCII —— 附加符號會讓列印時同一個字出現兩種字形', () => {
+    const NON_ASCII = /[^\x20-\x7E]/;
+    const offenders = BRAND_CONTENT.filter((b) => NON_ASCII.test(b.name)).map(
+      (b) => `${b.slug}: ${b.name}`,
+    );
+    expect(
+      offenders,
+      '品牌名含非 ASCII 字元 ⇒ 列印/PDF 會落到兩種字型上(⟦ship-STMTCARON1⟧);Sean 2026-09-05 拍板照現況無撇',
+    ).toEqual([]);
+
+    // 🟢 正對照:這把尺在【該找到東西】時真的找得到 —— 否則上面那格是恆綠的。
+    //    (少了這一格, 把 NON_ASCII 改成 /zzz-never/ 也會全綠。)
+    expect(NON_ASCII.test('AKRAPOVIČ'), '正對照:尺對舊拼法必須命中').toBe(true);
+    expect(NON_ASCII.test('Akrapovic'), '負對照:尺對新拼法必須不命中').toBe(false);
+
+    // 🔵 而分母也要印出來 —— 一個 0 要成立, 得先證明它掃過了東西。
+    expect(BRAND_CONTENT.length, '品牌數為 0 ⇒ 上面那個空陣列什麼都不證明').toBeGreaterThan(0);
+  });
 });

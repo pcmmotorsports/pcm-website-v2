@@ -21,6 +21,9 @@ function row(over: Partial<ShippedOrderWithoutShippedEmail> = {}): ShippedOrderW
     displayId: 'PCM-2026-0001',
     notificationEmail: 'member@example.com',
     customerEmail: 'frozen@example.com',
+    // 🔴 片 B(⟦f3-MAILFALLBACKVSRULING⟧):型別要求它, 而【本片沒有任何行為讀它】
+    //    ⇒ 這裡給 'web' 只是讓 fixture 通過型別;片 C 才會有人問它。
+    orderSource: 'web',
     ...over,
   };
 }

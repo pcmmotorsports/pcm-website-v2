@@ -121,6 +121,7 @@ function detail(quantitySummary: AdminOrderItemQuantitySummary | null): AdminOrd
     subtotal: { amount: 400, currency: 'TWD' },
     shippingFee: { amount: 0, currency: 'TWD' },
     discountTotal: { amount: 0, currency: 'TWD' },
+    taxTotal: { amount: 0, currency: 'TWD' },
     total: { amount: 400, currency: 'TWD' },
     shippingMethod: 'home',
     shippingAddress: { name: null, phone: null, line: null },

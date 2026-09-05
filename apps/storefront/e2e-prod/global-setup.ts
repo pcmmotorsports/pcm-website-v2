@@ -62,7 +62,23 @@ async function globalSetup(config: FullConfig): Promise<void> {
       .then(() => true)
       .catch(() => false);
     const cardCount = await cards.count();
-    const countText = (await page.locator('.pp-count').innerText().catch(() => '')).trim();
+    // 🔴🔴 **件數這一格要指名【看得見的那一顆】—— 因為串流當下 `.pp-count` 會【短暫有兩顆】。**
+    //   🔬 2026-09-05 逐格量到(production build,`next start`;dev server 上**量不到**):
+    //      卡片可見那一刻 `document.querySelectorAll('.pp-count')` = **2 顆**,
+    //      兩顆的字都是「24479 件商品」、祖先鏈逐字相同,差別只有 `看得見=true/false`;
+    //      再等 3 秒 ⇒ 剩 **1 顆**。(= Suspense 串流把新的插進來、舊的還沒被移掉的重疊窗口。)
+    //   🛑 而 Playwright 的 strict mode 對「兩顆」是**丟例外**,上面那一行的
+    //      `.catch(() => '')` 把那個例外**吞成空字串** ⇒ 訊息印「`.pp-count` 的原文是 ""」,
+    //      而那句的語意是「那一刻抓不到那個元素」⇒ 📌 **一個純時序問題長得像資料壞掉,
+    //      而它中止的是【整套】E2E。**
+    //   ⚠️ 這一格不是「偶爾 flaky」:同一顆 hash 連跑**五發全中止**,而同日稍早**兩發跑過去** ——
+    //      ⇒ 跑過去的那兩發是**運氣**,不是綠。
+    //   ✅ 修法:`:visible` + `.first()`(兩個都要 —— `:visible` 挑掉舊的那顆,
+    //      `.first()` 讓「萬一兩顆都可見」也不會再丟 strict 例外),再照上面數卡片的 idiom 等一次。
+    //      逾時仍讀不到時 `countText` 照舊是空字串 ⇒ **底下三分岔的訊息一個字都不用改**。
+    const countLoc = page.locator('.pp-count:visible').first();
+    await countLoc.waitFor({ state: 'visible', timeout: CONTRACT_NAV_TIMEOUT_MS }).catch(() => {});
+    const countText = (await countLoc.innerText().catch(() => '')).trim();
     const total = Number(countText.replace(/[^\d]/g, ''));
     const totalOk = Number.isFinite(total) && total > 0;
 
