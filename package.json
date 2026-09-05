@@ -23,6 +23,7 @@
     "scripts/board-row-by-anchor.sh": "bash scripts/board-row-by-anchor.sh --selftest",
     "scripts/pagecount.sh": "sh scripts/pagecount.sh --selftest",
     "scripts/naked-cells.py": "python3 scripts/naked-cells.py --selftest",
+    "scripts/rpc-raw-sql-callers.py": "python3 scripts/rpc-raw-sql-callers.py --selftest",
     "scripts/weigh-synonym-candidates.py": "python3 scripts/weigh-synonym-candidates.py --selftest",
     "scripts/category-raw-path-consistency.py": "python3 scripts/category-raw-path-consistency.py --selftest",
     "scripts/commit-content-still-there.py": "python3 scripts/commit-content-still-there.py --selftest",
