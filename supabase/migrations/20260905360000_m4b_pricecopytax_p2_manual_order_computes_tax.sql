@@ -1216,7 +1216,16 @@ BEGIN
       BEGIN
         UPDATE public.orders SET price_tax_mode = price_tax_mode WHERE id = v_probe;
       EXCEPTION WHEN OTHERS THEN
-        RAISE EXCEPTION '斷言③b失敗:連合法值都寫不進去 ⇒ CHECK 擋太寬(%%)', SQLERRM;
+        -- 🔴🔴 **`%%` 是【字面百分號】, 佔位數 0 —— 而我送了 1 個參數** ⇒ 42601 編譯期就炸。
+        --    ⇒ 📌 而它炸在**事後斷言那個 DO 區塊的編譯期**, 不是執行期 ⇒ **整支 BEGIN…COMMIT 回捲**
+        --    🔴🔴 **而這一行的上一版寫著那個 dollar-quote 的標籤字面 —— 它把引號【提前收尾】了**
+        --       ⇒ `ERROR: syntax error at or near "\`"`。
+        --       ⇒ ⇒ 📌 **我為了解釋那個 bug 而寫的註解, 製造了一個新的 bug。**
+        --          🛑 **dollar-quote 區塊裡的註解, 不可以出現它自己的標籤。**
+        --       ⇒ 我先前唯讀查到「五格全 f」是對的:**那支 migration 一行都沒生效。**
+        --    🛑 **而我在拋棄式 PG 上【只驗了函式建得起來】, 沒有真跑整支到 COMMIT**
+        --       ⇒ ⇒ **「函式建得起來」與「整支 migration 跑得完」是兩個宣稱。**
+        RAISE EXCEPTION '斷言③b失敗:連合法值都寫不進去 ⇒ CHECK 擋太寬(%)', SQLERRM;
       END;
     END IF;
   END;
