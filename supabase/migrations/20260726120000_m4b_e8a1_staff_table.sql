@@ -119,36 +119,13 @@ BEGIN
     RAISE EXCEPTION 'staff RLS 異常 — relrowsecurity 應為 true;拒繼續';
   END IF;
 
-  -- ══════════════════════════════════════════════════════════════════════
-  -- 🔴🔴 **[2026-09-05 改期望值 —— 依據是【已 apply 的 migration】, 不是「讓它綠」]**
-  -- ══════════════════════════════════════════════════════════════════════
-  --   ⛔ ~~原本斷言「應為零 policy」~~ ⇒ **今天每跑必紅, 而紅的成因是兩支已批准的 migration**:
-  --     `20260904270000_m4b_rls_service_role_select_36.sql`  ← 給 SELECT policy(Sean 09-05 03:1x 貼)
-  --     `20260905090000_m4b_service_role_policies_before_rlsharden.sql` ← 給 INSERT/UPDATE(Sean 09-05 上午貼)
-  --   🔬 **改之前先證明它今天真的紅**(拋棄式 PG 照正式庫現況重建 policy, 原樣跑本段):
-  --     `ERROR: 應為 zero-policy,實 3 條 policy;拒繼續` · 🔵 負對照:policy 清掉之後同一段 rc=0
-  --   🛑 **而改法【不是把它調鬆】** —— 零 policy 這個不變式的用途是「有人偷加就叫」,
-  --     那個用途今天仍然需要。⇒ ✅ **改成【期望集合相等】**:少一條會叫、**多一條【也】會叫**,
-  --     而每一條旁邊寫它來自哪一支 migration。
-  --   ⚠️ **代價寫出來**:期望集合是**快照** ⇒ 下一支加 policy 的 migration 要**同時**更新這裡,
-  --     否則它會紅在一個【合法】的改動上。而那正是零 policy 版本原本的毛病, 只是門檻高了一階。
-  DECLARE
-    v_expected CONSTANT text[] := ARRAY[
-      'staff_select_service_role',   -- 20260904270000
-      'staff_insert_service_role',   -- 20260905090000
-      'staff_update_service_role'    -- 20260905090000
-    ];
-    v_actual text[];
-  BEGIN
-    SELECT coalesce(array_agg(policyname ORDER BY policyname), '{}')
-      INTO v_actual
-      FROM pg_policies
-     WHERE schemaname = 'public' AND tablename = 'staff';
-    IF v_actual <> (SELECT array_agg(x ORDER BY x) FROM unnest(v_expected) x) THEN
-      RAISE EXCEPTION 'staff RLS 異常 — policy 集合與期望不符;拒繼續。期望 % / 實際 %',
-        v_expected, v_actual;
-    END IF;
-  END;
+  SELECT count(*) INTO v_cnt
+    FROM pg_policies
+   WHERE schemaname = 'public'
+     AND tablename = 'staff';
+  IF v_cnt <> 0 THEN
+    RAISE EXCEPTION 'staff RLS 異常 — 應為 zero-policy,實 % 條 policy;拒繼續', v_cnt;
+  END IF;
 
   -- 4c. anon / authenticated 對**全部 7 種**表權限皆為 false。
   -- 🔴 只驗 4 種是不夠的:TRUNCATE 是獨立權限,可整表清空、繞過「不給 DELETE」的保護

@@ -242,6 +242,16 @@ export type CheckAnomalyAlertsResult = {
   /** 🔵 診斷用:哪一族變了 / 那一列幾點量的。**不進** `shouldAlert`。 */
   aclDriftFamilies: string | null;
   aclDriftTakenAt: string | null;
+  /**
+   * ⟦b4-RETRYGAVEUPNOWATCHER⟧:被 settle-retry 放棄的匯款單。
+   * `> 0` 進 shouldAlert(已經匯了錢而系統修不好的客人);Unknown 不進。
+   */
+  settleRetryGaveUpCount: number | null;
+  settleRetryGaveUpUnknown: boolean;
+  settleRetryGaveUpOldest: string | null;
+  settleRetryGaveUpSampleIds: string[];
+  /** 🔵 分母:被追蹤的總列數。`gave_up_count > tracked_total` ⇒ 讀到的不可信 ⇒ 走 Unknown。 */
+  settleRetryGaveUpTracked: number | null;
   /** 🔵 讀到的兩個分母。**不直接進 `shouldAlert`** —— 那道閘只看上面兩個旗標。
    *  ⛔ ~~我第一版寫「**不是判準**」~~ —— R3 nit 打掉(codex R2 也在 domain 那份打過同一句):
    *     `bypassRlsTotalRoleCount` **確實參與判定**(adapter 拿它當回應合理性下界 ⇒ 走 Unknown)。
@@ -987,7 +997,10 @@ export function buildAnomalyAlertMessage(
   // ⟦b9-ACLDRIFT5⟧:主旨也要分得出來 —— 一封主旨寫「付款有事」而內容是權限漂移的信,
   //   收信的人會用錯的心情打開它。
   const hasAclDrift = summary.aclDriftDetected === true;
-  const subject = hasAclDrift && !hasBypassRls && !hasPayment && !hasEmail && !hasHeartbeat
+  const hasGaveUp = (summary.settleRetryGaveUpCount ?? 0) > 0;
+  const subject = hasGaveUp
+    ? '🔴 PCM 有匯款單修不好 —— 這些客人已經匯了錢'
+    : hasAclDrift && !hasBypassRls && !hasPayment && !hasEmail && !hasHeartbeat
     ? '🔵 PCM 資料庫權限與昨天不一樣(貼板當天正常)'
     : hasBypassRls && !hasPayment && !hasEmail && !hasHeartbeat
     ? '⚠️ PCM 資料庫權限有事要你看(與付款無關)'
@@ -1028,6 +1041,25 @@ export function buildAnomalyAlertMessage(
    *    而最可能的反應是**把那次貼板 revert 掉**。
    * 🔵 而它也帶【怎麼讓它不再叫】—— 一封只說「有事」而不說下一步的信, 會被整批忽略。
    */
+  /**
+   * ⟦b4-RETRYGAVEUPNOWATCHER⟧:被 settle-retry 放棄的匯款單。
+   * 🛑 **逐字帶「這些人已經匯了錢」** —— 少了那一句, 這一行讀起來像一個技術指標,
+   *    而它其實是一份**名單**:每一張都是一個付了錢而訂單頁還印「請匯款」的客人。
+   */
+  const gaveUpBlock: string[] = [];
+  if ((summary.settleRetryGaveUpCount ?? 0) > 0) {
+    gaveUpBlock.push(
+      '【匯款單修不好】',
+      `🔴 有 ${summary.settleRetryGaveUpCount} 張匯款單自動重算試到上限仍然沒好 —— **這些人已經匯了錢**。`,
+      `   最舊那一張放棄於:${summary.settleRetryGaveUpOldest ?? '(沒讀到)'}`,
+      `   訂單 id(最多列 5 個):${summary.settleRetryGaveUpSampleIds.join(', ') || '(沒讀到)'}`,
+      '   ⇒ 他們的訂單頁還印著「請匯款」+ 銀行帳號 ⇒ 🔴 **有人會再匯一次。**',
+      '   ✅ 下一步:後台開那幾張單、對一次金額;錯在哪看 Postgres log 的 [pcm_noncard_settle]。',
+      '   🛑 這個數字是【此刻】不是【累計】—— 放棄有 24 小時冷卻, 一張單會反覆進出它。',
+    );
+  }
+
+
   const aclDriftBlock: string[] = [];
   if (summary.aclDriftDetected) {
     aclDriftBlock.push(
@@ -1198,7 +1230,7 @@ export function buildAnomalyAlertMessage(
   //      主動告知它上一片就漏了第三個)⇒ 本片三個接點:此處 · shouldAlert · builder 參數。
     // 🔵 2026-09-05 合併:`-db` 的 aclDriftBlock 與 `-mail` 的 stuckBank* 兩邊都留 ——
     //    它們是不同的訊號、不同的觀眾, 誰都不該覆蓋誰。
-    const body = [bypassRlsBlock, aclDriftBlock, searchLogBlock, stuckBankBlock, stuckBankOverpaidBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock]
+    const body = [bypassRlsBlock, aclDriftBlock, gaveUpBlock, searchLogBlock, stuckBankBlock, stuckBankOverpaidBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock]
       .filter((b) => b.length > 0)
       .flatMap((b) => [...b, '']);
 
@@ -1739,7 +1771,11 @@ export async function checkAnomalyAlerts(
       // 🔴 而「已批准」在 adapter 那一層就讓 Detected 回 false —— **那不是消音**:
       //   批准是一個人簽下「那是我貼板造成的」。少了它, 貼板當天之後會【每天寄一封
       //   一模一樣的信】, 而那種信會被整批忽略 ⇒ 連真的那一封也一起。
-      summary.aclDriftDetected === true;
+      summary.aclDriftDetected === true ||
+      // ⟦b4-RETRYGAVEUPNOWATCHER⟧:被放棄的匯款單 > 0 ⇒ 叫。
+      // 🔴 那是【已經匯了錢而系統修不好】的客人 —— 它與 bypassRls 同一個等級。
+      // 🛑 而 `null`(量不到)不進這道閘 —— 它走 503 那條(與本檔每一格同一個成例)。
+      (summary.settleRetryGaveUpCount ?? 0) > 0;
 
   let notifiersTotal = 0;
   let notifiersFailed = 0;
@@ -1871,6 +1907,12 @@ export async function checkAnomalyAlerts(
       aclDriftUnknown: summary.aclDriftUnknown,
       aclDriftFamilies: summary.aclDriftFamilies,
       aclDriftTakenAt: summary.aclDriftTakenAt,
+      // ⟦b4-RETRYGAVEUPNOWATCHER⟧:四格都要帶出去 —— Unknown 不帶 ⇒ route 讀不到 ⇒ 503 那條路不存在。
+      settleRetryGaveUpCount: summary.settleRetryGaveUpCount,
+      settleRetryGaveUpUnknown: summary.settleRetryGaveUpUnknown,
+      settleRetryGaveUpOldest: summary.settleRetryGaveUpOldest,
+      settleRetryGaveUpSampleIds: summary.settleRetryGaveUpSampleIds,
+      settleRetryGaveUpTracked: summary.settleRetryGaveUpTracked,
     bypassRlsPrivilegedCount: summary.bypassRlsPrivilegedCount,
     bypassRlsTotalRoleCount: summary.bypassRlsTotalRoleCount,
     /**

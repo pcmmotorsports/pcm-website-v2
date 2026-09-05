@@ -167,6 +167,59 @@ describe('白名單這張表本身', () => {
     // 負對照:別支不在裡面 ⇒ 這個集合不是「全部都算」。
     expect(FAILURE_COUNT_MEANINGLESS.has('pcm-settle-sweep')).toBe(false);
   });
+
+  /**
+   * 🔴🔴 **[R4 F-R4-8] 這一格補的是「順序清單裡唯一沒有機械閘的那一項」。**
+   *
+   * `⟦search-LOGFLOOD⟧` 那支 PENDING 檔改名成真 migration 時,要一起改六處字面。
+   * 其中五處都有東西會叫(白名單對帳、兩處釘死的支數、門檻表),
+   * 🛑 **只有 `FAILURE_COUNT_MEANINGLESS` 是靜默的** —— 上面那格的 `toEqual` 是**定值比對**,
+   * 漏加一項它**不會紅**,而漏加的後果是 `consecutive_failures` 恆 0 被儀表讀成「零失敗」。
+   *
+   * 🔴 **判準不是 R4 建議的那個字面,而是量出來的**:R4 原話是「`SELECT public.` 形狀 ⇒ 必須在名單裡」。
+   *    當場數九支排程的 command:
+   *    ```
+   *      SELECT public.…                                   2 支(acl-digest / settle-retry)
+   *      SELECT pcm_cron.<函式>()                           2 支(expire-unpaid-orders / late-payment-sweep)
+   *      SELECT pcm_cron.invoke_cron_route('/api/cron/…')   5 支
+   *    ```
+   *    ⇒ 📌 **照 `SELECT public.` 判會漏掉中間那兩支 —— 而它們正是名單裡本來就有的。**
+   *      判準改成 **「這一發有沒有走 HTTP route」**:沒走 = 純 SQL = 失敗心跳會被同交易回捲。
+   *      今天照這把尺分:純 SQL 4 支,而 `FAILURE_COUNT_MEANINGLESS` 正好就是那 4 支。
+   *
+   * ⚠️ **它的盲區**:動態組出來的 job 名、以及 command 沒有用 dollar-quote 寫的,本格看不到
+   *    (與上面那格同一個盲區;下面的分母守恆會在那時候紅)。
+   */
+  it('🔴 純 SQL 的排程都必須在「失敗計數沒有意義」名單裡(它們物理上寫不出失敗心跳)', () => {
+    const dir = resolve(__dirname, '../../../../../supabase/migrations');
+    const pure: string[] = [];
+    const routed: string[] = [];
+    const allNames = new Set<string>();
+    for (const f of readdirSync(dir).filter((x) => x.endsWith('.sql'))) {
+      const sql = readFileSync(join(dir, f), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/--[^\n]*/g, ' ');
+      for (const m of sql.matchAll(/cron\.schedule\(\s*'([^']+)'/g)) allNames.add(m[1]!);
+      // 名字之後【最近的】那個 dollar-quoted 字串就是 command(第三個參數)。
+      for (const m of sql.matchAll(/cron\.schedule\(\s*'([^']+)'[\s\S]*?\$([A-Za-z_]*)\$([\s\S]*?)\$\2\$/g)) {
+        (m[3]!.includes('invoke_cron_route') ? routed : pure).push(m[1]!);
+      }
+    }
+
+    // 🟢 正對照:兩堆都不得是空的 —— 空的話下面那個 filter 會恆過(最常見的假綠)。
+    expect(pure.length, '純 SQL 的排程數(0 ⇒ 這把尺沒接上)').toBeGreaterThan(0);
+    expect(routed.length, '走 route 的排程數(0 ⇒ 這把尺不分辨, 它把全部都當純 SQL)').toBeGreaterThan(0);
+    // 🔴 分母守恆:每一支撈得到名字的排程,都要被分進其中一堆。
+    expect(
+      [...allNames].filter((n) => !pure.includes(n) && !routed.includes(n)),
+      '有排程撈得到名字而分不了類 ⇒ 它的 command 不是 dollar-quoted, 本格對它失明',
+    ).toEqual([]);
+
+    expect(
+      [...new Set(pure)].filter((n) => !FAILURE_COUNT_MEANINGLESS.has(n)).sort(),
+      '🔴 純 SQL 的排程沒進 FAILURE_COUNT_MEANINGLESS ⇒ 它的失敗計數恆 0, 而儀表會讀成「零失敗」',
+    ).toEqual([]);
+  });
 });
 
 describe('loadCronHeartbeats', () => {

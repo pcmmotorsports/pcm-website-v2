@@ -42,6 +42,18 @@ const CONTROL_NEEDLE = 'admin_record_manual_payment';
  * 🔴 **加一行之前請先讀 `#787`**;`why` 要寫「封印在哪一片、驗的是什麼」,不要寫「已確認」。
  */
 const CALLER_ALLOWLIST: Record<string, string> = {
+  'packages/domain/src/order/refund-remaining-single-source.test.ts':
+    '🔴 2026-09-05 線【客人帳戶區】-account 補(⟦0a-CARDCANCELNOREFUND⟧ 片①;作者就是我)。' +
+    '本檔命中的是它自己 SQL_ALLOWLIST 裡的一段 why 文字 —— 那段話在解釋 ' +
+    '20260905280000(admin_record_manual_refund 的重定義)為什麼命中另一道閘, ' +
+    '而解釋一件事就必須寫出它的名字。' +
+    '✅ 可證偽(量到的):該檔 .rpc( 命中 = 0;🔬 正對照 真呼叫端 ' +
+    'apps/admin/src/lib/payment/manual-refund-repository.ts 同尺命中 = 1 ⇒ 尺會動。' +
+    '⇒ 它不是呼叫端, 是一支【在講那個呼叫端】的測試檔。' +
+    '🛑 #866 我讀過了(docs/phase-1-backlog.md:30367):人工退款的額度上限是【訂單總額】' +
+    '而不是【那一軌的淨實收】, UI 那道擋不住直送 —— 封印仍封著, 本片不動它(那是另一片, 要 Sean)。' +
+    '📌 而我今天在 card-cancel plan §4「新發現」的那個洞, 與 #866 是同一件事 —— ' +
+    '它從 2026-08-24 就記著了。',
   'apps/admin/src/lib/payment/manual-refund-repository.ts':
     '唯一真呼叫端(.rpc() 呼叫點)。封印本體在同片 manual-refund-entry-gate.ts 的 ' +
     'MANUAL_REFUND_ENTRY_BLOCKED_BY_787,**仍為 true**(UI 與 server action 兩道)。' +

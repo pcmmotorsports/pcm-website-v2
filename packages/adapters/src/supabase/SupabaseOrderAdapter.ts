@@ -226,7 +226,7 @@ export const MEMBER_ORDER_DETAIL_SELECT =
 //    `supabase/migrations/20260814140000_m4b_e10_484a_order_goods_axis_view.sql` 檔頭「寫作契約」。
 //    ⚠️ 這一條**沒有守門**,只有這行字(候選修法列在 `#499`)。
 export const ADMIN_ORDER_LIST_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customer_user_id, customers(name), shipping_address_snapshot, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))';
+  'id, display_id, created_at, payment_status, fulfillment_status, total, tax_total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customer_user_id, customers(name), shipping_address_snapshot, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))';
 
 // M-4b E10 A9w3(九碼契約收縮):`ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED`
 // (`order_items!inner(...)` 版投影)已移除 —— 它的唯一用途是九碼篩選,而該篩選在 A9w2 下架

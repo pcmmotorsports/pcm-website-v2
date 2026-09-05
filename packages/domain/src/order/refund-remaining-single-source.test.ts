@@ -59,6 +59,11 @@ const REFUND_AMOUNT_COL = /"?\brefund_amount\b"?/g;
 //   ⚠️ 它**不在 CI**,不會自己紅。這一行就是它的兩個落點之一(另一個在該 RPC 的 COMMENT ON FUNCTION)。
 
 const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
+  // 🔴🔴 **2026-09-05 merge:兩條線各自在【同一個位置】加了自己的第一筆 —— 而兩筆都該在。**
+  //    `-mail` 的 `20260905310000`(取消信)與 `-account` 的 `20260905280000`(卡取消片①)。
+  //    📌 **各自分支上都是「加一筆」, 合起來是兩筆** —— 而發現時機是 merge。
+  //    🛑 **危險的解法是挑一邊留** —— 那會讓另一支 migration 失去豁免 ⇒ 那道閘對它報紅,
+  //       而下一個人看到紅會以為是自己弄的。✅ 解法是兩筆都留, 順序不影響(它是 Record)。
   // ── 2026-09-05 · 線【信】`-mail` 補(⟦b4-CANCELEMAIL⟧ 取消信;**作者就是我**;
   //    鐵則 12①⑤ 的 codex 對抗審查 R1 就是**因為這一格報紅而找到病的**)──
   '20260905310000_m4b_cancelled_email_pending_view.sql': {
@@ -89,6 +94,30 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
       //        它們不餵任何一封信 —— 而**兩邊漂開時本閘看不到**(它的 TS 側是啟發式, 見檔頭上限②)。
       '取消信「退款金額」= 回到那張卡的錢, 單一來源住在本檔的 pcm_order_card_refunded;' +
       '刻意與 pcm_order_refundable_remaining 不同(那支答「還能退多少」, fail-safe 方向相反)。',
+  },
+  // ── 2026-09-05 · 線【客人帳戶區】`-account` 補(⟦0a-CARDCANCELNOREFUND⟧ 片①;**作者就是我**;
+  //    鐵則 12①③ 的 codex 對抗審查一輪已跑、FAIL 5 must-fix + 1 nit 全折, 見該 migration 檔頭)──
+  '20260905280000_m4b_cardcancel_p1_manual_refund_card_confirm.sql': {
+    count: 4,
+    why:
+      // 🔴 why 要答的是「gate 為什麼對【正確的東西】報紅」。
+      // 本檔是 `admin_record_manual_refund` 的重定義(加第 8 參 `p_confirm_card_not_refunded`),
+      // 而**函式本體是程式抽出、零手抄**(`20260823020000:290-482` 原樣, 只插三處)。
+      // ⇒ 那 4 處 `refund_amount` **全部是抽出來的既有碼**, 我一處都沒有新增:
+      //     `:94`  參數宣告 `p_refund_amount integer`
+      //     `:131` NULL 檢查     `:141-142` 正整數檢查
+      //     `:230` 冪等比對讀既有列 `:236` 冪等比對 `IS NOT DISTINCT FROM`
+      // ✅ **結構性反面證據(量到的, 不是我宣稱的)**:
+      //    本檔 `SUM(...refund_amount)` / `sum(...refund_amount)` ⇒ **零命中**;
+      //    🔬 正對照:同一把尺對 `20260905010000`(那支【真的】自己加總)⇒ **2** ⇒ **尺會動。**
+      // 🛑 ⇒ 本檔**沒有自己算「已退 / 還能退」** —— 它只做輸入驗證與冪等比對。
+      //    `#473b-1` 要防的是「繞過 `pcm_order_refundable_remaining` 自己算」, 而那個形狀在本檔不存在。
+      // ⚠️ **而這一筆的射程止於【今天這一版】** —— 哪天有人在這支函式裡加一句加總,
+      //    這個 allowlist 會**替它背書而不出聲**。⇒ 📌 一筆 allowlist 是一個【永久的】豁免,
+      //    而它豁免的是**檔名**不是**那一版的內容**。
+      '本檔是 admin_record_manual_refund 的重定義, 4 處 refund_amount 全是程式抽出的既有碼' +
+      '(參數宣告 / NULL 檢查 / 正整數檢查 / 冪等比對), 零 SUM 加總 —— ' +
+      '正對照 20260905010000 同尺命中 2 ⇒ 尺會動。codex 一輪已審。',
   },
   // ── 2026-09-05 · 線【信】`-mail` 補(⟦b4-NCPCRONRACE⟧;**作者就是我**;
   //    鐵則 12①③ 的 codex 對抗審查兩輪已跑, 見該 migration 檔頭)──
