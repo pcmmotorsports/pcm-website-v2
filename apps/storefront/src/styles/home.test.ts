@@ -447,6 +447,69 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
     expect(-L - bw + (-R - bw), `外擴超過相鄰 gap ${gap} ⇒ 兩顆命中區重疊`).toBeLessThanOrEqual(gap);
   });
 
+  // ── ⟦f3-MOBTAP44⟧ 乙(Sean 2026-09-05 拍「乙」):頁尾那 12 個連結的命中區 ──
+  //   🔴 **算式與上面那格【同一條】, 而重點在【減邊框】那一項** ——
+  //     `::after` 的四邊相對的是 **padding box**;`.ed-footer-social a` 有 `border-bottom: 1px`
+  //     ⇒ 少減它會算成 25 而實際只有 24。(同一個坑今天在 `.b-select-arrow` 上踩過一次。)
+  //   ⚠️ **本格只驗【高度】** —— 這 12 個的寬(28~119)本來就 ≥24, 而本片刻意不往左右擴。
+  const hitH = (rule: string, after: string) => {
+    const num = (re: RegExp, src: string) => Number(re.exec(src)?.[1]);
+    const h = num(/height:\s*([0-9.]+)px/, rule);
+    const lh = num(/line-height:\s*([0-9.]+)/, rule);
+    const fs = num(/font-size:\s*([0-9.]+)px/, rule);
+    const pb = num(/padding-bottom:\s*([0-9.]+)px/, rule) || 0;
+    const bb = num(/border-bottom:\s*([0-9.]+)px/, rule) || 0;
+    const bt = num(/border-top:\s*([0-9.]+)px/, rule) || 0;
+    const T = num(/top:\s*(-?[0-9.]+)px/, after);
+    const B = num(/bottom:\s*(-?[0-9.]+)px/, after);
+    // padding box 高 = 內容(行高) + padding，**不含 border**
+    const contentH = Number.isFinite(h) ? h - bt - bb : Math.round(lh * fs);
+    return { padBox: contentH + pb, hit: contentH + pb + -T + -B, T, B };
+  };
+
+  it('🔴 頁尾社群三顆(FB/IG/LINE)命中區高 ≥24 —— 而算式要扣掉 border-bottom', () => {
+    const top = topLevelCss().replace(/\s+/g, ' ');
+    const rule = /\.ed-footer-social a\s*\{[^}]*\}/.exec(top)?.[0] ?? '';
+    const after = /\.ed-footer-social a::after\s*\{[^}]*\}/.exec(top)?.[0] ?? '';
+    expect(rule, '找不到 .ed-footer-social a').not.toBe('');
+    expect(after, '命中區 ::after 不見了 ⇒ 退回 19px').not.toBe('');
+    expect(rule, '要 position: relative,否則 absolute 的 ::after 會定位到外層').toMatch(
+      /position:\s*relative/,
+    );
+    // 🔴 **這一格的本體高度【不在它自己的規則裡】** —— `font-size` 在父層 `.ed-footer-social`,
+    //   `line-height` 沒寫(繼承)⇒ **從 CSS 算不出來**(我第一版就是這樣紅的, 而它紅得對)。
+    //   ✅ 改成:base 用**真瀏覽器量到的 19px**, 而把它的【來源輸入】也釘住 ——
+    //     父層字級一改, 19 就過期, 而**下面那一格會紅** ⇒ 寫死的數字有人在現場。
+    const BORDER_BOX_H = 19; // 🔬 390×844 實測(2026-09-05 線 `-f3`);來源輸入 = 父層 font-size 13px
+    const parent = /\.ed-footer-social\s*\{[^}]*\}/.exec(top)?.[0] ?? '';
+    expect(parent, '找不到 .ed-footer-social').not.toBe('');
+    expect(parent, `父層字級變了 ⇒ 上面那個 ${BORDER_BOX_H}px 是舊的, 要重量`).toMatch(
+      /font-size:\s*13px/,
+    );
+    const bb = Number(/border-bottom:\s*([0-9.]+)px/.exec(rule)?.[1] ?? '0');
+    const T = Number(/top:\s*(-?[0-9.]+)px/.exec(after)?.[1]);
+    const B = Number(/bottom:\s*(-?[0-9.]+)px/.exec(after)?.[1]);
+    expect([bb, T, B].every(Number.isFinite), '算式成分抓不到').toBe(true);
+    // padding box = border box − 上下 border(這裡只有 bottom)
+    const hit = BORDER_BOX_H - bb + -T + -B;
+    expect(hit, `命中區高 ${hit} < 24(padding box ${BORDER_BOX_H - bb})`).toBeGreaterThanOrEqual(24);
+  });
+
+  it('🔴 頁尾九條連結命中區高 ≥24;而外擴不得吃掉相鄰的 margin(否則兩條互搶點擊)', () => {
+    const top = topLevelCss().replace(/\s+/g, ' ');
+    const rule = /\.ed-footer-cols a,\s*\.ed-footer-cols p\s*\{[^}]*\}/.exec(top)?.[0] ?? '';
+    const after = /\.ed-footer-cols a::after\s*\{[^}]*\}/.exec(top)?.[0] ?? '';
+    expect(rule, '找不到 .ed-footer-cols a 的字級/行高那一條').not.toBe('');
+    expect(after, '命中區 ::after 不見了 ⇒ 退回 23px').not.toBe('');
+    const m = hitH(rule, after);
+    expect(m.hit, `命中區高 ${m.hit} < 24`).toBeGreaterThanOrEqual(24);
+    // 🔴 上限:上下各擴的量相加不得 ≥ 相鄰的 margin-bottom, 否則兩條的命中區相接。
+    //   🔬 這不是假想:模擬時用 `-4px` ⇒ 31px, 九條當場上下相接。
+    const mb = Number(/margin:\s*0 0 ([0-9.]+)px/.exec(rule)?.[1]);
+    expect(Number.isFinite(mb), '抓不到 margin-bottom ⇒ 這一格量不到東西, 不給預設值').toBe(true);
+    expect(-m.T + -m.B, `外擴 ${-m.T + -m.B} ≥ 相鄰 margin ${mb} ⇒ 兩條命中區相接`).toBeLessThan(mb);
+  });
+
   // 🔴 R1 must-fix:hero 高度必須吃站台 token,不得寫死頁首高。
   //    `tokens.css:25` 逐字要求「消費端一律 `var(--shell-header-h)`」—— 那顆 token 正是為了
   //    同款「兩處各寫一個數字、差 4px」的事故才立的。

@@ -271,6 +271,12 @@ pq () { psql -h 127.0.0.1 -p $PORT -U postgres -v ON_ERROR_STOP=1 "$@"; }
 -- 🔴🔴 **而【本檔下面兩行】自己就 `CREATE ROLE service_role`** —— 反例與宣稱只隔一行。
 --    (⚠️ 2026-08-16 校正:原寫「repo 全樹零」是假的全稱句 —— 量法 `git grep -nE '全樹.{0,8}CREATE ROLE'` 曾回 5 命中,且本說法的反例包含【拋棄式測試環境自己造角色】。真值=`supabase/migrations/` 底下零,那目錄只有 `payment_confirmer`。)
 CREATE ROLE service_role NOLOGIN;
+-- 🔴🔴 **BYPASSRLS 也是平台給的預設屬性,而且要在【套 migration 之前】就給**
+--    (2026-09-05 `-f3` 量到):少了它,`20260815020000_m4b_e10_27_d1_admin_audit_log_grant_select.sql`
+--    的 D0 閘會擋下 —— `ERROR: D0 異常 — service_role 無 BYPASSRLS,而本表已驗為 RLS 啟用`。
+-- 📌 這一格與上面那條 `authenticator` 是**同型**:不是 migration 的錯,是【骨架少了一樣平台有的東西】,
+--    而失敗訊息長得像「這支 migration 寫壞了」。⇒ 撞到這種錯先問「正式庫有而這裡沒有的是什麼」。
+ALTER ROLE service_role BYPASSRLS;
 CREATE ROLE authenticated NOLOGIN;
 CREATE ROLE anon NOLOGIN;
 -- 🔴 **`authenticator` 也要**(2026-08-29 線A `-e9` 量到,拋棄式 PG 17.10):
