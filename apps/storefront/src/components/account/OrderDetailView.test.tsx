@@ -1188,6 +1188,38 @@ describe('⟦b4-PARTIALPAIDNOWHERE⟧ 應付餘額', () => {
     expect(document.querySelector('[data-od-id="order-remittance-amount"]')).toBeNull();
   });
 
+  it('🔴 那句話裡【必須】有「請不要再匯款」—— 三個世界各驗一次(Sean 09-06 拍乙)', () => {
+    // 🔴🔴 **為什麼新增這一格**:改文案之前我量過 —— 那句話**全樹零測試釘著**,
+    //    既有三格認的都是 `data-od-id` 這個【容器】, 而**容器在不在與它說了什麼是兩回事**。
+    //    ⇒ 📌 **我可以把那句話改成任何東西而不會有任何一格紅。**
+    // 🛑 而這一句不是文案品味 —— 它是 Q6 ⑵ 量過的、**唯一擋得住下一次匯款的東西**
+    //    (`docs/runbooks/bank-transfer-flag-flip-checklist.md:274-290`)。
+    // 🔵 三個世界都走同一支分支 ⇒ 三個都要有那句話, 否則「某一種客人看不到」會靜靜發生。
+    // 🔴🔴 **而【負餘額】在這一層【表達不出來】, 這一格值得留**:
+    //    `toMoneyAmount` 對負數 **當場 throw**(`packages/domain/src/shared/types.ts:48-49`)——
+    //    我第一版餵 `money(-500)` 就是這樣紅的。
+    //    🟢 **而那不是缺口, 是上游已經擋住了**:`SupabaseOrderAdapter.ts:915-923` 把
+    //       `raw >= 0 && raw <= orderTotal` 之外的一律轉成 `null`
+    //       ⇒ 📌 **溢付的單到這一層時【已經是 null】, 不是負數。**
+    //    ⇒ ⚠️ **所以「多付了」與「算不出來」在這個元件眼裡是【同一個世界】** ——
+    //       帶金額的第二層文案**讀不到那個溢付金額**, 它要另一個來源。
+    for (const bd of [null, money(0)]) {
+      render(<OrderDetailView order={remit({ balanceDue: bd })} />);
+      const note = document.querySelector('[data-od-id="order-remittance-contact"]');
+      expect(note, `balanceDue=${JSON.stringify(bd)} 時整塊不見了`).not.toBeNull();
+      expect(
+        note?.textContent ?? '',
+        `balanceDue=${JSON.stringify(bd)} 時少了「請不要再匯款」—— 那是唯一擋得住第三次匯款的一句`,
+      ).toContain('請不要再匯款');
+      // 🔵 而【不提系統】那一半也釘住(Sean 拍的是乙 = 只講事實型, 不是認錯型)
+      expect(
+        note?.textContent ?? '',
+        '那句話講到了「系統」—— 而 Sean 09-06 拍的是乙(只講事實, 不提系統)',
+      ).not.toContain('系統');
+      cleanup();
+    }
+  });
+
   it('🔴 餘額 0 或負(溢付 / 退貨之後):改印「請聯絡我們」, 不印帳號(Sean 09-05 拍乙)', () => {
     render(<OrderDetailView order={remit({ balanceDue: money(0) })} />);
     expect(document.querySelector('[data-od-id="order-remittance-contact"]')).not.toBeNull();

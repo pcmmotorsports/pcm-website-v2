@@ -638,7 +638,20 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
             <div className="acc-section-head">
               <h2>匯款資訊</h2>
             </div>
-            <p className="acc-order-note">這張訂單的應付金額需要人工確認,請聯絡我們。</p>
+            {/* 🔴🔴 **Sean 2026-09-06 01:5x 逐字拍「乙 = 只講事實型」** —— 而這一句是【第一層】:
+                 ⛔ ~~這張訂單的應付金額需要人工確認,請聯絡我們。~~
+                 🔴 **舊句少了唯一擋得住下一次匯款的那半。**
+                 🎯 **成因是那個客人的世界**:短匯 ⇒ `partiallyPaid` ⇒ 頁面(當時)不顯示帳號
+                    ⇒ 他翻舊訊息又匯一次全額 ⇒ 溢收 ⇒ 停在 `partiallyPaid`
+                    ⇒ 📌 **而他打開頁面看到的每一句都在暗示「還沒付完」。**
+                 🛑 **「在我們回覆之前,請不要再匯款」是 Q6 ⑵ 量過的、唯一擋得住第三次匯款的東西**
+                    (`docs/runbooks/bank-transfer-flag-flip-checklist.md:274-290`)。
+                 🔵 **不提系統**(乙 的定義)· **不講金額** —— 因為這一格同時涵蓋三個世界:
+                    ① 多付了(`balanceDue < 0`)② 剛好付清(`= 0`)③ 有退款(`null`, 算不出金額)
+                    ⇒ 🛑 **一句帶數字的話服務不了 ③** ⇒ 帶金額的第二層要先拆分支, 本片不做。 */}
+            <p className="acc-order-note">
+              這張訂單的款項狀態需要我們人工確認,請與我們聯絡。在我們回覆之前,請不要再匯款。
+            </p>
           </div>
         )}
       {!cancelled &&
