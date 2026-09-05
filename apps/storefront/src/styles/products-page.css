@@ -357,7 +357,12 @@
       **cascade 裡的分類 vs 網址上的分類, 不一樣就是還在等。**
       那支 effect **一行都沒動**。
    🔴 鍵盤那一格(上面那段紅字)**也一起處理了**:格線加了 `inert`(React 19 布林 prop),
-      它同時擋滑鼠、觸控與 Tab ⇒ `pointer-events:none` 不再是唯一一道。 */
+      它同時擋滑鼠、觸控與 Tab ⇒ `pointer-events:none` 不再是唯一一道。
+   🔴🔴 **所以這個 class 與 `inert` 是【成對】的, 不可以只取前半** —— 只加 class 的話,
+      Tab + Enter 照樣點得到格線裡那些指向【舊清單】的連結, 而畫面看起來是「已經擋住了」。
+      📌 `inert` 那一個屬性換掉了「給每張卡片加 `tabIndex={-1}`」那條要動共用卡片元件的路。
+      🟢 守門在 `ProductsPage.test.tsx`:那一格同時斷言 `is-loading` 與 `hasAttribute('inert')`,
+         少了後者的實作也會綠 —— 所以兩個斷言都在。 */
 .pp-grid.is-loading {
   opacity: 0.45;
   pointer-events: none;

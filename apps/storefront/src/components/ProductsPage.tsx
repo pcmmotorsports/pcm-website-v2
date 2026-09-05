@@ -87,8 +87,7 @@ import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
 import type { MockBrand } from '@/data/mock-brands';
 import { buildBrandTaxonomy } from '@/lib/brand-taxonomy';
-import { CATEGORIES_PARAM } from '@/lib/catalog-query';
-import { CATEGORY_URL_SEPARATOR, parseCategoryFromUrl } from './products-url-parsers';
+import { isCatalogPending } from './catalog-pending';
 import type { GarageChipItem } from './GarageChips';
 
 
@@ -216,41 +215,10 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   // 區段標題的總數(品牌 Accordion 的 (16))繞過 resolver ⇒ 要另外關(codex 段二審查 MF-5)。
   const hideSectionCounts = searchParams.get('filter') === 'new';
 
-  // ⟦search-CATSWITCHSLOW⟧ 切分類的載入回饋 —— **訊號來源那一半**(`ProductsSortBar` 的
-  //   `isPending`、`FilterDrawer` 的 `applying`、`.pp-grid.is-loading` 三個消費端先前都沒有人餵)。
-  // 🔬 **根因是量到的**(2026-09-05):按下去之後 **RSC 回應 3.4–8.5 秒**, 不是丟包
-  //   ⇒ 本片只補「畫面要說話」那半, **慢那半不動**。
-  // 🔵 **判準 = 【cascade 已經換了, 而網址還沒換】**。`router.replace` 是 App Router 導覽、
-  //   **非同步**, 而 `/products` 是 force-dynamic ⇒ 要 RSC 往返回來才會更新
-  //   `useSearchParams()`(同一件事寫在 `use-catalog-filter-url-sync.tsx:259-260`)
-  //   ⇒ 這個差值**恰好活在客人等待的那幾秒**, 不需要另外造一個計時器。
-  // 🛑 **`cascade.category === null` 一律不算 pending** —— 入站水合時 cascade 還是 null 而網址上
-  //   有值, 拿來比會在**每次深連結進站誤報一次**, 而那時候畫面早就畫好了。
-  // 🔵 **兩個 key 都要看**:單選走 `?category=`、多選走 `?categories=`(`CATEGORIES_PARAM`),
-  //   只看前者會讓多選那條路**整段恆真**(永遠印「更新中…」)。
-  // 🔴 消費端有三個, 而**格線那個要兩個屬性才擋得住**:`.pp-grid.is-loading` 的
-  //   `pointer-events:none` **擋不住鍵盤**(Tab + Enter 照樣點得到指向【舊清單】的連結,
-  //   products-page.css 那段紅字已記)⇒ 另加 `inert`(React 19 布林 prop, 同時關掉滑鼠、
-  //   觸控與 Tab 焦點)。📌 那一個屬性換掉「給每張卡片加 tabIndex={-1}」那條要動共用卡片元件的路。
-  const catalogPending = (() => {
-    const c = cascade.category;
-    if (c === null) return false;
-    const toUrlShape = (x: { main: string; sub?: string } | null): string | null =>
-      x === null ? null : x.sub ? `${x.main}${CATEGORY_URL_SEPARATOR}${x.sub}` : x.main;
-    const want = toUrlShape(c);
-    // 🔴 `?category=` 那一槽比的是【解析之後的形狀】, **不是逐字**。
-    //   成因是真的:`?category=水管束環`(裸子分類短名)網址上就長那樣, 而 cascade 裡是
-    //   `引擎與冷卻 · 水管束環`(⟦01-CATPATHSHORTNAME⟧ 的還原路徑)⇒ 逐字比**永遠不相等**
-    //   ⇒ 🛑 那會變成一盞**永遠亮著的「更新中…」**, 而那比沒有回饋更糟。
-    //   (它最後仍會被 url-sync 寫成正規形而自癒, 但那要等一次 RSC 往返 —— 不該讓客人先看到假燈。)
-    if (toUrlShape(parseCategoryFromUrl(searchParams, categories)) === want) return false;
-    // 🔵 多顆分類走 `?categories=a,b` 那一槽(`use-catalog-filter-url-sync.tsx:420-427` 的 union),
-    //   它寫進去的就是上面那個正規字面 ⇒ 這裡逐字比對即可。
-    return !(searchParams.get(CATEGORIES_PARAM) ?? '')
-      .split(',')
-      .map((v) => v.trim())
-      .includes(want as string);
-  })();
+  // ⟦search-CATSWITCHSLOW⟧ 切分類的載入回饋 —— **訊號來源在 `catalog-pending.ts`**
+  //   (鐵則 6:本檔本片後 512 行 ⇒ 那一段純函式抽出去,註解跟著搬、一行都沒壓縮)。
+  // 🔴 消費端三個, 而格線那個要 class + `inert` **兩個**才擋得住(為什麼:products-page.css `.pp-grid.is-loading`)。
+  const catalogPending = isCatalogPending(cascade.category, searchParams, categories);
 
   // P4:products 已是 server 依 URL 篩選、排序、分頁的當頁資料；禁止再在 client 對當頁二次篩選，
   // 否則會把 total/page 語意拆成兩套而造成漏項。
