@@ -15,7 +15,7 @@
 --       ⇒ 🛑 而 3am 的人會據此下結論「它什麼都沒補」。
 --    ✅ 正解是用【時間】:`opened_at >= 本支 apply 的那個時刻`。
 --       ⚠️ 而那個時刻**沒有任何地方自動記著** —— 去 `supabase/APPLIED.tsv` 那一列的日期欄,
---          或 `cron.job_run_details` 最早那一筆。**兩個都是人要去찾的, 不是這支檔給得出來的。**
+--          或 `cron.job_run_details` 最早那一筆。**兩個都是人要去找的, 不是這支檔給得出來的。**
 --
 -- 🔴🔴 **R2-⑧:半夜只想【暫停】而不是拆掉, 用這一行, 不要跑本檔**:
 --    `SELECT cron.alter_job(job_id => (SELECT jobid FROM cron.job WHERE jobname = 'pcm-late-payment-sweep'), active => false);`

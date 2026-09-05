@@ -187,11 +187,6 @@ BEGIN
   --    `v_open` 不含失敗數 ⇒ 回 0 與「今天沒東西要補」印同一個數字;
   --    `cron.job_run_details` 記 success;`RAISE LOG` 進 server log **而沒有人在看**。
   --    🎯 那正是本支宣稱要接的那個世界(漏掉而沒有人知道), 換了一個位置。
-  IF v_fail > 0 OR v_short > 0 OR v_void > 0 OR v_noop > 0 THEN
-    RAISE WARNING '[late_payment_sweep] 補 % 張 · 沒動 % 張(別人先開)· 金額少 % 張 · 作廢跳過 % 張 · 失敗 % 張',
-      v_open, v_noop, v_short, v_void, v_fail;
-  END IF;
-
   -- 🔴🔴 **R2-⑤:這一趟【移到寫入之後】, 而且自己包一層 EXCEPTION。**
   --    它原本排在前面, 而它是**不設限的全掃** ⇒ 它拋錯或吃到逾時 ⇒ **整輪中止,
   --    而第二趟一列都沒補** ⇒ 📌 **一個為了看見問題而加的動作, 會把補救整個關掉。**
@@ -223,6 +218,26 @@ BEGIN
     v_scanned := -1; v_short := -1; v_void := -1;
     RAISE WARNING '[late_payment_sweep] 統計那一趟失敗(補列不受影響):%', SQLERRM;
   END;
+
+  -- 🔴🔴 **R4-MF1:這一段原本排在【統計趟之前】,而 R5 抓到它【第一次沒有真的被移走】。**
+  --    成因:那一發 python 在後面一個 assert 炸掉 ⇒ **整支腳本在寫檔之前就中止**,
+  --    而我把「已移動」寫進了 commit body。
+  --    ⇒ 📌 **一個沒有落地的修法 + 一句宣稱它落地的 commit,比沒修還糟** ——
+  --       下一個人讀 commit 會判這條已關。(鐵則 11 的字面 vs 事實,受詞是我自己。)
+  --
+  --    病本身:統計趟是 R2-⑤ 為了「不要讓只是數的動作把補救關掉」才移到寫入之後的,
+  --    而**印它的這行沒有跟著移** ⇒ `v_short` / `v_void` 在這裡還是宣告時的 0
+  --    ⇒ `v_short > 0 OR v_void > 0` 這兩個觸發條件**永遠不成立**
+  --    ⇒ 🛑 **R1-F1/F2 要求「只數不動、而要有人看得到」的那兩族,唯一的人類通道是啞的。**
+  --
+  -- ⚠️ **而探針對這一格結構上零判別力**(R5 指出):它讀的是 jsonb,
+  --    而 jsonb 是統計趟【之後】才組的 ⇒ 那幾格全過與本缺陷**完全相容**。
+  --    ⇒ 📌 **一個綠的測試, 證明不了一個它讀不到的東西。**
+  -- ⚠️ R4-N4:`-1`(統計趟自己炸了)在 `> 0` 之下為假 ⇒ 判準用 `<> 0`。
+  IF v_fail > 0 OR v_noop > 0 OR v_short <> 0 OR v_void <> 0 THEN
+    RAISE WARNING '[late_payment_sweep] 掃過 % 張已取消單 · 補 % 張 · 沒動 % 張(別人先開)· 金額少 % 張 · 作廢跳過 % 張 · 失敗 % 張(-1 = 那一格沒量到)',
+      v_scanned, v_open, v_noop, v_short, v_void, v_fail;
+  END IF;
 
   -- 🔴🔴 **R2-② 心跳 —— 沒有這一段, 把本支放進 `CRON_JOB_WHITELIST` 會製造一封【每天的假警報】**:
   --    儀表讀 `sweeper_heartbeat`, 查無 ⇒ `neverBeat` + `abnormal` ⇒ 進 `abnormal_count`
