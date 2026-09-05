@@ -853,7 +853,12 @@ describe('🔴 「這單收過錢」告知框(Sean 2026-09-05 第 1 題拍乙:�
     // 🔴 逐軌那兩列必須各自在 —— 退款是各自原路退, 合計沒有人可以照著執行。
     expect(container.querySelector('[data-testid="cancel-pending-refund-rail-bank_transfer"]')?.textContent).toContain('600');
     expect(container.querySelector('[data-testid="cancel-pending-refund-rail-cash"]')?.textContent).toContain('400');
-    expect(box(container)!.textContent).toContain('1,000');
+    // 🔴🔴 **釘住【那一整句】, 不只釘一個數字**(Sean 2026-09-05 拍「更簡短精簡」之後補)。
+    //    🔬 我改短那兩句時**測試沒有紅** —— 因為它只守「讀不到」三個字, 而我沒動那三個字。
+    //    ⇒ 📌 **一格只守關鍵詞的測試, 對「整句被改寫」是失明的。** 而文案是 Sean 拍的東西。
+    expect(box(container)!.textContent).toContain('已收未退 NT$ 1,000');
+    expect(box(container)!.textContent).toContain('匯款 600 / 現金 400');
+    expect(box(container)!.textContent).toContain('取消後列入待退款。');
   });
 
   it('🔴🔴 讀不到 ⇒ 框【還是在】, 而且是那句 fail-closed(不是沒有框、不是 NT$0)', () => {
@@ -868,7 +873,7 @@ describe('🔴 「這單收過錢」告知框(Sean 2026-09-05 第 1 題拍乙:�
     );
     expect(box(container)).not.toBeNull();
     expect(container.querySelector('[data-testid="cancel-pending-refund-unknown"]')).not.toBeNull();
-    expect(box(container)!.textContent).toContain('讀不到');
+    expect(box(container)!.textContent).toContain('收款讀不到或數字不對,取消前請先看收款紀錄。');
     // 🔵 負對照:不可以印出一個看起來像金額的 0。
     expect(box(container)!.textContent).not.toContain('NT$ 0');
   });
@@ -912,5 +917,26 @@ describe('🔴 「這單收過錢」告知框(Sean 2026-09-05 第 1 題拍乙:�
     //    📌 那與 N1 是同一個病的兩層:N1 是「兩邊都不存在」, 這是「兩邊都錯」。
     expect(withBox).toBe('整單取消');
     expect(withBox).toBe(without);
+  });
+});
+
+describe('🔴 部分取消時那一句【不一樣】—— 短不等於少講一件事', () => {
+  it('部分取消:講的是「不會自動列待退款」, 不是「取消後列入待退款」', () => {
+    // 🛑 部分取消不寫 `cancelled_at` ⇒ 那個 trigger 永遠不會醒 ⇒ **不會開任何待退款**。
+    //    ⇒ 兩句若併成一句, 員工會以為系統幫他開好了。
+    const { container } = render(
+      <PartialCancelForm
+        returnTo={RETURN_TO}
+        orderId={ORDER_ID}
+        items={[itemView()]}
+        shipmentWarning={{ blocked: false }}
+        pendingRefund={{ kind: 'amounts', rails: [{ rail: 'cash', amount: 400 }] }}
+      />,
+    );
+    const box = container.querySelector('[data-testid="cancel-pending-refund-notice"]');
+    expect(box).not.toBeNull();
+    expect(box!.textContent).toContain('部分取消不會自動列待退款,請自行處理。');
+    // 🔵 負對照:整單那句不可以出現在這裡。
+    expect(box!.textContent).not.toContain('取消後列入待退款。');
   });
 });

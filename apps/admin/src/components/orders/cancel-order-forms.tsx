@@ -228,7 +228,7 @@ function CancelFormShell({
             <p className='text-destructive font-medium' data-testid='cancel-pending-refund-unknown'>
               {/* 🔵 這句要**同時涵蓋兩種 `unknown`**:讀不到、以及讀到了但數字不對
                   (codex nit 6:原本只寫「讀不到」, 而負數那條路是後者)。 */}
-              這張單的收款讀不到或數字不對,取消前請先自己看一下收款紀錄。
+              收款讀不到或數字不對,取消前請先看收款紀錄。
             </p>
           ) : (
             <>
@@ -238,21 +238,25 @@ function CancelFormShell({
                   ⇒ `20260901080000` 那個 trigger 永遠不會醒 ⇒ **不會開任何待退款**;
                   而該退多少還要看**剩下的訂單金額**(Sean 的 `Q13` 公式)。
                   ⇒ 📌 **事實對兩種模式都成立, 後果不成立 —— 所以只有後果那句分岔。** */}
+              {/* 🔴🔴 **Sean 2026-09-05 逐字:「甲:但是更簡短 精簡(我員工不是小孩子他看得懂)」**
+                  ⛔ ~~兩句 + 解釋~~ ⇒ ✅ **一句 + 逐軌括號**。
+                  🛑 **而「短」不等於「少講一件事」**:部分取消那句講的是**不一樣的事**
+                     (它不會自動開待退款)⇒ 它跟著縮, 但**不能併進整單那句**。
+                  🔵 逐軌從 `<ul>` 改成括號內聯 —— 兩行變一行, 而**逐軌那個資訊一個都沒少**
+                     (退款各自原路退, 他要知道去銀行匯多少、從抽屜拿多少)。 */}
               <p className='text-destructive font-medium'>
-                這張單已收而還沒退的金額是 NT$ {pendingRefundTotalLabel(pendingRefund.rails)}。
-              </p>
-              <p className='text-destructive mt-1'>
-                {mode === 'full'
-                  ? '取消整張單之後,這筆錢會列進「待退款」,要有人去退。'
-                  : '取消部分品項【不會】自動開待退款,而該退多少要看剩下的訂單金額 —— 請自己接手處理。'}
-              </p>
-              <ul className='mt-1 space-y-0.5'>
-                {pendingRefund.rails.map((r) => (
-                  <li key={r.rail} data-testid={`cancel-pending-refund-rail-${r.rail}`}>
-                    {railLabel(r.rail)} NT$ {r.amount.toLocaleString('en-US')}
-                  </li>
+                已收未退 NT$ {pendingRefundTotalLabel(pendingRefund.rails)}(
+                {pendingRefund.rails.map((r, i) => (
+                  <span key={r.rail} data-testid={`cancel-pending-refund-rail-${r.rail}`}>
+                    {i > 0 ? ' / ' : ''}
+                    {railLabel(r.rail)} {r.amount.toLocaleString('en-US')}
+                  </span>
                 ))}
-              </ul>
+                )。
+                {mode === 'full'
+                  ? '取消後列入待退款。'
+                  : '部分取消不會自動列待退款,請自行處理。'}
+              </p>
             </>
           )}
         </div>
