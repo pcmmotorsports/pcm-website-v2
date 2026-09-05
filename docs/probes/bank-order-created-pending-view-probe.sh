@@ -88,7 +88,8 @@ chk "00 fixture 建起來" "$?" "0"
 for V in 20260906140000_m4b_outbox_bank_order_created_event \
          20260906150000_m4b_order_balance_base_v \
          20260906160000_m4b_member_balance_from_base \
-         20260906170000_m4b_bank_order_created_pending_view; do
+         20260906170000_m4b_bank_order_created_pending_view \
+         20260906180000_m4b_bank_order_still_mailable; do
   psql -U postgres -q -X -v ON_ERROR_STOP=1 -f "$M/$V.sql" > "$D/$V.log" 2>&1
   chk "01 apply $V" "$?" "0"
   if [ "$FAILED" != "0" ]; then echo "--- $V ---"; cat "$D/$V.log"; echo "PASSED=$PASS FAILED=$FAILED"; exit 1; fi
@@ -184,6 +185,34 @@ mut "22 拿掉信箱那條 ⇒ 沒有收件人的單漏進來" \
     "$BASE_SEL AND o.order_source='web' AND o.manual_request_id IS NULL AND bal.balance_due>0 AND NOT EXISTS (SELECT 1 FROM public.email_outbox e WHERE e.order_id=o.id AND e.event_type='bank_order_created')" "2"
 mut "23 拿掉 anti-join ⇒ 已寄過的又進來" \
     "$BASE_SEL AND o.order_source='web' AND o.manual_request_id IS NULL AND bal.balance_due>0 AND (nullif(btrim(o.notification_email, public.pcm_js_trim_whitespace()),'') IS NOT NULL OR nullif(btrim(c.email, public.pcm_js_trim_whitespace()),'') IS NOT NULL)" "2"
+
+# ══════════════════════════════════════════════════════════════════
+# 45e:規則抽成 still_mailable 之後 —— 三世界 + 突變
+# ══════════════════════════════════════════════════════════════════
+chk "24 still_mailable 存在且【沒有】anti-join(重驗要靠它)" \
+    "$(Q "SELECT (strpos(definition,'email_outbox')>0)::text FROM pg_views WHERE viewname='pcm_bank_order_still_mailable'")" "false"
+chk "25 🟢 正對照:pending view 仍然【有】anti-join" \
+    "$(Q "SELECT (strpos(definition,'email_outbox')>0)::text FROM pg_views WHERE viewname='pcm_bank_order_created_email_pending'")" "true"
+chk "26 🔴 規則只剩一份:pending view 裡看不到述詞原料" \
+    "$(Q "SELECT (strpos(definition,'bank_transfer')>0 OR strpos(definition,'manual_request_id')>0)::text FROM pg_views WHERE viewname='pcm_bank_order_created_email_pending'")" "false"
+chk "27 🟢 正對照:同一問法對 still_mailable ⇒ true" \
+    "$(Q "SELECT (strpos(definition,'bank_transfer')>0 AND strpos(definition,'manual_request_id')>0)::text FROM pg_views WHERE viewname='pcm_bank_order_still_mailable'")" "true"
+chk "28 pending view 欄名逐字不變(42P16)" \
+    "$(Q "SELECT string_agg(attname,',' ORDER BY attnum) FROM pg_attribute WHERE attrelid='public.pcm_bank_order_created_email_pending'::regclass AND attnum>0 AND NOT attisdropped")" \
+    "order_id,display_id,created_at,total,balance_due,notification_email,customer_email,order_source"
+# 🔴 三世界:①該寄的仍在兩支裡 ②已排過信 ⇒ 只在 still_mailable 不在 pending ③已付款 ⇒ 兩支都不在
+chk "29 ① 該寄的:still_mailable 有" "$(Q "SELECT count(*) FROM public.pcm_bank_order_still_mailable WHERE order_id='aaaaaaa1-0000-0000-0000-000000000001'")" "1"
+chk "30 ② 已排過信的:🔴 still_mailable【有】(重驗要看得到它)" "$(Q "SELECT count(*) FROM public.pcm_bank_order_still_mailable WHERE order_id='aaaaaaa8-0000-0000-0000-000000000008'")" "1"
+chk "31 ② 同一張單 pending【沒有】(anti-join 在做事)" "$(Q "SELECT count(*) FROM public.pcm_bank_order_created_email_pending WHERE order_id='aaaaaaa8-0000-0000-0000-000000000008'")" "0"
+chk "32 ③ 已付款的:兩支都沒有" "$(Q "SELECT (SELECT count(*) FROM public.pcm_bank_order_still_mailable WHERE order_id='aaaaaaa9-0000-0000-0000-000000000009') + (SELECT count(*) FROM public.pcm_bank_order_created_email_pending WHERE order_id='aaaaaaa9-0000-0000-0000-000000000009')")" "0"
+# 🧬 突變:把 anti-join 放進 still_mailable ⇒ 第 30 格會塌成 0(= 重驗每一封都判不該寄)
+psql -U postgres -q -X >/dev/null 2>&1 <<'SQL'
+CREATE VIEW public.mut_still AS
+  SELECT m.* FROM public.pcm_bank_order_still_mailable m
+   WHERE NOT EXISTS (SELECT 1 FROM public.email_outbox e WHERE e.order_id=m.order_id AND e.event_type='bank_order_created');
+SQL
+chk "33 🧬 突變:still_mailable 若也帶 anti-join ⇒ 已排過信的那張看不到(重驗會每封都判不該寄)" \
+    "$(Q "SELECT count(*) FROM public.mut_still WHERE order_id='aaaaaaa8-0000-0000-0000-000000000008'")" "0"
 
 echo "PASSED=$PASS FAILED=$FAILED"
 [ "$FAILED" = "0" ] || exit 1
