@@ -16,13 +16,23 @@
 //      **解析起點跟著這支檔搬了** ⇒ 守它的那道 tracing 測試要跟著改, 並多一格。
 //    ⇒ 🔵 **搬完之後當場重量**(顧客站那條 route 的 `.nft.json`;code-reviewer 逼出來的訂正):
 //      ⛔ ~~追蹤 2043 檔 · 字型 430 檔~~ —— **那是【搬家前】的讀數**, 我把它寫成了搬家後的狀態。
-//      ✅ 現值:**總筆數 1828** · `noto-sans-tc` **215 筆**(全部走 `node_modules/.pnpm/…` 實體路徑)
+//      ✅ 現值(⚠️ **時點 2026-09-06 P-1 那一發**;下面 P-2/CARON 之後的讀數在同段末尾):
+//        **總筆數 1828** · `noto-sans-tc` **215 筆**(全部走 `node_modules/.pnpm/…` 實體路徑)
 //        · 走 `apps/storefront/node_modules` 的 **0** · 走 `packages/pdf/` 的 **0**
 //      🛑🛑 **那 215 筆【不是】靠 `require.resolve` 進來的, 是 `next.config.ts` 的四條 root `.pnpm` glob 供應的**
 //        ⇒ 📌 **搬家對「字型有沒有被打包」這件事【零改變】** —— 搬家前後都是那四條 glob 在撐。
-//      🔴 而**拉丁那支 `@fontsource/noto-sans` 追蹤到 0 筆**(它沒有對應的 glob)
-//        ⇒ ⟦ship-PRINTCARON1⟧ 的 `Č`/`Š` 修法**在函式包裡從來沒成立過** —— 那是 09-04 就在的洞,
-//        不是本片造成的, 而**本片也沒有修它**。寫在這裡讓它有一個落點。
+//      ⛔ ~~🔴 而拉丁那支 `@fontsource/noto-sans` 追蹤到 **0 筆**(它沒有對應的 glob)…本片也沒有修它~~
+//      🟢 **2026-09-06 訂正 —— 那一段【每一句】都不再是現值**(⟦ship-PRINTCARONNOTBUNDLED⟧ 修掉了):
+//        顧客站 `next.config.ts` 補了拉丁那四條 glob ⇒ **總 1847 檔 · 拉丁 19 筆 · tc 215 筆**。
+//        (⚠️ 那些數字量的是**本機 `.nft.json` 列到的檔**, 不是 Vercel `.func`。)
+//      🔴 而 `⟦ship-PRINTCARON1⟧` 的**後果**也一起訂正了:
+//        ⛔ ~~拉丁沒進包 ⇒ `Č`/`Š` 是方框~~ ⇒ **不會** —— chromium 自帶 `fonts.tar.br` = Open Sans,
+//        cmap 逐點 `Č` U+010C true · `Š` U+0160 true · 🔵 負對照 `中` U+4E2D **false**
+//        ⇒ 🎯 **拉丁 glob 修的是【排版】, 中文 glob 才是【看不看得懂】。**
+//      🛑 **舊字面留刪除線不刪**:它記著「一片已完成的修法可以在函式包裡從來沒成立過」——
+//        那個教訓與它今天修好了沒有關係。
+//      📌 **而這一段會過期第二次** —— 它住在共用 package 而數字來自兩個 app 的 build
+//        ⇒ **沒有任何一把尺會在它過期時變紅。**(2026-09-06 就是這樣被 code-reviewer 抓到的。)
 //      ⚠️ 而上面每一個數字答的都是「**Next 打算帶哪些檔**」, 不是「Vercel 真的帶了」,
 //        更不是「線上那份 PDF 的中文是對的」。
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
