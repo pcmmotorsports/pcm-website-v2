@@ -710,6 +710,36 @@ export async function GET(request: Request): Promise<Response> {
      * ✅ 現在:`stuckBankFailed`(真的丟例外)**一律 503, flag 開關不管** ——
      *    那是儀器故障, 不是部署窗口。
      */
+    /**
+     * ⟦supply-SYNCTIMEOUTPARTIAL⟧ 同步留痕那條路的兩個成因, 各有出口。
+     *
+     * 🔴🔴 **這一段是 2026-09-06 codex must-fix ⑤ 補的, 而它抓到的正是本檔上面記過的那個病** ——
+     *    我在 `CheckAnomalyAlertsResult` 上加了 `syncStaleUnknown` / `syncStaleFailed` 兩欄,
+     *    **而 route 一個都沒讀** ⇒ 📌 **RPC 沒安裝、讀取失敗、解析失敗, 全部落到 200 + 健康心跳。**
+     *    ⇒ 🎯 **一個為了「讓狀態看得見」而加的欄位, 自己沒有被任何人看。**
+     *    🔬 而抓到它的**不是我的三綠** —— 是 `anomaly-alert-key-contract.test.ts` 那道契約閘
+     *      (它逐欄比對 result 的 `*Unknown` / `*Failed` 有沒有出現在本檔裡)。
+     *      ⚠️ **而我第一輪沒看到它紅**:`vitest related` 餵我改的 5 支檔, 跑了 223 支測試,
+     *      **那一支不在裡面** ⇒ 兩發一致而那不是效度。
+     * ✅ `syncStaleFailed`(真的丟例外)⇒ **一律 503** —— 儀器故障, 與「還沒 apply」不同。
+     */
+    if (result.syncStaleFailed) {
+      console.error(
+        '[anomaly-alert] 🔴 get_supplier_sync_stale_counts 讀取【失敗】(不是還沒 apply)⇒ 儀器壞了',
+        { ...result },
+      );
+      await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+    if (result.syncStaleUnknown) {
+      // 🔵 到這裡 ⇒ **一定是「那支 RPC 還沒 apply」** —— 讀取失敗那條已經在上面 503 了。
+      // 🛑 而它**不 503**:部署窗口走部署管道, 不變成一個每天紅的 cron。
+      //    ⇒ ⚠️ 代價明寫:**在貼進正式庫之前, 同步卡住這件事沒有人在看** ——
+      //      而那正是這一片存在之前的狀態, 不是它造成的。
+      console.warn(
+        '[anomaly-alert] ⚠️ get_supplier_sync_stale_counts 還沒 apply ⇒ 同步卡住這一格今天沒有人在看',
+      );
+    }
     if (result.stuckBankFailed) {
       console.error(
         '[anomaly-alert] 🔴 get_stuck_bank_orders_health 讀取【失敗】(不是還沒 apply)⇒ 儀器壞了',

@@ -37,6 +37,12 @@ if (existsSync('.env.local')) loadEnvFile('.env.local');
 import { createClient } from '@supabase/supabase-js';
 import { getSupplierConfig } from './supplier-config';
 import { runAtomicGroups, installKillReporter } from './rpm-partial-report';
+import {
+  closeSyncRun,
+  currentRunRef,
+  openSyncRun,
+  type SyncRunLogClient,
+} from './rpm-sync-run-log';
 import { applyTitleGateSkip, runTitleShapeGate } from './title-shape-gate';
 import { fetchAllSupplierProducts, type SourceProductRow } from './rpm-fetch';
 import {
@@ -143,6 +149,14 @@ function requireEnv(name: string): string {
 }
 
 // ── main ──
+// ⟦supply-SYNCTIMEOUTPARTIAL⟧ 留痕那一列的座標。
+// 🔴 **為什麼放模組層而不是 main() 的區域變數**:收工要在【兩個地方】回填 ——
+//    正常走完那一行, 以及檔尾 `main().catch` 那一支。而後者拿不到 main 的區域變數。
+//    ⇒ 🛑 少了 catch 那一半, **一次自己判失敗的同步會留下一列「只有 started_at」**
+//      ⇒ 它會被告警讀成【被砍】⇒ 📌 **那是假告警, 而假告警比沒有告警更快讓人忽略它。**
+let syncRunId: number | null = null;
+let syncRunClient: SyncRunLogClient | null = null;
+
 async function main(): Promise<void> {
   // 🔴 最早掛:被砍在半路時留一行(⟦supply-SYNCTIMEOUTPARTIAL⟧)。
   //    它與 runAtomicGroups 的 catch 留痕是**兩條不同的路** —— `timeout-minutes` 送的是
@@ -169,6 +183,22 @@ async function main(): Promise<void> {
     throw new Error(`prod-safety:目標 host 非 ${ALLOWED_TARGET_HOST}、拒寫(${targetHost})`);
   }
   const target = createClient(targetUrl, requireEnv('SUPABASE_SECRET_KEY'));
+
+  // ── ⟦supply-SYNCTIMEOUTPARTIAL⟧ 開工留痕 ────────────────────────────────
+  // 🔴 位置是【拿到 target 之後、真正開始寫之前】—— 早一點沒有 client, 晚一點就會漏掉
+  //    「在讀來源那一段被砍」的那個世界。
+  // 🔵 寫不進去**不擋同步**(回 null 並大聲 log)—— 為了觀測而讓同步變脆, 是把一個
+  //    「有時候沒留痕」的問題換成「有時候不同步」, 而後者的傷害大得多。
+  // 🔴🔴 **只有【真的會寫】的那一趟才留痕**(2026-09-06 codex must-fix ①):
+  //    我第一版把開工 INSERT 放在 `DRY_RUN` 判斷之前 ⇒ 而乾跑會在 `:675` 直接 `return`,
+  //    **走不到收工那一行** ⇒ 📌 **每一次成功的乾跑, 六小時後都會變成一個假告警。**
+  //    ⇒ 🛑 而那不是偶發 —— 它是**保證**發生, 因為乾跑的正常路徑就是提早 return。
+  //    ⇒ 🎯 一個為了「看得見沒跑完」而做的東西, 會把「跑得很好的乾跑」報成沒跑完。
+  //    ✅ 乾跑本來就不寫資料 ⇒ 它沒有「半套」可言 ⇒ **不留痕才是對的**, 不是「補一個 close」。
+  if (!DRY_RUN) {
+    syncRunClient = target as unknown as SyncRunLogClient;
+    syncRunId = await openSyncRun(syncRunClient, config.supplierSlug, currentRunRef());
+  }
 
   console.log(`[rpm-import] ${DRY_RUN ? 'DRY-RUN' : 'WRITE'} 模式 / supplier=${config.supplierSlug} / 讀報價單乾淨 view…`);
   const [products, brandId] = await Promise.all([
@@ -849,9 +879,28 @@ async function main(): Promise<void> {
       `(一般 ${regularVariantRowsWithProduct.length} / atomic ${atomicToRun.length} 群 ${atomicVariantsRun} 變體` +
       `${skippedHazardGroups.length ? ` / 🔴 扣留跳過 ${skippedHazardGroups.length} 群(其變體【不計入】上面那個數)` : ''})`,
   );
+
+  // ── ⟦supply-SYNCTIMEOUTPARTIAL⟧ 收工回填 ────────────────────────────────
+  // 🔴 位置在**那一行「WRITE 完成」之後** —— 而那一行自己就是刻意搬到 S4 之後的
+  //    (見上方那段:一次中途失敗的同步不得先印「完成」)。⇒ 兩者的順序是同一個理由。
+  // 🛑 這一端**失敗會 throw**(與開工那一端相反)—— 理由在 rpm-sync-run-log.ts:
+  //    安靜的回填失敗會留下一列「只有 started_at」⇒ 被告警讀成【被砍】= 假告警。
+  await closeSyncRun(syncRunClient!, syncRunId, 'completed', null);
 }
 
-main().catch((e) => {
+main().catch(async (e) => {
   console.error('[rpm-import] FAILED:', e);
+  // ── ⟦supply-SYNCTIMEOUTPARTIAL⟧ 自己判失敗也要回填, 而 outcome 是 `failed` 不是 `completed` ──
+  // 🔴 **「失敗」與「被砍」必須分得開**(2026-09-05 實例:`sync (dbk)` 1.2 分就被 orphan 閘擋下,
+  //    那是 failure 不是 timeout)⇒ 少了這一段, 每一次自己判失敗都會偽裝成被砍。
+  // 🔵 而這裡的回填**再失敗就只 log 不再 throw** —— 我們已經在失敗路徑上了,
+  //    第二個例外只會蓋掉第一個, 而第一個才是人要看的那個。
+  if (syncRunClient) {
+    try {
+      await closeSyncRun(syncRunClient, syncRunId, 'failed', String(e).slice(0, 500));
+    } catch (e2) {
+      console.error('[rpm-import] 收工回填(failed)也失敗, 只 log 不覆蓋原因:', e2);
+    }
+  }
   process.exit(1);
 });

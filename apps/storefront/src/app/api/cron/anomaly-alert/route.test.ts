@@ -155,6 +155,13 @@ const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   searchLogTableExists: null,
   searchLogLastRowAt: null,
   searchLogStale: false,
+  syncStaleOpen: 0,
+  syncStaleSuppliers: [],
+  syncOpenRecent: 0,
+  syncSuppliersSeen: 0,
+  syncStaleHours: 6,
+  syncStaleUnknown: true,
+  syncStaleFailed: false,
   stuckBankCount: 0,
   stuckBankOldestCreated: null,
   // 🔵 ⟦b4-PAIDTHENOVERPAID⟧ 第二個世界(2026-09-05)——
