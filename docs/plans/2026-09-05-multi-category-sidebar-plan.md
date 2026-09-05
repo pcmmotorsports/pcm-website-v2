@@ -231,3 +231,111 @@ v_cats := (SELECT coalesce(array_agg(DISTINCT btrim(x)), ARRAY[]::text[])
    **但那不能當主案**, 因為 §8-1:`category=` 只有一個槽, **第二顆會蓋掉第一顆**。
    ⇒ 📌 **「它會被正確合併」與「它裝得下多顆」是兩件事, 而我先前把前者當成了後者的證據。**
 
+---
+
+# §10 · **重寫後的主案(定案版)** —— union 進 `CATEGORIES_PARAM`
+
+> ⛔ ~~§2 案 A:分類軸被壓下時把新選的寫進 `category=`~~ ⇒ **作廢**(§8-1:那個槽只有一個, 第二顆會蓋掉第一顆)。
+> ✅ **主案 = 把新選的那一顆 `union` 進 `categories=`。** 舊字面留在 §2, 讓拿它去搜的人撞到這裡。
+
+## 10-1 做什麼(只動 `use-catalog-filter-url-sync.tsx` 一支檔)
+
+**現行**(`:251-255`):`if (!params.has(CATEGORIES_PARAM)) { …寫 category=… }` ⇒ 多顆世界**整個分類軸不寫**。
+**改成**:多顆世界下, **若這一波是【使用者自選】**, 就
+```
+next = union(現有 categories, 新選的那一顆)   ⇒ params.set(CATEGORIES_PARAM, next.join(','))
+```
+🔵 **不碰 `category=`**(那是 legacy 單槽)、**不 `delete` 任何東西**(§8-3 e:delete 半邊解禁會撞「清除全部」)。
+
+## 10-2 🔴 **判別「使用者自選」的形狀 —— 而它【不能】用 `lastFilterKeyRef`**
+
+§8-3 c 逐字成立:`lastFilterKeyRef.current = filterKey`(`:150`)在**三個提早 return 之前**就無條件更新
+(`:154 initialized` / `:177 vehicle 讓路` / `:186 restore-hold`)⇒ **那些波會把「變動」吃掉, 而且不自癒。**
+✅ **改用一個【只在真的送出 replace 時才更新】的 ref**:
+```
+lastWrittenCategoryRef   ← 只在 router.replace 那一行之後寫入
+判別:cascade 推出的那一顆 !== lastWrittenCategoryRef.current  ⇒ 使用者自選
+```
+🔵 **為什麼這個形狀對**:它比較的是「**我上次真的寫出去的**」與「**現在 state 是什麼**」——
+**三個提早 return 都不會動它**, 所以被吃掉的那些波**下一次還會被看到**(§8-3 c 的不自癒消失)。
+🛑 **而還原波那一格要另外擋**(§8-3 d):`pendingRestoreRef.current !== false` 時**不算使用者自選** ——
+   否則深連結進站那一波會被判成「自選」⇒ 寫入 ⇒ `filtersChanged` 為真 ⇒ **`page` 被刪**(⑩⑯㉕ 那一族)。
+
+## 10-3 驗收(**每條都寫下「兩個世界會不同的那個值」**)
+
+| # | 做什麼 | 修好 | 沒修 |
+|---|---|---|---|
+| 1 | `?categories=A,B` 下側欄點 C | 網址 `categories=A,B,C` **且件數變** | 網址不變、**件數不變**(側欄仍會亮 ⇒ 不可只驗那個) |
+| 2 | 🔵 負對照:單顆世界點側欄 | 照舊有效 | — |
+| 3 | 🔴 **回歸 · 改成突變格**(§8-3 g):把判別法**寫死成恆真** | **那一發必須紅** | 若不紅 ⇒ 驗收③本身零判別力 |
+| 4 | 🔴 **多顆下連點兩顆 C 再 D** | `categories=A,B,C,D` **四顆膠囊** | C 消失(舊案 A 的病) |
+| 5 | 🔴 **深連結** `?categories=A,B&page=2` 進站 | `page` **仍是 2** | `page` 被刪(§8-3 d) |
+| 6 | 🔴 **多顆 + 「清除全部」** | 落到 `/products`(或只剩 sort/per) | `categories` 復活(§8-3 e) |
+| 7 | `products-url-state.hooks.test.tsx` 既有 **25 格**全綠 + 新增格 | 新格各自**突變紅過** | — |
+| 8 | 三綠 `TURBO_FORCE=1` 三發皆 `0 cached` | 🔵 **這條量的是快取不是行為**(§8-3 nit)—— 留著當衛生, 不當判別力 | |
+| 9 | 🔴 **真瀏覽器實走**(鑽機):①②④⑤⑥ 各按一次, **每格記件數與膠囊數** | | |
+
+## 10-4 rollback(§8-3 h 的訂正)
+⛔ ~~revert 即回到今天的行為~~ ⇒ 🛑 **「今天的行為」是本 plan 自己量到的【半反應】**
+(側欄亮起而網址/件數/膠囊三個都不動, §8-5 第三次重現)—— **我自己判定它「比完全沒反應更糟」。**
+⇒ 📌 **revert 不是安全退路, 它把一個會誤導客人的畫面裝回去。**
+✅ **rollback 分兩級**:①**壞掉而急** ⇒ revert 那顆 commit(回到半反應, **而要同時告知 Sean 那是什麼樣子**)
+②**不急** ⇒ 往前修。**選①要 Sean 點頭, 因為它是一個【已知會誤導】的狀態。**
+
+## 10-5 仍然**沒有驗過**的(動手時逐條驗, 不得因為它寫得具體就當已驗)
+- §8-3 `c`(已改設計繞開)`d` `e` `f` —— **四條我沒有實測**, 只讀了審查者的敘述與座標。
+- 🔴 `f`:「再點同一顆細項是 toggle 成 null」我**沒驗** ⇒ 代價①的字面可能還是錯的。
+- 🔵 §9 已推翻 `a` `b`;§8-5 已把 `select-sub` no-op 降級為 nit(reducer 有、UI 到不了)。
+
+---
+
+# 🔴🔴 §11 · R2(換角度)也判 **FAIL** —— 而它擊破的是 §10 那個**新**設計
+
+`adversarial-reviewer`(opus, fresh, 換角度:**深連結還原 / 清除全部 / 回退**)⇒ **9 條 must-fix + 3 nit**。
+🟢 **findings 與 R1 【零重疊】** ⇒ 換角度是有效的, 不是同一層打轉。
+
+## 11-1 我自己複驗了兩條, **逐字成立** —— 而它們讓 §10-2 兩個關鍵條件**都是死的**
+
+```
+① pendingRestoreRef.current = false  在 :180
+   而寫入段在 :242                    ⇒ 那道「還原波不算自選」的守衛【在寫入點永遠不成立】
+② const category = cascade.category?.main   ⇒ string | undefined  (:242-244)
+   而 lastWrittenCategoryRef 會是      string | null
+   ⇒ undefined !== null 【恆真】       ⇒ cascade 為空的每一波都被判成「自選」
+```
+🎯 **⇒ §10-2 我寫的判別法, 在【空世界】恆真、在【還原波】不設防。** 兩個都不是邊角, 是那個設計的地基。
+
+## 11-2 而 ② 直接生出 R2 的第二條 must-fix:**本案會自己造出「膠囊復活」**
+
+「清除全部」那一波:`ActiveChips.tsx:141-155` 同步 `dispatch(clearAll())` + 非同步 `router.replace('/products')`
+⇒ 下一波 cascade **空**、`window.location.search` **仍是舊的**
+⇒ 由 ② 判成「自選」⇒ 跳過等值早退, 而 §10-1「**不 delete 任何東西**」讓 `categories=A,B` **原封留著**
+⇒ `router.replace('/products?categories=A,B')` 若**後**落地 ⇒ **膠囊全部復活。**
+📌 **⇒ §10-3 驗收列 6 要防的那個病, 是本案【自己造出來的】。**
+✅ 修法(R2 給的, 我同意):**`null` 一律不算自選**, 且**保留 `categoryAxisSuppressed` 那道等值早退**、不被新判別法整個取代。
+
+## 11-3 🔴 **驗收表被打穿三條 —— 而最痛的是「那個突變沒有任何一格殺得死」**
+
+| 列 | R2 的指控 | 我的判讀 |
+|---|---|---|
+| 3 | 判別法寫死恆真 ⇒ **既有格全綠**:㉓(`categories=X` + cascade 握同一顆)與 ㉕(`categories=X&category=X`)的 union 都是 **no-op** ⇒ 網址逐字不變 | 🔴 **收下** —— 我把「突變會紅」當成理所當然, 而**沒有去看既有格造的是哪個世界** |
+| 6 | 清除全部那條**測不到它宣稱要測的東西**:它要驗**兩個 `replace` 的落地順序**, 而單元測試把 router mock 掉(`:48-51`)**根本沒有順序**;鑽機實走是不確定的 race ⇒ 綠只代表這次沒撞上 | 🔴 **收下** ⇒ 改成可判定的不變式:「clearAll 那一波 hook **不得送出任何 replace**」 |
+| 7 | 「既有 25 格全綠」在**做對與沒做印同一個值**(不改這片也全綠)⇒ 零判別力 | 🔴 **收下** ⇒ 改成「**指名格 × 指名突變 ⇒ 必紅**」 |
+
+## 11-4 🟢 **而 R2 也【推翻了我自己的一個擔心】**
+§10-4 我寫「客人可能 bookmark 了新格式網址 ⇒ revert 之後更糟」。
+R2 逐字:`categories=A,B,C` **今天就已經是合法格式**(`categoriesFromParams` 已合併去重、`ActiveChips.tsx:73` 已照它畫膠囊)
+⇒ **revert 後舊 bookmark 照樣正確, 沒有「比修之前更糟」的持久狀態。** ⇒ 那一條降為 nit, **我的擔心是多的**。
+
+## 11-5 🔴 **而 rollback 缺的不是分級, 是【觸發訊號】**
+R2:本案最可能引入的回歸是**安靜的** —— 還原波吃掉 `page` ⇒ 終態「內容第 1 頁 + 分頁 UI 停在第 2 頁」, 而檔內逐字「**不會自癒**」
+⇒ 📌 **沒有人會判定「壞掉而急」, 於是兩級 rollback 都不會被啟動。**
+✅ 加一行:**回退觸發條件 = 深連結帶 `?page=N` 進站後 page 消失**, 並把它列進上線後要實走的那一發。
+
+## 11-6 ⇒ **plan 還不能端。要第三次改, 而 R2 已經給了怎麼改**
+`lastWrittenCategoryRef` **初值要用進站網址播種**(`:152-155` 的 `!initialized.current` 區塊, 走 `parseCategoryFromUrl`);
+還原波判準**不用 `pendingRestoreRef`**, 改用「`filterKey` 由空變非空**且**新值等於網址解得出來的那顆」;
+`(category ?? null)` 且 **null 不算自選**;新測試格照 `:640-647`(㉖/⑭ 三 render idiom)與 `:575-589`(㉔)的形狀寫,
+斷言一律 `qs(url).get(...)` 而**不比對解碼後的字串**(檔頭 `:99-103` 已警告逗號會被編成 `%2C`)。
+⚠️ **R2 自己列的未查證**:`useDeepLinkRestore` 會不會從 `categories=` 還原 · `categoriesFromParams` 的白名單過濾 · `cascadeFilterReducer` 的 toggle 字面(§10-5 `f` 仍未驗)。
+
