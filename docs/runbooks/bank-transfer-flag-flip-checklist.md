@@ -34,7 +34,7 @@
 | `20260904040000` | dedup 看得到匯款單 | ⛔ ~~🔴 **沒貼**~~ ⇒ ✅ **貼了**(09-06 複量) |
 | `20260904050000` | 刷卡時取消同車的匯款單 | ⛔ ~~🔴 **沒貼**~~ ⇒ ✅ **貼了**(09-06 複量) |
 | `20260904230000` | 收款結清 + 逾期不殺已收錢的單 | ✅ **貼了** |
-| `20260905010000` | 人工退款翻狀態 | ⛔ ~~⚠️ **未量**~~ ⇒ ✅ **貼了**(09-06 複量) |
+| `20260905010000` | 人工退款翻狀態 | ⛔ ~~⚠️ **未量**~~ ⇒ ✅ **貼了**(09-06 複量, 見下方尺的訂正) |
 
 🔴🔴 **[2026-09-06 01:0x · 線【信】`-mail` 複量 —— 上表【整欄過期了】]**
 > 量測者 = `-mail`, 唯讀正式庫(`scripts/readonly-prod-sql.sh`, 零寫入), 讀數時刻 DB `now()` = **2026-09-05 16:5x UTC**。
@@ -47,7 +47,12 @@
 >   (🟢 正對照 `active`/`charged`/`kind`/`none` ⇒ 各 **1** · 🔵 負對照現造字面 ⇒ **0**)
 > · `20260904050000` ⇒ `begin_charge_attempt` 函式體含 `superseded_by_card` **1** / `not_card_order` **1**
 >   (🟢 正對照「那支函式在不在」⇒ **1** · 🔵 負對照 `zzz_never_a_literal` ⇒ **0**)
-> · `20260905010000` ⇒ `admin_record_manual_refund` 存在 **1**
+> · `20260905010000` ⇒ 🛑 **我第一發用錯了尺** —— 我問的是 `admin_record_manual_refund` 存不存在(**1**),
+>   而那支函式來自 `20260810200000` / `20260820022000`, **比它早** ⇒ 📌 **那個 1 對這一支【零判別力】**
+>   (`is-migration-applied.sh` 檔頭逐字警告過這件事, 而我照樣踩了)。
+>   ✅ **改問它真正新建的物件**:`pcm_sync_order_refund_payment_status` 存在 **1**
+>   (🟢 正對照 `admin_record_manual_refund` ⇒ **1** · 🔵 負對照現造函式名 ⇒ **0**)⇒ **結論不變:貼了。**
+>   🔴 **而結論不變不代表那一發是對的** —— 它當時只是**剛好**答對。
 >
 > 🛑 **⇒ 下面那張【貼板佇列】的 1/2/3 全部已經在線上了 —— 不要再請 Sean 貼。**
 > 🔴🔴 **而真正要緊的是它連帶殺掉的那個【擋路理由】**:板列 `⟦b4-BANKORDERINVISIBLE⟧` 寫著
@@ -55,6 +60,7 @@
 >    —— ⛔ **那個理由今天不成立了**(A = `20260904020000`, 已貼)。
 >    ⇒ 📌 **它自己就預告過這一刻**:「那是會過期的理由 —— Sean 貼下 A 的那一刻它失效, 而沒有東西會叫。」
 >    ⇒ 🔴 **翻 flag 之前的 (c)「RPC 那側的 opt-in 守門」現在是【真的要查】, 不再有替代品擋著。**
+>    ✅ **已查 —— 結果在本節正下方那一格「(c) RPC 那側今天有沒有守門」。**
 > ⚠️ **本次證不到什麼**:讀的是 catalog(函式簽名 / 函式體字面), **不是行為** ——
 >    我沒有真的打一發 RPC 去看它收不收 `bank_transfer`。
 
@@ -63,6 +69,62 @@
 🔬 **而 `20260904020000` 有第二個獨立證據, 比字面強**:正式庫 `create_order` 的參數列
 　 (`pg_get_function_identity_arguments`)**沒有 `p_payment_channel`** ——
 　 📌 **簽名少一個參數不是字面的問題。**
+
+### 🔴🔴 (c) RPC 那側今天有沒有守門 ⇒ **量到了:【世界三 —— 沒守, 而且可達】**
+
+> 量測者 = 線【信】`-mail`, 唯讀正式庫(`scripts/readonly-prod-sql.sh`, 零寫入),
+> 讀數時刻 DB `now()` = **2026-09-05 17:06 UTC**(2026-09-06 台北凌晨)。
+
+**① catalog —— 兩支 `create_order` 多載的本體讀不讀 flag / 拒不拒 `bank_transfer`**
+
+| oid | 參數 | `bank_transfer` 字面 | 讀 `current_setting` | 讀 `BANK_TRANSFER_CHECKOUT_ENABLED` | prosrc 長度 |
+|---|---|---|---|---|---|
+| 66479 | 10 參(舊) | **f** | **f** | **f** | 16391 |
+| 68345 | 11 參(帶 `p_payment_channel`) | **t** | **f** | **f** | 17499 |
+
+🔵 負對照:同尺問現造字面 `zzz_never_a_literal` ⇒ 兩支皆 **f** ⇒ 這把尺會動。
+🎯 **⇒ 新那支【收】`bank_transfer`(白名單, `20260904020000:168` 逐字), 而它【不讀任何旗標】** ——
+　 沒有 GUC、沒有 env、沒有任何 opt-in 述詞。**DB 那一層零守門。**
+
+**② PostgREST 那條 —— 誰叫得動**
+
+| oid | `anon` EXECUTE | `authenticated` EXECUTE | `service_role` EXECUTE |
+|---|---|---|---|
+| 66479(10 參) | **f** | 🔴 **t** | f |
+| 68345(11 參) | **f** | 🔴 **t** | f |
+
+🟢 **正對照(證明這把尺會印 f)**:同兩個角色問 `begin_charge_attempt` ⇒ **f / f**;
+　 `pcm_sync_order_refund_payment_status` ⇒ **f / f**;`find_active_sibling_own` ⇒ **f / t**。
+　 ⇒ 📌 **有東西印 f, 所以上面那兩個 t 是讀出來的, 不是尺壞了。**
+🟢 角色都在:`anon` / `authenticated` / `service_role` 三個 `pg_roles` 皆命中
+　(`service_role` `rolbypassrls = t`, 另兩個 f)。
+
+**③ apps 側 —— flag=false 時走哪一支**
+`apps/storefront/src/app/checkout/charge-actions.ts:222-224` 逐字
+`if (parsedCheckout.data.paymentChannel === 'bank_transfer' && !isBankTransferCheckoutEnabled())`
+⇒ 回 `{ fieldErrors: { paymentChannel: '請選擇付款方式' } }`, **零建單零扣款**。
+✅ 那道閘是真的, **而它的射程只到這支 action** —— 同檔 `:204` 的註解自己逐字寫著這件事。
+
+**⇒ 結論(三個世界擇一)**:🔴 **世界三 —— 沒守, 而且可達。**
+任何**登入中**的客人可直接打 PostgREST `/rpc/create_order` 送 `payment_channel: 'bank_transfer'`,
+白名單收它、無旗標可攔、`authenticated` 有 EXECUTE ⇒ **完全不經過 `charge-actions.ts:222`。**
+
+🛑🛑 **而【三件事要跟這個結論一起讀, 少一件就會做出過度或不足的反應】**:
+1. **這條繞路【不是 `bank_transfer` 帶進來的】** —— 舊的 10 參多載對 `authenticated` 同樣是 **t**,
+   而它比這整條線早。⇒ 📌 **「登入客人可以直接建單」本來就成立**;`bank_transfer` 改變的是
+   **那張單的 `payment_channel` 欄會存什麼**, 不是「他能不能建單」。
+2. **它原本的錢的傷害【已經被關掉了】** —— 這個洞會痛是因為「先建匯款單再刷卡 ⇒ dedup 看不見 ⇒ 兩邊都付」。
+   而 `20260904050000`(刷卡時先取消同車匯款單)**已在線上**(複量:`begin_charge_attempt` 體含
+   `superseded_by_card` 1 / `not_card_order` 1, 🟢 正對照 1 · 🔵 負對照 0)⇒ **那條路今天不再兩邊都付。**
+3. **⇒ 所以這一格不是「立刻關路」, 是【要 Sean 拍一題】**:繞路建出來的匯款單今天的結局是
+   零扣款、`/account/orders` 看得到、5 天後逾期自動取消。要不要為它另立 RPC 側 opt-in,
+   是**成本 vs 殘餘風險**的取捨, 不是安全事故。**線【信】不自己拍。**
+
+⚠️ **本次證不到什麼**(逐條, 不是免責貼紙):
+· 讀的是 **catalog**(函式簽名 / 函式體字面 / ACL), **不是行為** —— 我**沒有**真的打一發 PostgREST 去看它收不收。
+· `has_function_privilege` 答的是「這個角色有沒有 EXECUTE」, **答不出 PostgREST 有沒有把那支函式
+  暴露在 `/rpc/` 下**(schema 是否在 `PGRST_DB_SCHEMAS` 裡、有沒有被 `db-pre-request` 擋)——**那兩層我沒查**。
+· 我**沒有量**「今天有沒有人真的這樣繞過」—— 那要查訂單資料, 不是查目錄。
 
 ### 🛑 兩件不要把上面的結果讀太寬(量測者自己標的)
 ```
