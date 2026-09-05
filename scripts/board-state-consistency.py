@@ -110,7 +110,13 @@
 # ⚠️ 而掛上去那一步動 `.husky/` = 平台設定 = 鐵則 12④ ⇒ **不在本檔的權限裡。**
 import contextlib, io, json, os, re, subprocess, sys, tempfile
 
-CLOSED = ('open', 'doing', 'parked', 'done')
+# 🔵 `standing` = **常設**(Sean 2026-09-05 逐字拍「常設 甲」, ⟦b9-STATEPOLICY⟧)——
+#    什麼時候用它:**做完了、殘餘只能等下次撞到、而沒有在等任何人**。
+#    🔴 它與 `parked` 的差別是【有沒有等人】:`parked` 要寫「等什麼」, `standing` 不必,
+#       因為它不在等 —— 它是一條長期有效的線, 不是一件停住的工作。
+#    🛑 而它【不是 done 的委婉說法】:done 表示這條線可以不用再看;
+#       standing 表示它會一直在, 而下一次撞到它的人要知道它是被決定成這樣的。
+CLOSED = ('open', 'doing', 'parked', 'done', 'standing')
 # 🔴 板子那條數法的 regex 【只寫一次】 —— grep 用它, 驗輸出形狀也用它。
 #    寫兩份的話, 有人改了 CLOSED 而只改到一邊 ⇒ 驗證器會開始放行它本來該擋的東西。
 #    ⚠️ **而「只寫一次」只治【只改一邊】那一種漂移, 治不了【新值本身含 regex 元字元】那一種**
