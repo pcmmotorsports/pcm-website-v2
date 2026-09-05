@@ -394,18 +394,25 @@ describe('OrderDetailView', () => {
   // ⇒ 每一張取消單都是 unpaid)。下面三格**不是新功能**,是一段沒人走過的路被點亮之後才暴露的東西。
   // 📌 形狀:**拆掉一道濾網,等於把它背後所有沒被走過的路一次點亮 —— 而那些路沒有人驗過。**
   describe('片 C:客人拿得走自己的訂單明細(板 `:416` ⟦b4-CUSTPDF1⟧)', () => {
-    it('🔴🔴 那顆鈕連到 `/statement`,**不是** `/statement.pdf`(照稿抄會 404)', () => {
+    it('🔴🔴 那顆鈕連到 `/statement.pdf`(2026-09-06 改去向;依據=稿字面)', () => {
+      // ⛔ ~~舊期望:連 `/statement`(網頁版), 而**不是** `.pdf` —— 照稿抄會 404~~
+      // 🔴🔴 **2026-09-06 這一格的期望值【被改了】, 而改它的理由要寫在這裡**(不是偷偷改綠):
+      //   ✅ **稿是真權威(鐵則 1)**:`order-detail-page.html:288` 逐字
+      //      「真站:改成 `<a href="/account/orders/<id>/statement.pdf" download>` 由後端產」。
+      //   ✅ **而舊期望成立的那個前提【已經不成立】** —— 舊註解寫「那條路由不存在 ⇒ 404」,
+      //      而 `statement.pdf/route.ts` **在 2026-08-31 就落地了**(片 C3)。
+      //   🟢 **它真的產得出檔是量到的**:Sean 2026-09-06 在正式站對一張真單手動下載,
+      //      主視窗親讀 PDF 內中文全字 ⇒ 不是「檔案存在」那種弱證據。
+      //   ⇒ 📌 **所以這不是「改期望值讓測試變綠」(R4 點名的那個動作)** ——
+      //      **是那個世界變了, 而舊期望正在保護一個已經消失的限制。**
       const { container } = render(<OrderDetailView order={ORDER} />);
       const link = container.querySelector('[data-od-id="order-statement-link"]');
       expect(link, '那顆鈕不見了').not.toBeNull();
-      expect(link!.getAttribute('href')).toBe('/account/orders/PCM-2099-0007/statement');
-      // 🔴 **這一半是本格真正的重點**:稿 `:288` 寫的是 `statement.pdf`,而那句話假設伺服器產檔。
-      //    照它抄 ⇒ 那條路由不存在 ⇒ 404,而**稿 `:286` 自己就警告過「不給一個會 404 的 href」**。
-      //    ⇒ 稿在同一段裡同時給了陷阱與警告,而抄的人只會看到前者。
-      // ⚠️ **這一條在上面那個 exact `toBe` 通過時【不可能紅】**(code-reviewer 抓)——
-      //    承重的是 `toBe`,不是它。留著的用途只有一個:**擋住有人手改上面那個期望值**
-      //    (改期望值讓測試變綠, 是 R4 換路訊號裡點名的那個動作)。⇒ 它是絆線, 不是量具。
-      expect(link!.getAttribute('href'), '抄了稿上那個 .pdf ⇒ 這顆鈕會 404').not.toContain('.pdf');
+      expect(link!.getAttribute('href')).toBe('/account/orders/PCM-2099-0007/statement.pdf');
+      // 🔴 `download` 屬性:稿字面的一部分 —— 少了它瀏覽器會**開新分頁預覽**而不是存檔。
+      expect(link!.hasAttribute('download'), '少了 download ⇒ 它變成預覽不是下載').toBe(true);
+      // 🔵 **反向絆線(取代舊的那條)**:有人把它改回網頁版 ⇒ 這裡會紅。
+      expect(link!.getAttribute('href'), '改回網頁版 ⇒ 客人拿不到伺服器產的那份檔').toContain('.pdf');
     });
 
     it('🔴 它開【新分頁】, 而且帶 `rel="noopener noreferrer"`(Sean 2026-08-30 直接下的)', () => {
@@ -442,9 +449,14 @@ describe('OrderDetailView', () => {
       const href = container
         .querySelector('[data-od-id="order-statement-link"]')!
         .getAttribute('href')!;
-      expect(href).toBe('/account/orders/PCM%20100%25%2FA/statement');
+      expect(href).toBe('/account/orders/PCM%20100%25%2FA/statement.pdf');
       // 翻面:解回來要等於原值 —— 沒有這一半,上面那串亂碼「對不對」沒有人證得了
-      expect(decodeURIComponent(href.slice('/account/orders/'.length, -'/statement'.length))).toBe(
+      // 🔴 尾巴長度跟著去向一起改(`/statement` → `/statement.pdf`)——
+      //    ⚠️ **少改這一格會印一個【看起來像 encode 壞了】的紅**(`PCM 100%/A/sta`),
+      //       而真正壞的是這把尺自己。📌 **一個寫死長度的切法, 會在目的地改名時說錯原因。**
+      expect(
+        decodeURIComponent(href.slice('/account/orders/'.length, -'/statement.pdf'.length)),
+      ).toBe(
         'PCM 100%/A',
       );
     });
