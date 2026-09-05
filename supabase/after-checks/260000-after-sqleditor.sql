@@ -163,7 +163,11 @@ BEGIN
     CROSS JOIN (VALUES ('anon'),('authenticated')) r(rolname)
     CROSS JOIN (VALUES ('INSERT'),('UPDATE'),('DELETE'),('TRUNCATE'),
                        ('REFERENCES'),('TRIGGER'),('MAINTAIN')) p(priv)
-   WHERE c.relkind IN ('v','m')   -- 🔴 [R4 F14] 原本只掃 'v', 物化檢視 'm' 一樣是 view 一族
+   -- 🔴 [R4 F14] 原本只掃 'v';物化檢視 'm' 一樣是 view 一族 ⇒ 擴進來。
+   -- ⚠️ **[R5 N4] 而基準線是用 'v' 量的** —— 2026-09-05 16:4x 那一發唯讀掃只問 relkind='v',
+   --    ⇒ 📌 **「貼前恰這四支」這句話的射程只涵蓋 'v'。** 若這一格因為某支 matview 而紅,
+   --       那**不代表本片漏了它** —— 那是一個【從來沒被量過的族】第一次被看到。先去量, 不要先修。
+   WHERE c.relkind IN ('v','m')
      AND n.nspname NOT LIKE 'pg\_%'
      AND n.nspname NOT LIKE 'graphql%'
      AND n.nspname NOT IN ('information_schema','net','storage','auth','realtime','extensions','vault','cron','supabase_migrations')
@@ -175,5 +179,5 @@ BEGIN
   -- ⑧ 🔵 負對照已併進 ⑤b 那個 IF 裡(同一個角色存在性前提)——
   --    🔵 ⑤a 是它的另一半:同一把尺對 service_role 印 true。**兩半合起來才證明尺會動。**
 
-  RAISE NOTICE '✅ 260000 對帳全過(①寫權 0 ①b ACL 恰 SELECT 且不可再授出 ②a/②b SELECT 8+8 ③欄級雙尺 0 ④PUBLIC 0 ⑤a 正對照 4 ⑤b/⑧ pcm_readonly(這台庫有這個角色才驗;沒有就跳過, 上面的 NOTICE 會說)⑥零可繼承成員 ⑦全庫 0)';
+  RAISE NOTICE '✅ 260000 對帳全過(①寫權 0 ①b ACL 恰 SELECT 且不可再授出 ②a/②b SELECT 8+8 ③欄級雙尺 0 ④PUBLIC 0 ⑤a 正對照 service_role=4 ⑤b+⑧ pcm_readonly 的 SELECT=4 與 DELETE=0(🔵 [R5 N6] 這兩格【併在同一個角色存在性 IF 裡】—— 沒有那個角色時兩格【一起】跳過, 不是只跳一格)⑥零可繼承成員 ⑦全庫 0)';
 END $$;

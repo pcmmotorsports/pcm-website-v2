@@ -76,6 +76,11 @@ BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 SET LOCAL idle_in_transaction_session_timeout = '60s';
+-- ⚠️ **[R5 C2] 射程:這三行保護的是【我們自己不要無限等】, 不是【別人不會等我們】。**
+--    本交易動完四支 view 的 ACL 之後, 還握著鎖做 8 次全 view 讀(⑦ smoke)——
+--    那段期間顧客站的讀會排在後面。🔴 **`GRANT`/`REVOKE` 在 PG17 取哪一級鎖, 我沒有量過。**
+--    ⇒ 最壞情況 = 貼下去那幾秒讀變慢(R5 評 MEDIUM)。
+--    ✅ 可行的處置是【接受並挑離峰貼】, 而不是再加一道我沒量過的保護。
 
 -- ══ 前置閘 ════════════════════════════════════════════════════════════════
 DO $$
@@ -83,6 +88,15 @@ DECLARE
   v_n integer;
   v_t text;
 BEGIN
+  -- ⓪-前 🔴 **[R5 N1]** 本檔有六處 `has_table_privilege('anon'/'authenticated', …)`,
+  --    而 `has_table_privilege` 對【不存在的角色】會**直接拋錯** ⇒ 它們會在任何「跳過」判斷之前先炸。
+  --    ⇒ 📌 我原本寫在斷言⑦裡的「這台庫沒有 % 角色 ⇒ 跳過」那個 NOTICE **恆為假, 到不了**。
+  --    ✅ 所以角色存在性要在【最前面】判一次, 而且是 RAISE 不是跳過 ——
+  --       **一台沒有 anon/authenticated 的庫不是本片的對象**(Supabase 一定有;拋棄式 PG 要自己建)。
+  IF pg_catalog.to_regrole('anon') IS NULL OR pg_catalog.to_regrole('authenticated') IS NULL THEN
+    RAISE EXCEPTION '前置閘⓪-前:這台庫沒有 anon 或 authenticated 角色 ⇒ 本片的對象是 Supabase 那種形狀的庫;拋棄式 PG 請先 CREATE ROLE anon; CREATE ROLE authenticated;';
+  END IF;
+
   -- ⓪ 四支都在、都是 view、owner 都是 postgres(codex R1 MF⑧)
   SELECT pg_catalog.string_agg(c.relname || '/kind=' || c.relkind::text || '/owner=' || c.relowner::regrole::text, ', ') INTO v_t
     FROM pg_catalog.pg_class c
@@ -113,11 +127,19 @@ BEGIN
     CROSS JOIN (VALUES ('INSERT'),('UPDATE'),('DELETE'),('TRUNCATE'),
                        ('REFERENCES'),('TRIGGER'),('MAINTAIN')) p(priv)
    WHERE pg_catalog.has_table_privilege(r.rolname, t.rel, p.priv);
-  -- 🔴 **[R4 F2]** ⛔ ~~`IF v_n = 0 THEN RAISE`~~ —— 那會讓【從零重放】永久紅:
-  --    那四支 view 由 repo 的 migration 建, 而建的時候只 GRANT SELECT
-  --    ⇒ 空庫上 v_n 本來就是 0 ⇒ `migrations-replay-from-zero.sh` 多一支永遠失敗的。
-  --    🛑 更根本的是:**「已經貼過」與「本來就乾淨」印同一個 0** —— 那個 RAISE 分不出這兩個世界。
-  --    ✅ 而本檔的動作(REVOKE ALL + GRANT SELECT)**是冪等的** ⇒ 重跑無害 ⇒ 改成 NOTICE, 不擋。
+  -- 🔴 **[R4 F2 ⇒ R5 MF1 訂正]** ⛔ ~~`IF v_n = 0 THEN RAISE`~~ 改成 NOTICE ——
+  --    **決定不變, 而我原本寫的【理由是編的】。**
+  --    ⛔ ~~「那四支 view 由 repo migration 建、建的時候只 GRANT SELECT ⇒ 空庫上 v_n 本來就是 0」~~
+  --    🔴 **那個 0 我【沒有量過】** —— R5(opus)去讀了拋棄式 PG 的 bootstrap:
+  --       `docs/runbooks/throwaway-postgres-for-migration-verification.md` 逐字帶
+  --       `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;`
+  --       ⇒ **那個世界裡新建的 view 自帶八種** ⇒ v_n 會是 56 而不是 0
+  --       ⇒ 📌 **舊的 `RAISE` 在 replay 世界【從來不會紅】—— 我描述的那個病根本不存在。**
+  --    📌 **⇒ 折一條 finding 時順手寫下的新理由, 是這一份 diff 裡【唯一沒有被審過】的東西。**
+  --    ✅ **改成 NOTICE 仍然對, 而理由是這兩條(這兩條我驗得出來)**:
+  --       ① 本檔動作(REVOKE ALL + GRANT SELECT)**冪等** —— 拋棄式 PG 連跑兩次證過。
+  --       ② **「已經貼過」與「本來就乾淨」印同一個 0** ⇒ 那個 RAISE 分不出這兩個世界,
+  --          而它擋下的兩個世界裡有一個是完全正常的。
   IF v_n = 0 THEN
     RAISE NOTICE '[20260905260000] 🔵 四支對 anon/authenticated 一格寫權都沒有 —— 可能是貼過了, 也可能這台庫本來就乾淨(空庫從零重放就是這樣)。本檔冪等, 照跑。';
   END IF;
@@ -342,6 +364,9 @@ BEGIN
   --    這一格【以 anon / authenticated 的身分真的讀一次】, 走的是與顧客站同一條權限路徑
   --    (schema USAGE + view SELECT + security_invoker 的底表 RLS)。
   --    🛑 它仍**證不到** PostgREST 那一層與網路那一層 —— 那要真的打一發顧客站。
+  --    🛑 **[R5 C1] 它也證不到「顧客站不會逾時」** —— 這一發跑在本交易的
+  --       `statement_timeout = 60s` 底下, 而角色層的 GUC(例如 `ALTER ROLE anon SET statement_timeout='3s'`)
+  --       **不會因為 `SET ROLE` 而套用** ⇒ 📌 **⑦ 證的是【權限路徑通】, 不是【快得完】。**
   --    🔵 SET LOCAL 只在本交易有效;任一支讀不動就 RAISE ⇒ 整筆交易回復, 不會留半套。
   --    🔴 **[R4 F1]** ⛔ ~~`RESET ROLE`~~ —— `scripts/migration-reset-role-guard.sh` 明文禁止:
   --       supabase CLI 以 `cli_login_<ref>` 連線並 `SET SESSION ROLE postgres`, 而那個登入角色是
@@ -356,10 +381,7 @@ BEGIN
     v_me   text := current_user;
   BEGIN
     FOREACH r_role IN ARRAY ARRAY['anon','authenticated'] LOOP
-      IF pg_catalog.to_regrole(r_role) IS NULL THEN
-        RAISE NOTICE '[20260905260000] 🔵 這台庫沒有 % 角色 ⇒ 該輪 smoke 跳過', r_role;
-        CONTINUE;
-      END IF;
+      -- 🔵 [R5 N1] 角色存在性已在前置閘⓪-前 RAISE 過 ⇒ 這裡不再判(判了也到不了)。
       FOREACH r_rel IN ARRAY ARRAY['public.products_list_public','public.vehicle_taxonomy_public',
                                    'public.products_public','public.product_variants_public'] LOOP
         BEGIN
@@ -379,7 +401,7 @@ BEGIN
   --    會動的(貼前貼後不同):① ①b ①c ⑦
   --    貼前就已經是那個值的(不變量, 對「REVOKE 生效了沒」零判別力):②a ②b ②c ③ ④ ⑤ ⑥
   --    ⇒ 📌 把不變量與真訊號並列成一句「全過」, 會讓讀的人以為十二格都在證明同一件事。
-  RAISE NOTICE '[20260905260000] 事後斷言全過 —— 🔵 會動的四格:①寫權 0 格 ①b ACL 恰 SELECT 且不可再授出 ①c 直接授權 8 列 ②a 有效 SELECT 8 格 ②b/②c 欄級雙尺 0 ③PUBLIC 0 ④正對照 service_role=4 ⑤pcm_readonly(這台庫有這個角色才驗, 沒有就跳過 —— 上面的 NOTICE 會說)⑦anon/authenticated 各真的讀過那四支;⚪ 不變量八格(②a②b②c③④⑤⑥ 貼前就是這個值))';
+  RAISE NOTICE '[20260905260000] 事後斷言全過。🔵 會動的四格(貼前貼後不同):① 寫權 32⇒0 · ①b ACL 集合 八種⇒恰 SELECT · ①c 直接 SELECT 授權 8 列 · ⑦ 以 anon/authenticated 各真的讀過那四支。⚪ 不變量六格(貼前就是這個值, 對「REVOKE 生效了沒」零判別力):②a 有效 SELECT 8 · ②b/②c 欄級雙尺 0 · ③ PUBLIC 0 · ④ 正對照 service_role=4 · ⑤ pcm_readonly(有這個角色才驗)· ⑥ 零可繼承成員。🔴 [R5 N3] 前一版這句寫「四格 + 八格」而實際是 4 + 6, 且把 ②a 同時列進兩邊 —— 一句數不對的收尾, 會讓讀的人以為每一格都在證明同一件事。';
 END $$;
 
 COMMIT;
