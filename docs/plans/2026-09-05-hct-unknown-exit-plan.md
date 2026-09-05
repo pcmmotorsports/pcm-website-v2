@@ -1,87 +1,107 @@
-# Plan:卡在 `unknown` 的箱,要怎麼出來(⟦ship-HCTUNKNOWNSTUCK⟧)
+# plan · 卡在 `unknown` 的箱子要有出口(`⟦ship-HCTUNKNOWNSTUCK⟧` RPC 那半)
 
-> 來源:`f1b3e8461` 的 codex must-fix —— 送新竹前寫的 `unknown` 佔位,在
-> 「寫完而 HTTP 還沒發出去就被砍」時讓那一箱**永久卡住**,而**今天沒有出口**。
-> 🔴 **鐵則 8:UI 那半跨 4 檔 ⇒ 等 Sean 一個字才動。** DB 那半照主視窗指示**只寫規格、不建物件**。
+> **狀態**:草案, 未實作。**一行碼都還沒改。**
+> **來源**:主視窗 `-f8` 2026-09-05 派 —— 逐字「它只依賴我們自己的 unknown 狀態機」。
+>
+> ## 🔴 而那句話【只對一半】—— 這是本 plan 最重要的一格, 放最前面
+> ```
+> 甲型「佔位卡住」  hct_status=unknown 且 raw 有 "placeholder": true 且 hct_request_id IS NULL
+>                   ⇒ ✅ **完全不依賴新竹的回應格式** —— 那個標記是【我們自己寫的】
+> 乙型「新竹回了而我們讀不懂」 raw 是新竹的真實回應, 沒有 placeholder 鍵
+>                   ⇒ 🔴 **仍然依賴新竹** —— 要看得懂那份回應才知道「查到了沒」
+> ```
+> 🎯 **⇒ 本 plan 只做甲型。乙型留在板上, 等 `Q-新竹傳輸方式`。**
+> 📌 **而這一刀不是為了少做事** —— 是因為**乙型的判準寫進 migration 就是猜一個不可變的東西**。
 
-## 1. 🔴 這一片在做的事,是【解除一道保護】—— 所以它的形狀由那件事決定
+---
 
-`unknown` 的語意逐字是「**送出去了而不知道結果 ⇒ 不得重送**」。
-把它推回 `draft` = **允許再送一次**。⇒ 📌 **做錯的代價是【客人收到兩箱】,不是一個難看的畫面。**
+## 0. 🛑 而甲型也【不能自動決定】—— 這一格決定了整個設計
 
-🛑 **所以「重設為草稿」不能是一顆自由的鈕。** 它必須**掛在一次查詢的結果上**:
+佔位是在 **HTTP 發出去之前**寫的。所以「有 placeholder 而沒有回應」有**兩個世界**:
+```
+① 那一發【從來沒送出去】   ⇒ 新竹沒收到 ⇒ 放回 draft 是對的
+② 送出去了而【回應掉了】   ⇒ 新竹收到了 ⇒ 放回 draft ⇒ 有人再按一次 ⇒ 🔴 客人收到兩箱
+```
+🔴 **我們這一端沒有任何量具分得出這兩個世界。** ⇒ 📌 **所以 RPC 不可以自己判。**
+
+✅ **⇒ 設計成【帶人證的閘】**:RPC 收一個**操作者的證詞**(「我打電話問過新竹, 他們說沒有這張單」),
+把那句證詞**連同是誰說的一起寫進稽核**, 然後才准放回 `draft`。
+🎯 **⇒ 它把一個【機器答不出來的問題】換成一個【有人負責的答案】** —— 而稽核讓那個負責可查。
+⚠️ **而這【不是】把責任丟給人**:人本來就是唯一能打電話的那個;
+   RPC 做的是**讓那通電話留下痕跡**, 而今天手動改 DB 是零痕跡的。
+
+---
+
+## 1. 要做什麼(三塊)
+
+### ① migration —— `admin_hct_reset_unknown_to_draft`
+```sql
+-- 版本號:ship 的配額(主視窗 2026-09-05 分配:320000 / 390000)
+参數  p_shipment_reference text
+      p_actor              text     -- 誰做的
+      p_request_id         text     -- correlation id
+      p_attestation        text     -- 🔴 那句證詞, NOT NULL 且不得為空白
+```
+**閘寫在 `WHERE` 裡, 不寫在呼叫端**(呼叫端可以被繞過, 這一層每條路都會經過):
+```
+① hct_status = 'unknown'
+② (hct_raw_response ->> 'placeholder') = 'true'      ← 甲型才准
+③ hct_request_id IS NULL                              ← 拿到貨號的不准
+④ deleted_at IS NULL
+⑤ (hct_raw_response ->> 'at')::timestamptz < now() - interval '<N> minutes'
+```
+🔴 **改 0 列時要 `RAISE`, 不可以安靜地回成功** —— 「條件不成立」與「做完了」在呼叫端**必須不同**。
+🔵 **舊的 `hct_raw_response` 整個塞進 `previous` 鍵** ⇒ 那是 rollback 的依據(runbook 已驗過這個形狀)。
+**同一個交易裡寫 `admin_audit_log`**(欄位是查過的:`actor` `action` `target` `before` `after` `reason` `request_id` `source_app`):
+```
+action  = 'shipment.hct.reset_unknown_to_draft'
+target  = 'shipment:<reference>'
+before  = 那一列的 hct_* 三欄
+after   = 同上, 改後
+reason  = p_attestation      ← 🔴 那句證詞住這裡, 而它是【內部原因】欄的正確用途
+```
+🛑 **收權**:`REVOKE ALL FROM PUBLIC, anon, authenticated`, 只給 `service_role`。
+🛑 **`SECURITY DEFINER` + `SET search_path`**;而**新物件出生自帶 anon 權限**, 所以那兩道 REVOKE 一個都不能少。
+
+### ② UI —— 那顆鈕
+放在**已經有紅字提示的那個元件**(`shipment-hct-unknown-notice.tsx`, 2026-09-05 早上做的)。
+```
+🔴 它【不是】一顆「重送」鈕 —— 文案要寫成「我已向新竹確認【沒有】這張單, 放回草稿」
+🔴 按下去要先跳一個【要打字】的確認, 而打的內容就是 p_attestation
+   ⇒ 📌 一個「打勾同意」擋不住習慣性點擊, 一個「要打字」擋得住
+⚠️ 而甲型/乙型在畫面上長得一樣 ⇒ **乙型那顆鈕【不要出現】**(不是 disabled, 是不存在)
+   ⇒ 因為 disabled 的鈕會讓人去找「怎麼把它變成可按」
+```
+
+### ③ 測試(而它是這一片會不會變成假綠的地方)
+```
+DB 層  五道閘各一發【負對照】:每一道單獨不成立 ⇒ 必須改 0 列且 RAISE
+       🔴 而那五發要【各自】跑, 不可以一發五個條件都錯 —— 那樣一道閘壞掉也全紅
+       正對照:五個條件都成立 ⇒ 改 1 列, 而 audit 也多 1 列(兩個數一起比)
+TS 層  乙型不得出現那顆鈕(拿一筆沒有 placeholder 的 fixture 餵進去 ⇒ 元件不含那個字面)
+       🔴 突變:把「只在甲型顯示」那個判斷拿掉 ⇒ 這一格要紅
+```
+
+---
+
+## 2. 🛑 我沒做 / 沒查(照實)
 
 ```
-按「查新竹」 → queryEdelno(epino)
-   查到貨號   ⇒ 它其實送成功了 ⇒ 補寫 submitted。不給重設。
-   查無此單   ⇒ 證明沒送出去 ⇒ 這時才亮出「重設為草稿」
-   查不動     ⇒ 什麼都不亮(見下)
+1  N 分鐘那個門檻【沒有來源】—— runbook 用 15 分, 理由只是「比一次 HTTP 逾時久」
+   ⚠️ 它是【前置閘】不是判準, 擋的是「剛按下去還在跑」那一種
+2  乙型整個不做 —— 等 Q-新竹傳輸方式
+3  🔴 這一片沒有辦法在【真的卡住的箱】上演練 —— 今天暴露 = 0(HCT_SUBMIT_ENABLED 沒設)
+   ⇒ 它與 runbook 同一個限制:【讀起來對】不是【跑過對】
+4  取消那條路(新竹那支 TransDataCancel_Json)與本片【無關】—— 本片處理的是
+   「我們以為送了而其實沒送」, 不是「送成功了要收回」。不要把兩件混成一件。
+5  🔴 `admin_audit_log` 的 `actor` 今天是【首頁 picker 自己選的, 零驗證】
+   ⇒ 稽核記得下「誰按的」, 而**那個「誰」本身沒有被驗過** —— 這是既有缺口, 本片不修, 但要知道
 ```
-🔴 **`HCT_QUERY_ENABLED` 關著 ⇒ 查不動 ⇒ 我們證明不了它沒送出去 ⇒ 【不得提供重設】。**
-⇒ 📌 **一個在「查不動」時還亮著的重設鈕,就是那個佔位列本來要擋的那個洞。**
 
-## 2. 畫面(出貨單頁,`hct_status = 'unknown'` 那一箱)
-
-- 常駐一句:**「送出結果未知 —— 不要重送,先查新竹」**(紅字,不是灰字)
-- 一顆「**查新竹**」:`HCT_QUERY_ENABLED` 關著時**灰掉並寫明原因**,不消失
-  ⚠️ 而**灰掉這次要真的做**:與送出那顆不同,查詢是唯讀的
-  ⇒ 可以在 server 先問一次閘,不必等按下去。**上一片那個「說了沒做」不要再來一次。**
-- 查完才可能出現的「**重設為草稿**」:二次確認,文案寫**後果**不是動作
-  ⇒ 「確定新竹那邊查無這張單?按下去之後這箱會變回可送,**送錯就是兩箱**」
-
-## 3. DB 那半(**本 plan 不建,列規格**)
-
-`admin_record_hct_submit` 的 `p_status` 值域是 `submitted|failed|unknown`
-⇒ 📌 **它結構上寫不出 `draft`** —— 這不是漏掉,是它被設計成只往前走。
-需要一支**新的**:
-
+## 3. 前置與順序
 ```
-admin_reset_hct_to_draft(p_shipment_reference text, p_actor text, p_evidence jsonb)
-  · 只在 hct_status = 'unknown' 時動;其餘一律 RAISE(尤其 submitted)
-  · p_evidence 必填且必須含那次查詢的回應 —— 沒有證據不准重設
-  · hct_request_id 要一起清掉, 否則 write-once trigger 會擋住下一次真的送出
-  · 寫一列稽核(誰、何時、憑什麼)—— 它是在推翻一個保護, 留痕不是選配
+本片【不需要】等新竹                    ✅ 甲型不依賴他們的回應格式
+本片【必須】排在「開 HCT_SUBMIT_ENABLED」之前  🔴 開關開了就可能卡箱, 而那時沒有出口
+估時  migration 60 分 · UI 40 分 · 測試 50 分 ⇒ 🔴 遠超鐵則 4 的 45 分 ⇒ 要拆三片
+rollback  純新增(新函式 + 新鈕)⇒ revert 即可;而 migration 是不可變歷史 ⇒ 改它要再開一支
 ```
-🛑 **而 `hct_request_id` write-once 那一條要先確認**:它擋不擋寫成 `NULL`?
-⇒ 這一格**我還沒查**,寫 migration 之前要先讀 `20260904170000:81` 那支 trigger。
-
-## 4. 測試分母
-
-- action:查到貨號 / 查無 / 查不動(閘關)/ 非 unknown 狀態按了 —— 各一格
-- 🔴 **負對照**:`HCT_QUERY_ENABLED` 關著時,**重設那條路徑必須不可達**(不是「鈕是灰的」,
-  是 **server action 拒絕**)—— 前端灰掉擋不住有人直接呼叫 action
-- 🔴 **突變**:把「只在 unknown 時動」那個條件拿掉 ⇒ 必須有測試紅
-- 既有必須仍綠:`hct-client` / `hct-submit-flow` / `hct-submit-action` / `shipment-section`
-
-## 5. Rollback
-
-1. `git revert`(UI 半)—— 那一半沒有 DB 副作用。
-2. 🛑 **已經被重設過的箱回不去**:它已經變成 draft、`hct_request_id` 已清
-   ⇒ **revert 不會把它變回 unknown**,而稽核那一列是唯一的紀錄。
-
-## 6. 影響面 / 要動的檔
-
-```
-新增  components/orders/shipment-hct-unknown-panel.tsx   (+ .test.tsx)
-改    lib/shipping/shipment-actions.ts                   (+2 個 action)
-改    components/orders/shipment-section.tsx             (掛上去 + 那一句話)
-改    lib/shipping/shipment-repository.ts                (讀 hct_status 給畫面)
-```
-⇒ **四檔(不含測試)⇒ 鐵則 8 成立 ⇒ 等批。** 估時 **40-55 分**。
-⚠️ 最後那一檔要小心:`hct_status` **不得**加進 `SHIPMENT_ROW_SELECT`(它同時餵顧客站那條路)
-⇒ 沿用上一片的做法:**另開一支窄讀取**。
-
-## 7. 這份 plan 答不出來的
-
-· ⛔ ~~**今天有幾箱卡在 unknown?** —— 我沒查~~ ⇒ 🟢 **2026-09-05 查了:0 箱。**
-  🔴 **而這個 0 的分母是 2,那句一定要跟著走**:整張 `shipments` **只有 2 箱、兩箱都是 `draft`**
-  ⇒ 📌 **那不是「unknown 都被處理掉了」,是【這張表幾乎沒有資料】。**
-  ⇒ 🎯 **「0/2」與「0/500」是完全不同的結論,而它們都印 0。**
-  🟢 尺是活的(不是連錯庫或被 RLS 少報):`current_user = pcm_readonly` 且 `bypassrls = t`;
-  同一把 `count` 尺量到 `orders 1 · order_items 1 · customers 15 · shipments 2`。
-  ⚠️ **明天灌了資料要重跑**:
-  `psql "$PCM_READONLY_DATABASE_URL" -c "SELECT COALESCE(hct_status,'(NULL)'), count(*) FROM public.shipments GROUP BY 1"`
-  🔵 來源:線 `-d0` 唯讀量測(`-94` 派),**而我自己重跑過一次,逐格相同** ——
-  📌 **因為這個數字要寫進一份 Sean 會拿去拍板的 plan,而轉述來的值在那裡不夠。**
-  ⇒ **它改變的是急迫性,不是設計。** 今天 0 箱 ⇒ 這一片**可以排在放 env 之前做完就好**,不必插隊。
-· `hct_request_id` 的 write-once trigger 對 `NULL` 的行為(見 §3)。

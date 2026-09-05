@@ -70,6 +70,9 @@ const ONE_ORDER = {
       paymentStatus: 'paid' as const,
       fulfillmentStatus: 'pending' as const,
       total: { amount: 1000, currency: 'TWD' as const },
+      // 🔵 稅欄(Sean 2026-09-05 第 6 題)—— 這一族 fixture 走 `as unknown as`,
+      //    型別看不到缺欄, 而執行期會 `Cannot read properties of undefined`。
+      taxTotal: { amount: 0, currency: 'TWD' as const },
       orderSource: 'storefront' as const,
       paymentChannel: 'tappay' as const,
       tierAtCheckout: null,

@@ -77,6 +77,16 @@ const TARGETS = [
    *    當合理性下界:不是正整數 ⇒ 走 Unknown)。
    */
   { fn: 'get_privileged_role_bypassrls_state', varName: 'br', pin: 3 },
+  /**
+   * ⟦b4-RETRYGAVEUPNOWATCHER⟧(2026-09-05, 線 `-db`)。
+   * 🔵 **分堆是開檔看的**:adapter 對缺鍵走 `guWellTyped === false` ⇒ 落
+   *    `settleRetryGaveUpUnknown`, **它不 throw** ⇒ 依本檔判準屬 **fail-soft** ⇒ 進 TARGETS。
+   * 🔴 而這道閘**又一次在我加 RPC 的那一刻把我叫過來** —— 而我這次是【先被它擋下】才登記的,
+   *    不是登記完才跑。📌 那個順序差別就是「守門有沒有用」本身。
+   * 🔵 `pin: 4` = SQL 回的 key 數(gave_up_count / oldest_gave_up / sample_order_ids / tracked_total),
+   *    而 TS 四個都讀 —— 沒有「回了而沒有人看」的欄位。
+   */
+  { fn: 'get_settle_retry_gaveup_health', varName: 'gu', pin: 4 },
 ] as const;
 
 /** SQL 的行註解(`--`)在**每一把尺之前**先剝掉。
@@ -533,7 +543,16 @@ describe('result 的 *Unknown / *Failed 欄位, route 一定要讀', () => {
       //   (⟦b9-ACLDRIFT5⟧ 片三), 而 dev 上那 16 欄是別的線各自加的。
       //   ✅ **照上面那句規矩跑了那一發**:17 欄逐欄比對 route.ts ⇒ **route 沒讀的是 0**。
       //   📌 而這是這道閘第二次在 merge 那一刻把人叫過來 —— **它的職責就是這個**。
-    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(17);
+      // 🔴 **17 ⇒ 18(2026-09-05, 第三次;而這一次【是我自己的欄位】)**:`-db` 加了
+      //   `settleRetryGaveUpUnknown`(⟦b4-RETRYGAVEUPNOWATCHER⟧ TS 那半), dev 上是 17。
+      //   ✅ **照上面那句規矩跑了那一發** —— 用【這道閘自己的抽取式】(不是我另寫一把)
+      //     列出 18 欄逐欄比 route.ts(剝註解後)⇒ **新那欄 route 讀了**;
+      //     唯一 0 命中的是 `notifiersFailed`, 而它**走 `errors` 別名**(16⇒17 那次就記過)。
+      //   🛑 **我差點用【自己寫的正則】去驗這道閘** —— 我第一發抓 `\w+(Unknown|Failed)` 從
+      //     `anomaly-alert.ts` 撈, 得到 **11 欄**, 而閘讀的是 `check-anomaly-alerts.ts` 的
+      //     `CheckAnomalyAlertsResult` 型別區塊 ⇒ **11 與 18 是兩把尺量兩個東西**。
+      //     📌 **驗一道閘要用它自己的尺** —— 拿手邊那把去量, 會得到一個看起來很合理而無關的數字。
+    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(18);
 
     /**
      * 🔴 **剝掉註解再比**(R4 must-fix 級 consider)——

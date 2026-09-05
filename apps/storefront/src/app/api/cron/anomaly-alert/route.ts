@@ -488,6 +488,22 @@ export async function GET(request: Request): Promise<Response> {
        *    而我根本沒量到**。那正是本片存在的理由的反面。
        * 🔵 而它不會變成信:`aclDriftUnknown` 時 `aclDriftDetected` 是 `false` ⇒ 進不了 `shouldAlert`。
        */
+      /**
+       * ⟦b4-RETRYGAVEUPNOWATCHER⟧:被放棄的匯款單那一格「量不到」。
+       * 🔴 `settleRetryGaveUpCount > 0` 不在這裡 —— 它進 `shouldAlert`, 走 LINE + Email。
+       *    這一格處理的是:那支 RPC 還沒 apply、或讀失敗。
+       * 🛑 而它為什麼 503 不是靜靜回 200:回 200 等於宣稱「今天沒有修不好的單」——
+       *    而我根本沒量到。那些人已經匯了錢。
+       */
+      if (result.settleRetryGaveUpUnknown) {
+        console.error(
+          '[anomaly-alert] 🔵 get_settle_retry_gaveup_health 讀不到 ⇒ 那一格是【查不到】不是【零張】',
+          { ...result },
+        );
+        await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+        return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+      }
+
       if (result.aclDriftUnknown) {
         console.error(
           '[anomaly-alert] 🔵 pcm_acl_drift_status 讀不到或太舊 ⇒ 權限漂移今天是【查不到】不是【沒有漂移】',
