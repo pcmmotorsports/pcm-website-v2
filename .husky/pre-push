@@ -98,7 +98,19 @@ cat > "$_T" || { echo '🔴 pre-push:讀不進 git 餵的 ref(stdin)⇒ 擋下,�
 #    ⇒ 現行做法 = **人的規矩**, 不是機制:動 migration 交件前自己跑一發。
 #      正本在 `docs/patterns/slice-checkpoint.md` 鐵則 11 那節。
 #    🛑 **而「規矩不如機制」這件事我們記過** ⇒ 這是一筆**明知較弱而選了它**的取捨, 不是疏漏。
-TURBO_FORCE=1 pnpm typecheck && TURBO_FORCE=1 pnpm lint && bash "$_R/scripts/deploy-order-gate.sh" < "$_T" && sh "$_R/scripts/migration-ledger-divergence.sh" --if-pushing-main < "$_T" && bash "$_R/scripts/selftest-git-isolation-gate.sh" < /dev/null || exit $?
+# 🔴 裸 SQL 部署時序 gate(第 5 支;主視窗 -f8 2026-09-06 裁【乙】,不推翻 -48 的明令)
+#    `deploy-order-gate.sh` 的偵測窗口錨在 `.rpc(` 那一行 + 後兩行
+#    ⇒ 一支用 `client.query('SELECT public.X()')` 呼叫新 RPC 的碼,它**一個字都看不到**
+#      (板列 `⟦b9-RPCBLIND1⟧`:那種形狀引到的函式 52 支,對那道閘隱形的 40 支,
+#       出貨碼真的有呼叫點的 25 支 —— **幾乎全在 `packages/adapters/src/payment/`**)。
+#    🛑 **-48 的明令沒有被繞過**:那句話擋的是【改 deploy-order-gate.sh】,理由是它的
+#       爆炸半徑 = 所有人的 push。本支是**另一支檔、另一道閘**,那道閘一行都沒動。
+#    🔵 **射程刻意與它對齊**(不是抄,是為了讓收到紅的人不用學第二種讀法):
+#       只看 `refs/heads/dev` / `refs/heads/main`、只看**這次要推的範圍**改到的出貨檔、
+#       判準讀**要推的那顆的樹**、git 失敗一律 fail-closed。
+#    ⚠️ 它與 deploy-order-gate **不重疊也不取代** —— 那道看 `.rpc(`,本支看裸 SQL
+#       ⇒ **兩支都跑過才等於兩種形狀都看過。**
+TURBO_FORCE=1 pnpm typecheck && TURBO_FORCE=1 pnpm lint && bash "$_R/scripts/deploy-order-gate.sh" < "$_T" && python3 "$_R/scripts/rpc-raw-sql-callers.py" --gate < "$_T" && sh "$_R/scripts/migration-ledger-divergence.sh" --if-pushing-main < "$_T" && bash "$_R/scripts/selftest-git-isolation-gate.sh" < /dev/null || exit $?
 
 # 🔴 常載檔字元數閘 —— 這裡是【第二道】, 而它擋的是 pre-commit 摸不到的路徑
 #    (2026-09-02 codex R3 指出):`.husky/always-loaded-size-gate.sh` 只接 pre-commit,
