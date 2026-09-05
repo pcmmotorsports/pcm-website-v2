@@ -116,6 +116,17 @@ function stripSqlComments(src: string): string {
  * **也就是那個「讓原本『單一寫入者』前提消失」的第二個寫入者**。
  */
 const ALLOWLIST = [
+  // ── 2026-09-05 線【客人帳戶區】`-account` 補(⟦b4-PRICECOPYTAX⟧ 片二;**作者就是我**;
+  //    鐵則 8 已批(Sean 拍甲)+ 12①③ 的 codex 一輪已跑、FAIL 5 must-fix + 6 nit 全折)──
+  // 🔴 **它【真的是】寫入者, 不是誤報** —— 本檔重定義 `admin_create_manual_order`,
+  //    而那支函式的 `INSERT INTO public.orders (…)` 就寫 `subtotal` / `total`。
+  //    ⇒ 📌 **所以這一筆不是「解釋為什麼不算」, 是「登記一個真的寫入者」。**
+  // ✅ 而它改變寫入值域的方式寫在這裡, 給下一個讀這張表的人:
+  //    · `subtotal` 的**語意變了**:第 6 代之後手動單的 `subtotal` 是**未稅**(以前含稅)
+  //    · 新欄 `orders.price_tax_mode` 說得出來是哪一種('inclusive' / 'exclusive')
+  //    · `tax_total` 從**寫死的 0** 變成 `ROUND(稅基::numeric × 0.05)`
+  //    🛑 **拿 `subtotal` 反推稅、或拿 `unit_price` 比價的人, 從這一版起必須先看 `price_tax_mode`。**
+  '20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql',
   // ── 2026-09-02 線 `-5b` 補(兩支都【不寫那三欄】—— 命中的是它們的後置斷言)──────
   // 🔴 命中原因逐字:`WRITER_RE` 的第二個分支是 `INSERT INTO public."?(orders|order_items)"?`
   //    —— 而這兩支的**後置斷言**要造一張測試訂單才跑得起來 ⇒ `INSERT INTO public.orders(id)`。
@@ -432,6 +443,29 @@ const ALLOWLIST = [
   //      這支 migration 是新的寫入者、而沒有人登記它。
   //      ⚠️ 而我當初沒看到, 是因為**我挑的測試分母沒有涵蓋這支檔**(我餵三支自己選的)。
   '20260904251500_m4b_invoice5pct_manual_order_invoice_requested.sql',
+
+  // 🔴🔴 `20260905130000`(2026-09-05 登錄, 線【帳號】`⟦f3-MAILFALLBACKVSRULING⟧` 片 D)——
+  //    `admin_create_manual_order` 的**第⑤代**。⚠️ **它與前四代不同:是 `DROP` + 裸 `CREATE`**
+  //    (加第 11 參 ⇒ 簽章變了 ⇒ `CREATE OR REPLACE` 會多建一支多載, 不是取代)。
+  //
+  //    ✅ **它為什麼有資格寫那幾欄 —— 而這次是【量出來的】, 不是宣稱**:
+  //      機械比對兩代的寫入語句(剝註解後抓 `INSERT INTO public.orders|order_items` 兩段):
+  //        · **段 1** 差 **6 行**, 而那 6 行**全部是同一件事**:欄位清單尾端加 `notification_email`、
+  //          VALUES 尾端加 `v_notification_email`(前一行各補一個逗號)。
+  //        · **段 2**(`order_items`)**逐字相同**。
+  //      ⇒ 🔴 **`subtotal` / `line_total` / `total` 三欄的算法一個字元都沒動。**
+  //
+  //    🛑 **而這道閘【判不出】上面那件事**(同前一項的已知限制:它比對的是「有沒有寫」,
+  //      不是「寫的值對不對」)⇒ 📌 **登記它的理由必須是我量過的東西, 不能是「我改的地方跟金額無關」。**
+  //
+  //    🔬 **「這把比對尺會動」的證據 —— 而我第一發負對照【自己是空的】, 逐字記下來**:
+  //      ⛔ ~~我原本寫「把段 2 換成第③代的版本 ⇒ 立刻印出差異行」~~
+  //      —— **真的跑了一次, 結果是 0 行**:`order_items` 那段 INSERT **從第③代到第⑤代一個字沒變**
+  //      ⇒ 🛑 **那個對照組不是「壞形狀」, 它是另一份一模一樣的東西** ⇒ **零判別力**。
+  //      ✅ **真正證明尺會動的是段 1**:同一把尺對 gen4 vs gen5 的段 1 印出 **6 行差異**
+  //        (那正是我加的那一欄)⇒ 尺在「有差異」時會說有 ⇒ 段 2 的 0 是一個真的 0。
+  //      📌 **⇒ 我差一點把一句沒跑過的話寫成證據, 而它讀起來比真的那句更嚴謹。**
+  '20260905130000_m4b_mailfallback_manual_order_notification_email.sql',
 ] as const;
 
 function scanWriters(dir: string): string[] {

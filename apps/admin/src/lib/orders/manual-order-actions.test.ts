@@ -66,6 +66,7 @@ import {
   MANUAL_ORDER_SHIP_TO_PHONE_FIELD,
   MANUAL_ORDER_SOURCE_FIELD,
   MANUAL_ORDER_INVOICE_REQUESTED_FIELD,
+  MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD,
   MANUAL_ORDER_INVOICE_TYPE_FIELD,
 } from './manual-order-form';
 
@@ -181,6 +182,8 @@ function base(over: Array<[string, string]> = []): FormData {
     //       ⇒ 下一個改 `parseManualOrderForm` 拒絕條件的人:**這裡也要一起改。**
     // 🔵 值用 `'off'` 不是 `'on'` —— 表單那邊的 hidden 預設就是 `off`(沒勾), 而勾了才多一個 `on`。
     [MANUAL_ORDER_INVOICE_REQUESTED_FIELD, 'off'],
+    // 🔵 留白 = 不寄(片 E)。缺欄會被解析端當錯 ⇒ fixture 一定要帶這一格。
+    [MANUAL_ORDER_NOTIFICATION_EMAIL_FIELD, ''],
     ...LINE_ROWS,
   ];
   for (const [k, v] of [...rows, ...over]) fd.append(k, v);

@@ -1,5 +1,8 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十四個函式、共三十五處**手動校正,
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十五個函式、共三十六處**手動校正,
+//    🔴 **2026-09-06 合併 `agent/line-ship` 與 `agent/line-ship-5b-sentnum` 時重新編號** ——
+//      兩條分支各自加了一條(⑱ 與 ⑲), 而**它們在各自的樹上都看不到對方** ⇒ 數字各算各的。
+//      ⇒ 📌 那正是 ⑲ 自己註解裡預言的那一撞:「合併這兩條分支的人請重新編一次號。」
 //    ⚠️ **「函式」這兩個字今天已經【不精確】** —— ⑲ 補的是 `email_outbox` 的一個**欄位**, 不是函式
 //      (codex 2026-09-05 R1 nit 指出)。**而我刻意不改這兩個字**:
 //      `database-types-manual-count.test.ts:55` 的正規式逐字釘著 `本體另有\*\*(.+?)個函式、共`
@@ -90,6 +93,30 @@
 //      ⇒ 不補這一支, `.rpc('admin_record_hct_submit', …)` 會 typecheck 紅, 而繞過它的
 //      `as never` / `@ts-expect-error` **會把整個參數形狀的檢查一起關掉**。
 //      ⚠️ 重 gen 之後它應該自己產得出來 ⇒ 屆時本條可退場(與 ⑮ 同款)。
+//   ⑱ `admin_hct_reset_unknown_to_draft` **整段**〔主migration=20260905320000〕〔正式庫查過=2026-09-05〕(2026-09-05 線 -ship;⟦ship-HCTUNKNOWNSTUCK⟧ 片 B)——
+//      ⛔ ~~**本支的 migration 未 apply** —— 今天才寫。~~
+//      🟢🟢 **2026-09-05 晚:本支【已 apply】—— Sean 本人貼(貼板 30 號)。**
+//         🔵 「已 apply」這四個字是 `database-types-apply-state.test.ts:88` 的 `CLAIM_APPLIED` 字集裡的措辭 ——
+//         📌 **不是我自己挑的說法**:那支守門只認字集內的字, 而**我第一版寫「貼了」它讀不出來**
+//         ⇒ 它印「沒有本檔認得的 apply 措辭」而不是印綠 ⇒ 🎯 **一道只認字集的閘, 它的拒絕也是誠實的。**
+//         🔬 `-ship` 貼後唯讀複驗十格:函式數 **1**
+//         (🟢 正對照 `admin_record_hct_submit` **1** · 🔴 負對照 `zzz_this_never_exists` **0**)
+//         · `anon` **f** / `authenticated` **f** / `service_role` **t**
+//         (🟢 正對照 owner `postgres` **t**)· `prosecdef` **t** · `proconfig` **search_path=""**。
+//         帳本:`supabase/APPLIED.tsv` 已記一列(2026-09-05)。
+//      🔴 **舊句留痕不刪** —— `database-types-apply-state.test.ts` 逐字要求「把那句話改寫成事實
+//         (舊句留痕、不刪)」⇒ 📌 **而那正是它今天抓到我的那一格**:
+//         我記了帳本而沒改這裡, 而**兩份自陳的帳對不上時, 只有它看得到**。
+//      🔴🔴 **它與 ⑰ 不同族** —— 而**兩邊的狀態不寫在同一句**(那支守門會判歧義, 它抓得對):
+//        ⑰ 那一條自己講它的狀態, 本條只講本條的。**兩種宣稱混在一句裡, 讀的人不知道在講哪一支。**
+//      ⇒ 📌 **這一段宣告在說一件【還沒成真】的事** —— 它讓片 B 的接線寫得下去,
+//        而**接線寫得下去不代表那支函式在正式庫存在**。
+//      ⇒ ⇒ 🔴 **貼進正式庫之前, 那顆鈕按下去會回 `function does not exist`** ——
+//        ⛔ ~~那是預期的, 是片 C 之前的正常狀態, **不是一個要去修的 bug**~~
+//        🔴 **2026-09-05 訂正(`deploy-order-gate` 擋下第 26 批 push 之後)**:
+//        ✅ **本機開發時**那是預期的;而**在正式站它是一顆按下去回 `PGRST202` 的鈕**, 而**員工不知道那是什麼** ⇒ 📌 **所以這一片【不得先於 `20260905320000` 上線】**。
+//      ⚠️ 而它讓「typecheck 綠」與「那支函式存在」**分家了** ——
+//        📌 這正是本檔這一整族註解存在的理由:一個手寫的型別宣告, 是一個【沒有人在驗的斷言】。
 //   ⑲ `email_outbox` 的兩個新欄 **六處**(`sent_tracking_number` 與 `sent_tracking_recorded` 各佔 Row / Insert / Update)〔主migration=20260905200000〕〔APPLIED.tsv 無此列〕(2026-09-05 線 -ship;⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 片 B-1)——
 //      🛑 **本支的 migration 未 apply** —— 它今天才寫, 而**本片仍 hold**。
 //      🔴 **所以這一段宣告在說一件【還沒成真】的事**:它讓 `markSent` 那一發 update 寫得下去,
@@ -3931,6 +3958,26 @@ export type Database = {
           p_tracking_number?: string
         }
         Returns: Json
+      }
+      admin_hct_reset_unknown_to_draft: {
+        // 🔴🔴 **手動補一支(⑱)—— 而它與 ⑰ 不同族, 要分開講。**
+        //   ⑰ 是「已在正式庫而本檔沒重 gen」;
+        //   🛑 **本支的 migration(`20260905320000`)【還沒 apply】** —— 它今天才寫,
+        //     `supabase/APPLIED.tsv` 裡沒有它。
+        //   ⇒ 📌 **所以這一段宣告在說一件【還沒成真】的事** —— 它讓片 B 的接線寫得下去,
+        //     而**接線寫得下去不代表那支函式在正式庫存在**。
+        //   ⇒ ⇒ 🔴 **貼進正式庫之前, 那顆鈕按下去會回 `function does not exist`。**
+        //     ⛔ ~~那是預期的, 而它是片 C 之前的正常狀態~~ ⇒ 🔴 **2026-09-05 訂正**:
+        //     **本機開發時**那是預期的;而**在正式站它是一顆按下去回 `PGRST202` 的鈕**, 而**員工不知道那是什麼** ⇒ 📌 **所以這一片【不得先於 `20260905320000` 上線】**。
+        //   ⚠️ 繞過它的方法(`as never` / `@ts-expect-error`)會把**整個參數形狀的檢查一起關掉**
+        //     ⇒ 那才是真正的代價, 而不是多打這幾行。
+        Args: {
+          p_actor: string
+          p_attestation: string
+          p_request_id: string
+          p_shipment_reference: string
+        }
+        Returns: undefined
       }
       admin_record_hct_submit: {
         // 🔴🔴 **手動補一支(⑰)—— 而它不是「校正」, 是【生成器沒產出來】。**

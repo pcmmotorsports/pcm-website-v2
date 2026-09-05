@@ -228,7 +228,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
       '',
       '您的訂單 PCM-2026-0001 已付款成功。',
       // 🟢 **2026-09-02 20:5x:期望值跟著改 —— 而這一次【有依據】, 與今天下午那次不同。**
-      //    ⛔ ~~'我們將盡快為您安排出貨;訂單明細與最新狀態請至 PCM 會員中心查看。'~~
+      //    ⛔ ~~'我們將盡快為您安排出貨;若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。'~~
       //    🔴 **今天下午我也改過這一格, 而兩個審查者都判 must-fix ⇒ 我撤回了** ——
       //      當時那句話只出現在【我自己的提案】裡, 零依據。
       //    ✅ **而這一次依據是稿**:OD `pcm-524f/email-order-paid-A.html`(sha256 `43d40270781b0eb3…`,
@@ -256,7 +256,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
       //       那是絆線(`order-hidden-rule.ts` 逐字:副本在測試裡 = 絆線;在 production 裡 = 會漂的第二份真相)。
       '我們會盡快為您安排出貨，出貨後會再寄一封通知給您。',
       '',
-      '訂單明細與最新狀態請至 PCM 會員中心查看。',
+      '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。',
       // 🔴🔴 **2026-09-03:這一格【又重設了一次】,而這一次的授權是 Sean 本人勾的 A1/A2/A4。**
       //    ⛔ ~~原本這裡直接接 `'', 'PCM重機零件販售'` 就結束~~
       //    **他勾的是**(`~/pcm-mailbox/清單-信件文案要改什麼-20260903.md` A 區):
@@ -897,7 +897,7 @@ describe('sweepEmailOutbox — 🔴 order_shipped 模板(Sean 2026-08-30 `q3: C`
         '',
         '這張訂單可能分批出貨,其餘商品出貨時會另外通知您。',
         '',
-        '訂單明細與最新狀態請至 PCM 會員中心查看。',
+        '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。',
         '',
         'PCM重機零件販售',
       ].join('\n'),
@@ -924,7 +924,7 @@ describe('sweepEmailOutbox — 🔴 order_shipped 模板(Sean 2026-08-30 `q3: C`
         '',
         '這張訂單可能分批出貨,其餘商品出貨時會另外通知您。',
         '',
-        '訂單明細與最新狀態請至 PCM 會員中心查看。',
+        '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。',
         '',
         'PCM重機零件販售',
       ].join('\n'),
@@ -1285,7 +1285,7 @@ describe('order_cancelled —— 刷卡且已全額退款的取消信(Q10)', () 
         '您支付的款項已全額退回原付款方式。',
         '退款金額  NT$ 12,800',
         '',
-        '訂單明細與最新狀態請至 PCM 會員中心查看。',
+        '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。',
         'https://shop.pcmmotorsports.com/account/orders/PCM-2026-0142',
         '',
         '有任何問題，加入官方 LINE @pcmmoto',
@@ -1470,7 +1470,7 @@ describe('付款信【兩份】都要拿得到金額與品項(A1;而這一族的
     // ✅ 而【信照寄】—— 不是 fail-closed 到不寄, 客人仍拿得到訂單編號與會員中心那句
     expect(sender.send).toHaveBeenCalledTimes(1);
     expect(text).toContain('您的訂單 PCM-2026-0001 已付款成功。');
-    expect(text).toContain('訂單明細與最新狀態請至 PCM 會員中心查看。');
+    expect(text).toContain('若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。');
   });
 
   it('🟢 反向世界:沒注入 paidContext ⇒ 明細那段【不印】(而聯絡資訊照印)', async () => {
@@ -1484,7 +1484,7 @@ describe('付款信【兩份】都要拿得到金額與品項(A1;而這一族的
     expect(text.split('\n')).not.toContain('訂單明細');
     expect(text).not.toContain('訂單金額');
     // 🟢 而收尾那句仍在 ⇒ 證明上面那條紅的是【明細那段】, 不是整封信空了
-    expect(text).toContain('訂單明細與最新狀態請至 PCM 會員中心查看。');
+    expect(text).toContain('若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。');
     // 而 A2 與有沒有明細無關 ⇒ 照印
     expect(text).toContain('@pcmmoto');
     expect(text).toContain('派達有限公司');
@@ -1499,7 +1499,7 @@ describe('付款信【兩份】都要拿得到金額與品項(A1;而這一族的
       noSite,
     );
     const input = (sender.send.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
-    expect(String(input.text)).toContain('請至 PCM 會員中心查看');
+    expect(String(input.text)).toContain('可至會員中心查看');
     expect(String(input.text)).not.toContain('/account/orders/');
     // html 那半的按鈕也整塊不印
     expect(String(input.html)).not.toContain('到會員中心查看訂單');
@@ -1819,7 +1819,7 @@ describe('sweepEmailOutbox — ⟦取消信-模板⟧ order_unpaid_cancelled', (
         '',
         '這張訂單尚未付款，不會有任何款項產生。',
         '',
-        '訂單明細與最新狀態請至 PCM 會員中心查看。',
+        '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。',
         '',
         'PCM重機零件販售',
       ].join('\n'),
@@ -1905,7 +1905,7 @@ describe('sweepEmailOutbox — ⟦取消信-模板⟧ order_unpaid_cancelled', (
         '',
         '這張訂單尚未付款，不會有任何款項產生。',
         '',
-        '訂單明細與最新狀態請至 PCM 會員中心查看。',
+        '若您有 PCM 會員帳號，訂單明細與最新狀態可至會員中心查看。',
         '',
         'PCM重機零件販售',
       ].join('\n'),

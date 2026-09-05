@@ -63,3 +63,43 @@ export const PCM_REMITTANCE_MEMO_INSTRUCTION = '匯款備註請填寫訂單編�
  * ⇒ 📌 **一個「單一來源」做不到的地方, 退而求其次的不是「小心一點」, 是一道會叫的閘。**
  */
 export const PCM_REMITTANCE_EXPIRE_DAYS = 5;
+
+/**
+ * 匯款期限的**那一天**(Sean 2026-09-05 第 3 題拍**甲** —— 逐字「改成直接寫日期」)。
+ *
+ * 🔴🔴 **起算點是 `orders.created_at`, 而那是【量到的】不是猜的**:
+ *   cron 的條件逐字是 `o.created_at < now() - interval '5 days'`
+ *   (`20260904230000_m4b_noncardpaid_settle_and_expire_leg.sql:451-455`)。
+ *   ⇒ 📌 **所以「還剩幾天」的分母是下單那一刻, 不是付款、不是最後一次改單。**
+ *
+ * 🛑 **邊界要講清楚, 因為它決定客人會不會白跑一趟**:
+ *   cron 是 `created_at < now() - 5 days` ⇒ **第 5 天當天還沒到期**, 第 6 天才會被掃到。
+ *   ⇒ ✅ 所以「請於 X 前完成匯款」的 X = `created_at + 5 天`那一天,
+ *     而那一天**當天仍然有效**(⇒ 文案用「**X(含)之前**」, 不用「X 之前」)。
+ *   ⚠️ **而 cron 幾點跑不是我們控制的** ⇒ 那一天的**深夜**仍有風險。
+ *     ⇒ 🔴 **這一格不寫進文案**(叫客人「早一點匯」是廢話), 但**寫在這裡給下一個人**。
+ *
+ * 🔴 **時區**:cron 跑在 DB(UTC),而客人看的是台灣時間。
+ *   ⇒ 本函式用 `Asia/Taipei` 算那一天的日期字串 —— **顯示的是客人的日曆日**。
+ *   ⚠️ **代價明寫**:UTC 與台北差 8 小時 ⇒ 極端情況下畫面上那一天與 cron 實際掃到的時刻
+ *     可能差不到一天。**往【對客人寬】的方向偏**(畫面上的日期不會比實際到期早)。
+ *
+ * @param createdAtIso 下單時間(ISO 8601)。**不合法就回 `null`** —— 🔴 **算錯的日期比不算糟**:
+ *   客人照著一個錯的日期去匯款, 錢到了而單子已經被取消。呼叫端拿到 `null` 要退回「N 天內」那句。
+ */
+export function remittanceDeadlineLabel(createdAtIso: string): string | null {
+  const t = Date.parse(createdAtIso);
+  if (!Number.isFinite(t)) return null;
+  const due = new Date(t + PCM_REMITTANCE_EXPIRE_DAYS * 24 * 60 * 60 * 1000);
+  // 🔵 用 `en-CA` 拿 `YYYY-MM-DD` 形狀, 再自己排版成中文 —— 不依賴 locale 的中文格式
+  //    (那會隨執行環境變, 而測試與正式站的環境不同)。
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(due);
+  const [, m, d] = parts.split('-');
+  if (m === undefined || d === undefined) return null;
+  return `${Number(m)} 月 ${Number(d)} 日`;
+}

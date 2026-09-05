@@ -13,7 +13,19 @@
 # ✅ **2026-08-27 訂正:上面劃線那半【已經不成立了】,而它被修掉之後沒有人回來改這段字。**
 #    `b4` 2026-08-27 在盤「守門檔頭的天花板句現在還成不成立」時抓到它;`-de` 複驗:
 #      · 本檔十道閘**每一行都接 `|| exit $?`** —— 裸呼叫(不接任何東西)的行數 ⇒ **0**
-#        數法 `grep -cE '^\s*(sh|bash|node|npx|python3)\s+\S+\s*$' .husky/pre-commit`
+#        ⛔ ~~數法 `grep -cE '^\s*(sh|bash|node|npx|python3)\s+\S+\s*$' .husky/pre-commit`~~
+#        🔴🔴 **2026-09-05 `-auth` 訂正:上面那把尺的字元類【漏了 pnpm】⇒ 它印的 0 是假的。**
+#           補上之後就看得到 `:253` 的 `pnpm exec lint-staged --no-stash` —— 它**沒有**接 `|| exit $?`。
+#        ✅ 數法改成 `grep -cE '^\s*(sh|bash|node|npx|pnpm|python3)\s+\S+' .husky/pre-commit`
+#        📌 **那個 0 對【它的尺】為真、對【這支檔】為假** —— 而它附了數法, 讓讀的人以為驗過了。
+#           (板列 `⟦b9-CLAIMEDPROTECTION⟧` 第七個實例, 而那一列收的是**數法錯**這一半。)
+#        🛑🛑 **而【保護沒有掉】—— 這一句不可以跟上面那句分家**:
+#           `:253` 之所以仍然會擋, 是因為 `.husky/_/h:17` 用 **`sh -e "$s"`** 執行本檔
+#           ⇒ `-e` 是【執行器】給的, 不是本檔給的(本檔 `set -e` 命中 0, 而那不代表沒有 -e)。
+#           🔬 當場實測:`sh -e` 跑「echo → false → echo」⇒ 只印第一行 rc=1(中止);
+#              裸 `sh` ⇒ 兩行都印 rc=0。
+#           ⇒ ⇒ 📌 **所以 `:253` 不加 `|| exit $?`** —— 加了是冗餘, 而**把它讀成漏洞會讓下一個人**
+#              **去「修」一個沒有壞的東西**(`-auth` 2026-09-05 自己先這樣讀錯, 主視窗裁下來才訂正)。
 #      · `package.json` 的 lint-staged 掛了 `scripts/husky-hook-wiring-check.sh` ⇒ **2 處**
 #        它抓的正是「沒有 `|| exit $?` 的行」⇒ 有人漏寫會當場紅
 #      · 負對照 `grep -c zzz-no-such-check package.json` ⇒ 0(尺是活的)
@@ -173,7 +185,195 @@ else
   printf '%s\n' '   復原:git checkout -- .husky/view-apply-gate.sh' >&2
   exit 1
 fi
-pnpm exec lint-staged
+# ── ⟦F1b⟧ RESET ROLE 那道 guard(2026-09-05 線 -db 接;主視窗 -f8 17:1x 拍「接」)──
+#   🔴 **它 2026-08-18 就寫好了、自己會動、四個世界的 selftest 全過 —— 而【沒有任何東西在叫它】。**
+#      ⇒ 我 2026-09-05 寫 20260905260000 時用了 RESET ROLE, 一路過三輪 codex 審查, 
+#        是 R4(opus)去讀那支 guard 才抓到 ⇒ 📌 **一道沒接線的閘, 與沒有那道閘, 對犯錯的人是同一件事。**
+#   🔵 它擋的是 supabase CLI 那條路(登入角色 NOINHERIT ⇒ RESET ROLE 之後帳本 INSERT 權限不足);
+#      今天全部靠 Sean 在 SQL Editor 手貼 ⇒ 那條路現在沒人走。**留著是因為它會回來。**
+#   ⚠️ 它比對的是【期望支數】不是【這次 staged 的內容】⇒ 別人加了一支也會在你這裡紅。
+#      那時要做的是看那一支對不對, 不是改期望值。
+#   🔴 **要走 `.husky/` 那一層薄殼, 不可以直接叫 `scripts/…`** —— 理由寫在那支薄殼檔頭:
+#      state-gates 的 harness 格9 只 stub 得到 `.husky/*.sh`, 直接叫 scripts/ 會讓【別人的 harness】紅。
+if [ -f .husky/migration-reset-role-gate.sh ]; then
+  sh .husky/migration-reset-role-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/migration-reset-role-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   與其他 gate 同款 fail-closed:刪掉這支殼正是關掉它最省事的方法。' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/migration-reset-role-gate.sh' >&2
+  exit 1
+fi
+
+# ── 帳本重複列(2026-09-05 線 -db 接;主視窗 -f8 拍甲)────────────────────
+#   🔴 一支 migration 常常【兩條線都碰到】(寫的一條 / 驗的一條), 而帳本的規矩是「驗的人記」
+#      ⇒ 兩邊都覺得自己是驗的人時, 就各記一列;而 merge 的 union 段【不會叫】
+#      (兩列各自在自己那邊是新增的 ⇒ 連 git 衝突都不算)。
+#   🔬 主視窗 2026-09-05 一天撞兩次(4b8eda273 / 4568488ae), 兩次都是【肉眼看 diff 】發現的。
+#   ⚠️ 它只在 supabase/APPLIED.tsv staged 時才會有話說(沒 staged ⇒ 自己跳過、印一行)。
+if [ -f .husky/applied-ledger-dup-gate.sh ]; then
+  sh .husky/applied-ledger-dup-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/applied-ledger-dup-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/applied-ledger-dup-gate.sh' >&2
+  exit 1
+fi
+
+# ── 隔離級別靜態閘(2026-09-05 -f8 派 -db 做;拍「甲」= 具名豁免 + pin 0)──────────
+#   ⟦b4-NCPCRONRACE⟧ 判「不做」, 而那個判決建立在【READ COMMITTED 每條 statement 拿新快照】上
+#   (兩連線實測, docs/plans/2026-09-05-ncp-cron-race-lock-plan.md)。
+#   🔴 那個前提是【環境】不是碼裡寫死的 ⇒ 有人改成 REPEATABLE READ, 判決就不成立【而不會叫】。
+#   ⇒ 本閘就是那聲叫。掃 supabase/migrations + apps/*/src + packages, 期望 0 命中。
+#      (分母 1987 = migrations 325 / admin 718 / storefront 646 / packages 298;
+#       🔴 packages 那 298 支是 R1 打出來的 —— 生 SQL 的原生 client.query 就住那裡)
+#      🔴 剝法 SQL 與 TS 【相反】:SQL 剝註解【與字串】, TS 只剝註解【不剝字串】
+#      —— TS 裡的 SQL 全住在字串裡, 剝了等於不掃。詳見那支 .py 的 strip_noise docstring。
+#   🛑 它與 repo 裡既有的 **runtime 閘**(`IF current_setting('transaction_isolation') <> …`,
+#      例 20260803130000_…a2b1…:117-119)**互補、不重複**:
+#      runtime 閘守「呼叫當下級別對不對」, 守不到新寫的函式忘了掛它;
+#      本閘守「有人寫下改級別的碼」, 守不到執行期的 session 設定。⇒ 兩個都要留。
+if [ -f .husky/isolation-level-scan-gate.sh ]; then
+  sh .husky/isolation-level-scan-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/isolation-level-scan-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/isolation-level-scan-gate.sh' >&2
+  exit 1
+fi
+
+# ── 🔴🔴 `--no-stash`(2026-09-05 全隊事件;-ship 量到, 主視窗 -f8 派 -db 做)────────
+#   **`refs/stash` 是【所有 worktree 共用】的一個 ref。** 而 lint-staged 預設拿 stash 當備份:
+#     建一個備份 stash ⇒ 把未 staged 的改動從工作樹拿走 ⇒ 跑 task ⇒ 還原 ⇒ 丟掉那個 stash
+#   ⚠️ **[2026-09-05 -db 實測:上游那條因果【我沒重現出來】]**
+#      上游(-ship)的說法是「A 的 stash 那一瞬間把 B 剛 add 的新檔從工作樹拿走 ⇒ B 讀到 ENOENT」。
+#      🔬 我用拋棄式兩棵 worktree 造了那個世界:A 樹 `git stash push --keep-index` 之後,
+#         **B 樹的新檔【還在】** ⇒ 🔴 **那條因果在我的實測裡不成立。**
+#      🟢 而【共用】那一半是真的:`refs/stash` 兩棵樹都看得到(B 樹 `git stash list` 印得出 A 建的那條)。
+#      ⇒ 📌 **可以確定的是「兩個窗在寫同一個 ref」, 而「它會把別人的檔拿走」我證不到。**
+#      ⇒ 所以下面加 `--no-stash` 的理由寫成【減少一個共用 ref 的寫入者】+ 【那 9 條崩掉的殘骸】,
+#         **不寫成「它會偷走別人的檔」** —— 那句我沒量到。
+#   🔬 而 `git stash list` 今天有 **11 條**, 其中 9 條是「lint-staged automatic backup」——
+#      正常流程會把它丟掉 ⇒ 留下來的那幾條**至少代表那幾次沒有走完**。
+#      ⚠️ 而「崩在中途」是**推論** —— 我證不到它們各自是怎麼留下來的。
+#
+#   ✅ **前提量過才敢加**:`--no-stash` 的代價是「task 寫壞了檔案就沒有備份可還原」
+#      ⇒ 所以必須先證明【沒有任何 task 會寫工作樹】。
+#      🔬 決定性那一發(2026-09-05 -db 實測):staged 一個檔 ⇒ 跑 lint-staged ⇒
+#         **全樹已追蹤檔的內容雜湊逐位元組相同**(bdb76ea2…)
+#         🟢 正對照:故意改一個字 ⇒ 雜湊變了 ⇒ 那把尺會動 ⇒ 上面那個「相同」有判別力。
+#      🔵 命令字面那把尺也同意:90 個 task 裡 `--write` / `--fix` / `sed -i` 各 0。
+#   ⚠️ **它證不到什麼**:①一支 task 【未來】被改成會寫檔 ⇒ 沒有東西會叫(這是加旗標的代價)
+#      ②本旗標不管 `.husky` 裡其他閘 ③`git stash list` 的條數**分不出**「建了又丟掉」與「從沒建過」。
+# 🔴🔴 **這一行【沒有】接 `|| exit $?`, 而那是【對的】—— 不要「順手補上」**(2026-09-05 `-auth`)
+#    它的保護來自 `.husky/_/h:17` 的 **`sh -e "$s"`** —— `-e` 由【執行器】給,
+#    ⇒ 任何非 0 都會當場中止本檔, 這一行也不例外。
+#    🔬 實測:`sh -e` 跑「echo → false → echo」⇒ 只印第一行 rc=1;裸 `sh` ⇒ 兩行都印 rc=0。
+#    ⚠️ 而檔頭那把「裸呼叫 0」的尺**曾經漏了 `pnpm`** ⇒ 有人會在這裡讀出一個不存在的漏洞。
+#       📌 **我就是那個人**(`-auth` 2026-09-05 先報成漏洞, 查了 `_/h` 才自己訂正)。
+# ── ⟦b9-KILLEDNOTRED⟧:這一行就是【那 90 個 task 被 SIGKILL】的發生地 ──────────
+#    2026-09-01 真實那次畫面逐字:`✖ Task killed: eslint … [SIGKILL]` +
+#    `husky - pre-commit script failed (code 1)`
+#    🔴 **husky 看到的是 `code 1`** —— lint-staged 把子程序的死法吃掉了、自己回 1
+#    ⇒ **137 / 134 在真實路徑上到不了這裡** ⇒ 判準只能是【log 的字面】, 不能是 rc。
+#    (三個世界實測:`kill -9` ⇒ 137 · `--max-old-space-size` + `Buffer.alloc` ⇒ 137(配在 V8 堆外)
+#     · 同旗標 + `"x".repeat()` ⇒ 134 + `heap out of memory`。)
+# 🔴 `mktemp -t <前綴>` 是 **BSD 專用**形狀 —— GNU 要求 template 至少三個 `X`,
+#    在 Linux 上它會【固定失敗】⇒ 掉進可預測的 `/tmp/…$$` ⇒ 有人先建一條 symlink
+#    就能讓這一行的輸出寫去別的地方。⇒ 改成兩邊都吃的 `<dir>/…XXXXXX`,
+#    而**不留 fallback** —— 拿不到暫存檔就大聲失敗, 好過安靜寫進一個猜得到的路徑。
+_LS_LOG=$(mktemp "${TMPDIR:-/tmp}/pcm-lint-staged.XXXXXX") || exit 1
+# 🔵 第二支失敗時要把第一支帶走 —— trap 還沒掛上(它要兩個變數才掛得起來)。
+_LS_RCF=$(mktemp "${TMPDIR:-/tmp}/pcm-lint-staged-rc.XXXXXX") || { rm -f "$_LS_LOG"; exit 1; }
+# 🔴 **清理要掛 trap, 不能只靠 `rm -f`**(2026-09-05 codex R2):`sh -e` 底下 `cat` 自己失敗、
+#    或 hook 收到 INT / TERM / HUP, 後面的 `rm -f` 都【到不了】⇒ 暫存檔殘留。
+#
+# 🔴🔴🔴 **而【只刪檔不退出】的 handler 會把中斷變成綠 —— 這是本片最貴的一格**
+#    (2026-09-05 codex R4 must-fix;我自己上一輪【改出來的】洞)。
+#    🔬 實測, 逐字:`trap 'rm -f …' INT` + `kill -INT $$` ⇒
+#       **後面那一行照印、腳本跑完、`rc=0`** —— 也就是「人按了 Ctrl-C, 而 commit 過了」。
+#       🟢 正對照:handler 自己 `exit 130` ⇒ 後面那一行**不印**、`rc=130` ⇒ 擋下。
+#    ⇒ 🎯 **POSIX sh 的訊號 handler 跑完會【回到原處繼續】, 它不會替你退出。**
+#    ⇒ 🛑 **這正是本片存在的理由的反面**:本片要擋「沒跑完的檢查變成綠」,
+#       而我上一輪為了收暫存檔, 自己開了一條「沒跑完卻 rc=0」的路。
+#    ⚠️ **SIGKILL 仍攔不住** —— 那一種會殘留**兩支**(log 與 rc), 已知上限、不是漏。
+#    🔬 本檔原本 `trap` 命中 0 ⇒ 這是第一道, 不會蓋掉別人的。
+trap 'rm -f "$_LS_LOG" "$_LS_RCF"' EXIT
+trap 'rm -f "$_LS_LOG" "$_LS_RCF"; exit 130' INT
+trap 'rm -f "$_LS_LOG" "$_LS_RCF"; exit 143' TERM HUP
+# 🔴🔴 **裸 `| tee` 會把 rc 換成 tee 的**:`sh -e` 看的是管線【最後一段】, 而 tee 幾乎永遠是 0
+#    ⇒ lint-staged 失敗會被靜靜吞掉 ⇒ **一次沒跑完的檢查變成綠**。
+#    ⛔ ~~所以改成「先寫檔、再 cat」, 代價是輸出不再即時~~
+#    ✅ **2026-09-05 codex R3 逼出來的第三條路:`tee` + 把 rc 另外寫進一支檔。**
+#       🎯 **為什麼非要即時不可**:這一片要救的人正站在一台燒起來的機器前面 ——
+#          而「跑到一半沒有輸出」與「當掉了」在畫面上是同一件事。
+#          **一個為了診斷而做的東西, 不可以自己製造同一種困惑。**
+#    🔴 **`if` 那一層【不是花招, 是必要的】**:`sh -e` 之下 `{ cmd; printf "$?" > f; }`
+#       會在 cmd 失敗時【當場中止整個群組】⇒ rc 檔根本沒被建出來。
+#       🔬 實測:直接寫 ⇒ 餵 `exit 7` 拿到 **1**(rc 檔不存在);換成 `if` ⇒ 拿到 **7**。
+#    🔬 四發實測(`sh -e` 底下, 逐字這個形狀):`exit 7`⇒7 · `echo ok`⇒0 · `exit 137`⇒137 · `kill -9 $$`⇒137
+#       🟢 即時性正對照:`echo;sleep 3;echo` ⇒ 兩行相隔 **3 秒**印出, 不是最後一起噴。
+#       🟢 負對照:`sh -c 'exit 7' | tee /dev/null` ⇒ 管線 rc **0** —— 證明「為什麼需要 rc 檔」。
+{ if pnpm exec lint-staged --no-stash 2>&1; then _LS_R=0; else _LS_R=$?; fi
+  printf '%s' "$_LS_R" > "$_LS_RCF"; } | tee "$_LS_LOG"
+_LS_RC=$(cat "$_LS_RCF" 2>/dev/null) || _LS_RC=1
+# 🔴🔴 **rc 是【從檔案讀來的字串】, 不是 `$?`** ⇒ 用它之前要驗形狀(codex R4 must-fix):
+#    `[ "$X" != 0 ]` 是**字串**比較 ⇒ `00` 與 `256` 都「不等於 0」而會走進失敗分支,
+#    然後 `exit 256` ⇒ **shell 取模 256 ⇒ 真正退出碼是 0** ⇒ 🛑 **沒跑完的檢查變成綠。**
+#    ⇒ ✅ 只接受 1-3 位純數字且 < 256;**其餘一律當 1(擋下)** —— 不明就是紅, 不是綠。
+#    🔬 **而「純數字 + 小於 256」還不夠 —— `00` 兩關都過, 而 `exit 00` 就是 `exit 0`。**
+#       ⇒ ✅ 只收【規範十進位】:`0`, 或 `1`-`255` 且不帶前導零。實測九個值見下。
+case "$_LS_RC" in
+  0) : ;;
+  [1-9]|[1-9][0-9]) : ;;
+  [1-9][0-9][0-9]) [ "$_LS_RC" -le 255 ] || _LS_RC=1 ;;
+  *) _LS_RC=1 ;;
+esac
+if [ "$_LS_RC" != 0 ]; then
+  # ⟦b9-KILLEDNOTRED⟧ 甲案:判準是【log 的字面】, 不是 rc(理由見上面那段)。
+  # 🔴🔴 **而【有 SIGKILL】不等於【沒有真的錯】**(2026-09-05 codex R1 抓到, `-auth` 當場量到):
+  #    真的有一個 task 判你紅 ⇒ lint-staged 會把**還在跑的兄弟 task 用 SIGKILL 收掉**
+  #    ⇒ 同一份 log 裡【兩種都有】⇒ 只認 `[SIGKILL]` 的版本會對著一個真錯印「不是你的碼」。
+  #    🔬 實測(兩個 task:一個 exit 1、一個 sleep 25)⇒ 行尾分得開:
+  #       `[FAILED] fail.sh [FAILED]`  ← 真錯      / `[FAILED] slow.sh [SIGKILL]` ← 被收掉的兄弟
+  #
+  # 🔴🔴 **而【只排除 `[FAILED]`】是【黑名單】—— 它跟下一個沒想到的行尾賽跑**
+  #    (2026-09-05 codex R2 must-fix;`-auth` 當場量到反例):
+  #    🔬 指令不存在的 task ⇒ 行尾是 **`[ENOENT]`**(還有 `[EACCES]`, 以及 renderer 換掉時的別種)
+  #       ⇒ 那一發同時印了 `[ENOENT]` 與 `[SIGKILL]` ⇒ **黑名單版本會對它印「不是你的碼」。**
+  #    ⇒ ✅ **改成白名單:【只有】行尾是 `[SIG…]` 才算「被機器砍」, 其餘一律算真錯。**
+  #       🎯 與 `CLAUDE.md` 把 token 前綴黑名單改成「只印名稱」是同一個動作 ——
+  #          **白名單不需要知道下一個沒想到的值長什麼樣。**
+  # 🔴🔴 **而白名單要收到 `SIGKILL` 一個, 不是整族 `SIG…`**(2026-09-05 codex R3 must-fix):
+  #    `SIGSEGV` / `SIGABRT` 是**那支工具自己爆了** —— 那可能真的是設定或碼的問題;
+  #    `SIGINT` 是**人自己按了 Ctrl-C**。把它們算成「機器砍的」⇒ 會叫人不要查, 而該查。
+  #    ⇒ ✅ 只認 `SIGKILL`:那是 OOM killer 用的訊號, 也是 lint-staged 收兄弟 task 用的。
+  _LS_KILLED=$(grep -cE '\[SIGKILL\][[:space:]]*$' "$_LS_LOG" 2>/dev/null) || _LS_KILLED=0
+  grep -qE 'Task killed|heap out of memory' "$_LS_LOG" 2>/dev/null && _LS_KILLED=$((_LS_KILLED + 1))
+  _LS_REAL=$(grep -E '\[[A-Z][A-Z0-9_]*\][[:space:]]*$' "$_LS_LOG" 2>/dev/null \
+             | grep -cvE '\[SIGKILL\][[:space:]]*$') || _LS_REAL=0
+  if [ "$_LS_KILLED" -gt 0 ]; then
+    printf '%s\n' '' >&2
+    printf '%s\n' '🔴🔴 上面有檢查【沒跑完】—— 有的被 SIGKILL 收掉, 或印了記憶體不足。' >&2
+    printf '%s\n' '   ⚠️ 而【是誰、為什麼】本檢查證不到。已知的兩種:' >&2
+    printf '%s\n' '     ①系統或別人砍的      ⇒ 值得看一眼 uptime 的 load averages' >&2
+    printf '%s\n' '     ②lint-staged 自己砍的 ⇒ 那表示別的地方有真的錯(下面會講)' >&2
+    if [ "$_LS_REAL" -gt 0 ]; then
+      printf '%s\n' '   ⚠️ 而這一輪【同時也有真的錯】—— 行尾不是 [SIGKILL] 的那幾支是真判你紅。' >&2
+      printf '%s\n' '      ⇒ 先修那幾支;沒跑完的那幾支這一輪【沒有給出答案】, 修完要重跑才知道。' >&2
+    else
+      printf '%s\n' '   ⇒ 這一輪【沒有任何一支印出真的紅】—— 而那【不代表你的碼是對的】。' >&2
+      printf '%s\n' '      🛑 先讓它【完整跑完一次】再判斷 —— 沒跑完的檢查什麼都沒說。' >&2
+    fi
+    printf '%s\n' '   🛑 而本次【仍然不放行】—— 一次沒跑完的檢查不等於通過。' >&2
+    printf '%s\n' '' >&2
+  fi
+  # 🔴 **前提要標版本, 因為它是【別人家的 renderer 實作細節】**(codex R3 must-fix):
+  #    「行尾是 `[SIGKILL]` / `[FAILED]` / `[ENOENT]`」是 **lint-staged 17.0.4** 量到的,
+  #    **不是它的公開合約** ⇒ 升版可能改掉。⇒ 🛑 **所以措辭裡不出現「不要查你的碼」** ——
+  #    格式漂掉時, 最壞的結果只能是「這段話不出現」或「話講得比較保守」, 不可以是「叫人往錯的方向走」。
+  # ⚠️ **已知上限(刻意, 不是漏)**:一支【自己】OOM 的 task 行尾是 `[FAILED]`(exit 134)
+  #    ⇒ 它會被算進 `_LS_REAL` ⇒ 印的是「也有真的錯」那一版。
+  #    🎯 **那個偏差的方向是【叫人去看】, 不是【叫人別看】** —— 保守邊是對的那邊。
+  exit "$_LS_RC"
+fi
 
 if [ -f .husky/always-loaded-size-gate.sh ]; then
   sh .husky/always-loaded-size-gate.sh || exit $?

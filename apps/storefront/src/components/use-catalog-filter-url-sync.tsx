@@ -104,6 +104,55 @@ const normalizedQuery = (
 };
 
 /** P4:品牌／分類／價格 UI state 變動時，寫入 URL 並讓 route 重跑 server catalog query。 */
+/**
+ * ⟦b4-CLEARALLKEEPSJUNK⟧ 「清除全部」這個**明示手勢**的旗標。
+ *
+ * 🔴 **為什麼需要一個旗標, 而不是從 state 形狀推**(code-reviewer R1 Critical):
+ *   「客人按了清除全部」與「客人把唯一那顆分類膠囊的 × 點掉」——
+ *   **兩者的 state 變化完全同構**(都是 `category: 有 → null`, 其餘本來就空)。
+ *   ⇒ 只看形狀的話, 點 × 也會把認不得的 `pbrands` 一起清掉,
+ *     而那**正是 #315 刻意要留的東西**(Sean 2026-08-11 Q1=A)⇒ 那是誤傷。
+ *   ⇒ 📌 **手勢的身分只有發出手勢的地方知道, 推不出來。**
+ *
+ * 🔵 **為什麼不是「用完就清」**:React StrictMode 會把 effect 跑兩次 ——
+ *   第一次消耗掉旗標, 第二次就看不到它、又把垃圾寫回去。
+ *   ⇒ 改成「**state 再度非空時才清**」:那時客人已經重新選了東西, 這個手勢結束了。
+ */
+let clearAllRequested = false;
+
+/**
+ * ⟦b4-CLEARALLKEEPSJUNK⟧ 「清除全部」要送出去的那個乾淨網址 —— **三顆鈕共用同一個定義。**
+ *
+ * 🔴 **為什麼要抽出來**(R3 對抗審查 must-fix):原本三顆鈕分屬**兩種機制** ——
+ *   `ActiveChips` 與空狀態那兩顆自己重建乾淨網址, 而 `FilterSide`(桌機側欄)**只 dispatch**,
+ *   把寫網址的事交給只認 5 軸、且**一個字都不寫 `categories`** 的同步 effect。
+ *   ⇒ 客人從搜尋落地(`?categories=A,B&category=A`)按側欄那顆 ⇒ **膠囊還在、篩選還生效**
+ *   ⇒ 📌 **那顆鈕按了等於沒按, 而它就是板列講的原症狀。**
+ *
+ * 🔵 只留 `sort` / `per` —— 它們是客人刻意選的, 不是篩選(理由正本在空狀態那顆的註解裡)。
+ */
+export function buildClearedProductsUrl(searchParams: {
+  get(name: string): string | null;
+}): string {
+  const kept = new URLSearchParams();
+  const keepSort = searchParams.get('sort');
+  const keepPer = searchParams.get('per');
+  if (keepSort) kept.set('sort', keepSort);
+  if (keepPer) kept.set('per', keepPer);
+  const q = kept.toString();
+  return q ? `/products?${q}` : '/products';
+}
+
+/** 🔬 測試用:把旗標歸零。**只給 `beforeEach`**, 產品碼不得呼叫。 */
+export function __resetClearAllRequestedForTests(): void {
+  clearAllRequested = false;
+}
+
+/** 送出「清除全部」之前呼叫它 —— 讓同步 effect 這一輪不要復活認不得的參數。 */
+export function markClearAllRequested(): void {
+  clearAllRequested = true;
+}
+
 export function useCatalogFilterUrlSync(
   cascade: CascadeFilterState,
   extras: ProductExtraFilters,
@@ -137,6 +186,24 @@ export function useCatalogFilterUrlSync(
   //    dispatch 會讓指紋由空變非空);該缺口由 effect 內的「state 剛追上 URL 即收手」判斷補上
   //    (見下方 #289 段)。兩者合起來才完整,單獨留任一個都會讓 `?page=N` 深連結被吃掉頁碼。
   const lastFilterKeyRef = useRef<string | null>(null);
+  // 🔴 **「我上次【真的寫出去】的那一顆分類」**(2026-09-05 · Sean `21`「把多顆分類修好」)。
+  //   ⚠️ **不可以用 `lastFilterKeyRef` 代替** —— 它在下面【無條件更新】, 而它之後有
+  //      **三個提早 return**(`initialized` / vehicle 讓路 / restore-hold)
+  //      ⇒ 那些波會把「變動」吃掉, **而且不自癒**(R1 對抗審查抓到, 逐字複驗成立)。
+  //   ✅ 本 ref **只在真的送出 `router.replace` 之後才寫**, 所以被吃掉的波下一次還看得到。
+  //   🔴 型別一律 `string | null`(**不是 `undefined`**):`cascade.category?.main` 是
+  //      `string | undefined`, 而 `undefined !== null` **恆真** ⇒ 空世界每一波都會被判成
+  //      「使用者自選」(R2 對抗審查抓到, 逐字複驗成立)⇒ 下面一律先 `?? null`。
+  const lastWrittenCategoryRef = useRef<string | null>(null);
+  // 🔴 **送出去了、而還不知道有沒有落地的那一顆**(codex R3 ③)。
+  //   由上面那段在【下一波開頭】比對真實網址之後, 才升成 `lastWrittenCategoryRef`。
+  const pendingWrittenCategoryRef = useRef<string | null>(null);
+  // 🔴 把 `CategorySelection` 壓成**網址上那一顆的字面** —— 與寫入段那三行**同一個規則**。
+  //   ⚠️ `parseCategoryFromUrl` 回的是**物件**(`{mainId, main, subId?, sub?}`)不是字串;
+  //      2026-09-05 我第一版直接拿它跟字串比 ⇒ **typecheck 兩處紅**(TS2322 / TS2367)。
+  //      ⇒ 📌 那一紅是好的:兩個「分類」在型別上本來就不是同一種東西, 而我用同一個名字想它。
+  const toUrlCategory = (c: CascadeFilterState['category']): string | null =>
+    c === null ? null : c.sub ? `${c.main}${CATEGORY_URL_SEPARATOR}${c.sub}` : c.main;
   useEffect(() => {
     // 篩選值指紋(只取會寫進 URL 的軸;brands 排序後比對,避免順序抖動誤判為變動)
     const filterKey = JSON.stringify([
@@ -151,9 +218,43 @@ export function useCatalogFilterUrlSync(
     const filtersChanged = prevFilterKey !== null && prevFilterKey !== filterKey;
     if (!initialized.current) {
       initialized.current = true;
+      // 🔴 **初值用【進站網址】播種, 不留 `null`** —— 否則深連結
+      //   `?categories=A,B&category=X` 進站時, 還原落地那一波 derived `"X"` !== `null`
+      //   ⇒ 被判成「使用者自選」⇒ 寫入 ⇒ `filtersChanged` 為真 ⇒ **`page` 被刪**
+      //   (⑩⑯㉕ 那一族;R2 對抗審查 must-fix)。
+      lastWrittenCategoryRef.current = toUrlCategory(
+        parseCategoryFromUrl(new URLSearchParams(window.location.search), restoreSources.categories),
+      );
       return;
     }
     const params = new URLSearchParams(window.location.search);
+      // 🔴 **先把「上一發送出去的」與【真實網址】對一次** —— 落地了才升成 committed(R3 ③/①)。
+      //   `router.replace()` 回來只代表【已呼叫】;Next 靜默忽略時網址不會變。
+      //   🛑 **沒落地就不升** ⇒ 下一波仍判「自選」而重送 ⇒ **不會被永久吞掉**。
+      if (pendingWrittenCategoryRef.current !== null) {
+        const pend = pendingWrittenCategoryRef.current;
+        const inMulti = (params.get(CATEGORIES_PARAM) ?? '')
+          .split(',')
+          .map((v) => v.trim())
+          .includes(pend);
+        if (inMulti || params.get('category') === pend) {
+          lastWrittenCategoryRef.current = pend;
+          pendingWrittenCategoryRef.current = null;
+        }
+      }
+      // 🔵 **瀏覽器上一頁 / 外部導覽**:網址上已經沒有我 committed 的那一顆 ⇒ ref 跟著退回(R3 ①)。
+      //   不退的話, 客人退回舊頁再選同一個分類會被判「未變」而漏掉那一次 union。
+      const committed = lastWrittenCategoryRef.current;
+      if (
+        committed !== null &&
+        !(params.get(CATEGORIES_PARAM) ?? '')
+          .split(',')
+          .map((v) => v.trim())
+          .includes(committed) &&
+        params.get('category') !== committed
+      ) {
+        lastWrittenCategoryRef.current = null;
+      }
     // 🔴 Q28① R1 MF-1 —— vehicle 讓路守衛(本 effect 與 useVehicleUrlSync 的 replace 競態):
     //   `router.replace` 是 App Router 導覽、**非同步**(force-dynamic 要 RSC 往返才更新
     //   window.location)。Q28① 讓車可以從鏡入站 ⇒ 出現「cascade 有車、URL 還沒有」這個新狀態,
@@ -220,7 +321,42 @@ export function useCatalogFilterUrlSync(
     //   `?pbrands=a,b` —— 單值鍵讓每個品牌組合的 Next segment cache key 天然不同,
     //   結構上消掉下方那個「碰撞才補 refresh」的觸發條件(理由正本在 `lib/catalog-query.ts`)。
     const knownBrandIds = new Set(restoreSources.productBrands.map((b) => b.id));
-    const unknownBrands = parseBrandSlugsFromUrl(params).filter((slug) => !knownBrandIds.has(slug));
+    // 🔴🔴 ⟦b4-CLEARALLKEEPSJUNK⟧ —— **「清除全部」那一輪要讓路, 認不得的值不復活。**
+    //   病:客人按「清除全部」⇒ 鈕自己送了一個乾淨網址, 而 `clearAll()` 觸發的**這一輪**
+    //   讀到的還是舊網址 ⇒ 下面那行把認不得的 `pbrands` 又 set 回去
+    //   ⇒ 📌 **膠囊消失了、垃圾參數還在, 客人看到的仍然是 0 筆。**
+    //
+    // 🛑 **這【不是】放寬 #315**(Sean 2026-08-11 Q1=A:認不得的值刻意留在 URL 上)——
+    //   #315 的理由逐字是:清掉的代價是**靜默顯示全站商品**, 客人以為還在看 DBK。
+    //   ⇒ 🎯 **而「清除全部」正是客人【明示要看全站】的那一按** ⇒ 那個理由在這條路上不成立。
+    //   ✅ **Sean 2026-09-05 拍甲, 逐字:「Q-清除全部: … A: 甲」= 按了就顯示全站。**
+    //      ⛔ ~~在他答之前這是「一個帶理由的假設」~~ —— **他答了, 這一段不再是假設。**
+    //      📌 舊字面留著加刪除線, 讓下一個人看得到它曾經只是判斷。
+    //   🛑 **而「只有清除全部會走這條路」是靠上面那個【旗標】保證的, 不是靠 state 形狀推的**
+    //      —— 第一版就是只看形狀, 被 code-reviewer 指出點掉最後一顆膠囊會同構命中。
+    //   🔴 **而旗標的保證只涵蓋【有呼叫它的那幾顆鈕】** —— 今天是三顆:
+    //      `ActiveChips`(膠囊列)· `ProductsPage`(零結果空狀態)· `FilterSide`(桌機側欄)。
+    //      ⚠️ `FilterTop.tsx:145` 與 `FilterDrawer.tsx:272` 也有 `dispatch(clearAll())` 而**沒有補**
+    //      —— R2 查過:前者除測試外零渲染, 後者的掛載點只用 `scope=category|product` 走不到那一支。
+    //      ⇒ 📌 **它們是【今天到不了】不是【不需要】** —— 哪天有人讓它們活起來, 這裡要一起補。
+    //
+    // 🔵 **判準要窄**:旗標 + 「這一輪真的變了」+ 「變成完全空的」三者皆備才讓路 ——
+    //   ⛔ 不可以只看「state 是空的」:`⑫`/`⑬` 那兩格正是 **state 空 + URL 有垃圾 + 客人改價格**,
+    //      那時**必須保留**。少了 `filtersChanged` 與 extras 這兩個條件, 那兩格會紅。
+    // 🔴 **兩個條件是 AND, 缺一不可**:
+    //   · 沒有旗標 ⇒ 那不是「清除全部」, 可能只是點掉最後一顆膠囊 ⇒ 照 #315 保留(R1 Critical)。
+    //   · 有旗標而形狀不空 ⇒ 旗標過期了(客人又選了東西)⇒ 不讓路, 也在下面把它清掉。
+    const stateAndExtrasEmpty =
+      cascade.category === null &&
+      cascade.brands.length === 0 &&
+      cascade.vehicle === null &&
+      !extras.price &&
+      !extras.priceRange;
+    if (!stateAndExtrasEmpty) clearAllRequested = false;
+    const clearedToEmpty = clearAllRequested && filtersChanged && stateAndExtrasEmpty;
+    const unknownBrands = clearedToEmpty
+      ? []
+      : parseBrandSlugsFromUrl(params).filter((slug) => !knownBrandIds.has(slug));
     params.delete(LEGACY_BRAND_PARAM);
     params.delete(BRANDS_PARAM);
     const brandSlugs = [...new Set([...cascade.brands, ...unknownBrands])].sort();
@@ -248,6 +384,46 @@ export function useCatalogFilterUrlSync(
     //   ⇒ 📌 這個布林就是下方等值早退的**判別力補丁**:見那一段的「⚠️ 而在多顆世界」。
     const categoryAxisSuppressed =
       params.has(CATEGORIES_PARAM) && (category ?? null) !== params.get('category');
+    // 🔴 **多顆世界下的「使用者自選」要 union 進 `categories=`**(Sean 2026-09-05 `21`)。
+    //   🛑 **不是寫進 `category=`** —— 那個槽**只有一個**, 第二顆會蓋掉第一顆
+    //      ⇒ Sean 逐字要的「客人可能會多選不同分類」在 n≥2 就做不到(R1 對抗審查)。
+    //   判別「自選」的四個條件缺一不可(每一條都是對抗審查逐條擊破後留下來的):
+    //     ① `cat` 一律 `?? null` —— 否則 `undefined !== null` 恆真
+    //     ② `cat === null` **不算自選** —— 這一條要擋的是「清除全部」那一波
+    //        (那時 cascade 已空而網址還是舊的;不擋 ⇒ `categories` 被原封寫回 = 膠囊復活)。
+    //        🔴🔴 **而【本條今天沒有測試守著, 我試過了】** —— 把它拿掉跑一輪 ⇒ **29 格全綠**。
+    //        🔬 我沒有停在「補一格就好」, 而是去量那一格在突變世界裡到底發生什麼:
+    //           探針斷言印出 **`{ n: 0, first: null }`** ⇒ **那一波根本沒送出任何 `replace`**
+    //           ⇒ 📌 **擋住它的是【更前面的等值早退】, 不是本條。**
+    //        🔴🔴 **2026-09-05 訂正:下面那句「構造不出」被 codex R3 推翻了一半** ——
+    //           它指出「同一波【同時改別的軸】就繞得過等值早退」, 而**我照做造出來了**(㉚):
+    //           那一波**確實走到寫入段**(replace 1 次、網址帶 price)。
+    //           🛑 **而突變(拿掉本條)之後 ㉚ 仍然綠** —— `join(',')` 對 null 不產生尾逗號,
+    //              `categories` 照樣印 A,B ⇒ 📌 **本條【今天仍然沒有測試守著】, 而理由換了:**
+    //              不是「到不了那個世界」, 是「**到了, 而它的錯誤不留下可觀察的痕跡**」。
+    //           ✅ ㉚ 留著當**回歸鎖**(擋未來把 union 改成會產出空值的寫法), **不是突變殺手**。
+    //        ⇒ 🛑 **所以本條在單元測試層【構造不出會紅的世界】** —— 那不是「測試沒寫」,
+    //           是**那條路在 mock 掉 router 的世界裡到不了**(R2 逐字說過同一件事:
+    //           「它要驗的是兩個 `replace` 的落地順序, 而 router 被 mock ⇒ 根本沒有順序」)。
+    //        ✅ **本條留著, 而它的驗證欠在【真瀏覽器】那一層** —— 已寫進 plan 的驗收表,
+    //           不假裝它被單元測試守著。
+    //     ③ 與**上次真的寫出去的那一顆**不同(不是與 `filterKey` 比)
+    //     ④ **不是還原波** —— 判準是「這一顆正好等於網址解得出來的那一顆」= state 剛追上 URL。
+    //        🔴 **不可以用 `pendingRestoreRef`**:它在上面已被設成 `false`, 在這裡永遠不成立
+    //        (R2 對抗審查, 逐字複驗)。
+    const cat = category ?? null;
+    const restoredFromUrl = toUrlCategory(parseCategoryFromUrl(params, restoreSources.categories));
+    const userPicked =
+      cat !== null && cat !== lastWrittenCategoryRef.current && cat !== restoredFromUrl;
+    if (params.has(CATEGORIES_PARAM) && userPicked) {
+      const existing = (params.get(CATEGORIES_PARAM) ?? '')
+        .split(',')
+        .map((v) => v.trim())
+        .filter((v) => v !== '');
+      if (!existing.includes(cat)) existing.push(cat);
+      params.set(CATEGORIES_PARAM, existing.join(','));
+      // 🔵 **不碰 `category=`、不 delete 任何東西** —— delete 半邊解禁會撞「清除全部」。
+    }
     if (!params.has(CATEGORIES_PARAM)) {
       if (category) params.set('category', category);
       // state 沒有分類時,只有「URL 那個值**認得出來**」(= 使用者剛把篩選清掉)才刪;認不得的留著。
@@ -359,6 +535,17 @@ export function useCatalogFilterUrlSync(
       const collides =
         segmentKey(window.location.search) === segmentKey(next.split('?')[1] ?? '');
       router.replace(next, { scroll: false });
+      // 🔴 **只有真的送出去才記** —— 這正是本 ref 與 `lastFilterKeyRef` 的差別:
+      //   上面三個提早 return 都不會走到這裡, 所以被它們吃掉的那些波【下一次還看得到】。
+      // ⛔ ~~lastWrittenCategoryRef.current = category ?? null;(在這裡就記)~~
+      // 🔴🔴 **codex R3 ③:`router.replace()` 回來只代表【已呼叫】** —— Next 靜默忽略時
+      //   **網址沒變而 ref 已前進** ⇒ 📌 **同一個選擇會【永久】被吞掉**。
+      //   ✅ 改成先存 pending, 由下一波開頭比對真實網址才升成 committed(見上面那段)。
+      //   ⚠️ **而這一行的【突變沒有測試殺得死】**(2026-09-05 實測:改回直接記 committed ⇒ 31 格全綠)。
+      //      成因:單元測試裡 `router` 是 mock 的, **`replace` 永遠「成功」** ⇒ pending 與直接記
+      //      在那個世界裡**行為相同**。⇒ 📌 **它守的是【Next 靜默忽略】那個世界, 而那個世界
+      //      在 mock 掉 router 之後【不存在】。**驗證欠在真瀏覽器/E2E 那一層, 不假裝有。
+      pendingWrittenCategoryRef.current = category ?? null;
       if (collides) router.refresh();
     }
   }, [cascade, extras, restoreSources, router]);

@@ -22,13 +22,29 @@
 #   · 正式庫 `rolinherit=false` 是 **Sean 21:0x 量的**,G6 沒有連線 ⇒ 那一環是**轉述**
 #   · 重現跑在本機 PG 17.10、正式庫 17.6 ⇒ 證的是【機制】不是【現值】
 #
-# ── 🔴 期望值 1 刻意寫死(同 authz-failure-visibility.sh)────────────────────
-#   1 = 已知那一支 `20260817080000_m4b_628_…`(已 apply、帳也補了,留著是史料)
-#   >1 ⇒ 有新的 migration 用了 RESET ROLE ⇒ **它一 apply 就會漏記帳**
-#   0  ⇒ 有人改掉那支的字面 ⇒ 回來改期望值並註明是誰改的
+# ── 🔴 期望值刻意寫死(同 authz-failure-visibility.sh)────────────────────
+#   ⛔ ~~1 = 已知那一支 `20260817080000_m4b_628_…`~~
+#   ✅ **[2026-09-05 17:2x 線 -db 訂正] 2 支** —— 而訂正的成因值得寫下來:
+#      這道 guard **從來沒有被接進 .husky** ⇒ 它寫好了、自己會動、而【沒有任何東西在叫它】
+#      ⇒ 期望值停在它出生那天的 1, 而樹上早就是 2。
+#      🔬 2026-09-05 實量(用它自己那條 regex):
+#        · `20260817080000_m4b_628_revoke_maintain_brands_categories.sql`(碼 3 行)
+#        · `20260829170000_m4b_2b1_admin_coupon_list_view.sql`(碼 2 行:SET LOCAL ROLE + 兩個 RESET ROLE)
+#      📌 **⇒ 一道沒有人在叫的閘, 它的期望值會靜靜地過期, 而【過期的方向永遠是「看起來還好」】。**
+#
+#   🔵 **而第二支 apply 過了、帳本也記到了 —— 為什麼沒出事**(這一格不寫下來會被讀成「這道閘沒用」):
+#      本閘防的失效模式是 **supabase CLI 專屬**:CLI 以 `cli_login_<ref>` 連線而那個角色 NOINHERIT
+#      ⇒ `RESET ROLE` 之後 current_user 掉回 session_user ⇒ COMMIT 之後的帳本 INSERT 權限不足。
+#      而 `20260829170000` 是 **Sean 在 SQL Editor 本人貼的**(帳本那一列逐字寫著)——
+#      SQL Editor 連線就是 postgres ⇒ `RESET ROLE` 回到 postgres ⇒ 那條路踩不到這個坑。
+#      🛑 **⇒ 這道閘防的是一條【我們今天沒在走的路】。留著的理由是那條路會回來**
+#         (任何人改用 `supabase db push` 的那一天), **而不是因為今天有人被它咬過。**
+#
+#   >EXPECT ⇒ 有新的 migration 用了 RESET ROLE ⇒ 它若走 CLI apply 就會漏記帳
+#   <EXPECT ⇒ 有人改掉了那些字面 ⇒ 回來改期望值並註明是誰改的
 set -eu
 CDPATH= cd "$(dirname "$0")/.." || exit 1
-EXPECT_FILES=1
+EXPECT_FILES=2
 # 🔴 正向對照恆為 1:小數字的天花板 —— 「pattern 打錯永遠回 0」與「真的沒有」長得一樣
 FIXTURE="scripts/fixtures/reset-role.fixture.sql"
 FIXTURE_EXPECT=1

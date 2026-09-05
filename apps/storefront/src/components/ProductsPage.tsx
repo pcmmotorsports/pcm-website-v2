@@ -40,6 +40,10 @@
 'use client';
 
 import { useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
+import {
+  markClearAllRequested,
+  buildClearedProductsUrl,
+} from './use-catalog-filter-url-sync';
 import { vehicleLabel } from '@/lib/vehicle-match';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -402,6 +406,8 @@ export function ProductsPage({ products, total, error, categories, brands: serve
                     className="ac-clear-all"
                     style={{ marginTop: 16 }}
                     onClick={() => {
+                      // 🔴 ⟦b4-CLEARALLKEEPSJUNK⟧ 先舉手, 再清 —— 與側欄那顆同一個手勢, 同一支旗標。
+                      markClearAllRequested();
                       dispatch(clearAll());
                       setExtras(makeInitialExtraFilters());
                       // 🔴 光清 state 不夠:認不得的參數留在 URL 上, 而回寫段的
@@ -416,13 +422,8 @@ export function ProductsPage({ products, total, error, categories, brands: serve
                       //    ⇒ 📌 **這幾行買到的不是修復, 是【不依賴另一個 effect 事後補救】。**
                       //    ⇒ 🔴 而下面那格測試在這幾行被拿掉時**照樣綠**(實測), 它守的是
                       //      【終態】不是【這幾行】—— 不要把它讀成這幾行的守門。
-                      const kept = new URLSearchParams();
-                      const keepSort = searchParams.get('sort');
-                      const keepPer = searchParams.get('per');
-                      if (keepSort) kept.set('sort', keepSort);
-                      if (keepPer) kept.set('per', keepPer);
-                      const keptQuery = kept.toString();
-                      router.replace(keptQuery ? `/products?${keptQuery}` : '/products');
+                      // 🔵 三顆鈕共用同一個定義(R3 must-fix 之後抽出來的)。
+                      router.replace(buildClearedProductsUrl(searchParams));
                     }}>
                     清除所有篩選
                   </button>

@@ -301,6 +301,12 @@ export async function createManualOrder(
       //      ⇒ 📌 判別法只有一個:**去 DB 看那一張單的 `invoice_requested`**。
       p_invoice: { ...values.invoice, requested: values.invoiceRequested },
       p_shipping_fee: values.shippingFee,
+      // 🔴🔴 **第 11 參。而它【要等 `20260905130000` 貼進正式庫才准上線】** ——
+      //    PostgREST 送一個函式不認得的參數 ⇒ 直接拒 ⇒ **後台建單整個壞**。
+      //    ⇒ 本片刻意留在分支 `agent/line-account-mailE` 上, 不進 dev。
+      // 🔵 `null` = 不寄(留白)。**不要送空字串** —— 那會被
+      //    `orders_notification_email_valid` 擋掉、整張單建不出來。
+      p_notification_email: values.notificationEmail,
       p_lines: resolved.lines,
     }));
   } catch (thrown) {

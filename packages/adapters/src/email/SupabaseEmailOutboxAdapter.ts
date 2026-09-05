@@ -60,10 +60,12 @@ import {
   buildOrderCreatedPayload,
   buildOrderShippedPayload,
   orderCreatedSubject,
+  buildOrderCancelledPayload,
   buildOrderUnpaidCancelledPayload,
   buildShipmentTrackingCorrectedPayload,
   orderShippedSubject,
   trackingCorrectedSubject,
+  orderCancelledSubject,
   orderUnpaidCancelledSubject,
 } from './order-email-assembly';
 
@@ -235,6 +237,7 @@ function composeEvent(input: EnqueueEmailInput): {
     | OrderCreatedEmailPayload
     | OrderShippedEmailPayload
     | ShipmentTrackingCorrectedEmailPayload
+    | ReturnType<typeof buildOrderCancelledPayload>
     | ReturnType<typeof buildOrderUnpaidCancelledPayload>;
   subject: string;
   dedupKey: string;
@@ -286,6 +289,22 @@ function composeEvent(input: EnqueueEmailInput): {
         //    而拍板是「一箱兩單就寄兩封, 一封講一張訂單」⇒ 少了它, 第二張單那封
         //    會撞到第一張的鍵 ⇒ `enqueue` 回 `duplicate` ⇒ **安靜地不寄**。
         dedupKey: `${input.shipmentId}:${input.orderId}:${input.trackingCorrectedKey}`,
+      };
+    }
+    case 'order_cancelled': {
+      const payload = buildOrderCancelledPayload({
+        displayId: input.displayId,
+        cancelledAt: input.cancelledAt,
+        cancelledReason: input.cancelledReason,
+        refundedAmount: input.refundedAmount,
+        refundKind: input.refundKind,
+      });
+      return {
+        payload,
+        subject: orderCancelledSubject(payload.display_id),
+        // 🔴 **dedup 用 orderId** —— 與 `order_unpaid_cancelled` 同一個理由:
+        //    一張單只會被取消一次 ⇒ 不用 cancelledAt(時刻會變 ⇒ 同一張單重排兩封)。
+        dedupKey: input.orderId,
       };
     }
     case 'order_unpaid_cancelled': {

@@ -477,6 +477,58 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
     }
 
+      /**
+       * ⟦b9-ACLDRIFT5⟧ 片二:**權限快照那一格「量不到」**。
+       *
+       * 🔴 `aclDriftDetected` **不在這裡** —— 它進 `shouldAlert`,走 LINE + Email 到 Sean。
+       *    這一格處理的是另一種:view 還沒貼、讀失敗、或**那一列太舊**(超過 26 小時)。
+       * 🎯 兩種訊號兩個觀眾 —— 與上面每一種同一個成例:權限的事吵 Sean;部署/排程的事吵看板。
+       * 🛑 **而「太舊」為什麼算量不到而不是「沒有漂移」**:
+       *    快照太舊 ⇒ 我手上這兩列不足以比較 ⇒ **回 200 等於宣稱「今天沒有人動權限」,
+       *    而我根本沒量到**。那正是本片存在的理由的反面。
+       * 🔵 而它不會變成信:`aclDriftUnknown` 時 `aclDriftDetected` 是 `false` ⇒ 進不了 `shouldAlert`。
+       */
+      /**
+       * ⟦b4-RETRYGAVEUPNOWATCHER⟧:被放棄的匯款單那一格「量不到」。
+       * 🔴 `settleRetryGaveUpCount > 0` 不在這裡 —— 它進 `shouldAlert`, 走 LINE + Email。
+       *    這一格處理的是:那支 RPC 還沒 apply、或讀失敗。
+       * 🛑 而它為什麼 503 不是靜靜回 200:回 200 等於宣稱「今天沒有修不好的單」——
+       *    而我根本沒量到。那些人已經匯了錢。
+       */
+      if (result.settleRetryGaveUpUnknown) {
+        console.error(
+          '[anomaly-alert] 🔵 get_settle_retry_gaveup_health 讀不到 ⇒ 那一格是【查不到】不是【零張】',
+          { ...result },
+        );
+        await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+        return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+      }
+
+      /**
+       * ⟦b4-PENDINGREFUNDSILENT⟧(2026-09-05):`get_pcm_incident_health` 讀不到。
+       * 🛑 **為什麼 503 而不是靜靜回 200**:回 200 等於宣稱「今天沒有被吞掉的失敗」——
+       *    而我根本沒量到。而那張表上的每一列都代表「有人匯了錢而退款單沒開成」。
+       * 🔴 **這個出口不是可選的** —— 本檔被 codex 抓過兩次同一個形狀:
+       *    adapter 算了 `*Unknown` 而 route 沒有消費它 ⇒ 📌 **旗標存在而沒有人看 = 那一格不存在。**
+       *    (:428-433 逐字記著 `orderCreatedGapUnknown` 與 `shippedGapUnknown` 那兩次。)
+       */
+      if (result.pcmIncidentUnknown) {
+        console.error(
+          '[anomaly-alert] 🔵 get_pcm_incident_health 讀不到 ⇒ 那一格是【查不到】不是【沒有事故】',
+          { ...result },
+        );
+        await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+        return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+      }
+
+      if (result.aclDriftUnknown) {
+        console.error(
+          '[anomaly-alert] 🔵 pcm_acl_drift_status 讀不到或太舊 ⇒ 權限漂移今天是【查不到】不是【沒有漂移】',
+          { ...result },
+        );
+        await recordHeartbeatFailure(CRON_JOB_NAME.anomalyAlert);
+        return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+      }
     if (result.cronHeartbeatUnknown) {
       console.error(
         '[anomaly-alert] 🔴 get_cron_heartbeat_stale_counts 讀不到 ⇒ 排程心跳今天是【查不到】不是【六支都健康】(回 503)',

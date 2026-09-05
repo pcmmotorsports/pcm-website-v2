@@ -48,7 +48,7 @@ const NOW = new Date('2026-08-28T12:00:00.000Z');
 /** n 分鐘前的 ISO 字串。 */
 const ago = (n: number) => new Date(NOW.getTime() - n * 60_000).toISOString();
 
-/** 六支全部剛剛成功過的一份完整資料(正向對照的地基)。 */
+/** 九支全部剛剛成功過的一份完整資料(正向對照的地基)。 */
 const ALL_HEALTHY: Row[] = CRON_JOB_WHITELIST.map((w) => ({
   job_name: w.jobName,
   last_success_at: ago(1),
@@ -65,7 +65,14 @@ describe('白名單這張表本身', () => {
   //    (三支在別處只被索引引用、沒有字面)⇒ 名字漂掉 ⇒ 三綠全綠,
   //      而線上那一支永遠報「從來沒寫過心跳」,沒有人知道是名字打錯。
   //    ⇒ 這一格把六個名字與長度**釘成字面**:分母改成【我在檔案外面寫死的那份】。
-  it('🔴 六支的名字與數量釘死(改名/多一支/少一支都要紅)', () => {
+  it('🔴 【九】支的名字與數量釘死(改名/多一支/少一支都要紅)', () => {
+    // 🔵 2026-09-05 一天之內 ⛔ ~~六~~ ⇒ ⛔ ~~七~~ ⇒ ⛔ ~~八~~ ⇒ **九** ——
+    //    而**每一次都是 merge 的產物**:三條線各自加了自己的那一支
+    //    (`pcm-acl-digest` / `pcm-settle-retry` / `pcm-late-payment-sweep`),
+    //    **每一條在自己的分支上都對。**
+    //    📌 **這一格紅了是它在做它該做的事** —— 新增排程時它會叫。
+    //    ⚠️ **而危險的修法是看到數字對不上就直接改成新的數字** —— 那等於把閘關掉,
+    //       而它印的還是綠。✅ 改之前先確認**每一支都該在**。
     expect(CRON_JOB_WHITELIST.map((w) => w.jobName)).toEqual([
       'pcm-anomaly-alert',
       'pcm-capture-recheck',
@@ -73,14 +80,23 @@ describe('白名單這張表本身', () => {
       'pcm-expire-unpaid-orders',
       'pcm-order-ineligible-gate',
       'pcm-settle-sweep',
+        // 🔵 2026-09-05 加(⟦b9-ACLDRIFT5⟧ 片一 20260905140000 排的)
+        'pcm-acl-digest',
+        // 🔵 2026-09-05 加(⟦b4-SETTLERETRYNEVER⟧)
+        'pcm-settle-retry',
+        // 🔵 2026-09-05 加(⟦b4-NCPCRONRACE⟧ 20260905180000 匯款兜底)
+        'pcm-late-payment-sweep',
     ]);
-    expect(CRON_JOB_WHITELIST).toHaveLength(6);
-    // 🔴 而這六個名字必須與**正式庫 cron.job 實際排的**一致(2026-08-28 唯讀撈、總數 6、非抽樣)。
+    expect(CRON_JOB_WHITELIST).toHaveLength(9);
+    // 🔴 而這【九】個名字必須與**正式庫 cron.job 實際排的**一致。
+    //    ⚠️ **而前一次量到的是 2026-08-28 的【六】**(唯讀撈、非抽樣)——
+    //    後面三支(`pcm-acl-digest` / `pcm-settle-retry` / `pcm-late-payment-sweep`)**未重量**。
     //    ⚠️ 而本測試**驗不到那一側** —— 它只釘住「碼裡這份沒有被偷偷改掉」。
     //    真排程漂掉這一格由 ⟦b4-CRON6c⟧ 記著(後台讀不到 `cron.job`,三道權限)。
   });
 
-  // 🔴 主視窗 2026-08-28 指定的守門:新增第七支排程時,它會安靜地沒有門檻。
+  // 🔴 主視窗 2026-08-28 指定的守門:新增排程時,它會安靜地沒有門檻。
+  //    (⛔ ~~原文寫「第七支」~~ —— 2026-09-05 一天之內就走到第九支, 而序數會過期。)
   it('🔴 每一支都要有門檻、有標籤、有接線落點 —— 少一格就紅', () => {
     for (const w of CRON_JOB_WHITELIST) {
       expect(typeof w.staleMinutes, `${w.jobName} 的 staleMinutes`).toBe('number');
@@ -151,10 +167,63 @@ describe('白名單這張表本身', () => {
     // 負對照:別支不在裡面 ⇒ 這個集合不是「全部都算」。
     expect(FAILURE_COUNT_MEANINGLESS.has('pcm-settle-sweep')).toBe(false);
   });
+
+  /**
+   * 🔴🔴 **[R4 F-R4-8] 這一格補的是「順序清單裡唯一沒有機械閘的那一項」。**
+   *
+   * `⟦search-LOGFLOOD⟧` 那支 PENDING 檔改名成真 migration 時,要一起改六處字面。
+   * 其中五處都有東西會叫(白名單對帳、兩處釘死的支數、門檻表),
+   * 🛑 **只有 `FAILURE_COUNT_MEANINGLESS` 是靜默的** —— 上面那格的 `toEqual` 是**定值比對**,
+   * 漏加一項它**不會紅**,而漏加的後果是 `consecutive_failures` 恆 0 被儀表讀成「零失敗」。
+   *
+   * 🔴 **判準不是 R4 建議的那個字面,而是量出來的**:R4 原話是「`SELECT public.` 形狀 ⇒ 必須在名單裡」。
+   *    當場數九支排程的 command:
+   *    ```
+   *      SELECT public.…                                   2 支(acl-digest / settle-retry)
+   *      SELECT pcm_cron.<函式>()                           2 支(expire-unpaid-orders / late-payment-sweep)
+   *      SELECT pcm_cron.invoke_cron_route('/api/cron/…')   5 支
+   *    ```
+   *    ⇒ 📌 **照 `SELECT public.` 判會漏掉中間那兩支 —— 而它們正是名單裡本來就有的。**
+   *      判準改成 **「這一發有沒有走 HTTP route」**:沒走 = 純 SQL = 失敗心跳會被同交易回捲。
+   *      今天照這把尺分:純 SQL 4 支,而 `FAILURE_COUNT_MEANINGLESS` 正好就是那 4 支。
+   *
+   * ⚠️ **它的盲區**:動態組出來的 job 名、以及 command 沒有用 dollar-quote 寫的,本格看不到
+   *    (與上面那格同一個盲區;下面的分母守恆會在那時候紅)。
+   */
+  it('🔴 純 SQL 的排程都必須在「失敗計數沒有意義」名單裡(它們物理上寫不出失敗心跳)', () => {
+    const dir = resolve(__dirname, '../../../../../supabase/migrations');
+    const pure: string[] = [];
+    const routed: string[] = [];
+    const allNames = new Set<string>();
+    for (const f of readdirSync(dir).filter((x) => x.endsWith('.sql'))) {
+      const sql = readFileSync(join(dir, f), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/--[^\n]*/g, ' ');
+      for (const m of sql.matchAll(/cron\.schedule\(\s*'([^']+)'/g)) allNames.add(m[1]!);
+      // 名字之後【最近的】那個 dollar-quoted 字串就是 command(第三個參數)。
+      for (const m of sql.matchAll(/cron\.schedule\(\s*'([^']+)'[\s\S]*?\$([A-Za-z_]*)\$([\s\S]*?)\$\2\$/g)) {
+        (m[3]!.includes('invoke_cron_route') ? routed : pure).push(m[1]!);
+      }
+    }
+
+    // 🟢 正對照:兩堆都不得是空的 —— 空的話下面那個 filter 會恆過(最常見的假綠)。
+    expect(pure.length, '純 SQL 的排程數(0 ⇒ 這把尺沒接上)').toBeGreaterThan(0);
+    expect(routed.length, '走 route 的排程數(0 ⇒ 這把尺不分辨, 它把全部都當純 SQL)').toBeGreaterThan(0);
+    // 🔴 分母守恆:每一支撈得到名字的排程,都要被分進其中一堆。
+    expect(
+      [...allNames].filter((n) => !pure.includes(n) && !routed.includes(n)),
+      '有排程撈得到名字而分不了類 ⇒ 它的 command 不是 dollar-quoted, 本格對它失明',
+    ).toEqual([]);
+
+    expect(
+      [...new Set(pure)].filter((n) => !FAILURE_COUNT_MEANINGLESS.has(n)).sort(),
+      '🔴 純 SQL 的排程沒進 FAILURE_COUNT_MEANINGLESS ⇒ 它的失敗計數恆 0, 而儀表會讀成「零失敗」',
+    ).toEqual([]);
+  });
 });
 
 describe('loadCronHeartbeats', () => {
-  it('正向對照:六支都健康 ⇒ 零異常、零漂移(證明下面每一格的斷言真的看得到東西)', async () => {
+  it('正向對照:九支都健康 ⇒ 零異常、零漂移(證明下面每一格的斷言真的看得到東西)', async () => {
     withRows(ALL_HEALTHY);
     const r = await loadCronHeartbeats(NOW);
     expect(r.unreadableReason).toBeNull();

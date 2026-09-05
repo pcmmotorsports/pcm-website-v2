@@ -243,6 +243,47 @@ export type CheckAnomalyAlertsResult = {
    */
   bypassRlsRevoked: boolean;
   bypassRlsUnknown: boolean;
+  /**
+   * ⟦b9-ACLDRIFT5⟧ 片二:權限快照漂移。與 `bypassRls*` 同一族的兩個旗標 ——
+   * `Detected` 進 `shouldAlert`(有人動了權限而沒有人認),`Unknown` 不進(讀不到 / 太舊 ⇒ 503 那條)。
+   */
+  aclDriftDetected: boolean;
+  aclDriftUnknown: boolean;
+  /** 🔵 診斷用:哪一族變了 / 那一列幾點量的。**不進** `shouldAlert`。 */
+  aclDriftFamilies: string | null;
+  aclDriftTakenAt: string | null;
+  /**
+   * ⟦b4-RETRYGAVEUPNOWATCHER⟧:被 settle-retry 放棄的匯款單。
+   * `> 0` 進 shouldAlert(已經匯了錢而系統修不好的客人);Unknown 不進。
+   */
+  settleRetryGaveUpCount: number | null;
+  settleRetryGaveUpUnknown: boolean;
+  settleRetryGaveUpOldest: string | null;
+  settleRetryGaveUpSampleIds: string[];
+  /** 🔵 分母:被追蹤的總列數。`gave_up_count > tracked_total` ⇒ 讀到的不可信 ⇒ 走 Unknown。 */
+  settleRetryGaveUpTracked: number | null;
+
+  /**
+   * ⟦b4-PENDINGREFUNDSILENT⟧(2026-09-05):被刻意吞掉的「開待退款失敗」留痕。
+   * 來源 = `public.get_pcm_incident_health()`(隨 `20260905290000` / 貼板 36 才存在)。
+   *
+   * 🔴 **`pcmIncidentOpenTotal > 0` 進 `shouldAlert`** —— Sean 2026-09-05 拍甲逐字
+   *    「小事故表 + **告警信多一列**」;主視窗 `-f8` 明示這裡**沒有門檻題**:
+   *    📌 **事故 > 0 就叫。** 那張表上的每一列都代表「有人匯了錢而退款單沒開成」。
+   *
+   * 🛑 `pcmIncidentUnknown` **不進** `shouldAlert`(沿用本檔每一族 `*Unknown` 的慣例)——
+   *    它有兩個世界:①那支 RPC 還沒 apply(部署窗口, 預期中)②它真的壞了。
+   *    ⇒ 兩者只靠 adapter 那一行 `console.error` 分得開。
+   */
+  pcmIncidentOpenTotal: number | null;
+  pcmIncidentUnknown: boolean;
+  /** 最早一列未處理事故的時間;`null` = 沒有 open 或沒讀到。 */
+  pcmIncidentOldest: string | null;
+  /**
+   * 逐 kind 的未處理計數(信裡要列得出是哪一種)。
+   * 🔵 空物件有兩個意思:**沒有事故** 與 **沒讀到** —— 要分開請看 `pcmIncidentUnknown`。
+   */
+  pcmIncidentByKind: Record<string, number>;
   /** 🔵 讀到的兩個分母。**不直接進 `shouldAlert`** —— 那道閘只看上面兩個旗標。
    *  ⛔ ~~我第一版寫「**不是判準**」~~ —— R3 nit 打掉(codex R2 也在 domain 那份打過同一句):
    *     `bypassRlsTotalRoleCount` **確實參與判定**(adapter 拿它當回應合理性下界 ⇒ 走 Unknown)。
@@ -993,7 +1034,15 @@ export function buildAnomalyAlertMessage(
    * 📌 **⇒ 一個在自己那一層完全正確的宣稱, 換一層之後是假的 —— 而它不會被任何單元測試抓到。**
    */
   const hasHeartbeat = (summary.cronHeartbeatAbnormalCount ?? 0) > 0;
-  const subject = hasBypassRls && !hasPayment && !hasEmail && !hasHeartbeat
+  // ⟦b9-ACLDRIFT5⟧:主旨也要分得出來 —— 一封主旨寫「付款有事」而內容是權限漂移的信,
+  //   收信的人會用錯的心情打開它。
+  const hasAclDrift = summary.aclDriftDetected === true;
+  const hasGaveUp = (summary.settleRetryGaveUpCount ?? 0) > 0;
+  const subject = hasGaveUp
+    ? '🔴 PCM 有匯款單修不好 —— 這些客人已經匯了錢'
+    : hasAclDrift && !hasBypassRls && !hasPayment && !hasEmail && !hasHeartbeat
+    ? '🔵 PCM 資料庫權限與昨天不一樣(貼板當天正常)'
+    : hasBypassRls && !hasPayment && !hasEmail && !hasHeartbeat
     ? '⚠️ PCM 資料庫權限有事要你看(與付款無關)'
     : hasBypassRls
       ? '⚠️ PCM 資料庫權限有事,而其他也有事要你看'
@@ -1026,6 +1075,71 @@ export function buildAnomalyAlertMessage(
    * 🛑 **逐字帶【它證不到什麼】** —— 沒有這一句, 收到告警的人會以為
    *    「沒叫 = 沒事」, 而那 45 張表的地板還是濕的。
    */
+  /**
+   * ⟦b9-ACLDRIFT5⟧ 片二:權限快照與昨天不一樣的那一行。
+   * 🛑 **逐字帶【貼板當天正常】** —— 少了那一句, 貼完板收到這封信的人會以為出事了,
+   *    而最可能的反應是**把那次貼板 revert 掉**。
+   * 🔵 而它也帶【怎麼讓它不再叫】—— 一封只說「有事」而不說下一步的信, 會被整批忽略。
+   */
+  /**
+   * ⟦b4-RETRYGAVEUPNOWATCHER⟧:被 settle-retry 放棄的匯款單。
+   * 🛑 **逐字帶「這些人已經匯了錢」** —— 少了那一句, 這一行讀起來像一個技術指標,
+   *    而它其實是一份**名單**:每一張都是一個付了錢而訂單頁還印「請匯款」的客人。
+   */
+  const gaveUpBlock: string[] = [];
+  if ((summary.settleRetryGaveUpCount ?? 0) > 0) {
+    gaveUpBlock.push(
+      '【匯款單修不好】',
+      `🔴 有 ${summary.settleRetryGaveUpCount} 張匯款單自動重算試到上限仍然沒好 —— **這些人已經匯了錢**。`,
+      `   最舊那一張放棄於:${summary.settleRetryGaveUpOldest ?? '(沒讀到)'}`,
+      `   訂單 id(最多列 5 個):${summary.settleRetryGaveUpSampleIds.join(', ') || '(沒讀到)'}`,
+      '   ⇒ 他們的訂單頁還印著「請匯款」+ 銀行帳號 ⇒ 🔴 **有人會再匯一次。**',
+      '   ✅ 下一步:後台開那幾張單、對一次金額;錯在哪看 Postgres log 的 [pcm_noncard_settle]。',
+      '   🛑 這個數字是【此刻】不是【累計】—— 放棄有 24 小時冷卻, 一張單會反覆進出它。',
+    );
+  }
+
+  /**
+   * ⟦b4-PENDINGREFUNDSILENT⟧ —— Sean 2026-09-05 拍甲逐字「小事故表 + **告警信多一列**」的下半。
+   * 🔵 形狀照隔壁 `gaveUpBlock`:自己一個 block, 由下面那句 `const body = [...]` 組進信體。
+   *    ⚠️ **這裡刻意不寫行號** —— 我原本寫 `:1270`, 而加了本區塊之後那一行就變成 `:1276`
+   *      ⇒ codex 2026-09-05 nit:跳過去看到的是說明文字不是組裝行。
+   *      📌 **一個指向同一支檔的行號, 會被【自己這次的改動】弄過期。**
+   */
+  const incidentBlock: string[] = [];
+  if ((summary.pcmIncidentOpenTotal ?? 0) > 0) {
+    const kinds = Object.entries(summary.pcmIncidentByKind)
+      .map(([k, n]) => `${k}=${n}`)
+      .join(' · ');
+    incidentBlock.push(
+      '【被吞掉的失敗】',
+      `🔴 有 ${summary.pcmIncidentOpenTotal} 件事故沒有人處理 —— 這些是【被刻意吞掉】的失敗。`,
+      '   目前唯一一種是「客人匯了錢而退款單沒開成」:錢在庫裡, 而系統當時選擇【不讓它回滾】,',
+      '   因為回滾會把客人那筆收款一起退掉。⇒ 吞掉是對的, 而沒有人知道它發生過才是病。',
+      `   種類:${kinds || '(沒讀到)'}`,
+      `   最早一件:${summary.pcmIncidentOldest ?? '(沒讀到)'}`,
+      '   ✅ 下一步:後台查那幾張單有沒有待退款列;錯在哪看 Postgres log 的 [pcm_noncard_settle]。',
+      '   🛑 這個數字【只算得到留得下來的那些】—— 外層交易整個回滾時, 那一列會跟著消失。',
+    );
+  }
+
+
+  const aclDriftBlock: string[] = [];
+  if (summary.aclDriftDetected) {
+    aclDriftBlock.push(
+      '【權限快照】',
+      '🔵 資料庫的權限與昨天不一樣了 —— 有人改了權限, 或是貼了一支 migration。',
+      `   哪一族變了:${summary.aclDriftFamilies ?? '(沒讀到)'}`,
+      `   這一列是幾點量的:${summary.aclDriftTakenAt ?? '(沒讀到)'}`,
+      '   ✅ **貼板當天出現這一行是正常的** —— 那些差就是你貼的那支造成的。',
+      '   ⇒ 確認過就在 SQL Editor 跑一次(理由必填, 它會留在資料庫裡):',
+      "     SELECT public.pcm_acl_approve_latest('貼了 <版本號>, 那些差是它造成的');",
+      '   🔴 而【沒有貼板】卻出現這一行 ⇒ 有人直接在 Supabase 網頁上改了權限 ⇒ 要查。',
+      '     逐格看是哪裡變了:bash scripts/acl-snapshot.sh',
+      '   🛑 它答不出【有沒有人偷改】—— 改掉又改回來, 兩次快照相同, 它不會叫。',
+    );
+  }
+
   const bypassRlsBlock: string[] = [];
   if (summary.bypassRlsRevoked) {
     bypassRlsBlock.push(
@@ -1178,7 +1292,11 @@ export function buildAnomalyAlertMessage(
   //    而**沒有加進這個陣列的話, 那段永遠不會出現在信裡**, 且測試會全綠。
   //    ⇒ 📌 「算出來了」「寫進信裡了」「會讓信寄出去」是三個宣稱(線【資料】`-db` 2026-09-05
   //      主動告知它上一片就漏了第三個)⇒ 本片三個接點:此處 · shouldAlert · builder 參數。
-  const body = [bypassRlsBlock, searchLogBlock, stuckBankBlock, stuckBankOverpaidBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock].filter((b) => b.length > 0).flatMap((b) => [...b, '']);
+    // 🔵 2026-09-05 合併:`-db` 的 aclDriftBlock 與 `-mail` 的 stuckBank* 兩邊都留 ——
+    //    它們是不同的訊號、不同的觀眾, 誰都不該覆蓋誰。
+    const body = [bypassRlsBlock, aclDriftBlock, gaveUpBlock, incidentBlock, searchLogBlock, stuckBankBlock, stuckBankOverpaidBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock]
+      .filter((b) => b.length > 0)
+      .flatMap((b) => [...b, '']);
 
   /**
    * 🔴🔴 **結尾三行是【不可截的】,而這不是排版偏好。**
@@ -1716,7 +1834,19 @@ export async function checkAnomalyAlerts(
     // ✅ 正確的說法:**它不會【直接】寄信;而它持續量不到時會【經由心跳那條路】寄。**
     //   📌 而那其實是對的行為(一支一直失敗的 cron 本來就該被看見)——
     //     錯的是我原本那句話, 不是這個耦合。
-    summary.bypassRlsRevoked;
+      summary.bypassRlsRevoked ||
+      // ⟦b9-ACLDRIFT5⟧ 片二:**只有明確的 `true` 才進**(與上面同一個形狀、同一個理由)。
+      // 🔴 而「已批准」在 adapter 那一層就讓 Detected 回 false —— **那不是消音**:
+      //   批准是一個人簽下「那是我貼板造成的」。少了它, 貼板當天之後會【每天寄一封
+      //   一模一樣的信】, 而那種信會被整批忽略 ⇒ 連真的那一封也一起。
+      summary.aclDriftDetected === true ||
+      // ⟦b4-RETRYGAVEUPNOWATCHER⟧:被放棄的匯款單 > 0 ⇒ 叫。
+      // 🔴 那是【已經匯了錢而系統修不好】的客人 —— 它與 bypassRls 同一個等級。
+      // 🛑 而 `null`(量不到)不進這道閘 —— 它走 503 那條(與本檔每一格同一個成例)。
+      (summary.settleRetryGaveUpCount ?? 0) > 0 ||
+      // 🔴 ⟦b4-PENDINGREFUNDSILENT⟧:事故 > 0 就叫(Sean 拍甲, 沒有門檻題)。
+      //    `?? 0` 讓 Unknown(null)不進這道閘 —— 與本檔每一族 `*Unknown` 同慣例。
+      (summary.pcmIncidentOpenTotal ?? 0) > 0;
 
   let notifiersTotal = 0;
   let notifiersFailed = 0;
@@ -1844,6 +1974,21 @@ export async function checkAnomalyAlerts(
     //   **那條「部署問題走部署管道」的路就不存在**(下面那段註解講的正是同一個坑)。
     bypassRlsRevoked: summary.bypassRlsRevoked,
     bypassRlsUnknown: summary.bypassRlsUnknown,
+      // ⟦b9-ACLDRIFT5⟧:兩個都要帶出去 —— `Unknown` 不帶 ⇒ route 讀不到 ⇒ 503 那條路不存在。
+      aclDriftDetected: summary.aclDriftDetected,
+      aclDriftUnknown: summary.aclDriftUnknown,
+      aclDriftFamilies: summary.aclDriftFamilies,
+      aclDriftTakenAt: summary.aclDriftTakenAt,
+      // ⟦b4-RETRYGAVEUPNOWATCHER⟧:四格都要帶出去 —— Unknown 不帶 ⇒ route 讀不到 ⇒ 503 那條路不存在。
+      settleRetryGaveUpCount: summary.settleRetryGaveUpCount,
+      settleRetryGaveUpUnknown: summary.settleRetryGaveUpUnknown,
+      settleRetryGaveUpOldest: summary.settleRetryGaveUpOldest,
+      settleRetryGaveUpSampleIds: summary.settleRetryGaveUpSampleIds,
+      settleRetryGaveUpTracked: summary.settleRetryGaveUpTracked,
+      pcmIncidentOpenTotal: summary.pcmIncidentOpenTotal,
+      pcmIncidentUnknown: summary.pcmIncidentUnknown,
+      pcmIncidentOldest: summary.pcmIncidentOldest,
+      pcmIncidentByKind: summary.pcmIncidentByKind,
     bypassRlsPrivilegedCount: summary.bypassRlsPrivilegedCount,
     bypassRlsTotalRoleCount: summary.bypassRlsTotalRoleCount,
     /**

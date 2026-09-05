@@ -466,6 +466,9 @@ describe('#350c 守門 7:列表頁真的把「帶篩選的 panel href」餵給�
           paymentChannel: 'tappay',
           cancelledAt: null,
           total: { amount: 1000, currency: 'TWD' },
+          // 🔵 稅欄(Sean 2026-09-05 第 6 題)—— 這一族 fixture 走 `as unknown as`,
+          //    型別看不到缺欄, 而執行期會 `Cannot read properties of undefined`。
+          taxTotal: { amount: 0, currency: 'TWD' as const },
           lines: [],
           invoiceStatus: null,
           tierAtCheckout: null,
@@ -856,6 +859,9 @@ describe('OD 片 3b 守門:`?customer=` 分支', () => {
         createdAt: '2026-08-01T00:00:00Z',
         itemCount: 1,
         total: { amount: 1000, currency: 'TWD' },
+        // 🔵 稅欄(Sean 2026-09-05 第 6 題)—— 這一族 fixture 走 `as unknown as`,
+        //    型別看不到缺欄, 而執行期會 `Cannot read properties of undefined`。
+        taxTotal: { amount: 0, currency: 'TWD' as const },
         paymentStatus: 'paid',
         fulfillmentStatus: 'notOrdered',
       },

@@ -68,6 +68,13 @@ import { useTapPayCard } from '@/hooks/useTapPayCard';
 import { confirmProceedIfInflight } from '@/lib/payment/inflight-marker';
 
 export type CheckoutViewProps = {
+  /**
+   * 🔴🔴 **匯款結帳的開關 —— server 讀、當 prop 傳,不做 `NEXT_PUBLIC_` 鏡像。**
+   * `lib/payment/bank-transfer-flag.ts` 是 `import 'server-only'`,而那是刻意的:
+   * 它擋的不是「功能沒做好」,是**一個會讓客人兩邊都付錢的洞**(見該檔檔頭)。
+   * 🛑 **一顆安全 flag 有兩份來源時,關掉的人只會關到他知道的那一份。**
+   */
+  bankTransferEnabled: boolean;
   /** 會員收件地址清單(server page getAddressRepo→listByCustomer、RLS 守自己 row) */
   addresses: CustomerAddress[];
   /** 會員顯示名(server page customers.name SoT) */
@@ -81,12 +88,32 @@ export type CheckoutViewProps = {
 };
 
 export function CheckoutView({
+  bankTransferEnabled,
   addresses,
   memberName,
   memberTier,
   notificationEmailEnabled,
   initialNotificationEmail,
 }: CheckoutViewProps) {
+  // 🔴🔴 **付款方式從【寫死】換成畫面狀態**(⟦b4-BANKCHARGESCARD⟧ 片 2)。
+  //    ⛔ ~~兩處 `paymentChannel: 'tappay' as const`~~ —— 它們相距約 60 行,
+  //    而舊註解逐字寫著「要**同時**換這兩處」⇒ 現在它們讀**同一個 state**。
+  // 🔴🔴 ⛔ ~~`bankTransferEnabled` 為 false 時這個 state 永遠是 `'tappay'`~~
+  //    —— **那句話是假的**(codex ①):選項不渲染只擋得住「**新的**選擇」,
+  //    擋不住**已經選過而 flag 之後才被關掉**的那顆 state。
+  //    ✅ 真的成立的是下面那個 `effectiveChannel` —— **它是推導出來的, 不是記住的。**
+  const [pickedChannel, setPickedChannel] = useState<'tappay' | 'bank_transfer'>('tappay');
+  // 🔴🔴 **`effectiveChannel` 才是唯一真相 —— 而它不是 `pickedChannel`。**
+  //    🔬 codex 給的反例(我核過):flag 開 ⇒ 客人選匯款 ⇒ 回 step1 存地址觸發 `router.refresh()`
+  //       ⇒ 這一刻 flag 被關掉 ⇒ **server 傳下來的 prop 變 false, 而 client state 還是 `'bank_transfer'`**。
+  //    🛑 那時如果 radio 讀的是 `pickedChannel`:匯款那顆已經不渲染, 而信用卡那顆
+  //       `checked={pickedChannel === 'tappay'}` **也是 false** ⇒ 📌 **兩顆都沒亮, 而送出去的是刷卡。**
+  //    ⇒ ✅ **收斂成一個值**:flag 關著時它一律是 `'tappay'`, 畫面與 payload **讀同一個**。
+  //    📌 **我原本寫「flag 關著 ⇒ state 永遠是 tappay」—— 那句話是假的**(state 會留著),
+  //       真的成立的是「**flag 關著 ⇒ effectiveChannel 永遠是 tappay**」。
+  const effectiveChannel: 'tappay' | 'bank_transfer' =
+    bankTransferEnabled && pickedChannel === 'bank_transfer' ? 'bank_transfer' : 'tappay';
+  const isBank = effectiveChannel === 'bank_transfer';
   const router = useRouter();
   // 配送方式 + 標籤依購物車自算(補差額整車=store 免運;鐵則 6 外移至 useCheckoutShipping)。
   const { method: shippingMethod, label: shippingLabel, balancePaymentCheckout } = useCheckoutShipping();
@@ -173,7 +200,12 @@ export function CheckoutView({
   // 🔴 U4b:按下付款、有錯 → 聚焦第一個錯誤(design §7.2「捲動並聚焦第一個可聚焦錯誤」)。
   //   傳入卡片 + 非卡片的合併 map;hook 於 commit 後對**最新**值聚焦(見 useFirstErrorFocus 時序註解)。
   //   聚焦 orchestration 是 View 職責(design §8),但 registry 與 DOM 副作用外移至 lib/hook(鐵則 6、不塞 View)。
-  const requestErrorFocus = useFirstErrorFocus({ ...payErrors.errors, ...cardValidation.errors });
+  // 🔴🔴 codex ②③:**卡片錯誤的【顯示 / 聚焦 / 摘要】那一半原本沒有跟著 `isBank` 走。**
+  //    🛑 症狀:匯款客人**按過一次**之後 `submitAttempted` 變 true ⇒ **卡欄紅字全部冒出來**,
+  //       而聚焦順序甚至會先跳到卡號 —— 📌 **一個正要匯款的人, 被要求去修他沒有要用的卡。**
+  //    ⇒ ✅ 匯款時把卡片錯誤**整組清空**(不是隱藏一半)。
+  const shownCardErrors = isBank ? {} : cardValidation.errors;
+  const requestErrorFocus = useFirstErrorFocus({ ...payErrors.errors, ...shownCardErrors });
   const handleSubmit = async () => {
     // 🔴 順序不可調動(codex 關卡1 R1#6 / R3-B / 關卡2 R1#1 釘死):同步 guard → **淘汰舊 charge error**
     //   → non-card validation → confirm → prime 鎖 → getPrime → **解除淘汰** → charge.submit。
@@ -191,18 +223,27 @@ export function CheckoutView({
       // 🔴 段 1-B:與下面送給 server 的那個值**必須是同一份** ——
       //   前端驗一個、後端存另一個, 兩邊都不會叫。(下一個增量把它換成畫面上的狀態時,
       //   要**同時**換這兩處, 而它們相距約 60 行。)
-      paymentChannel: 'tappay' as const,
+      // 🔵 ⛔ ~~寫死 `'tappay'`~~ ⇒ 讀畫面狀態。與下面送給 server 的那個值**同一份**。
+      paymentChannel: isBank ? ('bank_transfer' as const) : ('tappay' as const),
     });
     payErrors.applyValidation(validation);
     // 🔴 卡片閘與非卡片閘**同時求值、一起擋**(design §7.2「同一次 submit 找到的所有錯誤全部顯示,
     //   不採逐一阻擋」)。submitAttempted 顯式傳 true:closure 裡的 state 這一輪還沒更新。
     //   放行只看 `valid` 旗標,**不看 errors map 是否為空**(未按過付款時 map 恆空但 valid 可能 false)。
-    const cardResult = validateTapPayFields({
-      ready: tappay.ready,
-      canGetPrime: tappay.canGetPrime,
-      fieldStatus: tappay.fieldStatus,
-      submitAttempted: true,
-    });
+    // 🔴 **匯款那條路不【擋】卡** —— 卡欄對他是空的, 擋它只會擋住一個沒有要刷卡的人。
+    //    ⚠️ ⛔ ~~原本這裡寫「不驗卡」~~ —— **那個詞比它的射程大**(codex ③):
+    //    `validateTapPayFields` 仍然在上面**照跑**(它餵 `TapPayCardFields` 的紅字),
+    //    這裡換掉的只有**送出那一刻的閘**;而**顯示那一半**由 `shownCardErrors` 收。
+    //    🔵 `valid: true` 而不是跳過整個判斷式:下面那一行同時看兩個旗標,
+    //    給它一個「這條路沒有卡要驗」的**顯式真值**, 比在條件式裡多加一個 `!isBank` 好讀。
+    const cardResult = isBank
+      ? { valid: true as const, errors: {} }
+      : validateTapPayFields({
+          ready: tappay.ready,
+          canGetPrime: tappay.canGetPrime,
+          fieldStatus: tappay.fieldStatus,
+          submitAttempted: true,
+        });
     if (!validation.valid || !cardResult.valid) {
       // 🔴 有錯即止:confirmProceedIfInflight / getPrime / chargePaymentAction 一律 0 次。
       //   prime 訊息一併淘汰,否則客人修完欄位後舊訊息會幽靈重現。
@@ -220,10 +261,46 @@ export function CheckoutView({
     try {
       // 🔴 `.catch(() => null)`:SDK 若 throw,無 catch 會讓 handler 靜默結束、客人完全沒訊息;
       //   轉 null 即落入下方友善錯誤路徑(code-reviewer nit,已由 getPrime reject 測試守門)。
-      const prime = await tappay.getPrime().catch(() => null);
-      if (!prime) {
-        setPrimeError('卡片資訊驗證失敗,請確認卡號 / 有效期 / CVV 後重試');
-        return;
+      //   (它跟著 `getPrime` 搬進下面那個 `if` 裡了,本行只留指標。)
+      // ⛔ ~~🔴🔴 **匯款這條路【今天仍然取 prime】—— 而那是暫時的,不是設計。**~~ (2026-09-05 片 2 拆掉了)
+      //    🛑 原因在 server 那一側:`charge-actions.ts` 的 prime 閘是**無條件**的,
+      //       而且排在任何 channel 分岔**之前**(`TapPayPrimeInput.safeParse(raw.prime)`
+      //       失敗 ⇒ `formError: '付款資訊缺失,請重新進行刷卡'`)。
+      //    ⇒ 📌 **前端不取 prime ⇒ 一個正要匯款的客人會吃到一句叫他去刷卡的錯誤訊息。**
+      //    ⇒ ⇒ 要拆開它必須改 `charge-actions.ts` —— **那是片 1 的檔**(⟦b4-BANKCHARGESCARD⟧),
+      //       而兩片改同一支函式是我們刻意避開的(主視窗 2026-09-05 裁【丙】)。
+      // ✅ **⛔ ~~上面那兩條代價~~ 2026-09-05 片 2 收掉了** —— 舊字面留在上面加刪除線,
+      //    因為它記著「為什麼當時不能拆」,而那個理由現在已經不成立(片 1 把 server 的閘挪到分岔之後)。
+      //
+      // 🔴🔴 **匯款這條路【不取 prime】—— 而跳過的邊界只有這一段, 前面那一串一個都不動。**
+      //    🛑 **不可以順手一起跳的**(片 2 plan §2b, 每一條都指名不做會怎樣):
+      //      · `confirmProceedIfInflight()`(上面那行)—— 它的註解自己寫「**後端 preflight 才是雙扣真防線**」
+      //        ⇒ 繞過去會**再建一張單** ⇒ 📌 我們修的是「他以為沒買成」, 繞過去變成「他真的買了兩次」。
+      //      · `agreed` / 收件地址 / cart session —— 那些與付款方式無關, 匯款客人一樣要同意條款。
+      //        (⚠️ **cardholder 不在這一串裡** —— 它是 server 那側組出來的, client 從來沒有那個欄位;reviewer R1 抓到我原本把它寫進來了, 而那會叫下一個人去找一個不存在的變數。)
+      //      · 下面那行 `payErrors.resumeChargeMessage()` —— 連它一起跳 ⇒ **新的錯誤會被 stale 機制蓋掉**
+      //        ⇒ 客人看到的是**上一次**的訊息, 而那與「沒有訊息」一樣糟。
+      //    ⇒ 🎯 **所以這裡只多一個 `if (!isBank)`, 而不是把整段搬進分支。**
+      //
+      // 🔴🔴 **`prime` 送 `null` 之後, server 那一側【今天還接不住】—— 而這一句是量到的, 不是推的。**
+      //    實查 `agent/line-mail`(片 1 的分支)`charge-actions.ts`:
+      //      · `:217` `TapPayPrimeInput.safeParse(raw.prime)` —— **無條件**, 且排在
+      //      · `:416` `storedChannel === 'bank_transfer'` 那個分岔【之前】, 也排在 `②e agreed` 之前。
+      //    ⇒ 📌 **片 1 沒有動那道閘** —— 它動的是分岔【之後】的出口(fail-closed ⇒ 終態)。
+      //    ⇒ ⇒ 所以送 null 的結局是 `formError: '付款資訊缺失,請重新進行刷卡'`,
+      //         而那句話對一個正要匯款的客人是**錯的指示**。
+      // 🛑 **⇒ 因此本片【不足以】翻 `BANK_TRANSFER_CHECKOUT_ENABLED`。**
+      //    缺的那一格有名字:**「把 ②c prime 閘挪到 channel 分岔之後」, 而它今天【沒有人認領】**
+      //    (片 1 plan §6 交給片 2 的原句是「只跳過 prime 的 parse」—— 那句指的是 **client 這一段**,
+      //     server 那一道同名的閘不在任何一片的範圍裡)。已回報主視窗。
+      // ⚠️ **而本片仍然要進去**:它是那一格的**前置**, 且它讓「沒有卡的人」不再卡在 client 側。
+      let prime: string | null = null;
+      if (!isBank) {
+        prime = await tappay.getPrime().catch(() => null);
+        if (!prime) {
+          setPrimeError('卡片資訊驗證失敗,請確認卡號 / 有效期 / CVV 後重試');
+          return;
+        }
       }
       // 🔴 stale 解除必須晚到這裡(R3-B):getPrime 可等 ~15 秒,期間 charge.state 仍持上一輪訊息,
       //   提早解除會讓舊訊息在取 prime 期間重新現身。submit 內部同步切 'submitting'、與本行同批。
@@ -244,7 +321,8 @@ export function CheckoutView({
          *   而合成一步的話, 客人選了匯款卻存成刷卡, 會被讀成「選項壞了」。
          * 🔴 而它**寫死在這裡是暫時的**;下一個增量要把它換成畫面上的狀態, 不要在別處再寫一份。
          */
-        paymentChannel: 'tappay' as const,
+        // 🔵 與上面驗證用的那個值**同一份**(它們相距約 60 行)。
+        paymentChannel: isBank ? ('bank_transfer' as const) : ('tappay' as const),
         ...(notificationEmailEnabled ? { notificationEmail } : {}),
         // 🔴 **Sean 拍 `Q15 = 甲`**:讓那句擋人的話**叫得出是哪一件商品**。
         //    品名來自**這一次 render 已經解析好的那一份**(`cart.lines`)——
@@ -274,7 +352,8 @@ export function CheckoutView({
   const paymentAlert = payErrors.alertFor({
     primeError,
     chargeState: charge.state,
-    cardErrors: cardValidation.errors,
+    // 🔴 codex ②:警示摘要也吃卡片錯誤 ⇒ 匯款時會蓋掉 prime / charge 那半的訊息。
+    cardErrors: shownCardErrors,
   });
 
   // 終態(優先於 loading/empty;clear() 後 cart 轉 empty 不可蓋掉終態)。各終態畫面在 CheckoutTerminalScreen。
@@ -399,6 +478,9 @@ export function CheckoutView({
             {/* ===== STEP 2: 收件摘要 + 發票 + 付款 + 商品 + 條款 + 動作列(U2b 單一元件;U4b 起動作列亦在其內)===== */}
             {step === 2 && (
               <CheckoutStep2
+                bankTransferEnabled={bankTransferEnabled}
+                paymentChannel={effectiveChannel}
+                onPaymentChannelChange={setPickedChannel}
                 currentAddr={addresses.find((a) => a.id === shippingAddrId)}
                 shippingLabel={shippingLabel}
                 onEditAddress={() => setStep(1)}
@@ -410,7 +492,7 @@ export function CheckoutView({
                   <TapPayCardFields
                     ready={tappay.ready}
                     fieldStatus={tappay.fieldStatus}
-                    errors={cardValidation.errors}
+                    errors={shownCardErrors}
                   />
                 }
                 lines={lines}

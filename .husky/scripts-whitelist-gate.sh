@@ -253,6 +253,13 @@ n_tree_lines=$(tr '\0' '\n' < "$TMP/tree.z" | grep -cE '.')
 tr '\0' '\n' < "$TMP/tree.z" | grep -E "$EXTRE" > "$TMP/tree.txt"
 n_tree=$(wc -l < "$TMP/tree.txt" | tr -d ' ')
 
+# 🔴 ⟦b4-WLGATE1⟧(2026-09-05 落):**這道閘的名字比它的分母寬** —— 名字說「scripts/ 白名單」,
+#    而它只看 `EXTS` 那幾種副檔名。修法**不是改名也不是擴分母**(理由見 commit body),
+#    是把那個差距**印在每一次輸出裡**:`n_tree_lines - n_tree`。
+#    🛑 **而它必須【併進既有那一行】, 不可以自己多印一行** ——
+#       harness 格9 釘著「綠的輸出 ≤ 2 行」, 我第一版多印兩行, **被它擋下來**。
+#       📌 那一格守的是「閘死於誤報」的同族:**每次都吵四行的閘, 人會開始跳過它。**
+
 # 🔴 codex must-fix 1+2(2026-08-25):第一版放大到【工作樹】—— **方向錯了**。
 #    漏擋:stage 刪白名單 + 工作樹刪掉那支腳本但【不 stage 刪檔】
 #      ⇒ find 看不到它 ⇒ 放行, 而這顆 commit 實際上保留了那支腳本、只刪了它的白名單。
@@ -439,7 +446,7 @@ emit_orphans() {
 }
 
 if [ "$n_total" -lt 1 ]; then
-  printf '%s\n' "── scripts-whitelist-gate:這顆 commit 沒有動到【本閘管的副檔名】($EXTS)⇒ 不適用(整棵樹共 $n_tree 支)"
+  printf '%s\n' "── scripts-whitelist-gate:這顆 commit 沒有動到【本閘管的副檔名】($EXTS)⇒ 不適用(整棵樹共 $n_tree 支;🔴 而本閘【看不見】 $((n_tree_lines - n_tree)) 支 —— scripts/ 全樹 $n_tree_lines 支)"
   emit_orphans
   exit 0
 fi
@@ -449,7 +456,7 @@ fi
 #    標題 1 行 + 最多 5 支 + 可能 1 行省略提示 + 收尾 1 行 = **最多再 8 行**。
 #    ⇒ 準確說法:**摘要兩行;有孤兒時額外最多 8 行, 且印在摘要之後、走 stderr。**
 #    而格9 量的是【沒有孤兒】的世界 ⇒ 它證明不了有孤兒時的行數(格24 補這一格)。
-printf '%s\n' "── scripts/ 白名單涵蓋:本次分母 = $SCOPE,共 $n_total 支(白名單 $n_white / 豁免 $n_exempt)—— 全部有歸屬;package.json 讀自 $PKG_SRC;整棵樹共 $n_tree 支"
+printf '%s\n' "── scripts/ 白名單涵蓋:本次分母 = $SCOPE,共 $n_total 支(白名單 $n_white / 豁免 $n_exempt)—— 全部有歸屬;package.json 讀自 $PKG_SRC;整棵樹共 $n_tree 支,🔴 而本閘【看不見】 $((n_tree_lines - n_tree)) 支(全樹 $n_tree_lines;看不見 ≠ 沒問題, 是沒在看)"
 printf '%s\n' "   🔴 豁免 =【沒有守門】不是【檢查過沒問題】。要看那 $n_exempt 支是誰:sed -n '/^scripts\\//p' .husky/scripts-whitelist-gate.sh"
 emit_orphans
 exit 0

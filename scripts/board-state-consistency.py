@@ -110,7 +110,13 @@
 # ⚠️ 而掛上去那一步動 `.husky/` = 平台設定 = 鐵則 12④ ⇒ **不在本檔的權限裡。**
 import contextlib, io, json, os, re, subprocess, sys, tempfile
 
-CLOSED = ('open', 'doing', 'parked', 'done')
+# 🔵 `standing` = **常設**(Sean 2026-09-05 逐字拍「常設 甲」, ⟦b9-STATEPOLICY⟧)——
+#    什麼時候用它:**做完了、殘餘只能等下次撞到、而沒有在等任何人**。
+#    🔴 它與 `parked` 的差別是【有沒有等人】:`parked` 要寫「等什麼」, `standing` 不必,
+#       因為它不在等 —— 它是一條長期有效的線, 不是一件停住的工作。
+#    🛑 而它【不是 done 的委婉說法】:done 表示這條線可以不用再看;
+#       standing 表示它會一直在, 而下一次撞到它的人要知道它是被決定成這樣的。
+CLOSED = ('open', 'doing', 'parked', 'done', 'standing')
 # 🔴 板子那條數法的 regex 【只寫一次】 —— grep 用它, 驗輸出形狀也用它。
 #    寫兩份的話, 有人改了 CLOSED 而只改到一邊 ⇒ 驗證器會開始放行它本來該擋的東西。
 #    ⚠️ **而「只寫一次」只治【只改一邊】那一種漂移, 治不了【新值本身含 regex 元字元】那一種**
@@ -223,8 +229,25 @@ def _head_text(path):
 
 def split_cells(line):
     """切欄。🔴 `\\|` 是跳脫的豎線, 不能當欄位分隔。
-       📏 板內現有 **28 處**(2026-08-25 當場數:`grep -o '\\\\|' docs/launch-todo.md | wc -l`;
-          ~~原寫 11~~ ⇒ R2 實測推翻, 而 `193e41f9` 當時**也是 28** ⇒ 那不是檔變了, 是我寫錯)。"""
+
+    📏 **要知道板內現在幾處, 當場數 —— 本檔【不寫死那個數字】**:
+        python3 -c "import io;print(io.open('docs/launch-todo.md',encoding='utf-8').read().count(chr(92)+'|'))"
+    🔴 **為什麼改成數法**(2026-09-05;`-ship` 量、`-db` 改):
+       ⛔ ~~原寫「板內現有 **28 處**(2026-08-25 當場數)」~~ ⇒ 2026-09-05 實測 **446**。
+       📌 **那個 28 沒有寫錯 —— 它 2026-08-25 是對的, 而板子長大了 15 倍。**
+       ⇒ 🛑 **一個【當時正確】的數字, 十天後變成一個【看起來有來源】的錯誤** ——
+          而它比沒有來源的數字更難被懷疑, 因為它旁邊寫著日期與量法。
+       ⇒ ✅ 判別句:**這個數字會不會自己長大?會 ⇒ 寫數法, 不寫數字。**
+    ⚠️ **而『數法』本身也有兩個陷阱, 一起寫**(2026-09-05 當場撞到):
+       ① **同一時刻三種數法給三個數**:`str.count` 443 · `grep -o` 443 ·
+          regex `(?<!\\\\)\\\\\\|`(只算【真的】跳脫、排除 `\\\\|`)**438**。
+          ⇒ 📌 **差 5 不是誰錯, 是三把尺在回答三個不同的問題。**
+       ② **同一把尺對兩棵樹給兩個數**:我的工作樹 **443** · `origin/dev` **446**。
+          ⇒ 🛑 **引用這個數字時要說【哪一棵樹、哪一刻】** ——
+            少了那兩格, 下一個人拿它去比對會得到一個假的『有人動過』。
+       (而它自己的病史留著:~~原寫 11~~ ⇒ R2 實測推翻改 28 ⇒ 現在連 28 也過期了。
+        📌 同一格被訂正兩次, 兩次都是把一個數字換成另一個數字。)
+    """
     parts = re.split(r'(?<!\\)\|', line)
     return [p.strip() for p in parts]
 
@@ -416,6 +439,41 @@ def rule1_closed_set(rows):
 PARKED_PREFIXES = ('等#', '等人:', '等時機:')
 
 
+def rule6_done_not_waiting(rows):
+    """⑥ 態=done 的列, 誰欄不該還寫著「待派」。
+
+    🔴 **它抓的是【一列上兩格互相打架】** —— `done` 說做完了, 誰欄說還沒有人接。
+       兩句都讀得通, 而合起來是假的;而讀的人會依照他先看到的那一格行動。
+       (2026-09-05 `-ship` 在 `⟦ship-PRINTCARON1⟧` 撞到, 主視窗 `-f8` 派)
+
+    🛑 **本檢查【只擋這一發改到的列】, 不擋歷史。** 理由是量到的:
+       2026-09-05 當場量全檔 **668 資料列** ——
+         誰欄【含】「待派」二字      ⇒ done 命中 **65** 列(而 open 命中 177 ⇒ 尺會動)
+         誰欄【開頭就是】「待派」    ⇒ done 命中 **56** 列
+         誰欄【整格只有】「待派」    ⇒ done 命中 **38** 列
+       ⇒ 📌 **無條件擋的話, 這道閘上線第一天會叫 56 次** —— 而
+          「閘死於誤報遠比死於漏報常見」⇒ 它會在第二天被關掉。
+       ✅ 所以:全檔那些**列出來給人看**(不擋), 而**這一發改到的列**要乾淨。
+
+    🔴 而用的是【開頭就是】不是【含有】:那 9 列的差是
+       「待派」住在被保留的舊字面裡(`⟪原誰欄⟫` / 刪除線 / `<br>` 之後的訂正)——
+       那不是「還沒派」, 那是病史。**含有** 這把尺分不出這兩件事。
+
+    回傳 (全檔命中, 只在 changed_lines 裡的命中)。changed_lines=None ⇒ 第二項是空的。
+    """
+    hits = [r for r in rows
+            if r['state'] == 'done'
+            and len(r['f']) > 4
+            and _strip_md(r['f'][4]).startswith('待派')]
+    return hits
+
+
+def _strip_md(w):
+    """剝掉開頭的 markdown 修飾, 讓「**待派**」與「待派」是同一件事。"""
+    import re as _re
+    return _re.sub(r'^[*~`\s]+', '', w)
+
+
 def rule4_parked_has_prefix(rows):
     """④ 態=parked 的列, 必須有一個機讀的「等什麼」前綴。
 
@@ -447,6 +505,69 @@ def rule4_parked_has_prefix(rows):
     return [r for r in rows
             if r['state'] == 'parked'
             and not any(x in c for c in r['f'] for x in PARKED_PREFIXES)]
+
+
+# ══ ⑦ open / doing 的誰欄第一個 token(2026-09-05 主視窗 `-f8` 裁形狀)═══════════
+#
+# 🔴 **成因是量到的, 不是覺得**:2026-09-05 晚主視窗自陳「今晚派錯 10 次, 一半是板列過期」。
+#    而線【身分】把自己那 31 列逐列開檔對完之後 ⇒ **① 已做完而忘記關的 = 0 列**。
+#    ⇒ 📌 **不是過期。真正的病是【態答不出「在等什麼」】** ——
+#      實例:`⟦search-BRANDMULTIWORD⟧` 誰欄逐字「**不是待派 —— 工程那半做完了**」而態是 `open`,
+#      它等的是 Sean 手動 merge dev→main。**派工的人只看態, 就會把它讀成「還沒做」而再派一次**
+#      —— 那一列的誰欄自己寫著它**已經是第二次**被派來重做。
+#
+# 🛑 **不動態的封閉集**(`open`/`doing`/`parked`/`done` 不加值)—— 主視窗裁的形狀:
+#    改成**誰欄第一個 token 必須是四種之一**。理由與 ④ 那格同源:
+#    `parked` 早就有「等什麼」前綴, 而 `open` 沒有 ⇒ **同一個病, 只修了一半。**
+#
+# 🔴🔴 **第一版【只印 ⚠️ 不判紅】, 而那是刻意的**:分母還沒有人量過。
+#    一道上線就紅一大片的閘, 第一個撞到的人會把它關掉 —— 而那正是本 repo
+#    「閘死於誤報」那一族。⇒ **先印清單, 主視窗看過再決定要不要轉紅。**
+OPEN_WHO_PREFIXES = ('待派', '等Sean:', '等時機:', '做中:')
+
+# 🔴🔴 **放寬:問的是「有沒有回答『在等什麼』」, 不是「有沒有照那四個詞寫」**
+#    (2026-09-05 主視窗 `-f8` 裁, 而**成因是這把尺自己出的錯**)
+#
+#    第一版只認上面那四個 token ⇒ 板上 **220 / 382** 不合。
+#    而逐條看那 220 列 ⇒ 🔴 **其中 204 列是【已經答了, 只是用詞不同】** ——
+#    例如「🔵 **不等人:**…」講得比 `待派` 還清楚。
+#    ⇒ 📌 **逼它們去改一個【它們已經答對的問題】, 正是「閘死於誤報」的形狀。**
+#
+# 🛑🛑 **而下面這張表【證明過它自己會漏字】, 那一格要留著**:
+#    我第一版的關鍵字裡有「等/待/做/線/窗」而**漏了「未」**
+#    ⇒ 4 列寫著「🔴 未派」的被算成「完全沒寫」。
+#    ⇒ 🎯 **一次漏字就錯 4 列, 而我沒有辦法證明這張表現在完整了。**
+#    ⇒ ⇒ **所以本格的輸出永遠是【上限】不是【名單】** —— 它說「這幾列我看不出來」,
+#         不說「這幾列沒寫」。判紅之前先讀這一段。
+OPEN_WHO_ANSWERS = ('待', '等', '未', '做', '線', '窗', '不等人', '不必修', '不需要', '-')
+
+
+def rule7_open_who_prefix(rows):
+    """⑦ 態=open/doing 的列, 誰欄第一個 token 應為 OPEN_WHO_PREFIXES 之一。**只警告不判紅。**
+
+    🔴 **它驗的是【有沒有】, 不是【填得對不對】** —— 同 ④ 那格。
+       一個填錯的前綴與一個填對的, 在它底下印同一個東西。
+
+    ⚠️ **與 ④ 的差別**:④ 掃**整列所有欄**(容忍前綴出現在別欄, 代價是可能假綠);
+       本格**只看誰欄 `f[4]`**, 因為它問的是「**這一列在等誰**」——
+       那個答案若寫在別欄, 對【只掃誰欄的派工者】而言等於不存在, 而那正是本格要修的病。
+    """
+    out = []
+    for r in rows:
+        if r['state'] not in ('open', 'doing'):
+            continue
+        who = r['f'][4] if len(r['f']) > 4 else ''
+        # 剝掉 markdown 裝飾與空白再看開頭(誰欄常見 `**待派**`)
+        bare = re.sub(r'^[*~`\s]+', '', who)
+        if any(bare.startswith(x) for x in OPEN_WHO_PREFIXES):
+            continue
+        # 🔵 放寬:誰欄開頭 30 字裡有沒有【回答「在等什麼」的字面】。
+        #    🛑 這張表證明過它自己會漏字(見 OPEN_WHO_ANSWERS 上方)⇒ 輸出是【上限】。
+        head = re.sub(r'[*~`\s]', '', who)[:30]
+        if any(x in head for x in OPEN_WHO_ANSWERS):
+            continue
+        out.append(r)
+    return out
 
 
 ANCHOR_RE = re.compile(r'⟦([^⟧]+)⟧')
@@ -627,6 +748,19 @@ def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None, sta
     else:
         say(f'  ✅ ①b 板子的數法印 {grep_n} = 資料列 {len(rows)}(兩個各自量到的數)')
 
+    done_waiting = rule6_done_not_waiting(rows)
+    if done_waiting:
+        say(f'  🔵 ⑥ 態=done 而誰欄開頭仍是「待派」的有 {len(done_waiting)} 列'
+            f'(2026-09-05 立本檢查時當場量到 56 列 ⇒ 這個數字【下降】才是進展)')
+        for r in done_waiting[:8]:
+            say(f'     {r["sec"]} 節 :{r["line"]}  {r["f"][2][:40] if len(r["f"]) > 2 else ""}')
+        if len(done_waiting) > 8:
+            say(f'     …另外 {len(done_waiting) - 8} 列沒印(印全部會蓋掉別的檢查)')
+        say('     🛑 **本檢查【不判紅】** —— 56 列是既有的, 無條件擋會讓這道閘第一天就被關掉。')
+        say('     ✅ 修一列的做法:誰欄改成【誰做掉的】或【已收, 無人續接】, 不是把 done 改回 open。')
+    else:
+        say('  ✅ ⑥ 沒有 done 列的誰欄開頭是「待派」')
+
     noprefix = rule4_parked_has_prefix(rows)
     if noprefix:
         bad = 1
@@ -638,6 +772,30 @@ def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None, sta
     else:
         n_parked = len([r for r in rows if r['state'] == 'parked'])
         say(f'  ✅ ④ {n_parked} 個 parked 列都有「等什麼」前綴'
+            f'(⚠️ 只驗有沒有, 不驗對不對)')
+
+    # ── ⑦ open/doing 的誰欄第一個 token(**只警告, 不判紅** —— 見該函式檔頭)──
+    bad7 = rule7_open_who_prefix(rows)
+    n_open = len([r for r in rows if r['state'] in ('open', 'doing')])
+    if bad7:
+        say(f'  ⚠️ ⑦ {len(bad7)}/{n_open} 個 open/doing 列的誰欄'
+            f'【看不出來它在等什麼】')
+        say(f'     🔵 合格 = 開頭是 {"/".join(OPEN_WHO_PREFIXES)} 之一, '
+            f'**或**開頭 30 字裡有回答「在等什麼」的字面。')
+        say('     🛑 **這個數字是【上限】不是名單** —— 本格的關鍵字表'
+            '證明過它自己會漏字(漏「未」一次錯 4 列)⇒ 它說的是「這幾列我看不出來」。')
+        say('     🛑 **本格【不判紅】** —— 分母是第一次量, 而一道上線就紅一大片的閘'
+            '會被第一個撞到的人關掉(本 repo「閘死於誤報」那一族)。')
+        say('     🔵 它修的病:`parked` 早就有「等什麼」前綴而 `open` 沒有 ⇒ '
+            '**態答不出「在等什麼」, 派工的人只看態就會重派**。')
+        if len(bad7) > 40:
+            say(f'     🔵 清單只印前 40 列(共 {len(bad7)} 列)—— '
+                f'全量:`python3 scripts/board-state-consistency.py | grep "^     :"`')
+        for r in bad7[:40]:
+            who = re.sub(r'\s+', ' ', r['f'][4] if len(r['f']) > 4 else '').strip()[:44]
+            say(f'     :{r["line"]:<5} {r["state"]:<5} {(r.get("anchor") or "(無錨)")[:26]:<28} 誰:{who}')
+    else:
+        say(f'  ✅ ⑦ {n_open} 個 open/doing 列的誰欄第一個 token 都合格'
             f'(⚠️ 只驗有沒有, 不驗對不對)')
 
     dupes = rule5_anchor_unique(rows)

@@ -59,11 +59,18 @@ UNION ALL
 --    (2026-09-05 實測:一支長函式名在快照裡斷成 `…p_shipm`)⇒ 每一段都明轉 text。
 --    🛑 而截斷的危險不是「不好看」—— 兩支長前綴相同的函式會**塌成同一列**,
 --       那時改其中一支, 這份快照【看不到】。今天量到重複 key = 0, 而那是運氣不是保證。
+-- 🔴 **SIUD 不夠 —— 補 TRUNCATE / REFERENCES / TRIGGER**(codex 2026-09-05 R2 抓到):
+--    原本只記 SIUD ⇒ 有人手動 `GRANT TRUNCATE ON <表> TO anon`, 這份快照【一格都不會變】。
+--    🛑 而 `TRUNCATE` 正是本 repo 已知最痛的那一個:**RLS 不管它**(⟦0e-STORAGEACL⟧ 那條)。
+--    ⚠️ 補這三個會讓 REL 族每一列多三個字元 ⇒ 基線一定要一起重寫, 否則 parity 天天紅。
        SELECT 'REL', n.nspname::text||'.'||c.relname::text||'|'||c.relkind::text, g.rol,
        CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'SELECT') THEN 'S' ELSE '-' END ||
        CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'INSERT') THEN 'I' ELSE '-' END ||
        CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'UPDATE') THEN 'U' ELSE '-' END ||
        CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'DELETE') THEN 'D' ELSE '-' END ||
+       CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'TRUNCATE') THEN 'T' ELSE '-' END ||
+       CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'REFERENCES') THEN 'R' ELSE '-' END ||
+       CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'TRIGGER') THEN 'G' ELSE '-' END ||
        CASE WHEN c.relrowsecurity THEN '|RLS' ELSE '|---' END
   FROM pg_catalog.pg_class c
   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -108,6 +115,51 @@ SELECT 'VIEWOPT',
   FROM pg_catalog.pg_class c
   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
  WHERE n.nspname = 'public' AND c.relkind IN ('v','m')
+UNION ALL
+-- 🔴🔴 第八族:`storage` schema 的表級授權(2026-09-05 加)——
+--    ⛔ 前七族的 WHERE 全部是 `nspname = 'public'` ⇒ **`storage` 一列都沒有**
+--       (2026-09-05 量:基線 1283 列裡含 `storage` 的 = **0**)。
+--    🔬 而 2026-09-05 唯讀實測:`storage` 底下 8 張表 **RLS 全開而 policy 全 0**,
+--       `anon` / `authenticated` 對 **`buckets` · `buckets_analytics` · `objects`** 是 **SIUDT**(含 `TRUNCATE`)。
+--       ⛔ ~~只有 `objects` 與 `buckets_analytics`~~ —— 那是我用【名字】問權限時的錯讀(缺 USAGE ⇒ RAISE 被讀成權限較小)。
+--    🛑 **而 `storage` 是【平台管的 schema】** —— Supabase 升級可能重新授權,
+--       那條路**不經過我們任何一支 migration** ⇒ 📌 **只有這一族看得到它變了。**
+--    🔴🔴 **codex R1 ⑤⑥(2026-09-05)**:只存【四個具名角色的有效結果】守不到兩種漂移 ——
+--       ①具名 grant 換成 **PUBLIC** grant, 有效權限不變 ⇒ 32 列**完全無 diff**
+--       ②平台改 **owner / `supabase_storage_admin` / default ACL** ⇒ 四角色矩陣原封不動
+--       ⇒ ✅ 本族改成**連 `relacl` 原文、owner、以及 `storage` 的 default ACL 一起記**。
+--    ⚠️ 它答不出的:bucket 是不是公開、bucket 裡放了什麼 —— 那要 `storage` 的 `USAGE`,
+--       而 `pcm_readonly` 沒有(實測 `has_schema_privilege` = f)。**本族只看授權形狀。**
+SELECT 'STORAGEACL',
+       n.nspname::text||'.'||c.relname::text||'|'||c.relkind::text,
+       g.rol,
+       (CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'SELECT')   THEN 'S' ELSE '-' END)||
+       (CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'INSERT')   THEN 'I' ELSE '-' END)||
+       (CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'UPDATE')   THEN 'U' ELSE '-' END)||
+       (CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'DELETE')   THEN 'D' ELSE '-' END)||
+       (CASE WHEN pg_catalog.has_table_privilege(g.rol, c.oid, 'TRUNCATE') THEN 'T' ELSE '-' END)||
+       '|'||CASE WHEN c.relrowsecurity THEN 'RLS' ELSE '---' END||
+       '|pol='||(SELECT count(*)::text FROM pg_catalog.pg_policy p WHERE p.polrelid = c.oid)||
+       -- 🔴 codex R1 ⑤:PUBLIC 的授權在有效結果上與具名授權一樣 ⇒ 記 relacl 的雜湊才分得出來
+       '|aclmd5='||pg_catalog.md5(COALESCE(c.relacl::text,''))||
+       -- 🔴 codex R1 ⑥:owner 換人 ⇒ default ACL 那條路整個換掉, 而四角色矩陣不動
+       '|own='||pg_catalog.pg_get_userbyid(c.relowner)
+  FROM pg_catalog.pg_class c
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+  CROSS JOIN (VALUES ('anon'),('authenticated'),('service_role'),('payment_confirmer')) AS g(rol)
+ WHERE n.nspname = 'storage' AND c.relkind IN ('r','p','v','m')
+UNION ALL
+-- 🔴🔴 第九族:`storage` 的 **default privileges**(codex R1 ⑥, 2026-09-05 加)——
+--    實測 `pg_default_acl` 有 3 條(表 `r` / 函式 `f` / 序列 `S`), 表那條給 `anon=arwdDxtm`
+--    ⇒ 📌 **由該 owner 在 `storage` 新建的表, 出生就自帶 anon 寫入權。**
+--    ⇒ 只看現有表的族**永遠看不到它** —— 它決定的是【下一張表】。
+SELECT 'DEFACL',
+       COALESCE(n.nspname,'(全域)')::text||'|'||d.defaclobjtype::text,
+       pg_catalog.pg_get_userbyid(d.defaclrole)::text,
+       d.defaclacl::text
+  FROM pg_catalog.pg_default_acl d
+  LEFT JOIN pg_catalog.pg_namespace n ON n.oid = d.defaclnamespace
+ WHERE n.nspname IN ('storage','public') OR n.nspname IS NULL
 UNION ALL
 -- 🔴🔴 第五族:RLS policy(2026-09-05 加)——
 --    ⛔ 第一版**沒有這一欄** ⇒ `20260904270000` 要建的那 40 條 policy 在快照上【零顯形】,
@@ -269,6 +321,16 @@ fetch "$NEW" || exit 2
 LINES=$(grep -c . "$NEW")
 # 🔴 分母要印出來 —— 一份「0 差異」的報告, 若它只有 3 列, 那個 0 沒有意義。
 echo "  🔵 快照 $LINES 列 = 表/view×4角色 + 函式×4角色 + 角色 BYPASSRLS + RLS policy + 函式的 DEFINER/search_path + view 的 security_invoker"
+
+# 🔵 `--emit <檔>`:把【此刻的產出】寫到指定的檔就結束 —— 不比、不動基線。
+#    🔴 為什麼要有它(2026-09-05 量到):`acl-digest-parity.sh` 原本「重跑腳本」之後
+#       仍然去雜湊【基線那支檔】⇒ 貼板當天基線還沒更新 ⇒ 它會叫。
+#       而那正是這道閘會被關掉的死法:**它叫的不是漂移, 是基線的年紀。**
+if [ "${1:-}" = "--emit" ]; then
+  if [ -z "${2:-}" ]; then echo "🔴 --emit 要一個輸出路徑" >&2; exit 2; fi
+  cp "$NEW" "$2"
+  exit 0
+fi
 
 if [ "${1:-}" = "--write" ]; then
   cp "$NEW" "$BASE"

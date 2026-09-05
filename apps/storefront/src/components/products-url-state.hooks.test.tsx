@@ -51,6 +51,10 @@ vi.mock('next/navigation', () => ({
 }));
 
 import { useCatalogFilterUrlSync } from './products-url-state';
+import {
+  markClearAllRequested,
+  __resetClearAllRequestedForTests,
+} from './use-catalog-filter-url-sync';
 import type { ProductExtraFilters } from './filter-state';
 
 const EXTRAS: ProductExtraFilters = {
@@ -94,6 +98,11 @@ const transition = (
 beforeEach(() => {
   hoisted.replace.mockClear();
   hoisted.refresh.mockClear();
+  // 🔴 **旗標是模組層的, 會跨測試活著**(R3 consider):第一格跑完時 state 是空的
+  //    ⇒ 那一輪不會把它歸零 ⇒ 它帶著 `true` 離開。#315 那格之所以還成立, 是因為它的 helper
+  //    剛好多跑一次非空 render 把它清掉 ⇒ 📌 **那道鎖是靠隔壁測試的 render 次數在成立的。**
+  //    有人重排測試或把 helper 縮成兩個 render, 它會【安靜地】停止鎖。這一行讓它不依賴那個巧合。
+  __resetClearAllRequestedForTests();
 });
 
 // 🔴 `?pbrands=a,b` 序列化後逗號會被 `URLSearchParams` 依規格編成 `%2C`(它是 form-urlencoded
@@ -585,7 +594,11 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
     expect(url).toBeDefined();
     expect(qs(url).get('unmatched')).toBeNull(); // 那句話要跟著這次操作消失
     expect(qs(url).get('page')).toBeNull(); // 回第 1 頁
-    expect(qs(url).get('categories')).toBe('A,B'); // 🔴 而分類軸仍然不被本 hook 動
+    // ⛔ ~~expect(qs(url).get('categories')).toBe('A,B'); 🔴 而分類軸仍然不被本 hook 動~~
+    // 🔴🔴 **2026-09-05 Sean `21` 推翻了那個規格** —— 逐字「這邊我要把多顆分類修好, 因為我們
+    //   客人可能會多選不同分類」⇒ **多顆狀態下側欄選的那一顆要被【加進去】**, 不是被忽略。
+    //   舊字面留刪除線, 讓拿它去搜的人同一發撞到訂正。
+    expect(qs(url).get('categories')).toBe('A,B,操控部品');
     expect(qs(url).get('category')).toBeNull(); // 舊鍵也不得被寫回
   });
 
@@ -671,5 +684,222 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
     const url = hoisted.replace.mock.calls[0]?.[0] as string;
     expect(url, '認不得的裸名被當成已解析 ⇒ 導覽沒送出去').toBeDefined();
     expect(qs(url).get('category')).toBe('騎士用品與配件');
+  });
+
+  // ── 2026-09-05 · Sean `21`「把多顆分類修好」新增三格 ────────────────────────
+  // 🔴 順序是刻意的:**先寫【對突變該紅】的那一格, 綠了才寫正向**(主視窗指定)。
+  // ⚠️ 編號從 ㉘ 起 —— **㉗ 檔裡已經有了**(我第一版撞號, 而 `git checkout` 把那一版清掉時才發現)。
+
+  it('㉘ 深連結還原波【不得】把還原出來的那顆 union 進 categories', () => {
+    // 🔴🔴 **本格存在的理由 = R2 對抗審查指出「判別法恆真那個突變沒有任何一格殺得死」**:
+    //   既有 ㉓(`categories=X` + cascade 握同一顆)與 ㉕(`categories=X&category=X`)的 union
+    //   都是 **no-op** ⇒ 網址逐字不變 ⇒ 兩格照綠。
+    //   ✅ 殺得死它的世界 = **還原波, 而還原出來的那顆【不在】`categories=` 裡面**。
+    window.history.replaceState(
+      null,
+      '',
+      '/products?categories=A%2CB&category=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81&page=2',
+    );
+    const resolved = { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'];
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: null as CascadeFilterState['category'] } },
+    );
+    rerender({ category: resolved });
+    rerender({ category: resolved });
+    // 還原波不是「使用者自選」⇒ 一次 replace 都不該送。恆真 ⇒ 寫成 A,B,操控部品 且 page 被刪 ⇒ 紅。
+    expect(hoisted.replace).not.toHaveBeenCalled();
+  });
+
+  it('㉙ 多顆在網址上 + 側欄選【第三顆】→ union 進 categories, 而 legacy 單槽不得被寫', () => {
+    window.history.replaceState(null, '', '/products?categories=A%2CB');
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: null as CascadeFilterState['category'] } },
+    );
+    rerender({ category: null as CascadeFilterState['category'] });
+    rerender({ category: { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'] });
+
+    // 🔴 **R3 findings ④:不能只查第 1 次呼叫** —— 「先送對的、再多送一個錯的 `replace`」
+    //   在只看 `calls[0]` 的斷言下**仍然全綠**。⇒ 釘次數 + 查**最後一次**。
+    expect(hoisted.replace).toHaveBeenCalledTimes(1);
+    const url = hoisted.replace.mock.calls.at(-1)?.[0] as string;
+    expect(url).toBeDefined();
+    // 🔴 斷言走 `qs(url).get(...)` 比**編碼前**的值 —— 逗號會被編成 `%2C`(檔頭 :99-103 已警告)
+    expect(qs(url).get('categories')).toBe('A,B,操控部品');
+    expect(qs(url).get('category')).toBeNull(); // 🔵 那個槽只有一個, 不拿它當累加器
+  });
+
+
+
+
+  it('㉚ 清空分類【同時】改別的軸 → 不得把 null union 進 categories', () => {
+    // 🔴🔴 **本格存在的理由 = codex R3(第三個模型)不同意我的宣稱。**
+    //   我在 hook 註解裡寫過「`cat === null` 那道擋在單元測試層【構造不出會紅的世界】」——
+    //   依據是探針量到那一波 `replace` 次數 **0**(被更前面的等值早退擋住)。
+    //   🛑 **而 R3 指出:那是因為我只讓【分類】變。同一波【同時改別的軸】就繞得過等值早退。**
+    //   ⇒ 📌 **我把「我造的那個世界到不了」寫成了「那條路測不到」** ——
+    //      與同日 plan §0 那句「第三條路技術上是死的」**同一個形狀**。
+    //   🔬 而照 R3 的形狀造出來之後實測:那一波**確實走到寫入段**(`n=1`, 網址帶 price),
+    //      **而 `categories` 仍是 `A,B`** ⇒ **突變沒有把 null 寫進去**(`join` 對 `null` 的行為),
+    //      ⇒ 🔵 **所以這一格【對那個突變仍然是綠的】** —— 它擋的是**未來**有人把 union 改成
+    //         會產出尾逗號/空值的寫法。**本格是回歸鎖, 不是突變殺手, 兩者不要混。**
+    window.history.replaceState(null, '', '/products?categories=A%2CB');
+    const { rerender } = renderHook(
+      ({ category, extras }: { category: CascadeFilterState['category']; extras: typeof EXTRAS }) =>
+        useCatalogFilterUrlSync(cascade([], category), extras, RESTORE_SOURCES),
+      {
+        initialProps: {
+          category: { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'],
+          extras: EXTRAS,
+        },
+      },
+    );
+    rerender({ category: { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'], extras: EXTRAS });
+    hoisted.replace.mockClear();
+    rerender({
+      category: null as CascadeFilterState['category'],
+      extras: { ...EXTRAS, price: '10000-20000', priceRange: [10000, 20000] as [number, number] },
+    });
+
+    // 🔴 R3 findings ④:不能只查第 1 次呼叫 —— 「先送對的、再多送一個錯的」也會綠。
+    expect(hoisted.replace).toHaveBeenCalledTimes(1);
+    const url = hoisted.replace.mock.calls.at(-1)?.[0] as string;
+    expect(qs(url).get('categories')).toBe('A,B'); // 原樣, 不得多出空值或尾逗號
+    expect(qs(url).get('price')).toBe('10000-20000'); // 證明這一波真的走到了寫入段
+  });
+
+
+  it('㉛ 網址落地後【瀏覽器上一頁】退回舊網址 → 再選同一顆仍要 union(R3 ①③)', () => {
+    // 🔴🔴 **本格存在的理由 = codex R3 ①③**:`router.replace()` 回來只代表【已呼叫】。
+    //   若 ref 在那一刻就前進, 而網址(被 Next 忽略 / 被上一頁退回)沒跟上
+    //   ⇒ 📌 **同一個選擇會【永久】被吞掉** —— 判別法看到 ref 已等於它, 判非自選, 不再寫。
+    //   ✅ 修法是 pending/committed 兩段:**觀察到網址真的落地才升 committed**,
+    //      而網址上沒有 committed 那顆時(上一頁)**把 ref 退回**。本格釘住後半。
+    window.history.replaceState(null, '', '/products?categories=A%2CB');
+    const pick = { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'];
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: null as CascadeFilterState['category'] } },
+    );
+    rerender({ category: null as CascadeFilterState['category'] });
+    rerender({ category: pick });                    // 第一次選 ⇒ 送出 union
+    expect(hoisted.replace).toHaveBeenCalledTimes(1);
+
+    // 模擬「那一發落地了」⇒ 網址真的變成 A,B,操控部品
+    window.history.replaceState(null, '', '/products?categories=A%2CB%2C%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81');
+    rerender({ category: pick });                    // 讓 hook 看到落地(pending ⇒ committed)
+
+    // 🔴 現在【上一頁】:網址退回 A,B, 而 cascade 仍握著那一顆
+    window.history.replaceState(null, '', '/products?categories=A%2CB');
+    hoisted.replace.mockClear();
+    rerender({ category: null as CascadeFilterState['category'] }); // 退回後 cascade 也清掉
+    rerender({ category: pick });                    // 客人再選同一顆
+
+    // ⇒ 必須【再送一次】—— ref 沒退回的話這裡是 0 次(那個選擇被永久吞掉)
+    expect(hoisted.replace).toHaveBeenCalledTimes(1);
+    const url = hoisted.replace.mock.calls.at(-1)?.[0] as string;
+    expect(qs(url).get('categories')).toBe('A,B,操控部品');
+  });
+
+});
+
+describe('⟦b4-CLEARALLKEEPSJUNK⟧ 清除全部之後, 認不得的品牌不得被寫回去', () => {
+  // 🔬 病:`unknownBrands` 是拿【那一輪的 params】重算的 ⇒ `clearAll()` 這一輪把認不得的
+  //    `pbrands` 又 set 回去 ⇒ 客人按完「清除全部」, 膠囊沒了、垃圾參數還在 ⇒ 仍然 0 筆。
+  //
+  // 🔴 **必須跑滿三個 render** —— 兩個做不出來(⑭ 那格檔頭逐字寫過同一件事):
+  //    ① mount 走 `initialized` 早退 ② 還原窗口消化 ③ 這一輪才是客人的那一按。
+  //    ⚠️ 我第一版寫成兩個而**假紅**:紅在「一次 replace 都沒送」, 那不是本格要證的事。
+  //
+  // 🛑 **射程**:本格證的是【hook 這一輪不會復活它】。
+  //    「按鈕送出的乾淨網址會不會被覆蓋」是兩個 replace 的賽跑, jsdom 造不出來 ⇒ 不宣稱。
+  const picked = { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'];
+  const DIRTY = '/products?category=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81&pbrands=zzq-unknown';
+
+  /** 三個 render:選好 → 還原窗口消化 → 清空。`mark` = 有沒有先按「清除全部」那顆鈕。 */
+  const clearRun = (mark: boolean) => {
+    window.history.replaceState(null, '', DIRTY);
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: picked } },
+    );
+    rerender({ category: picked });
+    if (mark) markClearAllRequested();
+    rerender({ category: null });
+    return hoisted.replace.mock.calls.at(-1)?.[0] as string;
+  };
+
+  it('🔴 按了「清除全部」:認不得的 pbrands 不得被寫回網址', () => {
+    const url = clearRun(true);
+    expect(url, '這一輪一次 replace 都沒送 ⇒ 這一格什麼都沒驗到(不是通過)').toBeDefined();
+    expect(
+      qs(url).get('pbrands'),
+      `按完清除全部, 網址仍帶著認不得的品牌 ⇒ 客人看到的還是 0 筆(拿到的網址:${url})`,
+    ).toBeNull();
+  });
+
+  it('🟢 對照(#315 的鎖):【沒有】按清除全部而只是清掉最後一顆膠囊 ⇒ 認不得的值照舊留著', () => {
+    // 🔴 這一格是 code-reviewer R1 Critical 逼出來的:
+    //    「按清除全部」與「點掉唯一那顆分類膠囊的 ×」**state 變化完全同構**
+    //    ⇒ 只看形狀的修法會把後者也清掉, 而那正是 #315 要留的東西。
+    //    ⇒ 📌 所以修法靠的是【明示手勢的旗標】, 而這一格就是那個區別的鎖。
+    const url = clearRun(false);
+    expect(url, '這一格沒送 replace ⇒ 它證不到「沒按鈕時值還在」').toBeDefined();
+    expect(
+      qs(url).get('pbrands'),
+      `沒有按清除全部, 認不得的品牌卻被清掉了 ⇒ 誤傷 #315(拿到的網址:${url})`,
+    ).toBe('zzq-unknown');
+  });
+
+  it('🟢 對照:清除全部要把【認得的】那顆也一起帶走 —— 不是只挑認不得的丟', () => {
+    // ⚠️ **前一版這一格結構上恆綠**(code-reviewer R2 Critical C):它的 `category` 從頭到尾是
+    //    `picked`、`brands` 也沒清空 ⇒ `stateAndExtrasEmpty` **不可能為真** ⇒ 與旗標完全無關。
+    //    📌 **「網址帶 unknown」是必要條件, 不是充分條件** —— 還要讓那一輪真的走到讓路那一支。
+    window.history.replaceState(null, '', '/products?pbrands=akrapovic%2Czzq-unknown');
+    const { rerender } = renderHook(
+      ({ brands }: { brands: string[] }) =>
+        useCatalogFilterUrlSync(cascade(brands), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { brands: ['akrapovic'] as string[] } },
+    );
+    rerender({ brands: ['akrapovic'] });
+    markClearAllRequested();
+    rerender({ brands: [] });
+
+    const url = hoisted.replace.mock.calls.at(-1)?.[0] as string;
+    expect(url, '這一格沒送 replace ⇒ 它什麼都沒驗到').toBeDefined();
+    expect(
+      qs(url).get('pbrands'),
+      `清除全部之後 pbrands 還有東西 ⇒ 認得的或認不得的沒被清乾淨(拿到的網址:${url})`,
+    ).toBeNull();
+  });
+
+  it('🟢 對照(旗標不得外溢):舉了手之後客人【又選了東西】⇒ 認不得的值要回到被保留的狀態', () => {
+    // 🔴 這一格守的是 AND 條件裡的 `stateAndExtrasEmpty` 與那行歸零:
+    //    旗標是模組層的, 若它會留著, 下一次不該讓路的清空就會被誤放。
+    window.history.replaceState(null, '', '/products?pbrands=zzq-unknown');
+    markClearAllRequested();
+    const { rerender } = renderHook(
+      ({ brands }: { brands: string[] }) =>
+        useCatalogFilterUrlSync(cascade(brands), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { brands: [] as string[] } },
+    );
+    rerender({ brands: ['akrapovic'] });   // 客人又選了一顆 ⇒ 這一輪要把旗標歸零
+    hoisted.replace.mockClear();
+    rerender({ brands: [] });              // 再清掉, 而這次【沒有】按清除全部
+
+    // 🔵 **這一格的判準是「一次 replace 都不該送」, 而那【有判別力】**:
+    //    旗標若外溢 ⇒ `unknownBrands` 變空 ⇒ 重建出來的網址少了 `pbrands`
+    //    ⇒ 與當前網址不等值 ⇒ **等值早退不會命中, replace 一定會送出去**。
+    //    ⇒ 📌 所以「沒送」只可能是「值被保留了」。(不是「什麼都沒發生」那種空綠。)
+    const calls = hoisted.replace.mock.calls;
+    expect(
+      calls.length,
+      `旗標外溢了:沒按清除全部而認不得的值被清掉(送出的網址:${calls.at(-1)?.[0]})`,
+    ).toBe(0);
   });
 });

@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { CustomerAddress } from '@pcm/domain';
+import { PCM_REMITTANCE_EXPIRE_DAYS } from '@pcm/domain';
 import type { ResolvedCartLineView } from '@/hooks/useResolvedCart';
 import { TapPayCardFields } from '@/components/TapPayCardFields';
 import { TAPPAY_FIELD_IDS } from '@/hooks/useTapPayCard';
@@ -83,6 +84,9 @@ function Harness({ over = {} }: { over?: HarnessOver }) {
   const [invoiceOverride, setInvoiceOverride] = useState(false);
   return (
     <CheckoutStep2
+      bankTransferEnabled={false}
+      paymentChannel="tappay"
+      onPaymentChannelChange={() => {}}
       currentAddr={ADDR}
       shippingLabel="貨運宅配"
       onEditAddress={vi.fn()}
@@ -455,5 +459,79 @@ describe('CheckoutStep2 動作列 + 付款回饋(U4b 自 CheckoutView 外移)', 
     expect(alerts[0]!.textContent).toContain('還有 2 個項目需要確認');
     rerender(<Harness over={{ paymentAlert: null }} />);
     expect(container.querySelector('.co-submit-error')).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ⟦b4-BANKCHARGESCARD⟧ 片 2:付款方式第二個選項
+//
+// 🔴 **這一族守的是「flag 關著時它【不存在】」** —— 而那不是體感問題:
+//    那顆 flag(`lib/payment/bank-transfer-flag.ts`)的檔頭自己寫著,
+//    它擋的是**一個會讓客人兩邊都付錢的洞**。
+//    ⇒ 📌 選項在 flag 關著時漏出來 = 那個洞提早被打開, 而**沒有任何人會收到通知**。
+describe('付款方式:匯款那個選項', () => {
+  it('🔴 flag 關 ⇒ 那個選項【整塊不渲染】(不是 disabled, 是不存在)', () => {
+    render(<Harness />);
+    expect(screen.queryByLabelText('ATM 轉帳')).toBeNull();
+  });
+
+  it('🟢 正對照:同一發裡信用卡那顆【在】(證明上面那個 null 不是整塊沒 render)', () => {
+    render(<Harness />);
+    expect(screen.getByLabelText('信用卡付款')).not.toBeNull();
+  });
+
+  it('🔴 flag 開 ⇒ 那個選項出現, 而且是可以按的 radio', () => {
+    render(<Harness over={{ bankTransferEnabled: true }} />);
+    const radio = screen.getByLabelText('ATM 轉帳') as HTMLInputElement;
+    expect(radio.type).toBe('radio');
+    expect(radio.disabled).toBe(false);
+  });
+
+  it('🔴 按下去要把選擇往上送(它是受控的, 不是自己記在 DOM 裡)', () => {
+    const onChange = vi.fn();
+    render(<Harness over={{ bankTransferEnabled: true, onPaymentChannelChange: onChange }} />);
+    fireEvent.click(screen.getByLabelText('ATM 轉帳'));
+    expect(onChange).toHaveBeenCalledWith('bank_transfer');
+  });
+
+  it('🔴 信用卡那顆也要能被切回去(它以前是 checked readOnly)', () => {
+    const onChange = vi.fn();
+    render(
+      <Harness
+        over={{
+          bankTransferEnabled: true,
+          paymentChannel: 'bank_transfer',
+          onPaymentChannelChange: onChange,
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('信用卡付款'));
+    expect(onChange).toHaveBeenCalledWith('tappay');
+  });
+
+  it('🔴 選了哪一個, 那顆 radio 就要是 checked —— 🧬 突變抓到的洞', () => {
+    // 🔴 我原本沒有這一格:把 `checked={paymentChannel === 'bank_transfer'}` 改成 `checked={false}`
+    //    ⇒ **36 格全綠**。⇒ 📌 我驗了「按下去會不會往上送」, 沒驗「送上去之後畫面有沒有跟著」。
+    //    🛑 少了它, 客人選了匯款而**圓點還亮在信用卡上** —— 而他會照著圓點以為自己在刷卡。
+    render(<Harness over={{ bankTransferEnabled: true, paymentChannel: 'bank_transfer' }} />);
+    expect((screen.getByLabelText('ATM 轉帳') as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText('信用卡付款') as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('🟢 正對照:選信用卡時反過來', () => {
+    render(<Harness over={{ bankTransferEnabled: true, paymentChannel: 'tappay' }} />);
+    expect((screen.getByLabelText('信用卡付款') as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText('ATM 轉帳') as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('🔴🔴 期限那句用【系統真的做的天數】, 不是稿上的 3 天', () => {
+    // 🛑 稿(design-reference/components/CheckoutPage.jsx)逐字寫「下單後 3 個工作天內未繳款」,
+    //    而 cron 真的做的是 5 天(PCM_REMITTANCE_EXPIRE_DAYS · migration interval '5 days')。
+    //    ⇒ 📌 照抄稿會印一個【假的期限】給客人 —— 而客人會照著它安排匯款。
+    //    🔵 這一格釘的是「用常數算」不是「等於 5」:哪天 Sean 改天數, 常數與畫面一起動。
+    render(<Harness over={{ bankTransferEnabled: true }} />);
+    const desc = screen.getByText(/未完成匯款/u).textContent ?? '';
+    expect(desc).toContain(String(PCM_REMITTANCE_EXPIRE_DAYS));
+    expect(desc, '🔴 印了稿上那個 3 ⇒ 客人會拿到一個假的期限').not.toContain('3 個工作天');
   });
 });

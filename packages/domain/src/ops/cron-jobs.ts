@@ -1,7 +1,14 @@
-// @pcm/domain/ops/cron-jobs — 六支排程的白名單與門檻【唯一來源】
+// @pcm/domain/ops/cron-jobs — 【九】支排程的白名單與門檻【唯一來源】
 //
-// 🔴🔴 **這支檔存在的唯一理由:那六個門檻只能有一份。**
-//    它原本住在 `apps/admin/src/lib/dashboard/cron-heartbeat-read.ts`(儀表板那一側),
+// 🔴🔴 **這支檔存在的唯一理由:那幾個門檻只能有一份。**
+//
+// 🔴🔴 **2026-09-05 一天之內 六 ⇒ 七 ⇒ 八 ⇒ 九, 而【每一次都是 merge 的產物】。**
+//    三條線各自加了「第七支」:`-db` 的 `pcm-acl-digest`、`-db` 的 `pcm-settle-retry`、
+//    `-mail` 的 `pcm-late-payment-sweep` —— **每一條在自己的分支上都對, 合起來才是九。**
+// 🛑 **一個釘死的計數, 在多條線各自加東西時【結構上】一定會在 merge 那一刻撞** ——
+//    而**那不是缺陷, 那正是它的職責**:它在那一刻把人叫過來。
+// ⚠️ **而危險的修法是看到數字對不上就直接改成新的數字** —— 那等於把閘關掉, 而它印的還是綠。
+//    ✅ 改之前先確認**每一支都該在**(2026-09-05 這三次:每一次兩邊都該在)。//    它原本住在 `apps/admin/src/lib/dashboard/cron-heartbeat-read.ts`(儀表板那一側),
 //    2026-08-31 搬到這裡, 因為**告警器那一側也要用同一份**
 //    (`packages/use-cases/src/check-anomaly-alerts.ts`, 走 `apps/storefront`)。
 //
@@ -27,7 +34,7 @@
  *         (⚠️ 陷阱:`has_table_privilege('service_role','cron.job','SELECT')` ⇒ **true**
  *          ⇒ 只查後面那一格的人會寫「讀得到」,而實際上進不去 schema)
  *      ② `cron.job` 有 RLS,policy 只有一條 `cron_job_policy / ALL / TO public / (username = CURRENT_USER)`
- *         ⇒ 六支全是 `postgres` ⇒ service_role 就算進得去也只看到 **0 列**
+ *         ⇒ 那幾支全是 `postgres` ⇒ service_role 就算進得去也只看到 **0 列**
  *         📌 而「排程一支都沒有」與「我沒有權限看」**印同一個 0**。
  *      ③ PostgREST 只暴露 `public` 那組 schema,`cron` 不在裡面。
  *    ⇒ **本檔答不出「有排程在跑而沒有人在看」** —— 那一格要 migration 才做得到(鐵則 8 + 12②)。
@@ -45,7 +52,7 @@
  *       📌 **在一份會把負對照寫進正文的檔案上,負對照字面會被那份檔案自己汙染。**
  *       改用 `b4-CRON9z-20260828-D69` ⇒ **0**,尺才成立。
  *
- * 🔴 `staleMinutes` **這六個數字有【兩種身分】,不要當成同一種**
+ * 🔴 `staleMinutes` **這【七】個數字有【兩種身分】,不要當成同一種**
  *    (`Q36`,線D 內部代號 `Q-片3-門檻`;Sean 2026-08-28 拍 **乙**,原字面在
  *     `~/pcm-mailbox/pending-questions-20260827.md` 檔尾):
  *    · **`pcm-anomaly-alert` 的 26 小時 = Sean 拍的** ⇒ **改它之前要回去問。**
@@ -74,6 +81,23 @@ export const CRON_JOB_WHITELIST = [
   { jobName: 'pcm-expire-unpaid-orders', label: '逾期未付款自動取消', schedule: '0 * * * *', staleMinutes: 180, wiredAt: '片2 02c30044 / 20260828060000_m4b_b4cron6_expire_unpaid_orders_heartbeat.sql' },
   { jobName: 'pcm-order-ineligible-gate', label: '訂單不可售閘', schedule: '*/2 * * * *', staleMinutes: 6, wiredAt: '片1' },
   { jobName: 'pcm-settle-sweep', label: '結帳掃描', schedule: '*/2 * * * *', staleMinutes: 6, wiredAt: '片1' },
+  // 🔵 2026-09-05 加(⟦b9-ACLDRIFT5⟧ 片一 `20260905140000` 建的)。
+  //    `staleMinutes` = **2880(兩天)** ——【推的, 沒有人拍過】,理由寫在這裡:
+  //    它每天 00:00 跑一次 ⇒ 週期 1440。若照別支那樣「週期 × 3」= 4320(三天),
+  //    一支壞掉的排程要**三天**才會叫;而權限漂移這件事三天太久。
+  //    ⇒ 取 **連漏兩天才叫**:一次沒跑到不吵(那可能是 DB 維護),兩次就是真的壞了。
+  //    🔴 而它與別支不同族:別支一天跑幾十次, 少一次沒訊號;**這支一天只有一次機會**。
+  { jobName: 'pcm-acl-digest', label: '權限快照', schedule: '0 0 * * *', staleMinutes: 2 * 24 * 60, wiredAt: '片1' },
+  // 🔵 2026-09-05 加(⟦b4-SETTLERETRYNEVER⟧ `20260905220000` 建的)。
+  //    `staleMinutes = 30` = 週期 10 × 3, **與 `pcm-capture-recheck` 同一族同一個數**
+  //    ——它們做的是同一種事(把一張卡住的單再推一次)。
+  { jobName: 'pcm-settle-retry', label: '匯款單重算補跑', schedule: '*/10 * * * *', staleMinutes: 30, wiredAt: '片1' },
+  // 🔴 匯款兜底(`20260905180000`)。它是**純 SQL**(不走 route)⇒ 與 `pcm-expire-unpaid-orders`
+  //    同一個物理限制:失敗心跳會被同交易回捲 ⇒ 它也在 FAILURE_COUNT_MEANINGLESS 裡。
+  //    staleMinutes = 30(排程 */10 ⇒ 連漏三輪才叫, 與 capture-recheck 同一把尺)。
+  //    ⚠️ wiredAt 用【憑證】不用狀態形容詞:自己數
+  //       `git merge-base --is-ancestor <那顆> origin/dev`;而「在 dev 上」≠「已 apply」。
+  { jobName: 'pcm-late-payment-sweep', label: '匯款兜底補待退款', schedule: '*/10 * * * *', staleMinutes: 30, wiredAt: '20260905180000 尚未 apply' },
 ] as const;
 
 /**
@@ -97,4 +121,21 @@ export const CRON_JOB_WHITELIST = [
  *    📌 **報 0 等於宣稱「量過了,零失敗」;報 `null` 是宣稱「這一格我量不到」。**
  *    這兩句在畫面上必須長不一樣,否則儀表會替一個量不到的世界背書。
  */
-export const FAILURE_COUNT_MEANINGLESS: ReadonlySet<string> = new Set(['pcm-expire-unpaid-orders']);
+// 🔵 2026-09-05 加 `pcm-acl-digest`:它也是**純 SQL**(`SELECT public.pcm_acl_digest_record();`)
+//    ⇒ 同一個物理限制 —— 函式拋錯 ⇒ 同交易寫的失敗心跳一起回捲 ⇒ 失敗計數永遠是 0。
+//    📌 而它與 `pcm-expire-unpaid-orders` 的差別只有一個:**這支不碰錢**。
+//       ⇒ 後果比較輕, 而**量不到這件事是一樣的** ⇒ 一樣報 `null` 不報 0。
+export const FAILURE_COUNT_MEANINGLESS: ReadonlySet<string> = new Set([
+  'pcm-expire-unpaid-orders',
+  'pcm-acl-digest',
+  // 🔵 2026-09-05 加 `pcm-settle-retry`:同一個物理限制(純 SQL, 同交易的失敗心跳會被回捲)。
+  //    🔴 而它與 expire 那支一樣**碰錢**(它推的是已經收了款的單)⇒ 後果不比 expire 輕。
+  //       ⇒ 報 `null` 不報 0 在這一支更重要:報 0 等於宣稱「量過了, 零失敗」。
+  'pcm-settle-retry',
+  // 🔴 `pcm-late-payment-sweep`(`20260905180000`)**同一個物理限制**:它也是純 SQL,
+  //    pg_cron 跑在自己一個交易裡 ⇒ 函式拋錯 ⇒ 同交易寫的失敗心跳一起被回捲。
+  //    ⇒ 它的 `consecutive_failures` 也**永遠是 0**, 而那與「一直很健康」長得一樣。
+  // 🛑 而它比逾期取消那一支多一層:它的函式**自己也數了 failed**(回傳 jsonb 的 `failed` 欄)——
+  //    ⚠️ **而今天沒有人讀那個回傳值**(接進 anomaly-alert 是片 2)⇒ 別把「它有數」讀成「有人看」。
+  'pcm-late-payment-sweep',
+]);

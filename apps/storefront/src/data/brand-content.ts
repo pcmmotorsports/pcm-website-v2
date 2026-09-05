@@ -84,7 +84,7 @@ import type { BrandContent } from './brand-content-types';
 export const BRAND_CONTENT: BrandContent[] = [
   {
     "slug": "akrapovic",
-    "name": "AKRAPOVIČ",
+    "name": "Akrapovic",
     "country": "斯洛維尼亞",
     "origin": "斯洛維尼亞 · 自 1991",
     "lede": "斯洛維尼亞的排氣系統製造商，自設鈦合金鑄造廠，全段排氣與尾段消音器的鈦合金與碳纖維部件皆於自有產線完成。",
@@ -2767,13 +2767,13 @@ export const BRAND_CONTENT: BrandContent[] = [
       [
         "Racing",
         "MotoGP · WorldSBK 廠隊供應",
-        "十支合作車隊"
+        "Ducati Lenovo · KTM Factory · ROKiT BMW"
       ]
     ],
     "about": {
       "lead": "<strong>2008 年，一個只做風鏡的小型手工部門。</strong>WRS 自義大利 Cattolica 起步，一開始只服務旅行與運動車款。<br><br>十幾年後，它的風鏡出現在 MotoGP 與世界超級摩托車的廠車車頭上。中間差的不是規模，是他們把每一道工序都收回了自己手裡。",
       "pull": "曲面用軟體算，氣流進風洞驗。",
-      "tail": "<strong>他們的形象照攝於 BMW 集團的聲學風洞，測試對象是 WorldSBK 廠車。</strong>合作車隊共十支，包含 Ducati Lenovo、KTM Factory Racing 與 ROKiT BMW Motorrad WorldSBK;材料是 PMMA Plexiglas,不是一般壓克力。<br><br><strong>風鏡改的是您耳邊的那一段風。</strong>高度與角度直接決定長途的疲勞程度。歡迎提供您的車型年份與常行駛的路段，由我們替您挑選。"
+      "tail": "<strong>他們的形象照攝於 BMW 集團的聲學風洞，測試對象是 WorldSBK 廠車。</strong>合作車隊包含 Ducati Lenovo、KTM Factory Racing 與 ROKiT BMW Motorrad WorldSBK;材料是 PMMA Plexiglas,不是一般壓克力。<br><br><strong>風鏡改的是您耳邊的那一段風。</strong>高度與角度直接決定長途的疲勞程度。歡迎提供您的車型年份與常行駛的路段，由我們替您挑選。"
     },
     "aside": {
       "src": "assets/brands-prod/wrs/motogp-screen.jpg",
@@ -2799,16 +2799,16 @@ export const BRAND_CONTENT: BrandContent[] = [
         },
         {
           "t": "廠隊與市售件同一條產線",
-          "d": "合作車隊包含 Ducati Lenovo、KTM Factory Racing、Prima Pramac Yamaha、ROKiT BMW Motorrad WorldSBK 等十支。"
+          "d": "合作車隊包含 Ducati Lenovo、KTM Factory Racing、Prima Pramac Yamaha、ROKiT BMW Motorrad WorldSBK 等。"
         }
       ]
     },
     "stats": {
       "items": [
         {
-          "n": "10",
-          "l": "支合作車隊",
-          "s": "MotoGP · WorldSBK · Moto2 廠隊"
+          "n": "2018",
+          "l": "年起供應廠隊",
+          "s": "MotoGP · WorldSBK · Moto2"
         },
         {
           "n": "2021",

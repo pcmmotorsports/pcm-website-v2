@@ -226,7 +226,7 @@ export const MEMBER_ORDER_DETAIL_SELECT =
 //    `supabase/migrations/20260814140000_m4b_e10_484a_order_goods_axis_view.sql` 檔頭「寫作契約」。
 //    ⚠️ 這一條**沒有守門**,只有這行字(候選修法列在 `#499`)。
 export const ADMIN_ORDER_LIST_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customer_user_id, customers(name), shipping_address_snapshot, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))';
+  'id, display_id, created_at, payment_status, fulfillment_status, total, tax_total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customer_user_id, customers(name), shipping_address_snapshot, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))';
 
 // M-4b E10 A9w3(九碼契約收縮):`ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED`
 // (`order_items!inner(...)` 版投影)已移除 —— 它的唯一用途是九碼篩選,而該篩選在 A9w2 下架
@@ -869,7 +869,66 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     if (!data) {
       return null;
     }
-    return mapSupabaseMemberOrderDetailRow(data as unknown as SupabaseMemberOrderDetailRow);
+    // ⟦b4-PARTIALPAIDNOWHERE⟧ 應付餘額 —— **第二發查詢, 不是同一發的 embed。**
+    // 🔴 為什麼分兩發:`member_order_balance_v` 是一支 view, 與 `orders` 之間沒有 PostgREST
+    //    認得的關聯 ⇒ embed 不進去。而它 own-only 寫死在 view 裡, 分開查一樣安全。
+    // 🔴🔴 **這一發失敗【不得】讓整頁掛掉, 也【不得】補 0**:
+    //    · throw ⇒ 客人連訂單都看不到(拿一個大故障換一個小故障)
+    //    · 補 0  ⇒ 餘額變成 total ⇒ 對已經付了訂金的人印全額 = 本列要修的那個病
+    //    ⇒ 兩個都不做:讀不到就傳 `null`, 由顯示端【整塊不印】。
+    // ⚠️ **生成的 `Database` 型別裡還沒有這支 view**(它是 20260905330000 才建的)——
+    //    ⇒ 這裡走 `as unknown as`, 而**那是一筆要還的帳**:型別沒有在守這條路。
+    //    ✅ 還法:等這支 migration 貼上去之後重新產一次型別, 再把這個 cast 拿掉。
+    //    🔴 在那之前, 守著這條路的是下面那兩支測試, 不是型別。
+    // 🔴 **整段包 try/catch, 而那不是把錯吞掉 —— 它就是本欄的定義**:
+    //    `balanceDue` 的合約逐字是「讀不到 ⇒ null ⇒ 顯示端整塊不印」。
+    //    ⇒ throw 出去會讓客人**連訂單都看不到**(拿一個大故障換一個小故障)。
+    let balanceDueAmount: number | null = null;
+    try {
+      const balance = (await (this.supabase as unknown as {
+        from(v: string): {
+          select(c: string): {
+            eq(k: string, v: string): { maybeSingle(): Promise<{ data: unknown; error: unknown }> };
+          };
+        };
+      })
+        .from('member_order_balance_v')
+        .select('balance_due')
+        .eq('order_id', (data as { id: string }).id)
+        .maybeSingle()) as { data: { balance_due: unknown } | null; error: unknown };
+      const raw = balance.error || !balance.data ? null : balance.data.balance_due;
+      // 🔴🔴 **runtime guard**(codex 關卡2 must-fix):上面那個 `as unknown as` 把
+      //    view 名、欄名、nullability、**以及 `balance_due` 到底是不是數字**全部藏起來了。
+      //    ⇒ PostgREST 對 numeric 會回**字串**、對缺欄會回 undefined ——
+      //      那些值直接進金額運算會產出 `NaN` 或字串相減, 而畫面上看起來像一個數。
+      //    ⇒ 📌 **型別沒有在守這條路, 所以這裡要自己量一次。** 不是整數就當算不出來。
+      // 🔴🔴 **負數也當算不出來, 而理由是【型別本身】不是偏好**:
+      //    `toMoneyAmount()` 對負數**會 throw**(`packages/domain/src/shared/types.ts:48-49`
+      //    逐字 `MoneyAmount must be non-negative`)⇒ 一張溢付的單會讓 mapper 炸掉
+      //    ⇒ 📌 **客人的訂單頁整頁 500** —— 那比不印餘額糟得多。
+      //    ⇒ 而負數的世界(溢付)本來就走「請聯絡我們」那一支, 語意上一致。
+      //    🔬 這一格不是推的:測試餵 -500 時 `toMoneyAmount` 當場 throw, 我才發現。
+      // 🔴 **上界也要守**(codex R2 must-fix):帳本淨額為負(沖銷多過收款)時
+      //    `total − paid_total` 會**大於訂單總額**, 而那是一個【看起來完全合理的正數】
+      //    ⇒ 客人被要求匯一筆比訂單還多的錢;而三行版的「已收」還會印成負數。
+      //    ⇒ 📌 應付餘額**不可能大於訂單總額** —— 超過就是算錯, 當算不出來。
+      const orderTotal = Number((data as { total: unknown }).total);
+      balanceDueAmount =
+        typeof raw === 'number' &&
+        Number.isFinite(raw) &&
+        Number.isInteger(raw) &&
+        raw >= 0 &&
+        Number.isFinite(orderTotal) &&
+        raw <= orderTotal
+          ? raw
+          : null;
+    } catch {
+      balanceDueAmount = null;
+    }
+    return mapSupabaseMemberOrderDetailRow(
+      data as unknown as SupabaseMemberOrderDetailRow,
+      balanceDueAmount,
+    );
   }
 
   /**

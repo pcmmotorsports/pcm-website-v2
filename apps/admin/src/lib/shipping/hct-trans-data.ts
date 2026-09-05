@@ -141,6 +141,22 @@ export function buildHctTransData(input: BuildHctTransDataInput): BuildHctTransD
     );
   }
 
+  // 🔴🔴 **上限也要擋, 而理由與上面那一格【逐字同構】**(2026-09-05 補;
+  //    抓到它的是 `hct-trans-data-pdf-conformance.test.ts`, 那支檔把 PDF 第 13 頁的欄位表釘住)。
+  //    規格逐字 `ejamt 件數 Char(4)` ⇒ 最多 4 位 ⇒ 上限 9999。
+  // 🛑 **這一欄【原本沒有任何東西在擋】** —— 其餘五個必要欄位都走 `take(..., HCT_MAX.x)`,
+  //    只有 `ejamt` 是裸的 `String(input.itemCount)`。
+  // 🎯 **而這裡【不能用 take() 截斷】** —— 截一個數字比超長更糟:
+  //    `12345` 截成 `'1234'` 是一個**合法而安靜的錯數量**, 新竹會照 1234 件收,
+  //    而**沒有任何東西會叫**。⇒ 📌 與上面同一條原則:**不把錯的輸入夾成合法的。**
+  // ⚠️ **今天在真實資料上到不了**(一張訂單不會有 10000 件)⇒ 這是【規格違反】不是【今天的 bug】。
+  if (input.itemCount > 9999) {
+    throw new Error(
+      `buildHctTransData: 件數 ${String(input.itemCount)} 超過規格上限 9999(PDF 第 13 頁 ejamt Char(4))—— ` +
+        '本函式不截斷它:截成 4 位會把一個錯的數量變成一個合法的請求, 而新竹會照那個錯的數量收。',
+    );
+  }
+
   return {
     fields: {
       epino: take(input.displayId, HCT_MAX.orderNo, 'epino'),

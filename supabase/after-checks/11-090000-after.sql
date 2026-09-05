@@ -1,4 +1,13 @@
 \pset pager off
+\set ON_ERROR_STOP on
+-- 🔴 **`ON_ERROR_STOP` 不可省** —— `psql -f` 的 rc 在【有 ERROR】與【全對】兩個世界都是 **0**
+--    (2026-09-05 實測:餵一句 `SELECT * FROM 不存在的表` ⇒ rc 仍然 `0`, 只有輸出裡多一行 ERROR)
+--    ⇒ 少了它, 中間某格炸掉之後【後面每一格照樣跑照樣印】⇒ 一份看起來完整的報告裡埋著一個 ERROR。
+--    來源:codex 2026-09-05 finding 3(原本只修在 `130000-after.sql` 一支)。
+-- 🔵 **[2026-09-05 06:5x · 對應 migration 四輪折完, 主視窗裁收]**
+--    對象已換成 `agent/line-auth` 的 **`e473cb356`(311 行版)**;
+--    🔴 **`dev` 上那份是 256 行的舊版** —— 手貼一定要拿分支版, 拿錯會貼到被 R3 推翻的那一代。
+--    ✅ 四條 policy 名對 311 行版逐一重核過(各出現 5 次)。
 -- 🔴 唯讀。`20260905090000_m4b_service_role_policies_before_rlsharden.sql` 貼後對帳。
 --
 -- 🛑🛑 **貼完畫面【零變化】,而那是預期的** ——
@@ -16,7 +25,8 @@
 --    而要跑到那一步,有三個前置條件,少一個就到不了:
 --      ① **先 `ALTER ROLE service_role BYPASSRLS`** ——
 --         否則 `20260826150000`(email_outbox 政策)自己的段 A 會擋:「本片證不出 apply 當下不擴權」。
---         🛑 **而那支正是本片正對照的材料**(本片 `:124` 要 `email_outbox_select_service_role` 恰好 1 條,
+--         ⛔ ~~而那支正是本片正對照的材料(要 `email_outbox_select_service_role` 恰好 1 條)~~ —— **311 行版已改掉那個正對照**(R1 判它不與被驗對象共用程式路徑),
+--            而 `email_outbox_select_service_role` 在 311 行版裡**逐字不存在**(我實測 0 次) ⇒ 🔵 **①這個前置條件現在只為了讓 `20260826150000` 本身貼得過, 不再是正對照的材料。**
 --         逐字「否則上面那些 0 沒有判別力」)⇒ **少了①,本片的正對照當場失敗。**
 --      ② **最小 `cron.job` fixture** —— 否則 `20260828060000` 連鎖擋掉三支
 --         (見 `docs/runbooks/throwaway-postgres-for-migration-verification.md` 那張「起來之後還有三個坑」)。
@@ -60,10 +70,35 @@ SELECT count(*) AS 外溢數_該0
         OR p.polroles && ARRAY[(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='anon'),
                                (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='authenticated')]);
 
-\echo '=== 🟢 正對照:同一把尺對一條【本片沒建、而一定在】的政策要數得到 ==='
-\echo '    預期:1(它是本片自己的正對照材料;若它是 0, 上面那些數字沒有判別力)'
-SELECT count(*) AS email_outbox政策_該1
-  FROM pg_catalog.pg_policy WHERE polname = 'email_outbox_select_service_role';
+\echo '=== 🟢 正對照:同一個查詢形狀, 只把角色換成【一定會中的】 ==='
+\echo '    預期:貼【後】4。而貼【前】它也是 0 —— 見下面那句。'
+-- 🔴🔴 **這一格【貼前沒有判別力】, 而那不是缺陷是它的形狀**:
+--    它與被驗對象查的是【同四條 policy】, 只差角色條件 ⇒ 那四條還沒建時, 兩邊都是 0。
+--    ⇒ 📌 **貼前它證不到「尺會動」** —— 貼前要證尺會動, 要問一個【一定非 0】的東西:
+--       全庫帶 service_role 的 policy 共幾條(2026-09-05 實測 **66**)。那一格在下面。
+--    ⇒ 🛑 若貼【後】它仍是 0, 那才是「尺不會動」而不是「真的沒建」。
+-- 🔴 舊版這一格驗的是【另一條 policy 的名字存在】(`email_outbox_select_service_role`)——
+--    R1 判它「不與被驗對象共用程式路徑 ⇒ 證明不了那把尺會動」, 311 行版已改掉,
+--    而**那條 policy 在 311 行版裡逐字不存在**(我實測 0 次)⇒ 本檔跟著改, 否則這一格恆 0。
+SELECT count(*) AS 正對照_該4
+  FROM pg_catalog.pg_policy p
+  JOIN pg_catalog.pg_class c ON c.oid = p.polrelid
+  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+ WHERE n.nspname = 'public'
+   AND (c.relname, p.polname) IN (
+         ('admin_audit_log','admin_audit_log_insert_service_role'),
+         ('admin_sso_login_events','admin_sso_login_events_insert_service_role'),
+         ('staff','staff_insert_service_role'),
+         ('staff','staff_update_service_role'))
+   AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles r
+                WHERE r.oid = ANY (p.polroles) AND r.rolname = 'service_role');
+
+\echo '=== 🟢 正對照二(貼前就有判別力):全庫帶 service_role 的 policy 共幾條 ==='
+\echo '    預期:非 0(2026-09-05 貼前實測 66)。它是 0 ⇒ 上面每一格都沒有意義。'
+SELECT count(*) AS 全庫service_role政策數_該非0
+  FROM pg_catalog.pg_policy p
+ WHERE EXISTS (SELECT 1 FROM pg_catalog.pg_roles r
+                WHERE r.oid = ANY (p.polroles) AND r.rolname = 'service_role');
 
 \echo '=== 🔵 負對照二:同一把尺問一個現造的政策名 ⇒ 該 0 ==='
 SELECT count(*) AS 現造政策名_該0

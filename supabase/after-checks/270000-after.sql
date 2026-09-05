@@ -1,3 +1,6 @@
+-- 🔴 `psql -f` 對 ERROR 的 rc 仍是 0 ⇒ 沒有這一行的話, 一支【中間全紅】的檢查
+--    與一支【全過】的檢查回同一個 rc, 而早上看 rc 的人分不出來。
+\set ON_ERROR_STOP on
 \pset pager off
 -- 🔴 唯讀。20260904270000(40 張 service_role SELECT policy + 8 張 GRANT)貼後對帳。
 --    判準與那支 migration 的事後斷言⑤⑥ 同一個, 不另寫一份。

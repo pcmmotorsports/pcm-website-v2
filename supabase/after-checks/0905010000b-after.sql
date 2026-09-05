@@ -1,3 +1,6 @@
+-- 🔴 `psql -f` 對 ERROR 的 rc 仍是 0 ⇒ 沒有這一行的話, 一支【中間全紅】的檢查
+--    與一支【全過】的檢查回同一個 rc, 而早上看 rc 的人分不出來。
+\set ON_ERROR_STOP on
 \pset pager off
 -- 🔴 唯讀。0905010000b 貼後對帳。
 -- 判別字面「order_manual_refunds」取自那支 migration 自己(20 次命中, 貼前先數過)

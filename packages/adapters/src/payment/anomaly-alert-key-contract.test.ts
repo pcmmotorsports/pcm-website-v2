@@ -1,6 +1,7 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 // anomaly-alert-key-contract.test.ts —— SQL 產出的 key 與 TS 讀取的 key 必須對得上。
 //
@@ -77,6 +78,29 @@ const TARGETS = [
    *    當合理性下界:不是正整數 ⇒ 走 Unknown)。
    */
   { fn: 'get_privileged_role_bypassrls_state', varName: 'br', pin: 3 },
+  /**
+   * ⟦b4-RETRYGAVEUPNOWATCHER⟧(2026-09-05, 線 `-db`)。
+   * 🔵 **分堆是開檔看的**:adapter 對缺鍵走 `guWellTyped === false` ⇒ 落
+   *    `settleRetryGaveUpUnknown`, **它不 throw** ⇒ 依本檔判準屬 **fail-soft** ⇒ 進 TARGETS。
+   * 🔴 而這道閘**又一次在我加 RPC 的那一刻把我叫過來** —— 而我這次是【先被它擋下】才登記的,
+   *    不是登記完才跑。📌 那個順序差別就是「守門有沒有用」本身。
+   * 🔵 `pin: 4` = SQL 回的 key 數(gave_up_count / oldest_gave_up / sample_order_ids / tracked_total),
+   *    而 TS 四個都讀 —— 沒有「回了而沒有人看」的欄位。
+   */
+  { fn: 'get_settle_retry_gaveup_health', varName: 'gu', pin: 4 },
+  /**
+   * ⟦b4-PENDINGREFUNDSILENT⟧(2026-09-05, 線 `-db`)。
+   * 🔵 **分堆是開檔看的, 不是猜的**:adapter 對缺鍵走 `incWellTyped === false` ⇒ 落
+   *    `pcmIncidentUnknown`, **它不 throw** ⇒ 依本檔判準屬 **fail-soft** ⇒ 進 TARGETS。
+   * 🔴 **而這道閘【今天第二次】在我加 RPC 的那一刻把我叫過來** —— 而這一次更值得記:
+   *    我原本那一句寫成 `` `SELECT public.${INCIDENT_FN}()` `` 樣板字面
+   *    ⇒ 📌 **本檔的正則抽不到函式名 ⇒ 這一族【完全沒有契約保護】, 而本檔照樣全綠。**
+   *    codex 2026-09-05 must-fix ① 抓到它, 我把那一句改回字面字串 ⇒ 這道閘才看得見我。
+   *    ⇒ 🛑 **一個為了 DRY 而抽出來的常數, 會讓一道守門看不見一整族。**
+   * 🔵 `pin: 3` = SQL 回的 key 數(open_total / open_by_kind / oldest_open_at),
+   *    而 TS 三個都讀 —— 沒有「回了而沒有人看」的欄位。
+   */
+  { fn: 'get_pcm_incident_health', varName: 'inc', pin: 3 },
 ] as const;
 
 /** SQL 的行註解(`--`)在**每一把尺之前**先剝掉。
@@ -140,6 +164,14 @@ function sqlKeys(file: string, FN: string): string[] {
   if (endRel < 0) throw new Error(`${path.basename(file)} 的 ${FN} 找不到收尾 ${tag} —— 這把尺沒有接上`);
   const end = tagIdx + 1 + endRel;
   const out: string[] = [];
+  /**
+   * 🔴 **看起來是 key 而這把尺不認的行** —— 收起來, 最後**大聲丟例外**。
+   *    ⛔ ~~原本沒有這一格~~:不認的行就靜靜跳過 ⇒ 📌 **一支全部寫成別種形狀的函式,
+   *      這把尺會回一個乾淨的 `0`, 而 `0` 與「這支函式沒有 key」印同一個東西。**
+   *    (2026-09-05 實測到那個世界:`get_cron_heartbeat_stale_counts` 寫成同行形狀,
+   *     舊尺對它一直回 0 —— 而它不在 `TARGETS` 裡 ⇒ **那個 0 從來沒有被任何人斷言過**。)
+   */
+  const rejected: string[] = [];
   let depth = 0;
   let seen = false;
   for (const l of lines.slice(start, end)) {
@@ -150,10 +182,34 @@ function sqlKeys(file: string, FN: string): string[] {
     }
     if (!seen) continue;
     if (depth === 1) {
-      const m = /^\s*'([a-z0-9_]{3,})',\s*$/.exec(l);
+      /**
+       * 🔵 **2026-09-05 放寬(主視窗 `-f8` 裁「丙」)**:
+       *   ⛔ ~~`/^\s*'([a-z0-9_]{3,})',\s*$/`(key 必須獨佔一行)~~
+       *   ✅ `/^\s*'([a-z0-9_]{3,})',\s*(\(|$)/`(key 之後可以直接接 `(`)
+       *   🔴 **為什麼放寬而不是要求作者改排版**:`'key', (SELECT …)` 是**合法 SQL**,
+       *      而那支 migration 可能**已經貼進正式庫**(本次就是)⇒ 要求改排版 =
+       *      要 Sean 為了排版重貼一次, 或讓帳本的 sha 說一句它證不到的話。
+       *      📌 **病灶是尺窄, 不是碼髒。**
+       *   🔬 **放寬前後各量一次全部 14 支**(改前改後對照, 不是只看紅變綠):
+       *      12 支數字**一個都沒變**;變的兩支都是【本來就同行形狀而舊尺回 0】的:
+       *      `get_pcm_incident_health` 0 ⇒ 3 · `get_cron_heartbeat_stale_counts` 0 ⇒ 2。
+       *   ⚠️ **仍然認不到**:`'key', COALESCE(…)` / `'key', 1` 這種 —— 它們會落進
+       *      下面那個 `rejected` 而**大聲丟例外**, 不再靜靜回 0。
+       */
+      const m = /^\s*'([a-z0-9_]{3,})',\s*(\(|$)/.exec(l);
       if (m) out.push(m[1]!);
+      else if (/^\s*'([a-z0-9_]{3,})'\s*,/.test(l)) rejected.push(l.trim().slice(0, 60));
     }
     depth += (l.match(/\(/g) ?? []).length - (l.match(/\)/g) ?? []).length;
+  }
+  if (rejected.length > 0) {
+    throw new Error(
+      `${path.basename(file)} 的 ${FN}:有 ${rejected.length} 行看起來是 key 而這把尺不認 ——\n`
+      + rejected.map((r) => `     ${r}`).join('\n')
+      + '\n   ⇒ 🔴 **不要靜靜跳過** —— 跳過的話這支函式會回一個乾淨的 0,'
+      + '而 0 與「它沒有 key」印同一個東西。\n'
+      + '   ⇒ 要嘛把那幾行改成尺認得的形狀, 要嘛把尺再放寬一次(而放寬前先量【全部】函式的前後對照)。',
+    );
   }
   return [...new Set(out)];
 }
@@ -529,7 +585,24 @@ describe('result 的 *Unknown / *Failed 欄位, route 一定要讀', () => {
     //     (`trackingCorrectedGapUnknown` 由那條線自己接的;`notifiersFailed` 走 `errors` 別名)。
     //   🛑 **改這個數字之前一定要跑那一發** —— 直接改成「現在幾個」而不看 route,
     //     等於把這道閘關掉, 而它印的還是綠。
-    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(16);
+      // 🔴 **16 ⇒ 17(2026-09-05, 又是 merge 的產物)**:`-db` 加了 `aclDriftUnknown`
+      //   (⟦b9-ACLDRIFT5⟧ 片三), 而 dev 上那 16 欄是別的線各自加的。
+      //   ✅ **照上面那句規矩跑了那一發**:17 欄逐欄比對 route.ts ⇒ **route 沒讀的是 0**。
+      //   📌 而這是這道閘第二次在 merge 那一刻把人叫過來 —— **它的職責就是這個**。
+      // 🔴 **17 ⇒ 18(2026-09-05, 第三次;而這一次【是我自己的欄位】)**:`-db` 加了
+      //   `settleRetryGaveUpUnknown`(⟦b4-RETRYGAVEUPNOWATCHER⟧ TS 那半), dev 上是 17。
+      //   ✅ **照上面那句規矩跑了那一發** —— 用【這道閘自己的抽取式】(不是我另寫一把)
+      //     列出 18 欄逐欄比 route.ts(剝註解後)⇒ **新那欄 route 讀了**;
+      //     唯一 0 命中的是 `notifiersFailed`, 而它**走 `errors` 別名**(16⇒17 那次就記過)。
+      //   🛑 **我差點用【自己寫的正則】去驗這道閘** —— 我第一發抓 `\w+(Unknown|Failed)` 從
+      //     `anomaly-alert.ts` 撈, 得到 **11 欄**, 而閘讀的是 `check-anomaly-alerts.ts` 的
+      //     `CheckAnomalyAlertsResult` 型別區塊 ⇒ **11 與 18 是兩把尺量兩個東西**。
+      //     📌 **驗一道閘要用它自己的尺** —— 拿手邊那把去量, 會得到一個看起來很合理而無關的數字。
+    // 🔵 18 ⇒ 19(2026-09-05, ⟦b4-PENDINGREFUNDSILENT⟧ 加 `pcmIncidentUnknown`)。
+    //    🔴 **改這個數字之前做過零流失驗證**, 不是看到紅就往上加:
+    //       用它自己那把尺量改前/改後 ⇒ 18 ⇒ 19 · 流失 0 · 新增恰好 `pcmIncidentUnknown`。
+    //       📌 只比「數字 +1」擋不住「掉了一個、又加了兩個」。
+    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(19);
 
     /**
      * 🔴 **剝掉註解再比**(R4 must-fix 級 consider)——
@@ -556,3 +629,42 @@ describe('result 的 *Unknown / *Failed 欄位, route 一定要讀', () => {
     expect(missing, `這些 *Unknown/*Failed 欄位 route 沒有讀:${missing.join(', ')}`).toEqual([]);
   });
 });
+
+/**
+ * 🔴🔴 **放寬那把尺之後, 它還擋得住東西嗎** —— 主視窗 `-f8` 2026-09-05 裁「丙」時指名要這一格。
+ * 📌 **一把放寬過的尺最可能的下場是變成恆綠, 而恆綠與「全部都對」印同一個東西。**
+ * ⇒ 下面三格各餵一份**現造**的假 SQL(不寫進 repo, 用暫存檔), 看它分不分得開。
+ */
+describe('sqlKeys 這把尺放寬之後的判別力(負對照)', () => {
+  const tmp = path.join(os.tmpdir(), `kc-neg-${process.pid}`);
+  beforeAll(() => { mkdirSync(tmp, { recursive: true }); });
+  afterAll(() => { rmSync(tmp, { recursive: true, force: true }); });
+
+  function write(name: string, body: string): string {
+    const f = path.join(tmp, name);
+    writeFileSync(f, `CREATE FUNCTION public.zz_probe() RETURNS jsonb LANGUAGE sql AS $p$\n`
+      + `  SELECT jsonb_build_object(\n${body}  );\n$p$;\n`, 'utf8');
+    return f;
+  }
+
+  it('✅ 兩種形狀都認:獨佔一行 與 `key, (…)` 同一行', () => {
+    const f = write('both.sql', "    'aaa_key',\n    1,\n    'bbb_key', (SELECT 1),\n");
+    expect(sqlKeys(f, 'zz_probe')).toEqual(['aaa_key', 'bbb_key']);
+  });
+
+  it('🔴 `key, 1`(值不是括號)⇒ 大聲丟例外, **不可以靜靜回 0**', () => {
+    const f = write('bare.sql', "    'ccc_key', 1,\n");
+    expect(() => sqlKeys(f, 'zz_probe')).toThrow(/看起來是 key 而這把尺不認/);
+  });
+
+  it('🔴 `key, COALESCE(…)` 也要大聲 —— 它長得很像合法而尺不認', () => {
+    const f = write('coalesce.sql', "    'ddd_key', COALESCE((SELECT 1), 0),\n");
+    expect(() => sqlKeys(f, 'zz_probe')).toThrow(/看起來是 key 而這把尺不認/);
+  });
+
+  it('🔵 正對照:一份【什麼 key 都沒有】的 ⇒ 回空陣列而不丟例外(證明例外不是恆丟)', () => {
+    const f = write('empty.sql', '    (SELECT 1)\n');
+    expect(sqlKeys(f, 'zz_probe')).toEqual([]);
+  });
+});
+
