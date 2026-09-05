@@ -64,6 +64,7 @@ const ZERO: AnomalyAlertSummary = {
   // 🔵 第四條線(⟦b4-NORECIPIENTWINDOW⟧, 2026-09-04)。預設乾淨:不叫。
   trackingCorrectedPendingCount: 0,
   trackingCorrectedNoRecipientCount: 0,
+  trackingCorrectedPayloadUnparseableCount: 0,
   trackingCorrectedGapUnknown: false,
   orderCreatedStuckCount: 0,
   orderCreatedStuckOldestMinutes: null,
@@ -188,6 +189,12 @@ describe('checkAnomalyAlerts — 門檻矩陣', () => {
     //   ⇒ 📌 而這一條的後果與姊妹線不同:不是「客人沒收到一封信」,
     //     是**客人手上有一個我們給他的、而現在是錯的貨運單號**, 而我們寄不出更正。
     ['trackingCorrectedNoRecipientCount', { ...ZERO, trackingCorrectedNoRecipientCount: 1 }],
+    // 🔴 片 A2:這一格【單獨】>0 時必須自己觸發一封信 —— 少了觸發那一半,
+    //   它只會在別的訊號先叫時搭便車出現, 而那不是「數得到」。
+    [
+      'trackingCorrectedPayloadUnparseableCount',
+      { ...ZERO, trackingCorrectedPayloadUnparseableCount: 1 },
+    ],
   ] as const)('%s>0 → 告警 + 呼 notifier', async (_label, summary) => {
     const n = okNotifier();
     const res = await checkAnomalyAlerts({ reader: reader(summary), notifiers: [n] }, OPTS);
@@ -240,6 +247,7 @@ describe('checkAnomalyAlerts — 門檻矩陣', () => {
           ...ZERO,
           trackingCorrectedPendingCount: null,
           trackingCorrectedNoRecipientCount: null,
+          trackingCorrectedPayloadUnparseableCount: null,
           trackingCorrectedGapUnknown: true,
         }),
         notifiers: [n],

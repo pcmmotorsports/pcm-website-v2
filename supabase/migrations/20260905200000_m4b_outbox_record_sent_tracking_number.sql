@@ -1,4 +1,4 @@
--- 20260905130000_m4b_outbox_record_sent_tracking_number.sql
+-- 20260905200000_m4b_outbox_record_sent_tracking_number.sql
 --
 -- ⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 片 A · **草稿, 尚未經 Sean 拍板** —— 留在分支上, 不進 dev。
 -- plan:`docs/plans/2026-09-05-shipped-email-records-sent-tracking-plan.md`
@@ -59,7 +59,10 @@
 --   COMMENT ON VIEW public.pcm_tracking_corrected_email_pending IS '<20260904220000 的原文>';
 --   -- ② 互補 view 與 counts 函式可以留著(它們是唯讀的, 留著不影響行為)
 --   DROP VIEW IF EXISTS public.pcm_tracking_corrected_payload_unparseable;
---   DROP FUNCTION IF EXISTS public.get_tracking_corrected_gap_counts(timestamptz, integer);
+--   -- 🔴 counts 那支【不要 DROP】—— 它是【既有】的零參數函式, 本檔只是 CREATE OR REPLACE 加了一個鍵。
+--   --    要退的話是把它 REPLACE 回 20260904280000 那一版(逐字定義在那支檔 :66-127),
+--   --    而 md5 釘樁的存在就是為了讓「我抄的那一版」與「線上那一版」對得起來。
+--   -- ⚠️ 而【不退也可以】:多出來的那一格計數是唯讀的, 留著不影響行為。
 --   COMMIT;
 -- 🔴🔴 **兩個新欄與那個序列【留著】, 不 DROP** ——
 --    片 B 上線之後那一欄裡是**已經寄出去的信實際說了什麼**, 那是**沒有第二個來源的歷史**。
@@ -152,27 +155,44 @@ COMMENT ON COLUMN public.email_outbox.sent_seq IS
 --    主 view 用它「略過」、互補 view 用它「撈出來」, 那是一組**互補集**;
 --    而 `20260905040000` 那支檔的註解逐字記過:
 --    「互補集的定義若在兩邊各寫一份, 它們遲早不互補。」
-CREATE FUNCTION public.pcm_is_uuid_text(p_text text)
-RETURNS boolean
+-- 🔴🔴 **回傳 uuid 不是 boolean —— 而這一格是 fixture 世界⑧ 當場抓到的。**
+-- ⛔ ~~第一版:`pcm_safe_uuid(text) RETURNS boolean`, 然後在 WHERE 裡寫
+--    `AND pcm_safe_uuid(x) AND x::uuid = s.id`~~
+-- 🛑 **那個守門是【裝飾用的】** —— **PG 不保證 `AND` 的求值順序**, planner 可以把
+--    `x::uuid` 排在守門之前 ⇒ 實測(拋棄式 PG, 2026-09-05):
+--    `ERROR: invalid input syntax for type uuid: "bad"` ⇒ **整張 view 炸掉, 而不是略過那一列。**
+--    ⇒ 📌 **我以為我照裁定②做了「略過」, 而我只是把那個 cast 換了一個位置。**
+-- ✅ **改成一支真的 `try_cast`**:合法就回 uuid, 不合法回 NULL。**沒有求值順序可以賭。**
+--    (PG 沒有內建 `try_cast`, 所以這一支要自己寫 —— 而第一版就是因為這樣才繞路。)
+CREATE FUNCTION public.pcm_safe_uuid(p_text text)
+RETURNS uuid
 LANGUAGE sql
 IMMUTABLE
--- 🔵 `STRICT` = 收到 NULL 直接回 NULL, 不進 body ⇒ NULL 的處置在呼叫端顯式寫, 不藏在這裡。
+-- 🔵 `STRICT` = 收到 NULL 直接回 NULL, 不進 body。
 STRICT
 SET search_path = ''
 AS $fn$
   -- 8-4-4-4-12 的十六進位, 大小寫都收(PG 的 uuid 型別本身也大小寫都收)。
-  SELECT p_text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+  SELECT CASE WHEN p_text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+              THEN p_text::uuid END;
 $fn$;
 
-ALTER FUNCTION public.pcm_is_uuid_text(text) OWNER TO postgres;
+ALTER FUNCTION public.pcm_safe_uuid(text) OWNER TO postgres;
 
-COMMENT ON FUNCTION public.pcm_is_uuid_text(text) IS
+COMMENT ON FUNCTION public.pcm_safe_uuid(text) IS
 '「這段字是不是一個合法 UUID 的字面」。**單一事實來源** —— 主掃描面用它略過髒列,
 互補面用它撈出髒列;兩者是互補集, 而互補集的定義只能有一份。
 🛑 **它只驗【字面格式】** —— 不驗那個 uuid 指到的東西存不存在。
 ⚠️ `STRICT` ⇒ 餵 NULL 回 NULL(不是 false)⇒ 呼叫端要自己決定 NULL 算哪一邊。';
 
-GRANT EXECUTE ON FUNCTION public.pcm_is_uuid_text(text) TO service_role;
+-- 🔴🔴 **新函式出生就自帶 PUBLIC 的 EXECUTE** —— 這不是慣例是物理
+--    (`docs/patterns/revoking-function-execute-in-supabase.md` 全篇在講這件事)。
+--    ⇒ **先收再給**, 而 §8-b 有一格在驗它真的收掉了。
+-- 🔵 而這一支**純字面判斷、零資料** ⇒ 它被 anon 叫得動不洩漏任何東西。
+--    仍然收 —— 📌 **「今天無害」與「明天無害」是兩件事, 而收掉的成本是 0。**
+REVOKE ALL ON FUNCTION public.pcm_safe_uuid(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.pcm_safe_uuid(text) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.pcm_safe_uuid(text) TO service_role;
 
 -- ══ 4. 掃描面第二代 ═══════════════════════════════════════════════════
 -- 🔴 **唯一的行為差異在最後那個 CASE 與它的相關子查詢。** 其餘每一行與
@@ -209,21 +229,27 @@ WHERE s.shipped_at IS NOT NULL
   --    只綁 shipment 的話:O1 最後收到 B、O2 最後收到 A、現在是 A
   --    ⇒ **一邊漏寄、一邊誤寄**, 而兩者都不會叫。(codex 第 1 條 must-fix。)
   --
-  --  裁定② **髒 payload 略過那一列**:`pcm_is_uuid_text()` 沒過就當作不匹配,
+  --  裁定② **髒 payload 略過那一列**:`pcm_safe_uuid()` 沒過就當作不匹配,
   --    **不 cast、不 raise** ⇒ 整張 view 活著。那些列在 §5 的互補面看得見。
   --
   --  裁定④ **排序用 `sent_seq`**:`id` 是隨機 UUID, 拿它決勝等於擲骰子。
   --    `NULLS LAST` ⇒ 片 B 上線前那些 NULL 排在後面, 而 CASE 的判斷式本來就會落到回落分支。
   AND CASE
+        -- 🔴🔴 **判斷式問的是「片 B 有沒有寫過這一列」, 不是「號碼是不是 NULL」。**
+        --    ⛔ ~~原本問 `sent_tracking_number IS NOT NULL`~~ —— **那分不出兩種 NULL**
+        --    (codex R2 第 3 條;而它正好打中主視窗裁的③ 我沒真的做到):
+        --      ① 片 B 之前的舊列              ⇒ 該回落到時間比較
+        --      ② 片 B 寫的, 而【那封信本來就沒帶號碼】⇒ **我們沒告訴過客人任何號碼**
+        --    兩者的 `sent_tracking_number` 都是 NULL, 而**下一步完全不同**。
+        -- ✅ `sent_seq IS NOT NULL` 就是「片 B 寫過這一列」—— **一欄兩用**(排序 + 出處)。
         WHEN (
-          SELECT last.sent_tracking_number
+          SELECT last.sent_seq
             FROM public.email_outbox last
            WHERE last.status     = 'sent'
              AND last.sent_at   IS NOT NULL
              AND last.event_type IN ('order_shipped', 'shipment_tracking_corrected')
              AND last.order_id   = o.id
-             AND public.pcm_is_uuid_text(last.payload ->> 'shipment_id')
-             AND (last.payload ->> 'shipment_id')::uuid = s.id
+             AND public.pcm_safe_uuid(last.payload ->> 'shipment_id') = s.id
            ORDER BY last.sent_seq DESC NULLS LAST, last.sent_at DESC
            LIMIT 1
         ) IS NOT NULL
@@ -234,10 +260,12 @@ WHERE s.shipped_at IS NOT NULL
              AND last.sent_at   IS NOT NULL
              AND last.event_type IN ('order_shipped', 'shipment_tracking_corrected')
              AND last.order_id   = o.id
-             AND public.pcm_is_uuid_text(last.payload ->> 'shipment_id')
-             AND (last.payload ->> 'shipment_id')::uuid = s.id
+             AND public.pcm_safe_uuid(last.payload ->> 'shipment_id') = s.id
            ORDER BY last.sent_seq DESC NULLS LAST, last.sent_at DESC
            LIMIT 1
+        -- 🔵 而 THEN 這一半仍然比【號碼】。裁定③ 落在這裡:那封信的 `sent_tracking_number`
+        --    是 NULL(= 我們沒告訴過他號碼)⇒ `NULL IS DISTINCT FROM 'A'` ⇒ **true ⇒ 寄**
+        --    ⇒ 📌 而那一封在客人眼中是【首次告知】不是【更正】—— **文案由片 B 決定, 不在本檔。**
         ) IS DISTINCT FROM nullif(pg_catalog.btrim(s.tracking_number, public.pcm_js_trim_whitespace()), '')
         -- 🔵 回落分支:片 B 上線前(出門紀錄全 NULL)行為與第一代**逐字相同**。
         --    ⚠️ 裁定③ 也落在這裡:那封信寄出時本來就沒有追蹤號 ⇒ 出門紀錄是 NULL
@@ -289,9 +317,14 @@ WHERE e.event_type IN ('order_shipped', 'shipment_tracking_corrected')
   AND e.status   = 'sent'
   AND e.sent_at IS NOT NULL
   -- 🔴 **兩種壞法**:①那個鍵根本不在 payload 裡(`->>` 回 NULL)②在, 而不是合法 UUID。
-  --    ⚠️ `pcm_is_uuid_text` 是 STRICT ⇒ 餵 NULL 回 NULL ⇒ 這裡要**顯式**把 NULL 算進來。
-  AND (e.payload ->> 'shipment_id' IS NULL
-       OR NOT public.pcm_is_uuid_text(e.payload ->> 'shipment_id'));
+  --    ⚠️ `pcm_safe_uuid` 是 STRICT ⇒ 餵 NULL 回 NULL ⇒ 這裡要**顯式**把 NULL 算進來。
+  -- 🔵 `pcm_safe_uuid` 對「不在」與「不合法」都回 NULL ⇒ 一個 `IS NULL` 同時涵蓋兩種壞法,
+  --    而**主面用同一支函式** ⇒ 互補集的定義仍然只有一份。
+  AND public.pcm_safe_uuid(e.payload ->> 'shipment_id') IS NULL;
+
+-- 🔴 **少了這一行, 那支 view 誰都讀不到** —— 而姊妹面 `pcm_tracking_corrected_email_pending`
+--    授的就是 `service_role`(`20260904220000:431` 逐字)⇒ 照抄, 不發明新角色。
+GRANT SELECT ON public.pcm_tracking_corrected_payload_unparseable TO service_role;
 
 COMMENT ON VIEW public.pcm_tracking_corrected_payload_unparseable IS
 '已寄出、而 `payload->>''shipment_id''` **不是合法 UUID**(或整個不在)的 outbox 列。
@@ -300,17 +333,38 @@ COMMENT ON VIEW public.pcm_tracking_corrected_payload_unparseable IS
 🛑 **零列不代表健康** —— 它也可能代表「這裡根本沒有已寄出的信」
    ⇒ 所以 `get_tracking_corrected_gap_counts` 帶了分母。';
 
--- ══ 6. counts —— 🔴 **另開同形的, 不改既有那支** ═══════════════════════
--- 主視窗給了兩條路(「接進同一張 counts **或另開同形的**」), 我選後者。**理由是風險不是偏好**:
---   · `get_shipped_email_gap_counts` 是 **SECURITY DEFINER**, 而且**在告警那條路上**。
---   · `CREATE OR REPLACE FUNCTION` 是**整支覆寫** ⇒ 要把它那 ~70 行 body 與註解**逐字重打一遍**,
---     而鐵則 6 明文記過:**「刪註解」在 diff 上與「搬移」長得一樣, 三綠全綠, 審查看的是行為零改動。**
---   ⇒ 📌 **為了加一個計數而重打一支上線中的 SECDEF 函式, 風險不在那個計數上。**
--- ⚠️ **代價寫出來**:TS 那一側要**多一個呼叫點**, 不是多讀一個鍵。那是片 A2 的事。
-CREATE FUNCTION public.get_tracking_corrected_gap_counts(
-  p_corrected_cutoff timestamptz,
-  p_grace_seconds integer
-)
+-- ══ 6. counts —— 🔴 **改既有那支, 不新建** ═══════════════════════════
+-- ⛔ ~~另開同形的 `get_tracking_corrected_gap_counts(timestamptz, integer)`~~
+-- 🔴🔴 **2026-09-05 訂正:那個做法是錯的, 而它錯得很安靜。**
+--    `get_tracking_corrected_gap_counts()`(**零參數**)**已經存在而且已經上線**
+--    (`20260904280000_m4b_e4_tracking_corrected_gap_counts.sql`, 帳本已記),
+--    而 TS 那側**整條路都接好了**(型別 / adapter / emailPush / 觸發條件)。
+--    ⇒ 🛑 **PG 允許多載 ⇒ 新建那支【不會報錯】, 兩支會同時存在, 而沒有人說得出誰是權威。**
+--    ⇒ 📌 抓到它的是 TypeScript 的 `Duplicate identifier`, **不是我**。
+--
+-- 🔴 **而「重打一支上線中的 SECDEF 函式」正是我兩小時前反對過的事** —— 我當時的理由
+--    (鐵則 6:重打會靜靜掉註解, 而那在 diff 上與搬移長得一樣)**仍然成立**。
+-- ✅ **所以加一道我當時沒想到的保險:`md5(prosrc)` 前置釘樁**(形狀照 `20260905050000`)——
+--    **若正式庫那支的內容與我抄的這一版不同, apply 當場 RAISE, 不會靜靜覆蓋。**
+--    ⇒ 🎯 **那個反對理由被機制接住了, 不用靠小心。**
+-- 🟢 **而 body 是程式逐字搬的, 不是我重打的** —— 搬完驗過「舊 body 的每一行都還在 ⇒ True」。
+
+DO $$
+DECLARE v_md5 text;
+BEGIN
+  IF pg_catalog.to_regprocedure('public.get_tracking_corrected_gap_counts()') IS NULL THEN
+    RAISE EXCEPTION '前置閘④a:get_tracking_corrected_gap_counts() 不存在 ⇒ 20260904280000 沒貼過';
+  END IF;
+  SELECT pg_catalog.md5(p.prosrc) INTO v_md5
+    FROM pg_catalog.pg_proc p
+   WHERE p.oid = 'public.get_tracking_corrected_gap_counts()'::regprocedure;
+  IF v_md5 <> 'dd0fa16035e52befaed8e1fc7848bf60' THEN
+    RAISE EXCEPTION '前置閘④b:那支函式的 prosrc md5 是 %, 而我抄的那一版是 dd0fa16035e52befaed8e1fc7848bf60 ⇒ 【停下來看一眼】, 不要讓本檔靜靜覆蓋一個我沒讀過的版本', v_md5;
+  END IF;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_tracking_corrected_gap_counts()
 RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
@@ -318,60 +372,72 @@ SECURITY DEFINER
 SET search_path = ''
 AS $fn$
 DECLARE
+  JS_WS constant text := public.pcm_js_trim_whitespace();
   v_result jsonb;
 BEGIN
-  -- 🔴 `plpgsql` 而不是 `sql`, 理由與 `get_shipped_email_gap_counts` 逐字相同:
-  --    純 SQL 函式**沒有辦法 RAISE** ⇒ 參數的 NULL / 0 / 負數只能被安靜吞掉,
-  --    而 `>= NULL` = UNKNOWN ⇒ **恆回 0 = 靜默漏報**, 而 0 正是「一切正常」的樣子。
-  IF p_corrected_cutoff IS NULL THEN
-    RAISE EXCEPTION 'get_tracking_corrected_gap_counts:p_corrected_cutoff 不得為 NULL(NULL 比較 = UNKNOWN ⇒ 恆回 0 = 靜默漏報)';
-  END IF;
-  IF p_grace_seconds IS NULL OR p_grace_seconds <= 0 THEN
-    RAISE EXCEPTION 'get_tracking_corrected_gap_counts:p_grace_seconds 必須是正整數(收到 %);<= 0 會把剛改號那一批算進來 ⇒ 每一輪都在叫一個正常狀態', p_grace_seconds;
-  END IF;
-
+  -- 🔴 **本支【沒有 cutoff 參數】, 而那與姊妹線不同 —— 不是漏了。**
+  --    姊妹線要 cutoff, 因為它們的母體(orders)在功能上線前就存在。
+  --    本線的觸發欄 `shipments.tracking_corrected_at` 是片 C 才新增的
+  --    ⇒ 歷史上每一箱都是 NULL ⇒ **母體天生從空的開始長。**
+  --    ⇒ 📌 而姊妹線那句「NULL 比較 = UNKNOWN ⇒ 恆回 0 = 靜默漏報」在這裡沒有對象可以擋。
   SELECT pg_catalog.jsonb_build_object(
-    -- 分子①:該寄更正信、而已經過了寬限期還沒被排的。
-    'tracking_corrected_never_enqueued_count',
-      (SELECT pg_catalog.count(*)
-         FROM public.pcm_tracking_corrected_email_pending v
-        WHERE v.tracking_corrected_at >= p_corrected_cutoff
-          AND v.tracking_corrected_at < (pg_catalog.now()
-                                         - (p_grace_seconds::text || ' seconds')::interval)),
+    -- 🔵 **正常會 >0** —— 下一輪 scanner 就排掉了。**不要拿它當告警判準**(那會變成「有更正就叫」)。
+    'pending_count',
+      (SELECT pg_catalog.count(*) FROM public.pcm_tracking_corrected_email_pending),
 
-    -- 🔴 分子②:**被略過的那些列** —— 本片新增的那一格。
-    --    它與①**不是同一種壞法**:①是「該排而沒排」, ②是「**我們根本看不到它該不該排**」。
-    'tracking_corrected_payload_unparseable_count',
-      (SELECT pg_catalog.count(*)
-         FROM public.pcm_tracking_corrected_payload_unparseable u
-        WHERE u.sent_at >= p_corrected_cutoff),
-
-    -- 🔴🔴 分母:沒有它, 上面兩個 0 在「一切正常」與「這裡根本沒有資料 / 讀不到」之間分不出來。
-    -- ⚠️ 它刻意數 `shipments` 而**不是**數那兩支 view —— view 回 0 正是健康的樣子。
-    --    用途:答「**這裡到底有沒有改過號碼的箱**」, **不是**「這個視窗裡有幾筆」。
-    'tracking_corrected_total_count',
-      (SELECT pg_catalog.count(*)
+    -- 🔴🔴 **告警的主詞。** 單號被更正過、出貨信【在更正之前】已經寄出去(⇒ 客人手上那個號碼是錯的)、
+    --    而現在**兩個信箱都空** ⇒ 我們**寄不出那封更正信**, 而它**不會自己好**。
+    -- 🛑 條件逐字鏡像掃描 view, 只把「有信箱」那一條**翻過來** ——
+    --    ⇒ 兩者是**互補的兩半**, 加起來才是「該通知而還沒通知」的全部。
+    'no_recipient_count',
+      (SELECT pg_catalog.count(DISTINCT (s.id, o.id))
          FROM public.shipments s
-        WHERE s.deleted_at IS NULL
-          AND s.tracking_corrected_at IS NOT NULL)
+         JOIN public.shipment_items si ON si.shipment_id = s.id
+         JOIN public.order_items   oi ON oi.id = si.order_item_id
+         JOIN public.orders         o ON o.id = oi.order_id
+         LEFT JOIN public.customers c ON c.user_id = o.customer_user_id
+        WHERE s.shipped_at IS NOT NULL
+          AND s.deleted_at IS NULL
+          AND s.tracking_corrected_at IS NOT NULL
+          AND NULLIF(pg_catalog.btrim(s.tracking_number, JS_WS), '') IS NOT NULL
+          AND NULLIF(pg_catalog.btrim(o.notification_email, JS_WS), '') IS NULL
+          AND NULLIF(pg_catalog.btrim(c.email, JS_WS), '') IS NULL
+          AND EXISTS (
+                SELECT 1 FROM public.email_outbox e0
+                 WHERE e0.event_type = 'order_shipped'
+                   AND e0.dedup_key  = public.pcm_shipped_email_dedup_key(s.id, o.id)
+                   AND e0.status     = 'sent'
+                   AND e0.sent_at IS NOT NULL
+                   AND e0.sent_at < s.tracking_corrected_at)
+          AND NOT EXISTS (
+                SELECT 1 FROM public.email_outbox e
+                 WHERE e.event_type = 'shipment_tracking_corrected'
+                   AND e.dedup_key  = public.pcm_tracking_corrected_dedup_key(
+                                        s.id, o.id, s.tracking_corrected_at))),
+
+    -- 🔴🔴 **[2026-09-05 片 A 加的第三格]** 已寄出的信裡 `payload->>'shipment_id'` 壞掉的列。
+    --    🎯 **它與上面兩格是【第三種】壞法, 而三者去看的地方都不一樣**:
+    --      `pending_count`      = 正常會 >0, 下一輪就排掉了 ⇒ **不要拿它當告警判準**
+    --      `no_recipient_count` = 該寄而【兩個信箱都空】     ⇒ 去看那張單的收件資料
+    --      本格               = 我們【看不到它該不該寄】   ⇒ **去看 outbox 那一列的 payload**
+    --    🛑 **主掃描面【略過】那些列**(不 cast, 否則整張 view 會炸)⇒ 若沒有這一格,
+    --      那幾箱的更正信永遠不會被排, 而**每一個既有的計數都會照樣印一個正常的數字**。
+    'payload_unparseable_count',
+      (SELECT pg_catalog.count(*) FROM public.pcm_tracking_corrected_payload_unparseable),
+
+    -- 🔵 分母。**一個計數沒有分母, 讀的人會自己補一個**(而他補的那個多半是全部)。
+    'corrected_shipments_total_count',
+      (SELECT pg_catalog.count(*) FROM public.shipments s
+        WHERE s.tracking_corrected_at IS NOT NULL AND s.deleted_at IS NULL)
   )
   INTO v_result;
   RETURN v_result;
 END
 $fn$;
 
-ALTER FUNCTION public.get_tracking_corrected_gap_counts(timestamptz, integer) OWNER TO postgres;
+ALTER FUNCTION public.get_tracking_corrected_gap_counts() OWNER TO postgres;
 
-COMMENT ON FUNCTION public.get_tracking_corrected_gap_counts(timestamptz, integer) IS
-'更正單號信的缺口計數。形狀照 `get_shipped_email_gap_counts`(SECDEF 受控窗, 唯讀)。
-兩個分子壞法不同:`never_enqueued` = 該排而沒排;`payload_unparseable` = **我們看不到它該不該排**。
-分母數 `shipments` 不是那兩支 view —— view 回 0 正是健康的樣子, 拿它當分母等於沒有分母。
-兩個參數都無 DEFAULT:起始線與寬限都是營運參數, 預設值會變成沒有人拍過板的政策。
-🔴 **本函式只是把數字算出來 —— 它不保證有人在看。** 讀端(anomaly-alert)是片 A2。';
-
-REVOKE ALL ON FUNCTION public.get_tracking_corrected_gap_counts(timestamptz, integer) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.get_tracking_corrected_gap_counts(timestamptz, integer) FROM anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.get_tracking_corrected_gap_counts(timestamptz, integer) TO service_role;
+-- 🔵 ACL 不動(既有那支已經設好)—— 而下面 §8 有一格在【回核】它, 不是在設定它。
 
 -- ══ 7. 字面釘樁 ══════════════════════════════════════════════════════
 -- ⚠️ **射程與第一代相同, 不重複** —— 它防的是【漂移】不是【對手】(有人加 `OR TRUE` 它照樣過),
@@ -396,8 +462,13 @@ BEGIN
   END IF;
 
   -- 🔴 `<>` 在有 NULL 時整條變 NULL ⇒ 該寄的那一列會靜靜消失。
+  -- ⚠️ **訂正(codex R2 第 12 條, nit)**:⛔ ~~「而 NULL 會讓那一列靜靜消失」~~
+  --    THEN 那一半的判斷式已經排除了「片 B 沒寫過」的世界, 而**右邊那個現在的號碼**
+  --    在 WHERE 上面已經被釘成非空 ⇒ **這裡的 NULL 只剩一種**:那封信本來就沒帶號碼(裁定③)。
+  --    ⇒ 📌 `IS DISTINCT FROM` 在這裡守的是**那一種**, 不是「NULL 會讓整條變 NULL」那個泛稱。
+  --    🔵 而它仍然要釘 —— 改成 `<>` 之後**裁定③ 那條路會靜靜失效**(`NULL <> 'A'` ⇒ NULL ⇒ 不寄)。
   IF pg_catalog.strpos(v_def, 'IS DISTINCT FROM') = 0 THEN
-    RAISE EXCEPTION '釘樁④:找不到 IS DISTINCT FROM ⇒ 有人改成 <>, 而 NULL 會讓那一列靜靜消失';
+    RAISE EXCEPTION '釘樁④:找不到 IS DISTINCT FROM ⇒ 有人改成 <>, 而【沒帶號碼那封】會靜靜不寄(裁定③失效)';
   END IF;
 
   -- 🔴 裁定①:兩鍵都要綁。少了 order_id 那一半 ⇒ 一箱多單時一邊漏寄一邊誤寄。
@@ -406,8 +477,8 @@ BEGIN
   END IF;
 
   -- 🔴 裁定②:一定要先過格式檢查才 cast, 否則髒列會炸掉整張 view。
-  IF pg_catalog.strpos(v_def, 'pcm_is_uuid_text') = 0 THEN
-    RAISE EXCEPTION '釘樁⑥:找不到 pcm_is_uuid_text ⇒ 髒 payload 會 cast 失敗而炸掉整張 view';
+  IF pg_catalog.strpos(v_def, 'pcm_safe_uuid') = 0 THEN
+    RAISE EXCEPTION '釘樁⑥:找不到 pcm_safe_uuid ⇒ 髒 payload 會 cast 失敗而炸掉整張 view';
   END IF;
 
   -- 🔴 裁定④:排序要用單調序號。`id DESC` 是隨機 UUID, 等於擲骰子。
@@ -451,8 +522,10 @@ BEGIN
   THEN RAISE EXCEPTION '事後閘③b:authenticated 對序列有 USAGE'; END IF;
 
   -- ④ counts 函式不得被 anon / authenticated 叫得動
+  -- 🔵 這一格是【回核】不是【設定】—— 那支函式的 ACL 由 20260904280000 設好, 本檔沒動它。
+  --    紅了代表那邊的授權跟我想的不一樣, 要停下來看, 不是順手 REVOKE。
   IF pg_catalog.has_function_privilege('anon',
-       'public.get_tracking_corrected_gap_counts(timestamptz, integer)'::regprocedure, 'EXECUTE')
+       'public.get_tracking_corrected_gap_counts()'::regprocedure, 'EXECUTE')
   THEN RAISE EXCEPTION '事後閘④:anon 叫得動 counts 函式(它是 SECURITY DEFINER)'; END IF;
 
   -- 🟢 正對照四格:service_role 必須有 —— 少了它們, 上面每一格在「一律 false」的世界裡恆綠。
@@ -460,13 +533,54 @@ BEGIN
   THEN RAISE EXCEPTION '事後閘正對照a:service_role 讀不到 sent_tracking_number ⇒ 上面那些 false 不算數'; END IF;
   IF NOT pg_catalog.has_sequence_privilege('service_role', 'public.pcm_email_outbox_sent_seq', 'USAGE')
   THEN RAISE EXCEPTION '事後閘正對照b:service_role 對序列沒有 USAGE ⇒ 片 B 寫不進去'; END IF;
-  IF NOT pg_catalog.has_function_privilege('service_role',
-       'public.get_tracking_corrected_gap_counts(timestamptz, integer)'::regprocedure, 'EXECUTE')
-  THEN RAISE EXCEPTION '事後閘正對照c:service_role 叫不動 counts 函式'; END IF;
+  -- 🔴🔴 **這一格我原本問 `service_role`, 而重放當場紅了 —— 是【我問錯角色】不是碼錯。**
+  --    既有那支 `20260904280000:145` 逐字 `GRANT EXECUTE ... TO payment_confirmer;`
+  --    ⇒ 📌 **告警那條路跑的是 `payment_confirmer`(受控窗), 不是 `service_role`。**
+  --    🟢 抓到它的是這一格正對照本身 —— 一個問錯角色的斷言, 在【它該綠的世界】裡印紅,
+  --      而那正是正對照要做的事。少了它, 我會以為 ACL 跟我想的一樣。
+  IF NOT pg_catalog.has_function_privilege('payment_confirmer',
+       'public.get_tracking_corrected_gap_counts()'::regprocedure, 'EXECUTE')
+  THEN RAISE EXCEPTION '事後閘正對照c:payment_confirmer 叫不動 counts 函式'; END IF;
   IF NOT pg_catalog.has_table_privilege('service_role', 'public.pcm_tracking_corrected_payload_unparseable', 'SELECT')
   THEN RAISE EXCEPTION '事後閘正對照d:service_role 讀不到互補面'; END IF;
 END
 $$;
+
+-- ══ 8-b. 🔴 收權斷言(照 repo 慣例的 `v_relations` / `v_functions` 陣列)═════════
+-- 🛑 **這一段與 §8 的差別要寫出來, 否則下一個人會以為它們重複**:
+--    §8 是**逐格手寫**的斷言(每一格帶自己的訊息與正對照);
+--    本段是**照 `migration-new-file-static-checks` 認得的形狀**列出本檔新建的物件清單。
+--    ⇒ 📌 那道守門防的是「**忘記列**」—— 而它逐字說「它防『忘記收權』, 不防『忘記列』」。
+--    ⇒ ⇒ 兩者不是重複:**手寫的那些防我收錯, 這份清單防我漏掉一個物件。**
+-- 🔵 **本檔新建的可授權物件正好 2 個**:一支 view + 一支函式。
+--    (`get_tracking_corrected_gap_counts()` 是 `CREATE OR REPLACE` **既有**物件 ⇒
+--     ACL 是繼承的, 不在本清單裡 —— 那道守門自己的註解也是這樣算的。)
+DO $$
+DECLARE
+  v_relations text[] := ARRAY['pcm_tracking_corrected_payload_unparseable']::text[];
+  v_functions text[] := ARRAY['pcm_safe_uuid(text)']::text[];
+  v_rel text; v_fn text; v_bad text := '';
+BEGIN
+  FOREACH v_rel IN ARRAY v_relations LOOP
+    IF pg_catalog.has_table_privilege('anon', ('public.' || v_rel)::regclass, 'SELECT') THEN
+      v_bad := v_bad || v_rel || '(anon 讀得到) ';
+    END IF;
+    IF pg_catalog.has_table_privilege('authenticated', ('public.' || v_rel)::regclass, 'SELECT') THEN
+      v_bad := v_bad || v_rel || '(authenticated 讀得到) ';
+    END IF;
+  END LOOP;
+  FOREACH v_fn IN ARRAY v_functions LOOP
+    -- 🔵 `pcm_safe_uuid` 是**純字面判斷、零資料**(它只看一段字是不是 UUID 格式)
+    --    ⇒ 它被 anon 叫得動**不洩漏任何東西**。而這一格仍然斷言它 —— 理由是
+    --    📌 **「今天無害」與「明天無害」是兩件事, 而收掉它的成本是 0。**
+    IF pg_catalog.has_function_privilege('anon', ('public.' || v_fn)::regprocedure, 'EXECUTE') THEN
+      v_bad := v_bad || v_fn || '(anon 叫得動) ';
+    END IF;
+  END LOOP;
+  IF v_bad <> '' THEN
+    RAISE EXCEPTION '收權斷言:本檔新建的物件沒有關乾淨 ⇒ %', v_bad;
+  END IF;
+END $$;
 
 -- ══ 9. 🔴🔴 invoker view 的 EXECUTE 事後斷言 ═══════════════════════════
 -- **第一版我漏了這一整段, `invoker-view-execute-gate` 當場擋下。**
@@ -494,11 +608,22 @@ BEGIN
 
   -- 🔴 本片新加的那一支也要問(第一版沒有它)
   IF NOT pg_catalog.has_function_privilege('service_role',
-       'public.pcm_is_uuid_text(text)'::regprocedure, 'EXECUTE')
-  THEN RAISE EXCEPTION 'EXECUTE 斷言⑤:service_role 叫不動 pcm_is_uuid_text(text) ⇒ 查主掃描面會一次錯一次'; END IF;
+       'public.pcm_safe_uuid(text)'::regprocedure, 'EXECUTE')
+  THEN RAISE EXCEPTION 'EXECUTE 斷言⑤:service_role 叫不動 pcm_safe_uuid(text) ⇒ 查主掃描面會一次錯一次'; END IF;
+
+  -- 🔴 **內建函式也要問**(codex R2 第 9 條)—— `pg_catalog` 的 EXECUTE 預設給 PUBLIC,
+  --    **而它收得掉**。收掉之後這支 invoker view 會在執行期整個失敗, 而 apply 期全綠。
+  --    ⚠️ 今天踩不到(沒有人收過內建函式的 EXECUTE)⇒ 這是【未來的洞】不是今天的。
+  IF NOT pg_catalog.has_function_privilege('payment_confirmer',
+       'pg_catalog.btrim(text, text)'::regprocedure, 'EXECUTE')
+  THEN RAISE EXCEPTION 'EXECUTE 斷言⑥:payment_confirmer 叫不動 pg_catalog.btrim(text, text) ⇒ 主掃描面會在執行期整個失敗'; END IF;
+
+  IF NOT pg_catalog.has_function_privilege('payment_confirmer',
+       'pg_catalog.left(text, integer)'::regprocedure, 'EXECUTE')
+  THEN RAISE EXCEPTION 'EXECUTE 斷言⑦:payment_confirmer 叫不動 pg_catalog.left(text, integer) ⇒ 互補面會在執行期整個失敗'; END IF;
 
   -- 🟢 正對照:這把尺在【該印 false】時真的印 false。
-  --    沒有這一格, 上面五格在「has_function_privilege 對任何東西都回 true」的世界裡恆綠。
+  --    沒有這一格, 上面七格在「has_function_privilege 對任何東西都回 true」的世界裡恆綠。
   IF pg_catalog.has_function_privilege('anon',
        'public.pcm_tracking_corrected_dedup_key(uuid, uuid, timestamptz)'::regprocedure, 'EXECUTE')
   THEN RAISE EXCEPTION 'EXECUTE 正對照:anon 竟然叫得動 dedup_key ⇒ 要嘛授權漏了, 要嘛上面五格不算數'; END IF;

@@ -244,6 +244,7 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       // 🔵 第四條線:同樣三格 null + unknown=true(那支 RPC 尚未 apply)。
       trackingCorrectedPendingCount: null,
       trackingCorrectedNoRecipientCount: null,
+      trackingCorrectedPayloadUnparseableCount: null,
       trackingCorrectedGapUnknown: true,
       /**
        * 🔵 訊號 4 三格。本案例 `orderCreatedCutoffIso` 傳 `null` ⇒ **不呼叫那支 RPC**
@@ -1043,6 +1044,47 @@ describe('🔴 更正單號信 gap counts:【成功路徑】—— 而它原本�
     expect(out.trackingCorrectedPendingCount).toBe(7);
     expect(out.trackingCorrectedNoRecipientCount).toBe(2);
     expect(out.trackingCorrectedGapUnknown).toBe(false);
+  });
+
+  /**
+   * 🔴🔴 **片 A2 的部署窗口那一格** —— 它與下面那格「少一個 key ⇒ throw」**刻意不一致**。
+   * 分界:那些 key 從函式出生就在 ⇒ 少一個 = 函式壞了 ⇒ fail-loud;
+   *       而 `payload_unparseable_count` 是 20260905200000 帶進去的 ⇒
+   *       在【碼先上線、migration 還沒到】那個窗口裡它【合法地不存在】。
+   * 🛑 若照 fail-loud ⇒ 整條告警當晚一封都不寄。
+   */
+  it('🔴 A2 部署窗口:函式在而少了 payload_unparseable_count ⇒ 那一格 null, 而【其餘照常】', async () => {
+    const out = await run({
+      pending_count: 7,
+      no_recipient_count: 2,
+      corrected_shipments_total_count: 9,
+    });
+    expect(out.trackingCorrectedPayloadUnparseableCount).toBeNull();
+    // 🔴 承重:其餘三格必須完全不受影響 —— 否則這個「折衷」把整段帶走了。
+    expect(out.trackingCorrectedPendingCount).toBe(7);
+    expect(out.trackingCorrectedNoRecipientCount).toBe(2);
+    expect(out.trackingCorrectedGapUnknown).toBe(false);
+  });
+
+  it('🟢 key 在 ⇒ 它被讀成具體的數(證明上面那格不是恆 null)', async () => {
+    const out = await run({
+      pending_count: 7,
+      no_recipient_count: 2,
+      corrected_shipments_total_count: 9,
+      payload_unparseable_count: 4,
+    });
+    expect(out.trackingCorrectedPayloadUnparseableCount).toBe(4);
+  });
+
+  it('🔴 key 在【而值壞掉】⇒ 照舊 throw(寬容只給「不存在」, 不給「壞掉」)', async () => {
+    await expect(
+      run({
+        pending_count: 7,
+        no_recipient_count: 2,
+        corrected_shipments_total_count: 9,
+        payload_unparseable_count: -1,
+      }),
+    ).rejects.toThrow();
   });
 
   it('🔴 少一個 key ⇒ throw(fail-loud), 不是靜靜地變成 0', async () => {

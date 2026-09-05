@@ -32,17 +32,20 @@ pg_ctl -D "$D/data" -o "-p $PORT -c listen_addresses=127.0.0.1 -c unix_socket_di
 FAILED=0; PASSED=0
 q1 () { psql -h 127.0.0.1 -p "$PORT" -U postgres -tAc "$1"; }
 check () { if [ "$2" = "$3" ]; then printf '  OK   %s ⇒ %s\n' "$1" "$3"; PASSED=$((PASSED+1))
-           else printf '  FAIL %s ⇒ 期望 %s 而得到 %s\n' "$1" "$2" "$3"; FAILED=1; fi; }
+           # 🔴 **`FAILED` 要【累計】不要設成 1**(codex R2 第 20 條)——
+           #    設成 1 的話, 三格失敗時結尾印「PASS=17 FAIL=1 / 讀數 18 格」
+           #    ⇒ **總格數與失敗數都失真**, 而讀的人會以為只壞了一格。
+           else printf '  FAIL %s ⇒ 期望 %s 而得到 %s\n' "$1" "$2" "$3"; FAILED=$((FAILED+1)); fi; }
 
 psql -h 127.0.0.1 -p "$PORT" -U postgres -q -v ON_ERROR_STOP=1 <<'SQL'
 CREATE TABLE public.shipments (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  id uuid PRIMARY KEY DEFAULT pg_catalog.gen_random_uuid(),
   label text NOT NULL,
   tracking_number text,
   tracking_corrected_at timestamptz,
-  shipped_at timestamptz NOT NULL DEFAULT now());
+  shipped_at timestamptz NOT NULL DEFAULT pg_catalog.now());
 -- 🔴🔴 **id 是 uuid, 不是 bigserial** —— codex 抓到我第一版用 bigserial:
---    正式庫是 `id uuid PRIMARY KEY DEFAULT gen_random_uuid()`
+--    正式庫是 `id uuid PRIMARY KEY DEFAULT pg_catalog.gen_random_uuid()`
 --    (`20260717020000_m4a_email_outbox.sql:298` 逐字)。
 --    ⇒ 📌 **用 bigserial 的 fixture, 正式的排序問題【在探針上根本不存在】** ——
 --      bigserial 天生單調, 而 uuid 是隨機的。那支探針會印綠, 而它測的是另一個世界。
@@ -124,7 +127,7 @@ sweeper () {
   psql -h 127.0.0.1 -p "$PORT" -U postgres -q -v ON_ERROR_STOP=1 -c "
     BEGIN;
     CREATE TEMP TABLE seen AS SELECT tracking_number AS n FROM public.shipments WHERE id = '$sid';
-    SELECT pg_sleep($hold);
+    SELECT pg_catalog.pg_sleep($hold);
     UPDATE public.email_outbox
        SET status = 'sent',
            sent_at = pg_catalog.clock_timestamp(),
@@ -137,7 +140,7 @@ sweeper () {
 staff () {
   local sid="$1" delay="$2"
   psql -h 127.0.0.1 -p "$PORT" -U postgres -q -v ON_ERROR_STOP=1 -c "
-    SELECT pg_sleep($delay);
+    SELECT pg_catalog.pg_sleep($delay);
     BEGIN;
     UPDATE public.shipments
        SET tracking_number = 'B', tracking_corrected_at = pg_catalog.clock_timestamp()
