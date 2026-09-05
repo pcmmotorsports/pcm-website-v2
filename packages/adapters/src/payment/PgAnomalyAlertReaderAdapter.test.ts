@@ -1,6 +1,6 @@
 // node env;mock 'server-only'(adapter 檔頭 import 'server-only')。
 import { CRON_JOB_WHITELIST, FAILURE_COUNT_MEANINGLESS } from '@pcm/domain';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
@@ -2034,6 +2034,48 @@ describe('PgAnomalyAlertReaderAdapter.getSearchLogHealth(⟦search-LOGSILENTZERO
         .getAlertSummary(86400, 43200, 600, null, 900, null, null);
       expect(r.pcmIncidentUnknown, '矛盾的回應被讀成健康 ⇒ 真事故被消掉').toBe(true);
       expect(r.pcmIncidentOpenTotal).toBeNull();
+    });
+
+    it('🔴 認不得的 kind ⇒ **照樣進信**, 而多印一行 error(白名單是偵測不是過濾)', async () => {
+      // 🛑 這一格釘住一個**設計決定**:白名單不拿來丟東西。
+      //    📌 丟掉 = 一件真事故從信裡消失, 而 `open_total` 仍然算它
+      //      ⇒ 「總數說 3 件而種類欄只列 2 件」, 讀信的人分不出少的那件是什麼。
+      //    ⇒ 這一片存在的理由就是「有事發生而沒有人知道」—— 過濾等於在告警端再犯一次。
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const { client } = twoQueryClient(
+        FULL, undefined, true, undefined, true, undefined, true, undefined, true,
+        undefined, true, undefined, true, undefined, true, undefined, undefined,
+        { open_total: 2,
+          open_by_kind: { refund_over_total: 1, zzq9_never_defined: 1 },
+          oldest_open_at: null },
+      );
+      const r = await new PgAnomalyAlertReaderAdapter('conn', () => client)
+        .getAlertSummary(86400, 43200, 600, null, 900, null, null);
+      expect(r.pcmIncidentUnknown, '認不得的 kind 不該讓整格變 Unknown').toBe(false);
+      expect(r.pcmIncidentOpenTotal).toBe(2);
+      expect(r.pcmIncidentByKind, '認不得的那件被丟掉了 ⇒ 它會從信裡消失')
+        .toEqual({ refund_over_total: 1, zzq9_never_defined: 1 });
+      expect(JSON.stringify(errSpy.mock.calls), '沒有印出那個訊號 ⇒ 清單漂移沒有人看得到')
+        .toContain('zzq9_never_defined');
+      errSpy.mockRestore();
+    });
+
+    it('🔵 而【全部都認得】時不印那行 error —— 證明上一格不是恆印', async () => {
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const { client } = twoQueryClient(
+        FULL, undefined, true, undefined, true, undefined, true, undefined, true,
+        undefined, true, undefined, true, undefined, true, undefined, undefined,
+        // 🔴 codex must-fix ⑥:原版只餵 `refund_over_total` ⇒ 📌 **從白名單刪掉
+        //    `pending_refund_open_failed` 這兩格仍全綠。** ⇒ 兩個已知值都要餵。
+        { open_total: 2,
+          open_by_kind: { refund_over_total: 1, pending_refund_open_failed: 1 },
+          oldest_open_at: null },
+      );
+      await new PgAnomalyAlertReaderAdapter('conn', () => client)
+        .getAlertSummary(86400, 43200, 600, null, 900, null, null);
+      expect(JSON.stringify(errSpy.mock.calls), '兩個【都在白名單裡】的值竟然印了漂移訊號')
+        .not.toContain('不認識的 kind');
+      errSpy.mockRestore();
     });
 
     it('🔴 `open_by_kind` 是陣列 ⇒ 走 Unknown, 信裡不可以出現假的種類 `0=3`', async () => {
