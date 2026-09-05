@@ -423,9 +423,28 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
     const R = Number(/right:\s*(-?[0-9.]+)px/.exec(hit)?.[1]);
     const T = Number(/top:\s*(-?[0-9.]+)px/.exec(hit)?.[1]);
     const B = Number(/bottom:\s*(-?[0-9.]+)px/.exec(hit)?.[1]);
-    expect([w, h, L, R, T, B].every(Number.isFinite), '算式成分抓不到').toBe(true);
-    expect(w + -L + -R, '命中區寬 < 44').toBeGreaterThanOrEqual(44);
-    expect(h + -T + -B, '命中區高 < 44').toBeGreaterThanOrEqual(44);
+    // 🔴🔴 **邊框要減掉 —— 而這一格原本沒減, 於是它宣稱 44 而真實是 42**(2026-09-05 線 `-f3`)。
+    //   絕對定位 `::after` 的 `left/right/top/bottom` 相對的是 **padding box**;
+    //   本體 `border: 1px` ⇒ padding box = 36 − 1×2 = **34** ⇒ `-4px` 只到 34 + 8 = **42**。
+    //   🔬 正式站 0.25px 步進探邊複驗:箭頭 **36.5**(舊碼)· 正對照 `開啟選單` **44.5**
+    //     ⇒ 探針準到 ±0.5 ⇒ **那 2px 是碼不是取樣**。
+    //   🎯 **⇒ 一個【少算一項】的算式, 與一個算對的算式, 在測試輸出上都是綠的。**
+    //   ⚠️ 而 `.b-hero-tick` 是 `border: 0` ⇒ 它那格不受這一項影響(同檔另一格)。
+    const bw = Number(/border:\s*([0-9.]+)px/.exec(btn)?.[1] ?? '0');
+    expect([w, h, L, R, T, B, bw].every(Number.isFinite), '算式成分抓不到').toBe(true);
+    expect(w - 2 * bw + -L + -R, '命中區寬 < 44(記得 ::after 相對 padding box, 要減邊框)')
+      .toBeGreaterThanOrEqual(44);
+    expect(h - 2 * bw + -T + -B, '命中區高 < 44(同上)').toBeGreaterThanOrEqual(44);
+    // 🔴 上限也要守:外擴到【邊框外】的部分與相鄰鈕的 `gap` 相加不得超過 gap,
+    //   否則兩顆的命中區重疊, 而重疊區只歸其中一顆(DOM 後者贏)⇒ 另一顆反而變小。
+    // 🔴 容器是 `.b-select-nav`(`ProductRail.tsx` 的那個 `<div>`)——
+    //   ⛔ 我第一版寫成 `.b-carousel-nav`(**不存在**)⇒ 抓不到 ⇒ 靜靜退回預設值 `8`,
+    //   而 8 剛好就是真值 ⇒ **這一格照樣綠**。📌 **一個抓不到而有預設值的量測, 與一個抓到的,
+    //   在綠燈上長一樣。**⇒ 抓不到就讓它紅, 不給預設值。
+    const gapM = /\.b-select-nav\s*\{[^}]*gap:\s*([0-9.]+)px/.exec(top);
+    expect(gapM, '抓不到 .b-select-nav 的 gap ⇒ 這一格量不到東西, 不給預設值').not.toBeNull();
+    const gap = Number(gapM?.[1]);
+    expect(-L - bw + (-R - bw), `外擴超過相鄰 gap ${gap} ⇒ 兩顆命中區重疊`).toBeLessThanOrEqual(gap);
   });
 
   // 🔴 R1 must-fix:hero 高度必須吃站台 token,不得寫死頁首高。

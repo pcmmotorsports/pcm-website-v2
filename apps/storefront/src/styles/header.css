@@ -61,9 +61,27 @@
 
 /* 🔶 R2-3(2026-08-05):logo 由文字改品牌圖檔(OD `pcm-shell.css:59-60` 逐字)。
    34px = 緊湊版(compact)的設計高度;堆疊版(stacked)在 34px 會擠成一團,故頁首只用 compact。 */
+/* 🔴 ⟦f3-MOBTAP44⟧ 甲堆最後一顆:本體 **65.25×34**(圖 34px 高)⇒ 高度差 10px。
+   ✅ **純外擴做得到 —— 而這是量出來的, 不是推的**(2026-09-05 線 `-f3`, 390×844 真瀏覽器):
+     · 本體 `border` **0/0**、`padding` **0/0** ⇒ 沒有邊框吃掉外擴(箭頭那顆就是被邊框吃掉 2px)
+     · 位置 `top=12.5 bottom=46.5`, 而 header 高 **60** ⇒ 外擴到 7.5~51.5 **仍在 header 之內**
+     · 上下各探 5px ⇒ 碰到的是 `div.pcm-header-inner`, **最近可點祖先 = 無** ⇒ **不會搶到別人的點擊**
+   🔴 `position: relative` 是必要的:`::after` 是 `absolute`, 沒有它會定位到更外層的容器上。
+     而 `absolute` 也讓它**不會變成 flex item**(本體是 `display: flex`)⇒ 版面零影響。
+   🔵 寬度 65.25 本來就 ≥44 ⇒ **左右不外擴**(`left/right: 0`), 不去碰不需要碰的方向。 */
 .pcm-logo {
+  position: relative;
   display: flex;
   align-items: center;
+}
+/* 命中區外擴:純命中區、零視覺(無背景無邊框)。34 + 5×2 = 44。 */
+.pcm-logo::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -5px;
+  bottom: -5px;
 }
 .pcm-logo img {
   height: 34px;
