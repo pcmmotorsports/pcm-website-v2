@@ -233,3 +233,57 @@ bash docs/probes/2026-09-05-service-role-min-scope.sh
 新角色 對 customers        = SELECT t · DELETE f · TRUNCATE f   ← 今天兩個都是 t
 ```
 🛑 **而「讀數變窄」與「功能還活著」是兩個宣稱** ⇒ 觀察 48h 那一格顧的是後者。
+
+---
+
+## 11. 🔴🔴 **[2026-09-05 · 動手前的本機驗證推翻了 §2 的一半]**
+
+主視窗裁 `9.甲`(現在做)之後,我先把「乙-now」端到端跑一遍。**成立的那半成立,而另一半塌了。**
+
+### 11a. ✅ 端到端成立(拋棄式 PG + PostgREST,就緒判準用 log 的 `Schema cache loaded`)
+
+```
+① 無 token(web_anon)              401   🔵負對照
+② 專用角色讀 orders                200   ✅
+③ 專用角色寫 email_outbox          201   ✅
+④ 非成員角色帶 JWT 讀 orders       401   🔵負對照
+   pcm_email_writer bypassrls=false · service_role bypassrls=true
+```
+⇒ 🎯 **一個【是 `service_role` 成員、而自己沒有 BYPASSRLS】的角色,
+做得到 email/cron 要做的事,且不會繞過 RLS。**
+
+### 11b. 🛑 **而「最小 GRANT」那一半【做不到】—— 兩件事在 PostgreSQL 裡是綁死的**
+
+```
+表裡 1 列, policy 只寫 TO service_role。讀得到幾列 = policy 有沒有匹配:
+  service_role 本人      ⇒ 1 列   🟢 正對照(這把尺會動)
+  INHERIT 的成員         ⇒ 1 列   ✅ policy 匹配
+  NOINHERIT 的成員       ⇒ 0 列   🔴 policy 【不】匹配
+而 INHERIT 的成員同時【繼承 service_role 的全部表權限】——
+實測:只給 service_role 的 DELETE, INHERIT 成員【真的刪得掉】(無錯誤);
+NOINHERIT 成員 ⇒ `ERROR: permission denied`。
+```
+🎯 **⇒ 要 policy 匹配就得 `INHERIT`;而 `INHERIT` 就會把表權限一起帶過去。**
+⇒ 📌 **§2 那張「7 個物件 + 1 張表」的最小清單,用成員資格【拿不到】** ——
+新角色的表權限會與 `service_role` **完全相同**。
+
+### 11c. ⇒ 所以這一案的真實價值要重寫
+
+⛔ ~~收窄 = 少給幾個 GRANT + 拿掉 BYPASSRLS~~
+✅ **收窄 = 【只】拿掉 BYPASSRLS。表權限一格都沒少。**
+🔵 **而那仍然是主要的那一半** —— `BYPASSRLS` 是「無視所有 RLS」,
+比多幾個表權限大一個量級;而 §1 的負對照也顯示今天 `service_role` 的表權限本來就很寬。
+🛑 **但 plan 不能繼續宣稱「最小 GRANT」** —— 那句話現在是假的。
+
+### 11d. 要裁的一題(我不自己選)
+
+```
+Q-收窄射程: 表權限那一半怎麼辦?
+甲 = 接受「只拿掉 BYPASSRLS」, 表權限與 service_role 相同(推薦)
+乙 = 不用成員資格, 改成把新角色加進【每一條 policy 的 TO 清單】
+     ⇒ 今天 47 條 `%_select_service_role` + 第 0 步那 4 條, 而【每一條未來的 policy 都要記得加】
+A: 甲|乙   ← 我推【甲】。理由:乙把一次性成本換成一條【永久的、沒有機制保護的規矩】,
+              而那正是 ⟦b9-ZEROPOLICYSEAM⟧ 今天在發生的事;
+              甲拿到的是那一案 90% 的價值, 而它的殘餘風險寫得出來。
+```
+⚠️ **而在這一題答之前,我【不寫】那支 migration** —— 寫了它就會宣稱一個我剛證明是假的東西。
