@@ -173,6 +173,25 @@ else
   printf '%s\n' '   復原:git checkout -- .husky/view-apply-gate.sh' >&2
   exit 1
 fi
+# ── ⟦F1b⟧ RESET ROLE 那道 guard(2026-09-05 線 -db 接;主視窗 -f8 17:1x 拍「接」)──
+#   🔴 **它 2026-08-18 就寫好了、自己會動、四個世界的 selftest 全過 —— 而【沒有任何東西在叫它】。**
+#      ⇒ 我 2026-09-05 寫 20260905260000 時用了 RESET ROLE, 一路過三輪 codex 審查, 
+#        是 R4(opus)去讀那支 guard 才抓到 ⇒ 📌 **一道沒接線的閘, 與沒有那道閘, 對犯錯的人是同一件事。**
+#   🔵 它擋的是 supabase CLI 那條路(登入角色 NOINHERIT ⇒ RESET ROLE 之後帳本 INSERT 權限不足);
+#      今天全部靠 Sean 在 SQL Editor 手貼 ⇒ 那條路現在沒人走。**留著是因為它會回來。**
+#   ⚠️ 它比對的是【期望支數】不是【這次 staged 的內容】⇒ 別人加了一支也會在你這裡紅。
+#      那時要做的是看那一支對不對, 不是改期望值。
+#   🔴 **要走 `.husky/` 那一層薄殼, 不可以直接叫 `scripts/…`** —— 理由寫在那支薄殼檔頭:
+#      state-gates 的 harness 格9 只 stub 得到 `.husky/*.sh`, 直接叫 scripts/ 會讓【別人的 harness】紅。
+if [ -f .husky/migration-reset-role-gate.sh ]; then
+  sh .husky/migration-reset-role-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/migration-reset-role-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   與其他 gate 同款 fail-closed:刪掉這支殼正是關掉它最省事的方法。' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/migration-reset-role-gate.sh' >&2
+  exit 1
+fi
+
 pnpm exec lint-staged
 
 if [ -f .husky/always-loaded-size-gate.sh ]; then

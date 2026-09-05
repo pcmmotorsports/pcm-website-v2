@@ -273,6 +273,12 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       aclDriftUnknown: true,
       aclDriftFamilies: null,
       aclDriftTakenAt: null,
+      // ⟦b4-RETRYGAVEUPNOWATCHER⟧:本 fixture 沒有那一發回應 ⇒ 量不到。
+      settleRetryGaveUpCount: null,
+      settleRetryGaveUpUnknown: true,
+      settleRetryGaveUpOldest: null,
+      settleRetryGaveUpSampleIds: [],
+      settleRetryGaveUpTracked: null,
       bypassRlsPrivilegedCount: null,
       bypassRlsTotalRoleCount: null,
       emailOutboxUnknown: true,
@@ -364,7 +370,8 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
     // 🔵 2026-09-05 從 10 ⇒ 11:⟦b9-ACLDRIFT5⟧ 片二多一發 `pcm_acl_drift_status`。
     //    🔴 這個數字**是承重的** —— 它釘住「我加了一發查詢」會被看見,
     //       而不是安靜地多打一次資料庫。
-    expect(query).toHaveBeenCalledTimes(11);
+    // 🔵 11 ⇒ 12:⟦b4-RETRYGAVEUPNOWATCHER⟧ 多一發 get_settle_retry_gaveup_health。
+      expect(query).toHaveBeenCalledTimes(12);
     expect(query.mock.calls[1]![0]).toContain('get_payment_anomaly_alert_display_ids');
     expect(query.mock.calls[2]![0]).toContain('get_order_refunds_stuck_summary');
     expect(res.openDisplayIds).toEqual(['PCM-2026-0104']);

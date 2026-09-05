@@ -179,9 +179,73 @@ ba53294  2026-08-29  「硬刪改到 upsert 之後」
 > 全部對**報價單庫 `dllwkkfanaebrsuyuedy` 的 `storefront_catalog_v`**(view 混多供應商、`WHERE supplier_slug='<slug>'`)。
 > ⚠️ 來源 `supplier_slug`(如 `kspeed`)可能 ≠ 網站 `brands.slug`(如 `k-speed`),兩邊都要對。
 
+### 🔴🔴 分母閘 —— 先貼這一塊,slug 只打一次
+
+> **為什麼它長這樣**:整份 preflight 掛在同一個 `WHERE supplier_slug='<slug>'` 上,
+> slug 打錯 ⇒ 母體 0 列 ⇒ **每一格都印 0 = 每一格都符合期望**。
+> 🛑 而那一種**連「總數對不上」那個訊號都沒有** —— 空母體時每一列都自洽。
+> ⇒ 🎯 **所以這道閘不是「多一列檢查」,是把「查不到」與「都乾淨」變成印不一樣的東西。**
+> 🔵 手法:母體 0 列時,把一句**中文說明**丟去轉成整數 ⇒ PostgreSQL 當場報錯,
+>    而**錯誤訊息本身就是診斷**(它會告訴你名單裡有哪些 slug)。
+>    ⇒ 📌 這樣做而不用 `RAISE`,是因為**它是【一個 statement】** ——
+>       `DO` 區塊要靠「批次遇錯中止」才擋得住,而那個行為**每個 client 不一樣**。
+
+```sql
+-- 🔴 只改這一行的 <slug>,其他不要動。
+WITH ask AS (SELECT '<slug>'::text AS slug),
+pop AS (
+  SELECT c.* FROM public.storefront_catalog_v c, ask a WHERE c.supplier_slug = a.slug
+),
+guard AS (
+  SELECT CASE WHEN (SELECT count(*) FROM pop) = 0
+              THEN ('🔴 母體 0 列:slug 「' || (SELECT slug FROM ask) ||
+                    '」在 storefront_catalog_v 查無 ⇒ 停, 不要往下跑。名單裡有:' ||
+                    coalesce((SELECT string_agg(DISTINCT supplier_slug, ' ')
+                                FROM public.storefront_catalog_v),
+                             '(整張 view 是空的 —— 那是另一種壞掉, 不是 slug 打錯)'))::int
+              ELSE 1 END AS ok
+)
+SELECT (SELECT count(*) FROM pop)                                            AS 總列數,
+       -- 第 2 列:四價齊
+       (SELECT count(*) FROM pop WHERE coalesce(price_retail,0) = 0)         AS 第2_四價缺,
+       -- 第 3 列:圖片(三格一起看;判準與盲區見下表第 3 列, 這裡只是把數字擺在同一個分母上)
+       (SELECT count(*) FROM pop
+         WHERE coalesce(images::text,'') ILIKE '%http://%')                  AS 第3_非https,
+       (SELECT count(*) FROM pop WHERE images IS NULL)                       AS 第3_無圖,
+       (SELECT count(DISTINCT image_url) FROM pop WHERE images IS NULL)      AS 第3_無圖那群幾種網址,
+       -- 第 4 列:v2 分類回填(期望 = 總列數)
+       (SELECT count(*) FROM pop WHERE major_category_v2_zh IS NOT NULL)     AS 第4_有v2分類,
+       -- 第 6 列:群數與變體指紋
+       (SELECT count(DISTINCT main_sku) FROM pop)                            AS 第6_群數,
+       (SELECT count(*) FROM pop)                                            AS 第6_變體數,
+       g.ok                                                                  AS 分母閘
+  FROM guard g;
+```
+
+🔬 **三個世界實跑(2026-09-05,本機拋棄式 PG 17.10,造了一張同名的假表:wrs 1082 列 · rizoma 893 列)**
+—— 🔴 **跑的那份 SQL 是【從本檔這一塊直接抽出來】的,不是手抄一份去跑**:
+
+```
+slug = wrs      ⇒ 印出一列:總列數 1082 · 第2_四價缺 0 · 第3_無圖 1082 · 第3_無圖那群幾種網址 1
+                              · 第4_有v2分類 1082 · 第6_群數 1082 · 第6_變體數 1082 · 分母閘 1
+slug = wrsss    ⇒ ERROR: … "🔴 母體 0 列:slug 「wrsss」… 名單裡有:rizoma wrs"
+整張 view 空掉  ⇒ ERROR: … "… 名單裡有:(整張 view 是空的 —— 那是另一種壞掉, 不是 slug 打錯)"
+```
+🟢 **三個世界印三種不同的東西** —— 而舊做法在後兩種底下都印「一排 0 = 全部過」。
+
+🛑 **它證不到什麼**:
+· 這一發是在**本機一張假表**上跑的,不是報價單庫 —— 它證的是**這段 SQL 的行為**,不是那邊的資料。
+· 它只擋**空母體**。slug 拼對而**指到別家**(例如 `kspeed` vs `k-speed` 兩家都存在)它**不會叫** ——
+  那一種要靠 §1 第 0 列原本那句「總列數要與 §1-6 的指紋同一個數」。
+· 🔴 **它涵蓋的是下表的第 2 · 3 · 4 · 6 列**(那幾列都是同一個母體上的 count)——
+  **第 1 列**(品牌列存在)問的是**網站庫**不是報價單庫、**第 5 列**(商品名定案)是**抽查用眼睛看**
+  ⇒ 那兩列不在這一塊裡, 而**它們本來就不會因為空母體而假過**(第 1 列的母體是 `brands`)。
+· 🛑 **判準沒有寫進這一塊** —— 它只把數字擺在同一個分母上。**每一格的期望值與怎麼讀,照下表。**
+· 它**沒有掛在任何自動流程上** —— 它是給人貼的。⇒ 有人不貼它,它就不存在。
+
 | # | 檢查 | 怎麼查(MCP execute_sql,除非註明) | 期望 | 沒過怎麼修 |
 |---|---|---|---|---|
-| **0** | 🔴🔴 **分母不是 0**(先跑, 不然底下每一列都會過) | `SELECT count(*) FROM storefront_catalog_v WHERE supplier_slug='<slug>'` —— **再對一次** `SELECT DISTINCT supplier_slug FROM storefront_catalog_v` 確認拼法在名單裡 | **> 0**, 且與 §1-6 的指紋同一個數 | slug 拼錯 / 源頭還沒灌 → **停**。⚠️ 不要往下跑:下面每一列在空母體上**全部印 0 = 全部過** |
+| **0** | 🔴🔴 **分母不是 0** —— 🟢 **2026-09-05 起這一列【不靠你記得跑】**:改用下面那塊「分母閘」SQL, slug 打錯時它**當場報錯**、一個數字都不印 | 見本節上方的 **分母閘** 程式碼塊(slug 只打一次) | **印得出一列數字** = 母體 > 0;而它印的總列數要與 §1-6 的指紋同一個數 | 🔴 報錯訊息裡就寫著**你打的 slug** 與**名單裡有哪些** ⇒ 照著改再貼一次。⚠️ 舊做法(手動先跑一句 `count(*)`)**留著沒有壞**, 而它靠人記得 —— 板列 `⟦supply-EMPTYDENOMPASSALL⟧` 的關閉條件逐字是「**有東西會叫**, 而不是靠人記得先跑第 0 列」|
 | **0-b** | 🔴🔴 **這一家在板子上有沒有【開著的源頭缺陷】**(2026-09-04 新增;它擋的是「有人已經發現過, 而我不知道」) | `grep -n '⟦supply-' docs/launch-todo.md \| grep -i '<slug>'` —— 命中就**逐列開檔看態**(`open` / `parked` / `done`) | **零命中**, 或命中的每一列都是 `done` | 🔴 命中 `open` / `parked` ⇒ **先讀那一列的「關閉條件」**, 它會說這一家哪幾群不能上。<br>🔬 **今天已知的實例**(而它正是本列的來源):🟢 **[2026-09-04 補:那兩群現在【有一道會紅的門】了]** —— `scripts/supplier-group-denylist.ts` 寫著 `rizoma` 的 `DM-PW101` / `DM-PW201`, 而 `scripts/rpm-load.ts` 的 `syncVariantGroupAtomic`(**全 repo 唯一寫 `products` 的路**)在組 payload 之前就讀它 ⇒ 走到那兩群當場 throw, 訊息帶【關閉條件逐字】與板列錨。<br>🛑 **而它的天花板要一起讀**:①只擋這一條路, 手動 SQL / dashboard 不管 ②認的是 `(supplierSlug, externalId)` 的**字面** —— 源頭換群編號 ⇒ **它當場失效而不會叫** ③它不驗那個缺陷還在不在。<br>　 `⟦supply-RIZOMASPECWRONG⟧` = **`parked`**, 關閉條件逐字「**那兩群(`DM-PW101` / `DM-PW201`)要上架之前必須先修源頭**」——那兩群的「紅色」變體 spec 寫成「黑」。<br>🛑 **今天擋住它們的是 `is_listed = false` 這個【會變的旗標】, 不是一道守門** ⇒ 源頭哪天上架它們, 錯的顏色就跟著上, 而**首灌流程本身不會叫**。<br>📌 **為什麼這一列要存在**:主視窗 2026-09-04 拍板時明講 ——「**不連進 preflight, 下一個灌它的人不會知道**」;他不會來讀板子那一列, 他會照這份 runbook 走。<br>🔬 **這把尺今天會叫幾次(先量, 不然它會死於誤報)—— 數法就是這一行, 自己重跑**:`grep -n '⟦supply-' docs/launch-todo.md \| grep -ci '<slug>'` ⇒ 2026-09-04 實測 `rizoma` **8** · `cncracing` **1** · 亂打 `zzq-not-a-supplier` **0**(負對照 —— 它證明這把尺不是對誰都回非零)。<br>🛑 **而那 8 列裡【大多數只是「提到 rizoma」不是「rizoma 有缺陷」**(例:`⟦supply-NULLILIKESILENT⟧` 拿 rizoma 3 件當驗證數字)⇒ 🔴 **這是一把會吵的尺, 而吵的那部分是無害的。**<br>　⇒ ✅ **讀法:不要數命中筆數, 去看【那一列在講誰的缺陷】** —— 判準是該列的「事」欄主詞是不是這一家。<br>　⇒ 📌 **寫出來是因為**:一個沒被預告的噪音會讓下一個人第二次就跳過這一列, 而那時它真的抓到東西也沒有人看。 |
 | 1 | **品牌列存在**(網站庫) | `SELECT slug FROM brands WHERE slug='<brandSlug>'` | 1 列 | 缺 → seed migration `INSERT INTO brands ... ON CONFLICT (slug) DO NOTHING`,MCP `apply_migration` 或 Sean db push。**先確定 brandSlug 拼法**(§2 註) |
 | 2 | **價格四價齊**(源頭) | `COUNT(*) FILTER (WHERE price_retail IS NULL OR price_retail=0)` | 0 | 有 pricing_rules 的家跑完 fetcher 必接 報價單 repo:`uv run python scripts/recompute_supplier.py <slug>`(重跑 fetcher 會清空四價,見 [[feedback_fetcher_rerun_wipes_computed_prices]]) |
