@@ -255,6 +255,12 @@ export type CancelResultPanelProps = {
    *    ⇒ **忘了接必須編不過**(與本檔 `payments` 同一條紀律)。
    */
   orderCancelledAt: string | null;
+  /**
+   * 🔴 這張單的 `payment_status`。**必填無預設。**
+   * 與 `orderCancelledAt` **成對** —— 那個成功文案宣稱的是「錢已全額退還」,
+   * 而只看「取消了沒」會讓**未付款失效單 / 現金取消單**也拿到那句綠字(R3 F3)。
+   */
+  orderPaymentStatus: string | null;
 };
 
 /**
@@ -270,6 +276,7 @@ export function CancelResultPanel({
   cancellations,
   cancellationsTruncated,
   orderCancelledAt,
+  orderPaymentStatus,
 }: CancelResultPanelProps) {
   const code = typeof resultCode === 'string' ? resultCode : undefined;
   if (!isCancelPanelResultCode(code)) return null;
@@ -306,8 +313,16 @@ export function CancelResultPanel({
   //    🛑 而它**證不到「是這一次做的」** —— 一張三天前用別條路取消的單, 開這個網址也會看到綠字。
   //       ⇒ ⚠️ 那是**已知的殘餘風險**:代價是「看到一句對的話但時間點不對」,
   //          而上一版的代價是「看到一句**完全不成立**的話」。兩者不同級。
+  // 🔴🔴 **只看 `cancelledAt` 不夠**(R3 opus 2026-09-05 F3):
+  //    一張**未付款自動失效**的單、或**現金收款被取消**的單, `cancelledAt` 也是非 null
+  //    ⇒ 開 `?r=order_marked_cancelled` 會看到綠字「**錢先前已經全額退還**」——
+  //       而那句話對它們是**假的**(它們根本沒有退過錢)。
+  //    ⇒ 📌 **我核對的是「取消了沒」, 而那句話宣稱的是「錢退完了」** —— 兩件事。
+  //    ✅ 兩個都要:取消了 **且** `payment_status = 'refunded'`。
   const markedCancelledVerified =
-    code === ORDER_MARKED_CANCELLED_RESULT_CODE && orderCancelledAt !== null;
+    code === ORDER_MARKED_CANCELLED_RESULT_CODE &&
+    orderCancelledAt !== null &&
+    orderPaymentStatus === 'refunded';
 
   const text =
     code === ORDER_MARK_REJECTED_RESULT_CODE

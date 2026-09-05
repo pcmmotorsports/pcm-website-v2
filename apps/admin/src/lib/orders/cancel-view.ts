@@ -716,7 +716,17 @@ export function buildOrderCancelView(order: CancelViewOrder): OrderCancelView {
     const railReason = classifyPaidRail(order.payments);
     if (railReason !== null) reasons.push(railReason);
   } else if (order.paymentStatus !== 'unpaid') {
-    reasons.push(PAYMENT_BLOCK_REASON[order.paymentStatus]);
+    // 🔴🔴 **已經取消掉的 `refunded` 單, 不再報 `payment_refunded`**(R3 opus 2026-09-05 F1/F2)。
+    //    那一格的文案逐字說「**而這張單還掛在「未取消」**」——
+    //    而在**剛按下「把這張單結掉」成功之後的那一次渲染**, 它已經取消了。
+    //    ⇒ 📌 **一句在成功之後才被看到的話, 說的是成功之前的世界。**
+    //    ⇒ 🛑 而那句話同時指向一顆**已經消失**的鈕(`markCancelAllowed` 也吃 `cancelledAt`)
+    //       ⇒ **兩個述詞不同步時, 留下的是「訊息指向不存在的動作」** —— 本檔一路在防的那件事。
+    //    🔵 **只收窄 `refunded` 這一格**:其餘拒因碼(`partiallyPaid` / `partiallyRefunded`)
+    //       在取消之後仍然是**該講的事實**, 不動它們。
+    if (!(order.paymentStatus === 'refunded' && order.cancelledAt !== null)) {
+      reasons.push(PAYMENT_BLOCK_REASON[order.paymentStatus]);
+    }
   }
   // 🔴 **已付款的單不報這條**(#387;Sean 2026-08-11 實測撞到)。
   //    `mapChargeAttemptGate` 用否定式 `!== CHARGE_ATTEMPT_TERMINAL_FAILED` 判定

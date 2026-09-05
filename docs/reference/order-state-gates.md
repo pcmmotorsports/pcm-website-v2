@@ -33,7 +33,7 @@
 | `admin_finalize_order_refund` | **2** | 20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:612<br>20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql:245 | `20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql:245` |
 | `admin_initiate_order_refund` | **2** | 20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:423<br>20260812170000_m4b_lifecycle_l5b2_2f_initiate_advisory.sql:480 | `20260812170000_m4b_lifecycle_l5b2_2f_initiate_advisory.sql:480` |
 | `admin_list_saved_order_views` | **2** | 20260828080000_m4b_b4views1_saved_order_views.sql:260<br>20260828090000_m4b_b4views1a_request_id_gate.sql:510 | `20260828090000_m4b_b4views1a_request_id_gate.sql:510` |
-| `admin_mark_order_cancelled` | **2** | 20260902140000_m4b_mark_order_cancelled.sql:206<br>20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:604 | `20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:604` |
+| `admin_mark_order_cancelled` | **3** | 20260902140000_m4b_mark_order_cancelled.sql:206<br>20260903093000_m4b_b4cancelkind_reject_reserved_reason.sql:604<br>20260905400000_m4b_cardcancel_mark_recompute_refunded.sql:57 | `20260905400000_m4b_cardcancel_mark_recompute_refunded.sql:57` |
 | `admin_mark_shipment_shipped` | **4** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:140<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:659<br>20260807190000_m4b_e10_b2_w3c3_mark_shipped.sql:110<br>20260808100000_m4b_e10_b2_w7d1_ship_deadlock_retry.sql:177 | `20260808100000_m4b_e10_b2_w7d1_ship_deadlock_retry.sql:177` |
 | `admin_record_item_receipt` | **3** | 20260810233000_m4b_e10_352a2_receipt_write_rpcs.sql:53<br>20260811010000_m4b_e10_352c_item_level_room_guard.sql:23<br>20260814100000_m4b_e10_452_2a2a_adjacent_writers_voided_split.sql:608 | `20260814100000_m4b_e10_452_2a2a_adjacent_writers_voided_split.sql:608` |
 | `admin_record_manual_payment` | **2** | 20260810200000_m4b_e10_op5_record_manual_payment.sql:106<br>20260812150000_m4b_e10_423_payment_audit.sql:74 | `20260812150000_m4b_e10_423_payment_audit.sql:74` |
@@ -409,6 +409,16 @@
 **允許集合(逐字)**
 
 `:388` IF v_status NOT IN ('unpaid'::public.payment_status,<br>`:485` SET payment_status = v_new,<br>`:502` AND o.payment_status = v_status;   -- 🔴 樂觀鎖:狀態被別人改過就不寫
+
+### `admin_mark_order_cancelled`  ·  `20260905400000_m4b_cardcancel_mark_recompute_refunded.sql`
+
+**改什麼狀態**
+
+`:289` SET cancelled_at            = pg_catalog.now(),
+
+**允許集合(逐字)**
+
+`:173` OR v_order.cancelled_at IS NULL<br>`:182` IF v_order.cancelled_at IS NOT NULL THEN
 
 ---
 

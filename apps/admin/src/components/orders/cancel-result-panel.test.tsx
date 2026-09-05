@@ -77,6 +77,8 @@ const BASE: CancelResultPanelProps = {
   cancellationsTruncated: false,
   // 🔴 基準是「這張單【沒有】取消」—— 那是偽造網址那一格的預設世界。
   orderCancelledAt: null,
+  // 🔴 與上一行成對(R3 F3):只看「取消了沒」會讓未付款失效單也拿到「錢已全額退還」那句綠字。
+  orderPaymentStatus: 'unpaid',
 };
 
 function panel(over: Partial<CancelResultPanelProps> = {}) {
@@ -396,10 +398,15 @@ describe('🔴🔴 偽造網址:`?r=order_marked_cancelled` 不可以直接相�
     expect(container.textContent).toContain('查不到這張單已經取消');
   });
 
-  it('✅ 單子【真的】取消了 ⇒ 才顯示那句成功', () => {
+  it('✅ 單子【真的】取消了【而且】refunded ⇒ 才顯示那句成功', () => {
+    // 🔴 **這一格 2026-09-05 紅過一次, 而它紅得對**:R3 F3 之後判準多了一個
+    //    `paymentStatus === 'refunded'`, 而本格原本只設 `orderCancelledAt`
+    //    (BASE 的 `orderPaymentStatus` 是 `'unpaid'`)⇒ 新判準擋住 ⇒ 紅。
+    //    ⇒ 📌 **一個舊測試因為判準收窄而紅, 那是收窄【生效】的證據** —— 不是要繞過的東西。
     const { container } = panel({
       resultCode: ORDER_MARKED_CANCELLED_RESULT_CODE,
       orderCancelledAt: '2026-09-05T12:00:00.000Z',
+      orderPaymentStatus: 'refunded',
     });
     expect(container.textContent).toContain('這張單已經標記為取消');
   });
@@ -415,5 +422,30 @@ describe('🔴🔴 偽造網址:`?r=order_marked_cancelled` 不可以直接相�
       expect(container.textContent).toContain('這張單不能用這個方式結掉');
       expect(container.textContent).not.toContain('這張單已經標記為取消');
     }
+  });
+});
+
+describe('🔴 R3 F3:成功文案宣稱的是「錢已全額退還」, 不是「取消了」', () => {
+  it('🔴 取消了但 payment_status 不是 refunded(未付款失效 / 現金取消)⇒ 不可以顯示那句綠字', () => {
+    for (const st of ['unpaid', 'paid', 'partiallyRefunded']) {
+      cleanup();
+      const { container } = panel({
+        resultCode: ORDER_MARKED_CANCELLED_RESULT_CODE,
+        orderCancelledAt: '2026-09-05T12:00:00.000Z',
+        orderPaymentStatus: st,
+      });
+      expect(container.textContent, `payment_status=${st} 不該看到「錢已全額退還」`).not.toContain(
+        '這張單已經標記為取消',
+      );
+    }
+  });
+
+  it('✅ 取消了【而且】refunded ⇒ 才顯示', () => {
+    const { container } = panel({
+      resultCode: ORDER_MARKED_CANCELLED_RESULT_CODE,
+      orderCancelledAt: '2026-09-05T12:00:00.000Z',
+      orderPaymentStatus: 'refunded',
+    });
+    expect(container.textContent).toContain('這張單已經標記為取消');
   });
 });

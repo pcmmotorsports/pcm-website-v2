@@ -480,6 +480,8 @@ export async function OrderDetailRoute({
         // ⚠️ `detail` 讀失敗時是 null ⇒ 這裡給 null = 「查不到已取消」⇒ 面板顯示警示而不是綠字。
         //    那是刻意的 fail-closed:讀不到就不要說「做完了」。
         orderCancelledAt={detail?.cancelledAt ?? null}
+        // 🔴 與上一行成對 —— 那句成功文案宣稱的是「錢已全額退還」, 不是「取消了」。
+        orderPaymentStatus={detail?.paymentStatus ?? null}
         cancellationsTruncated={detail?.cancellationsTruncated ?? true}
       />
 
