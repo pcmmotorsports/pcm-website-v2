@@ -30,6 +30,8 @@ export type * from './IAlertNotifier';
 // 收件者逐封不同、失敗回結構化錯誤碼不 throw、outbox 需錯誤碼落表退避)。
 export type * from './IEmailOutbox';
 export type * from './IUnpaidCancelledOrderScanner';
+// 🔴 與上面那支【型別同形而射程不同】—— order_cancelled = 刷卡且已全額退款的整單取消。
+export type * from './ICancelledOrderScanner';
 // 🔴 **值 export 要單獨一行** —— 本檔其餘都是 `export type *`(port 檔本來就只有型別)。
 //    而 `SUPPRESS_WHEN_ORDER_INELIGIBLE` 是**執行期要讀的表**, 不是型別
 //    ⇒ 走 `export type *` 會在使用端當場紅(實測 TS1362)。
