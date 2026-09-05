@@ -368,7 +368,8 @@ REVOKE ALL ON FUNCTION pcm_cron.late_payment_pending_refund_sweep(integer) FROM 
 
 COMMENT ON FUNCTION pcm_cron.late_payment_pending_refund_sweep(integer) IS
 $c$兜底:把「已取消 + 某軌有正的未退淨額 + 帳本上沒有那一軌未結清列」的單, 補開一列待退款。
-🔴🔴 ⛔ ~~兩個已知世界都已經有人接~~ —— **本檔第 9-14 行寫的才是對的**(codex R2 ⑥:同一支檔自相矛盾)：
+🔴🔴 ⛔ ~~兩個已知世界都已經有人接~~ —— **本檔檔頭「[R1-F6]」與「兩個不同的競態」那兩段寫的才是對的**
+(⛔ ~~原本這裡寫「第 9-14 行」~~ —— codex R4 nit:競態乙在第 17 行才具名,而**行號在我自己的檔裡也會漂**;座標一律用引文)(codex R2 ⑥:同一支檔自相矛盾)：
 `20260905070000` 逐字把**「兩筆付款同時打同一張已取消的單」**那個競態**交給本掃描器**
 (「所以這裡【不加 FOR UPDATE】—— 那個競態改由事後掃描器收」)
 ⇒ 🛑 **本掃描器是那個世界的【唯一接手者】, 不是它的兜底。**

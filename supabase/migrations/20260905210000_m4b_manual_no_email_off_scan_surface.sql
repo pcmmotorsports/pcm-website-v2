@@ -647,9 +647,16 @@ COMMIT;
 -- 🔴 **餵給 psql 之前先數一次**(「我餵幾條 vs 它跑幾支」套在腳本產生這一層):
 -- ```sh
 -- grep -c '^CREATE OR REPLACE VIEW' /tmp/rollback-210000.sql    # 必須是 4
+-- grep -c '^REVOKE ALL ON'          /tmp/rollback-210000.sql    # 必須是 4
 -- grep -c '^GRANT SELECT ON'        /tmp/rollback-210000.sql    # 必須是 4
 -- ```
 --    ⚠️ **不是 4 就停下來** —— 那表示 080000 的字面被改過, 而這段抽取式沒跟著改。
+-- 🔴🔴 **`REVOKE` 那一行是 codex R4 ② 補的, 而它補的是一個【真的洞】**:
+--    🔬 實測:把結尾錨那一行刪掉 ⇒ 抽出來的東西少了尾巴, 而 `CREATE=4 / GRANT=4` **照樣印 4/4**;
+--       少抽一條 `REVOKE` ⇒ **`CREATE=4 / GRANT=4 / REVOKE=3`** ——
+--    🛑 ⇒ **原本那兩行數不到 `REVOKE` 那一族** ⇒ 一份**少了一道 REVOKE 的回退**會通過自檢
+--       ⇒ 退完之後那一支 view 對 `anon` 是開的, 而它含兩個 email 欄。
+--    📌 **「我量到 4」與「我量對了那四個是哪四個」是兩個宣稱** —— 三族各數一次才答得出第二個。
 --    🔵 抽取用的是**文字錨**不是行號:080000 是不可變歷史, 而**錨比行號活得久**。
 -- 🔵 那四段本來就是 `CREATE OR REPLACE VIEW` ⇒ **可以直接重跑**, 它們不含前置閘。
 -- 🔵 那四支的**欄位集合沒變** ⇒ `CREATE OR REPLACE` **夠用**, 不必 DROP

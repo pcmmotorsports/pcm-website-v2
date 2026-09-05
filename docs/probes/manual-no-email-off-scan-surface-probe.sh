@@ -188,8 +188,19 @@ assert m, '🔴 抽不到值域'
 domain = m.group(1)                       # 例:'manual_phone', 'manual_line', 'manual_other'
 first = domain.split(',')[0].strip()      # 只留第一個 ⇒ 自證② 要紅
 assert domain != first, '🔴 值域只有一個值 ⇒ 這一發突變不可能改變任何東西'
-assert s.count(domain) > 0, '🔴 突變沒有落在目標上'
-s = s.replace(domain, first)
+# 🔴🔴 codex R4 ①:**只動那四行, 不做全檔取代。**
+#    ⛔ ~~原本抓到四條之後就 `s.replace(domain, first)` 全檔取代~~ ——
+#    🛑 那會**連伴生 view 那條反向的 `IN`(第五份值域)一起突變** ⇒ 這一發同時改了兩個東西
+#       ⇒ 它紅的時候我分不出是哪一個造成的;而 dollar-quoted 區塊 / 區塊註解裡同形的字面也會被掃到。
+#    📌 **一發突變要只有一個受詞** —— 否則「它紅了」答不出「哪一句在守」。
+out, hit = [], 0
+for l in s.split('\n'):
+    if re.match(r"^ {5}OR o\.order_source NOT IN \(", l):
+        out.append(l.replace(domain, first)); hit += 1
+    else:
+        out.append(l)
+assert hit == 4, '🔴 逐行取代只改到 %d 行(應為 4)' % hit
+s = '\n'.join(out)
 sys.stdout.write(s)
 PY
 test -s "$D/mut1.sql" || { echo "🔴 突變檔是空的"; exit 1; }

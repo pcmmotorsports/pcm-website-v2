@@ -331,14 +331,31 @@ chk "格31 🔴 而 last_failure_at 要有值(否則儀表看不到這一輪炸�
 #    ①「它真的被回滾了」(我要驗的)②「那支函式根本沒建起來 ⇒ 從來沒插入過」(尺沒接上)。
 #    🛑 兩者**印同一個 0**, 而第二種會讓一個壞掉的突變看起來像一次成功的驗證。
 #    ⇒ 每一發突變貼完之後, 先問這個世界在不在。
-mut_world_ok() {   # $1 = 突變檔的 rc  · $2 = 這一格的名字
+# 🔴🔴 codex R4 ③:⛔ ~~原本只驗「rc=0 且同簽章的函式存在」~~ ——
+#    🛑 那**證不到線上跑的是【突變過的那一版】**:一個合法的舊版同簽章函式**照樣印 t**
+#       (reset_world 漏掉、或別的 mut 檔先貼過)⇒ 下面那一格的 0 仍然可能來自「沒突變到」。
+#    ✅ 改成問 `prosrc`:**突變拿掉的那串字面必須【不在】, 而一串它一定留著的必須【在】** ——
+#       兩個方向一起問, 才分得出「突變生效了」與「函式根本不是我這一支」。
+mut_world_ok() {   # $1=rc  $2=名字  $3=突變後【必須不在】的字面  $4=【必須還在】的字面
   if [ "$1" -ne 0 ]; then
     printf '  🔴 %s:突變檔貼不進去(rc=%s)⇒ 下面那一格的 0 不算數\n' "$2" "$1"; FAILED=$((FAILED + 1)); return 1
   fi
-  if [ "$(QV -Atc "SELECT pg_catalog.to_regprocedure('pcm_cron.late_payment_pending_refund_sweep(integer)') IS NOT NULL")" != t ]; then
+  # \U0001F534 `coalesce` 是 **SQL 語法, 不是函式** ⇒ 寫 `pg_catalog.coalesce(...)` 會**當場語法錯**,
+  #    而 `QV` 把 stderr 丟掉 ⇒ 它回一個**空字串**, 看起來像「函式不在」。我第一版就是這樣紅的。
+  #    \U0001F4CC 一個被丟掉的錯誤訊息, 會把「我寫錯了」偽裝成「那個東西不存在」。
+  local SRC; SRC=$(QV -Atc "SELECT p.prosrc
+      FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'pcm_cron' AND p.proname = 'late_payment_pending_refund_sweep'")
+  if [ -z "$SRC" ]; then
     printf '  🔴 %s:貼完了而函式不在 ⇒ 下面那一格的 0 只是「從來沒跑過」\n' "$2"; FAILED=$((FAILED + 1)); return 1
   fi
-  printf '  ✅ %s:突變世界造出來了(rc=0 且函式在)—— 下面那一格的 0 才有意義\n' "$2"
+  if printf '%s' "$SRC" | grep -qF "$3"; then
+    printf '  🔴 %s:線上那一版【還帶著】「%s」⇒ 突變沒生效, 下面那一格不算數\n' "$2" "$3"; FAILED=$((FAILED + 1)); return 1
+  fi
+  if ! printf '%s' "$SRC" | grep -qF "$4"; then
+    printf '  🔴 %s:線上那一版【沒有】「%s」⇒ 它不是我這一支函式, 下面那一格不算數\n' "$2" "$4"; FAILED=$((FAILED + 1)); return 1
+  fi
+  printf '  ✅ %s:突變世界造出來了(該不在的不在、該在的在)—— 下面那一格的 0 才有意義\n' "$2"
 }
 
 # ══ 🔴🔴 codex R2 ⑤:統計趟撞 statement_timeout 時, 寫入趟補好的列要【留著】═══════
@@ -408,7 +425,10 @@ test -s "$D/mut57014.sql" || { echo "🔴 突變檔是空的"; exit 1; }
 grep -q '^    WHEN query_canceled THEN' "$D/mut57014.sql" \
   && { echo "🔴 突變沒落在目標上(query_canceled 還在)⇒ 下面那格不算數"; FAILED=$((FAILED + 1)); }
 Q -f "$D/mut57014.sql" > "$D/mut57014.log" 2>&1; RCM1=$?
-mut_world_ok "$RCM1" "格35 前置"
+# 🔴 字面要帶【行首縮排】—— `prosrc` 含函式體裡的註解, 而本檔的註解裡
+#    正好引用了 `WHEN query_canceled` 這串字(⑤ 那段實測紀錄)⇒ 不帶縮排會抓到註解
+#    ⇒ 印「突變沒生效」而其實生效了。📌 **這正是 codex 這一輪在講的同一個病, 換了受詞。**
+mut_world_ok "$RCM1" "格35 前置" "    WHEN query_canceled THEN" "late_payment_sweep"
 Q -c "INSERT INTO public.orders (id, cancelled_at) VALUES ('00000000-0000-0000-0000-000000000009', now());
       INSERT INTO public._probe_amounts VALUES ('00000000-0000-0000-0000-000000000009','bank_transfer',900);" > /dev/null
 QV -Atc "SET statement_timeout = '600ms'; SELECT pcm_cron.late_payment_pending_refund_sweep()" > /dev/null 2>&1
@@ -432,7 +452,7 @@ test -s "$D/mutHB.sql" || { echo "🔴 突變檔是空的"; exit 1; }
 grep -q 'IF v_fail > 0 OR v_stats_cancelled THEN' "$D/mutHB.sql" \
   && { echo "🔴 突變沒落在目標上 ⇒ 下面那格不算數"; FAILED=$((FAILED + 1)); }
 Q -f "$D/mutHB.sql" > "$D/mutHB.log" 2>&1; RCM2=$?
-mut_world_ok "$RCM2" "格39 前置"
+mut_world_ok "$RCM2" "格39 前置" "    IF v_fail > 0 OR v_stats_cancelled THEN" "    WHEN query_canceled THEN"
 Q -c "UPDATE public.sweeper_heartbeat SET last_success_at='2000-01-01 00:00:00+00',
         last_failure_at=NULL, consecutive_failures=0 WHERE job_name='pcm-late-payment-sweep';
       INSERT INTO public.orders (id, cancelled_at) VALUES ('00000000-0000-0000-0000-00000000000a', now());
