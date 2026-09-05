@@ -33,6 +33,28 @@
 --    「灌爆連清都不能清」只對 `service_role` 成立(postgres owner 一直清得掉)·
 --    「今天的量是零」沒有逐列證據(只有目錄層)。
 --
+-- ══ 🔴 **[R3 F8 · F9] 這一片產生了三個【沒有人讀】的數字, 而它們各自不同** ══════
+--   本片自己就有一格在講這件事(檔頭「流量上來前重看」那節講 `deleted_overflow`),
+--   而 R3 把另外兩個也指出來了。**三個一起列, 因為它們是同一族而【修法不同】**:
+--   ```
+--   ① deleted_overflow   cron command `SELECT purge_search_queries()` 丟掉回傳值
+--                        ⇒ 「撞到 200 萬」沒有人會知道(檔頭那節已寫)
+--   ② more_to_do         同上, 也在那個被丟掉的回傳裡 ⇒ 🔴 **它是【死輸出】**
+--                        ⇒ 📌 而本片寫它的理由是「提示下一發再來」—— 而**沒有下一發在讀它**,
+--                          收斂實際上**全靠 `*/10` 那個排程**, 不是靠這個旗標。
+--                          🛑 **那句「它是提示不是保證」還不夠** —— 它今天連提示都不是。
+--   ③ consecutive_failures  心跳那段**只在成功時寫 0, 從來不 increment**
+--                        ⇒ 🔴 **它恆 0, 而恆 0 與「一直很健康」印同一個東西。**
+--                        ⇒ 而這一支是**純 SQL**:函式拋錯 ⇒ 同交易的失敗心跳一起被回捲
+--                          ⇒ 📌 **它在物理上寫不出失敗心跳** —— 那正是 `FAILURE_COUNT_MEANINGLESS`
+--                            那個集合存在的理由。⇒ **併進 F2 的順序限制那一格一起做。**
+--   ```
+--   🛑 **本片【不修】①②③** —— 修 ③ 要動白名單(受 F2 的順序限制擋著);
+--      修 ①② 要改 cron command 或心跳的欄位, 而**那會讓拋棄式 PG 那兩個世界的實跑全部作廢**,
+--      而 R4 正要開始。⇒ **列成「本檔改名成真 migration 的那一顆」要一起帶的東西。**
+--   📌 **而三個都寫在這裡的理由**:它們**在儀表上長得跟「一切正常」一模一樣**,
+--      ⇒ 少了這一段, 下一個人看到心跳是綠的就會以為有人在看。
+--
 -- ══ 🔴🔴 **[R3 F2] 心跳寫了而【沒有人讀】—— 而修它有一個【順序限制】** ══════════
 -- R3 抓到:`pcm-search-log-purge` 會是**第 10 支**排程, 而 `CRON_JOB_WHITELIST` 只有 **9 支**
 -- (當場數:剝掉註解之後 9 支, 不含它)⇒ 📌 **本片按 codex R2 第 10 條加的那個心跳,
@@ -186,7 +208,16 @@ END $$;
 --    🛑 **它擋不住什麼**:逾時之後**整支 migration 會 ROLLBACK** —— 那是**故意的**
 --       (fail-closed:寧可貼不成功, 不要無上限地卡住客人的搜尋);重貼即可。
 --    🔵 而**今天那張表是空的** ⇒ 這一格今天不會叫;它是給**下一次**在有流量時貼的人。
+-- 🔴 **[R3 F3 全文版]** 本檔**整支零 `lock_timeout` 也零 `statement_timeout`**
+--    (當場數:本檔 `statement_timeout` 命中 **0**;🟢 正對照:repo 裡用過 `SET LOCAL statement_timeout`
+--     的 migration 有 **87 支** ⇒ 那是本 repo 的慣例, 不是我發明的形狀)。
+--    ⇒ 而它不只 `CREATE INDEX`:`CREATE OR REPLACE FUNCTION` 那幾句在有流量時也會等鎖。
+--    ⚠️ **而 R3 另指出一格我沒想到的**:`statement_timeout` 觸發時是 `57014`,
+--       而 `purge_search_queries` **沒有接住它** ⇒ 📌 **整發回捲 ⇒ 兩個 DELETE 都不算數**
+--       —— 那不是壞事(fail-closed), 而**它會讓「有沒有在清」與「一直失敗」印同一個畫面**
+--       ⇒ 🛑 **而那正是 F9 那條(心跳恆 0)讓它看不見的東西。**
 SET LOCAL lock_timeout = '3s';
+SET LOCAL statement_timeout = '120s';
 CREATE INDEX search_queries_created_at_idx ON public.search_queries (created_at);
 
 -- ── 1. 計數表(一小時一列)──────────────────────────────────────────────
@@ -343,6 +374,9 @@ BEGIN
 --
 --  🔴🔴 **[R3 三條 consider —— 它們都在【收窄我的宣稱】, 所以三條都寫進來]**
 --   **F6 我量到的那個數字要訂正**:我的 fixture 是**簡化過的表**(沒有本體那幾個 CHECK 與欄),
+--      🔬 **而 R3 指出【為什麼】我的 fixture 代表不了它**:真表有
+--      `CHECK (path IN ('keyword','capsule'))`(`20260904200000…:131`)
+--      ⇒ 📌 **我 fixture 裡那個 1 字元的 `'q'` 在真表上【是被禁止的】** —— 我量的那一列建不出來。
 --      實際每列是 **60.2 bytes** 不是我量到的 52.18 ⇒ 門檻換算 ⇒ 開閘點約 **106 萬列**
 --      (不是我先前寫的 122.7 萬)。🔵 **結論不變**(仍遠小於 200 萬 ⇒ 閘比需要的時候更早開),
 --      🛑 **而那個數字是【我的 fixture 的性質】不是本表的** —— 引用它之前先看你量的是哪一張表。
@@ -414,7 +448,18 @@ BEGIN
   SELECT pg_catalog.count(*) INTO v_cnt
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'log_search_query'
-     AND p.prosrc LIKE '%ON CONFLICT (hour_bucket) DO UPDATE SET n = c.n + 1 WHERE c.n < 5000%';
+     -- 🔴 **[R3 F7]** ⛔ ~~`LIKE '%…%'`~~ —— **`_` 在 `LIKE` 裡是萬用字元**,
+     --    而這個字面裡有 `hour_bucket` / `DO UPDATE` ⇒ 📌 **`hourXbucket` 這種也會命中**
+     --    ⇒ **這道閘比它看起來鬆**(往【少報】的方向錯:該紅的可能不紅)。
+     --    ✅ 改 `strpos(...) > 0` —— 它是**純字面比對**, 沒有萬用字元。
+     AND pg_catalog.strpos(p.prosrc, 'ON CONFLICT (hour_bucket) DO UPDATE SET n = c.n + 1 WHERE c.n < 5000') > 0;
+  -- 🔬 **拋棄式 PG 17.10 實證(2026-09-05)**:餵一個把 `_` 換成 `X` 的字串 `hourXbucket` ——
+  --    ```
+  --    舊尺 LIKE   ⇒ t   ← 🔴 它【誤中】了一個不是那句話的東西
+  --    新尺 strpos ⇒ f   ← ✅ 不中
+  --    🟢 正對照:真的那個字面 ⇒ 兩把尺都 t(所以 strpos 不是恆假)
+  --    ```
+  --    ⇒ 📌 **那證明舊的那道閘【比它看起來鬆】, 而鬆的方向是【該紅的不紅】。**
   IF v_cnt <> 1 THEN RAISE EXCEPTION '事後閘①:log_search_query 裡找不到原子計數那一句'; END IF;
 
   -- ①c 🔴🔴 **[R3 ④] 真的【呼叫一次】** —— 上面每一格都只在看函式的【文字】,
