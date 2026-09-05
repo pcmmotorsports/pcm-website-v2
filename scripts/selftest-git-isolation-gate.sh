@@ -119,6 +119,34 @@ V="$TMPROOT/victim"
 LIMIT="${SGI_TIMEOUT:-240}"
 trap 'rm -rf "$TMPROOT"' EXIT
 
+# ── 🔴 明列排除:**只在註解裡提到 `--selftest`, 根本沒有那個入口** ──────────
+#   (2026-09-06 ⟦02-EARLYDEATHUNVERIFIED⟧ 判型時實測;主視窗 `-f8` 裁「明列 + 附自檢格」)
+#   🔬 **證據是跑出來的, 不是看出來的** —— 餵 `--selftest` 給它們, 它們逐字回:
+#      · `b2s2b-verify.sh`                  ⇒ 「MODE 只能是 all / run(收到:--selftest)」rc=2
+#      · `scripts-whitelist-gate.harness.sh` ⇒ 「不認得的參數: --selftest」rc=2
+#   ⇒ 📌 它們**不是壞掉**, 是**根本不在這道閘的射程裡** —— 而閘的候選是
+#     `grep -l -- '--selftest'` 撈的, 那把撈子**分不出「有入口」與「註解裡提到」**。
+#
+# 🛑 **為什麼是【明列】而不是寫一條靜態判別**:我先寫了一版
+#    (「`--selftest` 只出現在註解行 ⇒ 無入口」)⇒ 🔬 **量完發現那把尺是壞的**:
+#    108 支裡它列出 **68 支**「無入口」, 而裡面包含**本閘自己**與 `board-row-by-anchor.sh`
+#    ⇒ ⛔ **丟掉。**📌 一把會把 63% 的分母判成「不算」的尺, 比沒有尺危險 —— **它會靜靜縮小分母。**
+# ⇒ ✅ 明列的代價是**要人維護**, 而它的好處是**縮掉哪兩支寫在檔案裡、而且有一格自檢盯著**。
+NOENTRY="
+scripts/b2s2b-verify.sh
+scripts/scripts-whitelist-gate.harness.sh
+"
+#
+# 🔴🔴 **禁用 process substitution 的那個寫法 —— 而這是量到的, 不是風格** ══════════
+#   🔬 2026-09-06 實測:`package.json:71` 用 **`sh`** 叫本檔的 `--selftest`
+#      (`"sh scripts/selftest-git-isolation-gate.sh --selftest"`), 而 `sh` 對那個寫法
+#      直接 **`syntax error near unexpected token`**。
+#   ⇒ 📌 症狀**不是整支死掉**:那一行的輸出變成**空字串**, 而它旁邊的格子照樣 PASS
+#     ⇒ 🛑 我第一次撞到時, 癸1 印的是「得 (空) 期望 2」—— **一個空值, 不是一個錯誤**,
+#       而 commit 被擋在一個看不出原因的地方。
+#   ⇒ ✅ 一律**先寫進暫存檔**再餵給 `grep -f` / `comm`。**它在 bash 與 sh 底下同一個行為。**
+_NE_TMP="$TMPROOT/ne.list"
+_ONLY_TMP="$TMPROOT/only.list"
 # ── 已知違規者(2026-08-25 量到, 尚未修)────────────────────────────────
 #   🔴 這張表是**債, 不是豁免**。每一支旁邊要寫「它壞在哪」, 修好就從這裡刪掉。
 #   📌 2026-08-25 09:43 實例:`view-apply-before-wire-gate.py` 在我量測**中途**被別的窗修好了
@@ -140,6 +168,17 @@ mkvictim() {
   ( cd "$V" && git init -q . && git config user.email v@v.t && git config user.name victim ) || die "git init victim"
   for i in 1 2 3 4 5; do printf 'x%s\n' "$i" > "$V/f$i.txt"; done
   ( cd "$V" && git add f1.txt f2.txt f3.txt f4.txt f5.txt && git commit -qm base ) >/dev/null || die "commit victim"
+  # 🔴🔴 **再補兩顆 commit —— 而那不是湊數, 它修掉一個【假的自死】** ────────────
+  #   🔬 2026-09-06 實測:`push-and-announce.sh` 在這個受害者底下 rc=**128**, 逐字
+  #      `fatal: ambiguous argument 'HEAD~1': unknown revision` —— 因為**受害者只有 1 顆 commit**。
+  #   ⇒ 📌 **那不是它壞了, 是我的 fixture 太淺** ⇒ 它被算進「自己先死掉」而其實沒事。
+  #   🟢 **同一支在 3 顆 commit 的受害者底下 rc=0** —— 這一改是那個讀數換來的。
+  #   ⚠️ **而受害者【仍然不是 PCM 樹】** ⇒ 需要讀 PCM 內容的候選照樣會死, 那是另一回事
+  #      (它們該自己剝掉繼承來的 git 環境;板列 ⟦02-EARLYDEATHUNVERIFIED⟧)。
+  for i in 6 7; do
+    printf 'x%s\n' "$i" > "$V/f$i.txt"
+    ( cd "$V" && git add "f$i.txt" && git commit -qm "c$i" ) >/dev/null || die "commit victim c$i"
+  done
 }
 # 🔴 第四格 `config` 是 2026-08-25 補的, 而**補它的理由是一次真事故**:
 #    那天出事的 selftest 除了在真 repo 建假 commit, 還把 `.git/config` 的身分
@@ -200,9 +239,131 @@ controls() {
   [ "$b" = "$a" ] || die "負對照:什麼都沒跑而受害者變了 ⇒ 尺自己有噪音"
 }
 
+# ══ 掃描 + 判離場碼 —— 🔴 **抽成函式, 而那不是整理版面** ════════════════════
+#
+# 🎯 **它取代的是一個【測試接縫】**(codex R2 must-fix):
+#    上一版為了讓證人格能餵假候選清單, 開了一對環境變數當接縫
+#    (`SGI_SELFTEST_FAKE_CAND` + 一個記號)。而 codex 兩輪都指著同一件事:
+#    🛑 **那個接縫是「讓本閘印綠而一支真候選都沒掃」的鑰匙** —— 我補了 nonce, 它再指出
+#      nonce 也只是把門檻抬高:**清單是外面給的, nonce 也是外面給的**, 兩個都給就過。
+#    ⇒ 📌 **那條路補不完 —— 因為檢查與被檢查的東西住在同一支任何人都讀得到的檔裡。**
+#    ⇒ ✅ 所以**把接縫刪掉**:證人格直接在**同一個行程**裡呼叫這支函式餵假清單,
+#      正式路徑則餵真清單。**正式路徑上沒有東西可以被設。**
+# 🔵 **而這讓證人變強了, 不是變弱**:壬族現在跑的**就是正式路徑那份碼**(同一支函式),
+#    以前是「另起一個行程、走一條只有測試才走的分支」。
+#
+# 用法:`run_scan "<候選清單, 換行分隔>"` ⇒ return 0 / 1 / 2(規則見函式尾)。
+run_scan() {
+  local CANDLIST="$1"
+n=0; bad=0; newbad=0; slow=0; early=0
+echo "══ 掃描(受害者 repo 行為尺)══"
+# 🔴 **逐行讀, 不要 `for f in $CAND`**(codex must-fix ②):後者依 IFS 斷詞
+#    ⇒ 含空白的檔名會被拆成兩段 ⇒ 兩段都不是候選 ⇒ 📌 **那一支【沒有被跑】而總數照樣是綠的。**
+#    ⚠️ 今天 repo 內沒有含空白的腳本名 —— 而「今天沒有」不是守門。
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  n=$((n+1)); read -r st rc <<EOF2
+$(probe "$f" yes)
+EOF2
+  case "$st" in
+    # 🔵 **`CLEAN` 而【候選自己的 rc 非 0】⇒ 照印、單獨計數, 不改離場碼**(codex R1 must-fix ③)。
+    #    📌 **本閘只管【隔離】** —— 候選自己的 selftest 紅不紅是**別的閘**的職責
+    #      (它自己 `package.json` 那條 `--selftest` entry)。⇒ 這裡不擋, 是刻意的。
+    #    🛑 **而【靜靜吞掉】是不對的**:一支「沒動受害者、而自己早就死了」的候選,
+    #      它的隔離其實**沒有被驗過** —— 它只是還沒走到會動 git 的那一段就死了。
+    #      ⇒ ⚠️ 射程寫在這裡:**本閘對它印的那個「乾淨」, 分母是【它跑到的地方】, 不是整支檔。**
+    CLEAN)
+      if [ "${rc:-0}" != 0 ]; then
+        early=$((early+1))
+        echo "  🔵 沒動受害者, 而它自己 rc=$rc(可能沒走到會動 git 那一段)⇒ 本閘不擋, 而它【未被驗過】  $f"
+      fi ;;
+    TIMEOUT) slow=$((slow+1)); echo "  ⏱  量不到(逾時 ${LIMIT}s, **不等於乾淨**)  $f" ;;
+    DIRTY)
+      bad=$((bad+1))
+      if printf '%s' "$KNOWN" | grep -qxF "$f"; then
+        echo "  🟡 已知違規(在債表上, 本閘不擋)  rc=$rc  $f"
+      else
+        newbad=$((newbad+1)); echo "  🔴 **新的違規者**(不在債表上)  rc=$rc  $f"
+      fi ;;
+    # 🔴🔴 **`*)` 不是禮貌, 它是這一格的守門**(codex R2 must-fix ⑤b):
+    #    `probe` 自己壞掉時回的狀態不是那三種, 而**沒有 default 的 `case` 會【安靜地什麼都不做】**
+    #    ⇒ 📌 **一把壞掉的量具, 在這個迴圈裡與「這一支乾淨」走同一條路。**
+    #    ⇒ ✅ 未知狀態一律當**量具失效**算進 `slow`(而 `--only` 那半 `slow>0` 就 exit 2)。
+    *)
+      slow=$((slow+1))
+      echo "  🔴 量具回了我看不懂的狀態(st='$st' rc=$rc)⇒ 當【量不到】算, 不當乾淨  $f" ;;
+  esac
+done <<EOF3
+$CANDLIST
+EOF3
+echo "── 分母 $n 支 · 違規 $bad(其中新的 $newbad)· 量不到 $slow · 自己先死掉 $early(不擋, 而它們未被驗過)"
+  # ── 🔴 「自己先死掉」的支數【寫死一個期望值】(主視窗 `-f8` 2026-09-06 派)────────
+  #   🎯 它守的不是安全, 是**這個數字會不會靜靜地飄**:
+  #     · **變多** = 又有一支的 selftest 死在前面了 ⇒ 它的隔離從此量不到, **而畫面上沒有紅**。
+  #     · **變少** = 有人把某一支修好了 ⇒ 🟢 好事, 而**期望值要跟著改**, 否則下一次的「變多」被這個舊值吃掉。
+  #   🛑 **刻意【不改離場碼】** —— 與 ③ 同一個道理:本閘只管隔離, 而「某支自己紅不紅」是別的閘的事。
+  #     ⇒ 📌 它只出聲。**要它擋的那天再說, 而那天要先想清楚「修好一支就擋住全隊」是不是你要的。**
+  #   ⚠️ **兩個分支都印** —— 一個只在異常時出聲的檢查, 正常時與「它沒跑」是同一個畫面。
+  #   🔬 **10 這個數字帶著量法**:2026-09-06 全量掃(分母 106 · 耗時 379s)當場數的;
+  #      名單在板列 ⟦02-EARLYDEATHUNVERIFIED⟧ 的 7 + 3 兩堆。
+  EXPECT_EARLY="${SGI_EXPECT_EARLY:-10}"
+  if [ "$early" = "$EXPECT_EARLY" ]; then
+    echo "   🔵 自己先死掉 $early 支 = 期望值(名單見板列 ⟦02-EARLYDEATHUNVERIFIED⟧)"
+  else
+    echo "   ⚠️ **自己先死掉的支數變了**:$early(期望 $EXPECT_EARLY)⇒ 本閘不擋, 而請去看是多了還是少了。" >&2
+    echo "      · 變多 ⇒ 又有一支量不到了, 名字在上面每一行「🔵 沒動受害者」裡。" >&2
+    echo "      · 變少 ⇒ 有人修好了 ⇒ 把本檔的 EXPECT_EARLY 一起改小(否則下一次變多會被吃掉)。" >&2
+  fi
+# ══ 收尾 · 離場碼的規則(主視窗 `-f8` 2026-09-06 裁;兩半【對稱】)═══════════
+#
+#   `exit 0` = 零【新】違規、零量不到
+#   `exit 1` = **有新違規**(⚠️ **可能【同時】也有量不到 —— 看輸出那兩行**)
+#   `exit 2` = **零【新】違規, 而有量不到**
+#
+# ⚠️ **「新」這個字是量出來的差別, 不是修辭**(codex R1 nit):判準是 `newbad`, 不是 `bad` ——
+#    **在債表 `KNOWN` 上的違規者不擋**(它今天是空的, 而它不會永遠是空的)
+#    ⇒ 📌 `KNOWN` 非空的那一天, 「有違規而 exit 0」是**設計**, 不是漏。分母印在上面那一行。
+#
+# 🔴🔴 **⛔ ~~「`--only` 那半量不到就 exit 2、全量那半不算」~~ —— 那個不對稱【取消了】。**
+#    舊字面留在下面加刪除線, 讓照著它以為「全量逾時會回 0」的人同一發撞到這裡:
+#    ⛔ ~~· 全量是 `pre-push` 第 5 支, 已經有既有語意:`TIMEOUT` 只計數、最後仍 `exit 0`。~~
+#    ⛔ ~~· `--only` 是新的路, 沒有既有語意 ⇒ 從第一天就把它定成「量不到 = 不算過」。~~
+#    ⇒ 🛑 **那個理由是【向後相容】, 不是【安全】** —— 而它保住的那個相容, 內容剛好是
+#      「一支腳本逾時, 與它乾淨, 在畫面上都是沒有 🔴」。**兩半都不該接受那個同形。**
+#
+# 🔴 **而【違規優先】這個順序是刻意留的, 不是那句假話的殘骸**:
+#    兩者都是非 0 ⇒ **擋的效果一模一樣**, 差別只在【診斷】; 而「有違規」比「量不到」具體。
+#    ⇒ 📌 所以規則要答得出「同時發生時看到什麼」:**看到 1, 而量不到的支數印在上面那一行。**
+#    ⛔ ~~「只要量不到就 exit 2」~~ ⇒ **那句話本來就不成立**(違規優先會遮掉它), 已刪。
+#
+# ⚠️ **三態會在哪裡塌掉 —— 而那【只有一半】**(codex R2 nit 訂正;⛔ ~~舊字面說「lint-staged / husky
+#    底下都會壓成 1」~~ 是錯的):
+#    · 🔴 **`lint-staged`(`--only` 那條路)會把 2 壓成 1** ⇒ 那一半的三態確實塌成「非 0」。
+#    · 🟢 **`pre-push`(全量那條路)【不會】** —— `.husky/pre-push:101` 逐字是 `... || exit $?`
+#      ⇒ **2 原樣傳出去**。(`.husky/pre-push` 檔頭本來就寫著「壓成 1 會讓三態消失」而它避開了。)
+#    ⇒ 📌 塌掉的那一半**不影響安全**(照樣擋), 影響的是**診斷**:看到 1 的人要回來讀這一段。
+if [ "$newbad" != 0 ]; then
+  if [ "$slow" != 0 ]; then
+    echo "⚠️ 本次【同時】有 $newbad 支新違規與 $slow 支量不到 ⇒ 離場碼是 1(違規優先)。" >&2
+    echo "   🛑 那 $slow 支【沒有被驗過】—— 修完違規之後要回來看它們, 不要當它們過了。" >&2
+  fi
+  return 1
+fi
+
+if [ "$slow" != 0 ]; then
+  if [ "$ONLY_MODE" = 1 ]; then _mode='--only'; else _mode='全量'; fi
+  echo "🔴 $_mode:零【新】違規, 而有 $slow 支【量不到】(逾時 ${LIMIT}s)⇒ exit 2" >&2
+  echo "   🛑 「量不到」不等於「乾淨」—— 而它在畫面上與乾淨長得一樣, 所以這裡讓它出聲。" >&2
+  echo "   🔵 是哪幾支:上面每一支都印過一行「⏱ 量不到」。" >&2
+  echo "   ⚠️ 若那一支【本來就慢】而不是壞掉:調 SGI_TIMEOUT 或把它拆小, **不要把這道閘關掉**。" >&2
+  return 2
+fi
+return 0
+}
+
 if [ "${1:-}" = "--selftest" ]; then
   echo "══ selftest-git-isolation-gate 自己的證人 ══"
-  p=0; f=0
+  p=0; f=0; SKIPPED=0
   ck() { if [ "$2" = "$3" ]; then echo "  PASS $1 ($2)"; p=$((p+1)); else echo "  🔴 FAIL $1 —— 得 $2 期望 $3"; f=$((f+1)); fi; }
   controls; echo "  PASS 甲 正負對照皆過"; p=$((p+1))
   # 乙:一支【故意不隔離】的樁 ⇒ 帶 GIT_DIR 必 DIRTY、不帶必 CLEAN(兩方向)
@@ -298,11 +459,19 @@ STUB3
     d_before=$(dcount)
     ( cd "$ROOT" && SGI_SKIP_ISOLATION_CELL=1 \
         GIT_DIR="$DEC/.git" GIT_INDEX_FILE="$DEC/.git/index" \
-        bash "$ROOT/scripts/selftest-git-isolation-gate.sh" --selftest ) >/dev/null 2>&1
+        bash "$ROOT/scripts/selftest-git-isolation-gate.sh" --selftest ) > "$TMPROOT/inner.txt" 2>&1
     d_rc=$?
     d_after=$(dcount)
     ck "丁1 帶 GIT_DIR 跑自己 ⇒ 誘餌 repo 不得變" "$d_after" "$d_before"
-    ck "丁2 帶 GIT_DIR 跑自己 ⇒ 內層必須跑完"     "$d_rc"    "0"
+    # 🔴 內層是**巢狀模式** ⇒ 它照設計回 2(丁/壬 未跑, 見收尾那段)。
+    #    ⚠️ **而 2 也可能是「它中途死掉」** ⇒ 兩個數字都要:碼要是 2, **且**要看得到收尾那句話。
+    ck "丁2 帶 GIT_DIR 跑自己 ⇒ 內層回巢狀碼"     "$d_rc"    "2"
+    grep -q '部分通過(巢狀模式' "$TMPROOT/inner.txt" \
+      && ck "丁3 而它要【真的跑到收尾】(不是中途死掉也回 2)" yes yes \
+      || ck "丁3 而它要【真的跑到收尾】(不是中途死掉也回 2)" no yes
+  else
+    SKIPPED=1
+    echo "  ⚠️ SGI_SKIP_ISOLATION_CELL=1 ⇒ **跳過 丁 族**(巢狀那一層才該設它)"
   fi
   # ── 戊:從**別的目錄**呼叫本閘, 候選清單不得變成空的 ────────────────────────
   #    🔴 這一格是真 push 實測換來的:`pre-push` 不保證 cwd 是 repo 根。
@@ -327,13 +496,164 @@ STUB3
     && ck "辛3 負對照:別的候選仍然被掃到(分母 1 支)" yes yes \
     || ck "辛3 負對照:別的候選仍然被掃到(分母 1 支)" no yes
 
+  # ── 壬:🔴🔴 **離場碼那三態 —— 而【不准拿真候選集當靶】** ────────────────
+  #    🎯 守的是兩件事:
+  #      ① 主視窗 `-f8` 2026-09-06 裁的「兩半對稱」(全量那半的量不到也要出聲)
+  #      ② 那一次自述的事故:⛔ ~~把上限設成 1 秒跑一次真的全量掃~~ ⇒ **81 支候選每一支都被砍在第 1 秒**,
+  #        它們的暫存檔留在**別人的工作樹**上(`apps/` · `docs/` · `supabase/migrations/`)。
+  #        ⇒ 📌 **那不是省時間, 是【換了一個受測物】** —— 從「一支慢的腳本」換成「全部腳本都被砍」。
+  #    ✅ 改成餵一份**自己造的假候選清單**(絕對路徑, 全在 `$TMPROOT` 裡)⇒ 零真候選被跑。
+  #    🔵 **而它是【同一個行程裡直接呼叫 run_scan】** —— 不起子程序、沒有環境變數接縫
+  #      ⇒ 正式路徑上**沒有東西可以被外面設**(codex R2 must-fix 換來的;理由寫在 run_scan 檔頭)。
+  if [ "${SGI_SKIP_ISOLATION_CELL:-}" != "1" ]; then
+    # 🔬 **先照一張 ROOT 工作樹的相** —— 壬6 要拿它比。
+    #    🔴 **比【全樹】不是比 `scripts/`**:上一次的殘留落在 `apps/` · `docs/` · `supabase/migrations/`,
+    #      而我盯著的是我在改的那個目錄 ⇒ **那一次是 codex 順手比工作樹才發現的, 不是我。**
+    #    ⚠️ **射程(它答不出的)**:①**untracked 檔的【內容】**不在分母裡(全樹逐檔雜湊太貴)
+    #      ②`git config` 那一項**不排序**(重複鍵換順序會改變生效值, 而 `sort` 會把它抹平 —— codex R2)。
+    # 🔴🔴 **⛔ ~~`for-each-ref` 與 `stash list` 也收進來~~ —— 那兩項【拿掉了】, 而它是量到的**:
+    #    2026-09-06 實測本格紅了一次, 而**紅的只有 refs 那一欄**(status / diff / diff --cached 三欄逐字相同
+    #    ⇒ 🔵 **我的工作樹零殘留**)。
+    #    📌 成因:**`refs/*` 與 `refs/stash` 是【跨 worktree 共用】的** —— 別的窗在自己的 worktree
+    #      commit 一顆, 我這一格就紅。⇒ 🛑 **那不是我留下的東西, 那是別人在旁邊工作。**
+    #    ⇒ ⚠️ **一個會被別人的正常工作弄紅的守門, 會被關掉** —— 而它守的東西就跟著沒了。
+    #    ⇒ ✅ 只留**每個 worktree 各自獨立**的那幾項。**代價明寫**:本格從此看不到
+    #      「證人格劫持了某個 ref」那一族;而 丁 那一格(誘餌 repo 的 `for-each-ref`)仍然在守它。
+    # 🔴🔴 **第二次收窄 —— 而它也是量到的**(2026-09-06 同一天, 兩次紅都不是我留了東西):
+    #    這一次紅在 `pre-commit` 底下:`lint-staged` **在本閘跑的同時改寫 index**
+    #    ⇒ `git status` / `git diff` / `git diff --cached` 三項全都會動 ⇒ 本格紅, 而 commit 被擋。
+    #    ⇒ 🛑 **那是「守門把自己擋在門外」** —— 而人對這種閘的處理方式是關掉它。
+    # 📌 **兩次收窄是同一個病的兩個受詞**:①`refs/*` 被【別的窗】動 ②index 被【lint-staged】動
+    #    ⇒ 🎯 **一道零殘留閘的分母裡, 不可以有【別人合法會動的東西】。**
+    # ⚠️ **射程(明寫, 不要藏)**:本格現在只看
+    #    ①**untracked 檔的清單**(那正是上次事故的形狀:證人格被砍之後留下的 fixture)
+    #    ②HEAD ③本 worktree 的 local config。
+    #    ⛔ **看不到**:追蹤中檔案的內容被改(那一維住在 index 上, 而 index 不是我的)。
+    #    ⇒ 🔵 補位的是 丁 那一格(誘餌 repo 的四項快照, 那個 repo 沒有別人會動)。
+    rootsnap() { ( cd "$ROOT" && printf '%s|%s|%s' \
+      "$(git ls-files --others --exclude-standard | sort | cksum)" \
+      "$(git rev-parse HEAD)" \
+      "$(git config --local --list | cksum)" ); }
+    _root_before=$(rootsnap)
+    WK="$TMPROOT/wit"; rm -rf "$WK"; mkdir -p "$WK" || die "mkdir wit"
+    printf '%s\n' '#!/bin/sh' 'exit 0'                                    > "$WK/ok.sh"
+    printf '%s\n' '#!/bin/sh' 'sleep 8' 'exit 0'                          > "$WK/slow.sh"
+    printf '%s\n' '#!/bin/sh' 'git rm -q --cached f1.txt >/dev/null 2>&1' 'exit 0' > "$WK/dirty.sh"
+    printf '%s\n' '#!/bin/sh' 'exit 3'                                    > "$WK/early.sh"
+    chmod +x "$WK"/*.sh
+    wit() { # $1=假候選清單(換行分隔)  $2=逾時上限
+            # ⇒ **rc 用 return 傳回、輸出寫進 $WK/out.txt**(不是印出來)
+      # 🔵 整段在 `$( )` 這個子 shell 裡改 LIMIT / ONLY_MODE ⇒ 改不到外面。
+      _wo=$( LIMIT="$2"; ONLY_MODE=0; run_scan "$1" 2>&1 ); _wr=$?
+      printf '%s' "$_wo" > "$WK/out.txt"
+      return $_wr
+    }
+    # 🟢 壬0 **綠對照(先跑這一格)**:一支乾淨的假候選 ⇒ 0。
+    #    📌 少了它, 壬1 的那個 2 可能是「這條路永遠不通過」—— 而那與「逾時被抓到」同形。
+    wit "$WK/ok.sh" 240; ck "壬0 綠對照:假清單一支乾淨 ⇒ 0" "$?" "0"
+    grep -q '分母 1 支' "$WK/out.txt" && ck "壬0b 而且分母要是 1(證明掃的是假清單)" yes yes \
+                                     || ck "壬0b 而且分母要是 1(證明掃的是假清單)" no yes
+    # 壬1 零新違規 + 一支量不到 ⇒ 2(**這就是全量那半以前會回 0 的那一格**)
+    wit "$WK/slow.sh" 2;  ck "壬1 零新違規而有量不到 ⇒ 2" "$?" "2"
+    # 壬2 **同時**有違規與量不到 ⇒ 1(違規優先), 而輸出要把兩件事都講出來
+    wit "$(printf '%s\n%s' "$WK/slow.sh" "$WK/dirty.sh")" 2
+    ck "壬2 違規與量不到同時 ⇒ 1(違規優先)" "$?" "1"
+    grep -q '同時' "$WK/out.txt" && ck "壬2b 而輸出要講出【還有量不到】(不能只說違規)" yes yes \
+                                 || ck "壬2b 而輸出要講出【還有量不到】(不能只說違規)" no yes
+    # 壬3 CLEAN 而候選自己 rc 非 0 ⇒ **不擋**(0), 而要**印出來**單獨計數
+    #    🔴 兩件事分開驗:計數行有沒有算它 / 印的 rc 是不是【它的】(early.sh 寫死 exit 3)
+    wit "$WK/early.sh" 240; ck "壬3 沒動受害者而自己 rc=3 ⇒ 不擋(0)" "$?" "0"
+    grep -q '自己先死掉 1' "$WK/out.txt" && ck "壬3b 而它要出現在計數行上(不得靜靜吞掉)" yes yes \
+                                        || ck "壬3b 而它要出現在計數行上(不得靜靜吞掉)" no yes
+    grep -q 'rc=3' "$WK/out.txt" && ck "壬3c 而印的要是【那一支的】rc(early.sh 寫死 3)" yes yes \
+                                 || ck "壬3c 而印的要是【那一支的】rc(early.sh 寫死 3)" no yes
+    # 🔴 壬3d:期望值那道提示【要出聲】—— 假清單只有 1 支自死, 與寫死的 10 不符 ⇒ 必須印「變了」。
+    #    📌 這一格證的是**那個 if 有接上**, 不是那個數字對不對(數字要全量掃才數得出來)。
+    grep -q '自己先死掉的支數變了' "$WK/out.txt" \
+      && ck "壬3d 期望值不符時要出聲(不是靜靜通過)" yes yes \
+      || ck "壬3d 期望值不符時要出聲(不是靜靜通過)" no yes
+    # 🟢 壬3e 綠對照:把期望值調成 1 ⇒ 同一發要改印「= 期望值」⇒ 證明它不是恆印「變了」
+    _wo2=$( LIMIT=240; ONLY_MODE=0; SGI_EXPECT_EARLY=1; run_scan "$WK/early.sh" 2>&1 )
+    printf '%s' "$_wo2" | grep -q '= 期望值' \
+      && ck "壬3e 綠對照:期望值改成 1 ⇒ 改印「= 期望值」" yes yes \
+      || ck "壬3e 綠對照:期望值改成 1 ⇒ 改印「= 期望值」" no yes
+    # 🔬 壬6 **收尾也要量**:本族跑完, `$ROOT` 的工作樹不得多出任何東西
+    #    (母題:一格證人的副作用落在別人的樹上, 而它印的是自己的 PASS)
+    ck "壬6 本族跑完不得在 ROOT 的工作樹留下任何東西" "$(rootsnap)" "$_root_before"
+  else
+    SKIPPED=1
+    echo "  ⚠️ SGI_SKIP_ISOLATION_CELL=1 ⇒ **跳過 壬 族**(離場碼那三態這一發沒有被驗)"
+  fi
+
+  # ── 癸:🔴 **兩道「fixture 自己」的閘**(2026-09-06 ⟦02-EARLYDEATHUNVERIFIED⟧ 判型換來的)──
+  #    癸1 守【排除清單沒失效】· 癸2 守【受害者 repo 不要又變淺】。
+  #    📌 兩者的共同母題:**這兩樣東西壞掉的時候, 本閘照樣印綠** ——
+  #      清單指到不存在的檔 ⇒ 排除 0 支而畫面不變;受害者變淺 ⇒ 多幾支假的自死而它們不擋。
+  _raw_cand=$( cd "$ROOT" && { git ls-files -z; git ls-files -z --others --exclude-standard; } \
+               | xargs -0 grep -l -- '--selftest' 2>/dev/null | sort -u | grep -E '^scripts/.*\.(py|sh)$' )
+  mkdir -p "$TMPROOT"; printf '%s\n' "$NOENTRY" | sed '/^$/d' > "$_NE_TMP"
+  _ne_hit=$(printf '%s\n' "$_raw_cand" | grep -cxF -f "$_NE_TMP")
+  _ne_n=$(printf '%s\n' "$NOENTRY" | sed '/^$/d' | wc -l | tr -d ' ')
+  # 🔴 **比【相等】** —— 少了 = 名單裡有檔已經不在原始候選裡(改名/刪了/被修好)⇒ 那一行在空排除;
+  #    而空排除與「有排除」在畫面上都是「沒有紅」。
+  ck "癸1 排除清單每一支都還在原始候選裡(名單沒空轉)" "$_ne_hit" "$_ne_n"
+  # ── 🔴🔴 癸3:**排除是【永久】的, 而被排除的那支【會被人修好】**(codex R1 must-fix)
+  #   癸1 只問「它還在不在原始候選裡」⇒ 有人替它加了真的 `--selftest` 入口之後,
+  #   📌 **癸1 照樣 2=2 PASS, 而那支從此【永遠不在分母裡】** —— 與「有自檢盯著」那句宣稱相反。
+  #   ⇒ ✅ 改成**跑它一發**:名單上的每一支, 餵 `--selftest` 都必須**回非 0**(它們今天逐字回
+  #     「MODE 只能是 all / run」與「不認得的參數: --selftest」)。長出可用的入口 ⇒ rc=0 ⇒ 這一格紅。
+  #   ⚠️ **射程(它答不出的)**:若那支長出的入口**自己是紅的**(rc 也非 0), 這一格分不出來
+  #     ⇒ 那時它會停在名單上, 而它其實該進 ⟦02-EARLYDEATHUNVERIFIED⟧ 那一族。**寫在這裡, 不讓它靜靜留著。**
+  _ne_alive=0
+  while IFS= read -r _nef; do
+    [ -n "$_nef" ] || continue
+    case "$_nef" in *.py) ( cd "$ROOT" && python3 "$ROOT/$_nef" --selftest ) >/dev/null 2>&1 ;;
+                        *) ( cd "$ROOT" && bash    "$ROOT/$_nef" --selftest ) >/dev/null 2>&1 ;; esac
+    [ "$?" = 0 ] && _ne_alive=$((_ne_alive+1))
+  done <<EOFNE
+$(printf '%s\n' "$NOENTRY" | sed '/^$/d')
+EOFNE
+  ck "癸3 名單上沒有一支【已經長出可用的 --selftest 入口】(rc=0 的支數)" "$_ne_alive" "0"
+  mkvictim
+  _vcount=$( cd "$V" && git rev-list --count HEAD )
+  # 🔬 為什麼是 >=3:`push-and-announce.sh` 要 `HEAD~1` —— ⚠️ **而 `HEAD~1` 其實 2 顆就解得開**
+  #    (codex R1 nit;誠實寫下來)。**第 3 顆是餘裕**:下一支候選要 `HEAD~2` 時不必再改一次 fixture。
+  #    ⇒ 📌 **這個 3 是選的不是算的** —— 而只要 1 顆就 `fatal` rc=128
+  #    ⇒ 它會被算成「自己先死掉」而其實沒事(2026-09-06 實測 1 顆 ⇒ 128 / 3 顆 ⇒ 0)。
+  [ "${_vcount:-0}" -ge 3 ] && ck "癸2 受害者 repo 至少 3 顆 commit(實測 ${_vcount})" yes yes \
+                            || ck "癸2 受害者 repo 至少 3 顆 commit(實測 ${_vcount})" no yes
+
   wcount=$( cd / && { cd "$ROOT" && { git ls-files -z; git ls-files -z --others --exclude-standard; } \
             | xargs -0 grep -l -- '--selftest' 2>/dev/null | sort -u | grep -cE '^scripts/.*\.(py|sh)$'; } )
   [ "${wcount:-0}" -gt 0 ] && ck "戊 從別的目錄也列得出候選" yes yes \
                           || ck "戊 從別的目錄也列得出候選" no yes
   echo "  ── $p PASS / $f FAIL"
   [ "$f" = 0 ] || exit 1
-  echo "全部通過。"; exit 0
+  # 🔴🔴 **零 FAIL 不等於「全部跑過了」**(codex R1 must-fix)——
+  #    `SGI_SKIP_ISOLATION_CELL=1` 從**外面**設進來, 就會整族跳過 丁/壬,
+  #    而它照樣印「全部通過」⇒ 📌 **一個被閹掉的自檢, 與一個完整的自檢, 印同一句話。**
+  #    ⇒ ✅ 兩道:①跳過時**換一句話講** ②沒跳過時**數格數**(少了格 = 有東西沒跑到)。
+  # ⚠️ **`_EXPECT_P` 是寫死的數 —— 加新格子的人要把它一起改大**;
+  #    而它擋的正是「加了格子卻沒被跑到」與「格子被靜靜拿掉」。
+  _EXPECT_P=30
+  # 🔴🔴 **巢狀模式要回【非 0】**(codex R2 must-fix):上一版只把「靜默」修掉 ——
+  #    它印了警告, 而**離場碼還是 0** ⇒ 📌 **`lint-staged` / hook 讀的是碼, 不是那句話。**
+  #    ⇒ 誰在外面設了 `SGI_SKIP_ISOLATION_CELL=1`, 整族不跑而 CI 照樣綠。
+  #    ⇒ ✅ 回 **2**(與「量不到」同一族:**不是紅, 是【沒驗到】**)。
+  #    🔵 而**巢狀那一層(丁)本來就期望非 0** —— 丁2 改成比 2, 並且另外驗它有沒有跑到收尾那句話
+  #      (📌 少了後半, 「跑到尾而跳過」與「中途死掉」在碼上都是非 0)。
+  if [ "$SKIPPED" = 1 ]; then
+    echo "⚠️ 部分通過(巢狀模式:丁/壬 族未跑)—— 🛑 **這一發不算完整自檢** ⇒ exit 2"
+    exit 2
+  fi
+  # 🔴 **比【相等】不比【至少】**(codex R2 nit):`-ge` 之下, 「新加一格」剛好可以補上
+  #    「舊的一格消失」⇒ 📌 兩個相反的錯互相抵消, 而總數印同一個值。
+  if [ "$p" != "$_EXPECT_P" ]; then
+    echo "🔴 格數對不上:實得 $p · 預期 $_EXPECT_P" >&2
+    echo "   ⇒ 少了 = 有格子沒跑到或被拿掉;多了 = 加了格而沒把 _EXPECT_P 一起改。兩種都不當通過。" >&2
+    exit 1
+  fi
+  echo "全部通過($p 格 = 預期 $_EXPECT_P)。"; exit 0
 fi
 
 controls
@@ -346,10 +666,29 @@ CAND=$( cd "$ROOT" && { git ls-files -z; git ls-files -z --others --exclude-stan
         | xargs -0 grep -l -- '--selftest' 2>/dev/null | sort -u | grep -E '^scripts/.*\.(py|sh)$' )
 [ -n "$CAND" ] || die "候選清單是空的"
 
+_ne=$(printf '%s\n' "$NOENTRY" | sed '/^$/d' | sort -u)
+# 🔴 **數行數不要用 `wc -l`** —— `printf '%s\n' ""` 會吐一行空的 ⇒ **空清單被數成 1**
+#    (codex R1 nit;而它錯的方向是【多報一支】, 那在「全部被排除」時最難看出來)。
+_cnt() { printf '%s' "$1" | grep -c . ; }
+mkdir -p "$TMPROOT"; printf '%s\n' "$_ne" > "$_NE_TMP"
+_removed=$(printf '%s\n' "$CAND" | sort -u | comm -12 - "$_NE_TMP")
+CAND=$(printf '%s\n' "$CAND" | sort -u | comm -23 - "$_NE_TMP")
+if [ -n "$_removed" ]; then
+  # 🔴 **列【真的被排掉的】那幾支, 不是列整份名單**(codex R1 nit):
+  #    名單裡有一支已經不在候選裡時, 兩者不同 ⇒ 印整份名單會讓人以為它也被排掉了。
+  echo "── 排除 $(_cnt "$_removed") 支【沒有 --selftest 入口】的(只在註解裡提到;名單在本檔 NOENTRY):"
+  printf '%s\n' "$_removed" | sed 's/^/     /'
+fi
+[ -n "$CAND" ] || die "排除之後候選清單空了"
+
 # ── `--only <路徑>…`:只掃這幾支(2026-09-03 加)──────────────────────────────────
 #
-# 🔵 **它是一個【模式】, 不是新的預設** —— 不帶 `--only` 時本閘的行為**一個字都沒變**
-#    (全掃, 仍然掛在 `.husky/pre-push` 的鏈上)。
+# 🔵 **它是一個【模式】, 不是新的預設**(全掃仍然掛在 `.husky/pre-push` 的鏈上)。
+# ⛔ ~~不帶 `--only` 時本閘的行為「一個字都沒變」~~ ⇒ 🔴 **2026-09-06 起那句話不成立了**
+#    (codex R1 must-fix;舊字面留刪除線, 讓引用它的人同一發撞到):
+#    **全量那半的「量不到」從 `exit 0` 改成 `exit 2`** —— 規則兩半對稱了(主視窗 `-f8` 裁, 見檔尾)。
+#    ⇒ ⚠️ **那會改變 `pre-push` 的行為**:以前一支候選逾時只計數然後放行, 現在會擋。
+#      🔵 而它擋的正是「逾時與乾淨印同一個東西」那一格 —— **擋對了**, 而**改的人要知道自己改了它**。
 #
 # 🎯 **它為什麼存在**:2026-09-03 曾提案把全掃從 pre-push 搬去 pre-commit(只掃 diff)+ CI。
 #    🛑 **那個搬家【park 了】**(codex 六條 must-fix;板上 `⟦02-SELFTESTMOVEPARKED⟧`)——
@@ -455,7 +794,8 @@ if [ "${1:-}" = "--only" ]; then
     echo "   🔵 動本檔的守備仍在:package.json 的 --selftest entry · pre-push 全量 · 丁1/丁2 兩格。"
     exit 0
   fi
-  CAND=$(printf '%s\n' "$CAND" | sort -u | comm -12 - <(printf '%s\n' "$_only"))
+  mkdir -p "$TMPROOT"; printf '%s\n' "$_only" > "$_ONLY_TMP"
+  CAND=$(printf '%s\n' "$CAND" | sort -u | comm -12 - "$_ONLY_TMP")
   if [ -z "$CAND" ]; then
     echo "── 給的路徑裡沒有任何帶 --selftest 的腳本 ⇒ 零候選"
     echo "   🛑 而【零候選】不等於【通過】—— 全部候選的守備仍然在 pre-push 的全掃, 不在這裡。"
@@ -463,52 +803,5 @@ if [ "${1:-}" = "--only" ]; then
   fi
   echo "══ 只掃指定的 $(printf '%s\n' "$CAND" | wc -l | tr -d ' ') 支(⚠️ 這【不是】全掃)══"
 fi
-n=0; bad=0; newbad=0; slow=0
-echo "══ 掃描(受害者 repo 行為尺)══"
-# 🔴 **逐行讀, 不要 `for f in $CAND`**(codex must-fix ②):後者依 IFS 斷詞
-#    ⇒ 含空白的檔名會被拆成兩段 ⇒ 兩段都不是候選 ⇒ 📌 **那一支【沒有被跑】而總數照樣是綠的。**
-#    ⚠️ 今天 repo 內沒有含空白的腳本名 —— 而「今天沒有」不是守門。
-while IFS= read -r f; do
-  [ -n "$f" ] || continue
-  n=$((n+1)); read -r st rc <<EOF2
-$(probe "$f" yes)
-EOF2
-  case "$st" in
-    CLEAN) : ;;
-    TIMEOUT) slow=$((slow+1)); echo "  ⏱  量不到(逾時 ${LIMIT}s, **不等於乾淨**)  $f" ;;
-    DIRTY)
-      bad=$((bad+1))
-      if printf '%s' "$KNOWN" | grep -qxF "$f"; then
-        echo "  🟡 已知違規(在債表上, 本閘不擋)  rc=$rc  $f"
-      else
-        newbad=$((newbad+1)); echo "  🔴 **新的違規者**(不在債表上)  rc=$rc  $f"
-      fi ;;
-    # 🔴🔴 **`*)` 不是禮貌, 它是這一格的守門**(codex R2 must-fix ⑤b):
-    #    `probe` 自己壞掉時回的狀態不是那三種, 而**沒有 default 的 `case` 會【安靜地什麼都不做】**
-    #    ⇒ 📌 **一把壞掉的量具, 在這個迴圈裡與「這一支乾淨」走同一條路。**
-    #    ⇒ ✅ 未知狀態一律當**量具失效**算進 `slow`(而 `--only` 那半 `slow>0` 就 exit 2)。
-    *)
-      slow=$((slow+1))
-      echo "  🔴 量具回了我看不懂的狀態(st='$st' rc=$rc)⇒ 當【量不到】算, 不當乾淨  $f" ;;
-  esac
-done <<EOF3
-$CAND
-EOF3
-echo "── 分母 $n 支 · 違規 $bad(其中新的 $newbad)· 量不到 $slow"
-[ "$newbad" = 0 ] || exit 1
-
-# ── 🔴🔴 「量不到」在 `--only` 這半【算失敗】, 在全量那半【不算】—— 而那個不對稱是【裁定的】
-#    (主視窗 `-f8` 2026-09-06 裁;codex R1 指出兩半共用這個洞)。
-#    · **全量**是 `pre-push` 第 5 支, **已經有既有語意**:`TIMEOUT` 只計數、最後仍 `exit 0`。
-#      ⇒ 🛑 那是**假綠的候選**, 而**改它要全隊在低負載時驗一次 push** ⇒ **今晚不動**, 另開板列。
-#    · **`--only` 是新的路, 沒有既有語意** ⇒ 從第一天就把它定成「量不到 = 不算過」。
-#    ⇒ 📌 **一支腳本逾時, 與它乾淨, 在畫面上都是「沒有 🔴」** —— 而這一半不接受那個同形。
-# ⚠️ **而 `exit 2` 在 `lint-staged` / husky 底下會被壓成 1**(codex R1 must-fix ④;`.husky/pre-push` 檔頭
-#    也記過同一件事)⇒ **三態在 hook 邊界會塌成「非 0」** ——
-#    🔵 那**不影響安全**(照樣擋), 影響的是**診斷**:看到 1 的人要回來讀這一段才知道可能是逾時不是違規。
-if [ "$ONLY_MODE" = 1 ] && [ "$slow" != 0 ]; then
-  echo "🔴 --only:有 $slow 支【量不到】(逾時 ${LIMIT}s)⇒ 本模式把它算成不通過" >&2
-  echo "   🛑 「量不到」不等於「乾淨」—— 而它在畫面上與乾淨長得一樣, 所以這裡讓它出聲。" >&2
-  exit 2
-fi
-exit 0
+run_scan "$CAND"
+exit $?

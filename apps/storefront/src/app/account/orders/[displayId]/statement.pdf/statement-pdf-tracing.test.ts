@@ -55,23 +55,53 @@ const ROUTE_NFT = join(
  *    ⇒ ⇒ 而**下面那幾格會照樣跑** —— 它們對舊產物仍然有意義, 只是意義不是「現在是好的」。
  */
 function stalenessNote(): string | null {
+  // 🛑 產物不在 ⇒ 這裡不回答新鮮度(`tracedFiles()` 會用一個看得懂的訊息 throw)。
+  //    同後台孿生守門的形狀(code-reviewer nit:兩支要對稱)。
+  if (!existsSync(ROUTE_NFT)) return null;
   const nftAt = statSync(ROUTE_NFT).mtimeMs;
-  const guarded = [
+
+  // ⛔ **我試過【從產物自己推】(清單裡凡是本 repo 原始碼一律納入)—— 那條路不通, 而它是量到的**:
+  //    當場數這份 `.nft.json`:**本 repo 的檔 1041 筆**, 其中 **316 筆是 `.test.` 檔**,
+  //    而清單裡連 `CLAUDE.md` / `AGENTS.md` / `e2e/*.spec.ts` 都在。
+  //    ⇒ 🛑 那樣做的話**改 `CLAUDE.md` 都會讓這一格紅** ⇒ 它會被當成雜訊關掉。
+  //    ⇒ 📌 **「自動推導」在這裡不是比較嚴謹, 是比較沒用** —— 分母太大等於沒有分母。
+  //    ⇒ ✅ 所以清單只能**手寫**, 而手寫的病要另外堵(下面那段)。
+  const GUARDED = [
+    // ── 決定那組 glob 的設定檔(它自己不是被追蹤的檔 ⇒ 只可能手寫)
+    join(__dirname, '../../../../../../next.config.ts'),
+    // ── route 與它直接 import 的那幾支(改它們會改變這份清單)
     join(__dirname, 'route.ts'),
     join(__dirname, '../../../../../lib/print/statement-pdf.ts'),
-    // 🔴 **2026-09-03 補(codex 抓到, 而它正是本片改的那支檔)**:
-    //    `outputFileTracingIncludes` 就住在 `next.config.ts` ⇒ **改了 glob 而沒重 build,
-    //    下面那組「丙」的守門會拿【舊的 NFT】全綠** —— 而那正是它要擋的那種假綠。
-    //    ⇒ 📌 一把守門, 沒有把「會改變它答案的那支檔」放進新鮮度清單 ⇒ 它守不住自己。
-    join(__dirname, '../../../../../../next.config.ts'),
-    // 🔴 2026-09-06 P-1:產 PDF 的能力搬進 `@pcm/pdf` ⇒ **改它會改變這份追蹤清單的答案**
-    //    ⇒ 它要在新鮮度清單裡(同上面那一句:一把守門沒把「會改變它答案的檔」放進來 ⇒ 它守不住自己)。
+    // 🔴 **這兩支是 code-reviewer must-fix 補的** —— `statement-pdf.ts` 直接 import 它們,
+    //    而 `.nft.json` 正是由 route 的 import 圖決定的 ⇒ 改它們會改變本檔的答案。
+    //    (後台孿生清單裡就有對應的 `shipping-doc.tsx` ⇒ 這是兩支不對稱的地方之一。)
+    join(__dirname, '../../../../../lib/print/statement-html.ts'),
+    join(__dirname, '../../../../../components/print/statement-doc.tsx'),
+    // ── 版面 CSS:下面「版面 CSS 的原始碼在裡面」那格在問的就是它們(code-reviewer nit 補)
+    join(__dirname, '../../../../../styles/print-a4.css'),
+    join(__dirname, '../../../../../styles/statement.css'),
+    // ── @pcm/pdf:產 PDF 與組 HTML 那兩半(2026-09-06 P-1 / P-2 搬進去的)
     join(__dirname, '../../../../../../../../packages/pdf/src/index.ts'),
-  ].filter((p) => existsSync(p));
-  const newest = Math.max(...guarded.map((p) => statSync(p).mtimeMs));
+    join(__dirname, '../../../../../../../../packages/pdf/src/html.ts'),
+  ];
+
+  // 🔴🔴 **少一條就要出聲, 不可以靜默變短**(code-reviewer must-fix)——
+  //    ⛔ 舊版是 `.filter(existsSync)`:少一條**無聲**變短;全部消失時 `Math.max()` 吃空陣列
+  //      = `-Infinity` ⇒ `-Infinity <= nftAt` ⇒ 回 `null` ⇒ 🛑 **整格轉綠、零訊號**,
+  //      而硬斷言把全部判別力押在這張清單上。
+  //    🔬 **可達性是量到的**:`packages/pdf/src/html.ts` 是 `eb4c55894`(2026-09-06)才出生的,
+  //      而當時八棵活 worktree 裡 **6 棵有這支測試檔而沒有那支來源檔**
+  //      ⇒ 這不是理論上的可達, 是當天就成立的。
+  const missing = GUARDED.filter((f) => !existsSync(f));
+  if (missing.length > 0) {
+    return `⚠️ 新鮮度清單裡有 ${missing.length} 支檔不存在(${missing.join(', ')}) ⇒ 這道閘已經比它宣稱的弱。先修清單, 不要略過。`;
+  }
+
+  const newest = Math.max(...GUARDED.map((f) => statSync(f).mtimeMs));
   if (newest <= nftAt) return null;
+  const who = GUARDED.filter((f) => statSync(f).mtimeMs > nftAt);
   const mins = Math.round((newest - nftAt) / 60_000);
-  return `⚠️ 這份追蹤清單比它守的原始碼舊 ${mins} 分鐘 ⇒ 下面每一格驗的是【上一次 build】那個世界, 不是現在這份碼。要驗現在這份 ⇒ 先跑 \`TURBO_FORCE=1 pnpm --filter @pcm/storefront build\``;
+  return `⚠️ 這份追蹤清單比它守的原始碼舊 ${mins} 分鐘(${who.length}/${GUARDED.length} 支比它新:${who.join(', ')})⇒ 下面每一格驗的是【上一次 build】那個世界, 不是現在這份碼。要驗現在這份 ⇒ 先跑 \`TURBO_FORCE=1 pnpm --filter @pcm/storefront build\``;
 }
 
 function tracedFiles(): string[] {
@@ -96,14 +126,45 @@ describe('片 C3:statement.pdf 這條 route 的追蹤清單', () => {
   //    🛑 那個名字宣稱的是【清單是新的】, 而下面那行斷言**兩個世界都收** ⇒ 它恆綠。
   //    📌 **⇒ 只看綠紅的人(CI / 掃測試名的人)會把「綠」讀成「新鮮」** —— 而它從來沒有這個意思。
   //    ✅ 新名照它**實際在做的事**寫:印一行出來。**恆綠是刻意的**, 理由在 `stalenessNote()` 的 docstring。
-  it('📎 印出這份清單相對原始碼的新鮮度 —— 🛑 本格【恆綠】, 判別力在印出來那一行、不在斷言', () => {
-    const note = stalenessNote();
-    // 🔴 **不 throw, 而是把那句話印在【判定的正上方】** —— 它與「綠」在同一個畫面上,
-    //    而人讀的就是那幾行。(2026-09-01 那次假綠的成因不是沒有訊號, 是沒有任何訊號。)
-    if (note !== null) process.stdout.write(`\n${note}\n`);
-    // 🛑 而這一格**本身仍然要綠** —— 它守的是「有沒有把這件事講出來」, 不是「你有沒有 build」。
-    //    ⇒ 判別力在上面那行輸出:兩個世界印**不同的東西**(過期 ⇒ 有那句;同步 ⇒ 一個字都沒有)。
-    expect(typeof note === 'string' || note === null).toBe(true);
+  // ⛔ ~~📎 印出這份清單相對原始碼的新鮮度 —— 🛑 本格【恆綠】, 判別力在印出來那一行、不在斷言~~
+  //    ~~不 throw, 而是把那句話印在【判定的正上方】—— 它與「綠」在同一個畫面上, 而人讀的就是那幾行。~~
+  //    ~~這一格本身仍然要綠 —— 它守的是「有沒有把這件事講出來」, 不是「你有沒有 build」。~~
+  //
+  // 🔴🔴 **2026-09-06 升成硬斷言, 而【推翻上面那個決定的是一次實測, 不是一個看法】**
+  //    (⟦ship-STALEGUARDWARN⟧;主視窗 `-f8` 指派):
+  //    信窗 `-1d` 那棵樹(`/Users/sean_1/pcm-wt-mail`)的 `.nft.json` mtime **09-06 00:29**、
+  //    `next.config.ts` **09-06 05:18** —— 🔵 **來源屬性:那兩個值是 `-1d` 回報的, 而 code-reviewer
+  //    在那棵樹上複量過, 成立。**(§6-b:數字要帶著時點與哪一棵樹走。)
+  //    ⇒ 🎯 **`stalenessNote()` 的【觸發條件當時成立】。**
+  //    ⚠️ ⛔ ~~那一句當時就產生了 · 機制完全照設計運作~~ —— **那兩句比證據寬**(code-reviewer):
+  //      兩個 mtime 只證得到**條件成立**;那一行**有沒有真的被印出來、有沒有人看到, 未量**。
+  //      🛑 而**兩種世界的修法一樣、診斷不一樣**:若那棵樹當時根本沒跑這支測試,
+  //        真正的病是「訊號**從未產生**」而不是「產生了沒人讀」。⇒ **我答不出是哪一種。**
+  //    ⇒ 📌 而**不論是哪一種, 這個修法都成立** —— 硬斷言在兩個世界都會擋下來。
+  //    ⇒ 📌 **「有訊號」與「訊號被讀到」是兩個宣稱, 而上面那段舊註解只證得到前者
+  //      —— 而我這一段一度連前者都沒證到。**
+  // 🔵 另一個轉述的數字也標一下:「全套 **856** 支」是 `-1d` 訊息裡的值, **單位與哪一棵樹我沒問**;
+  //    本樹當下 `git ls-files '*.test.ts' '*.test.tsx' | wc -l` ⇒ **853**。兩個數不要混用。
+  //    「兩個窗各花一輪」也是我從對話推的, **不是量到的**。
+  //    ⇒ 🛑 **原句留著不刪**:它記著「為什麼曾經刻意選恆綠」, 而那個理由本身沒有錯 ——
+  //      錯的是它**假設了一個會讀輸出的人**。
+  //
+  // ⚠️ **附帶成本先講明(與後台那支 `shipping-pdf-tracing.test.ts` 相同, `eb4c55894` 起)**:
+  //    **改了上面 `GUARDED` 裡任何一支而沒重 build 就跑測試 ⇒ 這一格會紅。** 設計不是故障 ——
+  //    訊息裡直接給重 build 的指令, 而且會**點名是哪幾支比它新**。
+  //    🔴 ⛔ ~~「改了顧客站的碼」~~ —— **那句寫窄了**(code-reviewer):`packages/pdf/src/*`
+  //      **是後台那條 route 也在用的共用包** ⇒ 📌 **只為了後台去改 `html.ts` 的人, 從「顧客站的碼」
+  //      這五個字想不到他要 build storefront。** 兩支守門會同時對他叫, 而他只會想到一支。
+  //    🔵 **今天可達的假紅只有一種**(code-reviewer 盤過):`git checkout -- <檔>` / `stash pop` /
+  //      merge 把內容還原成**同一份位元組**照樣把 mtime 推到 now ⇒ 內容沒變而紅 ——
+  //      八棵 worktree 互相 merge 的常態。**而它有出路**:訊息就給重 build 的指令。
+  //      (CI 的 build 排在 test 之前、turbo replay 會把 outputs 寫回磁碟、lint-staged 無 `--fix`
+  //       ⇒ 那三條都不可達;mtime 精度那一支的方向是**假綠**不是假紅。)
+  it('🔴 這份追蹤清單不比它守的原始碼舊 —— 舊了就紅, 不是印一行給你自己看', () => {
+    expect(
+      stalenessNote(),
+      '追蹤清單過期 ⇒ 下面每一格驗的是【上一次 build】那個世界, 不是現在這份碼',
+    ).toBeNull();
   });
 
   it('✅ 版面 CSS 的【原始碼】在裡面 —— route 讀的是它,不是編譯產物', () => {
@@ -248,6 +309,66 @@ describe('片 C3:statement.pdf 這條 route 的追蹤清單', () => {
 //      不是 `require.resolve` 帶進來的(反證:拉丁那支走同一段碼, 追蹤到 **0** 筆)。
 //      ⇒ 📌 **所以本組證不到「解析起點跟著搬了」** —— 它證的是「那些檔在包裡」。
 //      ⇒ 🎯 兩者的差別正是這一族踩過的那個坑:**位元組進得去, 解析進不去。**
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 **這一組在【別的 worktree】可能會紅, 而那不一定是你弄壞的 —— 先讀這段**
+//    (2026-09-06 06:5x:信窗回報它那棵樹 merge 32 批 + `pnpm install` 之後,
+//     全套 856 檔裡**只有本檔 1 紅**;主樹同一支是綠的。)
+//
+// 🔬 **本組的綠, 靠的是【兩條路徑剛好指到同一個地方】**:
+//    · 下面 `APP_FONT_DIR` = `packages/pdf/node_modules/@fontsource/noto-sans-tc` 的 **realpath**
+//    · 而追蹤清單裡那 215 筆, 是 `next.config.ts` 的 **root `.pnpm` glob** 供應的(P-1 量到,
+//      **不是** `require.resolve` 帶進來的)
+//    ⇒ 🛑 **在主樹這兩者都落在同一棵樹的 `.pnpm` 底下, 所以比得上。**
+//      本檔所在的樹當場量過:兩者都是 `<repo>/node_modules/.pnpm/@fontsource+noto-sans-tc@…`。
+//
+// 🛑 **⇒ 那它們什麼時候會分家**:當【root `node_modules`】與【`packages/pdf/node_modules`】
+//    解析到**不同的樹**時 —— 例如一棵 worktree 的 root `node_modules` 是**指回主樹的軟連結**
+//    而 `packages/pdf/node_modules` 在 `pnpm install` 之後變成**本地實體目錄**(或反過來)。
+//    ⇒ 清單裡是主樹的路徑, `APP_FONT_DIR` 是本地的路徑 ⇒ **`underAppFontDir()` 全部 0 ⇒ 這幾格紅。**
+//
+// ⛔ **而上面那個假說【已被讀數推翻】**(信窗 `-1d` 2026-09-06 07:0x 回值):
+//    它那棵樹兩條都落在 `/Users/sean_1/pcm-wt-mail/node_modules/.pnpm/…` —— **同一棵樹。**
+//    ⇒ 📌 留著不刪:一個**寫得很具體、聽起來很合理、而且是錯的**假說, 比刪掉它有用 ——
+//      下一個人會想到同一件事, 而這裡告訴他那條路已經走過了。
+//    🔵 那一發的判別命令(仍然有用, 它排除掉了一整類成因):
+//    ```
+//    python3 -c "import os;[print(p,'->',os.path.realpath(p)) for p in ['node_modules/.pnpm','packages/pdf/node_modules/@fontsource/noto-sans-tc']]"
+//    ```
+//
+// 🔬 **它實際紅在哪一格(逐字, 信窗貼的)**:
+//    `🔴 @pcm/pdf 的字型相依解得開, 而那個實體目錄底下的檔在追蹤清單裡`
+//    訊息:`舊的 app 層位置還有字型被追蹤到 ⇒ 兩份同時存在 … expected […(215)] to have a length of +0 but got 215`
+//    ⇒ 🎯 **那一格問的不是「新位置有沒有」, 是「舊位置該是 0」** —— 而它那棵樹是 **215**。
+//    ⇒ 🟢 **第二個假說命中, 而且是【兩把獨立的尺】指同一個結論**(信窗 `-1d` 回值, 逐字):
+//    ```
+//    ls: apps/storefront/node_modules/@fontsource: No such file or directory
+//    nft          Sun Sep  6 00:29:14 2026
+//    next.config  Sun Sep  6 05:18:58 2026
+//    ```
+//      ① 那個目錄**不存在**, 而清單裡有 215 筆指向它 ⇒ 清單描述的是一個已經不在的世界
+//      ② 那份產物比它宣稱在檢查的那支設定檔**早了 4 小時 50 分**
+//    ⇒ 🎯 **結論:那份 `.next` 是 P-1 搬家【之前】build 的 ⇒ 環境, 不是碼。**
+//      處置只有一個:在那棵樹重 build。**那一格沒有壞, 它在對一份過期的快照講實話。**
+//
+// 🔴🔴 **而不論成因是哪一個, 這一發已經替一件事作證** ——
+//    **本檔的新鮮度檢查只 `console.warn`, 不會讓任何一格紅**(它是那個標著「本格恆綠」的 `it`)。
+//    ⇒ 🎯 **一個對著舊產物跑的守門, 會用一個看起來非常具體的紅去指控一件沒有發生的事。**
+//      信窗那一發就是它的實例:訊息逐字說「兩份同時存在」, 而磁碟上**只有一份**(已量, 見上)。
+//    🔴🔴 **而它紅的【方向】更值得記(信窗 `-1d` 補的, 我收下)**:
+//      這一格紅的是 `215 ⇒ 期望 0`, 而**舊產物的清單只會比新的【多】東西** ——
+//      搬走的還在、新加的還沒有。
+//      ⇒ 📌 **那種閘對「東西被搬走了」很敏感, 對「東西還沒被加進去」【恆綠】。**
+//      ⇒ 🎯 **新鮮度不夠時, 它不是全面失效 —— 它【挑著漏】**, 而漏掉的正好是
+//        「我新加的那組 glob 到底有沒有生效」那一半。**那才是這一族最想問的問題。**
+//    ⇒ ✅ 後台那一支(`shipping-pdf-tracing.test.ts`, `eb4c55894`)**已經改成硬斷言**
+//      (codex must-fix:warn 不會讓任何一格紅 = 沒有守到)。
+//    ⇒ 🛑 **本檔還沒改, 那是【已知缺口】不是疏漏** —— 主視窗 `-f8` 2026-09-06 裁「開一列, 另一片做」。
+//
+// 🔴🔴 **而【就算它是環境】, 這一組的名字仍然比它做的事大** —— 這句不要被上面那段安慰掉:
+//    它叫「`@pcm/pdf` 解析出來的那個實體目錄在不在清單裡」, 而**讓它綠的是那組 root glob**。
+//    ⇒ 📌 **它量的其實是「這兩條路徑今天剛好一致」** —— 一個佈局的巧合, 不是一個性質。
+//    ⇒ 🎯 所以信窗那個紅**是有情報的**:它是這個巧合第一次被外力打破。**不要把它當雜訊調掉。**
+// ══════════════════════════════════════════════════════════════════════════
 describe('📎 字型檔在不在追蹤清單裡(受詞 2026-09-06 由 app 層 symlink 樹改成 @pcm/pdf 的實體目錄)', () => {
   const ROUTE_DIR = dirname(ROUTE_NFT);
   // 🔴🔴 **2026-09-06 P-1:這個位置搬家了, 而【下面每一格的斷言一個字都沒動】。**
@@ -365,4 +486,111 @@ describe('📎 字型檔在不在追蹤清單裡(受詞 2026-09-06 由 app 層 s
     const nextOwn = resolve(ROUTE_DIR, '../../../../../../node_modules');
     expect(resolved().filter((p) => p.startsWith(nextOwn)).length).toBeGreaterThan(0);
   });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 拉丁那支 `@fontsource/noto-sans` —— ⟦ship-PRINTCARONNOTBUNDLED⟧(2026-09-06 補)
+//
+// **為什麼這一組在這裡**:上面那一整支守門, 從第一天到 2026-09-06, 沒有一格問過拉丁那支
+// (數法:`grep -c 'noto-sans[^-]' <本檔 2026-09-06 之前的版本>` ⇒ 0;現值見本組)。
+// 而 `⟦ship-PRINTCARON1⟧`(2026-09-04)為了客人名字裡的 `Č` / `Š` 把它加進相依、也在 route 裡讀它,
+// 而**打包那一半沒有人補** ⇒ 那支字型在函式包裡的筆數 = 0(P-1 當場數的)。
+//
+// 🔴🔴 **而「所以 `Č` 會是方框」—— 那句我寫過, 而它比證據寬**(codex R1 must-fix, 我開檔複驗):
+//    `9ec3ad3af` 的 commit body 逐字量過:**「拉丁那支 ⇒ `Č` 由 Helvetica 畫」** ——
+//    也就是**掉回一個替代字型**, 不是方框。⇒ 📌 **字還在, 換了一張臉。**
+//    ⛔ ~~而那顆 Linux 容器有什麼我們沒量過 ⇒ 「會是方框」與「不會」我兩個都證不到~~
+//    🔴 **那句【過度收窄】了**(codex R2 must-fix)—— 而我當場去量, 它是對的:
+//      chromium 那包 `fonts.tar.br`(**本檔上面那一格已經斷言它在追蹤清單裡**)解開 = **Open Sans**
+//      三支(Regular / Bold / Italic), 而 Open Sans 的 cmap 逐點問:
+//        `Č` U+010C **true** · `Š` U+0160 **true** · `A` **true** · 🔵 負對照 `中` U+4E2D **false**
+//      (量法:`node` 讀那支 `.br` ⇒ `brotliDecompressSync` ⇒ 走 tar header ⇒ 解 `cmap` format 4)
+//    ⇒ 🎯 **只要那份 PDF 產得出來, `Č` 就不會是方框** —— 它會被替代字型畫出來。
+//    ⇒ 🎯 **而中文不一樣:Open Sans 沒有 CJK** ⇒ 中文那組 glob 少了就真的是方框。
+//    ⇒ 📌 **所以這四條拉丁 glob 修的是【排版】不是【看不看得懂】** ——
+//      那幾個字會換一張臉(本機量到是 Helvetica, `9ec3ad3af`), 而不是消失。
+//      ⚠️ 仍然沒量到的**只剩一件**:那顆容器實際挑哪一支替代字型。**那不影響上面的結論。**
+//    ⇒ ✅ 本組能證的仍然只有一句:**那支字型的檔在不在追蹤清單裡。**
+//
+// 🛑 **它比中文那支難發現的地方在別處**:掉回替代字型的紙**看起來是一張正常的紙**
+//    ——不像整片方框那樣一眼看出來——而帶符號的客人不是每天有 ⇒ **可以壞很久而沒有人回報。**
+//
+// 🔵 **兩個世界的讀數(同一個檔、只加那四條 glob、各一發 build)**:
+//    改前 拉丁 **0** 筆(總 1828 檔)⇒ 改後 拉丁 **19** 筆(總 1847 檔 / **169.8 MB**)
+//    ⚠️ **那個 MB 的量測層級**:本機 `.nft.json` **列到的檔在磁碟上的位元組總和**,
+//      **不是** Vercel `.func` 裡實際佔的空間, 也不是壓縮後的大小。
+//      ⇒ 🛑 本片才剛把 `next.config.ts` 裡同型的 6.47 MB 補上層級, 而我在這裡**又漏了一次**
+//        (code-reviewer R3)⇒ 📌 §6-b 第 2 條要的是【時點 + 層級】兩個都跟著數字走。
+//    ⇒ 那個 0 是 `⟦f3-SHIPPDF1⟧` P-1 當場數出來的, 不是推的。
+//
+// ⚠️ **射程照抄檔頭那句**:它讀的是 Next 自己的追蹤清單, **不是** Vercel 打包的 `.func`,
+//    **更答不出「那張紙上的 `Č` 是字」** —— 後者要真部署後有人打開看。
+describe('🔴 拉丁 @fontsource/noto-sans 在不在追蹤清單裡(⟦ship-PRINTCARONNOTBUNDLED⟧)', () => {
+  const ROUTE_DIR = dirname(ROUTE_NFT);
+  // 🔵 **9 層**到 repo 根 —— 與上面 `PKG_FONT_DIR` 同一個深度(那裡有數法, 不重複)。
+  const STORE = resolve(ROUTE_DIR, '../../../../../../../../../node_modules/.pnpm');
+
+  /** 解析 `@fontsource/<pkg>` 的實體目錄(pnpm 把真檔放在 `.pnpm` 底下)。 */
+  function fontDir(pkg: string): string | null {
+    if (!existsSync(STORE)) return null;
+    // 🔵 `.sort()` 換來的是**決定性**, ⚠️ **不是正確性**(code-reviewer R3):
+    //    同套件兩版並存時它固定挑字母序第一個, 而追蹤清單裡的可能是**另一個** ⇒ 五格一起假紅。
+    //    🟢 今天不可達 —— store 裡只有一個 `@fontsource+noto-sans@5.3.0`
+    //    (數法 `ls node_modules/.pnpm | grep '^@fontsource+noto-sans@' | wc -l` ⇒ 1)。
+    const hit = readdirSync(STORE)
+      .sort()
+      .find((n) => n.startsWith(`@fontsource+${pkg}@`));
+    if (hit === undefined) return null;
+    const d = join(STORE, hit, 'node_modules', '@fontsource', pkg);
+    return existsSync(d) ? d : null;
+  }
+
+  const traced = () => tracedFiles().map((f) => resolve(ROUTE_DIR, f));
+
+  it('🟢 量具自檢:拉丁那支的實體目錄在磁碟上(不在 ⇒ 下面每一格在量一個不存在的東西)', () => {
+    expect(fontDir('noto-sans'), `解析不到 @fontsource/noto-sans 的實體目錄(store=${STORE})`).not.toBeNull();
+  });
+
+  it('🔴 400/700 的 woff2 支數 = 磁碟實數(少一支就紅)', () => {
+    const dir = fontDir('noto-sans');
+    expect(dir).not.toBeNull();
+    const mine = traced().filter((p) => p === dir! || p.startsWith(dir! + sep));
+    const onDisk = (suffix: string) =>
+      readdirSync(join(dir!, 'files')).filter((n) => n.endsWith(suffix)).length;
+    for (const suffix of ['-400-normal.woff2', '-700-normal.woff2']) {
+      const n = mine.filter((p) => p.endsWith(suffix)).length;
+      expect(n, `noto-sans${suffix}:清單 ${n} 支 vs 磁碟 ${onDisk(suffix)} 支`).toBe(onDisk(suffix));
+      // 🔵 兩邊都是 0 會讓上面那句通過 ⇒ 分母自檢。
+      expect(onDisk(suffix), `磁碟上 noto-sans${suffix} 是 0 ⇒ 上面那句零判別力`).toBeGreaterThan(0);
+    }
+  });
+
+  it('🔴 `400.css` / `700.css` / `package.json` 也在 —— 只放 woff2 會換來「有字檔而沒有 @font-face」', () => {
+    const dir = fontDir('noto-sans');
+    expect(dir).not.toBeNull();
+    const mine = traced().filter((p) => p === dir! || p.startsWith(dir! + sep));
+    for (const f of ['400.css', '700.css', 'package.json']) {
+      expect(mine.filter((p) => p.endsWith(`${sep}${f}`)).length, `noto-sans/${f} 不在清單裡`).toBe(1);
+    }
+  });
+
+  it('🔵 負對照:磁碟上有而 glob 沒收的字重(500)必須不在清單裡', () => {
+    // 🔴 **不用「現造一個不存在的套件名」當負對照** —— 那種目錄本來就不存在
+    //    ⇒ **守門成立與守門壞掉兩個世界它都印 0** ⇒ 證不到任何事(P-2 的 code-reviewer 抓到過)。
+    // 🛑 **而本格的射程要說清楚(code-reviewer R3)**:它守的是【glob 收太寬】那個方向 ——
+    //    四條 glob 全被拿掉時它**照樣印 0** ⇒ 📌 **對本片的失效方向(glob 不見了)零判別力。**
+    //    真正在守那個方向的是上面兩格(磁碟支數 = 清單支數 / 三支檔各 1)。
+    const dir = fontDir('noto-sans');
+    expect(dir).not.toBeNull();
+    const onDisk = readdirSync(join(dir!, 'files')).filter((n) => n.endsWith('-500-normal.woff2')).length;
+    expect(onDisk, '磁碟上沒有 500 字重 ⇒ 本格恆真, 換一個沒被 glob 收的東西').toBeGreaterThan(0);
+    const got = traced().filter((p) => p.endsWith('-500-normal.woff2') && p.startsWith(dir! + sep));
+    expect(got, `磁碟 ${onDisk} 支 500 字重, 而清單裡有 ${got.length} 支 —— glob 只收 400/700`).toHaveLength(0);
+  });
+
+  // ⛔ ~~🟢 正對照:中文那支仍然在(證明這把尺不是只對拉丁那支會動)~~ —— **已刪**(code-reviewer R3)。
+  //    `fontDir('noto-sans-tc')` realpath 之後**就是**上面那組的 `APP_FONT_DIR`
+  //    ⇒ 它與本檔既有那格是**同一個目錄、同一個門檻、同一個斷言** ⇒ **新增零判別力**。
+  //    ⇒ 📌 而它讀起來完全像一個正對照 —— **「正對照」三個字不會讓一格產生判別力。**
+  //      證據:突變(拿掉四條拉丁 glob)那一發是 `2 failed | 19 passed` —— 它不在那 2 裡面。
 });
