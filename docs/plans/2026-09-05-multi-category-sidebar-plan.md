@@ -74,7 +74,20 @@ if (!params.has(CATEGORIES_PARAM)) { …只有在【沒有多顆】時才寫 cat
 6. 🔴 **真瀏覽器實走**(不是只有測試):鑽機 `scripts/storefront-probe`, 甲乙兩個世界各按一次。
 
 ## 6. 本 plan 證不到什麼
-- ① **「側欄一定讓 `cascade.category` 改變」我【還沒實測】** —— 案 A 整個建立在它上面。**動手第一件事就是量它**(鑽機按一次, 印 dispatch 前後的 `cascade.category`)。
+- ⛔ ~~① 「側欄一定讓 `cascade.category` 改變」我【還沒實測】~~ ⇒ ✅ **[2026-09-05 12:0x 量了, 前提成立]**
+  鑽機 `storefront-probe`(樹 `65db83b53`;那支 hook 與側欄之後沒動過), 真瀏覽器 1280×900:
+  ```
+                          網址                        側欄 is-active   件數     膠囊
+  點之前   ?categories=操控部品,車架                  【空】           共 6 件   2 顆
+  點「碳纖維部品」之後  ← 一個字沒變                   碳纖維部品 ✅    仍 6 件   仍 2 顆
+  ```
+  🔵 **尺先接上再量**:單顆世界 `?category=操控部品` ⇒ `is-active` **1 顆命中**(那一顆就是它)⇒ 這把尺會動。
+  ⇒ ✅ **`cascade.category` 確實變了**(側欄是從 cascade 畫的), **案 A 的前提成立。**
+- 🔴🔴 **而同一發量到一件比 plan 原本寫的【更糟一格】的事 —— 現況不是「沒反應」, 是「半個反應」**
+  客人看到的是:**側欄那一列亮起來了, 而網址、件數、膠囊三個都沒變。**
+  📌 **那比完全沒反應更糟** —— 完全沒反應會讓人再按一次或放棄;**亮起來會讓人以為生效了**, 然後去看一份沒有被篩選的結果。
+  ⇒ 🔵 **板列與本 plan 先前都寫「按了沒反應」, 那個字面要訂正。**
+  ⇒ 🛑 **而它也改變了驗收條件 1 的形狀**:不能只驗「網址出現 C」, 要**同時**驗件數變了 —— 因為**側欄亮起來這件事今天就已經會發生**, 它在「修好」與「沒修」兩個世界印同一個東西。
 - ② `categoriesFromParams` 的合併我**讀了碼、還沒實跑**;它有白名單過濾(`isSafeCategoryValue`), **一顆不合格會被丟掉而不出聲**。
 - ③ Sean 那句「加進已選那組」是**我的合理讀法**, 不是他的字面 —— **若他要的是別的(例如取代), 案 A 的行為會是錯的。** ⚠️ 這一格建議在動手前用一句話跟他確認。
 
@@ -104,3 +117,76 @@ Reading additional input from stdin...
    🔵 `git stash list` = 11(共用資源, 不可歸因, 只當線索);HEAD 前後同為 `4b850e7f2`。
 
 ⇒ **這份 plan 目前【只有我一個人看過】。** 端上去之前請主視窗決定:①換 Fable / adversarial-reviewer 補這道 ②接受缺口直接端 Sean ③先做動手第一件事(量「側欄有沒有讓 cascade.category 改變」)再回頭審。
+
+---
+
+# 🔴🔴 §8 · 對抗審查判 **FAIL** —— 而它擊破的是本案的**核心**, 不是邊角
+
+`adversarial-reviewer`(opus, fresh, 唯讀, 白名單 5 支)⇒ **9 條 must-fix + 2 nit**。
+**我自己複驗了三條最承重的, 逐字全部成立**(不是採信轉述):
+
+```
+① params.set('category', category)  ← use-catalog-filter-url-sync.tsx:252  單一槽
+② if (!state.category) return state; ← cascadeFilterReducer.ts:253「未先選大分類 → no-op」
+③ lastFilterKeyRef.current = filterKey ← :150, 而三個提早 return 在 :154 / :177 / :186【之後】
+```
+
+## 8-1 🛑 **案 A 答不了 Sean 那句話** —— 這是整案要重寫的理由
+
+`category=` **只有一個槽**。多顆下點 C ⇒ 寫 `category=C`;**再點 D ⇒ 覆蓋成 `category=D`, C 連膠囊一起消失。**
+⇒ 📌 **Sean 逐字要的是「客人可能會多選不同分類」, 而案 A 在 n≥2 就做不到。**
+✅ **修法(審查者給的, 我同意)**:寫的時候直接 `categories = union(現有, 新選)` 並 `set(CATEGORIES_PARAM)`,
+**不要拿 legacy 的單一 `category=` 當累加器。**
+⇒ 🔵 **而這也讓 §0 那個「靠讀取端合併」的巧勁【不再需要】** —— 我原本高興的那一格, 其實是繞路。
+
+## 8-2 🔴 **我 §6① 的實測是【點一顆大分類】, 而結論寫成全稱句**
+
+`select-sub` 在 `state.category === null` 時**是 no-op**(逐字 `if (!state.category) return state;`)。
+⇒ **多顆世界剛刪過膠囊之後**(`ActiveChips.tsx:90` 已 `clearCategory`)**直接點細項 ⇒ cascade 不變 ⇒ 案 A 整條不生效。**
+📌 **我點的那一顆(「碳纖維部品」)是大分類, 而它剛好走 `select-main` 那條路。**
+🎯 **一次量測 + 一個全稱句 = 我今天第三次犯同一個錯**(前兩次:分頁標題 4→6、`it.skip` 23/12/13/14)。
+⇒ **動手前要補量**:「cascade 為空時直接點細項」那一格。
+
+## 8-3 其餘 must-fix(逐條收下, 不逐條複驗 —— 動手時各自要驗)
+
+| # | 缺陷 | 位置 |
+|---|---|---|
+| a | `CatalogQuery` **另有一個只讀 `category` 的槽**(`:227-228`)且與 `categories`(`:233`)並存進 `unstable_cache` 鍵 ⇒ 案 A 讓多顆世界**第一次**出現 `category !== undefined`, 若 `products.ts` 把它當另一個 RPC 參數 ⇒ **交集或 0 件** | `catalog-query.ts:227-228,233,268,59-60` |
+| b | **字面形狀沒驗過**:RPC 比對是 `category_raw LIKE vc \| \| ' · %'`, 側欄寫的是全路徑「主 · 子」, 而既有多顆值是**主分類裸名** ⇒ 新那顆可能 **0 件** | `catalog-query.ts:181-182` |
+| c | 判別法底座 `lastFilterKeyRef` 在**三個提早 return 之前**無條件更新 ⇒ 那些波把「變動」吃掉, **且不自癒** | `:149-151` vs `:154/:177/:186` |
+| d | **深連結還原波會被判成「甲」** ⇒ 新規則在還原波寫入 ⇒ `page` 被刪(⑩⑯㉕ 那一族)。plan 引的是**舊守衛**的理由, 新判別法在同一波是 true | `:185-187` |
+| e | plan 沒說案 A 是「只 set」還是「連 `delete('category')` 也解禁」—— 而那決定**「清除全部」壞不壞** | `ActiveChips.tsx:140-155` · `:254` · `:361` |
+| f | **代價①的字面是錯的**:再點同一顆細項是 **toggle 成 null**, 不是「cascade 不變」 | `cascadeFilterReducer.ts:256-257` vs `:239-245` |
+| g | **驗收③零判別力**:刪膠囊時 `ActiveChips.tsx:90` 已 `clearCategory` ⇒ cascade 已 null ⇒ **不管守衛在不在都寫不回去** ⇒ 兩個世界同一個綠 | 改成突變格:判別法寫死 `true` 那一發**必須紅** |
+| h | rollback **不是安全退路** —— revert 回去的是本 plan 自己量到的**半反應**(側欄亮起而三個都不動), 而我自己判定它「比完全沒反應更糟」⇒ **revert 這個動作本身需 Sean 拍板** | plan §4 |
+
+**nit 兩條**:⑤(`0 cached`)量的是快取不是行為, 兩個世界同一個輸出;⑥ 沒寫「兩個世界會不同的那個值」(件數 / 膠囊數)。
+
+## 8-4 ⇒ 本 plan **不端上去**, 要重寫
+
+🛑 **8-1 不是補一段就好** —— 它換掉了案 A 的寫入目標(`category=` ⇒ `categories=` union)。
+⇒ **下一步**:①先補量 8-2 那一格 ②開檔讀 `products.ts` 的 `query.category` 消費端(a)③量「主 · 子」那顆單獨的件數(b)—— **三格都是唯讀, 做完再改寫本 plan**。
+🔵 **主視窗已同意的「方向 A(單檔、不碰 `packages/ui`)」大致還成立** —— 改的仍只有那支 hook;變的是**寫進哪個參數**。而 (a) 若成立, 可能被迫碰第二支檔。
+
+## 8-5 🔬 **我複驗了審查者的 Q5, 而它【在 UI 這條路上不成立】**
+
+審查者說:`select-sub` 在 `state.category === null` 時 no-op ⇒ 剛刪過膠囊之後點細項, 案 A 整條不生效。
+✅ **reducer 那個分支是真的**(`cascadeFilterReducer.ts:253` 逐字 `if (!state.category) return state;`)。
+🔴 **而我照他的情境實走一遍, cascade【有變】**:
+```
+階段                       網址                      側欄 is-active   件數
+① 展開「碳纖維部品」        ?categories=操控部品,車架  碳纖維部品        共 6 件
+② 刪掉「操控部品」那顆膠囊  ?categories=車架          【空】←cascade 清了 共 2 件
+③ 直接點細項「尾殼與單座蓋」 ← 一個字沒變              尾殼與單座蓋 ✅   仍 2 件
+```
+🔵 **而樹在刪膠囊之後【仍然展開】**(`l2數` 三個階段都是 3)⇒ 那條路**走得到**, 而它**不是 no-op**。
+⚠️ **我只量到「有變」, 沒有讀側欄元件去確認機制** —— 合理推測是那一列的點擊**不只 dispatch `select-sub`**(否則會撞到那個分支), 而**我沒證實**。
+📌 **⇒ Q5 的 must-fix 降級為 nit**:那個 reducer 分支存在, 而**目前的 UI 到不了它**;
+   🛑 **而它仍值得留一行** —— 哪天有人改側欄的 dispatch, 那個分支就會活過來, 而**今天沒有任何測試釘住這件事**。
+🔵 **另外這一發也第三次重現了「半反應」**:③ 那一步側欄亮了而網址/件數都沒動。
+
+## 8-6 ⚠️ **而我【沒有】複驗其餘七條** —— 它們是收下的, 不是驗過的
+`a`(`CatalogQuery` 雙槽)`b`(字面形狀 / LIKE)`c`(`lastFilterKeyRef` 提早 return)`d`(還原波)`e`(清除全部)`f`(toggle 字面)`g`(驗收③零判別力)`h`(rollback)——
+**這七條我照收進 §8-3 的表, 而【沒有一條是我自己量過的】。** 動手時每一條各自要驗, **不得因為它寫得具體就當成已驗**。
+🔵 我複驗的是三條:①單一槽(逐字成立)②`select-sub` no-op(reducer 成立、UI 不成立, 見 8-5)③`lastFilterKeyRef` 位置(逐字成立)。
+
