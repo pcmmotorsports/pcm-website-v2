@@ -10,6 +10,8 @@
 //      🔴 ② 守的不是字面,是**理由**:正式庫此刻有 5 張單卡在這個狀態（含 Sean 自己問的
 //         `2SQH2P` / `GVRDMH`),重整一百次都不會變 ⇒ 叫人去重整 = 叫人做一件做不到的事。
 //         ⚠️ 只有 ① 的話,有人把 hint 改寫成「請稍後重新整理」會**通過**——字面不同、病一樣。
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { BLOCK_REASON_TEXT } from './cancel-review-section';
 
@@ -96,5 +98,64 @@ describe('charge_attempt_stuck 文案(🟡 待 Sean 逐字定稿)', () => {
     }
     // 🔴 正向對照:證明上面那個迴圈不是空的(分母 > 0),否則整格恆真。
     expect(all.length).toBeGreaterThan(5);
+  });
+});
+
+describe('payment_refunded 那一格的文案(Sean 2026-09-05 拍甲改掉)', () => {
+  // 🔴 **為什麼要釘這一格**:它上一版逐字寫「現在不需要為它做任何事」,
+  //    而那句話**錯了三個星期** —— 那張單還沒取消、而且取消不了。
+  //    ⇒ 📌 **它不是寫錯, 是過期**(2026-08-14 那一刻取消鈕還沒有路)。
+  //    ⇒ ⇒ **而過期的文案與寫錯的文案, 在畫面上長得一模一樣** —— 所以要有人釘住新的那一句。
+  const copy = BLOCK_REASON_TEXT.payment_refunded;
+
+  it('🔴 不可以再說「不需要為它做任何事」—— 那正是被推翻的那句', () => {
+    expect(`${copy.title}${copy.hint}`).not.toContain('不需要為它做任何事');
+  });
+
+  it('🔴 要說出「還沒取消」與「按下面」—— 而「下面」指的是 order-cancel-block 那顆鈕', () => {
+    const all = `${copy.title}${copy.hint}`;
+    expect(all).toContain('還沒取消');
+    expect(all).toContain('按下面');
+  });
+
+  it('🔴🔴 跨元件:那句「按下面」指的鈕【必須真的存在】—— 原始碼層', () => {
+    // 📌 **codex 2026-09-05 抓到上一版這兩條是零判別力的**:
+    //    刪掉 `MarkCancelledForm` 之後, 「按下面」那兩條斷言**照樣通過**
+    //    ⇒ 而畫面上就是一句指向不存在動作的話。
+    // 🛑 **本格讀原始碼字面**(跨檔行為測試在這一層做不到)⇒ 它的射程止於「那個字面在不在」:
+    //    ⚠️ 它證不到那顆鈕**渲染得出來**, 也證不到它按下去會動。
+    //    ⇒ 那一半要靠 `order-cancel-block` 那邊的測試 —— 兩層都要, 少一層就有洞。
+    const block = readFileSync(
+      join(__dirname, 'order-cancel-block.tsx'),
+      'utf8',
+    );
+    // 🔴🔴 **掃的是【渲染點】不是【定義】** —— 我第一版寫 `toContain('MarkCancelledForm')`,
+    //    而突變(把 `<MarkCancelledForm … />` 換成 `<span />`)**照樣全綠**:
+    //    因為那支函式的**定義**還在、`'把這張單結掉'` 那個字串也還在。
+    //    ⇒ 📌 **「那個字面在不在」與「它有沒有被渲染」是兩件事** ——
+    //       而我在修一個「零判別力」的 finding 時, 修出了同一個病。
+    expect(block, '「按下面」那句話指的鈕沒有被渲染 ⇒ 訊息指向一個不存在的動作').toContain(
+      '<MarkCancelledForm',
+    );
+    // 🔬 而按鈕上的字也要在(訊息裡逐字寫著「把這張單結掉」)
+    expect(block).toContain('把這張單結掉');
+  });
+});
+
+describe('🔴 對客字串不得含 Markdown 強調語法(2026-09-05 codex 抓到, 而它抓到的是我剛寫的那一句)', () => {
+  // 📌 **成因是結構性的, 不是手滑**:本檔到處用 `**` 當強調 —— 而那是**寫給讀碼的人**的。
+  //    JSX 直接輸出純字串 ⇒ 同一組符號寫進 `title`/`hint` 就會**原樣印在員工畫面上**。
+  //    ⇒ 🔴 **註解的語法與畫面的語法長得一模一樣, 而只有後者會被看到。**
+  // 🛑 這一格掃的是**整族**, 不是我改的那一格 —— 下一個人加新拒因碼時也會被它接住。
+  it('每一個 title / hint 都不含 `**`', () => {
+    const offenders = Object.entries(BLOCK_REASON_TEXT)
+      .filter(([, v]) => v.title.includes('**') || v.hint.includes('**'))
+      .map(([k]) => k);
+    expect(offenders, `這些拒因碼的對客文字含 Markdown 星號,員工會看到實體 **:${offenders.join(', ')}`).toEqual([]);
+  });
+
+  it('🔬 尺會動:把一個含 `**` 的字串餵進同一條判準 ⇒ 必須被抓到', () => {
+    const fake = { title: '這是**強調**', hint: '正常' };
+    expect(fake.title.includes('**') || fake.hint.includes('**')).toBe(true);
   });
 });

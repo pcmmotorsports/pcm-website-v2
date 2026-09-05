@@ -99,6 +99,46 @@ describe('useReconcilePayment', () => {
     expect(failedCall?.[0]).not.toHaveProperty('displayId');
   });
 
+  // ⟦b4-BANKCHARGESCARD⟧ 片 2 ⑤:反查那條入口也要走同一個終態。
+  it('🔴 pendingTransfer → 走【與 ③⑤ 同一個終態】:清 in-flight + 清車 + 換 key + 帶單號, 不進冷卻', async () => {
+    // ⛔ ~~舊行為:維持 unknown + 冷卻, 而 displayId 被丟掉~~
+    // 🛑 **舊行為錯在哪**:`reconcile-actions.ts` 那個型別是 `{ status:'pendingTransfer'; displayId: string }`
+    //    —— **單號是必填、server 早就答對了**, 而 hook 把它丟掉 ⇒ 📌 **客人回不到自己的單。**
+    // 🔵 **兩條入口(下單 / 反查)同一個出口**:客人的處境是同一個(單成立、錢沒收)。
+    reconcileMock.mockResolvedValue({ status: 'pendingTransfer', displayId: 'PCM-2026-0011' });
+    const { result, setState, clear, regenerateCartSession } = renderReconcile();
+
+    act(() => result.current.reconcile());
+
+    await waitFor(() =>
+      expect(setState).toHaveBeenCalledWith({
+        status: 'awaiting_remittance',
+        displayId: 'PCM-2026-0011',
+        message: expect.any(String) as unknown as string,
+      }),
+    );
+    expect(clearInflightMock, '沒清 in-flight ⇒ 另開分頁會被軟提醒擋').toHaveBeenCalledTimes(1);
+    expect(clear, '沒清車 ⇒ 他手上還有商品, 再結一次會建第二張').toHaveBeenCalledTimes(1);
+    expect(regenerateCartSession, '沒換 key ⇒ 下次購買會被 dedup 綁回這張沒付錢的單').toHaveBeenCalledTimes(1);
+    // 🛑 終態 ⇒ **不進冷卻**(冷卻是給「還要再按一次查詢」用的, 而這裡沒有下一次可按)
+    await waitFor(() => expect(result.current.reconciling).toBe(false));
+    expect(result.current.reconcileDisabled, '進了冷卻 ⇒ 代表它還被當成 pending').toBe(false);
+  });
+
+  it('🟢 正對照:pending(不帶 transfer)仍然走舊路 —— unknown + 冷卻(證明上面那格不是把所有狀態都改掉)', async () => {
+    // 🛑 少了這一格,「把 else 那支也改成終態」會讓上面那格照樣綠。
+    reconcileMock.mockResolvedValue({ status: 'pending' });
+    const { result, setState, clear } = renderReconcile();
+    act(() => result.current.reconcile());
+    await waitFor(() =>
+      expect(setState).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'unknown' }) as unknown as { status: string },
+      ),
+    );
+    expect(clear, 'pending 不清車').not.toHaveBeenCalled();
+    await waitFor(() => expect(result.current.reconcileDisabled).toBe(true));
+  });
+
   it('pending → setState unknown 提示 + 進冷卻;不清車/不換 key/不清 in-flight', async () => {
     reconcileMock.mockResolvedValue({ status: 'pending' });
     const { result, setState, clear, regenerateCartSession } = renderReconcile();

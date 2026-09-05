@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 
 // 片 C3 的守門:**那條 route 的函式包裡,到底有沒有它執行時要讀的那些檔。**
@@ -64,6 +64,9 @@ function stalenessNote(): string | null {
     //    下面那組「丙」的守門會拿【舊的 NFT】全綠** —— 而那正是它要擋的那種假綠。
     //    ⇒ 📌 一把守門, 沒有把「會改變它答案的那支檔」放進新鮮度清單 ⇒ 它守不住自己。
     join(__dirname, '../../../../../../next.config.ts'),
+    // 🔴 2026-09-06 P-1:產 PDF 的能力搬進 `@pcm/pdf` ⇒ **改它會改變這份追蹤清單的答案**
+    //    ⇒ 它要在新鮮度清單裡(同上面那一句:一把守門沒把「會改變它答案的檔」放進來 ⇒ 它守不住自己)。
+    join(__dirname, '../../../../../../../../packages/pdf/src/index.ts'),
   ].filter((p) => existsSync(p));
   const newest = Math.max(...guarded.map((p) => statSync(p).mtimeMs));
   if (newest <= nftAt) return null;
@@ -237,12 +240,47 @@ describe('片 C3:statement.pdf 這條 route 的追蹤清單', () => {
 //    ⇒ 那為什麼留著:那四條 glob 主視窗-87 裁不 revert(零行為風險 · 這五格是資產 ·
 //      **revert 會讓「試過丙而它沒用」從碼裡消失, 下一個人會再試一次**)⇒ 五格跟著留。
 //    ⇒ 📌 **讀到這裡的人要知道:它們綠, 【不代表】那張紙上的中文會是字。**
-describe('📎 修法丙(已證偽, 保留為紀錄):app 層 node_modules 那棵樹有沒有進到追蹤清單', () => {
+// 🔴🔴 **2026-09-06 受詞換了, 而【換受詞不是換路徑】—— 這一句是 code-reviewer 逼出來的訂正。**
+//    ⛔ ~~本組原本問的是「**app 層那棵 symlink 樹**有沒有進追蹤清單」(修法丙)~~
+//    ⇒ P-1 把字型相依搬進 `@pcm/pdf` 之後, **那棵樹已經不存在**(當場量:走 app 層的筆數 = 0)。
+//    ✅ 現在問的是:**`@pcm/pdf` 解析出來的那個【實體目錄】, 在不在追蹤清單裡。**
+//    🛑 **而【那 215 筆是 `next.config.ts` 的四條 root `.pnpm` glob 供應的】** ——
+//      不是 `require.resolve` 帶進來的(反證:拉丁那支走同一段碼, 追蹤到 **0** 筆)。
+//      ⇒ 📌 **所以本組證不到「解析起點跟著搬了」** —— 它證的是「那些檔在包裡」。
+//      ⇒ 🎯 兩者的差別正是這一族踩過的那個坑:**位元組進得去, 解析進不去。**
+describe('📎 字型檔在不在追蹤清單裡(受詞 2026-09-06 由 app 層 symlink 樹改成 @pcm/pdf 的實體目錄)', () => {
   const ROUTE_DIR = dirname(ROUTE_NFT);
-  const APP_FONT_DIR = resolve(
+  // 🔴🔴 **2026-09-06 P-1:這個位置搬家了, 而【下面每一格的斷言一個字都沒動】。**
+  //    那兩個 `@fontsource/*` 現在宣告在 `@pcm/pdf`(`packages/pdf/package.json`)
+  //    ⇒ pnpm 把它們佈在 `packages/pdf/node_modules/@fontsource/…`, 不再是 app 層。
+  //    🛑 **而這正是本片最危險的一格**:字型是 `require.resolve` 找的,
+  //      **解析起點跟著相依走** ⇒ 位置錯了不會有例外, 只會回 `null`
+  //      ⇒ 一個 `@font-face` 都沒宣告 ⇒ **PDF 照樣產出來、HTTP 200, 每個中文是方框。**
+  //    ⇒ 📌 所以這一組**不是**「順手改個路徑」—— 它是本片驗收條件第三條的落點。
+  const PKG_FONT_DIR = resolve(
     ROUTE_DIR,
-    '../../../../../../../node_modules/@fontsource/noto-sans-tc',
+    // 🔵 **9 層** —— 從 `.next/server/app/account/orders/[displayId]/statement.pdf` 回到 repo 根:
+    //    statement.pdf → [displayId] → orders → account → app → server → .next → storefront → apps。
+    //    ⛔ 我第一版寫 8 層 ⇒ 落在 `apps/packages/pdf/…`(不存在)⇒ 量具自檢當場紅 —— 而那是它的功用。
+    '../../../../../../../../../packages/pdf/node_modules/@fontsource/noto-sans-tc',
   );
+  // 🔴🔴 **要比的是【解析之後的實體路徑】, 不是那個 symlink。**
+  //    pnpm 把真正的檔放在 `node_modules/.pnpm/@fontsource+noto-sans-tc@<版本>/…`,
+  //    而 `packages/pdf/node_modules/@fontsource/noto-sans-tc` 只是一條連結。
+  //    ⇒ Next 的追蹤清單記的是**實體路徑** ⇒ 拿 symlink 去比會得到 0 支
+  //      ⇒ 📌 而那個 0 **看起來像「字型沒被打包」** —— 也就是這一族最怕的那個結論,
+  //        而真相是「我拿錯路徑去比」。**兩者印同一個數字。**(2026-09-06 當場踩到)
+  // 🛑 **`realpathSync` 在 module 層 throw ⇒ 整支檔【載不起來】⇒ vitest 印「no tests」**
+  //    —— 2026-09-06 我把那個套件搬走做突變時當場看到:**那不是一個紅, 那是一批綠不見了**
+  //    (本 repo 記過:`a-missing-batch-of-green-hides-better-than-one-red`)。
+  //    ⇒ ✅ 解析不到就退回原路徑, 讓下面那格【量具自檢】去印一個看得懂的紅。
+  const APP_FONT_DIR = (() => {
+    try {
+      return realpathSync(PKG_FONT_DIR);
+    } catch {
+      return PKG_FONT_DIR;
+    }
+  })();
   const resolved = () => tracedFiles().map((f) => resolve(ROUTE_DIR, f));
   // 🔴 **加目錄邊界(codex R2 抓到)**:裸 `startsWith` 會把 `…/noto-sans-tc-evil/x` 也算進來
   //    ⇒ 一個同前綴的鄰居目錄可以讓下面每一格【假綠】。
@@ -251,7 +289,10 @@ describe('📎 修法丙(已證偽, 保留為紀錄):app 層 node_modules 那棵
     resolved().filter((p) => p === APP_FONT_DIR || p.startsWith(APP_FONT_DIR + sep));
 
   it('🟢 量具自檢:那個 app 層目錄真的在磁碟上(不在的話下面每一格都是在量一個不存在的東西)', () => {
-    expect(existsSync(APP_FONT_DIR), `${APP_FONT_DIR} 不存在 ⇒ pnpm 佈局變了, 本組要重寫`).toBe(true);
+    expect(
+      existsSync(APP_FONT_DIR),
+      `${APP_FONT_DIR} 不存在 ⇒ @pcm/pdf 的字型相依沒裝好(或 pnpm 佈局變了)⇒ 下面每一格都在量一個不存在的東西`,
+    ).toBe(true);
   });
 
   it('🔴 `require.resolve` 要的那支 `package.json` 在清單裡 —— 少了它就是 `字型套件=null`', () => {
@@ -278,6 +319,41 @@ describe('📎 修法丙(已證偽, 保留為紀錄):app 層 node_modules 那棵
       // 🔵 而「兩邊都是 0」會讓上面那格通過 ⇒ 分母自檢:磁碟上本來就該有成批的子集。
       expect(onDisk(suffix), `磁碟上 ${suffix} 是 0 ⇒ 上面那格零判別力`).toBeGreaterThan(50);
     }
+  });
+
+  // 🔴🔴 **驗收條件③(2026-09-06 P-1 新加):那些字型是從【新的解析起點】被追蹤到的。**
+  //    上面幾格問的是「有沒有被追蹤到」;**這一格問「它們是從哪裡來的」** ——
+  //    兩者的差別在:搬家搬錯了而 pnpm 剛好在 app 層也留了一份時, 上面全綠而這一格紅。
+  //    ⇒ 📌 少了它, 「搬成功了」與「沒搬而舊的那份還在」印同一個綠。
+  // 🛑🛑 **這一格的名字 2026-09-06 改過, 而【改的是宣稱不是判準】**(code-reviewer must-fix):
+  //    ⛔ ~~「追蹤到的字型檔【路徑裡有 packages/pdf】⇒ 解析起點真的跟著相依搬了」~~
+  //    🔴 **那個宣稱是假的**:當場量 —— 追蹤到的 215 筆**全部**落在 `node_modules/.pnpm/…`,
+  //      而含 `packages/pdf` 的筆數 = **0**;那 215 筆由 `next.config.ts` 的四條 root `.pnpm` glob 供應
+  //      ⇒ 📌 **搬家前的世界它也是綠的** ⇒ 它對「解析起點」零判別力。
+  //    ✅ 改成它**實際在量**的:`@pcm/pdf` 那條相依**解得開**, 而它的**實體目錄**在追蹤清單裡。
+  it('🔴 @pcm/pdf 的字型相依解得開, 而那個實體目錄底下的檔在追蹤清單裡', () => {
+    const under = underAppFontDir();
+    expect(under.length, '一支都沒追蹤到 ⇒ 這一格零判別力(先看上面那幾格)').toBeGreaterThan(0);
+    // 🔴 **判準:那些被追蹤到的檔, 就是 `@pcm/pdf` 解析出來的那一份。**
+    //    做法 = 拿 `packages/pdf/node_modules/…` 解析成實體路徑, 再看追蹤清單有沒有落在它底下。
+    //    ⇒ 這一格若綠, 代表「解析起點確實跟著相依搬了」;若 app 層還留一份, 下面那格會紅。
+    expect(
+      under.length,
+      `解析後的實體目錄 ${APP_FONT_DIR} 底下一支都沒被追蹤到`,
+    ).toBeGreaterThan(50);
+    // 🛑 **本格證不到「解析起點跟著相依搬了」** —— 這些筆數是 `next.config.ts` 的
+    //    四條 root `.pnpm` glob 供應的, 與程式住哪無關。要證那件事得有一個
+    //    **只有新起點才會產生的東西**, 而今天沒有(`packages/pdf` 底下的追蹤筆數 = 0)。
+    //    ⇒ 📌 這一行不是謙虛, 它是這一格的射程:**別把它讀成「豆腐字風險降了」。**
+    // 🔵 負對照:app 層那個舊位置【不該】再有東西被追蹤到 —— 否則就是兩份都在, 而那更難查。
+    const OLD_APP_DIR = resolve(
+      ROUTE_DIR,
+      '../../../../../../../node_modules/@fontsource/noto-sans-tc',
+    );
+    expect(
+      resolved().filter((p) => p === OLD_APP_DIR || p.startsWith(OLD_APP_DIR + sep)),
+      '舊的 app 層位置還有字型被追蹤到 ⇒ 兩份同時存在, 解析起點是哪一個沒有人說得準',
+    ).toHaveLength(0);
   });
 
   it('🔵 負對照:一個現造的同層目錄必須查無(證明上面不是恆真)', () => {

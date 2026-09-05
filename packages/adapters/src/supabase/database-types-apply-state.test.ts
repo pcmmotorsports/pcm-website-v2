@@ -125,6 +125,12 @@ const CLAIM_APPLIED = ['已 apply', '已apply', '已套用', 'APPLIED.tsv 命中
 //    ⑰ `admin_record_hct_submit`〔主migration=20260904170000〕是線 `-ship` 真的新增的一條「整段」條目。
 //    🟢 它的 apply 狀態**有第二個獨立來源**:`supabase/APPLIED.tsv` 那一列(Sean 2026-09-04 本人貼,
 //    自帶簽章複驗 + 正負對照)⇒ 本檔的宣稱與帳本**指向同一件事**, 不是自說自話。
+// 🔴 2026-09-05 由 ['⑰'] 變成 ['⑰', '⑲'] —— 名單變了要人看過, 而這是那個「人看過」:
+//    ⑲ email_outbox.sent_tracking_number(⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 片 B-1)。
+//    🛑 而它與 ⑰ 的狀態【相反】:⑰ 已在正式庫, ⑲ 的 migration 還沒貼
+//      ⇒ 它宣稱的是一件【還沒成真】的事, 標記逐字〔APPLIED.tsv 無此列〕。
+//    🔵 為什麼跳過 ⑱:那一條在 agent/line-ship 上, 【這棵樹看不到它】——
+//      📌 兩條分支各自編號 ⇒ 合併時會撞。合併的人請重新編號。
 //
 // 🔴 **2026-09-05 稍晚再由 `['⑰']` 變成 `['⑰', '⑱']`** —— 同樣要人看過, 這是那個「人看過」:
 //    ⑱ `admin_hct_reset_unknown_to_draft`〔主migration=20260905320000〕(⟦ship-HCTUNKNOWNSTUCK⟧ 片 A/B)。
@@ -135,7 +141,12 @@ const CLAIM_APPLIED = ['已 apply', '已apply', '已套用', 'APPLIED.tsv 命中
 //      而**沒有任何東西會提醒人退場** ⇒ 那正是本檔這一族守門在盯的事。
 //    🔵 **而我改這份名單時差點弄壞上面那段歷史** —— 我用字面取代把「由 `[]` 變成 `['⑰']`」
 //      一起改掉了 ⇒ 📌 **一份記錄「上一次改了什麼」的註解, 會被下一次的機械取代吃掉。**
-const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱'];
+// 🔴🔴 **2026-09-06 合併兩條分支 ⇒ 名單變成 [⑰, ⑱, ⑲]** —— 而這是那個「人看過」:
+//    上面兩段歷史**各自是對的**, 而它們互相看不到 —— ⑱ 在 `agent/line-ship`、
+//    ⑲ 在 `agent/line-ship-5b-sentnum`, 兩邊都寫了「合併的人請重新編號」。
+//    ⇒ 📌 **那句話是這一次真的被讀到了** —— 而它會被讀到, 是因為 git 讓這一行撞了。
+//      🛑 若兩人用的是**同一個圈號**, git 只會看到「一行改成另一行」⇒ **它不會撞** ⇒ 靜靜留下一條。
+const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲'];
 /** 全部圈號條目數。F2:某條圈號被改寫 ⇒ 它不會消失,會**併進上一條**而總數少一。
  *
  * 🔴 **2026-09-05 由 12 改成 13 —— 而改這個數字要附「這次是【真的多一條】」的證據**:
@@ -156,7 +167,12 @@ const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱'];
  *      **本條的 migration 還沒進正式庫** ⇒ 它宣稱的是一件【還沒成真】的事。
  *      ⇒ 📌 所以這一條的存在本身就是一個要退場的東西:貼進去並重 gen 之後它該消失。
  */
-const EXPECTED_TOTAL_ENTRIES = 14;
+/**
+ * 🔴 **2026-09-06 由 14 改成 15** —— 合併兩條分支之後【真的多一條】:
+ *    `agent/line-ship` 帶進 ⑱、`agent/line-ship-5b-sentnum` 帶進 ⑲, 而兩邊各自算的都是 14。
+ *    ⇒ 證據:兩條的字面各自一個字都沒動(合併時是**兩段各自插入**, 不是改寫)。
+ */
+const EXPECTED_TOTAL_ENTRIES = 15;
 
 type Entry = { mark: string; body: string };
 

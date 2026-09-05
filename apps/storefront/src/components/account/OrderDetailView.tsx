@@ -9,9 +9,22 @@
 //   ⛔ ~~· 「下載訂單 PDF」鈕 —— 稿註解要求真站接 /account/orders/<id>/statement.pdf 由後端產;
 //     後端不存在 ⇒ **做出來就是第二顆死鈕**,而本片存在的理由正是消滅第一顆。~~
 //   ✅ **2026-08-30 片 C:那顆鈕接上了**(板 `:416` ⟦b4-CUSTPDF1⟧;片 A 路由+授權、片 B 紙面已落地)。
-//     🔴 **而它的 URL 是 `/account/orders/<displayId>/statement`,【沒有 `.pdf`】** ——
+//     🔴 ⛔ ~~而它的 URL 是 `/account/orders/<displayId>/statement`,【沒有 `.pdf`】——
 //        稿 `:288` 寫的是 `statement.pdf`,而那句話**假設的是伺服器產檔**;
-//        Sean 的選型走甲案(客人自己的瀏覽器按列印/儲存成 PDF)⇒ 那條路沒有 `.pdf` 這個網址。
+//        Sean 的選型走甲案(客人自己的瀏覽器按列印/儲存成 PDF)⇒ 那條路沒有 `.pdf` 這個網址。~~
+//     🔴🔴 **2026-09-06 訂正:那句話【過期了】——`.pdf` 那條路現在存在。**
+//        `apps/storefront/src/app/account/orders/[displayId]/statement.pdf/route.ts`
+//        (片 C3,主視窗 2026-08-31 批;檔頭 `:1` 逐字「伺服器產檔,零對外請求」)。
+//        ⇒ 📌 **而本頁【沒有任何連結指向它】** —— 下面那顆鈕指的是網頁版 `/statement`。
+//        ⇒ 🛑 **所以今天客人拿不到那個 PDF,而路由是好的** ——
+//           一個做好了而沒有入口的東西,與「沒做」在客人那端**印同一個畫面**。
+//     ⚠️ **而補入口這件事【卡在文案】,不卡在技術**:稿 `:288` 逐字
+//        「真站:改成 `<a href="/account/orders/<id>/statement.pdf" download>` 由後端產」
+//        ⇒ 稿只畫**一顆**鈕、而那顆的字面就是「下載訂單 PDF」——
+//        **與下面這顆現有的鈕同名,而現有這顆指向網頁版。**
+//        ⇒ 🔴 兩顆同名 / 改現有這顆的去向 / 給網頁版另一個名字 —— **三種都動到 Sean 拍過的字面**
+//           (見下方 `:361` 那段:「那個字面是 Sean 的板 ⇒ 我不自己加」)
+//        ⇒ ✅ **已開板列 `⟦front-PDFLINKMISSING⟧` 並端主視窗轉 Sean;本片只訂正事實,不動畫面。**
 //        ⇒ **照稿抄那一行的話, 這顆鈕會 404** —— 而稿 `:286` 自己逐字警告的正是那件事
 //          (「不假裝下載成功、也不給一個會 404 的 href」)。**稿在同一段裡同時給了陷阱與警告。**
 //     ⚠️ **一個【我沒有自己決定】的字**:鈕上的字照稿是「下載訂單 PDF」,而**點下去不會下載一個檔**,
@@ -359,15 +372,39 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
               ⚠️ **可及性缺口, 照實寫**:鈕上的字沒有講「會開新分頁」——
                  而**那個字面是 Sean 的板**(稿 `:193` 帶著「(2026-08-07 Sean 拍板)」)
                  ⇒ 我不自己加。已與鈕文案那題一起列在板 `:416` 等他。 */}
-          <Link
+          {/* 🔴🔴 **2026-09-06:去向從網頁版 `/statement` 改成 `/statement.pdf`(主視窗裁【甲】)。**
+              ⛔ ~~`/account/orders/<id>/statement`(網頁版)~~
+              📌 **依據是鐵則 1 —— design 是真權威**:稿 `order-detail-page.html:288` 逐字
+                 「真站:改成 `<a href="/account/orders/<id>/statement.pdf" download>` 由後端產」
+                 ⇒ **稿只畫一顆鈕、而它指的就是 `.pdf`**;網頁版是**後端還不存在時的過渡**。
+              🟢 **而「那條路真的產得出檔」是量到的**:Sean 2026-09-06 03:0x 在**正式站**對一張真單
+                 手動下載, 主視窗**親讀 PDF 內中文全字** ⇒ 不是「route 檔存在」這種弱證據。
+              🔵 **`/statement` 那個路由留著不刪** —— 有人書籤了也不會壞, 只是這一頁不再連它。
+              🛑 **文案一個字沒動** —— 「下載訂單 PDF」是 Sean 的板
+                 (⛔ ~~見下方 `:361`~~ ⇒ 🔴 **reviewer 2026-09-06 訂正:那個指標指錯了**,
+                  `:361` 在**上面**而且講的是 encode 紀律;真正的依據在**本檔頭 `:30-34`**
+                  —— 稿 `:193` 那句帶著「2026-08-07 Sean 拍板」),
+                 本次只改**去向**;而稿上那顆鈕的名字**本來就是這一句**。
+              🔴 **`<a>` 不是 `<Link>`**:目的地是一個**檔案端點(route handler)**不是頁面 ——
+                 `Link` 的 client-side 導覽對它沒有意義, 而 `download` 要瀏覽器原生處理。
+                 ⚠️ 而既有測試釘著「它是 `<a>` 不是 `<button>`」⇒ 這一改**不會**讓那格紅。
+              🔵 `target="_blank"` + `rel` 兩者都保留(Sean 2026-08-30 直接下的, 見既有測試)。
+              ⚠️ **一格 reviewer 2026-09-06 提的、我沒想到的**:server 那端**已經**用
+                 `content-disposition: attachment` 強制下載(`statement.pdf/route.ts:141`)
+                 ⇒ 📌 **`download` 這個屬性其實是冗餘的**(稿字面有它, 所以留著);
+                 而 `download` + `target="_blank"` **同時存在時 Safari 曾有留下空白分頁的怪癖**。
+                 🛑 **兩者我都不自己拿掉** —— `target` 是 Sean 直接下的、`download` 是稿字面;
+                    **跨瀏覽器實測沒做** ⇒ 這一格是【已揭示的未驗】, 不是【驗過沒事】。 */}
+          <a
             className="acc-btn-ghost"
-            href={`/account/orders/${encodeURIComponent(order.displayId)}/statement`}
+            href={`/account/orders/${encodeURIComponent(order.displayId)}/statement.pdf`}
+            download
             target="_blank"
             rel="noopener noreferrer"
             data-od-id="order-statement-link"
           >
             下載訂單 PDF
-          </Link>
+          </a>
         </div>
       </div>
 
@@ -638,7 +675,20 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
             <div className="acc-section-head">
               <h2>匯款資訊</h2>
             </div>
-            <p className="acc-order-note">這張訂單的應付金額需要人工確認,請聯絡我們。</p>
+            {/* 🔴🔴 **Sean 2026-09-06 01:5x 逐字拍「乙 = 只講事實型」** —— 而這一句是【第一層】:
+                 ⛔ ~~這張訂單的應付金額需要人工確認,請聯絡我們。~~
+                 🔴 **舊句少了唯一擋得住下一次匯款的那半。**
+                 🎯 **成因是那個客人的世界**:短匯 ⇒ `partiallyPaid` ⇒ 頁面(當時)不顯示帳號
+                    ⇒ 他翻舊訊息又匯一次全額 ⇒ 溢收 ⇒ 停在 `partiallyPaid`
+                    ⇒ 📌 **而他打開頁面看到的每一句都在暗示「還沒付完」。**
+                 🛑 **「在我們回覆之前,請不要再匯款」是 Q6 ⑵ 量過的、唯一擋得住第三次匯款的東西**
+                    (`docs/runbooks/bank-transfer-flag-flip-checklist.md:274-290`)。
+                 🔵 **不提系統**(乙 的定義)· **不講金額** —— 因為這一格同時涵蓋三個世界:
+                    ① 多付了(`balanceDue < 0`)② 剛好付清(`= 0`)③ 有退款(`null`, 算不出金額)
+                    ⇒ 🛑 **一句帶數字的話服務不了 ③** ⇒ 帶金額的第二層要先拆分支, 本片不做。 */}
+            <p className="acc-order-note">
+              這張訂單的款項狀態需要我們人工確認,請與我們聯絡。在我們回覆之前,請不要再匯款。
+            </p>
           </div>
         )}
       {!cancelled &&

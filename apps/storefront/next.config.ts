@@ -101,6 +101,12 @@ const nextConfig: NextConfig = {
       //    ⇒ 📌 **字型只被 `require.resolve` 碰到(`statement-pdf.ts:48`), 而那是【執行期】的東西,
       //      Next 不會為它建入口。** 位元組進得去, 解析進不去 —— **兩件事, 而清單上長得一樣。**
       //
+      // 🛑🛑 **2026-09-06 起這四條【不再匹配任何檔】** —— ⟦f3-SHIPPDF1⟧ P-1 把那兩個
+      //    `@fontsource/*` 的相依從 app 搬進 `@pcm/pdf` ⇒ `apps/storefront/node_modules/@fontsource`
+      //    這個 symlink **已經不存在**;當場量:`.nft.json` 裡走 app 層的筆數 = **0**。
+      //    ⇒ 🔴 **而 glob 不匹配時 Next 是【靜默】的** ⇒ 這四條今天是死設定, 而畫面上看不出來。
+      //    ⇒ 📌 **不在本片刪它們** —— 刪掉會讓 `statement-pdf-tracing.test.ts` 的那一格負對照
+      //      **無聲地變成恆真**(它靠「舊位置查無」證明自己會動)。要刪要連那一格一起處置。
       // ✅ **所以下面【四條】指的是 app 層那棵 pnpm symlink 樹**(`apps/storefront/node_modules/@fontsource/…`),
       //    (⛔ ~~原文寫「三條」~~ —— codex 2026-09-03 抓到:實際是四條, 而我在兩處都寫了三。
       //     數法 `grep -c "'\./node_modules/@fontsource" apps/storefront/next.config.ts` ⇒ 4。)

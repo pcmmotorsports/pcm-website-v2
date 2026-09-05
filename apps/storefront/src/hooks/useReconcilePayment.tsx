@@ -40,6 +40,20 @@ const RECONCILE_COOLDOWN_MS = 10_000;
 const MSG_RECONCILE_PENDING =
   '仍在確認中,請稍候再查;若持續顯示此訊息,請重新登入後再查或聯繫客服 LINE。請勿重複付款。';
 const MSG_RECONCILED_FAILED = '這筆付款未成功,款項未成立。購物車已清空,請重新選購後再結帳';
+/**
+ * 🔴 ⟦b4-BANKCHARGESCARD⟧ 片 2:反查到「未付款的匯款單」時的過場文案。
+ *
+ * 🛑 **這一句刻意【不含】帳號、戶名與期限** —— 逐字照 `charge-actions.ts:93-96` 那段既有理由:
+ *    那些是 `@pcm/domain` 的 `PCM_REMITTANCE_*`, 由**訂單明細頁**印;
+ *    在這裡寫第二份 ⇒ 兩份會各自漂, 而**漂掉時客人拿到錯的帳號**。
+ * ⚠️ **為什麼不 import `charge-actions` 那個 `MSG`**:那支檔是 `'use server'`(`:1`)且 `MSG` 沒有 export
+ *    ⇒ 從 client hook 拉它會把 server 模組拖進 client bundle。**寧可在這裡另立一句短的。**
+ * ⚠️ **代價明寫(reviewer 2026-09-06 nit)**:下單那條路用 `charge-actions.ts:97` 的 `MSG.awaitingRemittance`,
+ *    本檔用這一句 ⇒ **同一個畫面依入口不同顯示不同文字, 而兩份字面會各自漂**。
+ *    ⇒ ✅ **真正的解是把這兩句抽到一個【中性模組】共用一份**(不是 `'use server'` 的)—— 未做, 記在這裡。
+ * 🔵 而它只會被看到**一瞬間** —— 這個終態會立刻導去明細頁(`CheckoutAwaitingRemittance`)。
+ */
+const MSG_AWAITING_REMITTANCE = '訂單已成立,尚未付款;正在帶您前往匯款資訊';
 
 export type ReconcileDeps = {
   /** useChargePayment 的 client 穩定鍵(送出前 CartContext 生成;unknown 態刻意未 regenerate,仍指原筆)。 */
@@ -142,17 +156,28 @@ export function useReconcilePayment({
             ...(result.displayId ? { displayId: result.displayId } : {}),
           });
         } else if (result.status === 'pendingTransfer') {
-          // 🔴🔴 **段 1 片 A:顯式接住它 —— 而【客人看到的畫面與本片之前相同】。**
+          // 🔴🔴 **片 2 ⑤ 接住它了** —— ⛔ ~~維持 `unknown` + 冷卻~~。
           //
-          // 🛑 **為什麼要寫這一格, 既然行為沒變**:下面那個 `else` 會把任何新狀態**靜靜吃掉**。
-          //   ⇒ 📌 **一個掉進 else 的新狀態, 與「沒有人處理它」印同一個畫面。**
-          //   ⇒ 而寫成顯式分支之後, 下一個人改這裡時**看得到它存在**。
+          // 🛑 **舊行為為什麼要換掉**:`displayId` **已經拿在手上**(`reconcile-actions.ts:67`(型別**宣告**處;`:100` 是用它的 return，reviewer 2026-09-06 訂正)
+          //    那個型別 `{ status: 'pendingTransfer'; displayId: string }` —— 它是**必填**),
+          //    而舊碼把它**丟掉**、把客人留在「付款狀態確認中」⇒ 📌 **他回不到自己的單。**
+          //    ⇒ 🎯 **這是「答對了而沒有說出來」** —— server 那端早就答對了。
           //
-          // ⚠️ **而我刻意不在這裡發明對外文案** —— 「你有一張待匯款的訂單, 帳號是…」那一頁是段 3,
-          //   它需要 Design 與 Sean 的文案。⇒ 🔴 **所以這一格今天【不是】「客人撈得回他的單了」。**
-          //   `displayId` 已經拿在手上(server 那端答對了), 而畫面那一半還沒做。
-          setState({ status: 'unknown', message: MSG_RECONCILE_PENDING });
-          startCooldown();
+          // ✅ **走與 ③⑤【同一個終態】**(`useChargePayment` 那條路):清車 + 換 cart key +
+          //    `awaiting_remittance` 帶單號 ⇒ `CheckoutTerminalScreen` 會導去 `/account/orders/<id>`。
+          //    🔵 **兩條入口同一個出口**, 而那不是巧合:客人的處境是同一個(單成立、錢沒收),
+          //       只是他這次是從**反查**走進來的。
+          //
+          // 🛑 **不呼叫 `startCooldown()`** —— 冷卻是給「還要再按一次查詢」用的;
+          //    這裡是終態、畫面即將整頁換掉, **沒有下一次可按**。
+          clearPaymentInflight();
+          clear();
+          regenerateCartSession();
+          setState({
+            status: 'awaiting_remittance',
+            displayId: result.displayId,
+            message: MSG_AWAITING_REMITTANCE,
+          });
         } else {
           // pending:維持 unknown 終態鎖(不清車、不換 key、inFlightRef 不釋)、更新提示 + 冷卻。
           setState({ status: 'unknown', message: MSG_RECONCILE_PENDING });

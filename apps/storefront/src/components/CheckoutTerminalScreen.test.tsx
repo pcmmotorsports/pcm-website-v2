@@ -24,6 +24,13 @@ vi.mock('@/components/CheckoutRedirecting', () => ({
 }));
 
 // stub Header/HomeFooter(非受測、避其 useRouter/useCart/MobileContext 依賴;沿用 CheckoutSuccess.test 慣例)。
+// CheckoutAwaitingRemittance 內含 router.replace 導向副作用 → stub;真導向在它自己的測試檔驗。
+vi.mock('@/components/CheckoutAwaitingRemittance', () => ({
+  CheckoutAwaitingRemittance: ({ displayId }: { displayId: string }) => (
+    <div data-testid="checkout-awaiting-remittance" data-id={displayId}>訂單已成立,等待匯款</div>
+  ),
+}));
+
 vi.mock('@/components/Header', () => ({ Header: () => null }));
 vi.mock('@/components/HomeFooter', () => ({ HomeFooter: () => null }));
 
@@ -141,5 +148,18 @@ describe('isTerminalChargeState', () => {
 
   it('🔴 五個非終態全回 false(擋「JSX 恆 truthy」誤用)', () => {
     for (const s of NON_TERMINAL) expect(isTerminalChargeState(s)).toBe(false);
+  });
+
+  // ⟦b4-BANKCHARGESCARD⟧ 片 2 ⑤:新終態要被分派表認得。
+  it('🔴 awaiting_remittance 是整頁終態, 而且分派到匯款那一支(不是錯誤畫面)', () => {
+    const st = { status: 'awaiting_remittance', displayId: 'PCM-2026-0009', message: 'm' } as ChargeState;
+    // 🔵 先驗守衛:呼叫端用它決定要不要整頁取代表單 —— 漏了它畫面會停在結帳表單上。
+    expect(isTerminalChargeState(st)).toBe(true);
+    render(<CheckoutTerminalScreen state={st as TerminalChargeState} />);
+    expect(screen.getByTestId('checkout-awaiting-remittance').getAttribute('data-id')).toBe('PCM-2026-0009');
+  });
+
+  it('🟢 正對照:一個【非】終態仍然回 false(證明上面那格不是恆真)', () => {
+    expect(isTerminalChargeState({ status: 'error', message: 'x' } as ChargeState)).toBe(false);
   });
 });

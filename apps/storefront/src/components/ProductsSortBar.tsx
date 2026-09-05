@@ -10,12 +10,16 @@ import { SORT_OPTIONS } from '@/lib/sort-options';
 // SortBar — 商品數 + grid 欄數切換 + 排序下拉(cascade 版面無 drawer 篩選鈕)
 export function ProductsSortBar({
   count,
+  isPending = false,
   gridCols,
   setGridCols,
   sort,
   setSort,
 }: {
   count: number | null;   // null = 撈不到，不是 0 件（見 displayCount 的註解）
+  /** 🔴 ⟦search-CATSWITCHSLOW⟧ ①:切分類的那一發導覽還在飛(3.4-6.3 秒)。
+   *   預設 `false` ⇒ **沒傳的呼叫端行為與本片之前逐字相同**(件數照印)。 */
+  isPending?: boolean;
   gridCols: number;
   setGridCols: (n: number) => void;
   sort: string;
@@ -24,7 +28,13 @@ export function ProductsSortBar({
   return (
     <div className="pp-sortbar">
       <div className="pp-sortbar-left">
-        <span className="pp-count">{count === null ? '件數未能載入' : `${count} 件商品`}</span>
+        {/* 🔴 三態不是兩態:`isPending` 排在最前面, 因為切分類的那幾秒裡 `count` 還是**舊的**
+            ⇒ 印舊件數比印「更新中…」糟(它看起來像「已經算完了而數字沒變」)。
+            🔵 形狀抄 design-reference `StorePickerModal.jsx:151` 的「定位中…」——
+               **原地換字**, 不新造元件、不加轉圈圈(稿裡沒有那個東西)。 */}
+        <span className={`pp-count${isPending ? ' is-loading' : ''}`}>
+          {isPending ? '更新中…' : count === null ? '件數未能載入' : `${count} 件商品`}
+        </span>
       </div>
       <div className="pp-sortbar-right">
         <div className="pp-grid-toggle">

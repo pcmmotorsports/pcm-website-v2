@@ -100,24 +100,71 @@ export function dbPairs(rawSql: string, label: string): Array<[string, string]> 
 }
 
 function illegal(pairs: Array<[string, string]>): Array<[string, string]> {
-  return pairs.filter(
-    ([f, t]) => !canPaymentTransition(f as PaymentStatus, t as PaymentStatus),
-  );
+  return pairs.filter(([f, t]) => {
+    try {
+      return !canPaymentTransition(f as PaymentStatus, t as PaymentStatus);
+    } catch {
+      // 🔴 TS 的轉移表沒有這個出發態 ⇒ `PAYMENT_TRANSITIONS[from]` 是 undefined ⇒ 丟。
+      //   那**本身就是一種兩份真相分家**(DB 寫得出一個 TS 沒聽過的狀態)⇒ 判非法, 不是當掉。
+      return true;
+    }
+  });
 }
 
-/** 正對照 = 片3 那個形狀:拿掉 `v_ps <> 'refunded'`、目標多一個 `paid`。 */
-const FIXTURE_P3 = `
+/**
+ * 正對照 —— **必須用一個 TS 【永遠】不會允許的轉移**。
+ *
+ * 🔴🔴 **這一格 2026-09-06 換過, 而換的理由值得留著**:
+ *   舊版用的是 `refunded → paid`。片③(`20260905440000` + `57a84b1e2`)一落地,
+ *   TS 那一側就把 `refunded` 從終態改成 `['paid', 'partiallyRefunded']`
+ *   ⇒ 🛑 **那個「必須印紅」的正對照, 在兩份真相【真的一致】的那一天變成綠 ⇒ 整支檔紅。**
+ *   ⇒ 📌 **一個釘在「今天非法」上的正對照, 會在被守的東西合法化的那一天反咬。**
+ *      正對照要釘的是**不變量**, 不是**當下的值**。
+ *
+ * 🔵 這裡釘的不變量 = `state-machine.ts` 檔頭逐字的「任何 `→ unpaid`(不可回退未付)」。
+ *   它不隨退款那條線改動;而下面第一格也順便證明了它今天仍然成立。
+ */
+const FIXTURE_ALWAYS_ILLEGAL = `
+CREATE OR REPLACE FUNCTION public.pcm_sync_order_refund_payment_status(p_order_id uuid)
+RETURNS public.payment_status LANGUAGE plpgsql AS $fn$
+BEGIN
+  IF v_ps NOT IN ('paid') THEN
+    RAISE EXCEPTION 'nope';
+  END IF;
+  v_target := CASE WHEN v_moved <= 0 THEN 'unpaid' ELSE 'refunded' END;
+  IF v_ps <> v_target THEN
+    UPDATE public.orders SET payment_status = v_target WHERE id = p_order_id;
+  END IF;
+END; $fn$;
+`;
+
+/**
+ * 片③(`20260905440000`)那一支的**形狀**,不是它的全文。
+ * 🔬 用真檔量過(2026-09-06,從 `57a84b1e2` 取出 878 行餵本檔的抽取器):
+ *   抽到 **6 對** —— paid→refunded / paid→partiallyRefunded / partiallyRefunded→refunded /
+ *   partiallyRefunded→paid / refunded→partiallyRefunded / refunded→paid。
+ * 🔴 這個 fixture 把那一支的**三個陷阱**留下來,因為它們各自都能讓抽取器抽錯:
+ *   ① 三分支 `CASE`(只認「`:=` 後面緊接一個字面」的窄尺會抽到 0)
+ *   ② `v_ps <> 'refunded'` **活在一行 `--` 註解裡**(不剝註解 ⇒ 誤判 refunded 被排除掉)
+ *   ③ 一個斷言字串裡含 `v_ps <> v_target`(它不該是唯一的 noSelf 依據)
+ */
+const FIXTURE_P3_SHAPE = `
 CREATE OR REPLACE FUNCTION public.pcm_sync_order_refund_payment_status(p_order_id uuid)
 RETURNS public.payment_status LANGUAGE plpgsql AS $fn$
 BEGIN
   IF v_ps NOT IN ('paid', 'partiallyRefunded', 'refunded') THEN
     RAISE EXCEPTION 'nope';
   END IF;
-  v_target := CASE WHEN v_moved <= 0 THEN 'paid'
-                   WHEN v_moved >= v_total THEN 'refunded'
-                   ELSE 'partiallyRefunded' END;
+  v_target := CASE WHEN v_moved > 0 AND v_moved >= v_total THEN 'refunded'
+                   WHEN v_moved > 0                        THEN 'partiallyRefunded'
+                   ELSE                                         'paid' END;
+  -- 🔴 **\`v_ps <> 'refunded'\` 那一半拿掉了** —— 它就是「只升不降」。
   IF v_ps <> v_target THEN
-    UPDATE public.orders SET payment_status = v_target WHERE id = p_order_id;
+    UPDATE public.orders SET payment_status = v_target::public.payment_status
+     WHERE id = p_order_id;
+  END IF;
+  IF pg_catalog.strpos(v_src, 'AND v_ps <> v_target') > 0 THEN
+    RAISE EXCEPTION '斷言②b';
   END IF;
 END; $fn$;
 `;
@@ -162,10 +209,27 @@ describe('⟦b4-TWOTRUTHS1⟧ 付款軸:DB 的唯一寫入端 vs TS 的 PAYMENT_
     ).toEqual([]);
   });
 
-  it('🔵 正對照:片3 那個形狀(refunded 可以回 paid)⇒ 必須印紅', () => {
-    const pairs = dbPairs(FIXTURE_P3, 'FIXTURE_P3');
-    expect(pairs).toContainEqual(['refunded', 'paid']);
-    expect(illegal(pairs).map(([a, b]) => `${a}→${b}`)).toContain('refunded→paid');
+  it('🔵 正對照:一個 TS 【永遠】不允許的轉移 ⇒ 必須印紅', () => {
+    // 先證那個不變量今天成立 —— 否則下一行的紅可能是別的原因。
+    expect(canPaymentTransition('paid', 'unpaid'), '「任何 → unpaid」這個不變量沒了 ⇒ 本格的正對照要重挑').toBe(false);
+    const pairs = dbPairs(FIXTURE_ALWAYS_ILLEGAL, 'FIXTURE_ALWAYS_ILLEGAL');
+    expect(pairs).toContainEqual(['paid', 'unpaid']);
+    expect(illegal(pairs).map(([a, b]) => `${a}→${b}`)).toContain('paid→unpaid');
+  });
+
+  it('🔵 抽取器對片③(20260905440000)那個形狀抽得到全部 6 對', () => {
+    // 🔴 這一格不判合法性 —— 合法性會隨片③ 落地而改變, 而【抽得到幾對】不會。
+    //   釘的是尺, 不是被量的東西。
+    const got = dbPairs(FIXTURE_P3_SHAPE, 'FIXTURE_P3_SHAPE').map(([a, b]) => `${a}→${b}`).sort();
+    expect(got).toEqual([
+      'paid→partiallyRefunded', 'paid→refunded',
+      'partiallyRefunded→paid', 'partiallyRefunded→refunded',
+      'refunded→paid', 'refunded→partiallyRefunded',
+    ].sort());
+  });
+
+  it('🔵 DB 寫得出一個 TS 沒聽過的狀態 ⇒ 判非法, 不是當掉', () => {
+    expect(illegal([['zzq_never_a_status', 'paid']])).toEqual([['zzq_never_a_status', 'paid']]);
   });
 
   it('🔵 負對照:今天這個形狀 ⇒ 0 條非法(尺不是恆紅)', () => {
