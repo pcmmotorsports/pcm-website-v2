@@ -44,6 +44,7 @@ DECLARE
   v_oid    uuid;
   v_mail   text;
   v_blank  boolean;
+  v_blank_oid uuid;
   v_key    uuid := pg_catalog.gen_random_uuid();
   v_guard  text := 'f';
   v_ship   jsonb := '{"name":"對帳用","phone":"0900000000","line":"對帳用地址"}'::jsonb;
@@ -67,14 +68,30 @@ BEGIN
   SELECT o.notification_email INTO v_mail FROM public.orders o WHERE o.id = v_oid;
 
   -- ⑤ 留白那一發
+  --
+  -- 🔴🔴 **這裡【必須】先把 id 存進變數, 不可以把函式呼叫內嵌進 `WHERE`。**
+  --    ⛔ ~~`WHERE o.id = (public.admin_create_manual_order(...) ->> 'order_id')::uuid`~~
+  --    🔬 **2026-09-05 實測(拋棄式 PG 17.10, 最小重現, 同一支函式同一個輸入)**:
+  --       · 內嵌在 WHERE  ⇒ 印 **`<NULL>`**
+  --       · 先存變數再查  ⇒ 印 **`t`**
+  --    🎯 **成因是【快照】**:那一句 SQL 的快照在**函式插入那一列之前**就取好了
+  --       ⇒ 同一句裡對 `orders` 的掃描**看不到函式剛插進去的那一列** ⇒ `SELECT INTO` 撈不到列
+  --       ⇒ `v_blank` 保持 SQL NULL。
+  --    🛑 **而 `<NULL>` 與「留白沒有進 NULL」在報告上長得幾乎一樣** ——
+  --       Sean 2026-09-05 第一次跑就撞到它, 而那一格差點被讀成「片 D 沒過」。
+  --    ⇒ 📌 **一個量測工具自己的 bug, 印出來的是被量對象的失敗。**
+  v_blank_oid := (public.admin_create_manual_order(
+                    v_cust, pg_catalog.gen_random_uuid(), v_staff,
+                    'manual_phone', 'bank_transfer', 'home',
+                    v_ship, v_inv, 0,
+                    '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK2","unit_price":1,"qty":1,"spec":{}}]'::jsonb,
+                    '   ') ->> 'order_id')::uuid;
   SELECT (o.notification_email IS NULL) INTO v_blank
-    FROM public.orders o
-   WHERE o.id = (public.admin_create_manual_order(
-                   v_cust, pg_catalog.gen_random_uuid(), v_staff,
-                   'manual_phone', 'bank_transfer', 'home',
-                   v_ship, v_inv, 0,
-                   '[{"variant_id":null,"title":"對帳用","sku":"AFTERCHK2","unit_price":1,"qty":1,"spec":{}}]'::jsonb,
-                   '   ') ->> 'order_id')::uuid;
+    FROM public.orders o WHERE o.id = v_blank_oid;
+  -- 🔵 而 `v_blank` 若仍是 NULL ⇒ 那是**撈不到列**, 不是「不是 NULL」⇒ 明說, 不要讓它混進 f。
+  IF v_blank IS NULL THEN
+    RAISE EXCEPTION '⑤ 撈不到剛建的那一列(v_blank_oid=%)—— 這是【對帳檔的問題】, 不是片 D 沒過', v_blank_oid;
+  END IF;
 
   -- ⑥ 同一把冪等鍵、只改 email ⇒ 必須被擋(第 11 參有沒有進指紋)
   PERFORM public.admin_create_manual_order(

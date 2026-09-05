@@ -20,6 +20,9 @@ vi.mock('server-only', () => ({}));
 import { OrderCancelBlock } from './order-cancel-block';
 import type { CancelShipmentWarning } from '../../lib/orders/cancel-shipment-warning';
 
+// 🔵 預設世界 = 沒收過錢 ⇒ 不畫那個框。要測那個框的格子自己覆寫這一個。
+const NO_PENDING_REFUND = { kind: 'none' } as const;
+
 // 🔴 **「這一格不是在測出貨那道提醒」** —— `shipmentWarning` 是**必填無預設**的 prop
 //    (理由見 `order-cancel-block.tsx` 那格 docstring:給預設值等於忘了接就靜默把閘關掉)。
 //    ⇒ 📌 所以每個呼叫點都**被逼著明講**它要哪一種, 而下面這個常數就是那句「不擋」。
@@ -88,7 +91,7 @@ afterEach(cleanup);
 describe('A13 錨點 — `id="cancel"` 是列表操作欄的目的地', () => {
   it('🔴 可取消的單:錨點恰一個,而且**表單真的出得來**(正向對照)', () => {
     const { container } = render(
-      <OrderCancelBlock shipmentWarning={NO_SHIPMENT} payments={PAY_UNREADABLE} detail={detail()} returnTo='/orders' formsAllowed={true} />,
+      <OrderCancelBlock shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} payments={PAY_UNREADABLE} detail={detail()} returnTo='/orders' formsAllowed={true} />,
     );
     expect(anchors(container).length, '錨點不見了 ⇒ 列表那些 #cancel 連結全部落空').toBe(1);
     // 🔴 R2 F2:沒有這條正向對照,「表單出不來」會變成**四格共同的靜默前提** ——
@@ -104,7 +107,7 @@ describe('A13 錨點 — `id="cancel"` 是列表操作欄的目的地', () => {
     // 已付款 ⇒ `buildOrderCancelView` 推拒因、`showForms` 為 false。
     // 🔴 這正是 codex R1 點名的那個突變:把 `id` 移進 `{showForms && …}` 就只有這一格會紅。
     const { container } = render(
-      <OrderCancelBlock shipmentWarning={NO_SHIPMENT} payments={PAY_UNREADABLE} detail={detail({ paymentStatus: 'paid' })} returnTo='/orders' formsAllowed={true} />,
+      <OrderCancelBlock shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} payments={PAY_UNREADABLE} detail={detail({ paymentStatus: 'paid' })} returnTo='/orders' formsAllowed={true} />,
     );
     // 前提:這一格真的走到「不可取消」那條路(不然它只是第一格的複本)。
     expect(
@@ -116,7 +119,7 @@ describe('A13 錨點 — `id="cancel"` 是列表操作欄的目的地', () => {
 
   it('🔴 `formsAllowed=false`(fail-closed 那條路)錨點也要在', () => {
     const { container } = render(
-      <OrderCancelBlock shipmentWarning={NO_SHIPMENT} payments={PAY_UNREADABLE} detail={detail()} returnTo='/orders' formsAllowed={false} />,
+      <OrderCancelBlock shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} payments={PAY_UNREADABLE} detail={detail()} returnTo='/orders' formsAllowed={false} />,
     );
     expect(container.querySelector('form')).toBeNull();
     expect(anchors(container).length).toBe(1);
@@ -124,7 +127,7 @@ describe('A13 錨點 — `id="cancel"` 是列表操作欄的目的地', () => {
 
   it('🔴 已取消的單:錨點照樣在(複核區塊本來就永遠掛著)', () => {
     const { container } = render(
-      <OrderCancelBlock shipmentWarning={NO_SHIPMENT} payments={PAY_UNREADABLE}
+      <OrderCancelBlock shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} payments={PAY_UNREADABLE}
         detail={detail({ cancelledAt: '2026-08-10T00:00:00.000Z' })}
         returnTo='/orders'
         formsAllowed={true}

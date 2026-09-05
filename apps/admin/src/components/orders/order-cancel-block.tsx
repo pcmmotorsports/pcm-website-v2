@@ -10,6 +10,7 @@ import type { AdminOrderDetail } from '@pcm/domain';
 import { buildOrderCancelView, type CancelViewPayments } from '../../lib/orders/cancel-view';
 import { CancelReviewSection } from './cancel-review-section';
 import type { CancelShipmentWarning } from '../../lib/orders/cancel-shipment-warning';
+import type { CancelPendingRefundNotice } from '../../lib/orders/cancel-pending-refund-notice';
 import { FullCancelForm, PartialCancelForm } from './cancel-order-forms';
 
 // order-cancel-block.tsx — M-4b E10 **A13b D6-a**:訂單明細頁上的取消區塊(複核 + 兩支表單)。
@@ -30,6 +31,7 @@ export function OrderCancelBlock({
   returnTo,
   formsAllowed,
   shipmentWarning,
+  pendingRefund,
 }: {
   detail: AdminOrderDetail;
   /**
@@ -77,6 +79,7 @@ export function OrderCancelBlock({
    *       🛑 哪天查詢數變成問題, 正解是把兩支合併到頁層一次查, **不是拿掉這一格**。
    */
   shipmentWarning: CancelShipmentWarning;
+  pendingRefund: CancelPendingRefundNotice;
 }) {
   const view = buildOrderCancelView({ ...detail, payments });
   // 🔴 兩道都要成立才給表單:①判定說可以(`buildOrderCancelView` 是唯一真相)②不是結果頁。
@@ -111,6 +114,7 @@ export function OrderCancelBlock({
               orderId={detail.id}
               returnTo={returnTo}
               shipmentWarning={shipmentWarning}
+              pendingRefund={pendingRefund}
             />
           )}
           <PartialCancelForm
@@ -118,6 +122,7 @@ export function OrderCancelBlock({
             returnTo={returnTo}
             items={view.items}
             shipmentWarning={shipmentWarning}
+            pendingRefund={pendingRefund}
           />
         </div>
       )}

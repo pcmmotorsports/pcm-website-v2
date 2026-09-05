@@ -40,7 +40,23 @@ const mocks = vi.hoisted(() => ({
   listOrderRefunds: vi.fn(),
   getLedgerUnregisteredAmount: vi.fn(),
   listOrderPayments: vi.fn(),
+  listPendingRefundAmounts: vi.fn(),
+  cancelPendingRefundNotice: vi.fn(),
 }));
+// 🔴🔴 **這個 mock 是【錢的告知鏈】唯一的接線守門**(codex 2026-09-05 finding 4)——
+//    在它之前, 把 route 那發 RPC 整個拔掉、固定傳 `pendingRefund={{kind:'none'}}`,
+//    元件層與判準層的測試**全部照樣綠**。⇒ 📌 那與 R3 抓到的「解析端好了而畫面沒那個 input」
+//    是同一個病的第四個實例:**每一層都測了自己, 而沒有人測【它們有沒有接起來】。**
+vi.mock('../../../lib/payment/pending-refund-repository', () => ({
+  listPendingRefundAmounts: mocks.listPendingRefundAmounts,
+}));
+// 🔴 **判準那支【不整個換掉】, 而是「呼叫真的那一支 + 記下它收到什麼」** ——
+//    整個 mock 掉的話, 這一族就變成在測我的 mock, 而不是在測接線。
+vi.mock('../../../lib/orders/cancel-pending-refund-notice', async (orig) => {
+  const actual =
+    await orig<typeof import('../../../lib/orders/cancel-pending-refund-notice')>();
+  return { ...actual, cancelPendingRefundNotice: mocks.cancelPendingRefundNotice };
+});
 vi.mock('../../../lib/payment/refund-read', () => ({
   listOrderRefunds: mocks.listOrderRefunds,
   getLedgerUnregisteredAmount: mocks.getLedgerUnregisteredAmount,
@@ -151,6 +167,10 @@ beforeEach(() => {
   mocks.listOrderRefunds.mockResolvedValue({ rows: [], truncated: false });
   mocks.getLedgerUnregisteredAmount.mockResolvedValue(null);
   mocks.listOrderPayments.mockResolvedValue([]);
+  mocks.listPendingRefundAmounts.mockResolvedValue([]);
+  mocks.cancelPendingRefundNotice.mockImplementation((r: unknown) =>
+    r === null ? { kind: 'unknown' } : { kind: 'none' },
+  );
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 afterEach(cleanup);
@@ -415,5 +435,79 @@ describe('#15-B2-c 片1a:listOrderPayments 的三種回法 → 畫面三句不�
     //    ⇒ 改成比對形狀:uuid 與 ISO 時點各自要長得像自己。
     expect(requestId?.getAttribute('value')).toMatch(/^[0-9a-f-]{36}$/);
     expect(cashReceivedAt?.getAttribute('value')).toMatch(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/);
+  });
+});
+
+// 🔴 **本檔原本的 `detail()` 是 `items: []` ⇒ 取消區【整個不渲染】**(`order-cancel-block.tsx:95`
+//    的 `view.canCancel`)⇒ 想看那個框就必須餵一張**有品項**的單。
+//    🔬 那不是我猜的:第一版直接用 `detail()` ⇒ 兩格「框在」當場紅、`box()` 回 null。
+//    形狀逐字抄隔壁 `procurement-wiring.test.tsx:130-157`, 不自創第二種。
+function detailWithItem(): AdminOrderDetail {
+  return {
+    ...detail(),
+    items: [
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        variantSku: 'SKU-1',
+        title: '下導流',
+        spec: null,
+        quantity: 2,
+        unitPrice: { amount: 50, currency: 'TWD' },
+        lineTotal: { amount: 100, currency: 'TWD' },
+        quantitySummary: {
+          quantity: 2,
+          cancelledQuantity: 0,
+          orderedQuantity: 2,
+          instockQuantity: 0,
+          shippedQuantity: 0,
+        },
+        procurements: [],
+        procurementTruncated: false,
+      },
+    ],
+  } as unknown as AdminOrderDetail;
+}
+
+describe('🔴 錢的告知鏈:route → prop(codex finding 4 —— 這一族是【接線】的守門)', () => {
+  // 🔴🔴 **這一族的射程要先說清楚, 免得下一個人以為它守到畫面了。**
+  //    🔬 **實測(2026-09-05, 三發診斷)**:本檔的 `renderPage()` 走 server render,
+  //       而取消區住在「錢」那個**分頁**裡, 分頁是 `initialKey` 的 **client 狀態**
+  //       (`order-detail.tsx:311`)⇒ 首屏 HTML 裡 `cancel_mode` / `cancel-shipment-warning`
+  //       **一個都沒有**(量到的是 `{shipBox:false, cancelMode:false, submitFull:false}`)。
+  //    ⇒ 🛑 **所以「RPC 的值有沒有畫進那個框」這一格, 在這裡【量不到】** —— 那是結構性的,
+  //       不是我沒寫。它由 `cancel-order-forms.test.tsx` 那一族守(三個世界 + 突變 3 紅)。
+  //    ✅ **這裡守得住的是【route 到底有沒有去讀】** —— 而那正是 codex finding 4
+  //       點名的那個突變:「把 route 那發 RPC 拔掉、固定傳 `none`」。
+  //    ⚠️ **仍然守不住**:保留呼叫而把 prop 硬寫成 `none`。**已知缺口, 不是已守住。**
+  it('🔵 route 真的有去讀待退款, 而且帶著這張單的 id', async () => {
+    mocks.listPendingRefundAmounts.mockResolvedValue([]);
+    await renderPage();
+    expect(mocks.listPendingRefundAmounts).toHaveBeenCalledWith(ORDER);
+  });
+
+  it('🔴🔴 RPC 拋的時候, route 餵給判準的是 `null`(= unknown), 【不是】空陣列', async () => {
+    // 🛑 這一格是這一族最重要的那個 —— 它殺的是「把 catch 改成 `pendingRefundRails = []`」。
+    //    那個突變會讓「讀不到」變成「沒收過錢」⇒ **畫面上沒有紅框** ⇒ 錢靜靜地不見,
+    //    而它在**元件層與判準層都量不到**(那兩層拿的是已經算好的 prop)。
+    //    🔬 實測:在補這一格之前, 那個突變**全綠**(15/15)。
+    mocks.listPendingRefundAmounts.mockRejectedValue(new Error('42501'));
+    await renderPage();
+    expect(mocks.cancelPendingRefundNotice).toHaveBeenCalledWith(null);
+  });
+
+  it('🔵 正對照:RPC 成功時餵的是那個陣列本身, 不是 null', async () => {
+    // 少了這一格,一個「永遠餵 null」的實作會讓上面那格綠。
+    const rails = [{ rail: 'cash', amount: 100 }];
+    mocks.listPendingRefundAmounts.mockResolvedValue(rails);
+    await renderPage();
+    expect(mocks.cancelPendingRefundNotice).toHaveBeenCalledWith(rails);
+  });
+
+  it('🔴 RPC 拋的時候, 整頁【不能】掛掉(那一發由 route 的 try/catch 接住)', async () => {
+    // 🛑 少了這一格,一個「把 try/catch 拿掉」的改動會讓整張訂單頁在讀不到時 500,
+    //    而那比看不到紅框嚴重一級。
+    mocks.listPendingRefundAmounts.mockRejectedValue(new Error('42501'));
+    const { container } = await renderPage();
+    expectPageRendered(container);
   });
 });

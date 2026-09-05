@@ -30,6 +30,7 @@ import { OrderDetailHeader } from './order-detail-header';
 import { OrderDetailMoneyTab } from './order-detail-money-tab';
 import { resolveOrderDetailTabFlags } from './order-detail-tab-routing';
 import type { CancelShipmentWarning } from '../../lib/orders/cancel-shipment-warning';
+import type { CancelPendingRefundNotice } from '../../lib/orders/cancel-pending-refund-notice';
 import type { OrderItemReceiptRow } from '../../lib/orders/receipt-repository';
 import type { OrderShipmentGroup } from '../../lib/shipping/order-shipments';
 import { ShipmentSection } from './shipment-section';
@@ -117,6 +118,7 @@ export function OrderDetail({
   customerHref = null,
   payments,
   shipmentWarning,
+  pendingRefund,
   receiptRows,
   shipmentGroups,
 }: {
@@ -210,6 +212,7 @@ export function OrderDetail({
    * 🔴 **必填、無預設**;本層只轉手不看內容(判準只有一份)。
    */
   shipmentWarning: CancelShipmentWarning;
+  pendingRefund: CancelPendingRefundNotice;
   /**
    * 這張單的逐筆到貨紀錄(`#450`)。**`null` = 讀不到 / 被截斷**, 不是「沒有到貨」。
    * 🔴 必填無預設 —— 給預設 `[]` 等於「忘了接就靜靜地說這張單沒有到貨過」。
@@ -405,6 +408,7 @@ export function OrderDetail({
                key/label/hashes 刻意留在本檔(MF-2 契約端與 #cancel 認領,源碼守門讀這裡)。 */
             <OrderDetailMoneyTab
               shipmentWarning={shipmentWarning}
+              pendingRefund={pendingRefund}
               detail={detail}
               returnTo={returnTo}
               payments={payments}

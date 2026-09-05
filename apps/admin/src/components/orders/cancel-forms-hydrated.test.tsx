@@ -256,7 +256,7 @@ async function bundleFor(elementExpression: string): Promise<string> {
  */
 const ITEM_VIEW = `{ orderItemId: '${ITEM}', quantity: 5, instockQuantity: 0, cancelledQuantity: 0, maxCancellable: 2 }`;
 const REAL_PARTIAL = `<>
-  <PartialCancelForm returnTo='${RETURN_TO}' orderId='${ORDER}' items={[${ITEM_VIEW}]} shipmentWarning={{ blocked: false }} />
+  <PartialCancelForm returnTo='${RETURN_TO}' orderId='${ORDER}' items={[${ITEM_VIEW}]} shipmentWarning={{ blocked: false }} pendingRefund={{ kind: 'none' }} />
   <PartialCancelItemControl orderId='${ORDER}' item={${ITEM_VIEW}} />
 </>`;
 

@@ -138,6 +138,9 @@ import {
   toOrderCancelResultCode,
 } from '../../../lib/orders/cancel-action-state';
 
+// 🔵 預設世界 = 沒收過錢 ⇒ 不畫那個框。要測那個框的格子自己覆寫這一個。
+const NO_PENDING_REFUND = { kind: 'none' } as const;
+
 const ORDER = '11111111-1111-4111-8111-111111111111';
 const ITEM = '3a3a3a3a-3a3a-4a3a-8a3a-3a3a3a3a3a3a';
 const TOKEN = 'a1b2c3d4-e5f6-4a7b-8c9d-e0f1a2b3c4d5';
@@ -416,7 +419,7 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
   it('🔴 直接渲染 OrderDetail 且不傳 cancelFormsAllowed ⇒ 零取消表單', () => {
     // `payments` 與本格無關,給「訂單在、零收款列」的中性值(#15-B2-c 片1a 起為必填 prop)。
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()} detail={detail()} returnTo='/orders/ord-1' payments={{ status: 'ok', rows: [] }} />,
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={detail()} returnTo='/orders/ord-1' payments={{ status: 'ok', rows: [] }} />,
     );
     // 正向對照:證明元件真的畫出來了(否則「零表單」是恆真)。
     expect(container.textContent).toContain('ABC123');
@@ -431,14 +434,14 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
     //    原本**全綠存活** —— 因為 `OrderDetail` 自己的預設值是 `false`,
     //    區塊**永遠收不到 `undefined`** ⇒ 它自己那道嚴格比對從來沒被走到。
     //    兩層各自 fail-closed 是縱深,但**沒被測到的縱深等於不存在**;直接渲染區塊才量得到。
-    const { container } = render(<OrderCancelBlock shipmentWarning={NO_SHIPMENT} payments={PAY_UNREADABLE} returnTo='/orders?panel=x' detail={detail()} />);
+    const { container } = render(<OrderCancelBlock shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} payments={PAY_UNREADABLE} returnTo='/orders?panel=x' detail={detail()} />);
     // 正向對照:複核區塊有畫出來(否則「零表單」是恆真)。
     expect(container.textContent).toContain('取消訂單');
     expect(cancelFormCount(container)).toBe(0);
   });
 
   it('OrderCancelBlock 明確傳 true ⇒ 表單出現(對照組)', () => {
-    const { container } = render(<OrderCancelBlock shipmentWarning={NO_SHIPMENT} payments={PAY_UNREADABLE} returnTo='/orders?panel=x' detail={detail()} formsAllowed />);
+    const { container } = render(<OrderCancelBlock shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} payments={PAY_UNREADABLE} returnTo='/orders?panel=x' detail={detail()} formsAllowed />);
     expect(cancelFormCount(container)).toBeGreaterThan(0);
   });
 
@@ -460,7 +463,7 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
 
   it('同一份資料明確傳 true ⇒ 表單出現(證明上一格不是因為資料不可取消)', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()}
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={detail()}
         returnTo='/orders/ord-1'
         cancelFormsAllowed
@@ -580,7 +583,7 @@ describe('片C 驗收:商品卡的取消 checkbox 與危險區的表單共用同
 
   it('🔴 直接渲染 OrderDetail 不傳 cancelFormsAllowed ⇒ 商品卡零 checkbox(fail-closed)', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()} detail={detail()} returnTo='/orders/ord-1' payments={{ status: 'ok', rows: [] }} />,
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={detail()} returnTo='/orders/ord-1' payments={{ status: 'ok', rows: [] }} />,
     );
     expect(container.textContent).toContain('ABC123');
     // 🔴 補審(2026-08-29)抓到:這幾格【不走 renderPage()】⇒ 沒有拿到那 21 個呼叫點的錨,
@@ -617,7 +620,7 @@ describe('片C 驗收:商品卡的取消 checkbox 與危險區的表單共用同
       ] as never,
     });
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()}
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={withOddId}
         returnTo='/orders/ord-1'
         cancelFormsAllowed
@@ -727,7 +730,7 @@ describe('出貨警示 —— blocked 的值要真的走到畫面上', () => {
   it('🔴 blocked ⇒ 表單上出現那句話 + 一個【預設不勾】的確認格', () => {
     const { container } = render(
       <OrderCancelBlock
-        shipmentWarning={BLOCKED}
+        shipmentWarning={BLOCKED} pendingRefund={NO_PENDING_REFUND}
         payments={{ status: 'ok', rows: [] }}
         returnTo='/orders/ord-1'
         detail={detail()}
@@ -748,7 +751,7 @@ describe('出貨警示 —— blocked 的值要真的走到畫面上', () => {
   it('🔵 負對照:不 blocked ⇒ 那一整塊都不在(沒有這格, 「無條件顯示」也會通過上面那格)', () => {
     const { container } = render(
       <OrderCancelBlock
-        shipmentWarning={NO_SHIPMENT}
+        shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND}
         payments={{ status: 'ok', rows: [] }}
         returnTo='/orders/ord-1'
         detail={detail()}
@@ -765,7 +768,7 @@ describe('出貨警示 —— blocked 的值要真的走到畫面上', () => {
     //    ⇒ 中間任何一層忘了往下傳, 上面兩格都還是綠的, 而這一格會紅。
     const { container } = render(
       <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS}
-        shipmentWarning={BLOCKED}
+        shipmentWarning={BLOCKED} pendingRefund={NO_PENDING_REFUND}
         refundsTruncated={false}
         stuckVerdicts={new Map()}
         detail={detail()}
@@ -822,7 +825,7 @@ describe('對帳異常那句話的觸發來源 —— 要來自【收款列的 r
   function renderWith(payments: Parameters<typeof OrderDetail>[0]['payments']) {
     return render(
       <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS}
-        shipmentWarning={NO_SHIPMENT}
+        shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND}
         refundsTruncated={false}
         stuckVerdicts={new Map()}
         detail={detail()}

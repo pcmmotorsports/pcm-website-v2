@@ -1,5 +1,10 @@
 import Link from 'next/link';
 import { cancelShipmentWarning } from '../../lib/orders/cancel-shipment-warning';
+import { cancelPendingRefundNotice } from '../../lib/orders/cancel-pending-refund-notice';
+import {
+  listPendingRefundAmounts,
+  type PendingRefundRail,
+} from '../../lib/payment/pending-refund-repository';
 import { loadOrderShipments } from '../../lib/shipping/order-shipments';
 import { listOrderItemReceipts } from '../../lib/orders/receipt-repository';
 import { notFound } from 'next/navigation';
@@ -285,7 +290,23 @@ export async function OrderDetailRoute({
   let shipmentGroups: Awaited<ReturnType<typeof loadOrderShipments>> | null = null;
 
   let shipmentWarning = cancelShipmentWarning(null);
+  // 🔴🔴 **`null` 起手 = `unknown` = 畫成一句話**(Sean 2026-09-05 第 1 題拍乙)。
+  //    🛑 **不可以起手 `{kind:'none'}`** —— 那會讓「還沒讀」與「這單沒收過錢」變成同一個東西,
+  //       而後者在畫面上是**沒有紅框**。⇒ 📌 忘記接線的那個世界要**畫錯**, 不是**畫空**。
+  let pendingRefundRails: PendingRefundRail[] | null = null;
   if (detail !== null) {
+    try {
+      // 🔵 與隔壁那兩發同一個形狀:讀不到就 `null`, 由下游畫成一句話, **不靜靜當成沒有**。
+      //    🔴 這一發**只在取消區用得到**, 而它與到貨/包裹兩發共用同一個 try 風格 ——
+      //       不自創第二種錯誤處置。
+      pendingRefundRails = await listPendingRefundAmounts(id);
+    } catch (e) {
+      console.error(
+        '[admin/order-detail] 待退款金額讀不到 —— 取消區會畫成「請自己看收款紀錄」, 不會靜靜沒有紅框',
+        e,
+      );
+      pendingRefundRails = null;
+    }
     try {
       receiptRows = await listOrderItemReceipts(detail.items.map((it) => it.id));
     } catch (e) {
@@ -495,6 +516,7 @@ export async function OrderDetailRoute({
         <OrderDetail
           detail={detail}
           shipmentWarning={shipmentWarning}
+          pendingRefund={cancelPendingRefundNotice(pendingRefundRails)}
           receiptRows={receiptRows}
           shipmentGroups={shipmentGroups}
           returnTo={returnTo}

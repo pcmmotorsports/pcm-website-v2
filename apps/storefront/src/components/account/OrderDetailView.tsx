@@ -43,6 +43,7 @@ import {
   PCM_REMITTANCE_BANK_NAME,
   PCM_REMITTANCE_BRANCH,
   PCM_REMITTANCE_EXPIRE_DAYS,
+  remittanceDeadlineLabel,
   PCM_REMITTANCE_MEMO_INSTRUCTION,
 } from '@pcm/domain';
 import { ProductImage } from '@/components/ProductImage';
@@ -638,8 +639,17 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
               {PCM_REMITTANCE_MEMO_INSTRUCTION} {order.displayId}
             </dd>
           </dl>
+          {/* 🔴🔴 **Sean 2026-09-05 第 3 題拍【甲】—— 逐字「改成直接寫日期」。**
+              ⛔ ~~請於 {N} 天內完成匯款~~ ⇒ 客人要自己拿下單日去加。
+              🛑 **而「算錯的日期比不算糟」** —— 客人照著錯日期匯款, 錢到了單子已經被取消。
+                 ⇒ ✅ `remittanceDeadlineLabel` 算不出來時回 `null`, **這裡退回舊那句**,
+                   而**不是**印一個猜的日期。
+              🔵 「(含)」不是贅字:cron 是 `created_at < now() - 5 days`
+                 ⇒ **第 5 天當天還沒到期**(`20260904230000:451-455`)。 */}
           <p className="acc-order-note" data-od-id="order-remittance-expiry">
-            請於 {PCM_REMITTANCE_EXPIRE_DAYS} 天內完成匯款,逾期訂單將自動取消。
+            {remittanceDeadlineLabel(order.createdAt) === null
+              ? `請於 ${PCM_REMITTANCE_EXPIRE_DAYS} 天內完成匯款,逾期訂單將自動取消。`
+              : `請於 ${remittanceDeadlineLabel(order.createdAt)}(含)之前完成匯款,逾期訂單將自動取消。`}
           </p>
         </div>
       )}

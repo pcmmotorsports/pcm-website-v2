@@ -16,7 +16,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
-import { PCM_REMITTANCE_EXPIRE_DAYS, toMoneyAmount, type MemberOrderDetail } from '@pcm/domain';
+import { PCM_REMITTANCE_EXPIRE_DAYS, remittanceDeadlineLabel, toMoneyAmount, type MemberOrderDetail } from '@pcm/domain';
 import { OrderDetailView } from './OrderDetailView';
 import {
   ORDER_DETAIL_ITEM_CANCELLED_MARK,
@@ -154,10 +154,23 @@ describe('匯款資訊那一塊(M-4b 段 3)', () => {
     expect(q('order-remittance-memo')).toContain('匯款備註請填寫訂單編號');
   });
 
-  it('⑥ 期限那句印的是【常數】, 而常數與 migration 由 remittance-info.test.ts 比對', () => {
+  // ⛔ ~~⑥ 期限那句印的是【常數】~~ —— 🔴 **Sean 2026-09-05 第 3 題拍甲:改成直接寫日期。**
+  //    舊那格守的是「畫面上有那個 5」, 而現在畫面上**不該**有 5, 該有的是一個日期。
+  //    ⇒ 📌 **一格守舊行為的測試, 在行為被拍板改掉的那一刻會紅 —— 而那個紅是對的。**
+  it('⑥ 期限那句印的是【算出來的日期】, 不是天數', () => {
     render(<OrderDetailView order={bank()} />);
     const note = document.querySelector('[data-od-id="order-remittance-expiry"]');
+    // 🔵 期望值從 cron 的算式推(`created_at + 5 天`), 不從我寫的那行碼推。
+    expect(note!.textContent).toContain(remittanceDeadlineLabel(bank().createdAt)!);
+    expect(note!.textContent).toContain('(含)之前');
+  });
+
+  it('🔴 而【算不出來】那條路要退回舊那句 —— 不可以印一個猜的日期', () => {
+    // 🛑 那正是「算錯的日期比不算糟」的落點:客人照著錯日期匯款, 錢到了單子已被取消。
+    render(<OrderDetailView order={{ ...bank(), createdAt: 'ㄅㄆㄇ' }} />);
+    const note = document.querySelector('[data-od-id="order-remittance-expiry"]');
     expect(note!.textContent).toContain(String(PCM_REMITTANCE_EXPIRE_DAYS));
+    expect(note!.textContent).not.toContain('(含)之前');
   });
 });
 

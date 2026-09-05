@@ -20,6 +20,9 @@ import { stripComments } from '../../lib/test-support/strip-comments';
 
 import { OrderDetail } from './order-detail';
 import type { CancelShipmentWarning } from '../../lib/orders/cancel-shipment-warning';
+
+// 🔵 預設世界 = 沒收過錢 ⇒ 不畫那個框。要測那個框的格子自己覆寫這一個。
+const NO_PENDING_REFUND = { kind: 'none' } as const;
 // 🔵 `#450` 兩個**必填無預設**的 prop —— 大多數格子測的不是到貨列表,
 //    給「沒有到貨、沒有包裹」讓行為與加這一片之前逐字相同。
 //    🛑 而它們**不是**給 `null`:`null` 在下游是「讀不到」⇒ 會讓判準回「擋」、列表畫錯誤句
@@ -52,7 +55,7 @@ vi.mock('./order-detail-items-table', () => ({ ItemsTable: () => null }));
 vi.mock('./payment-section', () => ({ PaymentSection: () => null }));
 vi.mock('./shipment-section', () => ({ ShipmentSection: () => null }));
 // 🔴🔴 **R3 MF-1:這一支【不能】mock 成 `() => null`,而理由是量出來的。**
-//    `OrderCancelBlock`(`order-detail-money-tab.tsx` 搜 `<OrderCancelBlock shipmentWarning={NO_SHIPMENT}`;2026-08-24 拆檔片
+//    `OrderCancelBlock`(`order-detail-money-tab.tsx` 搜 `<OrderCancelBlock`;2026-08-24 拆檔片
 //    隨 money content 搬檔)是 `id='cancel'` 的**唯一來源**。
 //    mock 成 null ⇒ 下面那格守的其實是「**money 這一頁露出來了**」,**不是「連過去看得到取消區」**。
 //    🔴 失敗情境(R3 給的):把 `OrderCancelBlock` 搬到別的分頁
@@ -108,14 +111,14 @@ describe('🔴 must-fix 2:對帳異常時,開單就要落在「收款 · 退款�
   // 「那類警告存在的唯一理由就是要員工看到它」。分頁把它藏起來 = 同一個病換了載體。
   it('🔴 帳本讀不到(`refundsFailed`)⇒ 停在 money', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} refundsFailed />,
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} refundsFailed />,
     );
     expect(visible(container)).toEqual(['money']);
   });
 
   it('🔴 未登記額為負 ⇒ 同樣停在 money', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()}
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={DETAIL}
         returnTo='/orders'
         payments={OK}
@@ -127,7 +130,7 @@ describe('🔴 must-fix 2:對帳異常時,開單就要落在「收款 · 退款�
 
   // 🔴🔴 **負對照:沒有它,一個「永遠停在 money」的壞版本照樣綠。**
   it('🔴 正常單 ⇒ 停在 items,不是 money', () => {
-    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} />);
+    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} />);
     expect(visible(container)).toEqual(['items']);
   });
 
@@ -135,7 +138,7 @@ describe('🔴 must-fix 2:對帳異常時,開單就要落在「收款 · 退款�
   //    這一格釘的是【那個取捨本身】,不是「哪個比較重要」—— 改順序就要有人重新想一次。
   it('🔴 `?correct=` 與對帳異常同時成立 ⇒ 停在 notes(明確意圖優先),而這是已知殘餘', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()}
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={DETAIL}
         returnTo='/orders'
         payments={OK}
@@ -160,13 +163,13 @@ describe('🔴 R2 MF-A:`hashes: [\'cancel\']` —— 列表那兩條 `#cancel` �
 
   it('🔴 網址帶 `#cancel` ⇒ 開單就停在 money(取消區住在那一頁)', () => {
     window.location.hash = '#cancel';
-    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} />);
+    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} />);
     expect(visible(container)).toEqual(['money']);
   });
 
   it('🔴🔴 R3 MF-1:`#cancel` 那個 id **真的落在露出來的那一頁裡**(不是只有分頁對)', () => {
     window.location.hash = '#cancel';
-    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} />);
+    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} />);
     const shown = [...container.querySelectorAll('section[data-od-panel]')].filter(
       (el) => !(el as HTMLElement).hidden,
     );
@@ -176,7 +179,7 @@ describe('🔴 R2 MF-A:`hashes: [\'cancel\']` —— 列表那兩條 `#cancel` �
 
   it('🔴 負對照:`#cancel` 在【收起來的】那幾頁裡找不到 —— 否則上一格恆綠', () => {
     window.location.hash = '#cancel';
-    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} />);
+    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} />);
     const hiddenPanels = [...container.querySelectorAll('section[data-od-panel]')].filter(
       (el) => (el as HTMLElement).hidden,
     );
@@ -185,7 +188,7 @@ describe('🔴 R2 MF-A:`hashes: [\'cancel\']` —— 列表那兩條 `#cancel` �
   });
 
   it('🔴 負對照:沒有 hash 的同一張單 ⇒ 停在 items(不是「永遠 money」)', () => {
-    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} />);
+    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} />);
     expect(visible(container)).toEqual(['items']);
   });
 
@@ -213,7 +216,7 @@ describe('🔴🔴 R3 MF-2:四個 `data-od-panel` 是【跨三個檔的 CSS 契�
         **守不到「`globals.css` 那邊的選擇器被改了」** —— 那支檔不歸本條線,而契約是雙向的。
         ⇒ CSS 那一端的守門要由 L1 樣式線立。**已寫進給線A 的需求清單。** */
   it('🔴 生產端渲染出來的四個 `data-od-panel` 逐字且依序', () => {
-    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} />);
+    const { container } = render(<OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} />);
     const keys = [...container.querySelectorAll('section[data-od-panel]')].map((el) =>
       el.getAttribute('data-od-panel'),
     );
@@ -233,7 +236,7 @@ describe('🔴 codex 關卡2(2026-08-24)MF-1/MF-2:money 頁的必看警示,一�
   //    下面兩格補上分母表裡原本沒有獨立格的那兩個 `*Failed`;逐分支刪除突變的紀錄在交件檔。
   it('🔴 未登記額讀取失敗(`refundUnregisteredFailed`)⇒ 停在 money', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT}
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND}
         refundsTruncated={false}
         stuckVerdicts={new Map()}
         detail={DETAIL}
@@ -247,7 +250,7 @@ describe('🔴 codex 關卡2(2026-08-24)MF-1/MF-2:money 頁的必看警示,一�
 
   it('🔴 非卡退款登記讀取失敗(`manualRefundsFailed`)⇒ 停在 money', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT}
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND}
         refundsTruncated={false}
         stuckVerdicts={new Map()}
         detail={DETAIL}
@@ -261,7 +264,7 @@ describe('🔴 codex 關卡2(2026-08-24)MF-1/MF-2:money 頁的必看警示,一�
 
   it('🔴 MF-1:收款讀取失敗(`unreadable`)⇒ 開單停在 money(「勿再登錄」紅字在那一頁)', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()}
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={DETAIL}
         returnTo='/orders'
         payments={{ status: 'unreadable' } as never}
@@ -272,7 +275,7 @@ describe('🔴 codex 關卡2(2026-08-24)MF-1/MF-2:money 頁的必看警示,一�
 
   it('🔴 MF-1:查不到訂單(`order_not_found`)⇒ 同樣停在 money(收款狀況不明,同「不知道有沒有」)', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()}
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()}
         detail={DETAIL}
         returnTo='/orders'
         payments={{ status: 'order_not_found' } as never}
@@ -285,7 +288,7 @@ describe('🔴 codex 關卡2(2026-08-24)MF-1/MF-2:money 頁的必看警示,一�
   //    只開對分頁、塊還收著,紅字一樣看不到 ⇒ 分頁 + defaultOpen 都要驗。
   it('🔴 MF-2:退款帳本截斷 ⇒ 停在 money 且「退款」那塊自己打開', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} detail={DETAIL} returnTo='/orders' payments={OK} refundsTruncated stuckVerdicts={new Map()} />,
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} detail={DETAIL} returnTo='/orders' payments={OK} refundsTruncated stuckVerdicts={new Map()} />,
     );
     expect(visible(container)).toEqual(['money']);
     const refundBlock = [...container.querySelectorAll('details')].find((d) =>
@@ -297,7 +300,7 @@ describe('🔴 codex 關卡2(2026-08-24)MF-1/MF-2:money 頁的必看警示,一�
 
   it('🔴 MF-2:非卡退款登記截斷 ⇒ 同上兩層', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} manualRefundsTruncated />,
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} manualRefundsTruncated />,
     );
     expect(visible(container)).toEqual(['money']);
     const refundBlock = [...container.querySelectorAll('details')].find((d) =>
@@ -310,7 +313,7 @@ describe('🔴 codex 關卡2(2026-08-24)MF-1/MF-2:money 頁的必看警示,一�
   //    接了反而把人送離警示。它同時擋「乾脆全部 flag 都開 money」那種假修法。
   it('🔴 負對照:`suppliersFailed` ⇒ 仍停在 items(那面警示就在 items 頁)', () => {
     const { container } = render(
-      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} suppliersFailed />,
+      <OrderDetail receiptRows={NO_RECEIPTS} shipmentGroups={NO_SHIPMENT_GROUPS} shipmentWarning={NO_SHIPMENT} pendingRefund={NO_PENDING_REFUND} refundsTruncated={false} stuckVerdicts={new Map()} detail={DETAIL} returnTo='/orders' payments={OK} suppliersFailed />,
     );
     expect(visible(container)).toEqual(['items']);
   });
