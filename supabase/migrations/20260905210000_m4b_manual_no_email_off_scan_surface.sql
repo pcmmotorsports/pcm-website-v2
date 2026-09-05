@@ -652,18 +652,27 @@ COMMIT;
 -- ```
 --    ⚠️ **不是 4 就停下來** —— 那表示 080000 的字面被改過, 而這段抽取式沒跟著改。
 -- 🔴🔴 **而【三族各數 4】仍然答不出「那四個是哪四個」**(codex R5 ②:我上一輪那句話講太滿)——
---    🛑 抽取式若因為 080000 被改而抽到**別支 view 的四套**, 三族照樣印 4/4/4,
---       而**那份錯的 SQL 已經先把別支 view 改掉了**(它是 `CREATE OR REPLACE`)。
+--    🛑 抽取式若因為 080000 被改而抽到**別支 view 的四套**, 三族照樣印 4/4/4。
+--       ⇒ 而那份**錯的 SQL 這時候還沒有餵進 psql** —— 這一節整段都排在餵之前。
+--       🔴 危害是:**你會【拿著一份綠的自檢】去貼它**, 而它一貼下去就把別支 view 改掉
+--       (它是 `CREATE OR REPLACE`)。⛔ ~~上一版我把這件事寫成「已經先把別支 view 改掉了」~~
+--       —— **那是把【將會】寫成【已經】**, 而那會讓讀的人以為傷害已經造成、這一節是事後說明。
+--       📌 它不是事後說明, **它是那一貼之前的最後一道門。**
 --    ⇒ ✅ **名字也要逐一核**(這四行才是回答「是哪四個」的那一格):
 -- ```sh
 -- for V in pcm_order_created_email_pending pcm_shipped_email_pending \
 --          pcm_tracking_corrected_email_pending pcm_unpaid_cancelled_email_pending; do
 --   printf '%s CREATE=%s REVOKE=%s GRANT=%s\n' "$V" \
---     "$(grep -c "^CREATE OR REPLACE VIEW public.$V$" /tmp/rollback-210000.sql)" \
---     "$(grep -c "^REVOKE ALL ON public.$V "        /tmp/rollback-210000.sql)" \
---     "$(grep -c "^GRANT SELECT ON public.$V "      /tmp/rollback-210000.sql)"
+--     "$(grep -c "^CREATE OR REPLACE VIEW public\.$V\$" /tmp/rollback-210000.sql)" \
+--     "$(grep -c "^REVOKE ALL ON public\.$V "         /tmp/rollback-210000.sql)" \
+--     "$(grep -c "^GRANT SELECT ON public\.$V "       /tmp/rollback-210000.sql)"
 -- done
 -- ```
+--    🔴🔴 **那三個 `\.` 是【跳脫過的點】, 不是排版**(codex R6 ①)——
+--    ⛔ ~~我上一版寫 `public.$V`~~ ⇒ `grep` 的 `.` 是**任意字元** ⇒ `publicXpcm_…` 與
+--    `public.pcm_…` **都印 1** ⇒ 🛑 **一把宣稱在核【名字】的尺, 對名字本身是半盲的。**
+--    📌 而它錯的方向是**放行**:抽到一個名字長得像的東西時它說「對」。
+--    🔵 `$V` 本身只含 `[a-z_]` ⇒ 除了那個點, 沒有別的字元要跳脫。
 --    ✅ **四行都要印 `1 1 1`。任何一格不是 1 就停下來。**
 --    📌 ⛔ ~~上一輪我在這裡寫「三族各數一次才答得出【那四個是哪四個】」~~ —— **那句話是假的**:
 --       數量答的是「有幾個」, 只有**名字**答得出「是哪幾個」。而我把前者說成後者。
