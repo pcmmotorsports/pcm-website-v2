@@ -1325,6 +1325,69 @@ describe('⟦5b-TRACKNUMGAP1⟧ 片 C:更正單號信那條線的【接線】', 
  *    因為它們每一格量的都是「這一段做對了嗎」, **沒有一格在問「有人叫它嗎」。**
  * ⇒ 📌 一個沒有人呼叫的模組, 它自己的測試會全部通過。**綠的分母是【被測到的東西】。**
  */
+/**
+ * 🔴🔴 **⟦b4-CRON60SDOGPILE⟧:慢輪那一行只有在【超過門檻】時才存在。**
+ *
+ * 🛑 **為什麼這一格非有不可**:那一行的價值**完全來自它的稀有**
+ *    —— 「有沒有這一行」就是答案。若它其實每輪都印(或每輪都不印), 它一個字都沒說。
+ * 🔵 **怎麼控制時間**:不用 fake timers(route 裡是一串 await, 假時鐘與它們互動不直觀),
+ *    改成讓 `sweepSpy` 自己把時鐘往前推 —— **那正是真實世界慢的原因**(sweeper 跑很久)。
+ */
+describe('GET email-sweep — 🔴 整輪太慢要印一行找得到的東西', () => {
+  const SLOW_PREFIX = '[email-sweep-slowround]';
+
+  function runWithElapsed(ms: number) {
+    let now = 1_700_000_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    sweepSpy.mockImplementation(async () => {
+      now += ms; // sweeper 跑掉 ms 毫秒
+      return { ...CLEAN_RESULT };
+    });
+  }
+
+  it('🔴 整輪 46000ms(> 門檻 45000)⇒ 有那一行', async () => {
+    runWithElapsed(46_000);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await GET(makeReq(bearer()));
+    const lines = JSON.stringify(errSpy.mock.calls);
+    expect(lines, '🔴 慢輪沒有印出可 grep 的那一行 ⇒ 撞到 60s 之前完全沒有預警').toContain(SLOW_PREFIX);
+    errSpy.mockRestore();
+  });
+
+  it('🟢 負對照:整輪 45000ms(恰好等於門檻)⇒ 【沒有】那一行', async () => {
+    // 🛑 少了這格, 一個無條件印的實作也全綠 —— 而那正是本 repo 記過的「判定標籤不由結果決定」。
+    runWithElapsed(45_000);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await GET(makeReq(bearer()));
+    expect(JSON.stringify(errSpy.mock.calls)).not.toContain(SLOW_PREFIX);
+    errSpy.mockRestore();
+  });
+
+  it('🔵 那一行帶得出【毫秒數】與【五條線的狀態】(不然看到它也不知道是誰慢)', async () => {
+    runWithElapsed(46_000);
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await GET(makeReq(bearer()));
+    const call = errSpy.mock.calls.find((c) => String(c[0]).includes(SLOW_PREFIX));
+    expect(call, '找不到那一行').toBeDefined();
+    const payload = call![1] as Record<string, unknown>;
+    expect(payload.roundMs).toBe(46_000);
+    expect(payload.thresholdMs).toBe(45_000);
+    for (const k of ['enqueueStatus', 'shippedStatus', 'trackFixStatus', 'cancelledStatus', 'unpaidCancelStatus']) {
+      expect(payload, `少了 ${k} ⇒ 看到那一行也不知道哪一條線慢`).toHaveProperty(k);
+    }
+    // 🛑 零 PII:那個物件裡不得出現 @
+    expect(JSON.stringify(payload)).not.toContain('@');
+    errSpy.mockRestore();
+  });
+
+  it('🔴 前綴不得與心跳那行相同 —— 心跳也是 console.error, 每 5 分鐘一發', () => {
+    // 🎯 主視窗 2026-09-05 production 實查:心跳那行在 Vercel 顯示 [error/serverless]
+    //    ⇒ level 對這支 cron 零判別力 ⇒ 唯一分得開的是前綴字面。
+    expect(SLOW_PREFIX).not.toBe('[heartbeat]');
+    expect(SLOW_PREFIX.startsWith('[email-sweep]')).toBe(false);
+  });
+});
+
 describe('GET email-sweep — 🔴 取消信(刷卡已退款)那條線真的被叫得到', () => {
   const CNL_CUTOFF = '2026-09-05T00:00:00.000Z';
 

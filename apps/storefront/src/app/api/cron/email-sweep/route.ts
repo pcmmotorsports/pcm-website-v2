@@ -291,6 +291,50 @@ function pickShippedEnqueueCounts(result: {
 // 🔴 **不共用 `pickShippedEnqueueCounts`** —— 型別剛好相容, 而**輸出的鍵不能相同**:
 //    兩條線的計數會落在同一個 JSON 物件裡, 共用會讓後寫的那條**安靜覆蓋**前一條
 //    ⇒ 📌 而覆蓋之後兩個數字看起來都很合理, 沒有東西會叫。
+/**
+ * 🔴🔴 **⟦b4-CRON60SDOGPILE⟧:整輪耗時逼近上限時,印一行【找得到】的東西。**
+ *
+ * 🛑 **為什麼需要它 —— 而不是「心跳已經印了 round= 所以看得見」**:
+ *    `216a7d578` 讓心跳那行多印 `round=<毫秒>ms`,而那一行**每 5 分鐘都印、而且永遠是同一個形狀**
+ *    ⇒ 📌 **「1.2 秒」與「58 秒」在 log 上長得一模一樣**,要看出差別得有人去讀那個數字。
+ *    ⇒ 本行只在**超過門檻時才存在** ⇒ 「有沒有這一行」本身就是答案,不必讀數字。
+ *
+ * 🔴🔴 **前綴刻意與心跳【不同】** —— 而理由是量到的(主視窗 2026-09-05 production log 實查):
+ *    心跳那行 `[heartbeat] pcm-email-sweep … round=1248ms` 在 Vercel 上顯示為 **`[error/serverless]`**,
+ *    因為 `heartbeat.ts` 印那行的地方(文字錨:`[heartbeat] ${jobName} db=`)用的就是 `console.error`(**刻意的**:一行健康心跳走 error 串流)。
+ *    ⇒ 🛑 **⇒ 「level = error」對這支 cron 完全沒有判別力**(每 5 分鐘一發正常心跳就是 error)
+ *    ⇒ ✅ 唯一分得開的是**前綴字面**,所以本行用 `[email-sweep-slowround]`,不與任何既有前綴相同。
+ *
+ * ⚠️⚠️ **它【證不到】什麼 —— 這一段不要刪,它是這片的射程**:
+ *    🔴 **沒有任何自動化的東西會讀到這一行。** `check-anomaly-alerts` 的資料**全部來自 SQL**
+ *      (`PgAnomalyAlertReaderAdapter` 62 處 SQL、**0 處讀 log**;它那 10 個 `console.error` 是在**印**不是在**讀**)
+ *      ⇒ 📌 **「讓 anomaly-alert 的 errors 桶撈到」在今天的架構下【做不到】** —— 那個桶不是 log 桶。
+ *    ⇒ ⇒ **本行的讀者是【人】** :`grep 'email-sweep-slowround'` 於 Vercel log。
+ *    🛑 要它變成會自己叫的東西,得把這個數字**寫進 DB**;而 `sweeper_heartbeat` 的 `COMMENT ON TABLE`
+ *      逐字寫著「**無歷史(刻意):只答「它還活著嗎」,不答趨勢**」(`20260817070000:73-79`)
+ *      ⇒ 那是一個**已落檔的設計決定**, 動它要先推翻它 ⇒ **另一片,不在這裡順手做。**
+ */
+const ROUND_SLOW_THRESHOLD_MS = 45_000;
+
+/**
+ * 🔵 門檻 45 秒:**Sean 未拍板,保守預設**。
+ *    取法:`maxDuration = 60` 的 75%,留 15 秒給平台的冷啟動與回應寫出
+ *    —— 而 `invocationStartedAtMs` 是 GET 的第一行 ⇒ 我們量的是**下界**,不是平台那把碼表。
+ * ⚠️ **這個數字沒有量測依據**(今天實測整輪 1.2~1.8 秒,離門檻兩個量級)⇒ 它是個**佔位**,
+ *    第一次真的印出這一行時就該回來重訂,而不是把門檻調高讓它閉嘴。
+ */
+function warnIfSlowRound(startedAtMs: number, statuses: Record<string, string>): void {
+  const roundMs = Date.now() - startedAtMs;
+  if (roundMs <= ROUND_SLOW_THRESHOLD_MS) return;
+  // 🛑 零 PII:只有一個毫秒數與五個我們自己寫死的狀態列舉值。
+  console.error('[email-sweep-slowround] 🔴 整輪耗時逼近 maxDuration ⇒ 下一條寄信線可能被平台 kill', {
+    roundMs,
+    thresholdMs: ROUND_SLOW_THRESHOLD_MS,
+    maxDurationSeconds: maxDuration,
+    ...statuses,
+  });
+}
+
 function pickCancelledEnqueueCounts(result: {
   scanned: number;
   truncated: boolean;
@@ -816,6 +860,10 @@ export async function GET(request: Request): Promise<Response> {
         ...trackFixSection,
         ...cancelledSection,
       });
+      // 🔴 慢輪要在【兩條】回傳路徑都問一次 —— 一輪可以又慢又有錯, 而那時最需要這一行。
+      warnIfSlowRound(invocationStartedAtMs, {
+        enqueueStatus, shippedStatus, trackFixStatus, cancelledStatus, unpaidCancelStatus,
+      });
       await recordHeartbeatFailure(CRON_JOB_NAME.emailSweep);
       return Response.json({ ok: false, ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...cancelledSection }, { status: 503 });
     }
@@ -829,6 +877,9 @@ export async function GET(request: Request): Promise<Response> {
     //      ⇒ 而片 C 讓這裡變成**第四條**序列 enqueue ⇒ 📌 **撞到之前完全沒有預警。**
     //    ⚠️ `invocationStartedAtMs` 是 GET 的第一行 ⇒ 這個數**不含平台的冷啟動與回應寫出**
     //      ⇒ 它是**下界**, 不是平台那把碼表(而 `maxDuration` 算的是後者)。
+    warnIfSlowRound(invocationStartedAtMs, {
+      enqueueStatus, shippedStatus, trackFixStatus, cancelledStatus, unpaidCancelStatus,
+    });
     await recordHeartbeatSuccess(
       CRON_JOB_NAME.emailSweep,
       undefined,
