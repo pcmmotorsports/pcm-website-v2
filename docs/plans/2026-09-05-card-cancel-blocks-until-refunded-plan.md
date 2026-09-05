@@ -95,12 +95,34 @@ A: 甲 | 乙
 
 ---
 
-## §4 🛑 R3 抓到的兩個洞(**我沒有核**, 照實標)
+## §4 🔴🔴 R3 的 F1/F2 —— **我核完了, 它成立**, 而**這一片會放大它**
 
-- **F1/F2**:`payment_status` **只升不降**,且判「退完了」時**加總 `order_manual_refunds` 而不重驗 `rail`**
-  ⇒ 🔴 **登記一筆假的人工退款就能解鎖取消。**
-- ⚠️ **這兩條是 R3 的 finding, 我【沒有開檔核過】** ⇒ 動手前必須先核。
-  📌 **一個沒核過的 finding 寫進 plan, 與一個核過的長得一樣 —— 所以標在這裡。**
+🔬 **開檔量到的**(`20260905010000_m4b_manual_refund_syncs_payment_status.sql:293-315`):
+```sql
+v_moved = SUM(order_refunds  WHERE status='confirmed')        -- 卡片軌
+        + SUM(order_manual_refunds WHERE voided_at IS NULL)   -- 人工軌
+v_target = CASE WHEN v_moved >= v_total THEN 'refunded' ELSE 'partiallyRefunded' END
+IF v_ps <> 'refunded' AND v_ps <> v_target THEN UPDATE orders SET payment_status = v_target
+```
+⇒ 🔴 **加總【不分軌】** —— 一張**刷卡**單,只要在 `order_manual_refunds` 登記一筆
+   `rail='bank_transfer'`、金額 ≥ 總額的退款 ⇒ `payment_status` **變成 `refunded`**,
+   **而錢還在 TapPay 那裡沒退。**
+⇒ 🔴 **而 `payment_status` 只升不降**(`IF v_ps <> 'refunded'`)⇒ **變了就回不去。**
+
+**那道閘擋在哪、沒擋在哪**:
+- ✅ DB 端 `admin_record_manual_refund:330` **有擋** `p_rail='card'`(「card 軌不得由人工登記」)
+- 🔴 **而它【不擋】「這張單是刷卡收的」** ⇒ 對刷卡單登記一筆 `bank_transfer` **是允許的**
+- 🔴 UI 那道 gate(`manual-refund-entry-gate.ts:185`)只在「有 bank/cash 收款列」時才開放登記,
+  **而同檔 `:42` 逐字**:「UI 這道的 rail 條件 **server 端沒有重驗**」
+  ⇒ 📌 **UI 擋、server 不擋 ⇒ 繞過 UI 就進得去。**
+
+### ⚠️ 而這裡有一句話要說清楚
+🔵 **這個洞【今天就在】, 不是這一片造成的。**
+🔴 **而這一片會把它從「顯示錯」升級成「動得了單」** ——
+   今天 `refunded` 只讓畫面說「不需要為它做任何事」;
+   **接上取消之後, 它變成「把一張沒退錢的刷卡單標成已取消」。**
+⇒ 🛑 **所以這一片動手前, 那道 server 端重驗要先補**, 否則我是在一個已知的洞上面加一條路。
+⇒ 📌 **這一格不是本片的 nice-to-have, 是它的【前置】。**
 
 ---
 
@@ -116,7 +138,12 @@ A: 甲 | 乙
 
 1. **沒有**核 §4 那兩個洞(R3 F1/F2)。
 2. **沒有**真的呼叫過任一支 RPC —— 正式庫不可以。
-3. **沒有**查 `admin_mark_order_cancelled` 為什麼沒人接(可能刻意等前置)⇒ **動手前第一件事。**
+3. ✅ **查完了:零呼叫端是【刻意的】, 不是漏掉。**
+   那顆 commit 的 body 逐字:「**本片不寄信、不碰 outbox(那是片④)**」
+   ⇒ 📌 **它是一組片的其中一片, 只做 DB 那半** —— 而**片④與 UI 那半, 沒有人做**。
+   ⇒ 🔵 **所以「接上去」是在完成一個原本就規劃好的形狀, 不是發明新東西。**
+   ⚠️ 同一顆 body 另一句:「既有的 `admin_cancel_order` 有 `p_items jsonb`, 而本支沒有
+   ⇒ 呼叫端**連『想傳數量』都做不到**, **不是『我們決定不傳』**」—— 與 R2 #6 對得上。
 4. **沒有**查 `VXTQV2` 去哪了(§2)。
 5. **沒有**讀 R3 全文的 7 條 consider 與 3 條 nit —— 只折了主視窗轉的骨與我自己核到的。
    ⚠️ **那 10 條裡可能有真的東西。**
