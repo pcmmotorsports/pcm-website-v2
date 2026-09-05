@@ -33,6 +33,82 @@
 --    「灌爆連清都不能清」只對 `service_role` 成立(postgres owner 一直清得掉)·
 --    「今天的量是零」沒有逐列證據(只有目錄層)。
 --
+-- ══ 🔴 **[R3 F8 · F9] 這一片產生了三個【沒有人讀】的數字, 而它們各自不同** ══════
+--   本片自己就有一格在講這件事(檔頭「流量上來前重看」那節講 `deleted_overflow`),
+--   而 R3 把另外兩個也指出來了。**三個一起列, 因為它們是同一族而【修法不同】**:
+--   ```
+--   ① deleted_overflow   cron command `SELECT purge_search_queries()` 丟掉回傳值
+--                        ⇒ 「撞到 200 萬」沒有人會知道(檔頭那節已寫)
+--   ② more_to_do         同上, 也在那個被丟掉的回傳裡 ⇒ 🔴 **它是【死輸出】**
+--                        ⇒ 📌 而本片寫它的理由是「提示下一發再來」—— 而**沒有下一發在讀它**,
+--                          收斂實際上**全靠 `*/10` 那個排程**, 不是靠這個旗標。
+--                          🛑 **那句「它是提示不是保證」還不夠** —— 它今天連提示都不是。
+--   ③ consecutive_failures  心跳那段**只在成功時寫 0, 從來不 increment**
+--                        ⇒ 🔴 **它恆 0, 而恆 0 與「一直很健康」印同一個東西。**
+--                        ⇒ 而這一支是**純 SQL**:函式拋錯 ⇒ 同交易的失敗心跳一起被回捲
+--                          ⇒ 📌 **它在物理上寫不出失敗心跳** —— 那正是 `FAILURE_COUNT_MEANINGLESS`
+--                            那個集合存在的理由。⇒ **併進 F2 的順序限制那一格一起做。**
+--   ```
+--   🛑 **本片【不修】①②③** —— 修 ③ 要動白名單(受 F2 的順序限制擋著);
+--      修 ①② 要改 cron command 或心跳的欄位, 而**那會讓拋棄式 PG 那兩個世界的實跑全部作廢**,
+--      而 R4 正要開始。⇒ **列成「本檔改名成真 migration 的那一顆」要一起帶的東西。**
+--   📌 **而三個都寫在這裡的理由**:它們**在儀表上長得跟「一切正常」一模一樣**,
+--      ⇒ 少了這一段, 下一個人看到心跳是綠的就會以為有人在看。
+--
+-- ══ 🔴🔴 **[R3 F2] 心跳寫了而【沒有人讀】—— 而修它有一個【順序限制】** ══════════
+-- R3 抓到:`pcm-search-log-purge` 會是**第 10 支**排程, 而 `CRON_JOB_WHITELIST` 只有 **9 支**
+-- (當場數:剝掉註解之後 9 支, 不含它)⇒ 📌 **本片按 codex R2 第 10 條加的那個心跳,
+--    寫進表裡而【儀表不會去讀它】** —— 那正是「寫對了而沒接上的保護與沒寫的行為相同,
+--    而前者更貴」那一族。
+--
+-- 🔴🔴 **而我試著現在就加, 被一道既有的守門擋下來 —— 那道守門是對的**:
+--    `apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:134` 逐字
+--    「白名單 == migrations 裡真的排過的那幾支(**兩個方向都比**)」,
+--    而它的分母是 **`supabase/migrations/*.sql` 裡真的呼叫過 `cron.schedule('<名字>'` 的**
+--    (`:137` 只收 `.endsWith('.sql')`)。
+--    ⇒ 🛑 **本檔是 `PENDING-…sql.txt`** ⇒ 它**不在那個分母裡** ⇒ 白名單多一支就是**白名單在說謊**。
+--    ⇒ ✅ **我把加白名單那一發【撤回了】**(實測:加了之後兩格紅 —— 「九支釘死」與「兩個方向都比」;
+--       撤回後 5 檔 / 97 格全綠)。
+--
+-- ✅ **⇒ 正確的順序, 寫在這裡免得下一個人重踩**:
+--    ① 本檔改名成真的 `supabase/migrations/<版本號>_….sql`
+--    ② **同一顆 commit** 裡:`CRON_JOB_WHITELIST` 加 `pcm-search-log-purge`
+--       (`staleMinutes = 30` = 排程 `*/10` × 3, 與 `pcm-capture-recheck` 同一把尺)
+--       · `FAILURE_COUNT_MEANINGLESS` 也要加它(**純 SQL ⇒ 失敗心跳會被同交易回捲
+--         ⇒ `consecutive_failures` 永遠是 0, 而那與「一直很健康」長得一樣**)
+--       · 那支測試的「【九】支」要改成十(它是刻意釘死的, 不是壞掉)
+--    🛑 **①②【不可以分開兩顆】** —— 分開的話中間那一刻:排程已經在跑而儀表不讀它,
+--       或白名單有一支不存在的排程。**兩個方向都是說謊。**
+--
+-- ══ 🔵 **「流量上來前重看單列計數器」—— 那個觸發點長什麼樣**(2026-09-05 · `-f8` 派)══
+-- Sean 拍甲(逐字:`甲 = 先這樣上, 流量上來再拆(上限精確 5000)`)⇒ 計數器維持單列,
+-- 而 **「流量上來」必須有一個【會自己叫】的形狀, 否則它就是一句沒有人在等的話。**
+--
+-- 🔴 **而最直覺的那個做法【不可行】**:去 `SELECT count(*) FROM search_queries` 看有多少 ——
+--    **唯讀帳號讀不到那張表**(2026-09-05 實測 `ERROR: permission denied for table search_queries`;
+--    權限被刻意收掉, 那是設計不是缺陷)⇒ 📌 **不能靠「去看看有多少」來觸發。**
+--
+-- ✅ **今天【已經在跑】的那半(不必新做)**:
+--    `public.get_search_log_health()`(`20260904240000`)以 SECURITY DEFINER 讀得到那張表,
+--    而 `packages/use-cases/src/check-anomaly-alerts.ts:110-114` **已經在消費它**:
+--      `searchLogTableExists` · `searchLogLastRowAt` · `searchLogStale` · `searchLogUnknown`
+--    ⇒ 🎯 **`searchLogLastRowAt` 從 `null` 變成非 null = 「開始有流量」的第一個訊號**,
+--       而它**已經每天走告警信到 Sean**。⇒ **那一格不必做, 只要有人知道要看它。**
+--
+-- 🛑 **而它答不出【多少】** —— 重看單列計數器需要的是**量級**, 不是「有沒有」。
+--    ⇒ 🔴 **真正的觸發應該是 `deleted_overflow > 0`** ——
+--       那代表 200 萬上限**真的被撞到過**, 而那正是 Sean 說的「流量上來」。
+--    ⛔ **而本支今天【把它丟掉】**:`purge_search_queries()` 把 `deleted_overflow` 當回傳值,
+--       而 `cron.schedule` 那一句 `SELECT public.purge_search_queries()` **不留任何東西**
+--       ⇒ 📌 **那個數字每 10 分鐘產生一次, 而每一次都消失。**
+--    ✅ **修法很小**(心跳那一段已經在寫表了, 多帶一欄或一個 `RAISE LOG` 即可),
+--       🛑 **而本片【不做】** —— R3 正在跑, 改它會讓上面那兩個世界的實跑全部作廢。
+--       ⇒ **寫成 R3 過了之後的下一格, 不另開列**(`-f8` 2026-09-05 裁「不另開列」)。
+--
+-- 📌 **⇒ 在那一格做完之前, 「流量上來前重看」實際靠的是**:
+--    ①告警信裡 `searchLogLastRowAt` 由 null 轉非 null(**會自己叫**)
+--    ②而「撞到 200 萬」**今天沒有人會知道** —— 這一句要留著, 不要讓它讀起來像已經有人在看。
+--
 -- ⏭️ **要 Sean 拍的是**:①接受這兩條殘餘風險先上(它們都是「可能」, 而今天站上流量是零)
 --    ②還是先做壓測 / 改設計(例如把計數器分片成 N 列, 或 overflow 那半改用 id 水位而不是 OFFSET)。
 --    🔴 **我不自宣接受殘餘風險。**
@@ -125,6 +201,23 @@ END $$;
 --    R1 有 `search_queries_created_at_idx`, 而我把上限從 count(*) 換成計數器時, 順手把它一起刪了
 --    ⇒ 🎯 **而 purge 的「刪過期」那一半【還是要用它】** —— 沒有它, 零過期列也要掃整張表, 每 10 分鐘一次。
 --    ⇒ 📌 **一個修法拿掉了另一個修法還需要的東西, 而三綠與靜態檢查【都不會叫】。**
+-- 🔴 **[R3 F3] 這一句零 `lock_timeout`** —— `CREATE INDEX`(非 `CONCURRENTLY`)拿的是
+--    `SHARE` 鎖 ⇒ 它會**擋掉那張表所有的寫入**, 而**寫入方是每一次搜尋**。
+--    ⛔ ~~沒有上限地等~~ ⇒ 一次貼在有流量的時段, 客人的搜尋會**跟著卡住**, 而卡多久沒有上界。
+--    ✅ 形狀抄本 repo 既有的 `20260717020000:294`(`SET LOCAL lock_timeout = '3s'`)。
+--    🛑 **它擋不住什麼**:逾時之後**整支 migration 會 ROLLBACK** —— 那是**故意的**
+--       (fail-closed:寧可貼不成功, 不要無上限地卡住客人的搜尋);重貼即可。
+--    🔵 而**今天那張表是空的** ⇒ 這一格今天不會叫;它是給**下一次**在有流量時貼的人。
+-- 🔴 **[R3 F3 全文版]** 本檔**整支零 `lock_timeout` 也零 `statement_timeout`**
+--    (當場數:本檔 `statement_timeout` 命中 **0**;🟢 正對照:repo 裡用過 `SET LOCAL statement_timeout`
+--     的 migration 有 **87 支** ⇒ 那是本 repo 的慣例, 不是我發明的形狀)。
+--    ⇒ 而它不只 `CREATE INDEX`:`CREATE OR REPLACE FUNCTION` 那幾句在有流量時也會等鎖。
+--    ⚠️ **而 R3 另指出一格我沒想到的**:`statement_timeout` 觸發時是 `57014`,
+--       而 `purge_search_queries` **沒有接住它** ⇒ 📌 **整發回捲 ⇒ 兩個 DELETE 都不算數**
+--       —— 那不是壞事(fail-closed), 而**它會讓「有沒有在清」與「一直失敗」印同一個畫面**
+--       ⇒ 🛑 **而那正是 F9 那條(心跳恆 0)讓它看不見的東西。**
+SET LOCAL lock_timeout = '3s';
+SET LOCAL statement_timeout = '120s';
 CREATE INDEX search_queries_created_at_idx ON public.search_queries (created_at);
 
 -- ── 1. 計數表(一小時一列)──────────────────────────────────────────────
@@ -225,13 +318,90 @@ BEGIN
                  LIMIT c_batch);
   GET DIAGNOSTICS v_expired = ROW_COUNT;
 
-  -- ② 總量那半(單批)—— 🔴 只刪【超出上限的最舊那些】。
+  -- ②a 🔴🔴 **前置:表【小到不可能有 c_max_rows 列】就整段跳過**
+  --     (2026-09-05 折 codex R2 第 5 條 must-fix;主視窗 `-f8` 裁「只折這一條」)
+  --
+  --  🔴 **它折的是什麼**:下面 ②b 那句 `ORDER BY id DESC OFFSET c_max_rows` **每一發都要跨過
+  --     200 萬個 index item**;144 發/日 ⇒ **每日約 2.88 億**。而 codex 逐字:防線自己變成常態成本。
+  --  🎯 **而那句話只有在【真的超量】時才需要跑** ⇒ 加一道 O(1) 的前置, 沒超量就不跑
+  --     ⇒ **在正常世界(也就是每一天, 直到真的被灌爆)那個放大器根本不執行。**
+  --  ✅ **⇒ 這一格不需要任何壓測就成立** —— 它把「量它貴不貴」換成「讓它不跑」。
+  --
+  --  ⛔ ~~我第一版要用 `pg_class.reltuples`~~ —— 🔴 **它在我寫下去之前就被量掉了**:
+  --     2026-09-05 唯讀實查正式庫 ⇒ `search_queries` 的 `reltuples` = **-1**,
+  --     `last_analyze` 與 `last_autoanalyze` **都是 NULL**(從未被 ANALYZE 過)。
+  --     🛑 **`-1` 是 PostgreSQL 的「不知道」哨兵值** ⇒ 而 `-1 < 2000000` 為真
+  --     ⇒ 那道前置會**跳過 purge**, 也就是**把「沒有資訊」讀成「表很小」**。
+  --     🟢 正對照:同一發問 `products` ⇒ `reltuples` = 25038(尺會動, 不是它壞了)。
+  --
+  --  ✅ **改用 `pg_relation_size`, 而它是【可證明】的**:
+  --     · 它**永遠精確**、不依賴 ANALYZE(它問的是檔案佔幾個 page)
+  --     · **大小是列數的上界**:heap tuple header MAXALIGN 後 24 bytes + item pointer 4 bytes
+  --       ⇒ **任何一列至少 28 bytes**;本表還有 `id`(int8)與 `created_at`(timestamptz)
+  --       ⇒ 至少 40。**取 32 是刻意保守的下界。**
+  --     ⇒ 📌 **表小於 `c_max_rows × 32` ⇒ 不可能有 c_max_rows 列。這是算出來的, 不是量出來的。**
+  --  🔵 **而 bloat / dead tuple 只會讓表【變大】** ⇒ 它推向「不跳過」= 照樣跑那句
+  --     ⇒ **失效方向是安全的那一側**(多做一次, 不是少做)。
+  --  🔵 **TOAST 也不破**:長字串搬去 TOAST 之後主表那一列仍留一個約 18 bytes 的指標
+  --     ⇒ 每列仍 ≥ 28 ⇒ 32 這個下界照樣成立。
+  --
+--  🔬 **拋棄式 PG 17.10 實跑(2026-09-05;真的函式本體, 從本檔抽出來載入, 沒有手抄)**:
+--     ```
+--     每列實際 bytes  52.18(query_raw 只放 1 個字元 = 最短的情況)
+--                     ⇒ 我宣稱的下界 32 成立而且有餘裕
+--     門檻換算        64,000,000 bytes ÷ 52.18 ≈ 【122.7 萬列】就會開閘
+--                     ⇒ 而上限是 200 萬 ⇒ 📌 **閘【比需要的時候更早開】, 它不可能在超量時擋住**
+--     世界 A  20 萬列 / 10,436,608 bytes ⇒ 閘 f ⇒ deleted_overflow = 0, 零錯誤
+--     世界 B 205 萬列 / 106,971,136 bytes ⇒ 閘 t ⇒ deleted_overflow = 5000, more_to_do = t
+--     ```
+--  🔬 **[R3 折完之後重跑, 2026-09-05]** 兩個世界**逐字同上**(A 閘 f / 0 · B 閘 t / 5000 / t)。
+--  🟢🟢 **而這一發最值錢的是 F1 的突變**:把那句 `IF` **註解掉**(文字仍留在 `prosrc` 裡)
+--     另建一支 `purge_mut`, 兩把尺同時問 ——
+--     ```
+--     purge_mut             舊尺 LIKE = t   ← 🔴 它會【放它過】
+--                           新尺 regex = f  ← ✅ 擋下
+--     purge_search_queries  舊尺 t · 新尺 t
+--     ```
+--     ⇒ 📌 **那證明舊的 ①b 是恆真的, 而新的分得出來。**
+--  🔬 **[R3 ④]** 空表上真的 `PERFORM public.purge_search_queries()` ⇒ 跑得起來、
+--     心跳寫進 `sweeper_heartbeat`(`pcm-search-log-purge`, `consecutive_failures = 0`)。
+--  🔴🔴 **而有一件我【沒有證明】, 照實寫**:世界 A 的「0」與「跑了但沒東西刪」**在結果上長一樣**。
+--     我試著用 `pg_stat_user_tables.idx_scan` 分開它們 —— 🛑 **而正對照(手動跑同一句)也回 0**
+--     ⇒ **那把尺沒動, 兩個讀數都作廢, 我不拿它當證據。**
+--     ⇒ 📌 **「它沒跑」這件事我靠的是 `IF` 的語意 + 上面量到的閘值(A 是 f、B 是 t)**,
+--        **不是一個獨立的觀察。** 而 `IF` 為假時不執行內層是語言保證, 不是本片的宣稱。
+--
+--
+--  🔴🔴 **[R3 三條 consider —— 它們都在【收窄我的宣稱】, 所以三條都寫進來]**
+--   **F6 我量到的那個數字要訂正**:我的 fixture 是**簡化過的表**(沒有本體那幾個 CHECK 與欄),
+--      🔬 **而 R3 指出【為什麼】我的 fixture 代表不了它**:真表有
+--      `CHECK (path IN ('keyword','capsule'))`(`20260904200000…:131`)
+--      ⇒ 📌 **我 fixture 裡那個 1 字元的 `'q'` 在真表上【是被禁止的】** —— 我量的那一列建不出來。
+--      實際每列是 **60.2 bytes** 不是我量到的 52.18 ⇒ 門檻換算 ⇒ 開閘點約 **106 萬列**
+--      (不是我先前寫的 122.7 萬)。🔵 **結論不變**(仍遠小於 200 萬 ⇒ 閘比需要的時候更早開),
+--      🛑 **而那個數字是【我的 fixture 的性質】不是本表的** —— 引用它之前先看你量的是哪一張表。
+--   **F4 這道閘是【單向栓】**:`pg_relation_size` 算的是**檔案佔幾頁**, 而 `DELETE` **不會讓它變小**
+--      (要 `VACUUM FULL` 才會)⇒ 📌 **表一旦 bloat 過門檻, 這道閘就【永遠開著】**,
+--      而那正是它本來要省的那件事。⇒ 🔵 **失效方向仍是安全那一側**(多跑, 不是少跑),
+--      **而「省下 2.88 億」那個效益會在第一次大爆發之後【永久消失】, 直到有人 VACUUM FULL。**
+--   **F5 ⇒ 所以「折⑤」的射程要縮**:⛔ ~~「那個放大器根本不執行」~~
+--      ✅ 準確說法:**在【未超量】的世界裡不執行**。灌爆穩態下(表就是維持在 2M 列附近)
+--      **閘恆開, 而那句 OFFSET 照跑** ⇒ 🛑 **codex R2 第 5 條在那個世界裡【沒有被解決】**,
+--      本片解的是「平常不要付這個成本」, **不是「這個成本消失了」**。
+--
+--  🛑 **它擋不住什麼**:①這一格**只跳過 ②b**, 過期那半(①)照跑 —— 那是對的, 它便宜
+  --     ②`c_max_rows` 或表結構若改, **這個下界要重算**(改值的人請重讀本段)
+  --     ③它**不保證**超量時那句就便宜 —— 只保證**沒超量時它不跑**。
+  IF pg_catalog.pg_relation_size('public.search_queries'::regclass) >= c_max_rows * 32 THEN
+
+  -- ②b 總量那半(單批)—— 🔴 只刪【超出上限的最舊那些】。
   --    用 id 排序而不是 created_at:`created_at` 被截到整點
   --    ⇒ **同一小時的列它分不出先後**, 而 `id` 是 IDENTITY, 嚴格遞增。
   DELETE FROM public.search_queries
    WHERE id IN (SELECT s.id FROM public.search_queries s
                  ORDER BY s.id DESC OFFSET c_max_rows LIMIT c_batch);
   GET DIAGNOSTICS v_overflow = ROW_COUNT;
+  END IF;   -- ②a 的前置:表太小 ⇒ v_overflow 維持 0, 而那是【正確的 0】不是【沒跑的 0】
 
   -- ③ 計數表也要清 —— 一小時一列, 一年 8,760 列, 小而**不是零**。
   DELETE FROM public.search_log_hour_counter
@@ -278,8 +448,44 @@ BEGIN
   SELECT pg_catalog.count(*) INTO v_cnt
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'log_search_query'
-     AND p.prosrc LIKE '%ON CONFLICT (hour_bucket) DO UPDATE SET n = c.n + 1 WHERE c.n < 5000%';
+     -- 🔴 **[R3 F7]** ⛔ ~~`LIKE '%…%'`~~ —— **`_` 在 `LIKE` 裡是萬用字元**,
+     --    而這個字面裡有 `hour_bucket` / `DO UPDATE` ⇒ 📌 **`hourXbucket` 這種也會命中**
+     --    ⇒ **這道閘比它看起來鬆**(往【少報】的方向錯:該紅的可能不紅)。
+     --    ✅ 改 `strpos(...) > 0` —— 它是**純字面比對**, 沒有萬用字元。
+     AND pg_catalog.strpos(p.prosrc, 'ON CONFLICT (hour_bucket) DO UPDATE SET n = c.n + 1 WHERE c.n < 5000') > 0;
+  -- 🔬 **拋棄式 PG 17.10 實證(2026-09-05)**:餵一個把 `_` 換成 `X` 的字串 `hourXbucket` ——
+  --    ```
+  --    舊尺 LIKE   ⇒ t   ← 🔴 它【誤中】了一個不是那句話的東西
+  --    新尺 strpos ⇒ f   ← ✅ 不中
+  --    🟢 正對照:真的那個字面 ⇒ 兩把尺都 t(所以 strpos 不是恆假)
+  --    ```
+  --    ⇒ 📌 **那證明舊的那道閘【比它看起來鬆】, 而鬆的方向是【該紅的不紅】。**
   IF v_cnt <> 1 THEN RAISE EXCEPTION '事後閘①:log_search_query 裡找不到原子計數那一句'; END IF;
+
+  -- ①c 🔴🔴 **[R3 ④] 真的【呼叫一次】** —— 上面每一格都只在看函式的【文字】,
+  --     而 R2 那次抓到的 procedure + COMMIT 那個病, **靜態檢查與乾淨貼 rc=0 兩關都是綠的**
+  --     ⇒ 📌 **抓到它的是真的去 CALL 了一次。** 本片自己就有那個教訓, 而事後閘裡沒有那一格。
+  --  🔵 **在這裡呼叫是安全的**:表剛建好、零列 ⇒ 兩個 DELETE 都刪不到東西;
+  --     而 ②a 的前置在空表上是 `f` ⇒ overflow 那句不跑。**它證的是「它跑得起來」不是「它刪得對」。**
+  --  🛑 **它證不到什麼**:零列之下**兩個 DELETE 的正確性一格都沒被驗到**
+  --     —— 那一半靠拋棄式 PG 的兩個世界(檔頭那段), 不靠這裡。
+  PERFORM public.purge_search_queries();
+
+  -- ①b 🔴 **②a 那道前置真的進去了** —— 釘的是 **predicate**, 不是註解
+  --     (同 codex 第 11 條的教訓:只找註解的話, 註解留著而 IF 拿掉也會綠)。
+  --     🛑 而它**證不到那道前置是對的** —— 只證「那一句在函式體裡」。
+  SELECT pg_catalog.count(*) INTO v_cnt
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'purge_search_queries'
+     -- 🔴🔴 **[R3 F1] ⛔ ~~`prosrc LIKE '%…%'`~~ —— 把那句 `IF` 註解掉之後【它仍然命中】**
+     --    (文字還在函式原始碼裡, 只是變成註解)⇒ 📌 **這一格原本是恆真的。**
+     --    🛑 而我在寫它的時候【逐字引用了「釘 predicate 不是註解」那個教訓】, 然後犯了同一個錯。
+     --    ✅ 改成**行首錨定**的 regex:`(?n)` 讓 `^` 對每一行生效, 前面只准有空白
+     --       ⇒ `-- IF pg_catalog.pg_relation_size…` 那種**不會**命中。
+     AND p.prosrc ~ '(?n)^\s*IF pg_catalog\.pg_relation_size\(''public\.search_queries''::regclass\) >= c_max_rows \* 32 THEN';
+  IF v_cnt <> 1 THEN
+    RAISE EXCEPTION '事後閘①b:purge_search_queries 裡找不到 ②a 的大小前置(那句 IF)';
+  END IF;
 
   -- ② 計數表在, 而且 anon/authenticated/service_role 一項權限都沒有
   IF pg_catalog.to_regclass('public.search_log_hour_counter') IS NULL THEN
