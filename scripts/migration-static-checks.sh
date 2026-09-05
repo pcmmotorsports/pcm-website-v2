@@ -33,6 +33,19 @@ if [ "${1:-}" = "--selftest" ]; then
   printf 'CREATE OR REPLACE FUNCTION public.foo() RETURNS void LANGUAGE sql AS $f$ SELECT 2 $f$;\n' > "$FX/20200102000000_redef.sql"
   printf 'CREATE OR REPLACE FUNCTION public.bar() RETURNS void LANGUAGE sql AS $f$ SELECT 3 $f$;\n' > "$FX/20200103000000_new.sql"
   printf 'CREATE TABLE IF NOT EXISTS public.t (id int);\n' > "$FX/20200104000000_ine.sql"
+  # ── 🔴 規則①【具名例外】兩格(2026-09-06;主視窗 -f8 裁)──────────────────
+  #    兩個世界**只差一行標記** —— 少了第二格,「它會放行」與「它對誰都放行」印同一個字。
+  # 🔴 **fixture 形狀是選過的**:用 `CREATE INDEX IF NOT EXISTS` 而不是 `CREATE TABLE` ——
+  #    index 不可授權、也不觸發規則④(建表要 GRANT)⇒ **這三支檔只違反規則①**
+  #    ⇒ 📌 這樣 rc 才答得出「規則① 放行了沒」;用 TABLE 的話 rc 會被別的規則帶著跑,
+  #      而那三格會**看起來在測例外, 實際上在測別的規則**(2026-09-06 當場踩到)。
+  printf -- '-- pcm:rule1-exception: rollback 保留欄位與序列 ⇒ 重貼要冪等;型別由前置閘逐欄擋\nBEGIN;\nCREATE INDEX IF NOT EXISTS ix_t ON public.t (id);\nCOMMIT;\n' \
+    > "$FX/20200106000000_ine_exempt.sql"
+  printf 'BEGIN;\nCREATE INDEX IF NOT EXISTS ix_t ON public.t (id);\nCOMMIT;\n' \
+    > "$FX/20200106100000_ine_plain.sql"
+  #    🔴 而【標記寫錯字】也要照樣紅 —— 一個近似的標記若也能放行, 那道尺就不是在讀標記。
+  printf -- '-- pcm:rule1-exemption: 拼錯了\nBEGIN;\nCREATE INDEX IF NOT EXISTS ix_t ON public.t (id);\nCOMMIT;\n' \
+    > "$FX/20200107000000_ine_typo.sql"
   printf 'CREATE OR REPLACE FUNCTION public.x-y() RETURNS void LANGUAGE sql AS $f$ SELECT 4 $f$;\n' > "$FX/20200105000000_badname.sql"
   printf 'CREATE OR REPLACE FUNCTION public.foo() RETURNS void LANGUAGE sql AS $f$ SELECT 5 $f$;\n' > "$FX/20200100000000_before_base.sql"
   printf 'CREATE OR REPLACE FUNCTION public.ghost() RETURNS void LANGUAGE sql AS $f$ SELECT 6 $f$;\n' > "$FX/20200106000000_ghost_real.sql"
@@ -75,6 +88,15 @@ if [ "${1:-}" = "--selftest" ]; then
   check 20200102000000_redef.sql          '合法,不紅'          '新物件'    '重定義既有函式 ⇒ 綠'
   check 20200103000000_new.sql            '新物件'             '合法,不紅' '真新物件用 OR REPLACE ⇒ 紅'
   check 20200104000000_ine.sql            'IF NOT EXISTS 命中' ''          'IF NOT EXISTS ⇒ 照紅'
+  check 20200106000000_ine_exempt.sql     '規則①【具名例外】'  'IF NOT EXISTS 命中' '有 pcm:rule1-exception ⇒ 放行而【印出來】'
+  check 20200107000000_ine_typo.sql       'IF NOT EXISTS 命中' '規則①【具名例外】' '標記拼錯 ⇒ 不算例外, 照紅'
+  # 🔴🔴 **上面三格只比【印了什麼】—— 而放行與否住在 rc 裡。**
+  #    一個「印了例外那一行、而 rc 仍是 1」的實作會讓上面全過, 而閘照樣擋人。
+  #    ⇒ 📌 這兩格是那三格的證人:同一組檔, 比的是 rc。
+  n=$((n+1)); bash "$SELF" "$FX/20200106100000_ine_plain.sql" >/dev/null 2>&1
+  [ "$?" = "1" ] || { echo "❌ 規則①例外 rc-a:無標記的 IF NOT EXISTS 竟然 rc=0 ⇒ 那道規則沒在擋"; fail=1; }
+  n=$((n+1)); bash "$SELF" "$FX/20200106000000_ine_exempt.sql" >/dev/null 2>&1
+  [ "$?" = "0" ] || { echo "❌ 規則①例外 rc-b:有標記卻仍 rc≠0 ⇒ 例外只印了字, 沒有真的放行"; fail=1; }
   check 20200105000000_badname.sql        '解析失敗'           ''          '爛名字 ⇒ fail-closed 紅'
   check 20200100000000_before_base.sql    '新物件'             ''          '定義只在【更晚】的檔 ⇒ 此刻仍是新物件 ⇒ 紅(時間方向)'
   check 20200106000000_ghost_real.sql     '新物件'             '合法,不紅' '更早檔只在字串裡提到它 ⇒ 不算定義 ⇒ 紅(剝 dollar-quote)'
@@ -241,7 +263,7 @@ R6BAD
   if bash "$SELF" "$FX/20220204000000_r6_missing_arg.sql" >/dev/null 2>&1; then
     echo "❌ 規則⑥:有佔位而零參數卻回 0 ⇒ 只抓到 too many、抓不到 too few"; fail=1
   fi
-  [ "$fail" = "0" ] && echo "✅ migration-static-checks --selftest $n/$n(規則①雙向 + 規則②雙向 + 規則③雙向 + 規則⑤八格 + 規則⑥七格 + 多檔雙向)"
+  [ "$fail" = "0" ] && echo "✅ migration-static-checks --selftest $n/$n(規則①雙向含具名例外三格與 rc 兩格 + 規則②雙向 + 規則③雙向 + 規則⑤八格 + 規則⑥七格 + 多檔雙向)"
   exit "$fail"
 fi
 
@@ -457,13 +479,36 @@ echo "── ① CREATE … IF NOT EXISTS 一律禁;OR REPLACE 只准【重定�
 #    歷史上「新函式用 OR REPLACE」是常態寫法,不是 1 筆意外 —— 本規則從此紅的是【新檔】,舊檔照 ④ 的處置。
 INE_HITS=$(grep -niE '^[[:space:]]*create[[:space:]].*if[[:space:]]+not[[:space:]]+exists' "$STRIPPED" || true)
 R1_OK=1
+
+# ── 🔴🔴 規則① 的【具名例外】(2026-09-06;主視窗 `-f8` 裁「甲, 而不是裸的甲」)───────
+#
+# 為什麼有這一格:`20260905200000` 的 rollback **刻意保留欄位與序列**(那兩欄裡是
+#    「已經寄出去的信實際說了什麼」, 沒有第二個來源)⇒ **不冪等就永遠重貼不了**
+#    (那是 codex R1 must-fix #6)。⇒ 規則① 與那條 must-fix **直接對撞**。
+#
+# 🛑 **而例外要有【機器認得的形狀】, 不是一句註解** —— 照 `pcm:never-apply` 的前例:
+#      -- pcm:rule1-exception: <理由>
+#    ⚠️ **兩件事這道例外【證不到】, 寫在這裡免得它變成免責貼紙**:
+#      · 它**不驗那個理由是真的** —— 它只保證「有人具名寫下了理由」
+#      · 它**不代表 `IF NOT EXISTS` 在這支檔裡是安全的** ——
+#        安全要由那支檔**自己的前置閘**提供(本例是逐欄比對型別的 ②-b)
+#    ⇒ 📌 **它把一個【靜默的違規】換成一個【留下名字與理由的違規】。只有這樣而已。**
+# 🔵 而它**印一行**, 不靜默 —— 一個看不見的例外, 與沒有規則是同一件事。
+R1_EXCEPTION=$(grep -iE -- '^--[[:space:]]*pcm:rule1-exception:[[:space:]]*.+' "$F" | head -1 || true)
 # 🔴 規則③要用的:規則①【已經在算】哪些 OR REPLACE 是新物件 ⇒ 直接數它, 不另外發明一套判斷。
 #    (2026-08-29 線G 收窄第③格時加。為什麼要收窄, 見第③格那一段。)
 R1_NEWOBJ=0
-if [ -n "$INE_HITS" ]; then
+if [ -n "$INE_HITS" ] && [ -n "$R1_EXCEPTION" ]; then
+  echo "⚠️ 規則①【具名例外】—— $(printf '%s' "$R1_EXCEPTION" | sed 's/^--[[:space:]]*pcm:rule1-exception:[[:space:]]*//')"
+  echo "   ⇒ 本檔的 IF NOT EXISTS / 新物件 OR REPLACE **不擋**, 而它們仍然列在下面給人看:"
+  echo "$INE_HITS" | sed 's/^/     /'
+  echo "   🛑 這【不是】「它們安全」—— 安全要由本檔自己的前置閘提供。這一行只證明有人具名寫下了理由。"
+elif [ -n "$INE_HITS" ]; then
   echo "🔴 IF NOT EXISTS 命中(剝註解後):"; echo "$INE_HITS" | sed 's/^/     /'
   echo "   ⇒ 撞名要當場紅,不要靜靜跳過。跳過之後,你的 REVOKE 與斷言會對著那個既有物件跑"
   echo "      而且很可能通過 —— 拿到綠燈,而這支 migration 什麼都沒建。"
+  echo "   🔵 若這是刻意的(例如 rollback 保留物件 ⇒ 重貼要冪等), 加一行具名例外:"
+  echo "      -- pcm:rule1-exception: <理由>"
   RC=1; R1_OK=0
 fi
 # 從一行 `CREATE [OR REPLACE] <型別> <名字> … [ON <目標>]` 抽出 型別 / schema.名字 / ON 目標。
@@ -534,7 +579,11 @@ if [ -n "$OR_HITS" ]; then
       echo "🔴 :$LNO CREATE OR REPLACE ${OTYPE} ${ONAME}${OTARGET:+ ON $OTARGET} —— 同身分在更早的 migration 查無定義 ⇒ 它是【新物件】"
       echo "   ⇒ 新物件一律裸 CREATE:撞名要當場紅。OR REPLACE 會把撞名靜靜蓋掉,"
       echo "      而你的 REVOKE 與斷言照樣綠 —— 拿到綠燈,卻蓋掉了一個你不知道存在的東西。"
-      if [ -n "$APPLIED_EXEMPT" ]; then echo "   ⚠️ 已宣告 applied-before-commit ⇒ 本條轉警告"; else RC=1; R1_OK=0; fi
+      if [ -n "$APPLIED_EXEMPT" ]; then echo "   ⚠️ 已宣告 applied-before-commit ⇒ 本條轉警告"
+      elif [ -n "$R1_EXCEPTION" ]; then
+        # 🔵 具名例外(2026-09-06)⇒ 轉警告而**照樣印出來**。理由與射程見上面 R1_EXCEPTION 那一段。
+        echo "   ⚠️ 已宣告 pcm:rule1-exception ⇒ 本條轉警告(它不證明這一行安全, 只證明有人具名寫下理由)"
+      else RC=1; R1_OK=0; fi
       # 🔴 只數【可授權】那四種(trigger 沒有 ACL, 列進斷言清單反而會 to_regclass 找不到而紅)。
       case "$(printf '%s' "$OTYPE" | tr 'A-Z' 'a-z')" in
         function|view|'materialized view'|table) R1_NEWOBJ=$((R1_NEWOBJ+1)) ;;
