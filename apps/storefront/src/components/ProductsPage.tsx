@@ -326,7 +326,22 @@ export function ProductsPage({ products, total, error, categories, brands: serve
           <ProductsPageHeader cascade={cascade} />
           {/* 🔴 關鍵字膠囊排在 `ActiveChips` **前面** —— 它是這一頁商品的**來源**,
               而 ActiveChips 那些是「本來會生效、現在沒生效」的東西。順序講的是因果。 */}
-          <SearchKeywordChip keyword={searchKeyword} unmatchedWords={unmatchedWords} />
+          {/* 🔴 品牌名在這裡解(slug → 顯示名)—— `SearchKeywordChip` 拿不到品牌對照表,
+              而**解成名字之後那句話才講得出客人打的那個字**(Sean 2026-09-06 拍甲)。
+              🔵 用與 `ActiveChips:101` **同一條**查法(`brands.find(x => x.id === slug)`),
+                 查不到就退回 slug —— 兩邊漂掉時至少不會空白。 */}
+          <SearchKeywordChip
+            keyword={searchKeyword}
+            unmatchedWords={unmatchedWords}
+            matchedBrandNames={
+              (searchParams.get('pbrands') ?? '')
+                .split(',')
+                .map((sl) => sl.trim())
+                .filter(Boolean)
+                .map((sl) => brands.find((b) => b.id === sl)?.name ?? sl)
+                .join('、') || undefined
+            }
+          />
           {/* 🔴🔴 **有關鍵字時不畫 facet 膠囊** —— code-reviewer 2026-09-03 must-fix。
             * 直接開 `/products?search=cark9650&vehicle=yamaha:mt-07` 時(不必點任何東西),
             * `ActiveChips` 會從 URL 還原出一顆「Yamaha MT-07 ✕」

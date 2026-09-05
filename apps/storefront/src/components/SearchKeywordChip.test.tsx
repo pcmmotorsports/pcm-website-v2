@@ -93,4 +93,30 @@ describe('SearchKeywordChip — 關鍵字要看得見、而且拿得掉', () => 
     fireEvent.click(container.querySelector('.ac-chip')!);
     expect(push).toHaveBeenCalledWith('/products');
   });
+
+  // 🔴 2026-09-06 Sean 逐字拍【甲】:那行字改成「已用品牌篩選」的說法。
+  //   📌 為什麼要改:舊句**是誠實的而讀起來像失敗** —— 客人打「GILLES TOOLING」結果是對的
+  //      (正式站實走 50/50 全是那個品牌), 而畫面說「有幾個字沒有用到」⇒ 他以為沒搜到。
+  it('🔴 有品牌名 ⇒ 講【做了什麼】:整串文案 toBe(對外字面, 不許只驗片段)', () => {
+    const { container } = render(
+      <SearchKeywordChip unmatchedWords="TOOLING" matchedBrandNames="GILLES TOOLING" />,
+    );
+    const note = container.querySelector('.ac-note');
+    expect(note, '那一行不見了').not.toBeNull();
+    // 🛑 **整串 toBe** —— 對外字面只驗片段的話, 改壞前半段不會紅。
+    expect(note!.textContent).toBe(
+      '🔍 已用品牌篩選:「GILLES TOOLING」—— 其餘的字沒有用到:「TOOLING」。',
+    );
+    expect(note!.textContent, '舊句還在 ⇒ 兩句並存').not.toContain('上面的篩選條件是我們認得的那部分');
+  });
+
+  it('🟢 正對照:【沒有】品牌名時退回舊句(解析器認出來的可能是分類, 那時印「品牌」是假的)', () => {
+    // 🛑 少了這一格,「無條件印品牌那句」會讓上面那格照樣綠 —— 而那會對分類的世界說謊。
+    const { container } = render(<SearchKeywordChip unmatchedWords="TOOLING" />);
+    const note = container.querySelector('.ac-note');
+    expect(note!.textContent).toBe(
+      '🔍 這幾個字沒有用到:「TOOLING」—— 上面的篩選條件是我們認得的那部分。',
+    );
+    expect(note!.textContent, '沒有品牌卻說「已用品牌篩選」= 對客人說謊').not.toContain('已用品牌篩選');
+  });
 });

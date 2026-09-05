@@ -29,10 +29,18 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 export function SearchKeywordChip({
   keyword,
   unmatchedWords,
+  matchedBrandNames,
 }: {
   keyword?: string;
   /** 解析器沒有用到的字。🔴 **不參與過濾** —— 見 `parse-search-facets.ts`。 */
   unmatchedWords?: string;
+  /**
+   * 🔴 **解析器【認出來並且真的在過濾】的那些品牌名**(已解成顯示名, 不是 slug)。
+   *   Sean 2026-09-06 逐字拍【甲】:那行字改成「**已用品牌篩選**」的說法。
+   *   ⚠️ **而它可能是空的** —— 解析器認出來的也可能是**分類**而不是品牌;
+   *      那時印「已用品牌篩選」是**假的** ⇒ 見下方那個 fallback。
+   */
+  matchedBrandNames?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -62,8 +70,20 @@ export function SearchKeywordChip({
     //    ⇒ 🎯 **一段描述與它所掛的分支對不上, 下一個維護者會照那段描述去改錯的地方。**
     return (
       <div className="ac-bar">
+        {/* 🔴🔴 **2026-09-06 Sean 逐字拍【甲】** ——
+            ⛔ ~~「🔍 這幾個字沒有用到:「…」—— 上面的篩選條件是我們認得的那部分。」~~
+            🛑 **舊字面錯在哪**:它**是誠實的而讀起來像失敗** —— 客人打「GILLES TOOLING」,
+               結果是對的(50/50 全是那個品牌), 而畫面說「有幾個字沒有用到」
+               ⇒ 📌 **他會以為沒搜到。**(2026-09-06 正式站實走量到的就是這一格。)
+            ✅ 改成講**做了什麼**而不是**沒做什麼**。
+            ⚠️ **而 fallback 不可省**:解析器認出來的**也可能是分類**(`parse-search-facets`
+               同時回 `brandIds` 與 `categories`)⇒ 那時印「已用品牌篩選」是**假的**
+               ⇒ 🔴 **沒有品牌名時退回舊句** —— Sean 拍的是他看到的那一格,
+                  而**那一格以外的世界他沒有看過**, 我不替他延伸。 */}
         <span className="ac-note">
-          🔍 這幾個字沒有用到:「{unmatchedWords}」—— 上面的篩選條件是我們認得的那部分。
+          {matchedBrandNames
+            ? `🔍 已用品牌篩選:「${matchedBrandNames}」—— 其餘的字沒有用到:「${unmatchedWords}」。`
+            : `🔍 這幾個字沒有用到:「${unmatchedWords}」—— 上面的篩選條件是我們認得的那部分。`}
         </span>
       </div>
     );
