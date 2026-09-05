@@ -9,10 +9,15 @@ import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi } from 'vitest';
 import { isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 import {
   formatAtomicPartialWrite,
   runAtomicGroups,
   LOG_DIR,
+  formatKillLine,
+  installKillReporter,
+  setKillProgress,
+  getKillProgress,
   type AtomicPartialWrite,
 } from './rpm-partial-report';
 
@@ -310,4 +315,115 @@ describe('LOG_DIR 的落點(⟦f3-HALFWRITELOGDIR⟧)', () => {
     // 🔵 負對照:一個現造路徑不得等於 LOG_DIR(擋「這把尺恆真」)
     expect(resolve(LOG_DIR)).not.toBe(resolve('/tmp/zzqprb-not-logs'));
   });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 被砍在半路那一行(⟦supply-SYNCTIMEOUTPARTIAL⟧ 關閉條件②)
+// ══════════════════════════════════════════════════════════════════════════
+describe('installKillReporter', () => {
+  it('掛上去之後, SIGTERM 會印那一行、而且【印完就結束】', () => {
+    const seen: string[] = [];
+    const exits: number[] = [];
+    setKillProgress({ supplierSlug: 'wrs', total: 10, done: 3, current: 'G-7' });
+    const uninstall = installKillReporter(
+      (s) => seen.push(s),
+      (c) => exits.push(c),
+    );
+    try {
+      process.emit('SIGTERM');
+    } finally {
+      uninstall();
+      setKillProgress(null);
+    }
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain('supplier=wrs');
+    expect(seen[0]).toContain('已寫完 3/10 群');
+    expect(seen[0]).toContain('G-7');
+    expect(exits).toEqual([143]); // 128 + 15
+  });
+
+  it('🔵 負對照:拆掉之後同一發訊號【不再印】—— 否則上面那格證不了是它掛上去的', () => {
+    const seen: string[] = [];
+    setKillProgress({ supplierSlug: 'wrs', total: 10, done: 3, current: 'G-7' });
+    const uninstall = installKillReporter(
+      (s) => seen.push(s),
+      () => {},
+    );
+    uninstall();
+    process.emit('SIGTERM');
+    setKillProgress(null);
+    expect(seen).toEqual([]);
+  });
+
+  it('🔴 沒有進度時要說得出「不在群迴圈裡」, 不可以印一份看起來像真的的 0/0', () => {
+    expect(formatKillLine(null, 'SIGTERM')).toContain('不在群迴圈裡');
+    expect(formatKillLine(null, 'SIGTERM')).not.toContain('已寫完');
+  });
+
+  it('runAtomicGroups 跑完之後把指標清掉(否則之後任何訊號都會印一份已結束的進度)', async () => {
+    await runAtomicGroups(GROUPS, 'wrs', async () => {});
+    expect(getKillProgress()).toBeNull();
+  });
+
+  it('🔴 而它【失敗】時指標【留著】—— 那正是要被讀到的那一刻', async () => {
+    await expect(
+      runAtomicGroups(
+        GROUPS,
+        'wrs',
+        async (g) => {
+          if (g.externalId === 'c') throw new Error('boom');
+        },
+        () => {},
+      ),
+    ).rejects.toThrow('boom');
+    const p = getKillProgress();
+    expect(p).not.toBeNull();
+    expect(p!.current).toBe('c');
+    expect(p!.done).toBe(2); // a, b 進去了
+    setKillProgress(null);
+  });
+});
+
+describe('🔬 真的送 SIGTERM 給一個子程序(單元層的 emit 不是同一件事)', () => {
+  const MOD = fileURLToPath(new URL('./rpm-partial-report.ts', import.meta.url));
+  const TSX = fileURLToPath(new URL('../node_modules/.bin/tsx', import.meta.url));
+
+  const child = (body: string) =>
+    spawn(TSX, ['-e', body], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+  const collect = (p: ReturnType<typeof spawn>) =>
+    new Promise<{ err: string; code: number | null; signal: string | null }>((res) => {
+      let err = '';
+      p.stderr!.on('data', (d) => (err += String(d)));
+      p.on('close', (code, signal) => res({ err, code, signal }));
+    });
+
+  it('🔴 被 SIGTERM 砍 ⇒ stderr 出現那一行', async () => {
+    const p = child(
+      `import {setKillProgress, installKillReporter} from ${JSON.stringify(MOD)};` +
+        `setKillProgress({supplierSlug:'samco',total:99,done:41,current:'G-42'});` +
+        `installKillReporter();` +
+        `process.stdout.write('READY');` +
+        `setInterval(()=>{},1000);`,
+    );
+    await new Promise<void>((r) => p.stdout!.on('data', () => r()));
+    const done = collect(p);
+    p.kill('SIGTERM');
+    const { err } = await done;
+    expect(err).toContain('被 SIGTERM 砍掉在半路');
+    expect(err).toContain('supplier=samco');
+    expect(err).toContain('已寫完 41/99 群');
+    expect(err).toContain('G-42');
+  }, 40000);
+
+  it('🟢 正對照:正常跑完 ⇒ 那一行【不出現】(否則上面那格對「有沒有被砍」零判別力)', async () => {
+    const p = child(
+      `import {setKillProgress, installKillReporter} from ${JSON.stringify(MOD)};` +
+        `setKillProgress({supplierSlug:'samco',total:99,done:41,current:'G-42'});` +
+        `installKillReporter();`,
+    );
+    const { err, code } = await collect(p);
+    expect(err).not.toContain('被 SIGTERM 砍掉');
+    expect(code).toBe(0);
+  }, 40000);
 });

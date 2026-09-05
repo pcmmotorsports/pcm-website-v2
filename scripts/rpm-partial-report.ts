@@ -27,7 +27,7 @@
  * **沒有證「真的連 DB 跑一次時相同」**。缺的檢查 = 起拋棄式 PG 實跑一次。
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -134,7 +134,12 @@ export async function runAtomicGroups<G extends { externalId: string }>(
   report: (r: AtomicPartialWrite) => void = reportAtomicPartialWrite,
 ): Promise<void> {
   const done: string[] = [];
+  // 🔴 進度指標:給【被砍在半路】那條路讀的(見本檔末段 `installKillReporter`)。
+  //    它與下面那個 `report(...)` 是**兩條不同的路**:`catch` 只看得到「有東西被丟出來」,
+  //    而 `SIGTERM` 是**沒有東西被丟出來就死掉** ⇒ 那一條 `catch` 永遠看不到。
+  setKillProgress({ supplierSlug, total: groups.length, done: 0, current: null });
   for (const [gi, group] of groups.entries()) {
+    setKillProgress({ supplierSlug, total: groups.length, done: done.length, current: group.externalId });
     try {
       await syncOne(group);
       done.push(group.externalId);
@@ -170,6 +175,8 @@ export async function runAtomicGroups<G extends { externalId: string }>(
       throw e; // 🔴 原封丟回去 —— 上游對它的判讀必須與修前逐字相同。
     }
   }
+  // 🔵 正常跑完就把指標清掉 —— 否則之後任何一發訊號都會印出一份【已經結束】的進度。
+  setKillProgress(null);
 }
 
 /**
@@ -216,4 +223,107 @@ export function reportAtomicPartialWrite(
         `${writeErr instanceof Error ? writeErr.message : String(writeErr)}`,
     );
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// 被【砍掉】在半路時留一行 —— 而它與上面那份報告【看到的不是同一種死法】
+// ══════════════════════════════════════════════════════════════════════════
+//
+// 🔴🔴 **為什麼要另外一條路**:上面 `runAtomicGroups` 的留痕掛在 `catch` 上,
+//    ⇒ 它的前提是「有一個錯誤被丟出來」。
+//    而 GitHub Actions 的 `timeout-minutes`(`rpm-sync.yml`)是**把 job 砍掉** ——
+//    送 `SIGTERM`,不是丟例外 ⇒ 🛑 **那份報告對「逾時」這一種死法【結構上失明】。**
+//    📌 而逾時正是板列 `⟦supply-SYNCTIMEOUTPARTIAL⟧` 講的那一種。
+//
+// 🔵 **量到的**(2026-09-05 線【身分】`-auth`,`gh run list --limit 25`):
+//    25 班之中最長的 sync job = `samco` **8.7 分**,對 45 分的上限只用掉 19%
+//    ⇒ **今天沒有人撞到它** ⇒ 這一段是**給還沒發生的那一天**寫的,不是在修一個現行症狀。
+//
+// ⚠️ **這一段【確實改了一點行為】,寫在這裡不藏**:
+//    掛上 `SIGTERM` 監聽器會**取代 Node 的預設處置**。所以處理器印完就 `process.exit(128+n)`
+//    ⇒ 行程**照樣立刻死**,而**退出碼從「被訊號終止」變成 143 / 130**。
+//    🔵 對 GitHub Actions 沒有差別(逾時的 job 已經被標成 cancelled,不看退出碼);
+//    🛑 而若有人在別的地方用 `$?` 去分辨「是不是被訊號殺的」,那裡會看到不同的值。
+//
+// 🔴 **為什麼用 `writeSync(2, …)` 不用 `console.error`**:訊號處理器裡接著就 `exit`,
+//    而 `process.stderr` 在管線(CI 就是管線)上是**非同步**的 ⇒ `console.error` 那一行
+//    很可能**還沒被寫出去行程就沒了**。`writeSync` 是同步的,寫完才回來。
+//    📌 一行「為了留下證據」而寫的日誌,如果會在最需要它的那一刻消失,它等於不存在。
+
+/** 被砍的那一刻,手上正在做什麼。欄位都是**量到的**,不是估的。 */
+export interface KillProgress {
+  supplierSlug: string;
+  /** 分母 = `groups.length`(迴圈前就建好的普通陣列)。 */
+  total: number;
+  /** **已經寫進去**的群數(不含正在做的那一群)。 */
+  done: number;
+  /** 正在做的那一群;還沒進迴圈時是 `null`。 */
+  current: string | null;
+}
+
+let killProgress: KillProgress | null = null;
+
+/** 更新進度指標。`null` = 現在不在那個迴圈裡。 */
+export function setKillProgress(p: KillProgress | null): void {
+  killProgress = p;
+}
+
+/** 只給測試讀。 */
+export function getKillProgress(): KillProgress | null {
+  return killProgress;
+}
+
+/**
+ * 那一行的字面。抽出來的唯一理由 = **可測**(不必真的送訊號就驗得了字面)。
+ * 🔴 `current` 是 `null` 時要說得出**是哪一種 null** —— 「還沒開始」與「已經跑完」
+ *    對接手的人是兩件事,而它們在資料上長得一樣 ⇒ 用 `killProgress` 在不在來分。
+ */
+export function formatKillLine(p: KillProgress | null, signal: string): string {
+  if (!p) {
+    return (
+      `[rpm-import] 🔴 被 ${signal} 砍掉 —— 而**不在群迴圈裡**` +
+      `(還沒開始寫、或已經寫完)⇒ 這一發沒有半套的群。\n`
+    );
+  }
+  const at = p.current === null ? '(還沒進到第一群)' : p.current;
+  return (
+    `[rpm-import] 🔴 被 ${signal} 砍掉在半路:supplier=${p.supplierSlug} ` +
+    `已寫完 ${p.done}/${p.total} 群 · 正在寫的那一群=${at} · ` +
+    `⇒ 之後那 ${Math.max(p.total - p.done - (p.current === null ? 0 : 1), 0)} 群【從來沒有被送出去】。` +
+    `下一班會重寫(upsert 冪等), 而在那之前這一家是半新半舊。\n`
+  );
+}
+
+/**
+ * 掛上 `SIGTERM` / `SIGINT` 的留痕。**回傳一個拆掉它的函式**(測試要拆,否則會殘留)。
+ *
+ * @param write 寫那一行(預設同步寫 fd 2)。
+ * @param exit  印完之後怎麼結束(預設 `process.exit`)。**注入是為了測試,不是為了關掉它。**
+ */
+export function installKillReporter(
+  write: (s: string) => void = (s) => {
+    writeSync(2, s);
+  },
+  exit: (code: number) => void = (code) => {
+    process.exit(code);
+  },
+): () => void {
+  const nums: Record<string, number> = { SIGTERM: 15, SIGINT: 2 };
+  const handlers: Array<[NodeJS.Signals, () => void]> = [];
+  for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+    const h = () => {
+      // 🔴 留痕自己不准變成新的失敗來源(同本檔上半那一格的理由)。
+      try {
+        write(formatKillLine(killProgress, sig));
+      } catch {
+        /* 印不出來也不能擋住下面那個 exit */
+      }
+      exit(128 + (nums[sig] ?? 0));
+    };
+    handlers.push([sig, h]);
+    process.on(sig, h);
+  }
+  return () => {
+    for (const [sig, h] of handlers) process.off(sig, h);
+  };
 }
