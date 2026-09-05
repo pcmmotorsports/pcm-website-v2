@@ -516,6 +516,32 @@ cutoff 擋的是**舊單**。擋不住的形狀 = **「`created_at` 在 cutoff �
 
 ---
 
+## §8b 🔴 body 對過 ≠ 頭對過(2026-09-06 逐項量;主視窗要求落檔)
+
+`CREATE OR REPLACE FUNCTION` **用檔面的屬性整組覆蓋** —— 而我只比過 `md5(prosrc)`,
+而 **`prosrc` 不含頭**。下表是唯讀正式庫 vs 本片檔案裡宣告的, 逐欄對:
+
+| 欄位 | 正式庫(三支) | 我的檔 | |
+|---|---|---|---|
+| `prosecdef` | **true** | `SECURITY DEFINER` ×3 | ✅ |
+| `provolatile` | **VOLATILE**(`v`) | 未宣告 ⇒ PG 預設 VOLATILE | ✅ |
+| `proconfig` | **`search_path=""`** | `SET search_path = ''` ×3 | 🔴 **原本不是** —— 見下 |
+| `proacl` | sync `postgres=X`;另兩支 `postgres=X, service_role=X` | 本檔 **0 個 `GRANT` / 0 個 `REVOKE`** ⇒ 原地保留 | ✅ |
+| 參數列 | 三支逐字 | 程式抽出、未動 | ✅ |
+| `COMMENT` | 三支**都有** | 三支**都 append** | ✅(F9 之後)|
+
+🔴🔴 **`proconfig` 那一格是【一道閘替我抓到的】, 不是我想到的**:
+`admin_void_manual_refund` 我原樣抽出 ⇒ 宣告 `SET search_path = public, pg_temp`,
+**而正式庫早就被 M1a/M1b 收緊成 `''`** ⇒ 📌 **貼下去會把一道上線的安全收緊【退回去】**,
+而 **diff 上看起來只是「照抄既有」**。
+🎯 **⇒ 「零手抄」保護的是【我沒打錯字】, 它保護不了【我抄的那一版已經過期】。**
+
+⚠️ **而寫斷言時我又錯一次**:期望值寫成 `'search_path='` ⇒ 印 **0/3**;
+實際**儲存形式**是 `'search_path=""'`(空字串會被引號包起來)。
+⇒ 📌 **屬性的【儲存形式】要量, 不能從我寫的 SQL 反推。**
+
+---
+
 ## §8 這份 plan 【證不到】什麼(照實寫)
 
 - 它**不回填**既有 stale `refunded` 的單。🔬 **而「有幾張」查完了 = 0 張**(§5b)
