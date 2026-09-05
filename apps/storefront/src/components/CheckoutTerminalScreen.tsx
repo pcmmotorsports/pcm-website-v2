@@ -18,6 +18,7 @@
 import type { ChargeState } from '@/hooks/useChargePayment';
 import { CheckoutSuccess } from '@/components/CheckoutSuccess';
 import { CheckoutRedirecting } from '@/components/CheckoutRedirecting';
+import { CheckoutAwaitingRemittance } from '@/components/CheckoutAwaitingRemittance';
 
 // 🔴 分類表 = **真正的**編譯期窮盡保護(codex 關卡2 must-fix)。
 //   `Record<ChargeState['status'], boolean>` 要求**列出每一個** status:日後 ChargeState 新增狀態
@@ -30,6 +31,8 @@ const FULL_PAGE_BY_STATUS = {
   error: false,
   wait: false,
   in_flight: false,
+  // 🔴 ⟦b4-BANKCHARGESCARD⟧ 片 2 ⑤:匯款單已成立(零扣款)⇒ 整頁取代表單, 然後立刻導明細頁。
+  awaiting_remittance: true,
   paid: true,
   processing: true,
   unknown: true,
@@ -71,6 +74,13 @@ export function CheckoutTerminalScreen({
 }) {
   if (state.status === 'paid') {
     return <CheckoutSuccess displayId={state.displayId} />;
+  }
+  // 🔴🔴 片 2 ⑤:**單已成立、一毛錢都沒收** —— 導向副作用封裝在該元件的 `useEffect` 裡
+  //   (render 期不副作用;同 `CheckoutRedirecting` 的理由)。它**不是失敗**, 不得走錯誤畫面。
+  if (state.status === 'awaiting_remittance') {
+    return (
+      <CheckoutAwaitingRemittance displayId={state.displayId} message={state.message} />
+    );
   }
   if (state.status === 'processing') {
     return (
