@@ -264,6 +264,7 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       // 🔵 第四條線:同樣三格 null + unknown=true(那支 RPC 尚未 apply)。
       trackingCorrectedPendingCount: null,
       trackingCorrectedNoRecipientCount: null,
+      trackingCorrectedPayloadUnparseableCount: null,
       trackingCorrectedGapUnknown: true,
       /**
        * 🔵 訊號 4 三格。本案例 `orderCreatedCutoffIso` 傳 `null` ⇒ **不呼叫那支 RPC**
@@ -1129,16 +1130,67 @@ describe('🔴 更正單號信 gap counts:【成功路徑】—— 而它原本�
       86400, 43200, 600, null, 900, null, null,
     );
 
-  it('🟢 RPC 存在 ⇒ 三格解析成具體的數, 而 unknown=false', async () => {
+  it('🟢 RPC 存在而四個 key 都在 ⇒ 解析成具體的數, 而 unknown=false', async () => {
     const out = await run({
       pending_count: 7,
       no_recipient_count: 2,
       corrected_shipments_total_count: 9,
+      // 🔴 **2026-09-05 補上這一行**:少了它就不是「一切正常」那個世界了 ——
+      //    缺 key 現在會讓 `trackingCorrectedGapUnknown` 變 true(codex R1 must-fix)。
+      payload_unparseable_count: 0,
     });
     // 🔴 承重:把 `trackingCorrectedCount(...)` 硬寫成 null ⇒ 這三行全紅。
     expect(out.trackingCorrectedPendingCount).toBe(7);
     expect(out.trackingCorrectedNoRecipientCount).toBe(2);
     expect(out.trackingCorrectedGapUnknown).toBe(false);
+  });
+
+  /**
+   * 🔴🔴 **片 A2 的部署窗口那一格** —— 它與下面那格「少一個 key ⇒ throw」**刻意不一致**。
+   * 分界:那些 key 從函式出生就在 ⇒ 少一個 = 函式壞了 ⇒ fail-loud;
+   *       而 `payload_unparseable_count` 是 20260905200000 帶進去的 ⇒
+   *       在【碼先上線、migration 還沒到】那個窗口裡它【合法地不存在】。
+   * 🛑 若照 fail-loud ⇒ 整條告警當晚一封都不寄。
+   */
+  it('🔴 A2 部署窗口:函式在而少了 payload_unparseable_count ⇒ 那一格 null, 而【其餘照常】', async () => {
+    const out = await run({
+      pending_count: 7,
+      no_recipient_count: 2,
+      corrected_shipments_total_count: 9,
+    });
+    expect(out.trackingCorrectedPayloadUnparseableCount).toBeNull();
+    // 🔴 承重:其餘兩格必須完全不受影響 —— 否則這個「折衷」把整段帶走了。
+    expect(out.trackingCorrectedPendingCount).toBe(7);
+    expect(out.trackingCorrectedNoRecipientCount).toBe(2);
+    // 🔴🔴 **2026-09-05 codex R1 must-fix 之後這一格從 `false` 改成 `true`。**
+    //    ⛔ ~~`expect(out.trackingCorrectedGapUnknown).toBe(false)`~~
+    //    🛑 `count = null` 配上 `unknown = false` 在 route 的回應上讀起來是
+    //      **「查過了, 沒有異常」** —— 而真相是「那一格我們沒讀到」。
+    //    ⇒ 而造成這個組合的不只部署窗口:**反向部署 / rollback / schema drift** 都會
+    //      ⇒ **那些是永久狀態**, 不是一晚。
+    // ✅ 現在:值仍是 null(不進 shouldAlert ⇒ 不會天天寄信), 而它**不再自稱正常**。
+    expect(out.trackingCorrectedGapUnknown).toBe(true);
+  });
+
+  it('🟢 key 在 ⇒ 它被讀成具體的數(證明上面那格不是恆 null)', async () => {
+    const out = await run({
+      pending_count: 7,
+      no_recipient_count: 2,
+      corrected_shipments_total_count: 9,
+      payload_unparseable_count: 4,
+    });
+    expect(out.trackingCorrectedPayloadUnparseableCount).toBe(4);
+  });
+
+  it('🔴 key 在【而值壞掉】⇒ 照舊 throw(寬容只給「不存在」, 不給「壞掉」)', async () => {
+    await expect(
+      run({
+        pending_count: 7,
+        no_recipient_count: 2,
+        corrected_shipments_total_count: 9,
+        payload_unparseable_count: -1,
+      }),
+    ).rejects.toThrow();
   });
 
   it('🔴 少一個 key ⇒ throw(fail-loud), 不是靜靜地變成 0', async () => {

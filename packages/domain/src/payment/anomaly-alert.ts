@@ -231,6 +231,16 @@ export type AnomalyAlertSummary = {
    */
   trackingCorrectedPendingCount: number | null;
   trackingCorrectedNoRecipientCount: number | null;
+  /**
+   * 🔵 **第三格**(⟦5b-SHIPPEDNUMNOTRECORDED1⟧ 片 A2, 2026-09-05)。
+   * 🔴 **三格是三種壞法, 去看的地方都不一樣 —— 所以刻意不合併**:
+   *   `Pending`            = 正常會 >0, 下一輪就排掉了 ⇒ **不進 shouldAlert**
+   *   `NoRecipient`        = 該寄而兩個信箱都空       ⇒ 去看那張單的收件資料
+   *   `PayloadUnparseable` = 我們【看不到它該不該寄】 ⇒ **去看 outbox 那一列的 payload**
+   * 🛑 主掃描面【略過】那些列 ⇒ 沒有這一格的話, 那幾箱的更正信永遠不會被排,
+   *   而**每一個既有的計數都會照樣印一個正常的數字**。
+   */
+  trackingCorrectedPayloadUnparseableCount: number | null;
   trackingCorrectedGapUnknown: boolean;
   // 🔵 ↓↓ 以下回到【訂單成立信】那一族(codex 2026-09-03 nit:我把三欄插在中間,
   //    而下一段開頭那句「上面兩個」原本指的是 orderCreated 那兩欄 —— 字面被我推到指錯欄位)。

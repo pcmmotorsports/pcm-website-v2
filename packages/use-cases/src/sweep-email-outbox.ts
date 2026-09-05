@@ -1628,12 +1628,36 @@ export async function sweepEmailOutbox(
       //    🛑 **它今天恆不會 throw**(那句話今天不會印)⇒ **效度不能靠「今天沒紅」證明**,
       //      由 `paid-email-html.test.ts` 的兩個世界證(說了謊 ⇒ 紅 / 真的附了 ⇒ 綠)。
       assertPdfClaimMatchesAttachments(sendInput.html ?? null, sendInput.attachments);
+
+      // 🔴🔴 **`Q-更正信範圍 = 甲` 那道閘【不在這裡】, 它在認領路徑上**(本檔 `:1265` 與 `:1300`)。
+      //    ⛔ ~~我原本在這裡又加了一道「payload 號碼 vs live 號碼」~~ —— **它是死碼**:
+      //      · 上面那段「比的是【這一次更正的身分】」已用**更正的時點**比過一次
+      //        (被取代 ⇒ `markSkippedTrackingSuperseded`)
+      //      · 緊接著的「**第二道:號碼本身也要對得上**」已用**號碼**比過一次(對不上 ⇒ `errors`)
+      //      🔵 這裡**刻意不寫行號** —— 行號會被別人的 diff 推走, 而那兩段的標題不會(codex R1 nit)
+      //      · 而 `shipped` 只在 `order_shipped` 才載入 ⇒ 對更正信恆為 `null`
+      //        ⇒ 🛑 **我那個條件恆假, 一次都不會成立。**
+      //    ⇒ 🎯 **它會全綠, 因為它什麼都沒做** —— 而多出來的那個計數欄位是唯一叫出來的訊號
+      //      (`result 鍵恰為 counts allowlist` 那一格)。📌 **一道擋不到東西的閘, 只有清單會發現。**
+      // 🔴 **這一封實際印在紙上的號碼** —— 交給 `markSent` 與 `sent_at` 同一發落表。
+      //    · 更正信 ⇒ payload 那個(而上面那道閘已保證它 === live)
+      //    · 出貨信 ⇒ 即時值(它的信裡印的就是這個;沒有號碼時是 null, 那是合法狀態)
+      //    · 其餘事件 ⇒ null(它們的信裡沒有號碼)
+      const sentTrackingNumber: string | null =
+        job.eventType === 'shipment_tracking_corrected'
+          ? (((job.payload as { tracking_number?: unknown }).tracking_number ?? null) as
+              | string
+              | null)
+          : job.eventType === 'order_shipped'
+            ? (shipped?.trackingNumber ?? null)
+            : null;
+
       const outcome = await sender.send(sendInput);
       // 🔴 計數 = provider 裁決當下(mark 落表前;codex 關卡2 R1 must-fix:mark throw 不得
       //    讓「Resend 已接受」從計數上消失)。
       if (outcome.kind === 'sent') {
         result.sent++;
-        const owned = await outbox.markSent(job.id, job.attempts);
+        const owned = await outbox.markSent(job.id, job.attempts, sentTrackingNumber);
         if (!owned) result.staleMarks++; // 柵欄 no-op:所有權已失、不得覆寫(非錯誤)
       } else {
         result.failed++;

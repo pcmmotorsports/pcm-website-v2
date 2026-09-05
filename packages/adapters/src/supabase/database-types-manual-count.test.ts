@@ -90,6 +90,22 @@ describe('database.types.ts 檔頭的手動校正計數 = 實際條目', () => {
     expect(sum).toBe(claimed);
   });
 
+  // 🔴🔴 **⑲ 那一條宣稱「三處」, 而上面那一格【只數旁白, 不看型別】**(codex 2026-09-05 R1 nit)。
+  //    ⇒ 刪掉 Row / Insert / Update 其中一處而旁白照樣寫「三處」⇒ **上面全綠。**
+  //    ⇒ 📌 所以這一格是**另一把尺**:它去型別本體數那個欄名到底出現幾次。
+  //    ⚠️ 射程:它只認得**這一個欄名**。其他手動校正沒有這道保險 —— 那是已知缺口, 不是漏寫
+  //      (要做成通則得先有一份「條目 → 它改了哪些識別字」的對照, 而那份今天不存在)。
+  it('🔴 ⑲ 說「六處」⇒ 兩個欄名在型別本體裡各要真的有三處', () => {
+    const src = readFileSync(TYPES_PATH, 'utf8');
+    const body = src.slice(src.indexOf('export type Database'));
+    for (const col of ['sent_tracking_number', 'sent_tracking_recorded']) {
+      const hits = body.match(new RegExp(col, 'g')) ?? [];
+      expect(hits.length, `型別本體裡 ${col} 有 ${hits.length} 處, 而 ⑲ 宣稱各三處`).toBe(3);
+    }
+    // 🔵 負對照:一個不存在的欄名要數到 0 ⇒ 證明這把尺不是恆真。
+    expect((body.match(/zzz_not_a_column/g) ?? []).length).toBe(0);
+  });
+
   it('正向對照:中文數字解析本身是活的(否則上面兩格可能因為恆 null 而互相遷就)', () => {
     expect(cjkNumber('三')).toBe(3);
     expect(cjkNumber('十')).toBe(10);
