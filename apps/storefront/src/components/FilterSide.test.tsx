@@ -6,7 +6,22 @@
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
 
 import { useReducer, useState } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// 🔴 ⟦b4-CLEARALLKEEPSJUNK⟧ 之後本元件會【自己送乾淨網址】⇒ 需要一個接得住 replace 的 router。
+//    形狀照 `ActiveChips.test.tsx` 那份(同一個需求, 不另發明)。
+const nav = vi.hoisted(() => ({ search: new URLSearchParams(), replaced: [] as string[] }));
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => nav.search,
+  useRouter: () => ({
+    replace: (url: string) => {
+      nav.replaced.push(url);
+      nav.search = new URLSearchParams(new URL(url, 'http://localhost').search);
+    },
+    push: vi.fn(),
+    refresh: vi.fn(),
+  }),
+}));
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { cascadeFilterReducer, makeInitialCascadeState } from '@pcm/ui';
 import { FilterSide, type FilterSideData } from './FilterSide';
@@ -329,5 +344,28 @@ describe('FilterSide 件數(桌機側欄)', () => {
     );
     expect(counts(container)).toBe(0);
     expect(rowOf?.disabled).toBe(false); // 「算不出來」≠「沒有商品」
+  });
+});
+
+describe('⟦b4-CLEARALLKEEPSJUNK⟧ 側欄「清除全部」要自己送乾淨網址', () => {
+  // 🔴 這一格是 R3 對抗審查的 must-fix 鎖:本顆原本【只清 state, 不送網址】,
+  //    而同步 effect 一個字都不寫 `categories` ⇒ 客人從搜尋落地(`?categories=A,B`)
+  //    按下去 ⇒ 膠囊還在、篩選還生效 ⇒ 📌 那顆鈕按了等於沒按。
+  it('🔴 按下去要 replace 一個只留 sort/per 的網址', () => {
+    nav.search = new URLSearchParams('categories=A%2CB&category=A&pbrands=zzq&sort=price-asc&per=100');
+    nav.replaced.length = 0;
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: '清除全部' }));
+
+    const url = nav.replaced.at(-1);
+    expect(url, '按了清除全部而一次 replace 都沒送 ⇒ 那顆鈕按了等於沒按').toBeDefined();
+    const q = new URLSearchParams(new URL(url!, 'http://localhost').search);
+    expect(q.get('categories'), `多顆分類還留在網址上:${url}`).toBeNull();
+    expect(q.get('category'), `分類還留在網址上:${url}`).toBeNull();
+    expect(q.get('pbrands'), `認不得的品牌還留在網址上:${url}`).toBeNull();
+    // 🔵 正對照:客人刻意選的排序/每頁筆數【不是篩選】, 要留著 ——
+    //    少了這兩格, 上面那三格可以靠「整串丟光」蒙混過關。
+    expect(q.get('sort')).toBe('price-asc');
+    expect(q.get('per')).toBe('100');
   });
 });

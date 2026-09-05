@@ -5,6 +5,10 @@
 // filter-cascade.css(與 CascadeFilterTop .cft-* 同檔、皆「目前篩選狀態」UI)。
 
 import { useRouter, useSearchParams } from 'next/navigation';
+import {
+  markClearAllRequested,
+  buildClearedProductsUrl,
+} from './use-catalog-filter-url-sync';
 import { categoriesFromParams, CATEGORIES_PARAM } from '@/lib/catalog-query';
 import { CATEGORY_URL_SEPARATOR } from './products-url-parsers';
 import {
@@ -138,6 +142,9 @@ export function ActiveChips({
       <button
         className="ac-clear-all"
         onClick={() => {
+          // 🔴 ⟦b4-CLEARALLKEEPSJUNK⟧ 先舉手, 再清 —— 讓同步 effect 這一輪不要復活認不得的參數。
+          //    順序不可換:`dispatch` 會排下那一輪 effect, 旗標要在它之前就位。
+          markClearAllRequested();
           dispatch(clearAll());
           setExtras(makeInitialExtraFilters());
           // 🔴🔴 **分類改讀網址之後, 這一顆【非改不可】** ——
@@ -146,13 +153,8 @@ export function ActiveChips({
           //    📌 那正是 `⟦b4-CLEARALLKEEPSJUNK⟧` 那一列講的病, 而本片會把它【放大】
           //       (以前只有認不得的參數會留, 現在【每一顆分類】都留)⇒ 一起處理。
           // 🔵 保 `sort`/`per`(客人刻意選的)、丟 `page` —— 與空狀態那顆同一支。
-          const next = new URLSearchParams();
-          const keepSort = searchParams.get('sort');
-          const keepPer = searchParams.get('per');
-          if (keepSort) next.set('sort', keepSort);
-          if (keepPer) next.set('per', keepPer);
-          const qs = next.toString();
-          router.replace(qs ? `/products?${qs}` : '/products');
+          // 🔵 三顆鈕共用同一個定義(R3 must-fix 之後抽出來的)。
+          router.replace(buildClearedProductsUrl(searchParams));
         }}>
         清除全部
       </button>
