@@ -55,6 +55,17 @@ export type ManualCancelNoticeEligibility =
       readonly displayId: string | null;
       /** 預填用。兩個都空是**合法的** —— 那正是最需要人工處理的那批單。 */
       readonly suggestedEmail: string | null;
+      /**
+       * 🔴🔴 **`suggestedEmail === null` 背了【兩個意思】, 而這一欄把它們分開。**
+       * code-reviewer 2026-09-06 important ④:下面讀 `customers` 失敗時是**吞掉**的
+       * (當時的理由對:預填只是方便, 它失敗不該讓整顆登錄鈕消失)——
+       * 而「已電話通知」那顆鈕**把同一個 null 讀成「這張單根本沒有信箱」**
+       * ⇒ 🛑 **一次瞬時讀取失敗, 那顆【不可撤銷】的鈕就出現在一張其實有信箱的單上。**
+       * ⇒ 📌 而按下去的後果是那張單**永久離開提醒**(稽核 append-only, 撤不回來)。
+       * ✅ 分開之後:`true` ⇒ 電話那顆鈕**不出現**, 畫面說「資料暫時讀不到」。
+       * 🔵 而登錄鈕**照舊出現**(它的行為沒變, 只是少了預填)—— 那一格的原理由仍然成立。
+       */
+      readonly customerEmailReadFailed: boolean;
     }
   | { readonly eligible: false; readonly blocker: ManualCancelNoticeBlocker };
 
@@ -220,6 +231,8 @@ export async function readManualCancelNoticeEligibility(
 
   // 預填:訂單上的通知信箱優先;沒有就去客人資料拿。**兩個都沒有 ⇒ null, 不編一個佔位字串。**
   let suggested = nonEmpty(order.notification_email);
+  // 🔴 **讀失敗與「真的沒有」要分開記**(見上面那一欄的理由)。
+  let customerEmailReadFailed = false;
   if (suggested === null) {
     try {
       const res = await svc
@@ -227,10 +240,13 @@ export async function readManualCancelNoticeEligibility(
         .select('email')
         .eq('user_id', order.customer_user_id)
         .maybeSingle();
-      // 🔵 讀不到客人資料**不算 unreadable** —— 預填只是方便, 它失敗不該讓整顆鈕消失。
-      if (!res.error && res.data !== null) suggested = nonEmpty(res.data.email);
+      // 🔵 讀不到客人資料**不算 unreadable** —— 預填只是方便, 它失敗不該讓整顆登錄鈕消失。
+      //    🛑 **而它【要被記下來】** —— 「已電話通知」那顆鈕的出現條件靠的是
+      //      「兩個信箱都空」, 而那個判斷在讀失敗時會**答錯**。
+      if (res.error) customerEmailReadFailed = true;
+      else if (res.data !== null) suggested = nonEmpty(res.data.email);
     } catch {
-      // 同上:預填拿不到就算了。
+      customerEmailReadFailed = true;
     }
   }
 
@@ -240,6 +256,7 @@ export async function readManualCancelNoticeEligibility(
     orderId: order.id,
     displayId: order.display_id,
     suggestedEmail: suggested,
+    customerEmailReadFailed,
   };
 }
 

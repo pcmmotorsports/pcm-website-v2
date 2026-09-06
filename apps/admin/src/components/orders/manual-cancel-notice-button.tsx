@@ -219,11 +219,26 @@ export function ManualCancelNoticeButton({
 export function PhoneNotifiedButton({
   orderId,
   show,
+  emailReadFailed = false,
 }: {
   orderId: string;
-  /** 🔵 由呼叫端決定:合格(要人工處理)**而且**那張單兩個信箱都空。 */
+  /** 🔵 由呼叫端決定:合格(要人工處理)· 兩個信箱都空 · **而且不是讀失敗**。 */
   show: boolean;
+  /**
+   * 🔴 **讀 `customers` 失敗** ⇒ 不出鈕, 但**要說出來**(code-reviewer important ④)。
+   * ⛔ 什麼都不畫的話,「這張單有信箱(不需要這顆鈕)」與「我讀不到」在畫面上長得一樣,
+   *    而後者代表**那張單可能正在等人**。
+   */
+  emailReadFailed?: boolean;
 }) {
+  if (emailReadFailed) {
+    return (
+      <p className='text-muted-foreground mt-2 text-xs'>
+        ⚠️ 客人的資料暫時讀不到,所以先不顯示「我是用電話通知的」那顆鈕
+        —— <strong>不是這張單不需要</strong>。重新整理看看。
+      </p>
+    );
+  }
   if (!show) return null;
   return (
     <form

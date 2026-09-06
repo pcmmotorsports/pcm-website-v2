@@ -60,6 +60,7 @@ function mockDb(opts: {
   outbox?: unknown[];
   outboxError?: boolean;
   customerEmail?: string | null;
+  customerEmailError?: boolean;
 }) {
   svc.from.mockImplementation((table: string) => {
     if (table === 'orders') {
@@ -133,10 +134,13 @@ function mockDb(opts: {
             expectEq(col, 'user_id', 'customers 的 eq 欄名');
             expectEq(val, 'u-1', 'customers 的 eq 值(要是那張單的 customer_user_id)');
             return ({
-            maybeSingle: async () => ({
-              error: null,
-              data: opts.customerEmail === undefined ? null : { email: opts.customerEmail },
-            }),
+            maybeSingle: async () =>
+              opts.customerEmailError
+                ? { error: { message: 'boom' }, data: null }
+                : {
+                    error: null,
+                    data: opts.customerEmail === undefined ? null : { email: opts.customerEmail },
+                  },
             });
           },
         }),
@@ -226,6 +230,22 @@ describe('登錄人工寄出取消通知:資格', () => {
     const r = await readManualCancelNoticeEligibility('o-1');
     expect(r.eligible).toBe(true);
     expect(r.eligible === true ? r.suggestedEmail : 'x').toBeNull();
+    // 🔴 **真的沒有** ⇒ 這一欄要是 false(不是讀失敗)。
+    expect(r.eligible === true ? r.customerEmailReadFailed : true).toBe(false);
+  });
+
+  /**
+   * 🔴🔴 **讀失敗與「真的沒有」要分得開**(code-reviewer important ④)——
+   * 兩者的 `suggestedEmail` 都是 `null`, 而**下一步完全不同**:
+   * 真的沒有 ⇒ 給那顆**不可撤銷**的電話鈕;讀失敗 ⇒ **不給**(那張單可能其實有信箱)。
+   */
+  it('🔴 讀 customers 失敗 ⇒ 仍 eligible,而 customerEmailReadFailed = true', async () => {
+    mockDb({ order: { ...OK_ORDER, notification_email: null }, customerEmailError: true });
+    const r = await readManualCancelNoticeEligibility('o-1');
+    // 🔵 仍然 eligible —— 讀不到預填**不該**讓整顆登錄鈕消失(那一格的原理由沒變)。
+    expect(r.eligible).toBe(true);
+    expect(r.eligible === true ? r.suggestedEmail : 'x').toBeNull();
+    expect(r.eligible === true ? r.customerEmailReadFailed : false).toBe(true);
   });
 
   it('🔵 訂單沒信箱而客人有 ⇒ 用客人的', async () => {

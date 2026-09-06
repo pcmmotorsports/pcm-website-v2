@@ -549,8 +549,14 @@ export async function OrderDetailRoute({
                   show={
                     phoneNotified === null &&
                     eligibility.eligible &&
-                    eligibility.suggestedEmail === null
+                    eligibility.suggestedEmail === null &&
+                    // 🔴🔴 **讀失敗時不出這顆鈕**(code-reviewer important ④)——
+                    //    `suggestedEmail === null` 同時代表「真的沒有信箱」與「讀 customers 失敗」,
+                    //    而這顆鈕**不可撤銷** ⇒ 🛑 一次瞬時失敗就讓它出現在**有信箱**的單上,
+                    //    而按下去那張單**永久離開提醒**(稽核 append-only)。
+                    !eligibility.customerEmailReadFailed
                   }
+                  emailReadFailed={eligibility.eligible && eligibility.customerEmailReadFailed}
                 />
               </>
             );
