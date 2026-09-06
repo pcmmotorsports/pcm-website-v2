@@ -6,7 +6,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { classifyVariantOrphans, orphansToDeleteFor, hazardGroupsToSkip, computeSourceMissing, markSourceMissing, clearSourceMissing, printVariantOrphanReport, type VariantOrphan, type VariantOrphanReport } from './rpm-reconcile';
+import { classifyVariantOrphans, orphansToDeleteFor, hazardGroupsToSkip, computeSourceMissing, markSourceMissing, clearSourceMissing, printVariantOrphanReport, formatWithheldOrphans, type VariantOrphan, type VariantOrphanReport } from './rpm-reconcile';
 
 const tv = (sku: string, externalId: string): VariantOrphan => ({ sku, externalId });
 
@@ -492,5 +492,45 @@ describe('printVariantOrphanReport:說「會刪」的前提是這一輪真的會
     const t = capture(base({ orphans: [], ratio: 0 }));
     expect(t).toMatch(/無孤兒變體/);
     expect(t, '清單抬頭只在有孤兒時印;零孤兒還印它 = 承諾了一件不會發生的事').not.toMatch(/寫入模式將刪除|它們會留在庫裡/);
+  });
+});
+
+
+// ── ⟦b4-WITHHELD1⟧ formatWithheldOrphans:那一行【機器讀得到的半】────────────────
+// 🔴 **為什麼要有這三格**:`rpm-import.ts` 原本印的是 `slice(0, 10)` + 一個裸的 `…`
+//    ⇒ 📌 **超過 10 個之後 sku 的身分在【寫進 log 之前】就沒了。**
+//    而那一行**零測試**(當時 `grep -c 該刪而沒刪 -- '*.test.ts'` ⇒ 0)。
+describe('formatWithheldOrphans(⟦b4-WITHHELD1⟧)', () => {
+  const mk = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ sku: `S-${i}`, externalId: `G-${i}` }));
+
+  it('🔵 沒超過上限 ⇒ truncated=false, 而【每一個 sku 都在】', () => {
+    const line = formatWithheldOrphans({ supplierSlug: 'rpm', completeness: 'unknown', orphans: mk(3) });
+    const payload = JSON.parse(line.slice(line.indexOf('{')));
+    expect(payload.total).toBe(3);
+    expect(payload.shown).toBe(3);
+    expect(payload.truncated).toBe(false);
+    expect(payload.skus).toEqual(['S-0', 'S-1', 'S-2']);
+  });
+
+  it('🔴 超過上限 ⇒ truncated=true, 而 total 仍然說得出【全部有幾個】', () => {
+    // 🛑 這一格擋的正是舊版那個 `…`:它說「還有」, 而沒說「還有幾個」。
+    const line = formatWithheldOrphans({ supplierSlug: 'rpm', completeness: 'unknown', orphans: mk(5), cap: 2 });
+    const payload = JSON.parse(line.slice(line.indexOf('{')));
+    expect(payload.total).toBe(5);
+    expect(payload.shown).toBe(2);
+    expect(payload.truncated).toBe(true);
+    expect(payload.skus).toHaveLength(2);
+  });
+
+  it('⚪ 負對照:零個孤兒 ⇒ total=0 而【那一行仍然印得出來】(不印與沒扣留長得一樣)', () => {
+    const line = formatWithheldOrphans({ supplierSlug: 'rpm', completeness: 'complete', orphans: [] });
+    const payload = JSON.parse(line.slice(line.indexOf('{')));
+    expect(payload.total).toBe(0);
+    expect(payload.truncated).toBe(false);
+    expect(payload.skus).toEqual([]);
+    // 供應商與完整性要跟著走 —— 少了它們, 一行「0」答不出「哪一輪、哪一家」。
+    expect(payload.supplier).toBe('rpm');
+    expect(payload.completeness).toBe('complete');
   });
 });
