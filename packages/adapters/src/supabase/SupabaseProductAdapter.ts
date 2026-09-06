@@ -75,7 +75,11 @@ import {
  *    `db-max-rows` 若被改到 1000 以下,這道偵測就再次零判別力
  *    (同族警告見 `helpers/product-query-support.ts` 的 `PAGE_SIZE`)。
  */
-const RPC_ID_CAP = 1000;
+// ⛔ ~~`const RPC_ID_CAP = 1000;`~~ 2026-09-07 拿掉(⟦search-RPC1000FALLBACK⟧)——
+//   它的用途是「一次撈全部, 多要一筆偵測有沒有被 `db-max-rows` 截」。
+//   改成伺服器端分頁之後**每次只要一頁**(頁大小 ≪ 1000)⇒ 結構上截不到 ⇒ 這個哨兵沒有工作了。
+//   🛑 而它**不是被放寬** —— 舊設計裡它一旦叫, 代價是【整批退回舊路 = 放棄新排序】,
+//     而那個代價 2026-09-07 量到:五詞三退。
 
 const PRODUCT_SELECT_DETAIL =
   'id, external_id, title, subtitle, description, highlights, manuals, video_url, sound_clips, handle, fitments, images, availability, brand_id, category_id, price_general, created_at, updated_at, brands(id, name, slug, premium_extra_pct), categories(raw_path, segments)';
@@ -570,10 +574,18 @@ export class SupabaseProductAdapter implements IProductRepository {
     //    ```
     //    ⚠️ 而 Sean 貼完到 PostgREST 重載 cache 之間**還會是 `PGRST202`** ⇒ 那段時間照樣走舊路,
     //      **重載之後自動生效** —— 這正是選乙換到的東西。
-    const brandIds = await this.trySearchIdsWithBrand(q);
+    const wantCountRpc = opts?.countTotal !== false;
+    const rpcPage = await this.trySearchIdsWithBrand(q, offset, params.limit, wantCountRpc);
     const msRpc = Math.round(performance.now() - t0);
-    if (brandIds !== null) {
-      const wantCountRpc = opts?.countTotal !== false;
+    if (rpcPage !== null) {
+      // 🔴🔴 **2026-09-07:分頁搬到伺服器端了(⟦search-RPC1000FALLBACK⟧)。**
+      //   ⛔ ~~`const ordered = [...brandIds]; const pageIds = ordered.slice(offset, offset + params.limit);`~~
+      //   ✅ RPC 直接回**那一頁**(`.range(offset, offset + limit - 1)`)⇒ **這裡不再切片。**
+      //   🛑 **`rpcTotal` 與 `pageIds.length` 是兩個數, 而它們【平常會相等】** ——
+      //     結果少於一頁時一模一樣, 只有超過時才分家 ⇒ 📌 **件數若讀成 `pageIds.length`,
+      //     在小資料集上永遠測不出來**, 而正式站那三個詞一上來就分家(煞車 2593 / carbon 1436 / 水管 1244)。
+      const pageIds = rpcPage.ids;
+      const rpcTotal = rpcPage.total ?? 0;
       // ⛔ ~~`.in('id', …)` **不保證順序** ⇒ 自己排,才與舊路的 `.order('id')` 同序。~~
       // ⛔ ~~`const ordered = [...brandIds].sort();`~~
       // 🔴🔴 **2026-09-06:`.sort()` 拿掉了 —— 而它有【前置】, 而那個前置今天滿足了。**
@@ -584,8 +596,6 @@ export class SupabaseProductAdapter implements IProductRepository {
       //   🔵 **而這一行拿掉之所以【看得到效果】, 是因為 `02499b9c6` 那道接縫先做了** ——
       //     下面 `rpcItems` 已經改成照 `pageIds` 重排, 否則 `.order('id')` 會把上游的順序再蓋掉一次。
       //     ⇒ 🛑 **兩顆缺一不可, 而那正是那道 no-op 接縫存在的理由。**
-      const ordered = [...brandIds];
-      const pageIds = ordered.slice(offset, offset + params.limit);
       if (pageIds.length === 0) {
         // 🔴🔴 **這一條早退【本來一行都不印】**(2026-09-05 code-reviewer R1 must-fix)——
         //    `trySearchIdsWithBrand` 對「走過了沒找到」回 `[]` 而不是 `null`
@@ -593,10 +603,10 @@ export class SupabaseProductAdapter implements IProductRepository {
         //    ⇒ 🎯 **「沒有 log」與「這條路很快」在讀 log 的人眼裡長一樣** —— 那正是本片要防的病,
         //      而我第一版在自己的量具上踩了它。深分頁(offset 超過 `ordered.length`)同一格。
         console.info(
-          `[searchByKeyword] path=rpc-empty qlen=${q.length} ids=${ordered.length} ` +
+          `[searchByKeyword] path=rpc-empty qlen=${q.length} page=${pageIds.length} hits=${rpcTotal} ` +
             `rpc=${msRpc}ms total=${Math.round(performance.now() - t0)}ms`,
         );
-        return wantCountRpc ? { items: [], total: ordered.length } : { items: [] };
+        return wantCountRpc ? { items: [], total: rpcTotal } : { items: [] };
       }
       const { data: rows, error: rowsErr } = await this.supabase
         .from('products_public')                 // 🛑 投影與 mapper 一個字不動
@@ -643,10 +653,10 @@ export class SupabaseProductAdapter implements IProductRepository {
       // 🔴 `total` 只取【一次】時鐘, 三個數才拼得回去(reviewer R1 nit:取三次 ⇒ 加不回 total)。
       const msTotal = Math.round(performance.now() - t0);
       console.info(
-        `[searchByKeyword] path=rpc qlen=${q.length} ids=${ordered.length} ` +
+        `[searchByKeyword] path=rpc qlen=${q.length} page=${pageIds.length} hits=${rpcTotal} ` +
           `rpc=${msRpc}ms rows=${msTotal - msRpc}ms total=${msTotal}ms`,
       );
-      return wantCountRpc ? { items: rpcItems, total: ordered.length } : { items: rpcItems };
+      return wantCountRpc ? { items: rpcItems, total: rpcTotal } : { items: rpcItems };
     }
 
     // ⟦搜尋-多詞與料號⟧ 2026-09-03:**每個詞各組一組 `.or()`,詞與詞之間是 AND。**
@@ -793,7 +803,38 @@ export class SupabaseProductAdapter implements IProductRepository {
    * ⚠️ **回傳 `null` = 「今天沒有這條路」;回傳 `[]` = 「這條路走過了,而它一筆都沒找到」** ——
    *    兩者**不可**收斂成同一個東西:前者要走舊路,後者要直接回空。
    */
-  private async trySearchIdsWithBrand(q: string): Promise<string[] | null> {
+  /**
+   * 🔴🔴 **2026-09-07:改成【伺服器端分頁】, 回 `{ ids, total }`(⟦search-RPC1000FALLBACK⟧)。**
+   *   ⛔ ~~`Promise<string[] | null>`(一次撈全部 id, 呼叫端再 `slice`)~~
+   *   **舊做法的代價是量到的**:PostgREST 的 `db-max-rows` 會靜默截斷 ⇒ adapter 只能用
+   *   「筆數 > cap 就退回舊路」偵測 ⇒ 🛑 **常見中文 2 字詞整批退回舊路**
+   *   (2026-09-07 02:46 preview 實測 5 詞 3 退;db 量到 `煞車 2593` / `carbon 1436` / `水管 1244`)
+   *   ⇒ **客人搜「煞車」拿到的是舊排序, 而畫面上沒有一句話說。**
+   * ✅ **新做法**:`.range(offset, offset + limit - 1)` 只要那一頁 + `{ count: 'exact' }` 拿總數。
+   * 🔬 **2026-09-07 `db` 用 anon key 實打, 三個事實**(`~/pcm-mailbox/讀數-Q6搜尋分頁-20260907.md` 檔尾):
+   *   ① `count=exact` 在 RPC 上**真的**回 `Content-Range`(`206` · `0-4/2560`)⇒ 前提成立。
+   *   ② 🔴🔴 **`Range` 標頭在 RPC 的 POST 上【被忽略】, 安靜回 2000 列** ——
+   *      ⇒ 📌 **只能用 `.range()`**(它送的是 `limit`/`offset` 查詢參數, 量過有效);
+   *        誰手動加 `Range` 標頭會拿到 2000 列**而只是變慢**, 沒有任何錯誤。
+   *   ③ 🔴 **anon 看到的總數是 2560, 不是 2593** —— 那支是 INVOKER 函式 ⇒ 走 RLS
+   *      ⇒ **客人經歷的是 2560**;`pcm_readonly` 量到的 2593 是另一個身分看到的世界。
+   *      ⇒ **驗收的期望值要用 anon 側的數(2560)。**
+   *   🔬 **可行性是 db 量的**(`~/pcm-mailbox/讀數-Q6搜尋分頁-20260907.md`):同一支函式在
+   *   `LIMIT/OFFSET` 之下**內部 `ORDER BY` 仍成立** —— 深到第 1001 名的指紋與整組切片**逐字相同**,
+   *   而他的負對照(第 1006-1010 名)**不同** ⇒ 那把尺會動。
+   * 🛑🛑 **而這個改動【引入一個比原本更強的假設】, 寫在這裡不要被讀漏**:
+   *   舊做法兩頁來自**同一次呼叫的同一份清單**;新做法**每頁一次獨立呼叫**
+   *   ⇒ 📌 **「第 1 頁與第 2 頁不重疊」從此依賴【跨呼叫的排序穩定】。**
+   *   ⚠️ db 自己標了「**PG 沒有標準保證**子查詢的 `ORDER BY` 在外層 `LIMIT/OFFSET` 下被保留;
+   *   今天成立是實測不是承諾 ⇒ **大版本升級或計畫改變時要重量**」。
+   *   ⇒ 🔴 **而它失效時, 畫面完全正常** —— 只是客人翻頁看到重複或漏掉的商品。
+   */
+  private async trySearchIdsWithBrand(
+    q: string,
+    offset: number,
+    limit: number,
+    wantCount: boolean,
+  ): Promise<{ ids: string[]; total: number | undefined } | null> {
     const terms = splitSearchTerms(q);
     if (terms.length === 0) {
       return null; // 零詞 ⇒ 交回舊路,由它那道 fail-closed 處理
@@ -847,7 +888,7 @@ export class SupabaseProductAdapter implements IProductRepository {
     // 🔴🔴 **要帶 `.range()`,否則吃 PostgREST 的 `db-max-rows`(本 repo 實測 2000)**
     //    ⇒ 寬查詢會被**靜默截成 2000 筆** ⇒ `共 N 件` 印 2000、第 81 頁之後翻不到,
     //      而**失敗形狀是 HTTP 200、畫面完全正常**(code-reviewer must-fix;同檔另一支 SETOF RPC 記過同一格)。
-    //    ✅ 取 `RPC_ID_CAP + 1`:**多要一筆就是那把尺** —— 拿回來的筆數超過 cap ⇒ 我知道被截了。
+    //    ⛔ ~~✅ 取 `RPC_ID_CAP + 1`:**多要一筆就是那把尺**~~ ⇒ 2026-09-07 改伺服器端分頁後這句作廢(見下)。
     // 🔴🔴 **`try` 是這一片的第二個修法, 而它與 `this` 那個【一樣重要】**:
     //    下面 `if (error)` 那整段退路**只接得住【回傳的 error 物件】**。
     //    🛑 而上面那個 `TypeError` 是 **`throw` 出來的** ⇒ **穿過整條退路** ⇒ 整個搜尋 503。
@@ -856,10 +897,36 @@ export class SupabaseProductAdapter implements IProductRepository {
     //    ✅ 任何從 RPC 那條路丟出來的東西 ⇒ 記一行 ⇒ **退回舊路**, 不讓它上升成 500/503。
     let data: unknown;
     let error: { code?: unknown } | null;
+    let count: number | null = null;
     try {
-      ({ data, error } = await sb
-        .rpc('storefront_search_product_ids', { p_terms: terms })
-        .range(0, RPC_ID_CAP));
+      // ⛔ ~~`.rpc(fn, { p_terms }).range(0, RPC_ID_CAP)`~~(撈全部 + 多要一筆當截斷偵測)
+      // ✅ 只要那一頁 + `count: 'exact'` 拿總數。🔴 `.range()` **兩端皆含** ⇒ 上界是 `offset + limit - 1`,
+      //   寫成 `offset + limit` 會**每頁多撈一筆**(而畫面上看不出來 —— 多的那筆會被當成下一頁的第一筆)。
+      ({ data, error, count } = await (
+        sb as unknown as {
+          rpc: (
+            fn: string,
+            args: Record<string, unknown>,
+            opts?: { count: 'exact' },
+          ) => {
+            range: (from: number, to: number) => PromiseLike<{
+              data: unknown;
+              error: { code?: unknown } | null;
+              count: number | null;
+            }>;
+          };
+        }
+      )
+        .rpc(
+          'storefront_search_product_ids',
+          { p_terms: terms },
+          // 🔴🔴 **`countTotal:false` 的路【不可以】付 count 的錢**(code-reviewer must-fix 2):
+          //   舊路那半 `:756` 就是 `wantCount ? { count: 'exact' } : undefined`, 而我第一版無條件帶
+          //   ⇒ `api/search/route.ts:110` 逐字傳 `countTotal:false`(理由 `:66-68`:疊層畫面沒有印總數)
+          //   ⇒ 📌 **疊層每打一個字都會讓 PG 數完整個命中集合** —— 一個拍過板的決定被無聲反轉。
+          wantCount ? { count: 'exact' } : undefined,
+        )
+        .range(offset, offset + limit - 1));
     } catch (thrown) {
       console.warn(
         '[searchByKeyword] storefront_search_product_ids 那條路 throw 了 ⇒ 退回舊路:',
@@ -869,6 +936,20 @@ export class SupabaseProductAdapter implements IProductRepository {
     }
     if (error) {
       const code = typeof error.code === 'string' ? error.code : '';
+      // 🔴🔴 **深分頁超界(code-reviewer must-fix 3)**:`.range(offset, …)` 的 `offset` 現在
+      //   **第一次真的送到 PostgREST** —— 舊碼恆 `from=0`, 超界只是 `slice` 出空陣列。
+      //   而 `catalog-query.ts:155-158` 的 `parsePositiveInteger` **沒有上界** ⇒ `?page=999999` 打得進來。
+      //   🛑 **`PGRST103` 是「Range 超界」** ⇒ 它不是錯, 是「這一頁沒有東西」⇒ **當空頁**,
+      //     不要讓它掉進下面那個 `throw error` —— 那個 throw 在 `try` 外面, 會穿過整條退路變成 503
+      //     (2026-09-03 那次正式站故障就是這個形狀)。
+      //   ⚠️ **而「PostgREST 對超界回什麼」我沒有實測**(repo 內 `PGRST103` 零命中、無先例)
+      //     ⇒ 這一格是**照文件擋的**, 不是量到的;真的量到之前它是保守處理不是背書。
+      if (code === 'PGRST103') {
+        console.info(
+          `[searchByKeyword] range 超界(offset=${offset})⇒ 當空頁, 不退回舊路也不 throw`,
+        );
+        return { ids: [], total: wantCount ? 0 : undefined };
+      }
       if (code === 'PGRST202' || code === '42883') {
         // 🔴🔴 **要留一行訊號** —— `PGRST202` 同時代表兩件事(code-reviewer must-fix):
         //    ①函式**還沒貼**(預期中,今天就是這個)②**貼了,而函式名或參數名打錯**
@@ -906,14 +987,28 @@ export class SupabaseProductAdapter implements IProductRepository {
       );
       return null;
     }
-    if (ids.length > RPC_ID_CAP) {
-      // 🛑 被 `db-max-rows` 截斷 ⇒ **不要拿一份殘缺的清單當全部** ⇒ 退回舊路(它的 count 是 exact)
+    // 🔴🔴 **2026-09-07:這裡【不再退回舊路】, 而那是本片的整個重點。**
+    //   ⛔ ~~`if (ids.length > RPC_ID_CAP) { warn('…回超過 1000 筆 ⇒ 可能被截斷 ⇒ 退回舊路'); return null; }`~~
+    //   🛑 那個偵測是對的**而它的代價從來沒有人量過**:五詞三退, **客人搜「煞車」拿到的是舊排序**。
+    //   ✅ 現在每次只要一頁 ⇒ **結構上不會被 `db-max-rows` 截**(頁大小 ≪ 1000), 截斷偵測不再需要。
+    // 🔴 **`count` 讀不到時【不編一個數字】** —— 回 `ids.length` 會在深分頁時說謊
+    //   (第 2 頁只有 24 筆 ⇒ 「共 24 件」)⇒ 那比沒有數字更糟。
+    //   ⇒ 回 `null` 讓呼叫端知道「這一格我答不出來」, 並留一行。
+    // 🔵 **不要 count 的那條路不看這個數** ⇒ 讀不到也不必退回舊路(code-reviewer must-fix 2)。
+    if (!wantCount) {
+      return { ids, total: undefined };
+    }
+    if (typeof count !== 'number' || !Number.isFinite(count)) {
+      // 🔬 **2026-09-07 `db` 用 anon key 打過了:`count=exact` 在 RPC 上【真的】回 `Content-Range`**
+      //   (`206` · `0-4/2560`)⇒ 前提成立。**這道降級因此不是預期路徑, 而它留著當常設守門** ——
+      //   哪天 PostgREST 版本或設定改掉那個行為, 這一行會在 log 裡說話, 而畫面不會壞。
       console.warn(
-        `[searchByKeyword] storefront_search_product_ids 回超過 ${RPC_ID_CAP} 筆 ⇒ 可能被截斷 ⇒ 退回舊路`,
+        '[searchByKeyword] storefront_search_product_ids 沒回 count(Content-Range 可能不支援 RPC)' +
+          ' ⇒ 件數答不出來, 退回舊路由它的 exact count 接手',
       );
       return null;
     }
-    return ids;
+    return { ids, total: count };
   }
 
   /**
