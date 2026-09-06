@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# 20260906950000-verify.sh —— ⟦search-VARIANTSKUFIRST⟧ 完全命中排最前, 拋棄式 PG 驗證
+#
+# 🛑 **零正式庫動作。**
+# 🔴 **它答不出什麼**:
+#   · 資料是本檔自己造的 ⇒ 答「排序邏輯對不對」, 答不出「正式庫會怎樣」。
+#   · **零效能量測** —— 那個 `EXISTS` 對結果集每一列各跑一次, 而正式庫的延遲要貼完用唯讀 EXPLAIN 量
+#     (主視窗 2026-09-06 裁乙 ⇒ 板列**貼完之後才關得掉**)。
+set -u
+export LC_ALL=C LANG=C
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+MIG="$REPO/supabase/migrations/20260906950000_m4b_search_exact_match_first.sql"
+PREV="$REPO/supabase/migrations/20260906900000_m4b_storefront_search_variant_sku.sql"
+for f in "$MIG" "$PREV"; do [ -f "$f" ] || { echo "🔴 找不到 $f ⇒ 路徑錯, 不是查無"; exit 2; }; done
+for c in initdb pg_ctl psql; do command -v "$c" >/dev/null || { echo "🔴 缺 $c ⇒ ENV-FAIL"; exit 2; }; done
+
+D=$(mktemp -d "${TMPDIR:-/tmp}/emf.XXXXXX") || exit 9
+PG=$(( 59000 + ($$ % 700) ))
+while lsof -nP -iTCP:"$PG" -sTCP:LISTEN >/dev/null 2>&1; do PG=$((PG+1)); done
+cleanup(){ pg_ctl -D "$D/pg" stop -m immediate >/dev/null 2>&1; rm -rf "$D"; }
+trap cleanup EXIT
+Q(){ psql -h /tmp -p "$PG" -U postgres -d postgres -tAc "$1"; }
+
+CELLS=0; FAILS=0
+cell(){ CELLS=$((CELLS+1)); if [ "$1" = 1 ]; then printf '  ✅ %s\n' "$2"; else FAILS=$((FAILS+1)); printf '  🔴 %s\n' "$2"; fi; }
+EXPECT_TOTAL=10
+
+initdb -D "$D/pg" -U postgres --auth=trust --encoding=UTF8 --locale=C >"$D/i.log" 2>&1 || { echo "🔴 initdb ⇒ ENV-FAIL"; exit 2; }
+pg_ctl -D "$D/pg" -o "-p $PG -k /tmp" -l "$D/pg.log" start >/dev/null 2>&1 || { echo "🔴 PG 起不來 ⇒ ENV-FAIL"; exit 2; }
+RB="$REPO/docs/runbooks/throwaway-postgres-for-migration-verification.md"
+awk '/^## 2\. .*bootstrap/{s=1} s&&/^```sql$/{f=1;next} f&&/^```$/{exit} f' "$RB" > "$D/bs.raw"
+awk '/^-- 業務型別/{exit} {print}' "$D/bs.raw" > "$D/bs.sql"
+[ -s "$D/bs.sql" ] || { echo "🔴 抽不到 bootstrap ⇒ ENV-FAIL"; exit 2; }
+psql -h /tmp -p "$PG" -U postgres -d postgres -q -v ON_ERROR_STOP=1 -f "$D/bs.sql" >/dev/null 2>&1 \
+  || { echo "🔴 bootstrap 跑不過 ⇒ ENV-FAIL"; exit 2; }
+
+echo "══ 依序 apply(失敗容忍)"
+OK=0; BAD=0
+for f in "$REPO"/supabase/migrations/*.sql; do
+  case "$(basename "$f")" in "$(basename "$MIG")") continue ;; esac
+  if psql -h /tmp -p "$PG" -U postgres -d postgres -q -v ON_ERROR_STOP=1 -f "$f" >/dev/null 2>&1
+  then OK=$((OK+1)); else BAD=$((BAD+1)); fi
+done
+printf '   成功 %s ｜ 失敗 %s\n' "$OK" "$BAD"
+
+# 🔴 replay 不乾淨 ⇒ 那支函式可能停在更舊那一代(runbook §5c)⇒ 明確把 58 那一代裝上去
+echo
+echo "── 格 0:貼板 58 還沒貼的世界 —— 本片必須被【前置閘③】擋下 ──"
+awk '/^CREATE OR REPLACE FUNCTION public.storefront_search_product_ids/,/^\$function\$;/' \
+  "$REPO/supabase/migrations/20260904180000_m4b_storefront_search_partno_long_numeric.sql" > "$D/gen58before.sql"
+psql -h /tmp -p "$PG" -U postgres -d postgres -q -v ON_ERROR_STOP=1 -f "$D/gen58before.sql" >/dev/null 2>&1
+if psql -h /tmp -p "$PG" -U postgres -d postgres -q -v ON_ERROR_STOP=1 -f "$MIG" >"$D/g0.log" 2>&1
+then cell 0 "格 0:58 還沒貼而本片仍貼得進去(前置閘③沒擋)"
+else cell "$(grep -q '前置閘③' "$D/g0.log" && echo 1 || echo 0)" \
+       "🔴 格 0:被【前置閘③】擋下($(sed -e 's|^psql:[^ ]*: ||' "$D/g0.log" | grep -m1 ERROR | cut -c1-46))"
+fi
+
+echo
+echo "── 前置:把 58 那一代裝上去(= 貼板 58 貼完的世界)──"
+awk '/^CREATE OR REPLACE FUNCTION public.storefront_search_product_ids/,/^\$function\$;/' "$PREV" > "$D/gen58.sql"
+psql -h /tmp -p "$PG" -U postgres -d postgres -q -v ON_ERROR_STOP=1 -f "$D/gen58.sql" >"$D/gen.log" 2>&1 \
+  || { echo "🔴 裝不上去 ⇒ ENV-FAIL:$(sed -e 's|^psql:[^ ]*: ||' "$D/gen.log" | grep -m1 ERROR | cut -c1-60)"; exit 2; }
+MD5=$(Q "SELECT md5(prosrc) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='storefront_search_product_ids'")
+cell "$([ "$MD5" = "866c53e2ef071d187bc34061bf1b4816" ] && echo 1 || echo 0)" \
+     "🟢 世界對齊:md5 = 58 貼完那一版(實測 ${MD5:0:12}…)"
+
+echo
+echo "── 格 A:正常世界貼得進去 ──"
+if psql -h /tmp -p "$PG" -U postgres -d postgres -q -v ON_ERROR_STOP=1 -f "$MIG" >"$D/ap.log" 2>&1
+then cell 1 "格 A:apply 成功(前置閘 + 事後閘全過)"
+else cell 0 "格 A:apply 失敗 ⇒ $(sed -e 's|^psql:[^ ]*: ||' "$D/ap.log" | grep -m1 ERROR | cut -c1-70)"; fi
+
+echo
+echo "── 造資料:母料號 AZ203 一張 · 母 PET52 一張(其變體 sku = PET52-PET52R)· 一張只是包含 AZ203 的 ──"
+psql -h /tmp -p "$PG" -U postgres -d postgres -q -v ON_ERROR_STOP=1 >"$D/seed.log" 2>&1 <<'SQL'
+INSERT INTO public.brands (id, name, slug) VALUES ('cccccccc-3333-3333-3333-333333333333','測試品牌','test-brand') ON CONFLICT DO NOTHING;
+INSERT INTO public.categories (id, name, raw_path, segments) VALUES ('dddddddd-4444-4444-4444-444444444444','測試分類','測試分類','["測試分類"]'::jsonb) ON CONFLICT DO NOTHING;
+INSERT INTO public.products (id, external_id, title, handle, availability, price_by_tier, brand_id, category_id) VALUES
+ -- 🔴 id 刻意讓「完全命中」那張排在【字典序後面】—— 否則 ORDER BY h.id 自己就會把它排到前面,
+ --    而那時這一格就分不出「是排序生效了」還是「剛好」。
+ ('ffffffff-9999-9999-9999-999999999999','AZ203','完全命中那張','h-exact','in-stock','{"general":100,"store":90}'::jsonb,'cccccccc-3333-3333-3333-333333333333','dddddddd-4444-4444-4444-444444444444'),
+ ('11111111-1111-1111-1111-111111111111','AZ2030','只是前綴命中','h-prefix','in-stock','{"general":100,"store":90}'::jsonb,'cccccccc-3333-3333-3333-333333333333','dddddddd-4444-4444-4444-444444444444'),
+ ('22222222-2222-2222-2222-222222222222','PET52','母商品 PET52','h-mother','in-stock','{"general":100,"store":90}'::jsonb,'cccccccc-3333-3333-3333-333333333333','dddddddd-4444-4444-4444-444444444444'),
+ ('eeeeeeee-8888-8888-8888-888888888888','PET52X','變體所屬那張','h-variant','in-stock','{"general":100,"store":90}'::jsonb,'cccccccc-3333-3333-3333-333333333333','dddddddd-4444-4444-4444-444444444444');
+INSERT INTO public.product_variants (id, product_id, sku, spec, availability) VALUES
+ ('aaaaaaaa-1111-1111-1111-111111111111','eeeeeeee-8888-8888-8888-888888888888','PET52R','{"s":"1"}'::jsonb,'in-stock');
+SQL
+[ -s "$D/seed.log" ] && { echo "   ⚠️ 造資料有輸出:"; sed -e 's|^psql:[^ ]*: ||' "$D/seed.log" | head -2 | sed 's/^/     /'; }
+
+echo
+echo "── 格 B:主視窗給的兩個正對照 ──"
+B1=$(Q "SELECT p.external_id FROM public.storefront_search_product_ids(ARRAY['AZ203']) s JOIN public.products_public p ON p.id = s.id LIMIT 1")
+cell "$([ "$B1" = "AZ203" ] && echo 1 || echo 0)" "🟢 格 B1:搜 AZ203 ⇒ 第一筆 external_id = '${B1:-空}'(期望 AZ203, 而它的 id 是 ffff… 字典序最後)"
+B2=$(Q "SELECT p.external_id FROM public.storefront_search_product_ids(ARRAY['PET52R']) s JOIN public.products_public p ON p.id = s.id LIMIT 1")
+cell "$([ "$B2" = "PET52X" ] && echo 1 || echo 0)" "🟢 格 B2:搜 PET52R ⇒ 第一筆 = '${B2:-空}'(期望 PET52X = 變體所屬那張, 不是母 PET52)"
+
+echo
+echo "── 格 C:負對照 ──"
+C1=$(Q "SELECT count(*) FROM public.storefront_search_product_ids(ARRAY['ZZQ9999NOTATERM'])")
+cell "$([ "${C1:-1}" = "0" ] && echo 1 || echo 0)" "🔴 格 C1:現造料號 ⇒ ${C1:-?} 筆(期望 0 —— 尺會動)"
+# 🔴 不完全命中的詞:順序不得被本片改動 ⇒ 應該仍是 id 升冪(第二鍵)
+C2=$(Q "SELECT string_agg(s.id::text, ',' ORDER BY 1) = string_agg(t.id::text, ',') FROM public.storefront_search_product_ids(ARRAY['AZ2030']) s, LATERAL (SELECT s.id) t")
+cell "$([ -n "$C2" ] && echo 1 || echo 0)" "🔴 格 C2:不完全命中的詞仍回得了列(它不該被本片弄成 0 筆)"
+
+echo
+echo "── 格 D:分頁不重複(第二排序鍵那一格)──"
+# 連跑兩發同一個查詢, 順序必須逐字相同 —— 沒有第二鍵的話 planner 可以給不同順序
+D1=$(Q "SELECT string_agg(id::text, ',') FROM (SELECT id FROM public.storefront_search_product_ids(ARRAY['AZ203'])) x")
+D2=$(Q "SELECT string_agg(id::text, ',') FROM (SELECT id FROM public.storefront_search_product_ids(ARRAY['AZ203'])) x")
+cell "$([ -n "$D1" ] && [ "$D1" = "$D2" ] && echo 1 || echo 0)" "🔴 格 D1:同一個查詢連跑兩發, 順序逐字相同(非空且相等)"
+# 分頁:前 1 筆 + 後面的, 不得有交集
+DUP=$(Q "WITH r AS (SELECT id, row_number() OVER () rn FROM public.storefront_search_product_ids(ARRAY['AZ203']))
+         SELECT count(*) FROM (SELECT id FROM r WHERE rn <= 1 INTERSECT SELECT id FROM r WHERE rn > 1) z")
+cell "$([ "${DUP:-1}" = "0" ] && echo 1 || echo 0)" "🔴 格 D2:第 1 筆與其餘沒有交集 ⇒ ${DUP:-?}(期望 0 —— 分頁不重複)"
+TOT=$(Q "SELECT count(*) FROM public.storefront_search_product_ids(ARRAY['AZ203'])")
+cell "$([ "${TOT:-0}" -ge 2 ] && echo 1 || echo 0)" "🔵 格 D3 分母:搜 AZ203 共 ${TOT:-?} 筆(>= 2 —— 只有一筆的話上面兩格是對空集合說話)"
+
+echo
+echo "── 收 ──"
+printf '   跑了 %s 格 · 紅 %s 格 · 期望 %s 格\n' "$CELLS" "$FAILS" "$EXPECT_TOTAL"
+if [ "$CELLS" != "$EXPECT_TOTAL" ]; then
+  printf '   🔴 格數與期望不符(多或少)⇒ 有格沒跑到, 而少跑一格在畫面上沒有形狀\n'; exit 1
+fi
+[ "$FAILS" = 0 ] || exit 1
+printf '   ✅ %s 格全過\n' "$CELLS"
