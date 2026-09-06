@@ -585,8 +585,10 @@ export class SupabaseProductAdapter implements IProductRepository {
       //   ⇒ **把完全命中的提到最前面, 它就一定落在第一頁。不必動 RPC。**
       //
       // 🛑 **兩條限制, 寫在這裡而不是只寫在 commit body**:
-      //   ① **舊路吃不到這個修法** —— 舊路是 `.order('id')` + `.range(offset,…)`, **分頁在 DB 做**
-      //     ⇒ 在 TS 重排只會動到**當頁內部**。舊路只在 RPC 不在時跑(`PGRST202`/`42883`)。
+      //   ① **舊路【根本沒有】這個重排** —— `hoistExactMatches` 全檔只有這一個呼叫點, 在
+      //     `if (brandIds !== null)` 裡面 ⇒ RPC 不在時(`PGRST202`/`42883`)走的舊路完全不經過它。
+      //     ⛔ ~~原本寫「舊路的 TS 重排只會動到當頁內部」~~ ⇒ **那是把假設語氣寫成了現況**
+      //     (2026-09-06 code-reviewer nit)—— 舊路是 `.order('id')` + DB 分頁, 沒有任何 TS 重排。
       //   ② **命中集超過 `RPC_ID_CAP`(1000)時**, 完全命中那筆可能根本沒被撈回來
       //     ⇒ 那一發會退回舊路(見 `:73`)⇒ 落回限制 ①。
       //     ⚠️ 「`AZ203` 這種料號不可能命中 1000 筆」**我沒有量** —— 標著。
@@ -619,9 +621,23 @@ export class SupabaseProductAdapter implements IProductRepository {
       // 🔴 `rows` 可能是 `null`(PostgREST 允許)⇒ 收斂成空陣列,而**不是**讓它變成 TypeError。
       //    ⚠️ 而這裡收斂成空是安全的:上面已經確定 `pageIds` 非空 ⇒ 回空只代表那幾個 id 撈不到列,
       //      那是**資料不一致**而不是「沒有這條路」⇒ 它不該退回舊路, 也不該炸掉整個搜尋。
-      const rpcItems = ((rows ?? []) as unknown as SupabaseProductRow[]).map(
-        mapSupabaseProductToDomain,
+      // 🔴🔴 **`.order('id')` 只是【穩定序】, 它把我剛剛排好的順序覆蓋掉了。**
+      //   ⛔ ~~`(rows ?? []).map(mapSupabaseProductToDomain)`~~ ⇒ 那是**照 PostgREST 回來的 id 升冪**
+      //   ⇒ 📌 **`pageIds` 只決定了「這一頁有誰」, 一次都沒有決定「他們的順序」**
+      //     ⇒ 🛑 **客人看到的順序【零改動】** —— 完全命中排不排第一, 仍然由它 UUID 的字典序決定。
+      //   🔬 而我原本的守門量的是 `.in()` 的**入參**(`captured.pageIds[0]`), 不是 `res.items`
+      //     ⇒ **四發突變全紅, 而它們全部殺在同一把錯的尺上。**(2026-09-06 code-reviewer must-fix)
+      //   ✅ 修法:拿 `pageIds` 的順序去重排 `rows`。`.order('id')` 留著無妨(穩定序仍有用)。
+      const byId = new Map(
+        ((rows ?? []) as unknown as SupabaseProductRow[]).map((r) => [
+          (r as unknown as { id: string }).id,
+          r,
+        ]),
       );
+      const rpcItems = pageIds
+        .map((id) => byId.get(id))
+        .filter((r): r is SupabaseProductRow => r !== undefined)
+        .map(mapSupabaseProductToDomain);
       // 🔴 `total` 只取【一次】時鐘, 三個數才拼得回去(reviewer R1 nit:取三次 ⇒ 加不回 total)。
       const msTotal = Math.round(performance.now() - t0);
       console.info(
@@ -779,6 +795,9 @@ export class SupabaseProductAdapter implements IProductRepository {
    * **把「料號完全相等」的那幾筆提到最前面。只改順序, 不改集合。**
    *
    * 🔴 **RPC 只回 id, 回不了「誰是完全命中」** ⇒ 這裡多問一發 `products_public`。
+   *   ⛔ ~~全站通常 0-1 筆~~ ⇒ 🔴 **那句沒量過, 而 schema 說它可以 >1**:
+   *   UNIQUE 是 `(supplier_slug, external_id)` 複合(`20260602192455:53`;單欄 UNIQUE 已在 `:83` 註掉)
+   *   ⇒ **同一個料號跨供應商可以有多列**。本函式對多列是安全的(它們全部一起被提前)。
    *   失敗時**回原陣列**(不是 throw)—— 排序是體驗, 不值得讓整個搜尋紅掉。
    *
    * 🛑 **`.ilike()` 會把 `%` 與 `_` 當萬用字元** ⇒ 客人打 `AZ_203` 會變成一條模糊查詢
@@ -788,8 +807,18 @@ export class SupabaseProductAdapter implements IProductRepository {
   private async hoistExactMatches(q: string, ids: string[]): Promise<string[]> {
     if (ids.length === 0) return ids;
     try {
-      // PostgREST 的 LIKE 跳脫字元是反斜線;`\\` 自己也要先跳脫, 順序不能反。
-      const pattern = q.replace(/\\/g, '\\\\').replace(/[%_]/g, (c) => `\\${c}`);
+      // 🔴🔴 **兩邊要用【同一種比法】, 否則 RPC 撈得到而我認不得**(2026-09-06 code-reviewer must-fix):
+      //   RPC 的料號分支是**兩端正規化後**比(`20260904180000:281-283` 逐字
+      //   `upper(regexp_replace(…,'[^A-Za-z0-9]','','g'))`), 而我原本用**原始 `q` 逐字** ILIKE
+      //   ⇒ 客人打 `AZ-203`(RPC 命中、正規化後 `AZ203`)⇒ **我一個都不認**
+      //   ⇒ 📌 **完全命中不會被提前, 而畫面完全正常** —— 沒有任何一個訊號會叫。
+      // 🔵 而正規化之後 `%` `_` 也一起被吃掉了(它們不是 A-Za-z0-9)⇒ 跳脫那一段不再需要,
+      //   而**這不是把它拿掉, 是它的理由消失了** —— 保留一格守門釘住「打 `AZ_2%3` 不會變成模糊查詢」。
+      const norm = (x: string) => x.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+      const key = norm(q);
+      // 🛑 正規化後為空(純中文 / 純符號)⇒ `external_id` 完全相等在數學上不可能命中
+      //   ⇒ 這一發是純浪費, 直接回。(中文搜尋佔多數 ⇒ 這一行砍掉大半流量。)
+      if (key === '') return ids;
       // 🔴🔴 **不要把 `ids` 塞進 `.in()`** —— 兩個理由, 第二個是既有測試逼出來的:
       //   ① `ids` 最多 1000 筆 ⇒ 那會做出一條**上千個 UUID 的 URL**, 而 PostgREST 走 GET
       //     ⇒ 白白撞 URL 長度上限, 而我要的答案跟那 1000 個 id 無關。
@@ -797,12 +826,20 @@ export class SupabaseProductAdapter implements IProductRepository {
       //     而我多發一次帶 `.in()` 的查詢就把它的讀數蓋掉了(實跑:期望 `id-05..07`、拿到 `id-00..19`)。
       //     📌 **那不是測試太脆弱, 是它在告訴我一件真的事:我多打了一發不必要的大查詢。**
       //   ✅ 改成:只問「哪一顆商品的料號**完全等於**這個字」(全站通常 0-1 筆), 再在 TS 這邊取交集。
+      // 🔴 撈回 `id` 與 `external_id` 自己比 —— 因為「正規化後相等」寫不成一句 PostgREST filter。
+      //   ⚠️ 而不能無條件撈全表 ⇒ 先用 `ilike` 把候選縮到「**含這串英數字**」, 再在 TS 這邊比嚴格相等。
+      //   (`products_external_id_trgm_idx` GIN trgm, `20260903060000_…:128`, 帳本 `APPLIED.tsv:436`。
+      //    🛑 天花板:pattern 短於 3 字抽不出 trigram ⇒ 退化成全表掃。)
       const { data, error } = await this.supabase
         .from('products_public')
-        .select('id')
-        .ilike('external_id', pattern);
+        .select('id, external_id')
+        .ilike('external_id', `%${key}%`);
       if (error || !Array.isArray(data)) return ids;
-      const hit = new Set(data.map((r) => (r as { id: string }).id));
+      const hit = new Set(
+        (data as { id: string; external_id: string | null }[])
+          .filter((r) => norm(r.external_id ?? '') === key)
+          .map((r) => r.id),
+      );
       const exact = new Set(ids.filter((id) => hit.has(id)));
       if (exact.size === 0) return ids;
       // 🔵 **穩定重排**:命中的照原順序在前, 其餘照原順序在後 ⇒ 長度守恆、集合守恆。

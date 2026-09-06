@@ -1950,6 +1950,7 @@ describe('searchByKeyword — 料號完全命中排第一(Sean 2026-09-06)', () 
   function makeRpcMock(opts: {
     ids: string[];
     exactIds?: string[];
+    exactExternalId?: string;
     exactError?: boolean;
     exactThrows?: boolean;
   }) {
@@ -1972,28 +1973,71 @@ describe('searchByKeyword — 料號完全命中排第一(Sean 2026-09-06)', () 
         b.ilike = (_c: string, pattern: string) => {
           captured.pattern = pattern;
           if (opts.exactThrows) throw new Error('boom');
+          // 🔴 實作改成撈 `id, external_id` 自己比「正規化後相等」⇒ mock 也要回 `external_id`,
+          //   否則它比出來永遠不相等 ⇒ 這一格會紅在一個看不出原因的地方。
+          //   `exactExternalId` 讓「帶分隔號」那種世界也演得出來(`AZ-203` vs `AZ203`)。
           return Promise.resolve({
-            data: opts.exactError ? null : (opts.exactIds ?? []).map((id) => ({ id })),
+            data: opts.exactError
+              ? null
+              : (opts.exactIds ?? []).map((id) => ({
+                  id,
+                  external_id: opts.exactExternalId ?? 'AZ203',
+                })),
             error: opts.exactError ? { message: 'x' } : null,
           });
         };
-        b.order = () => Promise.resolve({ data: [], error: null });
+        // 🔴🔴 **這裡原本回 `[]`** ⇒ `res.items` 恆空 ⇒ **那六格從頭到尾沒有觀察過客人看到的順序**
+        //   ⇒ 而我當時斷言的是 `.in()` 的【入參】(`captured.pageIds[0]`)
+        //   ⇒ 📌 **四發突變全紅, 而它們全部殺在同一把錯的尺上。**(2026-09-06 code-reviewer must-fix)
+        //   ✅ 改成回**真的列, 而且照 id 升冪** —— PostgREST 帶 `.order('id')` 就是這樣回的
+        //     ⇒ 這樣「實作有沒有照 pageIds 重排」才量得到。
+        b.order = () =>
+          Promise.resolve({
+            data: [...(captured.pageIds ?? [])]
+              .sort()
+              .map((id) => ({ ...baseRow, id, external_id: id })),
+            error: null,
+          });
         return b;
       },
     };
     return { client: client as unknown as SupabaseClient, captured };
   }
 
-  it('🔴 完全命中那筆被提到最前面(Sean 那三顆:AZ203 排第一)', async () => {
-    // id 用可排序的字串代表三顆商品;`sort()` 之後 zdm130 < zdm131 < 而 az203 本來就在最前?
-    // ⇒ 刻意讓 az203 在 `sort()` 之後【不是】第一, 否則這一格恆綠。
+  it('🔴🔴 完全命中那筆【客人看到的順序】排第一(不是「我要了哪些 id」)', async () => {
+    // 🛑 **量的是 `res.items`, 不是 `.in()` 的入參** —— 後者只決定「這一頁有誰」,
+    //   而 `.order('id')` 會把順序覆蓋掉 ⇒ 兩者之間那一步才是這一片的全部內容。
+    // 🔵 刻意讓 `c-az203` 在 `sort()` 之後【不是】第一, 否則這一格恆綠。
     const { client, captured } = makeRpcMock({
       ids: ['a-zdm130', 'b-zdm131', 'c-az203'],
       exactIds: ['c-az203'],
     });
-    await new SupabaseProductAdapter(client).searchByKeyword('AZ203', { limit: 20, offset: 0 });
+    const res = await new SupabaseProductAdapter(client).searchByKeyword('AZ203', {
+      limit: 20,
+      offset: 0,
+    });
     expect(captured.pageIds, '量不到那一頁的 id ⇒ 選擇器沒接上, 這一發作廢').toBeDefined();
-    expect(captured.pageIds![0]).toBe('c-az203');
+    expect(res.items.length, 'items 是空的 ⇒ mock 沒回列, 這一發作廢').toBe(3);
+    expect(res.items[0]!.id).toBe('c-az203');
+    // 🟢 其餘兩顆照原順序在後(證明它是【穩定重排】不是隨便排)
+    expect(res.items.map((x) => x.id)).toEqual(['c-az203', 'a-zdm130', 'b-zdm131']);
+  });
+
+  it('🔴 客人打 `AZ-203`(帶分隔號)也要認得 —— 兩邊用同一種比法', async () => {
+    // 🛑 RPC 的料號分支是**兩端正規化後**比(`20260904180000:281-283`),
+    //   而我第一版用**原始 q 逐字** ILIKE ⇒ `AZ-203` RPC 撈得到而我一個都不認
+    //   ⇒ 📌 **完全命中不會被提前, 而畫面完全正常** —— 沒有任何訊號會叫。
+    // 🔬 這一格走**真的那條路**:客人打 `AZ-203`, 而 DB 那一列的 `external_id` 是 `AZ203`。
+    const { client } = makeRpcMock({
+      ids: ['a-zdm130', 'c-az203'],
+      exactIds: ['c-az203'],
+      exactExternalId: 'AZ203',
+    });
+    const res = await new SupabaseProductAdapter(client).searchByKeyword('AZ-203', {
+      limit: 20,
+      offset: 0,
+    });
+    expect(res.items[0]!.id, '帶分隔號就認不得 ⇒ 兩邊比法又分岔了').toBe('c-az203');
   });
 
   it('🔵 負對照:沒有完全命中 ⇒ 順序【一個都不動】(不是隨便重排)', async () => {
@@ -2012,12 +2056,20 @@ describe('searchByKeyword — 料號完全命中排第一(Sean 2026-09-06)', () 
     expect([...captured.pageIds!].sort()).toEqual([...ids].sort());
   });
 
-  it('🔴 `%` 與 `_` 要被跳脫 —— 否則【完全相等】會被悄悄換成【像】', async () => {
-    // 📌 這不只是「多撈幾筆」:這個函式整個的意義就是「完全相等」,
-    //    而 `.ilike()` 會把 `AZ_203` 讀成「AZ 任一字 203」。
+  it('🔴 `%` 與 `_` 不得變成萬用字元 —— 這個函式整個的意義就是【完全相等】', async () => {
+    // 🔵 現行做法是**先正規化**(只留 A-Za-z0-9)⇒ `%` `_` 一起被吃掉, 不再需要跳脫。
+    //   ⛔ ~~原本靠 `\\` 跳脫~~ ⇒ **不是把它拿掉, 是它的理由消失了** ——
+    //   而這一格照留:它釘的是**行為**(打 `AZ_2%3` 不會做出一條模糊查詢), 不是釘那個實作手法。
     const { client, captured } = makeRpcMock({ ids: ['a'], exactIds: [] });
     await new SupabaseProductAdapter(client).searchByKeyword('AZ_2%3', { limit: 20, offset: 0 });
-    expect(captured.pattern).toBe('AZ\\_2\\%3');
+    expect(captured.pattern, '量不到 pattern ⇒ 這一發作廢').toBeDefined();
+    expect(captured.pattern).toBe('%AZ23%');
+  });
+
+  it('🔵 純中文 / 純符號 ⇒ 那一發 DB 查詢【根本不發】(正規化後為空, 不可能完全相等)', async () => {
+    const { client, captured } = makeRpcMock({ ids: ['a', 'b'], exactIds: [] });
+    await new SupabaseProductAdapter(client).searchByKeyword('碳纖維', { limit: 20, offset: 0 });
+    expect(captured.pattern, '中文也去打了那一發 ⇒ 純浪費(而中文搜尋佔多數)').toBeUndefined();
   });
 
   it('🔵 那一發查詢失敗 ⇒ 回原順序, 不讓整個搜尋紅掉', async () => {
