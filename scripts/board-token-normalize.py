@@ -30,6 +30,9 @@ import io, os, re, sys
 
 BOARD = 'docs/launch-todo.md'
 CLOSED = ('open', 'doing', 'parked', 'done', 'standing')
+# 「這列怎樣算做完」認得的字面(2026-09-07)。⚠️ 這是【字串比對】⇒ 兩個方向都會錯:
+#   用別的措辭寫了 ⇒ 少報有;寫了這幾個字而條件不可判定 ⇒ 多報有。**它是提醒, 不是判定。**
+CLOSE_WORDS = ('轉 `done`', '關閉條件', '轉 `doing`', '做完的定義', '收工條件')
 SPLIT = re.compile(r'(?<!\\)\|')
 FIND = re.compile(r'⟨(?:擋|不擋|未判|—)[^⟩]*⟩')
 HEADS = ('⟨擋', '⟨不擋', '⟨未判', '⟨—⟩')
@@ -226,6 +229,34 @@ def check_staged():
         print(f'🟡 board-token 閘:讀不到 staged 的 {BOARD}(rc={s.returncode})⇒ **本閘沒看過**')
         return 0
     mis, dblock, dups = scan(s.stdout.split('\n'))
+    # ═══ 新開的列有沒有寫「怎樣算做完」(2026-09-07;主視窗三條件)═══
+    #   ① warn-only ② **只看 staged diff 裡【新增】的 open/doing 列**(不回頭掃既有的 354 列)
+    #   ③ 缺關閉條件字面 ⇒ 印一句「這列做到哪算完?」
+    #   🔴 為什麼只看新增的:2026-09-07 量到 open+doing 413 列裡只有 59 列(14.3%)寫了關閉條件。
+    #      **回頭補那 354 列是另一件事**;而修法在【開列那一刻】—— 掃全部只會讓每個人每次 commit
+    #      都看到一坨與他無關的舊債, 然後開始忽略這道閘。
+    d = subprocess.run(['git', 'diff', '--cached', '-U0', '--no-renames', '--', BOARD],
+                       capture_output=True, text=True)
+    newrows = []
+    if d.returncode == 0:
+        for ln in d.stdout.split('\n'):
+            if not ln.startswith('+| ') or ln.startswith('+++'):
+                continue
+            row = ln[1:]
+            g = SPLIT.split(row)
+            if len(g) < 4 or g[1].strip() not in ('open', 'doing'):
+                continue
+            if not any(w in row for w in CLOSE_WORDS):
+                m2 = re.search(r'⟦[^⟧]+⟧|#\d+', g[2])
+                newrows.append(m2.group(0) if m2 else g[3].strip()[:34])
+    if newrows:
+        print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 新開的 open/doing 列有 {len(newrows)} 列沒寫「怎樣算做完」')
+        for k in newrows:
+            print(f'   ❓ 新列 {safe(k):32} ← **這列做到哪算完?**')
+        print('   🟡 一列沒有關閉條件, 兩個方向都會讓它卡在 open:')
+        print('      · **接手的人答不出「我要做到哪」⇒ 他不接**')
+        print('      · **做完的人答不出「可以收了嗎」⇒ 他不收**')
+        print(f'   ⇒ 在末格補一句即可, 例:「**轉 `done`** = <可 yes/no 的條件>」。認得的字面:{"／".join(CLOSE_WORDS)}')
     print(f'── board-token 閘(warn-only, 讀的是 **staged** 那份):{BOARD}')
     print(f'   最後一格開頭沒有 token 而行內找得到 {len(mis)} 列 · 態 done 而 token 仍 ⟨擋⟩ {len(dblock)} 列 · 重複識別字 {len(dups)} 個')
     for n, k, why in mis:
@@ -375,6 +406,46 @@ def selftest():
         ck('板 staged 有違規 ⇒ rc 仍 0(warn-only)', rc_b, 0)
         ck('板 staged 有違規 ⇒ 有印出違規列', '位移候選' in out, True)
         ck('板 staged 有違規 ⇒ 明說不擋', '不擋這顆 commit' in out, True)
+        # ═══ 新列缺關閉條件的兩個世界(2026-09-07;主視窗指定)═══
+        #   🔴 這兩格要真的分得出「**這次新增的**」與「**本來就在的**」——
+        #      所以先 commit 一版當底, 再加新列。
+        _c = git('commit', '-q', '-m', 'base')
+        # 🔴 不驗這一步的 rc, 下面三格會【全部空轉】:沒 commit 成功 ⇒ 沒有 base ⇒
+        #    `git diff --cached` 把【整份檔】都當成新增 ⇒ 正對照與負對照都會叫
+        #    ⇒ 而我 2026-09-07 第一發看到的是【正對照不叫】, 方向還相反 ⇒ 更難猜。
+        if _c.returncode != 0:
+            print(f'  🔴 selftest 建 base commit 失敗(rc={_c.returncode})⇒ 下面三格作廢')
+            return 1
+        base_rows = io.open(board, encoding='utf-8').read().rstrip('\n')
+        io.open(board, 'w', encoding='utf-8').write(
+            # 🔴 這一列的【事欄】刻意不含任何 CLOSE_WORDS ——
+        #    我第一版寫「沒寫關閉條件的新列」, 而那五個字【自己命中了】⇒ 正對照不叫。
+        #    📌 **描述一個東西的文字, 含著那個東西的關鍵字 ⇒ fixture 自己讓自己通過。**
+        base_rows + '\n| open | ⟦x-NOCLOSE⟧ | 新開一列而末格只有描述 | 誰 | ⟨擋(t)⟩ 只有描述 |\n')
+        git('add', BOARD)
+        buf4 = _io.StringIO()
+        with contextlib.redirect_stdout(buf4):
+            check_staged()
+        o4 = buf4.getvalue()
+        ck('新列沒寫關閉條件 ⇒ 叫', '⟦x-NOCLOSE⟧' in o4 and '做到哪算完' in o4, True)
+        ck('新列沒寫關閉條件 ⇒ rc 仍 0', check_staged(), 0)
+        # 負對照一:新列【有】寫關閉條件 ⇒ 不叫
+        io.open(board, 'w', encoding='utf-8').write(
+            base_rows + '\n| open | ⟦x-HASCLOSE⟧ | 有寫的新列 | 誰 | ⟨擋(t)⟩ **轉 `done`** = 那支貼完 |\n')
+        git('add', BOARD)
+        buf5 = _io.StringIO()
+        with contextlib.redirect_stdout(buf5):
+            check_staged()
+        ck('新列有寫關閉條件 ⇒ 不叫', '⟦x-HASCLOSE⟧' in buf5.getvalue(), False)
+        # 🔴 負對照二:**既有的 354 列那一族**(base 裡本來就有、沒寫關閉條件)⇒ 必須【不】叫
+        #    這格擋的是「掃全部」那個錯誤實作 —— 它在上面兩格之下【也會過】。
+        io.open(board, 'w', encoding='utf-8').write(base_rows + '\n')
+        git('add', BOARD)
+        buf6 = _io.StringIO()
+        with contextlib.redirect_stdout(buf6):
+            check_staged()
+        ck('既有列沒寫關閉條件 ⇒ 不叫(只看新增的)', '做到哪算完' in buf6.getvalue(), False)
+
         # 🔴 第三個世界:staged 是【乾淨的】而工作樹是【壞的】⇒ 必須看 staged, 印乾淨
         io.open(board, 'w', encoding='utf-8').write('\n'.join(
             [rows_bad[0], rows_bad[1], rows_bad[2]]) + '\n')
