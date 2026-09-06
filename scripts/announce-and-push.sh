@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# 🔴 **本檔的 `mktemp` 一律寫成 `mktemp "${TMPDIR:-/tmp}/<前綴>.XXXXXX"`, 不用 `-t <前綴>`**
+#    (⟦auth-MKTEMPDEBT⟧ 2026-09-07;`scripts/shell-dialect-gate.sh` 第一族認的就是這個)
+#    ⛔ `-t <無 XXXXXX 的前綴>` 是 **BSD(macOS)方言**;GNU coreutils 要求 template 自帶 `XXXXXX`。
+#    ⚠️ **而「GNU 上會炸」是【推的】不是量的** —— 那道閘檔頭自己標了:**沒有人在 Linux 上實跑過這些字面**。
+#      唯一一次 CI 實證是 `.husky/commit-msg`(2026-08-27, 修在 `7efbe93d`)。
+#    🔵 新寫法在 macOS 與 GNU 兩邊都合法, 且**行為零改動**(見那顆 commit 的同輸入 diff 讀數)。
 # 代推:預告 → push → 【當場量】回填。
 #
 # 🔴 為什麼有這支:2026-09-01 夜, 主視窗代推那條鏈的「預告」那一步漏了三次,
@@ -58,7 +64,7 @@ fi
 #    (同一夜同一個病的第二個載體:第一個是艦隊表 現在誰在做什麼-<日期>.md)
 #    ⇒ 固定檔名把整個「跨午夜」這一類失效模式消掉,而代價只是檔會長。
 LEDGER="$HOME/pcm-mailbox/推送預告.md"
-LOG="$(mktemp -t announce-push)"
+LOG="$(mktemp "${TMPDIR:-/tmp}/announce-push.XXXXXX")"
 
 if [ ! -f "$LEDGER" ]; then
   {
