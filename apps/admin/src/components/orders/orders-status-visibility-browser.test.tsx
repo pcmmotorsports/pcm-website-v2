@@ -7,9 +7,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { requireFreshBuild } from '@/lib/build-stamp';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { chromium, type Browser } from 'playwright';
+import { serveHtmlAndVisit } from '@/lib/test-support/serve-html-and-visit';
 import { toMoneyAmount, type AdminOrderLine, type AdminOrderSummary } from '@pcm/domain';
 import { OrdersTable } from './orders-table';
 import { ShippingSelectionProvider } from './shipping-selection';
@@ -171,35 +170,29 @@ async function measureStatusCapsule(
       <OrdersTable buildPanelHref={(id) => `/orders?panel=${id}`} orders={[order(itemsTruncated)]} />
     </ShippingSelectionProvider>,
   );
-  const server: Server = createServer((_req, res) => {
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    res.end(`<html><head><style>${compiledCss}\n${extraCss}</style></head><body>${html}</body></html>`);
-  });
-  await new Promise<void>((r) => server.listen(0, r));
-  const port = (server.address() as AddressInfo).port;
-  const page = await browser.newPage();
-  try {
-    await page.goto(`http://localhost:${port}/`);
-    return await page.evaluate(() => {
-      const td = document.querySelector('td.col-status');
-      const el = td?.querySelector('span');
-      if (!el) return null;
-      const cs = getComputedStyle(el);
-      const r = el.getBoundingClientRect();
-      return {
-        text: el.textContent ?? '',
-        display: cs.display,
-        visibility: cs.visibility,
-        width: r.width,
-        height: r.height,
-        // 🔴 給「編譯 CSS 真的載入了嗎」那道自檢用(見 13d)。
-        tdWidth: getComputedStyle(td as Element).width,
-      };
-    });
-  } finally {
-    await page.close();
-    await new Promise<void>((r) => server.close(() => r()));
-  }
+  const doc = `<html><head><style>${compiledCss}\n${extraCss}</style></head><body>${html}</body></html>`;
+  return await serveHtmlAndVisit(
+    browser,
+    doc,
+    async (page) =>
+      await page.evaluate(() => {
+        const td = document.querySelector('td.col-status');
+        const el = td?.querySelector('span');
+        if (!el) return null;
+        const cs = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return {
+          text: el.textContent ?? '',
+          display: cs.display,
+          visibility: cs.visibility,
+          width: r.width,
+          height: r.height,
+          // 🔴 給「編譯 CSS 真的載入了嗎」那道自檢用(見 13d)。
+          tdWidth: getComputedStyle(td as Element).width,
+        };
+      }),
+    { label: 'orders-status-visibility-browser:capsule' },
+  );
 }
 
 describe('驗收 13 — 截斷時「未知」那顆膠囊在真瀏覽器裡看得見', () => {
@@ -281,29 +274,23 @@ describe('驗收 14 — 狀態欄寬度跟得上字級(A2 連帶片,2026-08-21:8
         <OrdersTable buildPanelHref={(id) => `/orders?panel=${id}`} orders={[order(false)]} />
       </ShippingSelectionProvider>,
     );
-    const server: Server = createServer((_req, res) => {
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      res.end(`<html><head><style>${compiledCss}\n${extraCss}</style></head><body>${html}</body></html>`);
-    });
-    await new Promise<void>((r) => server.listen(0, r));
-    const port = (server.address() as AddressInfo).port;
-    const page = await browser.newPage();
-    try {
-      await page.goto(`http://localhost:${port}/`);
-      return await page.evaluate(() => {
-        const td = document.querySelector('td.col-status');
-        if (!td) return null;
-        return {
-          text: td.querySelector('span')?.textContent ?? '',
-          clipped: td.scrollWidth > td.clientWidth,
-          tdScrollWidth: td.scrollWidth,
-          tdClientWidth: td.clientWidth,
-        };
-      });
-    } finally {
-      await page.close();
-      await new Promise<void>((r) => server.close(() => r()));
-    }
+    const doc = `<html><head><style>${compiledCss}\n${extraCss}</style></head><body>${html}</body></html>`;
+    return await serveHtmlAndVisit(
+      browser,
+      doc,
+      async (page) =>
+        await page.evaluate(() => {
+          const td = document.querySelector('td.col-status');
+          if (!td) return null;
+          return {
+            text: td.querySelector('span')?.textContent ?? '',
+            clipped: td.scrollWidth > td.clientWidth,
+            tdScrollWidth: td.scrollWidth,
+            tdClientWidth: td.clientWidth,
+          };
+        }),
+      { label: 'orders-status-visibility-browser:column-clip' },
+    );
   }
 
   it('🔴 14a:現況(--text-xs 13px、欄寬 98px)—— 最長狀態字不會被 td 切掉', async () => {

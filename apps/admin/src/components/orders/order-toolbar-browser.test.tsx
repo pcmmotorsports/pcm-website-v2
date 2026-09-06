@@ -1,13 +1,12 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { chromium, type Browser } from 'playwright';
 import postcss from 'postcss';
 import tailwindcss from '@tailwindcss/postcss';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { serveHtmlAndVisit } from '@/lib/test-support/serve-html-and-visit';
 import { OrderToolbar } from './order-toolbar';
 import { ORDER_DENSITY_DEFAULT, PANEL_CLOSED } from '../../lib/orders/order-list-view';
 
@@ -108,16 +107,11 @@ async function measure(viewport: number, extraCss = ''): Promise<Measured> {
 <div id="shell" style="width:${shellWidth}px"><div id="content" class="p-6">${markup}</div></div>
 </body></html>`;
 
-  const server: Server = createServer((_req, res) => {
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    res.end(html);
-  });
-  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
-  const { port } = server.address() as AddressInfo;
-  const page = await browser.newPage({ viewport: { width: viewport, height: 900 } });
-  try {
-    await page.goto(`http://127.0.0.1:${port}/`);
-    return await page.evaluate((padding) => {
+  return await serveHtmlAndVisit(
+    browser,
+    html,
+    async (page) =>
+      await page.evaluate((padding) => {
       const content = document.getElementById('content')!;
       const row = content.querySelector('div')!;
       const chips = [...content.querySelectorAll('a.fchip')] as HTMLElement[];
@@ -185,11 +179,9 @@ async function measure(viewport: number, extraCss = ''): Promise<Measured> {
           };
         })(),
       };
-    }, padding());
-  } finally {
-    await page.close();
-    await new Promise<void>((r) => server.close(() => r()));
-  }
+      }, padding()),
+    { viewport: { width: viewport, height: 900 }, label: 'order-toolbar-browser' },
+  );
 }
 const padding = () => CONTENT_PADDING;
 
