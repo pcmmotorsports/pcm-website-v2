@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { LISTING_NOOP_NOTE_DROPPED_RESULT_CODE } from '../../lib/products/product-listing-form';
 import { manualOrderResultCode } from '../../lib/orders/manual-order-action-state';
+import { WALLET_DUPLICATE_RESULT_CODE } from '../../lib/customers/wallet-action-state';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { MESSAGES, ResultBanner } from './result-banner';
@@ -470,6 +471,13 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       'manual_cancel_phone_invalid',
       'manual_cancel_phone_audit_failed',
       'manual_cancel_phone_already_marked',
+      // 🔴 ⟦b4-WALLETDEDUPE⟧ 儲值金重送去重**一顆**(2026-09-06)。
+      //    🔬 **本格在我把它加進 MESSAGES 的當下真的紅過** —— 39d 的鏈實跑,
+      //       逐字 `expected 42 keys, received 43 (+ "duplicate")` ⇒ 那是它有判別力的證據, 不是推的。
+      //    ⚠️ 而第一版我加的是**裸碼 `duplicate`** ⇒ 那顆語意是儲值金的話會住在共用命名空間裡
+      //       (code-reviewer R2 nit 8 早一步說過那是坑)⇒ 已改成帶前綴的常數, 與上面兩族同一個做法。
+      //    ⚠️ 同上:**逐顆列出、不用迴圈** —— 迴圈會讓「有人偷偷多加一顆 wallet_xxx」也自動歸類。
+      WALLET_DUPLICATE_RESULT_CODE,
     ];
 
     // ① 表裡沒有第三種鍵(新增未歸類的碼 → 紅)

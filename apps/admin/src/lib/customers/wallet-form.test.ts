@@ -12,9 +12,12 @@ import {
   WALLET_AMOUNT_MAX,
   WALLET_NOTE_MAX,
   WALLET_SINGLE_FIELDS,
+  WALLET_REQUEST_TOKEN_FIELD,
 } from './wallet-form';
 
 const UUID = '11111111-2222-3333-4444-555555555555';
+/** 🔴 冪等 token 與 customerId **形狀相同(都是 uuid)⇒ 值必須不一樣**, 否則貼錯位置測不出來。 */
+const TOKEN = '99999999-8888-7777-6666-555555555555';
 
 // #365 片②:假表單整個拿掉,改用**真 FormData** —— `FormLike` 已收窄成只有 `getAll()`
 // (`get()` / `has()` 分不出「送一份」與「送兩份」,型別上就不再提供),而手寫的假表單
@@ -32,6 +35,8 @@ function valid(overrides: Record<string, string> = {}): Record<string, string> {
     [WALLET_AMOUNT_FIELD]: '500',
     [WALLET_NOTE_FIELD]: '門市儲值',
     [WALLET_RETURN_TO_FIELD]: `/customers/${UUID}`,
+    // 🔴 ⟦b4-WALLETDEDUPE⟧:冪等 token 是**必填**(缺 / 形狀不對 ⇒ ok:false)。
+    [WALLET_REQUEST_TOKEN_FIELD]: TOKEN,
     ...overrides,
   };
 }
@@ -46,6 +51,7 @@ describe('parseWalletAdjustForm — 合法輸入', () => {
       signedAmount: 500,
       note: '門市儲值',
       returnTo: `/customers/${UUID}`,
+      requestToken: TOKEN,
     });
   });
 
@@ -150,6 +156,9 @@ describe('#365 同名欄位送兩份 → 被拒(不採第一筆)', () => {
     [WALLET_CUSTOMER_ID_FIELD, UUID],
     [WALLET_DIRECTION_FIELD, 'deposit'],
     [WALLET_NOTE_FIELD, '測試'],
+    // 🔴 ⟦b4-WALLETDEDUPE⟧:token 必填 ⇒ 這份 base 也要帶, 否則下面「單筆仍照常通過」那條
+    //    會因為【缺 token】而紅, 而讀起來像「重複欄位守門把整條路擋死了」= 錯的診斷。
+    [WALLET_REQUEST_TOKEN_FIELD, TOKEN],
   ];
 
   it('🔴 金額送兩份 → ok:false(舊寫法會採第一筆 100、真正生效的可能是 999999)', () => {
@@ -196,6 +205,9 @@ describe('#365 逐欄「送兩份 → 被拒」(同時是 WALLET_SINGLE_FIELDS �
     [WALLET_DIRECTION_FIELD, 'deposit'],
     [WALLET_AMOUNT_FIELD, '100'],
     [WALLET_NOTE_FIELD, '測試'],
+    // 🔴 ⟦b4-WALLETDEDUPE⟧:token 必填 ⇒ 這份 BASE 也要帶, 否則下面「單筆仍照常通過」那條
+    //    會因為【缺 token】而紅, 而讀起來像「重複欄位守門把整條路擋死了」= 錯的診斷。
+    [WALLET_REQUEST_TOKEN_FIELD, TOKEN],
   ];
 
   it.each([...WALLET_SINGLE_FIELDS])('%s 送兩份 → ok:false', (field) => {
@@ -203,9 +215,9 @@ describe('#365 逐欄「送兩份 → 被拒」(同時是 WALLET_SINGLE_FIELDS �
   });
   // 🔴 codex 關卡2 MF:上面那條走訪的是常數本身 ⇒ 清單少一欄時測項也少一條、全綠(循環論證)。
   //    真正的完整性守門 = 拿**測試檔自己手寫的**清單比對;來源檔漏欄或多欄,這一條就紅。
-  it('🔴 WALLET_SINGLE_FIELDS 逐字等於五欄(手寫對照)', () => {
+  it('🔴 WALLET_SINGLE_FIELDS 逐字等於六欄(手寫對照)', () => {
     expect([...WALLET_SINGLE_FIELDS].sort()).toEqual(
-      ['customer_id', 'direction', 'amount', 'note', 'return_to'].sort(),
+      ['customer_id', 'direction', 'amount', 'note', 'return_to', 'request_token'].sort(),
     );
   });
 
@@ -224,3 +236,74 @@ describe('#365 逐欄「送兩份 → 被拒」(同時是 WALLET_SINGLE_FIELDS �
     expect(WALLET_NOTE_MAX).toBe(200);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⟦b4-WALLETDEDUPE⟧ 冪等 token(2026-09-06)
+// 🔴 這一組每一格都要答得出「**什麼樣的爛實作會讓這格變紅**」——
+//    codex 審 plan v1 的 #15/#16 就是打「這一格拔掉實作照樣綠」。
+// ═══════════════════════════════════════════════════════════════════════════
+describe('parseWalletAdjustForm — 備註控制字元(code-reviewer R2 must-fix 5)', () => {
+  // 🔴 **為什麼要在形狀層擋**:RPC 端 `20260906800000:234` 有 `v_note ~ '[[:cntrl:]]'` ⇒ RAISE,
+  //    而那個 RAISE **沒有專屬 SQLSTATE**(預設 P0001)⇒ action 收斂成 `error`
+  //    ⇒ 畫面唸「連線出了問題…可以直接再按一次」⇒ **那條路永遠不會成功, 而員工會一直按**。
+  //    ⇒ 擋在這裡它會落在 `invalid`(「表單內容不正確」), 那句話才會讓他去改內容。
+  it.each([
+    ['NUL', '\u0000'],
+    ['退格', '\u0008'],
+    ['垂直 tab', '\u000B'],
+    ['ESC', '\u001B'],
+    ['DEL', '\u007F'],
+  ])('🔴 備註夾一個控制字元(%s)→ ok:false', (_label, ch) => {
+    expect(parseWalletAdjustForm(form(valid({ [WALLET_NOTE_FIELD]: `門市${ch}儲值` }))).ok).toBe(
+      false,
+    );
+  });
+
+  it('🔵 負對照:一般中文 / 全形空白 / emoji 的備註照收(這一道不是把備註擋死)', () => {
+    for (const note of ['門市儲值', '門市　儲值', '門市儲值 🙂', 'A-1/2 換油']) {
+      expect(parseWalletAdjustForm(form(valid({ [WALLET_NOTE_FIELD]: note }))).ok, note).toBe(true);
+    }
+  });
+});
+
+describe('parseWalletAdjustForm — 冪等 token(⟦b4-WALLETDEDUPE⟧)', () => {
+  it('🔴 缺 request_token → ok:false(fail-closed;殺得掉「忘了驗」的實作)', () => {
+    const e = valid();
+    delete e[WALLET_REQUEST_TOKEN_FIELD];
+    expect(parseWalletAdjustForm(form(e)).ok).toBe(false);
+  });
+
+  it.each([
+    ['空字串', ''],
+    ['非 uuid', 'req_abc'],
+    ['少一段', '11111111-2222-3333-4444'],
+    ['多餘空白', ` ${'99999999-8888-7777-6666-555555555555'} `],
+  ])('🔴 request_token 形狀不對(%s)→ ok:false', (_label, bad) => {
+    expect(parseWalletAdjustForm(form(valid({ [WALLET_REQUEST_TOKEN_FIELD]: bad }))).ok).toBe(
+      false,
+    );
+  });
+
+  it('🔴 合法 token 原樣帶出(殺得掉「驗了但沒傳出去」的實作)', () => {
+    const r = parseWalletAdjustForm(form(valid()));
+    expect(r.ok).toBe(true);
+    // 🛑 這一行要比對 **TOKEN**, 不是「是不是 uuid」——
+    //    回傳 customerId(也是 uuid)一樣會通過形狀檢查, 而那是貼錯位置。
+    expect(r.ok && r.requestToken).toBe(TOKEN);
+    expect(r.ok && r.requestToken).not.toBe(UUID);
+  });
+
+  it('🔴 request_token 送兩份 → ok:false(它也在 anyMalformed 的清單裡)', () => {
+    const f = new FormData();
+    for (const [k, v] of Object.entries(valid())) f.append(k, v);
+    f.append(WALLET_REQUEST_TOKEN_FIELD, TOKEN);
+    expect(parseWalletAdjustForm(f).ok).toBe(false);
+  });
+});
+
+/* 🔴 ⛔ ~~這裡原本有一組 `parseWalletRetryParams` 的測試~~ —— **連同被測的那支一起刪了**。
+ * 理由不是「測試沒用」, 是**那條路整條拆掉了**:第一版失敗路徑用 `redirect` + query string
+ * 把 token / 金額 / **備註**帶回來, 而那逐字違反 A6 §9 的 H13「不得把 body 塞進 URL」。
+ * ⇒ 現在失敗回傳 state(`wallet-action-state.ts`), 對應的測試在
+ *   `admin-form-consumers.test.tsx` 的「失敗 state 沿用原 token」那一格。
+ */

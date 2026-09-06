@@ -20,7 +20,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 ```
 預期:branch=`dev` / HEAD 對齊 STATUS.md。dirty files 若已在 `docs/handoff/CURRENT.md` 標明 ownership 可保留並繼續；無法解釋的 dirty、branch 不符或 HEAD 明顯矛盾才停下回報 Sean，不自行 reset／stash／清理。
 
-分級開工:**每 session 必讀** `STATUS.md` + `docs/ops/AI_CONTRACT.md` + `docs/handoff/CURRENT.md` + 本工作直接相關 handoff/PRD；**新 milestone / 陌生領域才加讀** `docs/PHASE-1-NORTHSTAR.md` 全文、`docs/PROJECT-OVERVIEW.md`、`docs/PHASE-2-VISION.md`、相關 `docs/features/*.md`。其餘按上方路由表按需讀,不為「保險」通讀大檔。
+分級開工:**每 session 必讀** `STATUS.md` + `docs/ops/AI_CONTRACT.md` + `docs/handoff/CURRENT.md` + 🔴 **今天的艦隊表 `~/pcm-mailbox/現在誰在做什麼-<當天日期>.md`(沒有當天那支 ⇒ 建指標檔指正本、不搬正本;與跨午夜那條成對, 見 CLAUDE.md 同段)** + 本工作直接相關 handoff/PRD；**新 milestone / 陌生領域才加讀** `docs/PHASE-1-NORTHSTAR.md` 全文、`docs/PROJECT-OVERVIEW.md`、`docs/PHASE-2-VISION.md`、相關 `docs/features/*.md`。其餘按上方路由表按需讀,不為「保險」通讀大檔。
 
 ---
 

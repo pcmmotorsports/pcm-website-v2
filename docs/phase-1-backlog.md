@@ -8190,7 +8190,18 @@ order by n desc, 1;
 
 ### #279. 💰 儲值金 ledger DB 級 idempotency 去重(admin 調整 back-resubmit 重複入帳)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ **已由 ⟦b4-WALLETDEDUPE⟧ / `20260906800000` 取代**(2026-09-06)。
+  ⛔ ~~⏳ 待執行~~
+  🔴 **而下面那個「預期解法」【不成立】, 逐字留著不刪** ——
+  它說「RPC 改收 `p_request_id` 入列」, 而 `p_request_id` 原本吃的是
+  `getRequestId()`(`apps/admin/src/lib/audit/context.ts:17-20`)= **一次 HTTP 請求**的
+  correlation id(`apps/admin/src/proxy.ts:36` 每個請求一律新產)
+  ⇒ **back-resubmit = 新請求 = 新 id ⇒ 唯一索引不會撞 ⇒ 照樣扣兩次。**
+  ⇒ 📌 **照它做會「看起來做完了」**:migration 貼了、索引建了、三綠全綠, 而錢照樣扣兩次。
+  ✅ 實作改成:`p_request_id` 吃**表單帶回的一次性 token**(server 渲染時產),
+  形狀與拍板照 A6 `docs/specs/2026-08-02-e10-a9d2-1-note-action-plan.md` §4 / §9 `Q2=C`。
+  ⛔ ~~舊拍板「D1=A:DB 去重進 backlog 隨 tier 片評」(= 延後)~~
+  **2026-09-06 Sean 拍「甲 = 上線前必修」取代。**
 - **優先級:** 🟠 中
 - **問題:**
   - `admin_adjust_wallet` RPC(`20260716210000`)無 DB 級去重:PRG redirect 吸收一般 double-submit、submit 鈕 island pending disable 擋雙擊(皆前端縱深),但**瀏覽器 back-resubmit / 網路重送**仍可重複入帳(同金額同備註插兩列 ledger)。tier 編輯 RPC 無此問題(同值 NO_CHANGE 天然冪等);錢是「加法語意」無法用同值判重。

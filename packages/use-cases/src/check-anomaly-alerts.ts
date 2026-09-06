@@ -38,6 +38,21 @@ export type CheckAnomalyAlertsDeps = {
 };
 
 export type CheckAnomalyAlertsOptions = {
+  /**
+   * 🟡 **搜尋語料表的列數告警門檻(2026-09-06;主視窗 `-f1` 裁 5,000)。**
+   *   route 讀 env `SEARCH_LOG_ROWS_ALERT` 再注入 —— 形狀照 `shippedEmailCutoff` 那格,
+   *   **本檔零 `process.env`**(它是 use-case, env 屬於外層)。
+   *
+   * 🔬 **5,000 的依據是量出來的**(線【資料】`-03` 2026-09-06 09:4x UTC 正式庫唯讀單發):
+   *   `search_queries` 總 **36** 列 · 最近 24h **28** 列 ⇒ 正常一天約 28 列
+   *   ⇒ 📌 5,000 ≈ **半年**的正常量 ⇒ **一天之內到得了 5,000 的, 只有灌入。**
+   *   🟢 那一發的對照:正對照 total=36 · 負對照(未來一天)0 · 負對照(1970)0
+   *
+   * 🛑 **而它比對的是【估計值】不是列數** —— `reltuples` 誤差方向是低估
+   *   (實測灌爆當下低估 83%, 持續 60 秒;`~/pcm-mailbox/auth-012-STOP.md`)
+   *   ⇒ **它會晚叫, 不會早叫** ⇒ 這是告警不是閘。
+   */
+  searchLogRowsAlertThreshold: number;
   /** refunding 卡住門檻秒數(route 常數注入、營運參數非 SLA)。 */
   refundingStuckSeconds: number;
   /** #256 pending 雙扣候選:兩 paid 單 paid_at 差窗秒數(route 常數、預設 12h)。 */
@@ -129,6 +144,13 @@ export type CheckAnomalyAlertsResult = {
   searchLogTableExists: boolean | null;
   searchLogLastRowAt: string | null;
   searchLogStale: boolean;
+  /**
+   * 🟡 搜尋語料表的**估計**列數(`pg_class.reltuples`)。
+   *   `null` = 表不在 **或** 從未 analyze ⇒ 兩者都【不告警】。
+   */
+  searchLogRowsEstimate: number | null;
+  /** 🔴 估計列數 ≥ 門檻 ⇒ 告警(而它與 `searchLogRowsEstimate` 分開:一個是讀數, 一個是判定)。 */
+  searchLogRowsHigh: boolean;
   /**
    * ⟦b4-NEEDSHUMANNOWATCHER⟧ 卡住的匯款單筆數(`overpaid` / `needs_human`)。
    * 🔵 `stuckBankUnknown` 與它分開 —— 「那支 RPC 沒貼 / 讀失敗」與「真的 0 張」的下一步不同。
@@ -631,7 +653,14 @@ export function buildAnomalyAlertMessage(
    *    有預設值的話, 漏傳 = 「一切正常」而零紅)。
    * 🛑 兩格都是 `boolean`, 而**它們只在 true 時才進信** ⇒ 不命中零字。
    */
-  searchLogFlags: { readonly stale: boolean; readonly anonRevoked: boolean },
+  searchLogFlags: {
+    readonly stale: boolean;
+    readonly anonRevoked: boolean;
+    /** 🟡 估計列數超標(2026-09-06)。`rowsEstimate` / `rowsThreshold` 只給文字用。 */
+    readonly rowsHigh: boolean;
+    readonly rowsEstimate: number | null;
+    readonly rowsThreshold: number;
+  },
   /**
    * ⟦b4-NEEDSHUMANNOWATCHER⟧ 卡住的匯款單:`overpaid` / `needs_human` 那兩種。
    * 🔴 **沒有預設值 —— 漏傳就當場 typecheck 紅**(與上面兩格同一個理由)。
@@ -1206,12 +1235,46 @@ export function buildAnomalyAlertMessage(
       '   ⚠️ 而它也可能是【真的一天沒有人搜尋】—— 那時候該看的是網站, 不是這支。',
     );
   }
+  if (searchLogFlags.rowsHigh) {
+    searchLogBlock.push(
+      '【搜尋日誌】',
+      // 🔴🔴 **這幾行字面是【對外的】, 而它們的措辭是被量測決定的, 不是文筆**:
+      //    `reltuples` 是估計值, 而它的誤差方向是【低估】—— 實測在這張表被灌爆的當下
+      //    低估 83% 且持續達 60 秒(`~/pcm-mailbox/auth-012-STOP.md`)。
+      //    ⇒ 🛑 **不得寫成「這張表有 N 列」** —— 那會讓讀信的人以為那是真的列數,
+      //      而真列數只會【比它多】。少了「估計 / 可能低估」那兩個詞, 這封信就在說一句假話。
+      `🔴 搜尋日誌那張表**估計**已經有 ${searchLogFlags.rowsEstimate ?? '?'} 列(門檻 ${searchLogFlags.rowsThreshold})。`,
+      '   ⚠️ 那是【估計值, 可能低估】—— 真實列數只會比它多, 不會比它少。',
+      '   ⇒ 這一格是工程要看的, 請【轉給施工窗】。',
+      '   ⚠️ 它可能是有人在灌, 也可能是搜尋量真的變大了 —— 兩者的下一步不同, 要開檔看。',
+    );
+  }
   if (searchLogFlags.anonRevoked) {
     searchLogBlock.push(
       '【搜尋日誌】',
       '🔴 顧客站寫搜尋日誌的那道權限被收掉了(log_search_query 的 anon EXECUTE)。',
       '   ⇒ 這一格是工程要看的, 請【轉給施工窗】。',
       '   ⚠️ 它與上面那行的差別:這一行是【門被關了】, 上面那行是【沒有東西進來】。',
+    );
+  }
+  // 🔴🔴 **R1 must-fix ②(2026-09-06):plan 驗收 ① 寫了「印【從未 analyze】」而它【沒有落地】。**
+  //    問題:`rowsEstimate === null` 那個世界信裡零字 ⇒ 🛑 「表在 + 從未 analyze」
+  //    (剛 restore / 剛 TRUNCATE)那段時間, 這個告警**結構上叫不出來**, 而沒有一句話說
+  //    「今天沒有讀數」⇒ 📌 **與「量過而一切正常」在信上同形。**
+  //
+  // 🛑🛑 **而第一版修法【違反了一個既有拍板】, 這一段留著**:
+  //    ⛔ ~~我原本寫成「`!rowsHigh && rowsEstimate === null` 就 push」~~
+  //    ⇒ 那讓**什麼都沒命中**的世界也印出「【搜尋日誌】」⇒ 撞到主視窗 2026-09-04 裁①
+  //      (逐字:「不命中 ⇒ **零字**」;證人在 `check-anomaly-alerts.test.ts` 那一格,
+  //       它逐字寫著「不命中卻出現在信裡 ⇒ 每天一封」)。**它當場把我打紅了。**
+  //    ⇒ ✅ 改成:**只在這個區塊本來就有內容時才追加** —— 兩邊都成立:
+  //        不命中 ⇒ 區塊是空的 ⇒ 這一行也不加 ⇒ 零字(裁① 成立)
+  //        已命中 ⇒ 這封信本來就要寄 ⇒ 那句交代跟著出現(must-fix ② 成立)
+  //    ⚠️ **代價明寫**:沒有別的理由觸發時, 這句話**不會出現** —— 那是刻意的, 不是漏的。
+  if (searchLogBlock.length > 0 && searchLogFlags.rowsEstimate === null) {
+    searchLogBlock.push(
+      '⚪ 順帶一提:搜尋語料表的列數**今天讀不到**(表還沒貼, 或它從未被 analyze 過)。',
+      '   ⚠️ 這不是異常 —— 它是告訴你那個數字**今天沒有量到**, 免得「沒印」被讀成「沒問題」。',
     );
   }
 
@@ -1581,6 +1644,7 @@ export async function checkAnomalyAlerts(
     readonly tableExists: boolean;
     readonly lastRowAt: string | null;
     readonly anonCanExecute: boolean | null;
+    readonly rowsEstimate: number | null;
   } | null = null;
   /** 🔴 與「還沒 apply」分開 —— 兩者都讓 `searchLog` 是 null, 而下一步不同。 */
   let searchLogReadFailed = false;
@@ -1666,6 +1730,18 @@ export async function checkAnomalyAlerts(
     searchLog.tableExists &&
     searchLog.lastRowAt !== null &&
     Date.now() - new Date(searchLog.lastRowAt).getTime() > 24 * 60 * 60 * 1000;
+  /**
+   * 🟡 估計列數超標(2026-09-06)。**三個世界分開, 而它們不是程度**:
+   *   `searchLog === null`(讀不到)/ `rowsEstimate === null`(表不在 **或** 從未 analyze)⇒ 【不告警】
+   *   `rowsEstimate >= 門檻` ⇒ 🔴 告警
+   * 🛑 **從未 analyze 那個世界【一定要走不告警】** —— 它在 DB 裡是 `-1`,
+   *   而 adapter 已經把它折成 `null`;若哪天有人把 -1 直接傳上來, `-1 >= 5000` 是 false
+   *   ⇒ 結果碰巧一樣, 而**理由不一樣** ⇒ 這裡不靠那個巧合, 明寫 null 判斷。
+   */
+  const searchLogRowsEstimateForMessage = searchLog?.rowsEstimate ?? null;
+  const searchLogRowsHighForMessage =
+    searchLogRowsEstimateForMessage !== null &&
+    searchLogRowsEstimateForMessage >= opts.searchLogRowsAlertThreshold;
   const searchLogAnonRevokedForMessage =
     searchLog?.anonCanExecute === undefined || searchLog?.anonCanExecute === null
       ? null
@@ -1696,6 +1772,9 @@ export async function checkAnomalyAlerts(
     //      —— 而 `buildAnomalyAlertMessage` 的測試全綠, 因為它只驗「文字對不對」。
     //    🎯 **一片「加了一個告警」的改動, 在它自己的測試底下【完全看不出來它不會叫】。**
     searchLogStaleForMessage ||
+    // 🔴 **這一行是【要不要寄】那一半** —— 本檔上面幾行逐字記著:
+    //    「算出來了」「寫進信裡了」「會讓信寄出去」是三個宣稱, 而 codex 2026-09-04 抓過漏這一行。
+    searchLogRowsHighForMessage ||
     searchLogAnonRevokedForMessage === true ||
     // 🔴🔴 **⟦b4-NEEDSHUMANNOWATCHER⟧ 這一行, 就是 codex 2026-09-04 抓到的那個坑的形狀。**
     //    線【資料】`-db` 2026-09-05 主動告知:它上一片「算出來了、寫進信裡了, 而【忘了加進
@@ -1949,6 +2028,9 @@ export async function checkAnomalyAlerts(
       {
         stale: searchLogStaleForMessage,
         anonRevoked: searchLogAnonRevokedForMessage === true,
+        rowsHigh: searchLogRowsHighForMessage,
+        rowsEstimate: searchLogRowsEstimateForMessage,
+        rowsThreshold: opts.searchLogRowsAlertThreshold,
       },
       // 🔴 ⟦b4-NEEDSHUMANNOWATCHER⟧ —— **不命中時零字**(count=0 ⇒ builder 不印那一行)。
       //    🔵 帶 `oldestCreated` 是刻意的:讓讀信的人知道**積了多久**, 而不只是「有幾張」。
@@ -2018,6 +2100,8 @@ export async function checkAnomalyAlerts(
     // 🔴 只有【表在 + 有過列 + 最後一列超過 24h】才算 stale。
     //    表不在 ⇒ false(還沒貼)· 有表沒列 ⇒ false(還沒開始收)—— 兩者都不是異常。
     searchLogStale: searchLogStaleForMessage,
+    searchLogRowsEstimate: searchLogRowsEstimateForMessage,
+    searchLogRowsHigh: searchLogRowsHighForMessage,
     syncStaleOpen: syncStaleOpenForMessage,
     syncStaleSuppliers: syncStaleSuppliersForMessage,
     syncOpenRecent: syncOpenRecentForMessage,
