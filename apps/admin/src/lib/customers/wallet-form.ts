@@ -14,6 +14,20 @@ export const WALLET_DIRECTION_FIELD = 'direction';
 export const WALLET_AMOUNT_FIELD = 'amount';
 export const WALLET_NOTE_FIELD = 'note';
 export const WALLET_RETURN_TO_FIELD = 'return_to';
+/**
+ * 🔴 冪等鍵欄位(⟦b4-WALLETDEDUPE⟧;2026-09-06)。
+ * **形狀照 repo 既有先例, 不自己發明**:`apps/admin/src/proxy.ts:28-34` 逐字記著
+ * `order_note.append` 的冪等鍵**就是 `p_request_id`**, 吃的是表單帶回的一次性 token,
+ * token 由 **server 在渲染表單時**產(不是瀏覽器自造)。設計與拍板:
+ * `docs/specs/2026-08-02-e10-a9d2-1-note-action-plan.md` §4 / §9 `Q2=C`(Sean 2026-08-02);
+ * 本片沿用同一個拍板(主視窗 `-f1` 2026-09-06 `Q-wallet4=甲`)。
+ *
+ * 🛑 **為什麼不能用 `getRequestId()`**(這是本片存在的理由):
+ * 它讀的是 middleware 每個 **HTTP request** 戳的 `x-request-id`(`proxy.ts:36` 一律新產)
+ * ⇒ **back-resubmit / 網路重送 = 新請求 = 新 id ⇒ 唯一索引不會撞 ⇒ 照樣扣兩次。**
+ * ⇒ 📌 backlog `#279` 的舊解法(拿 `request_id` 當去重鍵)**會看起來做完了而病還在**。
+ */
+export const WALLET_REQUEST_TOKEN_FIELD = 'request_token';
 
 /** 單筆金額上限(元;與 RPC 1c sanity 上界一致=抓多零手滑;D2 值班台建議維持、Sean 可改)。 */
 export const WALLET_AMOUNT_MAX = 10_000_000;
@@ -33,6 +47,8 @@ export type WalletAdjustParseResult =
       signedAmount: number;
       note: string;
       returnTo: string;
+      /** 表單帶回的一次性冪等 token(uuid 形狀已驗;直接當 RPC 的 `p_request_id`)。 */
+      requestToken: string;
     }
   | { ok: false };
 
@@ -56,6 +72,7 @@ export const WALLET_SINGLE_FIELDS = [
   WALLET_AMOUNT_FIELD,
   WALLET_NOTE_FIELD,
   WALLET_RETURN_TO_FIELD,
+  WALLET_REQUEST_TOKEN_FIELD,
 ] as const;
 
 export function parseWalletAdjustForm(form: FormLike): WalletAdjustParseResult {
@@ -84,6 +101,13 @@ export function parseWalletAdjustForm(form: FormLike): WalletAdjustParseResult {
   //    (`supplier-form.test.ts:56`、S3b plan `:137`)已各自更正過。
   if (note.replace(/[\u200B\u200C\u200D\uFEFF]/g, '').trim() === '') return { ok: false };
 
+  // 🔴 冪等 token:**強制存在且為 uuid 形狀**。缺 / 形狀不對 ⇒ ok:false。
+  // 🛑 **不得 fallback 到 `getRequestId()`** —— fallback = 靜默退回「沒有冪等」,
+  //    而那正是本片要修的那個病(A6 §4 逐字:「fallback 等於靜默退回沒有冪等」)。
+  //    ⇒ fail-closed:寧可讓表單送不出去, 不要讓它送出去而沒有去重。
+  const requestToken = readString(form, WALLET_REQUEST_TOKEN_FIELD);
+  if (!requestToken || !UUID_RE.test(requestToken)) return { ok: false };
+
   return {
     ok: true,
     customerId,
@@ -91,8 +115,17 @@ export function parseWalletAdjustForm(form: FormLike): WalletAdjustParseResult {
     signedAmount: direction === 'use' ? -amount : amount,
     note,
     returnTo: parseCustomersReturnTo(readString(form, WALLET_RETURN_TO_FIELD)),
+    requestToken,
   };
 }
+
+/* 🔴 ⛔ ~~這裡原本有一支 `parseWalletRetryParams`~~ —— **已刪, 而理由要留著**:
+ * 第一版的失敗路徑是 `redirect` + query string(`?r=error&t=…&a=…&n=<備註>`),
+ * 這支就是用來把那三個值讀回來的。
+ * 🛑 而那**逐字違反** A6 `docs/specs/2026-08-02-e10-a9d2-1-note-action-plan.md` §9 `Q1=A` 的 H13:
+ *   「失敗 state 必須帶回員工輸入的 body … 且**不得**把 body 塞進 URL」。
+ * ⇒ ✅ 改成失敗回傳 state(`wallet-action-state.ts`), URL 那條路整條拆掉。
+ */
 
 /**
  * return_to:站內 /customers 路徑(鏡像 orders 線 parseReturnTo;拒 `..`);非法 → 退 '/customers'。

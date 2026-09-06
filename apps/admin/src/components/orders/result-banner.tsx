@@ -110,6 +110,14 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   noop: { text: '沒有變更(內容與原本相同)。', tone: 'ok' },
   conflict: { text: '這張單在你編輯期間被改過了,已重新載入最新狀態,請確認後再存一次。', tone: 'warn' },
   invalid: { text: '表單內容不正確,未儲存。', tone: 'warn' },
+  // 🔴 ⟦b4-WALLETDEDUPE⟧ 2026-09-06:同一筆儲值金調整被送了第二次(同一個冪等 token、內容相符)。
+  // 🔵 **只有這個碼還走橫幅** —— 它是【成功】語意, 走 PRG redirect。
+  //    儲值金的**失敗**訊息不在這張表裡:照 A6 §9 Q1=A, 失敗回傳 state、訊息在表單旁邊
+  //    (`wallet-action-state.ts` 的 `WALLET_FAILURE_MESSAGE`)。
+  // 🛑 **tone 是 `ok` 不是 `warn`** —— 這不是失敗,也不是員工做錯了什麼:
+  //    他做的是「不確定成不成功所以再按一次」,而**系統剛好做對了**(沒有重複扣款)。
+  //    ⇒ 📌 唸成警告會讓他以為出事了 ⇒ 去做多餘的補償動作,而那才會真的弄壞帳。
+  duplicate: { text: '這筆已經處理過了,沒有重複扣款。', tone: 'ok' },
   // 🔴🔴 **這一句與 `error` 那句必須讓員工做出【相反】的動作**(同本表上面 `concurrent` / `mismatch` 那條紀律):
   //    · `error`           ⇒「請稍後再試」= **這是暫時性失敗, 再試會成功**
   //    · `invoice_blocked` ⇒ **不要再試** —— 那張單建單時就決定不開發票, 而那是一個【狀態不變式】

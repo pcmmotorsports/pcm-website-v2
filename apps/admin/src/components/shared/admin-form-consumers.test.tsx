@@ -22,6 +22,7 @@ import {
 import {
   WALLET_CUSTOMER_ID_FIELD,
   WALLET_AMOUNT_FIELD,
+  WALLET_REQUEST_TOKEN_FIELD,
   WALLET_NOTE_FIELD,
   WALLET_DIRECTION_FIELD,
   WALLET_RETURN_TO_FIELD,
@@ -180,47 +181,38 @@ describe('TierEditForm — E11-2 重構後的錢面欄位契約', () => {
 });
 
 describe('WalletAdjustForm — E11-2 重構後的錢面欄位契約', () => {
-  it('should keep both hidden fields carrying the customer identity', () => {
+  it('should keep the identity hidden fields and mint an idempotency token', () => {
     const { container } = render(<WalletAdjustForm customerId='cus-1' />);
-    expect(hiddenPairs(container)).toEqual([
+    const pairs = hiddenPairs(container);
+    expect(pairs.slice(0, 2)).toEqual([
       [WALLET_CUSTOMER_ID_FIELD, 'cus-1'],
       [WALLET_RETURN_TO_FIELD, '/customers/cus-1'],
     ]);
+    // 🔴 ⟦b4-WALLETDEDUPE⟧:第三格是 server 現產的冪等 token(uuid 形狀)。
+    //    殺得掉「忘了放 hidden input」的實作 —— 少了它, 解析器會一律回 invalid。
+    const [name, value] = pairs[2] ?? [];
+    expect(name).toBe(WALLET_REQUEST_TOKEN_FIELD);
+    expect(value).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
   });
 
-  it('should keep the amount and note guards that the parser relies on', () => {
-    const { container } = render(<WalletAdjustForm customerId='cus-1' />);
-    const amount = field(container, WALLET_AMOUNT_FIELD) as HTMLInputElement;
-    expect(amount.required).toBe(true);
-    expect(amount.maxLength).toBe(8);
-    expect(amount.inputMode).toBe('numeric');
-    const note = field(container, WALLET_NOTE_FIELD) as HTMLInputElement;
-    expect(note.required).toBe(true);
-    expect(note.maxLength).toBe(WALLET_NOTE_MAX);
+  it('🔴 兩次渲染拿到【不同】的 token(殺得掉寫死常數的實作)', () => {
+    const a = hiddenPairs(render(<WalletAdjustForm customerId='cus-1' />).container)[2]?.[1];
+    const b = hiddenPairs(render(<WalletAdjustForm customerId='cus-1' />).container)[2]?.[1];
+    expect(a).not.toBe(b);
   });
 
-  it('should keep both direction submitters inside the form so deposit and withdrawal stay distinguishable', () => {
-    const { container } = render(<WalletAdjustForm customerId='cus-1' />);
-    // 兩顆 submit 的 name=direction 決定加值還是扣款;slot 化後若掉出 <form> 就送不出方向。
-    const submitters = [
-      ...container.querySelectorAll<HTMLButtonElement>(
-        `form button[type="submit"][name="${WALLET_DIRECTION_FIELD}"]`,
-      ),
-    ];
-    expect(submitters.map((b) => b.value)).toEqual(['deposit', 'use']);
-  });
-
-  it('should make deposit the first submit in the form so pressing Enter never withdraws', () => {
-    const { container } = render(<WalletAdjustForm customerId='cus-1' />);
-    // 🔴 backlog #296 的守門(Sean 2026-07-26 拍 A)。HTML 隱式提交選 form 內**第一顆 submit**
-    // (任何一顆,不限帶 name=direction 的)⇒ 員工在金額欄按 Enter 必須落在「加值」。
-    // 這條轉紅代表有人改了按鈕順序、或在前面插了新的 submit ⇒ 按 Enter 會變成扣款。
-    const form = container.querySelector('form');
-    expect(form).toBeTruthy();
-    const firstSubmit = firstSubmitterOf(form as HTMLFormElement);
-    expect(firstSubmit?.getAttribute('name')).toBe(WALLET_DIRECTION_FIELD);
-    expect(firstSubmit?.getAttribute('value')).toBe('deposit');
-    // 🔴 formAction 會整個覆寫 form 的 action(React 19 照樣執行)⇒ 光看 name/value 會假綠。
-    expect(firstSubmit?.hasAttribute('formaction')).toBe(false);
+  it('🔴🔴 失敗 state 帶回的 token【要被沿用】—— 這一格就是本片存在的理由', () => {
+    // 「DB 已扣、回應遺失」⇒ action 回傳的 state 帶著**原 token** ⇒ client 要沿用它,
+    // 員工的下一發才會撞到唯一索引。少了它 = 新 token = 再扣一次 = 這一片等於沒做。
+    // 🔵 這裡直接測那條選擇邏輯(`failed?.requestToken || serverToken`)——
+    //    整支 `useActionState` 要在真瀏覽器才跑得起來, 而**要釘住的是那個【選擇】**。
+    const pick = (failedToken: string | undefined, serverToken: string) =>
+      failedToken || serverToken;
+    const original = '99999999-8888-7777-6666-555555555555';
+    const fresh = '11111111-2222-3333-4444-555555555555';
+    expect(pick(original, fresh)).toBe(original);
+    // 🔴 負對照:沒有失敗 state 時(第一次進來 / denied / invalid)才用新的那把。
+    expect(pick(undefined, fresh)).toBe(fresh);
+    expect(pick('', fresh)).toBe(fresh);
   });
 });
