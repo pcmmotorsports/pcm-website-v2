@@ -16,6 +16,7 @@ import { mergeDetailItems } from '../../lib/orders/merge-detail-items';
 import { findEffectiveVerdicts } from '../../lib/payment/refund-correction-read';
 import { isStuckManualVerdict } from '../../lib/payment/refund-ledger-view';
 import { isRefundUiEnabled } from '../../lib/payment/refund-ui-flag';
+import { isRefundBackfillUiEnabled } from '../../lib/payment/refund-backfill-ui-flag';
 import { isUuid } from '../../lib/orders/note-action-state';
 import {
   getLedgerUnregisteredAmount,
@@ -588,6 +589,9 @@ export async function OrderDetailRoute({
           suppliers={suppliers}
           suppliersFailed={suppliersFailed}
           refundEnabled={isRefundUiEnabled()}
+          // ⟦b4-TAPPAYDIRECT⟧ 片 B:與退款入口【各自一個旗標】——兩者風險方向相反
+          //   (見 refund-backfill-ui-flag.ts 檔頭), 共用就沒辦法只開安全的那一半。
+          backfillEnabled={isRefundBackfillUiEnabled()}
           refunds={refunds}
           refundsFailed={refundsFailed}
           refundsTruncated={refundsTruncated}
