@@ -104,6 +104,13 @@ export interface IAnomalyAlertReader {
     readonly tableExists: boolean;
     readonly lastRowAt: string | null;
     readonly anonCanExecute: boolean | null;
+    /**
+     * 🟡 **第六欄(2026-09-06)—— `pg_class.reltuples`, 而它是【估計值不是列數】。**
+     *   🔴 從未 analyze(`reltuples = -1`)⇒ 這裡回 `null`, 不回 -1。
+     *   🔴 誤差方向是**低估**, 而它在這張表被灌爆的當下最落後(實測低估 83% 持續 60 秒)
+     *     ⇒ 📌 **只能當告警, 不能當閘**;讀數與兩個世界的實測見 `~/pcm-mailbox/auth-012-STOP.md`。
+     */
+    readonly rowsEstimate: number | null;
   } | null>;
 
   /**

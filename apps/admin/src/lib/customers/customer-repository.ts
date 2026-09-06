@@ -55,8 +55,16 @@ function createPoisonedWalletWriteClient(): WalletWriteClient {
   }) as WalletWriteClient;
 }
 
-/** RPC 業務結果碼(輸入非法/DB error=throw,由 caller 收斂固定碼)。 */
-export type AdminWalletAdjustResult = 'ADJUSTED' | 'NOT_FOUND';
+/**
+ * RPC 業務結果碼(輸入非法/DB error=throw,由 caller 收斂固定碼)。
+ * 🔴 `DUPLICATE`(⟦b4-WALLETDEDUPE⟧ 2026-09-06)= **同一個冪等 token 且內容相符的重送**
+ * ⇒ **沒有再扣一次**,回原結果。
+ * 🛑 **它不能與 `ADJUSTED` 合併**:呼叫端要分得出「我這一發做了事」與「上一發做過了」——
+ *    稽核與對帳都需要那個差別(主視窗 `-f1` 2026-09-06 `Q-wallet3=甲`)。
+ * 🛑 而**同 token 但內容不符**在 RPC 端是 `RAISE`(⇒ 這裡看不到、走 throw)——
+ *    那不是重送,那是「同一把鑰匙被拿去開別的門」。
+ */
+export type AdminWalletAdjustResult = 'ADJUSTED' | 'NOT_FOUND' | 'DUPLICATE';
 
 /**
  * 儲值金調整(M-4a 儲值金編輯片;走 admin_adjust_wallet owner RPC〔20260716210000〕)。
@@ -85,8 +93,8 @@ export async function adjustCustomerWallet(args: {
   if (error) {
     throw error;
   }
-  // RPC RETURNS text scalar → data 即 'ADJUSTED'/'NOT_FOUND';防腐壞收斂(鏡像 updateAdminOrderWorkflow)。
-  if (data === 'ADJUSTED' || data === 'NOT_FOUND') {
+  // RPC RETURNS text scalar → data 即 'ADJUSTED'/'NOT_FOUND'/'DUPLICATE';防腐壞收斂(鏡像 updateAdminOrderWorkflow)。
+  if (data === 'ADJUSTED' || data === 'NOT_FOUND' || data === 'DUPLICATE') {
     return data;
   }
   throw new Error('admin_adjust_wallet RPC 回傳非預期碼');

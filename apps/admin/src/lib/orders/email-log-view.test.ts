@@ -25,17 +25,38 @@ function row(over: Partial<EmailLogRow> = {}): EmailLogRow {
     maxAttempts: 5,
     createdAt: '2026-09-02T03:00:00Z',
     sentAt: null,
+    providerMessageId: null,
     ...over,
   };
 }
 
 describe('email-log-view', () => {
+  // 🔵 ⟦mail-PROVMSGIDUI⟧:兩格【印不同東西】—— 有 id 與沒 id 走的是兩條路。
+  describe('providerMessageId 原樣帶到顯示層', () => {
+    it('有 id ⇒ 原樣帶過去(不加工、不截斷)', () => {
+      expect(toEmailLogEntry(row({ providerMessageId: 're_abc123' })).providerMessageId).toBe(
+        're_abc123',
+      );
+    });
+
+    it('🔴 沒有 id ⇒ 仍是 null(不得被轉成空字串 —— 空字串在畫面上與「有一個空編號」分不開)', () => {
+      expect(toEmailLogEntry(row({ providerMessageId: null })).providerMessageId).toBeNull();
+    });
+  });
+
   describe('🔴🔴 撈哪幾欄 —— 這一格擋的是【PII 上訂單頁】', () => {
     // 🔴 **R1 must-fix #3 生出來的**:原本這條界線只有 repository 檔頭的一段註解守著
     //    ⇒ 下一個人加一欄 `recipient_email`, typecheck / lint / build / 全部測試**都是綠的**。
     //    📌 **一條寫在註解裡的規矩, 與沒有那條規矩, 在 CI 上印同一個綠。**
     it('🎯 逐字釘死 select 的欄位字串 —— 加任何一欄都要先撞到這條紅', () => {
-      expect(EMAIL_LOG_COLUMNS).toBe('event_type,status,attempts,max_attempts,created_at,sent_at');
+      // 🔵 2026-09-06 ⟦mail-PROVMSGIDUI⟧ 加了 `provider_message_id`。
+      //    ⛔ ~~'event_type,status,attempts,max_attempts,created_at,sent_at'~~
+      //    🔴 **這條紅是這道閘【設計要發生】的那一次** —— 而放行的依據不是「我覺得沒關係」:
+      //       規格 §2「不要顯示的」(`~/pcm-mailbox/規格-片A-訂單詳情頁顯示寄信紀錄-20260902.md:59-63`)
+      //       逐字禁的是 **收件人信箱 · 主旨 · 內文**, 而這一欄是不透明識別碼、不在那三個裡面。
+      expect(EMAIL_LOG_COLUMNS).toBe(
+        'event_type,status,attempts,max_attempts,created_at,sent_at,provider_message_id',
+      );
     });
 
     it('🟢 對照組:三個不該出現的欄位名, 一個都不在裡面(否則上面那格可能是恆真的)', () => {

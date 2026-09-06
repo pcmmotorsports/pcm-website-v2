@@ -20,9 +20,9 @@ import { BrandAboutRedirect } from '@/components/brand/BrandAboutRedirect';
 import { BRAND_CONTENT } from '@/data/brand-content';
 import {
   fetchCatalogPage,
-  fetchCatalogBrandTaxonomy,
-  fetchCategories,
-  fetchVehicleTaxonomy,
+  tryCatalogBrandTaxonomy,
+  tryCategories,
+  tryVehicleTaxonomy,
 } from '@/lib/products';
 import { redirect } from 'next/navigation';
 import { searchProducts } from '@/lib/search';
@@ -96,10 +96,13 @@ export default async function ProductsRoute({ searchParams }: Props) {
       return value;
     });
   };
-  const [motoBrands, categories, brands, garage] = await Promise.all([
-    mark('tax', fetchVehicleTaxonomy()),
-    mark('cats', fetchCategories()),
-    mark('brands', fetchCatalogBrandTaxonomy()),
+  const [vehicleTax, categoryTax, brandTax, garage] = await Promise.all([
+    // 🔴 2026-09-06(Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧):帶 `failed` 那扇門, 理由同首頁。
+    mark('tax', tryVehicleTaxonomy()),
+    // 🔴 2026-09-06(⟦search-SILENTDOORS2⟧, plan `docs/plans/2026-09-06-silent-doors-2-plan.md`):
+    //   與車款那一扇同一個形狀 —— 走【帶 `failed` 的那扇門】, 讓「讀不到」與「真的沒有」分開。
+    mark('cats', tryCategories()),
+    mark('brands', tryCatalogBrandTaxonomy()),
     mark('garage', (async () => {
       try {
         const supabase = await createServerSupabaseClient();
@@ -124,6 +127,14 @@ export default async function ProductsRoute({ searchParams }: Props) {
       }
     })()),
   ]);
+  // 🔵 **解構在這裡, 讓下游一個字都不用改** —— 本片要的是【多一個 `failed`】,
+  //   不是改寫每一個既有的 `motoBrands` 讀取點。
+  const motoBrands = vehicleTax.motoBrands;
+  const vehicleTaxonomyFailed = vehicleTax.failed;
+  const categories = categoryTax.categories;
+  const categoryTaxonomyFailed = categoryTax.failed;
+  const brands = brandTax.brands;
+  const brandTaxonomyFailed = brandTax.failed;
   // ── ⟦search-CAPSULEPARSE⟧ 2026-09-03:自由文字 ⇒ 膠囊 ────────────────────
   //
   // 🔵 Sean 逐字:「如果是車種＋商品名稱也會盡可能的帶入相對應的膠囊這樣」
@@ -339,6 +350,9 @@ export default async function ProductsRoute({ searchParams }: Props) {
         categories={categories}
         brands={brands}
         motoBrands={motoBrands}
+        vehicleTaxonomyFailed={vehicleTaxonomyFailed}
+        categoryTaxonomyFailed={categoryTaxonomyFailed}
+        brandTaxonomyFailed={brandTaxonomyFailed}
         garage={garage}
         searchKeyword={catalogQuery.search}
         unmatchedWords={spGet('unmatched') ?? undefined}
