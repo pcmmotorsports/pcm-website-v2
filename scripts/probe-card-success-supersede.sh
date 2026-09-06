@@ -299,6 +299,15 @@ if [ -f "$RB" ]; then
   #    ⇒ 它回 1 而那不是缺陷。**這一格當場紅過一次, 修的是尺不是碼。**
   N=$("${PSQL[@]}" -tAc "SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname IN ('mark_charge_attempt_charged','mark_charge_attempt_charged_fallback','confirm_order_payment') AND pg_catalog.strpos(p.prosrc,'SUPERSEDE-BLOCK-BEGIN')>0")
   [ "$N" = "0" ] && ok "甲-6 還原後那三支已無 supersede 區塊(0 支)" || bad "甲-6 還原後那三支仍有 $N 支帶著區塊"
+  # 🔴 codex R3:第一版只驗 body ⇒ **把 rollback 的 COMMENT 段整個刪掉, 這組照樣綠**。
+  #    ⇒ 三段 COMMENT 的 md5 也要驗回原值。
+  for pair in "mark_charge_attempt_charged 3a470a3d1513e91b4dd7a63a1ea74c4d" \
+              "mark_charge_attempt_charged_fallback 7268cab8534684db6b94e85d4149fe3d" \
+              "confirm_order_payment e3b98c9a0b3abb1dfc56a99b6fb5bf52"; do
+    set -- $pair
+    GOTC=$("${PSQL[@]}" -tAc "SELECT pg_catalog.md5(coalesce(pg_catalog.obj_description(p.oid,'pg_proc'),'(無)')) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='$1'")
+    [ "$GOTC" = "$2" ] && ok "甲-6 $1 COMMENT 還原後 md5 = $GOTC" || bad "甲-6 $1 COMMENT 還原後 md5 = $GOTC(期望 $2)"
+  done
   # 🟢 同一把尺的正對照:測試外殼 zz_test_supersede 本來就帶著它 ⇒ 必須數得到 1
   NP=$("${PSQL[@]}" -tAc "SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='zz_test_supersede' AND pg_catalog.strpos(p.prosrc,'SUPERSEDE-BLOCK-BEGIN')>0")
   [ "$NP" = "1" ] && ok "甲-6 正對照:同一把尺對測試外殼數到 1(它不是恆 0)" || bad "甲-6 正對照失敗:對測試外殼數到 $NP(期望 1)"

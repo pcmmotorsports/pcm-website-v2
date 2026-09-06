@@ -348,7 +348,7 @@ $fn$;
 -- 🔵 下面整段逐字取自 20260810170000:236-237, 只在結尾補一句。
 COMMENT ON FUNCTION public.mark_charge_attempt_charged(uuid, uuid, text) IS
   'M-3 3DS R1b1c + M-4b L5b-0 PF-X1 麵包屑主軌。🔴 **L5b-0 讓路入帳鐵律(閘一)**:superseded_at 非 NULL(=L5a-1 判定讓路、客人已改走新單)⇒ **一律 RAISE、永不轉 charged**;那筆錢的唯一出口是退款(Sean 2026-08-10 拍板 A)。閘位在 charged 冪等分支**之前**(該分支的 RETURN 對上游是成功語意、會讓 settlePaid 續呼 confirm)。⚠️ 本閘只是縱深,錢的歸屬由 confirm_order_payment 的同族閘(L5b-0 閘三)守;且**繞得過 owner 直寫**(非 DB 全域不變量)。以下為 R1b1c 既有行為、逐字不動:status IN (pending,released)→charged + rec_trade_id;released = late success 對帳收斂 → 同交易建 open anomaly(payment_double_charge_anomalies、ON CONFLICT old_attempt_id DO NOTHING、所有 NOT NULL 欄齊填、缺則 RAISE fail-closed;refund_target=舊 attempt rec、amount=orders.total integer);基線雙鍵驗 + FOR UPDATE + charged 同 rec 冪等 no-op + 跨單重複 rec 通用 RAISE。只 payment_confirmer 可呼(ACL 沿用基線、本片不改)。'
-  '🔴 **2026-09-06 ⟦b4-CARDPENDINGWINDOW⟧ 新增的副作用**:本函式在【最開頭】會 supersede 同一位客人、同一個 cart_session_id、且【留下來那張是刷卡單】時的**未付款且無非終態 attempt 的匯款單**(cancelled_reason=''superseded_by_card'')。理由:3DS pending 期間客人另開分頁建的匯款單, `create_order` 的守門看到的是 pending 不是 charged ⇒ 放行 ⇒ 刷卡完成後兩張單同時活著。位置在最開頭是為了**鎖順序**(先 advisory 再動列, 與 create_order / begin_charge_attempt 一致)。三支入口的那段區塊逐字相同, 由 20260906700000 的事後斷言釘住。';
+  '🔴 **2026-09-06 ⟦b4-CARDPENDINGWINDOW⟧ 新增的副作用**:本函式在【最後】(最後一個早退之後)會 supersede 同一位客人、同一個 cart_session_id、且【留下來那張是刷卡單】時的**未付款且無非終態 attempt 的匯款單**(cancelled_reason=''superseded_by_card'')。理由:3DS pending 期間客人另開分頁建的匯款單, `create_order` 的守門看到的是 pending 不是 charged ⇒ 放行 ⇒ 刷卡完成後兩張單同時活著。位置在**函式尾**(最後一個早退之後)是為了**鎖順序**:`begin_charge_attempt` 的 prosrc 裡 `FOR UPDATE` 在 advisory **之前** ⇒ 全隊順序是【先鎖自己那張單、再拿 advisory】, 本區塊跟著它。⚠️ 代價:三支各自的**冪等重播早退**不會跑到這一段(2026-09-06 已知取捨, 見 ⟦b4-CARDPENDINGWINDOW⟧)。三支入口的那段區塊逐字相同, 由 20260906700000 的事後斷言釘住。';
 
 -- ══ 1.2 mark_charge_attempt_charged_fallback(逐字抄 20260810170000, 只插入那一段區塊)══
 CREATE OR REPLACE FUNCTION public.mark_charge_attempt_charged_fallback(
@@ -516,7 +516,7 @@ $fn$;
 -- 🔵 下面整段逐字取自 20260810170000:322-323, 只在結尾補一句。
 COMMENT ON FUNCTION public.mark_charge_attempt_charged_fallback(uuid, uuid, text, uuid) IS
   'M-3-S2-d + M-4b L5b-0 PF-X1 麵包屑備軌(第二 transport、authenticated PostgREST)。🔴 **L5b-0 讓路入帳鐵律(閘二)**:superseded_at 非 NULL ⇒ 一律 RAISE。**備軌為什麼也要**:它的轉移閘只擋 status=''pending'',對 **pending+superseded** 完全沒守門;而「superseded ⇒ 必為 released」是**寫入端(L5a-1)自律、schema 沒強制**(L5a-M 五條 CHECK 沒有這條)⇒ 不得把不變量押在另一支 RPC 的實作上。閘位在 token/歸屬兩道護欄**之後**(先認身分再談業務規則)。既有三重護欄逐字不動:① token hash 比對 ② auth.uid() 歸屬 ③ 僅 pending→charged 緊縮轉移、永不釋鎖/標 failed;charged 同 rec 冪等 no-op。token 明文只在 server 記憶體。ACL 沿用基線(authenticated)、本片不改。'
-  '🔴 **2026-09-06 ⟦b4-CARDPENDINGWINDOW⟧ 新增的副作用**:本函式在【最開頭】會 supersede 同一位客人、同一個 cart_session_id、且【留下來那張是刷卡單】時的**未付款且無非終態 attempt 的匯款單**(cancelled_reason=''superseded_by_card'')。理由:3DS pending 期間客人另開分頁建的匯款單, `create_order` 的守門看到的是 pending 不是 charged ⇒ 放行 ⇒ 刷卡完成後兩張單同時活著。位置在最開頭是為了**鎖順序**(先 advisory 再動列, 與 create_order / begin_charge_attempt 一致)。三支入口的那段區塊逐字相同, 由 20260906700000 的事後斷言釘住。';
+  '🔴 **2026-09-06 ⟦b4-CARDPENDINGWINDOW⟧ 新增的副作用**:本函式在【最後】(最後一個早退之後)會 supersede 同一位客人、同一個 cart_session_id、且【留下來那張是刷卡單】時的**未付款且無非終態 attempt 的匯款單**(cancelled_reason=''superseded_by_card'')。理由:3DS pending 期間客人另開分頁建的匯款單, `create_order` 的守門看到的是 pending 不是 charged ⇒ 放行 ⇒ 刷卡完成後兩張單同時活著。位置在**函式尾**(最後一個早退之後)是為了**鎖順序**:`begin_charge_attempt` 的 prosrc 裡 `FOR UPDATE` 在 advisory **之前** ⇒ 全隊順序是【先鎖自己那張單、再拿 advisory】, 本區塊跟著它。⚠️ 代價:三支各自的**冪等重播早退**不會跑到這一段(2026-09-06 已知取捨, 見 ⟦b4-CARDPENDINGWINDOW⟧)。三支入口的那段區塊逐字相同, 由 20260906700000 的事後斷言釘住。';
 
 -- ══ 1.3 confirm_order_payment(逐字抄 20260810170000, 只插入那一段區塊)══
 CREATE OR REPLACE FUNCTION public.confirm_order_payment(
@@ -813,7 +813,7 @@ COMMENT ON FUNCTION public.confirm_order_payment(uuid, integer, text) IS
   'close_released_attempt 翻 failed 後即離開此集合、該單可正常收款。'
   '⚠️ 天花板:本閘判的是「這張單有沒有活的讓路 attempt」,不是「這次的錢來自哪顆 attempt」;'
   '且繞得過 owner 直寫(非 DB 全域不變量)。失效條件見 plan §8。'
-  '🔴 **2026-09-06 ⟦b4-CARDPENDINGWINDOW⟧ 新增的副作用**:本函式在【最開頭】會 supersede 同一位客人、同一個 cart_session_id、且【留下來那張是刷卡單】時的**未付款且無非終態 attempt 的匯款單**(cancelled_reason=''superseded_by_card'')。理由:3DS pending 期間客人另開分頁建的匯款單, `create_order` 的守門看到的是 pending 不是 charged ⇒ 放行 ⇒ 刷卡完成後兩張單同時活著。位置在最開頭是為了**鎖順序**(先 advisory 再動列, 與 create_order / begin_charge_attempt 一致)。三支入口的那段區塊逐字相同, 由 20260906700000 的事後斷言釘住。';
+  '🔴 **2026-09-06 ⟦b4-CARDPENDINGWINDOW⟧ 新增的副作用**:本函式在【最後】(最後一個早退之後)會 supersede 同一位客人、同一個 cart_session_id、且【留下來那張是刷卡單】時的**未付款且無非終態 attempt 的匯款單**(cancelled_reason=''superseded_by_card'')。理由:3DS pending 期間客人另開分頁建的匯款單, `create_order` 的守門看到的是 pending 不是 charged ⇒ 放行 ⇒ 刷卡完成後兩張單同時活著。位置在**函式尾**(最後一個早退之後)是為了**鎖順序**:`begin_charge_attempt` 的 prosrc 裡 `FOR UPDATE` 在 advisory **之前** ⇒ 全隊順序是【先鎖自己那張單、再拿 advisory】, 本區塊跟著它。⚠️ 代價:三支各自的**冪等重播早退**不會跑到這一段(2026-09-06 已知取捨, 見 ⟦b4-CARDPENDINGWINDOW⟧)。三支入口的那段區塊逐字相同, 由 20260906700000 的事後斷言釘住。';
 
 
 -- ══ 2. 事後斷言 ═══════════════════════════════════════════════════════════

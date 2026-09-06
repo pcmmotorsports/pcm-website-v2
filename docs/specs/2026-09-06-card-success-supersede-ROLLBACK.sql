@@ -47,6 +47,10 @@ DO $rbpre$
 DECLARE r record; v_raw text; v_n integer; v_force boolean;
 BEGIN
   v_force := coalesce(current_setting('pcm.rollback_force', true), '') = '1';
+  -- 🔴 codex R3:**讀完就立刻清掉**, 不要等結尾。
+  --    結尾那一句在「中途撞 lock_timeout / statement_timeout」時**跑不到**
+  --    ⇒ 同一個 session 會帶著 `force=1` 繼續活著, 而下一次貼還原就會安靜地跳過 md5 那道防線。
+  PERFORM pg_catalog.set_config('pcm.rollback_force', 'off', false);
   FOR r IN
     SELECT * FROM (VALUES
       ('mark_charge_attempt_charged',          '13dfcc0a3c7f8e35b53063ca9babf8e5', 'ca2e19c82e3677a4c37f7a33fe6b50c6', 'p_attempt_id uuid, p_order_id uuid, p_rec_trade_id text'),
@@ -537,8 +541,7 @@ BEGIN
 END
 $rb$;
 
--- 🔴 codex R2 #8:`pcm.rollback_force` 是 session 級的 ——
---    不清掉的話, 同一個連線後面再跑一次還原會**繼續跳過 md5 那道防線**, 而沒有人會發現。
-SELECT pg_catalog.set_config('pcm.rollback_force', 'off', false);
+-- 🔵 `pcm.rollback_force` 已在前置閘【讀完當下】就清掉了(codex R3)——
+--    這裡不再重複, 留這段字是為了讓搜「rollback_force」的人知道它在哪裡被清的。
 
 COMMIT;

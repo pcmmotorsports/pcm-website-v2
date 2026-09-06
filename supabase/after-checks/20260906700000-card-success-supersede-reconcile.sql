@@ -59,3 +59,34 @@ BEGIN
   END IF;
 END
 $rc$;
+
+\echo --- 4. 🔴 真正的不變量:有沒有「刷卡成功的單」還帶著【活著的】同 cart 匯款兄弟單 ---
+-- 🔴 codex R3:前面幾節看的是【函式長什麼樣】, 而這一片要防的事是【資料上的一個狀態】。
+--    ⇒ 拔掉實作而剛好那段時間沒有取消列時, 前面幾節照樣好看。這一節直接問那個狀態。
+--    🟢 貼之前:這個數可能 > 0(那正是本片要修的);貼之後新發生的應該是 0。
+--    ⚠️ **它不會自己變成 0** —— 已經存在的舊資料要人工處理, 本片只管往後。
+SELECT count(*) AS 仍成對的筆數,
+       min(o.created_at) AS 最舊那張匯款單,
+       max(o.created_at) AS 最新那張匯款單
+  FROM public.orders k
+  JOIN public.orders o
+    ON o.customer_user_id = k.customer_user_id
+   AND o.cart_session_id  = k.cart_session_id
+   AND o.id              <> k.id
+ WHERE k.payment_channel = 'tappay'
+   AND (k.payment_status = 'paid'::public.payment_status
+        OR EXISTS (SELECT 1 FROM public.payment_charge_attempts a
+                    WHERE a.order_id = k.id AND a.status = 'charged'))
+   AND o.payment_channel = 'bank_transfer'
+   AND o.cancelled_at IS NULL
+   AND o.payment_status = 'unpaid'::public.payment_status;
+\echo 🔵 正對照:同一把尺放寬成「所有 tappay 單有沒有任何兄弟單」——
+\echo 🔴🔴 **兩個數【都是 0】時, 上面那個 0 什麼都不證明** —— 那代表這個庫裡連分母都沒有
+\echo    (2026-09-06 實測正式庫就是這樣:orders 全表 2 列 ⇒ 兩欄都 0)。
+\echo    ⇒ 只有【放寬後的數 > 0 而上面那個 = 0】時, 那個 0 才是「不變量成立」的意思。
+SELECT count(*) AS 放寬後的筆數
+  FROM public.orders k
+  JOIN public.orders o
+    ON o.customer_user_id = k.customer_user_id
+   AND o.id <> k.id
+ WHERE k.payment_channel = 'tappay';
