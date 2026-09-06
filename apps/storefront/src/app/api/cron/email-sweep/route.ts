@@ -45,6 +45,7 @@ import {
   enqueueOrderCreatedEmails,
   enqueueOrderUnpaidCancelledEmails,
   enqueueOrderCancelledEmails,
+  enqueueBankOrderCreatedEmails,
   enqueueTrackingCorrectedEmails,
   enqueueOrderShippedEmails,
   readDeployCutoff,
@@ -59,6 +60,7 @@ import {
   getEnqueueOrderCreatedDeps,
   getEnqueueOrderUnpaidCancelledDeps,
   getEnqueueOrderCancelledDeps,
+  getEnqueueBankOrderCreatedDeps,
   getEnqueueTrackingCorrectedDeps,
   getEnqueueOrderShippedDeps,
   getSweepEmailOutboxDeps,
@@ -69,6 +71,7 @@ import {
   TrackingCorrectedScanQueryError,
   UnpaidCancelledScanQueryError,
   CancelledScanQueryError,
+  BankOrderScanQueryError,
 } from '@pcm/adapters/server';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
 import { CRON_JOB_NAME, recordHeartbeatSuccess, recordHeartbeatFailure } from '@/lib/cron/heartbeat';
@@ -352,6 +355,31 @@ function pickCancelledEnqueueCounts(result: {
     cnlDuplicate: result.duplicate,
     cnlNoRecipient: result.noRecipient,
     cnlErrors: result.errors,
+  };
+}
+
+// 🔵 **第四支同款 picker(⟦b4-BANKNOEMAIL⟧ 匯款單成立信)。**
+// 🔴🔴 **不共用, 而理由不是整潔** —— 型別剛好相容, 而**輸出的鍵不能相同**:
+//    五條線的計數會落在**同一個 JSON 物件**裡, 共用會讓後寫的那條**安靜覆蓋**前一條
+//    ⇒ 📌 **覆蓋之後兩個數字看起來都很合理, 沒有東西會叫。**
+//    ⇒ 所以前綴 `bnk` 是**判別力**不是命名風格。
+function pickBankOrderEnqueueCounts(result: {
+  scanned: number;
+  truncated: boolean;
+  enqueued: number;
+  skippedNoRealEmail: number;
+  duplicate: number;
+  noRecipient: number;
+  errors: number;
+}) {
+  return {
+    bnkScanned: result.scanned,
+    bnkTruncated: result.truncated,
+    bnkEnqueued: result.enqueued,
+    bnkSkippedNoRealEmail: result.skippedNoRealEmail,
+    bnkDuplicate: result.duplicate,
+    bnkNoRecipient: result.noRecipient,
+    bnkErrors: result.errors,
   };
 }
 
@@ -692,6 +720,69 @@ export async function GET(request: Request): Promise<Response> {
   }
   const cancelledSection = { cancelledEnqueueStatus: cancelledStatus, ...(cancelledCounts ?? {}) };
 
+  // ══════════════════════════════════════════════════════════════════
+  // 1g · ⟦b4-BANKNOEMAIL⟧ 匯款單成立信 enqueue(2026-09-06)
+  // ══════════════════════════════════════════════════════════════════
+  // 🔴🔴 **它有【自己那顆 cutoff】, 而那不是為了整齊 —— 是因為共用會當場寄一批歷史信。**
+  //   ⇒ 布林 flag 翻 true 的那一秒, view 會掃到**所有歷史未付款匯款單** ⇒ **一次寄一疊**,
+  //     而信收不回來(鐵則 12⑤)。所以它要一顆**預設沒設**的新 env, 由 Sean 自己上膛。
+  //   📌 這一段與取消信那一段是**同一個教訓的第二次套用**, 不是抄格式。
+  //
+  // 🛑 **上膛順序**(少一步不會馬上出事, 而那正是危險的地方):
+  // ```
+  // ① 🔴 **DB 【五支】都要貼**(codex R1-#6 抓到我這裡還寫「四支」):
+  //    ⛔ ~~DB 四支已貼~~ —— 45a-45d 已貼(2026-09-06, 帳本已記), 而 **45e(`20260906180000`)
+  //    `pcm_bank_order_still_mailable` 是後來加的**, 寄送前重驗**就靠它**。
+  //    🛑 少了 45e 而照這段上膛 ⇒ 重驗查一支不存在的 view ⇒ `unavailable` ⇒ 不寄、計 error
+  //      ⇒ 那些列**每輪重試、燒完 attempts 進死信** ⇒ 📌 **那批客人之後再也排不進信。**
+  // ② 設 BANK_ORDER_CREATED_EMAIL_CUTOFF（ISO UTC）
+  // ③ redeploy（新 env 只有新的 deployment 讀得到 —— 「先關 env 止血」也是假的, 同一個理由）
+  // ```
+  // 🔵 **而它還有第二道**:`BANK_TRANSFER_CHECKOUT_ENABLED` 沒翻開之前, 顧客站建不出 web 匯款單
+  //   ⇒ 這一段**恆掃到 0 列**。🛑 而「0 列」與「view 名字打錯 / 欄名錯」**印同一個 200**
+  //   ⇒ 📌 **在那顆 flag 翻開之前, 不得把這條線寫成「已驗證會寄」。**
+  //
+  // 🛑 **時間預算:這是疊進同一個 `maxDuration = 60` 的【第六條】序列 enqueue**
+  //   ⇒ ⟦b4-CRON60SDOGPILE⟧ 那條已知缺口**又寬了一格**, 而本片沒有修它。
+  //   判別訊號不變:cron log 整輪耗時逼近 60s ⇒ 回來做它。
+  //
+  // 🔴 **整段失敗不擋 sweeper** —— 與另外五支同形:計 errors、本輪最後回 503。
+  // eslint-disable-next-line no-restricted-syntax -- 受控例外:同本檔 readCutoff();server-only cron 端點,動態 env 不進 client bundle
+  const bankOrderRaw = process.env['BANK_ORDER_CREATED_EMAIL_CUTOFF'];
+  const bankOrderCutoff = readDeployCutoff(bankOrderRaw);
+  let bankOrderCounts: ReturnType<typeof pickBankOrderEnqueueCounts> | null = null;
+  let bankOrderStatus: 'skipped_no_cutoff' | 'skipped_bad_cutoff' | 'completed' | 'failed' =
+    bankOrderCutoff.kind === 'unset'
+      ? 'skipped_no_cutoff'
+      : bankOrderCutoff.kind === 'invalid'
+        ? 'skipped_bad_cutoff'
+        : 'completed';
+  if (bankOrderCutoff.kind === 'invalid') {
+    console.error('[email-sweep] 🔴 BANK_ORDER_CREATED_EMAIL_CUTOFF 格式不合 ⇒ 整段匯款成立信 enqueue 不跑', {
+      env: 'BANK_ORDER_CREATED_EMAIL_CUTOFF',
+      reason: 'bad_cutoff_format',
+    });
+  }
+  if (bankOrderCutoff.kind === 'ok') {
+    try {
+      bankOrderCounts = pickBankOrderEnqueueCounts(
+        await enqueueBankOrderCreatedEmails(getEnqueueBankOrderCreatedDeps(), {
+          cutoff: bankOrderCutoff.cutoff,
+          limit: ENQUEUE_LIMIT,
+        }),
+      );
+    } catch (err) {
+      bankOrderStatus = 'failed';
+      // 🔴 用**本片自己那支 error** —— 兩支同名時 instanceof 比的是身分不是名字。
+      const scan = err instanceof BankOrderScanQueryError ? { stage: err.stage, code: err.code } : {};
+      console.error('[email-sweep] 🔴 匯款成立信 enqueue 整段失敗(不擋 sweeper;本輪最後回 503)', {
+        reason: 'bank_order_enqueue_scan_throw',
+        ...scan,
+      });
+    }
+  }
+  const bankOrderSection = { bankOrderEnqueueStatus: bankOrderStatus, ...(bankOrderCounts ?? {}) };
+
   // 🔵🔵 **「還沒上膛」要出聲**(2026-08-30 夜;`-48` 拍板做、codex 不豁免)
   //   量到的:env 沒設 ⇒ `skipped_no_cutoff` ⇒ **不進下面的 503 判斷** ⇒ 回 200,
   //   而本檔成功路徑**一行 log 都沒有**(全檔 console 分母 6,而 6 支全是 `console.error`)
@@ -707,7 +798,11 @@ export async function GET(request: Request): Promise<Response> {
   if (
     enqueueStatus === 'skipped_no_cutoff' ||
     shippedStatus === 'skipped_no_cutoff' ||
-    cancelledStatus === 'skipped_no_cutoff'
+    cancelledStatus === 'skipped_no_cutoff' ||
+    // 🔴 **條件也要加, 不是只加那一行 log**(codex R1-#8 的另一半):
+    //    只有匯款那條線沒上膛時, 少了這一行 ⇒ **整段 log 不印** ⇒ 那一行 `bankOrder` 永遠不會被看到。
+    //    📌 **加了輸出而沒加觸發條件 = 那個輸出在【唯一需要它的世界】裡不存在。**
+    bankOrderStatus === 'skipped_no_cutoff'
   ) {
     console.info('[email-sweep] 🔵 有 cutoff env 還沒上膛 ⇒ 那一段 enqueue 這輪不跑(不是失敗,回 200)', {
       // 🔴 B-5 那半用既有的 `CUTOFF_ENV` 常數(見本檔 `const CUTOFF_ENV =`)不重打字面。
@@ -719,6 +814,12 @@ export async function GET(request: Request): Promise<Response> {
       shippedCutoff: shippedStatus === 'skipped_no_cutoff' ? 'SHIPPED_EMAIL_CUTOFF 未設或空' : shippedStatus,
       cancelledCutoff:
         cancelledStatus === 'skipped_no_cutoff' ? 'CANCELLED_EMAIL_CUTOFF 未設或空' : cancelledStatus,
+      // 🔴 **匯款成立信那條線也要出聲**(codex R1-#8):少了它,
+      //    「這條線正常地沒有信要寄」與「這條線整個沒啟用」**印同一個 200、同一片空 log**。
+      bankOrder:
+        bankOrderStatus === 'skipped_no_cutoff'
+          ? 'BANK_ORDER_CREATED_EMAIL_CUTOFF 未設或空'
+          : bankOrderStatus,
     });
   }
 
@@ -731,6 +832,12 @@ export async function GET(request: Request): Promise<Response> {
       //    ⚠️ `resolveSiteUrl()` 在 production 缺 `NEXT_PUBLIC_SITE_URL` 時回 `undefined`
       //      ⇒ **那一整段連結不印, 而不是印一個壞的** —— 死入口比沒入口糟。
       siteUrl: resolveSiteUrl(),
+      // 🔴🔴 **⟦b4-BANKNOEMAIL⟧:這條線有沒有上膛 = 那顆 cutoff 有沒有【設好】**(codex R1-#1)。
+      //    ⇒ 關著時 `claimDue` **連認領都不做** —— 否則拔掉 env 也停不了線:
+      //      已入列的匯款信照樣被認領、照樣寄出去, 而信收不回來。
+      //    🔵 判準用 `kind === 'ok'` 而不是「有沒有設」—— **格式不合也算沒上膛**
+      //      ⇒ 一顆打錯字的 env 不會讓這條線半開著。
+      allowBankOrderCreated: bankOrderCutoff.kind === 'ok',
       // 🔴🔴 **同一個 cutoff 同時控【排信】與【寄信】**(codex 2026-08-30 R1 must-fix 1)。
       //    在這一行之前,cutoff 只擋得住 enqueue ⇒ outbox 裡**已經排好的** `order_shipped` 列
       //    會在 env 關著的情況下被 sweeper 照常寄出去
@@ -851,13 +958,21 @@ export async function GET(request: Request): Promise<Response> {
       (cancelledCounts?.cnlErrors ?? 0) > 0 ||
       trackFixStatus === 'failed' ||
       trackFixStatus === 'skipped_bad_cutoff' ||
-      (trackFixCounts?.tfxErrors ?? 0) > 0
+      (trackFixCounts?.tfxErrors ?? 0) > 0 ||
+      // 🔴🔴 **第六條線(匯款成立信)** —— 上面那段話逐字記著「我第一版漏了兩次,
+      //    而漏掉的症狀是回 200、心跳記成功」。⇒ ✅ 判準逐字同形, 不重想。
+      //    📌 **這是本檔第四次加線, 而前三次有兩次漏了這一格** ——
+      //      所以我在加那一段的【同一發】就把這三行寫進來, 不留到「等一下補」。
+      bankOrderStatus === 'failed' ||
+      bankOrderStatus === 'skipped_bad_cutoff' ||
+      (bankOrderCounts?.bnkErrors ?? 0) > 0
     ) {
       console.error('[email-sweep] 🔴 本輪有失敗(回 503;不吞成 200 偽裝成功)', {
         ...counts,
         ...enqueueSection,
         ...shippedSection,
         ...trackFixSection,
+        ...bankOrderSection,
         ...cancelledSection,
       });
       // 🔴 慢輪要在【兩條】回傳路徑都問一次 —— 一輪可以又慢又有錯, 而那時最需要這一行。

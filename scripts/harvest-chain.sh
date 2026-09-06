@@ -201,7 +201,17 @@ cd "$ROOT" || exit 2
 WORK=$(mktemp -d) || exit 2   # 🔵 log 落 mktemp, 不寫死 scratchpad(session 消失即消失)
 
 GATES=""
-add() { GATES="$GATES $1:$2"; }
+# 🔴 **每一道跑完【立刻】印一行**(2026-09-06 第一次真跑之後補;主視窗指定)——
+#    🔬 那一發從印完 banner 到印逐道 rc **沉默了十幾分鐘**(中間 install + 三綠 + vitest ×2)
+#    ⇒ 📌 **一支跑十幾分鐘而不出聲的工具, 與一支卡住的工具長得一樣。**
+#    ⚠️ **它只印, 不參與判定** —— 判定仍然是收尾那一次逐項 AND
+#      (前身的病就是**拿自己印的東西當資料來源**, 不要在這裡把它請回來)。
+_T0=$(date +%s)
+add() {
+  local now el; now=$(date +%s); el=$((now - _T0)); _T0=$now
+  GATES="$GATES $1:$2"
+  printf '   · %-9s rc=%-3s %ss\n' "$1" "$2" "$el"
+}
 say() { echo "$*"; }
 
 # 🔴🔴 **釘住 HEAD**(codex R1 must-fix):原本只把它【印出來】而沒有釘。

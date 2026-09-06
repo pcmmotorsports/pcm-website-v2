@@ -27,6 +27,7 @@ import type {
   EnqueueOrderCreatedEmailsDeps,
   EnqueueOrderUnpaidCancelledEmailsDeps,
   EnqueueOrderCancelledEmailsDeps,
+  EnqueueBankOrderCreatedEmailsDeps,
   EnqueueTrackingCorrectedEmailsDeps,
   EnqueueOrderShippedEmailsDeps,
   SweepEmailOutboxDeps,
@@ -38,6 +39,8 @@ import {
   SupabasePaidOrderScannerAdapter,
   SupabaseUnpaidCancelledOrderScannerAdapter,
   SupabaseCancelledOrderScannerAdapter,
+  SupabaseBankOrderCreatedScannerAdapter,
+  SupabaseBankOrderMailableCheckAdapter,
   SupabaseIneligibleOrderEmailScannerAdapter,
   SupabaseShippedEmailContextAdapter,
   SupabaseShippedOrderScannerAdapter,
@@ -159,7 +162,15 @@ export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
   //    是上一次出事之後**刻意裝的煞車** —— 它會因為這一行而紅。
   //    ⇒ **翻它是有意的, 不是「測試壞了順手改」。** 理由同上三格。
   const paidContext = new SupabasePaidEmailContextAdapter(serviceClient);
-  return { outbox, sender, shippedContext, ineligibleScanner, paidContext };
+  // 🔴🔴 **⟦b4-BANKNOEMAIL⟧ 寄送前重驗(2026-09-06)—— 這一行接上去會【開始擋東西】。**
+  //    共用同一個 serviceClient(見上方那條「不要再開一條連線」的註解)。
+  //    🛑 **它與 `paidContext` 那一行性質相反**:那一行「不給」代表**還沒接線**(照寄純文字),
+  //       而這一支「不給」⇒ `sweep-email-outbox.ts` 對 `bank_order_created` **不寄、計 error**
+  //       —— 📌 **因為「沒有人在守那道錢的閘」時照寄, 等於在沒有防線的情況下叫客人匯錢。**
+  //    🔵 它讀 `pcm_bank_order_still_mailable`(僅 service_role);只 select `order_id`,
+  //       **不碰那支 view 的兩個 email 欄** ⇒ 這條路上零 PII。
+  const bankOrderMailable = new SupabaseBankOrderMailableCheckAdapter(serviceClient);
+  return { outbox, sender, shippedContext, ineligibleScanner, paidContext, bankOrderMailable };
 }
 
 /**
@@ -240,6 +251,24 @@ export function getEnqueueOrderCancelledDeps(): EnqueueOrderCancelledEmailsDeps 
       isSyntheticEmail: isSyntheticEmailDomain,
     }),
     scanner: new SupabaseCancelledOrderScannerAdapter(createSupabaseServiceClient()),
+  };
+}
+
+/**
+ * ⟦b4-BANKNOEMAIL⟧ 匯款單成立信 —— 掃描端 deps(2026-09-06;Sean 核可文案後動碼)。
+ *
+ * 🔴 **刻意不共用 `getSweepEmailOutboxDeps()`** —— 與另外四支同一個理由:
+ *    那支帶 Resend sender, 而**排信這一步不該碰得到寄送管道**。
+ * 🛑 **它與上面那四支【不是同一族的變體】** —— 那四支講的是「已經發生了什麼」,
+ *    這一支講的是「**請你去做一件事、而且有期限**」⇒ 它會印公司帳號。
+ *    ⇒ 📌 射程與那三條錢的述詞住在 `pcm_bank_order_created_email_pending` 的 COMMENT 裡, 這裡不重寫。
+ */
+export function getEnqueueBankOrderCreatedDeps(): EnqueueBankOrderCreatedEmailsDeps {
+  return {
+    outbox: new SupabaseEmailOutboxAdapter(createSupabaseServiceClient(), {
+      isSyntheticEmail: isSyntheticEmailDomain,
+    }),
+    scanner: new SupabaseBankOrderCreatedScannerAdapter(createSupabaseServiceClient()),
   };
 }
 

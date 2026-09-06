@@ -67,6 +67,20 @@
 #        解析 `SOME_FN = 'fn'`,而**解析不到就擋**。詳見下方比對段的行內註解。
 #   · 窗口只開到 `.rpc(` 之後**兩行** —— 函式名在第三行以後的呼叫,抓不到。
 #   · `supabase/functions/**` 不在分母裡(本閘只掃 `apps/**` 與 `packages/**`)。
+#   · 🔴🔴 **函式清單是從【被推的那棵樹裡】還沒 apply 的 migration 抽出來的**
+#     ⛔ ~~⇒ migration 若還在別條線的分支上, 這道閘看不見它 ⇒ 呼叫端先併就不會被擋。~~
+#     🔴 **2026-09-06 10:0x 訂正(db 線造了一發推翻它, front 開檔複核)**:
+#       `pending_versions()`(本檔 `:179`)用的是 `git ls-tree --name-only "$rev" supabase/migrations/`
+#       ⇒ **那是被推那棵樹的【全部】migration, 不是這一批的 diff**
+#       ⇒ 📌 **上一批推進 dev 而還沒 apply 的, 下一批照樣擋。**
+#       (db 實演:37 只推 migration ⇒ 放行;38 只推 app ⇒ rc=1 點名函式。)
+#     ✅ **正確的句子**:**閘看不見【只活在別條線分支上】的 migration;
+#        進了被推的樹就看得見, 不論哪一批。**
+#     🔬 front 線 `-f3` 2026-09-06 09:3x 實測(兩個對照, 可重跑):
+#       負(實況)`.rpc('get_vehicle_taxonomy')` + migration 不在本樹 ⇒ `0 blocked / 22 pending`
+#       正(對照)同一行改成 `.rpc('create_order')`(在 pending 清單裡)⇒ `rc=1`, 指名該檔「呼叫窗口」
+#       ⇒ 📌 **閘認得那個形狀;它缺的是【那支 migration 在不在同一個分支】。**
+#     ✅ ⇒ **合併順序要讓 migration 先進(或同一批進)**, 不要讓呼叫端單獨先進。
 #   · 「整串字面」那條只認**單引號 / 雙引號**;反引號樣板字串 `` `fn` `` 不算。
 #
 # ── 🔴 寫這道閘(或任何用 grep 當量具的閘)之前必讀的一個坑 ─────────────
@@ -130,6 +144,30 @@ summary() {  # $1 = 結論標籤
     echo "gate: 未檢查任何 ref(這次推的不是 refs/heads/dev 或 refs/heads/main)" >&2
   else
     echo "gate: $1 blocked / $PENDING_N pending(檢查了 $REF_N 個 ref)" >&2
+    # ══ 🔴🔴 `0 pending` 有兩個世界, 而它們在這一行上【印同一句話】(⟦db-DOGBLINDBRANCH⟧)══
+    #
+    # 🔬 **三個世界並排**(2026-09-06 線 -db 在拋棄式 repo 造的, 可重跑):
+    #      ① migration 在被推的樹裡 + app 同批   ⇒ gate: 1 blocked / 1 pending  ✅ 擋
+    #      ② migration 是【上一批】推的 + app 這批 ⇒ gate: 1 blocked / 1 pending  ✅ 擋
+    #      ③ migration **只活在別條 agent 分支上** ⇒ gate: 0 blocked / **0 pending**  🔴 放行
+    #         而【真的乾淨】那個世界              ⇒ gate: 0 blocked / **0 pending**  ← 一模一樣
+    #
+    # 🎯 **「我沒看到那支 migration」與「沒有待貼的 migration」是同一句。**
+    #    成因在 `pending_versions`:它取的是 `git ls-tree "$rev" supabase/migrations/`
+    #    ⇒ **被推的那棵樹**的全部 migration。別條線分支上的東西不在那棵樹裡 ⇒ 它看不到。
+    # 🛑 而 ③ 放行的正是本閘存在的理由:app 呼叫一個線上不存在的函式
+    #    ⇒ PGRST202(2026-08-07 A9h:壞約 8 小時)。
+    #
+    # ✅ **本次的修法只有【多印一句】, rc 一格不動**(`-f8` 2026-09-06 裁甲修法 1)——
+    #    它不會讓 ③ 變成擋, 它讓讀的人**分得出自己在哪一個世界**。
+    # 🔵 掃 `agent/line-*` 分支把差集列出來當警告 = 修法 2, **另開子列, 本次不做**
+    #    (代價:要讀別人的分支, 而那些分支隨時在動)。
+    # 📌 同一條紀律的前一格就在上面:`REF_N = 0` 時本閘早就不肯印「0 blocked」了。
+    if [ "$PENDING_N" = "0" ]; then
+      echo "gate: ⚠️ 0 pending 的意思是【我在**這棵樹**上沒看到待貼的 migration】——" >&2
+      echo "gate:    **別條 agent 分支上的 migration 我看不到**, 那不是「沒有」, 是我沒去看。" >&2
+      echo "gate:    ⇒ 別人那條線正在做的 DB 改動, 這一行證不了任何事。(⟦db-DOGBLINDBRANCH⟧)" >&2
+    fi
   fi
 }
 

@@ -67,6 +67,9 @@ import {
   trackingCorrectedSubject,
   orderCancelledSubject,
   orderUnpaidCancelledSubject,
+  bankOrderCreatedSubject,
+  bankOrderCreatedDedupKey,
+  buildBankOrderCreatedPayload,
 } from './order-email-assembly';
 
 /** PostgREST unique_violation(需再查核同事件才可回 duplicate,見 enqueue)。 */
@@ -238,11 +241,38 @@ function composeEvent(input: EnqueueEmailInput): {
     | OrderShippedEmailPayload
     | ShipmentTrackingCorrectedEmailPayload
     | ReturnType<typeof buildOrderCancelledPayload>
-    | ReturnType<typeof buildOrderUnpaidCancelledPayload>;
+    | ReturnType<typeof buildOrderUnpaidCancelledPayload>
+    | ReturnType<typeof buildBankOrderCreatedPayload>;
   subject: string;
   dedupKey: string;
 } {
   switch (input.eventType) {
+    case 'bank_order_created': {
+      // 🔴 ⟦b4-BANKNOEMAIL⟧:一單一封 ⇒ dedup_key = orderId。
+      //    🛑 **與 order_created 同一個 key 值, 而【不同 event_type】** ——
+      //    唯一鍵是 (event_type, dedup_key) ⇒ 兩封各自有自己的一封, 不會互相擋掉。
+      //    📌 那正是本片開新 event_type 而不是共用 order_created 的理由。
+      const payload = buildBankOrderCreatedPayload({
+        displayId: input.displayId,
+        createdAt: input.createdAt,
+        total: input.total,
+        balanceDue: input.balanceDue,
+      });
+      return {
+        payload,
+        subject: bankOrderCreatedSubject(payload.display_id),
+        // 🔴 **不是單純的 orderId**(codex R1-#4 / 45f):快照過期被標終態之後,
+        //    45f 讓那張單重新進得了掃描面 —— 而 `UNIQUE (event_type, dedup_key)`
+        //    會讓第二次 INSERT 撞唯一鍵 ⇒ 📌 **那張單永遠停在那裡。**
+        //    ⇒ 指紋涵蓋【會讓那封信變得不一樣】的三個值, 與寄送前重驗比對的那三個**同一組**。
+        dedupKey: bankOrderCreatedDedupKey({
+          orderId: input.orderId,
+          total: input.total,
+          balanceDue: input.balanceDue,
+          recipientEmail: input.recipientEmail,
+        }),
+      };
+    }
     case 'order_created': {
       const payload = buildOrderCreatedPayload({ displayId: input.displayId, paidAt: input.paidAt });
       // migration §①:order_created 一單一封 ⇒ dedup_key = orderId。
@@ -556,7 +586,12 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
   }
 
   /**
-   * 🔴🔴🔴 **部署順序:`20260905200000` 必須【先】貼進正式庫, 這支碼才能上線。**(codex R1 must-fix 1)
+   * 🔴🔴🔴 **部署順序:`20260905200000` 【與】 `20260906200000` 兩支都必須先貼進正式庫,
+   *    這支碼才能上線。**(codex R1 must-fix 1;`20260906200000` 由 codex R1-#10 補上)
+   * 🛑 **原本這裡只寫了前者** —— 而 ⟦b4-NOSENTBODY⟧ 之後這一發 update 多寫一個
+   *    `provider_message_id`(45g 那一欄)⇒ **少貼 45g 的症狀與少貼 45e 一模一樣**:
+   *    同一個 `PGRST204`、同一發 update 整發不落表。📌 **一個只列了一半的前置清單,
+   *    在缺另一半的時候會印出「照著做了」。**
    *
    * 欄位不存在時 PostgREST 回 **`PGRST204`** ⇒ **整發 update 不落表** ⇒ 連 `sent_at` 都寫不下
    * ⇒ 那一列留在 `sending` ⇒ **每一封寄成功的信都標不成 sent**。
@@ -575,6 +610,7 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     id: string,
     claimedAttempts: number,
     sentTrackingNumber: string | null,
+    providerMessageId: string | null,
   ): Promise<boolean> {
     return this.leaveSending(id, claimedAttempts, {
       status: 'sent',
@@ -593,6 +629,12 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
       //      ⇒ **多寄一封更正信給號碼本來就正確的客人**(codex 2026-09-05 R2 抓到)。
       //    ⇒ 📌 **「什麼時候進 DB」與「誰寫的」是兩個問題, 不能共用一欄。**
       sent_tracking_recorded: true,
+      // 🔴 ⟦b4-NOSENTBODY⟧(2026-09-06, Sean 拍乙「只存 id、不留全文」):
+      //    與 `sent_at` **同一發 update** —— 分兩發會有一個窗:寄過了而 id 還沒落表,
+      //    而那個窗裡的列與「舊 writer 寫的」長得一樣(上面那一格記過同族的病)。
+      //    🛑 `null` 的意思是**我們沒拿到**(provider 沒回 / 超過大小上限 / 型別不是 string),
+      //    **不是**「provider 沒給」—— 三者在這一欄上分不出來, 而那寫在 port 上。
+      provider_message_id: providerMessageId,
     });
   }
 
@@ -631,6 +673,28 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     return this.leaveSending(id, claimedAttempts, {
       status: 'skipped_order_ineligible',
       last_error_code: 'order_ineligible_at_send',
+    });
+  }
+
+  /**
+   * ⟦b4-BANKNOEMAIL⟧:寄送當下這張單已經不該收到匯款成立信 ⇒ 跳過。
+   * 🔵 `status` 借 `skipped_order_ineligible` 這個桶(形同上面兩支), **真相在 `last_error_code`**
+   *    —— 它沒有值域白名單, 只有格式 CHECK(`^[a-z0-9_]{1,64}$`)。
+   * 🔴 **自己一個碼** —— 沿用 `order_ineligible` 會讓上游那道閘變成看不見的
+   *    (主視窗 2026-08-24 對同族那一裁的理由), 而這一格要答得出「**寄送當下才擋下幾封**」。
+   */
+  async markSkippedBankOrderNotMailable(id: string, claimedAttempts: number): Promise<boolean> {
+    return this.leaveSending(id, claimedAttempts, {
+      status: 'skipped_order_ineligible',
+      last_error_code: 'bank_order_not_mailable_at_send',
+    });
+  }
+
+  /** ⟦b4-BANKNOEMAIL⟧:寄送當下快照與現況不一致 ⇒ 跳過。**自己一個碼**, 理由見 port。 */
+  async markSkippedBankOrderSnapshotStale(id: string, claimedAttempts: number): Promise<boolean> {
+    return this.leaveSending(id, claimedAttempts, {
+      status: 'skipped_order_ineligible',
+      last_error_code: 'bank_order_snapshot_stale',
     });
   }
 
@@ -803,11 +867,40 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     //    2026-09-02 由四變五:加了 markSkippedOrderCancelled —— codex R2 nit 抓到這個數字舊了)寫的
     //    `status` / `sent_at` / `last_error_code` / `next_retry_at` **打錯完全不紅**
     //    (實測 `sent_at_TYPO` tsc 0 error)。改用生成型別的 Update 形狀 ⇒ 欄名這一層才真的有人守。
-    values: Database['public']['Tables']['email_outbox']['Update'],
+    //
+    // 🔴🔴 **⟦b4-NOSENTBODY⟧(2026-09-06):那個交集型別是【暫時的】, 而它要被拿掉。**
+    //    `provider_message_id` 由 `20260906200000`(貼板 45g)新增, 而**產生型 `Database` 是從
+    //    正式庫產的** ⇒ 45g 貼之前它不在裡面 ⇒ 直接寫會 `TS2353`。
+    //    ⛔ **不用 `as never` / `Record<string, unknown>` 繞過** —— 那會把上面那道
+    //      「欄名打錯要紅」整個關掉, 而那正是它當初存在的理由。
+    //    ✅ 改成**只把那一個已知的新欄加進來** ⇒ 其餘每一個欄名照舊被守著。
+    //    🛑 **拿掉的條件寫死在這裡**:45g 貼完 + 重新產型別之後, **把 `& { … }` 那一段刪掉**;
+    //      刪不掉(還是紅)⇒ 代表型別沒重產, 那才是要查的事。
+    values: Database['public']['Tables']['email_outbox']['Update'] & {
+      provider_message_id?: string | null;
+    },
   ): Promise<boolean> {
+    // 🔴🔴 **先讓最終物件過一次型別, 再在【最末端】cast**(codex R1-#9)——
+    //    ⛔ ~~`.update({ ...values, claimed_at: null } as never)`~~
+    //    🛑 那個寫法把**整個最終 payload** 的檢查關掉 ⇒ 這裡硬寫的 `claimed_at` 打成
+    //      `claimed_att` **不會型別紅**, 而 PostgREST 會拒整發標記(= 那一列留在 sending)。
+    //    ✅ `satisfies` 讓最終物件仍然被那個(生成型別 + 一個已知新欄)守著;
+    //      `as never` 只用在**交給 client 的那一刻**, 它關掉的是 client 對「多餘屬性」的拒絕。
+    //    🛑 **拿掉的條件同上**:45g 貼完 + 重新產型別 ⇒ 把 `& { … }` 與 `as never` 一起刪。
+    const patch = { ...values, claimed_at: null } satisfies Database['public']['Tables']['email_outbox']['Update'] & {
+      provider_message_id?: string | null;
+    };
     const { data, error } = await this.client
       .from('email_outbox')
-      .update({ ...values, claimed_at: null })
+      // 🔴🔴 **這個 cast 是【暫時的】, 而它比看起來窄** —— ⟦b4-NOSENTBODY⟧ 2026-09-06:
+      //    產生型 `Database` 是從**正式庫**產的 ⇒ 45g(`20260906200000`)貼之前
+      //    `provider_message_id` 不在它裡面, 而 client 的 `update()` **拒絕多餘屬性**。
+      // 🔵 **它關掉的只有【client 這一次呼叫】的檢查, 不是欄名保護**:
+      //    `values` 的型別在**函式簽章那一層**仍然是生成型別(+ 那一個已知新欄)
+      //    ⇒ 📌 **五個 mark* 出口打錯欄名照樣紅** —— 那正是那道守門當初存在的理由, 它還在。
+      // 🛑 **拿掉的條件**:45g 貼完 + 重新產型別 ⇒ **把 `as never` 刪掉**;
+      //    刪了還紅 ⇒ 型別沒重產, 那才是要查的事。
+      .update(patch as never)
       .eq('id', id)
       .eq('status', 'sending')
       .eq('attempts', claimedAttempts)

@@ -33,7 +33,7 @@ describe('ResendEmailSenderAdapter.send(Resend emails)', () => {
   it('POST Resend endpoint、Bearer key、🔴 Idempotency-Key 由座標組字面、body 含 from/to/subject/text', async () => {
     const f = vi.fn(async () => ({ ok: true, status: 200 }));
     const result = await send(f);
-    expect(result).toEqual({ kind: 'sent' });
+    expect(result).toEqual({ kind: 'sent', providerMessageId: null });
     const [url, init] = f.mock.calls[0] as unknown as [string, { method: string; headers: Record<string, string>; body: string }];
     expect(url).toBe('https://api.resend.com/emails');
     expect(init.method).toBe('POST');
@@ -312,7 +312,7 @@ describe('ResendEmailSenderAdapter — 附件送得出去', () => {
   it('給附件 ⇒ body 含 attachments,filename 與 content 逐欄相符', async () => {
     const f = vi.fn(async () => ({ ok: true, status: 200 }));
     const r = await sendWith(f, { attachments: [PDF] });
-    expect(r).toEqual({ kind: 'sent' });
+    expect(r).toEqual({ kind: 'sent', providerMessageId: null });
     expect(sentBody(f).attachments).toEqual([
       { filename: PDF.filename, content: PDF.contentBase64 },
     ]);
@@ -379,7 +379,7 @@ describe('ResendEmailSenderAdapter — 🔴🔴 附件超量:擋在送出去【�
         { filename: 'edge.pdf', contentBase64: 'A'.repeat(RESEND_MAX_ATTACHMENTS_BASE64_BYTES) },
       ],
     });
-    expect(r).toEqual({ kind: 'sent' });
+    expect(r).toEqual({ kind: 'sent', providerMessageId: null });
     expect(f).toHaveBeenCalledTimes(1);
   });
 
@@ -457,7 +457,7 @@ describe('#876 cf 審查 —— 🔴 常數的【名字】要與 adapter 真正�
   it('🟢 邊界正對照:剛好等於上限(ASCII)⇒ 照送,不 throw', async () => {
     const f = vi.fn(async () => ({ ok: true, status: 200 }));
     const exact = { filename: 'x.pdf', contentBase64: 'A'.repeat(RESEND_MAX_ATTACHMENTS_BASE64_BYTES) };
-    await expect(sendWith(f, { attachments: [exact] })).resolves.toEqual({ kind: 'sent' });
+    await expect(sendWith(f, { attachments: [exact] })).resolves.toEqual({ kind: 'sent', providerMessageId: null });
   });
 });
 
@@ -514,7 +514,7 @@ describe('#876 codex R2 —— 🔴 畸形輸入不得被猜成附件', () => {
 
   it('🟢 負對照:合法的附件不可以被這道檢查誤擋', async () => {
     const f = vi.fn(async () => ({ ok: true, status: 200 }));
-    await expect(sendWith(f, { attachments: [PDF] })).resolves.toEqual({ kind: 'sent' });
+    await expect(sendWith(f, { attachments: [PDF] })).resolves.toEqual({ kind: 'sent', providerMessageId: null });
   });
 });
 
@@ -633,5 +633,263 @@ describe('ResendEmailSenderAdapter.send —— html 選填欄(片1)', () => {
     await sendWith(f, { html: '<b>乾淨</b>' });
     expect(Object.prototype.hasOwnProperty.call(sentBody(f), 'html')).toBe(true);
     expect(sentBody(f).html).toBe('<b>乾淨</b>');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// ⟦b4-NOSENTBODY⟧ 成功路徑讀 provider 訊息 id —— §窄幅破例的第二個入口
+// ══════════════════════════════════════════════════════════════════
+// 🔴 **四條約束各一格 + 兩個對照**:少了對照, 一個「永遠回 null」的實作每一格都綠。
+describe('成功回應的 provider 訊息 id', () => {
+  // 🔴🔴 **本組已隨設計改寫**(opus R2 · MF1 + C1;主視窗 2026-09-06 裁「用設計讓它消失」)——
+  //    ⛔ ~~替身餵 `content-length` 標頭 + `text()`~~ **整組作廢**:碼不再看任何宣告。
+  //    ✅ 現在餵的是一條**可以逐塊讀的 body**, 而測試量的是「它讀了幾塊、有沒有 cancel」。
+  //    📌 **舊的那幾格(缺標頭 / Infinity / 宣告超標 ⇒ 不叫 text())連【題目】都不存在了** ——
+  //      它們問的是「你怎麼採信那個宣告」, 而現在沒有宣告可採信。
+  const OK_BODY = JSON.stringify({ id: 'resend-abc-123' });
+
+  /** 把一段字串做成一條**分塊**的 body 替身, 並把「讀了幾塊 / cancel 了沒」量出來。 */
+  const streamOf = (raw: string, chunkSize = 512) => {
+    const bytes = new TextEncoder().encode(raw);
+    const stats = { reads: 0, cancelled: 0, consumed: 0 };
+    return {
+      stats,
+      body: {
+        getReader: () => ({
+          read: async () => {
+            stats.reads += 1;
+            if (stats.consumed >= bytes.length) return { done: true };
+            const value = bytes.slice(stats.consumed, stats.consumed + chunkSize);
+            stats.consumed += value.byteLength;
+            return { done: false, value };
+          },
+          cancel: async () => {
+            stats.cancelled += 1;
+          },
+        }),
+      },
+    };
+  };
+
+  const okRes = (over: Record<string, unknown> = {}) => ({
+    ok: true,
+    status: 200,
+    // 🛑 **替身【故意不帶 headers】** —— 那本身就是一格斷言:
+    //    判準若還偷看 `content-length`, 正對照當場變 null。
+    body: streamOf(OK_BODY).body,
+    ...over,
+  });
+
+  const sendWith = async (res: unknown) =>
+    new ResendEmailSenderAdapter({ apiKey: KEY, from: FROM }, (async () => res) as never).send(INPUT);
+
+  it('🟢 正對照:正常成功回應 ⇒ 拿到那個 id(沒有它, 下面每個 null 都證不到事)', async () => {
+    expect(await sendWith(okRes())).toEqual({ kind: 'sent', providerMessageId: 'resend-abc-123' });
+  });
+
+  it('🟢🔴 **判準不再依賴宣告**:回應【完全沒有 headers】也照樣拿得到 id(opus R2-C1)', async () => {
+    // 🔴 這一格是 C1 的直接反證:HTTP/2 與 chunked 合法地不帶 content-length,
+    //    而舊設計在那個世界【每一列都是 null 且零訊號】—— 與「一切正常」在儀表上同形。
+    const r = await sendWith({ ok: true, status: 200, body: streamOf(OK_BODY).body });
+    expect(r).toEqual({ kind: 'sent', providerMessageId: 'resend-abc-123' });
+  });
+
+  it('🔴 id 不是 string ⇒ null, 而【仍然是 sent】(信真的寄出去了)', async () => {
+    const r = await sendWith(okRes({ body: streamOf(JSON.stringify({ id: 12345 })).body }));
+    expect(r).toEqual({ kind: 'sent', providerMessageId: null });
+  });
+
+  it('🔴 body 不是 JSON ⇒ null, 仍然 sent', async () => {
+    expect(await sendWith(okRes({ body: streamOf('not json').body }))).toEqual({
+      kind: 'sent',
+      providerMessageId: null,
+    });
+  });
+
+  it('🔴🔴 超標的 body:【讀到上限就放棄】—— 沒讀完、有 cancel、而且沒有 parse', async () => {
+    // 🔬 `{"id":"中".repeat(1500)}` ⇒ 字元 1509 而 **位元組 4509** ⇒ 超過 4096 上限。
+    //    🔴 **這一格取代舊的「宣告騙人 ⇒ 第二道擋下」** —— 那時是先讀完整份再量;
+    //      現在是**邊讀邊數**, 所以多了兩個舊測試量不到的讀數:
+    //      ① 它有沒有讀完整份 ② 它有沒有把連線收掉。
+    const huge = JSON.stringify({ id: '中'.repeat(1500) });
+    const src = streamOf(huge);
+    // 🔵 這一格量的是**邊界**(剛好超過);「有沒有提早停」由下一格量 ——
+    //    ⚠️ **兩件事要分兩格量**:這份 body 只超標 413 bytes, 讀到超標的那一塊時它本來就讀完了
+    //    ⇒ 在這一格斷言「沒讀完」會**因為 body 太小而必紅**, 那不是碼的問題。
+    //    📌 我第一版把兩個宣稱寫在同一格 ⇒ 期望 `4509 < 4509` ⇒ 它當場告訴我這格量不到那件事。
+    const parseSpy = vi.spyOn(JSON, 'parse');
+    try {
+      const r = await sendWith(okRes({ body: src.body }));
+      expect(r).toEqual({ kind: 'sent', providerMessageId: null });
+      expect(parseSpy, '🔴 超標的 body 不可以被 JSON.parse 碰到').not.toHaveBeenCalled();
+      expect(src.stats.cancelled, '🔴 提早放棄要把連線收掉').toBe(1);
+    } finally {
+      parseSpy.mockRestore();
+    }
+  });
+
+  it('🔴🔴 body 遠遠超標 ⇒ 【讀到上限就停】, 沒有把整份讀完(這才是「有上界」那句話的本體)', async () => {
+    // 🔬 60,000 bytes 的 body ⇒ 上限 4096、每塊 512 ⇒ 最多讀到 4608 就該放棄。
+    //    🔴 一個「先讀完再量」的實作在這一格會把 60,000 全部讀進來 ⇒ 紅。
+    //    📌 而舊設計在【標頭說謊說很小】的世界正是那樣 —— **無上界**。
+    const monster = JSON.stringify({ id: '中'.repeat(20000) });
+    const src = streamOf(monster);
+    const total = new TextEncoder().encode(monster).byteLength;
+    const r = await sendWith(okRes({ body: src.body }));
+    expect(r).toEqual({ kind: 'sent', providerMessageId: null });
+    expect(src.stats.consumed, '🔴 不可以把整份讀完').toBeLessThan(total);
+    expect(src.stats.consumed, '🔴 上界 = 上限 4096 + 最後一塊 512').toBeLessThanOrEqual(4096 + 512);
+    expect(src.stats.cancelled).toBe(1);
+  });
+
+  it('🔴 原型污染:Object.prototype.id 不得被當成 provider id(codex R1-#4)', async () => {
+    const proto = Object.prototype as unknown as { id?: unknown };
+    proto.id = 'not-a-provider-id';
+    try {
+      const r = await sendWith(okRes({ body: streamOf('{}').body }));
+      expect(r).toEqual({ kind: 'sent', providerMessageId: null });
+    } finally {
+      delete proto.id;
+    }
+  });
+
+  it('🔴 格式白名單:id 是一個信箱 / 含空白的字串 ⇒ 不落庫(codex R1-#5)', async () => {
+    for (const bad of ['leak@example.com', 'a b', '中文', 'x'.repeat(65), '']) {
+      const r = await sendWith(okRes({ body: streamOf(JSON.stringify({ id: bad })).body }));
+      expect(r, `🔴 [${bad.slice(0, 12)}] 不該被當成 provider id`).toEqual({
+        kind: 'sent',
+        providerMessageId: null,
+      });
+    }
+  });
+
+  it('🟢 正對照:合法形狀的 id ⇒ 落庫(否則上面那幾格的 null 證不到事)', async () => {
+    const body = JSON.stringify({ id: '49a3999c-0ce1-4ea6-ab68-afcd6dc2e794' });
+    const r = await sendWith(okRes({ body: streamOf(body).body }));
+    expect(r).toEqual({ kind: 'sent', providerMessageId: '49a3999c-0ce1-4ea6-ab68-afcd6dc2e794' });
+  });
+
+  it('🛑 其餘欄位【一個都不讀】—— 回應多帶東西也只拿 id', async () => {
+    const multi = JSON.stringify({ id: 'ok-1', to: 'leak@example.com', html: '<b>x</b>' });
+    const r = await sendWith(okRes({ body: streamOf(multi).body }));
+    // 🔴 結果物件裡不可以出現那兩個值 —— 用整串 JSON 找, 不靠列舉欄名。
+    expect(JSON.stringify(r)).not.toContain('leak@example.com');
+    expect(JSON.stringify(r)).not.toContain('<b>x</b>');
+    expect(r).toEqual({ kind: 'sent', providerMessageId: 'ok-1' });
+  });
+
+  it('🔵 沒有 body 的替身 ⇒ null 而不是 throw(拿不到 id 不可以讓已寄出的信變失敗)', async () => {
+    expect(await sendWith({ ok: true, status: 200 })).toEqual({ kind: 'sent', providerMessageId: null });
+  });
+
+  it('🔵 body 在, 而 getReader 不是函式 ⇒ null, 而且【不退回 text()】', async () => {
+    // 🔴 **退回 `text()` 會把剛拆掉的無上界緩衝裝回來, 而且只在某些 runtime 上裝回來。**
+    let textCalled = 0;
+    const r = await sendWith({
+      ok: true,
+      status: 200,
+      body: {},
+      text: async () => {
+        textCalled += 1;
+        return OK_BODY;
+      },
+    });
+    expect(r).toEqual({ kind: 'sent', providerMessageId: null });
+    expect(textCalled, '🔴 不可以有 text() 這條後路').toBe(0);
+  });
+
+  it('🔵 讀到一半 throw ⇒ null 而不是 throw(已寄出的信不可以變失敗)', async () => {
+    const r = await sendWith({
+      ok: true,
+      status: 200,
+      body: {
+        getReader: () => ({
+          read: async () => {
+            throw new Error('socket died');
+          },
+          cancel: async () => undefined,
+        }),
+      },
+    });
+    expect(r).toEqual({ kind: 'sent', providerMessageId: null });
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// ⟦mail-FETCHTIMEOUT⟧ 送出的 fetch 有逾時上界(opus R2 · C2;主視窗 2026-09-06 裁三題)
+// ══════════════════════════════════════════════════════════════════
+describe('送出的 fetch 有逾時上界', () => {
+  it('🔴 每一發都帶 signal, 而它是【真的】AbortSignal(拿掉那一行 ⇒ undefined ⇒ 紅)', async () => {
+    const seen: unknown[] = [];
+    const f = async (_u: string, init: { signal?: unknown }) => {
+      seen.push(init.signal);
+      return { ok: true, status: 200 };
+    };
+    await sendWith(f);
+    expect(seen).toHaveLength(1);
+    expect(seen[0], '🔴 沒有 signal ⇒ 這個 await 沒有上界').toBeInstanceOf(AbortSignal);
+    expect((seen[0] as AbortSignal).aborted, '🟢 才剛送出, 還沒到期').toBe(false);
+  });
+
+  it('🔴🔴 ② header 已回來、讀 body 時才到期 ⇒ 【sent / id=null】, 不是 failed(codex R1 #4)', async () => {
+    // 🔴 **這一格是本組最重要的一格, 而我原本【沒有】它** —— 我當時寫「逾時 ⇒ network_error」,
+    //    而那句只對①(header 都還沒回來)。②這條路 fetch 的 promise **已經 resolve 了**,
+    //    abort 只打在 body 的 stream 上 ⇒ `readSentId` 收成 null ⇒ 結果是 `sent`。
+    // ✅ 而②標 `sent` 是**對的**:200 回來了 = provider 收下了那封信。
+    //    📌 兩條路都不會讓那一列卡在 `sending` —— 那才是這個 signal 買到的東西。
+    const r = await sendWith(async () => ({
+      ok: true,
+      status: 200,
+      body: {
+        getReader: () => ({
+          read: async () => {
+            throw new DOMException('The operation was aborted', 'AbortError');
+          },
+          cancel: async () => undefined,
+        }),
+      },
+    }));
+    expect(r).toEqual({ kind: 'sent', providerMessageId: null });
+  });
+
+  it('🔴 ① header 都還沒回來就到期 ⇒ kind failed / errorCode network_error(而【不是】丟例外出去)', async () => {
+    // 🛑 **這一格【模擬】abort 的 rejection, 而不是真的等 10 秒** —— 那個拆法是刻意的:
+    //    ① `AbortSignal.timeout` 用的是 runtime 內部的計時器, **假時鐘推不動它**;
+    //    ② 而這一格要問的是**我們怎麼處理那個 rejection**, 不是「計時器準不準」。
+    //    ⇒ 📌 「signal 有沒有接上」由上一格答, 「接上之後怎麼收」由這一格答 ——
+    //      **兩個宣稱拆兩格, 否則其中一個會借另一個的名字綠。**
+    const f = async () => {
+      throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    };
+    const r = await sendWith(f);
+    expect(r).toEqual({ kind: 'failed', errorCode: 'network_error' });
+  });
+
+  it('🔴 重試不會變成兩封:同一個 outbox 的第二發帶【同一把】冪等鍵', async () => {
+    // 🔴 這一格是「標 failed 可重排」那個裁定的**前提**(主視窗 2026-09-06 `Q-逾時後那一列 = 乙`)——
+    //    📌 前提不成立的話, 那個裁定會讓客人收到兩封。
+    const keys: unknown[] = [];
+    const f = async (_u: string, init: { headers: Record<string, string> }) => {
+      keys.push(init.headers['Idempotency-Key']);
+      return { ok: true, status: 200 };
+    };
+    await sendWith(f);
+    await sendWith(f);
+    // 🔴 期望值**從 INPUT 推導**, 不硬寫字面 —— 我第一版硬寫 `order_created/outbox-1`
+    //    而 fixture 的 outboxId 是一個 UUID ⇒ 那一格紅在**我寫錯期望值**, 不是碼。
+    //    📌 一個硬寫的期望值, 綁的是【我以為的 fixture】而不是那個 fixture。
+    expect(keys[0]).toBe(`${INPUT.idempotency.eventType}/${INPUT.idempotency.outboxId}`);
+    expect(keys[1], '🔴 第二發要與第一發【逐字相同】, 否則 Resend 的 24h 去重接不住').toBe(keys[0]);
+    // 🛑 **射程明寫(codex R1 #11 說得對)**:這一格證的是**這個字串是決定性的**,
+    //    它**證不到** DB 回收 / 死信重排 / Resend 那一側真的去重 —— 那三件事各在別的層。
+    //    ⚠️ 而已知的缺口是:`attempts` 燒完進死信後**人手重排若超過 24 小時**,
+    //      去重窗已過期 ⇒ **客人會收到第二封**(見 adapter 那段註解)。
+  });
+
+  it('🟢 正對照:`AbortSignal.timeout` 在這個 runtime 上真的存在(plan 裡標「未量」的那一項)', () => {
+    expect(typeof AbortSignal.timeout).toBe('function');
+    const s = AbortSignal.timeout(10_000);
+    expect(s).toBeInstanceOf(AbortSignal);
+    expect(s.aborted).toBe(false);
   });
 });
