@@ -53,6 +53,17 @@
 \endif
 
 BEGIN;
+-- 🔴🔴 **鎖超時 —— 而這一支是 code-reviewer 2026-09-06 從我漏掉的那一族撈出來的**(板列 ⟦b4-LOCK1⟧)
+--   ⛔ ~~我原本判「`DROP TRIGGER` 是物件級, 拿的不是那張表的 ACCESS EXCLUSIVE」~~ ⇒ **那是錯的**。
+--   🔬 reviewer 對 PG 17.10 實測(`pg_locks` join `pg_class`, 同一 backend):
+--     `DROP TRIGGER` ⇒ **那張表的 AccessExclusiveLock**;負對照 `SELECT 1;` ⇒ 零 lock 列(尺會動)。
+--   🔴 而下面兩行動的是 `order_items` 與 `orders` —— **全站最忙的兩張表**。
+--     沒有這道超時, 這支在上班時間會變成一個不動的游標(而「很慢」與「卡在鎖上」畫面上是同一件事)。
+--   ⚠️ 撞到 `lock_not_available` **不是這支寫錯** —— 是當下有人握著鎖 ⇒ 等他結束再跑, **不要拿掉這一行**。
+SET LOCAL lock_timeout = '5s';
+-- 🔵 拿到鎖之後還要有上界 —— `lock_timeout` 只管【等鎖】那一段。
+--    `DROP TRIGGER` 本身不掃資料 ⇒ 這一行今天不會砍到它;它是為「哪天有人在這支裡加了會掃表的語句」而放。
+SET LOCAL statement_timeout = '30s';
 
 -- ① 先退 trigger(它們依賴下面那支函式)
 DROP TRIGGER IF EXISTS pcm_e13_items_subtotal_guard  ON public.order_items;

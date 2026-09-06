@@ -42,14 +42,19 @@ count_file() {
     function trim(s){ sub(/^[ \t]+/,"",s); sub(/[ \t]+$/,"",s); return s }
     /^\| / {
       line=$0
-      n=split(line, f, "|")
+      # 🔴 板上有 138 列用 `\|` 跳脫(那是【正確】的寫法)。awk 沒有 lookbehind ⇒
+      #    先把跳脫的分隔符換成一個不會出現在內容裡的佔位字元, 切完再換回來。
+      #    🛑 少了這一步:切出來的「最後一格」是錯的 —— 2026-09-06 實測 82 列因此少算。
+      esc=line; gsub(/\\\|/, "\001", esc)
+      n=split(esc, f, "|")
+      for (q=1; q<=n; q++) gsub(/\001/, "\\|", f[q])
       state=trim(f[2])
       if (state!="open" && state!="doing" && state!="parked" && state!="done" && state!="standing") {
         if (state!="態") notclosed++
         next
       }
       rows++
-      if (line ~ /\|[ \t]*$/) { tail_pipe++; last=f[n-1] } else { tail_nopipe++; last=f[n] }
+      if (esc ~ /\|[ \t]*$/) { tail_pipe++; last=f[n-1] } else { tail_nopipe++; last=f[n] }
       last=trim(last)
       hit="none"
       if (index(last, tna)==1)      hit="na"
@@ -97,6 +102,9 @@ selftest() {
     printf '%s\n' '| parked | ⟦x-C⟧ | 丙 | 誰 | ⟨未判(tidy · a)⟩ 關閉條件那支檔沒開 |'
     printf '%s\n' '| done | ⟦x-D⟧ | 丁 | 誰 | ⟨—⟩ 已完成 |'
     printf '%s\n' '| standing | ⟦x-F⟧ | 己 | 誰 | ⟨擋(tidy 判)⟩ 常設而殘餘碰錢 |'
+    # 🔴 跳脫分隔符那一族(2026-09-06 實錘:82 列曾因此被少算)
+    printf '%s\n' '| open | ⟦x-G⟧ | 庚 | 誰 | ⟨擋(tidy 判)⟩ 內文含 `a\\|b\\|c` 而 token 在最後一格 |'
+    printf '%s\n' '| open | ⟦x-H⟧ | 辛 | 誰 | 內文含 `a\\|b\\| ⟨擋(壞)⟩ c` 而 token 卡在跳脫中間 |'
     printf '%s\n' '| 亂寫 | ⟦x-E⟧ | 戊 | 誰 | 態不在封閉集 |'
   } > "$d/a.md"
 
@@ -121,20 +129,21 @@ selftest() {
 
   echo "== 世界 A(token 都填好)=="
   printf '%s\n' "$out_a" | sed 's/^/    /'
-  _need A '^擋 +2$'            "$out_a"
-  _need A '^資料列\(態在封閉集\) +5$' "$out_a"
+  _need A '^擋 +3$'            "$out_a"
+  _need A '^還沒填 token +1$'  "$out_a"    # x-H:token 卡在跳脫中間 ⇒ 不該被數到
+  _need A '^資料列\(態在封閉集\) +7$' "$out_a"
   _need A '^standing 共 +1'    "$out_a"
   _need A '^不擋 +1$'          "$out_a"
   _need A '^未判 +1$'          "$out_a"
   _need A '^—\(done 不適用\) +1$' "$out_a"
-  _need A '^還沒填 token +0$'  "$out_a"
+
   _need A '^態不在封閉集\(未算\) +1$' "$out_a"
   _need A '^行尾沒有 \| +1$'   "$out_a"
 
   echo "== 世界 B(第一列的 ⟨擋⟩ 被拿掉)=="
   printf '%s\n' "$out_b" | sed 's/^/    /'
-  _need B '^擋 +1$'            "$out_b"
-  _need B '^還沒填 token +1$'  "$out_b"
+  _need B '^擋 +2$'            "$out_b"
+  _need B '^還沒填 token +2$'  "$out_b"
 
   echo "== 兩個世界必須印不同的東西 =="
   if [ "$out_a" = "$out_b" ]; then

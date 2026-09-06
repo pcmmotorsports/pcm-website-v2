@@ -84,10 +84,15 @@ test('搜尋「DBK SPECIAL」要撈得到, 而且撈回來的每一張都是那�
   expect(n, `卡片 ${n} 張 > 總數 ${total} ⇒ 兩把尺打架, 兩把都不能用`).toBeLessThanOrEqual(total);
 
   // 🔴 只驗「有幾筆」不夠:一個把所有商品都回來的壞修法也會讓筆數 > 0。
-  //   ⇒ 逐張問**品牌那一格**(`.pcard-brand`, `ProductCard.tsx:261`)——
+  //   ⇒ 逐張問**品牌那一格**(`ProductCard.tsx:281`, 當場 grep `pcard-brand-name` 到的那一行)——
   //   ⛔ ~~量整張卡的 innerText~~ 會連**商品名稱**裡有 DBK 的別家貨一起放過(code-reviewer N-2)。
+  //   🔴🔴 **2026-09-06 訂正:讀 `.pcard-brand-name`, 不是 `.pcard-brand`** ——
+  //     那一格現在**同時裝品牌與料號**(Sean 拍板:料號印在品牌右邊)
+  //     ⇒ 讀父層的話, 一顆**非 DBK** 的商品只要**料號裡含 `DBK`** 就過關,
+  //       而料號嵌品牌代碼是零件目錄很常見的形狀
+  //     ⇒ 📌 那正是本格上一行 `⛔` 警告過的那個洞的**窄版, 被我自己重新打開**。
   for (let i = 0; i < n; i += 1) {
-    const brand = (await cards.nth(i).locator('.pcard-brand').innerText()).trim();
+    const brand = (await cards.nth(i).locator('.pcard-brand-name').innerText()).trim();
     expect(brand, `第 ${i + 1} 張卡的品牌是「${brand}」, 不是 DBK`).toContain('DBK');
   }
 });
