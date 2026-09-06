@@ -57,15 +57,22 @@ trap 'cleanup; exit 143' TERM HUP
 #     📌 **一個把【自己的輸出】當【資料來源】的判準, 會被自己的解釋文字改變結論。**
 #   ⇒ ✅ 每一道閘的 rc 各自存進陣列, 放行 = 逐項 AND;**印什麼都不影響判斷**。
 #
-# $1 = 以空白分隔的「名字:rc」清單   $2 = 第一發摘要   $3 = 第二發摘要
-# 回傳 0 = 可以推 · 3 = 有閘紅 · 4 = 兩發不一致或有紅
+# $1 = 「名字:rc」清單 · $2/$3 = 主段兩發摘要 · $4/$5 = 族段兩發摘要 · $6 = 全套 T · $7 = 這族 F
+# 回傳 0 = 可以推 · 3 = 有閘紅 · 4 = 兩發不一致或有紅 · **5 = 第五數對不上(分母)**
+# 🟡 **第五數 = 兩個【獨立分母】各自對**(主視窗 -f8 2026-09-06 裁 auth-007=A):
+#      主段 Test Files 總數 == `--split-check` 的「全套」
+#      族段 Test Files 總數 == `--split-check` 的「這族」
+#    🔴 **它買到的是【一個不是 vitest 自己數出來的分母】** —— 兩發比對只證重現性:
+#      擋得住「這一次少跑了」, 擋不住「一直少跑」(而 browser 那族正是後者的形狀)。
 # 🔴 **十一道閘的名單寫在這裡, 而 `verdict` 會比對它** ——
 #    codex R1 must-fix:原本只 AND「收到的項目」⇒ 📌 **漏掉一個 `add` 的那一道, 會被當成【不存在】而不是紅燈。**
 #    ⇒ 一個少跑了一道閘的鏈, 與一個全過的鏈, 在判定上同形。
-EXPECT_GATES='fw-live fw-json ledger deploy install nextlink boarddup tc lint build test1 test2'
+# 🟡 **2026-09-06 加三道(⟦ship-BROWSERFAMILY⟧ 接線, 主視窗 -f8 批 auth-006 + 裁 auth-007=A)**:
+#    `splitcheck`(當場拿分母)· `btest1` / `btest2`(族段兩發)。
+EXPECT_GATES='fw-live fw-json ledger deploy install nextlink boarddup tc lint build test1 test2 splitcheck btest1 btest2'
 
 verdict() {
-  local gates="$1" a="$2" b="$3" item name rc got n
+  local gates="$1" a="$2" b="$3" ba="$4" bb="$5" T="$6" F="$7" item name rc got n mt ft
   # 名單完整性:每一道都要出現, 而且只出現一次
   for name in $EXPECT_GATES; do
     n=0
@@ -113,7 +120,45 @@ verdict() {
     echo "     $a"
     return 4
   fi
-  echo "  🟢 每一道閘各自 rc=0 · 兩發逐字相同 · 零 failed ⇒ 推"
+  # ══ 🟡 族段(browser family)—— 與主段【同一套】健全性檢查 ═══════════════
+  #    🔴 不共用一份程式碼就會分家:主段修過的四個坑(不同 / 有 failed / 半份 / 零 passed),
+  #      族段一個都不能少。⇒ 這裡逐項照抄同一組判準, 而受詞換成族段。
+  if [ "$ba" != "$bb" ]; then
+    echo "  🔴 兩發【族段】摘要不同 ⇒ 不推"; echo "     第1發:$ba"; echo "     第2發:$bb"; return 4
+  fi
+  case "$ba" in *failed*) echo "  🔴 族段有 failed ⇒ 不推"; echo "     $ba"; return 4 ;; esac
+  case "$ba" in *'Test Files'*) : ;; *) echo "  🔴 族段摘要沒有 Test Files 那一行 ⇒ 只抓到半份 ⇒ 不推"; return 4 ;; esac
+  case "$ba" in *Tests*) : ;; *) echo "  🔴 族段摘要沒有 Tests 那一行 ⇒ 只抓到半份 ⇒ 不推"; return 4 ;; esac
+  if ! printf '%s' "$ba" | grep -qE '[1-9][0-9]* passed'; then
+    echo "  🔴 族段沒有【大於 0 的 passed】⇒ 可能整批 skipped 或根本沒跑 ⇒ 不推"; echo "     $ba"; return 4
+  fi
+
+  # ══ 🔴🔴 第五數:兩個獨立分母各自對 ══════════════════════════════════════
+  #    取的是 `Test Files … (N)` 那個【括號裡的總數】—— 它含 skipped,
+  #    而 `--split-check` 數的是**檔案存在幾支** ⇒ 兩邊同一個單位。
+  #    ⚠️ **不可以用 Tests(測項數)** —— `skipped` 與 `it.each` 的展開會動它(ship 2026-09-06 Q2)。
+  mt="$(printf '%s' "$a"  | sed -n 's/.*Test Files[^(]*(\([0-9][0-9]*\)).*/\1/p')"
+  ft="$(printf '%s' "$ba" | sed -n 's/.*Test Files[^(]*(\([0-9][0-9]*\)).*/\1/p')"
+  if [ -z "$T" ] || [ -z "$F" ]; then
+    echo "  🔴 分母是空的(--split-check 沒撈到「全套 / 這族」那兩個數)⇒ 不推"
+    echo "     🛑 空分母與『對得上』不可以同形 —— 撈不到就是撈不到。"
+    return 5
+  fi
+  if [ -z "$mt" ] || [ -z "$ft" ]; then
+    echo "  🔴 摘要裡撈不到 Test Files 的括號總數(主段[$mt] / 族段[$ft])⇒ 不推"; return 5
+  fi
+  if [ "$mt" != "$T" ]; then
+    echo "  🔴 第五數:主段跑了 $mt 支, 而 --split-check 說全套是 $T ⇒ 不推"
+    echo "     🛑 差的那幾支【不會紅, 它們只是不存在】—— 少一批綠, 而兩發都是綠的。"
+    return 5
+  fi
+  if [ "$ft" != "$F" ]; then
+    echo "  🔴 第五數:族段跑了 $ft 支, 而 --split-check 說這族是 $F ⇒ 不推"
+    echo "     🛑 同上 —— 族段是最可能出現「這一發剛好沒跑起來」的那一段。"
+    return 5
+  fi
+  echo "  🟢 每一道閘各自 rc=0 · 兩段各自兩發逐字相同 · 零 failed"
+  echo "  🟢 第五數:主段 $mt == 全套 $T · 族段 $ft == 這族 $F ⇒ 推"
   return 0
 }
 
@@ -137,7 +182,11 @@ push_step() {   # $1=log 檔  ⇒ 0 成功 / 非 0 失敗;dry-run 一定不呼�
 if [ "${1:-}" = "--selftest" ]; then
   p=0; f=0
   ck() { if [ "$2" = "$3" ]; then echo "  ✅ $1 (rc=$2)"; p=$((p+1)); else echo "  🔴 $1 —— 得 $2 期望 $3"; f=$((f+1)); fi; }
-  run() { verdict "$1" "$2" "$3" >/dev/null 2>&1; echo $?; }
+  # 🟡 **族段與分母的預設值** —— 讓既有的格子【一個字都不用改】就仍然在問它們原本問的事。
+  #    🔴 而預設值必須與 `SUM` 一致(主段 859 ⇒ 全套預設 859), 否則既有的格子會因為
+  #      一個【與它們無關的新判準】而紅 ⇒ 那種紅會讓人去改對的格子。
+  BSUM_OK='Test Files 10 passed (10) Tests 94 passed (94)'
+  run() { verdict "$1" "$2" "$3" "${4-$BSUM_OK}" "${5-$BSUM_OK}" "${6-859}" "${7-10}" >/dev/null 2>&1; echo $?; }
   SUM='Test Files 859 passed (859) Tests 15479 passed (15479)'
   # 🔵 依 `EXPECT_GATES` 現算一份「全部 rc=0」的清單 —— **不要在自檢裡另抄一份名單**,
   #    否則加一道閘的人改了正式路徑而自檢還在用舊名單, 📌 **兩邊會安靜地分家。**
@@ -182,6 +231,25 @@ if [ "${1:-}" = "--selftest" ]; then
   if [ -f "$_mark" ]; then ck "⑩b 反向對照:非 dry-run ⇒ 真的會呼叫" "有痕跡" "有痕跡"; else ck "⑩b 反向對照:非 dry-run ⇒ 真的會呼叫" "沒有痕跡" "有痕跡"; fi
   rm -rf "$(dirname "$_mark")"
   ck "⑨零 passed(整批 skipped)⇒ 4" "$(run "$(allz)" 'Test Files 0 passed (859) Tests 0 passed 15479 skipped' 'Test Files 0 passed (859) Tests 0 passed 15479 skipped')" "4"
+  # ══ 🟡 條件② 那四發(主視窗 -f8 2026-09-06 裁 auth-007 §四)══════════════
+  #    🔴 **這四格要的是「對不上會不會紅」, 不是「對得上會不會綠」** ——
+  #      後者 ② 已經證過了, 而**一個只證得了綠的守門, 在它自己壞掉那天也是綠的**。
+  ck "⑪主段檔數與全套 T 對不上 ⇒ 5(不推)" \
+     "$(run "$(allz)" "$SUM" "$SUM" "$BSUM_OK" "$BSUM_OK" 861 10)" "5"
+  ck "⑫族段檔數與這族 F 對不上 ⇒ 5(不推)" \
+     "$(run "$(allz)" "$SUM" "$SUM" "$BSUM_OK" "$BSUM_OK" 859 12)" "5"
+  ck "⑬兩個分母都對上 ⇒ 0(推;⑪⑫ 的紅不是恆紅)" \
+     "$(run "$(allz)" "$SUM" "$SUM" "$BSUM_OK" "$BSUM_OK" 859 10)" "0"
+  ck "⑭--split-check 自己 rc≠0 ⇒ 3(不得當成「沒有要排除的」繼續)" \
+     "$(run "$(one_bad splitcheck 1)" "$SUM" "$SUM")" "3"
+  # 🔴 分母是【空的】—— 它與「對得上」不可以同形(撈不到那兩個數的世界)
+  ck "⑮分母撈不到(空字串)⇒ 5(不推)" \
+     "$(run "$(allz)" "$SUM" "$SUM" "$BSUM_OK" "$BSUM_OK" '' '')" "5"
+  # 🔴 族段自己的健全性:主段修過的四個坑, 族段一個都不能少
+  ck "⑯族段兩發不同 ⇒ 4" \
+     "$(run "$(allz)" "$SUM" "$SUM" "$BSUM_OK" 'Test Files 9 passed (9) Tests 90 passed (90)' 859 10)" "4"
+  ck "⑰族段整批 skipped(零 passed)⇒ 4" \
+     "$(run "$(allz)" "$SUM" "$SUM" 'Test Files 0 passed (10) Tests 0 passed 94 skipped' 'Test Files 0 passed (10) Tests 0 passed 94 skipped' 859 10)" "4"
   echo "  ── $p PASS / $f FAIL"
   [ "$f" = 0 ] && { echo "全部通過。"; exit 0; } || { echo "🔴 有格子沒過"; exit 1; }
 fi
@@ -275,21 +343,55 @@ TURBO_FORCE=1 pnpm build     > "$WORK/build.log" 2>&1; add build $?
 #      · 兩發比對擋得住「**這一次**少跑了」(飄動)
 #      · 擋不住「**一直**少跑」(穩定的漏)
 #    ⇒ 🔵 要補它得有一份**期望檔數**的來源(而那份來源今天不存在, 誰也沒有維護它)。
-# 🔌 **插槽(先不做)**:⟦ship-BROWSERFAMILY⟧ b 那條路要「全套排除瀏覽器族 + 族序列跑一發」——
-#    📌 今天**不接**, 因為那會把「哪些算瀏覽器族」變成本檔的一個新判準, 而那份名單還沒有人定。
-#    ⇒ 要接的時候改這兩行加 `--exclude`, 並在下面多一組 `add browser $?`。
+# 🟡 **插槽已接(2026-09-06;主視窗 -f8 批 auth-006 plan + 裁 auth-007=A)**
+#    ⛔ ~~要接的時候改這兩行加 `--exclude`, 並在下面多一組 `add browser $?`~~
+#    🔴🔴 **`--exclude` 在本 repo【完全沒作用】—— 而它是【靜默】的, 這一段留給下一個想用它的人**:
+#      本 repo 是 **vitest projects** 設定(`vitest.config.*:2` 逐字「#606 改 projects 拆 per-app alias」;
+#      `vitest list` 的輸出帶 `[admin]` / `[node]` 前綴)⇒ **root 層的 `--exclude` 不會下到 project config**。
+#      🔬 實測(2026-09-06, `vitest/4.1.5`, `npx vitest list --filesOnly`):
+#        不帶 ⇒ 861 · 帶族裡一支完整路徑 ⇒ **861** · 十支一起下 ⇒ **861**
+#        · glob 單支 `**/x.test.ts` ⇒ **861** · glob 目錄 `**/print/**` ⇒ **861**
+#        🔴 負對照 現造的不存在路徑 ⇒ **861** ⇒ 📌 **負對照與真排除印同一個數
+#           ⇒ 那不是「排除無效」, 是【那個旗標沒被吃到】。**
+#        🟢 正對照 正向過濾 `mark-detail-print` ⇒ **1** ⇒ 這支指令會動, 壞的是 `--exclude` 這條路。
+#    ⇒ ✅ **改成【不排除】**:主段照舊跑全套, 族段另外跑兩發, **兩個獨立分母各自對**(見 `verdict`)。
+#      🔵 它比排除【更安全】:沒有排除動作 ⇒ 沒有「安靜地少跑一批」這個新風險。
+#      ⚠️ 代價:那一族跑兩次(主段 parallel 一次 + 族段 serial 一次)。族段實測 **46 秒/發**。
+
+# ── ① 分母:當場跑 `--split-check` 拿 ────────────────────────────────────
+# 🔴 **當場跑當場拿, 不寫死**(ship 2026-09-06:那個數每被收割一次就會變)。
+# 🔴 rc != 0 ⇒ 它會讓 `verdict` 判紅 —— **不可以當成「沒有要排除的」繼續跑**。
+python3 scripts/browser-test-family.py --split-check > "$WORK/split.log" 2>&1; add splitcheck $?
+SPLIT_T=$(sed -n 's/.*全套 \([0-9][0-9]*\) 支.*/\1/p' "$WORK/split.log" | head -1)
+SPLIT_F=$(sed -n 's/.*這族 \([0-9][0-9]*\) .*/\1/p'   "$WORK/split.log" | head -1)
+
+# ── ② 主段:全套兩發 ─────────────────────────────────────────────────────
 pnpm vitest --run --maxWorkers=2 > "$WORK/t1.log" 2>&1; add test1 $?
 pnpm vitest --run --maxWorkers=2 > "$WORK/t2.log" 2>&1; add test2 $?
 SUM1=$(grep -E 'Test Files|^ +Tests ' "$WORK/t1.log" | tr -s ' ' | tr '\n' ' ')
 SUM2=$(grep -E 'Test Files|^ +Tests ' "$WORK/t2.log" | tr -s ' ' | tr '\n' ' ')
 
+# ── ③ 族段:瀏覽器族兩發 ─────────────────────────────────────────────────
+# 🔵 走 `pnpm test:browser`(= `browser-test-family.py --run`)—— 它自己內部就會比
+#    「我餵幾支 vs 它跑幾支」並在對不上時 rc=1 ⇒ **第四個數在那一層已經有人管, 我不重寫一份。**
+# 🔴 而**兩發**是這一層加的:族段起真瀏覽器 ⇒ 它是最可能「這一發剛好沒跑起來」的那一段(ship Q3)。
+pnpm test:browser > "$WORK/b1.log" 2>&1; add btest1 $?
+pnpm test:browser > "$WORK/b2.log" 2>&1; add btest2 $?
+BSUM1=$(grep -E 'Test Files|^ +Tests ' "$WORK/b1.log" | tr -s ' ' | tr '\n' ' ')
+BSUM2=$(grep -E 'Test Files|^ +Tests ' "$WORK/b2.log" | tr -s ' ' | tr '\n' ' ')
+
 say "── 逐道 rc ──"
 for it in $GATES; do say "   ${it%%:*} rc=${it##*:}"; done
-say "── vitest 兩發 ──"
+say "── 主段 vitest 兩發 ──"
 say "   第1發:$SUM1"
 say "   第2發:$SUM2"
+say "── 族段 browser 兩發 ──"
+say "   第1發:$BSUM1"
+say "   第2發:$BSUM2"
+say "── 分母(當場跑 --split-check)──"
+say "   全套 T=[$SPLIT_T] · 這族 F=[$SPLIT_F]"
 
-verdict "$GATES" "$SUM1" "$SUM2"; V=$?
+verdict "$GATES" "$SUM1" "$SUM2" "$BSUM1" "$BSUM2" "$SPLIT_T" "$SPLIT_F"; V=$?
 if [ "$V" != 0 ]; then
   KEEP_LOG=1
   grep -h '^ FAIL ' "$WORK/t1.log" | sort -u | head
