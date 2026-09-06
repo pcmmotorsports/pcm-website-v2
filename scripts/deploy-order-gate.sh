@@ -133,7 +133,29 @@ PUSHED_SHA=""
 #    ⇒ 只能事後推。本機四個世界重現不出那個空 stdin(non-ff / --force 都給 114 bytes;
 #      只有 Everything up-to-date 給 0)⇒ 差異可能在 SSH 傳輸層, 而那一格【未量】。
 #    🔴 這一段不下判斷、不改行為 —— 它只讓【下一次】自己留下證據。
-GATE_STDIN="$(mktemp -t dogstdin 2>/dev/null || echo /tmp/dogstdin.$$)"
+# 🔴 ⛔ ~~`mktemp -t dogstdin`~~ —— **`-t <前綴>` 是 BSD(macOS)方言**:GNU coreutils 要求
+#    template 自帶 `XXXXXX`, 而 `mktemp -t foo` 在 Linux 上**必炸**(板列 `⟦auth-MKTEMPDEBT⟧`;
+#    2026-08-27 CI 實證過一次, 修在 `7efbe93d`)。
+#    ⚠️ 而「GNU 上會炸」對**這一行**仍然是【推的】—— 沒有人在 Linux 上實跑過它。
+# 🔴 ⛔ ~~`|| echo /tmp/dogstdin.$$`~~ —— 那個 fallback **比沒有還糟**:
+#    `$$` 是 PID ⇒ **可預測的路徑** ⇒ 別人先建一個同名檔或 symlink, 我們就寫進他挑的地方。
+#    📌 **一個「失敗時還是給你一個路徑」的 fallback, 把【開不出檔】換成【寫到別人挑的檔】。**
+# ✅ 改成可攜的 template, 而且**失敗就是失敗** —— 但這一行不擋整支閘(它只是留證據用的),
+#    所以失敗時把變數留空, 下面每一處寫入都先問一句。
+GATE_STDIN="$(mktemp "${TMPDIR:-/tmp}/dogstdin.XXXXXX" 2>/dev/null)" || GATE_STDIN=""
+# 🔴 `mktemp` 可能 rc=0 而回空字串(`set -u` 擋不住它 —— 它有值, 只是空的)⇒ 再問一次。
+# 🔴🔴 **而開不出來要【擋】, 不可以往下跑** —— 這一格是我第一版差點做錯的地方:
+#    我原本讓它「失敗就留空、下面每處寫入自己防」, 而下面 **`cat > "$GATE_STDIN"`(:618)與
+#    `done < "$GATE_STDIN"`(:992)是這支閘的主幹** —— 所有 ref 都從那份檔讀。
+#    ⇒ 📌 **它不是「留證據用的」附加品, 它是這支閘的輸入。空字串 ⇒ 一個 ref 都不會被檢查,
+#      而那正是【看起來跑過了】的形狀。**
+#    ⛔ 舊版的 `|| echo /tmp/dogstdin.$$` 保證了非空(所以主幹不會斷), 而代價是
+#      **一個可預測的路徑**;新版不接受那個代價 ⇒ 那就必須在這裡停。
+if [ -z "$GATE_STDIN" ] || [ ! -f "$GATE_STDIN" ]; then
+  echo "gate: 🔴 開不出暫存檔(mktemp)⇒ 本閘【沒有跑】, 不是【通過】。" >&2
+  echo "gate:    TMPDIR=${TMPDIR:-/tmp} —— 檢查它存不存在、可不可寫。" >&2
+  exit 1
+fi
 # 🔵 R1 Minor:`blind_branch_report` 自己也開一支暫存檔 ⇒ **一起收進 trap**,
 #    否則中途被訊號打斷就留檔。(空字串餵給 `rm -f` 是安全的, 而 `set -u` 要 `:-`。)
 BLIND_TMP=""
@@ -164,8 +186,14 @@ blind_branch_report() {  # $1 = 被推的那棵樹的 rev
     echo "gate:    ⇒ 這個 checkout 看不到任何 $BLIND_BRANCH_GLOB ⇒ 分支掃描【沒有分母】, 這一發不報。" >&2
     return 0
   fi
-  BLIND_TMP="$(mktemp -t dogblind 2>/dev/null)" || {
-    echo "gate:    ⇒ 開不出暫存檔 ⇒ 分支掃描這一發【沒有跑】。" >&2; return 0; }
+  # 🔴 同 `GATE_STDIN` 那一處:`-t <前綴>` 是 BSD 方言, 改成可攜 template。
+  #    ⚠️ 而舊寫法的 `||` **只接得住非零** —— `mktemp` rc=0 而回空字串時它會放行,
+  #    然後 `> "$BLIND_TMP"` 就變成 `> ""`。⇒ 空值那一格要自己問。
+  BLIND_TMP="$(mktemp "${TMPDIR:-/tmp}/dogblind.XXXXXX" 2>/dev/null)" || BLIND_TMP=""
+  if [ -z "$BLIND_TMP" ] || [ ! -f "$BLIND_TMP" ]; then
+    BLIND_TMP=""
+    echo "gate:    ⇒ 開不出暫存檔 ⇒ 分支掃描這一發【沒有跑】。" >&2; return 0
+  fi
   if ! git ls-tree --name-only "$rev" supabase/migrations/ 2>/dev/null \
        | sed 's#.*/##' | sort -u > "$BLIND_TMP"; then
     echo "gate:    ⇒ 讀不到 $rev 的 migrations 樹 ⇒ 分支掃描這一發【沒有跑】。" >&2

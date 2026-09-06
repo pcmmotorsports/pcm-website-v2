@@ -1,0 +1,83 @@
+#!/usr/bin/env sh
+# prepare-commit-msg —— revert 一顆「subject 自己說要先讀 runbook」的 commit 時, 把那句話端到眼前。
+#
+# 它守的是什麼(板列 `#903`):`docs/runbooks/2026-08-24-b5a-identity-rollout.md:111` **自己寫著**
+#   「⚠️🔴 沒有任何機制在執行這一條。它靠 revert 的人讀到這段字。」
+#   那條約束是:B5-a 這片 revert 掉的時候, **只拿掉 env 救不了已經簽出去的票** ——
+#   舊碼守衛是 `v === 1` ⇒ 還沒過期的 `v:2` 票全部被拒, 而它們已經在使用者的瀏覽器裡。
+#   正確動作是**輪換 `ADMIN_SESSION_SECRET`** ⇒ 全員重登一次。
+#   現有的唯一緩解是把那句話寫進 **commit subject**(`ede72879`)—— 因為 `git revert` 預設丟掉 body
+#   ⇒ 約束若只寫 body, **恰好在最需要它的那天看不到**。而 subject 也只是【字】。
+#
+# 🔴🔴 **為什麼落在 prepare-commit-msg 而不是 commit-msg / pre-commit —— 這一格是量到的, 不是選的**
+#   `git revert` 走 sequencer。2026-09-07 07:5x 拋棄式 repo 實測(四個 hook 各一支計數器):
+#       基準 兩顆普通 commit ⇒ pre-commit 2 · commit-msg 2 · prepare-commit-msg 2 · post-commit 2
+#       git revert --no-edit ⇒ pre-commit 0 · commit-msg 0 · prepare-commit-msg 1 · post-commit 1
+#       git revert(走編輯器)⇒ 同上
+#   ⇒ 📌 **把這道閘寫進 `commit-msg` 或 `pre-commit` 會做出一個【永遠不跑】的守門** ——
+#      而它在本機的每一次測試裡都會是綠的, 因為那些測試是用普通 commit 跑的。
+#   ⚠️ 第一發我用 `git revert -q` 測, `-q` 不是它的旗標 ⇒ **revert 根本沒跑**,
+#      而計數器印「差 0」看起來像是「revert 跑了而沒叫 hook」—— 兩個世界印同一個數。
+#      ⇒ 所以本檔的實測**同時驗了「revert 真的產生了第三顆」**(`git log --oneline | wc -l`)。
+#
+# 天花板/範圍: 只在 revert 一顆【subject 含 "revert 前先讀" + runbook 名】的 commit 時出聲;
+#   warn-only, 不擋 —— 擋下 revert 會把人留在 sequencer 中間狀態, 而本列要的是「讓他讀到」不是「攔住他」。
+#   這份清單是我想得到的那些, 而我最可能漏掉的是「用 git reset / 手改碼還原, 而不是用 git revert」——
+#   那條路上本閘不在, 而它和 revert 一樣會拿掉那片碼。
+# 天花板/量具: 它比對的是 subject 的【字面】; 有人 revert 時把 subject 改掉, 或那片碼被別的方式移除,
+#   本閘都看不到。**它證明不了「約束被遵守了」, 只證明「那句話被端到眼前」。**
+
+set -u
+
+MSG_FILE="${1:-}"
+SOURCE="${2:-}"
+[ -n "$MSG_FILE" ] && [ -f "$MSG_FILE" ] || exit 0
+
+# 🔴🔴 **這裡曾經有一道 `case "$SOURCE" in commit|merge|'')` 的過濾, 而它把整個功能關掉了。**
+#   我當時的註解逐字寫「revert / cherry-pick 走的是 source=commit」—— **那是推的, 不是量的**,
+#   而同一段註解的下一行我自己就寫著「不靠 SOURCE 單獨判斷, 真正的判別力在 `Revert "` 開頭」。
+#   實測(2026-09-07 08:0x, 拋棄式 repo):`git revert --no-edit` 傳的是
+#       arg1=.git/COMMIT_EDITMSG  arg2=**message**  arg3=(無)
+#   ⇒ `commit` 不在裡面 ⇒ 每一次 revert 都在第一道就退掉, **而三世界測試裡它印的是「安靜」**,
+#     而「安靜」正好也是【不該叫時】的正確輸出 ⇒ 🛑 **壞掉的那次和對的那次長得一樣。**
+#   ⇒ 📌 **一道我自己寫了「不靠它判斷」的過濾器, 擋掉了整個功能。**留著這段, 不要再加回去。
+#   （SOURCE 仍留著給 debug 用, 不參與判斷。）
+head -1 "$MSG_FILE" | grep -q '^Revert "' || exit 0
+
+# 被 revert 的那一顆的 subject 就夾在第一行的引號裡。
+ORIG_SUBJECT=$(head -1 "$MSG_FILE" | sed -e 's/^Revert "//' -e 's/"$//')
+
+printf '%s' "$ORIG_SUBJECT" | grep -q '先讀' || exit 0
+
+# runbook 名:subject 裡 `runbook ` 後面那一段。
+RB=$(printf '%s' "$ORIG_SUBJECT" | sed -n 's/.*runbook \([A-Za-z0-9._-]*\).*/\1/p')
+RB_PATH=""
+[ -n "$RB" ] && [ -f "docs/runbooks/${RB}.md" ] && RB_PATH="docs/runbooks/${RB}.md"
+
+{
+  printf '%s\n' ''
+  printf '%s\n' '🔴🔴 你正在 revert 一顆【subject 自己說要先讀 runbook】的 commit。'
+  printf '%s\n' "   被 revert 的:$ORIG_SUBJECT"
+  if [ -n "$RB_PATH" ]; then
+    printf '%s\n' "   那份 runbook:$RB_PATH"
+    printf '%s\n' '   它裡面最重要的那一段(逐字):'
+    grep -n '不要只做\|要做\|沒有任何機制' "$RB_PATH" 2>/dev/null | head -4 | sed 's/^/     /'
+  else
+    printf '%s\n' "   ⚠️ 從 subject 抽到的 runbook 名是「${RB:-（抽不出來）}」, 而 docs/runbooks/ 底下找不到它"
+    printf '%s\n' '      ⇒ 自己找:ls docs/runbooks/ | grep -i <關鍵字>'
+  fi
+  printf '%s\n' ''
+  printf '%s\n' '   🔴 典型的錯誤動作是「先把 env 拿掉」—— 那救不了【已經簽出去的票】。'
+  printf '%s\n' '   本閘只出聲, 不擋。訊息模板裡也放了一份(走編輯器時看得到)。'
+  printf '%s\n' ''
+} >&2
+
+# 🔴🔴 **這裡曾經把警語【插進訊息檔】當第二條路, 而它汙染了 commit body。**
+#   我當時寫「用註解行(`#`), git 會在 cleanup 時整段刪掉」—— **又是推的, 不是量的。**
+#   實測(2026-09-07 08:1x):`git revert --no-edit` 之後 `git log -1 --format=%B | grep -c '^#'` ⇒ **4**。
+#   `--no-edit` 那條路不走 `--cleanup=strip` ⇒ 註解原封不動進了歷史, **而且是永久的**。
+#   ⇒ 📌 **一個「反正會被清掉」的假設, 代價是每一顆 revert commit 都帶著四行垃圾。**
+#   ⇒ 只留 stderr 這一條路。走編輯器的人在編輯器開啟【之前】就會在終端看到它。
+#   （同一支 hook 裡我推錯兩次:先推 `$2=commit`、再推「註解會被清掉」。兩次都寫在這裡。）
+
+exit 0

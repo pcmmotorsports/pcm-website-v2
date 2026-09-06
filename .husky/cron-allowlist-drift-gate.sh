@@ -39,7 +39,15 @@ fi
 #      而本閘照樣印跳過 —— **一個為了更安全而做的改動, 把整道閘關掉了, 而輸出看起來一切正常。**
 #    ✅ 改成:git 的輸出直接寫進暫存檔(不經變數), rc 單獨收, 再讓 grep 讀那支檔。
 #      路徑含空白沒問題(逐行讀);Git 對怪字元本來就會加引號 ⇒ 那種路徑不會誤命中我們這兩個樣式。
-TMP="$(mktemp -t cron-allowlist-gate)"
+# 🔴 **`mktemp -t <不帶 XXXXXX 的前綴>` 是 BSD-only**(⟦auth-MKTEMPDEBT⟧;`-auth` 掃到, 主視窗 `-f1` 2026-09-07 交辦)——
+#    GNU 的 `mktemp -t` 要求模板**自己帶 `XXXXXX`** ⇒ 在 Linux 上這一行會失敗 ⇒ `TMP` 是空字串
+#    ⇒ 下面每一個 `"$TMP"` 都變成 `""` ⇒ 🛑 **而它失敗的樣子與「暫存檔是空的」很像。**
+#    ✅ 改成自己帶模板的可攜形狀。⚠️ **射程**:本機是 **Darwin / BSD `mktemp`** ⇒
+#      我**實測到的只有「可攜形狀在 BSD 上也成功」**, **GNU 那一邊我證不到**(這台機器上沒有)。
+TMP="$(mktemp "${TMPDIR:-/tmp}/cron-allowlist-gate.XXXXXX")" || {
+  printf '%s\n' "🔴 cron 白名單漂移閘:建不出暫存檔(mktemp)⇒ 擋下(不放行)" >&2
+  exit 1
+}
 trap 'rm -f "$TMP"' EXIT
 git diff --cached --name-only --diff-filter=ACMRD > "$TMP" 2>/dev/null
 GIT_RC=$?
