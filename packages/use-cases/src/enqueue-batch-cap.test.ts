@@ -22,6 +22,18 @@ import {
 
 const CUTOFF = '2026-08-18T00:00:00.000Z';
 
+/** 單列樣板 —— 上面那支 `rows(n)` 是它的量產版。 */
+function row0(): PaidOrderWithoutOrderCreatedEmail {
+  return {
+    orderId: 'order-0',
+    displayId: 'PCM-9999-0000',
+    paidAt: '2026-08-18T10:00:00.000Z',
+    notificationEmail: 'm0@example.com',
+    customerEmail: null,
+    orderSource: 'web',
+  } as PaidOrderWithoutOrderCreatedEmail;
+}
+
 function rows(n: number): PaidOrderWithoutOrderCreatedEmail[] {
   return Array.from({ length: n }, (_, i) => ({
     orderId: `order-${i}`,
@@ -115,6 +127,69 @@ describe('甲-3 排信批次上限閘', () => {
     expect(enqueue).not.toHaveBeenCalled();
   });
 
+  // ── 🔴 一筆壞資料不得把整批倒掉(主視窗 B 2026-09-07;今晚第三次「永久少寄」形狀)──
+  it('🔴 一筆組裝不出鍵 + 兩筆好的 ⇒ 排 2、errors 1(不是整批 0 排)', async () => {
+    const enqueue = vi.fn(async (input: { orderId: string }) => {
+      if (input.orderId === 'bad') throw new Error('組裝失敗:displayId 不得為空');
+      return { kind: 'enqueued', id: 'e1' };
+    });
+    // 🔵 假 outbox 模仿 adapter 的行為:組不出鍵的那一筆**不進分母**(所以是 2 不是 3)。
+    const countNewEvents = vi.fn(async (i: readonly { orderId: string }[]) =>
+      i.filter((x) => x.orderId !== 'bad').length,
+    );
+    const three = [
+      { ...row0(), orderId: 'ok-1' },
+      { ...row0(), orderId: 'bad' },
+      { ...row0(), orderId: 'ok-2' },
+    ];
+    const scanner = {
+      listPaidWithoutOrderCreatedEmail: vi.fn(async () => ({
+        rows: three,
+        scannedPages: 1,
+        truncated: false,
+      })),
+    } as unknown as IPaidOrderScanner;
+    const d = { scanner, outbox: { enqueue, countNewEvents } as unknown as IEmailOutbox };
+
+    const res = await enqueueOrderCreatedEmails(d, { cutoff: CUTOFF, limit: 50 });
+    expect(enqueue).toHaveBeenCalledTimes(3); // 壞的那筆也照樣送去, 在那裡才炸
+    expect(res.enqueued).toBe(2);
+    expect(res.errors).toBe(1);
+  });
+
+  // ── 🔴 撞閘那一輪的 noRecipient 要跟著錯誤出去 ────────────────────────
+  it('🔴 撞閘時 log 帶得出 scanned 與 noRecipient(否則那一輪那兩個數【沒有讀數】)', async () => {
+    // 22 列, 其中 1 列沒有收件人 ⇒ inputs 21 ⇒ 撞閘;而 noRecipient=1 只剩錯誤物件裡有。
+    const rs = [
+      ...Array.from({ length: 21 }, (_, i) => ({ ...row0(), orderId: `ok-${i}` })),
+      { ...row0(), orderId: 'no-mail', notificationEmail: null, customerEmail: null },
+    ];
+    const enqueue = vi.fn(async () => ({ kind: 'enqueued', id: 'e1' }));
+    const countNewEvents = vi.fn(async (i: readonly unknown[]) => i.length);
+    const scanner = {
+      listPaidWithoutOrderCreatedEmail: vi.fn(async () => ({
+        rows: rs,
+        scannedPages: 1,
+        truncated: false,
+      })),
+    } as unknown as IPaidOrderScanner;
+    const d = { scanner, outbox: { enqueue, countNewEvents } as unknown as IEmailOutbox };
+
+    let caught: unknown;
+    await enqueueOrderCreatedEmails(d, { cutoff: CUTOFF, limit: 50 }).catch((e) => {
+      caught = e;
+    });
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(describeEnqueueBatchCap(caught)).toEqual({
+      reason_detail: 'enqueue_batch_cap_exceeded',
+      eventType: 'order_created',
+      count: 21,
+      cap: 20,
+      scanned: 22,
+      noRecipient: 1,
+    });
+  });
+
   // ── 錯誤本身帶得出型別與數量 ────────────────────────────────
   it('🔴 撞閘的錯誤帶得出【型別與數量】—— log 那一行靠它, 少了就分不出「貼錯年份」與「權限壞掉」', () => {
     let caught: unknown;
@@ -128,6 +203,9 @@ describe('甲-3 排信批次上限閘', () => {
       eventType: 'order_shipped',
       count: 999,
       cap: 20,
+      // 🔵 沒帶 context 就是 null —— **不得印成 0**。「沒有讀數」與「讀數是 0」是兩件事。
+      scanned: null,
+      noRecipient: null,
     });
   });
 

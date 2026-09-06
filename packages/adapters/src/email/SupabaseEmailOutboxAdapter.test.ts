@@ -1022,6 +1022,32 @@ describe('甲-3 ① countNewEvents —— 與 enqueue 撞鍵用同一份 (event_
     expect(rpc).not.toHaveBeenCalled();
   });
 
+  it('🔴🔴 一筆組裝不出鍵 ⇒ 跳過那一筆、**不整批 throw**(它不進分母, 而 enqueue 那一發才會炸)', async () => {
+    // 🛑 主視窗 B 2026-09-07:整批 throw 是回退 —— 一筆壞資料會讓同批其他信【每一輪】都排不進去,
+    //    那是今晚第三次撞到的「永久少寄」形狀。
+    const bad = {
+      ...SIX_INPUTS[3]!, // order_shipped:它的 shipmentId 有 uuid 形狀驗證
+      shipmentId: 'not-a-uuid',
+    } as EnqueueEmailInput;
+    const good = SIX_INPUTS[3]!;
+    // 🔵 先用 `enqueue` 問出【好的那一筆】的鍵長什麼樣 —— 期望值不自己重打, 免得兩邊各自漂。
+    const insertB = makeBuilder({ data: [{ id: 'e1' }], error: null });
+    await adapter(makeClient(insertB)).enqueue(good);
+    const goodKey = (argsOf(insertB, 'insert')[0]![0] as Record<string, unknown>).dedup_key;
+
+    const { client, rpc } = rpcClient({ data: 1, error: null });
+    await expect(adapter(client).countNewEvents([bad, good])).resolves.toBe(1);
+    // 🔴 **比整把鍵, 不只比個數**(codex 2026-09-07 nit):只數「1 把」的話,
+    //    一個「留下壞的、丟掉好的」的實作**照樣綠** —— 而那是最糟的那一種錯。
+    expect((rpc.mock.calls[0]![1] as { p_keys: string[] }).p_keys).toEqual([goodKey]);
+  });
+
+  it('🔵 負對照:那一筆真的組不出來(直接叫 enqueue 會 throw)—— 證明上一格不是因為它其實是合法的', async () => {
+    const bad = { ...SIX_INPUTS[3]!, shipmentId: 'not-a-uuid' } as EnqueueEmailInput;
+    const insertB = makeBuilder({ data: [{ id: 'e1' }], error: null });
+    await expect(adapter(makeClient(insertB)).enqueue(bad)).rejects.toThrow(/uuid/);
+  });
+
   it('🟢 邊界對照:剛好 200 筆 ⇒ 不 throw(證明上一格擋的是「超過」不是「達到」)', async () => {
     const exactly: EnqueueEmailInput[] = Array.from({ length: 200 }, (_, i) => ({
       ...BASE_INPUT,

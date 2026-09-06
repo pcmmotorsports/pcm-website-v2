@@ -450,7 +450,21 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     //    ⇒ 兩份會漂, 而漂掉的那一半**不會紅**:這把尺說「新的」而 `enqueue` 說「duplicate」,
     //    症狀是**閘的分母錯了**, 而閘的分母錯了在任何測試上都不是紅色的。
     // 🔵 去重交給 DB 那支函式(`SELECT DISTINCT`)—— 一份去重, 不是兩份。
-    const keys = sendable.map((input) => composeEvent(input).dedupKey);
+    // 🔴🔴 **組裝失敗的那一筆【跳過, 不要整批倒】**(主視窗 B 2026-09-07 裁, 這是今晚第三次
+    //    撞到「永久少寄」那個形狀):`composeEvent` 會做 runtime 驗證(uuid 形狀 / 空字串…),
+    //    而**資料是人打的**。若在這裡讓它往外 throw ⇒ **同一批其他信每一輪都排不進去**。
+    // ✅ 跳過那一筆 ⇒ 它不進分母(它本來也變不成一列), 而第三段仍會對它呼叫 `enqueue()`
+    //    ⇒ 在那裡 throw ⇒ 呼叫端 `errors += 1`、其餘照排 = **改版前逐筆的行為**。
+    // 🛑 這裡**刻意不記 log** —— 真正的錯誤訊息會在 `enqueue()` 那一發出現, 記兩次會讓
+    //    同一筆壞資料在 log 上看起來像兩件事。
+    const keys: string[] = [];
+    for (const input of sendable) {
+      try {
+        keys.push(composeEvent(input).dedupKey);
+      } catch {
+        // 這一筆組不出鍵 ⇒ 它不可能變成新的一列 ⇒ 不進分母。
+      }
+    }
 
     // 🔴🔴 **為什麼是 RPC 而不是 `.select().in()`**(codex `gpt-6-astra` 2026-09-07 12⑤ R1+R2 兩輪):
     //    「這些鍵哪些存在」的答案是**一堆列**, 而列數會被 PostgREST 的 `db-max-rows` 截斷 ——

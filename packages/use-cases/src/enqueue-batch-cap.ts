@@ -51,11 +51,24 @@
 /** 單一事件型別、單一輪次的排信上限。改它 = 改「一次最多寄幾封」的保護, 見檔頭。 */
 export const ENQUEUE_BATCH_CAP = 20;
 
+/**
+ * 撞閘那一輪, 已經算出來的計數也要跟著出去。
+ * 🔴 **為什麼**:閘 throw ⇒ 呼叫端拿不到 result ⇒ 那一輪的 `noRecipient` 在 log 上是
+ *    **沒有讀數**, 而「沒有讀數」與「讀數是 0」在報告上長得一樣(主視窗 B 2026-09-07 指出)。
+ */
+export type EnqueueBatchCapContext = {
+  /** 掃描回來幾列(閘看的不是它, 而它是判讀那一輪的分母)。 */
+  scanned?: number;
+  /** 這一輪有幾筆是「沒有收件人」被篩掉的 —— 撞閘之後這個數就只剩這裡有。 */
+  noRecipient?: number;
+};
+
 export class EnqueueBatchCapExceededError extends Error {
   constructor(
     readonly eventType: string,
     readonly count: number,
     readonly cap: number,
+    readonly context: EnqueueBatchCapContext = {},
   ) {
     // 🔴 訊息零 PII:只有型別名與兩個數字, 沒有訂單號 / 信箱 / 金額。
     super(`排信批次上限:${eventType} 這一輪要排 ${count} 封, 上限 ${cap} ⇒ 本輪不排`);
@@ -71,10 +84,11 @@ export class EnqueueBatchCapExceededError extends Error {
 export function assertEnqueueBatchWithinCap(
   eventType: string,
   count: number,
+  context: EnqueueBatchCapContext = {},
   cap: number = ENQUEUE_BATCH_CAP,
 ): void {
   if (count > cap) {
-    throw new EnqueueBatchCapExceededError(eventType, count, cap);
+    throw new EnqueueBatchCapExceededError(eventType, count, cap, context);
   }
 }
 
@@ -84,13 +98,26 @@ export function assertEnqueueBatchWithinCap(
  */
 export function describeEnqueueBatchCap(
   err: unknown,
-): { reason_detail: string; eventType: string; count: number; cap: number } | Record<string, never> {
+):
+  | {
+      reason_detail: string;
+      eventType: string;
+      count: number;
+      cap: number;
+      scanned: number | null;
+      noRecipient: number | null;
+    }
+  | Record<string, never> {
   if (err instanceof EnqueueBatchCapExceededError) {
     return {
       reason_detail: 'enqueue_batch_cap_exceeded',
       eventType: err.eventType,
       count: err.count,
       cap: err.cap,
+      // 🔵 撞閘那一輪的 result 拿不到了 ⇒ 這兩個數只剩這裡有。
+      //    `?? null` 而不是 `?? 0` —— **沒有讀數不得印成 0**。
+      scanned: err.context.scanned ?? null,
+      noRecipient: err.context.noRecipient ?? null,
     };
   }
   return {};

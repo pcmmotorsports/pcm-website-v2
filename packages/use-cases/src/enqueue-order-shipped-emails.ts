@@ -174,7 +174,12 @@ export async function enqueueOrderShippedEmails(
   //    會把 1 封真的該寄的信一起擋掉 ⇒ 📌 **防止多寄的閘變成永久少寄**
   //    (codex `gpt-6-astra` 2026-09-07 12⑤ must-fix)。
   // 🔵 `countNewEvents` 的鍵走 `enqueue()` 用的同一支組裝 ⇒ 兩邊不會漂。
-  assertEnqueueBatchWithinCap('order_shipped', await deps.outbox.countNewEvents(inputs));
+  assertEnqueueBatchWithinCap('order_shipped', await deps.outbox.countNewEvents(inputs), {
+    // 🔵 撞閘就 throw ⇒ 呼叫端拿不到 result ⇒ 這兩個數只剩錯誤物件裡有。
+    //    少了它們, 那一輪的 log 上「沒有讀數」與「讀數是 0」長得一樣。
+    scanned: result.scanned,
+    noRecipient: result.noRecipient,
+  });
 
   // ── 第三段:排 ────────────────────────────────────────────────────────
   for (const input of inputs) {
