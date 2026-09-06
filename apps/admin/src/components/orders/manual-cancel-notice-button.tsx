@@ -1,3 +1,5 @@
+'use client';
+
 import { recordManualCancelNoticeAction } from '@/lib/orders/manual-cancel-notice-actions';
 import type { ManualCancelNoticeEligibility } from '@/lib/orders/manual-cancel-notice-read';
 
@@ -39,7 +41,33 @@ export function ManualCancelNoticeButton({
   }
 
   return (
-    <form action={recordManualCancelNoticeAction} className='mt-3 border-t pt-3'>
+    <form
+      action={recordManualCancelNoticeAction}
+      className='mt-3 border-t pt-3'
+      /**
+       * 🔴🔴 **送出前 confirm —— 而這一顆【不可撤銷】, 不是一般的二次確認。**
+       * 主視窗 2026-09-06 裁乙時逐字要求「確認對話框兩顆鈕都要」;R2 must-fix ② 指出我沒做。
+       * 🛑 **為什麼特別重要**:按下去插的那一列會**永久吃掉** `email_outbox` 上
+       *    `(order_cancelled, <orderId>)` 那個唯一鍵, 而掃描 view 的 anti-join **只問 event_type**
+       *    ⇒ 📌 **誤按一次 = 那位客人的系統取消信【永久關閉】**, 而後台**今天沒有撤銷入口**
+       *      (撤銷那一片還沒做)。
+       * 🔵 形狀照既有的 `note-compose-form.tsx:216-220`(同樣是「不可撤回 ⇒ 送出前 confirm」),
+       *    不自己發明。⚠️ 而 `window.confirm` 只擋得住**手滑**, 擋不住**看錯單** ——
+       *    所以訊息裡把**收件信箱**印出來, 讓他有一個可以核對的東西。
+       */
+      onSubmit={(event) => {
+        const email = new FormData(event.currentTarget).get('recipient_email');
+        if (
+          !window.confirm(
+            `確定要登錄「已人工寄出取消通知」嗎?\n\n收件人:${String(email ?? '')}\n\n` +
+              '⚠️ 這個動作不可撤銷:登錄之後,系統就不會再把這張單列進「還沒寄」的提醒,' +
+              '而後台目前沒有地方可以把它改回來。',
+          )
+        ) {
+          event.preventDefault();
+        }
+      }}
+    >
       <input type='hidden' name='order_id' value={orderId} />
       <p className='text-muted-foreground text-xs'>
         這張單是<strong>卡 + 現金混合退款</strong>,系統不會自動寄取消信,要人工寄。

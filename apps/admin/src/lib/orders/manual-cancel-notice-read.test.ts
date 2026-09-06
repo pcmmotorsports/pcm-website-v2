@@ -126,12 +126,18 @@ function mockDb(opts: {
     if (table === 'customers') {
       return {
         select: () => ({
-          eq: () => ({
+          // 🔴 R2 nit:這一條鏈原本不驗 eq —— 查錯欄(例如拿 `id` 而不是 `user_id`)
+          //    會靜靜回同一個東西 ⇒ 預填拿到別人的信箱而測試全綠。
+          eq: (col: string, val: string) => {
+            expectEq(col, 'user_id', 'customers 的 eq 欄名');
+            expectEq(val, 'u-1', 'customers 的 eq 值(要是那張單的 customer_user_id)');
+            return ({
             maybeSingle: async () => ({
               error: null,
               data: opts.customerEmail === undefined ? null : { email: opts.customerEmail },
             }),
-          }),
+            });
+          },
         }),
       };
     }

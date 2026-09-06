@@ -115,7 +115,14 @@ export async function readManualCancelNoticeEligibility(
   // 🛑 **anti-join 逐字照抄那支 view:只問 event_type, 不問 status。**
   //    ⚠️ 而代價要寫出來(codex 關卡1 指出的同一件事):一列 `failed` 的取消信
   //    **一樣會讓這裡回 `already_recorded`** —— 那位客人其實沒收到。
-  //    ⇒ 那一格由死信那條路承接(`docs/runbooks/` 死信 SOP), **不是這顆鈕的職責**;
+  //    ⛔ ~~那一格由死信那條路承接(`docs/runbooks/` 死信 SOP)~~
+  //    🔴 **2026-09-06 R2 must-fix ③:那支 SOP【不存在】** —— 我指了一個沒有的檔,
+  //       而一個指向空氣的指標比沒有指標糟:讀的人會去找, 找不到, 然後以為是自己的問題。
+  //       🔬 量過:`ls docs/runbooks/ | grep -i '死信'` ⇒ **零命中**。
+  //    ✅ **死信真正的落點是【後台一個頁面】不是一份 runbook**:
+  //       `/settings/mail`(`apps/admin/src/lib/mail/dead-letter-actions.ts:38` 逐字
+  //       `const SETTINGS_PATH = '/settings/mail';`), 重排動作是 `requeueDeadEmailAction`。
+  //    ⇒ 那一格由**那條路**承接, **不是這顆鈕的職責**;
   //      而**若在這裡放寬成「只有 sent 才算」, 這支就與片 A 的計數分岔了**
   //      ⇒ 鈕說可以登錄, 而登錄完計數不會動。**寧可與計數一致。**
   try {

@@ -18,7 +18,9 @@
  *
  * 🔬 **而這一格是 code-reviewer 2026-09-06 抓到的**:我第一版自己發明了一個 `?mcn=` 參數,
  *    而訂單頁**根本不讀那個參數**(它讀 `r`, `page.tsx:55`)
- *    ⇒ 📌 **13 個碼一個都不會顯示** —— 正是本檔下面那句自己寫的病。
+ *    ⇒ 📌 **12 個碼一個都不會顯示** —— 正是本檔下面那句自己寫的病。
+ *    ⛔ ~~13 個碼~~ 🔴 R2 nit 訂正:那個 13 把已經拿掉的成功碼 `ok` 一起算了 ——
+ *       **它是加出來的, 不是數出來的**。🔬 數法:`grep -c "manualCancelNoticeResultCode('" 本檔` ⇒ **12**。
  */
 export function manualCancelNoticeResultCode(code: ManualCancelNoticeFailureCode): string {
   return `manual_cancel_notice_${code}`;

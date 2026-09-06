@@ -42,7 +42,9 @@ import {
 
 // 🔴 `?r=` 是這一批頁面**唯一共用**的結果參數(`apps/admin/src/app/orders/[id]/page.tsx` 讀它)。
 //    ⛔ ~~我第一版自己發明了 `?mcn=`~~ —— 那個參數**沒有任何人在讀**
-//    ⇒ 📌 13 個碼一個都不會顯示, 而按鈕看起來就像沒反應。code-reviewer 2026-09-06 抓到。
+//    ⇒ 📌 **12 個碼一個都不會顯示**, 而按鈕看起來就像沒反應。code-reviewer 2026-09-06 抓到。
+//    ⛔ ~~13 個碼~~ 🔴 R2 nit 訂正 —— 那個 13 是我**加出來的不是數出來的**(把已經拿掉的
+//       成功碼 `ok` 一起算了)。🔬 數法:`grep -c "manualCancelNoticeResultCode('" <messages 檔>` ⇒ **12**。
 const RESULT_PARAM = 'r';
 
 /** 失敗才回碼。**成功不回** —— 理由在 messages 那支檔(`?r=` 偽造得出來, 假綠字最危險)。 */
