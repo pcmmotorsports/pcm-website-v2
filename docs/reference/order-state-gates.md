@@ -433,6 +433,14 @@
 
 `:336` IF v_ps NOT IN ('paid', 'partiallyRefunded', 'refunded') THEN<br>`:369` UPDATE public.orders SET payment_status = v_target::public.payment_status
 
+### `(檔案層 DO block / 非函式內)`  ·  `20260906600000_m4b_expire_day_boundary.sql`
+
+**改什麼狀態**
+
+`:310` SET cancelled_at     = pg_catalog.now(),
+
+**允許集合** — 🔴 **本函式體內零命中**(字面比對)⇒ 要嘛它沒有狀態閘、要嘛閘的寫法本腳本抓不到。**開檔確認,不要當成「沒有閘」。**
+
 ---
 
 ## 三、自測:本表答得出「已付款的單能不能取消品項」嗎?

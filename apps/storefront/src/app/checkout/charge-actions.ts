@@ -95,6 +95,11 @@ const MSG = {
   //    `PCM_REMITTANCE_*` 常數, 由 **front 片 2** 的匯款資訊頁印。
   //    🛑 在這裡寫第二份 ⇒ 兩份會各自漂, 而**漂掉時客人拿到錯的帳號**。
   awaitingRemittance: '訂單已成立,尚未付款;請依匯款資訊完成轉帳',
+  // 🔴🔴 ⟦b4-BANKCARDRACE⟧ **這一句是 Sean 2026-09-06 的【原字面】, 不要改、不要加字。**
+  //    他答 `Q-同車兩單文案 = 乙`, 而字面逐字是「該訂單已付款完成」。
+  //    🛑 我上一次在同族的字面上加過兩個字(「多付, 待人工【處理】」), 而那兩個字是我加的
+  //       ⇒ 📌 **選項的文字是我們寫的, 而【他挑的那一句】是他的。**
+  cartAlreadyPaid: '該訂單已付款完成',
 } as const;
 
 /**
@@ -595,6 +600,23 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     // 🔴 Q2=A 通用字面、零原始 error 透傳。走到此處的 throw 全屬零扣款路徑
     // (cardholder repo / placeOrder RPC / findTotal / attempts.begin;charge 之後的失敗
     //  已由 confirmPayment 收斂為 outcome、不 throw)→「請稍後再試」誠實且安全。
+    // 🔴 ⟦b4-BANKCARDRACE⟧ 同一個購物車已經有一張付款成功的單 ⇒ 把 DB 那句話翻成人話。
+    //    來源:`20260906500000` 的守門 `RAISE … USING ERRCODE = 'P0002'`,
+    //    字面 `create_order: 這個購物車已經有一張付款成功的訂單(pcm_cart_already_paid)`。
+    //
+    // 🔴🔴 **兩把尺一起認, 而那不是保險是必要的**:`P0002` 在 PostgreSQL 裡是
+    //    **`no_data_found` 的標準碼** —— 它不是我們專屬的。
+    //    🔬 今天它撞不到:兩支 `create_order` 的本體 `INTO STRICT` 命中 **0**
+    //      (那是 plpgsql 自然拋 `P0002` 的來源), 而全 repo 只有 `20260906500000` 用這個碼。
+    //    🛑 **而「今天撞不到」不是「不會撞到」** —— `create_order` 會呼叫別的函式(例如
+    //      `redeem_coupon`), 那些函式哪天用了 `INTO STRICT` 就會拋同一個碼,
+    //      而客人會看到一句**與事實無關**的「該訂單已付款完成」。
+    //    ⇒ ✅ 所以**再認一次那個固定字面** —— 那正是 migration 刻意把
+    //      `pcm_cart_already_paid` 寫死在訊息裡的用途。改它 = 改一個呼叫端在比對的東西。
+    const rpcErrorMessage = String((err as { message?: unknown } | null)?.message ?? '');
+    if (rpcErrorCode === 'P0002' && rpcErrorMessage.includes('pcm_cart_already_paid')) {
+      return { formError: MSG.cartAlreadyPaid };
+    }
     return { formError: MSG.generic };
   }
 }
