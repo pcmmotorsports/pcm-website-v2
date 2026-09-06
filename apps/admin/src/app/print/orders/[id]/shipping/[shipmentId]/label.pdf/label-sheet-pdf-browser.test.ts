@@ -42,9 +42,14 @@ const MM = 96 / 25.4; // CSS px per mm
 
 let browser: Browser | null = null;
 const getBrowser = async (): Promise<Browser> => (browser ??= await chromium.launch());
+// 🔴🔴 **`afterAll` 也要給 timeout —— 而這是量出來的, 不是保險**(front `145e4b5cf` 2026-09-06):
+//   `Error: Hook timed out in 10000ms.` 指在 `afterAll` 的 `browser?.close()` ——
+//   機器有負載時關 chromium 會超過 vitest 預設的 10s。
+//   🛑 **而它的症狀是【檔級 FAIL 而零測項紅】** ⇒ 看起來像「這支檔壞了」, 而每一格其實都過了。
+//   ✅ `beforeAll` 早就有 `60_000` 了, 而 `afterAll` 沒有 —— **那個不對稱就是這個 bug。**
 afterAll(async () => {
   await browser?.close();
-});
+}, 60_000);
 
 /** 走整條真鏈:整包 raw → 那張圖 → 版面 → HTML。 */
 function sheetHtml(count: number, sheet: 'single' | 'a4-2x3', startAt?: number): string {

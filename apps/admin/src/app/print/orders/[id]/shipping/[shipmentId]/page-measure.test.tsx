@@ -1006,12 +1006,17 @@ describe('🔴 出貨明細單 · 分支B 的兩道版面守門(真 PDF + 逐頁
     if (__browser === null) __browser = await chromium.launch();
     return __browser;
   }
+  // 🔴🔴 **`afterAll` 也要給 timeout —— 而這是量出來的, 不是保險**(front `145e4b5cf` 2026-09-06):
+  //   `Error: Hook timed out in 10000ms.` 指在 `afterAll` 的 `browser?.close()` ——
+  //   機器有負載時關 chromium 會超過 vitest 預設的 10s。
+  //   🛑 **而它的症狀是【檔級 FAIL 而零測項紅】** ⇒ 看起來像「這支檔壞了」, 而每一格其實都過了。
+  //   ✅ `beforeAll` 早就有 `60_000` 了, 而 `afterAll` 沒有 —— **那個不對稱就是這個 bug。**
   afterAll(async () => {
     if (__browser !== null) {
       await __browser.close();
       __browser = null;
     }
-  });
+  }, 60_000);
 
   /** 把一份 HTML 印成 PDF、再抽出**每一頁的字**。 */
   async function pagesOf(html: string): Promise<string[]> {
