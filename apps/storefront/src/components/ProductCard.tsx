@@ -20,7 +20,7 @@ import { MAX_QTY, useCart } from '@/contexts/CartContext';
 import { useFavorites } from '@/contexts/FavoritesContext';
 import { readSearchVehicle } from '@/lib/search-vehicle';
 import { Price } from './Price';
-import { formatCardFits } from './product-card-fits';
+import { formatCardFits } from '@/lib/product-card-fits';
 import { ProductImage } from './ProductImage';
 
 // 2026-08-12 拆檔(鐵則 6:本檔曾 360 行、過 300 警戒):圖區 `ProductImage` 與它三個
@@ -258,7 +258,41 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
       </div>
 
       <div className="pcard-info">
-        <div className="pcard-brand">{p.brand}</div>
+        {/* 🔴 **料號放品牌右邊、同字級同 mono**(Sean 2026-09-06 逐字
+            「品牌右邊 加上該商品料號 如變成 "RIZOMA     AZ203" 文字大小都跟RIZOMA一樣」)。
+            🔵 **鐵則 1:稿上【沒有】這個** —— `design-reference/components/ProductCard.jsx`
+            `sku|料號|partNo` **0 命中**(分母 176 檔);OD `pcm-home-redesign/products-list-page.html`
+            也 **0**(該專案全樹 189 命中 / 1442 檔 = 正對照, 尺會動, 只是不在卡片上)
+            ⇒ 查無 ⇒ 照 Sean 這句做, 兩版截圖已交他選, 他拍**甲(品牌右)**。
+            🔴🔴 **`productCode` 不是每條讀路徑都餵得到** —— `/products` 目錄與品牌頁走 RPC
+            `search_catalog_by_vehicle` → `catalog-page.ts` 的 `catalogRowToUIProduct`,
+            **那支 mapper 沒有這一欄**(與 `variantCount` 同一個形狀, 見本檔 `:99`)
+            ⇒ 那兩面今天會是 `undefined` ⇒ **不渲染那個 span, 而不是渲染一個空的**。
+            ⚠️ **⇒ 過渡期會不一致:首頁看得到料號、目錄看不到**(db 在 RPC 多投一欄之後才會一致)。
+            🛑 **版面安全不靠「料號很短」這個假設** —— 而規則是**三段**, 不是兩段:
+            ⛔ ~~品牌名 `min-width:0` + truncate, 料號 `flex-shrink:0` ⇒ 擠的時候先切品牌名, **料號永遠完整**~~
+            ⇒ 🔴 **那兩句都被量翻了**(2026-09-06 R1/R2, 正式庫唯讀實測):
+              ①`max(length(external_id))` = **65** 而它沒有空白可斷行 ⇒ `flex-shrink:0` 會**溢出卡片**
+              ②`min-width:0` + `flex-shrink:9999` 會把品牌名**壓到 0px 整格消失**(門檻 = 料號 24 字)
+            ✅ **現行三段**:`display:flex` · 品牌名 `min-width:5ch` + `flex-shrink:9999` · 料號 `min-width:0`
+              ⇒ **品牌名先讓、而讓到 5ch 為止;料號最後才截。兩邊都不會消失, 也不會撐破卡片。**
+            📌 料號是客人拿來對零件的東西, 品牌名他看得出來 —— **而「看得出來」的前提是它還在。** */}
+        <div className="pcard-brand">
+          <span className="pcard-brand-name">{p.brand}</span>
+          {/* 🔴 **中間那個空白是必要的, 不是排版** —— 沒有它 `.pcard-brand` 的 `textContent`
+              會是 `RIZOMAAZ203`(gap 只是視覺, 不進文字層)⇒ ①螢幕閱讀器連著念
+              ②任何對這一格做**完全相等**斷言的測試會紅在一個看不出原因的地方
+              (`account/tabs/OverviewTab.test.tsx:222` 就是 `.toBe('RIZOMA')`,
+               今天綠只因為那顆 fixture 沒有料號)。 */}
+          {p.productCode ? (
+            <>
+              {/* 🔴 `{' '}` 不是 `<> </>` 裡的裸空白 —— 後者**只要有人或 prettier 把這行折行,
+                  那個空白就會被靜靜刪掉**(JSX 會 trim 換行邊界的空白)。`{' '}` 是折行安全的形狀。 */}
+              {' '}
+              <span className="pcard-code">{p.productCode}</span>
+            </>
+          ) : null}
+        </div>
         <div className="pcard-name">{p.name}</div>
         {/* S4:同名不同年商品在卡片可區分 —— 單款顯示年份 '18–'24、多款顯示「N 款車型」;
             缺年份降級只顯車款。前綴「適用 」保留 design 字面。 */}

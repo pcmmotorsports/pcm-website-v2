@@ -1,0 +1,168 @@
+# codex 對抗審查 R1 · ⟦b4-EXPIREDAYBOUND⟧ 匯款到期日界 · 2026-09-06
+
+🔴 **這是【裁剪過】的版本 —— 原始 session log 共 6368 行 / 約 963 KB, 只留最後 160 行(結論與 findings)。**
+⚠️ **被裁掉的那些【沒有保留】** —— 那是 codex 逐檔閱讀的過程軌跡, 一次性的。
+   要複驗某一條 finding ⇒ 照它給的 `檔案:行號` 自己開檔, 不要指望這份檔裡有更多。
+📌 為什麼裁:三份原始 log 合計 7.4 MB, 而它們會進 repo 並被每一個 clone 帶著走。
+
+---
+
+mcp: codex_apps/supabase.execute_sql started
+mcp: codex_apps/supabase.execute_sql (completed)
+已完成本地 Git/來源/測試/文件交叉核對，並以唯讀 Supabase catalog 確認正式庫仍是舊時戳版；已整理可重現的失敗輸入與無法擊破的方向。
+  ✓ 核對 repo 現況、審查規約與記憶線索
+  ✓ 逐檔審 SQL 述詞、時區、閘門、事後斷言與 rollback
+  ✓ 核對 domain 文案、測試、plan/board 宣稱與來源事實
+  ✓ 全 repo 搜尋漏掉的到期日連動面並整理 findings
+exec
+/bin/zsh -lc "measure_reviewed(){ for f in supabase/migrations/20260906600000_m4b_expire_day_boundary.sql supabase/migrations/20260904230000_m4b_noncardpaid_settle_and_expire_leg.sql docs/specs/2026-09-06-expire-day-boundary-ROLLBACK.sql docs/plans/2026-09-06-remittance-expire-day-boundary-plan.md scripts/probe-expire-day-boundary.sh supabase/after-checks/20260906600000-expire-day-boundary-reconcile.sql packages/domain/src/order/remittance-info.ts packages/domain/src/order/remittance-info.test.ts docs/launch-todo.md; do printf '%s %s\\n' \""'$(md5 -q "$f")" "$f"; done; }; before_reviewed="$(measure_reviewed)"; after_reviewed="$(measure_reviewed)"; test "$before_reviewed" = "$after_reviewed" && printf '"'reviewed-content-stable=yes\\n'; git rev-parse HEAD; git stash list | wc -l; git status --short --branch" in /Users/sean_1/pcm-wt-account
+2026-09-06T06:00:01.408035Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `base_instructions` at line 132 column 5
+ succeeded in 123ms:
+## agent/line-account-cardcancel...origin/dev [ahead 3]
+ M docs/launch-todo.md
+ M packages/domain/src/order/remittance-info.test.ts
+?? docs/specs/2026-09-06-expire-day-boundary-ROLLBACK.sql
+?? scripts/probe-expire-day-boundary.sh
+?? supabase/after-checks/20260906600000-expire-day-boundary-reconcile.sql
+?? supabase/migrations/20260906600000_m4b_expire_day_boundary.sql
+
+codex
+**結論：FAIL。先不要貼板 53。**
+
+**Findings**
+
+- `docs/launch-todo.md:342` — **must-fix**  
+  看板宣稱「碼在 dev」，但四支核心檔仍是 `agent/line-account-cardcancel` 的未追蹤檔，`HEAD`、`dev`、`origin/dev` 都沒有它們。
+
+- `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:55-72` — **must-fix**  
+  前置閘只找散落 token；若正式函式已把 attempt 條件由 `<> 'failed'` 改成 `= 'failed'`，這些 token 仍全在，migration 會通過並把未知修補覆蓋掉。
+
+- `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:55-58,307-310` — **must-fix**  
+  只用 schema＋`proname`，未鎖定 `(integer)` 簽章；同名多載存在時會任選一列，可能拿錯函式通過前置或事後斷言。
+
+- `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:64,314` — **must-fix**  
+  regexp 不剝 `/* ... */`，卻會把字串常值內的 `--` 當註解；特徵只放區塊註解可假綠，合法字串後同一行的真 SQL 又可能被誤剝。
+
+- `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:317-337` — **must-fix**  
+  把 `date_trunc('day',...)` 改成 `date_trunc('minute',...)`，其餘 token 不動，斷言仍全過；9/5 12:34 下單會變成 9/11 12:34 才取消，不是 00:00。
+
+- `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:345-349` — **must-fix**  
+  ⑧只問硬編的不存在字串，正常情況恆為假；⑦的搜尋字若拼錯而永遠命不中，⑧仍照樣通過，證明不了⑦有效。
+
+- `packages/domain/src/order/remittance-info.test.ts:149-177` — **must-fix**  
+  測試讀含註解的整份 SQL；把正確舊行註解掉、實際改用 `date_trunc('minute')`，正向 token 仍命中，負對照也沒有檢查 `minute`，整組可假綠。
+
+- `supabase/after-checks/20260906600000-expire-day-boundary-reconcile.sql:3-17` — **must-fix**  
+  目標函式不存在時 CTE 回零列、查詢仍成功，五格完全不印；同名多載則可能印多列，兩種情況都沒有斷言擋住。
+
+- `scripts/probe-expire-day-boundary.sh:117-133` — **must-fix**  
+  migration 失敗、冪等重貼失敗或負對照沒擋住都只會印結果，不會令腳本失敗；最終仍可能 `rc=0`，所以板列的「可重跑證明」不可信。
+
+- `scripts/probe-expire-day-boundary.sh:73-83` — **must-fix**  
+  fixture 吃真實現在時間；若在台北 23:30 跑，`b_late` 已超過舊版五天，舊世界會取消 5 張而非宣稱的 4 張。
+
+- `scripts/probe-expire-day-boundary.sh:25-26,97-139` — **must-fix**  
+  trap 只清 `$SP`；Postgres 啟動後任何中途失敗都會留下 `/tmp/pcm-probe-expbnd`，甚至留下仍監聽的資料庫行程。
+
+- `packages/domain/src/order/remittance-info.ts:90-104` — **must-fix**  
+  輸入 `1946-05-10T15:30:00Z` 時 TS 加 120 小時後顯示「5 月 16 日（含）」，SQL 卻在 5/16 00:00 取消；00:00–00:30 已取消但文案仍說當天有效。
+
+- `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:154-159` — **must-fix**  
+  同一歷史 DST 輸入下新界比舊界早 30 分鐘，不是宣稱的 `(0, 1 day]`；「沒有任何一張提早取消」與「最多多活 24 小時」都不是全域事實。
+
+- `docs/plans/2026-09-06-remittance-expire-day-boundary-plan.md:67` — **must-fix**  
+  plan 說 TS 算「台北日曆日＋5天」，實作其實是「絕對時間＋120小時後取台北日期」；台北歷史 DST 及未來若恢復 DST 就會分岔。
+
+- `docs/specs/2026-09-06-expire-day-boundary-ROLLBACK.sql:174-194` — **must-fix**  
+  還原斷言也只查散落 token；把還原函式的 attempt 或淨額邏輯改壞，只要舊時間述詞與三個 token 還在，仍會宣稱還原完成。
+
+- `packages/domain/src/order/remittance-info.ts:70-85,116-117` — **nit**  
+  註解仍把舊時戳比較描述成現況；2026-09-05 12:00 下單的新行為是 9/11 00:00 取消，不是 9/10 12:00 後可能取消。
+
+- `apps/storefront/src/components/account/OrderDetailView.tsx:645-647,739-745` — **nit**  
+  第二個消費端也保留舊 cron 說明；執行者日後照這段維護，會重新把文案與新日界判準拆開。
+
+- `apps/storefront/src/components/CheckoutStep2.tsx:330-349` — **nit**  
+  9/5 00:01 下單可活到 9/10 23:59，接近 6×24 小時，畫面仍說「下單後 5 天內」；Sean 已拍「字不用改」，但應標成核准的近似文案，不應再稱精確事實。
+
+- `docs/plans/2026-09-06-remittance-expire-day-boundary-plan.md:3,113-125` — **nit**  
+  plan 仍寫「等主視窗批」並保留待裁兩題，但 `account-002-ACK.md:3` 已記錄 plan 批准、兩題皆甲。
+
+**打不破的方向**
+
+- NULL／白名單外 channel：外層 `IN (...)` 已先濾掉，且欄位有 `NOT NULL`；沒有找到會多取消的輸入。
+- 現行 SQL 時區方向正確：先轉台北本地時間、截日、再轉回 `timestamptz`，不受 session `TimeZone` 改變；跨月、跨年、閏日也成立。
+- 還原檔本體確實把上一代函式 143 行與 COMMENT 12 行逐字帶回；壞的是它的自我斷言，不是目前這份還原內容。
+- 正式庫唯讀確認仍是舊版：`db_timezone=UTC`、`cron_timezone=GMT`、精確簽章一支、`Asia/Taipei=false`、舊述詞=true。
+- 全 repo 未找到另一支正在執行的到期日計算 cron/view；信件與訂單頁確實共用 `remittanceDeadlineSentence()`。本次未修改任何檔案。
+tokens used
+265,669
+**結論：FAIL。先不要貼板 53。**
+
+**Findings**
+
+- `docs/launch-todo.md:342` — **must-fix**  
+  看板宣稱「碼在 dev」，但四支核心檔仍是 `agent/line-account-cardcancel` 的未追蹤檔，`HEAD`、`dev`、`origin/dev` 都沒有它們。
+
+- `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:55-72` — **must-fix**  
+  前置閘只找散落 token；若正式函式已把 attempt 條件由 `<> 'failed'` 改成 `= 'failed'`，這些 token 仍全在，migration 會通過並把未知修補覆蓋掉。
+
+- `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:55-58,307-310` — **must-fix**  
+  只用 schema＋`proname`，未鎖定 `(integer)` 簽章；同名多載存在時會任選一列，可能拿錯函式通過前置或事後斷言。
+
+- `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:64,314` — **must-fix**  
+  regexp 不剝 `/* ... */`，卻會把字串常值內的 `--` 當註解；特徵只放區塊註解可假綠，合法字串後同一行的真 SQL 又可能被誤剝。
+
+- `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:317-337` — **must-fix**  
+  把 `date_trunc('day',...)` 改成 `date_trunc('minute',...)`，其餘 token 不動，斷言仍全過；9/5 12:34 下單會變成 9/11 12:34 才取消，不是 00:00。
+
+- `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:345-349` — **must-fix**  
+  ⑧只問硬編的不存在字串，正常情況恆為假；⑦的搜尋字若拼錯而永遠命不中，⑧仍照樣通過，證明不了⑦有效。
+
+- `packages/domain/src/order/remittance-info.test.ts:149-177` — **must-fix**  
+  測試讀含註解的整份 SQL；把正確舊行註解掉、實際改用 `date_trunc('minute')`，正向 token 仍命中，負對照也沒有檢查 `minute`，整組可假綠。
+
+- `supabase/after-checks/20260906600000-expire-day-boundary-reconcile.sql:3-17` — **must-fix**  
+  目標函式不存在時 CTE 回零列、查詢仍成功，五格完全不印；同名多載則可能印多列，兩種情況都沒有斷言擋住。
+
+- `scripts/probe-expire-day-boundary.sh:117-133` — **must-fix**  
+  migration 失敗、冪等重貼失敗或負對照沒擋住都只會印結果，不會令腳本失敗；最終仍可能 `rc=0`，所以板列的「可重跑證明」不可信。
+
+- `scripts/probe-expire-day-boundary.sh:73-83` — **must-fix**  
+  fixture 吃真實現在時間；若在台北 23:30 跑，`b_late` 已超過舊版五天，舊世界會取消 5 張而非宣稱的 4 張。
+
+- `scripts/probe-expire-day-boundary.sh:25-26,97-139` — **must-fix**  
+  trap 只清 `$SP`；Postgres 啟動後任何中途失敗都會留下 `/tmp/pcm-probe-expbnd`，甚至留下仍監聽的資料庫行程。
+
+- `packages/domain/src/order/remittance-info.ts:90-104` — **must-fix**  
+  輸入 `1946-05-10T15:30:00Z` 時 TS 加 120 小時後顯示「5 月 16 日（含）」，SQL 卻在 5/16 00:00 取消；00:00–00:30 已取消但文案仍說當天有效。
+
+- `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:154-159` — **must-fix**  
+  同一歷史 DST 輸入下新界比舊界早 30 分鐘，不是宣稱的 `(0, 1 day]`；「沒有任何一張提早取消」與「最多多活 24 小時」都不是全域事實。
+
+- `docs/plans/2026-09-06-remittance-expire-day-boundary-plan.md:67` — **must-fix**  
+  plan 說 TS 算「台北日曆日＋5天」，實作其實是「絕對時間＋120小時後取台北日期」；台北歷史 DST 及未來若恢復 DST 就會分岔。
+
+- `docs/specs/2026-09-06-expire-day-boundary-ROLLBACK.sql:174-194` — **must-fix**  
+  還原斷言也只查散落 token；把還原函式的 attempt 或淨額邏輯改壞，只要舊時間述詞與三個 token 還在，仍會宣稱還原完成。
+
+- `packages/domain/src/order/remittance-info.ts:70-85,116-117` — **nit**  
+  註解仍把舊時戳比較描述成現況；2026-09-05 12:00 下單的新行為是 9/11 00:00 取消，不是 9/10 12:00 後可能取消。
+
+- `apps/storefront/src/components/account/OrderDetailView.tsx:645-647,739-745` — **nit**  
+  第二個消費端也保留舊 cron 說明；執行者日後照這段維護，會重新把文案與新日界判準拆開。
+
+- `apps/storefront/src/components/CheckoutStep2.tsx:330-349` — **nit**  
+  9/5 00:01 下單可活到 9/10 23:59，接近 6×24 小時，畫面仍說「下單後 5 天內」；Sean 已拍「字不用改」，但應標成核准的近似文案，不應再稱精確事實。
+
+- `docs/plans/2026-09-06-remittance-expire-day-boundary-plan.md:3,113-125` — **nit**  
+  plan 仍寫「等主視窗批」並保留待裁兩題，但 `account-002-ACK.md:3` 已記錄 plan 批准、兩題皆甲。
+
+**打不破的方向**
+
+- NULL／白名單外 channel：外層 `IN (...)` 已先濾掉，且欄位有 `NOT NULL`；沒有找到會多取消的輸入。
+- 現行 SQL 時區方向正確：先轉台北本地時間、截日、再轉回 `timestamptz`，不受 session `TimeZone` 改變；跨月、跨年、閏日也成立。
+- 還原檔本體確實把上一代函式 143 行與 COMMENT 12 行逐字帶回；壞的是它的自我斷言，不是目前這份還原內容。
+- 正式庫唯讀確認仍是舊版：`db_timezone=UTC`、`cron_timezone=GMT`、精確簽章一支、`Asia/Taipei=false`、舊述詞=true。
+- 全 repo 未找到另一支正在執行的到期日計算 cron/view；信件與訂單頁確實共用 `remittanceDeadlineSentence()`。本次未修改任何檔案。
+rc=0

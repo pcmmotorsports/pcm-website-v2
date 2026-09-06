@@ -156,6 +156,9 @@ const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   searchLogTableExists: null,
   searchLogLastRowAt: null,
   searchLogStale: false,
+  /** 🟡 第六欄(2026-09-06):`null` = 表不在 / 從未 analyze ⇒ 不告警(這一族既有的那條路)。 */
+  searchLogRowsEstimate: null,
+  searchLogRowsHigh: false,
   syncStaleOpen: 0,
   syncStaleSuppliers: [],
   syncOpenRecent: 0,
@@ -372,6 +375,14 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
   it('checkAnomalyAlerts 收 route 端常數 refundingStuckSeconds=86400 + pending 雙扣窗 12h/卡住 10min', async () => {
     await GET(makeReq(bearer()));
     expect(checkSpy).toHaveBeenCalledWith(expect.anything(), {
+      /**
+       * 🟡 **搜尋語料表列數告警門檻(2026-09-06;主視窗 `-f1` 裁 5,000)。**
+       *   ✅ **這一格又是被上面那道【完整物件比對】逼出來的** —— 我加 option 的時候它紅了。
+       *   本檔沒設 `SEARCH_LOG_ROWS_ALERT` ⇒ 走預設 5000。
+       *   🔬 5,000 的依據:線【資料】`-03` 2026-09-06 正式庫唯讀單發 —— 總 36 列 / 24h 28 列
+       *     ⇒ 5,000 ≈ 半年正常量 ⇒ 一天內到得了的只有灌入。
+       */
+      searchLogRowsAlertThreshold: 5000,
       refundingStuckSeconds: 86400,
       pendingDoubleChargeWindowSeconds: 43200,
       pendingDoubleChargeStuckSeconds: 600,
@@ -648,6 +659,41 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
     errSpy.mockRestore();
     infoSpy.mockRestore();
     delete process.env.SHIPPED_EMAIL_CUTOFF;
+  });
+
+  /**
+   * ══ 🟡 `SEARCH_LOG_ROWS_ALERT` 的壞值(2026-09-06;R1 nit ④ 點名這四種零測試)══════
+   * 🔴 **為什麼壞值比好值重要**:門檻若被解析成 `NaN`, `任何值 >= NaN` 都是 **false**
+   *   ⇒ 那道告警**對每一個輸入都不觸發**, 而它不會 throw、不會 log、rc 是 0
+   *   ⇒ 🛑 **畫面與「一切正常」一模一樣, 而它最需要叫的那天也不會叫。**
+   *   (memory `reference_nan-threshold-silently-never-fires`)
+   * 🔴 而 `''` 是**反方向**的坑:`Number('')` 是 **0** 不是 NaN ⇒ 門檻變 0 ⇒ **永遠觸發**。
+   * ⇒ 📌 兩個方向都要有格子, 只驗一邊會漏掉另一邊。
+   */
+  it.each([
+    ['空白', '   '],
+    ['非數字', 'abc'],
+    ['零(合法數字而不是合法門檻)', '0'],
+    ['負數', '-5'],
+    ['溢位成 Infinity', '1e400'],
+  ])('🔴 SEARCH_LOG_ROWS_ALERT = %s ⇒ 回預設 5000(不得讓 NaN / 0 流下去)', async (_label, raw) => {
+    process.env.SEARCH_LOG_ROWS_ALERT = raw;
+    await GET(makeReq(bearer()));
+    expect(checkSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ searchLogRowsAlertThreshold: 5000 }),
+    );
+    delete process.env.SEARCH_LOG_ROWS_ALERT;
+  });
+
+  it('🟢 正對照:SEARCH_LOG_ROWS_ALERT = 1234 ⇒ 真的覆寫得掉(證明上面那五格不是恆 5000)', async () => {
+    process.env.SEARCH_LOG_ROWS_ALERT = '1234';
+    await GET(makeReq(bearer()));
+    expect(checkSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ searchLogRowsAlertThreshold: 1234 }),
+    );
+    delete process.env.SEARCH_LOG_ROWS_ALERT;
   });
 
   it('🔴 負對照:env 設成空白 ⇒ 仍然是 null(不得把空字串當成一個起始線)', async () => {

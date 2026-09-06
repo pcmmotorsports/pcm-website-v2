@@ -19,7 +19,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 ```
 預期:branch=`dev` / HEAD 對齊 STATUS.md。CURRENT 已標 ownership 的 dirty 可保留並繼續;無法解釋的 dirty、branch 不符或 HEAD 明顯矛盾才停下回報 Sean,不自行 reset/stash/清理。
 
-- **每 session 必讀**:`STATUS.md` + `docs/handoff/CURRENT.md` + 本工作直接相關的 handoff/PRD;權限、分工或政策不確定時再讀 `docs/ops/AI_CONTRACT.md`。Codex 與 Claude 都可完整執行;任務明確寫審查時才唯讀。
+- **每 session 必讀**:`STATUS.md` + `docs/handoff/CURRENT.md` + 🔴 **今天的艦隊表 `~/pcm-mailbox/現在誰在做什麼-<當天日期>.md`(`ls` 沒有當天那支 ⇒ 當場建指標檔指到正本、不要搬正本;跨午夜【查無】與【今天沒有人在做事】印同一個東西)** + 本工作直接相關的 handoff/PRD;權限、分工或政策不確定時再讀 `docs/ops/AI_CONTRACT.md`。Codex 與 Claude 都可完整執行;任務明確寫審查時才唯讀。
 - **新 milestone / 接手陌生領域才加讀**:`docs/PHASE-1-NORTHSTAR.md` 全文、`docs/PROJECT-OVERVIEW.md`、`docs/PHASE-2-VISION.md`、相關 `docs/features/*.md`。
 - **陌生領域開工先掃盲點**:寫 plan 前先自問「這領域裡我和 Sean 可能都沒想到的坑/依賴/隱含決策是什麼」;盲區大就派 subagent 跑一輪、掌握得住就直接把問題清單附進 plan,自行判斷。
 - **禁止為「保險」通讀大檔**:用路由表,命中觸發條件才讀對應段落(讀不相關長檔 = 燒 token 也稀釋注意力)。
@@ -131,6 +131,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 - **「產生新檔→驗證→覆蓋」**:`cat > /tmp/x <<'EOF'` → `test -s /tmp/x || exit 1` → `mv /tmp/x target`。
 - **不假設非 macOS CLI 已裝**:`jq`/`yq` 用前 `command -v` 確認、或改 Python 內建。
 - **zsh nomatch**:glob 無匹配 exit 1、含 glob 加 `|| true` 或用 `find`;🔴 **而 zsh 【不】對未加引號的變數斷詞** ⇒ 迴圈一律 `while IFS= read -r`,禁 `for f in $VAR`、禁 `git add $P`。🔴 **射程 = 【你在終端機打的那一行】** —— 那裡是 zsh;而 `scripts/` 底下的 `.sh` 幾乎全是 bash/sh(**跑 zsh 的 0 支**)⇒ **那裡的 `for x in $VAR` 是【對的】,不要照本條去改它們。**⚠️ **而這不是放寬** —— **你打的每一行照樣禁**;補的是「別去改一批本來就對的檔」。
+- 🔴 **`"$ref:apps/…"` 在 zsh 安靜回 0**(`:a` = 參數修飾符)⇒ 大括號 `"${ref}:apps/…"`,雙引號救不了。📎 → `docs/patterns/zsh-and-bash-traps.md` §`git show "$ref:apps/…"` 在 zsh 安靜回 0
 - **CJK / str_replace 切策略**:見常載 `~/.claude/rules/00-work-rules.md` §5(單一權威,此處不重複)。
 📎 **每一條的實測數字、實錘、射程與已被訂正的舊字面 → `docs/patterns/zsh-and-bash-traps.md`**
 

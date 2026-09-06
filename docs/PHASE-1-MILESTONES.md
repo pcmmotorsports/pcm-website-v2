@@ -1,5 +1,33 @@
 # PCM Phase 1 Milestones(階段 1 MVP)
 
+> 🔴🔴 **[2026-09-06 · 本檔 2026-06-16 之後【沒有人動過】—— 現況看 `docs/launch-todo.md`]**
+>
+> 量測(worktree `ac51fc931`,tidy 窗當場跑):
+> ```
+> git log -1 --date=short -- docs/PHASE-1-MILESTONES.md  ⇒ 2026-06-16  b887c6207
+> grep -c '\- \[ \]' docs/PHASE-1-MILESTONES.md          ⇒ 45   未勾
+> grep -c '\- \[x\]' docs/PHASE-1-MILESTONES.md          ⇒  0   已勾
+> ```
+> 🛑 **要看的是那個 `0`,不是那個 `45`** —— 這三個月做完的事**一件都沒有回來勾**。
+> 📌 **⇒ 那 45 個框不是「還有 45 件事」,它是「沒有人在用這份檔」** ——
+> 　 而**一份沒人維護的清單,與一份 45 件都沒做的清單,在畫面上印同一個東西。**
+> ✅ **⇒ 要知道「離上線還剩什麼」⇒ 讀 `docs/launch-todo.md`**(有態欄、有錨、每天在動)。
+> ⚠️ **本次【不動那 45 個框】**(主視窗 `-f1` 2026-09-06 裁:只加本段)——
+> 　 逐框回補等於把三個月的歷史重跑一遍,而**回補之後它仍然沒有人維護**。
+> ✅ **[2026-09-06 已拍板 —— 不搬]** ⛔ ~~歸檔候選:本檔是否移進 `docs/archive/` ⇒ 等 Sean 拍板~~
+> Sean 2026-09-06 先答「搬」,而**在動手之前查到的事實把答案換掉了**,他改拍 `B`(不搬):
+> ```
+> 這份檔有兩半, 而只有一半是死的:
+>   死的 = 45 個驗收條件打勾框(0 個打勾, 2026-06-16 後零 commit)
+>   活的 = X.5 Slice 列表 —— `~/.claude/skills/pcm-roadmap/SKILL.md:32` 逐字「79 slice 結構真權威」
+> 另有 85 處引用指向本檔(含程式碼註解, 例 `packages/ports/src/ITapPayAdapter.ts:15`)
+>   數法 grep -rn 'PHASE-1-MILESTONES' --include='*.md' --include='*.ts' … . | grep -v node_modules | wc -l
+> 而 `CLAUDE.md` / `AGENTS.md` 對它【零命中】⇒ 不在開工必讀路由上
+> ```
+> 📌 **⇒ 搬走會把活的那一半一起搬走, 而且弄壞產地圖的工具。**
+> ⇒ 改成:**只把那 8 節驗收條件的打勾框標作廢**(見各節開頭), 結構那半一個字不動。
+
+
 > **狀態:** 🟢 已拍板、待 M-0 第一個 slice 動工
 > **作者:** Claude Code(`/writing-plans` skill 產出、依 Claude.ai feedback §4 修訂版)
 > **日期:** 2026-04-30
@@ -181,6 +209,14 @@ M-0 實際執行採跳號順序、不照 slice ID 數字排:
 若未來執行偏離本順序、busboy-end 會自動覆蓋 STATUS.md「下一步」段、本檔不必修。
 
 ### 3.6 驗收條件
+> 🔴 **[2026-09-06 · 本節這幾個打勾框【作廢】—— 不要照它們判進度]**(Sean 2026-09-06 拍 `B`)
+> 全檔 45 個框, **0 個打勾**(`grep -c '\- \[x\]' docs/PHASE-1-MILESTONES.md` ⇒ 0),
+> 而這三個月做完的事一件都沒有回來勾 ⇒ **它們記的不是「還沒做」, 是「沒有人在勾」。**
+> ✅ **現況看 `docs/launch-todo.md`**(有態欄、有錨、每天在動)。
+> 🔵 **而本檔【沒有】被作廢** —— 同一份檔的 `X.5 Slice 列表` 那半仍是**活的真權威**:
+>    `~/.claude/skills/pcm-roadmap/SKILL.md:32` 逐字「**79 slice 結構真權威**」⇒ 產進度地圖時會讀它。
+>    ⇒ 🛑 **作廢的是【驗收條件的打勾框】, 不是這份檔。兩者只差幾行, 不要一起丟。**
+
 
 - [ ] `pnpm install` 全綠、no warnings
 - [ ] `pnpm lint` 跑 ESLint 依賴規則、刻意違規 import 跳錯
@@ -257,6 +293,14 @@ M-0 實際執行採跳號順序、不照 slice ID 數字排:
 | M-1-16 | 種子資料 import:200 SKU 手動精選 + Sheets 一次性 import 腳本 | 45 min | 無 | M-1-03 |
 
 ### 4.6 驗收條件
+> 🔴 **[2026-09-06 · 本節這幾個打勾框【作廢】—— 不要照它們判進度]**(Sean 2026-09-06 拍 `B`)
+> 全檔 45 個框, **0 個打勾**(`grep -c '\- \[x\]' docs/PHASE-1-MILESTONES.md` ⇒ 0),
+> 而這三個月做完的事一件都沒有回來勾 ⇒ **它們記的不是「還沒做」, 是「沒有人在勾」。**
+> ✅ **現況看 `docs/launch-todo.md`**(有態欄、有錨、每天在動)。
+> 🔵 **而本檔【沒有】被作廢** —— 同一份檔的 `X.5 Slice 列表` 那半仍是**活的真權威**:
+>    `~/.claude/skills/pcm-roadmap/SKILL.md:32` 逐字「**79 slice 結構真權威**」⇒ 產進度地圖時會讀它。
+>    ⇒ 🛑 **作廢的是【驗收條件的打勾框】, 不是這份檔。兩者只差幾行, 不要一起丟。**
+
 
 - [ ] Vercel deploy 綠(pnpm 9.15+ 識別)
 - [ ] storefront 啟動、首頁 / 商品列表 / 商品詳情 / 登入 / 註冊 5 頁可瀏覽
@@ -324,6 +368,14 @@ M-0 實際執行採跳號順序、不照 slice ID 數字排:
 | M-2-09 | storefront: tier-aware price 顯示(server-side render、按 customer.tier 顯示對應價) | 45 min | 無 | M-2-08 |
 
 ### 5.6 驗收條件
+> 🔴 **[2026-09-06 · 本節這幾個打勾框【作廢】—— 不要照它們判進度]**(Sean 2026-09-06 拍 `B`)
+> 全檔 45 個框, **0 個打勾**(`grep -c '\- \[x\]' docs/PHASE-1-MILESTONES.md` ⇒ 0),
+> 而這三個月做完的事一件都沒有回來勾 ⇒ **它們記的不是「還沒做」, 是「沒有人在勾」。**
+> ✅ **現況看 `docs/launch-todo.md`**(有態欄、有錨、每天在動)。
+> 🔵 **而本檔【沒有】被作廢** —— 同一份檔的 `X.5 Slice 列表` 那半仍是**活的真權威**:
+>    `~/.claude/skills/pcm-roadmap/SKILL.md:32` 逐字「**79 slice 結構真權威**」⇒ 產進度地圖時會讀它。
+>    ⇒ 🛑 **作廢的是【驗收條件的打勾框】, 不是這份檔。兩者只差幾行, 不要一起丟。**
+
 
 - [ ] 一般會員看到 retail 價、店家會員看到 wholesale 價
 - [ ] client devtools 改 tier 不影響後端驗證(server 重新檢查)
@@ -390,6 +442,14 @@ M-0 實際執行採跳號順序、不照 slice ID 數字排:
 | M-3-11 | premium_store 自動升級邏輯(累積已出貨 ≥ NT$ 100,000、退款扣回) | 45 min | 無 | M-3-02 |
 
 ### 6.6 驗收條件
+> 🔴 **[2026-09-06 · 本節這幾個打勾框【作廢】—— 不要照它們判進度]**(Sean 2026-09-06 拍 `B`)
+> 全檔 45 個框, **0 個打勾**(`grep -c '\- \[x\]' docs/PHASE-1-MILESTONES.md` ⇒ 0),
+> 而這三個月做完的事一件都沒有回來勾 ⇒ **它們記的不是「還沒做」, 是「沒有人在勾」。**
+> ✅ **現況看 `docs/launch-todo.md`**(有態欄、有錨、每天在動)。
+> 🔵 **而本檔【沒有】被作廢** —— 同一份檔的 `X.5 Slice 列表` 那半仍是**活的真權威**:
+>    `~/.claude/skills/pcm-roadmap/SKILL.md:32` 逐字「**79 slice 結構真權威**」⇒ 產進度地圖時會讀它。
+>    ⇒ 🛑 **作廢的是【驗收條件的打勾框】, 不是這份檔。兩者只差幾行, 不要一起丟。**
+
 
 - [ ] Railway deploy 綠
 - [ ] domain/order test 8 狀態流轉跑通(in-memory)
@@ -463,6 +523,14 @@ apps/admin Next.js 後台上線、Sean 上線時就能處理客人訂單。三�
 | M-4a-13 | admin: 改金額紅線 UI(員工 disabled + 通知 Sean inbox) | 45 min | 無 | M-4a-06, M-4a-04 |
 
 ### 7.6 驗收條件
+> 🔴 **[2026-09-06 · 本節這幾個打勾框【作廢】—— 不要照它們判進度]**(Sean 2026-09-06 拍 `B`)
+> 全檔 45 個框, **0 個打勾**(`grep -c '\- \[x\]' docs/PHASE-1-MILESTONES.md` ⇒ 0),
+> 而這三個月做完的事一件都沒有回來勾 ⇒ **它們記的不是「還沒做」, 是「沒有人在勾」。**
+> ✅ **現況看 `docs/launch-todo.md`**(有態欄、有錨、每天在動)。
+> 🔵 **而本檔【沒有】被作廢** —— 同一份檔的 `X.5 Slice 列表` 那半仍是**活的真權威**:
+>    `~/.claude/skills/pcm-roadmap/SKILL.md:32` 逐字「**79 slice 結構真權威**」⇒ 產進度地圖時會讀它。
+>    ⇒ 🛑 **作廢的是【驗收條件的打勾框】, 不是這份檔。兩者只差幾行, 不要一起丟。**
+
 
 - [ ] Sean 登入 admin、看到三 tab 主畫面、紅綠燈正確
 - [ ] 商品 CRUD 跑通(新增 / 編輯 / 刪除)
@@ -528,6 +596,14 @@ apps/sync-engine Node.js daemon 上線(本機專屬電腦 24/7)、每小時讀 G
 | M-5-09 | daily summary email(cron 每天 9 AM 寄 Sean、含失敗 3 次紅字標) | 45 min | 無 | M-5-03 |
 
 ### 8.6 驗收條件
+> 🔴 **[2026-09-06 · 本節這幾個打勾框【作廢】—— 不要照它們判進度]**(Sean 2026-09-06 拍 `B`)
+> 全檔 45 個框, **0 個打勾**(`grep -c '\- \[x\]' docs/PHASE-1-MILESTONES.md` ⇒ 0),
+> 而這三個月做完的事一件都沒有回來勾 ⇒ **它們記的不是「還沒做」, 是「沒有人在勾」。**
+> ✅ **現況看 `docs/launch-todo.md`**(有態欄、有錨、每天在動)。
+> 🔵 **而本檔【沒有】被作廢** —— 同一份檔的 `X.5 Slice 列表` 那半仍是**活的真權威**:
+>    `~/.claude/skills/pcm-roadmap/SKILL.md:32` 逐字「**79 slice 結構真權威**」⇒ 產進度地圖時會讀它。
+>    ⇒ 🛑 **作廢的是【驗收條件的打勾框】, 不是這份檔。兩者只差幾行, 不要一起丟。**
+
 
 - [ ] sync-engine 在本機跑、每小時自動讀 Sheets
 - [ ] Sheets 加新 SKU → admin/products 待審核出現
@@ -582,6 +658,14 @@ apps/sync-engine Node.js daemon 上線(本機專屬電腦 24/7)、每小時讀 G
 | M-4b-03 | admin/inbox 改金額審核 workflow(員工提案 → Sean 批准 → 改價) | 45 min | 無 | M-4b-01 |
 
 ### 9.6 驗收條件
+> 🔴 **[2026-09-06 · 本節這幾個打勾框【作廢】—— 不要照它們判進度]**(Sean 2026-09-06 拍 `B`)
+> 全檔 45 個框, **0 個打勾**(`grep -c '\- \[x\]' docs/PHASE-1-MILESTONES.md` ⇒ 0),
+> 而這三個月做完的事一件都沒有回來勾 ⇒ **它們記的不是「還沒做」, 是「沒有人在勾」。**
+> ✅ **現況看 `docs/launch-todo.md`**(有態欄、有錨、每天在動)。
+> 🔵 **而本檔【沒有】被作廢** —— 同一份檔的 `X.5 Slice 列表` 那半仍是**活的真權威**:
+>    `~/.claude/skills/pcm-roadmap/SKILL.md:32` 逐字「**79 slice 結構真權威**」⇒ 產進度地圖時會讀它。
+>    ⇒ 🛑 **作廢的是【驗收條件的打勾框】, 不是這份檔。兩者只差幾行, 不要一起丟。**
+
 
 - [ ] 員工 API 直接打改金額 endpoint(繞過 UI)、server 拒絕並 log
 - [ ] 機器掛了、admin/machine 看得到錯誤日誌、能 restart
@@ -642,6 +726,14 @@ SEO meta + structured data + sitemap 全頁 day 1 起(NORTHSTAR §1.1)、E2E 主
 | M-6-08 | 上線前 checklist 走完(lessons-learned 規範 + 連續一週 lint / typecheck / build 三綠 + Supabase Pro 升級驗證 + search 切 tsvector + pg_jieba) | 90 min | 無 | M-6-05 / 06 / 07 |
 
 ### 10.6 驗收條件
+> 🔴 **[2026-09-06 · 本節這幾個打勾框【作廢】—— 不要照它們判進度]**(Sean 2026-09-06 拍 `B`)
+> 全檔 45 個框, **0 個打勾**(`grep -c '\- \[x\]' docs/PHASE-1-MILESTONES.md` ⇒ 0),
+> 而這三個月做完的事一件都沒有回來勾 ⇒ **它們記的不是「還沒做」, 是「沒有人在勾」。**
+> ✅ **現況看 `docs/launch-todo.md`**(有態欄、有錨、每天在動)。
+> 🔵 **而本檔【沒有】被作廢** —— 同一份檔的 `X.5 Slice 列表` 那半仍是**活的真權威**:
+>    `~/.claude/skills/pcm-roadmap/SKILL.md:32` 逐字「**79 slice 結構真權威**」⇒ 產進度地圖時會讀它。
+>    ⇒ 🛑 **作廢的是【驗收條件的打勾框】, 不是這份檔。兩者只差幾行, 不要一起丟。**
+
 
 - [ ] 所有頁面有正確 meta + OG + structured data(用 Google Rich Results Test 驗)
 - [ ] sitemap.xml 含所有 page、robots.txt 正確

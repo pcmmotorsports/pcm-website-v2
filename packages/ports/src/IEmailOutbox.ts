@@ -492,7 +492,25 @@ export type EnqueueShipmentTrackingCorrectedEmailInput = EnqueueEmailInputBase &
   trackingCorrectedKey: string;
 };
 
+/**
+ * 🔴 ⟦b4-BANKNOEMAIL⟧(2026-09-06):匯款單成立信。
+ * **三個金額/時間欄是本分支存在的理由** —— 那封信要印三行金額與一句期限,
+ * 而它們是**下單當下的快照**(R3-C1)⇒ 寄送當下不再查一次。
+ * 🛑 `dedupKey = orderId`(一單一封), 而**它與 `order_created` 是兩個 event_type**
+ *    ⇒ 兩封信各自有自己的一封, 不會互相擋掉。
+ */
+export type EnqueueBankOrderCreatedEmailInput = EnqueueEmailInputBase & {
+  eventType: 'bank_order_created';
+  /** 下單時刻(ISO)。期限句從它算。 */
+  createdAt: string;
+  /** `orders.total`。 */
+  total: number;
+  /** 應付餘額(來自 `order_balance_base_v` 那條唯一的規則)。 */
+  balanceDue: number;
+};
+
 export type EnqueueEmailInput =
+  | EnqueueBankOrderCreatedEmailInput
   | EnqueueOrderCreatedEmailInput
   | EnqueueOrderShippedEmailInput
   | EnqueueOrderCancelledEmailInput
@@ -601,6 +619,16 @@ export interface IEmailOutbox {
     id: string,
     claimedAttempts: number,
     sentTrackingNumber: string | null,
+    /**
+     * 🔴 ⟦b4-NOSENTBODY⟧(2026-09-06):provider 回的訊息 id, 拿不到傳 `null`。
+     * 🛑 **它只落 DB 那一欄** —— 不進 log、不進 sweep 的回傳統計、不進任何其他 sink
+     *    (主視窗 2026-09-06 裁 `Q2 = 甲`)。
+     * 🔴 **訂正(codex R1-#15)**:⛔ ~~「不進 result」~~ —— **那句字面是錯的**。
+     *    `SendEmailResult` 上**就帶著**它(`{ kind: 'sent', providerMessageId }`), 而那正是它
+     *    從 sender 走到這裡的**唯一**路徑。⇒ 📌 這道紀律管的是**它走到這裡之後不再往外**,
+     *    不是「它從來不在任何 result 上」——照舊字面去 grep 的人會以為送信那一層也不該帶它。
+     */
+    providerMessageId: string | null,
   ): Promise<boolean>;
 
   /**
@@ -643,6 +671,29 @@ export interface IEmailOutbox {
    *    🔴 **而今天沒有人在看這個比值** —— 那是欠帳, 不是漏做。
    */
   markSkippedOrderCancelled(id: string, claimedAttempts: number): Promise<boolean>;
+
+  /**
+   * 🔴 ⟦b4-BANKNOEMAIL⟧(2026-09-06):**寄送當下**發現這張單已經不該收到匯款成立信
+   * (已付款 / 已取消 / 管道變了 / 餘額算不出來或不再是正數)⇒ 跳過, 不寄。
+   *
+   * 🛑 **為什麼要【自己一支】而不是沿用 `markSkippedOrderIneligible`** —— 與
+   *    `markSkippedOrderCancelled` 同一個理由(主視窗 2026-08-24 裁乙):
+   *    沿用會讓上游那道閘變成**看不見的** ⇒ 📌 **兩層落同一個碼, 那個比值就永遠算不出來。**
+   * 🔵 `status` 借 `skipped_order_ineligible` 這個桶, **真相在 `last_error_code`**。
+   *
+   * 🔴🔴 **這一格是這封信的最後一道防線**:掃描是快照, 寄送是後來 ——
+   *    客人可能已經匯完了。少了它, 一個**剛剛付完錢**的客人會收到一封叫他去匯錢的信。
+   * ⚠️ **而它消不掉 race, 只縮小視窗** —— 重驗與真正送出之間仍有一段時間(plan §7)。
+   */
+  markSkippedBankOrderNotMailable(id: string, claimedAttempts: number): Promise<boolean>;
+
+  /**
+   * 🔴 ⟦b4-BANKNOEMAIL⟧:寄送當下發現**快照與現況不一致**(金額或收件人被改過)⇒ 跳過, 不寄。
+   * 🛑 **與 `markSkippedBankOrderNotMailable` 分開一個碼** —— 兩者答的是不同的問題:
+   *    前者 = 「這張單不該寄了」· 本支 = 「該寄, 而我手上這一份過期了」。
+   *    ⇒ 📌 混成一個碼, 「後台常改金額」與「客人常付完」就再也分不出來。
+   */
+  markSkippedBankOrderSnapshotStale(id: string, claimedAttempts: number): Promise<boolean>;
 
   /**
    * `sending → skipped_shipment_voided`(M-4b E4 片3a:出貨通知信在寄送當下去主表撈脈絡,

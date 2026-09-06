@@ -47,6 +47,10 @@ const row = (over: Record<string, unknown> = {}) => ({
   max_attempts: 5,
   created_at: '2026-09-02T02:55:00.315Z',
   sent_at: '2026-09-02T02:55:00.929Z',
+  // 🔵 ⟦mail-PROVMSGIDUI⟧ 2026-09-06 加。**`null` 是【欄位在而沒值】** ——
+  //    而 `nullableStr` 刻意把 `undefined`(select 漏撈)與 `null` 分開:
+  //    少了這一行, 三格會紅在 `provider_message_id 鍵不存在`, 而那正是那道守門要抓的東西。
+  provider_message_id: null,
   ...over,
 });
 

@@ -89,27 +89,34 @@ describe('搜尋那條路的計時量具', () => {
     //    而它壞掉的樣子是「什麼都找不到」= 與「那一行真的不見了」**印同一個紅**。
     // ✅ 改法:讀原文, 而**逐行**確認那一行不是被 `//` 註解掉的。
     const productsRaw = readFileSync(PRODUCTS, 'utf8');
+    // 🔴 **釘的是 `'[vehicleTaxonomy] cold '` 不含 `pages=`**(2026-09-06 改 RPC 之後)——
+    //   ⛔ ~~`'[vehicleTaxonomy] cold pages='`~~ 那個受詞已經沒有了:一發拿完, **沒有「頁」這個東西**。
+    //   🎯 **而這一格的【意圖】一個字都沒變**:那一行的存在就是「這一發是冷的」那個判準。
+    //     ⇒ 📌 **釘意圖不釘實作** —— 釘到 `pages=` 等於把「怎麼拿資料」也一起釘死了。
     const liveLine = productsRaw
       .split('\n')
-      .find((ln) => ln.includes('[vehicleTaxonomy] cold pages=') && !ln.trimStart().startsWith('//'));
+      .find((ln) => ln.includes('[vehicleTaxonomy] cold ') && !ln.trimStart().startsWith('//'));
     expect(liveLine, '[vehicleTaxonomy] 那一行不見了(或被註解掉了)⇒ 冷暖就再也看不到').toBeTruthy();
-    // 🔴🔴 **`first=` 與 `restAvg=` 這兩個數是承重的**(2026-09-05)——
-    //    它們要回答的是「那 945ms/頁 的固定成本住在【第一發】還是【每一發】」:
-    //      first ≫ restAvg ⇒ 住在連線層(一次)⇒ RPC 一次往返的收益很大
-    //      兩者相近       ⇒ 每一頁都在付      ⇒ 收益小很多, 整個 RPC 案要重估
-    //    🛑 少了任何一個, 那個問題就【只能用猜的】—— 而我先前就是只能寫「四個候選都沒量」。
-    for (const k of ['first=', 'restAvg=']) {
-      expect(productsRaw, `${k} 不見了 ⇒ 「固定成本住在哪一發」就再也判不出來`).toContain(k);
-    }
+    // 🔵 **新約定:那一行必須帶 `n=`** —— 它是「這一發拿到幾列」, 而少了它, 一行只印 `cold ms=…`
+    //   的 log 分不出「快取沒中」與「拿到一份空的」。
+    expect(liveLine, 'n= 不見了 ⇒ 冷的那一發拿到幾列就看不到了').toContain('n=');
+    // ⛔⛔ **[主詞已消失 · 2026-09-06]** 這裡原本釘 `first=` 與 `restAvg=`:
+    //   ~~它們要回答「那 945ms/頁 的固定成本住在【第一發】還是【每一發】」~~
+    //   🔴 **改成一發 RPC 之後, 那個問題【不存在了】** —— 只有一次往返, 沒有「之後那幾頁」可以比。
+    //   🛑 **所以這兩個釘樁不是過期, 是它們問的那件事被解決掉了** ——
+    //     ⇒ 不改成別的字面(改了會變成為了讓測試有事做而發明一個問題)。
+    //   📎 那兩個數當時的讀數與結論留在 `products.ts` 的 `[已作廢]` 標頭裡。
     const products = productsRaw;
     expect(products, '找不到那支 cached loader ⇒ 這一格沒有判別力').toContain(
       'const getVehicleTaxonomyCached = unstable_cache(',
     );
     // 🛑 釘「它在內側」:那一行必須出現在 `unstable_cache(` 之後、而且在同一個 call 的參數裡
-    //    —— 用「它在 `['vehicle-taxonomy-v3']` 那個 key 之前」來釘(那是該 call 的第二參數)。
+    //    —— 用「它在那個 cache key 之前」來釘(那是該 call 的第二參數)。
+    //   🔵 **key 的版本號【不寫死在這裡】**(2026-09-06):它 v3 → v4 換過一次, 而**換鍵是正常維護**
+    //     ⇒ 寫死版本號會讓一個正確的改動紅在一個與它無關的斷言上。⇒ 用前綴比對。
     const openIdx = products.indexOf('const getVehicleTaxonomyCached = unstable_cache(');
-    const logIdx = products.indexOf('[vehicleTaxonomy] cold pages=');
-    const keyIdx = products.indexOf("['vehicle-taxonomy-v3']");
+    const logIdx = products.indexOf('[vehicleTaxonomy] cold ');
+    const keyIdx = products.indexOf("['vehicle-taxonomy-v");
     expect(keyIdx, '找不到那個 cache key ⇒ 這一格沒有判別力').toBeGreaterThan(0);
     expect(logIdx > openIdx && logIdx < keyIdx, '那一行跑到 unstable_cache 外面了 ⇒ 每發都印 ⇒ 冷暖分不出來').toBe(
       true,

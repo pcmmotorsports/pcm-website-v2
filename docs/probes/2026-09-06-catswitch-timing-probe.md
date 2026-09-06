@@ -195,7 +195,7 @@ curl -sL "<preview>/products?_vercel_share=…"   ⇒  http 200
 | ③ | 正式庫唯讀 | `anon statement_timeout=3s`;`vehicle_taxonomy_public` 12,197 列;同 `ORDER BY` 下 `OFFSET 0`=**108 ms** · `OFFSET 4000`=**843 ms** · `OFFSET 12000`=211 ms |
 
 ⇒ `BATCH=4` 併發 + 負載 ⇒ 第 4/5 頁過 3 秒 ⇒ throw ⇒ **整包不進快取** ⇒ 下一發又 cold。
-🟢 **修法**:**一發拿全部**(全掃 211 ms 遠小於 3 秒),不分頁。**不動 `unstable_cache` 那一層。**
+🟢 **修法**:**一發拿全部**(⛔ ~~全掃 211 ms 遠小於 3 秒~~ ⇒ 🔴 **訂正 2026-09-06 線 `front`:那個 211 ms 是【正式庫唯讀 psql】那一層量的;經過 app 的實測是 **832 / 905 / 958 / 1004 / 4772 ms**(preview `dpl_6gju1Bf89qU2fp3mueKPWZVXJQuv` 的 `[vehicleTaxonomy] cold n=12197 ms=`,**n=5 = 該部署 3 小時內的全部**)⇒ 🛑 **不可以寫「逾時在數學上不可能」** ⇒ ⛔ ~~餘裕約 3 倍~~ **那句只看了前三發**;第五發 **4,772 ms 已經超過 3 秒的 `statement_timeout`** 而**沒有 throw** ⇒ 📌 **牆鐘與 SQL 那一段是兩個數,我只量到牆鐘** —— SQL 那一段多久,**未量**),不分頁。**不動 `unstable_cache` 那一層。**
 
 ### 7.1 🛑 已解釋的與**沒有**解釋的,分開寫
 

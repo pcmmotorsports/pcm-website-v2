@@ -143,13 +143,37 @@ describe('ProductCard 快速加購', () => {
    * 📌 **而舊斷言【當時是對的】** —— 它守的是那時候的契約。翻面不是因為它寫錯了,
    *    是因為**世界變了**。⇒ 留著舊字面, 是為了讓「照舊句去搜的人」同一發撞到這裡。
    */
-  it('無規格 → **不直加**、而是讓外層 <a> 導到商品頁(Sean 2026-08-31 拍「不賣」)', () => {
+  /*
+   * 🔴🔴 **2026-09-06 · 線 `front`:這一格【同時是那 14 支 `skip` 的看門狗】——
+   *    而在這之前, 它紅的時候【不會有人知道那 14 支存在】。**(板 `⟦f3-SKIPPEDTESTS1⟧`)
+   *
+   * 那一列逐字問的是「哪天 Sean 改口『零變體要賣』, 沒有任何東西會把人指回那幾支」。
+   * 🔬 **而我先驗了一發, 發現那句話【比實際寬】**:行為本身**是**被守著的 ——
+   *    突變(把 `ProductCard.tsx` 的 `if (p.variantCount === 0) return;` 拿掉)
+   *    ⇒ **本格當場紅, 而且只有本格紅**(`1 failed | 7 passed | 10 skipped`)。
+   *    還原後 `shasum` 逐位元組相同(`2766bf2e94...`)。
+   * 🎯 **⇒ 缺的不是守門, 是【指路】** —— 紅的人看到的只是「購物車沒動」,
+   *    看不到「而且有 14 支測試正在等這個前提翻面」。
+   * ✅ **修法 = 把那個指路寫進【它紅的時候一定會被印出來的地方】**:測項名稱 + 斷言訊息。
+   *    📌 成本一行, 而它不需要任何人記得跑 —— 紅的那一刻它自己會說。
+   *
+   * 🔬 **那 14 是【跑出來的】不是 grep 的**(grep 在 `.each` 上會少報):
+   *    `npx vitest run apps/storefront/src/components/ProductCard.test.tsx \
+   *       apps/storefront/src/components/product-card-quick-add.test.tsx`
+   *    ⇒ `Tests 29 passed | 14 skipped (43)`。
+   */
+  it('無規格 → **不直加**、而是讓外層 <a> 導到商品頁(Sean 2026-08-31 拍「不賣」)【本格若紅 ⇒ 前提翻面 ⇒ 去看那 14 支 it.skip】', () => {
     const { container } = renderCard(
       <ProductCard p={{ ...product, variants: undefined, variantCount: 0 }} />,
     );
     clickQuickAdd(container);
     // 🔴 購物車【一件都沒動】—— 而那正是舊斷言的相反面。
-    expect(observed.totalQty).toBe(0);
+    expect(
+      observed.totalQty,
+      '🔴 零變體被加進購物車了 ⇒ Sean 2026-08-31「零變體不賣」那個前提翻面了。' +
+        '⇒ 本檔 10 支 + ProductCard.test.tsx 4 支(共 14 支, 用 vitest 跑出來的數字不是 grep)' +
+        '的 it.skip 要重讀:它們是【前提被拿走】不是【壞掉】,翻面之後要重寫不是重跑。',
+    ).toBe(0);
   });
 
   /**

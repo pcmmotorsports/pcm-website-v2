@@ -75,10 +75,16 @@ SQL_BOTH="SELECT (pg_catalog.strpos(pg_get_constraintdef(oid), \$q\$order_create
 
 chk "09 正對照:現況【裸/帶引號】兩把尺都命中" "$(Q "${SQL_BOTH}'email_outbox_event_type_check'")" "true/true"
 
-psql -U postgres -q -X >/dev/null 2>&1 <<'SQL'
+# 🔴 **`-v ON_ERROR_STOP=1` 不可省**(2026-09-06 線【db】拋棄式 PG 實測, 六窗同文):
+#    少了它, 這一包裡任何一句 ERROR ⇒ **整包 ROLLBACK 而 `rc` 仍然是 0**
+#    ⇒ 🛑 下面每一格量到的就是一個**少了資料**的世界, 而它們會安靜地印比較小的數字。
+#    ⚠️ 而 `>/dev/null 2>&1` 把錯誤訊息也吞掉了 ⇒ **兩層遮蔽疊在一起。**
+#    ✅ 所以【旗標 + 緊接著驗 rc】要成對, 只加旗標不驗 rc 一樣看不到。
+psql -U postgres -q -X -v ON_ERROR_STOP=1 >/dev/null 2>&1 <<'SQL'
 CREATE TABLE public.mut (event_type text NOT NULL,
   CONSTRAINT mut_chk CHECK (event_type IN ('bank_order_created','order_shipped')));
 SQL
+chk "fixture(突變用的表, :78)建起來" "$?" "0"
 chk "10 🔴 突變:order_created 被刪、只剩 bank_order_created ⇒ 裸比對【假綠 true】而帶引號【抓到 false】" \
     "$(Q "${SQL_BOTH}'mut_chk'")" "true/false"
 

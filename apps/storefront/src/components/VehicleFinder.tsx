@@ -25,6 +25,7 @@ import { navigateToCatalog } from '@/lib/catalog-navigation';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { VehicleSelect } from './VehicleSelect';
 import { GarageChips, type GarageChipItem } from './GarageChips';
+import { VehicleTaxonomyNotice } from './products-message-state';
 import { writeVehicleContext } from '@/lib/vehicle-context';
 
 type VehicleSel = { brand: string; model?: string; year?: number } | null;
@@ -32,8 +33,11 @@ type VehicleSel = { brand: string; model?: string; year?: number } | null;
 export function VehicleFinder({
   motoBrands,
   garage = [],
+  vehicleTaxonomyFailed = false,
 }: {
   motoBrands: MockMotoBrand[];
+  /** 車款樹【讀不到】(不是「真的沒有」)⇒ 講一句。預設 false ⇒ 舊呼叫端零改動。 */
+  vehicleTaxonomyFailed?: boolean;
   /** 登入會員車庫(未登入/讀取失敗=[]、整排 chips 不顯示)。
    *  A10:型別改用 `GarageChipItem`(GarageChips 的單一定義)—— 原本這裡自己少列了 `isPrimary`,
    *  而 `app/page.tsx:91` 的投影其實一直都有傳。窄的是型別、不是資料。 */
@@ -82,6 +86,9 @@ export function VehicleFinder({
         variant="inline"
         onApply={(a) => setVehicle({ brand: a.brand, model: a.model, year: a.year })}
       />
+      {/* 🔴 2026-09-06(Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧):車款樹讀不到 ⇒ 講一句,
+          而【真的沒有】仍然什麼都不說 —— 兩者要畫成兩種東西。 */}
+      <VehicleTaxonomyNotice failed={vehicleTaxonomyFailed} />
       <div className="ed-finder-bar">
         <VehicleSelect
           variant="finder"

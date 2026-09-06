@@ -218,6 +218,22 @@ else
   exit 1
 fi
 
+# ── 帳本第二欄「在量哪一個東西」普查閘(2026-09-06 -f8 批 -db 做;⟦db-LEDGERSHADRIFT⟧)────
+#   🎯 那一欄有兩種用途共用:① repo 檔的 sha(部署閘比的就是它)② 貼給 Sean 那一份的 sha。
+#      2026-09-06 逐列量:①334 / ②5 / ③都不是 5(三數和 = 344 = 資料列)。裁定 = 甲(不動格式),
+#      而**升乙的條件是 ②+③ > 10**。⚠️ 今天是 10, **壓線**。
+#   🔴 **為什麼要一道閘而不是寫在檔頭**:同一件事 2026-09-05 就寫在 `APPLIED.tsv` 檔頭了,
+#      而它點名的兩列**有一列是錯的、另外漏了四列** ⇒ 📌 **一份寫在檔頭的名單, 沒有東西在維護它。**
+#   ⚠️ 它只在 supabase/APPLIED.tsv staged 時才有話說(沒 staged ⇒ 自己跳過、印一行)。
+#   🛑 它只答「那一欄在量哪個東西」, **不答帳本對不對**。
+if [ -f .husky/ledger-col2-census-gate.sh ]; then
+  sh .husky/ledger-col2-census-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/ledger-col2-census-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/ledger-col2-census-gate.sh' >&2
+  exit 1
+fi
+
 # ── 隔離級別靜態閘(2026-09-05 -f8 派 -db 做;拍「甲」= 具名豁免 + pin 0)──────────
 #   ⟦b4-NCPCRONRACE⟧ 判「不做」, 而那個判決建立在【READ COMMITTED 每條 statement 拿新快照】上
 #   (兩連線實測, docs/plans/2026-09-05-ncp-cron-race-lock-plan.md)。
