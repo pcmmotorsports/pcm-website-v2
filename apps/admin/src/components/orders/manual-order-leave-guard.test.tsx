@@ -66,6 +66,22 @@ describe('ManualOrderLeaveGuard(Q32 甲:離開前提醒)', () => {
     expect(blocked()).toBe(false);
   });
 
+  // 🔴🔴 **⟦b4-建單加成一列⟧ 2026-09-06:codex 抓到的那條**
+  //  「加成一列」種進來的值是種在 **`defaultValue`** 上 ⇒ 對 `isDirty` 的
+  //  `value !== defaultValue` 而言**等於沒動過** ⇒ 員工用那顆鈕加了三樣商品、
+  //  **一個字都沒手改**就關頁 ⇒ **不會被攔, 那三筆就沒了**。
+  //  🧬 突變:把 `isDirty` 開頭那個 `line_(sku|title)` 迴圈拿掉 ⇒ 本格必須紅。
+  //  🔵 而它**不會**把上面那格弄紅:運費欄不叫 `line_sku_*` / `line_title_*`。
+  it('🔴 只用「加成一列」加了商品、一個字都沒手改 ⇒ 也要攔', () => {
+    const { container } = renderReal();
+    const sku = container.querySelector('[name="line_sku_0"]') as HTMLInputElement | null;
+    expect(sku, '真表單裡要有這一格, 否則本格是對著空氣測').not.toBeNull();
+    // 🔵 模擬種子:種在 defaultValue(那正是元件的做法), **不碰 value**。
+    sku!.defaultValue = 'SKU-A';
+    expect(sku!.value, '種完之後 value 與 defaultValue 相同 ⇒ 舊 isDirty 看不到它').toBe('SKU-A');
+    expect(blocked(), '加了商品卻不攔 ⇒ 員工關頁就沒了').toBe(true);
+  });
+
   // 🧬 突變:拿掉 addEventListener ⇒ 本格必須紅。
   it('🔴 改了收件人就離開 ⇒ 攔下來', () => {
     renderReal();
