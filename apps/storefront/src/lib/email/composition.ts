@@ -41,6 +41,7 @@ import {
   SupabaseCancelledOrderScannerAdapter,
   SupabaseBankOrderCreatedScannerAdapter,
   SupabaseBankOrderMailableCheckAdapter,
+  SupabaseOrderPlacedAtReaderAdapter,
   SupabaseIneligibleOrderEmailScannerAdapter,
   SupabaseShippedEmailContextAdapter,
   SupabaseShippedOrderScannerAdapter,
@@ -170,7 +171,16 @@ export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
   //    🔵 它讀 `pcm_bank_order_still_mailable`(僅 service_role);只 select `order_id`,
   //       **不碰那支 view 的兩個 email 欄** ⇒ 這條路上零 PII。
   const bankOrderMailable = new SupabaseBankOrderMailableCheckAdapter(serviceClient);
-  return { outbox, sender, shippedContext, ineligibleScanner, paidContext, bankOrderMailable };
+  /**
+   * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:送出層 cutoff 閘要讀的 `orders.created_at`(**批次、零 PII**)。
+   * 🔵 **沿用同一個 `serviceClient`** —— 上面那段註解警告過「加第二個時**不要再呼叫一次**」
+   *    (⚠️ 我原本把它標成逐字而字面不符, codex 2026-09-07 nit;這裡改成轉述並指出處),
+   *    而既有測試有一格釘住 `createSupabaseServiceClient` 在本 factory 內**只被呼叫一次**。
+   */
+  const orderPlacedAt = new SupabaseOrderPlacedAtReaderAdapter(serviceClient);
+  return {
+    outbox, sender, shippedContext, ineligibleScanner, paidContext, bankOrderMailable, orderPlacedAt,
+  };
 }
 
 /**

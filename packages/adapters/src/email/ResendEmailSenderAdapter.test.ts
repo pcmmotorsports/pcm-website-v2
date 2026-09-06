@@ -110,6 +110,82 @@ describe('ResendEmailSenderAdapter.send(Resend emails)', () => {
     }
   });
 
+  // ── ⟦b4-RESEND409⟧(2026-09-07):§窄幅破例入口丙 — 409 讀 body 頂層 name ──
+
+  /**
+   * 🔬 官方語意(https://resend.com/docs/api-reference/errors, 親讀):409 有三種而它們不同命。
+   * 🔴 **這三格釘的是「哪一種換碼、哪兩種不換」** —— 少了後者, 一張「把 409 全部搬走」的表
+   *    會把兩種**本來就會成功**的重試也一起改掉, 而那不會有任何東西紅。
+   */
+  it('🔴 409 + invalid_idempotent_request → idempotency_payload_mismatch(重試永遠不會成功那一種)', async () => {
+    const f = vi.fn(async () =>
+      realResponse(
+        { name: 'invalid_idempotent_request', message: 'This idempotency key has been used…' },
+        409,
+      ),
+    );
+    expect(await send(f)).toEqual({ kind: 'failed', errorCode: 'idempotency_payload_mismatch' });
+  });
+
+  it('🔵 負對照:另外【兩種】409 不換碼 —— 它們重試會成功, 留在 http_409 是對的', async () => {
+    for (const name of ['concurrent_idempotent_requests', 'resource_locked'] as const) {
+      const f = vi.fn(async () => realResponse({ name }, 409));
+      expect(await send(f)).toEqual({ kind: 'failed', errorCode: 'http_409' });
+    }
+  });
+
+  it('🔴 409 兜底:無 name / name 非字串 / 陣列 / 原型鏈名 → 全 http_409(零回歸)', async () => {
+    const cases: Array<[string, unknown]> = [
+      ['無 name', realResponse({ message: 'x' }, 409)],
+      ['name 非字串', realResponse({ name: 42 }, 409)],
+      ['body 陣列', realResponse([1, 2], 409)],
+      // 🔴 原型鏈:物件索引會撈到函式而非 undefined ⇒ 這一格證明我們用的是 Map。
+      ['原型鏈名 toString', realResponse({ name: 'toString' }, 409)],
+      ['原型鏈名 constructor', realResponse({ name: 'constructor' }, 409)],
+    ];
+    for (const [label, res] of cases) {
+      const f = vi.fn(async () => res as Response);
+      expect(await send(f), label).toEqual({ kind: 'failed', errorCode: 'http_409' });
+    }
+  });
+
+  /**
+   * 🔴 **上面那一格原本的標題寫「body 非 JSON」, 而它的案例【全部是合法 JSON】**
+   * (codex 2026-09-07 nit)⇒ 📌 **標題宣稱的覆蓋比實際多一種, 而多出來的那一種沒有人在測。**
+   * ⇒ 這一格補真的那三種:`json()` 拋錯 / body 已被消耗 / 根本沒有 `json` 這個方法。
+   */
+  it('🔴 409 真的解析不了時也回 http_409(json 拋錯 / body 已消耗 / 沒有 json 方法)', async () => {
+    const throwing = { status: 409, ok: false, json: async () => { throw new Error('not json'); } };
+    expect(await send(vi.fn(async () => throwing as unknown as Response))).toEqual({
+      kind: 'failed', errorCode: 'http_409',
+    });
+
+    const consumed = realResponse({ name: 'invalid_idempotent_request' }, 409);
+    await consumed.json();
+    expect(await send(vi.fn(async () => consumed))).toEqual({
+      kind: 'failed', errorCode: 'http_409',
+    });
+
+    const noJson = { status: 409, ok: false };
+    expect(await send(vi.fn(async () => noJson as unknown as Response))).toEqual({
+      kind: 'failed', errorCode: 'http_409',
+    });
+  });
+
+  it('🔵 409 那條路【不碰 message】—— getter 零存取(§窄幅破例規則 1)', () => {
+    let touched = 0;
+    const body = { name: 'invalid_idempotent_request', get message() { touched += 1; return 'x'; } };
+    // 🔵 先證明那個 getter 真的會數 —— 否則下面的 0 是「它壞了」而不是「沒被碰」。
+    void body.message;
+    expect(touched).toBe(1);
+    touched = 0;
+    return send(vi.fn(async () => ({ status: 409, ok: false, json: async () => body }) as unknown as Response))
+      .then((r) => {
+        expect(r).toEqual({ kind: 'failed', errorCode: 'idempotency_payload_mismatch' });
+        expect(touched, 'message 被讀了 ⇒ 原文有外洩的路').toBe(0);
+      });
+  });
+
   // ── E1c(Sean Q6=A):§窄幅破例 — 429 讀 body 頂層 name 三分 ──
 
   it('🔴 E1c 本體:429 + 官方 name 三字面 → 三個內部碼(真實 Response)', async () => {

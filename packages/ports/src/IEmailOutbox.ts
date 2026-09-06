@@ -183,6 +183,35 @@ export type EmailSendErrorCode =
   | 'http_404'
   | 'http_408'
   | 'http_409'
+  /**
+   * 🔴🔴 **Resend 的 409【有三種, 而它們不同命】**(2026-09-07 親讀官方文件,
+   * https://resend.com/docs/api-reference/errors —— 不憑記憶):
+   * ```
+   * concurrent_idempotent_requests  同一把 key 另一個請求進行中  官方:Try the request again later
+   * resource_locked                 另一個請求正在更新這個資源    官方:Retry after a short delay
+   * invalid_idempotent_request      🔴 同一把 key 24h 內用過【而 body 被改了】
+   *                                 官方逐字:Change your idempotency key or payload
+   * ```
+   * ⇒ 前兩種是**暫時性衝突, 官方叫你再試**;第三種**在那把 key 的 24h 窗內, 同一個 body 再試也還是 409** —— 而我們的 key 是
+   * `` `${eventType}/${outboxId}` ``(`ResendEmailSenderAdapter.ts:294`)⇒ **每一列固定不變**
+   * ⇒ 📌 **同一封信在兩次嘗試之間 body 變了(最現實的來源:改模板後重新部署)**
+   *   ⇒ 每一次重試都拿同一個 409 ⇒ 燒完 `max_attempts` ⇒ **死信**(板列 `⟦b4-RESEND409⟧`)。
+   *
+   * 🛑 **它【不可以】借 `quota_24h`** —— `isQuotaExhaustionCode()` 由政策推導
+   * (`email-backoff.ts:119-120`)⇒ 借了會讓 409 被算進「額度用盡」告警 ⇒ **汙染另一個訊號**。
+   * ⇒ 它有自己的政策 `idempotency_24h`:等那把 key 的 24h 窗過期再試。
+   🛑 **而那【不是保證送達】**(codex 2026-09-07 nit)—— 官方只說 key 保留 24h,
+     窗過之後那一發仍然可能因為別的理由失敗。這裡買到的是**一次真正的重試機會**, 不是結果。
+   🔴🔴 **而它有一個要寫出來的代價:窗過期之後【去重也一起過期】** ——
+     若第一次其實寄出去了而回應遺失(或 `markSent` 失敗), 隔天那一發會**再寄一封**。
+     ⇒ 📌 **這條路換來的是「可能重複一封」而不是「確定不會寄到」** —— 兩害相權的選擇, 不是免費的。
+   *
+   * ⚠️ **已知代價**:那封信要等約 24h 才會再試。
+   * 🔬 **而總上限不是 5×24h**(codex 2026-09-07 校正):5 次嘗試之間最多 **4 段**等待
+   *   ⇒ 純政策合計約 **96 小時**, 另加排程延遲;而**第 5 次才撞到這個碼仍然會死信**。
+   * ⇒ 📌 **等一天而【有機會】寄到, 勝過十分鐘內確定寄不到** —— 而它換來的不是保證。
+   */
+  | 'idempotency_payload_mismatch'
   | 'http_422'
   /**
    * 🔴 **無法分辨的 429**(E1c 後的殘餘語意 —— 不再是「所有 429」):body 非 JSON / 無 `name` /
@@ -694,6 +723,41 @@ export interface IEmailOutbox {
    *    ⇒ 📌 混成一個碼, 「後台常改金額」與「客人常付完」就再也分不出來。
    */
   markSkippedBankOrderSnapshotStale(id: string, claimedAttempts: number): Promise<boolean>;
+
+  /**
+   * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:**寄送當下發現這張單成立於 cutoff 之前** ⇒ 跳過, 不寄。
+   *
+   * 🔴 **它與上面那幾個 skip 分開一個碼, 理由與它們彼此分開的理由相同**:
+   *    那幾個答的是「這張單怎麼了」, 本支答的是「**我們決定從哪一刻起才寄信**」——
+   *    📌 混成一個碼, 「客人的單有問題」與「我們自己劃了一條線」就再也分不出來。
+   * 🛑 **終態、不重試、不計 error** —— 它不是故障:那封信本來就不該寄。
+   * ⚠️ **而它【不是】fail-safe 的預設** —— 讀不到 `created_at` 時**不可以**標這個碼
+   *    (那等於拿一次讀取失敗永久吞掉一封信)⇒ 呼叫端 fail-closed:不寄、計 error、留給下一輪。
+   */
+  markSkippedBeforeCutoff(id: string, claimedAttempts: number): Promise<boolean>;
+
+  /**
+   * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2(codex 2026-09-07 MF4):**送出層 cutoff 的來源讀不到**
+   * ⇒ 把這一列**放回 due**, 而且**把本次認領消耗掉的 `attempts` 還回去**。
+   *
+   * 🔴 **為什麼不是「留在 sending 等回收」**(那是改動前的行為):
+   *    最後一次 claim 撞到讀取失敗的那一列, 回收之後就是 `failed@max`
+   *    ⇒ 📌 **一封從未交給 provider 的信就這樣死掉** —— 而一次批次失敗會**波及整批**。
+   * 🛑 **而它的代價明寫**:讀取端若【持續】壞掉, 這幾封會**一直重來而永遠不進死信**
+   *    ⇒ **沒有東西會因為它們而叫**。⇒ 那是刻意的取捨(不寄 < 誤殺), 不是沒想到。
+   * 🔵 世代柵欄同其他 `mark*`:`claimedAttempts` 對不上 ⇒ 回 `false`(別輪已經動過它)。
+   */
+  /**
+   * 🔴🔴 **[codex R2]** `nextRetryAtIso` **不是可選的** —— 少了它, 被釋放的那 50 封
+   * 會帶著**已經過期**的 `next_retry_at` 回到 due
+   * ⇒ 📌 **下一輪它們又把 50 個名額佔滿, 而後面的取消信 / 出貨信【永遠排不進來】。**
+   * ⇒ 那不只是「這幾封不進死信」, 是**整條佇列被它們堵住**。
+   */
+  releaseClaimForCutoffUnknown(
+    id: string,
+    claimedAttempts: number,
+    nextRetryAtIso: string,
+  ): Promise<boolean>;
 
   /**
    * `sending → skipped_shipment_voided`(M-4b E4 片3a:出貨通知信在寄送當下去主表撈脈絡,

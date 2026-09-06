@@ -845,6 +845,24 @@ export async function GET(request: Request): Promise<Response> {
       //      **那個動作在這一行之前【不會讓寄信停下來】。**
       //    ⚠️ 這裡刻意**不另外讀一次 env** —— 用上面那個已解析的結果,兩半不可能分岔。
       allowOrderShipped: shippedCutoff.kind === 'ok',
+      /**
+       * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:**同一顆 cutoff 也擋【送出】**。
+       * 🔴 在這一行之前, `B4_DEPLOY_CUTOFF` 只擋得住 enqueue ⇒ 已經排進 outbox 的舊單信照寄
+       *    ⇒ 📌 **改 cutoff、刪 cutoff、或替一張舊單手動插一列, 那些信都會照樣寄出去。**
+       * 🔵 `kind === 'ok'` 才給 —— **格式不合等於沒設**(同上面兩行的判準, 不另立一套)。
+       * 🛑 **白名單留空 = 擋所有 event_type** —— 新的 event_type 加進來時自動被擋,
+       *    而不是自動放行(主視窗 B 2026-09-07 指定)。
+       */
+      sendCutoffIso: cutoffRead.kind === 'ok' ? cutoffRead.cutoff : undefined,
+      /**
+       * 🔴 **只收語意就是「下單時間」的那兩種**(codex MF1 之後改成白名單制, 主視窗 B 裁乙)。
+       * 🛑 取消信 / 出貨信 / 更正單號信**不進這道閘** —— 它們各自要比的是
+       *    `cancelled_at` / `shipped_at` / 更正時刻, 而**那三種的語意本片沒有做**。
+       *    ⇒ 📌 拿 `orders.created_at` 去擋它們, 會把「8 月成立、9 月取消」那封永久擋掉。
+       * 🔵 `bank_order_created` 收進來, 因為它的掃描面(`20260906170000:101`)取的就是 `o.created_at`
+       *    —— **語意同源**, 不是我猜的。
+       */
+      sendCutoffEventTypes: ['order_created', 'bank_order_created'],
       claimLimit: CLAIM_LIMIT,
       // 🔴 見 GET 第一行:預算基準 = 整個請求的起點,不是 sweeper 自己的起點。
       runStartedAtMs: invocationStartedAtMs,
@@ -1000,6 +1018,22 @@ export async function GET(request: Request): Promise<Response> {
       undefined,
       undefined,
       invocationStartedAtMs,
+    );
+    /**
+     * ⟦QB-2⟧ **每輪印一行純數字**(Sean 2026-09-07 01:2x 逐字答「**乙**」)。
+     *
+     * 🔴 **為什麼要有它**:這支 route 的**成功路徑原本一行 log 都沒有**
+     *    ⇒ 📌 **「跑了而什麼都沒發生」與「根本沒跑」在 Vercel 那一側是同一片空白。**
+     * 🛑 **只印數字, 不印任何識別資訊** —— 收件信箱、訂單號、outbox id **一個都不進來**:
+     *    `counts` 那一組是 `pickCounts` 的 allowlist(**不是 blind spread** —— 那支函式就在本檔上方),
+     *    而下面四個 section 也全是計數與狀態字面。
+     *    ⇒ 🔵 而**光靠「我只放了這些」不夠** —— 測試那一格會把整行拿去驗
+     *      「不含 `@`、不含 uuid 形狀」, 那才是守門。
+     * ⚠️ **它證不到「這一輪做對了」** —— 它只證得到「這一輪跑完而且印得出來」。
+     */
+    console.log(
+      '[email-sweep] round',
+      JSON.stringify({ ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...cancelledSection }),
     );
     return Response.json({ ok: true, ...counts, ...enqueueSection, ...shippedSection, ...trackFixSection, ...cancelledSection }, { status: 200 });
   } catch {

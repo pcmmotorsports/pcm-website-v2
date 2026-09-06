@@ -159,6 +159,18 @@ else
   exit 2
 fi
 
+if [ -f .husky/board-token-gate.sh ]; then
+  # 🔴 `|| exit $?` 是 `husky-hook-wiring-check.sh` 2026-09-07 抓出來要求的, 而我原本【刻意不接】。
+  #   兩邊都有道理, 所以取兩者:
+  #   · **warn-only 的義務住在【殼裡面】** —— 找到違規 ⇒ 殼自己 `exit 0`, 不會擋 commit。
+  #   · **而殼【自己壞掉】(讀不到、語法錯)是另一回事** ⇒ 那時 rc≠0 應該讓你知道, 不該被吞掉。
+  #   🛑 沒接的話兩種失效都沒有東西會紅(接線閘逐字:「離場碼會被丟掉…三態閘的 2 消失」)。
+  sh .husky/board-token-gate.sh || exit $?
+else
+  printf '%s\n' '🟡 .husky/board-token-gate.sh 不見了 ⇒ **本閘沒有看過任何東西**(warn-only, 仍放行)' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/board-token-gate.sh' >&2
+fi
+
 if [ -f .husky/md-table-overflow-gate.sh ]; then
   sh .husky/md-table-overflow-gate.sh || exit $?
 else
