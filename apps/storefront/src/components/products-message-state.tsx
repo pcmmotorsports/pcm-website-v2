@@ -44,15 +44,23 @@ export const CATEGORY_TAXONOMY_UNAVAILABLE = '分類清單暫時無法載入,請
 export const BRAND_TAXONOMY_UNAVAILABLE = '品牌清單暫時無法載入,請稍後再試';
 
 /**
- * 車款樹讀不到時那一行字。**四處共用同一顆**(首頁選車 / 型錄側欄 / 商品頁車款區 / 購物車)。
+ * **一份清單讀不到時, 對客人講的那一行字。** 受詞由 `message` 決定(車款 / 分類 / 品牌各一句)。
  *
- * 🔴 **`failed === false` 一定回 `null`, 即使清單是空的** —— 這就是本片的全部重點:
+ * 🔴 **`failed === false` 一定回 `null`, 即使清單是空的** —— 這是整件事的全部重點:
  *   「讀不到」與「真的沒有」要畫成兩種東西。
- *   ⇒ 📌 **每一格 smoke 都要配一個「空而沒失敗」的負對照** —— 否則一個無條件顯示的實作會四格全綠。
+ *   ⇒ 📌 **每一格 smoke 都要配一個「空而沒失敗」的負對照** —— 否則一個無條件顯示的實作會全綠。
  *
- * 🔵 樣式沿用站內既有那組(`MESSAGE_STATE_STYLE` + `role="alert"`, 用法見 `ProductsPage.tsx` 的 error 分支);
- *   鐵則 1 查過:`design-reference` 176 檔裡**沒有**「一個下拉旁邊的一行字」這一態
- *   (命中的 `components/ErrorPage.jsx` 是【整頁】錯誤頁)⇒ 不發明樣式。
+ * 🛑 **它是【一個 block 元素】** —— 掛在 `display:grid` 的容器底下會吃掉一個格子。
+ *   ⇒ 放進 grid 之前先包一層 `grid-column: 1 / -1`(`ProductsPage.tsx` 那兩顆就是這樣)。
+ *   🔬 2026-09-06 code-reviewer R1 Critical 就是這一格:少了那層包裝, **只有一扇失敗時**桌機版面錯位,
+ *      而四支既有 jsdom 測試**全綠**(jsdom 不做版面)⇒ 守門在 `products-layout-grid-browser.test.tsx`。
+ *
+ * 🔵 **樣式沿用站內既有那組**(`MESSAGE_STATE_STYLE` + `role="alert"`)。
+ *   鐵則 1 兩半都查過:`design-reference`(176 檔)**沒有**這一態;
+ *   ⛔ ~~而我一度就此寫「稿裡查無此態」~~ ⇒ 🔴 **那句只查了一半** ——
+ *   **OD 那半【有】**:`pcm-home-redesign/products-list-page.html` 逐字
+ *   `<div id="pp-error" role="alert" style="padding:64px 0;text-align:center;color:var(--c-text-3);font:14px/1.6 system-ui, sans-serif" hidden>載入失敗、請稍後再試</div>`
+ *   ⇒ **本檔的 `MESSAGE_STATE_STYLE` 與它逐字相同** ⇒ 不是「不發明」, 是**用的就是稿上那一個**。
  */
 export function TaxonomyNotice({ failed, message }: { failed?: boolean; message: string }) {
   if (!failed) return null;
@@ -64,8 +72,14 @@ export function TaxonomyNotice({ failed, message }: { failed?: boolean; message:
 }
 
 /**
- * 車款那一扇的既有進入點。**保留它是為了讓那四個呼叫端一個字都不用改** ——
- * 本片要加的是另外兩扇, 不是重寫已經上線並過了兩輪審查的那一扇。
+ * **車款那一扇的既有進入點** —— 四處共用同一顆:首頁選車 / 型錄側欄 / 商品頁車款區 / 購物車。
+ *
+ * 🔵 **保留它是為了讓那四個呼叫端一個字都不用改** —— 2026-09-06 加另外兩扇時,
+ *   把判斷抽成上面那顆通用的, 而**這一層留著當 delegate**:
+ *   已經上線並過了兩輪審查的那一扇, 不在「加兩扇」這一片裡重寫。
+ * 🔴 **而那句話的尾巴「或改用自行輸入」是【車款專屬】的** —— 帳號那邊真的有自由輸入車款那條路
+ *   (`app/account/vehicle/actions.ts`);分類與品牌**沒有**, 所以它們那兩句沒有尾巴。
+ *   守門在 `products-message-state.test.tsx`(那兩句不得含「自行輸入」, 而這一句要含它)。
  */
 export function VehicleTaxonomyNotice({ failed }: { failed?: boolean }) {
   return <TaxonomyNotice failed={failed} message={VEHICLE_TAXONOMY_UNAVAILABLE} />;

@@ -338,9 +338,19 @@ export function ProductsPage({ products, total, error, categories, brands: serve
         {/* 🔴 2026-09-06 ⟦search-SILENTDOORS2⟧:側欄兩區各自講各自的。
             🛑 **三行同時出現是【可能的】** —— 三扇門共用同一個 Supabase, 很可能一起壞;
             主視窗 2026-09-06 裁【甲 = 各講各的】(客人知道是哪一區壞了),
-            而「三行會不會太吵」交 Sean 肉眼驗那天判。 */}
-        <TaxonomyNotice failed={categoryTaxonomyFailed} message={CATEGORY_TAXONOMY_UNAVAILABLE} />
-        <TaxonomyNotice failed={brandTaxonomyFailed} message={BRAND_TAXONOMY_UNAVAILABLE} />
+            而「三行會不會太吵」交 Sean 肉眼驗那天判(實測三則 474px = 390×844 的 0.56 個螢幕)。
+
+            🔴🔴 **2026-09-06 code-reviewer R1 Critical:這兩顆【不可以是 `.pp-layout.has-side` 的直接子層】。**
+            那個容器是 `display:grid; grid-template-columns:250px 1fr`(`styles/products-page.css:8-10`)
+            ⇒ 每多一個直接子元素就吃掉一個格子 ⇒ **只有一扇失敗時**:notice 佔 r1c1、
+            `FilterSide` 被推到 1fr、`main` 掉到第二列 ⇒ **桌機版面錯位**。
+            🔵 而既有那顆車款的 notice **是放在這個 grid 外面的**(`:281`)⇒ 它沒有這個問題。
+            ✅ 修法:包一層 `grid-column: 1 / -1` 的容器 ⇒ 它跨滿整列、**不佔用任何一欄**,
+               手機那邊 `grid-template-columns:1fr` 時 `1 / -1` 一樣是整列 ⇒ 兩個斷點都對。 */}
+        <div style={{ gridColumn: '1 / -1' }}>
+          <TaxonomyNotice failed={categoryTaxonomyFailed} message={CATEGORY_TAXONOMY_UNAVAILABLE} />
+          <TaxonomyNotice failed={brandTaxonomyFailed} message={BRAND_TAXONOMY_UNAVAILABLE} />
+        </div>
         <FilterSide
           countOf={countOf}
           hideSectionCounts={hideSectionCounts}
