@@ -16,6 +16,13 @@
 #     印同一個東西。
 #  ③ 分母 = 態欄落在封閉集的列。態欄不在封閉集的列會被算進 `態不在封閉集`
 #     那一格並【印出來】, 不是安靜地不算。
+#     🔴 封閉集是【五個】值:open / doing / parked / done / standing。
+#        `standing` 是 2026-09-05 Sean 拍板加的第五個(`docs/launch-todo.md:199` 那節)。
+#        🛑 本支第一版【只寫了四個】⇒ 那 3 列 standing 被算進「態不在封閉集」那一格,
+#        而那一格的數字從 77 變 80 —— **它照樣印, 而沒有人會知道那 3 是什麼。**
+#        📌 判別句:**一個「其他」的計數變大, 與「板子髒了」印同一個東西。**
+#        ⇒ 是 board-state-consistency.py 數 761 而本支數 758 才撞出來的:
+#          **兩把尺不一致才有訊號;只有一把尺的時候, 錯的那個數看起來很正常。**
 #  ④ 它不連 DB、不連網、唯讀。
 #
 # 用法:
@@ -37,7 +44,7 @@ count_file() {
       line=$0
       n=split(line, f, "|")
       state=trim(f[2])
-      if (state!="open" && state!="doing" && state!="parked" && state!="done") {
+      if (state!="open" && state!="doing" && state!="parked" && state!="done" && state!="standing") {
         if (state!="態") notclosed++
         next
       }
@@ -89,11 +96,15 @@ selftest() {
     printf '%s\n' '| open | ⟦x-B⟧ | 乙 | 誰 | ⟨不擋(tidy 判)⟩ 內部效率'
     printf '%s\n' '| parked | ⟦x-C⟧ | 丙 | 誰 | ⟨未判(tidy · a)⟩ 關閉條件那支檔沒開 |'
     printf '%s\n' '| done | ⟦x-D⟧ | 丁 | 誰 | ⟨—⟩ 已完成 |'
+    printf '%s\n' '| standing | ⟦x-F⟧ | 己 | 誰 | ⟨擋(tidy 判)⟩ 常設而殘餘碰錢 |'
     printf '%s\n' '| 亂寫 | ⟦x-E⟧ | 戊 | 誰 | 態不在封閉集 |'
   } > "$d/a.md"
 
   # ── 世界 B:同一份, 而第一列的 token 被拿掉 ─────────────────────────
-  sed 's/⟨擋(tidy 判)⟩ //' "$d/a.md" > "$d/b.md"
+  # 🔴 只改【那一列】—— 第一版用全域 sed, 而它把 standing 那列的 token 也拿掉了
+  #    ⇒ 世界 B 變成「兩列未填」, 而我期望的是「一列未填」⇒ 自檢當場 FAIL。
+  #    📌 那正是本檢查該有的行為:改壞 fixture 與改壞被測物, 在 rc 上長得一樣, 所以要釘期望值。
+  sed '/⟦x-A⟧/s/⟨擋(tidy 判)⟩ //' "$d/a.md" > "$d/b.md"
 
   out_a=$(count_file "$d/a.md"); rc_a=$?
   out_b=$(count_file "$d/b.md"); rc_b=$?
@@ -110,7 +121,9 @@ selftest() {
 
   echo "== 世界 A(token 都填好)=="
   printf '%s\n' "$out_a" | sed 's/^/    /'
-  _need A '^擋 +1$'            "$out_a"
+  _need A '^擋 +2$'            "$out_a"
+  _need A '^資料列\(態在封閉集\) +5$' "$out_a"
+  _need A '^standing 共 +1'    "$out_a"
   _need A '^不擋 +1$'          "$out_a"
   _need A '^未判 +1$'          "$out_a"
   _need A '^—\(done 不適用\) +1$' "$out_a"
@@ -120,7 +133,7 @@ selftest() {
 
   echo "== 世界 B(第一列的 ⟨擋⟩ 被拿掉)=="
   printf '%s\n' "$out_b" | sed 's/^/    /'
-  _need B '^擋 +0$'            "$out_b"
+  _need B '^擋 +1$'            "$out_b"
   _need B '^還沒填 token +1$'  "$out_b"
 
   echo "== 兩個世界必須印不同的東西 =="
