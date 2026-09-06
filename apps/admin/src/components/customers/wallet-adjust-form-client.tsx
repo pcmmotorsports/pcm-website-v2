@@ -30,14 +30,26 @@ import { WalletAdjustSubmitButtons } from './wallet-adjust-submit';
 export function WalletAdjustFormClient({
   customerId,
   serverToken,
+  initialState,
 }: {
   customerId: string;
   /** 🔴 server component 渲染時產的一次性 token(不是瀏覽器造的)。 */
   serverToken: string;
+  /**
+   * 🔴 **測試用的縫**(預設 `{ status: 'idle' }`, 正式路徑不傳)。
+   *
+   * 🛑 **為什麼要開這個縫**:code-reviewer R1 抓到, 我原本那格「失敗沿用原 token」
+   *    測的是**複製品** —— 測試自己寫一份 `failedToken || serverToken` 再斷言它,
+   *    ⇒ 把下面第 `requestToken` 那一行刪成只剩 `serverToken`, **那格照樣綠**,
+   *      而那一行是這一片的承重(少了它 ⇒ 員工重按 = 新 token = 再扣一次)。
+   * ⇒ ✅ 有了這個縫, 測試就能餵一個**真的 failed state** 進來,
+   *    斷言 hidden input 裡是**原本那把 token** ⇒ 刪掉那一行就會紅。
+   */
+  initialState?: WalletAdjustActionState;
 }) {
   const [state, formAction] = useActionState<WalletAdjustActionState, FormData>(
     adjustWalletAction,
-    { status: 'idle' },
+    initialState ?? { status: 'idle' },
   );
   const failed = state.status === 'failed' ? state : null;
 

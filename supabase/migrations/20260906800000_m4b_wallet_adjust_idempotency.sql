@@ -119,7 +119,10 @@ BEGIN
     RAISE EXCEPTION '前置閘⑥:on_wallet_ledger_inserted trigger 不在 ⇒ 餘額不會被算, 拒繼續。';
   END IF;
 
-  -- ⑦ 這一欄還沒被別人加過(重貼本檔要能安全地紅在這裡之前, 見下面的 IF NOT EXISTS)
+  -- ⑦ 🔵 **重貼的防線是上面③那個 body md5 錨**, 不是這裡 ——
+  --    貼過一次之後 md5 就不是 `ad55861b…` 了 ⇒ 第二貼會**紅在前置閘③**。
+  --    ⛔ ~~原本這行寫「見下面的 IF NOT EXISTS」~~ —— 那個東西**刻意不存在**
+  --      (`scripts/migration-static-checks.sh` ① 擋, 而它擋得對:那會讓重貼安靜地成功)。
   RAISE NOTICE '前置閘全過:admin_adjust_wallet 是預期那一版(body + proconfig + ACL), trigger 在。';
 END
 $pre$;
@@ -144,7 +147,7 @@ CREATE UNIQUE INDEX customer_wallet_ledger_idempotency_uidx
   WHERE request_id IS NOT NULL;
 
 COMMENT ON COLUMN public.customer_wallet_ledger.request_id IS
-  '⟦b4-WALLETDEDUPE⟧ 2026-09-06 冪等鍵:後台人工調整走 admin_adjust_wallet 時, 由**表單帶回的一次性 token**(server 渲染時產、uuid v4)。🔴 nullable 是**為了既有列**, 不是為了新呼叫 —— 新版 RPC 拒收 NULL / 空字串 / 非 uuid。唯一性由 partial UNIQUE `customer_wallet_ledger_idempotency_uidx`(WHERE request_id IS NOT NULL)守。🛑 本欄**不涵蓋** service_role 直插 ledger 那條路(backlog #280)。';
+  '⟦b4-WALLETDEDUPE⟧ 2026-09-06 冪等鍵:後台人工調整走 admin_adjust_wallet 時, 由**表單帶回的一次性 token**(server 渲染時產、uuid v4)。🔴 nullable 是**為了既有列**, 不是為了新呼叫 —— 新版 RPC 拒收 NULL / 空字串 / 非 uuid。唯一性由 partial UNIQUE `customer_wallet_ledger_idempotency_uidx`(WHERE request_id IS NOT NULL)守。🛑 本欄**不涵蓋** service_role 直插 ledger 那條路(backlog #280)。⚠️ **這個鍵沒有 TTL** —— 它永久留在這一列上, 而唯一索引也永久擋著同一把鍵。⇒ 📌 好處是「一年後同一把鍵重播也不會重複入帳」;代價是**索引只會長不會縮**, 且**沒有任何機制回收舊鍵**。若日後要清, 那是一次獨立的決策(要先回答「多久之前的重送不必再擋」), 不得順手 DELETE。';
 
 -- ══ 2. 換函式 ══
 CREATE OR REPLACE FUNCTION public.admin_adjust_wallet(

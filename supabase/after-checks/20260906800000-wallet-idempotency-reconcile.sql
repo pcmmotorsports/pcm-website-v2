@@ -97,9 +97,28 @@ BEGIN
 
   SELECT count(*) INTO v_col FROM information_schema.columns
    WHERE table_schema='public' AND table_name='customer_wallet_ledger' AND column_name='request_id';
+  -- 🔴 codex #9:原本只數**名稱** ⇒ 換一個同名而定義錯的索引照樣算 1。
+  --    ⇒ 改成把 `indexdef` 撈出來, 下面逐字比 `UNIQUE` 與那個 predicate。
   SELECT count(*) INTO v_idx FROM pg_catalog.pg_indexes
    WHERE schemaname='public' AND tablename='customer_wallet_ledger'
-     AND indexname='customer_wallet_ledger_idempotency_uidx';
+     AND indexname='customer_wallet_ledger_idempotency_uidx'
+     AND indexdef LIKE '%UNIQUE INDEX%'
+     AND indexdef LIKE '%WHERE (request_id IS NOT NULL)%';
+
+  -- 🔴 codex #9:這一節原本只問 body/COMMENT/欄/索引 ⇒ **撤掉 service_role 權限、
+  --    或把函式改成 SECURITY INVOKER, 它照樣說「在貼後世界」**。⇒ 補這三格。
+  IF NOT (SELECT prosecdef FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+           WHERE n.nspname='public' AND p.proname='admin_adjust_wallet') THEN
+    RAISE EXCEPTION '對帳④a:admin_adjust_wallet 不再是 SECURITY DEFINER ⇒ 有人動過它。';
+  END IF;
+  IF NOT pg_catalog.has_function_privilege('service_role',
+        'public.admin_adjust_wallet(uuid,text,integer,text,text,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION '對帳④b:service_role 叫不動 admin_adjust_wallet ⇒ 後台會整條壞掉。';
+  END IF;
+  IF pg_catalog.has_function_privilege('anon',
+        'public.admin_adjust_wallet(uuid,text,integer,text,text,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION '對帳④c:anon 叫得動 admin_adjust_wallet ⇒ 動錢的 RPC 對未登入者開著。';
+  END IF;
 
   -- 🔴 這一格獨立於世界:`search_path` 在**兩個世界都該是空字串**。
   --    它若被打回 `public, pg_temp`, 上面的 body md5 仍可能對 —— 那正是本片最怕的那個假綠。

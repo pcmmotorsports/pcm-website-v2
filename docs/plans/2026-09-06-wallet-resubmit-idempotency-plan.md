@@ -86,7 +86,12 @@
 ## 4. DB 那一半
 
 1. `customer_wallet_ledger` 加 `request_id text`(nullable)
-   \+ **partial UNIQUE**(`WHERE request_id IS NOT NULL`)⇒ 既有列(加欄後全為 NULL)不受影響。
+   \+ **partial UNIQUE**(`WHERE request_id IS NOT NULL`)。
+   🔴🔴 **而理由要寫對**(2026-09-06 鑽機當場證偽我原本那句):
+   ⛔ ~~「partial ⇒ 既有列不受影響」~~ **因果反了** —— 保護既有列(NULL 鍵)的是
+   **Postgres 唯一索引預設 `NULLS DISTINCT`**(每個 NULL 互不相等)⇒ **換成全表 UNIQUE,
+   多筆 NULL 鍵一樣插得進去**。partial 的價值是**索引大小與意圖**。
+   🛑 而**真正扛事的是「這個唯一索引存在」** —— 突變把它整個拿掉 ⇒ RPC **執行期**炸。
    🔬 **那個 3 是這樣數的**(2026-09-06 唯讀實跑,值會隨時間變 ⇒ 動工當天要重數):
    `bash scripts/readonly-prod-sql.sh` 跑 `SELECT count(*) FROM public.customer_wallet_ledger;` ⇒ **3**。
    🛑 而「不受影響」不是靠那個 3 —— 靠的是 partial predicate 本身(NULL 不進索引);

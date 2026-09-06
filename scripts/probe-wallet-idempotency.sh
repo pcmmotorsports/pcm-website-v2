@@ -235,6 +235,16 @@ case "$SQLST" in
 esac
 [ "$S4" = "$S3" ] && ok "乙-3 RAISE 之後四個數沒動 = $S4" || bad "乙-3 RAISE 而數字動了:$S3 → $S4"
 
+# 🔴 **只改【備註】的獨立反例**(codex #8):上面那一發改的是金額 ⇒
+#    把 RPC 裡比對 `note` 的那一行拔掉, 45 格照樣全綠 ⇒ **備註那一欄零覆蓋**。
+#    ⇒ 同鍵、同方向、同金額、**只有備註不同** ⇒ 一樣要 RAISE, 不得回 DUPLICATE。
+R4B=$(call deposit 500 '換了備註' "$T1")
+case "$R4B" in
+  *"不同內容"*) ok "乙-3c 同鍵同金額而【只改備註】→ 一樣 RAISE(備註那一欄有覆蓋)" ;;
+  DUPLICATE)    bad "乙-3c 只改備註被當成重送 ⇒ RPC 沒有比對 note" ;;
+  *)            bad "乙-3c 回的是:$(printf '%s' "$R4B" | head -c 80)" ;;
+esac
+
 echo "--- 乙-4 扣款方向也走同一條路 ---"
 R5=$(call use -200 '電話訂單折抵' "$T3")
 S5=$(snap "$CUS")
@@ -258,26 +268,42 @@ done
 S7=$(snap "$CUS")
 [ "$S7" = "$S5" ] && ok "乙-5 三發都被擋, 四個數沒動" || bad "乙-5 數字動了:$S5 → $S7"
 
-echo "--- 乙-6 🔴 跨連線同鍵競爭(兩個 session 同時送)---"
-# 🔴🔴 **這一格殺得掉「先查再插」的壞實作** —— 那種寫法在【順序送兩次】時完全正確,
-#    而兩發重疊時兩邊都查到「沒有」⇒ 兩邊都插 ⇒ 扣兩次。
-#    ⇒ 📌 順序測兩次答不出這一格(codex 審 plan #14)。
+echo "--- 乙-6 🔴 跨連線同鍵競爭(兩個 session 真的交疊)---"
+# 🔴🔴 **這一格被 codex 打回兩次, 兩個問題都是真的**:
+#  ⛔ #6 原本「有 ERROR/FATAL 而不含那兩句中文 ⇒ 照印 PASS」
+#     ⇒ 第一發成功、第二發**語法錯誤或斷線**, 一樣拿得到 `1|300` 而且全綠。
+#  ⛔ #7 兩邊各 `pg_sleep(1)` **不保證交疊** —— 排程成一前一後也會綠, 沒有證明鎖等待。
+#  ✅ 改法:①用 **advisory lock 當閘門**強制兩邊在同一時刻進入 RPC(不靠睡眠賭排程)
+#          ②**逐 session 收 rc 並斷言它們的形狀**(一個成功一個 DUPLICATE)
+#          ③四個數一起比(ledger / 餘額 / 累積儲值 / 稽核), 不只比兩個
 TC='22222222-aaaa-bbbb-cccc-000000000001'
 CUS2='bbbbbbbb-1111-2222-3333-444444444444'
 "${PSQL[@]}" -q -c "INSERT INTO public.customers (user_id) VALUES ('$CUS2');" > /dev/null 2>&1
-( "${PSQL[@]}" -v ON_ERROR_STOP=0 -tAc "BEGIN; SELECT pg_sleep(1); SELECT public.admin_adjust_wallet('$CUS2','deposit',300,'併發','staff-1','$TC'); COMMIT;" > "$D/race-a.log" 2>&1 ) & PA=$!
-( "${PSQL[@]}" -v ON_ERROR_STOP=0 -tAc "BEGIN; SELECT pg_sleep(1); SELECT public.admin_adjust_wallet('$CUS2','deposit',300,'併發','staff-1','$TC'); COMMIT;" > "$D/race-b.log" 2>&1 ) & PB=$!
-wait "$PA"; wait "$PB"
-RACE=$("${PSQL[@]}" -tAc "SELECT count(*)||'|'||(SELECT wallet_balance FROM public.customers WHERE user_id='$CUS2') FROM public.customer_wallet_ledger WHERE customer_user_id='$CUS2'")
-[ "$RACE" = "1|300" ] && ok "乙-6 兩個 session 同鍵併發 ⇒ ledger 只有 1 列、餘額只動 300" || bad "乙-6 併發結果 = $RACE(期望 1|300)"
-# 🔵 兩邊都要真的跑完 —— 不是「兩個都因為別的錯而失敗」的免費綠
+# 🔵 閘門:主 session 先握住 advisory lock 22 號, 兩個工人都要先等它 ⇒ 放開的瞬間兩邊【同時】起跑。
+GATE=$(mktemp)
+( "${PSQL[@]}" -v ON_ERROR_STOP=0 -tAc "SELECT pg_advisory_lock(22); SELECT pg_sleep(3); SELECT pg_advisory_unlock(22);" > "$GATE" 2>&1 ) & GP=$!
+sleep 1
+race_one() { "${PSQL[@]}" -v ON_ERROR_STOP=0 -tAc "SELECT pg_advisory_lock_shared(22); SELECT public.admin_adjust_wallet('$CUS2','deposit',300,'併發','staff-1','$TC');" > "$1" 2>&1; echo "rc=$?" >> "$1"; }
+race_one "$D/race-a.log" & PA=$!
+race_one "$D/race-b.log" & PB=$!
+wait "$GP"; wait "$PA"; wait "$PB"
+rm -f "$GATE"
+# 🔴 **逐 session 收 rc 與回傳值** —— 不是只看最後的資料狀態。
+RA=$(grep -v '^rc=' "$D/race-a.log" | tail -1); RCA=$(grep '^rc=' "$D/race-a.log" | tail -1)
+RB=$(grep -v '^rc=' "$D/race-b.log" | tail -1); RCB=$(grep '^rc=' "$D/race-b.log" | tail -1)
 if grep -qE 'ERROR|FATAL' "$D/race-a.log" "$D/race-b.log"; then
-  grep -qE '不同內容|形狀不是 uuid' "$D/race-a.log" "$D/race-b.log" \
-    && bad "乙-6 有 session 撞到不該撞的錯" \
-    || ok "乙-6 兩邊沒有意料外的錯(有的話是死結/序列化, 上面那格已經在看結果)"
+  bad "乙-6 有 session 報錯 ⇒ 這一格沒演到它要演的東西"; grep -oE '(ERROR|FATAL):.{0,70}' "$D/race-a.log" "$D/race-b.log" | head -2
 else
-  ok "乙-6 兩個 session 都乾淨跑完(綠不是因為兩邊都掛了)"
+  ok "乙-6 兩個 session 都沒有錯誤(rc: a=$RCA b=$RCB)"
 fi
+# 🔴 一個 ADJUSTED、一個 DUPLICATE —— **順序不拘, 而不能兩個都是同一種**
+case "$RA|$RB" in
+  ADJUSTED\|DUPLICATE|DUPLICATE\|ADJUSTED) ok "乙-6 兩邊回傳恰好是 {ADJUSTED, DUPLICATE}(a=$RA b=$RB)" ;;
+  *) bad "乙-6 兩邊回傳是 a=$RA b=$RB(期望一個 ADJUSTED 一個 DUPLICATE)" ;;
+esac
+# 🔴 四個數一起比(codex #6:只比兩個 ⇒ 累積儲值與稽核被漏掉)
+RACE=$("${PSQL[@]}" -tAc "SELECT (SELECT count(*) FROM public.customer_wallet_ledger WHERE customer_user_id='$CUS2')||'|'||(SELECT wallet_balance FROM public.customers WHERE user_id='$CUS2')||'|'||(SELECT total_deposit FROM public.customers WHERE user_id='$CUS2')||'|'||(SELECT count(*) FROM public.admin_audit_log WHERE target LIKE '%$CUS2%')")
+[ "$RACE" = "1|300|300|1" ] && ok "乙-6 四個數 = $RACE(ledger 1 / 餘額 300 / 累積 300 / 稽核 1)" || bad "乙-6 四個數 = $RACE(期望 1|300|300|1)"
 
 echo "--- 乙-7 舊列(NULL 鍵)不受影響:partial 的意義 ---"
 # 🔴 直插兩列 NULL 鍵 —— partial index 不管它們 ⇒ 都要成功。
@@ -339,18 +365,49 @@ esac
 # 🔵 建回來(下一格要用)
 "${PSQL[@]}" -q -c "CREATE UNIQUE INDEX customer_wallet_ledger_idempotency_uidx ON public.customer_wallet_ledger (customer_user_id, request_id) WHERE request_id IS NOT NULL;" >> "$D/mut1.log" 2>&1
 
-echo "--- 突變② NULLS NOT DISTINCT ⇒ 舊列(NULL 鍵)才會真的撞 ---"
-# 🔵 這一格是為了把「舊列受不受影響」問對:真正會弄壞舊列的是這個, 不是拿掉 WHERE。
-"${PSQL[@]}" -q -c "DROP INDEX public.customer_wallet_ledger_idempotency_uidx;" > /dev/null 2>&1
-"${PSQL[@]}" -q -c "CREATE UNIQUE INDEX customer_wallet_ledger_idempotency_uidx ON public.customer_wallet_ledger (customer_user_id, request_id) NULLS NOT DISTINCT;" > "$D/mut2.log" 2>&1
-if [ -s "$D/mut2.log" ] && grep -qi 'error' "$D/mut2.log"; then
-  ok "突變② NULLS NOT DISTINCT 當場就建不起來 —— 因為既有的兩列 NULL 鍵已經撞了(這就是它的判別力)"
-else
-  MN=$("${PSQL[@]}" -c "INSERT INTO public.customer_wallet_ledger (customer_user_id, entry_type, amount, note) VALUES ('$CUS','deposit',1,'突變第三列');" 2>&1)
-  case "$MN" in
-    *"duplicate key"*|*"unique constraint"*) ok "突變② NULLS NOT DISTINCT 之後再插一列 NULL 鍵就撞了 ⇒ 這一格有判別力" ;;
-    *) bad "突變② 建得起來、也插得進去 ⇒ 這一格沒有判別力, 要換一個突變" ;;
+echo "--- 突變② 拔掉 RPC 的【內容比對】⇒ 只改備註的重送必須被錯放 ---"
+# 🔴🔴 **這一格換過一次, 而換掉的理由值得留著。**
+#  ⛔ 原本的突變是「把索引改成 `NULLS NOT DISTINCT`」, 想證明舊列(NULL 鍵)會撞。
+#     🔬 **而收緊判定之後它誠實地報「我沒有判別力」** —— 實得 `INSERT 0 1`:
+#        索引建得起來、第三列 NULL 鍵也插得進去。
+#     ⇒ 📌 **那個突變從頭到尾就沒有咬合力**, 只是原本的判定「含 error 就算成功」把它蓋住了
+#       (codex #11 打的正是這點)。**收緊判定的第一個作用, 是揭穿我自己的假綠。**
+#  ✅ 換成打**真正沒有被別的格覆蓋**的那一條:RPC 裡逐欄比對 `note` 的那一行。
+#     乙-3 改的是金額、乙-3c 改的是備註 ⇒ 拔掉 note 比對之後, **乙-3c 必須紅**。
+MUTFN="$SP/mut-nonote.sql"; ORIGFN="$SP/orig-fn.sql"
+# 🔵 先把【現在線上這一版】原樣撈下來當還原用 —— 重貼 migration 是不行的,
+#    那會紅在前置閘的 md5 錨(線上已經不是 `ad55861b…` 了)。
+"${PSQL[@]}" -tAc "SELECT pg_catalog.pg_get_functiondef('public.admin_adjust_wallet(uuid,text,integer,text,text,text)'::regprocedure)" > "$ORIGFN" 2>/dev/null
+printf ';\n' >> "$ORIGFN"
+cp "$ORIGFN" "$MUTFN"
+# 🔵 `pg_get_functiondef` 會重排空白 ⇒ 用【正則】找那一行, 不逐字比對。
+if grep -qE 'v_prior\.note\s+IS\s+DISTINCT\s+FROM\s+v_note' "$MUTFN"; then
+  # 🔴 取代完**一定要 assert 真的改到了** —— 沒有 assert 的字串取代 = 沒跑過。
+  #    第一版就是逐字比對落空而報「還是 RAISE」, 讓我以為是實作沒拔到。
+  python3 - "$MUTFN" <<'PYE'
+import io, re, sys
+p = sys.argv[1]
+s = io.open(p, encoding='utf-8').read()
+pat = re.compile(r'\n\s*OR\s+v_prior\.note\s+IS\s+DISTINCT\s+FROM\s+v_note')
+assert pat.search(s), '正則沒命中 v_prior.note 那一行 ⇒ 這個突變沒有靶'
+s2 = pat.sub('', s, count=1)
+assert s2 != s, '取代之後檔案沒有變 ⇒ 這個突變【沒跑過】'
+io.open(p, 'w', encoding='utf-8').write(s2)
+print('  🔵 突變② 已寫入:拔掉 v_prior.note 那一項')
+PYE
+  "${PSQL[@]}" -q -f "$MUTFN" > "$D/mut2.log" 2>&1
+  RM2=$(call deposit 500 '又換一個備註' "$T1")
+  case "$RM2" in
+    DUPLICATE) ok "突變② 拔掉 note 比對之後, 只改備註的重送被錯放成 DUPLICATE ⇒ 乙-3c 那一格有判別力" ;;
+    *"不同內容"*) bad "突變② 拔掉 note 比對之後【還是】RAISE ⇒ 我沒有真的拔到那一行" ;;
+    *) bad "突變② 回的是:$(printf '%s' "$RM2" | head -c 70)" ;;
   esac
+  # 🔵 還原成突變前那一版(不是重貼 migration —— 那會紅在前置閘的 md5 錨)
+  "${PSQL[@]}" -q -f "$ORIGFN" > /dev/null 2>&1
+  RB2=$("${PSQL[@]}" -tAc "SELECT pg_catalog.md5(prosrc) FROM pg_catalog.pg_proc WHERE oid='public.admin_adjust_wallet(uuid,text,integer,text,text,text)'::regprocedure")
+  [ "$RB2" = "ae2567393ca47e550ebe501644234d8a" ] && ok "突變② 已還原成本片那一版(md5 對得上)" || bad "突變② 還原後 md5 = $RB2 ⇒ 沒還原乾淨, 後面幾格不可信"
+else
+  bad "突變② 在線上函式裡找不到 note 比對那一行 ⇒ 突變本身沒有靶"
 fi
 
 echo "=== 甲-7 還原檔:跑得動, 而且【四個維度】都真的回去了 ==="

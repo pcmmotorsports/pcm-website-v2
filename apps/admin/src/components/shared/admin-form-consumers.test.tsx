@@ -53,6 +53,9 @@ vi.mock('../../lib/customers/wallet-actions', () => ({
 const { OrderEditForm } = await import('../orders/order-edit-form');
 const { TierEditForm } = await import('../customers/tier-edit-form');
 const { WalletAdjustForm } = await import('../customers/wallet-adjust-form');
+// 🔴 client 半邊 —— 「失敗沿用原 token」那格要餵它一個【真的 failed state】(見該格註解);
+//    測 server 半邊(`WalletAdjustForm`)讀不到那條路, 因為它只負責發 token。
+const { WalletAdjustFormClient } = await import('../customers/wallet-adjust-form-client');
 
 afterEach(cleanup);
 
@@ -201,18 +204,85 @@ describe('WalletAdjustForm — E11-2 重構後的錢面欄位契約', () => {
     expect(a).not.toBe(b);
   });
 
-  it('🔴🔴 失敗 state 帶回的 token【要被沿用】—— 這一格就是本片存在的理由', () => {
-    // 「DB 已扣、回應遺失」⇒ action 回傳的 state 帶著**原 token** ⇒ client 要沿用它,
+  // 🔴🔴 **下面這三格是【撿回來的】, 不是新寫的** —— 2026-09-06 我在 `ea08dac5b` 把它們刪掉了,
+  //    而 commit body **一個字都沒說**。code-reviewer R1 判 Critical, 它對。
+  //  🛑 其中一格是 **Sean 2026-07-26 拍板 `#296`**:「deposit 是 form 第一顆 submit,
+  //     按 Enter 不得變扣款」—— **那是一條拍板紀錄, 不是一格普通測試。**
+  //  📌 而刪掉它在 diff 上長得像「改寫測試」(鐵則 6 同型:拍板紀錄隨改寫消失)。
+  //  🔵 而那一刀**不是被迫的**:下面那些格自己 `render(<WalletAdjustForm …>)` 就讀得到 hidden,
+  //     元件拆成 server/client 兩支之後它們照樣跑得起來 —— 證據是它們現在就在這裡, 而且綠。
+
+  it('should keep the amount and note guards that the parser relies on', () => {
+    const { container } = render(<WalletAdjustForm customerId='cus-1' />);
+    const amount = field(container, WALLET_AMOUNT_FIELD) as HTMLInputElement;
+    expect(amount.required).toBe(true);
+    expect(amount.maxLength).toBe(8);
+    expect(amount.inputMode).toBe('numeric');
+    const note = field(container, WALLET_NOTE_FIELD) as HTMLInputElement;
+    expect(note.required).toBe(true);
+    expect(note.maxLength).toBe(WALLET_NOTE_MAX);
+  });
+
+  it('should keep both direction submitters inside the form so deposit and withdrawal stay distinguishable', () => {
+    const { container } = render(<WalletAdjustForm customerId='cus-1' />);
+    // 兩顆 submit 的 name=direction 決定加值還是扣款;slot 化後若掉出 <form> 就送不出方向。
+    const submitters = [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        `form button[type="submit"][name="${WALLET_DIRECTION_FIELD}"]`,
+      ),
+    ];
+    expect(submitters.map((b) => b.value)).toEqual(['deposit', 'use']);
+  });
+
+  it('should make deposit the first submit in the form so pressing Enter never withdraws', () => {
+    const { container } = render(<WalletAdjustForm customerId='cus-1' />);
+    // 🔴 backlog #296 的守門(Sean 2026-07-26 拍 A)。HTML 隱式提交選 form 內**第一顆 submit**
+    // (任何一顆,不限帶 name=direction 的)⇒ 員工在金額欄按 Enter 必須落在「加值」。
+    // 這條轉紅代表有人改了按鈕順序、或在前面插了新的 submit ⇒ 按 Enter 會變成扣款。
+    const form = container.querySelector('form');
+    expect(form).toBeTruthy();
+    const firstSubmit = firstSubmitterOf(form as HTMLFormElement);
+    expect(firstSubmit?.getAttribute('name')).toBe(WALLET_DIRECTION_FIELD);
+    expect(firstSubmit?.getAttribute('value')).toBe('deposit');
+    // 🔴 formAction 會整個覆寫 form 的 action(React 19 照樣執行)⇒ 光看 name/value 會假綠。
+    expect(firstSubmit?.hasAttribute('formaction')).toBe(false);
+  });
+
+  it('🔴🔴 失敗 state 帶回的 token【要被沿用】—— 刪掉那一行這格就紅', () => {
+    // 「DB 已扣、回應遺失」⇒ action 回傳的 state 帶著**原 token** ⇒ 表單要沿用它,
     // 員工的下一發才會撞到唯一索引。少了它 = 新 token = 再扣一次 = 這一片等於沒做。
-    // 🔵 這裡直接測那條選擇邏輯(`failed?.requestToken || serverToken`)——
-    //    整支 `useActionState` 要在真瀏覽器才跑得起來, 而**要釘住的是那個【選擇】**。
-    const pick = (failedToken: string | undefined, serverToken: string) =>
-      failedToken || serverToken;
+    //
+    // 🔴 **這一格改寫過**:第一版測的是**複製品**(測試自己寫一份 `failedToken || serverToken`
+    //    再斷言那份)⇒ 把元件裡那一行刪成只剩 `serverToken`, **它照樣綠**。code-reviewer R1 抓到。
+    // ✅ 現在餵一個**真的 failed state** 進 `WalletAdjustFormClient`, 讀它**真的畫出來**的 hidden。
     const original = '99999999-8888-7777-6666-555555555555';
     const fresh = '11111111-2222-3333-4444-555555555555';
-    expect(pick(original, fresh)).toBe(original);
-    // 🔴 負對照:沒有失敗 state 時(第一次進來 / denied / invalid)才用新的那把。
-    expect(pick(undefined, fresh)).toBe(fresh);
-    expect(pick('', fresh)).toBe(fresh);
+    const { container } = render(
+      <WalletAdjustFormClient
+        customerId='cus-1'
+        serverToken={fresh}
+        initialState={{
+          status: 'failed',
+          code: 'error',
+          message: 'x',
+          requestToken: original,
+          direction: 'use',
+          amount: '200',
+          note: '電話訂單折抵',
+        }}
+      />,
+    );
+    expect((field(container, WALLET_REQUEST_TOKEN_FIELD) as HTMLInputElement).value).toBe(original);
+    // 🔴 連員工打的內容也要留著(A6 §9 Q1=A:不帶回 =「保留輸入」是空宣稱)
+    expect((field(container, WALLET_AMOUNT_FIELD) as HTMLInputElement).value).toBe('200');
+    expect((field(container, WALLET_NOTE_FIELD) as HTMLInputElement).value).toBe('電話訂單折抵');
+  });
+
+  it('🔵 負對照:沒有失敗 state 時, 用的是 server 現產的那一把', () => {
+    const fresh = '11111111-2222-3333-4444-555555555555';
+    const { container } = render(
+      <WalletAdjustFormClient customerId='cus-1' serverToken={fresh} />,
+    );
+    expect((field(container, WALLET_REQUEST_TOKEN_FIELD) as HTMLInputElement).value).toBe(fresh);
   });
 });
