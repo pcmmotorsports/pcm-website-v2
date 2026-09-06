@@ -24,8 +24,22 @@
 \pset format unaligned
 \pset fieldsep ' | '
 
-WITH t AS MATERIALIZED (SELECT public.get_vehicle_taxonomy() AS j),
-     v AS MATERIALIZED (SELECT count(*) AS n FROM public.vehicle_taxonomy_public)
+-- ══ 第一句:**不呼叫函式** 的 12 格(存在性 / 權限 / 屬性)══════════════════
+-- 🔴🔴 **為什麼要拆成兩句**(2026-09-06 `-f8` 用 pcm_readonly 實跑才發現):
+--    MF1 把 22 格收進**一句** SQL(`WITH t AS MATERIALIZED …`)⇒ 一格拒絕就**整句倒**。
+--    他跑到的逐字:`ERROR: permission denied for function get_vehicle_taxonomy` ⇒ **22 格零讀數**。
+--    成因不是 bug:函式只 GRANT `anon` / `authenticated`, 而 `pcm_readonly` **沒有 EXECUTE**(設計如此)。
+--    ⇒ 🎯 **那是 MF1 修法的另一面** —— 收成一句省了 27 次全掃, 也讓失敗變成全有全無。
+-- ✅ **而 22 格裡有 12 格根本不呼叫函式**(存在性 / 權限 / 屬性 —— 純 catalog 查詢)
+--    ⛔ ~~我第一版在這裡寫「15 格」~~ —— 那是用一個粗略的行窗估的, **沒有量**。
+--    🔬 實測(拋棄式 PG 17.10, 造一個沒有 EXECUTE 的 `pcm_readonly`):
+--      owner 拿到 **22** 格 · `pcm_readonly` 拿到 **12** 格然後停在
+--      `ERROR: permission denied for function get_vehicle_taxonomy`。
+--    📌 一個估出來的數字寫進檔案之後, 讀的人分不出它是量到的還是估的。
+--    ⇒ 拆成兩句之後, **唯讀角色仍然拿得到那 15 格**, 其中包含 MF2 那個缺口
+--      (`anon` 對 view 有沒有 SELECT)—— 📌 **而那正是最該被看到的一格。**
+-- 🔵 拆開**不會**讓 MF1 回來:第二句仍然只呼叫函式**一次**。
+-- 🔵 兩句 = 兩個快照, 而第一句不讀資料 ⇒ 沒有一致性問題。
 
 -- ── ① 存在性(新物件 ⇒ 存在性【有】判別力:貼之前它不存在)────────────
 SELECT '① 函式存在(要 1)' AS "格",
@@ -88,7 +102,17 @@ SELECT '③ 是 SECURITY INVOKER(要 f)',
        (SELECT p.prosecdef::text
           FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
          WHERE n.nspname = 'public' AND p.proname = 'get_vehicle_taxonomy')
-UNION ALL
+;
+
+-- ══ 第二句:**要 EXECUTE** 的 7 格(資料面)═══════════════════════════════
+-- 🛑 跑這一句的角色必須對 `public.get_vehicle_taxonomy()` 有 **EXECUTE**。
+--    `anon` / `authenticated` 有;**`pcm_readonly` 沒有**(設計如此)。
+--    ⇒ 唯讀角色跑到這裡會停在 `permission denied`, **而上面那 12 格已經印出來了**(實測)。
+-- ✅ 要拿到這 7 格:**由 Sean 在 Supabase SQL Editor 跑**(他是 owner, 有 EXECUTE)。
+--    ⛔ 不要為了讓唯讀角色跑得動而去 `GRANT EXECUTE … TO pcm_readonly` ——
+--      那擴大了唯讀角色的射程, 而這 7 格一年跑一次。
+WITH t AS MATERIALIZED (SELECT public.get_vehicle_taxonomy() AS j),
+     v AS MATERIALIZED (SELECT count(*) AS n FROM public.vehicle_taxonomy_public)
 -- ── ④ 真的呼叫一發, 而且比【兩個獨立來源】────────────────────────────
 --    🔴 左邊是函式回的 `n`, 右邊是**我們在這裡自己數的** ⇒ 兩個來源。
 SELECT '④ 函式說的 n vs view 的 count(*)(要 same)',
