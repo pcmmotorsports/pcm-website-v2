@@ -2469,6 +2469,12 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
     expect(text, '沒印那個數字, 而信裡也沒說讀不到 ⇒ 與「量過而正常」同形').toContain('今天讀不到');
   });
 
+  /**
+   * 🔴 **R2 nit ②:這一格有一個【恆綠空洞】, 而它在 `.not` 這個方向上看不見。**
+   *   `n.notify.mock.calls[0]?.[0]?.text ?? ''` —— **notify 沒被叫時 `text` 是空字串**,
+   *   而 `expect('').not.toContain(…)` **恆真** ⇒ 📌 「信沒寄」與「寄了而沒印那句」在這一格同形。
+   *   ✅ 修法:先釘住**前提**(信真的寄了一封), 那句 `.not` 才有受詞。
+   */
   it('🟢 有讀數時【不得】印「今天讀不到」(證明上一格不是恆印)', async () => {
     const n = okNotifier();
     await checkAnomalyAlerts(
@@ -2483,6 +2489,8 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
       },
       OPTS,
     );
+    // 🔴 前提先釘:沒有這一行, 下面那句 `.not` 在「信根本沒寄」時也是綠的
+    expect(n.notify, '前提:這封信要真的寄, 否則下面那句 .not 沒有受詞').toHaveBeenCalledTimes(1);
     const text = String(n.notify.mock.calls[0]?.[0]?.text ?? '');
     expect(text).not.toContain('今天讀不到');
   });

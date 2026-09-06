@@ -1973,7 +1973,7 @@ function searchLogClient(result: unknown, probeMissing = true, reltuples?: numbe
 }
 
 describe('PgAnomalyAlertReaderAdapter.getSearchLogHealth(⟦search-LOGSILENTZERO⟧ 的讀取端)', () => {
-  it('① 正常:三個鍵原封回傳(snake→camel), 不在這裡判斷要不要告警', async () => {
+  it('① 正常:**四個鍵**原封回傳(snake→camel + 第六欄 rowsEstimate), 不在這裡判斷要不要告警', async () => {
     const { client } = searchLogClient({
       table_exists: true,
       last_row_at: '2026-09-05T01:23:45.000Z',
