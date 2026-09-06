@@ -226,8 +226,19 @@ GRANT EXECUTE ON FUNCTION public.admin_void_backfilled_refund(uuid, text, text) 
 --     `NEW.status <> 'processing'`(INSERT 初態, voided 本來就進不去 ⇒ **正確**)。
 --     view 端 **0**;🔵 負對照造字串 ⇒ 0;TS 端逐條看 ⇒ 只有 `TERMINAL_REFUND_STATUSES` 一處(已修)。
 --   🔬 live vs repo:body md5 **a9b25674… 兩邊相同** ⇒ 以 repo 那版為底安全。
---   🔴 `SET search_path = public, pg_temp` **逐字保留** —— 它與本片其他函式**不一樣**
---     (那幾支是 `''`)⇒ **不可以順手統一**, 那會改變它解析物件名的方式。
+-- 🔴🔴 `SET search_path` **改成 `''`(2026-09-07 03:2x, 主視窗 B 派;這是【收緊】)**
+--   ⛔ ~~原本這裡寫「`public, pg_temp` 逐字保留, 不可以順手統一, 那會改變它解析物件名的方式」~~
+--   ⚠️ 那句的**理由是對的而前提沒查** —— 「會不會改變解析方式」取決於 body 裡有沒有裸名, 而我沒數過。
+--   🔬 **數了**(剝掉 `--` 註解之後對本函式 body):`FROM`/`JOIN` 的物件共 **16 個**、
+--      **裸名 0 個**、`public.` 全名 **16 個**;body 內零函式呼叫(唯一命中的 `IN(` 是關鍵字)。
+--      🟢 正對照:同一把尺數 `public.` 字面 = 16 ⇒ 尺是活的。
+--   🔬 **而字面只是必要條件, 行為另外量**:探針上同一批 **28 張訂單**跑同一支函式,
+--      改前 / 改後**逐列比對 0 差異**(見本片 commit body)。
+--   ✅ ⇒ `''` 行為不變, 而它讓本片與 `definer-search-path-gate` 對齊
+--      (那道閘**零豁免機制** ⇒ 留 `public, pg_temp` 會讓**任何人**合了 dev 之後 commit 都被擋)。
+--   🛑 **這是收緊不是放寬**:`''` 之下沒有任何東西靠 search_path 解析 ⇒ 沒有「哪天 public 裡
+--      多一個同名物件把它劫走」那條路。live 現在是 `public, pg_temp` ⇒ **貼 70 時一起收**,
+--      70b 加一格 `proconfig` 期望 `search_path=""`。
 -- 🔴 **`CREATE OR REPLACE`, 而原檔(`20260831155000:62`)是裸 `CREATE`** ——
 --   我從那支抽出定義區塊時**照抄了裸 CREATE**, 而探針實跑當場紅
 --   `function "coupon_redeem_order_problem" already exists with same argument types`。
@@ -239,7 +250,7 @@ RETURNS text
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
   SELECT CASE
     WHEN NOT EXISTS (SELECT 1 FROM public.orders o WHERE o.id = p_order_id)
