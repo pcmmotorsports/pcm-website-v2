@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 //    🛑 **這不是放寬守門** —— 下面那三道原始碼層守門(:105-118)一個字都沒動, 而且仍然要綠。
 vi.mock('server-only', () => ({}));
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { MANUAL_ORDER_LINE_SEED_EVENT } from '../../lib/orders/manual-order-line-seed';
 
 import { ManualOrderLines } from './manual-order-lines';
 import { MANUAL_ORDER_MAX_LINES } from '@/lib/orders/manual-order-form';
@@ -105,8 +106,31 @@ describe('🔴 原始碼層:不變式 (i) —— 送出值不由 client state �
     expect(CODE, 'JSX 註解沒被剝乾淨 ⇒ 上面那兩格會紅錯地方').not.toContain(JSX_COMMENT_ONLY);
   });
 
-  it('🔴 state 的型別是 `number[]`(列 id),不是任何裝值的東西', () => {
-    expect(CODE).toContain('useState<number[]>');
+  // 🔴🔴 **這一格從 `number[]` 改成 `LineRow[]`, 而那是【放寬】——所以同一批補了兩道更嚴的。**
+  //  ⛔ ~~`useState<number[]>`~~ 作廢:⟦b4-建單加成一列⟧ 之後那個 state 要帶 `seed`。
+  //  🛑 **原本那一格在守的東西不能跟著消失**:它守的是「state 裡不准裝【會送出去的值】」。
+  //     `LineRow` 裡就有值了 ⇒ 光看型別已經守不住 ⇒ 改成守**那些值怎麼用**:
+  //       ① `seed` 只准出現在含 `defaultValue={` 的行(= 開場值, 瀏覽器拿一次就歸員工)
+  //       ② 全檔 `.value` 零命中(= 沒有任何回寫)
+  //     ⇒ 📌 **兩道合起來比原本那一道嚴**:原本只問型別, 現在問的是用法。
+  it('🔴 state 的型別是 `LineRow[]`(列 id + 開場種子)', () => {
+    expect(CODE).toContain('useState<LineRow[]>');
+  });
+
+  it('🔴🔴 `seed` 只准出現在含 `defaultValue={` 的那一行(逐行比)', () => {
+    const offenders = CODE.split('\n')
+      .map((l, i) => ({ l, n: i + 1 }))
+      .filter(({ l }) => /\bseed\b/.test(l))
+      .filter(({ l }) => !l.includes('defaultValue={'))
+      // 🔵 這幾種不是「用值」:型別宣告 / 事件接線 / setRows 裡把 seed 放進新列。
+      .filter(({ l }) => !/type LineRow|ManualOrderLineSeed|CustomEvent|detail|\bseed\?: |\{ id: newRowId\(\), seed \}|r\[0\]\?\.seed|manual-order-line-seed/.test(l));
+    expect(offenders.map((o) => `${o.n}: ${o.l.trim()}`), '這幾行在用 seed 而不是拿它當開場值').toEqual(
+      [],
+    );
+  });
+
+  it('🔴 全檔 `.value` 零命中(沒有任何回寫)', () => {
+    expect(CODE.match(/\.value\b/g) ?? []).toHaveLength(0);
   });
 
   // 🔴🔴 下面兩格是 codex R1 #8 逼出來的:**只禁字面 `value=` 擋不住 spread。**
@@ -152,6 +176,12 @@ describe('🔴 原始碼層:不變式 (i) —— 送出值不由 client state �
   const SIBLINGS: ReadonlyArray<readonly [string, string]> = [
     ['manual-order-line-price-check.tsx', strip('manual-order-line-price-check.tsx')],
     ['manual-order-leave-guard.tsx', strip('manual-order-leave-guard.tsx')],
+    // 🔴 ⟦b4-建單加成一列⟧ 2026-09-06:查詢那支**開始摸得到這張表單了**(它會丟種子事件)
+    //    ⇒ 進分母。🔵 它自己有 `value={keyword}` + `onChange`, 而那是**它自己的搜尋框**、
+    //      沒有 `name=` ⇒ 不會送值 ⇒ 下面兩格對它成立。
+    //    🛑 **而它進分母的理由不是「它現在乾淨」, 是「它現在有能力弄髒」** ——
+    //      哪天有人在那支檔裡直接寫一個 `name=` 的 input 或回寫 `.value`, 這兩格會叫。
+    ['manual-order-catalog-lookup.tsx', strip('manual-order-catalog-lookup.tsx')],
   ];
   const CHILD = SIBLINGS[0]![1];
 
@@ -341,5 +371,83 @@ describe('🔴 含稅安全標籤(⟦b4-PURCHTAX1⟧ 甲;2026-08-29)', () => {
     render(<ManualOrderLines />);
     // 缺這一格 ⇒ 上面兩格「有找到」與「getByText 對任何東西都回真」印同一個綠。
     expect(screen.queryByText(/請填零稅率金額/)).toBeNull();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// ⟦b4-建單加成一列⟧ 2026-09-06 —— 「查商品 ⇒ 點一下加成一列」的接收端
+// 🔴 上面那三道守門看的是**原始碼**;它們答不出「點下去真的多一列嗎」。
+//    ⇒ 這一組是行為層, 每一格都答得出「什麼樣的爛實作會讓它變紅」。
+// ══════════════════════════════════════════════════════════════════════════
+describe('行為層:收到種子 ⇒ 長出一列並帶著開場值', () => {
+  const seed = {
+    sku: 'SKU-A',
+    title: '前叉油封',
+    qty: '1',
+    unitPrice: '900',
+    variantId: 'v-1',
+  };
+  const emit = (detail: typeof seed) =>
+    fireEvent(window, new CustomEvent(MANUAL_ORDER_LINE_SEED_EVENT, { detail }));
+
+  const rowCount = (c: HTMLElement) =>
+    c.querySelectorAll('[data-testid="manual-order-line-row"]').length;
+  const val = (c: HTMLElement, name: string) =>
+    (c.querySelector(`[name="${name}"]`) as HTMLInputElement | null)?.value;
+
+  it('🔴🔴 第一列還空著 ⇒ 種進【那一列】, 不另開一列', () => {
+    // 🛑 另開一列的話, 員工會看到「上面一列空的 + 下面一列有東西」⇒ 那看起來像壞掉。
+    const { container } = render(<ManualOrderLines />);
+    expect(rowCount(container)).toBe(1);
+    emit(seed);
+    expect(rowCount(container), '不該多一列').toBe(1);
+    expect(val(container, 'line_sku_0')).toBe('SKU-A');
+    expect(val(container, 'line_title_0')).toBe('前叉油封');
+    expect(val(container, 'line_qty_0'), '數量種 1').toBe('1');
+    expect(val(container, 'line_unit_price_0'), '單價種【未稅】那個數').toBe('900');
+    expect(val(container, 'line_variant_id_0')).toBe('v-1');
+  });
+
+  it('🔴 已經有種子的列不會被蓋掉 —— 第二筆長成新的一列', () => {
+    const { container } = render(<ManualOrderLines />);
+    emit(seed);
+    emit({ ...seed, sku: 'SKU-B', title: '後避震', unitPrice: '12000', variantId: 'v-2' });
+    expect(rowCount(container)).toBe(2);
+    expect(val(container, 'line_sku_0')).toBe('SKU-A');
+    expect(val(container, 'line_sku_1')).toBe('SKU-B');
+    // 🔵 index 連號 —— 解析器要求 `_0.._n`,缺號整張被拒。
+    expect(val(container, 'line_unit_price_1')).toBe('12000');
+  });
+
+  it('🔴 沒有經銷價(unitPrice 空字串)⇒ 單價那格留白, **不得種 0**', () => {
+    // 🛑 0 是一個合法的價格 —— 種 0 會安靜地變成一張零元的單。
+    const { container } = render(<ManualOrderLines />);
+    emit({ ...seed, unitPrice: '' });
+    expect(val(container, 'line_unit_price_0')).toBe('');
+  });
+
+  it('🔴 員工改過的字不會被下一筆種子蓋掉', () => {
+    const { container } = render(<ManualOrderLines />);
+    emit(seed);
+    const qty = container.querySelector('[name="line_qty_0"]') as HTMLInputElement;
+    fireEvent.change(qty, { target: { value: '3' } });
+    emit({ ...seed, sku: 'SKU-B', variantId: 'v-2' });
+    expect(val(container, 'line_qty_0'), '第一列的數量要留著他打的 3').toBe('3');
+  });
+
+  it('🔵 撞到上限就不再長(而既有的列一格都不動)', () => {
+    const { container } = render(<ManualOrderLines />);
+    for (let i = 0; i < MANUAL_ORDER_MAX_LINES + 3; i += 1) {
+      emit({ ...seed, sku: `S-${i}`, variantId: `v-${i}` });
+    }
+    expect(rowCount(container)).toBe(MANUAL_ORDER_MAX_LINES);
+    expect(val(container, 'line_sku_0'), '第一列仍是第一筆').toBe('S-0');
+  });
+
+  it('🔴 元件卸載之後不再接事件(不然換頁回來會長出鬼列)', () => {
+    const { container, unmount } = render(<ManualOrderLines />);
+    unmount();
+    emit(seed);
+    expect(container.querySelectorAll('[data-testid="manual-order-line-row"]').length).toBe(0);
   });
 });

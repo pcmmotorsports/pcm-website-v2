@@ -1,7 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ManualOrderLinePriceCheck } from './manual-order-line-price-check';
+import {
+  MANUAL_ORDER_LINE_SEED_EVENT,
+  type ManualOrderLineSeed,
+} from '../../lib/orders/manual-order-line-seed';
 import {
   MANUAL_ORDER_LINE_QTY_BASE,
   MANUAL_ORDER_LINE_SKU_BASE,
@@ -55,15 +59,45 @@ import {
 let nextRowId = 0;
 const newRowId = () => (nextRowId += 1);
 
+/**
+ * 一列 = 一個 id + 可選的種子。
+ * 🔴 **種子只走 `defaultValue=`** —— 那是「開場值」, 瀏覽器拿一次之後這一格就歸員工。
+ *    ⇒ 本檔那條不變式(送出的值不由 client state 產生或回寫)**仍然逐字成立**:
+ *      沒有 `value=`、沒有 `onChange`、沒有 `.value =`。
+ * 🛑 而 **id 必須跟著換**(`key` 換掉 ⇒ React 重建那一列)——
+ *    只改 seed 不換 key 的話, `defaultValue` 對一個**已經存在**的 DOM 節點**沒有作用**,
+ *    畫面會一格都不動, 而 state 上看起來是對的。
+ */
+type LineRow = { id: number; seed?: ManualOrderLineSeed };
+
 export type ManualOrderLinesProps = {
   /** 一開始擺幾列空白。預設 1 —— 員工進來就看得到一列可以打字的東西。 */
   initialRows?: number;
 };
 
 export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
-  const [rows, setRows] = useState<number[]>(() =>
-    Array.from({ length: Math.max(1, initialRows) }, newRowId),
+  const [rows, setRows] = useState<LineRow[]>(() =>
+    Array.from({ length: Math.max(1, initialRows) }, () => ({ id: newRowId() })),
   );
+
+  // 🔴 「查商品 ⇒ 點一下加成一列」的接收端(⟦b4-建單加成一列⟧ 2026-09-06)。
+  //  🔵 **只有這一側算 index** —— 查詢那一側只丟事件, 不碰表單。
+  //     解析器 `manual-order-form.ts:339-347` 要求 `_0.._n` 連號, 兩邊各自算必撞。
+  //  🛑 **第一列如果還是空的就【種進去】, 不另開一列** ——
+  //     員工進來看到一列空的, 查完之後又多一列空的在上面, 那看起來像壞掉。
+  //     判準是「這一列沒有種子」而不是「input 是不是空的」(讀 DOM 就會碰到那條不變式)。
+  useEffect(() => {
+    const onSeed = (e: Event) => {
+      const seed = (e as CustomEvent<ManualOrderLineSeed>).detail;
+      setRows((r) => {
+        if (r.length >= MANUAL_ORDER_MAX_LINES) return r;
+        if (r.length === 1 && r[0]?.seed === undefined) return [{ id: newRowId(), seed }];
+        return [...r, { id: newRowId(), seed }];
+      });
+    };
+    window.addEventListener(MANUAL_ORDER_LINE_SEED_EVENT, onSeed);
+    return () => window.removeEventListener(MANUAL_ORDER_LINE_SEED_EVENT, onSeed);
+  }, []);
 
   const atMax = rows.length >= MANUAL_ORDER_MAX_LINES;
 
@@ -133,13 +167,14 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
         稅由系統自己算,不要自己加上去;填成含稅會多課一次稅。
       </p>
 
-      {rows.map((id, index) => (
-        <div key={id} className='grid grid-cols-12 gap-2' data-testid='manual-order-line-row'>
+      {rows.map((row, index) => (
+        <div key={row.id} className='grid grid-cols-12 gap-2' data-testid='manual-order-line-row'>
           <label className='col-span-2 text-sm'>
             <span className='sr-only'>第 {index + 1} 列料號</span>
             <input
               autoComplete='off'
               name={manualOrderLineField(MANUAL_ORDER_LINE_SKU_BASE, index)}
+              defaultValue={row.seed?.sku}
               placeholder='料號'
               className='block w-full rounded-md border px-2 py-1'
             />
@@ -149,6 +184,7 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
             <input
               autoComplete='off'
               name={manualOrderLineField(MANUAL_ORDER_LINE_TITLE_BASE, index)}
+              defaultValue={row.seed?.title}
               placeholder='品名'
               className='block w-full rounded-md border px-2 py-1'
             />
@@ -158,6 +194,7 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
             <input
               autoComplete='off'
               name={manualOrderLineField(MANUAL_ORDER_LINE_QTY_BASE, index)}
+              defaultValue={row.seed?.qty}
               inputMode='numeric'
               placeholder='數量'
               className='block w-full rounded-md border px-2 py-1'
@@ -168,6 +205,7 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
             <input
               autoComplete='off'
               name={manualOrderLineField(MANUAL_ORDER_LINE_UNIT_PRICE_BASE, index)}
+              defaultValue={row.seed?.unitPrice}
               inputMode='numeric'
               placeholder='單價'
               className='block w-full rounded-md border px-2 py-1'
@@ -178,6 +216,7 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
             <input
               autoComplete='off'
               name={manualOrderLineField(MANUAL_ORDER_LINE_VARIANT_BASE, index)}
+              defaultValue={row.seed?.variantId}
               placeholder='商品編號'
               className='block w-full rounded-md border px-2 py-1'
             />
@@ -194,7 +233,7 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
                 type='button'
                 aria-label={`刪掉第 ${index + 1} 列`}
                 className='rounded-md border px-2 py-1 text-sm'
-                onClick={() => setRows((r) => r.filter((x) => x !== id))}
+                onClick={() => setRows((r) => r.filter((x) => x.id !== row.id))}
               >
                 刪掉
               </button>
@@ -216,7 +255,7 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
           type='button'
           disabled={atMax}
           className='rounded-md border px-3 py-1 text-sm disabled:opacity-50'
-          onClick={() => setRows((r) => [...r, newRowId()])}
+          onClick={() => setRows((r) => [...r, { id: newRowId() }])}
         >
           加一列
         </button>
