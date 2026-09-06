@@ -19,7 +19,8 @@
 # 用法
 #   bash scripts/harvest-merge-line.sh <分支>     合它, 印一行結果
 #   bash scripts/harvest-merge-line.sh --selftest 自檢(正負對照)
-#   環境變數 `HARVEST_ROOT` 可指定主樹路徑(預設 `/Users/sean_1/pcm-website-v2`)
+#   🔴 環境變數 `HARVEST_ROOT` **必給**(指哪棵樹)—— ⛔ ~~預設 `/Users/sean_1/pcm-website-v2`~~
+#      不給 ⇒ rc=2 + 印用法。理由(一次險過)寫在下面 `ROOT=` 那一段。
 #
 # 退出碼
 #   0 = 合完、零同錨重複        2 = commit 失敗
@@ -36,6 +37,22 @@ set -u
 #  ③ 原本 `git commit … && D=$(…); echo … || { echo COMMIT FAILED; exit 2; }`
 #     ⇒ 🛑 **`||` 綁在 `echo` 上, 而 `echo` 幾乎不會失敗 ⇒ 那個 `exit 2` 是【到不了的碼】**。
 #     一顆失敗的 commit 會印 `resolved <hash> dup=` 然後 **exit 0**。⇒ 改成明白的 `if !`。
+# 🔴🔴 **`HARVEST_ROOT` 不給就停 —— 而【那個預設值】是這一改的理由**(2026-09-06 `-auth`,
+#    主視窗 `-f1` 點頭)。⛔ ~~原本 `ROOT="${HARVEST_ROOT:-/Users/sean_1/pcm-website-v2}"`~~
+#    📌 **病史**:施工窗被交代「主樹別碰」, 然後照著交接訊息打 `bash scripts/harvest-merge-line.sh origin/dev`
+#      —— 那一行**看起來完全正常**, 而它把一支【會 merge、會 commit】的腳本指到了主樹。
+#    🔵 那一發沒有造成改動, **而那是運氣不是設計**:主樹當下的 `origin/dev` 剛好已是祖先 ⇒ 空操作。
+#    🛑 **⇒ 一個「省事的預設值」在多窗環境裡, 是一個【安靜地指向別人的樹】的預設值。**
+#      而它錯的時候與對的時候**在終端機上印一模一樣的東西**(都是那一行 `clean <hash> dup=0`)。
+#    ✅ 改成:不給就 rc=2 + 印用法。**多打一個環境變數, 換掉一整類「我以為我在自己的樹上」。**
+#    ⚠️ `--selftest` 不受影響 —— 它在下面自己開拋棄式 fixture, 不讀 `ROOT` 去 merge。
+if [ -z "${HARVEST_ROOT:-}" ] && [ "${1:-}" != "--selftest" ]; then
+  echo "🔴 HARVEST_ROOT 沒給 —— 本支會在那棵樹上【真的 merge 並 commit】, 所以不猜。" >&2
+  echo "   用法:HARVEST_ROOT=<那棵樹的路徑> bash scripts/harvest-merge-line.sh <分支>" >&2
+  echo "   例:HARVEST_ROOT=\"\$PWD\" bash scripts/harvest-merge-line.sh origin/dev" >&2
+  echo "   ⚠️ 主樹是 /Users/sean_1/pcm-website-v2 —— 夜跑期間多半【不該】是你要的那個。" >&2
+  exit 2
+fi
 ROOT="${HARVEST_ROOT:-/Users/sean_1/pcm-website-v2}"
 WORK=""
 cleanup() { [ -n "$WORK" ] && rm -rf "$WORK"; }
