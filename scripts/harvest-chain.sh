@@ -82,13 +82,13 @@ trap 'cleanup; exit 143' TERM HUP
 #    🔬 數法:pre-commit 掛 19 支(`grep -cE '^\s*(sh|bash)\s+' .husky/pre-commit`);
 #      其中 harvest 已涵蓋 1(applied-ledger-dup)· 沒跑 18 · 而 18 裡 11 支讀 staged
 #      (merge 之後 staged 是空的 ⇒ 接進來會空轉)⇒ **接得動的是 7 支**。
-EXPECT_GATES='fw-live fw-json ledger deploy install nextlink boarddup tc lint build test1 test2 splitcheck btest1 btest2 zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
+EXPECT_GATES='fw-live fw-json schemaexp ledger deploy install nextlink boarddup tc lint build test1 test2 splitcheck btest1 btest2 zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
 # 🟡 **只報不擋的那一族(⟦db-MERGEBLINDGATE⟧)** —— 它們**必須在 `EXPECT_GATES` 裡**(所以「少跑一支」抓得到),
 #    而 `verdict` **不把它們的 rc 算進放行判定**。
 # 🔴 **這個名單放在【判定函式看得到的地方】, 不是靠呼叫端記得用哪個 helper** ——
 #    下一個人把 `add_report` 改成 `add`, 這七道會默默變成會擋推的, 而沒有任何東西會說。
 #    ⇒ 📌 保證要住在判定裡。selftest ⑦c 就是量這一格。
-REPORT_ONLY='zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
+REPORT_ONLY='schemaexp zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
 
 verdict() {
   local gates="$1" a="$2" b="$3" ba="$4" bb="$5" T="$6" F="$7" item name rc got n mt ft
@@ -278,6 +278,10 @@ if [ "${1:-}" = "--selftest" ]; then
   #    📌 因為它們的 rc 恆為 0, 一個「少跑了」與一個「跑了而綠」在 rc 上完全一樣,
   #      **能分開它們的只有名單那一關**。
   ck "⑦b 漏掉只報那族的一道(acldrift)⇒ 3" "$(run "$(drop_one acldrift)" "$SUM" "$SUM")" "3"
+  # 🔴 ⑦b2 schemaexp 也在只報那族 ⇒ 它少跑了一樣要擋。
+  #    📌 它比別的更需要這一格:那支探針**本來的病就是「沒有人按下去」**
+  #      ⇒ 一個「安靜地沒跑」與一個「跑了而綠」在 rc 上完全一樣(兩者都記 0)。
+  ck "⑦b2 漏掉只報那族的一道(schemaexp)⇒ 3" "$(run "$(drop_one schemaexp)" "$SUM" "$SUM")" "3"
   # 🔴🔴 ⑦c —— **這一格就是「只報不擋」的證明**, 沒有它我只是在宣稱。
   #    那七道之一 rc≠0 ⇒ **仍然要推**(0), 而 ①(一般閘 rc≠0 ⇒ 3)就在上面幾行 ——
   #    ⇒ 📌 兩格擺在一起才看得出「這七道與其他十五道走的是不同規矩」。
@@ -356,7 +360,10 @@ if [ "${1:-}" = "--selftest" ]; then
   #    ⛔ ~~本段原本只看 `$f = 0`~~ ⇒ 📌 **漏寫一格 `ck` 會印 `18 PASS / 0 FAIL` 而照樣「全部通過」。**
   #    🛑 **那正是本片在替收割鏈修的那個病**(兩發相同只證重現性, 證不了分母)—— 同型, 在自檢這一層。
   #    ⚠️ 加一格 `ck` 必同步改這個數;數法 = 跑一發看 `$p`。
-  EXPECT_CELLS=29   # 🟡 2026-09-06 +2:⑦b/⑦c(只報不擋那一族, ⟦db-MERGEBLINDGATE⟧)
+  EXPECT_CELLS=30   # 🟡 2026-09-06 +2:⑦b/⑦c(只報不擋那一族, ⟦db-MERGEBLINDGATE⟧)
+                    # 🟡 2026-09-07 +1:⑦b2(schemaexp, ⟦0e-PROBENOSCHED⟧)
+                    # 🔴 **先數格再填數字**:改前跑一發拿到 `PASS=30`, 才把 29 改成 30 ——
+                    #    倒過來(先寫數字再湊格)會讓這道閘變成「我說幾格就是幾格」。
   if [ "$f" = 0 ] && [ "$p" != "$EXPECT_CELLS" ]; then
     echo "🔴 零 FAIL 但格數不對(PASS=$p ≠ EXPECT_CELLS=$EXPECT_CELLS)⇒ 有格被刪/被跳過, 判為未通過"
     exit 1
@@ -427,6 +434,28 @@ say "══ 收割鏈 批號 $BATCH · HEAD=$(git rev-parse --short HEAD) · log
 
 python3 scripts/vercel-firewall-cron-order-check.py > "$WORK/fw-live.log" 2>&1; add fw-live $?
 python3 scripts/vercel-json-waf-cron-gate.py         > "$WORK/fw-json.log" 2>&1; add fw-json $?
+
+# ══ 🟡 schemaexp:外部曝露探針(只報不擋)—— 板列 ⟦0e-PROBENOSCHED⟧, 主視窗 `-f1` 2026-09-07 批 ══
+# 🔬 **為什麼放這裡而不是三綠/CI**:那支探針的檔頭明令「不塞進三綠 / CI 必跑」, 理由逐字是
+#    「它打正式站 + 依賴外部網路, 塞進去會做出時好時壞的測試, 而**假紅比沒有守門更糟**」。
+#    ⇒ ✅ 而 `REPORT_ONLY` 這一族正是為了那句話存在的:**它紅【不擋推】**, 只在畫面上留一行;
+#      同時它在 `EXPECT_GATES` 裡 ⇒ **少跑一支抓得到**(那正是這支探針 17 天沒人按的那個病)。
+# 🔴 **硬 timeout 30 秒, 而逾時【不是綠】**:`perl -e 'alarm …; exec …'` 逾時回 **142**。
+#    📌 一個「連不上外網」的夜晚, 不可以印得像「今天沒有曝露」—— 那兩件事必須印不同的東西。
+# 🛑 **輸出只有 rc 與計數** —— 探針檔頭明令「key 不進 stdout / log / 命令列」, 而本處
+#    **不 cat 那支 log**、只數它的 PASS / FAIL 行。(2026-09-07 實測:拿兩支金鑰檔的前 8 字元
+#    去 grep 那支 log ⇒ **各 0 命中**, 而正對照 `PASS` ⇒ 30。)
+# 🔴 **秒數只寫一次** —— 第一版把 30 同時寫在 `alarm` 與那句訊息裡, 而突變(改成 1 秒)當場印出
+#    「逾時 30 秒」⇒ 📌 **一個會說謊的訊息, 而說謊的方向是【讓人以為等得比實際久】。**
+_SE_TIMEOUT=30
+perl -e 'alarm shift; exec @ARGV' "$_SE_TIMEOUT" sh scripts/probe-schema-exposure.sh both > "$WORK/schemaexp.log" 2>&1
+_se=$?
+if [ "$_se" = 142 ]; then
+  say "   · schemaexp ⏱ 未跑到(逾時 ${_SE_TIMEOUT} 秒)—— 這【不是綠】:本批【沒有量到】曝露狀態。"
+else
+  say "   · schemaexp 讀數 PASS=$(grep -c 'PASS$' "$WORK/schemaexp.log") FAIL=$(grep -c 'FAIL$' "$WORK/schemaexp.log") (rc=$_se;3=真發現 1=工具自壞 2=用法錯)"
+fi
+add_report schemaexp "$_se"
 if [ -f scripts/applied-ledger-dup-gate.py ]; then
   python3 scripts/applied-ledger-dup-gate.py > "$WORK/ledger.log" 2>&1; add ledger $?
 else
