@@ -33,6 +33,15 @@ import { listSuppliers } from '../../lib/supplier';
 import { OrderDetail } from './order-detail';
 import type { PaymentListData } from './payment-list';
 import { EmailLogSection, type EmailLogData } from './email-log-section';
+import {
+  ManualCancelNoticeButton,
+  PhoneNotifiedButton,
+} from './manual-cancel-notice-button';
+import {
+  readManualCancelNoticeEligibility,
+  canRevokeManualCancelNotice,
+  readPhoneNotifiedMark,
+} from '@/lib/orders/manual-cancel-notice-read';
 import { ResultBanner } from './result-banner';
 import { getSessionActor } from '../../lib/session/actor';
 import {
@@ -512,7 +521,56 @@ export async function OrderDetailRoute({
              ⇒ 常駐比「要先點到某一個分頁」快一步。
           🔴 代價照留:它不在 `OrderDetail` 的分頁結構裡 ⇒ 版面上是獨立一張卡。
              ⇒ Sean 開後台看到不喜歡, 那時再搬。 */}
-      {loadFailed || detail === null ? null : <EmailLogSection data={emailLog} />}
+      {/* ⟦b4-CANCELMAILMIXEDRAIL⟧ 片 B ①:「登錄我已人工寄出取消通知」。
+          🔵 **家在寄信紀錄這張卡下面** —— 它講的就是那張卡上的事(這封信誰寄的)。
+          🔴 而**資格是伺服器現讀的**, 不是從 `detail` 推的 ——
+             `payment_method` 根本不在這個頁面的視圖模型裡
+             (`cancel-actions.ts:348` 逐字「收窄要把 `payment_method` 一路加進 `CancelViewOrder`」)
+             ⇒ 用同一支 `readManualCancelNoticeEligibility`, 與 action 共用述詞。 */}
+      {loadFailed || detail === null ? null : (
+        <>
+          <EmailLogSection data={emailLog} />
+          {/* ⟦mail-PHONEONLYNOTIFY⟧:兩顆鈕共用同一份資格 —— **只讀一次**。
+              🔴 而電話通知那顆的出現條件是「合格 **而且** 兩個信箱都空」——
+                 有信箱的單就該用寄信那條路, 給他電話那顆只會讓紀錄變糊。 */}
+          {await (async () => {
+            const eligibility = await readManualCancelNoticeEligibility(id);
+            // 🔴🔴 **讀標記也要用【DB 正規化過的 id】**(codex must-fix ③)——
+            //    ⛔ 我上一輪修 UUID 大小寫時**只修了 writer 那一半**, 這裡的 reader 還拿網址原始 `id`
+            //      去查 **text** 型的 `target`
+            //    ⇒ 🛑 大寫網址標記成功之後:**計數下降了, 而畫面讀不到那筆標記**
+            //      ⇒ 電話鈕還在, 再按一次回「已標記」⇒ 📌 **員工看到的與系統知道的分家。**
+            //    ✅ `eligibility.orderId` 是 `select('id')` 回來的那一份。
+            //    🔵 不合格時退回網址那個 id —— 那條路本來就不畫任何鈕, 讀不到也無妨。
+            const canonicalId = eligibility.eligible ? eligibility.orderId : id;
+            const phoneNotified = await readPhoneNotifiedMark(canonicalId);
+            return (
+              <>
+                <ManualCancelNoticeButton
+                  orderId={id}
+                  eligibility={eligibility}
+                  canRevoke={await canRevokeManualCancelNotice(id)}
+                  phoneNotified={phoneNotified}
+                />
+                <PhoneNotifiedButton
+                  orderId={id}
+                  show={
+                    phoneNotified === null &&
+                    eligibility.eligible &&
+                    eligibility.suggestedEmail === null &&
+                    // 🔴🔴 **讀失敗時不出這顆鈕**(code-reviewer important ④)——
+                    //    `suggestedEmail === null` 同時代表「真的沒有信箱」與「讀 customers 失敗」,
+                    //    而這顆鈕**不可撤銷** ⇒ 🛑 一次瞬時失敗就讓它出現在**有信箱**的單上,
+                    //    而按下去那張單**永久離開提醒**(稽核 append-only)。
+                    !eligibility.customerEmailReadFailed
+                  }
+                  emailReadFailed={eligibility.eligible && eligibility.customerEmailReadFailed}
+                />
+              </>
+            );
+          })()}
+        </>
+      )}
 
       {loadFailed || detail === null ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>

@@ -1,5 +1,5 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十六個函式、共三十九處**手動校正,
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十八個函式、共四十一處**手動校正,
 //    🔴 **2026-09-06 合併 `agent/line-ship` 與 `agent/line-ship-5b-sentnum` 時重新編號** ——
 //      兩條分支各自加了一條(⑱ 與 ⑲), 而**它們在各自的樹上都看不到對方** ⇒ 數字各算各的。
 //      ⇒ 📌 那正是 ⑲ 自己註解裡預言的那一撞:「合併這兩條分支的人請重新編一次號。」
@@ -474,6 +474,42 @@
 //   ⚠️ **本次新進來的**:`admin_sso_login_events` / `purge_admin_sso_login_events`(本班的)+
 //      `admin_customer_list_v` / `sweeper_heartbeat` / `graphql`(**不是我 apply 的** ——
 //      它們先前就在正式庫,是本檔落後於它)。
+//   ㉑ `record_manual_cancel_notice(uuid,text,text,text)` **整段**〔主migration=20260906920000〕〔APPLIED.tsv 無此列〕〔貼板 57〕
+//      (2026-09-06 線【信】`-mail`;編號由主視窗 `-f1` 配 —— 它查過三棵樹沒人在寫 ㉑)
+//      ⏳ **未 apply** —— 這一條是**先於 DB** 補的(貼板 57 還沒貼)。
+//         🔴 **那個〔APPLIED.tsv 無此列〕標記必須寫在【與〔主migration=…〕同一行】** ——
+//            本檔的尺是 `markerLine()`:它只挑出**帶主錨的那一行**來看標記,
+//            寫在別行等於沒寫(2026-09-06 我先寫在下一行, 紅了才發現)。
+//         🔵 那個標記不是裝飾:本檔的尺**帳本查不到這一列時不做任何 apply 斷言**,
+//            改為要求條目**自己帶一個不確定性標記** ⇒ 讀的人會同時讀到「這一格帳本答不了」,
+//            而不是讀到一句看起來被驗過的話。
+//         🔴 **而那個順序是刻意的**:碼要先過 typecheck 才進得了 39d, 而 `.rpc()` 的字串
+//            不在型別聯集裡就過不了 ⇒ 型別條目必須先落。
+//         🛑 **代價寫明**:在貼板 57 貼上去之前, 那顆鈕按下去會拿到 `write_failed`
+//            (PostgREST 找不到那支函式)⇒ **碼上了而 DB 沒上 = 功能不會動**, 而三綠全綠。
+//            ⇒ 📌 那正是 `scripts/deploy-order-gate.sh` 在管的那一維, 不是這裡管得到的。
+//         ✅ 貼板 57 落帳之後**回來把上面那個狀態字改掉** —— 本檔那道尺會逐條問這一句。
+//            ⚠️ 而**這裡不可以把那個新字面寫出來** —— 那道尺是逐字掃的
+//            ⇒ 條目裡同時出現兩種措辭時它會判「有歧義, 請人判」(2026-09-06 我當場踩到)。
+//      🔵 **形狀照 `admin_requeue_dead_email`**(同為 admin 側 `.rpc()` 呼叫、`Returns: Json`)。
+//      🔴🔴 **加這一條的時候撞到一件事, 寫給下一個人**:兩支釘子的正則原本是 `[①-⑳]`
+//         (`database-types-apply-state.test.ts` 的 `ENTRY_RE` 用 `\u2460-\u2473`,
+//          `database-types-manual-count.test.ts:58` 用 `[①-⑳]`)——
+//         🛑 **⑳ 是 U+2473 而 ㉑ 是 U+3251, 中間隔了一大段** ⇒ **這套編號在 ⑳ 就到頂了**,
+//         而**第 21 條對兩把尺都是隱形的**(檔頭數 17、解析器只數到 16 ⇒ 它們互相矛盾才紅)。
+//         ✅ 同 commit 把兩支的上界延到 `㉟`(U+325F)⇒ 撐到第 35 條。**下一個到頂的人請照做。**
+//      ⚠️ **本條證不到什麼**:我**沒有查正式庫**那支函式的真實簽章 —— 依據是那支 migration 檔;
+//         而抓到「型別檔沒有它」的是 **typecheck 本身**(`TS2345 … not assignable`), 與 ⑳ 同形。
+//      🛑 **而姊妹支不在本檔裡**:`get_cancelled_mixed_rail_gap_counts` 走 raw pg `client.query()`
+//         ⇒ 走不到這個型別聯集。本支走 supabase-js `.rpc()` ⇒ 才需要登記。
+//         ⇒ 📌 **「在不在這個檔裡」答的是【怎麼呼叫】, 不是【重不重要】。**
+//      ⇒ 下一個要加的是 ㉒。
+//   ㉒ `revoke_manual_cancel_notice(uuid,uuid,text,text)` **整段**〔主migration=20260906930000〕〔APPLIED.tsv 無此列〕〔貼板 60〕
+//      (2026-09-06 線【信】`-mail`;版本號與貼板號由主視窗 `-f1` 預先配給, 58/59 是線【DB】的)
+//      🔵 它是 ㉑ 的反面:撤銷誤按的那一列。**硬刪**(軟刪 ⇒ anti-join 仍看得到 ⇒ 計數不會回來;
+//         改 status ⇒ sweeper 會把它撿去真的寄出去)。
+//      ⏳ **未 apply** —— 與 ㉑ 同一批, 碼先於 DB(理由見 ㉑ 那條)。
+//      ⇒ 下一個要加的是 ㉓。
 export type Json =
   | string
   | number
@@ -4503,6 +4539,28 @@ export type Database = {
           p_order_id: string
         }
         Returns: boolean
+      }
+      record_manual_cancel_notice: {
+        // ㉑ 手動校正(整段)—— **條目本體在檔頭那一串圈號裡**, 不在這裡。
+        //    🔴 兩支釘子的正則只認**檔頭**那個形狀(`^// {3}[①-㉟]`), 寫在這裡它們看不到。
+        Args: {
+          p_order_id: string
+          p_recipient_email: string
+          p_actor: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      revoke_manual_cancel_notice: {
+        // ㉒ 手動校正(整段)—— **條目本體在檔頭**, 同 ㉑。
+        Args: {
+          p_order_id: string
+          // 🔴 codex 2026-09-06 must-fix ①:compare-and-swap 用 —— 見那支 migration。
+          p_outbox_id: string
+          p_actor: string
+          p_request_id: string
+        }
+        Returns: Json
       }
       record_charge_pending_rec: {
         Args: {
