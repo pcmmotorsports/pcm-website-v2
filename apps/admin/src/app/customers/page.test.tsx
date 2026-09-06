@@ -24,6 +24,10 @@ vi.mock('../../lib/customers/customer-repository', () => ({
 vi.mock('server-only', () => ({}));
 
 import CustomersPage from './page';
+import {
+  TEST_ACCOUNT_EMAILS,
+  TEST_ACCOUNT_EMAILS_IN_CUSTOMER_COUNT,
+} from '../../lib/dashboard/test-accounts';
 
 afterEach(() => {
   cleanup();
@@ -183,6 +187,39 @@ describe('#525 客戶關鍵字搜尋(畫面層)', () => {
     await renderPage({}, hits(1, false));
     // 這格守的是最毒的那個形狀:chip 寫著「目前搜尋:0912」而查詢根本沒帶 keyword。
     expect(mocks.list.mock.calls[0]?.[0]).toMatchObject({ keyword: '0912' });
+  });
+
+  // ── ⟦b4-TESTACCT1⟧ 客戶數那一面的標示(2026-09-07 線 `front`)──────────────────
+  // 🔴 這三格守的不是「有沒有那句話」, 是**那句話會不會說謊**:
+  //    它必須①在有測試帳號時出現 ②在清單清空時消失 ③永遠不印 email。
+  //    📌 ②才是真正的守門 —— 少了它, 這句話會在測試資料清乾淨之後繼續嚇員工。
+
+  it('⟦b4-TESTACCT1⟧ 常數非空 ⇒ 印出「可能含測試帳號資料」與【個數】', async () => {
+    const { container } = await renderPage({}, { items: [], total: 7, keywordTruncated: false, keywordMatchCount: null });
+    expect(container.textContent).toContain('可能含測試帳號資料');
+    expect(container.textContent).toContain(`${TEST_ACCOUNT_EMAILS_IN_CUSTOMER_COUNT.length} 個帳號`);
+  });
+
+  it('🔴 只印個數、**不印 email**(PII;這個畫面會被截圖轉發)', async () => {
+    const { container } = await renderPage({}, { items: [], total: 7, keywordTruncated: false, keywordMatchCount: null });
+    for (const email of TEST_ACCOUNT_EMAILS_IN_CUSTOMER_COUNT) {
+      expect(container.textContent).not.toContain(email);
+    }
+  });
+
+  it('🔴 載入失敗 ⇒ 不印那句(「共 N 位」本來就不顯示 ⇒ 它會修飾一個不存在的數字)', async () => {
+    mocks.list.mockRejectedValue(new Error('boom'));
+    const { container } = await render(await CustomersPage({ searchParams: Promise.resolve({}) }));
+    expect(container.textContent).not.toContain('可能含測試帳號資料');
+  });
+
+  it('🔴 用的是 `_IN_CUSTOMER_COUNT` 那個清單 —— 換成對帳三卡那個會【少算一個】', () => {
+    // 兩個常數的差就是「有沒有單」與「是不是客戶」的差(見 test-accounts.ts 檔頭)。
+    // 🛑 這格的正對照:下面那個 `>` 若變成 `>=`, 有人把兩份寫成一樣時它不會叫。
+    expect(TEST_ACCOUNT_EMAILS_IN_CUSTOMER_COUNT.length).toBeGreaterThan(TEST_ACCOUNT_EMAILS.length);
+    for (const email of TEST_ACCOUNT_EMAILS) {
+      expect(TEST_ACCOUNT_EMAILS_IN_CUSTOMER_COUNT).toContain(email);
+    }
   });
 
   it('沒搜尋詞 ⇒ filter【不帶】keyword 欄(`undefined` 與 `\'\'` 在 adapter 是兩條路)', async () => {
