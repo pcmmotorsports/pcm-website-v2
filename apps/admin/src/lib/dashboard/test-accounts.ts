@@ -41,3 +41,26 @@ export const TEST_ACCOUNT_EMAILS: readonly string[] = [
   // 2026-08-18 tappay sandbox 端到端測試(座標 docs/probes/2026-08-18-tappay-sandbox-charge-log.md)
   'bsas0830@gmail.com',
 ];
+
+/**
+ * 客戶【數】那一面要用的清單 —— 它比上面那個**多一個**, 而那不是筆誤。
+ *
+ * 🔴🔴 **為什麼要第二個常數(理由就寫在本檔上半, 由它親自交辦下一個人)**:
+ *    上面 `TEST_ACCOUNT_EMAILS` 的定義是「**會影響今日對帳那三個數字**的帳號」——
+ *    `g3-sandbox-test@pcmmotorsports.com` **0 張單 / 0 筆收款** ⇒ 它對那三個數字沒有影響,
+ *    所以**刻意**不在那個陣列裡(把它加進去會讓「N 個帳號」誇大)。
+ * 🛑 **而「客戶數」是另一個分母** —— 它數的是 `customers` 的列, 不是訂單。
+ *    🔬 2026-09-05 線【身分】`-auth` 唯讀實查:**兩個帳號在 `customers` 都在**
+ *    (`8d402365…` / `c2707561…`)⇒ 📌 **客戶列表那個「共 N 位」裡, 兩個都算進去了。**
+ *    ⚠️ **那個讀數不是我量的**(本窗無正式庫存取)—— 出處板列 `⟦b4-TESTACCT1⟧`。
+ * 🎯 **⇒ 用上面那個常數去標客戶數, 會【少算一個】** —— 而少算的正好是這整片在講的東西。
+ *
+ * 🔵 **形狀刻意寫成【展開上面那個】而不是各自列一份** ——
+ *    測試單清掉那天有人去改上面那個陣列, 這裡**自動跟著變**;
+ *    兩份各自硬寫的世界裡, 改一邊而忘了另一邊**不會有任何訊號**。
+ */
+export const TEST_ACCOUNT_EMAILS_IN_CUSTOMER_COUNT: readonly string[] = [
+  ...TEST_ACCOUNT_EMAILS,
+  // 2026-08-18 tappay sandbox 測試帳號:0 張單 ⇒ 不影響對帳三卡, 而它【是一位客戶】
+  'g3-sandbox-test@pcmmotorsports.com',
+];
