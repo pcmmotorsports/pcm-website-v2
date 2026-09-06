@@ -191,6 +191,11 @@ const ALERT_PENDING_DC_STUCK_SECONDS = 600;
  */
 const ALERT_MANUAL_CUSTOMER_SEARCH_WINDOW_SECONDS = 86400;
 /**
+ * ⟦b9-ENUMWATCH⟧ 2026-09-06:24 小時內客戶搜尋次數達此值 ⇒ 告警(進 `shouldAlert`)。
+ * 🔴 **這不是一個量出來的穩定正常量** —— 依據與到期條件寫在注入點那段註解。
+ */
+const ALERT_MANUAL_CUSTOMER_SEARCH_COUNT = 50;
+/**
  * 🟡 **搜尋語料表列數告警門檻(2026-09-06;主視窗 `-f1` 裁 5,000)。**
  *   env `SEARCH_LOG_ROWS_ALERT` 可覆寫 —— 形狀照本檔既有的 env 讀法(`SHIPPED_EMAIL_CUTOFF` 那族)。
  *
@@ -395,6 +400,13 @@ export async function GET(request: Request): Promise<Response> {
       orderCreatedCutoffIso,
       manualCustomerSearchWindowSeconds: ALERT_MANUAL_CUSTOMER_SEARCH_WINDOW_SECONDS,
       searchLogRowsAlertThreshold: readSearchLogRowsThreshold(process.env.SEARCH_LOG_ROWS_ALERT),
+      // 🔴 ⟦b9-ENUMWATCH⟧ 2026-09-06:後台客戶搜尋次數的告警門檻。
+      //    **常數不走 env** —— 它不是一個運維旋鈕, 而是一個【已知不穩】的值:
+      //    量於 2026-09-06 的正式庫(該事件共 4 次 / 分佈 2 天 / 單日最高 3 / 最近 24h 0),
+      //    🛑 而那個分母是【一個沒有人在用的世界】—— 同日量到後台 6 個帳號**零個真員工**。
+      //    ⇒ 📌 **員工上工那天要重看**, 收那個訊號的是板列 ⟦auth-STAFFONBOARDSIGNAL⟧。
+      //    ⇒ 給它一個 env 旋鈕會讓人以為「調一下就好」, 而該做的是重新量。
+      manualCustomerSearchAlertThreshold: ALERT_MANUAL_CUSTOMER_SEARCH_COUNT,
       orderCreatedStuckMinutes,
     });
 
