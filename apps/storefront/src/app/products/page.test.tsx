@@ -1,3 +1,8 @@
+// 🔴 2026-09-06(Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧):route 改走【帶 `failed` 的那扇門】
+//   ⇒ 本檔的 mock 與斷言跟著換受詞:`fetchVehicleTaxonomy` ⇒ `tryVehicleTaxonomy`,
+//   回傳形狀從 `MockMotoBrand[]` 變成 `{ motoBrands, failed }`。
+//   🛑 **不是為了讓測試變綠才改** —— 是被測的那一行真的換了呼叫對象;
+//      不改的話這幾格會綠在一個【已經不存在的呼叫】上。
 // @vitest-environment node
 //
 // app/products/page.tsx metadata 守門 — W9e-005(2026-08-20)
@@ -16,9 +21,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 //    檔頭註解那個坑)。這裡只要它們不炸,不需要真的可用 —— 本測試不呼叫任何一個。
 vi.mock('@/lib/products', () => ({
   fetchCatalogPage: vi.fn(),
-  fetchCatalogBrandTaxonomy: vi.fn(),
-  fetchCategories: vi.fn(),
-  fetchVehicleTaxonomy: vi.fn(),
+  tryCatalogBrandTaxonomy: vi.fn(),
+  tryCategories: vi.fn(),
+  tryVehicleTaxonomy: vi.fn(),
 }));
 vi.mock('@/lib/supabase/server', () => ({ createServerSupabaseClient: vi.fn() }));
 vi.mock('@/lib/auth/composition', () => ({ getVehicleRepo: vi.fn() }));
@@ -42,16 +47,16 @@ vi.mock('next/navigation', () => ({
 }));
 
 const { metadata, default: ProductsRoute } = await import('./page');
-const { fetchCatalogPage, fetchCategories, fetchVehicleTaxonomy, fetchCatalogBrandTaxonomy } =
+const { fetchCatalogPage, tryCategories, tryVehicleTaxonomy, tryCatalogBrandTaxonomy } =
   await import('@/lib/products');
 const { searchProducts } = await import('@/lib/search');
 const { getVehicleRepo } = await import('@/lib/auth/composition');
 
 /** 三個側欄來源與 garage 都不是本組要驗的東西 —— 給到「不炸」為止就好。 */
 function stubSidebars() {
-  vi.mocked(fetchVehicleTaxonomy).mockResolvedValue([]);
-  vi.mocked(fetchCategories).mockResolvedValue([]);
-  vi.mocked(fetchCatalogBrandTaxonomy).mockResolvedValue([]);
+  vi.mocked(tryVehicleTaxonomy).mockResolvedValue({ motoBrands: [], failed: false });
+  vi.mocked(tryCategories).mockResolvedValue({ categories: [], failed: false });
+  vi.mocked(tryCatalogBrandTaxonomy).mockResolvedValue({ brands: [], failed: false });
   vi.mocked(getVehicleRepo).mockResolvedValue({
     listByCustomer: async () => [],
   } as unknown as Awaited<ReturnType<typeof getVehicleRepo>>);
@@ -89,7 +94,7 @@ describe('/products · 兩條資料路(⟦搜尋-落點換 /products⟧)', () =>
   });
 
   // ── ⟦search-SHORTNAMEZEROFLASH⟧ 首發要認得裸【子】分類名 ──
-  // 🔴🔴 **這兩格存在的理由**:本檔的 `stubSidebars()` 把 `fetchCategories` 餵成 `[]`
+  // 🔴🔴 **這兩格存在的理由**:本檔的 `stubSidebars()` 把 `tryCategories` 餵成 `[]`
   //    ⇒ `parseCategoryFromUrl` 在**其餘每一格裡恆回 null** ⇒ 🛑 **那 15 格對這條新分支
   //      【零判別力】** —— 有人把 `effectiveQuery` 改回 `catalogQuery`, 三綠全綠、沒有東西會紅。
   //    ⇒ 📌 **所以要餵一棵【真的有子分類的樹】, 那條分支才進得去。**(R1 對抗審查抓到)
@@ -99,7 +104,7 @@ describe('/products · 兩條資料路(⟦搜尋-落點換 /products⟧)', () =>
   ];
 
   it('🔴 裸【子】分類名 ⇒ 首發就送【全路徑】進 RPC(而且取件數最大那個父)', async () => {
-    vi.mocked(fetchCategories).mockResolvedValue(DUP_TREE as never);
+    vi.mocked(tryCategories).mockResolvedValue({ categories: DUP_TREE, failed: false } as never);
     vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
     await run({ category: '水管束環' });
     expect(vi.mocked(fetchCatalogPage).mock.calls[0]?.[0].category).toBe('引擎與冷卻 · 水管束環');
@@ -109,14 +114,14 @@ describe('/products · 兩條資料路(⟦搜尋-落點換 /products⟧)', () =>
   //    留著的話 RPC 那側會把兩顆併成一份 `v_cats` ⇒ 而那顆裸短名若剛好也是某個【頂層分類】的名字,
   //    `category_raw = vc OR LIKE vc || ' · %'` 會把**整棵頂層樹**撈進來 ⇒ 比修之前【多撈】。
   it('🔴 裸子分類名解析後, categories 裡只剩全路徑 —— 裸短名不可以跟著送進去', async () => {
-    vi.mocked(fetchCategories).mockResolvedValue(DUP_TREE as never);
+    vi.mocked(tryCategories).mockResolvedValue({ categories: DUP_TREE, failed: false } as never);
     vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
     await run({ category: '水管束環' });
     expect(vi.mocked(fetchCatalogPage).mock.calls[0]?.[0].categories).toEqual(['引擎與冷卻 · 水管束環']);
   });
 
   it('🔵 負對照:誰都不是的名字 ⇒ 原封送出, 不可以退化成「挑一個最像的」', async () => {
-    vi.mocked(fetchCategories).mockResolvedValue(DUP_TREE as never);
+    vi.mocked(tryCategories).mockResolvedValue({ categories: DUP_TREE, failed: false } as never);
     vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
     await run({ category: 'QQ9Z7XKW' });
     expect(vi.mocked(fetchCatalogPage).mock.calls[0]?.[0].category).toBe('QQ9Z7XKW');
@@ -188,22 +193,25 @@ describe('/products · 解析成膠囊之後 redirect', () => {
   //    ⇒ **一顆膠囊都畫不出來, 而篩選照樣生效** ⇒ Sean 要「兩顆都列」而結果是零顆。
   //    🛑 **而我第一版就是只寫新鍵, 全套測試【一格都沒紅】** —— 所以要有這一格。
   it('🔴 解析出分類 ⇒ 網址上 categories 與 category 兩個鍵【都要在】', async () => {
-    vi.mocked(fetchCategories).mockResolvedValue([
+    vi.mocked(tryCategories).mockResolvedValue({ failed: false, categories: [
       { id: 'grip', name: '止滑貼與保護膜', count: 3,
         children: [{ id: 'tank', name: '油箱止滑貼', count: 2 }] },
-    ] as never);
+    ] } as never);
     const url = await redirectedTo({ search: '油箱貼' });
     expect(url, 'categories 沒寫 ⇒ server 撈不到那個聯集').toContain('categories=');
     expect(url, 'category 沒寫 ⇒ 膠囊畫不出來, 而篩選還生效').toMatch(/[?&]category=/);
   });
 
   it('🔴 「mt07 akrapovic」⇒ 跳到帶膠囊的網址(Sean 原話那個例子)', async () => {
-    vi.mocked(fetchVehicleTaxonomy).mockResolvedValue([
-      { id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-07', name: 'MT-07', years: [2021] }] },
-    ] as unknown as Awaited<ReturnType<typeof fetchVehicleTaxonomy>>);
-    vi.mocked(fetchCatalogBrandTaxonomy).mockResolvedValue([
+    vi.mocked(tryVehicleTaxonomy).mockResolvedValue({
+      motoBrands: [
+        { id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-07', name: 'MT-07', years: [2021] }] },
+      ],
+      failed: false,
+    } as unknown as Awaited<ReturnType<typeof tryVehicleTaxonomy>>);
+    vi.mocked(tryCatalogBrandTaxonomy).mockResolvedValue({ failed: false, brands: [
       { id: 'akrapovic', name: 'AKRAPOVIČ', count: 9 },
-    ] as unknown as Awaited<ReturnType<typeof fetchCatalogBrandTaxonomy>>);
+    ] } as unknown as Awaited<ReturnType<typeof tryCatalogBrandTaxonomy>>);
     const url = await redirectedTo({ search: 'mt07 akrapovic' });
     expect(url).toContain('vehicle=yamaha%3Amt-07');
     expect(url).toContain('pbrands=akrapovic');
@@ -214,9 +222,12 @@ describe('/products · 解析成膠囊之後 redirect', () => {
   });
 
   it('🔴🔴 解析一半 ⇒ 沒用到的字走 `unmatched=`, **不是** `search=`', async () => {
-    vi.mocked(fetchVehicleTaxonomy).mockResolvedValue([
-      { id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-07', name: 'MT-07', years: [2021] }] },
-    ] as unknown as Awaited<ReturnType<typeof fetchVehicleTaxonomy>>);
+    vi.mocked(tryVehicleTaxonomy).mockResolvedValue({
+      motoBrands: [
+        { id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-07', name: 'MT-07', years: [2021] }] },
+      ],
+      failed: false,
+    } as unknown as Awaited<ReturnType<typeof tryVehicleTaxonomy>>);
     const url = await redirectedTo({ search: 'mt07 好看的' });
     expect(url).toContain('vehicle=yamaha%3Amt-07');
     expect(url).toContain('unmatched=');
@@ -247,9 +258,12 @@ describe('/products · 解析成膠囊之後 redirect', () => {
   });
 
   it('🔴 redirect 要**保留**原本的其他參數(sort/per 不得被丟掉)', async () => {
-    vi.mocked(fetchVehicleTaxonomy).mockResolvedValue([
-      { id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-07', name: 'MT-07', years: [2021] }] },
-    ] as unknown as Awaited<ReturnType<typeof fetchVehicleTaxonomy>>);
+    vi.mocked(tryVehicleTaxonomy).mockResolvedValue({
+      motoBrands: [
+        { id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-07', name: 'MT-07', years: [2021] }] },
+      ],
+      failed: false,
+    } as unknown as Awaited<ReturnType<typeof tryVehicleTaxonomy>>);
     const url = await redirectedTo({ search: 'mt07', sort: 'price-asc', per: '25' });
     expect(url).toContain('sort=price-asc');
     expect(url).toContain('per=25');
@@ -261,5 +275,111 @@ describe('/products · 解析成膠囊之後 redirect', () => {
     vi.mocked(fetchCatalogPage).mockResolvedValue({ products: [], total: 0, error: false });
     expect(await redirectedTo({ page: '2' })).toBeNull();
     expect(fetchCatalogPage).toHaveBeenCalledTimes(1);
+  });
+});
+
+// 🔴🔴 **2026-09-06 R1 must-fix:`failed` 那條接線原本零守門。**
+//   ⛔ ~~第一版想 render 出 HTML 再比字串~~ ⇒ `ProductsPage` 是 client component、
+//     要 `useRouter` 一整套 ⇒ **那是把 harness 撐大, 不是把守門做對。**
+//   ✅ **改成【不渲染, 走元素樹】** —— route 回的是一棵 React element,
+//     那個 prop 有沒有被傳下去, 在樹上就問得到, 而它不需要瀏覽器也不需要 mock 半個 Next。
+//   🛑 **兩格成對** —— 少了負對照, 一個無條件為 true 的實作照樣過。
+describe('/products 的 vehicleTaxonomyFailed 接線(⟦search-TAXONOMYTIMEOUT⟧)', () => {
+  /** 在 route 回的元素樹裡找第一個帶 `vehicleTaxonomyFailed` 的 props。找不到 ⇒ undefined。 */
+  const findFailedProp = (node: unknown): boolean | undefined => {
+    if (!node || typeof node !== 'object') return undefined;
+    if (Array.isArray(node)) {
+      for (const n of node) {
+        const hit = findFailedProp(n);
+        if (hit !== undefined) return hit;
+      }
+      return undefined;
+    }
+    const props = (node as { props?: Record<string, unknown> }).props;
+    if (props && 'vehicleTaxonomyFailed' in props) return props.vehicleTaxonomyFailed as boolean;
+    return props ? findFailedProp(props.children) : undefined;
+  };
+
+  it('🔴 撈失敗 ⇒ 旗標真的被傳下去(true)', async () => {
+    vi.mocked(tryVehicleTaxonomy).mockResolvedValue({
+      motoBrands: [],
+      failed: true,
+    } as unknown as Awaited<ReturnType<typeof tryVehicleTaxonomy>>);
+    const tree = await ProductsRoute({ searchParams: Promise.resolve({}) } as never);
+    expect(findFailedProp(tree)).toBe(true);
+  });
+
+  it('🔵 負對照:沒失敗(清單空的也一樣)⇒ 傳下去的是 false, 不是恆真', async () => {
+    vi.mocked(tryVehicleTaxonomy).mockResolvedValue({
+      motoBrands: [],
+      failed: false,
+    } as unknown as Awaited<ReturnType<typeof tryVehicleTaxonomy>>);
+    const tree = await ProductsRoute({ searchParams: Promise.resolve({}) } as never);
+    expect(findFailedProp(tree)).toBe(false);
+  });
+
+  it('🟢 正對照:那把尺【找得到東西】—— 找一個不存在的 prop 名必須回 undefined', async () => {
+    // 🛑 少了這一格,「回 false」與「這棵樹上根本沒有那個 prop」分不開(後者也不是 true)。
+    const tree = await ProductsRoute({ searchParams: Promise.resolve({}) } as never);
+    const findAny = (node: unknown, key: string): unknown => {
+      if (!node || typeof node !== 'object') return undefined;
+      if (Array.isArray(node)) {
+        for (const n of node) {
+          const hit = findAny(n, key);
+          if (hit !== undefined) return hit;
+        }
+        return undefined;
+      }
+      const props = (node as { props?: Record<string, unknown> }).props;
+      if (props && key in props) return props[key];
+      return props ? findAny(props.children, key) : undefined;
+    };
+    expect(findAny(tree, 'zqNoSuchPropXY9')).toBeUndefined();
+    expect(findAny(tree, 'vehicleTaxonomyFailed')).not.toBeUndefined();
+  });
+});
+
+// 🔴 ⟦search-SILENTDOORS2⟧:型錄那兩扇的接線守門 —— 走元素樹, 理由同上面車款那組。
+describe('/products 的 category/brand TaxonomyFailed 接線(⟦search-SILENTDOORS2⟧)', () => {
+  const findProp = (node: unknown, key: string): unknown => {
+    if (!node || typeof node !== 'object') return undefined;
+    if (Array.isArray(node)) {
+      for (const n of node) {
+        const hit = findProp(n, key);
+        if (hit !== undefined) return hit;
+      }
+      return undefined;
+    }
+    const props = (node as { props?: Record<string, unknown> }).props;
+    if (props && key in props) return props[key];
+    return props ? findProp(props.children, key) : undefined;
+  };
+  const tree = () => ProductsRoute({ searchParams: Promise.resolve({}) } as never);
+
+  it('🔴 分類撈失敗 ⇒ 旗標傳下去是 true', async () => {
+    vi.mocked(tryCategories).mockResolvedValue({ categories: [], failed: true } as never);
+    expect(findProp(await tree(), 'categoryTaxonomyFailed')).toBe(true);
+  });
+
+  it('🔵 負對照:分類沒失敗 ⇒ false, 不是恆真', async () => {
+    vi.mocked(tryCategories).mockResolvedValue({ categories: [], failed: false } as never);
+    expect(findProp(await tree(), 'categoryTaxonomyFailed')).toBe(false);
+  });
+
+  it('🔴 品牌撈失敗 ⇒ 旗標傳下去是 true', async () => {
+    vi.mocked(tryCatalogBrandTaxonomy).mockResolvedValue({ brands: [], failed: true } as never);
+    expect(findProp(await tree(), 'brandTaxonomyFailed')).toBe(true);
+  });
+
+  it('🔵 負對照:品牌沒失敗 ⇒ false, 不是恆真', async () => {
+    vi.mocked(tryCatalogBrandTaxonomy).mockResolvedValue({ brands: [], failed: false } as never);
+    expect(findProp(await tree(), 'brandTaxonomyFailed')).toBe(false);
+  });
+
+  it('🟢 正對照:那把尺找得到東西 —— 現造的 prop 名必回 undefined', async () => {
+    const t = await tree();
+    expect(findProp(t, 'zqNoSuchPropXY9')).toBeUndefined();
+    expect(findProp(t, 'categoryTaxonomyFailed')).not.toBeUndefined();
+    expect(findProp(t, 'brandTaxonomyFailed')).not.toBeUndefined();
   });
 });

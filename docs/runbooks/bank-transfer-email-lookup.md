@@ -27,11 +27,31 @@
 | # | 那道閘 | 今天 | 誰翻得動 |
 |---|---|---|---|
 | ① | **資料庫五支貼進正式庫** | 🟢 **開了**(45a–45g 全貼, 2026-09-06;帳本 `supabase/APPLIED.tsv`) | Sean 貼 |
-| ② | 設 `BANK_ORDER_CREATED_EMAIL_CUTOFF` **並重新部署** | ⚪ **我答不出**(見下方紅字) | Sean |
-| ③ | 翻開 `BANK_TRANSFER_CHECKOUT_ENABLED` | 🔴 **關著** | Sean |
+| ② | 設 `BANK_ORDER_CREATED_EMAIL_CUTOFF` **並重新部署** | 🔴 **沒設**(量到的, 見下) | Sean |
+| ③ | 翻開 `BANK_TRANSFER_CHECKOUT_ENABLED` | 🔴 **關著**(而**是靠預設值**, 見下) | Sean |
 
-🔴🔴 **②那一格我【誠實答不出】, 而它不是我偷懶**:那是正式站的環境變數, **我這棵樹讀不到它**,
-而**猜一個答案比空著糟**。⇒ 要知道 ⇒ 問 Sean 或看 Vercel 的環境變數面板。
+🔬 **②③ 的讀數(2026-09-06 11:1x 主視窗 `-f8` 代跑 `vercel env ls`, 只印名稱不印值)**:
+```
+Vercel 專案 pcm-motorsports/pcm-website-v2 共 56 個 env 名
+  BANK_ORDER_CREATED_EMAIL_CUTOFF   ⇒ 0 命中
+  BANK_TRANSFER_CHECKOUT_ENABLED    ⇒ 0 命中
+```
+⚠️ **射程(對方自己標的, 逐字轉)**:顧客站正式部署**是不是就這一個 Vercel 專案沒有證到**
+(`vercel project ls` 在那台印不出清單)⇒ **若正式站另有專案要另量。**
+
+🔴 **而③那個 0 的意思要講精確**:它**不是「設成 false」, 是【根本沒有這個變數】**
+⇒ 程式判的是 `=== 'true'` ⇒ 沒有它就等於關著。
+⇒ 📌 **兩件事因此成立**:①要翻開它是**新增一個變數**, 不是改一個值;
+②**沒有任何一筆設定紀錄可以告訴你「誰決定關著」** —— 那個決定只活在板子與拍板紀錄裡。
+
+🔴 **而誰在讀 ② 那個變數, 我自己量過一次, 讀數與轉述不同**(`grep -rn` on `apps/*/src packages/*/src`):
+```
+我這條線的分支            email-sweep/route.ts 5 · sweep-email-outbox.ts 1 · route.test.ts 4
+origin/dev(今天的正式碼)  0(整個 repo 一處都沒有)
+anomaly-alert/route.ts     0(兩棵樹都是 0 —— 它讀的是 B4_DEPLOY_CUTOFF, 名字很像而不是同一個)
+```
+⇒ 📌 **`dev` 上是 0 的理由是【我那條線還沒被合進去】** —— 所以現在就去設那個變數**不會有任何效果**,
+它要等碼上線之後才有讀它的人。⇒ ✅ **設定的時機是「碼合進 dev 並部署之後」, 不是現在。**
 
 ### 🛑 而③關著的意思, 比「信沒寄」更精確
 

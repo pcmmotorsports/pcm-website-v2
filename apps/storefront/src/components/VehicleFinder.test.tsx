@@ -267,3 +267,19 @@ describe('VehicleFinder — 愛車 chips(REQUIRED-2:唯一精確命中/建議清
     expect(combo('選擇廠牌').value).toBe('');
   });
 });
+
+// 🔴🔴 **車款樹讀不到 ⇒ 講一句;而【真的沒有】仍然什麼都不說。**
+//   (2026-09-06 Sean 拍甲 · 板列 ⟦search-TAXONOMYTIMEOUT⟧ · plan
+//    `docs/plans/2026-09-06-vehicle-taxonomy-failed-notice-plan.md`)
+//   🛑 **兩格【必須成對】** —— 只有第一格的話, 一個「無條件顯示那句話」的實作照樣全綠。
+describe('VehicleFinder · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT⟧)', () => {
+  it('failed=true ⇒ 那句話在(role="alert")', () => {
+    render(<VehicleFinder motoBrands={[]} vehicleTaxonomyFailed />);
+    expect(screen.getByRole('alert').textContent).toContain('車款清單暫時無法載入');
+  });
+
+  it('🔵 負對照:清單是空的【而沒有失敗】⇒ 那句話不得出現', () => {
+    render(<VehicleFinder motoBrands={[]} vehicleTaxonomyFailed={false} />);
+    expect(screen.queryByText(/車款清單暫時無法載入/)).toBeNull();
+  });
+});

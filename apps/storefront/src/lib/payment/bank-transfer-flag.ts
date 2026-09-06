@@ -16,7 +16,8 @@ import 'server-only';
  * ## 🔴🔴 這道閘【不是】為了滾動發布,它擋的是一個會兩邊都付錢的洞
  * ```
  * 🔬 begin_charge_attempt 的 cart-instance dedup
- *    (20260820020000_m4b_e10_a8a3g_cancel_guard_sibling_dedup.sql:441-445)述詞逐字:
+ *    (⛔ ~~20260820020000_..._cancel_guard_sibling_dedup.sql:441-445~~ **代次錯, 見下方 2026-09-06 訂正**;
+ *     newest = 20260904050000_m4b_supersede_bank_order_on_card.sql:130-134, 述詞逐字相同)述詞逐字:
  *      a.status = 'charged'
  *      OR o.payment_status = 'paid'
  *      OR (a.status = 'pending' AND o.payment_status <> 'paid')
@@ -31,6 +32,36 @@ import 'server-only';
  *      而**一條正確的匯款流程不應該建立卡片 attempt** ⇒ 那些述詞對它一律為假。
  *      ⛔ ~~原句「匯款單結構上永遠沒有 attempt」~~ **過強**(codex 關卡2 R2 nit ②):
  *      同一份註解稍後就承認, 分岔沒做之前那條路會走進 `confirmPayment` ⇒ 那正好會建出 attempt。
+ *
+ * ## 🔴🔴 2026-09-06 訂正:**本註解底下有四句話已經不成立了, 而沒有東西叫過**
+ * (線【信】`-mail` 量;主視窗 `-f8` 裁。**舊字面全部留著加刪除線** —— 搜舊句的人要撞到這裡。)
+ * ```
+ * ① 上面那個 migration 座標【字面對而代次錯】
+ *    `bash scripts/latest-definition-of.sh begin_charge_attempt` ⇒ 共 7 代,
+ *    newest = 20260904050000(那五行述詞逐字相同, 在 :130-134)。
+ *    ⇒ 照舊座標去改 = 改一支已被取代的 migration ⇒ 對正式庫零作用, 而 diff 看起來完全正常。
+ *
+ * ② ⛔ ~~這道閘擋的是一個會兩邊都付錢的洞~~ **錢那半已經關了, 而關它的是 newest 自己**:
+ *    同檔 :184 起的 ⑨b 在 attempt 取得【之後】把同車未付款、無非終態 attempt 的匯款單就地取消
+ *    (cancelled_reason='superseded_by_card')⇒ 先建匯款單再回頭刷卡 ⇒ dedup 確實看不見,
+ *    **而 ⑨b 當場取消它** ⇒ 不會兩邊都付。(帳本 ^20260904050000 ⇒ 1;負對照 ^20260904059999 ⇒ 0)
+ *    🛑 ⇒ **這道閘今天擋的不是那個洞, 是【客人進得來而分岔還沒進 main】。**
+ *
+ * ③ ⛔ ~~條件① 述詞看得見匯款單~~ **不做**(主視窗 2026-09-06 裁甲):
+ *    改它 = 開始擋第二張單, 而 Sean 2026-09-05 `Q-同車兩單` 答**乙 = 不擋**。⇒ 改它會推翻他的板。
+ *
+ * ④ ⛔ ~~條件② 匯款的分岔真的做出來了 —— 今天沒有~~ **server 那半今天在 origin/dev 了**:
+ *    27f152d41 `git merge-base --is-ancestor 27f152d41 origin/dev` ⇒ rc=0
+ *    (🟢 正對照 3b26d56eb ⇒ rc=0 · 🔵 負對照一顆未推的 ⇒ rc=1);
+ *    內容尺同向:`bank_transfer_with_prime_ignored` 在 dev ⇒ 1 / main ⇒ 0
+ *    (🟢 正對照 `chargePaymentAction` 兩邊皆 5 —— 證明尺讀得到 main · 🔵 負對照兩邊皆 0)。
+ *    🔴 **而它【不在 origin/main】** ⇒ 條件② 仍未滿足, 只是擋點從「還沒寫」換成「還沒合 main」。
+ *
+ * ⚠️ 下方「射程」那段裡 ✅ 那句(『段 1-A 還沒 apply ⇒ PGRST202 ⇒ 繞路走不通』)**也已過期** ——
+ *    它自己預告過「那是一個會過期的理由, 沒有東西會叫」。**它過期了, 而真的沒有東西叫。**
+ *    板列 ⟦b4-BANKORDERINVISIBLE⟧ 的唯讀複量:create_order 多載 2 支, 其中 1 支帶 p_payment_channel
+ *    ⇒ 段 1-A 已在線上 ⇒ PGRST202 擋不住了。Sean 2026-09-06 拍甲:不另加 DB 層鎖, 殘餘風險他接受。
+ * ```
  *
  * ## 🛑 什麼時候可以翻 true —— **三條, 而不是一條**(codex 關卡2 must-fix ③ 逼出來的)
  * ```

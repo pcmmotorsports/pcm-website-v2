@@ -25,7 +25,11 @@ import { HomeStatement } from '@/components/HomeStatement';
 import { BrandIndex } from '@/components/BrandIndex';
 import { HomeFooter } from '@/components/HomeFooter';
 import { HomeReveal } from '@/components/HomeReveal';
-import { fetchFeaturedProducts, fetchVehicleTaxonomy, fetchCategories } from '@/lib/products';
+import {
+  CATEGORY_TAXONOMY_UNAVAILABLE,
+  TaxonomyNotice,
+} from '@/components/products-message-state';
+import { fetchFeaturedProducts, tryVehicleTaxonomy, tryCategories } from '@/lib/products';
 import { fetchBrandsWithProducts } from '@/lib/brand-products';
 import { BRAND_CONTENT } from '@/data/brand-content';
 import { BRAND_FOCUS } from '@/data/brand-focus';
@@ -107,13 +111,18 @@ export default async function HomePage({
   //   鍵(`catalog-brand-taxonomy-v1`,60s + tag `catalog`)⇒ 熱路徑零額外 DB round-trip、
   //   與另四支並行 ⇒ 對本頁 TTFB 幾乎沒有影響。代價是「上架後恢復可點」最長延遲 1 分鐘
   //   (`revalidateTag('catalog')` 尚未接,`lib/products.ts:135`)。
-  const [tier, featured, motoBrands, categories, garage, brandsWithProducts] = await Promise.all([
+  const [tier, featured, vehicleTax, categoryTax, garage, brandsWithProducts] = await Promise.all([
     tierPromise,
     // H6 連動(Sean 2026-08-06 拍板、`D-132-A` 更正):取數提高到 `FEATURED_LIMIT`,
     // 讓 OD 的 5 格橫捲真的捲得動;**會員中心「為你推薦」共用同一個數字、一起變多**。
     fetchFeaturedProducts(),
-    fetchVehicleTaxonomy(),
-    fetchCategories(),
+    // 🔴 2026-09-06(Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧):改走【帶 `failed` 的那扇門】。
+    //   `tryVehicleTaxonomy` 一直都在, 而在本片之前它【一個外部消費端都沒有】——
+    //   `fetchVehicleTaxonomy` 逐字「刻意丟掉 failed」⇒ 讀不到與真的沒有印同一個空陣列。
+    tryVehicleTaxonomy(),
+    // 🔴 2026-09-06(⟦search-SILENTDOORS2⟧, plan `docs/plans/2026-09-06-silent-doors-2-plan.md`):
+    //   與車款那一扇同一個形狀 —— 走【帶 `failed` 的那扇門】, 讓「讀不到」與「真的沒有」分開。
+    tryCategories(),
     (async () => {
       try {
         // `#215`:與上面的 tier 共用同一次【已驗證】身分(request-scoped),不重跑一次 Auth。
@@ -139,6 +148,12 @@ export default async function HomePage({
     // ⚠️ 位置就是行為:這一項必須排在上面那個 IIFE **之後**,才對得上解構的第 5 個名字。
     fetchBrandsWithProducts(),
   ]);
+  // 🔵 **解構在這裡, 讓下游一個字都不用改** —— 本片要的是【多一個 `failed`】,
+  //   不是改寫每一個既有的 `motoBrands` 讀取點。
+  const motoBrands = vehicleTax.motoBrands;
+  const vehicleTaxonomyFailed = vehicleTax.failed;
+  const categories = categoryTax.categories;
+  const categoryTaxonomyFailed = categoryTax.failed;
 
   // D5e-1:本月聚焦當期是誰。純資料 + 日期,零 IO ⇒ 不進上面的 Promise.all。
   // 🔴 `new Date()` **只在這裡呼叫一次**,`lib/brand-focus.ts` 內部一律不碰時鐘 ——
@@ -171,7 +186,11 @@ export default async function HomePage({
           `HomeHero` 本片轉成 client component,而選車器要吃 server 端算好的車輛字典與車庫,
           從這裡傳進去,那些資料就仍然在 server 算(**沒有讓任何一塊多轉 client**)。 */}
       <HomeHero>
-        <VehicleFinder motoBrands={motoBrands} garage={garage} />
+        <VehicleFinder
+          motoBrands={motoBrands}
+          garage={garage}
+          vehicleTaxonomyFailed={vehicleTaxonomyFailed}
+        />
       </HomeHero>
       {/* D5a(2026-08-05):區塊順序改照 OD `README.md`「區塊順序(第 7 步之後)」定案 ——
           N°01 Hero+選車器 / N°02 最新商品 / N°03 部品分類 / N°04 服務宣言(深) /
@@ -181,6 +200,11 @@ export default async function HomePage({
           🔴 編號是**位置標記不是內容 id**(README 逐字)⇒ 聚焦與服務對調後編號跟著位置走。
           守門 = `app/page.test.tsx`(本片新建;在那之前首頁順序**零守門、改了不會紅**)。 */}
       <HomeSelect featured={featured} />
+      {/* 🔴 2026-09-06 ⟦search-SILENTDOORS2⟧:分類讀不到 ⇒ 講一句;真的沒有 ⇒ 什麼都不說。
+          🔵 **這裡直接渲染, 不像車款那扇多傳一個 prop** —— 車款那句要住在 dock 裡面(選車那一區),
+          而分類這一句貼在分類區上方就對了 ⇒ **不必為它改 `CategoryGrid` 的介面**。
+          📌 兩處做法不同是有理由的, 不是不一致。 */}
+      <TaxonomyNotice failed={categoryTaxonomyFailed} message={CATEGORY_TAXONOMY_UNAVAILABLE} />
       <CategoryGrid categories={categories} />
       <HomeStatement />
       {/* D5e-1:本月聚焦改資料驅動 + 每 3 天輪播。`focus` 為 `null`(可用品牌清單為空)

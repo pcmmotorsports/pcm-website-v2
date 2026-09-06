@@ -6,9 +6,14 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 //    (實測長相、不是推測)。逐檔 mock = 本 repo 既有處置,刻意不開全域 setupFiles。
 vi.mock('server-only', () => ({}));
 import { renderToStaticMarkup } from 'react-dom/server';
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { chromium, type Browser } from 'playwright';
+// 🔴 起伺服器 + goto 走共用那支 —— 它裡面有「連線層空回應重試一次(而且會印一行)」。
+// ⚠️ **一個未揭示的 delta, 補在這裡**(R1 nit):goto 的網址從 `http://localhost:${port}/`
+//    變成 helper **依 `server.address()` 的 family** 組的 `[::1]` 或 `127.0.0.1`
+//    ⇒ **不再經過名字解析**(理由見 helper 檔頭那段紅旗)。
+//    📌 **本檔正是 backlog `:15807` 記過同型紅的那個已知犯案者** ⇒ 它最需要那道重試。
+//    理由與四條紀律在 `serve-html-and-visit.ts` 檔頭。
+import { serveHtmlAndVisit } from '@/lib/test-support/serve-html-and-visit';
 
 // 🔵 預設世界 = 沒收過錢 ⇒ 不畫那個框。要測那個框的格子自己覆寫這一個。
 const NO_PENDING_REFUND = { kind: 'none' } as const;
@@ -84,32 +89,32 @@ async function withPage(
   run: (page: import('playwright').Page) => Promise<void>,
 ): Promise<string[]> {
   const bodies: string[] = [];
-  const server: Server = createServer((req, res) => {
-    if (req.method === 'POST') {
+  await serveHtmlAndVisit(browser, `<html><body>${bodyHtml}</body></html>`, run, {
+    label: 'cancel-forms-browser',
+    // 🔴 **只接手 POST** —— 那是本檔的靶:表單**實際送出去的 body**。
+    handle: (req, res) => {
+      if (req.method !== 'POST') return false;
       let raw = '';
-      req.on('data', (c) => (raw += c));
+      req.on('data', (c) => (raw += String(c)));
       req.on('end', () => {
         bodies.push(raw);
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         res.end('<html><body><h1 id="done">captured</h1></body></html>');
       });
-      return;
-    }
-    // 🔴 GET 也要收:若合成 method 被拿掉,表單會走 GET ⇒ 這裡回一頁沒有 #done 的內容,
-    //    讓等待 `#done` 的步驟逾時 ⇒ 測試紅。這就是「拿掉合成 method 必紅」的機制。
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    res.end(`<html><body>${bodyHtml}</body></html>`);
+      return true;
+    },
   });
-  await new Promise<void>((r) => server.listen(0, r));
-  const port = (server.address() as AddressInfo).port;
-  const page = await browser.newPage();
-  try {
-    await page.goto(`http://localhost:${port}/`);
-    await run(page);
-  } finally {
-    await page.close();
-    await new Promise<void>((r) => server.close(() => r()));
-  }
+  // 🔴 **GET 那一半留給 helper 回那份 bodyHtml, 不搬進上面的 `handle`** ——
+  //    理由是**零收益多一個會漂移的副本**:忠實搬過去行為完全相同(R1 實查),
+  //    而那份 HTML 的組法就會有兩個地方寫著同一件事。
+  //    ⛔ ~~我原本寫「把 GET 也接手 ⇒ 那個機制就散掉了」~~ —— **那是沒量過的反事實**(R1 must-fix)。
+  //
+  // 🔴🔴 **而「拿掉合成 method 必紅」那個機制住在哪, 我也指錯了 —— 這一段是訂正**:
+  //    ⛔ ~~名為 harness 自檢的那個 describe 靠「等 `#done` 逾時」~~ ——
+  //      **它根本不等 `#done`**(它只 `waitForLoadState('load')`), 靠的是 **`toHaveLength(0)`**:
+  //      走 GET ⇒ 沒有 POST body 被攔到 ⇒ 陣列是空的 ⇒ 那一格紅。
+  //    ✅ **「等 `#done` 逾時」那顆牙住在【另外六格】**(兩支 D6-a + 兩支判別力邊界 + 兩支 A13b E1)。
+  //    ⇒ 📌 **指錯守門位置的後果是:下一個人會去放寬錯的那一格。**
   return bodies;
 }
 

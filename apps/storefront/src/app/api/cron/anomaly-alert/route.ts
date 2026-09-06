@@ -190,6 +190,31 @@ const ALERT_PENDING_DC_STUCK_SECONDS = 600;
  *    ⇒ 一整週沒有別的異常 ⇒ **這個數字一次都不會被看到。往前一格,不是解決。**
  */
 const ALERT_MANUAL_CUSTOMER_SEARCH_WINDOW_SECONDS = 86400;
+/**
+ * 🟡 **搜尋語料表列數告警門檻(2026-09-06;主視窗 `-f1` 裁 5,000)。**
+ *   env `SEARCH_LOG_ROWS_ALERT` 可覆寫 —— 形狀照本檔既有的 env 讀法(`SHIPPED_EMAIL_CUTOFF` 那族)。
+ *
+ * 🔬 **5,000 的依據是量出來的**(線【資料】`-03` 2026-09-06 09:4x UTC · 正式庫唯讀 · 單發):
+ *   `search_queries` 總 **36** 列 · 最近 24h **28** 列 ⇒ 正常一天約 28 列
+ *   ⇒ 📌 5,000 ≈ **半年**的正常量 ⇒ **一天內到得了 5,000 的, 只有灌入。**
+ *   🟢 該發對照:正對照 total=36 · 負對照(未來一天)0 · 負對照(1970)0
+ *   ⚠️ **單發讀數** —— 量測時點寫在數字旁邊, 要複量走 `scripts/readonly-prod-sql.sh`。
+ *
+ * 🛑 **它比對的是估計值(`pg_class.reltuples`), 而誤差方向是【低估】**
+ *   ⇒ 它會【晚叫】不會早叫 ⇒ 這是告警不是閘(讀數 `~/pcm-mailbox/auth-012-STOP.md`)。
+ */
+const ALERT_SEARCH_LOG_ROWS_DEFAULT = 5000;
+function readSearchLogRowsThreshold(raw: string | undefined): number {
+  // 🔴 壞值一律回預設, **不要回 NaN** —— `x >= NaN` 恆 false ⇒ 那會讓這個告警安靜地永不觸發,
+  //    而「設錯了」與「一切正常」在信裡是同一個畫面(= 本 repo 記過的那個形狀)。
+  if (raw === undefined || raw.trim() === '') return ALERT_SEARCH_LOG_ROWS_DEFAULT;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    console.warn('[anomaly-alert] SEARCH_LOG_ROWS_ALERT 不是正數 ⇒ 用預設', { raw });
+    return ALERT_SEARCH_LOG_ROWS_DEFAULT;
+  }
+  return n;
+}
 
 const ALERT_SHIPPED_GRACE_SECONDS = 900;
 
@@ -369,6 +394,7 @@ export async function GET(request: Request): Promise<Response> {
       shippedGraceSeconds: ALERT_SHIPPED_GRACE_SECONDS,
       orderCreatedCutoffIso,
       manualCustomerSearchWindowSeconds: ALERT_MANUAL_CUSTOMER_SEARCH_WINDOW_SECONDS,
+      searchLogRowsAlertThreshold: readSearchLogRowsThreshold(process.env.SEARCH_LOG_ROWS_ALERT),
       orderCreatedStuckMinutes,
     });
 

@@ -39,6 +39,13 @@ export function EmailLogSection({ data }: { data: EmailLogData }) {
         </span>
       </div>
 
+      {/* 🔴 **30 天天花板要寫在畫面上, 不是只寫在板列裡** —— 那個編號**不是永久的**:
+          Resend 只保留 30 天(Free 方案, Sean 2026-09-06 親證;見 `⟦b4-NOSENTBODY⟧`)。
+          🛑 少了這一句, 客服會在第 40 天拿著編號去查, 然後查不到 —— 而他會以為是編號錯了。 */}
+      <p className='text-muted-foreground mb-3 text-xs'>
+        編號可在 Resend 後台調出客人當時收到的信;<strong>只保留 30 天</strong>,超過就查不到了。
+      </p>
+
       {data.status === 'unreadable' ? (
         <p className='rounded-md bg-red-50 px-3 py-2 text-xs text-red-800'>
           這一單的寄信紀錄沒有載入(讀取失敗)—— 這<strong>不是</strong>
@@ -91,6 +98,20 @@ export function EmailLogSection({ data }: { data: EmailLogData }) {
                     試 {e.attempts} / {e.maxAttempts} 次
                   </span>
                 ) : null}
+                {/* 🔴🔴 **⟦mail-PROVMSGIDUI⟧:`null` 不可以畫成留白。**
+                    `null` 有兩種成因(這封沒真的寄出 / 它寄出時我們還沒開始記這一欄),
+                    而**兩種都不是「查得到而是空的」** ⇒ 留白會讓員工以為「這一格沒東西可看」,
+                    然後他不會去 Resend 後台, 也不會問。
+                    🔵 今天線上那三列**全是 null**(主視窗 2026-09-06 唯讀代跑:
+                       `email_outbox` 3 列 / `provider_message_id` 非 null **0** 列)——
+                       **那是預期的**(它們在這一欄存在之前就寄了), 不是 bug。 */}
+                {e.providerMessageId === null ? (
+                  <span className='text-muted-foreground'>沒有編號</span>
+                ) : (
+                  <span className='text-muted-foreground font-mono break-all select-all'>
+                    編號 {e.providerMessageId}
+                  </span>
+                )}
               </li>
             );
           })}
