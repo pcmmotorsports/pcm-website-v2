@@ -19,7 +19,45 @@
 📌 **而漏掉它的後果正好是本片要修的那個病的翻版**:只補兩支 ⇒ 走 fallback 那條路的刷卡成功
 **仍然不會 supersede** ⇒ 兩張單照樣同時活著,而三綠全綠、鑽機也不會叫(沒人餵 fallback 那條路)。
 
-⚠️ **而「三支就是全部」這件事我【還沒有證明】**:
+## 0-b. 🟢 **第 1 步做完了(2026-09-06,`-f8` 裁 Q-pending3=甲)—— 分母是量到的**
+
+做法:**對正式庫唯讀查 `pg_proc.prosrc`**(`bash scripts/readonly-prod-sql.sh`),不是 grep 檔案。
+剝掉 `--` 註解 + 壓空白之後再比對;掃描範圍 = 全庫 **187** 支 `plpgsql` 函式(`pg_catalog` / `information_schema` 除外)。
+
+| 問題 | 答案 | 逐字 |
+|---|---|---|
+| 寫 `payment_charge_attempts.status='charged'` | **2 支** | `mark_charge_attempt_charged(p_attempt_id uuid, p_order_id uuid, p_rec_trade_id text)` · `mark_charge_attempt_charged_fallback(…, p_fallback_token uuid)` |
+| 寫 `orders.payment_status='paid'`(寫死字面) | **1 支** | `confirm_order_payment(p_order_id uuid, p_amount integer, p_rec_trade_id text)` |
+| ⇒ **刷卡成功入口** | **3 支** | 與 §0 重數的結果一致 |
+
+**對照(三把,同一發裡量的)**
+- 🟢 正對照:掃到 **187** 支 plpgsql 函式(不是 0 ⇒ 尺接上了)
+- 🔵 負對照:現造字面 `SETstatus='QXZZNOSUCH7731'` ⇒ **0 列**
+- 🔢 第二個數:**寬版**比對(不要求緊接 `SET`)抓到 **10 支**含該字面 ⇒ 逐支取字面前後 90 字元看
+  ⇒ 其餘 **7 支全是【讀】**(`WHERE` / `AND` / `ORDER BY` / `IF` / `SELECT`),含 `begin_charge_attempt`(5 處)與 `admin_cancel_order`(2 處)。
+  📌 **窄版與寬版差 7 支,而那 7 支全部是假陽性** —— 兩個數不一致時,是**寬版把讀也算進來了**,不是窄版漏掉寫。
+
+**🔴 而補洞那一發找到了窄版真正漏掉的東西**(用**變數**寫、不是寫死字面):
+```
+pcm_noncard_settle_recompute          SET payment_status = v_new
+pcm_sync_order_refund_payment_status  SET payment_status = v_target::public.payment_status
+```
+兩支的檔內**都有 `'paid'` 字面** ⇒ 它們**可能**把 `payment_status` 寫成 `paid`。
+- 🔵 它們是**非刷卡路徑**(匯款/現金重算 · 退款狀態同步)⇒ **不在本片(刷卡成功)的射程裡**。
+- 🔴 **而它們讓 `20260810170000:32` 那句失效條件看起來【已經成立】** —— 該行逐字:
+  「失效條件:出現第四支會寫 `payment_charge_attempts.status='charged'` 或 `orders.payment_status='paid'` 的物件。」
+- ⚠️ **未確認**:我**沒有**證到「`v_new` / `v_target` 真的會是 `'paid'`」。
+  **缺的那一道檢查** = 逐條看那兩支裡對 `v_new` / `v_target` 的指派分支。
+  ⇒ 📌 **在補上那一道之前,上面那句只能寫成「看起來成立」,不能寫成「已經失效」。**
+
+**Trigger 那一半**:`orders` / `payment_charge_attempts` / `order_payments` 上共 **9** 個非內部 trigger,
+逐個看 `pg_get_triggerdef` ⇒ 沒有一個的函式出現在上面兩張寫入清單裡。
+
+⇒ ✅ **結論:刷卡成功入口 = 3 支,`-f8` 可以據此批動碼那一步。**
+
+---
+
+⛔ ~~**而「三支就是全部」這件事我【還沒有證明】**~~(**2026-09-06 已補,見上面 §0-b**):
 - `20260810170000:32` 檔頭自己寫了失效條件,逐字:「出現第四支會寫 `payment_charge_attempts.status='charged'` 或 `orders.payment_status='paid'` 的物件。」
 - 我今天跑的 `grep -rln "status *= *'charged'" supabase/migrations/` 回 **20 支檔**、`payment_status *= *'paid'` 回 **20+ 支** —— 🛑 **那是「檔案裡出現這個字面」,不是「這支函式會寫它」**(註解、`WHERE` 條件、舊世代都在裡面)⇒ **這個數不能拿來下結論。**
 - ⇒ ✅ **建立那個分母是本片的第 1 步**(見 §3 步驟 1),不是前提。
