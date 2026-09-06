@@ -1,6 +1,11 @@
 # Plan · 3DS pending 窗口 ⟦b4-CARDPENDINGWINDOW⟧ —— 線【帳號】`account` 2026-09-06
 
-> **狀態:等主視窗批。批了才動。本檔零碼改動。**
+> **狀態(2026-09-06 更新):`-f8` 已裁 Q-pending1=乙 / 2=甲 / 3=甲 / 4=3 支 ⇒ **實作已完成並過 codex R1**。**
+> ⛔ ~~等主視窗批。批了才動。本檔零碼改動。~~ **作廢**(codex R1 nit:四個實作產物已存在, 而本行還寫著零碼改動)。
+> 產物:`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql`(貼板 54)·
+> `docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql`(54r)·
+> `supabase/after-checks/20260906700000-card-success-supersede-reconcile.sql`(54b)·
+> `scripts/probe-card-success-supersede.sh`。**SQL 還沒貼進正式庫** ⇒ 行為零改變。
 > 觸發:板列 `docs/launch-todo.md:341` `⟦b4-CARDPENDINGWINDOW⟧`(`-f8` 2026-09-06 裁【甲】把它從 `20260906500000` 分出來)。
 
 ## 0. 🔴 接單第一動:重數範圍 —— **條目的數字對不上,要先更正**
