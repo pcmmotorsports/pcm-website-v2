@@ -650,9 +650,18 @@ def selfcheck(secs):
     whole = io.open(draft['path'], encoding='utf-8').read()
     real_ranked = rank(whole, secs, TOP_N)
     real_hog = sum(1 for _, x in real_ranked if x['path'] == draft['path'])
-    # 髒的世界(合成):HOG_MIN 個名額來自同一份檔
-    dirty = [(0.50 - i * 0.01, draft) for i in range(HOG_MIN)] + \
-            [(0.30 - i * 0.01, kept[i]) for i in range(max(0, TOP_N - HOG_MIN))]
+    # 髒的世界(合成):**寫死 2 個**名額來自同一份檔。
+    # 🔴🔴 **這裡刻意【不用 `HOG_MIN`】造測資** —— 那是 2026-09-06 線【DB】的突變測到的洞:
+    #    ⛔ ~~`range(HOG_MIN)`~~ ⇒ **測資跟著門檻一起長** ⇒ 把 `HOG_MIN` 從 2 改成 5,
+    #      髒的世界也變成 5 個名額 ⇒ 照樣觸發 ⇒ **世界六照樣印【是】、`--selftest` rc=0**。
+    #    🔬 實測(可重跑):只改 `:257` 那一行 `HOG_MIN = 2` ⇒ `5`, 自檢**全綠**。
+    #    ⇒ 📌 **一個用【被測常數】造出來的測資, 對【那個常數被改掉】天生是盲的。**
+    #    ✅ 寫死之後:門檻一被調高過 2, 這一格的髒世界就不再觸發 ⇒ 世界六印【否】⇒ 紅。
+    #    ⚠️ 而它的代價要寫出來:**`HOG_MIN` 若哪天【正當地】調高, 這一格會紅** ——
+    #      那時要改的是這裡的字面 2 **並在 commit 說明為什麼**, 不是把這一行改回 `range(HOG_MIN)`。
+    DIRTY_SLOTS = 2
+    dirty = [(0.50 - i * 0.01, draft) for i in range(DIRTY_SLOTS)] + \
+            [(0.30 - i * 0.01, kept[i]) for i in range(max(0, TOP_N - DIRTY_SLOTS))]
     # 乾淨的世界(合成):每一個名額都來自【不同】的檔
     _distinct, _seen = [], set()
     for _x in kept:
