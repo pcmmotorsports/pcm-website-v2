@@ -34,10 +34,32 @@ export type OrderRefundRow = {
   failedDetail: string | null;
   /** 有值 = TapPay 已受理過(G7-hold 證據);清單/警示只看有無,不顯示內容。 */
   providerEvidence: string | null;
+  /**
+   * 非 NULL = 這一列是**補登**的(有人直接在 TapPay 後台退了款, 我們事後記進來)。
+   * 🛑 **時態要對**(code-reviewer F5):**今天它零個非測試消費端** ——
+   *   本片只把它**接到投影**, 讓畫面分得出來是 **B2** 那一片的事。
+   *   ⚠️ 而本檔 `:22-24` 自己記著 opus R1 的規矩「留著零消費欄 = 下一片的既成事實」
+   *   ⇒ 📌 **這一欄現在正是那種欄**, 而它的消費端是已排好的 B2, 不是「總有一天」。
+   * 🔴 **B2 會讓它與一般退款在畫面上分得出來** —— 兩者的下一步不同:
+   *   一般退款查得到我們送出去的紀錄;補登列**沒有**(那筆錢不是我們發起的)。
+   * ⚠️ 只帶「是不是」不帶擔保人 —— 誰擔保的要看明細那一面, 清單這一格不需要。
+   */
+  backfilledSource: string | null;
 };
 
+// 🔴🔴 **讀的是 `order_refunds_readable`(A1 的遮罩 view), 不是底表** ——
+//   ⛔ ~~`.from('order_refunds')`~~(三處, 2026-09-07 片 B1 改)
+//   理由:那支 view 對**補登列**把 `bank_refund_id` 與 `record_refunded_before` 遮成 `NULL`
+//   (前者是合成值、從未送過 TapPay;後者的 `0` 是「未知」不是「零」)。
+//   ⇒ 📌 **plan v3 §4 逐字要求「讓下游【拿不到】那個值, 而不是拿到之後被期待去理解它」。**
+//   🛑 **今天本檔的投影本來就沒選那兩欄** ⇒ 切過去**不改變任何一個現有欄位的值**;
+//     切的意義在**結構**:遮罩由 view 保證, 不再靠「下一個加欄位的人記得別選它」。
+// 🔬 **切之前量過那支 view 有沒有 WHERE** —— `20260907020000:267-276` 逐字 `FROM public.order_refunds r;`
+//   **零過濾條件** ⇒ 列數與底表相同 ⇒ 不會靜默少列。
+//   ⚠️ 那是本次唯一會**改變行為**的風險, 所以它是先量的那一格。
+// ⚠️ view **不是權限邊界**(底表照樣在;它自己的 COMMENT 逐字這樣寫)—— 它防的是**誤導**, 不是存取。
 const ROW_COLUMNS =
-  'id, kind, status, refund_amount, reason, actor, created_at, failed_reason, failed_detail, provider_refund_id_evidence';
+  'id, kind, status, refund_amount, reason, actor, created_at, failed_reason, failed_detail, provider_refund_id_evidence, backfilled_source';
 
 type RawRow = {
   id: string;
@@ -50,6 +72,8 @@ type RawRow = {
   failed_reason: string | null;
   failed_detail: string | null;
   provider_refund_id_evidence: string | null;
+  /** 非 NULL = 這一列是【補登】的(今天唯一的值是 `'tappay_console'`)。 */
+  backfilled_source: string | null;
 };
 
 function toRow(raw: RawRow): OrderRefundRow {
@@ -64,6 +88,7 @@ function toRow(raw: RawRow): OrderRefundRow {
     failedReason: raw.failed_reason,
     failedDetail: raw.failed_detail,
     providerEvidence: raw.provider_refund_id_evidence,
+    backfilledSource: raw.backfilled_source,
   };
 }
 
@@ -88,12 +113,21 @@ export async function listOrderRefunds(
   orderId: string,
 ): Promise<{ rows: OrderRefundRow[]; truncated: boolean }> {
   const { data, error } = await createSupabaseServiceClient()
-    .from('order_refunds')
+    .from('order_refunds_readable')
     .select(ROW_COLUMNS)
     .eq('order_id', orderId)
     .order('created_at', { ascending: false })
     .limit(ORDER_REFUNDS_LIMIT + 1);
   if (error) throw error;
+  // 🔴 **這個 `as` 現在 narrow 掉了什麼**(code-reviewer F2, 2026-09-07):
+  //   `order_refunds_readable` 的 Row **每一欄都是 `| null`**(view 的常態;
+  //   `database.types.ts:3499-3520`), 而 `RawRow` 宣告 `id: string` 那些非 null。
+  //   ⇒ 📌 **typecheck 綠是這個 `as` 給的, 不是型別對上了。**
+  //   🔬 今天不咬人的前提是**可證偽的**:那十一欄在底表都 NOT NULL,
+  //     而**這支 view 對它們零 `CASE`**(它只對 `bank_refund_id` 與
+  //     `record_refunded_before` 兩欄做遮罩, 而那兩欄本檔沒選)。
+  //   🛑 **哪天有人在 view 裡對 `actor` / `reason` / `status` 補一顆遮罩 ⇒ TS 全綠,
+  //     而 `OrderRefundRow.actor: string` 在執行期變成 `null`。這裡不會紅。**
   const raw = data as RawRow[];
   return {
     rows: raw.slice(0, ORDER_REFUNDS_LIMIT).map(toRow),
@@ -201,14 +235,14 @@ async function listRefundExceptionsUncached(): Promise<{
   const supabase = createSupabaseServiceClient();
   const [actionable, stuck] = await Promise.all([
     supabase
-      .from('order_refunds')
+      .from('order_refunds_readable')
       .select(EXCEPTION_SELECT)
       .eq('status', 'processing')
       .or(`created_at.lt.${cutoffIso},provider_refund_id_evidence.not.is.null`)
       .order('created_at', { ascending: true })
       .limit(REFUND_EXCEPTIONS_LIMIT + 1),
     supabase
-      .from('order_refunds')
+      .from('order_refunds_readable')
       .select(EXCEPTION_SELECT)
       // 🔴 兩個 `.eq()` 缺一不可:少了 status 會撈到不存在但形狀上可能的列;
       //    少了 failed_reason 會把 rejected_out_of_range / not_sent 一起撈進來 ——

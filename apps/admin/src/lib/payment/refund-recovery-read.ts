@@ -68,6 +68,17 @@ export async function findRefundForRecovery(
 ): Promise<RecoveryRefundSnapshot | null> {
   const client = createSupabaseServiceClient();
   const { data, error } = await client
+    // 🔴🔴 **這一支【刻意不切】到 `order_refunds_readable`, 而理由有【到期日】**
+    //   (code-reviewer F3, 2026-09-07 片 B1)。
+    //   本檔選了 `record_refunded_before` —— **正是那支 view 對補登列遮成 NULL 的那一欄**,
+    //   而它在 `:119` 當 RW4 差額判定的錨(型別是 `number`, view 那欄是 `number | null`)
+    //   ⇒ 切過去**反而會壞**。
+    //   🔬 而今天走不到那條路:`refund-recovery-actions.ts:87` 逐字
+    //     `if (row.status !== 'processing') return`, 而補登列的 `processing`
+    //     **只活在 RPC 那一個交易裡**(`20260907100000` insert processing → 同函式 UPDATE confirmed)
+    //     ⇒ **沒有持久的 processing 補登列。**
+    //   🛑 **失效條件(可證偽)**:哪天出現**持久的 processing 補登列**,
+    //     這一行就會把那個「**0 = 未知**」讀成「**0 = 零**」—— 而差額會算錯。
     .from('order_refunds')
     // embed 無空格 = house 字面(refund-read.ts 同款;真 PostgREST 形狀證據=handoff §3h/§3i)。
     .select(

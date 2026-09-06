@@ -84,6 +84,7 @@ import {
   printVariantOrphanReport,
   orphansToDeleteFor,
   hazardGroupsToSkip,
+  formatWithheldOrphans,
 } from './rpm-reconcile';
 import {
   checkFetchIntegrity,
@@ -769,6 +770,19 @@ async function main(): Promise<void> {
       `[rpm-import] 🔴 該刪而【沒刪】:${variantOrphans.withheldOrphans.length} 個孤兒變體` +
         `(source 完整性=${variantOrphans.sourceCompleteness};scope ${config.supplierSlug})` +
         ` — ${sample.join(', ')}${variantOrphans.withheldOrphans.length > 10 ? ' …' : ''}`,
+    );
+    // 🔴🔴 **人看的那一行【只印前 10 個】** —— 而板列 ⟦b4-WITHHELD1⟧ 要的是「哪幾個 sku」。
+    //   ⇒ 📌 **超過 10 個之後 sku 的身分在【寫進 log 之前】就沒了** ——
+    //     那不是「存不存得到」的問題, 存成 artifact 也救不回來。
+    //   ✅ 所以另外印一行**機器讀得到的**:`total` / `shown` / `truncated` 三個欄位並存,
+    //     讓讀的人看得出自己拿到的是不是全部。(格式化在 `rpm-reconcile.ts`, 那裡有測試。)
+    //   🛑 **上面那一行【不刪】** —— 它是給人在當晚掃一眼的, 兩行各有觀眾。
+    console.log(
+      formatWithheldOrphans({
+        supplierSlug: config.supplierSlug,
+        completeness: variantOrphans.sourceCompleteness,
+        orphans: variantOrphans.withheldOrphans,
+      }),
     );
   } else {
     // 🔴 **零也要印** —— 「不印」與「這一輪沒有扣留」長得一樣(plan §六,`-b6` 提的)。

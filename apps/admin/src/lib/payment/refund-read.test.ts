@@ -101,6 +101,9 @@ function rawRow(over: Record<string, unknown> = {}) {
     failed_reason: null,
     failed_detail: null,
     provider_refund_id_evidence: null,
+    // 🔵 2026-09-07 片 B1:讀取面改讀 `order_refunds_readable` 之後多帶這一欄。
+    //   預設 `null` = **一般退款**(絕大多數);補登列在需要的那幾格自己 override。
+    backfilled_source: null,
     ...over,
   };
 }
@@ -113,11 +116,16 @@ beforeEach(() => {
 });
 
 describe('listOrderRefunds', () => {
-  it('形狀:order_refunds + order_id 過濾 + created_at 新到舊 + 顯式上限 N+1(codex MF1)', async () => {
+  it('形狀:order_refunds_readable + order_id 過濾 + created_at 新到舊 + 顯式上限 N+1(codex MF1)', async () => {
     const { builder, calls } = chain({ data: [rawRow()], error: null });
     mocks.from.mockReturnValue(builder);
     await listOrderRefunds(ORDER_ID);
-    expect(mocks.from.mock.calls[0]![0]).toBe('order_refunds');
+    // 🔴🔴 **表名改成 `order_refunds_readable`(A1 的遮罩 view), 2026-09-07 片 B1**
+    //   ⛔ ~~`toBe('order_refunds')`~~ —— 舊字面留這裡, 讓拿舊句搜的人同一發撞到理由:
+    //   那支 view 對**補登列**把 `bank_refund_id` 與 `record_refunded_before` 遮成 NULL。
+    //   🔬 切之前量過它**零 WHERE**(`20260907020000:276` 逐字 `FROM public.order_refunds r;`)
+    //     ⇒ 列數與底表相同, 不會靜默少列。**那是切表唯一會改變行為的風險。**
+    expect(mocks.from.mock.calls[0]![0]).toBe('order_refunds_readable');
     expect(calls.eq![0]).toEqual(['order_id', ORDER_ID]);
     expect(calls.order![0]).toEqual(['created_at', { ascending: false }]);
     expect(calls.limit![0]).toEqual([ORDER_REFUNDS_LIMIT + 1]);
@@ -228,7 +236,9 @@ describe('listRefundExceptions', () => {
     const before = Date.now();
     const { a } = exceptionChains(emptyData, emptyData);
     await listRefundExceptions();
-    expect(mocks.from.mock.calls[0]![0]).toBe('order_refunds');
+    // 🔵 同上:表名改成遮罩 view(⛔ ~~`toBe('order_refunds')`~~, 2026-09-07 片 B1)。
+    //   ⚠️ 而**這一格守的仍然是述詞不是表名** —— 表名換了而 `.eq()` / `.or()` 那幾句一個字沒動。
+    expect(mocks.from.mock.calls[0]![0]).toBe('order_refunds_readable');
     // 整串錨定,不是 toContain 片段:多一段、少一段、換順序都會紅。
     expect(a.calls.eq!).toEqual([['status', 'processing']]);
     const orArg = String(a.calls.or![0]![0]);
@@ -247,7 +257,9 @@ describe('listRefundExceptions', () => {
   it('🔴 ②卡住那支:兩顆 eq 缺一不可,且**沒有**任何 or()(關卡2 codex:尾巴多接一顆 eq 就會靜默改變集合)', async () => {
     const { s } = exceptionChains(emptyData, emptyData);
     await listRefundExceptions();
-    expect(mocks.from.mock.calls[1]![0]).toBe('order_refunds');
+    // 🔵 同上:表名改成遮罩 view(⛔ ~~`toBe('order_refunds')`~~, 2026-09-07 片 B1)。
+    //   ⚠️ 而**這一格守的仍然是述詞不是表名** —— 表名換了而 `.eq()` / `.or()` 那幾句一個字沒動。
+    expect(mocks.from.mock.calls[1]![0]).toBe('order_refunds_readable');
     // 🔴 **完整比對整個 eq 清單**(不是 toContain):
     //    少 status → 撈到形狀外的列;少 failed_reason → rejected_out_of_range / not_sent
     //    這兩個**正常的失敗結果**會一起被當成卡住;多一顆 → 靜默縮小集合。
@@ -510,5 +522,51 @@ describe('isBlockingStuckVerdict(`#890` 片4:三態預設關)', () => {
     expect(
       isBlockingStuckVerdict(stuck, new Map([['s2', { correctedTo: 'no_money_moved' }]])),
     ).toBe(true);
+  });
+});
+
+/**
+ * ⟦b4-TAPPAYDIRECT⟧ 片 B1:讀取面切到 A1 的遮罩 view 之後, **補登列與一般列要分得出來**。
+ *
+ * 🔴🔴 **這三格釘的是【下游拿得到什麼】, 不是「view 有沒有遮」** ——
+ *    後者是 DB 的事(A1 那支 migration 自己有前後閘);這裡守的是
+ *    「**我們的投影有沒有把那一欄接出來**」與「**接錯型別會不會被抓到**」。
+ * ⚠️ 而 mock **不依 select 裁切資料**(本檔檔頭第 40-47 行逐字)⇒ 這幾格
+ *    **證不到**「view 真的把 `bank_refund_id` 遮成 NULL」—— 那一半的證人是
+ *    `20260907020000` 的事後閘與貼板 `69b` 的對帳, 不是這裡。
+ */
+describe('⟦b4-TAPPAYDIRECT⟧ 片 B1:補登列的辨識', () => {
+  it('🔴 補登列 ⇒ `backfilledSource` 帶得出來(**B2 會讓畫面靠它分辨**;本片只接到投影)', async () => {
+    const { builder } = chain({
+      data: [rawRow({ id: 'r-bf', backfilled_source: 'tappay_console' })],
+      error: null,
+    });
+    mocks.from.mockReturnValue(builder);
+    const { rows } = await listOrderRefunds(ORDER_ID);
+    expect(rows[0]!.backfilledSource).toBe('tappay_console');
+  });
+
+  it('🟢 正對照:一般退款列 ⇒ `backfilledSource` 是 null(不是空字串、不是 undefined)', async () => {
+    const { builder } = chain({ data: [rawRow()], error: null });
+    mocks.from.mockReturnValue(builder);
+    const { rows } = await listOrderRefunds(ORDER_ID);
+    // 🔴 分開斷言 —— `toBeFalsy()` 在 null / undefined / '' 三個世界印同一個綠,
+    //    而它們對呼叫端的意思不一樣(undefined = 那一欄沒接出來)。
+    expect(rows[0]!.backfilledSource).toBeNull();
+    // 🛑 ⛔ ~~`expect(rows[0]).toHaveProperty('backfilledSource')`~~ —— **拿掉了, 它恆真**
+    //   (code-reviewer F4):上一行 `toBeNull()` 在「那一欄沒接出來」的世界**會先紅**
+    //   (`undefined !== null`)⇒ 任何跑得到這裡的世界, 都是上一行已經證明那個 key 在的世界。
+    //   ⇒ 📌 **它不是第二個證人, 是同一個證人的複印。**
+  });
+
+  it('🔴 投影必須把 `backfilled_source` 選出來 —— 少了它上面兩格會拿到 undefined 而不是紅', async () => {
+    const { calls } = ((): { calls: Record<string, unknown[][]> } => {
+      const c = chain({ data: [], error: null });
+      mocks.from.mockReturnValue(c.builder);
+      return { calls: c.calls };
+    })();
+    await listOrderRefunds(ORDER_ID);
+    const tokens = String(calls.select![0]![0]).split(',').map((t) => t.trim());
+    expect(tokens).toContain('backfilled_source');
   });
 });
