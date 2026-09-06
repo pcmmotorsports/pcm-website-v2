@@ -57,7 +57,7 @@ test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 #    base `dafe35279` = **75** · `origin/dev` = **80**(+5) · 本線 = **103**(+28)⇒ 合起來 **108**。
 #    🛑 **而算術只是預期值** —— 下面那個數字是【跑完之後照實際 PASS 填的】,
 #      並且逐一確認過兩邊的格都真的在(dev 側 55 / 56 / 57 / 57b 那四格 · 本線 欄⓪a…欄⑰b)。
-EXPECT_TOTAL=108
+EXPECT_TOTAL=113
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -705,6 +705,100 @@ TS
 BN2="$(cd "$RCN2" && git rev-parse HEAD~1)"; TN2="$(cd "$RCN2" && git rev-parse HEAD)"
 expect_block "欄⑰b 可達性:同樣兩個字搬進碼 ⇒ 必須擋" \
   "$(run_gate "$RCN2" "refs/heads/dev $TN2 refs/heads/dev $BN2")" "things.pcm_probe_col"
+
+# ══ 欄位那一族 · R5 補的五格(2026-09-06;R5 = codex gpt-5.6-sol, 只問「這一輪的修法有沒有造出下一個洞」)══
+
+# 🔴🔴 欄⑱ 是 R5-1 的證人:**上一版的「註解剝除」其實是「刪掉所有以 `*` 開頭的實體行」。**
+#    這一段是合法而且**真的讀那一欄**的 TS ⇒ 舊版把第二行整行刪掉 ⇒ 🛑 **漏擋。**
+RCO="$WORK/rco"; setup_repo "$RCO"; add_pending_col "$RCO"
+cat > "$RCO/apps/admin/src/readerO.ts" <<'TS'
+export function calc(rate: number, things: any) {
+  const total = rate
+    * things.pcm_probe_col;
+  return total;
+}
+TS
+( cd "$RCO" && git add -A && git commit -qm "feat: 加欄 migration + 以星號開頭的續行真碼" )
+BO="$(cd "$RCO" && git rev-parse HEAD~1)"; TO="$(cd "$RCO" && git rev-parse HEAD)"
+expect_block "欄⑱:以星號開頭的【續行真碼】不得被當註解剝掉(R5-1)" \
+  "$(run_gate "$RCO" "refs/heads/dev $TO refs/heads/dev $BO")" "things.pcm_probe_col"
+
+# 🔵 欄⑰c 是 ⑱ 的反面:**同一行 `/* … */` 後面的碼要留下** ——
+#    lexer 若整行吃掉, 這一格會綠(漏擋)⇒ 它與 ⑱ 一起把「吃太多」兩個方向都釘住。
+RCP="$WORK/rcp"; setup_repo "$RCP"; add_pending_col "$RCP"
+cat > "$RCP/apps/admin/src/readerP.ts" <<'TS'
+/* 這是註解 */ export const q = (sb: any) => sb.from('things').select('id, pcm_probe_col');
+TS
+( cd "$RCP" && git add -A && git commit -qm "feat: 加欄 migration + 同行註解後面接真碼" )
+BP="$(cd "$RCP" && git rev-parse HEAD~1)"; TP="$(cd "$RCP" && git rev-parse HEAD)"
+expect_block "欄⑰c:同一行註解【後面】的真碼要留下(R5-1 的反面)" \
+  "$(run_gate "$RCP" "refs/heads/dev $TP refs/heads/dev $BP")" "things.pcm_probe_col"
+
+# 🔴🔴 欄⑲ 是 R5-2 的證人:**R4 給的 lookbehind 只擋得住「前一字元是 ASCII identifier」那一種。**
+#    這裡的字串是 `manual-e` —— 那個 e 前面是**連字號** ⇒ lookbehind 放行
+#    ⇒ 剝除器仍然從普通字串【內容裡】的 e 起跑, 吞掉後面的真 DDL ⇒ 少豁免 ⇒ **誤擋**。
+#    ✅ 修法不是把 lookbehind 的字元集愈擴愈大, 是把兩種字串放進**同一次由左到右**的掃描。
+RCQ="$WORK/rcq"; setup_repo "$RCQ"
+cat > "$RCQ/supabase/migrations/20260101000008_dashe.sql" <<'SQL'
+CREATE TABLE public.audit_log4 (stmt text);
+INSERT INTO public.audit_log4(stmt) VALUES ('manual-e');
+ALTER TABLE public.things ADD COLUMN pcm_dashe_col text DEFAULT 'x';
+SQL
+_qsha="$(shasum -a 256 "$RCQ/supabase/migrations/20260101000008_dashe.sql" | cut -d' ' -f1)"
+printf '20260101000008\t%s\t2026-01-01\tfixture\n' "$_qsha" >> "$RCQ/supabase/APPLIED.tsv"
+( cd "$RCQ" && git add -A && git commit -qm "base: 已 apply 的加欄, 而它前面那個字串以連字號加 e 結尾" )
+cat > "$RCQ/supabase/migrations/20260114000000_recol3.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN IF NOT EXISTS pcm_dashe_col text;
+SQL
+cat > "$RCQ/apps/admin/src/readerQ.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_dashe_col');
+}
+TS
+( cd "$RCQ" && git add -A && git commit -qm "feat: 冪等重貼同一欄 + 讀它" )
+BQ="$(cd "$RCQ" && git rev-parse HEAD~1)"; TQ="$(cd "$RCQ" && git rev-parse HEAD)"
+expect_pass "欄⑲:字串內容以【連字號 + e】結尾時也不得吞掉後面的真 DDL(R5-2)" \
+  "$(run_gate "$RCQ" "refs/heads/dev $TQ refs/heads/dev $BQ")"
+
+# ⑲b 可達性:同一份 fixture 拿掉帳本那一列 ⇒ 必須擋
+RCQ2="$WORK/rcq2"; setup_repo "$RCQ2"
+cat > "$RCQ2/supabase/migrations/20260101000008_dashe.sql" <<'SQL'
+CREATE TABLE public.audit_log4 (stmt text);
+INSERT INTO public.audit_log4(stmt) VALUES ('manual-e');
+ALTER TABLE public.things ADD COLUMN pcm_dashe_col text DEFAULT 'x';
+SQL
+( cd "$RCQ2" && git add -A && git commit -qm "base: 同一份 fixture, 而【沒有】記進帳本" )
+cat > "$RCQ2/supabase/migrations/20260114000000_recol3.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN IF NOT EXISTS pcm_dashe_col text;
+SQL
+cat > "$RCQ2/apps/admin/src/readerQ.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_dashe_col');
+}
+TS
+( cd "$RCQ2" && git add -A && git commit -qm "feat: 冪等重貼同一欄 + 讀它" )
+BQ2="$(cd "$RCQ2" && git rev-parse HEAD~1)"; TQ2="$(cd "$RCQ2" && git rev-parse HEAD)"
+expect_block "欄⑲b 可達性:同一份 fixture 拿掉帳本那一列 ⇒ 必須擋" \
+  "$(run_gate "$RCQ2" "refs/heads/dev $TQ2 refs/heads/dev $BQ2")" "things.pcm_dashe_col"
+
+# 🔴 欄⑯c 是 R5-丁 點名的【缺的那個負對照】:
+#    ⛔ ~~欄⑯ 用 `gross.margin` 對 `gross.margin` 驗 expect_block~~ ——
+#      📌 **句點【沒有逃逸】時 ERE 的 `.` 照樣命中真句點** ⇒ 那一格對「有沒有逃逸」零判別力。
+#    ✅ 補這一格:app 檔寫 `grossXmargin`(X 不是句點)⇒ **逃逸對了就不會中**。
+#      🔬 實測:不逃逸的 pattern 對 `grossXmargin` ⇒ **誤命中**;逃逸後 ⇒ 不中。
+RCR="$WORK/rcr"; setup_repo "$RCR"
+cat > "$RCR/supabase/migrations/20260115000000_dot2.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN "gross.margin" numeric;
+SQL
+cat > "$RCR/apps/admin/src/readerR.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, grossXmargin');
+}
+TS
+( cd "$RCR" && git add -A && git commit -qm "feat: 欄名含句點, 而 app 檔寫的是 X 不是句點" )
+BR="$(cd "$RCR" && git rev-parse HEAD~1)"; TR="$(cd "$RCR" && git rev-parse HEAD)"
+expect_pass "欄⑯c 負對照:欄名的句點要當字面比 ⇒ grossXmargin 不得被誤中(R5 丁)" \
+  "$(run_gate "$RCR" "refs/heads/dev $TR refs/heads/dev $BR")"
 
 # 🛑 **R3 B2 / D2 的【未驗】要寫在這裡, 不要假裝有格子**:
 #    「路徑仍在 tree 裡, 而它的 blob 讀不到」這個世界 —— **我構造不出來**:

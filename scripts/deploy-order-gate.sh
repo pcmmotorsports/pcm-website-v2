@@ -365,23 +365,25 @@ Q=chr(39)
 STRICT=os.environ.get("PCM_COL_STRICT")=="strict"
 if STRICT:
     t=re.sub(r"\$([A-Za-z0-9_]*)\$.*?\$\1\$", " ", t, flags=re.S)          # dollar body
-    # R3-A2: E-string(E 開頭的字串字面)的反斜線跳脫會讓天真的剝除【提早收尾】。
-    #   舊版只有一條「一般字串」規則 ⇒ 餵 E 開頭且內含反斜線加引號的字面時, 它在那個跳脫處
-    #   就收掉 ⇒ 後面那段【假 DDL】反而被暴露出來 ⇒ strict 模式【多抽】一組
-    #   ⇒ 真正 pending 的同名欄被豁免 —— 與這一格想擋的事情剛好相反。
-    #   修法: E-string 先剝(它認反斜線跳脫), 再剝一般字串。
-    # R4-F1: 那個 [eE] 少了【左邊界】 ⇒ 任何以 e 結尾的字串內容(例 manual_phone / none)
-    #   後面若還有字串, 這條 regex 會從那個 e 起跳過真正的收尾引號 ⇒ 一口吞掉中間的【真 DDL】。
-    #   實測 supabase/migrations/20260712203000_m4a_orders_admin_columns.sql:
-    #     strict 抽到 3 組 / 不剝 E-string 抽到 6 組 ⇒ 少的是 orders.cancelled_at / cancelled_reason / version
-    #   ⇒ 那三組永遠拿不到豁免 ⇒ 冪等重貼會被擋(cancelled_at 全樹共現 27 支檔)。
-    t=re.sub("(?<![A-Za-z0-9_$])[eE]"+Q+"(?:[^"+Q+chr(92)*2+"]|"+chr(92)*2+"."+"|"+Q+Q+")*"+Q, " ", t, flags=re.S)
-    t=re.sub(Q+"(?:[^"+Q+"]|"+Q+Q+")*"+Q, " ", t, flags=re.S)
+    # R5-2: 這裡本來是【兩條分開的 re.sub】 —— 先剝 E-string, 再剝一般字串,
+    #   而 R4 給的修法是在 E 前面加 lookbehind。⛔ ~~那個 lookbehind 只擋得住
+    #   「前一字元是 ASCII identifier」那一種~~ ⇒ 餵 VALUES (單引號 manual-e 單引號) ——
+    #   那個 e 前面是連字號 ⇒ lookbehind 放行 ⇒ 它仍然從普通字串【內容裡】的 e 起跑,
+    #   跨過真正的收尾引號, 吞掉後面的真 DDL。實測:兩步版 ADD COLUMN 不見了。
+    # 🎯 R5 逐字:「最小正確修法不是繼續擴大 lookbehind 字元集, 而是把 E-string 與普通字串
+    #   放進同一次、由左至右的替換」—— 因為 re.sub 是【由左掃到右】:
+    #   掃描器在普通字串的【開頭引號】就把整段吃掉了, 內容裡的 e 永遠不會成為起點。
+    # ✅ 一條 alternation, E 那一支排前面(同一個位置優先當 E-string)。
+    #   實測:合併版 ADD COLUMN 還在;正對照 真 E-string 裡的 ghost 被剝掉而後面的 real_col 還在。
+    _STR = ("[eE]"+Q+"(?:[^"+Q+chr(92)*2+"]|"+chr(92)*2+"."+"|"+Q+Q+")*"+Q
+            +"|"+Q+"(?:[^"+Q+"]|"+Q+Q+")*"+Q)
+    t=re.sub(_STR, " ", t, flags=re.S)
     # 剝不乾淨就整支不當豁免來源: 還留著引號 = 我沒把它 lex 對,
     # 而「我沒把握」在豁免側只有一個安全答案 —— 不豁免。
     if t.count(Q) > 0:
         print("")
         sys.exit(0)
+
 def norm(raw):
     # 🔴 nit:`"CamelCase"` 與 camelcase 在 PostgreSQL 是【兩個不同的欄】——
     #    有雙引號 ⇒ 原樣保留;沒有 ⇒ 折小寫(PG 自己就是這樣 fold 的)。
@@ -715,7 +717,37 @@ $VALS"
       #      ⇒ 剝掉註解行之後命中 **0**(正對照:同一把尺找 `export` ⇒ **2** ⇒ 尺是活的)。
       #    🛑 **⇒ 這是【這一族】造成的, 不是本來就在** ⇒ 一句註解會擋住全隊的 push。
       #    ✅ 修法:`FULL` 進比對前套【`$CODE` 那邊已經在用的同一道】註解剝除, 不新寫一份 pattern。
-      _strip_comment_lines() { grep -vE '^[[:space:]]*(//|\*|/\*)' || true; }
+      # 🔴🔴 **R5-1:上面那個一行 grep【不是註解剝除器】, 它是「刪掉所有以 `*` 開頭的實體行」。**
+      #    ⛔ ~~`grep -vE '^[[:space:]]*(//|\*|/\*)'`~~ ⇒ 📌 這一段【合法而且真的讀那一欄】的 TS:
+      #        `const total = rate`
+      #        `  * things.pcm_probe_col;`      ← 第二行整行被刪掉
+      #      ⇒ 🛑 `FULL` 找不到那兩個字 ⇒ **漏擋**, 而漏擋是這道閘存在的理由那一面。
+      #      🔬 實測:剝完再數 `pcm_probe_col` ⇒ **0**(正對照:同一段寫成一行 ⇒ **1**)。
+      # ✅ **改成一個【只認註解層】的小 lexer(awk), 不再疊 regex** —— R5 逐字說核心問題就是
+      #    「用更多 regex 疊出近似 lexer」。這一支只做三件事, 而每一件都往【不刪真碼】那邊倒:
+      #      ① `/* … */` 真的追蹤開合(跨行也算), 而**只吃掉註解那一段**, 同一行剩下的碼照留
+      #      ② 行註解**只認整行前綴的 `//`** —— 行尾的 `//` 不認, 因為它可能住在字串裡(`https://`)
+      #         ⇒ ⚠️ 代價:`const x = 1; // things.pcm_col` 仍會誤擋。**那是刻意的**(誤擋 < 漏擋)。
+      #      ③ 任何它看不懂的東西一律**原樣印出來** ⇒ 看不懂 = 保留 = 誤擋方向。
+      _strip_comment_lines() {
+        awk '
+        {
+          s = $0
+          if (inblk) {
+            p = index(s, "*/")
+            if (p == 0) { next }
+            s = substr(s, p + 2); inblk = 0
+          }
+          while ((p = index(s, "/*")) > 0) {
+            rest = substr(s, p + 2)
+            q = index(rest, "*/")
+            if (q == 0) { s = substr(s, 1, p - 1); inblk = 1; break }
+            s = substr(s, 1, p - 1) " " substr(rest, q + 2)
+          }
+          if (s ~ /^[[:space:]]*\/\//) { next }
+          print s
+        }'
+      }
       if [ -z "$_AF_IN_TREE" ]; then
         FULL=""      # 🔵 這支路徑【不在那棵樹裡】= 這一發把它刪了 ⇒ 跳過, 不是失敗
       elif ! FULL="$(git show "$local_sha:$af" 2>/dev/null | _strip_comment_lines)"; then
