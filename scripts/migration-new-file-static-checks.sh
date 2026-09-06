@@ -180,8 +180,17 @@ redness() { # $1=要檢查的檔  $2=兄弟分母目錄(可空 ⇒ 照舊用受�
   #    與「交易結束語句 2 次 ⇒ 3 次」併成同一類 ⇒ **這次新增的錯被合併進舊紅 ⇒ 惡化了也放行**。
   #    ✅ 只正規化【行號】與【路徑】—— 行號要正規化, 是因為多一行註解會讓後面每個 `:N` 位移(假紅);
   #    ⚠️ 順序:先吃路徑(路徑裡也有數字), 再吃 `:數字`。
+  # 🔴🔴 **`tr '\n' '|'` 在【零命中】時什麼都不印 —— 連換行都沒有。**
+  #    ⇒ 這一行【整行消失】⇒ 呼叫端的 `sed -n '2p'` 拿到的是下面那個 `rc`
+  #      ⇒ `nw_kinds` 變成 "0" 這種看起來像種類的東西 ⇒ 與舊版比 ⇒ 判成「出現新種類」⇒ **擋**。
+  #    🎯 **後果是最壞的那一種**:一個把【所有紅都修掉】的改動(舊 2 格 ⇒ 新 0 格)
+  #      會被這道閘擋下來, 而它印的理由是「這次改動讓它更紅」—— **字面與事實相反**。
+  #    🔬 2026-09-07 線【資料】`-db` 實撞:把一支 267 行的 migration 改成 52 行空殼
+  #      ⇒ `舊版 2 格 ⇒ 新版 0 格;且出現舊版沒有的紅種類` ⇒ rc=1。
+  #    ✅ 修法:那一行**永遠補一個換行**, 讓三行永遠是三行。
   printf '%s\n' "$out" | grep -o '🔴.*' \
     | sed -E 's#/[^ ]+#PATH#g; s#:[0-9]+#:N#g; s#[[:space:]]+# #g' | sort -u | tr '\n' '|'
+  printf '\n'
   printf '%s\n' "$rc"
 }
 
@@ -628,6 +637,30 @@ if [ "${1:-}" = "--selftest" ]; then
     git rm -q --cached supabase/migrations/20200606000000_e2e_later.sql >/dev/null 2>&1
     rm -f supabase/migrations/20200505000000_e2e_earlier.sql supabase/migrations/20200606000000_e2e_later.sql )
 
+  # ══ 🔴🔴 **把【所有】紅都修掉的那個世界(2026-09-07 加)** ══════════════════
+  #    這一格補的是一個**沒有任何一格在量**的方向:既有檔改動之後 **0 格紅**。
+  #    🔬 實撞:`redness()` 的種類那一行在零命中時 `tr` **什麼都不印(連換行都沒有)**
+  #      ⇒ 整行消失 ⇒ 呼叫端 `sed -n '2p'` 拿到的是下面那個 `rc`
+  #      ⇒ 判成「出現舊版沒有的紅種類」⇒ **擋**, 而它印的理由是「這次改動讓它更紅」。
+  #    🎯 **一個把所有紅都修掉的改動被擋下, 而理由與事實相反。**
+  ( cd "$W" && printf 'BEGIN;\nCREATE FUNCTION public.zz_allred() RETURNS int LANGUAGE sql AS $f$ SELECT 1 $f$;\nCOMMIT;\n' \
+      > supabase/migrations/20201220000000_allred.sql
+    git add supabase/migrations/20201220000000_allred.sql >/dev/null 2>&1
+    git -c user.email=p@x -c user.name=p commit -qm allred-seed >/dev/null 2>&1
+    git update-ref refs/remotes/origin/dev HEAD )
+  # 先證那份【舊】內容真的有紅(沒有這一格, 下面那格零判別力)
+  ( cd "$W" && bash "$CHECKS_FOR_SELFTEST" supabase/migrations/20201220000000_allred.sql >/dev/null 2>&1 )
+  cell "🧪 全紅變零紅:舊內容【自己】是紅的(判別力前置)" "$?" "1"
+  # 改成一支【零紅】的內容(純 DO 區塊, 無可授權物件、無交易外語句)
+  ( cd "$W" && printf 'BEGIN;\nDO $v$ BEGIN RAISE NOTICE %s; END $v$;\nCOMMIT;\n' "'voided'" \
+      > supabase/migrations/20201220000000_allred.sql
+    git add supabase/migrations/20201220000000_allred.sql >/dev/null 2>&1 )
+  ( cd "$W" && bash "$CHECKS_FOR_SELFTEST" supabase/migrations/20201220000000_allred.sql >/dev/null 2>&1 )
+  cell "🧪 全紅變零紅:新內容【自己】零紅(這一格證世界造對了)" "$?" "0"
+  _oz=$( cd "$W" && bash "$SELF" supabase/migrations/20201220000000_allred.sql 2>&1 )
+  case "$_oz" in *沒有變更紅*) _rz=0 ;; *) _rz=1 ;; esac
+  cell "🧪 全紅變零紅 ⇒ **放行**(修法前這格會擋, 而理由與事實相反)" "$_rz" "0"
+
   # ══ 🔴🔴 origin/dev 那一把尺(2026-09-07 加)══════════════════════════════════
   #    上面每一格「已落地」都是用 `APPLIED.tsv` 造的世界 ⇒ **`origin/dev` 這條路一格都沒有**,
   #    而那正是「絕對路徑打不到 origin/dev」活到今天的原因。
@@ -686,7 +719,7 @@ if [ "${1:-}" = "--selftest" ]; then
   ( cd "$W" && git rm -q --cached supabase/migrations/20201213000000_absnew.sql >/dev/null 2>&1
     rm -f supabase/migrations/20201213000000_absnew.sql )
 
-  [ "$fail" = "0" ] && echo "✅ migration-new-file-static-checks --selftest $n/$n(A/M 都掃 + 未落地舊檔照擋 + 已落地改壞照擋而【既有的紅】仍豁免 + 不退步閘世界二/二b/二c + 未 staged + NUL 量不到 + 多檔 + 該綠必綠 + untracked 雙向含突變 + 零參數兩態 + 已落地沒改到才跳過 + origin/dev 相對/絕對同判且真新檔照擋)"
+  [ "$fail" = "0" ] && echo "✅ migration-new-file-static-checks --selftest $n/$n(A/M 都掃 + 未落地舊檔照擋 + 已落地改壞照擋而【既有的紅】仍豁免 + 不退步閘世界二/二b/二c + 未 staged + NUL 量不到 + 多檔 + 該綠必綠 + untracked 雙向含突變 + 零參數兩態 + 已落地沒改到才跳過 + origin/dev 相對/絕對同判且真新檔照擋 + 全紅變零紅照樣放行)"
   exit "$fail"
 fi
 
