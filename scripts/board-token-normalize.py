@@ -277,6 +277,16 @@ def check_staged():
     staged = [x for x in r.stdout.split('\n') if x.strip()]
     if BOARD not in staged:
         return 0                      # 板沒 staged ⇒ 安靜不跑
+    # 🔴 2026-09-07 加(`-ship` 交件坑 1, 我實測重現):**板檔檔尾若沒有換行字元**,
+    #    任何人用 `>>` 追加一列 ⇒ **那一列會黏在最後一行的尾巴上**。
+    #    🛑 而最後一行常常是**引言文字**(不是 `| ` 開頭)⇒ **黏上去的那一整列從分母裡消失**
+    #       ⇒ 閘印「0 違規」、計數器少算一列, **而畫面上一切正常。**
+    #    📌 ⇒ 這一格問的不是格式, 是**下一個人追加時會不會安靜地掉一列**。
+    _tail = subprocess.run(['git', 'show', f':{BOARD}'], capture_output=True)
+    if _tail.returncode == 0 and _tail.stdout and not _tail.stdout.endswith(b'\n'):
+        print('   🔴 **板檔檔尾沒有換行字元** ⇒ 下一個用 `>>` 追加的人, 那一列會黏在最後一行尾巴上')
+        print('      ⇒ 若最後一行不是 `| ` 開頭(常常是引言), **那一整列會從所有計數的分母裡消失**。')
+        print('      ⇒ 修法:`printf \'\\n\' >> ' + BOARD + '`')
     s = subprocess.run(['git', 'show', f':{BOARD}'], capture_output=True, text=True)
     if s.returncode != 0:
         print(f'🟡 board-token 閘:讀不到 staged 的 {BOARD}(rc={s.returncode})⇒ **本閘沒看過**')
@@ -550,6 +560,20 @@ def selftest():
         with contextlib.redirect_stdout(buf6):
             check_staged()
         ck('既有列沒寫關閉條件 ⇒ 不叫(只看新增的)', '做到哪算完' in buf6.getvalue(), False)
+
+        # ═══ 檔尾換行的兩個世界(2026-09-07;`-ship` 交件坑 1)═══
+        io.open(board, 'w', encoding='utf-8').write(base_rows)          # 🔴 刻意不加 \n
+        git('add', BOARD)
+        buf11 = _io.StringIO()
+        with contextlib.redirect_stdout(buf11):
+            check_staged()
+        ck('檔尾沒換行 ⇒ 叫', '檔尾沒有換行字元' in buf11.getvalue(), True)
+        io.open(board, 'w', encoding='utf-8').write(base_rows + '\n')   # ✅ 有 \n
+        git('add', BOARD)
+        buf12 = _io.StringIO()
+        with contextlib.redirect_stdout(buf12):
+            check_staged()
+        ck('檔尾有換行 ⇒ 不叫', '檔尾沒有換行字元' in buf12.getvalue(), False)
 
         # 🔴 第三個世界:staged 是【乾淨的】而工作樹是【壞的】⇒ 必須看 staged, 印乾淨
         io.open(board, 'w', encoding='utf-8').write('\n'.join(
