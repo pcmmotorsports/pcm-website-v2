@@ -57,22 +57,45 @@ describe('catalogRowToUIProduct', () => {
     ).toEqual([{ motoBrand: 'YAMAHA', modelCode: 'MT-09' }]);
   });
 
-  it('S4:catalogRowToUIProduct 透傳 fitments、缺欄 → undefined', () => {
-    expect(
-      catalogRowToUIProduct({
-        id: 'p2', title: 't', subtitle: null, handle: 'h', availability: 'in-stock',
-        price_general: 100, card_image: null, fits: 'YAMAHA MT-09', brand_name: 'B',
-        brand_slug: 'b', category_raw: 'c', fitments: [{ motoBrand: 'YAMAHA', modelCode: 'MT-09', yearStart: 2020 }],
-      }).fitments,
-    ).toEqual([{ motoBrand: 'YAMAHA', modelCode: 'MT-09', yearStart: 2020 }]);
+  // 🔴🔴 **S4 這一格 2026-09-06 換了受詞(線 `front`,板列 ⟦search-CATALOGPAGE2MB⟧)。**
+  //   ⛔ ~~舊的:`catalogRowToUIProduct` 透傳 fitments 陣列~~
+  //   ✅ 現在:**卡片這條路不帶陣列, 只帶算好的字串** —— 陣列在正式站把該頁的 cache 條目推過
+  //      2 MB 上限(逐字 `items over 2MB can not be cached (2679379 bytes)`), 而它的唯一用途
+  //      是 `ProductCard.tsx` 那一行 `formatCardFits(p.fitments, p.fits)` 收成一句話。
+  //   🛑 **這幾格守不到「有沒有真的變小」** —— 把 `fitments` 那個鍵加回去, 這裡不會紅、
+  //      只有量 bytes 才看得到。⇒ 那一半的證據在板列的量測, 不在這支檔。
+  const cardRow = (fitments?: unknown, fits = '通用款') => ({
+    id: 'p2', title: 't', subtitle: null, handle: 'h', availability: 'in-stock',
+    price_general: 100, card_image: null, fits, brand_name: 'B',
+    brand_slug: 'b', category_raw: 'c',
+    ...(fitments === undefined ? {} : { fitments }),
+  });
 
+  it('S4:多車款 ⇒ fits 收成「N 款車型」(退回透傳陣列這格會紅)', () => {
     expect(
-      catalogRowToUIProduct({
-        id: 'p3', title: 't', subtitle: null, handle: 'h', availability: 'in-stock',
-        price_general: 100, card_image: null, fits: '通用款', brand_name: 'B',
-        brand_slug: 'b', category_raw: 'c',
-      }).fitments,
-    ).toBeUndefined();
+      catalogRowToUIProduct(
+        cardRow([
+          { motoBrand: 'YAMAHA', modelCode: 'MT-09', yearStart: 2020 },
+          { motoBrand: 'YAMAHA', modelCode: 'MT-07', yearStart: 2021 },
+        ]),
+      ).fits,
+    ).toBe('2 款車型');
+  });
+
+  it('S4:單車款 ⇒ fits 帶車款名與年份(不是「1 款車型」)', () => {
+    expect(
+      catalogRowToUIProduct(cardRow([{ motoBrand: 'YAMAHA', modelCode: 'MT-09', yearStart: 2020 }])).fits,
+    ).toBe("YAMAHA MT-09 '20");
+  });
+
+  it('S4:沒有 fitments 欄 ⇒ fits 回退 RPC 那個字串', () => {
+    expect(catalogRowToUIProduct(cardRow(undefined, 'YAMAHA MT-09')).fits).toBe('YAMAHA MT-09');
+    expect(catalogRowToUIProduct(cardRow(undefined)).fits).toBe('通用款');
+  });
+
+  it('🔴 S4:`fitments` 這個鍵【不存在】—— 給 undefined 不算(本片的理由就是 bytes)', () => {
+    const p = catalogRowToUIProduct(cardRow([{ motoBrand: 'YAMAHA', modelCode: 'MT-09' }]));
+    expect(Object.hasOwn(p, 'fitments')).toBe(false);
   });
 });
 
