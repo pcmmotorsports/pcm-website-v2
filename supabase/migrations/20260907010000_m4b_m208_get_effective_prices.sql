@@ -31,31 +31,56 @@ BEGIN;
 -- 🔴 裸 `CREATE`, **不是 `CREATE OR REPLACE`** —— 它是新物件, 撞名要當場紅。
 --    `scripts/migration-static-checks.sh` ① 逐字:「OR REPLACE 會把撞名靜靜蓋掉,
 --    而你的 REVOKE 與斷言照樣綠 —— 拿到綠燈, 卻蓋掉了一個你不知道存在的東西。」
-CREATE FUNCTION public.get_effective_prices(p_product_ids uuid[])
-RETURNS TABLE (product_id uuid, amount integer, currency text, tier text)
+-- 🔴🔴 **它收【兩種 id】—— 而那是 2026-09-07 才改的, 理由值得寫在這裡**
+--    ⛔ ~~第一版只收 `p_product_ids`~~ ⇒ 它**蓋不到變體**, 而購物車裡多數行是變體:
+--      `apps/storefront/src/app/cart/actions.ts:165` 逐字「變體單價取 `UIVariant.price`」,
+--      而 `product_variants` **自己有一欄 `price_store`**(`20260531142533:18` 逐字「經銷價」)。
+--    🛑 只收商品 id ⇒ 對變體行會回**商品層的價** ⇒ **經銷商看到錯的價, 而它不會紅**
+--      (今天 store 全等於 general, 連差異都看不出來)。
+--    🎯 **成因**:我設計時**分母只看了 `products`, 沒看 `product_variants`** ——
+--      而 codex 兩輪也沒抓到, 因為**它審的是我給它的那支 SQL, 不是「這支夠不夠用」**。
+--    ⇒ ✅ 一支收兩種、回 `kind` 分辨 —— 購物車一發叫完, 而不是兩支各自 REVOKE/閘/測試/貼板。
+CREATE FUNCTION public.get_effective_prices(
+  p_product_ids uuid[] DEFAULT NULL,
+  p_variant_ids uuid[] DEFAULT NULL
+)
+RETURNS TABLE (kind text, id uuid, amount integer, currency text, tier text)
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = ''
 AS $fn$
 DECLARE
-  v_tier text := 'general';
+  v_tier   text := 'general';
+  v_n_prod integer;
+  v_n_var  integer;
   v_uid  uuid := auth.uid();
 BEGIN
   -- 🔴 輸入上限:防有人一次要十萬個 id 把 definer 權限當成掃表工具。
-  IF p_product_ids IS NULL OR pg_catalog.cardinality(p_product_ids) = 0 THEN
+  -- 🔴 兩個陣列**一起數** —— 分開數會讓「100 + 150」通過一個 200 的上限。
+  -- 🔴🔴 `coalesce` 不加 `pg_catalog.` —— **我在同一支檔裡犯了第二次**, 而這次是
+  --    【那道強化過的斷言自己抓到的】(它真的叫了一發 ⇒ 立刻紅、apply 失敗)。
+  --    📌 上一次是靜態全過 / apply 成功 / 斷言也過, 只有拋棄式 PG 真的叫才紅;
+  --      這一次**斷言就是那個叫的人** ⇒ 那次的補強在同一支檔上立刻收到回報。
+  v_n_prod := coalesce(pg_catalog.cardinality(p_product_ids), 0);
+  v_n_var  := coalesce(pg_catalog.cardinality(p_variant_ids), 0);
+  IF v_n_prod + v_n_var = 0 THEN
     RETURN;
   END IF;
   -- 🔴🔴 **`array_length(a, 1)` 只量【第一維】** —— codex R1 must-fix ①:
   --    餵一個 2×200 的陣列, 第一維長度是 **2** ⇒ 上限形同虛設而實際查了 400 個 id。
   --    ✅ `cardinality()` 數的是**總元素數**;而多維陣列本身沒有正當用途 ⇒ 直接拒。
-  IF pg_catalog.array_ndims(p_product_ids) <> 1 THEN
-    RAISE EXCEPTION 'get_effective_prices:只收一維陣列(收到 % 維)',
+  IF p_product_ids IS NOT NULL AND pg_catalog.array_ndims(p_product_ids) <> 1 THEN
+    RAISE EXCEPTION 'get_effective_prices:p_product_ids 只收一維陣列(收到 % 維)',
       pg_catalog.array_ndims(p_product_ids);
   END IF;
-  IF pg_catalog.cardinality(p_product_ids) > 200 THEN
-    RAISE EXCEPTION 'get_effective_prices:一次最多 200 個 id(收到 %)',
-      pg_catalog.cardinality(p_product_ids);
+  IF p_variant_ids IS NOT NULL AND pg_catalog.array_ndims(p_variant_ids) <> 1 THEN
+    RAISE EXCEPTION 'get_effective_prices:p_variant_ids 只收一維陣列(收到 % 維)',
+      pg_catalog.array_ndims(p_variant_ids);
+  END IF;
+  IF v_n_prod + v_n_var > 200 THEN
+    RAISE EXCEPTION 'get_effective_prices:一次最多 200 個 id(商品 % + 變體 % = %)',
+      v_n_prod, v_n_var, v_n_prod + v_n_var;
   END IF;
 
   -- 🔴 tier 只從 auth.uid() 查, 不從參數來。查不到 ⇒ 維持 general(fail-closed 方向:
@@ -90,7 +115,7 @@ BEGIN
   -- ✅ 處置分兩層:①那個 tier 取不到有效金額 ⇒ **退回 general**(不是回 NULL)
   --              ②連 general 都取不到 ⇒ **RAISE** —— 那是資料壞了, 要有人知道。
   RETURN QUERY
-  SELECT p.id,
+  SELECT 'product'::text, p.id,
          CASE
            WHEN (p.price_by_tier -> v_tier ->> 'amount') ~ '^[0-9]+$'
              THEN (p.price_by_tier -> v_tier ->> 'amount')::integer
@@ -106,9 +131,49 @@ BEGIN
          coalesce(p.price_by_tier -> v_tier ->> 'currency', 'TWD'),
          v_tier
     FROM public.products p
-   WHERE p.id = ANY(p_product_ids)
+   WHERE p_product_ids IS NOT NULL
+     AND p.id = ANY(p_product_ids)
      -- 🔵 下架的不回(與公開投影 `USING (delisted_at IS NULL)` 同一條線)。
      AND p.delisted_at IS NULL;
+
+  -- ══ 變體那一半 ══════════════════════════════════════════════
+  -- 🔴 **形狀與商品那一半【不同】, 而那不是我選的** —— `product_variants` 存的是
+  --    **兩個整數欄** `price_general` / `price_store`(`20260531142533:31` 逐字),
+  --    不是 `price_by_tier` jsonb。⇒ 這裡不能照抄上面那段 `->` 取值。
+  -- 🔵 「取不到有效金額 ⇒ 退 general」兩半的**方向**一致(用 coalesce 的順序表達)。
+  -- ⛔ ~~而我原本寫「規則兩半**一致**」~~ —— codex R2 推翻:**不一致**。
+  --    商品半用 CASE + 正則(它要擋 jsonb 裡的非數字字串);變體半是整數欄, 沒有那個問題。
+  --    而「兩價皆 NULL」那個世界**原本只有商品半會出聲** ⇒ 已補變體半的 WARNING(見下)。
+  RETURN QUERY
+  SELECT 'variant'::text, v.id,
+         CASE
+           WHEN v_tier = 'store' THEN coalesce(v.price_store, v.price_general)
+           ELSE v.price_general
+         END,
+         'TWD'::text,
+         v_tier
+    FROM public.product_variants v
+    -- 🔴🔴 **母商品下架 ⇒ 變體也不回**(codex R2 must-fix ①)。
+    --    ⛔ 我原本只查 `v.id = ANY(...)` ⇒ 母商品下架時**商品半不回價而變體半照回**
+    --      ⇒ 📌 **客人買得到一個已經下架的東西, 而畫面上完全正常。**
+    --    🛑 而既有的 RLS 過濾**保護不了這條** —— `SECURITY DEFINER` 用 owner 的權限跑。
+    JOIN public.products pp ON pp.id = v.product_id AND pp.delisted_at IS NULL
+   WHERE p_variant_ids IS NOT NULL
+     AND v.id = ANY(p_variant_ids);
+
+  -- 🔴 變體那半的「連 general 都取不到」也要出聲(codex R2 must-fix ②)——
+  --    ⛔ 下面那道 WARNING **只查 `products`, 接不到變體** ⇒ 變體兩價皆 NULL 會靜默回空金額。
+  IF EXISTS (
+    SELECT 1 FROM public.product_variants v
+      JOIN public.products pp ON pp.id = v.product_id AND pp.delisted_at IS NULL
+     WHERE p_variant_ids IS NOT NULL
+       AND v.id = ANY(p_variant_ids)
+       AND coalesce(CASE WHEN v_tier = 'store' THEN coalesce(v.price_store, v.price_general)
+                         ELSE v.price_general END, -1) < 0
+  ) THEN
+    RAISE WARNING 'get_effective_prices:有【變體】連 general 都取不到有效金額 ⇒ 那一列的 amount 是 NULL。'
+      '這是【資料壞了】不是【沒有折扣】, 要有人去看。';
+  END IF;
 
   -- 🔴 ②那一層:上面那個 CASE 只在「連 general 也壞」時才會留下 NULL ⇒ 這裡把它變成【出聲】。
   --    🛑 分開寫而不寫進 CASE:CASE 裡 RAISE 不了, 而**回一個 NULL 然後假裝成功**正是本條要修的病。
@@ -126,8 +191,8 @@ END;
 $fn$;
 
 -- 🔵 兩道 REVOKE 是必要基線(新物件出生自帶 PUBLIC 的 EXECUTE)。
-REVOKE ALL ON FUNCTION public.get_effective_prices(uuid[]) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.get_effective_prices(uuid[]) FROM anon, service_role;
+REVOKE ALL ON FUNCTION public.get_effective_prices(uuid[], uuid[]) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.get_effective_prices(uuid[], uuid[]) FROM anon, service_role;
 -- 🔴 **給 authenticated** —— 與本 repo 多數 definer 函式不同, 而理由是它就是要給【登入的客人】叫的。
 --    未登入的 `anon` 收掉:他要的價 = general, 那條路走公開投影, 不需要這支。
 -- ACL-GATE-EXEMPT: public.get_effective_prices -- 登入客人自己叫, 對照建表 20260907010000
@@ -138,11 +203,11 @@ REVOKE ALL ON FUNCTION public.get_effective_prices(uuid[]) FROM anon, service_ro
 --     ⇒ 📌 給它 EXECUTE 只會多開一條【拿不到正確答案而且繞過 RLS】的路。
 --   · 🛑 而 `authenticated` **不等於「任何人」** —— 未登入是 `anon`, 已被上面兩道 REVOKE 收掉。
 --     一般會員叫得動, 但他拿到的是 general(見 ② 那格突變:寫錯就會變成 800 傳給他)。
-GRANT EXECUTE ON FUNCTION public.get_effective_prices(uuid[]) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_effective_prices(uuid[], uuid[]) TO authenticated;
 
 DO $assert$
 DECLARE
-  v_functions text[] := ARRAY['public.get_effective_prices(uuid[])']::text[];
+  v_functions text[] := ARRAY['public.get_effective_prices(uuid[], uuid[])']::text[];
   r       text;
   v_acl   text;
   v_owner text;
@@ -182,16 +247,18 @@ BEGIN
   END LOOP;
 
   -- 🔴 形狀斷言:空陣列要安靜回零列, 不得丟例外(呼叫端的常態)。
-  PERFORM public.get_effective_prices(ARRAY[]::uuid[]);
+  PERFORM public.get_effective_prices(ARRAY[]::uuid[], ARRAY[]::uuid[]);
   -- 🔴🔴 **而空陣列那一發【走不到 RETURN QUERY】** —— 它在上面就 `RETURN` 了
   --    ⇒ 📌 那一句證不了函式體會不會炸。實測:`pg_catalog.coalesce` 那個錯
   --      七道靜態檢查全過、apply 成功、收權斷言也過, **只有真的叫一次回一列才紅**。
   --    ⇒ ✅ 所以再叫一發【帶一個不存在的 id】:它會走完整個 RETURN QUERY(零列, 而查詢有被規劃執行)。
-  PERFORM public.get_effective_prices(ARRAY['00000000-0000-0000-0000-000000000000'::uuid]);
+  PERFORM public.get_effective_prices(
+    ARRAY['00000000-0000-0000-0000-000000000000'::uuid],
+    ARRAY['00000000-0000-0000-0000-000000000000'::uuid]);
 END;
 $assert$;
 
-COMMENT ON FUNCTION public.get_effective_prices(uuid[]) IS
+COMMENT ON FUNCTION public.get_effective_prices(uuid[], uuid[]) IS
 $c$M-2-08 前半:回【呼叫者自己那個 tier】的有效價。
 🔴 不收 tier 參數 —— tier 由內部 auth.uid() 查 customers.tier;NULL ⇒ general。
 🔴 只回那一個 tier 的 amount/currency, 不回整個 price_by_tier ⇒ 一般會員拿不到 store 價。
