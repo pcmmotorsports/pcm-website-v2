@@ -278,7 +278,14 @@ export function ProductsPage({ products, total, error, categories, brands: serve
 
       {/* 🔴 2026-09-06(Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧):車款樹讀不到 ⇒ 講一句,
           而【真的沒有】仍然什麼都不說 —— 兩者要畫成兩種東西。 */}
-      <VehicleTaxonomyNotice failed={vehicleTaxonomyFailed} />
+      {/* 🔴 ⟦front-CATALOGNOTICEFLUSH⟧ 2026-09-07:這一層只做【水平留白】。
+          它在 `.pp-layout`(下面 `:320` 附近)與 `<main class="pp-main">` 之外,
+          ⇒ 沒有這一層的話它是整頁唯一貼齊螢幕兩側邊的內容(2026-09-07 量到 390/390)。
+          🛑 **刻意不搬進 `<main>`** —— 那會連垂直位置一起變, 那是視覺決定(主視窗 2026-09-07 交辦)。
+          🔵 `.pp-notice-shell` 逐字複製 `.pp-layout` 的幾何(同一組 CSS 變數)⇒ 不寫死數字。 */}
+      <div className="pp-notice-shell">
+        <VehicleTaxonomyNotice failed={vehicleTaxonomyFailed} />
+      </div>
       {/* 桌機選車列(≤1024px 由 CSS 整條關閉) */}
       <CascadeFilterTop
         data={data}

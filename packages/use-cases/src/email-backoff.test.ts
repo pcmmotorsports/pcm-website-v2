@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EmailSendErrorCode } from '@pcm/ports';
-import { computeEmailBackoff, LEASE_RECLAIM_RETRY_DELAY_MS } from './email-backoff';
+import { computeEmailBackoff, isQuotaExhaustionCode, LEASE_RECLAIM_RETRY_DELAY_MS } from './email-backoff';
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -30,6 +30,8 @@ const ALL_CODES_MAP = {
   quota_monthly_exceeded: true,
   network_error: true,
   provider_error: true,
+  // ⟦b4-RESEND409⟧ 2026-09-07:Resend 的第三種 409(重試永遠不會成功)自己一格。
+  idempotency_payload_mismatch: true,
 } satisfies Record<EmailSendErrorCode, true>;
 
 const ALL_CODES = Object.keys(ALL_CODES_MAP) as readonly EmailSendErrorCode[];
@@ -40,8 +42,15 @@ const QUOTA_CODES: readonly EmailSendErrorCode[] = [
   'http_429',
 ];
 
+/**
+ * ⟦b4-RESEND409⟧ 自己一格的政策 —— **它不是 quota、也不是 exponential**。
+ * 🔴 少了這一行, 下面那個 filter 會把它算進 `EXPONENTIAL_CODES`
+ * ⇒ 📌 **那一格會斷言它走指數退避, 而那正是這一片要改掉的行為** —— 測試會替舊行為背書。
+ */
+const IDEMPOTENCY_CODES: readonly EmailSendErrorCode[] = ['idempotency_payload_mismatch'];
+
 const EXPONENTIAL_CODES: readonly EmailSendErrorCode[] = ALL_CODES.filter(
-  (c) => !QUOTA_CODES.includes(c) && c !== 'rate_limited',
+  (c) => !QUOTA_CODES.includes(c) && !IDEMPOTENCY_CODES.includes(c) && c !== 'rate_limited',
 );
 
 function delayOf(code: EmailSendErrorCode, attempts: number, random: () => number): number {
@@ -102,12 +111,59 @@ describe('computeEmailBackoff — 兜底列(指數 5min × 2^(attempts-1)、上�
 });
 
 describe('政策映射完整性', () => {
-  it('union 全集恰 17 碼、每碼皆可計算出未來時點(窮舉 Record 的 runtime 對照)', () => {
-    expect(ALL_CODES).toHaveLength(17);
+  it('union 全集恰 18 碼、每碼皆可計算出未來時點(窮舉 Record 的 runtime 對照)', () => {
+    // ⛔ ~~17~~ ⇒ **18**(⟦b4-RESEND409⟧ 2026-09-07 加 `idempotency_payload_mismatch`)。
+    expect(ALL_CODES).toHaveLength(18);
     for (const code of ALL_CODES) {
       const next = computeEmailBackoff(code, 1, FAILED_AT, () => 0);
       expect(next.getTime()).toBeGreaterThan(FAILED_AT.getTime());
     }
+  });
+
+  /**
+   * ⟦b4-RESEND409⟧ —— **三種 409 各自的落點**(2026-09-07)。
+   * 🔬 官方語意(https://resend.com/docs/api-reference/errors, 親讀):
+   *    `concurrent_idempotent_requests` / `resource_locked` ⇒ 重試會成功 ⇒ 留在 `http_409`(指數)
+   *    `invalid_idempotent_request`     ⇒ 官方逐字「Change your idempotency key or payload」
+   *                                     ⇒ **重試永遠不會成功** ⇒ 自己一格, 等那把 key 的 24h 窗過期
+   */
+  it('🔴 第三種 409 走【跨 24h 窗】而不是指數 —— 指數只是把死信算得比較慢', () => {
+    const d = delayOf('idempotency_payload_mismatch', 1, () => 0);
+    expect(d).toBe(24 * 60 * MINUTE_MS);
+    // 🔵 負對照:同一發若走指數, 第 1 次只有 5 分鐘 ⇒ 兩者差三個數量級, 這一格分得開。
+    expect(delayOf('http_409', 1, () => 0)).toBe(5 * MINUTE_MS);
+  });
+
+  it('🔴 它【不算】額度用盡 —— 借 quota_24h 會汙染那個告警', () => {
+    expect(isQuotaExhaustionCode('idempotency_payload_mismatch')).toBe(false);
+    // 🟢 正對照:真的額度碼要是 true, 證明這把尺不是恆 false。
+    expect(isQuotaExhaustionCode('quota_daily_exceeded')).toBe(true);
+    expect(isQuotaExhaustionCode('http_429')).toBe(true);
+  });
+
+  it('🔵 前兩種 409 沒有被順手改掉 —— 它們是暫時衝突, 留在指數是對的', () => {
+    expect(delayOf('http_409', 3, () => 0)).toBe(delayOf('http_500', 3, () => 0));
+  });
+
+  /**
+   * 🔴 **抖動與 attempts 兩個維度**(codex 2026-09-07 nit)。
+   * ⛔ 上面那幾格只餵 `attempts=1, random=0` ⇒ 📌 **把 jitter 整段刪掉, 它們照樣全綠。**
+   */
+  it('🔴 新政策帶抖動, 而抖動在 [0, 30 分) 之內', () => {
+    const base = 24 * 60 * MINUTE_MS;
+    expect(delayOf('idempotency_payload_mismatch', 1, () => 0)).toBe(base);
+    // 🔵 random 接近 1 ⇒ 逼近上界而不到 —— 刪掉 jitter 這一格會紅。
+    const hi = delayOf('idempotency_payload_mismatch', 1, () => 0.999999);
+    expect(hi).toBeGreaterThan(base);
+    expect(hi).toBeLessThan(base + 30 * MINUTE_MS);
+  });
+
+  it('🔴 它【不隨 attempts 變長】—— 它等的是供應商的窗, 不是我們的退讓', () => {
+    const a1 = delayOf('idempotency_payload_mismatch', 1, () => 0);
+    const a5 = delayOf('idempotency_payload_mismatch', 5, () => 0);
+    expect(a5).toBe(a1);
+    // 🔵 負對照:指數那一族【會】隨 attempts 變長 —— 證明這把尺分得出兩種行為。
+    expect(delayOf('http_409', 5, () => 0)).toBeGreaterThan(delayOf('http_409', 1, () => 0));
   });
 
   it('lease 回收延遲 = 5 分(§⑩ 單值、非逐列;毒信慢燒節奏由 lease 長度主導)', () => {

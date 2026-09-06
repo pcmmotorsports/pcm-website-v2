@@ -72,6 +72,8 @@ export type * from './ITrackingCorrectedScanner';
 // 🔴 M-4a E2a-2(W3-G 拆出,2026-08-20):寄送前 ineligible gate 的窄讀 port —— 擋「排進佇列後、
 // 真正寄出前才被取消」的窗口(掃描器 SupabasePaidOrderScannerAdapter 只擋掃描當下已取消的)。
 export type * from './IIneligibleOrderEmailScanner';
+// ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:cutoff 在送出層也要擋(讀 orders.created_at, 批次)。
+export type * from './IOrderPlacedAtReader';
 
 // Contract test framework 不從 main entry re-export(M-1-03-prep-audit S1 修正):
 // - tree-shaking 樂觀假設不可信、main entry re-export 會把 vitest 拉進 production bundle
