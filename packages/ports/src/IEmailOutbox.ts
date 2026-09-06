@@ -793,6 +793,36 @@ export interface IEmailOutbox {
    * ⇒ 📌 **下一輪它們又把 50 個名額佔滿, 而後面的取消信 / 出貨信【永遠排不進來】。**
    * ⇒ 那不只是「這幾封不進死信」, 是**整條佇列被它們堵住**。
    */
+  /**
+   * ⟦b4-EMAILTRIAGE⟧ 甲-7:**送信【之前】就失敗**的那一列, 從 `sending` 放回 `failed`。
+   *
+   * 🔴 **為什麼非有不可**:那一列已經被 `claimDue` 認領成 `sending`, 而 `claimDue` 只收
+   *    `['pending','failed']` ⇒ **下一輪撿不到它**, 要等 lease 回收
+   *    (`claimed_at < now − LEASE_SECONDS`)⇒ **一小時**。
+   *    ⇒ 📌 症狀是**那封信晚一小時**。
+   *    ⛔ ~~而量多時它們佔著掃描窗~~ —— **那句是錯的**(codex `gpt-6-astra` 2026-09-07 訂正):
+   *       `sending` 的列在 `claimDue` 的查詢裡**本來就被排除**(adapter 那一發的述詞)
+   *       ⇒ 它們**不佔掃描窗**;要等回收成「已到期的 `failed`」之後才會佔。
+   *    ⚠️ 而「只是晚一小時、不是漏掉」**也不涵蓋 `attempts` 耗盡那個世界** ——
+   *       反覆撞同一個 prepare 失敗會把 5 次認領用完 ⇒ 那一列變成死信。
+   *       ⇒ 兩條路的代價寫在 `sweep-email-outbox.ts` 的 `releaseAfterPrepareFailure` 檔頭。
+   *
+   * 🔴🔴 **碼刻意寫死在 adapter, 不走 `markFailed`**:`markFailed` 的 `errorCode` 過
+   *    `EMAIL_SEND_ERROR_CODE_ALLOWLIST`, **不在清單裡的一律被改寫成 `provider_error`**
+   *    ⇒ 一個「本地程序失敗」會被記成「Resend 寄送失敗」, 而**告警與統計都是按那個值域切的**。
+   *    (同一條紀律在 `SupabaseEmailOutboxAdapter.ts:131` 已為 lease 回收碼立過前例。)
+   *
+   * 🛑 **`nextRetryAtIso` 由呼叫端算**(`computePrepareFailureBackoff`), 而**不得沿用舊值** ——
+   *    帶著已過期的重試時間放回去, 下一輪會立刻再被撈到、把 claim 名額佔滿。
+   *
+   * @returns 這一發是否真的改到那一列(CAS:`attempts` 對不上 ⇒ false, 呼叫端記 staleMark)
+   */
+  releaseClaimAfterPrepareFailure(
+    id: string,
+    claimedAttempts: number,
+    nextRetryAtIso: string,
+  ): Promise<boolean>;
+
   releaseClaimForCutoffUnknown(
     id: string,
     claimedAttempts: number,

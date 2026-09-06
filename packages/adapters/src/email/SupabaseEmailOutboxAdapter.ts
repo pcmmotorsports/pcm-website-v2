@@ -119,6 +119,15 @@ const EMAIL_SEND_ERROR_CODE_FLAGS: Record<EmailSendErrorCode, true> = {
 const EMAIL_SEND_ERROR_CODE_ALLOWLIST = new Set<string>(Object.keys(EMAIL_SEND_ERROR_CODE_FLAGS));
 
 /**
+ * ⟦b4-EMAILTRIAGE⟧ 甲-7 的稽核碼。**刻意不是 `EmailSendErrorCode` 成員** ——
+ * 它描述的是「這封信在【送出之前】就準備不起來」(context 讀不到 / deps 缺 / 單號對不上),
+ * 不是「Resend 寄送失敗」。走 `markFailed` 會被上面那個 allowlist 改寫成 `provider_error`
+ * ⇒ 🛑 稽核碼被靜默吃掉, 而**告警與統計都是按那個值域切的**。
+ * 🔵 與 `order_ineligible` / lease 回收碼(`:131` 起那段)同一個做法, 不是新發明。
+ */
+const PREPARE_FAILED_ERROR_CODE = 'prepare_failed';
+
+/**
  * lease 回收的稽核碼(Sean Q2=A)。**刻意不是 `EmailSendErrorCode` 成員**:它描述的是「本地程序
  * 死掉」、不是「Resend 寄送失敗」——若走 markFailed 會被上面的 allowlist 改寫成 provider_error
  * (稽核碼被靜默吃掉)。故比照 `order_ineligible` 在本檔內部寫死;過 DB CHECK `^[a-z0-9_]{1,64}$`。
@@ -836,6 +845,28 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
    * 🛑 `next_retry_at: null` = 下一輪就可以再認領(不另外壓退避:這不是「這封信失敗了」)。
    * ⚠️ **代價**:讀取端持續壞掉 ⇒ 這幾封**永遠不進死信、也永遠沒人叫**(port 檔頭寫明)。
    */
+  /**
+   * ⟦b4-EMAILTRIAGE⟧ 甲-7:送信【之前】就失敗的那一列, 從 `sending` 放回 `failed`。合約全文在 port。
+   *
+   * 🔴🔴 **碼寫死在這裡, 不經 `EmailSendErrorCode` 的 allowlist** —— 照本檔 `:131` 起那段 為
+   *    lease 回收碼立過的同一條前例:走 `markFailed` 會被改寫成 `provider_error`,
+   *    而那會讓一個「本地程序失敗」混進「Resend 寄送失敗」的值域, **告警與統計都按那個值域切**。
+   * 🔵 過 DB 的 `email_outbox_last_error_code_format` CHECK(`^[a-z0-9_]{1,64}$`)⇒ 不需要 migration。
+   * 🔵 `attempts` **不退回** —— 那一次認領是真的花掉了, 退回會讓同一列無限重試。
+   *    (與 `releaseClaimForCutoffUnknown` 刻意不同:那一支是「連判斷都做不到」⇒ 不算一次嘗試。)
+   */
+  async releaseClaimAfterPrepareFailure(
+    id: string,
+    claimedAttempts: number,
+    nextRetryAtIso: string,
+  ): Promise<boolean> {
+    return this.leaveSending(id, claimedAttempts, {
+      status: 'failed',
+      last_error_code: PREPARE_FAILED_ERROR_CODE,
+      next_retry_at: nextRetryAtIso,
+    });
+  }
+
   async releaseClaimForCutoffUnknown(
     id: string,
     claimedAttempts: number,

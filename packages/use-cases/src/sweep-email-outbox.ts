@@ -52,6 +52,7 @@ import {
   LEASE_RECLAIM_RETRY_DELAY_MS,
   type EmailBackoffRandom,
   isQuotaExhaustionCode,
+  computePrepareFailureBackoff,
 } from './email-backoff';
 
 /**
@@ -195,7 +196,9 @@ export type SweepEmailOutboxOptions = {
    * ⇒ **兩種預設都有一個安靜的錯法** ⇒ 讓型別逼每個呼叫端自己答一次
    *   (同 `ineligibleScanner` 必填的理由)。
    *
-   * `false` ⇒ `order_shipped` 走**片3b 之前的那條路**:不寄、計 error、列留 sending。
+   * `false` ⇒ `order_shipped` 走**片3b 之前的那條路**:不寄、計 error。
+   *    ⛔ ~~列留 sending~~ ⇒ ✅ **2026-09-07 甲-7 起改成【放回 `failed` + 新的 `next_retry_at`】**
+   *    —— 留 sending 要等 lease 回收(一小時)而且佔著掃描窗。見 `releaseAfterPrepareFailure`。
    * ⚠️ 而**計 error 是刻意的**:線關著而佇列裡有列 = 有事情不對,應該吵。
    */
   allowOrderShipped: boolean;
@@ -1044,6 +1047,51 @@ function buildOrderShippedText(ctx: ShippedEmailContext): string {
   return lines.join('\n');
 }
 
+/**
+ * ⟦b4-EMAILTRIAGE⟧ 甲-7:**送信【之前】就失敗的那一列, 從 `sending` 放回 `failed`。**
+ *
+ * 🔴 **不放回去會怎樣**:那一列已被 `claimDue` 認領成 `sending`, 而 `claimDue` 只收
+ *    `['pending','failed']` ⇒ **下一輪撿不到它**, 要等 lease 回收(`claimed_at < now − 3600`)
+ *    ⇒ 📌 **那封信晚一小時**;量多時它們**佔著掃描窗**(板列 `⟦mail-DUESCANCAP⟧`)。
+ *    ⇒ 這一支之前有 **20 處**只寫 `result.errors++; continue;`(分堆在板列 `⟦b4-EMAILTRIAGE⟧` 甲-7)。
+ *
+ * 🔴🔴 **不叫 `markFailed`** —— 它的 `errorCode` 過 `EMAIL_SEND_ERROR_CODE_ALLOWLIST`,
+ *    不在清單裡的**一律被改寫成 `provider_error`** ⇒ 一個「本地程序失敗」會被記成
+ *    「Resend 寄送失敗」, 而**告警與統計都是按那個值域切的**。碼寫死在 adapter(`prepare_failed`)。
+ *
+ * ══ ⚠️ 這個修法的代價(codex `gpt-6-astra` 2026-09-07 量出來的, 寫出來不掩蓋)══════════
+ * **`attempts` 不退回 + 指數退避 ⇒ 這一列會【比以前更早變成死信】。**
+ * · 新版(退避 0 / 5 / 15 / 35 / 75 分)⇒ 第 5 次失敗大約在**第 75 分鐘**用完 `max_attempts`。
+ * · 舊版(留 sending 等 lease 回收, 每次一小時)⇒ 大約**第 5 小時**才用完。
+ * ⇒ 📌 **短故障新版恢復得快;而長故障(例如 context 壞了 90 分鐘)新版可能已經永久停寄, 舊版還有機會。**
+ * 🔵 這是「不退回 attempts」這個拍板的**代價**, 不是缺陷 —— 而它必須被寫下來,
+ *    否則下一個看到「怎麼死信變多了」的人會從錯的地方找起。
+ *
+ * 🛑 **`errors++` 只記一次**:helper 自己那一發失敗時**不再遞迴計數** ——
+ *    那一列會落回 lease 回收那條慢路(一小時), 而**多記一次錯誤只會讓 503 的成因更難讀**。
+ */
+async function releaseAfterPrepareFailure(
+  outbox: IEmailOutbox,
+  job: ClaimedEmailJob,
+  result: SweepEmailOutboxResult,
+  now: Date,
+): Promise<void> {
+  result.errors++;
+  try {
+    const owned = await outbox.releaseClaimAfterPrepareFailure(
+      job.id,
+      job.attempts,
+      // 🛑 **新算一個, 不沿用舊的 `next_retry_at`** —— 帶著已過期的時間放回去, 下一輪會立刻
+      //    再被撈到、把 claim 名額佔滿 ⇒ 後面的取消信 / 出貨信永遠排不進來。
+      computePrepareFailureBackoff(job.attempts, now).toISOString(),
+    );
+    if (!owned) result.staleMarks++;
+  } catch {
+    // 見上:不再遞迴計數。
+  }
+}
+
+
 export async function sweepEmailOutbox(
   deps: SweepEmailOutboxDeps,
   opts: SweepEmailOutboxOptions,
@@ -1327,13 +1375,13 @@ export async function sweepEmailOutbox(
       //    📌 在這裡再做一次會**重複計 error、重複釋放**。
       if (placedAtByOrder === null) continue;
       if (!placedAtByOrder.has(job.orderId) || placedAt === null) {
-        result.errors++;
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
       }
       const placedMs = Date.parse(placedAt);
       // 🔴 `NaN` = 那張單的時刻不是合法 ISO ⇒ 同樣 fail-closed(不可當成「很新」)。
       if (!Number.isFinite(placedMs)) {
-        result.errors++;
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
       }
       if (placedMs < cutoffMs) {
@@ -1378,7 +1426,7 @@ export async function sweepEmailOutbox(
       //    列留 sending ⇒ 下輪 ① 回收。⚠️ **已知邊界(codex 抓、不藏)**:若這一列此刻
       //    `attempts` 已達上限,回收會讓它直接進死信 —— **一封從未交給 provider 的信就這樣死掉**。
       //    ⇒ 那是既有回收機制的性質,不是本閘造成的;而本閘讓它多了一條抵達路徑,所以寫出來。
-      result.errors++;
+      await releaseAfterPrepareFailure(outbox, job, result, new Date());
       result.eligibilityUnknown++;
       continue;
     }
@@ -1431,7 +1479,7 @@ export async function sweepEmailOutbox(
       try {
         loadedPaid = await deps.paidContext.loadPaidContext({ orderId: job.orderId });
       } catch {
-        result.errors++;
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
       }
       if (loadedPaid.kind === 'cancelled') {
@@ -1488,14 +1536,14 @@ export async function sweepEmailOutbox(
       if (loadedPaid.kind === 'unavailable') {
         // 🔴 「讀不到」**應該吵** —— 它與 `cancelled` 分開,正是因為
         //    「系統壞了」與「這張單本來就被取消了」不可以在呼叫端變成同一件事。
-        result.errors++;
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
       }
       // 🔴 **載不完 ⇒ 不寄**(`paid-email-html.ts` 的 `renderPaidEmailHtml` 檔頭逐字把這道
       //    fail-closed 推回呼叫端:「一封少了兩項的信,與一封正常的信,在這裡長得一模一樣」)。
       //    ⚠️ 空品項 port 說會走 `unavailable`,而那是**它的**保證不是我們的 ⇒ 一併擋。
       if (loadedPaid.context.linesTruncated || loadedPaid.context.lines.length === 0) {
-        result.errors++;
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
       }
       paid = loadedPaid.context;
@@ -1517,7 +1565,7 @@ export async function sweepEmailOutbox(
     //    ⇒ 📌 **它守的是【實作違約】** —— adapter 忽略 `excludeEventTypes`、
     //      或換一個沒實作它的 port。⇒ 兩道一起錯的世界只有「旗標本身讀錯」那一種。
     if (job.eventType === 'shipment_tracking_corrected' && !opts.allowOrderShipped) {
-      result.errors++;
+      await releaseAfterPrepareFailure(outbox, job, result, new Date());
       continue;
     }
 
@@ -1540,14 +1588,14 @@ export async function sweepEmailOutbox(
         enqueuedKey === null
       ) {
         // 🔴 拿不到比對的兩端 ⇒ **不寄**(fail-closed)。少了任何一端, 我們就不知道它是不是還對。
-        result.errors++;
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
       }
       let live: LoadShippedContextResult;
       try {
         live = await deps.shippedContext.loadShippedContext({ orderId: job.orderId, shipmentId });
       } catch {
-        result.errors++;
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
       }
       // 🔵 箱作廢了 ⇒ 走既有那條(它的單號不會再被任何人看到)。
@@ -1562,7 +1610,7 @@ export async function sweepEmailOutbox(
         continue;
       }
       if (live.kind !== 'ok') {
-        result.errors++;
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
       }
       // 🔴🔴 **比的是【這一次更正的身分】, 不是號碼**(主視窗 2026-09-04 拍 Q1 甲的另一半)。
@@ -1578,7 +1626,7 @@ export async function sweepEmailOutbox(
           : isoToCorrectedKey(live.context.trackingCorrectedAt);
       if (liveKey === null) {
         // 🔴 拿不到庫裡那一次更正的身分 ⇒ 我們不知道這份工作單還算不算數 ⇒ 不寄。
-        result.errors++;
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
       }
       // 🔴 **不相等就不放行, 不分方向**(codex R2 must-fix #5):
@@ -1609,7 +1657,7 @@ export async function sweepEmailOutbox(
       //    · 上面 = **預期中的狀態**(有更新的更正)⇒ 落 skipped、留紀錄、不計 error
       //    · 這裡 = **對不上的狀態**(不該發生)⇒ 計 error、讓它吵
       if (live.context.trackingNumber !== enqueuedTracking) {
-        result.errors++;
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
       }
     }
@@ -1631,7 +1679,7 @@ export async function sweepEmailOutbox(
         // 🔴 **沒注入 dep ⇒ 不寄、計 error**, 而**不是**「維持今天的行為照寄」——
         //    這封信與付款成功信的 `paidContext` 不同族:那一支「不給」代表**還沒接線**(照寄純文字),
         //    而這一支「不給」代表**沒有人在守那道錢的閘** ⇒ 📌 **照寄 = 在沒有防線的情況下叫客人匯錢。**
-        result.errors++;
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
       }
       let mailable: BankOrderMailableResult;
@@ -1639,13 +1687,13 @@ export async function sweepEmailOutbox(
         mailable = await deps.bankOrderMailable.isBankOrderStillMailable({ orderId: job.orderId });
       } catch {
         // 🔴 讀取本身炸掉 ⇒ fail-closed:不寄、計 error、**不標終態**(下一輪會再看到它)。
-        result.errors++;
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
       }
       if (mailable.kind === 'unavailable') {
         // 🔴 **「我不知道」與「他不必匯」不是同一件事** ——
         //    標終態會用一次讀取失敗**永久吞掉**一封信。⇒ 計 error, 留給下一輪。
-        result.errors++;
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
       }
       // 🔴🔴 **快照 vs 現況:三個值一個都不能不一樣**(codex R1-#2/#3)。
@@ -1703,7 +1751,7 @@ export async function sweepEmailOutbox(
       //    **在讀任何東西之前就擋** —— 線關著的時候連查主表都不該發生。
       //    ⇒ 這一格讓「env 沒設 ⇒ 一封都不寄」從**只對排信那一半成立**變成**對整條線成立**。
       if (!opts.allowOrderShipped) {
-        result.errors++;
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
         // 🛑🛑 **已知代價,codex 2026-08-30 R2 抓出,而我【沒有修】—— 理由在下面** 🛑🛑
         //
@@ -1772,14 +1820,14 @@ export async function sweepEmailOutbox(
       //    ⚠️ 不得退化成「寄一封沒有箱號沒有品項的通用信」——
       //    那是 `20260805170000` 的 COLUMN COMMENT 逐字禁止的。
       if (deps.shippedContext === undefined || shipmentId === null) {
-        result.errors++;
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
       }
       let loaded: LoadShippedContextResult;
       try {
         loaded = await deps.shippedContext.loadShippedContext({ orderId: job.orderId, shipmentId });
       } catch {
-        result.errors++;
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
       }
       if (loaded.kind === 'voided') {
@@ -1818,7 +1866,7 @@ export async function sweepEmailOutbox(
       if (loaded.kind === 'unavailable') {
         // 🔴 「讀不到」**應該吵** —— 它與上面那個 `voided` 分開,正是因為
         //    「系統壞了」與「這箱本來就作廢了」不可以在呼叫端變成同一件事。
-        result.errors++;
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
       }
       // 🔴 **載不完 ⇒ 不寄**(port 檔頭:`linesTruncated` 為 true 時呼叫端必須 fail-closed)。
@@ -1826,7 +1874,7 @@ export async function sweepEmailOutbox(
       // 🔴 **空品項一併擋**:port 說「這張單在這箱 0 項」會走 `unavailable`,而那是**它的**保證,
       //    不是我們的 —— 真的漏過來的話,客人會收到一封「本批出貨內容:」底下什麼都沒有的信。
       if (loaded.context.linesTruncated || loaded.context.lines.length === 0) {
-        result.errors++;
+        await releaseAfterPrepareFailure(outbox, job, result, new Date());
         continue;
       }
       shipped = loaded.context;

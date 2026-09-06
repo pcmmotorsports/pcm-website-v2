@@ -712,6 +712,37 @@ describe('SupabaseEmailOutboxAdapter.reclaimStaleLeases(回收器路徑;E2a-a、
     ]);
   });
 
+  it('🔴 甲-7 releaseClaimAfterPrepareFailure:status=failed + prepare_failed + 新的 next_retry_at', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
+    const retryAt = '2026-09-07T05:00:00.000Z';
+    expect(
+      await adapter(makeClient(b)).releaseClaimAfterPrepareFailure('outbox-1', 2, retryAt),
+    ).toBe(true);
+    const vals = argsOf(b, 'update')[0]![0] as Record<string, unknown>;
+    expect(vals.status).toBe('failed');
+    expect(vals.last_error_code).toBe('prepare_failed');
+    expect(vals.next_retry_at).toBe(retryAt);
+    // 🔴 `attempts` **不退回** —— 那一次認領是真的花掉了(與 releaseClaimForCutoffUnknown 刻意不同)。
+    expect(vals).not.toHaveProperty('attempts');
+  });
+
+  it('🔴🔴 反證「甲-7 不可改走 markFailed」:把 prepare_failed 餵進 markFailed → 被改寫成 provider_error', async () => {
+    // 🛑 這一格就是那條紀律的牙:若哪天有人「順手」把 helper 改成呼叫 `markFailed`,
+    //    碼會被 `EMAIL_SEND_ERROR_CODE_ALLOWLIST` 靜默改寫 ⇒ 一個「本地程序失敗」被記成
+    //    「Resend 寄送失敗」, 而**告警與統計都是按那個值域切的**。
+    //    ⇒ 📌 它與上一格是【一組】:上一格證「現在寫的是對的」, 這一格證「換一條路會壞」。
+    const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
+    await adapter(makeClient(b)).markFailed(
+      'outbox-1',
+      1,
+      'prepare_failed' as EmailSendErrorCode,
+      NEXT_RETRY,
+    );
+    expect((argsOf(b, 'update')[0]![0] as Record<string, unknown>).last_error_code).toBe(
+      'provider_error',
+    );
+  });
+
   it('🔴 反證「回收不可改走 markFailed」:把 lease_reclaimed 餵進 markFailed → 被改寫成 provider_error', async () => {
     // 關卡2 code-reviewer nit:前版只斷言「常數 !== provider_error」= 同義反覆、從未跑過 allowlist,
     // 證不到它宣稱的性質。真證據 = 反向跑一次:證明「走 markFailed 這條路,稽核碼會被靜默吃掉」,
