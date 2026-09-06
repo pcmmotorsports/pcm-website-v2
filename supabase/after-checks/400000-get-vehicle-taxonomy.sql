@@ -125,13 +125,34 @@ SELECT '⑦ 第三欄被寫成 0 或字串的列數(要 0)',
           FROM t, pg_catalog.jsonb_array_elements(t.j -> 'rows') AS e
          WHERE pg_catalog.jsonb_typeof(e -> 2) NOT IN ('null','number'))
 UNION ALL
+-- ── ⑦b 年份的【值域】—— 而這一格刻意放在【這裡】不是 app 端(線【前台】-36 2026-09-06 提)
+-- 🔴 **失敗代價不對稱, 而那決定了它該住哪一側**:
+--    · app 端擋錯 ⇒ `tryVehicleTaxonomy` catch ⇒ 回空陣列 ⇒ **PDP 車款整區空掉而頁面回 200**
+--      (板列 ⟦front-PDPTAXONOMYEMPTY⟧, 正式站量到 **6 小時 / 31 個網址**)
+--      ⇒ 一個猜出來的年份下界只要猜錯一次, 就是**所有客人**的車款下拉一起消失。
+--    · 這裡擋錯 ⇒ **一次 apply 失敗**, 而且是在有真資料、有人看著的當下。
+--    ⇒ 📌 **「值域合不合理」該在貼的那一側判, 不在每個客人的請求上。**
+-- 🔵 而 `0` 的後果不是 1970(那是 epoch 的直覺)—— app 直接顯示年份數字 ⇒ 它是**西元 0 年**
+--    (`-36` 訂正我的;它那邊已有一格測試在守「`year_start = null` 不可當 0」)。
+SELECT '⑦b 年份是 0 或負數的列數(要 0)',
+       (SELECT count(*)::text
+          FROM t, pg_catalog.jsonb_array_elements(t.j -> 'rows') AS e
+         WHERE (pg_catalog.jsonb_typeof(e -> 2) = 'number' AND (e ->> 2)::int <= 0)
+            OR (pg_catalog.jsonb_typeof(e -> 3) = 'number' AND (e ->> 3)::int <= 0))
+UNION ALL
+-- 🔵 正對照:上面那把尺**看得到 number 型的年份嗎**(否則「0 個壞值」與「一個數字都沒掃到」同一個 0)
+SELECT '🔵 正對照 年份是 number 的列數(要 > 0)',
+       (SELECT count(*)::text
+          FROM t, pg_catalog.jsonb_array_elements(t.j -> 'rows') AS e
+         WHERE pg_catalog.jsonb_typeof(e -> 2) = 'number')
+UNION ALL
 -- ── ⑧ payload 大小(給人對照 490,120 那個估值)─────────────────────────
 SELECT '⑧ jsonb::text 長度 bytes(對照估值 490120 + n 那格)',
        (SELECT pg_catalog.length(j::text)::text FROM t);
 
 -- ══════════════════════════════════════════════════════════════════
 -- 判讀:①=1 且負對照=0 · ② t/t/f/f 且【public 角色參數正對照=t】· ②b t/t 且負對照=f · ③ s/f
---       · ④=same · ⑤=same · ⑥=0 且正對照=n · ⑦ 第一格 >0、第二格 0
+--       · ④=same · ⑤=same · ⑥=0 且正對照=n · ⑦ 第一格 >0、第二格 0 · ⑦b 第一格 0 且正對照 >0
 --       · ⑧ 只是給人看的數字, 沒有期望值
 -- 🔴 任何一格是 DIFF / 方向反了 ⇒ **不要自己解釋**, 把整份輸出貼回線【DB】。
 -- ══════════════════════════════════════════════════════════════════
