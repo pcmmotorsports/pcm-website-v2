@@ -2825,7 +2825,16 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
       //         而這正是鐵則 11 第四個數要問的那件事, 只是那個數也是我自己餵的。
       //   🔵 而 `tax_total` 為什麼可以進來:它是**訂單本身的金額欄**, 與 `subtotal` / `discount_total`
       //      同族, 不是價格表欄、不是 PII、不是採購 token ⇒ 下方 forbidden-token 那格不受影響。
-      'id, display_id, created_at, payment_status, fulfillment_status, payment_method, payment_channel, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, shipping_method, shipping_address_snapshot, cancelled_at, cancelled_reason, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, vehicle_snapshot, product_variants(images, products(images, brands(name))), shipment_items(shipments(shipped_at, deleted_at)))',
+      //
+      // 🔴🔴 **2026-09-06 `⟦b9-SHIPUI⟧` ① 加了 `shipped_quantity`, 而這道閘【第三次】把人攔下來。**
+      //   🎯 **為什麼它可以進來**:Sean **Q6 拍甲**推翻了「數量摘要不給顧客站」——
+      //      而他推翻的**只有【件數】那一格**。⇒ 顧客可看「每件出了幾件 / 共幾件」,
+      //      **仍不可看**箱數、出貨批次時間、追蹤號以外的節奏。
+      //   🔵 它**不擴投影到新表** —— 就在既有的 `shipment_items` 內嵌裡多一欄,
+      //      而 `shipment_items` 本身 2026-09-02 就進來了。
+      //   🛑 **而那條界線本身以前沒有機制** —— 板列 `⟦b9-SHIPUI⟧` 逐字
+      //      「今天沒有機制擋它, 只有人的拍板擋它」⇒ **本片把它寫進下面那格 forbidden-token。**
+      'id, display_id, created_at, payment_status, fulfillment_status, payment_method, payment_channel, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, shipping_method, shipping_address_snapshot, cancelled_at, cancelled_reason, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, vehicle_snapshot, product_variants(images, products(images, brands(name))), shipment_items(shipped_quantity, shipments(shipped_at, deleted_at)))',
     );
   });
 
@@ -2849,6 +2858,70 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
     //    沒有這一格,上面那五個 not.toContain 在「字串是空的」時也會全綠。
     expect(MEMBER_ORDER_DETAIL_SELECT).toContain('brands(name)');
     expect(MEMBER_ORDER_DETAIL_SELECT).toContain('shipping_address_snapshot');
+  });
+
+  /**
+   * ⟦b9-SHIPUI⟧ ① **把那條政策從【人的拍板】做成【機制】**(2026-09-06;主視窗 `-f1` 裁)。
+   *
+   * 🔴 **在此之前它只活在人的記憶裡** —— 板列 `⟦b9-SHIPUI⟧` 逐字:
+   *    「擋住明細這一側的**不是**任何一道測試 ⇒ **今天沒有機制擋它, 只有人的拍板擋它**。」
+   *
+   * 🎯 **政策原文(Sean 2026-09-06 Q6 拍甲之後的樣子)**:
+   *    ✅ 顧客**可看**:每件出了幾件 / 共幾件
+   *    ⛔ 顧客**不可看**:箱數、出貨批次時間、追蹤號以外的節奏
+   *    ⇒ 🔵 **甲只推翻了【件數】那一格, 其餘照舊。**
+   *
+   * 🛑🛑 **而這一格【只守得到政策的一部分】——(code-reviewer 2026-09-06 訂正,我收下)**
+   *    ⛔ ~~它把那條政策做成機制~~ ⇒ 🔴 **過度宣稱**。
+   *    政策裡的「**箱數**」與「**出貨批次時間**」這道閘**結構上碰不到** ——
+   *    投影本來就是 `shipment_items(...)` **陣列** + 每箱 `shipped_at`
+   *    ⇒ 那兩樣**今天就在投影裡**, 擋住它們的是 **mapper 與 domain 型別**(它收斂成
+   *    `shippedQuantity` 一個數字與 `shippedAt` 一個時間), **不是這一格**。
+   *    ⇒ ✅ **本格真正守的是三族:追蹤號 / 箱身分 / 收件人。**
+   *    ⇒ 📌 **一個宣稱的覆蓋面大於實際的守門, 會讓下一個人以為投影側已經封閉。**
+   *
+   * 🛑 **為什麼與上面那格 forbidden-token 分開寫**:上面那格守的是**價格 / PII / 採購**,
+   *    本格守的是**出貨身分**。合成一個清單 ⇒ 哪天有人為了別的理由放寬其中一族,
+   *    另一族會跟著鬆掉而沒有人發現。📌 **兩條不同的理由, 兩個分母。**
+   */
+  it('🔴 ⟦b9-SHIPUI⟧ 出貨身分:件數可看, 而追蹤號 / 箱身分 / 收件人 / 內部備註一個都不可看', () => {
+    const RHYTHM_FORBIDDEN = [
+      'tracking_number', 'carrier_code', 'shipment_reference',
+      'recipient_snapshot', 'hct_',
+      // 🔴 **這三欄是 code-reviewer 2026-09-06 補的, 而它們各自漏在不同的地方**:
+      //    `carrier_note` = 內部備註(給司機/倉的字, 不是給客人的)
+      //    `void_reason`  = 作廢理由(它會說出我們內部發生了什麼)
+      //    `tracking_corrected_at` = 🛑 **`'tracking_number'` 這個 token 【匹配不到它】**
+      //       ⇒ 📌 一個看起來蓋住「追蹤號那一族」的字串, 只蓋住了那一族的一個成員。
+      'carrier_note', 'void_reason', 'tracking_corrected_at',
+    ];
+    // ── 世界一:今天的投影 ⇒ 一個都不准命中
+    for (const token of RHYTHM_FORBIDDEN) {
+      expect(MEMBER_ORDER_DETAIL_SELECT, `投影不得含出貨節奏欄:${token}`).not.toContain(token);
+    }
+    // ✅ 而【件數】那一格是**放行**的 —— 這一句就是 Q6 甲在碼裡的樣子。
+    expect(MEMBER_ORDER_DETAIL_SELECT).toContain('shipment_items(shipped_quantity,');
+
+    // 🔴🔴 **`shipments(...)` 內嵌用【逐字整段】比, 不用 token 排位**
+    //    (code-reviewer 2026-09-06:⛔ ~~`'shipments(id'`~~ 只擋 `id` 排第一的寫法
+    //     ⇒ `shipments(shipped_at, id)` 一個都不紅)。
+    //    ⇒ 📌 **一個綁在【欄位順序】上的禁令, 換個順序就消失了。**
+    expect(MEMBER_ORDER_DETAIL_SELECT).toContain('shipments(shipped_at, deleted_at)');
+    // 而它**只能出現一次** —— 多一處 `shipments(` 就是另一條沒被審過的路。
+    expect(MEMBER_ORDER_DETAIL_SELECT.split('shipments(').length - 1).toBe(1);
+
+    // ── 🔴 世界二:餵一個【違反政策】的投影 ⇒ 同一把尺必須抓到。
+    //    沒有這一發, 上面那六個 `not.toContain` 在「這把尺根本沒接上」時也會全綠。
+    const VIOLATING =
+      MEMBER_ORDER_DETAIL_SELECT.replace(
+        'shipments(shipped_at, deleted_at)',
+        'shipments(shipped_at, deleted_at, tracking_number)',
+      );
+    expect(VIOLATING, '世界二必須與世界一不同, 否則這一發沒有換到任何東西').not.toBe(
+      MEMBER_ORDER_DETAIL_SELECT,
+    );
+    const caught = RHYTHM_FORBIDDEN.filter((t) => VIOLATING.includes(t));
+    expect(caught, '同一把尺在違規世界必須抓到東西').toEqual(['tracking_number']);
   });
 
   it('查詢鏈:display_id 為鍵 + 兩層歸屬 + 🔴【不再有 #249 那道 neq】+ 內嵌 order/limit 成對', async () => {
@@ -2916,6 +2989,7 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
           // ⟦ship-WHICHITEMSSHIPPED⟧ 同一個 fixture 沒有 `shipment_items` ⇒ 這一件也是「沒出貨」。
           // 🔵 與上面訂單層那個 `shippedAt: null` **同源**(逐件那一份就是訂單層那個值的來源)。
           shipped: false,
+          shippedQuantity: 0,
         },
       ],
       itemCount: 2, // Σquantity,從**實際撈到的**品項算
@@ -2931,7 +3005,18 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
    *    ⇒ 驗收方式不是「它綠」, 是【拿掉 mapper 那道 `sh.deleted_at === null` 過濾 ⇒ 它必須紅】。
    *    ⇒ 不紅 ⇒ 那道過濾沒有任何世界殺得死它, 等於沒有保護。
    */
-  const shipBox = (shippedAt: string | null, deletedAt: string | null) => ({
+  /**
+   * ⟦b9-SHIPUI⟧ ①(2026-09-06):第三個參數 = **這一箱裝了幾件**。
+   *
+   * 🔵 預設 `MEMBER_DETAIL_ROW.order_items[0].quantity`(= 2)⇒ **既有每一格的語意一個字都沒變**
+   *    ——它們原本表達的就是「這一箱把這個品項出掉了」, 而在數量進來之後,
+   *    那句話的精確寫法就是「出滿」。
+   * 🛑 **不寫死 2** —— 寫死的話, 哪天有人改 fixture 的 quantity, 這裡會靜靜變成「部分出貨」,
+   *    而每一格的名字仍然說它是「出貨了」。📌 **fixture 的兩個數字要綁在一起, 不要各寫一次。**
+   */
+  const FULL_QTY = MEMBER_DETAIL_ROW.order_items[0]!.quantity;
+  const shipBox = (shippedAt: string | null, deletedAt: string | null, qty: number = FULL_QTY) => ({
+    shipped_quantity: qty,
     shipments: { shipped_at: shippedAt, deleted_at: deletedAt },
   });
   /** 兩個品項各自帶自己的箱(`null` = 這個品項完全沒有出貨紀錄)。 */
@@ -2947,6 +3032,44 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
     const { client } = makeMemberDetailClient({ data: row, error: null });
     return new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
   };
+
+  /**
+   * ⟦b9-SHIPUI⟧ ①(2026-09-06;Sean Q6 拍甲)+ ⟦ship-CANCELQTYTOSTOREFRONT⟧(主視窗裁**甲**)
+   * —— **四格,而它們問的是【件數】,不是 `allItemsShipped`。**
+   *
+   * 🛑🛑 **那個分界就是本片最要緊的一句**:Sean 甲放行的是「客人看得到每件出了幾件」,
+   *    而**把 `allItemsShipped` 改成問數量會引入一個新的謊**(部分取消的單:訂 5 取消 2
+   *    出滿 3 ⇒ 判沒出完 ⇒ 永久印「其餘商品出貨時會再通知您」而那 2 件永遠不會來)。
+   *    ⇒ 📌 **所以下面每一格都【明寫 `allItemsShipped` 沒有跟著數量走】** ——
+   *       那不是漏測, 那是本片刻意選的形狀, 而它要有人簽名。
+   */
+  it('🔴 ⟦b9-SHIPUI⟧ 出 1 件 / 訂 2 件 ⇒ 件數是 1(而這一格就是客人新看得到的東西)', async () => {
+    const d = await detailOf(rowWithBoxes([[shipBox('2099-05-01T00:00:00Z', null, 1)]]));
+    expect(d?.items[0]?.shippedQuantity).toBe(1);
+    expect(d?.items[0]?.shipped).toBe(true);
+    // 🛑 **刻意仍是 true** —— 見 ⟦ship-CANCELQTYTOSTOREFRONT⟧:改它需要取消量, 而那是 Sean 的板。
+    //    這一句不是在描述現況, 它是在**擋住**下一個人順手把它改成 false。
+    expect(d?.allItemsShipped).toBe(true);
+  });
+
+  it('🟢 出滿 2 件 ⇒ 件數 2(正對照:證明上一格的 1 不是「永遠回 1」)', async () => {
+    const d = await detailOf(rowWithBoxes([[shipBox('2099-05-01T00:00:00Z', null, 2)]]));
+    expect(d?.items[0]?.shippedQuantity).toBe(2);
+  });
+
+  it('🔴 分兩箱各 1 件 ⇒ 件數合計 2(證明它是【加總】不是【取最大】或【看第一箱】)', async () => {
+    const d = await detailOf(
+      rowWithBoxes([[shipBox('2099-05-01T00:00:00Z', null, 1), shipBox('2099-05-03T00:00:00Z', null, 1)]]),
+    );
+    expect(d?.items[0]?.shippedQuantity).toBe(2);
+  });
+
+  it('🔴🔴 作廢的箱【裡面的件數也不算】—— 判準與 `shipped` 語意相同, 兩者一起變', async () => {
+    const d = await detailOf(rowWithBoxes([[shipBox('2099-05-01T00:00:00Z', '2099-05-02T00:00:00Z', 2)]]));
+    expect(d?.items[0]?.shippedQuantity).toBe(0); // 🔴 箱作廢 ⇒ 件數歸零, 不是 2
+    expect(d?.items[0]?.shipped).toBe(false);
+    expect(d?.allItemsShipped).toBe(false);
+  });
 
   it('🔴🔴 作廢的箱不算出貨:`shipped_at` 有值【而 `deleted_at` 非空】⇒ 進度條不得亮', async () => {
     const res = await detailOf(rowWithBoxes([[shipBox('2099-05-01T00:00:00Z', '2099-05-02T00:00:00Z')]]));
@@ -3063,7 +3186,7 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
   it('🛑 `shipments` embed 為 null(RLS 藏掉父列)⇒ 當作沒出貨, 不得拋錯', async () => {
     const res = await detailOf({
       ...MEMBER_DETAIL_ROW,
-      order_items: [{ ...MEMBER_DETAIL_ROW.order_items[0], shipment_items: [{ shipments: null }] }],
+      order_items: [{ ...MEMBER_DETAIL_ROW.order_items[0], shipment_items: [{ shipped_quantity: 2, shipments: null }] }],
     });
     expect(res!.shippedAt).toBeNull();
     expect(res!.allItemsShipped).toBe(false);
