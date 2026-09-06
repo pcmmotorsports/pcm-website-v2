@@ -598,6 +598,12 @@ def main():
 # ── 自檢 ─────────────────────────────────────────────────────────────────
 CLOSED_FIXTURE = {'public.order_payments', 'public.payment_refunds'}
 # 🔴 期望格數(⟦b9-GATESELFEDIT⟧;每加/刪一格必同步改, 而【改之前先確認你是真的加了格】)
+# 🔴🔴 **這個 91 有【第二份】, 而它住在別的檔**:`scripts/acl-drift-gate-selftest-baseline.txt` 的 `FLOOR=91`
+#    (由 `scripts/acl-drift-gate-selftest-floor.sh` 讀)。
+#    ⚠️ **兩者的方向不一樣**:本常數**多一格或少一格都紅**;那個地板**只在【變少】時紅**。
+#    ⇒ 📌 **加格的時候改了這裡, 不會有任何東西提醒你去改那一份** —— 地板不會因為你變多而叫。
+#    (code-reviewer R1 2026-09-06 nit;而同一輪它還指出:一把只認 `EXPECT_TOTAL` 的尺
+#     **看不到 `FLOOR=` 這一族** —— 見板列 `⟦db-SELFTESTCELLPIN⟧`。)
 EXPECT_TOTAL = 91
 
 WORLDS = [
@@ -775,8 +781,13 @@ def selftest():
     #
     # ⚠️ **改這個數字之前**:先確認你是**真的加了格**, 不是**把格子弄不見了**。
     if fails == 0 and total != EXPECT_TOTAL:
-        print(f'🔴 零 FAIL 但格數不對(PASS={total} 而期望 {EXPECT_TOTAL})'
-              f' ⇒ 有格被刪 / 被跳過, 判為未通過(⟦b9-GATESELFEDIT⟧)')
+        # 🔵 R1 nit:⛔ ~~「有格被刪 / 被跳過」~~ —— 那句**在【多】的方向是說反的**
+        #    (實跑:加一格 ⇒ 92, 它照樣紅, 而那不是「被刪」)。改成中性的說法。
+        print(f'🔴 零 FAIL 但格數與期望不符(多或少):PASS={total} 而期望 {EXPECT_TOTAL}'
+              f' ⇒ 判為未通過(⟦b9-GATESELFEDIT⟧)')
+        print( '   加了格 ⇒ 同批把這裡的常數改大, **而且去改 scripts/acl-drift-gate-selftest-baseline.txt'
+               ' 的 FLOOR**(地板只在變少時紅, 它不會提醒你)。')
+        print( '   數字對不上而你沒有加減格 ⇒ 有格被刪或被跳過。')
         return 1
     return 1 if fails else 0  # 不把格數當離場碼(2 格紅會撞到「工具層」那個 2;R2 nit)
 
