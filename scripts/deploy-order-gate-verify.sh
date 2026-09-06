@@ -53,7 +53,7 @@ GATE_SRC="$(cd "$(dirname "$0")" && pwd)/deploy-order-gate.sh"
 test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;數法=腳本尾端印的 PASS=)
-EXPECT_TOTAL=97
+EXPECT_TOTAL=103
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -582,6 +582,125 @@ TS
 BF2="$(cd "$RCF2" && git rev-parse HEAD~1)"; TF2="$(cd "$RCF2" && git rev-parse HEAD)"
 expect_block "欄⑪b 可達性:同一份 fixture 不刪那支檔 ⇒ 必須擋(證明 ⑪ 的綠是刪檔給的)" \
   "$(run_gate "$RCF2" "refs/heads/dev $TF2 refs/heads/dev $BF2")" "things.pcm_probe_col"
+
+# ══ 欄位那一族 · R4 補的六格反例(2026-09-06;R4 = adversarial-reviewer / opus 換模型家族)══
+
+# 🔴🔴 欄⑮ 是 R4 F1 的證人:**E-string 剝除器少了左邊界 ⇒ 它吞掉真 DDL。**
+#    `[eE]'` 沒有左邊界 ⇒ 任何**以 e 結尾的字串內容**(`'manual_phone'`)後面若還有字串,
+#    regex 就從那個 `e` 起跨過真正的收尾引號 ⇒ 中間的 `ALTER TABLE … ADD COLUMN` 被一起吃掉
+#    ⇒ 🛑 strict 側**少抽** ⇒ **少豁免** ⇒ 一支冪等重貼被擋 = 誤擋。
+#    🔬 R4 在真檔上量到:`20260712203000_m4a_orders_admin_columns.sql`
+#      strict 3 組 / 不剝 E-string 6 組 ⇒ 少的是 `orders.cancelled_at` / `cancelled_reason` / `version`。
+RCK="$WORK/rck"; setup_repo "$RCK"
+cat > "$RCK/supabase/migrations/20260101000007_estr2.sql" <<'SQL'
+CREATE TABLE public.audit_log3 (stmt text);
+INSERT INTO public.audit_log3(stmt) VALUES ('manual_phone');
+ALTER TABLE public.things ADD COLUMN pcm_estr2_col text DEFAULT 'x';
+SQL
+_ksha="$(shasum -a 256 "$RCK/supabase/migrations/20260101000007_estr2.sql" | cut -d' ' -f1)"
+printf '20260101000007\t%s\t2026-01-01\tfixture\n' "$_ksha" >> "$RCK/supabase/APPLIED.tsv"
+( cd "$RCK" && git add -A && git commit -qm "base: 已 apply 的加欄, 而它前面有一個以 e 結尾的字串" )
+cat > "$RCK/supabase/migrations/20260111000000_recol2.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN IF NOT EXISTS pcm_estr2_col text;
+SQL
+cat > "$RCK/apps/admin/src/readerK.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_estr2_col');
+}
+TS
+( cd "$RCK" && git add -A && git commit -qm "feat: 冪等重貼同一欄 + 讀它" )
+BK="$(cd "$RCK" && git rev-parse HEAD~1)"; TK="$(cd "$RCK" && git rev-parse HEAD)"
+expect_pass "欄⑮:E-string 剝除不得吞掉它後面的真 DDL(R4 F1;吞了就少豁免 ⇒ 誤擋)" \
+  "$(run_gate "$RCK" "refs/heads/dev $TK refs/heads/dev $BK")"
+
+# ⑮b 可達性:同一份 fixture 拿掉帳本那一列 ⇒ 必須擋(證明 ⑮ 的綠是【豁免】給的, 不是整族靜音)
+RCK2="$WORK/rck2"; setup_repo "$RCK2"
+cat > "$RCK2/supabase/migrations/20260101000007_estr2.sql" <<'SQL'
+CREATE TABLE public.audit_log3 (stmt text);
+INSERT INTO public.audit_log3(stmt) VALUES ('manual_phone');
+ALTER TABLE public.things ADD COLUMN pcm_estr2_col text DEFAULT 'x';
+SQL
+( cd "$RCK2" && git add -A && git commit -qm "base: 同一份 fixture, 而【沒有】記進帳本" )
+cat > "$RCK2/supabase/migrations/20260111000000_recol2.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN IF NOT EXISTS pcm_estr2_col text;
+SQL
+cat > "$RCK2/apps/admin/src/readerK.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_estr2_col');
+}
+TS
+( cd "$RCK2" && git add -A && git commit -qm "feat: 冪等重貼同一欄 + 讀它" )
+BK2="$(cd "$RCK2" && git rev-parse HEAD~1)"; TK2="$(cd "$RCK2" && git rev-parse HEAD)"
+expect_block "欄⑮b 可達性:同一份 fixture 拿掉帳本那一列 ⇒ 必須擋" \
+  "$(run_gate "$RCK2" "refs/heads/dev $TK2 refs/heads/dev $BK2")" "things.pcm_estr2_col"
+
+# 🔴🔴 欄⑯ / ⑯b 是 R4 F2 的證人:**引號識別字含【真的】ERE metachar。**
+#    ⛔ ~~欄⑭ 用的是 `Order-Items` / `gross-margin`~~ —— 連字號**既不在逃逸字元集裡、也不是 metachar**
+#      ⇒ 📌 **它走的是「不需要逃逸」那條路** ⇒ 標籤說「含 metachar」而 oracle 驗的是別件事。
+#    ✅ 這兩格用**真的會壞**的字元:`.`(⑯)與 `(` `)`(⑯b)。
+RCL="$WORK/rcl"; setup_repo "$RCL"
+cat > "$RCL/supabase/migrations/20260112000000_dot.sql" <<'SQL'
+ALTER TABLE public."Order.Items" ADD COLUMN "gross.margin" numeric;
+SQL
+cat > "$RCL/apps/admin/src/readerL.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('Order.Items').select('id, gross.margin');
+}
+TS
+( cd "$RCL" && git add -A && git commit -qm "feat: 引號識別字含句點的加欄 + 讀它" )
+BL="$(cd "$RCL" && git rev-parse HEAD~1)"; TL="$(cd "$RCL" && git rev-parse HEAD)"
+expect_block "欄⑯:引號識別字含句點 ⇒ 逃逸後仍要比得到(R4 F2;多逃一層就變 no-op)" \
+  "$(run_gate "$RCL" "refs/heads/dev $TL refs/heads/dev $BL")" "Order.Items.gross.margin"
+
+# ⑯b 括號類 —— 🔴 **這一格順便釘死 R4 自己的一個量具錯誤, 寫下來免得下一個人重查**:
+#    R4 回報「`(` `)` 修完仍不匹配, 原因未確認」。
+#    🔬 我複量:**那是它的量具, 不是這道閘** —— 這台機器的互動式 `grep` 是 **ugrep**(shell function,
+#      來自 `~/.claude/shell-snapshots/`), 而本閘是 `#!/usr/bin/env bash` ⇒ 它跑到的是 `/usr/bin/grep`。
+#      同一個 pattern:`ugrep` ⇒ 不匹配 · `/usr/bin/grep` ⇒ **命中**(六類逐一測, 負對照全不中)。
+#    ⇒ 📌 那正是 CLAUDE.md「人跟腳本跑的是不是同一支程式」那一條, 而這一格是它的第 N 個實例。
+RCM="$WORK/rcm"; setup_repo "$RCM"
+cat > "$RCM/supabase/migrations/20260113000000_paren.sql" <<'SQL'
+ALTER TABLE public."tbl(1)" ADD COLUMN "col[2]" numeric;
+SQL
+cat > "$RCM/apps/admin/src/readerM.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('tbl(1)').select('id, col[2]');
+}
+TS
+( cd "$RCM" && git add -A && git commit -qm "feat: 引號識別字含括號與方括號 + 讀它" )
+BM="$(cd "$RCM" && git rev-parse HEAD~1)"; TM="$(cd "$RCM" && git rev-parse HEAD)"
+expect_block "欄⑯b:引號識別字含括號/方括號 ⇒ 一樣要比得到(R4 F2 的「未確認」其實是它的量具)" \
+  "$(run_gate "$RCM" "refs/heads/dev $TM refs/heads/dev $BM")" "tbl(1).col[2]"
+
+# 🔴🔴 欄⑰ / ⑰b 是 R4 F3 的證人:**`FULL` 是整支檔原文, 註解沒剝。**
+#    🔬 R4 在**真的 dev** 上量到(`dev~40..dev`):前一顆 rc=0, 加了這一族之後 rc=1,
+#      而擋的那支檔 `packages/domain/src/payment/anomaly-alert.ts` 對那兩個字的命中**全在註解裡**
+#      ⇒ 🛑 **一句註解會擋住全隊的 push, 而那是這一族造成的。**
+RCN="$WORK/rcn"; setup_repo "$RCN"; add_pending_col "$RCN"
+cat > "$RCN/apps/admin/src/readerN.ts" <<'TS'
+/**
+ * 這支檔【只在註解裡】提到 things 與 pcm_probe_col ——
+ * 它一行碼都沒有讀那一欄。
+ */
+// things.pcm_probe_col 也出現在這一行, 而它也是註解
+export const unrelatedN = 1;
+TS
+( cd "$RCN" && git add -A && git commit -qm "feat: 加欄 migration + 一支只在註解提到那兩個字的檔" )
+BN="$(cd "$RCN" && git rev-parse HEAD~1)"; TN="$(cd "$RCN" && git rev-parse HEAD)"
+expect_pass "欄⑰:表名與欄名【只出現在註解裡】⇒ 不擋(R4 F3;註解不會發 PostgREST 請求)" \
+  "$(run_gate "$RCN" "refs/heads/dev $TN refs/heads/dev $BN")"
+
+# ⑰b 可達性:同一支檔把那兩個字從註解搬進碼 ⇒ 必須擋(證明 ⑰ 的綠是【剝註解】給的)
+RCN2="$WORK/rcn2"; setup_repo "$RCN2"; add_pending_col "$RCN2"
+cat > "$RCN2/apps/admin/src/readerN.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_probe_col');
+}
+TS
+( cd "$RCN2" && git add -A && git commit -qm "feat: 同一份 fixture, 而那兩個字在【碼】裡" )
+BN2="$(cd "$RCN2" && git rev-parse HEAD~1)"; TN2="$(cd "$RCN2" && git rev-parse HEAD)"
+expect_block "欄⑰b 可達性:同樣兩個字搬進碼 ⇒ 必須擋" \
+  "$(run_gate "$RCN2" "refs/heads/dev $TN2 refs/heads/dev $BN2")" "things.pcm_probe_col"
 
 # 🛑 **R3 B2 / D2 的【未驗】要寫在這裡, 不要假裝有格子**:
 #    「路徑仍在 tree 裡, 而它的 blob 讀不到」這個世界 —— **我構造不出來**:

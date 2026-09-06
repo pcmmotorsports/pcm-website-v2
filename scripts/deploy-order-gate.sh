@@ -186,7 +186,10 @@ pending_versions() { # $1=local_sha;讀不到樹/blob 一律 fail-closed(關卡2
   ledger_blob="$(git show "$rev:$LEDGER" 2>/dev/null || true)"   # ledger 可以不存在(第一次建檔前)
   if ! tree="$(git ls-tree --name-only "$rev" supabase/migrations/ 2>/dev/null)"; then
     echo "🔴 部署時序 gate:讀不到 $rev 的 supabase/migrations 樹(partial clone?)⇒ fail-closed。" >&2
-    echo "   確認過安全就用 git push --no-verify。" >&2
+    echo "   rev=$rev  path=supabase/migrations/" >&2
+    echo "   ⇒ 停下來:這是【物件讀不到】不是【檢查過而乾淨】—— 先修 repo" >&2
+    echo "     (shallow clone 請 git fetch --unshallow / 完整 fetch;物件損壞跑 git fsck), 再重推。" >&2
+    echo "   真的要繞:先自己確認那幾支 migration 都已 apply, 再 git push --no-verify 並在 commit body 寫明。" >&2
     return 2
   fi
   printf '%s\n' "$tree" | grep -E '\.sql$' | while read -r f; do
@@ -329,7 +332,12 @@ if STRICT:
     #   就收掉 ⇒ 後面那段【假 DDL】反而被暴露出來 ⇒ strict 模式【多抽】一組
     #   ⇒ 真正 pending 的同名欄被豁免 —— 與這一格想擋的事情剛好相反。
     #   修法: E-string 先剝(它認反斜線跳脫), 再剝一般字串。
-    t=re.sub("[eE]"+Q+"(?:[^"+Q+chr(92)*2+"]|"+chr(92)*2+"."+"|"+Q+Q+")*"+Q, " ", t, flags=re.S)
+    # R4-F1: 那個 [eE] 少了【左邊界】 ⇒ 任何以 e 結尾的字串內容(例 manual_phone / none)
+    #   後面若還有字串, 這條 regex 會從那個 e 起跳過真正的收尾引號 ⇒ 一口吞掉中間的【真 DDL】。
+    #   實測 supabase/migrations/20260712203000_m4a_orders_admin_columns.sql:
+    #     strict 抽到 3 組 / 不剝 E-string 抽到 6 組 ⇒ 少的是 orders.cancelled_at / cancelled_reason / version
+    #   ⇒ 那三組永遠拿不到豁免 ⇒ 冪等重貼會被擋(cancelled_at 全樹共現 27 支檔)。
+    t=re.sub("(?<![A-Za-z0-9_$])[eE]"+Q+"(?:[^"+Q+chr(92)*2+"]|"+chr(92)*2+"."+"|"+Q+Q+")*"+Q, " ", t, flags=re.S)
     t=re.sub(Q+"(?:[^"+Q+"]|"+Q+Q+")*"+Q, " ", t, flags=re.S)
     # 剝不乾淨就整支不當豁免來源: 還留著引號 = 我沒把它 lex 對,
     # 而「我沒把握」在豁免側只有一個安全答案 —— 不豁免。
@@ -506,7 +514,10 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   #    ⇒ 危險的 push 靜默放行。這裡分開看退出碼,拿不到就擋下來要人自己判斷。
   if ! FILES="$(git diff --name-only "$BASE" "$local_sha" -- apps packages 2>/dev/null)"; then
     echo "🔴 部署時序 gate:算不出 $BASE..$local_sha 的 diff(物件不在?shallow clone?)⇒ fail-closed。" >&2
-    echo "   確認過安全就用 git push --no-verify。" >&2
+    echo "   local_ref=$local_ref → remote_ref=$remote_ref   base=$BASE  local_sha=$local_sha" >&2
+    echo "   ⇒ 停下來:這是【物件讀不到】不是【檢查過而乾淨】—— 先修 repo" >&2
+    echo "     (shallow clone 請 git fetch --unshallow / 完整 fetch;物件損壞跑 git fsck), 再重推。" >&2
+    echo "   真的要繞:先自己確認那幾支 migration 都已 apply, 再 git push --no-verify 並在 commit body 寫明。" >&2
     exit 1
   fi
   APP_FILES="$(printf '%s\n' "$FILES" | grep -vE '\.(test|spec)\.[jt]sx?$|/__tests__/' || true)"
@@ -518,7 +529,10 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   while IFS= read -r af; do
     [ -n "$af" ] || continue
     if ! RAW="$(git diff -U0 "$BASE" "$local_sha" -- "$af" 2>/dev/null)"; then
-      echo "🔴 部署時序 gate:算不出 $af 的新增行 ⇒ fail-closed(與外層同一條紀律)。" >&2; exit 1
+      echo "🔴 部署時序 gate:算不出 $af 的新增行 ⇒ fail-closed(與外層同一條紀律)。" >&2
+      echo "   local_ref=$local_ref → remote_ref=$remote_ref   base=$BASE  local_sha=$local_sha  path=$af" >&2
+      echo "   ⇒ 停下來:先修 repo(fetch / fsck)再重推;不要先用 --no-verify。" >&2
+      exit 1
     fi
     ADDED="$(printf '%s\n' "$RAW" | grep '^+' | grep -v '^+++' || true)"
     if printf '%s\n' "$RENAMED" | grep -qxF "$af"; then
@@ -637,8 +651,10 @@ $VALS"
       #    ⛔ ~~舊版兩個字面都只查 `$CODE`(= 這一發【新增的行】)~~
       #    ⇒ 📌 **既有的 `.from('things')` 不動、這一發只新增欄名 ⇒ 兩者不同行 ⇒ 放行。**
       #    🛑 **那正是 view 那條路 2026-08-24 撤回過的形狀** —— 我在檔頭寫「不要重蹈」然後重蹈了。
-      #    ⇒ ✅ **欄名**仍然只認**新增行**(要的是「這一發開始用它」);
-      #      **表名**改看**整支檔**(它本來就可能早就在那裡)。
+      #    ⛔ ~~⇒ ✅ **欄名**仍然只認**新增行**;**表名**改看**整支檔**。~~
+      #    🔴 **上面那一行【已被下面的 `R3 A1` 推翻】(R4 F4 點名:相鄰兩段講相反的事)** ——
+      #      現在**兩個名字都看整支檔**, 而整支檔已經剝掉註解行(見 `R4 F3`)。
+      #      🛑 讀到誤擋而想「照這一行修回去」的人:那等於把 `R3 A1` 撤掉, 而 A1 是量出來的。
       # 🔴🔴 **R3 B2:`cat-file -e` 失敗【不等於】那支檔被刪了。**
       #    ⛔ ~~舊版用 `cat-file -e` 分「刪掉」與「讀得到」~~ ⇒ 📌 partial / shallow clone、
       #      promisor remote 暫時不可用、物件損壞 —— **全部被歸成「安全刪檔」而放行**,
@@ -651,9 +667,20 @@ $VALS"
         echo "   ⇒ 停下來:先補齊 git object(shallow clone 請 unshallow / fetch 完整), 再重推。" >&2
         exit 1
       fi
+      # 🔴🔴 **R4 F3:`FULL` 是【整支檔原文】—— 註解沒剝, 而函式/view 那條路的 `$CODE` 剝了。**
+      #    📌 **量到的, 不是想的**(同一份輸入 `dev~40..dev`, 樹 /Users/sean_1/pcm-website-v2):
+      #      前一顆 `1c3c747c3` ⇒ rc=0 `0 blocked / 16 pending`
+      #      本族修法後      ⇒ rc=1, 擋在 `packages/domain/src/payment/anomaly-alert.ts`
+      #      而那支檔對 `order_refunds` 與 `rec_trade_id` 的命中**全部在註解裡**
+      #      (`:14` 逐字「仍然不得引入的:**金額 / 使用者 id / rec_trade_id / 姓名電話地址**」·
+      #       `:60` 逐字「**F-004:退款卡住計數,分母是 `order_refunds`**」)
+      #      ⇒ 剝掉註解行之後命中 **0**(正對照:同一把尺找 `export` ⇒ **2** ⇒ 尺是活的)。
+      #    🛑 **⇒ 這是【這一族】造成的, 不是本來就在** ⇒ 一句註解會擋住全隊的 push。
+      #    ✅ 修法:`FULL` 進比對前套【`$CODE` 那邊已經在用的同一道】註解剝除, 不新寫一份 pattern。
+      _strip_comment_lines() { grep -vE '^[[:space:]]*(//|\*|/\*)' || true; }
       if [ -z "$_AF_IN_TREE" ]; then
         FULL=""      # 🔵 這支路徑【不在那棵樹裡】= 這一發把它刪了 ⇒ 跳過, 不是失敗
-      elif ! FULL="$(git show "$local_sha:$af" 2>/dev/null)"; then
+      elif ! FULL="$(git show "$local_sha:$af" 2>/dev/null | _strip_comment_lines)"; then
         echo "🔴 部署時序 gate:路徑在 tree 裡而 blob 讀不到 ⇒ fail-closed(不是刪檔)。" >&2
         echo "   ref=$remote_ref  local_sha=$local_sha  path=$af" >&2
         echo "   ⇒ 停下來:物件缺失或損壞, 先修 repo(fetch / fsck), 不要用 --no-verify 繞過。" >&2
@@ -671,8 +698,14 @@ $VALS"
         # 🔴 `$(printf ...)` 會把結尾換行吃掉 ⇒ 那個 pattern 會退化成 `**`(命中【每一組】)
         #    ⇒ 這一族整族靜音, 而它看起來只是一行防呆。用 bash 的 `$'\n'`, 它是真的換行。
         case "$ctbl$ccol" in *$'\n'*) continue ;; esac
-        _etbl="$(printf '%s' "$ctbl" | sed 's/[][\\.^$*+?(){}|]/\\\\&/g')"
-        _ecol="$(printf '%s' "$ccol" | sed 's/[][\\.^$*+?(){}|]/\\\\&/g')"
+        # 🔴🔴 **R4 F2:替換端【多逃一層】⇒ 這一整條修法是 no-op, 而它是【漏擋】方向。**
+        #    ⛔ ~~`sed 's/…/\\\\&/g'`~~(四個反斜線)⇒ sed 產出的是**兩個**反斜線
+        #      ⇒ 📌 `gross.margin` 變成 `gross\\.margin` ⇒ `grep -E` 拿它比 `gross.margin` ⇒ **不匹配**
+        #      ⇒ 🛑 與舊版「整組 continue」**同結果**, 而字面看起來已經修好了。
+        #    ✅ 兩個反斜線就對:實測 `gross.margin` ⇒ `gross\\.margin` ⇒ 命中;
+        #      負對照 `grossXmargin` ⇒ 不中 ⇒ 那把尺會動。
+        _etbl="$(printf '%s' "$ctbl" | sed 's/[][\\.^$*+?(){}|]/\\&/g')"
+        _ecol="$(printf '%s' "$ccol" | sed 's/[][\\.^$*+?(){}|]/\\&/g')"
         # 🔴🔴 **R3 A1:「這一發開始依賴它」那一半【拿掉了】—— 而那是往【擋】的方向走。**
         #    ⛔ ~~R2 MF1 的修法:兩名都在整檔 AND 至少一個在新增行~~
         #    ⇒ 📌 **兩個常數早就在檔裡**(`const TABLE='things'` / `const COLS='id, pcm_x'`),
@@ -686,6 +719,11 @@ $VALS"
         #      而它只在**那一組 (表,欄) 真的 pending** 時才會發生。
         #      今天實測:唯一 pending 的 `order_refunds.rec_trade_id` 全樹共現 **10 支檔**
         #      ⇒ 動到那 10 支的任何一支就會被擋。⇒ **誤擋的出路寫在訊息裡(KNOWN_COL_SKIP)。**
+        # ⚠️ **R4 F6(nit, 刻意不改)**:`norm()` 對引號識別字**保留大小寫**, 而這兩道 `grep` 帶 `-i`
+        #    ⇒ 抽取端分得出 `"CamelCase"` 與 `camelcase`, **比對端把它們看成同一個**。
+        #    🔵 方向是【多擋】不是漏擋(誤擋成本 = 一次 push 重來)⇒ 往安全那邊倒, 本片不動它。
+        #    📌 要改的那天:比對端也要分大小寫, 而那會讓「SQL 折小寫、TS 寫駝峰」那一大類漏掉 ——
+        #      先造一發那種 fixture 再決定, 不要只把 `-i` 拿掉。
         printf '%s\n' "$FULL" | grep -qiE "(^|[^A-Za-z0-9_])$_ecol([^A-Za-z0-9_]|\$)" || continue
         printf '%s\n' "$FULL" | grep -qiE "(^|[^A-Za-z0-9_])$_etbl([^A-Za-z0-9_]|\$)" || continue
         BLOCKED="$BLOCKED\n  · 新欄 [$ctbl.$ccol](在未 apply 的 migration 裡)⇒ 這支檔同時提到表名與欄名:$af  [ref $remote_ref]\n    └ 那支 migration:$(printf '%s\n' "$PENDING" | cut -f2 | tr '\n' ' ')\n    └ ⚠️ 判準是【同檔共現】不是【真的讀了那一欄】—— 誤擋的話用 KNOWN_COL_SKIP 具名豁免並寫理由"
