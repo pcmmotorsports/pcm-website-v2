@@ -272,6 +272,82 @@ ledger_sanity() { # $1=rev
   fi
   return 0
 }
+# ── 🔵 ⟦db-LEDGERSHADRIFT⟧ 修法丙:「帳本記的是【另一份內容】」有兩種, 而它們原本印同一個東西 ──
+#
+# 🔬 **為什麼有這一段**(2026-09-06 線【DB】量, 分母 = `supabase/APPLIED.tsv` 336 個資料列):
+#    `MATCH 326` / `MISMATCH 10` / `NOFILE 0`(三數和 = 336)。那 10 支分三類 ——
+#    **純註解漂移 4** · **真的有碼變動 2** · **帳上那份在 repo 找不到 4**。
+#    🎯 那 4 支**已經貼過了**, 而它們永遠算 PENDING;
+#    🛑 而 `20260801120000` 重跑會炸(該檔 `:154-162` 的 DROP CONSTRAINT/TRIGGER/FUNCTION 沒有 IF EXISTS)。
+#    🔴 **不修的代價**:這個數字只會長(每次有人在舊 migration 上補一句註解就 +1)
+#       ⇒ **下一個真的沒貼的那一支, 會被當成「又是那些老的」跳過。**
+#
+# ⛔ ~~修法甲:比 sha 之前先剝掉註解~~ **做不出來, 舊字面留著** ——
+#    帳本第二欄存的是**原始檔案**的 sha256 ⇒ 剝完再算得到一個帳本裡不存在的值
+#    ⇒ **每一支都會變 PENDING**。🔬 實跑 `20260801120000`:剝完 `514628f9…` 在帳本裡命中 **0**
+#    (🟢 正對照:`20260906400000` 的原始 sha 命中 **1**)。🎯 **兩端不同單位, 不是效果打折。**
+#
+# 🛑 **降級要兩個條件【同時】成立, 少一個就是拿沒人記過的版本去背書**:
+#    ① 歷史上那一版的 **raw sha 逐字元等於帳本那一格**
+#    ② 兩份**剝掉行註解與空行之後**的 sha 相同
+#
+# 🔴 **歷史只查 `origin/dev`, 不用 `--all`**(主視窗 `-f8` 2026-09-06 裁):
+#    `--all` 看得到的 ref 集合**每台機器不一樣** ⇒ 同一支檔 A 的機器降得了、B 的降不了 = 不對稱。
+#    🔬 而換這把尺**今天零代價**:10 支逐一比對, `--all` 與 `origin/dev` **找到/找不到完全相同**。
+#    ⇒ `origin/dev` 上找不到 ⇒ **維持 PENDING, 不猜。**
+# 🔴🔴 **歷史只查 `origin/dev`, 而且【寫死】** —— codex R1 must-fix:
+#    原本寫成 `LEDGER_HISTORY_REF="${LEDGER_HISTORY_REF:-origin/dev}"` ⇒ 那是一個**繞過閥**:
+#    設成 `--all` 或一支自造的 local ref, 再塞一個 raw sha 對得上的 blob 進去就放行了;
+#    而且 git 仍會把引號裡的 `--all` 當**選項**解讀。⇒ **拿掉那個 env, 寫死。**
+#    `--all` 看得到的 ref 集合每台機器不一樣 ⇒ 同一支檔 A 的機器降得了、B 的降不了 = 不對稱。
+#    🔬 換這把尺今天零代價:10 支逐一比對, `--all` 與 `origin/dev` 找到/找不到完全相同。
+#    ⇒ `origin/dev` 上找不到 ⇒ **維持 PENDING, 不猜。**
+LEDGER_HISTORY_REF='origin/dev'
+
+# 🔴🔴 **名字不可以叫 `strip_sql_line_comments`** —— 本檔 `:406` 早就有一支同名的
+#    (`view_names_of` 在用, 形狀是 `sed -e 's;--.*$;;'`)⇒ **後定義的會蓋掉先定義的**
+#    ⇒ ⛔ 我第一版就是這樣, 而**我的那一版從頭到尾沒有被呼叫過**, 六格照樣全綠 = 假綠。
+#    🔬 實證(可重跑):兩個定義依序寫進一支 sh, 餵 `SELECT 'a--b';` ⇒ 印出 `SELECT 'a`
+#       ⇒ 生效的是 `:406` 那一版(它連**字串常值裡的 `--`** 都砍)。
+#    📌 **撞名在 diff 上沒有形狀** —— `bash -n` 綠、三綠綠、六格綠。
+#
+# 🛑 **它只丟【整行都是行註解】的行與空行。刻意【不碰】兩樣東西**:
+#    · **行內的 `--`** —— `'a--b'` 是合法字串常值, 砍它會把語意變更讀成註解漂移(codex R1 must-fix)
+#    · **行尾空白** —— 它可能落在 dollar-quoted 的字串資料裡(同上)
+#    ⇒ 兩者都往【多擋】的方向偏, 而那是安全的方向。
+# ⚠️ **已知盲區, 而它往【少擋】偏**:一段**多行字串常值**裡若有一行以 `--` 開頭,
+#    這支會把它當註解丟掉。⇒ verify 有一格在演它(斷言**現況**不是**正確**), 殘餘風險已報主視窗。
+ledger_drift_code_only() {
+  grep -vE '^[[:space:]]*(--|$)'
+}
+
+comment_only_drift() {  # $1=路徑 $2=帳本記的 raw sha $3=被推的 rev;回 0 = 已降級(且已印警告)
+  local f="$1" rec="$2" rev="$3" r found cur_body old_body cur_s old_s
+  [ -n "$rec" ] || return 1        # 帳本根本沒記這一支 ⇒ 那是【缺席】不是【漂移】
+  found=""
+  for r in $(git log "$LEDGER_HISTORY_REF" --format=%H -- "$f" 2>/dev/null); do
+    if [ "$(git show "$r:$f" 2>/dev/null | shasum -a 256 | cut -d' ' -f1)" = "$rec" ]; then
+      found="$r"; break
+    fi
+  done
+  [ -n "$found" ] || return 1      # ① 不成立 ⇒ 不猜
+  cur_body="$(git show "$rev:$f" 2>/dev/null | ledger_drift_code_only)"
+  old_body="$(git show "$found:$f" 2>/dev/null | ledger_drift_code_only)"
+  # 🔴 兩邊都剝成空的話, sha 也會相等 ⇒ 那不是「碼相同」, 是「沒有碼」。擋掉。
+  [ -n "$cur_body" ] || return 1
+  cur_s="$(printf '%s' "$cur_body" | shasum -a 256 | cut -d' ' -f1)"
+  old_s="$(printf '%s' "$old_body" | shasum -a 256 | cut -d' ' -f1)"
+  # 🔴 codex R1 must-fix:本檔是 `set -uo pipefail` **無 `-e`** ⇒ 兩條 checksum 管線同時失敗
+  #    會讓 `"" = ""` 成立而**放行**。⇒ 兩個值都必須長得像 sha256 才算數。
+  case "$cur_s" in [0-9a-f]*) ;; *) return 1 ;; esac
+  [ "${#cur_s}" = "64" ] && [ "${#old_s}" = "64" ] || return 1
+  [ "$cur_s" = "$old_s" ] || return 1   # ② 不成立 ⇒ 它真的變了 ⇒ 維持 PENDING
+  echo "gate: ⚠️ ${f##*/}:帳本的 sha 對不上, **而只有整行註解與空行不同** ⇒ 不算 PENDING(⟦db-LEDGERSHADRIFT⟧)" >&2
+  echo "gate:    在 $LEDGER_HISTORY_REF@${found} 找到帳本記的那一版(raw sha 逐字元相符)" >&2
+  echo "gate:    🛑 這只證明【碼沒變】, 不證明它在正式庫裡真的是那一版 —— 帳本是自陳帳。" >&2
+  return 0
+}
+
 # ── 1. PENDING:本地有、但帳上沒有(或 sha 對不上)────────────────────────
 #    🔴 sha 也要比:同版本號的檔案內容事後被改動 ⇒ 帳上那行證明的是**另一份**內容(關卡1 R2 #2)。
 # 🔴 **一律讀 `local_sha` 那棵樹,不讀工作樹**(關卡2 must-fix #4):
@@ -294,7 +370,18 @@ pending_versions() { # $1=local_sha;讀不到樹/blob 一律 fail-closed(關卡2
     fi
     sha="$(git show "$rev:$f" 2>/dev/null | shasum -a 256 | cut -d' ' -f1)"
     rec="$(printf '%s\n' "$ledger_blob" | grep -v '^#' | awk -F'\t' -v v="$ver" '$1==v {print $2; exit}')"
-    [ "$rec" = "$sha" ] || printf '%s\t%s\n' "$ver" "$f"
+    # 🔵 對得上 ⇒ 什麼都不做(⟦db-LEDGERSHADRIFT⟧ 那一段【一秒都不花】)
+    [ "$rec" = "$sha" ] && continue
+    # 🔵 **帳本有這一列而 sha 對不上** 才進修法丙;帳本根本沒記(`rec` 空)是【缺席】不是【漂移】。
+    #    🔴 這一行**存在的理由是可觀測性**:`comment_only_drift` 失敗時是靜默的
+    #    ⇒ 少了它,「沒印警告」與「根本沒走這條路」在輸出上是同一個東西
+    #    (verify 的 C 格就是釘這個字面 —— 對得上的世界不准出現它)。
+    #    🛑 清單走 stdout、警告走 stderr —— 這個迴圈的 stdout **就是** PENDING 清單。
+    if [ -n "$rec" ]; then
+      echo "gate: ⚠️ ${f##*/}:帳本有這一列而 sha 對不上 ⇒ 進 ⟦db-LEDGERSHADRIFT⟧ 檢查" >&2
+      comment_only_drift "$f" "$rec" "$rev" && continue
+    fi
+    printf '%s\t%s\n' "$ver" "$f"
   done
 }
 

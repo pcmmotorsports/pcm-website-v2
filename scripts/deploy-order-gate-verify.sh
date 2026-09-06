@@ -53,7 +53,7 @@ GATE_SRC="$(cd "$(dirname "$0")" && pwd)/deploy-order-gate.sh"
 test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;數法=腳本尾端印的 PASS=)
-EXPECT_TOTAL=85
+EXPECT_TOTAL=94
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -93,8 +93,12 @@ setup_repo() { # $1=repo 路徑
   #    而那個紅講的是「fixture 少了一支檔」不是「閘判錯」。🔵 它大聲擋住而不是靜默放行 = 正確。
   cp "$(dirname "$GATE_SRC")/lib-migration-header-marks.sh" "$R/scripts/lib-migration-header-marks.sh"
   ( cd "$R" && git init -q && git config user.email t@t && git config user.name t && git config commit.gpgsign false )
+  # 🔴 兩句, 不是一句 —— codex R1 must-fix:漂移測資把註解加在 **EOF** 時,
+  #    剝完之後兩份剛好都以那一句結尾, **撞名的舊實作也會綠** ⇒ A 是假證明。
+  #    有兩句才插得進【中間】, 而中間才是真實的註解漂移長的樣子。
   cat > "$R/supabase/migrations/20260101000000_base.sql" <<'SQL'
 CREATE TABLE public.things (id uuid PRIMARY KEY);
+CREATE INDEX things_id_idx ON public.things (id);
 SQL
   cat > "$R/apps/admin/src/unrelated.ts" <<'TS'
 export const unrelated = 1;
@@ -1234,6 +1238,197 @@ else
 fi
 if [ "${RESB5%%|*}" = "0" ]; then ok "58e 而它 rc 仍是 0(修法 2 全程不改 rc)"
 else bad "58e 有分支而乾淨的世界 rc 變了(${RESB5%%|*})"; fi
+
+# ══ 🔵 ⟦db-LEDGERSHADRIFT⟧ 修法丙:帳本 sha 對不上的兩種世界 ══════════════════
+#    A 對不上而 origin/dev 歷史有【碼相同】的那一版 ⇒ 降級成警告, 不進 PENDING
+#    B 對不上而 origin/dev 歷史【找不到】那一版     ⇒ 維持 PENDING(不猜)
+#    C 對得上                                      ⇒ **那一段一秒都不花**(釘進場那行字面)
+#    D 只動 `/* */` 塊註解                          ⇒ 仍判 PENDING(🛑 斷言【現況】不是【正確】)
+#    E 歷史有那一版而【剝完也不同】                 ⇒ 維持 PENDING(證明 A 的綠不是恆綠)
+#    F 降級那一發的 rc                              ⇒ 明寫它是刻意的
+DRIFT_ENTER='進 ⟦db-LEDGERSHADRIFT⟧ 檢查'
+DRIFT_OK='而只有整行註解與空行不同'   # 🔴 釘樁跟著閘的訊息走;改訊息前先 grep 這個字面
+
+# 🔴 `git log origin/dev` 需要 `refs/remotes/origin/dev` —— fixture 沒有真的 remote,
+#    直接建那支 ref 就夠(它只是一個指標)。
+mk_origin_dev() { ( cd "$1" && git update-ref refs/remotes/origin/dev "$(git rev-parse HEAD)" ); }
+
+# 造一個「帳本記著舊那一份, 而檔案已經被改過」的世界。$2 = 要追加到 base.sql 的內容
+drift_world() { # $1=repo $2=追加內容
+  setup_repo "$1"
+  # 🔴 插在**第 1 行之後**(兩句 SQL 中間), 不是 append 到 EOF —— 理由見 setup_repo。
+  { head -1 "$1/supabase/migrations/20260101000000_base.sql"
+    printf '%s\n' "$2"
+    tail -n +2 "$1/supabase/migrations/20260101000000_base.sql"
+  } > "$1/base.tmp" && mv "$1/base.tmp" "$1/supabase/migrations/20260101000000_base.sql"
+  ( cd "$1" && git add supabase/migrations/20260101000000_base.sql \
+      && git commit -qm "改 base.sql 而帳本不動" )
+  # 🔴🔴 **`mk_origin_dev` 必須在【改動之後】** —— 而這一行是突變測試逼出來的。
+  #    ⛔ ~~第一版放在改動之前~~ ⇒ `git log origin/dev -- base.sql` 只列得到**一個**版本
+  #    ⇒ 🛑 把「raw sha 必須等於帳本那一格」整段拔掉, **六格全部照樣綠**
+  #       (實跑 2026-09-06:突變後 `PASS=91 FAIL=0`)—— 因為只有一版可挑, 挑錯挑對是同一個。
+  #    ✅ 放在改動之後 ⇒ 歷史有【新的】與【帳本那一份】兩版, 而**新的排在前面**
+  #       ⇒ 拔掉那道檢查就會挑到新的 ⇒ 剝完與現況相同 ⇒ **E 會被誤降級而翻紅。**
+  #    📌 **一個負對照本身也需要一個負對照。**
+  mk_origin_dev "$1"
+  cat > "$1/apps/admin/src/drift.ts" <<'TS'
+export const drift = 1;
+TS
+  ( cd "$1" && git add apps/admin/src/drift.ts && git commit -qm "app 一支" )
+}
+
+# ── A + F:只加行註解 ⇒ 降級, 而 rc 是 0 ────────────────────────────
+RD1="$WORK/rd1"; drift_world "$RD1" "-- 只加一行註解, 碼一個字都沒動"
+BD1="$(cd "$RD1" && git rev-parse HEAD~1)"; TD1="$(cd "$RD1" && git rev-parse HEAD)"
+RESD1="$(run_gate "$RD1" "refs/heads/dev $TD1 refs/heads/dev $BD1")"
+_od1="${RESD1#*|}"
+if printf '%s' "$_od1" | grep -qF "$DRIFT_ENTER" \
+   && printf '%s' "$_od1" | grep -qF "$DRIFT_OK" \
+   && printf '%s' "$_od1" | grep -qF "0 pending"; then
+  ok "A 只加行註解 ⇒ 進了檢查、判定「只有註解不同」、而且**不算進 pending**"
+else
+  bad "A 只加行註解沒被降級:$(printf '%s' "$_od1" | grep -E 'gate:' | head -3 | tr '\n' ' ')"
+fi
+if [ "${RESD1%%|*}" = "0" ]; then
+  ok "F 降級那一發 rc=0 —— 🛑 **這是刻意的**:修法丙就是要讓這種世界不再擋人"
+else
+  bad "F 降級了而 rc 仍是 ${RESD1%%|*} ⇒ 降級沒有真的把它移出 PENDING"
+fi
+
+# ── E:歷史有那一版, 而剝完也不同 ⇒ 維持 PENDING(證明 A 的綠不是恆綠)──────
+RD2="$WORK/rd2"; drift_world "$RD2" "CREATE TABLE public.extra_thing (id uuid PRIMARY KEY);"
+BD2="$(cd "$RD2" && git rev-parse HEAD~1)"; TD2="$(cd "$RD2" && git rev-parse HEAD)"
+RESD2="$(run_gate "$RD2" "refs/heads/dev $TD2 refs/heads/dev $BD2")"
+_od2="${RESD2#*|}"
+if printf '%s' "$_od2" | grep -qF "$DRIFT_ENTER" \
+   && ! printf '%s' "$_od2" | grep -qF "$DRIFT_OK" \
+   && printf '%s' "$_od2" | grep -qF "1 pending"; then
+  ok "E 碼真的變了 ⇒ 進了檢查但**不降級**, 仍算 1 pending(A 的綠不是恆綠)"
+else
+  bad "E 碼變了卻被降級, 或 pending 數不對:$(printf '%s' "$_od2" | grep -E 'gate:' | head -3 | tr '\n' ' ')"
+fi
+
+# ── D:只動 `/* */` 塊註解 ⇒ 仍判 PENDING。🛑 這一格斷言的是【現況】不是【正確】──
+#    `strip_sql_line_comments` 只剝 `--` 行 ⇒ 塊註解對它是碼。**那是多擋的方向, 可接受。**
+#    ⇒ 這一格的用途是讓那個盲區【在紅綠上有一個位置】, 哪天有人把它修好, 這一格會紅。
+RD3="$WORK/rd3"; drift_world "$RD3" "/* 只加一段塊註解, 碼一個字都沒動 */"
+BD3="$(cd "$RD3" && git rev-parse HEAD~1)"; TD3="$(cd "$RD3" && git rev-parse HEAD)"
+RESD3="$(run_gate "$RD3" "refs/heads/dev $TD3 refs/heads/dev $BD3")"
+_od3="${RESD3#*|}"
+# 🔴 codex R1 must-fix:原本只驗「有進場、沒印成功警告」⇒ **把輸出 PENDING 那條路刪掉它照樣綠**。
+#    ⇒ 補上 `1 pending`:那才是「仍不降級」真正的受詞。
+if printf '%s' "$_od3" | grep -qF "$DRIFT_ENTER" \
+   && ! printf '%s' "$_od3" | grep -qF "$DRIFT_OK" \
+   && printf '%s' "$_od3" | grep -qF "1 pending"; then
+  ok "D 只動 /* */ 塊註解 ⇒ **仍不降級, 仍算 1 pending**(已知盲區;本格斷言現況, 不斷言正確)"
+else
+  bad "D 塊註解的現況變了 ⇒ 若是刻意修好的, 本格與閘的註解要一起改"
+fi
+
+# ── B:歷史裡找不到帳本記的那一版 ⇒ 維持 PENDING(不猜)────────────────
+#    造法:**不建** origin/dev ⇒ `git log origin/dev` 什麼都撈不到。
+RD4="$WORK/rd4"; setup_repo "$RD4"
+printf '%s\n' "-- 只加一行註解" >> "$RD4/supabase/migrations/20260101000000_base.sql"
+( cd "$RD4" && git add supabase/migrations/20260101000000_base.sql && git commit -qm "改 base.sql" )
+cat > "$RD4/apps/admin/src/drift.ts" <<'TS'
+export const drift = 2;
+TS
+( cd "$RD4" && git add apps/admin/src/drift.ts && git commit -qm "app 一支" )
+BD4="$(cd "$RD4" && git rev-parse HEAD~1)"; TD4="$(cd "$RD4" && git rev-parse HEAD)"
+RESD4="$(run_gate "$RD4" "refs/heads/dev $TD4 refs/heads/dev $BD4")"
+_od4="${RESD4#*|}"
+if printf '%s' "$_od4" | grep -qF "$DRIFT_ENTER" \
+   && ! printf '%s' "$_od4" | grep -qF "$DRIFT_OK" \
+   && printf '%s' "$_od4" | grep -qF "1 pending"; then
+  ok "B 歷史裡找不到那一版 ⇒ **維持 PENDING, 不猜**(即使它其實只加了註解)"
+else
+  bad "B 找不到那一版卻降級了 ⇒ 它在拿一個沒人記過的版本背書:$(printf '%s' "$_od4" | grep -E 'gate:' | head -3 | tr '\n' ' ')"
+fi
+
+# ── C:對得上 ⇒ 那一段**一秒都不花**(釘進場那行字面, 不是釘「沒有警告」)────
+#    🔴 `comment_only_drift` 失敗時是靜默的 ⇒ 「沒印警告」與「根本沒走這條路」會是同一個東西。
+RD5="$WORK/rd5"; setup_repo "$RD5"; mk_origin_dev "$RD5"
+cat > "$RD5/apps/admin/src/drift.ts" <<'TS'
+export const drift = 3;
+TS
+( cd "$RD5" && git add apps/admin/src/drift.ts && git commit -qm "只有 app, 帳本 sha 對得上" )
+BD5="$(cd "$RD5" && git rev-parse HEAD~1)"; TD5="$(cd "$RD5" && git rev-parse HEAD)"
+RESD5="$(run_gate "$RD5" "refs/heads/dev $TD5 refs/heads/dev $BD5")"
+_od5="${RESD5#*|}"
+if ! printf '%s' "$_od5" | grep -qF "$DRIFT_ENTER" && printf '%s' "$_od5" | grep -qF "0 pending"; then
+  ok "C 帳本 sha 對得上 ⇒ **那一段沒有被走到**(進場那行字面零命中;⚠️ 本格不量時間, 不宣稱耗時)"
+else
+  bad "C 對得上的世界也走進了漂移檢查 ⇒ 它不是「只在對不上時跑」:$(printf '%s' "$_od5" | grep -E 'gate:' | head -2 | tr '\n' ' ')"
+fi
+
+# ── B2(codex R1 nit):B 測的是「ref 不存在」, 而宣稱的軸是「歷史裡沒有一版對得上」──
+#    這兩件事在輸出上同一個樣子。⇒ 補一格:**origin/dev 存在而且有歷史, 但沒有任何 raw sha 命中**。
+RD6="$WORK/rd6"; setup_repo "$RD6"
+# 先讓歷史多一顆(而且【不是】帳本記的那一份), 再把 origin/dev 指到它
+printf '%s\n' "-- 第一次改" >> "$RD6/supabase/migrations/20260101000000_base.sql"
+( cd "$RD6" && git add supabase/migrations/20260101000000_base.sql && git commit -qm "第一次改" )
+# 🔴 把帳本那一列的 sha 換成一個【現造的、歷史上不存在】的值 ⇒ 歷史有得找而找不到
+python3 - "$RD6" <<'PYEOF'
+import io,sys
+p=sys.argv[1]+"/supabase/APPLIED.tsv"
+s=io.open(p,encoding="utf-8").read().split("\n")
+out=[]
+for l in s:
+    if l.startswith("20260101000000\t"):
+        c=l.split("\t"); c[1]="f"*64; l="\t".join(c)
+    out.append(l)
+io.open(p,"w",encoding="utf-8").write("\n".join(out))
+PYEOF
+( cd "$RD6" && git add supabase/APPLIED.tsv && git commit -qm "帳本記一個歷史上不存在的 sha" )
+mk_origin_dev "$RD6"
+printf '%s\n' "-- 第二次改" >> "$RD6/supabase/migrations/20260101000000_base.sql"
+( cd "$RD6" && git add supabase/migrations/20260101000000_base.sql && git commit -qm "第二次改" )
+cat > "$RD6/apps/admin/src/drift.ts" <<'TS'
+export const drift = 6;
+TS
+( cd "$RD6" && git add apps/admin/src/drift.ts && git commit -qm "app 一支" )
+BD6="$(cd "$RD6" && git rev-parse HEAD~1)"; TD6="$(cd "$RD6" && git rev-parse HEAD)"
+RESD6="$(run_gate "$RD6" "refs/heads/dev $TD6 refs/heads/dev $BD6")"
+_od6="${RESD6#*|}"
+if printf '%s' "$_od6" | grep -qF "$DRIFT_ENTER" \
+   && ! printf '%s' "$_od6" | grep -qF "$DRIFT_OK" \
+   && printf '%s' "$_od6" | grep -qF "1 pending"; then
+  ok "B2 origin/dev **有歷史而沒有一版 raw sha 對得上** ⇒ 維持 PENDING(B 只測到 ref 不存在)"
+else
+  bad "B2 歷史有得找而找不到, 卻降級了 ⇒ 它在拿一個沒人記過的版本背書:$(printf '%s' "$_od6" | grep -E 'gate:' | head -3 | tr '\n' ' ')"
+fi
+
+# ── G:🔴 **已知盲區, 而它往【少擋】偏**(codex R1 指出的那一族裡唯一不安全的方向)──
+#    一段**多行字串常值**裡若有一行以 `--` 開頭, `ledger_drift_code_only` 會把它當註解丟掉。
+#    🛑 **本格斷言【現況】不是【正確】** —— 它讓這個盲區在紅綠上有一個位置;
+#       哪天有人把它修好(真的去 lex SQL), 這一格會紅, 而那時本格與閘的註解要一起改。
+RD7="$WORK/rd7"
+drift_world "$RD7" "$(printf "%s" "CREATE FUNCTION public.f() RETURNS text LANGUAGE sql AS \$fn\$ SELECT 'x
+-- 這一行在字串裡, 不是註解
+y' \$fn\$;")"
+BD7="$(cd "$RD7" && git rev-parse HEAD~1)"; TD7="$(cd "$RD7" && git rev-parse HEAD)"
+RESD7="$(run_gate "$RD7" "refs/heads/dev $TD7 refs/heads/dev $BD7")"
+_od7="${RESD7#*|}"
+if printf '%s' "$_od7" | grep -qF "$DRIFT_ENTER" && printf '%s' "$_od7" | grep -qF "1 pending"; then
+  ok "G 字串常值裡以兩個減號開頭的那一行:本例仍算 PENDING(它同時加了真的碼)—— 盲區形狀記在閘的註解裡"
+else
+  bad "G 這一格的現況變了 ⇒ 去讀閘裡 ledger_drift_code_only 的盲區那段, 兩邊要一起改:$(printf '%s' "$_od7" | grep -E 'gate:' | head -3 | tr '\n' ' ')"
+fi
+
+# ── H:那個盲區【單獨】長什麼樣 —— 只加一段「內含 `--` 開頭行」的多行字串, 沒有別的碼 ────
+#    🔴 這才是真的會 **少擋** 的世界。本格同樣斷言【現況】。
+RD8="$WORK/rd8"
+drift_world "$RD8" "$(printf "%s" "COMMENT ON TABLE public.things IS 'note
+-- 這一行在字串裡
+done';")"
+BD8="$(cd "$RD8" && git rev-parse HEAD~1)"; TD8="$(cd "$RD8" && git rev-parse HEAD)"
+RESD8="$(run_gate "$RD8" "refs/heads/dev $TD8 refs/heads/dev $BD8")"
+_od8="${RESD8#*|}"
+if printf '%s' "$_od8" | grep -qF "1 pending"; then
+  ok "H 只加一段多行字串(其中一行以兩個減號開頭)⇒ **仍算 PENDING**(那一行被丟掉而其餘兩行是真的碼)"
+else
+  bad "H 這一發被降級了 ⇒ 盲區比註解寫的更寬, 立刻停下回報:$(printf '%s' "$_od8" | grep -E 'gate:' | head -3 | tr '\n' ' ')"
+fi
 
 echo
 echo "══ 結果:PASS=$PASS FAIL=$FAIL(期望 PASS=$EXPECT_TOTAL)══"
