@@ -35,7 +35,11 @@ import { assertDevDbGate } from './src/lib/dev-db-guard-gate';
 //    `noto-sans-tc` **215** · 拉丁 `noto-sans` **19** · chromium `.br` **4** · `print-a4.css` **2**。
 //    ⚠️ 數字帶著它的時點與層級走:2026-09-06 · **本機 build 的 Next 追蹤清單**, 不是 Vercel 的 `.func`。
 // 🔴 而真正在看著它的仍然是那支 tracing 守門, 不是這幾行 —— 註解不會在 glob 打錯時變紅。
-// 🔴🔴 **這個 key 必須逐字等於 Next 自己給那條 route 的 id, 而 key 不匹配時 Next 是【安靜的】**
+// 🔴🔴 **這個 key 必須【匹配得到】Next 自己給那條 route 的 id, 而 key 不匹配時 Next 是【安靜的】**
+//    ⛔ ~~「逐字等於」~~(2026-09-06 codex R1 nit 訂正)—— **那句話是錯的**:
+//      key 是一個**帶跳脫的 glob pattern**(`\[id\]`), 而 manifest 裡的 route id **沒有反斜線**
+//      ⇒ 它們**不是同一個字串**;成立的說法是「這個 pattern 匹配得到那個 id」。
+//      📌 差別會咬人的地方:照「逐字等於」去核對的人, 會把一個**正確的** key 判成錯的。
 //    ⇒ 打錯一個字 = 這一整組 glob 一個檔都不帶, 而 build 全綠、`.nft.json` 照樣生得出來。
 //    ✅ 守它的是 `shipping.pdf/shipping-pdf-tracing.test.ts`(它去數真的被帶進去幾支)。
 // ⛔ ~~`/print/orders/\\[id\\]/shipping/\\[shipmentId\\].pdf`~~(2026-09-06 作廢)——
@@ -43,6 +47,23 @@ import { assertDevDbGate } from './src/lib/dev-db-guard-gate';
 //    **編成逐字相同的 regex**(`.pdf` 從 regex 裡整個消失)⇒ 兩條互相遮蔽。
 //    改成靜態段 `[shipmentId]/shipping.pdf`(同顧客站 `statement.pdf` 的形狀)。詳 route.ts 檔頭。
 const PDF_ROUTE = '/print/orders/\\[id\\]/shipping/\\[shipmentId\\]/shipping.pdf';
+/**
+ * 🔴🔴 **新竹託運標籤那條 route ——它【也】要自己一個 key**(⟦ship-HCTLABELCAPTURE⟧ 片 D2)。
+ *
+ * 🛑 **這一條是被 code-reviewer 量出來的, 而我原本沒有加**(2026-09-06):
+ *    我的推理是「那張紙上一個字都沒有 ⇒ 零字型 ⇒ 不必進這裡」——
+ *    **字型那一半是對的, 而 `chromium` 那一半與字型無關。**
+ *    ⇒ 📌 **一個正確的理由, 用在一個它沒有涵蓋的項目上。**
+ * 🔬 兩個世界的讀數(本機 `.next`, 加這個 key 之前):
+ *    `shipping.pdf/route.js.nft.json` ⇒ `.br` **4** / 總檔數 **1567**
+ *    `label.pdf/route.js.nft.json`    ⇒ `.br` **0** / 總檔數 **1326**
+ *    ⇒ 🛑 **線上 `htmlToPdf` 會 `ENOENT`, 而本機三綠全綠**(正是上面那段註解寫的形狀)。
+ * ✅ 這個 key **刻意只帶 chromium**:那條 route 不讀 `print-a4.css`、不用字型
+ *    ⇒ 多帶進去只是把函式包養肥, 而且會讓下一個人以為它在用。
+ */
+const LABEL_ROUTE = '/print/orders/\\[id\\]/shipping/\\[shipmentId\\]/label.pdf';
+const CHROMIUM_GLOB =
+  '../../node_modules/.pnpm/@sparticuz+chromium@*/node_modules/@sparticuz/chromium/bin/*.br';
 const FONT_GLOBS = ['noto-sans', 'noto-sans-tc'].flatMap((pkg) => [
   `../../node_modules/.pnpm/@fontsource+${pkg}@*/node_modules/@fontsource/${pkg}/package.json`,
   `../../node_modules/.pnpm/@fontsource+${pkg}@*/node_modules/@fontsource/${pkg}/{400,700}.css`,
@@ -56,9 +77,11 @@ const nextConfig: NextConfig = {
       './src/app/print/print-a4.css',
       // chromium 的四包壓縮檔 —— 它們是**執行期用字串 join 出來的路徑**, 靜態追蹤看不到
       //   ⇒ 檔不在 = 那條 route 在線上 `ENOENT`, 而 build 全綠。
-      '../../node_modules/.pnpm/@sparticuz+chromium@*/node_modules/@sparticuz/chromium/bin/*.br',
+      CHROMIUM_GLOB,
       ...FONT_GLOBS,
     ],
+    // 🔴 標籤那條:**只要 chromium**(理由見 `LABEL_ROUTE` 上面那段)。
+    [LABEL_ROUTE]: [CHROMIUM_GLOB],
   },
 };
 
