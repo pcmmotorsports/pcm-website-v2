@@ -8,6 +8,7 @@ import {
   MANUAL_ORDER_SHIP_TO_NAME_FIELD,
   MANUAL_ORDER_SHIP_TO_PHONE_FIELD,
 } from '@/lib/orders/manual-order-form';
+import { requestManualCustomerCreate } from '@/lib/orders/manual-customer-create-request';
 
 // manual-order-ship-to.tsx — 收件資料那一塊 +「同上」(2026-08-28,Sean `Q-建單1 ⇒ 乙`)。
 //
@@ -57,6 +58,39 @@ export function ManualOrderShipTo() {
   //    📌 **一顆「按了沒反應」的鈕,與一顆「按了但我看不出來」的鈕,在畫面上長一樣。**
   const [seq, setSeq] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // ⟦b4-收件即建客⟧ 2026-09-06(plan §2)——「用這份收件人建客人」。
+  //
+  // 🔴🔴 **方向與「同上」相反, 而那是這顆鈕存在的理由**:
+  //    「同上」= 客人 ⇒ 收件(客人已經在系統裡);這一顆 = 收件 ⇒ 客人(**他還不在系統裡**)。
+  //    ⇒ 員工打完一張新客人的收件資料之後, 不必把同樣兩個字再打一次。
+  //
+  // 🔴 **本檔【不呼叫任何 action】、不碰 picker 的 state。** 它只丟一個事件。
+  //    理由:建客人那條路上有搜尋序號、冪等鍵、`existing` 不自動選、失敗文案 ——
+  //    整組住在 `manual-customer-picker.tsx`, 而**在這裡複製一份就是第二份真相**。
+  function requestCreateCustomer() {
+    const form = rootRef.current?.form;
+    const read = (field: string): string => {
+      const el = form?.querySelector(`[name="${field}"]`);
+      return el instanceof HTMLInputElement ? el.value.trim() : '';
+    };
+    const name = read(MANUAL_ORDER_SHIP_TO_NAME_FIELD);
+    const phone = read(MANUAL_ORDER_SHIP_TO_PHONE_FIELD);
+    // 🔴 **兩格【任一】空就擋下, 不是兩格都空才擋**(plan §2 的字面是「兩格皆空」)。
+    //    偏離寫在這裡:少一格送出去, 伺服器照樣會判 `invalid_name` / `invalid_phone` 回一句話
+    //    ⇒ **能力上沒有少任何東西**, 而擋在這裡少跑一趟、而且那句話與這個條件才對得起來。
+    if (name === '' || phone === '') {
+      setNotice('收件人姓名跟電話都要先填,才能拿來建客人。');
+      return;
+    }
+    // 🔴🔴 **不假設有人在聽** —— 檔頭那句「按了沒反應與按了看不出來長一樣」就是這一段的理由。
+    //    picker 收下時會 `preventDefault()` ⇒ 這裡才拿得到 `true`。
+    if (!requestManualCustomerCreate(form, { name, phone })) {
+      setNotice('這一頁的「客人」那一塊沒有接上,所以【沒有】幫你建。請重新整理頁面再試一次。');
+      return;
+    }
+    setNotice('已送去建客人,結果在上面「客人」那一塊。');
+  }
 
   function copyFromCustomer() {
     const form = rootRef.current?.form;
@@ -144,6 +178,7 @@ export function ManualOrderShipTo() {
           ⇒ 改用**距離**降低誤按:離輸入框遠一點,離標題近一點。 */}
       <div className='flex items-center justify-between gap-2'>
         <p className='text-muted-foreground text-xs'>寄到哪裡、寄給誰。</p>
+        <span className='flex items-center gap-2'>
         <button
           type='button'
           onClick={copyFromCustomer}
@@ -152,6 +187,15 @@ export function ManualOrderShipTo() {
         >
           同上
         </button>
+        <button
+          type='button'
+          onClick={requestCreateCustomer}
+          data-testid='manual-order-ship-to-create-customer'
+          className='rounded-md border px-2 py-1 text-xs'
+        >
+          用這份收件人建客人
+        </button>
+        </span>
       </div>
 
       {notice && (

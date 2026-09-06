@@ -29,7 +29,13 @@
   ⛔ ~~selftest 有一格恆真~~:`ck(t == len(paths))` 而 `scan()` 回的就是 `len(paths)`
      ⇒ 那一格在任何世界都綠。✅ 改成數**真的開成功幾支**。
 
-🔵 **射程(刻意收窄, 而理由不是「物件級沒事」)**:本閘只掃 `scripts/*-down.sql`。
+🔵 **射程**:本閘掃 **兩個目錄** —— `scripts/*-down.sql` 與 `supabase/rollbacks/*.sql`。
+   ⛔ ~~本閘只掃 `scripts/*-down.sql`~~ ⇒ 🔴 **那句話在寫下的時候是完整的描述, 而它當晚就過期了**:
+     2026-09-06 21:3x 合 `origin/dev` 之後 dev 上多了 `supabase/rollbacks/`(12 支)——
+     用同一把尺去掃, **其中 2 支含 AEL 語句而沒有 lock_timeout**。
+   ⇒ 📌 **閘綠與「沒有問題」在畫面上是同一件事**, 而那時它綠的分母裡沒有那一整個目錄。
+   ⚠️ **仍然不涵蓋**:migration 本體、SQL Editor 手貼、以及**下一個還沒出生的目錄**
+     ⇒ 🛑 加新目錄的人要回來改這裡, 而**沒有任何東西會提醒他**(已知缺口, 不是漏寫)。
    物件級的鎖問題**已知存在**(見上面 reviewer 的實測), 而本閘不涵蓋 migration 本體與 SQL Editor 手貼。
    ⇒ 📌 **不要拿本閘的綠當「這支回退不會卡」的保證** —— 它只答「該設的地方設了沒」。
 
@@ -144,7 +150,8 @@ def scan(paths):
 
 
 def main_scan():
-    paths = sorted(glob.glob(os.path.join(REPO, 'scripts', '*-down.sql')))
+    paths = sorted(glob.glob(os.path.join(REPO, 'scripts', '*-down.sql'))
+                   + glob.glob(os.path.join(REPO, 'supabase', 'rollbacks', '*.sql')))
     opened, need, missing = scan(paths)
     print('══ ⟦b4-LOCK1⟧ rollback 鎖超時守門 ══')
     print(f'   glob 找到 {len(paths)} 支 · 真的讀成功 {opened} 支 ⇒ ' +
@@ -207,7 +214,8 @@ def selftest():
         want = exp[name]
         ck((req, ok) == want, f'{name}:需要={req} 有保護={ok}(期望 {want[0]}/{want[1]})—— {why}')
 
-    paths = sorted(glob.glob(os.path.join(REPO, 'scripts', '*-down.sql')))
+    paths = sorted(glob.glob(os.path.join(REPO, 'scripts', '*-down.sql'))
+                   + glob.glob(os.path.join(REPO, 'supabase', 'rollbacks', '*.sql')))
     opened, need, missing = scan(paths)
     # 🔵 分母格:**數真的開成功幾支**(v1 這一格是恆真的, reviewer 抓的)
     ck(opened == len(paths), f'分母格 讀成功 {opened} = glob {len(paths)}')

@@ -262,7 +262,29 @@ def sql_layers(sql, base_line=1, depth=0):
 # ⚠️ **回溯成本 = 0**:本改落地當下 `grep -rn "ACL-GATE-EXEMPT" supabase/migrations/*.sql` ⇒ **0 行**
 #    (正對照 同一把尺量 `REVOKE` ⇒ 160 支檔;負對照 `ZZZ-GATE-EXEMPT` ⇒ 0)
 #    ⇒ **沒有任何既有豁免需要補**。這個數是本改能收緊的原因, 不是它的裝飾。
-EXEMPT_ANCHOR = re.compile(r'(#\d{2,}|\b20\d{6}\b|\b20\d{2}-\d{2}-\d{2}\b)')
+# 🔴🔴 **`(\d{6})?` 那半是 2026-09-06 `-auth` 補的, 板列 ⟦c7-ACLGATEANCHOR⟧**
+#    ⛔ ~~`\b20\d{6}\b`~~ —— 它兩端要 word boundary ⇒ **十四碼的 migration 版本號不 match**
+#    (`20260824010000`:配完 `20`+6 碼之後下一個字元還是數字 ⇒ `\b` 不成立)。
+#    🛑 而同一支檔【印給人看的說明】逐字寫著「帶 #編號 / **版本號** / 日期」,
+#      docstring 甚至舉例 `20260824010000` ⇒ 📌 **一個完全照著說明寫的理由會被判不成立。**
+#      (那兩處**用字面找, 不用行號** —— 搜 `錨 = backlog` 與 `ACL-GATE-EXEMPT: <schema`;
+#       ⚠️ 我第一版在這裡寫了 `:283` / `:581`, 而**兩個在任一版本都不成立** —— code-reviewer R1 F6 抓到。)
+# 🔴🔴 **而【位數】只是這個病的一半 —— 另一半是 `\b`(code-reviewer R1 F1/F2, 2026-09-06)**:
+#    Python `re` 的 `\b` 是 **Unicode-aware** ⇒ **CJK 與 `_` 都算 word char**
+#    ⇒ 中文行文不加空格的 `對照建表20260824010000`、檔名 `20260824010000_add_orders.sql`、
+#      路徑 `supabase/migrations/20260824010000_x.sql` —— **三種在只修位數之後仍然不算錨**,
+#      而那與被修的那個病**是同一個失敗形狀**。
+#    ⇒ ✅ 改成 `(?<!\d)…(?!\d)`:要的是「前後不接數字」, 不是「前後是非文字」。
+#    📌 **⇒ 在這一改之前, 說明與實作只是把分岔點從【位數】移到【前後接什麼字】而已。**
+#    ⇒ 🔴 那不是使用者的錯:**說明與實作分岔了, 而只有實作會執行。**
+#    ⚠️ 而後果不是「他多打幾個字」—— 是他最可能**隨便補一個八碼數字讓它過**
+#      ⇒ 豁免的理由欄從此失去意義, 而閘照樣印綠。
+#    🔬 **十二個世界複量(2026-09-06 `-auth` 自己跑, 不是抄板列;後五個是 R1 F1/F4 逼出來的)**:
+#      應命中:十四碼帶空格 / **十四碼中文緊鄰** / **十四碼檔名 `_add_orders.sql`** /
+#              **十四碼路徑形式** / 八碼 / **日期中文緊鄰** / `#885`
+#      🟢 應不中:無錨句 / **九碼 `209999999`** / **十六碼** / 二十碼 / **十三碼毫秒時戳**
+#      ⇒ 十二個全部符合期望;而**修前**有四個該命中的不中。
+EXEMPT_ANCHOR = re.compile(r'(#\d{2,}|(?<!\d)20\d{6}(\d{6})?(?!\d)|(?<!\d)20\d{2}-\d{2}-\d{2}(?!\d))')
 
 
 def exemptions(sql):
@@ -598,13 +620,14 @@ def main():
 # ── 自檢 ─────────────────────────────────────────────────────────────────
 CLOSED_FIXTURE = {'public.order_payments', 'public.payment_refunds'}
 # 🔴 期望格數(⟦b9-GATESELFEDIT⟧;每加/刪一格必同步改, 而【改之前先確認你是真的加了格】)
-# 🔴🔴 **這個 91 有【第二份】, 而它住在別的檔**:`scripts/acl-drift-gate-selftest-baseline.txt` 的 `FLOOR=91`
+# 🔴🔴 **這個數字有【第二份】**(⛔ ~~原句寫死「這個 **91**」~~ —— code-reviewer R1 F3 2026-09-06 抓到:
+#    **一段存在理由就是「防這兩個數失聯」的註解, 自己指向了一個已不存在的值** ⇒ 改成不寫死數字), 而它住在別的檔**:`scripts/acl-drift-gate-selftest-baseline.txt` 的 `FLOOR=91`
 #    (由 `scripts/acl-drift-gate-selftest-floor.sh` 讀)。
 #    ⚠️ **兩者的方向不一樣**:本常數**多一格或少一格都紅**;那個地板**只在【變少】時紅**。
 #    ⇒ 📌 **加格的時候改了這裡, 不會有任何東西提醒你去改那一份** —— 地板不會因為你變多而叫。
 #    (code-reviewer R1 2026-09-06 nit;而同一輪它還指出:一把只認 `EXPECT_TOTAL` 的尺
 #     **看不到 `FLOOR=` 這一族** —— 見板列 `⟦db-SELFTESTCELLPIN⟧`。)
-EXPECT_TOTAL = 91
+EXPECT_TOTAL = 96
 
 WORLDS = [
     ('R1 紅  ALTER DEFAULT PRIVILEGES … GRANT', 'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT ON TABLES TO anon;', 1),
@@ -637,6 +660,35 @@ WORLDS = [
     ('R3 綠  EXEMPT 帶錨(日期)(F4 對照組)',
      '-- ACL-GATE-EXEMPT: public.products -- 商品目錄公開讀(2026-08-27 裁)\n'
      'GRANT SELECT ON public.products TO anon;', 0),
+    # 🔴🔴 **⟦c7-ACLGATEANCHOR⟧ 的兩格(2026-09-06 `-auth`)—— 而【綠那格在補丁之前是紅的】。**
+    #    病:`EXEMPT_ANCHOR` 舊字面 `\b20\d{6}\b` 不 match **十四碼**的 migration 版本號,
+    #      而本檔印給人看的說明(`:283` / `:581`)逐字要人帶「版本號」, docstring 還舉例十四碼
+    #      ⇒ 照著說明寫的理由被判不成立。
+    #    🛑 而下面那格【紅】不是湊數:少了它, 把 regex 放寬成「任何一長串數字都算錨」也會全綠
+    #      ⇒ 豁免理由欄從此可以用一串亂數字通過。**兩格成對, 不可只取前半。**
+    ('R3 綠  EXEMPT 帶錨(十四碼 migration 版本號)(⟦c7-ACLGATEANCHOR⟧)',
+     '-- ACL-GATE-EXEMPT: public.products -- 商品目錄公開讀, 對照建表 20260824010000\n'
+     'GRANT SELECT ON public.products TO anon;', 0),
+    ('R3 紅  EXEMPT 的「錨」是二十碼亂數字 ⇒ 不算錨(⟦c7-ACLGATEANCHOR⟧ 負對照)',
+     '-- ACL-GATE-EXEMPT: public.products -- 商品目錄公開讀 20260824010000123456\n'
+     'GRANT SELECT ON public.products TO anon;', 1),
+    # 🔴🔴 **下面三格是 code-reviewer R1 F4/F5 逼出來的, 而 F5 那條值得寫下來**:
+    #    上面那格綠的 fixture 寫成 `對照建表 20260824010000`(**帶空格**)——
+    #    而 R1 實測「把那個空格拿掉, 同一格立刻紅」⇒ 📌 **我挑到了唯一會過的那種間隔**,
+    #      於是那一格證明的比它看起來的窄, 而 `\b` 那一維整個被它遮住。
+    #      (同 memory `feedback_my-fixture-drifts-toward-my-conclusion`。)
+    #    ⇒ 「中文緊鄰」那格就是把遮住的那一維掀開。
+    # 🛑 而九碼/十六碼兩格關掉的是【區間】不是端點:只釘 14=綠 / 20=紅 兩個端點時,
+    #    把 regex 放寬成 `(\d{1,8})?` **93 格照樣全綠**(R1 F4 實測)⇒ 9-16 整段沒有證人。
+    ('R3 綠  EXEMPT 帶錨(十四碼)【中文緊鄰、不帶空格】(⟦c7-ACLGATEANCHOR⟧ R1 F1)',
+     '-- ACL-GATE-EXEMPT: public.products -- 商品目錄公開讀, 對照建表20260824010000\n'
+     'GRANT SELECT ON public.products TO anon;', 0),
+    ('R3 紅  EXEMPT 的「錨」是九碼 ⇒ 不算錨(⟦c7-ACLGATEANCHOR⟧ R1 F4 區間下緣)',
+     '-- ACL-GATE-EXEMPT: public.products -- 商品目錄公開讀 209999999\n'
+     'GRANT SELECT ON public.products TO anon;', 1),
+    ('R3 紅  EXEMPT 的「錨」是十六碼 ⇒ 不算錨(⟦c7-ACLGATEANCHOR⟧ R1 F4 區間上緣)',
+     '-- ACL-GATE-EXEMPT: public.products -- 商品目錄公開讀 2026082401000012\n'
+     'GRANT SELECT ON public.products TO anon;', 1),
     ('R3 綠  REVOKE … FROM anon 不是漂移', 'REVOKE ALL ON public.products FROM anon, authenticated;', 0),
     ('R3 綠  GRANT … TO pcm_reader(不是公開角色)', 'GRANT SELECT ON public.products TO pcm_reader;', 0),
     ('R3 紅  GRANT 寫在 DO 體內(plpgsql 直接執行)', 'DO $$ BEGIN GRANT SELECT ON public.products TO anon; END $$;', 1),

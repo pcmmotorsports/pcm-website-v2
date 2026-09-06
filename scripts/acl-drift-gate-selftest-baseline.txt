@@ -31,4 +31,4 @@
 #   🔴 **而把它【改小】要在 commit body 寫一句為什麼** —— 那正是本檔存在的理由。
 #
 # 格式:一行 `FLOOR=<整數>`。實測值由 `python3 scripts/acl-drift-gate.py --selftest` 最後一行給。
-FLOOR=91
+FLOOR=96
