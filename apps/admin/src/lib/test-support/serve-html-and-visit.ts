@@ -1,0 +1,97 @@
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import type { Browser, Page } from 'playwright';
+
+// serve-html-and-visit —— 「起一個只回這份 HTML 的伺服器 → 用瀏覽器打開它」那一段, 收成一支。
+//
+// ══ 🔴 它為什麼存在(2026-09-06 39b 收割鏈實撞, 主視窗 `-f8` 派)══════════════
+//    收割鏈第一發 `test2` 兩支 browser 測試紅, 而紅字**不是斷言失敗**:
+//      `t2.log:136` 逐字 `Error: page.goto: net::ERR_EMPTY_RESPONSE at http://localhost:54336/`
+//      `:152` 同型(port 54316)
+//    ⇒ **測試自己起的那個伺服器把連線接了、然後一個位元組都沒回。**
+//    🔬 成因是負載:`harvest-chain.sh:281-282` 的 test2 段是
+//      `pnpm vitest --run --maxWorkers=2` **讓 vitest 自己排** —— 沒走
+//      `browser-test-family.py --run`(那支才是序列跑)⇒ 這一族會跟別的東西搶。
+//    ⚠️ 板上記過同型:`docs/phase-1-backlog.md:15807`(`cancel-forms-browser`)· `:20021`。
+//
+// ══ 🛑🛑 它【不是】把那件事修好了 —— 這一段不要被讀掉 ══════════════════════
+//    它把**一個硬紅換成一個比較慢的綠**, **完全沒有動到根因**(負載)。
+//    ⇒ 📌 根因那一半在別的地方(主段要不要排除這一族、族段要不要另跑 serial),
+//      主視窗 2026-09-06 裁 A:主段不排除、族段另跑 serial ⇒ **主段裡這一族照樣會搶**
+//      ⇒ **本檔就是主段那一半的補法。** 兩件不衝突, 而也不互相取代。
+//
+// ══ 🔴 重試的四條紀律(每一條都有理由, 不要自己放寬)══════════════════════
+//    ① **只重試連線層的兩種**:`ERR_EMPTY_RESPONSE` / `ERR_CONNECTION_REFUSED`。
+//       ⛔ **絕不重試斷言失敗** —— 那兩種在 rc 上一樣, 而處置相反
+//         (一個是機器忙, 一個是碼壞了;把後者重試掉 = 把一個真的回歸變成偶爾紅)。
+//    ② **最多一次。** 重試兩次以上代表這不是瞬時, 而那時要看到紅。
+//    ③ **單位是「起伺服器 + 開分頁 + goto」整段, 不是只有 goto。**
+//       空回應代表**那個 socket 已經被接了又斷** ⇒ 對同一個 port 再 goto 會一直失敗。
+//    ④ 🔴🔴 **重試那一發【一定要印一行】。**
+//       **一個安靜的重試會把「這台機器過載了」變成「一切正常」** ——
+//       ⇒ 📌 而那正是這個 repo 一直被燒的那一類:**訊號沒有產生, 與訊號沒被讀到, 印同一個綠。**
+//       重試變頻繁時要有人看得到, 而沒有印出來的話**那個訊號永遠不會存在**。
+
+/** 這兩種是「連線層」的錯 —— 機器忙, 不是碼壞了。 */
+const RETRYABLE = ['ERR_EMPTY_RESPONSE', 'ERR_CONNECTION_REFUSED'];
+
+function isTransientGotoError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return RETRYABLE.some((code) => msg.includes(code));
+}
+
+export type ServeHtmlOptions = {
+  /** 瀏覽器視窗大小 —— 量版面的那幾支要它。 */
+  viewport?: { width: number; height: number };
+  /** 出現在重試訊息裡, 讓人知道是哪一支在重試(預設不帶)。 */
+  label?: string;
+};
+
+/**
+ * 起一個只回 `html` 的伺服器, 用一個新分頁打開它, 把分頁交給 `visit`, 然後收乾淨。
+ *
+ * 🔵 **網址用 `localhost` 不用 `127.0.0.1`** —— 照 `CLAUDE.md` 那條(Next dev 對 `127.0.0.1`
+ *    會把 chunk 擋成 403)。本檔服務的是自己組的 HTML、沒有 chunk, 而**形狀統一比較不會有人抄錯**。
+ *
+ * 🛑 `visit` 裡丟出來的東西(= 斷言失敗)**原樣往上丟, 不重試、不包裝**。
+ */
+export async function serveHtmlAndVisit<T>(
+  browser: Browser,
+  html: string,
+  visit: (page: Page) => Promise<T>,
+  opts: ServeHtmlOptions = {},
+): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    const server: Server = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(html);
+    });
+    await new Promise<void>((r) => server.listen(0, r));
+    const port = (server.address() as AddressInfo).port;
+    const page = await browser.newPage(opts.viewport === undefined ? {} : { viewport: opts.viewport });
+    let arrived = false;
+    try {
+      await page.goto(`http://localhost:${port}/`);
+      arrived = true;
+      // 🔴 `arrived` 之後丟出來的都是 `visit` 的錯(= 斷言)⇒ 下面那個 catch 不會重試它。
+      return await visit(page);
+    } catch (err) {
+      if (arrived || attempt > 1 || !isTransientGotoError(err)) throw err;
+      // 🔴 這一行是本檔的重點, 不是附帶 —— 見檔頭紀律 ④。
+      console.warn(
+        `[serve-html-and-visit] goto 連線層失敗(${opts.label ?? 'unlabelled'}), 重試 1 次 —— ` +
+          `這【不是】碼壞了, 是機器忙;而它變頻繁時代表那一段該序列跑。原錯:` +
+          `${err instanceof Error ? err.message.split('\n')[0] : String(err)}`,
+      );
+    } finally {
+      await page.close();
+      // 🔴 **等它真的關完, 不是叫一聲就走**(2026-09-06 核 diff 時抓到)——
+      //    `orders-status-visibility-browser.test.tsx` 原本逐字是
+      //    `await new Promise<void>((r) => server.close(() => r()));` ⇒ 它**等**。
+      //    ⛔ 我第一版寫成裸 `server.close()` ⇒ 那只是**要求**它關, 不等它關完。
+      //    ⇒ 🛑 而這一族的病正好是**負載**:沒關完的 socket 疊起來, 會餵養它自己要修的那個東西。
+      //    ⇒ 📌 一個「搬過去的時候順手簡化掉」的等待, 在 diff 上看不出重量。
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  }
+}

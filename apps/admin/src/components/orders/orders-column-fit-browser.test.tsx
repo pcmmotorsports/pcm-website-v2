@@ -6,9 +6,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { requireFreshBuild } from '@/lib/build-stamp';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { chromium, type Browser } from 'playwright';
+import { serveHtmlAndVisit } from '@/lib/test-support/serve-html-and-visit';
 import { toMoneyAmount, type AdminOrderLine, type AdminOrderSummary } from '@pcm/domain';
 import { OrdersTable } from './orders-table';
 import { ShippingSelectionProvider } from './shipping-selection';
@@ -186,18 +185,12 @@ async function measureColumns(viewport: number, extraCss = ''): Promise<ColFit[]
       <OrdersTable buildPanelHref={(id) => `/orders?panel=${id}`} orders={[worstOrder()]} />
     </ShippingSelectionProvider>,
   );
-  const server: Server = createServer((_req, res) => {
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    res.end(
-      `<html><head><style>${compiledCss}\n${extraCss}</style></head><body>${html}</body></html>`,
-    );
-  });
-  await new Promise<void>((r) => server.listen(0, r));
-  const port = (server.address() as AddressInfo).port;
-  const page = await browser.newPage({ viewport: { width: viewport, height: 900 } });
-  try {
-    await page.goto(`http://localhost:${port}/`);
-    return await page.evaluate(() => {
+  const doc = `<html><head><style>${compiledCss}\n${extraCss}</style></head><body>${html}</body></html>`;
+  return await serveHtmlAndVisit(
+    browser,
+    doc,
+    async (page) =>
+      await page.evaluate(() => {
       const out: ColFit[] = [];
       for (const td of Array.from(document.querySelectorAll('tbody td[class*="col-"]'))) {
         const cls = Array.from(td.classList).find((c) => c.startsWith('col-'));
@@ -256,11 +249,9 @@ async function measureColumns(viewport: number, extraCss = ''): Promise<ColFit[]
         });
       }
       return out;
-    });
-  } finally {
-    await page.close();
-    await new Promise<void>((r) => server.close(() => r()));
-  }
+      }),
+    { viewport: { width: viewport, height: 900 }, label: 'orders-column-fit-browser' },
+  );
 }
 
 describe('🔴 14 欄在 Sean 的真實視窗下裝不裝得下真值(同尺量測)', () => {

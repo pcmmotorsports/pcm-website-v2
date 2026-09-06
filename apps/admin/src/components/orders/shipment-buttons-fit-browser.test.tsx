@@ -23,9 +23,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { requireFreshBuild } from '@/lib/build-stamp';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { chromium, type Browser } from 'playwright';
+// 🔴 起伺服器 + goto **走共用那支** —— 它裡面有「連線層空回應重試一次(而且會印一行)」。
+//    理由與四條紀律在 `serve-html-and-visit.ts` 檔頭(2026-09-06 39b 收割鏈實撞)。
+import { serveHtmlAndVisit } from '@/lib/test-support/serve-html-and-visit';
 import type { AdminOrderDetail } from '@pcm/domain';
 import { ShipmentSection } from './shipment-section';
 
@@ -155,16 +156,12 @@ async function measureRow(width: number, extraCss = ''): Promise<{ els: Fit[]; r
   const html = renderToStaticMarkup(
     await ShipmentSection({ detail, payments: { status: 'unreadable' } as never }),
   );
-  const server: Server = createServer((_req, res) => {
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    res.end(`<html><head><style>${compiledCss}\n${extraCss}</style></head><body>${html}</body></html>`);
-  });
-  await new Promise<void>((r) => server.listen(0, r));
-  const port = (server.address() as AddressInfo).port;
-  const page = await browser.newPage({ viewport: { width, height: 900 } });
-  try {
-    await page.goto(`http://localhost:${port}/`);
-    return await page.evaluate(() => {
+  const doc = `<html><head><style>${compiledCss}\n${extraCss}</style></head><body>${html}</body></html>`;
+  return await serveHtmlAndVisit(
+    browser,
+    doc,
+    async (page) =>
+      await page.evaluate(() => {
       // 拿**元素自己的容器**當基準, 不是 viewport
       //    (溢出是相對於容器的;拿 viewport 比會漏掉「容器比 viewport 窄」那一種)。
       // ⚠️ **`li > div` 選到的比「那一排」多**(code-reviewer 2026-09-06):`<li>` 底下至少三個
@@ -191,12 +188,10 @@ async function measureRow(width: number, extraCss = ''): Promise<{ els: Fit[]; r
           });
         }
       }
-      return { els, rows: rowFits };
-    });
-  } finally {
-    await page.close();
-    server.close();
-  }
+        return { els, rows: rowFits };
+      }),
+    { viewport: { width, height: 900 }, label: 'shipment-buttons-fit' },
+  );
 }
 
 describe('片 D3:那一排鈕在 390px 不得把任何一顆推出容器', () => {
