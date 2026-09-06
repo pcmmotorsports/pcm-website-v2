@@ -222,7 +222,7 @@ def main() -> int:
     #    ⇒ `--rn` 打錯字會**靜靜地只印清單然後 rc=0**, 而人以為它跑了;
     #      `--run --selftest` 也只跑自測就 rc=0。
     #    ⇒ 📌 **一個「拼錯就變成別的動作而且成功」的入口, 比沒有入口糟。**
-    known = {"--run", "--selftest", "--split-check"}
+    known = {"--run", "--selftest", "--split-check", "--list"}
     # 🔴🔴 **lint-staged 會把 staged 檔的路徑【接在命令後面】**(R2 must-fix, 我當場重現):
     #    `python3 scripts/browser-test-family.py --selftest scripts/browser-test-family.py`
     #    ⇒ 舊版嚴格解析把它當「不認得的參數」⇒ **rc=2 ⇒ 這一片自己的 commit 會被自己擋下來。**
@@ -233,7 +233,7 @@ def main() -> int:
     flags = [a for a in argv if a.startswith("-")]
     unknown = [a for a in flags if a not in known]
     if unknown:
-        print(f"❌ 不認得的旗標:{' '.join(unknown)} —— 只吃 --run / --selftest / --split-check")
+        print(f"❌ 不認得的旗標:{' '.join(unknown)} —— 只吃 --run / --selftest / --split-check / --list")
         return 2
     # 🔴 **只准下一個動作旗標** —— 舊版只擋 run+selftest 那一組;多一個 `--split-check` 之後,
     #    「兩個一起下」的組合從 1 種變 3 種 ⇒ 改成**數動作旗標**, 而不是逐組列舉。
@@ -243,6 +243,20 @@ def main() -> int:
         print(f"❌ 一次只能下一個動作:{' '.join(sorted(set(actions)))}")
         return 2
     argv = flags
+    if "--list" in argv:
+        # 🔵 **`--list` 是給【機器】讀的** —— 一行一個路徑, 沒有標題、沒有縮排、沒有裝飾。
+        #    收割鏈拿它去組 vitest 的排除清單(⟦ship-BROWSERFAMILY⟧ b, auth 的 `harvest-chain.sh`)。
+        # 🔴🔴 **空清單一律拒絕(rc=1)** —— 而理由是這一族的失敗形狀:
+        #    印 0 行然後 rc=0 ⇒ 排除清單是空的 ⇒ **主段照樣跑全部(安全)**,
+        #    **而族段一支都不跑, 兩段仍然全綠** ⇒ 📌 **那正是「少一批綠」。**
+        #    ⇒ 🛑 **一個空的清單與一把壞掉的尺, 在輸出上長得一樣** ⇒ 不猜, 直接紅。
+        fam0 = family()
+        if not fam0:
+            print("❌ --list:分母是 0 ⇒ 拒絕輸出空清單(空清單會讓族段一支都不跑而兩段全綠)", file=sys.stderr)
+            return 1
+        for f in fam0:
+            print(f)
+        return 0
     if "--split-check" in argv:
         return split_check()
     if "--selftest" in argv:
