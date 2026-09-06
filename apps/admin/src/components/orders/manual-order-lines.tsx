@@ -10,6 +10,9 @@ import {
   MANUAL_ORDER_LINE_QTY_BASE,
   MANUAL_ORDER_LINE_SKU_BASE,
   MANUAL_ORDER_LINE_SPEC_BASE,
+  MANUAL_ORDER_LINE_TAX_BASIS_BASE,
+  MANUAL_ORDER_LINE_TAX_BASIS_TAXED,
+  MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED,
   MANUAL_ORDER_LINE_TITLE_BASE,
   MANUAL_ORDER_LINE_UNIT_PRICE_BASE,
   MANUAL_ORDER_LINE_VARIANT_BASE,
@@ -214,7 +217,11 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
               className='block w-full rounded-md border px-2 py-1'
             />
           </label>
-          <label className='col-span-4 text-sm'>
+          {/* 🔴 ⛔ ~~`col-span-4`~~ ⇒ `col-span-3`(⟦b4-PURCHTAX1⟧ 2026-09-06)——
+              騰一格出來給稅基那一欄。12 格是硬的:2+3+1+2+1+2+1 = 12,
+              少算一格就會有東西被擠到下一行。⚠️ 代價明寫:**品名那一格變窄了**,
+              而它是這一列最常被讀的。改回去的話要從別處拿一格, 不能只把這裡加寬。 */}
+          <label className='col-span-3 text-sm'>
             <span className='sr-only'>第 {index + 1} 列品名</span>
             <input
               autoComplete='off'
@@ -245,6 +252,28 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
               placeholder='單價'
               className='block w-full rounded-md border px-2 py-1'
             />
+          </label>
+          {/* 🔴🔴 **稅基**(⟦b4-PURCHTAX1⟧ 2026-09-06,Sean `Q5 = 甲`:代購單價沒有含稅保證)。
+              🎯 **它問一句, 而不是猜** —— 代購品項沒有權威價可比, 任何「看起來像含稅就擋」
+                 在那一側只能是猜的;而把猜測講成指示正是隔壁比價元件被 codex 修掉的東西。
+              🔴 **每一列都有它, 不是只有代購列** —— `manual-order-form.ts` 的 `readLines()`
+                 不變式是「這一列在席 ⇒ 每一格都要在席」⇒ 只長在代購列會讓型錄列少一格
+                 ⇒ **整張表單被拒**。型錄列預設值與今天相同(未稅)⇒ 零行為改變、零額外點擊。
+              🛑 **它是 `defaultValue` 不是 `value`** —— 本檔那條不變式(送出的值不由 client
+                 state 產生或回寫)對這一格一樣成立。換算在 server 端做, 瀏覽器只預覽。 */}
+          <label className='col-span-1 text-sm'>
+            <span className='sr-only'>第 {index + 1} 列單價是未稅還是含稅</span>
+            <select
+              // 🔴 `select` 也會被瀏覽器 autofill ⇒ 與同表單每一個文字類控制項同一條規矩
+              //    (分母守門 `manual-order-form-body.test.tsx:227` 會數它)。
+              autoComplete='off'
+              name={manualOrderLineField(MANUAL_ORDER_LINE_TAX_BASIS_BASE, index)}
+              defaultValue={MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED}
+              className='block w-full rounded-md border px-2 py-1'
+            >
+              <option value={MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED}>未稅</option>
+              <option value={MANUAL_ORDER_LINE_TAX_BASIS_TAXED}>含稅</option>
+            </select>
           </label>
           <label className='col-span-2 text-sm'>
             <span className='sr-only'>第 {index + 1} 列商品編號(代購留白)</span>

@@ -5,6 +5,11 @@ import {
   MANUAL_CUSTOMER_NEW_NAME_FIELD,
   MANUAL_CUSTOMER_NEW_PHONE_FIELD,
   MANUAL_ORDER_CUSTOMER_FIELD,
+  MANUAL_ORDER_LINE_TAX_BASIS_BASE,
+  MANUAL_ORDER_LINE_TAX_BASIS_TAXED,
+  MANUAL_ORDER_LINE_UNIT_PRICE_BASE,
+  taxBasisProblemMessage,
+  untaxedFromTaxed,
 } from '@/lib/orders/manual-order-form';
 
 // manual-order-submit.tsx — 建單表單那顆「建立訂單」(2026-08-28,codex R4 must-fix)。
@@ -89,6 +94,51 @@ function hasConflict(form: HTMLFormElement): boolean {
   return !sameAsCreated;
 }
 
+/**
+ * 有沒有哪一列標成**含稅**而換算回未稅**除不盡**(⟦b4-PURCHTAX1⟧ 2026-09-06)。
+ *
+ * 🔴🔴 **為什麼瀏覽器這一側也要有一道** —— server 那一側已經會拒了, 而**員工看不到那句話**:
+ *    `manual-order-actions.ts` 把 `parsed.error` 丟進 `console.warn`, 導頁只帶一個固定碼
+ *    ⇒ 畫面上出現的是「表單內容不正確,未儲存。」**而且走 PRG ⇒ 他打的東西全清。**
+ *    ⇒ 📌 只有 server 那一道的話, 這片交出去的是「**擋住了, 而他不知道被什麼擋住**」,
+ *      而 Sean 的 `Q5 = 甲` 要的是「補一道守門」, 不是補一次靜默失敗。
+ * 🔵 **算式與訊息都向 `manual-order-form.ts` 借** —— 兩邊各寫一份的話,
+ *    他在畫面上看到的數字與進 DB 的數字會有兩個來源。
+ * ⚠️ **它不是 server 那道的替代品**:任何人繞過瀏覽器直接 POST, 擋他的是 server 那一道。
+ */
+function findTaxBasisProblem(form: HTMLFormElement): string | null {
+  const selects = form.querySelectorAll(`select[name^="${MANUAL_ORDER_LINE_TAX_BASIS_BASE}_"]`);
+  for (const el of Array.from(selects)) {
+    if (!(el instanceof HTMLSelectElement)) continue;
+    if (el.value !== MANUAL_ORDER_LINE_TAX_BASIS_TAXED) continue;
+    const index = el.name.slice(`${MANUAL_ORDER_LINE_TAX_BASIS_BASE}_`.length);
+    const priceEl = form.querySelector(`[name="${MANUAL_ORDER_LINE_UNIT_PRICE_BASE}_${index}"]`);
+    if (!(priceEl instanceof HTMLInputElement)) continue;
+    // 🔴🔴 **`trim()` 留著, 而我一度把它拿掉 —— 那是錯的**(2026-09-06,codex nit ② 的折法自我訂正)。
+    //   codex 說的問題是真的:`' 4200 '` 在這裡放行、在 server 被 `NON_NEG_INT_RE` 拒
+    //   ⇒ PRG 把整張單清空。而我當時的「修法」是拿掉 `trim()` 讓兩邊同一把尺。
+    //   🔬 **去量才發現那個修法【零可觀察差異, 而且有一個方向更糟】**:
+    //     · `' 4200 '`:trim ⇒ 換得回整數 ⇒ 不報問題;不 trim ⇒ 正則不過 ⇒ 也不報問題
+    //       ⇒ **鈕在兩個世界都是亮的** ⇒ 那個 PRG 清空**照樣會發生**。
+    //     · `' 999 '`:trim ⇒ **報問題、擋下來、兩個數字都說**;不 trim ⇒ **靜默放行**
+    //       ⇒ 📌 **拿掉 trim 把「擋下來並解釋」換成了「靜默弄丟資料」。**
+    //   🔬 而突變測試當場證了這件事:把 `trim()` 加回去那一發 **236 全綠、零判別力**
+    //     ⇒ 那個改動不在任何一格的分母裡 ⇒ **它不是修法, 是一個沒有人看的動作。**
+    //   ⇒ ✅ **保留 `trim()`**(對它擋得到的那些形狀給好訊息);
+    //     🛑 **而 codex 指出的那條路仍然開著, 照實寫**:單價含空白 / 含 `1e3` 這類形狀,
+    //       畫面這一道不會叫, 送出後由 server 拒 + PRG 清空。**那是「單價要是 0 或正整數」
+    //       那道守門的題目, 而它今天【在瀏覽器這一側根本不存在】** —— 已知缺口, 不在本片範圍。
+    const raw = priceEl.value.trim();
+    // 🔴 **空的 / 不是數字 ⇒ 這一道【不說話】** —— 那是別的守門的題目(單價要是 0 或正整數),
+    //    而在這裡多講一句會讓員工同時看到兩句互相干擾的話。
+    if (!/^[0-9]+$/.test(raw)) continue;
+    const typed = Number(raw);
+    if (untaxedFromTaxed(typed) !== null) continue;
+    return taxBasisProblemMessage(`第 ${Number(index) + 1} 個品項`, typed);
+  }
+  return null;
+}
+
 export function ManualOrderSubmit() {
   const buttonRef = useRef<HTMLButtonElement>(null);
   // 🔴🔴 **三態,不是兩態**(codex R5 must-fix)。`null` = **還沒問過 DOM**(SSR / 尚未 hydrate)。
@@ -110,6 +160,11 @@ export function ManualOrderSubmit() {
    *    而它們指的是不同的人。⇒ 它自己有訊息、自己有測試。
    */
   const [conflict, setConflict] = useState(false);
+  /**
+   * 稅基除不盡那一句(⟦b4-PURCHTAX1⟧)。**與 `conflict` 是兩個獨立的世界** ——
+   * 兩件事可以同時成立, 而它們叫他做的下一件事不一樣。
+   */
+  const [taxProblem, setTaxProblem] = useState<string | null>(null);
 
   useEffect(() => {
     const form = buttonRef.current?.form;
@@ -118,6 +173,7 @@ export function ManualOrderSubmit() {
       const hit = form.querySelector(`input[name="${MANUAL_ORDER_CUSTOMER_FIELD}"]:checked`) !== null;
       setPicked(hit);
       setConflict(hasConflict(form));
+      setTaxProblem(findTaxBasisProblem(form));
     };
     sync();
     // 🔴 兩個訊號都要:`change` = 員工自己點了一顆;`MutationObserver` = 搜尋回來 / 剛建好的那位
@@ -172,6 +228,14 @@ export function ManualOrderSubmit() {
     //   ⇒ 所以判定不是只住在 state 裡:送出那一刻**重新讀一次 DOM**,不一致就攔下來。
     //   ⚠️ 這一道與上面那個 state **不是重複**:state 管【按鈕長什麼樣】,這一道管【擋不擋】。
     const guardSubmit = (e: Event) => {
+      // 🔴 稅基那一道**也要在送出的那一刻再問一次 DOM**, 理由與下面那道逐字相同:
+      //    autofill / 擴充套件 / 程式化的 `.value =` 不發事件 ⇒ state 可能是過期的。
+      const tax = findTaxBasisProblem(form);
+      if (tax !== null) {
+        e.preventDefault();
+        setTaxProblem(tax);
+        return;
+      }
       if (!hasConflict(form)) return;
       e.preventDefault();
       setConflict(true);
@@ -193,12 +257,18 @@ export function ManualOrderSubmit() {
       <button
         ref={buttonRef}
         type='submit'
-        disabled={picked !== true || conflict}
+        disabled={picked !== true || conflict || taxProblem !== null}
         data-testid='manual-order-submit'
         className='rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50'
       >
         建立訂單
       </button>
+      {taxProblem !== null && (
+        // 🔴 排在 `conflict` 前面:它講的是**錢**, 而錢的錯比選錯人更難事後發現。
+        <p className='text-sm text-destructive' data-testid='manual-order-submit-tax-basis'>
+          {taxProblem}
+        </p>
+      )}
       {conflict && (
         <p className='text-sm text-destructive' data-testid='manual-order-submit-conflict'>
           你已經選了上面清單裡的一位客人,而下面「建立新客人」那兩格又打了字。
@@ -206,7 +276,7 @@ export function ManualOrderSubmit() {
           要用上面選的那位,請把下面兩格清空。
         </p>
       )}
-      {picked !== true && !conflict && (
+      {picked !== true && !conflict && taxProblem === null && (
         // 🔴 說**現在缺什麼**,不說「請填寫必填欄位」—— 後者會讓他去檢查地址那幾格。
         //    而 `null`(還沒 hydrate)與 `false`(問過而沒選)**下一步不一樣** ⇒ 兩句話。
         <p className='text-muted-foreground text-xs' data-testid='manual-order-submit-hint'>
