@@ -9,7 +9,7 @@
 
 import type { Metadata } from 'next';
 import { CartView } from '@/components/CartView';
-import { fetchVehicleTaxonomy } from '@/lib/products';
+import { tryVehicleTaxonomy } from '@/lib/products';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getVehicleRepo } from '@/lib/auth/composition';
 
@@ -24,8 +24,9 @@ export const dynamic = 'force-dynamic';
 
 export default async function CartRoute() {
   // 併行取數:車款字典(全訪客快取版)+ 車庫(RLS own、容錯 []、序列化收窄、鏡像 products/page)
-  const [motoBrands, garage] = await Promise.all([
-    fetchVehicleTaxonomy(),
+  const [vehicleTax, garage] = await Promise.all([
+    // 🔴 2026-09-06(Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧):帶 `failed` 那扇門, 理由同首頁。
+    tryVehicleTaxonomy(),
     (async () => {
       try {
         const supabase = await createServerSupabaseClient();
@@ -48,5 +49,15 @@ export default async function CartRoute() {
       }
     })(),
   ]);
-  return <CartView motoBrands={motoBrands} garage={garage} />;
+  // 🔵 **解構在這裡, 讓下游一個字都不用改** —— 本片要的是【多一個 `failed`】,
+  //   不是改寫每一個既有的 `motoBrands` 讀取點。
+  const motoBrands = vehicleTax.motoBrands;
+  const vehicleTaxonomyFailed = vehicleTax.failed;
+  return (
+    <CartView
+      motoBrands={motoBrands}
+      garage={garage}
+      vehicleTaxonomyFailed={vehicleTaxonomyFailed}
+    />
+  );
 }

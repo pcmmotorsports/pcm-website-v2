@@ -30,7 +30,10 @@ vi.mock('@/components/Header', () => ({
 //    這正是 memory `feedback_fixture-value-makes-guard-vacuous` 那一族。
 vi.mock('@/lib/products', () => ({
   fetchFeaturedProducts: () => Promise.resolve({ products: [], error: false }),
+  // 🔴 2026-09-06:route 改呼叫 tryVehicleTaxonomy(帶 failed)⇒ mock 要有它,
+  //   而 fetchVehicleTaxonomy 留著(本檔其他地方仍可能用到, 拿掉是另一件事)。
   fetchVehicleTaxonomy: () => Promise.resolve([]),
+  tryVehicleTaxonomy: () => Promise.resolve({ motoBrands: [], failed: false }),
   fetchCategories: () =>
     Promise.resolve([
       { id: 'exhaust', name: '排氣系統', count: 12, children: [] },

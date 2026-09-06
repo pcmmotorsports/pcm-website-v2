@@ -22,6 +22,37 @@ export const MESSAGE_STATE_STYLE: CSSProperties = {
   font: '14px/1.6 system-ui, sans-serif',
 };
 
+// 🔴🔴 **車款清單讀不到時對客人講的那一句 —— 全站【單一定義點】。**(2026-09-06 線 `front`)
+//   Sean 2026-09-06 拍甲:四處(首頁選車 / 型錄側欄 / 商品頁車款區 / 購物車)都要講,
+//   而**用站內已經在線上的那一句**, 不新編一句。
+//   🔵 它原本 inline 在 `apps/storefront/src/app/account/vehicle/actions.ts` 裡 ——
+//      本片把它抽出來, 那一處改成 import。
+//   🛑 **為什麼一定要單一定義點**:`packages/domain/src/catalog/supplier-placeholder.ts`
+//      檔頭逐字警告過「複製成兩份 ⇒ 它們會分岔, 而分岔不會紅」。
+//      ⇒ 守門在 `products-message-state.test.ts`:repo 裡這個字面只有這一個定義處。
+//   ⚠️ 逗號用全形「,」—— 那是原句的字面, 照抄不改(改了守門會紅, 而那是對的)。
+export const VEHICLE_TAXONOMY_UNAVAILABLE = '車款清單暫時無法載入,請稍後再試或改用自行輸入';
+
+/**
+ * 車款樹讀不到時那一行字。**四處共用同一顆**(首頁選車 / 型錄側欄 / 商品頁車款區 / 購物車)。
+ *
+ * 🔴 **`failed === false` 一定回 `null`, 即使清單是空的** —— 這就是本片的全部重點:
+ *   「讀不到」與「真的沒有」要畫成兩種東西。
+ *   ⇒ 📌 **每一格 smoke 都要配一個「空而沒失敗」的負對照** —— 否則一個無條件顯示的實作會四格全綠。
+ *
+ * 🔵 樣式沿用站內既有那組(`MESSAGE_STATE_STYLE` + `role="alert"`, 用法見 `ProductsPage.tsx` 的 error 分支);
+ *   鐵則 1 查過:`design-reference` 176 檔裡**沒有**「一個下拉旁邊的一行字」這一態
+ *   (命中的 `components/ErrorPage.jsx` 是【整頁】錯誤頁)⇒ 不發明樣式。
+ */
+export function VehicleTaxonomyNotice({ failed }: { failed?: boolean }) {
+  if (!failed) return null;
+  return (
+    <div style={MESSAGE_STATE_STYLE} role="alert">
+      {VEHICLE_TAXONOMY_UNAVAILABLE}
+    </div>
+  );
+}
+
 // ⟦b4-DEADENDMSG1⟧ 實例③:零結果時要不要給「清除所有篩選」這個出路。
 // 判準 = 「**這一頁的 0 是篩選造成的嗎**」, 而那要問【server 拿什麼去撈】, 不是問畫面上有幾顆
 // chip —— 認不得的 `?category=<改名殘連結>` 會**留在 URL 上**(#315 Sean 2026-08-11 Q1=A,

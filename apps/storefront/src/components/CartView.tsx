@@ -21,6 +21,7 @@ import { FREE_SHIPPING_THRESHOLD } from '@pcm/domain';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import { CartMobileBuybar } from '@/components/CartMobileBuybar';
+import { VehicleTaxonomyNotice } from '@/components/products-message-state';
 import { useCart } from '@/contexts/CartContext';
 import { CartQtyInput } from '@/components/CartQtyInput';
 import { useResolvedCart } from '@/hooks/useResolvedCart';
@@ -54,10 +55,14 @@ function commonVehicle(items: CartItem[]): CartItemVehicle | undefined {
 
 export function CartView({
   motoBrands = [],
+  vehicleTaxonomyFailed = false,
   garage = [],
 }: {
   /** V-2a:車款字典(VehicleSelect combobox);cart route server 傳入 */
   motoBrands?: MockMotoBrand[];
+  /** 🔴 車款樹【讀不到】(不是「真的沒有」)⇒ 顯示一句(2026-09-06 Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧)。
+   *  預設 `false` ⇒ 舊呼叫端零改動仍編譯得過(typecheck 就是那把尺)。 */
+  vehicleTaxonomyFailed?: boolean;
   /** V-2a:登入會員愛車(快選;未登入/失敗=[]) */
   garage?: GarageChipItem[];
 } = {}) {
@@ -244,6 +249,9 @@ export function CartView({
             那一行之間 ⇒ 冷讀的人會把它讀成在講 pruned 通知(鐵則 6:註解跟著它解釋的那段碼)。 */}
         <CartVehicleMixNotice lines={lines} />
 
+        {/* 🔴 2026-09-06(Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧):車款樹讀不到 ⇒ 講一句,
+            而【真的沒有】仍然什麼都不說 —— 兩者要畫成兩種東西。 */}
+        <VehicleTaxonomyNotice failed={vehicleTaxonomyFailed} />
         {/* V-2a 整車套用:填一次全列帶入(§2「不造成選擇負擔」預設路);混車時單列可各自改 */}
         <div className="cart-vehicle-top">
           <CartVehicleField

@@ -29,6 +29,7 @@ import { HomeFooter } from './HomeFooter';
 import { ProductBreadcrumb } from './ProductBreadcrumb';
 import { ProductGallery } from './ProductGallery';
 import { ProductInfo } from './ProductInfo';
+import { VehicleTaxonomyNotice } from './products-message-state';
 import { ProductFitments } from './ProductFitments';
 import { ProductFitmentCheck, type PdpUrlVehicleState } from './ProductFitmentCheck';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
@@ -55,6 +56,9 @@ export type ProductPageProps = {
   relatedVehicleParam?: string;
   /** V-2b:§7「是否適用我的車」現選入口所需車款字典;無 fitments 商品不撈=[]。 */
   motoBrands?: MockMotoBrand[];
+  /** 🔴 車款樹【讀不到】(不是「真的沒有」)⇒ 顯示一句(2026-09-06 Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧)。
+   *  預設 `false` ⇒ 舊呼叫端零改動仍編譯得過(typecheck 就是那把尺)。 */
+  vehicleTaxonomyFailed?: boolean;
   /** V-2b:§7 愛車快選(登入會員;未登入/失敗/無 fitments=[])。 */
   garage?: GarageChipItem[];
   // V-2h/MF-3:URL 車款不再由 route 傳 prop——ProductPage 反應式衍生(useSearchParams+motoBrands),
@@ -70,6 +74,7 @@ export function ProductPage({
   relatedHasVehicle = false,
   relatedVehicleParam,
   motoBrands = [],
+  vehicleTaxonomyFailed = false,
   garage = [],
 }: ProductPageProps) {
   const router = useRouter(); // mobile buybar router.back() + MF-3 選車回寫 URL（麵包屑/vehicle pill 已移 ProductBreadcrumb）
@@ -246,6 +251,9 @@ export function ProductPage({
             display-only 不寫庫不擋購物車、車種鐵律零猜)。無 fitments 時元件內返 null。
             V-2c:URL 第一真相優先於 context 鏡;V-2h/MF-3:liveUrlVehicle 反應式(同頁 URL 變更即重判)
             + onPersistVehicle 選車回寫 URL(Option A router.replace 條件式 skip)。 */}
+        {/* 🔴 2026-09-06(Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧):車款樹讀不到 ⇒ 講一句,
+            而【真的沒有】仍然什麼都不說 —— 兩者要畫成兩種東西。 */}
+        <VehicleTaxonomyNotice failed={vehicleTaxonomyFailed} />
         <ProductFitmentCheck
           fitments={product.fitments ?? []}
           motoBrands={motoBrands}
