@@ -104,7 +104,28 @@ async () => {
 🔵 對照本機鑽機修前的 184 / 251 ms:**正式資料是它的 13–18 倍**。⇒ 🛑 毫秒不可跨環境搬;而比例兩邊都成立(本機 91% / 95%,正式資料 99.5%)。
 ⚠️ 存取要 share token:裸網址 `http_code=302` 轉 Vercel SSO,帶 token `307` → 跟完 `200`;**token 綁單一部署,alias 一換就失效**(memory `reference_vercel-share-link-is-per-deployment`)。
 
-**36 的 preview(修後)**:同一把尺、同樣兩個分類 —— **還沒量。**
+```
+36 部署 o2jd3bqq4(含回饋片 94367b16e = 修後)        2026-09-06 09:0x
+分類                  firstInResults    done      firstFeedback
+碳纖維部品 (2438)          10 ms      3210 ms        10 ms
+腳踏後移與傳動 (1660)       4 ms      3277 ms         4 ms
+```
+
+🟢 **`firstFeedback` 從 `null`(35)變成數字(36)** ⇒ **同一把尺、兩個世界、兩種輸出 = 尺有判別力。**
+🎯 「沒有回饋的那段佔等待」**99.5% ⇒ 0.3% / 0.1%**。
+🔵 `done` 3210 / 3277 vs 修前 3334 / 3224 —— **沒變**,正如設計:② 一毫秒都沒動。
+
+### 4.1 🔴 量具事故:`curl` 的那組讀數全部作廢
+
+`curl` 帶 `_vercel_share` token **從來沒有進到我們的站**,它落在 **Vercel 的登入頁**,而那頁**回 `200`**:
+```
+curl -sL "<preview>/products?_vercel_share=…"   ⇒  http 200
+  <title>Login – Vercel</title>        pp-count 命中 0 次
+```
+🛑 **`http_code=200` 不是「我進得去」** —— 兩個世界(進得去 / 被擋)**印同一個 200**。
+⇒ 作廢 07:55:49 那四發與整組 curl 讀數;**「兩把尺打架」的謎題就此解掉 —— 其中一把根本沒對準目標。**
+✅ **修法(本檔 §6 步驟 0 已改)**:驗存取一律看**內容標記**(`pp-count` 的命中數),不看 `http_code`。
+🔵 瀏覽器那組**仍然有效** —— Playwright 帶得動 cookie,而每一發都從 DOM 讀到真的件數(`2438 件商品`)。
 
 ---
 
