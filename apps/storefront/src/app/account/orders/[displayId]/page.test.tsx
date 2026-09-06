@@ -104,6 +104,7 @@ const OWN_ORDER: MemberOrderDetail = {
       lineTotal: money(12000),
       shipped: false,
       shippedQuantity: 0,
+      cancelledQuantity: null,
     },
   ],
   itemCount: 2,

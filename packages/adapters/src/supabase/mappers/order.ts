@@ -1358,6 +1358,16 @@ export function mapSupabaseMemberOrderDetailRow(
    *   ⇒ 而 `undefined`(呼叫端沒傳)與 `null`(查了而沒有)在這裡**同義**:兩個都是「算不出來」。
    */
   balanceDueAmount?: number | null,
+  /**
+   * ⟦ship-CANCELQTYTOSTOREFRONT⟧ 每一品項被取消幾件(`order_item_id` ⇒ 件數)。
+   *
+   * 🔴🔴 **`null` = 【問不到】, 不是【沒有取消】** —— 兩者要分開, 而分開的理由不是潔癖:
+   *    來源那支 RPC 對「不是主人 / 沒登入 / 失敗」一律回空, 而**空與「這張單真的沒取消」
+   *    在 JSON 上長得一樣** ⇒ 呼叫端把 `undefined`(沒問到)與 `{}`(問到了而是空的)
+   *    餵成不同的值, 這裡才分得出來。
+   * 🛑 **不知道的時候 `allItemsShipped` 走【舊規則】** —— 見下面那一段。
+   */
+  cancelledByItemId?: Readonly<Record<string, number>> | null,
 ): MemberOrderDetail {
   // ⟦ship-WHICHITEMSSHIPPED⟧ **先算逐件的出貨時刻, 再由它同時餵三個消費者。**
   // 🔴 這一段【原本就在這支檔裡】, 它只是站在下面 30 行、算完之後被丟掉(只留最早那一筆)。
@@ -1386,6 +1396,8 @@ export function mapSupabaseMemberOrderDetailRow(
     // ⟦ship-WHICHITEMSSHIPPED⟧ 這一件出貨了沒(Sean 2026-09-04 Q5 拍甲)。時刻不下放, 只下放有無。
     shipped: shippedAtPerItem[i] !== null,
     shippedQuantity: shippedQtyPerItem[i] ?? 0,
+    // 🔴 `undefined`(沒問)與 `null`(問不到)都變 `null` = **不知道**;只有真的查到才是數字。
+    cancelledQuantity: cancelledByItemId == null ? null : (cancelledByItemId[item.id] ?? 0),
   }));
   /**
    * ⟦b9-SHIPUI⟧ 包裹真相 → 兩個給 UI 的值。
@@ -1452,9 +1464,42 @@ export function mapSupabaseMemberOrderDetailRow(
      * 🔵 而客人**看得到件數了** —— 那是 `MemberOrderDetailItem.shippedQuantity`(Q6 甲放行的那一半),
      *    它逐件印「已出貨 N / M」⇒ **資訊有給, 只是這一個布林還不會因此改變。**
      */
+    /**
+     * ⟦ship-CANCELQTYTOSTOREFRONT⟧(2026-09-06;Sean Q18 甲 + 主視窗裁**丁**)
+     *
+     * 🔴 **兩條規則, 而選哪一條由【我們知不知道取消件數】決定**:
+     *   · **知道**(RPC 回得來)⇒ 每一件都要 `已出 >= 訂購 − 已取消`
+     *     ——分母照本 repo 早就裁定過的那個:`order-status-axes.ts` 的
+     *     `Math.max(0, quantity - cancelledQuantity)` / `20260816050000` 的 `GREATEST(…, 0)`。
+     *   · **不知道**(RPC 失敗 / 不是主人 / 沒登入)⇒ **走舊規則**(每一件都有出過)。
+     *
+     * 🛑 **為什麼不知道時不能「當作取消 0 件」** —— 那會讓分母變成原始訂購量
+     *    ⇒ 一張部分取消、其餘出滿的單被判「沒出完」⇒ 顧客頁**永久印「其餘商品出貨時會再通知您」**,
+     *    而那幾件**永遠不會來**。📌 **那是把「我們不知道」講成「還會再出貨」。**
+     *    ⇒ 🎯 **不知道的時候, 退回今天的行為 —— 不引入新的謊。**
+     * 🔵 `itemsTruncated` 那一半兩條路都保留(截斷時一律 false)。
+     *
+     * 🛑🛑 **一個【已知且被選擇】的殘餘, 不是漏掉的**(codex 2026-09-06 must-fix;
+     *    主視窗 `-f1` 裁「維持」):
+     *    訂 5、出 1、**實際取消 0**、而 RPC **暫時失敗** ⇒ 走舊規則 ⇒ `allItemsShipped=true`
+     *    ⇒ **分批小字消失**。codex 逐字:「**未知不能證明全出**」—— 他說得對。
+     *    ⇒ 🎯 **而另一條路更糟**:不知道時若不減分母, 一張**部分取消**的單會被說
+     *      「其餘商品出貨時會再通知您」, 而那幾件**永遠不會來** ——
+     *      **對一張永遠不會再出貨的單持續說謊**, 比一次暫時失敗嚴重。
+     *    ⇒ 📌 **選這一條的理由是:RPC 失敗是【暫時】的, 而退回舊規則 = 退回今天正式站的行為**
+     *      ⇒ **不比今天差**;那個洞今天就存在。
+     *    ✅ **正確的修法不是改這裡的語意, 是【RPC 失敗要有告警】** —— 讓「暫時」真的是暫時。
+     *      板列 ⟦ship-CANCELQTYTOSTOREFRONT⟧ 末格記著它。
+     */
     allItemsShipped:
-      shippedAtPerItem.length > 0 &&
-      shippedAtPerItem.every((t) => t !== null) &&
+      row.order_items.length > 0 &&
+      (cancelledByItemId == null
+        ? shippedAtPerItem.every((t) => t !== null)
+        : row.order_items.every(
+            (it, i) =>
+              (shippedQtyPerItem[i] ?? 0) >=
+              Math.max(0, it.quantity - (cancelledByItemId[it.id] ?? 0)),
+          )) &&
       !itemsTruncated,
     subtotal: { amount: toMoneyAmount(row.subtotal), currency: 'TWD' },
     shippingFee: { amount: toMoneyAmount(row.shipping_fee), currency: 'TWD' },

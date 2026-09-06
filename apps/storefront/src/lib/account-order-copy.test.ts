@@ -214,3 +214,38 @@ describe('⟦b9-SHIPUI⟧ orderDetailItemShippedMark:三個世界印三種東西
     expect(new Set(worlds).size).toBe(2);
   });
 });
+
+/**
+ * ⟦ship-CANCELQTYTOSTOREFRONT⟧(2026-09-06;Sean Q18 甲)——「(K 件已取消)」那一段。
+ *
+ * 🔴 **分母是【實際還會來的數量】(訂購 − 已取消), 而那不是美觀選擇** ——
+ *    `allItemsShipped` 用的就是同一個分母。⇒ 📌 若這裡印訂購量而那裡用實際量,
+ *    客人會看到「已出貨 3 / 5」配上「已全部出貨」, 而**那兩句話會互相拆台**。
+ */
+describe('⟦ship-CANCELQTYTOSTOREFRONT⟧ 取消件數怎麼印', () => {
+  it('🔴 有取消而還沒出滿 ⇒ 分母扣掉取消, 並印那一段', () => {
+    expect(orderDetailItemShippedMark(1, 5, 2)).toBe('已出貨 1 / 3(2 件已取消)');
+  });
+
+  it('🟢 有取消而【其餘出滿】⇒ 只印「已出貨(K 件已取消)」, 不印 3 / 3', () => {
+    expect(orderDetailItemShippedMark(3, 5, 2)).toBe('已出貨(2 件已取消)');
+  });
+
+  it('🔴🔴 `null`(問不到)⇒ 不印那一段, 而且【分母不扣】—— 不替客人減掉他可能還在等的東西', () => {
+    expect(orderDetailItemShippedMark(3, 5, null)).toBe('已出貨 3 / 5');
+    // 🔵 與「取消 0 件」印一樣的字, 而**它們到達這裡的路不同** —— 差別在 mapper 那一側
+    //    (`allItemsShipped` 一個走舊規則、一個走數量規則)。這一格只證這裡不印括號。
+    expect(orderDetailItemShippedMark(3, 5, 0)).toBe('已出貨 3 / 5');
+  });
+
+  it('🔴 全取消(取消 = 訂購)⇒ 分母 0 ⇒ 只印「已出貨(5 件已取消)」而不是「/ 0」', () => {
+    expect(orderDetailItemShippedMark(0, 5, 5)).toBe('已出貨(5 件已取消)');
+    expect(orderDetailItemShippedMark(0, 5, 5)).not.toContain('/');
+  });
+
+  it('🔴 壞值(負數 / 非整數)⇒ 當作沒有取消, 不印那一段也不動分母', () => {
+    for (const bad of [-1, 1.5, Number.NaN]) {
+      expect(orderDetailItemShippedMark(1, 5, bad)).toBe('已出貨 1 / 5');
+    }
+  });
+});

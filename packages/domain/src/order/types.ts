@@ -1830,6 +1830,19 @@ export type MemberOrderDetailItem = {
    *    缺值 / 非數字 / 負數一律當 **0** —— 保守方向:**寧可少說一句「已全出」。**
    */
   shippedQuantity: number;
+  /**
+   * ⟦ship-CANCELQTYTOSTOREFRONT⟧ **這一件【被取消了幾件】**(2026-09-06;Sean Q18 拍甲)。
+   *
+   * 🔴🔴 **`null` 與 `0` 是兩個不同的答案, 而這一欄的整個價值在那個差**:
+   *    · `0`    = 我們**問到了**, 沒有取消
+   *    · `null` = 我們**問不到**(RPC 失敗 / 不是這張單的主人 / 沒登入)
+   *    ⇒ 🛑 **把 `null` 當成 0 會把「我們不知道」講成「沒有取消」** —— 而那正是本片要修的那種假話。
+   *
+   * 🔵 **來源是一扇窗, 不是一道拆掉的牆**:`get_member_order_cancelled_quantities(uuid)`
+   *    (SECDEF + `auth.uid()` 比對);`order_item_quantity_summary` 維持**零 policy + 只授 service_role**
+   *    ⇒ 同表的 `ordered_quantity` / `instock_quantity`(採購節奏)**結構上到不了客人**。
+   */
+  cancelledQuantity: number | null;
 };
 
 /**

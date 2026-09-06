@@ -175,7 +175,7 @@ function OrderLine({
                界線寫進 `MEMBER_ORDER_DETAIL_SELECT` 的 forbidden-token 守門, 不再靠記得。 */}
         {item.shipped && (
           <div className="od-line-ship" data-od-id="order-line-shipped">
-            {orderDetailItemShippedMark(item.shippedQuantity, item.quantity)}
+            {orderDetailItemShippedMark(item.shippedQuantity, item.quantity, item.cancelledQuantity)}
           </div>
         )}
         {/* ⟦ship-WHICHITEMSSHIPPED⟧ **這一件不會來了**(Sean 2026-09-04 拍 Q-C 乙:灰字「已取消」)。
@@ -188,6 +188,18 @@ function OrderLine({
         {cancelled && !item.shipped && (
           <div className="od-line-cancel" data-od-id="order-line-cancelled">
             {ORDER_DETAIL_ITEM_CANCELLED_MARK}
+          </div>
+        )}
+        {/* 🔴🔴 ⟦ship-CANCELQTYTOSTOREFRONT⟧ **這一件被取消了幾件, 而它【還沒出貨】。**
+            ⛔ ~~取消件數只跟著「已出貨」那一行印~~ ⇒ 🔴 **codex 2026-09-06 must-fix**:
+               一張「訂 5、取消 2、**還沒出貨**、整單未取消」的單 ⇒ 那一列**什麼都不印**
+               ⇒ 📌 **客人看不到那 2 件已經不會來了** —— 而那正是本片要給他的資訊。
+            🔵 三個標記**互斥**, 而順序就是它們的優先級:
+               ①出過 ⇒ 「已出貨 …(K 件已取消)」②整單取消且這件沒出 ⇒ 「已取消」
+               ③這件被部分取消而還沒出 ⇒ 本行。 */}
+        {!item.shipped && !cancelled && (item.cancelledQuantity ?? 0) > 0 && (
+          <div className="od-line-cancel" data-od-id="order-line-cancelled-qty">
+            {`${item.cancelledQuantity} 件已取消`}
           </div>
         )}
       </div>

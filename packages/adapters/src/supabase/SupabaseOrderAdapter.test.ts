@@ -2714,7 +2714,15 @@ describe('Q-EMBED-1 列表內嵌上限與 itemsTruncated', () => {
 // mock 鏈:from('orders').select(SELECT).order(內嵌).limit(內嵌)
 //          .eq('display_id').eq('customer_user_id').maybeSingle()
 //          🔴 2026-08-24 `#249`:那道 `.neq` 已拿掉(與清單同進退)。
-function makeMemberDetailClient(result: { data: unknown; error: unknown }) {
+function makeMemberDetailClient(
+  result: { data: unknown; error: unknown },
+  /**
+   * ⟦ship-CANCELQTYTOSTOREFRONT⟧ 取消件數那支 RPC 的回應。
+   * **不傳 = 這個 client 沒有 `rpc`** ⇒ adapter 那邊會 throw 而被 try/catch 接住
+   * ⇒ 📌 **那正是「問不到」那個世界**,而既有每一格都活在它裡面(所以它們的語意沒有變)。
+   */
+  rpcResult?: { data: unknown; error: unknown },
+) {
   const maybeSingle = vi.fn().mockResolvedValue(result);
   // 🔴 同列表那支:`neq` 留在鏈上,否則 `not.toHaveBeenCalled()` 恆綠。
   const neq = vi.fn().mockReturnValue({ maybeSingle });
@@ -2724,9 +2732,10 @@ function makeMemberDetailClient(result: { data: unknown; error: unknown }) {
   const embedOrder = vi.fn().mockReturnValue({ limit });
   const select = vi.fn().mockReturnValue({ order: embedOrder });
   const from = vi.fn().mockReturnValue({ select });
+  const rpc = vi.fn().mockResolvedValue(rpcResult ?? { data: null, error: null });
   return {
-    client: { from } as unknown as SupabaseClient,
-    from, select, eq, eqCustomer, neq, limit, embedOrder, maybeSingle,
+    client: (rpcResult === undefined ? { from } : { from, rpc }) as unknown as SupabaseClient,
+    from, select, eq, eqCustomer, neq, limit, embedOrder, maybeSingle, rpc,
   };
 }
 
@@ -2990,6 +2999,7 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
           // 🔵 與上面訂單層那個 `shippedAt: null` **同源**(逐件那一份就是訂單層那個值的來源)。
           shipped: false,
           shippedQuantity: 0,
+          cancelledQuantity: null,
         },
       ],
       itemCount: 2, // Σquantity,從**實際撈到的**品項算
@@ -3028,8 +3038,8 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
       shipment_items: boxes,
     })),
   });
-  const detailOf = async (row: unknown) => {
-    const { client } = makeMemberDetailClient({ data: row, error: null });
+  const detailOf = async (row: unknown, rpcResult?: { data: unknown; error: unknown }) => {
+    const { client } = makeMemberDetailClient({ data: row, error: null }, rpcResult);
     return new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
   };
 
@@ -3069,6 +3079,60 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
     expect(d?.items[0]?.shippedQuantity).toBe(0); // 🔴 箱作廢 ⇒ 件數歸零, 不是 2
     expect(d?.items[0]?.shipped).toBe(false);
     expect(d?.allItemsShipped).toBe(false);
+  });
+
+  /**
+   * ⟦ship-CANCELQTYTOSTOREFRONT⟧(2026-09-06;Sean Q18 甲 + 主視窗裁**丁**)
+   * —— **三個世界,而第三個才是這一族真正在守的東西。**
+   *
+   * 🔴 **「不知道取消幾件」與「取消 0 件」必須走不同的路**:
+   *    · 知道 ⇒ 分母 `Math.max(0, quantity − cancelled)`
+   *    · **不知道 ⇒ 走【舊規則】**(每一件有出過就算全出)
+   * 🛑 **不知道時若當成「取消 0 件」** ⇒ 分母變回原始訂購量
+   *    ⇒ 一張部分取消、其餘出滿的單被判「沒出完」⇒ 顧客頁**永久印「其餘商品出貨時會再通知您」**,
+   *    而那幾件**永遠不會來** ⇒ 📌 **那是把「我們不知道」講成「還會再出貨」。**
+   */
+  /** 把 fixture 的品項數量改掉(既有 fixture 是 2,而部分取消要 3 以上才演得出來)。 */
+  const withQty = (row: any, qty: number) => ({
+    ...row,
+    order_items: row.order_items.map((it: any) => ({ ...it, quantity: qty })),
+  });
+
+  it('🟢 世界一 知道 + 部分取消後【其餘出滿】⇒ 算全出(舊算法在這裡也對, 而分母不同)', async () => {
+    const row = withQty(rowWithBoxes([[shipBox('2099-05-01T00:00:00Z', null, 3)]]), 5);
+    const d = await detailOf(row, { data: { oi1: 2 }, error: null });
+    expect(d?.items[0]?.cancelledQuantity).toBe(2);
+    expect(d?.items[0]?.shippedQuantity).toBe(3);
+    expect(d?.allItemsShipped).toBe(true); // 5 − 2 = 3, 出了 3 ⇒ 全出
+  });
+
+  it('🔴 世界二 知道 + 部分取消而【還沒出滿】⇒ 不算全出', async () => {
+    const row = withQty(rowWithBoxes([[shipBox('2099-05-01T00:00:00Z', null, 1)]]), 5);
+    const d = await detailOf(row, { data: { oi1: 2 }, error: null });
+    expect(d?.items[0]?.cancelledQuantity).toBe(2);
+    expect(d?.allItemsShipped).toBe(false); // 5 − 2 = 3, 只出了 1
+  });
+
+  it('🔴🔴 世界三 【不知道】(RPC 叫不到)⇒ 走舊規則, 而不是把分母當成原始訂購量', async () => {
+    // 不傳 rpcResult ⇒ 那個 client 沒有 `rpc` ⇒ adapter 的 try/catch 接住 ⇒ 不知道。
+    const row = withQty(rowWithBoxes([[shipBox('2099-05-01T00:00:00Z', null, 3)]]), 5);
+    const d = await detailOf(row);
+    expect(d?.items[0]?.cancelledQuantity).toBeNull(); // 🔴 null 不是 0
+    expect(d?.allItemsShipped).toBe(true); // 舊規則:有出過就算全出 ⇒ 不引入新的謊
+  });
+
+  it('🔴 RPC 回【壞值】(不是非負整數)⇒ 整包當不知道, 不採信一半', async () => {
+    const row = withQty(rowWithBoxes([[shipBox('2099-05-01T00:00:00Z', null, 3)]]), 5);
+    const d = await detailOf(row, { data: { oi1: 2, oi9: -1 }, error: null });
+    expect(d?.items[0]?.cancelledQuantity).toBeNull();
+    expect(d?.allItemsShipped).toBe(true); // 退回舊規則
+  });
+
+  it('🟢 正對照 RPC 回空物件 ⇒ 那是【問到了而沒有取消】, 不是不知道', async () => {
+    const row = withQty(rowWithBoxes([[shipBox('2099-05-01T00:00:00Z', null, 3)]]), 5);
+    const d = await detailOf(row, { data: {}, error: null });
+    expect(d?.items[0]?.cancelledQuantity).toBe(0); // 🔵 0 不是 null —— 這一格就是那個差
+    expect(d?.allItemsShipped).toBe(false); // 分母 5, 只出了 3
   });
 
   it('🔴🔴 作廢的箱不算出貨:`shipped_at` 有值【而 `deleted_at` 非空】⇒ 進度條不得亮', async () => {
