@@ -242,6 +242,23 @@
   text-transform: uppercase;
   font-family: var(--f-mono, monospace);
   margin-bottom: 4px;
+  /* 🔴 料號放同一行的右邊(Sean 2026-09-06 拍甲)。字級/字重/字距/顏色/字體【一個都不動】——
+     他逐字要求「文字大小都跟RIZOMA一樣」⇒ 只加排版, 不加樣式。 */
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+/* 🛑 **擠的時候先切品牌名, 料號永遠完整** —— `min-width: 0` 是讓 flex 子元素【可以】被壓縮的那一句,
+   少了它 `text-overflow` 不會生效(flex item 的預設 min-width 是 auto = 不小於內容)。 */
+.pcard-brand-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pcard-code {
+  flex-shrink: 0;
 }
 .pcard-name {
   font-size: 14px; /* 🔶 第3批:13.5 → 14(`DESIGN-HANDOFF` §4-3「字級只用整數 px」;設計稿 .pcard-name 逐字) */

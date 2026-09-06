@@ -5,6 +5,9 @@
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
 
 import { afterEach, describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { CartProvider } from '@/contexts/CartContext';
@@ -396,4 +399,54 @@ describe('🔴 舊快取形狀與新形狀印同一句(本片不換鍵的前提)
     expect(舊句).toBe("適用 YAMAHA MT-09 '20");
     expect(適用句(c新)).toBe(舊句);
   });
+
+describe('料號顯示在品牌右邊(Sean 2026-09-06 拍甲)', () => {
+  // 🔵 鐵則 1:稿上【沒有】這一格 —— `design-reference/components/ProductCard.jsx`
+  //   `sku|料號|partNo` 0 命中(分母 176 檔);OD `pcm-home-redesign/products-list-page.html` 也 0
+  //   (該專案全樹 189 命中 / 1442 檔 = 正對照, 尺會動, 只是不在卡片上)⇒ 查無 ⇒ 照 Sean 逐字做。
+  it('🔴 有 productCode ⇒ 印在品牌那一行, 而且是【同一個 div 裡的第二個 span】', () => {
+    const { container } = render(<ProductCard p={{ ...product, productCode: 'AZ203' }} />);
+    const brand = container.querySelector('.pcard-brand');
+    expect(brand, '量不到 .pcard-brand ⇒ 選擇器沒接上, 這一發作廢').not.toBeNull();
+    const spans = brand!.querySelectorAll('span');
+    expect(spans.length).toBe(2);
+    expect(spans[0]!.className).toBe('pcard-brand-name');
+    expect(spans[1]!.className).toBe('pcard-code');
+    expect(spans[1]!.textContent).toBe('AZ203');
+  });
+
+  // 🔴🔴 **這一格是重點**:`/products` 目錄與品牌頁走 RPC → `catalogRowToUIProduct`,
+  //   **那支 mapper 沒有 productCode** ⇒ 那兩面今天是 `undefined`。
+  //   ⇒ 必須**不渲染那個 span**, 而不是渲染一個空的(空 span 會在 flex 裡佔位、把品牌名擠掉)。
+  it('🔵 負對照:沒有 productCode ⇒ 那一行只有一個 span, 不留空殼', () => {
+    const { container } = render(<ProductCard p={{ ...product, productCode: undefined }} />);
+    const spans = container.querySelector('.pcard-brand')!.querySelectorAll('span');
+    expect(spans.length).toBe(1);
+    expect(spans[0]!.className).toBe('pcard-brand-name');
+  });
+
+  // 🛑 **版面安全不靠「料號很短」這個假設** —— 這兩句 CSS 成對:
+  //   `min-width: 0` 讓品牌名【可以】被壓縮(flex item 預設 min-width:auto = 不小於內容,
+  //   少了它 `text-overflow` 不生效)· `flex-shrink: 0` 讓料號【不會】被壓縮。
+  //   ⇒ 擠的時候先切品牌名, 料號永遠完整。拔掉任一句 ⇒ 本格紅。
+  //   🔬 真瀏覽器量過(390 寬, 三組最壞字串):料號完整可見 / 在列內 / 單行, 三組全 ✅;
+  //      站上最長品牌 = `EXTREME COMPONENTS`(18 字, 取自 /products 第一頁 50 個品牌名)。
+  //      ⚠️ **那 50 個是第一頁的分母, 全站最長品牌與最長料號【未確認】** ——
+  //         而本格與那兩句 CSS 的用意就是**讓答案不依賴那個未知數**。
+  it('🔴 那兩句 CSS 成對(min-width:0 + flex-shrink:0)—— 拔掉任一句本格紅', () => {
+    const css = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), '../styles/product-card.css'),
+      'utf8',
+    );
+    const nameRule = /\.pcard-brand-name\s*\{[^}]*\}/.exec(css)?.[0];
+    const codeRule = /\.pcard-code\s*\{[^}]*\}/.exec(css)?.[0];
+    expect(nameRule, '找不到 .pcard-brand-name 規則 ⇒ 前提失效').toBeTruthy();
+    expect(codeRule, '找不到 .pcard-code 規則 ⇒ 前提失效').toBeTruthy();
+    expect(nameRule, '品牌名少了 min-width:0 ⇒ text-overflow 不生效, 擠的時候會把料號推出去').toMatch(
+      /min-width:\s*0\s*;/,
+    );
+    expect(nameRule, '品牌名少了 text-overflow ⇒ 會換行, 那一列變兩行').toMatch(/text-overflow:\s*ellipsis\s*;/);
+    expect(codeRule, '料號少了 flex-shrink:0 ⇒ 它會被壓縮、被切掉').toMatch(/flex-shrink:\s*0\s*;/);
+  });
+});
 });

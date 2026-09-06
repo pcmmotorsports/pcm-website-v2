@@ -258,7 +258,24 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
       </div>
 
       <div className="pcard-info">
-        <div className="pcard-brand">{p.brand}</div>
+        {/* 🔴 **料號放品牌右邊、同字級同 mono**(Sean 2026-09-06 逐字
+            「品牌右邊 加上該商品料號 如變成 "RIZOMA     AZ203" 文字大小都跟RIZOMA一樣」)。
+            🔵 **鐵則 1:稿上【沒有】這個** —— `design-reference/components/ProductCard.jsx`
+            `sku|料號|partNo` **0 命中**(分母 176 檔);OD `pcm-home-redesign/products-list-page.html`
+            也 **0**(該專案全樹 189 命中 / 1442 檔 = 正對照, 尺會動, 只是不在卡片上)
+            ⇒ 查無 ⇒ 照 Sean 這句做, 兩版截圖已交他選, 他拍**甲(品牌右)**。
+            🔴🔴 **`productCode` 不是每條讀路徑都餵得到** —— `/products` 目錄與品牌頁走 RPC
+            `search_catalog_by_vehicle` → `catalog-page.ts` 的 `catalogRowToUIProduct`,
+            **那支 mapper 沒有這一欄**(與 `variantCount` 同一個形狀, 見本檔 `:99`)
+            ⇒ 那兩面今天會是 `undefined` ⇒ **不渲染那個 span, 而不是渲染一個空的**。
+            ⚠️ **⇒ 過渡期會不一致:首頁看得到料號、目錄看不到**(db 在 RPC 多投一欄之後才會一致)。
+            🛑 **版面安全不靠「料號很短」這個假設** —— 品牌名 `min-width:0` + `truncate`,
+            料號 `flex-shrink:0` ⇒ **擠的時候先切品牌名, 料號永遠完整**。
+            📌 那是刻意的:料號是客人拿來對零件的東西, 品牌名他看得出來。 */}
+        <div className="pcard-brand">
+          <span className="pcard-brand-name">{p.brand}</span>
+          {p.productCode ? <span className="pcard-code">{p.productCode}</span> : null}
+        </div>
         <div className="pcard-name">{p.name}</div>
         {/* S4:同名不同年商品在卡片可區分 —— 單款顯示年份 '18–'24、多款顯示「N 款車型」;
             缺年份降級只顯車款。前綴「適用 」保留 design 字面。 */}

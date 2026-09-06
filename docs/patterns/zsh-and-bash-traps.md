@@ -134,6 +134,16 @@
   🔵 **本行 2026-09-03 由線 `-account` 補** —— 我在這支檔查無而重新發現了一次(`grep -cE 'ref:apps|參數修飾符'` ⇒ **0**),
   跑 `scripts/traps-neighbours.py` 第一名 **0.5338** 就是那份 memory ⇒ 🎯 **這支檔缺的不是那條教訓,是【指到它的一行】。**
 
+## 🔴 `$?` 接在管線後面讀到的是【最後一段】的 rc —— **指標, 全文在 memory**
+
+一句話:`cmd 2>&1 | tail -2 ; echo "rc=$?"` 拿到的是 **`tail` 的 rc**(幾乎永遠 0)。
+唯一安全形狀 `cmd > file 2>&1 ; RC=$?`,**中間不准有任何東西**(CLAUDE.md「終端機 / Bash 紀律」逐字)。
+
+📎 **全文與三個實例 → memory `reference_pipe-masks-exit-code-in-green-checks`**
+(2026-08-06 兩例 = 把**紅的看成綠的**;2026-09-06 線 `front` 第三例 = **把好的看成壞的** ——
+我在驗證自己剛加的 `exit 1` 時踩的, 差一點回報「我的修法沒生效」而它生效了)。
+🔵 **本節只放指標, 不放全文** —— 一處全文、他處指標(`traps-neighbours.py` 查重第 2 名就是那支 memory)。
+
 ## 🔴🔴 heredoc:`<<'PY'` 那對單引號才是保護 —— **「改用 python3」不是**
 
 2026-09-03 `-account` 第四次踩(前三次見 memory `feedback_unquoted-heredoc-ate-the-path-twice-in-one-night`)。
