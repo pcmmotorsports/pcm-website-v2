@@ -119,7 +119,10 @@ echo "=== 甲-1 裝舊版 RPC(逐字 sed 抽 20260716210000:37-151, 含 COMMENT)
 #  ⛔ 第一版抓 37-150 ⇒ COMMENT 被切在中間 ⇒ `syntax error at end of input`。
 #  ⛔ 第二版改成 37-148(只到 `$$;`)⇒ 語法對了, **而 COMMENT 根本沒裝**
 #     ⇒ 🔴 我量「舊 COMMENT md5」時量到的是 `coalesce(…, '(無)')` 那個**佔位字**的 md5
-#       (`c12448e69f8ac5b8a6fd2a8a3adb40a7` 逐字 = `md5('(無)')`)
+#       🔬 **而這兩個數不要搞混**(codex 為此打回兩次):
+#         · `md5('(無)')` = **`7cc781655c60486b4437b9568614a92a`** ← 這個代表「**沒有 COMMENT**」
+#         · 真的舊 COMMENT 錨 = **`c12448e69f8ac5b8a6fd2a8a3adb40a7`** ← 裝了 COMMENT 之後才量得到
+#       ⛔ ~~我原本在這裡把 `c12448…` 寫成「佔位字的 md5」~~ —— **寫反了**。
 #     ⇒ 📌 **一個代表「沒有」的值, 被我當成「舊的那一版」記下來了。**
 #       還原檔照那個錨去比 ⇒ 還原**成功**的時候反而紅。
 #  ✅ 現在裝到 151, 這個世界才真的等於「貼之前的正式庫」。
@@ -208,7 +211,10 @@ S2=$(snap "$CUS")
 [ "$S2" = "$S1" ] && ok "乙-1 第二發之後四個數【一格都沒動】= $S2" || bad "乙-1 第二發把數字動了:$S1 → $S2"
 
 echo "--- 乙-2 不同鍵送兩次 ⇒ 扣兩次(正對照)---"
-# 🔴 少了這一格, 一支「永遠回 DUPLICATE 什麼都不做」的壞實作會讓乙-1 全綠。
+# 🔵 **這一格的理由訂正**(codex 打回):⛔ ~~「少了它, 永遠回 DUPLICATE 的壞實作會讓乙-1 全綠」~~
+#    **不成立** —— 乙-1 已經要求 ledger +1 且餘額變動, 那種壞實作在乙-1 就會紅。
+# ✅ 這一格真正在守的是**另一件事**:「**不同**的操作不得被誤擋」——
+#    一支把去重寫得太寬(例如只比客人、不比 token)的實作, 乙-1 全綠而這一格會紅。
 R3=$(call deposit 500 '門市儲值' "$T2")
 S3=$(snap "$CUS")
 [ "$R3" = "ADJUSTED" ] && ok "乙-2 不同鍵回 ADJUSTED" || bad "乙-2 不同鍵回 $R3"
@@ -280,13 +286,35 @@ TC='22222222-aaaa-bbbb-cccc-000000000001'
 CUS2='bbbbbbbb-1111-2222-3333-444444444444'
 "${PSQL[@]}" -q -c "INSERT INTO public.customers (user_id) VALUES ('$CUS2');" > /dev/null 2>&1
 # 🔵 閘門:主 session 先握住 advisory lock 22 號, 兩個工人都要先等它 ⇒ 放開的瞬間兩邊【同時】起跑。
+# 🔴🔴 **閘門被 codex R2 打回一次, 而它對**:
+#  ⛔ ~~主 session 握鎖 3 秒然後靠 `pg_sleep` 放開~~ —— 那**沒有確認兩個工人真的在等**。
+#     其中一個被排程晚了(在另一個提交之後才起跑)⇒ 兩發變成順序執行, **而這一格照樣全綠**。
+#  ✅ 改成:**主動去 `pg_locks` 上數「有幾個在等 22 號鎖」, 數到 2 才放行**;
+#     數不到 2 就是這一格**沒有演到它要演的東西** ⇒ 明說, 不要靜靜過關。
 GATE=$(mktemp)
-( "${PSQL[@]}" -v ON_ERROR_STOP=0 -tAc "SELECT pg_advisory_lock(22); SELECT pg_sleep(3); SELECT pg_advisory_unlock(22);" > "$GATE" 2>&1 ) & GP=$!
-sleep 1
+( "${PSQL[@]}" -v ON_ERROR_STOP=0 -tAc "SELECT pg_advisory_lock(22); SELECT pg_sleep(30); SELECT pg_advisory_unlock(22);" > "$GATE" 2>&1 ) & GP=$!
+GPID=$("${PSQL[@]}" -tAc "SELECT pid FROM pg_catalog.pg_locks WHERE locktype='advisory' AND objid=22 AND granted LIMIT 1" 2>/dev/null)
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -n "$GPID" ] && break
+  sleep 0.5
+  GPID=$("${PSQL[@]}" -tAc "SELECT pid FROM pg_catalog.pg_locks WHERE locktype='advisory' AND objid=22 AND granted LIMIT 1" 2>/dev/null)
+done
 race_one() { "${PSQL[@]}" -v ON_ERROR_STOP=0 -tAc "SELECT pg_advisory_lock_shared(22); SELECT public.admin_adjust_wallet('$CUS2','deposit',300,'併發','staff-1','$TC');" > "$1" 2>&1; echo "rc=$?" >> "$1"; }
 race_one "$D/race-a.log" & PA=$!
 race_one "$D/race-b.log" & PB=$!
-wait "$GP"; wait "$PA"; wait "$PB"
+# 🔴 **等到【真的有兩個在排隊】才放行** —— 這一句就是這一格的判別力來源。
+WAITERS=0
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  WAITERS=$("${PSQL[@]}" -tAc "SELECT count(*) FROM pg_catalog.pg_locks WHERE locktype='advisory' AND objid=22 AND NOT granted" 2>/dev/null)
+  [ "$WAITERS" = "2" ] && break
+  sleep 0.5
+done
+[ "$WAITERS" = "2" ] \
+  && ok "乙-6 閘門:兩個 worker 都【真的在等】同一把鎖(pg_locks 數到 $WAITERS 個 waiter)⇒ 交疊是量到的, 不是賭排程" \
+  || bad "乙-6 閘門只等到 $WAITERS 個 waiter(期望 2)⇒ 這一格沒有演到交疊, 下面的綠不算數"
+# 放行:殺掉握鎖那一發(它本來要睡 30 秒)
+[ -n "$GPID" ] && "${PSQL[@]}" -tAc "SELECT pg_catalog.pg_terminate_backend($GPID)" > /dev/null 2>&1
+wait "$GP" 2>/dev/null; wait "$PA"; wait "$PB"
 rm -f "$GATE"
 # 🔴 **逐 session 收 rc 與回傳值** —— 不是只看最後的資料狀態。
 RA=$(grep -v '^rc=' "$D/race-a.log" | tail -1); RCA=$(grep '^rc=' "$D/race-a.log" | tail -1)

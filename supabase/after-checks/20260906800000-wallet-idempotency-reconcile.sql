@@ -103,6 +103,10 @@ BEGIN
    WHERE schemaname='public' AND tablename='customer_wallet_ledger'
      AND indexname='customer_wallet_ledger_idempotency_uidx'
      AND indexdef LIKE '%UNIQUE INDEX%'
+     -- 🔴 **欄位也要比**(codex R2 ①):只比 UNIQUE 與 predicate 的話,
+     --    一個**同名而建在 `id` 上**的索引照樣算數 —— 而 RPC 的衝突目標就用不到它了
+     --    ⇒ `ON CONFLICT` 會在**執行期**炸, 而這支對帳說「一切正常」。
+     AND indexdef LIKE '%(customer_user_id, request_id)%'
      AND indexdef LIKE '%WHERE (request_id IS NOT NULL)%';
 
   -- 🔴 codex #9:這一節原本只問 body/COMMENT/欄/索引 ⇒ **撤掉 service_role 權限、

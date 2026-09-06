@@ -153,4 +153,33 @@ describe('adjustWalletAction — 冪等鍵那條線(⟦b4-WALLETDEDUPE⟧)', () 
     expect(s.status === 'failed' && s.code).toBe('denied');
     expect(mocks.adjustCustomerWallet).not.toHaveBeenCalled();
   });
+
+  // 🔴🔴 **這一格是 codex R2 ② 逼出來的, 而它打的是【這支檔自己的盲點】**:
+  //  上面每一格都把 `adjustCustomerWallet` 換成 mock ⇒ **repository 那一半零覆蓋**。
+  //  ⇒ 📌 把 `customer-repository.ts` 裡放行 `'DUPLICATE'` 的那一行刪掉,
+  //    正式的重送會變成 `throw`(收斂成 `error`)⇒ 員工看到「再按一次」而那條路已經沒用了;
+  //    **而上面八格照樣全綠**, 因為 DUPLICATE 是 mock 自己給的。
+  //  ✅ 所以這一格**不用 mock** —— 直接拿真的 repository, 只換掉最底層的 supabase client。
+  it('🔴🔴 repository 真的放行 DUPLICATE(不經過 mock)', async () => {
+    const actual = await vi.importActual<typeof import('./customer-repository')>(
+      './customer-repository',
+    );
+    const adapters = await import('@pcm/adapters/server');
+    const rpc = vi.fn().mockResolvedValue({ data: 'DUPLICATE', error: null });
+    vi.mocked(adapters.createSupabaseServiceClient).mockReturnValue({
+      rpc,
+    } as unknown as ReturnType<typeof adapters.createSupabaseServiceClient>);
+    await expect(
+      actual.adjustCustomerWallet({
+        customerId: CUS,
+        entryType: 'use',
+        signedAmount: -200,
+        note: 'x',
+        actor: 'staff-1',
+        requestId: FORM_TOKEN,
+      }),
+    ).resolves.toBe('DUPLICATE');
+    // 🔵 順便釘住:送進 RPC 的那個參數名就是 `p_request_id`
+    expect((rpc.mock.calls[0]?.[1] as { p_request_id: string }).p_request_id).toBe(FORM_TOKEN);
+  });
 });

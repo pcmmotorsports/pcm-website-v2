@@ -115,8 +115,14 @@ BEGIN
       JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
      WHERE NOT t.tgisinternal AND n.nspname = 'public'
        AND c.relname = 'customer_wallet_ledger' AND t.tgname = 'on_wallet_ledger_inserted'
+       -- 🔴🔴 **`tgenabled` 也要驗**(codex R2 ④):只問「它在不在」是不夠的。
+       --    `ALTER TABLE … DISABLE TRIGGER` 之後它**還在 catalog 上**, 而**不會被觸發**
+       --    ⇒ 入帳只新增 ledger 列、**餘額一動也不動**, 而 migration / 對帳 / 鑽機
+       --      每一把尺都照樣綠(鑽機自己建的那個是啟用的)。
+       --    🔵 `'O'` = origin(正常啟用);`'D'` = disabled。
+       AND t.tgenabled <> 'D'
   ) THEN
-    RAISE EXCEPTION '前置閘⑥:on_wallet_ledger_inserted trigger 不在 ⇒ 餘額不會被算, 拒繼續。';
+    RAISE EXCEPTION '前置閘⑥:on_wallet_ledger_inserted trigger 不在【或已被停用】⇒ 餘額不會被算, 拒繼續。';
   END IF;
 
   -- ⑦ 🔵 **重貼的防線是上面③那個 body md5 錨**, 不是這裡 ——
