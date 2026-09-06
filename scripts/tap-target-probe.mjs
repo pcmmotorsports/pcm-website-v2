@@ -29,8 +29,10 @@
 // 用法
 //   node scripts/tap-target-probe.mjs --selftest              三道對照(= 本尺的自檢), 不印目標讀數
 //   node scripts/tap-target-probe.mjs                         三道對照 + 目標讀數
+//   node scripts/tap-target-probe.mjs --reveal                「這顆鈕在手機上活著沒」那三步(見下)
+//   node scripts/tap-target-probe.mjs --desktop               切回「390 寬 + 滑鼠」那個世界(要比較兩邊時)
 //   node scripts/tap-target-probe.mjs --url http://localhost:3020
-//   node scripts/tap-target-probe.mjs --json                  給程式讀的形狀
+//   node scripts/tap-target-probe.mjs --json                  給程式讀的形狀(帶 controlsOk)
 //
 // ⚠️ **它量不到什麼(先寫, 免得下一個人以為它全能)**:桌面瀏覽器的**合成點擊**, 不是真手指;
 //    `touch-action` / 捲動中的手勢 / 兩指縮放期間的行為, 它一個都答不出。
@@ -165,7 +167,11 @@ async function reveal(browser) {
       window.__nav++;
       window.__hit = e.target.tagName.toLowerCase() + (typeof e.target.className === 'string' && e.target.className.trim()
         ? '.' + e.target.className.trim().split(/\s+/)[0] : '');
+      // 🛑 **兩個都要**(2026-09-06 R2 nit)—— 本檔 `:77` 自己寫了「缺一不可」, 而這裡原本只有前者。
+      //   今天不出事**只因為** `ProductCard.tsx` 的 `quickAdd` 對每個 variantCount 都提早 return
+      //   ⇒ 📌 **安全來自別處的產品決定, 不是這支量具**。而預設靶是 production ⇒ 不賭。
       e.preventDefault();
+      e.stopPropagation();
     }, true);
   });
   const snap = () => page.evaluate(() => {
@@ -176,7 +182,17 @@ async function reveal(browser) {
   });
   const rows = [];
   rows.push(['① 什麼都還沒做', await snap()]);
-  await page.locator('.pcard').first().tap();
+  // 🔴 **靶上沒有商品卡時要印【前提失效】, 不是丟一個 TimeoutError 出去**(2026-09-06 自驗負對照:
+  //   拿 `/stores` 當靶 ⇒ 原本 rc=1 而那是**當掉**, 不是本模式的判定 ——
+  //   📌 **當掉與 FAIL 在 rc 上都是 1**, 而讀的人分不出「量到它壞了」與「量具自己爆了」。)
+  const cards = await page.locator('.pcard').count();
+  if (cards > 0) {
+    await page.locator('.pcard').first().tap();
+  } else {
+    console.log(`\n靶 ${URL_}\n\n🔴 前提失效:這一頁上【沒有商品卡】(.pcard 命中 0)⇒ 本模式量不了任何東西。`);
+    await page.close();
+    return 1;
+  }
   await page.waitForTimeout(600);
   rows.push(['② 真觸控 tap 卡片一下', await snap()]);
   const bb = await page.locator('button.pcard-quick-btn').first().boundingBox();
@@ -189,12 +205,25 @@ async function reveal(browser) {
     console.log(`  ${tag.padEnd(24)} class="${r.cls}"  opacity=${r.opacity}  pointer-events=${r.pe}  (被擋下的導航 ${r.nav} 次)`);
   }
   console.log(`  第三步那一下實際落在:${rows[2][1]?.hit ?? '(量不到)'}`);
-  console.log('\n🛑 讀法:② 那一下【會跳走】(導航被擋下才看得到這一格)⇒ 客人在真手機上拿不到這個狀態。');
+  // 🔴🔴 **這句結論【由讀數決定】, 不是無條件印**(2026-09-06 R2 must-fix ——
+  //   而它是 R1 C3 那個病【在新模式裡復發】:同一顆 commit 裡我才剛修掉一個「判定標籤不由結果決定」)。
+  //   前提有兩個, 兩個都要真:②那一下**真的落地了**(nav 有增加)· ②**真的把它打開了**(opacity 變 1)。
+  //   任一不成立 ⇒ 印「前提失效」並 **rc=1**, 而不是印那句讀法。
+  const s1 = rows[0][1], s2 = rows[1][1];
+  const tapLanded = !!(s1 && s2 && s2.nav > s1.nav);
+  const opened = !!(s2 && s2.opacity !== '0' && s2.pe !== 'none');
+  if (tapLanded && opened) {
+    console.log('\n🛑 讀法:② 那一下【會跳走】(導航被擋下才看得到這一格)⇒ 客人在真手機上拿不到這個狀態。');
+    return 0;
+  }
+  console.log(`\n🔴 前提失效, 本次不下結論:${tapLanded ? '' : 'tap 沒落地(導航次數沒增加) '}${opened ? '' : '② 沒把它打開(opacity/pointer-events 沒變) '}`);
+  console.log('   ⇒ 這一發【不能】拿來說「客人拿不到」, 也不能說「客人拿得到」。先查靶或選擇器。');
+  return 1;
 }
 
 const out = { url: URL_, standard: STANDARD, controls: [], targets: [], neg: null };
 const browser = await chromium.launch();
-if (has('--reveal')) { await reveal(browser); await browser.close(); process.exit(0); }
+if (has('--reveal')) { const rc = await reveal(browser); await browser.close(); process.exit(rc); }
 // 🔴🔴 **預設用【真手機模擬】, 不是「把視窗縮到 390 寬」** —— 這兩個世界不一樣,
 //   而它們的差別正好落在本尺要回答的那件事上(2026-09-06 實測):
 //     390 寬 + 滑鼠   `matchMedia('(hover: none)')` = false ⇒ `@media (hover: none)` 那些規則【不生效】

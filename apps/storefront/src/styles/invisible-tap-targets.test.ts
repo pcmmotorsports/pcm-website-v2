@@ -144,7 +144,16 @@ describe('看不見的東西不准吃點擊', () => {
     const css = read('product-card.css');
     // 🔴 **`matchAll` 不是 `exec`** —— `exec` 只回第一個區塊;有人【新增第二個】hover:none 區塊
     //   把 `.pcard-quick` 放進去 ⇒ 全綠, 而本格標題那句當場變成假的(R1 must-fix)。
-    const blocks = [...css.matchAll(/@media\s*\(hover:\s*none\)\s*\{[\s\S]*?\n\}/g)].map((m) => m[0]);
+    // 🔴🔴 **不只 `(hover: none)` 那一種寫法**(2026-09-06 R2 must-fix ——
+    //   我寫「今天的狀態由兩處決定」是個**窮舉宣稱, 而它假**)。三條全綠旁路 R2 逐字列出:
+    //     ① `@media (pointer: coarse)` / `@media (hover:none) and (pointer:coarse)`
+    //        —— 舊式 regex 要求 `)` 後**緊接** `{` ⇒ 這兩種寫法它都掃不到
+    //     ② 檔尾再寫一條 `.pcard-quick{…}` —— cascade 的贏家是**後面那條**, 而 `exec` 只讀第一條
+    //     ③ TSX 用 `onPointerDown/onPointerEnter` —— 觸控上照樣觸發, 而我只擋了 `onTouch*`
+    //   ⇒ 📌 **窮舉宣稱要嘛放寬到真的窮舉, 要嘛把射程寫出來。這裡選前者(三條都堵)。**
+    const blocks = [...css.matchAll(/@media[^{]*\{[\s\S]*?\n\}/g)]
+      .map((m) => m[0])
+      .filter((x) => /hover:\s*none|pointer:\s*coarse/.test(x.slice(0, x.indexOf('{'))));
     expect(blocks.length, '找不到任何 @media (hover: none) 區塊 ⇒ 前提失效, 這一發作廢').toBeGreaterThan(0);
     for (const b of blocks) {
       expect(
@@ -159,7 +168,9 @@ describe('看不見的東西不准吃點擊', () => {
       '正對照:所有 hover:none 區塊都沒有愛心 ⇒ 我抓到的不是那條規則, 上面的斷言作廢',
     ).toBe(true);
     // 🔵 基底仍是「看不見的東西不准吃點擊」—— 兩件事一起成立才是今天的狀態。
-    const base = /\.pcard-quick\s*\{[^}]*\}/.exec(css)?.[0];
+    // 🔴 **cascade 的贏家是【最後】那一條** ⇒ 要看全部, 不是 `exec` 的第一條(R2 must-fix ②)。
+    const bases = [...css.matchAll(/(?:^|\})\s*\.pcard-quick\s*\{[^}]*\}/g)].map((m) => m[0]);
+    const base = bases[bases.length - 1];
     expect(base, '找不到 .pcard-quick 基底規則 ⇒ 前提失效').toBeTruthy();
     expect(base, '基底沒有 pointer-events: none ⇒ 讀數的前提變了, 重跑探針').toMatch(
       /pointer-events:\s*none\s*;/,
@@ -180,9 +191,10 @@ describe('看不見的東西不准吃點擊', () => {
     // 🔴 真正在守的那一條:多了一條【觸控裝置也會觸發】的路 ⇒ 手機上它就活了。
     expect(
       tsx,
-      '`ProductCard` 多了觸控事件 ⇒ 「選擇規格」在手機上可能變成真的可用。'
+      '`ProductCard` 多了觸控 / pointer 事件 ⇒ 「選擇規格」在手機上可能變成真的可用。'
         + '這是【產品決定】—— 先確認是 Sean 拍的, 再更新板列 ⟦f3-CARDTAPUNMEASURED⟧, 最後才改本格。',
-    ).not.toMatch(/onTouch(Start|End)=/);
+      // 🔴 `onPointer*` 在觸控上照樣觸發 ⇒ 只擋 `onTouch*` 是漏的(R2 must-fix ③)。
+    ).not.toMatch(/on(?:Touch(?:Start|End)|Pointer(?:Down|Enter|Up))=/);
   });
 
   it('🔴 `.pcard-heart` 浮出來時要把點擊收回去(否則桌機按不到)', () => {
