@@ -248,6 +248,7 @@ DO $post$
 DECLARE
   v_src text;
   r     record;
+  i     integer;
 BEGIN
   SELECT prosrc INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'storefront_search_product_ids'
@@ -257,7 +258,18 @@ BEGIN
   END IF;
 
   -- 🔴 剝掉兩種註解再問(前置閘與事後閘要用同一把尺 —— 2026-09-06 code-reviewer 抓過同型)
-  v_src := regexp_replace(regexp_replace(v_src, '/\*.*?\*/', '', 'gs'), '--[^' || chr(10) || ']*', '', 'g');
+  -- 🔴🔴 **而 PostgreSQL 的區塊註解可以【巢狀】** —— 單發 `regexp_replace` 剝不乾淨
+  --   ⇒ codex 2026-09-06 的反例:`/* outer /* inner */ )) DESC h.id; */`
+  --     剝完會留下一段**假的排序字面**, 而下面那幾格就對著它印綠。
+  --   ✅ 由內而外反覆剝, 而**剝不完就 fail-closed** —— 不是「剝到一半算了」。
+  v_src := regexp_replace(v_src, '--[^' || chr(10) || ']*', '', 'g');
+  FOR i IN 1..20 LOOP
+    EXIT WHEN position('/*' IN v_src) = 0;
+    v_src := regexp_replace(v_src, '/\*[^/*]*\*/', '', 'g');
+  END LOOP;
+  IF position('/*' IN v_src) <> 0 THEN
+    RAISE EXCEPTION '事後閘①b:區塊註解剝了 20 輪還剝不完 ⇒ 下面每一格都會對著沒剝乾淨的文字判 ⇒ 停(這不是通過)。';
+  END IF;
 
   IF position('ORDER BY (EXISTS' IN v_src) = 0 THEN
     RAISE EXCEPTION '事後閘②:新版沒有那段 ORDER BY ⇒ 本片什麼都沒做。';
@@ -273,13 +285,36 @@ BEGIN
   IF position('h.id;' IN v_src) = 0 THEN
     RAISE EXCEPTION '事後閘③b:排序只剩一個鍵(找不到第二鍵 h.id)⇒ 同一組之間仍不穩定 ⇒ 分頁會重複與漏商品 ⇒ 停。';
   END IF;
-  -- 四塊都要還在(少任何一塊都是搜尋變窄, 而變窄不會有人回報)
-  IF position('product_variants_public' IN v_src) = 0
-     OR position('regexp_replace(p.external_id' IN v_src) = 0
+  -- 🔴🔴 **④ 要分得出「排序讀了變體」與「搜尋還留著變體那一塊」**(codex 2026-09-06 must-fix):
+  --   本片的 `ORDER BY` 自己也提到 `product_variants_public`(別名 `pv2`)
+  --   ⇒ 把 `hits` 裡的第 ④ 塊**整個刪掉**之後, `position('product_variants_public')` **照樣命中**
+  --   ⇒ 📌 那一格會印綠, 而**只靠變體才找得到的商品已經不見了**。
+  --   ✅ 分開問:`hits` 那一塊的別名是 `pv`(`FROM public.product_variants_public pv`),
+  --     排序那一段用的是 `pv2` ⇒ **兩個都要在**。
+  -- 🔴🔴 **不能用 `position('… pv')` 判「hits 那一塊在不在」** —— `pv` 是 `pv2` 的**前綴**
+  --   ⇒ 把 hits 那一塊整個刪掉之後, 排序裡的 `pv2` 會讓那個 position **照樣命中**。
+  --   🔬 2026-09-06 實測:那一發突變(刪掉 hits 第④塊)**沒有被這道閘擋下**, 是驗證腳本的格 B2 抓到的。
+  --   ✅ 改成**數次數**:總數要 >= 2, 而 `pv2` 恰 1 ⇒ 兩邊各有一個。
+  DECLARE
+    v_all integer;
+    v_pv2 integer;
+  BEGIN
+    v_all := (length(v_src) - length(replace(v_src, 'public.product_variants_public', '')))
+             / length('public.product_variants_public');
+    v_pv2 := (length(v_src) - length(replace(v_src, 'public.product_variants_public pv2', '')))
+             / length('public.product_variants_public pv2');
+    IF v_pv2 <> 1 THEN
+      RAISE EXCEPTION '事後閘④b:排序裡的變體分支(別名 pv2)出現 % 次(期望 1)⇒ 變體完全命中不會排前面 ⇒ 停。', v_pv2;
+    END IF;
+    IF v_all - v_pv2 < 1 THEN
+      RAISE EXCEPTION '事後閘④a:`hits` 裡的變體那一塊不見了(product_variants_public 共 % 次, 其中 pv2 佔 % 次)⇒ 只靠變體找得到的商品會消失 ⇒ 停。', v_all, v_pv2;
+    END IF;
+  END;
+  IF position('regexp_replace(p.external_id' IN v_src) = 0
      OR position('bh.brand_id' IN v_src) = 0
      OR position('n.want > 0' IN v_src) = 0
      OR position('count(DISTINCT h.ord)' IN v_src) = 0 THEN
-    RAISE EXCEPTION '事後閘④:原本的四塊或兩道守門少了一個 ⇒ 我把別人的東西弄掉了 ⇒ 停。';
+    RAISE EXCEPTION '事後閘④c:原本的塊或守門少了一個 ⇒ 我把別人的東西弄掉了 ⇒ 停。';
   END IF;
 
   SELECT p.prosecdef, p.proconfig, p.provolatile, p.proparallel, p.procost, p.prorows

@@ -23,7 +23,7 @@ Q(){ psql -h /tmp -p "$PG" -U postgres -d postgres -tAc "$1"; }
 
 CELLS=0; FAILS=0
 cell(){ CELLS=$((CELLS+1)); if [ "$1" = 1 ]; then printf '  ✅ %s\n' "$2"; else FAILS=$((FAILS+1)); printf '  🔴 %s\n' "$2"; fi; }
-EXPECT_TOTAL=10
+EXPECT_TOTAL=11
 
 initdb -D "$D/pg" -U postgres --auth=trust --encoding=UTF8 --locale=C >"$D/i.log" 2>&1 || { echo "🔴 initdb ⇒ ENV-FAIL"; exit 2; }
 pg_ctl -D "$D/pg" -o "-p $PG -k /tmp" -l "$D/pg.log" start >/dev/null 2>&1 || { echo "🔴 PG 起不來 ⇒ ENV-FAIL"; exit 2; }
@@ -71,7 +71,7 @@ then cell 1 "格 A:apply 成功(前置閘 + 事後閘全過)"
 else cell 0 "格 A:apply 失敗 ⇒ $(sed -e 's|^psql:[^ ]*: ||' "$D/ap.log" | grep -m1 ERROR | cut -c1-70)"; fi
 
 echo
-echo "── 造資料:母料號 AZ203 一張 · 母 PET52 一張(其變體 sku = PET52-PET52R)· 一張只是包含 AZ203 的 ──"
+echo "── 造資料:**每一組都放競爭者** —— 沒有競爭者的排序測不出東西(codex 2026-09-06 MF1/MF2)──"
 psql -h /tmp -p "$PG" -U postgres -d postgres -q -v ON_ERROR_STOP=1 >"$D/seed.log" 2>&1 <<'SQL'
 INSERT INTO public.brands (id, name, slug) VALUES ('cccccccc-3333-3333-3333-333333333333','測試品牌','test-brand') ON CONFLICT DO NOTHING;
 INSERT INTO public.categories (id, name, raw_path, segments) VALUES ('dddddddd-4444-4444-4444-444444444444','測試分類','測試分類','["測試分類"]'::jsonb) ON CONFLICT DO NOTHING;
@@ -81,7 +81,15 @@ INSERT INTO public.products (id, external_id, title, handle, availability, price
  ('ffffffff-9999-9999-9999-999999999999','AZ203','完全命中那張','h-exact','in-stock','{"general":100,"store":90}'::jsonb,'cccccccc-3333-3333-3333-333333333333','dddddddd-4444-4444-4444-444444444444'),
  ('11111111-1111-1111-1111-111111111111','AZ2030','只是前綴命中','h-prefix','in-stock','{"general":100,"store":90}'::jsonb,'cccccccc-3333-3333-3333-333333333333','dddddddd-4444-4444-4444-444444444444'),
  ('22222222-2222-2222-2222-222222222222','PET52','母商品 PET52','h-mother','in-stock','{"general":100,"store":90}'::jsonb,'cccccccc-3333-3333-3333-333333333333','dddddddd-4444-4444-4444-444444444444'),
- ('eeeeeeee-8888-8888-8888-888888888888','PET52X','變體所屬那張','h-variant','in-stock','{"general":100,"store":90}'::jsonb,'cccccccc-3333-3333-3333-333333333333','dddddddd-4444-4444-4444-444444444444');
+ ('eeeeeeee-8888-8888-8888-888888888888','PET52X','變體所屬那張','h-variant','in-stock','{"general":100,"store":90}'::jsonb,'cccccccc-3333-3333-3333-333333333333','dddddddd-4444-4444-4444-444444444444'),
+ -- 🔴 **PET52R 那一組的競爭者**(codex MF2:原本那一組只有一張命中
+ --    ⇒ 把排序裡的變體分支改成永遠 false, 那一格照樣綠 ⇒ 它測不到「變體優先」)。
+ --    這一張的 id 比 eeee… 小 ⇒ **沒有排序的話它會排前面**。
+ ('00000000-0000-0000-0000-000000000001','X-PET52R-Y','只是包含 PET52R 的','h-pet-contains','in-stock','{"general":100,"store":90}'::jsonb,'cccccccc-3333-3333-3333-333333333333','dddddddd-4444-4444-4444-444444444444'),
+ -- 🔴 **同組多筆**(codex MF1:AZ203 那一組只有一筆 ⇒ 第二排序鍵測不到,
+ --    插一個 `random()` 當第二鍵也會照樣綠)。這兩張都【不是】完全命中 ⇒ 與 AZ2030 同一組。
+ ('00000000-0000-0000-0000-0000000000a2','AZ2031','同組競爭者 a2','h-az-a2','in-stock','{"general":100,"store":90}'::jsonb,'cccccccc-3333-3333-3333-333333333333','dddddddd-4444-4444-4444-444444444444'),
+ ('00000000-0000-0000-0000-0000000000a3','AZ2032','同組競爭者 a3','h-az-a3','in-stock','{"general":100,"store":90}'::jsonb,'cccccccc-3333-3333-3333-333333333333','dddddddd-4444-4444-4444-444444444444');
 INSERT INTO public.product_variants (id, product_id, sku, spec, availability) VALUES
  ('aaaaaaaa-1111-1111-1111-111111111111','eeeeeeee-8888-8888-8888-888888888888','PET52R','{"s":"1"}'::jsonb,'in-stock');
 SQL
@@ -89,18 +97,24 @@ SQL
 
 echo
 echo "── 格 B:主視窗給的兩個正對照 ──"
-B1=$(Q "SELECT p.external_id FROM public.storefront_search_product_ids(ARRAY['AZ203']) s JOIN public.products_public p ON p.id = s.id LIMIT 1")
+# 🔴 **`WITH ORDINALITY` 固定 RPC 的序位再 JOIN** —— 直接 `JOIN … LIMIT 1` 的話,
+#    JOIN 自己可以重排, 而那時這一格量到的不是 RPC 給的順序(codex 2026-09-06 MF2)。
+B1=$(Q "SELECT p.external_id FROM public.storefront_search_product_ids(ARRAY['AZ203']) WITH ORDINALITY AS s(id, ord) JOIN public.products_public p ON p.id = s.id ORDER BY s.ord LIMIT 1")
 cell "$([ "$B1" = "AZ203" ] && echo 1 || echo 0)" "🟢 格 B1:搜 AZ203 ⇒ 第一筆 external_id = '${B1:-空}'(期望 AZ203, 而它的 id 是 ffff… 字典序最後)"
-B2=$(Q "SELECT p.external_id FROM public.storefront_search_product_ids(ARRAY['PET52R']) s JOIN public.products_public p ON p.id = s.id LIMIT 1")
-cell "$([ "$B2" = "PET52X" ] && echo 1 || echo 0)" "🟢 格 B2:搜 PET52R ⇒ 第一筆 = '${B2:-空}'(期望 PET52X = 變體所屬那張, 不是母 PET52)"
+B2=$(Q "SELECT p.external_id FROM public.storefront_search_product_ids(ARRAY['PET52R']) WITH ORDINALITY AS s(id, ord) JOIN public.products_public p ON p.id = s.id ORDER BY s.ord LIMIT 1")
+cell "$([ "$B2" = "PET52X" ] && echo 1 || echo 0)" "🟢 格 B2:搜 PET52R ⇒ 第一筆 = '${B2:-空}'(期望 PET52X;而同組有個 id 更小的競爭者 X-PET52R-Y ⇒ 沒排序的話它會排前面)"
 
 echo
 echo "── 格 C:負對照 ──"
 C1=$(Q "SELECT count(*) FROM public.storefront_search_product_ids(ARRAY['ZZQ9999NOTATERM'])")
 cell "$([ "${C1:-1}" = "0" ] && echo 1 || echo 0)" "🔴 格 C1:現造料號 ⇒ ${C1:-?} 筆(期望 0 —— 尺會動)"
 # 🔴 不完全命中的詞:順序不得被本片改動 ⇒ 應該仍是 id 升冪(第二鍵)
-C2=$(Q "SELECT string_agg(s.id::text, ',' ORDER BY 1) = string_agg(t.id::text, ',') FROM public.storefront_search_product_ids(ARRAY['AZ2030']) s, LATERAL (SELECT s.id) t")
-cell "$([ -n "$C2" ] && echo 1 || echo 0)" "🔴 格 C2:不完全命中的詞仍回得了列(它不該被本片弄成 0 筆)"
+# 🔴 上一版寫成 `[ -n "$C2" ]` —— **`t` 與 `f` 都印綠**(codex MF3 實跑過那個 shell 判準)。
+#    ⇒ 改成:**斷言完整的預期序列**。`AZ2030` 這個詞誰都不是完全命中 ⇒ 全部同一組
+#      ⇒ 順序必須是純 id 升冪(第二排序鍵單獨在做事的證據)。
+C2=$(Q "SELECT string_agg(id::text, ',' ) FROM (SELECT id FROM public.storefront_search_product_ids(ARRAY['AZ2030'])) x")
+C2W=$(Q "SELECT string_agg(id::text, ',') FROM (SELECT id FROM public.storefront_search_product_ids(ARRAY['AZ2030']) ORDER BY 1) y")
+cell "$([ -n "$C2" ] && [ "$C2" = "$C2W" ] && echo 1 || echo 0)" "🔴 格 C2:全不是完全命中的詞 ⇒ 順序 = 純 id 升冪(實測 '${C2:0:8}…' vs 期望 '${C2W:0:8}…')"
 
 echo
 echo "── 格 D:分頁不重複(第二排序鍵那一格)──"
@@ -109,9 +123,19 @@ D1=$(Q "SELECT string_agg(id::text, ',') FROM (SELECT id FROM public.storefront_
 D2=$(Q "SELECT string_agg(id::text, ',') FROM (SELECT id FROM public.storefront_search_product_ids(ARRAY['AZ203'])) x")
 cell "$([ -n "$D1" ] && [ "$D1" = "$D2" ] && echo 1 || echo 0)" "🔴 格 D1:同一個查詢連跑兩發, 順序逐字相同(非空且相等)"
 # 分頁:前 1 筆 + 後面的, 不得有交集
-DUP=$(Q "WITH r AS (SELECT id, row_number() OVER () rn FROM public.storefront_search_product_ids(ARRAY['AZ203']))
-         SELECT count(*) FROM (SELECT id FROM r WHERE rn <= 1 INTERSECT SELECT id FROM r WHERE rn > 1) z")
-cell "$([ "${DUP:-1}" = "0" ] && echo 1 || echo 0)" "🔴 格 D2:第 1 筆與其餘沒有交集 ⇒ ${DUP:-?}(期望 0 —— 分頁不重複)"
+# 🔴 上一版把**同一次**呼叫切成兩半再取交集 ⇒ 交集當然是空的(codex MF2:那一格恆真)。
+#    ⇒ 改成:**兩次獨立呼叫**各取一頁, 兩頁不得有交集、而且合起來要等於全集。
+P1=$(Q "SELECT string_agg(id::text, ',') FROM (SELECT id FROM public.storefront_search_product_ids(ARRAY['AZ203']) LIMIT 2) x")
+P2=$(Q "SELECT string_agg(id::text, ',') FROM (SELECT id FROM public.storefront_search_product_ids(ARRAY['AZ203']) OFFSET 2) x")
+INTER=$(Q "WITH a AS (SELECT id FROM public.storefront_search_product_ids(ARRAY['AZ203']) LIMIT 2),
+                b AS (SELECT id FROM public.storefront_search_product_ids(ARRAY['AZ203']) OFFSET 2)
+           SELECT count(*) FROM (SELECT id FROM a INTERSECT SELECT id FROM b) z")
+cell "$([ "${INTER:-1}" = "0" ] && echo 1 || echo 0)" "🔴 格 D2:**兩次獨立呼叫**各取一頁, 交集 ⇒ ${INTER:-?}(期望 0 —— 分頁不重複)"
+# 🔵 而「同組有幾筆」要印出來 —— 只有一筆的話上面那兩格測不到第二排序鍵
+SAME=$(Q "SELECT count(*) FROM public.storefront_search_product_ids(ARRAY['AZ203']) s
+           WHERE NOT EXISTS (SELECT 1 FROM public.products_public p
+                              WHERE p.id = s.id AND upper(p.external_id) = 'AZ203')")
+cell "$([ "${SAME:-0}" -ge 2 ] && echo 1 || echo 0)" "🔵 格 D2b 同組分母:【不是】完全命中的那一組有 ${SAME:-?} 筆(>= 2 —— 少於 2 的話第二排序鍵測不到)"
 TOT=$(Q "SELECT count(*) FROM public.storefront_search_product_ids(ARRAY['AZ203'])")
 cell "$([ "${TOT:-0}" -ge 2 ] && echo 1 || echo 0)" "🔵 格 D3 分母:搜 AZ203 共 ${TOT:-?} 筆(>= 2 —— 只有一筆的話上面兩格是對空集合說話)"
 
