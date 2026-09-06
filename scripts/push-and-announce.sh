@@ -98,6 +98,14 @@ announce() {  # $1=sha  $2=窗代號  $3=推之前的 origin/dev  $4=顆數  $5=
   _sha="$1"; _who="$2"; _before="$3"; _n="$4"; _green="$5"
   _short=$(printf '%s' "$_sha" | cut -c1-8)
   _mig=$(git diff --name-only "$_before" "$_sha" 2>/dev/null | grep -c '^supabase/migrations/' || true)
+  # 🔴 2026-09-07 加:本批有沒有帶【新閘】。
+  #    成因(⟦tidy-GATECOVERAGEBYTREE⟧, 當場量 16 棵 worktree ⇒ 8 有 / 8 無):
+  #    `core.hooksPath` 是相對路徑 `.husky/_` ⇒ **每棵 worktree 解析到自己樹裡的 .husky**
+  #    ⇒ **一棵樹沒合到那顆 commit, 它的 pre-commit 裡就沒有那道閘 —— 而它什麼都不會說。**
+  #    📌 **一道閘的分母不是「這個 repo」, 是「跑它的那個 checkout」。**
+  #    ⇒ 所以「新閘上線」要在【推的同一個動作裡】講出來, 不靠人記得。
+  _gate=$(git diff --name-only "$_before" "$_sha" 2>/dev/null \
+          | grep -cE '^\.husky/|^scripts/[^/]*gate[^/]*' || true)
   _f=$(printf '%s/PUSH-%s-%s.md' "$BOX" "$(date '+%Y%m%d-%H%M')" "$_short")
   {
     printf '# PUSH · %s 推了 %s 顆到 dev(%s)\n\n' "$_who" "$_n" "$(date '+%F %T')"
@@ -125,6 +133,15 @@ announce() {  # $1=sha  $2=窗代號  $3=推之前的 origin/dev  $4=顆數  $5=
       printf '先 apply 再 push 的順序若反過來,正式站會壞(2026-08-07 約 8 小時)。\n\n'
     else
       printf '✅ 本批零 migration ⇒ **沒有 apply 順序問題**(這一格由結果決定,不是固定字)。\n\n'
+    fi
+    # 🔴 同款:【由結果決定】, 零命中時不可以印那句警告(理由同上面那段註解)
+    if [ "$_gate" -gt 0 ] 2>/dev/null; then
+      printf '🔴 **本批含新閘或閘的改動(%s 個檔)⇒ 各樹要合 `origin/dev` 才生效。**\n' "$_gate"
+      printf '⚠️ **不合的樹, 它的 `pre-commit` 裡就【沒有】那道閘 —— 而它一個字都不會說。**\n'
+      printf '📌 **一道閘的分母不是「這個 repo」, 是「跑它的那個 checkout」。**\n'
+      printf '⇒ 會寫板列 / 動到那道閘守的東西的樹, 請跑一次:`git fetch origin dev && git merge origin/dev`\n\n'
+    else
+      printf '✅ 本批零閘改動 ⇒ **各樹不合也不會少一道守門**(這一格由結果決定,不是固定字)。\n\n'
     fi
     # 🔴 四綠那一格【不留白】—— 留白與「沒問題」在這裡是同一種字面
     if [ "$_green" = "無" ] || [ "$_green" = "none" ] || [ "$_green" = "沒有" ]; then
@@ -204,6 +221,36 @@ STUB
     [ "$_w" = "1" ] || { E=1; E2=0; }
   fi
 
+  # ── 2026-09-07 新增的兩格:本批含不含【新閘】(⟦tidy-GATECOVERAGEBYTREE⟧)──
+  #    🔴 這兩格【不用真實 HEAD 區間】—— 用兩顆已知形狀的 commit,
+  #       否則它會隨著今天推了什麼而變成「有時候測 A 有時候測 B」。
+  #       511b2ea2b 動 .husky(閘檔數 2) · a2dc5520c 只動 docs(閘檔數 0)
+  _G1=511b2ea2b; _G2=a2dc5520c
+  if git cat-file -e "${_G1}^{commit}" 2>/dev/null && git cat-file -e "${_G2}^{commit}" 2>/dev/null; then
+    echo "== 世界七:本批【含】閘改動 ⇒ 要印「各樹要合」那句 =="
+    rm -f "$T"/PUSH-*.md
+    announce "$_G1" "SELFTEST" "${_G1}^" "1" "$HEAD_SHA" >/dev/null
+    _f7=$(find "$T" -name 'PUSH-*.md' | head -1)
+    G7=$(grep -c '各樹要合' "$_f7" || true)
+    G7b=$(grep -c '本批零閘改動' "$_f7" || true)
+    echo "  「各樹要合」行 $G7(期望 1) / 「零閘改動」行 $G7b(期望 0)"
+    [ "$G7" = "1" ] && [ "$G7b" = "0" ] || FAIL7=1
+
+    echo "== 世界八:本批【零】閘改動 ⇒ 【不可以】印那句(由結果決定)=="
+    rm -f "$T"/PUSH-*.md
+    announce "$_G2" "SELFTEST" "${_G2}^" "1" "$HEAD_SHA" >/dev/null
+    _f8=$(find "$T" -name 'PUSH-*.md' | head -1)
+    G8=$(grep -c '各樹要合' "$_f8" || true)
+    G8b=$(grep -c '本批零閘改動' "$_f8" || true)
+    echo "  「各樹要合」行 $G8(期望 0) / 「零閘改動」行 $G8b(期望 1)"
+    [ "$G8" = "0" ] && [ "$G8b" = "1" ] || FAIL7=1
+  else
+    # 🔴 那兩顆不在這棵樹上 ⇒ 不可以印綠, 也不可以靜靜跳過
+    echo "  🔴 世界七/八【沒有跑】—— 基準 commit ($_G1 / $_G2) 在這棵樹上查無"
+    echo "     ⇒ 這不是通過, 是這兩格今天沒有給出答案。"
+    FAIL7=1
+  fi
+
   echo "== 世界六:四綠填「無」⇒ 信裡要印紅,而且【不阻止推】 =="
   rm -f "$T"/PUSH-*.md
   announce "$HEAD_SHA" "SELFTEST" "$PREV" "1" "無" >/dev/null
@@ -214,9 +261,10 @@ STUB
 
   echo "  (跑的是 $(command -v git) / $(command -v find))"
   if [ "$A" = "1" ] && [ "$B" = "0" ] && [ "$C" -ge 1 ] && [ "$D" = "1" ] \
-     && [ "$E" = "0" ] && [ "$E2" = "1" ] && [ "$F" = "1" ] && [ "$F2" = "1" ]; then
-    echo "✅ 六個世界都對:成功才寫信、失敗不寫信、量得到印狀態、量不到明說量不到、"
-    echo "   零 migration 不印假警報、沒有四綠也不留白"
+     && [ "$E" = "0" ] && [ "$E2" = "1" ] && [ "$F" = "1" ] && [ "$F2" = "1" ] \
+     && [ "${FAIL7:-0}" = "0" ]; then
+    echo "✅ 八個世界都對:成功才寫信、失敗不寫信、量得到印狀態、量不到明說量不到、"
+    echo "   零 migration 不印假警報、沒有四綠也不留白、含閘要喊各樹合、零閘不喊"
     exit 0
   fi
   echo "🔴 壞了 —— 不要用這支腳本推東西"

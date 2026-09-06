@@ -115,7 +115,47 @@ already_landed() { # $1=path → 0=已落地(不該掃)
   if [ -f supabase/APPLIED.tsv ] &&      awk -F'\t' -v v="$ver" '$1==v {found=1} END{exit !found}' supabase/APPLIED.tsv 2>/dev/null; then
     return 0
   fi
-  git cat-file -e "origin/dev:$1" 2>/dev/null && return 0
+  # 🔴🔴 **`origin/dev:<path>` 只吃【repo 相對路徑】** —— 而 lint-staged 餵的是**絕對路徑**
+  #    ⇒ `git cat-file -e "origin/dev:/Users/…/x.sql"` 回 rc=128
+  #      (`fatal: path '/Users/…' exists on disk, but not in 'origin/dev'`)
+  #    ⇒ 這支檔明明早就在 origin/dev 上, 卻被判成【未落地】⇒ 走五道全檢
+  #    ⇒ 🎯 **任何人只要改一支「已在 origin/dev 且本來就帶著紅」的 migration, 就會被擋住,
+  #      而那個紅不是他造成的、他也沒有合法的修法。**
+  #    🔬 實錘(主視窗 `-f1` 2026-09-07 報):account 的 `20260907021000` / `030000` 卡在工作樹。
+  #    🛑 **而這條路在 selftest 裡【從來沒有被走過】** —— 每一格「已落地」都是用 `APPLIED.tsv`
+  #      那一把尺造的世界 ⇒ `origin/dev` 這一把**一格都沒有**。那正是它活到今天的原因。
+  #    ✅ 先轉成 repo 相對路徑, 相對與絕對兩種輸入必須判得一樣。
+  local rel top
+  # 🔴 `-z`:少了它, `git ls-files --full-name` 對非 ASCII 檔名會 **C-quote**
+  #    (實測 CJK 檔名回 `"supabase/migrations/…\344\270\255…"`, 含引號與跳脫)
+  #    ⇒ 那個字串餵回 `origin/dev:` 一定查無 ⇒ 該檔從「已落地」掉成「未落地 ⇒ 照掃」。
+  #    方向保守, 而它**是這個改動造成的行為改變** ⇒ 用 `-z` 直接拿原始位元組。
+  #    🔬 今天 `supabase/migrations/` 非 ASCII 檔名 **0 支** ⇒ 這一格是預防, 不是在修一個現行病。
+  rel=$(git ls-files -z --full-name -- "$1" 2>/dev/null | tr '\0' '\n' | head -1)
+  if [ -z "$rel" ]; then
+    # 追蹤集裡沒有它(真新檔 / 或不在這棵 repo)⇒ 用 toplevel 剝前綴;剝不掉就照原樣,
+    # 而照原樣的下場是 cat-file 失敗 ⇒ 回「未落地」⇒ **保守地照掃**, 不會誤放行。
+    top=$(git rev-parse --show-toplevel 2>/dev/null)
+    # 🔴 `$top` 為【空】時, pattern `"$top"/*` 會退化成 `/*` ⇒ **任何絕對路徑都命中**
+    #    ⇒ `rel=${1#/}` = `Users/sean_1/…` —— 一個看起來像相對路徑的垃圾。
+    #    (`--show-toplevel` 只在 work tree 之外才失敗;lint-staged 走不到 ⇒ 無現行放行風險,
+    #     而「今天走不到」不是「不會錯」。code-reviewer 2026-09-07 實測 bare repo rc=128。)
+    if [ -n "$top" ]; then
+      case "$1" in
+        "$top"/*) rel=${1#"$top"/} ;;
+        *)        rel=$1 ;;
+      esac
+    fi
+    # ⚠️ **射程(2026-09-07 量到, 不要讀成「都處理好了」)**:macOS 的 `mktemp -d` 給
+    #    `/var/folders/…` 而 `git rev-parse --show-toplevel` 回 `/private/var/folders/…`
+    #    ⇒ **前綴對不上 ⇒ 剝不掉**。此時 `rel` 留著絕對路徑 ⇒ cat-file 失敗 ⇒ 判「未落地」⇒ **照掃**。
+    #    ⇒ 📌 **失敗方向是保守的(多掃), 不是放行** —— 而它仍然是一個【判不出來】的世界。
+    # 🛑 **而這一整段 fallback【沒有任何一格 selftest 在量】**(code-reviewer 2026-09-07 突變 C:
+    #    把它整段換成 `rel=$1` ⇒ 照樣 40/40 全綠)—— 四格 fixture 都是**已追蹤**的檔,
+    #    一律走上面那條 `ls-files`。⇒ 上面那句「失敗方向是保守的」是**推出來的, 不是量到的**。
+    #    追蹤集裡的檔走上面的 `git ls-files --full-name`, 不受這一條影響。
+  fi
+  git cat-file -e "origin/dev:$rel" 2>/dev/null && return 0
   return 1
 }
 
@@ -588,7 +628,65 @@ if [ "${1:-}" = "--selftest" ]; then
     git rm -q --cached supabase/migrations/20200606000000_e2e_later.sql >/dev/null 2>&1
     rm -f supabase/migrations/20200505000000_e2e_earlier.sql supabase/migrations/20200606000000_e2e_later.sql )
 
-  [ "$fail" = "0" ] && echo "✅ migration-new-file-static-checks --selftest $n/$n(A/M 都掃 + 未落地舊檔照擋 + 已落地改壞照擋而【既有的紅】仍豁免 + 不退步閘世界二/二b/二c + 未 staged + NUL 量不到 + 多檔 + 該綠必綠 + untracked 雙向含突變 + 零參數兩態 + 已落地沒改到才跳過)"
+  # ══ 🔴🔴 origin/dev 那一把尺(2026-09-07 加)══════════════════════════════════
+  #    上面每一格「已落地」都是用 `APPLIED.tsv` 造的世界 ⇒ **`origin/dev` 這條路一格都沒有**,
+  #    而那正是「絕對路徑打不到 origin/dev」活到今天的原因。
+  #    🔴🔴 **我的第一版這四格【突變殺不死】** —— 拿掉修法照樣全綠。成因寫在這裡, 因為
+  #      下一個人很可能造出同一個世界:那一版的 fixture 檔【這次沒有被改到】
+  #      ⇒ 主迴圈在更前面就用「⚠️ 略過(這次 commit 沒有動到的檔)」把它濾掉了
+  #      ⇒ **`already_landed` 一次都沒有被呼叫**, 而那一格的 rc=0 與修法無關。
+  #      📌 **一個 rc=0 可以有兩個來源, 而只有其中一個是我要量的那個。**
+  #    ✅ 所以世界要造成【已在 origin/dev + 帶著既有的紅 + 這次有改】—— 那正是主視窗報的那個世界
+  #      (account `20260907021000` / `030000`)。此時兩條路的結果不同:
+  #        判已落地 ⇒ 走不退步閘 ⇒ 既有的紅豁免 ⇒ 放行
+  #        判未落地 ⇒ 五道全檢   ⇒ 那個紅照擋   ⇒ rc=1
+  #    🔴 ref 到這裡才建 —— 建早了, 上面每一格的 fixture 檔在【機制上】都會變成「已落地」。
+  #    ⚠️ **而「所以上面會壞掉」這個後果【沒有被量到】** —— code-reviewer 2026-09-07 把
+  #      `update-ref` 提早到 seed 之後、以及提早到 dirty-seed 之後, **兩次都仍是 40/40**。
+  #      ⇒ 位置留在最後是**保守**, 不是因為量到了會壞。不要把這句讀成「已驗證的相依」。
+  ( cd "$W" && printf 'BEGIN;\nSELECT 1; COMMIT;\nSELECT 2;\nCOMMIT;\n' \
+      > supabase/migrations/20201212000000_absland.sql
+    git add supabase/migrations/20201212000000_absland.sql >/dev/null 2>&1
+    git -c user.email=p@x -c user.name=p commit -qm absland >/dev/null 2>&1
+    git update-ref refs/remotes/origin/dev HEAD
+    # 這次的改動:加一行【不會多出新種類的紅】的內容 ⇒ 不退步閘該放行
+    printf 'BEGIN;\nSELECT 1; COMMIT;\nSELECT 2;\nSELECT 3;\nCOMMIT;\n' \
+      > supabase/migrations/20201212000000_absland.sql
+    git add supabase/migrations/20201212000000_absland.sql >/dev/null 2>&1 )
+  # 🔵 先證這份內容【自己是紅的】—— 沒有這一格, 下面兩格的 rc=0 分不出「豁免了」與「它本來就沒事」。
+  ( cd "$W" && bash "$CHECKS_FOR_SELFTEST" supabase/migrations/20201212000000_absland.sql >/dev/null 2>&1 )
+  cell "🧪 origin/dev 世界:這份內容【自己】是紅的(沒有這一格, 下面兩格零判別力)" "$?" "1"
+  # ⚠️ **這一格的分母與正式路徑差一個旋鈕**(code-reviewer 2026-09-07):它直呼 `CHECKS` 且
+  #    **不帶** `PCM_SIBLING_DIR`(分母 = 真的 migrations 目錄), 而「未落地 ⇒ 五道全檢」那條
+  #    正式路徑用的是 `git write-tree` 快照當分母。本 fixture 沒有 `CREATE OR REPLACE`
+  #    ⇒ 兩者同值 ⇒ 這一格今天仍然有效;而**換一份帶 OR REPLACE 的 fixture 就不成立了**。
+  # 世界甲:相對路徑 ⇒ 判已落地 ⇒ 走不退步閘 ⇒ 既有的紅豁免 ⇒ 放行
+  # 🔵 兩格**用同一種斷言**(rc + 走過那條路的字)—— 不同形的話, 兩格的差異可能來自
+  #    斷言方式而不是路徑形式, 而那正是這一對要分辨的東西。
+  _orel=$( cd "$W" && bash "$SELF" supabase/migrations/20201212000000_absland.sql 2>&1 )
+  case "$_orel" in *沒有變更紅*) _rrel=0 ;; *) _rrel=1 ;; esac
+  cell "🧪 origin/dev 世界:相對路徑 + 這次有改 ⇒ 判已落地 ⇒ 不退步閘 ⇒ 放行" "$_rrel" "0"
+  # 世界乙:**同一支檔的絕對路徑** ⇒ 必須判得一樣。
+  #    🔴 修法前這一格是 1(`git cat-file -e "origin/dev:/Users/…"` rc=128 ⇒ 誤判未落地 ⇒ 五道全檢)。
+  #    🔴🔴 **只斷言 rc=0 不夠**(code-reviewer 2026-09-07 突變 E 實測):在主迴圈的
+  #      `already_landed` 分支加一句「絕對路徑就整個 `continue` 跳過」⇒ **40/40 照樣全綠**
+  #      ⇒ 「走過不退步閘而放行」與「根本被略過」在 rc 上是同一個 0。
+  #      ⇒ 照 :4xx 那一格的先例, 斷言它**印出走過那條路的字**。
+  _oabs=$( cd "$W" && bash "$SELF" "$(cd "$W" && pwd -P)/supabase/migrations/20201212000000_absland.sql" 2>&1 )
+  case "$_oabs" in *沒有變更紅*) _rabs=0 ;; *) _rabs=1 ;; esac
+  cell "🧪 origin/dev 世界:絕對路徑 ⇒ 判得與相對路徑【一樣】(修法前這格會擋)" "$_rabs" "0"
+  # 世界丙:**真的新檔 + 絕對路徑** ⇒ 照樣全檢、照樣擋。
+  #    🔴 這一格是甲乙那個放寬的反向對照:少了它, 一個「把每支檔都當成已落地」的錯誤修法
+  #      會讓甲乙照樣全綠。
+  ( cd "$W" && printf 'BEGIN;\nSELECT 1; COMMIT;\nSELECT 2;\nCOMMIT;\n' \
+      > supabase/migrations/20201213000000_absnew.sql
+    git add supabase/migrations/20201213000000_absnew.sql >/dev/null 2>&1 )
+  ( cd "$W" && bash "$SELF" "$(cd "$W" && pwd -P)/supabase/migrations/20201213000000_absnew.sql" >/dev/null 2>&1 )
+  cell "🧪 origin/dev 世界:真新檔 + 絕對路徑 ⇒ 仍然全檢 ⇒ 擋" "$?" "1"
+  ( cd "$W" && git rm -q --cached supabase/migrations/20201213000000_absnew.sql >/dev/null 2>&1
+    rm -f supabase/migrations/20201213000000_absnew.sql )
+
+  [ "$fail" = "0" ] && echo "✅ migration-new-file-static-checks --selftest $n/$n(A/M 都掃 + 未落地舊檔照擋 + 已落地改壞照擋而【既有的紅】仍豁免 + 不退步閘世界二/二b/二c + 未 staged + NUL 量不到 + 多檔 + 該綠必綠 + untracked 雙向含突變 + 零參數兩態 + 已落地沒改到才跳過 + origin/dev 相對/絕對同判且真新檔照擋)"
   exit "$fail"
 fi
 

@@ -104,6 +104,7 @@ export function OrderDetail({
   suppliers = [],
   suppliersFailed = false,
   refundEnabled = false,
+  backfillEnabled = false,
   refunds = [],
   refundsFailed = false,
   refundsTruncated,
@@ -137,6 +138,9 @@ export function OrderDetail({
   suppliersFailed?: boolean;
   /** M-3 RW2d:退款入口旗標(頁層讀 `isRefundUiEnabled()` 下傳;預設 off)。 */
   refundEnabled?: boolean;
+  /** ⟦b4-TAPPAYDIRECT⟧ 片 B:補登入口旗標(頁層讀 `isRefundBackfillUiEnabled()` 下傳;預設 off)。
+   *  🔵 與 `refundEnabled` 一樣, 預設 `false` 落在**安全**方向。 */
+  backfillEnabled?: boolean;
   /** M-3 RW3:退款帳本列(頁層讀;顯示不吃旗標 —— 既成事實必須可見)。 */
   refunds?: readonly OrderRefundRow[];
   /** M-3 RW3:帳本讀取失敗(區塊顯警告 + 發起入口 fail-closed,codex MF2)。 */
@@ -423,6 +427,7 @@ export function OrderDetail({
               manualRefundsTruncated={manualRefundsTruncated}
               manualRefundRailCap={manualRefundRailCap}
               refundEnabled={refundEnabled}
+              backfillEnabled={backfillEnabled}
               cancelFormsAllowed={cancelFormsAllowed}
               refundLedgerAbnormal={refundLedgerAbnormal}
             />

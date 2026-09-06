@@ -150,7 +150,29 @@ echo "== 你這棵樹的 build 戳記(決定你【會不會】看到假紅)=="
 #    本段原本只問【戳記在不在】⇒ 而 merge 帶進新的 storefront 碼、build 卻是**合併前**跑的,
 #    戳記照樣在 ⇒ 假紅被判成真紅, 三個人各自去追一個不存在的 bug。
 #    ⇒ 📌 **「build 過」與「build 過【現在這份碼】」是兩件事, 而戳記只答得出前者。**
+# 🔴 2026-09-07 補:**非 browser 的檔也會因為 load 飄**(主視窗轉 auth 實錘)。
+#    auth `a11082dea` 全套:第 1 發**零紅**、第 2 發 **3 支紅**(order-panel-wiring /
+#    products/[id]/page / cancel-request-token —— **都不是 browser 檔**), 而**單跑三發全綠**。
+#    當時 `db` + `ship` 同時在跑全套;`db` 量同一支 `cancel-request-token` 五發 **5-25 秒**。
+#    🛑 **⇒ 「這支不是 browser 檔」不足以判它是真紅** —— 而本工具原本只把 browser 那一族分出來。
+#    📌 所以印【當下的 load】與【有幾個 vitest 在跑】: 那兩個數字**不判定任何事**,
+#       它們讓你知道**這一發是在什麼環境下跑的** —— 而那是事後回頭看時唯一還原得了的東西。
+echo "== 這一發跑的時候, 這台機器在忙什麼 =="
+printf '  load averages  %s\n' "$(uptime | sed 's/.*averages*: *//')"
+printf '  在跑的 vitest  %s 個\n' "$(pgrep -fl vitest 2>/dev/null | grep -c . || echo 0)"
+echo "  ⚠️ 高 load 之下【非 browser 的檔也會飄】(2026-09-07 auth 實錘:同一顆 commit 第 1 發 0 紅、第 2 發 3 紅、單跑全綠)"
+echo "     ⇒ 下面分出來的「真紅」若都在同一批出現、而單跑會綠 ⇒ **先看這兩個數字, 再去修碼。**"
+echo
+
 HEAD_CT=$(git -C "$REPO" log -1 --format=%ct HEAD 2>/dev/null || echo 0)
+# 🔴 2026-09-07 補(`-ship` `⟦f3-PGPORTCOLLISION⟧` ④ 的同型):**丟掉 stderr 之後, 兩種失敗印同一個東西。**
+#    這裡 `|| echo 0` 讓 git 失敗降級成 `HEAD_CT=0` ⇒ 而 `0` 會讓下面每一支戳記都判「不舊」
+#    ⇒ 🛑 **「這棵樹沒有 git」與「戳記都是新的」印同一個結論(= 全部安靜)。**
+#    ⇒ 所以在這裡問一次, 而**不是**把 `2>/dev/null` 拿掉(拿掉只會多噴一行 git 的錯誤, 判定照樣壞)。
+if [ "$HEAD_CT" = "0" ]; then
+  echo "  🔴 讀不到 HEAD 的時間(git 失敗或這裡不是 repo)⇒ **下面的「戳記新不新」這一格今天沒有答案**"
+  echo "     ⚠️ 它【不是】說戳記是新的 —— 是這一格沒跑成。"
+fi
 for a in admin storefront; do
   STAMP="$REPO/apps/$a/.next/BUILD_OK"
   if [ ! -e "$STAMP" ]; then
