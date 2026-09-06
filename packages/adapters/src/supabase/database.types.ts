@@ -1,5 +1,5 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十五個函式、共三十六處**手動校正,
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十六個函式、共三十九處**手動校正,
 //    🔴 **2026-09-06 合併 `agent/line-ship` 與 `agent/line-ship-5b-sentnum` 時重新編號** ——
 //      兩條分支各自加了一條(⑱ 與 ⑲), 而**它們在各自的樹上都看不到對方** ⇒ 數字各算各的。
 //      ⇒ 📌 那正是 ⑲ 自己註解裡預言的那一撞:「合併這兩條分支的人請重新編一次號。」
@@ -457,6 +457,16 @@
 //        欄名加 `_TYPO` ⇒ `TS2322: Type 'string' is not assignable to type 'never'`  🔴 紅
 //        表名加 `_TYPO` ⇒ `TS2769: No overload matches this call`                    🔴 紅
 //      ⇒ backlog `#652` 結案(`fc27309f`);兩發表演與拆 cast 在 `acc68f81`。
+//   ⑳ `email_outbox.provider_message_id` **三處**(Row / Insert / Update)〔主migration=20260906200000〕〔APPLIED.tsv 有此列=1〕(2026-09-06 線【信】`-mail`;⟦mail-PROVMSGIDUI⟧)——
+//      **形狀照 `last_error_code` 對齊**(同表、同為 nullable):Row 必填 `string | null`,
+//      Insert / Update **帶 `?`**。🔴 我第一版把 Insert 那一處寫成必填(照 `payload` 抄的)——
+//      那會讓**每一次 insert 都被逼著給值**;抓到它的是拿 `last_error_code` 當正對照比三種形狀。
+//      🔵 **為什麼要手補而不是重 gen**:重 gen 會沖掉本檔這 16 條手動校正(見檔頭第一行)。
+//      🔴 **編號 ⑳ 是主視窗 `-f8` 2026-09-06 先查過【六棵線樹對 origin/dev 全部 no change、工作樹零 dirty】才配給本線的** —— 成因見檔頭 `:3-5` 那次 ⑱/⑲ 撞號:
+//      **兩條分支各自加一條, 而它們在各自的樹上都看不到對方。**⇒ 下一個要加的是 ㉑。
+//      ⚠️ **本條證不到什麼**:我**沒有查正式庫**那一欄的真實型別 —— 依據是 migration
+//      `20260906200000` 與帳本那一列;而抓到「型別檔沒有這一欄」的是 **typecheck 本身**
+//      (`TS2352: column 'provider_message_id' does not exist on 'email_outbox'`),與 ⑲ 那次同形。
 //   🔴 **本次合併踩到的坑(修法在 `docs/patterns/guard-and-instrument-traps.md` 最末一節)**:
 //      用「區塊界定」刪 ⑫ 那一條時**吃掉了後面 36 行檔頭**(含上面那段 `--project-id` 警告),
 //      而**三綠全綠** —— 那些是註解,刪掉不影響任何斷言。
@@ -966,6 +976,7 @@ export type Database = {
           next_retry_at: string
           order_id: string
           payload: Json
+          provider_message_id: string | null
           recipient_email: string
           request_id: string | null
           sent_at: string | null
@@ -986,6 +997,7 @@ export type Database = {
           next_retry_at?: string
           order_id: string
           payload: Json
+          provider_message_id?: string | null
           recipient_email: string
           request_id?: string | null
           sent_at?: string | null
@@ -1006,6 +1018,7 @@ export type Database = {
           next_retry_at?: string
           order_id?: string
           payload?: Json
+          provider_message_id?: string | null
           recipient_email?: string
           request_id?: string | null
           sent_at?: string | null

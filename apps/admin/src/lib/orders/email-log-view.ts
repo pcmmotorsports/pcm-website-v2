@@ -45,6 +45,14 @@ export type EmailLogRow = {
   readonly maxAttempts: number;
   readonly createdAt: string;
   readonly sentAt: string | null;
+  /**
+   * Resend 回的訊息 id。**客服憑它在 Resend 後台調出客人當時收到的那封信。**
+   *
+   * 🔴 `null` 有兩種成因, 而畫面**不可以**把它們畫成空白:
+   *    ①這封根本沒真的寄出去 ②它寄出時我們還沒開始記這一欄(45g 之前)。
+   * 🔵 兩種都不是「查得到而是空的」⇒ 呼叫端一律印「沒有編號」, 不留白。
+   */
+  readonly providerMessageId: string | null;
 };
 
 /**
@@ -58,7 +66,16 @@ export type EmailLogRow = {
  *        封閉集那條搜 `expect([...KNOWN_EMAIL_STATUSES]).toEqual` —— **兩條是不同的閘, 不要混講**)。
  *    ⇒ 要加欄位 ⇒ 你會先撞到那條紅 ⇒ 那時再回去讀規格 §2「不要顯示的」那一節。
  */
-export const EMAIL_LOG_COLUMNS = 'event_type,status,attempts,max_attempts,created_at,sent_at';
+/**
+ * 🔵 **2026-09-06 加了 `provider_message_id`(⟦mail-PROVMSGIDUI⟧)** —— 而上面那條紅**是預期的**:
+ *    我照它的指示回去讀了規格 §2「不要顯示的」
+ *    (`~/pcm-mailbox/規格-片A-訂單詳情頁顯示寄信紀錄-20260902.md:59-63`),
+ *    那一節逐字禁的是 **收件人信箱 · 主旨 · 內文** ⇒ **這一欄不在禁止清單裡**
+ *    (它是 Resend 回的不透明識別碼, 不含 PII)。
+ * 🛑 **而【不在禁止清單】不等於【可以隨便加下一欄】** —— 下一個人照樣要撞紅、照樣要回去讀那一節。
+ */
+export const EMAIL_LOG_COLUMNS =
+  'event_type,status,attempts,max_attempts,created_at,sent_at,provider_message_id';
 
 /** 狀態的中文字面。**未知態回 null** ⇒ 由呼叫端 fail-open 印原始字串。 */
 export function emailStatusLabel(status: string): string | null {
@@ -119,6 +136,8 @@ export type EmailLogEntry = {
   readonly isDead: boolean;
   readonly createdAt: string;
   readonly sentAt: string | null;
+  /** 見 `EmailLogRow.providerMessageId`;`null` ⇒ 畫面印「沒有編號」而不是留白。 */
+  readonly providerMessageId: string | null;
 };
 
 export function toEmailLogEntry(row: EmailLogRow): EmailLogEntry {
@@ -134,6 +153,7 @@ export function toEmailLogEntry(row: EmailLogRow): EmailLogEntry {
     isDead: row.attempts >= row.maxAttempts,
     createdAt: row.createdAt,
     sentAt: row.sentAt,
+    providerMessageId: row.providerMessageId,
   };
 }
 

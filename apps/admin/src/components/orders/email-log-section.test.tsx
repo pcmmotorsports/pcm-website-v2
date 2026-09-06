@@ -19,10 +19,34 @@ const row = (over: Partial<EmailLogRow> = {}): EmailLogRow => ({
   maxAttempts: 5,
   createdAt: '2026-09-02T02:55:00.315Z',
   sentAt: '2026-09-02T02:55:00.929Z',
+  providerMessageId: null,
   ...over,
 });
 
 describe('EmailLogSection', () => {
+  // 🔵🔵 ⟦mail-PROVMSGIDUI⟧ 的兩格 —— **兩個世界要印【不同的東西】**。
+  //    🛑 不要只斷言「有 id 時看得到 id」:那一格在「沒 id 也留白」的世界裡照樣綠。
+  //       本片整個存在的理由就是**留白會被讀成「這裡沒東西可看」**。
+  describe('信件編號', () => {
+    it('🟢 有編號 ⇒ 畫面看得到那串 id', () => {
+      render(
+        <EmailLogSection data={{ status: 'ok', rows: [row({ providerMessageId: 're_abc123' })] }} />,
+      );
+      expect(screen.getByText(/re_abc123/)).toBeTruthy();
+      expect(screen.queryByText('沒有編號')).toBeNull();
+    });
+
+    it('🔴 沒有編號 ⇒ 印「沒有編號」而【不是留白】', () => {
+      render(<EmailLogSection data={{ status: 'ok', rows: [row({ providerMessageId: null })] }} />);
+      expect(screen.getByText('沒有編號')).toBeTruthy();
+    });
+
+    it('🟢 30 天天花板那句一定在(它是這一格唯一的過期警告)', () => {
+      render(<EmailLogSection data={{ status: 'ok', rows: [row()] }} />);
+      expect(screen.getByText(/只保留 30 天/)).toBeTruthy();
+    });
+  });
+
   it('🟢 有寄過信的單 ⇒ 列出來(事件 + 狀態)', () => {
     render(<EmailLogSection data={{ status: 'ok', rows: [row(), row({ eventType: 'order_shipped' })] }} />);
     expect(screen.getByText('訂單成立通知')).toBeTruthy();
