@@ -20,6 +20,17 @@
 #
 # 用法:
 #   bash scripts/two-controls.sh [--regex] <要量的純字串> <正對照> <檔或目錄...>
+#   bash scripts/two-controls.sh --nonce          ← 只印一個現造字串就結束
+#
+# 🔴🔴 **`--nonce` 為什麼存在(2026-09-07 `-ship` 量、主視窗 `-f1` 批)**:
+#   板列 `⟦b9-NEGCTRL1⟧` 自報 **n=12 / 套用率 0/12** —— 本支**早就存在而沒有人用**。
+#   當晚量到的成因不是「不知道」, 是**射程**:那一晚四次犯案裡**三次不是在掃檔案**
+#   (負對照寫在 SQL 裡、寫在 `sed` 裡、寫在說明文字裡)⇒ 本支的主模式接不到那三種現場。
+#   🎯 **而那一列的末句是**「手打一個看起來很假的字, 比想起有一支工具快」
+#   ⇒ 📌 **所以 `--nonce` 的整個目的是【比手打還快】** —— 一個字、一行、可以直接 `$( )` 接走。
+#   🔬 同一晚的對照組(同一個人、同一晚、同一種取名法, 唯一變因是落點):
+#      寫進板列的三個字串 ⇒ 各 1 支檔 ⇒ **全死**;只在終端機打過的那一個 ⇒ 0 支檔 ⇒ **還活著**。
+#      ⇒ 🎯 **一個負對照活著, 不是因為它多獨特, 是因為【沒有人把它寫進檔案】。**
 #   🔴 預設 = 純字串(`grep -F`)。**要正規式一定要加 `--regex`** —— 不加的話 `( ) * . [ ]` 都是字面。
 # 例:
 #   bash scripts/two-controls.sh 'heartbeat' 'emailOverdue' packages/use-cases/src/check-anomaly-alerts.ts
@@ -40,7 +51,37 @@
 #      它只會出一句提示、不擋你 ⇒ **提示是給看的人的, 它擋不住不看的人。**
 set -u
 
+# 🔴 現造:每次執行都不一樣 ⇒ 它不可能已經在任何檔案裡。
+#    主流程與 `--nonce` **共用這一份** —— 兩邊各寫一份的話, 有一天它們會不一樣而沒有東西會叫。
+mknonce(){ printf 'negctl-%s-%s-%s\n' "$(date +%s)" "$$" "$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')"; }
+
+# 🔴 這一句【不含任何字面】—— 它就是要貼進交件/板列/commit 的那一句。
+#    本列的紀律逐字:「現造的字串不能貼進交件當證據(下次不一樣)⇒ 改貼【那一發的結果 + 產生方式】」。
+#    ⇒ 📌 把正確的貼法做成**現成的**, 而不是要人自己改寫 —— 要人改寫就等於要人記得。
+paste_line(){
+  echo "📋 貼進交件/板列/commit 用這一行(它【不含字面】⇒ 貼了不會製造下一具屍體):"
+  echo "   負對照:用 scripts/two-controls.sh 現造的字串(時間戳 + pid + 8 bytes 亂數), 本次命中 0。"
+}
+
+# ── `--nonce`:只印一個現造字串就結束(字串在 stdout, 說明在 stderr)──────────
+# 🛑 說明一定要走 stderr —— 否則 `N=$(… --nonce)` 會把說明一起吃進去,
+#    而那個 N 拿去 grep 會回一個【看起來很正常的 0】。
+if [ "${1:-}" = "--nonce" ]; then
+  mknonce
+  {
+    echo "ℹ️  上面那一行是【現造】的:時間戳 + pid + 8 bytes 亂數 ⇒ 它從來沒有存在於任何檔案裡。"
+    echo "🛑 用完即棄 —— **不要把它寫進任何會被掃的檔**(板列 / commit 訊息 / 交件 / migration 註解)。"
+    echo "   寫進去的那一刻它就死了, 而下一個拿它當負對照的人會得到一個沒有說明的非 0。"
+    paste_line
+  } >&2
+  exit 0
+fi
+
 if [ "${1:-}" = "--selftest" ]; then
+  # 🔴 本 selftest 會叫 `git grep` ⇒ 先剝掉繼承來的 git 環境(pre-commit 會設 GIT_DIR / GIT_INDEX_FILE)。
+  #    `git -C` 擋不住它們 —— 見 scripts/selftest-git-isolation-gate.sh 檔頭。
+  for _v in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$_v"; done
+  unset _v
   d=$(mktemp -d); printf 'alpha\nbravo\n' > "$d/f.txt"
   ok=1
   out=$(bash "$0" alpha bravo "$d/f.txt" 2>&1) || ok=0
@@ -76,7 +117,28 @@ if [ "${1:-}" = "--selftest" ]; then
   out7=$(bash "$0" 'a.c' 'abc' "$d/meta.txt" 2>/dev/null)
   echo "$out7" | grep -q '當 regex 讀會命中' || { echo "🔴 selftest: 丟掉 stderr 之後提示不見了 ⇒ 它跟數字不同管線"; ok=0; }
   rm -rf "$d"
-  [ "$ok" = "1" ] && { echo "✅ selftest PASS(七個世界印不同的東西)"; exit 0; }
+  # 世界八:`--nonce` 兩發【必須不同】—— 一支永遠回同一個字的產生器, 與寫死一個字面是同一件事
+  n1=$(bash "$0" --nonce 2>/dev/null); n2=$(bash "$0" --nonce 2>/dev/null)
+  case "$n1" in negctl-*) : ;; *) echo "🔴 selftest: --nonce 印的東西不像個 nonce:[$n1]"; ok=0 ;; esac
+  [ -n "$n1" ] && [ "$n1" != "$n2" ] || { echo "🔴 selftest: --nonce 兩發應不同, 實得 [$n1] / [$n2]"; ok=0; }
+  # 世界九:`--nonce` 印的字在 repo 裡【必須 0 命中】
+  # 🛑 **射程**:`git grep` 只看【被追蹤的檔】 ⇒ 一個被寫進**未追蹤/未 commit** 的檔的 nonce,
+  #    這一格【看不到】。所以世界九說的是「它沒有進版控」, **不是**「它沒有落進任何檔案」。
+  # 🔴🔴 **而這一格期望的是一個【零】—— 一把壞掉的 git grep 也回零。**
+  #    ⇒ 所以同一發必須配一個【該非 0 的正對照】:同一把 git grep 去找一個一定在的字。
+  #      正對照回 0 ⇒ 是尺壞了(或不在 git 樹裡), 不是「nonce 很乾淨」⇒ 本格作廢, 不得印綠。
+  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    gz=$(git grep -c -F -- "$n1" 2>/dev/null | wc -l | tr -d ' ')
+    gp=$(git grep -c -F -- 'two-controls' 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$gp" -eq 0 ]; then
+      echo "🔴 selftest: 世界九的正對照回 0 ⇒ 這把 git grep 沒有接上 ⇒ 本格作廢, 不是通過"; ok=0
+    elif [ "$gz" -ne 0 ]; then
+      echo "🔴 selftest: --nonce 印的字在 repo 裡命中 $gz 支檔 ⇒ 它不是現造的"; ok=0
+    fi
+  else
+    echo "ℹ️  世界九跳過:不在 git 工作樹裡 ⇒ 這【不是】通過, 是沒量到。"
+  fi
+  [ "$ok" = "1" ] && { echo "✅ selftest PASS(九個世界印不同的東西)"; exit 0; }
   echo "🔴 selftest FAIL"; exit 1
 fi
 
@@ -105,8 +167,7 @@ EXCLUDES=(--exclude-dir=.next --exclude-dir=node_modules --exclude-dir=.git
           --exclude-dir=dist --exclude-dir=coverage --exclude-dir=.turbo
           --exclude-dir=.vercel --exclude-dir=graphify-out --exclude=*.map)
 
-# 🔴 現造:每次執行都不一樣 ⇒ 它不可能已經在任何檔案裡
-NEG="negctl-$(date +%s)-$$-$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+NEG="$(mknonce)"
 
 # 🔴🔴 **預設【純字串】(`-F`), regex 要明講 `--regex`**(2026-08-31 R1 must-fix 2 之後改的)
 #    原本兩種讀法都跑、不同就 rc=2 ⇒ **它會擋掉正當的 regex 用法, 而且沒有出口**
@@ -165,4 +226,8 @@ if [ "$c_neg" -ne 0 ]; then
   echo "🔴 負對照非 0 ⇒ 這把尺太寬(或 grep 參數被吃掉) ⇒ 結果作廢。" >&2
   rc=2
 fi
+# 🔴 報表尾巴給【可以直接貼的那一句】—— 而它不含字面。
+#    上面「負對照 = 0 (現造 negctl-…)」那一行是**給你現在看的**, 不是給你貼的;
+#    貼它就是把一個現造字串寫進一支會被掃的檔 ⇒ 那正是本工具存在要擋的事。
+paste_line
 exit "$rc"
