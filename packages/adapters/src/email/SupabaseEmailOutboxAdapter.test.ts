@@ -991,6 +991,37 @@ describe('甲-3 ① countNewEvents —— 與 enqueue 撞鍵用同一份 (event_
     await expect(adapter(client).countNewEvents(many)).rejects.toThrow(/一次最多 200 筆/);
   });
 
+  it('🔴🔴 合成假信箱不算進分母 —— 20 個 LINE 客 + 1 個真信箱 ⇒ 回 1 不是 21', async () => {
+    // 🛑 這一格守的是一條【新增的漏信路徑】(codex 12⑤ must-fix):
+    //    合成信箱那些列落 `skipped_no_real_email`、一封都不會寄 ⇒ 算進分母就會把
+    //    那一封真的該寄的信一起擋掉, 而**被擋就連 skip 紀錄也沒落** ⇒ 下一輪還是同樣 21 筆。
+    const inputs: EnqueueEmailInput[] = [
+      ...Array.from({ length: 20 }, (_, i) => ({
+        ...BASE_INPUT,
+        orderId: `line-${i}`,
+        recipientEmail: `u${i}@${FAKE_DOMAIN}`,
+      })),
+      { ...BASE_INPUT, orderId: 'real-1', recipientEmail: 'real@example.com' },
+    ];
+    const { client, rpc } = rpcClient({ data: 1, error: null });
+    await expect(adapter(client).countNewEvents(inputs)).resolves.toBe(1);
+    // 🔵 送進 DB 的鍵只剩那 1 把 —— 只斷言回傳值的話, 一個「照樣送 21 把而 DB 剛好回 1」
+    //    的實作也會綠。
+    expect((rpc.mock.calls[0]![1] as { p_keys: string[] }).p_keys).toEqual(['real-1']);
+  });
+
+  it('🔵 全部都是合成信箱 ⇒ 回 0 而且【一發 RPC 都不打】(那一批一封都不會寄)', async () => {
+    const inputs: EnqueueEmailInput[] = Array.from({ length: 5 }, (_, i) => ({
+      ...BASE_INPUT,
+      orderId: `line-${i}`,
+      recipientEmail: `u${i}@${FAKE_DOMAIN}`,
+    }));
+    const rpc = vi.fn();
+    const client = { rpc } as unknown as EmailOutboxClient;
+    await expect(adapter(client).countNewEvents(inputs)).resolves.toBe(0);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
   it('🟢 邊界對照:剛好 200 筆 ⇒ 不 throw(證明上一格擋的是「超過」不是「達到」)', async () => {
     const exactly: EnqueueEmailInput[] = Array.from({ length: 200 }, (_, i) => ({
       ...BASE_INPUT,

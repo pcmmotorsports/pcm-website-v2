@@ -33,6 +33,9 @@ function mkRow(r: {
 function deps(rows: ReturnType<typeof row>[]) {
   const outbox = {
     enqueue: vi.fn(async () => ({ kind: 'enqueued' as const, id: 'outbox-1' })),
+    // 🔵 甲-3:預設「全都是新的」⇒ 既有測項的行為與改版前逐格相同(批量都遠小於 20)。
+    //    🛑 少了這一行, `as unknown as` 會讓 typecheck 照樣綠, 而測試在執行期才炸。
+    countNewEvents: vi.fn(async (i: readonly unknown[]) => i.length),
   } as unknown as IEmailOutbox;
   const scanner: IUnpaidCancelledOrderScanner = {
     listUnpaidCancelledWithoutEmail: vi.fn(async () => ({

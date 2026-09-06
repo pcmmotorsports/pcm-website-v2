@@ -433,11 +433,24 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
       );
     }
 
+    // 🔴🔴 **合成假信箱先剔掉**(codex `gpt-6-astra` 2026-09-07 12⑤ must-fix):
+    //    這個數是排信閘的分母, 而閘擋的是「**一次寄太多信**」。
+    //    合成信箱那些列落的是 `skipped_no_real_email` ⇒ **它們一封都不會寄出去**
+    //    ⇒ 📌 把它們算進分母, 20 個 LINE 客 + 1 個真信箱 = 21 ⇒ 整批被擋
+    //      ⇒ 而**被擋就連那 20 列 skip 紀錄也沒落** ⇒ 下一輪還是同樣 21 筆
+    //      ⇒ 🛑 **那一封真的該寄的信永遠排不進去**(新增的漏信路徑)。
+    // 🔵 判斷式**不在這裡重寫** —— 用 `enqueue()` 用的同一個 `this.cfg.isSyntheticEmail`
+    //    (`:479` 那一行)。重寫一份就會有兩套 LINE 判準。
+    // ⚠️ **代價明寫**:一批 500 個合成信箱 + 1 個真的, 會**過閘**並落 501 列。
+    //    那是**寫入量**不是**寄送量**, 而這道閘管的是寄送量。要管寫入量是另一件事。
+    const sendable = inputs.filter((input) => !this.cfg.isSyntheticEmail(input.recipientEmail));
+    if (sendable.length === 0) return 0;
+
     // 🔴 鍵一定走 `composeEvent` —— 那是 `enqueue()` 用的同一支。在這裡自己重算一份
     //    ⇒ 兩份會漂, 而漂掉的那一半**不會紅**:這把尺說「新的」而 `enqueue` 說「duplicate」,
     //    症狀是**閘的分母錯了**, 而閘的分母錯了在任何測試上都不是紅色的。
     // 🔵 去重交給 DB 那支函式(`SELECT DISTINCT`)—— 一份去重, 不是兩份。
-    const keys = inputs.map((input) => composeEvent(input).dedupKey);
+    const keys = sendable.map((input) => composeEvent(input).dedupKey);
 
     // 🔴🔴 **為什麼是 RPC 而不是 `.select().in()`**(codex `gpt-6-astra` 2026-09-07 12⑤ R1+R2 兩輪):
     //    「這些鍵哪些存在」的答案是**一堆列**, 而列數會被 PostgREST 的 `db-max-rows` 截斷 ——
