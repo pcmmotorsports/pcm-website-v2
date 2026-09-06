@@ -6,6 +6,60 @@
 
 ---
 
+## R1 · codex(gpt-6-astra, `--disable apps`)= **FAIL**, 3 must-fix + 3 nit —— 逐條寫在這裡, 而不是改完就算
+
+> 🔴🔴 **最重要的那一條我完全沒想到, 而它不在 SQL 層 —— 它在【呼叫端】。**
+
+### MF1 · 加第 ④ 塊可能讓【原本搜得到的商品消失】(跨層反例)
+`packages/adapters/src/supabase/SupabaseProductAdapter.ts:872` 逐字:
+```ts
+    if (ids.length > RPC_ID_CAP) {
+```
+`RPC_ID_CAP = 1000`(`:78`)。超過 ⇒ `return null` ⇒ **整發搜尋退回舊路**, 而舊路(`:716` 一帶)
+**沒有正規化比對、也沒有變體比對**。
+⇒ 🎯 **反例**:某個詞原本命中 998 件, 其中有幾件是**只靠正規化前綴**找到的;
+　 第 ④ 塊再多帶回 3 件 ⇒ 1001 > 1000 ⇒ **退回舊路** ⇒ **那幾件反而不見了**。
+⇒ 📌 **一個「讓更多東西搜得到」的改動, 可以讓原本搜得到的東西消失** —— 而它在 SQL 層完全看不出來。
+✅ **驗收條件加一格(必做)**:構造一個讓 id 數**跨過 1000→1001** 的詞, 端到端(走 adapter 那條路)跑,
+　 並明寫處置:是提高 cap、是分頁、還是接受降級。**只驗兩個 SKU 的 SQL 命中不算數。**
+
+### MF2 · 乙案(運算式索引)不能當成加速方案
+`text_pattern_ops` 對**常數** `LIKE 'X%'` 是對的 opclass, 而這裡右側是 CTE 每列算出來的 `t.term`。
+`supabase/migrations/20260904010000_...sql:120` 的 `COMMENT ON INDEX` 早就寫過這件事。
+⇒ ✅ 乙案若要做, **必須驗完整查詢的 `Index Cond`**, 不能拿常數版的 EXPLAIN 代替。
+⇒ ⏰ 這一條已另開板列 `⟦search-PATTERNCONSTIDX⟧`(真正的修法是**函式重寫成 pattern 常數**, 不是加索引)。
+
+### MF3 · §0 那句「RLS 會生效」證據不足 —— 我把【必要】講成了【充分】
+⛔ ~~「view 是 `security_invoker=true` + 函式 `prosecdef=f` ⇒ anon 吃得到 policy」~~
+🔴 兩層 INVOKER 是**必要不充分**:它不證明 RLS 真的啟用、不證明呼叫者沒有 `BYPASSRLS`、
+　 不證明沒有**別的 permissive policy 把它放寬**、也不證明基表欄位權限齊全。
+　 **而我量的是唯讀連線, 那不是 anon。**
+✅ 補法:以 **anon 身分**跑完整的新查詢, 附**上架正對照**(看得到)與**下架負對照**(看不到),
+　 並列出該表的**有效 policies 全集**。⇒ 在那之前, 這一格是**證據缺口**, 不是已證實的越權。
+
+### N1 · §2 「planner 無論如何都要全表掃」過度絕對
+無合格詞時可能根本不掃;多詞可能重算多次;RLS 也會改變處理列數。
+`§0` 那句「複合鍵第二欄**用不到**」同樣太絕對 —— PostgreSQL 對非首欄條件仍可能掃, 只是效率差。
+✅ 改寫成「**沒有可用的前綴索引 ⇒ 預期是全表掃**, 而實際計畫要 EXPLAIN 才算數」。
+🔵 codex 另提一個可比的寫法:按 (商品, 詞) 的 correlated `EXISTS`, 吃 `product_id` 索引並提前停止 —— **但快不快要量**。
+
+### N2 · 「真的沒貼進正式庫」是推論, 不是那個讀數答得出來的
+同一個讀數也可能來自**套用後被刪掉 / 改名 / 回滾**。
+✅ 全文改成「**該名稱的索引在量測時不存在**」;「少的只有索引」也要分開查(部署歷史 + 完整函式本體)。
+
+### N3 · 我引用的那句註解逐字相符, 而【它自己已經過期】
+`§1` 引的「三個條件缺一不可, 少了第一個會回傳整張表」——
+現行版本還有**數字閘**在, 單獨移除「正規化非空」那一條**不會**讓中文詞變成全表命中;
+而那句註解也**漏掉了現行的七位純數字分支**。
+✅ **防護保留**(它仍然該在), 而**理由要訂正** —— 📌 **逐字引用對了, 不代表被引用的那句話今天還成立。**
+
+### 🟢 codex 同時答掉了我最擔心的兩題(這兩題我原本要自己驗)
+- `want` 只由 `t` 算, 第 ④ 塊的 `ord` 也來自同一個 `t` ⇒ **重複的 `(id, ord)` 不會增加 `DISTINCT` 計數**
+  ⇒ 集合**不會縮小**;`PET52R` / `AZ203B` 同時含字母與數字 ⇒ 通得過條件。
+- `LANGUAGE sql STABLE` **不會**免除 RLS(`STABLE` 影響的是查詢快照, 不是權限)。
+
+---
+
 ## 0. 先回答 front 留下的兩個「未確認」—— 我對【正式庫】唯讀量了一發, 零寫入
 
 | front 的問題 | 答案 | 怎麼量的 |
@@ -13,7 +67,7 @@
 | sku 上有沒有 trgm 索引? | 🔴 **沒有** | 全庫 16 支 trgm 索引逐支列出, **沒有一支在 `product_variants`** |
 | sku 上有沒有【任何】索引? | ⚠️ **有一支, 而它幫不上忙** | `product_variants_supplier_sku_key` = `UNIQUE btree (supplier_slug, sku)` —— **sku 是複合鍵的第二欄** ⇒ 單獨查 sku 用不到它 |
 | `product_variants_public` 有沒有濾掉下架? | ✅ **有, 而不是靠 view** | view 本體**零 `WHERE`**(`20260602135934:137-150` 只是投影);濾的是 **RLS**:policy `product_variants_select_public` 的 `USING` = `EXISTS(products p WHERE p.id = product_id AND p.delisted_at IS NULL)` |
-| 那 RLS 在這條路上會生效嗎? | ✅ **會** | view 是 `security_invoker = true`, 而 `storefront_search_product_ids` 的 `prosecdef = **f**`(正式庫親查)⇒ 以呼叫者身分跑 ⇒ anon 吃得到 policy |
+| 那 RLS 在這條路上會生效嗎? | ⚠️ **必要條件成立, 而【不足以下結論】**(codex MF3;原本我寫 ✅ 會) | view 是 `security_invoker = true`, 而 `storefront_search_product_ids` 的 `prosecdef = **f**`(正式庫親查)⇒ 以呼叫者身分跑 ⇒ anon 吃得到 policy |
 | 零價變體呢? | 🔴 **沒有濾** | 那條 policy 只看**母商品下架**, 不看變體自己的價格或狀態 ⇒ 要濾得自己加條件 |
 
 🔬 **數法(可重跑, 唯讀零寫入;走 `bash scripts/readonly-prod-sql.sh <你的.sql>`)**:
@@ -32,7 +86,8 @@ SELECT count(*), count(*) FILTER (WHERE sku IS NOT NULL AND btrim(sku) <> '') FR
 
 ### 🔴 而我順手撞到一件不在交辦裡的事
 
-`20260904010000_m4b_storefront_search_partno_indexable.sql` **真的沒貼進正式庫** ——
+`20260904010000_m4b_storefront_search_partno_indexable.sql` 建的那支索引 **在量測時不存在於正式庫** ——
+(⛔ ~~原本我寫「真的沒貼進正式庫」~~ ⇒ codex N2:同一個讀數也可能來自**套用後被刪 / 改名 / 回滾**)
 它建的索引 `products_external_id_normalized_idx` 在正式庫 ⇒ **0**。數法(同一支唯讀 SQL):
 ```sql
 SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND indexname='products_external_id_normalized_idx';  -- ⇒ 0
@@ -86,7 +141,9 @@ SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND indexname='zzq_nev
 ## 2. 🔴 這一片最該先講的風險:它會讓搜尋變慢, 而慢多少我還沒量
 
 `product_variants` **59,841 列**, 而 sku 上**沒有可用索引**
-⇒ 第 ④ 塊的 `upper(regexp_replace(pv.sku, …)) LIKE …` 是**運算式**, planner 無論如何都要**全表掃 + 每列算一次 regexp**。
+⇒ 第 ④ 塊的 `upper(regexp_replace(pv.sku, …)) LIKE …` 是**運算式**, 而 sku 上沒有可用的前綴索引
+⇒ **預期是全表掃**。⛔ ~~原本我寫「planner 無論如何都要全表掃 + 每列算一次 regexp」~~ ——
+codex N1:無合格詞時可能根本不掃、多詞可能重算、RLS 也改變處理列數 ⇒ **實際計畫要 EXPLAIN 才算數**。
 
 🛑 **而第 ③ 塊今天已經是這樣了**(因為 `20260904010000` 那支沒貼)⇒ 本片是**在一個已經全表掃的路徑上再加一次全表掃**。
 
@@ -133,6 +190,7 @@ CREATE INDEX product_variants_sku_normalized_idx ON public.product_variants
 
 ## 5. 要主視窗拍的兩個字
 
-1. **索引**:甲(先不加, 推薦)· 乙(一併加)
+1. ~~**索引**:甲(先不加, 推薦)· 乙(一併加)~~ ⇒ ✅ **主視窗已裁甲**, 而**理由比我當時寫的更硬**:
+   不是「先量再說」, 是 **`text_pattern_ops` 那個形狀在這條查詢上本來就無效**(見 MF2 與 `⟦search-PATTERNCONSTIDX⟧`)。
 2. **零價變體要不要濾**:丙(不濾, 與現況一致)· 丁(濾掉 `price_general` 為 0 或 NULL 的變體)
    —— 🔴 我沒有推薦, 因為那是**商業決定**:一個沒定價的變體要不要讓客人搜到, Sean 說了算。
