@@ -183,6 +183,35 @@ export type EmailSendErrorCode =
   | 'http_404'
   | 'http_408'
   | 'http_409'
+  /**
+   * 🔴🔴 **Resend 的 409【有三種, 而它們不同命】**(2026-09-07 親讀官方文件,
+   * https://resend.com/docs/api-reference/errors —— 不憑記憶):
+   * ```
+   * concurrent_idempotent_requests  同一把 key 另一個請求進行中  官方:Try the request again later
+   * resource_locked                 另一個請求正在更新這個資源    官方:Retry after a short delay
+   * invalid_idempotent_request      🔴 同一把 key 24h 內用過【而 body 被改了】
+   *                                 官方逐字:Change your idempotency key or payload
+   * ```
+   * ⇒ 前兩種是**暫時性衝突, 官方叫你再試**;第三種**在那把 key 的 24h 窗內, 同一個 body 再試也還是 409** —— 而我們的 key 是
+   * `` `${eventType}/${outboxId}` ``(`ResendEmailSenderAdapter.ts:294`)⇒ **每一列固定不變**
+   * ⇒ 📌 **同一封信在兩次嘗試之間 body 變了(最現實的來源:改模板後重新部署)**
+   *   ⇒ 每一次重試都拿同一個 409 ⇒ 燒完 `max_attempts` ⇒ **死信**(板列 `⟦b4-RESEND409⟧`)。
+   *
+   * 🛑 **它【不可以】借 `quota_24h`** —— `isQuotaExhaustionCode()` 由政策推導
+   * (`email-backoff.ts:119-120`)⇒ 借了會讓 409 被算進「額度用盡」告警 ⇒ **汙染另一個訊號**。
+   * ⇒ 它有自己的政策 `idempotency_24h`:等那把 key 的 24h 窗過期再試。
+   🛑 **而那【不是保證送達】**(codex 2026-09-07 nit)—— 官方只說 key 保留 24h,
+     窗過之後那一發仍然可能因為別的理由失敗。這裡買到的是**一次真正的重試機會**, 不是結果。
+   🔴🔴 **而它有一個要寫出來的代價:窗過期之後【去重也一起過期】** ——
+     若第一次其實寄出去了而回應遺失(或 `markSent` 失敗), 隔天那一發會**再寄一封**。
+     ⇒ 📌 **這條路換來的是「可能重複一封」而不是「確定不會寄到」** —— 兩害相權的選擇, 不是免費的。
+   *
+   * ⚠️ **已知代價**:那封信要等約 24h 才會再試。
+   * 🔬 **而總上限不是 5×24h**(codex 2026-09-07 校正):5 次嘗試之間最多 **4 段**等待
+   *   ⇒ 純政策合計約 **96 小時**, 另加排程延遲;而**第 5 次才撞到這個碼仍然會死信**。
+   * ⇒ 📌 **等一天而【有機會】寄到, 勝過十分鐘內確定寄不到** —— 而它換來的不是保證。
+   */
+  | 'idempotency_payload_mismatch'
   | 'http_422'
   /**
    * 🔴 **無法分辨的 429**(E1c 後的殘餘語意 —— 不再是「所有 429」):body 非 JSON / 無 `name` /

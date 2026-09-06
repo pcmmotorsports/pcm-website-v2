@@ -111,6 +111,10 @@ const EMAIL_SEND_ERROR_CODE_FLAGS: Record<EmailSendErrorCode, true> = {
   quota_monthly_exceeded: true,
   network_error: true,
   provider_error: true,
+  // ⟦b4-RESEND409⟧ 2026-09-07:Resend 第三種 409(重試永遠不會成功)。
+  // 🔵 它落表安全 —— DB 那道 CHECK 是【格式】不是白名單(`20260717020000:343` 逐字
+  //    `^[a-z0-9_]{1,64}$`), 而這個字面 28 字元、全小寫底線 ⇒ 過。**不需要 migration。**
+  idempotency_payload_mismatch: true,
 };
 const EMAIL_SEND_ERROR_CODE_ALLOWLIST = new Set<string>(Object.keys(EMAIL_SEND_ERROR_CODE_FLAGS));
 
