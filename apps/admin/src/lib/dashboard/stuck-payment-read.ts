@@ -159,15 +159,28 @@ export async function loadStuckPaymentCount(): Promise<StuckPaymentCount> {
  *    FROM PUBLIC, anon, authenticated, service_role, payment_confirmer;` 之後**只 GRANT payment_confirmer**,
  *    而 `:123-130` 還有一道 fail-closed 斷言在守「`service_role` **不得**有 EXECUTE」。
  *    ⇒ 📌 **後台走的是 `service_role` ⇒ 它叫不到那支 RPC** —— 要叫得動就得改 ACL, 那是另一片、而且是高風險片。
+ *    ⛔ ~~「要叫得動就得改 ACL」~~ **那句太窄**(R1 nit):本 repo **有第二條路** ——
+ *    `packages/adapters/src/payment/PgAnomalyAlertReaderAdapter.ts:92` 用
+ *    `PAYMENT_CONFIRMER_DB_URL` 那條**窄權連線**叫得動它。
+ *    ✅ **而本片仍然不走它, 理由是【不把那把窄權密鑰帶進 admin】** ——
+ *    後台首頁為了一個儀表數字去持有 `payment_confirmer` 的連線字串, 爆炸半徑遠大於這一格的價值。
+ *    ⇒ 📌 **「做不到」與「做得到而我們選擇不做」是兩句話, 而只有後者是真的。**
  *    ⇒ ⇒ **所以這裡抄謂詞。而【抄】的代價是:那兩處會分岔而沒有東西會叫。**
  *      改任一處之前先 grep 另一處(`released_manual_review_at`)。
  *
  * 🔴🔴 **而這一個數與上面那個數【本來就會不一樣, 而兩個都對】—— 不要去「修」其中一個**:
- *    · 那支 RPC 的 `attempt_manual_review_count` 帶 `AND o.payment_status = 'unpaid'`;
- *    · 而 `loadStuckPaymentCount()` **刻意不 join orders、刻意較寬** ——
+ *    **軸一(join orders)**:那支 RPC 的 `attempt_manual_review_count` 帶 `AND o.payment_status = 'unpaid'`,
+ *    而 `loadStuckPaymentCount()` **刻意不 join orders、刻意較寬** ——
  *      排除非 `unpaid` 會殺掉 `flag_non_unpaid_active_attempts` 的**全部產出**,
  *      而 refunded / partiallyPaid 殘留正是它存在的唯一理由。
- *    ⇒ 🛑 **兩個數字擺在一起時它們不會相等, 而那不是 bug。**
+ *    **軸二(`status` 的集合)**:那支 RPC 是 `a.status = 'pending'`(同檔 `:78`),
+ *    而後台那格是 `status IN ('pending','charged')` ⇒ **第二個差異, 而它與 join 那一軸無關**
+ *    (codex/reviewer R1 nit:我原本只寫了一軸)。
+ *    ⇒ 🛑 **兩個數字擺在一起時它們不會相等, 而那不是 bug —— 而且是【兩個】理由不是一個。**
+ *
+ * 🛑🛑 **這一段【單元測試證不到】, 寫在這裡**:鏈式 mock 只記下我送出去的字串,
+ *    **它不解析 PostgREST 的語意** ⇒ 「這個 embed 會不會回 `PGRST201`」「`head:true` 加內嵌的
+ *    count 語意對不對」**都要一次真的請求才答得出來**。⇒ 本片**沒有做那一發**。
  *
  * ⚠️ **本函式修的是【看不見】, 不是【正在發生】** ——
  *    「`released` 今天到底有沒有在產生」**仍然沒有人量過**(見上面那一段的射程聲明)。
@@ -177,7 +190,17 @@ export async function loadReleasedStuckCount(): Promise<StuckPaymentCount> {
   const query = createSupabaseServiceClient()
     .from('payment_charge_attempts')
     // 🔴 `!inner` 是必要的:謂詞要 `orders.payment_status`,而外連接會讓沒有訂單的列漏進來。
-    .select('id, orders!inner(payment_status)', { count: 'exact', head: true })
+    // 🔴🔴 **而【FK 提示】更是必要的 —— 少了它這個查詢【根本跑不起來】**(codex R1 must-fix):
+    //    `payment_charge_attempts` 有**兩條** FK 指向 `orders`:
+    //      · `order_id`               (`20260612150000_m3_s2d_charge_attempts.sql:89`)
+    //      · `superseded_by_order_id` (`20260809230000_m4b_lifecycle_l5a_m_superseded_marker.sql:111`)
+    //    ⇒ 光寫 `orders!inner(...)` 是**有歧義的內嵌** ⇒ PostgREST 回 `PGRST201`, **拿不到 count**。
+    //    ⇒ 📌 **而那不是「少報」是「整個失敗」** —— 而**單元測試的鏈式 mock 看不到這件事**
+    //      (它只記下字串, 不解析語意)。⇒ 那一格由**測試釘住這個字面** + 下面那句誠實邊界一起守。
+    .select('id, orders!payment_charge_attempts_order_id_fkey!inner(payment_status)', {
+      count: 'exact',
+      head: true,
+    })
     .not('released_manual_review_at', 'is', null)
     .eq('status', 'released')
     .eq('orders.payment_status', 'unpaid')

@@ -130,6 +130,17 @@ const ACTOR_SOURCE_COPY: Readonly<Record<CopyKey, string>> = {
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * 那兩行儀表的顏色。**一處, 不是兩份**(code-reviewer R1 must-fix:複製的第二份會分岔而沒有東西會叫)。
+ *
+ * 🔴 判準只讀 `count` 那一格 —— 而 **`null`(量不到)也要亮**, 因為那是「我們壞了」不是好消息。
+ */
+function countToneClass(c: StuckPaymentCount): string {
+  return c.count === null || c.count > 0
+    ? 'text-destructive text-xs'
+    : 'text-muted-foreground text-xs';
+}
+
 export default async function AdminHomePage() {
   // 🔴 ~~三支~~ ⇒ **六支**(2026-09-01 `⟦b4-FIT1⟧` 加第六支)**併發**、不串行(R2 nit4):
   //    彼此無依賴,串著跑等於白等 round-trip,
@@ -293,11 +304,7 @@ export default async function AdminHomePage() {
              而 `count === null`(量不到)也要亮, 因為那是「我們壞了」不是好消息。 */}
       <p
         data-testid='stuck-payment-count'
-        className={
-          stuckPayment.count === null || stuckPayment.count > 0
-            ? 'text-destructive text-xs'
-            : 'text-muted-foreground text-xs'
-        }
+        className={countToneClass(stuckPayment)}
       >
         {stuckPaymentLabel(stuckPayment)}
       </p>
@@ -308,11 +315,7 @@ export default async function AdminHomePage() {
           🔴 顏色判準與上面同形:`null`(量不到)也要亮, 因為那是「我們壞了」不是好消息。 */}
       <p
         data-testid='released-stuck-count'
-        className={
-          releasedStuck.count === null || releasedStuck.count > 0
-            ? 'text-destructive text-xs'
-            : 'text-muted-foreground text-xs'
-        }
+        className={countToneClass(releasedStuck)}
       >
         {releasedStuckLabel(releasedStuck)}
       </p>

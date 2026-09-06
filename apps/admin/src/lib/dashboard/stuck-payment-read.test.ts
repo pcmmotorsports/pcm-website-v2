@@ -178,7 +178,7 @@ describe('unreadableStuckPayment', () => {
 /** released 那一支的鏈:`.from().select().not().eq().eq()` ⇒ thenable。順手記下每一段的參數。 */
 function releasedChain(
   result: { count?: number | null; error?: unknown; reject?: unknown; hang?: true },
-  seen: { select?: string; not?: unknown[]; eq: unknown[][] },
+  seen: { select?: string; opts?: unknown; not?: unknown[]; eq: unknown[][] },
 ) {
   const thenable = {
     then(ok: (v: unknown) => unknown, err?: (e: unknown) => unknown) {
@@ -188,8 +188,9 @@ function releasedChain(
     },
   };
   const self: Record<string, unknown> = {};
-  self.select = (cols: string) => {
+  self.select = (cols: string, opts?: unknown) => {
     seen.select = cols;
+    seen.opts = opts; // 🔴 codex R1:少了這個, 「拿掉 count 選項」那種突變照樣全綠。
     return self;
   };
   self.not = (...a: unknown[]) => {
@@ -207,7 +208,12 @@ function releasedChain(
 
 describe('loadReleasedStuckCount(⟦b9-RELEASEDSTALL1⟧)', () => {
   it('🔴🔴 A 有 released 卡住 ⇒ 數得到, 而謂詞三條【逐字】照抄那支 RPC', async () => {
-    const seen = { eq: [] as unknown[][] } as { select?: string; not?: unknown[]; eq: unknown[][] };
+    const seen = { eq: [] as unknown[][] } as {
+      select?: string;
+      opts?: unknown;
+      not?: unknown[];
+      eq: unknown[][];
+    };
     mocks.from.mockReturnValue(releasedChain({ count: 2 }, seen));
     const c = await loadReleasedStuckCount();
     expect(c.count).toBe(2);
@@ -223,15 +229,29 @@ describe('loadReleasedStuckCount(⟦b9-RELEASEDSTALL1⟧)', () => {
       ['orders.payment_status', 'unpaid'],
     ]);
     // 🔴 `!inner`:外連接會讓沒有訂單的列漏進來。
-    expect(seen.select).toContain('orders!inner(payment_status)');
+    // 🔴🔴 **而 FK 提示是【跑不跑得起來】那一格**(codex R1 must-fix):
+    //    `payment_charge_attempts` 有兩條 FK 指向 `orders`(`order_id` 與 `superseded_by_order_id`)
+    //    ⇒ 沒有提示的 `orders!inner(...)` 會回 `PGRST201`, **拿不到 count**。
+    expect(seen.select).toContain('orders!payment_charge_attempts_order_id_fkey!inner(payment_status)');
+    // 🔴 查錯表 / 拿掉 count 選項, 這兩種突變本來【都會全綠】(codex R1)。
+    expect(mocks.from).toHaveBeenCalledWith('payment_charge_attempts');
+    expect(seen.opts).toEqual({ count: 'exact', head: true });
   });
 
-  it('🔴 B 兩個數【各自獨立】—— 舊那格的謂詞一個字都沒被動到', async () => {
+  // 🔵 R1 nit:⛔ ~~原格名「舊那格的謂詞一個字都沒被動到」~~ —— **那一格沒有觀察舊謂詞的任何一條**,
+  //    它量到的只有兩個 label 字串。⇒ 格名改成**它真的量到的東西**。
+  //    📌 舊謂詞有沒有被動到, 由既有那 10 格與 `raceCount` 那一段的逐行比對守, 不是這一格。
+  it('🔴 B 兩支各自回自己的數:舊那格 7 而新那格 0(兩個 label 都印得出來)', async () => {
     // 舊那支走 `.eq().in()`, 新那支走 `.not().eq().eq()` ⇒ **兩條鏈的形狀本來就不同**。
     // 🛑 而更重要的是那句寫在碼裡的話:**兩個數字擺在一起不會相等, 而那不是 bug。**
     mocks.from.mockReturnValue(chain({ count: 7 }));
     expect(stuckPaymentLabel(await loadStuckPaymentCount())).toBe('扣款重試已放棄:7 張');
-    const seen = { eq: [] as unknown[][] } as { select?: string; not?: unknown[]; eq: unknown[][] };
+    const seen = { eq: [] as unknown[][] } as {
+      select?: string;
+      opts?: unknown;
+      not?: unknown[];
+      eq: unknown[][];
+    };
     mocks.from.mockReturnValue(releasedChain({ count: 0 }, seen));
     const r = await loadReleasedStuckCount();
     expect(r.count, 'released 那一族可以是 0 而舊那格非 0').toBe(0);
@@ -239,7 +259,12 @@ describe('loadReleasedStuckCount(⟦b9-RELEASEDSTALL1⟧)', () => {
   });
 
   it('🔴🔴 C 量不到 ⇒ `null` 而【不是】0(整支檔存在的那條紀律)', async () => {
-    const seen = { eq: [] as unknown[][] } as { select?: string; not?: unknown[]; eq: unknown[][] };
+    const seen = { eq: [] as unknown[][] } as {
+      select?: string;
+      opts?: unknown;
+      not?: unknown[];
+      eq: unknown[][];
+    };
     mocks.from.mockReturnValue(releasedChain({ count: null }, seen));
     const c = await loadReleasedStuckCount();
     expect(c.count).toBeNull();
