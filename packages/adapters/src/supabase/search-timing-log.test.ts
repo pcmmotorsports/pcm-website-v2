@@ -50,7 +50,18 @@ describe('搜尋那條路的計時量具', () => {
     for (const path of ['path=rpc', 'path=rpc-empty', 'path=legacy']) {
       expect(adapter, `${path} 不見了 ⇒ 那條路線上就再也量不到`).toContain(path);
     }
-    expect(countInfo(adapter), 'console.info 的行數變了 ⇒ 有人加了或拿掉了一條路').toBe(3);
+    // 🔴🔴 **2026-09-07:從 3 改成 4, 而【那不是把守門調鬆】—— 本格的前提換了。**
+    //   ⛔ ~~`.toBe(3)`~~ ⇒ 本格原本的前提是「`console.info` 的行數 == return 路徑數」,
+    //   而 `⟦search-RPC1000FALLBACK⟧` 加的第 4 行**不是一條 return 路徑** ——
+    //   它是 `trySearchIdsWithBrand` 裡的一行資訊(`v2 total=… > ids=… ⇒ 已由 RPC 端 LIMIT 截斷`),
+    //   印完**繼續往下走**。⇒ 📌 **前提壞掉的那一刻, 這個數字就不再代表它的標籤在說的東西。**
+    //   ✅ 所以下面**另外把那四行各自釘住**:少了數量對不上會紅, 而**改錯內容也會紅**
+    //     —— 只比數量的話, 「拿掉 rpc-empty 那行 + 加一行別的」是全綠的。
+    expect(countInfo(adapter), 'console.info 的行數變了 ⇒ 有人加了或拿掉了一條路').toBe(4);
+    expect(
+      adapter,
+      '截斷那行不見了 ⇒ 「上游截了幾筆」在 log 裡沒有形狀, 而客人看到的件數與清單會對不上',
+    ).toContain('已由 RPC 端 LIMIT 截斷');
   });
 
   it('🔴 route:四條腿各自要有數字, 否則只量得到其中一條', () => {

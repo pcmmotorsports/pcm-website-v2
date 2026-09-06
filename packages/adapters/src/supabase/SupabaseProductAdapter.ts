@@ -570,9 +570,16 @@ export class SupabaseProductAdapter implements IProductRepository {
     //    ```
     //    ⚠️ 而 Sean 貼完到 PostgREST 重載 cache 之間**還會是 `PGRST202`** ⇒ 那段時間照樣走舊路,
     //      **重載之後自動生效** —— 這正是選乙換到的東西。
-    const brandIds = await this.trySearchIdsWithBrand(q);
+    const rpcResult = await this.trySearchIdsWithBrand(q);
     const msRpc = Math.round(performance.now() - t0);
-    if (brandIds !== null) {
+    if (rpcResult !== null) {
+      // 🔴🔴 **`brandIds` 拆成兩個名字, 而那不是改名而已**(2026-09-07 ⟦search-RPC1000FALLBACK⟧):
+      //   `ids` = **這一頁能撈的 id(RPC 端已 LIMIT)** · `rpcTotal` = **符合條件的總筆數**。
+      //   🛑 **它們平常相等** —— 結果集小於上游 `LIMIT` 時一模一樣, 只有超過時才分家
+      //   ⇒ 📌 **「共 N 件」若讀成 `brandIds.length`, 在小資料集上【永遠測不出來】**,
+      //     而正式站那三個詞(煞車 2593 / carbon 1436 / 水管 1244)一上來就錯。
+      const brandIds = rpcResult.ids;
+      const rpcTotal = rpcResult.total;
       const wantCountRpc = opts?.countTotal !== false;
       // ⛔ ~~`.in('id', …)` **不保證順序** ⇒ 自己排,才與舊路的 `.order('id')` 同序。~~
       // ⛔ ~~`const ordered = [...brandIds].sort();`~~
@@ -593,10 +600,10 @@ export class SupabaseProductAdapter implements IProductRepository {
         //    ⇒ 🎯 **「沒有 log」與「這條路很快」在讀 log 的人眼裡長一樣** —— 那正是本片要防的病,
         //      而我第一版在自己的量具上踩了它。深分頁(offset 超過 `ordered.length`)同一格。
         console.info(
-          `[searchByKeyword] path=rpc-empty qlen=${q.length} ids=${ordered.length} ` +
+          `[searchByKeyword] path=rpc-empty qlen=${q.length} ids=${ordered.length} total=${rpcTotal} ` +
             `rpc=${msRpc}ms total=${Math.round(performance.now() - t0)}ms`,
         );
-        return wantCountRpc ? { items: [], total: ordered.length } : { items: [] };
+        return wantCountRpc ? { items: [], total: rpcTotal } : { items: [] };
       }
       const { data: rows, error: rowsErr } = await this.supabase
         .from('products_public')                 // 🛑 投影與 mapper 一個字不動
@@ -646,7 +653,7 @@ export class SupabaseProductAdapter implements IProductRepository {
         `[searchByKeyword] path=rpc qlen=${q.length} ids=${ordered.length} ` +
           `rpc=${msRpc}ms rows=${msTotal - msRpc}ms total=${msTotal}ms`,
       );
-      return wantCountRpc ? { items: rpcItems, total: ordered.length } : { items: rpcItems };
+      return wantCountRpc ? { items: rpcItems, total: rpcTotal } : { items: rpcItems };
     }
 
     // ⟦搜尋-多詞與料號⟧ 2026-09-03:**每個詞各組一組 `.or()`,詞與詞之間是 AND。**
@@ -793,7 +800,22 @@ export class SupabaseProductAdapter implements IProductRepository {
    * ⚠️ **回傳 `null` = 「今天沒有這條路」;回傳 `[]` = 「這條路走過了,而它一筆都沒找到」** ——
    *    兩者**不可**收斂成同一個東西:前者要走舊路,後者要直接回空。
    */
-  private async trySearchIdsWithBrand(q: string): Promise<string[] | null> {
+  /**
+   * 🔴🔴 **2026-09-07:回傳形狀從 `string[]` 換成 `{ ids, total }`, 而那是【db 換函式】逼出來的。**
+   *   ⛔ ~~`Promise<string[] | null>`~~ ⇒ ✅ `Promise<{ ids: string[]; total: number } | null>`。
+   *   板列 `⟦search-RPC1000FALLBACK⟧`:舊函式回 `TABLE(id uuid)`、**沒有 LIMIT 也不回總數**
+   *   ⇒ 截斷發生在 PostgREST 的 `db-max-rows` 那一層 ⇒ **函式不知道自己被截了**
+   *   ⇒ adapter 只好用「筆數 > cap 就退回舊路」當偵測 ⇒ 🛑 **常見中文 2 字詞整批退回舊路**
+   *     (2026-09-07 02:46 實測 5 詞 3 退;db 量到 `煞車 2593` / `carbon 1436` / `水管 1244`)。
+   *   ✅ 新函式 `storefront_search_product_ids_v2` 回 **jsonb `{ids:[…], total:n}`**:
+   *     `ids` = 完全命中優先 + `LIMIT`;`total` = 同述詞的 `count` ⇒ **件數不再靠 `ids.length`。**
+   * 🛑 **`total` 與 `ids.length` 是兩個數, 而它們【平常會相等】** —— 那正是這一格危險的地方:
+   *   結果集小於 `LIMIT` 時兩者一樣, 只有超過時才分家 ⇒ **用錯的那個, 小資料集上測不出來。**
+   * 🔵 **回退路徑 = 切回舊函式名**(舊函式 db 那邊不動)。
+   */
+  private async trySearchIdsWithBrand(
+    q: string,
+  ): Promise<{ ids: string[]; total: number } | null> {
     const terms = splitSearchTerms(q);
     if (terms.length === 0) {
       return null; // 零詞 ⇒ 交回舊路,由它那道 fail-closed 處理
@@ -857,9 +879,17 @@ export class SupabaseProductAdapter implements IProductRepository {
     let data: unknown;
     let error: { code?: unknown } | null;
     try {
-      ({ data, error } = await sb
-        .rpc('storefront_search_product_ids', { p_terms: terms })
-        .range(0, RPC_ID_CAP));
+      // ⛔ ~~`.rpc('storefront_search_product_ids', …).range(0, RPC_ID_CAP)`~~
+      // 🔴 **`.range()` 拿掉是【必要】的, 不是順手**:v2 回的是**一個 jsonb 純量**, 不是 SETOF
+      //   ⇒ 對純量下 `Range` 標頭沒有意義, 而 PostgREST 對它的處理**不是我們該賭的東西**。
+      ({ data, error } = await (
+        sb as unknown as {
+          rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{
+            data: unknown;
+            error: { code?: unknown } | null;
+          }>;
+        }
+      ).rpc('storefront_search_product_ids_v2', { p_terms: terms }));
     } catch (thrown) {
       console.warn(
         '[searchByKeyword] storefront_search_product_ids 那條路 throw 了 ⇒ 退回舊路:',
@@ -882,18 +912,29 @@ export class SupabaseProductAdapter implements IProductRepository {
       }
       throw error; // 🔴 其餘是真的錯 ⇒ 不吞
     }
-    if (!Array.isArray(data)) {
+    // 🔴 v2 的契約是 **jsonb 物件** `{ ids: uuid[], total: bigint }` ——
+    //   ⛔ ~~`if (!Array.isArray(data)) return null;`~~(那是舊函式 `TABLE(id uuid)` 的形狀)
+    if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+      console.warn(
+        '[searchByKeyword] storefront_search_product_ids_v2 回的不是物件(契約可能變了)⇒ 退回舊路',
+      );
+      return null;
+    }
+    const payload = data as { ids?: unknown; total?: unknown };
+    if (!Array.isArray(payload.ids)) {
+      console.warn(
+        '[searchByKeyword] storefront_search_product_ids_v2 回的物件裡沒有 ids 陣列 ⇒ 退回舊路',
+      );
       return null;
     }
     // 🔴 逐列驗形狀,不信 cast:函式的契約是 `TABLE(id uuid)`,而**收到別的形狀代表契約變了**。
-    const rows = data as unknown[];
-    const ids = rows
-      .map((row) =>
-        typeof row === 'object' && row !== null && 'id' in row
-          ? (row as { id: unknown }).id
-          : null,
-      )
-      .filter((id): id is string => typeof id === 'string' && id !== '');
+    const rows = payload.ids as unknown[];
+    // 🔴 **v2 的 `ids` 是【uuid 字串】的陣列, 不是 `{id}` 物件的陣列** ——
+    //   ⛔ ~~`.map((row) => … 'id' in row ? row.id : null)`~~(那是舊函式 `TABLE(id uuid)` 的形狀)
+    //   🛑 而**兩種形狀在「過濾完是空陣列」這個結果上長得一樣** ⇒ 下面那道「認不得」的閘照樣要留。
+    const ids = rows.filter(
+      (id): id is string => typeof id === 'string' && id !== '',
+    );
 
     // 🔴🔴 **契約變了(`id` 改名或換型別)⇒ 上面會把【每一列】都過濾掉 ⇒ `ids` 是空的**
     //    ⇒ 而空陣列在呼叫端被讀成「**走過了而一筆都沒找到**」⇒ **客人恆得 0 筆,且不退回舊路。**
@@ -906,14 +947,31 @@ export class SupabaseProductAdapter implements IProductRepository {
       );
       return null;
     }
-    if (ids.length > RPC_ID_CAP) {
-      // 🛑 被 `db-max-rows` 截斷 ⇒ **不要拿一份殘缺的清單當全部** ⇒ 退回舊路(它的 count 是 exact)
+    // 🔴🔴 **2026-09-07:這裡【不再退回舊路】, 而那是本片的整個重點。**
+    //   ⛔ ~~`if (ids.length > RPC_ID_CAP) { console.warn('…回超過 1000 筆 ⇒ 可能被截斷 ⇒ 退回舊路'); return null; }`~~
+    //   🛑 **舊行為的代價是量到的**(板列 `⟦search-RPC1000FALLBACK⟧`, 2026-09-07 02:46 preview):
+    //     五詞三退(`拉桿`/`煞車`/`後視鏡`)⇒ **客人搜「煞車」拿到的是舊排序**,
+    //     而畫面上沒有任何一句話說 —— 那句 `warn` 的觀眾是 log, 不是客人。
+    //   ✅ **v2 自己回 `total`** ⇒ 「被截斷」不再需要靠筆數去猜, 也不必放棄新排序
+    //     ⇒ 這裡只留一行**資訊**(不是 warn:它是預期中的正常狀態, 不是異常)。
+    // 🔵 **`RPC_ID_CAP` 這個常數留著** —— 它現在的用途是「上游的 `LIMIT` 應該是多少」的參考值,
+    //   不再是判別式;哪天要對帳「db 的 LIMIT 與這裡對不對得上」,它是那個錨。
+    const total =
+      typeof payload.total === 'number' && Number.isFinite(payload.total)
+        ? payload.total
+        : ids.length;
+    // ⚠️ **`total` 讀不到時退回 `ids.length`, 而那是【刻意的降級】不是等價**:
+    //   那時件數會少報(只算得到這一頁的),🛑 **而它不會有任何訊號** ⇒ 所以留一行。
+    if (typeof payload.total !== 'number' || !Number.isFinite(payload.total)) {
       console.warn(
-        `[searchByKeyword] storefront_search_product_ids 回超過 ${RPC_ID_CAP} 筆 ⇒ 可能被截斷 ⇒ 退回舊路`,
+        '[searchByKeyword] storefront_search_product_ids_v2 沒回 total ⇒ 件數改用 ids.length(會少報)',
       );
-      return null;
+    } else if (total > ids.length) {
+      console.info(
+        `[searchByKeyword] v2 total=${total} > ids=${ids.length} ⇒ 已由 RPC 端 LIMIT 截斷(不退舊路)`,
+      );
     }
-    return ids;
+    return { ids, total };
   }
 
   /**
