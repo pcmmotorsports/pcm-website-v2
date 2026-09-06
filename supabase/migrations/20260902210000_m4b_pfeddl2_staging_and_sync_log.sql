@@ -2,11 +2,17 @@
 -- ⟦b4-PFEDDL2⟧:把【已經在正式庫上的】那兩張表補進版控
 --   product_fitments_effective_staging · product_fitments_effective_sync_log
 -- ------------------------------------------------------------
+-- pcm:ddl-into-vc: public.product_fitments_effective_staging, public.product_fitments_effective_sync_log
 -- pcm:never-apply
---   ↑ 🔴 **這一行是給機器讀的**(`scripts/migration-ledger-divergence.sh` 的第九格)。
+--   📎 **這兩行的完整解釋(文法 / key 註冊表 / 兩個軸 / 四支工具各做什麼 / 為什麼要記帳本)
+--     只有一份**:`docs/patterns/migration-header-marks.md`。
+--     🔴 **不要把那份內容複製回這裡** —— 三支檔各抄 15 行的第一版, 裡面那張「讀它的是誰」
+--       的清單**在 commit 當下就已經過期**(它漏了 `scripts/state-gates.sh`)。
+--       📌 註解裡的註冊表會過期, 而沒有東西會叫。(Fable 2026-09-06 R3 F9)
+--   ⚠️ **兩行都不要挪到檔頭 20 行以外** —— 每一支讀它們的工具都只讀前 20 行, 而掉出去是靜默的。
+--   【`pcm:never-apply` 那行】🔴 給機器讀的(`scripts/migration-ledger-divergence.sh` 第九格)。
 --     它讓本支在帳本比對裡印成「⑨ 刻意不套用」而不是「④ 待套 PENDING」。
 --     ⚠️ **不要把它挪到 20 行以外** —— 那支腳本只讀檔頭前 20 行。
---     🔵 而這是那個標記的**第三個使用者**(前兩個:`20260901170000` 與 `-c7` 的 `20260902200000`)。
 --
 -- 🔴🔴🔴 **本支【不 apply 到正式庫】。它是空庫重放用的。**
 --    正式庫上那兩張表**已經存在**(見下面「來源」)⇒ 本支在那裡跑會

@@ -39,6 +39,13 @@
 #   (一般 0.09–1.49 s)。`-f8` 2026-09-06 裁【甲:就這樣收】—— 不加快取層(快取是新的一個可能恆綠的東西)。
 #   這份清單是我想得到的那些, 而我最可能漏掉的是「A/M 以外的 git 狀態(R 改名、C 複製)被 --diff-filter=AM 怎麼算」。
 set -uo pipefail
+# 🔴 檔頭標記的 parser 收攏在一支(⟦0e-DDLINTOVC-MARK⟧;Fable R3 F4 實錘:四份手寫 parser
+#    有兩種文法, 同一個檔頭兩把尺說是、兩把尺說不是, 而畫面上沒有東西說兩邊不同)。
+#    🛑 讀不到它 ⇒ **擋下**, 不要靜默退回本地判斷。
+_MARKLIB="$(cd "$(dirname "$0")" && pwd)/lib-migration-header-marks.sh"
+if [ -f "$_MARKLIB" ]; then . "$_MARKLIB"; else
+  printf '🔴 找不到 %s ⇒ 檔頭標記無法判讀, 擋下(不放行)\n' "$_MARKLIB" >&2; exit 2
+fi
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CHECKS="$HERE/migration-static-checks.sh"
@@ -136,10 +143,38 @@ redness() { # $1=要檢查的檔
   printf '%s\n' "$rc"
 }
 
+# ── 🟠 補版控型 `-- pcm:ddl-into-vc:`(⟦0e-DDLINTOVC-MARK⟧;-f8 2026-09-06 裁甲)──────
+#
+# 🛑 **本支有兩句話對補版控型是【假的】**:
+#    ① `⏭️ 已 apply / 已在 origin/dev 且這次沒改動` —— 把兩件事混在一句裡, 而補版控型
+#       是「在 origin/dev 上」而**從來沒有 apply 過**。
+#    ② `現在改它們是被禁的(已 apply 的 migration 本體不得動)` —— 對補版控型**這句是錯的**,
+#       它沒被 apply 過 ⇒ 改它不受那條限制。📌 而這句正好會擋住「給那三支補檔頭標記」這件事本身。
+# ⚠️ 只讀檔頭前 20 行(照 `migration-ledger-divergence.sh:247` 的先例)。
+# 🔵 它**不改變任何 rc** —— 補版控型照樣走不退步閘, 這裡改的只有那兩句話。
+is_ddl_into_vc() { # $1=path → 0=是補版控型
+  # 🔴🔴 **codex R1 MF5**:讀法要與 `no_regression` 選【同一版】—— 閘量的是 index 那版
+  #    (有 staged 時), 訊息若講工作樹那版, 兩者可以相反而畫面看不出來。
+  #    ✅ 那個選擇邏輯與抽值文法都在 `lib-migration-header-marks.sh`(唯一 parser)。
+  local _v
+  _v=$(mark_value_or_warn "$(head20_of_index_or_worktree "$(to_repo_relative "$1")")" ddl-into-vc "$1")
+  [ -n "$_v" ]
+}
+
 # 回 0 = 沒有變更紅(放行)· 1 = 更紅(擋)· 9 = 量不到
+# 🔴🔴 **lint-staged 餵的是【絕對路徑】, 而 `git show HEAD:<絕對路徑>` 回 128。**
+#    ⇒ 不退步閘取不到舊版 ⇒ 每一支已落地又被改到的 migration 在 pre-commit 裡一律 exit 9,
+#      而**我直接跑同一支是 rc=0** ⇒ 📌 「我在自己樹上跑是綠的」與「它在鏈上會動」是兩件事。
+#    🔵 它不是靜默的(exit 9 = 我沒檢查過)—— 但它會擋住每一次這種 commit。
+#    ✅ 一律先正規化成 repo 相對路徑。`git ls-files --full-name` 對絕對與相對都給同一個答案。
+to_repo_relative() { # $1=path → 印 repo 相對路徑(拿不到就原樣印回去)
+  _rr=$(git ls-files --full-name --error-unmatch -- "$1" 2>/dev/null | head -1)
+  if [ -n "$_rr" ]; then printf '%s' "$_rr"; else printf '%s' "$1"; fi
+}
+
 no_regression() { # $1=path
   local f tdir old new on oc nn nc ok_kinds nw_kinds orc nrc oldifs
-  f="$1"
+  f=$(to_repo_relative "$1")
   # 🔴 **副檔名要是 `.sql`** —— `mktemp` 產的是 `/tmp/tmp.XXXX`(沒有 `.sql`),
   #    而 `migration-static-checks.sh` **跳過非 .sql** ⇒ 兩邊都量到 0 格紅 ⇒ 相等 ⇒ 放行。
   #    📌 實測:世界二b 該紅而它綠 —— 那一格量的是「兩個空結果相等」, 不是「沒有變更紅」。
@@ -340,6 +375,88 @@ if [ "${1:-}" = "--selftest" ]; then
 
   ( cd "$W" && rm -f supabase/APPLIED.tsv )
 
+  # ══ 🟠 補版控型標記兩個世界(⟦0e-DDLINTOVC-MARK⟧)══════════════════════
+  #    🛑 同一支 fixture 只差那一行 —— 換了 fixture 就不是在量那一行。
+  #    量的是【那兩句話】不是 rc:補版控型照樣走不退步閘, rc 兩個世界都該是 0。
+  printf 'BEGIN;\nSELECT 1;\nCOMMIT;\n' > "$W/supabase/migrations/20200808000000_vc.sql"
+  ( cd "$W" && git add supabase/migrations/20200808000000_vc.sql && git commit -qm vc ) >/dev/null 2>&1
+  ( cd "$W" && printf 'version\tsha\n20200808000000\tdeadbeef\n' > supabase/APPLIED.tsv )
+  # 世界一:帶標記 ⇒ 那兩句話要說「沒有以檔 apply 過 / 改它不受限制」
+  printf -- '-- pcm:ddl-into-vc: public.zz_vc\nBEGIN;\nSELECT 1;\nCOMMIT;\n' > "$W/supabase/migrations/20200808000000_vc.sql"
+  ( cd "$W" && git add supabase/migrations/20200808000000_vc.sql )
+  # 🔴🔴 **codex 2026-09-06 R1 MF6**:第一版只比對輸出字串而**把指令的 rc 丟掉**
+  #    ⇒ 腳本先印「補版控型」再失敗(exit 9 之類), 這一格照樣綠。
+  #    ⇒ 📌 我註解裡寫著「兩個世界 rc 都是 0」而**沒有任何一格在量那個 rc**。
+  _ov1=$( cd "$W" && bash "$SELF" supabase/migrations/20200808000000_vc.sql 2>&1 ); _rc1=$?
+  case "$_ov1" in *補版控型*) _rv1=0 ;; *) _rv1=1 ;; esac
+  cell "🟠 帶標記的已落地檔 ⇒ 訊息點名它是補版控型" "$_rv1" "0"
+  cell "🟠 而它的 rc 是 0(印了那句話【而且】真的放行)" "$_rc1" "0"
+  # 🔴🔴 **這一格記的是一個【量到的事實】, 而它推翻了我原本以為的**:
+  #    「已落地 + 這次沒改動」的檔在 :416 就被 `! is_new && ! is_modified` 攔進 `skipped_list`,
+  #    **永遠走不到 :427 的 `already_landed` 分支** ⇒ `landed_list` 只在【untracked 且已落地】
+  #    這個很窄的情況才會被填 ⇒ 那段「現在改它們是被禁的」訊息**幾乎是死碼**。
+  #    ⛔ 我第一版把這格的標籤寫成「⇒ 說出那句話」而斷言寫成「不說」, 然後看到 rc=1 就把
+  #      期望值改成 1 —— **那是拿觀察去配斷言**, 本 repo 記過的最壞形狀。⇒ 標籤改成講真話。
+  ( cd "$W" && git reset -q HEAD supabase/migrations/20200808000000_vc.sql 2>/dev/null; git checkout -q -- supabase/migrations/20200808000000_vc.sql 2>/dev/null )
+  _ov2=$( cd "$W" && bash "$SELF" supabase/migrations/20200808000000_vc.sql 2>&1 )
+  case "$_ov2" in *"改它不受那條限制"*) _rv2=0 ;; *) _rv2=1 ;; esac
+  cell "🔵 已落地【沒改動】⇒ 更前面就被 skipped_list 攔掉, 走不到 landed_list 那段" "$_rv2" "1"
+  case "$_ov2" in *"略過(這次 commit 沒有動到的檔"*) _rv2b=0 ;; *) _rv2b=1 ;; esac
+  cell "🔵 而它走的是【略過】那條(釘住它到底走哪, 不只釘「沒印那句」)" "$_rv2b" "0"
+  # 世界二:同一支【拿掉那一行】⇒ 兩句話都不該出現
+  #    🛑 沒有這一格,「帶標記會這樣說」與「這支尺對誰都這樣說」印同一個東西。
+  printf 'BEGIN;\nSELECT 1;\nCOMMIT;\n-- 只改註解\n' > "$W/supabase/migrations/20200808000000_vc.sql"
+  ( cd "$W" && git add supabase/migrations/20200808000000_vc.sql )
+  _ov3=$( cd "$W" && bash "$SELF" supabase/migrations/20200808000000_vc.sql 2>&1 ); _rc3=$?
+  case "$_ov3" in *補版控型*) _rv3=1 ;; *) _rv3=0 ;; esac
+  cell "🔵 拿掉標記 ⇒ 補版控型那幾句不印(證明上面的綠不是恆綠)" "$_rv3" "0"
+  cell "🔵 而它的 rc 也是 0(兩個世界都放行, 標記不改變 rc)" "$_rc3" "0"
+  # 🧬🧬 **codex 2026-09-06 R2**:MF5 那個修法【沒有任何一格在量】—— 上面每一發的
+  #    index 與工作樹內容都相同 ⇒ 把 `is_ddl_into_vc` 還原成只讀工作樹, 27 格照樣全綠。
+  #    ✅ 這一格故意讓兩者【相反】:index 那版**有**標記, 工作樹那版**沒有**。
+  #    閘量的是 index 那版 ⇒ 訊息也必須講 index 那版。
+  printf -- '-- pcm:ddl-into-vc: public.zz_vc\nBEGIN;\nSELECT 1;\nCOMMIT;\n' > "$W/supabase/migrations/20200808000000_vc.sql"
+  ( cd "$W" && git add supabase/migrations/20200808000000_vc.sql )
+  printf 'BEGIN;\nSELECT 1;\nCOMMIT;\n-- 工作樹這版【沒有】標記\n' > "$W/supabase/migrations/20200808000000_vc.sql"
+  _ov6=$( cd "$W" && bash "$SELF" supabase/migrations/20200808000000_vc.sql 2>&1 )
+  case "$_ov6" in *是【補版控型】*) _rv6=0 ;; *) _rv6=1 ;; esac
+  cell "🧬 index 有標記而工作樹沒有 ⇒ 講【index 那版】(閘量的就是它)" "$_rv6" "0"
+  # 反過來:index 沒標記而工作樹有 ⇒ 不得講成補版控型
+  # 🔴 **fixture 前提第一版是錯的**:index 與 HEAD 相同時**根本沒有 staged 的東西**
+  #    ⇒ 閘(與 `no_regression` 一致)量的本來就是工作樹, 講工作樹是【對的】。
+  #    ⇒ 要造真的鏡像, index 必須同時【不等於 HEAD】也【不等於工作樹】。
+  printf 'BEGIN;\nSELECT 1;\nCOMMIT;\n-- index 這版沒有標記\n' > "$W/supabase/migrations/20200808000000_vc.sql"
+  ( cd "$W" && git add supabase/migrations/20200808000000_vc.sql )
+  printf -- '-- pcm:ddl-into-vc: public.zz_vc\nBEGIN;\nSELECT 1;\nCOMMIT;\n' > "$W/supabase/migrations/20200808000000_vc.sql"
+  _ov7=$( cd "$W" && bash "$SELF" supabase/migrations/20200808000000_vc.sql 2>&1 )
+  case "$_ov7" in *是【補版控型】*) _rv7=1 ;; *) _rv7=0 ;; esac
+  cell "🧬 反過來:index 沒標記而工作樹有 ⇒ 【不】講成補版控型(證明它讀的是 index)" "$_rv7" "0"
+
+  # 🧬 MF8:冒號後空的 ⇒ 要出聲, 而且不算標記
+  printf -- '-- pcm:ddl-into-vc:\nBEGIN;\nSELECT 1;\nCOMMIT;\n-- x\n' > "$W/supabase/migrations/20200808000000_vc.sql"
+  ( cd "$W" && git add supabase/migrations/20200808000000_vc.sql )
+  _ov4=$( cd "$W" && bash "$SELF" supabase/migrations/20200808000000_vc.sql 2>&1 )
+  case "$_ov4" in *標記不完整*) _rv4=0 ;; *) _rv4=1 ;; esac
+  cell "🧬 冒號後空的 ⇒ 出聲說標記不完整(不是靜默當成沒標記)" "$_rv4" "0"
+  case "$_ov4" in *是【補版控型】*) _rv5=1 ;; *) _rv5=0 ;; esac
+  cell "🧬 冒號後空的 ⇒ 不算補版控型" "$_rv5" "0"
+  ( cd "$W" && rm -f supabase/APPLIED.tsv; git reset -q HEAD supabase/migrations/20200808000000_vc.sql 2>/dev/null; git checkout -q -- supabase/migrations/20200808000000_vc.sql 2>/dev/null )
+
+  # ══ 🔴 絕對路徑(lint-staged 餵的就是這一種)══════════════════════════
+  #    🛑 這一格是本 repo「我在自己樹上跑是綠的 = 觸發條件不是通過條件」的又一個實例:
+  #      相對路徑 rc=0, 而絕對路徑 `git show HEAD:<絕對路徑>` 回 128 ⇒ exit 9。
+  #      它在 pre-commit 裡穩定重現, 而我手動跑一輩子都看不到。
+  printf 'BEGIN;\nSELECT 1;\nCOMMIT;\n' > "$W/supabase/migrations/20200909000000_abs.sql"
+  ( cd "$W" && git add supabase/migrations/20200909000000_abs.sql && git commit -qm abs ) >/dev/null 2>&1
+  ( cd "$W" && printf 'version\tsha\n20200909000000\tdeadbeef\n' > supabase/APPLIED.tsv )
+  printf 'BEGIN;\nSELECT 1;\nCOMMIT;\n-- 改一行註解\n' > "$W/supabase/migrations/20200909000000_abs.sql"
+  ( cd "$W" && git add supabase/migrations/20200909000000_abs.sql )
+  ( cd "$W" && bash "$SELF" "$W/supabase/migrations/20200909000000_abs.sql" ) >/dev/null 2>&1
+  cell "🔴 餵【絕對路徑】⇒ 仍量得到(不是 exit 9)" "$?" "0"
+  ( cd "$W" && bash "$SELF" supabase/migrations/20200909000000_abs.sql ) >/dev/null 2>&1
+  cell "🔵 同一支餵相對路徑 ⇒ 一樣放行(兩種寫法同一個答案)" "$?" "0"
+  ( cd "$W" && rm -f supabase/APPLIED.tsv )
+
   # 🔵 對照要換一支【真的會被跳過】的檔 —— 契約改了之後,「舊檔」本身不再等於「跳過」。
   # 🔴 契約翻面後, 「落地」本身不再等於「跳過」—— 還要**這次真的沒改到**。
   #    ⇒ 先把它還原成 HEAD 那份(index 與工作樹都要), 它才是真的沒改動。
@@ -385,6 +502,12 @@ for f in "$@"; do
   #    🔵 沒有改動的已落地檔(只是被餵進來)⇒ 照舊完全不掃。
   if already_landed "$f"; then
     if is_modified "$f"; then
+      # 🟠 補版控型也要在【有改動】這條路上點名 —— 第一版只在「沒改動」那條印,
+      #    而那條是比較少走的。📌 抓到它的是新加的那一格 selftest, 不是我。
+      if is_ddl_into_vc "$f"; then
+        printf '   🟠 %s 是【補版控型】(檔頭 -- pcm:ddl-into-vc:)⇒ 它**從來沒有以檔 apply 過**,\n' "$f"
+        printf '      改它不受「已 apply 的 migration 本體不得動」那條限制;不退步閘照跑。\n'
+      fi
       no_regression "$f"; _n=$?
       case "$_n" in
         0) checked=$((checked + 1)); checked_mod=$((checked_mod + 1)) ;;
@@ -394,7 +517,13 @@ for f in "$@"; do
       continue
     fi
     landed_list="$landed_list $f"
-    printf '⏭️  已 apply / 已在 origin/dev 且這次沒改動, 不掃:%s\n' "$f"
+    if is_ddl_into_vc "$f"; then
+      printf '⏭️  已在 origin/dev 且這次沒改動, 不掃:%s\n' "$f"
+      printf '   🟠 而它是【補版控型】(檔頭 -- pcm:ddl-into-vc:)⇒ 它**從來沒有以檔 apply 過**;\n'
+      printf '      「物件在正式庫上」是它被寫下來之前就成立的事 ⇒ 兩者不要混講。\n'
+    else
+      printf '⏭️  已 apply / 已在 origin/dev 且這次沒改動, 不掃:%s\n' "$f"
+    fi
     continue
   fi
   checked=$((checked + 1)); checked_new=$((checked_new + 1))
@@ -430,6 +559,16 @@ if [ -n "$landed_list" ]; then
   printf '⏭️  已落地而不掃(在 APPLIED.tsv 第一欄, 或已在 origin/dev 上):\n'
   for s in $landed_list; do printf '   · %s\n' "$s"; done
   printf '   🛑 這【不是】「它們沒問題」—— 是【現在改它們是被禁的】(已 apply 的 migration 本體不得動)。\n'
+  # 🟠 而補版控型是那句話的例外, 要逐支點名 —— 一句「一律不得動」會把一件【允許的事】說成禁止,
+  #    而下一個人不會去推翻一句看起來很像規矩的話。
+  _vcn=0
+  for s in $landed_list; do
+    if is_ddl_into_vc "$s"; then
+      _vcn=$((_vcn + 1))
+      printf '   🟠 例外:%s 是【補版控型】⇒ 它沒有以檔 apply 過, **改它不受那條限制**。\n' "$s"
+    fi
+  done
+  [ "$_vcn" -gt 0 ] && printf '   ⇒ 上面 %s 支是例外;其餘才適用「不得動」。\n' "$_vcn"
 fi
 # 🔴🔴 **「0」要分成兩態**(主視窗 `-48` 指名的第二格;而它就是今晚一直在講的那條):
 #    **【查無】與【我沒去查】不得壓成同一格。**
