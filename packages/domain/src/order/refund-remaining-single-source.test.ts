@@ -804,6 +804,32 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
       '⚠️ 本 allowlist 只涵蓋「這三處是不是另一份可退餘額算式」;它【不背書】本檔的併發、冪等、ACL 或前置閘 —— ' +
       '那些的證人是 codex 對抗審查與拋棄式 PG 的六發突變, 不是這一筆。',
   },
+  // ── 2026-09-07 · 線【帳號】`account` 補(⟦b4-TAPPAYDIRECT⟧ 片 C-1b cap guard 窄讓路)──
+  //    🔴 **作者是我**;第三方那一半:codex `gpt-6-astra`(鐵則 12①③)見該 migration 的 commit body。
+  //    🔴 `count: 4` **是讓那道閘自己報的**, 不是我 grep 的。
+  '20260907110000_m4b_tappaydirect_c1b_cap_guard_letpass.sql': {
+    count: 4,
+    why:
+      // 🔴 why 要答的是「gate 為什麼對【正確的東西】報紅」。
+      '本檔**一個算式都沒有** —— 它做的事是:把既有守門 `pcm_order_refund_cap_guard` 裡' +
+      '**那一句 `IF` 的條件改窄**(補登列超額不再 RAISE, Sean 2026-09-07 q33 甲)。' +
+      // ✅ 四處逐處開檔核過, **全部是那一句 IF 的【字串字面】**:
+      '四處全是同一句話的字面:`:45`/`:46` 前置閘「我要改的那一句還在不在」(比對 + 錯誤訊息);' +
+      '`:91` 取代前的舊字串;`:94` 取代後的新字串。**沒有一處在讀或算任何一列。**' +
+      // ✅ 結構性反面證據(量到的):剝掉 `--` 註解後對本檔數
+      //   SUM( = 0 · refund_amount 前後接加減 = 0 · refundable = 0 · remaining = 0。
+      //   🟢 正對照:同一把尺數 `public.` 字面 = 3 ⇒ 尺是活的。
+      '零 SUM(、零加減、零 refundable/remaining(剝註解後量);🟢 正對照同尺數 `public.` = 3。' +
+      // 🔵 而本檔**刻意不自己寫 incident**(它有一道事後閘在守這件事):
+      //   超額那一列落地後由 `pcm_sync_order_refund_payment_status` 開單(它自帶 NOT EXISTS 去重),
+      //   本檔自己再寫一份會**開兩列**。
+      '🔵 本檔刻意**不自己記異常**:那一列落地後由同步器開 `refund_over_total` 的 incident;' +
+      '本檔有一道事後閘③ 專門擋「守門自己提到 refund_over_total」。' +
+      // 🔴 可證偽的那一半:
+      '🔴 這一筆哪天失效:本檔若開始出現 SUM( / 對 refund_amount 做加減 / 自己算可退餘額 ⇒ 立刻作廢。' +
+      '⚠️ 本 allowlist 只涵蓋「這四處是不是另一份可退餘額算式」;它【不背書】那個讓路的射程 —— ' +
+      '那的證人是 codex 與拋棄式 PG 的突變, 不是這一筆。',
+  },
 };
 
 /** TS 側「自己聚合退款金額」的字樣(啟發式,見檔頭上限 ②)。 */
