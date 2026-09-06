@@ -37,7 +37,11 @@ const mocks = vi.hoisted(() => ({
   insert: vi.fn<(row: Record<string, unknown>) => void>(),
   // 🔴 插入的回應放這裡, **不要掛在 mock 函式身上** —— 那需要 `as unknown as {...}` 硬轉,
   //    而硬轉正是 `tsc` 擋下的東西。
-  insertResult: { error: null as { code?: string; message?: string } | null, data: {} as unknown },
+  // RPC 回的形狀:`{ data: { result }, error }`。
+  insertResult: {
+    error: null as { code?: string; message?: string } | null,
+    data: { result: 'ok' } as unknown,
+  },
 }));
 
 vi.mock('next/navigation', () => ({
@@ -53,14 +57,15 @@ vi.mock('./order-repository', () => ({
 vi.mock('./manual-cancel-notice-read', () => ({
   readManualCancelNoticeEligibility: mocks.eligibility,
 }));
+// 🔴 **2026-09-06 起走 RPC 不走 `.from().insert()`** —— 資格重檢與寫入被關進同一個交易
+//    (`record_manual_cancel_notice`, `20260906920000`;codex R3 must-fix ①)。
+//    ⇒ 這裡的假 client 也要跟著換形狀, 否則測到的是一個**已經不存在的路徑**。
 vi.mock('@pcm/adapters/server', () => ({
   createSupabaseServiceClient: () => ({
-    from: () => ({
-      insert: (row: Record<string, unknown>) => {
-        mocks.insert(row);
-        return { select: () => ({ maybeSingle: async () => mocks.insertResult }) };
-      },
-    }),
+    rpc: (fn: string, args: Record<string, unknown>) => {
+      mocks.insert({ fn, ...args });
+      return Promise.resolve(mocks.insertResult);
+    },
   }),
 }));
 
@@ -92,7 +97,7 @@ beforeEach(() => {
   });
   mocks.record.mockResolvedValue(undefined);
   mocks.insertResult.error = null;
-  mocks.insertResult.data = { id: 'e-1' };
+  mocks.insertResult.data = { result: 'ok' };
 });
 
 describe('登錄人工寄出取消通知 — 閘的順序', () => {
@@ -179,12 +184,22 @@ describe('登錄人工寄出取消通知 — 閘的順序', () => {
   });
 });
 
-describe('登錄人工寄出取消通知 — 寫進去的那一列', () => {
+/**
+ * 🛑 **這個 describe 的射程變了, 名字先說清楚**(codex 2026-09-06 nit)——
+ * 2026-09-06 起那一列是**由 SQL 那側組的**(`record_manual_cancel_notice`, `20260906920000`)
+ * ⇒ 📌 **這裡量得到的只有「我傳了什麼進 RPC」, 量不到「SQL 寫出什麼」。**
+ * ⇒ 🔴 SQL 若把 `status` 寫成 `pending`、或漏掉 `payload.manual`, **本檔每一格照樣綠**。
+ * ✅ **那一半由拋棄式 PG 那 13 格守**(見那支 migration 的 commit body):
+ *    格1b 直接查 `email_outbox` 比對 `dedup_key` / `status` / `payload->>'manual'` / `recorded_by`。
+ * ⇒ ⇒ **兩把尺各守一半, 而【只跑這一支】看不出 SQL 退步。**
+ */
+describe('登錄人工寄出取消通知 — 傳進 RPC 的參數(不是寫進去的那一列)', () => {
   it('🔴 dedup_key = 訂單 ID(沿用既有算法,不可以是新 UUID)', async () => {
     await expect(recordManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
     const row = mocks.insert.mock.calls[0]?.[0] ?? {};
-    expect(row.dedup_key).toBe('a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d');
-    expect(row.event_type).toBe('order_cancelled');
+    // 🔵 `dedup_key` 現在由 SQL 那側從 uuid 轉出來 ⇒ 這裡改問**傳進去的那個 id**。
+    expect(row.fn).toBe('record_manual_cancel_notice');
+    expect(row.p_order_id).toBe('a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d');
   });
 
   /**
@@ -197,10 +212,9 @@ describe('登錄人工寄出取消通知 — 寫進去的那一列', () => {
   it('🔴 表單送大寫 UUID ⇒ order_id 與 dedup_key 都要用【DB 回的小寫那一份】', async () => {
     await expect(recordManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
     const row = mocks.insert.mock.calls[0]?.[0] ?? {};
-    // 表單送的是大寫(OK_FORM.order_id), 而這兩欄都必須是小寫那一份。
-    expect(row.order_id).toBe('a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d');
-    expect(row.dedup_key).toBe('a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d');
-    expect(row.dedup_key).not.toBe(OK_FORM.order_id);
+    // 表單送的是大寫(OK_FORM.order_id), 而傳進 RPC 的必須是 DB 回的小寫那一份。
+    expect(row.p_order_id).toBe('a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d');
+    expect(row.p_order_id).not.toBe(OK_FORM.order_id);
   });
 
   it('🔴 稽核的 target 也要用正規化那一份(不然同一張單會留下兩種寫法)', async () => {
@@ -212,25 +226,56 @@ describe('登錄人工寄出取消通知 — 寫進去的那一列', () => {
   it('🔴 status 借用 sent,而【人工】的證據住在 payload 裡', async () => {
     await expect(recordManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
     const row = mocks.insert.mock.calls[0]?.[0] ?? {};
-    expect(row.status).toBe('sent');
-    expect(row.payload).toMatchObject({ manual: true, recorded_by: 'actor-1' });
+    // 🔵 `status` 與 `payload` 現在由 SQL 那側組(見 20260906920000)⇒ 這裡改問
+    //    **actor 有沒有從 session 傳過去**(payload 的 recorded_by 就是它)。
+    expect(row.p_actor).toBe('actor-1');
+    expect(row.p_recipient_email).toBe('someone@example.com');
   });
 
   it('🔴 attempts / max_attempts / next_retry_at 【不給】(有 DEFAULT;我們一次都沒試過寄)', async () => {
     await expect(recordManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
     const row = mocks.insert.mock.calls[0]?.[0] ?? {};
-    expect(row.attempts).toBeUndefined();
-    expect(row.max_attempts).toBeUndefined();
-    expect(row.next_retry_at).toBeUndefined();
+    // 🔵 那三欄現在**根本不經過 TS** —— SQL 那側不給值, 讓 DEFAULT 生效。
+    //    ⇒ 這裡改釘「我沒有多傳任何欄位進去」。
+    expect(Object.keys(row).sort()).toEqual(
+      ['fn', 'p_actor', 'p_order_id', 'p_recipient_email', 'p_request_id'].sort(),
+    );
   });
 
   // 🔴🔴 **這一格就是 code-reviewer must-fix ② 那條**:
   //    `backTo()` 若被包在 try 裡, 這裡會拿到 `write_failed` 而不是 `raced`。
   it('🔴 撞唯一鍵(23505)⇒ raced,【不是】write_failed、更不是「已登錄」', async () => {
-    mocks.insertResult.error = { code: '23505', message: 'duplicate key' };
-    mocks.insertResult.data = null;
+    // 🔵 撞鍵現在由 SQL 那側接住並回 `raced`(它有 EXCEPTION 區塊), 不再靠 PostgREST 的 23505。
+    mocks.insertResult.error = null;
+    mocks.insertResult.data = { result: 'raced' };
     await expect(recordManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
     expect(mocks.redirect).toHaveBeenCalledWith(`/orders/${OK_FORM.order_id}?r=manual_cancel_notice_raced`);
+  });
+
+  /**
+   * 🔴🔴 **這一格釘的是 R3 must-fix ① 的下半**:TS 那側的資格檢查【過了】,
+   * 而 RPC 在鎖住那張單之後**重算述詞發現已經不合格** ⇒ 回 `not_eligible`。
+   * ⇒ 那表示**兩次檢查之間狀態真的變了** ⇒ 給人的話用 `raced` 最貼近事實。
+   * 🛑 **不可以當成功** —— 當成功的話, 畫面會說「已登錄」而 DB 裡一列都沒有。
+   */
+  it('🔴 RPC 回 not_eligible(鎖之後才發現不合格)⇒ raced,不可以當成功', async () => {
+    mocks.insertResult.error = null;
+    mocks.insertResult.data = { result: 'not_eligible' };
+    await expect(recordManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenCalledWith(`/orders/${OK_FORM.order_id}?r=manual_cancel_notice_raced`);
+  });
+
+  /**
+   * 🔴 **RPC 回一個我不認得的字 ⇒ 也不可以當成功。**
+   * 那表示 SQL 那側改了而這裡沒跟上 —— 而「安靜地當成功」會讓那張單被記成已處理。
+   */
+  it('🔴 RPC 回不認得的碼 ⇒ write_failed(不是成功)', async () => {
+    mocks.insertResult.error = null;
+    mocks.insertResult.data = { result: 'something_new_from_sql' };
+    await expect(recordManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `/orders/${OK_FORM.order_id}?r=manual_cancel_notice_write_failed`,
+    );
   });
 
   it('🔴 其他 DB 錯 ⇒ write_failed', async () => {

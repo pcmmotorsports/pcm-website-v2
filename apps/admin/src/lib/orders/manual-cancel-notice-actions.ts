@@ -118,45 +118,52 @@ export async function recordManualCancelNoticeAction(formData: FormData): Promis
   //    (`SupabaseEmailOutboxAdapter.ts:337` 逐字 `dedupKey: input.orderId,`)——
   //    ⛔ **不可以每次產新 UUID**:唯一鍵是 `(event_type, dedup_key)`,
   //      新 UUID 每次都不撞 ⇒ 按兩下就兩列。
-  // 🔴🔴 **這一段【刻意不包 try】** —— 而我第一版包了, code-reviewer 2026-09-06 抓到:
-  //    `backTo()` 走的是 `redirect()`, 而它**靠丟 NEXT_REDIRECT 來運作**
-  //    ⇒ 包在 try 裡的話, `23505` 那條路的 `backTo(orderId, 'raced')` **會被我自己的 catch 接住**
-  //    ⇒ 📌 印一行**假的**「丟例外」, 然後改導 `write_failed`
-  //      ⇒ 🛑 **撞鍵(別人同時登錄了)被回報成「登錄失敗請再試」** —— 而他再試還是撞。
-  //    ✅ 形狀照 `dead-letter-actions.ts:100-114`:**Supabase 查詢錯誤是回 `{ error }`, 不是丟**
-  //      ⇒ 檢查 `res.error` 就夠, 不需要 catch;真的丟出來的東西讓它往上走。
-  const res = await createSupabaseServiceClient()
-    .from('email_outbox')
-    .insert({
-      event_type: 'order_cancelled',
-      order_id: canonicalOrderId,
-      // 🔴 **正規化過的那一份**(codex R3 must-fix ②)—— 理由見上面 `canonicalOrderId` 那段。
-      dedup_key: canonicalOrderId,
-      recipient_email: recipientEmail,
-      subject: '訂單取消通知(人工寄出)',
-      // 🔴 差別住在這裡 —— `status` 是借來的, payload 才分得出兩種 `sent`。
-      payload: {
-        manual: true,
-        recorded_by: authorization.actorId,
-        recorded_at: recordedAt,
-        request_id: requestId,
-        note: '這一列不是系統寄的:員工自己寄了信之後在後台登錄。沒有 provider_message_id 是正常的。',
-      },
-      status: 'sent',
-      sent_at: recordedAt,
-    })
-    .select('id')
-    .maybeSingle();
+  // 🔴🔴 **改走 RPC —— 而這【不是】重構, 是把一個真的窗口關掉。**
+  //    codex R3 must-fix ①:上面那次資格重讀與這裡的寫入之間**沒有共同交易也沒有鎖**。
+  //    🔬 反例(它給的, 我在拋棄式 PG 上重現過):總額 5000、卡退 4000、人工退款兩筆各 500,
+  //      我讀完資格之後另一人**作廢其中一筆** ⇒ `20260905440000` 把狀態降成 `partiallyRefunded`
+  //      ⇒ 🛑 我仍然無條件插入 ⇒ **寫入當下已經不合格**, 而日後卡上補退滿時
+  //        那一列會讓這張單被 anti-join 排除 ⇒ 📌 **那位客人的取消信永久關閉。**
+  //    ✅ `record_manual_cancel_notice`(`20260906920000`)先 `FOR NO KEY UPDATE` 鎖那張單,
+  //      **再算述詞, 再寫** —— 三件事在同一個交易裡。
+  //    🔵 **上面那次 TS 的資格檢查【不拿掉】**:它負責給人一句看得懂的話(12 顆碼),
+  //      而 RPC 負責正確性。形狀與理由逐字同 `dead-letter-actions.ts:64-67`
+  //      (「前置判斷與 RPC 的白名單刻意同義而不是取代」)。
+  //    ⚠️ **而 `dedup_key` 現在由 SQL 那側從 `uuid` 轉出來** ⇒ 呼叫端連傳錯形狀的機會都沒有
+  //      (R3 must-fix ② 的第二道防線;TS 這側仍用 canonicalOrderId, 兩層同向)。
+  const res = await createSupabaseServiceClient().rpc('record_manual_cancel_notice', {
+    p_order_id: canonicalOrderId,
+    p_recipient_email: recipientEmail,
+    p_actor: authorization.actorId,
+    p_request_id: requestId,
+  });
 
   if (res.error) {
-    // 🔴 唯一鍵撞了 ⇒ **不是成功**(codex 關卡1 must-fix ③)。
-    //    回「已登錄」會讓員工以為處理完了, 而他這一次其實什麼都沒寫。
-    if (res.error.code === '23505') backTo(orderId, 'raced');
-    console.error('[admin/orders] 登錄人工寄出取消通知失敗(稽核已留下一筆)', {
+    console.error('[admin/orders] record_manual_cancel_notice 失敗(稽核已留下一筆)', {
       request_id: requestId,
-      order_id: orderId,
+      order_id: canonicalOrderId,
       code: res.error.code,
       message: String(res.error.message ?? '').slice(0, 300),
+    });
+    backTo(orderId, 'write_failed');
+  }
+
+  // 🔴 **RPC 回的碼要逐個接** —— 少接一個, 那條路會安靜地走到下面的「成功」。
+  //    🛑 而 `result` 不是我認得的字串時也**不可以**當成功:那表示 SQL 那側改了而這裡沒跟上。
+  const rpcResult = (res.data as { result?: unknown } | null)?.result;
+  if (rpcResult === 'raced') backTo(orderId, 'raced');
+  if (rpcResult === 'not_found') backTo(orderId, 'not_found');
+  if (rpcResult === 'not_eligible') {
+    // 🔵 RPC 刻意不細分為什麼不合格(那是本檔上面那次檢查的職責)。
+    //    走到這裡 = **兩次檢查之間狀態真的變了** ⇒ 用 `raced` 那句話最貼近事實:
+    //    「剛才有別人動了這張單, 你這一次沒有寫入」。
+    backTo(orderId, 'raced');
+  }
+  if (rpcResult !== 'ok') {
+    console.error('[admin/orders] record_manual_cancel_notice 回了我不認得的碼', {
+      request_id: requestId,
+      order_id: canonicalOrderId,
+      result: String(rpcResult ?? '(空)').slice(0, 100),
     });
     backTo(orderId, 'write_failed');
   }
