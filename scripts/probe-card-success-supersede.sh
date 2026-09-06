@@ -11,6 +11,15 @@
 #    ⚠️ **而「它真的被接進三支裡」是甲在答**, 不是乙。兩部分缺一不可。
 #
 # 用法:bash scripts/probe-card-success-supersede.sh   ⇒ 全過 rc=0;任一格不如預期 rc=1
+#
+# 🔴🔴 **天花板(`-f8` 2026-09-06 裁 Q-cpw2=乙, 明寫而不修)——它答不出「真入口的鎖鏈」**:
+#    乙-2 那三格的併發世界是**本腳本自己寫的模型**(`LOCK1/LOCK2/ADV` 手拼),
+#    **不是** `begin_charge_attempt` 與三支正牌入口真的跑一遍。
+#    ⇒ 📌 **它證得了的是**:反向順序(advisory→列)真的會 40P01、現行順序(列→advisory)不會。
+#    ⇒ 🛑 **它證不到的是**:三支真入口的完整鎖鏈日後漂掉時, 這一格仍可能綠。
+#    ⇒ 要答那個, 拋棄式庫得補齊 `staff` / `session_user='payment_confirmer'` /
+#      `payment_double_charge_anomalies` 等一整串前置 —— 那是另一片(板上 open 待派, 不排時間)。
+# 🔵 而**行為正確性**不靠乙-2:那是乙-1 的九個 fixture 在答(含 keeper 不是刷卡單 / 沒有成功證據 / 別的 cart / 別人 / 已有 attempt / 已 paid / 現金 / 已取消)。
 set -uo pipefail
 export LC_ALL=C LANG=C PGCLIENTENCODING=UTF8
 WT="$(cd "$(dirname "$0")/.." && pwd)"
