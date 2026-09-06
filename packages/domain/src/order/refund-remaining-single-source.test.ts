@@ -725,6 +725,29 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
       '⚠️ 盲點:本 gate 只比對字面,**答不出「這道 trigger 的觸發面對不對」**;' +
       '那一半的證人是本片自帶的前置/後置斷言與 `scripts/866-*`,而它們不在 CI。',
   },
+
+  // ── 2026-09-07 · 線【帳號】`account` 補(⟦b4-TAPPAYDIRECT⟧ A1 / A3 兩支)────────
+  // 🔴 **count 是讓那道閘自己報的**(跑 `npx vitest run <本檔>`, 讀它印的
+  //    「· <檔名>(N 處)」那一行), 不是我 grep 出來的 —— 本檔 :163 那條判別句的成因就是那個坑。
+  '20260907020000_m4b_tappaydirect_a1_backfill_columns.sql': {
+    count: 1,
+    // 🔵 **審的人不是作者**:mainB 2026-09-07 開 `git show 5bffa984a:<path>` :268-276 核過。
+    why:
+      // 🔴 why 要答的是「gate 為什麼對【正確的東西】報紅」。
+      // 本 gate 掃 `refund_amount` 這個【欄位字面】(寬 = fail-closed)
+      // ⇒ 它分不出「有人自己再算一次【還能退多少】」與「有人只是把那個欄位【轉發】出去」。
+      '唯一那一處(:271)是 view `order_refunds_readable` 的欄位投影 `r.refund_amount` —— 純 SELECT 轉發。' +
+      // ✅ 結構性反面證據(量到的, 不是宣稱):剝掉 `--` 註解之後對本檔數
+      //   SUM( = 0 · refund_amount 前後接加減 = 0 · refundable = 0 · remaining = 0。
+      //   🟢 正對照(證明這把尺看得見加總):同一發對被保護的 `20260820100000`(即
+      //      `pcm_order_refundable_remaining` 最新代)數 SUM( = **9**。
+      //   ⇒ ⇒ 一個零加總、零減法的欄位投影, **結構上算不出「還能退多少」**。
+      '零 SUM、零加減、零 refundable/remaining(剝註解後量);正對照:被保護的那支自己有 9 個 SUM(。' +
+      // 🔴 可證偽的那一半:
+      '🔴 這一筆哪天失效:本檔若開始出現 SUM( 或對 refund_amount 做加減 ⇒ 立刻作廢, 不得沿用。' +
+      '⚠️ 本 allowlist 只涵蓋「這一處是不是另一份可退餘額算式」;它【不背書】該 view 的遮罩、ACL 或前置閘。',
+  },
+
 };
 
 /** TS 側「自己聚合退款金額」的字樣(啟發式,見檔頭上限 ②)。 */
