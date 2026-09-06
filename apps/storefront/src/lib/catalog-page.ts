@@ -95,7 +95,7 @@ export function catalogRowToUIProduct(row: CatalogListRow): CatalogCardProduct {
     // ⚠️ **代價寫明**:`CatalogCardProduct.fits` 的語意從「DB 原始字串」變成「**顯示標籤**」。
     //   卡片那條路上沒有別人讀它的原始值(`git grep -n 'CatalogCardProduct' -- apps/ packages/` ⇒
     //   消費端 `ProductCard` / `ProductRail` / `ProductsPage` / `BrandPage*` / `brand-products.ts`,
-    //   逐支 grep `fitments` ⇒ **只有 `ProductCard.tsx:265` 是執行碼, 其餘命中全是註解**)。
+    //   逐支 grep `fitments` ⇒ **只有 `ProductCard.tsx:287` 是執行碼, 其餘命中全是註解**)。
     //   🔴 而 PDP / 購物車那條路**不經過本函式**(它們走 domain mapper)⇒ 那邊的 `fits` 仍是原始值。
     fits: formatCardFits(toCardFitments(row.fitments), row.fits ?? '通用款'),
     // 🔴 **這裡刻意【不】補預設值。**原本是 `row.price_general ?? 0`,而那一行把
