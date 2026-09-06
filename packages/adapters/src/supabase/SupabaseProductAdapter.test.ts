@@ -1530,8 +1530,15 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
     const { client, captured } = makeMock({ data: ids, error: null });
     await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
     expect(captured.ors, 'RPC 成功時不該再走舊路').toHaveLength(0);
-    // 🔴 `.in()` 不保證順序 ⇒ 自己排過, 才與舊路的 .order('id') 同序
-    expect(captured.ins[0]).toEqual(['aaa', 'bbb']);
+    // ⛔ ~~`.in()` 不保證順序 ⇒ 自己排過, 才與舊路的 `.order('id')` 同序~~
+    // ⛔ ~~`expect(captured.ins[0]).toEqual(['aaa', 'bbb']);`~~
+    // 🔴🔴 **2026-09-06:`.sort()` 拿掉了 ⇒ 期望值改成【RPC 給的那個順序】。**
+    //   db 的 `62` 已貼正式庫:那支函式**在函式內排序**(完全命中優先)
+    //   ⇒ 📌 **上游排的順序現在有意義, 而 TS 這端再排一次就是把它蓋掉。**
+    //   🛑 而 `.in()` 不保證順序**這句仍然是真的** —— 它由下面那道接縫解決
+    //     (拿回列之後照 `pageIds` 重排, 見 `SupabaseProductAdapter.ts` 的 `byId` 那段),
+    //     **不是靠在這裡先排一次。** ⇒ **舊註解的觀察沒錯, 是它的解法被換掉了。**
+    expect(captured.ins[0]).toEqual(['bbb', 'aaa']);
   });
 
   it('🔴 契約變了(回了列而一列都認不得)⇒ 必須【退回舊路】, 不是回空', async () => {
@@ -1947,8 +1954,12 @@ describe('searchByKeyword — 列的順序由【上游】決定, 不由 PostgRES
   //   ⇒ 本格釘住「輸出照 `pageIds` 的順序」, 讓 62 貼上去之後那個排序**走得到畫面上**。
   // ⚠️ **今天 `pageIds` 來自 `[...brandIds].sort()` ⇒ 它就等於 id 升冪 ⇒ 這一格【現在必綠】。**
   //   本格的價值不在今天會紅, 在**它會在 62 之後接住那個回歸**。
-  it('🔴 PostgREST 回亂序 ⇒ 輸出仍照 `pageIds` 的順序(不是照回來的順序)', async () => {
-    const ids = ['a', 'b', 'c'];
+  it('🔴 保留 RPC 給的順序 —— 既不自己排, 也不照 PostgREST 回來的順序', async () => {
+    // 🔴🔴 **2026-09-06:`.sort()` 拿掉之後, 這一格從【no-op 的接縫】變成【真的守門】。**
+    //   ⇒ 📌 RPC 給的順序**刻意不是字典序**(`c, a, b`)—— 這樣才問得出
+    //     「實作有沒有自己重排」與「有沒有照 PostgREST 回來的順序」這兩件事。
+    //   ⛔ ~~`['a','b','c']`~~ ⇒ 那個順序**剛好等於 sort() 的結果** ⇒ 拿掉 `.sort()` 它照樣綠 ⇒ 零判別力。
+    const ids = ['c', 'a', 'b'];
     const captured: { pageIds?: string[] } = {};
     const client = {
       rpc() {
@@ -1978,6 +1989,9 @@ describe('searchByKeyword — 列的順序由【上游】決定, 不由 PostgRES
     ).searchByKeyword('x', { limit: 20, offset: 0 });
     expect(res.items.length, 'items 是空的 ⇒ mock 沒回列, 這一發作廢').toBe(3);
     expect(res.items.map((x) => x.id)).toEqual(captured.pageIds);
+    // 🔴 **而 `pageIds` 必須逐字等於 RPC 給的那一串** —— 少了這一句, 實作若把 ids 排過
+    //   而回傳又照那個排過的 pageIds, 上面那一行照樣綠。
+    expect(captured.pageIds, 'ids 被排過了 ⇒ 62 在函式內排的順序被 TS 蓋掉').toEqual(ids);
   });
 });
 

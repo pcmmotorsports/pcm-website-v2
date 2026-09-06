@@ -945,9 +945,92 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     } catch {
       balanceDueAmount = null;
     }
+    /**
+     * ⟦ship-CANCELQTYTOSTOREFRONT⟧(2026-09-06;Sean Q18 甲 + 主視窗裁**丁**)
+     * 每一品項被取消幾件 —— 走 SECDEF RPC `get_member_order_cancelled_quantities(uuid)`。
+     *
+     * 🔵 **為什麼不是內嵌一張表**:`order_item_quantity_summary` 維持**零 policy + 只授
+     *    `service_role`**, 而這條路**不持 service_role** ⇒ 內嵌它會拿到空的**而測試全綠**。
+     *    ⇒ 那支 RPC 是一扇窗:歸屬比對在函式裡, 牆不動。
+     *
+     * 🔴🔴 **fail-closed, 而它的形狀是【`null` 不是 `{}`】**:
+     *    RPC 失敗 / 回不是物件 / 任一個值不是非負整數 ⇒ 整包當 **`null` = 不知道**。
+     *    ⇒ mapper 收到 `null` 時**走舊規則**(每一件有出過就算全出), **不會**把分母算成原始訂購量。
+     *    🛑 **絕不把「問不到」當成「取消 0 件」** —— 那會讓一張部分取消、其餘出滿的單
+     *      被判「沒出完」⇒ 顧客頁永久印「其餘商品出貨時會再通知您」而那幾件永遠不會來。
+     * 🔵 形狀照同一支方法上面那個 `balanceDueAmount`(try/catch + runtime guard + 失敗不 throw)——
+     *    throw 出去會讓客人**連訂單都看不到**(拿一個大故障換一個小故障)。
+     */
+    let cancelledByItemId: Readonly<Record<string, number>> | null = null;
+    /**
+     * 🔴🔴 **降級要留聲音**(⟦ship-CANCELQTYTOSTOREFRONT⟧ 板列逐字:「正確的修法不是改語意,
+     *    是【RPC 失敗要有告警】—— 讓『暫時』真的是暫時」)。
+     *
+     * 🛑 **為什麼非有不可**:降級成 `null` 之後畫面【看起來完全正常】——
+     *    訂 5 出 1、實際取消 0、RPC 暫時失敗 ⇒ 走舊規則 ⇒ `allItemsShipped=true`
+     *    ⇒ **分批小字消失**,而客人以為到齊。
+     *    ⇒ 📌 **那是一個「壞掉」與「一切正常」印同一個畫面的形狀** ⇒ 沒有人會來報修。
+     *
+     * 🔵 **降級 + 一行 `console.error`**,不 throw、不叫 `IAlertNotifier`
+     *    (那是排程批次的路,不是渲染顧客頁時該走的)。
+     * ⚠️ ⛔ ~~「形狀照 `PgAnomalyAlertReaderAdapter` 那 7 處」~~ **那句話兩半都要修**(code-reviewer 實查):
+     *    ① 該檔 `console.error` 共 **13** 處,**帶 `reason:` 欄的才是 7 處** —— 「7」只在那一種讀法下成立。
+     *    ② 那 13 處**沒有一處帶實體 id** ⇒ 本處帶 `orderId` **不是**照它的形狀。
+     *    ✅ 帶 orderId 合的是 repo 更大範圍的慣例(`settle-charge.ts` / `confirm-payment.ts` /
+     *      `initiate-payment.ts` / tappay-notify route 都印 orderId)。
+     *    📌 **⇒ 一句「照慣例」在有兩個慣例時等於沒說。寫出是哪一個。**
+     * ⚠️ **`reason` 分四種而不是一句話** —— 「RPC 回錯」與「回了但形狀不對」要修的地方不同。
+     * 🟢 **成功(含 `{}` = 問到了、0 件)一個字都不印** —— 那是它的負對照:
+     *    一句無條件印的日誌等於沒有訊號。
+     */
+    let degradedReason: string | null = null;
+    let degradedCode: unknown = null;
+    try {
+      const rpc = (await (this.supabase as unknown as {
+        rpc(fn: string, args: Record<string, unknown>): Promise<{ data: unknown; error: unknown }>;
+      }).rpc('get_member_order_cancelled_quantities', {
+        p_order_id: (data as { id: string }).id,
+      })) as { data: unknown; error: unknown };
+      if (rpc.error) {
+        degradedReason = 'rpc_error';
+        degradedCode =
+          typeof rpc.error === 'object' && rpc.error !== null && 'code' in rpc.error
+            ? (rpc.error as { code: unknown }).code
+            : null;
+      } else if (rpc.data === null || typeof rpc.data !== 'object' || Array.isArray(rpc.data)) {
+        degradedReason = 'rpc_shape_not_object';
+      } else {
+        const entries = Object.entries(rpc.data as Record<string, unknown>);
+        // 🔴 **任一個值壞掉就整包丟掉** —— 部分可信的資料比沒有資料難處理:
+        //    它會讓「那一件我們不知道」與「那一件沒取消」混進同一個物件裡。
+        if (entries.every(([, v]) => typeof v === 'number' && Number.isInteger(v) && v >= 0)) {
+          cancelledByItemId = Object.fromEntries(entries) as Record<string, number>;
+        } else {
+          degradedReason = 'rpc_value_not_non_negative_integer';
+        }
+      }
+    } catch {
+      cancelledByItemId = null;
+      degradedReason = 'rpc_threw';
+    }
+    if (degradedReason !== null) {
+      console.error(
+        // ⚠️ 文案不提「進度軸」—— 本方法有三個呼叫端(訂單頁 / 對帳單 / 對帳單 PDF),
+        //    而後兩個**不渲染進度軸** ⇒ 寫死那個詞會讓看 log 的人找錯畫面(code-reviewer nit)。
+        '[member-order-detail] 🔴 get_member_order_cancelled_quantities 降級成【不知道】⇒ 取消件數這一段退回舊規則(只問有沒有出過, 不問幾件)。部分取消的單在這段期間會少印分批小字 —— 這一格需要有人去看。',
+        {
+          reason: degradedReason,
+          // 🔴 **帶 DB error code**(code-reviewer nit):少了它, 42883(函式沒貼)/ 42501(權限)/
+          //    連線瞬斷在 log 上是**同一行** ⇒ 而板列要的正是「讓『暫時』真的是暫時」, 少了 code 就答不出這題。
+          code: degradedCode,
+          orderId: (data as { id: string }).id,
+        },
+      );
+    }
     return mapSupabaseMemberOrderDetailRow(
       data as unknown as SupabaseMemberOrderDetailRow,
       balanceDueAmount,
+      cancelledByItemId,
     );
   }
 

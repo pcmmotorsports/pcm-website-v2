@@ -79,10 +79,39 @@ function submitted(container: HTMLElement): Record<string, string[]> {
 const addRow = () => fireEvent.click(screen.getByText('加一列'));
 
 describe('🔴 原始碼層:不變式 (i) —— 送出值不由 client state 產生或回寫', () => {
-  it('🔴🔴 本檔的程式碼裡【一個 `value=` 都沒有】(受控輸入的形狀)', () => {
+  it('🔴🔴 本檔的 `value=` 只准出現在 `<option>` 上, 而且只准是那兩顆常數', () => {
     // 失敗情境:有人把某一格改成受控 ⇒ 「畫面顯示的」與「送出去的」開始有兩個來源
     //   ⇒ reset / 競態之後兩者可以不同,而**沒有東西會紅**。取消線就是這樣被咬的。
-    expect(CODE).not.toMatch(/\bvalue=/);
+    //
+    // 🔴🔴 **2026-09-06 ⟦b4-PURCHTAX1⟧ 換尺(⛔ ~~`expect(CODE).not.toMatch(/\bvalue=/)`~~)**:
+    //    稅基那一格是 `<select>` + 兩顆 `<option value=…>` ——
+    //    而 **`<option>` 的 `value` 不會讓那個 select 變成受控**(受控的是 `select` 上的 `value=`)。
+    //    🛑 **而這不是放寬** —— 舊尺是「一個都不准」, 新尺是兩個條件:
+    //      ① `value=` **只准長在 `<option` 上**(其他任何標籤上出現 ⇒ 紅)
+    //      ② 每一個 option 的值**只准是那兩顆匯入的常數**(寫死字串 / 塞 state 進去 ⇒ 紅)
+    //    ⇒ 📌 ② 是新增的約束:舊尺根本沒有它, 因為舊尺底下 `<option>` 不可能存在。
+    const OPTION_TAG = /<option value=\{([A-Za-z0-9_.]+)\}>/g;
+    const allowed = ['MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED', 'MANUAL_ORDER_LINE_TAX_BASIS_TAXED'];
+    const optionValues = Array.from(CODE.matchAll(OPTION_TAG)).map((m) => m[1]);
+    // 🔵 正對照:這把尺真的撈得到東西(不然下面兩格在「一顆 option 都沒有」的世界也全綠)。
+    expect(optionValues.length).toBeGreaterThan(0);
+    for (const v of optionValues) expect(allowed).toContain(v);
+    // ① 把合法的那幾個 `<option value={…}>` 拿掉之後, **不准再有任何 `value=`**。
+    const rest = CODE.replace(OPTION_TAG, '<option>');
+    expect(rest).not.toMatch(/\bvalue=/);
+    // 🔴🔴 **③ 標籤與值要配對**(codex nit, 2026-09-06)——
+    //    上面兩條都過, 而**把兩顆常數對調**(未稅那顆掛 taxed、含稅那顆掛 untaxed)
+    //    仍然全綠 ⇒ **畫面上寫「未稅」而送出去的是 taxed**, 錢直接錯而沒有東西會叫。
+    //    ⇒ 這一格釘住那個配對。🔵 用渲染出來的畫面問, 不讀原始碼(繞法見隔壁檔那條血)。
+    cleanup();
+    render(<ManualOrderLines />);
+    const sel = document.querySelector('select[name^="line_tax_basis_"]');
+    expect(sel, '稅基那一格不見了').toBeTruthy();
+    const opts = Array.from((sel as HTMLSelectElement).options).map((o) => [o.textContent, o.value]);
+    expect(opts).toEqual([
+      ['未稅', 'untaxed'],
+      ['含稅', 'taxed'],
+    ]);
   });
 
   it('🔴 也沒有 `onChange` / `onInput`(state 連【讀】都不讀值)', () => {
@@ -380,10 +409,18 @@ describe('🔴 含稅安全標籤(⟦b4-PURCHTAX1⟧ 甲;2026-08-29)', () => {
   //    ⇒ 方向反過來。而**舊那格今天照樣綠** —— 因為新文案裡「含稅」出現在
   //    「填成**含稅**會多課一次稅」那半句 ⇒ 🛑 **它從「守對的方向」變成「對兩個方向都綠」。**
   //    ⇒ 📌 **一格守關鍵詞的測試, 在文案反向之後不會紅, 它只是不再測任何東西。**
-  it('🔴 「未稅」兩個字在畫面上(不是只在註解裡)', () => {
-    render(<ManualOrderLines />);
-    // getByText 讀的是**渲染後的文字**,註解不會進 DOM ⇒ 這一格分得出「寫在碼裡」與「印在畫面上」。
-    expect(screen.getByText(/未稅/)).toBeTruthy();
+  it('🔴 「未稅」兩個字在【那句橘字上】(不是只在註解裡, 也不是靠新加的下拉選單充數)', () => {
+    // 🔴🔴 **2026-09-06 ⟦b4-PURCHTAX1⟧ 換尺(⛔ ~~`screen.getByText(/未稅/)`~~)**:
+    //    稅基那一欄的 `<option>未稅</option>` 讓「未稅」在畫面上出現很多次
+    //    ⇒ 舊寫法先是**多重命中直接爆**(那是它救了我一次), 而若改成 `getAllByText`
+    //      就會變成**恆綠** —— 只要有下拉選單在, 那句橘字整段被刪掉它也照樣過。
+    //    ⇒ 📌 **改成釘住【那一句】本身**, 而不是「畫面上某處有這兩個字」。
+    const { container } = render(<ManualOrderLines />);
+    const p = Array.from(container.querySelectorAll('p')).find((e) =>
+      /單價這一格/.test(e.textContent || ''),
+    );
+    expect(p, '那句橘字不見了').toBeTruthy();
+    expect(p!.textContent).toMatch(/未稅/);
   });
 
   it('🔴🔴 而【舊方向那句不可以還在】—— 兩句同時在, 員工會照先看到的那句做', () => {

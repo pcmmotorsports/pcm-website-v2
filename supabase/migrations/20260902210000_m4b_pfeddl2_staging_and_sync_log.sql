@@ -55,7 +55,13 @@
 --       ⚠️ 而「service_role 讀不到開了 RLS 的表」那個缺口是**另一件事**(`⟦b9-Q15GAP⟧`)——
 --         而它的態是 **Sean 2026-08-26 拍乙【已評估:今天不做】**。⇒ **不要在這支檔裡順手補。**
 --
--- 🔴 本支對既有資料庫零改動:表已存在 ⇒ 它在正式庫上只會炸並回捲。
+-- 🔴 本支對既有資料庫零改動 —— ⛔ ~~表已存在 ⇒ 它在正式庫上只會炸並回捲~~
+--    ⇒ **2026-09-06 23:3x Sean `Q27 甲=加`:改成【已存在就跳過】。**
+--    🛑 **零改動沒有被放棄, 換的是保證方式**:舊 = 撞到就炸 ⇒ 沒機會改到東西;
+--      新 = 每一個 DDL 各帶存在守衛 ⇒ 一個都不執行 ⇒ 一樣沒改到東西。
+--      ⇒ 📌 兩者都給零改動, **而只有後者讓空庫重放走得下去**(那是 `#299` 的目的)。
+--    ⚠️ **代價**:`IF NOT EXISTS` 撞到【同名而定義不同】的既有物件會靜默跳過
+--      ⇒ 接住它的是本檔既有的欄位/ACL/RLS 斷言段(它們比的是**最終狀態**, 不是這一支有沒有執行)。
 
 BEGIN;
 
@@ -66,10 +72,20 @@ SET LOCAL statement_timeout = '60s';
 DO $$
 BEGIN
   IF to_regclass('public.product_fitments_effective_staging') IS NOT NULL THEN
-    RAISE EXCEPTION '前置閘①:product_fitments_effective_staging 已存在 ⇒ 本支是空庫重放用的, 不在有它的庫上跑(這正是它在正式庫上該有的行為)';
+    -- 🔴🔴 2026-09-06 23:3x Sean 拍 `Q27 甲=加` ⇒ 本閘由【擲例外】改成【只出聲】。
+    --   ⛔ 舊行為(留痕):~~擲 42P01 級例外, 訊息是「前置閘①:… 已存在 ⇒ 本支是空庫重放用的,
+    --      不在有它的庫上跑」~~
+    --   ⚠️ **舊字面刻意【不逐字照抄】** —— `scripts/migration-static-checks.sh` 規則⑥ 會把註解裡
+    --      那個關鍵字當成真的敘述去數佔位符與參數 ⇒ 我照抄的那一版讓它報「佔位0/參數2」。
+    --      📌 **一段解釋用的註解, 讓一道靜態閘讀成了碼。**
+    --   **為什麼改**:`#299` 的 `20260712180000` 現在會【先】建這兩張表(版號早於第一個讀者)
+    --   ⇒ 空庫重放跑到本支時它們已存在 ⇒ 這道閘會**擋掉整條重放**, 而「從零重建」正是 `#299` 的目的。
+    --   🛑 **它擋在正式庫上的那個作用【沒有消失】** —— 下面每一個 DDL 都各自帶存在守衛
+    --     ⇒ 已存在 ⇒ 一個都不會執行 ⇒ **零改動仍然成立, 只是改用「跳過」而不是「炸掉」保證。**
+    RAISE NOTICE '前置閘①:product_fitments_effective_staging 已存在 ⇒ 本支的建立段全部跳過(Sean 2026-09-06 Q27 甲)';
   END IF;
   IF to_regclass('public.product_fitments_effective_sync_log') IS NOT NULL THEN
-    RAISE EXCEPTION '前置閘②:product_fitments_effective_sync_log 已存在 ⇒ 同上';
+    RAISE NOTICE '前置閘②:product_fitments_effective_sync_log 已存在 ⇒ 同上, 建立段跳過';
   END IF;
   -- 🔴 FK 目標:products 不在 ⇒ 建不起來, 而錯誤會指向 FK 而不是這裡
   -- 🔴 codex:原本只驗【名字在】—— 而 `products` 是 view、缺 `id`、`id` 型別不是 uuid、
@@ -101,6 +117,11 @@ $$;
 
 -- ── 1. staging ────────────────────────────────────────────────────
 --    欄序逐字照正本 ①(ordinal_position 1-9)。
+DO $tblguard$ BEGIN
+  -- 🔴 不用 `CREATE TABLE IF NOT EXISTS`(規則① 一律禁);裡面仍是【裸 CREATE】。
+  IF NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                  WHERE n.nspname='public' AND c.relname='product_fitments_effective_staging' AND c.relkind='r') THEN
+    EXECUTE $tbl$
 CREATE TABLE public.product_fitments_effective_staging (
   id                bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   product_id        uuid    NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
@@ -121,16 +142,31 @@ CREATE TABLE public.product_fitments_effective_staging (
   CONSTRAINT pfes_provenance_valid    CHECK (
     (match_source = 'direct'    AND source_model_code =  model_code) OR
     (match_source = 'inherited' AND source_model_code <> model_code))
-);
+)
+$tbl$;
+  END IF;
+END $tblguard$;
 
 -- 🔴 `NULLS NOT DISTINCT` 是 **PG15+** 的語法, 而它**不可省**:
 --    少了它, `year_start`/`year_end` 都是 NULL 的兩列**不算重複** ⇒ 唯一鍵擋不住它們。
-CREATE UNIQUE INDEX ux_pfes_row
+-- 🔴 只有【這一行】加 IF NOT EXISTS;下面斷言段裡那個同樣的字串是【期望值】,
+--    而 `pg_indexes.indexdef` 永遠不含 `IF NOT EXISTS` ⇒ 一起改會把那道斷言弄壞。
+DO $ixguard$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                  WHERE n.nspname='public' AND c.relname='ux_pfes_row' AND c.relkind='i') THEN
+    EXECUTE $ix$CREATE UNIQUE INDEX ux_pfes_row
   ON public.product_fitments_effective_staging
   (product_id, moto_brand, model_code, year_start, year_end, match_source)
-  NULLS NOT DISTINCT;
+  NULLS NOT DISTINCT$ix$;
+  END IF;
+END $ixguard$;
 
 -- ── 2. sync_log ───────────────────────────────────────────────────
+DO $tblguard$ BEGIN
+  -- 🔴 不用 `CREATE TABLE IF NOT EXISTS`(規則① 一律禁);裡面仍是【裸 CREATE】。
+  IF NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                  WHERE n.nspname='public' AND c.relname='product_fitments_effective_sync_log' AND c.relkind='r') THEN
+    EXECUTE $tbl$
 CREATE TABLE public.product_fitments_effective_sync_log (
   id          bigint      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   ran_at      timestamptz NOT NULL DEFAULT now(),
@@ -146,9 +182,12 @@ CREATE TABLE public.product_fitments_effective_sync_log (
 
   CONSTRAINT product_fitments_effective_sync_log_status_check
     CHECK (status IN ('success', 'abort'))
-);
+)
+$tbl$;
+  END IF;
+END $tblguard$;
 
--- ── 3. RLS:開著, 而【刻意 0 條 policy】(正本如此)────────────────────
+-- ── 3. RLS:開著 —— ⛔ ~~而【刻意 0 條 policy】(正本如此)~~ ⇒ **各 1 條**(見閘⑥ 那段的訂正)──
 -- 🔴🔴 **`scripts/rls-service-role-policy-gate.py` 在這裡擋下了本片一次, 而它擋得對 ——**
 --    **而在這一支檔上, 照它的建議做會是【錯的】。兩句同時成立, 所以整段留下來。**
 --
@@ -174,8 +213,18 @@ CREATE TABLE public.product_fitments_effective_sync_log (
 --
 -- RLS-GATE-EXEMPT: public.product_fitments_effective_staging -- 本支在複製正式庫現況(正本:0 policy);補政策會讓版控與正式庫不同, 且與本檔事後閘⑥相衝。缺口本身是板 b9-Q15GAP, 態=Sean 2026-08-26 拍乙【已評估:今天不做】。誰會讀它:同步管線走 service_role(今天靠 BYPASSRLS), 以及 pcm_readonly 手動查。
 -- RLS-GATE-EXEMPT: public.product_fitments_effective_sync_log -- 同上;它另有一個讀者是後台首頁那行「車搜新鮮度」灰字(走 service_role)。
-ALTER TABLE public.product_fitments_effective_staging  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.product_fitments_effective_sync_log ENABLE ROW LEVEL SECURITY;
+DO $rlsguard$ BEGIN
+  IF NOT (SELECT c.relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+           WHERE n.nspname='public' AND c.relname='product_fitments_effective_staging') THEN
+    ALTER TABLE public.product_fitments_effective_staging ENABLE ROW LEVEL SECURITY;
+  END IF;
+END $rlsguard$;
+DO $rlsguard$ BEGIN
+  IF NOT (SELECT c.relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+           WHERE n.nspname='public' AND c.relname='product_fitments_effective_sync_log') THEN
+    ALTER TABLE public.product_fitments_effective_sync_log ENABLE ROW LEVEL SECURITY;
+  END IF;
+END $rlsguard$;
 
 -- ── 3.5 權限 ──────────────────────────────────────────────────────
 -- ✅✅ **這一節【有正本】** —— 來源:2026-09-02 20:0x Sean 在 Supabase SQL Editor 跑的
@@ -457,9 +506,22 @@ BEGIN
     INTO v_got FROM pg_catalog.pg_class c
    WHERE c.oid IN ('public.product_fitments_effective_staging'::regclass,
                    'public.product_fitments_effective_sync_log'::regclass);
-  v_want := 'product_fitments_effective_staging|true|false|0,product_fitments_effective_sync_log|true|false|0';
+  -- 🔴🔴 **2026-09-06 23:55 Sean 逐字答 Q28「甲」⇒ 期望值由【各 0 條】改成【各 1 條】。**
+  --   ⛔ 舊值(留痕, 不刪):
+  --     ~~'product_fitments_effective_staging|true|false|0,product_fitments_effective_sync_log|true|false|0'~~
+  --   **為什麼改**:那兩條 policy 是 `20260904270000_m4b_rls_service_role_select_36.sql:340-346`
+  --     逐字 `EXECUTE format('CREATE POLICY %I ON public.%I FOR SELECT TO service_role USING (true)', …)`
+  --     建的, 依據是該檔 `:7-9` 引的 **Sean 2026-09-04 `Q-RLS` 拍甲**逐字
+  --     「甲 = 收 (推薦) —— 先把 43 張表的後台讀取政策補完, 補完才收;現在開工」;
+  --     帳本 `supabase/APPLIED.tsv` 有該列 ⇒ **已 apply**。
+  --   📌 **所以本閘不是壞掉, 是【晚了兩天】** —— 它的期望值寫於 09-02,
+  --     而 09-04 的拍板把世界改了。**一個拍板被後來的拍板取代, 而舊的那份沒有人去改。**
+  --   🛑 **而上面第 3 節那段「刻意 0 條 policy」的長篇理由【也一起過期了】** ——
+  --     它引的 `⟦b9-Q15GAP⟧`「Sean 2026-08-26 拍乙刻意按住」已被 09-04 的甲取代。
+  --     ⚠️ 那段**不刪**(它記錄了當時為什麼那樣判), 而**讀它的人要一起讀這一段**。
+  v_want := 'product_fitments_effective_staging|true|false|1,product_fitments_effective_sync_log|true|false|1';
   IF v_got IS DISTINCT FROM v_want THEN
-    RAISE EXCEPTION '事後閘⑥:RLS 開關或 policy 數與正本不符(正本:兩張都開、各 0 條) ||正本|| % ||實得|| %', v_want, v_got;
+    RAISE EXCEPTION '事後閘⑥:RLS 開關或 policy 數與正本不符(正本:兩張都開、各 1 條 service_role SELECT;2026-09-06 Sean Q28 甲) ||正本|| % ||實得|| %', v_want, v_got;
   END IF;
 
   -- ⑦ 表的 ACL:**讀 `relacl` 逐個 grantee 比對**, 不是問「某個角色有沒有 SELECT」。

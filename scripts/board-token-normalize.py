@@ -40,8 +40,16 @@ def last_idx(line, fields):
 
 
 def scan(lines):
-    """回 (misplaced, dup_same, dup_diff);每項是 (行號, 錨或欄2, 說明)。"""
-    misplaced, dup_same, dup_diff = [], [], []
+    """回 (misplaced, dup_same, dup_diff, done_blocking);每項是 (行號, 錨或欄2, 說明)。
+
+    done_blocking = 態是 `done` 而 token 仍是 ⟨擋⟩ 的列。
+    🔴 **只警告, 不影響 rc** —— 2026-09-07 主視窗裁「先量分母」:
+       它可能是「做完了忘了更新 token」, 也可能是「態被誤標 done」,
+       而**這兩件的修法相反** ⇒ 工具不猜, 印出來給人判。
+    🛑 失效方向已量到:2026-09-07 那 4 列全部是【做完了而 token 停在擋】
+       ⇒ 讀 token 的人會以為它還在擋 ⇒ 那是【派重了】的燃料。
+    """
+    misplaced, dup_same, dup_diff, done_blocking = [], [], [], []
     for n, line in enumerate(lines, 1):
         if not line.startswith('| '):
             continue
@@ -53,12 +61,14 @@ def scan(lines):
             continue
         m = re.search(r'⟦[^⟧]*⟧', f[2])
         key = m.group(0) if m else (f[2].strip() or f':{n}')
+        if f[1].strip() == 'done' and toks[0].startswith('⟨擋'):
+            done_blocking.append((n, key, toks[0][:24]))
         if len(toks) > 1:
             (dup_same if len(set(toks)) == 1 else dup_diff).append((n, key, f'{len(toks)} 個'))
             continue
         if not f[last_idx(line, f)].strip().startswith(HEADS):
             misplaced.append((n, key, toks[0][:24]))
-    return misplaced, dup_same, dup_diff
+    return misplaced, dup_same, dup_diff, done_blocking
 
 
 def fix_line(line):
@@ -90,7 +100,7 @@ def fix_line(line):
 
 def run(path, mode):
     lines = io.open(path, encoding='utf-8').read().split('\n')
-    mis, dsame, ddiff = scan(lines)
+    mis, dsame, ddiff, dblock = scan(lines)
     if mode == '--check':
         print(f'── board-token-normalize --check:{path}')
         print(f'   token 不在最後一格開頭 {len(mis)} 列 · 重複(相同){len(dsame)} 列 · 重複(不同){len(ddiff)} 列')
@@ -99,6 +109,13 @@ def run(path, mode):
                 print(f'   {label:6} :{n:5} {k}  {why}')
         if ddiff:
             print('   🔴 「重複(不同)」本工具【不修】—— 它不猜哪一個才是對的, 要人開檔判。')
+        print(f'   ── 另外(只警告, 不影響 rc):態 done 而 token 仍 ⟨擋⟩ {len(dblock)} 列')
+        for n, k, why in dblock:
+            print(f'   done+擋 :{n:5} {k}  {why}')
+        if dblock:
+            print('   🟡 它可能是【做完了忘了更新 token】, 也可能是【態被誤標 done】——')
+            print('      🔴 這兩件的修法【相反】 ⇒ 本工具不猜, 開檔判。')
+            print('      🛑 已量到的失效方向:讀 token 的人以為它還在擋 ⇒ 那是【派重了】的燃料。')
         return 1 if (mis or dsame or ddiff) else 0
     changed = 0
     for i, line in enumerate(lines):
@@ -136,6 +153,10 @@ def selftest():
         '| open | ⟦x-D⟧ | 丁 | 誰 | 內文含 `a\\|b\\|c` 而 ⟨不擋(t)⟩ 被推走 |',
         '| open | ⟦x-E⟧ | 戊 | 誰 | ⟨擋(t)⟩ 重複相同 ⟨擋(t)⟩ |',
         '| open | ⟦x-F⟧ | 己 | 誰 | ⟨擋(t)⟩ 重複不同 ⟨不擋(t)⟩ |',
+        # 🔴 done+⟨擋⟩ 那條規則的【兩個世界】(2026-09-07 加)
+        '| done | ⟦x-G⟧ | 庚 | 誰 | ⟨擋(t)⟩ 正對照:做完了而 token 停在擋 ⇒ 必須叫 |',
+        '| done | ⟦x-H⟧ | 辛 | 誰 | ⟨不擋(t)⟩ 負對照:同樣是 done 而 token 不是擋 ⇒ 必須【不】叫 |',
+        '| open | ⟦x-I⟧ | 壬 | 誰 | ⟨擋(t)⟩ 負對照:同樣是擋而態不是 done ⇒ 必須【不】叫 |',
     ]
     io.open(bad, 'w', encoding='utf-8').write('\n'.join(rows_bad) + '\n')
     io.open(good, 'w', encoding='utf-8').write('\n'.join(
@@ -148,18 +169,21 @@ def selftest():
         if not ok:
             fails.append(name)
 
-    mis, ds, dd = scan(io.open(bad, encoding='utf-8').read().split('\n'))
+    mis, ds, dd, db = scan(io.open(bad, encoding='utf-8').read().split('\n'))
     ck('世界 A(壞)位移列', len(mis), 2)          # x-B, x-D(含跳脫那列)
     ck('世界 A(壞)重複相同', len(ds), 1)          # x-E
     ck('世界 A(壞)重複不同', len(dd), 1)          # x-F
-    mis2, ds2, dd2 = scan(io.open(good, encoding='utf-8').read().split('\n'))
+    ck('done+擋 命中(正對照 x-G)', len(db), 1)
+    ck('done+擋 命中的是 x-G(不是 x-H/x-I)', db[0][1] if db else '無', '⟦x-G⟧')
+    mis2, ds2, dd2, db2 = scan(io.open(good, encoding='utf-8').read().split('\n'))
     ck('世界 B(乾淨)位移列', len(mis2), 0)
     ck('世界 B(乾淨)重複', len(ds2) + len(dd2), 0)
+    ck('世界 B(乾淨)done+擋', len(db2), 0)
     ck('世界 A rc', run(bad, '--check'), 1)
     ck('世界 B rc', run(good, '--check'), 0)
     print('  ── --fix 之後 ──')
     run(bad, '--fix')
-    mis3, ds3, dd3 = scan(io.open(bad, encoding='utf-8').read().split('\n'))
+    mis3, ds3, dd3, _db3 = scan(io.open(bad, encoding='utf-8').read().split('\n'))
     ck('修後 位移', len(mis3), 0)
     ck('修後 重複相同', len(ds3), 0)
     ck('修後 重複不同(刻意不修)', len(dd3), 1)

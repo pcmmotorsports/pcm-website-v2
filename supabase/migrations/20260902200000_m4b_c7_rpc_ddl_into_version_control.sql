@@ -30,6 +30,13 @@
 --       ⇒ 那個保護本支沒有繼承到。」
 --     ✅ **⇒ 改成裸 `CREATE` 之後, 誤貼到正式庫 ⇒ `function … already exists`
 --       ⇒ 整支交易回捲、零改動、而且它會出聲。⇒ 那個保護回來了。**
+--     🔴🔴 **2026-09-06 Sean 拍 `Q26 甲=加` ⇒ 三支各包一層【已存在就跳過】的守衛。**
+--       **為什麼**:`#299` 的 `20260712180000` 現在會**先**建這三支(版號早於第一個讀者)
+--       ⇒ 空庫重放跑到本支時函式已存在 ⇒ 裸 `CREATE` 會**炸掉整條重放**, 而「從零重建」正是 `#299` 的目的。
+--       🛑 **上面那個保護【沒有】被拿掉** —— 裡面仍是裸 `CREATE FUNCTION`(規則① 照樣看得到它),
+--         而 `OR REPLACE` 一個字都沒有出現 ⇒ **誤貼仍然不會靜靜蓋掉任何東西, 它只是安靜地不做。**
+--       ⚠️ **而【安靜地不做】與【做了】在事後計數上長得一樣** —— 接住它的是本檔既有的
+--         簽章/ACL/SET 子句斷言(它們比的是最終狀態, 不是這一支有沒有執行)。
 --     📌 **⇒ 我原本把「用 OR REPLACE」當成理所當然(因為我抄的是 `pg_get_functiondef` 的輸出,
 --       而它就長那樣)—— 而那個「理所當然」帶著一個我沒注意到的行為改變。**
 --
@@ -89,7 +96,14 @@ BEGIN;
 SET LOCAL search_path = public, pg_catalog;
 
 -- ── pfe_staging_reset ─────────────────────────────────────────────────
-CREATE FUNCTION public.pfe_staging_reset()
+DO $fnguard$ BEGIN
+  -- 🔴 2026-09-06 Sean `Q26 甲=加`:已存在就跳過(空庫重放要走得下去)。
+  --   🛑 **不改成 `CREATE OR REPLACE`** —— `scripts/migration-static-checks.sh` 規則①
+  --     逐字擋它:「`OR REPLACE` 會把撞名靜靜蓋掉, 而你的 REVOKE 與斷言照樣綠」。
+  --   ⇒ 裡面仍是【裸 `CREATE FUNCTION`】, 只是外面多一層存在守衛。
+  IF NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+                  WHERE n.nspname='public' AND p.proname='pfe_staging_reset' AND p.pronargs=0) THEN
+    EXECUTE $fnbody$CREATE FUNCTION public.pfe_staging_reset()
  RETURNS integer
  LANGUAGE plpgsql
  SET search_path TO 'public', 'pg_temp'
@@ -102,10 +116,19 @@ BEGIN
   SELECT count(*)::int INTO v_deleted FROM del;
   RETURN v_deleted;
 END;
-$function$;
+$function$$fnbody$;
+  END IF;
+END $fnguard$;
 
 -- ── pfe_sync_commit ───────────────────────────────────────────────────
-CREATE FUNCTION public.pfe_sync_commit(p_run_id uuid, p_source_rows integer, p_orphan_rows integer, p_allow_anomaly boolean DEFAULT false, p_note text DEFAULT NULL::text)
+DO $fnguard$ BEGIN
+  -- 🔴 2026-09-06 Sean `Q26 甲=加`:已存在就跳過(空庫重放要走得下去)。
+  --   🛑 **不改成 `CREATE OR REPLACE`** —— `scripts/migration-static-checks.sh` 規則①
+  --     逐字擋它:「`OR REPLACE` 會把撞名靜靜蓋掉, 而你的 REVOKE 與斷言照樣綠」。
+  --   ⇒ 裡面仍是【裸 `CREATE FUNCTION`】, 只是外面多一層存在守衛。
+  IF NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+                  WHERE n.nspname='public' AND p.proname='pfe_sync_commit' AND p.pronargs=5) THEN
+    EXECUTE $fnbody$CREATE FUNCTION public.pfe_sync_commit(p_run_id uuid, p_source_rows integer, p_orphan_rows integer, p_allow_anomaly boolean DEFAULT false, p_note text DEFAULT NULL::text)
  RETURNS jsonb
  LANGUAGE plpgsql
  SET search_path TO 'public', 'pg_temp'
@@ -164,10 +187,19 @@ BEGIN
   VALUES ('success', p_source_rows, v_new, p_orphan_rows, v_old, v_new, p_note, p_run_id);
   RETURN jsonb_build_object('old_count', v_old, 'new_count', v_new);
 END;
-$function$;
+$function$$fnbody$;
+  END IF;
+END $fnguard$;
 
 -- ── search_products_by_vehicle ────────────────────────────────────────
-CREATE FUNCTION public.search_products_by_vehicle(p_brand text, p_model text DEFAULT NULL::text, p_year integer DEFAULT NULL::integer)
+DO $fnguard$ BEGIN
+  -- 🔴 2026-09-06 Sean `Q26 甲=加`:已存在就跳過(空庫重放要走得下去)。
+  --   🛑 **不改成 `CREATE OR REPLACE`** —— `scripts/migration-static-checks.sh` 規則①
+  --     逐字擋它:「`OR REPLACE` 會把撞名靜靜蓋掉, 而你的 REVOKE 與斷言照樣綠」。
+  --   ⇒ 裡面仍是【裸 `CREATE FUNCTION`】, 只是外面多一層存在守衛。
+  IF NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+                  WHERE n.nspname='public' AND p.proname='search_products_by_vehicle' AND p.pronargs=3) THEN
+    EXECUTE $fnbody$CREATE FUNCTION public.search_products_by_vehicle(p_brand text, p_model text DEFAULT NULL::text, p_year integer DEFAULT NULL::integer)
  RETURNS SETOF jsonb
  LANGUAGE sql
  STABLE
@@ -202,7 +234,9 @@ AS $function$
   JOIN public.brands     b ON b.id = p.brand_id
   JOIN public.categories c ON c.id = p.category_id
   ORDER BY p.id;
-$function$;
+$function$$fnbody$;
+  END IF;
+END $fnguard$;
 
 -- ── 授權:先收乾淨再給(形狀照 repo 既有前例)────────────────────────────────
 --   🔴🔴 **我第一版把 `pfe_sync_commit` 寫成【無參數】—— 那是我【猜】的, 不是讀來的。**

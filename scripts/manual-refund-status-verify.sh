@@ -23,8 +23,25 @@ MODE="${1:?用法: manual-refund-status-verify.sh all <workdir>}"
 WORK="${2:?缺 workdir(/tmp 底下的短路徑)}"
 PORT="${PORT:-54410}"
 URL="postgresql://postgres@127.0.0.1:${PORT}/postgres"
-MIGRATION="${MIGRATION:-docs/specs/2026-09-02-m4b-manual-refund-status-owner.sql}"
-ROLLBACK_SQL="${ROLLBACK_SQL:-docs/specs/2026-09-02-m4b-manual-refund-status-owner-ROLLBACK.sql}"
+# 🔴🔴 **這兩個沒有預設值, 而那是刻意的。**
+#   原本它們預設指 docs/specs/2026-09-02-m4b-manual-refund-status-owner.sql —— 那是 v3,
+#   而 v3 是 codex R2 判 FAIL(12 must-fix)之後【不交】的那一版。出貨的是
+#   supabase/migrations/20260905010000_m4b_manual_refund_syncs_payment_status.sql(commit 0a7ee89c0),
+#   之後 20260905440000 又蓋一代 ⇒ 一個寫死的預設值【會再漂一次】。
+# 🛑 而不帶參數跑它時, 它驗的是一份不會上線的東西 —— **並且印綠**。
+#   ⇒ 綠與有效在那個形狀下長得一模一樣。所以修法不是換一個新預設, 是不給預設。
+#   (2026-09-07 -ship 判;板列 ⟦b4-MANREFUNDNOOWNER⟧ · 主視窗同判)
+if [ -z "${MIGRATION:-}" ] || [ -z "${ROLLBACK_SQL:-}" ]; then
+  echo "🔴 拒跑:MIGRATION 與 ROLLBACK_SQL 都必須顯式指定, 本檔不給預設值。"
+  echo "   現行那一代(latest-definition-of.sh 說 newest=20260905440000):"
+  echo "     MIGRATION=supabase/migrations/20260905440000_m4b_refundsync_p3_status_follows_ledger.sql \\"
+  echo "     ROLLBACK_SQL=<對應回退檔> bash $0 all /tmp/<workdir>"
+  echo "   要跑 v3 當歷史對照就顯式餵它 —— 而它是【不交】的那一版, 綠不代表可上線。"
+  exit 2
+fi
+for _f in "$MIGRATION" "$ROLLBACK_SQL"; do
+  [ -f "$_f" ] || { echo "🔴 拒跑:檔不存在 $_f"; exit 2; }
+done
 export LC_ALL=C
 
 SELF_BAD="$(grep -nE '^[[:space:]]+--.*[`"]' "${BASH_SOURCE[0]}" || true)"

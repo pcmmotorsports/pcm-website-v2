@@ -374,6 +374,13 @@ export type CheckAnomalyAlertsResult = {
   oldestOpenAgeSeconds: number | null;
   /** 本輪嘗試推播的管道數(shouldAlert=false 時為 0)。 */
   notifiersTotal: number;
+  /** ⟦板 931⟧ 每日刷卡三格 + unknown(route 用它組摘要信)。 */
+  dailyCardFailedCount: number | null;
+  dailyThreeDsFailedCount: number | null;
+  dailyChargeAttemptsTotal: number | null;
+  dailyChargeCountsUnknown: boolean;
+  dailyChargeWindowHours: number | null;
+  dailyChargeSince: string | null;
   /** 推播失敗的管道數(>0 → route 503)。 */
   notifiersFailed: number;
   /** errors = notifiersFailed(route 據此回 503;reader throw 已上拋不進此)。 */
@@ -589,6 +596,19 @@ export function buildAnomalyQuietHeartbeatMessage(
    *    ⇒ 📌 **不要宣稱超過你量到的東西** —— 而那與「不要製造沉默」可以同時成立。
    */
   unreadable: readonly string[] = [],
+  /**
+   * ⟦板 931 客人刷不出卡, 我們這邊不會響⟧ —— **Sean 2026-09-07 逐字答「甲 = 寫」。**
+   *
+   * ⛔ ~~本信的契約是【零計數】~~ 🔴🔴 **那條契約【被他本人改掉了】, 不是有人忘了。**
+   *    原本的理由:這封信只宣稱「沒有需要你處理的事」, 帶計數會讓它變成一份報表。
+   *    ⇒ 而板 931 要的正是**一個每天到他眼前的數字** —— 而這封信是**唯一**每天到他眼前的東西。
+   *    ⇒ 📌 **在「多開一封信」與「改掉這封信的契約」之間, 他選了後者。**
+   *      (前者我試過, 被既有測試擋下:同一天寄兩封會毀掉「每天恰好一封」。)
+   *
+   * 🛑 **而放寬只涵蓋【這三個計數】** —— 不是「從此這封信可以放任何數字」。
+   *    下一個想往這裡塞計數的人:那要再問一次, 而不是引用這一段當先例。
+   */
+  dailyCharge?: DailyChargeDigestInput,
 ): AnomalyAlertMessage {
   // 🔴 台北時刻:這封信的讀者在台灣, 而 `toISOString()` 是 UTC ——
   //    印 UTC 會讓「今天早上 9 點」讀起來像半夜, 而沒有人會去換算。
@@ -614,6 +634,9 @@ export function buildAnomalyQuietHeartbeatMessage(
         ? ['', `⚠️ 這一輪有 ${unreadable.length} 項讀不到:${unreadable.join('、')}`,
            '(它們不會讓這支排程失敗,所以你只會在這裡看到)']
         : []),
+      // ⟦板 931⟧ 刷卡失敗那三格(Sean 2026-09-07 答甲)。
+      // 🔴 `null` 與 `0` 在畫面上必須長不一樣 —— 寫 0 等於宣稱「量過了, 零失敗」。
+      ...(dailyCharge ? dailyChargeLines(dailyCharge) : []),
       '',
       '⚠️ 這封信只證明巡檢跑完而且寄得出去。',
       '沒收到這封信 = 那條線可能停了,而不是「今天沒事」。',
@@ -626,6 +649,48 @@ export function buildAnomalyQuietHeartbeatMessage(
  * 🔴 route 與測試都引用它, **沒有第二個地方打這串字** —— 兩份字面遲早會分岔。
  */
 export const ANOMALY_QUIET_HEARTBEAT_SUBJECT = '[PCM] 付款異常巡檢:今天 0 筆';
+
+/**
+ * ⟦板 931⟧ 刷卡失敗那三行 —— **寫進安靜日心跳信裡**(Sean 2026-09-07 答「甲 = 寫」)。
+ *
+ * ⛔ ~~原本這裡是一支獨立的 `buildDailyChargeDigestMessage`, 要另外寄一封摘要信~~
+ * 🔴🔴 **那個做法是錯的, 而抓到它的是既有測試不是我**:
+ *    本檔早就有一封安靜日心跳(`buildAnomalyQuietHeartbeatMessage`), 它的內文逐字就寫著
+ *    「沒收到這封信 = 那條線可能停了, 而不是『今天沒事』」——
+ *    ⇒ 📌 **我要蓋的那個機制已經在那裡了, 而我差點在它旁邊蓋第二個。**
+ *    `route.test.ts` 那格紅的字面是 `expected 1 times, but got 2 times`
+ *    ⇒ **那個 2 就是同一天寄兩封**, 它會直接毀掉「每天恰好一封」這個契約。
+ *
+ * 🛑 **三行寫死的紀律**:
+ *    · `null` 與 `0` **在畫面上必須長不一樣** —— 寫 0 等於宣稱「量過了, 零失敗」。
+ *    · 兩個失敗數**不可相加**(同一筆可以既是 failed 又被觀察到 3DS -1/5)⇒ 分行寫, 不做算術。
+ *    · **窗從 DB 帶上來, 不在這裡寫死 24** —— 寫死的話, 哪天 SQL 改了窗, 信上那個數字會安靜地變成假話。
+ */
+export type DailyChargeDigestInput = {
+  dailyCardFailedCount: number | null;
+  dailyThreeDsFailedCount: number | null;
+  dailyChargeAttemptsTotal: number | null;
+  dailyChargeCountsUnknown: boolean;
+  dailyChargeWindowHours: number | null;
+};
+
+export function dailyChargeLines(d: DailyChargeDigestInput): string[] {
+  const n = (v: number | null): string =>
+    d.dailyChargeCountsUnknown || v === null ? '查不到' : String(v);
+  const total = n(d.dailyChargeAttemptsTotal);
+  return [
+    '',
+    `過去 ${d.dailyChargeWindowHours ?? '?'} 小時建立的刷卡嘗試:${total} 筆`,
+    `　其中刷卡失敗:${n(d.dailyCardFailedCount)} 筆`,
+    `　其中 3DS 失敗:${n(d.dailyThreeDsFailedCount)} 筆`,
+    '(兩個失敗數不可以相加 —— 同一筆可能兩者皆是;明細到後台看,這裡不放單號)',
+    ...(d.dailyChargeCountsUnknown
+      ? ['🔴 這三個數字今天【查不到】—— 這不是「零失敗」。']
+      : total === '0'
+        ? ['(總數也是 0 ⇒ 那是「沒有人來刷」,不是「沒有人刷不過」)']
+        : []),
+  ];
+}
 
 export function buildAnomalyAlertMessage(
   summary: AnomalyAlertSummary,
@@ -1451,7 +1516,19 @@ export function buildAnomalyAlertMessage(
   //      主動告知它上一片就漏了第三個)⇒ 本片三個接點:此處 · shouldAlert · builder 參數。
     // 🔵 2026-09-05 合併:`-db` 的 aclDriftBlock 與 `-mail` 的 stuckBank* 兩邊都留 ——
     //    它們是不同的訊號、不同的觀眾, 誰都不該覆蓋誰。
-    const body = [bypassRlsBlock, aclDriftBlock, gaveUpBlock, incidentBlock, searchLogBlock, syncStaleBlock, stuckBankBlock, stuckBankOverpaidBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock]
+  /**
+   * ⟦板 931⟧ 刷卡失敗那三行 —— **告警日也要有**(codex 2026-09-07 must-fix)。
+   *
+   * 🔴🔴 **我原本只把它放進安靜日心跳** ⇒ 而那天一旦有【別的】付款異常, `alerted = true`
+   *    ⇒ **心跳不寄、告警信裡又沒有這三格** ⇒ 📌 **那兩個數字在【最該有人看】的那一天消失。**
+   * 🛑 而它的形狀特別壞:**信照樣有一封**, 收信的人不會覺得少了什麼
+   *    ⇒ 「每天看得到刷卡失敗數」這個宣稱**在告警日靜靜地不成立**, 而沒有任何訊號。
+   * ✅ ⇒ 兩邊都放。這一格用的是本檔既有慣例:**搭已經要寄的那封信的便車**。
+   * 🔵 它**不進 `shouldAlert`** —— 它是日常數字不是異常(見 summary 那四格的註解)。
+   */
+  const chargeBlock: string[] = ['【刷卡狀況】', ...dailyChargeLines(summary).filter((l) => l !== '')];
+
+    const body = [bypassRlsBlock, aclDriftBlock, gaveUpBlock, incidentBlock, searchLogBlock, syncStaleBlock, stuckBankBlock, stuckBankOverpaidBlock, emailBlock, heartbeatBlock, ...blocks, searchBlock, chargeBlock]
       .filter((b) => b.length > 0)
       .flatMap((b) => [...b, '']);
 
@@ -2145,6 +2222,18 @@ export async function checkAnomalyAlerts(
     //    🔴 理由:災難日的問題不是「系統沒記錄」,是**沒有人會去找** ——
     //       而『沒收到信』與『今天沒有異常』在收件匣裡是同一個畫面。
     //    ⇒ 一張沒有人查的表解決不了它;一句寫在有人會打開的單子上的話可以。
+    //
+    // 🟢 **[2026-09-06 ⟦板 931⟧:上面那一句話現在有機制接住了 —— 而那個機制【不在這一層】]**
+    //    ⛔ ~~每日摘要信由 route 在 `alerted === false` 時寄(`buildDailyChargeDigestMessage`)~~
+    //    🟢 **[2026-09-07 訂正:那支 builder 已撤, 沒有第二封信]** —— 改成 `dailyChargeLines()`,
+    //    **同時**進安靜日心跳與告警信兩邊。
+    //    🔴 **它刻意【不放進這個 use-case】, 而那是被八格既有測試逼出來的判斷**:
+    //      本檔有一整族測試在釘「**有生意不是異常 ⇒ 不要吵老闆**」, 它們的形狀是
+    //      `expect(n.notify).not.toHaveBeenCalled()`。
+    //      ⇒ 📌 **把摘要信寄在這一層, 就得把那八格全部改成「期望有寄」——
+    //        而那會【清掉它們原本在守的東西】**:下一個人若不小心讓某個正常狀態變成告警,
+    //        那些格子再也紅不起來。
+    //    ⇒ 🛑 **一個看起來只是「更新測試期望值」的動作, 會安靜地拆掉一族守門。**
   }
 
   return {
@@ -2252,6 +2341,13 @@ export async function checkAnomalyAlerts(
     emailQuotaSuspectedCount: summary.emailQuotaSuspectedCount,
     oldestOpenAgeSeconds: summary.oldestOpenAgeSeconds,
     notifiersTotal,
+    // ⟦板 931⟧ 每日刷卡三格 —— **route 用它組摘要信**(摘要信不在這一層寄, 理由見上面 else 那段)。
+    dailyCardFailedCount: summary.dailyCardFailedCount,
+    dailyThreeDsFailedCount: summary.dailyThreeDsFailedCount,
+    dailyChargeAttemptsTotal: summary.dailyChargeAttemptsTotal,
+    dailyChargeCountsUnknown: summary.dailyChargeCountsUnknown,
+    dailyChargeWindowHours: summary.dailyChargeWindowHours,
+    dailyChargeSince: summary.dailyChargeSince,
     notifiersFailed,
     errors: notifiersFailed,
   };
