@@ -170,6 +170,8 @@ function base(over: Array<[string, string]> = []): FormData {
     [MANUAL_ORDER_PAYMENT_CHANNEL_FIELD, 'bank_transfer'],
     [MANUAL_ORDER_SHIPPING_METHOD_FIELD, 'home'],
     [MANUAL_ORDER_SHIPPING_FEE_FIELD, '150'],
+    // ⟦b4-SHIPFEETAXBASIS⟧(2026-09-07):運費也要宣告稅基, 否則解析器拒。
+    ['shipping_fee_tax_basis', 'untaxed'],
     [MANUAL_ORDER_SHIP_TO_NAME_FIELD, '王小明'],
     [MANUAL_ORDER_SHIP_TO_PHONE_FIELD, '0912345678'],
     [MANUAL_ORDER_SHIP_TO_LINE_FIELD, '台北市中正區某路 1 號'],
