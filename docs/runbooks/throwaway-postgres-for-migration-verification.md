@@ -264,6 +264,30 @@ pq () { psql -h 127.0.0.1 -p $PORT -U postgres -v ON_ERROR_STOP=1 "$@"; }
 
 ## 2. 🔴 PCM 專屬 bootstrap(這段是本檔真正新的部分)
 
+> ## 🔴🔴 **bootstrap 只放【平台給的】東西 —— migration 會建的不放**(2026-09-07 主視窗 `-f1` 裁)
+> **收:** 角色 / `auth` schema / extension(`pg_trgm` 等)/ `cron.job` —— 這些**沒有任何一支 migration 會建**。
+> **不收:** 函式、trigger、`proconfig`、表、種子資料 —— 那些是**某一支 migration 自己會建的**。
+>
+> 🔬 **這條界線是量出來的**(2026-09-07 線【資料】`-db`,唯讀對正式庫):
+> 有人提議把「拋棄式庫缺的 `proconfig` 與 trigger」補進本節。而我查了那些東西是誰造的:
+> ```
+> pcm_noncard_settle_recompute  ← 20260904230000 建(帳本已記)= 一支普通 migration
+> 194 支函式的 proconfig          ← 各 migration 自己的 SET 子句
+> 72 支非內部 trigger             ← 各 migration 自己的 CREATE TRIGGER
+> ```
+> ⇒ 📌 **它們在拋棄式庫裡不見, 不是因為本節少列了它們, 是因為那些 migration 在 replay 時失敗了**
+> (replay 今晚讀數 **364 支 / 68 支失敗**,線【出貨】`-ship` 量)。
+> 🛑 **把它們寫進來 = 用手工補件蓋住「這棵 repo 從零重建不起來」這個真缺陷** ——
+> 而那正是 §0 第 5 條寫的那個不對稱:「環境缺東西 ⇒ 擋住了 ⇒ 我記成產品擋的 ⇒ **假綠**
+> ⇒ **沒有人會去查一個通過的檢查**」。
+> ⇒ ✅ **要讓被擋住的人今天跑得動**,用 `scripts/replay-gap-fixture.sh`(它產出的檔第一行就寫
+> 「這是 replay 失敗的補丁, 不是 bootstrap」)—— **而那支檔的內容永遠不搬進本節。**
+> ⇒ 🔵 真正的修法是 `#907` / `⟦b4-REPLAY1⟧`,或改成從正式庫 schema dump 起(Q41 待 Sean)。
+>
+> ⚠️ **判別句(搬任何一項進本節之前問一次)**:
+> **「這個東西, 有沒有任何一支 migration 會建它?」** 有 ⇒ **不准搬進來**。
+
+
 **Supabase 平台幫你準備好、而本機沒有的東西**,一個都不能少:
 
 ```sql

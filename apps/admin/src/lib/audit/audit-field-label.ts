@@ -106,6 +106,18 @@ export const AUDIT_FIELD_LABEL: Record<string, string> = {
   bank_refund_id: '銀行對帳用的退款編號',
   tappay_refund_id: 'TapPay 退款編號',
   provider_refund_id_evidence: '金流商退款編號(佐證)',
+  // ── ⟦b4-TAPPAYDIRECT⟧ 片 C-1a 補登 RPC 寫進稽核的三欄(2026-09-07)──────────
+  //   🔴 **這三個字面是【`admin_backfill_tappay_console_refund` 的 audit payload 鍵名】**,
+  //     不是資料表欄位 —— 那支 RPC 的 `before` / `after` 各自 `jsonb_build_object(...)`,
+  //     而本字典掃的是**會被寫進稽核的鍵**(見檔頭 `:31`「app 層 6 種」那段的同一個道理)。
+  //   ⚠️ 所以改那支 RPC 的 payload 鍵名時**要回訪這三行**;而那道測試會替你叫。
+  //   🔵 用語照鄰欄:講**用途**不講欄位名(`bank_refund_id ⇒ 銀行對帳用的退款編號` 那種)。
+  backfilled: '是不是事後補登的',
+  dr_code: 'TapPay 後台的退款單號',
+  //   🔴 **「發生」不是「登記」** —— 這一欄記的是【那筆退款在 TapPay 上發生的時刻】,
+  //     而不是我們把它記進帳本的時刻(後者是 `created_at`)。
+  //     ⇒ 兩者在補登這條路上**差得可能很遠**(員工可能隔一天才補), 而稽核要看得懂是哪一個。
+  occurred_at: '那筆退款實際發生的時間',
   // 🔴🔴 **金額,不是「有沒有」**(codex R1 must-fix;實查收下)。
   //    `20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:159` 逐字
   //    `ADD COLUMN record_refunded_before bigint NOT NULL`,RPC 入參同檔 `:876` 亦為 `bigint`。

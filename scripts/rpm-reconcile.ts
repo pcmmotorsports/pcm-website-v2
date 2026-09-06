@@ -309,6 +309,43 @@ export interface VariantOrphan {
   externalId: string; // 所屬群 main_sku(報告用、客訴可回查)
 }
 
+/**
+ * 「該刪而沒刪」那一行的**機器讀得到的那半**(⟦b4-WITHHELD1⟧)。
+ *
+ * 🔴🔴 **為什麼要有它(2026-09-07 `-ship` 量到)**:原本 `rpm-import.ts` 那一行是
+ *   `withheldOrphans.slice(0, 10)` + 一個裸的 `…` ⇒ 📌 **超過 10 個之後, sku 的身分就沒了。**
+ *   而板列 `⟦b4-WITHHELD1⟧` 要的逐字是「哪一輪、哪個供應商、扣留了幾個、**哪幾個 sku**」
+ *   ⇒ 🎯 **那條 log 結構上答不出最後一格** —— 即使把它存成 artifact 也一樣, 因為**在寫進 log 之前就被切掉了**。
+ *
+ * 🛑 **而它【不是】把上限拿掉** —— 一個沒有上限的 log 行會在孤兒很多的那一輪炸掉輸出。
+ *   ⇒ 改成【上限大很多 + 截斷自己說得出來】:`total` / `shown` / `truncated` 三個欄位並存,
+ *     讓讀的人**看得出自己拿到的是不是全部**。📌 **舊版的 `…` 只說「還有」, 沒說「還有幾個」。**
+ *
+ * ⚠️ **它答不出什麼**:這支只負責【把清單變成一行字】。
+ *   「那一行字在隔天查不查得到」是**執行環境**的事(那支 import 跑在 GitHub Actions 的 runner 上),
+ *   而**本函式對那件事零貢獻** —— 見板列裡甲/乙/丙三條路。
+ */
+export const WITHHELD_ORPHAN_SKU_CAP = 2000;
+
+export function formatWithheldOrphans(input: {
+  supplierSlug: string;
+  completeness: SourceCompleteness;
+  orphans: readonly VariantOrphan[];
+  cap?: number;
+}): string {
+  const cap = input.cap ?? WITHHELD_ORPHAN_SKU_CAP;
+  const total = input.orphans.length;
+  const skus = input.orphans.slice(0, cap).map((o) => o.sku);
+  return `[rpm-import] withheld-orphans ${JSON.stringify({
+    supplier: input.supplierSlug,
+    completeness: input.completeness,
+    total,
+    shown: skus.length,
+    truncated: total > skus.length,
+    skus,
+  })}`;
+}
+
 export interface VariantOrphanReport {
   targetInScope: number; // target 現存、parent 在本次 source 群集合內的變體數(比例分母)
   sourceSkuCount: number; // 本次 source 變體 sku 數
