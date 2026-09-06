@@ -932,14 +932,41 @@ const getVehicleTaxonomyCached = unstable_cache(
       `[vehicleTaxonomy] cold n=${n} ms=${Math.round(performance.now() - tVeh)}`,
     );
 
-    for (const row of rows) {
+    // 🔴🔴 **逐列驗形狀 —— 而它是上面那個 `n` 對照的【對稱防守】**(code-reviewer 2026-09-06 Important ①)。
+    //   🛑 少了這一段, 防守是**不對稱的**:`n === rows.length` 擋得住「**少了幾列**」,
+    //     而擋不住「**列數對而每一列少了一格**」。
+    //   🎯 而後者的症狀與前者**一模一樣**:合法 JSON、畫面畫得出來、客人的年份下拉安靜地空掉
+    //     —— ⛔ ~~`typeof t[3] === 'number' ? t[3] : null`~~ 原本會把「缺 `year_end`」
+    //     **靜默轉成 `null`(= 開放式)** ⇒ 一台 2014-2020 的車變成「2014 起無限」。
+    //   ⇒ 📌 **本片的整個論點是「一份被截斷的回應與完整的長得一樣」** —— 那個論點對【列】成立,
+    //     對【欄】也成立。只守一邊等於沒守。
+    // 🔵 **年份是 `null` 不是省略、不是 0**(db 線唯讀實查:`year_start` 714 列 null · `year_end` 1,391 列 null)
+    //   ⇒ `null` 是**合法的資料**, 要放行;而 `undefined` / 字串 / 缺格是**壞掉的 payload**, 要 throw。
+    //   🛑 兩者在 `typeof x === 'number'` 底下是同一個 false ⇒ **必須分開判**, 這就是那一格的判別力。
+    const isYear = (v: unknown): v is number | null => v === null || typeof v === 'number';
+    for (const [index, row] of rows.entries()) {
       const t = row as unknown[];
+      if (
+        !Array.isArray(row) ||
+        t.length !== 4 ||
+        typeof t[0] !== 'string' ||
+        typeof t[1] !== 'string' ||
+        !isYear(t[2]) ||
+        !isYear(t[3])
+      ) {
+        throw new Error(
+          `[fetchVehicleTaxonomy] 第 ${index} 列形狀不對(長度 ${
+            Array.isArray(row) ? t.length : 'not-array'
+          })—— 欄序應為 [moto_brand, model_code, year_start, year_end]`,
+        );
+      }
       fitments.push({
-        motoBrand: typeof t[0] === 'string' ? t[0] : '',
-        modelCode: typeof t[1] === 'string' ? t[1] : '',
-        ...(typeof t[2] === 'number' ? { yearStart: t[2] } : {}),
-        // null = 開放式(direct 表的既有語意, 見檔頭)—— 非數字一律當開放式, 不編一個年份出來。
-        yearEnd: typeof t[3] === 'number' ? t[3] : null,
+        motoBrand: t[0],
+        modelCode: t[1],
+        // 🔵 `year_start` 為 null ⇒ 該列不貢獻年份(不可當 0, 否則下拉冒出「西元 0 年」)。
+        ...(t[2] === null ? {} : { yearStart: t[2] }),
+        // null = 開放式(direct 表的既有語意, 見檔頭)。
+        yearEnd: t[3],
       });
     }
     // 每列包成獨立一筆 fitment 餵原衍生函式:buildVehicleTaxonomy 只讀 p.fitments、

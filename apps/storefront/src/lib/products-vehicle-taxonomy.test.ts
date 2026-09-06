@@ -217,7 +217,7 @@ describe('#277 段二 車輛下拉來源', () => {
 //     分頁世界裡它靠「短頁才停 + count 不當終止判準」;
 //     一發世界裡它靠 **`rows.length === n`**(而 `n` 是 DB 端**另一次獨立的 `count(*)`**,
 //     不是從同一個聚合推出來的 —— 那是它多花 211 ms 買到的判別力)。
-//   ⇒ 📌 **下面那三格就是那六格的繼承者。**
+//   ⇒ 📌 **下面那幾格就是那六格的繼承者。**(格數會長, 所以不寫死數字 —— code-reviewer 2026-09-06 nit)
 //   🛑 **而有一格【真的沒有繼承者】**:`db-max-rows` 那條隱形依賴(backlog `#629`)——
 //     這條路不再經過 PostgREST 的列數上限, 所以這裡量不到它了;
 //     而它對**別的** `.range()` 迴圈仍然成立 ⇒ 那條債留在 `products.ts` 的 `[已作廢]` 標頭裡。
@@ -248,6 +248,40 @@ describe('一發拿完:我拿到的是不是全部', () => {
     rpcPayload = { rows: 'oops' };
     await expect(fetchVehicleTaxonomy()).resolves.toEqual([]);
     expect((spy.mock.calls[0]?.[1] as Error)?.message).toContain('回傳形狀不對');
+    spy.mockRestore();
+  });
+
+  // 🔴🔴 **逐列形狀 —— 上面那個 `n` 對照的【對稱防守】**(code-reviewer 2026-09-06 Important ①)。
+  //   🛑 `n === rows.length` 擋得住「少了幾列」, 擋不住「**列數對而每一列少了一格**」,
+  //     而兩者的症狀**一模一樣**:合法 JSON、畫面畫得出來、年份安靜地錯掉。
+  it('🔴 某一列只有 3 格 ⇒ throw(列數對而【欄】少一格, 症狀與截斷一模一樣)', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // 🔵 `n` 是對的(1 = 1)⇒ **上一格那道防線在這裡完全無效** ⇒ 只有逐列驗擋得住。
+    rpcPayload = { n: 1, rows: [['Honda', 'CB650R', 2021]] };
+    await expect(fetchVehicleTaxonomy()).resolves.toEqual([]);
+    const logged = spy.mock.calls[0]?.[1] as Error;
+    expect(logged?.message).toContain('形狀不對');
+    expect(logged?.message, '第幾列要看得出來 —— 12,197 列裡哪一列壞掉是要診斷的資訊').toContain('第 0 列');
+    spy.mockRestore();
+  });
+
+  it('🔴 年份欄是字串 ⇒ throw(不得靜默轉成 null, 那會把 2014-2020 變成「2014 起無限」)', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    rpcPayload = { n: 1, rows: [['Honda', 'CB650R', 2014, '2020']] };
+    await expect(fetchVehicleTaxonomy()).resolves.toEqual([]);
+    expect((spy.mock.calls[0]?.[1] as Error)?.message).toContain('形狀不對');
+    spy.mockRestore();
+  });
+
+  it('🔵 負對照:年份是 `null` 是【合法資料】不是壞掉 ⇒ 照樣放行', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // 🛑 這一格與上面兩格**只差在 null vs 字串**, 而 `typeof x === 'number'` 對兩者都是 false
+    //   ⇒ 少了這一格, 一個「非 number 一律 throw」的實作也會讓上面兩格綠,
+    //     而它會把正式庫裡 714 + 1,391 列合法的 null **全部變成錯誤** ⇒ 車款下拉整個消失。
+    rpcPayload = payload([row('Honda', 'CB650R', null, null)]);
+    const out = await fetchVehicleTaxonomy();
+    expect(out[0]?.models[0]?.name).toBe('CB650R');
+    expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 
