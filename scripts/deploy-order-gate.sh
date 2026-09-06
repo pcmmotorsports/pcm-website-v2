@@ -247,6 +247,39 @@ view_names_of() { # $1=rev:path
     | tr -d '"' | sed 's/.*\.//' | sort -u
 }
 
+# ══ 🔴 第三次拍板:2026-09-06 Sean 答 `Q-閘看欄 = 甲` ⇒ **欄位納進來** ═══════
+#   ⚠️ **上面那兩段刪除線【留著】** —— 它們記著 Q2=B 當初「column 不比」的理由(撞常見字),
+#     而 2026-08-24 放寬 view 時還特地寫過「**放寬的是 view, 不是 column**」。
+#   ⇒ 📌 **這是【知情的】推翻, 不是有人忘了那兩段**:Sean 答甲時題目逐字寫著
+#     「只認得表跟函式, 認不出欄位」(起因 = `mail C5`:表加一欄沒貼就推 ⇒ 信寄了、DB 記 failed、**沒有東西叫**)。
+#
+# 🔴🔴 **而當初那個理由是【對的】—— 我量了才敢動**(2026-09-06 `-auth`):
+#   · 全史 `ALTER TABLE … ADD COLUMN` ⇒ **64 組 (表,欄) 配對 · 59 個去重欄名**(48 支 migration)
+#   · 🛑 **尺一(只比欄名)命中檔次合計 3254** —— `x` 一個字就 **1717 支檔** · `email` 294 · `request_id` 119
+#     ⇒ **23/59 個欄名命中 ≥20 支檔** ⇒ **那把尺不能用。**
+#   · ✅ **尺二(欄名 AND 表名出現在【同一支檔】)⇒ 731 檔次, 降到 22%**;
+#     最吵那組 `order_payments.x` **1717 ⇒ 22**。
+#   ⇒ 🔵 **採尺二, 而它仍然不乾淨**(`orders.version` 72⇒47 · `products.price_store` 49⇒32)——
+#     **代價寫在這裡, 不藏。**
+#
+# ⚠️⚠️ **射程(它答不出的兩件事)**:
+#   ① **同檔含兩個字串 ≠ 那支檔用了那個欄** ⇒ 會誤擋(上面那些數字就是它的量級)。
+#   ② **用了那個欄而兩個字串【不在同一支檔】**(mapper 分層 / 常數住別處)⇒ **漏擋** ——
+#      📌 而那正是 view 那條路 2026-08-24 撤回過的同一個形狀, 見下面 `⑤` 那段。
+col_pairs_of() { # $1=rev:path ⇒ 一行一組 "表<TAB>欄"
+  git show "$1" 2>/dev/null \
+    | strip_sql_line_comments \
+    | tr '\n' ' ' \
+    | strip_sql_block_comments \
+    | grep -oiE 'ALTER[[:space:]]+TABLE[[:space:]]+(IF[[:space:]]+EXISTS[[:space:]]+)?(public\.)?"?[a-zA-Z0-9_]+"?[[:space:]]+ADD[[:space:]]+COLUMN[[:space:]]+(IF[[:space:]]+NOT[[:space:]]+EXISTS[[:space:]]+)?"?[a-zA-Z0-9_]+"?' \
+    | sed -E 's/^.*[Tt][Aa][Bb][Ll][Ee][[:space:]]+([Ii][Ff][[:space:]]+[Ee][Xx][Ii][Ss][Tt][Ss][[:space:]]+)?(public\.)?"?([a-zA-Z0-9_]+)"?[[:space:]]+[Aa][Dd][Dd][[:space:]]+[Cc][Oo][Ll][Uu][Mm][Nn][[:space:]]+([Ii][Ff][[:space:]]+[Nn][Oo][Tt][[:space:]]+[Ee][Xx][Ii][Ss][Tt][Ss][[:space:]]+)?"?([a-zA-Z0-9_]+)"?.*$/\3\t\5/' \
+    | sort -u
+}
+
+# 🔵 **具名豁免**(像 `KNOWN` 那樣, 每一行要寫理由;空的時候本閘一格都不豁免)
+#    格式:`表<TAB>欄`。⚠️ 加一行 = 放掉一格守備 ⇒ 理由寫在旁邊, 不要只加名字。
+KNOWN_COL_SKIP=""
+
 # 🔴 **view 比對時要排除的檔**(2026-08-24;理由是【機制】不是「差很小」):
 #    `packages/adapters/src/supabase/database.types.ts` 是 Supabase **自動產生**的型別檔
 #    (該檔第一行逐字「生成型別;勿手改」),而它**含每一個 view 名**
@@ -309,9 +342,33 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   VIEW_LIST="$(printf '%s\n' "$PENDING" | cut -f2 | while read -r f; do
                [ -n "$f" ] && view_names_of "$local_sha:$f"; done | sort -u)"
   [ "${DOG_DEBUG:-0}" = "1" ] && echo "deploy-order-gate[$remote_ref]: 函式名 = $(printf '%s' "$FN_LIST" | tr '\n' ' ')" >&2
+  # ── 欄位那一族(2026-09-06 Sean `Q-閘看欄=甲`)──────────────────────────
+  COL_RAW="$(printf '%s\n' "$PENDING" | cut -f2 | while read -r f; do
+               [ -n "$f" ] && col_pairs_of "$local_sha:$f"; done | sort -u)"
+  # 🔴 **豁免一:那一欄在【已 apply 的】migration 裡就出現過 ⇒ 不是這次新加的**
+  #    📌 `ADD COLUMN IF NOT EXISTS` 常被重貼;少了這一格, 一支冪等的重貼會擋住整條線。
+  #    ⚠️ 它比的是**歷史上有沒有加過同一組 (表,欄)**, 不是「線上有沒有那一欄」——
+  #      後者要連線, 而本閘是**零對外**的靜態閘。**這兩件事不一樣, 寫出來。**
+  COL_LIST=""
+  if [ -n "$COL_RAW" ]; then
+    APPLIED_COLS="$(git show "$local_sha:supabase/APPLIED.tsv" 2>/dev/null | grep -oE '^[0-9]{14}' \
+      | while read -r v; do
+          af="$(git ls-tree --name-only "$local_sha" supabase/migrations/ | grep "^supabase/migrations/$v" | head -1)"
+          [ -n "$af" ] && col_pairs_of "$local_sha:$af"
+        done | sort -u)"
+    while IFS= read -r pair; do
+      [ -n "$pair" ] || continue
+      printf '%s\n' "$APPLIED_COLS" | grep -qxF "$pair" && continue          # 豁免一
+      printf '%s\n' "$KNOWN_COL_SKIP" | grep -qxF "$pair" && continue        # 豁免二(具名)
+      COL_LIST="$COL_LIST$pair
+"
+    done <<< "$COL_RAW"
+  fi
+  COL_LIST="$(printf '%s' "$COL_LIST" | sed '/^$/d')"
   [ "${DOG_DEBUG:-0}" = "1" ] && echo "deploy-order-gate[$remote_ref]: view 名 = $(printf '%s' "$VIEW_LIST" | tr '\n' ' ')" >&2
-  # pending 但**函式與 view 都零**(例如純加欄位 / 建表 / 改 RLS)⇒ 仍在 Q2=B 的射程外,本閘不管
-  [ -n "$FN_LIST" ] || [ -n "$VIEW_LIST" ] || continue
+  [ "${DOG_DEBUG:-0}" = "1" ] && echo "deploy-order-gate[$remote_ref]: 新欄 = $(printf '%s' "$COL_LIST" | tr '\n' ' ')" >&2
+  # pending 但**函式 / view / 新欄都零**(例如純建表 / 改 RLS)⇒ 本閘不管
+  [ -n "$FN_LIST" ] || [ -n "$VIEW_LIST" ] || [ -n "$COL_LIST" ] || continue
 
   if [ "${remote_sha:-$ZERO}" = "$ZERO" ]; then
     BASE="$EMPTY_TREE"                                          # 遠端還沒有這條 ref ⇒ 對空樹比(#6:不能只看 tip 一顆)
@@ -443,6 +500,20 @@ $VALS"
         [ -n "$VHIT" ] \
           && BLOCKED="$BLOCKED\n  · view [$vw](在未 apply 的 migration 裡)出現在新增的 .from() 讀取:$af($VHIT)  [ref $remote_ref]\n    └ 那支 migration:$(printf '%s\n' "$PENDING" | cut -f2 | tr '\n' ' ')"
       done <<< "$VIEW_LIST"
+    fi
+
+    # ── 欄位:**欄名 AND 表名要出現在同一支檔**(尺二;理由與數字見檔頭)──────
+    # ⚠️ 產生型別檔整支跳過 —— 理由與 view 那條同一個機制(它含每一張表與每一個欄名,
+    #    而它是自動產生的、執行期不發任何請求)。
+    if [ -n "$COL_LIST" ] && [ "$af" != "$GENERATED_TYPES" ]; then
+      while IFS= read -r pair; do
+        [ -n "$pair" ] || continue
+        ctbl="${pair%%	*}"; ccol="${pair##*	}"
+        [ -n "$ctbl" ] && [ -n "$ccol" ] || continue
+        printf '%s\n' "$CODE" | grep -qE "(^|[^A-Za-z0-9_])$ccol([^A-Za-z0-9_]|\$)" || continue
+        printf '%s\n' "$CODE" | grep -qE "(^|[^A-Za-z0-9_])$ctbl([^A-Za-z0-9_]|\$)" || continue
+        BLOCKED="$BLOCKED\n  · 新欄 [$ctbl.$ccol](在未 apply 的 migration 裡)⇒ 這支檔同時提到表名與欄名:$af  [ref $remote_ref]\n    └ 那支 migration:$(printf '%s\n' "$PENDING" | cut -f2 | tr '\n' ' ')\n    └ ⚠️ 判準是【同檔共現】不是【真的讀了那一欄】—— 誤擋的話用 KNOWN_COL_SKIP 具名豁免並寫理由"
+      done <<< "$COL_LIST"
     fi
   done <<< "$APP_FILES"
 done < "$GATE_STDIN"

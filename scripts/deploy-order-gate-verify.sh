@@ -53,7 +53,7 @@ GATE_SRC="$(cd "$(dirname "$0")" && pwd)/deploy-order-gate.sh"
 test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;數法=腳本尾端印的 PASS=)
-EXPECT_TOTAL=75
+EXPECT_TOTAL=79
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -132,6 +132,70 @@ expect_pass() { # $1=名 $2=結果
   local rc="${2%%|*}" out="${2#*|}"
   [ "$rc" = "0" ] && ok "$1 → 放行" || bad "$1 → 期望放行實際 rc=$rc:$(printf '%s' "$out" | grep -E '·|🔴' | head -1)"
 }
+
+echo "── 欄位那一族(2026-09-06 Sean Q-閘看欄=甲)───────────────"
+
+# 🔴 四格的分工:①要擋 ②③要放行(而 ② 就是「只比欄名 3254 檔次」那個病的證人)④零 pending
+add_pending_col() { # $1=repo  加一支 pending 的 ADD COLUMN
+  cat > "$1/supabase/migrations/20260103000000_addcol.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN IF NOT EXISTS pcm_probe_col text;
+SQL
+}
+
+RC1="$WORK/rc1"; setup_repo "$RC1"; add_pending_col "$RC1"
+cat > "$RC1/apps/admin/src/reader.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_probe_col');
+}
+TS
+( cd "$RC1" && git add -A && git commit -qm "feat: 加欄 migration + 讀那一欄" )
+B1="$(cd "$RC1" && git rev-parse HEAD~1)"; T1="$(cd "$RC1" && git rev-parse HEAD)"
+expect_block "⑫欄位:未 apply 的加欄 + 同一支檔同時提到表名與欄名" \
+  "$(run_gate "$RC1" "refs/heads/dev $T1 refs/heads/dev $B1")" "things.pcm_probe_col"
+
+# 🔴🔴 ⑬ 是本族最重要的一格 —— **它就是「只比欄名」那把尺會誤擋的形狀**
+#    實測那把尺:全史 59 個欄名命中 3254 檔次(`x` 一個字 1717 支檔)。
+#    這一格的檔【只有欄名、沒有表名】⇒ 尺二必須放行。
+RC2="$WORK/rc2"; setup_repo "$RC2"; add_pending_col "$RC2"
+cat > "$RC2/apps/admin/src/unrelated2.ts" <<'TS'
+export const label = 'pcm_probe_col';
+TS
+( cd "$RC2" && git add -A && git commit -qm "feat: 加欄 migration + 只提到欄名的無關檔" )
+B2="$(cd "$RC2" && git rev-parse HEAD~1)"; T2="$(cd "$RC2" && git rev-parse HEAD)"
+expect_pass "⑬欄位:同一支檔【只有欄名沒有表名】⇒ 不擋(尺一 3254 檔次那個病的證人)" \
+  "$(run_gate "$RC2" "refs/heads/dev $T2 refs/heads/dev $B2")"
+
+# ⑭ 那一欄在【已 apply 的】migration 裡就出現過 ⇒ 不是這次新加的 ⇒ 放行
+#    📌 少了這一格, 一支冪等重貼的 `ADD COLUMN IF NOT EXISTS` 會擋住整條線。
+RC3="$WORK/rc3"; setup_repo "$RC3"
+cat > "$RC3/supabase/migrations/20260101000001_oldcol.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN IF NOT EXISTS pcm_probe_col text;
+SQL
+_osha="$(shasum -a 256 "$RC3/supabase/migrations/20260101000001_oldcol.sql" | cut -d' ' -f1)"
+printf '20260101000001\t%s\t2026-01-01\tfixture\n' "$_osha" >> "$RC3/supabase/APPLIED.tsv"
+( cd "$RC3" && git add -A && git commit -qm "base: 舊的加欄已進帳" )
+add_pending_col "$RC3"
+cat > "$RC3/apps/admin/src/reader3.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_probe_col');
+}
+TS
+( cd "$RC3" && git add -A && git commit -qm "feat: 重貼同一支加欄 + 讀那一欄" )
+B3="$(cd "$RC3" && git rev-parse HEAD~1)"; T3="$(cd "$RC3" && git rev-parse HEAD)"
+expect_pass "⑭欄位:那一欄在已 apply 的 migration 出現過 ⇒ 不算新加, 放行" \
+  "$(run_gate "$RC3" "refs/heads/dev $T3 refs/heads/dev $B3")"
+
+# ⑮ pending 有 migration 而【一句 ADD COLUMN 都沒有】⇒ 欄位這一族不得叫
+#    🔬 而這一格今天就是真實世界:PENDING 11 支, ADD COLUMN 0 支(2026-09-06 量)。
+RC4="$WORK/rc4"; setup_repo "$RC4"; add_pending_migration "$RC4"
+cat > "$RC4/apps/admin/src/reader4.ts" <<'TS'
+export const things = 'things';
+export const pcm_probe_col = 1;
+TS
+( cd "$RC4" && git add -A && git commit -qm "feat: pending 是純函式 + 檔裡剛好有那兩個字" )
+B4="$(cd "$RC4" && git rev-parse HEAD~1)"; T4="$(cd "$RC4" && git rev-parse HEAD)"
+expect_pass "⑮欄位:pending 裡零 ADD COLUMN ⇒ 欄位這一族不得叫(今天真實世界就是這一格)" \
+  "$(run_gate "$RC4" "refs/heads/dev $T4 refs/heads/dev $B4")"
 
 echo "── 核心:A9h 回歸與不誤擋 ──────────────────────────"
 
