@@ -47,10 +47,28 @@ export type ServeHtmlOptions = {
    * 🔴 **它為什麼存在**(2026-09-06 主視窗 `-f8` 派):`cancel-forms-browser.test.tsx` 要**攔表單送出的 body**
    *    ⇒ 它的伺服器對 `POST` 與 `GET` 回不同東西 ⇒ 第一版 helper 只會回一份固定 HTML, 套不進去。
    *    而那一支**正是 backlog `:15807` 記過同型紅的那個已知犯案者** ⇒ 它最需要那道重試。
-   * 🛑 **而 `GET` 那一半仍然由 helper 回** —— 那支檔的自檢靠「拿掉合成 method ⇒ 走 GET ⇒ 拿到一頁沒有
-   *    `#done` 的內容 ⇒ 等待逾時 ⇒ 紅」。⇒ 📌 **把 GET 也交給呼叫端的話, 那個機制就散掉了。**
+   * 🛑 **而 `GET` 那一半仍然由 helper 回, 理由是【零收益多一個會漂移的副本】** ——
+   *    忠實搬過去的話行為完全相同(R1 實查), 而那份 HTML 的組法就會有兩個地方寫著同一件事。
+   *    ⛔ ~~我原本寫「把 GET 也接手 ⇒ 那個機制就散掉了」~~ —— **那是沒量過的反事實**(R1 must-fix)。
+   *    🔴 **而我連「那個機制住在哪」都指錯了**:那支檔名為 harness 自檢的 describe **不等 `#done`**
+   *      (它只 `waitForLoadState('load')`), 靠的是 `toHaveLength(0)`;
+   *      「等 `#done` 逾時」那顆牙住在**另外六格**。⇒ 📌 **指錯守門位置 ⇒ 下一個人會去放寬錯的那一格。**
    */
   handle?: (req: IncomingMessage, res: ServerResponse) => boolean;
+  /**
+   * 🔵 **只給本檔的自測用** —— 伺服器起好之後、`goto` 之前, 把**完整的 origin** 交出去。
+   * 🔴 它存在的理由是**`handle` 那三格要真的打一發 HTTP**(回 true / 回 false / 丟錯),
+   *    而假的 browser 打不出請求。⇒ 📌 沒有它, `handle` 就只能靠讀碼相信, 而 R1 指出那是**零格覆蓋**。
+   *
+   * 🔴🔴 **它交出去的是 origin 不是 port, 而那個差別是我【自己踩到才改的】**(2026-09-06):
+   *    第一版交 port、呼叫端自己拼 `http://127.0.0.1:${port}` ⇒ 而伺服器綁的是 `::`
+   *    ⇒ **單獨跑 12 發零紅, 而整族一起跑(有負載)時紅了一發**
+   *    (`TypeError: fetch failed` / `SocketError: other side closed` / `bytesRead: 0`)。
+   *    ⇒ 🛑 **那正是我在這支檔裡剛拿掉的那個假設 —— 我在它的測試裡又犯了一次。**
+   *    ⇒ ✅ 交 origin ⇒ 測試打的位址**與 `goto` 打的完全同一個**, 不再各自拼。
+   * 🛑 **正式呼叫端不要用它** —— 它不是給測試檔以外的人用的鉤子。
+   */
+  onOrigin?: (origin: string) => Promise<void>;
   /** 瀏覽器視窗大小 —— 量版面的那幾支要它。 */
   viewport?: { width: number; height: number };
   /** 出現在重試訊息裡, 讓人知道是哪一支在重試(預設不帶)。 */
@@ -88,7 +106,18 @@ export async function serveHtmlAndVisit<T>(
   for (let attempt = 1; ; attempt += 1) {
     const server: Server = createServer((req, res) => {
       // 🔴 呼叫端先看一眼;它說「我處理了」就到此為止(見 `handle` 的 docstring)。
-      if (opts.handle?.(req, res) === true) return;
+      // 🔴🔴 **而它丟錯要被接住 —— 這一格【就是本族的病】**(R1 升 must-fix):
+      //    `handle` 丟錯而沒人接 ⇒ 這個請求**永遠不會有回應** ⇒ `page.goto` 卡到
+      //    **30 秒導航逾時**, 而那個錯**不在 `RETRYABLE` 名單上** ⇒ 原樣丟。
+      //    ⇒ 📌 一個「呼叫端寫錯」會長成「機器很忙」的樣子, 而且**重試救不了它**。
+      //    ⇒ ✅ 回 500:它是**一個看得懂的回應**, 而看得懂的錯比一個 30 秒的沉默好。
+      try {
+        if (opts.handle?.(req, res) === true) return;
+      } catch (err) {
+        res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
+        res.end(`handle threw: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       res.end(html);
     });
@@ -99,7 +128,9 @@ export async function serveHtmlAndVisit<T>(
     const page = await browser.newPage(opts.viewport === undefined ? {} : { viewport: opts.viewport });
     let arrived = false;
     try {
-      await page.goto(`http://${host}:${addr.port}/`);
+      const origin = `http://${host}:${addr.port}`;
+      await opts.onOrigin?.(origin);
+      await page.goto(`${origin}/`);
       arrived = true;
       // 🔴 `arrived` 之後丟出來的都是 `visit` 的錯(= 斷言)⇒ 下面那個 catch 不會重試它。
       return await visit(page);

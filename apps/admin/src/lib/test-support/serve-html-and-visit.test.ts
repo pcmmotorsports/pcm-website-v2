@@ -134,6 +134,58 @@ describe('serveHtmlAndVisit 的重試紀律(兩個世界)', () => {
     expect(url, '又寫死 localhost 了 ⇒ 解析順序會決定它通不通, 而失敗會被重試吃掉').not.toContain('localhost');
   });
 
+  // 🔴 `handle` 那個參數原本**零格覆蓋**(R1:Tests 110 沒動 = 沒加格)。三個世界各一格。
+  //    🔵 這三格要**真的起一個伺服器**(不像上面幾格只餵假 browser)⇒ 用 `fetch` 去打它。
+  it('🔵 handle 回 true ⇒ 由它回應, helper 不再回那份 HTML', async () => {
+    let got = '';
+    const { browser } = fakeBrowser(async () => {});
+    await serveHtmlAndVisit(browser, '<p>HELPER_HTML</p>', async () => 'ok', {
+      handle: (req, res) => {
+        if (req.method !== 'POST') return false;
+        res.writeHead(200, { 'content-type': 'text/plain' });
+        res.end('FROM_HANDLE');
+        return true;
+      },
+      onOrigin: async (origin) => {
+        got = await (await fetch(`${origin}/`, { method: 'POST' })).text();
+      },
+    });
+    expect(got, 'handle 回 true 而 helper 還是回了那份 HTML').toBe('FROM_HANDLE');
+  });
+
+  it('🔵 handle 回 false ⇒ 落回 helper 那份 HTML', async () => {
+    let got = '';
+    const { browser } = fakeBrowser(async () => {});
+    await serveHtmlAndVisit(browser, '<p>HELPER_HTML</p>', async () => 'ok', {
+      handle: () => false,
+      onOrigin: async (origin) => {
+        got = await (await fetch(`${origin}/`)).text();
+      },
+    });
+    expect(got, 'handle 回 false 而沒落回 helper').toContain('HELPER_HTML');
+  });
+
+  // 🔴🔴 **這一格就是本族的病**(R1 升 must-fix):`handle` 丟錯而沒人接 ⇒ 那個請求
+  //    **永遠不會有回應** ⇒ `goto` 卡 30 秒導航逾時, 而**那個錯不在重試名單上** ⇒ 重試救不了它。
+  //    ⇒ 一個「呼叫端寫錯」會長成「機器很忙」的樣子。✅ 回 500 —— **看得懂的錯比 30 秒的沉默好。**
+  it('🔴 handle 丟錯 ⇒ 回 500(而不是讓那個請求永遠沒有回應)', async () => {
+    let status = 0;
+    let body = '';
+    const { browser } = fakeBrowser(async () => {});
+    await serveHtmlAndVisit(browser, '<p>x</p>', async () => 'ok', {
+      handle: () => {
+        throw new Error('ZZQ9_HANDLE_BOOM');
+      },
+      onOrigin: async (origin) => {
+        const res = await fetch(`${origin}/`);
+        status = res.status;
+        body = await res.text();
+      },
+    });
+    expect(status, 'handle 丟錯而沒有回 500 ⇒ 那個請求會永遠掛著').toBe(500);
+    expect(body).toContain('ZZQ9_HANDLE_BOOM');
+  });
+
   it('🔵 每一發都把分頁收乾淨(重試那一發也是)', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { browser, closed } = fakeBrowser(async (n) => {

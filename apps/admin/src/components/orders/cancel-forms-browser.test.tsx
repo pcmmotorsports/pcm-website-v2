@@ -8,6 +8,9 @@ vi.mock('server-only', () => ({}));
 import { renderToStaticMarkup } from 'react-dom/server';
 import { chromium, type Browser } from 'playwright';
 // 🔴 起伺服器 + goto 走共用那支 —— 它裡面有「連線層空回應重試一次(而且會印一行)」。
+// ⚠️ **一個未揭示的 delta, 補在這裡**(R1 nit):goto 的網址從 `http://localhost:${port}/`
+//    變成 helper **依 `server.address()` 的 family** 組的 `[::1]` 或 `127.0.0.1`
+//    ⇒ **不再經過名字解析**(理由見 helper 檔頭那段紅旗)。
 //    📌 **本檔正是 backlog `:15807` 記過同型紅的那個已知犯案者** ⇒ 它最需要那道重試。
 //    理由與四條紀律在 `serve-html-and-visit.ts` 檔頭。
 import { serveHtmlAndVisit } from '@/lib/test-support/serve-html-and-visit';
@@ -101,10 +104,17 @@ async function withPage(
       return true;
     },
   });
-  // 🔴 **GET 那一半【刻意留給 helper】回那份 bodyHtml, 不搬進上面的 `handle`**:
-  //    若合成 method 被拿掉, 表單會走 GET ⇒ 拿到一頁**沒有 `#done`** 的內容
-  //    ⇒ 等待 `#done` 的步驟逾時 ⇒ 測試紅。**那就是「拿掉合成 method 必紅」的機制。**
-  //    ⇒ 📌 把 GET 也接手過來的話, 那個機制就散掉了(2026-09-06 主視窗 `-f1` 核可這個決定)。
+  // 🔴 **GET 那一半留給 helper 回那份 bodyHtml, 不搬進上面的 `handle`** ——
+  //    理由是**零收益多一個會漂移的副本**:忠實搬過去行為完全相同(R1 實查),
+  //    而那份 HTML 的組法就會有兩個地方寫著同一件事。
+  //    ⛔ ~~我原本寫「把 GET 也接手 ⇒ 那個機制就散掉了」~~ —— **那是沒量過的反事實**(R1 must-fix)。
+  //
+  // 🔴🔴 **而「拿掉合成 method 必紅」那個機制住在哪, 我也指錯了 —— 這一段是訂正**:
+  //    ⛔ ~~名為 harness 自檢的那個 describe 靠「等 `#done` 逾時」~~ ——
+  //      **它根本不等 `#done`**(它只 `waitForLoadState('load')`), 靠的是 **`toHaveLength(0)`**:
+  //      走 GET ⇒ 沒有 POST body 被攔到 ⇒ 陣列是空的 ⇒ 那一格紅。
+  //    ✅ **「等 `#done` 逾時」那顆牙住在【另外六格】**(兩支 D6-a + 兩支判別力邊界 + 兩支 A13b E1)。
+  //    ⇒ 📌 **指錯守門位置的後果是:下一個人會去放寬錯的那一格。**
   return bodies;
 }
 
