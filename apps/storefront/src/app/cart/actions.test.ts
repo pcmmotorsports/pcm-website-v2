@@ -9,8 +9,26 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }));
-vi.mock('@/lib/products', () => ({ fetchProductByHandle: fetchMock }));
+const { fetchMock, idsMock, tierMock, pricesMock } = vi.hoisted(() => ({
+  fetchMock: vi.fn(),
+  // ⟦auth-DEALERTIERPRICING⟧ M-2-08 B2a:三支新相依。
+  // 🔴 **預設值刻意選在「這一段不會跑」那一側** —— tier 回 general ⇒ 既有 5 項一個字都不用改,
+  //    而那正是本片「general 走原路、零改動」的形狀。要驗經銷那條的案例自己覆寫。
+  idsMock: vi.fn(async () => new Map<string, string>()),
+  // 🔴 codex R1 must-fix ① 折疊後:呼叫端改叫 `resolveAuthenticatedTierStrict()`,
+  //    回的是 `{ok, tier}` —— `ok:false` 代表【查不出來】, 與「他就是 general」是兩件事。
+  tierMock: vi.fn(async () => ({ ok: true, tier: 'general' }) as const),
+  pricesMock: vi.fn(async () => new Map<string, number>()),
+}));
+vi.mock('@/lib/products', () => ({
+  fetchProductByHandle: fetchMock,
+  fetchProductIdsByHandles: idsMock,
+}));
+vi.mock('@/lib/tier', () => ({ resolveAuthenticatedTierStrict: tierMock }));
+vi.mock('@/lib/tier-prices', () => ({
+  fetchEffectivePrices: pricesMock,
+  priceKey: (kind: string, id: string) => `${kind}:${id}`,
+}));
 
 import { resolveCartLines, type ResolvedCartLine } from './actions';
 
@@ -53,6 +71,12 @@ function first(lines: ResolvedCartLine[]): ResolvedCartLine {
 
 afterEach(() => {
   fetchMock.mockReset();
+  // 🔴 **只 reset `fetchMock` 是不夠的**:另外三支的【呼叫紀錄】會跨格累積
+  //   ⇒ 「這一格不得叫 RPC」在後面的格子裡**恆假**(它看到的是前面某一格叫過的那一次)。
+  //   ✅ `mockClear` 只清紀錄、保留 hoisted 時設的預設實作(`mockReset` 會把實作也清掉)。
+  idsMock.mockClear();
+  tierMock.mockClear();
+  pricesMock.mockClear();
 });
 
 describe('resolveCartLines(M-3-S2-b2-d 購物車 line 解析)', () => {
@@ -317,5 +341,119 @@ describe('resolveCartLines(M-3-S2-b2-d 購物車 line 解析)', () => {
     expect(first(await resolveCartLines([{ productId: 'rpm-1', variantId: 'v1' }])).fitments).toEqual([]);
     fetchMock.mockResolvedValue(null);
     expect(first(await resolveCartLines([{ productId: 'gone' }])).fitments).toEqual([]);
+  });
+});
+
+/**
+ * ⟦auth-DEALERTIERPRICING⟧ M-2-08 B2a —— **經銷會員換成自己那個 tier 的價**。
+ *
+ * 🔴 這一族守的是【誰拿到哪個價】, 不是【價算得對不對】(後者在 RPC 那一層與 `computeTax`)。
+ * 🛑 **效度上限**:fixture 驗;**正式庫零判別力** —— 2026-09-07 兩表讀數
+ *   (25,769 件商品 + 59,841 個變體, **全無差價**)⇒ 這一段上線後**畫面零改動**。
+ *   📌 **那是 fail-safe 的方向, 不是沒生效。**
+ */
+describe('B2a 經銷 tier 價', () => {
+  it('🟢 一般會員 ⇒ 【根本不叫】RPC(那是安全邊界不是效能)', async () => {
+    // 🔴 貼板 68 之前正式庫沒有那支 RPC ⇒ 若每個人都叫, 全站購物車壞掉。
+    fetchMock.mockResolvedValue(makeProduct({ variants: [] }));
+    await resolveCartLines([{ productId: 'rpm-1' }]);
+    expect(pricesMock, '一般會員不得叫 RPC').not.toHaveBeenCalled();
+    expect(idsMock, '連 uuid 都不用查').not.toHaveBeenCalled();
+  });
+
+  it('🔴 經銷會員 · 無變體商品 ⇒ 單價換成 RPC 回的那個', async () => {
+    fetchMock.mockResolvedValue(makeProduct({ variants: [], price: 1000 }));
+    tierMock.mockResolvedValueOnce({ ok: true, tier: 'store' } as never);
+    idsMock.mockResolvedValueOnce(new Map([['rpm-1', 'uuid-p1']]) as never);
+    pricesMock.mockResolvedValueOnce(new Map([['product:uuid-p1', 800]]) as never);
+    expect(first(await resolveCartLines([{ productId: 'rpm-1' }])).unitPrice).toBe(800);
+  });
+
+  it('🔴 經銷會員 · 變體 ⇒ 用【變體那一半】的價(不是商品層的)', async () => {
+    fetchMock.mockResolvedValue(makeProduct());
+    tierMock.mockResolvedValueOnce({ ok: true, tier: 'store' } as never);
+    pricesMock.mockResolvedValueOnce(new Map([['variant:v1', 900]]) as never);
+    expect(
+      first(await resolveCartLines([{ productId: 'rpm-1', variantId: 'v1' }])).unitPrice,
+    ).toBe(900);
+  });
+
+  it('🔴🔴 `(kind, id)` 配對 —— 同一個 id 同時是商品與變體時【不得互相覆蓋】', async () => {
+    // 🛑 codex 2026-09-07 指出:單用 `id` 建 Map 會讓一行拿到另一行的價,
+    //    而兩邊都是合法的整數 ⇒ **看不出來**。這一格就是那個世界。
+    // 🔵 兩個【不同商品】:一個無變體(handle `plain`)、一個有變體(handle `withvar`),
+    //    而讓「無變體那個的 uuid」與「變體 id」**是同一個字串** `same` ⇒ 那正是會互蓋的世界。
+    //    (同一個商品既無變體又帶變體不成立 —— 那條路是 fail-closed `found:false`。)
+    fetchMock.mockImplementation(async (h: string) =>
+      h === 'plain'
+        ? makeProduct({ slug: 'plain', price: 1000, variants: [] })
+        : makeProduct({ slug: 'withvar', variants: [{ id: 'same', sku: 'S', spec: {}, price: 1000, images: [] }] }),
+    );
+    tierMock.mockResolvedValueOnce({ ok: true, tier: 'store' } as never);
+    idsMock.mockResolvedValueOnce(new Map([['plain', 'same']]) as never);
+    pricesMock.mockResolvedValueOnce(
+      new Map([['product:same', 700], ['variant:same', 900]]) as never,
+    );
+    const lines = await resolveCartLines([
+      { productId: 'plain' },
+      { productId: 'withvar', variantId: 'same' },
+    ]);
+    expect(lines[0]?.unitPrice, '無變體那行要拿【商品】那個價').toBe(700);
+    expect(lines[1]?.unitPrice, '變體那行要拿【變體】那個價').toBe(900);
+  });
+
+  it('🛑 RPC 失敗 ⇒ 往上拋, 【不】靜默退回 general', async () => {
+    // 🔴 退回 general 會讓經銷商用一般價結帳而畫面上完全正常 —— 那是錢錯而它不會紅。
+    fetchMock.mockResolvedValue(makeProduct({ variants: [], price: 1000 }));
+    tierMock.mockResolvedValueOnce({ ok: true, tier: 'store' } as never);
+    idsMock.mockResolvedValueOnce(new Map([['rpm-1', 'uuid-p1']]) as never);
+    pricesMock.mockRejectedValueOnce(new Error('rpc missing') as never);
+    await expect(resolveCartLines([{ productId: 'rpm-1' }])).rejects.toThrow();
+  });
+
+  // ⛔ ~~原本這一格叫「RPC 沒回那一行 ⇒ 維持 general(不猜、不寫 null)」而斷言 unitPrice 仍是 1000。~~
+  //    🔴 **codex R1 must-fix ② 判它是錯的, 而它是對的** —— 「不猜」我做到了,
+  //    「維持 general」卻正是**用一般價賣給經銷商**, 而那條路上每一把尺都是綠的。
+  //    ⇒ 這一族三條縫(身分查不出 / uuid 查不到 / RPC 少回一列)全部改成【拋】。
+  //    舊字面留刪除線, 讓下一個搜「維持 general」的人同一發撞到訂正。
+  it('🛑 RPC 少回那一列 ⇒ 拋(【不】拿一般價賣給經銷商)', async () => {
+    fetchMock.mockResolvedValue(makeProduct({ variants: [], price: 1000 }));
+    tierMock.mockResolvedValueOnce({ ok: true, tier: 'store' } as never);
+    idsMock.mockResolvedValueOnce(new Map([['rpm-1', 'uuid-p1']]) as never);
+    pricesMock.mockResolvedValueOnce(new Map() as never);
+    await expect(resolveCartLines([{ productId: 'rpm-1' }])).rejects.toThrow(/沒回/);
+  });
+
+  it('🛑 uuid 查不到 ⇒ 拋(handle→uuid 那一段斷掉也是同一個錢錯)', async () => {
+    fetchMock.mockResolvedValue(makeProduct({ variants: [], price: 1000 }));
+    tierMock.mockResolvedValueOnce({ ok: true, tier: 'store' } as never);
+    idsMock.mockResolvedValueOnce(new Map() as never);
+    await expect(resolveCartLines([{ productId: 'rpm-1' }])).rejects.toThrow(/uuid/);
+  });
+
+  it('🛑 已登入而 tier 讀不到(reason:tier)⇒ 拋(那與「他就是 general」不是同一件事)', async () => {
+    // 🔴 codex R1 must-fix ① 的正身:tier 查詢失敗舊碼回 general ⇒ 經銷商靜默用一般價。
+    fetchMock.mockResolvedValue(makeProduct({ variants: [], price: 1000 }));
+    tierMock.mockResolvedValueOnce({ ok: false, reason: 'tier', tier: 'general' } as never);
+    await expect(resolveCartLines([{ productId: 'rpm-1' }])).rejects.toThrow();
+  });
+
+  it('🔴🔴 認證層抖動(reason:auth)⇒ 【不准】拋 —— 那條路上站的是訪客與一般會員', async () => {
+    // 🛑 **R3 must-fix ③**:我原本的 `if (!ok) throw` 在 `tier === 'store'` 上面
+    //    ⇒ Supabase 認證一抖, **全站購物車與結帳頁一起掛掉**, 而改動前這條路根本不碰 auth。
+    //    📌 我的註解宣稱「射程收窄到經銷商」, 而碼沒有收窄 —— **這一格就是那個宣稱的證人**。
+    //    ⚠️ 殘餘風險(不自宣接受):此時一位經銷商會走 general —— 與改動前相同, 已進 QB 佇列給 Sean。
+    fetchMock.mockResolvedValue(makeProduct({ variants: [], price: 1000 }));
+    tierMock.mockResolvedValueOnce({ ok: false, reason: 'auth', tier: 'general' } as never);
+    const lines = await resolveCartLines([{ productId: 'rpm-1' }]);
+    expect(first(lines).unitPrice, '照走原路、拿群 general 價').toBe(1000);
+    expect(pricesMock, '身分不明時不得叫 RPC').not.toHaveBeenCalled();
+  });
+
+  it('🟢 正對照:身分查得出來而他就是 general ⇒ 照走原路不拋', async () => {
+    // 🛑 少了這一格, 上面三格「會拋」只證明我很會拋。
+    fetchMock.mockResolvedValue(makeProduct({ variants: [], price: 1000 }));
+    tierMock.mockResolvedValueOnce({ ok: true, tier: 'general' } as never);
+    expect(first(await resolveCartLines([{ productId: 'rpm-1' }])).unitPrice).toBe(1000);
   });
 });
