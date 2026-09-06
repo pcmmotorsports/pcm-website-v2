@@ -11,7 +11,9 @@
 // mock '@/contexts/CartContext' + '@/app/checkout/charge-actions'。
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { renderHook, act, cleanup, waitFor } from '@testing-library/react';
+import { renderHook, act, cleanup, waitFor, render, screen } from '@testing-library/react';
+// 🔴 **端到端那一格要用真的畫面** —— 見下方 `⟦b4-BANKCHARGESCARD⟧ 端到端` 那一段的理由。
+import { CheckoutTerminalScreen } from '@/components/CheckoutTerminalScreen';
 import type { CartItem } from '@/contexts/CartContext';
 
 const { cartRef, chargeMock, setInflightMock, clearInflightMock, reconcileMock } = vi.hoisted(() => ({
@@ -44,6 +46,16 @@ vi.mock('@/lib/payment/inflight-marker', () => ({
   setPaymentInflight: setInflightMock,
   clearPaymentInflight: clearInflightMock,
 }));
+// 🔴 端到端那一格會 render CheckoutAwaitingRemittance, 它 mount 就 useRouter().replace(...)。
+// jsdom 沒有掛 app router ⇒ 不 mock 會丟 "invariant expected app router to be mounted"。
+// 形狀照 `CheckoutAwaitingRemittance.test.tsx:11-14`(同一個元件、既有慣例)。
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }),
+}));
+// 同一格會經 CheckoutSuccess 拉進 Header(mount 就 window.matchMedia)⇒ jsdom 沒有它。
+// 一樣照 `CheckoutAwaitingRemittance.test.tsx:15-16` 的既有做法把版頭版尾換成空元件。
+vi.mock('@/components/Header', () => ({ Header: () => null }));
+vi.mock('@/components/HomeFooter', () => ({ HomeFooter: () => null }));
 // S1b-2:useChargePayment 內部組合 useReconcilePayment(→ reconcile-actions);mock 避免載入 server 依賴。
 vi.mock('@/app/checkout/reconcile-actions', () => ({
   reconcileCartSession: reconcileMock,
@@ -246,6 +258,77 @@ describe('useChargePayment', () => {
       cartRef.current.regenerateCartSession,
       '沒換 cart key ⇒ 他下次買東西會被 dedup 綁回這張沒付錢的單',
     ).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * ══ 🔴🔴 ⟦b4-BANKCHARGESCARD⟧ **端到端那一格 —— 而它在 2026-09-06 之前【不存在】** ══════
+   *
+   * 🛑 **這一列存在的理由逐字是**:「他以為沒買成 ⇒ 再按一次會再建一張」。
+   *    Sean 2026-09-05 `Q4=乙` 授權的是「**兩張單可以同時存在**」,
+   *    **不是**「他可以**看不到**自己買成了」。
+   *
+   * 🔬 **而那件事在補這一格之前, 沒有任何一格在驗**(當場量, 2026-09-06):
+   *    那條路的六支測試 **189 格全綠**, 而 `grep -c 'awaiting_remittance|訂單已成立'` 在輸出裡 ⇒ **0**
+   *    —— 📌 **每一段都有人驗, 而【接起來之後客人看到什麼】沒有人驗。**
+   *      · hook 這一支驗到 `state.status === 'awaiting_remittance'` 就停了
+   *      · `CheckoutTerminalScreen.test.tsx` 那一格只驗 `data-id`, 沒驗**畫面上的字**
+   *      ⇒ 🛑 **兩段都綠, 而中間那一跳沒有人走過。**
+   *
+   * ✅ 所以這一格**跨過那個接縫**:mock 的 action 回【server 真的會回的形狀】
+   *    ⇒ 交給 hook ⇒ 把 hook 產出的 state 餵進**真的畫面元件** ⇒ 斷言客人讀到「訂單已成立」。
+   */
+  it('🔴 端到端:action 回 awaiting_remittance ⇒ 客人畫面上讀到「訂單已成立」', async () => {
+    setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+    chargeMock.mockResolvedValue({
+      ok: false,
+      payment: 'awaiting_remittance',
+      displayId: 'PCM-2026-0042',
+      message: '訂單已成立,尚未付款;請依匯款資訊完成轉帳',
+    });
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit(ARGS);
+    });
+    // 🔵 前提先釘 —— 沒有這一行, 下面的畫面斷言在「hook 根本沒進終態」時會用一個空畫面矇混
+    expect(result.current.state.status, '前提:hook 要真的進到那個終態').toBe('awaiting_remittance');
+
+    render(<CheckoutTerminalScreen state={result.current.state as never} />);
+    // 🔴 **這一行才是這一格的重點**:客人**看得到**單已成立, 而不是一句失敗。
+    // ⚠️ 釘【標題】不釘整頁 —— 整頁 `/訂單已成立/` 命中兩處(h1 標題 + 說明段),
+    //    而 `getByText` 撞到多筆會丟例外 ⇒ 那是量具壞掉, 不是行為壞掉。
+    expect(
+      screen.getByRole('heading', { name: /訂單已成立/ }).textContent,
+      '畫面上讀不到「訂單已成立」⇒ 他以為沒買成 ⇒ 再按一次再建一張(本列存在的理由)',
+    ).toContain('訂單已成立');
+    // 🔵 server 那句話也要真的走到畫面上(不是被吞掉換成通用文案)
+    expect(screen.getByText('訂單已成立,尚未付款;請依匯款資訊完成轉帳')).toBeTruthy();
+    // 🔴 而單號要在【畫面上】 —— 那是匯款客人唯一的把手(他要拿它去對帳)。
+    //   釘看得見的文字, 不釘 data-testid:客人讀的是字, 而 testid 換名字不會影響他。
+    expect(screen.getByText('PCM-2026-0042'), '單號沒印出來 ⇒ 客人匯了款對不上單').toBeTruthy();
+  });
+
+  /**
+   * 🟢 **負對照(主視窗指定):把 action 回成【通用失敗】⇒ 畫面【不得】說「訂單已成立」。**
+   *   🛑 少了這一格, 上面那格在「畫面對任何狀態都印訂單已成立」時**照樣綠** ——
+   *     而那種畫面比錯誤訊息更糟(它會對一個【真的失敗】的客人說他買成了)。
+   */
+  it('🟢 負對照:action 丟例外(unknown 終態)⇒ 同一個畫面元件不得說「訂單已成立」', async () => {
+    setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+    chargeMock.mockRejectedValue(new Error('回應遺失'));
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit(ARGS);
+    });
+    // 🔴 對照組要走【同一條路、同一個元件】, 只換終態 —— 換成 `unknown` 是因為它也走 CheckoutSuccess
+    //   (`CheckoutTerminalScreen.tsx:96-104` variant="unknown")⇒ 兩格的差別只剩「哪一個分支」。
+    expect(result.current.state.status, '前提:這一發要落在 unknown 終態').toBe('unknown');
+    render(<CheckoutTerminalScreen state={result.current.state as never} />);
+    // 🛑 這一行【必須真的 render 過】 —— 少了上面那個 render, `queryAllByText` 對空畫面恆回 [],
+    //   這一格就會變成一道永遠綠的假守門。
+    expect(
+      screen.queryAllByText(/訂單已成立/),
+      '一個【失敗】的結果讓畫面說「訂單已成立」⇒ 比錯誤訊息更糟',
+    ).toHaveLength(0);
   });
 
   it('🔴 awaiting_remittance:鎖【不】釋放 ⇒ 他再按一次送不出第二發(片 2 ③ 修掉的就是這個)', async () => {

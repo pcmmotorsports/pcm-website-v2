@@ -712,6 +712,51 @@ ERROR:  role "pcm_readonly" does not exist
 
 ---
 
+## 5c. 🔴🔴 **一支【釘 md5】的 migration, 在 replay 不乾淨的庫裡【天生驗不了】**
+
+**2026-09-06 線【資料】`-db` 實測(⟦search-VARIANTSKU⟧)。**
+
+本 repo 的慣例:改一支既有函式時, 前置閘會**釘住庫上那一版的 `md5(prosrc)`** ——
+理由很好(`CREATE OR REPLACE` 會**無聲蓋掉**別人的改動, 而那道閘讓它出聲)。
+
+🛑 **而它與「從零 replay」是衝突的**:
+
+```
+從零 replay 之後   storefront_search_product_ids 的 md5 = 76df17fe…
+正式庫             同一支                              = a780b8052812395dbe65611dde927015
+```
+
+🎯 **成因是機械的**:那一發 replay **62 支失敗**(環境缺件), 而其中一支**就在這條函式的沿革鏈上**
+⇒ 它的下一代前置閘(釘的是**上一代**的 md5)當場擋下 ⇒ **函式停在更舊那一代**
+⇒ 我要驗的那支, 它的前置閘於是也擋。
+
+📌 **⇒ 而畫面上你看到的是「我的 migration 貼不進去」** —— 那句話會讓你去改**你的 migration**,
+而**真正的成因在二十天前的另一支檔**。
+
+### ✅ 怎麼辦(而不是把前置閘拿掉)
+
+🔴 **不要為了讓本機過而放寬前置閘** —— 那道閘擋的是正式庫上的真實風險, 它在本機紅**不代表它錯**。
+
+✅ **把那一代【明確裝上去】, 再斷言它等於正式庫實測值**:
+
+```bash
+# 只抽出那支函式的定義, 不跑整支 migration(整支會被它自己的前置閘擋)
+awk '/^CREATE OR REPLACE FUNCTION public.<函式名>/,/^\$function\$;/' \
+  supabase/migrations/<那一代>.sql > /tmp/gen.sql
+psql … -v ON_ERROR_STOP=1 -f /tmp/gen.sql
+
+# 🔴 然後【斷言】它等於你對正式庫量到的那個 md5 —— 這一格就是
+#    「我在跟正式庫同一個世界裡測」的證據。沒有它, 下面每一格都不知道自己在哪。
+psql … -tAc "SELECT md5(prosrc) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+              WHERE n.nspname='public' AND p.proname='<函式名>'"
+```
+
+🛑 **而要在你的驗證腳本裡【寫明】這是一個被你構造出來的世界, 不是自然 replay 出來的。**
+　 (實例:`scripts/20260906900000-verify.sh` 的「世界對齊」那一格與它上面那段註解。)
+
+⚠️ **它答不出什麼**:這個做法讓**那一支函式**與正式庫對齊, 而**其餘 62 支失敗留下的缺件還在**
+　 ⇒ 📌 **對齊的是一個點, 不是整個世界。** 你的斷言若碰到那些缺件, 紅的理由仍然可能是環境。
+
 ## 6. 收攤(逐 PID 驗,不看指令回傳)
 
 ```bash

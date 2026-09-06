@@ -115,6 +115,121 @@ describe('看不見的東西不准吃點擊', () => {
     ).toMatch(/pointer-events:\s*auto\s*;/);
   });
 
+  // 🔴🔴 **2026-09-06 線 `front`(⟦f3-CARDTAPUNMEASURED⟧):同一張卡上的「選擇規格」與「愛心」
+  //   是【同一個病, 而只有一半有修法】—— 而這一格守的是那半個缺口的【兩條路】, 不是一條。**
+  //
+  //   ⛔ ~~我第一版寫「`.pcard-quick` 在手機上看不見也按不到」~~
+  //   ⇒ 🔴 **那是【推論】, 而 R1(code-reviewer)把它推翻了** —— 它有**第二條路徑**:
+  //     `ProductCard.tsx:188` `onMouseEnter → setHover(true)` ⇒ `:240` 加上 `is-visible`
+  //     ⇒ `product-card.css:208` `.pcard-quick.is-visible { pointer-events: auto }`,
+  //     而**真觸控會補發相容滑鼠事件** ⇒ 手指碰一下, 它就活了。
+  //   🔬 **實測(`node scripts/tap-target-probe.mjs --reveal`, 自己重跑得出來)**:
+  //   ```
+  //   ① 什麼都還沒做       opacity=0  pointer-events=none
+  //   ② 真 tap 卡片一下    opacity=1  pointer-events=auto   ← 它活過來了(被擋下的導航 1 次)
+  //   ③ 再 tap 按鈕        那一下落在 button.pcard-quick-btn ← 按得到
+  //   ```
+  //   ✅ **所以精確的說法是**:它不是死的, 是**只有在客人按下那一下、
+  //     而那一下【會把他帶去商品頁】的時候才亮起來** ⇒ 實務上客人拿不到這個狀態。
+  //   📌 **⇒ 結論很像(用不到那顆鈕), 而機制完全不同 —— 而我把推論寫成了量到。**
+  //
+  //   🛑 **要不要讓它在手機上真的可用 = 產品決定(Sean 的)**, 不是我加一條 CSS 就好。
+  //   ✅ **本格【釘住今天的狀態】, 而今天的狀態由【兩處】決定 —— 所以兩處都要釘**:
+  //     · CSS 那條路:`@media (hover: none)` 區塊(**全部**, 不只第一個)不得含 `.pcard-quick`
+  //     · TSX 那條路:`is-visible` 由 `hover` 驅動, 而 `hover` **只由 `onMouseEnter` 設**
+  //       ⇒ 有人加 `onTouchStart` / 改成常駐, 本格才叫得出來。
+  //       ⛔ ~~第一版三發突變全打在 CSS 那一半~~ ⇒ 🔴 **改 TSX 那一行, 手機上它就活了而本格全綠**(R1 Critical)。
+  //   ⇒ 任何一格紅了, 正解是 **①確認那是 Sean 拍的 ②更新板列 ⟦f3-CARDTAPUNMEASURED⟧ ③才改期望值**, 不是刪掉本格。
+  it('🔴 今天的狀態·CSS 那條路:所有 @media (hover: none) 區塊都不得把「選擇規格」打開', () => {
+    const css = read('product-card.css');
+    // 🔴 **`matchAll` 不是 `exec`** —— `exec` 只回第一個區塊;有人【新增第二個】hover:none 區塊
+    //   把 `.pcard-quick` 放進去 ⇒ 全綠, 而本格標題那句當場變成假的(R1 must-fix)。
+    // 🔴🔴 **不只 `(hover: none)` 那一種寫法**(2026-09-06 R2 must-fix ——
+    //   我寫「今天的狀態由兩處決定」是個**窮舉宣稱, 而它假**)。三條全綠旁路 R2 逐字列出:
+    //     ① `@media (pointer: coarse)` / `@media (hover:none) and (pointer:coarse)`
+    //        —— 舊式 regex 要求 `)` 後**緊接** `{` ⇒ 這兩種寫法它都掃不到
+    //     ② 檔尾再寫一條 `.pcard-quick{…}` —— cascade 的贏家是**後面那條**, 而 `exec` 只讀第一條
+    //     ③ TSX 用 `onPointerDown/onPointerEnter` —— 觸控上照樣觸發, 而我只擋了 `onTouch*`
+    //   ⇒ 📌 **窮舉宣稱要嘛放寬到真的窮舉, 要嘛把射程寫出來。**
+  //   🔴🔴 **2026-09-06 R3 訂正:⛔ ~~這裡選前者(三條都堵)~~ —— 那句話本身又是一個窮舉宣稱。**
+  //     R3 再列出第四條(**行內樣式**), 而且指出「最後一條 = cascade 贏家」只在
+  //     **同 specificity · 無 `!important` · 同一支檔** 之下成立。
+  //     ⇒ 🛑 **一個做文字比對的守門, 結構上到不了窮舉** —— 再放寬一輪只會再被列出第五條。
+  //   ✅ **所以改成:堵掉便宜的, 然後把【它守不到什麼】寫出來。**
+  //   ⚠️ **本兩格【守不到】的世界(明列, 不假裝)**:
+  //     · 另一支 CSS 檔裡的 `.pcard-quick` 規則(本格只讀 `product-card.css`)
+  //     · specificity 更高的選擇器(如 `.pcard .pcard-quick`)或 `!important`
+  //     · 執行期用 JS 改 style / 加 class(不經這兩支檔)
+  //   ⇒ 📌 **它守的是「有人在這兩支檔裡順手打開它」這一族, 而那正是最可能發生的那一族。**
+    // 🔴 **regex 不會配平 `{}`**(2026-09-06 R3 must-fix)——
+    //   `[\s\S]*?\n\}` 只找**第一個頂格的 `}`** ⇒ media 內第一條規則的結尾若頂格,
+    //   整個區塊就在那裡提早收尾, **後面的 `.pcard-quick` 掃不到**。⇒ 改成自己數大括號。
+    const blocks: string[] = [];
+    for (const m of css.matchAll(/@media[^{]*\{/g)) {
+      let depth = 0;
+      let i = m.index! + m[0].length - 1;
+      const start = m.index!;
+      for (; i < css.length; i++) {
+        if (css[i] === '{') depth++;
+        else if (css[i] === '}' && --depth === 0) break;
+      }
+      blocks.push(css.slice(start, i + 1));
+    }
+    const media = blocks.filter((x) => /hover:\s*none|pointer:\s*coarse/.test(x.slice(0, x.indexOf('{'))));
+    expect(media.length, '找不到任何 @media (hover: none) 區塊 ⇒ 前提失效, 這一發作廢').toBeGreaterThan(0);
+    for (const b of media) {
+      expect(
+        b,
+        '有一個 @media (hover: none) 區塊把 `.pcard-quick` 打開了 ⇒ 手機客人現在看得到「選擇規格」。'
+          + '這是【產品決定】—— 先確認是 Sean 拍的, 再更新板列 ⟦f3-CARDTAPUNMEASURED⟧, 最後才改本格。',
+      ).not.toContain('.pcard-quick');
+    }
+    // 🟢 正對照:愛心【在】其中一個區塊裡 ⇒ 證明上面那圈 not.toContain 不是因為抓到空區塊而恆真。
+    expect(
+      media.some((b) => b.includes('.pcard-heart')),
+      '正對照:所有 hover:none 區塊都沒有愛心 ⇒ 我抓到的不是那條規則, 上面的斷言作廢',
+    ).toBe(true);
+    // 🔵 基底仍是「看不見的東西不准吃點擊」—— 兩件事一起成立才是今天的狀態。
+    // 🔴 **cascade 的贏家是【最後】那一條** ⇒ 要看全部, 不是 `exec` 的第一條(R2 must-fix ②)。
+    const bases = [...css.matchAll(/(?:^|\})\s*\.pcard-quick\s*\{[^}]*\}/g)].map((m) => m[0]);
+    const base = bases[bases.length - 1];
+    expect(base, '找不到 .pcard-quick 基底規則 ⇒ 前提失效').toBeTruthy();
+    expect(base, '基底沒有 pointer-events: none ⇒ 讀數的前提變了, 重跑探針').toMatch(
+      /pointer-events:\s*none\s*;/,
+    );
+  });
+
+  it('🔴 今天的狀態·TSX 那條路:「選擇規格」只由 onMouseEnter 亮起來(加 onTouchStart 或常駐 ⇒ 本格紅)', () => {
+    const tsx = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), '../components/ProductCard.tsx'),
+      'utf8',
+    );
+    // 🟢 正對照先跑:前提還在嗎(改了元件結構 ⇒ 下面兩個斷言可能恆真)
+    expect(tsx, '找不到 `is-visible` ⇒ 前提失效, 這一發作廢').toContain('is-visible');
+    expect(tsx, '`is-visible` 不再由 hover 驅動 ⇒ 機制變了, 重跑 --reveal 再改本格').toMatch(
+      /pcard-quick \$\{hover \? 'is-visible' : ''\}/,
+    );
+    expect(tsx, 'onMouseEnter 那條不見了 ⇒ 前提失效').toMatch(/onMouseEnter=\{\(\) => setHover\(true\)\}/);
+    // 🔴 真正在守的那一條:多了一條【觸控裝置也會觸發】的路 ⇒ 手機上它就活了。
+    expect(
+      tsx,
+      '`ProductCard` 多了觸控 / pointer 事件 ⇒ 「選擇規格」在手機上可能變成真的可用。'
+        + '這是【產品決定】—— 先確認是 Sean 拍的, 再更新板列 ⟦f3-CARDTAPUNMEASURED⟧, 最後才改本格。',
+      // 🔴 `onPointer*` 在觸控上照樣觸發 ⇒ 只擋 `onTouch*` 是漏的(R2 must-fix ③)。
+      // 🔴 `onPointerDown =`(等號前後有空白)會避開沒有 `\s*` 的 regex(2026-09-06 R3 must-fix)。
+    ).not.toMatch(/on(?:Touch(?:Start|End)|Pointer(?:Down|Enter|Up))\s*=/);
+    // 🔴🔴 **第四條旁路(R3 must-fix)**:class 與 `onMouseEnter` 都不動,
+    //   直接給那個 div 一個**行內樣式** `style={{ opacity: 1, pointerEvents: 'auto' }}`
+    //   ⇒ 行內樣式贏過任何 CSS 檔 ⇒ 手機上它就活了, 而上面每一格都綠。
+    const quickDiv = /className=\{`pcard-quick[^}]*\}[^>]*>/.exec(tsx)?.[0] ?? '';
+    expect(quickDiv, '找不到 .pcard-quick 那個 div ⇒ 前提失效, 這一發作廢').not.toBe('');
+    expect(
+      quickDiv,
+      '`.pcard-quick` 那個 div 被加了行內樣式 ⇒ 它會贏過所有 CSS 檔。'
+        + '這是【產品決定】—— 先確認是 Sean 拍的, 再更新板列 ⟦f3-CARDTAPUNMEASURED⟧, 最後才改本格。',
+    ).not.toMatch(/style=/);
+  });
+
   it('🔴 `.pcard-heart` 浮出來時要把點擊收回去(否則桌機按不到)', () => {
     const css = read('product-card.css');
     const hoverRule = /\.pcard:hover\s+\.pcard-heart\s*\{[^}]*\}/.exec(css)?.[0];
