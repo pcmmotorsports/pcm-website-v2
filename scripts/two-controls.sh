@@ -138,7 +138,22 @@ if [ "${1:-}" = "--selftest" ]; then
   else
     echo "ℹ️  世界九跳過:不在 git 工作樹裡 ⇒ 這【不是】通過, 是沒量到。"
   fi
-  [ "$ok" = "1" ] && { echo "✅ selftest PASS(九個世界印不同的東西)"; exit 0; }
+  # ══ 世界十/十一:`paste_line` 那一句【在兩個地方各印一次】, 而它要有兩發各自的證人 ══
+  # 🔴 **為什麼有這兩格(2026-09-07 05:4x `-ship`, 而它是被板列 `⟦15-HALFREVERT⟧` 抓到的)**:
+  #    `paste_line` 剛做完的那一版, **一個世界都沒有在看它** ——
+  #    當場實測:把主流程那一句 `paste_line` 整行拿掉 ⇒ 功能真的不見了(那句話 0 命中),
+  #    而 **`--selftest` 照樣 rc=0 印「九個世界」**。
+  #    ⇒ 🎯 那一列的判別句逐字:「**我改了 N 處 ⇒ 我要有 N 發突變, 每一發只退回一處**」
+  #      —— 我改了兩處(主流程 + `--nonce`), 而我一發都沒給它。
+  # 🛑 **而兩格【不能合成一格】**:合起來的話, 只掉其中一邊的世界會照樣綠 —— 那就是同一個病。
+  out8=$(bash "$0" 'mknonce' 'two-controls' "$0" 2>&1)
+  echo "$out8" | grep -q '貼進交件' || { echo "🔴 selftest: 主流程沒有印那一句可貼的句子"; ok=0; }
+  # 🔴 而它【不得含字面】—— 那一句的整個目的就是不含字面;含了就等於把屍體發給下一個人
+  echo "$out8" | grep -q '^   負對照:用 scripts/two-controls.sh 現造的字串' || { echo "🔴 selftest: 可貼那一句的內容變了"; ok=0; }
+  case "$(echo "$out8" | grep '貼進交件' -A1 | tail -1)" in *negctl-*) echo "🔴 selftest: 可貼那一句裡出現了現造字面 ⇒ 它會製造下一具屍體"; ok=0 ;; esac
+  out9=$(bash "$0" --nonce 2>&1 >/dev/null)
+  echo "$out9" | grep -q '貼進交件' || { echo "🔴 selftest: --nonce 的 stderr 沒有印那一句可貼的句子"; ok=0; }
+  [ "$ok" = "1" ] && { echo "✅ selftest PASS(十一個世界印不同的東西)"; exit 0; }
   echo "🔴 selftest FAIL"; exit 1
 fi
 
