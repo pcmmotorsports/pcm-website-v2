@@ -1,0 +1,137 @@
+# codex 審【diff】· 儲值金去重 · gpt-6-astra / effort high · --disable apps · 2026-09-06
+
+🔴 **它抓到三條真的, 而其中一條是我違反了一條已拍的板。**
+
+1. **備註被塞進 URL** —— A6 `docs/specs/2026-08-02-e10-a9d2-1-note-action-plan.md` §9 `Q1=A` 的 H13
+   逐字:「失敗 state 必須帶回員工輸入的 body … 且**不得**把 body 塞進 URL」。
+2. **扣款方向遺失** —— query 只帶金額與備註 ⇒ 員工重試可能變成加值。
+3. **同鍵不同內容被唸成「請稍後再試」** ⇒ 那條路永遠不會成功, 而員工會一直按。
+
+✅ 三條全修:失敗改**回傳 state**(`wallet-action-state.ts`), URL 那條路整條拆掉;
+   `mismatch` 與 `error` 分成兩個碼、兩句**動作相反**的話;RPC 的 RAISE 帶專屬 SQLSTATE `P9W01`。
+
+🔵 它也獨立重算了本片正向與還原的 body / COMMENT 雜湊, 逐字相符。
+⚠️ **本輪帶了 `--disable apps`** ⇒ 零 MCP 呼叫(對照 2026-09-06 早先那輪的 3 次 SELECT)。
+🔴 裁剪過 —— 原始 9358 行(含它 cat 出來的板與 R1 全文), 只留最後 120 行。
+
+---
+
+ M docs/launch-todo.md
+?? docs/specs/2026-09-06-wallet-idempotency-ROLLBACK.sql
+?? scripts/probe-wallet-idempotency.sh
+?? supabase/after-checks/20260906800000-wallet-idempotency-reconcile.sql
+?? supabase/migrations/20260906800000_m4b_wallet_adjust_idempotency.sql
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-4v17fVN6' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-RYVjKRNW' (errno=Operation not permitted)
+stash@{0}
+stash@{1}
+stash@{2}
+stash@{3}
+stash@{4}
+stash@{5}
+stash@{6}
+stash@{7}
+stash@{8}
+stash@{9}
+stash@{10}
+
+codex
+**FAIL**
+
+1. **must-fix — [page.tsx:81](/Users/sean_1/pcm-wt-account/apps/admin/src/app/customers/[id]/page.tsx:81)**  
+   錯誤頁翻儲值金流水時，分頁連結丟掉 `t/a/n`，表單取得新 token。記憶體內 React 實測：金額、備註仍留著而 token 已換，原操作再送可重複扣款。
+
+2. **must-fix — [wallet-actions.ts:51](/Users/sean_1/pcm-wt-account/apps/admin/src/lib/customers/wallet-actions.ts:51)**  
+   `Math.abs` 丟掉扣款方向，重試頁按 Enter 卻預設送加值。原扣款若未提交，重試會實際加值；若已提交，則撞內容衝突，無法完成原扣款的冪等重試。
+
+3. **must-fix — [wallet-actions.ts:52](/Users/sean_1/pcm-wt-account/apps/admin/src/lib/customers/wallet-actions.ts:52)**  
+   備註原文進入 URL，可留在瀏覽紀錄及網址紀錄中；編碼不等於保密。引用的 [A6 §9:225](/Users/sean_1/pcm-wt-account/docs/specs/2026-08-02-e10-a9d2-1-note-action-plan.md:225) 明文要求失敗回 state，且不得把內容塞進 URL。
+
+4. **must-fix — [wallet-actions.ts:113](/Users/sean_1/pcm-wt-account/apps/admin/src/lib/customers/wallet-actions.ts:113)**  
+   同鍵不同內容的永久衝突，也導向「儲存失敗，請稍後再試」，並繼續保留衝突鍵。實測此分支與斷線完全相同；需區分衝突與結果未知，指示查帳、停止盲目重送。
+
+5. **must-fix — [admin-form-consumers.test.tsx:49](/Users/sean_1/pcm-wt-account/apps/admin/src/components/shared/admin-form-consumers.test.tsx:49)**  
+   真 action 被 mock 成空函式；另一支測試只驗解析器。把 action 改回 HTTP id、刪掉保留 token 的 redirect 或雙 id log，這兩支仍可全綠，未兌現 plan 第 8–10 格。
+
+6. **must-fix — [probe-wallet-idempotency.sh:264](/Users/sean_1/pcm-wt-account/scripts/probe-wallet-idempotency.sh:264)**  
+   併發任一邊出現 `ERROR/FATAL`，只要不含指定兩句中文就印 PASS。第一發成功、第二發語法錯誤或斷線，仍可得到 `1|300` 並全綠；必須核對兩邊結束碼及 `ADJUSTED/DUPLICATE` 結果。
+
+7. **must-fix — [probe-wallet-idempotency.sh:258](/Users/sean_1/pcm-wt-account/scripts/probe-wallet-idempotency.sh:258)**  
+   兩邊各睡一秒不保證交易重疊；排程成順序執行也綠，沒有證明鎖等待。應建立可觀測的交易交疊，且檢查累積儲值、稽核，不只 ledger／餘額。
+
+8. **must-fix — [probe-wallet-idempotency.sh:220](/Users/sean_1/pcm-wt-account/scripts/probe-wallet-idempotency.sh:220)**  
+   內容衝突只改金額；拔掉 RPC 的備註比對，45 格仍可全綠。同鍵同金額、只改備註會錯回 `DUPLICATE`，須補這個獨立反例。
+
+9. **must-fix — [wallet-idempotency-reconcile.sql:114](/Users/sean_1/pcm-wt-account/supabase/after-checks/20260906800000-wallet-idempotency-reconcile.sql:114)**  
+   「六個維度整組貼後」沒有判定 SECDEF／有效 EXECUTE，索引也只數名稱。撤掉 service_role 權限、改 INVOKER 或換同名錯誤索引，仍可能 rc=0 並宣稱貼後世界。
+
+10. **nit — [probe-wallet-idempotency.sh:156](/Users/sean_1/pcm-wt-account/scripts/probe-wallet-idempotency.sh:156)**  
+    甲-2 的兩個 NOTICE 格只證明字串印出，刪掉實際判斷仍綠。角色／舊版初始化、乙-7 NULL 相容性、乙-8 重試成功等，也不能各自當成去重有效的證據。
+
+11. **nit — [probe-wallet-idempotency.sh:336](/Users/sean_1/pcm-wt-account/scripts/probe-wallet-idempotency.sh:336)**  
+    突變②把任何含 `error` 的建索引失敗當作 NULL 衝突成功；語法、權限、連線錯誤也能免費過關。需核對確切失敗原因。
+
+12. **nit — [probe-wallet-idempotency.sh:122](/Users/sean_1/pcm-wt-account/scripts/probe-wallet-idempotency.sh:122)**  
+    仍把 `c12448…` 寫成佔位字的 md5；實算佔位字是 `7cc781…`。`:274`、`:303` 及 [plan:89](/Users/sean_1/pcm-wt-account/docs/plans/2026-09-06-wallet-resubmit-idempotency-plan.md:89) 也仍留著你說已訂正的因果；`:211`「永遠 DUPLICATE 可讓乙-1 全綠」同樣不成立。
+
+打不破的方向：
+
+- **RPC 核心**：衝突目標與 `v_prior` 都限定客人＋token；正常 RPC 路徑下三欄比對足夠。`entry_date` 是首次入帳日期，跨日重試不應重比；`related_order_id` 固定 NULL。已揭露的直插路徑另論。
+- **提前 RETURN**：沒有插入列，就不觸發逐列 AFTER INSERT，也不需要再寫異動稽核；第一筆 ledger／餘額／audit 同交易成立。
+- **鎖與交易**：同客人先排隊再判重；不同客人的鎖列及複合唯一鍵不同，未見必然互卡。序列化失敗須整筆交易重試，同鍵可保留；沒有看到因此雙扣的路徑。[PostgreSQL 交易語意](https://www.postgresql.org/docs/17/transaction-iso.html)
+- **注入與長度**：React 回填惡意字串的記憶體內測試未產生注入節點；合法 200 字中文備註產生約 1,903 字元相對 URL，未找到正常輸入必然超限的證據。
+- **還原 SQL／雜湊**：正向與還原的 body、COMMENT 錨全部獨立重算相符；同交易內先換函式、再拆索引與欄位的順序未擊破。但「先停入口並清完在途」仍是人工前提，檔內 WARNING 不會暫停 COMMIT。
+
+已逐格靜態審閱 45 格，執行原碼記憶體內探針、Shell 語法及 diff 檢查；**未跑 PG 鑽機、正式 DB 或完整瀏覽器流程**。未改檔；15 個受查檔前後內容雜湊一致。
+tokens used
+167,718
+**FAIL**
+
+1. **must-fix — [page.tsx:81](/Users/sean_1/pcm-wt-account/apps/admin/src/app/customers/[id]/page.tsx:81)**  
+   錯誤頁翻儲值金流水時，分頁連結丟掉 `t/a/n`，表單取得新 token。記憶體內 React 實測：金額、備註仍留著而 token 已換，原操作再送可重複扣款。
+
+2. **must-fix — [wallet-actions.ts:51](/Users/sean_1/pcm-wt-account/apps/admin/src/lib/customers/wallet-actions.ts:51)**  
+   `Math.abs` 丟掉扣款方向，重試頁按 Enter 卻預設送加值。原扣款若未提交，重試會實際加值；若已提交，則撞內容衝突，無法完成原扣款的冪等重試。
+
+3. **must-fix — [wallet-actions.ts:52](/Users/sean_1/pcm-wt-account/apps/admin/src/lib/customers/wallet-actions.ts:52)**  
+   備註原文進入 URL，可留在瀏覽紀錄及網址紀錄中；編碼不等於保密。引用的 [A6 §9:225](/Users/sean_1/pcm-wt-account/docs/specs/2026-08-02-e10-a9d2-1-note-action-plan.md:225) 明文要求失敗回 state，且不得把內容塞進 URL。
+
+4. **must-fix — [wallet-actions.ts:113](/Users/sean_1/pcm-wt-account/apps/admin/src/lib/customers/wallet-actions.ts:113)**  
+   同鍵不同內容的永久衝突，也導向「儲存失敗，請稍後再試」，並繼續保留衝突鍵。實測此分支與斷線完全相同；需區分衝突與結果未知，指示查帳、停止盲目重送。
+
+5. **must-fix — [admin-form-consumers.test.tsx:49](/Users/sean_1/pcm-wt-account/apps/admin/src/components/shared/admin-form-consumers.test.tsx:49)**  
+   真 action 被 mock 成空函式；另一支測試只驗解析器。把 action 改回 HTTP id、刪掉保留 token 的 redirect 或雙 id log，這兩支仍可全綠，未兌現 plan 第 8–10 格。
+
+6. **must-fix — [probe-wallet-idempotency.sh:264](/Users/sean_1/pcm-wt-account/scripts/probe-wallet-idempotency.sh:264)**  
+   併發任一邊出現 `ERROR/FATAL`，只要不含指定兩句中文就印 PASS。第一發成功、第二發語法錯誤或斷線，仍可得到 `1|300` 並全綠；必須核對兩邊結束碼及 `ADJUSTED/DUPLICATE` 結果。
+
+7. **must-fix — [probe-wallet-idempotency.sh:258](/Users/sean_1/pcm-wt-account/scripts/probe-wallet-idempotency.sh:258)**  
+   兩邊各睡一秒不保證交易重疊；排程成順序執行也綠，沒有證明鎖等待。應建立可觀測的交易交疊，且檢查累積儲值、稽核，不只 ledger／餘額。
+
+8. **must-fix — [probe-wallet-idempotency.sh:220](/Users/sean_1/pcm-wt-account/scripts/probe-wallet-idempotency.sh:220)**  
+   內容衝突只改金額；拔掉 RPC 的備註比對，45 格仍可全綠。同鍵同金額、只改備註會錯回 `DUPLICATE`，須補這個獨立反例。
+
+9. **must-fix — [wallet-idempotency-reconcile.sql:114](/Users/sean_1/pcm-wt-account/supabase/after-checks/20260906800000-wallet-idempotency-reconcile.sql:114)**  
+   「六個維度整組貼後」沒有判定 SECDEF／有效 EXECUTE，索引也只數名稱。撤掉 service_role 權限、改 INVOKER 或換同名錯誤索引，仍可能 rc=0 並宣稱貼後世界。
+
+10. **nit — [probe-wallet-idempotency.sh:156](/Users/sean_1/pcm-wt-account/scripts/probe-wallet-idempotency.sh:156)**  
+    甲-2 的兩個 NOTICE 格只證明字串印出，刪掉實際判斷仍綠。角色／舊版初始化、乙-7 NULL 相容性、乙-8 重試成功等，也不能各自當成去重有效的證據。
+
+11. **nit — [probe-wallet-idempotency.sh:336](/Users/sean_1/pcm-wt-account/scripts/probe-wallet-idempotency.sh:336)**  
+    突變②把任何含 `error` 的建索引失敗當作 NULL 衝突成功；語法、權限、連線錯誤也能免費過關。需核對確切失敗原因。
+
+12. **nit — [probe-wallet-idempotency.sh:122](/Users/sean_1/pcm-wt-account/scripts/probe-wallet-idempotency.sh:122)**  
+    仍把 `c12448…` 寫成佔位字的 md5；實算佔位字是 `7cc781…`。`:274`、`:303` 及 [plan:89](/Users/sean_1/pcm-wt-account/docs/plans/2026-09-06-wallet-resubmit-idempotency-plan.md:89) 也仍留著你說已訂正的因果；`:211`「永遠 DUPLICATE 可讓乙-1 全綠」同樣不成立。
+
+打不破的方向：
+
+- **RPC 核心**：衝突目標與 `v_prior` 都限定客人＋token；正常 RPC 路徑下三欄比對足夠。`entry_date` 是首次入帳日期，跨日重試不應重比；`related_order_id` 固定 NULL。已揭露的直插路徑另論。
+- **提前 RETURN**：沒有插入列，就不觸發逐列 AFTER INSERT，也不需要再寫異動稽核；第一筆 ledger／餘額／audit 同交易成立。
+- **鎖與交易**：同客人先排隊再判重；不同客人的鎖列及複合唯一鍵不同，未見必然互卡。序列化失敗須整筆交易重試，同鍵可保留；沒有看到因此雙扣的路徑。[PostgreSQL 交易語意](https://www.postgresql.org/docs/17/transaction-iso.html)
+- **注入與長度**：React 回填惡意字串的記憶體內測試未產生注入節點；合法 200 字中文備註產生約 1,903 字元相對 URL，未找到正常輸入必然超限的證據。
+- **還原 SQL／雜湊**：正向與還原的 body、COMMENT 錨全部獨立重算相符；同交易內先換函式、再拆索引與欄位的順序未擊破。但「先停入口並清完在途」仍是人工前提，檔內 WARNING 不會暫停 COMMIT。
+
+已逐格靜態審閱 45 格，執行原碼記憶體內探針、Shell 語法及 diff 檢查；**未跑 PG 鑽機、正式 DB 或完整瀏覽器流程**。未改檔；15 個受查檔前後內容雜湊一致。
+rc=0

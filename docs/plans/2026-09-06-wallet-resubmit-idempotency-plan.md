@@ -86,11 +86,17 @@
 ## 4. DB 那一半
 
 1. `customer_wallet_ledger` 加 `request_id text`(nullable)
-   \+ **partial UNIQUE**(`WHERE request_id IS NOT NULL`)⇒ 既有列(加欄後全為 NULL)不受影響。
+   \+ **partial UNIQUE**(`WHERE request_id IS NOT NULL`)。
+   🔴🔴 **而理由要寫對**(2026-09-06 鑽機當場證偽我原本那句):
+   ⛔ ~~「partial ⇒ 既有列不受影響」~~ **因果反了** —— 保護既有列(NULL 鍵)的是
+   **Postgres 唯一索引預設 `NULLS DISTINCT`**(每個 NULL 互不相等)⇒ **換成全表 UNIQUE,
+   多筆 NULL 鍵一樣插得進去**。partial 的價值是**索引大小與意圖**。
+   🛑 而**真正扛事的是「這個唯一索引存在」** —— 突變把它整個拿掉 ⇒ RPC **執行期**炸。
    🔬 **那個 3 是這樣數的**(2026-09-06 唯讀實跑,值會隨時間變 ⇒ 動工當天要重數):
    `bash scripts/readonly-prod-sql.sh` 跑 `SELECT count(*) FROM public.customer_wallet_ledger;` ⇒ **3**。
-   🛑 而「不受影響」不是靠那個 3 —— 靠的是 partial predicate 本身(NULL 不進索引);
-   驗它的是 §5 第 **6**、**7** 格,不是這個數字。
+   🛑 **而「不受影響」也不是靠 partial predicate** —— ⛔ ~~原本這裡是這樣寫的~~,
+   而上面那段已經訂正過:**保護舊列的是 `NULLS DISTINCT`**。這個 3 只是「有多少列會變成 NULL 鍵」,
+   它**不是**任何一個結論的依據。驗那件事的是 §5 第 **6**、**7** 格。
    🔴 **而 nullable 是為了舊列, 不是為了新呼叫**(codex #6):
    **新版 RPC 拒收 NULL / 空字串 / 非 uuid 形狀** —— fail-closed, 與解析器同一道。
 2. `CREATE OR REPLACE admin_adjust_wallet`(**同一組 6 參數**):
