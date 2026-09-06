@@ -13,8 +13,14 @@ import { CheckoutSummaryAside } from './CheckoutSummaryAside';
 const UNKNOWN = 'platinumDealer' as unknown as MemberTier;
 
 /** 最小可 render 的 props;`lines` 給空陣列 —— 本片要量的是 tier,不是購物車。 */
-function props(tier: MemberTier) {
-  return { lines: [], subtotal: 0, shipping: 0, total: 0, memberName: '王小明', memberTier: tier };
+function props(tier: MemberTier, over: { tax?: number; subtotal?: number; shipping?: number; total?: number } = {}) {
+  // 🔴 `tax` 是**必填**, 不是 `?: number` —— ⟦auth-TIERTOTALBYPAYMENT⟧ B2b 刻意的:
+  //    加這個 prop 的當下, `tsc` 一次點名了**每一個**沒傳它的呼叫端(本檔三處)。
+  //    📌 給它一個預設值 ⇒ 那三處會安靜地拿到 0 ⇒ **忘了接稅的頁面全綠**。
+  return {
+    lines: [], subtotal: 0, shipping: 0, tax: 0, total: 0,
+    memberName: '王小明', memberTier: tier, ...over,
+  };
 }
 
 describe('#873 · 未知的會員等級走進結帳頁', () => {
@@ -47,5 +53,26 @@ describe('#873 · 未知的會員等級走進結帳頁', () => {
       expect(screen.getByText('王小明')).toBeTruthy();
       unmount();
     }
+  });
+});
+
+describe('⟦auth-TIERTOTALBYPAYMENT⟧ B2b —— 稅那一行', () => {
+  // 🔴 **本檔【沒有】自動 cleanup** —— 既有兩格都手動 `unmount()`(`:37` / `:54`), 那是本檔的慣例。
+  //   🛑 我第一版漏了它 ⇒ 上一格的 DOM 留在 document 裡 ⇒ 下一格的 `queryByText` 看到的是**上一格的畫面**
+  //     ⇒ 那一格當場紅了。📌 **而它【剛好】是紅的那一側** —— 如果我兩格的順序相反,
+  //       同一個漏洞會讓「稅行有出現」在一個根本沒渲染稅行的世界裡**印綠**。
+  it('🔴 tax > 0 ⇒ 印出「營業稅 5%」與金額', () => {
+    const { unmount } = render(<CheckoutSummaryAside {...props('store' as MemberTier, { subtotal: 1000, shipping: 100, tax: 55, total: 1155 })} />);
+    expect(screen.getByText('營業稅 5%')).toBeTruthy();
+    expect(screen.getByText('NT$ 55')).toBeTruthy();
+    expect(screen.getByText('NT$ 1,155')).toBeTruthy();
+    unmount();
+  });
+
+  it('🟢 tax === 0 ⇒ 【不】印那一行(0 有兩種來源:一般會員 / 經銷選匯款, 畫面上刻意不分)', () => {
+    const { unmount } = render(<CheckoutSummaryAside {...props('store' as MemberTier, { subtotal: 1000, shipping: 100, tax: 0, total: 1100 })} />);
+    expect(screen.queryByText('營業稅 5%')).toBeNull();
+    expect(screen.getByText('NT$ 1,100')).toBeTruthy();
+    unmount();
   });
 });

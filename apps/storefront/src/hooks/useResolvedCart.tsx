@@ -6,8 +6,14 @@
 // 顯示資料 + general 單價」的單一真相(審查側 e1 條件 1:摘要價 server-resolve、不存 client)。
 //
 // 🔴 鐵則 12:cart 線只存 {productId,variantId,qty}、不存價;hydrate 後丟 resolveCartLines server
-//   action 換回 unitPrice/標題/圖(fetchProductByHandle 釘 general、strip priceByTier、逐欄白名單)。
-//   價由 server 取、client 永不存價;階段① general-only、tier-aware 待階段⓪。
+//   action 換回 unitPrice/標題/圖(strip priceByTier、逐欄白名單)。價由 server 取、client 永不存價。
+// ⛔ ~~fetchProductByHandle **釘 general**~~ · ~~階段① general-only、tier-aware 待階段⓪~~
+//   ⇒ 🔴 **2026-09-07 起這兩句不成立**(⟦auth-DEALERTIERPRICING⟧ B2a):`resolveCartLines` 在
+//     `tier === 'store'` 時會叫 RPC `get_effective_prices` 把單價換成經銷價。
+//     ⇒ 本 hook **什麼都不用改** —— 它拿到的就是換好的價。舊字面留刪除線, 讓照它去讀的人撞到訂正。
+// ⚠️ **而稅不在這裡**:經銷價是**未稅**的, 加不加 5% 由**付款方式**決定(Sean Q24),
+//   而本 hook 的 `method` 是**運送**方式、簽章裡沒有付款方式 ⇒ 稅算在 `CheckoutView`(B2b)。
+//   📌 ⇒ **購物車頁顯示的是未稅總額** —— 那是刻意的, 不是漏的(那一頁還沒選付款方式)。
 //
 // 狀態機(resolvedSignature):loading(hydrate 前 / resolve 未跟上行集合)→ empty(空車 / 全 stale)
 //   → ready;qty 變動不改 lineSignature 故不 re-resolve、不閃載入;resolveSeq 防 race。
@@ -46,6 +52,13 @@ export type UseResolvedCart = {
   subtotal: number;
   shipping: number;
   total: number;
+  /**
+   * 🔴 這台車的價是不是**未稅**的(⟦auth-TIERTOTALBYPAYMENT⟧ B2b)。
+   * 旗標由 `resolveCartLines` **跟著單價一起**回來(`ResolvedCartLine.priceUntaxed`)
+   * ⇒ 結帳頁拿它決定要不要外加 5%, **不要用另一次查詢得到的 `memberTier`**(codex must-fix)。
+   * 🛑 空車 ⇒ `false`(沒有價就沒有稅)。
+   */
+  pricesAreUntaxed: boolean;
   /** 距免運門檻差額(= FREE_SHIPPING_THRESHOLD − subtotal;shipping>0 時顯示用) */
   freeShipRemaining: number;
 };
@@ -178,6 +191,12 @@ export function useResolvedCart(method: ShippingMethod = 'home'): UseResolvedCar
     [items, resolvedMap],
   );
 
+  // 🔴 **全部一致才算數** —— `resolveCartLines` 對整台車一次套用同一個 tier,
+  //   所以「有些未稅有些含稅」是**不該存在的世界**。而它若真的出現,
+  //   `every` 會給 false ⇒ 退到「不加稅」⇒ 那是**少收**, 不是多收 ⇒ 方向安全。
+  //   ⚠️ 而它不出聲 —— 出聲要在 server 那一層(那裡才知道為什麼), 這裡只是顯示鏡像。
+  const pricesAreUntaxed = lines.length > 0 && lines.every((l) => l.resolved.priceUntaxed === true);
+
   const subtotal = lines.reduce((sum, l) => sum + l.lineTotal, 0);
   const shipping = calculateShippingFee({ amount: toMoneyAmount(subtotal), currency: 'TWD' }, method).amount;
   const total = subtotal + shipping;
@@ -198,5 +217,5 @@ export function useResolvedCart(method: ShippingMethod = 'home'): UseResolvedCar
             ? 'empty'
             : 'ready';
 
-  return { status, lines, subtotal, shipping, total, freeShipRemaining };
+  return { status, lines, subtotal, shipping, total, freeShipRemaining, pricesAreUntaxed };
 }

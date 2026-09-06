@@ -63,8 +63,25 @@ export type ResolvedCartLine = {
   variantLabel: string | null;
   /** 料號(V-2a2:變體=variant.sku;無變體商品無料號欄 → null;公開識別、無價格面) */
   sku: string | null;
-  /** 🔴 general 公開單價(整數元位 NT$);**唯一價格欄、無 priceByTier/store/cost** */
+  /** 🔴 公開單價(整數元位 NT$);**唯一價格欄、無 priceByTier/store/cost** */
   unitPrice: number;
+  /**
+   * 🔴🔴 **這個價是不是【未稅】的**(⟦auth-TIERTOTALBYPAYMENT⟧ B2b, codex must-fix)。
+   *
+   * `true`  = 經銷價(RPC `get_effective_prices` 給的, Sean Q24「未稅」)⇒ 呼叫端要外加營業稅
+   * 省略/false = 一般價(含稅)⇒ 不得再加, 加了就是重複課稅
+   *
+   * 🛑 **為什麼掛在【每一列】而不是回傳一個總的 tier**:
+   *   codex 2026-09-07 抓到 —— 結帳頁原本用 `checkout/page.tsx` 那一次**獨立查詢**得到的
+   *   `memberTier` 決定加不加稅, 而**單價來自本 action 這一次查詢**。兩次查詢會分歧:
+   *   ```
+   *   page 那次讀 customers 失敗 ⇒ 退成 general ⇒ 不加稅
+   *   本 action 這次成功        ⇒ 給的是 store 未稅價
+   *   ⇒ 畫面顯示 1,100 而應該是 1,155 ⇒ 少收 5%, 而每一格都綠
+   *   ```
+   *   ⇒ 📌 **旗標跟著【那個數字】走, 就不可能與它分歧** —— 那是本欄存在的全部理由。
+   */
+  priceUntaxed?: boolean;
   /** V-2e:適用車款(UIFitment 公開欄白名單投影、與 PDP 同 shape;client 對 line vehicle 跑
    *  checkFitment 顯「可能不適用」;🔴 判定在 client=cart vehicle 不出站紅線不動)。 */
   fitments: UIFitment[];
@@ -286,6 +303,8 @@ export async function resolveCartLines(lines: unknown): Promise<ResolvedCartLine
         throw new Error(`tier price: RPC 沒回 ${key} 的價 ⇒ 不得以 general 結帳`);
       }
       line.unitPrice = amount;
+      // 🔴 與上一行**同一個動作** —— 換價與標記未稅之間不准有第二個判斷。
+      line.priceUntaxed = true;
     }
   }
   return out;

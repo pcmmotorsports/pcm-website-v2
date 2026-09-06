@@ -450,6 +450,27 @@ describe('B2a 經銷 tier 價', () => {
     expect(pricesMock, '身分不明時不得叫 RPC').not.toHaveBeenCalled();
   });
 
+  it('🔴🔴 換成經銷價的【同一個動作】要標 `priceUntaxed: true`', async () => {
+    // 🛑 這一格補的是一個**分母缺口**:旗標是在本檔設的, 而結帳頁那支測試
+    //    把 `resolveCartLines` 整支 mock 掉 ⇒ 我在那邊做「不標未稅」的突變**印全綠**。
+    //    📌 **一道守門有兩個分母:它會不會錯, 與【有沒有人在看那個地方】。**
+    fetchMock.mockResolvedValue(makeProduct({ variants: [], price: 1000 }));
+    tierMock.mockResolvedValueOnce({ ok: true, tier: 'store' } as never);
+    idsMock.mockResolvedValueOnce(new Map([['rpm-1', 'uuid-p1']]) as never);
+    pricesMock.mockResolvedValueOnce(new Map([['product:uuid-p1', 800]]) as never);
+    const line = first(await resolveCartLines([{ productId: 'rpm-1' }]));
+    expect(line.unitPrice, '價換了').toBe(800);
+    expect(line.priceUntaxed, '而旗標也要跟著 —— 少了它, 結帳頁不會加 5%').toBe(true);
+  });
+
+  it('🟢 正對照:一般會員那一列【不帶】旗標(含稅, 再加就是重複課稅)', async () => {
+    fetchMock.mockResolvedValue(makeProduct({ variants: [], price: 1000 }));
+    tierMock.mockResolvedValueOnce({ ok: true, tier: 'general' } as never);
+    const line = first(await resolveCartLines([{ productId: 'rpm-1' }]));
+    expect(line.unitPrice).toBe(1000);
+    expect(line.priceUntaxed ?? false, '一般價是含稅的').toBe(false);
+  });
+
   it('🟢 正對照:身分查得出來而他就是 general ⇒ 照走原路不拋', async () => {
     // 🛑 少了這一格, 上面三格「會拋」只證明我很會拋。
     fetchMock.mockResolvedValue(makeProduct({ variants: [], price: 1000 }));
