@@ -119,6 +119,20 @@ export {
   CancelledScanQueryError,
   type CancelledOrderScannerClient,
 } from './email/SupabaseCancelledOrderScannerAdapter';
+// 🔴 ⟦b4-BANKNOEMAIL⟧(2026-09-06):匯款單成立信 —— 掃描端。
+//    回兩個 email 欄(PII)+ **三個金額欄**(錢)⇒ server-only + service_role。
+//    🛑 它與上面那支【型別不同形】:多帶 total / balance_due / created_at,
+//       因為那封信要印三行金額與一句期限 —— ⇒ import 錯支 typecheck 會紅(這是好事)。
+export {
+  SupabaseBankOrderCreatedScannerAdapter,
+  BankOrderScanQueryError,
+  type BankOrderCreatedScannerClient,
+} from './email/SupabaseBankOrderCreatedScannerAdapter';
+// 🔴 ⟦b4-BANKNOEMAIL⟧:寄送前重驗 —— 查 still_mailable(與掃描面共用同一份述詞)。
+export {
+  SupabaseBankOrderMailableCheckAdapter,
+  type BankOrderMailableCheckClient,
+} from './email/SupabaseBankOrderMailableCheckAdapter';
 // 🔴 M-4b E4-a(2026-08-22):出貨線的同款窄讀 adapter。**一列 = 一個 (箱, 單) 配對 = 一封信。**
 // 同樣回兩個 email 欄(PII)⇒ server-only + service_role。差集在 SQL view 裡(見該檔檔頭)。
 export {

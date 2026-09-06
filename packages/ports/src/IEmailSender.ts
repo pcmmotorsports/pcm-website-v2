@@ -127,7 +127,18 @@ export type SendEmailInput = {
 };
 
 export type SendEmailResult =
-  | { kind: 'sent' }
+  | {
+      kind: 'sent';
+      /**
+       * 🔴 ⟦b4-NOSENTBODY⟧(2026-09-06):provider 回的訊息 id。**拿不到就是 `null`。**
+       *
+       * 🛑 **`null` 有三種成因, 而它們在這裡【分不出來】**:①provider 沒回 ②回應超過大小上限
+       * ③型別不是 string。⇒ 📌 呼叫端不得把 `null` 讀成「provider 沒給」——
+       *   它的意思只有「**我們沒拿到**」。
+       * 🔵 **它不影響任何分類結果** —— 拿不到照樣是 `sent`(信真的寄出去了)。
+       */
+      providerMessageId: string | null;
+    }
   | { kind: 'failed'; errorCode: EmailSendErrorCode };
 
 export interface IEmailSender {

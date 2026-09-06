@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import {
   buildOrderCreatedPayload,
   orderCreatedSubject,
+  bankOrderCreatedSubject,
   ORDER_CREATED_EVENT_VERSION,
 } from './order-email-assembly';
 
@@ -64,5 +67,27 @@ describe('orderCreatedSubject(固定模板)', () => {
     const subject = orderCreatedSubject('PCM-2026-0001');
     expect(subject).toContain('PCM-2026-0001');
     expect(subject).toBe('PCM 訂單 PCM-2026-0001 付款成功通知');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// ⟦b4-BANKNOEMAIL⟧ 主旨的鎖 —— **它住在產生它的那一側**(codex R1-#10)
+// ══════════════════════════════════════════════════════════════════
+// 🔴 為什麼在這裡而不是 sweep 那支測試:sweep 送的是 `job.subject`
+//    (enqueue 當下就寫進 outbox 的那一份)⇒ 在那裡鎖它, **鎖到的是 fixture 不是碼**。
+// 🛑 **改這格期望值 = 重設一道對外文案的鎖 ⇒ 需要授權**(同內文那一格)。
+describe('bankOrderCreatedSubject:對外主旨的鎖', () => {
+  it('🔴 主旨逐字 = Sean 核可的那一份(spec 檔對照, 不是手打副本)', () => {
+    const spec = readFileSync(
+      join(__dirname, '..', '..', '..', '..', 'docs', 'specs', '2026-09-06-bank-order-created-email-copy.md'),
+      'utf8',
+    );
+    const block = spec.split('## 主旨')[1];
+    expect(block, 'spec 檔裡找不到「## 主旨」那一節 ⇒ 這道鎖沒接上').toBeDefined();
+    const expected = block!.split('```')[1]!.replace(/^\n/, '').replace(/\n$/, '')
+      .replaceAll('(訂單編號)', 'PCM-2026-0142');
+    // 🔵 自檢:佔位詞要換掉 —— 否則下面那個 toBe 會因為【錯的理由】紅。
+    expect(expected).not.toContain('(訂單編號)');
+    expect(bankOrderCreatedSubject('PCM-2026-0142')).toBe(expected);
   });
 });

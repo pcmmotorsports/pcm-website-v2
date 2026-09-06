@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 /**
  * @module @pcm/adapters/email/order-email-assembly — 交易信組裝層(M-4a E1b;REQUIRED-E1b 本體)
  *
@@ -244,5 +245,86 @@ export function buildOrderUnpaidCancelledPayload(src: {
     // 🔵 而 `cancelled_reason` **刻意不過** —— 它是選填(`null` = 沒有理由 ⇒ 信裡那段不印)。
     cancelled_reason: src.cancelledReason,
     event_version: ORDER_UNPAID_CANCELLED_EVENT_VERSION,
+  };
+}
+
+/**
+ * 🔴 ⟦b4-BANKNOEMAIL⟧ 匯款單成立信(`bank_order_created`)—— 顧客站選匯款而**尚未付款**的單。
+ *
+ * 🛑 **主旨與另外幾支【刻意不同】**:那幾封講的是「已經發生了什麼」,
+ *    而這一封講的是「**請你去做一件事、而且有期限**」⇒ 主旨要看得出那件事。
+ *    字面來自 Sean 核可的那一份(`docs/specs/2026-09-06-bank-order-created-email-copy.md`)。
+ */
+export function bankOrderCreatedSubject(displayId: string): string {
+  return `訂單 ${displayId} 已成立,請於期限內完成匯款`;
+}
+
+export const BANK_ORDER_CREATED_EVENT_VERSION = 1 as const;
+
+/**
+ * ⟦b4-BANKNOEMAIL⟧ 的 `dedup_key` —— **`orderId` + 快照指紋**(codex R1-#4, 45f 那一半)。
+ *
+ * 🔴🔴 **為什麼不是單純的 `orderId`**:
+ *   寄送當下發現快照過期 ⇒ 標 `bank_order_snapshot_stale` ⇒ 45f 讓那張單**重新進得了掃描面**,
+ *   而 `UNIQUE (event_type, dedup_key)` 會讓**第二次 INSERT 撞唯一鍵** ⇒ 📌 **那張單永遠停在那裡。**
+ *   ⇒ ✅ 指紋一變, 它就是**另一把鑰匙** ⇒ 新快照排得進去。
+ *
+ * 🛑 **而指紋要涵蓋【會讓那封信變得不一樣】的每一個值** —— 今天是三個:
+ *   `total` / `balanceDue` / `recipientEmail`。
+ *   ⚠️ **少涵蓋一個的後果很具體**:那個值變了而指紋沒變 ⇒ **撞唯一鍵 ⇒ 那張單從此排不進來**
+ *   (不是「寄了舊的」—— 寄送前重驗會擋下, 而擋下之後就再也補不回來)。
+ *   ⇒ 📌 **這三個值與寄送前重驗比對的那三個【必須是同一組】**, 兩邊漂掉的症狀是**永久漏信**。
+ *
+ * 🔵 `createdAt` **不進指紋**:它是不可變的(下單時刻), 進去只會讓字串更長而不會多分辨任何東西。
+ */
+export function bankOrderCreatedDedupKey(src: {
+  orderId: string;
+  total: number;
+  balanceDue: number;
+  recipientEmail: string;
+}): string {
+  // 🔵 `\u0000` 當分隔 —— 三個欄位裡都不可能出現它, 所以
+  //    `a|b` 與 `ab|` 這種「不同輸入撞同一個字串」的情況構造不出來。
+  const fingerprint = createHash('sha256')
+    .update([src.total, src.balanceDue, src.recipientEmail].join('\u0000'))
+    .digest('hex')
+    .slice(0, 16);
+  return `${src.orderId}:${fingerprint}`;
+}
+
+/**
+ * 🔴🔴 **payload 是【下單當下的快照】**(R3-C1, 主視窗 2026-09-06 裁採納)——
+ *   與 `order_cancelled` 同形, 而它一刀解掉「表頭與明細兩次查詢之間被改」那個混版問題:
+ *   📌 **不是「被解掉了」, 是那個問題【不存在】** —— 只有一次讀。
+ *
+ * ⚠️ **而快照有它自己的問題, 寫在這裡不寫在別處**:客人隔天匯了一半 ⇒ 快照仍是舊的
+ *   ⇒ 🔴 **寄送前那道 `balanceDue` 重驗非留不可**(它在 claim 之後、send 之前)。
+ *
+ * 🛑🛑 **帳號常數【不得】進 payload** —— payload 會落 DB。
+ *   帳號住在 `@pcm/domain` 的 `PCM_REMITTANCE_*`, 由模板在**寄送當下**讀
+ *   ⇒ 📌 **換銀行的那一天, 佇列裡還沒寄出去的信會印【新帳號】而不是舊的。**
+ */
+export function buildBankOrderCreatedPayload(src: {
+  displayId: string;
+  createdAt: string;
+  total: number;
+  balanceDue: number;
+}): {
+  display_id: string;
+  created_at: string;
+  total: number;
+  balance_due: number;
+  event_version: typeof BANK_ORDER_CREATED_EVENT_VERSION;
+} {
+  return {
+    // 🔴 空的 displayId 會寄出主旨是「訂單  已成立…」的信 ⇒ 與姊妹幾支同一道閘。
+    display_id: requireNonEmptyString(src.displayId, 'displayId', 'bank_order_created'),
+    // 🔴 空的 createdAt ⇒ 期限句算不出來 ⇒ 客人少掉唯一知道「什麼時候會被取消」的那一行。
+    created_at: requireNonEmptyString(src.createdAt, 'createdAt', 'bank_order_created'),
+    // 🔴 金額**原樣帶**:它在 view 那一層就與 `order_balance_base_v` 同源, 這裡不重算。
+    //    📌 重算 = 第二個來源 ⇒ 兩份會漂, 而漂掉的症狀是「信上的數字與訂單頁對不起來」。
+    total: src.total,
+    balance_due: src.balanceDue,
+    event_version: BANK_ORDER_CREATED_EVENT_VERSION,
   };
 }

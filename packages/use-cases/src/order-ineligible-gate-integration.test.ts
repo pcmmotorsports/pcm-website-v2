@@ -160,6 +160,7 @@ function seedRow(): Map<string, Row> {
 //    整個 suite 跑超過 60 秒就會集體「預算用盡」⇒ **一組會隨機器快慢翻面的測試**。
 const sweepOpts = (): SweepEmailOutboxOptions => ({
   allowOrderShipped: true,
+  allowBankOrderCreated: true,
   claimLimit: 10,
   runStartedAtMs: Date.now(),
   maxRunSeconds: 60,
@@ -177,7 +178,7 @@ describe('E2a-2 ineligible gate — 紅綠雙向組合證明', () => {
    */
   it('✅ 綠(取代原本那個紅的證人):訂單已不合格 ⇒ sweeper 自己就不寄,不必靠另一支排程先跑', async () => {
     const store = new InMemoryOutbox(seedRow());
-    const send = vi.fn(async (): Promise<SendEmailResult> => ({ kind: 'sent' }));
+    const send = vi.fn(async (): Promise<SendEmailResult> => ({ kind: 'sent', providerMessageId: null }));
     const sender: IEmailSender = { send };
 
     const result = await sweepEmailOutbox(
@@ -200,7 +201,7 @@ describe('E2a-2 ineligible gate — 紅綠雙向組合證明', () => {
 
   it('🔴 對照:同一份輸入,只把 scanner 換成「都合格」⇒ 信會寄出去(證明擋住它的是那道閘,不是別的)', async () => {
     const store = new InMemoryOutbox(seedRow());
-    const send = vi.fn(async (): Promise<SendEmailResult> => ({ kind: 'sent' }));
+    const send = vi.fn(async (): Promise<SendEmailResult> => ({ kind: 'sent', providerMessageId: null }));
     const sender: IEmailSender = { send };
 
     const result = await sweepEmailOutbox(
@@ -230,7 +231,7 @@ describe('E2a-2 ineligible gate — 紅綠雙向組合證明', () => {
     const send = vi.fn(async (): Promise<SendEmailResult> => {
       // 第 1 封寄出去的那一刻,order-2 才被取消(這就是那個縫)
       cancelled.add('order-2');
-      return { kind: 'sent' };
+      return { kind: 'sent', providerMessageId: null };
     });
     const sender: IEmailSender = { send };
 
@@ -254,7 +255,7 @@ describe('E2a-2 ineligible gate — 紅綠雙向組合證明', () => {
 
   it('🛑 fail-closed:合格性讀不到(scanner throw)⇒ 這一輪一封都不寄、列留 sending 給下輪回收', async () => {
     const store = new InMemoryOutbox(seedRow());
-    const send = vi.fn(async (): Promise<SendEmailResult> => ({ kind: 'sent' }));
+    const send = vi.fn(async (): Promise<SendEmailResult> => ({ kind: 'sent', providerMessageId: null }));
     const sender: IEmailSender = { send };
 
     const result = await sweepEmailOutbox(
@@ -294,7 +295,7 @@ describe('E2a-2 ineligible gate — 紅綠雙向組合證明', () => {
     expect(store.rows.get('outbox-1')!.status).toBe('skipped_order_ineligible');
     expect(store.rows.get('outbox-1')!.lastErrorCode).toBe('order_ineligible');
 
-    const send = vi.fn(async (): Promise<SendEmailResult> => ({ kind: 'sent' }));
+    const send = vi.fn(async (): Promise<SendEmailResult> => ({ kind: 'sent', providerMessageId: null }));
     const sender: IEmailSender = { send };
     const sweepResult = await sweepEmailOutbox(
       { outbox: store as unknown as IEmailOutbox, sender, ineligibleScanner: scanner },

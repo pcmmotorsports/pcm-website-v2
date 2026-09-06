@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { chromium } from 'playwright';
 
 import {
@@ -990,17 +990,57 @@ describe('🔴 出貨明細單 · 分支B 的兩道版面守門(真 PDF + 逐頁
         (`SKU-` 在不在)—— 那就是他原話「第二頁不要看起來像印壞了」的那一半。
      ⚠️ **而「認得出是哪一箱」那一半【現在沒有任何守門】** —— 明寫,不留白。 */
 
+  /** 🔵 **一顆瀏覽器, 四個呼叫點共用**(甲)—— 照本檔 `:697` 那格既有的寫法。
+   *    (⛔ ~~三個~~ —— code-reviewer 數出來是 **4**:`:1099` / `:1202` / `:1261` / `:1293`;
+   *     我漏了 `:1261` 那個單次的。**數字寫錯就訂正, 不要四捨五入。**)
+   *
+   * ⚠️ **本 helper 共用的是【瀏覽器】, 而每次 `newPage()` 都在【同一個預設 BrowserContext】裡**
+   *    —— 也就是 cookie / storage / permission 是共用的。
+   *    🟢 **今天不會有事**:這些頁一律是 `file://` 的靜態 HTML, **不設任何狀態**。
+   *    🛑 **而哪天 fixture 開始設狀態(登入態 / localStorage / 權限), 一案會污染下一案** ——
+   *      那時要改成 `browser.newContext()` 每案一個。**寫在這裡, 不要等它出事才想起來。**
+   *    🛑 **關掉的責任在 `afterAll`** —— 而它必須是 `afterAll` 不是「用完就關」:
+   *      三個 `it` 都會叫 `pagesOf`, 誰是最後一個由執行順序決定, 那不是可以寫死的東西。 */
+  let __browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
+  async function sharedBrowser() {
+    if (__browser === null) __browser = await chromium.launch();
+    return __browser;
+  }
+  afterAll(async () => {
+    if (__browser !== null) {
+      await __browser.close();
+      __browser = null;
+    }
+  });
+
   /** 把一份 HTML 印成 PDF、再抽出**每一頁的字**。 */
   async function pagesOf(html: string): Promise<string[]> {
     const dir = mkdtempSync(join(tmpdir(), 'pcm-pageguard-'));
     const pdf = join(dir, 'x.pdf');
-    const browser = await chromium.launch();
+    // 🔴🔴 **甲(重用瀏覽器)**:⛔ ~~每呼叫一次就 `chromium.launch()` … `close()`~~
+    //    量到 27 次呼叫共 launch+close **2,993ms**;而**同一支檔的 `:697` 那格早就是重用的寫法**
+    //    ⇒ 📌 好的與壞的兩種寫法一直並存在同一支檔裡。
+    // 🔴🔴 **丙(等待條件)**:⛔ ~~`waitUntil: 'networkidle'`~~ ⇒ ✅ `'load'` + `document.fonts.ready`。
+    //    **理由是量到的**:`goto` 佔這支檔的 **61.9%**(14,576ms / 27 次, 中位數 539ms),
+    //    而 `networkidle` 在 `file://` 靜態頁上等的是**500ms 的網路靜默期** —— 這裡沒有網路。
+    //    🛑 **而這一族真正要等的是【字型套上】**(白頁的成因是版面, 而版面靠字型)
+    //    ⇒ `document.fonts.ready` 才是那個條件。**換掉的是等待條件, 不是量測對象。**
+    //    ⚠️ **刻意不用 `page.setContent()`** —— 它會改掉相對路徑的解析, 那是另一個變數
+    //      (主視窗 `-f8` 2026-09-06 指定)。
+    // ✅ **等價證明**:改前/改後對同一份 **27 案**各跑一發, 逐案 `pages` 數與 gs 抽出的字
+    //    **逐字比對**;表在板列 ⟦ship-PAGEMEASURESLOW⟧。
+    const page = await (await sharedBrowser()).newPage();
     try {
-      const page = await browser.newPage();
-      await page.goto(`file://${html}`, { waitUntil: 'networkidle' });
+      await page.goto(`file://${html}`, { waitUntil: 'load' });
+      // 🔵 **`page.evaluate` 對回傳的 promise 會【真的 await】** —— 那不是我推的:
+      //    code-reviewer(2026-09-06)實測過它會等內層 promise、回一個 `{}`
+      //    (`FontFaceSet` 不可序列化 ⇒ Playwright 給空物件), **不是 no-op**。
+      // ⚠️ **而「它會等」與「它等對了東西」是兩個宣稱** —— 後者沒有被獨立驗過:
+      //    我沒有構造一份「字型載很慢」的頁去看它真的擋在那裡。**已知缺口。**
+      await page.evaluate(() => document.fonts.ready);
       await page.pdf({ path: pdf, format: 'A4', printBackground: true });
     } finally {
-      await browser.close();
+      await page.close();
     }
     // 🛑 gs 不在 ⇒ execFileSync 會 throw ⇒ 本格【紅】。那是刻意的,見本區檔頭。
     execFileSync('gs', ['-sDEVICE=txtwrite', '-dNOPAUSE', '-dBATCH', '-o', join(dir, 'p%d.txt'), pdf], {
