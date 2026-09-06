@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
-    "lint": "turbo run lint && eslint 'scripts/*.ts' --max-warnings 0",
+    "lint": "turbo run lint && eslint 'scripts/*.ts' 'scripts/**/*.mjs' --max-warnings 0",
     "typecheck": "turbo run typecheck && tsc -p tsconfig.scripts.json --noEmit",
     "test": "sh scripts/vitest-ran-gate.sh run",
     "test:browser": "python3 scripts/browser-test-family.py --run",

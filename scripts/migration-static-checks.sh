@@ -565,7 +565,20 @@ defined_earlier() { # $1 type  $2 schema.name  $3 trigger-target(可空)
 }
 OR_HITS=$(grep -niE '^[[:space:]]*create[[:space:]]+or[[:space:]]+replace' "$JOINED" || true)
 if [ -n "$OR_HITS" ]; then
-  MIG_SIBLING_DIR=$(dirname "$F")
+  # 🔴🔴 **兄弟分母改成【可以明寫】**(2026-09-07;`⟦db-REGRESSGATETMPNAME⟧`)——
+  #   病:`migration-new-file-static-checks.sh` 的不退步閘把兩版存成 `$tdir/old.sql` / `new.sql`
+  #   再餵本支 ⇒ 本段用 `dirname "$F"` 當兄弟分母 ⇒ **暫存目錄裡一個兄弟都沒有**
+  #   ⇒ 每個 `CREATE OR REPLACE` 都被判成【新物件】。
+  #   🔬 實測:同一份 `20260901030000` 的內容, `old.sql` ⇒ 2 紅 / `new.sql` ⇒ 6 紅;原檔名 ⇒ 2 紅。
+  #   📌 **一支腳本把它的分母藏在【呼叫者的暫存檔名】裡** —— 那正是這個 bug 的根。
+  #   ✅ ⇒ 收 `PCM_SIBLING_DIR`(明寫兄弟目錄)。**沒給就照舊用受測檔的目錄 ⇒ 零行為改變。**
+  #   ⚠️ 給了而目錄不存在 ⇒ **exit 9 不是靜默照舊** —— 靜默照舊會讓「我以為我指定了」與
+  #     「它其實沒收到」印同一個結果, 那就是本次要修的那個形狀。
+  MIG_SIBLING_DIR="${PCM_SIBLING_DIR:-$(dirname "$F")}"
+  if [ -n "${PCM_SIBLING_DIR:-}" ] && [ ! -d "$PCM_SIBLING_DIR" ]; then
+    echo "🔴 PCM_SIBLING_DIR=$PCM_SIBLING_DIR 不是目錄 ⇒ 這不是量測結果 ⇒ exit 9" >&2
+    exit 9
+  fi
   THIS_BASE=$(basename "$F")
   for mf in "$MIG_SIBLING_DIR"/*.sql; do
     mb=$(basename "$mf")
