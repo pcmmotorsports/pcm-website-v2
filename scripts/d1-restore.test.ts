@@ -9,6 +9,7 @@ import {
   buildRehearsalSeedScript,
   buildRestoredVerifySql,
   buildRestoreScript,
+  EXPECTED_ROWS,
   readCsvHeaders,
 } from './d1-restore';
 
@@ -259,9 +260,27 @@ describe('buildRestoreScript — 兩版共通', () => {
     ['pre', pre],
     ['post', post],
   ])('%s:父表驗證的 live 側查 d1r_orders,不查此刻還是空的 public.orders', (_mode, script) => {
+    // 🔴🔴 **2026-09-06 `-ship`:選取條件收窄, 而【期望值 5 一格都沒動】。**
+    //    成因:⟦b4-RESTORE2⟧ G2 在留痕裡加了 `actual_rows`(逐表 count),
+    //    它也長成 `FROM public.customers WHERE …` ⇒ 舊選取條件把它一起撈進來 ⇒ 6 個區塊。
+    //    🛑 **而那不是這一格要看的東西** —— 它守的是【父表補齊那五個區塊】不得依賴
+    //      此刻還空的 `public.orders`;留痕跑在 COMMIT 之後, 它數 `public.orders` 是對的。
+    //    ✅ 收窄的做法 = 要求區塊裡有父表補齊**自己的那句 RAISE**
+    //      ⇒ 📌 選到的是【同一個母體】, 不是把不合的那個放掉。
+    //    🟢 突變證過:把 `FROM public.orders WHERE id IN` 塞進一個父表區塊 ⇒ 這一格仍然紅。
+    //    🛑 **收窄真正付掉的那一格(code-reviewer 2026-09-06 指出, 我留著不假裝沒有)**:
+    //      新增一張父表而**忘了帶那句 RAISE** ⇒ 它不被選中 ⇒ `toHaveLength(5)` 仍綠 ⇒ 靜默漏審。
+    //      機率低(`buildParentSql` 是唯一模板, 那句 RAISE 就長在裡面), 而**它是真的存在**。
     const parentBlocks = script
       .split('DO $$')
-      .filter((block) => /FROM public\.(customers|customer_addresses|products|product_variants|legal_terms_versions) WHERE/.test(block));
+      .filter(
+        (block) =>
+          /FROM public\.(customers|customer_addresses|products|product_variants|legal_terms_versions) WHERE/.test(
+            block,
+          ) && /D1:(customers|customer_addresses|products|product_variants|legal_terms_versions) 備份只有/.test(
+            block,
+          ),
+      );
 
     expect(parentBlocks).toHaveLength(5);
     for (const block of parentBlocks) {
@@ -649,6 +668,58 @@ describe('還原留痕(⟦災難還原四件⟧ 2026-08-29)', () => {
     // 負對照:確定真的抓到東西,不是兩個空字串相等。
     expect(grab(pre).length).toBeGreaterThan(200);
   });
+
+  // ══ ⟦b4-RESTORE2⟧ G1/G2/G3(2026-09-06 `-ship`)══════════════════════
+  // 🔴 這三格守的是**留痕的品質**, 不是留痕的有無 —— 後者 2026-08-29 `294701b60` 就做了。
+
+  it.each([
+    ['pre', pre],
+    ['post', post],
+    ['rehearsal', rehearsal],
+    ['rehearsal-post', rehearsalPost],
+  ])('%s:G1 留痕記【這次吃的是哪一包備份】, 且值由 wrapper 給不由產生器內插', (_v, script) => {
+    expect(script).toContain("'source_checksums_sha256', :'d1_src_sha'");
+    // 🔴 **形狀要與 requested_mode 同一族**:值來自 wrapper ⇒ 四版 SQL 文字裡是同一個佔位符
+    //    ⇒ 「四版逐字相同」那個不變式不破。若有人改成內插一個真的雜湊, 這一格會紅。
+    expect(script).not.toMatch(/'source_checksums_sha256',\s*'[0-9a-f]{8}/);
+  });
+
+  // 🔴 **四版都驗**(code-reviewer 2026-09-06 nit):原本只驗 pre/post
+  //    ⇒ rehearsal 那兩版的 actual_rows 沒有任何分母守門, 而演練正是它唯一跑得到的地方。
+  it.each([
+    ['pre', pre],
+    ['post', post],
+    ['rehearsal', rehearsal],
+    ['rehearsal-post', rehearsalPost],
+  ])('%s:G2 留痕記【實際】幾列, 十五張表一張都不少', (_v, script) => {
+    expect(script).toContain("'actual_rows', jsonb_build_object(");
+    // 🔴 **分母 = EXPECTED_ROWS 的 keys**(從生產碼 import), 不是我另抄一份清單
+    //    ⇒ 加一張表而忘了進留痕 ⇒ 這一格紅。
+    for (const table of Object.keys(EXPECTED_ROWS)) {
+      expect(script, `actual_rows 少了 ${table}`).toContain(
+        `'${table}', (SELECT count(*) FROM public.${table} WHERE`,
+      );
+    }
+    // 🟢 正對照:分母不是空的 —— 否則上面那個迴圈一圈都沒跑也會全綠。
+    expect(Object.keys(EXPECTED_ROWS).length).toBeGreaterThan(10);
+    // ⛔ ~~⚪ 負對照:現造的表名不該在裡面~~ ⇒ 🔴 **code-reviewer 2026-09-06:那一格恆真** ——
+    //    把整段 actual_rows 拿掉它照樣綠 ⇒ 它證不了 toContain 不恆真。**刪掉, 不留一個假對照。**
+    //    真正在做那件事的是上面那格 `length > 10`(分母不是空的)。
+    // 🟢 正對照:`expected_rows` 那一欄仍然在 —— 本片是**加一欄**, 不是換掉它。
+    expect(script).toContain("'expected_rows'");
+  });
+
+  it.each([
+    ['pre', pre],
+    ['post', post],
+    ['rehearsal', rehearsal],
+    ['rehearsal-post', rehearsalPost],
+  ])('%s:G3 留痕的 request_id 由 wrapper 給, 這樣外面才驗得到它在不在', (_v, script) => {
+    expect(script).toContain(":'d1_request_id'");
+    // 🛑 **舊做法必須真的不見** —— 留著它, 外面就永遠對不上那一筆,
+    //    而「我查不到」與「它沒寫進去」在 wrapper 那一端印同一個東西。
+    expect(script).not.toContain('gen_random_uuid()::text,');
+  });
 });
 
 describe('buildRestoreScript — 兩版差異', () => {
@@ -757,6 +828,39 @@ describe('d1-restore.sh(執行器)', () => {
     expect(sh).toContain('PGSSLMODE=verify-full');
     expect(sh).toContain('PGSSLROOTCERT="$WORK/supabase-ca.pem"');
     expect(sh).not.toMatch(/psql "\$D1_DB_URL"/);
+  });
+
+  // ══ ⟦b4-RESTORE2⟧ G1/G3 的 wrapper 那一半 ═══════════════════════════
+  it('G1:算來源 checksums.txt 的 sha256 並交給留痕', () => {
+    expect(sh).toContain('SRC_SHA="$(shasum -a 256 "$DIR/checksums.txt"');
+    expect(sh).toContain('-v d1_src_sha="$SRC_SHA"');
+    // 🔴 **算完要確認非空** —— 空字串會讓留痕記下一個看起來很正常的空欄,
+    //    而那一欄的用途正是「事後查得出是哪一包」。
+    expect(sh).toContain('test -n "$SRC_SHA"');
+  });
+
+  it('G3:request_id 先產在 wrapper, 跑完回頭查那一筆真的在', () => {
+    expect(sh).toContain('REQ_ID=');
+    expect(sh).toContain('-v d1_request_id="$REQ_ID"');
+    expect(sh).toContain("WHERE request_id = '$REQ_ID'");
+    // 🔴🔴 **兩種失敗要分開講**:查不到答案(psql 掛)與留痕不在, 是兩件事 ——
+    //    合成一句, 看到的人會去做錯的事(前者不該重跑, 後者要手動補記)。
+    expect(sh).toContain('留痕回核【查不到答案】');
+    expect(sh).toContain('留痕【不在】');
+    // 🛑 兩條路都要非零 rc —— 只印字不 exit 的話, 呼叫它的人拿到的是成功。
+    // 🔴 ⛔ ~~原本用 `sh.match(/exit 1/g)` 數整支檔~~ ⇒ **code-reviewer 2026-09-06:那格數的是
+    //    無關的東西** —— 動任何一條退出路徑都會讓它紅在一個與它要守的事無關的原因上。
+    //    ✅ 改成問【那兩句訊息各自後面有沒有跟著非零退出】。
+    for (const msg of ['留痕回核【查不到答案】', '留痕【不在】']) {
+      const i = sh.indexOf(msg);
+      expect(i, `找不到訊息:${msg}`).toBeGreaterThan(-1);
+      // 訊息之後、下一個 `fi` 之前必須有一個非零 exit。
+      const tail = sh.slice(i, sh.indexOf('\nfi', i) + 3);
+      expect(tail, `${msg} 後面沒有非零 exit`).toMatch(/exit (1|"\$PSQL_RC")/);
+    }
+    // 🔴 `set -e` 之下 `VAR=$(cmd)` 失敗會【當場結束腳本】⇒ 必須包在 `if !` 裡, rc 才進得來
+    //    (而寫在後面的 rc 檢查會看起來像「這段有防」)。
+    expect(sh).toContain('if ! AUDIT_CNT=');
   });
 });
 
