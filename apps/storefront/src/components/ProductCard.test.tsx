@@ -10,6 +10,7 @@ import type { ReactElement } from 'react';
 import { CartProvider } from '@/contexts/CartContext';
 import { ProductCard } from './ProductCard';
 import { MOCK_PRODUCTS } from '../data/mock-products';
+import { catalogRowToUIProduct } from '@/lib/catalog-page';
 
 // 2026-08-08 快速加購接線:`ProductCard` 從此吃 `useCart()`(它本來就不是純展示元件——早有
 // hover/liked state),無 provider 會 throw(`CartContext.tsx:325-327`)。
@@ -350,5 +351,49 @@ describe('前提守門 · 零變體商品【不賣】(Sean 2026-08-31 拍板)', 
     fireEvent.click(btn!);
     const after = document.body.textContent ?? '';
     expect(after, `點下去之後出現了「已加入」類回饋 ⇒ 那條路被打開了。${指回}`).not.toContain('已加入');
+  });
+});
+
+// 🔴🔴 **舊快取形狀 vs 新形狀 —— 兩種要印同一句**(2026-09-06 線 `front`,板列 ⟦search-CATALOGPAGE2MB⟧)
+//   本片把 `catalogRowToUIProduct` 改成【不帶 fitments 陣列, 只帶算好的字串】,
+//   而 `unstable_cache` 的 Data Cache **跨部署保留**且本片**不換鍵**
+//   ⇒ 部署後最長 60 秒(`CATALOG_REVALIDATE_SECONDS`)內, 兩種形狀會同時在線上。
+//   🛑 **plan §7 原本只寫「兩種都渲染得出來」而那句是【讀碼推的】** —— 這一格把它變成量到的。
+describe('🔴 舊快取形狀與新形狀印同一句(本片不換鍵的前提)', () => {
+  const row = {
+    id: 'p-cache', title: 'T', subtitle: null, handle: 'h', availability: 'in-stock',
+    price_general: 100, card_image: null, fits: 'YAMAHA MT-09', brand_name: 'B',
+    brand_slug: 'b', category_raw: 'C',
+    fitments: [
+      { motoBrand: 'YAMAHA', modelCode: 'MT-09', yearStart: 2020 },
+      { motoBrand: 'YAMAHA', modelCode: 'MT-07', yearStart: 2021 },
+    ],
+  };
+  const 適用句 = (c: HTMLElement) => c.querySelector('.pcard-fits')?.textContent ?? null;
+
+  it('舊條目(帶陣列 + 原始 fits)與新條目(無陣列 + 算好的 fits)⇒ 同一句', () => {
+    // 舊形狀 = 本片之前那個 mapper 會產出的東西(陣列在、fits 是 RPC 原始字串)
+    const 舊 = { ...product, fits: row.fits, fitments: row.fitments };
+    const { container: c舊 } = render(<ProductCard p={舊} />);
+    const 舊句 = 適用句(c舊);
+    cleanup();
+
+    // 新形狀 = 現在這個 mapper 真的產出的東西(不是我手打的字串)
+    const 新 = { ...product, ...catalogRowToUIProduct(row) };
+    const { container: c新 } = render(<ProductCard p={新} />);
+    const 新句 = 適用句(c新);
+
+    expect(舊句).toBe('適用 2 款車型');
+    expect(新句).toBe(舊句);
+  });
+
+  it('🔵 負對照:這把尺不是恆回同一句 —— 換成單一車款 ⇒ 兩邊都變, 且仍相等', () => {
+    const 單 = { ...row, fitments: [{ motoBrand: 'YAMAHA', modelCode: 'MT-09', yearStart: 2020 }] };
+    const { container: c舊 } = render(<ProductCard p={{ ...product, fits: 單.fits, fitments: 單.fitments }} />);
+    const 舊句 = 適用句(c舊);
+    cleanup();
+    const { container: c新 } = render(<ProductCard p={{ ...product, ...catalogRowToUIProduct(單) }} />);
+    expect(舊句).toBe("適用 YAMAHA MT-09 '20");
+    expect(適用句(c新)).toBe(舊句);
   });
 });

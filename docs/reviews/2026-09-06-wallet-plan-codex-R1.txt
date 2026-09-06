@@ -1,0 +1,144 @@
+# codex 審【plan】· 儲值金重送去重 v1 · gpt-6-astra / reasoning effort high · 2026-09-06
+
+結論 **FAIL** —— 18 must-fix + 2 nit。v2 已逐條折進 plan(對應編號寫在 plan 各節)。
+
+🔴 它抓到我兩個【量錯的字面】(#19 body 定義點 ≠ 沒被改過 · #20 兩個行號)—— 我逐一開檔複驗, 它對。
+🔴 而 #9 指出的第三條路(冪等鍵沿用既有 `p_request_id`)讓整個「改簽章」問題消失 ——
+   真正的先例是 `apps/admin/src/proxy.ts:28-34` + A6 `docs/specs/2026-08-02-e10-a9d2-1-note-action-plan.md` §4
+   (它引的 `note-repository.ts:102` **不存在**, 而 finding 的實質成立)。
+
+⚠️ **本輪的 MCP 面**:這一發 codex 對正式庫跑了 **3** 次 `supabase.execute_sql`, **全是 SELECT、零寫入**;
+   SQL 原文與查證方法在 `~/pcm-mailbox/account-012-codex跑SQL查證.md`。
+🔴 裁剪過 —— 原始 8909 行, 只留最後 130 行。
+
+---
+
+
+14. **must-fix — `plan:93`：順序兩次不足以驗持久性、併發與交易完整性。**  
+    換成沒有 UNIQUE 的「先查再插」壞版本，順序測試仍綠，重疊請求卻可能雙插。須補跨交易／連線同鍵競爭、第一筆交易失敗後重試，以及 ledger、餘額、累積儲值、audit 的成套斷言。
+
+15. **must-fix — `plan:96`：這一格確實是免費的綠。**  
+    拔掉 partial predicate，換普通 UNIQUE，甚至拔掉 UNIQUE，只留下欄位 → 多筆 NULL 都能成功。要證明 partial 必須驗 catalog predicate；要證明去重必須另送重複非 NULL 鍵。[NULL 唯一性規則](https://www.postgresql.org/docs/17/indexes-unique.html)
+
+16. **must-fix — `plan:98`：app 端關鍵接線沒有具體驗收。**  
+    DB 測試手填同鍵全綠，但 action 每次另產鍵／表單根本没帶鍵 → 真實重送照樣雙扣。須驗實際表單→解析器→action→RPC 的同鍵傳遞，以及未知結果重試後的畫面與帳本。
+
+17. **must-fix — `plan:97`：「新的貼完再量」可能把錯誤版本收成標準答案。**  
+    漏裝去重邏輯 → 貼完才取得新 md5 並採為預期值 → 雜湊仍綠。預期新錨須從受審、已驗證的產物預先產生；貼後只做比對。
+
+18. **nit — `plan:94`：「永遠回 DUPLICATE 也會讓第 1 格綠」不成立。**  
+    第 1 格已要求 ledger 增 1、餘額變動，永遠不寫入會紅。第 2 格舊實作也會綠，但作為「不同操作不能誤擋」的正對照仍必要；第 5、6 格也不能單獨證明去重。
+
+19. **must-fix — `plan:11`：「只有一代」混淆定義點與目前有效設定。**  
+    靜態 CREATE 定義點確實只有 1 個，但 `20260905110000:36,171` 已用動態 ALTER 修改這支。把掃描器的 1 當完整歷史 → 正好導致第 11 條錯誤還原；須限定為「body 定義點」。
+
+20. **nit — `plan:29,40`：宣稱逐字引用，座標卻不符。**  
+    ledger INSERT 實在來源 `:124`，不是 `:118`；`getRequestId()` 在 action `:42`，不是 `:45`。依目前座標讀到的是別段，應修正。
+
+打不破的方向：
+
+- **`plan:45`：現行 request ID 核心判斷打不破。**  
+  `proxy.ts:36,74` 每次產新值並覆寫 header；`context.ts:19` 讀取、action `:42` 取得、repository `:83` 傳入。重新進入此 HTTP 路徑會换鍵；同一次 action 內的下游重試則不必然換。
+
+- **`plan:80`：partial UNIQUE 的基本方向打不破。**  
+  若索引唯一欄位是穩定操作鍵，非 NULL 同鍵確實互斥，舊 NULL 列不受影響；問題是入口可漏鍵、缺少內容核對與驗收不足。
+
+- **`plan:81`：現行 AFTER INSERT trigger 不會讓被略過的重送再扣一次。**  
+  正式庫確認它是啟用中的 `FOR EACH ROW`；未插入列就不觸發該列的餘額更新，trigger 與 INSERT 也在同交易內。[Trigger 語意](https://www.postgresql.org/docs/17/trigger-definition.html)
+
+- **`plan:12` 至 `:17`：正式庫數字打不破。**  
+  已唯讀核實：6 參數、指定完整 md5、SECURITY DEFINER、空 search_path；8 欄、3 索引且僅主鍵 UNIQUE；指定 trigger；ledger／customers／audit 分別為 **3／15／3**。函式範圍 `37-148` 也正確。
+
+- **`plan:115`：單獨延後 #280 的空白集修補，打不破。**  
+  空白備註不會破壞同鍵互斥，無須為此強行併片；但 #280 還包含 ledger 直插權限，正式庫 `service_role` INSERT 確實仍開放，不能把本片宣稱成所有寫入路徑都已去重。
+
+全程未改檔；指定 8 檔前後內容雜湊一致。未執行寫入或併發測試，上述失敗路徑為計畫與程式推演。
+
+
+tokens used
+161,855
+FAIL。
+
+以下 `plan` 指 [2026-09-06-wallet-resubmit-idempotency-plan.md](/Users/sean_1/pcm-wt-account/docs/plans/2026-09-06-wallet-resubmit-idempotency-plan.md)。
+
+1. **must-fix — `plan:86`：最核心的「結果未知」路徑沒處理。**  
+   DB 已扣 500、RPC 回應遺失 → 現行 `wallet-actions.ts:69` redirect 至錯誤頁 → 表單重建取得新鍵 → 員工重送再扣 500。必須保留原操作鍵與輸入，不能只補 hidden input。
+
+2. **must-fix — `plan:56`：沒有定義 token 生命週期。**  
+   若照「渲染時產」每次執行 render 都換鍵，第一次送 K、重新渲染後送 K2 → 去重失效。須明定一般 re-render 保留、未知結果保留、明確開始新操作才換；單純 re-render 並非必然換鍵。
+
+3. **must-fix — `plan:66`：把 back-resubmit 一律等同「同一份表單」過度宣稱。**  
+   上一頁若恢復原表單或重播原 POST，可保留 K；若重新抓頁、卸載後重建，則取得 K2，再扣一次。須分開驗收這兩條，不能僅承认重新整理的限制。
+
+4. **must-fix — `plan:65`：多分頁不在已揭露的限制內。**  
+   A 頁扣款成功但沒收到結果 → 員工另開 B 頁重做同筆 → 兩頁各自產鍵，仍扣兩次；複製分頁也不能假設必定沿用鍵。須明列涵蓋邊界與未知結果的查核流程。
+
+5. **must-fix — `plan:71`：同鍵不等於同一操作內容。**  
+   K 已扣 500 → 上一頁改成扣 600、或改客戶後沿用 K → 回「已處理」但本次內容根本沒執行。須比對客戶、方向、金額、備註及明定的操作者語意；不符應回衝突。
+
+6. **must-fix — `plan:79`：nullable 與人工調整必填沒有分開。**  
+   新 RPC 收到 NULL → 不進 partial index → 同筆呼叫兩次仍扣兩次。須明定新人工調整入口拒絕缺鍵、空鍵及非法形狀，並寫清 UNIQUE 的欄位與作用範圍。
+
+7. **must-fix — `plan:113`：推薦的 wrapper 保留了原漏洞。**  
+   舊六參數呼叫兩次 → wrapper 兩次傳 NULL → 兩列都插入。若新版拒 NULL，wrapper 又全部失敗；必須決定舊入口何時停止接受寫入，不能把代價只寫成「多一支要維護」。
+
+8. **must-fix — `plan:125`：部署題的兩個選項沒有解決新舊版本交錯。**  
+   DB 先換七參數 → 舊 app 的六參數請求失敗；app 先上 → DB 尚無七參數也失敗。須補交易邊界、部署順序、舊頁面及在途請求處置；「DROP 期間必炸」不是精確的故障模型。
+
+9. **must-fix — `plan:51`：否定既有 request ID 來源，不能推導成必須加參數。**  
+   第三條路是既有 `p_request_id` 改收穩定表單鍵、另留 HTTP correlation；`note-repository.ts:102` 已有同族先例。它有稽核語意代價，但不是「已證不成立」，必須納入比較。
+
+10. **must-fix — `plan:83`：舊函式 ACL 前置檢查不能保證新函式安全。**  
+    新簽章或 DROP 後重建會產生新物件 → 原授權不會自動跟過去 → 可能重新開放預設 EXECUTE。須同交易收權、授權及驗有效權限，正向與 rollback 都要做。[PostgreSQL 說明](https://www.postgresql.org/docs/17/sql-createfunction.html)
+
+11. **must-fix — `plan:106`：指定的 rollback 會撤銷另一片安全強化。**  
+    照抄 `20260716210000:37-148` → `search_path` 回到 `public, pg_temp`；正式庫現值是空字串，來源為 `20260905110000:171`。body md5 仍相同，會假通過；還原必須保留現行設定、ACL 與 COMMENT。
+
+12. **must-fix — `plan:104`：印出「鍵會消失」不是安全還原流程。**  
+    K 已扣款 → rollback 刪鍵 → 舊 POST 重播，或重上新版後再送 K → 找不到去重證據，再扣一次。須先停止調整入口、處理在途請求並保留鍵；參考片「換回舊函式就是止血」在此不成立。
+
+13. **must-fix — `plan:82`：`ROW_COUNT=0` 只證明沒插入，不證明同筆已完成。**  
+    裸 `ON CONFLICT DO NOTHING` 也會吞其他唯一衝突；若鑽機加上回 NULL 的 BEFORE trigger，第一次操作就會假回 DUPLICATE。須指定衝突目標，且零列後查驗相符的既有紀錄。[INSERT 語意](https://www.postgresql.org/docs/current/sql-insert.html)
+
+14. **must-fix — `plan:93`：順序兩次不足以驗持久性、併發與交易完整性。**  
+    換成沒有 UNIQUE 的「先查再插」壞版本，順序測試仍綠，重疊請求卻可能雙插。須補跨交易／連線同鍵競爭、第一筆交易失敗後重試，以及 ledger、餘額、累積儲值、audit 的成套斷言。
+
+15. **must-fix — `plan:96`：這一格確實是免費的綠。**  
+    拔掉 partial predicate，換普通 UNIQUE，甚至拔掉 UNIQUE，只留下欄位 → 多筆 NULL 都能成功。要證明 partial 必須驗 catalog predicate；要證明去重必須另送重複非 NULL 鍵。[NULL 唯一性規則](https://www.postgresql.org/docs/17/indexes-unique.html)
+
+16. **must-fix — `plan:98`：app 端關鍵接線沒有具體驗收。**  
+    DB 測試手填同鍵全綠，但 action 每次另產鍵／表單根本没帶鍵 → 真實重送照樣雙扣。須驗實際表單→解析器→action→RPC 的同鍵傳遞，以及未知結果重試後的畫面與帳本。
+
+17. **must-fix — `plan:97`：「新的貼完再量」可能把錯誤版本收成標準答案。**  
+    漏裝去重邏輯 → 貼完才取得新 md5 並採為預期值 → 雜湊仍綠。預期新錨須從受審、已驗證的產物預先產生；貼後只做比對。
+
+18. **nit — `plan:94`：「永遠回 DUPLICATE 也會讓第 1 格綠」不成立。**  
+    第 1 格已要求 ledger 增 1、餘額變動，永遠不寫入會紅。第 2 格舊實作也會綠，但作為「不同操作不能誤擋」的正對照仍必要；第 5、6 格也不能單獨證明去重。
+
+19. **must-fix — `plan:11`：「只有一代」混淆定義點與目前有效設定。**  
+    靜態 CREATE 定義點確實只有 1 個，但 `20260905110000:36,171` 已用動態 ALTER 修改這支。把掃描器的 1 當完整歷史 → 正好導致第 11 條錯誤還原；須限定為「body 定義點」。
+
+20. **nit — `plan:29,40`：宣稱逐字引用，座標卻不符。**  
+    ledger INSERT 實在來源 `:124`，不是 `:118`；`getRequestId()` 在 action `:42`，不是 `:45`。依目前座標讀到的是別段，應修正。
+
+打不破的方向：
+
+- **`plan:45`：現行 request ID 核心判斷打不破。**  
+  `proxy.ts:36,74` 每次產新值並覆寫 header；`context.ts:19` 讀取、action `:42` 取得、repository `:83` 傳入。重新進入此 HTTP 路徑會换鍵；同一次 action 內的下游重試則不必然換。
+
+- **`plan:80`：partial UNIQUE 的基本方向打不破。**  
+  若索引唯一欄位是穩定操作鍵，非 NULL 同鍵確實互斥，舊 NULL 列不受影響；問題是入口可漏鍵、缺少內容核對與驗收不足。
+
+- **`plan:81`：現行 AFTER INSERT trigger 不會讓被略過的重送再扣一次。**  
+  正式庫確認它是啟用中的 `FOR EACH ROW`；未插入列就不觸發該列的餘額更新，trigger 與 INSERT 也在同交易內。[Trigger 語意](https://www.postgresql.org/docs/17/trigger-definition.html)
+
+- **`plan:12` 至 `:17`：正式庫數字打不破。**  
+  已唯讀核實：6 參數、指定完整 md5、SECURITY DEFINER、空 search_path；8 欄、3 索引且僅主鍵 UNIQUE；指定 trigger；ledger／customers／audit 分別為 **3／15／3**。函式範圍 `37-148` 也正確。
+
+- **`plan:115`：單獨延後 #280 的空白集修補，打不破。**  
+  空白備註不會破壞同鍵互斥，無須為此強行併片；但 #280 還包含 ledger 直插權限，正式庫 `service_role` INSERT 確實仍開放，不能把本片宣稱成所有寫入路徑都已去重。
+
+全程未改檔；指定 8 檔前後內容雜湊一致。未執行寫入或併發測試，上述失敗路徑為計畫與程式推演。
+
+
+rc=0

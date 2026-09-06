@@ -78,8 +78,30 @@ describe('匯款收款資訊 · 字面守門', () => {
 
 describe('remittanceDeadlineLabel —— 匯款期限那一天(Sean 2026-09-05 第 3 題拍甲)', () => {
   // 🔴🔴 **期望值一律從 cron 的算式推, 不從我寫的那行碼推。**
-  //    cron:`o.created_at < now() - interval '5 days'`(`20260904230000:451-455`)
-  //    ⇒ 到期那一天 = 下單日 + 5 天。時區用 `Asia/Taipei`(客人看的日曆日)。
+  //    ⛔ ~~cron:`o.created_at < now() - interval '5 days'`~~ **2026-09-06 起不是現況**
+  //    ✅ 現行 cron 是**台北日界**:`date_trunc('day', created_at AT TIME ZONE 'Asia/Taipei')`
+  //       `+ interval '5 days' + interval '1 day'`(`20260906600000_m4b_expire_day_boundary.sql`)
+  //    ⇒ 到期那一天(客人看的)= **下單那個台北日曆日 + 5 天**, 而它整天有效。
+  //    🔵 下面每一格的期望值在新舊兩種算法下**碰巧相同**(2026 年無 DST)——
+  //       📌 那正是為什麼「期望值沒變」不能被讀成「這段說明還是對的」(codex R2 nit)。
+  // 🔴🔴 **這一格是 codex R3 #7 逼出來的, 而它是本檔唯一一格【分得出兩種算法】的測試。**
+  //    前面每一格的下單時間都在 2026 年 ⇒ 那一年台北沒有 DST
+  //    ⇒ 📌 「絕對時間 +120 小時」與「台北日曆日 +5 天」**算出同一個答案**
+  //      ⇒ 🛑 **把程式改回舊算法, 前面每一格照樣綠。**
+  //    ✅ 台灣 1945-1961 實施過夏令時間, 1946-05-15 起 +9 ⇒ 下面這一發跨過那個轉換點:
+  //      · 下單 1946-05-10T15:30Z = 台北 **05-10 23:30**(當時 +8)⇒ 日曆日 05-10 ⇒ +5 天 = **5 月 15 日**
+  //      · 舊算法 = 絕對時間 +120h = 1946-05-15T15:30Z = 台北 05-16 00:30(已 +9)⇒ 會答 **5 月 16 日**
+  //    🔴 而 SQL 那一半算的是 `date_trunc('day', created_at AT TIME ZONE 'Asia/Taipei') + 5 days`
+  //      ⇒ **05-15**, 05-16 00:00 就取消 ⇒ 📌 舊算法會叫客人在一個**已經過期**的日子匯款。
+  it('🔴 跨 DST 轉換:日曆加法 = 5 月 15 日(舊的 +120h 算法會答 5 月 16 日)', () => {
+    expect(remittanceDeadlineLabel('1946-05-10T15:30:00Z')).toBe('5 月 15 日');
+  });
+
+  it('🔵 負對照:同一支對【沒有跨轉換點】的鄰居仍答 +5 天那一天', () => {
+    // 少了這一格, 一支「對 1946 恆回 5 月 15 日」的壞實作也會讓上面那格綠。
+    expect(remittanceDeadlineLabel('1946-05-16T15:30:00Z')).toBe('5 月 22 日');
+  });
+
   it('台北時間中午下單 ⇒ 5 天後那一天', () => {
     // 2026-09-05 12:00 台北 = 2026-09-05T04:00Z ⇒ +5 天 = 2026-09-10
     expect(remittanceDeadlineLabel('2026-09-05T04:00:00Z')).toBe('9 月 10 日');
@@ -133,5 +155,86 @@ describe('🔴 現行那一代的 interval 也要盯(不是只盯第一代)', ()
     expect(sql).not.toContain(
       `WHEN 'bank_transfer' THEN interval '${PCM_REMITTANCE_EXPIRE_DAYS + 1} days'`,
     );
+  });
+});
+
+// 🔴🔴 **2026-09-06 日界那一代 `20260906600000`(⟦b4-EXPIREDAYBOUND⟧)。**
+//    上面兩個 describe 盯的是 `20260903080000` 與 `20260904230000` **兩支舊檔** ——
+//    🛑 而日界住在**第三支**裡 ⇒ 有人把它改掉, 上面每一格照樣綠, **零訊號**。
+//    ⇒ ✅ 所以這一段不是重複, 它盯的是**別的東西**:那三個零件與 tappay 的豁免。
+const MIGRATION_DAYBOUND = path.resolve(
+  __dirname,
+  '../../../../supabase/migrations/20260906600000_m4b_expire_day_boundary.sql',
+);
+
+/**
+ * 🔴🔴 **剝掉 `--` 註解再斷言 —— codex R1 #7 打回了第一版。**
+ *   第一版直接讀整份 SQL ⇒ 📌 **把正確那一行【註解掉】、實際改用 `date_trunc('minute')`,
+ *   正向 token 仍然全部命中** ⇒ 整組假綠。
+ *   ⇒ ✅ 這一支只留「會被執行的那一半」。
+ * ⚠️ **射程(codex R2 #7 訂正第二版的宣稱)**:它剝的是 `--` 到行尾,
+ *   **不剝區塊註解**, 也**會誤剝字串常值裡的 `--`**。
+ *   ⛔ ~~第二版寫「下面第一格會證『沒有含 `--` 的字串常值』」~~ **那是假的** ——
+ *     第一格只證了「剝完沒有區塊註解」, **沒有**守住字串常值那一半。
+ *   ⇒ 🔴 **字串常值那一半, 這支測試守不到, 而它【有人守】**:
+ *     migration 自己的前置閘與事後⑨ 錨的是**原始 `prosrc` 的 md5**
+ *     (`b91dc977…` / `7e1e6764…`)—— 那把尺一個位元都不放過, 不經過任何剝法。
+ *   ⇒ 📌 所以這支測試的職責是「**檔案裡寫了什麼**」, 不是「**正式庫跑的是什麼**」。
+ */
+function sqlWithoutComments(path: string): string {
+  return readFileSync(path, 'utf8')
+    .split('\n')
+    .map((line) => line.replace(/--.*$/, ''))
+    .join('\n');
+}
+
+describe('🔴 日界那一代(20260906600000)—— Sean 2026-09-06 逐字「乙」', () => {
+  it('🔵 先證這把尺接上了:剝註解之後檔案還在, 而註解真的被剝掉了', () => {
+    const raw = readFileSync(MIGRATION_DAYBOUND, 'utf8');
+    const bare = sqlWithoutComments(MIGRATION_DAYBOUND);
+    // 正對照:碼還在(剝完不是空的)
+    expect(bare).toContain('CREATE OR REPLACE FUNCTION pcm_cron.expire_unpaid_orders');
+    // 負對照:一段只出現在註解裡的字, 剝完必須不見
+    expect(raw).toContain('Sean 2026-09-03 逐字');
+    expect(bare).not.toContain('Sean 2026-09-03 逐字');
+    // 射程前提:**剝完之後**不得再出現 `/*` —— 有的話就代表檔裡有區塊註解沒被處理到,
+    // 上面那句「只留會被執行的那一半」就不成立。
+    // 🔵 用 `bare` 不用 `raw`:`raw` 裡的 `/*` 可能只是**寫在 `--` 註解裡的一段文字**
+    //    (本檔就有:③b 那段在解釋「這套正規化不剝 `/* */`」)⇒ 對 `raw` 問會誤紅。
+    expect(bare).not.toContain('/*');
+  });
+
+  it('天數沒被日界改掉:仍逐字帶著 TS 常數那個天數', () => {
+    const sql = sqlWithoutComments(MIGRATION_DAYBOUND);
+    // 🔵 先證尺接上了:那個字面真的在(否則下一句是對空字串斷言)。
+    expect(sql).toContain("WHEN 'bank_transfer' THEN interval '");
+    expect(sql).toContain(`WHEN 'bank_transfer' THEN interval '${PCM_REMITTANCE_EXPIRE_DAYS} days'`);
+    expect(sql).toContain(`WHEN 'cash'          THEN interval '${PCM_REMITTANCE_EXPIRE_DAYS} days'`);
+  });
+
+  it('🔴 日界的三個零件都在 —— 少任一個, 那一片就等於沒做', () => {
+    const sql = sqlWithoutComments(MIGRATION_DAYBOUND);
+    // 🛑 三個要一起在:時區 / 取日界 / 隔天。只有前兩個 = 第 5 天 00:00 就取消(比舊版更嚴)。
+    expect(sql).toContain("pg_catalog.timezone('Asia/Taipei'");
+    expect(sql).toContain("pg_catalog.date_trunc('day'");
+    expect(sql).toContain("+ interval '1 day'");
+  });
+
+  it('🛑 tappay 仍走時戳比較 —— 它【沒有】被拉進日界(-f8 2026-09-06 裁甲)', () => {
+    const sql = sqlWithoutComments(MIGRATION_DAYBOUND);
+    expect(sql).toContain("WHEN 'tappay' THEN o.created_at < pg_catalog.now() - interval '1 day'");
+  });
+
+  it('🔵 負對照:換一個不等於常數的天數, 這三把尺都要找不到', () => {
+    // 少了這一格, 一把「對任何內容都命中」的尺會讓上面三格恆綠。
+    const sql = sqlWithoutComments(MIGRATION_DAYBOUND);
+    expect(sql).not.toContain(
+      `WHEN 'bank_transfer' THEN interval '${PCM_REMITTANCE_EXPIRE_DAYS + 1} days'`,
+    );
+    expect(sql).not.toContain("pg_catalog.timezone('Asia/Tokyo'");
+    // 🔴 codex R1 #7:第一版漏了 `minute` —— 而那正是它構造出來的那一發突變。
+    expect(sql).not.toContain("pg_catalog.date_trunc('hour'");
+    expect(sql).not.toContain("pg_catalog.date_trunc('minute'");
+    expect(sql).not.toContain("pg_catalog.date_trunc('week'");
   });
 });

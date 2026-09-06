@@ -24,7 +24,7 @@
 
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { fetchProductByHandle, fetchVehicleTaxonomy } from '@/lib/products';
+import { fetchProductByHandle, tryVehicleTaxonomy } from '@/lib/products';
 import { fetchRecommendedProducts } from '@/lib/recommendations/fetch-recommendations';
 import type { VehicleSelection } from '@/lib/recommendations';
 import { parseVehicleFromUrl, vehicleUrlParam } from '@/lib/vehicle-url';
@@ -100,8 +100,12 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
   //   才渲染比對(ProductFitmentCheck 無 fitments 返 null)→ 只在需要時撈。taxonomy(unstable_cache
   //   60s)兼供推薦引擎 slug 解析;garage=per-user RLS own、容錯 []、序列化收窄(鏡像 cart/products page)。
   const hasFitments = (product.fitments?.length ?? 0) > 0;
-  const [taxonomy, garage] = await Promise.all([
-    hasVehicleParam || hasFitments ? fetchVehicleTaxonomy() : Promise.resolve([]),
+  const [vehicleTax, garage] = await Promise.all([
+    // 🔴 2026-09-06(Sean 拍甲 · ⟦search-TAXONOMYTIMEOUT⟧):帶 `failed` 那扇門, 理由同首頁。
+    //   🛑 **不撈那一支時 `failed` 必須是 `false`** —— 「這一頁不需要車款樹」與「撈失敗」是兩件事。
+    hasVehicleParam || hasFitments
+      ? tryVehicleTaxonomy()
+      : Promise.resolve({ motoBrands: [], failed: false }),
     hasFitments
       ? (async () => {
           try {
@@ -126,6 +130,10 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
         })()
       : Promise.resolve([]),
   ]);
+  // 🔵 **解構在這裡, 讓下游一個字都不用改** —— 本片要的是【多一個 `failed`】,
+  //   不是改寫每一個既有的 `taxonomy` 讀取點。
+  const taxonomy = vehicleTax.motoBrands;
+  const vehicleTaxonomyFailed = vehicleTax.failed;
   const parsedVehicle = hasVehicleParam ? parseVehicleFromUrl({ get: spGet }, taxonomy) : null;
   // Case A 反查需 motoBrand + modelCode 都有;只選了品牌沒選車型 → 當作沒車(Case B 同品牌)。
   const vehicle: VehicleSelection | undefined =
@@ -170,6 +178,7 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
         relatedHasVehicle={vehicle != null}
         relatedVehicleParam={vehicleParamForHref ?? undefined}
         motoBrands={taxonomy}
+        vehicleTaxonomyFailed={vehicleTaxonomyFailed}
         garage={garage}
         // V-2h/MF-3:URL 車款不再由 route 傳 prop——ProductPage 反應式衍生(useSearchParams + motoBrands=
         //   本 taxonomy)。SSR 同繪同值(同一 parseVehicleFromUrl + MF-2 三態);同頁 URL 變更即重判。

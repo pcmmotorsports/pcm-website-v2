@@ -53,7 +53,15 @@ GATE_SRC="$(cd "$(dirname "$0")" && pwd)/deploy-order-gate.sh"
 test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;數法=腳本尾端印的 PASS=)
-EXPECT_TOTAL=75
+# 🔴 **合線時這個數字【兩邊各加各的, 一定撞】** —— 解法不是挑一個看起來對的。
+#    📌 **已經撞第二次了**(2026-09-06 兩發 merge), 而兩次的做法一樣:**先跑一發數格, 再填數字**。
+#    第一次:base `dafe35279`=75 · dev=80(+5)· 本線=103(+28)⇒ 填 108, 實跑 PASS=108 ✅
+#    第二次:上次合的點 `1ee5cf064`=80 ⇒ dev `b01b29d73`=94(**+14**)· 本線=116
+#            ⇒ 116+14 = **130**, 實跑 PASS=130 ✅
+#    🛑 **算術只是預期值** —— 下面那個數字是【跑完之後照實際 PASS 填的】,
+#      並且**逐一**確認過兩邊的格都真的在(dev 側 58 / 58b / 58c / 58d / 58e 與 A…H 那族 ·
+#      本線 欄⓪a…欄洞c)。**不是只看總數對上就算。**
+EXPECT_TOTAL=130
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -92,9 +100,22 @@ setup_repo() { # $1=repo 路徑
   # 🔴 **唯一 parser 也要進去** —— 閘 source 不到它會 fail-closed `exit 2` ⇒ 每一格都紅,
   #    而那個紅講的是「fixture 少了一支檔」不是「閘判錯」。🔵 它大聲擋住而不是靜默放行 = 正確。
   cp "$(dirname "$GATE_SRC")/lib-migration-header-marks.sh" "$R/scripts/lib-migration-header-marks.sh"
+  # 🔴🔴 **分類器與剝法也要進去** —— 2026-09-06 把修法丙抽成單一來源之後,
+  #    閘會去叫 `scripts/ledger-drift-classify.sh`。少了它, 閘會走「不降級」那條路
+  #    ⇒ `A` / `G` / `H` 三格翻紅, **而那個紅講的是「fixture 少了兩支檔」不是「閘判錯」**。
+  #    🔵 而它【大聲擋住而不是靜默放行】= 正確 —— 閘那一行逐字說「這不是『查過而乾淨』」。
+  cp "$(dirname "$GATE_SRC")/ledger-drift-classify.sh"   "$R/scripts/ledger-drift-classify.sh"
+  cp "$(dirname "$GATE_SRC")/lib-ledger-drift-strip.sh"  "$R/scripts/lib-ledger-drift-strip.sh"
   ( cd "$R" && git init -q && git config user.email t@t && git config user.name t && git config commit.gpgsign false )
+  # 🔴 兩句, 不是一句 —— codex R1 must-fix:漂移測資把註解加在 **EOF** 時,
+  #    剝完之後兩份剛好都以那一句結尾, **撞名的舊實作也會綠** ⇒ A 是假證明。
+  #    有兩句才插得進【中間】, 而中間才是真實的註解漂移長的樣子。
   cat > "$R/supabase/migrations/20260101000000_base.sql" <<'SQL'
 CREATE TABLE public.things (id uuid PRIMARY KEY);
+CREATE INDEX things_id_idx ON public.things (id);
+COMMENT ON TABLE public.things IS 'note
+-- 這一行在字串裡, 不是註解
+done';
 SQL
   cat > "$R/apps/admin/src/unrelated.ts" <<'TS'
 export const unrelated = 1;
@@ -132,6 +153,738 @@ expect_pass() { # $1=名 $2=結果
   local rc="${2%%|*}" out="${2#*|}"
   [ "$rc" = "0" ] && ok "$1 → 放行" || bad "$1 → 期望放行實際 rc=$rc:$(printf '%s' "$out" | grep -E '·|🔴' | head -1)"
 }
+
+# ══ 🟡 欄位那一族 2026-09-06 起【只警告不擋】(主視窗 -f8 裁 C)⇒ oracle 換兩個 ══
+# 🔴 **為什麼不能繼續用 expect_pass** —— 降級之後「命中」與「沒命中」的 rc **都是 0**
+#    ⇒ 📌 舊的 expect_pass 對這一族**零判別力**, 它會在整族壞掉時照樣全綠。
+#    ⇒ ✅ 改成看【那句警告印了沒】:印了 = expect_warn · 沒印 = expect_nowarn。
+expect_warn() { # $1=名 $2=結果 $3=應出現的字面
+  local rc="${2%%|*}" out="${2#*|}"
+  if [ "$rc" != "0" ]; then bad "$1 → 期望【放行但出聲】(rc=0)實際 rc=$rc:$(printf '%s' "$out" | head -2 | tr '\n' ' ')"; return; fi
+  if printf '%s' "$out" | grep -qF "$3"; then ok "$1 → 放行而有警告點名 [$3]"; else
+    bad "$1 → rc=0 而【沒有】印出警告 [$3] ⇒ 這一族靜音了:$(printf '%s' "$out" | grep -E 'gate:' | head -1)"; fi
+}
+expect_nowarn() { # $1=名 $2=結果
+  local rc="${2%%|*}" out="${2#*|}"
+  if [ "$rc" != "0" ]; then bad "$1 → 期望放行實際 rc=$rc:$(printf '%s' "$out" | grep -E '·|🔴' | head -1)"; return; fi
+  if printf '%s' "$out" | grep -qF '· 新欄 ['; then
+    bad "$1 → rc=0 而【印了】欄位警告 ⇒ 誤報:$(printf '%s' "$out" | grep -F '· 新欄 [' | head -1)"
+  else ok "$1 → 放行且零欄位警告"; fi
+}
+
+echo "── 欄位那一族(2026-09-06 Sean Q-閘看欄=甲)───────────────"
+
+# 🔴 四格的分工:①要擋 ②③要放行(而 ② 就是「只比欄名」那個病的證人)④零 pending
+#    📏 **那把尺的量級用【現值】**(2026-09-06 用實作那把尺重量, 分母 1,277 支候選 app 檔):
+#      尺一 **1,116 檔次**(逐 94 組)⇒ 尺二 **405**。⛔ ~~舊字面 3254 / 59 欄~~ 不能引用 ——
+#      它沒排除 test/產生型別檔, 不是閘在跑的那把尺(理由與兩組廢棄字面見 deploy-order-gate.sh 檔頭)。
+add_pending_col() { # $1=repo  加一支 pending 的 ADD COLUMN
+  cat > "$1/supabase/migrations/20260103000000_addcol.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN IF NOT EXISTS pcm_probe_col text;
+SQL
+}
+
+RC1="$WORK/rc1"; setup_repo "$RC1"; add_pending_col "$RC1"
+cat > "$RC1/apps/admin/src/reader.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_probe_col');
+}
+TS
+( cd "$RC1" && git add -A && git commit -qm "feat: 加欄 migration + 讀那一欄" )
+B1="$(cd "$RC1" && git rev-parse HEAD~1)"; T1="$(cd "$RC1" && git rev-parse HEAD)"
+expect_warn "欄⓪a:未 apply 的加欄 + 同一支檔同時提到表名與欄名" \
+  "$(run_gate "$RC1" "refs/heads/dev $T1 refs/heads/dev $B1")" "things.pcm_probe_col"
+
+# 🔴🔴 ⑬ 是本族最重要的一格 —— **它就是「只比欄名」那把尺會誤擋的形狀**
+#    ⛔ ~~實測那把尺:全史 59 個欄名命中 3254 檔次(`x` 一個字 1717 支檔)~~ —— **那組不能引用**。
+#    📏 **現值(2026-09-06 用實作那把尺重量)**:87 個去重欄名 / 94 組, 尺一 **1,116 檔次**,
+#      單欄 top `email` 153 · `kind` 143 · `actor` 89。
+#    這一格的檔【只有欄名、沒有表名】⇒ 尺二必須放行。
+RC2="$WORK/rc2"; setup_repo "$RC2"; add_pending_col "$RC2"
+cat > "$RC2/apps/admin/src/unrelated2.ts" <<'TS'
+export const label = 'pcm_probe_col';
+TS
+( cd "$RC2" && git add -A && git commit -qm "feat: 加欄 migration + 只提到欄名的無關檔" )
+B2="$(cd "$RC2" && git rev-parse HEAD~1)"; T2="$(cd "$RC2" && git rev-parse HEAD)"
+expect_nowarn "欄⓪b:同一支檔【只有欄名沒有表名】⇒ 不擋(尺一 1,116 檔次那個病的證人)" \
+  "$(run_gate "$RC2" "refs/heads/dev $T2 refs/heads/dev $B2")"
+
+# ⑭ 那一欄在【已 apply 的】migration 裡就出現過 ⇒ 不是這次新加的 ⇒ 放行
+#    📌 少了這一格, 一支冪等重貼的 `ADD COLUMN IF NOT EXISTS` 會擋住整條線。
+RC3="$WORK/rc3"; setup_repo "$RC3"
+cat > "$RC3/supabase/migrations/20260101000001_oldcol.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN IF NOT EXISTS pcm_probe_col text;
+SQL
+_osha="$(shasum -a 256 "$RC3/supabase/migrations/20260101000001_oldcol.sql" | cut -d' ' -f1)"
+printf '20260101000001\t%s\t2026-01-01\tfixture\n' "$_osha" >> "$RC3/supabase/APPLIED.tsv"
+( cd "$RC3" && git add -A && git commit -qm "base: 舊的加欄已進帳" )
+add_pending_col "$RC3"
+cat > "$RC3/apps/admin/src/reader3.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_probe_col');
+}
+TS
+( cd "$RC3" && git add -A && git commit -qm "feat: 重貼同一支加欄 + 讀那一欄" )
+B3="$(cd "$RC3" && git rev-parse HEAD~1)"; T3="$(cd "$RC3" && git rev-parse HEAD)"
+expect_nowarn "欄⓪c:那一欄在已 apply 的 migration 出現過 ⇒ 不算新加, 放行" \
+  "$(run_gate "$RC3" "refs/heads/dev $T3 refs/heads/dev $B3")"
+
+# ⑮ pending 有 migration 而【一句 ADD COLUMN 都沒有】⇒ 欄位這一族不得叫
+#    ⛔ ~~而這一格今天就是真實世界:PENDING 11 支, ADD COLUMN 0 支~~ —— **那句是錯的**(codex R1)。
+#    ⛔ ~~所以「上線第一天靜音」不成立~~ —— 🔴 **那句訂正【過頭了】**(codex R2 MF7)。
+#      📌 「有一支 pending 帶新欄」**推不出**「會出聲」:還要有一支 app 檔同時提到表名與欄名。
+#      ⇒ 正確的話是:**那要看那一批推的東西裡有沒有那種檔。**
+#
+#    🔬 **實測(2026-09-06 · 樹 `~/pcm-wt-auth` · `HEAD 1c3c747c3` vs `origin/dev 1ee5cf064`
+#       · 閘自己跑 `DOG_DEBUG=1` 的輸出, 不是我重寫一把尺)**:
+#         PENDING = **20 支**(判準 = 版本在帳上**且 sha 相符**才算 applied)
+#         抽到的新欄 = **1 組**:`order_refunds.rec_trade_id`(來自 `20260801120000`)
+#         那一發的 `apps/`+`packages/` 差異檔 = **32 支**
+#         而 blocked = **0**
+#    🔬 **為什麼是 0 —— 帶正負對照, 免得讀成「欄位那一族沒生效」**:
+#         那 32 支裡同時提到 `order_refunds` 與 `rec_trade_id` 的 = **0 支**
+#         🔵 **正對照**:全樹候選 app 檔裡同時提到那兩個字的 = **10 支**
+#            (`apps/admin/src/lib/payment/refund-read.ts` 等)⇒ **尺接得上, 只是這一批沒動到它們**
+#         🔵 **負對照**:現造的 `pcm_zzq_neverwritten_col_0906` 全樹 = **0 支**
+#    ⇒ 🎯 **結論**:今天這一發**確實靜音**, 而**不是**因為欄位那一族沒生效 ——
+#      哪一天有人動到那 10 支的其中一支, 它就會出聲。
+RC4="$WORK/rc4"; setup_repo "$RC4"; add_pending_migration "$RC4"
+cat > "$RC4/apps/admin/src/reader4.ts" <<'TS'
+export const things = 'things';
+export const pcm_probe_col = 1;
+TS
+( cd "$RC4" && git add -A && git commit -qm "feat: pending 是純函式 + 檔裡剛好有那兩個字" )
+B4="$(cd "$RC4" && git rev-parse HEAD~1)"; T4="$(cd "$RC4" && git rev-parse HEAD)"
+expect_nowarn "欄⓪d:pending 裡零 ADD COLUMN ⇒ 欄位這一族不得叫(今天真實世界就是這一格)" \
+  "$(run_gate "$RC4" "refs/heads/dev $T4 refs/heads/dev $B4")"
+
+
+# ══ 欄位那一族 · codex R1 補的四格反例 ═════════════════════════════════════
+
+# 🔴🔴 欄① 是 MF3 的證人:**既有的表名行【不動】, 這一發只新增欄名**
+#    舊版兩個字面都只查【新增行】⇒ 兩者不同行 ⇒ 放行 ⇒ 那正是 view 那條路撤回過的形狀。
+RC5="$WORK/rc5"; setup_repo "$RC5"
+cat > "$RC5/apps/admin/src/reader5.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id');
+}
+TS
+( cd "$RC5" && git add -A && git commit -qm "base: 既有的 from(things)" )
+add_pending_col "$RC5"
+cat > "$RC5/apps/admin/src/reader5.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id');
+}
+export const extra = 'pcm_probe_col';
+TS
+( cd "$RC5" && git add -A && git commit -qm "feat: 加欄 migration + 只新增欄名那一行" )
+B5="$(cd "$RC5" && git rev-parse HEAD~1)"; T5="$(cd "$RC5" && git rev-parse HEAD)"
+expect_warn "欄①:既有表名行不動、只新增欄名 ⇒ 仍要擋(MF3;表名看整支檔)" \
+  "$(run_gate "$RC5" "refs/heads/dev $T5 refs/heads/dev $B5")" "things.pcm_probe_col"
+
+# 🔴 欄② 是 MF4/MF5 的證人:**已 apply 的檔被改過(sha 不符)而加了新欄**
+#    舊版豁免只比版本號、欄位從當前 sha 抽 ⇒ 它會先被判 pending, 再用同一份新內容把自己豁免掉。
+RC6="$WORK/rc6"; setup_repo "$RC6"
+cat > "$RC6/supabase/migrations/20260101000002_will_drift.sql" <<'SQL'
+CREATE TABLE public.drifty (id uuid PRIMARY KEY);
+SQL
+_dsha="$(shasum -a 256 "$RC6/supabase/migrations/20260101000002_will_drift.sql" | cut -d' ' -f1)"
+printf '20260101000002\t%s\t2026-01-01\tfixture\n' "$_dsha" >> "$RC6/supabase/APPLIED.tsv"
+( cd "$RC6" && git add -A && git commit -qm "base: 一支已進帳的 migration" )
+# 改它(帳上 sha 從此不符)並加一欄
+cat > "$RC6/supabase/migrations/20260101000002_will_drift.sql" <<'SQL'
+CREATE TABLE public.drifty (id uuid PRIMARY KEY);
+ALTER TABLE public.things ADD COLUMN pcm_drift_col text;
+SQL
+cat > "$RC6/apps/admin/src/reader6.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_drift_col');
+}
+TS
+( cd "$RC6" && git add -A && git commit -qm "feat: 改了一支已進帳的 migration 加欄 + 讀那一欄" )
+B6="$(cd "$RC6" && git rev-parse HEAD~1)"; T6="$(cd "$RC6" && git rev-parse HEAD)"
+expect_warn "欄②:被改過的已 apply 檔(sha 不符)加欄 ⇒ 不得自己豁免自己" \
+  "$(run_gate "$RC6" "refs/heads/dev $T6 refs/heads/dev $B6")" "things.pcm_drift_col"
+
+# 🔴 欄③ 是 MF1 的證人:**一句 ALTER 加兩欄, 第二欄也要抽得到**
+RC7="$WORK/rc7"; setup_repo "$RC7"
+cat > "$RC7/supabase/migrations/20260104000000_twocol.sql" <<'SQL'
+ALTER TABLE ONLY "public"."things" ADD COLUMN pcm_first_col text, ADD COLUMN IF NOT EXISTS pcm_second_col int;
+SQL
+cat > "$RC7/apps/admin/src/reader7.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_second_col');
+}
+TS
+( cd "$RC7" && git add -A && git commit -qm "feat: 一句 ALTER 加兩欄 + 只讀第二欄" )
+B7="$(cd "$RC7" && git rev-parse HEAD~1)"; T7="$(cd "$RC7" && git rev-parse HEAD)"
+expect_warn "欄③:一句 ALTER 加兩欄(帶 ONLY 與 schema 引號)⇒ 第二欄也要擋" \
+  "$(run_gate "$RC7" "refs/heads/dev $T7 refs/heads/dev $B7")" "things.pcm_second_col"
+
+# ⚠️ 欄④ 是【已知漏擋】的活證據 —— 它期望【放行】, 而那不是「正確」, 是「今天擋不到」。
+#    表名與欄名分在兩支檔 ⇒ 尺二(同檔共現)看不到。
+#    📌 寫成一格是為了讓它【被看見】; 哪天有人修好了, 這一格會紅, 那時把它改成 expect_block。
+RC8="$WORK/rc8"; setup_repo "$RC8"; add_pending_col "$RC8"
+cat > "$RC8/apps/admin/src/tbl8.ts" <<'TS'
+export const TABLE = 'things';
+TS
+cat > "$RC8/apps/admin/src/reader8.ts" <<'TS'
+import { TABLE } from './tbl8';
+export async function readIt(sb: any) {
+  return sb.from(TABLE).select('id, pcm_probe_col');
+}
+TS
+( cd "$RC8" && git add -A && git commit -qm "feat: 表名與欄名分在兩支檔" )
+B8="$(cd "$RC8" && git rev-parse HEAD~1)"; T8="$(cd "$RC8" && git rev-parse HEAD)"
+expect_nowarn "欄④:表名與欄名【分在兩支檔】⇒ 今天放行(**已知漏擋**, 不是正確行為)" \
+  "$(run_gate "$RC8" "refs/heads/dev $T8 refs/heads/dev $B8")"
+
+# ══ 欄位那一族 · codex R2 補的七格反例(2026-09-06)══════════════════════════
+
+# 🔴🔴 欄⑤ 是 R2 MF1 的證人:**反向接線** —— 欄名常數早就在檔裡, 這一發才新增表名那一行。
+#    R1 的修法只補了一個方向(欄名看新增行、表名看整支檔)⇒ 這個形狀照樣放行,
+#    而它**真的**開始依賴一支 pending 的新欄。
+RC9="$WORK/rc9"; setup_repo "$RC9"
+cat > "$RC9/apps/admin/src/reader9.ts" <<'TS'
+export const COLS = 'id, pcm_probe_col';
+TS
+( cd "$RC9" && git add -A && git commit -qm "base: 欄名常數早就在這支檔裡" )
+add_pending_col "$RC9"
+cat > "$RC9/apps/admin/src/reader9.ts" <<'TS'
+export const COLS = 'id, pcm_probe_col';
+export async function readIt(sb: any) {
+  return sb.from('things').select(COLS);
+}
+TS
+( cd "$RC9" && git add -A && git commit -qm "feat: 加欄 migration + 這一發才新增 from(things)" )
+B9="$(cd "$RC9" && git rev-parse HEAD~1)"; T9="$(cd "$RC9" && git rev-parse HEAD)"
+expect_warn "欄⑤:欄名早就在、這一發只新增表名 ⇒ 仍要擋(R2 MF1 反向接線)" \
+  "$(run_gate "$RC9" "refs/heads/dev $T9 refs/heads/dev $B9")" "things.pcm_probe_col"
+
+# 🔴 欄⑥ 是 R2 MF2 的證人:PostgreSQL 的順序是 `ALTER TABLE [IF EXISTS] [ONLY] name`,
+#    舊 regex 寫反 ⇒ 表名被抽成 `only` ⇒ 那一組永遠對不上任何 app 檔 ⇒ **靜默漏擋**。
+RCA="$WORK/rca"; setup_repo "$RCA"
+cat > "$RCA/supabase/migrations/20260105000000_ifexists.sql" <<'SQL'
+ALTER TABLE IF EXISTS ONLY public.things ADD COLUMN pcm_ifex_col text;
+SQL
+cat > "$RCA/apps/admin/src/readerA.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_ifex_col');
+}
+TS
+( cd "$RCA" && git add -A && git commit -qm "feat: IF EXISTS ONLY 形狀的加欄 + 讀那一欄" )
+BA="$(cd "$RCA" && git rev-parse HEAD~1)"; TA="$(cd "$RCA" && git rev-parse HEAD)"
+expect_warn "欄⑥:ALTER TABLE IF EXISTS ONLY ⇒ 表名不得被抽成 only(R2 MF2)" \
+  "$(run_gate "$RCA" "refs/heads/dev $TA refs/heads/dev $BA")" "things.pcm_ifex_col"
+
+# 🔴🔴 欄⑦ 是 R2 MF3 的證人:已 apply 的檔裡有一段**沒被執行**的字串 DDL
+#    ⇒ 舊版把它抽進 `APPLIED_COLS` ⇒ **把後來真正 pending 的同一欄豁免掉**。
+RCB="$WORK/rcb"; setup_repo "$RCB"
+cat > "$RCB/supabase/migrations/20260101000003_ghost.sql" <<'SQL'
+CREATE TABLE public.audit_log (stmt text);
+INSERT INTO public.audit_log (stmt) VALUES ('ALTER TABLE things ADD COLUMN pcm_ghost_col text');
+SQL
+_bsha="$(shasum -a 256 "$RCB/supabase/migrations/20260101000003_ghost.sql" | cut -d' ' -f1)"
+printf '20260101000003\t%s\t2026-01-01\tfixture\n' "$_bsha" >> "$RCB/supabase/APPLIED.tsv"
+( cd "$RCB" && git add -A && git commit -qm "base: 已 apply 的檔裡有一段字串 DDL(沒被執行)" )
+cat > "$RCB/supabase/migrations/20260106000000_realghost.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN pcm_ghost_col text;
+SQL
+cat > "$RCB/apps/admin/src/readerB.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_ghost_col');
+}
+TS
+( cd "$RCB" && git add -A && git commit -qm "feat: 真的加那一欄 + 讀它" )
+BB="$(cd "$RCB" && git rev-parse HEAD~1)"; TB="$(cd "$RCB" && git rev-parse HEAD)"
+expect_warn "欄⑦:已 apply 檔裡沒被執行的字串 DDL 不得當豁免來源(R2 MF3)" \
+  "$(run_gate "$RCB" "refs/heads/dev $TB refs/heads/dev $BB")" "things.pcm_ghost_col"
+
+# 🔴🔴 欄⑧ 是 R2 MF4 的證人:**抽取器自己死掉**不得靜默變成「零新欄」。
+#    做法 = 把 `python3` 換成一支必定 exit 9 的假的 ⇒ 閘要 fail-closed 並【說出來】。
+#    📌 兩個世界會印不同的東西:壞掉 ⇒ 「欄位抽取器失敗」+ rc=1;好的 ⇒ 這一格照常被擋。
+RCC="$WORK/rcc"; setup_repo "$RCC"; add_pending_col "$RCC"
+cat > "$RCC/apps/admin/src/readerC.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_probe_col');
+}
+TS
+( cd "$RCC" && git add -A && git commit -qm "feat: 加欄 + 讀它" )
+BC="$(cd "$RCC" && git rev-parse HEAD~1)"; TC="$(cd "$RCC" && git rev-parse HEAD)"
+mkdir -p "$WORK/fakebin"
+printf '%s\n' '#!/bin/sh' 'exit 9' > "$WORK/fakebin/python3"
+chmod +x "$WORK/fakebin/python3"
+_pf_out="$(cd "$RCC" && printf '%s\n' "refs/heads/dev $TC refs/heads/dev $BC" \
+           | PATH="$WORK/fakebin:$PATH" bash scripts/deploy-order-gate.sh 2>&1)"; _pf_rc=$?
+if [ "$_pf_rc" = "1" ] && printf '%s' "$_pf_out" | grep -qF '欄位抽取器失敗'; then
+  ok "欄⑧:抽取器 exit≠0 ⇒ fail-closed 並說出來(R2 MF4)"
+else
+  bad "欄⑧:抽取器死掉被靜默吞成零新欄 ⇒ rc=$_pf_rc:$(printf '%s' "$_pf_out" | head -2 | tr '\n' ' ')"
+fi
+# 🔴 **正對照(同一把尺、好的世界)** —— 沒有這一發, 上面那格在「閘因為別的原因紅了」時也會綠。
+expect_warn "欄⑧b 正對照:同一份 fixture 用真的 python3 ⇒ 照常被擋(證明尺接上了)" \
+  "$(run_gate "$RCC" "refs/heads/dev $TC refs/heads/dev $BC")" "things.pcm_probe_col"
+
+# 🔴 欄⑨ 是 nit「quoted identifier 大小寫被抹平」的證人:
+#    PostgreSQL 裡 `"CamelCase"` 與 camelcase 是**兩個不同的欄** ⇒ 小寫那支不得豁免引號那支。
+RCD="$WORK/rcd"; setup_repo "$RCD"
+cat > "$RCD/supabase/migrations/20260101000004_lower.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN camelcase text;
+SQL
+_dlsha="$(shasum -a 256 "$RCD/supabase/migrations/20260101000004_lower.sql" | cut -d' ' -f1)"
+printf '20260101000004\t%s\t2026-01-01\tfixture\n' "$_dlsha" >> "$RCD/supabase/APPLIED.tsv"
+( cd "$RCD" && git add -A && git commit -qm "base: 已 apply 的小寫欄" )
+cat > "$RCD/supabase/migrations/20260107000000_camel.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN "CamelCase" text;
+SQL
+cat > "$RCD/apps/admin/src/readerD.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, CamelCase');
+}
+TS
+( cd "$RCD" && git add -A && git commit -qm "feat: 加引號大寫欄 + 讀它" )
+BD="$(cd "$RCD" && git rev-parse HEAD~1)"; TD="$(cd "$RCD" && git rev-parse HEAD)"
+expect_warn "欄⑨:引號識別字 \"CamelCase\" 不得被小寫的 camelcase 豁免(nit)" \
+  "$(run_gate "$RCD" "refs/heads/dev $TD refs/heads/dev $BD")" "things.CamelCase"
+
+# 🔴 欄⑩ 是 nit「版本檔搜尋沒限定 _*.sql」的證人:同版本號旁邊有一支 `.md`, 它排在前面
+#    ⇒ 舊版 `head -1` 拿到 `.md` 去算 sha ⇒ 永遠對不上帳 ⇒ 那一支**靜默失去豁免資格** ⇒ 誤擋。
+RCE="$WORK/rce"; setup_repo "$RCE"
+printf '%s\n' '# 這一支是同版本號旁邊的說明檔, 不是 migration' > "$RCE/supabase/migrations/20260101000005_aaa.md"
+cat > "$RCE/supabase/migrations/20260101000005_addcol.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN pcm_glob_col text;
+SQL
+_esha="$(shasum -a 256 "$RCE/supabase/migrations/20260101000005_addcol.sql" | cut -d' ' -f1)"
+printf '20260101000005\t%s\t2026-01-01\tfixture\n' "$_esha" >> "$RCE/supabase/APPLIED.tsv"
+( cd "$RCE" && git add -A && git commit -qm "base: 已 apply 的加欄 + 同版本號的 .md" )
+cat > "$RCE/supabase/migrations/20260108000000_recol.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN IF NOT EXISTS pcm_glob_col text;
+SQL
+cat > "$RCE/apps/admin/src/readerE.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_glob_col');
+}
+TS
+( cd "$RCE" && git add -A && git commit -qm "feat: 冪等重貼同一欄 + 讀它" )
+BE="$(cd "$RCE" && git rev-parse HEAD~1)"; TE="$(cd "$RCE" && git rev-parse HEAD)"
+expect_nowarn "欄⑩:同版本號旁邊的 .md 不得被當成那一支 migration(nit)" \
+  "$(run_gate "$RCE" "refs/heads/dev $TE refs/heads/dev $BE")"
+
+# 🔴 欄⑪ 是 nit「整檔 git show 失敗被 || true 吞掉」的證人 ——
+#    改成 fail-closed 之後, **這一發刪掉一支 app 檔**不可以被當成失敗(它不可能依賴任何新欄)。
+RCF="$WORK/rcf"; setup_repo "$RCF"
+cat > "$RCF/apps/admin/src/goneF.ts" <<'TS'
+export const gone = 1;
+TS
+( cd "$RCF" && git add -A && git commit -qm "base: 一支等一下會被刪的 app 檔" )
+add_pending_col "$RCF"
+rm "$RCF/apps/admin/src/goneF.ts"
+( cd "$RCF" && git add -A && git commit -qm "feat: 加欄 migration + 刪掉一支 app 檔" )
+BF="$(cd "$RCF" && git rev-parse HEAD~1)"; TF="$(cd "$RCF" && git rev-parse HEAD)"
+expect_nowarn "欄⑪:這一發刪掉的 app 檔 ⇒ 讀不到整檔不是失敗, 不得 fail-closed(nit)" \
+  "$(run_gate "$RCF" "refs/heads/dev $TF refs/heads/dev $BF")"
+
+# ══ 欄位那一族 · codex R3 補的六格反例(2026-09-06;R3 換角度換模型 gpt-5.6-sol)══════
+
+# 🔴🔴 欄⑫ 是 R3 A1 的證人:**兩個常數早就在檔裡, 這一發只新增【接線】那一行。**
+#    R2 MF1 的修法(至少一個名稱要出現在新增行裡)對這個形狀是瞎的 —— 新增行裡
+#    只有 `TABLE` 與 `COLS` 這兩個【識別字】, 一個實際名稱都沒有 ⇒ 舊修法放行。
+RCG="$WORK/rcg"; setup_repo "$RCG"
+cat > "$RCG/apps/admin/src/readerG.ts" <<'TS'
+const TABLE = 'things';
+const COLS = 'id, pcm_probe_col';
+export { TABLE, COLS };
+TS
+( cd "$RCG" && git add -A && git commit -qm "base: 兩個常數都早就在, 而還沒接線" )
+add_pending_col "$RCG"
+cat > "$RCG/apps/admin/src/readerG.ts" <<'TS'
+const TABLE = 'things';
+const COLS = 'id, pcm_probe_col';
+export { TABLE, COLS };
+export async function readIt(sb: any) {
+  return sb.from(TABLE).select(COLS);
+}
+TS
+( cd "$RCG" && git add -A && git commit -qm "feat: 加欄 migration + 這一發才把兩個常數接起來" )
+BG="$(cd "$RCG" && git rev-parse HEAD~1)"; TG="$(cd "$RCG" && git rev-parse HEAD)"
+expect_warn "欄⑫:常數早就在、這一發只新增接線那一行 ⇒ 仍要擋(R3 A1)" \
+  "$(run_gate "$RCG" "refs/heads/dev $TG refs/heads/dev $BG")" "things.pcm_probe_col"
+
+# 🔴🔴 欄⑬ 是 R3 A2 的證人:已 apply 的檔裡有一個 **E 開頭、內含反斜線跳脫**的字串字面。
+#    天真的字串剝除會在那個跳脫處提早收尾 ⇒ **把後面那段假 DDL 暴露出來** ⇒ strict 模式
+#    反而【多抽】一組 ⇒ 真正 pending 的同名欄被豁免。⇒ 這一格要求它照樣被擋。
+RCH="$WORK/rch"; setup_repo "$RCH"
+cat > "$RCH/supabase/migrations/20260101000006_estr.sql" <<'SQL'
+CREATE TABLE public.audit_log2 (stmt text);
+INSERT INTO public.audit_log2(stmt) VALUES (E'prefix \' ALTER TABLE things ADD COLUMN pcm_estr_col text; suffix');
+SQL
+_hsha="$(shasum -a 256 "$RCH/supabase/migrations/20260101000006_estr.sql" | cut -d' ' -f1)"
+printf '20260101000006\t%s\t2026-01-01\tfixture\n' "$_hsha" >> "$RCH/supabase/APPLIED.tsv"
+( cd "$RCH" && git add -A && git commit -qm "base: 已 apply 的檔裡有 E 開頭帶跳脫的假 DDL" )
+cat > "$RCH/supabase/migrations/20260109000000_realestr.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN pcm_estr_col text;
+SQL
+cat > "$RCH/apps/admin/src/readerH.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_estr_col');
+}
+TS
+( cd "$RCH" && git add -A && git commit -qm "feat: 真的加那一欄 + 讀它" )
+BH="$(cd "$RCH" && git rev-parse HEAD~1)"; TH="$(cd "$RCH" && git rev-parse HEAD)"
+expect_warn "欄⑬:E 開頭帶跳脫的字串不得反向暴露假 DDL 去豁免真欄(R3 A2)" \
+  "$(run_gate "$RCH" "refs/heads/dev $TH refs/heads/dev $BH")" "things.pcm_estr_col"
+
+# 🔴🔴 欄⑭ 是 R3 C1 的證人:**引號識別字含 regex metachar**。
+#    抽取端修好抽得到 `Order-Items` / `gross-margin`, 而比對端用字元白名單把它整組丟掉
+#    ⇒ 「修了抽取、比對端全部跳過」—— 而兩個世界的綠長得一樣。
+RCI="$WORK/rci"; setup_repo "$RCI"
+cat > "$RCI/supabase/migrations/20260110000000_dash.sql" <<'SQL'
+ALTER TABLE public."Order-Items" ADD COLUMN "gross-margin" numeric;
+SQL
+cat > "$RCI/apps/admin/src/readerI.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('Order-Items').select('id, gross-margin');
+}
+TS
+( cd "$RCI" && git add -A && git commit -qm "feat: 引號識別字含連字號的加欄 + 讀它" )
+BI="$(cd "$RCI" && git rev-parse HEAD~1)"; TI="$(cd "$RCI" && git rev-parse HEAD)"
+expect_warn "欄⑭:引號識別字含連字號 ⇒ 要逃逸再比, 不得整組跳過(R3 C1)" \
+  "$(run_gate "$RCI" "refs/heads/dev $TI refs/heads/dev $BI")" "Order-Items.gross-margin"
+
+# 🔴 欄⑧c 是 R3 D1 的證人:欄⑧ 只驗到【pending 側】第一次 python3 失敗就退出,
+#    **豁免側(APPLIED_COLS)那條路一格都沒測到**。這裡用一支【第 N 次才失敗】的 stub 補上。
+#    📌 呼叫序:pending 側 1 支 migration ⇒ 第 1 次;豁免側帳本 1 列 ⇒ 第 2 次。
+RCJ="$WORK/rcj"; setup_repo "$RCJ"; add_pending_col "$RCJ"
+cat > "$RCJ/apps/admin/src/readerJ.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_probe_col');
+}
+TS
+( cd "$RCJ" && git add -A && git commit -qm "feat: 加欄 + 讀它" )
+BJ="$(cd "$RCJ" && git rev-parse HEAD~1)"; TJ="$(cd "$RCJ" && git rev-parse HEAD)"
+mkdir -p "$WORK/fakebin2"
+_REAL_PY="$(command -v python3)"
+{
+  printf '%s\n' '#!/bin/sh'
+  printf '%s\n' 'C=$(cat "$PCM_PYCNT" 2>/dev/null || echo 0)'
+  printf '%s\n' 'C=$((C+1)); printf "%s" "$C" > "$PCM_PYCNT"'
+  printf '%s\n' '[ "$C" -ge 2 ] && exit 9'
+  printf 'exec %s "$@"\n' "$_REAL_PY"
+} > "$WORK/fakebin2/python3"
+chmod +x "$WORK/fakebin2/python3"
+: > "$WORK/pycnt"
+_ap_out="$(cd "$RCJ" && printf '%s\n' "refs/heads/dev $TJ refs/heads/dev $BJ" \
+           | PCM_PYCNT="$WORK/pycnt" PATH="$WORK/fakebin2:$PATH" bash scripts/deploy-order-gate.sh 2>&1)"; _ap_rc=$?
+if [ "$_ap_rc" = "1" ] && printf '%s' "$_ap_out" | grep -qF '豁免來源'; then
+  ok "欄⑧c:豁免側抽取器失敗 ⇒ fail-closed 並說是【豁免來源】那一半(R3 D1)"
+else
+  bad "欄⑧c:豁免側抽取器失敗沒有被抓到 ⇒ rc=$_ap_rc:$(printf '%s' "$_ap_out" | head -2 | tr '\n' ' ')"
+fi
+
+# 🔴 欄⑩b / 欄⑪b 是 R3 D3 的證人:⑩ 與 ⑪ 都是 expect_pass,
+#    而**一個 expect_pass 在「這一族整個沒生效」時也會綠** ⇒ 它們自己證不了 fixture 走得到。
+#    ⇒ 各配一個【只改一個條件】的擋對照:同一份 fixture 拿掉那個條件就必須紅。
+
+# ⑩b:拿掉帳本那一列(其餘一字不改)⇒ 那一欄不再有豁免來源 ⇒ 必須擋
+RCE2="$WORK/rce2"; setup_repo "$RCE2"
+printf '%s\n' '# 這一支是同版本號旁邊的說明檔, 不是 migration' > "$RCE2/supabase/migrations/20260101000005_aaa.md"
+cat > "$RCE2/supabase/migrations/20260101000005_addcol.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN pcm_glob_col text;
+SQL
+( cd "$RCE2" && git add -A && git commit -qm "base: 同一份 fixture, 而【沒有】記進帳本" )
+cat > "$RCE2/supabase/migrations/20260108000000_recol.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN IF NOT EXISTS pcm_glob_col text;
+SQL
+cat > "$RCE2/apps/admin/src/readerE.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_glob_col');
+}
+TS
+( cd "$RCE2" && git add -A && git commit -qm "feat: 冪等重貼同一欄 + 讀它" )
+BE2="$(cd "$RCE2" && git rev-parse HEAD~1)"; TE2="$(cd "$RCE2" && git rev-parse HEAD)"
+expect_warn "欄⑩b 可達性:同一份 fixture 拿掉帳本那一列 ⇒ 必須擋(證明 ⑩ 的綠是豁免給的)" \
+  "$(run_gate "$RCE2" "refs/heads/dev $TE2 refs/heads/dev $BE2")" "things.pcm_glob_col"
+
+# ⑪b:同一份 fixture 不刪那支檔、讓它同時提到兩個名字 ⇒ 必須擋
+RCF2="$WORK/rcf2"; setup_repo "$RCF2"
+cat > "$RCF2/apps/admin/src/goneF.ts" <<'TS'
+export const gone = 1;
+TS
+( cd "$RCF2" && git add -A && git commit -qm "base: 一支 app 檔" )
+add_pending_col "$RCF2"
+cat > "$RCF2/apps/admin/src/goneF.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_probe_col');
+}
+TS
+( cd "$RCF2" && git add -A && git commit -qm "feat: 加欄 migration + 那支檔【留著】並讀那一欄" )
+BF2="$(cd "$RCF2" && git rev-parse HEAD~1)"; TF2="$(cd "$RCF2" && git rev-parse HEAD)"
+expect_warn "欄⑪b 可達性:同一份 fixture 不刪那支檔 ⇒ 必須擋(證明 ⑪ 的綠是刪檔給的)" \
+  "$(run_gate "$RCF2" "refs/heads/dev $TF2 refs/heads/dev $BF2")" "things.pcm_probe_col"
+
+# ══ 欄位那一族 · R4 補的六格反例(2026-09-06;R4 = adversarial-reviewer / opus 換模型家族)══
+
+# 🔴🔴 欄⑮ 是 R4 F1 的證人:**E-string 剝除器少了左邊界 ⇒ 它吞掉真 DDL。**
+#    `[eE]'` 沒有左邊界 ⇒ 任何**以 e 結尾的字串內容**(`'manual_phone'`)後面若還有字串,
+#    regex 就從那個 `e` 起跨過真正的收尾引號 ⇒ 中間的 `ALTER TABLE … ADD COLUMN` 被一起吃掉
+#    ⇒ 🛑 strict 側**少抽** ⇒ **少豁免** ⇒ 一支冪等重貼被擋 = 誤擋。
+#    🔬 R4 在真檔上量到:`20260712203000_m4a_orders_admin_columns.sql`
+#      strict 3 組 / 不剝 E-string 6 組 ⇒ 少的是 `orders.cancelled_at` / `cancelled_reason` / `version`。
+RCK="$WORK/rck"; setup_repo "$RCK"
+cat > "$RCK/supabase/migrations/20260101000007_estr2.sql" <<'SQL'
+CREATE TABLE public.audit_log3 (stmt text);
+INSERT INTO public.audit_log3(stmt) VALUES ('manual_phone');
+ALTER TABLE public.things ADD COLUMN pcm_estr2_col text DEFAULT 'x';
+SQL
+_ksha="$(shasum -a 256 "$RCK/supabase/migrations/20260101000007_estr2.sql" | cut -d' ' -f1)"
+printf '20260101000007\t%s\t2026-01-01\tfixture\n' "$_ksha" >> "$RCK/supabase/APPLIED.tsv"
+( cd "$RCK" && git add -A && git commit -qm "base: 已 apply 的加欄, 而它前面有一個以 e 結尾的字串" )
+cat > "$RCK/supabase/migrations/20260111000000_recol2.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN IF NOT EXISTS pcm_estr2_col text;
+SQL
+cat > "$RCK/apps/admin/src/readerK.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_estr2_col');
+}
+TS
+( cd "$RCK" && git add -A && git commit -qm "feat: 冪等重貼同一欄 + 讀它" )
+BK="$(cd "$RCK" && git rev-parse HEAD~1)"; TK="$(cd "$RCK" && git rev-parse HEAD)"
+expect_nowarn "欄⑮:E-string 剝除不得吞掉它後面的真 DDL(R4 F1;吞了就少豁免 ⇒ 誤擋)" \
+  "$(run_gate "$RCK" "refs/heads/dev $TK refs/heads/dev $BK")"
+
+# ⑮b 可達性:同一份 fixture 拿掉帳本那一列 ⇒ 必須擋(證明 ⑮ 的綠是【豁免】給的, 不是整族靜音)
+RCK2="$WORK/rck2"; setup_repo "$RCK2"
+cat > "$RCK2/supabase/migrations/20260101000007_estr2.sql" <<'SQL'
+CREATE TABLE public.audit_log3 (stmt text);
+INSERT INTO public.audit_log3(stmt) VALUES ('manual_phone');
+ALTER TABLE public.things ADD COLUMN pcm_estr2_col text DEFAULT 'x';
+SQL
+( cd "$RCK2" && git add -A && git commit -qm "base: 同一份 fixture, 而【沒有】記進帳本" )
+cat > "$RCK2/supabase/migrations/20260111000000_recol2.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN IF NOT EXISTS pcm_estr2_col text;
+SQL
+cat > "$RCK2/apps/admin/src/readerK.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_estr2_col');
+}
+TS
+( cd "$RCK2" && git add -A && git commit -qm "feat: 冪等重貼同一欄 + 讀它" )
+BK2="$(cd "$RCK2" && git rev-parse HEAD~1)"; TK2="$(cd "$RCK2" && git rev-parse HEAD)"
+expect_warn "欄⑮b 可達性:同一份 fixture 拿掉帳本那一列 ⇒ 必須擋" \
+  "$(run_gate "$RCK2" "refs/heads/dev $TK2 refs/heads/dev $BK2")" "things.pcm_estr2_col"
+
+# 🔴🔴 欄⑯ / ⑯b 是 R4 F2 的證人:**引號識別字含【真的】ERE metachar。**
+#    ⛔ ~~欄⑭ 用的是 `Order-Items` / `gross-margin`~~ —— 連字號**既不在逃逸字元集裡、也不是 metachar**
+#      ⇒ 📌 **它走的是「不需要逃逸」那條路** ⇒ 標籤說「含 metachar」而 oracle 驗的是別件事。
+#    ✅ 這兩格用**真的會壞**的字元:`.`(⑯)與 `(` `)`(⑯b)。
+RCL="$WORK/rcl"; setup_repo "$RCL"
+cat > "$RCL/supabase/migrations/20260112000000_dot.sql" <<'SQL'
+ALTER TABLE public."Order.Items" ADD COLUMN "gross.margin" numeric;
+SQL
+cat > "$RCL/apps/admin/src/readerL.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('Order.Items').select('id, gross.margin');
+}
+TS
+( cd "$RCL" && git add -A && git commit -qm "feat: 引號識別字含句點的加欄 + 讀它" )
+BL="$(cd "$RCL" && git rev-parse HEAD~1)"; TL="$(cd "$RCL" && git rev-parse HEAD)"
+expect_warn "欄⑯:引號識別字含句點 ⇒ 逃逸後仍要比得到(R4 F2;多逃一層就變 no-op)" \
+  "$(run_gate "$RCL" "refs/heads/dev $TL refs/heads/dev $BL")" "Order.Items.gross.margin"
+
+# ⑯b 括號類 —— 🔴 **這一格順便釘死 R4 自己的一個量具錯誤, 寫下來免得下一個人重查**:
+#    R4 回報「`(` `)` 修完仍不匹配, 原因未確認」。
+#    🔬 我複量:**那是它的量具, 不是這道閘** —— 這台機器的互動式 `grep` 是 **ugrep**(shell function,
+#      來自 `~/.claude/shell-snapshots/`), 而本閘是 `#!/usr/bin/env bash` ⇒ 它跑到的是 `/usr/bin/grep`。
+#      同一個 pattern:`ugrep` ⇒ 不匹配 · `/usr/bin/grep` ⇒ **命中**(六類逐一測, 負對照全不中)。
+#    ⇒ 📌 那正是 CLAUDE.md「人跟腳本跑的是不是同一支程式」那一條, 而這一格是它的第 N 個實例。
+RCM="$WORK/rcm"; setup_repo "$RCM"
+cat > "$RCM/supabase/migrations/20260113000000_paren.sql" <<'SQL'
+ALTER TABLE public."tbl(1)" ADD COLUMN "col[2]" numeric;
+SQL
+cat > "$RCM/apps/admin/src/readerM.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('tbl(1)').select('id, col[2]');
+}
+TS
+( cd "$RCM" && git add -A && git commit -qm "feat: 引號識別字含括號與方括號 + 讀它" )
+BM="$(cd "$RCM" && git rev-parse HEAD~1)"; TM="$(cd "$RCM" && git rev-parse HEAD)"
+expect_warn "欄⑯b:引號識別字含括號/方括號 ⇒ 一樣要比得到(R4 F2 的「未確認」其實是它的量具)" \
+  "$(run_gate "$RCM" "refs/heads/dev $TM refs/heads/dev $BM")" "tbl(1).col[2]"
+
+# 🔴🔴 欄⑰ / ⑰b 是 R4 F3 的證人:**`FULL` 是整支檔原文, 註解沒剝。**
+#    🔬 R4 在**真的 dev** 上量到(`dev~40..dev`):前一顆 rc=0, 加了這一族之後 rc=1,
+#      而擋的那支檔 `packages/domain/src/payment/anomaly-alert.ts` 對那兩個字的命中**全在註解裡**
+#      ⇒ 🛑 **一句註解會擋住全隊的 push, 而那是這一族造成的。**
+RCN="$WORK/rcn"; setup_repo "$RCN"; add_pending_col "$RCN"
+cat > "$RCN/apps/admin/src/readerN.ts" <<'TS'
+/**
+ * 這支檔【只在註解裡】提到 things 與 pcm_probe_col ——
+ * 它一行碼都沒有讀那一欄。
+ */
+// things.pcm_probe_col 也出現在這一行, 而它也是註解
+export const unrelatedN = 1;
+TS
+( cd "$RCN" && git add -A && git commit -qm "feat: 加欄 migration + 一支只在註解提到那兩個字的檔" )
+BN="$(cd "$RCN" && git rev-parse HEAD~1)"; TN="$(cd "$RCN" && git rev-parse HEAD)"
+expect_nowarn "欄⑰:表名與欄名【只出現在註解裡】⇒ 不擋(R4 F3;註解不會發 PostgREST 請求)" \
+  "$(run_gate "$RCN" "refs/heads/dev $TN refs/heads/dev $BN")"
+
+# ⑰b 可達性:同一支檔把那兩個字從註解搬進碼 ⇒ 必須擋(證明 ⑰ 的綠是【剝註解】給的)
+RCN2="$WORK/rcn2"; setup_repo "$RCN2"; add_pending_col "$RCN2"
+cat > "$RCN2/apps/admin/src/readerN.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_probe_col');
+}
+TS
+( cd "$RCN2" && git add -A && git commit -qm "feat: 同一份 fixture, 而那兩個字在【碼】裡" )
+BN2="$(cd "$RCN2" && git rev-parse HEAD~1)"; TN2="$(cd "$RCN2" && git rev-parse HEAD)"
+expect_warn "欄⑰b 可達性:同樣兩個字搬進碼 ⇒ 必須擋" \
+  "$(run_gate "$RCN2" "refs/heads/dev $TN2 refs/heads/dev $BN2")" "things.pcm_probe_col"
+
+# ══ 欄位那一族 · R5 補的五格(2026-09-06;R5 = codex gpt-5.6-sol, 只問「這一輪的修法有沒有造出下一個洞」)══
+
+# 🔴🔴 欄⑱ 是 R5-1 的證人:**上一版的「註解剝除」其實是「刪掉所有以 `*` 開頭的實體行」。**
+#    這一段是合法而且**真的讀那一欄**的 TS ⇒ 舊版把第二行整行刪掉 ⇒ 🛑 **漏擋。**
+RCO="$WORK/rco"; setup_repo "$RCO"; add_pending_col "$RCO"
+cat > "$RCO/apps/admin/src/readerO.ts" <<'TS'
+export function calc(rate: number, things: any) {
+  const total = rate
+    * things.pcm_probe_col;
+  return total;
+}
+TS
+( cd "$RCO" && git add -A && git commit -qm "feat: 加欄 migration + 以星號開頭的續行真碼" )
+BO="$(cd "$RCO" && git rev-parse HEAD~1)"; TO="$(cd "$RCO" && git rev-parse HEAD)"
+expect_warn "欄⑱:以星號開頭的【續行真碼】不得被當註解剝掉(R5-1)" \
+  "$(run_gate "$RCO" "refs/heads/dev $TO refs/heads/dev $BO")" "things.pcm_probe_col"
+
+# 🔵 欄⑰c 是 ⑱ 的反面:**同一行 `/* … */` 後面的碼要留下** ——
+#    lexer 若整行吃掉, 這一格會綠(漏擋)⇒ 它與 ⑱ 一起把「吃太多」兩個方向都釘住。
+RCP="$WORK/rcp"; setup_repo "$RCP"; add_pending_col "$RCP"
+cat > "$RCP/apps/admin/src/readerP.ts" <<'TS'
+/* 這是註解 */ export const q = (sb: any) => sb.from('things').select('id, pcm_probe_col');
+TS
+( cd "$RCP" && git add -A && git commit -qm "feat: 加欄 migration + 同行註解後面接真碼" )
+BP="$(cd "$RCP" && git rev-parse HEAD~1)"; TP="$(cd "$RCP" && git rev-parse HEAD)"
+expect_warn "欄⑰c:同一行註解【後面】的真碼要留下(R5-1 的反面)" \
+  "$(run_gate "$RCP" "refs/heads/dev $TP refs/heads/dev $BP")" "things.pcm_probe_col"
+
+# 🔴🔴 欄⑲ 是 R5-2 的證人:**R4 給的 lookbehind 只擋得住「前一字元是 ASCII identifier」那一種。**
+#    這裡的字串是 `manual-e` —— 那個 e 前面是**連字號** ⇒ lookbehind 放行
+#    ⇒ 剝除器仍然從普通字串【內容裡】的 e 起跑, 吞掉後面的真 DDL ⇒ 少豁免 ⇒ **誤擋**。
+#    ✅ 修法不是把 lookbehind 的字元集愈擴愈大, 是把兩種字串放進**同一次由左到右**的掃描。
+RCQ="$WORK/rcq"; setup_repo "$RCQ"
+cat > "$RCQ/supabase/migrations/20260101000008_dashe.sql" <<'SQL'
+CREATE TABLE public.audit_log4 (stmt text);
+INSERT INTO public.audit_log4(stmt) VALUES ('manual-e');
+ALTER TABLE public.things ADD COLUMN pcm_dashe_col text DEFAULT 'x';
+SQL
+_qsha="$(shasum -a 256 "$RCQ/supabase/migrations/20260101000008_dashe.sql" | cut -d' ' -f1)"
+printf '20260101000008\t%s\t2026-01-01\tfixture\n' "$_qsha" >> "$RCQ/supabase/APPLIED.tsv"
+( cd "$RCQ" && git add -A && git commit -qm "base: 已 apply 的加欄, 而它前面那個字串以連字號加 e 結尾" )
+cat > "$RCQ/supabase/migrations/20260114000000_recol3.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN IF NOT EXISTS pcm_dashe_col text;
+SQL
+cat > "$RCQ/apps/admin/src/readerQ.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_dashe_col');
+}
+TS
+( cd "$RCQ" && git add -A && git commit -qm "feat: 冪等重貼同一欄 + 讀它" )
+BQ="$(cd "$RCQ" && git rev-parse HEAD~1)"; TQ="$(cd "$RCQ" && git rev-parse HEAD)"
+expect_nowarn "欄⑲:字串內容以【連字號 + e】結尾時也不得吞掉後面的真 DDL(R5-2)" \
+  "$(run_gate "$RCQ" "refs/heads/dev $TQ refs/heads/dev $BQ")"
+
+# ⑲b 可達性:同一份 fixture 拿掉帳本那一列 ⇒ 必須擋
+RCQ2="$WORK/rcq2"; setup_repo "$RCQ2"
+cat > "$RCQ2/supabase/migrations/20260101000008_dashe.sql" <<'SQL'
+CREATE TABLE public.audit_log4 (stmt text);
+INSERT INTO public.audit_log4(stmt) VALUES ('manual-e');
+ALTER TABLE public.things ADD COLUMN pcm_dashe_col text DEFAULT 'x';
+SQL
+( cd "$RCQ2" && git add -A && git commit -qm "base: 同一份 fixture, 而【沒有】記進帳本" )
+cat > "$RCQ2/supabase/migrations/20260114000000_recol3.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN IF NOT EXISTS pcm_dashe_col text;
+SQL
+cat > "$RCQ2/apps/admin/src/readerQ.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_dashe_col');
+}
+TS
+( cd "$RCQ2" && git add -A && git commit -qm "feat: 冪等重貼同一欄 + 讀它" )
+BQ2="$(cd "$RCQ2" && git rev-parse HEAD~1)"; TQ2="$(cd "$RCQ2" && git rev-parse HEAD)"
+expect_warn "欄⑲b 可達性:同一份 fixture 拿掉帳本那一列 ⇒ 必須擋" \
+  "$(run_gate "$RCQ2" "refs/heads/dev $TQ2 refs/heads/dev $BQ2")" "things.pcm_dashe_col"
+
+# 🔴 欄⑯c 是 R5-丁 點名的【缺的那個負對照】:
+#    ⛔ ~~欄⑯ 用 `gross.margin` 對 `gross.margin` 驗 expect_block~~ ——
+#      📌 **句點【沒有逃逸】時 ERE 的 `.` 照樣命中真句點** ⇒ 那一格對「有沒有逃逸」零判別力。
+#    ✅ 補這一格:app 檔寫 `grossXmargin`(X 不是句點)⇒ **逃逸對了就不會中**。
+#      🔬 實測:不逃逸的 pattern 對 `grossXmargin` ⇒ **誤命中**;逃逸後 ⇒ 不中。
+RCR="$WORK/rcr"; setup_repo "$RCR"
+cat > "$RCR/supabase/migrations/20260115000000_dot2.sql" <<'SQL'
+ALTER TABLE public.things ADD COLUMN "gross.margin" numeric;
+SQL
+cat > "$RCR/apps/admin/src/readerR.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, grossXmargin');
+}
+TS
+( cd "$RCR" && git add -A && git commit -qm "feat: 欄名含句點, 而 app 檔寫的是 X 不是句點" )
+BR="$(cd "$RCR" && git rev-parse HEAD~1)"; TR="$(cd "$RCR" && git rev-parse HEAD)"
+expect_nowarn "欄⑯c 負對照:欄名的句點要當字面比 ⇒ grossXmargin 不得被誤中(R5 丁)" \
+  "$(run_gate "$RCR" "refs/heads/dev $TR refs/heads/dev $BR")"
+
+# ══ 🛑 R6 打穿的三個洞 —— 【期望不出聲, 而那不是「正確」是「今天分不出來」】════════
+#    R6(codex gpt-5.5, 封頂只審 lexer)結論:SQL 那一層【打不穿】(甲/乙 逐字「打不穿」),
+#    而 **TypeScript 註解那一支被打穿三處, 方向全部是【漏擋】**。
+#    📌 這三格寫成測項是為了讓那三個洞【被看見】—— 它們現在都 `expect_nowarn`,
+#      哪一天有人把 TS lexer 補上字串/template 狀態, 這三格會紅, 那時改成 `expect_warn`。
+#    ⚠️ **而這一族已經降成【只警告不擋】** ⇒ 這三個漏的成本從「漏擋」降成「少印一句警告」。
+#      那正是主視窗 -f8 裁 C 的理由:一個證不了自己沒漏的判決權, 不如收回來只出聲。
+
+# 欄洞a:字串裡的 `/*` ⇒ 被當區塊註解開頭 ⇒ 後面兩行真碼整段被吃掉
+RCS="$WORK/rcs"; setup_repo "$RCS"; add_pending_col "$RCS"
+cat > "$RCS/apps/admin/src/readerS.ts" <<'TS'
+const marker = "/*";
+const tableName = "things";
+const columnName = "pcm_probe_col";
+export { marker, tableName, columnName };
+TS
+( cd "$RCS" && git add -A && git commit -qm "feat: 加欄 migration + 字串裡有區塊註解開頭" )
+BS="$(cd "$RCS" && git rev-parse HEAD~1)"; TS_="$(cd "$RCS" && git rev-parse HEAD)"
+expect_nowarn "欄洞a:字串裡的區塊註解開頭吃掉後面真碼 ⇒ 今天不出聲(**已知漏**, R6 丙-1)" \
+  "$(run_gate "$RCS" "refs/heads/dev $TS_ refs/heads/dev $BS")"
+
+# 欄洞b:字串【內】的 `/* … */` 被剝掉 ⇒ 欄名不見了
+RCT="$WORK/rct"; setup_repo "$RCT"; add_pending_col "$RCT"
+cat > "$RCT/apps/admin/src/readerT.ts" <<'TS'
+export const dependency = "things /* pcm_probe_col */";
+TS
+( cd "$RCT" && git add -A && git commit -qm "feat: 加欄 migration + 欄名住在字串裡的註解形狀中" )
+BT="$(cd "$RCT" && git rev-parse HEAD~1)"; TT="$(cd "$RCT" && git rev-parse HEAD)"
+expect_nowarn "欄洞b:字串內的註解形狀被剝掉 ⇒ 今天不出聲(**已知漏**, R6 丙-2)" \
+  "$(run_gate "$RCT" "refs/heads/dev $TT refs/heads/dev $BT")"
+
+# 欄洞c:template literal 內的 `//` 被當整行註解丟掉
+RCU="$WORK/rcu"; setup_repo "$RCU"; add_pending_col "$RCU"
+cat > "$RCU/apps/admin/src/readerU.ts" <<'TS'
+export const dependency = `
+things
+// pcm_probe_col
+`;
+TS
+( cd "$RCU" && git add -A && git commit -qm "feat: 加欄 migration + 欄名住在 template literal 的雙斜線行" )
+BU="$(cd "$RCU" && git rev-parse HEAD~1)"; TU="$(cd "$RCU" && git rev-parse HEAD)"
+expect_nowarn "欄洞c:template literal 裡的雙斜線行被丟掉 ⇒ 今天不出聲(**已知漏**, R6 丁)" \
+  "$(run_gate "$RCU" "refs/heads/dev $TU refs/heads/dev $BU")"
+
+# 🛑 **R3 B2 / D2 的【未驗】要寫在這裡, 不要假裝有格子**:
+#    「路徑仍在 tree 裡, 而它的 blob 讀不到」這個世界 —— **我構造不出來**:
+#    同一支檔的 `git diff -U0 BASE local_sha -- <af>`(本閘更早的一步)也要讀那顆 blob,
+#    ⇒ 物件一缺, 它會先在**外層**那道 fail-closed 紅掉, 到不了 `FULL` 這一段。
+#    ⇒ 📌 `ls-tree` 分類那個修法**照樣是對的**(它把分類與讀取分開), 而**它沒有證人**。
+#      哪一天有人做得出 partial-clone / promisor 的 fixture, 這裡補一格。
 
 echo "── 核心:A9h 回歸與不誤擋 ──────────────────────────"
 
@@ -231,7 +984,7 @@ expect_pass "⑨-c 推 tag ⇒ 不判" \
   "$(run_gate "$R6" "refs/tags/v1 $DANGER refs/tags/v1 0000000000000000000000000000000000000000")"
 
 echo
-echo "── 射程邊界(Q2=B 的刻意漏擋,寫成格子才不會被誤讀成 bug)──"
+echo "── 射程邊界(刻意漏擋,寫成格子才不會被誤讀成 bug)──"
 
 R7="$WORK/r7"; setup_repo "$R7"
 cat > "$R7/supabase/migrations/20260102000000_pending.sql" <<'SQL'
@@ -242,7 +995,11 @@ export const col = 'pcm_new_column';
 TS
 ( cd "$R7" && git add -A && git commit -qm "feat: pending migration 只加欄位、app 用了那個欄位名" )
 B7="$(cd "$R7" && git rev-parse HEAD~1)"; T7="$(cd "$R7" && git rev-parse HEAD)"
-expect_pass "⑩**刻意漏擋**:pending migration 只加欄位(零 CREATE FUNCTION)⇒ 放行(Sean 拍 Q2=B)" \
+# 🔴 **R2 MF6:這一格的標籤在 2026-09-06 之後【不再成立】** ——
+#    ⛔ ~~「pending 只加欄位 ⇒ 放行(Sean 拍 Q2=B)」~~ **欄位已經納入了**(Sean `Q-閘看欄=甲`)。
+#    ✅ 它今天仍然放行, 而**理由換了**:這支 app 檔**只有欄名、沒有表名** ⇒ 尺二不算命中。
+#    📌 標籤改成講【真正的理由】—— 一個講錯理由的綠格, 會讓下一個人以為欄位那一族沒生效。
+expect_nowarn "⑩:pending 只加欄位、而 app 檔只提到欄名沒提到表名 ⇒ 放行(尺二:要同檔共現)" \
   "$(run_gate "$R7" "refs/heads/dev $T7 refs/heads/dev $B7")"
 
 R8="$WORK/r8"; setup_repo "$R8"; add_pending_migration "$R8"
@@ -1093,6 +1850,362 @@ if [ "$_n_ref" = "2" ] && [ "$_n_dev" = "1" ] && [ "$_n_main" = "1" ]; then
   ok "54 MF3:多 ref 時 dev 那項掛 dev、main 那項掛 main(各 1 項, 不是「有帶就算」)"
 else
   bad "54 MF3:多 ref 標記歸屬錯 —— 總 $_n_ref 項 / dev $_n_dev / main $_n_main(期望 2/1/1)"
+fi
+
+# ── 🔴 `0 pending` 的兩個世界(⟦db-DOGBLINDBRANCH⟧;-f8 2026-09-06 裁甲修法 1)──────
+#    量的是【訊息】不是 rc —— 本次修法刻意零 rc 改動。
+BLIND='0 pending 的意思是'
+
+# 世界一:0 pending ⇒ **必印**那句
+RB1="$WORK/rb1"; setup_repo "$RB1"
+cat > "$RB1/apps/admin/src/unrelated.ts" <<'TS'
+export const unrelated = 2;
+TS
+( cd "$RB1" && git add apps/admin/src/unrelated.ts && git commit -qm "只有 app, 零 pending" )
+BB1="$(cd "$RB1" && git rev-parse HEAD~1)"; TB1="$(cd "$RB1" && git rev-parse HEAD)"
+RESB1="$(run_gate "$RB1" "refs/heads/dev $TB1 refs/heads/dev $BB1")"
+if printf '%s' "${RESB1#*|}" | grep -qF "$BLIND"; then
+  ok "55 0 pending ⇒ 印出「別條分支上的我看不到」(盲區與乾淨不再同一句)"
+else
+  bad "55 0 pending 沒有印那句 ⇒ 盲區與乾淨仍印同一行字"
+fi
+if [ "${RESB1%%|*}" = "0" ]; then ok "55b 而它零 rc 改動(仍然放行)"
+else bad "55b rc 變了($RESB1)—— 本修法只該多印一句"; fi
+
+# 世界二:有 pending ⇒ **不印**(否則那句是恆印的, 對「有沒有盲區」零判別力)
+RB2="$WORK/rb2"; setup_repo "$RB2"
+add_pending_migration "$RB2"
+cat > "$RB2/apps/admin/src/unrelated.ts" <<'TS'
+export const unrelated = 3;
+TS
+( cd "$RB2" && git add supabase/migrations/20260102000000_pending.sql apps/admin/src/unrelated.ts && git commit -qm "有 pending" )
+BB2="$(cd "$RB2" && git rev-parse HEAD~1)"; TB2="$(cd "$RB2" && git rev-parse HEAD)"
+RESB2="$(run_gate "$RB2" "refs/heads/dev $TB2 refs/heads/dev $BB2")"
+if printf '%s' "${RESB2#*|}" | grep -qF "$BLIND"; then
+  bad "56 有 pending 卻仍印那句 ⇒ 它是恆印的, 對「0 pending」零判別力"
+else
+  ok "56 有 pending ⇒ 不印那句(證明 55 的綠不是恆綠)"
+fi
+
+# 🔴 世界三:**真的盲區** —— migration 只活在別條分支上, 而 app 這邊照樣放行。
+#    ⛔ 我第一版把這一格寫成【無條件 `ok`】+ 一串沒有斷言的 checkout ——
+#      那是本 repo 記過最壞的形狀(判定標籤不由結果決定)。⇒ 真的造那個世界。
+#    🛑 這一格記的是**危險本身**, 它今天仍然成立:修法 1 只多印一句, **不改 rc**。
+RB3="$WORK/rb3"; setup_repo "$RB3"
+# 🔴 分支名用**真實形狀** `agent/line-db` —— 修法 2 掃的是 `refs/heads/agent/line-*`,
+#    叫 `line-db` 的話 58 那格會綠得沒有意義(它掃不到, 而 rb3 仍是盲區世界)。
+( cd "$RB3" && git checkout -qb agent/line-db )
+add_pending_migration "$RB3"
+( cd "$RB3" && git add supabase/migrations/20260102000000_pending.sql && git commit -qm "db 分支上的 migration" )
+( cd "$RB3" && git checkout -q - )
+DEVB3="$(cd "$RB3" && git rev-parse HEAD)"
+cat > "$RB3/apps/admin/src/consumer.ts" <<'TS'
+export async function callIt(sb: any) {
+  return sb.rpc('pcm_a9h_probe', { p_order_id: 'x', p_note: 'y' });
+}
+TS
+( cd "$RB3" && git add apps/admin/src/consumer.ts && git commit -qm "front: 只有呼叫端" )
+TB3="$(cd "$RB3" && git rev-parse HEAD)"
+RESB3="$(run_gate "$RB3" "refs/heads/dev $TB3 refs/heads/dev $DEVB3")"
+if [ "${RESB3%%|*}" = "0" ]; then
+  ok "57 盲區世界:migration 只在別條分支 ⇒ **仍然放行**(記錄危險本身, 修法 1 不改 rc)"
+else
+  bad "57 盲區世界的 rc 變了(${RESB3%%|*})—— 若這是刻意的, 三世界表與本格都要一起改"
+fi
+if printf '%s' "${RESB3#*|}" | grep -qF "$BLIND"; then
+  ok "57b 而它**有印出那句警告** ⇒ 讀的人分得出自己在盲區而不是乾淨"
+else
+  bad "57b 盲區世界沒印警告 ⇒ 它與【真的乾淨】仍印同一行字"
+fi
+
+# ── 🔵 修法 2(⟦db-DOGBLINDBRANCH⟧):不只說「我沒去看」, 要去看一次並把名字列出來 ──
+#    🛑 rc 仍然不動(57 那格已經在驗 rc)—— 這兩格量的是【訊息內容】。
+SCAN_HIT='只活在別條分支上'
+SCAN_CLEAN='沒有【這棵樹沒有而它們有】的 migration'
+SCAN_NODEN='分支掃描【沒有分母】'
+_o3="${RESB3#*|}"
+# 🔴 R1 Important:舊句「有 N 支 migration」數的是 (檔案×分支) 對數 ⇒ 現在兩個數都印, 兩個都驗。
+if printf '%s' "$_o3" | grep -qF "$SCAN_HIT" \
+   && printf '%s' "$_o3" | grep -qF "20260102000000_pending.sql" \
+   && printf '%s' "$_o3" | grep -qF "agent/line-db" \
+   && printf '%s' "$_o3" | grep -qF "1 支 migration" \
+   && printf '%s' "$_o3" | grep -qF "1 筆 檔案×分支"; then
+  ok "58 盲區世界:點名檔案與分支, **而且【支數】與【檔案×分支筆數】分開印**"
+else
+  bad "58 盲區世界沒把名字或兩個數印全 ⇒ 修法 2 沒接上, 或它掃的 ref 形狀不對:$(printf '%s' "$_o3" | grep -F 'gate:    ' | head -3 | tr '\n' ' ')"
+fi
+
+# 🔴🔴 R1 Important:**負對照原本建在錯的軸上。**
+#    rb1 是「**零** agent/line-* 分支」,而它與「**有**分支而乾淨」原本印同一句
+#    ⇒ 58b 綠只證明那句不恆印, **不證明它真的掃過分支**。
+#    ⇒ 現在三個世界要印三種不同的東西, 而下面三格各釘一種。
+#
+# 58b:零分支 ⇒ 印「沒有分母」, **不是**「掃過而乾淨」, 也不是 58 那句。
+_o1="${RESB1#*|}"
+if printf '%s' "$_o1" | grep -qF "$SCAN_NODEN" \
+   && ! printf '%s' "$_o1" | grep -qF "$SCAN_CLEAN" \
+   && ! printf '%s' "$_o1" | grep -qF "$SCAN_HIT"; then
+  ok "58b 零分支世界:印「沒有分母」而**不是**「掃過而乾淨」(兩者原本同一句)"
+else
+  bad "58b 零分支世界與「掃過而乾淨」仍印同一句 ⇒ 讀的人分不出「我沒得掃」與「我掃了沒事」"
+fi
+
+# 🔴 58c:分支名含 `&` —— git 接受它(`git check-ref-format 'refs/heads/agent/line-a&b'` rc=0),
+#    而把它塞進 `sed` 的取代字串會讓那個字元**靜靜消失**(`&` = match, 而 match 是空字串)。
+#    ⇒ 這一格是那個 bug 的守門:它要看到**完整的分支名**, 不是「有 agent/line 就算」。
+RB4="$WORK/rb4"; setup_repo "$RB4"
+( cd "$RB4" && git checkout -qb 'agent/line-a&b' )
+add_pending_migration "$RB4"
+( cd "$RB4" && git add supabase/migrations/20260102000000_pending.sql && git commit -qm "含 & 的分支上的 migration" )
+( cd "$RB4" && git checkout -q - )
+DEVB4="$(cd "$RB4" && git rev-parse HEAD)"
+cat > "$RB4/apps/admin/src/unrelated2.ts" <<'TS'
+export const unrelated2 = 4;
+TS
+( cd "$RB4" && git add apps/admin/src/unrelated2.ts && git commit -qm "只有 app" )
+TB4="$(cd "$RB4" && git rev-parse HEAD)"
+RESB4="$(run_gate "$RB4" "refs/heads/dev $TB4 refs/heads/dev $DEVB4")"
+if printf '%s' "${RESB4#*|}" | grep -qF 'agent/line-a&b'; then
+  ok "58c 分支名含 & ⇒ **完整印出來**(sed 取代字串會把它吃掉, awk -v 不會)"
+else
+  bad "58c 分支名的 & 不見了 ⇒ 標籤是用 sed 拼的, 讀的人會去找一個不存在的分支:$(printf '%s' "${RESB4#*|}" | grep -F 'agent/line' | head -2 | tr '\n' ' ')"
+fi
+
+# 🔴 58d:**有 agent/line-* 分支、而它沒有這棵樹缺的 migration** —— 這一格是 58b 缺的那一軸。
+#    少了它, 「掃過而乾淨」那句從來沒有被任何一格證明過會出現。
+RB5="$WORK/rb5"; setup_repo "$RB5"
+( cd "$RB5" && git checkout -qb agent/line-clean && git checkout -q - )
+cat > "$RB5/apps/admin/src/unrelated3.ts" <<'TS'
+export const unrelated3 = 5;
+TS
+( cd "$RB5" && git add apps/admin/src/unrelated3.ts && git commit -qm "只有 app, 分支上沒有多的 migration" )
+BB5="$(cd "$RB5" && git rev-parse HEAD~1)"; TB5="$(cd "$RB5" && git rev-parse HEAD)"
+RESB5="$(run_gate "$RB5" "refs/heads/dev $TB5 refs/heads/dev $BB5")"
+_o5="${RESB5#*|}"
+if printf '%s' "$_o5" | grep -qF "$SCAN_CLEAN" \
+   && ! printf '%s' "$_o5" | grep -qF "$SCAN_NODEN" \
+   && ! printf '%s' "$_o5" | grep -qF "$SCAN_HIT"; then
+  ok "58d 有分支而乾淨:印「掃過 N 條…沒有」—— 與 58b(零分支)、58(掃到)三句各不相同"
+else
+  bad "58d 有分支而乾淨的世界沒印它自己那句 ⇒ 三個世界沒有三種輸出:$(printf '%s' "$_o5" | grep -F 'gate:    ' | head -3 | tr '\n' ' ')"
+fi
+if [ "${RESB5%%|*}" = "0" ]; then ok "58e 而它 rc 仍是 0(修法 2 全程不改 rc)"
+else bad "58e 有分支而乾淨的世界 rc 變了(${RESB5%%|*})"; fi
+
+# ══ 🔵 ⟦db-LEDGERSHADRIFT⟧ 修法丙:帳本 sha 對不上的兩種世界 ══════════════════
+#    A 對不上而 origin/dev 歷史有【碼相同】的那一版 ⇒ 降級成警告, 不進 PENDING
+#    B 對不上而 origin/dev 歷史【找不到】那一版     ⇒ 維持 PENDING(不猜)
+#    C 對得上                                      ⇒ **那一段一秒都不花**(釘進場那行字面)
+#    D 只動 `/* */` 塊註解                          ⇒ 仍判 PENDING(🛑 斷言【現況】不是【正確】)
+#    E 歷史有那一版而【剝完也不同】                 ⇒ 維持 PENDING(證明 A 的綠不是恆綠)
+#    F 降級那一發的 rc                              ⇒ 明寫它是刻意的
+DRIFT_ENTER='進 ⟦db-LEDGERSHADRIFT⟧ 檢查'
+DRIFT_OK='而只有整行註解與空行不同'   # 🔴 釘樁跟著閘的訊息走;改訊息前先 grep 這個字面
+
+# 🔴 `git log origin/dev` 需要 `refs/remotes/origin/dev` —— fixture 沒有真的 remote,
+#    直接建那支 ref 就夠(它只是一個指標)。
+mk_origin_dev() { ( cd "$1" && git update-ref refs/remotes/origin/dev "$(git rev-parse HEAD)" ); }
+
+# 造一個「帳本記著舊那一份, 而檔案已經被改過」的世界。$2 = 要追加到 base.sql 的內容
+drift_world() { # $1=repo $2=追加內容
+  setup_repo "$1"
+  # 🔴 插在**第 1 行之後**(兩句 SQL 中間), 不是 append 到 EOF —— 理由見 setup_repo。
+  { head -1 "$1/supabase/migrations/20260101000000_base.sql"
+    printf '%s\n' "$2"
+    tail -n +2 "$1/supabase/migrations/20260101000000_base.sql"
+  } > "$1/base.tmp" && mv "$1/base.tmp" "$1/supabase/migrations/20260101000000_base.sql"
+  ( cd "$1" && git add supabase/migrations/20260101000000_base.sql \
+      && git commit -qm "改 base.sql 而帳本不動" )
+  # 🔴🔴 **`mk_origin_dev` 必須在【改動之後】** —— 而這一行是突變測試逼出來的。
+  #    ⛔ ~~第一版放在改動之前~~ ⇒ `git log origin/dev -- base.sql` 只列得到**一個**版本
+  #    ⇒ 🛑 把「raw sha 必須等於帳本那一格」整段拔掉, **六格全部照樣綠**
+  #       (實跑 2026-09-06:突變後 `PASS=91 FAIL=0`)—— 因為只有一版可挑, 挑錯挑對是同一個。
+  #    ✅ 放在改動之後 ⇒ 歷史有【新的】與【帳本那一份】兩版, 而**新的排在前面**
+  #       ⇒ 拔掉那道檢查就會挑到新的 ⇒ 剝完與現況相同 ⇒ **E 會被誤降級而翻紅。**
+  #    📌 **一個負對照本身也需要一個負對照。**
+  mk_origin_dev "$1"
+  drift_seal "$1"
+}
+
+# 🔵 把「封裝 + 一支 app」抽出來 —— G/H 要【就地改既有的行】, 而 drift_world 只會插入。
+drift_seal() { # $1=repo
+  cat > "$1/apps/admin/src/drift.ts" <<'TS'
+export const drift = 1;
+TS
+  ( cd "$1" && git add apps/admin/src/drift.ts && git commit -qm "app 一支" )
+}
+
+# ── A + F:只加行註解 ⇒ 降級, 而 rc 是 0 ────────────────────────────
+RD1="$WORK/rd1"; drift_world "$RD1" "-- 只加一行註解, 碼一個字都沒動"
+BD1="$(cd "$RD1" && git rev-parse HEAD~1)"; TD1="$(cd "$RD1" && git rev-parse HEAD)"
+RESD1="$(run_gate "$RD1" "refs/heads/dev $TD1 refs/heads/dev $BD1")"
+_od1="${RESD1#*|}"
+if printf '%s' "$_od1" | grep -qF "$DRIFT_ENTER" \
+   && printf '%s' "$_od1" | grep -qF "$DRIFT_OK" \
+   && printf '%s' "$_od1" | grep -qF "0 pending"; then
+  ok "A 只加行註解 ⇒ 進了檢查、判定「只有註解不同」、而且**不算進 pending**"
+else
+  bad "A 只加行註解沒被降級:$(printf '%s' "$_od1" | grep -E 'gate:' | head -3 | tr '\n' ' ')"
+fi
+if [ "${RESD1%%|*}" = "0" ]; then
+  ok "F 降級那一發 rc=0 —— 🛑 **這是刻意的**:修法丙就是要讓這種世界不再擋人"
+else
+  bad "F 降級了而 rc 仍是 ${RESD1%%|*} ⇒ 降級沒有真的把它移出 PENDING"
+fi
+
+# ── E:歷史有那一版, 而剝完也不同 ⇒ 維持 PENDING(證明 A 的綠不是恆綠)──────
+RD2="$WORK/rd2"; drift_world "$RD2" "CREATE TABLE public.extra_thing (id uuid PRIMARY KEY);"
+BD2="$(cd "$RD2" && git rev-parse HEAD~1)"; TD2="$(cd "$RD2" && git rev-parse HEAD)"
+RESD2="$(run_gate "$RD2" "refs/heads/dev $TD2 refs/heads/dev $BD2")"
+_od2="${RESD2#*|}"
+if printf '%s' "$_od2" | grep -qF "$DRIFT_ENTER" \
+   && ! printf '%s' "$_od2" | grep -qF "$DRIFT_OK" \
+   && printf '%s' "$_od2" | grep -qF "1 pending"; then
+  ok "E 碼真的變了 ⇒ 進了檢查但**不降級**, 仍算 1 pending(A 的綠不是恆綠)"
+else
+  bad "E 碼變了卻被降級, 或 pending 數不對:$(printf '%s' "$_od2" | grep -E 'gate:' | head -3 | tr '\n' ' ')"
+fi
+
+# ── D:只動 `/* */` 塊註解 ⇒ 仍判 PENDING。🛑 這一格斷言的是【現況】不是【正確】──
+#    `strip_sql_line_comments` 只剝 `--` 行 ⇒ 塊註解對它是碼。**那是多擋的方向, 可接受。**
+#    ⇒ 這一格的用途是讓那個盲區【在紅綠上有一個位置】, 哪天有人把它修好, 這一格會紅。
+RD3="$WORK/rd3"; drift_world "$RD3" "/* 只加一段塊註解, 碼一個字都沒動 */"
+BD3="$(cd "$RD3" && git rev-parse HEAD~1)"; TD3="$(cd "$RD3" && git rev-parse HEAD)"
+RESD3="$(run_gate "$RD3" "refs/heads/dev $TD3 refs/heads/dev $BD3")"
+_od3="${RESD3#*|}"
+# 🔴 codex R1 must-fix:原本只驗「有進場、沒印成功警告」⇒ **把輸出 PENDING 那條路刪掉它照樣綠**。
+#    ⇒ 補上 `1 pending`:那才是「仍不降級」真正的受詞。
+if printf '%s' "$_od3" | grep -qF "$DRIFT_ENTER" \
+   && ! printf '%s' "$_od3" | grep -qF "$DRIFT_OK" \
+   && printf '%s' "$_od3" | grep -qF "1 pending"; then
+  ok "D 只動 /* */ 塊註解 ⇒ **仍不降級, 仍算 1 pending**(已知盲區;本格斷言現況, 不斷言正確)"
+else
+  bad "D 塊註解的現況變了 ⇒ 若是刻意修好的, 本格與閘的註解要一起改"
+fi
+
+# ── B:歷史裡找不到帳本記的那一版 ⇒ 維持 PENDING(不猜)────────────────
+#    造法:**不建** origin/dev ⇒ `git log origin/dev` 什麼都撈不到。
+RD4="$WORK/rd4"; setup_repo "$RD4"
+printf '%s\n' "-- 只加一行註解" >> "$RD4/supabase/migrations/20260101000000_base.sql"
+( cd "$RD4" && git add supabase/migrations/20260101000000_base.sql && git commit -qm "改 base.sql" )
+cat > "$RD4/apps/admin/src/drift.ts" <<'TS'
+export const drift = 2;
+TS
+( cd "$RD4" && git add apps/admin/src/drift.ts && git commit -qm "app 一支" )
+BD4="$(cd "$RD4" && git rev-parse HEAD~1)"; TD4="$(cd "$RD4" && git rev-parse HEAD)"
+RESD4="$(run_gate "$RD4" "refs/heads/dev $TD4 refs/heads/dev $BD4")"
+_od4="${RESD4#*|}"
+if printf '%s' "$_od4" | grep -qF "$DRIFT_ENTER" \
+   && ! printf '%s' "$_od4" | grep -qF "$DRIFT_OK" \
+   && printf '%s' "$_od4" | grep -qF "1 pending"; then
+  ok "B 歷史裡找不到那一版 ⇒ **維持 PENDING, 不猜**(即使它其實只加了註解)"
+else
+  bad "B 找不到那一版卻降級了 ⇒ 它在拿一個沒人記過的版本背書:$(printf '%s' "$_od4" | grep -E 'gate:' | head -3 | tr '\n' ' ')"
+fi
+
+# ── C:對得上 ⇒ 那一段**一秒都不花**(釘進場那行字面, 不是釘「沒有警告」)────
+#    🔴 `comment_only_drift` 失敗時是靜默的 ⇒ 「沒印警告」與「根本沒走這條路」會是同一個東西。
+RD5="$WORK/rd5"; setup_repo "$RD5"; mk_origin_dev "$RD5"
+cat > "$RD5/apps/admin/src/drift.ts" <<'TS'
+export const drift = 3;
+TS
+( cd "$RD5" && git add apps/admin/src/drift.ts && git commit -qm "只有 app, 帳本 sha 對得上" )
+BD5="$(cd "$RD5" && git rev-parse HEAD~1)"; TD5="$(cd "$RD5" && git rev-parse HEAD)"
+RESD5="$(run_gate "$RD5" "refs/heads/dev $TD5 refs/heads/dev $BD5")"
+_od5="${RESD5#*|}"
+if ! printf '%s' "$_od5" | grep -qF "$DRIFT_ENTER" && printf '%s' "$_od5" | grep -qF "0 pending"; then
+  ok "C 帳本 sha 對得上 ⇒ **那一段沒有被走到**(進場那行字面零命中;⚠️ 本格不量時間, 不宣稱耗時)"
+else
+  bad "C 對得上的世界也走進了漂移檢查 ⇒ 它不是「只在對不上時跑」:$(printf '%s' "$_od5" | grep -E 'gate:' | head -2 | tr '\n' ' ')"
+fi
+
+# ── B2(codex R1 nit):B 測的是「ref 不存在」, 而宣稱的軸是「歷史裡沒有一版對得上」──
+#    這兩件事在輸出上同一個樣子。⇒ 補一格:**origin/dev 存在而且有歷史, 但沒有任何 raw sha 命中**。
+RD6="$WORK/rd6"; setup_repo "$RD6"
+# 先讓歷史多一顆(而且【不是】帳本記的那一份), 再把 origin/dev 指到它
+printf '%s\n' "-- 第一次改" >> "$RD6/supabase/migrations/20260101000000_base.sql"
+( cd "$RD6" && git add supabase/migrations/20260101000000_base.sql && git commit -qm "第一次改" )
+# 🔴 把帳本那一列的 sha 換成一個【現造的、歷史上不存在】的值 ⇒ 歷史有得找而找不到
+python3 - "$RD6" <<'PYEOF'
+import io,sys
+p=sys.argv[1]+"/supabase/APPLIED.tsv"
+s=io.open(p,encoding="utf-8").read().split("\n")
+out=[]
+for l in s:
+    if l.startswith("20260101000000\t"):
+        c=l.split("\t"); c[1]="f"*64; l="\t".join(c)
+    out.append(l)
+io.open(p,"w",encoding="utf-8").write("\n".join(out))
+PYEOF
+( cd "$RD6" && git add supabase/APPLIED.tsv && git commit -qm "帳本記一個歷史上不存在的 sha" )
+mk_origin_dev "$RD6"
+printf '%s\n' "-- 第二次改" >> "$RD6/supabase/migrations/20260101000000_base.sql"
+( cd "$RD6" && git add supabase/migrations/20260101000000_base.sql && git commit -qm "第二次改" )
+cat > "$RD6/apps/admin/src/drift.ts" <<'TS'
+export const drift = 6;
+TS
+( cd "$RD6" && git add apps/admin/src/drift.ts && git commit -qm "app 一支" )
+BD6="$(cd "$RD6" && git rev-parse HEAD~1)"; TD6="$(cd "$RD6" && git rev-parse HEAD)"
+RESD6="$(run_gate "$RD6" "refs/heads/dev $TD6 refs/heads/dev $BD6")"
+_od6="${RESD6#*|}"
+if printf '%s' "$_od6" | grep -qF "$DRIFT_ENTER" \
+   && ! printf '%s' "$_od6" | grep -qF "$DRIFT_OK" \
+   && printf '%s' "$_od6" | grep -qF "1 pending"; then
+  ok "B2 origin/dev **有歷史而沒有一版 raw sha 對得上** ⇒ 維持 PENDING(B 只測到 ref 不存在)"
+else
+  bad "B2 歷史有得找而找不到, 卻降級了 ⇒ 它在拿一個沒人記過的版本背書:$(printf '%s' "$_od6" | grep -E 'gate:' | head -3 | tr '\n' ' ')"
+fi
+
+# ── G / H:🔴🔴 **這一族是往【少擋】偏的盲區, 而它不只一種** ────────────────────
+#    `ledger_drift_code_only` 丟掉「整行都是行註解」的行與空行 —— 而它**分不出那一行在不在字串裡**。
+#    ⇒ 一個**只動多行字串常值內容**的改動, 會被讀成「只有註解不同」而**降級**。
+#    🛑🛑 **這兩格斷言的是【現況】不是【正確】** —— 它們的綠代表「盲區還在」。
+#       主視窗 `-f8` 2026-09-06 裁:**接受為殘餘風險, 不做**(要關掉得 lex SQL)。
+#       ⇒ 哪天有人真的去 lex 了, **這兩格會紅**, 而那時閘的註解與板列 ⟦db-LEDGERSHADRIFT⟧ 要一起改。
+#    ⛔ ~~第一版的 G/H 對這個盲區【恆綠】~~(codex R2 must-fix):它們**另外加了真的 SQL**
+#       ⇒ 不管 lexer 修不修都是 PENDING。⇒ 現在改成**只動既有多行字串裡的那一行**。
+DRIFT_STR_FILE='supabase/migrations/20260101000000_base.sql'
+
+# G:只把字串裡那一行的**文字改掉**, 別的一個字都不動。
+RD7="$WORK/rd7"; setup_repo "$RD7"
+python3 - "$RD7/$DRIFT_STR_FILE" <<'PYEOF'
+import io,sys
+p=sys.argv[1]; s=io.open(p,encoding="utf-8").read()
+old="-- 這一行在字串裡, 不是註解"
+assert s.count(old)==1
+io.open(p,"w",encoding="utf-8").write(s.replace(old,"-- 這一行在字串裡, 改過了",1))
+PYEOF
+( cd "$RD7" && git add "$DRIFT_STR_FILE" && git commit -qm "只改字串裡那一行" )
+mk_origin_dev "$RD7"; drift_seal "$RD7"
+BD7="$(cd "$RD7" && git rev-parse HEAD~1)"; TD7="$(cd "$RD7" && git rev-parse HEAD)"
+RESD7="$(run_gate "$RD7" "refs/heads/dev $TD7 refs/heads/dev $BD7")"
+_od7="${RESD7#*|}"
+if printf '%s' "$_od7" | grep -qF "$DRIFT_OK" && printf '%s' "$_od7" | grep -qF "0 pending"; then
+  ok "G 只改多行字串裡那一行 ⇒ **被降級**(🔴 現況 = 少擋;主視窗已裁接受為殘餘風險)"
+else
+  bad "G 這個盲區的現況變了 ⇒ 若是刻意修好的, 閘的註解與板列要一起改:$(printf '%s' "$_od7" | grep -E 'gate:' | head -3 | tr '\n' ' ')"
+fi
+
+# H:同一族的**第二種** —— 在那個多行字串裡插一個**空行**, 別的一個字都不動。
+#    🔬 依據(我複驗過 codex R2 的反例):`printf "SELECT 'a\\n\\nb';\\n"` 與 `printf "SELECT 'a\\nb';\\n"`
+#       各過一次那道 grep ⇒ **兩個 sha 逐字元相同** ⇒ 我原本寫「唯一往少擋偏」太窄。
+RD8="$WORK/rd8"; setup_repo "$RD8"
+python3 - "$RD8/$DRIFT_STR_FILE" <<'PYEOF'
+import io,sys
+p=sys.argv[1]; s=io.open(p,encoding="utf-8").read()
+old="IS 'note\n"
+assert s.count(old)==1
+io.open(p,"w",encoding="utf-8").write(s.replace(old,"IS 'note\n\n",1))
+PYEOF
+( cd "$RD8" && git add "$DRIFT_STR_FILE" && git commit -qm "只在字串裡插一個空行" )
+mk_origin_dev "$RD8"; drift_seal "$RD8"
+BD8="$(cd "$RD8" && git rev-parse HEAD~1)"; TD8="$(cd "$RD8" && git rev-parse HEAD)"
+RESD8="$(run_gate "$RD8" "refs/heads/dev $TD8 refs/heads/dev $BD8")"
+_od8="${RESD8#*|}"
+if printf '%s' "$_od8" | grep -qF "$DRIFT_OK" && printf '%s' "$_od8" | grep -qF "0 pending"; then
+  ok "H 只在多行字串裡插一個空行 ⇒ **也被降級**(🔴 同一族第二種;「唯一」那句已訂正)"
+else
+  bad "H 這個盲區的現況變了 ⇒ 同 G, 三處(閘註解 / 板列 / 本格)要一起改:$(printf '%s' "$_od8" | grep -E 'gate:' | head -3 | tr '\n' ' ')"
 fi
 
 echo

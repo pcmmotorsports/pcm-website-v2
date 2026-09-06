@@ -1,0 +1,170 @@
+# codex 對抗審查 R2 · ⟦b4-CARDPENDINGWINDOW⟧ · 2026-09-06
+
+🔴 **裁剪過** —— 原始 session log 11322 行 / 約 2784 KB, 只留最後 160 行(結論與 findings)。
+⚠️ 被裁掉的是逐檔閱讀的過程軌跡, **沒有保留**。
+
+🔴🔴 **這一輪最重要的一條(#1)**:它推翻了 R1 修法 —— 我把區塊搬到函式頭以「統一鎖順序」,
+   而全隊真正的順序是【先鎖列、再拿 advisory】(量:`begin_charge_attempt` prosrc 的 FOR UPDATE=640 / advisory=1346)
+   ⇒ 搬到頭是**反向**, 我親手造出那個環。已搬回尾巴。
+
+---
+
+FAIL
+
+R1 檔案內容重複一次；去重後其實是 **12 條 must-fix + 2 條 nit，共 14 條**，不是作者宣稱的 9+2。以下全部核對，不隱藏多出的三條。
+
+## (1) R1 逐條複核
+
+1. **沒修好** — 已入帳但仍為 `unpaid/needs_human` 的匯款單仍符合取消述詞，未檢查實收款或 `order_payments`：`20260906700000...sql:187-204`。
+
+2. **修得不對（製造新問題）** — 搬到冪等 `RETURN` 前，確實能讓成功重播補做 supersede；但也把 advisory lock 搬到目標 order row lock 前，和 `begin_charge_attempt` 的相反鎖序形成新死結：新檔 `:182,216-220`；來源檔 `20260904050000...sql:87-91,118`。
+
+3. **沒修好** — after-check 仍只數 `cancelled_reason='superseded_by_card'`，沒有掃「成功刷卡單＋仍存活匯款兄弟單」：`after-checks/20260906700000...sql:21-29`。
+
+4. **修得不對（製造新問題）** — 新增的只是 supersede 區塊內 `k.payment_channel='tappay'`，不是 `confirm_order_payment` 的明確輸入驗證：主 migration `:176-178,490-492`。現行 CHECK 會令錯誤的 bank-confirm 整筆 rollback，但新條件也會靜默漏掉 channel 漂移／未來其他刷卡 channel。
+
+5. **修得不對（製造新問題）** — R1 所述「誤 confirm 匯款單後持久化」會被 schema CHECK 擋回，但新搬移反而讓正常 TapPay K 與 `begin_charge_attempt(K)` 可形成 advisory↔row 的 40P01：主 migration `:490-496,533-538`；來源 `:87-91,118`。
+
+6. **沒修好** — plan 要求三支真入口與真實並發；鑽機自己承認只測抽出的 `zz_test_supersede`，並發段也是手寫 UPDATE 模型：`probe-card-success-supersede.sh:4-11,128-230`；plan `:151,164`。
+
+7. **修好了** — 甲-4 現在同時要求非零 rc 與命中 `前置閘③`：`probe-card-success-supersede.sh:100-104`。
+
+8. **修得不對（製造新問題）** — ACL 閘允許兩角色任意套在三支函式上，也允許「完全沒有必要 grant」；與來源要求的逐函式精確 ACL 不符：主 migration `:104-120`；來源 `20260810170000...sql:604-680`。
+
+9. **修得不對（製造新問題）** — 三段原 COMMENT 前綴逐字保留並成功追加，但新字面宣稱 `begin_charge_attempt` 也採 advisory-first，與實碼相反：主 migration `:302-304,446-448,703-721`。
+
+10. **修好了** — rollback 指示已要求先 `ROLLBACK;`，再於同一 session 設 force：rollback `:27-35`。
+
+11. **修好了** — 文件已明說 force 只略過 md5，不會略過 overload 數量閘：rollback `:36-38`。
+
+12. **修好了** — 主 migration 與 rollback 都加入 `lock_timeout='5s'`、`statement_timeout='60s'`：主 migration `:39-40`；rollback `:42-43`。
+
+13. **修好了** — after-check 已把三個函式名各自綁定其新舊 md5：after-check `:31-59`。
+
+14. **修得不對（製造新問題）** — board 已改成 `doing`，但 plan 又宣稱「已過 codex R1」，實際 R1 是 FAIL；commit 也錯報 9+2 且宣稱全修：plan `:3`；board `:341`；commit `a3fab0fe0`。
+
+## (2) 第二輪新 findings
+
+1. `20260906700000...sql:490-496,533-538`＋`20260904050000...sql:87-91,118`  
+正常 confirm 持 user advisory 等 K row；正常 begin 持 K row 等同一 advisory，構成真正 40P01。`must-fix`
+
+2. `probe-card-success-supersede.sh:211-228`  
+「新世界」兩個 session 都被寫成 advisory→row，沒有重現實際 begin 的 row→advisory；而且只檢查沒有 deadlock 字樣，兩邊因其他錯誤失敗也免費綠。`must-fix`
+
+3. `20260906700000...sql:324-405`  
+fallback 是可由 authenticated 呼叫的 SECURITY DEFINER；現在會在 token／ownership 驗證前取得受害者 advisory 與 sibling row locks，可被已登入使用者拿來製造鎖阻塞。`must-fix`
+
+4. `20260906700000...sql:104-120`  
+ACL 白名單沒有要求 main/confirm 必須是 `payment_confirmer`、fallback 必須是 `authenticated`；錯配或缺 grant 都能通過。`must-fix`
+
+5. `20260906700000...sql:69-83,104-120`  
+閘只看直接 `proacl`，沒驗 owner、角色繼承、有效 EXECUTE 與 `SET ROLE`；能繞過 SECURITY DEFINER 的實際可呼叫面。`must-fix`
+
+6. `ROLLBACK.sql:77-460,463-493`  
+rollback 還原函式本體，卻完全沒有還原三段 COMMENT；回滾後 catalog 仍會宣稱存在已移除的 supersede 副作用。`must-fix`
+
+7. `ROLLBACK.sql:57-62,77,463-493`  
+前置只按函式名數量、force 可略過 body；若唯一同名函式已換 signature，`CREATE OR REPLACE` 會新增 overload，事後斷言又未驗數量／signature，可能假綠。`must-fix`
+
+8. `ROLLBACK.sql:49,493`  
+`pcm.rollback_force` 未於結尾 RESET；同一 DB session 後續再跑 rollback，會持續跳過 md5 防線。`must-fix`
+
+9. `20260906700000...sql:176-178,348-350,490-492`  
+是否 supersede 被綁在可變的字串 `payment_channel='tappay'`，而不是已成功的刷卡證據；channel 漂移或新增刷卡 channel 時，該取消的兄弟單會被靜默放過。`must-fix`
+
+10. `plan.md:3,150-164`＋`launch-todo.md:341`＋commit `a3fab0fe0`  
+plan 明載資金判斷另切片、鑽機須測真入口；board 也承認 target-channel 洞仍在，但 commit body 卻宣稱「R1 全修、真實新鎖序無死結」。宣稱與事實互相矛盾。`must-fix`
+
+11. `20260906700000...sql:35,302-304,446-448,703-721`  
+檔頭說「只 CREATE OR REPLACE 三支函式」，實際另有三個 COMMENT 與 catalog 檢查；「零資料表 DML」可成立，但「只」不成立。`nit`
+
+## 打不破
+
+- **冪等重播補 supersede**：搬到 `RETURN` 前這個語意本身正確；成功卡單重播應補取消遺漏的兄弟單。打破的是它採用的鎖順序。
+- **已 `superseded_at` attempt 重送**：區塊先執行，但後續 RAISE 會令整筆交易 rollback，不會留下已提交的 sibling cancellation。
+- **Timeout**：5 秒 lock／60 秒 statement 對三支 catalog replace 屬合理 fail-fast；太短只會使整筆 explicit transaction 失敗並需要重試，不會部分套用。
+- **COMMENT 舊內容**：三段舊 COMMENT 都逐字保留；問題只在新增尾段的鎖序敘述不實。
+- **函式本體還原**：移除新增區塊後，三支新函式與來源本體相同；rollback 三支本體也確實等於來源。
+- **正式庫 ACL 是否當場擋貼**：依 R1 當時記錄的 ACL，這個寬鬆閘不會擋；本輪沒有重新查正式庫，不能把該快照冒充目前 live 狀態。
+- **唯讀零留痕**：本輪未修改任何檔案；工作樹與 staged diff 均為空。
+tokens used
+272,151
+FAIL
+
+R1 檔案內容重複一次；去重後其實是 **12 條 must-fix + 2 條 nit，共 14 條**，不是作者宣稱的 9+2。以下全部核對，不隱藏多出的三條。
+
+## (1) R1 逐條複核
+
+1. **沒修好** — 已入帳但仍為 `unpaid/needs_human` 的匯款單仍符合取消述詞，未檢查實收款或 `order_payments`：`20260906700000...sql:187-204`。
+
+2. **修得不對（製造新問題）** — 搬到冪等 `RETURN` 前，確實能讓成功重播補做 supersede；但也把 advisory lock 搬到目標 order row lock 前，和 `begin_charge_attempt` 的相反鎖序形成新死結：新檔 `:182,216-220`；來源檔 `20260904050000...sql:87-91,118`。
+
+3. **沒修好** — after-check 仍只數 `cancelled_reason='superseded_by_card'`，沒有掃「成功刷卡單＋仍存活匯款兄弟單」：`after-checks/20260906700000...sql:21-29`。
+
+4. **修得不對（製造新問題）** — 新增的只是 supersede 區塊內 `k.payment_channel='tappay'`，不是 `confirm_order_payment` 的明確輸入驗證：主 migration `:176-178,490-492`。現行 CHECK 會令錯誤的 bank-confirm 整筆 rollback，但新條件也會靜默漏掉 channel 漂移／未來其他刷卡 channel。
+
+5. **修得不對（製造新問題）** — R1 所述「誤 confirm 匯款單後持久化」會被 schema CHECK 擋回，但新搬移反而讓正常 TapPay K 與 `begin_charge_attempt(K)` 可形成 advisory↔row 的 40P01：主 migration `:490-496,533-538`；來源 `:87-91,118`。
+
+6. **沒修好** — plan 要求三支真入口與真實並發；鑽機自己承認只測抽出的 `zz_test_supersede`，並發段也是手寫 UPDATE 模型：`probe-card-success-supersede.sh:4-11,128-230`；plan `:151,164`。
+
+7. **修好了** — 甲-4 現在同時要求非零 rc 與命中 `前置閘③`：`probe-card-success-supersede.sh:100-104`。
+
+8. **修得不對（製造新問題）** — ACL 閘允許兩角色任意套在三支函式上，也允許「完全沒有必要 grant」；與來源要求的逐函式精確 ACL 不符：主 migration `:104-120`；來源 `20260810170000...sql:604-680`。
+
+9. **修得不對（製造新問題）** — 三段原 COMMENT 前綴逐字保留並成功追加，但新字面宣稱 `begin_charge_attempt` 也採 advisory-first，與實碼相反：主 migration `:302-304,446-448,703-721`。
+
+10. **修好了** — rollback 指示已要求先 `ROLLBACK;`，再於同一 session 設 force：rollback `:27-35`。
+
+11. **修好了** — 文件已明說 force 只略過 md5，不會略過 overload 數量閘：rollback `:36-38`。
+
+12. **修好了** — 主 migration 與 rollback 都加入 `lock_timeout='5s'`、`statement_timeout='60s'`：主 migration `:39-40`；rollback `:42-43`。
+
+13. **修好了** — after-check 已把三個函式名各自綁定其新舊 md5：after-check `:31-59`。
+
+14. **修得不對（製造新問題）** — board 已改成 `doing`，但 plan 又宣稱「已過 codex R1」，實際 R1 是 FAIL；commit 也錯報 9+2 且宣稱全修：plan `:3`；board `:341`；commit `a3fab0fe0`。
+
+## (2) 第二輪新 findings
+
+1. `20260906700000...sql:490-496,533-538`＋`20260904050000...sql:87-91,118`  
+正常 confirm 持 user advisory 等 K row；正常 begin 持 K row 等同一 advisory，構成真正 40P01。`must-fix`
+
+2. `probe-card-success-supersede.sh:211-228`  
+「新世界」兩個 session 都被寫成 advisory→row，沒有重現實際 begin 的 row→advisory；而且只檢查沒有 deadlock 字樣，兩邊因其他錯誤失敗也免費綠。`must-fix`
+
+3. `20260906700000...sql:324-405`  
+fallback 是可由 authenticated 呼叫的 SECURITY DEFINER；現在會在 token／ownership 驗證前取得受害者 advisory 與 sibling row locks，可被已登入使用者拿來製造鎖阻塞。`must-fix`
+
+4. `20260906700000...sql:104-120`  
+ACL 白名單沒有要求 main/confirm 必須是 `payment_confirmer`、fallback 必須是 `authenticated`；錯配或缺 grant 都能通過。`must-fix`
+
+5. `20260906700000...sql:69-83,104-120`  
+閘只看直接 `proacl`，沒驗 owner、角色繼承、有效 EXECUTE 與 `SET ROLE`；能繞過 SECURITY DEFINER 的實際可呼叫面。`must-fix`
+
+6. `ROLLBACK.sql:77-460,463-493`  
+rollback 還原函式本體，卻完全沒有還原三段 COMMENT；回滾後 catalog 仍會宣稱存在已移除的 supersede 副作用。`must-fix`
+
+7. `ROLLBACK.sql:57-62,77,463-493`  
+前置只按函式名數量、force 可略過 body；若唯一同名函式已換 signature，`CREATE OR REPLACE` 會新增 overload，事後斷言又未驗數量／signature，可能假綠。`must-fix`
+
+8. `ROLLBACK.sql:49,493`  
+`pcm.rollback_force` 未於結尾 RESET；同一 DB session 後續再跑 rollback，會持續跳過 md5 防線。`must-fix`
+
+9. `20260906700000...sql:176-178,348-350,490-492`  
+是否 supersede 被綁在可變的字串 `payment_channel='tappay'`，而不是已成功的刷卡證據；channel 漂移或新增刷卡 channel 時，該取消的兄弟單會被靜默放過。`must-fix`
+
+10. `plan.md:3,150-164`＋`launch-todo.md:341`＋commit `a3fab0fe0`  
+plan 明載資金判斷另切片、鑽機須測真入口；board 也承認 target-channel 洞仍在，但 commit body 卻宣稱「R1 全修、真實新鎖序無死結」。宣稱與事實互相矛盾。`must-fix`
+
+11. `20260906700000...sql:35,302-304,446-448,703-721`  
+檔頭說「只 CREATE OR REPLACE 三支函式」，實際另有三個 COMMENT 與 catalog 檢查；「零資料表 DML」可成立，但「只」不成立。`nit`
+
+## 打不破
+
+- **冪等重播補 supersede**：搬到 `RETURN` 前這個語意本身正確；成功卡單重播應補取消遺漏的兄弟單。打破的是它採用的鎖順序。
+- **已 `superseded_at` attempt 重送**：區塊先執行，但後續 RAISE 會令整筆交易 rollback，不會留下已提交的 sibling cancellation。
+- **Timeout**：5 秒 lock／60 秒 statement 對三支 catalog replace 屬合理 fail-fast；太短只會使整筆 explicit transaction 失敗並需要重試，不會部分套用。
+- **COMMENT 舊內容**：三段舊 COMMENT 都逐字保留；問題只在新增尾段的鎖序敘述不實。
+- **函式本體還原**：移除新增區塊後，三支新函式與來源本體相同；rollback 三支本體也確實等於來源。
+- **正式庫 ACL 是否當場擋貼**：依 R1 當時記錄的 ACL，這個寬鬆閘不會擋；本輪沒有重新查正式庫，不能把該快照冒充目前 live 狀態。
+- **唯讀零留痕**：本輪未修改任何檔案；工作樹與 staged diff 均為空。
+rc=0

@@ -751,3 +751,108 @@ describe('ProductsPage ⟦search-CATSWITCHSLOW⟧ 切分類的載入回饋', () 
     expect(container.textContent).not.toContain('更新中…');
   });
 });
+
+// 🔴🔴 **車款樹讀不到 ⇒ 講一句;而【真的沒有】仍然什麼都不說。**
+//   (2026-09-06 Sean 拍甲 · 板列 ⟦search-TAXONOMYTIMEOUT⟧ · plan
+//    `docs/plans/2026-09-06-vehicle-taxonomy-failed-notice-plan.md`)
+//   🛑 **兩格【必須成對】** —— 只有第一格的話, 一個「無條件顯示那句話」的實作照樣全綠。
+describe('ProductsPage · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT⟧)', () => {
+  it('failed=true ⇒ 那句話在(role="alert")', () => {
+    render(
+      <ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={[]} vehicleTaxonomyFailed />,
+    );
+    expect(screen.getByRole('alert').textContent).toContain('車款清單暫時無法載入');
+  });
+
+  it('🔵 負對照:清單是空的【而沒有失敗】⇒ 那句話不得出現', () => {
+    render(
+      <ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={[]} vehicleTaxonomyFailed={false} />,
+    );
+    expect(screen.queryByText(/車款清單暫時無法載入/)).toBeNull();
+  });
+});
+
+// 🔴🔴 **另兩扇門(⟦search-SILENTDOORS2⟧)** —— 與車款那一扇同一個形狀。
+//   🛑 **每一組都成對**:少了負對照, 一個無條件顯示的實作會四格全綠。
+describe('ProductsPage · 分類/品牌讀不到也要講一句(⟦search-SILENTDOORS2⟧)', () => {
+  const base = { products: FIXTURE, error: false, categories: CATEGORIES, motoBrands: MOTO_BRANDS };
+
+  it('🔴 分類 failed=true ⇒ 那句話在', () => {
+    render(<ProductsPage {...base} categoryTaxonomyFailed />);
+    expect(screen.getByText(/分類清單暫時無法載入/)).toBeDefined();
+  });
+
+  it('🔵 負對照:分類沒失敗 ⇒ 那句話不得出現', () => {
+    render(<ProductsPage {...base} categoryTaxonomyFailed={false} />);
+    expect(screen.queryByText(/分類清單暫時無法載入/)).toBeNull();
+  });
+
+  it('🔴 品牌 failed=true ⇒ 那句話在', () => {
+    render(<ProductsPage {...base} brandTaxonomyFailed />);
+    expect(screen.getByText(/品牌清單暫時無法載入/)).toBeDefined();
+  });
+
+  it('🔵 負對照:品牌沒失敗 ⇒ 那句話不得出現', () => {
+    render(<ProductsPage {...base} brandTaxonomyFailed={false} />);
+    expect(screen.queryByText(/品牌清單暫時無法載入/)).toBeNull();
+  });
+
+  // 🔴🔴 **這一格是 R2 逼出來的, 而 R2 是對的 —— 我自己複驗過**:
+  //   我為那個版面錯位寫的 `products-layout-grid-browser.test.tsx` 是**自己餵字串 DOM**、
+  //   **沒有 import `ProductsPage`** ⇒ 把真元件那層 `gridColumn` 容器【刪掉】,
+  //   **那四格與這裡 56 格【全部照樣綠】**(2026-09-06 實測 4 passed / 56 passed)
+  //   ⇒ 🛑 **那個 Critical 修法當時零守門, 可以無聲回歸。**
+  //   📌 **一支測試證明了「那條 CSS 規則會這樣動」, 不等於證明「這個元件有那樣寫」。**
+  //   ✅ 兩把尺分工:**元件有沒有包 = 這一格(jsdom)** · **CSS 規則行為 = 那支 browser**。
+  //   🔴🔴 **2026-09-06 R3(codex `gpt-5.6-sol`)FAIL 補的三格** —— 上面那一段話是對的,
+  //     而**我只把它做在【分類】那一顆身上**:原本這一格只 render `categoryTaxonomyFailed`
+  //     ⇒ 📌 **把品牌那顆搬到包裝外面, 這裡照樣全綠** ⇒ 而「只有品牌那一扇壞」是一個真的世界。
+  //     ⇒ 🛑 **一格守門守住了它抽樣到的那一顆, 而我把它讀成守住了那個規則。**
+  //     ✅ 改成【逐顆】跑, 並且**多釘一件事**:那層包裝必須是 `.pp-layout` 的**直接子層** ——
+  //        少了它, 把包裝連同 notice 一起搬到 grid 外面也會綠, 而那是另一種版面。
+  it.each([
+    ['分類', { categoryTaxonomyFailed: true }, /分類清單暫時無法載入/],
+    ['品牌', { brandTaxonomyFailed: true }, /品牌清單暫時無法載入/],
+  ] as const)(
+    '🔴🔴 %s 那顆 notice 必須被包在 `grid-column: 1 / -1` 的容器裡, 而那層是 `.pp-layout` 的直接子層',
+    (_名, props, 字樣) => {
+      const { container } = render(<ProductsPage {...base} {...props} />);
+      const notice = container.querySelector('[role="alert"]');
+      expect(notice, '量不到 notice ⇒ 選擇器沒接上, 這一發作廢').not.toBeNull();
+      expect(notice!.textContent, '量到的是別顆 notice ⇒ 這一發作廢').toMatch(字樣);
+      const parent = notice!.parentElement as HTMLElement;
+      expect(parent.style.gridColumn).toBe('1 / -1');
+      expect(parent.parentElement?.className).toContain('pp-layout');
+    },
+  );
+
+  //   🔴 **第三顆的方向【相反】** —— 車款那句(`:281`)本來就在 `.pp-layout` **外面**,
+  //     而**沒有任何一格在守它留在外面**(R3 finding)⇒ 有人「順手把三顆收在一起」就靜默回歸。
+  //     🔬 突變:把 `<VehicleTaxonomyNotice>` 移進 `.pp-layout` ⇒ 本格必須紅。
+  it('🔴 車款那顆 notice 必須留在 `.pp-layout` 【外面】(把它搬進去 ⇒ 本格紅)', () => {
+    const { container } = render(<ProductsPage {...base} vehicleTaxonomyFailed />);
+    const notice = container.querySelector('[role="alert"]');
+    expect(notice, '量不到 notice ⇒ 選擇器沒接上, 這一發作廢').not.toBeNull();
+    expect(notice!.textContent).toMatch(/車款清單暫時無法載入/);
+    const layout = container.querySelector('.pp-layout');
+    expect(layout, '量不到 .pp-layout ⇒ 這一發作廢').not.toBeNull();
+    expect(layout!.contains(notice!)).toBe(false);
+  });
+
+  it('🔵 負對照:這把尺不是恆真 —— 沒有 failed 時根本沒有那顆 notice 可量', () => {
+    const { container } = render(<ProductsPage {...base} />);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('🔴 三扇門【各講各的】(主視窗 2026-09-06 裁甲)—— 三個都 failed ⇒ 三句話都在', () => {
+    // 🛑 這一格把「三行同時出現」變成【量到的】而不是【推的】:
+    //    三扇門共用同一個 Supabase, 很可能一起壞 ⇒ 那個畫面是真的會出現的。
+    //    ⚠️ 而「三行會不會太吵」是視覺題 ⇒ 交 Sean 肉眼驗, 本格只證它們不互相吃掉。
+    render(
+      <ProductsPage {...base} vehicleTaxonomyFailed categoryTaxonomyFailed brandTaxonomyFailed />,
+    );
+    expect(screen.getByText(/車款清單暫時無法載入/)).toBeDefined();
+    expect(screen.getByText(/分類清單暫時無法載入/)).toBeDefined();
+    expect(screen.getByText(/品牌清單暫時無法載入/)).toBeDefined();
+  });
+});

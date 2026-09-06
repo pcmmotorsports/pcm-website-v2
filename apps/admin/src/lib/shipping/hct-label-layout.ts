@@ -133,3 +133,124 @@ export function buildLabelPages(input: BuildLabelPagesInput): LabelPage[] {
  *    而**業務會長大**, 那一天不會有人回來讀這段註解。
  */
 export const HCT_LABEL_BATCH_MAX = 5;
+
+/**
+ * 把排好的頁變成一份可以餵給 `htmlToPdf` 的 HTML。⟦ship-HCTLABELCAPTURE⟧ 片 D2。
+ *
+ * 🔴🔴 **這張紙上【一個字都沒有】—— 而那是刻意的, 不是偷懶。**
+ *    ① 貼紙那條路(`a4-2x3`)上的任何多餘文字都會**印在貼紙上**跟著貼上箱子。
+ *    ② 零文字 ⇒ **零字型** ⇒ 這條路完全避開了出貨單那條踩過的「本機好、線上豆腐字」。
+ *    ⇒ 📌 所以 `broken` 那一格**不在這裡處理** —— 呼叫端在產檔【之前】就要擋下來
+ *      (`route.ts` 逐字:一格不是 `label` ⇒ 回 409, 不產檔)。本函式收到 `broken` 會**丟例外**,
+ *      因為走到這裡代表那道閘漏了, 而**一張少一格的紙比一個錯誤難發現**。
+ *
+ * 🛑🛑 **`mm` 那組值我【沒有印出來量過】** —— 我沒有印表機也沒有那種貼紙(同本檔檔頭)。
+ *    ⇒ ✅ 校準鈕就是 `--hct-label-w` / `--hct-label-h`(本檔檔頭 `:43` 承諾過的那兩顆),
+ *      改它們不用動碼。**而條碼掃不掃得到只有真的印一張拿尺量才知道。**
+ *
+ * 🔴 圖用 `object-fit: contain` 而**不拉伸** —— 拉伸會改掉條碼的實體寬度,
+ *    而**一張變形的條碼在螢幕上看起來完全正常**。
+ *
+ * 🛑🛑 **已知限制(`Q-標籤10` 主視窗 2026-09-06 裁「丙 + 丁」, 而它是【決定】不是疏漏)**:
+ *    `hct-label-image.ts` 驗得到那張圖的**頭與尾**, **驗不到中間**。而中間壞掉有**兩種**, 分開講:
+ *    ① **解不開**(結構壞到 decoder 拒絕)⇒ ✅ **丁兜得到** —— `onerror` 觸發, 紙上長出警告框。
+ *    ② **解得開而內容是錯的**(結構合法、CRC 過, 而條碼是噪訊 / 是別張單的圖)
+ *       ⇒ 🛑 **兩層都不兜。** `error` 事件**不會**發(它 `load`), 伺服器層也看不出來。
+ *       ⇒ 📌 **只有人眼與掃碼機分得出來。**
+ *    ⛔ ~~我原本寫「兜它的是這一層的 onerror」~~(2026-09-06 code-reviewer must-fix 訂正)——
+ *      **那句話把 ① 的能力借給了 ②**, 而讀的人會以為②也被守住了。
+ *    ⛔ ~~甲案(伺服器層走 PNG chunk 鏈 + CRC)~~ 被裁掉, 理由逐字:
+ *      「一張真圖都沒看過、格式都未定, 為 PNG 寫 60 行驗證是替沒量過的東西付錢, 而它擋不住像素壞」。
+ *    ⚠️ **重估條件**:**拿到第一張真圖之後**回來重看要不要甲。板列 `⟦ship-HCTLABELCAPTURE⟧`。
+ */
+export function buildLabelSheetHtml(pages: LabelPage[], mime: string, sheet: LabelSheet): string {
+  // 🔴 `mime` 會被直接串進 `src="data:${mime};base64,..."` 這個**屬性值**裡。
+  //    今天唯一的呼叫端餵的是 `hct-label-image.ts` 那張固定表 ⇒ **今天不可達**;
+  //    🛑 而「今天不可達」不是「擋住了」—— 下一個呼叫端餵 `x" onerror="…` 就破得出屬性。
+  //    ⇒ 📌 一行白名單, 而它擋的是**下一個人**, 不是現在這個。
+  if (!/^image\/[a-z0-9.+-]+$/.test(mime)) {
+    throw new Error(`buildLabelSheetHtml: mime 不是一個 image/* 字面(收到 ${JSON.stringify(mime)})`);
+  }
+  const cells = (p: LabelPage): string =>
+    p.slots
+      .map((s) => {
+        if (s.kind === 'skipped') return '<div class="cell"></div>';
+        if (s.kind === 'broken') {
+          // 走到這裡 = 呼叫端那道閘漏了。**丟例外, 不畫一格空白。**
+          throw new Error(`buildLabelSheetHtml: 收到 broken(${s.reason}) —— 產檔前那道閘沒擋住`);
+        }
+        // 🔴🔴 **`onerror` 是這一片最後一道, 而它守的是【伺服器層驗不到的那一種壞】**
+        //    (`Q-標籤10`, 主視窗 2026-09-06 裁「丙 + 丁」):
+        //    `hct-label-image.ts` 驗得到**頭與尾**, **驗不到中間** —— codex R2 逐字打掉了我那個
+        //    「頭尾對 ⇒ 解得開」的推論(它餵我的 fixture ⇒ `ok:true`, 而第一個 chunk type
+        //    是非法的 `7f7f7f7f`, 真 Chromium 解不開)。
+        //    ⇒ 🛑 **而那種圖走到紙上, 就是一張【空白貼紙】** —— 而空白貼紙與正常貼紙
+        //      在每一個非視覺訊號上都一樣(HTTP 200、`%PDF`、頁數對)。
+        //    ⇒ ✅ 所以這裡不再賭「它解得開」, 改成**讓解不開這件事在紙上長出形狀**。
+        //
+        // 🔵 **那個形狀刻意不只靠文字**:警告框有一個**純 CSS 畫的大叉**(兩條旋轉的槓)——
+        //    這條路零字型, 而萬一中文變成豆腐字, **那個叉照樣看得出來**。
+        //    英文那一行同理(ASCII 一定畫得出來)。⇒ 📌 一張看得到錯的紙, 而不是一張空白的紙。
+        return (
+          `<div class="cell"><img alt="" src="data:${mime};base64,${s.imageBase64}" ` +
+          `onerror="this.closest('.cell').classList.add('broken')">` +
+          `<div class="warn"><div class="x"></div>` +
+          `<b>標籤圖片損壞, 勿貼, 請重印</b><span>DO NOT USE - REPRINT</span>` +
+          // 🔵 `shipmentRef` **沒有跳脫, 而它今天是安全的** —— 不是我漏了(對照正上方 `mime` 那道白名單):
+          //    DB 那一層釘死了它的字元集, `20260805170000_m4b_e10_b2_s1a1_shipments.sql` 逐字
+          //    `CHECK (shipment_reference ~ '^[23456789BCDFGHJKMNPQRSTVWXYZ]{6}$')`
+          //    ⇒ 六個大寫英數, **造不出任何 HTML 語法字元**。
+          //    📌 寫這一句的理由:不寫的話, 下一個人看到的是「一個守了、一個沒守」。
+          `<small>${s.shipmentRef}</small></div></div>`
+        );
+      })
+      .join('');
+  const sheets = pages.map((p) => `<section class="sheet">${cells(p)}</section>`).join('');
+  // 🔴 **兩種版面的格子大小不同, 而它在同一份 CSS 裡** ——
+  //    `single` = 一張圖一頁(整頁一格);`a4-2x3` = 105×99mm 六格。
+  //    ⛔ 少了這個分岔的話, 單張那條路會把圖擠進左上角 105×99mm 的角落, **而它照樣印得出來。**
+  const cols = sheet === 'single' ? 1 : A4_GRID.cols;
+  const cellW = sheet === 'single' ? '210mm' : '105mm';
+  const cellH = sheet === 'single' ? '297mm' : '99mm';
+  // 🔴🔴 **紙高也要是一顆鈕 —— 而 `297mm` 恰好落在本 repo 已經量到的那一格**
+  //    (code-reviewer 2026-09-06):`print-a4.css` 那族留著量測 ——
+  //    `min-height` 設成「宣告紙高」時**0 項的單也印 2 頁**, 壓下去才 1 頁。
+  //    ⚠️ **射程要寫清楚**:那一發量的是**瀏覽器列印 + `@page` 邊距**,
+  //      不是這條路的 puppeteer(`format:'A4'`, 邊距預設 0)⇒ **兩者不是同一個世界**。
+  //    🛑 而這條路**一份 PDF 都沒有產出來過** ⇒ 我沒有理由說它安全, 也沒有理由說它壞。
+  //    ⇒ ✅ 把它變成 `--hct-sheet-h`:**多印一頁的那天, 改一個值就好, 不必動碼。**
+  const sheetH = '297mm';
+  // 🔴 **下面那份 CSS 裡的 `@page{size:A4;margin:0}` 今天【是死的】** ——
+  //    `packages/pdf/src/index.ts` 的 `page.pdf({ format: 'A4' })` 沒帶 `preferCSSPageSize`
+  //    ⇒ CSS 的紙張設定被忽略(結果剛好一樣, 因為那支的邊距預設就是 0)。
+  //    ⇒ 📌 下一個人來改那一行會得到【零效果】, 而他不會知道為什麼。要它生效得改那一支。
+  //
+  // 🛑🛑 **而這段話住在【碼的註解】裡, 不住在那份 CSS 裡 —— 那是被守門逼出來的**:
+  //    我第一版把它寫成 CSS 註解 ⇒ 它**跟著進了每一份 PDF**,
+  //    而同檔那格「HTML 裡不得有中日韓文字」的負對照當場紅
+  //    (2026-09-06 實撞;那格本來是為了「零文字 ⇒ 零字型」而寫的, 結果先抓到我自己)。
+  //    ⇒ 📌 **給下一個人看的字, 不要放進要送出去的產物裡。**
+  //
+  // ⚠️ 另一個實撞:那段話裡原本有反引號 ⇒ 它住在 template literal 裡 ⇒ **字串被截斷**,
+  //    而 `build` 的錯誤訊息指到 CSS 那一行, 不是指到寫錯的地方(rc=1, 2026-09-06)。
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+:root{--hct-label-w:${cellW};--hct-label-h:${cellH};--hct-sheet-h:${sheetH}}
+*{margin:0;padding:0;box-sizing:border-box}
+@page{size:A4;margin:0}
+.sheet{display:grid;grid-template-columns:repeat(${cols},var(--hct-label-w));
+  grid-auto-rows:var(--hct-label-h);width:210mm;height:var(--hct-sheet-h);page-break-after:always}
+.sheet:last-child{page-break-after:auto}
+.cell{display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
+.cell img{max-width:100%;max-height:100%;object-fit:contain}
+.warn{display:none}
+.cell.broken img{display:none}
+.cell.broken .warn{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:4mm;width:100%;height:100%;border:2mm solid #000;text-align:center;font-size:6mm;font-weight:700}
+.cell.broken .warn span{font-size:5mm;letter-spacing:.5mm}
+.cell.broken .warn small{font-size:4mm;font-weight:400}
+.x{width:24mm;height:24mm;position:relative}
+.x::before,.x::after{content:'';position:absolute;top:11mm;left:0;width:24mm;height:2mm;background:#000}
+.x::before{transform:rotate(45deg)}
+.x::after{transform:rotate(-45deg)}
+</style></head><body>${sheets}</body></html>`;
+}
