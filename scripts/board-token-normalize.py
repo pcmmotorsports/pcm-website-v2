@@ -87,14 +87,25 @@ def scan(lines):
         f = SPLIT.split(line)
         if len(f) < 4 or f[1].strip() not in CLOSED:
             continue
+        # 🔴 身分登記必須在【有沒有 token】那道檢查【之前】——
+        #    2026-09-07 實測:原本寫在它後面 ⇒ `if not toks: continue` 先跑掉
+        #    ⇒ **沒有 token 的列(多半是 done)整批不進分母**, 而重複列大量住在那裡
+        #    (那一發漏掉 2/3 組, 我是拿獨立的量測去比才發現的)。
+        m_id = re.search(r'⟦[^⟧]+⟧|#\d+', f[2])
+        if m_id:
+            ids.setdefault(m_id.group(0), []).append(n)
+        else:
+            # 🔴 錨欄既沒有 ⟦錨⟧ 也沒有 #N 的列(2026-09-07 實測 160 列)——
+            #    舊的唯一性守門與本閘的錨版都【結構上】看不到它們, 而它們照樣會被 merge 複製。
+            #    ⇒ 退而用【事欄前 40 字】當身分。
+            #    ⚠️ 這是【弱身分】:兩列開頭一樣不代表是同一件事 ⇒ 印出來的措辭必須是「疑似」,
+            #       而不是斷言重複。判定要人開檔比對(本工具不猜)。
+            ids.setdefault('〔無錨·事欄前40〕' + f[3].strip()[:40], []).append(n)
         toks = FIND.findall(line)
         if not toks:
             continue
         m = re.search(r'⟦[^⟧]*⟧', f[2])
         key = m.group(0) if m else (f[2].strip() or f':{n}')
-        m_id = re.search(r'⟦[^⟧]+⟧|#\d+', f[2])
-        if m_id:
-            ids.setdefault(m_id.group(0), []).append(n)
         tok = leading_token(line, f)
         if tok:
             # ✅ 最後一格開頭有 token ⇒ 它就是答案。**其餘角括號是內文, 不算違規。**
@@ -152,6 +163,8 @@ def run(path, mode):
             print(f'   重複列 {k:32} 出現在 :{ns}')
         if dups:
             print('   🔴 **同一件事被數兩次** ⇒ 擋數/進度都會虛胖, 而兩份的內容通常【不一樣】。')
+            print('   ⚠️ 開頭是〔無錨·事欄前40〕的那幾筆 = **弱身分**(那些列沒有錨也沒有編號)')
+            print('      ⇒ **只是【疑似】** —— 兩列開頭一樣不代表是同一件事, 要開檔比對才算數。')
             print('      🛑 產生器多半是 merge 本身:兩條線改同一列 ⇒ git 逐行比對看不出是同一列的兩版 ⇒ 兩行都留。')
             print('      ⇒ 修法不是刪一行, 是【開檔比對哪一份是超集】再合;而下一次 merge 還會再來。')
         print(f'   ── 另外(只警告, 不影響 rc):態 done 而 token 仍 ⟨擋⟩ {len(dblock)} 列')
@@ -258,6 +271,12 @@ def selftest():
         '| open | #77 | 丑 | 誰 | ⟨擋(t)⟩ 正對照第一份:同一個 #77 出現兩列 ⇒ 必須叫 |',
         '| parked | #77 | 丑 | 誰 | ⟨擋(t)⟩ 正對照第二份(內容不同, 這正是 merge 產生的形狀) |',
         '| open | #78 | 寅 | 誰 | ⟨擋(t)⟩ 負對照:唯一的編號 ⇒ 必須【不】叫 |',
+        # 🔴 無錨列的兩個世界(2026-09-07 加;那 160 列兩道閘本來都看不到)
+        #    ⚠️ 這兩列【故意不放 token】—— 身分登記若寫在「有沒有 token」檢查之後就會漏掉它們,
+        #       而那正是我 2026-09-07 犯過的 bug(漏掉 2/3 組)。
+        '| done | — | 卯 | 誰 | 無錨正對照第一份, 而且這一列沒有 token |',
+        '| done | — | 卯 | 誰 | 無錨正對照第二份(事欄前 40 字相同)|',
+        '| done | — | 辰 | 誰 | 無錨負對照:事欄不同 ⇒ 必須【不】叫 |',
     ]
     io.open(bad, 'w', encoding='utf-8').write('\n'.join(rows_bad) + '\n')
     io.open(good, 'w', encoding='utf-8').write('\n'.join(
@@ -287,6 +306,10 @@ def selftest():
     ck('重複識別字 #77 指出兩個行號', len(dupk.get('#77', [])), 2)
     ck('重複識別字 負對照 #78 不叫', '#78' in dupk, False)
     ck('重複識別字 負對照 ⟦x-A⟧(唯一)不叫', '⟦x-A⟧' in dupk, False)
+    nk = [k for k in dupk if k.startswith('〔無錨')]
+    ck('無錨重複 正對照「卯」被抓到', len(nk), 1)
+    ck('無錨重複 指出兩個行號', len(dupk[nk[0]]) if nk else 0, 2)
+    ck('無錨 負對照「辰」不叫', any('辰' in k for k in dupk), False)
     mis2, db2, dup2 = scan(io.open(good, encoding='utf-8').read().split('\n'))
     ck('世界 B(乾淨)位移列', len(mis2), 0)
     ck('世界 B(乾淨)位移 2', len(mis2), 0)
