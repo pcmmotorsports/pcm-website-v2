@@ -30,9 +30,28 @@ import io, os, re, sys
 
 BOARD = 'docs/launch-todo.md'
 CLOSED = ('open', 'doing', 'parked', 'done', 'standing')
+# 「這列怎樣算做完」認得的字面(2026-09-07)。⚠️ 這是【字串比對】⇒ 兩個方向都會錯:
+#   用別的措辭寫了 ⇒ 少報有;寫了這幾個字而條件不可判定 ⇒ 多報有。**它是提醒, 不是判定。**
+CLOSE_WORDS = ('轉 `done`', '關閉條件', '轉 `doing`', '做完的定義', '收工條件')
 SPLIT = re.compile(r'(?<!\\)\|')
 FIND = re.compile(r'⟨(?:擋|不擋|未判|—)[^⟩]*⟩')
 HEADS = ('⟨擋', '⟨不擋', '⟨未判', '⟨—⟩')
+
+
+def _strip_mark(s):
+    """把刪除線與人貼上去的「重複列」標籤剝掉(第四層的【第二種讀法】)。"""
+    return re.sub(r'重複列|~~', '', s)
+
+
+def _norm_title(cell):
+    """標題欄正規化 —— ⚠️ **刻意【不剝】刪除線 `~~…~~`**。
+
+    🛑 `-ship` 2026-09-07 坑 3, 我親手重現:把來源列標上 `~~…~~ ⛔ 重複列` 之後,
+       **剝刪除線的量具命中 1 ⇒ 0**。
+    🎯 **貼上「這是重複」的標籤, 會讓找重複的量具漏掉它**
+       ⇒ 閘對【已標記的那些】永遠印綠, 而人會以為清乾淨了。
+    """
+    return re.sub(r'[*`⛔✅🔴🔵🟢🟡🛑📌🎯⚠️🔀 \u3000]', '', cell)
 
 
 def safe(s):
@@ -81,6 +100,7 @@ def scan(lines):
     """
     misplaced, done_blocking = [], []
     ids = {}                               # 識別字 -> [行號…](重複偵測, 見 dup_ids)
+    titles = []                            # (行號, 正規化標題, 錨)(第四層 ≥0.90 相似用)
     for n, line in enumerate(lines, 1):
         if not line.startswith('| '):
             continue
@@ -91,6 +111,9 @@ def scan(lines):
         #    2026-09-07 實測:原本寫在它後面 ⇒ `if not toks: continue` 先跑掉
         #    ⇒ **沒有 token 的列(多半是 done)整批不進分母**, 而重複列大量住在那裡
         #    (那一發漏掉 2/3 組, 我是拿獨立的量測去比才發現的)。
+        # 第四層要用的:標題欄原文(⚠️ **不剝刪除線**), 與這一列的錨(同錨的不重報)
+        _m_anchor = re.search(r'⟦[^⟧]+⟧', f[2])
+        titles.append((n, _norm_title(f[3]), _m_anchor.group(0) if _m_anchor else None))
         m_id = re.search(r'⟦[^⟧]+⟧|#\d+', f[2])
         if m_id:
             ids.setdefault(m_id.group(0), []).append(n)
@@ -115,8 +138,41 @@ def scan(lines):
         # ⛔ 開頭沒有 token, 而行內找得到 ⇒ 可能是合併推歪, 也可能【整列只有內文在講 token】。
         #    🛑 工具分不出這兩者 ⇒ 一律報「位移候選」, 而 --fix 只修**全行恰好一個**的情形。
         misplaced.append((n, key, f'{len(toks)} 個, 開頭沒有'))
+    # ═══ 第四層:標題 ≥0.90 相似(`-ship` 2026-09-07 交件, 主視窗裁「併進來不另開閘」)═══
+    #   🔴 為什麼要有它:我的第三層比【事欄前 40 字】—— 太窄。
+    #      `-ship` 用 ≥0.90 全標題相似度量到 **4 對**, 我那一層只撈到 **2**。
+    #      最難抓的一種是「**一列有錨、一列無錨**」:規則⑤只認錨重複(看不到)、
+    #      我的弱身分比前 40 字(兩列前 40 字不同 ⇒ 也看不到)⇒ **兩把尺各自失明。**
+    #
+    #   🛑 **而【比對前不剝刪除線】是這一層的核心, 不是風格**(`-ship` 坑 3, 我親手重現):
+    #      把來源列標上 `~~…~~ ⛔ 重複列` 之後, 剝刪除線的量具**命中 1 ⇒ 0**。
+    #      🎯 **貼上「這是重複」的標籤, 會讓找重複的量具漏掉它**
+    #      ⇒ 閘會對【已標記的那些】永遠印綠, 而人會以為清乾淨了。
+    import difflib as _dl
+    _norm = lambda s: re.sub(r'[*`⛔✅🔴🔵🟢🟡🛑📌🎯⚠️🔀 \u3000]', '', s)   # ⚠️ 刻意不剝 ~~
+    _sim = []
+    for _i in range(len(titles)):
+        for _j in range(_i + 1, len(titles)):
+            (na, ta, ka), (nb, tb, kb) = titles[_i], titles[_j]
+            if ka and kb and ka == kb:
+                continue                      # 同錨的已由 dup_ids 那層報過
+            if abs(len(ta) - len(tb)) > max(len(ta), len(tb)) * 0.3:
+                continue                      # 長度差太多 ⇒ 省掉比對
+            # 🔴 **兩種讀法都算, 取【較高】的那個**(2026-09-07 實測逼出來的):
+            #   `-ship` 坑 3 說「剝刪除線會讓量具失明」——【對, 而只治一半】。
+            #   我照他的做(不剝)之後, 那一對的相似度是 **0.8197** ⇒ 仍然抓不到,
+            #   因為 `~~` 與人貼上去的「重複列」三個字**自己拉低了相似度**。
+            #   🎯 ⇒ **標籤讓量具失明有兩條路:剝掉它會少東西, 留著它會多東西。**
+            #      **兩個方向都要算, 取較高的那個** —— 而**這是 selftest 那一格逼出來的**,
+            #      不是我想到的(我第一版只照「不剝」做, 那一格就紅了)。
+            r = max(_dl.SequenceMatcher(None, ta, tb).ratio(),
+                    _dl.SequenceMatcher(None, _strip_mark(ta), _strip_mark(tb)).ratio())
+            if r >= 0.90:
+                _sim.append((round(r, 4), na, nb))
+    _sim.sort(reverse=True)
+
     dup_ids = sorted((k, v) for k, v in ids.items() if len(v) > 1)
-    return misplaced, done_blocking, dup_ids
+    return misplaced, done_blocking, dup_ids, _sim
 
 
 def fix_line(line):
@@ -149,7 +205,7 @@ def fix_line(line):
 
 def run(path, mode):
     lines = io.open(path, encoding='utf-8').read().split('\n')
-    mis, dblock, dups = scan(lines)
+    mis, dblock, dups, sims = scan(lines)
     if mode == '--check':
         print(f'── board-token-normalize --check:{path}')
         print(f'   最後一格開頭沒有 token 而行內找得到 {len(mis)} 列')
@@ -221,20 +277,86 @@ def check_staged():
     staged = [x for x in r.stdout.split('\n') if x.strip()]
     if BOARD not in staged:
         return 0                      # 板沒 staged ⇒ 安靜不跑
+    # 🔴 2026-09-07 加(`-ship` 交件坑 1, 我實測重現):**板檔檔尾若沒有換行字元**,
+    #    任何人用 `>>` 追加一列 ⇒ **那一列會黏在最後一行的尾巴上**。
+    #    🛑 而最後一行常常是**引言文字**(不是 `| ` 開頭)⇒ **黏上去的那一整列從分母裡消失**
+    #       ⇒ 閘印「0 違規」、計數器少算一列, **而畫面上一切正常。**
+    #    📌 ⇒ 這一格問的不是格式, 是**下一個人追加時會不會安靜地掉一列**。
+    _tail = subprocess.run(['git', 'show', f':{BOARD}'], capture_output=True)
+    if _tail.returncode == 0 and _tail.stdout and not _tail.stdout.endswith(b'\n'):
+        print('   🔴 **板檔檔尾沒有換行字元** ⇒ 下一個用 `>>` 追加的人, 那一列會黏在最後一行尾巴上')
+        print('      ⇒ 若最後一行不是 `| ` 開頭(常常是引言), **那一整列會從所有計數的分母裡消失**。')
+        print('      ⇒ 修法:`printf \'\\n\' >> ' + BOARD + '`')
+    # 🔴 2026-09-07(`-ship` 交件坑 2):**負對照字串一旦被寫進板子, 它就不再是負對照。**
+    #    實測板上:`zzz` **76** 命中 · `zzq8842` **12** · `zzz_bogus` **6**
+    #    ⇒ 有人拿它們當「現造字串」跑 grep ⇒ **會回非 0, 而他分不出是誰貼的。**
+    #    🎯 **⇒ 一個負對照的有效期, 到它被寫進被測的那份檔為止** —— 而**寫的人正是在證明它不存在**。
+    #    ⇒ 這裡不擋(那是別人的列), 只在 staged 的板裡看到常見負對照字串時提醒一句。
+    _dirty = [w for w in ('zzz_bogus', 'zzq8842', 'zz-bogus')
+              if w in (subprocess.run(['git', 'show', f':{BOARD}'],
+                                      capture_output=True, text=True).stdout or '')]
+    # 🔴 2026-09-07 量到:七道閘合起來 14 行, 而**這一條 3 行與你這顆 commit 無關**
+    #    ⇒ 照本檔已有的原則(分開【你剛做的】與【這個板子的舊帳】), 收成一行。
+    if _dirty:
+        print(f'   🟡 板上已含 {len(_dirty)} 個【常被當負對照】的字串({", ".join(_dirty)})'
+              ' ⇒ 別再拿它們驗 0(負對照的有效期, 到它被寫進被測的那份檔為止)')
     s = subprocess.run(['git', 'show', f':{BOARD}'], capture_output=True, text=True)
     if s.returncode != 0:
         print(f'🟡 board-token 閘:讀不到 staged 的 {BOARD}(rc={s.returncode})⇒ **本閘沒看過**')
         return 0
-    mis, dblock, dups = scan(s.stdout.split('\n'))
-    print(f'── board-token 閘(warn-only, 讀的是 **staged** 那份):{BOARD}')
-    print(f'   最後一格開頭沒有 token 而行內找得到 {len(mis)} 列 · 態 done 而 token 仍 ⟨擋⟩ {len(dblock)} 列 · 重複識別字 {len(dups)} 個')
-    for n, k, why in mis:
-        print(f'   位移候選 :{n:5} {safe(k)}  {safe(why)}')
-    for n, k, why in dblock:
-        print(f'   done+擋  :{n:5} {safe(k)}  {safe(why)}')
-    for k, ns in dups:
-        print(f'   重複列   {safe(k):28} 出現在 :{ns}  ← 同一件事被數兩次')
-    if mis or dblock or dups:
+    mis, dblock, dups, sims = scan(s.stdout.split('\n'))
+    # ═══ 新開的列有沒有寫「怎樣算做完」(2026-09-07;主視窗三條件)═══
+    #   ① warn-only ② **只看 staged diff 裡【新增】的 open/doing 列**(不回頭掃既有的 354 列)
+    #   ③ 缺關閉條件字面 ⇒ 印一句「這列做到哪算完?」
+    #   🔴 為什麼只看新增的:2026-09-07 量到 open+doing 413 列裡只有 59 列(14.3%)寫了關閉條件。
+    #      **回頭補那 354 列是另一件事**;而修法在【開列那一刻】—— 掃全部只會讓每個人每次 commit
+    #      都看到一坨與他無關的舊債, 然後開始忽略這道閘。
+    d = subprocess.run(['git', 'diff', '--cached', '-U0', '--no-renames', '--', BOARD],
+                       capture_output=True, text=True)
+    newrows = []
+    notok = []          # 新開的 open/doing 列而【完全沒有 token】
+    if d.returncode == 0:
+        for ln in d.stdout.split('\n'):
+            if not ln.startswith('+| ') or ln.startswith('+++'):
+                continue
+            row = ln[1:]
+            g = SPLIT.split(row)
+            if len(g) < 4 or g[1].strip() not in ('open', 'doing'):
+                continue
+            m2 = re.search(r'⟦[^⟧]+⟧|#\d+', g[2])
+            key = m2.group(0) if m2 else g[3].strip()[:34]
+            if not any(w in row for w in CLOSE_WORDS):
+                newrows.append(key)
+            # 🔴 2026-09-07 加:新開的 open/doing 列【完全沒有 token】。
+            #    既有的「位移候選」要求行內至少有一個 ⟨…⟩ ⇒ **一個都沒有的列它看不到**。
+            #    而那正是 2026-09-07 12:5x 我用手抓到的那一列(⟦f3-PDPSKUSTATIC⟧):
+            #    計數器把它算進「未填」, 而**沒有人在看那一格** ⇒
+            #    🛑 白話版頭條那句「全部判完了」**有 20 分鐘是不成立的, 而沒有東西會出聲。**
+            if not FIND.search(row):
+                notok.append(key)
+    if notok:
+        print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 新開的 open/doing 列有 {len(notok)} 列【完全沒有擋上線 token】')
+        for k in notok:
+            print(f'   ⬜ 新列 {safe(k):32} ← **這列擋不擋上線?**(⟨擋⟩／⟨不擋⟩／⟨未判(為什麼)⟩)')
+        print('   🟡 沒 token ⇒ 被算進「未填」⇒ **「還在擋幾件」少算了它, 而沒有東西會出聲。**')
+    if newrows:
+        print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 新開的 open/doing 列有 {len(newrows)} 列沒寫「怎樣算做完」')
+        for k in newrows:
+            print(f'   ❓ 新列 {safe(k):32} ← **這列做到哪算完?**')
+        print('   🟡 沒關閉條件 ⇒ **接手的答不出「做到哪」、做完的答不出「能不能收」⇒ 兩邊都讓它卡著。**')
+        print(f'   ⇒ 末格補一句即可, 例「**轉 `done`** = <可 yes/no 的條件>」。認得:{"／".join(CLOSE_WORDS)}')
+    # 🔴 2026-09-07 12:5x 實測:一顆「開兩列」的 commit 讓五道閘印了 **16 行**,
+    #    而其中一半是【與這顆 commit 無關的全板舊債】(別人的列)。
+    #    🛑 那正是本檔自己寫過的失效模式:「每個人每次 commit 都看到一坨與他無關的舊債,
+    #       然後開始忽略這道閘。」⇒ **它會先殺掉前面那兩道【針對你這顆 commit】的提醒。**
+    #    ⇒ 📌 **全板性的三類在這裡只印【一行摘要】, 逐列清單留給 `--check`(人主動跑的那個)。**
+    _tot = len(mis) + len(dblock) + len(dups)
+    if _tot:
+        print(f'── board-token 閘(staged):全板另有 {_tot} 件舊帳'
+              f'(位移 {len(mis)} · done而標擋 {len(dblock)} · 重複識別字 {len(dups)})')
+        print('   ⚠️ **那些【不是這顆 commit 造成的】** ⇒ 逐列清單跑 '
+              '`python3 scripts/board-token-normalize.py --check`')
+    if mis or dblock or dups or notok:
         print('   🟡 **只是提醒, 不擋這顆 commit**(rc 恆 0)。修法:`python3 scripts/board-token-normalize.py --fix`')
         print('      🔴 而 `--fix` 動的是【工作樹】⇒ 修完要重新 `git add` 才會進這顆 commit。')
     return 0
@@ -271,6 +393,13 @@ def selftest():
         '| open | #77 | 丑 | 誰 | ⟨擋(t)⟩ 正對照第一份:同一個 #77 出現兩列 ⇒ 必須叫 |',
         '| parked | #77 | 丑 | 誰 | ⟨擋(t)⟩ 正對照第二份(內容不同, 這正是 merge 產生的形狀) |',
         '| open | #78 | 寅 | 誰 | ⟨擋(t)⟩ 負對照:唯一的編號 ⇒ 必須【不】叫 |',
+        # 🔴 第四層(≥0.90 相似)的兩個世界(`-ship` 2026-09-07 交件)
+        #    ⚠️ 正對照【一列有錨一列無錨】—— 那是最難抓、而前三層都看不到的形狀
+        '| open | ⟦x-TWIN⟧ | 這一列的標題刻意與下一列幾乎一字不差只差最後兩個字甲 | 誰 | ⟨擋(t)⟩ x |',
+        '| open | — | 這一列的標題刻意與下一列幾乎一字不差只差最後兩個字乙 | 誰 | ⟨擋(t)⟩ x |',
+        # 🔴 坑 3 的守門:同一對, 而來源列被標上刪除線 ⇒ **仍然要抓得到**
+        '| open | ⟦x-STRK⟧ | 這是一段刻意用來測刪除線會不會讓量具失明的標題文字甲甲 | 誰 | ⟨擋(t)⟩ x |',
+        '| open | — | ~~這是一段刻意用來測刪除線會不會讓量具失明的標題文字乙乙~~ ⛔ 重複列 | 誰 | ⟨擋(t)⟩ x |',
         # 🔴 無錨列的兩個世界(2026-09-07 加;那 160 列兩道閘本來都看不到)
         #    ⚠️ 這兩列【故意不放 token】—— 身分登記若寫在「有沒有 token」檢查之後就會漏掉它們,
         #       而那正是我 2026-09-07 犯過的 bug(漏掉 2/3 組)。
@@ -289,7 +418,7 @@ def selftest():
         if not ok:
             fails.append(name)
 
-    mis, db, dup = scan(io.open(bad, encoding='utf-8').read().split('\n'))
+    mis, db, dup, _sim1 = scan(io.open(bad, encoding='utf-8').read().split('\n'))
     ck('世界 A(壞)位移列', len(mis), 2)          # x-B, x-D(含跳脫那列)
     # ⛔ ~~原本斷言 x-E 重複相同=1 / x-F 重複不同=1~~
     # ⇒ 🔴 新定義下這兩列【開頭都有 token】⇒ 其餘角括號是內文 ⇒ **本來就不該叫**。
@@ -306,11 +435,15 @@ def selftest():
     ck('重複識別字 #77 指出兩個行號', len(dupk.get('#77', [])), 2)
     ck('重複識別字 負對照 #78 不叫', '#78' in dupk, False)
     ck('重複識別字 負對照 ⟦x-A⟧(唯一)不叫', '⟦x-A⟧' in dupk, False)
+    _p = {tuple(sorted((a, b))) for _, a, b in _sim1}
+    ck('第四層 正對照(有錨 vs 無錨)被抓到', len(_sim1) >= 1, True)
+    ck('第四層 坑3:來源列標了刪除線【仍然】抓得到',
+       any('刪除線' in rows_bad[a - 1] or '刪除線' in rows_bad[b - 1] for a, b in _p), True)
     nk = [k for k in dupk if k.startswith('〔無錨')]
     ck('無錨重複 正對照「卯」被抓到', len(nk), 1)
     ck('無錨重複 指出兩個行號', len(dupk[nk[0]]) if nk else 0, 2)
     ck('無錨 負對照「辰」不叫', any('辰' in k for k in dupk), False)
-    mis2, db2, dup2 = scan(io.open(good, encoding='utf-8').read().split('\n'))
+    mis2, db2, dup2, _sim2 = scan(io.open(good, encoding='utf-8').read().split('\n'))
     ck('世界 B(乾淨)位移列', len(mis2), 0)
     ck('世界 B(乾淨)位移 2', len(mis2), 0)
     ck('世界 B(乾淨)done+擋', len(db2), 0)
@@ -319,7 +452,7 @@ def selftest():
     print('  ── --fix 之後 ──')
     _before_angle = io.open(bad, encoding='utf-8').read().count('⟨')
     run(bad, '--fix')
-    mis3, _db3, _dup3 = scan(io.open(bad, encoding='utf-8').read().split('\n'))
+    mis3, _db3, _dup3, _sim3 = scan(io.open(bad, encoding='utf-8').read().split('\n'))
     ck('修後 位移', len(mis3), 0)
     # ⛔ ~~修後 重複相同=0 / 重複不同(刻意不修)=1~~ ⇒ 兩類已隨新定義移除(見 scan docstring)。
     # ✅ 換成新定義下真正該問的:x-F 開頭有 token ⇒ --fix 不該動它, 它那兩個角括號要原封不動。
@@ -373,8 +506,103 @@ def selftest():
             rc_b = check_staged()
         out = buf2.getvalue()
         ck('板 staged 有違規 ⇒ rc 仍 0(warn-only)', rc_b, 0)
-        ck('板 staged 有違規 ⇒ 有印出違規列', '位移候選' in out, True)
+        # ⛔ ~~原本斷言印出「位移候選」逐列~~ ⇒ 2026-09-07 12:5x 改成【一行摘要】
+        #    (實測那顆 commit 印 16 行, 一半是與它無關的全板舊債 ⇒ 會殺掉針對性的提醒)
+        #    ✅ 而這一格【不能因此拿掉】—— 它守的是「板 staged 時這道閘真的有輸出」。
+        ck('板 staged 有違規 ⇒ 有印出全板摘要', '全板另有' in out, True)
+        ck('板 staged ⇒ 不再逐列印全板舊債', '位移候選 :' in out, False)
         ck('板 staged 有違規 ⇒ 明說不擋', '不擋這顆 commit' in out, True)
+        # ═══ 新列缺關閉條件的兩個世界(2026-09-07;主視窗指定)═══
+        #   🔴 這兩格要真的分得出「**這次新增的**」與「**本來就在的**」——
+        #      所以先 commit 一版當底, 再加新列。
+        _c = git('commit', '-q', '-m', 'base')
+        # 🔴 不驗這一步的 rc, 下面三格會【全部空轉】:沒 commit 成功 ⇒ 沒有 base ⇒
+        #    `git diff --cached` 把【整份檔】都當成新增 ⇒ 正對照與負對照都會叫
+        #    ⇒ 而我 2026-09-07 第一發看到的是【正對照不叫】, 方向還相反 ⇒ 更難猜。
+        if _c.returncode != 0:
+            print(f'  🔴 selftest 建 base commit 失敗(rc={_c.returncode})⇒ 下面三格作廢')
+            return 1
+        base_rows = io.open(board, encoding='utf-8').read().rstrip('\n')
+        io.open(board, 'w', encoding='utf-8').write(
+            # 🔴 這一列的【事欄】刻意不含任何 CLOSE_WORDS ——
+        #    我第一版寫「沒寫關閉條件的新列」, 而那五個字【自己命中了】⇒ 正對照不叫。
+        #    📌 **描述一個東西的文字, 含著那個東西的關鍵字 ⇒ fixture 自己讓自己通過。**
+        base_rows + '\n| open | ⟦x-NOCLOSE⟧ | 新開一列而末格只有描述 | 誰 | ⟨擋(t)⟩ 只有描述 |\n')
+        git('add', BOARD)
+        buf4 = _io.StringIO()
+        with contextlib.redirect_stdout(buf4):
+            check_staged()
+        o4 = buf4.getvalue()
+        ck('新列沒寫關閉條件 ⇒ 叫', '⟦x-NOCLOSE⟧' in o4 and '做到哪算完' in o4, True)
+        ck('新列沒寫關閉條件 ⇒ rc 仍 0', check_staged(), 0)
+        # ═══ 新列【完全沒有 token】的兩個世界(2026-09-07)═══
+        #   ⚠️ 正對照那列刻意【一個角括號都不放】—— 我 11:2x 才踩過
+        #      「fixture 的描述文字自己命中判準」那個坑。
+        io.open(board, 'w', encoding='utf-8').write(
+            base_rows + '\n| open | ⟦x-NOTOK⟧ | 新開一列而末格只有描述 | 誰 | 只有描述 |\n')
+        git('add', BOARD)
+        buf9 = _io.StringIO()
+        with contextlib.redirect_stdout(buf9):
+            check_staged()
+        o9 = buf9.getvalue()
+        ck('新列完全沒 token ⇒ 叫', '⟦x-NOTOK⟧' in o9 and '這列擋不擋上線' in o9, True)
+        ck('新列完全沒 token ⇒ rc 仍 0', check_staged(), 0)
+        # 🔴 負對照:新列【有】token ⇒ 這一條不可以叫
+        #    (它仍可能因為「沒寫關閉條件」而被另一條叫 ⇒ 所以只比對「擋不擋上線」那句)
+        io.open(board, 'w', encoding='utf-8').write(
+            base_rows + '\n| open | ⟦x-HASTOK⟧ | 新開一列而末格有判 | 誰 | ⟨不擋(t)⟩ 只有描述 |\n')
+        git('add', BOARD)
+        buf10 = _io.StringIO()
+        with contextlib.redirect_stdout(buf10):
+            check_staged()
+        ck('新列有 token ⇒ 不叫那一條', '⟦x-HASTOK⟧' in buf10.getvalue().split('沒寫「怎樣算做完」')[0], False)
+
+        # 負對照一:新列【有】寫關閉條件 ⇒ 不叫
+        io.open(board, 'w', encoding='utf-8').write(
+            base_rows + '\n| open | ⟦x-HASCLOSE⟧ | 有寫的新列 | 誰 | ⟨擋(t)⟩ **轉 `done`** = 那支貼完 |\n')
+        git('add', BOARD)
+        buf5 = _io.StringIO()
+        with contextlib.redirect_stdout(buf5):
+            check_staged()
+        ck('新列有寫關閉條件 ⇒ 不叫', '⟦x-HASCLOSE⟧' in buf5.getvalue(), False)
+        # 🔴 負對照二:**既有的 354 列那一族**(base 裡本來就有、沒寫關閉條件)⇒ 必須【不】叫
+        #    這格擋的是「掃全部」那個錯誤實作 —— 它在上面兩格之下【也會過】。
+        io.open(board, 'w', encoding='utf-8').write(base_rows + '\n')
+        git('add', BOARD)
+        buf6 = _io.StringIO()
+        with contextlib.redirect_stdout(buf6):
+            check_staged()
+        ck('既有列沒寫關閉條件 ⇒ 不叫(只看新增的)', '做到哪算完' in buf6.getvalue(), False)
+
+        # ═══ 被污染的負對照字串:兩個世界(2026-09-07;`-ship` 交件坑 2)═══
+        io.open(board, 'w', encoding='utf-8').write(
+            base_rows + '\n| open | ⟦x-DIRTY⟧ | 這一列刻意含一個常被當負對照的字 zzz_bogus | 誰 | ⟨擋(t)⟩ x |\n')
+        git('add', BOARD)
+        buf13 = _io.StringIO()
+        with contextlib.redirect_stdout(buf13):
+            check_staged()
+        ck('板上含 zzz_bogus ⇒ 叫', '常被當負對照' in buf13.getvalue(), True)
+        io.open(board, 'w', encoding='utf-8').write(base_rows + '\n')
+        git('add', BOARD)
+        buf14 = _io.StringIO()
+        with contextlib.redirect_stdout(buf14):
+            check_staged()
+        ck('板上沒有那些字 ⇒ 不叫', '常被當負對照' in buf14.getvalue(), False)
+
+        # ═══ 檔尾換行的兩個世界(2026-09-07;`-ship` 交件坑 1)═══
+        io.open(board, 'w', encoding='utf-8').write(base_rows)          # 🔴 刻意不加 \n
+        git('add', BOARD)
+        buf11 = _io.StringIO()
+        with contextlib.redirect_stdout(buf11):
+            check_staged()
+        ck('檔尾沒換行 ⇒ 叫', '檔尾沒有換行字元' in buf11.getvalue(), True)
+        io.open(board, 'w', encoding='utf-8').write(base_rows + '\n')   # ✅ 有 \n
+        git('add', BOARD)
+        buf12 = _io.StringIO()
+        with contextlib.redirect_stdout(buf12):
+            check_staged()
+        ck('檔尾有換行 ⇒ 不叫', '檔尾沒有換行字元' in buf12.getvalue(), False)
+
         # 🔴 第三個世界:staged 是【乾淨的】而工作樹是【壞的】⇒ 必須看 staged, 印乾淨
         io.open(board, 'w', encoding='utf-8').write('\n'.join(
             [rows_bad[0], rows_bad[1], rows_bad[2]]) + '\n')
