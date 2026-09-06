@@ -124,7 +124,20 @@ if [ "${1:-}" = "--selftest" ]; then
   printf '%s\n' ' Test Files  1 passed (1)' > "$_t"
   [ "$(blind_check 1 "$_t")" = 0 ] || { echo "❌ 負對照四:有命中就不該叫"; fail=1; }
   rm -f "$_t"
-  [ "$fail" = 0 ] && echo "✅ selftest 9 格全過(正 5 / 負 4)" || echo "🔴 selftest 有格沒過"
+  # ═══ 戳記【新不新】的兩個世界(2026-09-07 加;mail 量到, 三窗各撞一次)═══
+  #   🔴 這兩格測的是【比較邏輯】, 不是真的去 build —— 用兩個現造的時間戳表演。
+  _sd=$(mktemp -d); : > "$_sd/BUILD_OK"
+  _stale_check() {   # $1=戳記時間 $2=HEAD 時間 ⇒ 印 1=該叫(過期) 0=不該叫
+    if [ "$1" -lt "$2" ]; then echo 1; else echo 0; fi
+  }
+  [ "$(_stale_check 1000 2000)" = 1 ] || { echo "❌ 世界E:戳記【舊於】HEAD 必須叫"; fail=1; }
+  [ "$(_stale_check 2000 1000)" = 0 ] || { echo "❌ 負對照五:戳記【新於】HEAD 不該叫"; fail=1; }
+  [ "$(_stale_check 1500 1500)" = 0 ] || { echo "❌ 負對照六:同一秒不該叫(build 就在那顆 commit 上)"; fail=1; }
+  # 🔴 而上面三格只驗算式 ⇒ 再驗一次【真的讀得到檔案時間】, 否則 stat 壞掉時算式照樣全過
+  _real=$(stat -f %m "$_sd/BUILD_OK" 2>/dev/null || stat -c %Y "$_sd/BUILD_OK" 2>/dev/null || echo 0)
+  [ "$_real" -gt 0 ] || { echo "❌ 世界F:stat 讀不到剛建的戳記時間(讀到 $_real)⇒ 上面三格是空轉"; fail=1; }
+  rm -rf "$_sd"
+  [ "$fail" = 0 ] && echo "✅ selftest 13 格全過(正 6 / 負 6 / 量具活性 1)" || echo "🔴 selftest 有格沒過"
   exit "$fail"
 fi
 
@@ -133,8 +146,25 @@ LOG="${1:-}"
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 echo "== 你這棵樹的 build 戳記(決定你【會不會】看到假紅)=="
+# 🔴 2026-09-07 補「新不新」那一半(mail 量到, 今晚三窗各撞一次):
+#    本段原本只問【戳記在不在】⇒ 而 merge 帶進新的 storefront 碼、build 卻是**合併前**跑的,
+#    戳記照樣在 ⇒ 假紅被判成真紅, 三個人各自去追一個不存在的 bug。
+#    ⇒ 📌 **「build 過」與「build 過【現在這份碼】」是兩件事, 而戳記只答得出前者。**
+HEAD_CT=$(git -C "$REPO" log -1 --format=%ct HEAD 2>/dev/null || echo 0)
 for a in admin storefront; do
-  if [ -e "$REPO/apps/$a/.next/BUILD_OK" ]; then echo "  apps/$a: 有戳記"; else echo "  apps/$a: 🔴 沒有 ⇒ 這棵樹會印出不屬於你的紅"; fi
+  STAMP="$REPO/apps/$a/.next/BUILD_OK"
+  if [ ! -e "$STAMP" ]; then
+    echo "  apps/$a: 🔴 沒有戳記 ⇒ 這棵樹會印出不屬於你的紅"
+    continue
+  fi
+  ST_CT=$(stat -f %m "$STAMP" 2>/dev/null || stat -c %Y "$STAMP" 2>/dev/null || echo 0)
+  if [ "$ST_CT" -lt "$HEAD_CT" ]; then
+    echo "  apps/$a: 🔴 **戳記過期** —— build 於 $(date -r "$ST_CT" '+%m-%d %H:%M' 2>/dev/null), 而 HEAD 是 $(date -r "$HEAD_CT" '+%m-%d %H:%M' 2>/dev/null)"
+    echo "           ⇒ 戳記【在】而它 build 的是**舊碼** ⇒ 下面的紅仍可能是假的。"
+    echo "           ⇒ 先跑 \`TURBO_FORCE=1 pnpm build\` 再跑一次本工具。"
+  else
+    echo "  apps/$a: 有戳記, 且不舊於 HEAD"
+  fi
 done
 
 OUT=$(classify < "$LOG")
