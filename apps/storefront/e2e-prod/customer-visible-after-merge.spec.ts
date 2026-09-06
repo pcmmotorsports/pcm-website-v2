@@ -84,7 +84,7 @@ test('搜尋「DBK SPECIAL」要撈得到, 而且撈回來的每一張都是那�
   expect(n, `卡片 ${n} 張 > 總數 ${total} ⇒ 兩把尺打架, 兩把都不能用`).toBeLessThanOrEqual(total);
 
   // 🔴 只驗「有幾筆」不夠:一個把所有商品都回來的壞修法也會讓筆數 > 0。
-  //   ⇒ 逐張問**品牌那一格**(`ProductCard.tsx:275-277`)——
+  //   ⇒ 逐張問**品牌那一格**(`ProductCard.tsx:281`, 當場 grep `pcard-brand-name` 到的那一行)——
   //   ⛔ ~~量整張卡的 innerText~~ 會連**商品名稱**裡有 DBK 的別家貨一起放過(code-reviewer N-2)。
   //   🔴🔴 **2026-09-06 訂正:讀 `.pcard-brand-name`, 不是 `.pcard-brand`** ——
   //     那一格現在**同時裝品牌與料號**(Sean 拍板:料號印在品牌右邊)

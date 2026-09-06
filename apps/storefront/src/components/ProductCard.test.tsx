@@ -429,14 +429,26 @@ describe('料號顯示在品牌右邊(Sean 2026-09-06 拍甲)', () => {
     expect(spans[0]!.className).toBe('pcard-brand-name');
   });
 
-  // 🛑 **版面安全不靠「料號很短」這個假設** —— 這兩句 CSS 成對:
-  //   `min-width: 0` 讓品牌名【可以】被壓縮(flex item 預設 min-width:auto = 不小於內容,
-  //   少了它 `text-overflow` 不生效)· `flex-shrink: 0` 讓料號【不會】被壓縮。
-  //   ⇒ 擠的時候先切品牌名, 料號永遠完整。拔掉任一句 ⇒ 本格紅。
-  //   🔬 真瀏覽器量過(390 寬, 三組最壞字串):料號完整可見 / 在列內 / 單行, 三組全 ✅;
-  //      站上最長品牌 = `EXTREME COMPONENTS`(18 字, 取自 /products 第一頁 50 個品牌名)。
-  //      ⚠️ **那 50 個是第一頁的分母, 全站最長品牌與最長料號【未確認】** ——
-  //         而本格與那兩句 CSS 的用意就是**讓答案不依賴那個未知數**。
+  // 🛑 **版面安全不靠「料號很短」這個假設** —— 而規則是**三段**, 不是兩段。
+  //   ⛔ ~~`flex-shrink: 0` 讓料號【不會】被壓縮 ⇒ 擠的時候先切品牌名, 料號永遠完整~~
+  //   ⛔ ~~全站最長品牌與最長料號【未確認】(我沒有 DB 存取)~~
+  //   🔴🔴 **上面兩句都被推翻了, 而第二句是【我自己的免責貼紙】** ——
+  //     那條唯讀路 `scripts/readonly-prod-sql.sh` 一直都在, 一句 SQL 三十秒。實測(唯讀零寫入):
+  //   ```
+  //   max(length(brands.name))                 = 19
+  //   max(length(products_public.external_id)) = 65   PRN015536-…, 全是 `-`、無空白可斷行
+  //   分佈(分母 25,769):<=17 ⇒ 93.6% · 18-30 ⇒ 5.4% · >30 ⇒ 1.0% · p99 = 31
+  //   ```
+  //   ⇒ ①`flex-shrink:0` 會讓 65 字的料號**溢出卡片**(手機兩欄下壓到隔壁欄)
+  //     ②改成 `min-width:0`+`flex-shrink:9999` 之後, 品牌名會被**壓到 0px 整格消失**
+  //       —— 門檻 = **料號 24 字**, 而且**與品牌長度無關**;`>30` 那 262 筆(1.0%)全中。
+  //       🛑 Sean 拍的是 `"RIZOMA     AZ203"` —— **品牌名消失 = 那一板沒做到。**
+  //   ✅ **現行三段**:`display:flex` · 品牌名 `min-width:5ch` + `flex-shrink:9999` · 料號 `min-width:0`
+  //   🔬 真瀏覽器重量(390 寬, 四組, **含正式庫真上界 19 字品牌 + 65 字料號**):
+  //      四組全部「沒溢出卡片 / 品牌名沒消失 / 料號在列內 / 單行」。
+  //      🔵 **負對照**:把 `5ch` 換回 `0` ⇒ 後兩組**品牌名寬 0px**、而**舊那三欄照樣印 ✅**
+  //         ⇒ 📌 **我原本的量測從頭到尾沒量品牌名寬度** ——「品牌被截」在「截掉三個字」與
+  //           「整格消失」兩個世界印**同一個 true**, 那就是四個 ✅ 沒攔住它的原因。
   it('🔴 版面那三句成對(display:flex + 品牌名 min-width:0/flex-shrink:9999 + 料號 min-width:0)—— 拔掉任一句本格紅', () => {
     const css = readFileSync(
       resolve(dirname(fileURLToPath(import.meta.url)), '../styles/product-card.css'),
@@ -455,8 +467,9 @@ describe('料號顯示在品牌右邊(Sean 2026-09-06 拍甲)', () => {
     const codeRule = /\.pcard-code\s*\{[^}]*\}/.exec(css)?.[0];
     expect(nameRule, '找不到 .pcard-brand-name 規則 ⇒ 前提失效').toBeTruthy();
     expect(codeRule, '找不到 .pcard-code 規則 ⇒ 前提失效').toBeTruthy();
-    expect(nameRule, '品牌名少了 min-width:0 ⇒ text-overflow 不生效, 擠的時候會把料號推出去').toMatch(
-      /min-width:\s*0\s*;/,
+    // 🔴 **下限不是 0 是 `5ch`** —— `min-width: 0` 配 `flex-shrink: 9999` 會把品牌名壓到 0px 整格消失。
+    expect(nameRule, '品牌名的 min-width 不是 5ch ⇒ 長料號時它會被壓到 0px、整格消失').toMatch(
+      /min-width:\s*5ch\s*;/,
     );
     // 🔴 **「誰先讓」的排序** —— 品牌名 9999 : 料號 1 ⇒ 品牌名幾乎吸收全部擠壓、料號最後才截。
     //   拿掉它 ⇒ 兩邊等比縮 ⇒ **6.4% 的商品會提早被截**(正式庫實測 length>17 = 1,641/25,769)。
