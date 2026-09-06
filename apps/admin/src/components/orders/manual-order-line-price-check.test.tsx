@@ -37,13 +37,22 @@ const hit = (over: Record<string, unknown> = {}) => ({
 
 // ── 純函式層:五種讀數 ────────────────────────────────────────────
 describe('resolveLinePriceCheck — 五個世界各一個名字', () => {
-  it('填對 ⇒ match', () => {
-    expect(resolveLinePriceCheck('SKU-A', 1050, { ok: true, hits: [hit()] }).kind).toBe('match');
+  // 🔴 fixture 逐字:`unitPrice: 1050`(含稅)/ `dealerPriceUntaxed: 900`(未稅)——
+  //    ⟦b4-PRICECOPYTAX⟧ 之後**權威是 900 那個**。
+  //    🛑 兩個數字**刻意不成 1.05 倍關係**(900×1.05=945 ≠ 1050)——
+  //       這樣「拿錯欄位」與「算錯稅」在斷言上分得開。
+  it('填對(= 填未稅 900)⇒ match', () => {
+    expect(resolveLinePriceCheck('SKU-A', 900, { ok: true, hits: [hit()] }).kind).toBe('match');
   });
 
-  it('🔴 填了未稅價 ⇒ mismatch, 且帶著兩個數字', () => {
+  it('🔴🔴 填【含稅價 1050】⇒ 不是 match —— 這一格殺得掉「權威還是 unitPrice」的舊實作', () => {
+    // 舊實作拿 `unitPrice`(1050)當權威 ⇒ 這一發會回 match ⇒ 本格轉紅。
+    expect(resolveLinePriceCheck('SKU-A', 1050, { ok: true, hits: [hit()] }).kind).toBe('mismatch');
+  });
+
+  it('🔴 填了別的數字 ⇒ mismatch, 且帶著兩個數字(權威 = 未稅 900)', () => {
     const c = resolveLinePriceCheck('SKU-A', 1000, { ok: true, hits: [hit()] });
-    expect(c).toEqual({ kind: 'mismatch', sku: 'SKU-A', typed: 1000, authority: 1050 });
+    expect(c).toEqual({ kind: 'mismatch', sku: 'SKU-A', typed: 1000, authority: 900 });
   });
 
   it('🛑 型錄查無(代購)⇒ unmatched, **不是** match', () => {
@@ -52,7 +61,9 @@ describe('resolveLinePriceCheck — 五個世界各一個名字', () => {
 
   it('🔵 有商品但沒定價 ⇒ no_price(第三個世界)', () => {
     expect(
-      resolveLinePriceCheck('SKU-A', 1000, { ok: true, hits: [hit({ unitPrice: null })] }).kind,
+      // 🔴 `no_price` 的判準跟著權威走 ⇒ 現在是**經銷價** null, 不是 `unitPrice` null。
+      resolveLinePriceCheck('SKU-A', 1000, { ok: true, hits: [hit({ dealerPriceUntaxed: null })] })
+        .kind,
     ).toBe('no_price');
   });
 
@@ -80,9 +91,12 @@ describe('resolveLinePriceCheck — 五個世界各一個名字', () => {
 
   it('🔴🔴 模糊比對回一堆 ⇒ 只認【逐字相等】那一筆, 不能拿第一筆', () => {
     // `ilike '%SKU-A%'` 會把 `SKU-A-LONG` 一起撈回來, 而它排在前面。
-    const c = resolveLinePriceCheck('SKU-A', 1050, {
+    const c = resolveLinePriceCheck('SKU-A', 900, {
       ok: true,
-      hits: [hit({ sku: 'SKU-A-LONG', unitPrice: 9999 }), hit({ sku: 'SKU-A', unitPrice: 1050 })],
+      hits: [
+        hit({ sku: 'SKU-A-LONG', dealerPriceUntaxed: 9999 }),
+        hit({ sku: 'SKU-A', dealerPriceUntaxed: 900 }),
+      ],
     });
     expect(c.kind, '拿了第一筆 ⇒ 會把一個填對的人判成填錯').toBe('match');
   });
@@ -98,31 +112,46 @@ describe('linePriceCheckMessage — 五種都要出聲', () => {
     const m = linePriceCheckMessage({
       kind: 'mismatch',
       sku: 'SKU-A',
-      typed: 1000,
-      authority: 1050,
+      typed: 945,
+      authority: 900,
     });
-    expect(m).toContain('1,000');
-    expect(m).toContain('1,050');
-    expect(m, '沒指出「像未稅」⇒ 員工會直接改成一樣, 而那不一定對').toContain('未稅');
+    expect(m).toContain('945');
+    expect(m).toContain('900');
+    // 🔴 **方向反過來了**:權威是未稅 ⇒ 要指出的是「你填的像是【含稅】」。
+    expect(m, '沒指出「像含稅」⇒ 員工會直接改成一樣, 而那不一定對').toContain('含稅');
   });
 
-  it('🔴 「像未稅」要精確 —— 1000 對 1049/1051 都【不是】未稅(容差會把猜測講成指示)', () => {
-    for (const authority of [1049, 1051]) {
+  it('🔴 「像含稅」要精確 —— 900 對 944/946 都【不是】含稅(容差會把猜測講成指示)', () => {
+    for (const typed of [944, 946]) {
       expect(
-        linePriceCheckMessage({ kind: 'mismatch', sku: 'S', typed: 1000, authority }),
-        `1000×1.05=1050 ≠ ${authority} ⇒ 不該說像未稅`,
-      ).not.toContain('未稅');
+        linePriceCheckMessage({ kind: 'mismatch', sku: 'S', typed, authority: 900 }),
+        `900×1.05=945 ≠ ${typed} ⇒ 不該說像含稅`,
+      ).not.toContain('像填成了含稅價');
     }
-    expect(linePriceCheckMessage({ kind: 'mismatch', sku: 'S', typed: 1000, authority: 1050 })).toContain('未稅');
+    expect(
+      linePriceCheckMessage({ kind: 'mismatch', sku: 'S', typed: 945, authority: 900 }),
+    ).toContain('像填成了含稅價');
   });
 
-  it('🔴 typed=0 不得被說成「像未稅」(0×1.05 四捨五入會撞上 0/1)', () => {
-    expect(linePriceCheckMessage({ kind: 'mismatch', sku: 'S', typed: 0, authority: 1 })).not.toContain('未稅');
+  it('🔴🔴 判別式的【方向】—— 舊式(填的×1.05=權威)不得再命中', () => {
+    // 🛑 這一格是為了擋「只把變數名換掉、算式沒反過來」的改法:
+    //    舊式問「你填的 ×1.05 是不是權威」⇒ typed=900 / authority=945 會命中。
+    //    新式問「權威 ×1.05 是不是你填的」⇒ 這一組**不該**命中。
+    expect(
+      linePriceCheckMessage({ kind: 'mismatch', sku: 'S', typed: 900, authority: 945 }),
+      '這是舊式才會命中的組合 ⇒ 命中代表算式沒有反過來',
+    ).not.toContain('像填成了含稅價');
   });
 
-  it('🔵 而【不像未稅】的差異不得硬說成未稅', () => {
-    const m = linePriceCheckMessage({ kind: 'mismatch', sku: 'SKU-A', typed: 300, authority: 1050 });
-    expect(m, '300×1.05 不等於 1050 ⇒ 那不是稅的問題').not.toContain('未稅');
+  it('🔴 authority=0 不得被說成「像含稅」(0×1.05 四捨五入會撞上 0/1)', () => {
+    expect(
+      linePriceCheckMessage({ kind: 'mismatch', sku: 'S', typed: 1, authority: 0 }),
+    ).not.toContain('像填成了含稅價');
+  });
+
+  it('🔵 而【不像含稅】的差異不得硬說成含稅', () => {
+    const m = linePriceCheckMessage({ kind: 'mismatch', sku: 'SKU-A', typed: 300, authority: 900 });
+    expect(m, '900×1.05 不等於 300 ⇒ 那不是稅的問題').not.toContain('像填成了含稅價');
     expect(m).toContain('確定要用你填的那個就直接送出');
   });
 
@@ -151,7 +180,7 @@ describe('接線(focusout)', () => {
     fireEvent.change(screen.getByLabelText('單價'), { target: { value: '1000' } });
     fireEvent.focusOut(screen.getByLabelText('單價'));
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeNull());
-    expect(screen.getByRole('alert').textContent).toContain('1,050');
+    expect(screen.getByRole('alert').textContent).toContain('900');
   });
 
   it('🔵 只填了料號 ⇒ 不出聲(員工還在打字時噴話很吵)', async () => {
@@ -198,13 +227,16 @@ describe('接線(focusout)', () => {
     fireEvent.change(screen.getByLabelText('單價'), { target: { value: '1000' } });
     fireEvent.focusOut(screen.getByLabelText('單價'));
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeNull());
+    // 🔵 權威改成經銷未稅價之後, 這裡要出現的是 **900**(fixture 的 `dealerPriceUntaxed`),
+    //    不是 1,050(那是 `unitPrice`)。斷言換數字, 而**這一格問的事情沒變**:
+    //    「大小寫不同仍算找到」—— 被判成代購的話訊息會是代購那一句, 不會有任何權威價。
     expect(screen.getByRole('alert').textContent, '被判成代購 ⇒ 方向是危險的那一側').toContain(
-      '1,050',
+      '900',
     );
   });
 
   it('🔵 送出解析器收不下的寫法(1e3)⇒ 不出聲, 不得說「對得上」', async () => {
-    renderInForm(async () => ({ ok: true, hits: [hit({ unitPrice: 1000 })] }));
+    renderInForm(async () => ({ ok: true, hits: [hit({ dealerPriceUntaxed: 1000 })] }));
     fireEvent.change(screen.getByLabelText('料號'), { target: { value: 'SKU-A' } });
     fireEvent.change(screen.getByLabelText('單價'), { target: { value: '1e3' } });
     fireEvent.focusOut(screen.getByLabelText('單價'));

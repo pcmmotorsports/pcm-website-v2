@@ -1,0 +1,141 @@
+# codex R2 · 儲值金去重 · gpt-6-astra / effort high · --disable apps · 2026-09-06
+
+🔴🔴 **這一輪【沒有印出最終結論】** —— 輸出在一個 `exec` 之後就結束了, 沒有我要的四節。
+   ⇒ 📌 **所以「R2 判 PASS」這句話不成立, 我也沒有這樣宣稱。**
+   ⚠️ 檔案中間那個 `**FAIL**` + 12 條, **是它 cat 出 R1 檔的內容**(行號 `wallet-actions.ts:51/52`、
+     `page.tsx:81` 那些在現在的碼上**已經不存在** —— URL 那條路整條拆掉了)。不要把它讀成 R2 的判決。
+
+## 🔬 而它跑到一半抓到一個【真的】, 已修
+它合成一份 session log 餵進我的併發格:
+```
+synthetic_nonzero_session_rc_verdict 0
+PASS 乙-6 兩個 session 都沒有錯誤(rc: a=rc=9 b=rc=0)
+```
+⇒ 🔴 **那個 `rc=9` 就印在我宣稱「沒有錯誤」的那句話裡。**
+⇒ 📌 我把 rc **收進變數、印進訊息**, 而**沒有拿它做判斷** —— 那是三件事, 我做了前兩件。
+⇒ ✅ 已修:rc 必須逐一等於 `rc=0`(另一道 ERROR/FATAL 照舊)⇒ 兩道都要過。
+   負對照:餵 `RCA=rc=9` ⇒ 那一格轉紅。
+
+🔴 裁剪過 —— 原始 8550 行(大半是它 cat 出來的檔案內容), 只留最後 120 行。
+
+---
+
+{"probe":"actual useActionState failure transition","calls":1,"token":"11111111-2222-3333-4444-555555555555","amount":"200","note":"synthetic note"}
+
+exec
+/bin/zsh -lc "node -e '
+const fs=require('\\''fs'\\''),Module=require('\\''module'\\''),path=require('\\''path'\\'');
+const ts=require('\\''typescript'\\'');
+const root=process.cwd(), req=Module.createRequire(path.join(root,'\\''apps/admin/package.json'\\''));
+const {JSDOM}=require('\\''jsdom'\\'');const dom=new JSDOM('\\''<"'!doctype html><html><body></body></html>'"'\\'',{url:'\\''http://localhost'\\''});
+Object.assign(global,{window:dom.window,document:dom.window.document,HTMLElement:dom.window.HTMLElement,HTMLButtonElement:dom.window.HTMLButtonElement,HTMLInputElement:dom.window.HTMLInputElement,FormData:dom.window.FormData,IS_REACT_ACT_ENVIRONMENT:true});
+const React=req('\\''react'\\''),{render,fireEvent,cleanup}=req('\\''@testing-library/react'\\'');
+const origLoad=Module._load;
+let rpcCalls=[],failNext=true;
+Module._load=function(id,parent,isMain){
+ if(id.includes('\\''wallet-actions'\\'') && "'!id.endsWith('"'\\''.test.ts'\\''))return {adjustWalletAction:async(prev,fd)=>{
+ const {parseWalletAdjustForm}=require(path.join(root,'\\''apps/admin/src/lib/customers/wallet-form.ts'\\''));
+ const p=parseWalletAdjustForm(fd);rpcCalls.push(p);
+ const {walletFailure}=require(path.join(root,'\\''apps/admin/src/lib/customers/wallet-action-state.ts'\\''));
+ return walletFailure('\\''error'\\'',{requestToken:p.requestToken,direction:p.entryType,amount:String(Math.abs(p.signedAmount)),note:p.note});
+ }};
+ return origLoad.call(this,id,parent,isMain);
+};
+for(const ext of ['\\''.ts'\\'','\\''.tsx'\\''])Module._extensions[ext]=(m,f)=>m._compile(ts.transpileModule((f.endsWith('\\''wallet-adjust-form-client.tsx'\\'')?fs.readFileSync(f,'\\''utf8'\\'').replace('\\''const requestToken = failed?.requestToken || serverToken;'\\'','\\''const requestToken = serverToken;'\\''):fs.readFileSync(f,'\\''utf8'\\'')),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,target:ts.ScriptTarget.ES2022}}).outputText,f);
+(async()=>{
+ const {WalletAdjustFormClient}=require(path.join(root,'\\''apps/admin/src/components/customers/wallet-adjust-form-client.tsx'\\''));
+ const {parseWalletAdjustForm}=require(path.join(root,'\\''apps/admin/src/lib/customers/wallet-form.ts'\\''));
+ const props={customerId:'\\''11111111-2222-3333-4444-555555555555'\\'',serverToken:'\\''11111111-2222-3333-4444-555555555555'\\'',initialState:{status:'\\''failed'\\'',code:'\\''error'\\'',message:'\\''synthetic error'\\'',requestToken:'\\''99999999-8888-7777-6666-555555555555'\\'',direction:'\\''use'\\'',amount:'\\''200'\\'',note:'\\''synthetic note'\\''}};
+ const r=render(React.createElement(WalletAdjustFormClient,props));
+ const f=r.container.querySelector('\\''form'\\''),btn=f.querySelector('\\''button[type=submit]'\\'');
+ const parsed=parseWalletAdjustForm(new dom.window.FormData(f,btn));
+ console.log(JSON.stringify({probe:'\\''failed withdrawal default submit'\\'',shown:r.container.querySelector('\\''p'\\'').textContent,preservesFailedToken:parsed.requestToken===props.initialState.requestToken,submitter:btn.value,entryType:parsed.entryType,signedAmount:parsed.signedAmount}));
+ cleanup();
+ const s=render(React.createElement(WalletAdjustFormClient,{customerId:props.customerId,serverToken:props.serverToken}));
+ const sf=s.container.querySelector('\\''form'\\'');fireEvent.change(sf.querySelector('\\''[name=amount]'\\''),{target:{value:'\\''200'\\''}});fireEvent.change(sf.querySelector('\\''[name=note]'\\''),{target:{value:'\\''synthetic note'\\''}});
+ await React.act(async()=>fireEvent(sf,new dom.window.SubmitEvent('\\''submit'\\'',{bubbles:true,cancelable:true,submitter:sf.querySelector('\\''button[value=use]'\\'')})));
+ console.log(JSON.stringify({probe:'\\''actual useActionState failure transition'\\'',calls:rpcCalls.length,token:[REDACTED_SECRET]'\\''[name=request_token]'\\'').value,amount:sf.querySelector('\\''[name=amount]'\\'').value,note:sf.querySelector('\\''[name=note]'\\'').value}));
+ cleanup();
+})().catch(e=>{console.error(e.stack);process.exitCode=1});
+'" in /Users/sean_1/pcm-wt-account
+ succeeded in 403ms:
+{"probe":"failed withdrawal default submit","shown":"synthetic error剛才送出的是:扣款 NT$ 200(要再送一次,請按同一顆按鈕)","preservesFailedToken":false,"submitter":"deposit","entryType":"deposit","signedAmount":200}
+{"probe":"actual useActionState failure transition","calls":1,"token":"11111111-2222-3333-4444-555555555555","amount":"200","note":"synthetic note"}
+
+exec
+/bin/zsh -lc 'git show ea08dac5b''^:apps/admin/src/lib/customers/wallet-actions.ts | sed -n '"'33,75p' && nl -ba apps/admin/src/proxy.ts | sed -n '20,45p'" in /Users/sean_1/pcm-wt-account
+ succeeded in 0ms:
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-Yt14dyAV' (errno=Operation not permitted)
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-hH4aD1p3' (errno=Operation not permitted)
+    redirectWith('/customers', 'denied');
+  }
+
+  // ② 表單 → RPC 參數(形狀層;deposit=+n / use=-n 轉號在此)。
+  const parsed = parseWalletAdjustForm(formData);
+  if (!parsed.ok) {
+    redirectWith('/customers', 'invalid');
+  }
+
+  const requestId = await getRequestId();
+
+  // attempt log:僅識別欄位、不記金額/備註(動錢欄位不進 server log;稽核真相在 admin_audit_log)。
+  console.info('[admin/customers] customer.wallet.adjust.attempt', {
+    request_id: requestId, sid: auth.sid, actor: auth.actorId, customer_id: parsed.customerId,
+  });
+
+  let code: ResultCode;
+  try {
+    const result = await adjustCustomerWallet({
+      customerId: parsed.customerId,
+      entryType: parsed.entryType,
+      signedAmount: parsed.signedAmount,
+      note: parsed.note,
+      actor: auth.actorId,
+      requestId,
+    });
+    code = result === 'ADJUSTED' ? 'saved' : 'not_found';
+  } catch (err) {
+    // DB error / RPC 輸入 RAISE(反號/超上界/備註非法等)→ 固定碼、不外洩;server log 只留摘要
+    // (不印整個 err 物件:訊息可能回顯輸入值;同 orders 線紀律)。
+    const e = err as { code?: unknown; message?: unknown };
+    console.error('[admin/customers] 儲值金調整失敗', {
+      request_id: requestId,
+      code: typeof e.code === 'string' ? e.code : undefined,
+      message: String(e.message ?? '').slice(0, 200),
+    });
+    redirectWith(parsed.returnTo, 'error');
+  }
+
+  // 成功路徑 revalidate(明細=餘額+流水;列表快取一併刷);redirect 在 catch 外(不被吞)。
+  revalidatePath('/customers');
+  revalidatePath(`/customers/${parsed.customerId}`);
+  redirectWith(parsed.returnTo, code);
+    20	const DEV_AUTH_BYPASS = isDevAuthBypassEnabled(process.env);
+    21	
+    22	export async function proxy(request: NextRequest): Promise<NextResponse> {
+    23	  // 🔴 correlation id **一律 server 新產、絕不沿用 inbound**(Fable diff must-fix 1)。
+    24	  //    現拓樸=Vercel 直入、無內部代理會帶合法 x-request-id → 唯一 inbound 來源是 client 自帶;
+    25	  //    沿用會讓持 session 者指定/重複 request_id 汙染稽核關聯(actor 已自報,request_id 是稽核鏈
+    26	  //    僅剩硬關聯、必須 server 權威)。忽略 request.headers 的同名值。
+    27	  //
+    28	  // 🔴 **已知例外(M-4b E10 A9d2-1,Sean 2026-08-02 拍板 Q2=C;本檔行為不變)**:
+    29	  //    `order_note.append` 這條路寫進 `admin_audit_log.request_id` 的**不是**本行產的 id,
+    30	  //    而是表單帶回的一次性 token —— 因為 A6 的冪等鍵就是 `p_request_id`,而本行「每個 HTTP
+    31	  //    request 一組新 id」會讓雙擊產生兩筆**刪不掉**的備註(`order_notes` append-only)。
+    32	  //    token 由 **server 在渲染表單時**產生(不是瀏覽器自造)⇒ 正常路徑仍是 server 權威;
+    33	  //    誠實代價:持 session 者繞過畫面直接 POST 仍可自選/重複那個值,殘餘防線 = A6 的查驗式冪等
+    34	  //    (同單 + body_sha256 不符即 RAISE)。該路徑的 log 兩個 id 都記,可對得回來。
+    35	  //    詳 `docs/specs/2026-08-02-e10-a9d2-1-note-action-plan.md` §4/§9。
+    36	  const requestId = generateRequestId();
+    37	
+    38	  const { pathname } = request.nextUrl;
+    39	
+    40	  // 登入閘:預設擋(未登入導 /start);只有顯式 dev bypass 才放行。SSO 入口放行、matcher 已排除靜態資源。
+    41	  if (!DEV_AUTH_BYPASS && !SSO_OPEN_PATHS.has(pathname)) {
+    42	    const verified = await verifySessionDetailed(request.cookies.get(ADMIN_SESS_COOKIE)?.value);
+    43	    if (!verified.ok) {
+    44	      // 🔴 **綁環境之後,這裡是唯一的早期警報。**
+    45	      //    若 production 讀不到 VERCEL_ENV ⇒ 金鑰簽不出來 ⇒ 每個人都被導去 /start,
+

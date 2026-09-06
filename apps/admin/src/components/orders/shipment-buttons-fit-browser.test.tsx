@@ -23,9 +23,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { requireFreshBuild } from '@/lib/build-stamp';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { chromium, type Browser } from 'playwright';
+// 🔴 起伺服器 + goto **走共用那支** —— 它裡面有「連線層空回應重試一次(而且會印一行)」。
+//    理由與四條紀律在 `serve-html-and-visit.ts` 檔頭(2026-09-06 39b 收割鏈實撞)。
+import { serveHtmlAndVisit } from '@/lib/test-support/serve-html-and-visit';
 import type { AdminOrderDetail } from '@pcm/domain';
 import { ShipmentSection } from './shipment-section';
 
@@ -92,13 +93,20 @@ function findCompiledCss(): string {
   return hits.join('\n');
 }
 
+// 🔴 **這兩個 hook 要帶時限, 而【全族其他每一支都帶了 120_000, 只有本檔沒有】**
+//    (2026-09-06 當場量:cancel-forms-browser / cancel-forms-hydrated / order-toolbar /
+//     orders-column-fit / orders-status-visibility 全部 `120_000 120_000`, 本檔 `DEFAULT10s`)。
+//    🔬 **而它不是潔癖 —— 它今天真的紅過**:族連跑兩發, **第一發本檔 `Hook timed out in 10000ms`**
+//      而**零個測試紅**(Test Files 1 failed 而 Tests 110 passed)⇒ 掛在 `chromium.launch()` 上,
+//      第二發全綠。⇒ 📌 **那正是本片在修的同一件事**:機器忙 ⇒ 紅在一個不是碼的原因上。
+//    🛑 而 `beforeAll` 的預設時限是 10 秒, **它不會因為裡面要開一個瀏覽器就自己變長**。
 beforeAll(async () => {
   compiledCss = findCompiledCss();
   browser = await chromium.launch();
-});
+}, 120_000);
 afterAll(async () => {
   await browser?.close();
-});
+}, 120_000);
 
 const detail = {
   id: 'o1',
@@ -155,16 +163,12 @@ async function measureRow(width: number, extraCss = ''): Promise<{ els: Fit[]; r
   const html = renderToStaticMarkup(
     await ShipmentSection({ detail, payments: { status: 'unreadable' } as never }),
   );
-  const server: Server = createServer((_req, res) => {
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    res.end(`<html><head><style>${compiledCss}\n${extraCss}</style></head><body>${html}</body></html>`);
-  });
-  await new Promise<void>((r) => server.listen(0, r));
-  const port = (server.address() as AddressInfo).port;
-  const page = await browser.newPage({ viewport: { width, height: 900 } });
-  try {
-    await page.goto(`http://localhost:${port}/`);
-    return await page.evaluate(() => {
+  const doc = `<html><head><style>${compiledCss}\n${extraCss}</style></head><body>${html}</body></html>`;
+  return await serveHtmlAndVisit(
+    browser,
+    doc,
+    async (page) =>
+      await page.evaluate(() => {
       // 拿**元素自己的容器**當基準, 不是 viewport
       //    (溢出是相對於容器的;拿 viewport 比會漏掉「容器比 viewport 窄」那一種)。
       // ⚠️ **`li > div` 選到的比「那一排」多**(code-reviewer 2026-09-06):`<li>` 底下至少三個
@@ -191,12 +195,10 @@ async function measureRow(width: number, extraCss = ''): Promise<{ els: Fit[]; r
           });
         }
       }
-      return { els, rows: rowFits };
-    });
-  } finally {
-    await page.close();
-    server.close();
-  }
+        return { els, rows: rowFits };
+      }),
+    { viewport: { width, height: 900 }, label: 'shipment-buttons-fit' },
+  );
 }
 
 describe('片 D3:那一排鈕在 390px 不得把任何一顆推出容器', () => {
