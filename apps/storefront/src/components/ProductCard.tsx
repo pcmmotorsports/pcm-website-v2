@@ -274,7 +274,12 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
             📌 那是刻意的:料號是客人拿來對零件的東西, 品牌名他看得出來。 */}
         <div className="pcard-brand">
           <span className="pcard-brand-name">{p.brand}</span>
-          {p.productCode ? <span className="pcard-code">{p.productCode}</span> : null}
+          {/* 🔴 **中間那個空白是必要的, 不是排版** —— 沒有它 `.pcard-brand` 的 `textContent`
+              會是 `RIZOMAAZ203`(gap 只是視覺, 不進文字層)⇒ ①螢幕閱讀器連著念
+              ②任何對這一格做**完全相等**斷言的測試會紅在一個看不出原因的地方
+              (`account/tabs/OverviewTab.test.tsx:222` 就是 `.toBe('RIZOMA')`,
+               今天綠只因為那顆 fixture 沒有料號)。 */}
+          {p.productCode ? <> <span className="pcard-code">{p.productCode}</span></> : null}
         </div>
         <div className="pcard-name">{p.name}</div>
         {/* S4:同名不同年商品在卡片可區分 —— 單款顯示年份 '18–'24、多款顯示「N 款車型」;

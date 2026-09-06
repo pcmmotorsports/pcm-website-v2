@@ -399,6 +399,7 @@ describe('🔴 舊快取形狀與新形狀印同一句(本片不換鍵的前提)
     expect(舊句).toBe("適用 YAMAHA MT-09 '20");
     expect(適用句(c新)).toBe(舊句);
   });
+});
 
 describe('料號顯示在品牌右邊(Sean 2026-09-06 拍甲)', () => {
   // 🔵 鐵則 1:稿上【沒有】這一格 —— `design-reference/components/ProductCard.jsx`
@@ -413,6 +414,9 @@ describe('料號顯示在品牌右邊(Sean 2026-09-06 拍甲)', () => {
     expect(spans[0]!.className).toBe('pcard-brand-name');
     expect(spans[1]!.className).toBe('pcard-code');
     expect(spans[1]!.textContent).toBe('AZ203');
+    // 🔴 **中間要有空白** —— 沒有的話 textContent 是 `RIZOMAAZ203`:螢幕閱讀器連著念,
+    //   而任何對這一格做完全相等斷言的測試會紅在一個看不出原因的地方。
+    expect(brand!.textContent).toBe(`${product.brand} AZ203`);
   });
 
   // 🔴🔴 **這一格是重點**:`/products` 目錄與品牌頁走 RPC → `catalogRowToUIProduct`,
@@ -433,20 +437,37 @@ describe('料號顯示在品牌右邊(Sean 2026-09-06 拍甲)', () => {
   //      站上最長品牌 = `EXTREME COMPONENTS`(18 字, 取自 /products 第一頁 50 個品牌名)。
   //      ⚠️ **那 50 個是第一頁的分母, 全站最長品牌與最長料號【未確認】** ——
   //         而本格與那兩句 CSS 的用意就是**讓答案不依賴那個未知數**。
-  it('🔴 那兩句 CSS 成對(min-width:0 + flex-shrink:0)—— 拔掉任一句本格紅', () => {
+  it('🔴 版面那三句成對(display:flex + 品牌名 min-width:0/flex-shrink:9999 + 料號 min-width:0)—— 拔掉任一句本格紅', () => {
     const css = readFileSync(
       resolve(dirname(fileURLToPath(import.meta.url)), '../styles/product-card.css'),
       'utf8',
     );
-    const nameRule = /\.pcard-brand-name\s*\{[^}]*\}/.exec(css)?.[0];
+    // 🔴🔴 **`display: flex` 是本片承重的第三句, 而我原本零斷言碰它**(2026-09-06 code-reviewer must-fix)。
+    //   拿掉它 ⇒ 兩個 span 變 inline ⇒ `min-width` / `flex-shrink` / `justify-content` / `gap`
+    //   **全部失效**, 且 `overflow:hidden`+`text-overflow` 對非取代型 inline box **不適用**
+    //   ⇒ 📌 **版面機制整組死掉, 而這三格全綠**(jsdom 沒有版面引擎, 量不到)。
+    const brandRule = /\.pcard-brand\s*\{[^}]*\}/.exec(css)?.[0];
+    expect(brandRule, '找不到 .pcard-brand 規則 ⇒ 前提失效').toBeTruthy();
+    expect(brandRule, '.pcard-brand 不是 flex ⇒ 底下那兩句 flex 屬性全部失效, 版面機制整組死').toMatch(
+      /display:\s*flex/,
+    );
+    const nameRule = /\.pcard-brand:has\(\.pcard-code\)\s+\.pcard-brand-name\s*\{[^}]*\}/.exec(css)?.[0];
     const codeRule = /\.pcard-code\s*\{[^}]*\}/.exec(css)?.[0];
     expect(nameRule, '找不到 .pcard-brand-name 規則 ⇒ 前提失效').toBeTruthy();
     expect(codeRule, '找不到 .pcard-code 規則 ⇒ 前提失效').toBeTruthy();
     expect(nameRule, '品牌名少了 min-width:0 ⇒ text-overflow 不生效, 擠的時候會把料號推出去').toMatch(
       /min-width:\s*0\s*;/,
     );
+    // 🔴 **「誰先讓」的排序** —— 品牌名 9999 : 料號 1 ⇒ 品牌名幾乎吸收全部擠壓、料號最後才截。
+    //   拿掉它 ⇒ 兩邊等比縮 ⇒ **6.4% 的商品會提早被截**(正式庫實測 length>17 = 1,641/25,769)。
+    expect(nameRule, '品牌名少了 flex-shrink:9999 ⇒ 料號會提早被截').toMatch(/flex-shrink:\s*9999\s*;/);
     expect(nameRule, '品牌名少了 text-overflow ⇒ 會換行, 那一列變兩行').toMatch(/text-overflow:\s*ellipsis\s*;/);
-    expect(codeRule, '料號少了 flex-shrink:0 ⇒ 它會被壓縮、被切掉').toMatch(/flex-shrink:\s*0\s*;/);
+    // 🔴🔴 ⛔ ~~`flex-shrink: 0`(料號永遠完整)~~ ⇒ **那句話在真資料上是假的**:
+    //   正式庫唯讀實測 `max(length(external_id))` = **65**(`PRN015536-…`, 全是 `-`、無空白可斷)
+    //   ⇒ 純 `flex-shrink:0` 會讓它**溢出卡片**、手機兩欄下壓到隔壁欄。
+    //   ✅ 改成料號自己也會截斷, 而**排在品牌名後面才截**。
+    expect(codeRule, '料號少了 min-width:0 ⇒ 它不會截斷, 會溢出卡片').toMatch(/min-width:\s*0\s*;/);
+    expect(codeRule, '料號少了 text-overflow ⇒ 截斷時沒有省略號').toMatch(/text-overflow:\s*ellipsis\s*;/);
   });
 });
-});
+

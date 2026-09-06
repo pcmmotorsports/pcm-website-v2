@@ -249,16 +249,43 @@
   align-items: baseline;
   gap: 8px;
 }
-/* 🛑 **擠的時候先切品牌名, 料號永遠完整** —— `min-width: 0` 是讓 flex 子元素【可以】被壓縮的那一句,
-   少了它 `text-overflow` 不會生效(flex item 的預設 min-width 是 auto = 不小於內容)。 */
-.pcard-brand-name {
+/* 🛑 **擠的時候先切品牌名** —— `min-width: 0` 是讓 flex 子元素【可以】被壓縮的那一句,
+   少了它 `text-overflow` 不會生效(flex item 的預設 min-width 是 auto = 不小於內容)。
+   🔴🔴 **只在【真的有料號】時才改成不換行** —— `:has(.pcard-code)`。
+     ⛔ ~~一律 nowrap+ellipsis~~ ⇒ 那會動到**今天的多數頁面**:`/products` 與品牌頁的
+     `productCode` 是 `undefined`(RPC 那條路的 mapper 沒有這一欄)⇒ 那兩面會拿到
+     「**只有截斷、沒有料號**」, 而那是 Sean 沒看過的第三種畫面(2026-09-06 code-reviewer must-fix)。
+     🔵 稿上 `.pcard-brand` 逐字**沒有** nowrap/ellipsis(`design-reference/styles/product-card.css:154-162`)
+     ⇒ 沒有料號時**維持稿的行為**, 有料號時才是我方刻意偏離。 */
+.pcard-brand:has(.pcard-code) .pcard-brand-name {
   min-width: 0;
+  /* 🔴 **`flex-shrink: 9999` 不是魔術數字, 是「誰先讓」的排序** —— 品牌名讓 9999 份、
+     料號讓 1 份 ⇒ **品牌名幾乎吸收掉全部的擠壓, 料號到最後才開始截斷。**
+     ⇒ 這比寫死 `max-width` 好, 因為門檻**跟著卡片寬度走**而不是我猜一個百分比。 */
+  flex-shrink: 9999;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 🔴🔴 **料號【優先, 而不是永遠完整】** —— 這一句是量出來的, 不是設計出來的:
+   正式庫唯讀實測(`scripts/readonly-prod-sql.sh`, 2026-09-06):
+     `max(length(brands.name))`             = **19**(`EVOTECH PERFORMANCE`)
+     `max(length(products_public.external_id))` = **65**(`PRN015536-015554-016077-…`, 分母 25,769)
+   ⇒ 🛑 **65 字的料號在 175px 的那一列裡放不下** —— 而它**沒有空白可以斷行**(全是 `-`)
+     ⇒ 純 `flex-shrink: 0` 會讓它**溢出卡片**, 手機兩欄版面下壓到隔壁欄。
+   ⇒ ✅ **讓品牌名先讓到底, 料號最後才截斷**(`flex-shrink` 9999 : 1)。
+   🔬 **而「最後才截斷」值多少, 是量出來的**(同一發唯讀查詢, 分母 25,769):
+     `length(external_id) <= 17` ⇒ **24,128(93.6%)** · `18-30` ⇒ 1,379(5.4%) · `>30` ⇒ 262(1.0%) · p99 = **31**
+     ⛔ ~~我第一版寫 `max-width: 60%`~~ ⇒ 那是 ~17 字 ⇒ **6.4% 的商品會被截**;
+     改成讓品牌名先讓之後, 料號可用到整列 ~29 字 ⇒ **只剩約 1% 會截。**
+   📌 **⇒ 一個「看起來很保守」的百分比, 代價是 6 倍的截斷率 —— 而那個代價要量了才看得到。**
+   📌 ⛔ ~~我原本寫「料號永遠完整」~~ —— 那是**在三組 5-15 字的樣本上**成立的話,
+      而我標成了無條件。完整的料號在商品頁看得到。 */
 .pcard-code {
-  flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .pcard-name {
   font-size: 14px; /* 🔶 第3批:13.5 → 14(`DESIGN-HANDOFF` §4-3「字級只用整數 px」;設計稿 .pcard-name 逐字) */
