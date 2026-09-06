@@ -2,6 +2,10 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+// 🔴 **`strip-comments` 這個名字在 repo 裡有三支同名檔**(`git ls-files | grep strip-comments` ⇒ 3):
+//    `apps/admin/src/lib/test-support/strip-comments.ts`(**本檔用的就是這一支**)·
+//    同目錄的 `.test.ts` · 以及 `apps/storefront/src/lib/test-support/strip-comments.ts`。
+//    ⇒ 📌 引用它的行為時要寫**全路徑**, 否則下一個人會去讀錯的那一支。
 import { stripComments } from '../test-support/strip-comments';
 
 // server-action-guard-sweep.test.ts —— 掃描式守門:**新增一支沒有守門的 server action 時,這裡要紅。**
@@ -62,12 +66,23 @@ const LOWER_BOUND = 20;
  *   仍會被算成呼叫 —— 那要 parser 級的判斷。**方向是【多算 = 放行】** ⇒ 這一格待補。
  */
 function hasMutationGuard(src: string, fileName?: string): boolean {
+  // ⚠️ **`replace(/^\ufeff/, '')` 對【本函式】無判別力** —— 它是照 `:127` 那個呼叫端抄來的形狀。
+  //    那裡要 `.trim()` 之後比對開頭, BOM 會擋路;而這裡只做「整份文字裡有沒有那個呼叫」,
+  //    BOM 在不在都不影響結果。⇒ 📌 留著是為了兩處形狀一致, **而它不是一道檢查**。
   return /authorize(Admin|Manager)Mutation\s*\(/.test(
     stripComments(src.replace(/^\ufeff/, ''), fileName),
   );
 }
 
 /** 🔴 `'use server'` 的偵測 —— **這是這支尺的【分母】那一半,而它比分子更容易靜默變窄。**
+ *
+ * 🛑 **它只認【檔頭】那一種 —— 函式層的 inline directive 不進分母**(2026-09-06 補寫):
+ *    Next.js 允許 `'use server'` 寫在**函式體裡面**(那一支函式自己變成 server action)。
+ *    本偵測跳過 BOM / 空白 / 註解之後就要求 directive ⇒ **寫在函式裡的那種, 這支尺看不到。**
+ *    🔬 **今天 0 支**(當場量:`apps/admin/src` 的 `.ts`/`.tsx`,
+ *       找【有縮排的獨立一行 `'use server';`】⇒ **0**;🔴 負對照 現造 `'use zzqserver0906'` ⇒ **0**)
+ *    ⇒ 📌 **所以今天不是洞, 而它是【現況】不是【保證】** —— 哪天有人這樣寫,
+ *      那一支 server action **一出生就不在這道守門的射程裡, 而不會有任何東西紅。**
  *
  * code-reviewer 2026-08-30 實測:原本的 `startsWith("'use server'")` 對 7 種**合法**寫法
  * **只抓到 2 種** —— 雙引號 `"use server"` / BOM / 前置註解 / 前置空行 / `.tsx` **全部漏掉**。
@@ -191,7 +206,8 @@ describe('server action 守門掃描', () => {
       ['行註解裡', `'use server';\n// TODO: 之後要加 authorizeAdminMutation(actor)\nexport async function a() {}`],
       ['區塊註解裡', `'use server';\n/* 這裡本來要 authorizeAdminMutation( 而還沒寫 */\nexport async function a() {}`],
       ['只 import 沒呼叫', `'use server';\nimport { authorizeAdminMutation } from './x';\nexport async function a() {}`],
-      ['字串字面(錯誤訊息)', `'use server';\nconst MSG = 'authorizeAdminMutation';\nexport async function a() { throw new Error(MSG); }`],
+      // 🔴 標籤要說清楚是【不含括號】的那一種 —— 含括號的那種本尺【擋不住】, 見下方 it.todo
+      ['字串字面(不含括號)', `'use server';\nconst MSG = 'authorizeAdminMutation';\nexport async function a() { throw new Error(MSG); }`],
       ['型別位置', `'use server';\nimport type { authorizeManagerMutation } from './x';\ntype T = typeof authorizeManagerMutation;\nexport async function a() {}`],
     ];
     it.each(CASES_NOT_GUARDED)('🔴 %s ⇒ 不算有守門', (_label, src) => {
@@ -210,6 +226,15 @@ describe('server action 守門掃描', () => {
     it.each(CASES_GUARDED)('🟢 正對照:%s ⇒ 算有守門', (_label, src) => {
       expect(hasMutationGuard(src), '真的呼叫了卻被算成沒守門 ⇒ 這道閘會誤紅').toBe(true);
     });
+
+  /**
+   * 🔴 **已知缺口, 寫成 `it.todo` 讓它【有形狀】而不是只躺在註解裡**:
+   *   字串字面裡若**連括號一起**寫著 `authorizeAdminMutation()`(例如錯誤訊息、文件字串、
+   *   或一支列出「該呼叫哪些守門」的常數表), 本尺會把它算成呼叫 ⇒ **方向是多算 = 放行**。
+   *   要根治得問 parser「這個識別字是不是在 CallExpression 的位置上」, 而那是另一片。
+   *   ⚠️ **今天 repo 裡零命中** —— 而那是【現況】不是【保證】。
+   */
+  it.todo("🔴 缺口:字串字面含括號 `'call authorizeAdminMutation()'` 仍被算成呼叫(方向=放行)");
 
     it('🔴 舊尺與新尺【對同一份輸入給不同答案】—— 證明這次收緊不是換個寫法', () => {
       const fake = `'use server';\n// TODO: authorizeAdminMutation\nexport async function a() {}`;
