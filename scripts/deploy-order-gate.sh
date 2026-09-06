@@ -61,7 +61,9 @@
 #   · `APPLIED.tsv` 是自陳帳:更新了卻沒真 apply、或正式庫被 restore ⇒ 攔不到。
 #   · 反向事故(migration 先上、舊 app 撞 `PGRST201`)不在射程。
 #   · `--no-verify` / `HUSKY=0` 可繞(與 `.husky/reviewer-gate.sh` 同一個天花板)。
-#   · **只比 RPC 函式名**(Sean Q2=B):純加欄位 / 建表 / 改 RLS 的 migration **零覆蓋** —— 刻意的。
+#   · ⛔ ~~**只比 RPC 函式名**(Sean Q2=B):純加欄位 / 建表 / 改 RLS 的 migration **零覆蓋** —— 刻意的。~~
+#     🔴 **2026-09-06 起這句只剩一半成立**(Sean 答 `Q-閘看欄=甲`):**加欄位已經納入**;
+#     而**純建表 / 改 RLS 仍然零覆蓋**。⛔ 舊字面留著, 讓引用「零覆蓋」的人同一發撞到這裡。
 #   · 呼叫端若**不是逐字寫函式名**(字串拼接、樣板字串、動態 key),抓不到;這是文字比對的天花板。
 #     ⚠️ **「常數表」已不在這一行的射程裡了**(2026-08-21 A-bc):`.rpc(SOME_FN, …)` 現在會回頭
 #        解析 `SOME_FN = 'fn'`,而**解析不到就擋**。詳見下方比對段的行內註解。
@@ -253,27 +255,48 @@ view_names_of() { # $1=rev:path
 #   ⇒ 📌 **這是【知情的】推翻, 不是有人忘了那兩段**:Sean 答甲時題目逐字寫著
 #     「只認得表跟函式, 認不出欄位」(起因 = `mail C5`:表加一欄沒貼就推 ⇒ 信寄了、DB 記 failed、**沒有東西叫**)。
 #
-# 🔴🔴 **而當初那個理由是【對的】—— 我量了才敢動**(2026-09-06 `-auth`):
-#   · 全史 `ALTER TABLE … ADD COLUMN` ⇒ **64 組 (表,欄) 配對 · 59 個去重欄名**(48 支 migration)
-#   · 🛑 **尺一(只比欄名)命中檔次合計 3254** —— `x` 一個字就 **1717 支檔** · `email` 294 · `request_id` 119
-#     ⇒ **23/59 個欄名命中 ≥20 支檔** ⇒ **那把尺不能用。**
-#   · ✅ **尺二(欄名 AND 表名出現在【同一支檔】)⇒ 731 檔次, 降到 22%**;
-#     最吵那組 `order_payments.x` **1717 ⇒ 22**。
-#   ⇒ 🔵 **採尺二, 而它仍然不乾淨**(`orders.version` 72⇒47 · `products.price_store` 49⇒32)——
+# 🔴🔴 **而當初那個理由是【對的】—— 我量了才敢動**(2026-09-06 `-auth`;
+#   ⚠️ **下面這組是 codex R1 之後【用修好的抽取器重量】的**):
+#   · 全史 `ALTER TABLE … ADD COLUMN` ⇒ **94 組 (表,欄) 配對 · 87 個去重欄名**
+#   · 🛑 **尺一(只比欄名)命中檔次合計 2221** —— `email` 294 · `kind` 271 · `actor` 259 · `request_id` 119
+#     ⇒ **28/94 組的欄名命中 ≥20 支檔** ⇒ **那把尺不能用。**
+#   · ✅ **尺二(欄名 AND 表名出現在【同一支檔】)⇒ 806 檔次, 降到 36%**
+#   ⇒ 🔵 **採尺二, 而它仍然不乾淨**(`orders.version` 72⇒47 · `order_refunds.kind` 271⇒15)——
 #     **代價寫在這裡, 不藏。**
+#
+# 🔴 **⛔ ~~舊字面:64 組 / 59 欄 / 尺一 3254 / 尺二 731 / 22% / `x` 1717 支檔~~ —— 那一組【不能引用】。**
+#    🔬 它是**上一版抽取器**的輸出, 而那一版對 `ADD COLUMN a, ADD COLUMN b` **只抽第一欄**
+#      ⇒ 📌 **母體本身就漏了約 30 組** ⇒ 那些比例是【偏斜樣本】。
+#    ⚠️ 而**方向沒有變**(尺一不能用、尺二好很多), **倍率變差了**:22% ⇒ **36%**。
+#    ⇒ 🎯 **一把壞掉的量具, 會同時給出「結論」與「支持那個結論的數字」** —— 而結論恰好還是對的,
+#      那讓它更難被發現。**舊字面留刪除線, 讓引用 22% 的人同一發撞到這裡。**
 #
 # ⚠️⚠️ **射程(它答不出的兩件事)**:
 #   ① **同檔含兩個字串 ≠ 那支檔用了那個欄** ⇒ 會誤擋(上面那些數字就是它的量級)。
 #   ② **用了那個欄而兩個字串【不在同一支檔】**(mapper 分層 / 常數住別處)⇒ **漏擋** ——
 #      📌 而那正是 view 那條路 2026-08-24 撤回過的同一個形狀, 見下面 `⑤` 那段。
-col_pairs_of() { # $1=rev:path ⇒ 一行一組 "表<TAB>欄"
+col_pairs_of() { # $1=rev:path ⇒ 一行一組 "表<TAB>欄"(表與欄都轉小寫)
+  # 🔴 **逐【ALTER 敘述】抽, 不是逐個 ADD COLUMN 抽**(codex R1 must-fix)——
+  #    ⛔ ~~舊版一條 regex 直接配 `ALTER TABLE … ADD COLUMN <欄>`~~
+  #    ⇒ 📌 **`ALTER TABLE t ADD COLUMN a, ADD COLUMN b` 只抽得到 `a`** ——
+  #      codex 複量:全史因此**至少 30 組隱形**(例 `email_outbox.sent_seq` · `orders.shipping_home_fee`)。
+  #    ⚠️ 而那個漏抽**同時污染了我拿來說服自己的那些比例** —— 見檔頭「數字全部重量」那一段。
+  # 🔴 另外三種舊版抽不到的(同一輪 must-fix):`ALTER TABLE ONLY` · 非 public schema ·
+  #    `"public"."tbl"` 這種引號形;而**識別字大小寫**也要正規化, 否則後面比對會漏。
   git show "$1" 2>/dev/null \
     | strip_sql_line_comments \
     | tr '\n' ' ' \
     | strip_sql_block_comments \
-    | grep -oiE 'ALTER[[:space:]]+TABLE[[:space:]]+(IF[[:space:]]+EXISTS[[:space:]]+)?(public\.)?"?[a-zA-Z0-9_]+"?[[:space:]]+ADD[[:space:]]+COLUMN[[:space:]]+(IF[[:space:]]+NOT[[:space:]]+EXISTS[[:space:]]+)?"?[a-zA-Z0-9_]+"?' \
-    | sed -E 's/^.*[Tt][Aa][Bb][Ll][Ee][[:space:]]+([Ii][Ff][[:space:]]+[Ee][Xx][Ii][Ss][Tt][Ss][[:space:]]+)?(public\.)?"?([a-zA-Z0-9_]+)"?[[:space:]]+[Aa][Dd][Dd][[:space:]]+[Cc][Oo][Ll][Uu][Mm][Nn][[:space:]]+([Ii][Ff][[:space:]]+[Nn][Oo][Tt][[:space:]]+[Ee][Xx][Ii][Ss][Tt][Ss][[:space:]]+)?"?([a-zA-Z0-9_]+)"?.*$/\3\t\5/' \
-    | sort -u
+    | python3 -c '
+import sys,re
+t=sys.stdin.read()
+out=[]
+for m in re.finditer(r"ALTER\s+TABLE\s+(?:ONLY\s+)?(?:IF\s+EXISTS\s+)?(?:\"?[A-Za-z0-9_]+\"?\s*\.\s*)?\"?([A-Za-z0-9_]+)\"?(.*?);", t, re.I|re.S):
+    tbl=m.group(1).lower(); body=m.group(2)
+    for c in re.finditer(r"ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?\"?([A-Za-z0-9_]+)\"?", body, re.I):
+        out.append(tbl+"\t"+c.group(1).lower())
+print("\n".join(sorted(set(out))))
+' | sed '/^$/d'
 }
 
 # 🔵 **具名豁免**(像 `KNOWN` 那樣, 每一行要寫理由;空的時候本閘一格都不豁免)
@@ -351,10 +374,20 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   #      後者要連線, 而本閘是**零對外**的靜態閘。**這兩件事不一樣, 寫出來。**
   COL_LIST=""
   if [ -n "$COL_RAW" ]; then
-    APPLIED_COLS="$(git show "$local_sha:supabase/APPLIED.tsv" 2>/dev/null | grep -oE '^[0-9]{14}' \
-      | while read -r v; do
+    # 🔴🔴 **豁免只能引用【sha 相符】的那幾支**(codex R1 must-fix)——
+    #    ⛔ ~~舊版只比版本號, 而欄位是從【當前 sha】的那支檔抽的~~
+    #    ⇒ 📌 **一支已 apply 的檔被改過、加了新欄 ⇒ 它先被判 pending, 然後用【同一份新內容】把自己豁免掉。**
+    #    🔬 **而那不是假想**:`20260801120000` 就是那一支 —— 它的 ledger sha 不符,
+    #      而當前內容加了 `order_refunds.rec_trade_id`。
+    #    ⇒ ✅ 只有「版本在帳上 **且** blob sha 與帳上相符」的那幾支, 才拿來當豁免來源。
+    APPLIED_COLS="$(git show "$local_sha:supabase/APPLIED.tsv" 2>/dev/null \
+      | grep -E '^[0-9]{14}\t[0-9a-f]{64}\t' \
+      | while IFS=$'\t' read -r v led_sha _rest; do
           af="$(git ls-tree --name-only "$local_sha" supabase/migrations/ | grep "^supabase/migrations/$v" | head -1)"
-          [ -n "$af" ] && col_pairs_of "$local_sha:$af"
+          [ -n "$af" ] || continue
+          cur_sha="$(git show "$local_sha:$af" 2>/dev/null | shasum -a 256 | cut -d' ' -f1)"
+          [ "$cur_sha" = "$led_sha" ] || continue      # sha 不符 ⇒ 它自己就是 pending, 不能當豁免來源
+          col_pairs_of "$local_sha:$af"
         done | sort -u)"
     while IFS= read -r pair; do
       [ -n "$pair" ] || continue
@@ -506,24 +539,37 @@ $VALS"
     # ⚠️ 產生型別檔整支跳過 —— 理由與 view 那條同一個機制(它含每一張表與每一個欄名,
     #    而它是自動產生的、執行期不發任何請求)。
     if [ -n "$COL_LIST" ] && [ "$af" != "$GENERATED_TYPES" ]; then
+      # 🔴🔴 **表名要在【整支檔】裡找, 不是在新增行裡找**(codex R1 must-fix)——
+      #    ⛔ ~~舊版兩個字面都只查 `$CODE`(= 這一發【新增的行】)~~
+      #    ⇒ 📌 **既有的 `.from('things')` 不動、這一發只新增欄名 ⇒ 兩者不同行 ⇒ 放行。**
+      #    🛑 **那正是 view 那條路 2026-08-24 撤回過的形狀** —— 我在檔頭寫「不要重蹈」然後重蹈了。
+      #    ⇒ ✅ **欄名**仍然只認**新增行**(要的是「這一發開始用它」);
+      #      **表名**改看**整支檔**(它本來就可能早就在那裡)。
+      FULL="$(git show "$local_sha:$af" 2>/dev/null || true)"
       while IFS= read -r pair; do
         [ -n "$pair" ] || continue
         ctbl="${pair%%	*}"; ccol="${pair##*	}"
         [ -n "$ctbl" ] && [ -n "$ccol" ] || continue
-        printf '%s\n' "$CODE" | grep -qE "(^|[^A-Za-z0-9_])$ccol([^A-Za-z0-9_]|\$)" || continue
-        printf '%s\n' "$CODE" | grep -qE "(^|[^A-Za-z0-9_])$ctbl([^A-Za-z0-9_]|\$)" || continue
+        printf '%s\n' "$CODE" | grep -qiE "(^|[^A-Za-z0-9_])$ccol([^A-Za-z0-9_]|\$)" || continue
+        printf '%s\n' "$FULL" | grep -qiE "(^|[^A-Za-z0-9_])$ctbl([^A-Za-z0-9_]|\$)" || continue
         BLOCKED="$BLOCKED\n  · 新欄 [$ctbl.$ccol](在未 apply 的 migration 裡)⇒ 這支檔同時提到表名與欄名:$af  [ref $remote_ref]\n    └ 那支 migration:$(printf '%s\n' "$PENDING" | cut -f2 | tr '\n' ' ')\n    └ ⚠️ 判準是【同檔共現】不是【真的讀了那一欄】—— 誤擋的話用 KNOWN_COL_SKIP 具名豁免並寫理由"
       done <<< "$COL_LIST"
     fi
   done <<< "$APP_FILES"
 done < "$GATE_STDIN"
 
+# 🔴 **`blocked` 那個數字要含欄位那一族**(codex R1 must-fix)——
+#    ⛔ 舊版只數函式/view ⇒ 📌 **一發【純欄位】的擋會印 `0 blocked`, 而它同時 `exit 1`**
+#    ⇒ 🛑 **「擋了」與「零命中」在摘要那一行上同形。**
+BLOCKED_N="$(printf '%b' "$BLOCKED" | grep -c '^  · ' || true)"
 [ -z "$BLOCKED" ] && { summary 0; exit 0; }
 
 {
   echo ""
-  echo "🔴 部署時序 gate:**這次要推的應用層新增程式碼,用到了還沒 apply 的 migration 建的函式或 view**。"
-  echo "   推上去 = 正式站去問一個資料庫裡還不存在的東西 ⇒ PGRST202(2026-08-07 A9h:壞約 8 小時)。"
+  # 🔴 **訊息不可以只講函式或 view**(codex R1 must-fix)——
+  #    2026-09-06 加了欄位那一族之後, 一發**純欄位**的擋會印一句與事實不符的話。
+  echo "🔴 部署時序 gate:**這次要推的應用層新增程式碼,用到了還沒 apply 的 migration 帶進來的東西**(函式 / view / 新欄)。"
+  echo "   推上去 = 正式站去問一個資料庫裡還不存在的東西 ⇒ PGRST202 / 42703(2026-08-07 A9h:壞約 8 小時)。"
   printf '%b\n' "$BLOCKED"
   # ══ 🟠 補版控型的 pending 要點名(⟦0e-DDLINTOVC-MARK⟧;-f8 2026-09-06 裁甲)══════
   #
@@ -557,5 +603,8 @@ done < "$GATE_STDIN"
   echo ""
 } >&2
 # 🔴 摘要行放在【擋下訊息之後】—— 它是最後一行,而 Sean 的終端機是往下捲的。
-summary "$(printf '%b' "$BLOCKED" | grep -cE '· (函式|view) ' || true)"
+# 🔴 **數的是【所有】被擋的項目, 不是只數函式/view**(codex R1 must-fix)——
+#    ⛔ 舊版 pattern 逐字 `· (函式|view) ` ⇒ 📌 **一發純欄位的擋會印 `0 blocked` 而同時 exit 1**
+#    ⇒ 🛑 「擋了」與「零命中」在摘要那一行上同形。
+summary "$BLOCKED_N"
 exit 1

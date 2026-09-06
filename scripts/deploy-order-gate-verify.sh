@@ -53,7 +53,7 @@ GATE_SRC="$(cd "$(dirname "$0")" && pwd)/deploy-order-gate.sh"
 test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;數法=腳本尾端印的 PASS=)
-EXPECT_TOTAL=79
+EXPECT_TOTAL=83
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -150,7 +150,7 @@ export async function readIt(sb: any) {
 TS
 ( cd "$RC1" && git add -A && git commit -qm "feat: 加欄 migration + 讀那一欄" )
 B1="$(cd "$RC1" && git rev-parse HEAD~1)"; T1="$(cd "$RC1" && git rev-parse HEAD)"
-expect_block "⑫欄位:未 apply 的加欄 + 同一支檔同時提到表名與欄名" \
+expect_block "欄⓪a:未 apply 的加欄 + 同一支檔同時提到表名與欄名" \
   "$(run_gate "$RC1" "refs/heads/dev $T1 refs/heads/dev $B1")" "things.pcm_probe_col"
 
 # 🔴🔴 ⑬ 是本族最重要的一格 —— **它就是「只比欄名」那把尺會誤擋的形狀**
@@ -162,7 +162,7 @@ export const label = 'pcm_probe_col';
 TS
 ( cd "$RC2" && git add -A && git commit -qm "feat: 加欄 migration + 只提到欄名的無關檔" )
 B2="$(cd "$RC2" && git rev-parse HEAD~1)"; T2="$(cd "$RC2" && git rev-parse HEAD)"
-expect_pass "⑬欄位:同一支檔【只有欄名沒有表名】⇒ 不擋(尺一 3254 檔次那個病的證人)" \
+expect_pass "欄⓪b:同一支檔【只有欄名沒有表名】⇒ 不擋(尺一 3254 檔次那個病的證人)" \
   "$(run_gate "$RC2" "refs/heads/dev $T2 refs/heads/dev $B2")"
 
 # ⑭ 那一欄在【已 apply 的】migration 裡就出現過 ⇒ 不是這次新加的 ⇒ 放行
@@ -182,11 +182,14 @@ export async function readIt(sb: any) {
 TS
 ( cd "$RC3" && git add -A && git commit -qm "feat: 重貼同一支加欄 + 讀那一欄" )
 B3="$(cd "$RC3" && git rev-parse HEAD~1)"; T3="$(cd "$RC3" && git rev-parse HEAD)"
-expect_pass "⑭欄位:那一欄在已 apply 的 migration 出現過 ⇒ 不算新加, 放行" \
+expect_pass "欄⓪c:那一欄在已 apply 的 migration 出現過 ⇒ 不算新加, 放行" \
   "$(run_gate "$RC3" "refs/heads/dev $T3 refs/heads/dev $B3")"
 
 # ⑮ pending 有 migration 而【一句 ADD COLUMN 都沒有】⇒ 欄位這一族不得叫
-#    🔬 而這一格今天就是真實世界:PENDING 11 支, ADD COLUMN 0 支(2026-09-06 量)。
+#    ⛔ ~~而這一格今天就是真實世界:PENDING 11 支, ADD COLUMN 0 支~~ —— **那句是錯的**(codex R1)。
+#    🔬 照閘自己的判準(版本在帳上**且 sha 相符**才算 applied)重量:
+#      **PENDING = 20 支**, 而其中**有一支 ADD COLUMN**(`20260801120000` 的 `order_refunds.rec_trade_id`)。
+#    ⇒ 📌 **所以「上線第一天靜音」不成立** —— 而我當時是用「版本號在不在帳上」算的, 漏了 sha 那一半。
 RC4="$WORK/rc4"; setup_repo "$RC4"; add_pending_migration "$RC4"
 cat > "$RC4/apps/admin/src/reader4.ts" <<'TS'
 export const things = 'things';
@@ -194,8 +197,89 @@ export const pcm_probe_col = 1;
 TS
 ( cd "$RC4" && git add -A && git commit -qm "feat: pending 是純函式 + 檔裡剛好有那兩個字" )
 B4="$(cd "$RC4" && git rev-parse HEAD~1)"; T4="$(cd "$RC4" && git rev-parse HEAD)"
-expect_pass "⑮欄位:pending 裡零 ADD COLUMN ⇒ 欄位這一族不得叫(今天真實世界就是這一格)" \
+expect_pass "欄⓪d:pending 裡零 ADD COLUMN ⇒ 欄位這一族不得叫(今天真實世界就是這一格)" \
   "$(run_gate "$RC4" "refs/heads/dev $T4 refs/heads/dev $B4")"
+
+
+# ══ 欄位那一族 · codex R1 補的四格反例 ═════════════════════════════════════
+
+# 🔴🔴 欄① 是 MF3 的證人:**既有的表名行【不動】, 這一發只新增欄名**
+#    舊版兩個字面都只查【新增行】⇒ 兩者不同行 ⇒ 放行 ⇒ 那正是 view 那條路撤回過的形狀。
+RC5="$WORK/rc5"; setup_repo "$RC5"
+cat > "$RC5/apps/admin/src/reader5.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id');
+}
+TS
+( cd "$RC5" && git add -A && git commit -qm "base: 既有的 from(things)" )
+add_pending_col "$RC5"
+cat > "$RC5/apps/admin/src/reader5.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id');
+}
+export const extra = 'pcm_probe_col';
+TS
+( cd "$RC5" && git add -A && git commit -qm "feat: 加欄 migration + 只新增欄名那一行" )
+B5="$(cd "$RC5" && git rev-parse HEAD~1)"; T5="$(cd "$RC5" && git rev-parse HEAD)"
+expect_block "欄①:既有表名行不動、只新增欄名 ⇒ 仍要擋(MF3;表名看整支檔)" \
+  "$(run_gate "$RC5" "refs/heads/dev $T5 refs/heads/dev $B5")" "things.pcm_probe_col"
+
+# 🔴 欄② 是 MF4/MF5 的證人:**已 apply 的檔被改過(sha 不符)而加了新欄**
+#    舊版豁免只比版本號、欄位從當前 sha 抽 ⇒ 它會先被判 pending, 再用同一份新內容把自己豁免掉。
+RC6="$WORK/rc6"; setup_repo "$RC6"
+cat > "$RC6/supabase/migrations/20260101000002_will_drift.sql" <<'SQL'
+CREATE TABLE public.drifty (id uuid PRIMARY KEY);
+SQL
+_dsha="$(shasum -a 256 "$RC6/supabase/migrations/20260101000002_will_drift.sql" | cut -d' ' -f1)"
+printf '20260101000002\t%s\t2026-01-01\tfixture\n' "$_dsha" >> "$RC6/supabase/APPLIED.tsv"
+( cd "$RC6" && git add -A && git commit -qm "base: 一支已進帳的 migration" )
+# 改它(帳上 sha 從此不符)並加一欄
+cat > "$RC6/supabase/migrations/20260101000002_will_drift.sql" <<'SQL'
+CREATE TABLE public.drifty (id uuid PRIMARY KEY);
+ALTER TABLE public.things ADD COLUMN pcm_drift_col text;
+SQL
+cat > "$RC6/apps/admin/src/reader6.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_drift_col');
+}
+TS
+( cd "$RC6" && git add -A && git commit -qm "feat: 改了一支已進帳的 migration 加欄 + 讀那一欄" )
+B6="$(cd "$RC6" && git rev-parse HEAD~1)"; T6="$(cd "$RC6" && git rev-parse HEAD)"
+expect_block "欄②:被改過的已 apply 檔(sha 不符)加欄 ⇒ 不得自己豁免自己" \
+  "$(run_gate "$RC6" "refs/heads/dev $T6 refs/heads/dev $B6")" "things.pcm_drift_col"
+
+# 🔴 欄③ 是 MF1 的證人:**一句 ALTER 加兩欄, 第二欄也要抽得到**
+RC7="$WORK/rc7"; setup_repo "$RC7"
+cat > "$RC7/supabase/migrations/20260104000000_twocol.sql" <<'SQL'
+ALTER TABLE ONLY "public"."things" ADD COLUMN pcm_first_col text, ADD COLUMN IF NOT EXISTS pcm_second_col int;
+SQL
+cat > "$RC7/apps/admin/src/reader7.ts" <<'TS'
+export async function readIt(sb: any) {
+  return sb.from('things').select('id, pcm_second_col');
+}
+TS
+( cd "$RC7" && git add -A && git commit -qm "feat: 一句 ALTER 加兩欄 + 只讀第二欄" )
+B7="$(cd "$RC7" && git rev-parse HEAD~1)"; T7="$(cd "$RC7" && git rev-parse HEAD)"
+expect_block "欄③:一句 ALTER 加兩欄(帶 ONLY 與 schema 引號)⇒ 第二欄也要擋" \
+  "$(run_gate "$RC7" "refs/heads/dev $T7 refs/heads/dev $B7")" "things.pcm_second_col"
+
+# ⚠️ 欄④ 是【已知漏擋】的活證據 —— 它期望【放行】, 而那不是「正確」, 是「今天擋不到」。
+#    表名與欄名分在兩支檔 ⇒ 尺二(同檔共現)看不到。
+#    📌 寫成一格是為了讓它【被看見】; 哪天有人修好了, 這一格會紅, 那時把它改成 expect_block。
+RC8="$WORK/rc8"; setup_repo "$RC8"; add_pending_col "$RC8"
+cat > "$RC8/apps/admin/src/tbl8.ts" <<'TS'
+export const TABLE = 'things';
+TS
+cat > "$RC8/apps/admin/src/reader8.ts" <<'TS'
+import { TABLE } from './tbl8';
+export async function readIt(sb: any) {
+  return sb.from(TABLE).select('id, pcm_probe_col');
+}
+TS
+( cd "$RC8" && git add -A && git commit -qm "feat: 表名與欄名分在兩支檔" )
+B8="$(cd "$RC8" && git rev-parse HEAD~1)"; T8="$(cd "$RC8" && git rev-parse HEAD)"
+expect_pass "欄④:表名與欄名【分在兩支檔】⇒ 今天放行(**已知漏擋**, 不是正確行為)" \
+  "$(run_gate "$RC8" "refs/heads/dev $T8 refs/heads/dev $B8")"
 
 echo "── 核心:A9h 回歸與不誤擋 ──────────────────────────"
 
