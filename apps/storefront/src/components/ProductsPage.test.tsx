@@ -797,6 +797,26 @@ describe('ProductsPage · 分類/品牌讀不到也要講一句(⟦search-SILENT
     expect(screen.queryByText(/品牌清單暫時無法載入/)).toBeNull();
   });
 
+  // 🔴🔴 **這一格是 R2 逼出來的, 而 R2 是對的 —— 我自己複驗過**:
+  //   我為那個版面錯位寫的 `products-layout-grid-browser.test.tsx` 是**自己餵字串 DOM**、
+  //   **沒有 import `ProductsPage`** ⇒ 把真元件那層 `gridColumn` 容器【刪掉】,
+  //   **那四格與這裡 56 格【全部照樣綠】**(2026-09-06 實測 4 passed / 56 passed)
+  //   ⇒ 🛑 **那個 Critical 修法當時零守門, 可以無聲回歸。**
+  //   📌 **一支測試證明了「那條 CSS 規則會這樣動」, 不等於證明「這個元件有那樣寫」。**
+  //   ✅ 兩把尺分工:**元件有沒有包 = 這一格(jsdom)** · **CSS 規則行為 = 那支 browser**。
+  it('🔴🔴 那兩顆 notice 必須被包在 `grid-column: 1 / -1` 的容器裡(拔掉那層 ⇒ 本格紅)', () => {
+    const { container } = render(<ProductsPage {...base} categoryTaxonomyFailed />);
+    const notice = container.querySelector('[role="alert"]');
+    expect(notice, '量不到 notice ⇒ 選擇器沒接上, 這一發作廢').not.toBeNull();
+    const parent = notice!.parentElement as HTMLElement;
+    expect(parent.style.gridColumn).toBe('1 / -1');
+  });
+
+  it('🔵 負對照:這把尺不是恆真 —— 沒有 failed 時根本沒有那顆 notice 可量', () => {
+    const { container } = render(<ProductsPage {...base} />);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it('🔴 三扇門【各講各的】(主視窗 2026-09-06 裁甲)—— 三個都 failed ⇒ 三句話都在', () => {
     // 🛑 這一格把「三行同時出現」變成【量到的】而不是【推的】:
     //    三扇門共用同一個 Supabase, 很可能一起壞 ⇒ 那個畫面是真的會出現的。

@@ -345,8 +345,11 @@ export function ProductsPage({ products, total, error, categories, brands: serve
             ⇒ 每多一個直接子元素就吃掉一個格子 ⇒ **只有一扇失敗時**:notice 佔 r1c1、
             `FilterSide` 被推到 1fr、`main` 掉到第二列 ⇒ **桌機版面錯位**。
             🔵 而既有那顆車款的 notice **是放在這個 grid 外面的**(`:281`)⇒ 它沒有這個問題。
-            ✅ 修法:包一層 `grid-column: 1 / -1` 的容器 ⇒ 它跨滿整列、**不佔用任何一欄**,
-               手機那邊 `grid-template-columns:1fr` 時 `1 / -1` 一樣是整列 ⇒ 兩個斷點都對。 */}
+            ✅ 修法:包一層 `grid-column: 1 / -1` 的容器 ⇒ 它跨滿整列、**不佔用任何一欄**。
+            ⚠️ **量到的只有桌機 1440**(`products-layout-grid-browser.test.tsx` 的 viewport)——
+               ⛔ ~~我原本寫「兩個斷點都對」~~ ⇒ 🔴 **手機那個斷點沒有被任何一發量過**(R2 nit)。
+               🔵 讀 CSS 推論:手機是 `grid-template-columns:1fr` ⇒ `1 / -1` 仍是整列
+                  ⇒ **推論成立而未量** —— 標著, 不寫成已驗。 */}
         <div style={{ gridColumn: '1 / -1' }}>
           <TaxonomyNotice failed={categoryTaxonomyFailed} message={CATEGORY_TAXONOMY_UNAVAILABLE} />
           <TaxonomyNotice failed={brandTaxonomyFailed} message={BRAND_TAXONOMY_UNAVAILABLE} />

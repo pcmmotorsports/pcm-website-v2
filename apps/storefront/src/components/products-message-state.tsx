@@ -29,7 +29,7 @@ export const MESSAGE_STATE_STYLE: CSSProperties = {
 //      本片把它抽出來, 那一處改成 import。
 //   🛑 **為什麼一定要單一定義點**:`packages/domain/src/catalog/supplier-placeholder.ts`
 //      檔頭逐字警告過「複製成兩份 ⇒ 它們會分岔, 而分岔不會紅」。
-//      ⇒ 守門在 `products-message-state.test.ts`:repo 裡這個字面只有這一個定義處。
+//      ⇒ 守門在 `products-message-state.test.tsx`:repo 裡這個字面只有這一個定義處。
 //   ⚠️ 逗號用全形「,」—— 那是原句的字面, 照抄不改(改了守門會紅, 而那是對的)。
 export const VEHICLE_TAXONOMY_UNAVAILABLE = '車款清單暫時無法載入,請稍後再試或改用自行輸入';
 
@@ -53,7 +53,14 @@ export const BRAND_TAXONOMY_UNAVAILABLE = '品牌清單暫時無法載入,請稍
  * 🛑 **它是【一個 block 元素】** —— 掛在 `display:grid` 的容器底下會吃掉一個格子。
  *   ⇒ 放進 grid 之前先包一層 `grid-column: 1 / -1`(`ProductsPage.tsx` 那兩顆就是這樣)。
  *   🔬 2026-09-06 code-reviewer R1 Critical 就是這一格:少了那層包裝, **只有一扇失敗時**桌機版面錯位,
- *      而四支既有 jsdom 測試**全綠**(jsdom 不做版面)⇒ 守門在 `products-layout-grid-browser.test.tsx`。
+ *      而四支既有 jsdom 測試**全綠**(jsdom 不做版面)。
+ *   🔴🔴 **守門【是兩把尺, 分工要講清楚】**(2026-09-06 R2 must-fix ——
+ *      我原本只寫「守門在 browser 那支」, 而那句是**字面不等於事實**):
+ *        · **這個元件有沒有包那層容器** ⇒ `ProductsPage.test.tsx`(jsdom, 斷言 `parentElement.style.gridColumn`)
+ *        · **那條 CSS 規則會怎麼排** ⇒ `products-layout-grid-browser.test.tsx`(真 chromium)
+ *      🛑 **少了前者**:browser 那支是自己餵字串 DOM、**沒有 import `ProductsPage`**
+ *         ⇒ 把真元件那層容器刪掉, **兩邊都照樣綠**(2026-09-06 實測 4 passed / 56 passed)。
+ *      📌 **一支測試證明了「那條規則會這樣動」, 不等於證明「這個元件有那樣寫」。**
  *
  * 🔵 **樣式沿用站內既有那組**(`MESSAGE_STATE_STYLE` + `role="alert"`)。
  *   鐵則 1 兩半都查過:`design-reference`(176 檔)**沒有**這一態;

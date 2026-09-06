@@ -68,7 +68,11 @@ async function mainCell(opts: { noticeCount: number; wrapped: boolean }) {
         const el = document.getElementById(id);
         if (!el) throw new Error(`量不到 #${id} —— 選擇器沒接上, 這一發作廢`);
         const cs = getComputedStyle(el);
-        return { row: cs.gridRowStart, col: cs.gridColumnStart, left: Math.round(el.getBoundingClientRect().left) };
+        // 🔴 2026-09-06 R2 nit:`gridRowStart` 在這裡是 `auto`(沒有明寫 row)⇒ 兩邊恆相等 ⇒ **恆真**。
+        //   改量**幾何**:`top` 分得出「同一列」與「掉到下一列」, 而它是真的被排版算出來的。
+        //   `gridColumnStart` 同理也是 `auto` ⇒ 一併拿掉, 不留死欄位。
+        const r = el.getBoundingClientRect();
+        return { top: Math.round(r.top), left: Math.round(r.left) };
       };
       const layout = document.querySelector('.pp-layout') as HTMLElement;
       return { main: g('main'), side: g('side'), display: getComputedStyle(layout).display };
@@ -86,20 +90,20 @@ describe('型錄版面 grid 格位(⟦search-SILENTDOORS2⟧ R1 Critical)', () =
 
   it('🔴 只有一扇失敗 + 包了容器 ⇒ side 與 main 仍然【左右並排】(同一列, main 在 side 右邊)', async () => {
     const r = await mainCell({ noticeCount: 1, wrapped: true });
-    expect(r.main.row).toBe(r.side.row);
-    expect(r.main.left).toBeGreaterThan(r.side.left);
+    expect(r.main.top).toBe(r.side.top); // 同一列 = 同一個 top
+    expect(r.main.left).toBeGreaterThan(r.side.left); // main 在 side 右邊
   }, 60_000);
 
   it('🔵 負對照:同樣一扇失敗而【不包容器】⇒ 版面就錯位(證明這把尺分得出兩個世界)', async () => {
     const r = await mainCell({ noticeCount: 1, wrapped: false });
     // 🛑 少了這一格,「包了容器所以對」與「這個 CSS 本來就怎麼放都對」印同一個綠。
-    const 錯位 = r.main.row !== r.side.row || r.main.left <= r.side.left;
+    const 錯位 = r.main.top !== r.side.top || r.main.left <= r.side.left;
     expect(錯位).toBe(true);
   }, 60_000);
 
   it('🔴 兩扇都失敗 + 包了容器 ⇒ 仍然並排(兩顆 notice 在同一個容器裡, 只佔一列)', async () => {
     const r = await mainCell({ noticeCount: 2, wrapped: true });
-    expect(r.main.row).toBe(r.side.row);
-    expect(r.main.left).toBeGreaterThan(r.side.left);
+    expect(r.main.top).toBe(r.side.top); // 同一列 = 同一個 top
+    expect(r.main.left).toBeGreaterThan(r.side.left); // main 在 side 右邊
   }, 60_000);
 });
