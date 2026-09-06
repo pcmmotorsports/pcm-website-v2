@@ -88,7 +88,21 @@ function setCart(items: CartItem[], opts: { isHydrated?: boolean; cartSessionId?
     items,
     totalQty: items.reduce((s, i) => s + i.qty, 0),
     isHydrated: opts.isHydrated ?? true,
-    cartSessionId: opts.cartSessionId ?? 'sess-default',
+    // 🔴🔴 **`??` 在這一格是【致命的】, 而它看起來只是個預設值**(⟦acct-LOGOUTTESTBLIND⟧, 2026-09-07)
+    //   ⛔ ~~`opts.cartSessionId ?? 'sess-default'`~~ —— `??` 對 `null` 也會落到右邊
+    //   ⇒ 📌 **這個 helper【表達不出 `null`】**。
+    //   🛑 而登出在碼上正是 `A → null`(`contexts/CartContext.tsx:399-400`
+    //     `setItems([]); setCartSessionId(null);`)
+    //   ⇒ 🎯 底下那格名字逐字叫「登出 / 換帳號清空」的測試, **餵進去的其實是
+    //     `sess-A → sess-default`** ⇒ **它從來沒有測到登出, 而它一直是綠的。**
+    //   🔬 **實測(2026-09-03 開列時 28 格 · 2026-09-07 我複驗 30 格, 結論相同)**:
+    //     把 `CartContext` 那兩行登出清空**整段拿掉** ⇒ 本檔 **一格都沒紅**。
+    //   ✅ 改用 `in` 判斷 —— 它問的是「呼叫端有沒有給這個鍵」, 而不是「那個值是不是 nullish」。
+    //   ⚠️ 而 `in` 之後型別**仍含 `undefined`**(`{ cartSessionId: undefined }` 送得進來)——
+    //     **typecheck 當場抓到, 而那是對的**:呼叫端顯式送 `undefined` 與不送, 在 `in` 眼中不同,
+    //     而 `CartContextValue` 那一欄只收 `string | null`。⇒ 顯式收斂成 `null`, 不讓它漏出去。
+    cartSessionId:
+      'cartSessionId' in opts ? (opts.cartSessionId ?? null) : 'sess-default',
     addItem: vi.fn(),
     removeItem,
     updateQty,

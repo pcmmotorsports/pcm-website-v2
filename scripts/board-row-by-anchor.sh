@@ -8,6 +8,18 @@
 #      而「引用它的列」與「是它的列」在整行 grep 上完全一樣。
 #      實量:b4-SHIPGATE1 整行 grep 10 列 / 錨欄 2 列 ⇒ 8 個假陽性, 而第一個讀起來完全正常。
 #
+# 🔴🔴 **而錨欄【本身】也會有假陽性 —— 判別式在這裡**(2026-09-07 主視窗轉 front 實例, :1566):
+#
+#       ⟦x-FOO⟧        ← 沒有反引號 ⇒ **這是那一列**(資料列)
+#       `⟦x-FOO⟧`      ← 有反引號   ⇒ **這是【提到】那一列**(引用列)
+#
+#   為什麼會混進錨欄:合併/整併時, 一列的錨欄可能被寫成
+#   「`⟦x-FOO⟧` 的正本在下面」這種**帶反引號的引用**, 而本工具比對的是【子字串】
+#   ⇒ 兩者都命中, 而**它們讀起來一模一樣**。
+#   ⇒ 📌 **判別句:錨欄裡那個錨【不帶反引號】才是它自己;帶反引號的是在講別人。**
+#   🛑 本工具**不自動過濾** —— 因為過濾錯會讓一列永久消失, 比多印一列糟。
+#      它改成:命中多列時把每一列的錨欄原文印出來, 讓你自己看得到反引號。
+#
 # rc:  0 = 命中 1 列或多列 · 3 = 查無 · 2 = 用法錯 · 1 = 工具自壞
 set -uo pipefail
 
@@ -30,7 +42,12 @@ lookup() {
   local anchor="$1" board="$2" mode="$3"
   awk -F'|' -v a="$anchor" -v m="$mode" '
     NF > 4 {
-      hit = (m == "regex") ? ($3 ~ a) : (index($3, a) > 0)
+      # 🔴 比對前先把錨欄裡【被反引號包住的那一段】剝掉 —— 那是「提到別人」不是「是它自己」。
+      #    剝的是【那一段】不是整列 ⇒ 一列若自己也有錨, 它的錨不帶反引號 ⇒ 照樣命中, 不會消失。
+      #    (2026-09-07 front 在 :1566 差點命中兩列 ⇒ 主視窗轉。)
+      probe = $3
+      gsub(/`[^`]*`/, "", probe)
+      hit = (m == "regex") ? (probe ~ a) : (index(probe, a) > 0)
       if (hit) {
         state = $2; col = $3
         gsub(/^[ \t]+|[ \t]+$/, "", state)
@@ -248,8 +265,28 @@ selftest() {
     "$([ "$(printf '%s\n' "$bad_rows" | grep -c . || true)" -gt 0 ] && echo yes || echo no)" "yes"
 
   # ④ 多列格:一個錨真的命中多列 ⇒ 必須印出全部, 不得只回第一列。
-  local na4
-  na4="$(lookup "b4-MAILHTML1" "$board" str | grep -c . || true)"
+  #
+  # 🔴🔴 **這一格【一直靠一個假陽性活著】**(2026-09-07 加⑨時發現):
+  #    原本用真板上的 `b4-MAILHTML1` 當 fixture, 而它命中的兩列是
+  #      :1095 錨欄 `⟦b4-MAILHTML1⟧`        ← 是它自己
+  #      :1565 錨欄 <反引號>⟦b4-MAILHTML1⟧<反引號>  ← **只是提到它**(該列「態」欄實際印 726,
+  #                                            它根本在分隔線下面那張表)
+  #    ⇒ 加了⑨的反引號過濾之後, 這一格從 2 掉到 1 而**變紅**。
+  #    🛑 **當下最順手的修法是把期待值改成 1 —— 那是【動驗證本身】, 立即停止訊號。**
+  #       改了之後「命中多列必須全印」就沒有任何東西在守了。
+  #    ✅ 改成【合成板檔】:兩列都是真的同錨列。那才是這一格要守的東西,
+  #       而且它不再依賴真板上剛好有一個假陽性。
+  #    📌 **一個靠別人的髒資料活著的 selftest, 會在那份資料被清乾淨的那天變紅。**
+  local tmp4 na4
+  tmp4="$(mktemp "${TMPDIR:-/tmp}/anchor4.XXXXXX")" || return 1
+  {
+    printf '%s\n' '| 態 | 錨 | 事 | 誰 | 末 |'
+    printf '%s\n' '|---|---|---|---|---|'
+    printf '%s\n' '| open | ⟦zz4-DUP⟧ | 同一個錨的第一列 | 誰 | x |'
+    printf '%s\n' '| done | ⟦zz4-DUP⟧ | 同一個錨的第二列 | 誰 | x |'
+  } > "$tmp4"
+  na4="$(lookup "zz4-DUP" "$tmp4" str | grep -c . || true)"
+  rm -f "$tmp4"
   check "④多列 命中 ≥2" "$([ "$na4" -ge 2 ] && echo yes || echo "no($na4)")" "yes"
 
   # ⑤ 退回檔正對照:一個錨【只在別欄】的 ⇒ 必須找得到, 且必須印那句警告。
@@ -305,7 +342,29 @@ selftest() {
   n8b="$(cells_of "f3-SHIPPDF1"   "$board" | sed -n 's/.*naive split 會讀成 \([0-9]*\) 欄.*/\1/p')"
   check "⑧ naive 兩列必須不同(否則尺沒接上)" "$( [ "$n8a" != "$n8b" ] && echo yes || echo no )" "yes"
 
-  echo "── selftest 8 格 / 20 檢查:PASS=$pass FAIL=$fail ──"
+  # ⑨ 引用列 —— 錨欄裡【帶反引號】的錨是在講別人, 不該命中(2026-09-07 主視窗轉 front :1566)
+  #   🔴 用【合成板檔】測, 不依賴真板:真板上那一列隨時會被別的窗改掉,
+  #      而一格靠別人的資料活著的 selftest, 綠掉的那天你不知道是誰弄的。
+  local tmp9 n9a n9b n9c
+  tmp9="$(mktemp "${TMPDIR:-/tmp}/anchor9.XXXXXX")" || return 1
+  {
+    printf '%s\n' '| 態 | 錨 | 事 | 誰 | 末 |'
+    printf '%s\n' '|---|---|---|---|---|'
+    printf '%s\n' '| open | ⟦zz9-REAL⟧ | 這是它自己那一列 | 誰 | x |'
+    printf '%s\n' '| open | `⟦zz9-REAL⟧` 的正本在上面 | 這只是提到它 | 誰 | x |'
+    printf '%s\n' '| open | ⟦zz9-BOTH⟧ 而它也提到 `⟦zz9-REAL⟧` | 自己有錨又提到別人 | 誰 | x |'
+  } > "$tmp9"
+  n9a="$(lookup "zz9-REAL" "$tmp9" str | grep -c . || true)"
+  n9b="$(lookup "zz9-BOTH" "$tmp9" str | grep -c . || true)"
+  n9c="$(grep -c 'zz9-REAL' "$tmp9" || true)"
+  rm -f "$tmp9"
+  check "⑨ 引用列不命中(錨欄比對)" "$n9a" "1"
+  check "⑨ 自己有錨又提到別人 ⇒ 仍命中(剝的是那一段不是整列)" "$n9b" "1"
+  # 🔵 正對照:整行 grep 對同一份輸入撈到 3 列 ⇒ 證明【那兩個假陽性真的在檔裡】,
+  #    而不是我造的 fixture 根本沒有它們(那樣 ⑨ 會在兩個世界印同一個 1)。
+  check "⑨ 對照 整行 grep 撈到 3 列(假陽性確實存在)" "$n9c" "3"
+
+  echo "── selftest 9 格 / 23 檢查:PASS=$pass FAIL=$fail ──"
   [ "$fail" -eq 0 ]
 }
 
