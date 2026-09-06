@@ -379,11 +379,97 @@ function composeEvent(input: EnqueueEmailInput): {
   }
 }
 
+/**
+ * `countNewEvents` 一次最多接幾筆(硬上限, 超過 throw)。
+ * 🔵 真實呼叫端一輪最多送 `ENQUEUE_LIMIT = 50` 筆(`apps/storefront/src/app/api/cron/email-sweep/route.ts:168`),
+ *    這個 200 是**四倍餘裕**, 不是預期值 —— 它擋的是「有人日後把 limit 調大而沒想到這裡」。
+ * ⚠️ **改走 RPC 之後, 它擋的東西換了**:⛔ ~~原本擋的是 URL 長度~~(RPC 走 POST body, 那個問題沒了)
+ *    ⇒ ✅ 現在擋的是**單發送出去的量**與 DB 那一發 `= ANY` 的大小。舊字面留刪除線, 讓搜「URL 長度」的人撞到訂正。
+ */
+const COUNT_NEW_EVENTS_MAX_INPUTS = 200;
+
 export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
   constructor(
     private readonly client: EmailOutboxClient,
     private readonly cfg: SupabaseEmailOutboxAdapterConfig,
   ) {}
+
+  /**
+   * ⟦b4-EMAILTRIAGE⟧ 甲-3:這一批候選裡有幾個是【真的排得進去的新事件】。合約全文在 port。
+   *
+   * 🔴🔴 **鍵一定要走 `composeEvent`** —— 那是 `enqueue()` 用的同一支。
+   *    在這裡自己重算一份 ⇒ 兩份會漂, 而漂掉的那一半**不會紅**:
+   *    這把尺說「新的」而 `enqueue` 說「duplicate」, 症狀是**閘的分母錯了**,
+   *    而閘的分母錯了在任何測試上都不是紅色的。
+   * 🔵 一發批次(`.in()` = SQL 的 `= ANY`), 不逐封問 —— 逐封問等於把 N 次往返加進每一輪。
+   * 🛑 空陣列 ⇒ 直接回 0, **不發查詢**(`.in('dedup_key', [])` 在 PostgREST 上是合法而無意義的一發)。
+   * 🛑 混了兩種 event_type ⇒ throw。本方法用**單一** `event_type` 加一組鍵去查,
+   *    混型別會讓那個等式悄悄變成「任一型別命中就算」⇒ 少報新事件 ⇒ 閘放行太多。
+   */
+  async countNewEvents(inputs: readonly EnqueueEmailInput[]): Promise<number> {
+    if (inputs.length === 0) return 0;
+
+    // 🔵 `noUncheckedIndexedAccess` 之下 `inputs[0]` 是 `T | undefined` —— 上面剛擋掉空陣列,
+    //    而型別系統看不到那個因果。用第一筆的解構代替下標, 不用非空斷言。
+    const [first, ...rest] = inputs;
+    if (first === undefined) return 0;
+    const eventType = first.eventType;
+    for (const input of rest) {
+      if (input.eventType !== eventType) {
+        // 🔴 訊息零 PII:只有兩個型別名。
+        throw new Error(
+          `countNewEvents 只接受單一 event_type(拿到 ${eventType} 與 ${input.eventType})`,
+        );
+      }
+    }
+
+    // 🔴🔴 **硬上限**:RPC 走 POST body ⇒ URL 長度不再是問題, 而**送出去的量仍要有上界**。
+    //    真實呼叫端一輪最多 `ENQUEUE_LIMIT = 50` 筆
+    //    (`apps/storefront/src/app/api/cron/email-sweep/route.ts:168`), 200 是四倍餘裕
+    //    ⇒ 它擋的是「有人日後把 limit 調大而沒想到這裡」。
+    if (inputs.length > COUNT_NEW_EVENTS_MAX_INPUTS) {
+      throw new Error(
+        `countNewEvents 一次最多 ${COUNT_NEW_EVENTS_MAX_INPUTS} 筆(拿到 ${inputs.length})`,
+      );
+    }
+
+    // 🔴 鍵一定走 `composeEvent` —— 那是 `enqueue()` 用的同一支。在這裡自己重算一份
+    //    ⇒ 兩份會漂, 而漂掉的那一半**不會紅**:這把尺說「新的」而 `enqueue` 說「duplicate」,
+    //    症狀是**閘的分母錯了**, 而閘的分母錯了在任何測試上都不是紅色的。
+    // 🔵 去重交給 DB 那支函式(`SELECT DISTINCT`)—— 一份去重, 不是兩份。
+    const keys = inputs.map((input) => composeEvent(input).dedupKey);
+
+    // 🔴🔴 **為什麼是 RPC 而不是 `.select().in()`**(codex `gpt-6-astra` 2026-09-07 12⑤ R1+R2 兩輪):
+    //    「這些鍵哪些存在」的答案是**一堆列**, 而列數會被 PostgREST 的 `db-max-rows` 截斷 ——
+    //    `.limit(n)` **跨不過那個伺服器端上限**。截斷 ⇒ 少讀到已存在的鍵 ⇒ **多報新事件**
+    //    ⇒ 排信閘擋太多。而那個值我沒有一個有判別力的量法讀得到。
+    //    ✅ 改問一個**整數** ⇒ 📌 一列回來, `db-max-rows` 與 URL 長度**兩個問題同時消失**。
+    // 🛑 **型別是手寫的**:`pcm_count_new_email_events` 還沒進產生的 `Database` 型別
+    //    ⇒ 這一行的 `as` **不是型別安全的**, 它只是讓編譯過。
+    //    ⚠️ **而那代表 typecheck 對「這支函式在不在正式庫上」零判別力** ——
+    //      它要等貼板那一支 migration 貼完才叫得動。部署順序由 `deploy-order-gate` 守。
+    const { data, error } = await (
+      this.client as unknown as {
+        rpc(
+          fn: string,
+          args: Record<string, unknown>,
+        ): PromiseLike<{ data: unknown; error: { code?: string; message: string } | null }>;
+      }
+    ).rpc('pcm_count_new_email_events', {
+      p_event_type: eventType,
+      p_keys: keys,
+    });
+    if (error) {
+      // 🔴 只帶 code, 不帶 message —— DB 訊息可能含 PII。
+      throw new Error(`email_outbox countNewEvents 失敗(${error.code ?? 'unknown'})`);
+    }
+    // 🛑 **`null` 不得靜默當 0** —— 0 的意思是「一封都排不進去」⇒ 閘會放行(不擋),
+    //    而「函式不存在 / 回了個怪東西」與「真的是 0」在那個分支上長得一樣。
+    if (typeof data !== 'number' || !Number.isInteger(data) || data < 0) {
+      throw new Error('email_outbox countNewEvents 回傳不是非負整數(函式沒貼上去?)');
+    }
+    return data;
+  }
 
   async enqueue(input: EnqueueEmailInput): Promise<EnqueueEmailResult> {
     // 🔴 落表三欄全在本邊界內部重組(REQUIRED-E1b):payload 過 runtime allowlist、subject 走

@@ -850,3 +850,153 @@ describe('⟦b4-SHIPGATE1⟧ claimDue 的 excludeEventTypes', () => {
     expect(argsOf(b, 'not')).toEqual([]);
   });
 });
+
+// ══ ⟦b4-EMAILTRIAGE⟧ 甲-3 ①:countNewEvents 與 enqueue 用【同一把鍵】═══════════
+//
+// 🔴 **這一族守的不是「數字對不對」, 是「兩邊看的是不是同一個東西」。**
+//    countNewEvents 是排信閘的分母。它說「新的」而 enqueue 說「duplicate」的那一天,
+//    症狀是**閘放行了它以為新的、其實排不進去的一批** —— 而那在任何既有測試上都不是紅色的。
+// ✅ 驗法:對**同一組 input**, 比較兩邊實際送給 PostgREST 的 `dedup_key` 字面 ——
+//    countNewEvents 傳給 `.in()` 的那些, 必須與 enqueue 寫進 `insert()` 的那個【逐字相同】。
+//    六種信各一格, 因為六種的鍵公式不同(orderId / shipmentId:orderId / 指紋…)。
+const SIX_INPUTS: EnqueueEmailInput[] = [
+  BASE_INPUT,
+  {
+    eventType: 'order_cancelled',
+    orderId: 'ord-c', displayId: 'PCM-2026-0002', recipientEmail: 'c@example.com',
+    cancelledAt: '2026-09-01T00:00:00Z', refundedAmount: 0, refundKind: 'none', cancelledReason: null,
+  },
+  {
+    eventType: 'order_unpaid_cancelled',
+    orderId: 'ord-u', displayId: 'PCM-2026-0003', recipientEmail: 'u@example.com',
+    cancelledAt: '2026-09-01T00:00:00Z', cancelledReason: null,
+  },
+  {
+    eventType: 'order_shipped',
+    orderId: 'ord-s', displayId: 'PCM-2026-0004', recipientEmail: 's@example.com',
+    shipmentId: '11111111-1111-4111-8111-111111111111', shipmentReference: 'BBB222', shippedAt: '2026-09-01T00:00:00Z',
+  },
+  {
+    eventType: 'shipment_tracking_corrected',
+    orderId: 'ord-t', displayId: 'PCM-2026-0005', recipientEmail: 't@example.com',
+    shipmentId: '22222222-2222-4222-8222-222222222222', shipmentReference: 'BBB223', trackingNumber: 'TN-1',
+    trackingCorrectedKey: '2026-09-01T00:00:00Z',
+  },
+  {
+    eventType: 'bank_order_created',
+    orderId: 'ord-b', displayId: 'PCM-2026-0006', recipientEmail: 'b@example.com',
+    createdAt: '2026-09-01T00:00:00Z', total: 1000, balanceDue: 1000,
+  },
+];
+
+describe('甲-3 ① countNewEvents —— 與 enqueue 撞鍵用同一份 (event_type, dedup_key)', () => {
+  /** RPC 假件:記下呼叫參數, 回一個指定的值。 */
+  function rpcClient(result: { data: unknown; error: { code?: string; message: string } | null }) {
+    // 🔵 參數要**宣告出來** —— `vi.fn(async () => …)` 的 `mock.calls` 型別是空 tuple,
+    //    那會讓 `calls[0]![0]` 在 typecheck 紅。宣告了才問得出「它被餵了什麼」。
+    const rpc = vi.fn(async (_fn: string, _args: Record<string, unknown>) => result);
+    return { client: { rpc } as unknown as EmailOutboxClient, rpc };
+  }
+
+  for (const input of SIX_INPUTS) {
+    it(`🔴 ${input.eventType}:countNewEvents 送出的鍵 === enqueue 寫的鍵(逐字)`, async () => {
+      // enqueue 那一半:看它 insert 了什麼
+      const insertB = makeBuilder({ data: [{ id: 'e1' }], error: null });
+      await adapter(makeClient(insertB)).enqueue(input);
+      const written = (argsOf(insertB, 'insert')[0]![0] as Record<string, unknown>).dedup_key;
+
+      // countNewEvents 那一半:看它拿什麼去問
+      const { client, rpc } = rpcClient({ data: 1, error: null });
+      await adapter(client).countNewEvents([input]);
+
+      // 🔵 先證 written 不是 undefined —— 少了這一格, 兩邊都 undefined 也會「相等」。
+      expect(typeof written).toBe('string');
+      expect(written).not.toBe('');
+
+      // 🔴🔴 **函式名與兩個參數名都要單獨斷言** —— 只比值的話,
+      //    把 `p_keys` 打成別的參數名照樣全綠(而 DB 那邊會收到 NULL ⇒ 回 0 ⇒ 閘全放行)。
+      expect(rpc).toHaveBeenCalledTimes(1);
+      expect(rpc.mock.calls[0]![0]).toBe('pcm_count_new_email_events');
+      expect(rpc.mock.calls[0]![1]).toEqual({
+        p_event_type: input.eventType,
+        p_keys: [written],
+      });
+    });
+  }
+
+  it('🟢 正對照:DB 說 1 ⇒ 回 1(證明它不是恆回 0)', async () => {
+    const { client } = rpcClient({ data: 1, error: null });
+    await expect(adapter(client).countNewEvents([BASE_INPUT])).resolves.toBe(1);
+  });
+
+  it('🔴 DB 說 0 ⇒ 回 0(這一格與上一格是【一組】,拆開任一格另一格就沒有判別力)', async () => {
+    const { client } = rpcClient({ data: 0, error: null });
+    await expect(adapter(client).countNewEvents([BASE_INPUT])).resolves.toBe(0);
+  });
+
+  it('🔴 21 筆候選 ⇒ 21 把鍵一次送進去(去重與比對是 DB 那一支的事, 不在這一層做第二份)', async () => {
+    const inputs: EnqueueEmailInput[] = Array.from({ length: 21 }, (_, i) => ({
+      ...BASE_INPUT,
+      orderId: `ord-${i}`,
+    }));
+    const { client, rpc } = rpcClient({ data: 1, error: null });
+    await expect(adapter(client).countNewEvents(inputs)).resolves.toBe(1);
+    const args = rpc.mock.calls[0]![1] as { p_keys: string[] };
+    expect(args.p_keys).toHaveLength(21);
+  });
+
+  it('🔵 空陣列 ⇒ 回 0 而且【一發 RPC 都不打】', async () => {
+    const rpc = vi.fn();
+    const client = { rpc } as unknown as EmailOutboxClient;
+    await expect(adapter(client).countNewEvents([])).resolves.toBe(0);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('🔴 混了兩種 event_type ⇒ throw(不是靜默用第一種去問, 那會少報新事件)', async () => {
+    const { client } = rpcClient({ data: 0, error: null });
+    await expect(
+      adapter(client).countNewEvents([BASE_INPUT, SIX_INPUTS[3]!]),
+    ).rejects.toThrow('countNewEvents 只接受單一 event_type');
+  });
+
+  it('🔴 RPC 出錯 ⇒ throw、訊息零 PII(不得靜默回 0 —— 那會讓閘以為「全都是新的」而放行)', async () => {
+    // 🔴 codex nit(2026-09-07):原本的 fixture 只餵 `'x'` 當 message ⇒ **即使實作直接把
+    //    `error.message` 原樣吐出來, 那一格也會綠**。⇒ 改餵一個**真的含 PII 的**訊息。
+    const leaky = {
+      code: '42883',
+      message: 'function does not exist: order ord-uuid-1 for customer@example.com',
+    };
+    await expect(adapter(rpcClient({ data: null, error: leaky }).client).countNewEvents([BASE_INPUT]))
+      .rejects.toThrow(/42883/);
+    await expect(adapter(rpcClient({ data: null, error: leaky }).client).countNewEvents([BASE_INPUT]))
+      .rejects.not.toThrow(/customer@example\.com/);
+    await expect(adapter(rpcClient({ data: null, error: leaky }).client).countNewEvents([BASE_INPUT]))
+      .rejects.not.toThrow(/ord-uuid-1/);
+  });
+
+  it('🔴🔴 回的不是非負整數 ⇒ throw,【不得當成 0】—— 0 會讓閘放行,而「函式沒貼上去」也長這樣', async () => {
+    for (const bad of [null, undefined, '3', 1.5, -1, {}]) {
+      await expect(
+        adapter(rpcClient({ data: bad, error: null }).client).countNewEvents([BASE_INPUT]),
+      ).rejects.toThrow(/非負整數/);
+    }
+  });
+
+  it('🔴 超過硬上限 200 筆 ⇒ throw(擋的是單發送出去的量與 DB 那一發 = ANY 的大小)', async () => {
+    const many: EnqueueEmailInput[] = Array.from({ length: 201 }, (_, i) => ({
+      ...BASE_INPUT,
+      orderId: `ord-${i}`,
+    }));
+    const { client } = rpcClient({ data: 0, error: null });
+    await expect(adapter(client).countNewEvents(many)).rejects.toThrow(/一次最多 200 筆/);
+  });
+
+  it('🟢 邊界對照:剛好 200 筆 ⇒ 不 throw(證明上一格擋的是「超過」不是「達到」)', async () => {
+    const exactly: EnqueueEmailInput[] = Array.from({ length: 200 }, (_, i) => ({
+      ...BASE_INPUT,
+      orderId: `ord-${i}`,
+    }));
+    const { client } = rpcClient({ data: 200, error: null });
+    await expect(adapter(client).countNewEvents(exactly)).resolves.toBe(200);
+  });
+});

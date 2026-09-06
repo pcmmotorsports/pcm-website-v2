@@ -91,6 +91,8 @@ type OutboxFake = IEmailOutbox & {
 function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEmailOutbox, unknown>> = {}): OutboxFake {
   return {
     enqueue: vi.fn().mockRejectedValue(new Error('sweeper 不應呼叫 enqueue')),
+    // ⟦b4-EMAILTRIAGE⟧ 甲-3:排信那一層才會用它 —— sweeper 這一層叫到它就是接錯線。
+    countNewEvents: vi.fn().mockRejectedValue(new Error('sweeper 不應呼叫 countNewEvents')),
     claimById: vi.fn().mockRejectedValue(new Error('sweeper 不應呼叫 claimById')),
     reclaimStaleLeases: vi.fn().mockResolvedValue(0),
     claimDue: vi.fn().mockResolvedValue(jobs),
