@@ -151,8 +151,16 @@ verdict() {
   #      ⇒ 📌 **它們今天相等是【實測】不是【定義】** —— 新增一支測試檔若落在那三個根之外,
   #        或落進 vitest 的 exclude, 兩把尺就會分家 ⇒ 這道閘會**擋整條鏈**。
   #      🔵 方向是 fail-closed(誤擋), 而**誤擋的那一天訊息要看得懂** ⇒ 下面兩句話各印出兩個數。
-  mt="$(printf '%s' "$a"  | sed -n 's/.*Test Files[^(]*(\([0-9][0-9]*\)).*/\1/p')"
-  ft="$(printf '%s' "$ba" | sed -n 's/.*Test Files[^(]*(\([0-9][0-9]*\)).*/\1/p')"
+  # 🔴🔴 **codex gpt-6-astra 抓到:`[^(]*` 會【穿過 Tests 那一段】去借它的括號。**
+  #    ⛔ ~~`sed -n 's/.*Test Files[^(]*(\(…\)).*/\1/p'` 直接餵整串~~
+  #    🔬 複現(逐字):餵 `Test Files 858 passed Tests 859 passed (859)` ⇒ 抽到 **859**
+  #      ⇒ 📌 **檔數的括號【缺席】時, 它把測項總數當成檔數** ⇒ 兩發一致、名稱都在、passed>0
+  #        ⇒ 🛑 **放行了不該放行的。**
+  #    ✅ 修法:**先切掉 ` Tests ` 之後那半**, 再抽括號 ⇒ 缺括號就抽不到 ⇒ 空 ⇒ 下面 return 5。
+  #      🟢 正對照:完整摘要 ` Test Files 870 passed | 1 skipped (871)  Tests …(15647) ` ⇒ 仍抽到 **871**。
+  _files_paren() { sed 's/ Tests .*//' | sed -n 's/.*Test Files[^(]*(\([0-9][0-9]*\)).*/\1/p'; }
+  mt="$(printf '%s' "$a"  | _files_paren)"
+  ft="$(printf '%s' "$ba" | _files_paren)"
   if [ -z "$T" ] || [ -z "$F" ]; then
     echo "  🔴 分母是空的(--split-check 沒撈到「全套 / 這族」那兩個數)⇒ 不推"
     echo "     🛑 空分母與『對得上』不可以同形 —— 撈不到就是撈不到。"
@@ -174,6 +182,23 @@ verdict() {
   echo "  🟢 每一道閘各自 rc=0 · 兩段各自兩發逐字相同 · 零 failed"
   echo "  🟢 第五數:主段 $mt == 全套 $T · 族段 $ft == 這族 $F ⇒ 推"
   return 0
+}
+
+# 🔴🔴 **codex gpt-6-astra 抓到:兩條各自 `head -1` ⇒ T 與 F 可能來自【不同行】。**
+#    ⛔ ~~`sed …全套…| head -1` 與 `sed …這族…| head -1` 兩條分開撈~~
+#    🔬 複現:餵一份第一行是「歷次量測:全套 859 支 = 這族 13 + 其餘 846」的 log
+#      ⇒ 現行解析得 **T=859 / F=13**, 而那一發真正的結果行是 871/13
+#      ⇒ 📌 主段只要真的跑 859 支就會【對上】而放行, 實際比當場全套少 12 支 ⇒ 🛑 **放行了不該放行的。**
+#    ✅ 修法(抽成函式, 讓自檢摸得到):**只認完整的結果行形狀**, 而且**恰好一筆**;
+#      T 與 F 從**同一筆**取。0 筆或多筆 ⇒ 兩個都回空 ⇒ `verdict` 走 return 5(不猜)。
+split_denoms() {   # $1=split.log 路徑 ⇒ 印 "T F";任何不確定一律印空
+  local n line
+  n=$(grep -cE '全套 [0-9]+ 支 = 這族 [0-9]+ ' "$1" 2>/dev/null || true)
+  [ "$n" = "1" ] || { printf ' \n'; return 0; }
+  line=$(grep -E '全套 [0-9]+ 支 = 這族 [0-9]+ ' "$1")
+  printf '%s %s\n' \
+    "$(printf '%s' "$line" | sed -n 's/.*全套 \([0-9][0-9]*\) 支 = 這族 [0-9][0-9]* .*/\1/p')" \
+    "$(printf '%s' "$line" | sed -n 's/.*全套 [0-9][0-9]* 支 = 這族 \([0-9][0-9]*\) .*/\1/p')"
 }
 
 # 🔴 **它定義在自檢【之前】** —— 第一版我放在主流程裡, 而自檢在分派時就跑了
@@ -275,12 +300,35 @@ if [ "${1:-}" = "--selftest" ]; then
      "$(run "$(allz)" "$SUM" "$SUM" 'Test Files 1 failed | 9 passed (10) Tests 3 failed | 91 passed (94)' 'Test Files 1 failed | 9 passed (10) Tests 3 failed | 91 passed (94)' 859 10)" "4"
   ck "⑳族段只抓到半份摘要(有 Test Files 沒有 Tests)⇒ 4" \
      "$(run "$(allz)" "$SUM" "$SUM" 'Test Files 10 passed (10)' 'Test Files 10 passed (10)' 859 10)" "4"
+  # ══ 🟡 codex gpt-6-astra 抓到的兩條(2026-09-06)—— 兩條都是【放行了不該放行的】═══
+  # ㉑ 檔數的括號【缺席】時, 舊版 `[^(]*` 會穿過 `Tests` 去借它的括號 ⇒ 把測項總數當檔數。
+  #    🔬 反例逐字取自 codex:`Test Files 858 passed Tests 859 passed (859)`
+  #    ⇒ 舊版抽到 859 == T ⇒ 兩發一致、名稱都在、passed>0 ⇒ **全綠放行**。
+  #    ⚠️ ⑱ 是把【兩邊括號一起】拿掉, 測不到這條【借用】路徑 —— codex 逐字點名。
+  ck "㉑檔數括號缺席時不得借用 Tests 的括號 ⇒ 5" \
+     "$(run "$(allz)" 'Test Files 858 passed Tests 859 passed (859)' 'Test Files 858 passed Tests 859 passed (859)' "$BSUM_OK" "$BSUM_OK" 859 10)" "5"
+  # ㉒ 分母解析:T 與 F 必須來自【同一行】, 而且那種行要【恰好一筆】。
+  #    🔬 反例:log 第一行是「歷次量測:全套 859 支 = 這族 13 + 其餘 846」⇒ 舊版兩條各自 head -1
+  #      ⇒ T=859(舊行)/ F=13 ⇒ 主段只要真跑 859 支就對上而放行, 實際比當場全套少 12 支。
+  #    🔵 這一格測的是 `split_denoms`(本檔函式), 不是 `verdict` —— 它是**上游那一半**。
+  _sd_dir="$(mktemp -d)"
+  printf '%s\n' '歷次量測:全套 859 支 = 這族 13 + 其餘 846' '① 全套 871 支 = 這族 13 + 其餘 858  ✅' > "$_sd_dir/two.log"
+  printf '%s\n' '① 全套 871 支 = 這族 13 + 其餘 858  ✅' > "$_sd_dir/one.log"
+  printf '%s\n' '這一份沒有結果行' > "$_sd_dir/none.log"
+  ck "㉒a 兩筆結果行 ⇒ 分母回空(不猜)" "[$(split_denoms "$_sd_dir/two.log")]" "[ ]"
+  ck "㉒b 零筆結果行 ⇒ 分母回空"       "[$(split_denoms "$_sd_dir/none.log")]" "[ ]"
+  # 🟢 正對照:恰好一筆 ⇒ 要拿得到, 而且 T 與 F 來自同一行
+  ck "㉒c 正對照 恰好一筆 ⇒ 拿到 871 13"  "[$(split_denoms "$_sd_dir/one.log")]" "[871 13]"
+  # 🔴 而【空分母】要真的讓 verdict 回 5 —— 上下游接起來才算數
+  ck "㉒d 空分母餵進 verdict ⇒ 5" \
+     "$(run "$(allz)" "$SUM" "$SUM" "$BSUM_OK" "$BSUM_OK" '' '')" "5"
+  rm -rf "$_sd_dir"
   echo "  ── $p PASS / $f FAIL"
   # 🔴🔴 **自檢自己也要有一個【不是它自己數出來的】分母**(R1 抓到, 2026-09-06)——
   #    ⛔ ~~本段原本只看 `$f = 0`~~ ⇒ 📌 **漏寫一格 `ck` 會印 `18 PASS / 0 FAIL` 而照樣「全部通過」。**
   #    🛑 **那正是本片在替收割鏈修的那個病**(兩發相同只證重現性, 證不了分母)—— 同型, 在自檢這一層。
   #    ⚠️ 加一格 `ck` 必同步改這個數;數法 = 跑一發看 `$p`。
-  EXPECT_CELLS=22
+  EXPECT_CELLS=27
   if [ "$f" = 0 ] && [ "$p" != "$EXPECT_CELLS" ]; then
     echo "🔴 零 FAIL 但格數不對(PASS=$p ≠ EXPECT_CELLS=$EXPECT_CELLS)⇒ 有格被刪/被跳過, 判為未通過"
     exit 1
@@ -406,8 +454,7 @@ TURBO_FORCE=1 pnpm build     > "$WORK/build.log" 2>&1; add build $?
 #    ⇒ 🛑 **一個寫死的分母不會紅, 它會【安靜地量錯東西】。**
 # 🔴 rc != 0 ⇒ 它會讓 `verdict` 判紅 —— **不可以當成「沒有要排除的」繼續跑**。
 python3 scripts/browser-test-family.py --split-check > "$WORK/split.log" 2>&1; add splitcheck $?
-SPLIT_T=$(sed -n 's/.*全套 \([0-9][0-9]*\) 支.*/\1/p' "$WORK/split.log" | head -1)
-SPLIT_F=$(sed -n 's/.*這族 \([0-9][0-9]*\) .*/\1/p'   "$WORK/split.log" | head -1)
+read -r SPLIT_T SPLIT_F <<< "$(split_denoms "$WORK/split.log")"
 
 # ── ② 主段:全套兩發 ─────────────────────────────────────────────────────
 pnpm vitest --run --maxWorkers=2 > "$WORK/t1.log" 2>&1; add test1 $?
