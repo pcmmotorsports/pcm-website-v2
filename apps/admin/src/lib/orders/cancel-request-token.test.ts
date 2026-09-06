@@ -134,6 +134,23 @@ const REGISTERED: Record<string, number> = {
   'apps/admin/src/components/ui/sidebar.tsx': 1,
 };
 
+// 🔴🔴 **這兩層快取是【併跑逾時】的修法, 而它【沒有動任何逾時值】**
+//    (⟦0e-PARALLELTIMEOUT⟧ · 2026-09-06;板列明文「不要調大逾時」= 動量具本身)。
+//    🔬 量到的:本檔三格各自呼叫 `scanClientRandomness()`, 而第三格另外再 `walk('apps')` 一次
+//      ⇒ **同一棵樹被走 4 遍**, 每遍對每支 `.ts/.tsx` 做一次 `readFileSync`。
+//      單跑實測 `tests 6.50s` 而 `transform 233ms` ⇒ 📌 **那 6.5 秒幾乎全是這 4 遍。**
+//    ⇒ ✅ 檔案系統在一次 vitest run 之內不會變 ⇒ **走一遍、記起來**。
+//    🛑 **守門的判別力一格都沒動**:斷言、掃描器、正負對照全部原樣, 快取只是不重做同一件事。
+const _walkCache = new Map<string, string[]>();
+function walkCached(dir: string): string[] {
+  const hit = _walkCache.get(dir);
+  if (hit) return hit;
+  const out = walk(dir);
+  _walkCache.set(dir, out);
+  return out;
+}
+let _scanCache: Record<string, number> | undefined;
+
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     if (SKIP_DIRS.has(entry)) continue;
@@ -146,9 +163,10 @@ function walk(dir: string, out: string[] = []): string[] {
 
 /** 掃描結果:`相對 repo 根的路徑 → 亂數字面命中數`(只含 `'use client'` 檔)。 */
 function scanClientRandomness(): Record<string, number> {
+  if (_scanCache) return _scanCache;
   const found: Record<string, number> = {};
   for (const root of SCAN_ROOTS) {
-    for (const p of walk(join(REPO_ROOT, root))) {
+    for (const p of walkCached(join(REPO_ROOT, root))) {
       // 🔴 先剝註解再判兩件事(既有前例 `cancel-order-forms.test.tsx` 的 must-fix:
       //    拿未剝註解的原始碼比 `'use client'` 會把「註解裡提到它」的檔一起算進來)。
       const code = stripComments(readFileSync(p, 'utf8'));
@@ -157,6 +175,7 @@ function scanClientRandomness(): Record<string, number> {
       if (hits) found[relative(REPO_ROOT, p)] = hits.length;
     }
   }
+  _scanCache = found;
   return found;
 }
 
@@ -182,7 +201,7 @@ describe('#363 登記面:client 端亂數必須逐檔逐點登記', () => {
     //    各自有作用」,而它唯一的正例錨點消失後就恆真)。
     //    這是 memory `feedback_decouple-dependency-but-forgot-to-move-out-of-dying-container`
     //    的同型:換了容器,守門的**前置條件**要跟著搬,不是只搬斷言。
-    const scanned = walk(join(REPO_ROOT, 'apps')).map((p) => relative(REPO_ROOT, p));
+    const scanned = walkCached(join(REPO_ROOT, 'apps')).map((p) => relative(REPO_ROOT, p));
     expect(scanned).toContain('apps/admin/src/components/orders/cancel-form-body.tsx');
     expect(scanned).toContain('apps/admin/src/lib/orders/cancel-request-token.ts');
 
