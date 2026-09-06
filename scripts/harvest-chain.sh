@@ -77,7 +77,18 @@ trap 'cleanup; exit 143' TERM HUP
 #    ⇒ 一個少跑了一道閘的鏈, 與一個全過的鏈, 在判定上同形。
 # 🟡 **2026-09-06 加三道(⟦ship-BROWSERFAMILY⟧ 接線, 主視窗 -f8 批 auth-006 + 裁 auth-007=A)**:
 #    `splitcheck`(當場拿分母)· `btest1` / `btest2`(族段兩發)。
-EXPECT_GATES='fw-live fw-json ledger deploy install nextlink boarddup tc lint build test1 test2 splitcheck btest1 btest2'
+# 🟡 **2026-09-06 再加七道(⟦db-MERGEBLINDGATE⟧, 主視窗 -f1 裁甲)**:那七道是 pre-commit 上
+#    【掃整棵樹】而 harvest-chain 沒跑過的 —— 逐支比對的分母見那一列。**只報不擋**(見 add_report)。
+#    🔬 數法:pre-commit 掛 19 支(`grep -cE '^\s*(sh|bash)\s+' .husky/pre-commit`);
+#      其中 harvest 已涵蓋 1(applied-ledger-dup)· 沒跑 18 · 而 18 裡 11 支讀 staged
+#      (merge 之後 staged 是空的 ⇒ 接進來會空轉)⇒ **接得動的是 7 支**。
+EXPECT_GATES='fw-live fw-json ledger deploy install nextlink boarddup tc lint build test1 test2 splitcheck btest1 btest2 zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
+# 🟡 **只報不擋的那一族(⟦db-MERGEBLINDGATE⟧)** —— 它們**必須在 `EXPECT_GATES` 裡**(所以「少跑一支」抓得到),
+#    而 `verdict` **不把它們的 rc 算進放行判定**。
+# 🔴 **這個名單放在【判定函式看得到的地方】, 不是靠呼叫端記得用哪個 helper** ——
+#    下一個人把 `add_report` 改成 `add`, 這七道會默默變成會擋推的, 而沒有任何東西會說。
+#    ⇒ 📌 保證要住在判定裡。selftest ⑦c 就是量這一格。
+REPORT_ONLY='zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
 
 verdict() {
   local gates="$1" a="$2" b="$3" ba="$4" bb="$5" T="$6" F="$7" item name rc got n mt ft
@@ -97,6 +108,10 @@ verdict() {
   for item in $gates; do
     name="${item%%:*}"; rc="${item##*:}"
     if [ "$rc" != 0 ]; then
+      # 🟡 只報不擋那一族:印出來, 而**不改放行判定**(見 REPORT_ONLY 的註解)
+      case " $REPORT_ONLY " in
+        *" $name "*) echo "  🟡🔴 只報不擋:$name rc=$rc ⇒ **不擋推, 而你要自己去讀那支 log**"; continue ;;
+      esac
       echo "  🔴 閘紅:$name rc=$rc ⇒ 不推"
       return 3
     fi
@@ -257,6 +272,19 @@ if [ "${1:-}" = "--selftest" ]; then
   ck "⑥摘要是空的 ⇒ 4(不當成綠)" "$(run "$(allz)" '' '')" "4"
   # 🔴 ⑦ 少一道閘 ⇒ 不推(而不是「那一道不存在所以不算」)
   ck "⑦漏掉一道 add ⇒ 3(不得被當成不存在)" "$(run "$(drop_one boarddup)" "$SUM" "$SUM")" "3"
+  # ── 🟡 只報不擋那七道(⟦db-MERGEBLINDGATE⟧, 2026-09-06)——【兩格缺一不可】────
+  # 🔴 ⑦b 少跑其中一道 ⇒ 仍然不推。
+  #    它與 ⑦ 是同一條規矩, 而**要對這七道各自再演一次** ——
+  #    📌 因為它們的 rc 恆為 0, 一個「少跑了」與一個「跑了而綠」在 rc 上完全一樣,
+  #      **能分開它們的只有名單那一關**。
+  ck "⑦b 漏掉只報那族的一道(acldrift)⇒ 3" "$(run "$(drop_one acldrift)" "$SUM" "$SUM")" "3"
+  # 🔴🔴 ⑦c —— **這一格就是「只報不擋」的證明**, 沒有它我只是在宣稱。
+  #    那七道之一 rc≠0 ⇒ **仍然要推**(0), 而 ①(一般閘 rc≠0 ⇒ 3)就在上面幾行 ——
+  #    ⇒ 📌 兩格擺在一起才看得出「這七道與其他十五道走的是不同規矩」。
+  #    ⚠️ 而 `one_bad` 改的是 GATES 字串裡那一項的 rc ——
+  #      真跑時 `add_report` 記進去的**恆為 0**, 所以真跑不會出現這個輸入;
+  #      這一格量的是**判定函式**對這種輸入的反應, 不是真跑。**射程照寫。**
+  ck "⑦c 只報那族之一 rc≠0 ⇒ 仍 0(推)—— 這一格證明它【只報不擋】" "$(run "$(one_bad acldrift 1)" "$SUM" "$SUM")" "0"
   # 🔴 ⑧ 只有半份摘要(有 Test Files 沒有 Tests)⇒ 不推 —— 它與全綠都「沒有 failed」
   ck "⑧只抓到半份摘要 ⇒ 4" "$(run "$(allz)" 'Test Files 859 passed (859)' 'Test Files 859 passed (859)')" "4"
   # 🔴 ⑨ 整批 skipped(零 passed)⇒ 不推 —— 它也「沒有 failed」
@@ -328,7 +356,7 @@ if [ "${1:-}" = "--selftest" ]; then
   #    ⛔ ~~本段原本只看 `$f = 0`~~ ⇒ 📌 **漏寫一格 `ck` 會印 `18 PASS / 0 FAIL` 而照樣「全部通過」。**
   #    🛑 **那正是本片在替收割鏈修的那個病**(兩發相同只證重現性, 證不了分母)—— 同型, 在自檢這一層。
   #    ⚠️ 加一格 `ck` 必同步改這個數;數法 = 跑一發看 `$p`。
-  EXPECT_CELLS=27
+  EXPECT_CELLS=29   # 🟡 2026-09-06 +2:⑦b/⑦c(只報不擋那一族, ⟦db-MERGEBLINDGATE⟧)
   if [ "$f" = 0 ] && [ "$p" != "$EXPECT_CELLS" ]; then
     echo "🔴 零 FAIL 但格數不對(PASS=$p ≠ EXPECT_CELLS=$EXPECT_CELLS)⇒ 有格被刪/被跳過, 判為未通過"
     exit 1
@@ -363,6 +391,22 @@ add() {
   printf '   · %-9s rc=%-3s %ss\n' "$1" "$2" "$el"
 }
 say() { echo "$*"; }
+
+# 🔵 **只報不擋的那一族**(主視窗 2026-09-06 裁甲):它們進 `EXPECT_GATES`(所以「少跑一支」抓得到),
+#    而**記進 GATES 的 rc 一律 0** ⇒ 📌 **它們紅不會擋推**, 只會在畫面上留一行。
+#    🔴 **而這是刻意的取捨, 要寫出來**:這 7 道是別人 merge 進來的東西會踩到的那一類
+#    (RLS / ACL / migration 角色 / 隔離層級), 而**它們從來沒有在合併結果上跑過** ——
+#    先讓它看得見, 「要不要擋」是另一顆, 由人決定。
+#    ⚠️ **代價**:一個真紅在這裡**不會停下這條鏈**。看到 🟡 要自己去讀那支 log。
+add_report() {
+  local now el; now=$(date +%s); el=$((now - _T0)); _T0=$now
+  GATES="$GATES $1:0"
+  if [ "$2" = 0 ]; then
+    printf '   · %-9s rc=%-3s %ss  🟡只報\n' "$1" "$2" "$el"
+  else
+    printf '   · %-9s rc=%-3s %ss  🟡🔴只報不擋 —— 去讀 %s/%s.log\n' "$1" "$2" "$el" "$WORK" "$1"
+  fi
+}
 
 # 🔴🔴 **釘住 HEAD**(codex R1 must-fix):原本只把它【印出來】而沒有釘。
 #    ⇒ 📌 測的是這一顆, 而最後 `announce-and-push.sh` 推的是**當下的 `dev` tip** ——
@@ -400,6 +444,27 @@ if python3 scripts/board-state-consistency.py > "$WORK/boarddup.log" 2>&1; then
 else
   if grep -q '同一個錨佔了兩列以上' "$WORK/boarddup.log"; then add boarddup 92; else add boarddup 0; fi
 fi
+
+# ── 🟡 只報不擋的七道(⟦db-MERGEBLINDGATE⟧)────────────────────────────────
+# 🔴 **為什麼在這裡**:`git merge` 不跑 pre-commit ⇒ 別人 merge 進來的東西**從來沒有被這七道掃過**。
+#    這一段讓它們**第一次在合併結果上跑**。只報不擋 —— 見 add_report 的註解。
+# 🛑 **檔不在 ⇒ 記 rc=97 並印出來**, 不當成 0(那會把「沒檢查」講成「通過」)。
+for _pair in \
+  'zshshebang:.husky/zsh-shebang-gate.sh' \
+  'viewapply:.husky/view-apply-gate.sh' \
+  'undefassert:.husky/undefined-assert-gate.sh' \
+  'rlspolicy:.husky/rls-service-role-policy-gate.sh' \
+  'resetrole:.husky/migration-reset-role-gate.sh' \
+  'acldrift:.husky/acl-drift-gate.sh' \
+  'isolation:.husky/isolation-level-scan-gate.sh' ; do
+  _n="${_pair%%:*}"; _f="${_pair#*:}"
+  if [ -f "$_f" ]; then
+    sh "$_f" > "$WORK/$_n.log" 2>&1; add_report "$_n" $?
+  else
+    printf '🔴 %s 不存在 ⇒ 這一道沒有跑\n' "$_f" > "$WORK/$_n.log"
+    add_report "$_n" 97
+  fi
+done
 
 printf 'refs/heads/dev %s refs/heads/dev %s\n' "$(git rev-parse HEAD)" "$(git rev-parse origin/dev)" \
   | bash scripts/deploy-order-gate.sh > "$WORK/deploy.log" 2>&1; add deploy $?
