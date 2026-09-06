@@ -1,3 +1,5 @@
+import type { ShipmentReference } from '@pcm/domain';
+import { toShipmentReference } from '@pcm/domain';
 import { describe, expect, it } from 'vitest';
 import {
   HCT_DEFAULT_WEIGHT,
@@ -21,7 +23,21 @@ const RECIPIENT = { name: '王小明', phone: '0912345678', line: '新北市新�
 // ⛔ ~~`displayId: 'PCM-2026-0001'`~~ —— 2026-09-06 ⟦ship-EPINOUNIQUE⟧ 當場核出來:
 //    正式碼餵的是 6 碼**箱號**(`shipment-actions.ts` 逐字 `row.shipmentReference`),
 //    而這支 fixture 一直餵**訂單**編號 ⇒ 📌 **fixture 供應了真實世界不會送的東西**(本 repo 記過)。
-const BASE = { shipmentReference: 'B7K3MN', recipient: RECIPIENT, itemCount: 1 };
+// 🔴🔴 **⟦ship-EPINOBRAND⟧:測試要【刻意構造非法的箱號】, 而型別擋著。**
+//    ⇒ 這裡開一個具名的出口 `BAD()`, 而**不是**在每一格散寫 `as ShipmentReference`:
+//      ① 一個具名函式讀起來就是「我在造一個不該存在的值」, 而 `as` 讀起來像「我知道我在做什麼」
+//      ② lint 規則只要盯 `as ShipmentReference` 這個字面 ⇒ **正式碼零命中**才是那道保護的證據,
+//        而測試散寫 `as` 會把那個 0 弄髒 ⇒ 📌 **把髒集中在一個看得見的地方。**
+//    ⚠️ 它只該出現在「證明型別擋得住」的那幾格。
+// 🔴 測試刻意造非法箱號:下面那一行【就是】那道保護要擋的形狀, 集中在一個具名出口,
+//    是為了讓正式碼那邊的命中數維持在 0(見上面那段)。
+// ⚠️ **`eslint-disable-next-line` 只管【緊接的那一行】** —— 我第一版把它放在兩行註解的上面
+//    ⇒ 它去 disable 了一行註解 ⇒ lint 印 `Unused eslint-disable directive`, 而那個警告
+//    正好是**唯一會告訴你「你的 disable 沒有蓋到東西」的訊號**。📌 它與碼之間不准夾任何一行。
+// eslint-disable-next-line no-restricted-syntax
+const BAD = (v: string) => v as unknown as ShipmentReference;
+
+const BASE = { shipmentReference: toShipmentReference('B7K3MN'), recipient: RECIPIENT, itemCount: 1 };
 
 describe('⟦ship-HCTAPI⟧ 片 A · Sean 拍的三個值(字面寫死, 不從常數 import)', () => {
   /**
@@ -172,7 +188,7 @@ describe('⟦ship-EPINOUNIQUE⟧ epino 的格式閘', () => {
   //    ⇒ 🛑 **今天的新訂單編號與箱號在字串上完全一樣** ⇒ 這道閘分不出來。
   //    ⇒ 📌 **fixture 供應了真實世界不再送的東西** —— 我今晚才把這個坑寫進 traps, 然後自己踩了。
   it('🟡 舊格式訂單編號會被擋 —— 而**這只涵蓋舊格式**, 不要讀成「訂單編號都擋得住」', () => {
-    expect(() => buildHctTransData({ ...BASE, shipmentReference: 'PCM-2026-0001' })).toThrow(
+    expect(() => buildHctTransData({ ...BASE, shipmentReference: BAD('PCM-2026-0001') })).toThrow(
       /\[epino\/shipment_reference\]/,
     );
   });
@@ -197,13 +213,13 @@ describe('⟦ship-EPINOUNIQUE⟧ epino 的格式閘', () => {
       new RegExp(m![1]!).test(looksLikeOrderId),
       `${looksLikeOrderId} 不是合法的新式訂單編號 ⇒ 本格在證別的事`,
     ).toBe(true);
-    expect(buildHctTransData({ ...BASE, shipmentReference: looksLikeOrderId }).fields.epino).toBe(
+    expect(buildHctTransData({ ...BASE, shipmentReference: BAD(looksLikeOrderId) }).fields.epino).toBe(
       looksLikeOrderId,
     );
   });
 
   it('🟢 分母自檢:合法的 6 碼箱號要過(否則上面那格只是「什麼都擋」)', () => {
-    expect(buildHctTransData({ ...BASE, shipmentReference: 'B7K3MN' }).fields.epino).toBe('B7K3MN');
+    expect(buildHctTransData({ ...BASE, shipmentReference: toShipmentReference('B7K3MN') }).fields.epino).toBe('B7K3MN');
   });
 
   it('🔴 逐項負對照:長度對而字母表不對 / 字母表對而長度不對, 兩種都要擋', () => {
@@ -213,7 +229,7 @@ describe('⟦ship-EPINOUNIQUE⟧ epino 的格式閘', () => {
     //    ✅ 現在**八個排除字元一個一個測**, 宣稱與覆蓋對得起來。
     const excluded = [...'0O1ILAEU'].map((c) => `B7K3M${c}`);
     for (const bad of [...excluded, 'B7K3M', 'B7K3MNN', 'b7k3mn', '', 'X'.repeat(200)]) {
-      expect(() => buildHctTransData({ ...BASE, shipmentReference: bad }), bad).toThrow(
+      expect(() => buildHctTransData({ ...BASE, shipmentReference: BAD(bad) }), bad).toThrow(
         /\[epino\/shipment_reference\]/,
       );
     }
@@ -264,3 +280,34 @@ describe('⟦ship-EPINOUNIQUE⟧ TS 的箱號 regex 與 DB CHECK 逐字相同', 
     ).toBe(current.re);
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+// ⟦ship-EPINOBRAND⟧ 2026-09-06 —— **型別層的負對照, 而它跑在【真的 tsc】上**
+//
+// 🔴🔴 **為什麼不是一個普通的 `it()`**:vitest **不看型別** ——
+//    一支型別完全錯的檔在 vitest 裡照樣全綠。⇒ 一個「用 vitest 驗型別擋得住」的守門是假的。
+// ✅ **`@ts-expect-error` 是 typecheck 層的斷言**:它要求下一行**必須**有型別錯誤;
+//    沒有錯誤時 `tsc` 自己會紅(`Unused '@ts-expect-error' directive`)。
+//    ⇒ 📌 **它跑在每一發 `pnpm typecheck` 裡, 而不是只在有人想到要跑 selftest 的時候。**
+//
+// 🎯 **它釘的那個世界**:有人把 `row.displayId`(型別是 `string`)塞進這一欄 ——
+//    那正是 codex R2 給的那個繞法在 branded type 下會撞到的地方。
+describe('⟦ship-EPINOBRAND⟧ 型別層負對照(由 tsc 執行, 非 vitest)', () => {
+  it('🟢 分母自檢:下面那一段真的被編譯器看過(本格只證明這支檔在 typecheck 的範圍裡)', () => {
+    // 🔵 這一格**故意什麼都不斷言型別** —— 型別那半由上面那個 `@ts-expect-error` 在 tsc 裡執行。
+    //    本格存在的理由只有一個:如果哪天這支檔被移出 tsconfig 的範圍,
+    //    那個 `@ts-expect-error` 會**無聲地不再被檢查**, 而 vitest 這一格至少還會告訴你檔還在跑。
+    expect(typeof buildHctTransData).toBe('function');
+  });
+});
+
+// 🔴 **這一段在【模組層】, 不在 `it()` 裡** —— 型別檢查不需要執行, 而放進 `it()` 反而
+//    會讓人以為「跑了測試才算數」。它在 tsc 掃到這支檔的當下就成立或不成立。
+{
+  const orderDisplayIdFromDb: string = 'C4Q9PZ'; // 一個合法的【訂單】編號 —— 型別是 string
+  // @ts-expect-error ⟦ship-EPINOBRAND⟧ 負對照:一個普通 string 不得被當成 ShipmentReference。
+  //   這一行【必須】是型別錯誤 —— 不是的話 tsc 會用 `Unused '@ts-expect-error' directive` 叫,
+  //   而那句話的意思是:**那個 brand 已經不擋東西了。**
+  const leak: ShipmentReference = orderDisplayIdFromDb;
+  void leak;
+}

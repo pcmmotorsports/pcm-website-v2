@@ -24,6 +24,8 @@ import { authorizeAdminMutation } from '../session/authorize';
 import { toMessage } from './error-message';
 import { RECIPIENT_NAME_REQUIRED, toRecipientSnapshot } from './recipient';
 import { loadShipmentCandidates, type ShipmentCandidates } from './shipment-candidates';
+import type { ShipmentReference } from '@pcm/domain';
+import { toShipmentReference } from '@pcm/domain';
 import { buildHctTransData } from './hct-trans-data';
 import { runHctSubmit, type HctCurrentStatus } from './hct-submit-flow';
 import { hctSubmitGateOpen } from './hct-client';
@@ -427,10 +429,26 @@ export async function resetHctUnknownToDraftAction(args: {
         ' 🔴 沒有那通電話就不要放回草稿 —— 放回去之後有人重送, 代價是客人收到兩箱。',
     };
   }
+  // 🔴🔴 **⟦ship-EPINOBRAND⟧ 2026-09-06:這一處是 branded type 上線後【整個 monorepo 唯一紅的地方】,
+  //    而它紅得有道理 —— `args` 是【server action 的參數】, 也就是【瀏覽器送進來的字串】。**
+  //    ⛔ 舊碼直接把它傳進一次 DB 寫入, **一格形狀都沒驗**。
+  //    ⇒ 📌 那不是型別潔癖:`toShipmentReference()` 在這裡的角色是**信任邊界上的驗證**,
+  //      而 brand 的價值就是**它逼這一行現形** —— 我三輪審查都沒看到它。
+  //    🔵 不用 throw:這條路的慣例是回一句員工看得懂的 `ok:false`(同上面那幾格)。
+  let reference: ShipmentReference;
+  try {
+    reference = toShipmentReference(args.shipmentReference);
+  } catch {
+    auditLog('shipment.hct_reset_unknown', auth, 'fail', { shipment_id: args.shipmentId });
+    return {
+      ok: false,
+      message: '這箱的箱號格式不對, 不能放回草稿。這不是你操作錯, 請回報並附這行字。[shipment_reference]',
+    };
+  }
   auditLog('shipment.hct_reset_unknown', auth, 'attempt', { shipment_id: args.shipmentId });
   try {
     await resetHctUnknownToDraft({
-      shipmentReference: args.shipmentReference,
+      shipmentReference: reference,
       // 🔴 `actor` 由【這裡】給, 不由 client 送 —— client 送得了任何字串。
       actor: auth.actorId,
       // 🔴 動態 import:`../audit/context` 讀 `next/headers` ⇒ server-only,
