@@ -50,7 +50,10 @@ if ! git show :supabase/APPLIED.tsv > "$TMP" 2>/dev/null; then
 fi
 # 🔴 R1 #4:原本用 `exec` ⇒ **行程被換掉 ⇒ EXIT trap 永遠不跑** ⇒ 每次真跑漏一個約 240KB 的暫存檔
 #    (reviewer 實測 before=2 after=3)。✅ 收 rc、自己刪、再用那個 rc 退出。
-python3 scripts/ledger-col2-census.py --gate --ledger "$TMP"
-rc=$?
+# 🔴 R2 nit ①:上面是 `set -eu` ⇒ **裸呼叫一失敗就【當場退出】**, `rc=$?` / `rm` / `exit` 三行根本跑不到
+#    ⇒ 註解說「收 rc、自己刪」而**擋下的那條路上暫存檔還是會漏**(而 EXIT trap 這時才是唯一收拾的人)。
+#    ✅ `|| rc=$?` 讓那次失敗算「被檢查過」⇒ `set -e` 不會中斷, 而 rc 收得到。
+rc=0
+python3 scripts/ledger-col2-census.py --gate --ledger "$TMP" || rc=$?
 rm -f "$STAGED" "$TMP"
 exit $rc
