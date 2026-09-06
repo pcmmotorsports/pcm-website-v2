@@ -131,6 +131,10 @@ export {
   HOME_SHIPPING_FEE,
 } from './order/shipping';
 export type { ShippingRule } from './order/shipping';
+// ⟦auth-DEALERTIERPRICING⟧ M-2-08 後半-B:經銷單(未稅列)的營業稅純函式。
+//   🔴 接線那一顆會從這裡取 —— 而**捨入單位只在 tax.ts 裡那一處**。
+export { computeTax, VAT_RATE } from './order/tax';
+export type { ComputeTaxInput, ComputeTaxResult, TaxablePaymentMethod } from './order/tax';
 // order 退款金額 + 運費重算引擎(M-3 退刷線 RF1、純函式;退款金額唯一 TS 權威)
 export { computeRefundQuote } from './order/refund';
 export type {
