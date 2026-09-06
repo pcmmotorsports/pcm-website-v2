@@ -97,7 +97,17 @@ export const CRON_JOB_WHITELIST = [
   //    staleMinutes = 30(排程 */10 ⇒ 連漏三輪才叫, 與 capture-recheck 同一把尺)。
   //    ⚠️ wiredAt 用【憑證】不用狀態形容詞:自己數
   //       `git merge-base --is-ancestor <那顆> origin/dev`;而「在 dev 上」≠「已 apply」。
-  { jobName: 'pcm-late-payment-sweep', label: '匯款兜底補待退款', schedule: '*/10 * * * *', staleMinutes: 30, wiredAt: '20260905180000 尚未 apply' },
+  //    🔴🔴 **2026-09-06 訂正(線【信】`-mail` 唯讀複量)**:⛔ ~~`'20260905180000 尚未 apply'`~~
+  //       —— 那句話**當時是對的, 而它在同一天下午就過期了**, 一直留到今天。
+  //       🔬 `supabase/APPLIED.tsv:476` 那一列逐字記著 2026-09-05 已貼(且該列自己寫著
+  //          「排程 pcm-late-payment-sweep 在且 active(*/10)」);正式庫實量:那支 job 近 24 小時跑 144 次。
+  //       🛑 **而這個欄位【會被畫出來】** —— `cron-heartbeat-read.ts:171` 逐字
+  //          `` `從來沒寫過心跳(接線落點:${w.wiredAt})` `` ⇒ 📌 **這一支哪天心跳掉了,
+  //          後台會對著值班的人說「尚未 apply」** —— 一個**錯的診斷**, 而它印在**錢的路徑**上,
+  //          會讓那個人去貼一支早就貼過的 migration, 而不是去看它為什麼停了。
+  //       ⇒ 🔵 **這正是上面那行註解自己立的規矩被違反的樣子**:`尚未 apply` 是狀態形容詞不是憑證,
+  //          而狀態形容詞**沒有辦法在世界改變時通知任何人**。改成憑證形。
+  { jobName: 'pcm-late-payment-sweep', label: '匯款兜底補待退款', schedule: '*/10 * * * *', staleMinutes: 30, wiredAt: '20260905180000(APPLIED.tsv:476 記 2026-09-05 已貼)' },
 ] as const;
 
 /**

@@ -45,7 +45,12 @@ const DELETE_IDS = D1_DELETE_COHORT.map(({ id }) => `'${id}'`).join(', ');
  * 🔴 過期條件:這批是已結案舊單、不會再變動;若 assert 紅了,代表備份與現網真的漂移過,
  * **那時該停下來查,不是改這裡的數字**。
  */
-const EXPECTED_ROWS: Readonly<Record<string, number>> = {
+/**
+ * 🔵 **export 是 2026-09-06 `-ship` 為了 ⟦b4-RESTORE2⟧ G2 加的** ——
+ *    測試要拿它當【分母】驗留痕的 `actual_rows` 一張表都不少。
+ *    📌 在測試裡另抄一份表名清單的話, 那是我自己抄的東西比我自己抄的東西 = 套套邏輯。
+ */
+export const EXPECTED_ROWS: Readonly<Record<string, number>> = {
   customers: 2,
   customer_addresses: 3,
   products: 9,
@@ -433,6 +438,27 @@ BEGIN
 END $$;
 \\endif`;
 
+/**
+ * ⟦b4-RESTORE2⟧ G2(2026-09-06 `-ship`):**還原後【實際】幾列。**
+ *
+ * 🔴 **為什麼原本那一欄不夠**:`after.expected_rows` 記的是 `EXPECTED_ROWS` 這張**常數表**
+ *    ⇒ 📌 **它記的是「我期望什麼」,不是「發生了什麼」** —— 兩者在事後查詢上長得一樣,
+ *    而只有後者答得出「那一次還原到底寫進去多少」。
+ * 🔵 selector 用的是 `buildRestoredVerifySql` 那一組(同一個 `buildCohortSelectors`),
+ *    **不另外發明一份 where** —— 兩份 where 漂掉的那天沒有東西會紅。
+ * ⚠️ 它跑在 `COMMIT` 之後、留痕自己的交易裡 ⇒ 它讀到的是**別人也看得到的那個世界**。
+ */
+const buildActualRowsSql = (): string =>
+  `jsonb_build_object(\n${buildCohortSelectors(
+    D1_DELETE_COHORT.map(({ id }) => id),
+    (table) => `public.${table}`,
+  )
+    .map(
+      ([table, where]) =>
+        `      '${table}', (SELECT count(*) FROM public.${table} WHERE ${where})`,
+    )
+    .join(',\n')}\n    )`;
+
 const buildAuditSql = (operator: string) => `BEGIN;
 SET LOCAL statement_timeout = '60s';
 SET LOCAL lock_timeout = '5s';
@@ -485,10 +511,44 @@ VALUES (
     ),
     'cluster_id', (SELECT system_identifier FROM pg_control_system())::text,
     'sample_display_id', (SELECT display_id FROM public.orders WHERE id = '${D1_DELETE_COHORT[0]!.id}'),
-    'expected_rows', '${JSON.stringify(EXPECTED_ROWS).replace(/'/g, "''")}'::jsonb
+    'expected_rows', '${JSON.stringify(EXPECTED_ROWS).replace(/'/g, "''")}'::jsonb,
+    -- 🔴 ⟦b4-RESTORE2⟧ G2:**實際**幾列(上面那一欄是常數表, 它答的是我期望什麼)。
+    --
+    -- 🛑🛑 **一個【接受下來】的代價, 寫在這裡而不是藏起來**(code-reviewer 2026-09-06 nit):
+    --    這 15 個 count 擠在寫紀錄的同一句 INSERT 裡 ⇒ **任一張表撞到鎖 ⇒ 整筆留痕掉**
+    --    ⇒ 一個為了「別丟掉紀錄」而加的欄位, 自己提高了丟掉紀錄的機率。
+    -- 🔵 **為什麼還是不拆成第二個交易**(我試過, 然後退回來):
+    --    測試「ON_ERROR_STOP 內建, 所有寫入框在單一交易內」逐字要求
+    --    **COMMIT 之後恰好一個 BEGIN、恰好一個 COMMIT** —— 那是 codex R4→R5 兩輪磨出來的
+    --    不變式(它把留痕落在哪個 backend 從【運氣】變成【約束】)。
+    --    ⇒ 📌 **不為了一條 nit 去放寬一道被審過三輪的不變式。**
+    -- ✅ **而代價現在是【看得見】的**:G3 那道回核已修成無條件執行
+    --    ⇒ 留痕掉的時候會印大字 + 非零 rc + 補記要用的四個值, 不再是「請人記得」。
+    -- ⚠️ **殘餘風險照實留著**:那 15 張表就是還原剛剛寫過的那幾張(同一交易已 COMMIT),
+    --    撞鎖的機率低 —— 而**我沒有量過它**, 這是判斷不是讀數。
+    'actual_rows', ${buildActualRowsSql()},
+    -- 🔴🔴 ⟦b4-RESTORE2⟧ G1:**這次用的是哪一包備份。**
+    --    wrapper 第 2/6 步逐字跑 ( cd 備份目錄 && shasum -a 256 -c checksums.txt )
+    --    🔴 這一行【刻意不用反引號】—— 它住在一個 template literal 裡, 反引號會把它當場關掉
+    --       (2026-09-06 實測:parse error 在 :513, 而錯誤訊息指的是別的東西)。
+    --    ⇒ 完整性**有驗**, 而**沒有留痕** ⇒ 📌 事後查不出「那一次還原吃的是哪一包」——
+    --      而備份保存 180 天、同一個 cohort 會有很多包。
+    --    ✅ 值 = checksums.txt 自己的 sha256, 由 **wrapper** 用 -v d1_src_sha= 給。
+    --    🔵 **形狀刻意照 requested_mode**:值來自 wrapper、不是產生器內插
+    --       ⇒ 四個版本的 SQL 文字裡是同一個佔位符 ⇒ 「兩版逐字相同」那個不變式不破。
+    --    ⚠️ 缺這個變數 ⇒ psql 語法錯 ⇒ 非零 rc, **不會安靜變成空字串**(與 d1_mode 同一機制)。
+    --    🛑 **它不是防偽章** —— 操作者餵得出一包自洽的假備份。它答的是「哪一包」, 不是「這包對不對」。
+    'source_checksums_sha256', :'d1_src_sha'
   ),
   'D1 災難還原:cohort 26 張訂單與相依資料寫回',
-  gen_random_uuid()::text,
+  -- 🔴🔴 ⟦b4-RESTORE2⟧ G3:⛔ ~~gen_random_uuid()::text~~ ⇒ 改由 **wrapper** 給。
+  --    **為什麼**:留痕跑在 COMMIT 之後(那是 R3 2026-08-29 對抗審查逼出來的, 不重開),
+  --    ⇒ 🛑 **還原 COMMIT 成功而這一筆失敗(鎖逾時 / 斷線)= 一次沒有紀錄的正式庫還原**,
+  --      而腳本原本逐字寫的是「請手動記錄」⇒ **那是靠人記得, 沒有機制在盯。**
+  --    ✅ id 由 wrapper 先產 ⇒ psql 跑完之後 wrapper **自己回頭查這一筆在不在**,
+  --      不在就非零 rc + 大字提示 ⇒ 📌 **把「請人記得」換成「機器會叫」。**
+  --    🔵 而 request_id 本來就是 correlation id(貫穿 wrapper→DB), 由外面給更貼近它的用途。
+  :'d1_request_id',
   'ops'
 )
 RETURNING NOT (after->>'mode_matches_data')::boolean AS d1_mismatch \\gset

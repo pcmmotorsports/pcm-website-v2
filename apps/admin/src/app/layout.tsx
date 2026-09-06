@@ -5,6 +5,7 @@ import { AppSidebar } from '@/components/layout/app-sidebar';
 import { Header } from '@/components/layout/header';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { WorkspaceShell } from '@/components/layout/workspace-shell';
+import { RealIdentityWarning } from '@/components/layout/real-identity-warning';
 import { SessionRenew } from '@/components/session/session-renew';
 import { WORKSPACE_PANEL_COOKIE, parsePanelWidthCookie } from '@/lib/layout/workspace-panel';
 import { isAuditUiEnabled } from '@/lib/audit/audit-ui-flag';
@@ -141,6 +142,14 @@ export default async function RootLayout({
             <SessionRenew />
             <SidebarInset className='min-w-0'>
               <Header />
+              {/* ⟦b4-MGRENV1⟧ 掛在這裡的理由:這是【走 root layout 的頁面都會經過】的地方
+                  (一般頁 / `@panel` / 螢幕上的 print 頁;⚠️ Route Handler —— `/api/*`、SSO 導頁、
+                  PDF —— 不渲染 layout ⇒ 那些路徑上它不出聲。codex R1 nit:原句寫「每一頁」過大),
+                  而那一列要的是
+                  「一道會叫的訊號」。旗標開著時它 return null ⇒ 零像素、零 DOM。
+                  🔴 不掛進 `WorkspaceShell` 內部 —— 那是共用元件, 改它等於改所有頁面的行為
+                  (同 `:137` 那段既有理由)。 */}
+              <RealIdentityWarning />
               <WorkspaceShell panel={panel} initialPanelWidth={initialPanelWidth}>
                 {children}
               </WorkspaceShell>
