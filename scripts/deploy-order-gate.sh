@@ -118,13 +118,87 @@ export LC_ALL=C
 #    推 feature branch / 推 tag 時本閘刻意不看(只看 dev 與 main),
 #    此時若印「0 blocked」會被讀成「檢查過、乾淨」——那正是本閘要避免的那種沉默。
 REF_N=0; PENDING_N=0
+# 🔵 修法 2 用(⟦db-DOGBLINDBRANCH⟧):分支掃描要有「被推的那棵樹」當分母。
+#    🛑 多 ref 時它是【最後一個被檢查的 ref】—— 那個限制寫在報告裡, 不藏。
+PUSHED_SHA=""
 # 🔵 2026-09-01 加(主視窗批):REF_N=0 時把【收到的原始 stdin】原封留一份。
 #    成因:第十三批一發 non-ff 被拒的 push, 閘印「未檢查任何 ref」而沒有留下它到底收到什麼
 #    ⇒ 只能事後推。本機四個世界重現不出那個空 stdin(non-ff / --force 都給 114 bytes;
 #      只有 Everything up-to-date 給 0)⇒ 差異可能在 SSH 傳輸層, 而那一格【未量】。
 #    🔴 這一段不下判斷、不改行為 —— 它只讓【下一次】自己留下證據。
 GATE_STDIN="$(mktemp -t dogstdin 2>/dev/null || echo /tmp/dogstdin.$$)"
-trap 'rm -f "$GATE_STDIN"' EXIT
+# 🔵 R1 Minor:`blind_branch_report` 自己也開一支暫存檔 ⇒ **一起收進 trap**,
+#    否則中途被訊號打斷就留檔。(空字串餵給 `rm -f` 是安全的, 而 `set -u` 要 `:-`。)
+BLIND_TMP=""
+trap 'rm -f "$GATE_STDIN" "${BLIND_TMP:-}"' EXIT
+# ── 🔵 修法 2(⟦db-DOGBLINDBRANCH⟧):把「別條 `agent/line-*` 分支上有、被推的那棵樹沒有」的
+#    migration 列出來當【警告】。🛑 **rc 一格不動** —— 它不讓盲區世界變成擋,
+#    它讓那個世界**說得出自己是誰**(修法 1 只說「我沒去看」,這一段說「我去看了, 看到這些」)。
+#
+# 🛑 **它答不出什麼**(跟著輸出一起印, 不要只寫在這裡):
+#    · 這是**一個時點的快照** —— 那些分支隨時在動, 掃完到你按下 enter 之間就可能變。
+#    · 射程 = **這個 checkout 看得見的 ref**。別台機器、沒 fetch 的 remote,不在裡面。
+#    · 它比的是**檔名**, 不比內容 ⇒ **同名檔在別條分支被改過, 它不會叫**。
+#    · 它**不判斷有沒有關係** —— 要判, 看 BLOCKED 那幾行點名的函式/view 在不在那些檔裡。
+BLIND_BRANCH_GLOB="${BLIND_BRANCH_GLOB:-refs/heads/agent/line-*}"
+blind_branch_report() {  # $1 = 被推的那棵樹的 rev
+  local rev="${1:-}" them n_pair n_file n_br
+  # 🔴 R1 Minor:這幾條退場路徑原本【完全靜默】⇒ 讀的人分不出「修法 2 沒接上」與「沒東西可報」。
+  #    ⇒ 每一條都出一聲。**那正是本片自己的立意, 而我原本沒有套在自己身上。**
+  if [ -z "$rev" ]; then
+    echo "gate:    ⇒ 我沒有拿到「被推的那棵樹」⇒ 分支掃描這一發【沒有跑】(不是掃過而乾淨)。" >&2
+    return 0
+  fi
+  # 🔴🔴 R1 Important:**零分支**與**有分支而乾淨**原本印同一句 —— 而我在下面
+  #    「被推的樹沒有 migration」那一格已經明確處理過同一條紀律。⇒ 同一條, 另一半沒套。
+  #    ⇒ 先數分支, 零分支自己講「沒有分母」。
+  n_br="$(git for-each-ref --format='%(refname)' "$BLIND_BRANCH_GLOB" 2>/dev/null | grep -c . || true)"
+  if [ "$n_br" = "0" ]; then
+    echo "gate:    ⇒ 這個 checkout 看不到任何 $BLIND_BRANCH_GLOB ⇒ 分支掃描【沒有分母】, 這一發不報。" >&2
+    return 0
+  fi
+  BLIND_TMP="$(mktemp -t dogblind 2>/dev/null)" || {
+    echo "gate:    ⇒ 開不出暫存檔 ⇒ 分支掃描這一發【沒有跑】。" >&2; return 0; }
+  if ! git ls-tree --name-only "$rev" supabase/migrations/ 2>/dev/null \
+       | sed 's#.*/##' | sort -u > "$BLIND_TMP"; then
+    echo "gate:    ⇒ 讀不到 $rev 的 migrations 樹 ⇒ 分支掃描這一發【沒有跑】。" >&2
+    rm -f "$BLIND_TMP"; BLIND_TMP=""; return 0
+  fi
+  # 🔴 `grep -vxF -f <空檔>` 會把**每一行都印出來** ⇒ 空分母必須自己講, 不能讓它默默噴一整張表。
+  if [ ! -s "$BLIND_TMP" ]; then
+    echo "gate:    ⇒ 被推的那棵樹一支 migration 都沒有 ⇒ 分支掃描【沒有分母】, 這一發不報。" >&2
+    rm -f "$BLIND_TMP"; BLIND_TMP=""; return 0
+  fi
+  # 🔴 分支名走 `awk -v` 而不是塞進 `sed` 的取代字串。
+  #    **git 真的接受 `&`**(實跑:`git check-ref-format 'refs/heads/agent/line-a&b'` ⇒ rc=0),
+  #    而 `sed` 的取代字串裡 `&` = 整個 match,**這裡的 match 是 `$` = 空字串**
+  #    ⇒ 那個字元**靜靜消失**、分支名印錯,而 rc=0、沒有任何東西會紅。實跑兩發:
+  #      printf 'X.sql\n' | sed "s#$#  <- a&b#"                     ⇒ X.sql  <- ab    🔴
+  #      printf 'X.sql\n' | awk -v b='a&b' '{ print $0 "  <- " b }' ⇒ X.sql  <- a&b   ✅
+  #    ⚠️ 我第一版的註解寫「會印出檔名兩次」—— **那是推的, 跑完才發現是【少一個字】**。留著這句。
+  them="$(git for-each-ref --format='%(refname)' "$BLIND_BRANCH_GLOB" 2>/dev/null \
+    | while IFS= read -r br; do
+        [ -n "$br" ] || continue
+        git ls-tree --name-only "$br" supabase/migrations/ 2>/dev/null | sed 's#.*/##' \
+          | grep -vxF -f "$BLIND_TMP" | awk -v b="${br#refs/heads/}" '{ print $0 "  ⟵ " b }'
+      done | sort -u)"
+  rm -f "$BLIND_TMP"; BLIND_TMP=""
+  # 🔴🔴 R1 Important:`sort -u` 去重的是【整行】= `檔名 ⟵ 分支` ⇒ 同一支檔活在 3 條分支上會得到 3
+  #    ⇒ 舊句「有 N 支 migration」數的是 **(檔案 × 分支) 對數**, 不是相異檔數。
+  #    📌 **那正是本片在修的病型:輸出看起來在答 A、其實在答 B。** ⇒ 兩個數都印。
+  n_pair="$(printf '%s\n' "$them" | grep -c . || true)"
+  n_file="$(printf '%s\n' "$them" | awk '{ print $1 }' | sort -u | grep -c . || true)"
+  # 🔴 標籤由【結果】決定 —— 三個世界(零分支 / 掃過而乾淨 / 掃到)印三種不同的東西。
+  if [ "$n_pair" = "0" ]; then
+    echo "gate:    ⇒ 掃過 $n_br 條 $BLIND_BRANCH_GLOB:沒有【這棵樹沒有而它們有】的 migration。" >&2
+    echo "gate:       ⚠️ 那是一個**時點的快照**, 而且只比檔名、只看得到本 checkout 的 ref。" >&2
+  else
+    echo "gate:    🔴 掃過 $n_br 條 $BLIND_BRANCH_GLOB ⇒ $n_file 支 migration【只活在別條分支上】($n_pair 筆 檔案×分支):" >&2
+    printf '%s\n' "$them" | sed 's/^/gate:       /' >&2
+    echo "gate:       ⇒ 這一行**不擋**。要判它跟這次推的 app 有沒有關係, 看上面 BLOCKED 點名的函式/view。" >&2
+  fi
+}
+
 summary() {  # $1 = 結論標籤
   if [ "$1" = "skipped" ]; then
     echo "gate: 跳過($2)—— 本閘沒有判準,不是「檢查過而乾淨」" >&2
@@ -160,13 +234,17 @@ summary() {  # $1 = 結論標籤
     #
     # ✅ **本次的修法只有【多印一句】, rc 一格不動**(`-f8` 2026-09-06 裁甲修法 1)——
     #    它不會讓 ③ 變成擋, 它讓讀的人**分得出自己在哪一個世界**。
-    # 🔵 掃 `agent/line-*` 分支把差集列出來當警告 = 修法 2, **另開子列, 本次不做**
-    #    (代價:要讀別人的分支, 而那些分支隨時在動)。
+    # ⛔ ~~掃 `agent/line-*` 分支把差集列出來當警告 = 修法 2, **另開子列, 本次不做**~~
+    #    ~~(代價:要讀別人的分支, 而那些分支隨時在動)。~~
+    # ✅ **2026-09-06 修法 2 做了**(線【DB】`-db`, `-f8` 准)⇒ 見下面 `blind_branch_report`。
+    #    舊字面留刪除線, 讓搜「本次不做」的人同一發撞到訂正。
     # 📌 同一條紀律的前一格就在上面:`REF_N = 0` 時本閘早就不肯印「0 blocked」了。
     if [ "$PENDING_N" = "0" ]; then
       echo "gate: ⚠️ 0 pending 的意思是【我在**這棵樹**上沒看到待貼的 migration】——" >&2
       echo "gate:    **別條 agent 分支上的 migration 我看不到**, 那不是「沒有」, 是我沒去看。" >&2
       echo "gate:    ⇒ 別人那條線正在做的 DB 改動, 這一行證不了任何事。(⟦db-DOGBLINDBRANCH⟧)" >&2
+      # 🔵 修法 2:上面三句說的是「我沒去看」;這一句開始是【我去看了】。
+      blind_branch_report "$PUSHED_SHA"
     fi
   fi
 }
@@ -208,6 +286,96 @@ ledger_sanity() { # $1=rev
   fi
   return 0
 }
+# ── 🔵 ⟦db-LEDGERSHADRIFT⟧ 修法丙:「帳本記的是【另一份內容】」有兩種, 而它們原本印同一個東西 ──
+#
+# 🔬 **為什麼有這一段**(2026-09-06 線【DB】量, 分母 = `supabase/APPLIED.tsv` 336 個資料列):
+#    `MATCH 326` / `MISMATCH 10` / `NOFILE 0`(三數和 = 336)。那 10 支分三類 ——
+#    **純註解漂移 4** · **真的有碼變動 2** · **帳上那份在 repo 找不到 4**。
+#    🎯 那 4 支**已經貼過了**, 而它們永遠算 PENDING;
+#    🛑 而 `20260801120000` 重跑會炸(該檔 `:154-162` 的 DROP CONSTRAINT/TRIGGER/FUNCTION 沒有 IF EXISTS)。
+#    🔴 **不修的代價**:這個數字只會長(每次有人在舊 migration 上補一句註解就 +1)
+#       ⇒ **下一個真的沒貼的那一支, 會被當成「又是那些老的」跳過。**
+#
+# ⛔ ~~修法甲:比 sha 之前先剝掉註解~~ **做不出來, 舊字面留著** ——
+#    帳本第二欄存的是**原始檔案**的 sha256 ⇒ 剝完再算得到一個帳本裡不存在的值
+#    ⇒ **每一支都會變 PENDING**。🔬 實跑 `20260801120000`:剝完 `514628f9…` 在帳本裡命中 **0**
+#    (🟢 正對照:`20260906400000` 的原始 sha 命中 **1**)。🎯 **兩端不同單位, 不是效果打折。**
+#
+# 🛑 **降級要兩個條件【同時】成立, 少一個就是拿沒人記過的版本去背書**:
+#    ① 歷史上那一版的 **raw sha 逐字元等於帳本那一格**
+#    ② 兩份**剝掉行註解與空行之後**的 sha 相同
+#
+# 🔴 **歷史只查 `origin/dev`, 不用 `--all`**(主視窗 `-f8` 2026-09-06 裁):
+#    `--all` 看得到的 ref 集合**每台機器不一樣** ⇒ 同一支檔 A 的機器降得了、B 的降不了 = 不對稱。
+#    🔬 而換這把尺**今天零代價**:10 支逐一比對, `--all` 與 `origin/dev` **找到/找不到完全相同**。
+#    ⇒ `origin/dev` 上找不到 ⇒ **維持 PENDING, 不猜。**
+# 🔴🔴 **歷史只查 `origin/dev`, 而且【寫死】** —— codex R1 must-fix:
+#    原本寫成 `LEDGER_HISTORY_REF="${LEDGER_HISTORY_REF:-origin/dev}"` ⇒ 那是一個**繞過閥**:
+#    設成 `--all` 或一支自造的 local ref, 再塞一個 raw sha 對得上的 blob 進去就放行了;
+#    而且 git 仍會把引號裡的 `--all` 當**選項**解讀。⇒ **拿掉那個 env, 寫死。**
+#    `--all` 看得到的 ref 集合每台機器不一樣 ⇒ 同一支檔 A 的機器降得了、B 的降不了 = 不對稱。
+#    🔬 換這把尺今天零代價:10 支逐一比對, `--all` 與 `origin/dev` 找到/找不到完全相同。
+#    ⇒ `origin/dev` 上找不到 ⇒ **維持 PENDING, 不猜。**
+LEDGER_HISTORY_REF='origin/dev'
+
+# 🔴🔴 **名字不可以叫 `strip_sql_line_comments`** —— 本檔 `:406` 早就有一支同名的
+#    (`view_names_of` 在用, 形狀是 `sed -e 's;--.*$;;'`)⇒ **後定義的會蓋掉先定義的**
+#    ⇒ ⛔ 我第一版就是這樣, 而**我的那一版從頭到尾沒有被呼叫過**, 六格照樣全綠 = 假綠。
+#    🔬 實證(可重跑):兩個定義依序寫進一支 sh, 餵 `SELECT 'a--b';` ⇒ 印出 `SELECT 'a`
+#       ⇒ 生效的是 `:406` 那一版(它連**字串常值裡的 `--`** 都砍)。
+#    📌 **撞名在 diff 上沒有形狀** —— `bash -n` 綠、三綠綠、六格綠。
+#
+# 🛑 **它只丟【整行都是行註解】的行與空行。刻意【不碰】兩樣東西**:
+#    · **行內的 `--`** —— `'a--b'` 是合法字串常值, 砍它會把語意變更讀成註解漂移(codex R1 must-fix)
+#    · **行尾空白** —— 它可能落在 dollar-quoted 的字串資料裡(同上)
+#    ⇒ 兩者都往【多擋】的方向偏, 而那是安全的方向。
+# ⚠️🔴 **已知盲區, 而它是這一族裡【唯一往「少擋」偏】的那一個**:
+#    一段**多行字串常值**裡若有一行以 `--` 開頭, 這支會把它當註解丟掉
+#    ⇒ 一個**只有那一行變動**的世界會被降級, 而它其實改了資料。
+#    ⚠️ **而它不只一種**(codex R2 must-fix:我原本寫「唯一往少擋偏」——**那句太窄**):
+#      · 多行字串常值裡**以 `--` 開頭的行**   ⇒ 被當註解丟掉
+#      · 多行字串常值裡的**空行 / 純空白行**  ⇒ 被當空行丟掉
+#      🔬 實測:`printf "SELECT 'a\\n\\nb';\\n"` 與 `printf "SELECT 'a\\nb';\\n"`
+#         各自過一次 `grep -vE '^[[:space:]]*(--|$)'` ⇒ **兩個 sha 逐字元相同**。
+#    🔵 對照:`/* */` 塊註解、CRLF、BOM 都往**多擋**偏(安全)。
+#    🛑 **要真的關掉【這一族】得去 lex SQL(引號與 dollar-quote 的狀態機), 而那不在本片的體積裡。**
+#    ✅ **主視窗 `-f8` 2026-09-06 接受為【殘餘風險】, 明示不做。** 板列 `⟦db-LEDGERSHADRIFT⟧` 有同一句。
+#    ⇒ verify 的 `G` / `H` 兩格在演它 —— **它們斷言的是【現況】不是【正確】**;
+#      哪天有人真的去 lex 了, 那兩格會紅, 而那時本註解與板列要一起改。
+ledger_drift_code_only() {
+  grep -vE '^[[:space:]]*(--|$)'
+}
+
+comment_only_drift() {  # $1=路徑 $2=帳本記的 raw sha $3=被推的 rev;回 0 = 已降級(且已印警告)
+  local f="$1" rec="$2" rev="$3" r found cur_body old_body cur_s old_s
+  [ -n "$rec" ] || return 1        # 帳本根本沒記這一支 ⇒ 那是【缺席】不是【漂移】
+  found=""
+  for r in $(git log "$LEDGER_HISTORY_REF" --format=%H -- "$f" 2>/dev/null); do
+    if [ "$(git show "$r:$f" 2>/dev/null | shasum -a 256 | cut -d' ' -f1)" = "$rec" ]; then
+      found="$r"; break
+    fi
+  done
+  [ -n "$found" ] || return 1      # ① 不成立 ⇒ 不猜
+  cur_body="$(git show "$rev:$f" 2>/dev/null | ledger_drift_code_only)"
+  old_body="$(git show "$found:$f" 2>/dev/null | ledger_drift_code_only)"
+  # 🔴 兩邊都剝成空的話, sha 也會相等 ⇒ 那不是「碼相同」, 是「沒有碼」。擋掉。
+  [ -n "$cur_body" ] || return 1
+  cur_s="$(printf '%s' "$cur_body" | shasum -a 256 | cut -d' ' -f1)"
+  old_s="$(printf '%s' "$old_body" | shasum -a 256 | cut -d' ' -f1)"
+  # 🔴 codex R1 must-fix:本檔是 `set -uo pipefail` **無 `-e`** ⇒ 兩條 checksum 管線同時失敗
+  #    會讓 `"" = ""` 成立而**放行**。⇒ 兩個值都必須長得像 sha256 才算數。
+  # 🔴 codex R2 must-fix:`case "$x" in [0-9a-f]*)` **只驗第一個字元**
+  #    ⇒ 一個 64 字元的 `azzz…` 兩道都過。實測我複驗過。⇒ 用【否定字集】驗每一個字元。
+  case "$cur_s" in *[!0-9a-f]*) return 1 ;; esac
+  case "$old_s" in *[!0-9a-f]*) return 1 ;; esac
+  [ "${#cur_s}" = "64" ] && [ "${#old_s}" = "64" ] || return 1
+  [ "$cur_s" = "$old_s" ] || return 1   # ② 不成立 ⇒ 它真的變了 ⇒ 維持 PENDING
+  echo "gate: ⚠️ ${f##*/}:帳本的 sha 對不上, **而只有整行註解與空行不同** ⇒ 不算 PENDING(⟦db-LEDGERSHADRIFT⟧)" >&2
+  echo "gate:    在 $LEDGER_HISTORY_REF@${found} 找到帳本記的那一版(raw sha 逐字元相符)" >&2
+  echo "gate:    🛑 這只證明【碼沒變】, 不證明它在正式庫裡真的是那一版 —— 帳本是自陳帳。" >&2
+  return 0
+}
+
 # ── 1. PENDING:本地有、但帳上沒有(或 sha 對不上)────────────────────────
 #    🔴 sha 也要比:同版本號的檔案內容事後被改動 ⇒ 帳上那行證明的是**另一份**內容(關卡1 R2 #2)。
 # 🔴 **一律讀 `local_sha` 那棵樹,不讀工作樹**(關卡2 must-fix #4):
@@ -230,7 +398,18 @@ pending_versions() { # $1=local_sha;讀不到樹/blob 一律 fail-closed(關卡2
     fi
     sha="$(git show "$rev:$f" 2>/dev/null | shasum -a 256 | cut -d' ' -f1)"
     rec="$(printf '%s\n' "$ledger_blob" | grep -v '^#' | awk -F'\t' -v v="$ver" '$1==v {print $2; exit}')"
-    [ "$rec" = "$sha" ] || printf '%s\t%s\n' "$ver" "$f"
+    # 🔵 對得上 ⇒ 什麼都不做(⟦db-LEDGERSHADRIFT⟧ 那一段【一秒都不花】)
+    [ "$rec" = "$sha" ] && continue
+    # 🔵 **帳本有這一列而 sha 對不上** 才進修法丙;帳本根本沒記(`rec` 空)是【缺席】不是【漂移】。
+    #    🔴 這一行**存在的理由是可觀測性**:`comment_only_drift` 失敗時是靜默的
+    #    ⇒ 少了它,「沒印警告」與「根本沒走這條路」在輸出上是同一個東西
+    #    (verify 的 C 格就是釘這個字面 —— 對得上的世界不准出現它)。
+    #    🛑 清單走 stdout、警告走 stderr —— 這個迴圈的 stdout **就是** PENDING 清單。
+    if [ -n "$rec" ]; then
+      echo "gate: ⚠️ ${f##*/}:帳本有這一列而 sha 對不上 ⇒ 進 ⟦db-LEDGERSHADRIFT⟧ 檢查" >&2
+      comment_only_drift "$f" "$rec" "$rev" && continue
+    fi
+    printf '%s\t%s\n' "$ver" "$f"
   done
 }
 
@@ -312,6 +491,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   [ -n "${local_sha:-}" ] || continue
   [ "$local_sha" = "$ZERO" ] && continue                       # 刪除 ref
   case "${remote_ref:-}" in refs/heads/dev|refs/heads/main) REF_N=$((REF_N + 1)) ;; *) continue ;; esac
+  PUSHED_SHA="$local_sha"                                      # 🔵 修法 2 的分母(最後一個被檢查的 ref)
   ledger_sanity "$local_sha" || exit 1
 
   if ! PENDING="$(pending_versions "$local_sha")"; then exit 1; fi
