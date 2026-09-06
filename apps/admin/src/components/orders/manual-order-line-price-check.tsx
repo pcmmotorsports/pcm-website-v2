@@ -77,7 +77,20 @@ export function resolveLinePriceCheck(
       ? { kind: 'inconclusive', sku }
       : { kind: 'unmatched', sku };
   }
-  const authority = exact.unitPrice;
+  // 🔴🔴 **權威是【經銷未稅價】, 不是 `unitPrice`(型錄含稅價)** —— ⟦b4-PRICECOPYTAX⟧, 2026-09-06。
+  //  ⛔ ~~`const authority = exact.unitPrice;`~~ **作廢**。
+  //  🔬 **為什麼要換**(當場量的, 不是照 plan 轉述):
+  //    ① 畫面那句橘字**已經是**「單價這一格請填**未稅**」——
+  //       `manual-order-lines.tsx` 的字面, 而它**已經在 `origin/main` 上**(員工現在看到的就是這句)。
+  //    ② 正式庫的建單 RPC **已經是第 6 代、真的在算稅**(唯讀查 `admin_create_manual_order` 的 `prosrc`):
+  //       `v_price_tax_mode constant text := 'exclusive'` ·
+  //       `v_tax := round(((v_subtotal + p_shipping_fee - 0)::numeric) * 0.05)` ·
+  //       `v_total := v_subtotal + p_shipping_fee + v_tax`, 而 `tax_total` 那一行的註解逐字
+  //       「**第 6 代:這裡不再是 0**」。
+  //  ⇒ 📌 **配對已經完成**(板列 ⟦b4-PRICECOPYTAX⟧ 要求「文案與算稅同一次上線」),
+  //     而**留在舊方向的只剩這一支**:它拿含稅價當權威, 於是員工照橘字填未稅 ⇒ **每一列都被它罵**。
+  //  🛑 **所以這一片不是「提早上文案」** —— 它是把最後一個沒跟上的面接回去。
+  const authority = exact.dealerPriceUntaxed;
   if (authority === null) return { kind: 'no_price', sku };
   return authority === typed
     ? { kind: 'match', sku }
@@ -90,7 +103,7 @@ export function linePriceCheckMessage(c: LinePriceCheck): string {
     case 'match':
       // 🔴 **對得上也要出聲。** 只在錯的時候出聲的話,「沒出聲」同時代表
       //    對得上 / 還沒查 / 查不動 ⇒ 那句沉默在三個世界印同一個東西。
-      return `料號 ${c.sku}:單價與型錄的含稅價對得上。`;
+      return `料號 ${c.sku}:單價與經銷未稅價對得上。`;
     case 'mismatch': {
       // 🔴 **講出我們懷疑的是哪一種錯, 不要只說「不一樣」** ——
       //    只說不一樣, 員工的下一個動作是「那我改成一樣」, 而那不一定對
@@ -99,12 +112,19 @@ export function linePriceCheckMessage(c: LinePriceCheck): string {
       //    容差 1 會讓 `1000` 對 `1049 / 1050 / 1051` **三個都命中**, 而文案還會斷言
       //    「含稅要填 <權威價>」⇒ **一個猜測被講成指示**。
       //    🔴 並要求 `typed > 0` —— 否則 `0 → 1` 也會被說成「像未稅」。
-      const looksUntaxed = c.typed > 0 && Math.round(c.typed * 1.05) === c.authority;
+      // 🔴 **方向反過來了**(⟦b4-PRICECOPYTAX⟧ 2026-09-06):權威是未稅價
+      //    ⇒ 現在要懷疑的是「員工填成了**含稅**」, 而不是「填成了未稅」。
+      //    ⛔ ~~`Math.round(c.typed * 1.05) === c.authority`(= 填的那個 ×1.05 等於權威)~~
+      //    ✅ `Math.round(c.authority * 1.05) === c.typed`(= 權威 ×1.05 等於填的那個)
+      //    🛑 **兩式不是對稱的** —— 舊式問「你填的是不是權威的未稅版」, 新式問
+      //      「你填的是不是權威的含稅版」。照抄舊式只把變數名換掉會**繼續問錯的問題**。
+      // 🔵 `±1 容差`仍然不加(理由同下方原註解:稅率 5% 而兩端都是整數 ⇒ 關係是精確的)。
+      const looksTaxed = c.authority > 0 && Math.round(c.authority * 1.05) === c.typed;
       return (
-        `料號 ${c.sku}:你填 ${c.typed.toLocaleString()},而型錄的含稅價是 ` +
+        `料號 ${c.sku}:你填 ${c.typed.toLocaleString()},而經銷未稅價是 ` +
         `${c.authority.toLocaleString()}。` +
-        (looksUntaxed
-          ? `這看起來像填成了未稅價 —— 含稅要填 ${c.authority.toLocaleString()}。`
+        (looksTaxed
+          ? `這看起來像填成了含稅價 —— 未稅要填 ${c.authority.toLocaleString()},稅由系統自己算。`
           : '') +
         '確定要用你填的那個就直接送出。'
       );
