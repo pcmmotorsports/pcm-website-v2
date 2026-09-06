@@ -366,6 +366,16 @@ export async function markPhoneNotifiedAction(formData: FormData): Promise<void>
   const eligibility = await readManualCancelNoticeEligibility(orderId);
   if (!eligibility.eligible) phoneBackTo(orderId, 'invalid');
 
+  // 🔴🔴 **server 也要檢查「真的沒有信箱」**(codex 2026-09-06 must-fix ②;它在隔離探針重現過)。
+  //    ⛔ 舊版只檢查 `eligible` ⇒ 管理者**直接 POST**、或開頁之後有人**補上信箱**,
+  //      這一發仍會寫入「沒有信箱、已電話通知」並**關掉那張單的提醒**。
+  //    🛑 而稽核 **append-only** ⇒ 📌 **關掉了就撤不回來。**
+  //    ✅ 判準與 UI 那一側**同一份**:資格現讀之後, 兩個信箱都空(含合成信箱)才准。
+  //    🔵 讀 `customers` 失敗時也拒 —— 那是「我不知道有沒有信箱」, 不是「沒有」。
+  if (eligibility.suggestedEmail !== null || eligibility.customerEmailReadFailed) {
+    phoneBackTo(orderId, 'invalid');
+  }
+
   // 🔴🔴 **`target` 一律用 DB 正規化過的 id**(code-reviewer must-fix ①)——
   //    ⛔ 舊版寫 `order:${orderId}` 拿的是**表單/網址**那個字串。
   //    🔬 而 SQL 述詞是 `'order:' || o.id::pg_catalog.text`, 而 `uuid_out` **恆輸出小寫**

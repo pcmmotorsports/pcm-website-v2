@@ -248,6 +248,37 @@ describe('登錄人工寄出取消通知:資格', () => {
     expect(r.eligible === true ? r.customerEmailReadFailed : false).toBe(true);
   });
 
+  /**
+   * 🔴🔴 **合成信箱 = 佔位, 不是真的收得到信的地址**(codex 2026-09-06 must-fix ①)。
+   * 後台幫沒有信箱的散客建單時填的就是 `manual.pcmmotorsports.local`
+   * (`manual-customer.ts:95`)。
+   * ⛔ 舊版把它當**非空信箱** ⇒ 🛑 電話鈕被藏掉;而寄信登錄那條路又**拒收合成網域**
+   *    ⇒ 📌 **這批單兩條路都走不通 —— 而它們正是這一片要救的那批。**
+   */
+  it('🔴 訂單信箱是【合成佔位地址】⇒ 當成沒有(suggestedEmail = null)', async () => {
+    mockDb({ order: { ...OK_ORDER, notification_email: 'manual_x@manual.pcmmotorsports.local' } });
+    const r = await readManualCancelNoticeEligibility('o-1');
+    expect(r.eligible).toBe(true);
+    expect(r.eligible === true ? r.suggestedEmail : 'x').toBeNull();
+    // 🔵 而它**不是讀失敗** —— 我讀到了, 只是那個值不算數。
+    expect(r.eligible === true ? r.customerEmailReadFailed : true).toBe(false);
+  });
+
+  it('🔴 客人資料的信箱是合成的 ⇒ 也當成沒有', async () => {
+    mockDb({
+      order: { ...OK_ORDER, notification_email: null },
+      customerEmail: 'line_abc@line.pcmmotorsports.local',
+    });
+    const r = await readManualCancelNoticeEligibility('o-1');
+    expect(r.eligible === true ? r.suggestedEmail : 'x').toBeNull();
+  });
+
+  it('🟢 正對照:真的信箱照舊回傳(證明上面兩格不是把所有信箱都吃掉)', async () => {
+    mockDb({ order: { ...OK_ORDER, notification_email: 'real@gmail.com' } });
+    const r = await readManualCancelNoticeEligibility('o-1');
+    expect(r.eligible === true ? r.suggestedEmail : null).toBe('real@gmail.com');
+  });
+
   it('🔵 訂單沒信箱而客人有 ⇒ 用客人的', async () => {
     mockDb({ order: { ...OK_ORDER, notification_email: '  ' }, customerEmail: 'c@example.com' });
     const r = await readManualCancelNoticeEligibility('o-1');

@@ -1,4 +1,5 @@
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
+import { isSyntheticEmailDomain } from '@pcm/schemas';
 import { PHONE_NOTIFIED_AUDIT_ACTION } from './manual-cancel-notice-messages';
 
 /**
@@ -260,11 +261,26 @@ export async function readManualCancelNoticeEligibility(
   };
 }
 
-/** 空白只有空字串與純空白兩種形狀 ⇒ 一起收掉。`null` 表示「沒有」, 不是空字串。 */
+/**
+ * 空白只有空字串與純空白兩種形狀 ⇒ 一起收掉。`null` 表示「沒有」, 不是空字串。
+ *
+ * 🔴🔴 **而【合成信箱】也算「沒有」**(codex 2026-09-06 must-fix ①)——
+ *    後台幫沒有信箱的散客建單時, 填的是 `manual.pcmmotorsports.local` 這種**佔位地址**
+ *    (`apps/admin/src/lib/customers/manual-customer.ts:95` 逐字
+ *     `export const MANUAL_SYNTHETIC_EMAIL_DOMAIN = \`manual.${SYNTHETIC_EMAIL_BASE_DOMAIN}\`;`)。
+ *    ⛔ 舊版把它當成**非空信箱** ⇒ 🛑 **電話鈕被藏掉**;
+ *      而寄信登錄那條路又**拒收合成網域**(`NotificationEmailInput` 的假信箱 gate)
+ *    ⇒ 📌 **這批單【兩條路都走不通】—— 而它們正是這一片要救的那批。**
+ *    ✅ 用 `isSyntheticEmailDomain`(`packages/schemas/src/notification-email.ts:69`)——
+ *      **與那道 gate 同一支函式**, 不重寫第二份判斷。
+ */
 function nonEmpty(value: string | null): string | null {
   if (value === null) return null;
   const trimmed = value.trim();
-  return trimmed === '' ? null : trimmed;
+  if (trimmed === '') return null;
+  // 🔵 合成信箱 = 佔位, 不是真的收得到信的地址 ⇒ 對本片而言等同「沒有」。
+  if (isSyntheticEmailDomain(trimmed)) return null;
+  return trimmed;
 }
 
 export type PhoneNotifiedMark = { readonly actor: string; readonly at: string };

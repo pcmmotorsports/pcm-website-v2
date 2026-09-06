@@ -109,7 +109,9 @@ beforeEach(() => {
     // 🔴 DB 正規化過的那一份(小寫), 與下面表單送的大寫**刻意不同** —— 見那一格測試。
     orderId: 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d',
     displayId: 'PCM-2026-0001',
+    // 🔵 預設「沒有信箱」—— 電話通知那組需要它;登錄那組不看這一欄。
     suggestedEmail: null,
+    customerEmailReadFailed: false,
   });
   mocks.record.mockResolvedValue(undefined);
   mocks.insertResult.error = null;
@@ -564,6 +566,40 @@ describe('標記「已電話通知」', () => {
   });
 
   // 🔴 資格不合 ⇒ 拒(code-reviewer must-fix ②:稽核 append-only, 寫錯了撤不回來)。
+  /**
+   * 🔴🔴 **server 也要檢查「真的沒有信箱」**(codex must-fix ②, 它在隔離探針重現過)。
+   * ⛔ 舊版只檢查 `eligible` ⇒ 管理者**直接 POST**、或開頁之後有人**補上信箱**,
+   *    這一發仍會寫入「沒有信箱、已電話通知」並**關掉那張單的提醒**
+   *    ⇒ 🛑 而稽核 append-only ⇒ **關掉了就撤不回來。**
+   */
+  it('🔴 那張單【有信箱】⇒ invalid,而且一個字都不寫', async () => {
+    mocks.eligibility.mockResolvedValue({
+      eligible: true,
+      orderId: 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d',
+      displayId: 'PCM-2026-0001',
+      suggestedEmail: 'real@gmail.com',
+      customerEmailReadFailed: false,
+    });
+    await expect(markPhoneNotifiedAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `/orders/${OK_FORM.order_id}?r=manual_cancel_phone_invalid`,
+    );
+    expect(mocks.record).not.toHaveBeenCalled();
+  });
+
+  // 🔵 讀失敗也拒 —— 那是「我不知道有沒有信箱」, 不是「沒有」。
+  it('🔴 讀 customers 失敗 ⇒ 也 invalid(不知道 ≠ 沒有)', async () => {
+    mocks.eligibility.mockResolvedValue({
+      eligible: true,
+      orderId: 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d',
+      displayId: 'PCM-2026-0001',
+      suggestedEmail: null,
+      customerEmailReadFailed: true,
+    });
+    await expect(markPhoneNotifiedAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.record).not.toHaveBeenCalled();
+  });
+
   it('🔴 資格不合 ⇒ invalid,而且【一個字都不寫】', async () => {
     mocks.eligibility.mockResolvedValue({ eligible: false, blocker: 'not_cancelled' });
     await expect(markPhoneNotifiedAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
@@ -613,22 +649,46 @@ describe('跨語言契約:動作名與 target 形狀', () => {
     '../../../../../supabase/migrations/20260906960000_m4b_cancelled_mixed_rail_phone_notified.sql',
   );
 
-  it('🔴 那支 migration 的述詞要含 TS 這側同一個動作名', () => {
+  /**
+   * 🔴🔴 **先把註解剝掉再看**(codex 2026-09-06 nit ⑤)——
+   * ⛔ 舊版直接掃全檔 ⇒ 把兩處述詞的動作名**改錯**、或把 target 的 `=` 改成 `<>`,
+   *    三格**照樣全綠** —— 因為**註解裡也寫著那個字**。
+   * ⇒ 📌 **一道掃全檔的守門, 會被它自己要守的那段文件餵飽。**
+   * ✅ 只看 `$fn$ … $fn$` 之間那段函式體, 而且剝掉 `--` 行註解。
+   */
+  const fnBody = (): string => {
     const sql = readFileSync(MIG, 'utf8');
-    expect(sql, '動作名在 SQL 那側對不上 ⇒ 計數永遠不會歸零').toContain(
+    const a = sql.indexOf('AS $fn$');
+    const b = sql.indexOf('$fn$;', a);
+    expect(a, '抓不到函式體 ⇒ 這把尺沒有接上').toBeGreaterThan(-1);
+    expect(b, '抓不到函式體結尾 ⇒ 這把尺沒有接上').toBeGreaterThan(a);
+    return sql
+      .slice(a, b)
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('--'))
+      .join('\n');
+  };
+
+  it('🔴 【函式體裡】要含 TS 這側同一個動作名', () => {
+    expect(fnBody(), '動作名在 SQL 那側對不上 ⇒ 計數永遠不會歸零').toContain(
       'email.order_cancelled.phone_notified',
     );
   });
 
-  it("🔴 述詞的 target 形狀要是 `'order:' || …`(兩處都要)", () => {
-    const sql = readFileSync(MIG, 'utf8');
-    // 🔵 述詞有**兩處**(pending 計數 + oldest 那格)—— 只補一處會讓兩個 key 給出不一致的答案。
-    const hits = sql.match(/'order:' \|\| o\.id/g) ?? [];
-    expect(hits.length, `target 拼接只出現 ${hits.length} 處, 而述詞有兩格`).toBe(2);
+  it("🔴 【函式體裡】target 要是 `a.target = 'order:' || o.id`(兩處都要)", () => {
+    // 🔵 連 `=` 一起釘 —— codex 指出改成 `<>` 舊版照樣綠。
+    const hits = fnBody().match(/a\.target = 'order:' \|\| o\.id/g) ?? [];
+    expect(hits.length, `target 比對只出現 ${hits.length} 處, 而述詞有兩格`).toBe(2);
   });
 
-  it('🔵 負對照:現造的動作名不在那支 SQL 裡(證明上面那格不是恆真)', () => {
+  it('🔵 負對照:剝註解這件事是活的(整支檔裡【有】而函式體裡【沒有】的字)', () => {
     const sql = readFileSync(MIG, 'utf8');
-    expect(sql).not.toContain('email.order_cancelled.zzq9_never_notified');
+    // `codex` 這個字只出現在註解裡 ⇒ 全檔有、函式體沒有 ⇒ 證明我真的剝掉了註解。
+    expect(sql).toContain('codex');
+    expect(fnBody()).not.toContain('codex');
+  });
+
+  it('🔵 負對照:現造的動作名不在函式體裡(證明上面那格不是恆真)', () => {
+    expect(fnBody()).not.toContain('email.order_cancelled.zzq9_never_notified');
   });
 });

@@ -535,7 +535,15 @@ export async function OrderDetailRoute({
                  有信箱的單就該用寄信那條路, 給他電話那顆只會讓紀錄變糊。 */}
           {await (async () => {
             const eligibility = await readManualCancelNoticeEligibility(id);
-            const phoneNotified = await readPhoneNotifiedMark(id);
+            // 🔴🔴 **讀標記也要用【DB 正規化過的 id】**(codex must-fix ③)——
+            //    ⛔ 我上一輪修 UUID 大小寫時**只修了 writer 那一半**, 這裡的 reader 還拿網址原始 `id`
+            //      去查 **text** 型的 `target`
+            //    ⇒ 🛑 大寫網址標記成功之後:**計數下降了, 而畫面讀不到那筆標記**
+            //      ⇒ 電話鈕還在, 再按一次回「已標記」⇒ 📌 **員工看到的與系統知道的分家。**
+            //    ✅ `eligibility.orderId` 是 `select('id')` 回來的那一份。
+            //    🔵 不合格時退回網址那個 id —— 那條路本來就不畫任何鈕, 讀不到也無妨。
+            const canonicalId = eligibility.eligible ? eligibility.orderId : id;
+            const phoneNotified = await readPhoneNotifiedMark(canonicalId);
             return (
               <>
                 <ManualCancelNoticeButton
