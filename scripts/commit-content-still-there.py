@@ -36,6 +36,19 @@
 """
 import io, os, re, subprocess, sys
 
+# 🔴 `--selftest` 的第一件事:剝掉【繼承來的】git 環境(板列 ⟦02-GITFREE-COMMITCONTENT⟧)。
+#    理由:`pre-commit` 會設 `GIT_DIR` / `GIT_INDEX_FILE`, 而 `selftest-git-isolation-gate.sh`
+#    量本檔的隔離時**故意**把 `GIT_DIR` 指向一個受害者 repo ⇒ 本檔的 selftest 讀到【別人的倉庫】。
+#    🛑 而那不是「它會弄壞受害者」—— 是它**還沒走到會動 git 那一段就自己死了**(rc=1),
+#      受害者的快照當然沒變 ⇒ 那道閘印 `CLEAN`, **與「跑完而且乾淨」是同一個字**。
+#    ⚠️ **只剝 selftest 那一條路** —— 真跑時 `GIT_DIR` 指的是本 repo 自己的 `.git`, 剝掉會壞。
+#    形狀取自 `scripts/board-state-consistency.py:932`。
+import os
+if {'--selftest', '--selfcheck'} & set(sys.argv[1:]):
+    for _k in [_k for _k in os.environ if _k.startswith('GIT_')]:
+        del os.environ[_k]
+
+
 MIN_LEN = 12          # 🔴 太短的片段會在別的地方偶然命中 ⇒ 那是假綠。12 是「一句話」的下界。
 MAX_FEATURES = 3      # 每支檔取幾個特徵字串:多取幾個, 因為單一字串可能剛好被改字
 

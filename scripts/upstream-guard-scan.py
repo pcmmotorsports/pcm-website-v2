@@ -30,6 +30,19 @@
 """
 import re, subprocess, io, sys
 
+# 🔴 `--selftest` 的第一件事:剝掉【繼承來的】git 環境(板列 ⟦02-GITFREE-UPSTREAMGUARD⟧)。
+#    理由:`pre-commit` 會設 `GIT_DIR` / `GIT_INDEX_FILE`, 而 `selftest-git-isolation-gate.sh`
+#    量本檔的隔離時**故意**把 `GIT_DIR` 指向一個受害者 repo ⇒ 本檔的 selftest 讀到【別人的倉庫】。
+#    🛑 而那不是「它會弄壞受害者」—— 是它**還沒走到會動 git 那一段就自己死了**(rc=1),
+#      受害者的快照當然沒變 ⇒ 那道閘印 `CLEAN`, **與「跑完而且乾淨」是同一個字**。
+#    ⚠️ **只剝 selftest 那一條路** —— 真跑時 `GIT_DIR` 指的是本 repo 自己的 `.git`, 剝掉會壞。
+#    形狀取自 `scripts/board-state-consistency.py:932`。
+import os
+if {'--selftest', '--selfcheck'} & set(sys.argv[1:]):
+    for _k in [_k for _k in os.environ if _k.startswith('GIT_')]:
+        del os.environ[_k]
+
+
 DERIVE = re.compile(r'^\s*(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\s*\.\s*'
                     r'(replace|slice|match|split|join|toLowerCase|toUpperCase|trim)\s*\(')
 
