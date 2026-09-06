@@ -83,21 +83,56 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
   // 🔴 「查商品 ⇒ 點一下加成一列」的接收端(⟦b4-建單加成一列⟧ 2026-09-06)。
   //  🔵 **只有這一側算 index** —— 查詢那一側只丟事件, 不碰表單。
   //     解析器 `manual-order-form.ts:339-347` 要求 `_0.._n` 連號, 兩邊各自算必撞。
-  //  🛑 **第一列如果還是空的就【種進去】, 不另開一列** ——
-  //     員工進來看到一列空的, 查完之後又多一列空的在上面, 那看起來像壞掉。
-  //     判準是「這一列沒有種子」而不是「input 是不是空的」(讀 DOM 就會碰到那條不變式)。
+  //  🔴🔴 **一律 append —— 而我第一版不是這樣寫的, 那一版會【弄丟員工打的字】。**
+  //   ⛔ ~~`if (r.length === 1 && r[0]?.seed === undefined) return [{ id: newRowId(), seed }];`~~
+  //      我的理由是「員工進來看到一列空的, 查完又多一列空的在上面, 那看起來像壞掉」。
+  //   🛑 **而「沒有 seed」不等於「是空的」** —— 員工先在第 1 列手打一筆**代購**品項
+  //      (代購本來就沒有料號、沒有 seed), 再去查第二樣東西按「加成一列」
+  //      ⇒ 那一列被換成新 id ⇒ `key` 變 ⇒ React 重建那一列 ⇒ **他打的字全沒了, 零提示。**
+  //   🔬 而**那個修法會綠的唯一機制, 就是舊 DOM 節點被丟掉**(見上面 `LineRow` 那段註解:
+  //      `defaultValue` 對已存在的節點沒有作用 ⇒ 我必須換 key ⇒ 換 key 就是丟掉他打的字)。
+  //      ⇒ 📌 **我寫的那格測試「種進那一列」, 斷言的正是這個 bug。**
+  //   🛑 而既有那格「員工改過的字不會被蓋掉」**分母不含出事的世界** —— 它是【先種再打】,
+  //      而出事的順序是【先打再種】。
+  //   ✅ plan §4 驗收 ① A 逐字要的就是相反:「第 1 列已打的 'X' 仍是 'X'」、種進**第 2 列**。
+  //   🔵 那個「上面一列空的」的顧慮仍然成立, 而它的代價是**畫面不好看**;
+  //      弄丟他打的字的代價是**他要重打, 而且不知道自己被弄掉了**。兩者不對等。
   useEffect(() => {
     const onSeed = (e: Event) => {
       const seed = (e as CustomEvent<ManualOrderLineSeed>).detail;
       setRows((r) => {
-        if (r.length >= MANUAL_ORDER_MAX_LINES) return r;
-        if (r.length === 1 && r[0]?.seed === undefined) return [{ id: newRowId(), seed }];
+        if (r.length >= MANUAL_ORDER_MAX_LINES) {
+          setAddedNote(`已經有 ${MANUAL_ORDER_MAX_LINES} 個品項了,沒有加進去。`);
+          return r;
+        }
+        // 🔴🔴 **同一個商品不得加第二列**(codex must-fix;提示擋不住這件事)——
+        //  🛑 兩列同一個 `variant_id` ⇒ 建單 RPC `20260905360000:408-414`
+        //     `RAISE EXCEPTION '重複品項'` ⇒ **整張單被拒**(不是那一列被跳過),
+        //     而他打的其他東西也一起沒了。
+        //  ⇒ 📌 我第一版只加了一句「已加成第 N 列」—— **那是回饋, 不是守門**:
+        //     連按兩下、或隔一次搜尋再加同一筆, 照樣生出兩列。
+        //  🔵 只比對【有商品編號的那些】—— 代購品項沒有編號, 而**同一張單開兩列代購是合法的**。
+        if (seed.variantId !== '' && r.some((x) => x.seed?.variantId === seed.variantId)) {
+          setAddedNote(`這個商品已經在單子上了(${seed.sku}),沒有再加一列。要買兩個請改數量。`);
+          return r;
+        }
+        setAddedNote(`已加成第 ${r.length + 1} 列:${seed.sku}`);
         return [...r, { id: newRowId(), seed }];
       });
     };
     window.addEventListener(MANUAL_ORDER_LINE_SEED_EVENT, onSeed);
     return () => window.removeEventListener(MANUAL_ORDER_LINE_SEED_EVENT, onSeed);
   }, []);
+
+  /**
+   * 🔴 **按了要出聲**(code-reviewer R1 MF3)——
+   * ⛔ 第一版按下去**一句話都沒有**:員工不確定有沒有成功 ⇒ 再按一次
+   *    ⇒ 兩列同一個 `variant_id` ⇒ `20260905360000:408-414` `RAISE EXCEPTION '重複品項'`
+   *    ⇒ 📌 **整張單被拒**(而他打的其他東西也一起沒了)。
+   * 🛑 而本片之前那條路要**手打一模一樣的 uuid** 才碰得到 ⇒ 本片把它從「實務不可達」變成「按兩下」。
+   * 🔵 這個 state **只餵一句畫面上的話**, 不進任何 `name=` 欄位 ⇒ 那條不變式不受影響。
+   */
+  const [addedNote, setAddedNote] = useState('');
 
   const atMax = rows.length >= MANUAL_ORDER_MAX_LINES;
 
@@ -261,6 +296,12 @@ export function ManualOrderLines({ initialRows = 1 }: ManualOrderLinesProps) {
         </button>
         {/* 🔴 撞到上限要**說出來**,不是讓那顆鈕安靜地按不動 ——
             按不動而沒有話,員工會以為是網頁壞了(`project_admin-ux-operation-intuitiveness`)。 */}
+        {/* 🔴 按了要出聲(MF3)。🔵 `role='status'` 與旁邊那句同一種, 不自創樣式。 */}
+        {addedNote !== '' && !atMax && (
+          <span role='status' className='text-muted-foreground text-sm'>
+            {addedNote}
+          </span>
+        )}
         {atMax && (
           <span role='status' className='text-sm text-amber-700'>
             一張單最多 {MANUAL_ORDER_MAX_LINES} 個品項,再多請拆成兩張單。
