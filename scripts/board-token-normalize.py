@@ -38,6 +38,15 @@ FIND = re.compile(r'⟨(?:擋|不擋|未判|—)[^⟩]*⟩')
 HEADS = ('⟨擋', '⟨不擋', '⟨未判', '⟨—⟩')
 
 
+# ═══ 規則⑧:指向【板檔自己】的裸行號(2026-09-07;account 踩過一次)═══
+#   形狀 `併自原 :565`。合併把列往上移一格之後, 那個 565 指到了 ⟦b9-Q15GAP⟧ ——
+#   而它讀起來像那一列的欄位 ⇒ account 據此判「這是重複列」, 而那是一件真的、還在擋的事。
+#   🔴 **行號在寫下的那一刻就是對的, 而它在下一次合併就開始說謊, 沒有東西會出聲。**
+#   🛑 尺刻意窄:`docs/x.md:123` 這種【帶檔名】的證據引用是規則要求的, 不得誤報 ⇒
+#      只認「原/本板/板/列」後面直接接 `:數字` 這幾種指向板檔自己的寫法。
+STALEREF = re.compile(r'(?:併自原|原|本板|板|列)\s*:\d+(?!\d|⚠️)')
+
+
 def _strip_mark(s):
     """把刪除線與人貼上去的「重複列」標籤剝掉(第四層的【第二種讀法】)。"""
     return re.sub(r'重複列|~~', '', s)
@@ -315,11 +324,17 @@ def check_staged():
                        capture_output=True, text=True)
     newrows = []
     notok = []          # 新開的 open/doing 列而【完全沒有 token】
+    stale = []          # 新增行裡指向板檔自己的裸行號(規則⑧)
     if d.returncode == 0:
         for ln in d.stdout.split('\n'):
             if not ln.startswith('+| ') or ln.startswith('+++'):
                 continue
             row = ln[1:]
+            if STALEREF.search(row):
+                _g0 = SPLIT.split(row)
+                _m0 = re.search(r'⟦[^⟧]+⟧|#\d+', _g0[2]) if len(_g0) > 2 else None
+                stale.append((_m0.group(0) if _m0 else row.strip()[:34],
+                              STALEREF.search(row).group(0)))
             g = SPLIT.split(row)
             if len(g) < 4 or g[1].strip() not in ('open', 'doing'):
                 continue
@@ -339,6 +354,12 @@ def check_staged():
         for k in notok:
             print(f'   ⬜ 新列 {safe(k):32} ← **這列擋不擋上線?**(⟨擋⟩／⟨不擋⟩／⟨未判(為什麼)⟩)')
         print('   🟡 沒 token ⇒ 被算進「未填」⇒ **「還在擋幾件」少算了它, 而沒有東西會出聲。**')
+    if stale:
+        print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 有 {len(stale)} 處【指向板檔自己的裸行號】')
+        for k, ref in stale:
+            print(f'   🔢 {safe(k):32} ← `{ref}` **行號會移位, 改寫成 ⟦錨⟧**')
+        print('   🟡 合併一次就移一格 ⇒ 它會指到別人那一列, 而讀起來像那一列的欄位。')
+        print('      實錘 2026-09-07:`併自原 :565` 移位後指到 ⟦b9-Q15GAP⟧ ⇒ 有人判它是重複列。')
     if newrows:
         print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 新開的 open/doing 列有 {len(newrows)} 列沒寫「怎樣算做完」')
         for k in newrows:
@@ -356,7 +377,7 @@ def check_staged():
               f'(位移 {len(mis)} · done而標擋 {len(dblock)} · 重複識別字 {len(dups)})')
         print('   ⚠️ **那些【不是這顆 commit 造成的】** ⇒ 逐列清單跑 '
               '`python3 scripts/board-token-normalize.py --check`')
-    if mis or dblock or dups or notok:
+    if mis or dblock or dups or notok or stale:
         print('   🟡 **只是提醒, 不擋這顆 commit**(rc 恆 0)。修法:`python3 scripts/board-token-normalize.py --fix`')
         print('      🔴 而 `--fix` 動的是【工作樹】⇒ 修完要重新 `git add` 才會進這顆 commit。')
     return 0
@@ -619,6 +640,17 @@ def selftest():
         shutil.rmtree(g, ignore_errors=True)
 
     ck('跳脫那列的 `a\\|b\\|c` 還在', txt.count('`a\\|b\\|c`'), 2)
+    # ═══ 規則⑧ 的兩個世界(2026-09-07)═══
+    #   🔴 這一族的正對照是【它咬得到】, 負對照是【它不咬合法證據】——
+    #      而後者才是它會不會被人關掉的那一半:板上到處是 `檔案:行號`, 那是規則要求的。
+    for _s in ('⏬ **[併自原 :565]** 不要派本列', '本板 :1002 那一列', '見上一列 :638'):
+        ck(f'⑧該咬 {_s[:14]}', bool(STALEREF.search(_s)), True)
+    for _s in ('證據 `supabase/migrations/20260904270000_m4b.sql:7-9` 逐字',
+               'docs/specs/2026-08-25-q15.md:7 叫下游用 39',
+               '`scripts/acl-drift-gate.py` 在(wc -l ⇒ 837)',
+               '併自原 :565⚠️(已訂正過的那 12 處, 不該再叫)',
+               '共 64 張;有政策 48 張;反向差 0'):
+        ck(f'⑧不咬 {_s[:16]}', bool(STALEREF.search(_s)), False)
     print('SELFTEST ' + ('PASS' if not fails else 'FAIL:' + ','.join(fails)))
     return 0 if not fails else 1
 

@@ -823,6 +823,7 @@ describe('對帳異常那句話的觸發來源 —— 要來自【收款列的 r
     failedReason: null,
     failedDetail: null,
     providerEvidence: null,
+    backfilledSource: null,
   } as const;
 
   const NEGATIVE = -1000;

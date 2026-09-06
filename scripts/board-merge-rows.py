@@ -166,6 +166,39 @@ def missing_from(merged, side):
     return out
 
 
+def _title_of(line):
+    """標題欄, 只剝強調符號 —— ⚠️ **刻意不剝刪除線**(見 `_near_twin`)。"""
+    f = split_cells(line)
+    return re.sub(r'[*`⛔✅🔴🔵🟢🟡🛑📌🎯⚠️🔀 \u3000]', '', f[3]) if len(f) > 3 else ''
+
+
+def _near_twin(line, pending, thresh=0.90):
+    """在還沒被配掉的對方列裡, 找一個【標題 ≥thresh 相似】的。回它的 key, 或 None。
+
+    🔴 **兩種讀法都算, 取較高的**(2026-09-07 實測逼出來的):
+       `-ship` 說「比對前不剝刪除線」—— 對, 而**只治一半**:
+       照做之後那一對算出 **0.8197** 仍抓不到, 因為 `~~` 與人貼的「重複列」三個字
+       **自己拉低了相似度**。⇒ 🎯 **標籤讓量具失明有兩條路:剝掉會少東西, 留著會多東西。**
+    """
+    import difflib
+    a = _title_of(line)
+    if len(a) < 8:            # 太短的標題不配(相似度沒有意義)
+        return None
+    strip = lambda s: re.sub(r'重複列|~~', '', s)
+    best, best_r = None, 0.0
+    for kk, rows_ in pending.items():
+        if not rows_:
+            continue
+        b = _title_of(rows_[0])
+        if len(b) < 8:
+            continue
+        r = max(difflib.SequenceMatcher(None, a, b).ratio(),
+                difflib.SequenceMatcher(None, strip(a), strip(b)).ratio())
+        if r >= thresh and r > best_r:
+            best, best_r = kk, r
+    return best
+
+
 def merge_block(ours, theirs):
     """逐列合併一個衝突塊。回 (合併後的行, 說明清單, 遺漏清單)。
 
@@ -219,8 +252,35 @@ def merge_block(ours, theirs):
                                + ('+%d句' % n_added if n_added else '')), k[1][:40]))
                 out.append(merged)
         else:
-            notes.append(('ours-only', k[1][:40]))
-            out.append(l)
+            # ═══ 第二層配對:key 對不上, 而【標題近乎相同】(2026-09-07, 主視窗派)═══
+            #   🔴 病灶:`⟦b9-ACLDRIFT5⟧` 那一對**一列有錨一列無錨** ⇒ key 一個是 anchor
+            #      一個是 literal ⇒ **永遠配不上** ⇒ 兩列都留 ⇒ 而它今晚回來【三次】,
+            #      **每回來一次擋數就 +1**(人合掉之後下一次 merge 再帶回來)。
+            #
+            #   🛑 **而 `row_key` 的註解【反對】拿別的東西當身分** —— 逐字:
+            #      「拿別的東西當身分會把【兩列不同的事】合成一列, 那個損壞比重複列難查得多」。
+            #      ✅ **所以這一層【不改 row_key】**, 只在它配對失敗之後補一次, 並且:
+            #        · 門檻 **≥0.90**(`-ship` 2026-09-07 交件量出來的)
+            #        · **比對前不剝刪除線**, 而**兩種讀法都算取較高的**
+            #          (剝掉會少東西、留著「重複列」三字會拉低相似度 ⇒ 兩邊各漏一半)
+            #        · **只配【還沒被配掉】的**, 且一對一(配到就 pop)
+            #      ⇒ 📌 **它比 `row_key` 保守的地方在於:0.90 是【標題】的相似度, 不是整列。**
+            _cand = _near_twin(l, pending)
+            if _cand is not None:
+                other = pending[_cand].pop(0)
+                if not pending[_cand]:
+                    del pending[_cand]
+                keep, drop = (other, l) if len(other) > len(l) else (l, other)
+                merged, n_added = merge_sentences(keep, drop)
+                for src, lbl in ((l, 'ours'), (other, 'theirs')):
+                    for tt, short in missing_from(merged, src):
+                        losses.append((k[1][:40], lbl, tt, short))
+                notes.append(('near-twin-merged%s' % ('+%d句' % n_added if n_added else ''),
+                              k[1][:40]))
+                out.append(merged)
+            else:
+                notes.append(('ours-only', k[1][:40]))
+                out.append(l)
 
     for l in theirs:
         k = row_key(l)
@@ -315,6 +375,16 @@ def selftest():
         print(('  ✅ ' if cond else '  🔴 ') + name)
         if not cond:
             ok = False
+
+    def chk_n(name, ours, theirs, want_n):
+        """只看【合出來幾列】—— 給近似配對那兩格用(內容誰在前不是重點)。"""
+        nonlocal ok
+        got, notes, _ = merge_block(ours, theirs)
+        good = len(got) == want_n
+        print(('  ✅ ' if good else '  🔴 ') + f'{name}:{len(got)} 列(期望 {want_n})')
+        if not good:
+            ok = False
+        return notes
 
     def chk(name, ours, theirs, want):
         nonlocal ok
@@ -464,6 +534,25 @@ def selftest():
 
 
     print('全部通過。' if ok else '🔴 有格沒過。')
+    # ═══ 近似配對(≥0.90)的兩個世界(2026-09-07;主視窗派)═══
+    #   🔴 正對照刻意造成【一列有錨、一列無錨】—— 那是 ⟦b9-ACLDRIFT5⟧ 那一對的真形狀,
+    #      而 `row_key` 對它一個回 anchor 一個回 literal ⇒ **永遠配不上**。
+    _tw_a = ['| open | ⟦x-TWIN⟧ | 這一列的標題刻意與對面幾乎一字不差只差最後兩個字甲 | 誰 | ⟨擋(t)⟩ 我側獨有一句。 |']
+    _tw_b = ['| open | — | 這一列的標題刻意與對面幾乎一字不差只差最後兩個字乙 | 誰 | ⟨擋(t)⟩ 對面獨有一句。 |']
+    _n = chk_n('雙胞胎(有錨 vs 無錨)⇒ 合成 1 列', _tw_a, _tw_b, 1)
+    chk2('   而它走的是近似配對那條路(notes 有 near-twin)',
+         any('near-twin' in x[0] for x in _n))
+    _m, _, _ = merge_block(_tw_a, _tw_b)
+    chk2('   合完之後【兩側獨有的句子都在】', '我側獨有' in _m[0] and '對面獨有' in _m[0])
+    # 🔴 負對照:兩列【真的不同】⇒ 必須留 2 列(這一格擋的是「把不同的事合成一列」——
+    #    `row_key` 的註解逐字說那個損壞比重複列難查得多)
+    _df_a = ['| open | ⟦x-P⟧ | 客人結帳時信用卡授權失敗而畫面沒有顯示任何訊息 | 誰 | ⟨擋(t)⟩ x |']
+    _df_b = ['| open | — | 後台出貨單的列印字級在某些印表機上會跑掉一整行 | 誰 | ⟨擋(t)⟩ y |']
+    chk_n('真的不同的兩列 ⇒ 仍然 2 列', _df_a, _df_b, 2)
+    # 🔴 坑 3:來源列被標上刪除線 + 「重複列」⇒ 仍然要配得上
+    _st_b = ['| open | — | ~~這一列的標題刻意與對面幾乎一字不差只差最後兩個字乙~~ ⛔ 重複列 | 誰 | ⟨擋(t)⟩ 對面獨有一句。 |']
+    chk_n('標了刪除線+「重複列」⇒ 仍然合成 1 列', _tw_a, _st_b, 1)
+
     return 0 if ok else 1
 
 
