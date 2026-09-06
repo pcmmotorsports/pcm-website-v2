@@ -295,10 +295,11 @@ def check_staged():
     _dirty = [w for w in ('zzz_bogus', 'zzq8842', 'zz-bogus')
               if w in (subprocess.run(['git', 'show', f':{BOARD}'],
                                       capture_output=True, text=True).stdout or '')]
+    # 🔴 2026-09-07 量到:七道閘合起來 14 行, 而**這一條 3 行與你這顆 commit 無關**
+    #    ⇒ 照本檔已有的原則(分開【你剛做的】與【這個板子的舊帳】), 收成一行。
     if _dirty:
-        print(f'   🟡 板上已含這些【常被當成負對照】的字串:{", ".join(_dirty)}')
-        print('      ⇒ 下一個拿它們當「現造字串」驗 0 命中的人會拿到非 0, 而**他分不出是誰貼的**。')
-        print('      📌 **一個負對照的有效期, 到它被寫進被測的那份檔為止。** 現造新的, 且貼前先驗 0。')
+        print(f'   🟡 板上已含 {len(_dirty)} 個【常被當負對照】的字串({", ".join(_dirty)})'
+              ' ⇒ 別再拿它們驗 0(負對照的有效期, 到它被寫進被測的那份檔為止)')
     s = subprocess.run(['git', 'show', f':{BOARD}'], capture_output=True, text=True)
     if s.returncode != 0:
         print(f'🟡 board-token 閘:讀不到 staged 的 {BOARD}(rc={s.returncode})⇒ **本閘沒看過**')
@@ -580,13 +581,13 @@ def selftest():
         buf13 = _io.StringIO()
         with contextlib.redirect_stdout(buf13):
             check_staged()
-        ck('板上含 zzz_bogus ⇒ 叫', '常被當成負對照' in buf13.getvalue(), True)
+        ck('板上含 zzz_bogus ⇒ 叫', '常被當負對照' in buf13.getvalue(), True)
         io.open(board, 'w', encoding='utf-8').write(base_rows + '\n')
         git('add', BOARD)
         buf14 = _io.StringIO()
         with contextlib.redirect_stdout(buf14):
             check_staged()
-        ck('板上沒有那些字 ⇒ 不叫', '常被當成負對照' in buf14.getvalue(), False)
+        ck('板上沒有那些字 ⇒ 不叫', '常被當負對照' in buf14.getvalue(), False)
 
         # ═══ 檔尾換行的兩個世界(2026-09-07;`-ship` 交件坑 1)═══
         io.open(board, 'w', encoding='utf-8').write(base_rows)          # 🔴 刻意不加 \n
