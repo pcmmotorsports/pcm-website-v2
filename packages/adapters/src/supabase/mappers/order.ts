@@ -1012,6 +1012,14 @@ function narrowInvoiceStatus(raw: string): InvoiceStatus {
  */
 export function mapSupabaseAdminOrderDetailRowToDetail(
   row: SupabaseAdminOrderDetailRow,
+  /**
+   * ⟦b4-PAIDTHENOVERPAID⟧ `order_balance_base_v.balance_due` 原樣(第二發查詢的結果)。
+   *
+   * 🔴 **預設 `null` 是刻意的** —— 舊呼叫端(列印那兩條路)不傳它,而它們**不顯示「多付」那一行**
+   * ⇒ 對它們而言「算不出來」與「沒去算」是同一件事:都不印。
+   * 🛑 **而預設值不可以改成 0** —— 0 的意思是「剛好付清」,那是一個**具體的斷言**,不是「不知道」。
+   */
+  balanceDue: number | null = null,
 ): AdminOrderDetail {
   const customer = row.customers == null ? null : Array.isArray(row.customers) ? row.customers[0] : row.customers;
   // M-4b E10 A9a-1:排序 + U6 告知義務都在 mapper(PostgREST 不保證內嵌列順序、投影不支援子查詢)
@@ -1043,6 +1051,9 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
     discountTotal: { amount: toMoneyAmount(row.discount_total), currency: 'TWD' },
     taxTotal: { amount: toMoneyAmount(row.tax_total), currency: 'TWD' },
     total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
+    // ⟦b4-PAIDTHENOVERPAID⟧ 原樣搬,**不套 `toMoneyAmount`** —— 它對負數 throw,
+    // 而負數正是「客人多付了」那個世界(型別上的理由寫在 `AdminOrderDetail.balanceDue` 的 docstring)。
+    balanceDue,
     shippingMethod: row.shipping_method,
     shippingAddress: {
       name: pickString(row.shipping_address_snapshot, 'name'),
