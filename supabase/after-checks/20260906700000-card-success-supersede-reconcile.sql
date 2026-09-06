@@ -16,7 +16,7 @@ SELECT p.proname,
    AND p.proname IN ('mark_charge_attempt_charged','mark_charge_attempt_charged_fallback','confirm_order_payment')
  ORDER BY p.proname;
 \echo 貼前期望 區塊在=f:confirm 184204e35edb0dba1b6d4d0909136f3c · mark ca9a7593ca05b2991d295ce93be692f4(fallback) / 13dfcc0a3c7f8e35b53063ca9babf8e5
-\echo 貼後期望 區塊在=t:confirm e8ab4ef32cdf7c30d25cc3476501521e · mark 2896aa609d5a8fcdddbd7417947922bc(fallback) / 0c72f0309ff5211f9da12e11949e822e
+\echo 貼後期望 區塊在=t:confirm bdf6a39b7408d0213b0df833e6073fa5 · mark 3cb44e675f2b8f8cbd68482bd5b367c4(fallback) / ca2e19c82e3677a4c37f7a33fe6b50c6
 
 \echo --- 2. 🔴 觀測:最近被 superseded_by_card 取消的單(值班的人要能回答這一題)---
 \echo 🛑 這個理由【不是本片獨有】—— begin_charge_attempt(20260904050000)本來就會寫它。
@@ -36,9 +36,9 @@ BEGIN
   --    ⇒ 少了 confirm 而多一支同 body 的多載, 仍可能被報成「三支都在舊世界」。
   --    ⇒ ✅ 改成逐支比對它【自己那一對】md5。
   WITH expect(fn, old_md5, new_md5) AS (VALUES
-    ('mark_charge_attempt_charged',          '13dfcc0a3c7f8e35b53063ca9babf8e5', '0c72f0309ff5211f9da12e11949e822e'),
-    ('mark_charge_attempt_charged_fallback', 'ca9a7593ca05b2991d295ce93be692f4', '2896aa609d5a8fcdddbd7417947922bc'),
-    ('confirm_order_payment',                '184204e35edb0dba1b6d4d0909136f3c', 'e8ab4ef32cdf7c30d25cc3476501521e')
+    ('mark_charge_attempt_charged',          '13dfcc0a3c7f8e35b53063ca9babf8e5', 'ca2e19c82e3677a4c37f7a33fe6b50c6'),
+    ('mark_charge_attempt_charged_fallback', 'ca9a7593ca05b2991d295ce93be692f4', '3cb44e675f2b8f8cbd68482bd5b367c4'),
+    ('confirm_order_payment',                '184204e35edb0dba1b6d4d0909136f3c', 'bdf6a39b7408d0213b0df833e6073fa5')
   )
   SELECT count(*) FILTER (WHERE pg_catalog.md5(p.prosrc) = e.old_md5),
          count(*) FILTER (WHERE pg_catalog.md5(p.prosrc) = e.new_md5),

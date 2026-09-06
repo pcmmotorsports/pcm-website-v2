@@ -52,6 +52,15 @@ sleep 3
 PSQL=(psql -h 127.0.0.1 -p "$PORT" -U postgres -v ON_ERROR_STOP=1)
 "${PSQL[@]}" -tAc "select 1" > /dev/null || { tail -6 "$D/pg.log"; exit 1; }
 
+echo "=== 甲-0 建三個角色(新的③d 有效權限閘要問它們)==="
+# 🔴 拋棄式 PG 沒有這些角色 ⇒ has_function_privilege 會直接報 role does not exist,
+#    而那個紅**不是閘擋下來的**, 是環境缺件。第一版就是這樣把甲-4 弄紅的。
+for R in payment_confirmer authenticated anon; do
+  "${PSQL[@]}" -q -c "DO \$r\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='$R') THEN EXECUTE 'CREATE ROLE $R'; END IF; END \$r\$;" > /dev/null 2>&1
+done
+NR=$("${PSQL[@]}" -tAc "SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname IN ('payment_confirmer','authenticated','anon')")
+[ "$NR" = "3" ] && ok "甲-0 三個角色都在" || bad "甲-0 只建出 $NR 個角色(期望 3)"
+
 echo "=== 甲-1 裝舊三支 + 它們的 COMMENT(逐字 sed 抽自 20260810170000)==="
 { sed -n '127,234p' "$SRC"; sed -n '236,237p' "$SRC";
   sed -n '241,320p' "$SRC"; sed -n '322,323p' "$SRC";
@@ -73,12 +82,23 @@ echo "=== 甲-1b 正對照:ACL 沒收乾淨時, 前置閘③c 必須擋下 ==="
 [ "$RC" != 0 ] && grep -q '前置閘③c' "$D/apply0.log" \
   && ok "甲-1b ACL 沒收時被前置閘③c 擋下(rc=$RC)" \
   || bad "甲-1b ACL 沒收而它【沒有】被③c 擋下 ⇒ 那道閘是假的(rc=$RC)"
-echo "   收權(讓環境對齊正式庫:owner 以外沒有授權)"
-for f in "mark_charge_attempt_charged(uuid,uuid,text)" \
-         "mark_charge_attempt_charged_fallback(uuid,uuid,text,uuid)" \
-         "confirm_order_payment(uuid,integer,text)"; do
-  "${PSQL[@]}" -q -c "REVOKE ALL ON FUNCTION public.$f FROM PUBLIC;" > /dev/null 2>&1
-done
+echo "   收權 + 各給各的角色(讓環境對齊正式庫)"
+"${PSQL[@]}" -q -c "REVOKE ALL ON FUNCTION public.mark_charge_attempt_charged(uuid,uuid,text) FROM PUBLIC;" > "$D/grant.log" 2>&1
+"${PSQL[@]}" -q -c "REVOKE ALL ON FUNCTION public.mark_charge_attempt_charged_fallback(uuid,uuid,text,uuid) FROM PUBLIC;" >> "$D/grant.log" 2>&1
+"${PSQL[@]}" -q -c "REVOKE ALL ON FUNCTION public.confirm_order_payment(uuid,integer,text) FROM PUBLIC;" >> "$D/grant.log" 2>&1
+"${PSQL[@]}" -q -c "GRANT EXECUTE ON FUNCTION public.mark_charge_attempt_charged(uuid,uuid,text) TO payment_confirmer;" >> "$D/grant.log" 2>&1
+"${PSQL[@]}" -q -c "GRANT EXECUTE ON FUNCTION public.confirm_order_payment(uuid,integer,text) TO payment_confirmer;" >> "$D/grant.log" 2>&1
+"${PSQL[@]}" -q -c "GRANT EXECUTE ON FUNCTION public.mark_charge_attempt_charged_fallback(uuid,uuid,text,uuid) TO authenticated;" >> "$D/grant.log" 2>&1
+# 🔵 授權有沒有真的下去, 當場問一次 —— 不然下面紅了會被讀成「閘壞了」而其實是環境沒設好。
+GP=$("${PSQL[@]}" -tAc "SELECT pg_catalog.has_function_privilege('payment_confirmer','public.mark_charge_attempt_charged(uuid,uuid,text)','EXECUTE')")
+GA=$("${PSQL[@]}" -tAc "SELECT pg_catalog.has_function_privilege('authenticated','public.mark_charge_attempt_charged_fallback(uuid,uuid,text,uuid)','EXECUTE')")
+GN=$("${PSQL[@]}" -tAc "SELECT pg_catalog.has_function_privilege('anon','public.confirm_order_payment(uuid,integer,text)','EXECUTE')")
+if [ "$GP" = "t" ] && [ "$GA" = "t" ] && [ "$GN" = "f" ]; then
+  ok "甲-1c 環境授權對齊了(payment_confirmer=t · authenticated=t · anon=f)"
+else
+  bad "甲-1c 環境授權沒設好(pc=$GP auth=$GA anon=$GN)⇒ 下面的紅是環境不是閘"
+  tail -4 "$D/grant.log"
+fi
 
 echo "=== 甲-2 貼本片(前置閘 + 事後斷言真的跑)==="
 "${PSQL[@]}" -f "$MIG" > "$D/apply.log" 2>&1; RC=$?
@@ -157,7 +177,8 @@ TRUNCATE public.orders, public.payment_charge_attempts;
 DO $f$
 DECLARE u uuid := gen_random_uuid(); v uuid := gen_random_uuid();
         c uuid := gen_random_uuid(); d uuid := gen_random_uuid();
-        e uuid := gen_random_uuid(); k uuid; kb uuid;
+        e uuid := gen_random_uuid(); f2 uuid := gen_random_uuid();
+        k uuid; kb uuid; kp uuid;
 BEGIN
   INSERT INTO public.orders (customer_user_id, cart_session_id, payment_channel, payment_status, label)
     VALUES (u, c, 'tappay', 'unpaid', 'K_card') RETURNING id INTO k;
@@ -173,13 +194,25 @@ BEGIN
     (u, c, 'bank_transfer', 'paid',   'b_paid'),
     (u, d, 'bank_transfer', 'unpaid', 'b_othercart'),
     (v, c, 'bank_transfer', 'unpaid', 'b_otheruser'),
-    (u, c, 'cash',          'unpaid', 'c_sib');
+    (u, c, 'cash',          'unpaid', 'c_sib'),
+    (u, d, 'tappay',        'unpaid', 'K_card2');   -- 同一位客人的第二張刷卡單(乙-2 併發用)
   INSERT INTO public.orders (customer_user_id, cart_session_id, payment_channel, payment_status, label, cancelled_at, cancelled_reason)
     VALUES (u, c, 'bank_transfer', 'unpaid', 'b_already', pg_catalog.now(), 'payment_expired');
   INSERT INTO public.payment_charge_attempts (order_id, status)
     SELECT id, 'pending' FROM public.orders WHERE label='b_attempt';
+  -- 🔴 新條件(codex R2 #9):要有【刷卡成功的證據】才 supersede。
+  --    兩種證據各造一個世界:K_card 用 charged attempt / K_paid 用 payment_status='paid'。
+  INSERT INTO public.payment_charge_attempts (order_id, status)
+    SELECT id, 'charged' FROM public.orders WHERE label='K_card';
+  INSERT INTO public.orders (customer_user_id, cart_session_id, payment_channel, payment_status, label)
+    VALUES (u, f2, 'tappay', 'paid', 'K_paid') RETURNING id INTO kp;
+  INSERT INTO public.orders (customer_user_id, cart_session_id, payment_channel, payment_status, label)
+    VALUES (u, f2, 'bank_transfer', 'unpaid', 'f_sib');
   PERFORM public.zz_test_supersede(k);
   PERFORM public.zz_test_supersede(kb);   -- keeper 是匯款單 ⇒ 這一發【不該】取消任何東西
+  PERFORM public.zz_test_supersede(kp);   -- keeper 已 paid ⇒ 另一種證據, 應取消 f_sib
+  -- 🔵 K_card2 是【刷卡單而沒有任何成功證據】⇒ 新條件的負對照, 這一發不該取消任何東西
+  PERFORM public.zz_test_supersede((SELECT id FROM public.orders WHERE label='K_card2'));
 END
 $f$;
 SELECT coalesce(string_agg(label, ',' ORDER BY label),'(空)') AS 被本次取消
@@ -191,41 +224,61 @@ FX
 CANC=$(sed -n '1p' "$D/fx.out"); ALIVE=$(sed -n '2p' "$D/fx.out")
 echo "   被本次取消:$CANC"
 echo "   仍活著:    $ALIVE"
-[ "$CANC" = "b_sib" ] && ok "乙-1 只取消 b_sib(同人同 cart 的匯款單, 無 attempt)" || bad "乙-1 取消了 $CANC(期望 b_sib)"
-[ "$ALIVE" = "K_bank,K_card,b_attempt,b_othercart,b_otheruser,b_paid,c_sib,e_sib" ] \
-  && ok "乙-1 八張負例全部活著(含 keeper 是匯款單那組 K_bank/e_sib)" || bad "乙-1 活著的是 $ALIVE(期望 K_bank,K_card,b_attempt,b_othercart,b_otheruser,b_paid,c_sib,e_sib)"
+[ "$CANC" = "b_sib,f_sib" ] && ok "乙-1 取消 b_sib(charged 證據)與 f_sib(paid 證據), 其餘不動" || bad "乙-1 取消了 $CANC(期望 b_sib,f_sib)"
+[ "$ALIVE" = "K_bank,K_card,K_card2,K_paid,b_attempt,b_othercart,b_otheruser,b_paid,c_sib,e_sib" ] \
+  && ok "乙-1 八張負例全部活著(含 keeper 是匯款單那組 K_bank/e_sib 與 K_card2)" || bad "乙-1 活著的是 $ALIVE(期望 K_bank,K_card,K_card2,K_paid,b_attempt,b_othercart,b_otheruser,b_paid,c_sib,e_sib)"
 "${PSQL[@]}" -tAqc "SELECT cancelled_reason FROM public.orders WHERE label='b_already'" > "$D/al.out"
 [ "$(cat "$D/al.out")" = "payment_expired" ] && ok "乙-1 已取消那張的理由沒被蓋掉" || bad "乙-1 b_already 的理由變成 $(cat "$D/al.out")"
 
-echo "=== 乙-2 鎖順序:兩個 session 真的併發跑一次(codex R1 #2/#3)==="
-# 🔴 這一格是本片**改設計的理由**:區塊從「函式尾」搬到「函式頭」是為了鎖順序。
-#    ⇒ 📌 只有兩個 session 真的撞一次, 才證得了那個搬移有效。
-#    世界甲(舊順序:先鎖列、再拿 advisory)⇒ 期望 40P01 死結
-#    世界乙(新順序:先拿 advisory、再鎖列)⇒ 期望不死結
+echo "=== 乙-2 鎖順序:兩個 session 真的併發跑一次(codex R1 #2 / R2 #1)==="
+# 🔴🔴 **這一格的第一版是【錯的】, 而它給了我綠燈 —— 錯法比修法值得記。**
+#    第一版我把「新世界」兩個 session **都**寫成 advisory→列, 因為我以為全隊是那個順序。
+#    🔬 去量之後(正式庫唯讀, `begin_charge_attempt` 的 prosrc):
+#      `FOR UPDATE` 在字元 640、`pg_advisory_xact_lock` 在 1346
+#      ⇒ 📌 **全隊真正的順序是【先鎖自己那張單、再拿 advisory】。**
+#    ⇒ 🔴 我的 fixture 演的是我以為的世界 ⇒ **它往我的結論偏。**
+#    ⇒ ✅ 現在:世界甲餵【advisory→列】(那是我一度改成的錯順序)⇒ 必須死結;
+#           世界乙餵【列→advisory】(真正的順序, 也是本片現在的形狀)⇒ 必須不死結。
 KID=$("${PSQL[@]}" -tAc "SELECT id FROM public.orders WHERE label='K_card'")
+KID2=$("${PSQL[@]}" -tAc "SELECT id FROM public.orders WHERE label='K_card2'")
 UID_=$("${PSQL[@]}" -tAc "SELECT customer_user_id FROM public.orders WHERE label='K_card'")
-if [ -z "$KID" ] || [ -z "$UID_" ]; then
-  bad "乙-2 拿不到 K_card 的 id/uid ⇒ 這一格沒跑到"
+if [ -z "$KID" ] || [ -z "$KID2" ] || [ -z "$UID_" ]; then
+  bad "乙-2 拿不到 fixtures 的 id ⇒ 這一格沒跑到"
 else
-  run_world() {   # $1=world  $2=S1 的第一句  $3=S1 的第二句
-    ( "${PSQL[@]}" -v ON_ERROR_STOP=0 -tAc "BEGIN; $2 SELECT pg_sleep(2); $3 COMMIT;" > "$D/s1-$1.log" 2>&1 ) &
-    local P1=$!
+  ADV="SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('$UID_', 0));"
+  LOCK1="SELECT 1 FROM public.orders WHERE id = '$KID' FOR UPDATE;"
+  LOCK2="SELECT 1 FROM public.orders WHERE id = '$KID2' FOR UPDATE;"
+  two() {  # $1=world $2=S1 全句 $3=S2 全句
+    ( "${PSQL[@]}" -v ON_ERROR_STOP=0 -tAc "$2" > "$D/s1-$1.log" 2>&1 ) & local P1=$!
     sleep 0.5
-    ( "${PSQL[@]}" -v ON_ERROR_STOP=0 -tAc "BEGIN; SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('$UID_', 0)); SELECT pg_sleep(2); UPDATE public.orders SET updated_at = pg_catalog.now() WHERE id = '$KID'; COMMIT;" > "$D/s2-$1.log" 2>&1 ) &
-    local P2=$!
+    ( "${PSQL[@]}" -v ON_ERROR_STOP=0 -tAc "$3" > "$D/s2-$1.log" 2>&1 ) & local P2=$!
     wait "$P1"; wait "$P2"
   }
-  run_world old "UPDATE public.orders SET updated_at = pg_catalog.now() WHERE id = '$KID';" "SELECT public.zz_test_supersede('$KID');"
-  if grep -q '40P01\|deadlock' "$D/s1-old.log" "$D/s2-old.log"; then
-    ok "乙-2 世界甲(舊順序)真的死結了 ⇒ 這一格有判別力"
+  # 世界甲:S1 先 advisory 再鎖列 / S2 先鎖列再 advisory ⇒ 反向 ⇒ 期望 40P01
+  two bad_order \
+    "BEGIN; $ADV SELECT pg_sleep(2); $LOCK2 COMMIT;" \
+    "BEGIN; $LOCK2 SELECT pg_sleep(2); $ADV COMMIT;"
+  if grep -q '40P01\|deadlock' "$D/s1-bad_order.log" "$D/s2-bad_order.log"; then
+    ok "乙-2 世界甲(反向順序)真的死結 ⇒ 這一格有判別力"
   else
-    bad "乙-2 世界甲【沒有】死結 ⇒ 這個測試構造不出它要演的世界, 下面那格的綠是免費的"
+    bad "乙-2 世界甲【沒有】死結 ⇒ 構造不出要演的世界, 下面那格的綠是免費的"
   fi
-  run_world new "SELECT public.zz_test_supersede('$KID');" "UPDATE public.orders SET updated_at = pg_catalog.now() WHERE id = '$KID';"
-  if grep -q '40P01\|deadlock' "$D/s1-new.log" "$D/s2-new.log"; then
-    bad "乙-2 世界乙(新順序)仍然死結 ⇒ 搬到函式頭沒有解決鎖順序"
+  # 世界乙:兩邊都【先鎖自己那張單、再拿 advisory】= 真正的順序, 也是本片現在的形狀
+  two good_order \
+    "BEGIN; $LOCK1 SELECT pg_sleep(2); SELECT public.zz_test_supersede('$KID'); COMMIT;" \
+    "BEGIN; $LOCK2 SELECT pg_sleep(2); $ADV COMMIT;"
+  if grep -q '40P01\|deadlock' "$D/s1-good_order.log" "$D/s2-good_order.log"; then
+    bad "乙-2 世界乙(現行順序)仍死結 ⇒ 本片的形狀不安全"
   else
-    ok "乙-2 世界乙(新順序)沒有死結"
+    ok "乙-2 世界乙(現行順序:列→advisory)沒有死結"
+  fi
+  # 🔵 兩邊都要真的跑完 —— 不是「兩個 session 都因為別的錯而失敗」的免費綠
+  grep -q 'COMMIT\|^$' "$D/s1-good_order.log" 2>/dev/null || true
+  if grep -qE 'ERROR|FATAL' "$D/s1-good_order.log" "$D/s2-good_order.log"; then
+    bad "乙-2 世界乙有 session 報錯(不是死結)⇒ 這一格沒演到它要演的東西"
+    grep -oE '(ERROR|FATAL):.{0,70}' "$D/s1-good_order.log" "$D/s2-good_order.log" | head -2
+  else
+    ok "乙-2 世界乙兩個 session 都沒有其他錯誤(綠不是因為兩邊都掛了)"
   fi
 fi
 

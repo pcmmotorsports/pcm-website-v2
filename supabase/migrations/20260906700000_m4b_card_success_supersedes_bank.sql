@@ -32,7 +32,11 @@
 --    `mark_charge_attempt_charged_fallback` = ca9a7593ca05b2991d295ce93be692f4
 --    `confirm_order_payment` = 184204e35edb0dba1b6d4d0909136f3c
 --
--- 🟢 唯讀性:只 CREATE OR REPLACE 三支函式, 零 DML、零 DDL 於任何資料表。
+-- 🟢 本片動到什麼(codex R2 #11 訂正 —— ⛔ ~~原本寫「**只** CREATE OR REPLACE 三支函式」~~ 不成立):
+--   ① `CREATE OR REPLACE` 三支函式
+--   ② `COMMENT ON FUNCTION` 三段(catalog 上的說明要跟著新副作用走)
+--   ③ 前置閘與事後斷言的 catalog 查詢(唯讀)
+--   🔵 **而「零 DML、零 DDL 於任何資料表」仍然成立** —— 那一半是真的, 被砍掉的只是那個「只」。
 
 BEGIN;
 -- 🔴 codex R1 #9:止血檔與本片都要能【及時失敗】, 不能在事故中無限等鎖。
@@ -50,13 +54,14 @@ DECLARE
   v_expect_old text;
   v_expect_new text;
   v_expect_cmt text;
+  v_oid oid;
 BEGIN
   FOR r IN
     SELECT * FROM (VALUES
-      ('mark_charge_attempt_charged',          'p_attempt_id uuid, p_order_id uuid, p_rec_trade_id text',                     '13dfcc0a3c7f8e35b53063ca9babf8e5', '0c72f0309ff5211f9da12e11949e822e', '3a470a3d1513e91b4dd7a63a1ea74c4d'),
-      ('mark_charge_attempt_charged_fallback', 'p_attempt_id uuid, p_order_id uuid, p_rec_trade_id text, p_fallback_token uuid', 'ca9a7593ca05b2991d295ce93be692f4', '2896aa609d5a8fcdddbd7417947922bc', '7268cab8534684db6b94e85d4149fe3d'),
-      ('confirm_order_payment',                'p_order_id uuid, p_amount integer, p_rec_trade_id text',                      '184204e35edb0dba1b6d4d0909136f3c', 'e8ab4ef32cdf7c30d25cc3476501521e', 'e3b98c9a0b3abb1dfc56a99b6fb5bf52')
-    ) AS t(fn, args, old_md5, new_md5, cmt_md5)
+      ('mark_charge_attempt_charged',          'p_attempt_id uuid, p_order_id uuid, p_rec_trade_id text',                     '13dfcc0a3c7f8e35b53063ca9babf8e5', 'ca2e19c82e3677a4c37f7a33fe6b50c6', '3a470a3d1513e91b4dd7a63a1ea74c4d', 'payment_confirmer'),
+      ('mark_charge_attempt_charged_fallback', 'p_attempt_id uuid, p_order_id uuid, p_rec_trade_id text, p_fallback_token uuid', 'ca9a7593ca05b2991d295ce93be692f4', '3cb44e675f2b8f8cbd68482bd5b367c4', '7268cab8534684db6b94e85d4149fe3d', 'authenticated'),
+      ('confirm_order_payment',                'p_order_id uuid, p_amount integer, p_rec_trade_id text',                      '184204e35edb0dba1b6d4d0909136f3c', 'bdf6a39b7408d0213b0df833e6073fa5', 'e3b98c9a0b3abb1dfc56a99b6fb5bf52', 'payment_confirmer')
+    ) AS t(fn, args, old_md5, new_md5, cmt_md5, acl_role)
   LOOP
     -- ① 同名多載恰 1 支(少了這一格, 下面的 SELECT 會任選一列)
     SELECT count(*) INTO v_n FROM pg_catalog.pg_proc p
@@ -114,9 +119,27 @@ BEGIN
        AND a.grantee <> p.proowner
        AND (a.is_grantable
             OR a.grantee = 0
-            OR pg_catalog.pg_get_userbyid(a.grantee) NOT IN ('payment_confirmer','authenticated'));
+            OR pg_catalog.pg_get_userbyid(a.grantee) <> r.acl_role);
     IF v_n <> 0 THEN
-      RAISE EXCEPTION '前置閘③c:public.% 上有 % 筆沒預期的授權(PUBLIC / 可轉授 / 白名單外的角色)⇒ 本片會把它們連同新副作用一起保留, 拒繼續。', r.fn, v_n;
+      RAISE EXCEPTION '前置閘③c:public.% 上有 % 筆沒預期的授權(PUBLIC / 可轉授 / 不是 % 的角色)⇒ 本片會把它們連同新副作用一起保留, 拒繼續。', r.fn, v_n, r.acl_role;
+    END IF;
+
+    -- 🔴 ③d **有效可呼叫面**(codex R2 #5):③c 只看直接的 `proacl` 一列一列比 ——
+    --    它答不出「這支到底誰叫得動」。角色繼承(`GRANT payment_confirmer TO x`)會讓
+    --    一個沒有出現在 proacl 裡的角色**實際上叫得動**。
+    --    ⇒ ✅ 用 `has_function_privilege` 問**有效權限**, 並要求:
+    --      該支的白名單角色**叫得動**(正對照 —— 否則這一格恆綠), 而 `anon` **叫不動**。
+    -- 🔵 用 **oid** 問, 不要用「public.名(參數列)」那個字串 —— `pg_get_function_arguments`
+    --    回的是**含參數名與 DEFAULT** 的人類可讀字串, 餵給 has_function_privilege 會 syntax error。
+    --    (第一版就是這樣, 鑽機當場紅在 `syntax error at or near "uuid"`。)
+    SELECT p.oid INTO v_oid FROM pg_catalog.pg_proc p
+      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.proname = r.fn;
+    IF NOT pg_catalog.has_function_privilege(r.acl_role, v_oid, 'EXECUTE') THEN
+      RAISE EXCEPTION '前置閘③d(正對照):% 對 public.% 沒有有效 EXECUTE ⇒ 白名單本身是錯的, 或這支的授權掉了。', r.acl_role, r.fn;
+    END IF;
+    IF pg_catalog.has_function_privilege('anon', v_oid, 'EXECUTE') THEN
+      RAISE EXCEPTION '前置閘③d:anon 對 public.% 有有效 EXECUTE ⇒ 本片的新副作用會暴露給未登入者, 拒繼續。', r.fn;
     END IF;
   END LOOP;
 
@@ -149,62 +172,6 @@ DECLARE
   v_amount          integer;   -- 🔴 R1b1c genesis:取 orders.total(integer 快照、禁浮點)
   v_generic_msg constant text := 'mark_charge_attempt_charged: 付款處理失敗';  -- PF-E
 BEGIN
-  -- ⟦SUPERSEDE-BLOCK-BEGIN⟧ 刷卡成功也 supersede 同 cart 的匯款單(⟦b4-CARDPENDINGWINDOW⟧)
-  -- 🔴🔴 **這一段在三支刷卡成功入口裡【逐字相同】** —— 由本片的事後斷言釘住(三段 md5 必須相等)。
-  --    主視窗 `-f8` 2026-09-06 裁 Q-pending1=乙:三處各寫一份, 不抽共用函式
-  --    (不推翻 `20260904050000:200` 那段「刻意逐字相同而不共用」)。
-  -- 🔵 **為什麼它只吃 `p_order_id`**:三支函式的參數列不同, 而它們都有 `p_order_id`
-  --    ⇒ 只靠這一個參數就能自足 ⇒ 三段才可能逐字相同。
-  --
-  -- 🔴🔴 **位置在函式的【最開頭】, 而那是 codex R1 打回第一版才改的 —— 理由是【鎖順序】。**
-  --    ⛔ ~~第一版放在「最後一個早退之後」~~ ⇒ 那時三支**已經持有 orders / attempts 的列鎖**,
-  --      而 `create_order`(`20260906500000:277`)與 `begin_charge_attempt`(`20260904050000:118`)
-  --      都是**先拿 advisory、再動列** ⇒ 📌 **兩邊的取得順序相反 ⇒ 可以形成 40P01 死結。**
-  --    ✅ 移到最開頭之後, 三支也變成「先 advisory、再動列」⇒ **全隊同一個順序, 環構不出來。**
-  -- 🛑 **而「放在最前面 = 還沒確定成功就先取消」這個疑慮不成立** ——
-  --    整支函式是**同一個交易**:任何失敗路徑都 `RAISE` ⇒ 連同這一段一起 rollback。
-  --    🔬 三支裡的 `RETURN` 只有三處(`20260810170000:173` · `:300` · `:402`),
-  --      **三處都是「同 rec 重放」的冪等成功語意** ⇒ 那些路徑上取消匯款單是對的, 不是誤殺。
-  --
-  -- 🔴 `k.payment_channel = 'tappay'` 這一條也是 codex R1 逼出來的:
-  --    `confirm_order_payment` **沒有驗目標是不是刷卡單** ⇒ 誤傳一張匯款單進去,
-  --    它會被標成 TapPay paid, 而少了這一條, 本區塊還會順手取消同 cart 的其他匯款單。
-  --    ⇒ 📌 **本區塊只在「留下來的那張是刷卡單」時才動手。**
-  DECLARE
-    v_sup_uid uuid;
-  BEGIN
-    SELECT k.customer_user_id INTO v_sup_uid
-      FROM public.orders k
-     WHERE k.id = p_order_id AND k.payment_channel = 'tappay';
-    IF v_sup_uid IS NOT NULL THEN
-      -- 🔴 拿與 `create_order` / `begin_charge_attempt` **同一把** advisory lock。
-      --    少了它, 建單那支可以在我這一發 UPDATE 之後才通過它的守門並插進來。
-      PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(v_sup_uid::text, 0));
-      -- 🔴 取消條件【照抄】`20260904050000:202-215`, 不自己想一個。
-      --    那裡逐字記著:條件與逾期那支、與 admin_cancel_order 步7 三處相同,
-      --    而 `a.status <> 'failed'` 比 `IN ('pending','charged')` 寬 —— 漏掉 `released`
-      --    會變成「已取消而事後仍可能扣款」。
-      UPDATE public.orders o
-         SET cancelled_at     = pg_catalog.now(),
-             cancelled_reason = 'superseded_by_card',
-             updated_at       = pg_catalog.now()
-        FROM public.orders k
-       WHERE k.id                 = p_order_id
-         AND k.payment_channel    = 'tappay'
-         AND o.customer_user_id   = k.customer_user_id
-         AND o.cart_session_id    = k.cart_session_id
-         AND o.id                <> k.id
-         AND o.cancelled_at IS NULL
-         AND o.payment_channel    = 'bank_transfer'
-         AND o.payment_status     = 'unpaid'::public.payment_status
-         AND NOT EXISTS (
-               SELECT 1 FROM public.payment_charge_attempts a
-                WHERE a.order_id = o.id
-                  AND a.status <> 'failed'
-             );
-    END IF;
-  END;
-  -- ⟦SUPERSEDE-BLOCK-END⟧
   -- rec 形狀驗(基線逐字不動;TapPay rec_trade_id 英數、上限 64)
   IF p_rec_trade_id IS NULL OR pg_catalog.btrim(p_rec_trade_id) = '' OR pg_catalog.length(p_rec_trade_id) > 64 THEN
     RAISE EXCEPTION '%', v_generic_msg;  -- 輸入驗同通用訊息(付款軌 RAISE 全收斂)
@@ -288,6 +255,86 @@ BEGIN
     )
     ON CONFLICT (old_attempt_id) DO NOTHING;
   END IF;
+  -- ⟦SUPERSEDE-BLOCK-BEGIN⟧ 刷卡成功也 supersede 同 cart 的匯款單(⟦b4-CARDPENDINGWINDOW⟧)
+  -- 🔴🔴 **這一段在三支刷卡成功入口裡【逐字相同】** —— 由本片的事後斷言釘住(三段 md5 必須相等)。
+  --    主視窗 `-f8` 2026-09-06 裁 Q-pending1=乙:三處各寫一份, 不抽共用函式
+  --    (不推翻 `20260904050000:200` 那段「刻意逐字相同而不共用」)。
+  -- 🔵 **為什麼它只吃 `p_order_id`**:三支函式的參數列不同, 而它們都有 `p_order_id`
+  --    ⇒ 只靠這一個參數就能自足 ⇒ 三段才可能逐字相同。
+  --
+  -- 🔴🔴 **位置在函式的【最後】(最後一個早退之後)—— 而這一格我搞錯過一次, 錯法值得留著。**
+  --    ⛔ ~~第二版把它搬到函式最開頭, 理由寫「先 advisory 再動列, 與全隊一致」~~ **那是假的。**
+  --    🔬 **去量之後的事實**(2026-09-06 對正式庫唯讀, `begin_charge_attempt` 的 `prosrc`):
+  --      `FOR UPDATE` 在字元 **640**、`pg_advisory_xact_lock` 在 **1346**
+  --      ⇒ 逐字 `SELECT id,customer_user_id,… FROM public.orders WHERE id=p_order_id FOR UPDATE`
+  --        出現在 advisory **之前** ⇒ 📌 **全隊既有順序是【先鎖列、再拿 advisory】。**
+  --    ⇒ 🔴 **所以「搬到開頭」= 把三支改成【advisory→列】= 與 begin 反向 ⇒ 我親手造出那個環。**
+  --      原本放在函式尾巴**才是對的**(codex R2 打回;R1 那一條的修法方向是錯的)。
+  --    ✅ 現在:放在尾巴 ⇒ 三支也是【先鎖列(各自的 FOR UPDATE)、再拿 advisory】⇒ 與 begin 同向。
+  -- 🛑 **而 R1 當初擔心的那個環, 是被下面 `tappay` 那一條解掉的, 不是被搬位置解掉的**:
+  --    R1 的情境是「confirm 誤吃一張**匯款單** K」⇒ 加了 `k.payment_channel='tappay'` 之後,
+  --    那條路上本區塊**根本不動手**, 也就不會去等 advisory。
+  -- 📌 **教訓(比修法重要)**:我第二版的鑽機把「新世界」兩個 session **都**寫成 advisory→列,
+  --    ⇒ 它演的是我以為的世界, 不是真的那個 ⇒ **我造的 fixture 往我的結論偏, 而它給了我綠燈。**
+  --    ⇒ 現在鑽機的併發格改成**照 `begin_charge_attempt` 真正的順序**餵。
+
+  -- 🔴🔴 **兩道條件, 各擋一半, 缺一不可**(codex R1 #1 與 R2 #9 各逼出一道):
+  --    ① `k.payment_channel = 'tappay'` —— **留下來的那張必須是刷卡單**
+  --    ② **刷卡成功的證據** —— `k` 已 `paid`, 或 `k` 身上有 `status='charged'` 的 attempt
+  --    🔵 為什麼②不能省(R2 #9):只綁 `payment_channel` 是綁一個**可變的字串** ——
+  --      channel 被別的路徑改過、或這一段被誤呼叫時, 它擋不住;②問的是「錢真的成功了嗎」。
+  --    🔵 為什麼①不能省(R1 #1):`confirm_order_payment` **沒有驗目標是不是刷卡單**
+  --      ⇒ 誤傳一張匯款單進去, 它會被標成 TapPay paid ⇒ 這時②會成立而①不會。
+  --    ⚠️ **①的維護債明寫**:未來若新增別的刷卡 channel 名, **這裡要跟著加**,
+  --      否則那條路上該取消的兄弟單會被**靜默放過**。這是刻意選的方向(漏取消可逆, 誤取消不可逆)。
+  -- 🔵 本區塊放在函式尾巴 ⇒ 執行到這裡時, ②的證據在同一個交易裡已經寫好了:
+  --    `mark_charge_attempt_charged*` 已把 attempt 轉成 `charged`;`confirm_order_payment` 已把單翻成 `paid`。
+  -- 🔴 `k.payment_channel = 'tappay'` 這一條的出處:
+  --    `confirm_order_payment` **沒有驗目標是不是刷卡單** ⇒ 誤傳一張匯款單進去,
+  --    它會被標成 TapPay paid, 而少了這一條, 本區塊還會順手取消同 cart 的其他匯款單。
+  --    ⇒ 📌 **本區塊只在「留下來的那張是刷卡單」時才動手。**
+  DECLARE
+    v_sup_uid uuid;
+  BEGIN
+    SELECT k.customer_user_id INTO v_sup_uid
+      FROM public.orders k
+     WHERE k.id = p_order_id
+       AND k.payment_channel = 'tappay'
+       AND (k.payment_status = 'paid'::public.payment_status
+            OR EXISTS (SELECT 1 FROM public.payment_charge_attempts a2
+                        WHERE a2.order_id = k.id AND a2.status = 'charged'));
+    IF v_sup_uid IS NOT NULL THEN
+      -- 🔴 拿與 `create_order` / `begin_charge_attempt` **同一把** advisory lock。
+      --    少了它, 建單那支可以在我這一發 UPDATE 之後才通過它的守門並插進來。
+      PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(v_sup_uid::text, 0));
+      -- 🔴 取消條件【照抄】`20260904050000:202-215`, 不自己想一個。
+      --    那裡逐字記著:條件與逾期那支、與 admin_cancel_order 步7 三處相同,
+      --    而 `a.status <> 'failed'` 比 `IN ('pending','charged')` 寬 —— 漏掉 `released`
+      --    會變成「已取消而事後仍可能扣款」。
+      UPDATE public.orders o
+         SET cancelled_at     = pg_catalog.now(),
+             cancelled_reason = 'superseded_by_card',
+             updated_at       = pg_catalog.now()
+        FROM public.orders k
+       WHERE k.id                 = p_order_id
+         AND k.payment_channel    = 'tappay'
+         AND (k.payment_status = 'paid'::public.payment_status
+              OR EXISTS (SELECT 1 FROM public.payment_charge_attempts a2
+                          WHERE a2.order_id = k.id AND a2.status = 'charged'))
+         AND o.customer_user_id   = k.customer_user_id
+         AND o.cart_session_id    = k.cart_session_id
+         AND o.id                <> k.id
+         AND o.cancelled_at IS NULL
+         AND o.payment_channel    = 'bank_transfer'
+         AND o.payment_status     = 'unpaid'::public.payment_status
+         AND NOT EXISTS (
+               SELECT 1 FROM public.payment_charge_attempts a
+                WHERE a.order_id = o.id
+                  AND a.status <> 'failed'
+             );
+    END IF;
+  END;
+  -- ⟦SUPERSEDE-BLOCK-END⟧
 
 EXCEPTION
   -- 跨單重複 rec 撞 rec_unique_idx → 通用訊息(PF-E、不洩約束名/rec;基線逐字不動)
@@ -321,62 +368,6 @@ DECLARE
   v_n           integer;
   v_generic_msg constant text := 'mark_charge_attempt_charged_fallback: 付款處理失敗';  -- PF-E(token 對錯不可區分)
 BEGIN
-  -- ⟦SUPERSEDE-BLOCK-BEGIN⟧ 刷卡成功也 supersede 同 cart 的匯款單(⟦b4-CARDPENDINGWINDOW⟧)
-  -- 🔴🔴 **這一段在三支刷卡成功入口裡【逐字相同】** —— 由本片的事後斷言釘住(三段 md5 必須相等)。
-  --    主視窗 `-f8` 2026-09-06 裁 Q-pending1=乙:三處各寫一份, 不抽共用函式
-  --    (不推翻 `20260904050000:200` 那段「刻意逐字相同而不共用」)。
-  -- 🔵 **為什麼它只吃 `p_order_id`**:三支函式的參數列不同, 而它們都有 `p_order_id`
-  --    ⇒ 只靠這一個參數就能自足 ⇒ 三段才可能逐字相同。
-  --
-  -- 🔴🔴 **位置在函式的【最開頭】, 而那是 codex R1 打回第一版才改的 —— 理由是【鎖順序】。**
-  --    ⛔ ~~第一版放在「最後一個早退之後」~~ ⇒ 那時三支**已經持有 orders / attempts 的列鎖**,
-  --      而 `create_order`(`20260906500000:277`)與 `begin_charge_attempt`(`20260904050000:118`)
-  --      都是**先拿 advisory、再動列** ⇒ 📌 **兩邊的取得順序相反 ⇒ 可以形成 40P01 死結。**
-  --    ✅ 移到最開頭之後, 三支也變成「先 advisory、再動列」⇒ **全隊同一個順序, 環構不出來。**
-  -- 🛑 **而「放在最前面 = 還沒確定成功就先取消」這個疑慮不成立** ——
-  --    整支函式是**同一個交易**:任何失敗路徑都 `RAISE` ⇒ 連同這一段一起 rollback。
-  --    🔬 三支裡的 `RETURN` 只有三處(`20260810170000:173` · `:300` · `:402`),
-  --      **三處都是「同 rec 重放」的冪等成功語意** ⇒ 那些路徑上取消匯款單是對的, 不是誤殺。
-  --
-  -- 🔴 `k.payment_channel = 'tappay'` 這一條也是 codex R1 逼出來的:
-  --    `confirm_order_payment` **沒有驗目標是不是刷卡單** ⇒ 誤傳一張匯款單進去,
-  --    它會被標成 TapPay paid, 而少了這一條, 本區塊還會順手取消同 cart 的其他匯款單。
-  --    ⇒ 📌 **本區塊只在「留下來的那張是刷卡單」時才動手。**
-  DECLARE
-    v_sup_uid uuid;
-  BEGIN
-    SELECT k.customer_user_id INTO v_sup_uid
-      FROM public.orders k
-     WHERE k.id = p_order_id AND k.payment_channel = 'tappay';
-    IF v_sup_uid IS NOT NULL THEN
-      -- 🔴 拿與 `create_order` / `begin_charge_attempt` **同一把** advisory lock。
-      --    少了它, 建單那支可以在我這一發 UPDATE 之後才通過它的守門並插進來。
-      PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(v_sup_uid::text, 0));
-      -- 🔴 取消條件【照抄】`20260904050000:202-215`, 不自己想一個。
-      --    那裡逐字記著:條件與逾期那支、與 admin_cancel_order 步7 三處相同,
-      --    而 `a.status <> 'failed'` 比 `IN ('pending','charged')` 寬 —— 漏掉 `released`
-      --    會變成「已取消而事後仍可能扣款」。
-      UPDATE public.orders o
-         SET cancelled_at     = pg_catalog.now(),
-             cancelled_reason = 'superseded_by_card',
-             updated_at       = pg_catalog.now()
-        FROM public.orders k
-       WHERE k.id                 = p_order_id
-         AND k.payment_channel    = 'tappay'
-         AND o.customer_user_id   = k.customer_user_id
-         AND o.cart_session_id    = k.cart_session_id
-         AND o.id                <> k.id
-         AND o.cancelled_at IS NULL
-         AND o.payment_channel    = 'bank_transfer'
-         AND o.payment_status     = 'unpaid'::public.payment_status
-         AND NOT EXISTS (
-               SELECT 1 FROM public.payment_charge_attempts a
-                WHERE a.order_id = o.id
-                  AND a.status <> 'failed'
-             );
-    END IF;
-  END;
-  -- ⟦SUPERSEDE-BLOCK-END⟧
   -- rec 形狀驗(同主軌)
   IF p_rec_trade_id IS NULL OR pg_catalog.btrim(p_rec_trade_id) = '' OR pg_catalog.length(p_rec_trade_id) > 64 THEN
     RAISE EXCEPTION '%', v_generic_msg;
@@ -434,6 +425,86 @@ BEGIN
   IF v_n <> 1 THEN
     RAISE EXCEPTION '%', v_generic_msg;
   END IF;
+  -- ⟦SUPERSEDE-BLOCK-BEGIN⟧ 刷卡成功也 supersede 同 cart 的匯款單(⟦b4-CARDPENDINGWINDOW⟧)
+  -- 🔴🔴 **這一段在三支刷卡成功入口裡【逐字相同】** —— 由本片的事後斷言釘住(三段 md5 必須相等)。
+  --    主視窗 `-f8` 2026-09-06 裁 Q-pending1=乙:三處各寫一份, 不抽共用函式
+  --    (不推翻 `20260904050000:200` 那段「刻意逐字相同而不共用」)。
+  -- 🔵 **為什麼它只吃 `p_order_id`**:三支函式的參數列不同, 而它們都有 `p_order_id`
+  --    ⇒ 只靠這一個參數就能自足 ⇒ 三段才可能逐字相同。
+  --
+  -- 🔴🔴 **位置在函式的【最後】(最後一個早退之後)—— 而這一格我搞錯過一次, 錯法值得留著。**
+  --    ⛔ ~~第二版把它搬到函式最開頭, 理由寫「先 advisory 再動列, 與全隊一致」~~ **那是假的。**
+  --    🔬 **去量之後的事實**(2026-09-06 對正式庫唯讀, `begin_charge_attempt` 的 `prosrc`):
+  --      `FOR UPDATE` 在字元 **640**、`pg_advisory_xact_lock` 在 **1346**
+  --      ⇒ 逐字 `SELECT id,customer_user_id,… FROM public.orders WHERE id=p_order_id FOR UPDATE`
+  --        出現在 advisory **之前** ⇒ 📌 **全隊既有順序是【先鎖列、再拿 advisory】。**
+  --    ⇒ 🔴 **所以「搬到開頭」= 把三支改成【advisory→列】= 與 begin 反向 ⇒ 我親手造出那個環。**
+  --      原本放在函式尾巴**才是對的**(codex R2 打回;R1 那一條的修法方向是錯的)。
+  --    ✅ 現在:放在尾巴 ⇒ 三支也是【先鎖列(各自的 FOR UPDATE)、再拿 advisory】⇒ 與 begin 同向。
+  -- 🛑 **而 R1 當初擔心的那個環, 是被下面 `tappay` 那一條解掉的, 不是被搬位置解掉的**:
+  --    R1 的情境是「confirm 誤吃一張**匯款單** K」⇒ 加了 `k.payment_channel='tappay'` 之後,
+  --    那條路上本區塊**根本不動手**, 也就不會去等 advisory。
+  -- 📌 **教訓(比修法重要)**:我第二版的鑽機把「新世界」兩個 session **都**寫成 advisory→列,
+  --    ⇒ 它演的是我以為的世界, 不是真的那個 ⇒ **我造的 fixture 往我的結論偏, 而它給了我綠燈。**
+  --    ⇒ 現在鑽機的併發格改成**照 `begin_charge_attempt` 真正的順序**餵。
+
+  -- 🔴🔴 **兩道條件, 各擋一半, 缺一不可**(codex R1 #1 與 R2 #9 各逼出一道):
+  --    ① `k.payment_channel = 'tappay'` —— **留下來的那張必須是刷卡單**
+  --    ② **刷卡成功的證據** —— `k` 已 `paid`, 或 `k` 身上有 `status='charged'` 的 attempt
+  --    🔵 為什麼②不能省(R2 #9):只綁 `payment_channel` 是綁一個**可變的字串** ——
+  --      channel 被別的路徑改過、或這一段被誤呼叫時, 它擋不住;②問的是「錢真的成功了嗎」。
+  --    🔵 為什麼①不能省(R1 #1):`confirm_order_payment` **沒有驗目標是不是刷卡單**
+  --      ⇒ 誤傳一張匯款單進去, 它會被標成 TapPay paid ⇒ 這時②會成立而①不會。
+  --    ⚠️ **①的維護債明寫**:未來若新增別的刷卡 channel 名, **這裡要跟著加**,
+  --      否則那條路上該取消的兄弟單會被**靜默放過**。這是刻意選的方向(漏取消可逆, 誤取消不可逆)。
+  -- 🔵 本區塊放在函式尾巴 ⇒ 執行到這裡時, ②的證據在同一個交易裡已經寫好了:
+  --    `mark_charge_attempt_charged*` 已把 attempt 轉成 `charged`;`confirm_order_payment` 已把單翻成 `paid`。
+  -- 🔴 `k.payment_channel = 'tappay'` 這一條的出處:
+  --    `confirm_order_payment` **沒有驗目標是不是刷卡單** ⇒ 誤傳一張匯款單進去,
+  --    它會被標成 TapPay paid, 而少了這一條, 本區塊還會順手取消同 cart 的其他匯款單。
+  --    ⇒ 📌 **本區塊只在「留下來的那張是刷卡單」時才動手。**
+  DECLARE
+    v_sup_uid uuid;
+  BEGIN
+    SELECT k.customer_user_id INTO v_sup_uid
+      FROM public.orders k
+     WHERE k.id = p_order_id
+       AND k.payment_channel = 'tappay'
+       AND (k.payment_status = 'paid'::public.payment_status
+            OR EXISTS (SELECT 1 FROM public.payment_charge_attempts a2
+                        WHERE a2.order_id = k.id AND a2.status = 'charged'));
+    IF v_sup_uid IS NOT NULL THEN
+      -- 🔴 拿與 `create_order` / `begin_charge_attempt` **同一把** advisory lock。
+      --    少了它, 建單那支可以在我這一發 UPDATE 之後才通過它的守門並插進來。
+      PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(v_sup_uid::text, 0));
+      -- 🔴 取消條件【照抄】`20260904050000:202-215`, 不自己想一個。
+      --    那裡逐字記著:條件與逾期那支、與 admin_cancel_order 步7 三處相同,
+      --    而 `a.status <> 'failed'` 比 `IN ('pending','charged')` 寬 —— 漏掉 `released`
+      --    會變成「已取消而事後仍可能扣款」。
+      UPDATE public.orders o
+         SET cancelled_at     = pg_catalog.now(),
+             cancelled_reason = 'superseded_by_card',
+             updated_at       = pg_catalog.now()
+        FROM public.orders k
+       WHERE k.id                 = p_order_id
+         AND k.payment_channel    = 'tappay'
+         AND (k.payment_status = 'paid'::public.payment_status
+              OR EXISTS (SELECT 1 FROM public.payment_charge_attempts a2
+                          WHERE a2.order_id = k.id AND a2.status = 'charged'))
+         AND o.customer_user_id   = k.customer_user_id
+         AND o.cart_session_id    = k.cart_session_id
+         AND o.id                <> k.id
+         AND o.cancelled_at IS NULL
+         AND o.payment_channel    = 'bank_transfer'
+         AND o.payment_status     = 'unpaid'::public.payment_status
+         AND NOT EXISTS (
+               SELECT 1 FROM public.payment_charge_attempts a
+                WHERE a.order_id = o.id
+                  AND a.status <> 'failed'
+             );
+    END IF;
+  END;
+  -- ⟦SUPERSEDE-BLOCK-END⟧
 
 EXCEPTION
   WHEN unique_violation THEN
@@ -463,62 +534,6 @@ DECLARE
   v_n           integer;
   v_generic_msg constant text := 'confirm_order_payment: 付款確認失敗';  -- 🔴 PF-E:業務拒絕單一通用訊息、不洩內部狀態
 BEGIN
-  -- ⟦SUPERSEDE-BLOCK-BEGIN⟧ 刷卡成功也 supersede 同 cart 的匯款單(⟦b4-CARDPENDINGWINDOW⟧)
-  -- 🔴🔴 **這一段在三支刷卡成功入口裡【逐字相同】** —— 由本片的事後斷言釘住(三段 md5 必須相等)。
-  --    主視窗 `-f8` 2026-09-06 裁 Q-pending1=乙:三處各寫一份, 不抽共用函式
-  --    (不推翻 `20260904050000:200` 那段「刻意逐字相同而不共用」)。
-  -- 🔵 **為什麼它只吃 `p_order_id`**:三支函式的參數列不同, 而它們都有 `p_order_id`
-  --    ⇒ 只靠這一個參數就能自足 ⇒ 三段才可能逐字相同。
-  --
-  -- 🔴🔴 **位置在函式的【最開頭】, 而那是 codex R1 打回第一版才改的 —— 理由是【鎖順序】。**
-  --    ⛔ ~~第一版放在「最後一個早退之後」~~ ⇒ 那時三支**已經持有 orders / attempts 的列鎖**,
-  --      而 `create_order`(`20260906500000:277`)與 `begin_charge_attempt`(`20260904050000:118`)
-  --      都是**先拿 advisory、再動列** ⇒ 📌 **兩邊的取得順序相反 ⇒ 可以形成 40P01 死結。**
-  --    ✅ 移到最開頭之後, 三支也變成「先 advisory、再動列」⇒ **全隊同一個順序, 環構不出來。**
-  -- 🛑 **而「放在最前面 = 還沒確定成功就先取消」這個疑慮不成立** ——
-  --    整支函式是**同一個交易**:任何失敗路徑都 `RAISE` ⇒ 連同這一段一起 rollback。
-  --    🔬 三支裡的 `RETURN` 只有三處(`20260810170000:173` · `:300` · `:402`),
-  --      **三處都是「同 rec 重放」的冪等成功語意** ⇒ 那些路徑上取消匯款單是對的, 不是誤殺。
-  --
-  -- 🔴 `k.payment_channel = 'tappay'` 這一條也是 codex R1 逼出來的:
-  --    `confirm_order_payment` **沒有驗目標是不是刷卡單** ⇒ 誤傳一張匯款單進去,
-  --    它會被標成 TapPay paid, 而少了這一條, 本區塊還會順手取消同 cart 的其他匯款單。
-  --    ⇒ 📌 **本區塊只在「留下來的那張是刷卡單」時才動手。**
-  DECLARE
-    v_sup_uid uuid;
-  BEGIN
-    SELECT k.customer_user_id INTO v_sup_uid
-      FROM public.orders k
-     WHERE k.id = p_order_id AND k.payment_channel = 'tappay';
-    IF v_sup_uid IS NOT NULL THEN
-      -- 🔴 拿與 `create_order` / `begin_charge_attempt` **同一把** advisory lock。
-      --    少了它, 建單那支可以在我這一發 UPDATE 之後才通過它的守門並插進來。
-      PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(v_sup_uid::text, 0));
-      -- 🔴 取消條件【照抄】`20260904050000:202-215`, 不自己想一個。
-      --    那裡逐字記著:條件與逾期那支、與 admin_cancel_order 步7 三處相同,
-      --    而 `a.status <> 'failed'` 比 `IN ('pending','charged')` 寬 —— 漏掉 `released`
-      --    會變成「已取消而事後仍可能扣款」。
-      UPDATE public.orders o
-         SET cancelled_at     = pg_catalog.now(),
-             cancelled_reason = 'superseded_by_card',
-             updated_at       = pg_catalog.now()
-        FROM public.orders k
-       WHERE k.id                 = p_order_id
-         AND k.payment_channel    = 'tappay'
-         AND o.customer_user_id   = k.customer_user_id
-         AND o.cart_session_id    = k.cart_session_id
-         AND o.id                <> k.id
-         AND o.cancelled_at IS NULL
-         AND o.payment_channel    = 'bank_transfer'
-         AND o.payment_status     = 'unpaid'::public.payment_status
-         AND NOT EXISTS (
-               SELECT 1 FROM public.payment_charge_attempts a
-                WHERE a.order_id = o.id
-                  AND a.status <> 'failed'
-             );
-    END IF;
-  END;
-  -- ⟦SUPERSEDE-BLOCK-END⟧
   -- 🔴 A8c2 隔離閘(fail-closed;A8c1 同款、A2b1 教訓):非 READ COMMITTED 下 FOR UPDATE 等鎖
   --    醒來後快照仍舊、部分取消不動 orders 列 ⇒ EXISTS 看不到已 commit 取消。
   IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN
@@ -685,6 +700,86 @@ BEGIN
       USING ERRCODE = 'P2B37', CONSTRAINT = 'pcm_op3_card_leg_row_count';
   END IF;
   -- ══════════════════════════════════════════════════════════════════════════
+  -- ⟦SUPERSEDE-BLOCK-BEGIN⟧ 刷卡成功也 supersede 同 cart 的匯款單(⟦b4-CARDPENDINGWINDOW⟧)
+  -- 🔴🔴 **這一段在三支刷卡成功入口裡【逐字相同】** —— 由本片的事後斷言釘住(三段 md5 必須相等)。
+  --    主視窗 `-f8` 2026-09-06 裁 Q-pending1=乙:三處各寫一份, 不抽共用函式
+  --    (不推翻 `20260904050000:200` 那段「刻意逐字相同而不共用」)。
+  -- 🔵 **為什麼它只吃 `p_order_id`**:三支函式的參數列不同, 而它們都有 `p_order_id`
+  --    ⇒ 只靠這一個參數就能自足 ⇒ 三段才可能逐字相同。
+  --
+  -- 🔴🔴 **位置在函式的【最後】(最後一個早退之後)—— 而這一格我搞錯過一次, 錯法值得留著。**
+  --    ⛔ ~~第二版把它搬到函式最開頭, 理由寫「先 advisory 再動列, 與全隊一致」~~ **那是假的。**
+  --    🔬 **去量之後的事實**(2026-09-06 對正式庫唯讀, `begin_charge_attempt` 的 `prosrc`):
+  --      `FOR UPDATE` 在字元 **640**、`pg_advisory_xact_lock` 在 **1346**
+  --      ⇒ 逐字 `SELECT id,customer_user_id,… FROM public.orders WHERE id=p_order_id FOR UPDATE`
+  --        出現在 advisory **之前** ⇒ 📌 **全隊既有順序是【先鎖列、再拿 advisory】。**
+  --    ⇒ 🔴 **所以「搬到開頭」= 把三支改成【advisory→列】= 與 begin 反向 ⇒ 我親手造出那個環。**
+  --      原本放在函式尾巴**才是對的**(codex R2 打回;R1 那一條的修法方向是錯的)。
+  --    ✅ 現在:放在尾巴 ⇒ 三支也是【先鎖列(各自的 FOR UPDATE)、再拿 advisory】⇒ 與 begin 同向。
+  -- 🛑 **而 R1 當初擔心的那個環, 是被下面 `tappay` 那一條解掉的, 不是被搬位置解掉的**:
+  --    R1 的情境是「confirm 誤吃一張**匯款單** K」⇒ 加了 `k.payment_channel='tappay'` 之後,
+  --    那條路上本區塊**根本不動手**, 也就不會去等 advisory。
+  -- 📌 **教訓(比修法重要)**:我第二版的鑽機把「新世界」兩個 session **都**寫成 advisory→列,
+  --    ⇒ 它演的是我以為的世界, 不是真的那個 ⇒ **我造的 fixture 往我的結論偏, 而它給了我綠燈。**
+  --    ⇒ 現在鑽機的併發格改成**照 `begin_charge_attempt` 真正的順序**餵。
+
+  -- 🔴🔴 **兩道條件, 各擋一半, 缺一不可**(codex R1 #1 與 R2 #9 各逼出一道):
+  --    ① `k.payment_channel = 'tappay'` —— **留下來的那張必須是刷卡單**
+  --    ② **刷卡成功的證據** —— `k` 已 `paid`, 或 `k` 身上有 `status='charged'` 的 attempt
+  --    🔵 為什麼②不能省(R2 #9):只綁 `payment_channel` 是綁一個**可變的字串** ——
+  --      channel 被別的路徑改過、或這一段被誤呼叫時, 它擋不住;②問的是「錢真的成功了嗎」。
+  --    🔵 為什麼①不能省(R1 #1):`confirm_order_payment` **沒有驗目標是不是刷卡單**
+  --      ⇒ 誤傳一張匯款單進去, 它會被標成 TapPay paid ⇒ 這時②會成立而①不會。
+  --    ⚠️ **①的維護債明寫**:未來若新增別的刷卡 channel 名, **這裡要跟著加**,
+  --      否則那條路上該取消的兄弟單會被**靜默放過**。這是刻意選的方向(漏取消可逆, 誤取消不可逆)。
+  -- 🔵 本區塊放在函式尾巴 ⇒ 執行到這裡時, ②的證據在同一個交易裡已經寫好了:
+  --    `mark_charge_attempt_charged*` 已把 attempt 轉成 `charged`;`confirm_order_payment` 已把單翻成 `paid`。
+  -- 🔴 `k.payment_channel = 'tappay'` 這一條的出處:
+  --    `confirm_order_payment` **沒有驗目標是不是刷卡單** ⇒ 誤傳一張匯款單進去,
+  --    它會被標成 TapPay paid, 而少了這一條, 本區塊還會順手取消同 cart 的其他匯款單。
+  --    ⇒ 📌 **本區塊只在「留下來的那張是刷卡單」時才動手。**
+  DECLARE
+    v_sup_uid uuid;
+  BEGIN
+    SELECT k.customer_user_id INTO v_sup_uid
+      FROM public.orders k
+     WHERE k.id = p_order_id
+       AND k.payment_channel = 'tappay'
+       AND (k.payment_status = 'paid'::public.payment_status
+            OR EXISTS (SELECT 1 FROM public.payment_charge_attempts a2
+                        WHERE a2.order_id = k.id AND a2.status = 'charged'));
+    IF v_sup_uid IS NOT NULL THEN
+      -- 🔴 拿與 `create_order` / `begin_charge_attempt` **同一把** advisory lock。
+      --    少了它, 建單那支可以在我這一發 UPDATE 之後才通過它的守門並插進來。
+      PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(v_sup_uid::text, 0));
+      -- 🔴 取消條件【照抄】`20260904050000:202-215`, 不自己想一個。
+      --    那裡逐字記著:條件與逾期那支、與 admin_cancel_order 步7 三處相同,
+      --    而 `a.status <> 'failed'` 比 `IN ('pending','charged')` 寬 —— 漏掉 `released`
+      --    會變成「已取消而事後仍可能扣款」。
+      UPDATE public.orders o
+         SET cancelled_at     = pg_catalog.now(),
+             cancelled_reason = 'superseded_by_card',
+             updated_at       = pg_catalog.now()
+        FROM public.orders k
+       WHERE k.id                 = p_order_id
+         AND k.payment_channel    = 'tappay'
+         AND (k.payment_status = 'paid'::public.payment_status
+              OR EXISTS (SELECT 1 FROM public.payment_charge_attempts a2
+                          WHERE a2.order_id = k.id AND a2.status = 'charged'))
+         AND o.customer_user_id   = k.customer_user_id
+         AND o.cart_session_id    = k.cart_session_id
+         AND o.id                <> k.id
+         AND o.cancelled_at IS NULL
+         AND o.payment_channel    = 'bank_transfer'
+         AND o.payment_status     = 'unpaid'::public.payment_status
+         AND NOT EXISTS (
+               SELECT 1 FROM public.payment_charge_attempts a
+                WHERE a.order_id = o.id
+                  AND a.status <> 'failed'
+             );
+    END IF;
+  END;
+  -- ⟦SUPERSEDE-BLOCK-END⟧
 
   RETURN pg_catalog.jsonb_build_object('confirmed', true, 'idempotent', false);
 
@@ -733,9 +828,9 @@ BEGIN
   v_first := NULL;
   FOR r IN
     SELECT * FROM (VALUES
-      ('mark_charge_attempt_charged',          '0c72f0309ff5211f9da12e11949e822e'),
-      ('mark_charge_attempt_charged_fallback', '2896aa609d5a8fcdddbd7417947922bc'),
-      ('confirm_order_payment',                'e8ab4ef32cdf7c30d25cc3476501521e')
+      ('mark_charge_attempt_charged',          'ca2e19c82e3677a4c37f7a33fe6b50c6'),
+      ('mark_charge_attempt_charged_fallback', '3cb44e675f2b8f8cbd68482bd5b367c4'),
+      ('confirm_order_payment',                'bdf6a39b7408d0213b0df833e6073fa5')
     ) AS t(fn, new_md5)
   LOOP
     SELECT count(*) INTO v_n FROM pg_catalog.pg_proc p

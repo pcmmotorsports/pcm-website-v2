@@ -49,16 +49,29 @@ BEGIN
   v_force := coalesce(current_setting('pcm.rollback_force', true), '') = '1';
   FOR r IN
     SELECT * FROM (VALUES
-      ('mark_charge_attempt_charged',          '13dfcc0a3c7f8e35b53063ca9babf8e5', '0c72f0309ff5211f9da12e11949e822e'),
-      ('mark_charge_attempt_charged_fallback', 'ca9a7593ca05b2991d295ce93be692f4', '2896aa609d5a8fcdddbd7417947922bc'),
-      ('confirm_order_payment',                '184204e35edb0dba1b6d4d0909136f3c', 'e8ab4ef32cdf7c30d25cc3476501521e')
-    ) AS t(fn, old_md5, new_md5)
+      ('mark_charge_attempt_charged',          '13dfcc0a3c7f8e35b53063ca9babf8e5', 'ca2e19c82e3677a4c37f7a33fe6b50c6', 'p_attempt_id uuid, p_order_id uuid, p_rec_trade_id text'),
+      ('mark_charge_attempt_charged_fallback', 'ca9a7593ca05b2991d295ce93be692f4', '3cb44e675f2b8f8cbd68482bd5b367c4', 'p_attempt_id uuid, p_order_id uuid, p_rec_trade_id text, p_fallback_token uuid'),
+      ('confirm_order_payment',                '184204e35edb0dba1b6d4d0909136f3c', 'bdf6a39b7408d0213b0df833e6073fa5', 'p_order_id uuid, p_amount integer, p_rec_trade_id text')
+    ) AS t(fn, old_md5, new_md5, args)
   LOOP
     SELECT count(*) INTO v_n FROM pg_catalog.pg_proc p
       JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
      WHERE n.nspname='public' AND p.proname=r.fn;
     IF v_n <> 1 THEN
       RAISE EXCEPTION '還原前置閘①:public.% 有 % 支同名函式(期望 1)⇒ 拒繼續。', r.fn, v_n;
+    END IF;
+    -- 🔴 codex R2 #7:只按【函式名】數是不夠的 —— 唯一那支若簽章已經被換過,
+    --    本檔的 `CREATE OR REPLACE`(簽章寫死在檔面)會**新增一支多載**, 而不是換掉它。
+    --    ⇒ 這裡把簽章也釘住;`force` **不跳過這一格**(它跳過的只有 md5)。
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+       WHERE n.nspname='public' AND p.proname=r.fn
+         AND pg_catalog.pg_get_function_arguments(p.oid) = r.args
+    ) THEN
+      RAISE EXCEPTION '還原前置閘①b:public.% 的參數列不是預期的那一組 ⇒ 這一貼會【新增一支多載】而不是換掉它, 拒繼續(force 不跳過這一格)。實得 %',
+        r.fn, (SELECT pg_catalog.pg_get_function_arguments(p.oid) FROM pg_catalog.pg_proc p
+                 JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname=r.fn);
     END IF;
     SELECT p.prosrc INTO v_raw FROM pg_catalog.pg_proc p
       JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
@@ -460,6 +473,35 @@ END;
 $fn$;
 
 
+-- ── 🔴 COMMENT 也要還原(codex R2 #6)────────────────────────────────────
+-- 本片的 forward 換掉了三支的 catalog COMMENT(在結尾加了一句 supersede 副作用)。
+-- ⇒ 📌 只還原函式本體而不還原 COMMENT ⇒ **catalog 上會繼續宣稱一個已經被移除的副作用**。
+-- 下面三段逐字取自 20260810170000:236-237 / 322-323 / 522-539。
+COMMENT ON FUNCTION public.mark_charge_attempt_charged(uuid, uuid, text) IS
+  'M-3 3DS R1b1c + M-4b L5b-0 PF-X1 麵包屑主軌。🔴 **L5b-0 讓路入帳鐵律(閘一)**:superseded_at 非 NULL(=L5a-1 判定讓路、客人已改走新單)⇒ **一律 RAISE、永不轉 charged**;那筆錢的唯一出口是退款(Sean 2026-08-10 拍板 A)。閘位在 charged 冪等分支**之前**(該分支的 RETURN 對上游是成功語意、會讓 settlePaid 續呼 confirm)。⚠️ 本閘只是縱深,錢的歸屬由 confirm_order_payment 的同族閘(L5b-0 閘三)守;且**繞得過 owner 直寫**(非 DB 全域不變量)。以下為 R1b1c 既有行為、逐字不動:status IN (pending,released)→charged + rec_trade_id;released = late success 對帳收斂 → 同交易建 open anomaly(payment_double_charge_anomalies、ON CONFLICT old_attempt_id DO NOTHING、所有 NOT NULL 欄齊填、缺則 RAISE fail-closed;refund_target=舊 attempt rec、amount=orders.total integer);基線雙鍵驗 + FOR UPDATE + charged 同 rec 冪等 no-op + 跨單重複 rec 通用 RAISE。只 payment_confirmer 可呼(ACL 沿用基線、本片不改)。';
+
+COMMENT ON FUNCTION public.mark_charge_attempt_charged_fallback(uuid, uuid, text, uuid) IS
+  'M-3-S2-d + M-4b L5b-0 PF-X1 麵包屑備軌(第二 transport、authenticated PostgREST)。🔴 **L5b-0 讓路入帳鐵律(閘二)**:superseded_at 非 NULL ⇒ 一律 RAISE。**備軌為什麼也要**:它的轉移閘只擋 status=''pending'',對 **pending+superseded** 完全沒守門;而「superseded ⇒ 必為 released」是**寫入端(L5a-1)自律、schema 沒強制**(L5a-M 五條 CHECK 沒有這條)⇒ 不得把不變量押在另一支 RPC 的實作上。閘位在 token/歸屬兩道護欄**之後**(先認身分再談業務規則)。既有三重護欄逐字不動:① token hash 比對 ② auth.uid() 歸屬 ③ 僅 pending→charged 緊縮轉移、永不釋鎖/標 failed;charged 同 rec 冪等 no-op。token 明文只在 server 記憶體。ACL 沿用基線(authenticated)、本片不改。';
+
+COMMENT ON FUNCTION public.confirm_order_payment(uuid, integer, text) IS
+  'M-3-S2-c 付款確認(SECURITY DEFINER 零 service_role、search_path='''')。只 payment_confirmer 可呼;🔴 E10-A8c2 取消守門(master plan row 35;R8 守門先於取消):隔離閘(非 READ COMMITTED 一律 P8C01)→ PF-B FOR UPDATE(加讀 cancelled_at)→ 取消守門(cancelled_at 非空或 order_cancellations 任一列 ⇒ 通用 RAISE;真相表直讀;位置在 paid 冪等樹之前 ⇒ 已取消且已 paid 的同 rec 同額重放不得回 idempotent 成功)→ PF-D 冪等樹:unpaid + p_amount=orders.total + rec_trade_id 非空且未用於別單 → 翻 paid 寫 5 欄(零 fulfillment、PF-G);paid+同 rec+同 amount 重放冪等 no-op(不刷時間戳);refunded/partiallyPaid 即使同 rec 也拒。PF-C row_count 守 + PF-E 通用訊息(#219 harden)+ UNIQUE 並發 backstop。零經銷價/cost。'
+  '🔴 E10-OP3 card 腿:PF-C 之後、RETURN 之前,**同一筆交易**往 order_payments insert 一列 '
+  '(rail=card、amount=orders.total、received_at=now()、rec_trade_id=本次交易號、actor=session_user)⇒ 翻單與落帳同生共死。'
+  'actor 記的是 **DB session role 不是真人**(照 3DS 線慣例);正式路徑必須「就是」payment_confirmer 登入,'
+  '沒有對應 staff 列時走 P2B36 具名守門(可診斷訊息,刻意不壓成 PF-E 通用訊息 —— 那是部署問題不是訂單問題)。'
+  'received_at 記的是**我方確認時點**、不是發卡行授權時點(外部時鐘 OP2a 的 A8 閘擋不到,見 OP1 檔頭 OP-A11);'
+  '同 rec 重放由 paid 冪等樹提前 RETURN 擋住、到不了 INSERT ⇒ 不落第二列;'
+  '並發撞 card 兩道 partial unique 由 WHEN unique_violation 收成通用訊息。歷史資料的回填是 OP4,不在本片。'
+  '🔴 M-4b L5b-0 讓路入帳鐵律(閘三、本片):A8c2 取消守門之後、paid 冪等樹之前 —— 該單只要還有一顆 '
+  '**活的**讓路 attempt(superseded_at 非 NULL 且 status IN (pending,charged,released))⇒ 一律拒絕確認收款,'
+  '那筆錢的唯一出口是退款(Sean 2026-08-10 拍板 A)。**這一支才是錢的歸屬那道閘** —— 麵包屑那支 '
+  '(mark_charge_attempt_charged)擋不住非 3DS 路徑:confirmPayment 在 markCharged 失敗時刻意續走。'
+  '🔴 status 那條不可省:少了它,凡曾有過讓路 attempt 的訂單將**永遠**不能再被確認收款(含客人日後合法重付);'
+  '該組 status 與 per-order 鎖 index predicate 同源 ⇒ 語意=「仍持有這張單付款權的那顆 attempt 是被讓路的」,'
+  'close_released_attempt 翻 failed 後即離開此集合、該單可正常收款。'
+  '⚠️ 天花板:本閘判的是「這張單有沒有活的讓路 attempt」,不是「這次的錢來自哪顆 attempt」;'
+  '且繞得過 owner 直寫(非 DB 全域不變量)。失效條件見 plan §8。';
+
 -- ── 事後斷言:真的還原了 ────────────────────────────────────────────────
 DO $rb$
 DECLARE r record; v_raw text;
@@ -481,13 +523,22 @@ BEGIN
       RAISE EXCEPTION '還原失敗:public.% 還原後的原始 md5 = %(期望 %)⇒ 貼回去的不是 20260810170000 那一版。',
         r.fn, pg_catalog.md5(v_raw), r.old_md5;
     END IF;
+    -- 🔴 codex R2 #7:事後也要數多載, 否則「新增了一支」這種結果會假綠
+    IF (SELECT count(*) FROM pg_catalog.pg_proc p2 JOIN pg_catalog.pg_namespace n2 ON n2.oid=p2.pronamespace
+         WHERE n2.nspname='public' AND p2.proname=r.fn) <> 1 THEN
+      RAISE EXCEPTION '還原失敗:public.% 還原後有多於一支同名函式 ⇒ 這一貼新增了多載。', r.fn;
+    END IF;
   END LOOP;
   -- 🔵 這把尺的正對照:同一個 md5 算法對現造字串必須回別的值
   IF pg_catalog.md5('QXRBPROBE5581') = '13dfcc0a3c7f8e35b53063ca9babf8e5' THEN
     RAISE EXCEPTION '還原失敗:md5 對現造字串也回同一個值 ⇒ 這把尺壞了。';
   END IF;
-  RAISE NOTICE '[ROLLBACK] 三支都還原成 20260810170000 那一版, supersede 區塊已移除。';
+  RAISE NOTICE '[ROLLBACK] 三支都還原成 20260810170000 那一版, supersede 區塊已移除, COMMENT 也換回。';
 END
 $rb$;
+
+-- 🔴 codex R2 #8:`pcm.rollback_force` 是 session 級的 ——
+--    不清掉的話, 同一個連線後面再跑一次還原會**繼續跳過 md5 那道防線**, 而沒有人會發現。
+SELECT pg_catalog.set_config('pcm.rollback_force', 'off', false);
 
 COMMIT;
