@@ -287,6 +287,18 @@ def check_staged():
         print('   🔴 **板檔檔尾沒有換行字元** ⇒ 下一個用 `>>` 追加的人, 那一列會黏在最後一行尾巴上')
         print('      ⇒ 若最後一行不是 `| ` 開頭(常常是引言), **那一整列會從所有計數的分母裡消失**。')
         print('      ⇒ 修法:`printf \'\\n\' >> ' + BOARD + '`')
+    # 🔴 2026-09-07(`-ship` 交件坑 2):**負對照字串一旦被寫進板子, 它就不再是負對照。**
+    #    實測板上:`zzz` **76** 命中 · `zzq8842` **12** · `zzz_bogus` **6**
+    #    ⇒ 有人拿它們當「現造字串」跑 grep ⇒ **會回非 0, 而他分不出是誰貼的。**
+    #    🎯 **⇒ 一個負對照的有效期, 到它被寫進被測的那份檔為止** —— 而**寫的人正是在證明它不存在**。
+    #    ⇒ 這裡不擋(那是別人的列), 只在 staged 的板裡看到常見負對照字串時提醒一句。
+    _dirty = [w for w in ('zzz_bogus', 'zzq8842', 'zz-bogus')
+              if w in (subprocess.run(['git', 'show', f':{BOARD}'],
+                                      capture_output=True, text=True).stdout or '')]
+    if _dirty:
+        print(f'   🟡 板上已含這些【常被當成負對照】的字串:{", ".join(_dirty)}')
+        print('      ⇒ 下一個拿它們當「現造字串」驗 0 命中的人會拿到非 0, 而**他分不出是誰貼的**。')
+        print('      📌 **一個負對照的有效期, 到它被寫進被測的那份檔為止。** 現造新的, 且貼前先驗 0。')
     s = subprocess.run(['git', 'show', f':{BOARD}'], capture_output=True, text=True)
     if s.returncode != 0:
         print(f'🟡 board-token 閘:讀不到 staged 的 {BOARD}(rc={s.returncode})⇒ **本閘沒看過**')
@@ -560,6 +572,21 @@ def selftest():
         with contextlib.redirect_stdout(buf6):
             check_staged()
         ck('既有列沒寫關閉條件 ⇒ 不叫(只看新增的)', '做到哪算完' in buf6.getvalue(), False)
+
+        # ═══ 被污染的負對照字串:兩個世界(2026-09-07;`-ship` 交件坑 2)═══
+        io.open(board, 'w', encoding='utf-8').write(
+            base_rows + '\n| open | ⟦x-DIRTY⟧ | 這一列刻意含一個常被當負對照的字 zzz_bogus | 誰 | ⟨擋(t)⟩ x |\n')
+        git('add', BOARD)
+        buf13 = _io.StringIO()
+        with contextlib.redirect_stdout(buf13):
+            check_staged()
+        ck('板上含 zzz_bogus ⇒ 叫', '常被當成負對照' in buf13.getvalue(), True)
+        io.open(board, 'w', encoding='utf-8').write(base_rows + '\n')
+        git('add', BOARD)
+        buf14 = _io.StringIO()
+        with contextlib.redirect_stdout(buf14):
+            check_staged()
+        ck('板上沒有那些字 ⇒ 不叫', '常被當成負對照' in buf14.getvalue(), False)
 
         # ═══ 檔尾換行的兩個世界(2026-09-07;`-ship` 交件坑 1)═══
         io.open(board, 'w', encoding='utf-8').write(base_rows)          # 🔴 刻意不加 \n
