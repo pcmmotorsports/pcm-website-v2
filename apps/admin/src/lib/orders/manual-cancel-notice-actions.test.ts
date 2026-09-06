@@ -72,12 +72,24 @@ function form(fields: Record<string, string>): FormData {
   return fd;
 }
 
-const OK_FORM = { order_id: 'o-1', recipient_email: 'someone@example.com' };
+// 🔴 表單送**大寫** UUID, 而 DB 回**小寫** —— 兩者在 `uuid` 欄位是同一張單。
+// ⚠️ **這個 UUID 一定要含字母** —— 我第一版用全數字的 `1111…`, 而 `.toUpperCase()` 回同一個字串
+//    ⇒ 那一格的 `not.toBe` 當場紅。📌 **一個「大小寫不同」的測試, 要先確定它真的不同。**
+const OK_FORM = {
+  order_id: 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d'.toUpperCase(),
+  recipient_email: 'someone@example.com',
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.authorize.mockResolvedValue({ sid: 's-1', actorId: 'actor-1' });
-  mocks.eligibility.mockResolvedValue({ eligible: true, suggestedEmail: null });
+  mocks.eligibility.mockResolvedValue({
+    eligible: true,
+    // 🔴 DB 正規化過的那一份(小寫), 與下面表單送的大寫**刻意不同** —— 見那一格測試。
+    orderId: 'a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d',
+    displayId: 'PCM-2026-0001',
+    suggestedEmail: null,
+  });
   mocks.record.mockResolvedValue(undefined);
   mocks.insertResult.error = null;
   mocks.insertResult.data = { id: 'e-1' };
@@ -113,7 +125,7 @@ describe('登錄人工寄出取消通知 — 閘的順序', () => {
   it('🔴 資格不符 ⇒ 用它的 blocker 當結果碼,而且【一個字都不寫】', async () => {
     mocks.eligibility.mockResolvedValue({ eligible: false, blocker: 'not_cancelled' });
     await expect(recordManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
-    expect(mocks.redirect).toHaveBeenCalledWith('/orders/o-1?r=manual_cancel_notice_not_cancelled');
+    expect(mocks.redirect).toHaveBeenCalledWith(`/orders/${OK_FORM.order_id}?r=manual_cancel_notice_not_cancelled`);
     expect(mocks.record).not.toHaveBeenCalled();
     expect(mocks.insert).not.toHaveBeenCalled();
   });
@@ -121,7 +133,7 @@ describe('登錄人工寄出取消通知 — 閘的順序', () => {
   it('🔴 讀不到 ⇒ unreadable(不是「不適用」)且不寫', async () => {
     mocks.eligibility.mockResolvedValue({ eligible: false, blocker: 'unreadable' });
     await expect(recordManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
-    expect(mocks.redirect).toHaveBeenCalledWith('/orders/o-1?r=manual_cancel_notice_unreadable');
+    expect(mocks.redirect).toHaveBeenCalledWith(`/orders/${OK_FORM.order_id}?r=manual_cancel_notice_unreadable`);
     expect(mocks.insert).not.toHaveBeenCalled();
   });
 
@@ -132,7 +144,7 @@ describe('登錄人工寄出取消通知 — 閘的順序', () => {
         form({ ...OK_FORM, recipient_email: 'x@no-reply.pcmmotorsports.local' }),
       ),
     ).rejects.toThrow('NEXT_REDIRECT');
-    expect(mocks.redirect).toHaveBeenCalledWith('/orders/o-1?r=manual_cancel_notice_email_invalid');
+    expect(mocks.redirect).toHaveBeenCalledWith(`/orders/${OK_FORM.order_id}?r=manual_cancel_notice_email_invalid`);
     expect(mocks.insert).not.toHaveBeenCalled();
   });
 
@@ -140,7 +152,7 @@ describe('登錄人工寄出取消通知 — 閘的順序', () => {
     await expect(
       recordManualCancelNoticeAction(form({ ...OK_FORM, recipient_email: '   ' })),
     ).rejects.toThrow('NEXT_REDIRECT');
-    expect(mocks.redirect).toHaveBeenCalledWith('/orders/o-1?r=manual_cancel_notice_email_invalid');
+    expect(mocks.redirect).toHaveBeenCalledWith(`/orders/${OK_FORM.order_id}?r=manual_cancel_notice_email_invalid`);
     expect(mocks.insert).not.toHaveBeenCalled();
   });
 
@@ -148,7 +160,7 @@ describe('登錄人工寄出取消通知 — 閘的順序', () => {
   it('🔴 稽核寫不進去 ⇒ audit_failed,而且【那一列沒有被插】', async () => {
     mocks.record.mockRejectedValue(new Error('boom'));
     await expect(recordManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
-    expect(mocks.redirect).toHaveBeenCalledWith('/orders/o-1?r=manual_cancel_notice_audit_failed');
+    expect(mocks.redirect).toHaveBeenCalledWith(`/orders/${OK_FORM.order_id}?r=manual_cancel_notice_audit_failed`);
     expect(mocks.insert).not.toHaveBeenCalled();
   });
 
@@ -171,8 +183,30 @@ describe('登錄人工寄出取消通知 — 寫進去的那一列', () => {
   it('🔴 dedup_key = 訂單 ID(沿用既有算法,不可以是新 UUID)', async () => {
     await expect(recordManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
     const row = mocks.insert.mock.calls[0]?.[0] ?? {};
-    expect(row.dedup_key).toBe('o-1');
+    expect(row.dedup_key).toBe('a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d');
     expect(row.event_type).toBe('order_cancelled');
+  });
+
+  /**
+   * 🔴🔴 **codex R3 must-fix ②:大小寫不同的 UUID 會繞過去重。**
+   * `orders.id` 是 `uuid`(DB 正規化)而 `email_outbox.dedup_key` 是 **`text`**(不正規化)
+   * ⇒ 表單送大寫、DB 回小寫時, 若我拿**表單那一份**當 dedup_key,
+   *   兩個分頁就寫得出**兩筆**, 而唯一鍵完全攔不到。
+   * ⇒ 這一格釘住:**寫進去的一定是 DB 回來的那一份, 不是網址上的那一份。**
+   */
+  it('🔴 表單送大寫 UUID ⇒ order_id 與 dedup_key 都要用【DB 回的小寫那一份】', async () => {
+    await expect(recordManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    const row = mocks.insert.mock.calls[0]?.[0] ?? {};
+    // 表單送的是大寫(OK_FORM.order_id), 而這兩欄都必須是小寫那一份。
+    expect(row.order_id).toBe('a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d');
+    expect(row.dedup_key).toBe('a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d');
+    expect(row.dedup_key).not.toBe(OK_FORM.order_id);
+  });
+
+  it('🔴 稽核的 target 也要用正規化那一份(不然同一張單會留下兩種寫法)', async () => {
+    await expect(recordManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    const entry = mocks.record.mock.calls[0]?.[0] ?? {};
+    expect(entry.target).toBe('order:a1b2c3d4-e5f6-4a1b-8c2d-3e4f5a6b7c8d');
   });
 
   it('🔴 status 借用 sent,而【人工】的證據住在 payload 裡', async () => {
@@ -196,20 +230,20 @@ describe('登錄人工寄出取消通知 — 寫進去的那一列', () => {
     mocks.insertResult.error = { code: '23505', message: 'duplicate key' };
     mocks.insertResult.data = null;
     await expect(recordManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
-    expect(mocks.redirect).toHaveBeenCalledWith('/orders/o-1?r=manual_cancel_notice_raced');
+    expect(mocks.redirect).toHaveBeenCalledWith(`/orders/${OK_FORM.order_id}?r=manual_cancel_notice_raced`);
   });
 
   it('🔴 其他 DB 錯 ⇒ write_failed', async () => {
     mocks.insertResult.error = { code: '42501', message: 'denied' };
     mocks.insertResult.data = null;
     await expect(recordManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
-    expect(mocks.redirect).toHaveBeenCalledWith('/orders/o-1?r=manual_cancel_notice_write_failed');
+    expect(mocks.redirect).toHaveBeenCalledWith(`/orders/${OK_FORM.order_id}?r=manual_cancel_notice_write_failed`);
   });
 
   // 🔴🔴 成功【不帶結果碼】—— `?r=` 偽造得出來, 假的綠字會讓員工停止動作。
   it('🔴 成功 ⇒ 導回訂單頁而網址【沒有】結果碼,且有 revalidate', async () => {
     await expect(recordManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
-    expect(mocks.redirect).toHaveBeenLastCalledWith('/orders/o-1');
-    expect(mocks.revalidatePath).toHaveBeenCalledWith('/orders/o-1');
+    expect(mocks.redirect).toHaveBeenLastCalledWith(`/orders/${OK_FORM.order_id}`);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith(`/orders/${OK_FORM.order_id}`);
   });
 });

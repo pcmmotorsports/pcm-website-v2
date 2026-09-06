@@ -41,6 +41,17 @@ export type ManualCancelNoticeBlocker =
 export type ManualCancelNoticeEligibility =
   | {
       readonly eligible: true;
+      /**
+       * 🔴🔴 **DB 正規化過的訂單 id —— 寫入時【一定要用這個】, 不可以用表單送來的字串。**
+       * codex R3 must-fix ②:`orders.id` 是 `uuid`, 而 `email_outbox.dedup_key` 是 **`text`**。
+       * ⇒ 兩個分頁用**大小寫不同**的 UUID 網址 ⇒ DB 認為是**同一張單**(uuid 正規化),
+       *   而 `dedup_key` 收到的是**兩個不同的字串** ⇒ 🛑 **兩筆都插得進去,
+       *   `(event_type, dedup_key)` 那道唯一鍵完全繞過去。**
+       * ✅ 這一欄是 `select('id')` 回來的那一份 ⇒ 由 Postgres 決定形狀, 不由網址決定。
+       */
+      readonly orderId: string;
+      /** 確認框要印給人核對用(codex R3 nit ④:SOP 叫他「看清楚是不是那張單」而框裡沒有單號)。 */
+      readonly displayId: string | null;
       /** 預填用。兩個都空是**合法的** —— 那正是最需要人工處理的那批單。 */
       readonly suggestedEmail: string | null;
     }
@@ -70,6 +81,8 @@ export async function readManualCancelNoticeEligibility(
   }
 
   let order: {
+    id: string;
+    display_id: string | null;
     payment_method: string | null;
     payment_status: string;
     cancelled_at: string | null;
@@ -79,7 +92,7 @@ export async function readManualCancelNoticeEligibility(
   try {
     const res = await svc
       .from('orders')
-      .select('payment_method, payment_status, cancelled_at, notification_email, customer_user_id')
+      .select('id, display_id, payment_method, payment_status, cancelled_at, notification_email, customer_user_id')
       .eq('id', orderId)
       .maybeSingle();
     if (res.error) return { eligible: false, blocker: 'unreadable' };
@@ -154,7 +167,13 @@ export async function readManualCancelNoticeEligibility(
     }
   }
 
-  return { eligible: true, suggestedEmail: suggested };
+  // 🔴 `order.id` 是 DB 回的那一份, **不是傳進來的 `orderId`** —— 見上面型別那段的理由。
+  return {
+    eligible: true,
+    orderId: order.id,
+    displayId: order.display_id,
+    suggestedEmail: suggested,
+  };
 }
 
 /** 空白只有空字串與純空白兩種形狀 ⇒ 一起收掉。`null` 表示「沒有」, 不是空字串。 */

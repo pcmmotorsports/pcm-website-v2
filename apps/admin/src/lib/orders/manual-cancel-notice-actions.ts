@@ -72,6 +72,14 @@ export async function recordManualCancelNoticeAction(formData: FormData): Promis
   const eligibility = await readManualCancelNoticeEligibility(orderId);
   if (!eligibility.eligible) backTo(orderId, eligibility.blocker);
 
+  // 🔴🔴 **從這裡開始一律用 `canonicalOrderId`, 不再碰表單送來的那個字串。**
+  //    codex R3 must-fix ②:`orders.id` 是 `uuid` 而 `email_outbox.dedup_key` 是 **`text`**
+  //    ⇒ 兩個分頁用**大小寫不同**的 UUID 網址, DB 認為是**同一張單**(uuid 會正規化),
+  //      而 `dedup_key` 收到的是**兩個不同的字串**
+  //      ⇒ 🛑 **兩筆都插得進去 —— `(event_type, dedup_key)` 那道唯一鍵整個繞過去了。**
+  //    ✅ 這個值是 `select('id')` 回來的那一份 ⇒ **形狀由 Postgres 決定, 不由網址決定。**
+  const canonicalOrderId = eligibility.orderId;
+
   // ③ 信箱:走既有 schema(含**假信箱 gate** `isSyntheticEmailDomain`)。
   //    🔴 不是「有填就好」—— 預填有可能帶到合成信箱, 而直接呼叫 action 也送得進任意字串。
   //    ⚠️ **而它仍然只驗格式** —— 證不到那封信真的投遞到了。不要把這一關讀成投遞證明。
@@ -89,7 +97,7 @@ export async function recordManualCancelNoticeAction(formData: FormData): Promis
     await getAdminAuditLogRepository().record(
       {
         action: 'email.order_cancelled.manual_send_record_requested',
-        target: `order:${orderId}`,
+        target: `order:${canonicalOrderId}`,
         before: { order_cancelled_outbox_row: 'none' },
         // 🔴 `after` 留白:寫這一筆時還沒寫成。填「預期結果」= 把期望值寫成觀察值。
         reason: `後台登錄人工寄出取消通知:收件人 ${recipientEmail}`,
@@ -121,8 +129,9 @@ export async function recordManualCancelNoticeAction(formData: FormData): Promis
     .from('email_outbox')
     .insert({
       event_type: 'order_cancelled',
-      order_id: orderId,
-      dedup_key: orderId,
+      order_id: canonicalOrderId,
+      // 🔴 **正規化過的那一份**(codex R3 must-fix ②)—— 理由見上面 `canonicalOrderId` 那段。
+      dedup_key: canonicalOrderId,
       recipient_email: recipientEmail,
       subject: '訂單取消通知(人工寄出)',
       // 🔴 差別住在這裡 —— `status` 是借來的, payload 才分得出兩種 `sent`。

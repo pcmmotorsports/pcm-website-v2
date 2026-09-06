@@ -55,6 +55,13 @@ export type ManualCancelNoticeFailureCode =
  * `ResultBanner` 什麼都不畫(它只渲染 `MESSAGES` 裡有的鍵),
  * 而員工會以為他按成功了。
  * ⇒ 這張表的鍵**必須**是 namespaced 之後的字面, 不是裸碼。
+ *
+ * ⚠️ **而「12 顆都看得到」不成立, 照實寫**(codex R3 nit ⑤):`not_found` 這一顆**到不了畫面** ——
+ *    訂單詳情頁在讀結果碼**之前**就先 `notFound()` 了(`order-detail-route.tsx` 那一段),
+ *    所以送一個「格式合法而不存在」的訂單 id 進來, 使用者看到的是 **404 頁**, 不是這句話。
+ *    🔵 **那顆碼仍然留著**:它讓 action 那一側的失敗**有名字**(log 與測試看得到),
+ *    而使用者看到 404 也**不是假訊息** —— 那張單真的不存在。
+ *    ⇒ 📌 **這裡記的是「12 顆有名字」, 不是「12 顆都會顯示」。**
  */
 export const MANUAL_CANCEL_NOTICE_MESSAGES: Readonly<
   Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }>
@@ -83,8 +90,18 @@ export const MANUAL_CANCEL_NOTICE_MESSAGES: Readonly<
     text: '這張單還沒有取消,不適用這個動作。',
     tone: 'warn',
   },
+  // 🔴🔴 **這一句【不可以】說「系統會自己寄」**(codex R3 must-fix ③)——
+  //    「沒有人工退款」只推得出「**不是混合軌**」, **推不出「會自動寄」**:
+  //    那支 view(`20260905310000:201-211`)還有**另外兩道閘** —— 至少一個信箱非空、
+  //    以及手動建單(`manual_phone` 等)要有 `notification_email`。
+  //    🔬 反例:`order_source='manual_phone'` + `notification_email IS NULL` 而客人資料有信箱
+  //      ⇒ 沒有人工退款 ⇒ 這裡回 `not_mixed_rail`, 而那支 view **照樣排除它**
+  //      ⇒ 📌 **客服照這句話等, 而那封信永遠不會寄。**
   [manualCancelNoticeResultCode('not_mixed_rail')]: {
-    text: '這張單沒有人工退款紀錄 —— 系統會自己寄取消信,不需要人工登錄。',
+    text:
+      '這張單沒有人工退款紀錄,所以不是「混合退款」那一類,這顆鈕不適用。' +
+      '⚠️ 而這【不表示】系統一定會自己寄 —— 自動寄還有別的條件(例如單上要有信箱)。' +
+      '客人若說沒收到,去看這張單的「通知信」那一區有沒有紀錄;沒有就找工程查。',
     tone: 'warn',
   },
   [manualCancelNoticeResultCode('already_recorded')]: {

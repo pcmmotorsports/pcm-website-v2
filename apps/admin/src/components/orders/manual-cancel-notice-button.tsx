@@ -59,7 +59,10 @@ export function ManualCancelNoticeButton({
         const email = new FormData(event.currentTarget).get('recipient_email');
         if (
           !window.confirm(
-            `確定要登錄「已人工寄出取消通知」嗎?\n\n收件人:${String(email ?? '')}\n\n` +
+            `確定要登錄「已人工寄出取消通知」嗎?\n\n` +
+              // 🔴 codex R3 nit ④:SOP 叫客服「看清楚是不是那張單」而框裡**沒有單號**
+              //    ⇒ 同一個客人有兩張合格單、信箱又一樣時, 兩個分頁的框**長得一模一樣**。
+              `訂單:${eligibility.displayId ?? orderId}\n收件人:${String(email ?? '')}\n\n` +
               '⚠️ 這個動作不可撤銷:登錄之後,系統就不會再把這張單列進「還沒寄」的提醒,' +
               '而後台目前沒有地方可以把它改回來。',
           )
