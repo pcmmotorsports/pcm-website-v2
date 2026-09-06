@@ -51,11 +51,56 @@ BEGIN
   IF pg_catalog.to_regclass('public.order_items') IS NULL
   THEN RAISE EXCEPTION '前置閘③:public.order_items 不存在'; END IF;
 
-  -- ④ 🔴 那張表【必須仍是零 policy】—— 本片的整個理由就是「不動它的安全姿態」。
-  --    若它已經有 policy, 表示有人走了甲那條路 ⇒ 停下來看一眼, 不要在一個我沒讀過的世界上疊東西。
-  IF (SELECT pg_catalog.count(*) FROM pg_catalog.pg_policy
-       WHERE polrelid = 'public.order_item_quantity_summary'::regclass) <> 0
-  THEN RAISE EXCEPTION '前置閘④:order_item_quantity_summary 已經有 policy ⇒ 有人開過權限, 停下來看一眼'; END IF;
+  -- ④ 🔴🔴 那張表的 policy 集合【必須恰好是那一條, 而且逐字對】。
+  --
+  --    ⛔ ~~原本寫「必須仍是零 policy」~~ **2026-09-07 作廢, 而它擋對了一次才被發現**:
+  --      Sean 說「貼 67」⇒ apply rc=1 ⇒ 本閘 RAISE ⇒ 交易回滾、正式庫零寫入、帳本沒動。
+  --      🎯 **閘沒有壞 —— 壞的是它的前提。**
+  --    🔬 過期的原因(開檔核過, 不是轉述):Sean 2026-09-04 Q-RLS 拍甲 ⇒
+  --      `20260904270000_m4b_rls_service_role_select_36.sql:340-346` 對每一張開了 RLS 的表
+  --      逐字跑 `CREATE POLICY %I ON public.%I FOR SELECT TO service_role USING (true)`,
+  --      而 `%I` 的名字逐字是 `r.relname || '_select_service_role'`
+  --      ⇒ 📌 **那一條是【全庫統一補的】, 不是有人單獨對這張表開了權限。**
+  --    🔬 2026-09-07 唯讀實測(`scripts/readonly-prod-sql.sh`, 零寫入):該表 `pg_policies`
+  --      **恰好 1 條** —— `order_item_quantity_summary_select_service_role` ·
+  --      `roles = {service_role}` · `cmd = SELECT` · `qual = true` · `with_check` 空。
+  --      🟢 正對照 `orders` 有 2 條 · ⚪ 負對照 假表名 0 條。
+  --
+  --    🛑 **而放寬與驗法【成對】, 不可只取前半**:不是改成「有 policy 也放行」,
+  --      是改成 **「集合恰好等於那一條, 名字/角色/cmd/qual 逐字相符」**。
+  --      多一條、少一條、名字不同、角色不是 `service_role`、`cmd` 不是 SELECT、`qual` 不是 `true`
+  --      ⇒ **一律照舊 RAISE**。理由沒有變:本片的整個前提是「不動那張表的安全姿態」,
+  --      而我要擋的是【有人真的替它開了另一扇門】, 不是【全庫統一補的那一條】。
+  DECLARE
+    v_pol_total int;
+    v_pol_match int;
+  BEGIN
+    -- 🔴 **一個 SELECT, 不是兩個**(codex 2026-09-07 must-fix ②):
+    --    兩個 SELECT 可能落在**不同的資料庫快照**上 ⇒ 兩個數各自為真而合起來描述一個不存在的世界。
+    --    另外兩處(事後閘⑤a / rollback 事後閘②)本來就是單一敘述 ⇒ 這一格改完三處才真的**等價**。
+    -- 🔴 **`permissive` 要比**(codex must-fix ①):名字/角色/cmd/qual 全對而它是 `RESTRICTIVE`,
+    --    語意完全不同(restrictive 是 AND 進去的額外限制)⇒ 不比它就會被放過。
+    -- 🔵 `roles` 直接比 `name[]`, 不比 `roles::text` —— 後者依賴陣列的文字格式(codex 提的更穩健寫法)。
+    -- ⛔ ~~`with_check IS NULL`~~ **拿掉了**:`FOR SELECT` 的 `with_check` **必然是 NULL**
+    --    ⇒ 那一格是**恆真**、零判別力, 而一個恆真的條件混在守門裡會被當成「又多守了一項」。
+    SELECT pg_catalog.count(*) FILTER (WHERE policyname = 'order_item_quantity_summary_select_service_role'
+                    AND permissive = 'PERMISSIVE'
+                    AND roles      = ARRAY['service_role']::pg_catalog.name[]
+                    AND cmd        = 'SELECT'
+                    AND qual       = 'true'),
+           pg_catalog.count(*)
+      INTO v_pol_match, v_pol_total
+      FROM pg_catalog.pg_policies
+     WHERE schemaname = 'public' AND tablename = 'order_item_quantity_summary';
+    IF v_pol_total <> 1 OR v_pol_match <> 1 THEN
+      RAISE EXCEPTION
+        '前置閘④:order_item_quantity_summary 的 policy 集合不是預期的那一條(總數 %, 逐字相符 %)。'
+        '預期 = 恰好 1 條 order_item_quantity_summary_select_service_role(TO service_role / SELECT / USING true),'
+        '那是 20260904270000 全庫統一補的。任何其他形狀 ⇒ 有人替這張表開了另一扇門 ⇒ 停下來看一眼,'
+        '不要在一個我沒讀過的世界上疊東西。',
+        v_pol_total, v_pol_match;
+    END IF;
+  END;
 
   -- ⑤ 本檔貼過了嗎
   IF pg_catalog.to_regprocedure('public.get_member_order_cancelled_quantities(uuid)') IS NOT NULL
@@ -181,9 +226,22 @@ BEGIN
   THEN RAISE EXCEPTION '事後閘④:函式上有預期外的 grantee ⇒ % ⇒ 停下來看一眼', v_bad; END IF;
 
   -- ⑤ 🔴 牆沒有被拆 —— 本片的整個承諾就是這一句。
-  IF (SELECT pg_catalog.count(*) FROM pg_catalog.pg_policy
-       WHERE polrelid = 'public.order_item_quantity_summary'::regclass) <> 0
-  THEN RAISE EXCEPTION '事後閘⑤a:那張表多了 policy ⇒ 本片不該碰它'; END IF;
+  --    🛑🛑 **本格與前置閘④是【成對】的:④ 問「動手前長什麼樣」, ⑤a 問「動手後有沒有變」。**
+  --      ⛔ ~~原本兩格都寫「必須零 policy」~~ 2026-09-07 一起改成「恰好那一條」——
+  --      📌 **只改前置閘會讓本格在 apply 的最後一步把整支回滾, 而那個紅看起來像另一回事。**
+  --      🔬 這一格是**實測撞到的**:我先只改了④, 拋棄式 PG 世界 A 仍然 rc=3,
+  --      紅在 `:245 事後閘⑤a` —— 🎯 **「放寬與驗法成對, 不可只取前半」的一次現場示範。**
+  --      判準與來源逐字同前置閘④(`20260904270000:340-346` 全庫統一補的那一條)。
+  -- 🔴 判準逐字同前置閘④(含 `permissive` 與 `name[]`;`with_check` 那格恆真已拿掉)。
+  IF (SELECT pg_catalog.count(*) <> 1
+             OR pg_catalog.count(*) FILTER (WHERE policyname = 'order_item_quantity_summary_select_service_role'
+                    AND permissive = 'PERMISSIVE'
+                    AND roles      = ARRAY['service_role']::pg_catalog.name[]
+                    AND cmd        = 'SELECT'
+                    AND qual       = 'true') <> 1
+        FROM pg_catalog.pg_policies
+       WHERE schemaname = 'public' AND tablename = 'order_item_quantity_summary')
+  THEN RAISE EXCEPTION '事後閘⑤a:那張表的 policy 集合不再是【恰好那一條 order_item_quantity_summary_select_service_role(PERMISSIVE / service_role / SELECT / true)】⇒ 本片動到了它不該動的東西 ⇒ 整支回滾'; END IF;
   IF pg_catalog.has_table_privilege('authenticated', 'public.order_item_quantity_summary', 'SELECT')
   THEN RAISE EXCEPTION '事後閘⑤b:authenticated 讀得到那張表 ⇒ 牆破了'; END IF;
   -- ⑤c 🔴 **RLS 開關本身也要問**(codex 2026-09-06 nit:⑤ 有盲區)——
