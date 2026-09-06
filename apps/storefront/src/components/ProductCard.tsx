@@ -20,7 +20,7 @@ import { MAX_QTY, useCart } from '@/contexts/CartContext';
 import { useFavorites } from '@/contexts/FavoritesContext';
 import { readSearchVehicle } from '@/lib/search-vehicle';
 import { Price } from './Price';
-import { formatCardFits } from './product-card-fits';
+import { formatCardFits } from '@/lib/product-card-fits';
 import { ProductImage } from './ProductImage';
 
 // 2026-08-12 拆檔(鐵則 6:本檔曾 360 行、過 300 警戒):圖區 `ProductImage` 與它三個
