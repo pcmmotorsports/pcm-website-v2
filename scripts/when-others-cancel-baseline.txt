@@ -1,0 +1,23 @@
+# when-others-cancel-gate 的 baseline —— 釘住【寫下這一刻已經犯規】的那些檔。
+# 🔴 它是【檔名】不是內容雜湊 ⇒ 有人把既有檔改壞, 本閘看不到。
+#    它守的是「不要長新的」, 不是「舊的沒有變壞」。
+# 產生方式:python3 scripts/when-others-cancel-gate.py --write-baseline(當下分母 370 支)
+# 🛑 修好一支之後【手動】把它從這裡刪掉 —— 本閘不自己改這個檔。
+20260531142534_govern_rls_auto_enable.sql
+20260817080000_m4b_628_revoke_maintain_brands_categories.sql
+20260820020000_m4b_e10_a8a3g_cancel_guard_sibling_dedup.sql
+20260820021000_m4b_e10_d1_record_manual_refund.sql
+20260828060000_m4b_b4cron6_expire_unpaid_orders_heartbeat.sql
+20260829170000_m4b_2b1_admin_coupon_list_view.sql
+20260831170000_m4b_sweepdead_heartbeat_stale_counts.sql
+20260901060000_m4b_e4_order_created_stuck_count.sql
+20260903080000_m4b_expire_unpaid_by_payment_channel.sql
+20260904160000_m4b_search_catalog_multi_category.sql
+20260904230000_m4b_noncardpaid_settle_and_expire_leg.sql
+20260905070000_m4b_pending_refund_on_late_payment.sql
+20260905140000_m4b_acl_drift_digest_table.sql
+20260905170000_m4b_acl_drift_status_and_approve.sql
+20260905260000_m4b_public_views_revoke_write_from_anon.sql
+20260905290000_m4b_pending_refund_open_failure_incident.sql
+20260905360000_m4b_pricecopytax_p2_manual_order_computes_tax.sql
+20260906600000_m4b_expire_day_boundary.sql
