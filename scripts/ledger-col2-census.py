@@ -11,7 +11,11 @@ import hashlib, io, os, sys, glob
 #    ⚠️ 本腳本不碰 git ⇒ 不需要剝 GIT_* 環境。
 
 REPO = os.path.expanduser("~/pcm-wt-db")
+# 🔴 `--ledger <path>`:pre-commit 那道閘餵的是【staged 那一份】, 不是工作樹那一份 ——
+#    兩者不同時, 讀工作樹會讓閘對「這一顆 commit 會不會讓數字過線」答錯。
 LEDGER = os.path.join(REPO, "supabase/APPLIED.tsv")
+if "--ledger" in sys.argv:
+    LEDGER = sys.argv[sys.argv.index("--ledger") + 1]
 BOARD_GLOBS = os.path.expanduser("~/pcm-mailbox/貼板-*/")
 
 def sha(p):
@@ -42,6 +46,23 @@ for line in io.open(LEDGER, encoding="utf-8"):
     if cands and sha(cands[0]) == want: repo_hit.append(ver); continue
     if want in board: board_hit.append((ver, os.path.basename(board[want][0]))); continue
     neither.append(ver)
+
+if "--gate" in sys.argv:
+    affected = len(board_hit) + len(neither)
+    total = len(repo_hit) + affected
+    if total != rows:
+        print(f"🔴 帳本第二欄普查:三格相加 {total} ≠ 資料列 {rows} ⇒ 這支尺自己壞了, 擋下"); sys.exit(1)
+    print(f"帳本第二欄普查(staged):資料列 {rows} · ① repo {len(repo_hit)} · ② 貼板 {len(board_hit)} "
+          f"· ③ 都不是 {len(neither)} · 貼板分母 {nfiles} 個檔")
+    if affected > 10:
+        print(f"🔴 ②+③ = {affected} > 10 ⇒ `⟦db-LEDGERSHADRIFT⟧` 的【乙】(帳本加第三欄)要重開。")
+        print( "   ② 的清單:" + " ".join(v for v, _ in sorted(board_hit)))
+        print( "   ③ 的清單:" + " ".join(sorted(neither)))
+        print( "   🛑 這不是「你這一顆寫錯了」—— 是**那一欄的兩種用途已經多到該分欄了**。")
+        print( "   確認過要先放行就用 git commit --no-verify, 並在 body 寫明理由。")
+        sys.exit(1)
+    print(f"   ✅ ②+③ = {affected} ≤ 10 ⇒ 維持甲。🛑 這只答【那一欄在量哪個東西】, 不答帳本對不對。")
+    sys.exit(0)
 
 if "--selftest" in sys.argv:
     ok = True
