@@ -82,13 +82,13 @@ trap 'cleanup; exit 143' TERM HUP
 #    🔬 數法:pre-commit 掛 19 支(`grep -cE '^\s*(sh|bash)\s+' .husky/pre-commit`);
 #      其中 harvest 已涵蓋 1(applied-ledger-dup)· 沒跑 18 · 而 18 裡 11 支讀 staged
 #      (merge 之後 staged 是空的 ⇒ 接進來會空轉)⇒ **接得動的是 7 支**。
-EXPECT_GATES='fw-live fw-json schemaexp ledger deploy install nextlink boarddup tc lint build test1 test2 splitcheck btest1 btest2 zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
+EXPECT_GATES='fw-live fw-json schemaexp whenothers ledger deploy install nextlink boarddup tc lint build test1 test2 splitcheck btest1 btest2 zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
 # 🟡 **只報不擋的那一族(⟦db-MERGEBLINDGATE⟧)** —— 它們**必須在 `EXPECT_GATES` 裡**(所以「少跑一支」抓得到),
 #    而 `verdict` **不把它們的 rc 算進放行判定**。
 # 🔴 **這個名單放在【判定函式看得到的地方】, 不是靠呼叫端記得用哪個 helper** ——
 #    下一個人把 `add_report` 改成 `add`, 這七道會默默變成會擋推的, 而沒有任何東西會說。
 #    ⇒ 📌 保證要住在判定裡。selftest ⑦c 就是量這一格。
-REPORT_ONLY='schemaexp zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
+REPORT_ONLY='schemaexp whenothers zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
 
 verdict() {
   local gates="$1" a="$2" b="$3" ba="$4" bb="$5" T="$6" F="$7" item name rc got n mt ft
@@ -303,6 +303,7 @@ if [ "${1:-}" = "--selftest" ]; then
   #    📌 它比別的更需要這一格:那支探針**本來的病就是「沒有人按下去」**
   #      ⇒ 一個「安靜地沒跑」與一個「跑了而綠」在 rc 上完全一樣(兩者都記 0)。
   ck "⑦b2 漏掉只報那族的一道(schemaexp)⇒ 3" "$(run "$(drop_one schemaexp)" "$SUM" "$SUM")" "3"
+  ck "⑦b3 漏掉只報那族的一道(whenothers)⇒ 3" "$(run "$(drop_one whenothers)" "$SUM" "$SUM")" "3"
   # ══ BD boarddup_verdict:四個世界(⟦ship-BINLOGGREP⟧, 主視窗 `-f1` 2026-09-07 裁)══════
   # 🔴 **BD-a 是這一組的骨**:log 裡**有一個半截的中文字元**(一個三位元組的字被按位元組切一半)——
   #    那正是本機 `grep` 把整支檔當成 binary 的觸發條件, 而**重複那句話仍然在檔裡**。
@@ -397,9 +398,10 @@ if [ "${1:-}" = "--selftest" ]; then
   #    ⛔ ~~本段原本只看 `$f = 0`~~ ⇒ 📌 **漏寫一格 `ck` 會印 `18 PASS / 0 FAIL` 而照樣「全部通過」。**
   #    🛑 **那正是本片在替收割鏈修的那個病**(兩發相同只證重現性, 證不了分母)—— 同型, 在自檢這一層。
   #    ⚠️ 加一格 `ck` 必同步改這個數;數法 = 跑一發看 `$p`。
-  EXPECT_CELLS=34   # 🟡 2026-09-06 +2:⑦b/⑦c(只報不擋那一族, ⟦db-MERGEBLINDGATE⟧)
+  EXPECT_CELLS=35   # 🟡 2026-09-06 +2:⑦b/⑦c(只報不擋那一族, ⟦db-MERGEBLINDGATE⟧)
                     # 🟡 2026-09-07 +1:⑦b2(schemaexp, ⟦0e-PROBENOSCHED⟧)
                     # 🟡 2026-09-07 +4:BD-a/b/c/d(boarddup_verdict, ⟦ship-BINLOGGREP⟧)
+                    # 🟡 2026-09-07 +1:⑦b3(whenothers, ⟦b4-NCPCANCELROLLBACK⟧)
                     #    ⚠️ 標號用 `BD-` 前綴而不是接數字 —— 這支自檢的 ⑧ 與 ⑨ 都已經被用過,
                     #    而我第一版就撞了一次(印出來兩格同號, 而【兩格都是對的】⇒ 沒有東西會叫)。
                     # 🔴 **先數格再填數字**:改前跑一發拿到 `PASS=30`, 才把 29 改成 30 ——
@@ -503,6 +505,16 @@ else
   say "   · schemaexp 讀數 PASS=$(grep -a -c 'PASS$' "$WORK/schemaexp.log") FAIL=$(grep -a -c 'FAIL$' "$WORK/schemaexp.log") (rc=$_se;3=真發現 1=工具自壞 2=用法錯)"
 fi
 add_report schemaexp "$_se"
+
+# ══ 🟡 whenothers:新 migration 的 catch-all 有沒有接 query_canceled(只報不擋)══════
+# 板列 ⟦b4-NCPCANCELROLLBACK⟧ + docs/plans/2026-09-07-when-others-unified-handling-plan.md
+# 主視窗 `-f1` 2026-09-07 批。baseline 釘現有 18 支 ⇒ **只對【新增】的叫**。
+# 🔴 **為什麼只報不擋**:現存 18 支會讓一道會擋的閘第一天就被關掉(本 repo「閘死於誤報」那一族)。
+# 🛑 **它守的是「不要長新的」, 不是「舊的沒有變壞」** —— baseline 是【檔名】不是內容雜湊。
+python3 scripts/when-others-cancel-gate.py > "$WORK/whenothers.log" 2>&1
+_wo=$?
+say "   · whenothers $(grep -a -m1 '犯規' "$WORK/whenothers.log" | sed 's/^ *//')"
+add_report whenothers "$_wo"
 if [ -f scripts/applied-ledger-dup-gate.py ]; then
   python3 scripts/applied-ledger-dup-gate.py > "$WORK/ledger.log" 2>&1; add ledger $?
 else
