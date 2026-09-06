@@ -277,3 +277,64 @@ describe('/products · 解析成膠囊之後 redirect', () => {
     expect(fetchCatalogPage).toHaveBeenCalledTimes(1);
   });
 });
+
+// 🔴🔴 **2026-09-06 R1 must-fix:`failed` 那條接線原本零守門。**
+//   ⛔ ~~第一版想 render 出 HTML 再比字串~~ ⇒ `ProductsPage` 是 client component、
+//     要 `useRouter` 一整套 ⇒ **那是把 harness 撐大, 不是把守門做對。**
+//   ✅ **改成【不渲染, 走元素樹】** —— route 回的是一棵 React element,
+//     那個 prop 有沒有被傳下去, 在樹上就問得到, 而它不需要瀏覽器也不需要 mock 半個 Next。
+//   🛑 **兩格成對** —— 少了負對照, 一個無條件為 true 的實作照樣過。
+describe('/products 的 vehicleTaxonomyFailed 接線(⟦search-TAXONOMYTIMEOUT⟧)', () => {
+  /** 在 route 回的元素樹裡找第一個帶 `vehicleTaxonomyFailed` 的 props。找不到 ⇒ undefined。 */
+  const findFailedProp = (node: unknown): boolean | undefined => {
+    if (!node || typeof node !== 'object') return undefined;
+    if (Array.isArray(node)) {
+      for (const n of node) {
+        const hit = findFailedProp(n);
+        if (hit !== undefined) return hit;
+      }
+      return undefined;
+    }
+    const props = (node as { props?: Record<string, unknown> }).props;
+    if (props && 'vehicleTaxonomyFailed' in props) return props.vehicleTaxonomyFailed as boolean;
+    return props ? findFailedProp(props.children) : undefined;
+  };
+
+  it('🔴 撈失敗 ⇒ 旗標真的被傳下去(true)', async () => {
+    vi.mocked(tryVehicleTaxonomy).mockResolvedValue({
+      motoBrands: [],
+      failed: true,
+    } as unknown as Awaited<ReturnType<typeof tryVehicleTaxonomy>>);
+    const tree = await ProductsRoute({ searchParams: Promise.resolve({}) } as never);
+    expect(findFailedProp(tree)).toBe(true);
+  });
+
+  it('🔵 負對照:沒失敗(清單空的也一樣)⇒ 傳下去的是 false, 不是恆真', async () => {
+    vi.mocked(tryVehicleTaxonomy).mockResolvedValue({
+      motoBrands: [],
+      failed: false,
+    } as unknown as Awaited<ReturnType<typeof tryVehicleTaxonomy>>);
+    const tree = await ProductsRoute({ searchParams: Promise.resolve({}) } as never);
+    expect(findFailedProp(tree)).toBe(false);
+  });
+
+  it('🟢 正對照:那把尺【找得到東西】—— 找一個不存在的 prop 名必須回 undefined', async () => {
+    // 🛑 少了這一格,「回 false」與「這棵樹上根本沒有那個 prop」分不開(後者也不是 true)。
+    const tree = await ProductsRoute({ searchParams: Promise.resolve({}) } as never);
+    const findAny = (node: unknown, key: string): unknown => {
+      if (!node || typeof node !== 'object') return undefined;
+      if (Array.isArray(node)) {
+        for (const n of node) {
+          const hit = findAny(n, key);
+          if (hit !== undefined) return hit;
+        }
+        return undefined;
+      }
+      const props = (node as { props?: Record<string, unknown> }).props;
+      if (props && key in props) return props[key];
+      return props ? findAny(props.children, key) : undefined;
+    };
+    expect(findAny(tree, 'zqNoSuchPropXY9')).toBeUndefined();
+    expect(findAny(tree, 'vehicleTaxonomyFailed')).not.toBeUndefined();
+  });
+});

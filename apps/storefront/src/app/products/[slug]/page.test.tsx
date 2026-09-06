@@ -21,8 +21,22 @@ const tryVehicleTaxonomy = vi.fn();
 const fetchProductByHandle = vi.fn();
 
 vi.mock('@/components/ProductPage', () => ({
-  ProductPage: function ProductPage({ motoBrands }: { motoBrands?: unknown[] }) {
-    return <div data-stub="pdp" data-moto-brands={String(motoBrands?.length ?? 'undefined')} />;
+  // 🔴 2026-09-06 R1 must-fix:stub 原本【只畫 motoBrands 不畫 failed】
+  //   ⇒ 四處把 `vehicleTaxonomyFailed` 寫死 `false` 也照樣全綠 ⇒ 那條接線零守門。
+  ProductPage: function ProductPage({
+    motoBrands,
+    vehicleTaxonomyFailed,
+  }: {
+    motoBrands?: unknown[];
+    vehicleTaxonomyFailed?: boolean;
+  }) {
+    return (
+      <div
+        data-stub="pdp"
+        data-moto-brands={String(motoBrands?.length ?? 'undefined')}
+        data-failed={String(vehicleTaxonomyFailed)}
+      />
+    );
   },
 }));
 vi.mock('@/lib/products', () => ({ fetchProductByHandle, tryVehicleTaxonomy }));
@@ -91,4 +105,32 @@ describe('PDP 的車款清單', () => {
     expect(html).toContain('data-stub="pdp"');
     expect(html).toContain('data-moto-brands="0"');
   });
+  // 🔴🔴 **2026-09-06 R1 must-fix:`failed` 那條接線原本零守門**(stub 只畫 motoBrands)。
+  //   PDP 這一支多一個【它獨有】的形狀要守:**略過分支必須回 `false`** ——
+  //   「這一頁不需要車款樹」與「撈失敗」是兩件事, 混在一起會讓沒有 fitments 的商品頁
+  //   對每一個客人都說「車款清單暫時無法載入」。
+  it('🔴 撈失敗(failed=true)⇒ 那個旗標【真的傳進 ProductPage】', async () => {
+    fetchProductByHandle.mockReset().mockResolvedValue(product([{ motoBrand: 'Honda' }]));
+    tryVehicleTaxonomy.mockReset().mockResolvedValue({ motoBrands: [], failed: true });
+    const html = renderToStaticMarkup(await call([{ motoBrand: 'Honda' }]));
+    expect(html).toContain('data-failed="true"');
+  });
+
+  it('🔵 負對照:沒失敗 ⇒ 傳下去的是 false, 不是恆真', async () => {
+    fetchProductByHandle.mockReset().mockResolvedValue(product([{ motoBrand: 'Honda' }]));
+    tryVehicleTaxonomy.mockReset().mockResolvedValue({ motoBrands: BRANDS, failed: false });
+    const html = renderToStaticMarkup(await call([{ motoBrand: 'Honda' }]));
+    expect(html).toContain('data-failed="false"');
+  });
+
+  it('🔴🔴 沒有 fitments 也沒有車款參數 ⇒ 根本不撈 ⇒ 旗標必須是 false(不是 undefined、不是 true)', async () => {
+    // 🛑 **這一格是 PDP 獨有的**:略過分支若回 `true` 或漏傳,
+    //    每一個沒有適用車款的商品頁都會對客人說「車款清單暫時無法載入」。
+    fetchProductByHandle.mockReset().mockResolvedValue(product([]));
+    tryVehicleTaxonomy.mockReset().mockResolvedValue({ motoBrands: [], failed: true });
+    const html = renderToStaticMarkup(await call([]));
+    expect(tryVehicleTaxonomy).not.toHaveBeenCalled();
+    expect(html).toContain('data-failed="false"');
+  });
+
 });

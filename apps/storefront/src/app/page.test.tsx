@@ -28,12 +28,15 @@ vi.mock('@/components/Header', () => ({
 //    ⇒ 空 fixture 會讓 N°03 整段不渲染,順序斷言就變成在比一個少一格的陣列 = 弱斷言。
 //    (第一版就是這樣、被本支自己的「八個都在」前提斷言抓出來,留著這段避免下一個人重踩。)
 //    這正是 memory `feedback_fixture-value-makes-guard-vacuous` 那一族。
+// 🔴 2026-09-06 R1 must-fix:改成可控的 `vi.fn` —— 原本寫死 `failed: false`,
+//   ⇒ route 把那個旗標寫死 `false` 也照樣全綠, 那條接線等於沒有守門。
+const tryVehicleTaxonomy = vi.fn(() => Promise.resolve({ motoBrands: [], failed: false }));
 vi.mock('@/lib/products', () => ({
   fetchFeaturedProducts: () => Promise.resolve({ products: [], error: false }),
   // 🔴 2026-09-06:route 改呼叫 tryVehicleTaxonomy(帶 failed)⇒ mock 要有它,
   //   而 fetchVehicleTaxonomy 留著(本檔其他地方仍可能用到, 拿掉是另一件事)。
   fetchVehicleTaxonomy: () => Promise.resolve([]),
-  tryVehicleTaxonomy: () => Promise.resolve({ motoBrands: [], failed: false }),
+  tryVehicleTaxonomy,
   fetchCategories: () =>
     Promise.resolve([
       { id: 'exhaust', name: '排氣系統', count: 12, children: [] },
@@ -377,5 +380,40 @@ describe('首頁 · 區塊順序(D5a)', () => {
       const b = order[i + 1]!;
       expect(DARK.has(a) && DARK.has(b), `${a} 與 ${b} 兩塊深色相鄰`).toBe(false);
     }
+  });
+});
+
+// 🔴🔴 **2026-09-06 R1 must-fix:`vehicleTaxonomyFailed` 那條接線的守門(首頁那一處)。**
+//   走**元素樹**不渲染 —— `VehicleFinder` 是 client component, 渲染它要一整套 mock,
+//   而「那個 prop 有沒有被傳下去」在樹上就問得到。形狀與 `products/page.test.tsx` 那支相同。
+describe('首頁的 vehicleTaxonomyFailed 接線(⟦search-TAXONOMYTIMEOUT⟧)', () => {
+  const findProp = (node: unknown, key: string): unknown => {
+    if (!node || typeof node !== 'object') return undefined;
+    if (Array.isArray(node)) {
+      for (const n of node) {
+        const hit = findProp(n, key);
+        if (hit !== undefined) return hit;
+      }
+      return undefined;
+    }
+    const props = (node as { props?: Record<string, unknown> }).props;
+    if (props && key in props) return props[key];
+    return props ? findProp(props.children, key) : undefined;
+  };
+
+  it('🔴 撈失敗 ⇒ 旗標真的被傳下去(true)', async () => {
+    tryVehicleTaxonomy.mockResolvedValueOnce({ motoBrands: [], failed: true });
+    expect(findProp(await HomePage({ searchParams: Promise.resolve({}) }), 'vehicleTaxonomyFailed')).toBe(true);
+  });
+
+  it('🔵 負對照:沒失敗 ⇒ 傳下去的是 false, 不是恆真', async () => {
+    tryVehicleTaxonomy.mockResolvedValueOnce({ motoBrands: [], failed: false });
+    expect(findProp(await HomePage({ searchParams: Promise.resolve({}) }), 'vehicleTaxonomyFailed')).toBe(false);
+  });
+
+  it('🟢 正對照:那把尺找得到東西 —— 現造的 prop 名必須回 undefined', async () => {
+    const tree = await HomePage({ searchParams: Promise.resolve({}) });
+    expect(findProp(tree, 'zqNoSuchPropXY9')).toBeUndefined();
+    expect(findProp(tree, 'vehicleTaxonomyFailed')).not.toBeUndefined();
   });
 });

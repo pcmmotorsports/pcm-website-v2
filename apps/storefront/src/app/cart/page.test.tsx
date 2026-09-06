@@ -23,8 +23,21 @@ const tryVehicleTaxonomy = vi.fn();
 // 🔴 `CartView` 是 client component ⇒ stub 掉, 而**把它收到的 motoBrands 筆數畫出來**
 //    —— 少了這一步, 「taxonomy 有沒有真的傳進去」就只能靠讀原始碼(那是文字層, 擋不住行為改動)。
 vi.mock('@/components/CartView', () => ({
-  CartView: function CartView({ motoBrands }: { motoBrands?: unknown[] }) {
-    return <div data-stub="cart-view" data-moto-brands={String(motoBrands?.length ?? 'undefined')} />;
+  // 🔴 2026-09-06 R1 must-fix:stub 原本【只畫 motoBrands 不畫 failed】⇒ 那條接線零守門。
+  CartView: function CartView({
+    motoBrands,
+    vehicleTaxonomyFailed,
+  }: {
+    motoBrands?: unknown[];
+    vehicleTaxonomyFailed?: boolean;
+  }) {
+    return (
+      <div
+        data-stub="cart-view"
+        data-moto-brands={String(motoBrands?.length ?? 'undefined')}
+        data-failed={String(vehicleTaxonomyFailed)}
+      />
+    );
   },
 }));
 vi.mock('@/lib/products', () => ({ tryVehicleTaxonomy }));
@@ -53,8 +66,9 @@ describe('/cart 的車款清單', () => {
     expect(tryVehicleTaxonomy).toHaveBeenCalledTimes(1);
   });
 
-  it('🔴 taxonomy 回空(它自己 catch 掉失敗時就是這樣)⇒ 頁面【仍然要渲染】', async () => {
-    // 🔵 `tryVehicleTaxonomy` 撈失敗會回 `[]` ⇒ 這一格是「車款清單掛了, 而購物車照樣打得開」。
+  it('🔴 taxonomy 是【真的空】(不是掛了)⇒ 頁面仍然要渲染', async () => {
+    // ⛔ ~~舊註解:「撈失敗會回 [] ⇒ 這一格是【車款清單掛了】」~~ ⇒ 🔴 **2026-09-06 起那句不成立**
+    //   (R1 nit):`failed: false` 現在的意思是「**真的沒有**」;「掛了」是 `failed: true`, 見下面兩格。
     tryVehicleTaxonomy.mockReset().mockResolvedValue({ motoBrands: [], failed: false });
     const html = renderToStaticMarkup(await CartRoute());
     expect(html).toContain('data-stub="cart-view"');
@@ -68,4 +82,19 @@ describe('/cart 的車款清單', () => {
     await CartRoute();
     expect(tryVehicleTaxonomy).toHaveBeenCalled();
   });
+  // 🔴🔴 **2026-09-06 R1 must-fix:`failed` 那條接線【原本零守門】** ——
+  //   stub 只畫 `motoBrands` 不畫 `failed` ⇒ route 把 `vehicleTaxonomyFailed` 寫死 `false` 也全綠。
+  //   ⇒ 這兩格【成對】:少了負對照那格, 一個寫死 `true` 的實作照樣過。
+  it('🔴 撈失敗(failed=true)⇒ 那個旗標【真的傳進 CartView】', async () => {
+    tryVehicleTaxonomy.mockReset().mockResolvedValue({ motoBrands: [], failed: true });
+    const html = renderToStaticMarkup(await CartRoute());
+    expect(html).toContain('data-failed="true"');
+  });
+
+  it('🔵 負對照:沒失敗(failed=false)⇒ 傳下去的是 false, 不是恆真', async () => {
+    tryVehicleTaxonomy.mockReset().mockResolvedValue({ motoBrands: BRANDS, failed: false });
+    const html = renderToStaticMarkup(await CartRoute());
+    expect(html).toContain('data-failed="false"');
+  });
+
 });

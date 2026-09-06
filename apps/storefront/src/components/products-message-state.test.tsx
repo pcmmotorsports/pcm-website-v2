@@ -16,10 +16,25 @@ describe('車款讀不到那句話 · 單一定義點(⟦search-TAXONOMYTIMEOUT�
   // 🔴 **用 `git grep -l` 數【檔】不是數行** —— 同一支檔裡出現兩次仍是一個定義點。
   // 🛑 **排除 `.test.` 是【必要的】而且要講明**:本檔自己就含那個字面
   //    ⇒ 不排除的話這一格會被自己的存在弄紅, 而那個紅什麼都沒證明。
-  const nonTestFilesContaining = (literal: string): string[] =>
-    execFileSync('git', ['grep', '-l', '--', literal, 'apps', 'packages'], { encoding: 'utf8' })
-      .split('\n')
-      .filter((f) => f !== '' && !f.includes('.test.'));
+  const nonTestFilesContaining = (literal: string): string[] => {
+    let out: string;
+    try {
+      out = execFileSync('git', ['grep', '-l', '--', literal, 'apps', 'packages'], {
+        encoding: 'utf8',
+      });
+    } catch (err) {
+      // 🔴🔴 **`git grep` 查無時 rc=1** —— 而「查無」是本函式的**正常回答之一**, 不是故障。
+      //   ⛔ ~~初版把負對照寫成 `expect(...).toThrow()`~~ ⇒ 🔴 **那個綠只在【這支檔還沒被 git 追蹤】的世界成立**:
+      //     負對照那個現造字面**住在這支檔自己裡**, `git add` 之後 `git grep` 就命中它 ⇒ 不再 throw ⇒ **那一格落地即紅**。
+      //     (2026-09-06 code-reviewer R1 Critical;我 commit 前量到的「紅 0」是 **add 之前**的讀數。)
+      //   ✅ **修法不是換一個字面** —— 換了下一次照樣被自己追蹤。改成**認 rc**:
+      //     rc=1 且 stdout 空 ⇒ 那就是「零支」;其餘 rc 才是真的壞了(例如根本不在 git 樹裡)⇒ 照樣往上丟。
+      const e = err as { status?: number; stdout?: unknown };
+      if (e.status === 1 && String(e.stdout ?? '') === '') return [];
+      throw err;
+    }
+    return out.split('\n').filter((f) => f !== '' && !f.includes('.test.'));
+  };
 
   it('🔴 非測試檔裡只有一支含那個字面, 而它就是定義處', () => {
     expect(nonTestFilesContaining(VEHICLE_TAXONOMY_UNAVAILABLE)).toEqual([
@@ -32,9 +47,15 @@ describe('車款讀不到那句話 · 單一定義點(⟦search-TAXONOMYTIMEOUT�
     expect(nonTestFilesContaining('motoBrands').length).toBeGreaterThan(3);
   });
 
-  it('🔵 負對照:現造一個不存在的字面 ⇒ 零支', () => {
-    // 🔴 `git grep` 查無時 rc=1 ⇒ execFileSync 會 throw, 那正是「零支」的形狀。
-    expect(() => nonTestFilesContaining('zqTaxonomyNopeXY7')).toThrow();
+  it('🔵 負對照:一個【全 repo 都沒有】的現造字面 ⇒ 零支', () => {
+    // 🛑 這個字面**組出來、不寫成完整字面**, 否則它會被自己這一行追蹤到(見上面那段訃聞)。
+    expect(nonTestFilesContaining(['zq', 'Taxonomy', 'Nope', 'XY9'].join(''))).toEqual([]);
+  });
+
+  it('🔵 第二個負對照:一個【只住在測試檔裡】的字面 ⇒ 也是零支(證明 .test. 那道過濾在動)', () => {
+    // 🔴 這一格與上一格**不是同一件事**:上一格證「查無 ⇒ 零支」, 這一格證「有而在測試檔 ⇒ 仍是零支」。
+    //   少了它, 把 `.test.` 過濾拿掉時上一格照樣綠。
+    expect(nonTestFilesContaining('第二個負對照:一個【只住在測試檔裡】的字面')).toEqual([]);
   });
 });
 
