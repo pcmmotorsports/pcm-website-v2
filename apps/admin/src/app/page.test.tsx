@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   loadCronHeartbeats: vi.fn(),
   loadDeadLetterCount: vi.fn(),
   loadStuckPaymentCount: vi.fn(),
+  loadReleasedStuckCount: vi.fn(),
 }));
 vi.mock('../lib/session/actor-actions', () => ({ selectActorAction: vi.fn() }));
 vi.mock('../lib/session/actor', () => ({
@@ -51,6 +52,11 @@ vi.mock('../lib/mail/dead-letter-count-read', async (orig) => ({
 vi.mock('../lib/dashboard/stuck-payment-read', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   loadStuckPaymentCount: mocks.loadStuckPaymentCount,
+  // 🔴🔴 **這一行沒補之前, 26 格會叫【真的】那支 `loadReleasedStuckCount`**
+  //    ⇒ 它呼 `createSupabaseServiceClient()`(缺 env 就拋)⇒ 被首頁的 `allSettled` 接住
+  //    ⇒ **安靜落成「量不到」而 26 格照樣全綠**;env 若在, 測試會打真的 Supabase。
+  //    📌 **那正是本檔 `⟦b4-FIT1⟧` 那一格自己寫下的坑, 而我在同一支檔上又踩了一次。**
+  loadReleasedStuckCount: mocks.loadReleasedStuckCount,
 }));
 vi.mock('../lib/dashboard/cron-heartbeat-read', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
@@ -90,6 +96,7 @@ beforeEach(() => {
   mocks.loadFitmentFreshness.mockResolvedValue({ hoursAgo: 24, stale: false, abnormal: false, unreadableReason: null });
   // 🔵 預設【零張】—— 而這個預設值本身就是本片的重點:零張要印 0, 不是不印。
   mocks.loadStuckPaymentCount.mockResolvedValue({ count: 0, unreadableReason: null });
+  mocks.loadReleasedStuckCount.mockResolvedValue({ count: 0, unreadableReason: null });
   mocks.loadDeadLetterCount.mockResolvedValue({
     total: 0,
     dead: 0,
@@ -206,6 +213,54 @@ describe('AdminHomePage', () => {
     expect(el?.className).toContain('text-destructive');
     // 失敗隔離:它掛掉不得把隔壁那些行帶走
     expect(container.textContent).toContain('供應商資料最後更新:3 小時前');
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // ⟦b9-RELEASEDSTALL1⟧ 顯示層三格(2026-09-06;code-reviewer R1 must-fix:本來零格)
+  //
+  // 🔴🔴 **為什麼模組層那三格不夠**:那三格證得了「函式回幾」, **證不到「畫面上有那一行」** ——
+  //    而這一整片要防的病正好住在那個縫裡:**數字算出來了, 而沒有人的眼睛看得到它。**
+  //    📌 形狀照前一顆同型片 `be2a6367c` 抄, 不自創第二種寫法。
+  // ══════════════════════════════════════════════════════════════════════
+  it('🔴🔴 released 零張 ⇒ 畫面上【印「0 張」】而不是消失', async () => {
+    const { container } = render(await AdminHomePage());
+    const el = container.querySelector('[data-testid="released-stuck-count"]');
+    expect(el).not.toBeNull();
+    expect(el?.textContent).toBe('3DS 釋鎖後待人工:0 張');
+    // 🔴 零張是好消息 ⇒ 灰的。而它【還是印出來了】—— 那才是重點。
+    expect(el?.className).toContain('text-muted-foreground');
+  });
+
+  it('🔴 released 有卡單 ⇒ 同一行轉警示色(而字照樣在)', async () => {
+    mocks.loadReleasedStuckCount.mockResolvedValue({ count: 2, unreadableReason: null });
+    const { container } = render(await AdminHomePage());
+    const el = container.querySelector('[data-testid="released-stuck-count"]');
+    expect(el?.textContent).toBe('3DS 釋鎖後待人工:2 張');
+    expect(el?.className).toContain('text-destructive');
+    // 🔴 而【隔壁那一行不受影響】—— 兩個數各自獨立, 這一格是它在顯示層的證據。
+    expect(container.querySelector('[data-testid="stuck-payment-count"]')?.textContent).toBe(
+      '扣款重試已放棄:0 張',
+    );
+  });
+
+  it('🔴🔴 released 那支拋錯 ⇒ 印「量不到」並【亮燈】, 而不是印 0 也不是留白', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.loadReleasedStuckCount.mockRejectedValue(new Error('boom'));
+
+    const { container } = render(await AdminHomePage());
+
+    const el = container.querySelector('[data-testid="released-stuck-count"]');
+    expect(el?.textContent).toContain('量不到');
+    expect(el?.textContent?.trim()).not.toBe('');
+    // 🔴 這一格最重:**「量不到」不可以長得像「0 張」**。
+    expect(el?.textContent).not.toContain('0 張');
+    expect(el?.className).toContain('text-destructive');
+    // 失敗隔離:它掛掉不得把隔壁那一行帶走
+    expect(container.querySelector('[data-testid="stuck-payment-count"]')?.textContent).toBe(
+      '扣款重試已放棄:0 張',
+    );
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
   });

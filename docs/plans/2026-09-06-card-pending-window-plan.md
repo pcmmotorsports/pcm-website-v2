@@ -1,6 +1,11 @@
 # Plan · 3DS pending 窗口 ⟦b4-CARDPENDINGWINDOW⟧ —— 線【帳號】`account` 2026-09-06
 
-> **狀態:等主視窗批。批了才動。本檔零碼改動。**
+> **狀態(2026-09-06 更新):`-f8` 已裁 Q-pending1=乙 / 2=甲 / 3=甲 / 4=3 支 ⇒ **實作已完成並過 codex R1**。**
+> ⛔ ~~等主視窗批。批了才動。本檔零碼改動。~~ **作廢**(codex R1 nit:四個實作產物已存在, 而本行還寫著零碼改動)。
+> 產物:`supabase/migrations/20260906700000_m4b_card_success_supersedes_bank.sql`(貼板 54)·
+> `docs/specs/2026-09-06-card-success-supersede-ROLLBACK.sql`(54r)·
+> `supabase/after-checks/20260906700000-card-success-supersede-reconcile.sql`(54b)·
+> `scripts/probe-card-success-supersede.sh`。**SQL 還沒貼進正式庫** ⇒ 行為零改變。
 > 觸發:板列 `docs/launch-todo.md:341` `⟦b4-CARDPENDINGWINDOW⟧`(`-f8` 2026-09-06 裁【甲】把它從 `20260906500000` 分出來)。
 
 ## 0. 🔴 接單第一動:重數範圍 —— **條目的數字對不上,要先更正**
@@ -53,7 +58,56 @@ pcm_sync_order_refund_payment_status  SET payment_status = v_target::public.paym
 **Trigger 那一半**:`orders` / `payment_charge_attempts` / `order_payments` 上共 **9** 個非內部 trigger,
 逐個看 `pg_get_triggerdef` ⇒ 沒有一個的函式出現在上面兩張寫入清單裡。
 
-⇒ ✅ **結論:刷卡成功入口 = 3 支,`-f8` 可以據此批動碼那一步。**
+## 0-c. 🔴🔴 **第 1b 步(`-f8` 加問的呼叫端)—— 它把 §0-b 的結論改窄了**
+
+`-f8` 要我證「刷卡成功那條路**不會**經過那兩支變數寫入端」。**量下去的答案是【會】。**
+
+**證據鏈(每一段都是對正式庫唯讀量到的逐字,不是推的)**
+```
+① confirm_order_payment 會寫 order_payments —— 逐字:
+   INSERTINTOpublic.order_payments(order_id,rail,amount,received_at,rec_trade_id,actor)
+   VALUES(p_order_id,'card',v_…                      ← rail='card' ⇒ 這就是刷卡那一腿
+② order_payments 上有 AFTER INSERT trigger(pg_get_triggerdef 逐字):
+   CREATE TRIGGER pcm_noncard_settle_after_payment_ai AFTER INSERT ON public.order_payments
+   FOR EACH ROW EXECUTE FUNCTION pcm_noncard_settle_after_payment()
+③ pcm_noncard_settle_after_payment 的 prosrc 含 pcm_noncard_settle_recompute ⇒ 它叫它
+④ pcm_noncard_settle_recompute 逐字:
+   IFv_verdict='settled'THENv_new:='paid'::public.payment_status;
+   …THENUPDATEpublic.ordersoSETpayment_status=v_new,paid_at=CASEWHENv_new='paid'…
+   ⇒ 🔴 **v_new 真的可以是 'paid'** —— §0-b 標「未確認」的那一格, 現在確認了。
+```
+⇒ 📌 **刷卡成功 → `confirm_order_payment` → 寫 `order_payments`(card 腿)→ trigger → recompute → 可寫 `paid`。**
+
+**其他呼叫端(同一發量到,帶正負對照)**
+| 被叫的 | 呼叫端 |
+|---|---|
+| `pcm_noncard_settle_recompute` | `pcm_noncard_settle_after_payment`(trigger)· `pcm_settle_retry_sweep`(cron 掃) |
+| `pcm_sync_order_refund_payment_status` | `admin_correct_order_refund_verdict` · `admin_finalize_order_refund` · `admin_record_manual_refund` · `admin_void_manual_refund`(四支都是**員工退款**路徑) |
+🟢 正對照:同一把尺找 `payment_charge_attempts` ⇒ **20** 支(不是 0);🔵 負對照:現造函式名 ⇒ **0**。
+
+### 🔴 而這帶出一個【定義題】,不是我可以自己決定的
+「入口」有兩種讀法,而它們給出不同的數:
+```
+讀法甲「誰把訂單變成已付款」          ⇒ 5 支(3 支 + recompute + sync_refund_status)
+讀法乙「刷卡成功這個事件從哪裡進系統」⇒ 3 支(recompute 在 confirm_order_payment 的【下游】,
+                                        不是另一條到達刷卡成功的路)
+```
+- 🛑 **若照甲把 supersede 也放進 recompute** ⇒ 它會在**匯款/現金收款**時也觸發
+  (那條路同樣走 `order_payments` INSERT)⇒ 📌 **那是在改另一件事的行為, 而沒有人拍過。**
+- 🔵 若照乙 ⇒ 覆蓋那 3 支就涵蓋了刷卡那條路(`confirm_order_payment` 本來就在裡面)。
+- ⇒ **我推薦乙**,理由是**射程**:本片的題目是「刷卡 pending 那段窗口」,不是「所有讓訂單變成已付款的路」。
+  而甲那一半正好是 `-f8` 已經裁去另一片的 **Q-pending2(M2)**。
+
+### 🔵 順帶:`20260810170000:32` 那句失效條件 —— **現在證實成立**
+該行逐字:「失效條件:出現第四支會寫 `payment_charge_attempts.status='charged'` 或 `orders.payment_status='paid'` 的物件。」
+⇒ `pcm_noncard_settle_recompute` 就是那個第四支(④ 那段逐字是證據)。
+⇒ `-f8` 提的訂正方向(把該句改成「寫死 `charged`/`paid` 的函式」)**不成立** —— recompute 不是寫死字面,
+   而它**真的會寫 `paid`** ⇒ 訂正要改的是**別的地方**:那句話本身沒錯,是**它已經被觸發了**。
+
+---
+
+⛔ ~~**結論:刷卡成功入口 = 3 支,`-f8` 可以據此批動碼那一步。**~~ **改寫(見 §0-c)**:
+✅ **照讀法乙 ⇒ 3 支;照讀法甲 ⇒ 5 支。這一題等 `-f8` 裁,裁完才動碼。**
 
 ---
 
