@@ -142,7 +142,8 @@ function countToneClass(c: StuckPaymentCount): string {
 }
 
 export default async function AdminHomePage() {
-  // 🔴 ~~三支~~ ⇒ **六支**(2026-09-01 `⟦b4-FIT1⟧` 加第六支)**併發**、不串行(R2 nit4):
+  // 🔴 ~~三支~~ ⇒ ~~**六支**~~ ⇒ **九支**(2026-09-06 `⟦b9-RELEASEDSTALL1⟧` 加第九支)**併發**、不串行(R2 nit4):
+  //    🔬 當場數法:`Promise.allSettled([...])` 那一段裡的呼叫行數 ⇒ **9**(loader 7 + 兩支 actor/staff)。
   //    彼此無依賴,串著跑等於白等 round-trip,
   //    而這是每次進站都跑的首頁。
   // 🔴 用 `allSettled` 不用 `all`:`all` 會讓對帳的失敗直接吃掉另外兩支的結果 —— 那正是 MF6 要擋的事。
