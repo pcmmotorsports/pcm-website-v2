@@ -929,6 +929,24 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
     readonly tableExists: boolean;
     readonly lastRowAt: string | null;
     readonly anonCanExecute: boolean | null;
+    /**
+     * 🟡 **第六欄(2026-09-06 `-auth`;主視窗 `-f1` 裁甲)—— 而它【是估計值, 不是列數】。**
+     *   來源 = `pg_class.reltuples`。**不動 schema、不寫入**:只多一句唯讀 SELECT。
+     *
+     * 🔴🔴 **兩個量到的事實決定了它只能當【告警】不能當【閘】**
+     *   (拋棄式 PG 17.10 實測, 表結構逐字取自 `20260904200000`;讀數見
+     *    `~/pcm-mailbox/auth-012-STOP.md`):
+     *   ① **從未 analyze 時它是 `-1`, 不是 0** ⇒ 寫成 `if (est > CAP)` 的閘在那個狀態
+     *      **整個放行**;而「剛建表 / 剛 restore / 剛 TRUNCATE」都是那個狀態。
+     *   ② **誤差方向是【低估】**:autovacuum 關掉時灌到 10,000 而它停在 1,000(低估 90%);
+     *      autovacuum 開著也一樣 —— 基準 1,000 之後一次灌 5,000, **整整 60 秒它一動不動**
+     *      (低估 83%), 第 75 秒才追上。
+     *      ⇒ 🛑 **它最落後的那一分鐘, 正好是這張表被灌爆的當下。**
+     *
+     * ⇒ 📌 **所以上層印字面時【不得】寫成「這張表有 N 列」** —— 要說它是估計、可能低估。
+     *   `-1`(從未 analyze)在這裡回 `null`, 與「表不在」一樣走【不告警】那條路。
+     */
+    readonly rowsEstimate: number | null;
   } | null> {
     return this.run(async (client) => {
       try {
@@ -961,10 +979,24 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         if (anon !== null && typeof anon !== 'boolean') {
           throw new AnomalyAlertReaderParseError(`${RPC_SEARCH_LOG_HEALTH} anon_can_execute 異常`);
         }
+        // 🟡 第六欄:`reltuples` 是**唯讀**的目錄欄, 不需要動 schema、不需要新 RPC。
+        //    🔴 `to_regclass` 而不是 `'…'::regclass` —— 後者在表不存在時**丟例外**,
+        //       而「表還沒貼」是這一族**預期中**的世界(`tableExists=false` 那條路)。
+        //    🔴 `reltuples < 0`(= -1, 從未 analyze)⇒ 回 `null`, **不要回 -1**:
+        //       一個負數往上傳, 每一個比大小的地方都要記得處理它, 而總有一處會忘。
+        const est = await client.query(
+          `SELECT CASE WHEN to_regclass('public.search_queries') IS NULL THEN NULL
+                       ELSE (SELECT reltuples FROM pg_class
+                              WHERE oid = to_regclass('public.search_queries')) END AS n`,
+          [],
+        );
+        const rawEst = est.rows[0]?.n;
+        const estNum = rawEst === null || rawEst === undefined ? null : Number(rawEst);
         return {
           tableExists: bag.table_exists,
           lastRowAt: last ?? null,
           anonCanExecute: anon ?? null,
+          rowsEstimate: estNum === null || Number.isNaN(estNum) || estNum < 0 ? null : estNum,
         };
       } catch (err) {
         if ((err as { code?: unknown } | null)?.code !== UNDEFINED_FUNCTION) throw err;

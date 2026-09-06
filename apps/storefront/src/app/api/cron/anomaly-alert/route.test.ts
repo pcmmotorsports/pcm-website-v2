@@ -156,6 +156,9 @@ const CLEAN_RESULT: CheckAnomalyAlertsResult = {
   searchLogTableExists: null,
   searchLogLastRowAt: null,
   searchLogStale: false,
+  /** 🟡 第六欄(2026-09-06):`null` = 表不在 / 從未 analyze ⇒ 不告警(這一族既有的那條路)。 */
+  searchLogRowsEstimate: null,
+  searchLogRowsHigh: false,
   syncStaleOpen: 0,
   syncStaleSuppliers: [],
   syncOpenRecent: 0,
@@ -372,6 +375,14 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
   it('checkAnomalyAlerts 收 route 端常數 refundingStuckSeconds=86400 + pending 雙扣窗 12h/卡住 10min', async () => {
     await GET(makeReq(bearer()));
     expect(checkSpy).toHaveBeenCalledWith(expect.anything(), {
+      /**
+       * 🟡 **搜尋語料表列數告警門檻(2026-09-06;主視窗 `-f1` 裁 5,000)。**
+       *   ✅ **這一格又是被上面那道【完整物件比對】逼出來的** —— 我加 option 的時候它紅了。
+       *   本檔沒設 `SEARCH_LOG_ROWS_ALERT` ⇒ 走預設 5000。
+       *   🔬 5,000 的依據:線【資料】`-03` 2026-09-06 正式庫唯讀單發 —— 總 36 列 / 24h 28 列
+       *     ⇒ 5,000 ≈ 半年正常量 ⇒ 一天內到得了的只有灌入。
+       */
+      searchLogRowsAlertThreshold: 5000,
       refundingStuckSeconds: 86400,
       pendingDoubleChargeWindowSeconds: 43200,
       pendingDoubleChargeStuckSeconds: 600,
