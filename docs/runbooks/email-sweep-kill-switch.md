@@ -110,6 +110,26 @@ SELECT cron.schedule(
 **慢速大量**:每輪 19 封、連續好幾小時 ⇒ **每一輪都合法**, 而總量一樣很大。
 修法是累計視窗, 本片沒做 ⇒ 板列 `⟦mail-ENQUEUEBATCHCAP⟧`。
 
+## 🔴 死信怎麼救(含 2026-09-07 甲-7 新增的那一族)
+
+**`prepare_failed` 的死信救得回來, 而那條路早就在。**
+
+⟦b4-EMAILTRIAGE⟧ 甲-7 起, 送信【之前】就失敗的那一列會被放回 `failed` + `prepare_failed`
++ 指數退避的 `next_retry_at`。⚠️ **代價**:`attempts` 不退回 ⇒ 反覆撞同一個故障會**比以前更早**
+用完 `max_attempts`(約第 75 分鐘, 舊版約第 5 小時)⇒ 那一列變成死信。
+
+✅ **出口**:`admin_requeue_dead_email(<outbox_id>)` —— 逐格開檔核過(`20260831040000`):
+- 它只收 `status IN ('pending','failed')`(`:120`)⇒ **`prepare_failed` 的死信是 `failed` ⇒ 收**
+- 它把那一列翻成 `status='pending'` · **`attempts = 0`** · `claimed_at = NULL`
+  · `next_retry_at = now()` · `last_error_code = NULL`(`:136-141`)
+  ⇒ 🔵 **`attempts` 真的歸零** —— 不歸零的話翻回 pending 也沒用(`claimDue` 的述詞是 `attempts < max_attempts`)
+- 🛑 它**拒絕**「還沒放棄」的列(`attempts < max_attempts` ⇒ RAISE, `:128`)——
+  那不是壞掉, 是它在說「sweeper 本來就會再試, 不用你動手」
+
+🛑 **而救回來【不會】讓故障消失** —— 如果 context 還是讀不到, 它會再走一遍同一條路。
+   ⇒ 📌 **先把故障修好, 再救死信。** 順序反了只是把 5 次嘗試再燒一遍。
+🔗 「prepare 失敗要不要吃掉 attempt」是一題改善題(要 schema 或第二個計數器)⇒ 板列 `⟦mail-PREPAREBUDGET⟧`。
+
 ## 🛑 這一頁證不到什麼
 
 - **我沒有實際停過它** —— 上面每一句都是開檔核出來的(migration 逐字 + claim 條件 + 零刪除路徑),
