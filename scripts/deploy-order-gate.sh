@@ -104,6 +104,9 @@ export LC_ALL=C
 #    推 feature branch / 推 tag 時本閘刻意不看(只看 dev 與 main),
 #    此時若印「0 blocked」會被讀成「檢查過、乾淨」——那正是本閘要避免的那種沉默。
 REF_N=0; PENDING_N=0
+# 🔵 修法 2 用(⟦db-DOGBLINDBRANCH⟧):分支掃描要有「被推的那棵樹」當分母。
+#    🛑 多 ref 時它是【最後一個被檢查的 ref】—— 那個限制寫在報告裡, 不藏。
+PUSHED_SHA=""
 # 🔵 2026-09-01 加(主視窗批):REF_N=0 時把【收到的原始 stdin】原封留一份。
 #    成因:第十三批一發 non-ff 被拒的 push, 閘印「未檢查任何 ref」而沒有留下它到底收到什麼
 #    ⇒ 只能事後推。本機四個世界重現不出那個空 stdin(non-ff / --force 都給 114 bytes;
@@ -111,6 +114,55 @@ REF_N=0; PENDING_N=0
 #    🔴 這一段不下判斷、不改行為 —— 它只讓【下一次】自己留下證據。
 GATE_STDIN="$(mktemp -t dogstdin 2>/dev/null || echo /tmp/dogstdin.$$)"
 trap 'rm -f "$GATE_STDIN"' EXIT
+# ── 🔵 修法 2(⟦db-DOGBLINDBRANCH⟧):把「別條 `agent/line-*` 分支上有、被推的那棵樹沒有」的
+#    migration 列出來當【警告】。🛑 **rc 一格不動** —— 它不讓盲區世界變成擋,
+#    它讓那個世界**說得出自己是誰**(修法 1 只說「我沒去看」,這一段說「我去看了, 看到這些」)。
+#
+# 🛑 **它答不出什麼**(跟著輸出一起印, 不要只寫在這裡):
+#    · 這是**一個時點的快照** —— 那些分支隨時在動, 掃完到你按下 enter 之間就可能變。
+#    · 射程 = **這個 checkout 看得見的 ref**。別台機器、沒 fetch 的 remote,不在裡面。
+#    · 它比的是**檔名**, 不比內容 ⇒ **同名檔在別條分支被改過, 它不會叫**。
+#    · 它**不判斷有沒有關係** —— 要判, 看 BLOCKED 那幾行點名的函式/view 在不在那些檔裡。
+BLIND_BRANCH_GLOB="${BLIND_BRANCH_GLOB:-refs/heads/agent/line-*}"
+blind_branch_report() {  # $1 = 被推的那棵樹的 rev
+  local rev="${1:-}" tmp them n
+  [ -n "$rev" ] || return 0
+  tmp="$(mktemp -t dogblind 2>/dev/null)" || return 0
+  if ! git ls-tree --name-only "$rev" supabase/migrations/ 2>/dev/null \
+       | sed 's#.*/##' | sort -u > "$tmp"; then
+    rm -f "$tmp"; return 0
+  fi
+  # 🔴 `grep -vxF -f <空檔>` 會把**每一行都印出來** ⇒ 空分母必須自己講, 不能讓它默默噴一整張表。
+  if [ ! -s "$tmp" ]; then
+    echo "gate:    ⇒ 被推的那棵樹一支 migration 都沒有 ⇒ 分支掃描沒有分母, 這一發不報。" >&2
+    rm -f "$tmp"; return 0
+  fi
+  # 🔴 分支名走 `awk -v` 而不是塞進 `sed` 的取代字串。
+  #    **git 真的接受 `&`**(實跑:`git check-ref-format 'refs/heads/agent/line-a&b'` ⇒ rc=0),
+  #    而 `sed` 的取代字串裡 `&` = 整個 match,**這裡的 match 是 `$` = 空字串**
+  #    ⇒ 那個字元**靜靜消失**、分支名印錯,而 rc=0、沒有任何東西會紅。實跑兩發:
+  #      printf 'X.sql\n' | sed "s#$#  <- a&b#"                     ⇒ X.sql  <- ab    🔴
+  #      printf 'X.sql\n' | awk -v b='a&b' '{ print $0 "  <- " b }' ⇒ X.sql  <- a&b   ✅
+  #    ⚠️ 我第一版的註解寫「會印出檔名兩次」—— **那是推的, 跑完才發現是【少一個字】**。留著這句。
+  them="$(git for-each-ref --format='%(refname)' "$BLIND_BRANCH_GLOB" 2>/dev/null \
+    | while IFS= read -r br; do
+        [ -n "$br" ] || continue
+        git ls-tree --name-only "$br" supabase/migrations/ 2>/dev/null | sed 's#.*/##' \
+          | grep -vxF -f "$tmp" | awk -v b="${br#refs/heads/}" '{ print $0 "  ⟵ " b }'
+      done | sort -u)"
+  rm -f "$tmp"
+  n="$(printf '%s' "$them" | grep -c . || true)"
+  # 🔴 標籤由【結果】決定 —— 兩個世界印不同的東西, 不是一句寫死的話。
+  if [ "$n" = "0" ]; then
+    echo "gate:    ⇒ 掃過 $BLIND_BRANCH_GLOB:沒有【這棵樹沒有而它們有】的 migration。" >&2
+    echo "gate:       ⚠️ 那是一個**時點的快照**, 而且只比檔名、只看得到本 checkout 的 ref。" >&2
+  else
+    echo "gate:    🔴 掃過 $BLIND_BRANCH_GLOB ⇒ 有 $n 支 migration【只活在別條分支上】:" >&2
+    printf '%s\n' "$them" | sed 's/^/gate:       /' >&2
+    echo "gate:       ⇒ 這一行**不擋**。要判它跟這次推的 app 有沒有關係, 看上面 BLOCKED 點名的函式/view。" >&2
+  fi
+}
+
 summary() {  # $1 = 結論標籤
   if [ "$1" = "skipped" ]; then
     echo "gate: 跳過($2)—— 本閘沒有判準,不是「檢查過而乾淨」" >&2
@@ -146,13 +198,17 @@ summary() {  # $1 = 結論標籤
     #
     # ✅ **本次的修法只有【多印一句】, rc 一格不動**(`-f8` 2026-09-06 裁甲修法 1)——
     #    它不會讓 ③ 變成擋, 它讓讀的人**分得出自己在哪一個世界**。
-    # 🔵 掃 `agent/line-*` 分支把差集列出來當警告 = 修法 2, **另開子列, 本次不做**
-    #    (代價:要讀別人的分支, 而那些分支隨時在動)。
+    # ⛔ ~~掃 `agent/line-*` 分支把差集列出來當警告 = 修法 2, **另開子列, 本次不做**~~
+    #    ~~(代價:要讀別人的分支, 而那些分支隨時在動)。~~
+    # ✅ **2026-09-06 修法 2 做了**(線【DB】`-db`, `-f8` 准)⇒ 見下面 `blind_branch_report`。
+    #    舊字面留刪除線, 讓搜「本次不做」的人同一發撞到訂正。
     # 📌 同一條紀律的前一格就在上面:`REF_N = 0` 時本閘早就不肯印「0 blocked」了。
     if [ "$PENDING_N" = "0" ]; then
       echo "gate: ⚠️ 0 pending 的意思是【我在**這棵樹**上沒看到待貼的 migration】——" >&2
       echo "gate:    **別條 agent 分支上的 migration 我看不到**, 那不是「沒有」, 是我沒去看。" >&2
       echo "gate:    ⇒ 別人那條線正在做的 DB 改動, 這一行證不了任何事。(⟦db-DOGBLINDBRANCH⟧)" >&2
+      # 🔵 修法 2:上面三句說的是「我沒去看」;這一句開始是【我去看了】。
+      blind_branch_report "$PUSHED_SHA"
     fi
   fi
 }
@@ -298,6 +354,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   [ -n "${local_sha:-}" ] || continue
   [ "$local_sha" = "$ZERO" ] && continue                       # 刪除 ref
   case "${remote_ref:-}" in refs/heads/dev|refs/heads/main) REF_N=$((REF_N + 1)) ;; *) continue ;; esac
+  PUSHED_SHA="$local_sha"                                      # 🔵 修法 2 的分母(最後一個被檢查的 ref)
   ledger_sanity "$local_sha" || exit 1
 
   if ! PENDING="$(pending_versions "$local_sha")"; then exit 1; fi

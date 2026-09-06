@@ -53,7 +53,7 @@ GATE_SRC="$(cd "$(dirname "$0")" && pwd)/deploy-order-gate.sh"
 test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;數法=腳本尾端印的 PASS=)
-EXPECT_TOTAL=80
+EXPECT_TOTAL=83
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -1135,7 +1135,9 @@ fi
 #      那是本 repo 記過最壞的形狀(判定標籤不由結果決定)。⇒ 真的造那個世界。
 #    🛑 這一格記的是**危險本身**, 它今天仍然成立:修法 1 只多印一句, **不改 rc**。
 RB3="$WORK/rb3"; setup_repo "$RB3"
-( cd "$RB3" && git checkout -qb line-db )
+# 🔴 分支名用**真實形狀** `agent/line-db` —— 修法 2 掃的是 `refs/heads/agent/line-*`,
+#    叫 `line-db` 的話 58 那格會綠得沒有意義(它掃不到, 而 rb3 仍是盲區世界)。
+( cd "$RB3" && git checkout -qb agent/line-db )
 add_pending_migration "$RB3"
 ( cd "$RB3" && git add supabase/migrations/20260102000000_pending.sql && git commit -qm "db 分支上的 migration" )
 ( cd "$RB3" && git checkout -q - )
@@ -1157,6 +1159,48 @@ if printf '%s' "${RESB3#*|}" | grep -qF "$BLIND"; then
   ok "57b 而它**有印出那句警告** ⇒ 讀的人分得出自己在盲區而不是乾淨"
 else
   bad "57b 盲區世界沒印警告 ⇒ 它與【真的乾淨】仍印同一行字"
+fi
+
+# ── 🔵 修法 2(⟦db-DOGBLINDBRANCH⟧):不只說「我沒去看」, 要去看一次並把名字列出來 ──
+#    🛑 rc 仍然不動(57 那格已經在驗 rc)—— 這兩格量的是【訊息內容】。
+SCAN_HIT='只活在別條分支上'
+SCAN_CLEAN='沒有【這棵樹沒有而它們有】的 migration'
+_o3="${RESB3#*|}"
+if printf '%s' "$_o3" | grep -qF "$SCAN_HIT" \
+   && printf '%s' "$_o3" | grep -qF "20260102000000_pending.sql" \
+   && printf '%s' "$_o3" | grep -qF "agent/line-db"; then
+  ok "58 盲區世界:掃到那支 migration 並**同時點名檔案與分支**(不是只說「可能有」)"
+else
+  bad "58 盲區世界沒把名字列出來 ⇒ 修法 2 沒接上, 或它掃的 ref 形狀不對:$(printf '%s' "$_o3" | grep -F 'gate:    ' | head -3 | tr '\n' ' ')"
+fi
+# 負對照:**真的乾淨**那個世界(rb1, 零 agent/line-* 分支)必須印**另一句**,
+# 🔴 否則 58 的綠只證明「那句話恆印」, 不證明它掃到了東西。
+_o1="${RESB1#*|}"
+if printf '%s' "$_o1" | grep -qF "$SCAN_CLEAN" && ! printf '%s' "$_o1" | grep -qF "$SCAN_HIT"; then
+  ok "58b 乾淨世界:印的是「掃過, 沒有」而**不是** 58 那句(證明 58 不是恆印)"
+else
+  bad "58b 乾淨世界與盲區世界印同一句 ⇒ 這張表對「有沒有盲區」零判別力"
+fi
+
+# 🔴 58c:分支名含 `&` —— git 接受它(`git check-ref-format 'refs/heads/agent/line-a&b'` rc=0),
+#    而把它塞進 `sed` 的取代字串會讓那個字元**靜靜消失**(`&` = match, 而 match 是空字串)。
+#    ⇒ 這一格是那個 bug 的守門:它要看到**完整的分支名**, 不是「有 agent/line 就算」。
+RB4="$WORK/rb4"; setup_repo "$RB4"
+( cd "$RB4" && git checkout -qb 'agent/line-a&b' )
+add_pending_migration "$RB4"
+( cd "$RB4" && git add supabase/migrations/20260102000000_pending.sql && git commit -qm "含 & 的分支上的 migration" )
+( cd "$RB4" && git checkout -q - )
+DEVB4="$(cd "$RB4" && git rev-parse HEAD)"
+cat > "$RB4/apps/admin/src/unrelated2.ts" <<'TS'
+export const unrelated2 = 4;
+TS
+( cd "$RB4" && git add apps/admin/src/unrelated2.ts && git commit -qm "只有 app" )
+TB4="$(cd "$RB4" && git rev-parse HEAD)"
+RESB4="$(run_gate "$RB4" "refs/heads/dev $TB4 refs/heads/dev $DEVB4")"
+if printf '%s' "${RESB4#*|}" | grep -qF 'agent/line-a&b'; then
+  ok "58c 分支名含 & ⇒ **完整印出來**(sed 取代字串會把它吃掉, awk -v 不會)"
+else
+  bad "58c 分支名的 & 不見了 ⇒ 標籤是用 sed 拼的, 讀的人會去找一個不存在的分支:$(printf '%s' "${RESB4#*|}" | grep -F 'agent/line' | head -2 | tr '\n' ' ')"
 fi
 
 echo
