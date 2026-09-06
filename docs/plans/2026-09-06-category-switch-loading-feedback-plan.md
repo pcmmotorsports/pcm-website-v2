@@ -145,10 +145,14 @@ A: 甲 | 乙
 
 ---
 
-## 7 · 🔴 訊號那一半【沒有做】—— 而卡住它的東西是量出來的
+## 7 · ⛔ ~~訊號那一半【沒有做】~~ ⇒ 🟢 **2026-09-06 接上了(舊字面留刪除線)**
 
-本片實際落地的只有**畫面那一半**(元件契約 + CSS + 測試)。
-`isPending` 的**來源**沒有接、`ProductsPage` 一行都沒動 ⇒ **今天客人看不到任何改變。**
+> 🟢 **接法在 §7.4** —— **§7.1/§7.2 那四種寫法一種都沒有採用**,而它們的讀數仍然成立、留著當證據。
+> 🔴 §7.3「下一步」列的兩條路(重設計那支 effect / 從別處取 pending)——**走的是第二條**,
+>   而它比當時想的便宜:**`ProductsPage` 手上已經有 `useSearchParams()`**,不必新建任何管線。
+
+~~本片實際落地的只有**畫面那一半**(元件契約 + CSS + 測試)。~~
+~~`isPending` 的**來源**沒有接、`ProductsPage` 一行都沒動 ⇒ **今天客人看不到任何改變。**~~
 
 ### 7.1 四種寫法的讀數(可重跑;patch 都在 scratchpad)
 
@@ -189,3 +193,21 @@ rerender (category: null)     ③ 客人那一按
   要嘛**從別處取得 pending**(完全不碰那支 effect)。**兩條都不是小改動,不在本片。**
 · ⚠️ 在那之前,`.pp-grid.is-loading` 與 `ProductsSortBar` 的 `isPending`
   **都是等接線的契約**,不是已生效的行為 —— CSS 檔裡也寫了同一句。
+
+### 7.4 🟢 實際接法(2026-09-06 落地)
+
+· 訊號 = `ProductsPage.tsx` 的 `catalogPending`(搜這個字):
+  **把 `cascade.category` 壓成網址上的那個字面,跟 `useSearchParams()` 讀到的比** ——
+  不一樣 ⇒ 還在等。`use-catalog-filter-url-sync.tsx` **一行都沒動**,§7.2 那 4 格守門原封不動。
+· 為什麼這個差值就是等待期:`router.replace` 是 App Router 導覽、**非同步**,
+  而 `/products` 是 `force-dynamic` ⇒ **要 RSC 往返回來 `useSearchParams()` 才會變**
+  (同一句寫在 `use-catalog-filter-url-sync.tsx:259-260`)。
+· 三個消費端全部接上:`ProductsSortBar.isPending` · `FilterDrawer.applying`(經 `ProductsMobileControls`)
+  · `.pp-grid.is-loading`。另加 `inert` 補上 CSS 擋不住的**鍵盤**那一半。
+· 🛑 **兩個防「永遠亮著的燈」的條件,缺一不可**:
+  ① `cascade.category === null` 一律不算 pending(擋深連結進站那一波)
+  ② `?category=` 那一槽比的是 `parseCategoryFromUrl` **解析之後的形狀**,不是逐字
+     (擋 `?category=水管束環` 這種裸子分類短名 —— 逐字比會永遠不相等)
+  兩條各有一格突變殺得死的守門,在 `ProductsPage.test.tsx`。
+· 🔬 讀數(真瀏覽器 A/B,`storefront-probe` `next dev` + 108 件種子)⇒ **絕對毫秒不可搬去正式站**,
+  可搬的是比例:「沒有回饋的那段佔等待」**修前 91% / 95% ⇒ 修後 53% / 41%**。詳板列 `⟦search-CATSWITCHSLOW⟧`。

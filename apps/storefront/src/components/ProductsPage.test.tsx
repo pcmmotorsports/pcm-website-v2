@@ -692,3 +692,62 @@ describe('ProductsPage 篩選後捲回頁首', () => {
     expect(scrollSpy).not.toHaveBeenCalled();
   });
 });
+
+// ⟦search-CATSWITCHSLOW⟧ 切分類的載入回饋 —— **訊號來源**的守門。
+// 🔬 那一列的根因是量到的(2026-09-06):按下去之後 RSC 回應 3.4–8.5 秒, 而畫面在那幾秒**完全不動**
+//   ⇒ 客人以為壞掉。本片只補「畫面要說話」那半。
+// 🛑 三格缺一不可:正對照證明燈會亮;兩個負對照證明它**不是一盞恆亮的燈** ——
+//   一個「永遠回 true」的實作會讓正對照綠, 而深連結進站與網址追上之後照樣印「更新中…」。
+describe('ProductsPage ⟦search-CATSWITCHSLOW⟧ 切分類的載入回饋', () => {
+  const renderPage = () => render(
+    <ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />,
+  );
+
+  it('🔴 點側欄分類 ⇒ 件數換成「更新中…」+ 格線載入態 + inert(cascade 換了而網址還沒換)', () => {
+    const { container } = renderPage();
+    expect(container.textContent).not.toContain('更新中…');
+    const row = container.querySelector('.fs-tree-l1') as HTMLElement | null;
+    expect(row).not.toBeNull();
+    fireEvent.click(row as HTMLElement);
+    expect(container.textContent).toContain('更新中…');
+    const grid = container.querySelector('.pp-grid') as HTMLElement;
+    expect(grid.className).toContain('is-loading');
+    // 🔴 鍵盤那一半:CSS 的 `pointer-events:none` 只擋滑鼠與觸控, Tab + Enter 照樣點得到
+    //   指向【舊清單】的連結 ⇒ 必須同時有 `inert`。少了這一格, 只加 class 的實作也會綠。
+    expect(grid.hasAttribute('inert')).toBe(true);
+  });
+
+  it('🔵 負對照:深連結進站(網址上有分類、cascade 由它還原)⇒ 不得印「更新中…」', () => {
+    hoisted.search = new URLSearchParams('category=碳纖維部品');
+    const { container } = renderPage();
+    expect(container.textContent).not.toContain('更新中…');
+  });
+
+  it('🔵 負對照:網址是【裸子分類短名】(?category=水管束環)⇒ 不得印「更新中…」', () => {
+    // 🛑 這一格擋的是**一盞永遠亮著的燈**:網址上是 `水管束環`, 而 cascade 還原成
+    //   `引擎與冷卻 · 水管束環`(⟦01-CATPATHSHORTNAME⟧)⇒ 逐字比會永遠不相等。
+    hoisted.search = new URLSearchParams('category=水管束環');
+    const { container } = render(
+      <ProductsPage
+        products={FIXTURE}
+        error={false}
+        categories={[
+          { id: 'cool', name: '引擎與冷卻', count: 690, children: [{ id: 'hose', name: '水管束環', count: 690 }] },
+        ]}
+        motoBrands={MOTO_BRANDS}
+      />,
+    );
+    expect(container.textContent).not.toContain('更新中…');
+  });
+
+  it('🔵 負對照:網址追上了 ⇒ 「更新中…」要消失(否則它是一盞永遠亮著的燈)', () => {
+    const { container, rerender } = renderPage();
+    fireEvent.click(container.querySelector('.fs-tree-l1') as HTMLElement);
+    expect(container.textContent).toContain('更新中…');
+    hoisted.search = new URLSearchParams('category=碳纖維部品');
+    rerender(
+      <ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />,
+    );
+    expect(container.textContent).not.toContain('更新中…');
+  });
+});

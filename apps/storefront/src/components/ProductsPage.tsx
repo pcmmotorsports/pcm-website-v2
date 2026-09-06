@@ -87,6 +87,7 @@ import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { CatalogCardProduct } from '@/lib/catalog-page';
 import type { MockBrand } from '@/data/mock-brands';
 import { buildBrandTaxonomy } from '@/lib/brand-taxonomy';
+import { isCatalogPending } from './catalog-pending';
 import type { GarageChipItem } from './GarageChips';
 
 
@@ -214,6 +215,11 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   // 區段標題的總數(品牌 Accordion 的 (16))繞過 resolver ⇒ 要另外關(codex 段二審查 MF-5)。
   const hideSectionCounts = searchParams.get('filter') === 'new';
 
+  // ⟦search-CATSWITCHSLOW⟧ 切分類的載入回饋 —— **訊號來源在 `catalog-pending.ts`**
+  //   (鐵則 6:本檔本片後 512 行 ⇒ 那一段純函式抽出去,註解跟著搬、一行都沒壓縮)。
+  // 🔴 消費端三個, 而格線那個要 class + `inert` **兩個**才擋得住(為什麼:products-page.css `.pp-grid.is-loading`)。
+  const catalogPending = isCatalogPending(cascade.category, searchParams, categories);
+
   // P4:products 已是 server 依 URL 篩選、排序、分頁的當頁資料；禁止再在 client 對當頁二次篩選，
   // 否則會把 total/page 語意拆成兩套而造成漏項。
   const resultCount = total ?? products.length;
@@ -278,6 +284,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
         resultCount={displayCount}
         sort={sort}
         setSort={setSort}
+        applying={catalogPending}
         openVehicleOnMount={pickVehicle && isMobileUA}
       />
 
@@ -362,6 +369,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
           )}
           <ProductsSortBar
             count={displayCount}
+            isPending={catalogPending}
             gridCols={gridCols}
             setGridCols={setGridCols}
             sort={sort}
@@ -372,7 +380,11 @@ export function ProductsPage({ products, total, error, categories, brands: serve
               載入失敗、請稍後再試
             </div>
           ) : displayed.length > 0 ? (
-            <div className="pp-grid" style={{
+            <div
+              className={`pp-grid${catalogPending ? ' is-loading' : ''}`}
+              aria-busy={catalogPending}
+              inert={catalogPending}
+              style={{
               gridTemplateColumns: gridCols === 0
                 ? 'repeat(auto-fill, minmax(256px, 1fr))'
                 : `repeat(${gridCols}, 1fr)`,
