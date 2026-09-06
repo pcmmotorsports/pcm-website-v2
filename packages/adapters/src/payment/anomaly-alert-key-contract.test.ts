@@ -79,6 +79,17 @@ const TARGETS = [
    */
   { fn: 'get_privileged_role_bypassrls_state', varName: 'br', pin: 3 },
   /**
+   * ⟦板 931 客人刷不出卡, 我們這邊不會響⟧(2026-09-06, 線【信】`-mail`)。
+   * 🔵 **分堆是開檔看的**:adapter 對缺鍵/型別不對走 `dcSane === false` ⇒ 落
+   *    `dailyChargeCountsUnknown`, **它不 throw** ⇒ 依本檔判準屬 **fail-soft** ⇒ 進 TARGETS。
+   * 🔴 **而這道閘又一次在我加 RPC 的那一刻把我叫過來** —— 我是【先被它擋下】才登記的。
+   *    📌 那個順序差別就是「守門有沒有用」本身。
+   * 🔵 `pin: 5` = SQL 回的 key 數(card_failed_count / three_ds_failed_count /
+   *    attempts_total_count / window_hours / since);TS 這一層只讀前三個,
+   *    後兩個是**寫給人看的範圍標記**(數字要帶著它的範圍走)。
+   */
+  { fn: 'get_daily_charge_failure_counts', varName: 'dc', pin: 5 },
+  /**
    * ⟦b4-RETRYGAVEUPNOWATCHER⟧(2026-09-05, 線 `-db`)。
    * 🔵 **分堆是開檔看的**:adapter 對缺鍵走 `guWellTyped === false` ⇒ 落
    *    `settleRetryGaveUpUnknown`, **它不 throw** ⇒ 依本檔判準屬 **fail-soft** ⇒ 進 TARGETS。
@@ -610,7 +621,7 @@ describe('result 的 *Unknown / *Failed 欄位, route 一定要讀', () => {
     //       ⇒ RPC 沒安裝 / 讀取失敗 / 解析失敗全部會落到 200 + 健康心跳。
     //       ⚠️ **我自己的三綠沒看到它** —— `vitest related` 餵 5 支檔跑了 223 支, **這一支不在裡面**
     //       ⇒ 📌 **兩發一致而那不是效度。** 抓到它的是 codex, 不是我的測試選擇。
-    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(21);
+    expect(fields.length, '欄位數變了 ⇒ 回來看新的那個 route 接了沒(或正則被改窄了)').toBe(22);
 
     /**
      * 🔴 **剝掉註解再比**(R4 must-fix 級 consider)——

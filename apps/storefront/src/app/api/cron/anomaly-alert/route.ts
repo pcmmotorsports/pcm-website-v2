@@ -852,7 +852,9 @@ export async function GET(request: Request): Promise<Response> {
       // 🔴 只列【自己不會讓 route 回 503】的那些讀不到項 —— 會 503 的那幾種根本走不到這一行。
       //    ⇒ 所以這個清單與上面那些 503 分支【互補】, 不重疊。
       const unreadable = result.manualCustomerSearchUnknown ? ['客戶搜尋計數'] : [];
-      const heartbeat = buildAnomalyQuietHeartbeatMessage(new Date(), unreadable);
+      // ⟦板 931⟧ 刷卡三格搭這封信 —— Sean 2026-09-07 答「甲 = 寫」。
+      // 🔴 **這是這封信唯一一次帶計數**, 而那條「零計數」契約是他本人改的(見 builder 註解)。
+      const heartbeat = buildAnomalyQuietHeartbeatMessage(new Date(), unreadable, result);
       const sent = await Promise.allSettled(deps.notifiers.map((n) => n.notify(heartbeat)));
       const heartbeatFailed = sent.filter((r) => r.status === 'rejected').length;
       if (heartbeatFailed > 0 || deps.notifiers.length === 0) {
@@ -868,6 +870,38 @@ export async function GET(request: Request): Promise<Response> {
           { status: 503 },
         );
       }
+    }
+
+    /**
+     * ⟦板 931 客人刷不出卡, 我們這邊不會響⟧ —— 🔴🔴 **這裡【刻意沒有】第二封信。**
+     *
+     * 我原本要在這裡寄一封「每日刷卡摘要」, 前提是板列那句「**今天的替代品是零**」。
+     * 🛑 **那個前提是假的, 而是既有測試把我攔下來的**:本檔早就有一封**安靜日心跳**
+     *    (`buildAnomalyQuietHeartbeatMessage`, 主旨 `ANOMALY_QUIET_HEARTBEAT_SUBJECT`),
+     *    它的內文逐字就寫著「**沒收到這封信 = 那條線可能停了, 而不是『今天沒事』**」——
+     *    ⇒ 📌 **我要蓋的那個機制, 已經在那裡了**, 而我差點在它旁邊蓋第二個。
+     * 🔬 抓到它的不是我讀碼, 是 `route.test.ts` 那格「安靜日心跳」紅了:
+     *    `expected "vi.fn()" to be called 1 times, but got 2 times`
+     *    ⇒ 🔴 **那個 2 就是「同一天寄兩封」** —— 而它會把「每天恰好一封」這個契約直接毀掉。
+     *
+     * ⇒ 三個刷卡計數走 `result` 出去(給 cron 回應與後續判讀), **不另開一封信**。
+     * 🟢 **[2026-09-07 訂正:那個字他給了]** —— 逐字「**甲 = 寫**」⇒ 三格**寫進安靜日心跳信**
+     *    (見上面 `buildAnomalyQuietHeartbeatMessage(..., result)` 那一行),
+     *    而**告警日搭告警信的便車**(codex must-fix:少了那一半, 數字會在【最該有人看】的那天消失)。
+     *    ⇒ ⛔ ~~那封信目前的契約是【零計數】~~ —— 那條契約**由他本人改掉了**,
+     *      而那道守門**改窄成白名單**(刷卡三行放行, 其餘計數照樣紅), **沒有刪掉**。
+     */
+    /**
+     * ⟦板 931⟧ 三格刷卡計數【讀不到】的那一天要出聲。
+     * 🔴 它**不回 503** —— 那三格是日常數字不是異常, 讀不到不該把整發巡檢判成故障。
+     * 🛑 而它**必須被消費**: 釘住
+     *    「每一個 *Unknown 都要在 route.ts 裡出現過」——
+     *    📌 那道閘擋的正是「adapter 算了一個旗標而沒有人看它」⇒ **旗標存在而沒有人看 = 那一格不存在。**
+     */
+    if (result.dailyChargeCountsUnknown) {
+      console.error(
+        '[anomaly-alert] 🔵 每日刷卡三格【查不到】(函式未 apply 或讀失敗)⇒ 那不是「今天沒有人刷不過」',
+      );
     }
 
     // 5. 認證過 + enabled + 無錯 → 200 + 計數摘要(零 PII counts)。
