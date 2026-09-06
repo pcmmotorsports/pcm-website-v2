@@ -338,6 +338,55 @@ describe('chargePaymentAction — 信任邊界(零扣款層)', () => {
     expect(placeOrderInput.notificationEmail).toBe('Member@example.com');
   });
 
+  // ── ⟦b4-BANKCARDRACE⟧ 同一個購物車已經有一張付款成功的單 ────────────────────
+  //
+  // 🔴 **這四格釘的是【兩把尺一起認】** —— `P0002` 在 PostgreSQL 裡是 `no_data_found` 的
+  //    標準碼, **不是我們專屬的**;所以呼叫端必須再認那個固定字面 `pcm_cart_already_paid`。
+  //    🛑 少了任一半, 一個**與事實無關**的 `no_data_found` 會讓客人看到「該訂單已付款完成」。
+  it('🔴 P0002 + pcm_cart_already_paid ⇒ 印 Sean 的原字面「該訂單已付款完成」', async () => {
+    mockPlaceOrder.mockRejectedValue(
+      Object.assign(
+        new Error('create_order: 這個購物車已經有一張付款成功的訂單(pcm_cart_already_paid)'),
+        { code: 'P0002' },
+      ),
+    );
+    const action = await getAction();
+    const res = await action(validInput());
+    // 🔴 逐字, 不用 stringContaining —— 這一句是 Sean 挑的, 多一個字都不是他的。
+    expect(res).toEqual({ formError: '該訂單已付款完成' });
+  });
+
+  it('🔴🔴 只有 P0002 而【沒有】那個字面 ⇒ 回通用字面, 不准冒充', async () => {
+    // 這一格是本族最承重的:把 `&& rpcErrorMessage.includes(...)` 拿掉 ⇒ 它會紅。
+    mockPlaceOrder.mockRejectedValue(
+      Object.assign(new Error('query returned no rows'), { code: 'P0002' }),
+    );
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(
+      res,
+      '一個與事實無關的 no_data_found 被講成「該訂單已付款完成」',
+    ).toEqual({ formError: '付款失敗,請稍後再試或聯繫客服 LINE' });
+  });
+
+  it('🔴 有那個字面而 code 不是 P0002 ⇒ 回通用字面(另一半也要承重)', async () => {
+    mockPlaceOrder.mockRejectedValue(
+      Object.assign(new Error('… pcm_cart_already_paid …'), { code: 'P0001' }),
+    );
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(res).toEqual({ formError: '付款失敗,請稍後再試或聯繫客服 LINE' });
+  });
+
+  it('⚪ 正對照:這把尺真的會分辨 —— 否則上面兩格「回通用字面」證明不了任何事', async () => {
+    mockPlaceOrder.mockRejectedValue(
+      Object.assign(new Error('x pcm_cart_already_paid x'), { code: 'P0002' }),
+    );
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(res).toEqual({ formError: '該訂單已付款完成' });
+  });
+
   // 🔴 兩個 code 各釘一格(codex 關卡2 nit 4):只測 PGRST202 的話,刪掉 `|| rpcErrorCode === '42883'`
   //    整套仍綠 —— 而正式站若回的是 PG 那一側的 42883,指名修法的 log 就消失了。
   it.each(['PGRST202', '42883'])(
