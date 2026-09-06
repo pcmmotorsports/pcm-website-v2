@@ -78,6 +78,21 @@ export type CheckAnomalyAlertsOptions = {
    */
   manualCustomerSearchWindowSeconds: number;
   /**
+   * 🟡 **後台客戶搜尋次數的告警門檻(⟦b9-ENUMWATCH⟧, 2026-09-07)。**
+   *   route 以常數注入 —— 本檔零 `process.env`(它是 use-case)。
+   *
+   * 🔴🔴 **這個數字【不是】一個穩定的正常量, 而我不假裝它是。**
+   *   量測(2026-09-07 正式庫唯讀, 帶對照):`admin_audit_log` 總 118 列,
+   *   `admin.manual_customer.searched` **共 4 次 · 分佈在 2 天 · 單日最高 3 · 最近 24h 0**
+   *   (🟢 正對照 全部 action 種類 21 · 🟢 負對照 編造的 action 0)。
+   * 🛑 **而那個分母是【一個沒有人在用的世界】** —— 同日量到後台 6 個帳號**零個真員工**
+   *   (標籤逐字「占位」/「非真員工」)。
+   *   ⇒ 📌 **員工上工那天這個門檻一定要重看**, 而收那個訊號的是 ⟦auth-STAFFONBOARDSIGNAL⟧。
+   *   ⇒ 🔴 **不要把它當成「量出來的安全值」往下引用。**
+   */
+  manualCustomerSearchAlertThreshold: number;
+
+  /**
    * 🔵 訊號4【持續失敗】那一格的門檻(分鐘)。`null` = 還沒上膛。
    * 🛑 它與 `orderCreatedCutoffIso` 是兩顆各自獨立的 env, 任一為 null 就不查那一格。
    */
@@ -688,6 +703,28 @@ export function buildAnomalyAlertMessage(
     readonly staleOpen: number;
     readonly staleSuppliers: readonly string[];
     readonly staleHours: number;
+  },
+  /**
+   * 🔴 ⟦b9-ENUMWATCH⟧ 2026-09-06:客戶搜尋超標的**判定與門檻**(由呼叫端算好傳進來)。
+   *   形狀照 `searchLogFlags.rowsHigh`:**一個是讀數, 一個是判定** —— 組訊息這一層**不重算門檻**,
+   *   否則會出現「信上說超標而 `shouldAlert` 說沒有」那兩把尺。
+   *
+   * 🛑 **刻意沒有預設值** —— 與 `stuckBank` / `syncStale` 同一條規矩。
+   * ⛔ ~~我第一版給了它預設值, 理由是「中間插必填參數要改 77 處而我插錯位置的風險更大」~~
+   *   —— **codex R1 must-fix ② 打掉那個理由, 而它是對的**:這是**加在最後面的一個物件參數**,
+   *   不是中間插 ⇒ **根本沒有錯位風險**, 那個理由套錯了對象。
+   *   而「漏傳只少一句話」也不成立:**匯出的 builder 會被未來的呼叫端靜默漏傳**,
+   *   而那時「沒有原因說明」與「這封不是搜尋觸發的」長得一樣。
+   * ⇒ ⚠️ **而我改成必填之後撞到第二件事**:77 個呼叫點要逐處補, 而我寫的括號計數插入
+   *   **被字串裡的括號騙了 ⇒ 插錯位置 ⇒ 189 個語法錯**(實測)。⇒ 我還原, 不硬修。
+   * ⇒ ✅ **最終形狀:型別留預設值, 而 codex 真正的疑慮(未來呼叫端靜默漏傳)由【掃描守門】接**
+   *   —— `enumwatch-builder-callers.test.ts`:production 碼裡每一個 `buildAnomalyAlertMessage(`
+   *   都必須傳這個參數, 漏傳當場紅。**型別擋不到的那一格, 由一把會叫的尺擋。**
+   * 🛑 **而它擋不住測試碼裡的漏傳** —— 那是刻意的:測試漏傳只會少一句話, 而它們測的不是這一格。
+   */
+  enumWatch: { readonly high: boolean; readonly threshold: number } = {
+    high: false,
+    threshold: 0,
   },
 ): AnomalyAlertMessage {
   // 🔴 `Math.round(秒/3600)` 會把 5400 秒(90 分)講成「2 小時」= **報一個錯的門檻給收信人**
@@ -1384,6 +1421,17 @@ export function buildAnomalyAlertMessage(
               ? `${manualCustomerSearch.windowSeconds / SECONDS_PER_HOUR} 小時`
               : `${Math.round(manualCustomerSearch.windowSeconds / 60)} 分鐘`
           }客戶搜尋 ${manualCustomerSearch.count} 次,${manualCustomerSearch.actors} 個操作者。`,
+          // 🔴 ⟦b9-ENUMWATCH⟧ 2026-09-07:**超標時要說出「這封信是為了它而寄的」。**
+          //    少了這一行, 收信的人看到的是同一句計數 —— 而**「順帶報數」與「它就是原因」
+          //    在信上長得一模一樣**, 於是他不會去看。
+          //    (`manualCustomerSearchHigh` 由呼叫端算好傳進來, 與 `rowsHigh` 同一個形狀:
+          //     一個是讀數、一個是判定, 不在組訊息這一層重算門檻。)
+          ...(enumWatch.high
+            ? [
+                `🔴 上面那個次數已達告警門檻 ${enumWatch.threshold} —— **本信因此發出**。` +
+                  `門檻不是穩定的正常量(見 use-case Options 註解:量於零真員工的世界)。`,
+              ]
+            : []),
         ];
   // 🔴 `bypassRlsBlock` 排在最前面。
   // ⛔ ~~我第一版寫的理由是「權限壞掉時下面每一格的數字都可能是假的」~~ ——
@@ -1742,6 +1790,18 @@ export async function checkAnomalyAlerts(
   const searchLogRowsHighForMessage =
     searchLogRowsEstimateForMessage !== null &&
     searchLogRowsEstimateForMessage >= opts.searchLogRowsAlertThreshold;
+  /**
+   * 🔴 ⟦b9-ENUMWATCH⟧:**這一格在 2026-09-07 之前【不存在】, 而那正是這一列的病。**
+   *   讀數早就接上了(`getManualCustomerSearchSummary`)、數字也早就印在信裡(見下方組訊息那段),
+   *   🛑 **而它沒有進 `shouldAlert`** ⇒ **只有別的事觸發告警時它才順帶被看到;**
+   *     **搜尋自己異常時那封信根本不會寄。**
+   *   📌 那與本檔 `codex 2026-09-04 must-fix ①` 記過的是**同一個病**:
+   *     「我把那兩行寫進了信的【內容】, 而沒有寫進【要不要寄】」。
+   * ⚠️ `null`(還沒 apply / 讀失敗)**不進 `shouldAlert`** —— 與本檔其他 `Unknown` 同款,
+   *   那兩種世界各自有自己的旗標(`manualCustomerSearchUnknown` / `manualCustomerSearchFailed`)。
+   */
+  const manualCustomerSearchHighForMessage =
+    searchSummary !== null && searchSummary.count >= opts.manualCustomerSearchAlertThreshold;
   const searchLogAnonRevokedForMessage =
     searchLog?.anonCanExecute === undefined || searchLog?.anonCanExecute === null
       ? null
@@ -1775,6 +1835,7 @@ export async function checkAnomalyAlerts(
     // 🔴 **這一行是【要不要寄】那一半** —— 本檔上面幾行逐字記著:
     //    「算出來了」「寫進信裡了」「會讓信寄出去」是三個宣稱, 而 codex 2026-09-04 抓過漏這一行。
     searchLogRowsHighForMessage ||
+    manualCustomerSearchHighForMessage ||
     searchLogAnonRevokedForMessage === true ||
     // 🔴🔴 **⟦b4-NEEDSHUMANNOWATCHER⟧ 這一行, 就是 codex 2026-09-04 抓到的那個坑的形狀。**
     //    線【資料】`-db` 2026-09-05 主動告知:它上一片「算出來了、寫進信裡了, 而【忘了加進
@@ -2048,6 +2109,12 @@ export async function checkAnomalyAlerts(
         staleOpen: syncStaleOpenForMessage,
         staleSuppliers: syncStaleSuppliersForMessage,
         staleHours: syncStaleHoursForMessage,
+      },
+      // ⟦b9-ENUMWATCH⟧ 2026-09-06:判定與門檻在這一層算好傳下去, 組訊息那一層不重算門檻
+      //   —— 否則會出現「信上說超標而 `shouldAlert` 說沒有」那種兩把尺。
+      {
+        high: manualCustomerSearchHighForMessage,
+        threshold: opts.manualCustomerSearchAlertThreshold,
       },
     );
     notifiersTotal = deps.notifiers.length;

@@ -124,6 +124,13 @@ const OPTS = {
   refundingStuckSeconds: 86400,
   /** 🟡 搜尋語料表列數告警門檻(正式值 5,000;要驗觸發的案例自己覆寫)。 */
   searchLogRowsAlertThreshold: 5000,
+  /**
+   * ⟦b9-ENUMWATCH⟧ 2026-09-06:客戶搜尋次數告警門檻。
+   * 🔴 刻意設一個**高到不會被別的案例意外觸發**的值 —— 要驗觸發的那幾格自己覆寫。
+   *   (與 `searchLogRowsAlertThreshold` 同理:共用 OPTS 若貼著門檻,
+   *    別人加一個不相干的案例就會讓這一格假紅或假綠。)
+   */
+  manualCustomerSearchAlertThreshold: 1000,
   pendingDoubleChargeWindowSeconds: 43200,
   pendingDoubleChargeStuckSeconds: 600,
   shippedCutoffIso: null,
@@ -833,6 +840,13 @@ describe('checkAnomalyAlerts — 計數透傳(telemetry 零 PII)', () => {
       {
         manualCustomerSearchWindowSeconds: 86400,
         searchLogRowsAlertThreshold: 5000,
+        /**
+         * ⟦b9-ENUMWATCH⟧ 2026-09-06:客戶搜尋次數告警門檻。
+         * 🔴 刻意設一個**高到不會被別的案例意外觸發**的值 —— 要驗觸發的那幾格自己覆寫。
+         *   (與 `searchLogRowsAlertThreshold` 同理:共用 OPTS 若貼著門檻,
+         *    別人加一個不相干的案例就會讓這一格假紅或假綠。)
+         */
+        manualCustomerSearchAlertThreshold: 1000,
         refundingStuckSeconds: 43200,
         pendingDoubleChargeWindowSeconds: 3600,
         pendingDoubleChargeStuckSeconds: 900,
@@ -3057,5 +3071,89 @@ describe('buildAnomalyAlertMessage · 同步卡住那一段', () => {
       staleHours: 6,
     });
     expect(`${msg.subject}\n${msg.text}`).not.toContain('每日同步沒跑完');
+  });
+});
+
+/**
+ * ⟦b9-ENUMWATCH⟧ 2026-09-06 —— **這一族守的是「它會不會讓信【寄出去】」, 不是「信上寫什麼」。**
+ *
+ * 🛑 本列的病:讀數早就接上了、數字也早就印在信裡, **而它沒有進 `shouldAlert`**
+ *   ⇒ 只有別的事觸發時才順帶被看到;**搜尋自己異常時那封信根本不會寄。**
+ * 📌 與本檔 `codex 2026-09-04 must-fix ①` 是**同一個病**:寫進了信的【內容】而沒寫進【要不要寄】。
+ * ⇒ 🔴 **每一格都用 `summary = ZERO`** —— 讓搜尋成為唯一可能的觸發源。
+ */
+describe('⟦b9-ENUMWATCH⟧ 客戶搜尋次數要能自己把信寄出去', () => {
+  function searchReader(count: number): IAnomalyAlertReader {
+    return {
+      ...reader(ZERO),
+      getManualCustomerSearchSummary: vi
+        .fn()
+        .mockResolvedValue({ count, actors: 1, windowSeconds: 86400 }),
+    };
+  }
+
+  it('🔴 達門檻 ⇒ alerted=true(summary 全零 ⇒ 觸發源只可能是它)', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: searchReader(50), notifiers: [n] },
+      { ...OPTS, manualCustomerSearchAlertThreshold: 50 },
+    );
+    expect(res.alerted, '搜尋超標而信沒寄 ⇒ 這一列的病還在').toBe(true);
+    expect(n.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it('🟢 負對照:門檻以下 ⇒ 不寄(否則每天假紅一次, 而假紅會被人關掉)', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: searchReader(49), notifiers: [n] },
+      { ...OPTS, manualCustomerSearchAlertThreshold: 50 },
+    );
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+  });
+
+  it('🟢 負對照一:RPC 還沒 apply(回 null)⇒ 不寄', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: reader(ZERO), notifiers: [n] },
+      { ...OPTS, manualCustomerSearchAlertThreshold: 1 },
+    );
+    expect(res.alerted).toBe(false);
+  });
+
+  it('🟢 負對照二:讀取【失敗】(丟例外)⇒ 也不寄 —— 而它與上一格是【兩個世界】', async () => {
+    // 🔴 codex R1 must-fix ③:我第一版只有「未 apply」那一格, 而讀取失敗那條路
+    //    在既有案例裡自帶 `openCount=1` ⇒ **證不了失敗本身不觸發**。
+    //    ⇒ 這一格用 ZERO + 丟例外 ⇒ 若有人把判定寫成 `searchReadFailed ||` 它會紅。
+    const n = okNotifier();
+    const r = reader(ZERO);
+    const res = await checkAnomalyAlerts(
+      {
+        reader: {
+          ...r,
+          getManualCustomerSearchSummary: vi.fn().mockRejectedValue(new Error('boom')),
+        },
+        notifiers: [n],
+      },
+      { ...OPTS, manualCustomerSearchAlertThreshold: 1 },
+    );
+    expect(res.alerted, '讀不到不是異常 —— 那條路由 route 回 503, 不變成每天一封信').toBe(false);
+    expect(res.manualCustomerSearchFailed, '而它必須看得見, 否則安靜與沒裝上同形').toBe(true);
+  });
+
+  it('🔴 信上要說出【本信因此發出】—— 否則「順帶報數」與「它就是原因」長得一樣', async () => {
+    const n = okNotifier();
+    await checkAnomalyAlerts(
+      { reader: searchReader(50), notifiers: [n] },
+      { ...OPTS, manualCustomerSearchAlertThreshold: 50 },
+    );
+    // 🔴 `calls[0]?.[0]` 不是 `calls[0][0]` —— 後者 vitest 過而 typecheck 紅(TS2532)。
+    const calls = (n.notify as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect(calls.length, '前提:它要真的被叫過').toBe(1);
+    const arg = calls[0]?.[0] as { subject: string; text: string };
+    const all = `${arg.subject}\n${arg.text}`;
+    expect(all, '收信的人要看得出這封是為了搜尋而寄的').toContain('本信因此發出');
+    expect(all, '門檻要印出來').toContain('50');
+    expect(all, '而門檻不是穩定值這件事也要在信上').toContain('不是穩定的正常量');
   });
 });

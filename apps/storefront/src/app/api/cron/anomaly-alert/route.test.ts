@@ -383,6 +383,15 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
        *     ⇒ 5,000 ≈ 半年正常量 ⇒ 一天內到得了的只有灌入。
        */
       searchLogRowsAlertThreshold: 5000,
+      /**
+       * ⟦b9-ENUMWATCH⟧ 2026-09-06:後台客戶搜尋次數告警門檻(route 常數 50, 不走 env)。
+       * ✅ **這一格又是被上面那道【完整物件比對】逼出來的** —— 我加了第 10 個 option,
+       *   而這道守門當場紅。檔內逐字:「多一個沒有人拍板的 option 會安靜地混進去」
+       *   ⇒ 📌 **那個紅不是壞事, 是它在做它的工作。**
+       * 🔴 **50 不是量出來的穩定正常量** —— 依據與到期條件在 route 注入點那段註解
+       *   (量於 2026-09-06 的正式庫:該事件共 4 次 / 2 天 / 單日最高 3, 而當天後台零真員工)。
+       */
+      manualCustomerSearchAlertThreshold: 50,
       refundingStuckSeconds: 86400,
       pendingDoubleChargeWindowSeconds: 43200,
       pendingDoubleChargeStuckSeconds: 600,
