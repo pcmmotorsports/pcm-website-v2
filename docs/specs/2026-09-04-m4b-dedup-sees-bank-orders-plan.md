@@ -1,5 +1,12 @@
 # Plan · 讓 dedup 看得見匯款單(⟦b4-BANKORDERINVISIBLE⟧ 的根因修法)
 
+> ⛔⛔ **【本 plan 2026-09-06 作廢 —— 不要照它施工】**(`-mail` 提複審 → 主視窗 `-f8` 裁【甲:不做】)
+> · **① 它要修的「錢」那半, 已經被同一天的另一支關掉了**:`20260904050000_m4b_supersede_bank_order_on_card.sql:184` 起的 `⑨b` 在 attempt 取得【之後】把同車未付款匯款單就地取消(`superseded_by_card`)⇒ 先開匯款單再回頭刷卡 **不會兩邊都付**。
+> · **② 剩下的「可見性」那半撞拍板**:改述詞 = 開始擋第二張單, 而 Sean 2026-09-05 `Q-同車兩單` **答乙 = 不擋**。
+> · **③ 下表 ① ② 兩格的座標【代次錯】** —— 它們指 `20260820020000`, 而 `begin_charge_attempt` 共 **7 代**,newest = `20260904050000`(`bash scripts/latest-definition-of.sh begin_charge_attempt`)。**照下表動手 = 改一支已被取代的 migration, 對正式庫零作用而 diff 看起來完全正常。**
+> 📎 完整量測(含正負對照)與當時的三個選項:`~/pcm-mailbox/mail-003-plan-dedup述詞.md`;板列訂正在 `docs/launch-todo.md` 的 ⟦b4-BANKORDERINVISIBLE⟧ 那一列。
+> 🔵 **本檔其餘內容原文保留**(第 1 節那題「看見之後要做什麼」仍然是好題目 —— 若 Sean 日後推翻 `Q-同車兩單`, 從那裡接回來)。
+
 > 🔵 **授權**:主視窗 2026-09-04 拍甲 —— 「真正的修法 = 修 dedup 述詞, 排在分岔之前。那是你的下一片。」
 > 🔴 **片型 = 高風險片**:鐵則 12①(錢:雙重付款)+ 12③(改 `SECURITY DEFINER` 函式)⇒ 對抗審查不降級。
 > 🛑 **本 plan 寫作期間【零改碼】。**
