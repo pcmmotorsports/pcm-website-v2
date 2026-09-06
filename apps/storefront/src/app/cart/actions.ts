@@ -263,8 +263,24 @@ export async function resolveCartLines(lines: unknown): Promise<ResolvedCartLine
   //     會走 general —— 那與**改動前的行為一模一樣**, 而在 B2c 之後它會變成少收 5%。
   //     ⇒ 「認證抖動要選【全站掛掉】還是【經銷商可能少收】」**是 Sean 的題, 不是我的**,
   //       已進 QB 佇列;在他拍板之前, 這裡選的是**與改動前相同**的那一側。
-  if (!tierResolved.ok && tierResolved.reason === 'tier') {
-    throw new Error('tier price: 已登入而 tier 讀不到 ⇒ 不得以一般價結帳(可能是經銷會員)');
+  // 🔴🔴 **這一行被翻過兩次, 而兩次的理由都是對的 —— 差別在【那時 B2c 還沒做】。**
+  //   ① R3(2026-09-07)說:射程收窄到 `reason === 'tier'` —— 理由是
+  //     「認證抖動時擋下來換到的是**零**, 因為 `create_order` 本來就收 general 價」。**那時它是對的。**
+  //   ② codex(同日, 審 B2c)說:**那個前提死了** —— B2c 之後 `create_order` 對經銷單
+  //     改收經銷價**並外加 5%**。⇒ 認證抖動時:
+  //     ```
+  //     購物車那一發失敗 ⇒ 畫面用 general 價、不加稅 ⇒ 客人看到 1,100
+  //     送單那一發成功   ⇒ server 收經銷價 + 稅       ⇒ 實扣 1,155
+  //     ⇒ 🛑 而付款端【直接刷 server 算的總額】, 沒有差額確認 ⇒ 客人被多收 55 而畫面從沒說過
+  //     ```
+  //   ⇒ ✅ **擋。** 現在擋下來換到的不是零, 是「畫面上的數字 = 被扣的數字」。
+  //   ⚠️ **代價明寫**:Supabase 認證層故障時(不是未登入 —— 訪客走 `ok:true`),
+  //     購物車與結帳頁會擋下來。那是**用可用性換金額正確性**, 而這一片是錢。
+  //   🛑 **QB-5 仍未答, 而我【不是】在替 Sean 拍板**:那題問的是「擋還是放」,
+  //     而 codex 指出的是「放 + B2c」這個組合**會產生一個他沒有被問到的錯**。
+  //     ⇒ 在他答之前, 三顆同批上線的前提下只有「擋」是不會出錯的那一側。已回報主視窗。
+  if (!tierResolved.ok) {
+    throw new Error('tier price: 身分查不出來 ⇒ 不得結帳(畫面的價與 server 要收的價可能不同)');
   }
   const tier = tierResolved.tier;
   if (tier === 'store' && out.length > 0) {

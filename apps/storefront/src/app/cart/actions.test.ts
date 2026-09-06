@@ -438,16 +438,25 @@ describe('B2a 經銷 tier 價', () => {
     await expect(resolveCartLines([{ productId: 'rpm-1' }])).rejects.toThrow();
   });
 
-  it('🔴🔴 認證層抖動(reason:auth)⇒ 【不准】拋 —— 那條路上站的是訪客與一般會員', async () => {
+  it('🔴🔴 認證層抖動(reason:auth)⇒ 【要】拋 —— B2c 之後不擋就是多收', async () => {
     // 🛑 **R3 must-fix ③**:我原本的 `if (!ok) throw` 在 `tier === 'store'` 上面
     //    ⇒ Supabase 認證一抖, **全站購物車與結帳頁一起掛掉**, 而改動前這條路根本不碰 auth。
     //    📌 我的註解宣稱「射程收窄到經銷商」, 而碼沒有收窄 —— **這一格就是那個宣稱的證人**。
     //    ⚠️ 殘餘風險(不自宣接受):此時一位經銷商會走 general —— 與改動前相同, 已進 QB 佇列給 Sean。
     fetchMock.mockResolvedValue(makeProduct({ variants: [], price: 1000 }));
     tierMock.mockResolvedValueOnce({ ok: false, reason: 'auth', tier: 'general' } as never);
-    const lines = await resolveCartLines([{ productId: 'rpm-1' }]);
-    expect(first(lines).unitPrice, '照走原路、拿群 general 價').toBe(1000);
+    await expect(resolveCartLines([{ productId: 'rpm-1' }])).rejects.toThrow(/身分查不出來/);
     expect(pricesMock, '身分不明時不得叫 RPC').not.toHaveBeenCalled();
+  });
+
+  it('🟢 正對照:訪客(未登入)不受影響 —— 他是 ok:true, 不走那條擋門', async () => {
+    // 🔴 這一格是上一格的**射程限定**:擋的是【認證層故障】, 不是【沒登入】。
+    //    未登入的正常形狀是 user:null + AuthSessionMissingError ⇒ `resolveAuthenticatedTierStrict`
+    //    回 `{ok:true, tier:'general'}`(`lib/tier.ts` 那段註解逐字記著這個坑)。
+    //    ⇒ 少了這一格, 上一格看起來像「一抖全站就掛」, 而實際射程窄得多。
+    fetchMock.mockResolvedValue(makeProduct({ variants: [], price: 1000 }));
+    tierMock.mockResolvedValueOnce({ ok: true, tier: 'general' } as never);
+    expect(first(await resolveCartLines([{ productId: 'rpm-1' }])).unitPrice).toBe(1000);
   });
 
   it('🔴🔴 換成經銷價的【同一個動作】要標 `priceUntaxed: true`', async () => {
