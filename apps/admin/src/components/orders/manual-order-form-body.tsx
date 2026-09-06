@@ -11,6 +11,9 @@ import {
   MANUAL_ORDER_PAYMENT_CHANNEL_FIELD,
   MANUAL_ORDER_REQUEST_ID_FIELD,
   MANUAL_ORDER_SHIPPING_FEE_FIELD,
+  MANUAL_ORDER_SHIPPING_FEE_TAX_BASIS_FIELD,
+  MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED,
+  MANUAL_ORDER_LINE_TAX_BASIS_TAXED,
   MANUAL_ORDER_SHIPPING_METHOD_FIELD,
   MANUAL_ORDER_SOURCE_FIELD,
 } from '@/lib/orders/manual-order-form';
@@ -182,6 +185,28 @@ export function ManualOrderFormBody({
                 defaultValue='0'
                 className='mt-1 block w-full rounded-md border px-2 py-1'
               />
+            </label>
+            {/* ⟦b4-SHIPFEETAXBASIS⟧(2026-09-07):運費也要說是未稅還是含稅。
+                🔴 **成因與品項那一格同一個**:`p_shipping_fee` 進 RPC 時沒有人宣告過稅基,
+                   而 RPC 一律當未稅再加 5% ⇒ 員工填一個含稅的 105, 稅就多算 5 元,
+                   **而每一筆都長得很正常**。
+                🔵 形狀**照抄** `manual-order-lines.tsx:264-277` 那一格(`select` 兩個 option,
+                   預設 `untaxed`)—— 不自己發明第二種寫法。
+                🔴 `autoComplete='off'` 不可省:`select` 也會被瀏覽器 autofill, 而
+                   `manual-order-form-body.test.tsx` 有一道**分母守門**在數同表單的控制項。
+                🛑 **換算不在這裡做** —— 這一格只是宣告, 換算在 `parseManualOrderForm()` 裡
+                   (同品項那一格的理由:兩邊各算一次, 員工看到的與進 DB 的就有兩個來源)。 */}
+            <label className='block text-sm'>
+              運費是未稅還是含稅
+              <select
+                autoComplete='off'
+                name={MANUAL_ORDER_SHIPPING_FEE_TAX_BASIS_FIELD}
+                defaultValue={MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED}
+                className='mt-1 block w-full rounded-md border px-2 py-1'
+              >
+                <option value={MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED}>未稅</option>
+                <option value={MANUAL_ORDER_LINE_TAX_BASIS_TAXED}>含稅</option>
+              </select>
             </label>
           </div>
 
