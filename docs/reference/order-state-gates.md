@@ -101,17 +101,16 @@
 > 本腳本讀的是 `supabase/migrations/*.sql` —— 它看得到「檔案存在」(扣掉 never-apply 的那幾支),看不到「這支貼了沒」。
 > ✅ **要知道線上跑的是哪一代**:查 `supabase/APPLIED.tsv`,或用唯讀連線讀 `pg_get_functiondef`。
 
-> 🔵 **本表(§一 與 §二 都是)已排除 4 支標了 `-- pcm:never-apply` 的檔**(它們永遠不會貼 ⇒ 不可能是任何一代):
+> 🔵 **本表(§一 與 §二 都是)已排除 3 支標了 `-- pcm:never-apply` 的檔**(它們永遠不會貼 ⇒ 不可能是任何一代):
 > · `20260901170000_m4b_pfe_ddl_into_version_control.sql`
 > · `20260902200000_m4b_c7_rpc_ddl_into_version_control.sql`
 > · `20260902210000_m4b_pfeddl2_staging_and_sync_log.sql`
-> · `20260904010000_m4b_storefront_search_partno_indexable.sql`
 > ⚠️ **而排除治不了另一半**:一支「寫好了而還沒貼」的檔照樣會排在最後 ⇒ 照樣不是線上那一代。
 
 
 ## 二、會改訂單狀態的函式 × 它的允許集合(逐字)
 
-> 🔵 **本節與 §一 用同一份分母** —— 那 4 支 `-- pcm:never-apply` 的檔也被排除了(清單在 §一 末尾)。
+> 🔵 **本節與 §一 用同一份分母** —— 那 3 支 `-- pcm:never-apply` 的檔也被排除了(清單在 §一 末尾)。
 > ⚠️ 意思是:**若那幾支檔裡有訂單狀態的閘, 它不會出現在下面**。今天它們對狀態寫入零命中, 所以這一句現在不產生任何差異。
 
 ### `confirm_order_payment`  ·  `20260611120000_m3_s2c_confirm_payment_rpc.sql`
