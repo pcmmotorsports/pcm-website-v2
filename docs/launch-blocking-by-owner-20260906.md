@@ -28,6 +28,40 @@
 >    ship 逐字「啟用文件有了, 能不能送是 `⟦ship-HCTAPI⟧`/§二① 另一題」⇒ 97 ⇒ 96。
 >    🛑 **那一列的擋不是消失, 是被拆到另一題去** ⇒ 派工時要跟著看 `⟦ship-HCTAPI⟧`。
 > 📌 **⇒ 拿本檔派工可以;拿本檔【數擋幾件】不行** —— 現值當場跑 `bash scripts/launch-blocking-count.sh`。
+>
+> ## 🔴🔴 [2026-09-07 06:0x 重量] **而「拿本檔派工可以」這句現在也不夠了 —— 四分之一對不上**
+>
+> ```
+> 板上現在的擋列(有錨的)   85
+> 本檔列到的錨             95
+> 🔴 本檔有而【現在不是擋】  22   ← 照它派 = 派一件已經不擋的
+> 🔴 現在是擋而【本檔沒有】  12   ← 照它派 = 漏掉這幾件
+> ```
+> **本檔有而現在不擋**:`#299` · `#530` · `#868` · `#872` · `#939` · `⟦b4-CRONWL1⟧` · `⟦b4-ENUM3⟧` · `⟦b4-MANREFUNDNOOWNER⟧` …
+> **現在擋而本檔沒有**:`#906` · `#907` · `⟦account-SETTLEVOIDEDPRED⟧` · `⟦auth-TIERTOTALBYPAYMENT⟧` · `⟦b4-CARDFAILNOALERT⟧` · `⟦b9-REFUNDNUM1⟧` · `⟦db-DEADMANSIGNAL4⟧` · `⟦db-ROLLBACKLOCKWAIT⟧` …
+>
+> 🛑 **兩個方向都會出錯, 而【漏掉的那幾件】沒有任何東西會提醒你。**
+> 📌 **⇒ 早上派工前, 用板子當來源、拿本檔當【誰欄的參考】** —— 分堆仍有用, **名單不再準。**
+> 🔴🔴 **而那個「差多少」的量具, 我一寫上面那份名單就【弄壞了它】** ——
+> 我把 22 個錨貼進這一段當證據 ⇒ **它們自己進了「本檔列到的錨」那個集合**
+> ⇒ 重跑變成 **23 / 4**(原本 22 / 12)。
+> 🎯 **⇒ 這是「尺撞到講述它自己的文本」的又一次** —— 而這次**弄壞它的是我為了證明它而貼的證據**。
+> ⚠️ **⇒ 下面那行指令仍然可以跑, 而它的讀數【從此偏低】**(本檔的名單被我灌水了)。
+>    要乾淨的讀數 ⇒ **只掃本檔的【表格區】, 不要掃檔頭**;或直接以板子為準。
+> ✅ 重跑一行就知道差多少(它比對板子與本檔的錨集合):
+> ```bash
+> cd ~/pcm-wt-tidy && python3 - <<'PY'
+> import re,io
+> S=re.compile(r'(?<!\\\\)\\|')
+> now={m.group(0) for l in io.open('docs/launch-todo.md',encoding='utf-8')
+>      if l.startswith('| ') and len(S.split(l))>3
+>      and (S.split(l)[-2] if l.rstrip().endswith('|') else S.split(l)[-1]).lstrip().startswith('⟨擋')
+>      for m in [re.search(r'⟦[^⟧]+⟧|#\\d+', S.split(l)[2])] if m}
+> t=io.open('docs/launch-blocking-by-owner-20260906.md',encoding='utf-8').read()
+> L=set(re.findall(r'⟦[^⟧]+⟧|#\\d+', t))
+> print('表有而不擋', len(L-now), '· 擋而表沒有', len(now-L))
+> PY
+> ```
 > **為什麼降**:Sean 2026-09-06 21:58 + 22:03 一次答了 **16 題** ⇒ 5 列轉不擋、10 列拿到主人。
 > 🔵 **最明顯的變化:「等 Sean」從 12 列 ⇒ 1 列。**
 > 
