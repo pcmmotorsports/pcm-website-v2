@@ -74,7 +74,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 🔴 **我要查正式庫的一個數字 / 我想知道某支 migration 貼了沒 / 我掃了 `scripts/`+環境變數+`~/.pgpass`+MCP 都查無, 而想斷言「沒有唯讀權限」之前** | `~/pcm-mailbox/0905查證/run.sh` —— **那條路存在**(Sean 2026-09-03 00:5x 批, 它 source `.env.local`)。🛑 三句缺一不可:①**唯讀與 apply 是兩個授權, 而 Sean 只給了唯讀** ⇒ 不得拿它 apply 任何東西 ②**跑不跑得動由你的 session 權限決定 —— 跑不動是【對的】, 不是壞掉**(2026-09-03 主視窗被擋, 它沒有繞) ③**絕不把連線字串印進對話**。📎 §23 |
 | 要寫或審任何 `.range()` · 翻頁迴圈 · 「撈全部」的迴圈 | `docs/patterns/pagination-loop-review.md`(🔴 **檔頭有證據等級聲明** —— 原文已隨 session 消失、本檔是轉錄版,引用前先讀那一段;五條準則:頁大小嚴格小於 `db-max-rows` / `.range()` 兩端皆含 / 中途失敗要 throw 不得 break / `count` 不當終止判準 / 排序帶唯一鍵) |
 | 要把某供應商商品上架到顧客站 shop.pcmmotorsports.com | `docs/runbooks/supplier-storefront-onboarding.md`(完整流程 + forget-proof preflight,單一入口) |
-| 🔴🔴 **我要在 Vercel 防火牆加一條規則** / **我要在 `vercel.json` 裡加 `routes` + `mitigate`** / **排程(對帳・出貨信)安靜地停了而防火牆面板上一切正常** | **兩支合起來才是一張網, 各自看不到另一半**:<br>① `scripts/vercel-json-waf-cron-gate.py` 看 **repo**(已掛 pre-commit)· ② `scripts/vercel-firewall-cron-order-check.py` 看 **live**(**沒有**自動跑, 要在主樹)。<br>🔴 **任一支單獨全綠 ≠ 排程安全** —— 操作細節 📎 §24 —— 📎 病史·實錘·射程 → 板列 `⟦f3-FWBYPASSORDER⟧` |
+| 🔴🔴 **我要在 Vercel 防火牆加一條規則** / **我要在 `vercel.json` 裡加 `routes` + `mitigate`** / **排程(對帳・出貨信)安靜地停了而防火牆面板上一切正常** | **兩支合起來才是一張網, 各自看不到另一半**:<br>① `scripts/vercel-json-waf-cron-gate.py` 看 **repo** · ② `scripts/vercel-firewall-cron-order-check.py` 看 **live**。<br>✅ **2026-09-06 起兩支都自動跑**:① pre-commit · ② `scripts/harvest-chain.sh` 第一道閘 `fw-live`(每一批推之前)。⚠️ 而**鏈跑在主樹** —— 你自己在 worktree 手跑仍會 `not_linked`。<br>🔴 **任一支單獨全綠 ≠ 排程安全** —— 📎 §24(含 `⟦f3-FWBYPASSORDER⟧`) |
 | 🔴🔴 **新竹第一箱要開送 / 要打開 `HCT_SUBMIT_ENABLED` 之前** | `docs/runbooks/hct-first-shipment-activation.md`(按鈕的人是 Sean;五道擋門任一答不出來就不送;停送要 redeploy 且在途停不住) |
 | 🔴 **後台按了「送新竹」, 那箱卡在「送出結果未知」, 鈕按幾次都不會動** | `docs/runbooks/hct-unknown-stuck-manual-reset.md`(第 0 步是【不准改】;甲型佔位 vs 乙型真回應只有 DB 分得出) |
 | 🔴 **客人打電話說「我收到【兩封不一樣的】出貨通知」/「到底哪一個追蹤號才對」/「你們是不是出了兩次貨」** | `docs/runbooks/duplicate-shipping-email-sop.md` —— 📎 §21 |
@@ -93,7 +93,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 查「某個坑我們記過沒」<br>🔴 **或:我剛寫了一道守門 / 一個門檻 / 一個正對照 —— 在 commit 之前** | `scripts/traps-neighbours.py` —— 📎 §18 |
 | 🔴 **列印出來的紙【多了一頁】/ 紙上看不到頁碼 / 換一台印表機就不一樣 / 「另存 PDF 是一頁而真印表機是兩頁」** | `apps/admin/src/app/print/print-a4.css` —— 📎 §19 |
 | 🔴 **①三綠印了綠而我不確定它真的跑了 / build 紅了而找不到錯誤行**<br>②**這件事我接了,而它是不是已經被做掉了 / 板子那一列還成不成立**<br>③**測試說「找不到建置產物」/ 我明明 build 過了它還說沒有** | `bash scripts/greenlight.sh` —— 📎 §13 |
-| 🔴🔴 **我新寫了一支帶 `--selftest` 的腳本,而它在我自己樹上跑是綠的** —— 🛑 **那句話本身就是觸發條件,不是通過條件** | `.husky/selftest-git-isolation-gate.sh` —— 📎 §14 |
+| 🔴🔴 **我新寫了一支帶 `--selftest` 的腳本,而它在我自己樹上跑是綠的** —— 🛑 **那句話本身就是觸發條件,不是通過條件** | `scripts/selftest-git-isolation-gate.sh`(⛔ ~~`.husky/…`~~ —— 2026-09-06 `-ship` 實查:三棵樹 + dev + 94 支 ref 全查無, 真的那支在 `scripts/`)—— 📎 §14 |
 | 🔴 **板上寫著 `open` 而我不確定 · 有人跟我說「那件早就做掉了」而我想自己驗 · 我要說「這件沒有人做」之前** | `python3 scripts/what-happened-to.py <錨>` —— 📎 §15 |
 | 🔴 **我要端一題給 Sean 之前**(任何決策題、任何「要他拍板」的東西) | `bash scripts/before-asking-sean.sh "<他會講的話>"` —— 📎 §16 |
 | 🔴 **要抄一支既有的 DB 函式來改 / 要寫 `CREATE OR REPLACE` 之前 / 有人給你一個「那支函式在這裡」的行號** | `bash scripts/latest-definition-of.sh <物件名>` —— 📎 §20 |

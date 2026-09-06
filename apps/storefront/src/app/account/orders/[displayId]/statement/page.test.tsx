@@ -110,6 +110,7 @@ function orderFixture(over: Partial<MemberOrderDetail> = {}): MemberOrderDetail 
         unitPrice: twd(6000),
         lineTotal: twd(12000),
         shipped: false,
+        shippedQuantity: 0,
       },
     ],
     itemCount: 2,
