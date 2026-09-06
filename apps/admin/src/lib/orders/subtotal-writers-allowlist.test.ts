@@ -428,6 +428,21 @@ const ALLOWLIST = [
   //      ⇒ ⇒ 🛑 **所以 C 不改這裡的話, 它會紅** —— 已寫進
   //        `supabase/migrations/PENDING-C-drop-create-order-10arg.sql.txt` 的檔頭。
   '20260904020000_m4b_create_order_payment_channel.sql',
+  // 🔴🔴 `20260906500000`(2026-09-06 登錄, 線【卡片取消】`⟦b4-BANKCARDRACE⟧` 甲)——
+  //    `create_order` **兩支多載各一次 `CREATE OR REPLACE`**(簽名一個字沒動)。
+  //
+  //    ✅ **它為什麼有資格寫那三欄**:它根本沒有碰那三欄 —— 函式體是**逐字取自正式庫 `prosrc`**
+  //      的副本(產生器 `gen-race2.py` 先驗 md5 才動:11 參 `8cb6104e…` · 10 參 `a1f52126…`),
+  //      **唯一的改動是在 `-- ── 1. 身分 + customer profile` 之後插入一段守門**
+  //      (advisory lock + 「同 cart 已經有付成功的單就 RAISE」)。
+  //      🔴 **`subtotal` / `shipping_fee` / `discount_total` 的算法一個字元都沒有動。**
+  //    🛑 **而這道閘【判不出】那件事**(同 `20260904020000` 那一格記過的限制:它比對語句不比值域)
+  //      ⇒ 📌 **「算法沒動」由 migration 檔內的 md5 前置閘背書, 不是由這一列背書。**
+  //
+  //    🔵 **它為什麼會被掃成寫入者**:那段 INSERT 在副本裡, 而這道閘掃的是**檔案字面**
+  //      ⇒ 📌 **「我只加了一段守門」與「這支檔裡有沒有那個 INSERT」是兩件事, 而閘看的是後者。**
+  //      ⇒ 這一列**不是豁免**, 它是「有人看過了」的簽名。
+  '20260906500000_m4b_bankcardrace_create_order_paid_cart_guard.sql',
   // 🔴🔴 `20260904251500`(2026-09-05 登錄, 線【帳號】`⟦b4-INVOICE5PCT⟧` 第 2 步)——
   //    `admin_create_manual_order` 的**第④代**(`CREATE OR REPLACE`, 簽名一個字沒動)。
   //

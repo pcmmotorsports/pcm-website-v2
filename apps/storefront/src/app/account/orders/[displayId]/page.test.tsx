@@ -125,6 +125,41 @@ beforeEach(() => {
 });
 
 describe('/account/orders/[displayId] 路由', () => {
+  // ⟦b4-PARTIALPAIDNOWHERE⟧ 🔴 **頁面層的 `NaN` 守門(2026-09-06 主視窗派;同夜 account 那條線剛被咬)**
+  //
+  // 🔬 **為什麼守在【頁面層】而不是元件層**:元件測試餵的是**我手寫的** fixture,
+  //   而 `NaN` 是**算出來的** —— 匯款那塊印的「已收」是 `total − balanceDue`
+  //   (`OrderDetailView.tsx:719-728`, 兩個 `Money` 相減)。
+  //   ⇒ 📌 只要有一端是 `undefined` / 非數字, 那一格就會**安靜地印出 `NaN`**,
+  //     而元件測試若剛好兩端都給對, 它永遠不會紅。
+  // 🛑 **判準寫成「整頁不准有這三個字」**, 不是「那一格等於某個數」——
+  //   後者只守得住我想到的那一格, 前者連我沒想到的那幾格一起守。
+  it('🔴 收了訂金的匯款單 ⇒ 印餘額而【整頁一個 NaN 都不准有】', async () => {
+    findOrderDetailForCustomer.mockResolvedValueOnce({
+      ...OWN_ORDER,
+      paymentStatus: 'partiallyPaid' as const,
+      paymentChannel: 'bank_transfer' as const,
+      balanceDue: money(4100),   // 12,100 − 4,100 ⇒ 已收 8,000
+    });
+    const html = await renderRoute('B3XA91');
+    expect(html).not.toContain('NaN');
+    expect(html).toContain('NT$ 4,100');   // 應付餘額
+    expect(html).toContain('NT$ 8,000');   // 已收(推出來的那一格 —— NaN 就長在這裡)
+  });
+
+  it('🔵 負對照:算不出餘額(null)⇒ 改印「請聯絡我們」, 而【一樣不准有 NaN】', async () => {
+    findOrderDetailForCustomer.mockResolvedValueOnce({
+      ...OWN_ORDER,
+      paymentStatus: 'partiallyPaid' as const,
+      paymentChannel: 'bank_transfer' as const,
+      balanceDue: null,
+    });
+    const html = await renderRoute('B3XA91');
+    expect(html).not.toContain('NaN');
+    // 🛑 少了這一句, 一個「整塊都不渲染」的實作也會讓上面那句綠。
+    expect(html).toContain('請不要再匯款');
+  });
+
   it('本人的單 ⇒ 渲染明細(單號 / 品名 / 金額都在)', async () => {
     const html = await renderRoute('B3XA91');
     expect(html).toContain('B3XA91');

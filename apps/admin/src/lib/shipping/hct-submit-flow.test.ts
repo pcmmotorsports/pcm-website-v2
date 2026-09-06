@@ -1,3 +1,4 @@
+import { toShipmentReference } from '@pcm/domain';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { decideSubmit, runHctSubmit } from './hct-submit-flow';
 import { buildHctTransData } from './hct-trans-data';
@@ -12,7 +13,10 @@ import type { HctClientDeps } from './hct-client';
 //    ⇒ 📌 本檔驗的是 TS 那一層, **而 DB 那一層由 C-1 的十格實跑驗過。**
 
 const FIELDS = buildHctTransData({
-  displayId: 'PCM-2026-0001',
+  // ⛔ ~~`displayId: 'PCM-2026-0001'`~~ —— 2026-09-06 ⟦ship-EPINOUNIQUE⟧:這一欄餵的是 6 碼**箱號**,
+  //    而這支 fixture 一直餵**訂單**編號。新契約有格式閘 ⇒ 舊字面會在 module 層 throw
+  //    ⇒ 🛑 **整支檔載不起來 = 一批綠不見了**(當場撞到, 本 repo 記過那個形狀)。
+  shipmentReference: toShipmentReference('B7K3MN'),
   recipient: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
   itemCount: 1,
 }).fields;
@@ -46,7 +50,7 @@ const deps = (f: typeof fetch): HctClientDeps => ({
   password: 'pw',
 });
 const run = (current: Parameters<typeof decideSubmit>[0], f: typeof fetch) =>
-  runHctSubmit({ deps: deps(f), current, fields: FIELDS, epino: 'PCM-2026-0001' });
+  runHctSubmit({ deps: deps(f), current, fields: FIELDS });
 
 afterEach(() => vi.unstubAllEnvs());
 function openGates() {
@@ -108,7 +112,6 @@ describe('⟦ship-HCTAPI⟧ 片 C-2 · unknown 那條路 —— 先查, 而查�
       deps: deps(f.impl),
       current: 'unknown',
       fields: FIELDS,
-      epino: 'PCM-2026-0001',
     });
     expect(out.kind).toBe('needs_human');
     // 🎯 兩種都停在 needs_human, 而【理由必須不同】——
@@ -142,12 +145,11 @@ describe('⟦ship-HCTAPI⟧ 片 C-2 · 送出那條路 —— 三態各自落到
 
   it('🔴🔴 新竹回 R ⇒ 貨號要記, 而它【不是】一次乾淨的成功', async () => {
     openGates();
-    const f = fakeFetch(() => soap([{ success: 'R', edelno: '9990001234', epino: 'PCM-2026-0001' }]));
+    const f = fakeFetch(() => soap([{ success: 'R', edelno: '9990001234', epino: 'B7K3MN' }]));
     const out = await runHctSubmit({
       deps: deps(f.impl),
       current: 'draft',
       fields: FIELDS,
-      epino: 'PCM-2026-0001',
     });
     // ✅ 貨號照記 —— 那張單是真的, 不記才是錯的。
     expect(out.kind).toBe('amended');
@@ -158,12 +160,11 @@ describe('⟦ship-HCTAPI⟧ 片 C-2 · 送出那條路 —— 三態各自落到
 
   it('🟢 負對照:同一條路回 Y ⇒ recorded/submitted(證明上面那個 amended 不是恆真)', async () => {
     openGates();
-    const f = fakeFetch(() => soap([{ success: 'Y', edelno: '9990001234', epino: 'PCM-2026-0001' }]));
+    const f = fakeFetch(() => soap([{ success: 'Y', edelno: '9990001234', epino: 'B7K3MN' }]));
     const out = await runHctSubmit({
       deps: deps(f.impl),
       current: 'draft',
       fields: FIELDS,
-      epino: 'PCM-2026-0001',
     });
     expect(out.kind).toBe('recorded');
   });

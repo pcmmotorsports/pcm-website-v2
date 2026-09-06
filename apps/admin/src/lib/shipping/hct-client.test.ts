@@ -1,3 +1,4 @@
+import { toShipmentReference } from '@pcm/domain';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { hctMode, queryEdelno, submitTransData, type HctClientDeps } from './hct-client';
 import { buildHctTransData } from './hct-trans-data';
@@ -11,7 +12,9 @@ import { buildHctTransData } from './hct-trans-data';
 //    ⇒ 而那不只是為了測試方便:📌 **一支會在測試裡打對方端點的 client, 它的測試本身就是一個對外動作。**
 
 const FIELDS = buildHctTransData({
-  displayId: 'PCM-2026-0001',
+  // 🔵 6 碼箱號 —— ⛔ ~~`'B7K3MN'`~~(2026-09-06 ⟦ship-EPINOUNIQUE⟧:那是【訂單】編號,
+  //    而這一欄餵的是【箱號】;新契約有格式閘, 舊字面會 throw)。
+  shipmentReference: toShipmentReference('B7K3MN'),
   recipient: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
   itemCount: 1,
 }).fields;
@@ -104,7 +107,7 @@ describe('⟦ship-HCTAPI⟧ 片 B · 那道閘 —— 「關著」是四個性�
   it('🔴 兩顆 env 不共用:只開送出 ⇒ 查詢仍然關著(唯讀與送出是兩個授權)', async () => {
     vi.stubEnv('HCT_SUBMIT_ENABLED', 'true');
     const f = fakeFetch(() => json({}));
-    expect(await queryEdelno(deps(f.impl), 'PCM-2026-0001')).toEqual({ kind: 'disabled' });
+    expect(await queryEdelno(deps(f.impl), 'B7K3MN')).toEqual({ kind: 'disabled' });
     expect(f.calls, '開了送出就順便可以查 ⇒ 那正是共用一顆 env 的病').toEqual([]);
   });
 
@@ -166,7 +169,7 @@ describe('⟦ship-HCTAPI⟧ 片 B · queryEdelno —— fail-closed', () => {
   it('🔵 正對照:有訂單編號且閘開著 ⇒ 找得到(證明上面那幾格不是因為它永遠丟例外)', async () => {
     openGates();
     const f = fakeFetch(() => soap(realRow({ success: 'Y', edelno: '9990001234' }), 'QueryEDELNO_Json'));
-    expect(await queryEdelno(deps(f.impl), 'PCM-2026-0001')).toMatchObject({
+    expect(await queryEdelno(deps(f.impl), 'B7K3MN')).toMatchObject({
       kind: 'found',
       edelno: '9990001234',
     });
@@ -274,7 +277,7 @@ describe('⟦ship-HCTAPI⟧ SOAP 信封與外層形狀(真回應當 fixture)', (
       return Promise.resolve(soap(realRow({ success: 'N', ErrMsg: '查無資料' }), 'QueryEDELNO_Json'));
     }) as unknown as typeof fetch;
     openGates();
-    await queryEdelno(deps(impl), 'PCM-2026-0001');
+    await queryEdelno(deps(impl), 'B7K3MN');
     const headers = seen?.headers as Record<string, string>;
     expect(headers['SOAPAction']).toBe('"http://tempuri.org/QueryEDELNO_Json"');
     const inner = /<json>([\s\S]*?)<\/json>/.exec(String(seen?.body))?.[1] ?? '';
@@ -285,7 +288,11 @@ describe('⟦ship-HCTAPI⟧ SOAP 信封與外層形狀(真回應當 fixture)', (
       .replace(/&quot;/g, '"')
       .replace(/&apos;/g, "'")
       .replace(/&amp;/g, '&');
-    expect(JSON.parse(unesc)).toEqual([{ epino: 'PCM-2026-0001' }]);
+    // 🔴 這一格是 wire payload 的逐字斷言 ⇒ 這支檔裡最接近「真的送出去長什麼樣」的一格。
+    //    ⛔ ~~`epino: 'PCM-2026-0001'`~~ —— 2026-09-06 ⟦ship-EPINOUNIQUE⟧:正式路徑現在只可能
+    //    送 6 碼箱號, 而這一格一直在斷言一個**真實世界不再送的形狀**(code-reviewer R3 抓到,
+    //    而那是我今晚第三次的「只修一邊」)。
+    expect(JSON.parse(unesc)).toEqual([{ epino: 'B7K3MN' }]);
   });
 
   it.each([

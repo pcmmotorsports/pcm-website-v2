@@ -90,7 +90,15 @@ build_shset() {
       | grep -oE '(^|[[:space:]&|;(])sh[[:space:]]+[^[:space:];|&)]*' \
       | grep -oE '(scripts|\.husky)/[A-Za-z0-9_.-]+\.sh' >> "$out"
   done
-  # ③ shebang 自己就是 sh
+  # ③-a 🔴 **husky hook 【自己】就是被 sh 跑的**(codex R1 must-fix):`.husky/pre-commit` 這種檔
+  #     **沒有 `.sh` 副檔名**, 而 husky 用 `sh` 執行它 ⇒ 它在裡面寫 process substitution 一樣會壞,
+  #     📌 而我原本的三個來源**一個都收不到它** —— 它不是被誰「叫」的, 它自己就是入口。
+  #     ⚠️ 跳過 `_/`(husky 自己產生的內部檔)與目錄。
+  for h in "$root"/.husky/*; do
+    [ -f "$h" ] || continue
+    printf '.husky/%s\n' "$(basename "$h")" >> "$out"
+  done
+  # ③-b shebang 自己就是 sh
   for f in "$root"/scripts/*.sh; do
     [ -f "$f" ] || continue
     sb=$(head -1 "$f")
@@ -116,49 +124,96 @@ scan_one_procsub() {
 
 run_list() {
   # 讀 argv 或 stdin,逐檔掃,統計。
-  total=0; hits=0
-  tmp_hits=$(mktemp -d)/hits   # 用 -d(可攜),把命中行數落檔避開 subshell 吞變數
-  : > "$tmp_hits"
+  total=0; hits=0; hits1=0; hits2=0
+  _T=t   # 用變數拼「-t」, 免得本檔的訊息字面被自己的第一族判違規
   # 第二族要先算一次「會被 sh 跑到」的集合(每次 run_list 算一次, 不是每個檔算一次)
-  SHSET=$(mktemp -d)/shset
-  build_shset "$SHSET" || printf '  ⚠️ 第二族:算不出「會被 sh 跑到」的集合 ⇒ 這一族這一發【沒有掃】\n' >&2
+  # 🔴 **量具建不起來 ⇒ fail-closed**(codex R1 must-fix):原本只印一句警告然後往下跑,
+  #    ⇒ 📌 **最壞情況是「第二族整族沒掃」而離場碼 0** —— 那與「掃過了、乾淨」印同一個東西。
+  WORKDIR=$(mktemp -d) || { echo "閘自己壞了:mktemp -d 失敗" >&2; return 2; }
+  SHSET="$WORKDIR/shset"
+  if ! build_shset "$SHSET"; then
+    echo "🔴 閘自己壞了:算不出「會被 sh 跑到」的集合 ⇒ 第二族沒有掃 ⇒ 拒絕回 0(exit 2)" >&2
+    rm -rf "$WORKDIR"
+    return 2
+  fi
   _relkey() { # 把絕對路徑正規化成 repo 相對(lint-staged 餵的是絕對路徑)
     _r=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd) || { printf '%s' "$1"; return; }
     case "$1" in "$_r"/*) printf '%s' "${1#"$_r"/}" ;; *) printf '%s' "$1" ;; esac
   }
   _scan() {
     total=$((total + 1))
-    out=$(scan_one "$1")
-    out=$out$(scan_one_procsub "$1" "$SHSET" "$(_relkey "$1")")
-    if [ -n "$out" ]; then
-      printf '%s\n' "$out"
-      n=$(printf '%s\n' "$out" | grep -c '❌')
-      hits=$((hits + n))
+    # 🔴 **兩族分開數** —— 因為它們的**處置不同**(第一族只印, 第二族擋)。
+    #    合在一起數的話, 離場碼就答不出「是哪一族」。
+    o1=$(scan_one "$1")
+    o2=$(scan_one_procsub "$1" "$SHSET" "$(_relkey "$1")")
+    if [ -n "$o1" ]; then
+      printf '%s\n' "$o1"
+      n1=$(printf '%s\n' "$o1" | grep -c '❌'); hits1=$((hits1 + n1)); hits=$((hits + n1))
+    fi
+    if [ -n "$o2" ]; then
+      printf '%s\n' "$o2"
+      n2=$(printf '%s\n' "$o2" | grep -c '❌'); hits2=$((hits2 + n2)); hits=$((hits + n2))
     fi
   }
+  # ── 先把要掃的清單收進一個檔, 再一次掃 ───────────────────────────────
+  TGT="$WORKDIR/targets"; : > "$TGT"
   if [ "$#" -gt 0 ]; then
-    for f in "$@"; do _scan "$f"; done
+    for f in "$@"; do printf '%s\n' "$f" >> "$TGT"; done
   else
-    while IFS= read -r f; do
-      [ -n "$f" ] || continue
-      _scan "$f"
-    done
+    while IFS= read -r f; do [ -n "$f" ] || continue; printf '%s\n' "$f" >> "$TGT"; done
   fi
-  printf '\n掃了 %s 支(傳進來的清單)· 認得【2 族】方言:①mktemp -t <無 XXXXXX 前綴>(BSD-only)②process substitution 而該檔會被 sh 跑到\n' "$total"
-  printf '命中 %s 處。分母=你傳的清單,不是「CI 會跑到的全部」(見檔頭「天花板/範圍」)。\n' "$hits"
-  [ "$hits" -eq 0 ] && return 0 || return 1
+  # 🔴🔴 **呼叫關係改了 ⇒ 要重掃【被呼叫的那些檔】, 不是只掃改動的那一支**(codex R1 must-fix ×2)。
+  #   📌 這一族的違規是**一對關係**(檔案內容 × 誰用什麼 shell 叫它)——
+  #     ⇒ 把 `package.json` 裡某支的 `bash` 改成 `sh`, **改動的檔是 `package.json`**,
+  #       而**變成違規的是那支腳本** ⇒ 只掃 staged 清單的話, 它**一個字都不會印**。
+  #   ⇒ ✅ staged 裡出現 `package.json` 或 `.husky/` 底下的東西 ⇒ **把整個 shset 一起掃**。
+  #   ⚠️ 代價:那幾種 commit 會多花幾秒(shset 今天約 30 多支);而**漏放的代價是這一族的核心事故**。
+  _relist=0
+  while IFS= read -r f; do
+    case "$(_relkey "$f")" in package.json|.husky/*) _relist=1 ;; esac
+  done < "$TGT"
+  if [ "$_relist" = 1 ]; then
+    _r2=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)
+    printf '  🔁 呼叫關係可能改了(staged 含 package.json 或 .husky/)⇒ 把整個「會被 sh 跑到」的集合一起掃\n'
+    while IFS= read -r k; do
+      [ -n "$k" ] || continue
+      [ -f "$_r2/$k" ] && printf '%s\n' "$_r2/$k" >> "$TGT"
+    done < "$SHSET"
+  fi
+  sort -u "$TGT" -o "$TGT"
+  while IFS= read -r f; do [ -n "$f" ] || continue; _scan "$f"; done < "$TGT"
+  printf '\n掃了 %s 支(傳進來的清單)· 認得【2 族】方言:①%s <無 XXXXXX 前綴>(BSD-only)②process substitution 而該檔會被 sh 跑到\n' "$total" "mktemp -$_T"
+  printf '命中 %s 處(第一族 %s · 第二族 %s)。分母=你傳的清單,不是「CI 會跑到的全部」(見檔頭「天花板/範圍」)。\n' "$hits" "$hits1" "$hits2"
+  # 🔴🔴 **第一族【印了但不擋】**(2026-09-06 主視窗 `-f8` 裁「乙」)——
+  #   接進 `lint-staged` 的那一刻, 第一族現存的 17 處會讓 **6 支檔誰改誰被擋**,
+  #   而那 5 支是別條線在維護的檔。⇒ 📌 **一道新閘不該把別人的既有債變成【今天的阻塞】。**
+  #   ⇒ ✅ 第一族照印、照計數, **而只有第二族會讓離場碼變 1**。
+  #   ⏰ **第一族何時轉「擋」= 板列 ⟦auth-MKTEMPDEBT⟧ 關掉的那一天。**
+  #   🛑 **這一句一定要留著** —— 否則下一個人看到第一族印紅, 會以為它在守。
+  if [ "$hits1" -ne 0 ]; then
+    printf '⚠️ 第一族有 %s 處, 而它【只印不擋】(板列 ⟦auth-MKTEMPDEBT⟧;那一列關掉才轉擋)。\n' "$hits1" >&2
+  fi
+  rm -rf "$WORKDIR"
+  [ "$hits2" -eq 0 ] && return 0 || return 1
 }
 
 self_check() {
   d=$(mktemp -d) || { echo "self-check: mktemp -d 失敗" >&2; return 2; }
   # constraint#3 的三個具名格 + template 形 + 可攜 -d
-  printf 'out=$(mktemp -t pagecount).pdf\n'      > "$d/pos_suffix.sh"   # 後接副檔名,單獨一格,要判違規
-  printf 'tmp="$(mktemp -t l4a1mut)"\n'          > "$d/pos_prefix.sh"   # 裸前綴,要判違規
-  printf 'f="$(mktemp "$TMPDIR/a.XXXXXX")"\n'    > "$d/neg_template.sh" # template 形,不判違規
-  printf 'd="$(mktemp -d)"\n'                    > "$d/neg_portable.sh" # -d 可攜,不判違規
-  printf 'g="$(mktemp -t foo.XXXXXX)"\n'         > "$d/neg_gnuok.sh"    # -t 但帶 XXXXXX(GNU 也吃),不判違規
-  printf '  # 🔴 mktemp -t <前綴> 是 BSD 方言\n' > "$d/neg_comment.sh"   # 整行註解 ⇒ 剝除 ⇒ 不判違規
-  printf 'echo "run: mktemp -t xyz"\n'           > "$d/neg_string.sh"   # ⚠️ 已知盲區:字串內 ⇒ 目前【仍會】假陽性
+  # 🔴🔴 **樁的內容不可以【逐字】寫在本檔裡**(2026-09-06;主視窗 `-f8` 指定現在就修)——
+  #   本閘接進 `lint-staged` 之後會**掃到自己**, 而這幾行的字面會被第一族判違規(字串盲區)
+  #   ⇒ 📌 **維護這支閘的人, 他的 commit 會被這支閘擋住。**
+  #   ⇒ 🎯 **一支對【自己】叫的守門會被關掉, 而它守的東西跟著沒了。**
+  #   ⇒ ✅ 用 `%s` 讓那兩個字在**執行時**才拼起來:**檔案裡沒有它, 樁裡有它** ——
+  #     🔵 而**盲區的活證據沒有消失**:`neg_string.sh` 的內容照舊, 它照舊被判 hit(下面那一格還在演)。
+  _m='mktemp -t'
+  printf 'out=$(%s pagecount).pdf\n'   "$_m" > "$d/pos_suffix.sh"   # 後接副檔名,單獨一格,要判違規
+  printf 'tmp="$(%s l4a1mut)"\n'       "$_m" > "$d/pos_prefix.sh"   # 裸前綴,要判違規
+  printf 'f="$(mktemp "$TMPDIR/a.XXXXXX")"\n' > "$d/neg_template.sh" # template 形,不判違規
+  printf 'd="$(mktemp -d)"\n'                 > "$d/neg_portable.sh" # -d 可攜,不判違規
+  printf 'g="$(%s foo.XXXXXX)"\n'      "$_m" > "$d/neg_gnuok.sh"    # -t 但帶 XXXXXX(GNU 也吃),不判違規
+  printf '  # 🔴 %s <前綴> 是 BSD 方言\n' "$_m" > "$d/neg_comment.sh"  # 整行註解 ⇒ 剝除 ⇒ 不判違規
+  printf 'echo "run: %s xyz"\n'        "$_m" > "$d/neg_string.sh"   # ⚠️ 已知盲區:字串內 ⇒ 目前【仍會】假陽性
 
   ok=1
   _expect() { # $1=檔 $2=want(hit|clean)

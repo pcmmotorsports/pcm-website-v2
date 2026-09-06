@@ -76,11 +76,30 @@ export default async function ProductsRoute({ searchParams }: Props) {
   // garage(V-1e):登入會員愛車 chips(RLS vehicles_*_own 守自己 row;未登入/讀取失敗→[]、
   //   「我的愛車」鈕整排不顯示、頁面不 500)。本 route 已 force-dynamic → 加 per-user 讀取
   //   零快取語意變更(值班台 verdict 特別查過);併入既有 Promise.all 不 serial 疊 TTFB。
+  // ⟦search-CATSWITCHSLOW⟧ ② 變快那半的**儀器**(2026-09-06,主視窗 -f8 批;**只印時間與筆數**)。
+  // 🔬 **為什麼非加不可**:切分類慢 3.2 秒是**量到的**(結果區計時 3212/3318 ms,與板上獨立量到的
+  //   正式站 3371/3378/5487/6259 ms 同一量級);而**兇手不在 DB** —— 唯讀 `EXPLAIN (ANALYZE)` 實測
+  //   帶分類的完整形狀 **22.6 ms**,比不帶分類的 **141 ms** 還快(`~/pcm-mailbox/0905查證/q-catswitch-explain-v2.sql`)。
+  // 🛑 **而我從外面量到兩把打架的尺**:瀏覽器 `fetch` 說帶分類 2979–6085 ms、不帶 151 ms;
+  //   同一時間 `curl` 說 1099–2243 ms vs 810 ms,而且 curl 那組**會變快**、瀏覽器那組五發都不會。
+  //   ⇒ 📌 **兩把外部的尺對不起來 ⇒ 只能從裡面量。這一行就是那個「裡面」。**
+  // 🔵 形狀抄 `lib/products.ts` 既有的 `[vehicleTaxonomy] cold pages=… ms=…`,不新造機制。
+  // 🔴 **只印毫秒與【筆數】,不印分類名稱、不印查詢字串、不印任何使用者資料** ——
+  //   分類名是客人給的自由文字,印進 log 等於把未過濾的輸入寫進另一個系統。
+  const routeT0 = performance.now();
+  const marks: Record<string, number> = {};
+  const mark = <T,>(name: string, promise: Promise<T>): Promise<T> => {
+    const started = performance.now();
+    return promise.then((value) => {
+      marks[name] = Math.round(performance.now() - started);
+      return value;
+    });
+  };
   const [motoBrands, categories, brands, garage] = await Promise.all([
-    fetchVehicleTaxonomy(),
-    fetchCategories(),
-    fetchCatalogBrandTaxonomy(),
-    (async () => {
+    mark('tax', fetchVehicleTaxonomy()),
+    mark('cats', fetchCategories()),
+    mark('brands', fetchCatalogBrandTaxonomy()),
+    mark('garage', (async () => {
       try {
         const supabase = await createServerSupabaseClient();
         const {
@@ -102,7 +121,7 @@ export default async function ProductsRoute({ searchParams }: Props) {
         console.error('[products] 愛車清單讀取失敗、chips 退化不顯示:', garageError);
         return [];
       }
-    })(),
+    })()),
   ]);
   // ── ⟦search-CAPSULEPARSE⟧ 2026-09-03:自由文字 ⇒ 膠囊 ────────────────────
   //
@@ -292,7 +311,20 @@ export default async function ProductsRoute({ searchParams }: Props) {
         return { products: r.items, total: r.total ?? undefined, error: r.error };
       })()
     : // P4:只回當頁公開 card DTO + total；車款仍走 direct + inherited RPC 語意。
-      await fetchCatalogPage(effectiveQuery, vehicle);
+      await mark('page', fetchCatalogPage(effectiveQuery, vehicle));
+  // ⟦search-CATSWITCHSLOW⟧ 儀器輸出 —— **一行,而它要能單獨回答「那 3 秒花在哪一段」**。
+  // 🔵 `catsN` 是**筆數不是名字**;`hasVeh` / `kw` 是布林。搜尋那條路不經過 `mark('page')`
+  //   ⇒ 它會印 `page=-1`,而那是**「這一發沒走目錄查詢」**,不是 0 毫秒。
+  //   🛑 少了這個區分,搜尋那條路會被讀成「目錄查詢瞬間完成」。
+  // 🔴 `total` 是**本函式量到的牆鐘**,不含 RSC 序列化與傳輸 ⇒ 它比客人等的時間**短**,
+  //   而那個差本身就是讀數:`total` 遠小於客人等的秒數 ⇒ 慢的在這一行**之外**。
+  console.info(
+    `[catalogRoute] tax=${marks.tax ?? -1}ms cats=${marks.cats ?? -1}ms brands=${marks.brands ?? -1}ms ` +
+      `garage=${marks.garage ?? -1}ms page=${marks.page ?? -1}ms total=${Math.round(performance.now() - routeT0)}ms ` +
+      `catsN=${effectiveQuery.categories.length} brandsN=${effectiveQuery.brandSlugs.length} ` +
+      `p=${effectiveQuery.page} per=${effectiveQuery.perPage} sort=${effectiveQuery.sort} ` +
+      `hasVeh=${vehicle !== null && vehicle !== undefined} kw=${catalogQuery.search !== undefined} rows=${products.length}`,
+  );
   return (
     <>
       {/* backlog #314:設計稿的品牌介紹連結字面是 `/products?pbrand=X#brand-about`,而

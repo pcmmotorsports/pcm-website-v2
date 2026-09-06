@@ -12,6 +12,7 @@
 //    **第 10 頁** `2.2.2 傳入託運資料 (TransData)` 的欄位表。
 //    ⚠️ **本檔的欄位名與長度是照那一頁抄的**;規格改版 ⇒ 本檔要重抄, 不是猜。
 
+import type { ShipmentReference } from '@pcm/domain';
 import type { RecipientSnapshot } from './recipient';
 
 /**
@@ -81,9 +82,68 @@ export type HctTransDataFields = {
   emark: string;
 };
 
+/** `shipments_reference_format` 這條 DB CHECK 的**同一份字面**(建表 migration
+ *  `20260805170000_m4b_e10_b2_s1a1_shipments.sql:98-99`)。字母表已排除 0/O/1/I/L/A/E/U。
+ *  🔴 **兩處各有一份而不是共用一份, 是刻意的**:DB 那道擋的是寫進表, 這一道擋的是送出去 ——
+ *     兩個不同的邊界, 而一份共用常數會讓「其中一邊被改鬆」變成無聲的。
+ *  ⚠️ ⛔ ~~而上面那句在【沒有一致性測試】的情況下效果剛好相反~~(codex R1 nit)——
+ *     兩份各自漂移**才是**無聲的。✅ 已補:`hct-trans-data.test.ts` 有一格**去讀那支 migration**,
+ *     把 SQL 裡的字面與這一行逐字比。⇒ 📌 **「刻意兩份」只有在有那一格的時候才成立。** */
+const SHIPMENT_REFERENCE_RE = /^[23456789BCDFGHJKMNPQRSTVWXYZ]{6}$/;
+
 export type BuildHctTransDataInput = {
-  /** 我方單號, 形如 `PCM-2026-0001`。 */
-  displayId: string;
+  /**
+   * 新竹的 `epino`(訂單編號)—— 🔴🔴 **餵的是【箱號】`shipment_reference`, 不是訂單的 `displayId`。**
+   *
+   * ⛔ ~~我方單號, 形如 `PCM-2026-0001`~~ —— **那個 docstring 是假的**(2026-09-06 ⟦ship-EPINOUNIQUE⟧
+   *    當場核 `shipment-actions.ts` 那一行 —— **改名前**逐字是 `displayId: row.shipmentReference`,
+   *    本片改名後是 `shipmentReference: row.shipmentReference`。⚠️ 引用舊字面時要標「改名前」,
+   *    否則下一個人 grep 不到而以為我寫錯了。)
+   *    而**參數名、docstring、測試 fixture 三個都指向錯的那個值**:
+   *    `hct-trans-data.test.ts` 餵的是 `'PCM-2026-0001'`, 而正式碼餵的是 6 碼箱號。
+   *
+   * 🔴🔴🔴 **而下面那道格式閘【擋不住這件事】—— 這一句是 codex R1 逼出來的, 我當場開檔複驗**:
+   *    `orders_display_id_format` 這條 CHECK 在 `20260729010000_m4b_e10_d0_display_id_expand.sql:76-79`
+   *    被放寬成 **同時接受** `^PCM-[0-9]{4}-[0-9]{4,}$` **與** `^[23456789BCDFGHJKMNPQRSTVWXYZ]{6}$`,
+   *    而 `20260730120100` 讓建單真的改用那個 6 碼產號器
+   *    ⇒ 🛑 **今天的新訂單編號與箱號【同一個字母表、同一個長度】——【字串上分不出來】。**
+   *    ⇒ ⛔ 我原本寫「傳訂單 `displayId` 進來會當場 throw」 —— **那句只對【舊格式】成立**,
+   *      而我自己的測試餵的正好是舊格式 `'PCM-2026-0001'` ⇒ 📌 **fixture 供應了真實世界不再送的東西,
+   *      所以那一格是綠的。** 同一個坑我今晚才寫進 `guard-and-instrument-traps.md`。
+   *    ⇒ ✅ **格式閘保留, 但它的宣稱收窄成:擋畸形值**(空字串 / 小寫 / 長度不對 / 含被排除的字母)。
+   *      **擋不住「一個合法的新式訂單編號」** —— 那要另一道, 見下。
+   *
+   * 🛑🛑 **為什麼這件事有牙齒 —— 新竹官方 `API服務說明 ver 2.0` P.8 逐字**:
+   *    `訂單編號 -> 同一個 ESDATE 不可重複`
+   *    `新竹貨號+訂單編號 -> 當日重複上傳, 視同更正資料內容`
+   *    ⇒ 🎯 **一張訂單可以有很多箱**(`shipments` 表刻意沒有 `order_id`, 一箱可含多張訂單)
+   *      ⇒ 若哪天有人「照名字把它修好」、真的傳訂單 `displayId` 進來,
+   *      **同一天出兩箱 = 同一個 epino 兩發** ⇒ 撞那條線, 而更糟的分支是
+   *      **被當成更正 ⇒ 第一箱的託運資料被第二箱蓋掉, 而我們畫面上兩箱都在。**
+   *    ⇒ 📌 **那個錯誤【看起來像在修 bug】** —— 而**字串層沒有任何東西分得出來**
+   *      ⇒ 🎯 **唯一擋得住它的是【值的來源】**:這一欄只能來自 `shipments` 那一列。
+   *      ✅ 今天的保護是 `shipment-actions.ts` 那一行從 DB 讀出來的 row,
+   *        而**釘住那一行的是 `shipment-actions.test.ts` 的原始碼斷言那一格**(這一片新增)。
+   *      ⚠️ **那一格是【源碼層】不是行為層** —— 它答得出「那一行有沒有被改」,
+   *        答不出「執行時真的送了什麼」。**射程照實寫, 不要當它是行為驗證。**
+   *
+   * ✅ **不可重複那條線的一半今天由 DB 守著**:`shipments_reference_unique UNIQUE (shipment_reference)`
+   *    (同一支建表 migration `:100`, 並有 `:319` 的後檢查點名它)⇒ **兩列不會共用同一個箱號**。
+   * ⚠️ ⛔ ~~⇒ 比新竹要的「同日不可重複」與「100 天不可重複」都嚴~~ —— **那句寫寬了**(codex R1):
+   *    · UNIQUE 管的是**兩列**, 而**同一列可以被送第二次**(人工把 `unknown` 推回 `draft` 之後)
+   *      ⇒ 同一天同一個 `epino` 再送一發 —— 那在新竹的規格裡是「當日重複上傳, 視同更正」。
+   *      🔵 **而那個行為是【對的】**:那就是同一箱, 更正它自己。**不是本片要擋的東西。**
+   *    · 「100 天不可重複」管的是**新竹配的 `edelno`(貨號)**, 不是我們的箱號 ⇒ 那條線不在我們手上。
+   * ⇒ 📌 **本片仍然不需要新的 migration** —— 而理由收窄成上面那一句, 不是原本那句。
+   *
+   * 🟢 **2026-09-06 ⟦ship-EPINOBRAND⟧:這一欄的型別從 `string` 收窄成 `ShipmentReference`。**
+   *    ⇒ **那才是擋住上面那件事的東西** —— 一個從 `row.displayId` 來的值型別是 `string`,
+   *      塞進來是**編譯錯誤**;唯一剩下的路是顯式 `as ShipmentReference`, 而它
+   *      **grep 得到、lint 擋得掉、在 review 上長得像在繞過型別而不像在修 bug**
+   *      ⇒ 📌 **它失去了「看起來像在修 bug」這個偽裝, 那才是真正的收穫。**
+   *    🔵 下面那道格式閘**留著而降級成防呆**(它擋畸形值);射程見它自己那段。
+   */
+  shipmentReference: ShipmentReference;
   recipient: RecipientSnapshot;
   /** 這一箱掛了幾個品項 ⇒ 件數。 */
   itemCount: number;
@@ -124,6 +184,20 @@ export type BuildHctTransDataResult = {
  *    本函式假設呼叫端已經拿到一個**合法的** `RecipientSnapshot`(那個型別的存在理由就是這個)。
  */
 export function buildHctTransData(input: BuildHctTransDataInput): BuildHctTransDataResult {
+  // 🔴🔴 **`epino` 的格式閘 —— 這一片(⟦ship-EPINOUNIQUE⟧)的全部產出就是它。**
+  //    形狀**逐字照本檔既有的兩道**(件數下限 / 件數上限):**不把錯的輸入夾成合法的請求。**
+  //    ⇒ 傳訂單 `displayId`(`PCM-2026-0001`)進來會**當場 throw**, 而不是安靜地送出去。
+  //    ⚠️ 射程:它擋的是**形狀**, 不是「這個箱號真的存在」—— 後者由 DB 的 UNIQUE 與呼叫端負責。
+  if (!SHIPMENT_REFERENCE_RE.test(input.shipmentReference)) {
+    // 🔴 **訊息要寫給【按鈕的人】看, 不是寫給改碼的人看**(code-reviewer R3 Minor):
+    //    這個 throw 會經 `shipment-actions.ts` 的 `toMessage(e)` **直接印在後台員工的畫面上**。
+    //    ⇒ 一句他做得了的事 + 一個給值班的定位字串;**為什麼**寫在上面那段註解裡, 不進訊息。
+    throw new Error(
+      `這箱的箱號格式不對, 不能送新竹(收到 ${JSON.stringify(input.shipmentReference)})—— ` +
+        '這不是你操作錯, 請回報並附這行字。[epino/shipment_reference]',
+    );
+  }
+
   const truncated: (keyof HctTransDataFields)[] = [];
   const take = (v: string, max: number, key: keyof HctTransDataFields): string => {
     const out = clip(v, max);
@@ -159,7 +233,9 @@ export function buildHctTransData(input: BuildHctTransDataInput): BuildHctTransD
 
   return {
     fields: {
-      epino: take(input.displayId, HCT_MAX.orderNo, 'epino'),
+      // 🔵 `take` 留著而**今天它的截斷分支到不了**(6 碼 < 30)—— 刻意不改成裸值:
+      //    上面那道格式閘哪天被放寬時, 這裡仍然是最後一層。**而「到不了」寫在這裡, 不要當它有守到。**
+      epino: take(input.shipmentReference, HCT_MAX.orderNo, 'epino'),
       ercsig: take(input.recipient.name, HCT_MAX.name, 'ercsig'),
       ertel1: take(input.recipient.phone, HCT_MAX.phone, 'ertel1'),
       eraddr: take(input.recipient.line, HCT_MAX.address, 'eraddr'),

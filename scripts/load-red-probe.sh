@@ -19,6 +19,12 @@
 #   bash scripts/load-red-probe.sh --idle            空機那一欄(不製造負載)
 #   bash scripts/load-red-probe.sh --load [N]        有負載那一欄(預設 N = 核心數)
 #   bash scripts/load-red-probe.sh --both [N]        兩欄都跑, 印對照表
+# 退出碼(🔴 三態, 照 `probe-schema-exposure.sh` 那套約定;2026-09-06 加, 板列 ⟦auth-LOADPROBEHOLES⟧):
+#   0 = 跑完、有負載時零支紅(或兩欄不可比 ⇒ 已明說不印對照)
+#   3 = **有支紅**(findings)
+#   1 = **工具自己壞了**
+#   📌 舊版沒有這個分法 —— 它自己 crash 那一發回 1, 而「有支紅」也是 1
+#     ⇒ 🛑 **兩件完全不同的事在離場碼上同形。**
 #
 # ⚠️ **跑之前先看 load** —— 本支開頭會印, 而**它不會替你決定**:
 #    在 load 已經很高的機器上量到的「空機」欄, **不是空機**。
@@ -26,6 +32,22 @@ set -u
 cd "$(dirname "$0")/.." || exit 2
 
 NCPU=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+
+# ══ 🔴🔴 落檔要帶【來源】—— 而這是被咬過才改的(板列 ⟦auth-LOADPROBEHOLES⟧ 洞②)══════
+#   🔬 2026-09-06 實測:`-auth` 只下了 `--load`, 而本支**印出了一張含【空機欄】的對照表** ——
+#      那一欄是從 `/tmp/lrp-idle.tsv` 讀來的, 而**那是固定檔名、跨窗共用的**(七個窗同時在跑)。
+#      ⇒ 📌 **它印的「空機欄 load 中位數 12.45」是【別人某一發】留在那裡的** ——
+#        不是這棵樹、不一定是同一個 HEAD、不一定是同一次 run。
+#   🛑 **而下面那道「兩欄可比嗎」的閘照樣印了 ✅** ——
+#      🎯 **因為它比的是【兩個數字】, 不是【兩份資料的來源】。**
+#      📌 **一道正確的閘, 守的是它自己定義的那件事;而「這兩欄是不是同一次量的」不在它的定義裡。**
+#   ⇒ ✅ 兩件事一起做:①**檔名帶 repo 路徑的雜湊** ⇒ 不同的樹不會互相覆蓋
+#     ②**每一欄的第一行寫 meta**(repo · HEAD · run id · 時點)⇒ 比之前先比來源。
+REPO_ABS=$(pwd)
+REPO_TAG=$(printf '%s' "$REPO_ABS" | cksum | tr ' ' '-')
+HEAD_NOW=$(git rev-parse HEAD 2>/dev/null || echo nogit)
+RUNID="lrp-$$-$(date +%s)"
+tsv_of() { printf '/tmp/lrp-%s-%s.tsv' "$1" "$REPO_TAG"; }
 
 load_now() { uptime | sed 's/.*load averages*: *//' | awk '{print $1}'; }
 
@@ -77,8 +99,9 @@ column() {   # $1 = 欄名  $2 = 負載數(0 = 不製造)
   #    兩次都沒修到。**一個指錯地方的錯誤訊息, 會讓人把對的地方改壞。**
   local name; name="$1"
   local n;    n="$2"
-  local out;  out="/tmp/lrp-$name.tsv"
-  : > "$out"
+  local out;  out=$(tsv_of "$name")
+  # 🔴 第一行是 meta, 不是資料 —— 讀的那一端要先比它, 再比數字。
+  printf '#meta\t%s\t%s\t%s\t%s\n' "$REPO_ABS" "$HEAD_NOW" "$RUNID" "$(date +%s)" > "$out"
   # 🔵 **空機欄開跑前先等** —— 不等的話它量到的是上一件事的餘熱。
   #    🔴 2026-09-06 實測:「空機」欄 load 中位數 **25.74**, 而「有負載」欄 **9.41** ⇒ **兩欄是反的**
   #      ⇒ 那一發的「0 支紅」完全不能用。成因 = `load average` 是**過去一分鐘的追尾平均**,
@@ -178,22 +201,57 @@ T
   if [ "$b" -gt "$a" ]; then printf '  ✅ 秒數會動 ⇒ 這把尺量得到負載\n'
   else printf '  ⚠️ 有負載反而不慢 —— 不判紅, 而**這一欄的結論不可信**(機器狀態或負載沒起來)\n'; fi
   rm -rf "$d"
+
+  # ══ 對照欄那三格(2026-09-06 加;板列 ⟦auth-LOADPROBEHOLES⟧)══════════════
+  #   🎯 這三格能存在, 是因為對照那段被抽成了 `compare_columns` ——
+  #     📌 舊版它寫在分派後面的直線碼裡 ⇒ **除了真跑一輪 88 支, 沒有辦法驗它。**
+  local cd_; cd_=$(mktemp -d) || return 1
+  _row() { printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4"; }
+  _cc() { ( RUNID=selftest compare_columns "$1" "$2" ) > "$cd_/out" 2>&1; echo $?; }
+
+  # 🔴 洞①:一支【只在有負載欄】的紅檔 ⇒ 不得炸, 而且要印「空機未跑」
+  printf '#meta\t/fake\tdead\tselftest\t0\n' > "$cd_/i1"; _row a.test.ts 100 0 1.0 >> "$cd_/i1"
+  printf '#meta\t/fake\tdead\tselftest\t0\n' > "$cd_/l1"; _row a.test.ts 200 0 9.0 >> "$cd_/l1"; _row zz.test.ts 300 1 9.0 >> "$cd_/l1"
+  local rc1; rc1=$(_cc "$cd_/i1" "$cd_/l1")
+  if [ "$rc1" = 3 ] && grep -q '空機【未跑】' "$cd_/out"; then
+    printf '  ✅ 洞①:只在有負載欄的紅檔 ⇒ rc=3 且印「空機未跑」(不是 KeyError)\n'
+  else
+    printf '  🔴 洞①:rc=%s, 而輸出沒有「空機未跑」⇒ 舊病還在\n' "$rc1"; grep -m2 -i 'error\|traceback' "$cd_/out" | sed 's/^/       /'; ok=1
+  fi
+  # 🟢 洞① 的綠對照:同一支在兩欄都有 ⇒ 要印正常那一行(證明上面那句不是恆印)
+  _row zz.test.ts 120 0 1.0 >> "$cd_/i1"
+  local rc1b; rc1b=$(_cc "$cd_/i1" "$cd_/l1")
+  if [ "$rc1b" = 3 ] && grep -q '空機 120ms' "$cd_/out" && ! grep -q '空機【未跑】' "$cd_/out"; then
+    printf '  ✅ 洞① 綠對照:兩欄都有 ⇒ 改印正常那一行\n'
+  else
+    printf '  🔴 洞① 綠對照:rc=%s, 沒有改印正常那一行 ⇒ 那句是恆印的\n' "$rc1b"; ok=1
+  fi
+  # 🔴 洞②:兩欄的 run id 不同 ⇒ 不得印對照表
+  printf '#meta\t/fake\tdead\t【別人那一發】\t0\n' > "$cd_/i2"; _row a.test.ts 100 0 1.0 >> "$cd_/i2"
+  local rc2; rc2=$(_cc "$cd_/i2" "$cd_/l1")
+  if [ "$rc2" = 0 ] && grep -q '不可比' "$cd_/out" && ! grep -q '有負載時紅的' "$cd_/out"; then
+    printf '  ✅ 洞②:來源不同 ⇒ 明說不可比、【不印】對照表(rc=0, 不是把「沒得比」講成有紅)\n'
+  else
+    printf '  🔴 洞②:rc=%s, 它照樣印了對照 ⇒ 舊病還在\n' "$rc2"; ok=1
+  fi
+  # 🔵 三態 rc 的第三態:餵一份壞掉的 tsv ⇒ 收尾那段炸 ⇒ 沒有判定檔 ⇒ 工具自壞 = 1
+  printf '#meta\t/fake\tdead\tselftest\t0\n這一行不是四欄\n' > "$cd_/bad"
+  local rc3; rc3=$(_cc "$cd_/bad" "$cd_/l1")
+  if [ "$rc3" = 1 ]; then printf '  ✅ 三態:餵壞掉的 tsv ⇒ rc=1(工具自壞), 與「有支紅」的 3 分得開\n'
+  else printf '  🔴 三態:餵壞掉的 tsv 得 rc=%s, 期望 1\n' "$rc3"; ok=1; fi
+  rm -rf "$cd_"
+
   [ "$ok" -eq 0 ] && echo "✅ selftest PASS" || echo "🔴 selftest FAIL"
   return "$ok"
 }
 
-MODE="${1:-}"
-case "$MODE" in
-  --selftest) banner; selftest; exit $? ;;
-  --list)     banner; list_targets | tee /tmp/lrp-targets.txt | wc -l | xargs printf '   掃樹型測試 = %s 支\n'; exit 0 ;;
-  --idle)     banner; list_targets > /tmp/lrp-targets.txt; column idle 0 ;;
-  --load)     banner; list_targets > /tmp/lrp-targets.txt; column load "${2:-$NCPU}" ;;
-  --both)     banner; list_targets > /tmp/lrp-targets.txt; column idle 0; column load "${2:-$NCPU}" ;;
-  *) sed -n '1,30p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
-esac
-
-# 兩欄都在就印對照
-if [ -s /tmp/lrp-idle.tsv ] && [ -s /tmp/lrp-load.tsv ]; then
+# ══ 兩欄對照 —— 🔴 **抽成函式, 而那不是整理版面** ═══════════════════════════
+#   它讓 selftest 餵得進【假的兩欄】⇒ 洞①(只在一欄裡的檔)與洞②(來源不同)才演得出來。
+#   📌 舊版這一段寫在分派後面的直線碼裡 ⇒ **除了真跑一輪 88 支, 沒有辦法驗它。**
+compare_columns() {   # $1=空機欄 tsv  $2=有負載欄 tsv  ⇒ 0 零紅 / 3 有紅 / 1 工具自壞
+  IDLE_TSV="$1"; LOAD_TSV="$2"
+  export IDLE_TSV LOAD_TSV RUNID
+  [ -s "$IDLE_TSV" ] && [ -s "$LOAD_TSV" ] || { echo "  🔵 只有一欄, 不印對照"; return 0; }
   echo
   echo "=== 空機 vs 有負載(只印【有負載時紅】或【慢 1.5 倍以上】的)==="
   python3 - <<'PY'
@@ -201,9 +259,38 @@ import io
 def rd(p):
     d={}
     for l in io.open(p,encoding='utf-8'):
+        if l.startswith('#meta\t'): continue
         f,ms,rc,ld=l.rstrip('\n').split('\t'); d[f]=(int(ms),int(rc),ld)
     return d
-i=rd('/tmp/lrp-idle.tsv'); o=rd('/tmp/lrp-load.tsv')
+def meta(p):
+    for l in io.open(p,encoding='utf-8'):
+        if l.startswith('#meta\t'):
+            parts=l.rstrip('\n').split('\t')
+            return parts[1:5] if len(parts)>=5 else None
+        return None
+    return None
+import os,sys
+IDLE=os.environ['IDLE_TSV']; LOAD=os.environ['LOAD_TSV']; RUNID=os.environ['RUNID']
+mi_meta=meta(IDLE); mo_meta=meta(LOAD)
+# 🔴🔴 **先比【來源】, 再比數字**(板列 ⟦auth-LOADPROBEHOLES⟧ 洞②)——
+#    同一棵樹 / 同一個 HEAD / 同一次 run id, 三者任一不同 ⇒ **這兩欄不是一次量出來的**。
+#    📌 最常見的一種:只跑了 `--load`, 而「空機」欄是上一發(或別的窗)留下的。
+bad=[]
+if not mi_meta or not mo_meta: bad.append('有一欄沒有 meta 行(舊格式的檔)')
+else:
+    if mi_meta[0]!=mo_meta[0]: bad.append('兩欄不是同一棵樹(%s vs %s)' % (mi_meta[0], mo_meta[0]))
+    if mi_meta[1]!=mo_meta[1]: bad.append('兩欄不是同一個 HEAD(%s vs %s)' % (mi_meta[1][:9], mo_meta[1][:9]))
+    if mi_meta[2]!=mo_meta[2]: bad.append('兩欄不是同一次 run(%s vs %s)' % (mi_meta[2], mo_meta[2]))
+if bad:
+    print('  🔴🔴 **這兩欄【不可比】, 不印對照表** —— 而它們的數字看起來完全正常:')
+    for b_ in bad: print('     · ' + b_)
+    print('     ⇒ 📌 只跑 `--load` 時, 「空機」欄多半是【上一發或別的窗】留下的。要對照請跑 `--both`。')
+    print('     🛑 舊版在這裡會拿別人的資料印出一張正經的表 —— 那正是本閘存在的理由。')
+    # 🔵 不可比 ⇒ 判定檔寫 0(**不是**工具壞掉, 也**不是**零紅的結論)——
+    #    上面已經明說不印對照表, 而離場碼不該把「沒得比」講成「有支紅」。
+    io.open('/tmp/lrp-verdict-'+os.environ.get('RUNID','x'),'w',encoding='utf-8').write('0')
+    sys.exit(0)
+i=rd(IDLE); o=rd(LOAD)
 red=[f for f in o if o[f][1]!=0]
 # 🔴🔴 **這一發算不算數 —— 先問, 再印結論。**
 #    2026-09-06 實測打穿:「空機」欄 load 中位數 25.74 而「有負載」欄 9.41 ⇒ **兩欄是反的**,
@@ -223,7 +310,14 @@ print('  分母 %d 支 · 空機紅 %d 支 · 有負載紅 %d 支' % (len(i), su
 print('  load:空機欄 %s · 有負載欄 %s' % (next(iter(i.values()))[2], next(iter(o.values()))[2]))
 if red:
     print('\n  🔴 有負載時紅的:')
-    for f in sorted(red): print('     %s  空機 %sms(rc=%s)⇒ 有負載 %sms(rc=%s)' % (f, i[f][0], i[f][1], o[f][0], o[f][1]))
+    # 🔴 **只在【有負載】欄裡出現的檔不得讓這裡炸**(板列 ⟦auth-LOADPROBEHOLES⟧ 洞①)——
+    #    舊版寫 `i[f][0]` ⇒ KeyError ⇒ 📌 **它剛好炸在【印結論】那一步**,
+    #    而那讓 `rc=1` 同時代表「有支紅」與「它自己炸了」, 從離場碼分不出來。
+    for f in sorted(red):
+        if f in i:
+            print('     %s  空機 %sms(rc=%s)⇒ 有負載 %sms(rc=%s)' % (f, i[f][0], i[f][1], o[f][0], o[f][1]))
+        else:
+            print('     %s  空機【未跑】(只出現在有負載欄)⇒ 有負載 %sms(rc=%s)' % (f, o[f][0], o[f][1]))
 else:
     print('\n  🔵 有負載時【沒有一支紅】—— ⚠️ 而那不等於「不會紅」:'
           '本發的負載強度、機器狀態、測試順序都只是一個樣本。')
@@ -231,5 +325,36 @@ slow=[(o[f][0]/max(i[f][0],1), f) for f in o if i.get(f) and o[f][0] > i[f][0]*1
 if slow:
     print('\n  🔵 慢 1.5 倍以上的前 10 支(沒紅, 而它們是下一個候選):')
     for r,f in sorted(slow, reverse=True)[:10]: print('     %.1f×  %s' % (r,f))
+# 🔴 把「有幾支紅」寫給 shell —— 離場碼由它映射(見下面那段)。
+io.open('/tmp/lrp-verdict-'+os.environ.get('RUNID','x'),'w',encoding='utf-8').write(str(len(red)))
 PY
-fi
+  # ══ 🔴 離場碼三態(照 `probe-schema-exposure.sh` 那套約定)══════════════
+  #   0 = 跑完、有負載時零支紅   3 = 有支紅(findings)   1 = **工具自己壞了**
+  #   📌 舊版沒有這個分法 ⇒ 它自己 crash 的那一發也回 1, 而「有支紅」也是 1
+  #     ⇒ 🛑 **兩種完全不同的事在離場碼上同形。**
+  _V="/tmp/lrp-verdict-$RUNID"
+  if [ ! -f "$_V" ]; then
+    echo "🔴 閘自己壞了:收尾那段沒有寫出判定檔 ⇒ 拒絕回 0(exit 1)" >&2
+    exit 1
+  fi
+  _RED=$(cat "$_V"); rm -f "$_V"
+  case "$_RED" in
+    ''|*[!0-9]*) echo "🔴 閘自己壞了:判定檔內容不是數字($_RED)⇒ rc=1" >&2; return 1 ;;
+    0) return 0 ;;
+    *) return 3 ;;
+  esac
+}
+
+
+MODE="${1:-}"
+case "$MODE" in
+  --selftest) banner; selftest; exit $? ;;
+  --list)     banner; list_targets | tee /tmp/lrp-targets.txt | wc -l | xargs printf '   掃樹型測試 = %s 支\n'; exit 0 ;;
+  --idle)     banner; list_targets > /tmp/lrp-targets.txt; column idle 0 ;;
+  --load)     banner; list_targets > /tmp/lrp-targets.txt; column load "${2:-$NCPU}" ;;
+  --both)     banner; list_targets > /tmp/lrp-targets.txt; column idle 0; column load "${2:-$NCPU}" ;;
+  *) sed -n '1,30p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac
+
+compare_columns "$(tsv_of idle)" "$(tsv_of load)"
+exit $?

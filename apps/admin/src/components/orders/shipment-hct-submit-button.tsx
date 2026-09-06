@@ -21,10 +21,15 @@
 //      而那一次往返在 99% 的情況下(開關長期關著)只是為了把鈕畫灰。
 
 import { useCallback, useState } from 'react';
+// 🔵 ⟦ship-SHIPFILESSPLIT⟧ 2026-09-06:這一支 action 搬去自己的檔了。
+//    ⛔ ~~from '../../lib/shipping/shipment-actions'~~
+//    🔴 **沒有在原檔留 re-export, 而那不是偷懶** —— 兩支都是 `'use server'`,
+//      而 `'use server'` 的檔只能 export async function ⇒ 互相 re-export 是環狀 import
+//      且同樣撞到那條規矩。⇒ **呼叫端改 import 是唯一成立的那一條。**
 import {
   submitShipmentToHctAction,
   type HctSubmitActionResult,
-} from '../../lib/shipping/shipment-actions';
+} from '../../lib/shipping/shipment-submit-hct-action';
 
 /** 送出後【不可以再按】的那幾種 —— 只有 `failed` 例外(新竹回失敗 ⇒ 可以重試)。 */
 // 🔵 `needs_confirm` **不在這裡** —— 它就是要員工再按一次。
