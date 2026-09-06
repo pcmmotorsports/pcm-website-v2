@@ -92,11 +92,11 @@ describe('adjustWalletAction — 冪等鍵那條線(⟦b4-WALLETDEDUPE⟧)', () 
     info.mockRestore();
   });
 
-  it('🔴🔴 RPC 回 DUPLICATE ⇒ redirect 帶 r=duplicate(不是 saved)', async () => {
+  it('🔴🔴 RPC 回 DUPLICATE ⇒ redirect 帶 r=wallet_duplicate(帶前綴, 不是裸 duplicate)', async () => {
     // 呼叫端要分得出「我這一發做了事」與「上一發做過了」。
     mocks.adjustCustomerWallet.mockResolvedValue('DUPLICATE');
     await expect(adjustWalletAction({ status: 'idle' }, form())).rejects.toThrow('REDIRECTED');
-    expect(mocks.redirect.mock.calls[0]?.[0]).toContain('r=duplicate');
+    expect(mocks.redirect.mock.calls[0]?.[0]).toContain('r=wallet_duplicate');
   });
 
   it('🔴🔴 SQLSTATE P9W01 ⇒ mismatch(不是 error)—— 兩者要讓員工做【相反】的事', async () => {

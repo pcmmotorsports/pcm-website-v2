@@ -17,6 +17,21 @@
 //    ③ **備註進了 URL** —— 直接撞 H13 那句「不得把 body 塞進 URL」
 // ⇒ ✅ 本檔就是照 A6 那個形狀重寫的結果。
 
+/**
+ * 🔴 **重送成功碼, 帶前綴**(⟦b4-WALLETDEDUPE⟧ 2026-09-06)。
+ *
+ * ⛔ ~~第一版直接叫 `duplicate`, 放在 `result-banner.tsx` 那張**共用** `MESSAGES` 裡~~ ——
+ *    code-reviewer R2 nit 8 說那是「未來的坑」, 而**它當天就變成現在的坑**:
+ *    🔬 39d 的鏈跑 `result-banner.test.tsx:443` ⇒ 紅,
+ *       逐字 `expected 42 keys, received 43 (+ "duplicate")`。
+ *    📌 那道守門要求**每一顆鍵都歸得了線**, 而我加了一顆沒有線的。
+ * ✅ 照 repo 既有做法**加前綴**(`manual_order_` 那族的註解逐字寫著理由:
+ *    同一個字面被兩條線用掉, 而兩條線的下一步不一樣 ⇒ 撞號在畫面上長得像「訊息偶爾會不對」)。
+ * 🛑 **而我沒有選「塞進那道守門的清單」** —— 那會讓一顆語意是儲值金的碼
+ *    永久住在共用命名空間裡, 把今天的紅換成明天的誤印。
+ */
+export const WALLET_DUPLICATE_RESULT_CODE = 'wallet_duplicate';
+
 /** 失敗碼(每一個都要有自己的訊息;新增碼卻忘了寫訊息會在型別層轉紅)。 */
 export type WalletFailureCode =
   | 'denied'
