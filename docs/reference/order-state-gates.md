@@ -490,6 +490,14 @@
 
 **允許集合** — 🔴 **本函式體內零命中**(字面比對)⇒ 要嘛它沒有狀態閘、要嘛閘的寫法本腳本抓不到。**開檔確認,不要當成「沒有閘」。**
 
+### `admin_backfill_tappay_console_refund`  ·  `20260907100000_m4b_tappaydirect_c1_backfill_rpc.sql`
+
+**改什麼狀態**
+
+`:204` INSERT INTO public.order_refunds<br>`:221` UPDATE public.order_refunds
+
+**允許集合** — 🔴 **本函式體內零命中**(字面比對)⇒ 要嘛它沒有狀態閘、要嘛閘的寫法本腳本抓不到。**開檔確認,不要當成「沒有閘」。**
+
 ---
 
 ## 三、自測:本表答得出「已付款的單能不能取消品項」嗎?
