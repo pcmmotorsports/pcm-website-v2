@@ -180,3 +180,40 @@ curl -sL "<preview>/products?_vercel_share=…"   ⇒  http 200
 ⇒ 📌 **在對得起來之前,`fetch` 那組的絕對毫秒不可以拿去解釋 log。**
 🟢 **仍然站得住的是【真的點下去】那一組**(3212 / 3318 ms),因為它與板上**獨立**量到的正式站
 3371 / 3378 / 5487 / 6259 ms 同一量級 —— ⇒ **§2 的點擊計時是主尺,`fetch`/`curl` 是輔助。**
+
+
+---
+
+## 7 · 🔴 真兇(2026-09-06 09:3x 釘住)—— 而**它與「只有分類軸」是兩件事**
+
+**那 3 秒 = `fetchVehicleTaxonomy` 逾時後整包不進快取,下一發又 cold。** 三把尺:
+
+| # | 尺 | 讀到什麼 |
+|---|---|---|
+| ① | 查證 agent | `revalidating cache with key` 在 `unstable-cache.js:183` —— **STALE 分支背景重跑 callback 而它 reject 才印**;MISS 分支不印 |
+| ② | 完整的 err | `[fetchVehicleTaxonomy] 第 5 頁(offset 4000)失敗: canceling statement due to statement timeout`,`cause.code` **57014** |
+| ③ | 正式庫唯讀 | `anon statement_timeout=3s`;`vehicle_taxonomy_public` 12,197 列;同 `ORDER BY` 下 `OFFSET 0`=**108 ms** · `OFFSET 4000`=**843 ms** · `OFFSET 12000`=211 ms |
+
+⇒ `BATCH=4` 併發 + 負載 ⇒ 第 4/5 頁過 3 秒 ⇒ throw ⇒ **整包不進快取** ⇒ 下一發又 cold。
+🟢 **修法**:**一發拿全部**(全掃 211 ms 遠小於 3 秒),不分頁。**不動 `unstable_cache` 那一層。**
+
+### 7.1 🛑 已解釋的與**沒有**解釋的,分開寫
+
+✅ **解釋得了**:為什麼 cold 時要 2.8–5.8 秒 · 為什麼「打第二發也不會變快」(每發都 throw ⇒ 永遠寫不進去)。
+🔴 **解釋不了**:**為什麼只有分類軸 cold,而品牌 / 價格 / 無篩選 warm**(16 發零例外)。
+　主視窗的猜想是「STALE 視窗與併發量的巧合」—— **標未確認**。
+📌 **我們有一個解釋得了【時間】、解釋不了【分佈】的成因。**
+🛑 **不要因為修法有效就宣布那個形狀被解釋了** —— 修法讓每一發都快,那會讓這個問題**永遠不會再被問**,而它沒有被回答。
+
+### 7.2 🔴 順這條線撞到的另一件事(**正式站 · 客人看得到 · 靜默**)
+
+近 6 小時 `branch=main`(**正式站**)的 runtime logs:
+`[tryVehicleTaxonomy] cached fitments fetch failed … 57014` 命中 **31 個相異網址**,**全部是商品詳情頁**;
+00:20:10–00:21:12 **一分鐘內 9 發**。
+
+🎯 `fetchVehicleTaxonomy`(`products.ts:1006-1009`)**刻意丟掉 `failed`**,而 `tryVehicleTaxonomy` catch 之後回的是**空陣列**(`:999-1003`)
+⇒ 🛑 **那一發請求的車款對照表是【空的】,而頁面照樣回 `200`。**
+⛔ ~~舊說法:被 `try` 接住 ⇒ 客人拿到一份【殘缺的】車輛對照表~~ ⇒ 🔴 **訂正:不是殘缺,是【空的】。**
+
+⏰ **這要另開一列** —— 同一個根因,**受害面不同**(PDP 的車款資訊,不是切分類的等待)。
+「一發拿全部」**應該**會一起修掉它,而**那要驗過才能說**。
