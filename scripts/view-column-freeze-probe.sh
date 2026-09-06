@@ -44,7 +44,15 @@ M="$REPO/supabase/migrations/20260814140000_m4b_e10_484a_order_goods_axis_view.s
 #    ⇒ 有權限的環境會在**根目錄**留下殘骸,而 cleanup 也清不到它。
 #    ⇒ 這不是量測結果、也不是「乾淨」⇒ 當場 ENV-FAIL(對齊 migration-static-checks.sh 的 exit 9)。
 D=$(mktemp -d "${TMPDIR:-/tmp}/vcf.XXXXXXXX") || { echo "🔴 建不出暫存目錄(mktemp)⇒ 這不是量測結果, 也不是乾淨 ⇒ ENV-FAIL"; exit 9; }
-PG=54371
+# 🔴 **埠不再寫死**(⟦f3-PGPORTCOLLISION⟧ 修法③;2026-09-07 `-ship`)——
+#    原本逐字 `PG=54371` 是**手工分配**, 而七個窗共用一台機器 ⇒ 遲早撞,
+#    而撞到的外觀是 `pg_ctl ⇒ ENV-FAIL` ⇒ **讀起來像「這台機器不能跑 PG」**。
+#    🛑 而 `free-port.sh` 只是把【必然相撞】換成【很少相撞】(它自己的檔頭這樣寫)
+#       ⇒ 所以下面那段「起不來的時候分得出是哪一種」**照樣要有**, 不是可以省掉的。
+FP="$REPO/scripts/free-port.sh"
+[ -f "$FP" ] || { echo "🔴 找不到 $FP ⇒ ENV-FAIL"; exit 2; }
+PG=$(bash "$FP") || { echo "🔴 取不到沒人聽的 port ⇒ ENV-FAIL"; exit 2; }
+case "$PG" in ''|*[!0-9]*) echo "🔴 free-port.sh 回的不是一個號:[$PG] ⇒ ENV-FAIL"; exit 2 ;; esac
 KEEP=0
 cleanup(){ pg_ctl -D "$D/pg" stop -m immediate >/dev/null 2>&1
   if [ "$KEEP" = 1 ]; then printf '🛑 非綠 ⇒ log 保留在 %s\n' "$D"; else rm -rf "$D"; fi; }
@@ -52,7 +60,28 @@ trap cleanup EXIT
 [ -f "$M" ] || { echo "🔴 找不到 $M ⇒ ENV-FAIL"; KEEP=1; exit 2; }
 for c in initdb pg_ctl psql; do command -v "$c" >/dev/null || { echo "🔴 缺 $c ⇒ ENV-FAIL"; KEEP=1; exit 2; }; done
 initdb -D "$D/pg" -U postgres --auth=trust --encoding=UTF8 --locale=C >"$D/i.log" 2>&1 || { echo "🔴 initdb ⇒ ENV-FAIL"; KEEP=1; exit 2; }
-pg_ctl -D "$D/pg" -o "-p $PG -k /tmp" -l "$D/pg.log" start >/dev/null 2>&1 || { echo "🔴 pg_ctl ⇒ ENV-FAIL"; KEEP=1; exit 2; }
+# ══ ⟦f3-PGPORTCOLLISION⟧ ④:失敗訊息要分得出【埠被佔】與【PG 真的起不來】═══════
+# 🛑 **那一列逐字**:「改 port 只讓【我】不撞;**改訊息才讓【下一個撞到的人】不去查錯的東西**。」
+# 🔬 三個世界當場量過(2026-09-07 `-ship`, PG 17.10 Homebrew), 而它們**印不同的東西**:
+#    A 埠被佔        ⇒ 伺服器 log 有 `could not create any TCP/IP sockets` / `Address already in use`
+#    B 資料目錄不存在 ⇒ 🔴 **伺服器 log 根本沒被建出來**, 話在 `pg_ctl` **自己的 stderr** 裡
+#      (`pg_ctl: directory "…" does not exist`)⇒ 📌 **而原本那一行把它 `2>&1` 丟進 /dev/null 了。**
+#    C locale 沒設    ⇒ log 有 `postmaster became multithreaded` + `HINT: Set the LC_ALL…`, 而 A 的特徵字 = **0**
+# 🔴 **⇒ 所以要看【兩個地方】**:log 不在 ⇒ 看 pg_ctl 自己說;log 在 ⇒ 才輪到特徵字。
+#    只 grep log 的話, B 會落進「不是埠問題」而**理由是檔案不存在**, 那是碰巧對, 不是量到。
+pg_ctl -D "$D/pg" -o "-p $PG -k /tmp" -l "$D/pg.log" start >"$D/pgctl.err" 2>&1 || {
+  echo "🔴 PG 起不來 ⇒ ENV-FAIL(這一發用的 port = $PG)"
+  if [ ! -f "$D/pg.log" ]; then
+    echo "   ⇒ 【伺服器 log 沒被建出來】= pg_ctl 在啟動之前就停了。它自己說:"
+    sed 's/^/      /' "$D/pgctl.err"
+  elif grep -qE 'could not create any TCP/IP sockets|Address already in use' "$D/pg.log"; then
+    echo "   ⇒ 🎯 【port $PG 被別人佔住】—— 這【不是】「這台機器不能跑 PG」, 是【隔壁有人】。"
+    echo "      重跑一次就會換一個號(本支每次用 scripts/free-port.sh 當場取)。"
+  else
+    echo "   ⇒ 【PG 真的起不來】, 而它與 port 無關。伺服器 log 的 FATAL/HINT:"
+    grep -E 'FATAL|HINT' "$D/pg.log" | head -3 | sed 's/^/      /'
+  fi
+  KEEP=1; exit 2; }
 q(){ psql -h /tmp -p "$PG" -U postgres -d postgres -v ON_ERROR_STOP=1 "$@"; }
 PASS=0; FAIL=0
 
