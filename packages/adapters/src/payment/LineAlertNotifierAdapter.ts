@@ -21,10 +21,15 @@ import 'server-only';
 import type { IAlertNotifier } from '@pcm/ports';
 import type { AnomalyAlertMessage } from '@pcm/domain';
 
+import { OUTBOUND_SEND_TIMEOUT_MS } from '../outbound-timeout';
+
 /** 最小 fetch 抽象(避 DOM lib 依賴 + 便於測試注入)。 */
 export type FetchLike = (
   input: string,
-  init: { method: string; headers: Record<string, string>; body: string },
+  // 🔴 `signal` 是**必填**(⟦mail-FETCHTIMEOUT⟧ 2026-09-06)——
+  //    選填的話, **漏傳的那一支不會型別紅**, 而它的症狀是「送出去之後永遠不回」。
+  //    📌 一道 fail-open 的閘比沒有閘更糟, 所以這裡讓 tsc 當那道閘。
+  init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal },
 ) => Promise<{ ok: boolean; status: number }>;
 
 const LINE_PUSH_ENDPOINT = 'https://api.line.me/v2/bot/message/push';
@@ -62,6 +67,10 @@ export class LineAlertNotifierAdapter implements IAlertNotifier {
   async notify(message: AnomalyAlertMessage): Promise<void> {
     const res = await this.fetchImpl(LINE_PUSH_ENDPOINT, {
       method: 'POST',
+      // 🔴 **逾時上界(⟦mail-FETCHTIMEOUT⟧ 2026-09-06;opus R2 · C2)** —— 全文在 `../outbound-timeout.ts`。
+      // 🛑 **這一條是【告警】的路** ⇒ 少了它, **出事的時候通知我們的那條路自己也會卡住**,
+      //    而那正是最需要它會動的那一刻。逾時 ⇒ fetch throw ⇒ 走呼叫端既有的失敗路徑。
+      signal: AbortSignal.timeout(OUTBOUND_SEND_TIMEOUT_MS),
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${this.cfg.accessToken}`,
