@@ -113,7 +113,10 @@ PUSHED_SHA=""
 #      只有 Everything up-to-date 給 0)⇒ 差異可能在 SSH 傳輸層, 而那一格【未量】。
 #    🔴 這一段不下判斷、不改行為 —— 它只讓【下一次】自己留下證據。
 GATE_STDIN="$(mktemp -t dogstdin 2>/dev/null || echo /tmp/dogstdin.$$)"
-trap 'rm -f "$GATE_STDIN"' EXIT
+# 🔵 R1 Minor:`blind_branch_report` 自己也開一支暫存檔 ⇒ **一起收進 trap**,
+#    否則中途被訊號打斷就留檔。(空字串餵給 `rm -f` 是安全的, 而 `set -u` 要 `:-`。)
+BLIND_TMP=""
+trap 'rm -f "$GATE_STDIN" "${BLIND_TMP:-}"' EXIT
 # ── 🔵 修法 2(⟦db-DOGBLINDBRANCH⟧):把「別條 `agent/line-*` 分支上有、被推的那棵樹沒有」的
 #    migration 列出來當【警告】。🛑 **rc 一格不動** —— 它不讓盲區世界變成擋,
 #    它讓那個世界**說得出自己是誰**(修法 1 只說「我沒去看」,這一段說「我去看了, 看到這些」)。
@@ -125,17 +128,32 @@ trap 'rm -f "$GATE_STDIN"' EXIT
 #    · 它**不判斷有沒有關係** —— 要判, 看 BLOCKED 那幾行點名的函式/view 在不在那些檔裡。
 BLIND_BRANCH_GLOB="${BLIND_BRANCH_GLOB:-refs/heads/agent/line-*}"
 blind_branch_report() {  # $1 = 被推的那棵樹的 rev
-  local rev="${1:-}" tmp them n
-  [ -n "$rev" ] || return 0
-  tmp="$(mktemp -t dogblind 2>/dev/null)" || return 0
+  local rev="${1:-}" them n_pair n_file n_br
+  # 🔴 R1 Minor:這幾條退場路徑原本【完全靜默】⇒ 讀的人分不出「修法 2 沒接上」與「沒東西可報」。
+  #    ⇒ 每一條都出一聲。**那正是本片自己的立意, 而我原本沒有套在自己身上。**
+  if [ -z "$rev" ]; then
+    echo "gate:    ⇒ 我沒有拿到「被推的那棵樹」⇒ 分支掃描這一發【沒有跑】(不是掃過而乾淨)。" >&2
+    return 0
+  fi
+  # 🔴🔴 R1 Important:**零分支**與**有分支而乾淨**原本印同一句 —— 而我在下面
+  #    「被推的樹沒有 migration」那一格已經明確處理過同一條紀律。⇒ 同一條, 另一半沒套。
+  #    ⇒ 先數分支, 零分支自己講「沒有分母」。
+  n_br="$(git for-each-ref --format='%(refname)' "$BLIND_BRANCH_GLOB" 2>/dev/null | grep -c . || true)"
+  if [ "$n_br" = "0" ]; then
+    echo "gate:    ⇒ 這個 checkout 看不到任何 $BLIND_BRANCH_GLOB ⇒ 分支掃描【沒有分母】, 這一發不報。" >&2
+    return 0
+  fi
+  BLIND_TMP="$(mktemp -t dogblind 2>/dev/null)" || {
+    echo "gate:    ⇒ 開不出暫存檔 ⇒ 分支掃描這一發【沒有跑】。" >&2; return 0; }
   if ! git ls-tree --name-only "$rev" supabase/migrations/ 2>/dev/null \
-       | sed 's#.*/##' | sort -u > "$tmp"; then
-    rm -f "$tmp"; return 0
+       | sed 's#.*/##' | sort -u > "$BLIND_TMP"; then
+    echo "gate:    ⇒ 讀不到 $rev 的 migrations 樹 ⇒ 分支掃描這一發【沒有跑】。" >&2
+    rm -f "$BLIND_TMP"; BLIND_TMP=""; return 0
   fi
   # 🔴 `grep -vxF -f <空檔>` 會把**每一行都印出來** ⇒ 空分母必須自己講, 不能讓它默默噴一整張表。
-  if [ ! -s "$tmp" ]; then
-    echo "gate:    ⇒ 被推的那棵樹一支 migration 都沒有 ⇒ 分支掃描沒有分母, 這一發不報。" >&2
-    rm -f "$tmp"; return 0
+  if [ ! -s "$BLIND_TMP" ]; then
+    echo "gate:    ⇒ 被推的那棵樹一支 migration 都沒有 ⇒ 分支掃描【沒有分母】, 這一發不報。" >&2
+    rm -f "$BLIND_TMP"; BLIND_TMP=""; return 0
   fi
   # 🔴 分支名走 `awk -v` 而不是塞進 `sed` 的取代字串。
   #    **git 真的接受 `&`**(實跑:`git check-ref-format 'refs/heads/agent/line-a&b'` ⇒ rc=0),
@@ -148,16 +166,20 @@ blind_branch_report() {  # $1 = 被推的那棵樹的 rev
     | while IFS= read -r br; do
         [ -n "$br" ] || continue
         git ls-tree --name-only "$br" supabase/migrations/ 2>/dev/null | sed 's#.*/##' \
-          | grep -vxF -f "$tmp" | awk -v b="${br#refs/heads/}" '{ print $0 "  ⟵ " b }'
+          | grep -vxF -f "$BLIND_TMP" | awk -v b="${br#refs/heads/}" '{ print $0 "  ⟵ " b }'
       done | sort -u)"
-  rm -f "$tmp"
-  n="$(printf '%s' "$them" | grep -c . || true)"
-  # 🔴 標籤由【結果】決定 —— 兩個世界印不同的東西, 不是一句寫死的話。
-  if [ "$n" = "0" ]; then
-    echo "gate:    ⇒ 掃過 $BLIND_BRANCH_GLOB:沒有【這棵樹沒有而它們有】的 migration。" >&2
+  rm -f "$BLIND_TMP"; BLIND_TMP=""
+  # 🔴🔴 R1 Important:`sort -u` 去重的是【整行】= `檔名 ⟵ 分支` ⇒ 同一支檔活在 3 條分支上會得到 3
+  #    ⇒ 舊句「有 N 支 migration」數的是 **(檔案 × 分支) 對數**, 不是相異檔數。
+  #    📌 **那正是本片在修的病型:輸出看起來在答 A、其實在答 B。** ⇒ 兩個數都印。
+  n_pair="$(printf '%s\n' "$them" | grep -c . || true)"
+  n_file="$(printf '%s\n' "$them" | awk '{ print $1 }' | sort -u | grep -c . || true)"
+  # 🔴 標籤由【結果】決定 —— 三個世界(零分支 / 掃過而乾淨 / 掃到)印三種不同的東西。
+  if [ "$n_pair" = "0" ]; then
+    echo "gate:    ⇒ 掃過 $n_br 條 $BLIND_BRANCH_GLOB:沒有【這棵樹沒有而它們有】的 migration。" >&2
     echo "gate:       ⚠️ 那是一個**時點的快照**, 而且只比檔名、只看得到本 checkout 的 ref。" >&2
   else
-    echo "gate:    🔴 掃過 $BLIND_BRANCH_GLOB ⇒ 有 $n 支 migration【只活在別條分支上】:" >&2
+    echo "gate:    🔴 掃過 $n_br 條 $BLIND_BRANCH_GLOB ⇒ $n_file 支 migration【只活在別條分支上】($n_pair 筆 檔案×分支):" >&2
     printf '%s\n' "$them" | sed 's/^/gate:       /' >&2
     echo "gate:       ⇒ 這一行**不擋**。要判它跟這次推的 app 有沒有關係, 看上面 BLOCKED 點名的函式/view。" >&2
   fi

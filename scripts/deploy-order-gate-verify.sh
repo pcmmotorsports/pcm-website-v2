@@ -53,7 +53,7 @@ GATE_SRC="$(cd "$(dirname "$0")" && pwd)/deploy-order-gate.sh"
 test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;數法=腳本尾端印的 PASS=)
-EXPECT_TOTAL=83
+EXPECT_TOTAL=85
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -1165,21 +1165,32 @@ fi
 #    🛑 rc 仍然不動(57 那格已經在驗 rc)—— 這兩格量的是【訊息內容】。
 SCAN_HIT='只活在別條分支上'
 SCAN_CLEAN='沒有【這棵樹沒有而它們有】的 migration'
+SCAN_NODEN='分支掃描【沒有分母】'
 _o3="${RESB3#*|}"
+# 🔴 R1 Important:舊句「有 N 支 migration」數的是 (檔案×分支) 對數 ⇒ 現在兩個數都印, 兩個都驗。
 if printf '%s' "$_o3" | grep -qF "$SCAN_HIT" \
    && printf '%s' "$_o3" | grep -qF "20260102000000_pending.sql" \
-   && printf '%s' "$_o3" | grep -qF "agent/line-db"; then
-  ok "58 盲區世界:掃到那支 migration 並**同時點名檔案與分支**(不是只說「可能有」)"
+   && printf '%s' "$_o3" | grep -qF "agent/line-db" \
+   && printf '%s' "$_o3" | grep -qF "1 支 migration" \
+   && printf '%s' "$_o3" | grep -qF "1 筆 檔案×分支"; then
+  ok "58 盲區世界:點名檔案與分支, **而且【支數】與【檔案×分支筆數】分開印**"
 else
-  bad "58 盲區世界沒把名字列出來 ⇒ 修法 2 沒接上, 或它掃的 ref 形狀不對:$(printf '%s' "$_o3" | grep -F 'gate:    ' | head -3 | tr '\n' ' ')"
+  bad "58 盲區世界沒把名字或兩個數印全 ⇒ 修法 2 沒接上, 或它掃的 ref 形狀不對:$(printf '%s' "$_o3" | grep -F 'gate:    ' | head -3 | tr '\n' ' ')"
 fi
-# 負對照:**真的乾淨**那個世界(rb1, 零 agent/line-* 分支)必須印**另一句**,
-# 🔴 否則 58 的綠只證明「那句話恆印」, 不證明它掃到了東西。
+
+# 🔴🔴 R1 Important:**負對照原本建在錯的軸上。**
+#    rb1 是「**零** agent/line-* 分支」,而它與「**有**分支而乾淨」原本印同一句
+#    ⇒ 58b 綠只證明那句不恆印, **不證明它真的掃過分支**。
+#    ⇒ 現在三個世界要印三種不同的東西, 而下面三格各釘一種。
+#
+# 58b:零分支 ⇒ 印「沒有分母」, **不是**「掃過而乾淨」, 也不是 58 那句。
 _o1="${RESB1#*|}"
-if printf '%s' "$_o1" | grep -qF "$SCAN_CLEAN" && ! printf '%s' "$_o1" | grep -qF "$SCAN_HIT"; then
-  ok "58b 乾淨世界:印的是「掃過, 沒有」而**不是** 58 那句(證明 58 不是恆印)"
+if printf '%s' "$_o1" | grep -qF "$SCAN_NODEN" \
+   && ! printf '%s' "$_o1" | grep -qF "$SCAN_CLEAN" \
+   && ! printf '%s' "$_o1" | grep -qF "$SCAN_HIT"; then
+  ok "58b 零分支世界:印「沒有分母」而**不是**「掃過而乾淨」(兩者原本同一句)"
 else
-  bad "58b 乾淨世界與盲區世界印同一句 ⇒ 這張表對「有沒有盲區」零判別力"
+  bad "58b 零分支世界與「掃過而乾淨」仍印同一句 ⇒ 讀的人分不出「我沒得掃」與「我掃了沒事」"
 fi
 
 # 🔴 58c:分支名含 `&` —— git 接受它(`git check-ref-format 'refs/heads/agent/line-a&b'` rc=0),
@@ -1202,6 +1213,27 @@ if printf '%s' "${RESB4#*|}" | grep -qF 'agent/line-a&b'; then
 else
   bad "58c 分支名的 & 不見了 ⇒ 標籤是用 sed 拼的, 讀的人會去找一個不存在的分支:$(printf '%s' "${RESB4#*|}" | grep -F 'agent/line' | head -2 | tr '\n' ' ')"
 fi
+
+# 🔴 58d:**有 agent/line-* 分支、而它沒有這棵樹缺的 migration** —— 這一格是 58b 缺的那一軸。
+#    少了它, 「掃過而乾淨」那句從來沒有被任何一格證明過會出現。
+RB5="$WORK/rb5"; setup_repo "$RB5"
+( cd "$RB5" && git checkout -qb agent/line-clean && git checkout -q - )
+cat > "$RB5/apps/admin/src/unrelated3.ts" <<'TS'
+export const unrelated3 = 5;
+TS
+( cd "$RB5" && git add apps/admin/src/unrelated3.ts && git commit -qm "只有 app, 分支上沒有多的 migration" )
+BB5="$(cd "$RB5" && git rev-parse HEAD~1)"; TB5="$(cd "$RB5" && git rev-parse HEAD)"
+RESB5="$(run_gate "$RB5" "refs/heads/dev $TB5 refs/heads/dev $BB5")"
+_o5="${RESB5#*|}"
+if printf '%s' "$_o5" | grep -qF "$SCAN_CLEAN" \
+   && ! printf '%s' "$_o5" | grep -qF "$SCAN_NODEN" \
+   && ! printf '%s' "$_o5" | grep -qF "$SCAN_HIT"; then
+  ok "58d 有分支而乾淨:印「掃過 N 條…沒有」—— 與 58b(零分支)、58(掃到)三句各不相同"
+else
+  bad "58d 有分支而乾淨的世界沒印它自己那句 ⇒ 三個世界沒有三種輸出:$(printf '%s' "$_o5" | grep -F 'gate:    ' | head -3 | tr '\n' ' ')"
+fi
+if [ "${RESB5%%|*}" = "0" ]; then ok "58e 而它 rc 仍是 0(修法 2 全程不改 rc)"
+else bad "58e 有分支而乾淨的世界 rc 變了(${RESB5%%|*})"; fi
 
 echo
 echo "══ 結果:PASS=$PASS FAIL=$FAIL(期望 PASS=$EXPECT_TOTAL)══"
