@@ -112,7 +112,12 @@ chk "02b 160000 帶著同一道" \
     "$(grep -c '20260906150000 還沒貼' "$M/20260906160000_m4b_member_balance_from_base.sql")" "1"
 
 # ── 資料:六個世界 ───────────────────────────────────────────────────
-psql -U postgres -q -X >/dev/null 2>&1 <<'SQL'
+# 🔴 **`-v ON_ERROR_STOP=1` 不可省**(2026-09-06 線【db】拋棄式 PG 實測, 六窗同文):
+#    少了它, 這一包裡任何一句 ERROR ⇒ **整包 ROLLBACK 而 `rc` 仍然是 0**
+#    ⇒ 🛑 下面每一格量到的就是一個**少了資料**的世界, 而它們會安靜地印比較小的數字。
+#    ⚠️ 而 `>/dev/null 2>&1` 把錯誤訊息也吞掉了 ⇒ **兩層遮蔽疊在一起。**
+#    ✅ 所以【旗標 + 緊接著驗 rc】要成對, 只加旗標不驗 rc 一樣看不到。
+psql -U postgres -q -X -v ON_ERROR_STOP=1 >/dev/null 2>&1 <<'SQL'
 INSERT INTO auth.users(id) VALUES ('11111111-1111-1111-1111-111111111111');
 INSERT INTO public.customers(user_id,email) VALUES ('11111111-1111-1111-1111-111111111111','buyer@example.com');
 -- ① 該寄:web 匯款單, unpaid, 未取消, 有餘額, 有信箱
@@ -154,6 +159,7 @@ INSERT INTO public.orders(id,display_id,customer_user_id,total,payment_channel) 
   ('aaaaaab1-0000-0000-0000-000000000011','PCM-11','11111111-1111-1111-1111-111111111111',5000,'bank_transfer');
 INSERT INTO public.paid_totals(order_id,paid_total) VALUES ('aaaaaab1-0000-0000-0000-000000000011',8000);
 SQL
+chk "fixture(六個世界的資料, :115)建起來" "$?" "0"
 
 IN_VIEW="SELECT count(*) FROM public.pcm_bank_order_created_email_pending WHERE order_id="
 chk "03 🟢 該寄的那張【在】(正對照 —— 沒有它, 下面每個 0 都證不到事)" "$(Q "${IN_VIEW}'aaaaaaa1-0000-0000-0000-000000000001'")" "1"
@@ -240,11 +246,17 @@ chk "30 ② 已排過信的:🔴 still_mailable【有】(重驗要看得到它)"
 chk "31 ② 同一張單 pending【沒有】(anti-join 在做事)" "$(Q "SELECT count(*) FROM public.pcm_bank_order_created_email_pending WHERE order_id='aaaaaaa8-0000-0000-0000-000000000008'")" "0"
 chk "32 ③ 已付款的:兩支都沒有" "$(Q "SELECT (SELECT count(*) FROM public.pcm_bank_order_still_mailable WHERE order_id='aaaaaaa9-0000-0000-0000-000000000009') + (SELECT count(*) FROM public.pcm_bank_order_created_email_pending WHERE order_id='aaaaaaa9-0000-0000-0000-000000000009')")" "0"
 # 🧬 突變:把 anti-join 放進 still_mailable ⇒ 第 30 格會塌成 0(= 重驗每一封都判不該寄)
-psql -U postgres -q -X >/dev/null 2>&1 <<'SQL'
+# 🔴 **`-v ON_ERROR_STOP=1` 不可省**(2026-09-06 線【db】拋棄式 PG 實測, 六窗同文):
+#    少了它, 這一包裡任何一句 ERROR ⇒ **整包 ROLLBACK 而 `rc` 仍然是 0**
+#    ⇒ 🛑 下面每一格量到的就是一個**少了資料**的世界, 而它們會安靜地印比較小的數字。
+#    ⚠️ 而 `>/dev/null 2>&1` 把錯誤訊息也吞掉了 ⇒ **兩層遮蔽疊在一起。**
+#    ✅ 所以【旗標 + 緊接著驗 rc】要成對, 只加旗標不驗 rc 一樣看不到。
+psql -U postgres -q -X -v ON_ERROR_STOP=1 >/dev/null 2>&1 <<'SQL'
 CREATE VIEW public.mut_still AS
   SELECT m.* FROM public.pcm_bank_order_still_mailable m
    WHERE NOT EXISTS (SELECT 1 FROM public.email_outbox e WHERE e.order_id=m.order_id AND e.event_type='bank_order_created');
 SQL
+chk "fixture(突變, :243)建起來" "$?" "0"
 chk "33 🧬 突變:still_mailable 若也帶 anti-join ⇒ 已排過信的那張看不到(重驗會每封都判不該寄)" \
     "$(Q "SELECT count(*) FROM public.mut_still WHERE order_id='aaaaaaa8-0000-0000-0000-000000000008'")" "0"
 
@@ -255,7 +267,12 @@ chk "33 🧬 突變:still_mailable 若也帶 anti-join ⇒ 已排過信的那張
 #    ① 正常(有 pending 列)⇒ 仍擋
 #    ② 被判 snapshot_stale ⇒ 不擋(讓新快照重排一次)
 #    ③ 已經寄出去(sent)⇒ 永久擋(不會寄第三次)
-psql -U postgres -q -X >/dev/null 2>&1 <<'SQL'
+# 🔴 **`-v ON_ERROR_STOP=1` 不可省**(2026-09-06 線【db】拋棄式 PG 實測, 六窗同文):
+#    少了它, 這一包裡任何一句 ERROR ⇒ **整包 ROLLBACK 而 `rc` 仍然是 0**
+#    ⇒ 🛑 下面每一格量到的就是一個**少了資料**的世界, 而它們會安靜地印比較小的數字。
+#    ⚠️ 而 `>/dev/null 2>&1` 把錯誤訊息也吞掉了 ⇒ **兩層遮蔽疊在一起。**
+#    ✅ 所以【旗標 + 緊接著驗 rc】要成對, 只加旗標不驗 rc 一樣看不到。
+psql -U postgres -q -X -v ON_ERROR_STOP=1 >/dev/null 2>&1 <<'SQL'
 -- ⑫ 有一列 pending 的(= 正常世界)
 INSERT INTO public.orders(id,display_id,customer_user_id,total,payment_channel) VALUES
   ('aaaaaab2-0000-0000-0000-000000000012','PCM-12','11111111-1111-1111-1111-111111111111',5000,'bank_transfer');
@@ -273,6 +290,7 @@ INSERT INTO public.email_outbox(order_id,event_type,dedup_key,last_error_code) V
   ('aaaaaab4-0000-0000-0000-000000000014','bank_order_created','k14a','bank_order_snapshot_stale'),
   ('aaaaaab4-0000-0000-0000-000000000014','bank_order_created','k14b',NULL);
 SQL
+chk "fixture(突變, :258)建起來" "$?" "0"
 chk "34 ① 有 pending 列 ⇒ 仍擋(不重排)" "$(Q "${IN_VIEW}'aaaaaab2-0000-0000-0000-000000000012'")" "0"
 chk "35 ② 被判 snapshot_stale ⇒ 🔴 不擋, 讓新快照重排一次" "$(Q "${IN_VIEW}'aaaaaab3-0000-0000-0000-000000000013'")" "1"
 chk "36 ③ 已有 sent 列 ⇒ 永久擋(不會寄第三次)" "$(Q "${IN_VIEW}'aaaaaab4-0000-0000-0000-000000000014'")" "0"
@@ -280,13 +298,19 @@ chk "37 🟢 正對照:原本那張該寄的還在(證明上面三個 0/1 不是
 chk "38 not_mailable 那個碼也在 anti-join 的例外裡" \
     "$(Q "SELECT (strpos(definition,'bank_order_not_mailable_at_send')>0)::text FROM pg_views WHERE viewname='pcm_bank_order_created_email_pending'")" "true"
 # 🧬 突變:拿掉 COALESCE ⇒ last_error_code 為 NULL 的列不再擋 ⇒ 第 34/36 格會塌成 1
-psql -U postgres -q -X >/dev/null 2>&1 <<'SQL'
+# 🔴 **`-v ON_ERROR_STOP=1` 不可省**(2026-09-06 線【db】拋棄式 PG 實測, 六窗同文):
+#    少了它, 這一包裡任何一句 ERROR ⇒ **整包 ROLLBACK 而 `rc` 仍然是 0**
+#    ⇒ 🛑 下面每一格量到的就是一個**少了資料**的世界, 而它們會安靜地印比較小的數字。
+#    ⚠️ 而 `>/dev/null 2>&1` 把錯誤訊息也吞掉了 ⇒ **兩層遮蔽疊在一起。**
+#    ✅ 所以【旗標 + 緊接著驗 rc】要成對, 只加旗標不驗 rc 一樣看不到。
+psql -U postgres -q -X -v ON_ERROR_STOP=1 >/dev/null 2>&1 <<'SQL'
 CREATE VIEW public.mut_nocoalesce AS
   SELECT m.order_id FROM public.pcm_bank_order_still_mailable m
    WHERE NOT EXISTS (SELECT 1 FROM public.email_outbox e
       WHERE e.order_id=m.order_id AND e.event_type='bank_order_created'
         AND e.last_error_code NOT IN ('bank_order_not_mailable_at_send','bank_order_snapshot_stale'));
 SQL
+chk "fixture(突變, :283)建起來" "$?" "0"
 chk "39 🧬 突變:拿掉 COALESCE ⇒ NULL 那些列不再擋 ⇒ 正常世界那張【漏進來】" \
     "$(Q "SELECT count(*) FROM public.mut_nocoalesce WHERE order_id='aaaaaab2-0000-0000-0000-000000000012'")" "1"
 

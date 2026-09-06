@@ -89,12 +89,18 @@ chk "10b 擋在【前置閘②】而不是別的地方" "$(grep -c '前置閘②
 
 # ── 🧬 突變:證那幾道閘會紅 ───────────────────────────────────────
 # ① 欄級 ACL 那道:開一格 SELECT (provider_message_id) 給 anon ⇒ 事後閘②a 該紅
-psql -U postgres -q -X >/dev/null 2>&1 <<'SQL'
+# 🔴 **`-v ON_ERROR_STOP=1` 不可省**(2026-09-06 線【db】拋棄式 PG 實測, 六窗同文):
+#    少了它, 這一包裡任何一句 ERROR ⇒ **整包 ROLLBACK 而 `rc` 仍然是 0**
+#    ⇒ 🛑 下面每一格量到的就是一個**少了資料**的世界, 而它們會安靜地印比較小的數字。
+#    ⚠️ 而 `>/dev/null 2>&1` 把錯誤訊息也吞掉了 ⇒ **兩層遮蔽疊在一起。**
+#    ✅ 所以【旗標 + 緊接著驗 rc】要成對, 只加旗標不驗 rc 一樣看不到。
+psql -U postgres -q -X -v ON_ERROR_STOP=1 >/dev/null 2>&1 <<'SQL'
 CREATE TABLE public.mut_outbox (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), provider_message_id text);
 REVOKE ALL ON public.mut_outbox FROM PUBLIC;
 REVOKE ALL ON public.mut_outbox FROM anon, authenticated, service_role;
 GRANT SELECT (provider_message_id) ON public.mut_outbox TO anon;
 SQL
+chk "fixture(突變用的表, :92)建起來" "$?" "0"
 chk "11 🧬 突變:欄級 GRANT 給 anon ⇒ has_column_privilege 抓得到(true)" \
     "$(Q "SELECT has_column_privilege('anon','public.mut_outbox','provider_message_id','SELECT')::text")" "true"
 chk "12 🔴🔴 而同一個世界 has_TABLE_privilege 回 false ⇒ 用表級那一支會【放它過去】" \
