@@ -44,6 +44,32 @@
 --   **gzip 後沒有人量過**;Vercel 端反序列化的時間也**沒有人量過**。
 -- · 它**不改變任何資料**, 也不改 `vehicle_taxonomy_public` 本身 —— 那支 view 一個字都沒動。
 -- · **全有全無**:一旦逾時就整包沒有(與今天一樣)。換到的是餘裕從「843 vs 3000」變成「~275 vs 3000」。
+--
+-- ── 🟢 **在拋棄式 PG 17.10 上【真的跑過】**(2026-09-06, 線 -db;`initdb` + 最小 fixture)──────
+--    🔴 而這一段的存在理由是:上面每一道靜態檢查都逐字寫著「**不驗行為**」。
+--    ① 第一次 apply ⇒ **rc=0**, 檔尾斷言全過, NOTICE 逐字「4 列, rows 長度 4(兩個獨立來源一致)」
+--    ② **以 `anon` 身分呼叫 ⇒ 拿得到資料**(`SET ROLE anon; SELECT public.get_vehicle_taxonomy();`)
+--       ⇒ 🎯 `SECURITY INVOKER` 這條路是通的, 不是推論。
+--    ③ **以 `service_role` 呼叫 ⇒ `ERROR: permission denied`**(負對照:證明 ② 的通不是「誰都通」)
+--    ④ 型別:`n` 是 JSON **number**(不是字串)· `rows` 是 **array** · 年份是 **null**
+--       逐字輸出 `["KAWASAKI", "Ninja400", null, null]` ⇒ app 端的假設成立。
+--    ⑤ **空庫讓路雙向**:底表也空 ⇒ 印 NOTICE 讓路 rc=0;
+--       **view 空而底表有資料 ⇒ `ERROR: view 是空的而底表有資料` rc=3**
+--       ⇒ 🎯 那個讓路**不是恆放行**。
+--
+-- ── 🔴🔴 **貼第二次會怎樣(實測, 而它推翻了我自己寫的一句話)**────────────────────
+--    ⛔ ~~我在貼板說明寫「零資料異動、**可重跑**」~~ —— **那句話會被讀成「貼第二次也沒關係」, 而它是假的。**
+--    🔬 實測第二次 apply:`ERROR: function "get_vehicle_taxonomy" already exists with same argument types`
+--       (PostgreSQL **42723**)⇒ 交易 abort ⇒ 最後那個 `COMMIT` 實際跑成 **`ROLLBACK`**
+--       ⇒ 🔵 **DB 沒有被改壞**(第一次的那支函式原封不動), 而**這一發是失敗的**。
+--    🔴🔴 **而更值得記的是 rc**:
+--         `psql -f <本檔>`                    ⇒ **rc=0**  ← 交易 abort 了而它回 0
+--         `psql -v ON_ERROR_STOP=1 -f <本檔>` ⇒ **rc=3**
+--       ⇒ 📌 **一個沒有 `ON_ERROR_STOP` 的 psql, 會把一次整包回滾回報成成功。**
+--       ✅ 代貼工具是安全的:`scripts/apply-paste-board.sh:522/524` 兩條路都帶 `-v ON_ERROR_STOP=1`。
+--       ⚠️ 危險的是**有人手動跑 psql** 而沒帶它。
+--    ✅ **撞到 42723 的正確處置**:那表示這支【已經貼過了】⇒ **什麼都不用做**。
+--       ⛔ **不要改成 `CREATE OR REPLACE` 硬貼** —— 裸 `CREATE` 就是為了讓撞名當場紅(見下面第 1 節)。
 -- ═══════════════════════════════════════════════════════════════════════════
 
 BEGIN;
