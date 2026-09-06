@@ -154,6 +154,7 @@
     "scripts/why-is-this-red.sh": "bash scripts/why-is-this-red.sh --selftest",
     "scripts/launch-blocking-count.sh": "bash scripts/launch-blocking-count.sh --selftest",
     "scripts/board-token-normalize.py": "python3 scripts/board-token-normalize.py --selftest",
+    "scripts/launch-dispatch-table.py": "python3 scripts/launch-dispatch-table.py --selftest",
     "{scripts/*.sh,scripts/**/*.sh,docs/**/*.sh,.husky/*,package.json}": "sh scripts/shell-dialect-gate.sh",
     "scripts/ledger-col2-census.py": ["python3 scripts/ledger-col2-census.py --selftest"],
     "scripts/down-script-lock-timeout-gate.py": ["python3 scripts/down-script-lock-timeout-gate.py --selftest"],
