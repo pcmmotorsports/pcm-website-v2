@@ -1736,7 +1736,14 @@ ref AS (
     --    而 `order_refunds.status='failed'` **只有值域 CHECK**,沒有任何約束保證「外呼沒發生過」。
     --    ⇒ 若某天有人把已送出的退款標成 failed,這一面就會漏掉它。這是已知缺口,不是被守住的面。
     (SELECT pg_catalog.count(*) FROM public.order_refunds orf
-      WHERE orf.order_id = p_order_id AND orf.status <> 'failed')                    AS old_n,
+      -- 🔴 ⟦b4-TAPPAYDIRECT⟧ A2 2026-09-07 加 'voided'(codex R2 抓到、線【帳號】account 改)。
+      --    這是**反面述詞**:`<>` 加一個新狀態值會**自動把它含進去**
+      --    ⇒ 一筆補登錯了、已作廢、**錢其實沒退**的訂單, 它的 `old_n` 仍會是 1
+      --    ⇒ P6 判 false ⇒ 結清變 `needs_human / R_REFUND_TRACE_PRESENT`、金額輸出變 NULL。
+      --    🔵 **`NOT IN` 在 voided 這個值還不存在的世界裡也成立** ⇒ 本檔與貼板 70 的先後無關。
+      --    ⚠️ 而 `20260907030000`(貼板 70)是**建立** voided 那個值的那一支;
+      --       本檔只是**不要把它算進來**, 兩者沒有依賴。
+      WHERE orf.order_id = p_order_id AND orf.status NOT IN ('failed', 'voided'))          AS old_n,
     -- ② L5b attempt 級 —— 🔴 **沖銷片改寫**:改吃 canonical view,不再自己問「有沒有 manual」。
     --    形狀刻意**維持原本的雙重否定**(plan §11-3):
     --      除外(不算跡象) ⇔ EXISTS(有效終局) AND NOT EXISTS(有效終局 且 indicates_refund)
