@@ -117,7 +117,7 @@ describe('extractHctLabelImage', () => {
     expect(extractHctLabelImage(raw)).toEqual({ ok: false, reason });
   });
 
-  it('JPEG / GIF / BMP 也認得(而它們的 mime 各不相同)', () => {
+  it('JPEG / GIF 也認得(而它們的 mime 各不相同)', () => {
     const mk = (b: number[]) => Buffer.from([...b, 0, 1, 2, 3]).toString('hex');
     expect(extractHctLabelImage(wrap(mk([0xff, 0xd8, 0xff])))).toMatchObject({ mime: 'image/jpeg' });
     expect(extractHctLabelImage(wrap(mk([0x47, 0x49, 0x46, 0x38])))).toMatchObject({ mime: 'image/gif' });
