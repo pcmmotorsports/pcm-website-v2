@@ -233,6 +233,27 @@ push_step() {   # $1=log 檔  ⇒ 0 成功 / 非 0 失敗;dry-run 一定不呼�
 
 
 # ══ 自檢(🛑 **只跑 `verdict`, 一行 git 都不碰, 絕不 push**)═══════════════
+# ══ boarddup 的判定抽成函式(2026-09-07 主視窗 `-f1` 裁, `-ship` 做)══════════
+# 🔴🔴 **為什麼要動它**:原本逐字
+#   `if grep -q '同一個錨佔了兩列以上' … ; then add boarddup 92; else add boarddup 0; fi`
+#   ⇒ 📌 **`else` 那一支把【所有非命中】都當成乾淨** —— 包含「log 根本沒生出來」、
+#     「log 是空的」、以及 🔴 **「`grep` 把這支 log 當成 binary 而安靜回空」**(⟦ship-BINLOGGREP⟧)。
+#   🔬 那個 binary 是真的會發生:一句**按位元組截短的中文**(`拒繼` 被切一半)就夠了 ——
+#     實測同一支檔同一個 pattern:`grep -c` 印空 rc=1 · `grep -a -c` 印 2 · `/usr/bin/grep -c` 印 2。
+# ✅ **改成 fail-closed**:**只有 `grep -a` 明確讀到【乾淨那句】才記 0**;
+#    其餘一律 92 並說「未量到」—— 🎯 **「沒量到」與「量到乾淨」從此印不同的東西。**
+# 🛑 而它**不是**把 92 的意思改掉:92 本來就是「不推」,這裡只是讓更多情況走進它。
+boarddup_verdict() { # $1=log 路徑;回 0=乾淨 / 92=有重複或【沒量到】
+  if [ ! -s "$1" ]; then
+    say "  🔴 boarddup 未量到:log 不存在或為空 ⇒ fail-closed"
+    echo 92; return 0
+  fi
+  if grep -a -q '同一個錨佔了兩列以上' "$1"; then echo 92; return 0; fi
+  if grep -a -q '錨各自唯一' "$1"; then echo 0; return 0; fi
+  say "  🔴 boarddup 未量到:log 在, 而 grep -a 找不到【任何一種】判定字樣 ⇒ fail-closed"
+  echo 92
+}
+
 if [ "${1:-}" = "--selftest" ]; then
   p=0; f=0
   ck() { if [ "$2" = "$3" ]; then echo "  ✅ $1 (rc=$2)"; p=$((p+1)); else echo "  🔴 $1 —— 得 $2 期望 $3"; f=$((f+1)); fi; }
@@ -282,6 +303,22 @@ if [ "${1:-}" = "--selftest" ]; then
   #    📌 它比別的更需要這一格:那支探針**本來的病就是「沒有人按下去」**
   #      ⇒ 一個「安靜地沒跑」與一個「跑了而綠」在 rc 上完全一樣(兩者都記 0)。
   ck "⑦b2 漏掉只報那族的一道(schemaexp)⇒ 3" "$(run "$(drop_one schemaexp)" "$SUM" "$SUM")" "3"
+  # ══ BD boarddup_verdict:四個世界(⟦ship-BINLOGGREP⟧, 主視窗 `-f1` 2026-09-07 裁)══════
+  # 🔴 **BD-a 是這一組的骨**:log 裡**有一個半截的中文字元**(一個三位元組的字被按位元組切一半)——
+  #    那正是本機 `grep` 把整支檔當成 binary 的觸發條件, 而**重複那句話仍然在檔裡**。
+  #    ⇒ 沒有 `-a` 的話它會安靜回「沒命中」⇒ 記 0 ⇒ **重複的板列被當成乾淨推上去。**
+  # 🔴 **BD-b 是負對照, 不可省** —— 一支「永遠回 92」的判定會讓 BD-a 通過而毫無意義;
+  #    ⇒ 而它**刻意也帶半截字**, 這樣兩格的唯一差別就只剩【那句話是哪一句】。
+  _bd=$(mktemp -d "${TMPDIR:-/tmp}/bdv.XXXXXX")
+  printf '同一個錨佔了兩列以上\n'   > "$_bd/dup.log";   printf '\xe6\x8b\x92\xe7\n' >> "$_bd/dup.log"
+  printf '✅ ⑤ 620 個帶錨的列, 錨各自唯一\n' > "$_bd/clean.log"; printf '\xe6\x8b\x92\xe7\n' >> "$_bd/clean.log"
+  : > "$_bd/empty.log"
+  printf '這支 log 有內容而沒有任何一種判定字樣\n' > "$_bd/mute.log"
+  ck "BD-a log 帶半截中文字仍要抓到重複 ⇒ 92" "$(boarddup_verdict "$_bd/dup.log" 2>/dev/null)" "92"
+  ck "BD-b 負對照:乾淨 log(同樣帶半截字)⇒ 0" "$(boarddup_verdict "$_bd/clean.log" 2>/dev/null)" "0"
+  ck "BD-c log 是空的 ⇒ 92(未量到, 不是乾淨)" "$(boarddup_verdict "$_bd/empty.log" 2>/dev/null)" "92"
+  ck "BD-d log 有內容而無判定字樣 ⇒ 92(未量到)" "$(boarddup_verdict "$_bd/mute.log" 2>/dev/null)" "92"
+  rm -rf "$_bd"
   # 🔴🔴 ⑦c —— **這一格就是「只報不擋」的證明**, 沒有它我只是在宣稱。
   #    那七道之一 rc≠0 ⇒ **仍然要推**(0), 而 ①(一般閘 rc≠0 ⇒ 3)就在上面幾行 ——
   #    ⇒ 📌 兩格擺在一起才看得出「這七道與其他十五道走的是不同規矩」。
@@ -360,8 +397,11 @@ if [ "${1:-}" = "--selftest" ]; then
   #    ⛔ ~~本段原本只看 `$f = 0`~~ ⇒ 📌 **漏寫一格 `ck` 會印 `18 PASS / 0 FAIL` 而照樣「全部通過」。**
   #    🛑 **那正是本片在替收割鏈修的那個病**(兩發相同只證重現性, 證不了分母)—— 同型, 在自檢這一層。
   #    ⚠️ 加一格 `ck` 必同步改這個數;數法 = 跑一發看 `$p`。
-  EXPECT_CELLS=30   # 🟡 2026-09-06 +2:⑦b/⑦c(只報不擋那一族, ⟦db-MERGEBLINDGATE⟧)
+  EXPECT_CELLS=34   # 🟡 2026-09-06 +2:⑦b/⑦c(只報不擋那一族, ⟦db-MERGEBLINDGATE⟧)
                     # 🟡 2026-09-07 +1:⑦b2(schemaexp, ⟦0e-PROBENOSCHED⟧)
+                    # 🟡 2026-09-07 +4:BD-a/b/c/d(boarddup_verdict, ⟦ship-BINLOGGREP⟧)
+                    #    ⚠️ 標號用 `BD-` 前綴而不是接數字 —— 這支自檢的 ⑧ 與 ⑨ 都已經被用過,
+                    #    而我第一版就撞了一次(印出來兩格同號, 而【兩格都是對的】⇒ 沒有東西會叫)。
                     # 🔴 **先數格再填數字**:改前跑一發拿到 `PASS=30`, 才把 29 改成 30 ——
                     #    倒過來(先寫數字再湊格)會讓這道閘變成「我說幾格就是幾格」。
   if [ "$f" = 0 ] && [ "$p" != "$EXPECT_CELLS" ]; then
@@ -414,6 +454,7 @@ add_report() {
     printf '   · %-9s rc=%-3s %ss  🟡🔴只報不擋 —— 去讀 %s/%s.log\n' "$1" "$2" "$el" "$WORK" "$1"
   fi
 }
+
 
 # 🔴🔴 **釘住 HEAD**(codex R1 must-fix):原本只把它【印出來】而沒有釘。
 #    ⇒ 📌 測的是這一顆, 而最後 `announce-and-push.sh` 推的是**當下的 `dev` tip** ——
@@ -474,11 +515,8 @@ fi
 # 🔴 **板列重複在這裡【再查一次】**(codex R1 must-fix):姊妹檔 `harvest-merge-line.sh` 撈到 dup 會回 6,
 #    ⇒ 📌 **而那顆壞掉的 merge 已經在 `dev` 上了** —— 若那時沒有人手動處理, 本鏈照樣會把它推上去。
 #    ⇒ ✅ 推之前自己再問一次。(那支檢查的板路徑寫死, 只能對當下的樹問。)
-if python3 scripts/board-state-consistency.py > "$WORK/boarddup.log" 2>&1; then
-  if grep -q '同一個錨佔了兩列以上' "$WORK/boarddup.log"; then add boarddup 92; else add boarddup 0; fi
-else
-  if grep -q '同一個錨佔了兩列以上' "$WORK/boarddup.log"; then add boarddup 92; else add boarddup 0; fi
-fi
+python3 scripts/board-state-consistency.py > "$WORK/boarddup.log" 2>&1
+add boarddup "$(boarddup_verdict "$WORK/boarddup.log")"
 
 # ── 🟡 只報不擋的七道(⟦db-MERGEBLINDGATE⟧)────────────────────────────────
 # 🔴 **為什麼在這裡**:`git merge` 不跑 pre-commit ⇒ 別人 merge 進來的東西**從來沒有被這七道掃過**。
@@ -559,8 +597,8 @@ read -r SPLIT_T SPLIT_F <<< "$(split_denoms "$WORK/split.log")"
 # ── ② 主段:全套兩發 ─────────────────────────────────────────────────────
 pnpm vitest --run --maxWorkers=2 > "$WORK/t1.log" 2>&1; add test1 $?
 pnpm vitest --run --maxWorkers=2 > "$WORK/t2.log" 2>&1; add test2 $?
-SUM1=$(grep -E 'Test Files|^ +Tests ' "$WORK/t1.log" | tr -s ' ' | tr '\n' ' ')
-SUM2=$(grep -E 'Test Files|^ +Tests ' "$WORK/t2.log" | tr -s ' ' | tr '\n' ' ')
+SUM1=$(grep -a -E 'Test Files|^ +Tests ' "$WORK/t1.log" | tr -s ' ' | tr '\n' ' ')
+SUM2=$(grep -a -E 'Test Files|^ +Tests ' "$WORK/t2.log" | tr -s ' ' | tr '\n' ' ')
 
 # ── ③ 族段:瀏覽器族兩發 ─────────────────────────────────────────────────
 # 🔵 走 `pnpm test:browser`(= `browser-test-family.py --run`)—— 它自己內部就會比
@@ -572,8 +610,8 @@ SUM2=$(grep -E 'Test Files|^ +Tests ' "$WORK/t2.log" | tr -s ' ' | tr '\n' ' ')
 #      (有人在那幾十秒內新增/刪掉一支族內測試檔)。**它不是「族段少跑」的主要防線。**
 pnpm test:browser > "$WORK/b1.log" 2>&1; add btest1 $?
 pnpm test:browser > "$WORK/b2.log" 2>&1; add btest2 $?
-BSUM1=$(grep -E 'Test Files|^ +Tests ' "$WORK/b1.log" | tr -s ' ' | tr '\n' ' ')
-BSUM2=$(grep -E 'Test Files|^ +Tests ' "$WORK/b2.log" | tr -s ' ' | tr '\n' ' ')
+BSUM1=$(grep -a -E 'Test Files|^ +Tests ' "$WORK/b1.log" | tr -s ' ' | tr '\n' ' ')
+BSUM2=$(grep -a -E 'Test Files|^ +Tests ' "$WORK/b2.log" | tr -s ' ' | tr '\n' ' ')
 
 say "── 逐道 rc ──"
 for it in $GATES; do say "   ${it%%:*} rc=${it##*:}"; done
@@ -589,7 +627,7 @@ say "   全套 T=[$SPLIT_T] · 這族 F=[$SPLIT_F]"
 verdict "$GATES" "$SUM1" "$SUM2" "$BSUM1" "$BSUM2" "$SPLIT_T" "$SPLIT_F"; V=$?
 if [ "$V" != 0 ]; then
   KEEP_LOG=1
-  grep -h '^ FAIL ' "$WORK/t1.log" | sort -u | head
+  grep -a -h '^ FAIL ' "$WORK/t1.log" | sort -u | head
   say "   實測 origin/dev=$(git ls-remote origin refs/heads/dev | cut -c1-9)"
   exit "$V"
 fi
