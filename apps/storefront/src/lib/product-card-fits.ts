@@ -1,5 +1,10 @@
 // product-card-fits.ts — 目錄卡片「適用 …」字串組裝(S4:同名不同年商品在卡片可區分)。
 //
+// 🔵 **2026-09-06 從 `components/` 搬到 `lib/`**(線 `front`,code-reviewer R1 nit;
+//   `docs/plans/2026-09-06-catalog-page-fitments-payload-plan.md` §5 預告過這一步)。
+//   理由:`lib/catalog-page.ts` 的 mapper 現在要用它 ⇒ 讓 `lib/` 去 import `components/` 是反向相依。
+//   它本來就是純函式(零 React、零 DOM、只 import 一個型別)⇒ 搬家零風險。
+//
 // 顯示規則(docs/specs/2026-07-12-search-vehicle-work-plan.md §5、Sean 拍板):
 //   - 單一車款:「{品牌} {車型} {年份}」,年份兩位數緊湊 '18–'24(與 PDP 4 位數值一致、格式較緊)。
 //   - 多車款(Sean Q1=A):「{N} 款車型」——不挑代表款(PCM 既有鐵則)。

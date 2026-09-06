@@ -1,6 +1,6 @@
 import { hasNoRealImage, parseImageTrim } from '@pcm/domain';
 
-import { formatCardFits } from '@/components/product-card-fits';
+import { formatCardFits } from '@/lib/product-card-fits';
 import type { MockProduct, UIFitment } from '@/data/mock-products';
 
 export type CatalogListRow = {

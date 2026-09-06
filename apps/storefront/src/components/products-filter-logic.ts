@@ -4,6 +4,24 @@
 // >400 行必拆);並修正品牌篩選 id→name 解析(Codex finding 3)。
 //
 // 對齊 design-reference/components/ProductsPage.jsx L85-126。
+//
+// 🔴🔴 **2026-09-06 起:走型錄那條路的商品, `fitments` 恆為 `undefined`。**(線 `front`,板列 ⟦search-CATALOGPAGE2MB⟧)
+//   `lib/catalog-page.ts` 的 `catalogRowToUIProduct` **不再帶 fitments 陣列**, 只帶算好的 `fits` 字串 ——
+//   那整包在正式站把該頁的 `unstable_cache` 條目推過 2 MB 上限(逐字
+//   `items over 2MB can not be cached (2679379 bytes)`), 而它的唯一用途是印「N 款車型」。
+//   量到的:選了車的那一頁 `motoBrand` 出現 40,278 次 / 4,477,365 bytes;沒選車 239 次 / 693,655 bytes。
+//
+// 🛑 **⇒ 要在本檔重啟任何吃 `fitments` 的 client 端過濾之前, 先去改那個 mapper** ——
+//   不然它會拿到 `undefined` 而**靜靜地過濾不到任何東西**(不會 throw、不會紅)。
+//   ⚠️ 本檔今天**沒有**任何一處讀 `fitments` ⇒ 這是**給未來的人**的路標, 不是現有缺陷。
+//   🔴 **而【怎麼數】比那個 0 重要 —— 我寫這段話的當下, 連續數錯兩次**:
+//   · `grep -c fitments` ⇒ 7, 而**其中 6 筆是這一段文字自己** ⇒ 記錄變成下一次的假命中。
+//   · 改成濾掉 `//` 開頭 ⇒ 仍剩 `:50`, 那是 JSDoc 的 ` * ` 濾不掉, **而它講的是 DB 表名
+//     `product_fitments`, 不是這個屬性** ⇒ 📌 兩個不同的東西共用一個字面, grep 分不出來。
+//   ✅ **成立的說法**:`grep -n '\.fitments' <本檔>` 的每一筆都在註解裡
+//     (一筆是**這一句自己**, 另一筆是下面那段講舊 `matchesVehicle` 的註解)⇒ **執行碼零處讀它。**
+//   🛑 **這裡刻意不寫行號** —— 上一版寫了 `:18`, 而**加完這幾行它就變成 `:21`**:
+//     一個指向自己的行號, 在寫下的那一刻就過期了。
 
 import type { CascadeFilterState } from '@pcm/ui';
 import type { MockProduct } from '@/data/mock-products';
