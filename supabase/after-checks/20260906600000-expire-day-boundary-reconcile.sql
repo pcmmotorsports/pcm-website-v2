@@ -36,7 +36,22 @@ SELECT
 FROM f;
 \echo 貼前期望: a=f b=f c=t d=t e=3a21a5aa1fa0d0f7b8b075c1cacfe85f (e 是 md5 字串, 不是 t/f)
 \echo 貼後期望: a=t b=t c=f d=t e=2c4bbe9c55646f5cb9b4fb5347d87b26 (同上)
-\echo 🔴 第 0 格【同名共幾支】不是 1, 上面那張表不論印什麼都不可信。
+-- 🔴🔴 **這一句原本是 `\echo`(無條件印)** —— 主視窗 `-f8` 2026-09-06 貼 53 時抓到:
+--    計數 = 1(正常)那一發, 它照樣印「不是 1 ⇒ 不可信」, 而它就印在 `1 | 1 | t` 那張表下面。
+--    ⇒ 📌 那正是 CLAUDE.md 那條「**結果標籤要由【結果】決定, 不能無條件印**」。
+--    ⇒ ✅ 改成由結果決定:只有真的不是 1 才叫。
+DO $lbl$
+DECLARE v_n integer;
+BEGIN
+  SELECT count(*) INTO v_n
+    FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'pcm_cron' AND p.proname = 'expire_unpaid_orders';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION '🔴 第 0 格【同名共幾支】= %(期望 1)⇒ 上面那張表不論印什麼都不可信。', v_n;
+  END IF;
+  RAISE NOTICE '🟢 第 0 格 = 1 ⇒ 上面那張表可信。';
+END
+$lbl$;
 
 \echo --- 2. 🔴 觀測:剛剛有幾張被逾期取消(codex R3 #5:值班的人要能回答這一題)---
 -- 🔴 前兩節答的是「函式長什麼樣」, 而半夜三點值班的人要問的是「**剛剛發生了什麼**」。
