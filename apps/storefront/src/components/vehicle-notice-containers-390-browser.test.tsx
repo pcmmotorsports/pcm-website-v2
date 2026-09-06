@@ -48,8 +48,13 @@ function compiledCss(): string {
 const CONTAINERS = [
   { key: 'home-dock', chain: ['ed-page', 'b-hero', 'b-hero-inner', 'b-dock'],
     src: 'app/page.tsx:182,189 · HomeHero.tsx:119,154 · VehicleFinder.tsx:65,91' },
-  { key: 'catalog', chain: [],
-    src: 'ProductsPage.tsx:276(fragment 根), 281' },
+  // 🔴 2026-09-07 ⟦front-CATALOGNOTICEFLUSH⟧:原本這條鏈是【空的】(通知直接落在頁面層,
+  //   量到 390 = 貼齊螢幕兩側邊)。修法 = 外包一層 `.pp-notice-shell`, 它逐字複製 `.pp-layout`
+  //   的幾何(`max-width:var(--shell-max)` / `margin:0 auto` / `padding:0 var(--shell-x)`)。
+  //   ⛔ ~~`chain: []`~~ ⇒ ✅ `['pp-notice-shell']`。**舊字面留著**, 讓看到 390 那個讀數的人
+  //   知道它是修前的值, 不是尺壞了。
+  { key: 'catalog', chain: ['pp-notice-shell'],
+    src: 'ProductsPage.tsx:281(外包一層)· products-page.css `.pp-notice-shell`' },
   { key: 'pdp', chain: ['pcm-root', 'pd-page', 'pd-main'],
     src: 'ProductPage.tsx:230,233,239,256' },
   { key: 'cart', chain: ['ap-page', 'cart-main'],
@@ -131,13 +136,40 @@ describe('⟦front-FULLPAGE390⟧ 四個真實容器在 390 寬底下的可用�
     //   ⇒ 📌 **兩道各抓一半, 不可只留一道** —— 本格抓【整條死】, 靜態那格抓【一層漂】。
     for (const c of CONTAINERS) {
       const m = await measure(c.chain, NOTICE);
-      if (c.chain.length === 0) {
-        // catalog 是 fragment 根 ⇒ **它本來就沒有容器**, 剛好 390 是正確答案不是失效。
-        expect(m.available, `${c.key} 應為裸頁寬 390`).toBe(VIEWPORT.width);
-      } else {
-        expect(m.available, `${c.key} 量到 ${m.available}px = 裸頁寬 ⇒ 祖先鏈沒生效, 這支檔的綠全部不算數`)
-          .toBeLessThan(VIEWPORT.width);
-      }
+      // 🔴 2026-09-07 起【四個都】必須比裸頁窄 —— catalog 修好之後不再有例外。
+      //   ⛔ ~~原本 catalog 走 `toBe(390)` 那一支~~:那是修前的正確答案, 今天它會是回歸。
+      expect(m.available, `${c.key} 量到 ${m.available}px = 裸頁寬 ⇒ 祖先鏈沒生效, 這支檔的綠全部不算數`)
+        .toBeLessThan(VIEWPORT.width);
+    }
+  }, 120_000);
+
+  it('🎯 ⟦front-CATALOGNOTICEFLUSH⟧ catalog 的留白 = `--shell-x` 兩側(手機與桌機各一發)', async () => {
+    // 🔴 **期望值從【變數】算, 不寫死** —— 寫死 40 的話, 有人改 `--shell-x` 這一格會紅在錯的地方
+    //   (它會說「版面壞了」, 而真相是「有人改了 token 而本格沒跟上」)。
+    for (const width of [390, 1280]) {
+      const page = await browser.newPage({ viewport: { width, height: 844 } });
+      await page.setContent(
+        `<!doctype html><html><head><style>${compiledCss()}</style></head>` +
+          `<body><div class="pp-notice-shell"><div id="probe">x</div></div></body></html>`,
+      );
+      const got = await page.evaluate(() => {
+        const el = document.querySelector('.pp-notice-shell') as HTMLElement | null;
+        if (!el) throw new Error('pp-notice-shell 不在 ⇒ 這一發作廢');
+        const cs = getComputedStyle(el);
+        return {
+          shellX: cs.getPropertyValue('--shell-x').trim(),
+          padL: Math.round(parseFloat(cs.paddingLeft)),
+          padR: Math.round(parseFloat(cs.paddingRight)),
+          inner: Math.round((document.getElementById('probe') as HTMLElement).getBoundingClientRect().width),
+        };
+      });
+      await page.close();
+      expect(got.shellX, `${width}px:--shell-x 讀不到 ⇒ token 沒載進來, 這一發作廢`).not.toBe('');
+      const expected = parseFloat(got.shellX);
+      expect(got.padL, `${width}px:左留白 ${got.padL} ≠ --shell-x ${expected}`).toBe(expected);
+      expect(got.padR).toBe(expected);
+      // 內容寬 = 視窗 − 兩側留白(`--shell-max` 目前是 `none` ⇒ 不再吃一刀;它若改了本格會紅)
+      expect(got.inner, `${width}px:內容寬 ${got.inner} ≠ ${width} − 2×${expected}`).toBe(width - 2 * expected);
     }
   }, 120_000);
 
@@ -159,6 +191,10 @@ describe('⟦front-FULLPAGE390⟧ 四個真實容器在 390 寬底下的可用�
       'HomeHero.tsx': readFileSync(join(REPO, 'apps/storefront/src/components/HomeHero.tsx'), 'utf8'),
       'VehicleFinder.tsx': readFileSync(join(REPO, 'apps/storefront/src/components/VehicleFinder.tsx'), 'utf8'),
       'ProductPage.tsx': readFileSync(join(REPO, 'apps/storefront/src/components/ProductPage.tsx'), 'utf8'),
+      // 🔴 2026-09-07 補進來的:`catalog` 那條鏈的 class 住在這一支, 而它原本不在名單裡
+      //   ⇒ 那一格會說「`pp-notice-shell` 查無」而真相是【我沒掃那支檔】。
+      //   📌 一個掃不到就報「查無」的檢查, 與真的查無印同一句話。
+      'ProductsPage.tsx': readFileSync(join(REPO, 'apps/storefront/src/components/ProductsPage.tsx'), 'utf8'),
       'CartView.tsx': readFileSync(join(REPO, 'apps/storefront/src/components/CartView.tsx'), 'utf8'),
     };
     const all = Object.values(files).join('\n');
@@ -167,6 +203,12 @@ describe('⟦front-FULLPAGE390⟧ 四個真實容器在 390 寬底下的可用�
         expect(all.includes(`"${cls}"`) || all.includes(`${cls} `), `class \`${cls}\` 在原始碼裡查無 ⇒ 祖先鏈漂了`).toBe(true);
       }
     }
+    // 🔴 `pp-notice-shell` 是 2026-09-07 新增的, 它住在 CSS 與 ProductsPage 兩邊 ⇒ 兩邊都核。
+    const css = readFileSync(join(REPO, 'apps/storefront/src/styles/products-page.css'), 'utf8');
+    expect(css.includes('.pp-notice-shell'), 'CSS 裡查無 `.pp-notice-shell` ⇒ catalog 那條鏈是空的').toBe(true);
+    expect(css.includes('var(--shell-x)'), '`.pp-notice-shell` 沒吃 `--shell-x` ⇒ 它寫死了數字').toBe(true);
+    const pp = readFileSync(join(REPO, 'apps/storefront/src/components/ProductsPage.tsx'), 'utf8');
+    expect(pp.includes('"pp-notice-shell"'), 'TSX 裡查無 ⇒ CSS 有規則而沒有人用它').toBe(true);
     // 🔵 負對照:現造的 class 必須查無, 否則上面那圈 includes 是恆真的。
     expect(all.includes('"zzz-bogus-container"')).toBe(false);
   });
