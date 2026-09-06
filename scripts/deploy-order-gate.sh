@@ -130,6 +130,30 @@ summary() {  # $1 = 結論標籤
     echo "gate: 未檢查任何 ref(這次推的不是 refs/heads/dev 或 refs/heads/main)" >&2
   else
     echo "gate: $1 blocked / $PENDING_N pending(檢查了 $REF_N 個 ref)" >&2
+    # ══ 🔴🔴 `0 pending` 有兩個世界, 而它們在這一行上【印同一句話】(⟦db-DOGBLINDBRANCH⟧)══
+    #
+    # 🔬 **三個世界並排**(2026-09-06 線 -db 在拋棄式 repo 造的, 可重跑):
+    #      ① migration 在被推的樹裡 + app 同批   ⇒ gate: 1 blocked / 1 pending  ✅ 擋
+    #      ② migration 是【上一批】推的 + app 這批 ⇒ gate: 1 blocked / 1 pending  ✅ 擋
+    #      ③ migration **只活在別條 agent 分支上** ⇒ gate: 0 blocked / **0 pending**  🔴 放行
+    #         而【真的乾淨】那個世界              ⇒ gate: 0 blocked / **0 pending**  ← 一模一樣
+    #
+    # 🎯 **「我沒看到那支 migration」與「沒有待貼的 migration」是同一句。**
+    #    成因在 `pending_versions`:它取的是 `git ls-tree "$rev" supabase/migrations/`
+    #    ⇒ **被推的那棵樹**的全部 migration。別條線分支上的東西不在那棵樹裡 ⇒ 它看不到。
+    # 🛑 而 ③ 放行的正是本閘存在的理由:app 呼叫一個線上不存在的函式
+    #    ⇒ PGRST202(2026-08-07 A9h:壞約 8 小時)。
+    #
+    # ✅ **本次的修法只有【多印一句】, rc 一格不動**(`-f8` 2026-09-06 裁甲修法 1)——
+    #    它不會讓 ③ 變成擋, 它讓讀的人**分得出自己在哪一個世界**。
+    # 🔵 掃 `agent/line-*` 分支把差集列出來當警告 = 修法 2, **另開子列, 本次不做**
+    #    (代價:要讀別人的分支, 而那些分支隨時在動)。
+    # 📌 同一條紀律的前一格就在上面:`REF_N = 0` 時本閘早就不肯印「0 blocked」了。
+    if [ "$PENDING_N" = "0" ]; then
+      echo "gate: ⚠️ 0 pending 的意思是【我在**這棵樹**上沒看到待貼的 migration】——" >&2
+      echo "gate:    **別條 agent 分支上的 migration 我看不到**, 那不是「沒有」, 是我沒去看。" >&2
+      echo "gate:    ⇒ 別人那條線正在做的 DB 改動, 這一行證不了任何事。(⟦db-DOGBLINDBRANCH⟧)" >&2
+    fi
   fi
 }
 
