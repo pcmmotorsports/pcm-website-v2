@@ -3,6 +3,18 @@
 三格互斥且窮盡:repo 檔 / 貼板那份 / 兩者都不是。三數和必須 = 資料列數。"""
 import hashlib, io, os, sys, glob, subprocess
 
+# 🔴 `--selftest` 的第一件事:剝掉【繼承來的】git 環境。
+#    ⚠️ **本支不在 ⟦02-EARLYDEATHUNVERIFIED⟧ 原本那 13 支名單裡** —— 它是 2026-09-06 `-auth`
+#    修完那 7 支、重跑 `selftest-git-isolation-gate.sh` 驗收時**新冒出來的**(分母 108 ⇒ 113)。
+#    症狀與那 7 支同型:帶 `GIT_DIR` rc=1 / 不帶 rc=0 ⇒ 它**還沒走到會動 git 那一段就自己死了**,
+#    受害者快照沒變 ⇒ 那道閘印 `CLEAN`, **與「跑完而且乾淨」是同一個字**。
+#    ⚠️ **只剝 selftest 那一條路** —— 真跑時 `GIT_DIR` 指的是本 repo 自己的 `.git`, 剝掉會壞。
+#    形狀取自 `scripts/board-state-consistency.py:932`。
+if {'--selftest', '--selfcheck'} & set(sys.argv[1:]):
+    for _k in [_k for _k in os.environ if _k.startswith('GIT_')]:
+        del os.environ[_k]
+
+
 # --selftest:掛在 lint-staged 上。🔴 它驗的是【這支腳本的判別力】, 不是帳本對不對。
 #    · 分割必須互斥窮盡:三格相加 = 資料列數(不等 ⇒ 分類邏輯漏了一條路徑)
 #    · 負對照:一個現造的 sha 不准落進 ① 或 ②
