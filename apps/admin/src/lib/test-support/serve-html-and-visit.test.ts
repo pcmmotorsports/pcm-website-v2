@@ -54,14 +54,23 @@ describe('serveHtmlAndVisit 的重試紀律(兩個世界)', () => {
     expect(String(warn.mock.calls[0]?.[0]), '訊息沒帶 label ⇒ 讀 log 的人不知道是哪一支').toContain('自測');
   });
 
-  it('🔴 連兩發都空回應 ⇒ 丟出去(最多一次, 不無限重試)', async () => {
+  it('🔴 連兩發都空回應 ⇒ 丟出去(最多一次), 而【第一發的錯要跟著走】', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { browser, attempts } = fakeBrowser(async () => {
-      throw new Error(REAL_EMPTY);
+    // 兩發**不同**的錯 —— 這樣才驗得出 cause 帶的是第一發那個, 不是第二發。
+    const { browser, attempts } = fakeBrowser(async (n) => {
+      throw new Error(n === 1 ? `${REAL_EMPTY} FIRSTONE` : 'page.goto: net::ERR_CONNECTION_REFUSED SECONDONE');
     });
-    await expect(serveHtmlAndVisit(browser, '<p>x</p>', async () => 'ok')).rejects.toThrow('ERR_EMPTY_RESPONSE');
+    const caught = await serveHtmlAndVisit(browser, '<p>x</p>', async () => 'ok').catch((e: unknown) => e);
     expect(attempts(), '試了超過兩次 ⇒ 重試上限沒生效').toBe(2);
     expect(warn).toHaveBeenCalledTimes(1);
+    const err = caught as Error;
+    expect(err.message, '第二發的成因沒帶出來').toContain('SECONDONE');
+    // 🔴 **R1 nit**:第一發原本只活在 `console.warn` 裡 ⇒ 讀 CI 紅字的人看不到它,
+    //    而**兩發的成因可以不一樣**(這一格就餵了兩個不同的錯)。
+    expect(
+      (err.cause as Error | undefined)?.message,
+      '第一發的錯沒有掛進 cause ⇒ 它只活在 warn 裡, 而紅字上看不到',
+    ).toContain('FIRSTONE');
   });
 
   // 🔴🔴 **這一格是那四條紀律裡最重要的一條**:斷言失敗絕不重試。
@@ -75,6 +84,28 @@ describe('serveHtmlAndVisit 的重試紀律(兩個世界)', () => {
       }),
     ).rejects.toThrow('expected 105');
     expect(attempts(), '斷言失敗被重試了 —— 這正是本檔明文禁止的那件事').toBe(1);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  // 🔴🔴 **這一格是 R1 逼出來的, 而【逼出它的是一發沒有紅的突變】**(2026-09-06):
+  //    R1 說「拿掉 `arrived ||` 應該會殺掉『斷言不重試』那一格」⇒ 我照著跑 ⇒ **6 格全綠, 一格都沒死。**
+  //    🔬 查出來的原因:那一格的斷言訊息是 `expected 105 to be close to 99` ——
+  //      它**不含**重試名單上的字 ⇒ 擋住它的是**錯誤訊息比對**, **不是 `arrived`**。
+  //    ⇒ 🛑 **所以「斷言失敗絕不重試」這條紀律, 當時【沒有任何一發突變證明得了】** ——
+  //      而我在檔頭把它寫成「最重要的一條」。📌 **宣稱最重要的那條, 咬合力最弱。**
+  //    ✅ 這一格補的正是**只有 `arrived` 擋得住**的那個世界:
+  //      一個**斷言訊息裡剛好含著那個錯誤碼**的失敗(而那不是虛構 ——
+  //      本檔自己就有一格在斷言 `ERR_EMPTY_RESPONSE` 這個字串)。
+  it('🔴 斷言訊息裡【剛好含著那個錯誤碼】⇒ 仍然不重試(這一格只有 arrived 擋得住)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { browser, attempts } = fakeBrowser(async () => {});
+    await expect(
+      serveHtmlAndVisit(browser, '<p>x</p>', async () => {
+        // 一支在斷言「頁面有沒有印出 ERR_EMPTY_RESPONSE」的測試, 失敗時訊息就會長這樣。
+        throw new Error('expected page text to contain ERR_EMPTY_RESPONSE');
+      }),
+    ).rejects.toThrow('expected page text');
+    expect(attempts(), '斷言失敗被重試了 —— 而它只是因為訊息裡有那個字').toBe(1);
     expect(warn).not.toHaveBeenCalled();
   });
 

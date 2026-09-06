@@ -72,6 +72,9 @@ export async function serveHtmlAndVisit<T>(
   visit: (page: Page) => Promise<T>,
   opts: ServeHtmlOptions = {},
 ): Promise<T> {
+  /** 🔴 第一發的錯要**跟著**第二發丟出去(R1 nit):否則它只活在 `console.warn` 裡,
+   *    而讀 CI 紅字的人看不到「第一發是為什麼掛的」—— 兩發的成因可以不一樣。 */
+  let firstErr: unknown;
   for (let attempt = 1; ; attempt += 1) {
     const server: Server = createServer((_req, res) => {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -89,7 +92,16 @@ export async function serveHtmlAndVisit<T>(
       // 🔴 `arrived` 之後丟出來的都是 `visit` 的錯(= 斷言)⇒ 下面那個 catch 不會重試它。
       return await visit(page);
     } catch (err) {
-      if (arrived || attempt > 1 || !isTransientGotoError(err)) throw err;
+      if (arrived || !isTransientGotoError(err)) throw err;
+      if (attempt > 1) {
+        // 🔵 帶著第一發的錯一起丟 —— `cause` 讓 CI 紅字看得到兩發各自的成因。
+        throw new Error(
+          `serveHtmlAndVisit: 連續兩發都在連線層失敗(${opts.label ?? 'unlabelled'})—— ` +
+            `第二發:${err instanceof Error ? err.message.split('\n')[0] : String(err)}`,
+          { cause: firstErr },
+        );
+      }
+      firstErr = err;
       // 🔴 這一行是本檔的重點, 不是附帶 —— 見檔頭紀律 ④。
       console.warn(
         `[serve-html-and-visit] goto 連線層失敗(${opts.label ?? 'unlabelled'}), 重試 1 次 —— ` +
@@ -97,7 +109,14 @@ export async function serveHtmlAndVisit<T>(
           `${err instanceof Error ? err.message.split('\n')[0] : String(err)}`,
       );
     } finally {
-      await page.close();
+      // 🔴 **兩段分開**(R1 nit):`page.close()` 丟錯的話, 下面那個 `server.close()` 就不會跑
+      //    ⇒ **漏一個 server**。而這一族的病正好是負載 ⇒ 漏掉的那些會累積。
+      //    ⚠️ 原本那五支是同一個形狀 ⇒ **不是本片引入的**, 而現在集中在一處 ⇒ 修一次全族受益。
+      try {
+        await page.close();
+      } catch {
+        /* 關分頁失敗不該蓋掉真正的錯, 也不該擋住下面關 server */
+      }
       // 🔴 **等它真的關完, 不是叫一聲就走**(2026-09-06 核 diff 時抓到)——
       //    `orders-status-visibility-browser.test.tsx` 原本逐字是
       //    `await new Promise<void>((r) => server.close(() => r()));` ⇒ 它**等**。
