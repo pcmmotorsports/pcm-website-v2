@@ -165,6 +165,14 @@ echo "     ⇒ 下面分出來的「真紅」若都在同一批出現、而單�
 echo
 
 HEAD_CT=$(git -C "$REPO" log -1 --format=%ct HEAD 2>/dev/null || echo 0)
+# 🔴 2026-09-07 補(`-ship` `⟦f3-PGPORTCOLLISION⟧` ④ 的同型):**丟掉 stderr 之後, 兩種失敗印同一個東西。**
+#    這裡 `|| echo 0` 讓 git 失敗降級成 `HEAD_CT=0` ⇒ 而 `0` 會讓下面每一支戳記都判「不舊」
+#    ⇒ 🛑 **「這棵樹沒有 git」與「戳記都是新的」印同一個結論(= 全部安靜)。**
+#    ⇒ 所以在這裡問一次, 而**不是**把 `2>/dev/null` 拿掉(拿掉只會多噴一行 git 的錯誤, 判定照樣壞)。
+if [ "$HEAD_CT" = "0" ]; then
+  echo "  🔴 讀不到 HEAD 的時間(git 失敗或這裡不是 repo)⇒ **下面的「戳記新不新」這一格今天沒有答案**"
+  echo "     ⚠️ 它【不是】說戳記是新的 —— 是這一格沒跑成。"
+fi
 for a in admin storefront; do
   STAMP="$REPO/apps/$a/.next/BUILD_OK"
   if [ ! -e "$STAMP" ]; then
