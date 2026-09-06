@@ -118,7 +118,7 @@ MU3 抽出去的常數改回 inline 複製一份   ⇒ §5 那格單一來源守
 | 12 高風險必過 codex | ⚠️ **六類一類都不在**(不動錢/權限/schema/平台設定/對外送出;四個元件都在 `apps/storefront/src/components`,**不是 `packages/ui`** —— 逐支 `git ls-files` 核過:四支在 `packages/ui` 各 0、在 `apps/storefront` 各 1)⇒ 走 `code-reviewer` |
 | 11 三綠 | 🔴 動 `.tsx` ⇒ typecheck + lint + **build** |
 | 9 內容分級 | **L1**(這句話年 0-1 次會改)⇒ hardcode 可,而放單一來源常數 |
-| 1 design | §2:稿裡查無此態 ⇒ 沿用站內既有形狀,**不發明** |
+| 1 design | ⛔ ~~§2:稿裡查無此態~~ ⇒ 🔴 **2026-09-06 訂正(R1 must-fix ⑦)**:那句**只查了 `design-reference` 那一半**。補查 OD 之後 —— **OD 那半【有】** ,逐字 `pcm-home-redesign/products-list-page.html` 的 `<div id="pp-error" role="alert" style="padding:64px 0;text-align:center;color:var(--c-text-3);font:14px/1.6 system-ui, sans-serif" hidden>載入失敗、請稍後再試</div>`,而我用的 `MESSAGE_STATE_STYLE` + `role="alert"` **與它逐字相同**(站內那組本來就是從它來的)。⇒ ✅ **結論沒變(沿用站內既有形狀、不發明),而證據原本是不完整的。** 🔬 OD daemon 打不開 ⇒ 照鐵則 1 以磁碟為準:12 個專案;數的時候要排除 `.file-versions`(歷史版灌大分母 19 ⇒ 現行檔 1),且互動層 `grep` 是 shell function(`grep -o` 印不出字面而 `grep -l` 有命中)⇒ 用 `/usr/bin/grep`。 |
 
 **rollback**:純前端顯示層,單次 commit ⇒ `git revert`。零 DB、零快取、零部署順序。
 

@@ -401,17 +401,21 @@ describe('首頁的 vehicleTaxonomyFailed 接線(⟦search-TAXONOMYTIMEOUT⟧)',
     return props ? findProp(props.children, key) : undefined;
   };
 
+  // 🔴 R2 nit:三格共用同一支 `vi.fn`, 而原本靠 `mockResolvedValueOnce` 的【消耗順序】
+  //   ⇒ 加一格、換順序、或某一格提前吃掉那個 Once, 都會讓別格靜靜地讀到預設值。
+  //   ✅ 每格自己 `mockReset()` 再設值 ⇒ 順序不再承重。
   it('🔴 撈失敗 ⇒ 旗標真的被傳下去(true)', async () => {
-    tryVehicleTaxonomy.mockResolvedValueOnce({ motoBrands: [], failed: true });
+    tryVehicleTaxonomy.mockReset().mockResolvedValue({ motoBrands: [], failed: true });
     expect(findProp(await HomePage({ searchParams: Promise.resolve({}) }), 'vehicleTaxonomyFailed')).toBe(true);
   });
 
   it('🔵 負對照:沒失敗 ⇒ 傳下去的是 false, 不是恆真', async () => {
-    tryVehicleTaxonomy.mockResolvedValueOnce({ motoBrands: [], failed: false });
+    tryVehicleTaxonomy.mockReset().mockResolvedValue({ motoBrands: [], failed: false });
     expect(findProp(await HomePage({ searchParams: Promise.resolve({}) }), 'vehicleTaxonomyFailed')).toBe(false);
   });
 
   it('🟢 正對照:那把尺找得到東西 —— 現造的 prop 名必須回 undefined', async () => {
+    tryVehicleTaxonomy.mockReset().mockResolvedValue({ motoBrands: [], failed: false });
     const tree = await HomePage({ searchParams: Promise.resolve({}) });
     expect(findProp(tree, 'zqNoSuchPropXY9')).toBeUndefined();
     expect(findProp(tree, 'vehicleTaxonomyFailed')).not.toBeUndefined();
