@@ -10,6 +10,7 @@ import {
 } from './SupabaseEmailOutboxAdapter';
 import { orderCreatedSubject } from './order-email-assembly';
 import type { EnqueueEmailInput, EmailSendErrorCode } from '@pcm/ports';
+import { SUPPRESS_WHEN_ORDER_INELIGIBLE } from '@pcm/ports';
 
 /** 測試用假域(真值由 composition 從 line.ts 注入;測試不複製正式字面 = 單一來源紀律)。 */
 const FAKE_DOMAIN = 'line.example.local';
@@ -928,6 +929,23 @@ describe('甲-3 ① countNewEvents —— 與 enqueue 撞鍵用同一份 (event_
     const rpc = vi.fn(async (_fn: string, _args: Record<string, unknown>) => result);
     return { client: { rpc } as unknown as EmailOutboxClient, rpc };
   }
+
+  it('🔴🔴 SIX_INPUTS 必須【剛好】蓋到所有事件型別 —— 少一種或多一種都要紅', () => {
+    // 🛑 **這一格是被板列 ⟦mail-ITEACHSHRINK⟧ 逼出來的, 而我是【讀過那一列之後還是犯了】的那個人。**
+    //    那一列講的病:拿常數去產測試 ⇒ **常數少一項時只會少跑一格, 全綠**。
+    //    我下面那個 `for (const input of SIX_INPUTS)` 正是那個形狀, 而原本**沒有任何一格釘住它的長度**。
+    //
+    // 🔴 **而 `toHaveLength(6)` 只擋得住一半**:它抓得到「少一種」,
+    //    抓不到「**新增第七種事件型別而忘了在這裡加**」—— 那才是更常發生的那一種。
+    // ✅ 所以比的是**集合**, 而右邊那個集合是**型別系統維護的**:
+    //    `SUPPRESS_WHEN_ORDER_INELIGIBLE` 是 `Record<EmailOutboxEventType, boolean>`
+    //    ⇒ union 加一個成員, TypeScript **強迫**那張表也加 ⇒ 這一格當場紅。
+    //    📌 **右邊會自己長大, 所以左邊漏掉就藏不住。**
+    const covered = new Set(SIX_INPUTS.map((i) => i.eventType));
+    const allEventTypes = new Set(Object.keys(SUPPRESS_WHEN_ORDER_INELIGIBLE));
+    // 🔵 兩向都比 —— 只比一向的話, 「多加一個不存在的型別」或「少一種」各有一邊測不到。
+    expect([...covered].sort()).toEqual([...allEventTypes].sort());
+  });
 
   for (const input of SIX_INPUTS) {
     it(`🔴 ${input.eventType}:countNewEvents 送出的鍵 === enqueue 寫的鍵(逐字)`, async () => {
