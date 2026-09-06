@@ -43,6 +43,7 @@ import {
 } from '../../lib/orders/amount-action-state';
 
 import { manualOrderResultCode } from '@/lib/orders/manual-order-action-state';
+import { WALLET_DUPLICATE_RESULT_CODE } from '../../lib/customers/wallet-action-state';
 
 // result-banner.tsx — 改單 PRG 結果提示(M-4a Slice C;server action redirect 帶 ?r=<code> 後顯示)。
 // server-render;code 由頁面從 searchParams.r 讀入。未知/缺 → 不顯示。
@@ -117,7 +118,11 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   // 🛑 **tone 是 `ok` 不是 `warn`** —— 這不是失敗,也不是員工做錯了什麼:
   //    他做的是「不確定成不成功所以再按一次」,而**系統剛好做對了**(沒有重複扣款)。
   //    ⇒ 📌 唸成警告會讓他以為出事了 ⇒ 去做多餘的補償動作,而那才會真的弄壞帳。
-  // ⚠️ **已知的未來坑**(code-reviewer R2 nit 8;現在不會誤印, 而它值得寫下來):
+  // 🔴 **R2 nit 8 說這是「未來的坑」, 而它當天就變成【現在的坑】** ——
+  //    39d 的鏈跑 `result-banner.test.tsx:443` 紅,逐字 `expected 42 keys, received 43 (+ "duplicate")`:
+  //    那道守門要求**每一顆鍵都歸得了線**, 而我加了一顆沒有線的裸碼。
+  //    ✅ 已改成帶前綴的 `wallet_duplicate`(常數在 `lib/customers/wallet-action-state.ts`)。
+  // ⚠️ 原本的理由留著(它仍然成立):
   //    這張 `MESSAGES` 是 orders / products / customers **共用**的, 而「沒有重複扣款」
   //    是**儲值金專屬**的話。⇒ 📌 哪天別的線也送 `?r=duplicate` 過來, 員工會看到一句
   //    講錢的話, 而他做的事跟錢無關。
@@ -125,7 +130,7 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //      `SettingsResultBanner` + `SUPPLIER_RESULT_MESSAGES`, 不同命名空間)。
   //    ⇒ 🔵 **要加第二個來源之前**, 先照上面 `manual_order_` 那族的做法**加前綴**
   //      (那一族的註解逐字寫著為什麼:同一個字面被兩條線用掉, 而兩條線的下一步不一樣)。
-  duplicate: { text: '這筆已經處理過了,沒有重複扣款。', tone: 'ok' },
+  [WALLET_DUPLICATE_RESULT_CODE]: { text: '這筆已經處理過了,沒有重複扣款。', tone: 'ok' },
   // 🔴🔴 **這一句與 `error` 那句必須讓員工做出【相反】的動作**(同本表上面 `concurrent` / `mismatch` 那條紀律):
   //    · `error`           ⇒「請稍後再試」= **這是暫時性失敗, 再試會成功**
   //    · `invoice_blocked` ⇒ **不要再試** —— 那張單建單時就決定不開發票, 而那是一個【狀態不變式】

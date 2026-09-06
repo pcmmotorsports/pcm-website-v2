@@ -8,6 +8,7 @@ import { getRequestId } from '../audit/context';
 import { adjustCustomerWallet } from './customer-repository';
 import { parseWalletAdjustForm } from './wallet-form';
 import {
+  WALLET_DUPLICATE_RESULT_CODE,
   walletFailure,
   type WalletAdjustActionState,
 } from './wallet-action-state';
@@ -33,7 +34,7 @@ import {
  *    ① **扣款方向遺失**(query 只帶金額與備註)⇒ 員工重試時方向可能變成加值
  *    ② **同鍵不同內容被收斂成 `error`** ⇒ 畫面唸「請稍後再試」⇒ 他會**一直按**, 而那條路永不成功
  */
-type SuccessCode = 'saved' | 'duplicate';
+type SuccessCode = 'saved' | typeof WALLET_DUPLICATE_RESULT_CODE;
 
 /** 成功碼 → returnTo?r=<code>(PRG;returnTo 已由 parse 限定站內 /customers 路徑)。 */
 function redirectWith(returnTo: string, code: SuccessCode): never {
@@ -107,7 +108,7 @@ export async function adjustWalletAction(
     if (result === 'NOT_FOUND') {
       return walletFailure('not_found', keep);
     }
-    code = result === 'DUPLICATE' ? 'duplicate' : 'saved';
+    code = result === 'DUPLICATE' ? WALLET_DUPLICATE_RESULT_CODE : 'saved';
   } catch (err) {
     // DB error / RPC 輸入 RAISE(反號/超上界/備註非法等)→ 固定碼、不外洩;server log 只留摘要
     // (不印整個 err 物件:訊息可能回顯輸入值;同 orders 線紀律)。
