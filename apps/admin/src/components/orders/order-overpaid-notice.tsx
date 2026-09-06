@@ -35,7 +35,17 @@
  */
 export function OrderOverpaidNotice({ balanceDue }: { balanceDue: number | null }) {
   // 🔴 一個條件、一個方向:**只有嚴格小於 0 才是「多付」**。
-  if (balanceDue === null || balanceDue >= 0) {
+  //
+  // 🔴🔴 **而守門認的是【值的形狀】, 不是型別**(2026-09-06 36 批鏈上紅了才發現):
+  //    ⛔ ~~`if (balanceDue === null || balanceDue >= 0)`~~ —— 那一版信了型別。
+  //    🔬 `refund-wiring.test.tsx:1093` 那格逐字斷言「不漏出任何假數字」`not.toContain('NaN')`,
+  //       而它的 fixture **沒給 `balanceDue` 這一欄** ⇒ 進來的是 `undefined`
+  //       ⇒ `undefined >= 0` 是 `false` ⇒ 穿過守門 ⇒ `-undefined` = `NaN`
+  //       ⇒ 🛑 **畫面逐字印出「多付, 待人工多匯 NT$ NaN」。**
+  //    📌 **型別的保證只在型別檢查得到的地方成立** —— fixture 少一欄不會紅, 它會長出一個 NaN。
+  //       (那格測試的註解自己早就寫著這句, 而我是撞到之後才讀到的。)
+  //    ✅ 現行判準:**不是有限數字就不印** —— `undefined` / `null` / `NaN` / `±Infinity` 全部落在外面。
+  if (typeof balanceDue !== 'number' || !Number.isFinite(balanceDue) || balanceDue >= 0) {
     return null;
   }
   const overpaid = -balanceDue;

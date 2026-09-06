@@ -47,6 +47,29 @@ describe('OrderOverpaidNotice — 三個世界', () => {
     expect(document.querySelector('[data-testid="order-overpaid-notice"]')).toBeNull();
   });
 
+  // 🔴🔴 **型別說不可能的那三個世界 —— 而它們真的到過畫面上。**
+  //    2026-09-06 第 36 批的鏈上紅了一格:`refund-wiring.test.tsx:1093`
+  //    「災難當天…不漏出任何假數字」`expect(text).not.toContain('NaN')`
+  //    ⇒ 畫面逐字印出「多付, 待人工多匯 NT$ NaN」。
+  //    🔬 成因:那支頁面測試的 fixture **沒給 `balanceDue`** ⇒ `undefined`
+  //       ⇒ `undefined >= 0` 是 `false` ⇒ **穿過守門** ⇒ `-undefined` = `NaN`。
+  //    📌 **型別的保證只在型別檢查得到的地方成立。** 這一族因此改成餵**值**不餵型別。
+  //    ⚠️ 下面刻意用 `as unknown as number | null` —— 那不是偷懶,
+  //       **它就是在重現「型別以為不可能、而執行期真的會發生」的那個入口。**
+  it.each([
+    ['undefined(fixture 少給一欄)', undefined],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+    ['-Infinity(看起來像「多付很多」)', Number.NEGATIVE_INFINITY],
+    ["字串 '-200'(還沒被解析的 bigint)", '-200'],
+  ])('🔴 不是有限數字就不印:%s', (_name, bad) => {
+    render(<OrderOverpaidNotice balanceDue={bad as unknown as number | null} />);
+    const box = document.querySelector('[data-testid="order-overpaid-notice"]');
+    expect(box, '非有限數字穿過了守門 ⇒ 畫面會長出一個假數字').toBeNull();
+    expect(document.body.textContent ?? '', '畫面上出現了 NaN').not.toContain('NaN');
+    expect(document.body.textContent ?? '', '畫面上出現了 Infinity').not.toContain('Infinity');
+  });
+
   it('⚪ 正對照:這把尺真的會印 —— 否則上面三格「不印」證明不了任何事', () => {
     render(<OrderOverpaidNotice balanceDue={-1} />);
     expect(
