@@ -68,10 +68,17 @@ BEGIN
     'three_ds_failed_count',
       pg_catalog.count(*) FILTER (WHERE a.failure_observed_at IS NOT NULL),
     -- 🔵 分母。**一個計數沒有分母, 讀的人會自己補一個**, 而他補的多半是「全部」。
-    'attempts_total_count', pg_catalog.count(*),
+    -- 🔵 每個 key 【自己一行】, 值放下一行 —— 那不是排版偏好:
+    --    `anomaly-alert-key-contract.test.ts` 用 `^\s*'key',\s*(\(|$)` 從這支檔抽 key 去比對兩端。
+    --    ⛔ 我第一版把值寫在同一行 ⇒ **那把尺不認得三個 key** ⇒ 它們會【完全沒有契約測試保護】。
+    --    📌 而那支測試會把不認得的行印出來說「有 3 行看起來是 key 而這把尺不認」—— 它救了我。
+    'attempts_total_count',
+      pg_catalog.count(*),
     -- 🔴 數字要帶著它的範圍走(表會被複製, 前後文不會)。
-    'window_hours', 24,
-    'since', v_since
+    'window_hours',
+      24,
+    'since',
+      v_since
   )
   INTO v_result
   FROM public.payment_charge_attempts a
