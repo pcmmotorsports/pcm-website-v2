@@ -80,6 +80,10 @@ type OutboxFake = IEmailOutbox & {
   markSkippedOrderCancelled: ReturnType<typeof vi.fn>;
   markSkippedBankOrderNotMailable: ReturnType<typeof vi.fn>;
   markSkippedBankOrderSnapshotStale: ReturnType<typeof vi.fn>;
+  // ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:寄送當下發現這張單成立於 cutoff 之前 ⇒ 終態、不寄。
+  markSkippedBeforeCutoff: ReturnType<typeof vi.fn>;
+  // codex MF4:cutoff 來源讀不到 ⇒ 放回 due 並還回 attempts(不是留 sending)。
+  releaseClaimForCutoffUnknown: ReturnType<typeof vi.fn>;
   markSkippedShipmentVoided: ReturnType<typeof vi.fn>;
   markSkippedTrackingSuperseded: ReturnType<typeof vi.fn>;
 };
@@ -114,6 +118,14 @@ function outboxFake(jobs: ClaimedEmailJob[], overrides: Partial<Record<keyof IEm
     ),
     markSkippedBankOrderSnapshotStale: vi.fn().mockRejectedValue(
       new Error('未預期地呼叫了 markSkippedBankOrderSnapshotStale(本測項的世界快照沒有過期)'),
+    ),
+    // 🔴 預設【拒絕】—— 與旁邊每一支同一個理由:若某個測項沒有預期它被呼叫而它被呼叫了,
+    //    那一格要當場紅, 不是靜靜通過。
+    markSkippedBeforeCutoff: vi.fn().mockRejectedValue(
+      new Error('未預期地呼叫了 markSkippedBeforeCutoff(本測項的世界不在 cutoff 之前)'),
+    ),
+    releaseClaimForCutoffUnknown: vi.fn().mockRejectedValue(
+      new Error('未預期地呼叫了 releaseClaimForCutoffUnknown(本測項的世界讀得到 created_at)'),
     ),
     markSkippedOrderCancelled: vi.fn().mockRejectedValue(new Error('未預期地呼叫了 markSkippedOrderCancelled(本測項的世界沒有被取消的單)')),
     ...(overrides as object),
@@ -2565,5 +2577,195 @@ describe('bank_order_created:快照過期就不寄', () => {
     );
     expect(sender.send).not.toHaveBeenCalled();
     expect(outbox.markSkippedBankOrderSnapshotStale).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * ⟦b4-EMAILTRIAGE⟧ 甲-1 + 甲-2:**cutoff 在【送出層】也要擋。**
+ *
+ * 🔴 病灶:cutoff 今天只擋得住 enqueue ⇒ 已經排進 outbox 的列, sweeper 照寄
+ *    ⇒ 📌 **改 cutoff、刪 cutoff、或替一張舊單手動插一列, 那些信都會照樣寄出去。**
+ * 🔵 比的是 `orders.created_at` —— **不由插列的人控制**(outbox 列的時間與 payload 裡的時間都是)。
+ */
+describe('⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:送出層 cutoff 閘', () => {
+  const CUTOFF = '2026-09-01T00:00:00.000Z';
+  const OLD = '2026-08-01T00:00:00.000Z';
+  const NEW = '2026-09-05T00:00:00.000Z';
+
+  function placedAtFake(rows: Array<{ orderId: string; placedAt: string | null }>) {
+    return { readPlacedAt: vi.fn().mockResolvedValue(rows) };
+  }
+  const CUT_OPTS = { ...OPTS, sendCutoffIso: CUTOFF, sendCutoffEventTypes: ['order_created', 'bank_order_created', 'order_shipped', 'order_cancelled'] as string[] };
+
+  it('🔴 cutoff【之前】的單:四種事件一封都不寄, 而且【標終態】不是靜默丟', async () => {
+    for (const eventType of ['order_created', 'order_shipped', 'order_cancelled', 'bank_order_created'] as const) {
+      const outbox = outboxFake([job({ eventType, orderId: 'o-old' })], {
+        markSkippedBeforeCutoff: vi.fn().mockResolvedValue(true),
+      });
+      const sender = senderFake([]);
+      const res = await sweepEmailOutbox(
+        { ineligibleScanner: eligibleAll(), outbox, sender,
+          orderPlacedAt: placedAtFake([{ orderId: 'o-old', placedAt: OLD }]) },
+        CUT_OPTS,
+      );
+      expect(sender.send, `${eventType} 不該被寄出去`).not.toHaveBeenCalled();
+      expect(outbox.markSkippedBeforeCutoff, `${eventType} 要標終態`).toHaveBeenCalledTimes(1);
+      // 🔵 它不是故障 ⇒ 不計 error(與「讀不到」那一格分得開)。
+      expect(res.errors, `${eventType} 不該計 error`).toBe(0);
+    }
+  });
+
+  it('🟢 正對照:cutoff【之後】的單照寄 —— 沒有它, 上面那格「沒寄」證不到事', async () => {
+    const outbox = outboxFake([job({ orderId: 'o-new' })]);
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender,
+        orderPlacedAt: placedAtFake([{ orderId: 'o-new', placedAt: NEW }]) },
+      CUT_OPTS,
+    );
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect(outbox.markSkippedBeforeCutoff).not.toHaveBeenCalled();
+  });
+
+  it('🔵 白名單明寫的 event_type 不受管 —— 而它【必須明寫】, 預設是擋', async () => {
+    const outbox = outboxFake([job({ eventType: 'order_cancelled', orderId: 'o-old' })]);
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender,
+        orderPlacedAt: placedAtFake([{ orderId: 'o-old', placedAt: OLD }]) },
+      { ...CUT_OPTS, sendCutoffEventTypes: ['order_created'] },
+    );
+    expect(sender.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 讀不到 created_at(整批 throw)⇒ 不寄、計 error、【不標終態】', async () => {
+    const outbox = outboxFake([job({ orderId: 'o-x' })]);
+    const sender = senderFake([]);
+    const res = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender,
+        orderPlacedAt: { readPlacedAt: vi.fn().mockRejectedValue(new Error('boom')) } },
+      CUT_OPTS,
+    );
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(res.errors).toBe(1);
+    // 🛑 **標終態等於拿一次讀取失敗永久吞掉一封信** ⇒ 留給下一輪。
+    expect(outbox.markSkippedBeforeCutoff).not.toHaveBeenCalled();
+  });
+
+  it('🔴 那張單【缺席】(讀到了而回傳裡沒有它)⇒ 同樣 fail-closed, 不是當成很新', async () => {
+    const outbox = outboxFake([job({ orderId: 'o-missing' })]);
+    const sender = senderFake([]);
+    const res = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender,
+        orderPlacedAt: placedAtFake([{ orderId: 'o-other', placedAt: NEW }]) },
+      CUT_OPTS,
+    );
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(res.errors).toBe(1);
+    expect(outbox.markSkippedBeforeCutoff).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 🔴🔴 **[codex MF2]** ISO **字串比**在這個反例上給出相反的答案:
+   * `'2026-09-01T00:00:00.500+00:00' < '2026-09-01T00:00:00Z'` 是 **true**(字串),
+   * 而它實際上**晚 500 毫秒** ⇒ 字串比會把一張**新單**判成舊單、**永久漏寄**。
+   */
+  it('🔴 ISO 反例:+00:00 帶毫秒 vs 不帶毫秒的 Z —— 字串比會判反, 時刻比才對', async () => {
+    /**
+     * 🔴🔴 **這一格差點證不到事, 而原因在我自己的常數**:本 describe 的 `CUTOFF` 是 `.000Z`
+     * (帶毫秒), 而**帶毫秒的那一版字串比剛好是對的** ⇒ 我第一版用它, 那個反例不成立。
+     * ⇒ 📌 **一個反例要成立, 得看它對著哪一個值** —— 而 `readDeployCutoff` **允許不帶毫秒**
+     *   (`deploy-cutoff.ts` 的 `ISO_UTC_SHAPE` 逐字 `(\.\d{3})?`)⇒ 線上真的會出現 `Z` 那一版。
+     */
+    const CUTOFF_NO_MS = '2026-09-01T00:00:00Z';
+    const LATER = '2026-09-01T00:00:00.500+00:00';
+    // 🔵 先證明這個反例真的會騙倒字串比 —— 少了這兩行, 下面那格證不到它在防什麼。
+    expect(LATER < CUTOFF_NO_MS).toBe(true);
+    expect(Date.parse(LATER)).toBeGreaterThan(Date.parse(CUTOFF_NO_MS));
+
+    const outbox = outboxFake([job({ orderId: 'o-later' })]);
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender,
+        orderPlacedAt: placedAtFake([{ orderId: 'o-later', placedAt: LATER }]) },
+      { ...CUT_OPTS, sendCutoffIso: CUTOFF_NO_MS },
+    );
+    // 🔴 它比 cutoff 晚 ⇒ **要寄**。字串比的實作會在這裡標終態。
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect(outbox.markSkippedBeforeCutoff).not.toHaveBeenCalled();
+  });
+
+  it('🔴 [MF3] cutoff 常數【缺席或非法】⇒ fail-closed 不寄, 而且【釋放回 due】不是留 sending', async () => {
+    for (const bad of [undefined, '', 'not-a-date'] as const) {
+      const outbox = outboxFake([job({ orderId: 'o-new' })], {
+        // 🔴 **[codex R2 MF3]** 這條路原本只 `errors++` 就 `continue` ⇒ 留 sending ⇒ 回收成 failed@max。
+        releaseClaimForCutoffUnknown: vi.fn().mockResolvedValue(true),
+      });
+      const sender = senderFake([]);
+      const res = await sweepEmailOutbox(
+        { ineligibleScanner: eligibleAll(), outbox, sender,
+          orderPlacedAt: placedAtFake([{ orderId: 'o-new', placedAt: NEW }]) },
+        { ...CUT_OPTS, sendCutoffIso: bad },
+      );
+      // 🛑 「刪掉那顆 env」正是本片要修的失敗情境之一 —— 舊行為是它一刪, 已排的信照寄。
+      expect(sender.send, `cutoff=${String(bad)} 不該寄`).not.toHaveBeenCalled();
+      expect(res.errors).toBe(1);
+      expect(outbox.markSkippedBeforeCutoff).not.toHaveBeenCalled();
+      // 🔴 而它要**被釋放**, 不是留在 sending。
+      expect(outbox.releaseClaimForCutoffUnknown).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('🔴 [MF4] 整批讀失敗 ⇒ 放回 due 並【還回 attempts】, 不是留 sending 等回收', async () => {
+    const outbox = outboxFake([job({ orderId: 'o-x', attempts: 5, maxAttempts: 5 })], {
+      releaseClaimForCutoffUnknown: vi.fn().mockResolvedValue(true),
+    });
+    const sender = senderFake([]);
+    const res = await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender,
+        orderPlacedAt: { readPlacedAt: vi.fn().mockRejectedValue(new Error('boom')) } },
+      CUT_OPTS,
+    );
+    expect(sender.send).not.toHaveBeenCalled();
+    // 🔴 **最後一次 claim(attempts=5/5)撞到讀取失敗** —— 留 sending 的話回收就是 failed@max
+    //    ⇒ 📌 一封從未交給 provider 的信就這樣死掉。
+    // 🔴 **[codex R2]** 第三個參數不可省 —— 少了它, 那 50 封會帶著過期的 `next_retry_at` 回去
+    //    ⇒ 📌 下一輪又把名額佔滿, 而後面的取消信 / 出貨信永遠排不進來。
+    expect(outbox.releaseClaimForCutoffUnknown).toHaveBeenCalledWith(
+      'outbox-1', 5, expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+    );
+    // 🔵 而那個時刻要是【未來】—— 沿用過期的值等於沒讓開。
+    const at = outbox.releaseClaimForCutoffUnknown.mock.calls[0]![2] as string;
+    expect(Date.parse(at)).toBeGreaterThan(Date.now());
+    expect(outbox.markSkippedBeforeCutoff).not.toHaveBeenCalled();
+    expect(res.errors).toBe(1);
+  });
+
+  it('🔵 沒給 cutoff(或沒給 reader)⇒ 那道閘整個不跑 —— 漸進上線期間不假裝自己裝好了', async () => {
+    const outbox = outboxFake([job({ orderId: 'o-old' })]);
+    const sender = senderFake([{ kind: 'sent', providerMessageId: null }]);
+    await sweepEmailOutbox(
+      // 🔴 **真的不給 reader**(codex nit:我原本仍然傳了 reader ⇒ 那格證不到「沒給」)。
+      { ineligibleScanner: eligibleAll(), outbox, sender },
+      { ...OPTS, sendCutoffIso: CUTOFF, sendCutoffEventTypes: ['order_created'] },
+    );
+    expect(sender.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 批次:一輪多封只讀【一次】—— 而它可以批次的理由是 created_at 不會變', async () => {
+    const reader = placedAtFake([{ orderId: 'o-a', placedAt: NEW }]);
+    // 🔴 **同一張單兩封**(codex nit:我原本用兩張不同的單 ⇒ 拿掉 `Set` 也照樣綠)。
+    const outbox = outboxFake([
+      job({ id: 'ob-a', orderId: 'o-a', dedupKey: 'o-a1' }),
+      job({ id: 'ob-b', orderId: 'o-a', dedupKey: 'o-a2' }),
+    ]);
+    await sweepEmailOutbox(
+      { ineligibleScanner: eligibleAll(), outbox, sender: senderFake([{ kind: 'sent', providerMessageId: null }, { kind: 'sent', providerMessageId: null }]),
+        orderPlacedAt: reader },
+      CUT_OPTS,
+    );
+    expect(reader.readPlacedAt).toHaveBeenCalledTimes(1);
+    // 🔵 而那一次要帶著【去重後】的兩張單 —— 少了去重, 50 封同單會問 50 次。
+    expect(reader.readPlacedAt.mock.calls[0]![0]).toEqual(['o-a']);
   });
 });

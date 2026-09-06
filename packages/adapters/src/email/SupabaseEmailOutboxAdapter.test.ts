@@ -543,6 +543,57 @@ describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA
     ]);
   });
 
+  /**
+   * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2(2026-09-07)。
+   * 🔴 **這一格釘的是「它落的是【不重試】的那個桶」** —— 主視窗 B 指定的突變靶:
+   *    把 `status` 改成一個會被再認領的態(例 `pending` / `failed`)⇒ 這一格要當場紅。
+   *    📌 少了它, 一個「看起來標了終態」而其實會重試的實作, 會讓那封信**每輪再來一次**。
+   */
+  it('markSkippedBeforeCutoff:落 skipped_order_ineligible(不重試那個桶)+ 🔴 稽核碼 before_send_cutoff', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
+    expect(await adapter(makeClient(b)).markSkippedBeforeCutoff('outbox-1', 1)).toBe(true);
+    const vals = argsOf(b, 'update')[0]![0] as Record<string, unknown>;
+    // 🔴 **不重試那個桶** —— 與上面兩格同一個態(沿用白名單 ⇒ 零 migration)。
+    expect(vals.status).toBe('skipped_order_ineligible');
+    // 🔵 負對照:它【不是】任何一個會被再認領的態。少了這兩行, 上面那行改成 'pending' 也只紅一格。
+    expect(vals.status).not.toBe('pending');
+    expect(vals.status).not.toBe('failed');
+    // 🔴 而碼必須是自己的 —— 「我們劃了一條線」與「那張單有問題」要分得出來。
+    expect(vals.last_error_code).toBe('before_send_cutoff');
+    expect(vals.claimed_at).toBeNull();
+    // 🔴 世代柵欄:CAS 三條件缺一, 那一列會被別輪的認領覆蓋。
+    expect(argsOf(b, 'eq')).toEqual([
+      ['id', 'outbox-1'],
+      ['status', 'sending'],
+      ['attempts', 1],
+    ]);
+  });
+
+  /**
+   * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2(codex R2 MF4)。
+   * 🔴 **這一格釘的是「它讓開名額」** —— 沿用過期的 `next_retry_at` 會讓被釋放的 50 封
+   *    下一輪又佔滿名額 ⇒ 📌 **後面的取消信 / 出貨信永遠排不進來。**
+   */
+  it('releaseClaimForCutoffUnknown:回 pending + 【還回 attempts】+ 往後推 next_retry_at', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
+    const at = '2026-09-07T02:00:00.000Z';
+    expect(await adapter(makeClient(b)).releaseClaimForCutoffUnknown('outbox-1', 3, at)).toBe(true);
+    const vals = argsOf(b, 'update')[0]![0] as Record<string, unknown>;
+    expect(vals.status).toBe('pending');
+    // 🔴 **還回本次認領消耗的那一次** —— 少了它, 讀取端抖幾次就把一封從未寄出的信推進死信。
+    expect(vals.attempts).toBe(2);
+    // 🔴 **不是沿用舊值** —— 舊值已經過期, 沿用等於沒讓開。
+    expect(vals.next_retry_at).toBe(at);
+    // 🔵 而它【不是】終態:少了這兩行, 有人把 status 改成 skipped_* 也只紅一格。
+    expect(vals.status).not.toBe('skipped_order_ineligible');
+    expect(vals.status).not.toBe('failed');
+    expect(argsOf(b, 'eq')).toEqual([
+      ['id', 'outbox-1'],
+      ['status', 'sending'],
+      ['attempts', 3],
+    ]);
+  });
+
   // 🔴 codex R1 must-fix(8/8):新 mark 出口原本【零正向測試】——
   //    我只在 use-case 那側的 fake 加了「呼到就 reject」, 而那守不住這一層的四件事:
   //    落哪個 status / 稽核碼寫了沒 / claimed_at 有沒有清 / 世代柵欄 CAS 帶對了沒。

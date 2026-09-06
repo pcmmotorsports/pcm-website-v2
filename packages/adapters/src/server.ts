@@ -133,6 +133,11 @@ export {
   SupabaseBankOrderMailableCheckAdapter,
   type BankOrderMailableCheckClient,
 } from './email/SupabaseBankOrderMailableCheckAdapter';
+// ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:送出層 cutoff 閘要讀的 orders.created_at(批次、零 PII)。
+export {
+  SupabaseOrderPlacedAtReaderAdapter,
+  type OrderPlacedAtReaderClient,
+} from './email/SupabaseOrderPlacedAtReaderAdapter';
 // 🔴 M-4b E4-a(2026-08-22):出貨線的同款窄讀 adapter。**一列 = 一個 (箱, 單) 配對 = 一封信。**
 // 同樣回兩個 email 欄(PII)⇒ server-only + service_role。差集在 SQL view 裡(見該檔檔頭)。
 export {
