@@ -218,6 +218,22 @@ else
   exit 1
 fi
 
+# ── cron 白名單漂移閘(2026-09-07 主視窗批 -ship 做;⟦f3-ALLOWLISTMANUAL1⟧ 板列 694)────
+#   🔴 後台監看排程死活靠一張【手寫】白名單 ⇒ 有人加了排程而白名單沒跟上,
+#      那條排程死掉不會有任何訊號 —— 而「沒有人在看」與「一切正常」在畫面上是同一個東西。
+#   ⚠️ 它只在 packages/domain/src/ops/cron-jobs.ts 或 supabase/migrations/*.sql staged 時
+#      才有話說(沒碰到 ⇒ 自己跳過、印一行)。
+#   🛑 它守不到【直接在 SQL Editor 手排、不進 repo】那一種 —— 那要拿正式庫的 cron.job 比,
+#      是另一件事。腳本自己每次都把這句印出來。
+if [ -f .husky/cron-allowlist-drift-gate.sh ]; then
+  sh .husky/cron-allowlist-drift-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/cron-allowlist-drift-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/cron-allowlist-drift-gate.sh' >&2
+  exit 1
+fi
+
+
 # ── 帳本第二欄「在量哪一個東西」普查閘(2026-09-06 -f8 批 -db 做;⟦db-LEDGERSHADRIFT⟧)────
 #   🎯 那一欄有兩種用途共用:① repo 檔的 sha(部署閘比的就是它)② 貼給 Sean 那一份的 sha。
 #      2026-09-06 逐列量:①334 / ②5 / ③都不是 5(三數和 = 344 = 資料列)。裁定 = 甲(不動格式),
