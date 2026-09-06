@@ -703,6 +703,47 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
   }
 
   /**
+   * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:這張單成立於 cutoff 之前 ⇒ 跳過。
+   * 🔵 `status` 借用 `skipped_order_ineligible` 這個桶(同上面幾支)⇒ **零 migration**;
+   *    真相在 `last_error_code` —— 它沒有值域白名單, 只有格式 CHECK(`20260717020000:343`)。
+   * 🛑 **而借桶的代價要知道**:後台若只看 `status`, 這一封與「那張單不該寄了」長得一樣
+   *    ⇒ 要分辨得看 `last_error_code`。
+   */
+  async markSkippedBeforeCutoff(id: string, claimedAttempts: number): Promise<boolean> {
+    return this.leaveSending(id, claimedAttempts, {
+      status: 'skipped_order_ineligible',
+      last_error_code: 'before_send_cutoff',
+    });
+  }
+
+  /**
+   * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2(codex 2026-09-07 MF4):cutoff 來源讀不到 ⇒ **放回 due, 還回 attempts**。
+   * 🔴 `attempts: claimedAttempts - 1` = **把本次認領消耗的那一次還回去** ——
+   *    否則讀取端抖動幾次就把一封從未寄出的信推進死信。
+   * 🛑 `next_retry_at: null` = 下一輪就可以再認領(不另外壓退避:這不是「這封信失敗了」)。
+   * ⚠️ **代價**:讀取端持續壞掉 ⇒ 這幾封**永遠不進死信、也永遠沒人叫**(port 檔頭寫明)。
+   */
+  async releaseClaimForCutoffUnknown(
+    id: string,
+    claimedAttempts: number,
+    nextRetryAtIso: string,
+  ): Promise<boolean> {
+    return this.leaveSending(id, claimedAttempts, {
+      status: 'pending',
+      attempts: claimedAttempts - 1,
+      /**
+       * 🔴🔴 **[codex R2]** ⛔ ~~`next_retry_at` 刻意不動~~ —— **那會堵住整條佇列**:
+       * 那個值本來就已經過期 ⇒ 被釋放的 50 封下一輪又把名額佔滿
+       * ⇒ 📌 **後面的取消信 / 出貨信永遠排不進來**, 而它們與這個讀取失敗一點關係都沒有。
+       * ✅ 往後推一段, 讓它們**讓開名額**。
+       * ⚠️ 而 `attempts` 仍然還回去 ⇒ 讀取端持續壞掉時它們**永遠不進死信、也沒有東西叫**
+       *    —— 那個代價照舊(port 檔頭寫明)。
+       */
+      next_retry_at: nextRetryAtIso,
+    });
+  }
+
+  /**
    * ⟦5b-TRACKNUMGAP1⟧ 片 C:寄送當下那個單號已被更新 ⇒ 跳過 + 退休鍵。
    * 🔵 `status` 借用 `skipped_order_ineligible` 這個桶(形同 `markSkippedOrderCancelled`),
    *    **真相在 `last_error_code`** —— 它沒有值域白名單, 只有格式 CHECK。

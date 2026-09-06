@@ -845,6 +845,24 @@ export async function GET(request: Request): Promise<Response> {
       //      **那個動作在這一行之前【不會讓寄信停下來】。**
       //    ⚠️ 這裡刻意**不另外讀一次 env** —— 用上面那個已解析的結果,兩半不可能分岔。
       allowOrderShipped: shippedCutoff.kind === 'ok',
+      /**
+       * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:**同一顆 cutoff 也擋【送出】**。
+       * 🔴 在這一行之前, `B4_DEPLOY_CUTOFF` 只擋得住 enqueue ⇒ 已經排進 outbox 的舊單信照寄
+       *    ⇒ 📌 **改 cutoff、刪 cutoff、或替一張舊單手動插一列, 那些信都會照樣寄出去。**
+       * 🔵 `kind === 'ok'` 才給 —— **格式不合等於沒設**(同上面兩行的判準, 不另立一套)。
+       * 🛑 **白名單留空 = 擋所有 event_type** —— 新的 event_type 加進來時自動被擋,
+       *    而不是自動放行(主視窗 B 2026-09-07 指定)。
+       */
+      sendCutoffIso: cutoffRead.kind === 'ok' ? cutoffRead.cutoff : undefined,
+      /**
+       * 🔴 **只收語意就是「下單時間」的那兩種**(codex MF1 之後改成白名單制, 主視窗 B 裁乙)。
+       * 🛑 取消信 / 出貨信 / 更正單號信**不進這道閘** —— 它們各自要比的是
+       *    `cancelled_at` / `shipped_at` / 更正時刻, 而**那三種的語意本片沒有做**。
+       *    ⇒ 📌 拿 `orders.created_at` 去擋它們, 會把「8 月成立、9 月取消」那封永久擋掉。
+       * 🔵 `bank_order_created` 收進來, 因為它的掃描面(`20260906170000:101`)取的就是 `o.created_at`
+       *    —— **語意同源**, 不是我猜的。
+       */
+      sendCutoffEventTypes: ['order_created', 'bank_order_created'],
       claimLimit: CLAIM_LIMIT,
       // 🔴 見 GET 第一行:預算基準 = 整個請求的起點,不是 sweeper 自己的起點。
       runStartedAtMs: invocationStartedAtMs,

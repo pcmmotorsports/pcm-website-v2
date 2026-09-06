@@ -725,6 +725,41 @@ export interface IEmailOutbox {
   markSkippedBankOrderSnapshotStale(id: string, claimedAttempts: number): Promise<boolean>;
 
   /**
+   * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2:**寄送當下發現這張單成立於 cutoff 之前** ⇒ 跳過, 不寄。
+   *
+   * 🔴 **它與上面那幾個 skip 分開一個碼, 理由與它們彼此分開的理由相同**:
+   *    那幾個答的是「這張單怎麼了」, 本支答的是「**我們決定從哪一刻起才寄信**」——
+   *    📌 混成一個碼, 「客人的單有問題」與「我們自己劃了一條線」就再也分不出來。
+   * 🛑 **終態、不重試、不計 error** —— 它不是故障:那封信本來就不該寄。
+   * ⚠️ **而它【不是】fail-safe 的預設** —— 讀不到 `created_at` 時**不可以**標這個碼
+   *    (那等於拿一次讀取失敗永久吞掉一封信)⇒ 呼叫端 fail-closed:不寄、計 error、留給下一輪。
+   */
+  markSkippedBeforeCutoff(id: string, claimedAttempts: number): Promise<boolean>;
+
+  /**
+   * ⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2(codex 2026-09-07 MF4):**送出層 cutoff 的來源讀不到**
+   * ⇒ 把這一列**放回 due**, 而且**把本次認領消耗掉的 `attempts` 還回去**。
+   *
+   * 🔴 **為什麼不是「留在 sending 等回收」**(那是改動前的行為):
+   *    最後一次 claim 撞到讀取失敗的那一列, 回收之後就是 `failed@max`
+   *    ⇒ 📌 **一封從未交給 provider 的信就這樣死掉** —— 而一次批次失敗會**波及整批**。
+   * 🛑 **而它的代價明寫**:讀取端若【持續】壞掉, 這幾封會**一直重來而永遠不進死信**
+   *    ⇒ **沒有東西會因為它們而叫**。⇒ 那是刻意的取捨(不寄 < 誤殺), 不是沒想到。
+   * 🔵 世代柵欄同其他 `mark*`:`claimedAttempts` 對不上 ⇒ 回 `false`(別輪已經動過它)。
+   */
+  /**
+   * 🔴🔴 **[codex R2]** `nextRetryAtIso` **不是可選的** —— 少了它, 被釋放的那 50 封
+   * 會帶著**已經過期**的 `next_retry_at` 回到 due
+   * ⇒ 📌 **下一輪它們又把 50 個名額佔滿, 而後面的取消信 / 出貨信【永遠排不進來】。**
+   * ⇒ 那不只是「這幾封不進死信」, 是**整條佇列被它們堵住**。
+   */
+  releaseClaimForCutoffUnknown(
+    id: string,
+    claimedAttempts: number,
+    nextRetryAtIso: string,
+  ): Promise<boolean>;
+
+  /**
    * `sending → skipped_shipment_voided`(M-4b E4 片3a:出貨通知信在寄送當下去主表撈脈絡,
    * 發現**這一箱已被作廢**)。
    *

@@ -471,7 +471,37 @@ describe('GET email-sweep — options/deps 注入(不採信外部輸入)', () =>
       //    🛑 **而它到不了客人** —— `paidEmailOrderUrl` 那道 hostname 閘會擋掉整段連結。
       //      ⇒ 這一格證的是「route 傳了什麼」,擋在哪裡是那支函式自己的測試在證。
       siteUrl: 'http://localhost:3000',
+      /**
+       * 🔴 **⟦b4-EMAILTRIAGE⟧ 甲-1+甲-2(2026-09-07):送出層 cutoff。**
+       * ⚠️ 本檔 `beforeEach` 清掉 env ⇒ `B4_DEPLOY_CUTOFF` 未設 ⇒ `kind === 'unset'`
+       *    ⇒ 傳 `undefined` = **那道閘不跑**。
+       * 🛑 **而「不跑」與「跑了而沒擋到」在 route 回應上長得一樣** ——
+       *    這一格證的是 route 傳了什麼;擋不擋得住由 use-case 那側的測試證。
+       */
+      /**
+       * 🔴 **[codex MF1 之後改成白名單制]** 只有語意就是「下單時間」的那兩種進這道閘。
+       * 🛑 取消信 / 出貨信 / 更正單號信**不在裡面** —— 它們各自要比 `cancelled_at` / `shipped_at` /
+       *    更正時刻, 而**那三種本片沒有做**。拿 `orders.created_at` 擋它們會把
+       *    「8 月成立、9 月取消」那封**永久擋掉**(codex 打出來的真回歸)。
+       * 🔵 這一格會在有人往裡面加東西時當場紅 —— 📌 **多收一種信進這道閘是【要有人決定】的事。**
+       */
+      sendCutoffEventTypes: ['order_created', 'bank_order_created'],
     });
+    /**
+     * 🔴 **`sendCutoffIso` 那一格【不能寫成 `sendCutoffIso: undefined`】**(pre-commit 閘抓到我):
+     * 一個【值是 undefined 的鍵】與【沒有那個鍵】在 `toHaveBeenCalledWith` 下相等
+     * (🔵 這裡**刻意不把那兩個物件字面寫出來** —— 那道 pre-commit 閘是**字面比對**,
+     *  而我第一版把反例寫進註解 ⇒ **它把我自己的說明當成違規抓了**。
+     *  📌 **一把比對字面的尺, 會被【關於那個字面的說明】餵飽。** 今晚第二次。)
+     * ⇒ 📌 **實作整個不傳那個鍵時, 那一格照樣綠** —— 它沒有在守任何東西。
+     * ✅ 改成問實際參數的鍵集合:`Object.keys` 分得出「有這個鍵而值是 undefined」與「沒有這個鍵」。
+     */
+    const sweepArg = sweepSpy.mock.calls.at(-1)![1] as Record<string, unknown>;
+    expect('sendCutoffIso' in sweepArg, '那個鍵要在(值可以是 undefined)').toBe(true);
+    // 🔵 本檔 beforeEach 清掉 env ⇒ `B4_DEPLOY_CUTOFF` 未設 ⇒ 傳 undefined。
+    expect(sweepArg.sendCutoffIso).toBeUndefined();
+    // 🔵 負對照:證明這把尺分得出「沒有那個鍵」—— 少了它, 上面那行對 `{}` 也可能被誤讀成通過。
+    expect('zzq9NeverAKey' in sweepArg).toBe(false);
     // 🔴 `expect.any(Number)` **只證得出它是個數字** —— 傳 `0`、傳去年的時刻、
     //    傳 `Date.now() + 一小時`,三種都會過。⇒ 再夾一次區間,這一格才有判別力:
     //    它必須落在【這一次呼叫的前後】之間。
