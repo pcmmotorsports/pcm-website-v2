@@ -33,6 +33,16 @@ export const MESSAGE_STATE_STYLE: CSSProperties = {
 //   ⚠️ 逗號用全形「,」—— 那是原句的字面, 照抄不改(改了守門會紅, 而那是對的)。
 export const VEHICLE_TAXONOMY_UNAVAILABLE = '車款清單暫時無法載入,請稍後再試或改用自行輸入';
 
+// 🔴🔴 **另外兩扇門的同一句話**(2026-09-06 · ⟦search-SILENTDOORS2⟧ · 主視窗裁「同句延伸」)。
+//   🛑 **而「同一句」在這裡【不能逐字照抄】, 理由寫下來**:
+//      車款那句的尾巴是「**或改用自行輸入**」—— 那是因為帳號那邊**真的有**自由輸入車款那條路
+//      (`app/account/vehicle/actions.ts` 的 dict 雙 null 路徑)。
+//      而**分類與品牌沒有自行輸入** —— 側欄是一份固定清單。
+//   ⇒ 🔴 照抄那個尾巴 = **告訴客人一條不存在的路**。⇒ 只延伸前半, 尾巴去掉。
+//   📌 **這一格不是我改了主視窗的裁示, 是那個裁示的字面在這裡有一半不成立** —— 標在這裡, 不藏。
+export const CATEGORY_TAXONOMY_UNAVAILABLE = '分類清單暫時無法載入,請稍後再試';
+export const BRAND_TAXONOMY_UNAVAILABLE = '品牌清單暫時無法載入,請稍後再試';
+
 /**
  * 車款樹讀不到時那一行字。**四處共用同一顆**(首頁選車 / 型錄側欄 / 商品頁車款區 / 購物車)。
  *
@@ -44,13 +54,21 @@ export const VEHICLE_TAXONOMY_UNAVAILABLE = '車款清單暫時無法載入,請�
  *   鐵則 1 查過:`design-reference` 176 檔裡**沒有**「一個下拉旁邊的一行字」這一態
  *   (命中的 `components/ErrorPage.jsx` 是【整頁】錯誤頁)⇒ 不發明樣式。
  */
-export function VehicleTaxonomyNotice({ failed }: { failed?: boolean }) {
+export function TaxonomyNotice({ failed, message }: { failed?: boolean; message: string }) {
   if (!failed) return null;
   return (
     <div style={MESSAGE_STATE_STYLE} role="alert">
-      {VEHICLE_TAXONOMY_UNAVAILABLE}
+      {message}
     </div>
   );
+}
+
+/**
+ * 車款那一扇的既有進入點。**保留它是為了讓那四個呼叫端一個字都不用改** ——
+ * 本片要加的是另外兩扇, 不是重寫已經上線並過了兩輪審查的那一扇。
+ */
+export function VehicleTaxonomyNotice({ failed }: { failed?: boolean }) {
+  return <TaxonomyNotice failed={failed} message={VEHICLE_TAXONOMY_UNAVAILABLE} />;
 }
 
 // ⟦b4-DEADENDMSG1⟧ 實例③:零結果時要不要給「清除所有篩選」這個出路。

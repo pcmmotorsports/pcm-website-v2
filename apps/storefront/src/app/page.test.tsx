@@ -31,17 +31,24 @@ vi.mock('@/components/Header', () => ({
 // 🔴 2026-09-06 R1 must-fix:改成可控的 `vi.fn` —— 原本寫死 `failed: false`,
 //   ⇒ route 把那個旗標寫死 `false` 也照樣全綠, 那條接線等於沒有守門。
 const tryVehicleTaxonomy = vi.fn(() => Promise.resolve({ motoBrands: [], failed: false }));
+const tryCategories = vi.fn(() =>
+  Promise.resolve({
+    categories: [
+      { id: 'exhaust', name: '排氣系統', count: 12, children: [] },
+      { id: 'brake', name: '煞車系統', count: 8, children: [] },
+    ],
+    failed: false,
+  }),
+);
 vi.mock('@/lib/products', () => ({
   fetchFeaturedProducts: () => Promise.resolve({ products: [], error: false }),
   // 🔴 2026-09-06:route 改呼叫 tryVehicleTaxonomy(帶 failed)⇒ mock 要有它,
   //   而 fetchVehicleTaxonomy 留著(本檔其他地方仍可能用到, 拿掉是另一件事)。
   fetchVehicleTaxonomy: () => Promise.resolve([]),
   tryVehicleTaxonomy,
-  fetchCategories: () =>
-    Promise.resolve([
-      { id: 'exhaust', name: '排氣系統', count: 12, children: [] },
-      { id: 'brake', name: '煞車系統', count: 8, children: [] },
-    ]),
+  // 🔴 2026-09-06 ⟦search-SILENTDOORS2⟧:route 改呼叫 tryCategories(帶 failed)。
+  //   與上面那支同一個理由:寫死的 mock ⇒ route 把旗標寫死也全綠 ⇒ 那條接線零守門。
+  tryCategories,
 }));
 vi.mock('@/lib/brand-products', () => ({
   // 線E:回傳從 `Set` 改成 `{ slugs, loadFailed }`(見 `lib/brand-products.ts` 的 `BrandAvailability`)。
@@ -419,5 +426,22 @@ describe('首頁的 vehicleTaxonomyFailed 接線(⟦search-TAXONOMYTIMEOUT⟧)',
     const tree = await HomePage({ searchParams: Promise.resolve({}) });
     expect(findProp(tree, 'zqNoSuchPropXY9')).toBeUndefined();
     expect(findProp(tree, 'vehicleTaxonomyFailed')).not.toBeUndefined();
+  });
+});
+
+// 🔴 ⟦search-SILENTDOORS2⟧:首頁分類那一扇的接線守門(形狀同上面車款那三格)。
+describe('首頁的 categoryTaxonomyFailed 接線(⟦search-SILENTDOORS2⟧)', () => {
+  const has = (html: string, s: string) => html.includes(s);
+
+  it('🔴 分類撈失敗 ⇒ 那句話真的出現在頁面上', async () => {
+    tryCategories.mockReset().mockResolvedValue({ categories: [], failed: true });
+    const html = renderToStaticMarkup(await HomePage({ searchParams: Promise.resolve({}) }));
+    expect(has(html, '分類清單暫時無法載入')).toBe(true);
+  });
+
+  it('🔵 負對照:分類是【真的空】而沒失敗 ⇒ 那句話不得出現', async () => {
+    tryCategories.mockReset().mockResolvedValue({ categories: [], failed: false });
+    const html = renderToStaticMarkup(await HomePage({ searchParams: Promise.resolve({}) }));
+    expect(has(html, '分類清單暫時無法載入')).toBe(false);
   });
 });

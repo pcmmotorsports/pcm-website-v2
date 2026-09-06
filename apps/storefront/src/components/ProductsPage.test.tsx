@@ -771,3 +771,41 @@ describe('ProductsPage · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT�
     expect(screen.queryByText(/車款清單暫時無法載入/)).toBeNull();
   });
 });
+
+// 🔴🔴 **另兩扇門(⟦search-SILENTDOORS2⟧)** —— 與車款那一扇同一個形狀。
+//   🛑 **每一組都成對**:少了負對照, 一個無條件顯示的實作會四格全綠。
+describe('ProductsPage · 分類/品牌讀不到也要講一句(⟦search-SILENTDOORS2⟧)', () => {
+  const base = { products: FIXTURE, error: false, categories: CATEGORIES, motoBrands: MOTO_BRANDS };
+
+  it('🔴 分類 failed=true ⇒ 那句話在', () => {
+    render(<ProductsPage {...base} categoryTaxonomyFailed />);
+    expect(screen.getByText(/分類清單暫時無法載入/)).toBeDefined();
+  });
+
+  it('🔵 負對照:分類沒失敗 ⇒ 那句話不得出現', () => {
+    render(<ProductsPage {...base} categoryTaxonomyFailed={false} />);
+    expect(screen.queryByText(/分類清單暫時無法載入/)).toBeNull();
+  });
+
+  it('🔴 品牌 failed=true ⇒ 那句話在', () => {
+    render(<ProductsPage {...base} brandTaxonomyFailed />);
+    expect(screen.getByText(/品牌清單暫時無法載入/)).toBeDefined();
+  });
+
+  it('🔵 負對照:品牌沒失敗 ⇒ 那句話不得出現', () => {
+    render(<ProductsPage {...base} brandTaxonomyFailed={false} />);
+    expect(screen.queryByText(/品牌清單暫時無法載入/)).toBeNull();
+  });
+
+  it('🔴 三扇門【各講各的】(主視窗 2026-09-06 裁甲)—— 三個都 failed ⇒ 三句話都在', () => {
+    // 🛑 這一格把「三行同時出現」變成【量到的】而不是【推的】:
+    //    三扇門共用同一個 Supabase, 很可能一起壞 ⇒ 那個畫面是真的會出現的。
+    //    ⚠️ 而「三行會不會太吵」是視覺題 ⇒ 交 Sean 肉眼驗, 本格只證它們不互相吃掉。
+    render(
+      <ProductsPage {...base} vehicleTaxonomyFailed categoryTaxonomyFailed brandTaxonomyFailed />,
+    );
+    expect(screen.getByText(/車款清單暫時無法載入/)).toBeDefined();
+    expect(screen.getByText(/分類清單暫時無法載入/)).toBeDefined();
+    expect(screen.getByText(/品牌清單暫時無法載入/)).toBeDefined();
+  });
+});

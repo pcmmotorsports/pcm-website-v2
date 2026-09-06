@@ -8,7 +8,12 @@
 import { execFileSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
-import { VEHICLE_TAXONOMY_UNAVAILABLE, VehicleTaxonomyNotice } from './products-message-state';
+import {
+  BRAND_TAXONOMY_UNAVAILABLE,
+  CATEGORY_TAXONOMY_UNAVAILABLE,
+  VEHICLE_TAXONOMY_UNAVAILABLE,
+  VehicleTaxonomyNotice,
+} from './products-message-state';
 
 afterEach(cleanup);
 
@@ -36,10 +41,33 @@ describe('車款讀不到那句話 · 單一定義點(⟦search-TAXONOMYTIMEOUT�
     return out.split('\n').filter((f) => f !== '' && !f.includes('.test.'));
   };
 
-  it('🔴 非測試檔裡只有一支含那個字面, 而它就是定義處', () => {
-    expect(nonTestFilesContaining(VEHICLE_TAXONOMY_UNAVAILABLE)).toEqual([
+  // 🔴 三句話【各驗一次】—— 只驗車款那句的話, 另外兩句複製兩份也不會紅。
+  it.each([
+    ['車款', VEHICLE_TAXONOMY_UNAVAILABLE],
+    ['分類', CATEGORY_TAXONOMY_UNAVAILABLE],
+    ['品牌', BRAND_TAXONOMY_UNAVAILABLE],
+  ])('🔴 %s 那句:非測試檔裡只有一支含它, 而它就是定義處', (_名, 字面) => {
+    expect(nonTestFilesContaining(字面)).toEqual([
       'apps/storefront/src/components/products-message-state.tsx',
     ]);
+  });
+
+  it('🔵 三句話彼此不同(否則上面那三格會在「三句一樣」時一起假綠)', () => {
+    const set = new Set([
+      VEHICLE_TAXONOMY_UNAVAILABLE,
+      CATEGORY_TAXONOMY_UNAVAILABLE,
+      BRAND_TAXONOMY_UNAVAILABLE,
+    ]);
+    expect(set.size).toBe(3);
+  });
+
+  it('🔴 分類/品牌那兩句【不得】帶「自行輸入」的尾巴', () => {
+    // 🛑 車款那句尾巴是「或改用自行輸入」, 因為帳號那邊真的有自由輸入車款那條路;
+    //    而分類與品牌【沒有】—— 照抄那個尾巴就是告訴客人一條不存在的路。
+    expect(CATEGORY_TAXONOMY_UNAVAILABLE).not.toContain('自行輸入');
+    expect(BRAND_TAXONOMY_UNAVAILABLE).not.toContain('自行輸入');
+    // 🟢 正對照:車款那句【要】有它, 否則上面兩格用一個空字串也會過
+    expect(VEHICLE_TAXONOMY_UNAVAILABLE).toContain('自行輸入');
   });
 
   it('🟢 正對照:這把尺會動 —— 拿一個【確定散落多處】的字面去問, 要回多支', () => {
