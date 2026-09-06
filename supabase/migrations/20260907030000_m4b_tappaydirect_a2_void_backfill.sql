@@ -478,12 +478,23 @@ BEGIN
                     AND p.prosrc LIKE '%NOT IN (''failed'', ''deferred'', ''voided'')%') THEN
     RAISE EXCEPTION 'A2 事後閘⑦:coupon_redeem_order_problem 的反面述詞沒有含 voided';
   END IF;
-  -- 🔴 ⑦b **它的 search_path 沒被 CREATE OR REPLACE 換掉**(它是 `public, pg_temp`, 與本片其他支不同)
+  -- 🔴🔴 ⑦b `search_path` **收成空字串了**(2026-09-07 03:2x, 見 `:229` 那段)。
+  --   ⛔ ~~「它沒被 CREATE OR REPLACE 換掉(它是 `public, pg_temp`, 與本片其他支不同)」~~
+  --   ⛔ ~~`proconfig @> ARRAY['search_path=public, pg_temp']`~~
+  --   🔴🔴 **舊字面留在這裡, 因為它讓這一片【第一次貼進正式庫時整支回滾】** ——
+  --     2026-09-07 03:5x A 貼 70, `psql` rc=3、零寫入、帳本不記、`70b` 貼前貼後同值。
+  --     成因:我在 `93e7c7bd7` 把值從 `public, pg_temp` 改成 `''`, 改到了三處
+  --     (函式的 `SET` 子句 `:253` · 前置閘③ `:399` · 貼板 `70b`), **而漏了這一格**
+  --     ⇒ 貼下去當場撞 `:491` 的 RAISE。
+  --   ⇒ 📌 **教訓:改一支 migration 的某一格, 同檔的【事後閘】與【註解】是同一個分母。**
+  --     🛑 而**乾跑閘看不到這件事** —— 它只驗 sha / 帳本 / 形狀, **不跑 SQL**
+  --       ⇒ 那道紅只有在真的貼下去的那一刻才出現。
+  --   ✅ 現在與前置閘③ `:399` **同形**(兩處都問 `search_path=""`)。
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
                   WHERE n.nspname='public' AND p.proname='coupon_redeem_order_problem'
-                    AND p.proconfig @> ARRAY['search_path=public, pg_temp']) THEN
-    RAISE EXCEPTION 'A2 事後閘⑦b:coupon_redeem_order_problem 的 search_path 被換掉了'
-                    '(它應該是 public, pg_temp —— 與本片其他函式【不一樣】)';
+                    AND p.proconfig @> ARRAY['search_path=""']) THEN
+    RAISE EXCEPTION 'A2 事後閘⑦b:coupon_redeem_order_problem 的 search_path 不是空字串'
+                    '(本片把它從 public, pg_temp 收成 空字串 —— 理由見本檔 :229)';
   END IF;
 
   RAISE NOTICE 'A2 事後閘①-⑦ 全過(④ 掃了 5 支算錢函式, 零支提到 voided)。';
