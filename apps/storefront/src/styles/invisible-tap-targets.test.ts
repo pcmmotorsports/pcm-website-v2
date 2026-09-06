@@ -115,6 +115,76 @@ describe('看不見的東西不准吃點擊', () => {
     ).toMatch(/pointer-events:\s*auto\s*;/);
   });
 
+  // 🔴🔴 **2026-09-06 線 `front`(⟦f3-CARDTAPUNMEASURED⟧):同一張卡上的「選擇規格」與「愛心」
+  //   是【同一個病, 而只有一半有修法】—— 而這一格守的是那半個缺口的【兩條路】, 不是一條。**
+  //
+  //   ⛔ ~~我第一版寫「`.pcard-quick` 在手機上看不見也按不到」~~
+  //   ⇒ 🔴 **那是【推論】, 而 R1(code-reviewer)把它推翻了** —— 它有**第二條路徑**:
+  //     `ProductCard.tsx:188` `onMouseEnter → setHover(true)` ⇒ `:240` 加上 `is-visible`
+  //     ⇒ `product-card.css:208` `.pcard-quick.is-visible { pointer-events: auto }`,
+  //     而**真觸控會補發相容滑鼠事件** ⇒ 手指碰一下, 它就活了。
+  //   🔬 **實測(`node scripts/tap-target-probe.mjs --reveal`, 自己重跑得出來)**:
+  //   ```
+  //   ① 什麼都還沒做       opacity=0  pointer-events=none
+  //   ② 真 tap 卡片一下    opacity=1  pointer-events=auto   ← 它活過來了(被擋下的導航 1 次)
+  //   ③ 再 tap 按鈕        那一下落在 button.pcard-quick-btn ← 按得到
+  //   ```
+  //   ✅ **所以精確的說法是**:它不是死的, 是**只有在客人按下那一下、
+  //     而那一下【會把他帶去商品頁】的時候才亮起來** ⇒ 實務上客人拿不到這個狀態。
+  //   📌 **⇒ 結論很像(用不到那顆鈕), 而機制完全不同 —— 而我把推論寫成了量到。**
+  //
+  //   🛑 **要不要讓它在手機上真的可用 = 產品決定(Sean 的)**, 不是我加一條 CSS 就好。
+  //   ✅ **本格【釘住今天的狀態】, 而今天的狀態由【兩處】決定 —— 所以兩處都要釘**:
+  //     · CSS 那條路:`@media (hover: none)` 區塊(**全部**, 不只第一個)不得含 `.pcard-quick`
+  //     · TSX 那條路:`is-visible` 由 `hover` 驅動, 而 `hover` **只由 `onMouseEnter` 設**
+  //       ⇒ 有人加 `onTouchStart` / 改成常駐, 本格才叫得出來。
+  //       ⛔ ~~第一版三發突變全打在 CSS 那一半~~ ⇒ 🔴 **改 TSX 那一行, 手機上它就活了而本格全綠**(R1 Critical)。
+  //   ⇒ 任何一格紅了, 正解是 **①確認那是 Sean 拍的 ②更新板列 ⟦f3-CARDTAPUNMEASURED⟧ ③才改期望值**, 不是刪掉本格。
+  it('🔴 今天的狀態·CSS 那條路:所有 @media (hover: none) 區塊都不得把「選擇規格」打開', () => {
+    const css = read('product-card.css');
+    // 🔴 **`matchAll` 不是 `exec`** —— `exec` 只回第一個區塊;有人【新增第二個】hover:none 區塊
+    //   把 `.pcard-quick` 放進去 ⇒ 全綠, 而本格標題那句當場變成假的(R1 must-fix)。
+    const blocks = [...css.matchAll(/@media\s*\(hover:\s*none\)\s*\{[\s\S]*?\n\}/g)].map((m) => m[0]);
+    expect(blocks.length, '找不到任何 @media (hover: none) 區塊 ⇒ 前提失效, 這一發作廢').toBeGreaterThan(0);
+    for (const b of blocks) {
+      expect(
+        b,
+        '有一個 @media (hover: none) 區塊把 `.pcard-quick` 打開了 ⇒ 手機客人現在看得到「選擇規格」。'
+          + '這是【產品決定】—— 先確認是 Sean 拍的, 再更新板列 ⟦f3-CARDTAPUNMEASURED⟧, 最後才改本格。',
+      ).not.toContain('.pcard-quick');
+    }
+    // 🟢 正對照:愛心【在】其中一個區塊裡 ⇒ 證明上面那圈 not.toContain 不是因為抓到空區塊而恆真。
+    expect(
+      blocks.some((b) => b.includes('.pcard-heart')),
+      '正對照:所有 hover:none 區塊都沒有愛心 ⇒ 我抓到的不是那條規則, 上面的斷言作廢',
+    ).toBe(true);
+    // 🔵 基底仍是「看不見的東西不准吃點擊」—— 兩件事一起成立才是今天的狀態。
+    const base = /\.pcard-quick\s*\{[^}]*\}/.exec(css)?.[0];
+    expect(base, '找不到 .pcard-quick 基底規則 ⇒ 前提失效').toBeTruthy();
+    expect(base, '基底沒有 pointer-events: none ⇒ 讀數的前提變了, 重跑探針').toMatch(
+      /pointer-events:\s*none\s*;/,
+    );
+  });
+
+  it('🔴 今天的狀態·TSX 那條路:「選擇規格」只由 onMouseEnter 亮起來(加 onTouchStart 或常駐 ⇒ 本格紅)', () => {
+    const tsx = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), '../components/ProductCard.tsx'),
+      'utf8',
+    );
+    // 🟢 正對照先跑:前提還在嗎(改了元件結構 ⇒ 下面兩個斷言可能恆真)
+    expect(tsx, '找不到 `is-visible` ⇒ 前提失效, 這一發作廢').toContain('is-visible');
+    expect(tsx, '`is-visible` 不再由 hover 驅動 ⇒ 機制變了, 重跑 --reveal 再改本格').toMatch(
+      /pcard-quick \$\{hover \? 'is-visible' : ''\}/,
+    );
+    expect(tsx, 'onMouseEnter 那條不見了 ⇒ 前提失效').toMatch(/onMouseEnter=\{\(\) => setHover\(true\)\}/);
+    // 🔴 真正在守的那一條:多了一條【觸控裝置也會觸發】的路 ⇒ 手機上它就活了。
+    expect(
+      tsx,
+      '`ProductCard` 多了觸控事件 ⇒ 「選擇規格」在手機上可能變成真的可用。'
+        + '這是【產品決定】—— 先確認是 Sean 拍的, 再更新板列 ⟦f3-CARDTAPUNMEASURED⟧, 最後才改本格。',
+    ).not.toMatch(/onTouch(Start|End)=/);
+  });
+
   it('🔴 `.pcard-heart` 浮出來時要把點擊收回去(否則桌機按不到)', () => {
     const css = read('product-card.css');
     const hoverRule = /\.pcard:hover\s+\.pcard-heart\s*\{[^}]*\}/.exec(css)?.[0];
