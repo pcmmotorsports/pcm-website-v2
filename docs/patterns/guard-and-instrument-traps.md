@@ -35844,3 +35844,34 @@ next.config  05:18:58                                                     ← �
 
 📎 病史:2026-09-06 `-auth` 做 ⟦c7-ACLGATEANCHOR⟧;近親 = 本檔 `:34005`(同一支工具,
 而那一條講的是**跨 markdown 標記撈不到**,機制不同、方向也不同)。
+
+## §27 · `git revert` 不呼叫 `pre-commit` / `commit-msg` —— 一道裝在那裡的閘【永遠不跑, 而每次測試都綠】
+
+**一行**:`git revert` 走 sequencer ⇒ 只叫 `prepare-commit-msg` 與 `post-commit`;
+把「revert 前要讀 runbook」的守門裝進 `commit-msg` 或 `pre-commit`, 做出來的是一個永遠不啟動的東西。
+
+**量到的**(2026-09-07 08:0x · `tidy` · 拋棄式 repo, 四個 hook 各掛一支計數器):
+
+| | `pre-commit` | `commit-msg` | `prepare-commit-msg` | `post-commit` |
+|---|---|---|---|---|
+| 基準:兩顆普通 commit | 2 | 2 | 2 | 2 |
+| `git revert --no-edit` | **0** | **0** | 1 | 1 |
+| `git revert`(走編輯器) | **0** | **0** | 1 | 1 |
+
+🔴 **為什麼它屬於本檔的母題**(「錯的那次和對的那次長得一樣」):
+裝錯位置的閘, 在**本機每一次驗證裡都是綠的** —— 因為那些驗證是用**普通 commit** 跑的,
+而普通 commit 本來就會叫 `commit-msg`。**它的失效只在【真的有人 revert】那一天顯現。**
+
+🛑 **同一片裡我推錯兩次, 兩次的形狀相同 —— 都是「我假設了 git 的行為而沒有餵它一次」**:
+1. 寫「revert 走 `source=commit`」並據此加了一道 `case` 過濾 ⇒ **實測 `$2=message`**
+   ⇒ 那道過濾把整個功能關掉, **而它印出來的是【安靜】= 與「不該叫時」的正確輸出一模一樣。**
+   更糟:同一段註解的下一行, 我自己就寫著「不靠 SOURCE 判斷」。
+2. 寫「插 `#` 註解進訊息檔, git cleanup 會刪掉」⇒ 實測 `git log -1 --format=%B \| grep -c '^#'` ⇒ **4**
+   —— `--no-edit` 不走 `--cleanup=strip` ⇒ 四行垃圾**永久**進了歷史。
+
+⚠️ **測試本身也假 PASS 過一次**:第一版三顆 commit 動**同一支檔** ⇒ 每發 revert 都是【衝突】、
+根本沒產生 commit, 而 `grep` 咬到 **git 自己 hint 裡**的「先讀 runbook」⇒ 印出一個綠勾。
+⇒ ✅ 現在 selftest 第一格就斷言 **`revert` 真的成功了(rc=0)**。
+
+📎 落地:`.husky/prepare-commit-msg` + `scripts/revert-runbook-gate.selftest.sh`(四個世界 8 格);
+板列 `#903`。
