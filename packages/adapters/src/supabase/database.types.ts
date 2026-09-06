@@ -474,9 +474,12 @@
 //   ⚠️ **本次新進來的**:`admin_sso_login_events` / `purge_admin_sso_login_events`(本班的)+
 //      `admin_customer_list_v` / `sweeper_heartbeat` / `graphql`(**不是我 apply 的** ——
 //      它們先前就在正式庫,是本檔落後於它)。
-//   ㉑ `record_manual_cancel_notice(uuid,text,text,text)` **整段**〔主migration=20260906920000〕〔APPLIED.tsv 無此列〕〔貼板 57〕
+//   ㉑ `record_manual_cancel_notice(uuid,text,text,text)` **整段**〔主migration=20260906920000〕⛔ ~~〔APPLIED.tsv 無此列〕~~ **已套用**〔貼板 57〕
 //      (2026-09-06 線【信】`-mail`;編號由主視窗 `-f1` 配 —— 它查過三棵樹沒人在寫 ㉑)
-//      ⏳ **未 apply** —— 這一條是**先於 DB** 補的(貼板 57 還沒貼)。
+//      ⛔ ~~⏳ **未 apply** —— 這一條是**先於 DB** 補的(貼板 57 還沒貼)。~~
+//      🟢🟢 **[2026-09-06 21:49 Sean 本人貼了 ⇒ 已套用]** —— 帳本座標 `@20260906-214943-98295`,
+//         `APPLIED.tsv` 第二欄 sha `bbb4cdfd…3ac1c` 與 repo 那支相同。
+//         📌 **舊字面留著加刪除線** —— 它記錄的是「這一條曾經走在 DB 前面」, 而那個順序本身是事實。
 //         🔴 **那個〔APPLIED.tsv 無此列〕標記必須寫在【與〔主migration=…〕同一行】** ——
 //            本檔的尺是 `markerLine()`:它只挑出**帶主錨的那一行**來看標記,
 //            寫在別行等於沒寫(2026-09-06 我先寫在下一行, 紅了才發現)。
@@ -504,11 +507,13 @@
 //         ⇒ 走不到這個型別聯集。本支走 supabase-js `.rpc()` ⇒ 才需要登記。
 //         ⇒ 📌 **「在不在這個檔裡」答的是【怎麼呼叫】, 不是【重不重要】。**
 //      ⇒ 下一個要加的是 ㉒。
-//   ㉒ `revoke_manual_cancel_notice(uuid,uuid,text,text)` **整段**〔主migration=20260906930000〕〔APPLIED.tsv 無此列〕〔貼板 60〕
+//   ㉒ `revoke_manual_cancel_notice(uuid,uuid,text,text)` **整段**〔主migration=20260906930000〕⛔ ~~〔APPLIED.tsv 無此列〕~~ **已套用**〔貼板 60〕
 //      (2026-09-06 線【信】`-mail`;版本號與貼板號由主視窗 `-f1` 預先配給, 58/59 是線【DB】的)
 //      🔵 它是 ㉑ 的反面:撤銷誤按的那一列。**硬刪**(軟刪 ⇒ anti-join 仍看得到 ⇒ 計數不會回來;
 //         改 status ⇒ sweeper 會把它撿去真的寄出去)。
-//      ⏳ **未 apply** —— 與 ㉑ 同一批, 碼先於 DB(理由見 ㉑ 那條)。
+//      ⛔ ~~⏳ **未 apply** —— 與 ㉑ 同一批, 碼先於 DB(理由見 ㉑ 那條)。~~
+//      🟢🟢 **[2026-09-06 21:57 Sean 本人貼了 ⇒ 已套用]** —— 帳本座標 `@20260906-215728-69051`,
+//         sha `a0964c0a…888a32` 與 repo 那支相同。舊字面同 ㉑ 留著。
 //      ⇒ 下一個要加的是 ㉓。
 export type Json =
   | string
