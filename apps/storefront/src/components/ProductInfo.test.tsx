@@ -73,12 +73,16 @@ const specialProduct: MockProduct = {
 
 describe('ProductInfo', () => {
   // ⛔ ~~M-1-16c-4a:料號顯真 sku(有變體)/ slug(無變體 fallback)~~
-  // 🔴 **Sean 2026-09-03 重答 `Q23 = 甲`:商品頁只印【原廠料號】(`productCode`)。**
-  //    ⇒ 這一行**不再隨變體連動** —— 那是這個決定的代價, 見 `ProductInfo.tsx` 那段註解。
-  it('有變體時, 那一行印的是【原廠料號】而不是變體的 sku', () => {
+  // ⛔ ~~**Sean 2026-09-03 重答 `Q23 = 甲`:商品頁只印【原廠料號】(`productCode`)。**~~
+  // ⛔ ~~⇒ 這一行**不再隨變體連動** —— 那是這個決定的代價~~
+  // 🔴🔴 **2026-09-06 Sean 看畫面重議** —— 他選了紅色而上方仍印母料號 `PET52`, 他要 `PET52R`。
+  //    📌 **Q23 沒有被推翻** —— `ProductInfo.tsx` 那段註解**自己就寫了觸發條件**:
+  //    逐字「🛑 哪天發現出貨單 / 揀貨單 / 發票上對帳靠的是那個變體號, **這一片要重議**」
+  //    ⇒ **今天他自己看畫面撞到了它。** 板列 `⟦f3-PDPSKUSTATIC⟧`。
+  it('🔴 選了變體 ⇒ 那一行印【變體的 sku】(2026-09-06 重議前印母料號)', () => {
     const p = { ...variantProduct, productCode: 'ISS118' };
-    renderInfo(p);
-    expect(screen.getByText(`${p.brand} · 原廠料號 ISS118`)).toBeDefined();
+    renderInfo(p); // harness 預設選中 variants[0]
+    expect(screen.getByText(`${p.brand} · 原廠料號 ${p.variants![0]!.sku}`)).toBeDefined();
   });
 
   it('沒有 productCode ⇒ 退回 slug, 而標籤仍在', () => {
@@ -231,11 +235,16 @@ describe('ProductInfo', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Pramac 黑色' }));
     expect(screen.getByText('NT$ 10,800')).toBeDefined();
     // ⛔ ~~料號隨選中變體連動~~
-    // 🔴 **Sean 2026-09-03 重答甲之後, 那一行改印【原廠料號】⇒ 它【不再隨變體連動】。**
-    //    🛑 而本格原本靠那一行當「選了變體有反應」的第二個證據 ——
-    //       上面那行價格斷言(NT$ 10,800)仍然守著連動, 所以本格沒有失去它的判別力。
-    //    ⇒ 📌 **拿掉一個斷言之前, 先確認它守的那件事還有沒有別人在守。**
-    expect(screen.getByText(`${cncProduct.brand} · 原廠料號 ${cncProduct.productCode ?? cncProduct.slug}`)).toBeDefined();
+    // ⛔ ~~**Sean 2026-09-03 重答甲之後, 那一行改印【原廠料號】⇒ 它【不再隨變體連動】。**~~
+    // 🔴🔴 **2026-09-06 Sean 看畫面重議 ⇒ 它【又隨變體連動了】**(板列 `⟦f3-PDPSKUSTATIC⟧`)。
+    //    🔵 而上面那句舊註解裡有一格**今天仍然成立、而且救了這一格**:
+    //       「本格原本靠那一行當『選了變體有反應』的第二個證據 —— 而**價格那行仍然守著連動**」
+    //       ⇒ 📌 **這一格的判別力從頭到尾都在價格那一行**, 料號那行怎麼改它都還站得住。
+    //    ⇒ ⇒ **那正是當初寫「拿掉一個斷言之前, 先確認它守的那件事還有沒有別人在守」的用處** ——
+    //       它讓今天的我不必重新推導一次。
+    // 🔴 **是 `[1]` 不是 `[0]`** —— 這一格上面 `fireEvent.click` 點的是第二個變體(`Pramac 黑色`)
+    //   ⇒ 📌 **而這剛好讓本格變成 Sean 那件事的直接證據**:他要的就是「點了另一個規格, 上面那行跟著變」。
+    expect(screen.getByText(`${cncProduct.brand} · 原廠料號 ${cncProduct.variants![1]!.sku}`)).toBeDefined();
   });
 
   it('should NOT render RPM swatch preview card for non-RPM spec shapes (W2 降級)', () => {
@@ -558,19 +567,47 @@ describe('ProductInfo — A5 加購被上限夾掉要明說', () => {
 
 // ⟦Q23 = 丙⟧ Sean 2026-09-03:兩個編號都印並標清楚。
 // 🛑 **丙不會讓料號變成搜得到** —— 它只讓客人知道該抄哪一個。真正的修法是甲(要貼 SQL)。
-describe('Q23 · 商品頁只印【原廠料號】(Sean 2026-09-03 重答甲)', () => {
+describe('Q23 · 商品頁的料號(Sean 2026-09-03 重答甲 ⇒ 2026-09-06 看畫面重議)', () => {
   // ⛔ ~~丙:兩個編號都印, 暫用標籤「搜尋用」~~(commit c68cc9fe)
   // 🔴 **同日 Sean 重答甲** —— 而丙**沒有錯**:它要解的病(客人抄了搜不到)仍然成立,
   //    換掉的是解法。他給了一句業務事實:「我們工作基本上都是用原廠料號在工作」
   //    ⇒ 而搜尋比對的剛好就是那一個 ⇒ **問題不是要印兩個, 是印錯了那一個。**
   const p: MockProduct = { ...variantProduct, productCode: 'ISS118' };
 
-  it('🔴 印的是【原廠料號】(productCode), 不是變體個別料號(sku)', () => {
+  // ⛔ ~~🔴 印的是【原廠料號】(productCode), 不是變體個別料號(sku)~~
+  // ⛔ ~~🎯 判別點:變體那一串不得再出現在這一行 —— 它正是客人抄了會搜不到的那個~~
+  // 🔴🔴 **2026-09-06 重議:選了變體就印變體的 sku。**
+  //   🔵 而**當初那個顧慮沒有消失, 只是它的前提變了** —— 舊註解怕的是「客人抄了搜不到」,
+  //     而 **db 58(2026-09-06 已貼正式庫)把變體 sku 也納入搜尋** ⇒ 我當場在正式站量過:
+  //     搜 `PET52R` / `AZ203B` 各回 **1 件**(貼前 Sean 回報是 0)。
+  //   ⇒ 📌 **抄得到也搜得到了 ⇒ 那個顧慮被【另一片】解掉, 而不是被忽略。**
+  it('🔴 選了變體 ⇒ 印變體的 sku(而標籤那四個字仍在)', () => {
     const { container } = renderInfo(p);
     const line = container.querySelector('.pd-sku')?.textContent ?? '';
+    expect(line).toContain(p.variants![0]!.sku);
+    expect(line).toContain('原廠料號');
+  });
+
+  // 🔵 **沒選變體那條路【必須逐字不變】** —— 本片只動「有選」那一側。
+  it('🔵 沒有變體的商品 ⇒ 仍印母料號(本片不得動到這一側)', () => {
+    const noVariant: MockProduct = { ...p, variants: [] };
+    const { container } = renderInfo(noVariant);
+    const line = container.querySelector('.pd-sku')?.textContent ?? '';
     expect(line).toContain('ISS118');
-    // 🎯 判別點:**變體那一串不得再出現在這一行** —— 它正是客人抄了會搜不到的那個。
-    expect(line).not.toContain('A-G-F');
+  });
+
+  // 🔴🔴 **空字串那一格 —— 型別說 `sku: string`(非 optional), 而型別不保證執行期。**
+  //   mock / 舊資料 / 未來的 mapper 都可能給空字串 ⇒ **不得印出一行沒有號碼的「原廠料號 」**。
+  //   ⇒ 實作用 `?.trim() ||` 而不是 `??`(後者只擋 null/undefined, 擋不掉 `''`)。
+  it('🔵 負對照:變體的 sku 是空字串 ⇒ 退回母料號, 不得印空', () => {
+    const blank: MockProduct = {
+      ...p,
+      variants: [{ ...p.variants![0]!, sku: '   ' }],
+    };
+    const { container } = renderInfo(blank);
+    const line = container.querySelector('.pd-sku')?.textContent ?? '';
+    expect(line).toContain('ISS118');
+    expect(line.trim()).not.toMatch(/原廠料號\s*$/);
   });
 
   it('🔴 標籤逐字是「原廠料號」—— 那是 Sean 自己的用語, 已定稿不是暫用', () => {
@@ -581,8 +618,10 @@ describe('Q23 · 商品頁只印【原廠料號】(Sean 2026-09-03 重答甲)', 
     expect(line).toContain('原廠料號');
   });
 
-  it('🔵 負對照:沒有 productCode ⇒ 退回 slug, 而【標籤仍在】(不得變成一串沒有名字的碼)', () => {
-    const noCode: MockProduct = { ...variantProduct, productCode: undefined };
+  it('🔵 負對照:沒有變體也沒有 productCode ⇒ 退回 slug, 而【標籤仍在】(不得變成一串沒有名字的碼)', () => {
+    // 🔴 **這一格加了 `variants: []`** —— 2026-09-06 重議之後, 有選變體時印的是 sku
+    //   ⇒ 舊寫法(帶變體)會走到 sku 那一側, 而**這一格要問的是最底層那個 fallback**。
+    const noCode: MockProduct = { ...variantProduct, productCode: undefined, variants: [] };
     const { container } = renderInfo(noCode);
     const line = container.querySelector('.pd-sku')?.textContent ?? '';
     expect(line).toContain('原廠料號');

@@ -34,9 +34,17 @@ let browser: Browser;
 beforeAll(async () => {
   browser = await chromium.launch();
 }, 60_000);
+// 🔴🔴 **`afterAll` 也要給 timeout —— 而這是量出來的, 不是保險**(2026-09-06):
+//   全套跑了 12 發, 其中 **3 發**出現 `Test Files N failed` 而 **`Tests 0 failed`**
+//   ⇒ 我連續三次沒抓到是哪幾支檔, 第四次才抓到:**就是這一族**, 而訊息逐字
+//   `Error: Hook timed out in 10000ms.` 指在 `afterAll` 的 `browser?.close()`。
+//   🛑 成因是**機器負載**(夜跑多窗 + 合併鏈同時在跑), 不是測試邏輯 —— 而它的形狀最壞:
+//     **檔案級失敗 + 零測項失敗** ⇒ 統計行看起來像「有東西壞了」而每一格都是綠的,
+//     ⇒ 📌 **看統計行的人會去找一個不存在的失敗測試。**
+//   ✅ `beforeAll` 早就有 `60_000` 了, 而 `afterAll` 沒有 —— **那個不對稱就是這個 bug。**
 afterAll(async () => {
   await browser?.close();
-});
+}, 60_000);
 
 /** 把那顆 Notice 的 markup 放進 390 寬的頁面,量它自己與整頁的水平溢出。 */
 async function measure(text: string) {

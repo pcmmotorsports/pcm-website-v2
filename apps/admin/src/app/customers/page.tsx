@@ -18,6 +18,7 @@ import {
   CUSTOMER_KEYWORD_COOKIE,
 } from '../../lib/customers/customer-keyword-cookie';
 import { CustomersTable } from '../../components/customers/customers-table';
+import { TEST_ACCOUNT_EMAILS_IN_CUSTOMER_COUNT } from '../../lib/dashboard/test-accounts';
 import { ListPagination } from '../../components/shared/list-pagination';
 import { ResultBanner } from '../../components/orders/result-banner';
 import { cookies } from 'next/headers';
@@ -104,6 +105,29 @@ export default async function CustomersPage({
       </div>
 
       <ResultBanner code={resultCode} />
+
+      {/* 🔴🔴 **⟦b4-TESTACCT1⟧ 的另一面** —— Sean 2026-09-05 拍乙「留著, 後台加一句『含測試資料』」,
+          而那句 2026-09-05 只加在**今日對帳三卡**(`components/dashboard/today-summary.tsx:196`)。
+          🔬 2026-09-07 線 `front` 開檔核:本檔對 `TEST_ACCOUNT_EMAILS` / `含測試資料` **零命中**
+          ⇒ 「共 N 位」與下面每一列的訂單數/消費金額**至今沒有任何一句話說它含測試帳號**。
+          🎯 而它會錯:資料來源 `admin_customer_list_v`(`20260816030000`)**只排除已取消的訂單**,
+             零條「排除測試帳號」;同族 `20260826140000…:73` 逐字「PCM 目前客戶數是兩位數」
+             ⇒ 兩個測試帳號在兩位數的分母裡**不是捨入誤差**。
+          🛑 **用的是 `…_IN_CUSTOMER_COUNT` 不是 `TEST_ACCOUNT_EMAILS`** —— 後者的定義是
+             「影響對帳三卡的帳號」, 拿它標客戶數會**少算一個**(理由見該常數檔頭)。
+          🔵 **顯示條件 = 常數非空**:清空那天這句話自己消失, 不需要有人記得回來刪。
+          🔵 **同時要 `!loadFailed`**:載入失敗時「共 N 位」本來就不顯示,
+             那時候說「這個數字可能含測試資料」是在修飾一個畫面上不存在的數字。
+          🛑 **只印個數, 不印 email** —— email 是 PII, 而這個畫面會被截圖轉發。
+          ⚠️ 語氣「**可能含**」是刻意的:常數與正式庫沒有對帳, 它知道我們登記了幾個帳號,
+             **不知道那些帳號今天還在不在**。⇒ 所以不寫「含 N 筆」。 */}
+      {!loadFailed && TEST_ACCOUNT_EMAILS_IN_CUSTOMER_COUNT.length > 0 && (
+        <p className='text-muted-foreground rounded-md border p-3 text-xs'>
+          上面的「共 {total} 位」與下面的訂單數、消費金額
+          <strong>可能含測試帳號資料</strong>(
+          {TEST_ACCOUNT_EMAILS_IN_CUSTOMER_COUNT.length} 個帳號)。
+        </p>
+      )}
 
       <CustomerKeywordSearch
         keyword={keyword}
