@@ -172,7 +172,20 @@ const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲'];
  *    `agent/line-ship` 帶進 ⑱、`agent/line-ship-5b-sentnum` 帶進 ⑲, 而兩邊各自算的都是 14。
  *    ⇒ 證據:兩條的字面各自一個字都沒動(合併時是**兩段各自插入**, 不是改寫)。
  */
-const EXPECTED_TOTAL_ENTRIES = 15;
+/**
+ * 🔴 **2026-09-06 由 15 改成 16** —— `⑳ email_outbox.provider_message_id` 由 `df1e093a9` 插入。
+ *    ⇒ 證據(我自己跑的, 不是抄來的):`git diff --numstat origin/dev..HEAD -- database.types.ts`
+ *      ⇒ **+14 / -1**, 而那**唯一一行刪除是檔頭的計數句本身**
+ *      (`十五個函式、共三十六處` ⇒ `十六個函式、共三十九處`)
+ *      ⇒ 📌 **前 15 條的字面一個字都沒動, ⑳ 是純插入。**
+ * 🛑 **而這一格【第三次】是同一個形狀**:14→15 是兩線各插一條, 15→16 是我這線插一條 ——
+ *    每一次都是「加條目的人改了 database.types.ts 而沒改這支釘子」。
+ *    ⚠️ 而它為什麼一直漏掉:**這支測試不 import 被測檔**(它用 `readFileSync` 讀),
+ *    ⇒ `vitest related` 撈不到它, 掃 `supabase/migrations` 的分母裡也沒有它
+ *      (🔬 我這次那 72 支的清單 grep `database-types-apply-state` ⇒ **0**)
+ *    ⇒ 🎯 **加條目的人跑遍他想得到的每一把尺, 都不會遇到這支。**
+ */
+const EXPECTED_TOTAL_ENTRIES = 16;
 
 type Entry = { mark: string; body: string };
 
