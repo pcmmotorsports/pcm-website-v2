@@ -363,6 +363,56 @@ PDF 逐字「**建議-雷射印表機、熱感標籤機**」, 且「標籤製作
 
 ---
 
+## 8-bis. 🔴🔴 **2026-09-06 11:4x 抄官方 PDF 之後 —— L-A 的答案是「那支服務不存在」**
+
+> 來源(Sean 2026-09-06 給,已存 `~/pcm-mailbox/新竹PDF/`,檔名保留):
+> · `新竹物流標籤規格說明_V1.pdf` ← `https://www.hct.com.tw/Report/%E6%96%B0%E7%AB%B9%E7%89%A9%E6%B5%81%E6%A8%99%E7%B1%A4%E8%A6%8F%E6%A0%BC%E8%AA%AA%E6%98%8E_V1.pdf`
+> · `API服務說明_V1.pdf` ← `https://cagweb01.hct.com.tw/Report/API%E6%9C%8D%E5%8B%99%E8%AA%AA%E6%98%8E_V1.pdf`
+> 兩份 HTTP 200、開頭 `25504446`(= `%PDF`);`pdftotext -layout` 抽出 `api.txt` 1011 行。
+
+### ① 官方**只有四支服務**,而沒有一支是「拿標籤圖」
+
+`API服務說明_V1.pdf` §2.2.1 的服務表逐字(P.? / `api.txt:210-232`):
+```
+TransData()      上傳託運資料(列印託運單)   傳入託運資料, 取得貨號、到著站
+UpdData()        修改重量
+TransReport()    確定出貨資料(列印託運總表)
+QueryEDELNO()    查詢貨號                 使用訂單編號查詢貨號
+(每支各有 _Json / _XML 兩個變體)
+```
+🛑 **`GetImage_Json` 不在裡面 —— 它不存在。** 我先前標「查無來源」是對的,而現在**證實了它是查無**。
+
+### ② 那張圖在哪:**它是 `TransData_Json` 的【回傳欄位】**
+
+`api.txt:302` 與 `:418` 逐字:
+```
+回傳值 (return DataSet)
+  Num / success / edelno / epino / eqamt / image「標籤圖片字串」/ ErrMsg
+```
+而 `QueryEDELNO_Json` 的回傳(`api.txt:766-782`)**只有** `success` / `edelno` / `epino` / `ErrMsg`
+—— **沒有 image**。⇒ 🎯 **唯一會回圖的那支, 就是【建單】那一支。**
+🔵 旁證(`api.txt:375`):「傳送一批資料請不要超過 30 筆,**若使用回傳圖檔,一次上限為 5 筆**」。
+
+### ③ 🔴🔴 **⇒ Sean 授權的那個組合【不存在】**
+
+`Q-標籤5` 的授權逐字是「**只拿一張測試單的標籤圖, 不建單不出貨**」。
+⇒ 🛑 **而 HCT 沒有任何一支服務能只拿圖而不建單。** 要拿圖 = 要送 `TransData` = 會建一張託運單。
+⇒ 📌 **這不是我做不到, 是那個組合在對方的 API 裡不存在** ⇒ **探針腳本沒有可用的 `--method`。**
+
+### ④ 🟢 **而我們可能【根本不用打】—— 那張圖也許已經在我們自己的 DB 裡**
+
+碼上的鏈路(當場核,逐段可查):
+```
+hct-client.ts:36-38     submitTransData 回 { kind, edelno, raw }   ← raw = 整包回應
+shipment-submit-hct-action.ts:199  recordHctSubmit({ …, raw: result.raw })
+shipments 表 :92        hct_raw_response jsonb                      ← 它落在這裡
+```
+⇒ **每一箱送成功過的, 它的 `hct_raw_response` 裡就應該有 `image` 那一欄。**
+⇒ ✅ **下一步不是打新竹, 是【唯讀查我們自己的庫】**:
+   `select image 是否存在 from shipments where hct_status='submitted'`(唯讀,零對外)。
+🛑 **而我沒有唯讀權限, 也沒有查過** —— 上面那句是**從碼推的, 不是量到的**。
+   ⇒ 兩個世界:①有 ⇒ 這一片不用對外請求, 直接接圖 ②沒有 ⇒ 才回頭談「要不要為了拿圖建一張單」。
+
 ## 9. 🗄 **改寫前的原文(2026-09-06 依 `Q-標籤0 = 甲` 改寫時被取代的那幾段)**
 
 > 🔴 **為什麼保存**:上面 §5 §6 是**重寫**不是**追加** —— `git show` 量到那一發刪了 20 行。

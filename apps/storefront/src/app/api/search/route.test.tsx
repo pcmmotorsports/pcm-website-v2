@@ -21,6 +21,14 @@ vi.mock('@/lib/search', () => ({ searchProducts, SEARCH_OVERLAY_LIMIT: 8 }));
 //    ⇒ 📌 **加一個 import 會讓一支【它沒改過】的測試整檔消失 —— 而報告上是「0 test」不是「1 failed」。**
 const tryCatalogBrandTaxonomy = vi.fn();
 const tryCategories = vi.fn();
+// 🔴🔴 **`tryVehicleTaxonomy` 這一支【route.ts 今天沒有 import】—— 而它【不是多餘的 mock】。**
+//   (2026-09-06:code-reviewer R1 把它標成「順手清」的 nit;線 `front` 開檔驗過之後**不清**。)
+//   ✅ 理由在下面那一格的斷言裡:`expect(tryVehicleTaxonomy).not.toHaveBeenCalled()`
+//      —— 它守的是「**搜尋框一打開不叫醒 DB**」, 而那道守門要對**三扇門都成立**,
+//      包含**今天還沒被這條路 import 的那一扇**。
+//   🎯 **⇒ 它是【前瞻】守門**:哪天有人把 `tryVehicleTaxonomy` 加進這條路的早退之前, 這裡會紅。
+//      清掉它 = 把那個未來的紅一起清掉, 而**清掉的那一刻什麼都不會紅**。
+//   📌 **寫在這裡是因為它會被重複標成 nit** —— 下一個 reviewer 也會看到「mock 了沒 import 的東西」。
 const tryVehicleTaxonomy = vi.fn();
 vi.mock('@/lib/products', () => ({
   tryCatalogBrandTaxonomy,

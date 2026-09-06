@@ -445,6 +445,35 @@ export async function listHctStatusByShipmentIds(
 }
 
 /**
+ * 這一箱的標籤圖來源:`hct_raw_response` **整包**。⟦ship-HCTLABELCAPTURE⟧ 片 D2。
+ *
+ * 🔴🔴 **它為什麼是【自己一支】, 而不是往 `listHctStatusByShipmentIds` 多加一欄**:
+ *    那一支餵的是**訂單明細頁**(逐箱渲染)⇒ 往它加 `raw` 就是把每箱 ~20KB 的圖
+ *    拉進**每一次頁面渲染**, 而那一頁根本不印圖。
+ *    (規格 `api.txt` 逐字「1 張圖片轉成 string 大約就 2 萬多」。)
+ *    ⇒ 📌 同那一支自己檔頭那句:**爆炸半徑由【誰共用那個投影】決定。**
+ *
+ * 🔴 回 `raw: unknown` **不在這一層解析** —— 解析歸 `hct-label-image.ts`(純函式, 驗得完),
+ *    這一層只負責「把那一包原封拿回來」。⇒ 兩層各答一個問題, 而它們各自壞得起來。
+ * 🔵 `deleted_at` 與 `hct_status` 一起回:**擋不擋由呼叫端決定**(同 `resolveFontPkgs` 那條原則)。
+ */
+export async function getHctLabelRawByShipmentId(
+  shipmentId: string,
+): Promise<{ hctStatus: string; voidedAt: string | null; raw: unknown } | null> {
+  const { data, error } = await createSupabaseServiceClient()
+    .from('shipments')
+    // ⚠️ `.select()` 必須是單一字串常值(拼接會讓型別塌成 `GenericStringError`)。
+    // 🔵 **不取 `id`** —— 這一支不回傳它(同檔 `getHctShipment` 有回傳所以它取)。
+    //    取了沒用的欄會讓下一個人以為它有用途。
+    .select('hct_status, deleted_at, hct_raw_response')
+    .eq('id', shipmentId)
+    .maybeSingle();
+  if (error !== null) throw new Error(error.message);
+  if (data === null) return null;
+  return { hctStatus: data.hct_status, voidedAt: data.deleted_at, raw: data.hct_raw_response };
+}
+
+/**
  * 把送出結果寫回 DB(`admin_record_hct_submit`, `20260904170000`)。
  * 🔴 `p_status` 只收 submitted / failed / unknown —— DB 那側自己會擋別的值。
  */

@@ -557,3 +557,34 @@ describe('CartView — 手機底部固定結帳列', () => {
     expect(pushMock).toHaveBeenCalledWith('/checkout');
   });
 });
+
+// 🔴🔴 **車款樹讀不到 ⇒ 講一句;而【真的沒有】仍然什麼都不說。**
+//   (2026-09-06 Sean 拍甲 · 板列 ⟦search-TAXONOMYTIMEOUT⟧ · plan
+//    `docs/plans/2026-09-06-vehicle-taxonomy-failed-notice-plan.md`)
+//   🛑 **兩格【必須成對】** —— 只有第一格的話, 一個「無條件顯示那句話」的實作照樣全綠。
+describe('CartView · 車款讀不到要講一句(⟦search-TAXONOMYTIMEOUT⟧)', () => {
+  // 🔴 **購物車這一格要先【有商品】** —— 那句話住在選車那一區, 而空車走的是空狀態、整區不渲染。
+  //   ⇒ 📌 這不是把測試遷就實作:空車本來就沒有選車欄, 在那裡講「車款讀不到」是噪音。
+  const seedOneLine = () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+  };
+
+  it('failed=true ⇒ 那句話在(role="alert")', async () => {
+    seedOneLine();
+    render(<CartView motoBrands={[]} vehicleTaxonomyFailed />);
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole('alert').some((el) => el.textContent?.includes('車款清單暫時無法載入')),
+      ).toBe(true),
+    );
+  });
+
+  it('🔵 負對照:清單是空的【而沒有失敗】⇒ 那句話不得出現', async () => {
+    seedOneLine();
+    render(<CartView motoBrands={[]} vehicleTaxonomyFailed={false} />);
+    // 🔵 先等那一列真的畫出來, 否則這個 null 只代表「還沒渲染」
+    await screen.findByText(/給哪台車用/);
+    expect(screen.queryByText(/車款清單暫時無法載入/)).toBeNull();
+  });
+});

@@ -18,6 +18,7 @@ import { addVehicle, updateVehicle, deleteVehicle } from '@pcm/use-cases';
 import { VehicleInput } from '@pcm/schemas';
 import { getVehicleRepo } from '@/lib/auth/composition';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { VEHICLE_TAXONOMY_UNAVAILABLE } from '@/components/products-message-state';
 import { fetchVehicleTaxonomy } from '@/lib/products';
 
 // 逐欄 fieldErrors(僅 name;VehicleInput 只 name 必填、其餘選填無格式驗證、無巢狀 → 比 address invoice 簡單)。
@@ -42,7 +43,7 @@ async function validateDictPair(data: VehicleInput): Promise<AddVehicleActionRes
   if (data.dictBrandName === null) return null;
   const taxonomy = await fetchVehicleTaxonomy();
   if (taxonomy.length === 0) {
-    return { formError: '車款清單暫時無法載入,請稍後再試或改用自行輸入' };
+    return { formError: VEHICLE_TAXONOMY_UNAVAILABLE };
   }
   const brand = taxonomy.find((b) => b.name === data.dictBrandName);
   const model = brand?.models.find((m) => m.name === data.dictModelName);

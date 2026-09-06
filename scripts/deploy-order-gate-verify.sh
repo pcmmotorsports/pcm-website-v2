@@ -100,6 +100,12 @@ setup_repo() { # $1=repo 路徑
   # 🔴 **唯一 parser 也要進去** —— 閘 source 不到它會 fail-closed `exit 2` ⇒ 每一格都紅,
   #    而那個紅講的是「fixture 少了一支檔」不是「閘判錯」。🔵 它大聲擋住而不是靜默放行 = 正確。
   cp "$(dirname "$GATE_SRC")/lib-migration-header-marks.sh" "$R/scripts/lib-migration-header-marks.sh"
+  # 🔴🔴 **分類器與剝法也要進去** —— 2026-09-06 把修法丙抽成單一來源之後,
+  #    閘會去叫 `scripts/ledger-drift-classify.sh`。少了它, 閘會走「不降級」那條路
+  #    ⇒ `A` / `G` / `H` 三格翻紅, **而那個紅講的是「fixture 少了兩支檔」不是「閘判錯」**。
+  #    🔵 而它【大聲擋住而不是靜默放行】= 正確 —— 閘那一行逐字說「這不是『查過而乾淨』」。
+  cp "$(dirname "$GATE_SRC")/ledger-drift-classify.sh"   "$R/scripts/ledger-drift-classify.sh"
+  cp "$(dirname "$GATE_SRC")/lib-ledger-drift-strip.sh"  "$R/scripts/lib-ledger-drift-strip.sh"
   ( cd "$R" && git init -q && git config user.email t@t && git config user.name t && git config commit.gpgsign false )
   # 🔴 兩句, 不是一句 —— codex R1 must-fix:漂移測資把註解加在 **EOF** 時,
   #    剝完之後兩份剛好都以那一句結尾, **撞名的舊實作也會綠** ⇒ A 是假證明。

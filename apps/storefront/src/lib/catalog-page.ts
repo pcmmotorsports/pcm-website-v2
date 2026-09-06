@@ -1,5 +1,6 @@
 import { hasNoRealImage, parseImageTrim } from '@pcm/domain';
 
+import { formatCardFits } from '@/lib/product-card-fits';
 import type { MockProduct, UIFitment } from '@/data/mock-products';
 
 export type CatalogListRow = {
@@ -75,8 +76,28 @@ export function catalogRowToUIProduct(row: CatalogListRow): CatalogCardProduct {
     brandSlug: row.brand_slug ?? undefined,
     name: row.title ?? '',
     subtitle: row.subtitle ?? undefined,
-    fits: row.fits ?? '通用款',
-    fitments: toCardFitments(row.fitments),
+    // 🔴🔴 **卡片這條路【不帶 fitments 陣列】—— 只帶算好的那句字串。**(2026-09-06 線 `front`)
+    //   量到的:preview 上 `/products?per=100&vehicle=ducati:scrambler-1100-club-italia`
+    //   回應 **4,477,365 bytes**、其中 `motoBrand` 出現 **40,278** 次;不帶車的同一頁 693,655 / 239
+    //   ⇒ 每筆 fitment ≈ 95 bytes(兩個獨立車款各算一次:96.5 與 94.5, 對得起來)。
+    //   而那整包在清單頁的**唯一**用途, 是 `ProductCard.tsx` 那一行 `formatCardFits(p.fitments, p.fits)`
+    //   ⇒ 它把陣列收成「N 款車型」或「單一車款 + 年份」**一個字串**。
+    //   ⇒ 📌 **送 40,278 筆進瀏覽器, 產出是四個字。** 而它同時把那頁的 `unstable_cache`
+    //   條目推過 2 MB 上限 ⇒ 正式站逐字 `items over 2MB can not be cached (2679379 bytes)`
+    //   ⇒ **那個 key 永遠寫不進去**(板列 `⟦search-CATALOGPAGE2MB⟧`)。
+    //
+    // 🟢 **為什麼畫面逐字不變**:`formatCardFits(undefined, x)` 第一句就是
+    //   `if (!fitments || fitments.length === 0) return fallback;` ⇒ 回的是這裡算好的同一個字串。
+    //   ⇒ 🛑 **`ProductCard` 一個字都沒改** ⇒ 它其他呼叫端(走 domain 那條路、`fitments` 是真的)行為零改動。
+    //
+    // 🛑 **`fitments` 這個鍵【整個不給】, 不是給 `undefined`** —— RSC/JSON 對兩者不保證同一個 bytes,
+    //   而本片存在的理由就是 bytes。⇒ 型別上它是選填, 不給是合法的。
+    // ⚠️ **代價寫明**:`CatalogCardProduct.fits` 的語意從「DB 原始字串」變成「**顯示標籤**」。
+    //   卡片那條路上沒有別人讀它的原始值(`git grep -n 'CatalogCardProduct' -- apps/ packages/` ⇒
+    //   消費端 `ProductCard` / `ProductRail` / `ProductsPage` / `BrandPage*` / `brand-products.ts`,
+    //   逐支 grep `fitments` ⇒ **只有 `ProductCard.tsx:265` 是執行碼, 其餘命中全是註解**)。
+    //   🔴 而 PDP / 購物車那條路**不經過本函式**(它們走 domain mapper)⇒ 那邊的 `fits` 仍是原始值。
+    fits: formatCardFits(toCardFitments(row.fitments), row.fits ?? '通用款'),
     // 🔴 **這裡刻意【不】補預設值。**原本是 `row.price_general ?? 0`,而那一行把
     //   「查不到價格」偽造成「0 元」。Sean 2026-08-25 拍板之後,那兩件事的處置**相反**:
     //     · `null`(查不到)⇒ 卡片留著、價格印「—」(他當天稍晚拍的乙案)

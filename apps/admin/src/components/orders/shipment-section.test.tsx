@@ -516,3 +516,92 @@ describe('⟦5b-TRACKNUMGAP1⟧ 片 B · 更正單號的入口 —— 而它的�
     expect(screen.queryByRole('button', { name: '填單號並標記出貨' })).toBeNull();
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════
+// ⟦ship-HCTLABELCAPTURE⟧ 片 D3:「列印託運標籤」那顆鈕(`Q-標籤7` Sean 2026-09-06 拍乙)
+// ══════════════════════════════════════════════════════════════════════
+//
+// 🔴 **這顆鈕的存在條件有三格, 而三格各自的【不出現】理由不同** ——
+//    所以四個世界要分開問, 不能只問「它在不在」。
+// 🛑 **本區擋不到的**:jsdom 不是真瀏覽器 ⇒ 量不到那一排在窄畫面會不會擠出去。
+//    那一格在 `shipment-buttons-fit-browser.test.tsx`(真 playwright)。
+//    ⛔ ~~我原本寫 `shipment-section-buttons-browser.test.tsx`~~ —— **那支檔不存在**
+//      (code-reviewer 2026-09-06 `ls` 該目錄核出來)。
+//      📌 這種句子的作用是**關掉下一個人的尋找動作** ⇒ 他 grep 會拿到 0, 而 0 讀起來像「沒人守」。
+describe('片 D3:列印託運標籤鈕', () => {
+  const LABEL_TEXT = '列印託運標籤';
+  /** 「列印出貨明細單」那顆的 class —— 新鈕**逐字沿用**它(稿裡沒有這顆鈕, 見元件註解)。 */
+  const SHARED_BTN_CLASS =
+    'border-border bg-card hover:bg-muted text-foreground inline-flex items-center rounded-md border px-2.5 py-1 text-xs';
+
+  const box = (over: Record<string, unknown>, hctStatus = 'submitted') => [
+    {
+      shipment: { ...emptyBox('LBL1'), shippedAt: '2026-09-06T00:00:00Z', ...over },
+      lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }],
+      hctStatus,
+      hctPlaceholderStuck: false,
+    },
+  ];
+
+  it('hct + 已送出 + 未作廢 ⇒ 鈕在, href 對, 而且【開新分頁】', async () => {
+    loadOrderShipments.mockResolvedValue(box({}));
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    const link = screen.queryByText(LABEL_TEXT)?.closest('a');
+    expect(link, '鈕不見了 ⇒ 員工要貼標籤的那一刻沒有入口, 只有網址打得到').not.toBeNull();
+    expect(link!.getAttribute('href')).toBe('/print/orders/o1/shipping/sh-LBL1/label.pdf');
+    // 🔴 **這一格不是我的偏好, 是稿裡的拍板** —— `orders-admin-v2.html:6123` Sean 2026-08-23 逐字
+    //    「列印單據都是跳新視窗,不是在訂單頁開啟」(`HANDOFF-orders-ui.md:2254` FIX-66 同句)。
+    expect(link!.getAttribute('target'), '沒開新分頁 ⇒ 違反稿裡那條拍板, 員工印完回不到這張單').toBe('_blank');
+    expect(link!.getAttribute('rel')).toBe('noopener');
+  });
+
+  // 🔴 三個【不出現】的世界, 各自的理由不同 —— 一格一個, 不合併。
+  // 🔴🔴 **每一格自己帶分母** —— `toBeNull()` 在「整區根本沒渲染」時也會過。
+  //    ⛔ ~~我原本只寫一格共用的分母格(而它只跑 `draft` 那一種 fixture)~~
+  //      ⇒ **`voidedAt` 與 `carrierCode:'sf'` 那兩個世界沒有任何分母**(code-reviewer 2026-09-06)。
+  //      📌 一個叫做「那三格的分母」的東西, 實際只蓋到三分之一 —— 而它的**標題**讓人以為蓋滿了。
+  const seenBox = () =>
+    expect(screen.queryByText('LBL1'), '箱號都沒畫出來 ⇒ 這一格的 toBeNull 什麼都沒證到').not.toBeNull();
+
+  it('還沒送新竹(draft)⇒ 鈕不出現(按了必定 409, 而那比不出現更糟)', async () => {
+    loadOrderShipments.mockResolvedValue(box({}, 'draft'));
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    seenBox();
+    expect(screen.queryByText(LABEL_TEXT)).toBeNull();
+  });
+
+  it('已作廢 ⇒ 鈕不出現(貼上去的箱子收不回來)', async () => {
+    loadOrderShipments.mockResolvedValue(box({ voidedAt: '2026-09-06T01:00:00Z', voidReason: '裝錯箱' }));
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    seenBox();
+    expect(screen.queryByText(LABEL_TEXT)).toBeNull();
+  });
+
+  // 🔵 `carrierCode:'sf' + hctStatus:'submitted'` 是 **DB 造不出來的組合**
+  //    (`20260805170000_m4b_e10_b2_s1a1_shipments.sql` 逐字
+  //     `CHECK (hct_status = 'draft' OR carrier_code = 'hct')`)⇒ 這一格是**防禦格**,
+  //    它問的是「這顆鈕有沒有自己看 carrierCode」, 不是「這個狀態會發生」。
+  it('不是新竹的箱 ⇒ 鈕不出現(別家貨運沒有這條路;防禦格, 見上方註解)', async () => {
+    loadOrderShipments.mockResolvedValue(box({ carrierCode: 'sf' }));
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    seenBox();
+    expect(screen.queryByText(LABEL_TEXT)).toBeNull();
+  });
+
+  // 🔵 稿裡沒有這顆鈕 ⇒ 樣式是**沿用**同排那顆。這一格釘住「沿用」這件事,
+  //    否則下一個人會各造一組, 而那一排會慢慢長出三種鈕。
+  it('樣式逐字沿用「列印出貨明細單」那顆(稿裡沒有這顆鈕, 所以要釘住沿用)', async () => {
+    loadOrderShipments.mockResolvedValue(box({}));
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    const mine = screen.queryByText(LABEL_TEXT)?.closest('a');
+    const sibling = screen.queryByText('列印出貨明細單')?.closest('a');
+    expect(sibling, '同排那顆不見了 ⇒ 本格的分母是假的').not.toBeNull();
+    expect(mine!.getAttribute('class')).toBe(SHARED_BTN_CLASS);
+    expect(mine!.getAttribute('class'), '兩顆的 class 分岔了 ⇒ 那一排會長出第二種鈕').toBe(
+      sibling!.getAttribute('class'),
+    );
+    // 🔵 **這一格紅了先問一句**:是不是 design token 改版(那時兩顆會【一起】變)?
+    //    是 ⇒ 更新上面那個常數;**不是** ⇒ 有人只改了其中一顆, 那才是本格要抓的。
+    //    📌 差別在:token 改版時 `toBe(sibling)` 仍綠而 hardcode 那格紅;只改一顆時**兩格都紅**。
+  });
+});

@@ -323,7 +323,8 @@ ledger_sanity() { # $1=rev
 #    `--all` 看得到的 ref 集合每台機器不一樣 ⇒ 同一支檔 A 的機器降得了、B 的降不了 = 不對稱。
 #    🔬 換這把尺今天零代價:10 支逐一比對, `--all` 與 `origin/dev` 找到/找不到完全相同。
 #    ⇒ `origin/dev` 上找不到 ⇒ **維持 PENDING, 不猜。**
-LEDGER_HISTORY_REF='origin/dev'
+# ⛔ ~~LEDGER_HISTORY_REF='origin/dev'~~ **搬到 `scripts/ledger-drift-classify.sh` 了**(單一來源),
+#    連同「為什麼寫死、為什麼不用 --all」那整段理由。本檔不再自己持有它。
 
 # 🔴🔴 **名字不可以叫 `strip_sql_line_comments`** —— 本檔 `:406` 早就有一支同名的
 #    (`view_names_of` 在用, 形狀是 `sed -e 's;--.*$;;'`)⇒ **後定義的會蓋掉先定義的**
@@ -332,53 +333,25 @@ LEDGER_HISTORY_REF='origin/dev'
 #       ⇒ 生效的是 `:406` 那一版(它連**字串常值裡的 `--`** 都砍)。
 #    📌 **撞名在 diff 上沒有形狀** —— `bash -n` 綠、三綠綠、六格綠。
 #
-# 🛑 **它只丟【整行都是行註解】的行與空行。刻意【不碰】兩樣東西**:
-#    · **行內的 `--`** —— `'a--b'` 是合法字串常值, 砍它會把語意變更讀成註解漂移(codex R1 must-fix)
-#    · **行尾空白** —— 它可能落在 dollar-quoted 的字串資料裡(同上)
-#    ⇒ 兩者都往【多擋】的方向偏, 而那是安全的方向。
-# ⚠️🔴 **已知盲區, 而它是這一族裡【唯一往「少擋」偏】的那一個**:
-#    一段**多行字串常值**裡若有一行以 `--` 開頭, 這支會把它當註解丟掉
-#    ⇒ 一個**只有那一行變動**的世界會被降級, 而它其實改了資料。
-#    ⚠️ **而它不只一種**(codex R2 must-fix:我原本寫「唯一往少擋偏」——**那句太窄**):
-#      · 多行字串常值裡**以 `--` 開頭的行**   ⇒ 被當註解丟掉
-#      · 多行字串常值裡的**空行 / 純空白行**  ⇒ 被當空行丟掉
-#      🔬 實測:`printf "SELECT 'a\\n\\nb';\\n"` 與 `printf "SELECT 'a\\nb';\\n"`
-#         各自過一次 `grep -vE '^[[:space:]]*(--|$)'` ⇒ **兩個 sha 逐字元相同**。
-#    🔵 對照:`/* */` 塊註解、CRLF、BOM 都往**多擋**偏(安全)。
-#    🛑 **要真的關掉【這一族】得去 lex SQL(引號與 dollar-quote 的狀態機), 而那不在本片的體積裡。**
-#    ✅ **主視窗 `-f8` 2026-09-06 接受為【殘餘風險】, 明示不做。** 板列 `⟦db-LEDGERSHADRIFT⟧` 有同一句。
-#    ⇒ verify 的 `G` / `H` 兩格在演它 —— **它們斷言的是【現況】不是【正確】**;
-#      哪天有人真的去 lex 了, 那兩格會紅, 而那時本註解與板列要一起改。
-ledger_drift_code_only() {
-  grep -vE '^[[:space:]]*(--|$)'
-}
-
+# 🔴🔴 **剝法與分類【已經抽成單一來源】**(主視窗 `-f8` 2026-09-06 逐字「不要再手寫一份等價迴圈」):
+#    · `scripts/lib-ledger-drift-strip.sh`     —— 怎麼剝(整行註解與空行;盲區寫在它檔頭)
+#    · `scripts/ledger-drift-classify.sh`      —— 那到底是 drift / changed / notfound
+#    **另一個消費端是 `scripts/ledger-col2-census.py` 的 ③a/③b 分類。**
+#    ⛔ ~~本檔原本自己有一份 `ledger_drift_code_only` 與整段歷史搜尋~~ ⇒ **兩份等價的碼會分岔,**
+#    **而分岔時沒有東西會叫。** 📌 那正是本 repo 記過太多次的形狀。
+# 🛑 讀不到分類器 ⇒ **不降級**(維持 PENDING)—— 不猜, 而且出聲。
 comment_only_drift() {  # $1=路徑 $2=帳本記的 raw sha $3=被推的 rev;回 0 = 已降級(且已印警告)
-  local f="$1" rec="$2" rev="$3" r found cur_body old_body cur_s old_s
+  local f="$1" rec="$2" rev="$3" verdict kind found
   [ -n "$rec" ] || return 1        # 帳本根本沒記這一支 ⇒ 那是【缺席】不是【漂移】
-  found=""
-  for r in $(git log "$LEDGER_HISTORY_REF" --format=%H -- "$f" 2>/dev/null); do
-    if [ "$(git show "$r:$f" 2>/dev/null | shasum -a 256 | cut -d' ' -f1)" = "$rec" ]; then
-      found="$r"; break
-    fi
-  done
-  [ -n "$found" ] || return 1      # ① 不成立 ⇒ 不猜
-  cur_body="$(git show "$rev:$f" 2>/dev/null | ledger_drift_code_only)"
-  old_body="$(git show "$found:$f" 2>/dev/null | ledger_drift_code_only)"
-  # 🔴 兩邊都剝成空的話, sha 也會相等 ⇒ 那不是「碼相同」, 是「沒有碼」。擋掉。
-  [ -n "$cur_body" ] || return 1
-  cur_s="$(printf '%s' "$cur_body" | shasum -a 256 | cut -d' ' -f1)"
-  old_s="$(printf '%s' "$old_body" | shasum -a 256 | cut -d' ' -f1)"
-  # 🔴 codex R1 must-fix:本檔是 `set -uo pipefail` **無 `-e`** ⇒ 兩條 checksum 管線同時失敗
-  #    會讓 `"" = ""` 成立而**放行**。⇒ 兩個值都必須長得像 sha256 才算數。
-  # 🔴 codex R2 must-fix:`case "$x" in [0-9a-f]*)` **只驗第一個字元**
-  #    ⇒ 一個 64 字元的 `azzz…` 兩道都過。實測我複驗過。⇒ 用【否定字集】驗每一個字元。
-  case "$cur_s" in *[!0-9a-f]*) return 1 ;; esac
-  case "$old_s" in *[!0-9a-f]*) return 1 ;; esac
-  [ "${#cur_s}" = "64" ] && [ "${#old_s}" = "64" ] || return 1
-  [ "$cur_s" = "$old_s" ] || return 1   # ② 不成立 ⇒ 它真的變了 ⇒ 維持 PENDING
+  if [ ! -f scripts/ledger-drift-classify.sh ]; then
+    echo "gate:    ⇒ 找不到 scripts/ledger-drift-classify.sh ⇒ 不降級(維持 PENDING), 而這不是「查過而乾淨」" >&2
+    return 1
+  fi
+  verdict="$(sh scripts/ledger-drift-classify.sh "$f" "$rec" "$rev" 2>/dev/null)"
+  kind="${verdict%% *}"; found="${verdict#* }"
+  [ "$kind" = "drift" ] || return 1
   echo "gate: ⚠️ ${f##*/}:帳本的 sha 對不上, **而只有整行註解與空行不同** ⇒ 不算 PENDING(⟦db-LEDGERSHADRIFT⟧)" >&2
-  echo "gate:    在 $LEDGER_HISTORY_REF@${found} 找到帳本記的那一版(raw sha 逐字元相符)" >&2
+  echo "gate:    在 origin/dev@${found} 找到帳本記的那一版(raw sha 逐字元相符)" >&2
   echo "gate:    🛑 這只證明【碼沒變】, 不證明它在正式庫裡真的是那一版 —— 帳本是自陳帳。" >&2
   return 0
 }
