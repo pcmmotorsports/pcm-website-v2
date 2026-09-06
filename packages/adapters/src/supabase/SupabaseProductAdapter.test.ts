@@ -1450,9 +1450,9 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
     //    「舊路要真的送出查詢」那格**恆為 true** ⇒ 它標籤說的那件事已經量不到。
     const captured: {
       ors: string[]; rpcCalls: number; ranged: boolean; ins: string[][];
-      rpcRanged: boolean; rpcRange: [number, number] | null; rpcFn: string | null;
+      rpcRanged: boolean; rpcRange: [number, number] | null;
     } = {
-      ors: [], rpcCalls: 0, ranged: false, ins: [], rpcRanged: false, rpcRange: null, rpcFn: null,
+      ors: [], rpcCalls: 0, ranged: false, ins: [], rpcRanged: false, rpcRange: null,
     };
     const builder: Record<string, unknown> = {};
     Object.assign(builder, {
@@ -1479,36 +1479,22 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
       //    ✅ 現在的形狀**跟著 SDK 走**:回 builder、`.range()` 才 resolve;
       //       而 `rpc` 是**掛在 client 上的方法**(不是箭頭常數)⇒ 碼若再把它拆下來,
       //       `this` 一樣會不見 ⇒ 下面那格 throw 測試會紅。
-      // 🔴🔴 **2026-09-07 換形狀(⟦search-RPC1000FALLBACK⟧)**:v2 回的是**一個 jsonb 純量**
-      //   ⇒ 被測的碼**直接 await `.rpc()`**, 不再 `.range()`。
-      //   ⛔ ~~`return { range: (from, to) => … }`~~ ⇒ ✅ 回一個 thenable。
-      //   🔵 `rpcRanged` / `rpcRange` 兩個欄位**留著**:它們現在守的是「**不該再有 `.range()`**」
-      //     —— 碼若哪天又串上 `.range()`, 那條鏈在這個 mock 上會是 `undefined` ⇒ 當場紅。
-      //   🛑 **`this` 那一格一個字不動** —— 2026-09-03 正式站 503 就是它守的。
-      rpc(fn: string, _args: unknown) {
+      rpc(_fn: string, _args: unknown) {
         captured.rpcCalls += 1;
-        captured.rpcFn = fn;   // 🔴 沒有這格, 把 `_v2` 改回舊函式名不會紅
         // 🔴 摸一下 `this` —— 這是「方法有沒有被拆下來」的**唯一**判別點。
         //    拆下來呼叫時 `this` 是 undefined ⇒ 這一行就丟 TypeError(與真 SDK 同一種死法)。
         void (this as unknown as { from: unknown }).from;
         return {
-          then: (res: (v: unknown) => unknown) => res(rpcResult),
+          range: (from: number, to: number) => {
+            captured.rpcRanged = true;
+            captured.rpcRange = [from, to];   // 🔴 記下兩端 —— 沒有這格, 改 `.range()` 的參數不會紅
+            return Promise.resolve(rpcResult);
+          },
         };
       },
     };
     return { client: client as unknown as SupabaseClient, captured };
   }
-
-  /**
-   * 🔴 v2 的回傳形狀:**jsonb `{ ids, total }`**(⟦search-RPC1000FALLBACK⟧, 2026-09-07)。
-   *   ⛔ 舊形狀 ~~`{ data: [{ id }, …] }`~~ 已作廢 —— 那是 `RETURNS TABLE (id uuid)` 那一代。
-   * 🛑 **`total` 預設【不等於】`ids.length`**:預設多加 7,
-   *   ⇒ 📌 任何把「件數」讀成 `ids.length` 的實作, 在**每一格**都會紅, 不必等大資料集。
-   */
-  const v2 = (ids: string[], total?: number) => ({
-    data: { ids, total: total ?? ids.length + 7 },
-    error: null,
-  });
 
   const NOT_DEPLOYED = [
     { code: 'PGRST202', message: 'Could not find the function' },   // 正式站今天
@@ -1540,8 +1526,8 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
   });
 
   it('🟢 RPC 在的時候:用它的 id 走 .in(),而【不】再組 or()', async () => {
-    // ⛔ ~~`[{ id: 'bbb' }, { id: 'aaa' }]`~~ ⇒ v2 的 ids 是**字串陣列**。
-    const { client, captured } = makeMock(v2(['bbb', 'aaa']));
+    const ids = [{ id: 'bbb' }, { id: 'aaa' }];
+    const { client, captured } = makeMock({ data: ids, error: null });
     await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
     expect(captured.ors, 'RPC 成功時不該再走舊路').toHaveLength(0);
     // ⛔ ~~`.in()` 不保證順序 ⇒ 自己排過, 才與舊路的 `.order('id')` 同序~~
@@ -1559,52 +1545,39 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
     // 🛑 code-reviewer must-fix:逐列驗形狀會把每一列都過濾掉 ⇒ ids 是空的
     //    ⇒ 而空陣列被讀成「走過了而沒找到」⇒ **客人恆得 0 筆且不退舊路**。
     //    📌 「我看不懂它回什麼」不是「沒找到」。
-    // ⛔ ~~`{ data: [{ ident: 'aaa' }, …] }`~~(舊 TABLE 形狀)⇒ v2 是 jsonb;
-    //   「認不得」改成 **ids 陣列裡放的不是字串** —— 同一個病:過濾完是空的, 而那不是「沒找到」。
-    const { client, captured } = makeMock({
-      data: { ids: [{ ident: 'aaa' }, { ident: 'bbb' }], total: 2 },
-      error: null,
-    });
+    const { client, captured } = makeMock({ data: [{ ident: 'aaa' }, { ident: 'bbb' }], error: null });
     await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
     expect(captured.ors, '認不得就要走舊路').toHaveLength(2);
     expect(captured.ins, '不該拿一份認不得的清單去 .in()').toHaveLength(0);
   });
 
-  it('🔴 上游截斷(total > ids)⇒ 【不再】退回舊路, 而件數要報 total', async () => {
-    // ⛔ ~~『超過 db-max-rows 上限 ⇒ 退回舊路, 不得拿殘缺清單當全部』~~
-    // 🔴🔴 **2026-09-07 期望值反過來了**(板列 ⟦search-RPC1000FALLBACK⟧):
-    //   舊行為的代價是量到的 —— 五詞三退, **客人搜「煞車」拿到的是舊排序**, 而畫面上沒有一句話說。
-    //   ✅ v2 自己回 `total` ⇒ 「被截了」不必再靠筆數去猜, 也不必放棄新排序。
-    const many = Array.from({ length: 1001 }, (_, i) => `id-${i}`);
-    const { client, captured } = makeMock(v2(many, 2593));   // 2593 = db 量到的「煞車」真實命中數
-    const res = await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', {
-      limit: 8,
-      offset: 0,
-    });
-    expect(captured.ors, '🔴 不可以再退回舊路').toHaveLength(0);
-    expect(res.total, '件數要報 RPC 的 total').toBe(2593);
+  it('🔴 超過 db-max-rows 上限 ⇒ 退回舊路, 不得拿殘缺清單當全部', async () => {
+    // 🛑 PostgREST 超過 db-max-rows 會【靜默截斷】並回 200 ⇒ 「剛好 N 筆」與「被砍成 N 筆」同形
+    //    ⇒ 多要一筆當尺:拿回來超過 cap ⇒ 知道被截了 ⇒ 退回舊路(舊路的 count 是 exact)。
+    const many = Array.from({ length: 1001 }, (_, i) => ({ id: `id-${i}` }));
+    const { client, captured } = makeMock({ data: many, error: null });
+    await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
+    expect(captured.ors, '被截斷就要走舊路').toHaveLength(2);
   });
 
   it('🔴 分頁:offset 不是 0 時要拿【那一頁】的 id, 而不是永遠拿前 N 個', async () => {
     // 🛑 code-reviewer nit:先前每一格都 offset:0 ⇒ 把 slice(offset, offset+limit)
     //    改成 slice(0, limit) 四格全綠 ⇒ 分頁那個宣稱沒有任何一格守得住。
-    const ids = Array.from({ length: 20 }, (_, i) => `id-${String(i).padStart(2, '0')}`);
-    const { client, captured } = makeMock(v2(ids));
+    const ids = Array.from({ length: 20 }, (_, i) => ({ id: `id-${String(i).padStart(2, '0')}` }));
+    const { client, captured } = makeMock({ data: ids, error: null });
     await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 3, offset: 5 });
     expect(captured.ins[0]).toEqual(['id-05', 'id-06', 'id-07']);
   });
 
   it('🔴 total 是【全部命中數】不是【這一頁的筆數】', async () => {
     // 🛑 code-reviewer nit:先前那格完全不看回傳值 ⇒ 把 total 改成 pageIds.length 殺不掉。
-    // 🔴 **`total` 刻意【不等於】20** —— 舊版這格用 `ids.length` 也會過;
-    //   給它一個只有 `total` 答得出來的數字, 讀 `ids.length` 的實作當場紅。
-    const ids = Array.from({ length: 20 }, (_, i) => `id-${String(i).padStart(2, '0')}`);
-    const { client } = makeMock(v2(ids, 2593));
+    const ids = Array.from({ length: 20 }, (_, i) => ({ id: `id-${String(i).padStart(2, '0')}` }));
+    const { client } = makeMock({ data: ids, error: null });
     const res = await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', {
       limit: 3,
       offset: 0,
     });
-    expect(res.total, 'total 要來自 RPC 的 total(2593), 不是 ids.length(20) 也不是這一頁(3)').toBe(2593);
+    expect(res.total, 'total 應為 20(全部命中), 不是 3(這一頁)').toBe(20);
   });
 
   it('🟢 client 沒有 rpc 這個方法 ⇒ 也算「今天沒有這條路」, 走舊路而不是炸掉', async () => {
@@ -1620,24 +1593,20 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
   //    (code-reviewer important 4:`grep -n RPC_ID_CAP` 在本檔 0 命中,
   //     而 mock 的 `range` 把兩個參數丟掉)⇒ 把 `.range(0, CAP)` 改成 `.range(0, 5)`
   //     或整段刪掉 cap 哨兵, **全綠**。這兩格是那把尺。
-  it('🔵 v2 是 jsonb 純量 ⇒ 【不】帶 `.range()`(舊期望已反轉)', async () => {
-    // ⛔ ~~『RPC 要帶 `.range(0, RPC_ID_CAP)` —— 少了它會吃 db-max-rows 靜默截斷』~~
-    // 🔴 舊期望是對的, **而它綁在舊契約上**:`RETURNS TABLE (id uuid)` 是 SETOF ⇒ 會被 db-max-rows 截。
-    //   v2 回**一個 jsonb 純量** ⇒ 沒有列可截 ⇒ 截斷改由 RPC 端自己的 `LIMIT` 負責, 並回 `total` 告知。
-    const { client, captured } = makeMock(v2([]));
+  it('🔴 RPC 要帶 `.range(0, RPC_ID_CAP)` —— 少了它會吃 PostgREST 的 db-max-rows 靜默截斷', async () => {
+    const { client, captured } = makeMock({ data: [], error: null });
     await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
-    expect(captured.rpcRanged, 'v2 不該再 .range()').toBe(false);
-    expect(captured.rpcRange).toBeNull();
+    expect(captured.rpcRanged, '.range() 要真的被呼叫').toBe(true);
+    // 🔴 兩端都釘死:`.range()` 兩端皆含 ⇒ 0..1000 是 1001 筆 = cap + 1,
+    //    而「多要一筆」正是下面那格用來判斷「有沒有被截」的尺。
+    expect(captured.rpcRange).toEqual([0, 1000]);
   });
 
-  it('🔴 叫的是 `_v2` 那支, 而且【不再】對它 `.range()`', async () => {
-    // ⛔ ~~『RPC 回超過 cap(1001 筆)⇒ 可能被截 ⇒ 退回舊路』~~(期望值換掉, 見上一格)
-    // 🔵 這一格接手守兩件**換函式時最容易靜默壞掉**的事:
-    //   ①函式名被改回舊的 ⇒ 客人拿到舊排序而**一切正常** ②又被串上 `.range()`(對 jsonb 純量沒意義)
-    const { client, captured } = makeMock(v2(['p1', 'p2']));
+  it('🔴 RPC 回超過 cap(1001 筆)⇒ 可能被截 ⇒ 退回舊路, 不拿一份可能不完整的 id 清單', async () => {
+    const ids = Array.from({ length: 1001 }, (_, i) => ({ id: `p${i}` }));
+    const { client, captured } = makeMock({ data: ids, error: null });
     await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', { limit: 8, offset: 0 });
-    expect(captured.rpcFn, '要叫 v2').toBe('storefront_search_product_ids_v2');
-    expect(captured.rpcRanged, '不該再對 rpc 呼叫 .range()').toBe(false);
+    expect(captured.ors, '超過 cap 要走舊路').toHaveLength(2);
   });
 
   // 🔵 **nit 6 的守門**:`makeMock` 裡那個 `rpc(){}` 是本片對「方法被拆下來」的唯一判別點,
@@ -1688,9 +1657,7 @@ describe('SupabaseProductAdapter.searchByKeyword — ⟦搜尋-品牌⟧ RPC 不
   it('🔵 RPC 回【空陣列】≠ RPC 不在 —— 前者直接回空, 不得退回舊路', async () => {
     // 📌 「這條路走過了而一筆都沒找到」與「今天沒有這條路」是兩件事,
     //    收斂成同一個會讓「真的沒有這件商品」變成「用比較差的方式再找一次」。
-    // ⛔ ~~`{ data: [], error: null }`~~ ⇒ v2 的「走過了沒找到」是 `{ ids: [], total: 0 }`,
-    //   🛑 **不是 `data: []`** —— 那在 v2 的契約下代表「回的不是物件」⇒ 會被判成契約壞掉而退舊路。
-    const { client, captured } = makeMock(v2([], 0));
+    const { client, captured } = makeMock({ data: [], error: null });
     const res = await new SupabaseProductAdapter(client).searchByKeyword('rpm rsv4', {
       limit: 8, offset: 0,
     });
@@ -1996,13 +1963,8 @@ describe('searchByKeyword — 列的順序由【上游】決定, 不由 PostgRES
     const ids = ['c', 'a', 'b'];
     const captured: { pageIds?: string[] } = {};
     const client = {
-      // ⛔ ~~`return { range: () => Promise.resolve({ data: ids.map((id) => ({ id })) … }) }`~~
-      // 🔴 2026-09-07 v2:回 **jsonb `{ ids, total }`** 的 thenable, 不再 `.range()`。
       rpc() {
-        return {
-          then: (res: (v: unknown) => unknown) =>
-            res({ data: { ids, total: ids.length }, error: null }),
-        };
+        return { range: () => Promise.resolve({ data: ids.map((id) => ({ id })), error: null }) };
       },
       from() {
         const b: Record<string, unknown> = {};
