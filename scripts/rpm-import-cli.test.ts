@@ -15,6 +15,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -84,4 +85,29 @@ describe('rpm-import CLI:writeAllowed 硬鎖行為(must-fix M4)', () => {
     },
     CLI_TIMEOUT,
   );
+});
+
+
+// ── ⟦b4-WITHHELD1⟧ 那一行【有沒有被接上】的證人(2026-09-07 `-ship`)────────────────
+// 🔴🔴 **為什麼要有這一格, 而它是被一發突變逼出來的**:
+//    我把 `rpm-import.ts` 裡呼叫 `formatWithheldOrphans(...)` 的那一段**整段拿掉**
+//    ⇒ `vitest related` **rc=0, 85 格全綠** ⇒ 📌 **那個功能可以整個消失而沒有任何東西會叫。**
+//    (那支格式化器自己有三格純測試 —— 而**測到「它算得對」不等於測到「它被叫到」**。)
+//
+// 🛑 **這一格的射程要寫清楚, 不要讓下一個人高估它**:
+//    它是**靜態**檢查 —— 它證的是「那個呼叫【寫在那支檔裡】」,
+//    **不是**「那一輪 import 真的把那一行印出來了」。
+//    ⇒ 🔴 一個被 `if (false)` 包住的呼叫, 這一格照樣綠。
+//    ⇒ 要證後者要真的跑一輪 import(需要 target 連線)⇒ **不在本格範圍**。
+describe('⟦b4-WITHHELD1⟧ withheld-orphans 那一行有沒有被接上(靜態)', () => {
+  const src = readFileSync(new URL('./rpm-import.ts', import.meta.url), 'utf8');
+
+  it('🔴 rpm-import.ts 要真的呼叫 formatWithheldOrphans', () => {
+    expect(src).toContain('formatWithheldOrphans({');
+  });
+
+  it('⚪ 負對照:同一把尺對一個現造的函式名【必須找不到】', () => {
+    // 少了它, 一支「永遠 toContain」的假斷言會讓上面那格恆綠。
+    expect(src).not.toContain('qvx7719NeverDefinedFormatter(');
+  });
 });

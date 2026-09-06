@@ -63,4 +63,21 @@ export const TEST_ACCOUNT_EMAILS_IN_CUSTOMER_COUNT: readonly string[] = [
   ...TEST_ACCOUNT_EMAILS,
   // 2026-08-18 tappay sandbox 測試帳號:0 張單 ⇒ 不影響對帳三卡, 而它【是一位客戶】
   'g3-sandbox-test@pcmmotorsports.com',
+  // ── 🔴🔴 **[2026-09-07 `-ship` 唯讀實查:這張清單【少算了兩個】]** ────────────────
+  //   本檔上半的推理是對的(誰影響對帳、誰只影響客戶數, 分兩個常數),
+  //   🛑 **而【清單本身】不是量出來的 —— 它是從板列那兩個座標抄下來的。**
+  //   🔬 對正式庫跑(唯讀, `\set ON_ERROR_STOP on`;`scripts/readonly-prod-sql.sh`):
+  //     `public.customers` 共 **15** 位;`email ILIKE '%sandbox%' OR ILIKE '%test%'` ⇒ **3 位**:
+  //       g3-preview-sandbox@pcmmotorsports.com  name=「G3 沙盒測試」 orders_all=0
+  //       g3-sandbox-test@pcmmotorsports.com     name=「G3 沙盒測試」 orders_all=0  ← 本來就在
+  //       uitest@pcmmotorsports.com              name=「UX 測試員」   orders_all=0
+  //     ⚪ 正對照:常數已登記的兩個 ⇒ 兩個都在 `customers` 裡(2 筆)
+  //     🔴 負對照:一個現造信箱 ⇒ **0 筆**;另一發用「格式合法而不存在」的 uuid ⇒ **0**
+  //   ⇒ 🎯 **聯集 = 4 個**, 而這張清單原本是 **2** ⇒ 客戶列表那句話會說「2 個帳號」而實際 4。
+  //   📌 **本檔上半刻意防的是【誇大】**(「把 0 單的加進對帳清單會讓 N 誇大」)——
+  //      而**它防住了誇大, 卻少報了另一面**:🔴 **一個防過度宣稱的設計, 反方向失效時沒有任何東西會叫。**
+  //   ⚠️ **兩個都是 0 張單** ⇒ 照本檔的規矩, 它們**只**進這個清單, **不**進 `TEST_ACCOUNT_EMAILS`。
+  //   ⏰ **怎麼重量**(數字會過期, 而查法不會):跑上面那兩個 ILIKE + 一個現造信箱當負對照。
+  'g3-preview-sandbox@pcmmotorsports.com',
+  'uitest@pcmmotorsports.com',
 ];
