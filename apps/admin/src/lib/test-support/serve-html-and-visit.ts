@@ -66,6 +66,10 @@ export type ServeHtmlOptions = {
    *    (`TypeError: fetch failed` / `SocketError: other side closed` / `bytesRead: 0`)。
    *    ⇒ 🛑 **那正是我在這支檔裡剛拿掉的那個假設 —— 我在它的測試裡又犯了一次。**
    *    ⇒ ✅ 交 origin ⇒ 測試打的位址**與 `goto` 打的完全同一個**, 不再各自拼。
+   * 🔴 **重試那一發會【再叫它一次】, 而 origin 不同**(R2 nit)——
+   *    每一發都重新 `createServer` + `listen(0)` ⇒ **port 是新的**。
+   *    ⇒ 📌 呼叫端若把 origin 記在外面, 記到的會是**最後那一發**的;
+   *      而它若在 `onOrigin` 裡累積東西, 那個陣列會有**兩發的量**。
    * 🛑 **正式呼叫端不要用它** —— 它不是給測試檔以外的人用的鉤子。
    */
   onOrigin?: (origin: string) => Promise<void>;
@@ -111,10 +115,17 @@ export async function serveHtmlAndVisit<T>(
       //    **30 秒導航逾時**, 而那個錯**不在 `RETRYABLE` 名單上** ⇒ 原樣丟。
       //    ⇒ 📌 一個「呼叫端寫錯」會長成「機器很忙」的樣子, 而且**重試救不了它**。
       //    ⇒ ✅ 回 500:它是**一個看得懂的回應**, 而看得懂的錯比一個 30 秒的沉默好。
+      // 🛑🛑 **射程:這道 `try` 只接得住【同步的那一半】**(R2 nit)——
+      //    呼叫端在 `req.on('data'/'end')` 的**回呼裡**丟錯, 那已經是另一個 tick,
+      //    **這裡接不到** ⇒ 那個請求一樣會永遠沒有回應。
+      //    ⇒ 📌 **所以本段擋住的是「handle 本體丟錯」, 不是「handle 這條路上的任何錯」** ——
+      //      不要把它讀成後者。(要擋後者得由呼叫端自己在回呼裡包, helper 看不到那一層。)
       try {
         if (opts.handle?.(req, res) === true) return;
       } catch (err) {
-        res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
+        // 🔴 `headersSent` 要問一次(R2 nit):呼叫端可能**已經 `writeHead` 過**才丟錯
+        //    ⇒ 這裡再寫一次 header 會**丟出第二個錯**, 而那個錯會蓋掉原本那個。
+        if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
         res.end(`handle threw: ${err instanceof Error ? err.message : String(err)}`);
         return;
       }
