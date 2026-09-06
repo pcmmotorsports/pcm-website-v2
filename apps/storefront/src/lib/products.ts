@@ -764,7 +764,9 @@ export async function fetchCategories(): Promise<MockCategory[]> {
  *   這是**刻意的取捨**(view 端正規化實測 413ms→1,170ms 且排序溢出磁碟),
  *   守門在 `products-vehicle-taxonomy.test.ts` 的「字面變體」那格。⇒ 別把那個 normalize 拿掉。
  *
- * 分頁:PostgREST `db-max-rows` 硬上限 ⇒ .range 迴圈(MAX_PAGES 防呆)。
+ * ⛔ ~~分頁:PostgREST `db-max-rows` 硬上限 ⇒ .range 迴圈(MAX_PAGES 防呆)。~~
+ * 🔴 **2026-09-06 起【不再分頁】** —— 改成一發 `.rpc('get_vehicle_taxonomy')`(Sean 線 db 裁乙, 貼板 52)。
+ *   成因見下方那一大段的 `[已作廢]` 標頭。**舊字面留刪除線, 讓搜 `db-max-rows` 的人同一發撞到訂正。**
  *   🔴 ~~原寫「Max rows=1000」~~ 已過期 ⇒ **2026-08-18 實測 2000**;
  *   **這一行與下面 `:683-696` 那段講的是同一個值** —— 那段有完整的量法與隱形依賴說明,
  *   ⚠️ 而它 2026-08-18 被補上時,**本行與 `:304` 兩處沒有跟著改** ⇒ 同一支檔內三處、只改了一處。
@@ -786,6 +788,17 @@ export async function fetchCategories(): Promise<MockCategory[]> {
 const getVehicleTaxonomyCached = unstable_cache(
   async (): Promise<MockMotoBrand[]> => {
     const client = createSupabaseAnonClient();
+    // ══════════════════════════════════════════════════════════════════════════════
+    // ⛔⛔ **[已作廢 · 2026-09-06] 以下到「分頁準則逐條」那一段, 描述的是【已經被拿掉的分頁路徑】。**
+    //   🔴 **一個字都沒刪, 而它【不是】現行行為** —— 現行做法在再下面:一發 `.rpc('get_vehicle_taxonomy')`。
+    //   🟢 **留著的理由是它記著三件【仍然成立】的事**:
+    //     ① `db-max-rows` 住在 Supabase 面板、不在這個 repo ⇒ **改它的人看不到任何一行碼**
+    //        —— 那個隱形依賴對**別的** `.range()` 迴圈仍然成立(backlog `#629`)。
+    //     ② 那 12 秒的病史(`⟦search-VEHTAXSLOW⟧`)—— 下一個人才知道這裡為什麼長成這樣。
+    //     ③ 🔵 **而 ⑥「翻頁途中被寫入 ⇒ OFFSET 位移 ⇒ 靜默跳列」那筆債, 本次【是真的還掉了】**
+    //        —— 不是變小, 是**沒有 OFFSET 了**。⚠️ 而 keyset 那一格在**別的**迴圈上照舊欠著。
+    //   🛑 **不要照這一段去改現行的碼, 也不要因為「看起來過期」就刪掉它。**
+    // ══════════════════════════════════════════════════════════════════════════════
     /**
      * 🔴 **這個值與 PostgREST `db-max-rows` 之間有一條【隱形依賴】**(2026-08-18 A 窗補;
      * backlog **`#629`**;全文與分母 `docs/specs/2026-08-18-storefront-truncation-inventory.md` §3)。
@@ -863,126 +876,83 @@ const getVehicleTaxonomyCached = unstable_cache(
     //     而其中兩發的 `vehicles` 是 33ms / 40ms —— **暖的**。⇒ `unstable_cache` 未必是純程序記憶體。
     //   📌 **⇒ 判準改成「有沒有這一行」, 因為那是【觀察】。**
     const tVeh = performance.now();
-    const PAGE_SIZE = 1000;
-    const BATCH = 4; // 一次併行幾頁(保守:不是 13 頁全開)
-    const MAX_PAGES = 50; // 防呆:與 adapter listAllByCategory 同上限
     const fitments: NonNullable<MockProduct['fitments']> = [];
 
-    type TaxRow = {
-      moto_brand: string | null;
-      model_code: string | null;
-      year_start: number | null;
-      year_end: number | null;
+    // 🔴🔴 **一發拿完, 不分頁**(Sean 線 db 裁乙 · 2026-09-06 · 貼板 52)——
+    //   🔬 **為什麼換掉分頁**:那 13 頁裡的第 4/5 頁會撞到 `anon statement_timeout = 3s`
+    //     (正式庫唯讀實查:同一個 `ORDER BY` 下 `OFFSET 0` = 108 ms · **`OFFSET 4000` = 843 ms**
+    //      · `OFFSET 12000` = 211 ms —— anti join 走到 offset 那段每頁重算)
+    //     ⇒ throw ⇒ **整包不進快取** ⇒ 下一發又 cold ⇒ 客人每次切分類都等 3 秒。
+    //   ✅ **而全掃只要 211 ms** ⇒ 一發拿完遠在 3 秒之內。板列 `⟦search-CATSWITCHSLOW⟧`。
+    //
+    // 🔴🔴 **三綠在這幾行對「那支函式存不存在」是【瞎的】** —— 下面的 client 型別是**手寫的**,
+    //   `typecheck` 只看得到我寫的形狀, 看不到正式庫裡有沒有 `get_vehicle_taxonomy`。
+    //   ⇒ 📌 **那一維由 `deploy-order-gate` 量**(碼先上而 DB 後貼, 每一把綠都看不見)。
+    //   🛑 **所以「三綠全過」不可以被讀成「這條路通了」** —— 要看貼板 52 貼完之後的實跑。
+    type VehicleTaxonomyRpcClient = {
+      rpc(fn: 'get_vehicle_taxonomy'): PromiseLike<{
+        data: unknown;
+        error: { message: string } | null;
+      }>;
     };
-
-    const fetchPage = async (page: number, withCount: boolean) => {
-      const from = page * PAGE_SIZE;
-      const { data, error, count } = await client
-        .from('vehicle_taxonomy_public')
-        .select(
-          'moto_brand, model_code, year_start, year_end',
-          withCount ? { count: 'exact' } : undefined,
-        )
-        .order('moto_brand')
-        .order('model_code')
-        .order('year_start')
-        .order('year_end')
-        .range(from, from + PAGE_SIZE - 1);
-      if (error) {
-        // 🔴 準則③:throw, 不 break。`break` 會把「第 3 頁掛了」變成「總共只有 3 頁」。
-        throw new Error(
-          `[fetchVehicleTaxonomy] 第 ${page + 1} 頁(offset ${from})失敗: ${error.message}`,
-          { cause: error },
-        );
-      }
-      // 🔴🔴 **`count` 要用 `Number.isFinite` 擋, 不是 `?? null`**(code-reviewer R1 must-fix)——
-      //    PostgREST 回 `Content-Range: 0-N/*` 時 supabase-js 是 `parseInt('*')` ⇒ **`NaN`**,
-      //    而 **`typeof NaN === 'number'`** ⇒ `?? null` 放它過去
-      //    ⇒ `Math.ceil(NaN/1000)` = `NaN` ⇒ 排程整條垮掉 ⇒ **只撈第一頁、靜靜少 92%**,
-      //      而它還會**進 60 秒快取**。🔬 R1 逐分支模擬:NaN 那個世界 1 發、1,000/12,053 列、**零告警**。
-      //    ✅ 同 repo 既有範本:`SupabaseOrderAdapter.ts:1409` 擋的就是這個形狀。
-      //    ⚠️ **口徑**:R1 量到的是【分支行為】, **沒有量到這支 view 真的會回 `*`** ⇒ 不宣稱不可能。
-      return { rows: (data ?? []) as TaxRow[], count: Number.isFinite(count) ? (count as number) : null };
-    };
-
-    // 🔵 第一頁順便拿 `count` —— **只拿來排程**(見準則④)。
-    // ⏱️ **第一頁單獨計時**(2026-09-05)—— 而它要回答一個**具體的**問題:
-    //   🔬 已知:lambda 上 ~945ms/頁, 而我本機 psql ~148ms、`-front` 本機 HTTP 173–220ms
-    //     ⇒ lambda 比兩台【更遠的】機器慢 4.7 倍, **而 region 查過是同區**
-    //       (Vercel `sin1` · Supabase `ap-southeast-1`, 都在新加坡)⇒ **不是距離。**
-    //   🛑 而我先前只能寫「連線建立 / TLS / client 初始化 / 冷啟動 —— 四個都沒量, 不指名」。
-    //   ✅ **這兩個數把那句話變成一個可判的形狀**:
-    //     `first` 含【client 建立 + 第一次連線 + TLS】;`batchAvg` 是**之後**每一頁的平均。
-    //     ⇒ 📌 **`first` 遠大於 `batchAvg` ⇒ 固定成本住在第一發**(連線層)
-    //        **兩者相近 ⇒ 每一頁都在付** ⇒ 那是另一種病(而 RPC 一次往返的收益會小很多)。
-    //   ⚠️ **它證不到【是哪一個】** —— 四個候選它一個都指不出來, 它只分得出「一次」與「每次」。
-    const tFirst = performance.now();
-    const first = await fetchPage(0, true);
-    const msFirstPage = Math.round(performance.now() - tFirst);
-    const tRest = performance.now();
-    let pagesAfterFirst = 0;
-    const pages: TaxRow[][] = [first.rows];
-    // 🔴 `count` 為 null(PostgREST 沒回)⇒ 退回 `MAX_PAGES`, **不讓排程依賴它**。
-    const plannedPages =
-      first.count === null ? MAX_PAGES : Math.min(MAX_PAGES, Math.ceil(first.count / PAGE_SIZE));
-    let done = first.rows.length < PAGE_SIZE; // ← 終止判準:**短頁**
-    let next = 1;
-    while (!done && next < MAX_PAGES) {
-      // ⚠️ **`count` 偏小的時候, `Math.max(plannedPages, next + 1)` 會讓這裡退化成【一批一頁】**
-      //    ⇒ 資料仍然全到(終止判準是短頁), **而這一片的 12 秒收益靜靜歸零, 沒有任何訊號**(R1 nit)。
-      const upper = Math.min(next + BATCH, MAX_PAGES, Math.max(plannedPages, next + 1));
-      const batch: number[] = [];
-      for (let p = next; p < upper; p += 1) batch.push(p);
-      // 🔴 這一行原本是【唯一一條跳過下面那道 warn 的出口】(R1 must-fix)——
-      //    而 `upper >= next + 1` 恆成立(`Math.max(plannedPages, next + 1)`)⇒ 它**到不了**。
-      //    ⚠️ 留著當防呆, 而**若真的到了, 那是 bug 不是正常結束** ⇒ 出聲。
-      if (batch.length === 0) {
-        console.warn('[fetchVehicleTaxonomy] 排程算出空批次 —— 這條路照理到不了, 有東西壞了');
-        break;
-      }
-      const got = await Promise.all(batch.map((p) => fetchPage(p, false)));
-      pagesAfterFirst += got.length;
-      for (const g of got) {
-        pages.push(g.rows);
-        // 🛑 短頁之後那幾頁**照樣收下**(同一批一起發的, 內容仍然有效);
-        //    而**不再排新的一批** —— 這就是終止。
-        if (g.rows.length < PAGE_SIZE) done = true;
-      }
-      next = upper;
+    const { data, error } = await (client as unknown as VehicleTaxonomyRpcClient).rpc(
+      'get_vehicle_taxonomy',
+    );
+    if (error) {
+      // 🔴 準則③:throw, 不吞。把「掛了」誠實傳上來 —— 而**接住它的是 `tryVehicleTaxonomy`**,
+      //   那一層 catch 之後回**空陣列**(板列 `⟦front-PDPTAXONOMYEMPTY⟧` 記著它的代價)。
+      throw new Error(`[fetchVehicleTaxonomy] get_vehicle_taxonomy 失敗: ${error.message}`, {
+        cause: error,
+      });
     }
-    if (!done && next >= MAX_PAGES) {
-      console.warn(
-        `[fetchVehicleTaxonomy] 撞到 MAX_PAGES=${MAX_PAGES} 仍是滿頁,車輛下拉可能被截斷`,
+
+    // 🔵 回傳形狀 = `{ n, rows }`, `rows` 是 array-of-arrays `[brand, model, year_start, year_end]`。
+    //   **不信任 payload 的形狀** —— 它從網路來, 而 `jsonb` 在型別上是 `unknown`。
+    const payload = data as { n?: unknown; rows?: unknown } | null;
+    const n = typeof payload?.n === 'number' && Number.isSafeInteger(payload.n) ? payload.n : null;
+    const rows = Array.isArray(payload?.rows) ? (payload.rows as unknown[]) : null;
+    if (n === null || rows === null) {
+      throw new Error(
+        `[fetchVehicleTaxonomy] get_vehicle_taxonomy 回傳形狀不對(n=${String(payload?.n)} rows=${
+          Array.isArray(payload?.rows) ? 'array' : typeof payload?.rows
+        })`,
+      );
+    }
+    // 🔴🔴 **第四個數:我拿到幾列 vs 它說有幾列**(鐵則 11 那一格套在資料上)——
+    //   🛑 **少了它, 一份【被截斷的】回應與一份完整的回應長得一模一樣**:兩邊都是合法的 JSON、
+    //     都有 rows、畫面都畫得出來, 而客人的車款下拉**安靜地少一半**。
+    //   ⇒ 📌 這是本片唯一擋得住「靜默截斷」的東西, 它比整份 payload 還重要。
+    if (rows.length !== n) {
+      throw new Error(
+        `[fetchVehicleTaxonomy] 列數對不上:回傳說 n=${n}, 而實收 ${rows.length} 列`,
       );
     }
 
     console.info(
-      `[vehicleTaxonomy] cold pages=${pages.length} rows=${pages.reduce((n, p) => n + p.length, 0)} ` +
-        `batch=${BATCH} first=${msFirstPage}ms ` +
-        // 🔵 之後那幾頁是【併行】的 ⇒ 這個平均是「牆鐘 ÷ 頁數」, **不是每頁各自的耗時**。
-        //    它與 `first` 可比的地方在於:兩者都是「拿到一頁要等多久」的量級。
-        `restAvg=${pagesAfterFirst > 0 ? Math.round((performance.now() - tRest) / pagesAfterFirst) : -1}ms ` +
-        `ms=${Math.round(performance.now() - tVeh)}`,
+      `[vehicleTaxonomy] cold n=${n} ms=${Math.round(performance.now() - tVeh)}`,
     );
 
-    for (const rows of pages) {
-      for (const r of rows) {
-        fitments.push({
-          motoBrand: r.moto_brand ?? '',
-          modelCode: r.model_code ?? '',
-          ...(r.year_start === null ? {} : { yearStart: r.year_start }),
-          yearEnd: r.year_end, // null = 開放式(direct 表的既有語意,見檔頭)
-        });
-      }
+    for (const row of rows) {
+      const t = row as unknown[];
+      fitments.push({
+        motoBrand: typeof t[0] === 'string' ? t[0] : '',
+        modelCode: typeof t[1] === 'string' ? t[1] : '',
+        ...(typeof t[2] === 'number' ? { yearStart: t[2] } : {}),
+        // null = 開放式(direct 表的既有語意, 見檔頭)—— 非數字一律當開放式, 不編一個年份出來。
+        yearEnd: typeof t[3] === 'number' ? t[3] : null,
+      });
     }
     // 每列包成獨立一筆 fitment 餵原衍生函式:buildVehicleTaxonomy 只讀 p.fitments、
     // 不在意來源是不是同一個商品 ⇒ 不必改它(它另有 4 個消費端)。
     return buildVehicleTaxonomy([{ fitments }]);
   },
+  // 🔴 **v3 → v4(2026-09-06, 主視窗裁 A)** —— 形狀沒變, 而**舊條目可能是【安靜截斷】的那一份**:
+  //   舊的分頁路徑撞到 `MAX_PAGES` 時只 `console.warn`、**把撈到多少就存多少**寫進快取。
+  //   ⇒ 換鍵保證上線後第一次讀到的是完整那份;代價只有一次冷重建(現在 ≈ 260 ms)。
   // v2 → v3:C 案(`20260811100000`)換了 view 的資料形狀(年份改由 direct 出)。
   // app 層與 migration 是兩次分開的上線動作 ⇒ 若沿用 v2,apply 前填進去的快取最長 60s
   // 仍以舊形狀供應。換鍵的代價只是一次冷快取,便宜。
-  ['vehicle-taxonomy-v3'],
+  ['vehicle-taxonomy-v4'],
   { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
 );
 
