@@ -44,6 +44,7 @@ export const MANUAL_ORDER_SOURCE_FIELD = 'order_source';
 export const MANUAL_ORDER_PAYMENT_CHANNEL_FIELD = 'payment_channel';
 export const MANUAL_ORDER_SHIPPING_METHOD_FIELD = 'shipping_method';
 export const MANUAL_ORDER_SHIPPING_FEE_FIELD = 'shipping_fee';
+export const MANUAL_ORDER_SHIPPING_FEE_TAX_BASIS_FIELD = 'shipping_fee_tax_basis';
 export const MANUAL_ORDER_SHIP_TO_NAME_FIELD = 'ship_to_name';
 export const MANUAL_ORDER_SHIP_TO_PHONE_FIELD = 'ship_to_phone';
 export const MANUAL_ORDER_SHIP_TO_LINE_FIELD = 'ship_to_line';
@@ -626,8 +627,37 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
   if (shippingFeeRaw === null || !NON_NEG_INT_RE.test(shippingFeeRaw)) {
     return { ok: false, error: '運費要填 0 或正整數(不收就填 0)。' };
   }
-  const shippingFee = Number(shippingFeeRaw);
-  if (shippingFee > INT4_MAX) return { ok: false, error: '運費超出可以記錄的上限。' };
+  const typedShippingFee = Number(shippingFeeRaw);
+  if (typedShippingFee > INT4_MAX) return { ok: false, error: '運費超出可以記錄的上限。' };
+
+  // ── 運費的稅基(⟦b4-SHIPFEETAXBASIS⟧ 2026-09-07;形狀照品項那一格 ⟦b4-PURCHTAX1⟧)──────
+  // 🔴 **成因與品項那一格同一個**:`p_shipping_fee` 進 RPC 時**沒有人說過它是未稅還是含稅**,
+  //    而 RPC 一律當未稅再加 5%。
+  //    🔬 codex `gpt-6-astra` 2026-09-06 算的例子(`-ship` 複核算式):
+  //      含稅品項 4,200(⇒ 未稅 4,000)+ 員工填運費 **105**(他手上那張單的 105 是含稅)
+  //      ⇒ `round((subtotal + shipping) * 0.05)` 算成 **4,310**, 而正確答案 **4,305**
+  //      ⇒ 📌 **差 5 元, 而每一筆都長得很正常。**
+  // 🔴 **封閉值集, 不接受第三種值** —— 同品項那一格的理由:「看不懂就當未稅」會讓一個壞掉的
+  //    表單靜默送出一個**沒有人宣告過**的稅基。
+  // 🔵 **共用 `untaxedFromTaxed` 與 `taxBasisProblemMessage`** ——
+  //    瀏覽器擋下來時說的、與 server 拒絕時說的必須是**同一句**。
+  // 🛑 **這一格【不是】品項那個 `isEmptyRow` 的世界**:那句「刻意不算在裡面」講的是
+  //    **品項列**的空列判斷(一組永遠有值的 radio 會讓空白開場列不再算空)——
+  //    運費是**單一欄位、不成列**, 沒有「這一列空不空」這個問題 ⇒ 不受那條約束。
+  const shippingTaxBasis = readSingleString(form, MANUAL_ORDER_SHIPPING_FEE_TAX_BASIS_FIELD);
+  if (
+    shippingTaxBasis !== MANUAL_ORDER_LINE_TAX_BASIS_UNTAXED &&
+    shippingTaxBasis !== MANUAL_ORDER_LINE_TAX_BASIS_TAXED
+  ) {
+    return { ok: false, error: '運費沒有說是未稅還是含稅。請重新整理這一頁,重新填一次。' };
+  }
+  let shippingFee = typedShippingFee;
+  if (shippingTaxBasis === MANUAL_ORDER_LINE_TAX_BASIS_TAXED) {
+    const converted = untaxedFromTaxed(typedShippingFee);
+    // 🔴 除不盡 ⇒ **擋下來**, 不四捨五入(同品項那一格:`Math.round` 蓋掉它就是安靜地改錢)。
+    if (converted === null) return { ok: false, error: taxBasisProblemMessage('運費', typedShippingFee) };
+    shippingFee = converted;
+  }
 
   const name = readSingleString(form, MANUAL_ORDER_SHIP_TO_NAME_FIELD);
   const phone = readSingleString(form, MANUAL_ORDER_SHIP_TO_PHONE_FIELD);

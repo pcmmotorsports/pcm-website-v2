@@ -183,6 +183,8 @@ describe('🔴 表單送不出 actor —— 那一格在型別與 DOM 上都不�
         'payment_channel',
         'shipping_method',
         'shipping_fee',
+    // ⟦b4-SHIPFEETAXBASIS⟧(2026-09-07):運費那一格的稅基 select。
+    'shipping_fee_tax_basis',
         'ship_to_name',
         'ship_to_phone',
         'ship_to_line',
