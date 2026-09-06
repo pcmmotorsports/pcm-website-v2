@@ -95,12 +95,20 @@ describe('database.types.ts 檔頭的手動校正計數 = 實際條目', () => {
   //    ⇒ 📌 所以這一格是**另一把尺**:它去型別本體數那個欄名到底出現幾次。
   //    ⚠️ 射程:它只認得**這一個欄名**。其他手動校正沒有這道保險 —— 那是已知缺口, 不是漏寫
   //      (要做成通則得先有一份「條目 → 它改了哪些識別字」的對照, 而那份今天不存在)。
-  it('🔴 ⑲ 說「六處」⇒ 兩個欄名在型別本體裡各要真的有三處', () => {
+  // 🔵 **2026-09-06 ⟦mail-PROVMSGIDUI⟧ 把 ⑳ 的欄名也加進來**(R1 opus nit)——
+  //    ⑳ 宣稱「三處」而上面那一格同樣只數旁白 ⇒ 刪掉 Row / Insert / Update 任一處照樣全綠。
+  //    📌 這一格的射程仍然是「**它只認得【被列進下面那個陣列】的欄名**」——
+  //       加一個欄名進去是一個陣列元素, 而**沒被加進來的手動校正照舊沒有這道保險**。
+  it('🔴 ⑲ 說「六處」、⑳ 說「三處」⇒ 這三個欄名在型別本體裡各要真的有三處', () => {
     const src = readFileSync(TYPES_PATH, 'utf8');
     const body = src.slice(src.indexOf('export type Database'));
-    for (const col of ['sent_tracking_number', 'sent_tracking_recorded']) {
+    for (const col of [
+      'sent_tracking_number',
+      'sent_tracking_recorded',
+      'provider_message_id',
+    ]) {
       const hits = body.match(new RegExp(col, 'g')) ?? [];
-      expect(hits.length, `型別本體裡 ${col} 有 ${hits.length} 處, 而 ⑲ 宣稱各三處`).toBe(3);
+      expect(hits.length, `型別本體裡 ${col} 有 ${hits.length} 處, 而條目宣稱各三處`).toBe(3);
     }
     // 🔵 負對照:一個不存在的欄名要數到 0 ⇒ 證明這把尺不是恆真。
     expect((body.match(/zzz_not_a_column/g) ?? []).length).toBe(0);
