@@ -80,6 +80,7 @@ def scan(lines):
        ⇒ 讀 token 的人會以為它還在擋 ⇒ 那是【派重了】的燃料。
     """
     misplaced, done_blocking = [], []
+    ids = {}                               # 識別字 -> [行號…](重複偵測, 見 dup_ids)
     for n, line in enumerate(lines, 1):
         if not line.startswith('| '):
             continue
@@ -91,6 +92,9 @@ def scan(lines):
             continue
         m = re.search(r'⟦[^⟧]*⟧', f[2])
         key = m.group(0) if m else (f[2].strip() or f':{n}')
+        m_id = re.search(r'⟦[^⟧]+⟧|#\d+', f[2])
+        if m_id:
+            ids.setdefault(m_id.group(0), []).append(n)
         tok = leading_token(line, f)
         if tok:
             # ✅ 最後一格開頭有 token ⇒ 它就是答案。**其餘角括號是內文, 不算違規。**
@@ -100,7 +104,8 @@ def scan(lines):
         # ⛔ 開頭沒有 token, 而行內找得到 ⇒ 可能是合併推歪, 也可能【整列只有內文在講 token】。
         #    🛑 工具分不出這兩者 ⇒ 一律報「位移候選」, 而 --fix 只修**全行恰好一個**的情形。
         misplaced.append((n, key, f'{len(toks)} 個, 開頭沒有'))
-    return misplaced, done_blocking
+    dup_ids = sorted((k, v) for k, v in ids.items() if len(v) > 1)
+    return misplaced, done_blocking, dup_ids
 
 
 def fix_line(line):
@@ -133,7 +138,7 @@ def fix_line(line):
 
 def run(path, mode):
     lines = io.open(path, encoding='utf-8').read().split('\n')
-    mis, dblock = scan(lines)
+    mis, dblock, dups = scan(lines)
     if mode == '--check':
         print(f'── board-token-normalize --check:{path}')
         print(f'   最後一格開頭沒有 token 而行內找得到 {len(mis)} 列')
@@ -142,6 +147,13 @@ def run(path, mode):
         if mis:
             print('   🟡 「位移候選」= 開頭沒 token 而行內有角括號。它可能是合併推歪,')
             print('      也可能是【整列只有內文在講 token】⇒ --fix 只修全行恰好一個的情形, 其餘不猜。')
+        print(f'   ── 另外(只警告, 不影響 rc):同一個識別字出現在多列 {len(dups)} 個')
+        for k, ns in dups:
+            print(f'   重複列 {k:32} 出現在 :{ns}')
+        if dups:
+            print('   🔴 **同一件事被數兩次** ⇒ 擋數/進度都會虛胖, 而兩份的內容通常【不一樣】。')
+            print('      🛑 產生器多半是 merge 本身:兩條線改同一列 ⇒ git 逐行比對看不出是同一列的兩版 ⇒ 兩行都留。')
+            print('      ⇒ 修法不是刪一行, 是【開檔比對哪一份是超集】再合;而下一次 merge 還會再來。')
         print(f'   ── 另外(只警告, 不影響 rc):態 done 而 token 仍 ⟨擋⟩ {len(dblock)} 列')
         for n, k, why in dblock:
             print(f'   done+擋 :{n:5} {k}  {why}')
@@ -200,14 +212,16 @@ def check_staged():
     if s.returncode != 0:
         print(f'🟡 board-token 閘:讀不到 staged 的 {BOARD}(rc={s.returncode})⇒ **本閘沒看過**')
         return 0
-    mis, dblock = scan(s.stdout.split('\n'))
+    mis, dblock, dups = scan(s.stdout.split('\n'))
     print(f'── board-token 閘(warn-only, 讀的是 **staged** 那份):{BOARD}')
-    print(f'   最後一格開頭沒有 token 而行內找得到 {len(mis)} 列 · 態 done 而 token 仍 ⟨擋⟩ {len(dblock)} 列')
+    print(f'   最後一格開頭沒有 token 而行內找得到 {len(mis)} 列 · 態 done 而 token 仍 ⟨擋⟩ {len(dblock)} 列 · 重複識別字 {len(dups)} 個')
     for n, k, why in mis:
         print(f'   位移候選 :{n:5} {safe(k)}  {safe(why)}')
     for n, k, why in dblock:
         print(f'   done+擋  :{n:5} {safe(k)}  {safe(why)}')
-    if mis or dblock:
+    for k, ns in dups:
+        print(f'   重複列   {safe(k):28} 出現在 :{ns}  ← 同一件事被數兩次')
+    if mis or dblock or dups:
         print('   🟡 **只是提醒, 不擋這顆 commit**(rc 恆 0)。修法:`python3 scripts/board-token-normalize.py --fix`')
         print('      🔴 而 `--fix` 動的是【工作樹】⇒ 修完要重新 `git add` 才會進這顆 commit。')
     return 0
@@ -240,6 +254,10 @@ def selftest():
         '| open | ⟦x-J⟧ | 癸 | 誰 | ⟨不擋(t)⟩ 這裡在解釋規則:token 是 ⟨未判(…)⟩ 不是 ⟨不擋⟩, '
         '而 ⛔ ~~⟨擋⟩~~ 是舊字面 ⇒ **全列 4 個角括號而只有開頭那個算** |',
         '| done | ⟦x-K⟧ | 子 | 誰 | ⟨—⟩ done 而開頭不是擋, 內文提到 ⟨擋⟩ ⇒ done+擋 必須【不】叫 |',
+        # 🔴 重複識別字的兩個世界(2026-09-07 加;起因 = #64 被 merge 複製兩次而零守門出聲)
+        '| open | #77 | 丑 | 誰 | ⟨擋(t)⟩ 正對照第一份:同一個 #77 出現兩列 ⇒ 必須叫 |',
+        '| parked | #77 | 丑 | 誰 | ⟨擋(t)⟩ 正對照第二份(內容不同, 這正是 merge 產生的形狀) |',
+        '| open | #78 | 寅 | 誰 | ⟨擋(t)⟩ 負對照:唯一的編號 ⇒ 必須【不】叫 |',
     ]
     io.open(bad, 'w', encoding='utf-8').write('\n'.join(rows_bad) + '\n')
     io.open(good, 'w', encoding='utf-8').write('\n'.join(
@@ -252,7 +270,7 @@ def selftest():
         if not ok:
             fails.append(name)
 
-    mis, db = scan(io.open(bad, encoding='utf-8').read().split('\n'))
+    mis, db, dup = scan(io.open(bad, encoding='utf-8').read().split('\n'))
     ck('世界 A(壞)位移列', len(mis), 2)          # x-B, x-D(含跳脫那列)
     # ⛔ ~~原本斷言 x-E 重複相同=1 / x-F 重複不同=1~~
     # ⇒ 🔴 新定義下這兩列【開頭都有 token】⇒ 其餘角括號是內文 ⇒ **本來就不該叫**。
@@ -264,7 +282,12 @@ def selftest():
     ck('x-J(內文 4 個角括號)不算位移', sum(1 for r in mis if r[1] == '⟦x-J⟧'), 0)
     ck('x-J 不算位移(第二次問, 換個角度)', sum(1 for r in mis if r[1] == '⟦x-J⟧'), 0)
     ck('x-K(done, 內文提到 ⟨擋⟩)不算 done+擋', sum(1 for r in db if r[1] == '⟦x-K⟧'), 0)
-    mis2, db2 = scan(io.open(good, encoding='utf-8').read().split('\n'))
+    dupk = dict(dup)
+    ck('重複識別字 正對照 #77 被抓到', '#77' in dupk, True)
+    ck('重複識別字 #77 指出兩個行號', len(dupk.get('#77', [])), 2)
+    ck('重複識別字 負對照 #78 不叫', '#78' in dupk, False)
+    ck('重複識別字 負對照 ⟦x-A⟧(唯一)不叫', '⟦x-A⟧' in dupk, False)
+    mis2, db2, dup2 = scan(io.open(good, encoding='utf-8').read().split('\n'))
     ck('世界 B(乾淨)位移列', len(mis2), 0)
     ck('世界 B(乾淨)位移 2', len(mis2), 0)
     ck('世界 B(乾淨)done+擋', len(db2), 0)
@@ -273,7 +296,7 @@ def selftest():
     print('  ── --fix 之後 ──')
     _before_angle = io.open(bad, encoding='utf-8').read().count('⟨')
     run(bad, '--fix')
-    mis3, _db3 = scan(io.open(bad, encoding='utf-8').read().split('\n'))
+    mis3, _db3, _dup3 = scan(io.open(bad, encoding='utf-8').read().split('\n'))
     ck('修後 位移', len(mis3), 0)
     # ⛔ ~~修後 重複相同=0 / 重複不同(刻意不修)=1~~ ⇒ 兩類已隨新定義移除(見 scan docstring)。
     # ✅ 換成新定義下真正該問的:x-F 開頭有 token ⇒ --fix 不該動它, 它那兩個角括號要原封不動。
