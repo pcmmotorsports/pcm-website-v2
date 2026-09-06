@@ -3,103 +3,130 @@
 -- 🔴 **為什麼有這一支**:Sean 2026-09-06 拍「全部頁面都顯示料號」。
 --   `/products` 目錄頁的卡片資料來自這支 RPC, 而它吐的 `item` jsonb 裡**沒有母料號**。
 --
--- 🟢 **它比看起來便宜, 而那是量出來的**:本函式回傳 `RETURNS TABLE (item jsonb, total bigint)`
---   ⇒ 多一個 key **不改簽章** ⇒ 是 `CREATE OR REPLACE` 不是 DROP+CREATE ⇒ **不動任何權限**。
---   ⇒ 而 `packages/adapters/src/supabase/database.types.ts:4546` 逐字 `Returns: { item: Json; total: number }[]`
---     ⇒ 📌 **生成型別一個字都不會變** ⇒ 手動校正那套流程(㉑)這一片用不到。
+-- ══════════════════════════════════════════════════════════════════════════
+-- 🔴🔴 **本檔的第一版抄錯了來源代, 而那會【回退別人的修法】—— 留痕**
+-- ══════════════════════════════════════════════════════════════════════════
+--   ⛔ ~~第一版逐字搬自 `20260904160000_m4b_search_catalog_multi_category.sql`~~
+--   🔴 而它**不是最後一代** —— `20260904260000_m4b_recommend_sort_with_category.sql` 在它之後,
+--     那一支**拿掉了 12 處** `p_sort = 'recommend' AND cardinality(v_cats) = 0`。
+--   🔬 **同一把尺量三個地方(可重跑)**:
+-- ```
+--   正式庫 prosrc                                   ⇒ 0 次
+--   20260904160000(我第一版抄的)                   ⇒ 12 次
+--   20260904260000(正式庫真正跑的那一代)           ⇒ 0 次
+--   ⇒ 我第一版的產物                                ⇒ 12 次  ⇐ 🔴 會把它們全部加回去
+-- ```
+--   ⇒ 🎯 **貼下去 = 分類頁的排序回到 UUID 序。** 而 `CREATE OR REPLACE` 會**成功、不會紅**。
+--   🛑 **我是怎麼漏掉的**:我跑了 `latest-definition-of.sh`, 而**用 `sed -n '1,12p'` 把輸出截斷了**
+--     —— 最後一代就在第 13 行。📌 **我在哪裡截斷, 決定了我的結論。**
+--   ✅ 抓到它的是 codex(gpt-6-astra)2026-09-06 的 must-fix #1, 不是我。
+--   ✅ **本版逐字搬自 `20260904260000:199-496`。**
 --
--- 🛑 **本體逐字搬自 `20260904160000_m4b_search_catalog_multi_category.sql`, 只動三處**:
---   ① `CREATE FUNCTION` ⇒ `CREATE OR REPLACE FUNCTION`(簽章一個字不改)
---   ② **兩份** `jsonb_build_object` 各加 `'external_id', pe.external_id`
---   ③ **兩份** 最終 SELECT 各加 `LEFT JOIN public.products_public pe ON pe.id = pg.id`
---   🔴 **「兩份」是承重的** —— 本函式有兩份查詢(有車款 / 無車款兩條路), 而來源檔自己的註解逐字
---      寫著「本函式有【兩份】查詢, 兩份都要改」, 同一支檔還記著一個實錘:
---      「我 plan 裡寫三行, 那是**只 grep 到一份查詢**的數, **12 才是對的**」。
---      ⇒ ✅ 驗證腳本有一格突變就是**只改一份**, 它必須紅。
+-- 🟢 **它比看起來便宜, 而那是量出來的**:本函式 `RETURNS TABLE (item jsonb, total bigint)`
+--   ⇒ 多一個 key **不改簽章** ⇒ `CREATE OR REPLACE` 不是 DROP+CREATE ⇒ **不動任何權限**;
+--   而 `packages/adapters/src/supabase/database.types.ts:4546` 逐字 `Returns: { item: Json; total: number }[]`
+--   ⇒ 📌 **生成型別一個字都不會變** ⇒ 手動校正那套(㉑)這一片用不到。
+--
+-- 🛑 **只動兩處 × 兩份**:兩份 `jsonb_build_object` 各加 `'external_id', pe.external_id`;
+--   兩份最終 SELECT 各加 `LEFT JOIN public.products_public pe ON pe.id = pg.id`。其餘一個位元組沒動。
+--   🔴 **「兩份」是承重的** —— 本函式有兩條路(有車款 / 沒車款), 來源檔自己的註解逐字寫著
+--      「本函式有【兩份】查詢, 兩份都要改」。
 --
 -- ── 🔴 它答不出什麼 ───────────────────────────────────────────────────────
---   · 卡片上要**怎麼顯示**那個料號是線【前台】那半(mapper 與 `ProductCard`), 本片只負責**把它送出來**。
---   · `products_list_public` **仍然沒有** `external_id` —— 那是刻意不動(見下面 ② 的註解)。
---   · 本片**沒有**改任何 RLS / GRANT;`products_public` 本來就是 anon 讀得到的投影。
+--   · 卡片上要**怎麼顯示**是線【前台】那半, 本片只負責**把它送出來**。
+--   · 🔴 **「帶車款」那份查詢, 我在拋棄式 PG 裡沒有真的跑過**(要種 fitments)⇒ 貼板 `59b` 第 5 格
+--     就是它第一次被真的跑。**靜態斷言 ≠ 執行過。**
+--   · `products_list_public` 仍然沒有 `external_id` —— 刻意不動(板列 `⟦search-LISTVIEWNOEXTID⟧`)。
 
 BEGIN;
 
 -- ── 前置閘:庫上那一支必須就是我抄的那一代 ──────────────────────────────────
 DO $pre$
 DECLARE
-  v_src  text;
-  v_n    integer;
+  v_src text;
+  v_n   integer;
+  r     record;
 BEGIN
-  -- ① 12 參數那一支必須在(本片 REPLACE 的就是它)
   IF pg_catalog.to_regprocedure(
        'public.search_catalog_by_vehicle(text[],text,text,int,int,int,text,text,text[],int,int,timestamptz)'
      ) IS NULL THEN
-    RAISE EXCEPTION '前置閘①:12 參數那支 search_catalog_by_vehicle 不存在 ⇒ 先貼 20260904160000, 停。';
+    RAISE EXCEPTION '前置閘①:12 參數那支 search_catalog_by_vehicle 不存在 ⇒ 停。';
   END IF;
-
-  -- ② 來源必須有 external_id;而清單投影【沒有】也要在這裡講清楚, 免得下一個人以為可以直接改來源
   IF to_regclass('public.products_public') IS NULL THEN
     RAISE EXCEPTION '前置閘②a:找不到 public.products_public ⇒ 本片的 join 對象不在, 停。';
   END IF;
   SELECT count(*) INTO v_n FROM information_schema.columns
    WHERE table_schema = 'public' AND table_name = 'products_public' AND column_name = 'external_id';
   IF v_n <> 1 THEN
-    RAISE EXCEPTION '前置閘②b:products_public 沒有 external_id(實 % 欄)⇒ 我抄的來源不成立, 停。', v_n;
+    RAISE EXCEPTION '前置閘②b:products_public 沒有 external_id(實 % 欄)⇒ 停。', v_n;
   END IF;
 
   SELECT prosrc INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'search_catalog_by_vehicle'
-     AND pg_get_function_identity_arguments(p.oid)
-         = 'p_categories text[], p_brand text, p_model text, p_year integer, p_offset integer, p_limit integer, p_sort text, p_category text, p_brand_slugs text[], p_price_min integer, p_price_max integer, p_new_since timestamp with time zone';
+     AND pg_get_function_identity_arguments(p.oid) LIKE 'p_categories%';
   IF v_src IS NULL THEN
-    RAISE EXCEPTION '前置閘③:找不到那個確切簽章的多載 ⇒ 停下來比對, 不要讓 REPLACE 創造一支新的。';
+    RAISE EXCEPTION '前置閘③:找不到那個 12 參數的多載 ⇒ 停。';
   END IF;
-  -- 🔴 **已經貼過就不要重貼** —— 而判準是【碼裡有沒有那個 key】, 不是版本號在不在帳本上
-  --    (`supabase/APPLIED.tsv` 檔頭逐字:「不在本表上什麼都不代表」)。
+
+  -- 🔴🔴 **釘身分:2026-09-06 19:4x 正式庫唯讀親量。**
+  --    這道閘紅了**不代表壞掉** —— 它代表有人在我量完之後改過它 ⇒ 停下來比對, 不要硬貼。
+  IF md5(v_src) <> 'd8f76762b5c4957bcc8efb58d36ce99c' THEN
+    RAISE EXCEPTION '前置閘④:庫上那支的 prosrc md5 是 % ⇒ 不是我抄的那一代(期望 d8f76762b5c4957bcc8efb58d36ce99c)⇒ 停下來比對。', md5(v_src);
+  END IF;
+
+  -- 🔴 **代數判別(md5 之外再一道, 而它答得出【是哪一代】)**:
+  --    `20260904260000` 拿掉了那 12 處排序條件 ⇒ 庫上若還有, 代表那一支沒貼, 而我抄的是它之後的。
+  v_n := (length(v_src) - length(replace(v_src, 'p_sort = ''recommend'' AND cardinality(v_cats) = 0', '')))
+         / length('p_sort = ''recommend'' AND cardinality(v_cats) = 0');
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION '前置閘⑤:庫上那支還有 % 處舊排序條件 ⇒ 它比 20260904260000 舊 ⇒ 先貼那一支, 不要讓本片把它蓋掉。', v_n;
+  END IF;
+
   IF position('''external_id'', pe.external_id' IN v_src) <> 0 THEN
-    RAISE EXCEPTION '前置閘④:庫上那支已經含 external_id ⇒ **本支已經貼過了** ⇒ 不要重貼。';
+    RAISE EXCEPTION '前置閘⑥:庫上那支已經含 external_id ⇒ **本支已經貼過了** ⇒ 不要重貼。';
   END IF;
-  -- 🔴 兩份查詢都必須在(抄的來源就是兩份)—— 少一份代表庫上那支不是我抄的那一代
-  v_n := (length(v_src) - length(replace(v_src, '''id'', pg.id', ''))) / length('''id'', pg.id');
-  IF v_n <> 2 THEN
-    RAISE EXCEPTION '前置閘⑤:庫上那支的 jsonb_build_object 不是 2 份(實 % 份)⇒ 它不是我抄的那一代, 停。', v_n;
+
+  -- 🔴 **屬性逐欄釘住**(codex 2026-09-06 must-fix #6):`CREATE OR REPLACE` 會把**沒寫出來的**
+  --    屬性重設回預設 ⇒ 有人加了 `COST 200` / `PARALLEL SAFE` / 多一段 `SET`, 我會無聲吹掉它。
+  SELECT p.provolatile, p.proparallel, p.procost, p.prorows, p.proleakproof,
+         p.proisstrict, p.prosecdef, array_to_string(p.proconfig, '|') AS cfg,
+         p.prosupport::text AS support
+    INTO r
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'search_catalog_by_vehicle'
+     AND pg_get_function_identity_arguments(p.oid) LIKE 'p_categories%';
+  IF r.provolatile <> 's' OR r.proparallel <> 'u' OR r.procost <> 100 OR r.prorows <> 1000
+     OR r.proleakproof OR r.proisstrict OR r.prosecdef
+     OR r.cfg IS DISTINCT FROM 'search_path=public, pg_temp'
+     OR r.support <> '-' THEN
+    RAISE EXCEPTION '前置閘⑦:函式屬性與 2026-09-06 實測不符(volatile=% parallel=% cost=% rows=% leakproof=% strict=% secdef=% cfg=% support=%;期望 s/u/100/1000/f/f/f/search_path=public, pg_temp/-)⇒ 有人動過它 ⇒ 停。',
+      r.provolatile, r.proparallel, r.procost, r.prorows, r.proleakproof, r.proisstrict, r.prosecdef, r.cfg, r.support;
   END IF;
 END
 $pre$;
 
--- ── 本體(逐字搬 + 三處改動)──────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION public.search_catalog_by_vehicle(
-  -- 🔴🔴 **`p_categories` 刻意【不給 DEFAULT】, 而它承重** ——
-  --    新舊兩支的分辨器是【名字集合】不是參數個數(個數會重疊):
-  --    舊那支沒有這個名字, 新那支它必填 ⇒ 兩邊各自被一個必填的名字釘死。
-  --    🔬 給了 DEFAULT 會怎樣, 線【信】`-mail` 實測過(`20260904020000:14-40`):
-  --      兩支都吃得下同一組名字 ⇒ `PGRST203 Could not choose the best candidate function`。
-  -- 🔴 而它只能放【第一個】—— Postgres 不准「帶 DEFAULT 的參數後面還有必填的」,
-  --    而本函式原本 11 個參數**全部**帶 DEFAULT。
-  --    ✅ 位置不影響路由:PostgREST 用**名字**呼叫, 不用位置。
-  p_categories text[],
-  p_brand text DEFAULT NULL,
-  p_model text DEFAULT NULL,
-  p_year int DEFAULT NULL,
-  p_offset int DEFAULT 0,
-  p_limit int DEFAULT 25,
-  p_sort text DEFAULT 'recommend',
-  p_category text DEFAULT NULL,
-  p_brand_slugs text[] DEFAULT NULL,
-  p_price_min int DEFAULT NULL,
-  p_price_max int DEFAULT NULL,
-  p_new_since timestamptz DEFAULT NULL
-)
-RETURNS TABLE (item jsonb, total bigint)
-LANGUAGE plpgsql
-STABLE
-SECURITY INVOKER
-SET search_path = public, pg_temp
-AS $fn$
+-- ── 本體(逐字搬自 20260904260000:199-496 + 兩處 × 兩份)──────────────────────
+CREATE OR REPLACE FUNCTION public.search_catalog_by_vehicle(p_categories text[], p_brand text DEFAULT NULL::text, p_model text DEFAULT NULL::text, p_year integer DEFAULT NULL::integer, p_offset integer DEFAULT 0, p_limit integer DEFAULT 25, p_sort text DEFAULT 'recommend'::text, p_category text DEFAULT NULL::text, p_brand_slugs text[] DEFAULT NULL::text[], p_price_min integer DEFAULT NULL::integer, p_price_max integer DEFAULT NULL::integer, p_new_since timestamp with time zone DEFAULT NULL::timestamp with time zone)
+ RETURNS TABLE(item jsonb, total bigint)
+ LANGUAGE plpgsql
+ STABLE
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
 DECLARE
   -- 🔴🔴 **`v_cats` 把新舊兩個入口收成【一份】** —— 新的 `p_categories` 加上舊的 `p_category`。
   --    ⇒ 📌 下面每一處都只讀 `v_cats`, **不再有任何一處直接讀 `p_category`**
   --      ⇒ 那讓「漏改一處」變成不可能, 而不是靠人數對。
+  -- 🔴🔴 **[2026-09-04 本支改的就是這件事 —— 而它【只動排序, 不動過濾】]**
+  --    Sean 2026-09-04 逐字「3. 甲」= 帶分類時也照【中高價位優先】排。
+  --    ⛔ ~~原本 12 處排序 CASE 都掛著 `AND cardinality(v_cats) = 0`~~
+  --       ⇒ 一旦帶了分類, 那組 CASE 全部回 NULL ⇒ **唯一還在生效的鍵是 `f.id ASC`(UUID)**
+  --       ⇒ 📌 **客人點進一個分類, 第一頁等於【隨機順序】** —— 而那不是「另一種排法」, 是沒有排法。
+  --    ✅ 本支把那 12 處的 `AND cardinality(v_cats) = 0` 拿掉。
+  --    🛑 **而【WHERE 那兩處一個字都沒動】** —— 那是過濾, 不是排序:
+  --       `WHERE (cardinality(v_cats) = 0 OR ...)` 決定「要不要套分類過濾」。
+  --       ⇒ 動它會改變**回傳哪些商品**, 而本支只改**它們的順序**。
+  --    🔵 而「大類輪流」(`sort_rn` 的 PARTITION BY 大類)在只選一個分類時**自然變成 no-op**
+  --       —— 同一個 partition ⇒ 剩下「中高價分帶 + 段內由高到低」, 那正是 Sean 要的。
   -- 🛑 **而「空」的判準一律是 `cardinality(v_cats) = 0`, 不是 `IS NULL`** ——
   --    陣列有兩種空(NULL 與 `{}`), 而**它們在 `IS NULL` 上不一樣**。
   --    🔬 本檔實測到的分母:`p_category IS NULL` 在原版出現 **12** 次(兩份查詢各 6)
@@ -208,17 +235,17 @@ BEGIN
                            ORDER BY f.price_general DESC NULLS LAST, f.id) AS sort_rn
       FROM filtered f
       ORDER BY
-        CASE WHEN p_sort = 'recommend' AND cardinality(v_cats) = 0 THEN
+        CASE WHEN p_sort = 'recommend' THEN
           CASE WHEN f.price_general BETWEEN c_recommend_band_lo AND c_recommend_band_hi
                THEN 0 ELSE 1 END
         END ASC NULLS LAST,
-        CASE WHEN p_sort = 'recommend' AND cardinality(v_cats) = 0 THEN
+        CASE WHEN p_sort = 'recommend' THEN
           row_number() OVER (PARTITION BY split_part(f.category_raw, ' · ', 1),
                                              CASE WHEN f.price_general BETWEEN c_recommend_band_lo
                                                        AND c_recommend_band_hi THEN 0 ELSE 1 END
                              ORDER BY f.price_general DESC NULLS LAST, f.id)
         END ASC NULLS LAST,
-        CASE WHEN p_sort = 'recommend' AND cardinality(v_cats) = 0 THEN f.price_general END DESC NULLS LAST,
+        CASE WHEN p_sort = 'recommend' THEN f.price_general END DESC NULLS LAST,
         CASE WHEN p_sort = 'price-asc' THEN f.price_general END ASC NULLS LAST,
         CASE WHEN p_sort = 'price-desc' THEN f.price_general END DESC NULLS LAST,
         CASE WHEN p_sort = 'new' THEN f.created_at END DESC NULLS LAST,
@@ -231,11 +258,17 @@ BEGIN
         'id', pg.id,
         -- 🔴 母料號:Sean 2026-09-06 拍「全部頁面都顯示料號」。
         --    來源是 `products_public`(下面 LEFT JOIN 的 `pe`), **不是 `products_list_public`** ——
-        --    那支清單投影**沒有這一欄**(2026-09-06 正式庫唯讀逐欄查:16 欄, 無 external_id;
+        --    那支清單投影**沒有這一欄**(2026-09-06 正式庫唯讀逐欄查:16 欄, 無 `external_id`;
         --    而 `products_public` 有 ⇒ 🟢 正對照)。
-        -- 🛑 **刻意不去動 `products_list_public`**(主視窗 `Q-母料號來源 A: 甲`):
-        --    它是**公開投影**, 消費端沒有盤過;而它的 COMMENT 逐字寫著「排除 … external_id …」
-        --    ⇒ 📌 **那個排除看起來是刻意的, 而理由不明 ⇒ 不推翻一個不明的拍板。**
+        -- 🛑 **刻意不動 `products_list_public`**(主視窗 `Q-母料號來源 A: 甲`):它是**公開投影**,
+        --    消費端沒有盤過 ⇒ 板列 `⟦search-LISTVIEWNOEXTID⟧` 記著未來若要動它的入口。
+         --    ⛔ ~~理由之一是「它的 COMMENT 逐字寫著排除 external_id, 那個排除看起來是刻意的」~~
+         --    🔴 **那句是錯的**(codex + code-reviewer 同時抓):現行 COMMENT(`20260811040000:229`)
+         --      逐字是 `excludes price_store, price_by_tier, metadata, detail content and delisted_at`
+         --      —— **沒有 external_id**。含它的是 9/10 欄時期那兩代, 而那份清單裡它跟
+         --      `description / images / timestamps` 排在一起 ⇒ 那是**卡片瘦身**, 不是安全排除。
+         --    ✅ **選甲仍然對, 而理由換成量到的那個**:動公開投影會改欄數與欄位順序,
+         --      而**消費端沒有盤過** —— 這一條不需要那句 COMMENT 撐。
         'external_id', pe.external_id,
         'title', pg.title,
         'subtitle', pg.subtitle,
@@ -255,17 +288,16 @@ BEGIN
       pg.total_rows
     FROM paged pg
     LEFT JOIN public.product_image_trim t ON t.url = pg.card_image AND t.status = 'ok'
-    -- 🔵 **只在【這一頁】上 join** —— `paged` 已經 `LIMIT LEAST(GREATEST(p_limit,1),100)`
-    --    ⇒ 最多 100 列, 而 join key 是主鍵 ⇒ 代價可忽略。
-    -- 🔴 用 `LEFT` 不是 `INNER`:`products_public` 與 `products_list_public` 都吃 RLS,
-    --    正常情況兩邊同進同出;而**萬一某一列只在其中一邊**, INNER 會把那張卡**整張弄不見**,
-    --    LEFT 只會讓料號是 null。⇒ 📌 **少一個料號 vs 少一張商品卡, 後者嚴重得多。**
+    -- 🔵 **只在【這一頁】上 join** —— `paged` 已經 LIMIT 過(最多 100 列), 而 join key 是主鍵。
+    -- 🔴 用 `LEFT` 不是 `INNER`:兩支 view 都吃 RLS, 正常同進同出;而萬一某一列只在其中一邊,
+    --    INNER 會把那張卡**整張弄不見**, LEFT 只讓料號是 null。
+    --    ⇒ 📌 **少一個料號 vs 少一張商品卡, 後者嚴重得多。**
     LEFT JOIN public.products_public pe ON pe.id = pg.id
     ORDER BY
       -- #950:🔴 用內層算好的 sort_band / sort_rn, **不要在這裡重算 row_number()**(理由見內層註解)
-      CASE WHEN p_sort = 'recommend' AND cardinality(v_cats) = 0 THEN pg.sort_band END ASC NULLS LAST,
-      CASE WHEN p_sort = 'recommend' AND cardinality(v_cats) = 0 THEN pg.sort_rn   END ASC NULLS LAST,
-      CASE WHEN p_sort = 'recommend' AND cardinality(v_cats) = 0 THEN pg.price_general END DESC NULLS LAST,
+      CASE WHEN p_sort = 'recommend' THEN pg.sort_band END ASC NULLS LAST,
+      CASE WHEN p_sort = 'recommend' THEN pg.sort_rn   END ASC NULLS LAST,
+      CASE WHEN p_sort = 'recommend' THEN pg.price_general END DESC NULLS LAST,
       CASE WHEN p_sort = 'price-asc' THEN pg.price_general END ASC NULLS LAST,
       CASE WHEN p_sort = 'price-desc' THEN pg.price_general END DESC NULLS LAST,
       CASE WHEN p_sort = 'new' THEN pg.created_at END DESC NULLS LAST,
@@ -341,17 +373,17 @@ BEGIN
                          ORDER BY f.price_general DESC NULLS LAST, f.id) AS sort_rn
     FROM filtered f
     ORDER BY
-      CASE WHEN p_sort = 'recommend' AND cardinality(v_cats) = 0 THEN
+      CASE WHEN p_sort = 'recommend' THEN
         CASE WHEN f.price_general BETWEEN c_recommend_band_lo AND c_recommend_band_hi
              THEN 0 ELSE 1 END
       END ASC NULLS LAST,
-      CASE WHEN p_sort = 'recommend' AND cardinality(v_cats) = 0 THEN
+      CASE WHEN p_sort = 'recommend' THEN
         row_number() OVER (PARTITION BY split_part(f.category_raw, ' · ', 1),
                                            CASE WHEN f.price_general BETWEEN c_recommend_band_lo
                                                      AND c_recommend_band_hi THEN 0 ELSE 1 END
                            ORDER BY f.price_general DESC NULLS LAST, f.id)
       END ASC NULLS LAST,
-      CASE WHEN p_sort = 'recommend' AND cardinality(v_cats) = 0 THEN f.price_general END DESC NULLS LAST,
+      CASE WHEN p_sort = 'recommend' THEN f.price_general END DESC NULLS LAST,
       CASE WHEN p_sort = 'price-asc' THEN f.price_general END ASC NULLS LAST,
       CASE WHEN p_sort = 'price-desc' THEN f.price_general END DESC NULLS LAST,
       CASE WHEN p_sort = 'new' THEN f.created_at END DESC NULLS LAST,
@@ -364,11 +396,17 @@ BEGIN
       'id', pg.id,
       -- 🔴 母料號:Sean 2026-09-06 拍「全部頁面都顯示料號」。
       --    來源是 `products_public`(下面 LEFT JOIN 的 `pe`), **不是 `products_list_public`** ——
-      --    那支清單投影**沒有這一欄**(2026-09-06 正式庫唯讀逐欄查:16 欄, 無 external_id;
+      --    那支清單投影**沒有這一欄**(2026-09-06 正式庫唯讀逐欄查:16 欄, 無 `external_id`;
       --    而 `products_public` 有 ⇒ 🟢 正對照)。
-      -- 🛑 **刻意不去動 `products_list_public`**(主視窗 `Q-母料號來源 A: 甲`):
-      --    它是**公開投影**, 消費端沒有盤過;而它的 COMMENT 逐字寫著「排除 … external_id …」
-      --    ⇒ 📌 **那個排除看起來是刻意的, 而理由不明 ⇒ 不推翻一個不明的拍板。**
+      -- 🛑 **刻意不動 `products_list_public`**(主視窗 `Q-母料號來源 A: 甲`):它是**公開投影**,
+      --    消費端沒有盤過 ⇒ 板列 `⟦search-LISTVIEWNOEXTID⟧` 記著未來若要動它的入口。
+         --    ⛔ ~~理由之一是「它的 COMMENT 逐字寫著排除 external_id, 那個排除看起來是刻意的」~~
+         --    🔴 **那句是錯的**(codex + code-reviewer 同時抓):現行 COMMENT(`20260811040000:229`)
+         --      逐字是 `excludes price_store, price_by_tier, metadata, detail content and delisted_at`
+         --      —— **沒有 external_id**。含它的是 9/10 欄時期那兩代, 而那份清單裡它跟
+         --      `description / images / timestamps` 排在一起 ⇒ 那是**卡片瘦身**, 不是安全排除。
+         --    ✅ **選甲仍然對, 而理由換成量到的那個**:動公開投影會改欄數與欄位順序,
+         --      而**消費端沒有盤過** —— 這一條不需要那句 COMMENT 撐。
       'external_id', pe.external_id,
       'title', pg.title,
       'subtitle', pg.subtitle,
@@ -388,23 +426,22 @@ BEGIN
     pg.total_rows
   FROM paged pg
   LEFT JOIN public.product_image_trim t ON t.url = pg.card_image AND t.status = 'ok'
-  -- 🔵 **只在【這一頁】上 join** —— `paged` 已經 `LIMIT LEAST(GREATEST(p_limit,1),100)`
-  --    ⇒ 最多 100 列, 而 join key 是主鍵 ⇒ 代價可忽略。
-  -- 🔴 用 `LEFT` 不是 `INNER`:`products_public` 與 `products_list_public` 都吃 RLS,
-  --    正常情況兩邊同進同出;而**萬一某一列只在其中一邊**, INNER 會把那張卡**整張弄不見**,
-  --    LEFT 只會讓料號是 null。⇒ 📌 **少一個料號 vs 少一張商品卡, 後者嚴重得多。**
+  -- 🔵 **只在【這一頁】上 join** —— `paged` 已經 LIMIT 過(最多 100 列), 而 join key 是主鍵。
+  -- 🔴 用 `LEFT` 不是 `INNER`:兩支 view 都吃 RLS, 正常同進同出;而萬一某一列只在其中一邊,
+  --    INNER 會把那張卡**整張弄不見**, LEFT 只讓料號是 null。
+  --    ⇒ 📌 **少一個料號 vs 少一張商品卡, 後者嚴重得多。**
   LEFT JOIN public.products_public pe ON pe.id = pg.id
   ORDER BY
     -- #950:🔴 用內層算好的 sort_band / sort_rn, **不要在這裡重算 row_number()**(理由見內層註解)
-    CASE WHEN p_sort = 'recommend' AND cardinality(v_cats) = 0 THEN pg.sort_band END ASC NULLS LAST,
-    CASE WHEN p_sort = 'recommend' AND cardinality(v_cats) = 0 THEN pg.sort_rn   END ASC NULLS LAST,
-    CASE WHEN p_sort = 'recommend' AND cardinality(v_cats) = 0 THEN pg.price_general END DESC NULLS LAST,
+    CASE WHEN p_sort = 'recommend' THEN pg.sort_band END ASC NULLS LAST,
+    CASE WHEN p_sort = 'recommend' THEN pg.sort_rn   END ASC NULLS LAST,
+    CASE WHEN p_sort = 'recommend' THEN pg.price_general END DESC NULLS LAST,
     CASE WHEN p_sort = 'price-asc' THEN pg.price_general END ASC NULLS LAST,
     CASE WHEN p_sort = 'price-desc' THEN pg.price_general END DESC NULLS LAST,
     CASE WHEN p_sort = 'new' THEN pg.created_at END DESC NULLS LAST,
     pg.id ASC;
 END;
-$fn$;
+$function$;   -- 🔴 `pg_get_functiondef` 的輸出【沒有這個分號】—— 少了它, 下一個 DO 區塊會被當成同一句
 
 -- ── 事後閘 ────────────────────────────────────────────────────────────────
 DO $post$
@@ -415,39 +452,47 @@ DECLARE
 BEGIN
   SELECT prosrc INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'search_catalog_by_vehicle'
-     AND pg_get_function_identity_arguments(p.oid)
-         = 'p_categories text[], p_brand text, p_model text, p_year integer, p_offset integer, p_limit integer, p_sort text, p_category text, p_brand_slugs text[], p_price_min integer, p_price_max integer, p_new_since timestamp with time zone';
+     AND pg_get_function_identity_arguments(p.oid) LIKE 'p_categories%';
   IF v_src IS NULL THEN
     RAISE EXCEPTION '事後閘①:REPLACE 完之後找不到它 ⇒ 停。';
   END IF;
 
-  -- 🔴🔴 **兩份都要有** —— 只改一份的話, 「有車款」與「沒車款」兩條路會**吐不同形狀的 item**,
-  --    而那在前台看起來是「有些卡片有料號有些沒有」, 不會有任何東西紅。
+  -- 🔴🔴 **數之前先把註解剝掉**(codex 2026-09-06 must-fix #4):
+  --    只數字面的話, 把第二份的那一行**加上 `--`** 兩格照樣數到 2, 而實際只剩 1 份在跑。
+  v_src := regexp_replace(regexp_replace(v_src, '/\*.*?\*/', '', 'gs'), '--[^' || chr(10) || ']*', '', 'g');
+
   v_n := (length(v_src) - length(replace(v_src, '''external_id'', pe.external_id', '')))
          / length('''external_id'', pe.external_id');
   IF v_n <> 2 THEN
-    RAISE EXCEPTION '事後閘②:`external_id` 只出現 % 份(期望 2 —— 本函式有兩份查詢)⇒ 有一條路沒改到。', v_n;
+    RAISE EXCEPTION '事後閘②:剝註解後 `external_id` 只出現 % 份(期望 2 —— 本函式有兩份查詢)⇒ 有一條路沒改到。', v_n;
   END IF;
   v_n := (length(v_src) - length(replace(v_src, 'LEFT JOIN public.products_public pe', '')))
          / length('LEFT JOIN public.products_public pe');
   IF v_n <> 2 THEN
-    RAISE EXCEPTION '事後閘③:那個 LEFT JOIN 只出現 % 份(期望 2)⇒ 有一條路拿不到來源。', v_n;
+    RAISE EXCEPTION '事後閘③:剝註解後那個 LEFT JOIN 只出現 % 份(期望 2)⇒ 有一條路拿不到來源。', v_n;
   END IF;
 
-  -- ④ 安全前提不能被 REPLACE 改掉
-  SELECT p.prosecdef, p.proconfig, p.provolatile INTO r
+  -- 🔴 **別人的修法不能被我蓋掉** —— 那 12 處排序條件貼完仍然必須是 0 處。
+  v_n := (length(v_src) - length(replace(v_src, 'p_sort = ''recommend'' AND cardinality(v_cats) = 0', '')))
+         / length('p_sort = ''recommend'' AND cardinality(v_cats) = 0');
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION '事後閘④:貼完之後又出現 % 處舊排序條件 ⇒ 我把 20260904260000 的修法蓋掉了 ⇒ 停。', v_n;
+  END IF;
+
+  -- ⑤ 屬性逐欄比(與前置閘同一組, codex must-fix #6)
+  SELECT p.provolatile, p.proparallel, p.procost, p.prorows, p.proleakproof,
+         p.proisstrict, p.prosecdef, array_to_string(p.proconfig, '|') AS cfg,
+         p.prosupport::text AS support
+    INTO r
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'search_catalog_by_vehicle'
-     AND pg_get_function_identity_arguments(p.oid)
-         = 'p_categories text[], p_brand text, p_model text, p_year integer, p_offset integer, p_limit integer, p_sort text, p_category text, p_brand_slugs text[], p_price_min integer, p_price_max integer, p_new_since timestamp with time zone';
-  IF r.prosecdef THEN
-    RAISE EXCEPTION '事後閘④a:本支變成 SECURITY DEFINER ⇒ 停。';
-  END IF;
-  IF r.proconfig IS NULL OR NOT ('search_path=public, pg_temp' = ANY(r.proconfig)) THEN
-    RAISE EXCEPTION '事後閘④b:`SET search_path = public, pg_temp` 不見了(proconfig=%)⇒ REPLACE 把它吹掉了 ⇒ 停。', r.proconfig;
-  END IF;
-  IF r.provolatile <> 's' THEN
-    RAISE EXCEPTION '事後閘④c:volatility 不是 STABLE(實 %)⇒ 停。', r.provolatile;
+     AND pg_get_function_identity_arguments(p.oid) LIKE 'p_categories%';
+  IF r.provolatile <> 's' OR r.proparallel <> 'u' OR r.procost <> 100 OR r.prorows <> 1000
+     OR r.proleakproof OR r.proisstrict OR r.prosecdef
+     OR r.cfg IS DISTINCT FROM 'search_path=public, pg_temp'
+     OR r.support <> '-' THEN
+    RAISE EXCEPTION '事後閘⑤:REPLACE 把屬性改掉了(volatile=% parallel=% cost=% rows=% leakproof=% strict=% secdef=% cfg=% support=%)⇒ 停。',
+      r.provolatile, r.proparallel, r.procost, r.prorows, r.proleakproof, r.proisstrict, r.prosecdef, r.cfg, r.support;
   END IF;
 END
 $post$;

@@ -25,7 +25,7 @@ Q(){ psql -h /tmp -p "$PG" -U postgres -d postgres -tAc "$1"; }
 
 CELLS=0; FAILS=0
 cell(){ CELLS=$((CELLS+1)); if [ "$1" = 1 ]; then printf '  ✅ %s\n' "$2"; else FAILS=$((FAILS+1)); printf '  🔴 %s\n' "$2"; fi; }
-EXPECT_TOTAL=9
+EXPECT_TOTAL=11
 
 initdb -D "$D/pg" -U postgres --auth=trust --encoding=UTF8 --locale=C >"$D/i.log" 2>&1 || { echo "🔴 initdb ⇒ ENV-FAIL"; exit 2; }
 pg_ctl -D "$D/pg" -o "-p $PG -k /tmp" -l "$D/pg.log" start >/dev/null 2>&1 || { echo "🔴 PG 起不來 ⇒ ENV-FAIL"; exit 2; }
@@ -48,13 +48,20 @@ printf '   成功 %s ｜ 失敗 %s\n' "$OK" "$BAD"
 #    ⇒ 明確把來源那一代裝上去, 再繼續。
 echo
 echo "── 前置:把 search_catalog_by_vehicle 裝成【本片抄的那一代】──"
-awk '/^CREATE FUNCTION public.search_catalog_by_vehicle\(/,/^\$fn\$;/' \
-  "$REPO/supabase/migrations/20260904160000_m4b_search_catalog_multi_category.sql" > "$D/gen.sql"
-sed -i.bak 's/^CREATE FUNCTION /CREATE OR REPLACE FUNCTION /' "$D/gen.sql"
+# 🔴🔴 **來源代換過了** —— 第一版抄 `20260904160000`, 而它**不是最後一代**:
+#    `20260904260000_m4b_recommend_sort_with_category.sql` 在它之後, 拿掉了 12 處排序條件。
+#    我漏掉它是因為跑 `latest-definition-of.sh` 時**用 `sed -n '1,12p'` 把輸出截斷了** ——
+#    最後一代就在第 13 行。📌 **我在哪裡截斷, 決定了我的結論。**(codex 2026-09-06 抓的。)
+awk '/^CREATE OR REPLACE FUNCTION public.search_catalog_by_vehicle\(/,/^\$function\$;/' \
+  "$REPO/supabase/migrations/20260904260000_m4b_recommend_sort_with_category.sql" > "$D/gen.sql"
 psql -h /tmp -p "$PG" -U postgres -d postgres -q -v ON_ERROR_STOP=1 -f "$D/gen.sql" >"$D/gen.log" 2>&1 \
   || { echo "🔴 裝不上去 ⇒ ENV-FAIL:$(sed -e 's|^psql:[^ ]*: ||' "$D/gen.log" | grep -m1 ERROR | cut -c1-70)"; exit 2; }
 N0=$(Q "SELECT (length(prosrc) - length(replace(prosrc, '''id'', pg.id', ''))) / length('''id'', pg.id') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='search_catalog_by_vehicle' AND pg_get_function_identity_arguments(p.oid) LIKE 'p_categories%'")
-cell "$([ "$N0" = "2" ] && echo 1 || echo 0)" "🟢 世界對齊:庫上那支有 ${N0} 份 jsonb_build_object(期望 2 —— 本函式有兩條路)"
+cell "$([ "$N0" = "2" ] && echo 1 || echo 0)" "🟢 世界對齊 a:庫上那支有 ${N0} 份 jsonb_build_object(期望 2 —— 本函式有兩條路)"
+OLDC=$(Q "SELECT (length(prosrc) - length(replace(prosrc, 'p_sort = ''recommend'' AND cardinality(v_cats) = 0', ''))) / length('p_sort = ''recommend'' AND cardinality(v_cats) = 0') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='search_catalog_by_vehicle' AND pg_get_function_identity_arguments(p.oid) LIKE 'p_categories%'")
+cell "$([ "$OLDC" = "0" ] && echo 1 || echo 0)" "🔴 世界對齊 b:舊排序條件 ${OLDC} 處(期望 0 —— 裝的是 20260904260000 那一代, 不是 160000)"
+MD5=$(Q "SELECT md5(prosrc) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='search_catalog_by_vehicle' AND pg_get_function_identity_arguments(p.oid) LIKE 'p_categories%'")
+cell "$([ "$MD5" = "d8f76762b5c4957bcc8efb58d36ce99c" ] && echo 1 || echo 0)" "🟢 世界對齊 c:md5 = 正式庫 2026-09-06 19:4x 實測值(實測 ${MD5:0:12}…)"
 
 echo
 echo "── 格 A:前置閘會擋 —— 先把它改成【已經含 external_id】的樣子, 本片必須紅 ──"
@@ -62,8 +69,15 @@ psql -h /tmp -p "$PG" -U postgres -d postgres -q -v ON_ERROR_STOP=1 \
   -c "$(printf "CREATE OR REPLACE FUNCTION public.search_catalog_by_vehicle(p_categories text[], p_brand text DEFAULT NULL, p_model text DEFAULT NULL, p_year int DEFAULT NULL, p_offset int DEFAULT 0, p_limit int DEFAULT 25, p_sort text DEFAULT 'recommend', p_category text DEFAULT NULL, p_brand_slugs text[] DEFAULT NULL, p_price_min int DEFAULT NULL, p_price_max int DEFAULT NULL, p_new_since timestamptz DEFAULT NULL) RETURNS TABLE (item jsonb, total bigint) LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = public, pg_temp AS \$z\$ BEGIN RETURN QUERY SELECT jsonb_build_object('external_id', pe.external_id) , 0::bigint FROM public.products_public pe WHERE false; END \$z\$")" >/dev/null 2>&1
 if psql -h /tmp -p "$PG" -U postgres -d postgres -q -v ON_ERROR_STOP=1 -f "$MIG" >"$D/gate.log" 2>&1
 then cell 0 "格 A:庫上已含 external_id 而本片仍貼得進去(前置閘④沒擋)"
-else cell "$(grep -q '前置閘' "$D/gate.log" && echo 1 || echo 0)" \
-       "格 A:被前置閘擋下($(sed -e 's|^psql:[^ ]*: ||' "$D/gate.log" | grep -m1 ERROR | cut -c1-52))"; fi
+else
+  # 🔴 **要指名是【哪一道】閘擋的** —— 只 grep「前置閘」的話, 把 md5 那道拿掉,
+  #    stub 仍會被別的閘擋住而這一格照樣綠(codex 2026-09-06 must-fix #5)。
+  cell "$(grep -q '前置閘④' "$D/gate.log" && echo 1 || echo 0)" \
+       "格 A:被【前置閘④(md5)】擋下($(sed -e 's|^psql:[^ ]*: ||' "$D/gate.log" | grep -m1 ERROR | cut -c1-44))"
+fi
+# 🛑 **⑤⑥⑦ 沒有被單獨演練過, 而那是【結構性的】**:④ 釘的是整份 prosrc 的 md5
+#    ⇒ 任何能觸發 ⑤(舊代)或 ⑥(已貼過)的世界, **一定先讓 ④ 紅** ⇒ 走不到它們。
+#    ⇒ 📌 這不是漏測, 是那三道閘在 ④ 之後的必然;它們的價值在**④ 被人拿掉的那一天**。
 psql -h /tmp -p "$PG" -U postgres -d postgres -q -v ON_ERROR_STOP=1 -f "$D/gen.sql" >/dev/null 2>&1
 
 echo

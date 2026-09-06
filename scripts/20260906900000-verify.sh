@@ -25,7 +25,7 @@ QF(){ psql -h /tmp -p "$PG" -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f "$1
 
 CELLS=0; FAILS=0
 cell(){ CELLS=$((CELLS+1)); if [ "$1" = 1 ]; then printf '  ✅ %s\n' "$2"; else FAILS=$((FAILS+1)); printf '  🔴 %s\n' "$2"; fi; }
-EXPECT_TOTAL=16
+EXPECT_TOTAL=18
 
 initdb -D "$D/pg" -U postgres --auth=trust --encoding=UTF8 --locale=C >"$D/i.log" 2>&1 || { echo "🔴 initdb ⇒ ENV-FAIL"; exit 2; }
 pg_ctl -D "$D/pg" -o "-p $PG -k /tmp" -l "$D/pg.log" start >/dev/null 2>&1 || { echo "🔴 PG 起不來 ⇒ ENV-FAIL"; exit 2; }
@@ -93,8 +93,11 @@ echo "── 格 B:正常世界貼得進去, 四塊都在 ──"
 if psql -h /tmp -p "$PG" -U postgres -d postgres -q -v ON_ERROR_STOP=1 -f "$MIG" >"$D/apply.log" 2>&1
 then cell 1 "格 B:本片 apply 成功(前置閘 + 事後閘全過)"
 else cell 0 "格 B:apply 失敗 ⇒ $(sed -e 's|^psql:[^ ]*: ||' "$D/apply.log" | grep -m1 ERROR | cut -c1-70)"; fi
+# 🔴 **問的是【剝掉註解之後】的碼** —— code-reviewer 2026-09-06 抓的:
+#    `product_variants_public` 在註解裡也出現 ⇒ 把整塊 SELECT 刪掉只留註解, 這一格照樣綠。
+STRIP="regexp_replace(regexp_replace(prosrc, '/\\*.*?\\*/', '', 'gs'), '--[^' || chr(10) || ']*', '', 'g')"
 for k in product_variants_public 'regexp_replace(p.external_id' 'bh.brand_id' 'n.want > 0'; do
-  n=$(Q "SELECT CASE WHEN position('$k' IN prosrc) > 0 THEN 't' ELSE 'f' END FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='storefront_search_product_ids'")
+  n=$(Q "SELECT CASE WHEN position('$k' IN $STRIP) > 0 THEN 't' ELSE 'f' END FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='storefront_search_product_ids'")
   cell "$([ "$n" = "t" ] && echo 1 || echo 0)" "格 B:新版含 \`$k\`(實測 $n)"
 done
 
@@ -141,6 +144,18 @@ C2=$(Q "SELECT count(*) FROM public.storefront_search_product_ids(ARRAY['QRS77Z'
 cell "$([ "${C2:-0}" -ge 1 ] && echo 1 || echo 0)" "🔴 格 C2:搜 QRS77Z(只存在於複合 sku WXY99-QRS77Z)⇒ ${C2:-?} 件(期望 >= 1;改成【前綴】這格必須變 0)"
 C3=$(Q "SELECT count(*) FROM public.storefront_search_product_ids(ARRAY['77ZQRS'])")
 cell "$([ "${C3:-1}" = "0" ] && echo 1 || echo 0)" "🔴 格 C2 負對照:字母順序打亂的 77ZQRS ⇒ ${C3:-?} 件(期望 0 —— 包含式不是模糊比對)"
+
+echo
+echo "── 格 C3:最短長度閘(codex MF2 / reviewer #3)—— 兩字元的詞不准進第 ④ 塊 ──"
+# 種一個【只有兩字元的詞才撈得到】的變體 sku, 證明那道閘真的在擋
+psql -h /tmp -p "$PG" -U postgres -d postgres -q -v ON_ERROR_STOP=1 >/dev/null 2>&1 <<'SQL'
+INSERT INTO public.product_variants (id, product_id, sku, spec, availability)
+VALUES ('ffffffff-6666-6666-6666-666666666666', '11111111-1111-1111-1111-111111111111', 'ZZ-K9-TAIL', '{"spec":"D"}'::jsonb, 'in-stock');
+SQL
+S2=$(Q "SELECT count(*) FROM public.storefront_search_product_ids(ARRAY['K9'])")
+cell "$([ "${S2:-1}" = "0" ] && echo 1 || echo 0)" "🔴 格 C3:兩字元的 K9 ⇒ ${S2:-?} 件(期望 0 —— 長度閘擋住;拿掉那道閘這格會變 1)"
+S4=$(Q "SELECT count(*) FROM public.storefront_search_product_ids(ARRAY['K9TAIL'])")
+cell "$([ "${S4:-0}" -ge 1 ] && echo 1 || echo 0)" "🟢 格 C3 正對照:六字元的 K9TAIL ⇒ ${S4:-?} 件(期望 >= 1 —— 證明擋的是【長度】不是【那一列】)"
 
 echo
 echo "── 格 D(codex MF3 要的):以 anon 身分 —— 上架看得到 / 下架看不到 ──"
