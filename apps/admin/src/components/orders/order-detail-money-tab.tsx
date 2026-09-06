@@ -21,6 +21,7 @@ import { RefundLedgerSection } from './refund-ledger-section';
 import { isBlockingStuckVerdict, isStuckManualVerdict } from '../../lib/payment/refund-ledger-view';
 import { shouldShowRefundEntry } from './refund-entry-gate';
 import { ManualRefundEntrySection } from './manual-refund-entry-section';
+import { RefundBackfillSection } from './refund-backfill-section';
 import { ManualRefundLedgerSection, manualRefundRedState } from './manual-refund-ledger-section';
 import { shouldShowManualRefundEntry } from './manual-refund-entry-gate';
 import type { PaymentListData } from './payment-list';
@@ -51,6 +52,7 @@ export function OrderDetailMoneyTab({
   manualRefundsTruncated,
   manualRefundRailCap,
   refundEnabled,
+  backfillEnabled,
   cancelFormsAllowed,
   refundLedgerAbnormal,
   shipmentWarning,
@@ -72,6 +74,7 @@ export function OrderDetailMoneyTab({
   /** ⟦b4-PCM01RECORD⟧ 兩軌可退上限;負=超額、`null`=算不出來。語意在 `ManualRefundLedgerSection`。 */
   manualRefundRailCap: number | null;
   refundEnabled: boolean;
+  backfillEnabled: boolean;
   cancelFormsAllowed: boolean;
   refundLedgerAbnormal: boolean;
   /**
@@ -370,6 +373,17 @@ export function OrderDetailMoneyTab({
                         serverToken={generateManualRefundRequestToken()}
                       />
                     )}
+
+                  {/* ⟦b4-TAPPAYDIRECT⟧ 片 B:補登 TapPay 後台退款的入口。
+                      🔴🔴 **旗標關 ⇒ 整個區塊不 render**(不是 render 出來再灰掉)——
+                        「畫面上沒有」與「畫面上有而按不下去」對員工是兩件事,
+                        而本片還沒有後端 ⇒ 預設要落在前者。
+                      🛑 它**不吃** `refundEnabled` —— 兩個旗標風險方向相反
+                        (退款開錯 = 錢跑出去;補登開錯 = 帳上多一筆沒發生的退款),
+                        共用就沒辦法只開安全的那一半。見 `refund-backfill-ui-flag.ts` 檔頭。
+                      ⚠️ 這裡**刻意不加任何 `shouldShow…` 業務條件** —— 片 B 只驗旗標那一維;
+                        「哪一種單才該出現這個入口」是片 C 的題(它要看 payment_channel)。 */}
+                  {backfillEnabled && <RefundBackfillSection orderId={detail.id} />}
                 </DangerZoneDetails>
 
                 {/* A13b D6-a:取消區塊(複核 + 兩支表單)。判斷全部收在該檔內,見鐵則 6 的抽檔理由。

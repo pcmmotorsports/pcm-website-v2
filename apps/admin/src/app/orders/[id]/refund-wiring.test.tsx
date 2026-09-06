@@ -190,6 +190,7 @@ function detail(over: Partial<AdminOrderDetail> = {}): AdminOrderDetail {
 }
 
 let savedFlag: string | undefined;
+let savedBackfillFlag: string | undefined;
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.findAdminOrderDetail.mockResolvedValue(detail());
@@ -206,6 +207,7 @@ beforeEach(() => {
   mocks.findEffectiveVerdicts.mockResolvedValue(new Map());
   vi.spyOn(console, 'error').mockImplementation(() => {});
   savedFlag = process.env.REFUND_UI_ENABLED;
+  savedBackfillFlag = process.env.REFUND_BACKFILL_UI_ENABLED;
 });
 afterEach(() => {
   cleanup();
@@ -213,6 +215,11 @@ afterEach(() => {
     delete process.env.REFUND_UI_ENABLED;
   } else {
     process.env.REFUND_UI_ENABLED = savedFlag;
+  }
+  if (savedBackfillFlag === undefined) {
+    delete process.env.REFUND_BACKFILL_UI_ENABLED;
+  } else {
+    process.env.REFUND_BACKFILL_UI_ENABLED = savedBackfillFlag;
   }
 });
 
@@ -1542,4 +1549,70 @@ describe('#787:非卡退款登記入口硬閘(沖銷 RPC 落地前恆不渲染)'
     expect(hasRefundEntry(container)).toBe(true);
   });
 
+});
+
+/**
+ * ⟦b4-TAPPAYDIRECT⟧ 片 B · B3b:補登入口的顯示鏈(env → page → money tab → 區塊)。
+ *
+ * 🔵 **寫在這一支而不是新開一檔**:本檔已經有整套 mock 與那道**分母守門**
+ *    (`renderPage()` 裡的錨)—— 而本族有一格正是「畫面上【不得】出現」,
+ *    那種斷言在**整頁沒渲染**時恆真。⇒ 借它的錨, 不重造一個會漏掉錨的新檔。
+ *
+ * 🔴 **兩個旗標必須互不相干** —— 退款開錯 = 錢跑出去;補登開錯 = 帳上多一筆沒發生的退款
+ *    ⇒ 下面有兩格交叉驗它們不會互相帶開(見 `refund-backfill-ui-flag.ts` 檔頭)。
+ */
+describe('/orders/[id] — ⟦b4-TAPPAYDIRECT⟧ 片 B 補登入口顯示鏈', () => {
+  /** 補登區塊的錨:用它自己的標題字, 不用整頁 textContent(同本檔 `ledgerSection()` 的理由)。 */
+  function backfillSection(container: HTMLElement): Element | null {
+    return (
+      Array.from(container.querySelectorAll('h2')).find((el) =>
+        (el.textContent ?? '').includes('補登 TapPay 後台的退款'),
+      ) ?? null
+    );
+  }
+
+  it('🔴 旗標未設(預設)→ 整個區塊【不 render】', async () => {
+    delete process.env.REFUND_BACKFILL_UI_ENABLED;
+    const { container } = await renderPage();
+    expect(backfillSection(container)).toBeNull();
+  });
+
+  it("🔴 旗標是 'true' / '0' 這種【不是 '1'】的值 → 一樣不 render", async () => {
+    for (const v of ['true', '0', 'on', '']) {
+      process.env.REFUND_BACKFILL_UI_ENABLED = v;
+      const { container } = await renderPage();
+      expect(backfillSection(container), `旗標 = ${JSON.stringify(v)} 時不該出現`).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("🟢 旗標 = '1' → 區塊出現, 而**送出鈕是關的**(片 B 沒有後端)", async () => {
+    process.env.REFUND_BACKFILL_UI_ENABLED = '1';
+    const { container } = await renderPage();
+    const section = backfillSection(container)?.closest('section');
+    expect(section, '旗標開了卻找不到區塊 ⇒ 顯示鏈斷了').not.toBeNull();
+    const btn = section?.querySelector('button[type="submit"]') as HTMLButtonElement | null;
+    expect(btn, '區塊在而找不到送出鈕 ⇒ 元件形狀變了').not.toBeNull();
+    // 🔴 這一格是本片的本體:**開了也不能按**。
+    expect(btn?.disabled).toBe(true);
+    // 🔴 而畫面上要明說為什麼 —— 一個填得完卻按不下去的表單, 沒有這句就是個 bug。
+    expect(section?.textContent).toContain('還沒開放');
+  });
+
+  // ══ 兩個旗標互不相干(各一個方向)══════════════════════════════════
+  it('🛑 只開退款旗標 → 補登區塊【仍然不出現】', async () => {
+    process.env.REFUND_UI_ENABLED = '1';
+    delete process.env.REFUND_BACKFILL_UI_ENABLED;
+    const { container } = await renderPage();
+    expect(backfillSection(container)).toBeNull();
+  });
+
+  it('🛑 只開補登旗標 → 退款入口【仍然不出現】(開安全的那一半不會順帶開危險的)', async () => {
+    delete process.env.REFUND_UI_ENABLED;
+    process.env.REFUND_BACKFILL_UI_ENABLED = '1';
+    const { container } = await renderPage();
+    expect(hasRefundEntry(container)).toBe(false);
+    // 🟢 而補登那半確實開了 —— 否則上面那個 false 可能只是「整頁沒渲染」。
+    expect(backfillSection(container)).not.toBeNull();
+  });
 });
