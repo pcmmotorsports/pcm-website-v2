@@ -47,13 +47,20 @@ afterAll(async () => {
  * 造一個與 `ProductsPage` 同結構的最小 DOM,量 `main` 落在哪一格。
  * `wrapped=true` = 本片的修法(notice 包在 `grid-column:1/-1` 的容器裡)。
  */
-async function mainCell(opts: { noticeCount: number; wrapped: boolean }) {
+async function mainCell(opts: { noticeCount: number; wrapped: boolean; emptyWrapper?: boolean }) {
   const css = compiledCss('.pp-layout');
   const notices = Array.from(
     { length: opts.noticeCount },
     () => '<div role="alert">讀不到</div>',
   ).join('');
-  const noticeBlock = opts.wrapped ? `<div style="grid-column:1 / -1">${notices}</div>` : notices;
+  // `emptyWrapper` = 【沒有任何一扇失敗】那個世界:兩顆 notice 各自回 null,
+  //   而外面那層 `<div style="grid-column:1/-1">` **仍然被渲染**(React 不會因為子元素是 null 就不畫父層)
+  //   ⇒ 它仍然是 grid 的一個子元素 ⇒ 問題是:**它會不會把 side/main 推掉一格?**
+  const noticeBlock = opts.emptyWrapper
+    ? '<div style="grid-column:1 / -1"></div>'
+    : opts.wrapped
+      ? `<div style="grid-column:1 / -1">${notices}</div>`
+      : notices;
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   try {
     await page.setContent(
@@ -106,4 +113,17 @@ describe('型錄版面 grid 格位(⟦search-SILENTDOORS2⟧ R1 Critical)', () =
     expect(r.main.top).toBe(r.side.top); // 同一列 = 同一個 top
     expect(r.main.left).toBeGreaterThan(r.side.left); // main 在 side 右邊
   }, 60_000);
+  // 🔴🔴 **R3 角度②(修法回歸):那層包裝在【沒有任何一扇失敗】時仍然存在於 DOM。**
+  //   `TaxonomyNotice` 回 `null`, 而**外面那層 `<div>` 照樣被渲染** ⇒ 它仍是 grid 的子元素。
+  //   ⇒ 問題不是「它在不在」, 是**它有沒有把 side / main 推掉一格** ——
+  //     那會讓【每一個正常客人】的版面都被我這一片動到, 而三扇門都好的時候正是 99.9% 的情況。
+  //   🔬 讀 CSS:`.pp-layout.has-side` 只有 `column-gap:32px`, **沒有 row-gap** ⇒ 推論它無害;
+  //     🛑 **而推論不算** —— 下面這一格把它變成量到的。
+  it('🔴🔴 三扇門都【沒有】失敗 ⇒ 那層空包裝不得改變 side/main 的位置(與完全沒有包裝那個世界逐字相同)', async () => {
+    const 空包裝 = await mainCell({ noticeCount: 0, wrapped: false, emptyWrapper: true });
+    const 沒包裝 = await mainCell({ noticeCount: 0, wrapped: false });
+    expect(空包裝.side).toEqual(沒包裝.side);
+    expect(空包裝.main).toEqual(沒包裝.main);
+  }, 60_000);
+
 });

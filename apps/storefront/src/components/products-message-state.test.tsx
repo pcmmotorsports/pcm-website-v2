@@ -61,6 +61,32 @@ describe('車款讀不到那句話 · 單一定義點(⟦search-TAXONOMYTIMEOUT�
     expect(set.size).toBe(3);
   });
 
+  // 🔴🔴 **2026-09-06 R3(codex `gpt-5.6-sol`)must-fix**:上面那幾格都只比【前綴】或【子字串】
+  //   ⇒ 📌 **把尾巴改成錯字(「請稍後再詩」)全部照樣綠** —— 而那是客人唯一會看到的東西。
+  //   ✅ 這一格把三句話**逐字釘死**。期望值是**手打在測試裡的字面**, 不是 import 進來的常數
+  //      —— 拿常數比常數是恆真的(`account-profile-copy.test.ts:8` 檔頭記過同一個病)。
+  it('🔴🔴 三句話【逐字】釘死(改一個字 ⇒ 本格紅)', () => {
+    expect(VEHICLE_TAXONOMY_UNAVAILABLE).toBe('車款清單暫時無法載入,請稍後再試或改用自行輸入');
+    expect(CATEGORY_TAXONOMY_UNAVAILABLE).toBe('分類清單暫時無法載入,請稍後再試');
+    expect(BRAND_TAXONOMY_UNAVAILABLE).toBe('品牌清單暫時無法載入,請稍後再試');
+  });
+
+  // 🔵 **R3 nit**:刪掉 `style={MESSAGE_STATE_STYLE}` 之前所有格子都還是綠的。
+  //   而那組樣式**不是我發明的** —— 它逐字等於 OD 稿 `pcm-home-redesign/products-list-page.html`
+  //   的 `#pp-error`(見 `products-message-state.tsx` 的 JSDoc)⇒ 這一格守的是**鐵則 1**:
+  //   期望值是**稿上那四個值手打**, 改樣式就等於偏離稿, 必須有人看見。
+  it('🔵 那句話的樣式要等於 OD 稿 `#pp-error` 那四個值(拔掉 style ⇒ 本格紅)', () => {
+    render(<VehicleTaxonomyNotice failed />);
+    const el = screen.getByRole('alert');
+    // ⚠️ **`0` 讀回來是 `0px`** —— 稿上與 `MESSAGE_STATE_STYLE` 都寫 `64px 0`,
+    //    而 CSSOM 會正規化。這是**量具的讀數**, 不是值變了(實測 2026-09-06)。
+    expect(el.style.padding).toBe('64px 0px');
+    expect(el.style.textAlign).toBe('center');
+    expect(el.style.color).toBe('var(--c-text-3)');
+    // ⚠️ 同上, CSSOM 把 `14px/1.6` 正規化成 `14px / 1.6`(空格)。
+    expect(el.style.font).toBe('14px / 1.6 system-ui, sans-serif');
+  });
+
   it('🔴 分類/品牌那兩句【不得】帶「自行輸入」的尾巴', () => {
     // 🛑 車款那句尾巴是「或改用自行輸入」, 因為帳號那邊真的有自由輸入車款那條路;
     //    而分類與品牌【沒有】—— 照抄那個尾巴就是告訴客人一條不存在的路。
