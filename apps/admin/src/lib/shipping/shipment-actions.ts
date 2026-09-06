@@ -590,7 +590,7 @@ export async function submitShipmentToHctAction(args: {
     }
 
     const built = buildHctTransData({
-      displayId: row.shipmentReference,
+      shipmentReference: row.shipmentReference,
       recipient: row.recipientSnapshot,
       // ⚠️ **`itemCount: 1` 是一個【假設】, 不是量到的**(code-reviewer nit⑤):
       //    它是新竹的「件數」= **幾個包裹**, 不是幾件商品。今天後台一次建一箱
@@ -659,7 +659,7 @@ export async function submitShipmentToHctAction(args: {
       deps,
       current,
       fields: built.fields,
-      epino: row.shipmentReference,
+      // 🔵 `epino` 這個參數 2026-09-06 已刪 —— 查詢改用 `fields.epino`(⟦ship-EPINOUNIQUE⟧)。
     });
 
     switch (result.kind) {

@@ -1581,6 +1581,13 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       discountTotal: { amount: 0, currency: 'TWD' },
       taxTotal: { amount: 888, currency: 'TWD' },
       total: { amount: 10200, currency: 'TWD' },
+      // ⟦b4-PAIDTHENOVERPAID⟧ 這裡是 `null`, 而**理由不是 try/catch**(code-reviewer 2026-09-06 must-fix ②
+      //    訂正我寫錯的那一句):`makeDetailClient` 的 `from()` 對**任何表名回同一條鏈**
+      //    ⇒ 第二發拿回的是 `DETAIL_ROW` 本身、沒有 throw ⇒ 它的 `balance_due` 是 `undefined`
+      //    ⇒ 被**型別守門**擋成 `null`。
+      //    📌 **「它是 null」與「它為什麼是 null」是兩個宣稱, 而我原本只驗了前者還寫錯了後者。**
+      //    ⇒ ✅ 三個世界(真的有值 / 走 catch / 回 null)由下面那個 describe 用**分表名的 mock** 驗。
+      balanceDue: null,
       shippingMethod: 'home',
       shippingAddress: { name: '王小明', phone: '0912345678', line: '台北市信義區 1 號' },
       customerUserId: 'cu-detail-1',
@@ -3356,6 +3363,106 @@ describe('⟦b4-PAIDTHENOVERPAID⟧ balance_due guard — 溢付/超上界一律
       const { client } = makeClientWithBalance(bad);
       const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
       expect(res?.balanceDue, `raw=${String(bad)} 沒有被收成 null`).toBeNull();
+    }
+  });
+});
+
+/**
+ * ⟦b4-PAIDTHENOVERPAID⟧ **`findAdminOrderDetail` 的第二發 —— `order_balance_base_v`。**
+ *
+ * 🔴 **為什麼要一個【分表名】的 mock**(code-reviewer 2026-09-06 must-fix ②):
+ *    既有的 `makeDetailClient` 的 `from()` **對任何表名回同一條鏈** ⇒ 第二發拿回的是
+ *    `DETAIL_ROW` 本身 ⇒ 它的 `balance_due` 是 `undefined` ⇒ 被型別守門擋成 `null`。
+ *    📌 **那個 `null` 證不到「讀不到就傳 null」這條契約, 它只證到「undefined 會被擋掉」。**
+ *    ⇒ 兩件事在輸出上是同一個 `null`, 而**只有分表名的 mock 分得開**。
+ *
+ * 🔴🔴 **而字串那一格是本族最重要的**:`balance_due` = `o.total - COALESCE(SUM(p.amount), 0)`,
+ *    **`SUM(integer)` 在 PG 是 `bigint`** ⇒ PostgREST 可能回**字串**。
+ *    只認 `typeof === 'number'` 的守門會讓這一欄**永遠是 null** ——
+ *    而那個壞法**畫面上只是安靜地不印那一行**, 沒有任何東西會叫。
+ */
+describe('⟦b4-PAIDTHENOVERPAID⟧ findAdminOrderDetail 的 balance_due 第二發', () => {
+  /** `orders` 走既有那條鏈;`order_balance_base_v` 走它自己那條(可指定回值或錯誤)。 */
+  function makeClientWithBalance(balance: { data: unknown; error: unknown }) {
+    const maybeSingle = vi.fn().mockResolvedValue({ data: DETAIL_ROW, error: null });
+    const chain: Record<string, unknown> = { maybeSingle };
+    chain.limit = vi.fn().mockReturnValue(chain);
+    chain.order = vi.fn().mockReturnValue(chain);
+    const eq = vi.fn().mockReturnValue(chain);
+    const ordersSelect = vi.fn().mockReturnValue({ eq });
+
+    const balMaybeSingle = vi.fn().mockResolvedValue(balance);
+    const balEq = vi.fn().mockReturnValue({ maybeSingle: balMaybeSingle });
+    const balSelect = vi.fn().mockReturnValue({ eq: balEq });
+
+    const from = vi.fn((table: string) =>
+      table === 'order_balance_base_v' ? { select: balSelect } : { select: ordersSelect },
+    );
+    return { client: { from } as unknown as SupabaseClient, from, balSelect, balEq };
+  }
+
+  it('🟢 正對照:回 -200(數字)⇒ balanceDue = -200, 而且問對了 view / 欄 / 鍵', async () => {
+    const { client, from, balSelect, balEq } = makeClientWithBalance({
+      data: { balance_due: -200 },
+      error: null,
+    });
+    const res = await new SupabaseOrderAdapter(client).findAdminOrderDetail('o1');
+    expect(res?.balanceDue).toBe(-200);
+    // 🔵 少了這三格, 換表名 / 換欄名 / 換鍵都不會紅。
+    expect(from).toHaveBeenCalledWith('order_balance_base_v');
+    expect(balSelect).toHaveBeenCalledWith('balance_due');
+    expect(balEq).toHaveBeenCalledWith('order_id', 'o1');
+  });
+
+  it("🔴🔴 bigint 回【字串】'-200' ⇒ 一樣要是 -200 —— 只認 number 的守門會讓這欄永遠 null", async () => {
+    const { client } = makeClientWithBalance({ data: { balance_due: '-200' }, error: null });
+    const res = await new SupabaseOrderAdapter(client).findAdminOrderDetail('o1');
+    expect(
+      res?.balanceDue,
+      "字串 '-200' 沒被解析 ⇒ 多付那一行【永遠不會印】, 而畫面上看起來只是「這張單沒多付」",
+    ).toBe(-200);
+  });
+
+  it('🔴 那一發丟出錯誤 ⇒ 走 catch ⇒ null, 而【整頁不掛】', async () => {
+    const { client } = makeClientWithBalance({ data: null, error: null });
+    // 🔴 讓第二發真的 throw:把 `order_balance_base_v` 那條鏈換成會炸的。
+    const boom = {
+      select: () => ({ eq: () => ({ maybeSingle: () => Promise.reject(new Error('boom')) }) }),
+    };
+    const c = client as unknown as { from: ReturnType<typeof vi.fn> };
+    c.from.mockImplementation((table: string) =>
+      table === 'order_balance_base_v'
+        ? boom
+        : {
+            select: () => ({
+              eq: () => {
+                const chain: Record<string, unknown> = {
+                  maybeSingle: () => Promise.resolve({ data: DETAIL_ROW, error: null }),
+                };
+                chain.order = () => chain;
+                chain.limit = () => chain;
+                return chain;
+              },
+            }),
+          },
+    );
+    const res = await new SupabaseOrderAdapter(client).findAdminOrderDetail('o1');
+    // 🛑 契約:第二發失敗**不得**讓整頁掛掉 ⇒ 這裡拿得到訂單, 只是餘額算不出來。
+    expect(res, '第二發炸掉把整張單一起帶走了 ⇒ 拿一個大故障換一個小故障').not.toBeNull();
+    expect(res?.balanceDue).toBeNull();
+  });
+
+  it('🔴 那一發回 null(view 沒貼 / 沒有這張單)⇒ balanceDue = null, 不是 0', async () => {
+    const { client } = makeClientWithBalance({ data: null, error: null });
+    const res = await new SupabaseOrderAdapter(client).findAdminOrderDetail('o1');
+    expect(res?.balanceDue, '補 0 的意思是「剛好付清」—— 那是一個具體斷言, 不是「不知道」').toBeNull();
+  });
+
+  it('⚪ 髒值一律 null:非十進位整數字面 / 超出安全整數 / 布林', async () => {
+    for (const bad of ['1e5', '1.0', '0x10', 'Infinity', '', '9007199254740993', true, {}]) {
+      const { client } = makeClientWithBalance({ data: { balance_due: bad }, error: null });
+      const res = await new SupabaseOrderAdapter(client).findAdminOrderDetail('o1');
+      expect(res?.balanceDue, `raw=${JSON.stringify(bad)} 沒有被擋成 null`).toBeNull();
     }
   });
 });
