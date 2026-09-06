@@ -1939,3 +1939,97 @@ describe('searchByKeyword 舊路 — brands 那一發失敗時要【降級】不
     });
   }
 });
+
+describe('searchByKeyword — 料號完全命中排第一(Sean 2026-09-06)', () => {
+  // 🔴 Sean 逐字:「我找 AZ203 會跑出相關的商品三個, ZDM131、ZDM130、AZ203 這樣方式我覺得可以,
+  //   只是跳出來的順序應該是左邊第一個是 AZ203」。
+  // 🔵 做得起來是量過的:排序在【分頁之前】(RPC 的 SQL 無 LIMIT/OFFSET, adapter 一次撈全集再 slice)。
+  // 🛑 **它只改順序、不改命中集合** —— 那是刻意的安全性質, 下面有一格逐字釘住它。
+
+  /** RPC 回 ids;`products_public` 有兩種查法要分開:帶 `.ilike` = 問完全命中, 帶 `.order` = 撈那一頁的列。 */
+  function makeRpcMock(opts: {
+    ids: string[];
+    exactIds?: string[];
+    exactError?: boolean;
+    exactThrows?: boolean;
+  }) {
+    const captured: { pattern?: string; pageIds?: string[] } = {};
+    const client = {
+      rpc() {
+        return {
+          range: () =>
+            Promise.resolve({ data: opts.ids.map((id) => ({ id })), error: null }),
+        };
+      },
+      from() {
+        const b: Record<string, unknown> = {};
+        b.select = () => b;
+        // 🔴 只有【撈那一頁的列】那一發會帶 `.in()` —— 完全命中那一發**刻意不帶**(見實作註解)。
+        b.in = (_c: string, ids: string[]) => {
+          captured.pageIds = ids;
+          return b;
+        };
+        b.ilike = (_c: string, pattern: string) => {
+          captured.pattern = pattern;
+          if (opts.exactThrows) throw new Error('boom');
+          return Promise.resolve({
+            data: opts.exactError ? null : (opts.exactIds ?? []).map((id) => ({ id })),
+            error: opts.exactError ? { message: 'x' } : null,
+          });
+        };
+        b.order = () => Promise.resolve({ data: [], error: null });
+        return b;
+      },
+    };
+    return { client: client as unknown as SupabaseClient, captured };
+  }
+
+  it('🔴 完全命中那筆被提到最前面(Sean 那三顆:AZ203 排第一)', async () => {
+    // id 用可排序的字串代表三顆商品;`sort()` 之後 zdm130 < zdm131 < 而 az203 本來就在最前?
+    // ⇒ 刻意讓 az203 在 `sort()` 之後【不是】第一, 否則這一格恆綠。
+    const { client, captured } = makeRpcMock({
+      ids: ['a-zdm130', 'b-zdm131', 'c-az203'],
+      exactIds: ['c-az203'],
+    });
+    await new SupabaseProductAdapter(client).searchByKeyword('AZ203', { limit: 20, offset: 0 });
+    expect(captured.pageIds, '量不到那一頁的 id ⇒ 選擇器沒接上, 這一發作廢').toBeDefined();
+    expect(captured.pageIds![0]).toBe('c-az203');
+  });
+
+  it('🔵 負對照:沒有完全命中 ⇒ 順序【一個都不動】(不是隨便重排)', async () => {
+    const { client, captured } = makeRpcMock({ ids: ['a', 'b', 'c'], exactIds: [] });
+    await new SupabaseProductAdapter(client).searchByKeyword('zzq', { limit: 20, offset: 0 });
+    expect(captured.pageIds).toEqual(['a', 'b', 'c']);
+  });
+
+  it('🔴🔴 它只改順序、不改集合 —— 長度與成員都守恆', async () => {
+    // 🛑 這一格是本片最重要的安全性質:排序錯了最差是難看,
+    //    而【集合】變了就是「客人看到不該看的 / 看不到該看的」。
+    const ids = ['a', 'b', 'c', 'd', 'e'];
+    const { client, captured } = makeRpcMock({ ids, exactIds: ['d'] });
+    await new SupabaseProductAdapter(client).searchByKeyword('D', { limit: 99, offset: 0 });
+    expect(captured.pageIds!.length).toBe(ids.length);
+    expect([...captured.pageIds!].sort()).toEqual([...ids].sort());
+  });
+
+  it('🔴 `%` 與 `_` 要被跳脫 —— 否則【完全相等】會被悄悄換成【像】', async () => {
+    // 📌 這不只是「多撈幾筆」:這個函式整個的意義就是「完全相等」,
+    //    而 `.ilike()` 會把 `AZ_203` 讀成「AZ 任一字 203」。
+    const { client, captured } = makeRpcMock({ ids: ['a'], exactIds: [] });
+    await new SupabaseProductAdapter(client).searchByKeyword('AZ_2%3', { limit: 20, offset: 0 });
+    expect(captured.pattern).toBe('AZ\\_2\\%3');
+  });
+
+  it('🔵 那一發查詢失敗 ⇒ 回原順序, 不讓整個搜尋紅掉', async () => {
+    const { client, captured } = makeRpcMock({ ids: ['a', 'b'], exactError: true });
+    await new SupabaseProductAdapter(client).searchByKeyword('x', { limit: 20, offset: 0 });
+    expect(captured.pageIds).toEqual(['a', 'b']);
+  });
+
+  it('🔵 那一發 throw ⇒ 一樣回原順序(排序是體驗, 不值得讓搜尋 500)', async () => {
+    const { client, captured } = makeRpcMock({ ids: ['a', 'b'], exactThrows: true });
+    await new SupabaseProductAdapter(client).searchByKeyword('x', { limit: 20, offset: 0 });
+    expect(captured.pageIds).toEqual(['a', 'b']);
+  });
+});
+

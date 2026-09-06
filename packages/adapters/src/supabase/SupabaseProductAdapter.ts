@@ -575,7 +575,26 @@ export class SupabaseProductAdapter implements IProductRepository {
     if (brandIds !== null) {
       const wantCountRpc = opts?.countTotal !== false;
       // 🔴 `.in('id', …)` **不保證順序** ⇒ 自己排,才與舊路的 `.order('id')` 同序。
-      const ordered = [...brandIds].sort();
+      const sorted = [...brandIds].sort();
+      // ⟦搜尋-完全命中排第一⟧ 2026-09-06 Sean 逐字:「我找 AZ203 會跑出相關的商品三個,
+      //   ZDM131、ZDM130、AZ203 這樣方式我覺得可以, 只是跳出來的順序應該是左邊第一個是 AZ203」。
+      //
+      // 🔵 **為什麼做得起來, 是量過的**:排序發生在【分頁之前】——
+      //   本行排的是**全集**(`storefront_search_product_ids` 的 SQL 裡 grep `LIMIT|OFFSET` ⇒ 0 命中,
+      //   adapter 這一端 `.range(0, RPC_ID_CAP)` 一次把 id 全撈回來), 下一行才 `slice`
+      //   ⇒ **把完全命中的提到最前面, 它就一定落在第一頁。不必動 RPC。**
+      //
+      // 🛑 **兩條限制, 寫在這裡而不是只寫在 commit body**:
+      //   ① **舊路吃不到這個修法** —— 舊路是 `.order('id')` + `.range(offset,…)`, **分頁在 DB 做**
+      //     ⇒ 在 TS 重排只會動到**當頁內部**。舊路只在 RPC 不在時跑(`PGRST202`/`42883`)。
+      //   ② **命中集超過 `RPC_ID_CAP`(1000)時**, 完全命中那筆可能根本沒被撈回來
+      //     ⇒ 那一發會退回舊路(見 `:73`)⇒ 落回限制 ①。
+      //     ⚠️ 「`AZ203` 這種料號不可能命中 1000 筆」**我沒有量** —— 標著。
+      //
+      // 🔴 **它只改順序、不改命中集合** —— 這是刻意的安全性質:
+      //   `hoistExactMatches` 回傳的是**同一批 id 的重排**(長度守恆, 守門釘著)
+      //   ⇒ 📌 **錯了最差只是順序不好看, 不會讓客人看到不該看的東西。**
+      const ordered = await this.hoistExactMatches(q, sorted);
       const pageIds = ordered.slice(offset, offset + params.limit);
       if (pageIds.length === 0) {
         // 🔴🔴 **這一條早退【本來一行都不印】**(2026-09-05 code-reviewer R1 must-fix)——
@@ -756,6 +775,43 @@ export class SupabaseProductAdapter implements IProductRepository {
    * ⚠️ **回傳 `null` = 「今天沒有這條路」;回傳 `[]` = 「這條路走過了,而它一筆都沒找到」** ——
    *    兩者**不可**收斂成同一個東西:前者要走舊路,後者要直接回空。
    */
+  /**
+   * **把「料號完全相等」的那幾筆提到最前面。只改順序, 不改集合。**
+   *
+   * 🔴 **RPC 只回 id, 回不了「誰是完全命中」** ⇒ 這裡多問一發 `products_public`。
+   *   失敗時**回原陣列**(不是 throw)—— 排序是體驗, 不值得讓整個搜尋紅掉。
+   *
+   * 🛑 **`.ilike()` 會把 `%` 與 `_` 當萬用字元** ⇒ 客人打 `AZ_203` 會變成一條模糊查詢
+   *   ⇒ 📌 **那不只是「多撈幾筆」, 是把一個【完全相等】的語意悄悄換成【像】** ——
+   *     而這個函式整個的意義就是「完全相等」。⇒ 餵進去之前先跳脫。
+   */
+  private async hoistExactMatches(q: string, ids: string[]): Promise<string[]> {
+    if (ids.length === 0) return ids;
+    try {
+      // PostgREST 的 LIKE 跳脫字元是反斜線;`\\` 自己也要先跳脫, 順序不能反。
+      const pattern = q.replace(/\\/g, '\\\\').replace(/[%_]/g, (c) => `\\${c}`);
+      // 🔴🔴 **不要把 `ids` 塞進 `.in()`** —— 兩個理由, 第二個是既有測試逼出來的:
+      //   ① `ids` 最多 1000 筆 ⇒ 那會做出一條**上千個 UUID 的 URL**, 而 PostgREST 走 GET
+      //     ⇒ 白白撞 URL 長度上限, 而我要的答案跟那 1000 個 id 無關。
+      //   ② 🔬 **它會弄壞既有那格分頁測試** —— 那個 mock 用 `.in()` 記「這一頁要哪些 id」,
+      //     而我多發一次帶 `.in()` 的查詢就把它的讀數蓋掉了(實跑:期望 `id-05..07`、拿到 `id-00..19`)。
+      //     📌 **那不是測試太脆弱, 是它在告訴我一件真的事:我多打了一發不必要的大查詢。**
+      //   ✅ 改成:只問「哪一顆商品的料號**完全等於**這個字」(全站通常 0-1 筆), 再在 TS 這邊取交集。
+      const { data, error } = await this.supabase
+        .from('products_public')
+        .select('id')
+        .ilike('external_id', pattern);
+      if (error || !Array.isArray(data)) return ids;
+      const hit = new Set(data.map((r) => (r as { id: string }).id));
+      const exact = new Set(ids.filter((id) => hit.has(id)));
+      if (exact.size === 0) return ids;
+      // 🔵 **穩定重排**:命中的照原順序在前, 其餘照原順序在後 ⇒ 長度守恆、集合守恆。
+      return [...ids.filter((id) => exact.has(id)), ...ids.filter((id) => !exact.has(id))];
+    } catch {
+      return ids;
+    }
+  }
+
   private async trySearchIdsWithBrand(q: string): Promise<string[] | null> {
     const terms = splitSearchTerms(q);
     if (terms.length === 0) {
