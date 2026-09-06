@@ -17,7 +17,10 @@ import { buildLabelPages } from './hct-label-layout';
  */
 const PNG_BYTES = Buffer.concat([
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-  Buffer.alloc(56, 0x7f),
+  Buffer.alloc(44, 0x7f),
+  // 🔴 **結尾要有 IEND** —— codex 2026-09-06 R1 must-fix:
+  //    「簽名 + 一堆垃圾」原本會被判成一張圖 ⇒ 真 Chromium 當破圖 ⇒ 空白紙 200。
+  Buffer.from([0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]),
 ]);
 const PNG_HEX = PNG_BYTES.toString('hex');
 const PNG_B64 = PNG_BYTES.toString('base64');
@@ -100,6 +103,23 @@ describe('extractHctLabelImage', () => {
     expect(pages[0]!.slots[0]!.kind).toBe('label');
   });
 
+  // 🔴🔴 codex 2026-09-06 R1 must-fix 那一格:開頭對、結尾沒有。
+  it('PNG 簽名 + 一堆垃圾(沒有 IEND)⇒ 擋掉, 不得判成一張圖', () => {
+    const headless = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.alloc(56, 0x7f),
+    ]).toString('hex');
+    const got = extractHctLabelImage(wrap(headless));
+    expect(got).toEqual({ ok: false, reason: expect.stringContaining('truncated_body') });
+  });
+
+  it('JPEG 少了結尾的 FFD9 ⇒ 擋掉;補上就過(兩個世界)', () => {
+    const body = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(61, 0x22)]);
+    expect(extractHctLabelImage(wrap(body.toString('hex')))).toMatchObject({ ok: false });
+    const whole = Buffer.concat([body, Buffer.from([0xff, 0xd9])]);
+    expect(extractHctLabelImage(wrap(whole.toString('hex')))).toMatchObject({ ok: true, mime: 'image/jpeg' });
+  });
+
   it('多列 ⇒ 拒絕, 不取第一列(那是把別人的貨號貼上我們的箱子)', () => {
     expect(extractHctLabelImage([{ image: PNG_HEX }, { image: PNG_HEX }])).toEqual({
       ok: false,
@@ -118,9 +138,15 @@ describe('extractHctLabelImage', () => {
   });
 
   it('JPEG / GIF 也認得(而它們的 mime 各不相同)', () => {
-    const mk = (b: number[]) => Buffer.from([...b, 0, 1, 2, 3]).toString('hex');
-    expect(extractHctLabelImage(wrap(mk([0xff, 0xd8, 0xff])))).toMatchObject({ mime: 'image/jpeg' });
-    expect(extractHctLabelImage(wrap(mk([0x47, 0x49, 0x46, 0x38])))).toMatchObject({ mime: 'image/gif' });
+    // 🔵 每一種都要帶自己的結尾標記(見 `tailOk`)—— 只有開頭的話它們現在會被擋。
+    const mk = (b: number[], tail: number[]) =>
+      Buffer.from([...b, 0, 1, 2, 3, ...tail]).toString('hex');
+    expect(extractHctLabelImage(wrap(mk([0xff, 0xd8, 0xff], [0xff, 0xd9])))).toMatchObject({
+      mime: 'image/jpeg',
+    });
+    expect(extractHctLabelImage(wrap(mk([0x47, 0x49, 0x46, 0x38], [0x3b])))).toMatchObject({
+      mime: 'image/gif',
+    });
     // 🔵 BMP 另有長度那一道 ⇒ 它的正例在上面自己一格(不能用這個 mk 造)。
   });
 });

@@ -24,6 +24,31 @@
 // 🛑 **我沒有一張真圖** ⇒ 下面每一組測資都是我自己造的。本檔證得到的是
 //    「解對了會過 / 解錯了會擋」, 證不到「新竹真的送的是這幾種格式其中之一」。
 
+/**
+ * 🔴🔴 **一張圖不是只有開頭 —— 它也要有【結尾】。**(codex 2026-09-06 R1 must-fix)
+ *
+ * 🛑 **我原本只問了魔術位元組** ⇒ 「PNG 簽名 + 一堆垃圾」會被判成 ok
+ *    ⇒ 真的 Chromium 把它當破圖 ⇒ 📌 **`page.pdf()` 照樣回 200, 而那張紙是空白的。**
+ *    ⇒ 而那正是本檔第一句宣稱擋住的那個世界。
+ * ✅ 每一種格式各**再問一個獨立的問題**(結尾標記 / 檔長), 而它們都是**兩個世界印不同東西**的問句:
+ *    · PNG  最後一個 chunk 必須是 `IEND`   ⇒ 截斷的 PNG 沒有它
+ *    · JPEG 必須以 `FFD9`(EOI)結束        ⇒ 截斷的 JPEG 沒有它
+ *    · GIF  必須以 `0x3B`(trailer)結束     ⇒ 同上
+ *    · BMP  檔頭宣告的長度要等於實際長度    ⇒ 見下面 `sizeAt`
+ * 🛑 **而它仍然【證不到】那是一張看得懂的標籤** —— 一張結構完整的圖可以是全黑的。
+ *    ⇒ 📌 這一層擋的是**傳輸/截斷**, 不是**內容**。內容要人眼看那張紙。
+ */
+function tailOk(b: Uint8Array, kind: string): boolean {
+  const at = (i: number) => b[b.length - i];
+  if (kind === 'image/png') {
+    // IEND chunk = 長度 0 + 'IEND' + CRC ⇒ 倒數第 8..5 個位元組是 `IEND`。
+    return b.length >= 12 && at(8) === 0x49 && at(7) === 0x45 && at(6) === 0x4e && at(5) === 0x44;
+  }
+  if (kind === 'image/jpeg') return b.length >= 4 && at(2) === 0xff && at(1) === 0xd9;
+  if (kind === 'image/gif') return b.length >= 6 && at(1) === 0x3b;
+  return true; // BMP 走 `sizeAt` 那一道
+}
+
 /** 瀏覽器的 `<img>` 認得、而我們願意貼上箱子的格式。 */
 const IMAGE_MAGIC: { mime: string; bytes: number[]; sizeAt?: number }[] = [
   { mime: 'image/png', bytes: [0x89, 0x50, 0x4e, 0x47] },
@@ -70,6 +95,8 @@ function sniff(bytes: Uint8Array): { mime: string } | { why: string } {
         (bytes[m.sizeAt + 3]! << 24);
       if ((declared >>> 0) !== bytes.length) return { why: 'size_mismatch' };
     }
+    // 🔴 開頭對了還要問結尾 —— 見 `tailOk` 上面那段(截斷的圖 = 空白貼上箱子)。
+    if (!tailOk(bytes, m.mime)) return { why: 'truncated_body' };
     return { mime: m.mime };
   }
   for (const k of KNOWN_NOT_IMG) if (startsWith(bytes, k.bytes)) return { why: `is_${k.label}` };
