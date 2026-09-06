@@ -12,6 +12,7 @@
 //    ② **PDF 是 2022 版**。它的方法簽章寫大寫 `Company`, 而**線上服務描述頁是小寫 `<company>`**
 //       ⇒ 🔴 **大小寫一律以線上為準**(今晚已經因為這個踩過一次)。而**欄位名的大小寫**兩邊一致, 所以本檔用得下去。
 //    ③ 本檔**零對外請求** —— 它只跑 `buildHctTransData`, 不打任何網路。
+import { toShipmentReference } from '@pcm/domain';
 import { describe, expect, it } from 'vitest';
 import { buildHctTransData } from './hct-trans-data';
 
@@ -31,7 +32,7 @@ const PDF_MAX = {
 } as const;
 
 const baseInput = {
-  shipmentReference: 'B7K3MN',
+  shipmentReference: toShipmentReference('B7K3MN'),
   recipient: { name: '王小明', phone: '0912345678', line: '台北市信義區信義路五段 7 號' },
   itemCount: 1,
   note: '',

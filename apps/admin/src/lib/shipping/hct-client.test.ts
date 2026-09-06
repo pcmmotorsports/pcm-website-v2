@@ -1,3 +1,4 @@
+import { toShipmentReference } from '@pcm/domain';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { hctMode, queryEdelno, submitTransData, type HctClientDeps } from './hct-client';
 import { buildHctTransData } from './hct-trans-data';
@@ -13,7 +14,7 @@ import { buildHctTransData } from './hct-trans-data';
 const FIELDS = buildHctTransData({
   // 🔵 6 碼箱號 —— ⛔ ~~`'B7K3MN'`~~(2026-09-06 ⟦ship-EPINOUNIQUE⟧:那是【訂單】編號,
   //    而這一欄餵的是【箱號】;新契約有格式閘, 舊字面會 throw)。
-  shipmentReference: 'B7K3MN',
+  shipmentReference: toShipmentReference('B7K3MN'),
   recipient: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
   itemCount: 1,
 }).fields;
