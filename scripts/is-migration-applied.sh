@@ -116,6 +116,15 @@ FIXEOF
   chk '新欄帶正對照(釘住完整字面)'       有 '正對照 zz_sel_tbl.id 存在(期望1)'
   # 🔵 負向:註解裡的 CREATE POLICY 不得被抽出來 —— 剝註解那一格的回歸守門。
   chk '🔵 註解裡的物件沒有被抽進來'      無 'zz_from_comment'
+  # ══ 🟢 全域正對照(2026-09-07;auth 量到本支只有受測格 + 負對照)══════════════
+  #   📌 負對照證的是「不會亂命中」, **它不證「接得上」** ——
+  #     受測格回 1 有兩種世界:①真的已貼 ②尺沒接上而剛好也印 1。
+  #   ⇒ 這兩格分辨的是【有沒有那一格】, 而不是它的值(值要跑才知道)。
+  chk '🟢 產出的 SQL 有全域正對照'       有 '**全域正對照**'
+  chk '🔵 產出的 SQL 有全域負對照'       有 '負對照 現造物件名(期望0)'
+  # 🔴 `--positive` 那條路【本檔的 selftest 驗不到】—— 它要另起一個乾淨的 repo 才問得出來。
+  #    ⇒ 不留一個「定義了而沒有人呼叫」的假檢查在這裡(那種東西看起來像有守, 而它恆真)。
+  #    ✅ 改成在【交件時實跑一次】並把讀數寫進 commit body。
 
   # ══ 🔴🔴 補版控型標記 `pcm:ddl-into-vc`(⟦0e-DDLINTOVC-MARK⟧)兩個世界 ══════════
   #    🛑 這一組要【同一支 fixture 只差那一行】—— 換了 fixture 就不是在量那一行。
@@ -215,6 +224,15 @@ fi
 
 BASE=$(basename "$FILE")
 VER=$(printf '%s' "$BASE" | sed 's/_.*//')
+# 🟢 `--positive <schema.名>` —— 明寫全域正對照的物件(2026-09-07)
+POSITIVE_OBJ=""
+_i=1
+for _a in "$@"; do
+  if [ "$_a" = "--positive" ]; then
+    POSITIVE_OBJ=$(eval printf '%s' "\${$((_i+1))}")
+  fi
+  _i=$((_i+1))
+done
 
 printf '======== is-migration-applied ========\n'
 printf '檔  %s\n' "$BASE"
@@ -373,6 +391,53 @@ OUT="${TMPDIR:-/tmp}/is-applied-$VER.sql"
 printf -- '-- 「%s 貼了沒」唯讀查詢 —— 由 scripts/is-migration-applied.sh 產生\n' "$BASE"
 printf -- '-- 🛑 零寫入, 可安全重跑。每一格都附【兩個世界的期望值】。\n'
 printf -- '-- 🔴 回 0 之前先看正對照:正對照不對, 那個 0 是尺沒接上, 不是「沒貼」。\n\n'
+
+# ══ 🟢 全域正對照(2026-09-07;auth 量到本支【只有受測格 + 負對照】)═══════════
+#   病:負對照證的是「這把尺不會亂命中」, **它不證「這把尺接得上」**。
+#   ⇒ 受測格回 1 的世界有兩種:①真的已貼 ②尺根本沒接上而它剛好也印 1(例如查錯 schema)。
+#   📌 **一個 0 要帶兩個鄰居出門:一個證它會分辨(負對照), 一個證它接得上(正對照)。**
+#   ✅ 取法:預設從 `supabase/APPLIED.tsv` 最後一支【已貼】的 migration 裡挑第一個新建物件;
+#      也可以用 `--positive <schema.名>` 明寫。取不到 ⇒ **明說取不到**, 不靜默略過。
+if [ -n "${POSITIVE_OBJ:-}" ]; then
+  _POS="$POSITIVE_OBJ"; _POS_SRC="--positive 指定"
+else
+  _POS=""; _POS_SRC=""
+  _LEDGER="supabase/APPLIED.tsv"
+  if [ -f "$_LEDGER" ]; then
+    _LASTV=$(awk 'NR>1 && $1 ~ /^[0-9]{14}$/ {v=$1} END{print v}' "$_LEDGER" 2>/dev/null)
+    if [ -n "$_LASTV" ]; then
+      _LASTF=$(ls -1 supabase/migrations/"$_LASTV"_*.sql 2>/dev/null | head -1)
+      if [ -n "$_LASTF" ]; then
+        _POS=$(grep -oE '^[[:space:]]*CREATE (FUNCTION|TABLE|VIEW)[[:space:]]+(IF NOT EXISTS[[:space:]]+)?[A-Za-z0-9_.]+' "$_LASTF" 2>/dev/null \
+               | sed -E 's/.*(FUNCTION|TABLE|VIEW)[[:space:]]+//; s/^IF NOT EXISTS[[:space:]]+//' | head -1)
+        # 🔵 用 `if` 而不是 `cmd && cmd` 收尾 —— 讀起來清楚, 而**它不是為了修什麼**。
+        # 🔴🔴 **留一句訂正給下一個人**:我一度把 commit 當下三格 selftest 轉紅
+        #    歸因成「本檔 `set -e` 把 `&&` 的 rc=1 當成失敗」——
+        #    ⛔ **那個解釋是錯的**:本檔只有 `set -u`(`:30`), 沒有 `set -e`。
+        #    🔬 A/B 實測(同一台、連續兩發):`&&` 版 46/46 綠 · `if` 版 46/46 綠
+        #      ⇒ **兩個世界印一樣的東西 ⇒ 那不是成因。**
+        #    ⇒ 當下真正發生的事:同一輪 lint-staged 裡另有腳本被 **SIGKILL**(閘自己印了),
+        #      而那一輪的紅【沒有給出答案】。📌 **一個講得通的錯誤故事, 比「我不知道」更難被推翻。**
+        if [ -n "$_POS" ]; then _POS_SRC="帳本最後一支已貼 $_LASTV 裡的第一個新建物件"; fi
+      fi
+    fi
+  fi
+fi
+if [ -n "$_POS" ]; then
+  _PSCH=$(printf '%s' "$_POS" | awk -F. 'NF>1{print $1} NF==1{print "public"}')
+  _PNM=$(printf '%s' "$_POS" | awk -F. '{print $NF}')
+  printf -- '-- 🟢 **全域正對照**(來源:%s)—— 它【必須】回 1。\n' "$_POS_SRC"
+  printf -- '--    回 0 ⇒ 這把尺沒接上(schema 錯 / 連錯庫 / 權限)⇒ **下面每一格的 0 都不算數**。\n'
+  printf -- "SELECT '正對照 %s 存在(期望1)' AS 格, count(*)::text AS 值\n" "$_POS"
+  printf -- "  FROM (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace\n         WHERE n.nspname='%s' AND p.proname='%s'\n        UNION ALL\n        SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n         WHERE n.nspname='%s' AND c.relname='%s') t;\n\n" "$_PSCH" "$_PNM" "$_PSCH" "$_PNM"
+  printf -- '-- 🔵 **全域負對照** —— 現造物件名, 必須回 0。回非 0 ⇒ 這把尺會亂命中。\n'
+  printf -- "SELECT '負對照 現造物件名(期望0)' AS 格, count(*)::text AS 值\n"
+  printf -- "  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\n WHERE n.nspname='public' AND c.relname='zzz_no_such_object_xyz';\n\n"
+else
+  printf -- '-- 🔴🔴 **取不到全域正對照** —— 帳本讀不到最後一支已貼 migration, 或那支裡沒有新建物件。\n'
+  printf -- '--    ⇒ 下面每一格的 0 **都缺一個「尺接得上」的證據**。\n'
+  printf -- "--    ⇒ 自己補:`bash scripts/is-migration-applied.sh <版本號> --positive <schema.物件名>`\n\n"
+fi
 # 🔴🔴 **codex 2026-09-06 R1 MF1**:第一版只把【畫面上】的判別力改掉, 而**產出的 SQL 裡
 #    逐字還寫著「1=已貼」**⇒ 📌 拿去跑的人看到的是那份 SQL, 不是我的畫面。
 #    ⇒ 一個被降級的結論, 在它真正會被讀到的那個載體上完全沒有降級。
