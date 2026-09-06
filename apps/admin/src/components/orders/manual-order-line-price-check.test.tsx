@@ -42,27 +42,27 @@ describe('resolveLinePriceCheck — 五個世界各一個名字', () => {
   //    🛑 兩個數字**刻意不成 1.05 倍關係**(900×1.05=945 ≠ 1050)——
   //       這樣「拿錯欄位」與「算錯稅」在斷言上分得開。
   it('填對(= 填未稅 900)⇒ match', () => {
-    expect(resolveLinePriceCheck('SKU-A', 900, { ok: true, hits: [hit()] }).kind).toBe('match');
+    expect(resolveLinePriceCheck('SKU-A', 900, { ok: true, hits: [hit()] }, 'untaxed').kind).toBe('match');
   });
 
   it('🔴🔴 填【含稅價 1050】⇒ 不是 match —— 這一格殺得掉「權威還是 unitPrice」的舊實作', () => {
     // 舊實作拿 `unitPrice`(1050)當權威 ⇒ 這一發會回 match ⇒ 本格轉紅。
-    expect(resolveLinePriceCheck('SKU-A', 1050, { ok: true, hits: [hit()] }).kind).toBe('mismatch');
+    expect(resolveLinePriceCheck('SKU-A', 1050, { ok: true, hits: [hit()] }, 'untaxed').kind).toBe('mismatch');
   });
 
   it('🔴 填了別的數字 ⇒ mismatch, 且帶著兩個數字(權威 = 未稅 900)', () => {
-    const c = resolveLinePriceCheck('SKU-A', 1000, { ok: true, hits: [hit()] });
+    const c = resolveLinePriceCheck('SKU-A', 1000, { ok: true, hits: [hit()] }, 'untaxed');
     expect(c).toEqual({ kind: 'mismatch', sku: 'SKU-A', typed: 1000, authority: 900 });
   });
 
   it('🛑 型錄查無(代購)⇒ unmatched, **不是** match', () => {
-    expect(resolveLinePriceCheck('SKU-X', 1000, { ok: true, hits: [] }).kind).toBe('unmatched');
+    expect(resolveLinePriceCheck('SKU-X', 1000, { ok: true, hits: [] }, 'untaxed').kind).toBe('unmatched');
   });
 
   it('🔵 有商品但沒定價 ⇒ no_price(第三個世界)', () => {
     expect(
       // 🔴 `no_price` 的判準跟著權威走 ⇒ 現在是**經銷價** null, 不是 `unitPrice` null。
-      resolveLinePriceCheck('SKU-A', 1000, { ok: true, hits: [hit({ dealerPriceUntaxed: null })] })
+      resolveLinePriceCheck('SKU-A', 1000, { ok: true, hits: [hit({ dealerPriceUntaxed: null })] }, 'untaxed')
         .kind,
     ).toBe('no_price');
   });
@@ -72,7 +72,7 @@ describe('resolveLinePriceCheck — 五個世界各一個名字', () => {
       ok: false,
       reason: 'denied',
       message: '沒有權限查商品,請重新登入或找人開權限。',
-    });
+    }, 'untaxed');
     expect(c.kind).toBe('check_failed');
     expect(linePriceCheckMessage(c)).toContain('沒有權限查商品');
   });
@@ -80,11 +80,11 @@ describe('resolveLinePriceCheck — 五個世界各一個名字', () => {
   it('🔴 查詢【滿了】而沒撈到相等那筆 ⇒ inconclusive, **不是** unmatched', () => {
     // 逐字相等那筆可能排在 limit 之外 ⇒ 說成「不在型錄裡」= 把型錄品項講成代購。
     const many = Array.from({ length: 20 }, (_, i) => hit({ sku: `SKU-OTHER-${i}` }));
-    expect(resolveLinePriceCheck('SKU-A', 1000, { ok: true, hits: many }).kind).toBe('inconclusive');
+    expect(resolveLinePriceCheck('SKU-A', 1000, { ok: true, hits: many }, 'untaxed').kind).toBe('inconclusive');
   });
 
   it('🔵 對照:沒滿而沒撈到 ⇒ 那才是真的 unmatched(代購)', () => {
-    expect(resolveLinePriceCheck('SKU-A', 1000, { ok: true, hits: [hit({ sku: 'SKU-B' })] }).kind).toBe(
+    expect(resolveLinePriceCheck('SKU-A', 1000, { ok: true, hits: [hit({ sku: 'SKU-B' })] }, 'untaxed').kind).toBe(
       'unmatched',
     );
   });
@@ -97,7 +97,7 @@ describe('resolveLinePriceCheck — 五個世界各一個名字', () => {
         hit({ sku: 'SKU-A-LONG', dealerPriceUntaxed: 9999 }),
         hit({ sku: 'SKU-A', dealerPriceUntaxed: 900 }),
       ],
-    });
+    }, 'untaxed');
     expect(c.kind, '拿了第一筆 ⇒ 會把一個填對的人判成填錯').toBe('match');
   });
 });
@@ -256,5 +256,37 @@ describe('接線(focusout)', () => {
     const code = readFileSync(join(__dirname, 'manual-order-line-price-check.tsx'), 'utf8');
     expect(code, "掛 'blur' 在 form 上收不到 —— blur 不冒泡").toContain("'focusout'");
     expect(code).not.toContain("addEventListener('blur'");
+  });
+});
+
+// ── ⟦b4-PURCHTAX1⟧ 稅基要進到比價裡(2026-09-06 codex must-fix)──────────────────────
+//  🔴🔴 病:他填 4,200 並選【含稅】, 而經銷未稅權威價剛好也是 4,200
+//     ⇒ 舊碼比 `4200 === 4200` ⇒ 印「單價與經銷未稅價對得上」
+//     ⇒ 而 server 會換算成 4,000 才送出 ⇒ **一個錯的價格拿到了一句背書。**
+//     📌 這正是 ⟦b4-PURCHTAX1⟧ 整列在講的形狀:**錯的錢配一個全綠的守門。**
+describe('🔴🔴 ⟦b4-PURCHTAX1⟧ 比價要拿【真的會送出去的那個數】去比', () => {
+  const authority900 = () => ({ ok: true as const, hits: [hit()] });
+
+  it('🔴 填 900 選【含稅】而權威未稅價是 900 ⇒ 不得說「對得上」', () => {
+    // 900 是 21 的倍數?900*20/21 = 857.14 ⇒ 換不出整數 ⇒ 這一格改回 inconclusive。
+    expect(resolveLinePriceCheck('SKU-A', 900, authority900(), 'taxed').kind).not.toBe('match');
+  });
+
+  it('🔴🔴 填 945 選【含稅】(換算 = 900)而權威是 900 ⇒ 這才叫對得上', () => {
+    // 945*20/21 = 900 ⇒ 換算後真的等於權威價。
+    expect(resolveLinePriceCheck('SKU-A', 945, authority900(), 'taxed').kind).toBe('match');
+  });
+
+  it('🔴 而同一個 945 標成【未稅】⇒ 是 mismatch(945 ≠ 900)—— 稅基真的改變了結論', () => {
+    // 🔵 這一格與上面那格是**同一個輸入、不同稅基** ⇒ 它們一起證明那個參數有作用,
+    //    而不是「多傳了一個沒人看的參數」。
+    expect(resolveLinePriceCheck('SKU-A', 945, authority900(), 'untaxed').kind).toBe('mismatch');
+  });
+
+  it('🔴 mismatch 印出來的那個數字要是【換算後】的, 不是他打的那個', () => {
+    // 病:訊息說「你填 4200」而 server 送的是 4000 ⇒ 員工照著訊息去對, 對到的是不存在的數。
+    const c = resolveLinePriceCheck('SKU-A', 1050, authority900(), 'taxed');
+    expect(c.kind).toBe('mismatch');
+    expect(c.kind === 'mismatch' ? c.typed : -1).toBe(1000);
   });
 });
