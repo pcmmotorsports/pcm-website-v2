@@ -1,5 +1,5 @@
--- 🔴🔴 這是【replay 失敗的補丁】, 不是 bootstrap;來源 = 正式庫唯讀 catalog 於 2026-09-07 06:13:40 CST
---    產生指令:bash scripts/replay-gap-fixture.sh <本檔> pcm_noncard_settle_recompute pcm_pending_refund_open_for pcm_pending_refund_amounts pcm_sync_order_refund_payment_status
+-- 🔴🔴 這是【replay 失敗的補丁】, 不是 bootstrap;來源 = 正式庫唯讀 catalog 於 2026-09-07 06:20:44 CST
+--    產生指令:bash scripts/replay-gap-fixture.sh <本檔> pcm_noncard_settle_recompute pcm_pending_refund_open_for pcm_pending_refund_amounts pcm_sync_order_refund_payment_status pcm_incident_log admin_compute_order_settlement
 --    🛑 **不要把本檔的內容搬進 runbook §2 的 bootstrap** —— 這裡每一個物件都是
 --      【某一支 migration 自己會建的】, 而它們不見是因為那支 migration replay 失敗了。
 --    ⚠️ 它只含你點名的那幾個, **不知道還缺什麼**。
@@ -561,5 +561,220 @@ BEGIN
 
   RETURN v_ps;
 END;
+$function$;
+
+-- ── pcm_incident_log(逐字取自正式庫 pg_get_functiondef)──────────────────────
+CREATE OR REPLACE FUNCTION public.pcm_incident_log(p_kind text, p_subject_id uuid, p_detail text)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+BEGIN
+  -- 🔴 `detail` 截斷:SQLERRM 可能很長, 而這張表是給人看的不是存 log 的。
+  --    ⚠️ 截斷會**丟掉尾巴**, 而錯誤訊息的關鍵字常在尾巴 ⇒ 2000 是妥協不是安全值。
+  INSERT INTO public.pcm_incident (kind, subject_id, detail)
+  VALUES (p_kind, p_subject_id, pg_catalog.left(COALESCE(p_detail, '(無)'), 2000));
+END;
+$function$;
+
+-- ── admin_compute_order_settlement(逐字取自正式庫 pg_get_functiondef)──────────────────────
+CREATE OR REPLACE FUNCTION public.admin_compute_order_settlement(p_order_id uuid)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+WITH o AS (
+  SELECT ord.id,
+         ord.total,
+         ord.subtotal,
+         ord.payment_status::text AS ps,
+         ord.cancelled_at,
+         ord.cancelled_reason
+    FROM public.orders ord
+   WHERE ord.id = p_order_id
+),
+-- ── 收款面 ────────────────────────────────────────────────────────────────
+pay AS (
+  SELECT pg_catalog.count(*)                                        AS rows_n,
+         -- 🔴 關卡2:不要 ::integer。sum() 回 bigint,硬轉會在溢位時**噴錯**而不是落 needs_human。
+         coalesce(pg_catalog.sum(op.amount), 0)::bigint AS gross,
+         pg_catalog.count(*) FILTER (
+           WHERE op.received_at > pg_catalog.now())                 AS future_n
+    FROM public.order_payments op
+   WHERE op.order_id = p_order_id
+),
+-- 沖銷形狀:①指向同單既有列且金額為反號 ②同一列至多被沖一次
+rev_bad AS (
+  SELECT pg_catalog.count(*) AS n
+    FROM public.order_payments r
+   WHERE r.order_id = p_order_id
+     AND r.reverses_payment_id IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM public.order_payments t
+                      WHERE t.id = r.reverses_payment_id
+                        AND t.order_id = r.order_id
+                        AND t.amount = -r.amount)
+),
+rev_dup AS (
+  SELECT pg_catalog.count(*) AS n
+    FROM (SELECT r.reverses_payment_id
+            FROM public.order_payments r
+           WHERE r.order_id = p_order_id
+             AND r.reverses_payment_id IS NOT NULL
+           GROUP BY r.reverses_payment_id
+          HAVING pg_catalog.count(*) > 1) d
+),
+-- ── 品項快照 ──────────────────────────────────────────────────────────────
+-- 🔴 比的是 `subtotal` 不是 `total`:`20260604120000:112` 已有 DDL CHECK
+--    `total = subtotal + shipping_fee - discount_total` ⇒ 再驗那條是恆真守門。
+--    items 住在另一張表、**跨表這一段沒有 DDL 在守**,那才是會漂的地方。
+items AS (
+  SELECT pg_catalog.count(*)                                          AS n,
+         coalesce(pg_catalog.sum(oi.line_total), 0)::bigint AS sum_line
+    FROM public.order_items oi
+   WHERE oi.order_id = p_order_id
+),
+-- ── 取消面(三處都看;Fable F11 核可 AND-of-negatives 的 fail-closed 方向)──
+canc AS (
+  SELECT (SELECT pg_catalog.count(*) FROM public.order_cancellations c
+            WHERE c.order_id = p_order_id)
+       + (SELECT pg_catalog.count(*) FROM public.order_cancellation_items ci
+            WHERE ci.order_id = p_order_id) AS n
+),
+-- ── attempts 覆蓋(前提 5)─────────────────────────────────────────────────
+-- 🔴 Fable F3:`order_payments` **無 attempt_id 欄**,唯一可行 join 鍵是 rec_trade_id;
+--    但卡腿唯一鍵是 (order_id, rec_trade_id) 而 attempts 側 rec **全域唯一**
+--    ⇒ 裸 rec join 會被「**別張單**的同 rec 卡腿」滿足。兩個鍵都要比。
+att AS (
+  SELECT pg_catalog.count(*) FILTER (WHERE a.status = 'charged') AS charged_n,
+         pg_catalog.count(*) FILTER (
+           WHERE a.status = 'charged'
+             AND NOT EXISTS (SELECT 1 FROM public.order_payments op
+                              WHERE op.order_id     = a.order_id
+                                AND op.rail         = 'card'
+                                AND op.rec_trade_id = a.rec_trade_id)) AS uncovered_n
+    FROM public.payment_charge_attempts a
+   WHERE a.order_id = p_order_id
+),
+-- ── 退款面:**四個**來源(Fable F4)────────────────────────────────────────
+ref AS (
+  SELECT
+    -- ① 訂單級舊帳本:只有 status='failed' 除外;`processing` 恆為跡象。
+    --    🔴 **擋不掉什麼**(reviewer I3):四面裡只有這一面的除外值**沒有結構撐腰** ——
+    --    ③ 的 failed 有 `orj_shape_failed` 保證 `refund_call_attempted_at IS NULL`、
+    --    ② 的 failed 是 terminal 事件、④ 的 dismissed 有 status 一致性 CHECK;
+    --    而 `order_refunds.status='failed'` **只有值域 CHECK**,沒有任何約束保證「外呼沒發生過」。
+    --    ⇒ 若某天有人把已送出的退款標成 failed,這一面就會漏掉它。這是已知缺口,不是被守住的面。
+    (SELECT pg_catalog.count(*) FROM public.order_refunds orf
+      WHERE orf.order_id = p_order_id AND orf.status <> 'failed')                    AS old_n,
+    -- ② L5b attempt 級 —— 🔴 **沖銷片改寫**:改吃 canonical view,不再自己問「有沒有 manual」。
+    --    形狀刻意**維持原本的雙重否定**(plan §11-3):
+    --      除外(不算跡象) ⇔ EXISTS(有效終局) AND NOT EXISTS(有效終局 且 indicates_refund)
+    --    · **左半不能省**(Fable F5 原意):少了它,「零有效終局」(只有 `sent` 或只有
+    --      `result_unknown` —— 兩個最危險的未知態)會被空集合當成「全 failed」而除外。
+    --    · **不得簡化成單一 EXISTS(有效終局 AND NOT indicates_refund)**:那在 trigger 被繞過、
+    --      同時存在兩筆有效終局(一 true 一 false)時會翻成 **fail-open**;現寫法仍 fail-closed。
+    --    · 舊字面認 `result_success` 為終局,那是 2d 之前的殘留(plan §11-1 的既存 drift);
+    --      新語意由 view 單一權威定義(`result_confirmed`/`result_failed`/`manual`)。
+    (SELECT pg_catalog.count(*)
+       FROM public.payment_refunds pr
+       JOIN public.payment_charge_attempts a2 ON a2.id = pr.attempt_id
+      WHERE a2.order_id = p_order_id
+        AND NOT (
+              EXISTS (SELECT 1 FROM public.payment_refund_effective_terminal et
+                       WHERE et.refund_id = pr.id)
+          AND NOT EXISTS (SELECT 1 FROM public.payment_refund_effective_terminal et
+                           WHERE et.refund_id = pr.id
+                             AND et.indicates_refund)
+        ))                                                                            AS l5b_n,
+    -- ③ 在途退款工單:🔴 `failed` 態由 `orj_shape_failed`(20260731120000:395-400)硬性要求
+    --    `refund_call_attempted_at IS NULL` ⇒ **DDL 保證外呼從未發生 = 錢確定沒動**,除外它安全。
+    --    其餘六值(queued/processing/submitted/reconciling/completed/dead)全算跡象。
+    (SELECT pg_catalog.count(*) FROM public.order_refund_jobs j
+      WHERE j.order_id = p_order_id AND j.status <> 'failed')                        AS job_n,
+    -- ④ 雙扣異常:走 Dashboard 退款、**不經 ①②** ⇒ 任何非 dismissed 列都算跡象
+    (SELECT pg_catalog.count(*) FROM public.payment_double_charge_anomalies dc
+      WHERE dc.old_order_id = p_order_id AND dc.status <> 'dismissed')               AS anom_n
+),
+-- ── 七條前提 P1-P7(每條以 IS TRUE 收斂;NULL 一律當 false)────────────────────────
+prem AS (
+  SELECT
+    -- P1 訂單存在 + 狀態在**可判定集**內。
+    --    🔴 五值(20260604120000:50 四值 + 20260725130000:45 partiallyRefunded),
+    --    `refunded` / `partiallyRefunded` **排除**:退款帳本 2026-07-25 才建,更早的退款
+    --    在庫內零跡象 ⇒ 「refunded + 四面皆空」會湊出「全 true 但錢已退」(Fable F1)。
+    (o.ps IN ('unpaid','paid','partiallyPaid')) IS TRUE                    AS p1,
+    -- P2 完全沒有取消痕跡(四處)
+    (o.cancelled_at IS NULL
+     AND o.cancelled_reason IS NULL
+     AND canc.n = 0)                                    IS TRUE            AS p2,
+    -- P3 品項快照完整
+    (items.n > 0 AND items.sum_line = o.subtotal::bigint) IS TRUE          AS p3,
+    -- P4 收款列形狀乾淨
+    (pay.future_n = 0 AND rev_bad.n = 0 AND rev_dup.n = 0) IS TRUE         AS p4,
+    -- P5 帳本覆蓋可信。🔴 branch 1 必須連 charged attempt 一起看(Fable F2):
+    --    「unpaid + 零卡腿 + 有 charged attempt」= mark 半途死 / OP3 寫腿失敗,
+    --    DB 裡明擺著錢動過(charged ⇒ rec_trade_id 非空,20260612150000:98),
+    --    少了這一句會判 underpaid。
+    (((o.ps = 'unpaid' AND pay.rows_n = 0 AND att.charged_n = 0))
+      OR (pay.rows_n > 0 AND att.uncovered_n = 0))      IS TRUE            AS p5,
+    -- P6 四個退款面全空
+    (ref.old_n = 0 AND ref.l5b_n = 0 AND ref.job_n = 0 AND ref.anom_n = 0) IS TRUE AS p6,
+    -- P7 金額落在 int4 範圍內(溢位 ⇒ 不可判定,而不是噴錯)
+    -- 🔴 關卡2 R2:**溢位守門自己不能溢位**。第一版用 `abs(bigint)`:①`bigint` 最小值取 abs 會拋錯
+    --    ②`gross - total` 可能**先溢位**才輪到 abs,而 SQL 的 AND **不保證求值順序**、擋不住。
+    --    ⇒ 一律先轉 `numeric`(任意精度、不會溢位)再比範圍,且用 BETWEEN 不用 abs。
+    (pay.gross::numeric BETWEEN -2147483648 AND 2147483647
+     AND (pay.gross::numeric - o.total::numeric) BETWEEN -2147483648 AND 2147483647)
+                                                        IS TRUE                   AS p7
+    FROM o, pay, rev_bad, rev_dup, items, canc, att, ref
+),
+calc AS (
+  SELECT o.total                                   AS receivable,
+         pay.gross                                 AS gross,
+         (pay.gross - o.total::bigint)             AS net,   -- R=0 才會用到(P6 為真時)
+         prem.p1, prem.p2, prem.p3, prem.p4, prem.p5, prem.p6, prem.p7,
+         (prem.p1 AND prem.p2 AND prem.p3 AND prem.p4 AND prem.p5 AND prem.p6
+          AND prem.p7) AS all_ok,
+         o.ps, pay.rows_n, att.charged_n, att.uncovered_n,
+         items.n AS items_n, canc.n AS canc_n
+    FROM o, pay, prem, att, items, canc
+)
+SELECT pg_catalog.jsonb_build_object(
+  'scope',      'db_internal_only',
+  'gross',      c.gross,
+  -- 🔴 關卡2:**輸出數字的條件必須與 verdict 降級的條件是同一個**。
+  --    第一版 refunded 只看 p6 ⇒ 歷史 payment_status='refunded' 且四本帳皆空時,
+  --    verdict 是 needs_human 卻同時宣稱 `refunded: 0` —— 那正是本片存在的理由(假信心)。
+  'refunded',   CASE WHEN c.all_ok THEN 0 ELSE NULL END,
+  'receivable', CASE WHEN c.all_ok THEN c.receivable ELSE NULL END,
+  'net',        CASE WHEN c.all_ok THEN c.net ELSE NULL END,
+  'verdict',    CASE
+                  WHEN NOT c.all_ok  THEN 'needs_human'
+                  WHEN c.net = 0     THEN 'settled'
+                  WHEN c.net < 0     THEN 'underpaid'
+                  WHEN c.net > 0     THEN 'overpaid'
+                  ELSE 'needs_human'          -- 🔴 NULL 兜底(Fable F6),不是裝飾
+                END,
+  -- 🔴 reasons **累積全部命中**,不是第一個 CASE 就短路:一張舊 paid 單可能同時零收款、
+  --    有退款、有取消,值班要看到三個。
+  'reasons',
+    pg_catalog.to_jsonb(pg_catalog.array_remove(ARRAY[
+      CASE WHEN NOT c.p1 THEN 'STATUS_NOT_DECIDABLE'        END,
+      CASE WHEN NOT c.p2 THEN 'D_HAS_CANCELLATION'          END,
+      CASE WHEN NOT c.p3 THEN 'D_NO_SNAPSHOT'               END,
+      CASE WHEN NOT c.p4 THEN 'PAYMENT_ROW_SHAPE_ANOMALY'   END,
+      -- P5 拆三碼:處置完全不同(前者=OP4 餵料、中者=線上寫入故障、後者=錢動過但單還 unpaid)
+      CASE WHEN NOT c.p5 AND c.ps <> 'unpaid' AND c.rows_n = 0
+             THEN 'G_LEDGER_NOT_BACKFILLED'                 END,
+      CASE WHEN NOT c.p5 AND c.rows_n > 0 AND c.uncovered_n > 0
+             THEN 'G_LEDGER_WRITE_GAP'                      END,
+      CASE WHEN NOT c.p5 AND c.ps = 'unpaid' AND c.charged_n > 0
+             THEN 'G_UNPAID_WITH_CHARGED_ATTEMPT'           END,
+      CASE WHEN NOT c.p6 THEN 'R_REFUND_TRACE_PRESENT'      END,
+      CASE WHEN NOT c.p7 THEN 'AMOUNT_OUT_OF_RANGE'           END
+    ], NULL))
+) FROM calc c
 $function$;
 
