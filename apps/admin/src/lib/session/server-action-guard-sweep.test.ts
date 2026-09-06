@@ -17,11 +17,23 @@ import { stripComments } from '../test-support/strip-comments';
 //    —— **它先證明自己的尺撈得到東西,再去斷言。**
 //    2026-08-30 `-15` 在回核那個 repo 時撿到,原封搬過來(見下方 LOWER_BOUND 那一段)。
 //
-// 🛑 **這把尺的射程(= 什麼算「有守門」)——【只認字面】**:
-//    檔案內出現 `authorizeAdminMutation` 或 `authorizeManagerMutation` 就算過。
-//    ⇒ 它**證不到**:那個呼叫在不在**每一條**匯出路徑上、有沒有被 early-return 繞過、
-//      參數對不對。**它只答「這支檔有沒有想到要授權」,不答「授權對不對」。**
-//    ⇒ 📌 **會綠而仍然有洞是可能的;而【完全沒想到】這一種,它抓得到。**
+// 🛑 **這把尺的射程(= 什麼算「有守門」)**
+//    ⛔ ~~【只認字面】:檔案內出現 `authorizeAdminMutation` 或 `authorizeManagerMutation` 就算過。~~
+//    🔴🔴 **2026-09-06 收緊(體檢 F1;`-auth`)—— 舊字面留刪除線, 因為它記著這道守門【曾經有多寬】。**
+//      那一版問的是「**這支檔裡有沒有那個字**」, 而**那個字可以出現在四個不算守門的地方**:
+//        ① 註解裡(包括「TODO: 之後要加 authorizeAdminMutation」這種**反向**的句子)
+//        ② `import { authorizeAdminMutation }` 而**從來沒有呼叫**
+//        ③ 字串字面(錯誤訊息、log、白名單常數)
+//        ④ 型別位置(`typeof authorizeAdminMutation`)
+//      ⇒ 📌 **一支「我知道要授權但還沒做」的檔, 在舊尺底下是綠的** —— 而那正是它要抓的那種人。
+//    ✅ **現在問的是「有沒有【呼叫】它」**:剝掉註解(TS parser, 見 `strip-comments.ts`)之後,
+//      要有 `authorize(Admin|Manager)Mutation` **後面接左括號**的形狀。
+//    🔬 **而收緊【今天不改變任何一支的判定】**(當場量, 2026-09-06):
+//      `'use server'` 檔 **28** 支 · 舊尺算過 **27** · 剝註解後 **27** · 要求呼叫形狀後 **27**
+//      ⇒ 🛑 **三把尺一致 ⇒ 光看它還是綠的, 證不了它變強了**
+//      ⇒ ✅ **所以下面配了一組合成證人**(`hasMutationGuard` 直接餵字串), 那才是這次的守門。
+//    ⇒ 它**仍然證不到**:那個呼叫在不在**每一條**匯出路徑上、有沒有被 early-return 繞過、參數對不對。
+//      **它答的是「這支檔有沒有【真的叫】授權」, 不答「授權對不對」。**
 const ADMIN_SRC = path.resolve(__dirname, '../..');
 
 /** 🔴 白名單:每一條【各自附理由】。不准出現「暫時」—— 一條沒有理由的白名單,
@@ -37,6 +49,23 @@ const ALLOWED_WITHOUT_GUARD: Record<string, string> = {
  *  取 20 是留給【正常刪檔】的餘裕,而不是留給「尺壞掉」的餘裕 ——
  *  真的掉到 20 以下,要先問「是刪了 5 支,還是我的尺不再撈得到它們」。 */
 const LOWER_BOUND = 20;
+
+/**
+ * 🔴 **「這支檔有沒有【呼叫】授權」—— 抽成具名函式是為了讓證人餵得進合成字串。**
+ *   ⛔ ~~原本是 inline 的 `/authorize(Admin|Manager)Mutation/.test(src)`~~
+ *   ⇒ 📌 inline 的話, 這道判斷【只跑得到 repo 現況那 28 支檔】, 而它們今天全部都過
+ *     ⇒ 🛑 **沒有任何一格在問「它擋不擋得住假的」。**
+ *
+ * 🔵 剝註解走 `stripComments`(TS parser)—— **不自己寫 regex**:
+ *   那支檔自己記著 regex 版曾經「安靜地吃掉 206 行真程式碼 / 27 支檔而 guard 照樣全綠」。
+ * ⚠️ **殘留盲區(寫出來, 不假裝覆蓋)**:字串字面裡若剛好寫著 `authorizeAdminMutation(`
+ *   仍會被算成呼叫 —— 那要 parser 級的判斷。**方向是【多算 = 放行】** ⇒ 這一格待補。
+ */
+function hasMutationGuard(src: string, fileName?: string): boolean {
+  return /authorize(Admin|Manager)Mutation\s*\(/.test(
+    stripComments(src.replace(/^\ufeff/, ''), fileName),
+  );
+}
 
 /** 🔴 `'use server'` 的偵測 —— **這是這支尺的【分母】那一半,而它比分子更容易靜默變窄。**
  *
@@ -141,13 +170,53 @@ describe('server action 守門掃描', () => {
     for (const full of files) {
       const rel = path.relative(ADMIN_SRC, full).split(path.sep).join('/');
       if (rel in ALLOWED_WITHOUT_GUARD) continue;
-      if (!/authorize(Admin|Manager)Mutation/.test(readFileSync(full, 'utf8'))) missing.push(rel);
+      if (!hasMutationGuard(readFileSync(full, 'utf8'), full)) missing.push(rel);
     }
     expect(
       missing,
       `這幾支 server action 沒有 authorize*Mutation:\n  ${missing.join('\n  ')}\n` +
         '⇒ 要嘛補上守門,要嘛加進 ALLOWED_WITHOUT_GUARD 並【寫清楚為什麼它不需要】。',
     ).toEqual([]);
+  });
+
+  /**
+   * ══ 🔴🔴 這一組才是 2026-09-06 那次收緊【真正的守門】═════════════════════════
+   * 🛑 **為什麼非要合成字串**:收緊之後 repo 現況 28 支檔的判定**一支都沒變**(當場量:27/27/27)
+   *   ⇒ 📌 **上面那三格照樣全綠, 而它們對「尺有沒有變強」零判別力。**
+   *   ⇒ 這一組直接餵 `hasMutationGuard` 四種【不算守門】與三種【算守門】的原始碼,
+   *     **兩個方向都釘** —— 只釘一邊的話, 把函式改成 `() => false` 或 `() => true` 各有一半是綠的。
+   */
+  describe('hasMutationGuard —— 那個字出現在【不是呼叫】的地方時, 不得算過', () => {
+    const CASES_NOT_GUARDED: ReadonlyArray<readonly [string, string]> = [
+      ['行註解裡', `'use server';\n// TODO: 之後要加 authorizeAdminMutation(actor)\nexport async function a() {}`],
+      ['區塊註解裡', `'use server';\n/* 這裡本來要 authorizeAdminMutation( 而還沒寫 */\nexport async function a() {}`],
+      ['只 import 沒呼叫', `'use server';\nimport { authorizeAdminMutation } from './x';\nexport async function a() {}`],
+      ['字串字面(錯誤訊息)', `'use server';\nconst MSG = 'authorizeAdminMutation';\nexport async function a() { throw new Error(MSG); }`],
+      ['型別位置', `'use server';\nimport type { authorizeManagerMutation } from './x';\ntype T = typeof authorizeManagerMutation;\nexport async function a() {}`],
+    ];
+    it.each(CASES_NOT_GUARDED)('🔴 %s ⇒ 不算有守門', (_label, src) => {
+      expect(
+        hasMutationGuard(src),
+        '這種寫法被算成「有守門」⇒ 一支【知道要授權而還沒做】的檔會靜靜地過',
+      ).toBe(false);
+    });
+
+    // 🟢 正對照:少了這一組, 把函式改成 `() => false` 上面五格全綠而它什麼都不放行
+    const CASES_GUARDED: ReadonlyArray<readonly [string, string]> = [
+      ['直接呼叫', `'use server';\nexport async function a() { await authorizeAdminMutation(); }`],
+      ['換行後才接括號', `'use server';\nexport async function a() { await authorizeManagerMutation\n  (); }`],
+      ['前面有註解干擾', `'use server';\n// authorizeAdminMutation 這個字也出現在註解\nexport async function a() { await authorizeAdminMutation(x); }`],
+    ];
+    it.each(CASES_GUARDED)('🟢 正對照:%s ⇒ 算有守門', (_label, src) => {
+      expect(hasMutationGuard(src), '真的呼叫了卻被算成沒守門 ⇒ 這道閘會誤紅').toBe(true);
+    });
+
+    it('🔴 舊尺與新尺【對同一份輸入給不同答案】—— 證明這次收緊不是換個寫法', () => {
+      const fake = `'use server';\n// TODO: authorizeAdminMutation\nexport async function a() {}`;
+      // 舊尺(逐字, 2026-09-06 之前那一版):只問「有沒有那個字」
+      expect(/authorize(Admin|Manager)Mutation/.test(fake), '前提:舊尺對這份輸入是【過】').toBe(true);
+      expect(hasMutationGuard(fake), '新尺必須說【不過】—— 兩尺同答案 ⇒ 這次收緊是空的').toBe(false);
+    });
   });
 
   it('🔴 白名單裡的每一條都要真的存在(不然它會靜靜地放行一個不存在的檔名)', () => {
