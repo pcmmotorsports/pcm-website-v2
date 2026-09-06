@@ -222,6 +222,25 @@ describe('#525 客戶關鍵字搜尋(畫面層)', () => {
     }
   });
 
+  it('🔴 那三個 sandbox 形狀的帳號【都要在清單裡】—— 2026-09-07 唯讀實查補的兩個', () => {
+    // 🔬 **這一格不是「更完整一點」, 它擋的是一個已經發生過的事**:
+    //    這張清單原本是 **2 個**, 而正式庫裡 `email ILIKE '%sandbox%' OR '%test%'` ⇒ **3 個**
+    //    (另加不符那兩個形狀、而確實是測試帳號的 `bsas0830@`)⇒ 🎯 **聯集 4, 而畫面說 2。**
+    // 🛑 **為什麼釘 email 而不是釘個數**:個數會在「測試單清乾淨」那天正當地變小,
+    //    而**漏掉一個帳號**與**正當地變小**在一個數字上長得一樣。
+    //    ⇒ 釘名字的話,退場那天是有人**主動刪掉這一格**,那是一個看得見的動作。
+    // ⏰ 這三個的 orders_all 當時都是 **0** ⇒ 照 `test-accounts.ts` 的規矩它們只進這張清單。
+    for (const email of [
+      'g3-preview-sandbox@pcmmotorsports.com',
+      'g3-sandbox-test@pcmmotorsports.com',
+      'uitest@pcmmotorsports.com',
+    ]) {
+      expect(TEST_ACCOUNT_EMAILS_IN_CUSTOMER_COUNT).toContain(email);
+    }
+    // 🔴 負對照:一個現造的信箱**不得**在裡面 —— 少了它,一支「永遠 toContain」的假斷言會通過。
+    expect(TEST_ACCOUNT_EMAILS_IN_CUSTOMER_COUNT).not.toContain('qvx7719-never@example.invalid');
+  });
+
   it('沒搜尋詞 ⇒ filter【不帶】keyword 欄(`undefined` 與 `\'\'` 在 adapter 是兩條路)', async () => {
     await renderPage();
     expect(mocks.list.mock.calls[0]?.[0]).not.toHaveProperty('keyword');

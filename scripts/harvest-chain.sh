@@ -82,13 +82,13 @@ trap 'cleanup; exit 143' TERM HUP
 #    🔬 數法:pre-commit 掛 19 支(`grep -cE '^\s*(sh|bash)\s+' .husky/pre-commit`);
 #      其中 harvest 已涵蓋 1(applied-ledger-dup)· 沒跑 18 · 而 18 裡 11 支讀 staged
 #      (merge 之後 staged 是空的 ⇒ 接進來會空轉)⇒ **接得動的是 7 支**。
-EXPECT_GATES='fw-live fw-json ledger deploy install nextlink boarddup tc lint build test1 test2 splitcheck btest1 btest2 zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
+EXPECT_GATES='fw-live fw-json schemaexp ledger deploy install nextlink boarddup tc lint build test1 test2 splitcheck btest1 btest2 zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
 # 🟡 **只報不擋的那一族(⟦db-MERGEBLINDGATE⟧)** —— 它們**必須在 `EXPECT_GATES` 裡**(所以「少跑一支」抓得到),
 #    而 `verdict` **不把它們的 rc 算進放行判定**。
 # 🔴 **這個名單放在【判定函式看得到的地方】, 不是靠呼叫端記得用哪個 helper** ——
 #    下一個人把 `add_report` 改成 `add`, 這七道會默默變成會擋推的, 而沒有任何東西會說。
 #    ⇒ 📌 保證要住在判定裡。selftest ⑦c 就是量這一格。
-REPORT_ONLY='zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
+REPORT_ONLY='schemaexp zshshebang viewapply undefassert rlspolicy resetrole acldrift isolation'
 
 verdict() {
   local gates="$1" a="$2" b="$3" ba="$4" bb="$5" T="$6" F="$7" item name rc got n mt ft
@@ -233,6 +233,27 @@ push_step() {   # $1=log 檔  ⇒ 0 成功 / 非 0 失敗;dry-run 一定不呼�
 
 
 # ══ 自檢(🛑 **只跑 `verdict`, 一行 git 都不碰, 絕不 push**)═══════════════
+# ══ boarddup 的判定抽成函式(2026-09-07 主視窗 `-f1` 裁, `-ship` 做)══════════
+# 🔴🔴 **為什麼要動它**:原本逐字
+#   `if grep -q '同一個錨佔了兩列以上' … ; then add boarddup 92; else add boarddup 0; fi`
+#   ⇒ 📌 **`else` 那一支把【所有非命中】都當成乾淨** —— 包含「log 根本沒生出來」、
+#     「log 是空的」、以及 🔴 **「`grep` 把這支 log 當成 binary 而安靜回空」**(⟦ship-BINLOGGREP⟧)。
+#   🔬 那個 binary 是真的會發生:一句**按位元組截短的中文**(`拒繼` 被切一半)就夠了 ——
+#     實測同一支檔同一個 pattern:`grep -c` 印空 rc=1 · `grep -a -c` 印 2 · `/usr/bin/grep -c` 印 2。
+# ✅ **改成 fail-closed**:**只有 `grep -a` 明確讀到【乾淨那句】才記 0**;
+#    其餘一律 92 並說「未量到」—— 🎯 **「沒量到」與「量到乾淨」從此印不同的東西。**
+# 🛑 而它**不是**把 92 的意思改掉:92 本來就是「不推」,這裡只是讓更多情況走進它。
+boarddup_verdict() { # $1=log 路徑;回 0=乾淨 / 92=有重複或【沒量到】
+  if [ ! -s "$1" ]; then
+    say "  🔴 boarddup 未量到:log 不存在或為空 ⇒ fail-closed"
+    echo 92; return 0
+  fi
+  if grep -a -q '同一個錨佔了兩列以上' "$1"; then echo 92; return 0; fi
+  if grep -a -q '錨各自唯一' "$1"; then echo 0; return 0; fi
+  say "  🔴 boarddup 未量到:log 在, 而 grep -a 找不到【任何一種】判定字樣 ⇒ fail-closed"
+  echo 92
+}
+
 if [ "${1:-}" = "--selftest" ]; then
   p=0; f=0
   ck() { if [ "$2" = "$3" ]; then echo "  ✅ $1 (rc=$2)"; p=$((p+1)); else echo "  🔴 $1 —— 得 $2 期望 $3"; f=$((f+1)); fi; }
@@ -278,6 +299,26 @@ if [ "${1:-}" = "--selftest" ]; then
   #    📌 因為它們的 rc 恆為 0, 一個「少跑了」與一個「跑了而綠」在 rc 上完全一樣,
   #      **能分開它們的只有名單那一關**。
   ck "⑦b 漏掉只報那族的一道(acldrift)⇒ 3" "$(run "$(drop_one acldrift)" "$SUM" "$SUM")" "3"
+  # 🔴 ⑦b2 schemaexp 也在只報那族 ⇒ 它少跑了一樣要擋。
+  #    📌 它比別的更需要這一格:那支探針**本來的病就是「沒有人按下去」**
+  #      ⇒ 一個「安靜地沒跑」與一個「跑了而綠」在 rc 上完全一樣(兩者都記 0)。
+  ck "⑦b2 漏掉只報那族的一道(schemaexp)⇒ 3" "$(run "$(drop_one schemaexp)" "$SUM" "$SUM")" "3"
+  # ══ BD boarddup_verdict:四個世界(⟦ship-BINLOGGREP⟧, 主視窗 `-f1` 2026-09-07 裁)══════
+  # 🔴 **BD-a 是這一組的骨**:log 裡**有一個半截的中文字元**(一個三位元組的字被按位元組切一半)——
+  #    那正是本機 `grep` 把整支檔當成 binary 的觸發條件, 而**重複那句話仍然在檔裡**。
+  #    ⇒ 沒有 `-a` 的話它會安靜回「沒命中」⇒ 記 0 ⇒ **重複的板列被當成乾淨推上去。**
+  # 🔴 **BD-b 是負對照, 不可省** —— 一支「永遠回 92」的判定會讓 BD-a 通過而毫無意義;
+  #    ⇒ 而它**刻意也帶半截字**, 這樣兩格的唯一差別就只剩【那句話是哪一句】。
+  _bd=$(mktemp -d "${TMPDIR:-/tmp}/bdv.XXXXXX")
+  printf '同一個錨佔了兩列以上\n'   > "$_bd/dup.log";   printf '\xe6\x8b\x92\xe7\n' >> "$_bd/dup.log"
+  printf '✅ ⑤ 620 個帶錨的列, 錨各自唯一\n' > "$_bd/clean.log"; printf '\xe6\x8b\x92\xe7\n' >> "$_bd/clean.log"
+  : > "$_bd/empty.log"
+  printf '這支 log 有內容而沒有任何一種判定字樣\n' > "$_bd/mute.log"
+  ck "BD-a log 帶半截中文字仍要抓到重複 ⇒ 92" "$(boarddup_verdict "$_bd/dup.log" 2>/dev/null)" "92"
+  ck "BD-b 負對照:乾淨 log(同樣帶半截字)⇒ 0" "$(boarddup_verdict "$_bd/clean.log" 2>/dev/null)" "0"
+  ck "BD-c log 是空的 ⇒ 92(未量到, 不是乾淨)" "$(boarddup_verdict "$_bd/empty.log" 2>/dev/null)" "92"
+  ck "BD-d log 有內容而無判定字樣 ⇒ 92(未量到)" "$(boarddup_verdict "$_bd/mute.log" 2>/dev/null)" "92"
+  rm -rf "$_bd"
   # 🔴🔴 ⑦c —— **這一格就是「只報不擋」的證明**, 沒有它我只是在宣稱。
   #    那七道之一 rc≠0 ⇒ **仍然要推**(0), 而 ①(一般閘 rc≠0 ⇒ 3)就在上面幾行 ——
   #    ⇒ 📌 兩格擺在一起才看得出「這七道與其他十五道走的是不同規矩」。
@@ -356,7 +397,13 @@ if [ "${1:-}" = "--selftest" ]; then
   #    ⛔ ~~本段原本只看 `$f = 0`~~ ⇒ 📌 **漏寫一格 `ck` 會印 `18 PASS / 0 FAIL` 而照樣「全部通過」。**
   #    🛑 **那正是本片在替收割鏈修的那個病**(兩發相同只證重現性, 證不了分母)—— 同型, 在自檢這一層。
   #    ⚠️ 加一格 `ck` 必同步改這個數;數法 = 跑一發看 `$p`。
-  EXPECT_CELLS=29   # 🟡 2026-09-06 +2:⑦b/⑦c(只報不擋那一族, ⟦db-MERGEBLINDGATE⟧)
+  EXPECT_CELLS=34   # 🟡 2026-09-06 +2:⑦b/⑦c(只報不擋那一族, ⟦db-MERGEBLINDGATE⟧)
+                    # 🟡 2026-09-07 +1:⑦b2(schemaexp, ⟦0e-PROBENOSCHED⟧)
+                    # 🟡 2026-09-07 +4:BD-a/b/c/d(boarddup_verdict, ⟦ship-BINLOGGREP⟧)
+                    #    ⚠️ 標號用 `BD-` 前綴而不是接數字 —— 這支自檢的 ⑧ 與 ⑨ 都已經被用過,
+                    #    而我第一版就撞了一次(印出來兩格同號, 而【兩格都是對的】⇒ 沒有東西會叫)。
+                    # 🔴 **先數格再填數字**:改前跑一發拿到 `PASS=30`, 才把 29 改成 30 ——
+                    #    倒過來(先寫數字再湊格)會讓這道閘變成「我說幾格就是幾格」。
   if [ "$f" = 0 ] && [ "$p" != "$EXPECT_CELLS" ]; then
     echo "🔴 零 FAIL 但格數不對(PASS=$p ≠ EXPECT_CELLS=$EXPECT_CELLS)⇒ 有格被刪/被跳過, 判為未通過"
     exit 1
@@ -408,6 +455,7 @@ add_report() {
   fi
 }
 
+
 # 🔴🔴 **釘住 HEAD**(codex R1 must-fix):原本只把它【印出來】而沒有釘。
 #    ⇒ 📌 測的是這一顆, 而最後 `announce-and-push.sh` 推的是**當下的 `dev` tip** ——
 #      測試那十幾分鐘裡別的窗多 commit 一顆, **那一顆從來沒被這一輪驗過就上了 production 分支**,
@@ -427,6 +475,34 @@ say "══ 收割鏈 批號 $BATCH · HEAD=$(git rev-parse --short HEAD) · log
 
 python3 scripts/vercel-firewall-cron-order-check.py > "$WORK/fw-live.log" 2>&1; add fw-live $?
 python3 scripts/vercel-json-waf-cron-gate.py         > "$WORK/fw-json.log" 2>&1; add fw-json $?
+
+# ══ 🟡 schemaexp:外部曝露探針(只報不擋)—— 板列 ⟦0e-PROBENOSCHED⟧, 主視窗 `-f1` 2026-09-07 批 ══
+# 🔬 **為什麼放這裡而不是三綠/CI**:那支探針的檔頭明令「不塞進三綠 / CI 必跑」, 理由逐字是
+#    「它打正式站 + 依賴外部網路, 塞進去會做出時好時壞的測試, 而**假紅比沒有守門更糟**」。
+#    ⇒ ✅ 而 `REPORT_ONLY` 這一族正是為了那句話存在的:**它紅【不擋推】**, 只在畫面上留一行;
+#      同時它在 `EXPECT_GATES` 裡 ⇒ **少跑一支抓得到**(那正是這支探針 17 天沒人按的那個病)。
+# 🔴 **硬 timeout 30 秒, 而逾時【不是綠】**:`perl -e 'alarm …; exec …'` 逾時回 **142**。
+#    📌 一個「連不上外網」的夜晚, 不可以印得像「今天沒有曝露」—— 那兩件事必須印不同的東西。
+# 🛑 **輸出只有 rc 與計數** —— 探針檔頭明令「key 不進 stdout / log / 命令列」, 而本處
+#    **不 cat 那支 log**、只數它的 PASS / FAIL 行。(2026-09-07 實測:拿兩支金鑰檔的前 8 字元
+#    去 grep 那支 log ⇒ **各 0 命中**, 而正對照 `PASS` ⇒ 30。)
+# 🔴 **秒數只寫一次** —— 第一版把 30 同時寫在 `alarm` 與那句訊息裡, 而突變(改成 1 秒)當場印出
+#    「逾時 30 秒」⇒ 📌 **一個會說謊的訊息, 而說謊的方向是【讓人以為等得比實際久】。**
+_SE_TIMEOUT=30
+perl -e 'alarm shift; exec @ARGV' "$_SE_TIMEOUT" sh scripts/probe-schema-exposure.sh both > "$WORK/schemaexp.log" 2>&1
+_se=$?
+if [ "$_se" = 142 ]; then
+  say "   · schemaexp ⏱ 未跑到(逾時 ${_SE_TIMEOUT} 秒)—— 這【不是綠】:本批【沒有量到】曝露狀態。"
+else
+  # 🔴🔴 **`-a` 不是可有可無**(2026-09-07 `-ship` 當場撞到, 而它是在【別支 log】上撞到的):
+  #    本機互動 shell 的 `grep` 是 ugrep 殼, 它遇到**一個無效的 UTF-8 位元組**就把整支檔當成 binary
+  #    ⇒ `grep -c` **什麼都不印、rc=1** ⇒ 📌 **`$( )` 拿到的是【空字串】, 不是 `0`。**
+  #    🔬 實錘:`/tmp/replay.log` 對同一個 pattern —— `grep -c` **印空 rc=1** · `grep -a -c` **印 2** ·
+  #      `/usr/bin/grep -c` **印 2**;而那個無效位元組來自**一句被【按位元組】截短的中文錯誤訊息**
+  #      (`拒繼` 被切成一半)⇒ 🎯 **一個為了排版而截短的字串, 讓整支 log 變成「二進位」。**
+  say "   · schemaexp 讀數 PASS=$(grep -a -c 'PASS$' "$WORK/schemaexp.log") FAIL=$(grep -a -c 'FAIL$' "$WORK/schemaexp.log") (rc=$_se;3=真發現 1=工具自壞 2=用法錯)"
+fi
+add_report schemaexp "$_se"
 if [ -f scripts/applied-ledger-dup-gate.py ]; then
   python3 scripts/applied-ledger-dup-gate.py > "$WORK/ledger.log" 2>&1; add ledger $?
 else
@@ -439,11 +515,8 @@ fi
 # 🔴 **板列重複在這裡【再查一次】**(codex R1 must-fix):姊妹檔 `harvest-merge-line.sh` 撈到 dup 會回 6,
 #    ⇒ 📌 **而那顆壞掉的 merge 已經在 `dev` 上了** —— 若那時沒有人手動處理, 本鏈照樣會把它推上去。
 #    ⇒ ✅ 推之前自己再問一次。(那支檢查的板路徑寫死, 只能對當下的樹問。)
-if python3 scripts/board-state-consistency.py > "$WORK/boarddup.log" 2>&1; then
-  if grep -q '同一個錨佔了兩列以上' "$WORK/boarddup.log"; then add boarddup 92; else add boarddup 0; fi
-else
-  if grep -q '同一個錨佔了兩列以上' "$WORK/boarddup.log"; then add boarddup 92; else add boarddup 0; fi
-fi
+python3 scripts/board-state-consistency.py > "$WORK/boarddup.log" 2>&1
+add boarddup "$(boarddup_verdict "$WORK/boarddup.log")"
 
 # ── 🟡 只報不擋的七道(⟦db-MERGEBLINDGATE⟧)────────────────────────────────
 # 🔴 **為什麼在這裡**:`git merge` 不跑 pre-commit ⇒ 別人 merge 進來的東西**從來沒有被這七道掃過**。
@@ -524,8 +597,8 @@ read -r SPLIT_T SPLIT_F <<< "$(split_denoms "$WORK/split.log")"
 # ── ② 主段:全套兩發 ─────────────────────────────────────────────────────
 pnpm vitest --run --maxWorkers=2 > "$WORK/t1.log" 2>&1; add test1 $?
 pnpm vitest --run --maxWorkers=2 > "$WORK/t2.log" 2>&1; add test2 $?
-SUM1=$(grep -E 'Test Files|^ +Tests ' "$WORK/t1.log" | tr -s ' ' | tr '\n' ' ')
-SUM2=$(grep -E 'Test Files|^ +Tests ' "$WORK/t2.log" | tr -s ' ' | tr '\n' ' ')
+SUM1=$(grep -a -E 'Test Files|^ +Tests ' "$WORK/t1.log" | tr -s ' ' | tr '\n' ' ')
+SUM2=$(grep -a -E 'Test Files|^ +Tests ' "$WORK/t2.log" | tr -s ' ' | tr '\n' ' ')
 
 # ── ③ 族段:瀏覽器族兩發 ─────────────────────────────────────────────────
 # 🔵 走 `pnpm test:browser`(= `browser-test-family.py --run`)—— 它自己內部就會比
@@ -537,8 +610,8 @@ SUM2=$(grep -E 'Test Files|^ +Tests ' "$WORK/t2.log" | tr -s ' ' | tr '\n' ' ')
 #      (有人在那幾十秒內新增/刪掉一支族內測試檔)。**它不是「族段少跑」的主要防線。**
 pnpm test:browser > "$WORK/b1.log" 2>&1; add btest1 $?
 pnpm test:browser > "$WORK/b2.log" 2>&1; add btest2 $?
-BSUM1=$(grep -E 'Test Files|^ +Tests ' "$WORK/b1.log" | tr -s ' ' | tr '\n' ' ')
-BSUM2=$(grep -E 'Test Files|^ +Tests ' "$WORK/b2.log" | tr -s ' ' | tr '\n' ' ')
+BSUM1=$(grep -a -E 'Test Files|^ +Tests ' "$WORK/b1.log" | tr -s ' ' | tr '\n' ' ')
+BSUM2=$(grep -a -E 'Test Files|^ +Tests ' "$WORK/b2.log" | tr -s ' ' | tr '\n' ' ')
 
 say "── 逐道 rc ──"
 for it in $GATES; do say "   ${it%%:*} rc=${it##*:}"; done
@@ -554,7 +627,7 @@ say "   全套 T=[$SPLIT_T] · 這族 F=[$SPLIT_F]"
 verdict "$GATES" "$SUM1" "$SUM2" "$BSUM1" "$BSUM2" "$SPLIT_T" "$SPLIT_F"; V=$?
 if [ "$V" != 0 ]; then
   KEEP_LOG=1
-  grep -h '^ FAIL ' "$WORK/t1.log" | sort -u | head
+  grep -a -h '^ FAIL ' "$WORK/t1.log" | sort -u | head
   say "   實測 origin/dev=$(git ls-remote origin refs/heads/dev | cut -c1-9)"
   exit "$V"
 fi
