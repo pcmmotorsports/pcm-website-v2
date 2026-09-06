@@ -37,7 +37,27 @@ function compiledCss(): string {
   if (files.length === 0) {
     throw new Error(`${CHUNKS} 裡零支 .css —— 先跑 \`TURBO_FORCE=1 pnpm build\``);
   }
-  return files.map((f) => readFileSync(join(CHUNKS, f), 'utf8')).join('\n');
+  const css = files.map((f) => readFileSync(join(CHUNKS, f), 'utf8')).join('\n');
+
+  // 🔴🔴 **[2026-09-07 實錘:本檔在【沒 rebuild 的樹】上會紅, 而它紅在【錯的那句話】。]**
+  //   線 `account` 合完 `65c059a4a` 跑全套 ⇒ 本檔 2 格紅、訊息說「**祖先鏈沒生效**」,
+  //   而他的 storefront 原始碼與 `origin/dev` **逐字相同**、單跑兩發穩定紅。
+  //   🔬 真因:他樹的 `.next` 是**舊 build**(裡面沒有 `.pp-notice-shell`)⇒ 量到 390 = 裸頁寬。
+  //   ⇒ 📌 **「祖先鏈壞了」與「你的 build 過期了」印同一句話, 而那句話指著【別人剛合進來的碼】。**
+  //     那不是吵, 是**把人送去查一個不存在的問題** —— 板列 `⟦front-FULLPAGE390⟧` 自陳的
+  //     「不決定性的【輸入】」就是這件事, 這裡是它的實錘。
+  // ✅ **分辨兩個世界靠【原始碼】**:原始碼有而編譯產物沒有 ⇒ **build 過期**(不是回歸);
+  //   兩邊都沒有 ⇒ 那才是真的有人把規則刪了 ⇒ 讓下面原本那些斷言去紅。
+  const SOURCE_CSS = join(REPO, 'apps/storefront/src/styles/products-page.css');
+  const MARKER = '.pp-notice-shell';
+  if (!css.includes(MARKER) && readFileSync(SOURCE_CSS, 'utf8').includes(MARKER)) {
+    throw new Error(
+      `🔴 \`.next\` 過期:編譯產物裡沒有 \`${MARKER}\`, 而原始碼裡有 ⇒ **先跑 \`TURBO_FORCE=1 pnpm build\`**。\n` +
+        '   🛑 這【不是】版面壞了, 也不是別人剛合進來的碼弄壞的 —— 本檔讀的是共用的 `.next` 產物。\n' +
+        `   掃了 ${files.length} 支 CSS:${CHUNKS}`,
+    );
+  }
+  return css;
 }
 
 /**
