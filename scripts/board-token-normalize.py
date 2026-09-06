@@ -24,6 +24,7 @@ r"""board-token-normalize.py —— 把板上「擋上線?」token 正規化到�
   python3 scripts/board-token-normalize.py --check     違規列數 + 清單,有違規 rc=1
   python3 scripts/board-token-normalize.py --fix       搬正 + 去重,印逐列動作
   python3 scripts/board-token-normalize.py --selftest  兩個世界(含 `\|` 跳脫)
+  python3 scripts/board-token-normalize.py --check-staged  pre-commit 用:**讀 staged 那份**, rc 恆 0
 """
 import io, os, re, sys
 
@@ -32,6 +33,17 @@ CLOSED = ('open', 'doing', 'parked', 'done', 'standing')
 SPLIT = re.compile(r'(?<!\\)\|')
 FIND = re.compile(r'⟨(?:擋|不擋|未判|—)[^⟩]*⟩')
 HEADS = ('⟨擋', '⟨不擋', '⟨未判', '⟨—⟩')
+
+
+def safe(s):
+    """把要印到終端機的字串裡的控制字元換掉。
+
+    🔴 codex 2026-09-07 must-fix ④:板的內容是**別的窗寫進來的**, 而我原本把錨與 token
+       原封印到終端機 ⇒ 植入 ANSI / OSC 序列可以**偽造或清掉本閘自己的輸出**;
+       支援 OSC 52 的終端甚至會被改寫剪貼簿。
+    🛑 **`rc=0` 消不掉這些副作用** —— 副作用發生在「印出去」那一刻, 不在 rc 上。
+    """
+    return ''.join(c if (c == '\t' or ord(c) >= 0x20) and ord(c) != 0x7f else '?' for c in str(s))
 
 
 def last_idx(line, fields):
@@ -156,6 +168,51 @@ def run(path, mode):
     return 0
 
 
+def check_staged():
+    """pre-commit 用:**讀 staged 那份**, 不讀工作樹。恆 rc=0(warn-only)。
+
+    🔴 **為什麼一定要讀 staged**:工作樹那份可能有你【還沒 add】的修正,
+       或別窗剛寫進來的東西 ⇒ 用它去判 staged 的內容, 兩個方向都會錯:
+       ① 工作樹已修而 staged 沒修 ⇒ **印綠, 而進 commit 的那份是壞的**
+       ② 工作樹壞而 staged 是好的 ⇒ 罵一個沒有問題的 commit
+       🛑 2026-09-06 一夜有兩道閘踩過這一格(主視窗 04:0x 轉述)。
+
+    🟡 **warn-only 是刻意的**:rc 恆 0, 不擋 commit。
+       擋不擋等三天的分母出來再拍(主視窗 04:0x 裁)。
+       ⚠️ ⇒ **本閘印了東西不代表 commit 會被擋;它印綠也不代表板子乾淨**
+          (它只看這顆 commit staged 的那份)。
+    """
+    import subprocess
+    # 🔴 `--no-renames`(codex 2026-09-07 must-fix ②):開了 rename detection 時
+    #    `--name-only` **只列 post-image** ⇒ 把板 rename 走會漏掉原路徑, 然後安靜放行。
+    #    關掉 rename 偵測 ⇒ 兩邊都會列出來。
+    r = subprocess.run(['git', 'diff', '--cached', '--name-only', '--no-renames'],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        # 🔴 git 自己失敗 ⇒ **不准印「乾淨」** —— 那正是「清單變空就放行」那個病。
+        print('🟡 board-token 閘:`git diff --cached` 失敗 ⇒ **本閘這次沒有看過任何東西**')
+        print(f'   rc={r.returncode} · stderr 首行:{(r.stderr or "").splitlines()[:1]}')
+        return 0
+    staged = [x for x in r.stdout.split('\n') if x.strip()]
+    if BOARD not in staged:
+        return 0                      # 板沒 staged ⇒ 安靜不跑
+    s = subprocess.run(['git', 'show', f':{BOARD}'], capture_output=True, text=True)
+    if s.returncode != 0:
+        print(f'🟡 board-token 閘:讀不到 staged 的 {BOARD}(rc={s.returncode})⇒ **本閘沒看過**')
+        return 0
+    mis, dblock = scan(s.stdout.split('\n'))
+    print(f'── board-token 閘(warn-only, 讀的是 **staged** 那份):{BOARD}')
+    print(f'   最後一格開頭沒有 token 而行內找得到 {len(mis)} 列 · 態 done 而 token 仍 ⟨擋⟩ {len(dblock)} 列')
+    for n, k, why in mis:
+        print(f'   位移候選 :{n:5} {safe(k)}  {safe(why)}')
+    for n, k, why in dblock:
+        print(f'   done+擋  :{n:5} {safe(k)}  {safe(why)}')
+    if mis or dblock:
+        print('   🟡 **只是提醒, 不擋這顆 commit**(rc 恆 0)。修法:`python3 scripts/board-token-normalize.py --fix`')
+        print('      🔴 而 `--fix` 動的是【工作樹】⇒ 修完要重新 `git add` 才會進這顆 commit。')
+    return 0
+
+
 def selftest():
     # 🔴 剝掉繼承來的 git 環境(自檢清單;git -C 擋不住它)
     for v in ('GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE', 'GIT_OBJECT_DIRECTORY',
@@ -222,6 +279,71 @@ def selftest():
     # ✅ 換成新定義下真正該問的:x-F 開頭有 token ⇒ --fix 不該動它, 它那兩個角括號要原封不動。
     ck('修後 x-F 的角括號一個沒少', io.open(bad, encoding='utf-8').read().count('⟨'), _before_angle)
     txt = io.open(bad, encoding='utf-8').read()
+    # ═══ --check-staged 的兩個世界(2026-09-07;主視窗指定)═══
+    #   🔴 這一段會【碰 git】⇒ 開一棵拋棄式 repo, 而繼承來的 git 環境在函式開頭已剝掉。
+    import subprocess
+    g = os.path.join(d, 'repo')
+    os.makedirs(g, exist_ok=True)
+    def git(*a):
+        return subprocess.run(['git', '-C', g, *a], capture_output=True, text=True)
+    # 🔴 codex 2026-09-07 must-fix ③:**不檢查 `git init` 的 rc 是危險的** ——
+    #    `mkdtemp()` 跟隨 `TMPDIR`, 若它落在一棵真 repo 裡而 `init` 又失敗,
+    #    後面的 `git -C` 會**往上找到那棵真 repo**, 改寫它的 config 並 stage 我的測試檔。
+    #    ⇒ 三道:①init 的 rc 必須 0 ②**斷言 toplevel 就是我剛建的那個目錄** ③收尾刪掉整棵樹。
+    r_init = git('init', '-q')
+    if r_init.returncode != 0:
+        print(f'  🔴 selftest 無法建拋棄式 repo(git init rc={r_init.returncode})⇒ 中止, 不往下跑')
+        return 1
+    r_top = git('rev-parse', '--show-toplevel')
+    top = os.path.realpath(r_top.stdout.strip()) if r_top.returncode == 0 else ''
+    if top != os.path.realpath(g):
+        print(f'  🔴 selftest toplevel 不是我建的那棵({top!r} != {os.path.realpath(g)!r})⇒ 中止')
+        return 1
+    for _c in (('config', 'user.email', 't@t'), ('config', 'user.name', 't')):
+        if git(*_c).returncode != 0:
+            print(f'  🔴 selftest git {_c[0]} 失敗 ⇒ 中止')
+            return 1
+    os.makedirs(os.path.join(g, 'docs'), exist_ok=True)
+    board = os.path.join(g, BOARD)
+    io.open(board, 'w', encoding='utf-8').write('\n'.join(rows_bad) + '\n')
+    other = os.path.join(g, 'other.md')
+    io.open(other, 'w', encoding='utf-8').write('x\n')
+
+    cwd0 = os.getcwd()
+    os.chdir(g)
+    try:
+        # 世界一:板【沒有】staged ⇒ 安靜不跑(印 0 行)
+        git('add', 'other.md')
+        import contextlib, io as _io
+        buf = _io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc_a = check_staged()
+        ck('板沒 staged ⇒ rc', rc_a, 0)
+        ck('板沒 staged ⇒ 一個字都不印', buf.getvalue().strip(), '')
+        # 世界二:板 staged 且有違規 ⇒ 印出來, 而 rc 仍是 0
+        git('add', BOARD)
+        buf2 = _io.StringIO()
+        with contextlib.redirect_stdout(buf2):
+            rc_b = check_staged()
+        out = buf2.getvalue()
+        ck('板 staged 有違規 ⇒ rc 仍 0(warn-only)', rc_b, 0)
+        ck('板 staged 有違規 ⇒ 有印出違規列', '位移候選' in out, True)
+        ck('板 staged 有違規 ⇒ 明說不擋', '不擋這顆 commit' in out, True)
+        # 🔴 第三個世界:staged 是【乾淨的】而工作樹是【壞的】⇒ 必須看 staged, 印乾淨
+        io.open(board, 'w', encoding='utf-8').write('\n'.join(
+            [rows_bad[0], rows_bad[1], rows_bad[2]]) + '\n')
+        git('add', BOARD)
+        io.open(board, 'w', encoding='utf-8').write('\n'.join(rows_bad) + '\n')  # 工作樹弄壞
+        buf3 = _io.StringIO()
+        with contextlib.redirect_stdout(buf3):
+            check_staged()
+        ck('工作樹壞而 staged 乾淨 ⇒ 不報違規', '位移候選' in buf3.getvalue(), False)
+    finally:
+        os.chdir(cwd0)
+        # 🔴 must-fix ③ 的第三道:整棵拋棄式樹刪掉, 不留在磁碟上
+        import shutil
+        shutil.rmtree(g, ignore_errors=True)
+
     ck('跳脫那列的 `a\\|b\\|c` 還在', txt.count('`a\\|b\\|c`'), 2)
     print('SELFTEST ' + ('PASS' if not fails else 'FAIL:' + ','.join(fails)))
     return 0 if not fails else 1
@@ -231,6 +353,8 @@ if __name__ == '__main__':
     a = sys.argv[1] if len(sys.argv) > 1 else ''
     if a == '--selftest':
         sys.exit(selftest())
+    if a == '--check-staged':
+        sys.exit(check_staged())
     if a in ('--check', '--fix'):
         t = sys.argv[2] if len(sys.argv) > 2 else BOARD
         if not os.path.isfile(t):
