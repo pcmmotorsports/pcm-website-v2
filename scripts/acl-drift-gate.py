@@ -597,6 +597,9 @@ def main():
 
 # ── 自檢 ─────────────────────────────────────────────────────────────────
 CLOSED_FIXTURE = {'public.order_payments', 'public.payment_refunds'}
+# 🔴 期望格數(⟦b9-GATESELFEDIT⟧;每加/刪一格必同步改, 而【改之前先確認你是真的加了格】)
+EXPECT_TOTAL = 91
+
 WORLDS = [
     ('R1 紅  ALTER DEFAULT PRIVILEGES … GRANT', 'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT ON TABLES TO anon;', 1),
     ('R1 綠  ALTER DEFAULT PRIVILEGES … REVOKE(收緊不算漂移)', 'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON TABLES FROM anon;', 0),
@@ -754,7 +757,27 @@ def selftest():
     #    🔵 **本次它剛好與舊算式同值(91)** —— 因為 R7 那 9 格全在 `WORLDS` 裡。
     #       ⇒ 🛑 **那是巧合不是驗證** —— 下一個把格子加在 `WORLDS` 之外的人才會看到差別。
     total = ran
-    print(f'── selftest: {total - fails} PASS / {fails} FAIL')
+    print(f'── selftest: {total - fails} PASS / {fails} FAIL(期望 PASS={EXPECT_TOTAL})')
+    # 🔴🔴 **期望格數的釘子**(2026-09-06 線【DB】`-db` 做, 主視窗 `-f8` 派;⟦b9-GATESELFEDIT⟧)
+    #    形狀照 `scripts/deploy-order-gate-verify.sh:56` 與 `:1469-1470` 抄, 那裡逐字寫著
+    #    「零 FAIL 但格數不對(PASS ≠ EXPECT_TOTAL)⇒ 有格被刪/被跳過, 判為未通過」。
+    #
+    # 🔬 **為什麼要它**(實跑, 不是推論):把 `R7` 的實作那三行 `if/return` **與守它的 5 格一起砍掉**
+    #    ⇒ 本 selftest **`91 PASS / 0 FAIL`, `rc=0`** —— **零 FAIL, 而 5 格靜靜地不見了。**
+    #    另一道機制(`.husky/acl-drift-gate.sh`)同一發 `rc=0`(那顆 commit 沒動 migration ⇒「不適用」)
+    #    ⇒ 📌 **同一顆 commit 裡把規則與守它的格子一起砍掉, 兩道機制都不會叫。**
+    #
+    # 🛑🛑 **而它【擋不住】那件事, 它只讓那件事【在 diff 上看得見】** ——
+    #    這個常數與那些格子**住同一支檔** ⇒ **同一顆 commit 把數字一起改小就過了。**
+    #    ⇒ 🎯 買到的是「多一行看得見的改動」, 不是「擋住」。
+    #      真正擋得住的是**閘外**的東西(codex 對 `⟦b9-GATESELFEDIT⟧` 的答案:
+    #      GitHub server-side ruleset / code-owner 核准)—— **那不在這支檔的射程裡。**
+    #
+    # ⚠️ **改這個數字之前**:先確認你是**真的加了格**, 不是**把格子弄不見了**。
+    if fails == 0 and total != EXPECT_TOTAL:
+        print(f'🔴 零 FAIL 但格數不對(PASS={total} 而期望 {EXPECT_TOTAL})'
+              f' ⇒ 有格被刪 / 被跳過, 判為未通過(⟦b9-GATESELFEDIT⟧)')
+        return 1
     return 1 if fails else 0  # 不把格數當離場碼(2 格紅會撞到「工具層」那個 2;R2 nit)
 
 
