@@ -36,18 +36,37 @@ import { stripComments } from '../../lib/test-support/strip-comments';
 const ROOT = 'apps/admin/src';
 const strip = stripComments;
 
+// 🔴🔴 **這兩層快取是 ⟦01-TREESCANTIMEOUT⟧「乙-小」的修法, 而它【沒有動任何 timeout、也沒有動任何斷言】**
+//    (2026-09-06;板列明文:調高 timeout 是把警報關掉 ⇒ 不做)。
+//    🔬 量到的:`sourceFiles()` 在本檔被叫 **5 次**, 而三個呼叫端【各自】再把每支檔讀一遍
+//      ⇒ 同一棵樹走 5 遍 + 同一批檔案讀 5 遍。
+//    ⇒ ✅ 檔案系統在一次 vitest run 之內不會變 ⇒ **走一遍、讀一遍, 記起來**。
+//    🛑 **判別力一格沒動** —— 斷言、正規表達式、排除規則全部原樣。
+let _files: string[] | undefined;
+const _src = new Map<string, string>();
+/** 剝過註解的原始碼, 同一支檔只讀一次。 */
+function srcOf(file: string): string {
+  const hit = _src.get(file);
+  if (hit !== undefined) return hit;
+  const code = strip(readFileSync(file, 'utf8'));
+  _src.set(file, code);
+  return code;
+}
+
 function sourceFiles(): string[] {
-  return readdirSync(ROOT, { recursive: true })
+  if (_files) return _files;
+  _files = readdirSync(ROOT, { recursive: true })
     .map(String)
     .filter((f) => /\.tsx?$/.test(f) && !/\.test\./.test(f))
     .map((f) => `${ROOT}/${f}`);
+  return _files;
 }
 
 /** `toPaymentSummary(<第1引數>, …)` 的呼叫端。**排除函式宣告本身**(`function toPaymentSummary(`)。 */
 function callSites(): { file: string; firstArg: string }[] {
   const out: { file: string; firstArg: string }[] = [];
   for (const file of sourceFiles()) {
-    const src = strip(readFileSync(file, 'utf8'));
+    const src = srcOf(file);
     for (const m of src.matchAll(/(function\s+)?toPaymentSummary\(\s*([^,]+?)\s*,/g)) {
       if (m[1] !== undefined) continue; // 宣告,不是呼叫
       out.push({ file, firstArg: (m[2] ?? '').replace(/\s+/g, ' ') });
@@ -60,7 +79,7 @@ function callSites(): { file: string; firstArg: string }[] {
 function callSitesWithSecondArg(): { file: string; secondArg: string }[] {
   const out: { file: string; secondArg: string }[] = [];
   for (const file of sourceFiles()) {
-    const src = strip(readFileSync(file, 'utf8'));
+    const src = srcOf(file);
     for (const m of src.matchAll(/(function\s+)?toPaymentSummary\(([\s\S]*?)\)\s*;/g)) {
       if (m[1] !== undefined) continue;
       const args = (m[2] ?? '').replace(/\s+/g, ' ').trim().replace(/,$/, '');
@@ -75,7 +94,7 @@ function callSitesWithSecondArg(): { file: string; secondArg: string }[] {
 function amountDueProps(): { file: string; value: string }[] {
   const out: { file: string; value: string }[] = [];
   for (const file of sourceFiles()) {
-    const src = strip(readFileSync(file, 'utf8'));
+    const src = srcOf(file);
     for (const m of src.matchAll(/amountDue=\{([^}]*)\}/g)) {
       out.push({ file, value: (m[1] ?? '').replace(/\s+/g, ' ') });
     }

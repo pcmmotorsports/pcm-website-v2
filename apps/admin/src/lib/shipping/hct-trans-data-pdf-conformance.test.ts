@@ -31,7 +31,7 @@ const PDF_MAX = {
 } as const;
 
 const baseInput = {
-  displayId: 'PCM-0001',
+  shipmentReference: 'B7K3MN',
   recipient: { name: '王小明', phone: '0912345678', line: '台北市信義區信義路五段 7 號' },
   itemCount: 1,
   note: '',
@@ -53,10 +53,14 @@ describe('hct-trans-data 對 PDF 第 13 頁欄位表(離線, 零對外請求)', 
     expect(missing, 'PDF 標「必要欄位」而我們沒送或送空的 ⇒ 那一筆一定被拒').toEqual([]);
   });
 
-  it('③ 每個欄位的長度都不超過規格 —— 餵超長輸入也一樣', () => {
+  it('③ 【epino 以外】每個欄位的長度都不超過規格 —— 餵超長輸入也一樣(epino 見檔內註解)', () => {
     const { fields } = buildHctTransData({
       ...baseInput,
-      displayId: 'X'.repeat(200),
+      // ⛔ ~~`displayId: 'X'.repeat(200)`~~ —— 2026-09-06 起 `epino` 有**格式閘**,
+      //    200 個 X 會**在這裡之前就 throw** ⇒ 本格量不到其餘欄位的長度。
+      //    🔴 **而這【不是】把期望值改鬆**:epino 的長度現在由「必須是 6 碼」保證,
+      //      那比「截到 30」嚴 ⇒ 本格改餵合法箱號, 而**超長 epino 由 `hct-trans-data.test.ts`
+      //      的「逐項負對照」那一格接手**(⛔ ~~由下面新增那一格~~ —— 那一格在【另一支檔】, codex R1 nit)。
       recipient: { name: '名'.repeat(200), phone: '0'.repeat(200), line: '址'.repeat(300) },
       note: '備'.repeat(300),
     });

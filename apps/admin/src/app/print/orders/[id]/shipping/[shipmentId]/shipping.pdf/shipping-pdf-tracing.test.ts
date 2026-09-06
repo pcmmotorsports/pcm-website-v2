@@ -71,6 +71,16 @@ function stalenessNote(): string | null {
 }
 
 function tracedFiles(): string[] {
+  // 🔴🔴 **「完全沒 build」與「build 過而過期」是兩件事, 而它們要印不同的東西**
+  //    (2026-09-06 別窗 `-auth` 在一棵沒 build 的常設樹跑全套, 撞到的是**裸 ENOENT**)。
+  //    ⛔ 沒有這一道 ⇒ 訊息是 `ENOENT: no such file or directory, open '.next/server/…'`
+  //      ⇒ 🛑 那句話**沒有叫任何人去 build**, 而六個窗跑全套都會撞到它。
+  //    ✅ 過期 ⇒ 硬斷言(那是 ⟦ship-STALEGUARDWARN⟧ 刻意的);**沒 build ⇒ 一句照著做的指令。**
+  if (!existsSync(NFT)) {
+    throw new Error(
+      `讀不到 ${NFT} —— 這棵樹還沒 build 過。先跑 \`TURBO_FORCE=1 pnpm --filter @pcm/admin build\``,
+    );
+  }
   const d = JSON.parse(readFileSync(NFT, 'utf8')) as { files: string[] };
   const base = dirname(NFT);
   return d.files.map((f) => resolve(base, f));
@@ -164,7 +174,15 @@ describe('後台出貨單 PDF:那條 route 的函式包裡有沒有它要讀的�
     const byPage = (page: string) => routes.filter((r) => r.page === page);
     const pdf = byPage('/print/orders/[id]/shipping/[shipmentId]/shipping.pdf');
     const page = byPage('/print/orders/[id]/shipping/[shipmentId]');
-    expect(pdf.length, '這條 .pdf 路由不在 routes-manifest 裡').toBe(1);
+    // 🔴 **訊息要涵蓋兩個世界, 因為它們在這裡印同一個 0**(2026-09-06 別窗實撞):
+    //    ①這棵樹的 `.next` 比這條 route 舊(**常見**)②這條 route 真的被刪了(**罕見**)
+    //    ⇒ 只寫「不在 manifest 裡」的話, 讀的人會去查②, 而答案通常是①。
+    expect(
+      pdf.length,
+      '這條 .pdf 路由不在 routes-manifest 裡 —— 最常見的原因是【這棵樹的 .next 比它舊】, ' +
+        '先跑 `TURBO_FORCE=1 pnpm --filter @pcm/admin build` 再看;' +
+        '重 build 之後還是 0 才是「這條 route 真的不見了」。',
+    ).toBe(1);
     expect(page.length, '既有那張列印頁不在 routes-manifest 裡 ⇒ 本格的分母是假的').toBe(1);
     expect(pdf[0]!.regex, '兩條路由的 regex 相同 ⇒ 它們互相遮蔽').not.toBe(page[0]!.regex);
     // 🔵 正對照:`.pdf` 這一段真的活在 regex 裡(不是只是「兩條剛好不一樣」)。

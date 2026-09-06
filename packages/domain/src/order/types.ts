@@ -1354,6 +1354,26 @@ export type AdminOrderDetail = {
    */
   taxTotal: Money;
   total: Money;
+  /**
+   * ⟦b4-PAIDTHENOVERPAID⟧ 應付餘額 —— **`order_balance_base_v.balance_due` 原樣**,
+   * 讀不到就是 `null`。
+   *
+   * 🔴🔴 **型別刻意【不是】`Money`** —— `toMoneyAmount()` 對負數當場 throw
+   * (`packages/domain/src/shared/types.ts:48-50` 逐字 `MoneyAmount must be non-negative`),
+   * 而**本欄最重要的那個世界就是負的**(負 = 客人多付了)。
+   * ⇒ 📌 用 `Money` 會讓「多付」這個世界在 mapper 就炸掉,而那正是本欄要顯示的東西。
+   *
+   * 🔴 **`null` 有兩個成因,而它們對後台是同一件事:算不出來**
+   *   ① 那張單有 confirmed 退款或未作廢的手動退款 ⇒ view 的 CASE 刻意回 NULL
+   *      (`supabase/migrations/20260906150000_m4b_order_balance_base_v.sql:99-115`)
+   *   ② 那一發查詢讀不到(view 沒貼 / 權限 / 異常)⇒ adapter 的 try/catch 給 null
+   *   ⇒ 顯示端一律**不印**「多付」那一行 —— 不猜、不補 0。
+   *
+   * 🛑 **這條錢的規則【不在這裡】,也不准在這裡再算一次**:它住在 `order_balance_base_v`,
+   * 而那支 view 的 COMMENT 逐字「要改應付餘額的算法, 改這裡, 不要在別處再寫一份」。
+   * ⇒ 本欄只是把它搬過來,`balanceDue < 0` 才是「多付」,金額 = `-balanceDue`。
+   */
+  balanceDue: number | null;
   /** 出貨方式(既有欄、結帳寫入;現值 'home',Slice C 起 admin 可改) */
   shippingMethod: string;
   /** 收件快照 PII(orders.shipping_address_snapshot jsonb {name,phone,line};防禦容缺) */

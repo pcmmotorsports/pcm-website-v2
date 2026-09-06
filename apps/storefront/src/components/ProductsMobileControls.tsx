@@ -43,6 +43,7 @@ export function ProductsMobileControls({
   setSort,
   countOf,
   openVehicleOnMount = false,
+  applying = false,
 }: {
   data: FilterTopData;
   cascade: CascadeFilterState;
@@ -63,6 +64,11 @@ export function ProductsMobileControls({
    *  (MobileVehicleSheet.tsx:99-105)—— 那條 effect 不管 CSS 可見性照跑,
    *  所以純看 URL 會讓桌機客人進到一個「看不到面板、卻整頁捲不動」的死狀態。 */
   openVehicleOnMount?: boolean;
+  /** ⟦search-CATSWITCHSLOW⟧ 「切了分類、而新內容還沒回來」——由 ProductsPage 算,穿透給
+   *  分類那個 scope 的 FilterDrawer 當套用鈕的載入態。
+   *  🔴 **只給分類 scope**:商品篩選那個 scope 的套用同樣會等 RSC,而這個布林算的是
+   *     **分類軸**變了沒 ⇒ 餵給它會恆假、比不給更誤導(看起來接上了而其實沒有)。 */
+  applying?: boolean;
 }) {
   // 🔴 initializer 而非 effect:effect 版會在客人手動關掉面板後、下一次 re-render 又把它打開
   //    (同一個理由讓 MobileVehicleSheet.tsx:89-93 的草稿也選了 initializer)。
@@ -205,6 +211,7 @@ export function ProductsMobileControls({
           open
           onClose={closePanel}
           scope="category"
+          applying={applying}
           data={data}
           resultCount={resultCount}
           hideColor
