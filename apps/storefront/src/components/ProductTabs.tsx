@@ -100,9 +100,18 @@ const RPM_HIGHLIGHTS = [
   LINE_REMINDER,
 ];
 
-export type ProductTabsProps = { product: MockProduct };
+export type ProductTabsProps = {
+  product: MockProduct;
+  /**
+   * 🔴 **選中的變體(2026-09-06 新增)** —— 規格表那一列的「產品型號」要跟著它變。
+   *   來源與 `ProductInfo` 同一個:狀態在 `ProductPage`(`:123` 受控源頭), 這裡只讀。
+   *   ⚠️ **optional** —— 本元件有別的掛載面(測試、未來的預覽)不見得餵得到;
+   *     沒餵到 ⇒ 行為與 2026-09-06 之前**逐字相同**(印母料號)。
+   */
+  selectedVariant?: UIVariant | null;
+};
 
-export function ProductTabs({ product }: ProductTabsProps) {
+export function ProductTabs({ product, selectedVariant = null }: ProductTabsProps) {
   const router = useRouter();
 
   // 🔴 P0-C-b2 去碳:RPM 才顯碳纖介紹/規格列(byte 不變);非 RPM 介紹留最小事實、規格表資料驅動。
@@ -221,8 +230,17 @@ export function ProductTabs({ product }: ProductTabsProps) {
               </div>
               <div className="pd-spec-row">
                 <div className="pd-spec-k">產品型號</div>
-                {/* M-1-16c-4b:顯真主碼 productCode(如 RPM-DCC01、← DB external_id);無主碼 fallback slug */}
-                <div className="pd-spec-v">{product.productCode ?? product.slug}</div>
+                {/* ⛔ ~~M-1-16c-4b:顯真主碼 productCode(如 RPM-DCC01、← DB external_id);無主碼 fallback slug~~
+                    🔴🔴 **2026-09-06:跟著選中的變體變**(與上方 `.pd-sku` 那一行同一個規則)。
+                    成因:Sean 看畫面驗收, 而**選了紅色時上方 `PET52R`、這裡 `PET52`**
+                    ⇒ 📌 **同一頁兩個號** —— 他一定會問, 而那個問題本身就是一個 bug。
+                    🔵 **語意上這一格值得標一句**:「產品型號」在字面上像是**母商品**的號,
+                       而現在它印的是**選中變體**的號。⇒ 那是刻意的(主視窗 2026-09-06 裁,
+                       理由是畫面一致性優先);**若哪天要把兩個號都留在畫面上, 從這一句開始讀。**
+                    🛑 fallback 與上方**共用同一條**:變體沒 sku / 沒選 ⇒ 退回 `productCode ?? slug`。 */}
+                <div className="pd-spec-v">
+                  {selectedVariant?.sku?.trim() || (product.productCode ?? product.slug)}
+                </div>
               </div>
               <div className="pd-spec-row">
                 <div className="pd-spec-k">商品分類</div>
