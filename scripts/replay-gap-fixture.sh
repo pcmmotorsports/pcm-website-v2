@@ -99,5 +99,42 @@ done
 
 mv "$TMP" "$OUT" || exit 3
 printf '✅ 產出 %s —— 點名 %s 個, 取到 %s 個\n' "$OUT" "$#" "$CNT"
-printf '🔵 取到數 < 點名數 ⇒ 差額那幾個在正式庫查無, 檔內逐個標了 🔴。\n'
+# 🔴 這一句是【結論】不是【標題】⇒ 不可以無條件印。
+#    舊版在【全部都取到】時也會印「差額那幾個查無」⇒ 而那一發根本沒有差額。
+#    📌 一句寫死的結論在沒有發生那件事的時候照樣印, 而它就印在讀數的正下方。
+if [ "$CNT" -lt "$#" ]; then
+  printf '🔴 有 %s 個在正式庫查無 ⇒ 檔內逐個標了 🔴（點名 %s / 取到 %s）\n' "$(( $# - CNT ))" "$#" "$CNT"
+else
+  printf '🟢 點名的都取到了（%s / %s）\n' "$CNT" "$#"
+fi
 [ "$CNT" -gt 0 ] || { printf '🔴 一個都沒取到 ⇒ 這個檔沒有用, 不要拿去跑\n' >&2; exit 4; }
+
+# ══ 「還缺」候選清單(2026-09-07 加;主視窗要的「免第四次來回」)═══════════════
+#   掃**剛產出來的 body** 裡的 `public.xxx(` 引用, 扣掉本檔已經含的, 再問正式庫哪些真的存在。
+#   🔴 **它答的是【候選】不是【缺件】** —— 它**不知道拋棄式庫裡有什麼**(那要連到那個庫)。
+#     📌 一個名字上了這張單, 只代表「本檔引用了它而本檔沒有它」, **不代表「你那邊沒有」**。
+#   🛑 而它**只看得到寫成 `public.xxx(` 的呼叫** —— 動態 SQL、沒有 schema 前綴的呼叫、
+#     觸發器 / 表 / 型別的依賴, 它**一個都看不到**。⇒ **這張單短, 不等於沒別的缺。**
+REFS_F="$(mktemp)"; HAVE_F="$(mktemp)"
+grep -oE 'public\.[a-z0-9_]+\(' "$OUT" 2>/dev/null | sed 's/^public\.//; s/(//' | sort -u > "$REFS_F"
+printf '%s\n' "$@" | sort -u > "$HAVE_F"
+CAND="$(comm -23 "$REFS_F" "$HAVE_F")"
+rm -f "$REFS_F" "$HAVE_F"
+if [ -z "$CAND" ]; then
+  printf '🔵 「還缺」候選:0 個(本檔 body 裡沒有引用到本檔以外的 public.xxx 呼叫)\n'
+else
+  printf '\n── 「還缺」候選(引用了而本檔沒有;**是候選不是缺件**)──────────────\n'
+  printf '%s\n' "$CAND" | while IFS= read -r c; do
+    [ -n "$c" ] || continue
+    SIG="$(/opt/homebrew/bin/psql "$PCM_READONLY_DATABASE_URL" -X -A -t -c \
+      "SELECT string_agg(p.proname||'('||pg_get_function_identity_arguments(p.oid)||')', ' | ')
+         FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname='public' AND p.proname='$c';" 2>/dev/null)"
+    if [ -n "$SIG" ]; then
+      printf '  · %-40s 正式庫有:%s\n' "$c" "$SIG"
+    else
+      printf '  · %-40s 🔴 正式庫查無 ⇒ 它可能是表 / 型別, 或這個名字被我剖錯\n' "$c"
+    fi
+  done
+  printf '⇒ 要補哪個, 把名字接在同一行指令後面重跑本支(可重跑、冪等)。\n'
+fi
