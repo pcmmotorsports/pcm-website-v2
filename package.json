@@ -14,6 +14,7 @@
     "lint": "turbo run lint && eslint 'scripts/*.ts' --max-warnings 0",
     "typecheck": "turbo run typecheck && tsc -p tsconfig.scripts.json --noEmit",
     "test": "sh scripts/vitest-ran-gate.sh run",
+    "test:browser": "python3 scripts/browser-test-family.py --run",
     "clean": "turbo run clean",
     "prepare": "husky"
   },
@@ -98,6 +99,7 @@
     "scripts/acl-snapshot.sh": "bash scripts/acl-snapshot.sh --selftest && bash scripts/acl-digest-parity.sh",
       "scripts/acl-digest-parity.sh": "bash scripts/acl-digest-parity.sh --selftest",
       "scripts/package-json-dup-key-gate.py": "python3 scripts/package-json-dup-key-gate.py --selftest",
+    "scripts/browser-test-family.py": "python3 scripts/browser-test-family.py --selftest",
       "package.json": "python3 scripts/package-json-dup-key-gate.py",
       "scripts/vercel-json-waf-cron-gate.py": "python3 scripts/vercel-json-waf-cron-gate.py --selftest",
       "{vercel.json,apps/*/vercel.json}": "python3 scripts/vercel-json-waf-cron-gate.py",

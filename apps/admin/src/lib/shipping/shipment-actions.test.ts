@@ -714,11 +714,21 @@ describe('⟦ship-HCTUNKNOWNSTUCK⟧ 片 B · 空證詞【不得】走到 RPC', 
 //      調大只會換一組繞法。**寫在這裡, 不要讓下一個人以為這一格是密的。**
 //    ⇒ 🎯 **真正密的那一道會是【型別】**(讓這個值只能由讀 `shipments` 那一列的碼構造出來),
 //      而**本片沒有做** —— 那要動 repository 的型別, 範圍比這一片大。**這是已知缺口。**
-describe('⟦ship-EPINOUNIQUE⟧ epino 的來源(源碼層釘樁)', () => {
+// 🔴🔴 **⟦ship-SHIPFILESSPLIT⟧ 2026-09-06:這一組的【受詞搬走了】。**
+//    `submitShipmentToHctAction` 連同它呼叫 `buildHctTransData` 的那一行,
+//    整段搬去 `shipment-submit-hct-action.ts` ⇒ 本檔的 `ACTIONS`(讀 `shipment-actions.ts`)
+//    **裡面已經沒有那一行了**。
+//    🟢 **而這兩格【當場紅】了, 包括那個分母自檢** —— 📌 那正是它存在的理由:
+//      沒有它, 這一組會在「`indexOf` 回 -1 ⇒ slice 出一段空字串 ⇒ 什麼都不 contain」
+//      那條路上**安靜地變成別的東西**。
+//    ✅ 改成讀新檔;**斷言一個字都沒動**。
+const HCT_ACTION_SRC = strip(readFileSync(resolve(HERE, 'shipment-submit-hct-action.ts'), 'utf8'));
+
+describe('⟦ship-EPINOUNIQUE⟧ epino 的來源(源碼層釘樁;受詞 2026-09-06 隨檔搬去 shipment-submit-hct-action.ts)', () => {
   it('🔴 送新竹的欄位是用【箱那一列的 shipment_reference】組的, 不是訂單的 displayId', () => {
-    const idx = ACTIONS.indexOf('buildHctTransData({');
+    const idx = HCT_ACTION_SRC.indexOf('buildHctTransData({');
     expect(idx, 'buildHctTransData 的呼叫不見了 ⇒ 本格失去判別力, 不是通過').toBeGreaterThan(-1);
-    const call = ACTIONS.slice(idx, idx + 300);
+    const call = HCT_ACTION_SRC.slice(idx, idx + 300);
     expect(call, '送給新竹的 epino 不是從箱那一列拿的 —— 見本段檔頭').toContain(
       'shipmentReference: row.shipmentReference',
     );
@@ -727,7 +737,7 @@ describe('⟦ship-EPINOUNIQUE⟧ epino 的來源(源碼層釘樁)', () => {
   });
 
   it('🟢 分母自檢:那個字串真的在這支檔裡(不在的話上面那格是在量一個不存在的東西)', () => {
-    expect(ACTIONS).toContain('buildHctTransData');
-    expect(ACTIONS).toContain('row.shipmentReference');
+    expect(HCT_ACTION_SRC).toContain('buildHctTransData');
+    expect(HCT_ACTION_SRC).toContain('row.shipmentReference');
   });
 });

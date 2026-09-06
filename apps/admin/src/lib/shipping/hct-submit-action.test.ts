@@ -22,7 +22,7 @@ vi.mock('./shipment-repository', () => ({ getHctShipment, recordHctSubmit }));
 const runHctSubmit = vi.fn();
 vi.mock('./hct-submit-flow', () => ({ runHctSubmit }));
 
-const { submitShipmentToHctAction } = await import('./shipment-actions');
+const { submitShipmentToHctAction } = await import('./shipment-submit-hct-action');
 
 const ROW = {
   id: 's1',
