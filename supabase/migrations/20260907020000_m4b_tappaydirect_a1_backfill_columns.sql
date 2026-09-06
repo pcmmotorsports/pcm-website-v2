@@ -389,10 +389,22 @@ BEGIN
   END IF;
 
   -- 🔵 ⑤d 而它**只能讀** —— 這個 view 可自動更新, 給了寫權就等於開一條繞過 CASE 的路。
+  -- 🔴 **DELETE 也要驗, 而我第一版漏了它**(mainB 2026-09-07 問「都 REVOKE 了還是只驗到」)。
+  --   `REVOKE ALL` 確實收了 DELETE ⇒ **行為是對的**;而**斷言只列了 INSERT/UPDATE**
+  --   ⇒ 📌 **「我做了」與「我驗了我做了」是兩件事** —— 而一道漏列的斷言,
+  --     在「哪天有人只 GRANT DELETE 回去」的世界裡**一個字都不會說**。
   IF has_table_privilege('service_role','public.order_refunds_readable','INSERT')
-     OR has_table_privilege('service_role','public.order_refunds_readable','UPDATE') THEN
-    RAISE EXCEPTION 'A1 事後閘⑤d:service_role 對這個 view 有寫權 ⇒ 那是一條繞過遮罩的寫入路';
+     OR has_table_privilege('service_role','public.order_refunds_readable','UPDATE')
+     OR has_table_privilege('service_role','public.order_refunds_readable','DELETE') THEN
+    RAISE EXCEPTION 'A1 事後閘⑤d:service_role 對這個 view 有寫權(INSERT/UPDATE/DELETE 任一)'
+                    '⇒ 那是一條繞過遮罩的寫入路';
   END IF;
+  -- 🛑🛑 **而這幾格權限斷言在【拋棄式探針】上證不了什麼, 照實寫**:
+  --   `scripts/admin-probe/up.sh` 檔頭第 30 行逐字「**GRANT 與 BYPASSRLS 是這支腳本自己下的
+  --   ⇒ 證不了正式站的權限設定**」, 而它的 `GRANT ALL TO service_role` 跑在 **migration 之後**
+  --   ⇒ 🔬 實測:apply 當下這幾格是綠的, 而 `up.sh` 跑完再問同一句 ⇒ `INSERT/UPDATE/DELETE` **全是 t**。
+  --   ⇒ 📌 **這些斷言保證的是【apply 那一刻】, 不是【之後也還這樣】** ——
+  --     而那正是它們該保證的範圍;**要問「現在還這樣嗎」得對正式庫跑 `69b`。**
 
   -- 🔴 ⑥ **本片【沒有】改變任何既有列** —— 它是被動片, 這一格是它的定義。
   SELECT count(*) INTO v_cnt FROM public.order_refunds
