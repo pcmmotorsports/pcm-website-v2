@@ -47,6 +47,7 @@ const {
   shippedContextCtor,
   shippedScannerCtor,
   paidContextCtor,
+  bankOrderMailableCtor,
   serviceClientSpy,
   SERVICE_CLIENT,
 } =
@@ -58,6 +59,9 @@ const {
     shippedContextCtor: vi.fn(), // 🔴 E4-b(2026-08-22):出貨信的寄送時讀取 adapter
     shippedScannerCtor: vi.fn(), // 🔴 片3b(2026-08-30):出貨線掃描式 enqueue 的 adapter
     paidContextCtor: vi.fn(), // 🔴 2026-09-01:付款信 HTML 的寄送時讀取 adapter(Sean 拍甲)
+    // 🔴 2026-09-06 ⟦b4-BANKNOEMAIL⟧:匯款成立信的【寄送前重驗】adapter。
+    //    與上面那支方向相反:那一支接上去讓客人收到不一樣的信, 這一支接上去【開始擋東西】。
+    bankOrderMailableCtor: vi.fn(),
     serviceClientSpy: vi.fn(),
     SERVICE_CLIENT: { __serviceClient: true },
   }));
@@ -70,6 +74,7 @@ vi.mock('@pcm/adapters/server', () => ({
   SupabaseShippedEmailContextAdapter: shippedContextCtor,
   SupabaseShippedOrderScannerAdapter: shippedScannerCtor,
   SupabasePaidEmailContextAdapter: paidContextCtor,
+  SupabaseBankOrderMailableCheckAdapter: bankOrderMailableCtor,
   createSupabaseServiceClient: serviceClientSpy,
 }));
 
@@ -175,8 +180,20 @@ describe('getSweepEmailOutboxDeps — 呼叫後建 deps', () => {
     //    (cutoff 繞過 / 死信餓死活信 / fetch 沒 timeout / 收件地址凍住…), 由那份 triage 另排。
     //    ⚠️ 而「4 條」那個數字**我找不到出處** ⇒ 標**未確認**, 缺的檢查 = 問寫那句的人。
     //    📌 **舊字面不刪** —— 它讓下一個人看得出「一個碼裡的自陳被當成事實轉述過一次」。
+    // ── 🔴 **2026-09-06(⟦b4-BANKNOEMAIL⟧):第五次改期望值 ⇒ `bankOrderMailable` 進來了。** ──
+    //    ⛔ ~~['ineligibleScanner', 'outbox', 'paidContext', 'sender', 'shippedContext']~~
+    //    ✅ **照上面那句判過再改**:它是**寄送前的一道閘**, 不是**發送管道**
+    //       ⇒ 這格原本擋的東西(告警管道被注進 sweeper, Sean `Q13`=A)**一個字都沒變**,
+    //         而下面兩行對 `notifiers` / `alertNotifier` 的斷言照舊 —— 那才是本體。
+    //    🔴 **而它與 `paidContext` 那一次【方向相反】, 這一句要寫出來**:
+    //       `paidContext` 接上去 ⇒ **真客人開始收到不一樣的信**(那是為什麼它判鐵則 12⑤);
+    //       這一支接上去 ⇒ **開始【擋】東西** —— 沒有它, `bank_order_created` 一封都不寄
+    //       (`sweep-email-outbox.ts` 對 `deps.bankOrderMailable === undefined` 是 fail-closed)。
+    //       ⇒ 📌 **所以「漏掉它」的症狀是【一封都不寄】, 不是【寄錯】** —— 而那正是本片在修的病,
+    //         所以它必須出現在這張清單裡, 讓下一個人動 deps 時當場撞到。
     const deps = getSweepEmailOutboxDeps() as Record<string, unknown>;
     expect(Object.keys(deps).sort()).toEqual([
+      'bankOrderMailable',
       'ineligibleScanner',
       'outbox',
       'paidContext',

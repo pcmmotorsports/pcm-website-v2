@@ -20,14 +20,51 @@
  * 前版(E1c plan v1)宣稱「PII 風險 = 0」**是不實宣稱、已作廢**。
  *
  * **允許範圍(逾此即違規)**:
- * 1. 僅 `status === 429` 時讀 body(非 429 **完全不碰**、`json` 零呼叫)。
+ * 1. ⛔ ~~僅 `status === 429` 時讀 body(非 429 **完全不碰**、`json` 零呼叫)。~~
+ *    🔴🔴 **2026-09-06 射程擴大成【兩個入口】**(⟦b4-NOSENTBODY⟧;Sean 拍乙「只存 id、不留全文」,
+ *    主視窗裁擴射程 + **重跑雙審**)。**舊字面留刪除線** —— 搜「非 429 完全不碰」的人要同一發撞到訂正。
+ *    ```
+ *    入口甲  status === 429   → classify429()   僅存取頂層 `name`(規則 2)
+ *    入口乙  res.ok === true  → readSentId()    僅存取頂層 `id`,四條約束見該函式
+ *    其餘任何路徑            → body 完全不碰、零呼叫   ← 這一句【沒有放寬】
+ *    ```
+ *    🛑 **入口乙的約束(逾此即違規)** —— ⛔ ~~「只解析頂層 `id`」~~ **那句逐字不成立**
+ *    (codex R1-#3):`JSON.parse` **先把整份 body 解析完、配置每一個欄位**, 我才去讀一個。
+ *    ⇒ 📌 **精確措辭 = 「整份解析, 只【取用】一個」** —— 與本節對 `name` 那段同一個形狀,
+ *      而那個形狀當年就是被同一位審查者訂正出來的, 我第一版沒照著寫。
+ *    ```
+ *    ① `JSON.parse` 會解析整份 body;解析後**僅取用頂層自有屬性 `id`**,
+ *       其他欄位**不得存取、不得進入任何 sink**
+ *    ② 取用要過三關:`Object.hasOwn`(擋原型污染)· `typeof === 'string'`
+ *       · 格式白名單 `^[A-Za-z0-9-]{1,64}$`(擋「任意非空字串都落庫」)
+ *    ③ ⛔ ~~大小上限走【兩道】:`content-length` 必須是 ≤ 上限的安全整數才往下;
+ *       讀回來再用 `Buffer.byteLength` 確認一次~~ **整段作廢**(opus R2 · MF1 + C1)
+ *       ✅ **上限改成【自己邊讀邊數】**:逐塊讀 `res.body`, 累計位元組超過上限就
+ *       **當場放棄、`cancel()`、回 `null`** ⇒ 缺標頭 / 標頭說謊 / chunked 走同一條路。
+ *       📌 **判準不再依賴對方的任何宣告**, 所以「Resend 帶不帶 content-length」不必驗。
+ *    ④ 任何一步不成立一律 `null`, 而**它不影響分類結果**(照樣 `sent`)
+ *    ```
+ *    🔬 **官方文件的成功回應逐字**(2026-09-06 親讀):`{ "id": "…" }` —— **只有一個欄位**。
+ *    ⚠️ **而上面四條【不依賴那份文件】** —— wire 不可信(同本節對 `name` 的處理),
+ *    所以它們對**任何** body 都成立。
+ *    🛑 **入口乙的殘餘風險(訂正;opus R2 · MF1)**:
+ *    ⛔ ~~「標頭缺失時仍會 `text()` ⇒ 短暫記憶體暴露」~~ —— **那個世界碼裡不存在**
+ *    (舊碼在缺標頭時直接 `return null`, 根本走不到緩衝), 而**真的會緩衝**的世界
+ *    (宣告騙人說小、實際很大)我一個字都沒寫。📌 **一份把暴露面指錯地方的清單, 比沒有清單糟。**
+ *    ✅ **現在的形狀**:仍然緩衝, 而**緩衝有上界 = 上限 + 最後一塊**, 且
+ *    **那個上界不由對方宣告** ⇒ 與入口甲(`json()` 無上界)相比**這一條更緊**, 不是同級。
  * 2. 🔴 **精確字面(codex 關卡2 nit;前版「僅讀頂層 name 單一欄」不精確、與下方殘餘風險段自相拉扯)**:
  *    `json()` **會解析整份 body**;解析後**僅存取頂層 `name`**,且**只有 `name` 可影響分類結果**;
  *    其他欄位(尤其 `message`)**不得存取、不得進入任何 sink**。`name` 以 `unknown` 處理
  *    (wire 不可信:官方 TS union 是編譯期保證、**非 runtime 封閉輸入**)。
  * 3. 僅接受 `QUOTA_ERROR_CODE_BY_NAME` 的**三個本地固定字面**,其餘一律 `http_429`
  *    (🔴 該表必須是 `Map` —— 物件字面量的原型鏈會破此條,見該表註解)。
- * 4. 原文**不跨出區域變數**:不落表、不 log、不進任何回傳結果。
+ * 4. 🔴 **射程限定 =【入口甲】**(opus R2 · C3 補;⛔ ~~原本沒寫入口~~ ——
+ *    照舊字面 grep 的人會判入口乙違規):**429 那份 body 的原文不跨出區域變數**
+ *    —— 不落表、不 log、不進任何回傳結果。
+ *    🛑 **入口乙【是明文例外, 而例外只有一個欄位】**:過完三關的 `id` **就是要落表的**
+ *    (那正是 ⟦b4-NOSENTBODY⟧ 這一片的目的), 而它**只落 DB 那一欄** ——
+ *    不 log、不進 sweep 回傳統計、不進任何其他 sink。`id` 以外的每一個欄位照第 1 條, 一律不得存取。
  *
  * **殘餘風險(誠實、非 0)**:`json()` 必然緩衝整份 body → **短暫記憶體暴露**。可接受理由 = 生命週期
  * 限於單次 `send` 呼叫、無 sink、且無同等可靠的替代方案能保住 Q5=A 的額度訊號(codex 關卡1 背書:
@@ -45,6 +82,8 @@
 import 'server-only';
 
 import type { IEmailSender, SendEmailInput, SendEmailResult, EmailSendErrorCode } from '@pcm/ports';
+
+import { OUTBOUND_SEND_TIMEOUT_MS } from '../outbound-timeout';
 
 /**
  * 🔴 **單封端點。要改成批次的人先讀這句**:Resend 官方明文
@@ -128,8 +167,20 @@ export class EmailAttachmentTooLargeError extends Error {
  */
 export type ResendFetchLike = (
   input: string,
-  init: { method: string; headers: Record<string, string>; body: string },
-) => Promise<{ ok: boolean; status: number; json?: () => Promise<unknown> }>;
+  // 🔴 `signal` 是**必填**(⟦mail-FETCHTIMEOUT⟧ 2026-09-06)——
+  //    選填的話, **漏傳的那一支不會型別紅**, 而它的症狀是「送出去之後永遠不回」。
+  //    📌 一道 fail-open 的閘比沒有閘更糟, 所以這裡讓 tsc 當那道閘。
+  init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal },
+) => Promise<{
+  ok: boolean;
+  status: number;
+  json?: () => Promise<unknown>;
+  // 🔴 ⟦b4-NOSENTBODY⟧(2026-09-06):成功路徑要拿 provider 的訊息 id。
+  //    兩個都 optional —— 替身可以不給, 而 `readSentId` 對「不給」回 null(不 throw)。
+  //    🔵 `text` 而不是 `json`:大小上限要在【parse 之前】量, 而 `json()` 直接就 parse 了。
+  headers?: { get?: (k: string) => string | null };
+  text?: () => Promise<string>;
+}>;
 
 /** HTTP 狀態 → 有限錯誤碼映射表(封閉;值受 EmailSendErrorCode union 型別檢查)。 */
 const ERROR_CODE_BY_STATUS: Readonly<Record<number, EmailSendErrorCode>> = {
@@ -179,6 +230,23 @@ const ERROR_CODE_BY_STATUS: Readonly<Record<number, EmailSendErrorCode>> = {
  * 右側 = provider 中立內部碼(退避政策見 `EmailSendErrorCode` 逐碼 JSDoc)。
  * ⚠️ 新增 provider 或官方新增 429 碼 → 改本表 + union;**未知一律落 `http_429`**(=保守長退避)。
  */
+/**
+ * ⟦b4-NOSENTBODY⟧ 成功回應 body 的大小上限(bytes)。
+ * 🔵 **4 KB 是一個【刻意寬鬆】的上限** —— 官方文件的成功回應只有一個 uuid(約 50 bytes),
+ *    而這裡留兩個數量級的餘裕:它要擋的是「**回了一個我們沒預期的大東西**」,
+ *    不是「精準地只放得下我預期的那一份」。
+ * 🛑 而它擋 parse 不擋緩衝(見 `readSentId` 的檔頭)。
+ */
+const SENT_BODY_MAX_BYTES = 4096;
+
+/**
+ * provider 訊息 id 的格式白名單(⟦b4-NOSENTBODY⟧, codex R1-#5)。
+ * 🔵 官方回的是 uuid;這裡放寬到 `[A-Za-z0-9-]{1,64}` —— **擋的是「那不是一個 id」**,
+ *    不是「那不是我預期的那一種 id」(provider 日後換格式不該讓這一欄整個空掉)。
+ * 🛑 而它**擋掉了**:信箱(有 `@`)、整封信(有空白與標點)、控制字元、超長字串。
+ */
+const PROVIDER_MESSAGE_ID_RE = /^[A-Za-z0-9-]{1,64}$/;
+
 const QUOTA_ERROR_CODE_BY_NAME: ReadonlyMap<string, EmailSendErrorCode> = new Map<
   string,
   EmailSendErrorCode
@@ -296,6 +364,31 @@ export class ResendEmailSenderAdapter implements IEmailSender {
     try {
       const res = await this.fetchImpl(RESEND_ENDPOINT, {
         method: 'POST',
+      // 🔴🔴 **逾時上界(⟦mail-FETCHTIMEOUT⟧ 2026-09-06;opus R2 · C2)** ——
+      //    沒有它, 一個【送完 header 就停住】的伺服器會讓這個 await 永遠不回,
+      //    而平台會在 60 秒砍掉整個 function ⇒ 那一列留在 `sending`、燒一次 attempt。
+      // 🔴🔴 **逾時會走進【兩條】完全不同的路, 而它們的結果相反**(codex R1 #4 訂正我原本只寫一條):
+      //    ⛔ ~~「逾時 ⇒ 收成 network_error」~~ **那句只對【其中一半】**。
+      //    ```
+      //    ① header 都還沒回來就到期  ⇒ fetch 本身 reject ⇒ 下面的 catch ⇒ failed / network_error
+      //    ② header 已經回來(ok:true), 讀 body 時才到期
+      //       ⇒ 🛑 fetch 那個 promise 【已經 resolve 了, 不會再 reject】
+      //       ⇒ abort 打在 body 的 stream 上 ⇒ `readSentId` 內部收成 `null`
+      //       ⇒ **結果是 `sent` 而 `providerMessageId` 是 null**
+      //    ```
+      //    ✅ **而②是【對的】** —— 200 已經回來了, 代表 provider **收下了那封信**;
+      //      標 `sent` 是正確的, 只是我們沒拿到編號。📌 兩條路都不會讓那一列卡在 `sending`,
+      //      而那才是這個 signal 要買的東西。
+      // 🛑 **逾時【不等於】沒寄**(對①而言):伺服器可能已經收下並寄出了, 只是回應沒回來。
+      //    ⇒ 📌 **`failed` 在①這一格的意思是「我不知道」, 不是「沒寄」。**
+      //    ⇒ 自動重試不會變成兩封:冪等鍵 `<event_type>/<outbox_id>` **跨重試穩定**, Resend 保留 24h。
+      //    ⚠️ **而那個保證有射程**(codex R1 #5):`attempts` 燒完進死信之後,
+      //      **人手重排若已超過 24 小時, 去重窗已經過期 ⇒ 客人【會】收到第二封。**
+      //      ⇒ 那不是本片引進的, 而它是「標 failed 可重排」這個裁定的**已知代價**, 寫在這裡不藏。
+      // ⚠️ **秒數的未量前提**:`email-sweep/route.ts:97` 那句「單封 ~數百 ms」是註解不是量測
+      //    ⇒ **上線第一天量 `sent_at − claimed_at` 的 p99, > 3 s 這個 10 秒要重談**
+      //      (板列 ⟦mail-FETCHTIMEOUT⟧;全文在 `outbound-timeout.ts`)。
+      signal: AbortSignal.timeout(OUTBOUND_SEND_TIMEOUT_MS),
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${this.cfg.apiKey}`,
@@ -327,10 +420,16 @@ export class ResendEmailSenderAdapter implements IEmailSender {
       });
       // 回應形狀驗證留在 try 內(畸形回應/getter 拋錯 → fail closed,不外洩為程式錯誤)。
       if (res?.ok === true) {
-        return { kind: 'sent' };
+        // 🔴🔴 **§窄幅破例的【第二個入口】(2026-09-06 擴大射程, 主視窗裁 + 雙審)** ——
+        //    在此之前這一行逐字是 `return { kind: 'sent' }`, 成功路徑 `json` 零呼叫。
+        //    ⇒ 📌 **它不是「多讀一個欄位」, 是【多開一條讀 body 的路】** ——
+        //      那正是我一開始判它超出原授權的理由, 而射程是被【重新裁過】才擴大的。
+        // 🔵 **拿不到 id 不影響結果** —— 照樣 `sent`(信真的寄出去了)。
+        return { kind: 'sent', providerMessageId: await readSentId(res) };
       }
       const status = typeof res?.status === 'number' ? res.status : null;
-      // 🔴 §窄幅破例的唯一入口:只有 429 才碰 body(其餘路徑 `json` 零呼叫)。
+      // 🔴 §窄幅破例的**入口甲**:429 這一條碰 body(⛔ ~~唯一入口~~ —— 2026-09-06 起有兩個,
+      //    入口乙在上面那個 `res?.ok === true` 分支;舊字面留刪除線, 見檔頭)。
       if (status === 429) {
         return { kind: 'failed', errorCode: await classify429(res) };
       }
@@ -347,7 +446,133 @@ export class ResendEmailSenderAdapter implements IEmailSender {
 }
 
 /**
- * 🔴 §窄幅破例的唯一實作點(見檔頭)。只在 `status === 429` 被呼叫;任何失敗 → `http_429`
+ * ⟦b4-NOSENTBODY⟧ 成功回應裡的 provider 訊息 id —— **§窄幅破例的第二個實作點**。
+ *
+ * 🔴🔴 **四條約束逐字寫死在這裡, 而它們就是那一裁的內容**(主視窗 2026-09-06):
+ * ```
+ * ① 只解析【頂層 id】, 其餘欄位一律不讀、不存、不印
+ * ② 型別必須是 string, 否則 null
+ * ③ body 超過上限就【不 parse】, 直接 null
+ * ④ 拿不到一律 null —— 而它【不影響分類結果】(照樣 sent)
+ * ```
+ * 🔬 **官方文件的成功回應逐字**(2026-09-06 親讀):`{ "id": "49a3999c-…" }`
+ *    ⇒ **只有一個欄位**, 沒有 `to`、沒有內容。
+ *    ⚠️ **而我不靠那個文件當保證** —— wire 不可信(同檔頭對 `name` 的處理),
+ *      所以上面三道約束是**對任何 body 都成立**的, 不是「因為文件說只有 id」。
+ *
+ * 🔴🔴 **上限的實作方式已改**(opus R2 · MF1 + C1;主視窗 2026-09-06 裁「用設計讓它消失」)——
+ *    ⛔ ~~先看 `content-length`, 是 ≤ 上限的安全整數才叫 `text()`~~ **整段作廢**。
+ *    🛑 **兩個獨立的理由, 各殺掉那個設計的一半**:
+ *    ```
+ *    MF1  我寫的殘餘風險描述的是一個【碼裡不存在的世界】——
+ *         「標頭缺失時仍會 text()」⇒ 而碼在缺標頭時【直接 return null】, 那個世界到不了緩衝。
+ *         而【真的會緩衝】的世界(宣告騙人說小、實際很大)我一個字都沒寫。
+ *         📌 一份把暴露面【指錯地方】的清單, 比沒有清單糟 —— 下一個審邊界的人會照它去看錯的地方。
+ *    C1   判準綁在 `content-length` 上, 而 HTTP/2 與 chunked 【合法地不帶它】
+ *         ⇒ 那時每一列都是 null, 而 null 不影響分類、不進計數、無 log
+ *         ⇒ 🛑 **「這個功能完全沒生效」與「一切正常」在儀表上同形。**
+ *    ```
+ *    ✅ **改法 = 不再問任何人 body 有多大, 自己【邊讀邊數】**:逐塊讀 `res.body`,
+ *      **累計位元組超過上限就當場放棄、`cancel()` 掉、回 `null`**。
+ *      ⇒ 缺標頭 / 標頭說謊 / chunked **走【同一條路】**, 而
+ *      ⇒ 📌 **「Resend 到底帶不帶 content-length」這個問題不必再驗** —— 它已經不在判準裡。
+ *
+ * 🛑 **而【緩衝】這一項仍然不是 0, 誠實寫清楚它現在的形狀**:
+ *    最壞情況記憶體 = **上限 + 最後一塊的大小**(踩線那一塊要先讀進來才數得到)。
+ *    ⇒ 那是**有上界**的, 而舊設計在標頭說謊時**沒有上界**(`text()` 會把整份讀完)。
+ *    ⇒ 📌 這是本次改動真正買到的東西:**不是「不緩衝」, 是「緩衝有上界, 而上界不由對方宣告」。**
+ *
+ * 🔵 **任何一步失敗都回 `null`, 不 throw** —— 這一格不可以讓一封【已經寄出去的信】變成失敗。
+ *
+ * 🛑🛑 **已知缺口, 不折而寫下來(opus R2 · C2)——【一個沒有上界的 await】**:
+ *    上面那個上限管的是**位元組數**, 它**管不到時間**。伺服器送完 header 之後**停住不送 body**
+ *    ⇒ `read()` 永遠不 resolve ⇒ `send()` 不回 ⇒ 平台 60s kill
+ *    ⇒ 那一列留在 `sending`、燒掉一次 attempt, **而信【已經寄出去了】**。
+ *    🔴 **這是本片【新增】的阻塞點** —— 改動前成功路徑完全不碰 body(429 那條路早就有同型的)。
+ *    ⚠️ **而換成 reader 沒有改善它, 也沒有惡化它** —— `text()` 一樣會停在那裡。
+ *    ✅ 真正的修法是**給 fetch 一個 signal/timeout**(`composition.ts:82` 目前用預設 `globalThis.fetch`,
+ *      無 signal、無 timeout)⇒ 那會動到**每一條**送信路徑, **不屬本片射程** ⇒ 已回報主視窗排板。
+ */
+type BodyReader = {
+  read: () => Promise<{ done?: boolean; value?: Uint8Array }>;
+  cancel: () => Promise<unknown>;
+};
+
+// 🔴 參數收成 `unknown` 而不是一個結構型別 —— **wire 不可信**(同本檔對 `name` 的處理):
+//    型別上長得對不代表 runtime 真的有那些方法, 所以每一步都在下面**當場**驗過才用。
+async function readSentId(res: unknown): Promise<string | null> {
+  try {
+    // ══════════════════════════════════════════════════════════════
+    // ③ 大小上限 —— 🔴 **自己邊讀邊數, 不採信任何宣告**(opus R2 · MF1 + C1)
+    // ══════════════════════════════════════════════════════════════
+    // ⛔ ~~`const declared = res.headers.get('content-length'); … if (!Number.isSafeInteger(n)) return null;`~~
+    //    那個設計有兩個病:①它的殘餘風險描述指錯了世界 ②它綁在一個【合法地可以不存在】的標頭上。
+    // ✅ 現在的形狀:拿 reader 逐塊讀, **累計超過上限就當場放棄**。
+    //    📌 缺標頭 / 標頭說謊 / chunked 三個世界走**同一條路** ⇒ 沒有一條路是靠對方誠實才安全的。
+    // 🔵 順帶收掉 opus R2 的 N1/N2:`Number('')===0`(存在而空 ⇒ 判成「宣告 0 bytes」⇒ 照樣緩衝)
+    //    與 `Number()` 吃 `0x10`/`1e3`/前後空白 —— 那些輸入現在**沒有地方可以進來**。
+    const stream = (res as { body?: { getReader?: unknown } | null } | null | undefined)?.body;
+    const getReader = stream?.getReader;
+    // 🛑 **拿不到 reader 就放棄, 不退回 `text()`** —— 退回去等於把剛拆掉的無上界緩衝裝回來,
+    //    而它會**只在某些 runtime 上**裝回來 ⇒ 那種不一致比缺功能難查得多。
+    if (typeof getReader !== 'function') return null;
+    const reader = (getReader as () => BodyReader).call(stream);
+
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done === true) break;
+        if (!value) continue;
+        total += value.byteLength;
+        // 🔴 **上界 = 上限 + 最後一塊** —— 踩線的那一塊要先讀進來才數得到, 這一句在檔頭寫明了。
+        if (total > SENT_BODY_MAX_BYTES) return null;
+        chunks.push(value);
+      }
+    } finally {
+      // 🔵 提早放棄時要把連線收掉;它自己失敗不可以把一封【已經寄出去的信】變成失敗。
+      await Promise.resolve(reader.cancel()).catch(() => undefined);
+    }
+
+    const buf = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      buf.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    // 🔵 `TextDecoder` 而不是 `Buffer` —— 位元組已經自己數過了, 這裡只負責轉字串,
+    //    而 `Buffer` 在 Edge runtime 上不存在(舊版靠 try/catch 收, 現在根本不依賴它)。
+    const raw = new TextDecoder().decode(buf);
+
+    const body: unknown = JSON.parse(raw);
+    if (typeof body !== 'object' || body === null) return null;
+
+    // ══════════════════════════════════════════════════════════════
+    // ①+② 取 `id`:自有屬性 · string · 而且【長得像一個 id】
+    // ══════════════════════════════════════════════════════════════
+    // 🔴 `Object.hasOwn` —— `Object.prototype.id = '…'` 之下, `body.id` 會拿到繼承值
+    //    ⇒ 那個值會被當成 provider 的 id 落庫(codex R1-#4)。
+    //    📌 **同一族的坑本檔對 `name` 已經用 `Map.get` 擋過一次** —— 而我沒有照著做。
+    if (!Object.hasOwn(body as object, 'id')) return null;
+    const id: unknown = (body as { id?: unknown }).id;
+    if (typeof id !== 'string') return null;
+    // 🔴 **格式白名單** —— 沒有它, **任意非空字串**(信箱、整封信、控制字元)都會進 DB(codex R1-#5)。
+    //    🔵 值域取得寬:官方回的是 uuid, 而這裡允許 `[A-Za-z0-9-]{1,64}`
+    //      —— 📌 **它要擋的是「那不是一個 id」, 不是「那不是我預期的那一種 id」。**
+    // ⚠️ **射程說明(opus R2 · N3, 實測)**:`sk-live-…`、`SeanChen` 這種 64 字內的 token
+    //    **過得了這道白名單** ⇒ 它擋得掉信箱與整封信, 擋不掉「一個看起來像 id 的敏感字串」。
+    //    🔵 今天的值來自 provider ⇒ 無實際威脅;**寫下來是為了下一個人不必再量一次**。
+    return PROVIDER_MESSAGE_ID_RE.test(id) ? id : null;
+  } catch {
+    // ④ 非 JSON / body 已消耗 / reader throw ⇒ null。**信照樣算寄出去了。**
+    return null;
+  }
+}
+
+/**
+ * 🔴 §窄幅破例的**入口甲**的實作點(⛔ ~~唯一實作點~~ —— 入口乙是 `readSentId`, 見檔頭)。
+ * 只在 `status === 429` 被呼叫;任何失敗 → `http_429`
  * (= E1c 前的既有行為,零回歸)。
  *
  * 🔴 **獨立內層 try/catch,不可併入 `send` 的外層 try**(codex 關卡1 must-fix):否則 `json()`

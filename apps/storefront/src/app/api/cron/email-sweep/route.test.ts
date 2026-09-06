@@ -143,6 +143,11 @@ beforeEach(() => {
   getTrackFixDepsSpy.mockReset().mockReturnValue({ outbox: {}, scanner: {} });
   // 🔴 第五條線(取消信):env 預設**沒設** —— 它是那條線的開關, 漏清會讓別的測項意外走進 enqueue。
   delete process.env.CANCELLED_EMAIL_CUTOFF;
+  // 🔴🔴 **2026-09-06 ⟦b4-BANKNOEMAIL⟧:第四顆也要在這裡清掉。**
+  //    ⛔ 我第一版忘了 ⇒ 前一個測項設的 `ARMED` **漏到下一個測項**
+  //    ⇒ 那一段 enqueue 真的跑起來、deps 沒 mock ⇒ throw ⇒ `bankOrder: 'failed'` ⇒ **503**
+  //    ⇒ 📌 而失敗訊息長得像「別條線壞了」—— 一個**跨測項的環境洩漏**穿著別人的衣服出現。
+  delete process.env.BANK_ORDER_CREATED_EMAIL_CUTOFF;
   cancelledSpy.mockReset().mockResolvedValue({
     scanned: 0, scannedPages: 1, truncated: false, enqueued: 0,
     skippedNoRealEmail: 0, duplicate: 0, noRecipient: 0, errors: 0,
@@ -448,6 +453,13 @@ describe('GET email-sweep — options/deps 注入(不採信外部輸入)', () =>
       leaseSeconds: 3600,
       // 🔴 env 沒設(本檔 beforeEach 清掉)⇒ 出貨線沒上膛 ⇒ false。
       allowOrderShipped: false,
+      // 🔴🔴 **2026-09-06 ⟦b4-BANKNOEMAIL⟧:這一格【又抓到我一次】, 而它抓得對。**
+      //    我加了第六條線, 而它需要自己的「有沒有上膛」旗標 —— 那不是樣板:
+      //    🛑 少了它 ⇒ `claimDue` 不排除 `bank_order_created`
+      //      ⇒ **拔掉 `BANK_ORDER_CREATED_EMAIL_CUTOFF` 也停不了線**(已入列的照樣被認領寄出)。
+      //    ⇒ 📌 而那正是本格上面那句「保持全等寫法」在守的東西:**新欄不得安靜溜進來。**
+      //    ⚠️ 值是 false —— 同一個理由(env 沒設 ⇒ 沒上膛)。
+      allowBankOrderCreated: false,
       // 🔴🔴 **這一格是本測試【設計上要抓的東西, 抓到了我】**(2026-09-03)。
       //    我在 `route.ts` 加了 `siteUrl` 而**沒有跑本檔** ⇒ 它當場紅, 而我對主視窗報的是「全綠」。
       //    ⇒ 📌 **我餵給 vitest 的是 2 條 use-cases 路徑, 而爆炸半徑是 5 支檔跨 2 個 package。**
@@ -1037,6 +1049,10 @@ describe('GET email-sweep — 🔴 cutoff 同時控【排信】與【寄信】(�
       // 🔴 **第三顆(取消信)也要上膛** —— 少了它這一格會紅, 而紅的理由是【對的】:
       //    那行 log 的條件是「有【任何一顆】沒上膛」⇒ 新增一條線就多一顆要顧。
       process.env.CANCELLED_EMAIL_CUTOFF = ARMED;
+      // 🔴 **第四顆(匯款成立信, 2026-09-06)** —— 同一個理由, 而**它又紅了我一次**。
+      //    📌 這一格的價值就在這裡:**每加一條線, 它都會提醒你「這條線也有一顆要顧」**,
+      //      而那正是「一條線沒上膛而沒有人知道」那個病的反面。
+      process.env.BANK_ORDER_CREATED_EMAIL_CUTOFF = ARMED;
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
       await GET(makeReq(bearer()));
@@ -1113,11 +1129,15 @@ describe('GET email-sweep — 🔴 cutoff 同時控【排信】與【寄信】(�
     //   我們自己寫死的那幾句其中之一。⇒ **任何多印的東西, 不論它是什麼, 都會讓這一格紅。**
     //   🔴 而它殺得掉一個**我沒想到、也沒人想得到**的洩漏 —— 那正是前面那些格做不到的事。
     it('🛑🛑🛑 白名單:那一行 log 的形狀被釘死 ⇒ 多印【任何】東西都會紅(不靠列舉洩漏物)', async () => {
-      const ALLOWED_KEYS = ['b5DeployCutoff', 'shippedCutoff', 'cancelledCutoff'];
+      const ALLOWED_KEYS = ['b5DeployCutoff', 'shippedCutoff', 'cancelledCutoff',
+        // 🔴 2026-09-06:第四條線也要進這張白名單(多印任何東西都會紅)
+        'bankOrder'];
       const ALLOWED_VALUES = [
         'B4_DEPLOY_CUTOFF 未設或空',
         'SHIPPED_EMAIL_CUTOFF 未設或空',
         'CANCELLED_EMAIL_CUTOFF 未設或空',
+        // 🔴 2026-09-06:第四條線的那句也要在白名單裡, 否則它一印出來這格就紅。
+        'BANK_ORDER_CREATED_EMAIL_CUTOFF 未設或空',
         // 🔴 **F8**:~~`'skipped_no_cutoff'`~~ **已移除** —— 它在 payload 裡【不可達】
         //   (三元運算已經把那個狀態換成 env 名那句)⇒ 收著它只會讓這道閘寬一格。
         //   📌 **一個白名單多收一個到不了的值, 不會紅, 而它讓閘變寬。**

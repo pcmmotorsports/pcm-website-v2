@@ -53,7 +53,11 @@ GATE_SRC="$(cd "$(dirname "$0")" && pwd)/deploy-order-gate.sh"
 test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;數法=腳本尾端印的 PASS=)
-EXPECT_TOTAL=103
+# 🔴 **合線時這個數字【兩邊各加各的, 一定撞】** —— 解法不是挑一個看起來對的:
+#    base `dafe35279` = **75** · `origin/dev` = **80**(+5) · 本線 = **103**(+28)⇒ 合起來 **108**。
+#    🛑 **而算術只是預期值** —— 下面那個數字是【跑完之後照實際 PASS 填的】,
+#      並且逐一確認過兩邊的格都真的在(dev 側 55 / 56 / 57 / 57b 那四格 · 本線 欄⓪a…欄⑰b)。
+EXPECT_TOTAL=108
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -1673,6 +1677,70 @@ if [ "$_n_ref" = "2" ] && [ "$_n_dev" = "1" ] && [ "$_n_main" = "1" ]; then
   ok "54 MF3:多 ref 時 dev 那項掛 dev、main 那項掛 main(各 1 項, 不是「有帶就算」)"
 else
   bad "54 MF3:多 ref 標記歸屬錯 —— 總 $_n_ref 項 / dev $_n_dev / main $_n_main(期望 2/1/1)"
+fi
+
+# ── 🔴 `0 pending` 的兩個世界(⟦db-DOGBLINDBRANCH⟧;-f8 2026-09-06 裁甲修法 1)──────
+#    量的是【訊息】不是 rc —— 本次修法刻意零 rc 改動。
+BLIND='0 pending 的意思是'
+
+# 世界一:0 pending ⇒ **必印**那句
+RB1="$WORK/rb1"; setup_repo "$RB1"
+cat > "$RB1/apps/admin/src/unrelated.ts" <<'TS'
+export const unrelated = 2;
+TS
+( cd "$RB1" && git add apps/admin/src/unrelated.ts && git commit -qm "只有 app, 零 pending" )
+BB1="$(cd "$RB1" && git rev-parse HEAD~1)"; TB1="$(cd "$RB1" && git rev-parse HEAD)"
+RESB1="$(run_gate "$RB1" "refs/heads/dev $TB1 refs/heads/dev $BB1")"
+if printf '%s' "${RESB1#*|}" | grep -qF "$BLIND"; then
+  ok "55 0 pending ⇒ 印出「別條分支上的我看不到」(盲區與乾淨不再同一句)"
+else
+  bad "55 0 pending 沒有印那句 ⇒ 盲區與乾淨仍印同一行字"
+fi
+if [ "${RESB1%%|*}" = "0" ]; then ok "55b 而它零 rc 改動(仍然放行)"
+else bad "55b rc 變了($RESB1)—— 本修法只該多印一句"; fi
+
+# 世界二:有 pending ⇒ **不印**(否則那句是恆印的, 對「有沒有盲區」零判別力)
+RB2="$WORK/rb2"; setup_repo "$RB2"
+add_pending_migration "$RB2"
+cat > "$RB2/apps/admin/src/unrelated.ts" <<'TS'
+export const unrelated = 3;
+TS
+( cd "$RB2" && git add supabase/migrations/20260102000000_pending.sql apps/admin/src/unrelated.ts && git commit -qm "有 pending" )
+BB2="$(cd "$RB2" && git rev-parse HEAD~1)"; TB2="$(cd "$RB2" && git rev-parse HEAD)"
+RESB2="$(run_gate "$RB2" "refs/heads/dev $TB2 refs/heads/dev $BB2")"
+if printf '%s' "${RESB2#*|}" | grep -qF "$BLIND"; then
+  bad "56 有 pending 卻仍印那句 ⇒ 它是恆印的, 對「0 pending」零判別力"
+else
+  ok "56 有 pending ⇒ 不印那句(證明 55 的綠不是恆綠)"
+fi
+
+# 🔴 世界三:**真的盲區** —— migration 只活在別條分支上, 而 app 這邊照樣放行。
+#    ⛔ 我第一版把這一格寫成【無條件 `ok`】+ 一串沒有斷言的 checkout ——
+#      那是本 repo 記過最壞的形狀(判定標籤不由結果決定)。⇒ 真的造那個世界。
+#    🛑 這一格記的是**危險本身**, 它今天仍然成立:修法 1 只多印一句, **不改 rc**。
+RB3="$WORK/rb3"; setup_repo "$RB3"
+( cd "$RB3" && git checkout -qb line-db )
+add_pending_migration "$RB3"
+( cd "$RB3" && git add supabase/migrations/20260102000000_pending.sql && git commit -qm "db 分支上的 migration" )
+( cd "$RB3" && git checkout -q - )
+DEVB3="$(cd "$RB3" && git rev-parse HEAD)"
+cat > "$RB3/apps/admin/src/consumer.ts" <<'TS'
+export async function callIt(sb: any) {
+  return sb.rpc('pcm_a9h_probe', { p_order_id: 'x', p_note: 'y' });
+}
+TS
+( cd "$RB3" && git add apps/admin/src/consumer.ts && git commit -qm "front: 只有呼叫端" )
+TB3="$(cd "$RB3" && git rev-parse HEAD)"
+RESB3="$(run_gate "$RB3" "refs/heads/dev $TB3 refs/heads/dev $DEVB3")"
+if [ "${RESB3%%|*}" = "0" ]; then
+  ok "57 盲區世界:migration 只在別條分支 ⇒ **仍然放行**(記錄危險本身, 修法 1 不改 rc)"
+else
+  bad "57 盲區世界的 rc 變了(${RESB3%%|*})—— 若這是刻意的, 三世界表與本格都要一起改"
+fi
+if printf '%s' "${RESB3#*|}" | grep -qF "$BLIND"; then
+  ok "57b 而它**有印出那句警告** ⇒ 讀的人分得出自己在盲區而不是乾淨"
+else
+  bad "57b 盲區世界沒印警告 ⇒ 它與【真的乾淨】仍印同一行字"
 fi
 
 echo
