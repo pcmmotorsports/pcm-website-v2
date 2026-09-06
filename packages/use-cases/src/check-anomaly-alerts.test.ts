@@ -2402,6 +2402,91 @@ describe('⟦search-LOGSILENTZERO⟧ 搜尋日誌靜靜歸零', () => {
     expect(res.searchLogRowsHigh).toBe(false);
   });
 
+  /**
+   * 🔴 **R1 nit ⑥:上面兩格的標題說「不告警」, 而它們只斷言了 `rowsHigh === false`。**
+   *   📌 那是**第一個宣稱**;「不告警」是**第三個**(信沒寄出去)。
+   *   ⇒ 補這兩格把第三個釘住 —— 否則哪天 `shouldAlert` 多接了一個東西, 這兩格照樣綠。
+   */
+  it('🟢 < 門檻 ⇒ **信不寄**(釘第三個宣稱, 不只釘值)', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: readerWithHealth({
+          tableExists: true,
+          lastRowAt: new Date().toISOString(),
+          anonCanExecute: true,
+          rowsEstimate: 4999,
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.alerted, '沒有任何理由該叫, 而 alerted=true ⇒ 有東西多接了').toBe(false);
+    expect(n.notify, 'alerted=false 而 notify 被叫 ⇒ 中間有一條路繞過了判定').not.toHaveBeenCalled();
+  });
+
+  it('🟢 `rowsEstimate === null` ⇒ **信不寄**(同上, 釘第三個宣稱)', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: readerWithHealth({
+          tableExists: true,
+          lastRowAt: new Date().toISOString(),
+          anonCanExecute: true,
+          rowsEstimate: null,
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.alerted, 'null 世界自己不得觸發 —— 剛 restore 之後會每天一封').toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 🔴 **R1 must-fix ②的證人**:null 那個世界【信裡要有一句話交代】。
+   *   🛑 而它**不自己觸發** ⇒ 所以這一格要**另外給一個觸發理由**(拿 stale 當觸發),
+   *     再看那句話有沒有跟著出現。
+   *   📌 這一格守的是:**「沒印那個數字」與「量到了而一切正常」不可以在信上同形。**
+   */
+  it('🔴 null 世界 + 有別的理由寄信 ⇒ 信裡要說「今天讀不到」', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: readerWithHealth({
+          tableExists: true,
+          // stale:超過 24h 沒有新列 ⇒ 這封信本來就會寄
+          lastRowAt: new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString(),
+          anonCanExecute: true,
+          rowsEstimate: null,
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.alerted, '前提:這封信要真的寄, 否則下面那句沒有載體').toBe(true);
+    const text = String(n.notify.mock.calls[0]?.[0]?.text ?? '');
+    expect(text, '沒印那個數字, 而信裡也沒說讀不到 ⇒ 與「量過而正常」同形').toContain('今天讀不到');
+  });
+
+  it('🟢 有讀數時【不得】印「今天讀不到」(證明上一格不是恆印)', async () => {
+    const n = okNotifier();
+    await checkAnomalyAlerts(
+      {
+        reader: readerWithHealth({
+          tableExists: true,
+          lastRowAt: new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString(),
+          anonCanExecute: true,
+          rowsEstimate: 42,
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    const text = String(n.notify.mock.calls[0]?.[0]?.text ?? '');
+    expect(text).not.toContain('今天讀不到');
+  });
+
   it('🔴 `rowsEstimate === null`(表不在 / 從未 analyze)⇒ **不得告警**', async () => {
     // 🛑 DB 裡「從未 analyze」是 `reltuples = -1`, adapter 已把它折成 null。
     //    這一格守的是【折完之後】那一半:null 不可以被當成 0 去比大小, 也不可以觸發。
