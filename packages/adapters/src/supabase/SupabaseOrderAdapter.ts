@@ -533,6 +533,26 @@ function describeType(v: unknown): string {
  * ⇒ 兩欄(含 `voidReason` 這段營運內部文字)自此進入 admin 的 RSC client payload。
  * admin 是員工專用 app、**不構成對外洩漏**,但「本片不改任何行為」在這一面**不是零**,記在這裡。
  */
+/**
+ * `order_balance_base_v.balance_due` 的解析 —— **`bigint` 經 PostgREST 可能是字串。**
+ *
+ * 🔴 回 `null` = **算不出來**(不是 0)。0 的意思是「剛好付清」, 那是一個具體斷言。
+ * 🔴 **不夾負數** —— 負的 `balance_due` 正是「客人多付了」那個世界
+ *    (與會員那條路的 guard 形狀刻意不同, 理由寫在 `AdminOrderDetail.balanceDue` 的 docstring)。
+ * 📎 形狀與理由的正本:`apps/admin/src/lib/payment/manual-refund-read.ts:145-153`。
+ */
+function parseBalanceDue(raw: unknown): number | null {
+  if (typeof raw === 'number') return Number.isSafeInteger(raw) ? raw + 0 : null;
+  if (typeof raw === 'string') {
+    const t = raw.trim();
+    // 🔴 白名單:黑名單會一直在跟下一個沒想到的形狀賽跑。
+    if (!/^-?[0-9]+$/.test(t)) return null;
+    const n = Number(t);
+    return Number.isSafeInteger(n) ? n + 0 : null;
+  }
+  return null;
+}
+
 export const ADMIN_ORDER_DETAIL_SELECT =
   'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, tax_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, invoice_requested, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))';
 
@@ -1310,7 +1330,55 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     if (!data) {
       return null;
     }
-    return mapSupabaseAdminOrderDetailRowToDetail(data as unknown as SupabaseAdminOrderDetailRow);
+    // ⟦b4-PAIDTHENOVERPAID⟧ 應付餘額 —— **第二發查詢, 不是同一發的 embed。**
+    // 🔴 形狀【逐字照抄】會員那條路(`findOrderDetailForCustomer` 打 `member_order_balance_v` 那一發):
+    //    `order_balance_base_v` 是一支 view, 與 `orders` 之間沒有 PostgREST 認得的關聯 ⇒ embed 不進去。
+    // 🛑 **這一發失敗【不得】讓整頁掛掉, 也【不得】補 0** —— 契約與會員那條同款:
+    //    讀不到就傳 `null`, 由顯示端【不印那一行】。補 0 的意思是「剛好付清」, 那是一個具體斷言。
+    // 🔴 **那條錢的規則不在這裡** —— 它住在 `order_balance_base_v`(`20260906150000`), 而該 view 的
+    //    COMMENT 逐字「要改應付餘額的算法, 改這裡, 不要在別處再寫一份」。本處只搬, 不算。
+    // ⚠️ **生成的 `Database` 型別裡還沒有這支 view** ⇒ 走 `as unknown as`, 而**那是一筆要還的帳**;
+    //    在還掉之前, 守著這條路的是測試不是型別(同會員那一發的處置)。
+    let adminBalanceDue: number | null = null;
+    try {
+      const balance = (await (
+        this.supabase as unknown as {
+          from(t: string): {
+            select(c: string): {
+              eq(k: string, v: string): { maybeSingle(): Promise<{ data: unknown; error: unknown }> };
+            };
+          };
+        }
+      )
+        .from('order_balance_base_v')
+        .select('balance_due')
+        .eq('order_id', (data as { id: string }).id)
+        .maybeSingle()) as { data: { balance_due: unknown } | null; error: unknown };
+      const raw = balance.error || !balance.data ? null : balance.data.balance_due;
+      // 🔴🔴 **runtime guard** —— 上面那個 `as unknown as` 把「`balance_due` 到底是不是數字」藏起來了。
+      // 🛑 **而這裡【刻意不夾負數】**:會員那條路的 guard 有 `raw >= 0`, 因為 `toMoneyAmount` 對負數 throw;
+      //    本欄不是 `Money`(見 `AdminOrderDetail.balanceDue` 的 docstring)⇒ **負數要原樣留著,**
+      //    **它就是「客人多付了」那個世界。** 📌 兩條路的 guard 形狀不同, 而那是【刻意的】不是漏抄。
+      // 🔴🔴 **`bigint` 經 PostgREST 可能回【字串】**(code-reviewer 2026-09-06 must-fix ①):
+      //    `balance_due` = `o.total - COALESCE(SUM(p.amount), 0)`, 而 **`SUM(integer)` 在 PG 是 `bigint`**
+      //    ⇒ ~~只認 `typeof raw === 'number'`~~ **會讓這一欄【永遠是 null】** ——
+      //    而那個壞法**沒有任何一格會叫**:畫面只是安靜地不印那一行。
+      //    📌 **一個「永遠不印」與「這張單沒有多付」在畫面上是同一個東西。**
+      // ✅ 形狀**照抄本 repo 已經有的那五處**(不發明):
+      //    `apps/admin/src/lib/payment/manual-refund-read.ts:145-153` 是理由寫得最全的一份。
+      //    · 字串**只認純十進位整數字面**(白名單正規式;`1e5` / `1.0` / `0x10` / `Infinity` 全落在外面)
+      //    · 數字只認 `Number.isSafeInteger` —— **超出安全整數回 `null`**(= 算不出來),
+      //      不是回一個看起來很精確的近似值。
+      //    · `+ 0` 把 `-0` 正規化成 `0`:`Number('-0')` 得 `-0` 而 **`-0 < 0` 是 `false`**
+      //      ⇒ 出口只給一種零, 免得下一個寫判準的人踩到。
+      adminBalanceDue = parseBalanceDue(raw);
+    } catch {
+      adminBalanceDue = null;
+    }
+    return mapSupabaseAdminOrderDetailRowToDetail(
+      data as unknown as SupabaseAdminOrderDetailRow,
+      adminBalanceDue,
+    );
   }
 
   /**

@@ -11,6 +11,7 @@
 
 import type { AdminOrderDetail } from '@pcm/domain';
 import { OrderHiddenNotice } from './order-hidden-notice';
+import { OrderOverpaidNotice } from './order-overpaid-notice';
 import { DangerZoneDetails } from './danger-zone-details';
 import type { CancelShipmentWarning } from '../../lib/orders/cancel-shipment-warning';
 import type { CancelPendingRefundNotice } from '../../lib/orders/cancel-pending-refund-notice';
@@ -144,6 +145,10 @@ export function OrderDetailMoneyTab({
                   理由是 `:421-423` 那條 standing ruling(「下一次非一行改動先抽再改」),而本片就是那個下一次。
                   🔴 **判斷不留在這裡**:它必須逐項對得上 `SupabaseOrderAdapter.ts` 那句述詞的隱藏面,
                      而那個對應關係寫在新檔的檔頭。改述詞的人要去那裡。 */}
+              {/* ⟦b4-PAIDTHENOVERPAID⟧ Sean 2026-09-05 拍乙:多匯【不翻狀態】, 只在單上標字。
+                  🔴 判斷與字面都在那支檔裡(含「多付, 待人工」是他的原字面那一格)——
+                     這裡只把值傳過去, 不在這裡加條件。 */}
+              <OrderOverpaidNotice balanceDue={detail.balanceDue} />
               <OrderHiddenNotice
                 paymentChannel={detail.paymentChannel}
                 paymentStatus={detail.paymentStatus}

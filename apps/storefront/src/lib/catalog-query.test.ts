@@ -249,3 +249,54 @@ describe('parseCatalogQuery — ?search= 關鍵字', () => {
     expect(parseCatalogQuery(params(`search=${exact}`)).search).toBe(exact);
   });
 });
+
+// ⟦search-CATSWITCHSLOW⟧ Q2 —— **`unstable_cache` 的鍵穩不穩**(主視窗 2026-09-06 派)
+//
+// 🔬 **為什麼要問這題**:preview 實測 `?category=` 打五發**一發都沒熱起來**
+//   (5904 / 2906 / 2962 / 4001 / 4683 ms),而 `?page=2` 第二發起就是 ~110 ms。
+//   若 `JSON.stringify(effectiveQuery)` 對同一支 URL **每次不一樣**,那就永遠是 cache miss
+//   ⇒ 📌 **RPC 快不快都救不了,而修法完全不一樣** ⇒ 所以先問這一題。
+//
+// 🔵 鍵怎麼拼(座標,不是記憶):
+//   `lib/products.ts:565`   `getCatalogPageCached(JSON.stringify(query), …)`
+//   `app/products/page.tsx:263-276` `effectiveQuery`(有解析到分類時才換掉 category/categories)
+//   `lib/catalog-query.ts:224-226` `brandSlugs` **明文 `.sort()`** —— 註解逐字說就是為了當鍵時穩定
+//   `lib/catalog-query.ts:184-196` `categoriesFromParams` 用 `Set`(插入序,對同一輸入決定)
+//
+// 🛑 **這幾格是【回歸鎖】不是【診斷】** —— 它們今天是綠的,而它們要擋的是
+//   「有人日後在鍵裡放進一個會抖的東西(`Date.now()`、`Set` 換成物件、欄位順序改成動態)」。
+describe('parseCatalogQuery ⟦search-CATSWITCHSLOW⟧ Q2:當快取鍵時要逐字穩定', () => {
+  const keyOf = (qs: string) => JSON.stringify(parseCatalogQuery(params(qs)));
+
+  it('🔴 同一支 URL 解兩次 ⇒ 鍵【逐字】相同', () => {
+    const qs = 'category=' + encodeURIComponent('排氣系統') + '&page=2&sort=price-asc';
+    expect(keyOf(qs)).toBe(keyOf(qs));
+  });
+
+  it('🔴 品牌在 URL 上順序顛倒 ⇒ 鍵仍相同(brandSlugs 有 .sort())', () => {
+    expect(keyOf('pbrands=rizoma,akrapovic')).toBe(keyOf('pbrands=akrapovic,rizoma'));
+  });
+
+  it('🔴 多顆分類:URL 上順序一樣 ⇒ 鍵一樣;而順序不同時【本來就會是不同的鍵】', () => {
+    const a = 'categories=' + encodeURIComponent('排氣系統,拉桿與把手');
+    const b = 'categories=' + encodeURIComponent('拉桿與把手,排氣系統');
+    expect(keyOf(a)).toBe(keyOf(a));
+    // ⚠️ **這一格不是在慶祝** —— 它把「今天的行為」釘住:分類【沒有】像品牌那樣 `.sort()`,
+    //   所以兩個順序 = 兩個快取條目 = 同一份結果算兩次。
+    //   🔵 那是**浪費一格快取**,不是**永遠 miss**(同一支 URL 仍然穩定)⇒ 不是 CATSWITCHSLOW 的成因。
+    //   📌 有人日後想補 `.sort()` 讓兩邊共用一格 ⇒ 這一格會紅,而那是**提醒去改註解**,不是擋他。
+    expect(keyOf(a)).not.toBe(keyOf(b));
+  });
+
+  it('🔵 負對照:換一個分類 ⇒ 鍵一定要不同(否則兩個分類會互相吃到對方的快取)', () => {
+    expect(keyOf('category=' + encodeURIComponent('排氣系統')))
+      .not.toBe(keyOf('category=' + encodeURIComponent('拉桿與把手')));
+  });
+
+  it('🛑 鍵裡不得出現任何會隨時間變的東西(年份數字 / 毫秒時戳)', () => {
+    const key = keyOf('category=' + encodeURIComponent('排氣系統'));
+    // 🔵 判準寫成「像不像時戳」而不是列舉欄位 —— 列舉會在有人加新欄位時失效。
+    expect(key).not.toMatch(/\b1[6-9]\d{11}\b/); // 13 位毫秒時戳
+    expect(key).not.toMatch(/\b20[2-9]\d-[01]\d-[0-3]\d\b/); // ISO 日期
+  });
+});
