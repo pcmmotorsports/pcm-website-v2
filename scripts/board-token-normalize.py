@@ -262,24 +262,24 @@ def check_staged():
         print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 新開的 open/doing 列有 {len(notok)} 列【完全沒有擋上線 token】')
         for k in notok:
             print(f'   ⬜ 新列 {safe(k):32} ← **這列擋不擋上線?**(⟨擋⟩／⟨不擋⟩／⟨未判(為什麼)⟩)')
-        print('   🟡 沒有 token 的列會被計數器算進「未填」——')
-        print('      🛑 而「還在擋幾件」那個數字就【少算了它】, 且沒有任何東西會出聲。')
+        print('   🟡 沒 token ⇒ 被算進「未填」⇒ **「還在擋幾件」少算了它, 而沒有東西會出聲。**')
     if newrows:
         print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 新開的 open/doing 列有 {len(newrows)} 列沒寫「怎樣算做完」')
         for k in newrows:
             print(f'   ❓ 新列 {safe(k):32} ← **這列做到哪算完?**')
-        print('   🟡 一列沒有關閉條件, 兩個方向都會讓它卡在 open:')
-        print('      · **接手的人答不出「我要做到哪」⇒ 他不接**')
-        print('      · **做完的人答不出「可以收了嗎」⇒ 他不收**')
-        print(f'   ⇒ 在末格補一句即可, 例:「**轉 `done`** = <可 yes/no 的條件>」。認得的字面:{"／".join(CLOSE_WORDS)}')
-    print(f'── board-token 閘(warn-only, 讀的是 **staged** 那份):{BOARD}')
-    print(f'   最後一格開頭沒有 token 而行內找得到 {len(mis)} 列 · 態 done 而 token 仍 ⟨擋⟩ {len(dblock)} 列 · 重複識別字 {len(dups)} 個')
-    for n, k, why in mis:
-        print(f'   位移候選 :{n:5} {safe(k)}  {safe(why)}')
-    for n, k, why in dblock:
-        print(f'   done+擋  :{n:5} {safe(k)}  {safe(why)}')
-    for k, ns in dups:
-        print(f'   重複列   {safe(k):28} 出現在 :{ns}  ← 同一件事被數兩次')
+        print('   🟡 沒關閉條件 ⇒ **接手的答不出「做到哪」、做完的答不出「能不能收」⇒ 兩邊都讓它卡著。**')
+        print(f'   ⇒ 末格補一句即可, 例「**轉 `done`** = <可 yes/no 的條件>」。認得:{"／".join(CLOSE_WORDS)}')
+    # 🔴 2026-09-07 12:5x 實測:一顆「開兩列」的 commit 讓五道閘印了 **16 行**,
+    #    而其中一半是【與這顆 commit 無關的全板舊債】(別人的列)。
+    #    🛑 那正是本檔自己寫過的失效模式:「每個人每次 commit 都看到一坨與他無關的舊債,
+    #       然後開始忽略這道閘。」⇒ **它會先殺掉前面那兩道【針對你這顆 commit】的提醒。**
+    #    ⇒ 📌 **全板性的三類在這裡只印【一行摘要】, 逐列清單留給 `--check`(人主動跑的那個)。**
+    _tot = len(mis) + len(dblock) + len(dups)
+    if _tot:
+        print(f'── board-token 閘(staged):全板另有 {_tot} 件舊帳'
+              f'(位移 {len(mis)} · done而標擋 {len(dblock)} · 重複識別字 {len(dups)})')
+        print('   ⚠️ **那些【不是這顆 commit 造成的】** ⇒ 逐列清單跑 '
+              '`python3 scripts/board-token-normalize.py --check`')
     if mis or dblock or dups or notok:
         print('   🟡 **只是提醒, 不擋這顆 commit**(rc 恆 0)。修法:`python3 scripts/board-token-normalize.py --fix`')
         print('      🔴 而 `--fix` 動的是【工作樹】⇒ 修完要重新 `git add` 才會進這顆 commit。')
@@ -419,7 +419,11 @@ def selftest():
             rc_b = check_staged()
         out = buf2.getvalue()
         ck('板 staged 有違規 ⇒ rc 仍 0(warn-only)', rc_b, 0)
-        ck('板 staged 有違規 ⇒ 有印出違規列', '位移候選' in out, True)
+        # ⛔ ~~原本斷言印出「位移候選」逐列~~ ⇒ 2026-09-07 12:5x 改成【一行摘要】
+        #    (實測那顆 commit 印 16 行, 一半是與它無關的全板舊債 ⇒ 會殺掉針對性的提醒)
+        #    ✅ 而這一格【不能因此拿掉】—— 它守的是「板 staged 時這道閘真的有輸出」。
+        ck('板 staged 有違規 ⇒ 有印出全板摘要', '全板另有' in out, True)
+        ck('板 staged ⇒ 不再逐列印全板舊債', '位移候選 :' in out, False)
         ck('板 staged 有違規 ⇒ 明說不擋', '不擋這顆 commit' in out, True)
         # ═══ 新列缺關閉條件的兩個世界(2026-09-07;主視窗指定)═══
         #   🔴 這兩格要真的分得出「**這次新增的**」與「**本來就在的**」——
