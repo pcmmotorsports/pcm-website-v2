@@ -1,4 +1,23 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
+// 🟢🟢 **2026-09-07 線【資料】`-db`:補進三塊【生成器產得出來】的東西 —— 而它們【不是】手動校正。**
+//    補的是:`get_effective_prices`(貼板 68)· `order_refunds` 七個新欄 × Row/Insert/Update
+//    (`backfill_attested_at` / `_by` / `backfill_occurred_at` / `backfilled_source` /
+//     `void_reason` / `voided_at` / `voided_by`,貼板 69+70)· `order_refunds_readable`(69)
+//    · `admin_void_backfilled_refund`(70)。
+//    🔬 **每一塊都是從 `supabase gen types typescript --project-id …` 的產物【逐字切下來】的**,
+//      不是手打 —— 所以型別與正式庫一致。
+// 🔴🔴 **而它們【不進下面那個計數】, 這是刻意的**:
+//    下面那份清單的用途是「**重 gen 之後要重貼什麼**」。
+//    這三塊**重 gen 會自己產出來** ⇒ 把它們寫進去,等於叫下一個人去重貼一個已經在那裡的東西。
+//    ⇒ 📌 **「我手動加的」與「重 gen 會消失的」是兩件事, 而這份清單管的是後者。**
+// 🛑 **同一發量到的事實(2026-09-07,現行檔 vs 全檔重生成的產物)**:
+//    · 非註解結構 diff = **新增 2952 行 / 消失 149 行** ⇒ 本檔仍然大幅落後正式庫(`⟦0b-TYPESFULLREGEN⟧`)。
+//    · 🔴 **而生成器【今天仍然不產】那些 `| null`** —— 實測 `p_client_ip`:
+//      本檔 `string | null`,生成器產出 `string`(`p_note` / `p_from` / `p_zero_price_reason` 同)。
+//      ⇒ **下面十九條一條都不能退場。** 直接覆蓋 = 全部丟掉,而 typecheck 不一定會紅
+//        (少一個 `| null` 只在**真的傳 null 的那個呼叫端**才炸)。
+//    ⇒ 主視窗 2026-09-07 裁「甲」:**只補這三塊**,全檔重生成留在 `⟦0b-TYPESFULLREGEN⟧` 排白天。
+//
 // 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十九個函式、共四十二處**手動校正,
 //    ⛔ ~~十八個函式、共四十一處~~ ⇒ 2026-09-06 線【資料】`-db` 補 ㉓ 後 +1(**整段算 1 處**)。
 //    🔴 **處數怎麼數:那道守門對 `**整段**` 【一律算 1 處】** ——
@@ -2102,6 +2121,10 @@ export type Database = {
       order_refunds: {
         Row: {
           actor: string
+          backfill_attested_at: string | null
+          backfill_attested_by: string | null
+          backfill_occurred_at: string | null
+          backfilled_source: string | null
           bank_refund_id: string
           confirmed_at: string | null
           created_at: string
@@ -2118,9 +2141,16 @@ export type Database = {
           request_id: string
           status: string
           tappay_refund_id: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
         }
         Insert: {
           actor: string
+          backfill_attested_at?: string | null
+          backfill_attested_by?: string | null
+          backfill_occurred_at?: string | null
+          backfilled_source?: string | null
           bank_refund_id: string
           confirmed_at?: string | null
           created_at?: string
@@ -2137,9 +2167,16 @@ export type Database = {
           request_id: string
           status: string
           tappay_refund_id?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
         }
         Update: {
           actor?: string
+          backfill_attested_at?: string | null
+          backfill_attested_by?: string | null
+          backfill_occurred_at?: string | null
+          backfilled_source?: string | null
           bank_refund_id?: string
           confirmed_at?: string | null
           created_at?: string
@@ -2156,6 +2193,9 @@ export type Database = {
           request_id?: string
           status?: string
           tappay_refund_id?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
         }
         Relationships: [
           {
@@ -3455,6 +3495,186 @@ export type Database = {
       }
     }
     Views: {
+      order_refunds_readable: {
+        Row: {
+          actor: string | null
+          backfill_attested_at: string | null
+          backfill_attested_by: string | null
+          backfill_occurred_at: string | null
+          backfilled_source: string | null
+          bank_refund_id: string | null
+          confirmed_at: string | null
+          created_at: string | null
+          failed_detail: string | null
+          failed_reason: string | null
+          id: string | null
+          kind: string | null
+          order_id: string | null
+          provider_refund_id_evidence: string | null
+          reason: string | null
+          rec_trade_id: string | null
+          record_refunded_before: number | null
+          refund_amount: number | null
+          request_id: string | null
+          status: string | null
+          tappay_refund_id: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        Insert: {
+          actor?: string | null
+          backfill_attested_at?: string | null
+          backfill_attested_by?: string | null
+          backfill_occurred_at?: string | null
+          backfilled_source?: string | null
+          bank_refund_id?: never
+          confirmed_at?: string | null
+          created_at?: string | null
+          failed_detail?: string | null
+          failed_reason?: string | null
+          id?: string | null
+          kind?: string | null
+          order_id?: string | null
+          provider_refund_id_evidence?: string | null
+          reason?: string | null
+          rec_trade_id?: string | null
+          record_refunded_before?: never
+          refund_amount?: number | null
+          request_id?: string | null
+          status?: string | null
+          tappay_refund_id?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Update: {
+          actor?: string | null
+          backfill_attested_at?: string | null
+          backfill_attested_by?: string | null
+          backfill_occurred_at?: string | null
+          backfilled_source?: string | null
+          bank_refund_id?: never
+          confirmed_at?: string | null
+          created_at?: string | null
+          failed_detail?: string | null
+          failed_reason?: string | null
+          id?: string | null
+          kind?: string | null
+          order_id?: string | null
+          provider_refund_id_evidence?: string | null
+          reason?: string | null
+          rec_trade_id?: string | null
+          record_refunded_before?: never
+          refund_amount?: number | null
+          request_id?: string | null
+          status?: string | null
+          tappay_refund_id?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "admin_order_list_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "member_order_balance_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "order_balance_base_v"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_bank_order_still_mailable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_manual_no_email_excluded"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_order_created_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_shipped_email_unsendable"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_corrected_email_pending"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_tracking_correction_candidates"
+            referencedColumns: ["order_id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "pcm_unpaid_cancelled_email_pending"
+            referencedColumns: ["order_id"]
+          },
+        ]
+      }
       pcm_unpaid_cancelled_email_pending: {
         Row: {
           cancelled_at: string | null
@@ -4338,6 +4558,10 @@ export type Database = {
         }
         Returns: string
       }
+      admin_void_backfilled_refund: {
+        Args: { p_actor: string; p_reason: string; p_refund_id: string }
+        Returns: string
+      }
       admin_void_item_procurement: {
         Args: {
           p_actor: string
@@ -4443,6 +4667,16 @@ export type Database = {
         Returns: number
       }
       get_active_charge_attempt: { Args: { p_order_id: string }; Returns: Json }
+      get_effective_prices: {
+        Args: { p_product_ids?: string[]; p_variant_ids?: string[] }
+        Returns: {
+          amount: number
+          currency: string
+          id: string
+          kind: string
+          tier: string
+        }[]
+      }
       get_payment_anomaly_alert_summary: {
         Args: {
           p_pending_dc_stuck_seconds: number
