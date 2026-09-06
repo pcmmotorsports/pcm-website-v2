@@ -28,6 +28,12 @@ export const REFUND_STATUS_LABEL: Record<string, string> = {
   confirmed: '退款完成(客人入帳時間依照各家銀行而定)',
   deferred: '尚未請款、本筆已作廢(請款完成後可重新發起)',
   failed: '失敗(錢沒有動)',
+  // 🔴 ⟦b4-TAPPAYDIRECT⟧ A2:**只有【補登】的列進得了這一態**(狀態機那條邊要求
+  //    `OLD.backfilled_source IS NOT NULL`)⇒ 一般卡片退款永遠不會顯示這一句。
+  // 🛑 **文案要說出「錢動了沒」** —— 這一態的意思是「**我們記錯了**」, 不是「錢退回來了」:
+  //    那筆退款在 TapPay 那邊**可能真的發生過**, 只是我們這一列記錯了(記錯金額 / 記錯單 /
+  //    把 Rejected 看成成功)。⇒ 不寫「已退款」也不寫「未退款」, 寫**我們對這一列的認定**。
+  voided: '這筆補登記錄已作廢(不計入退款金額)',
 };
 
 /** failed_reason 機器碼 → 員工字面(值域=RPC G6 allowlist;未知碼原樣顯示、不猜)。 */

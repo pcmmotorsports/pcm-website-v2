@@ -128,9 +128,11 @@ is_modified() { # $1=path → 0=這次改到的既有檔
 # 🔴 第三行 = CHECKS 自己的 rc —— 9 表示【它沒量到】。
 #    不接這個 rc ⇒ 它印的那句錯誤訊息裡的 🔴 會被 grep -c 數成「1 格紅」,
 #    而「量不到」就這樣被讀成了一個讀數。
-redness() { # $1=要檢查的檔
+redness() { # $1=要檢查的檔  $2=兄弟分母目錄(可空 ⇒ 照舊用受測檔自己的目錄)
   local out rc
-  out=$(bash "$CHECKS" "$1" 2>&1); rc=$?
+  # 🔴 `PCM_SIBLING_DIR` 只在【這一次呼叫】生效 —— 用前綴賦值, 不 export、不留在環境裡。
+  #    (留在環境裡的話, 之後每一發 CHECKS 都會被這一次的分母污染, 而那不會有訊號。)
+  out=$(PCM_SIBLING_DIR="${2:-}" bash "$CHECKS" "$1" 2>&1); rc=$?
   printf '%s
 ' "$out" | grep -c '🔴'
   # 種類:抽 🔴 之後那句話, 正規化之後當作「同一種病」。
@@ -181,7 +183,28 @@ no_regression() { # $1=path
   tdir=$(mktemp -d) || return 9
   # 🔴 被 Ctrl-C 砍掉時 EXIT 那道 trap 不一定跑得到 ⇒ 明寫 INT/TERM。
   trap 'rm -rf "$tdir"' INT TERM
-  old="$tdir/old.sql"; new="$tdir/new.sql"
+  # 🔴🔴 **暫存檔名不能是 `old.sql` / `new.sql`** —— `migration-static-checks.sh` 的規則①
+  #    **用 basename 當版本號**去比「更早的 migration」(`[ "$mb" \< "$THIS_BASE" ]`),
+  #    規則④/⑥ 也吃檔名 ⇒ **檔名一換, 同一份內容量出來的紅數就不一樣**。
+  #    🔬 實測(2026-09-07, account 抓到 · B 在 58aa9f2a2 複現 · 本窗照抄複現):
+  #      同一份 `20260901030000` 的內容, `old.sql` ⇒ **2 紅**、`new.sql` ⇒ **6 紅**,
+  #      而用【原檔名】跑 ⇒ **2 紅**。⇒ 📌 **那 4 格是檔名造成的假紅, 不是內容差異。**
+  #      ⇒ 任何動既有 migration 的 commit 都可能被這道「不退步閘」誤擋。
+  #    ✅ 修法:兩份各放**自己的子目錄**, 而檔名用**原 basename** ⇒ 兩邊的規則①分母一致,
+  #      而它們仍在不同目錄 ⇒ 不會互相覆蓋。
+  #    ✅ **修法(2026-09-07 主視窗裁乙):把兄弟分母變成【明寫的參數】, 不再靠檔名或建鏡像。**
+  #      `migration-static-checks.sh` 現在收 `PCM_SIBLING_DIR`;沒給就照舊用受測檔目錄(零行為改變),
+  #      給了而目錄不存在 ⇒ 它 `exit 9` **不靜默照舊**。
+  #    ⛔ ~~第一版:兩份各建一棵鏡像目錄 + symlink 全部兄弟~~ —— **codex R1 打掉, 三個理由**:
+  #      ① symlink 失敗被吞掉 ⇒ 兩邊同時少檔 ⇒ **對稱 ⇒ 照樣放行** = 正在修的那個假綠又長回來
+  #      ② old 那棵的兄弟指向【工作樹】不是 HEAD ⇒ old 不是真的 HEAD 世界
+  #      ③ 366 支 migration ⇒ 每支受測檔多開約 1,827 個程序 ⇒ 可能把人逼去用 `--no-verify`
+  #    🎯 ⇒ 明寫參數同時解掉這三個:不建檔案系統的東西, 就沒有「建失敗」這個世界。
+  local base; base=$(basename "$f")
+  local od nd
+  od="$tdir/old"; nd="$tdir/new"
+  mkdir -p "$od" "$nd" || { rm -rf "$tdir"; trap - INT TERM; return 9; }
+  old="$od/$base"; new="$nd/$base"
   # 舊版 = HEAD 那一份;新版 = index 那一份(沒 staged 就用工作樹)
   if ! git show "HEAD:$f" > "$old" 2>/dev/null; then rm -rf "$tdir"; return 9; fi
   # 🔴🔴 ⛔ ~~`git show ":$f" || cp "$f" "$new"`~~ —— **那條 fallback 從來沒被走到過**:
@@ -202,8 +225,58 @@ no_regression() { # $1=path
   if ! tr -d '\000' < "$old" | cmp -s - "$old" || ! tr -d '\000' < "$new" | cmp -s - "$new"; then
     rm -rf "$tdir"; trap - INT TERM; return 9
   fi
-  on=$(redness "$old"); oc=$(printf '%s' "$on" | sed -n '1p'); ok_kinds=$(printf '%s' "$on" | sed -n '2p'); orc=$(printf '%s' "$on" | sed -n '3p')
-  nn=$(redness "$new"); nc=$(printf '%s' "$nn" | sed -n '1p'); nw_kinds=$(printf '%s' "$nn" | sed -n '2p'); nrc=$(printf '%s' "$nn" | sed -n '3p')
+  # 🔴🔴 **兩邊的兄弟分母【不是同一個】, 而且各自要與那一邊的【受測本體】同一個世界**
+  #   (codex R1 must-fix③ + R2 must-fix①)
+  #   · `old`  的本體 = `HEAD:$f`      ⇒ 兄弟也要 **HEAD**
+  #   · `new`  的本體 = index(有 staged)或工作樹(沒 staged)⇒ 兄弟要**同一個來源**
+  #   🔬 R2 抓到的假綠:本體取 index 而兄弟取工作樹 ⇒ 一支**未 staged / untracked 的更早 migration**
+  #     可以替它提供定義 ⇒ 規則① 不紅, **而那支檔根本不會進 commit**。
+  #   ⚡ 兩邊都用 `git archive <tree>` 一次取出(O(1) 個程序);工作樹那條才直接指目錄。
+  #   🔴 **`HEAD` 只解析一次**(R2:三次 `HEAD` 之間 repo 可能動)。
+  local sibdir_old sibdir_new head_sha new_tree
+  head_sha=$(git rev-parse HEAD 2>/dev/null) || { rm -rf "$tdir"; trap - INT TERM; return 9; }
+  [ -n "$head_sha" ] || { rm -rf "$tdir"; trap - INT TERM; return 9; }
+  sibdir_old="$tdir/sib_old"
+  mkdir -p "$sibdir_old" || { rm -rf "$tdir"; trap - INT TERM; return 9; }
+  # ── old:HEAD 的兄弟 ────────────────────────────────────────────────
+  # 🔴 每一步都接 rc —— R2 逐字:「兩個失敗同時變成 0 == 0 仍可放行」。
+  git archive "$head_sha" supabase/migrations 2>/dev/null | tar -x -C "$tdir" 2>/dev/null \
+    || { rm -rf "$tdir"; trap - INT TERM; return 9; }
+  [ -d "$tdir/supabase/migrations" ] || { rm -rf "$tdir"; trap - INT TERM; return 9; }
+  mv "$tdir/supabase/migrations"/*.sql "$sibdir_old"/ || { rm -rf "$tdir"; trap - INT TERM; return 9; }
+  rm -rf "$tdir/supabase"
+  rm -f "$sibdir_old/$base"          # 受測那一支不能當自己的「更早檔」
+  # ── new:與 new 本體同一個世界的兄弟 ────────────────────────────────
+  if git diff --cached --name-only -- "$f" 2>/dev/null | grep -q .; then
+    # 本體取自 index ⇒ 兄弟也取 index(候選快照)
+    new_tree=$(git write-tree 2>/dev/null) || { rm -rf "$tdir"; trap - INT TERM; return 9; }
+    sibdir_new="$tdir/sib_new"
+    mkdir -p "$sibdir_new" || { rm -rf "$tdir"; trap - INT TERM; return 9; }
+    git archive "$new_tree" supabase/migrations 2>/dev/null | tar -x -C "$tdir" 2>/dev/null \
+      || { rm -rf "$tdir"; trap - INT TERM; return 9; }
+    [ -d "$tdir/supabase/migrations" ] || { rm -rf "$tdir"; trap - INT TERM; return 9; }
+    mv "$tdir/supabase/migrations"/*.sql "$sibdir_new"/ || { rm -rf "$tdir"; trap - INT TERM; return 9; }
+    rm -rf "$tdir/supabase"
+    rm -f "$sibdir_new/$base"
+  else
+    # 本體取自工作樹 ⇒ 兄弟就是工作樹那個目錄
+    sibdir_new="supabase/migrations"
+  fi
+  # 🔴 **分母完整性:比對數目, 而每一步都要接得到失敗**
+  #   ⛔ ~~空就 return 9~~ 過嚴(HEAD 只有一支 migration 的 repo 分母天生是 0)
+  #   ⛔ ~~`|| true` 把 ls-tree 的失敗壓成 0~~ ⇒ 那會讓「失敗」與「真的 0」印同一個數。
+  local want_sib got_sib lst
+  lst=$(git ls-tree -r --name-only "$head_sha" supabase/migrations/ 2>/dev/null) \
+    || { rm -rf "$tdir"; trap - INT TERM; return 9; }
+  want_sib=$(printf '%s\n' "$lst" | grep -c '\.sql$')
+  want_sib=$(( want_sib > 0 ? want_sib - 1 : 0 ))
+  got_sib=$(find "$sibdir_old" -maxdepth 1 -name '*.sql' | wc -l | tr -d ' ') \
+    || { rm -rf "$tdir"; trap - INT TERM; return 9; }
+  if [ "$got_sib" != "$want_sib" ]; then
+    rm -rf "$tdir"; trap - INT TERM; return 9
+  fi
+  on=$(redness "$old" "$sibdir_old"); oc=$(printf '%s' "$on" | sed -n '1p'); ok_kinds=$(printf '%s' "$on" | sed -n '2p'); orc=$(printf '%s' "$on" | sed -n '3p')
+  nn=$(redness "$new" "$sibdir_new"); nc=$(printf '%s' "$nn" | sed -n '1p'); nw_kinds=$(printf '%s' "$nn" | sed -n '2p'); nrc=$(printf '%s' "$nn" | sed -n '3p')
   rm -rf "$tdir"; trap - INT TERM
   case "$oc$nc" in *[!0-9]*) return 9 ;; esac
   # 🔴 任一邊 rc=9 ⇒ 這一對讀數裡有一個是【沒量到】⇒ 不准拿去比。
@@ -224,6 +297,7 @@ no_regression() { # $1=path
 }
 
 if [ "${1:-}" = "--selftest" ]; then
+  CHECKS_FOR_SELFTEST="$CHECKS"
   # 🔴 自檢要在**拋棄式 repo** 裡跑:A 與 M 的差別只有真的 git index 才造得出來,
   #    而在本 repo 裡動 index = 動別人正在準備的那次 commit。
   # 🔴 codex R1 must-fix(2026-08-27):這裡原本回 2 —— 而下面「自檢 fixture 建置失敗」也回 2
@@ -466,6 +540,54 @@ if [ "${1:-}" = "--selftest" ]; then
   cell "【對照】已落地且這次【沒改到】⇒ rc=0(這一格才是「查無」)" "$?" "0"
   ( cd "$W" && rm -f supabase/APPLIED.tsv )
 
+  # ══ 🔴 暫存檔名/兄弟分母那個假紅(2026-09-07 `⟦db-REGRESSGATETMPNAME⟧`)══════════
+  #   病:兩版存成 `$tdir/old.sql` / `new.sql` 再餵 CHECKS ⇒ 規則① 用 `dirname` 當兄弟分母
+  #      ⇒ 暫存目錄沒有兄弟 ⇒ 每個 `CREATE OR REPLACE` 都被判【新物件】。
+  #   🔬 複現:同一份 `20260901030000` 內容 ⇒ `old.sql` 2 紅 / `new.sql` 6 紅;原檔名 ⇒ 2 紅。
+  #   ✅ 修法:CHECKS 收 `PCM_SIBLING_DIR`(明寫分母);old 用 `git archive HEAD` 取出的兄弟、
+  #      new 用工作樹;沒給就照舊(零行為改變), 給了而目錄不存在 ⇒ CHECKS `exit 9`。
+  #
+  # 🔴🔴 **下面三格是【第二版】—— 第一版被 codex R1 打掉, 逐字「兩格對本次差異皆零判別力」**:
+  #    世界甲(還原成未修改)**入口就略過、根本不進 `no_regression()`**, 修法前也綠;
+  #    世界乙的 `IF NOT EXISTS` **修法前後都會擋**。
+  #    📌 **我拿那兩格當「證了」報上去 —— 那是今晚第二次同型**(前一次:突變被 migration 自己修好)。
+  #    ✅ 第二版用【同一個旋鈕去模擬壞掉的世界】:把 `PCM_SIBLING_DIR` 指到一個**空目錄**
+  #      = 修法前那個「沒有兄弟」的分母 ⇒ 它必須紅。**同一支檔、同一份內容, 只有分母不同。**
+  ( cd "$W" && mkdir -p supabase/migrations )
+  ( cd "$W" && printf 'BEGIN;\nCREATE FUNCTION public.zzz_sib_fn() RETURNS int LANGUAGE sql AS $x$SELECT 1$x$;\nCOMMIT;\n' \
+      > supabase/migrations/20200303000000_earlier.sql )
+  ( cd "$W" && printf 'BEGIN;\nCREATE OR REPLACE FUNCTION public.zzz_sib_fn() RETURNS int LANGUAGE sql AS $x$SELECT 2$x$;\nCOMMIT;\n' \
+      > supabase/migrations/20200404000000_later.sql )
+  ( cd "$W" && git add -A >/dev/null 2>&1 && git -c user.email=p@x -c user.name=p commit -qm sibfix >/dev/null 2>&1 )
+  # ── 世界甲:分母【對】(受測檔自己的目錄, 兄弟在)⇒ OR REPLACE 不算新物件 ⇒ 規則① 不叫
+  ( cd "$W" && bash "$CHECKS_FOR_SELFTEST" supabase/migrations/20200404000000_later.sql >/dev/null 2>&1 )
+  cell "🧪 分母對(兄弟在)⇒ OR REPLACE 不被判新物件" "$?" "0"
+  # ── 世界乙:同一支檔, 只把分母換成【空目錄】= 修法前那個世界 ⇒ 必須紅
+  ( cd "$W" && mkdir -p "$W/emptysib" && PCM_SIBLING_DIR="$W/emptysib" bash "$CHECKS_FOR_SELFTEST" supabase/migrations/20200404000000_later.sql >/dev/null 2>&1 )
+  cell "🧪 分母空(= 修法前)⇒ 同一份內容被判新物件 ⇒ 紅" "$?" "1"
+  # ── 世界丙:分母目錄不存在 ⇒ exit 9(不得靜默照舊 —— 那會讓「我以為指定了」與「沒收到」同一個結果)
+  ( cd "$W" && PCM_SIBLING_DIR="$W/zzz-no-such" bash "$CHECKS_FOR_SELFTEST" supabase/migrations/20200404000000_later.sql >/dev/null 2>&1 )
+  cell "🧪 分母目錄不存在 ⇒ exit 9(不是靜默照舊)" "$?" "9"
+
+  # ── 🔴 端到端(codex R2 must-fix③):上面三格只直接呼叫主檢查器, **沒有走 `no_regression()`**
+  #    ⇒ 整段接線壞掉它們仍會全綠。這一對走完整條路, 而且分辨的是 R2 抓到的那個假綠:
+  #    **「工作樹有、候選快照沒有」的更早兄弟**。
+  # 世界一:更早那支【沒有 staged】(只在工作樹)⇒ 候選快照裡沒有它 ⇒ 規則① 該紅
+  ( cd "$W" && printf 'BEGIN;\nCREATE FUNCTION public.zzz_e2e_fn() RETURNS int LANGUAGE sql AS $x$SELECT 1$x$;\nCOMMIT;\n' \
+      > supabase/migrations/20200505000000_e2e_earlier.sql )
+  ( cd "$W" && printf 'BEGIN;\nCREATE OR REPLACE FUNCTION public.zzz_e2e_fn() RETURNS int LANGUAGE sql AS $x$SELECT 3$x$;\nCOMMIT;\n' \
+      > supabase/migrations/20200606000000_e2e_later.sql )
+  ( cd "$W" && git add supabase/migrations/20200606000000_e2e_later.sql >/dev/null 2>&1 )
+  ( cd "$W" && bash "$SELF" supabase/migrations/20200606000000_e2e_later.sql >/dev/null 2>&1 )
+  cell "🧪 端到端:更早那支只在工作樹(沒 staged)⇒ 候選快照沒有它 ⇒ 擋" "$?" "1"
+  # 世界二:把更早那支也 staged ⇒ 候選快照裡有它 ⇒ 放行(同一份受測內容, 只差它在不在快照)
+  ( cd "$W" && git add supabase/migrations/20200505000000_e2e_earlier.sql >/dev/null 2>&1 )
+  ( cd "$W" && bash "$SELF" supabase/migrations/20200606000000_e2e_later.sql >/dev/null 2>&1 )
+  cell "🧪 端到端:更早那支也 staged ⇒ 快照裡有它 ⇒ 放行" "$?" "0"
+  ( cd "$W" && git rm -q --cached supabase/migrations/20200505000000_e2e_earlier.sql >/dev/null 2>&1
+    git rm -q --cached supabase/migrations/20200606000000_e2e_later.sql >/dev/null 2>&1
+    rm -f supabase/migrations/20200505000000_e2e_earlier.sql supabase/migrations/20200606000000_e2e_later.sql )
+
   [ "$fail" = "0" ] && echo "✅ migration-new-file-static-checks --selftest $n/$n(A/M 都掃 + 未落地舊檔照擋 + 已落地改壞照擋而【既有的紅】仍豁免 + 不退步閘世界二/二b/二c + 未 staged + NUL 量不到 + 多檔 + 該綠必綠 + untracked 雙向含突變 + 零參數兩態 + 已落地沒改到才跳過)"
   exit "$fail"
 fi
@@ -531,7 +653,30 @@ for f in "$@"; do
   #    而 9 =「暫存目錄建不出來 ⇒ 我根本沒檢查」。塌成 1 之後畫面說的是「有違規」,
   #    ⇒ 擋是擋住了, **而它擋人的理由是編的** ⇒ 下一個人會去改一支沒問題的 SQL。
   #    📌 同一個病的第三層:守門答對了, 而【答案在往上傳的路上被換成別的意思】。
-  bash "$CHECKS" "$f"; _c=$?
+  # 🔴🔴 **新檔(A)這條路的兄弟分母也要是【候選快照】, 不是工作樹**
+  #   (2026-09-07 端到端 selftest 自己撞出來的 —— codex R2 只指到 `no_regression()` 那條路,
+  #    而**同一個假綠在新檔這條路上也成立**:一支**未 staged / untracked** 的更早 migration
+  #    可以替新檔提供定義 ⇒ 規則① 不紅, **而那支檔根本不會進 commit**。)
+  #   ⇒ 有 staged ⇒ 用 `git write-tree` 的候選快照;沒有 ⇒ 照舊(那時工作樹就是候選)。
+  _sibnew=""
+  if git diff --cached --name-only -- "$f" 2>/dev/null | grep -q .; then
+    _snaptree=$(git write-tree 2>/dev/null) || _snaptree=""
+    if [ -n "$_snaptree" ]; then
+      _sibtmp=$(mktemp -d) || _sibtmp=""
+      if [ -n "$_sibtmp" ] && git archive "$_snaptree" supabase/migrations 2>/dev/null | tar -x -C "$_sibtmp" 2>/dev/null \
+         && [ -d "$_sibtmp/supabase/migrations" ]; then
+        rm -f "$_sibtmp/supabase/migrations/$(basename "$f")"
+        _sibnew="$_sibtmp/supabase/migrations"
+      else
+        # 🔴 建不出候選快照 ⇒ 這一發沒量到, 不准當「乾淨」
+        [ -n "$_sibtmp" ] && rm -rf "$_sibtmp"
+        echo "🔴 $f:候選快照建不出來 ⇒ 這一發【沒有檢查過】, exit 9" >&2
+        exit 9
+      fi
+    fi
+  fi
+  PCM_SIBLING_DIR="$_sibnew" bash "$CHECKS" "$f"; _c=$?
+  [ -n "${_sibtmp:-}" ] && rm -rf "$_sibtmp"; _sibtmp=""
   case "$_c" in
     0) ;;
     9) echo "🔴 $f:量不到(暫存目錄建不出來)⇒ 這一發【沒有檢查過】,不是「有違規」,exit 9" >&2

@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
@@ -176,8 +178,13 @@ describe('findRefundForRecovery — 讀數計算', () => {
     await expect(findRefundForRecovery(REFUND_ID)).resolves.toMatchObject({
       otherInFlightCount: 1,
     });
-    // 終態 allowlist 字面釘死(S6 現況三終態;新增狀態必回訪 refund-recovery-read.ts)。
-    expect([...TERMINAL_REFUND_STATUSES]).toEqual(['confirmed', 'failed', 'deferred']);
+    // 終態 allowlist 字面釘死(新增狀態必回訪 refund-recovery-read.ts)。
+    // 🔴 **2026-09-07 ⟦b4-TAPPAYDIRECT⟧ 加第四態 `voided` —— 而這一格【咬到了】。**
+    //    ⛔ ~~`['confirmed', 'failed', 'deferred']`~~(S6 三終態)
+    //    🎯 那正是這一行存在的意義:它逼我回到這支檔來。**而它做到了。**
+    //    ⚠️ 我一度以為「加了 voided 之後沒有任何東西會叫」——**那是我還沒重跑測試就講的**,
+    //       而重跑第一發它就紅了。📌 **「沒有東西會叫」是一個要【跑過】才說得出口的句子。**
+    expect([...TERMINAL_REFUND_STATUSES]).toEqual(['confirmed', 'failed', 'deferred', 'voided']);
   });
 
   // 🔴 族普查 R3 命中:本檔所有斷言都跟著 RECOVERY_SIBLINGS_LIMIT 走(toEqual([LIMIT+1])、
@@ -224,5 +231,58 @@ describe('findRefundForRecovery — 讀數計算', () => {
 
     arm(rowData(), { data: null, error: { message: 'boom' } });
     await expect(findRefundForRecovery(REFUND_ID)).rejects.toBeTruthy();
+  });
+});
+
+// ── ⟦b4-TAPPAYDIRECT⟧ 2026-09-07:TERMINAL 集合要跟得上 DB 的值域 ──────────────────
+//  🔴🔴 **這一格存在的理由是一件真的發生過的事**:
+//    我在 A2 加了新狀態 `voided`,而 `TERMINAL_REFUND_STATUSES` 沒跟著加。
+//    三綠全綠、6826 格零紅 —— **沒有任何東西會叫**,而後果是作廢的兄弟列被當成「在途」
+//    ⇒ 另一筆退款差額正確時仍被判 `other_in_flight` ⇒ **恢復結案這條路走不完**。
+//  🎯 而本檔 `:25-28` 的註解**早就寫著**反面數是為了「**逼新增狀態的人回訪本檔**」——
+//    那個機制**真的生效了**,而**逼我回來的是 codex R2,不是任何一格測試**。
+//  ⇒ 📌 **一句寫在註解裡的「請回訪本檔」,守不住一個不讀那支檔的人。** 這一格把它換成會紅的東西。
+//
+//  🔵 **分母【從 migration 的 CHECK 當場長出來】, 不是我手打一份清單** ——
+//     手打的話,下一個人在 DB 加第六個狀態時,這一格會拿著我 2026-09-07 的舊清單說「全過」。
+describe('🔴🔴 TERMINAL_REFUND_STATUSES 要涵蓋 DB 值域裡的每一個終態', () => {
+  /** 從 migration 檔案裡把 `order_refunds_status_check` 現行允許的值撈出來。 */
+  function statusValuesFromMigrations(): string[] {
+    const dir = join(__dirname, '../../../../../supabase/migrations');
+    const files = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
+    let latest: string[] = [];
+    for (const f of files) {
+      const src = readFileSync(join(dir, f), 'utf8');
+      // 只認「加在 order_refunds 上、名為 order_refunds_status_check」的那道
+      const m = src.match(
+        /ADD\s+CONSTRAINT\s+order_refunds_status_check\s*\n?\s*CHECK\s*\(status\s+IN\s*\(([^)]*)\)/i,
+      );
+      const inline = src.match(/status\s+text\s+NOT NULL CHECK \(status IN \(([^)]*)\)/i);
+      const hit = m?.[1] ?? inline?.[1];
+      if (hit) latest = [...hit.matchAll(/'([a-z_]+)'/g)].map((x) => x[1]!);
+    }
+    return latest;
+  }
+
+  it('🔵 前提:那把尺撈得到東西(撈不到 ⇒ 下面兩格恆綠)', () => {
+    const vals = statusValuesFromMigrations();
+    expect(vals.length).toBeGreaterThanOrEqual(4);
+    expect(vals).toContain('processing');
+    expect(vals).toContain('confirmed');
+  });
+
+  it('🔴 DB 允許的每一個【非 processing】狀態, 都要在 TERMINAL 集合裡', () => {
+    // 判準:`processing` 是唯一的「在途」態;其餘全部是終態。
+    // ⇒ DB 加了新值而這裡沒加 ⇒ 那個新值會被當成在途 ⇒ 這一格紅。
+    const missing = statusValuesFromMigrations()
+      .filter((v) => v !== 'processing')
+      .filter((v) => !TERMINAL_REFUND_STATUSES.includes(v));
+    expect(missing, `DB 允許而 TERMINAL 沒收的狀態:${missing.join(', ')}`).toEqual([]);
+  });
+
+  it('🔵 反過來也要:TERMINAL 裡不得有 DB 不允許的值(拼錯字會在這裡紅)', () => {
+    const allowed = statusValuesFromMigrations();
+    const bogus = TERMINAL_REFUND_STATUSES.filter((v) => !allowed.includes(v));
+    expect(bogus, `TERMINAL 有而 DB 不允許:${bogus.join(', ')}`).toEqual([]);
   });
 });
