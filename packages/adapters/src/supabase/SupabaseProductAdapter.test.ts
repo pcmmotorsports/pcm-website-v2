@@ -1939,3 +1939,45 @@ describe('searchByKeyword 舊路 — brands 那一發失敗時要【降級】不
     });
   }
 });
+
+describe('searchByKeyword — 列的順序由【上游】決定, 不由 PostgREST 的 id 升冪決定', () => {
+  // 🔴🔴 **這一格守的是一道【接縫】, 而它今天是 no-op。**
+  //   db 的 `62` 會在 RPC 函式內排序(對外簽章不變)⇒ 而**在此之前**, adapter 拿到列之後
+  //   照 `.order('id')` 回來的順序原封映射 ⇒ 📌 **上游排的順序在顯示那一層被丟掉, 而每個訊號都是綠的。**
+  //   ⇒ 本格釘住「輸出照 `pageIds` 的順序」, 讓 62 貼上去之後那個排序**走得到畫面上**。
+  // ⚠️ **今天 `pageIds` 來自 `[...brandIds].sort()` ⇒ 它就等於 id 升冪 ⇒ 這一格【現在必綠】。**
+  //   本格的價值不在今天會紅, 在**它會在 62 之後接住那個回歸**。
+  it('🔴 PostgREST 回亂序 ⇒ 輸出仍照 `pageIds` 的順序(不是照回來的順序)', async () => {
+    const ids = ['a', 'b', 'c'];
+    const captured: { pageIds?: string[] } = {};
+    const client = {
+      rpc() {
+        return { range: () => Promise.resolve({ data: ids.map((id) => ({ id })), error: null }) };
+      },
+      from() {
+        const b: Record<string, unknown> = {};
+        b.select = () => b;
+        b.in = (_c: string, p: string[]) => {
+          captured.pageIds = p;
+          return b;
+        };
+        // 🔵 **刻意回【反序】** —— 真 PostgREST 帶 `.order('id')` 不會這樣,
+        //   而這一格問的是「實作有沒有依賴回來的順序」⇒ 餵它一個不同的順序才問得出來。
+        b.order = () =>
+          Promise.resolve({
+            data: [...(captured.pageIds ?? [])]
+              .reverse()
+              .map((id) => ({ ...baseRow, id, external_id: id })),
+            error: null,
+          });
+        return b;
+      },
+    };
+    const res = await new SupabaseProductAdapter(
+      client as unknown as SupabaseClient,
+    ).searchByKeyword('x', { limit: 20, offset: 0 });
+    expect(res.items.length, 'items 是空的 ⇒ mock 沒回列, 這一發作廢').toBe(3);
+    expect(res.items.map((x) => x.id)).toEqual(captured.pageIds);
+  });
+});
+
