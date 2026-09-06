@@ -5,6 +5,23 @@
   margin: 0 auto;
   padding: 0 var(--shell-x);
 }
+/* ⟦front-CATALOGNOTICEFLUSH⟧ 2026-09-07:那句「車款讀不到」貼齊螢幕兩側邊, 而整頁其他內容都有留白。
+   🔬 成因不是 CSS 寫錯, 是位置:`ProductsPage.tsx` 的通知在 `<main class="pp-main">` 之【外】,
+      也在 `.pp-layout` 之外 ⇒ 它是整頁唯一沒有被任何一層水平留白包住的內容。
+   🔴 **本規則刻意【逐字複製】上面 `.pp-layout` 的三行幾何, 而不是自己寫一個數字** ——
+      主視窗 2026-09-07 交辦逐字「抄同一個來源, 不寫死」。
+      ⇒ 📌 `--shell-x` / `--shell-max` 哪天改, 這一列跟著改;寫死 40 的世界裡它會【安靜地】分家。
+   🛑 **不搬位置**(同一份交辦):把通知移進 `<main>` 會連【垂直位置】一起變, 那是視覺決定不是我的。
+   ⚠️ 稿的對應值是手機 12 / 桌機 32(`design-reference/styles/tweaks.css:191`、
+      `design-reference/styles/products-page.css:12-13`), 而我方 `--shell-x` 是 **40** ——
+      🔴 **兩邊本來就不同, 而那個差【不是本片造成的】**:`.pp-layout` 一直都吃 40。
+      本片做的是「讓這一列與**同頁其他內容**切齊」, **不是**「讓它與稿的數字切齊」。 */
+.pp-notice-shell {
+  max-width: var(--shell-max);
+  margin: 0 auto;
+  padding: 0 var(--shell-x);
+}
+
 .pp-layout.has-side {
   display: grid;
   grid-template-columns: 250px 1fr;
