@@ -1,0 +1,168 @@
+# codex 對抗審查 R3 · ⟦b4-EXPIREDAYBOUND⟧ 匯款到期日界 · 2026-09-06
+
+🔴 **這是【裁剪過】的版本 —— 原始 session log 共 7661 行 / 約 3602 KB, 只留最後 160 行(結論與 findings)。**
+⚠️ **被裁掉的那些【沒有保留】** —— 那是 codex 逐檔閱讀的過程軌跡, 一次性的。
+   要複驗某一條 finding ⇒ 照它給的 `檔案:行號` 自己開檔, 不要指望這份檔裡有更多。
+📌 為什麼裁:三份原始 log 合計 7.4 MB, 而它們會進 repo 並被每一個 clone 帶著走。
+
+---
+
+apps/storefront/src/lib/cron/heartbeat.test.ts:178:    expect(writes[0]).not.toHaveProperty('last_success_at');
+apps/storefront/src/lib/cron/heartbeat.test.ts:184:    const v = writes[0]!.consecutive_failures;
+apps/storefront/src/lib/cron/composition.test.ts:16://    `composition.ts` 檔頭寫著「只寫 `public.sweeper_heartbeat` 一張表」——
+apps/storefront/src/lib/cron/composition.test.ts:41:describe('🔴 射程:這道門只通到 sweeper_heartbeat', () => {
+apps/storefront/src/lib/cron/composition.test.ts:42:  it('write 只打 sweeper_heartbeat(改成別張表這一格會紅)', async () => {
+apps/storefront/src/lib/cron/composition.test.ts:49:    expect(mocks.from).toHaveBeenCalledWith('sweeper_heartbeat');
+apps/storefront/src/lib/cron/composition.test.ts:51:    expect(HEARTBEAT_TABLE).toBe('sweeper_heartbeat');
+apps/storefront/src/lib/cron/composition.test.ts:54:  it('readFailureCount 只打 sweeper_heartbeat', async () => {
+apps/storefront/src/lib/cron/composition.test.ts:55:    const { self } = chain({ data: { consecutive_failures: 4 } });
+apps/storefront/src/lib/cron/composition.test.ts:61:    expect(mocks.from).toHaveBeenCalledWith('sweeper_heartbeat');
+apps/storefront/src/lib/cron/composition.test.ts:78:    await getHeartbeatStore().write({ job_name: 'pcm-settle-sweep', consecutive_failures: 0 });
+apps/storefront/src/lib/cron/composition.test.ts:88:    const { self } = chain({ data: { consecutive_failures: 4 } });
+apps/storefront/src/lib/cron/composition.test.ts:94:    for (const bad of [null, { consecutive_failures: '3' }, { consecutive_failures: null }, {}]) {
+apps/storefront/src/lib/cron/heartbeat.ts:15://    表 `public.sweeper_heartbeat` 2026-08-17 就建好了(`20260817070000_m4b_231_3_sweeper_heartbeat.sql`),
+apps/storefront/src/lib/cron/heartbeat.ts:67:// ⇒ 若這三條會寫 `consecutive_failures`,**任何路人都能對著端點狂打、把失敗計數灌上去**
+apps/storefront/src/lib/cron/heartbeat.ts:71://    本檔**一格都不會記**。而它**不是不可見** —— `last_success_at` 會停止前進 ⇒ 告警照樣會叫。
+apps/storefront/src/lib/cron/heartbeat.ts:194:  expireUnpaidOrders: 'pcm-expire-unpaid-orders',
+apps/storefront/src/lib/cron/heartbeat.ts:201:// **為什麼要有第二個地方**:`sweeper_heartbeat` 是**寫進我們自己的 DB**,
+apps/storefront/src/lib/cron/heartbeat.ts:260:    case 'pcm-expire-unpaid-orders':
+apps/storefront/src/lib/cron/heartbeat.ts:325:/** 這一輪真的做完了。`last_success_at` 前進、失敗計數歸零。 */
+apps/storefront/src/lib/cron/heartbeat.ts:387:      s.write({ job_name: jobName, last_success_at: nowIso, consecutive_failures: 0, updated_at: nowIso }),
+apps/storefront/src/lib/cron/heartbeat.ts:459: * 這一輪失敗了。`last_failure_at` 前進、`consecutive_failures` +1。
+apps/storefront/src/lib/cron/heartbeat.ts:461: * ⚠️ **`consecutive_failures` 不準,而它【兩個方向都會偏】** —— 三個獨立成因,三個都不修:
+apps/storefront/src/lib/cron/heartbeat.ts:470: *    **告警的主判準是 `last_success_at` 多久沒動,不是這一欄。**
+apps/storefront/src/lib/cron/heartbeat.ts:501:    // 🔴 失敗那一發**不碰** `last_success_at` —— 碰了就是把「上次成功是什麼時候」洗掉,
+apps/storefront/src/lib/cron/heartbeat.ts:504:      s.write({ job_name: jobName, last_failure_at: nowIso, consecutive_failures: prev + 1, updated_at: nowIso }),
+apps/storefront/src/lib/cron/composition.ts:31:// **本門的射程**:🔴 **只寫 `public.sweeper_heartbeat` 一張表。**
+apps/storefront/src/lib/cron/composition.ts:46://   `sweeper_heartbeat` 的 `role_table_grants` 只有 `service_role` 的 SELECT/INSERT/UPDATE 與 owner;
+apps/storefront/src/lib/cron/composition.ts:66: * ⚠️ 而它擋的是**打錯字**,不是**用錯欄** —— 把 `last_success_at` 寫進失敗那一發,型別一樣過。
+apps/storefront/src/lib/cron/composition.ts:71:  last_success_at?: string | null;
+apps/storefront/src/lib/cron/composition.ts:73:  consecutive_failures?: number;
+apps/storefront/src/lib/cron/composition.ts:85:export const HEARTBEAT_TABLE = 'sweeper_heartbeat';
+apps/storefront/src/lib/cron/composition.ts:97:        .select('consecutive_failures')
+apps/storefront/src/lib/cron/composition.ts:104:      const v = (data as { consecutive_failures?: unknown } | null)?.consecutive_failures;
+apps/storefront/src/app/api/cron/email-sweep/route.ts:316: *    🛑 要它變成會自己叫的東西,得把這個數字**寫進 DB**;而 `sweeper_heartbeat` 的 `COMMENT ON TABLE`
+apps/storefront/src/app/api/cron/email-sweep/route.ts:877:    //       ⇒ `recordHeartbeatSuccess` 把 `consecutive_failures` 寫回 **0**。
+apps/admin/src/app/page.test.tsx:277:      neverBeat: ['pcm-expire-unpaid-orders'],
+apps/admin/src/app/page.test.tsx:284:    expect(t).toContain('pcm-expire-unpaid-orders');
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:54:  last_success_at: ago(1),
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:55:  consecutive_failures: 0,
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:80:      'pcm-expire-unpaid-orders',
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:166:    expect(FAILURE_COUNT_MEANINGLESS.has('pcm-expire-unpaid-orders')).toBe(true);
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:177:   * 漏加一項它**不會紅**,而漏加的後果是 `consecutive_failures` 恆 0 被儀表讀成「零失敗」。
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:240:        r.job_name === target.jobName ? { ...r, last_success_at: ago(target.staleMinutes + 5) } : r,
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:254:        r.job_name === target.jobName ? { ...r, last_success_at: ago(target.staleMinutes - 1) } : r,
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:265:        r.job_name === target.jobName ? { ...r, last_success_at: ago(target.staleMinutes) } : r,
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:276:        r.job_name === target.jobName ? { ...r, last_success_at: ago(-30) } : r,
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:292:        r.job_name === target.jobName ? { ...r, consecutive_failures: 3 } : r,
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:306:        r.job_name === 'pcm-expire-unpaid-orders' ? { ...r, consecutive_failures: 9 } : r,
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:310:    const j = r.jobs.find((x) => x.jobName === 'pcm-expire-unpaid-orders');
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:322:  // `recordHeartbeatFailure` 刻意不碰 `last_success_at` ⇒ 上線第一輪就失敗 ⇒ 那一欄是 NULL。
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:324:  it('🔴🔴 last_success_at 是 NULL 而連續失敗 N 次 ⇒ 句子要說【失敗】,不得說「讀不出來」', async () => {
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:328:          ? { ...r, last_success_at: null, consecutive_failures: 47 }
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:345:        r.job_name === 'pcm-settle-sweep' ? { ...r, last_success_at: null } : r,
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:356:  it('🔴🔴 consecutive_failures 不是數字 ⇒ 亮,而且與「沒有意義」分得開', async () => {
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:359:        r.job_name === 'pcm-email-sweep' ? { ...r, consecutive_failures: '9' } : r,
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:369:    const expire = r.jobs.find((x) => x.jobName === 'pcm-expire-unpaid-orders');
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:376:    withRows(ALL_HEALTHY.filter((r) => r.job_name !== 'pcm-expire-unpaid-orders'));
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:378:    expect(r.neverBeat).toEqual(['pcm-expire-unpaid-orders']); // 印名字,不是印計數
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:379:    const j = r.jobs.find((x) => x.jobName === 'pcm-expire-unpaid-orders');
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:386:    withRows([...ALL_HEALTHY, { job_name: 'pcm-brand-new-job', last_success_at: ago(1), consecutive_failures: 0 }]);
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:395:        r.job_name === 'pcm-email-sweep' ? { ...r, last_success_at: '不是時間' } : r,
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:436:  //   pcm-settle-sweep  last_success 09-01 19:00 · last_failure **09-01 17:16** · consecutive_failures **0**
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:437:  //   ⇒ 舊版只 SELECT last_success_at 與 consecutive_failures ⇒ 兩個都是好的 ⇒ **畫成綠的**
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:476:    expect(lastSelect).toContain('last_success_at');
+apps/admin/src/lib/dashboard/cron-heartbeat-read.test.ts:477:    expect(lastSelect).toContain('consecutive_failures');
+apps/admin/src/lib/dashboard/cron-heartbeat-read.ts:35://    ⇒ **片2 落地之前,`pcm-expire-unpaid-orders` 這一列會永遠是「從來沒寫過心跳」**,
+apps/admin/src/lib/dashboard/cron-heartbeat-read.ts:64:   * 這一列的 `consecutive_failures` 讀到的**不是數字**(欄位型別漂了 / 回傳被改形狀)。
+apps/admin/src/lib/dashboard/cron-heartbeat-read.ts:106:  last_success_at?: unknown;
+apps/admin/src/lib/dashboard/cron-heartbeat-read.ts:109:  consecutive_failures?: unknown;
+apps/admin/src/lib/dashboard/cron-heartbeat-read.ts:129:    .from('sweeper_heartbeat')
+apps/admin/src/lib/dashboard/cron-heartbeat-read.ts:134:    //      ⇒ `recordHeartbeatSuccess` 把 `consecutive_failures` 寫回 0 ⇒ **紅自己癒合**
+apps/admin/src/lib/dashboard/cron-heartbeat-read.ts:138:    .select('job_name, last_success_at, last_failure_at, consecutive_failures')
+apps/admin/src/lib/dashboard/cron-heartbeat-read.ts:176:    const rawSuccess = row.last_success_at;
+apps/admin/src/lib/dashboard/cron-heartbeat-read.ts:178:    //    `NULL` 是**正常**的:`recordHeartbeatFailure` 刻意不碰 `last_success_at`
+apps/admin/src/lib/dashboard/cron-heartbeat-read.ts:180:    //    📌 而審查實跑到的形狀是:**`consecutive_failures = 47` 而畫面印「最後成功時間讀不出來」**
+apps/admin/src/lib/dashboard/cron-heartbeat-read.ts:189:    const rawFailures = row.consecutive_failures;
+packages/adapters/src/supabase/database.types.ts:465://      `admin_customer_list_v` / `sweeper_heartbeat` / `graphql`(**不是我 apply 的** ——
+packages/adapters/src/supabase/database.types.ts:3350:      sweeper_heartbeat: {
+packages/adapters/src/supabase/database.types.ts:3352:          consecutive_failures: number
+packages/adapters/src/supabase/database.types.ts:3355:          last_success_at: string | null
+packages/adapters/src/supabase/database.types.ts:3359:          consecutive_failures?: number
+packages/adapters/src/supabase/database.types.ts:3362:          last_success_at?: string | null
+packages/adapters/src/supabase/database.types.ts:3366:          consecutive_failures?: number
+packages/adapters/src/supabase/database.types.ts:3369:          last_success_at?: string | null
+
+warning: Skill descriptions were shortened to fit the 2% skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.
+context compacted
+2026-09-06T06:43:11.814438Z ERROR codex_models_manager::manager: failed to renew cache TTL: missing field `base_instructions` at line 132 column 5
+codex
+FAIL
+
+findings:
+
+- `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:90` / `:150`、`docs/specs/2026-09-06-expire-day-boundary-ROLLBACK.sql:29` / `:39`  
+  `prosrc md5` 只鎖函式本體，不鎖 default 參數、return type、volatility 等簽章語意；正式庫若本體同值但 `p_limit DEFAULT` 漂移，forward/rollback 會綠燈覆蓋。must-fix
+
+- `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:130` / `:335`  
+  已是新版 body 時不檢查 COMMENT md5，卻會無條件覆寫 COMMENT；如果正式庫只漂了註解/操作備註，本片會靜默清掉，還宣稱「同定義覆寫安全」。must-fix
+
+- `docs/specs/2026-09-06-expire-day-boundary-ROLLBACK.sql:31` / `:35`  
+  rollback 只接受 old/new exact md5；災難當天若先有人把函式 hotfix 成 no-op 來止血，這支 rollback 會拒絕執行，值班者手上反而沒有可跑的還原路徑。must-fix
+
+- `docs/specs/2026-09-06-expire-day-boundary-ROLLBACK.sql:1` / `:39`、`docs/plans/2026-09-06-remittance-expire-day-boundary-plan.md:99`  
+  rollback 只換函式，不先停 cron / stop bleeding，也不能逆轉已取消訂單；半夜大量誤取消時，這份檔案不足以作為災難操作手冊。must-fix
+
+- `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:292` / `:320`、`supabase/after-checks/20260906600000-expire-day-boundary-reconcile.sql:20`  
+  觀測痕跡只有函式 log 與 heartbeat 成功，after-check 只看形狀/md5；值班者無法用這些檔案直接回答「剛剛幾張被取消、哪些 channel、是不是這片造成」。must-fix
+
+- `supabase/after-checks/20260906600000-expire-day-boundary-reconcile.sql:10` / `:37`  
+  after-check 是列印人工比對，不會在 mismatch 時 `RAISE EXCEPTION`；它要防的世界裡也可能「SQL 執行成功」，這格綠是免費的。must-fix
+
+- `packages/domain/src/order/remittance-info.ts:103`、`packages/domain/src/order/remittance-info.test.ts:79` / `:87`  
+  TS 從 `+120h` 改台北日曆日是合理修法，但測試全在 2026，註解也承認舊新算法剛好同值；把程式改回舊算法，現有測試仍會綠。must-fix
+
+- `scripts/probe-expire-day-boundary.sh:110` / `:138`、`:187`  
+  鑽機沒有 cash 的「真的逾期應取消」正例，只有 `c_edge` 保活；如果 cash 分支被寫成永不取消，這支行為 probe 本身抓不到。must-fix
+
+- `docs/plans/2026-09-06-remittance-expire-day-boundary-plan.md:151` / `:169`  
+  plan 把「兩個獨立來源同值」當成線上版本推論，但兩者仍可能共同落後於正式庫 hotfix；這只能證明 repo/source consistency，不能證明正式庫就是那一代。must-fix
+
+R1/R2 裡我不同意被擴張的點：`md5 fail-closed` 用在 forward migration 可以接受，但不該成為災難 rollback 的唯一入口。這不是「不要修 md5」，而是 rollback 必須另外有可操作的止血/force 路徑。  
+本輪唯讀，未 apply DB；只做檔案核對與 `scripts/probe-expire-day-boundary.sh` 的 bash 語法檢查。
+tokens used
+263,021
+FAIL
+
+findings:
+
+- `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:90` / `:150`、`docs/specs/2026-09-06-expire-day-boundary-ROLLBACK.sql:29` / `:39`  
+  `prosrc md5` 只鎖函式本體，不鎖 default 參數、return type、volatility 等簽章語意；正式庫若本體同值但 `p_limit DEFAULT` 漂移，forward/rollback 會綠燈覆蓋。must-fix
+
+- `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:130` / `:335`  
+  已是新版 body 時不檢查 COMMENT md5，卻會無條件覆寫 COMMENT；如果正式庫只漂了註解/操作備註，本片會靜默清掉，還宣稱「同定義覆寫安全」。must-fix
+
+- `docs/specs/2026-09-06-expire-day-boundary-ROLLBACK.sql:31` / `:35`  
+  rollback 只接受 old/new exact md5；災難當天若先有人把函式 hotfix 成 no-op 來止血，這支 rollback 會拒絕執行，值班者手上反而沒有可跑的還原路徑。must-fix
+
+- `docs/specs/2026-09-06-expire-day-boundary-ROLLBACK.sql:1` / `:39`、`docs/plans/2026-09-06-remittance-expire-day-boundary-plan.md:99`  
+  rollback 只換函式，不先停 cron / stop bleeding，也不能逆轉已取消訂單；半夜大量誤取消時，這份檔案不足以作為災難操作手冊。must-fix
+
+- `supabase/migrations/20260906600000_m4b_expire_day_boundary.sql:292` / `:320`、`supabase/after-checks/20260906600000-expire-day-boundary-reconcile.sql:20`  
+  觀測痕跡只有函式 log 與 heartbeat 成功，after-check 只看形狀/md5；值班者無法用這些檔案直接回答「剛剛幾張被取消、哪些 channel、是不是這片造成」。must-fix
+
+- `supabase/after-checks/20260906600000-expire-day-boundary-reconcile.sql:10` / `:37`  
+  after-check 是列印人工比對，不會在 mismatch 時 `RAISE EXCEPTION`；它要防的世界裡也可能「SQL 執行成功」，這格綠是免費的。must-fix
+
+- `packages/domain/src/order/remittance-info.ts:103`、`packages/domain/src/order/remittance-info.test.ts:79` / `:87`  
+  TS 從 `+120h` 改台北日曆日是合理修法，但測試全在 2026，註解也承認舊新算法剛好同值；把程式改回舊算法，現有測試仍會綠。must-fix
+
+- `scripts/probe-expire-day-boundary.sh:110` / `:138`、`:187`  
+  鑽機沒有 cash 的「真的逾期應取消」正例，只有 `c_edge` 保活；如果 cash 分支被寫成永不取消，這支行為 probe 本身抓不到。must-fix
+
+- `docs/plans/2026-09-06-remittance-expire-day-boundary-plan.md:151` / `:169`  
+  plan 把「兩個獨立來源同值」當成線上版本推論，但兩者仍可能共同落後於正式庫 hotfix；這只能證明 repo/source consistency，不能證明正式庫就是那一代。must-fix
+
+R1/R2 裡我不同意被擴張的點：`md5 fail-closed` 用在 forward migration 可以接受，但不該成為災難 rollback 的唯一入口。這不是「不要修 md5」，而是 rollback 必須另外有可操作的止血/force 路徑。  
+本輪唯讀，未 apply DB；只做檔案核對與 `scripts/probe-expire-day-boundary.sh` 的 bash 語法檢查。
+rc=0
