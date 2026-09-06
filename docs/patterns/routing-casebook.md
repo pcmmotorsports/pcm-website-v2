@@ -133,10 +133,15 @@
 
 ## §14 · 🔴🔴 **我新寫了一支帶 `--selftest` 的腳本,而它在我自己樹上跑是綠的** —— 🛑 **那句話本身就是觸發條件,不是通過條件**
 
-> 指標:.husky/selftest-git-isolation-gate.sh
+> 指標:scripts/selftest-git-isolation-gate.sh
+> 🔴 ⛔ ~~`.husky/selftest-git-isolation-gate.sh`~~ —— **2026-09-06 `-ship` 實查:那個路徑不存在。**
+>    三棵樹 `test -f` 全 ✗ · `where-is.sh` 掃工作樹 / dev / **94 支 ref** 全查無;
+>    而 `scripts/selftest-git-isolation-gate.sh` 在(它是唯一含「自己先死掉」字面的檔)。
+>    ⇒ 📌 **一個指到不存在路徑的路由, 與沒有那一行是同一件事** —— 而它比沒有更糟:
+>       撞到的人會以為自己找錯, 而不是以為指標錯了。
 > 原位置:`CLAUDE.md` 路由表 第 87 行(2026-09-02 搬出)
 
-**如果那支 selftest 會碰 `git`:進入點【第一件事】剝掉繼承來的 git 環境**(`GIT_DIR` / `GIT_INDEX_FILE` / `GIT_WORK_TREE` / `GIT_OBJECT_DIRECTORY` / `GIT_ALTERNATE_OBJECT_DIRECTORIES` / `GIT_COMMON_DIR` / `GIT_NAMESPACE`)。<br>🔴 **為什麼**:`GIT_DIR` / `GIT_INDEX_FILE` 的優先權**比 `git -C <路徑>` 高** ⇒ **你 selftest 裡每一發 `git`(包含帶 `-C` 的)都會去讀寫別人的 repo。**<br>🔵 **一次剝乾淨,不要逐發包** —— `-15` 2026-09-02 逐點突變量到:**只覆蓋 6 個呼叫點裡的 4 個時,那道閘底下【仍然全綠】** ⇒ **一個只修對一半的修法看不出來。**<br>🛑🛑 **而最毒的一格**:這族的東西**在自己的樹上手跑 `--selftest` 是全綠的**(`-f3` 跑過四次,四次都綠)⇒ **它只有掛在 `.husky/selftest-git-isolation-gate.sh` 底下才壞** ⇒ 📌 **所以「我測過了」在這一族裡零判別力 —— 測試環境與受害環境的差別,就是那個病本身。**<br>✅ **驗收要跑兩世界 + 突變正對照**(只貼一個「修後乾淨」不算):`design-ref-check.sh`(`-15`)修前受害者 `1\|0 ⇒ 4\|6` · `what-happened-to.py`(`-f3`)修前 `rc=1` 且 `1\|0 ⇒ 3\|4`,修後兩支皆 `rc=0` 且 `1\|0 / 1\|0`;🟢 **突變副本(只停掉剝環境那三行)仍然 `1\|0 ⇒ 3\|4`** ⇒ **證明是那個修法在擋。**<br>🔵 **兩支同族、同一夜、兩個作者** —— **而兩支的作者都以為自己驗過了。**
+**如果那支 selftest 會碰 `git`:進入點【第一件事】剝掉繼承來的 git 環境**(`GIT_DIR` / `GIT_INDEX_FILE` / `GIT_WORK_TREE` / `GIT_OBJECT_DIRECTORY` / `GIT_ALTERNATE_OBJECT_DIRECTORIES` / `GIT_COMMON_DIR` / `GIT_NAMESPACE`)。<br>🔴 **為什麼**:`GIT_DIR` / `GIT_INDEX_FILE` 的優先權**比 `git -C <路徑>` 高** ⇒ **你 selftest 裡每一發 `git`(包含帶 `-C` 的)都會去讀寫別人的 repo。**<br>🔵 **一次剝乾淨,不要逐發包** —— `-15` 2026-09-02 逐點突變量到:**只覆蓋 6 個呼叫點裡的 4 個時,那道閘底下【仍然全綠】** ⇒ **一個只修對一半的修法看不出來。**<br>🛑🛑 **而最毒的一格**:這族的東西**在自己的樹上手跑 `--selftest` 是全綠的**(`-f3` 跑過四次,四次都綠)⇒ **它只有掛在 `scripts/selftest-git-isolation-gate.sh`(⛔ ~~`.husky/…`~~, 見上面那格訂正)底下才壞** ⇒ 📌 **所以「我測過了」在這一族裡零判別力 —— 測試環境與受害環境的差別,就是那個病本身。**<br>✅ **驗收要跑兩世界 + 突變正對照**(只貼一個「修後乾淨」不算):`design-ref-check.sh`(`-15`)修前受害者 `1\|0 ⇒ 4\|6` · `what-happened-to.py`(`-f3`)修前 `rc=1` 且 `1\|0 ⇒ 3\|4`,修後兩支皆 `rc=0` 且 `1\|0 / 1\|0`;🟢 **突變副本(只停掉剝環境那三行)仍然 `1\|0 ⇒ 3\|4`** ⇒ **證明是那個修法在擋。**<br>🔵 **兩支同族、同一夜、兩個作者** —— **而兩支的作者都以為自己驗過了。**
 
 ---
 

@@ -90,7 +90,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 查「某個坑我們記過沒」<br>🔴 **或:我剛寫了一道守門 / 一個門檻 / 一個正對照 —— 在 commit 之前** | `scripts/traps-neighbours.py` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §18** |
 | 🔴 **列印出來的紙【多了一頁】/ 紙上看不到頁碼 / 換一台印表機就不一樣 / 「另存 PDF 是一頁而真印表機是兩頁」** | `apps/admin/src/app/print/print-a4.css` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §19** |
 | 🔴 **①三綠印了綠而我不確定它真的跑了 / build 紅了而找不到錯誤行**<br>②**這件事我接了,而它是不是已經被做掉了 / 板子那一列還成不成立**<br>③**測試說「找不到建置產物」/ 我明明 build 過了它還說沒有** | `bash scripts/greenlight.sh` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §13** |
-| 🔴🔴 **我新寫了一支帶 `--selftest` 的腳本,而它在我自己樹上跑是綠的** —— 🛑 **那句話本身就是觸發條件,不是通過條件** | `.husky/selftest-git-isolation-gate.sh` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §14** |
+| 🔴🔴 **我新寫了一支帶 `--selftest` 的腳本,而它在我自己樹上跑是綠的** —— 🛑 **那句話本身就是觸發條件,不是通過條件** | `scripts/selftest-git-isolation-gate.sh`(⛔ ~~`.husky/…`~~ —— 2026-09-06 `-ship` 實查:三棵樹 + dev + 94 支 ref 全查無, 真的那支在 `scripts/`)—— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §14** |
 | 🔴 **板上寫著 `open` 而我不確定 · 有人跟我說「那件早就做掉了」而我想自己驗 · 我要說「這件沒有人做」之前** | `python3 scripts/what-happened-to.py <錨>` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §15** |
 | 🔴 **我要端一題給 Sean 之前**(任何決策題、任何「要他拍板」的東西) | `bash scripts/before-asking-sean.sh "<他會講的話>"` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §16** |
 | 🔴 **要抄一支既有的 DB 函式來改 / 要寫 `CREATE OR REPLACE` 之前 / 有人給你一個「那支函式在這裡」的行號** | `bash scripts/latest-definition-of.sh <物件名>` —— 📎 **病史·實錘·射程 → `docs/patterns/routing-casebook.md` §20** |
