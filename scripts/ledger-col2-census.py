@@ -10,12 +10,25 @@ import hashlib, io, os, sys, glob
 #      ⇒ 所以輸出一律把【貼板分母】印出來:分母 0 時, ② 的 0 什麼都不代表。
 #    ⚠️ 本腳本不碰 git ⇒ 不需要剝 GIT_* 環境。
 
-REPO = os.path.expanduser("~/pcm-wt-db")
+# 🔴🔴 code-reviewer R1 #1(Critical):原本寫死 `~/pcm-wt-db`
+#    ⇒ 這道閘進主樹之後, **在主樹與其他每一棵 worktree 上都會拿 pcm-wt-db 的 migrations 去比 sha**
+#    ⇒ 實測(把 HOME 換掉演 worktree 不在)⇒ rc=1、③=344、印「升乙要重開」+ 叫人 `--no-verify`
+#      = **誤擋而且診斷是錯的**。而今天 ②+③ = 10 壓線 ⇒ 跨樹只要一支 migration 內容不同就過線。
+#    ✅ 由 `__file__` 上溯兩層(本檔住在 `<repo>/scripts/`);`--repo` 只是給人手動指定用的。
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if "--repo" in sys.argv:
+    i = sys.argv.index("--repo")
+    if i + 1 >= len(sys.argv):
+        print("🔴 --repo 後面沒有路徑"); sys.exit(2)
+    REPO = sys.argv[i + 1]
 # 🔴 `--ledger <path>`:pre-commit 那道閘餵的是【staged 那一份】, 不是工作樹那一份 ——
 #    兩者不同時, 讀工作樹會讓閘對「這一顆 commit 會不會讓數字過線」答錯。
 LEDGER = os.path.join(REPO, "supabase/APPLIED.tsv")
 if "--ledger" in sys.argv:
-    LEDGER = sys.argv[sys.argv.index("--ledger") + 1]
+    _i = sys.argv.index("--ledger")
+    if _i + 1 >= len(sys.argv):          # R1 #7:原本會噴 IndexError traceback
+        print("🔴 --ledger 後面沒有路徑"); sys.exit(2)
+    LEDGER = sys.argv[_i + 1]
 BOARD_GLOBS = os.path.expanduser("~/pcm-mailbox/貼板-*/")
 
 def sha(p):
@@ -34,13 +47,16 @@ for d in glob.glob(BOARD_GLOBS):
             try: board.setdefault(sha(p), []).append(p); nfiles += 1
             except OSError: pass
 
-rows, repo_hit, board_hit, neither = 0, [], [], []
+rows, repo_hit, board_hit, neither, malformed = 0, [], [], [], []
 for line in io.open(LEDGER, encoding="utf-8"):
     line = line.rstrip("\n")
     if not line or line.startswith("#"): continue
     c = line.split("\t")
-    if len(c) < 2: continue
     rows += 1
+    # 🔴 R1 #6:原本 `len(c) < 2 ⇒ continue` **既不計 rows 也不進三格** ⇒ 掉 tab 的列隱形。
+    #    現在它自己一格。⚠️ 它不代表帳本壞了才會非 0 —— 但非 0 就值得有人看一眼。
+    if len(c) < 2:
+        malformed.append(line[:40]); continue
     ver, want = c[0], c[1]
     cands = glob.glob(os.path.join(REPO, "supabase/migrations", ver + "_*.sql"))
     if cands and sha(cands[0]) == want: repo_hit.append(ver); continue
@@ -49,11 +65,16 @@ for line in io.open(LEDGER, encoding="utf-8"):
 
 if "--gate" in sys.argv:
     affected = len(board_hit) + len(neither)
-    total = len(repo_hit) + affected
+    total = len(repo_hit) + affected + len(malformed)
+    # 🔵 R1 #5:這一格是**碼層自檢(canary)**, 不是在守帳本 ——
+    #    它只會在「有一條分類路徑沒把那一列 append 進任何一格」時紅。
     if total != rows:
-        print(f"🔴 帳本第二欄普查:三格相加 {total} ≠ 資料列 {rows} ⇒ 這支尺自己壞了, 擋下"); sys.exit(1)
+        print(f"🔴 帳本第二欄普查【碼層自檢】:四格相加 {total} ≠ 資料列 {rows} ⇒ 這支尺自己壞了, 擋下"); sys.exit(1)
     print(f"帳本第二欄普查(staged):資料列 {rows} · ① repo {len(repo_hit)} · ② 貼板 {len(board_hit)} "
-          f"· ③ 都不是 {len(neither)} · 貼板分母 {nfiles} 個檔")
+          f"· ③ 都不是 {len(neither)} · 壞掉的列 {len(malformed)} · 貼板分母 {nfiles} 個檔 · repo {REPO}")
+    if nfiles == 0:
+        # 🔴 R1 ④ Minor:這句原本只在檔頭註解裡, 而**讀輸出的人看不到註解**。
+        print("   ⚠️ 貼板分母是 0(信箱不在 / 路徑變了)⇒ **② 的那個 0 什麼都不代表**。")
     if affected > 10:
         print(f"🔴 ②+③ = {affected} > 10 ⇒ `⟦db-LEDGERSHADRIFT⟧` 的【乙】(帳本加第三欄)要重開。")
         print( "   ② 的清單:" + " ".join(v for v, _ in sorted(board_hit)))
@@ -66,8 +87,8 @@ if "--gate" in sys.argv:
 
 if "--selftest" in sys.argv:
     ok = True
-    if len(repo_hit)+len(board_hit)+len(neither) != rows:
-        print("🔴 selftest FAIL:三格相加不等於資料列數 ⇒ 分類漏了一條路徑"); ok = False
+    if len(repo_hit)+len(board_hit)+len(neither)+len(malformed) != rows:
+        print("🔴 selftest FAIL:四格相加不等於資料列數 ⇒ 分類漏了一條路徑"); ok = False
     fake = "f" * 64
     if fake in board:
         print("🔴 selftest FAIL:現造的 sha 竟然在貼板 map 裡"); ok = False
@@ -84,8 +105,9 @@ if "--selftest" in sys.argv:
     if affected > 10:
         print(f"🔴 selftest FAIL:②+③ = {affected} > 10 ⇒ 照 `-f8` 2026-09-06 的裁定, "
               f"⟦db-LEDGERSHADRIFT⟧ 的【乙】(帳本加第三欄)要重開"); ok = False
-    print(f"selftest {'PASS' if ok else 'FAIL'}:資料列 {rows} · 三格和 "
-          f"{len(repo_hit)+len(board_hit)+len(neither)} · 貼板分母 {nfiles} 個檔")
+    print(f"selftest {'PASS' if ok else 'FAIL'}:資料列 {rows} · 四格和 "
+          f"{len(repo_hit)+len(board_hit)+len(neither)+len(malformed)} · 壞掉的列 {len(malformed)} "
+          f"· 貼板分母 {nfiles} 個檔")
     sys.exit(0 if ok else 1)
 
 print(f"貼板分母:{len(glob.glob(BOARD_GLOBS))} 個目錄 / {nfiles} 個檔 / {len(board)} 個相異 sha")

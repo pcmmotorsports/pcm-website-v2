@@ -25,16 +25,32 @@ if [ ! -f scripts/ledger-col2-census.py ]; then
   exit 1
 fi
 
-if ! git diff --cached --name-only --diff-filter=ACMR | grep -qx 'supabase/APPLIED.tsv'; then
+# 🔴🔴 code-reviewer R1 #2:原本是 `git diff … | grep -qx …` ——
+#    `#!/bin/sh` **給不了 `pipefail`** ⇒ git 失敗時 grep 收到空輸入 ⇒ 不命中 ⇒ 走去印「跳過」rc=0
+#    ⇒ 📌 **「git 壞了」與「沒 stage 帳本」印同一句、同一個 rc。**
+#    ✅ 先把清單落檔並且 `|| exit 1`, 再對【檔】grep。
+# 🔴 R1 #3:`mktemp -t <prefix>` 沒有 `XXXXXX` 是 **BSD-only**(`shell-dialect-gate` 命中 2 處)
+#    ⇒ GNU 上會失敗 ⇒ `|| exit 1` ⇒ **每一顆動帳本的 commit 都被擋**。✅ 補 `.XXXXXX`。
+STAGED="$(mktemp -t ledgercol2.staged.XXXXXX)" || exit 1
+TMP="$(mktemp -t ledgercol2.blob.XXXXXX)" || { rm -f "$STAGED"; exit 1; }
+trap 'rm -f "$STAGED" "$TMP"' EXIT
+
+if ! git diff --cached --name-only --diff-filter=ACMR > "$STAGED"; then
+  printf '%s\n' '🔴 讀不出 staged 檔案清單(git 失敗)⇒ 擋下 —— 這【不是】「沒 stage 帳本」' >&2
+  exit 1
+fi
+if ! grep -qx 'supabase/APPLIED.tsv' "$STAGED"; then
   printf '%s\n' 'ledger-col2-census:本次沒有 stage supabase/APPLIED.tsv ⇒ 跳過(不是「檢查過而乾淨」)' >&2
   exit 0
 fi
-
-TMP="$(mktemp -t ledgercol2)" || exit 1
-trap 'rm -f "$TMP"' EXIT
 # 🔴 讀 index 那一份。讀不出來一律擋下 —— 靜默退回工作樹會讓這道閘量到【另一個東西】。
 if ! git show :supabase/APPLIED.tsv > "$TMP" 2>/dev/null; then
   printf '%s\n' '🔴 讀不出 staged 的 supabase/APPLIED.tsv ⇒ 擋下(不猜, 不退回工作樹那一份)' >&2
   exit 1
 fi
-exec python3 scripts/ledger-col2-census.py --gate --ledger "$TMP"
+# 🔴 R1 #4:原本用 `exec` ⇒ **行程被換掉 ⇒ EXIT trap 永遠不跑** ⇒ 每次真跑漏一個約 240KB 的暫存檔
+#    (reviewer 實測 before=2 after=3)。✅ 收 rc、自己刪、再用那個 rc 退出。
+python3 scripts/ledger-col2-census.py --gate --ledger "$TMP"
+rc=$?
+rm -f "$STAGED" "$TMP"
+exit $rc
