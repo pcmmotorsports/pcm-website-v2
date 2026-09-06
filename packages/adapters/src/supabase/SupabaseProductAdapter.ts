@@ -818,7 +818,13 @@ export class SupabaseProductAdapter implements IProductRepository {
       const key = norm(q);
       // 🛑 正規化後為空(純中文 / 純符號)⇒ `external_id` 完全相等在數學上不可能命中
       //   ⇒ 這一發是純浪費, 直接回。(中文搜尋佔多數 ⇒ 這一行砍掉大半流量。)
-      if (key === '') return ids;
+      // 🔴🔴 **1-2 字直接回, 而理由不是「不常用」是【它會靜靜截斷】**(2026-09-06 R2 must-fix):
+      //   `db-max-rows` = **2000**(`STATUS.md:795`, 正式站實測 `content-range 0-1999/19777`),
+      //   而商品分母 24,478 ⇒ key 只有 1-2 字時候選遠超 2000
+      //   ⇒ PostgREST 回 **HTTP 206 + 任意 2000 列**, 而 **206 是成功 ⇒ `error` 檢查看不到**
+      //   ⇒ 📌 真正那一筆可能根本不在裡面, 而畫面完全正常。
+      //   🔵 連帶關掉「短 pattern 抽不出 trigram ⇒ seq scan」那個熱路徑成本。
+      if (key.length < 3) return ids;
       // 🔴🔴 **不要把 `ids` 塞進 `.in()`** —— 兩個理由, 第二個是既有測試逼出來的:
       //   ① `ids` 最多 1000 筆 ⇒ 那會做出一條**上千個 UUID 的 URL**, 而 PostgREST 走 GET
       //     ⇒ 白白撞 URL 長度上限, 而我要的答案跟那 1000 個 id 無關。
@@ -830,10 +836,28 @@ export class SupabaseProductAdapter implements IProductRepository {
       //   ⚠️ 而不能無條件撈全表 ⇒ 先用 `ilike` 把候選縮到「**含這串英數字**」, 再在 TS 這邊比嚴格相等。
       //   (`products_external_id_trgm_idx` GIN trgm, `20260903060000_…:128`, 帳本 `APPLIED.tsv:436`。
       //    🛑 天花板:pattern 短於 3 字抽不出 trigram ⇒ 退化成全表掃。)
+      // 🔴🔴 **縮候選那一句要打在【正規化之後】的語意上, 否則鏡像方向整個破**(R2 must-fix):
+      //   ⛔ ~~`.ilike('external_id', '%' + key + '%')`~~ 比的是**原始欄**
+      //   ⇒ **DB 那一列帶分隔號時, 候選根本撈不回來**, 下面那句嚴格相等永遠沒機會跑。
+      //   🔬 而那些列是**量到的不是構造的**(`20260904180000_…:36-38` 逐字列出正式庫
+      //     `01-0110058`(9 位)與 `01022.4501-01`(11 位), 而 `:280` 的門檻 7 讓它們今天就被 RPC 撈回來):
+      //   ```
+      //   q=010110058  DB=01-0110058  舊 ilike 候選 false / norm 相等 true ⇒ 提不了前
+      //   q=AZ203      DB=AZ-203      舊 ilike 候選 false / norm 相等 true ⇒ 提不了前
+      //   q=AZ-203     DB=AZ203       舊 ilike 候選 true                   ⇒ 只有這個方向修好了
+      //   ```
+      //   ✅ 改成**字元之間插 `%`** ⇒ `AZ203` 變 `%A%Z%2%0%3%` —— 那是「正規化後相等」的**超集**
+      //     (任何中間插了分隔號的寫法都涵蓋), 再由下面那句做嚴格判定。
+      //   ⚠️ **代價照寫**:這種 pattern 用不到 trigram 索引 ⇒ seq scan。上面那道 `key.length < 3`
+      //     與這裡的 `.limit()` 是它的兩道剎車;而**撞到 limit 時會漏掉提前**(退化成不重排,
+      //     = 本片之前的行為)⇒ 方向安全, 而不是沒有代價。
+      const pattern = `%${key.split('').join('%')}%`;
       const { data, error } = await this.supabase
         .from('products_public')
         .select('id, external_id')
-        .ilike('external_id', `%${key}%`);
+        .ilike('external_id', pattern)
+        .order('external_id', { ascending: true })
+        .limit(200);
       if (error || !Array.isArray(data)) return ids;
       const hit = new Set(
         (data as { id: string; external_id: string | null }[])
