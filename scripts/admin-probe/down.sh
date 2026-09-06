@@ -34,6 +34,7 @@ set -uo pipefail
 #    ⇒ **兩層都印「已釋放」而鑽機還活著**;而埠層之所以是「真的判準」正是因為它原本寫死
 #    ⇒ 參數化做錯**會把最後那道保險一起拿掉**。全文在 `env.sh` 檔頭。
 SP_DOWN="$(cd "$(dirname "$0")" && pwd)"
+REPO_DOWN="$(cd "$SP_DOWN/../.." && pwd)"   # up.sh:47 同一個算法 —— owner.txt 的 REPO 就是它寫的
 # shellcheck source=./env.sh
 . "$SP_DOWN/env.sh"
 # 🔴 **把這次用的四個埠印出來** —— 與 `owner.txt` 那行對不上,就是你收的時候帶錯了組合
@@ -156,13 +157,66 @@ printf "  %-36s " "資料目錄 $S"
 #    `rm -rf` 對一個不存在的路徑**回 0**,而舊寫法照樣印「已刪」
 #    ⇒ 收錯一組埠的那個情境下,它會說「已刪」而它一個 byte 都沒動過。
 _existed=0; [ -e "$S" ] && _existed=1
-if [ "$rc" = "0" ]; then
+
+# 🔴🔴 **這道閘 2026-09-07 線【帳號】`account` 補(板列 `⟦acct-DOWNPORTONLY⟧`, 主視窗 B 派)。**
+#    🔬 **它補的洞**:下面那個 `rm -rf` 的條件是 `rc`, 而 `rc` **只由那四個埠的 `lsof` 決定**
+#      ⇒ **這支腳本從來沒有問過「這個資料目錄是不是我的」。**
+#    🧪 **實測(補這道閘之前)**:造一個假的別窗資料目錄(owner.txt 的 REPO 指向另一棵樹)
+#      + **一組沒人在用的埠** ⇒ `rc=0` ⇒ 逐字印「已刪」⇒ **那個目錄真的被刪掉了。**
+#    🎯 **失敗情境**:A 窗跑著預設那組埠的鑽機;B 窗收攤**帶了 DIR 卻帶錯埠**
+#      ⇒ 四個埠都空 ⇒ B 刪掉 A 的資料目錄、印「已刪」、`rc=0`
+#      ⇒ **A 的 postgres 變成沒有資料目錄的孤兒, 而 B 那一端【一切正常】。**
+#    📌 **形狀照 `up.sh:126-135` 那道門抄** —— 存在 ⇒ 印來歷 ⇒ 要人明講才刪。
+#      ⚠️ **而逃生門沿用本檔既有的 `ADMIN_PROBE_FORCE_DOWN=1`, 不新開一個 `FORCE`**:
+#      同一支腳本兩個逃生門, 讀的人會挑到沒接上的那一個。
+#    🔵 **「有 owner.txt 而沒有 REPO 那一行」也擋** —— 那是 2026-09-03 之前起的鑽機,
+#      對「這是誰的」這一題, 它與「完全沒有 owner.txt」是同一個未知狀態。
+#      (完全沒有 owner.txt 的那條路上面已經擋掉了, 走不到這裡。)
+#      🛑 **而這一支【對「刪不刪」零判別力】, 我量過** —— 拿掉它, 空字串照樣落到下面那個
+#      `!=` ⇒ 一樣擋。**它守的是【理由句】**:有它 ⇒「沒有 REPO 那一行(2026-09-03 之前起的)」;
+#      沒它 ⇒「它的 REPO 是 ,而我這棵樹是 …」—— 一個空值, 讀起來像輸出壞掉、不像一個原因。
+#      ⇒ 📌 **留著, 而不要把它當成一道守門記在帳上。**
+_foreign=0; _foreign_why=""
+if [ "$_existed" = "1" ] && [ "$_had_owner" = "1" ]; then
+  _owner_repo="$(sed -n "s/^REPO[[:space:]]*:[[:space:]]*//p" "$S/owner.txt" | head -1)"
+  if [ -z "$_owner_repo" ]; then
+    _foreign=1
+    _foreign_why="它的 owner.txt 沒有 REPO 那一行(2026-09-03 之前起的)⇒ 認不出是誰的"
+  elif [ "$_owner_repo" != "$REPO_DOWN" ]; then
+    _foreign=1
+    _foreign_why="它的 REPO 是 $_owner_repo,而我這棵樹是 $REPO_DOWN"
+  fi
+  if [ "$_foreign" = "1" ] && [ "${ADMIN_PROBE_FORCE_DOWN:-}" = "1" ]; then
+    _foreign=0
+    echo "⚠️ ADMIN_PROBE_FORCE_DOWN=1 ⇒ 照你的意思刪掉 $S($_foreign_why)" >&2
+  fi
+fi
+
+if [ "$rc" = "0" ] && [ "$_foreign" = "0" ]; then
   rm -rf "$S"   # 🔴 引號:`${ADMIN_PROBE_DIR:-…}` 只擋空字串,擋不了空白/glob(W6 `W6-043` n3)
   if [ -e "$S" ]; then echo "🔴 刪不掉"; rc=1
   elif [ "$_existed" = "1" ]; then echo "已刪"
   else echo "⚠️ 本來就不存在(不是我刪的)—— 見上面那則 owner.txt 警告"; fi
-else
+elif [ "$rc" != "0" ]; then
   echo "⏸ 保留供你查(上面有紅,現在刪掉會把證據一起刪了)"
+else
+  # 🔴 **這一格與上面那個 `⏸` 印不同的東西** —— 兩種「不刪」的下一步相反:
+  #    上面那個是「先去查你自己的紅」, 這一個是「你可能收到別人頭上了」。
+  # 🔴🔴 **而順序是鑽機抓出來的, 不是排版**:世界 C(埠被佔 **而且** 目錄是別人的)
+  #    原本走這一支 ⇒ 它把「**有東西還活著**」藏起來了。兩個原因同時成立時,
+  #    先講活著的那個 —— ⇒ **`rc` 紅擺前面, 這一支擺後面。**
+  echo "🛑 不刪 —— 這個資料目錄不像是我的"
+  rc=1
+  echo "" >&2
+  echo "🛑 **$S 我沒有刪。**$_foreign_why" >&2
+  echo "   ── 這通常表示你【帶錯埠】了 ──" >&2
+  echo "   問一次:你帶的那四個埠, 是不是【別組】的?" >&2
+  echo "   上面那些綠只證明【我查的那一組】沒人聽, 它不證明這個資料目錄是你的。" >&2
+  echo "   ⇒ 刪掉它, 別窗那台 postgres 就變成沒有資料目錄的孤兒, 而你這一端一切正常。" >&2
+  echo "" >&2
+  echo "   ── 怎麼往下走 ──" >&2
+  echo "   ① 先比對上面印出來的來歷, 確定你要收的是不是這一組埠" >&2
+  echo "   ② 看過、確定要刪 ⇒ ADMIN_PROBE_FORCE_DOWN=1 bash scripts/admin-probe/down.sh" >&2
 fi
 
 echo
