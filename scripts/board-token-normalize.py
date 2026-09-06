@@ -238,6 +238,7 @@ def check_staged():
     d = subprocess.run(['git', 'diff', '--cached', '-U0', '--no-renames', '--', BOARD],
                        capture_output=True, text=True)
     newrows = []
+    notok = []          # 新開的 open/doing 列而【完全沒有 token】
     if d.returncode == 0:
         for ln in d.stdout.split('\n'):
             if not ln.startswith('+| ') or ln.startswith('+++'):
@@ -246,9 +247,23 @@ def check_staged():
             g = SPLIT.split(row)
             if len(g) < 4 or g[1].strip() not in ('open', 'doing'):
                 continue
+            m2 = re.search(r'⟦[^⟧]+⟧|#\d+', g[2])
+            key = m2.group(0) if m2 else g[3].strip()[:34]
             if not any(w in row for w in CLOSE_WORDS):
-                m2 = re.search(r'⟦[^⟧]+⟧|#\d+', g[2])
-                newrows.append(m2.group(0) if m2 else g[3].strip()[:34])
+                newrows.append(key)
+            # 🔴 2026-09-07 加:新開的 open/doing 列【完全沒有 token】。
+            #    既有的「位移候選」要求行內至少有一個 ⟨…⟩ ⇒ **一個都沒有的列它看不到**。
+            #    而那正是 2026-09-07 12:5x 我用手抓到的那一列(⟦f3-PDPSKUSTATIC⟧):
+            #    計數器把它算進「未填」, 而**沒有人在看那一格** ⇒
+            #    🛑 白話版頭條那句「全部判完了」**有 20 分鐘是不成立的, 而沒有東西會出聲。**
+            if not FIND.search(row):
+                notok.append(key)
+    if notok:
+        print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 新開的 open/doing 列有 {len(notok)} 列【完全沒有擋上線 token】')
+        for k in notok:
+            print(f'   ⬜ 新列 {safe(k):32} ← **這列擋不擋上線?**(⟨擋⟩／⟨不擋⟩／⟨未判(為什麼)⟩)')
+        print('   🟡 沒有 token 的列會被計數器算進「未填」——')
+        print('      🛑 而「還在擋幾件」那個數字就【少算了它】, 且沒有任何東西會出聲。')
     if newrows:
         print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 新開的 open/doing 列有 {len(newrows)} 列沒寫「怎樣算做完」')
         for k in newrows:
@@ -265,7 +280,7 @@ def check_staged():
         print(f'   done+擋  :{n:5} {safe(k)}  {safe(why)}')
     for k, ns in dups:
         print(f'   重複列   {safe(k):28} 出現在 :{ns}  ← 同一件事被數兩次')
-    if mis or dblock or dups:
+    if mis or dblock or dups or notok:
         print('   🟡 **只是提醒, 不擋這顆 commit**(rc 恆 0)。修法:`python3 scripts/board-token-normalize.py --fix`')
         print('      🔴 而 `--fix` 動的是【工作樹】⇒ 修完要重新 `git add` 才會進這顆 commit。')
     return 0
@@ -429,6 +444,28 @@ def selftest():
         o4 = buf4.getvalue()
         ck('新列沒寫關閉條件 ⇒ 叫', '⟦x-NOCLOSE⟧' in o4 and '做到哪算完' in o4, True)
         ck('新列沒寫關閉條件 ⇒ rc 仍 0', check_staged(), 0)
+        # ═══ 新列【完全沒有 token】的兩個世界(2026-09-07)═══
+        #   ⚠️ 正對照那列刻意【一個角括號都不放】—— 我 11:2x 才踩過
+        #      「fixture 的描述文字自己命中判準」那個坑。
+        io.open(board, 'w', encoding='utf-8').write(
+            base_rows + '\n| open | ⟦x-NOTOK⟧ | 新開一列而末格只有描述 | 誰 | 只有描述 |\n')
+        git('add', BOARD)
+        buf9 = _io.StringIO()
+        with contextlib.redirect_stdout(buf9):
+            check_staged()
+        o9 = buf9.getvalue()
+        ck('新列完全沒 token ⇒ 叫', '⟦x-NOTOK⟧' in o9 and '這列擋不擋上線' in o9, True)
+        ck('新列完全沒 token ⇒ rc 仍 0', check_staged(), 0)
+        # 🔴 負對照:新列【有】token ⇒ 這一條不可以叫
+        #    (它仍可能因為「沒寫關閉條件」而被另一條叫 ⇒ 所以只比對「擋不擋上線」那句)
+        io.open(board, 'w', encoding='utf-8').write(
+            base_rows + '\n| open | ⟦x-HASTOK⟧ | 新開一列而末格有判 | 誰 | ⟨不擋(t)⟩ 只有描述 |\n')
+        git('add', BOARD)
+        buf10 = _io.StringIO()
+        with contextlib.redirect_stdout(buf10):
+            check_staged()
+        ck('新列有 token ⇒ 不叫那一條', '⟦x-HASTOK⟧' in buf10.getvalue().split('沒寫「怎樣算做完」')[0], False)
+
         # 負對照一:新列【有】寫關閉條件 ⇒ 不叫
         io.open(board, 'w', encoding='utf-8').write(
             base_rows + '\n| open | ⟦x-HASCLOSE⟧ | 有寫的新列 | 誰 | ⟨擋(t)⟩ **轉 `done`** = 那支貼完 |\n')
