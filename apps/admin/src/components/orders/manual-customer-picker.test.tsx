@@ -1060,3 +1060,226 @@ describe('🔴🔴 R7:預檢撞到一位很像的人 ⇒ 【不得】自動選�
     expect((screen.getByRole('radio') as HTMLInputElement).checked).toBe(true);
   });
 });
+
+// ── ⟦b4-收件即建客⟧ 收件那一塊 ⇒ 建客人(2026-09-06,plan §2)────────────────────────
+//  🔴 **這一族全部走【整張表單】渲染, 不能只 render picker** —— 事件的射程就是那張 form,
+//     picker 單獨渲染時 `.form` 是 `null`, 而那個世界的正確行為是「照實說沒接上」(見 ship-to 那支)。
+describe('🔴🔴 ⟦b4-收件即建客⟧:收件那兩格 ⇒ 建客人, 而後面一個字都不分岔', () => {
+  function renderWholeForm() {
+    return render(
+      <ManualOrderFormBody
+        manualRequestId={ORDER_KEY}
+        customerRequestId={CUSTOMER_KEY}
+        activeStaff={[{ id: 'alice', label: '小愛' }]}
+        staffLoadFailed={false}
+      />,
+    );
+  }
+  const fillShipTo = (name: string, phone: string) => {
+    fireEvent.change(screen.getByLabelText('收件人'), { target: { value: name } });
+    fireEvent.change(screen.getByLabelText('收件人電話'), { target: { value: phone } });
+  };
+  const press = async () => {
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('manual-order-ship-to-create-customer'));
+    });
+  };
+
+  it('A · 兩格有值 ⇒ action 收到的是【收件那兩格】, 而且帶同一顆冪等鍵', async () => {
+    mocks.create.mockResolvedValue({
+      ok: true,
+      idempotent: false,
+      outcome: 'created',
+      candidate: { userId: USER_A, name: '陳大文', phone: '0922333444', isManual: true },
+    });
+    renderWholeForm();
+    // 🔵 建立區那兩格【故意留空】—— 這樣「它讀錯欄位」與「它讀對欄位」在斷言上分得開。
+    fillShipTo('陳大文', '0922333444');
+    await press();
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+    expect(mocks.create).toHaveBeenCalledWith({
+      name: '陳大文',
+      phone: '0922333444',
+      requestId: CUSTOMER_KEY,
+    });
+  });
+
+  it('A · 建好的那位【自動選起來】, 而選中的真相仍然只住在原生 radio 上', async () => {
+    mocks.create.mockResolvedValue({
+      ok: true,
+      idempotent: false,
+      outcome: 'created',
+      candidate: { userId: USER_A, name: '陳大文', phone: '0922333444', isManual: true },
+    });
+    renderWholeForm();
+    fillShipTo('陳大文', '0922333444');
+    await press();
+    const radio = await waitFor(() => {
+      const el = document.querySelector('input[type="radio"][name="customer_user_id"]');
+      if (!el) throw new Error('還沒有候選');
+      return el as HTMLInputElement;
+    });
+    expect(radio.value).toBe(USER_A);
+    expect(radio.checked).toBe(true);
+  });
+
+  // 🔴 斷言【不能只比「客人」兩個字】—— 失敗那句「這一頁的『客人』那一塊沒有接上」
+  //    也含那兩個字 ⇒ 那把尺在兩個相反的世界印同一個綠。改比只有成功路才有的字。
+  it('A · 收件那一塊要說出結果去哪裡看(不然員工會站在原地等)', async () => {
+    mocks.create.mockResolvedValue({
+      ok: true,
+      idempotent: false,
+      outcome: 'created',
+      candidate: { userId: USER_A, name: '陳大文', phone: '0922333444', isManual: true },
+    });
+    renderWholeForm();
+    fillShipTo('陳大文', '0922333444');
+    await press();
+    const said = screen.getByTestId('manual-order-ship-to-notice').textContent ?? '';
+    expect(said).toContain('已送去建客人');
+    expect(said).not.toContain('沒有接上');
+  });
+
+  it('🔴 A 負對照 · 只填姓名、電話空著 ⇒ action【零呼叫】+ 說出缺什麼', async () => {
+    renderWholeForm();
+    fireEvent.change(screen.getByLabelText('收件人'), { target: { value: '陳大文' } });
+    await press();
+    expect(mocks.create).toHaveBeenCalledTimes(0);
+    expect(screen.getByTestId('manual-order-ship-to-notice').textContent).toContain('都要先填');
+  });
+
+  it('🔴 A 負對照 · 只填電話、姓名空著 ⇒ 一樣零呼叫(兩格【任一】空都要擋)', async () => {
+    renderWholeForm();
+    fireEvent.change(screen.getByLabelText('收件人電話'), { target: { value: '0922333444' } });
+    await press();
+    expect(mocks.create).toHaveBeenCalledTimes(0);
+  });
+
+  it('🔴🔴 B · `existing` ⇒ 那位【畫得出來】而【沒有被選起來】, 並且有警告', async () => {
+    // 同姓名 + 同電話 + 後台開的帳號 ≠ 同一個人(一家人共用市話 + 剛好同名)。
+    // 📌 這條路走的是 picker 既有的 `existing` 分支 —— 本片沒有在它旁邊開第二條。
+    mocks.create.mockResolvedValue({
+      ok: true,
+      idempotent: false,
+      outcome: 'existing',
+      candidate: { userId: USER_B, name: '陳大文', phone: '0922333444', isManual: true },
+    });
+    renderWholeForm();
+    fillShipTo('陳大文', '0922333444');
+    await press();
+    const radio = await waitFor(() => {
+      const el = document.querySelector('input[type="radio"][name="customer_user_id"]');
+      if (!el) throw new Error('還沒有候選');
+      return el as HTMLInputElement;
+    });
+    expect(radio.value).toBe(USER_B);
+    expect(radio.checked).toBe(false);
+    expect(screen.getByTestId('manual-customer-picker-notice').textContent).toContain('沒有');
+  });
+
+  it('🔴 C · action 拋出去 ⇒ 出現【先不要再按一次】那句(不得叫他重按)', async () => {
+    mocks.create.mockRejectedValue(new Error('boom'));
+    renderWholeForm();
+    fillShipTo('陳大文', '0922333444');
+    await press();
+    expect(screen.getByTestId('manual-customer-picker-notice').textContent).toContain('先不要再按一次');
+  });
+});
+
+// ── ⟦b4-收件即建客⟧ codex 三條 must-fix 的守門(2026-09-06)─────────────────────────
+//  🔴 這三格全部是【新入口繞過既有保護】那一族。共同形狀:
+//     **保護畫在「舊那條路會經過的東西」上(那顆鈕的 disabled、建立區有沒有字),**
+//     **而新入口不經過它們。**
+describe('🔴🔴 ⟦b4-收件即建客⟧:新入口不得繞過既有的三道保護', () => {
+  function renderWholeForm() {
+    return render(
+      <ManualOrderFormBody
+        manualRequestId={ORDER_KEY}
+        customerRequestId={CUSTOMER_KEY}
+        activeStaff={[{ id: 'alice', label: '小愛' }]}
+        staffLoadFailed={false}
+      />,
+    );
+  }
+  const fillShipTo = (name: string, phone: string) => {
+    fireEvent.change(screen.getByLabelText('收件人'), { target: { value: name } });
+    fireEvent.change(screen.getByLabelText('收件人電話'), { target: { value: phone } });
+  };
+  const press = async () => {
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('manual-order-ship-to-create-customer'));
+    });
+  };
+
+  it('🔴🔴 MF1 · 先選了甲, 再用新入口建乙而【失敗】⇒ 一顆 radio 都不准是選中的', async () => {
+    // 病:甲仍被選著 + 建單鈕仍亮 ⇒ 員工以為單掛給乙, 而它會掛給甲。
+    // ⚠️ `hasConflict` 擋不到:走新入口的人**沒有在建立區打過字** ⇒ 它判「無衝突」。
+    mocks.search.mockResolvedValue(found(hit(USER_A, '王小明')));
+    renderWholeForm();
+    await search();
+    await act(async () => {
+      fireEvent.click(document.querySelector('input[type="radio"][name="customer_user_id"]')!);
+    });
+    expect((document.querySelector('input[type="radio"]') as HTMLInputElement).checked).toBe(true);
+
+    mocks.create.mockResolvedValue({ ok: false, reason: 'error', message: '建不出來' });
+    fillShipTo('陳大文', '0922333444');
+    await press();
+    const stillChecked = document.querySelector('input[type="radio"]:checked');
+    expect(stillChecked).toBeNull();
+    expect((screen.getByTestId('manual-order-submit') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('🔴🔴 MF2 · 搜尋【壞掉】⇒ 新入口一樣建不下去(舊那顆鈕的 disabled 管不到它)', async () => {
+    mocks.search.mockResolvedValue({ ok: false, reason: 'denied' });
+    renderWholeForm();
+    await search();
+    expect(screen.getByRole('button', { name: '建立這位客人' }).matches(':disabled')).toBe(true);
+    fillShipTo('陳大文', '0922333444');
+    await press();
+    expect(mocks.create).toHaveBeenCalledTimes(0);
+    expect(screen.getByTestId('manual-customer-picker-notice').textContent).toContain('重新登入');
+  });
+
+  it('🔴🔴 MF3 · 搜過查無留下的預填電話, 不得在建成功之後把建單鈕鎖死', async () => {
+    // 病(codex 復現):搜「5678」查無 ⇒ 建立區電話預填 5678 ⇒ 改用新入口建好客人
+    // ⇒ 帳號建好、radio 也選起來了, 而建單鈕是灰的, 因為建立區還寫著 5678。
+    mocks.search.mockResolvedValue(found());
+    renderWholeForm();
+    await search('5678');
+    expect((screen.getByLabelText('電話') as HTMLInputElement).value).toBe('5678');
+
+    mocks.create.mockResolvedValue({
+      ok: true,
+      idempotent: false,
+      outcome: 'created',
+      candidate: { userId: USER_A, name: '陳大文', phone: '0922333444', isManual: true },
+    });
+    fillShipTo('陳大文', '0922333444');
+    await press();
+    await waitFor(() => {
+      const r = document.querySelector('input[type="radio"]:checked');
+      if (!r) throw new Error('還沒選起來');
+    });
+    expect((screen.getByLabelText('電話') as HTMLInputElement).value).toBe('');
+    expect(screen.queryByTestId('manual-order-submit-conflict')).toBeNull();
+  });
+
+  it('🔵 MF3 負對照 · 員工【自己】在建立區打過電話 ⇒ 不准清掉他的字, 而且照樣擋', async () => {
+    mocks.search.mockResolvedValue(found());
+    renderWholeForm();
+    await search('5678');
+    fireEvent.change(screen.getByLabelText('電話'), { target: { value: '0911000222' } });
+
+    mocks.create.mockResolvedValue({
+      ok: true,
+      idempotent: false,
+      outcome: 'created',
+      candidate: { userId: USER_A, name: '陳大文', phone: '0922333444', isManual: true },
+    });
+    fillShipTo('陳大文', '0922333444');
+    await press();
+    // 他打的字還在 —— 而那兩格現在真的在說另一個人 ⇒ 擋下來是對的(fail-closed)。
+    expect((screen.getByLabelText('電話') as HTMLInputElement).value).toBe('0911000222');
+  });
+});

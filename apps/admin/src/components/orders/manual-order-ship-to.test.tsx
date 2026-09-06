@@ -12,6 +12,7 @@ vi.mock('@/lib/customers/manual-customer-actions', () => ({
 vi.mock('@/lib/orders/manual-order-actions', () => ({ createManualOrderAction: mocks.createOrder }));
 
 import { ManualOrderFormBody } from './manual-order-form-body';
+import { ManualOrderShipTo } from './manual-order-ship-to';
 
 const CUSTOMER_KEY = '33333333-3333-4333-8333-333333333333';
 const ORDER_KEY = '11111111-1111-4111-8111-111111111111';
@@ -247,5 +248,34 @@ describe('🔴 「同上」不得送出整張表單', () => {
   it("type 逐字是 button(預設的 submit 會把整張單送出去 ⇒ PRG ⇒ 值全清)", () => {
     renderForm();
     expect(copyBtn().getAttribute('type')).toBe('button');
+  });
+});
+
+// ── ⟦b4-收件即建客⟧「用這份收件人建客人」——【沒有人在聽】那一半 ─────────────────────
+//  🔴🔴 成功那一半在 `manual-customer-picker.test.tsx` 量(它要整張表單 + picker 真的收得到)。
+//     這裡量的是**相反的世界**:picker 不在同一張 form 上。
+//     📌 本檔檔頭自己記著「一顆『按了沒反應』的鈕, 與一顆『按了但我看不出來』的鈕, 在畫面上長一樣」
+//     ⇒ 這一格就是那句話的守門:**沒有人接手時, 那顆鈕不准說成功。**
+describe('🔴🔴 ⟦b4-收件即建客⟧:沒有人接手的時候, 鈕要照實說', () => {
+  // 🔴 **要包一層 `<form>`, 而那不是裝飾** —— 本檔檔頭那段逐字警告過:
+  //    沒有 form ⇒ 這一支連**自己那兩格**都讀不到(它走 `rootRef.current.form.querySelector`)
+  //    ⇒ 兩格都讀成空 ⇒ 走「都要先填」那條路 ⇒ **這一格會綠在一個無關的理由上。**
+  //    (我第一版就是這樣寫的, 而它紅了 —— 紅得對。)
+  //    ⇒ 有 form、沒 picker = 我要量的那個世界:**值讀得到, 而沒有人在聽。**
+  it('有 form、而沒有 picker 在聽 ⇒ 不得謊報成功, 而且零呼叫', async () => {
+    render(
+      <form>
+        <ManualOrderShipTo />
+      </form>,
+    );
+    fireEvent.change(screen.getByLabelText('收件人'), { target: { value: '陳大文' } });
+    fireEvent.change(screen.getByLabelText('收件人電話'), { target: { value: '0922333444' } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('manual-order-ship-to-create-customer'));
+    });
+    const said = screen.getByTestId('manual-order-ship-to-notice').textContent ?? '';
+    expect(said).toContain('沒有接上');
+    expect(said).not.toContain('已送去建客人');
+    expect(mocks.create).toHaveBeenCalledTimes(0);
   });
 });

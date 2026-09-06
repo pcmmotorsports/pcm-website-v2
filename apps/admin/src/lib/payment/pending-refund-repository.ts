@@ -57,10 +57,12 @@ export const PENDING_REFUND_RPC_NAME = 'pcm_pending_refund_amounts';
 
 export async function listPendingRefundAmounts(orderId: string): Promise<PendingRefundRail[]> {
   const client = createSupabaseServiceClient();
-  const { data, error } = await client.rpc(
-    PENDING_REFUND_RPC_NAME as Parameters<ReturnType<typeof createSupabaseServiceClient>['rpc']>[0],
-    { p_order_id: orderId } as never,
-  );
+  // 🟢 **cast 拿掉了**(2026-09-06, 板列 `⟦0b-TYPESNOTREGEN⟧`)——
+  //   ⛔ ~~`PENDING_REFUND_RPC_NAME as Parameters<…>[0]` + `{ … } as never`~~
+  //   🔴 那兩個 cast 的代價是:**「名字打錯」不再是編譯錯誤**, 而這支檔是那支 RPC 的唯一呼叫端。
+  //   ✅ 型別檔補了 ㉑ 之後就不需要它們了 —— 而**證明它不需要的是 typecheck**:
+  //     名字或參數只要對不上, 這一行現在會紅。
+  const { data, error } = await client.rpc(PENDING_REFUND_RPC_NAME, { p_order_id: orderId });
 
   // 🔴 **錯誤不得收斂成空陣列** —— 那會把「讀不到」畫成「沒有待退款」,
   //    而那正是這個功能要防的那個方向。

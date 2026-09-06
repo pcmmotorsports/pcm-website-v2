@@ -66,6 +66,7 @@ const ORDER: MemberOrderDetail = {
       unitPrice: money(6000),
       lineTotal: money(12000),
       shipped: false,
+      shippedQuantity: 0,
     },
   ],
   itemCount: 2,
@@ -979,6 +980,31 @@ describe('⟦b9-SHIPUI⟧ 進度軸「已出貨」', () => {
       Array.from(c.querySelectorAll('.od-line')).map(
         (l) => l.querySelector('[data-od-id="order-line-shipped"]')?.textContent ?? null,
       );
+
+    /**
+     * ⟦b9-SHIPUI⟧ ①(2026-09-06;Sean Q6 拍甲)—— **同一列上要看得到「出了幾件 / 共幾件」。**
+     *
+     * 🔵 **為什麼上面那幾格沒有跟著紅**:它們的 fixture `shippedQuantity` 是 **0**
+     *    ⇒ 走的是「不知道件數 ⇒ 退回『已出貨』」那條防禦路徑
+     *    ⇒ 📌 **它們證的是【那條防禦路徑成立】, 而不是【件數沒有被接上】。**
+     *    本格就是把「接上了」那一半補起來。
+     */
+    it('🔴 ⟦b9-SHIPUI⟧ 一件出 1 / 訂 2 ⇒ 那一列印「已出貨 1 / 2」, 出滿的那列只印「已出貨」', () => {
+      const MIXED: MemberOrderDetail = {
+        ...PARTIAL,
+        items: [
+          it3({ shipped: true, quantity: 2, shippedQuantity: 1 }, 1),
+          it3({ shipped: false, quantity: 2, shippedQuantity: 0 }, 2),
+          it3({ shipped: true, quantity: 2, shippedQuantity: 2 }, 3),
+        ],
+      };
+      const { container } = render(<OrderDetailView order={MIXED} />);
+      expect(marks(container)).toEqual([
+        '已出貨 1 / 2',
+        null,
+        ORDER_DETAIL_ITEM_SHIPPED_MARK,
+      ]);
+    });
 
     it('🔴 出了第 1、3 件 ⇒ 只有那兩列印「已出貨」, 中間那列不印', () => {
       const { container } = render(<OrderDetailView order={PARTIAL} />);

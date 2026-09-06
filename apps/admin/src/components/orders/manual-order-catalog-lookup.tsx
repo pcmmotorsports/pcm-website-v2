@@ -119,7 +119,7 @@ export function ManualOrderCatalogLookup({ searchAction }: ManualOrderCatalogLoo
              🎯 理由不是好聽:**方向詞會在下一次有人調整版面順序時再次變成假的, 而區塊名不會。**
              ⇒ 這一格順手把「同一個病下次還會發生」關掉, 不只修這一次。 */}
       <p className='text-sm font-medium' data-testid='catalog-lookup-hint'>
-        查商品(查到之後按「加成一列」,料號、品名、單價會自己填進「品項」;要改的自己改)
+        查商品(查到之後點那一列,料號、品名、單價會自己填進「品項」;要改的自己改)
       </p>
       <div className='mt-2 flex gap-2'>
         <input
@@ -163,7 +163,34 @@ export function ManualOrderCatalogLookup({ searchAction }: ManualOrderCatalogLoo
                  📌 **而那一版 `design-tokens` 那道守門【照樣印綠】—— 它掃的是文字,不編譯。**
                  ⇒ 一支**根本 parse 不過**的檔,在那道守門底下與一支正確的檔長得一樣。 */}
           {hits.map((h) => (
-            <li key={h.variantId} className='rounded-md border px-2 py-1'>
+            <li key={h.variantId}>
+              {/* 🔴🔴 **整列【就是】那顆鈕**(⟦b4-點列即加⟧ 2026-09-06,Sean 逐字:
+                  「我輸入料號沒有點一下加成一列, 那我們乾脆改成點擊該列加入不就更簡單?更直覺」)。
+                  ⛔ ~~原本:一列文字 + 右邊一顆小鈕~~ ——
+                  ⚠️ 而**不是**「在 `<li>` 上掛 onClick、鈕留在裡面」:
+                    ① `<button>` 不能包 `<button>`(HTML 不合法)
+                    ② 鈕的 click 會冒泡到列 ⇒ **按鈕一次加兩列**, 要靠 `stopPropagation` 補
+                    ③ 掛在 `<li>` 上的點擊沒有鍵盤與焦點, 要自己補 `role`/`tabIndex`/Enter/Space
+                  ⇒ 📌 **把整列做成一顆原生 `<button>`, 上面三件事都不必做。**
+                  🔵 「加成一列」那四個字**留在畫面上**(守門 `catalog-lookup.test.tsx:202`
+                     逐字要求它出現;而它現在是這顆大鈕的標籤)。 */}
+              <button
+                type='button'
+                data-testid='catalog-hit-row'
+                onClick={(e) => {
+                  // 🔴🔴 **他在這一列【選字要複製】的時候, 不算「他要加這一列」。**
+                  //    病:拖曳選取價格數字之後放開滑鼠, 瀏覽器**照樣發一個 click**
+                  //    ⇒ 他只是想複製那個數字, 而單子上多了一列。
+                  //    🛑 而這一列的註解自己記著:員工的動作是【選取數字複製】,
+                  //      那個動線是本檔既有的設計, 不是我可以順手弄壞的東西。
+                  //    ⚠️ **只看【落在這一列裡】的選取** —— 拿整頁的選取來擋的話,
+                  //      他在別處選了字就再也點不動任何一列。
+                  const sel = window.getSelection();
+                  if (sel && sel.toString() !== '' && sel.anchorNode && e.currentTarget.contains(sel.anchorNode)) return;
+                  emitManualOrderLineSeed(toSeed(h));
+                }}
+                className='block w-full rounded-md border px-2 py-1 text-left text-sm'
+              >
               <span className='font-mono'>{h.sku}</span> · {h.title === '' ? '(無品名)' : h.title}
               {' · '}
               {/* 🔴🔴 **稅基標籤與數字在【同一個 <span> 裡】—— 那是刻意的, 不是排版**:
@@ -182,13 +209,7 @@ export function ManualOrderCatalogLookup({ searchAction }: ManualOrderCatalogLoo
                   index 只有 `ManualOrderLines` 一個持有者;這裡自己算 index 兩邊必撞,
                   而解析器 `manual-order-form.ts:339-347` 要求 `_0.._n` 連號 ⇒ 撞了整張表單被拒。
                   🔵 樣式**逐字沿用同頁那顆「查詢」鈕**(`:112-118`), 不自創(plan §3)。 */}
-              <button
-                type='button'
-                onClick={() => emitManualOrderLineSeed(toSeed(h))}
-                className='ml-2 rounded-md border px-3 py-1 text-sm disabled:opacity-50'
-              >
-                加成一列
-              </button>
+              <span className='ml-2 rounded-md border px-3 py-1 text-sm'>加成一列</span>
               {/* 🛑 **沒有經銷價就要說出來, 不能安靜地種 0** ——
                   0 是一個合法的價格, 它會變成一張零元的單而沒有東西會叫。 */}
               {h.dealerPriceUntaxed === null && (
@@ -196,6 +217,7 @@ export function ManualOrderCatalogLookup({ searchAction }: ManualOrderCatalogLoo
                   沒有經銷價,單價要自己填
                 </span>
               )}
+              </button>
             </li>
           ))}
         </ul>

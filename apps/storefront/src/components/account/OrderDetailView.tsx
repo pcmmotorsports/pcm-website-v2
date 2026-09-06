@@ -68,7 +68,7 @@ import {
 } from '@/lib/orders/order-display';
 import {
   ORDER_DETAIL_ITEM_CANCELLED_MARK,
-  ORDER_DETAIL_ITEM_SHIPPED_MARK,
+  orderDetailItemShippedMark,
   ORDER_DETAIL_ITEMS_TRUNCATED_NOTE,
   ORDER_DETAIL_PARTIAL_SHIPMENT_NOTE,
   ORDER_DETAIL_UNPAID_SHIPPED_NOTE,
@@ -167,11 +167,15 @@ function OrderLine({
                客人被告知「出了一部分」, 而畫面上沒有任何東西說得出【是哪一部分】。
             🔴 **沒出貨的那幾列什麼都不印, 而那是刻意的** —— 他那句話裡沒有「準備中」,
                補一個他沒說的字與改掉他說的字是同一種錯(完整理由在常數的 docstring)。
-            🛑 **不印日期也不印數量** —— 數量摘要不給顧客站是既有政策(板 ⟦b9-SHIPUI⟧ ①),
-               而那條政策今天沒有任何測試擋著、只有人的拍板擋著 ⇒ 更不能順手加。 */}
+            🛑 **不印日期。**⛔ ~~也不印數量 —— 數量摘要不給顧客站是既有政策~~
+               ⇒ 🟢 **2026-09-06 Sean Q6 拍甲推翻了【件數】那一格**(⟦b9-SHIPUI⟧ ①):
+               顧客**可看**「每件出了幾件 / 共幾件」, **仍不可看**箱數、出貨批次時間、
+               追蹤號以外的節奏。⚠️ 而**日期那一半沒有被推翻**, 這裡照舊不印。
+            🔴 **舊註解說「那條政策沒有任何測試擋著、只有人的拍板擋著」—— 本片把它做成機制**:
+               界線寫進 `MEMBER_ORDER_DETAIL_SELECT` 的 forbidden-token 守門, 不再靠記得。 */}
         {item.shipped && (
           <div className="od-line-ship" data-od-id="order-line-shipped">
-            {ORDER_DETAIL_ITEM_SHIPPED_MARK}
+            {orderDetailItemShippedMark(item.shippedQuantity, item.quantity)}
           </div>
         )}
         {/* ⟦ship-WHICHITEMSSHIPPED⟧ **這一件不會來了**(Sean 2026-09-04 拍 Q-C 乙:灰字「已取消」)。

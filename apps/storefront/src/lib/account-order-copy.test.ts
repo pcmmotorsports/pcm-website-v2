@@ -4,6 +4,7 @@ import path from 'node:path';
 import {
   ORDER_DETAIL_ITEM_CANCELLED_MARK,
   ORDER_DETAIL_ITEM_SHIPPED_MARK,
+  orderDetailItemShippedMark,
   ORDER_DETAIL_UNPAID_SHIPPED_NOTE,
   ORDER_ITEM_COUNT_TRUNCATED_NOTE,
   RETRY_PROMISE_WORD_ROOTS,
@@ -170,5 +171,46 @@ describe('⟦ship-AXISHOLE⟧ / ⟦ship-WHICHITEMSSHIPPED⟧ 2026-09-04 Sean 拍
       'utf8',
     );
     expect(css, '路徑對了但檔不對 ⇒ 上面那格會紅, 而紅的理由是錯的').toContain('.od-line-fits');
+  });
+});
+
+/**
+ * ⟦b9-SHIPUI⟧ ①(2026-09-06;Sean Q6 拍甲)——「這一件出了幾件 / 共幾件」的三個世界。
+ *
+ * 🔴 **它們印不同的東西, 而那正是這一族要證的**:三格若印同一句話, 這個函式等於沒做事。
+ */
+describe('⟦b9-SHIPUI⟧ orderDetailItemShippedMark:三個世界印三種東西', () => {
+  it('🔴 部分出貨 ⇒ 印件數(這一格就是本片存在的理由)', () => {
+    expect(orderDetailItemShippedMark(2, 5)).toBe('已出貨 2 / 5');
+    expect(orderDetailItemShippedMark(1, 2)).toBe('已出貨 1 / 2');
+  });
+
+  it('🟢 出滿 ⇒ 只印「已出貨」, 不印 5 / 5(那是雜訊, 客人只要知道到齊了)', () => {
+    expect(orderDetailItemShippedMark(5, 5)).toBe(ORDER_DETAIL_ITEM_SHIPPED_MARK);
+    // 🔵 多出來也算到齊(資料異常時不要對客人講一句更奇怪的話)
+    expect(orderDetailItemShippedMark(6, 5)).toBe(ORDER_DETAIL_ITEM_SHIPPED_MARK);
+  });
+
+  it('🔴🔴 件數是 0 / 缺 / 負 ⇒ 退回「已出貨」, 【絕不】印「0 / 5」', () => {
+    // 🛑 **這一格演的是一個【今天構造不出來】的世界**(code-reviewer 2026-09-06 訂正):
+    //    `shipped_quantity` 是 `integer NOT NULL` + `CHECK (> 0)` ⇒ 缺的只會是整個 embed,
+    //    而那時 `shipped` 也是 false ⇒ 呼叫端根本不會叫到這裡。
+    // ✅ 留著的理由:**萬一走到了**, 印「已出貨 0 / 5」會讓客人以為東西被弄丟了。
+    //    ⇒ 它是防禦, 不是在描述一條走得到的路 —— 這一句就是那個差別。
+    for (const q of [0, -1, Number.NaN]) {
+      expect(orderDetailItemShippedMark(q, 5)).toBe(ORDER_DETAIL_ITEM_SHIPPED_MARK);
+      expect(orderDetailItemShippedMark(q, 5)).not.toContain('0');
+    }
+  });
+
+  it('🔴 三個世界互不相同(否則上面三格可以在「永遠回同一句」時全綠)', () => {
+    const worlds = [
+      orderDetailItemShippedMark(2, 5), // 部分
+      orderDetailItemShippedMark(5, 5), // 全出
+      orderDetailItemShippedMark(0, 5), // 未知
+    ];
+    // 🔵 全出與未知【刻意相同】(都印「已出貨」)⇒ 所以這裡問的是「部分」那一個要不同。
+    expect(worlds[0]).not.toBe(worlds[1]);
+    expect(new Set(worlds).size).toBe(2);
   });
 });
