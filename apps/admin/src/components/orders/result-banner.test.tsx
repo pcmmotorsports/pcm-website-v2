@@ -457,6 +457,14 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       'manual_cancel_notice_audit_failed',
       'manual_cancel_notice_write_failed',
       'manual_cancel_notice_raced',
+      // 🔵 撤銷登錄六顆(2026-09-06 同一片)。**逐顆列出、不用迴圈展開**(理由同上一族)。
+      //    🔴 這裡一樣**沒有成功碼** —— 一則假的「已撤銷」會讓員工不再去撤, 那張單就停在提醒外面。
+      'manual_cancel_revoke_denied',
+      'manual_cancel_revoke_invalid',
+      'manual_cancel_revoke_not_found',
+      'manual_cancel_revoke_not_manual',
+      'manual_cancel_revoke_audit_failed',
+      'manual_cancel_revoke_revoke_failed',
     ];
 
     // ① 表裡沒有第三種鍵(新增未歸類的碼 → 紅)

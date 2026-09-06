@@ -43,7 +43,10 @@ import {
 } from '../../lib/orders/amount-action-state';
 
 import { manualOrderResultCode } from '@/lib/orders/manual-order-action-state';
-import { MANUAL_CANCEL_NOTICE_MESSAGES } from '@/lib/orders/manual-cancel-notice-messages';
+import {
+  MANUAL_CANCEL_NOTICE_MESSAGES,
+  MANUAL_CANCEL_REVOKE_MESSAGES,
+} from '@/lib/orders/manual-cancel-notice-messages';
 
 // result-banner.tsx — 改單 PRG 結果提示(M-4a Slice C;server action redirect 帶 ?r=<code> 後顯示)。
 // server-render;code 由頁面從 searchParams.r 讀入。未知/缺 → 不顯示。
@@ -57,6 +60,8 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   // ── ⟦b4-CANCELMAILMIXEDRAIL⟧ 片 B:登錄人工寄出取消通知(12 顆, 全部帶
   //    `manual_cancel_notice_` 前綴;**成功刻意沒有碼**, 理由在那支 messages 檔)────
   ...MANUAL_CANCEL_NOTICE_MESSAGES,
+  // ── ⟦b4-CANCELMAILMIXEDRAIL⟧ 撤銷登錄六顆(**成功一樣沒有碼**)────────────
+  ...MANUAL_CANCEL_REVOKE_MESSAGES,
 
   // ── M12-A3-b 手動建單線(`#858`)八顆(沒送到 2 + 送到之後 6) ────────────────────────────────────────
   // 🔴 **全部帶 `manual_order_` 前綴**:`denied` / `invalid` / `error` 這三個字面在本表裡

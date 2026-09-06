@@ -1,6 +1,9 @@
 'use client';
 
-import { recordManualCancelNoticeAction } from '@/lib/orders/manual-cancel-notice-actions';
+import {
+  recordManualCancelNoticeAction,
+  revokeManualCancelNoticeAction,
+} from '@/lib/orders/manual-cancel-notice-actions';
 import type { ManualCancelNoticeEligibility } from '@/lib/orders/manual-cancel-notice-read';
 
 /**
@@ -27,11 +30,58 @@ import type { ManualCancelNoticeEligibility } from '@/lib/orders/manual-cancel-n
 export function ManualCancelNoticeButton({
   orderId,
   eligibility,
+  canRevoke = false,
 }: {
   orderId: string;
   eligibility: ManualCancelNoticeEligibility;
+  /**
+   * 🔴 **這一格不是 `eligibility` 的反面** —— `already_recorded` 有兩種成因
+   *    (人工登錄的 / 系統寄的), 而**只有前者准撤**。由伺服器現讀決定, 見
+   *    `canRevokeManualCancelNotice`。
+   */
+  canRevoke?: boolean;
 }) {
   if (!eligibility.eligible) {
+    // 🔵 已經登錄過而且是【人工】那一列 ⇒ 給撤銷鈕(誤按的唯一救援)。
+    if (eligibility.blocker === 'already_recorded' && canRevoke) {
+      return (
+        <form
+          action={revokeManualCancelNoticeAction}
+          className='mt-3 border-t pt-3'
+          onSubmit={(event) => {
+            if (
+              !window.confirm(
+                '確定要撤銷「已人工寄出取消通知」的登錄嗎?\n\n' +
+                  // ⛔ ~~系統之後可能會自己寄一封取消信給客人~~
+                  // 🔴 **那句話是錯的**(code-reviewer must-fix, 我開檔核過):
+                  //    自動寄的掃描面是 `pcm_cancelled_email_pending`, 而它逐字帶
+                  //    `NOT EXISTS (order_manual_refunds WHERE voided_at IS NULL)`
+                  //    (`20260905310000:193-196`)⇒ 🛑 **混合退款的單被【永久排除】**
+                  //    ⇒ 📌 刪掉那一列**不會**讓它回到自動寄的隊列, 只會回到**人工提醒**。
+                  //    ⇒ ⇒ 再寄的是**人**, 不是系統。方向不同, 而客服照這句話決定要不要撤。
+                  '⚠️ 撤銷之後這張單會【重新回到「要人工寄」的提醒裡】。\n' +
+                  '⇒ 只有【按錯了、其實沒寄】才撤。如果你其實真的寄過信,' +
+                  '撤掉之後會有人再寄一次,客人就收到第二封。',
+              )
+            ) {
+              event.preventDefault();
+            }
+          }}
+        >
+          <input type='hidden' name='order_id' value={orderId} />
+          <p className='text-muted-foreground text-xs'>
+            這張單已經登錄過「人工寄出取消通知」。
+            <strong>按錯了</strong>才需要撤銷 —— 撤了它會重新回到提醒裡。
+          </p>
+          <button
+            type='submit'
+            className='mt-3 rounded-md border px-2 py-1 text-xs disabled:opacity-50'
+          >
+            撤銷這筆人工登錄
+          </button>
+        </form>
+      );
+    }
     if (eligibility.blocker !== 'unreadable') return null;
     return (
       <p className='text-muted-foreground mt-3 text-xs'>
@@ -47,10 +97,12 @@ export function ManualCancelNoticeButton({
       /**
        * 🔴🔴 **送出前 confirm —— 而這一顆【不可撤銷】, 不是一般的二次確認。**
        * 主視窗 2026-09-06 裁乙時逐字要求「確認對話框兩顆鈕都要」;R2 must-fix ② 指出我沒做。
-       * 🛑 **為什麼特別重要**:按下去插的那一列會**永久吃掉** `email_outbox` 上
+       * 🛑 **為什麼特別重要**:按下去插的那一列會吃掉 `email_outbox` 上
        *    `(order_cancelled, <orderId>)` 那個唯一鍵, 而掃描 view 的 anti-join **只問 event_type**
-       *    ⇒ 📌 **誤按一次 = 那位客人的系統取消信【永久關閉】**, 而後台**今天沒有撤銷入口**
-       *      (撤銷那一片還沒做)。
+       *    ⇒ 📌 **誤按 = 那張單從「要人工寄」的提醒裡消失。**
+       *    ⛔ ~~而後台今天沒有撤銷入口(撤銷那一片還沒做)~~
+       *    🔵 **2026-09-06 起有了** —— 就是下面那顆「撤銷這筆人工登錄」(同一片做的)。
+       *      ⇒ ⚠️ 但**撤銷需要管理者權限**, 而按錯的人不一定有 ⇒ confirm 仍然要。
        * 🔵 形狀照既有的 `note-compose-form.tsx:216-220`(同樣是「不可撤回 ⇒ 送出前 confirm」),
        *    不自己發明。⚠️ 而 `window.confirm` 只擋得住**手滑**, 擋不住**看錯單** ——
        *    所以訊息裡把**收件信箱**印出來, 讓他有一個可以核對的東西。
@@ -63,8 +115,11 @@ export function ManualCancelNoticeButton({
               // 🔴 codex R3 nit ④:SOP 叫客服「看清楚是不是那張單」而框裡**沒有單號**
               //    ⇒ 同一個客人有兩張合格單、信箱又一樣時, 兩個分頁的框**長得一模一樣**。
               `訂單:${eligibility.displayId ?? orderId}\n收件人:${String(email ?? '')}\n\n` +
-              '⚠️ 這個動作不可撤銷:登錄之後,系統就不會再把這張單列進「還沒寄」的提醒,' +
-              '而後台目前沒有地方可以把它改回來。',
+              // ⛔ ~~這個動作不可撤銷…後台目前沒有地方可以把它改回來~~
+              // 🔴 **2026-09-06 那句話在【同一顆 diff 裡】變成假的** —— 撤銷鈕就是這一片做的。
+              //    (code-reviewer 抓到, 並指出 repo 有同型前科:`receipt-undo-bar.tsx:75`)
+              '登錄之後,系統就不會再把這張單列進「還沒寄」的提醒。' +
+              '⚠️ 按錯了可以用下面的「撤銷這筆人工登錄」改回來,而那需要管理者權限。',
           )
         ) {
           event.preventDefault();

@@ -1,5 +1,5 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十七個函式、共四十處**手動校正,
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十八個函式、共四十一處**手動校正,
 //    🔴 **2026-09-06 合併 `agent/line-ship` 與 `agent/line-ship-5b-sentnum` 時重新編號** ——
 //      兩條分支各自加了一條(⑱ 與 ⑲), 而**它們在各自的樹上都看不到對方** ⇒ 數字各算各的。
 //      ⇒ 📌 那正是 ⑲ 自己註解裡預言的那一撞:「合併這兩條分支的人請重新編一次號。」
@@ -504,6 +504,12 @@
 //         ⇒ 走不到這個型別聯集。本支走 supabase-js `.rpc()` ⇒ 才需要登記。
 //         ⇒ 📌 **「在不在這個檔裡」答的是【怎麼呼叫】, 不是【重不重要】。**
 //      ⇒ 下一個要加的是 ㉒。
+//   ㉒ `revoke_manual_cancel_notice(uuid,text,text)` **整段**〔主migration=20260906930000〕〔APPLIED.tsv 無此列〕〔貼板 60〕
+//      (2026-09-06 線【信】`-mail`;版本號與貼板號由主視窗 `-f1` 預先配給, 58/59 是線【DB】的)
+//      🔵 它是 ㉑ 的反面:撤銷誤按的那一列。**硬刪**(軟刪 ⇒ anti-join 仍看得到 ⇒ 計數不會回來;
+//         改 status ⇒ sweeper 會把它撿去真的寄出去)。
+//      ⏳ **未 apply** —— 與 ㉑ 同一批, 碼先於 DB(理由見 ㉑ 那條)。
+//      ⇒ 下一個要加的是 ㉓。
 export type Json =
   | string
   | number
@@ -4540,6 +4546,15 @@ export type Database = {
         Args: {
           p_order_id: string
           p_recipient_email: string
+          p_actor: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      revoke_manual_cancel_notice: {
+        // ㉒ 手動校正(整段)—— **條目本體在檔頭**, 同 ㉑。
+        Args: {
+          p_order_id: string
           p_actor: string
           p_request_id: string
         }

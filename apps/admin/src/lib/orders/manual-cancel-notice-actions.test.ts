@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // manual-cancel-notice-actions.test.ts — ⟦b4-CANCELMAILMIXEDRAIL⟧ 片 B ②
@@ -32,6 +34,7 @@ const mocks = vi.hoisted(() => ({
     async () => undefined,
   ),
   eligibility: vi.fn(),
+  rowForAudit: vi.fn<(orderId: string) => Promise<unknown>>(),
   // 🔴 型別要給足 —— `mock.calls[0]?.[0]` 在無型別的 `vi.fn()` 上是 `never`,
   //    而 vitest 跑得動、`tsc` 不收(2026-09-06 實測 build 紅 4 條)。
   insert: vi.fn<(row: Record<string, unknown>) => void>(),
@@ -56,6 +59,8 @@ vi.mock('./order-repository', () => ({
 }));
 vi.mock('./manual-cancel-notice-read', () => ({
   readManualCancelNoticeEligibility: mocks.eligibility,
+  // 🔵 撤銷那條路要先把那一列讀下來當稽核的 `before`(不是編的)。
+  readManualCancelNoticeRowForAudit: mocks.rowForAudit,
 }));
 // 🔴 **2026-09-06 起走 RPC 不走 `.from().insert()`** —— 資格重檢與寫入被關進同一個交易
 //    (`record_manual_cancel_notice`, `20260906920000`;codex R3 must-fix ①)。
@@ -64,12 +69,15 @@ vi.mock('@pcm/adapters/server', () => ({
   createSupabaseServiceClient: () => ({
     rpc: (fn: string, args: Record<string, unknown>) => {
       mocks.insert({ fn, ...args });
+      // 🔵 兩支 RPC 共用同一個假回應槽 —— 每一格自己設它要的 result。
       return Promise.resolve(mocks.insertResult);
     },
   }),
 }));
 
-const { recordManualCancelNoticeAction } = await import('./manual-cancel-notice-actions');
+const { recordManualCancelNoticeAction, revokeManualCancelNoticeAction } = await import(
+  './manual-cancel-notice-actions',
+);
 
 function form(fields: Record<string, string>): FormData {
   const fd = new FormData();
@@ -88,6 +96,12 @@ const OK_FORM = {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.authorize.mockResolvedValue({ sid: 's-1', actorId: 'actor-1' });
+  mocks.rowForAudit.mockResolvedValue({
+    id: 'e-1',
+    manual: true,
+    recipientEmail: 'someone@example.com',
+    recordedBy: 'actor-1',
+  });
   mocks.eligibility.mockResolvedValue({
     eligible: true,
     // 🔴 DB 正規化過的那一份(小寫), 與下面表單送的大寫**刻意不同** —— 見那一格測試。
@@ -290,5 +304,148 @@ describe('登錄人工寄出取消通知 — 傳進 RPC 的參數(不是寫進�
     await expect(recordManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
     expect(mocks.redirect).toHaveBeenLastCalledWith(`/orders/${OK_FORM.order_id}`);
     expect(mocks.revalidatePath).toHaveBeenCalledWith(`/orders/${OK_FORM.order_id}`);
+  });
+});
+
+describe('撤銷人工寄出取消通知的登錄', () => {
+  it('🔴 未授權 ⇒ 導 /orders 帶 namespaced denied、不寫稽核、不叫 RPC', async () => {
+    mocks.authorize.mockResolvedValue(null);
+    await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenCalledWith('/orders?r=manual_cancel_revoke_denied');
+    expect(mocks.record).not.toHaveBeenCalled();
+    expect(mocks.insert).not.toHaveBeenCalled();
+  });
+
+  // 🔴 稽核【先寫】——「誰撤的」查不回來, 而撤銷可以晚一點。
+  it('🔴 稽核寫不進去 ⇒ audit_failed,而且【沒有叫那支 RPC】', async () => {
+    mocks.record.mockRejectedValue(new Error('boom'));
+    await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `/orders/${OK_FORM.order_id}?r=manual_cancel_revoke_audit_failed`,
+    );
+    expect(mocks.insert).not.toHaveBeenCalled();
+  });
+
+  it('🔴 稽核動作名是 _revoke_requested、actor 取自 session', async () => {
+    mocks.insertResult.data = { result: 'ok' };
+    await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    const entry = mocks.record.mock.calls[0]?.[0] ?? {};
+    expect(entry.action).toBe('email.order_cancelled.manual_send_revoke_requested');
+    expect(mocks.record.mock.calls[0]?.[1]).toMatchObject({ actor: 'actor-1' });
+  });
+
+  /**
+   * 🔴🔴 **稽核的 `before` 要是【讀來的】** —— code-reviewer must-fix:
+   * 我原本直接填 `{ order_cancelled_outbox_row: 'manual' }` **一個字都沒讀過**
+   * ⇒ 繞過 UI 直呼 action、而那一列其實是系統寄的時候,
+   *   **append-only 的稽核會永久記著一句假話**。
+   */
+  it('🔴 稽核的 before 帶【讀到的】那一列(不是我填的)', async () => {
+    mocks.rowForAudit.mockResolvedValue({
+      id: 'e-99',
+      manual: false,
+      recipientEmail: 'sys@example.com',
+      recordedBy: null,
+    });
+    mocks.insertResult.data = { result: 'not_manual' };
+    await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    const entry = mocks.record.mock.calls[0]?.[0] ?? {};
+    // 🔴 它讀到的是 manual:false ⇒ 稽核就要記 false, 不可以記 'manual'。
+    expect(entry.before).toMatchObject({ outbox_id: 'e-99', manual: false });
+  });
+
+  it('🔴 讀不到那一列 ⇒ 稽核記 null(那也是一個誠實的觀察)', async () => {
+    mocks.rowForAudit.mockResolvedValue(null);
+    mocks.insertResult.data = { result: 'not_found' };
+    await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    const entry = mocks.record.mock.calls[0]?.[0] ?? {};
+    expect(entry.before).toMatchObject({ order_cancelled_outbox_row: null });
+  });
+
+  /**
+   * 🔴🔴 **成功要寫第二筆** —— 這是**硬刪**:成功之後 DB 裡連那一列都沒了
+   * ⇒ 沒有第二筆的話,**事後沒有任何東西分得出「撤掉了」與「按了而沒撤成」**。
+   */
+  it('🔴 成功 ⇒ 寫第二筆稽核 _revoked,帶 deleted_id', async () => {
+    mocks.insertResult.data = { result: 'ok', deleted_id: 'e-42' };
+    await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.record).toHaveBeenCalledTimes(2);
+    const second = mocks.record.mock.calls[1]?.[0] ?? {};
+    expect(second.action).toBe('email.order_cancelled.manual_send_revoked');
+    expect(second.after).toMatchObject({ deleted_outbox_id: 'e-42' });
+  });
+
+  it('🔴 失敗 ⇒ 【只有】第一筆(不可以留下一筆看起來像撤成功的紀錄)', async () => {
+    mocks.insertResult.data = { result: 'not_manual' };
+    await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.record).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 叫的是 revoke 那支 RPC,參數三個', async () => {
+    mocks.insertResult.data = { result: 'ok' };
+    await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    const call = mocks.insert.mock.calls[0]?.[0] ?? {};
+    expect(call.fn).toBe('revoke_manual_cancel_notice');
+    expect(Object.keys(call).sort()).toEqual(['fn', 'p_actor', 'p_order_id', 'p_request_id'].sort());
+  });
+
+  // 🔴🔴 這一格最重要:**系統寄的那一列撤不掉**, 而訊息要說清楚為什麼。
+  it('🔴 RPC 回 not_manual ⇒ 導 not_manual(不是成功、也不是一般失敗)', async () => {
+    mocks.insertResult.data = { result: 'not_manual' };
+    await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `/orders/${OK_FORM.order_id}?r=manual_cancel_revoke_not_manual`,
+    );
+  });
+
+  it('🔴 RPC 回 not_found ⇒ not_found', async () => {
+    mocks.insertResult.data = { result: 'not_found' };
+    await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `/orders/${OK_FORM.order_id}?r=manual_cancel_revoke_not_found`,
+    );
+  });
+
+  // 🔴 不認得的碼不可以當成功 —— 那表示 SQL 那側改了而這裡沒跟上。
+  it('🔴 RPC 回不認得的碼 ⇒ revoke_failed(不是成功)', async () => {
+    mocks.insertResult.data = { result: 'brand_new_code' };
+    await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `/orders/${OK_FORM.order_id}?r=manual_cancel_revoke_revoke_failed`,
+    );
+  });
+
+  it('🔴 成功 ⇒ 導回訂單頁而網址【沒有】結果碼,且有 revalidate', async () => {
+    mocks.insertResult.data = { result: 'ok' };
+    await expect(revokeManualCancelNoticeAction(form(OK_FORM))).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenLastCalledWith(`/orders/${OK_FORM.order_id}`);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith(`/orders/${OK_FORM.order_id}`);
+  });
+});
+
+/**
+ * 🔴🔴 **這一格釘的是【一句話變成假的】** —— code-reviewer 2026-09-06 must-fix。
+ * 登錄鈕的 confirm 原本逐字寫著「後台目前沒有地方可以把它改回來」,
+ * 而**撤銷鈕就是那個地方, 在同一顆 diff 裡做的** ⇒ 那句話當場變假。
+ * 🔵 **repo 有同型前科與現成修法**:`receipt-undo-bar.tsx:75` 逐字記著
+ *    「⛔ ~~更早的到貨紀錄目前還沒有撤銷入口~~ ⇒ 2026-09-03 `#450` 讓這句變成假的」,
+ *    而 `receipt-undo-bar.test.tsx:102` 釘了一條 `not.toMatch`。**這裡照抄那根釘子。**
+ * 🛑 **它守的不是碼, 是【對員工說的話】** —— 而那句話錯了, 員工就不會去按那顆救援鈕。
+ */
+describe('對外字面:不可以再說「沒有撤銷入口」', () => {
+  const BUTTON = path.resolve(__dirname, '../../components/orders/manual-cancel-notice-button.tsx');
+
+  it('🔴 那支元件裡不可以有【活的】「沒有地方可以把它改回來」', () => {
+    const src = readFileSync(BUTTON, 'utf8');
+    // 🔵 刪除線裡的舊字面要留著(搜舊句的人要在同一發撞到訂正)⇒ 只把它們剝掉再看。
+    const live = src.replace(/~~[^~]*~~/g, '');
+    expect(live, '撤銷鈕已經做了 ⇒ 這句話是假的').not.toMatch(/沒有地方可以把它改回來/);
+    expect(live, '撤銷鈕已經做了 ⇒ 這句話是假的').not.toMatch(/撤銷那一片還沒做/);
+  });
+
+  it('🟢 正對照:剝刪除線這個做法本身是活的(舊字面確實還在檔裡)', () => {
+    const src = readFileSync(BUTTON, 'utf8');
+    // 舊字面**應該**還在(帶著刪除線), 否則上面那兩格會因為「整段被刪掉」而假綠。
+    expect(src).toMatch(/沒有地方可以把它改回來/);
   });
 });

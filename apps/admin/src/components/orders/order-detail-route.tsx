@@ -34,7 +34,10 @@ import { OrderDetail } from './order-detail';
 import type { PaymentListData } from './payment-list';
 import { EmailLogSection, type EmailLogData } from './email-log-section';
 import { ManualCancelNoticeButton } from './manual-cancel-notice-button';
-import { readManualCancelNoticeEligibility } from '@/lib/orders/manual-cancel-notice-read';
+import {
+  readManualCancelNoticeEligibility,
+  canRevokeManualCancelNotice,
+} from '@/lib/orders/manual-cancel-notice-read';
 import { ResultBanner } from './result-banner';
 import { getSessionActor } from '../../lib/session/actor';
 import {
@@ -526,6 +529,7 @@ export async function OrderDetailRoute({
           <ManualCancelNoticeButton
             orderId={id}
             eligibility={await readManualCancelNoticeEligibility(id)}
+            canRevoke={await canRevokeManualCancelNotice(id)}
           />
         </>
       )}

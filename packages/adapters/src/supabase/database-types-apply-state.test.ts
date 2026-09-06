@@ -156,7 +156,7 @@ const CLAIM_APPLIED = ['已 apply', '已apply', '已套用', 'APPLIED.tsv 命中
 // 🔵 **2026-09-06 加 ㉑**(`record_manual_cancel_notice`, 線【信】`-mail`)——
 //    這是「人看過」的那一次:㉑ 是**整段**手動補的函式簽章(與 ⑰⑱⑲ 同型),
 //    而它**未 apply**(貼板 57 還沒貼)⇒ 下面那格會逐條問它的 apply 措辭, 而它寫著「未 apply」。
-const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲', '㉑'];
+const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲', '㉑', '㉒'];
 /** 全部圈號條目數。F2:某條圈號被改寫 ⇒ 它不會消失,會**併進上一條**而總數少一。
  *
  * 🔴 **2026-09-05 由 12 改成 13 —— 而改這個數字要附「這次是【真的多一條】」的證據**:
@@ -204,7 +204,7 @@ const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑰', '⑱', '⑲', '㉑'];
  *    ⚠️ 而它一直漏掉的原因沒變:**這支測試不 import 被測檔**(用 `readFileSync` 讀)
  *    ⇒ `vitest related` 撈不到它, 掃 `supabase/migrations` 的分母裡也沒有它。
  */
-const EXPECTED_TOTAL_ENTRIES = 17;
+const EXPECTED_TOTAL_ENTRIES = 18;
 
 type Entry = { mark: string; body: string };
 

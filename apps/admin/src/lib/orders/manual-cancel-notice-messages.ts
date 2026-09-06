@@ -128,3 +128,56 @@ export const MANUAL_CANCEL_NOTICE_MESSAGES: Readonly<
     tone: 'warn',
   },
 });
+
+/**
+ * ⟦b4-CANCELMAILMIXEDRAIL⟧ 片 B 的【撤銷登錄】結果碼(主視窗 2026-09-06 裁乙)。
+ * 🔵 **與上面那組共用同一個前綴家族但各自具名** —— 兩個動作的下一步不一樣,
+ *    共用一顆碼會讓「登錄失敗」與「撤銷失敗」給出同一句話。
+ * 🔴 **一樣沒有成功碼**(理由同上面那段):`?r=` 偽造得出來,
+ *    而一則假的「已撤銷」會讓員工**不再去撤** —— 那張單就停在提醒外面。
+ *    ✅ 成功的證據是**看得到的事實**:那顆撤銷鈕消失、登錄鈕回來、寄信紀錄少一列。
+ */
+export type ManualCancelRevokeFailureCode =
+  | 'denied'
+  | 'invalid'
+  | 'not_found'
+  | 'not_manual'
+  | 'audit_failed'
+  | 'revoke_failed';
+
+export function manualCancelRevokeResultCode(code: ManualCancelRevokeFailureCode): string {
+  return `manual_cancel_revoke_${code}`;
+}
+
+export const MANUAL_CANCEL_REVOKE_MESSAGES: Readonly<
+  Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }>
+> = Object.freeze({
+  [manualCancelRevokeResultCode('denied')]: {
+    text: '沒有權限做這個動作(需要管理者),沒有撤銷任何東西。',
+    tone: 'error',
+  },
+  [manualCancelRevokeResultCode('invalid')]: {
+    text: '表單資料不完整,沒有撤銷任何東西。',
+    tone: 'warn',
+  },
+  // 🔵 「沒有那一列」不細分「已經被撤掉」與「從來沒登錄過」—— 對下一步是同一件事。
+  [manualCancelRevokeResultCode('not_found')]: {
+    text: '這張單目前沒有人工登錄的取消通知紀錄(可能已經被撤掉了),沒有撤銷任何東西。',
+    tone: 'warn',
+  },
+  // 🔴🔴 這一句要說清楚**為什麼不准** —— 不然員工會以為是壞掉而一直按。
+  [manualCancelRevokeResultCode('not_manual')]: {
+    text:
+      '這一列是【系統自己寄的】,不是人工登錄的,所以不能撤銷。' +
+      '⚠️ 撤掉它會讓系統重新把這張單當成「還沒寄」而再寄一次給客人。要處理請找工程。',
+    tone: 'warn',
+  },
+  [manualCancelRevokeResultCode('audit_failed')]: {
+    text: '寫不進稽核紀錄,所以【沒有】撤銷 —— 請再試一次。',
+    tone: 'error',
+  },
+  [manualCancelRevokeResultCode('revoke_failed')]: {
+    text: '撤銷失敗,請再試一次。',
+    tone: 'error',
+  },
+});

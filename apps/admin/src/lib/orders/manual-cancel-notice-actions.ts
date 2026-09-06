@@ -7,10 +7,15 @@ import { NotificationEmailInput } from '@pcm/schemas';
 import { getRequestId } from '../audit/context';
 import { authorizeManagerMutation } from '../session/authorize';
 import { getAdminAuditLogRepository } from './order-repository';
-import { readManualCancelNoticeEligibility } from './manual-cancel-notice-read';
+import {
+  readManualCancelNoticeEligibility,
+  readManualCancelNoticeRowForAudit,
+} from './manual-cancel-notice-read';
 import {
   manualCancelNoticeResultCode,
+  manualCancelRevokeResultCode,
   type ManualCancelNoticeFailureCode,
+  type ManualCancelRevokeFailureCode,
 } from './manual-cancel-notice-messages';
 
 // manual-cancel-notice-actions.ts — ⟦b4-CANCELMAILMIXEDRAIL⟧ 片 B ①②③
@@ -172,5 +177,136 @@ export async function recordManualCancelNoticeAction(formData: FormData): Promis
   // 🔴 **成功【不帶結果碼】** —— `?r=` 任何人都打得出來, 一則綠色「已登錄」會讓員工
   //    對一張**沒被登錄過**的單停止動作(理由全文在 messages 那支檔)。
   //    ✅ 成功的證據是**看得到的事實**:鈕消失 + 寄信紀錄多一列, 兩個都是伺服器現讀的。
+  redirect(`/orders/${orderId}`);
+}
+
+/** 撤銷那條路的導頁。**成功不回碼**(理由同登錄那條:`?r=` 偽造得出來)。 */
+function revokeBackTo(orderId: string, code: ManualCancelRevokeFailureCode): never {
+  redirect(`/orders/${orderId}?${RESULT_PARAM}=${manualCancelRevokeResultCode(code)}`);
+}
+
+/**
+ * ⟦b4-CANCELMAILMIXEDRAIL⟧ 片 B:**撤銷**人工寄出取消通知的登錄。
+ *
+ * 🔴 **它存在是因為登錄那顆鈕不可撤銷** —— 那一列會永久吃掉 `(order_cancelled, <orderId>)`
+ *    那個唯一鍵, 而掃描 view 的 anti-join 只問 `event_type`
+ *    ⇒ 誤按一次 = 那位客人的系統取消信永久關閉。主視窗 2026-09-06 裁乙:做這顆。
+ *
+ * 🛑 **順序與登錄那支同一條判準**(`dead-letter-actions.ts:68` 逐字「哪一半救得回來」):
+ *    撤銷**可以晚一點**(再按一次就好), 而**「誰撤的」查不回來** ⇒ **稽核先寫, 寫不成就不撤。**
+ *
+ * 🔵 **述詞在 SQL 那側**(`revoke_manual_cancel_notice`, `20260906930000`)——
+ *    「只准撤 payload 標 manual 的列」寫在 DELETE 那一句上, 而不是這裡。
+ *    🔬 理由量過:這個 repo 對 PostgREST 的 jsonb 路徑過濾**零先例**
+ *      (`git grep "payload->>" -- apps packages` ⇒ 命中 1, 而那是一句註解;
+ *       🟢 正對照 `.eq(` 在 `apps/admin/src` ⇒ 38 檔)
+ *    ⇒ 📌 **一個沒有綁上的過濾, 在【硬刪】這個動作上會刪掉不該刪的列。**
+ */
+export async function revokeManualCancelNoticeAction(formData: FormData): Promise<void> {
+  // ① 授權閘 —— 與登錄同級(manager)。撤銷同樣不可逆(那一列刪了就沒了)。
+  const authorization = await authorizeManagerMutation();
+
+  const rawOrderId = formData.get('order_id');
+  const orderId = typeof rawOrderId === 'string' && rawOrderId !== '' ? rawOrderId : null;
+  if (!authorization) redirect(`/orders?${RESULT_PARAM}=${manualCancelRevokeResultCode('denied')}`);
+  if (orderId === null) redirect(`/orders?${RESULT_PARAM}=${manualCancelRevokeResultCode('invalid')}`);
+
+  const requestId = await getRequestId();
+
+  // ② 🔴 **先把那一列【讀下來】** —— 稽核的 `before` 要是觀察值, 不是我填的期望值
+  //    (code-reviewer must-fix;現成形狀見 `dead-letter-actions.ts:56`)。
+  //    🔵 讀不到就寫 `null` —— **那也是一個誠實的觀察**(「我按的時候沒看到那一列」)。
+  const before = await readManualCancelNoticeRowForAudit(orderId);
+
+  // ③ 稽核【先寫】。動作名用 `_requested`:寫這一筆的當下**那一列還在**。
+  try {
+    await getAdminAuditLogRepository().record(
+      {
+        action: 'email.order_cancelled.manual_send_revoke_requested',
+        target: `order:${orderId}`,
+        before:
+          before === null
+            ? { order_cancelled_outbox_row: null }
+            : {
+                outbox_id: before.id,
+                manual: before.manual,
+                recipient_email: before.recipientEmail,
+                recorded_by: before.recordedBy,
+              },
+        reason: '後台撤銷「已人工寄出取消通知」的登錄:按下按鈕',
+      },
+      { actor: authorization.actorId, requestId, sourceApp: 'admin' },
+    );
+  } catch (error) {
+    console.error('[admin/orders] 撤銷登錄的稽核寫入失敗(這張單【沒有】被撤銷)', {
+      request_id: requestId,
+      order_id: orderId,
+      message: String((error as { message?: unknown }).message ?? '').slice(0, 200),
+    });
+    revokeBackTo(orderId, 'audit_failed');
+  }
+
+  // ③ 撤銷 —— 述詞與刪除在同一句 SQL 裡(見那支 migration)。
+  const res = await createSupabaseServiceClient().rpc('revoke_manual_cancel_notice', {
+    p_order_id: orderId,
+    p_actor: authorization.actorId,
+    p_request_id: requestId,
+  });
+
+  if (res.error) {
+    console.error('[admin/orders] revoke_manual_cancel_notice 失敗(稽核已留下一筆)', {
+      request_id: requestId,
+      order_id: orderId,
+      code: res.error.code,
+      message: String(res.error.message ?? '').slice(0, 300),
+    });
+    revokeBackTo(orderId, 'revoke_failed');
+  }
+
+  // 🔴 四種回碼逐個接。**不認得的字不可以當成功** —— 那表示 SQL 那側改了而這裡沒跟上。
+  const rpcResult = (res.data as { result?: unknown } | null)?.result;
+  if (rpcResult === 'not_found') revokeBackTo(orderId, 'not_found');
+  if (rpcResult === 'not_manual') revokeBackTo(orderId, 'not_manual');
+  if (rpcResult === 'invalid_args') revokeBackTo(orderId, 'invalid');
+  if (rpcResult !== 'ok') {
+    console.error('[admin/orders] revoke_manual_cancel_notice 回了我不認得的碼', {
+      request_id: requestId,
+      order_id: orderId,
+      result: String(rpcResult ?? '(空)').slice(0, 100),
+    });
+    revokeBackTo(orderId, 'revoke_failed');
+  }
+
+  // ④ 🔴🔴 **成功了才寫第二筆** —— 而這一筆在【硬刪】這件事上特別重要:
+  //    成功之後 DB 裡**連那一列都沒了** ⇒ 沒有第二筆的話,
+  //    📌 **事後沒有任何東西分得出「撤掉了」與「按了而沒撤成」**,
+  //      被刪列的 `recorded_by` / `recipient_email` 也一起消失。
+  //    🔵 現成形狀 `dead-letter-actions.ts:117-131` 逐字「成功了才寫第二筆…
+  //      按了與真的排回去了因此分得開」。
+  //    ⚠️ **這一筆失敗【不擋】**(與 ③ 相反):刪除**已經發生**、回滾不了,
+  //      而「誰按的」在 ③ 那一筆裡已經記住了。
+  const deletedId = (res.data as { deleted_id?: unknown } | null)?.deleted_id;
+  try {
+    await getAdminAuditLogRepository().record(
+      {
+        action: 'email.order_cancelled.manual_send_revoked',
+        target: `order:${orderId}`,
+        // 🔵 `after` 是空的 —— 那一列**不存在了**, 而那正是這個動作的結果。
+        after: { order_cancelled_outbox_row: null, deleted_outbox_id: deletedId ?? null },
+        reason: '後台撤銷「已人工寄出取消通知」的登錄:已刪除那一列',
+      },
+      { actor: authorization.actorId, requestId, sourceApp: 'admin' },
+    );
+  } catch (error) {
+    console.error('[admin/orders] 撤銷【已經完成】而第二筆稽核寫入失敗(不回滾)', {
+      request_id: requestId,
+      order_id: orderId,
+      deleted_outbox_id: String(deletedId ?? ''),
+      message: String((error as { message?: unknown }).message ?? '').slice(0, 200),
+    });
+  }
+
+  revalidatePath(`/orders/${orderId}`);
+  // 🔴 成功不帶結果碼(理由同登錄那條)。證據 = 撤銷鈕消失、登錄鈕回來、紀錄少一列。
   redirect(`/orders/${orderId}`);
 }

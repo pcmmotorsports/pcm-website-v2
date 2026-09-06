@@ -58,6 +58,81 @@ export type ManualCancelNoticeEligibility =
   | { readonly eligible: false; readonly blocker: ManualCancelNoticeBlocker };
 
 /**
+ * 🔴 **撤銷鈕要不要出現, 是另一個問題** —— 它不是「資格」的反面。
+ *    資格 `already_recorded` 有**兩種**成因:①人工登錄的(可以撤)②系統寄的(**不准撤**)
+ *    ⇒ 📌 直接把「不合格且 blocker=already_recorded」當成「可以撤」, 會讓撤銷鈕
+ *      出現在**系統寄的**那些單上, 而按下去必定被 SQL 那道閘拒絕。
+ *    ⇒ ⇒ **一顆按了必定失敗的鈕, 比沒有那顆鈕糟** —— 它讓人以為自己做錯了什麼。
+ */
+export type ManualCancelNoticeRow = {
+  readonly id: string;
+  readonly manual: boolean;
+  readonly recipientEmail: string | null;
+  readonly recordedBy: string | null;
+};
+
+/**
+ * 🔴 **稽核那一筆的 `before` 要【讀來的】, 不是我填的。**
+ *    code-reviewer 2026-09-06 must-fix:我原本直接寫 `{ order_cancelled_outbox_row: 'manual' }`
+ *    **一個字都沒讀過** ⇒ 繞過 UI 直呼 action、而那一列其實是系統寄的時候,
+ *    **append-only 的稽核會永久記著一句假話**(RPC 隨後回 not_manual, 而稽核改不掉)。
+ *    🔵 現成形狀 `apps/admin/src/lib/mail/dead-letter-actions.ts:56`:先 `findDeadLetterForAudit()`
+ *      讀下來才寫 `before:`;同檔逐字「填一個『預期的結果』進去 = 把期望值寫成觀察值」。
+ * 🛑 而它**不是**那道閘 —— 准不准刪由 SQL 那句 DELETE 決定。這裡只負責讓稽核說實話。
+ */
+export async function readManualCancelNoticeRowForAudit(
+  orderId: string,
+): Promise<ManualCancelNoticeRow | null> {
+  try {
+    const res = await createSupabaseServiceClient()
+      .from('email_outbox')
+      .select('id, payload, recipient_email')
+      .eq('order_id', orderId)
+      .eq('event_type', 'order_cancelled')
+      .limit(1);
+    if (res.error) return null;
+    const row = (res.data ?? [])[0] as
+      | { id: string; payload: unknown; recipient_email: string | null }
+      | undefined;
+    if (row === undefined) return null;
+    const payload =
+      row.payload !== null && typeof row.payload === 'object'
+        ? (row.payload as Record<string, unknown>)
+        : {};
+    return {
+      id: row.id,
+      manual: payload.manual === true,
+      recipientEmail: row.recipient_email,
+      recordedBy: typeof payload.recorded_by === 'string' ? payload.recorded_by : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function canRevokeManualCancelNotice(orderId: string): Promise<boolean> {
+  try {
+    const res = await createSupabaseServiceClient()
+      .from('email_outbox')
+      .select('payload')
+      .eq('order_id', orderId)
+      .eq('event_type', 'order_cancelled')
+      .limit(1);
+    if (res.error) return false;
+    const row = (res.data ?? [])[0];
+    if (row === undefined) return false;
+    // 🔵 在 TS 這側讀 `payload` 是安全的(只是決定鈕出不出現);
+    //    **真正的閘在 SQL 那句 DELETE 上**(`20260906930000`)—— 這裡讀錯只會少畫一顆鈕。
+    const payload = (row as { payload?: unknown }).payload;
+    if (payload === null || typeof payload !== 'object') return false;
+    return (payload as Record<string, unknown>).manual === true;
+  } catch {
+    // 🔵 讀不到 ⇒ 不畫那顆鈕。撤銷是**可以晚一點**的動作, 而畫一顆按不動的鈕比較糟。
+    return false;
+  }
+}
+
+/**
  * 🔴 **`unreadable` 與「不符合」在回傳上是兩種東西, 這是刻意的。**
  * 讀不到時把它折成「不符合」⇒ 鈕消失 ⇒ **DB 抖一下, 那張單就沒有人救得了它**,
  * 而畫面上與「這張單本來就不用寄」長得一模一樣。
