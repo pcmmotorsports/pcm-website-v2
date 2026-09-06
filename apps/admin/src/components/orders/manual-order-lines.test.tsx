@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 //    🛑 **這不是放寬守門** —— 下面那三道原始碼層守門(:105-118)一個字都沒動, 而且仍然要綠。
 vi.mock('server-only', () => ({}));
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { MANUAL_ORDER_LINE_SEED_EVENT } from '../../lib/orders/manual-order-line-seed';
 
 import { ManualOrderLines } from './manual-order-lines';
 import { MANUAL_ORDER_MAX_LINES } from '@/lib/orders/manual-order-form';
@@ -105,8 +106,53 @@ describe('🔴 原始碼層:不變式 (i) —— 送出值不由 client state �
     expect(CODE, 'JSX 註解沒被剝乾淨 ⇒ 上面那兩格會紅錯地方').not.toContain(JSX_COMMENT_ONLY);
   });
 
-  it('🔴 state 的型別是 `number[]`(列 id),不是任何裝值的東西', () => {
-    expect(CODE).toContain('useState<number[]>');
+  // 🔴🔴 **這一格從 `number[]` 改成 `LineRow[]`, 而那是【放寬】——所以同一批補了兩道更嚴的。**
+  //  ⛔ ~~`useState<number[]>`~~ 作廢:⟦b4-建單加成一列⟧ 之後那個 state 要帶 `seed`。
+  //  🛑 **原本那一格在守的東西不能跟著消失**:它守的是「state 裡不准裝【會送出去的值】」。
+  //     `LineRow` 裡就有值了 ⇒ 光看型別已經守不住 ⇒ 改成守**那些值怎麼用**:
+  //       ① `seed` 只准出現在含 `defaultValue={` 的行(= 開場值, 瀏覽器拿一次就歸員工)
+  //       ② 全檔 `.value` 零命中(= 沒有任何回寫)
+  //     ⇒ 📌 **兩道合起來比原本那一道嚴**:原本只問型別, 現在問的是用法。
+  it('🔴 state 的型別是 `LineRow[]`(列 id + 開場種子)', () => {
+    expect(CODE).toContain('useState<LineRow[]>');
+  });
+
+  it('🔴🔴 `seed` 只准出現在含 `defaultValue={` 的那一行(逐行比)', () => {
+    const offenders = CODE.split('\n')
+      .map((l, i) => ({ l, n: i + 1 }))
+      .filter(({ l }) => /\bseed\b/.test(l))
+      .filter(({ l }) => !l.includes('defaultValue={'))
+      // 🔵 這幾種不是「用值」(最後一種是【去重比對】—— 它拿 variantId 去比, 不把它寫進任何欄位):型別宣告 / 事件接線 / setRows 裡把 seed 放進新列。
+      .filter(({ l }) => !/type LineRow|ManualOrderLineSeed|CustomEvent|detail|\bseed\?: |\{ id: newRowId\(\), seed \}|r\[0\]\?\.seed|manual-order-line-seed|setAddedNote|x\.seed\?\.variantId === seed\.variantId/.test(l));
+    expect(offenders.map((o) => `${o.n}: ${o.l.trim()}`), '這幾行在用 seed 而不是拿它當開場值').toEqual(
+      [],
+    );
+  });
+
+  // 🔴🔴 **DOM 直取的絆線**(code-reviewer R1 抓到:這一支反而守得比隔壁鬆)。
+  //  🔬 它示範的繞法逐字可跑:把 `seed` 改名 `v`、local 改 `d`, 再寫
+  //     `document.getElementsByName('line_sku_0')[0].setAttribute('value', d.sku)`
+  //     ⇒ **原本八道全綠**, 而那是真的回寫送出欄位。
+  //  🛑 隔壁 `catalog-lookup.test.tsx` 早就擋了 `querySelector` / `getElementById` ——
+  //     而**握著六個具名欄位的是這一支**。⇒ 補齊。
+  //  ⚠️ **射程照隔壁那段逐字繼承:這是【最直白那幾種寫法的絆線】, 不是資料流保證。**
+  //     藏進 imported helper、或用 `form.elements` 都繞得過 ⇒ 不得寫成「證明了不回寫」。
+  it('🔴 不得用 DOM 直取去碰欄位(絆線, 不是證明)', () => {
+    for (const bad of [
+      'querySelector',
+      'getElementById',
+      'getElementsByName',
+      'getElementsByTagName',
+      'setAttribute',
+      'form.elements',
+      'FormData(',
+    ]) {
+      expect(CODE, `出現 ${bad} ⇒ 這一支開始自己摸 DOM 了`).not.toContain(bad);
+    }
+  });
+
+  it('🔴 全檔 `.value` 零命中(沒有任何回寫)', () => {
+    expect(CODE.match(/\.value\b/g) ?? []).toHaveLength(0);
   });
 
   // 🔴🔴 下面兩格是 codex R1 #8 逼出來的:**只禁字面 `value=` 擋不住 spread。**
@@ -116,9 +162,29 @@ describe('🔴 原始碼層:不變式 (i) —— 送出值不由 client state �
     expect(CODE).not.toMatch(/\{\s*\.\.\./);
   });
 
-  it('🔴 全檔【恰好一個】 `useState`(多一個就可能是裝值的那個)', () => {
-    // 失敗情境:有人加第二個 state 裝草稿值 ⇒ `useState<number[]>` 那格照樣綠。
-    expect(CODE.match(/useState/g) ?? []).toHaveLength(2); // import 一次 + 呼叫一次
+  // 🔴🔴 **這一格從「恰好一個」放寬成「恰好兩個」, 而放寬要拿更嚴的來換。**
+  //  ⛔ ~~`toHaveLength(2)`(import 一次 + 呼叫一次)~~ —— code-reviewer R1 MF3 要求
+  //     「按了要出聲」(按了沒聲音 ⇒ 員工再按一次 ⇒ 兩列同 `variant_id` ⇒ **整張單被拒**),
+  //     而那句話需要第二個 state。
+  //  🛑 **原本那一格在守什麼**:多一個 state 就可能是**裝【會送出去的值】**的那個。
+  //     ⇒ 放寬數量之後, 改成直接守那件事:**第二個 state 不得進任何 `name=` 欄位**。
+  //  ✅ 兩格合起來比原本嚴:①數量仍然釘死(第三個 state 會紅)②那個 state 送不出去。
+  it('🔴 全檔【恰好兩個】 `useState`(第三個會紅)', () => {
+    expect(CODE.match(/useState/g) ?? []).toHaveLength(3); // import 一次 + 呼叫兩次
+  });
+
+  it('🔴🔴 `addedNote` 不得出現在任何帶 `name=` 的行(它是畫面訊息, 不是送出的值)', () => {
+    const offenders = CODE.split('\n')
+      .map((l, i) => ({ l, n: i + 1 }))
+      .filter(({ l }) => /addedNote/.test(l));
+    // 🔴🔴 **只比「同一行有沒有 `name=`」是繞得過的**(codex 抓到):
+    //    JSX 的一個 input 跨好幾行 ⇒ 把 `defaultValue={addedNote}` 寫在**別一行**就全綠了。
+    // ✅ 改成:`addedNote` 只准出現在**它自己那三種用法**的行 —— 宣告 / setter / 那句話本身。
+    //    任何別的用法(尤其是進到某個 JSX 屬性)都會落進 offenders。
+    const allowed =
+      /const \[addedNote, setAddedNote\]|setAddedNote\(|addedNote !== ''|\{addedNote\}/;
+    const bad = offenders.filter(({ l }) => !allowed.test(l));
+    expect(bad.map((o) => `${o.n}: ${o.l.trim()}`), '那個 state 跑到別的地方去了').toEqual([]);
   });
 
   // ══════════════════════════════════════════════════════════════════
@@ -152,6 +218,12 @@ describe('🔴 原始碼層:不變式 (i) —— 送出值不由 client state �
   const SIBLINGS: ReadonlyArray<readonly [string, string]> = [
     ['manual-order-line-price-check.tsx', strip('manual-order-line-price-check.tsx')],
     ['manual-order-leave-guard.tsx', strip('manual-order-leave-guard.tsx')],
+    // 🔴 ⟦b4-建單加成一列⟧ 2026-09-06:查詢那支**開始摸得到這張表單了**(它會丟種子事件)
+    //    ⇒ 進分母。🔵 它自己有 `value={keyword}` + `onChange`, 而那是**它自己的搜尋框**、
+    //      沒有 `name=` ⇒ 不會送值 ⇒ 下面兩格對它成立。
+    //    🛑 **而它進分母的理由不是「它現在乾淨」, 是「它現在有能力弄髒」** ——
+    //      哪天有人在那支檔裡直接寫一個 `name=` 的 input 或回寫 `.value`, 這兩格會叫。
+    ['manual-order-catalog-lookup.tsx', strip('manual-order-catalog-lookup.tsx')],
   ];
   const CHILD = SIBLINGS[0]![1];
 
@@ -341,5 +413,115 @@ describe('🔴 含稅安全標籤(⟦b4-PURCHTAX1⟧ 甲;2026-08-29)', () => {
     render(<ManualOrderLines />);
     // 缺這一格 ⇒ 上面兩格「有找到」與「getByText 對任何東西都回真」印同一個綠。
     expect(screen.queryByText(/請填零稅率金額/)).toBeNull();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// ⟦b4-建單加成一列⟧ 2026-09-06 —— 「查商品 ⇒ 點一下加成一列」的接收端
+// 🔴 上面那三道守門看的是**原始碼**;它們答不出「點下去真的多一列嗎」。
+//    ⇒ 這一組是行為層, 每一格都答得出「什麼樣的爛實作會讓它變紅」。
+// ══════════════════════════════════════════════════════════════════════════
+describe('行為層:收到種子 ⇒ 長出一列並帶著開場值', () => {
+  const seed = {
+    sku: 'SKU-A',
+    title: '前叉油封',
+    qty: '1',
+    unitPrice: '900',
+    variantId: 'v-1',
+  };
+  const emit = (detail: typeof seed) =>
+    fireEvent(window, new CustomEvent(MANUAL_ORDER_LINE_SEED_EVENT, { detail }));
+
+  const rowCount = (c: HTMLElement) =>
+    c.querySelectorAll('[data-testid="manual-order-line-row"]').length;
+  const val = (c: HTMLElement, name: string) =>
+    (c.querySelector(`[name="${name}"]`) as HTMLInputElement | null)?.value;
+
+  it('🔴🔴 先打再種:員工在第 1 列手打的字【不得消失】', () => {
+    // 🛑 **這一格取代了我原本那格「種進那一列」—— 那一格斷言的是一個 bug。**
+    //    代購品項本來就沒有料號、沒有 seed ⇒ 「這一列沒有 seed」**不等於**「這一列是空的」。
+    //    舊實作會把那一列換成新 id ⇒ key 變 ⇒ React 重建 ⇒ **他打的字全沒了, 零提示。**
+    // 🔵 而既有那格「員工改過的字不會被蓋掉」是【先種再打】—— **分母不含出事的世界**。
+    const { container } = render(<ManualOrderLines />);
+    const title = container.querySelector('[name="line_title_0"]') as HTMLInputElement;
+    const price = container.querySelector('[name="line_unit_price_0"]') as HTMLInputElement;
+    fireEvent.change(title, { target: { value: '代購 · 原廠避震' } });
+    fireEvent.change(price, { target: { value: '8800' } });
+
+    emit(seed);
+
+    expect(rowCount(container), '要長成第 2 列, 不是換掉第 1 列').toBe(2);
+    expect(val(container, 'line_title_0'), '他打的品名要還在').toBe('代購 · 原廠避震');
+    expect(val(container, 'line_unit_price_0'), '他打的單價要還在').toBe('8800');
+    expect(val(container, 'line_sku_1'), '種子落在第 2 列').toBe('SKU-A');
+  });
+
+  it('🔴 已經有種子的列不會被蓋掉 —— 第二筆長成新的一列', () => {
+    const { container } = render(<ManualOrderLines />);
+    emit(seed);
+    emit({ ...seed, sku: 'SKU-B', title: '後避震', unitPrice: '12000', variantId: 'v-2' });
+    // 🔵 一律 append ⇒ 開場那一列空白列留著, 兩筆落在第 2、3 列(共 3 列)。
+    //    ⚠️ 那一列空白的**要不要自動收掉**是另一個題(plan 沒要求, 本片不做)。
+    expect(rowCount(container)).toBe(3);
+    expect(val(container, 'line_sku_0'), '開場那一列還在, 沒被吃掉').toBe('');
+    expect(val(container, 'line_sku_1')).toBe('SKU-A');
+    expect(val(container, 'line_sku_2')).toBe('SKU-B');
+    // 🔵 index 連號 —— 解析器要求 `_0.._n`,缺號整張被拒。
+    expect(val(container, 'line_unit_price_2')).toBe('12000');
+  });
+
+  it('🔴 沒有經銷價(unitPrice 空字串)⇒ 單價那格留白, **不得種 0**', () => {
+    // 🛑 0 是一個合法的價格 —— 種 0 會安靜地變成一張零元的單。
+    const { container } = render(<ManualOrderLines />);
+    emit({ ...seed, unitPrice: '' });
+    // 🔴 **改成 append 之後種子落在第 2 列(`_1`)** —— codex 抓到我這一格還在驗 `_0`,
+    //    而 `_0` 是那個一開始就在的空白列 ⇒ **它本來就是空的** ⇒ 這一格【恆綠】。
+    // 🔵 順便釘住「這一格量的是種子那一列」:先確認第 2 列真的是那一筆。
+    expect(val(container, 'line_sku_1'), '先證明我在看種子那一列').toBe('SKU-A');
+    expect(val(container, 'line_unit_price_1')).toBe('');
+  });
+
+  it('🔴 員工改過的字不會被下一筆種子蓋掉', () => {
+    const { container } = render(<ManualOrderLines />);
+    emit(seed);
+    const qty = container.querySelector('[name="line_qty_0"]') as HTMLInputElement;
+    fireEvent.change(qty, { target: { value: '3' } });
+    emit({ ...seed, sku: 'SKU-B', variantId: 'v-2' });
+    expect(val(container, 'line_qty_0'), '第一列的數量要留著他打的 3').toBe('3');
+  });
+
+  it('🔴🔴 同一個商品連按兩次 ⇒ 只長一列(不然整張單會被 RPC 拒掉)', () => {
+    // 🛑 兩列同 `variant_id` ⇒ 建單 RPC `RAISE EXCEPTION '重複品項'` ⇒ **整張單被拒**。
+    //    ⇒ 那一句「已加成第 N 列」是**回饋不是守門** —— 它擋不住連按。
+    const { container } = render(<ManualOrderLines />);
+    emit(seed);
+    emit(seed);
+    expect(rowCount(container), '第二次不得再長一列').toBe(2); // 開場空白列 + 一列
+    expect(val(container, 'line_variant_id_1')).toBe('v-1');
+    expect(val(container, 'line_variant_id_2'), '不該有第三列').toBe(undefined);
+  });
+
+  it('🔵 而【代購】品項(沒有商品編號)可以開兩列 —— 那是合法的', () => {
+    const { container } = render(<ManualOrderLines />);
+    emit({ ...seed, variantId: '', sku: '' });
+    emit({ ...seed, variantId: '', sku: '' });
+    expect(rowCount(container), '沒有編號就不算重複').toBe(3);
+  });
+
+  it('🔵 撞到上限就不再長(而既有的列一格都不動)', () => {
+    const { container } = render(<ManualOrderLines />);
+    for (let i = 0; i < MANUAL_ORDER_MAX_LINES + 3; i += 1) {
+      emit({ ...seed, sku: `S-${i}`, variantId: `v-${i}` });
+    }
+    expect(rowCount(container)).toBe(MANUAL_ORDER_MAX_LINES);
+    expect(val(container, 'line_sku_0'), '開場那一列還在(它沒有 seed)').toBe('');
+    expect(val(container, 'line_sku_1'), '第一筆種子落在第 2 列').toBe('S-0');
+  });
+
+  it('🔴 元件卸載之後不再接事件(不然換頁回來會長出鬼列)', () => {
+    const { container, unmount } = render(<ManualOrderLines />);
+    unmount();
+    emit(seed);
+    expect(container.querySelectorAll('[data-testid="manual-order-line-row"]').length).toBe(0);
   });
 });
