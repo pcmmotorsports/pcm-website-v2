@@ -83,7 +83,8 @@ export default async function ProductsRoute({ searchParams }: Props) {
   // 🛑 **而我從外面量到兩把打架的尺**:瀏覽器 `fetch` 說帶分類 2979–6085 ms、不帶 151 ms;
   //   同一時間 `curl` 說 1099–2243 ms vs 810 ms,而且 curl 那組**會變快**、瀏覽器那組五發都不會。
   //   ⇒ 📌 **兩把外部的尺對不起來 ⇒ 只能從裡面量。這一行就是那個「裡面」。**
-  // 🔵 形狀抄 `lib/products.ts` 既有的 `[vehicleTaxonomy] cold pages=… ms=…`,不新造機制。
+  // 🔵 形狀抄 `lib/products.ts` 既有的 `[vehicleTaxonomy] cold …`,不新造機制。
+  //   (⛔ ~~`cold pages=… ms=…`~~ —— 改一發 RPC 之後沒有「頁」了, 現在是 `cold n=… ms=…`。)
   // 🔴 **只印毫秒與【筆數】,不印分類名稱、不印查詢字串、不印任何使用者資料** ——
   //   分類名是客人給的自由文字,印進 log 等於把未過濾的輸入寫進另一個系統。
   const routeT0 = performance.now();
