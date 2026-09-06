@@ -325,11 +325,29 @@ def check_staged():
     newrows = []
     notok = []          # 新開的 open/doing 列而【完全沒有 token】
     stale = []          # 新增行裡指向板檔自己的裸行號(規則⑧)
+    shape = []          # 新增的主表列欄數不是 5(規則⑨)
     if d.returncode == 0:
         for ln in d.stdout.split('\n'):
             if not ln.startswith('+| ') or ln.startswith('+++'):
                 continue
             row = ln[1:]
+            # ═══ 規則⑨:新增的主表列欄數不是 5(2026-09-07;ship 量到板上 11 列)═══
+            #   🔴 `scripts/md-table-overflow.py` **看得到而刻意不判紅**, 逐字理由「那一類內容沒掉、
+            #      壞的是歸屬」—— 對通用 markdown 那是對的。**而這張表的歸屬就是一切**:
+            #      少一格 ⇒ 末欄(帶 ⟨擋⟩ token)被渲染到【誰】欄的位置。
+            #   🛑 為什麼只看【新增】:板上既有 11 列, 每一列要判斷內容該落哪兩格 ⇒ 那是判斷不是格式,
+            #      回頭掃只會讓每個人每次 commit 都看到一坨與他無關的舊債, 然後開始忽略這道閘。
+            #   🔬 而「找共同來源再一起修」那條路 2026-09-07 已經走過:`⟦b4-TBLCOLS1⟧` 09-01 裁乙,
+            #      理由逐字「5 列連號 ⇒ **看起來是同一次貼上**」。實測**那個前提不成立** ——
+            #      11 列的 blame 分散在 6 顆;而 blame 答的是「最後動到這行的人」不是「誰造成」,
+            #      所以我又用【首次出現時的欄數】追了一列:`⟦b9-PROBESCHED⟧` **出生就是 4 欄**,
+            #      而開它那顆(`65af2783e`)一共只開 2 列、**兩列都壞** ⇒ 不是大批次貼上。
+            #      ⇒ 📌 **沒有共同產生器可找, 所以「等找到來源」是在等一個不會來的東西。**
+            _g9 = SPLIT.split(row)
+            if len(_g9) >= 3 and _g9[1].strip() in ('open', 'doing', 'parked', 'done', 'standing') \
+                    and len(_g9) - 2 != 5:
+                _m9 = re.search(r'⟦[^⟧]+⟧|#\d+', _g9[2])
+                shape.append((_m9.group(0) if _m9 else _g9[2].strip()[:24] or '(無錨)', len(_g9) - 2))
             if STALEREF.search(row):
                 _g0 = SPLIT.split(row)
                 _m0 = re.search(r'⟦[^⟧]+⟧|#\d+', _g0[2]) if len(_g0) > 2 else None
@@ -354,6 +372,13 @@ def check_staged():
         for k in notok:
             print(f'   ⬜ 新列 {safe(k):32} ← **這列擋不擋上線?**(⟨擋⟩／⟨不擋⟩／⟨未判(為什麼)⟩)')
         print('   🟡 沒 token ⇒ 被算進「未填」⇒ **「還在擋幾件」少算了它, 而沒有東西會出聲。**')
+    if shape:
+        print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 新增的主表列有 {len(shape)} 列【欄數不是 5】')
+        for k, c in shape:
+            print(f'   ▦ {safe(k):32} ← 淨 {c} 欄(該 5:態｜錨｜事｜誰｜末)')
+        print('   🟡 少一格 ⇒ 末欄(帶 ⟨擋⟩ token)會被渲染到【誰】欄的位置 ⇒ 歸屬錯位。')
+        print('      🔴 md-table-overflow 那支【看得到而刻意不判紅】(它的理由是「內容沒掉」)')
+        print('      ⇒ 這一格由本閘接手, 因為【這張表的歸屬就是一切】。')
     if stale:
         print(f'   ── 另外(只警告, 不影響 rc):這顆 commit 有 {len(stale)} 處【指向板檔自己的裸行號】')
         for k, ref in stale:
@@ -377,7 +402,7 @@ def check_staged():
               f'(位移 {len(mis)} · done而標擋 {len(dblock)} · 重複識別字 {len(dups)})')
         print('   ⚠️ **那些【不是這顆 commit 造成的】** ⇒ 逐列清單跑 '
               '`python3 scripts/board-token-normalize.py --check`')
-    if mis or dblock or dups or notok or stale:
+    if mis or dblock or dups or notok or stale or shape:
         print('   🟡 **只是提醒, 不擋這顆 commit**(rc 恆 0)。修法:`python3 scripts/board-token-normalize.py --fix`')
         print('      🔴 而 `--fix` 動的是【工作樹】⇒ 修完要重新 `git add` 才會進這顆 commit。')
     return 0
@@ -651,6 +676,24 @@ def selftest():
                '併自原 :565⚠️(已訂正過的那 12 處, 不該再叫)',
                '共 64 張;有政策 48 張;反向差 0'):
         ck(f'⑧不咬 {_s[:16]}', bool(STALEREF.search(_s)), False)
+    # ═══ 規則⑨ 的兩個世界(2026-09-07)═══
+    #   正世界 = 少一格要看得到;負世界 = **正常 5 欄的列不得誤報**,
+    #   而後者是它會不會被關掉的那一半:板上 800 多列, 誤報一次就沒人看了。
+    def _shape_of(_row):
+        _g = SPLIT.split(_row)
+        if len(_g) < 3 or _g[1].strip() not in ('open', 'doing', 'parked', 'done', 'standing'):
+            return None
+        return len(_g) - 2
+    ck('⑨正常 5 欄 ⇒ 不叫',
+       _shape_of('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 末 |') == 5, True)
+    ck('⑨少「誰」欄 ⇒ 看得到(4)',
+       _shape_of('| open | ⟦x-A⟧ | 事 | ⟨擋⟩ 末 |'), 4)
+    ck('⑨行尾少管線 ⇒ 看得到(4)',
+       _shape_of('| open | ⟦x-A⟧ | 事 | 誰 | ⟨擋⟩ 末'), 4)
+    ck('⑨儲存格內含跳脫豎線 ⇒ 仍算 5 欄(不得誤報)',
+       _shape_of('| open | ⟦x-A⟧ | `a \\| b` 的寫法 | 誰 | ⟨擋⟩ 末 |'), 5)
+    ck('⑨檔頭的兩欄小表 ⇒ 不在分母(態不是封閉集)',
+       _shape_of('| 動作 | 怎麼做 |'), None)
     print('SELFTEST ' + ('PASS' if not fails else 'FAIL:' + ','.join(fails)))
     return 0 if not fails else 1
 
